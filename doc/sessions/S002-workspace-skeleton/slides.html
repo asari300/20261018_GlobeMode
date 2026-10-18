@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S002 workspace の骨格 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S002 · workspace の骨格">
+
+<section class="slide" id="S01">
+  <span class="tag">S002 · 2026-10-18 · P1 骨格（1 回目）</span>
+  <h1>Rumoca は stable の Rust のまま使える</h1>
+  <p class="lead">workspace・Rumoca アダプタ・CLI・cargo-deny・CI の雛形を作り、S001 を main に取り込んだ</p>
+  <div class="big">
+    <b>rumoca-compile v0.10.2</b> は stable 1.99.1 で<br>
+    ネイティブでも <b>wasm32</b> でもビルドできた。<br>
+    <code>globe check</code> は RC 回路を<b>方程式 20 本 = 変数 20 個</b>と判定する。
+  </div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやったこと</h1>
+  <div class="cols-2">
+    <div class="card">
+      <h3>ユーザーの依頼</h3>
+      <ul class="small">
+        <li>S001 の worktree でコミットし、main の変更を確かめてマージする</li>
+        <li>スライドのブラウザでの見た目は <b>Playwright</b> で確かめる</li>
+        <li>言語の管理は <b>mise・uv・cargo</b> で行う</li>
+        <li>そのまま次へ進める（S002 = P1 の 1 回目）</li>
+      </ul>
+    </div>
+    <div class="card hl">
+      <h3>P1 の完了条件への進み具合</h3>
+      <table class="compact">
+        <tr><th>完了条件</th><th>状態</th></tr>
+        <tr><td><code>cargo deny check</code> が通る</td><td class="ok">済</td></tr>
+        <tr><td>frontend が wasm32 向けにビルドできる</td><td class="ok">済</td></tr>
+        <tr><td>ADR-0003 が Accepted</td><td class="ok">済</td></tr>
+        <tr><td>MSL の例題 20 本で Rumoca と一致</td><td class="warn">S003</td></tr>
+        <tr><td>CI が GitHub 上で通る</td><td class="warn">push してから</td></tr>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由 · main の取り込み</span>
+  <h1>main の mise 導入を取り込み、誤って入った gitlink を外した</h1>
+  <div class="cols-2">
+    <div class="card">
+      <h3>main の <code>db789c4</code> に入っていたもの</h3>
+      <ul class="small">
+        <li><code>mise.toml</code>・<code>mise.lock</code>・<code>doc/mise-setup.html</code>（mise の導入）</li>
+        <li><code>.claude/settings.json</code>、<code>.gitignore</code>、uv_build の範囲</li>
+        <li class="ng"><code>.git-worktree/s001-research-plan</code> が <b>gitlink（mode 160000）</b>として入っていた → クローンすると壊れたサブモジュールになるので、index から外した</li>
+      </ul>
+      <h3>衝突 2 件</h3>
+      <p class="small"><code>settings.json</code> と <code>.gitignore</code>。どちらも S001 の版が main の内容を含む上位互換だったので、S001 の版を採った。</p>
+    </div>
+    <div class="card hl">
+      <h3>言語の管理（ADR-0003 → Accepted）</h3>
+      <table class="compact">
+        <tr><th>道具</th><th>受け持つもの</th><th>ロック</th></tr>
+        <tr><td>mise</td><td>ツールの版（rust・uv・zig・julia・erlang・elixir・gleam・cargo-deny）とタスク</td><td><code>mise.lock</code></td></tr>
+        <tr><td>uv</td><td>Python 本体と Python の依存（Playwright を含む）</td><td><code>uv.lock</code></td></tr>
+        <tr><td>cargo</td><td>Rust の依存と workspace</td><td><code>Cargo.lock</code></td></tr>
+      </table>
+      <p class="small"><code>rust-toolchain.toml</code> は置かない。mise が設定する <code>RUSTUP_TOOLCHAIN</code> が優先され、無視されるため。</p>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由 · Rumoca</span>
+  <h1>ADR-0003 の最大の懸念は杞憂だった</h1>
+  <div class="kpis">
+    <div class="kpi"><span class="n">v0.10.2</span><span class="l">固定した Rumoca（rev 276e82bd）</span></div>
+    <div class="kpi"><span class="n ok">stable</span><span class="l">1.99.1 のまま（nightly 不要）</span></div>
+    <div class="kpi"><span class="n">約 3 分</span><span class="l">ネイティブの初回 <code>cargo check</code></span></div>
+    <div class="kpi"><span class="n">3 分 18 秒</span><span class="l">wasm32-unknown-unknown の <code>cargo check</code></span></div>
+  </div>
+  <ul class="small">
+    <li>Rumoca の <code>nightly-2026-02-27</code> の固定は、Rumoca 自身の wasm のスレッド（wasm-bindgen-rayon）のためだけで、<b>git 依存として使う側には影響しなかった</b></li>
+    <li>依存は <code>rumoca-compile</code> だけ（<code>default-features = false</code>）。umbrella crate の zenoh などは入らない</li>
+    <li><code>rumoca-compile</code> は整理された窓口を持つ: <code>Session</code>（文書の追加とモデルのコンパイル）、<code>parsing</code>（AST）、<code>compile::PhaseResult</code>（どの段階で失敗したか）</li>
+    <li>Rumoca を git で使う間は crates.io に公開できないので、<code>publish = false</code></li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">図 · crate の構成</span>
+  <h1>Rumoca を使えるのはアダプタの 1 ファイルだけ</h1>
+  <svg class="fig" viewBox="0 0 1000 330" role="img" aria-label="S002 の crate と依存の向き">
+    <defs>
+      <marker id="ah5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path class="svg-arrowhead" d="M0,0 L10,5 L0,10 z"/>
+      </marker>
+    </defs>
+    <rect class="svg-box-accent" x="20" y="130" width="200" height="70" rx="10"/>
+    <text class="svg-text-b" x="120" y="160" text-anchor="middle">globe-mode-cli</text>
+    <text class="svg-text-m" x="120" y="182" text-anchor="middle">globe outline / check</text>
+    <rect class="svg-box-accent2" x="290" y="130" width="230" height="70" rx="10"/>
+    <text class="svg-text-b" x="405" y="160" text-anchor="middle">globe-mode-frontend</text>
+    <text class="svg-text-m" x="405" y="182" text-anchor="middle">trait Frontend ＋ rumoca.rs</text>
+    <rect class="svg-box" x="290" y="20" width="230" height="60" rx="10"/>
+    <text class="svg-text-b" x="405" y="46" text-anchor="middle">globe-mode-ir</text>
+    <text class="svg-text-m" x="405" y="66" text-anchor="middle">Outline・Connect・BalanceCount</text>
+    <rect class="svg-box" x="290" y="250" width="230" height="60" rx="10"/>
+    <text class="svg-text-b" x="405" y="276" text-anchor="middle">globe-mode-core</text>
+    <text class="svg-text-m" x="405" y="296" text-anchor="middle">Diagnostic・Stage S0〜S10</text>
+    <rect class="svg-box-warn" x="640" y="110" width="340" height="110" rx="10"/>
+    <text class="svg-text-b" x="810" y="142" text-anchor="middle">rumoca-compile v0.10.2</text>
+    <text class="svg-text-m" x="810" y="166" text-anchor="middle">Apache-2.0・git の rev で固定</text>
+    <text class="svg-text-m" x="810" y="188" text-anchor="middle">wrappers = frontend・exec だけ</text>
+    <text class="svg-text-m" x="810" y="208" text-anchor="middle">（cargo-deny で強制）</text>
+    <line class="svg-line" x1="220" y1="165" x2="288" y2="165" marker-end="url(#ah5)"/>
+    <line class="svg-line" x1="405" y1="130" x2="405" y2="82" marker-end="url(#ah5)"/>
+    <line class="svg-line" x1="405" y1="200" x2="405" y2="248" marker-end="url(#ah5)"/>
+    <line class="svg-line-accent" x1="520" y1="165" x2="638" y2="165" marker-end="url(#ah5)"/>
+    <text class="svg-text-a" x="579" y="136" text-anchor="middle">feature</text>
+    <text class="svg-text-a" x="579" y="154" text-anchor="middle">rumoca</text>
+  </svg>
+  <p class="small">外へ出すのは中立 IR と GlobeMode の診断だけ。Rumoca の API が変わっても直すのは <code>rumoca.rs</code> だけで済み、Track B（自前コア）は feature <code>native</code> として同じ trait を実装する。</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">結果 · CLI</span>
+  <h1><code>globe check</code> は段階を示して止まる</h1>
+<pre><code>$ globe check src/Modelica/GlobeModeExamples/package.mo -m GlobeModeExamples.RC
+GlobeModeExamples.RC: 方程式 20 / 変数 20（状態 1・代数 19・出力 0・離散 0）
+GlobeModeExamples.RC: OK（S0〜S5 を通過）                                   # 終了コード 0
+
+$ globe check … -m GlobeModeExamples.Unbalanced
+error[GM-E5002] S5 方程式数と変数数: unbalanced model: 1 equations, 2 unknowns (balance = -1) …
+    note: rumoca: ED001
+GlobeModeExamples.Unbalanced: NG（S5 方程式数と変数数 で停止）              # 終了コード 1
+
+$ globe check src/Modelica/SyntaxError.mo -m Broken
+src/Modelica/SyntaxError.mo:3:8: error[GM-E0001] S0 構文: unexpected `x`
+Broken: NG（S0 構文 で停止）</code></pre>
+  <p class="small">サンプルは MSL を使わない自前の RC 回路（ピン・抵抗・コンデンサ・電源・接地、connect 4 本）。<code>--json</code> で機械向けに出力でき、<code>globe outline</code> はクラス・コンポーネント・extends・connect を返す（connect グラフの元データ）。</p>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">設計 · 診断コード</span>
+  <h1>Rumoca の失敗段階を GlobeMode の S0〜S5 に対応づけた</h1>
+  <table>
+    <tr><th>Rumoca</th><th>段階</th><th>GM コード</th></tr>
+    <tr><td>構文の誤り（ParseError）</td><td>S0 構文</td><td><code>GM-E0001</code></td></tr>
+    <tr><td>モデルが見つからない（候補を note に出す）</td><td>S1 名前解決</td><td><code>GM-E1002</code></td></tr>
+    <tr><td>Typecheck</td><td>S2 型と次元</td><td><code>GM-E2001</code></td></tr>
+    <tr><td>Instantiate / NeedsInner</td><td>S3 instantiate</td><td><code>GM-E3001</code> / <code>GM-E3002</code></td></tr>
+    <tr><td>Flatten</td><td>S4 接続</td><td><code>GM-E4001</code></td></tr>
+    <tr><td>ToDae（ED001 は「数が合わない」）</td><td>S5 方程式数と変数数</td><td><code>GM-E5001</code> / <code>GM-E5002</code></td></tr>
+  </table>
+  <p class="small">Rumoca 側のコードは <code>notes</code> に残す（<code>rumoca: ED001</code>）。S6（構造特異）以降は P2 で <code>globe-mode-analysis</code> が足す。</p>
+</section>
+
+<section class="slide" id="S08">
+  <span class="tag">決定と理由 · ライセンス監査</span>
+  <h1>cargo-deny を入れ、Rumoca の囲いを機械で守る</h1>
+  <div class="cols-2">
+    <div class="card hl">
+      <h3>結果: advisories ok, bans ok, licenses ok, sources ok</h3>
+      <ul class="small">
+        <li>licenses: doc/licenses.md の許可リストだけ</li>
+        <li>bans: umbrella crate <code>rumoca</code>・zenoh・russell_sparse を禁止</li>
+        <li><b>wrappers</b>: <code>rumoca-compile</code> を使えるのは frontend と exec だけ</li>
+        <li>sources: git は CogniPilot/rumoca だけ</li>
+      </ul>
+      <p class="small"><b>違反させて確かめた</b>: cli から直接 <code>rumoca-compile</code> に依存させると <code class="ng">error[banned]</code>。戻すと bans ok。</p>
+    </div>
+    <div class="card">
+      <h3>例外にした勧告（理由つき）</h3>
+      <table class="compact">
+        <tr><th>勧告</th><th>経路</th></tr>
+        <tr><td>RUSTSEC-2025-0141 bincode 1.x の保守終了</td><td>rumoca-compile</td></tr>
+        <tr><td>RUSTSEC-2024-0436 paste の保守終了</td><td>faer → gemm</td></tr>
+      </table>
+      <p class="small muted">どちらも脆弱性ではない。Rumoca の rev を上げるたびに見直す。</p>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S09">
+  <span class="tag">結果 · Playwright</span>
+  <h1>ブラウザで見て、機械では見つからない不具合を 4 つ直した</h1>
+  <div class="cols-2">
+    <div class="card">
+      <h3><code>render_slides.py</code> が確かめること</h3>
+      <ul class="small">
+        <li>ライト・ダーク（1600×900）とスマートフォン（390×844）の 3 表示で全スライドを開く</li>
+        <li>コンソールのエラー、はみ出し、ページ番号が操作ボタンに隠れていないか</li>
+        <li>→ キーとハッシュ（<code>#S03</code>）での移動</li>
+        <li>スクリーンショットを残し、<b>目でも見る</b></li>
+      </ul>
+    </div>
+    <div class="card hl">
+      <h3>S001 のデッキで見つけて直したこと</h3>
+      <ol class="small">
+        <li>操作ボタンがページ番号を隠していた（検査に追加）</li>
+        <li>スマートフォンで横長の図が縮みすぎて読めない → 図に最小幅を付け、横スクロール</li>
+        <li>S17 の Track B の文が枠からはみ出していた</li>
+        <li>S05 のファネル図の文字が小さかった</li>
+      </ol>
+      <p class="small muted">Playwright は uv の開発依存（Apache-2.0）。<code>mise run docs:check</code> で回せる。</p>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S10">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+<pre><code>mise trust &amp;&amp; mise install --locked &amp;&amp; uv sync     # worktree ごとに
+mise run check          # fmt / clippy / test / deny / uv sync --locked
+mise run docs:check     # check_docs.py と Playwright の render_slides.py
+cargo check --target wasm32-unknown-unknown -p globe-mode-frontend</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">10</span><span class="l">テスト（core 3・ir 2・frontend 5）</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">clippy の警告</span></div>
+    <div class="kpi"><span class="n">4 / 4</span><span class="l">cargo-deny の ok</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">Playwright の問題</span></div>
+  </div>
+  <p class="small">CI（<code>.github/workflows/ci.yml</code>）は Linux・Windows・wasm・Python とスライドの 3 ジョブ。<span class="warn">まだ push していないので、GitHub 上での実行は確かめていない</span>。</p>
+</section>
+
+<section class="slide" id="S11">
+  <span class="tag">次回</span>
+  <h1>S003 — MSL で Rumoca と突き合わせる</h1>
+  <div class="cols-2">
+    <div class="card hl">
+      <h3>やること</h3>
+      <ol class="small">
+        <li>MSL 4.1.0 の取得スクリプト（<code>data/msl/</code>、sha256 で確かめる）と <code>globe check --library</code></li>
+        <li>MSL の例題 20 本を選び、Rumoca の CLI と結果を比べる <code>globe-mode-testkit</code></li>
+        <li><code>xtask</code>（bump-rumoca の雛形、ライセンス一覧の生成）</li>
+        <li>CI を GitHub で動かして直す（push はユーザーが判断）</li>
+      </ol>
+    </div>
+    <div class="card">
+      <h3>残したこと</h3>
+      <ul class="small">
+        <li>git の作者と <code>pyproject.toml</code> の authors に個人のメールアドレスがある（公開前に noreply に変えるかの判断）</li>
+        <li>outline の connect は equation 節の直下だけ（for や if の中は P2）</li>
+        <li><code>Outline</code> は位置を含むので、P2 の防火壁では位置を落とした射影を使う</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

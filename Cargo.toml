@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["src/Rust/mod/*"]
+members = ["src/Rust/mod/globe-mode-*"]
 
 [workspace.package]
 version = "0.0.1"
