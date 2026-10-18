@@ -1,6 +1,6 @@
-# ADR-0008 S7 は Pantelides 法で構造インデックスを見積もり、S8 は初期条件の数と属性で判定する
+# ADR-0009 S7 は Pantelides 法で構造インデックスを見積もり、S8 は初期条件の数と属性で判定する
 
-- 状態: Accepted（2026-10-18、S006）
+- 状態: Accepted（2026-10-18、S007）
 
 ## 背景
 
@@ -71,7 +71,7 @@
 | --- | --- |
 | S7 を Rumoca の構造解析（`rumoca-phase-structural`）に任せる | `globe-mode-analysis` を Rumoca に依存させないため（wasm32、Track B）。S6 と同じ方針 |
 | S7 を Error にする（インデックス 2 以上で止める） | インデックスが 2 以上なのはモデルの誤りではない（MSL の正しい例題にも多い）。インデックスの低減は P3 のシミュレーションの側で行う |
-| S8 で初期方程式の incidence を持ち、初期化系をマッチングする（どの初期方程式がどの変数を決めるか） | `InitStructure` に初期方程式の incidence が無く、フロントエンドの抽出から足す必要がある。初期化系は、S7 で微分した拘束と合わせて組む必要もある。S006 では数と属性で多くの誤り（fixed と初期方程式の重複、初期条件の不足）を捕まえられるので、S007 以降の候補にした |
+| S8 で初期方程式の incidence を持ち、初期化系をマッチングする（どの初期方程式がどの変数を決めるか） | `InitStructure` に初期方程式の incidence が無く、フロントエンドの抽出から足す必要がある。初期化系は、S7 で微分した拘束と合わせて組む必要もある。S007 では数と属性で多くの誤り（fixed と初期方程式の重複、初期条件の不足）を捕まえられるので、S008 以降の候補にした |
 | S8 の要る数を宣言した状態の数にする | `Index.Pendulum`（状態 4、自由度 2）に「2 個足りない」、`Index.ParallelCapacitors`（状態 2、自由度 1）に「1 個足りない」と、誤った警告が出た（作業の途中で直した） |
 | 離散変数があっても過剰を `GM-E8001` にする | 離散変数の初期条件の要否を区別できないので、正しいモデルを Error にしうる。Error は確かなときだけにする |
 | インデックスの低減で状態が減るときの過剰も `GM-E8001` にする | 最初の全例題のファネルで、MSL の正しい例題 3 本が S8 の Error になった（下の結果）。余った fixed が整合する冗長な初期条件かは、構造の検査では決まらない |
@@ -79,7 +79,7 @@
 
 ## 結果
 
-- **S006 で実装した**（2026-10-18）。
+- **S007 で実装した**（2026-10-18）。
   - `globe-mode-analysis`: `pantelides.rs`（`analyze_index`、`IndexReport`）と `init.rs`（`analyze_init`、`analyze_init_with_index`、`InitReport`）。
   - `globe-mode-ir`: `InitStructure`・`InitVariable`。
   - `globe-mode-frontend`: `init.rs`（Rumoca の DAE から `InitStructure` を取り出す）。
@@ -117,7 +117,7 @@
   | `Modelica.Blocks.Examples.DemonstrateContinuousSignalExtrema` | — | 21 / 21 |
   | `Modelica.Blocks.Examples.DemonstrateSignalExtrema` | — | 11 / 11 |
 
-  - 「—」は S006 の報告に記録が無いもの。
+  - 「—」は S007 の報告に記録が無いもの。
   - 下の 2 本は、離散変数と代数変数の `fixed = true` を数えていなかったときに、誤って `GM-E8001` になった（`DemonstrateContinuousSignalExtrema` は要る 3 に対し与えた 9）。数えるように直して、上の数になった。
 - **MSL の全例題**（`cargo xtask msl-funnel`、[doc/msl-funnel.md](../msl-funnel.md)）:
   - **最初の実行**（過剰の規則を直す前。S8 の過剰はすべて `GM-E8001`）: OK 366・NG 16（S5 1・S6 12・S8 3）・GM-U 184・panic 0。
@@ -129,5 +129,5 @@
 - **残した近似と、次にすること**:
   - 離散変数が when の中で決まるかどうかの区別。
   - 初期方程式の incidence（どの初期方程式がどの変数を決めるか）。数が合っていても、決まらない変数や重複した初期方程式は見つけられない。
-  - S7 の結果を Rumoca 自身のインデックス低減（`rumoca-phase-structural/src/dae_transform.rs`）と照合することは、S006 ではしていない。
+  - S7 の結果を Rumoca 自身のインデックス低減（`rumoca-phase-structural/src/dae_transform.rs`）と照合することは、S007 ではしていない。
   - omc との照合（omc 未導入。入れたら再開する）。

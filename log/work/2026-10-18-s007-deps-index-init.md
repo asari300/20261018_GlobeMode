@@ -1,28 +1,28 @@
-# S006 deps-index-init
+# S007 deps-index-init
 
 | | |
 | --- | --- |
 | 日付 | 2026-10-18 |
-| ブランチ | `feature/s006-deps-index-init` |
-| worktree | `.git-worktree/s006-deps-index-init` |
+| ブランチ | `feature/s007-deps-index-init` |
+| worktree | `.git-worktree/s007-deps-index-init` |
 | Phase | P2 遅延クエリと検査（3 回目） |
-| セッション文書 | [doc/sessions/S006-deps-index-init/](../../doc/sessions/S006-deps-index-init/解説書.md) |
+| セッション文書 | [doc/sessions/S007-deps-index-init/](../../doc/sessions/S007-deps-index-init/解説書.md) |
 | セッション記録 | [log/sessions/2026-10-18-c74fbe25-624e-4092-95b3-282cf3c8d554.md](../sessions/2026-10-18-c74fbe25-624e-4092-95b3-282cf3c8d554.md)（S005 と同じセッション） |
 
 ## 依頼
 
-「S006 を進めよ。OpenModelica のサイトが重くてアクセスできないため、omc との照合は後回しにして先に進めたい。インストール後に再開するため、このような区切りごとにリマインドしてください。」
+「S007 を進めよ。OpenModelica のサイトが重くてアクセスできないため、omc との照合は後回しにして先に進めたい。インストール後に再開するため、このような区切りごとにリマインドしてください。」
 
-- roadmap の S006 の候補 7 つのうち、omc（5）を外し、`deps_closure`（1）、S7 の Pantelides 法（3）、S8 の初期化（4）を選んだ。
+- roadmap の S007 の候補 7 つのうち、omc（5）を外し、`deps_closure`（1）、S7 の Pantelides 法（3）、S8 の初期化（4）を選んだ。
 - **omc は未導入**。入れたら `msl:funnel` の omc 照合（S5 の一致率、S6 で NG の 12 本の確認）を再開する。
 
 ## 決めたこと
 
-- **S006 の範囲は `deps_closure`・S7（Pantelides 法）・S8（初期化系）の 3 つ。** roadmap の候補 7 つのうち、omc との照合（5）はユーザーの指示で後回し（omc 未導入。OpenModelica のサイトが重くて取得できない）。`Checker` のメモリの上限（2）は IDE のプロセス構成（P4）が決まってから、Rumoca への上流報告（6）はユーザーが出すもの、`class_index` の残り（7）は import だけを `deps_closure` のついでに扱う。
+- **S007 の範囲は `deps_closure`・S7（Pantelides 法）・S8（初期化系）の 3 つ。** roadmap の候補 7 つのうち、omc との照合（5）はユーザーの指示で後回し（omc 未導入。OpenModelica のサイトが重くて取得できない）。`Checker` のメモリの上限（2）は IDE のプロセス構成（P4）が決まってから、Rumoca への上流報告（6）はユーザーが出すもの、`class_index` の残り（7）は import だけを `deps_closure` のついでに扱う。
 - **`deps_closure` は「識別子の単純名の一致」で広めに見積もる（ファイル単位）。** アウトライン（extends・部品の型・import）だけでは、式の中の関数・定数・redeclare の参照を拾えない。そこで、閉包の中のファイルの本文（`source_shape`）に現れる識別子と、各ファイルが定義するクラスの単純名（`outline_shape` から。防火壁 1 の下流）を突き合わせ、固定点まで広げる。余計に入ることはあるが、足りないことは無い（別のトップレベルのパッケージを参照するときは必ずその名前を綴るため）。モデルがワークスペースに無い（ライブラリの中、または存在しない）ときは文書を 1 つも渡さない。
 - **モデルを切り替えたときの Rumoca の再 resolve は新しいコストではない。** 文書の集合が変わると Rumoca は解決済みの状態を捨てるが、本文の編集でも同じことが起きるので、IDE の打鍵ごとのコストの種類は増えない。数字は A が測る。
 - **S7 は Pantelides 法を `DaeStructure`（der の形の incidence と `state_refs`）の上で回す。** 状態 `x` は階数 0 と 1（`der(x)`）から、代数は階数 0 から始めて、最高階の未知数に完全マッチングができるまで方程式を微分する。結果は情報（`GM-I7001` に構造インデックスの見込みと微分の内訳、`GM-I7002` に状態選択の候補）で、実行は止めない。打ち切りだけ `GM-E7001`（S6 を通った構造では起きないはず）。S6 の `StructuralReport` から `GM-I7001` を外し、S7 の診断は `IndexReport` に一本化する。
-- **S8 は数と属性だけで判定する（初期方程式の incidence は持たない）。** 最初の案は「要る初期条件 = 状態 + `fixed = false` のパラメータ、与えられた初期条件 = 初期方程式 + `fixed = true` の状態。多ければ `GM-E8001`、少なければ `GM-W8001` と `GM-W8002`、束縛の無いパラメータは `GM-W8003`。離散変数は数に入れない」だったが、下の 3 つの項目のとおり作業の途中で直した（最終の規則は [ADR-0008](../../doc/adr/0008-structural-index-and-init.md)）。初期化系のマッチングは S007 以降の候補。
+- **S8 は数と属性だけで判定する（初期方程式の incidence は持たない）。** 最初の案は「要る初期条件 = 状態 + `fixed = false` のパラメータ、与えられた初期条件 = 初期方程式 + `fixed = true` の状態。多ければ `GM-E8001`、少なければ `GM-W8001` と `GM-W8002`、束縛の無いパラメータは `GM-W8003`。離散変数は数に入れない」だったが、下の 3 つの項目のとおり作業の途中で直した（最終の規則は [ADR-0009](../../doc/adr/0009-structural-index-and-init.md)）。初期化系のマッチングは S008 以降の候補。
 - **S8 の「要る初期条件の数」は、宣言した状態の数ではなく S7 の動的な状態の数を使う（作業の途中で直した）。** C が A の配線後の CLI で見つけた: `Index.Pendulum`（状態 4、自由度 2、fixed 2）に「2 個足りない」、`Index.ParallelCapacitors`（状態 2、自由度 1）に「1 個足りない」と誤った警告が出た。インデックスが 2 以上の DAE では、拘束で自由度が減るため。`analyze_init_with_index(init, dynamic_states)` を足し、db の `init_report` は `index_report` の `dynamic_states` を渡す（S7 が打ち切りなら状態の数で代用）。
 - **動的な状態の数の式も直した。** 最初の案「状態の数 − Σ(状態の階数 − 1)」は並列コンデンサ（`v1 = v2` を 1 回微分するだけで階数の上がる族が無い）で 2 になって誤り。正しくは「状態の数 + Pantelides が新しく作った微分のノードの数 − 方程式の微分回数の合計」（拡張した系の未知数 − 方程式 = 積分器の数）。振り子 4 + 2 − 4 = 2、並列コンデンサ 2 + 0 − 1 = 1、`HighIndexDuplicate` 1 + 1 − 2 = 0（構造的には vC が代数的に決まるので、`fixed = true` が 1 つ余る。最初は S8 の `GM-E8001` で止めたが、下の過剰の項目のとおり警告 `GM-W8004` に落とした）。状態選択の候補は「1 回以上微分した方程式が参照する状態」にし、`GM-I7002` は動的な状態 < 状態の数のときに出す。
 - **S8 の過剰を Error にするのは確定できるときだけ（ファネルの結果で直した）。** 離散・代数の fixed を数える修正のあと、最初の全例題のファネルで MSL の正しい例題 3 本（`Electrical.Analog.Examples.GenerationOfFMUs` 8/6、`Lines.CompareLineTrunks` 60/57、`Thermal.HeatTransfer.Examples.GenerationOfFMUs` 4/3。いずれもインデックス 2 で、拘束でつながった状態すべてに `fixed = true`）が S8 の `GM-E8001` になった。インデックスの低減で状態が減るとき、余った fixed が拘束と矛盾しない（整合する冗長な初期条件）かは数値でしか決まらない。そこで `GM-E8001` は「離散変数が無く、動的な状態 = 状態の数」のときだけにし、それ以外は警告 `GM-W8004`（確定できない）にした。`Invalid.HighIndexDuplicate` も S8 で止まらず警告で通る（README と .mo のコメントを戻した）。離散変数の分の不足も同じ考えで柔らかい `GM-W8001` にし、`GM-W8002` を出さない（when の外の式で決まる離散変数は MLS 8.6 の暗黙の `pre(v) = v` で初期条件が要らないが、`InitStructure` では区別できない）。
@@ -46,9 +46,9 @@
 - **Modelica**: `Index.Pendulum`・`Index.ParallelCapacitors`（B）、`Init.Balanced`・`Init.OverDetermined`・`Init.UnderDetermined`・`Init.ParameterWithoutValue`・`Init.FreeParameter`（C）。`package.order` に `Index`・`Init`。`Invalid.HighIndexDuplicate` のコメントと `src/Modelica/README.md` の表を直した（S8 の `GM-E8001` で止まる）。
 - **mise.toml**: `msl:funnel` の報告の置き場を `doc/msl-funnel.md` に固定。
 - **文書（D）**:
-  - ADR-0008（S7・S8）を書き、ADR の索引に足した。ADR-0005 に S006 の結果（`deps_closure` の設計、クエリの連鎖、計測とトレードオフ、テスト）を書き足した。
-  - architecture（crate の表、§3.2 のクエリの図と表、検査の段階の S7・S8 の行、§7）、roadmap（S006 で済んだこと、P2 の進み具合、S007 の候補）、features（依存の閉包、S7、S8）、research/rumoca（S006 で調べた API）、README の Status、CLAUDE.md §2（`msl:funnel` の報告の置き場、S0〜S8）を更新した。
-  - S006 のスライド（15 枚）と解説書。
+  - ADR-0009（S7・S8）を書き、ADR の索引に足した。ADR-0005 に S007 の結果（`deps_closure` の設計、クエリの連鎖、計測とトレードオフ、テスト）を書き足した。
+  - architecture（crate の表、§3.2 のクエリの図と表、検査の段階の S7・S8 の行、§7）、roadmap（S007 で済んだこと、P2 の進み具合、S008 の候補）、features（依存の閉包、S7、S8）、research/rumoca（S007 で調べた API）、README の Status、CLAUDE.md §2（`msl:funnel` の報告の置き場、S0〜S8）を更新した。
+  - S007 のスライド（15 枚）と解説書。
 
 ## 検証
 
@@ -83,14 +83,14 @@
   - 最初の実行（過剰の規則を直す前）: OK 366・NG 16（S5 1・S6 12・S8 3）・GM-U 184・panic 0。S7 を回した 369 本（インデックス 1 が 215・2 が 58・3 が 95・4 以上が 1（`Blocks.Examples.FilterWithDifferentiation`、微分 14 本・最大 3 回）・打ち切り 0、状態選択が要る 154）。S8 の 369 本（合う 111・過剰 3・不足 255・入力なし 0、`GM-W8003` あり 2（`Fluid.Examples.InverseParameterization`、`Magnetic.QuasiStatic.FundamentalWave.Examples.ExampleUtilities.SpacePhasorLimiter`））。Rumoca との照合 381 / 381。検査 881.8 s（1 本 1.56 s）、最大 RSS 7.1 GiB。S8 の NG 3 本は MSL の正しい例題（`Electrical.Analog.Examples.GenerationOfFMUs` 8 / 6、`Electrical.Analog.Examples.Lines.CompareLineTrunks` 60 / 57、`Thermal.HeatTransfer.Examples.GenerationOfFMUs` 4 / 3）で、過剰の規則を直した（「決めたこと」）。
   - 最終の実行（規則を直した後）: 566 本: OK 369（うち S7 の情報 154）・NG 13（S5 1・S6 12・S7 0・S8 0）・GM-U 184（82 / 52 / 50）・panic 0。OK・NG の本数は S005 と同じ。S7 を回した 369 本の構造インデックスは 1 が 215・2 が 58・3 が 95・4 以上が 1・打ち切り 0、状態選択が要るもの 154。S8 の 369 本は合う 111・過剰の見込み 3（`GM-W8004`。Error 0）・不足 255・入力なし 0、`GM-W8003` あり 2。S6 と Rumoca の照合 381 / 381。検査 833.0 s（1 本 1.47 s）、最大 RSS 7.2 GiB。
 - `check_docs.py`（締めで回し直した）: デッキ 7 件 OK（`_template` を含む）/ 文書 60 件・相対リンク 251 件中の切れ 0 件。
-- Playwright（`render_slides.py`、全デッキ）: デッキ 7 件 / 問題 0 件。S006 は 15 枚 × 3 表示。スクリーンショットを目で見て、S8 の図の矢印が箱を横切っていたのを直し、題名や表の見出しの折り返しを詰めた。ファネルの数字を入れた後に S006 だけ描き直して問題 0 件（S05・S10・S13 を目で確かめた）。
-- セッション記録の `--check`: 検査 3 件 / 取りこぼしのあるファイル 0 件（S005 と同じセッション ID なので、同じファイルを S006 の時点の写しで置き換えた）。
+- Playwright（`render_slides.py`、全デッキ）: デッキ 7 件 / 問題 0 件。S007 は 15 枚 × 3 表示。スクリーンショットを目で見て、S8 の図の矢印が箱を横切っていたのを直し、題名や表の見出しの折り返しを詰めた。ファネルの数字を入れた後に S007 だけ描き直して問題 0 件（S05・S10・S13 を目で確かめた）。
+- セッション記録の `--check`: 検査 3 件 / 取りこぼしのあるファイル 0 件（S005 と同じセッション ID なので、同じファイルを S007 の時点の写しで置き換えた）。
 - ステージした差分の漏洩検査: 0 件（49 ファイル、+12314 / −254 行）。
 
 ## 残したこと
 
 - **omc は未導入**。入れたら `msl:funnel` の omc 照合を再開する: S5 の一致率（P2 の完了条件「95% 以上」）、S6 で NG の MSL 12 本の確認、GM-U0003 の一覧の確かめ（ADR-0007 の C）。
-- 閉包の違うモデルへの切り替えが約 1.7 s（Rumoca の再 resolve）。和らげる案（`Checker` に文書の和集合を持たせる、など）は S007 の候補。
+- 閉包の違うモデルへの切り替えが約 1.7 s（Rumoca の再 resolve）。和らげる案（`Checker` に文書の和集合を持たせる、など）は S008 の候補。
 - S8 は数と属性だけの近似。初期方程式の incidence（どの初期方程式がどの変数を決めるか）は見ていない。数が合っていても、決まらない変数や重複した初期方程式は見つけられない。
 - 離散変数が when の外の式で決まるか、when の中で決まるかを区別していない（`GM-W8004` と柔らかい `GM-W8001` で逃がしている）。
 - インデックスの低減で状態が減るときの余った fixed（整合する冗長な初期条件か）は、数値でしか決まらないので `GM-W8004` にとどめている。初期化系のマッチングで精密にする余地がある。

@@ -1,4 +1,4 @@
-//! Rumoca の DAE から、初期化系の構造（[`InitStructure`]、S8 の入力）を取り出す（S006）。
+//! Rumoca の DAE から、初期化系の構造（[`InitStructure`]、S8 の入力）を取り出す（S007）。
 //!
 //! - 状態: `VariableRole::State` の変数を、変数の順にスカラーごとに 1 つ。`structure.rs` の
 //!   `Derivative` の未知数（`der(x)`）と同じ順になる。`fixed` の既定は false（MLS §4.8）。

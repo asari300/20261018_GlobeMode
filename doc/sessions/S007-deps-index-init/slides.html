@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>S006 deps_closure・S7 Pantelides・S8 初期化 — GlobeMode</title>
+<title>S007 deps_closure・S7 Pantelides・S8 初期化 — GlobeMode</title>
 <link rel="stylesheet" href="../../assets/slides.css">
 </head>
-<body data-deck="GlobeMode S006 · deps_closure・S7 Pantelides・S8 初期化">
+<body data-deck="GlobeMode S007 · deps_closure・S7 Pantelides・S8 初期化">
 
 <section class="slide" id="S01">
-  <span class="tag">S006 · 2026-10-18 · P2 遅延クエリと検査（3 回目）</span>
+  <span class="tag">S007 · 2026-10-18 · P2 遅延クエリと検査（3 回目）</span>
   <h1>使わないファイルの編集では再コンパイルせず、S7・S8 まで検査する</h1>
   <div class="kpis">
     <div class="kpi"><span class="n">0.19 ms</span><span class="l">MSL を使うモデルで、使わないファイルの式を変えた後の再検査（中央値。<code>check</code> 0 回）</span></div>
@@ -25,7 +25,7 @@
   <h1>このセッションでやったこと</h1>
   <div class="cols-2">
     <div class="card hl">
-      <h3>roadmap の S006 の候補（7 つ）から選んだ 3 つ</h3>
+      <h3>roadmap の S007 の候補（7 つ）から選んだ 3 つ</h3>
       <ol class="small">
         <li class="ok"><code>deps_closure</code>: <code>check</code> に渡すファイルを、モデルが使うものだけに絞る</li>
         <li class="muted"><code>Checker</code> のメモリの上限 → P4 のプロセス構成が決まってから</li>
@@ -38,7 +38,7 @@
     </div>
     <div class="card">
       <h3>ユーザーの依頼</h3>
-      <p class="small">「S006 を進めよ。OpenModelica のサイトが重くてアクセスできないため、omc との照合は後回しにして先に進めたい。インストール後に再開するため、このような区切りごとにリマインドしてください。」</p>
+      <p class="small">「S007 を進めよ。OpenModelica のサイトが重くてアクセスできないため、omc との照合は後回しにして先に進めたい。インストール後に再開するため、このような区切りごとにリマインドしてください。」</p>
       <h3>進め方（S005 と同じ）</h3>
       <ul class="small">
         <li>1 つの worktree で、所有ファイルを分けた Opus のサブエージェント 3 つ</li>
@@ -59,12 +59,12 @@
     <tr><td><code>deps_closure</code></td><td>本文の識別子の<b>単純名の一致</b>で、ファイル単位に広めに見積もる。固定点まで広げる</td><td>アウトライン（extends・部品の型・import）だけでは、式の中の関数・定数・redeclare の参照を拾えない。余計に入っても、足りないことは無い</td></tr>
     <tr><td>閉包の切り替え</td><td>Rumoca の再 resolve（約 1.5〜1.8 s）をトレードオフとして受け入れる</td><td>本文の編集で文書を差し替えたときにも同じことが起きる。費用の種類は増えない</td></tr>
     <tr><td>S7</td><td>Pantelides 法を <code>DaeStructure</code> の上で回す。<b>情報にとどめる</b>（GM-I7001 / I7002）</td><td>インデックス 2 以上はモデルの誤りではない。<code>globe-mode-analysis</code> は Rumoca に依存しない</td></tr>
-    <tr><td>S8</td><td><b>数と属性だけ</b>で判定する。Error は確かなときだけ</td><td>初期方程式の incidence は <code>InitStructure</code> に無い（S007 以降の候補）。離散変数の when の区別ができないので、揺れる所は Warning</td></tr>
+    <tr><td>S8</td><td><b>数と属性だけ</b>で判定する。Error は確かなときだけ</td><td>初期方程式の incidence は <code>InitStructure</code> に無い（S008 以降の候補）。離散変数の when の区別ができないので、揺れる所は Warning</td></tr>
     <tr><td>S8 の要る数</td><td>宣言した状態ではなく <b>S7 の動的な状態</b>の数を使う</td><td>インデックス 2 以上では、状態の一部が微分した拘束で決まる</td></tr>
     <tr><td><code>msl:funnel</code></td><td>報告の置き場を <code>doc/msl-funnel.md</code> に固定</td><td>セッションの文書はそのセッションの間だけ編集するもの。S005 の報告はそのまま残す</td></tr>
     <tr><td>omc</td><td class="warn">後回し（未導入）</td><td>OpenModelica のサイトが重くて取得できない。入れたら再開する</td></tr>
   </table>
-  <p class="small">設計の記録: <code>doc/adr/0005-lazy-query-db.md</code> の結果（<code>deps_closure</code>）、<code>doc/adr/0008-structural-index-and-init.md</code>（S7・S8）。</p>
+  <p class="small">設計の記録: <code>doc/adr/0005-lazy-query-db.md</code> の結果（<code>deps_closure</code>）、<code>doc/adr/0009-structural-index-and-init.md</code>（S7・S8）。</p>
 </section>
 
 <section class="slide" id="S04">
@@ -102,7 +102,7 @@ GlobeModeValidation.Connect.RealCircuit: 5 / 23 ファイル</code></pre>
 <section class="slide" id="S05">
   <span class="tag">図 · クエリの連鎖</span>
   <h1>閉包のファイルだけを <code>check</code> に渡す</h1>
-  <svg class="fig" viewBox="0 0 1230 450" role="img" aria-label="S006 の salsa のクエリの連鎖">
+  <svg class="fig" viewBox="0 0 1230 450" role="img" aria-label="S007 の salsa のクエリの連鎖">
     <defs>
       <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
         <path class="svg-arrowhead" d="M0,0 L10,5 L0,10 z"/>
@@ -204,7 +204,7 @@ GlobeModeValidation.Connect.RealCircuit: 5 / 23 ファイル</code></pre>
     <rect class="svg-box-accent" x="10" y="388" width="34" height="20" rx="5"/>
     <text class="svg-text-m" x="52" y="403">防火壁（Eq で比べる）</text>
     <rect class="svg-box-accent2" x="230" y="388" width="34" height="20" rx="5"/>
-    <text class="svg-text-m" x="272" y="403">S006 で足した</text>
+    <text class="svg-text-m" x="272" y="403">S007 で足した</text>
     <rect class="svg-box" x="400" y="388" width="34" height="20" rx="5"/>
     <text class="svg-text-m" x="442" y="403">S004・S005</text>
   </svg>
@@ -235,7 +235,7 @@ GlobeModeValidation.Connect.RealCircuit: 5 / 23 ファイル</code></pre>
         <h3>失ったもの</h3>
         <p class="small">閉包の違うモデルへ初めて切り替えると、67 ms から <b class="warn">約 1.7 s</b> に。Rumoca は、渡す文書の組が変わるたびに MSL ごと解決し直す（約 1.5〜1.8 s）。2 回目からは salsa が覚えている。</p>
       </div>
-      <p class="small">トレードオフとして ADR-0005 に書いた。和らげる案（<code>Checker</code> に文書の和集合を持たせる、など）は S007 の候補。計測は <code>cargo test --release -p globe-mode-db --test deps -- --ignored --nocapture</code>。</p>
+      <p class="small">トレードオフとして ADR-0005 に書いた。和らげる案（<code>Checker</code> に文書の和集合を持たせる、など）は S008 の候補。計測は <code>cargo test --release -p globe-mode-db --test deps -- --ignored --nocapture</code>。</p>
     </div>
   </div>
 </section>
@@ -329,7 +329,7 @@ GlobeModeValidation.Connect.RealCircuit: 5 / 23 ファイル</code></pre>
         <li>ただし、when の外の式で決まる離散変数（暗黙の <code>pre(v) = v</code> で初期条件が要らない）か、when の中かは <code>InitStructure</code> で区別できない</li>
         <li>インデックスの低減で状態が減るとき、余った fixed が拘束と矛盾しないか（整合する冗長な初期条件か）は数値でしか決まらない</li>
         <li>だから、離散変数を含むか状態が減るときの過剰は確定させず（<code>GM-W8004</code>）、不足が離散変数の数に収まるときは柔らかい <code>GM-W8001</code> にする</li>
-        <li>初期方程式の incidence（どれがどの変数を決めるか）は見ない（S007 以降）</li>
+        <li>初期方程式の incidence（どれがどの変数を決めるか）は見ない（S008 以降）</li>
       </ul>
     </div>
   </div>
@@ -425,7 +425,7 @@ GlobeModeValidation.Connect.RealCircuit: 5 / 23 ファイル</code></pre>
         <li>PID_Controller の要る数は動的な状態 6 + 離散 3。不足 3 が離散変数の数に収まるので、柔らかい W8001 だけ</li>
         <li><code>Init.FreeParameter</code> は <code>parameter Real u0(fixed = false)</code> を定常状態の初期方程式で決める</li>
         <li>RealCircuit と <code>GlobeModeExamples.RC</code> は fixed の無い RC で、警告だけ（終了コード 0）</li>
-        <li>「—」は S006 の報告に記録が無いもの</li>
+        <li>「—」は S007 の報告に記録が無いもの</li>
       </ul>
     </div>
   </div>
@@ -435,7 +435,7 @@ GlobeModeValidation.Connect.RealCircuit: 5 / 23 ファイル</code></pre>
   <span class="tag">結果 · MSL の全例題</span>
   <h1><code>cargo xtask msl-funnel</code>（S0〜S8）</h1>
   <table class="compact">
-    <tr><th>項目</th><th>S005（S0〜S6）</th><th>S006 最初（規則を直す前）</th><th>S006 最終</th></tr>
+    <tr><th>項目</th><th>S005（S0〜S6）</th><th>S007 最初（規則を直す前）</th><th>S007 最終</th></tr>
     <tr><td>例題（うち partial）</td><td>566（13）</td><td>566（13）</td><td>566（13）</td></tr>
     <tr><td>OK</td><td>369</td><td>366</td><td class="ok">369</td></tr>
     <tr><td>NG（段階ごと）</td><td>13（S5 1・S6 12）</td><td class="warn">16（S5 1・S6 12・S8 3）</td><td class="ok">13（S5 1・S6 12）</td></tr>
@@ -448,7 +448,7 @@ GlobeModeValidation.Connect.RealCircuit: 5 / 23 ファイル</code></pre>
     <tr><td>S6 と Rumoca の照合</td><td>381 / 381</td><td>381 / 381</td><td>381 / 381</td></tr>
     <tr><td>時間・最大 RSS</td><td>1068.3 s・7.2 GiB</td><td>881.8 s・7.1 GiB</td><td>833.0 s・7.2 GiB</td></tr>
   </table>
-  <p class="small">最初の実行で S8 の Error になった 3 本は、MSL の正しい例題（インデックス 2）。過剰の規則を直して回し直した。インデックス 4 以上の 1 本は <code>Blocks.Examples.FilterWithDifferentiation</code>（微分 14 本・最大 3 回）。報告は <code>doc/msl-funnel.md</code>（S006 から置き場を固定）。CI には入れていない。</p>
+  <p class="small">最初の実行で S8 の Error になった 3 本は、MSL の正しい例題（インデックス 2）。過剰の規則を直して回し直した。インデックス 4 以上の 1 本は <code>Blocks.Examples.FilterWithDifferentiation</code>（微分 14 本・最大 3 回）。報告は <code>doc/msl-funnel.md</code>（S007 から置き場を固定）。CI には入れていない。</p>
 </section>
 
 <section class="slide" id="S14">
@@ -472,7 +472,7 @@ mise run check</code></pre>
 
 <section class="slide" id="S15">
   <span class="tag">次回</span>
-  <h1>S007 — P2 の 4 回目の候補</h1>
+  <h1>S008 — P2 の 4 回目の候補</h1>
   <div class="cols-2">
     <div class="card hl">
       <h3 class="warn">リマインド: omc は未導入</h3>

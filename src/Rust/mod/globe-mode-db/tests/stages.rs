@@ -1,4 +1,4 @@
-//! S7（インデックス）と S8（初期化）の端から端までのテスト（S006）。
+//! S7（インデックス）と S8（初期化）の端から端までのテスト（S007）。
 //! 入力は src/Modelica/GlobeModeValidation（MSL を使わないモデルだけ）。
 //! 各モデルの期待は src/Modelica/README.md の表と同じ。
 

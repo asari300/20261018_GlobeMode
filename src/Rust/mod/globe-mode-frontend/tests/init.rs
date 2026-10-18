@@ -1,4 +1,4 @@
-//! S8 の入力（`CheckReport::init`、初期化系の構造）を、src/Modelica/GlobeModeValidation のモデルで確かめる（S006）。
+//! S8 の入力（`CheckReport::init`、初期化系の構造）を、src/Modelica/GlobeModeValidation のモデルで確かめる（S007）。
 //!
 //! ここでは `InitStructure` の中身（状態の並び、fixed / start / 束縛、初期方程式の数と位置）だけを見る。
 //! 診断コード（GM-E8001 など）の照合は globe-mode-analysis の単体テストと、db のテストで行う

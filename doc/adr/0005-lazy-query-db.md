@@ -59,13 +59,13 @@
     - `reset()` でモデルごとのキャッシュを捨てられる（1 回 0.4 s。pristine の写しを持つ分のメモリは約 50 MB）。同じ Session で MSL の例題 566 本を続けて検査すると最大 RSS が 7.5 GiB になったので足したが、50 本ごとに戻しても 7.2 GiB だった。大部分は 1 本の大きなモデル（`Spice3BenchmarkFourBitBinaryAdder`、単独で 6.3 GiB）の分で、キャッシュの成長ではなかった。
   - **`check(workspace, CheckRequest{model})`** は `CheckReport` を返す。中身は S0〜S5 の診断、位置付きの `DaeStructure`、`FlatSummary`。
     - ワークスペースの全ファイルの `source_shape` を文書として渡す。どれかのファイルの中身（空白とコメント以外）が変われば、`check` は再実行される。
-    - 必要なファイルだけに絞る `deps_closure` は、まだ作っていない（S006 の候補）。→ S006 で作った（下）。
+    - 必要なファイルだけに絞る `deps_closure` は、まだ作っていない（S007 の候補）。→ S007 で作った（下）。
   - **防火壁 2 は `dae_shape`**（位置を落とした `DaeStructure`。決定の `dae_structure` にあたる）。S6 の `structural` はこれだけを読む。
     - パラメータの値を同じ長さで変えたときは、`check` は再実行されるが、結果が前と等しい。そのため `dae_shape` は再実行されない。
     - 値の長さが変わると、後ろの方程式の位置がずれて `check` の結果は変わる。それでも `dae_shape` は前と等しいので、`structural` は再実行されない。
   - **S6 は `globe-mode-analysis`**（Rumoca に依存しない）。判定は `x` と `der(x)` を 1 つの列にまとめた二部グラフに完全マッチングがあるかどうか。Pantelides 法が失敗するのと同じ条件。
     - 最初は der の形（未知数は `der(x)`・代数・出力。Rumoca の構造解析と同じ）で判定していた。これだと MSL の正しい例題 166 本が構造特異になった。微分インデックスが 1 より大きい DAE では、der の形に完全マッチングが無いのが正常なため。
-    - der の形の結果は、S7 の情報 `GM-I7001`（微分インデックスが 1 より大きい見込み）として出す。→ S006 で、S7 は Pantelides 法の `IndexReport` に一本化した（[ADR-0008](0008-structural-index-and-init.md)）。
+    - der の形の結果は、S7 の情報 `GM-I7001`（微分インデックスが 1 より大きい見込み）として出す。→ S007 で、S7 は Pantelides 法の `IndexReport` に一本化した（[ADR-0009](0009-structural-index-and-init.md)）。
 - **S005 のテストで確かめた**（salsa の `WillExecute` イベントで数えた。検証用パッケージ `GlobeModeValidation` を使った）:
 
   | 編集 | `check` | `dae_shape` | `structural` |
@@ -82,13 +82,13 @@
   - MSL の読み込みは 6〜16 s、1.24 GB。読んだあとの MSL の別のモデルの検査は 0.12 s、同じモデルの再検査は 0.08 s。
   - リリースビルドの `globe check -L data/msl -m Modelica.Electrical.Analog.Examples.ChuaCircuit`（S6 を含む 1 回限りの CLI）は 11.3 s、1.5 GB。S6 は完全マッチング 44 / 44。
 
-- **S006 で、`check` に渡すファイルを `deps_closure` で絞り、S7・S8 をクエリに載せた**（2026-10-18）。
+- **S007 で、`check` に渡すファイルを `deps_closure` で絞り、S7・S8 をクエリに載せた**（2026-10-18）。
 
   ```text
   SourceFile ─┬─▶ outline ─▶ outline_shape ─┬─▶ class_index ─▶ connect_graph           （S004）
               │              防火壁 1       └─▶ defined_classes ─▶ class_files ─┐
               │                                                                 ▼
-              └─▶ shape ─┬─▶ source_shape ─┬─▶ identifiers ──────────────▶ deps_closure（S006）
+              └─▶ shape ─┬─▶ source_shape ─┬─▶ identifiers ──────────────▶ deps_closure（S007）
                          │   防火壁 0      │                                    │ 閉包のファイルだけ
                          └─▶ shape_map     └─────────────────────────────────▶ check（S0〜S5）
                                                                                 ├─▶ flat_summary
@@ -111,18 +111,18 @@
     - トップレベルだけで足りる根拠: ほかのファイルから入れ子のクラス `T.N` に届く道（修飾名 `T.N`、`within …T…;` の字句的なスコープ、`import …T…`、`T` を継承したクラスを経由）には、どれも `T` か、`T` を名指すファイルが現れる。固定点で `T` のファイルが入る（`defined_classes` の doc コメント）。
   - **モデルがワークスペースに無い**（MSL などライブラリの中のモデル、存在しないモデル）ときは、閉包は空で、文書を 1 つも渡さない。「見つからない」の診断には、ワークスペースのモデルを候補として足す（Rumoca は渡した文書の中からしか候補を出さないため）。
   - IR の `ClassOutline` に `imports` を足した（`import A.B.C;`、`import D = A.B.C;`、`import A.B.*;`、`import A.B.{C,D};`）。今は保持するだけで、`deps_closure` は本文の識別子で import の名前も拾う。
-  - **S7・S8 のクエリ**（判定は [ADR-0008](0008-structural-index-and-init.md)）:
+  - **S7・S8 のクエリ**（判定は [ADR-0009](0009-structural-index-and-init.md)）:
     - `index_report(workspace, request)`: `dae_shape`（防火壁 2）→ `analyze_index`。
     - `init_shape(workspace, request)`: `check` の結果の初期化系の構造から位置を落とした写し（防火壁）。
     - `init_report(workspace, request)`: `init_shape` と `index_report` の `dynamic_states` → `analyze_init_with_index`。
     - `GlobeDb::check_model` は S0〜S8 をまとめる。S7 は S6 が regular のときだけ、S8 は S0〜S7 に Error が無いときだけ回す。結果の `FullReport` に `index` と `init` を足した。
-- **S006 のテストで確かめた**（salsa の `WillExecute` イベントで数えた。検証用パッケージ `GlobeModeValidation` の 23 ファイル）:
+- **S007 のテストで確かめた**（salsa の `WillExecute` イベントで数えた。検証用パッケージ `GlobeModeValidation` の 23 ファイル）:
   - `deps_closure(GlobeModeValidation.Connect.RealCircuit)` は 5 / 23 ファイル（`package.mo`、`Connectors.mo`、`Components.mo`、`Connect/package.mo`、`Connect/RealCircuit.mo`）。
   - **閉包だけを渡した検査と、全ファイルを渡した検査の結果が、索引のモデルとブロック 20 本以上のすべてで一致した**（足りないファイルが無いことの確かめ）。
   - 使わないファイル（`Invalid/StructurallySingular.mo`）の式を変えても、`source_shape`・`deps_closure`・`check`・`structural` は **0 回**。
   - 閉包の中のファイル（`Components.mo`）のパラメータの値を変えると、`check` は 1 回。識別子は変わらないので、閉包は前と等しい。
   - パラメータの値の編集では、`index_report` と `init_report` は再実行されない（`check` は 1 回）。
-- **S006 の計測**（2026-10-18、release、MSL 4.1.0、各 5 回。`cargo test --release -p globe-mode-db --test deps -- --ignored --nocapture`）:
+- **S007 の計測**（2026-10-18、release、MSL 4.1.0、各 5 回。`cargo test --release -p globe-mode-db --test deps -- --ignored --nocapture`）:
 
   | 場合 | 中央値 | 最大 |
   | --- | ---: | ---: |
@@ -139,7 +139,7 @@
   - **得たもの**: 使わないファイルの編集のあとの再検査が、約 1.8 s（S005 の方式では、どのファイルの編集でも `check` が走る）から 0.2 ms になった。
   - **失ったもの**: 閉包の違うモデルへ初めて切り替えると、67 ms から約 1.7 s になった。文書の組が変わるため。2 回目からは salsa が結果を覚えている。
   - **トレードオフとして受け入れる**。文書の組が変わったときの再 resolve は、本文の編集で文書を差し替えたときにも起きる。モデルの切り替えで新しい種類の費用が増えるわけではない（作業記録の「決めたこと」）。
-  - 切り替えの費用を和らげる案（`Checker` に文書の和集合を持たせ、組が変わらないようにする、など）は S007 の候補にした。
+  - 切り替えの費用を和らげる案（`Checker` に文書の和集合を持たせ、組が変わらないようにする、など）は S008 の候補にした。
 
 - P2 の完了条件: 空白だけの編集の再検査が 50 ms 未満で、`flat` が再実行されないこと。salsa のイベントで確かめる。
 - S5 は `omc checkModel()` と照合して正しさを確かめる。

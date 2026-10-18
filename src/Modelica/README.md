@@ -22,8 +22,8 @@ GlobeModeValidation/
 ├── Connectors.mo       Pin（Real の potential / flow）、RealInput / RealOutput、BooleanInput / BooleanOutput、FluidPort（Medium と stream）
 ├── Components.mo       抵抗・コンデンサ・電源・接地、Real と Boolean のブロック、流体の境界と抵抗
 ├── Connect/            connect の型ごとのテストモデル（1 モデル 1 ファイル）
-├── Index/              微分インデックスが 1 より大きい正しいモデル（S7 の検証、S006）
-├── Init/               初期化系の検証モデル（S8、S006）
+├── Index/              微分インデックスが 1 より大きい正しいモデル（S7 の検証、S007）
+├── Init/               初期化系の検証モデル（S8、S007）
 └── Invalid/            わざと誤ったモデル
 ```
 

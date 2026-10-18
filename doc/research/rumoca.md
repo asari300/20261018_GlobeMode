@@ -148,12 +148,12 @@ IR:        rumoca-ir-ast → rumoca-ir-flat → rumoca-ir-dae → rumoca-ir-solv
   - モデルごとの結果の一覧は、リポジトリに入っていない（ハーネスの実行時に作る）。
 - GlobeMode の `cargo xtask msl-funnel` は同じ名前の規則で選び、**566 本（うち partial 13 本）で一致した**（[報告](../sessions/S005-check-queries/msl-funnel.md)）。
 
-## S006 で調べた API（v0.10.2）
+## S007 で調べた API（v0.10.2）
 
 - 確認日: 2026-10-18。
 - 読んだのは S005 と同じ rev `276e82bd` のソース（cargo の git の取得物。GitHub では <https://github.com/CogniPilot/rumoca/tree/276e82bd0fd48960ac201e782918d28bf19cf7ce>）。下の表のパスは、リポジトリのルートからのもの。
 - 「出典」が GlobeMode のテストのものは、ソースを読んだのではなく、Rumoca に小さなモデルを通して確かめた事実（テストは `src/Rust/mod/globe-mode-frontend/src/init.rs` の単体テストと `tests/init.rs`）。
-- S006 の設計（[ADR-0005](../adr/0005-lazy-query-db.md) の結果の `deps_closure`、[ADR-0008](../adr/0008-structural-index-and-init.md)）は、この調査に基づく。
+- S007 の設計（[ADR-0005](../adr/0005-lazy-query-db.md) の結果の `deps_closure`、[ADR-0009](../adr/0009-structural-index-and-init.md)）は、この調査に基づく。
 
 ### import の AST
 
@@ -235,10 +235,10 @@ default = ["scheduled-sim", "scenario-config", "input-keyboard", "input-gamepad"
 - <https://github.com/CogniPilot/rumoca/blob/276e82bd0fd48960ac201e782918d28bf19cf7ce/spec/SPEC_0008_PHASE_ERRORS.md>
 - <https://github.com/CogniPilot/rumoca/blob/276e82bd0fd48960ac201e782918d28bf19cf7ce/crates/rumoca-phase-structural/src/incidence.rs>
 - <https://github.com/CogniPilot/rumoca/blob/276e82bd0fd48960ac201e782918d28bf19cf7ce/crates/rumoca-test-msl/tests/msl_tests/msl_quality_baseline.json>
-- <https://github.com/CogniPilot/rumoca/blob/276e82bd0fd48960ac201e782918d28bf19cf7ce/crates/rumoca-ir-ast/src/nodes.rs>（S006）
-- <https://github.com/CogniPilot/rumoca/blob/276e82bd0fd48960ac201e782918d28bf19cf7ce/crates/rumoca-ir-dae/src/model/view.rs>（S006）
-- <https://github.com/CogniPilot/rumoca/blob/276e82bd0fd48960ac201e782918d28bf19cf7ce/crates/rumoca-ir-dae/src/provenance.rs>（S006）
-- <https://github.com/CogniPilot/rumoca/blob/276e82bd0fd48960ac201e782918d28bf19cf7ce/crates/rumoca-phase-dae/src/construction/variable_construction.rs>（S006）
-- <https://github.com/CogniPilot/rumoca/blob/276e82bd0fd48960ac201e782918d28bf19cf7ce/crates/rumoca-ir-dae/src/model/initial_parameters.rs>（S006）
-- <https://github.com/CogniPilot/rumoca/blob/276e82bd0fd48960ac201e782918d28bf19cf7ce/crates/rumoca-ir-dae/src/model/view/arena_walks.rs>（S006）
-- <https://github.com/CogniPilot/rumoca/blob/276e82bd0fd48960ac201e782918d28bf19cf7ce/crates/rumoca-compile/src/session/session_impl_queries.rs>（S006）
+- <https://github.com/CogniPilot/rumoca/blob/276e82bd0fd48960ac201e782918d28bf19cf7ce/crates/rumoca-ir-ast/src/nodes.rs>（S007）
+- <https://github.com/CogniPilot/rumoca/blob/276e82bd0fd48960ac201e782918d28bf19cf7ce/crates/rumoca-ir-dae/src/model/view.rs>（S007）
+- <https://github.com/CogniPilot/rumoca/blob/276e82bd0fd48960ac201e782918d28bf19cf7ce/crates/rumoca-ir-dae/src/provenance.rs>（S007）
+- <https://github.com/CogniPilot/rumoca/blob/276e82bd0fd48960ac201e782918d28bf19cf7ce/crates/rumoca-phase-dae/src/construction/variable_construction.rs>（S007）
+- <https://github.com/CogniPilot/rumoca/blob/276e82bd0fd48960ac201e782918d28bf19cf7ce/crates/rumoca-ir-dae/src/model/initial_parameters.rs>（S007）
+- <https://github.com/CogniPilot/rumoca/blob/276e82bd0fd48960ac201e782918d28bf19cf7ce/crates/rumoca-ir-dae/src/model/view/arena_walks.rs>（S007）
+- <https://github.com/CogniPilot/rumoca/blob/276e82bd0fd48960ac201e782918d28bf19cf7ce/crates/rumoca-compile/src/session/session_impl_queries.rs>（S007）

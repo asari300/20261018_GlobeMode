@@ -120,7 +120,7 @@ pub struct ClassOutline {
     pub causality: Causality,
     pub range: TextRange,
     pub extends: Vec<String>,
-    /// `import` 文（S006）。`import A.B.C;` は `A.B.C`、`import D = A.B.C;` は `A.B.C`、
+    /// `import` 文（S007）。`import A.B.C;` は `A.B.C`、`import D = A.B.C;` は `A.B.C`、
     /// `import A.B.*;` は `A.B.*`、`import A.B.{C,D};` は `A.B.C` と `A.B.D`。
     /// `deps_closure`（Rumoca に渡すファイルの絞り込み）が、参照先のクラスを探すのに使う。
     pub imports: Vec<String>,
@@ -488,10 +488,10 @@ pub struct FlatSummary {
     pub equations_by_component: Vec<(String, usize)>,
 }
 
-/// 初期化系の構造（S8 の入力、S006）。`check` が DAE から取り出す。
+/// 初期化系の構造（S8 の入力、S007）。`check` が DAE から取り出す。
 ///
 /// 位置（`file` / `range`）は、コンパイルに渡した本文（`source_shape` で正規化した本文）の中の位置。
-/// S8 の判定は数と属性だけで行う（初期方程式の incidence は持たない。S007 以降の候補）。
+/// S8 の判定は数と属性だけで行う（初期方程式の incidence は持たない。S008 以降の候補）。
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize)]
 pub struct InitStructure {
     /// 状態（スカラー）。順は [`DaeStructure::unknowns`] の `Derivative` の順と同じ（`der(x)` の `x`）。
