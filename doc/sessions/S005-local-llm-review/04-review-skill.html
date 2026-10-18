@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S005-04 /local-review — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S005 · 04 /local-review">
+
+<section class="slide" id="S01">
+  <span class="tag">S005 · 04 /local-review</span>
+  <h1>差分を塊に分けて送り、返ってきた指摘を Claude が裁く</h1>
+  <svg class="fig" viewBox="0 0 1000 300" role="img" aria-label="/local-review の流れ">
+    <defs>
+      <marker id="ah4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path class="svg-arrowhead" d="M0,0 L10,5 L0,10 z"/>
+      </marker>
+    </defs>
+    <rect class="svg-box" x="10" y="40" width="160" height="80" rx="10"/>
+    <text class="svg-text-b" x="90" y="75" text-anchor="middle">git diff</text>
+    <text class="svg-text-m" x="90" y="100" text-anchor="middle">merge-base..作業ツリー</text>
+    <rect class="svg-box" x="210" y="40" width="160" height="80" rx="10"/>
+    <text class="svg-text-b" x="290" y="75" text-anchor="middle">除外</text>
+    <text class="svg-text-m" x="290" y="100" text-anchor="middle">lock・data・log・鍵</text>
+    <rect class="svg-box" x="410" y="40" width="160" height="80" rx="10"/>
+    <text class="svg-text-b" x="490" y="75" text-anchor="middle">行番号を付ける</text>
+    <text class="svg-text-m" x="490" y="100" text-anchor="middle">新しいファイルの行</text>
+    <rect class="svg-box" x="610" y="40" width="160" height="80" rx="10"/>
+    <text class="svg-text-b" x="690" y="75" text-anchor="middle">塊に分ける</text>
+    <text class="svg-text-m" x="690" y="100" text-anchor="middle">6,000 トークン以内</text>
+    <rect class="svg-box-accent2" x="810" y="40" width="180" height="80" rx="10"/>
+    <text class="svg-text-b" x="900" y="75" text-anchor="middle">Bonsai-27B</text>
+    <text class="svg-text-m" x="900" y="100" text-anchor="middle">推論なし・768 トークン</text>
+    <line class="svg-line" x1="170" y1="80" x2="208" y2="80" marker-end="url(#ah4)"/>
+    <line class="svg-line" x1="370" y1="80" x2="408" y2="80" marker-end="url(#ah4)"/>
+    <line class="svg-line" x1="570" y1="80" x2="608" y2="80" marker-end="url(#ah4)"/>
+    <line class="svg-line" x1="770" y1="80" x2="808" y2="80" marker-end="url(#ah4)"/>
+    <rect class="svg-box" x="610" y="190" width="380" height="80" rx="10"/>
+    <text class="svg-text-b" x="800" y="225" text-anchor="middle">指摘の表（path:line・重大度）</text>
+    <text class="svg-text-m" x="800" y="250" text-anchor="middle">＋統計（tok/s・秒）</text>
+    <rect class="svg-box-accent" x="10" y="190" width="560" height="80" rx="10"/>
+    <text class="svg-text-b" x="290" y="225" text-anchor="middle">Claude がコードで確かめる</text>
+    <text class="svg-text-m" x="290" y="250" text-anchor="middle">採用 / 誤検知 / 保留 → 採用だけ直す</text>
+    <line class="svg-line" x1="900" y1="120" x2="900" y2="188" marker-end="url(#ah4)"/>
+    <line class="svg-line-accent" x1="610" y1="230" x2="572" y2="230" marker-end="url(#ah4)"/>
+  </svg>
+  <p class="small">ファイル: <code>.claude/skills/local-review/</code> の <code>SKILL.md</code>・<code>lmstudio_review.py</code>（標準ライブラリだけ、約 530 行）・<code>test_lmstudio_review.py</code>（unittest 13 件）。</p>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">工夫 · 小さいモデルに合わせる</span>
+  <h1>行番号は数えさせず、本文に書いて渡す</h1>
+  <div class="cols-2">
+    <div>
+      <h3>送る形（注釈付き）</h3>
+<pre><code>diff --git a/src/a.rs b/src/a.rs
+--- a/src/a.rs
++++ b/src/a.rs
+@@ -10,3 +10,4 @@ fn main() {
+   10       let x = 1;
+      -     let y = 2;
+   11 +     let y = x.checked_add(2).unwrap();
+   12 +     println!("{y}");
+   13   }</code></pre>
+      <h3>返させる形</h3>
+<pre><code>src/a.rs:11 — high — unwrap can panic — return an error
+NO_FINDINGS        ← 指摘が無いとき</code></pre>
+    </div>
+    <ul class="small">
+      <li><b>行番号</b>: 小さいモデルは <code>@@ +10</code> から数え間違える。新しいファイルでの番号を各行に付ける</li>
+      <li><b>分割</b>: ファイル単位でまとめる → 大きいファイルは @@ ごと → 1 つの @@ が大きければ、番号を引き継いだ <code>(continued)</code> に分ける</li>
+      <li><b>見積もり</b>: ASCII 3 文字で 1、日本語は 1 文字で 1 トークン（多めに見積もる。実測は Rust で 3.0〜3.3 文字）</li>
+      <li><b>出力の拾い方</b>: 正規表現で <code>path:line — 重大度 — 本文</code> を拾う。<code>-</code>・<code>–</code>・番号付きリスト・太字の揺れも受ける。合わない行は捨てずに別に出す</li>
+      <li><b>止まる条件</b>: 未読み込み・届かないときは終了コード 2（JIT で最大の ctx に読み込まれる事故を防ぐ）</li>
+    </ul>
+  </div>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">使い方</span>
+  <h1>まず <code>--check</code> と <code>--dry-run</code>、次に絞って走らせる</h1>
+  <div class="cols-2">
+<pre><code>S=.claude/skills/local-review/lmstudio_review.py
+python3 -I $S --check        # 届くか・読み込み・ctx
+python3 -I $S --dry-run      # 塊と所要時間の見積もり
+python3 -I $S                # main との差分（未追跡を含む）
+python3 -I $S --range HEAD~1..HEAD
+python3 -I $S --staged
+python3 -I $S --path 'src/Rust/**' --max-chunks 2 \
+             --out log/local/local-review.md
+python3 -I $S --load 12288   # REST で読み込む（FA 有効）</code></pre>
+    <table class="compact">
+      <tr><th>引数・環境変数</th><th>既定</th></tr>
+      <tr><td><code>LMSTUDIO_BASE_URL</code></td><td><code>http://localhost:1234</code></td></tr>
+      <tr><td><code>LMSTUDIO_MODEL</code></td><td><code>prism-ml/bonsai-27b</code></td></tr>
+      <tr><td><code>LMSTUDIO_API_TOKEN</code></td><td>なし（あれば Bearer）</td></tr>
+      <tr><td><code>--chunk-tokens</code></td><td>6000</td></tr>
+      <tr><td><code>--max-chunks</code></td><td>3（超えた分は一覧だけ出す）</td></tr>
+      <tr><td><code>--max-tokens</code></td><td>768（生成 2 tok/s で約 6 分）</td></tr>
+      <tr><td><code>--temperature</code></td><td>0.4（top_p 0.9、top_k 20）</td></tr>
+      <tr><td><code>--think</code></td><td>切る（<code>reasoning_effort: none</code>）</td></tr>
+      <tr><td><code>--pp-tps</code> / <code>--gen-tps</code></td><td>8 / 2（見積もり用）</td></tr>
+      <tr><td><code>--ctx</code></td><td>読み込みの確認を省く（一覧が数十秒かかることがある）</td></tr>
+    </table>
+  </div>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">Claude の手順（SKILL.md）</span>
+  <h1>待つ間は自分のレビューを進め、最後に表で裁く</h1>
+  <div class="cols-2">
+    <ol class="small">
+      <li><code>--check</code>。終了コード 2 なら、ユーザーに読み込みを頼む（勝手に読み込まない）</li>
+      <li><code>--dry-run</code>。20 分を超えそうなら <code>--path</code> で核心に絞る</li>
+      <li>Bash を <b>バックグラウンド</b>で起動し、出力は <code>log/local/</code>（コミットしない）へ</li>
+      <li>その間に Claude 自身のレビューを進める</li>
+      <li>指摘を 1 件ずつコードで確かめ、表にして報告する</li>
+    </ol>
+    <table class="compact">
+      <tr><th>#</th><th>場所</th><th>指摘</th><th>判定</th><th>理由</th></tr>
+      <tr><td>1</td><td><code>path:line</code></td><td>…</td><td class="ok">採用</td><td>どこを見てそう判断したか</td></tr>
+      <tr><td>2</td><td><code>path:line</code></td><td>…</td><td class="ng">誤検知</td><td>…</td></tr>
+      <tr><td>3</td><td><code>path:line</code></td><td>…</td><td class="warn">保留</td><td>…</td></tr>
+    </table>
+  </div>
+  <p class="small">してはいけないこと: 確かめずに直す／秘密を含みうるファイルを送る／Stop フックで自動実行する（1 回 10 分以上、ADR-0007）。</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">実例 · このセッションの差分</span>
+  <h1>仕込んだ 3 つのバグのうち 1 つを、正しい行番号で拾った</h1>
+  <div class="cols-2">
+    <table class="compact">
+      <tr><th>対象</th><th>入力</th><th>合計</th><th>結果</th></tr>
+      <tr><td><code>lmstudio_review.py</code> の 1 塊</td><td>6,154</td><td>19.4 分</td><td><code>NO_FINDINGS</code></td></tr>
+      <tr><td>バグを 3 つ仕込んだ 24 行</td><td>620</td><td>91 秒</td><td>指摘 1 件</td></tr>
+    </table>
+    <table class="compact">
+      <tr><th>場所</th><th>中身</th><th>判定</th></tr>
+      <tr><td><code>stats.py:6</code></td><td>ファイルを閉じない（指摘）</td><td class="ok">採用・行番号も正しい</td></tr>
+      <tr><td><code>stats.py:13</code></td><td><code>range(len - window)</code> の off-by-one</td><td class="ng">見逃し</td></tr>
+      <tr><td><code>stats.py:22</code></td><td>窓が長いと <code>avg[-1]</code> が IndexError</td><td class="ng">見逃し</td></tr>
+      <tr><td><code>stats.py:23</code></td><td>空の入力で ZeroDivisionError</td><td class="ng">見逃し</td></tr>
+    </table>
+  </div>
+  <p class="small">「指摘なし」は「問題なし」ではない。分かりやすい問題は拾うが、境界の計算は見逃す。主のレビューは Claude が行う。</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">まとめ</span>
+  <h1>速さより「確かめる手順」を固定した</h1>
+  <div class="big">ローカル LLM は<b>もう一人の読み手</b>。決めるのは Claude、直すのは採用したものだけ。</div>
+  <p><a href="slides.html">← 全体のスライドへ戻る</a> ／ 前: <a href="03-bonsai-tuning.html">03</a> ／ 次: <a href="05-alternatives.html">05 ほかの方式との比較</a></p>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

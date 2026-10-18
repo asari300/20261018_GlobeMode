@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S005-02 LM Studio のサーバ — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S005 · 02 LM Studio のサーバ">
+
+<section class="slide" id="S01">
+  <span class="tag">S005 · 02 LM Studio のサーバ</span>
+  <h1>1 つのポートに 3 種類の API がある</h1>
+  <table>
+    <tr><th>API</th><th>パス（<code>http://localhost:1234</code> の下）</th><th>使いどころ</th></tr>
+    <tr><td>OpenAI 互換</td><td><code>/v1/models</code> <code>/v1/chat/completions</code> <code>/v1/responses</code> <code>/v1/embeddings</code></td><td>OpenAI SDK、MCP サーバ（houtini-lm）など、ほとんどの道具</td></tr>
+    <tr><td>LM Studio REST</td><td><code>/api/v0/models</code>（state・ctx）<br><code>/api/v0/chat/completions</code>（<b>stats</b> 付き）<br><code>/api/v1/models/load</code>（0.4.0〜）</td><td><b>/local-review が使う</b>。読み込みの確認、tok/s の計測、ctx を指定した読み込み</td></tr>
+    <tr><td>Anthropic 互換</td><td><code>/v1/messages</code>（0.4.1〜）</td><td>Claude Code を丸ごと向ける（<code>ANTHROPIC_BASE_URL</code>）。今回は比較だけ（<a href="05-alternatives.html#S03">05</a>）</td></tr>
+  </table>
+  <p class="small">実機: <code>/v1/messages</code> に <code>thinking: {"type":"disabled"}</code> を付けて "pong" が 6 秒で返った。<code>/api/v0/models</code> は 12 モデル中、Bonsai-27B だけが <code>loaded</code> だった。</p>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">サーバの起動</span>
+  <h1>GUI でも CLI でも起動できる。WSL からは <code>lms.exe</code> を呼ぶ</h1>
+  <div class="cols-2">
+    <div class="card">
+      <h3>Windows の GUI</h3>
+      <ol class="small">
+        <li>左の <b>Developer</b>（緑のターミナルのアイコン）を開く</li>
+        <li><b>Status: Running</b> にする（Start Server）</li>
+        <li><b>Server Settings</b> で次の S03 の値にする</li>
+        <li>Settings → <b>Developer</b> の「アプリ起動時にサーバを起動」を有効にする（この PC は有効）</li>
+      </ol>
+    </div>
+    <div class="card hl">
+      <h3>WSL から CLI</h3>
+<pre><code># Windows の lms.exe は WSL から直接動く（interop）
+alias lms="$(ls /mnt/c/Users/*/.lmstudio/bin/lms.exe \
+             | head -1)"
+lms server status
+lms server start --port 1234   # 既定で 127.0.0.1
+lms ps                          # 読み込み中のモデル
+lms load prism-ml/bonsai-27b -c 12288 \
+    --gpu off --parallel 1 --ttl 1800 -y
+lms unload --all
+lms log stream -s server        # リクエストを見る</code></pre>
+      <p class="small">ユーザー名を含むパスは <code>ls</code> で探す。<code>lms</code> はアプリの初回起動時に <code>%USERPROFILE%\.lmstudio\bin</code> に置かれる。</p>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">推奨 · Server Settings（ユーザーが GUI で変える）</span>
+  <h1>いまの設定は LAN と Tailscale に開いたまま、プロンプトを全文ログに書いている</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>いま（実機）</th><th>推奨</th><th>理由</th></tr>
+    <tr><td>Serve on Local Network</td><td class="ng">有効（0.0.0.0）</td><td class="ok">無効（127.0.0.1）</td><td>mirrored なら WSL から localhost で届く。外に開く理由が無い</td></tr>
+    <tr><td>Require Authentication</td><td class="warn">無効</td><td>127.0.0.1 なら任意。0.0.0.0 にするなら<b>必須</b></td><td>トークンは Manage Tokens で発行。<code>LMSTUDIO_API_TOKEN</code> に入れる</td></tr>
+    <tr><td>ログ（logSensitiveData / logIncomingTokens）</td><td class="ng">有効（全文）</td><td class="ok">無効</td><td>差分（社外秘のコードや鍵の取りこぼし）がログに残る。Developer のログ設定で切る</td></tr>
+    <tr><td>Enable CORS</td><td>無効</td><td>無効のまま</td><td>ブラウザから叩く用途が無い</td></tr>
+    <tr><td>Just in Time Model Loading</td><td>有効</td><td>どちらでも</td><td>/local-review は未読み込みなら止まるので、意図しない JIT は起きない</td></tr>
+    <tr><td>Auto Unload Unused JIT Models</td><td>3600 秒</td><td>1800 秒</td><td>使わないモデルが 5 GiB 近くの RAM を持ち続けないように</td></tr>
+  </table>
+  <p class="small">設定ファイルは <code>%USERPROFILE%\.lmstudio\.internal\http-server-config.json</code>。手で編集せず GUI で変える（書式が版で変わりうるため）。</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">接続 · 認証を有効にしたとき</span>
+  <h1>トークンは環境変数で渡し、リポジトリには書かない</h1>
+  <div class="cols-2">
+<pre><code># ~/.zshrc など（コミットしない場所）
+export LMSTUDIO_BASE_URL=http://localhost:1234
+export LMSTUDIO_MODEL=prism-ml/bonsai-27b
+export LMSTUDIO_API_TOKEN=...   # 認証を有効にしたときだけ
+
+# OpenAI 互換は Bearer
+curl -s localhost:1234/v1/models \
+  -H "Authorization: Bearer $LMSTUDIO_API_TOKEN"
+
+# Anthropic 互換は x-api-key も受ける
+curl -s localhost:1234/v1/messages \
+  -H "x-api-key: $LMSTUDIO_API_TOKEN" \
+  -H 'anthropic-version: 2023-06-01' \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"prism-ml/bonsai-27b","max_tokens":32,
+       "thinking":{"type":"disabled"},
+       "messages":[{"role":"user","content":"ping"}]}'</code></pre>
+    <ul class="small">
+      <li>認証なしのときは、OpenAI SDK の <code>api_key</code> は任意の文字列でよい（慣例は <code>"lm-studio"</code>）</li>
+      <li><code>lmstudio_review.py</code> は <code>LMSTUDIO_API_TOKEN</code> があれば <code>Authorization: Bearer</code> を付ける</li>
+      <li>TTL はリクエストごとに <code>"ttl": 1800</code> で指定できる（スクリプトの既定）</li>
+      <li>出典: lmstudio.ai/docs の server-start、server/settings、authentication、openai-compat、anthropic-compat（確認 2026-10-18）</li>
+    </ul>
+  </div>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">まとめ</span>
+  <h1>Windows 側でやることは 3 つ</h1>
+  <ol>
+    <li><b>Serve on Local Network を切る</b>（127.0.0.1 で待ち受ける）</li>
+    <li><b>プロンプトの全文ログを切る</b></li>
+    <li>モデルを <code>-c 12288 --gpu off --parallel 1</code> で読み込む（<a href="03-bonsai-tuning.html">03</a>）</li>
+  </ol>
+  <p><a href="slides.html">← 全体のスライドへ戻る</a> ／ 前: <a href="01-wsl-network.html">01</a> ／ 次: <a href="03-bonsai-tuning.html">03 Bonsai の調整</a></p>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

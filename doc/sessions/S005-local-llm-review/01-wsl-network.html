@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S005-01 WSL2 から Windows へ — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S005 · 01 WSL2 のネットワーク">
+
+<section class="slide" id="S01">
+  <span class="tag">S005 · 01 WSL2 のネットワーク</span>
+  <h1>WSL2 から Windows の LM Studio に届かせる</h1>
+  <p class="lead">NAT と mirrored で、つなぎ先と必要な設定がまるで違う。この PC は <b>mirrored</b> なので <code>localhost:1234</code> で届く。</p>
+  <svg class="fig" viewBox="0 0 1000 300" role="img" aria-label="NAT と mirrored の違い">
+    <defs>
+      <marker id="ah1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path class="svg-arrowhead" d="M0,0 L10,5 L0,10 z"/>
+      </marker>
+    </defs>
+    <text class="svg-text-b" x="240" y="28" text-anchor="middle">NAT（既定）</text>
+    <rect class="svg-box" x="20" y="50" width="200" height="90" rx="10"/>
+    <text class="svg-text-b" x="120" y="88" text-anchor="middle">WSL2（172.x）</text>
+    <text class="svg-text-m" x="120" y="114" text-anchor="middle">curl &lt;ゲートウェイの IP&gt;:1234</text>
+    <rect class="svg-box-warn" x="270" y="50" width="200" height="90" rx="10"/>
+    <text class="svg-text-b" x="370" y="88" text-anchor="middle">Windows</text>
+    <text class="svg-text-m" x="370" y="114" text-anchor="middle">0.0.0.0 で待ち受け＋FW</text>
+    <line class="svg-line" x1="220" y1="95" x2="268" y2="95" marker-end="url(#ah1)"/>
+    <text class="svg-text-m" x="240" y="180" text-anchor="middle">LAN からの接続と同じ扱い。ファイアウォールの穴が要る</text>
+    <text class="svg-text-b" x="760" y="28" text-anchor="middle">mirrored（この PC）</text>
+    <rect class="svg-box-accent" x="540" y="50" width="440" height="90" rx="10"/>
+    <text class="svg-text-b" x="650" y="88" text-anchor="middle">WSL2</text>
+    <text class="svg-text-m" x="650" y="114" text-anchor="middle">curl localhost:1234</text>
+    <text class="svg-text-b" x="870" y="88" text-anchor="middle">Windows</text>
+    <text class="svg-text-m" x="870" y="114" text-anchor="middle">127.0.0.1 で十分</text>
+    <line class="svg-line-accent" x1="710" y1="95" x2="808" y2="95" marker-end="url(#ah1)"/>
+    <text class="svg-text-m" x="760" y="180" text-anchor="middle">ネットワークを共有する。127.0.0.1 が互いに届く（::1 は不可）</text>
+    <rect class="svg-band" x="20" y="215" width="960" height="60" rx="8"/>
+    <text class="svg-text" x="500" y="252" text-anchor="middle">見分け方: WSL の ip -4 addr に Windows の LAN の IP が出ていれば mirrored、172.x だけなら NAT</text>
+  </svg>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">設定 · .wslconfig</span>
+  <h1><code>%UserProfile%\.wslconfig</code>（Windows 側）</h1>
+  <div class="cols-2">
+<pre><code>[wsl2]
+networkingMode=mirrored
+dnsTunneling=true
+# memory=16GB      # 任意。既定は RAM の半分
+# processors=8     # 任意
+
+[experimental]
+hostAddressLoopback=true</code></pre>
+    <ul class="small">
+      <li><b>networkingMode=mirrored</b>: Windows 11 22H2 以降。WSL から <code>127.0.0.1</code> で Windows のサーバに届く</li>
+      <li><b>hostAddressLoopback</b>: 127.0.0.1 以外のホストの IPv4 アドレスでも届く。LM Studio を 127.0.0.1 だけで待ち受けるなら、無くても動く</li>
+      <li><b>dnsTunneling</b>: 有効だと <code>/etc/resolv.conf</code> の nameserver が <code>10.255.255.254</code> になる。NAT 向けの「resolv.conf からホストの IP を取る」手順は使えない</li>
+      <li>変えたら PowerShell で <code>wsl --shutdown</code>。MS は「WSL Settings」アプリでの変更を勧めている</li>
+      <li><b>この PC</b>: 上の 3 行が設定済み。memory は未設定で、WSL から見える RAM は約 14 GiB。LM Studio は Windows 側の残りを使う</li>
+    </ul>
+  </div>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">設定 · ファイアウォール</span>
+  <h1>穴を開けるのは NAT のときだけ。mirrored は Hyper-V の規則を見る</h1>
+  <table class="compact">
+    <tr><th>構成</th><th>LM Studio の待ち受け</th><th>ファイアウォール（管理者の PowerShell）</th></tr>
+    <tr><td>mirrored ＋ localhost（<b>推奨</b>）</td><td class="ok">127.0.0.1（Serve on Local Network を<b>切る</b>）</td><td>不要。外からは届かなくなる</td></tr>
+    <tr><td>mirrored ＋ ホストの IP</td><td>0.0.0.0</td><td><code>New-NetFirewallHyperVRule -Name LMStudio -DisplayName "LM Studio" -Direction Inbound -VMCreatorId '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}' -Protocol TCP -LocalPorts 1234</code></td></tr>
+    <tr><td>NAT</td><td class="warn">0.0.0.0（必須）</td><td><code>New-NetFirewallRule -DisplayName "LM Studio 1234" -Direction Inbound -Protocol TCP -LocalPort 1234 -Action Allow -Profile Private</code></td></tr>
+  </table>
+  <ul class="small">
+    <li>0.0.0.0 で待ち受けると、同じ LAN や Tailscale の相手からも届く。認証が無ければ、誰でもモデルを使え、プロンプトもログに残る（→ <a href="02-lmstudio-server.html#S03">02 の S03</a>）</li>
+    <li>Hyper-V の規則を全体で許す <code>Set-NetFirewallHyperVVMSetting … -DefaultInboundAction Allow</code> は、WSL の中のサーバを外に開く設定。今回は要らない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">確認 · WSL 側</span>
+  <h1>届くかを 3 段で確かめる</h1>
+  <div class="cols-2">
+<pre><code># 1. mirrored か（Windows の LAN の IP が見えるか）
+ip -4 addr | grep inet
+
+# 2. OpenAI 互換の一覧
+curl -s -m 5 http://localhost:1234/v1/models
+
+# 3. 読み込みの状態と ctx（LM Studio の REST）
+#    （一覧は数十秒かかることがある）
+curl -s -m 120 http://localhost:1234/api/v0/models \
+  | grep -E '"(id|state|loaded_context_length)"'
+
+# まとめて（スキルのスクリプト）
+S=.claude/skills/local-review/lmstudio_review.py
+python3 -I $S --check</code></pre>
+    <table class="compact">
+      <tr><th>症状</th><th>原因と対処</th></tr>
+      <tr><td>接続を拒否された</td><td>サーバが止まっている。Windows で <code>lms server start</code>、または Developer タブで Start</td></tr>
+      <tr><td>時間切れ</td><td>NAT なのに localhost を叩いている／ファイアウォール。<code>ip route</code> のゲートウェイを試す</td></tr>
+      <tr><td>401</td><td>Require Authentication が有効。<code>LMSTUDIO_API_TOKEN</code> を設定する</td></tr>
+      <tr><td><code>state: not-loaded</code></td><td>モデル未読み込み。<a href="03-bonsai-tuning.html#S06">03 の S06</a> の設定で読み込む</td></tr>
+    </table>
+  </div>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">まとめ</span>
+  <h1>この PC では何も足さずに届く</h1>
+  <div class="big">mirrored ＋ <b>localhost:1234</b>。LM Studio は <b>127.0.0.1</b> だけで待ち受ければよい。</div>
+  <ul class="small">
+    <li>NAT の PC に持っていくときだけ、0.0.0.0・ファイアウォール・認証の 3 点が要る</li>
+    <li>出典: <code>learn.microsoft.com/en-us/windows/wsl/networking</code>、<code>…/wsl-config</code>（確認 2026-10-18）。詳細は調査記録 <code>doc/research/lmstudio-wsl2-review.md</code></li>
+  </ul>
+  <p><a href="slides.html">← 全体のスライドへ戻る</a> ／ 次: <a href="02-lmstudio-server.html">02 LM Studio のサーバ</a></p>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

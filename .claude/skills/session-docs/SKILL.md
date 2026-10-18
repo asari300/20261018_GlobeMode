@@ -48,6 +48,15 @@ description: GlobeMode のセッションごとの HTML スライド（slides.ht
 
 - 操作: ← → / PageUp PageDown / Space / Home End / `#S05` のハッシュで移動する。`p` で全スライドの一覧、印刷は 1 枚 1 ページ。
 
+### トピック別のデッキ（任意、S005 から）
+
+話題が多いセッションは、全体の `slides.html` に加えて、トピックごとのデッキを同じフォルダに置いてよい。
+
+- ファイル名は `NN-<topic>.html`（例 `01-wsl-network.html`）。サブフォルダには置かない（`../../assets/` の相対パスが崩れるため）。
+- 約束は `slides.html` と同じ。id は各デッキで S01 から振り直し、3 枚以上にする（render_slides.py が `#S03` を開くため）。
+- `slides.html` から各デッキへリンクし、各デッキの最後のスライドに `slides.html` へ戻るリンクを置く。check_docs.py が相互のリンクを確かめる。
+- `data-deck` は `GlobeMode SNNN 題名 · NN トピック` のようにして、どのデッキかがフッターで分かるようにする。
+
 ## 解説書（解説書.md）の約束
 
 - 冒頭に表を置く: セッション番号、日付、ブランチ、Phase、スライドへのリンク。

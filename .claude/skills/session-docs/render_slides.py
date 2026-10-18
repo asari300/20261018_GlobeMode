@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """スライドを実際のブラウザ（Playwright の Chromium）で開いて検査する。
 
-  uv run python .claude/skills/session-docs/render_slides.py                  # 全デッキ
-  uv run python .claude/skills/session-docs/render_slides.py <slides.html>…  # 指定したデッキ
+  uv run python .claude/skills/session-docs/render_slides.py                  # 全デッキ（doc/sessions/*/*.html）
+  uv run python .claude/skills/session-docs/render_slides.py <deck.html>…    # 指定したデッキ
   オプション: --out <dir>（スクリーンショットの置き場。既定は log/local/render/。コミットしない）
 
 検査すること（file:// で開く。外部への通信は無い前提）:
@@ -61,7 +61,7 @@ def check_deck(browser, deck: Path, out: Path) -> list[str]:
     errs: list[str] = []
     url = deck.resolve().as_uri()
     rel = deck.resolve().relative_to(ROOT).as_posix()
-    name = deck.parent.name
+    name = f"{deck.parent.name}/{deck.stem}"            # トピック別のデッキと置き場がぶつからないように
 
     for view, size, scheme, strict in VIEWS:
         ctx = browser.new_context(viewport=size, color_scheme=scheme, device_scale_factor=1)
@@ -115,7 +115,7 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--out", default=str(ROOT / "log" / "local" / "render"))
     args = ap.parse_args(argv)
 
-    decks = [Path(d) for d in args.decks] or sorted(ROOT.glob("doc/sessions/*/slides.html"))
+    decks = [Path(d) for d in args.decks] or sorted(ROOT.glob("doc/sessions/*/*.html"))
     out = Path(args.out).resolve()
     errs: list[str] = []
     with sync_playwright() as p:
