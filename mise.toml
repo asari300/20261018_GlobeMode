@@ -39,10 +39,16 @@ run = [
 ]
 
 [tasks."msl:funnel"]
-description = "MSL 4.1.0 の全例題（Examples の下、566 本）に globe check の判定を出し、報告 doc/msl-funnel.md を書く（S005。S007 から置き場を固定）"
+description = "MSL 4.1.0 の全例題（Examples の下、566 本）に globe check の判定を出し、報告 doc/msl-funnel.md を書く（S005。S007 から置き場を固定。S008 から JSON も target/ に残す）"
 run = [
   "cargo xtask fetch-msl",
-  "cargo xtask msl-funnel --report doc/msl-funnel.md",
+  "cargo xtask msl-funnel --report doc/msl-funnel.md --json target/msl-funnel.json",
+]
+
+[tasks."msl:omc"]
+description = "msl:funnel の結果（target/msl-funnel.json）を omc（OpenModelica、別プロセス）と突き合わせ、報告 doc/omc-compare.md を書く（S008。omc が PATH に要る）"
+run = [
+  "cargo xtask omc-compare --funnel-json target/msl-funnel.json --report doc/omc-compare.md --json target/omc-compare.json",
 ]
 
 [tasks."docs:check"]

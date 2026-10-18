@@ -70,6 +70,22 @@
   - **静的リンク・埋め込み・コードの複製はしない**。いずれも AGPL の義務を負う。
   - `tree-sitter-modelica` と `modelica-language-server`（OpenModelica 製）も AGPL / OSMC-PL なので使わない。
 
+### S008 で確かめた omc 1.27.1 のスクリプト API
+
+照合（[ADR-0010](../adr/0010-omc-comparison.md)、`cargo xtask omc-compare`）のために、手元の omc で確かめた（確認日 2026-10-19、`omc --version` は `OpenModelica 1.27.1~2-g6db4671`、WSL2 の Ubuntu に apt で導入）。関数の説明は User's Guide の Scripting API（出典）にある。
+
+| 項目 | 確かめたこと |
+| --- | --- |
+| 同梱のライブラリ | `~/.openmodelica/libraries/` に `Modelica 4.1.0+maint.om`、`3.2.3+maint.om` など（`getAvailableLibraries()`）。`+maint.om` は OpenModelica 向けの修正入り |
+| 素の MSL を読む | `setModelicaPath("<data/msl の絶対パス>"); loadModel(Modelica, {"4.1.0"});` で `Modelica 4.1.0/package.mo` を読む（`getSourceFile(Modelica)` で確認）。「ModelicaServices が OpenModelica 向けに patch されていない」という警告と、「`Complex` (4.1.0) を読み飛ばした（uses-annotation）」という通知が出るが、例題の検査には差し支えなかった |
+| `checkModel(M)` | 文字列を返す: `Check of M completed successfully.` / `Class M has N equation(s) and M variable(s).` / `K of these are trivial equation(s).`。**partial のクラスや数が合わないモデルでも「completed successfully」**で、数だけが違う（`PartialOpAmp` は 23 / 27、手元の `x = 1;` だけの 2 変数モデルは 1 / 2、過剰決定の 1 変数モデルは 2 / 1）。構造特異（`GlobeModeValidation.Invalid.StructurallySingular`）も 3 / 3 で通る |
+| `translateModel(M)` | バックエンド（マッチング、インデックス低減、初期化の解析、C コード生成）まで走って `true` / `false` を返す。生成物（`M.c`、`M.makefile` など十数ファイル）を**カレントディレクトリに書く** |
+| 構造特異の文言 | `Error: Model is structurally singular, error found sorting equations`、`Error: Internal error IndexReduction.pantelidesIndexReduction failed! System is structurally singular and cannot be reduced`（または `Found empty set of continuous equations`）、`Error: An independent subset of the model has imbalanced number of equations (1) and variables (2).`（`pre-optimization module clockPartitioning (simulation) failed`）。MSL の `OpAmpCircuits.*` と `FluxTubes…Components.*` の 12 本はいずれかで `false` |
+| 初期条件 | 過剰: `Warning: The initial conditions are over specified.`。`setCommandLineOptions("-d=initialization")` を付けると `The following N initial equations are redundant, so they are removed from the initialization system:` と本数が出る。**不足は何も出ない**（`-d=initialization` でも。start 値で埋める） |
+| 式の中で呼ぶと誤りが消える | `print(String(translateModel(M)))` のように**式の中で呼ぶと、失敗したときの `getErrorString()` が空**になる。`translateModel(M); getErrorString();` と文として呼べば残る。`print` は印（区切り）だけに使う |
+| 速さ | MSL 4.1.0 の読み込み約 4.6 s（`loadModel` だけのスクリプト）。`checkModel` は 1 本 0.1 s 前後（例題 20 本で 2 s）。`translateModel` は多くが数秒以内 |
+| 計時 | スクリプトの中では `time()` も `timerTick()` も無い（`Class time not found`）。時間は外から測る |
+
 ## Dymola（Dymosim の積分器）
 
 | 分類 | ソルバ |
@@ -102,6 +118,7 @@ GlobeMode のソルバ名との対応は [architecture.md](../architecture.md#33
 - <https://github.com/OpenModelica/OpenModelica/releases>
 - <https://openmodelica.org/doc/OpenModelicaUsersGuide/latest/omedit.html>
 - <https://openmodelica.org/doc/OpenModelicaUsersGuide/latest/solving.html>
+- <https://openmodelica.org/doc/OpenModelicaUsersGuide/latest/scripting_api.html>（Scripting API: `checkModel`、`translateModel`、`setModelicaPath`、`setCommandLineOptions`。確認日 2026-10-19）
 - <https://raw.githubusercontent.com/OpenModelica/OpenModelica/master/OSMC-License.txt>
 - <https://openmodelica.org/osmc-pl/osmc-pl-1.8-runtime.txt>
 - <https://openmodelica.org/images/M_images/OpenModelicaWorkshop_2026/OpenModelica2026-talk01-FrancescoCasella-OpenModelica-Workshop-StatusDirections-v1.pdf>

@@ -5,6 +5,7 @@
 //! cargo xtask fetch-rumoca     Rumoca の CLI（v0.10.2、Linux x86_64）を data/rumoca/ に取得する
 //! cargo xtask msl-compare      MSL の例題で globe check と Rumoca の CLI を突き合わせる
 //! cargo xtask msl-funnel       MSL の全例題（566 本）に globe check の判定を出し、報告を書く
+//! cargo xtask omc-compare      msl-funnel の結果（--json）を omc（OpenModelica、別プロセス）と突き合わせ、報告を書く
 //! cargo xtask bump-rumoca      固定している Rumoca の rev と、最新のタグを表示する
 //! ```
 //!
@@ -23,6 +24,7 @@ use globe_mode_frontend::{Frontend, RumocaFrontend};
 use sha2::{Digest, Sha256};
 
 mod funnel;
+mod omc;
 
 /// MSL 4.1.0 の公式の配布物（BSD-3-Clause）。
 const MSL_URL: &str = "https://github.com/modelica/ModelicaStandardLibrary/releases/download/v4.1.0/ModelicaStandardLibrary_v4.1.0.zip";
@@ -91,6 +93,44 @@ enum Cmd {
         #[arg(long, default_value_t = 50)]
         reset_every: usize,
     },
+    /// msl-funnel の結果（--json）を omc（OpenModelica のコンパイラ、別プロセス）と突き合わせ、報告を書く（S008）
+    OmcCompare {
+        #[arg(long, default_value = "data/msl")]
+        msl: PathBuf,
+        /// `msl-funnel --json` が書いたファイル
+        #[arg(long, default_value = "target/msl-funnel.json")]
+        funnel_json: PathBuf,
+        /// omc の実行ファイル（名前かパス）
+        #[arg(long, default_value = "omc")]
+        omc: String,
+        /// Markdown の報告を書くファイル
+        #[arg(long)]
+        report: Option<PathBuf>,
+        /// omc の生の結果と照合の結果を JSON で書くファイル
+        #[arg(long)]
+        json: Option<PathBuf>,
+        /// omc を呼ばず、前に --json で書いた結果を読んで照合だけやり直す
+        #[arg(long)]
+        reuse: Option<PathBuf>,
+        /// 1 つの omc プロセスで検査する本数
+        #[arg(long, default_value_t = 50)]
+        chunk: usize,
+        /// omc プロセス 1 つの制限時間（秒）
+        #[arg(long, default_value_t = 900)]
+        timeout: u64,
+        /// 名前にこの文字列を含む例題だけを照合する
+        #[arg(long)]
+        filter: Option<String>,
+        /// 先頭から N 本だけ照合する（--filter の後に当てる）
+        #[arg(long)]
+        limit: Option<usize>,
+        /// スクリプトと omc の生成物を置く場所
+        #[arg(long, default_value = "target/omc-compare")]
+        work_dir: PathBuf,
+        /// translateModel を呼ばない（checkModel だけ。S5 の照合だけなら速い）
+        #[arg(long)]
+        no_translate: bool,
+    },
     /// 固定している Rumoca の rev と、上流の最新のタグを表示する
     BumpRumoca,
 }
@@ -121,6 +161,33 @@ fn main() -> ExitCode {
             json: json.as_deref(),
             list,
             reset_every,
+        }),
+        Cmd::OmcCompare {
+            msl,
+            funnel_json,
+            omc,
+            report,
+            json,
+            reuse,
+            chunk,
+            timeout,
+            filter,
+            limit,
+            work_dir,
+            no_translate,
+        } => omc::omc_compare(&omc::Options {
+            msl: &msl,
+            funnel_json: &funnel_json,
+            omc: &omc,
+            report: report.as_deref(),
+            json: json.as_deref(),
+            reuse: reuse.as_deref(),
+            chunk,
+            timeout_secs: timeout,
+            filter: filter.as_deref(),
+            limit,
+            work_dir: &work_dir,
+            no_translate,
         }),
         Cmd::BumpRumoca => bump_rumoca(),
     };

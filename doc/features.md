@@ -43,7 +43,7 @@ OpenModelica（OMEdit）と Rumoca を参考に、GlobeMode に要る機能を�
 
 | 機能 | OMEdit | Rumoca | 優先度 | Phase | GlobeMode での方針 |
 | --- | --- | --- | --- | --- | --- |
-| Check Model（方程式数と変数数） | ○ | ○ | Must | P2（S005 でクエリ化） | S5。`check` クエリ（MSL は一度だけ読む）。MSL の全例題 566 本に判定を出した（S005）。`omc checkModel()` との照合は omc を入れてから |
+| Check Model（方程式数と変数数） | ○ | ○ | Must | P2（S005 でクエリ化） | S5。`check` クエリ（MSL は一度だけ読む）。MSL の全例題 566 本に判定を出した（S005）。S008 で `omc checkModel()` と照合し、判定のある 382 本すべてで一致（[omc-compare.md](omc-compare.md)） |
 | **シミュレーション前のアサーション（S0〜S10）** | △ | △ | **Must** | P2（S005 で S0〜S6、S007 で S7・S8） | `assert_simulatable`。Error があれば `--force` 無しでは実行しない。S005 で S6（構造特異、GM-E6001）と「コンパイラが未対応」の GM-U（[ADR-0007](adr/0007-unsupported-classification.md)）。S007 で S7・S8（[ADR-0009](adr/0009-structural-index-and-init.md)）。`globe check` に S7・S8 の行と `--json` の `s7` / `s8` / `init` |
 | S7: 構造インデックスと状態選択の候補 | ○（Pantelides とダミー微分） | ○（Pantelides） | Must | P2（S007） | Pantelides 法を `DaeStructure` の上で回す（Rumoca に依存しない）。構造インデックスの見込み、微分する方程式と回数、状態選択の候補、動的な状態の数を情報（GM-I7001 / GM-I7002）として出す。打ち切りは GM-E7001 |
 | S8: 初期化系の検査 | ○（実行時の初期化） | △（初期化の計画） | Must | P2（S007） | 初期条件の数と属性で判定する。過剰は GM-E8001（離散変数を含むか、インデックスの低減で状態が減るときは確定できないので GM-W8004）、不足は GM-W8001・GM-W8002（start の無い状態）、値の無いパラメータは GM-W8003。初期方程式の incidence でのマッチングは S008 以降 |
@@ -90,6 +90,6 @@ OpenModelica（OMEdit）と Rumoca を参考に、GlobeMode に要る機能を�
 | --- | --- | --- | --- |
 | MSL コーパスのファネル計測（parse → flatten → DAE → balanced → init → simulate） | Must | P1〜（S005 で全例題） | Rumoca と同じ段階で数える。`cargo xtask msl-funnel` が、Rumoca と同じ名前の規則で選んだ 566 本を数える（S005） |
 | Rumoca との差分照合 | Must | P1〜 | Track B に移ってからも続ける |
-| `omc` との照合（別プロセス） | Should | P2〜 | 照合用に限る。リンクしない |
+| `omc` との照合（別プロセス） | Should | P2〜（S008 で実施） | 照合用に限る。リンクしない。`cargo xtask omc-compare`（`mise run msl:omc`、[ADR-0010](adr/0010-omc-comparison.md)）が `msl-funnel --json` の結果を omc の `checkModel` / `translateModel` と突き合わせ、報告を [omc-compare.md](omc-compare.md) に書く |
 | Reference-FMUs、FMPy、fmusim、fmuCheck | Must | P5 | FMI の Import と Export の両方 |
 | ライセンス監査（cargo-deny、npm、SBOM） | Must | P1〜 | [licenses.md](licenses.md) |
