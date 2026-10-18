@@ -99,22 +99,47 @@ git -C "$MAIN" push origin main
 - feature ブランチは push しない。
 - CI は差分だけを検査する（ADR-0006）。push の前に `mise run ci:plan` で計画を見る。
   - 大きな作り直しや、判定に入っていない種類のファイルを触ったときは、マージのコミットメッセージに `[full-ci]` を入れて全体を検査する。
-- push したら Actions の結果を確かめる（`gh` が無いので、公開リポジトリなら API で見る）。
+- push したら Actions の結果を確かめる（`gh` は認証済み）。
 
   ```bash
-  curl -s "https://api.github.com/repos/asari300/20261018_GlobeMode/actions/runs?branch=main&per_page=1" \
-    | python3 -c "import sys,json; r=json.load(sys.stdin)['workflow_runs'][0]; print(r['head_sha'][:7], r['status'], r['conclusion'], r['html_url'])"
+  gh run list --branch main --limit 3
+  gh run watch <run-id> --exit-status     # 完了まで待つ。長いのでバックグラウンドで実行する
+  gh run view <run-id> --log-failed       # 落ちたジョブのログ
   ```
 
 - CI が落ちたら、新しいセッション（worktree）で直して、同じ手順でもう一度 push する。
 
-## 7. 報告する
+## 7. CI が通ったら、2 つ以上前の worktree を片付ける
+
+**CI が成功したときだけ**行う（ユーザーの決定）。失敗したら片付けずに、直すセッションに進む。
+
+- 対象: 作った順に並べて、**最新から数えて 2 つ以上前**の worktree（最新と 1 つ前は残す）。
+- 消す前に、それぞれ次の 2 つを確かめる。どちらかを満たさないものは消さずに報告する。
+  - 未コミットの変更が無い
+  - ブランチが main に取り込み済み
+
+```bash
+cd "$MAIN"
+git worktree list                                         # 作った順を確かめる（ブランチの作成日でもよい）
+for t in <2 つ以上前の topic>; do
+  test -z "$(git -C .git-worktree/$t status --porcelain)" || { echo "$t に未コミットの変更"; continue; }
+  git branch --merged main --format='%(refname:short)' | grep -qx "feature/$t" || { echo "$t は未マージ"; continue; }
+  git worktree remove ".git-worktree/$t" && git branch -d "feature/$t"
+done
+git worktree prune
+```
+
+- ブランチは `-d`（取り込み済みのものだけを消す）で消す。`-D` や `--force` は使わない。
+- 作業記録には触らない（`log/work/` は main に残っている）。
+
+## 8. 報告する
 
 ユーザーには次を伝える。
 
 - 何を作ったか・変えたか
 - 検査の結果（数字）
-- ブランチ名と worktree のパス、main のコミット、CI の結果（URL）
+- ブランチ名と worktree のパス、main のコミット、CI の結果（run の ID とジョブごとの成否）
+- 片付けた worktree と、残した worktree
 - 積み残しと、次のセッションでやること
 
-worktree の片付け（`git worktree remove` / `git branch -d`）は、**ユーザーが判断する**。勝手に消さない。
+worktree の片付けは 7 の条件（CI が成功、2 つ以上前、未コミットの変更が無い、取り込み済み）を満たすものだけを行う。それ以外は消さない。
