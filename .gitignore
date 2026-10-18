@@ -17,6 +17,7 @@ node_modules/
 
 # 作業用 git worktree の置き場所 (feature ブランチごとに作る。リポジトリの外に置かない)
 .git-worktree/
+!.git-worktree/.gitkeep
 
 # セッション記録の生ログとローカル整形版 (フックの出力先)。
 # 伏せ字済みの整形版だけを finish-session で log/sessions/ にコピーしてコミットする。
@@ -25,7 +26,7 @@ log/local/
 # 取得物 (scripts で再取得できるのでコミットしない)。MSL など
 data/msl/
 
-# mise の個人用上書き
+# mise
 mise.local.toml
 mise.local.lock
 
