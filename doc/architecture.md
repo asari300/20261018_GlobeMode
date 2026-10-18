@@ -80,7 +80,7 @@ doc/  log/                      文書と記録
 | `globe-mode-nif` | Rustler。Erlang モジュール名は `globe_mode_nif` | rustler |
 | `globe-mode-wasm` | wasm-bindgen。ブラウザの Worker、Gleam の JS target、marimo の anywidget から使う | wasm-bindgen |
 | `globe-mode-testkit` | MSL コーパス、ファネル比較、omc との照合、Reference-FMUs（S003 の突き合わせと S005 のファネルは、ひとまず xtask に置いた） | — |
-| `xtask` **（S003）** | `cargo xtask fetch-msl` / `fetch-rumoca` / `msl-compare` / `msl-funnel`（S005。S007 で S7・S8 の列）/ `bump-rumoca`。場所は `src/Rust/xtask` | sha2, zip, db, analysis |
+| `xtask` **（S003）** | `cargo xtask fetch-msl` / `fetch-rumoca` / `msl-compare` / `msl-funnel`（S005。S007 で S7・S8 の列）/ `omc-compare`（S008。omc を別プロセスで呼ぶ）/ `bump-rumoca`。場所は `src/Rust/xtask` | sha2, zip, db, analysis |
 
 ### 2.3 ツールチェーン
 
@@ -191,7 +191,7 @@ SourceFile ─┬─▶ outline ─▶ outline_shape ─┬─▶ class_index �
   - 振り分けは [ADR-0007](adr/0007-unsupported-classification.md)。Rumoca のコードで決まるもの（`GM-U0001` 未対応、`GM-U0002` 内部エラー）と、既知の制約の一覧（`src/Modelica/msl-known-unsupported.txt`）に当たったもの（`GM-U0003`）。
   - severity は Error のまま（`--force` 無しでは実行しない）。CLI は `unsupported[GM-U…]` と表示する。
 - 結果は `SimulatabilityReport{verdict, stages[], stats}` として返す。出力先は LSP の診断、CLI（ariadne 風）、protocol の JSON、グラフのハイライト。
-- S5 の正しさは `omc checkModel()` の方程式数・変数数と照合して確かめる。**omc は未導入**（S007 の時点。OpenModelica のサイトが重くて取得できず、ユーザーの指示で後回し）なので、まだ照合していない。入れたら再開する。
+- S5 の正しさは `omc checkModel()` の方程式数・変数数と照合して確かめる。S008 で omc 1.27.1 と照合し、判定のある MSL の例題 382 本すべてで「合う / 合わない」が一致した（[ADR-0010](adr/0010-omc-comparison.md)、[omc-compare.md](omc-compare.md)）。S6 と S8 の過剰も `translateModel` の文言と 99.7% 一致。omc は照合にだけ使い、検査の判定には使わない。
 
 ### 3.3 ソルバ
 
@@ -334,7 +334,7 @@ Svelte の UI は `Backend` インターフェースだけに依存する。実�
 | --- | --- |
 | フロントエンド | MSL 4.1.0 の例題でファネルを数え、Rumoca の値と比べる（Track B では native と rumoca の差分）。例題 20 本で Rumoca の CLI と突き合わせる（`cargo xtask msl-compare`、S003） |
 | MSL の全例題 | `cargo xtask msl-funnel`（`mise run msl:funnel`、S005。報告は [msl-funnel.md](msl-funnel.md)、S007 から置き場を固定）。Rumoca と同じ名前の規則で選んだ 566 本に S0〜S8 / OK / GM-U の判定を出し、Rumoca の基準値と並べる。S7 の構造インデックスの分布と、S8 の合う・過剰・不足の本数も数える（S007）。検査器は 1 つ（MSL を一度だけ読む）で、モデルごとに `catch_unwind` で囲み panic を数える。時間がかかるので CI には入れない |
-| 検査 | S5 を `omc checkModel()` と照合する（別プロセス） |
+| 検査 | S5 を `omc checkModel()` と、S6・S8 を `omc translateModel()` の文言と照合する（別プロセス。`cargo xtask omc-compare`、S008、[ADR-0010](adr/0010-omc-comparison.md)。報告は [omc-compare.md](omc-compare.md)） |
 | シミュレーション | MSL の参照結果と、ファネル（許容帯）で比較する |
 | FMI | Reference-FMUs、FMPy、fmusim、fmuCheck、往復 |
 | ライセンス | cargo-deny、`pnpm licenses`、cargo-about、CycloneDX SBOM |

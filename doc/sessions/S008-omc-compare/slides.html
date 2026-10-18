@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S008 omc との照合 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S008 · omc との照合">
+
+<section class="slide" id="S01">
+  <span class="tag">S008 · 2026-10-19 · P2 遅延クエリと検査（4 回目）</span>
+  <h1>omc と照合し、S5 は 100% 一致した</h1>
+  <div class="kpis">
+    <div class="kpi"><span class="n">382 / 382</span><span class="l">S5 の判定（方程式数と未知数が合うか）が omc の <code>checkModel</code> と一致（100%。完了条件は 95% 以上）</span></div>
+    <div class="kpi"><span class="n">50 / 50</span><span class="l">既知の制約の一覧（<code>GM-U0003</code>）が omc で通った → Rumoca の制約として正しい</span></div>
+    <div class="kpi"><span class="n">362 / 363</span><span class="l">S6（構造特異）が omc の <code>translateModel</code> と一致（99.7%）</span></div>
+    <div class="kpi"><span class="n">354 / 355</span><span class="l">S8 の初期条件の過剰が omc の「over specified」と一致（99.7%）</span></div>
+  </div>
+  <div class="big">omc（OpenModelica 1.27.1）を別プロセスで呼ぶ <code>omc-compare</code> で MSL の全例題 566 本を照合し、<b>P2 の完了条件「S5 が omc と 95% 以上一致」を達成</b>した。食い違いは 2 本（どちらが正しいかは未確認。S009 へ）。</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>S007 で後回しにした omc との照合を再開する</h1>
+  <div class="cols-2">
+    <div class="card hl">
+      <h3>ユーザーの依頼</h3>
+      <p class="small">「OpenModelica のインストールが完了し omc を導入したので、確認したのち作業を進めてください。」</p>
+      <h3>範囲</h3>
+      <ul class="small">
+        <li>roadmap の S008 の候補のうち <b>1（omc を入れて照合する）だけ</b>。候補 2〜8 は触らない</li>
+        <li>S007 で「omc を入れたら最初に再開する」と約束していた</li>
+      </ul>
+      <h3>確かめたいこと（S005・S007 では未確認）</h3>
+      <ol class="small">
+        <li>S5 が omc と <b>95% 以上</b>一致するか（P2 の完了条件の残り）</li>
+        <li>S6 で NG の MSL 12 本（接地の無い部品モデル）が、単体で本当に特異か</li>
+        <li><code>GM-U0003</code> の一覧（50 行）が本当に Rumoca の制約か（ADR-0007 の C）</li>
+      </ol>
+    </div>
+    <div class="card">
+      <h3>使った omc</h3>
+      <table class="compact">
+        <tr><th>項目</th><th>値</th></tr>
+        <tr><td>実行ファイル</td><td><code>/usr/bin/omc</code>（WSL2 の Ubuntu に apt で導入）</td></tr>
+        <tr><td>版</td><td><code>OpenModelica 1.27.1~2-g6db4671</code></td></tr>
+        <tr><td>同梱の MSL</td><td><code>Modelica 4.1.0+maint.om</code>（OpenModelica 向けの修正入り）→ <b>使わない</b></td></tr>
+        <tr><td>照合に使う MSL</td><td><code>data/msl</code> の素の 4.1.0（globe check と同じ）</td></tr>
+      </table>
+      <h3>ライセンス</h3>
+      <p class="small">OpenModelica は OSMC-PL / AGPL。<b>リンクもコードの複製もしない。</b><code>omc</code> を別プロセスで呼ぶ照合用途だけ（CLAUDE.md の 3）。CI にも入れない（ランナーに omc が無い）。</p>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由 · 一覧</span>
+  <h1>決めたこと</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>omc の呼び方</td><td><code>cargo xtask omc-compare</code> が omc を<b>別プロセス</b>で呼ぶ。入力は <code>msl-funnel --json</code> の結果</td><td>ファネルに組み込むと、ファネルが omc の有無に依存する。omc が無ければ <code>omc-compare</code> だけが動かない</td></tr>
+    <tr><td>MSL</td><td><code>data/msl</code> の素の 4.1.0 を <code>setModelicaPath</code> + <code>loadModel(Modelica, {"4.1.0"})</code></td><td>同梱の <code>+maint.om</code> は中身が違い、照合にならない</td></tr>
+    <tr><td>S5 の一致</td><td>「合う / 合わない」の<b>判定</b>が同じなら一致。globe に判定が無いもの（GM-U、S4 以前）は分母に入れない</td><td><code>checkModel</code> は数が合わなくても「completed successfully」。数から判定を作る</td></tr>
+    <tr><td>数が同じか</td><td>副次的な指標。funnel の JSON の <code>counts</code> に <code>unknowns</code> を足した</td><td>最初の JSON は配列を 1 個と数えた数しか無く、omc の変数数と比べられなかった</td></tr>
+    <tr><td>S6</td><td><code>translateModel</code> の失敗の文言で比べる</td><td>omc は構造特異をバックエンドの Error で出す</td></tr>
+    <tr><td>S7</td><td class="muted">比べない</td><td>omc は構造インデックスの数を出さない</td></tr>
+    <tr><td>S8</td><td><b>過剰だけ</b>比べる（「over specified」）</td><td>omc は不足を黙って start 値で埋め、警告を出さない</td></tr>
+    <tr><td>置き場</td><td>報告 <code>doc/omc-compare.md</code>、タスク <code>mise run msl:omc</code>。CI には入れない</td><td><code>msl:funnel</code> と同じ扱い。ランナーに omc が無い</td></tr>
+  </table>
+  <p class="small">設計の記録: <code>doc/adr/0010-omc-comparison.md</code>。omc の振る舞いの事実と出典: <code>doc/research/openmodelica-dymola.md</code> の「S008 で確かめた omc 1.27.1 のスクリプト API」。</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図 · 照合の流れ</span>
+  <h1>funnel の JSON と omc の出力を突き合わせる</h1>
+  <svg class="fig" viewBox="0 0 1200 410" role="img" aria-label="msl-funnel から omc-compare までの照合の流れ">
+    <defs>
+      <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path class="svg-arrowhead" d="M0,0 L10,5 L0,10 z"/>
+      </marker>
+    </defs>
+
+    <rect class="svg-box-accent" x="20" y="16" width="300" height="60" rx="10"/>
+    <text class="svg-text-b" x="170" y="40" text-anchor="middle">data/msl</text>
+    <text class="svg-text-m" x="170" y="62" text-anchor="middle">素の MSL 4.1.0（omc にも読ませる）</text>
+    <text class="svg-text-m" x="582" y="38" text-anchor="middle">setModelicaPath + loadModel(Modelica, {"4.1.0"})</text>
+
+    <rect class="svg-box" x="20" y="110" width="190" height="70" rx="10"/>
+    <text class="svg-text-b" x="115" y="138" text-anchor="middle">msl-funnel</text>
+    <text class="svg-text-m" x="115" y="161" text-anchor="middle">globe check S0〜S8</text>
+
+    <rect class="svg-box" x="250" y="110" width="200" height="70" rx="10"/>
+    <text class="svg-text-b" x="350" y="138" text-anchor="middle">msl-funnel.json</text>
+    <text class="svg-text-m" x="350" y="161" text-anchor="middle">判定・counts.unknowns</text>
+
+    <rect class="svg-box-accent2" x="490" y="110" width="200" height="70" rx="10"/>
+    <text class="svg-text-b" x="590" y="138" text-anchor="middle">omc-compare</text>
+    <text class="svg-text-m" x="590" y="161" text-anchor="middle">.mos を書く（50 本ごと）</text>
+
+    <rect class="svg-box-accent" x="730" y="110" width="230" height="70" rx="10"/>
+    <text class="svg-text-b" x="845" y="138" text-anchor="middle">omc（別プロセス）</text>
+    <text class="svg-text-m" x="845" y="161" text-anchor="middle">checkModel・translateModel</text>
+
+    <rect class="svg-box-warn" x="990" y="110" width="190" height="70" rx="10"/>
+    <text class="svg-text-b" x="1085" y="138" text-anchor="middle">落ちた・時間切れ</text>
+    <text class="svg-text-m" x="1085" y="161" text-anchor="middle">1 本ずつ再実行</text>
+
+    <rect class="svg-box-accent2" x="700" y="250" width="260" height="96" rx="10"/>
+    <text class="svg-text-b" x="830" y="276" text-anchor="middle">標準出力を印で切る</text>
+    <text class="svg-text-m" x="830" y="298" text-anchor="middle">@@BEGIN・@@ERR</text>
+    <text class="svg-text-m" x="830" y="316" text-anchor="middle">@@TRANSLATE・@@END</text>
+    <text class="svg-text-m" x="830" y="336" text-anchor="middle">結果は区間の最後の行</text>
+
+    <rect class="svg-box-accent2" x="330" y="250" width="230" height="70" rx="10"/>
+    <text class="svg-text-b" x="445" y="278" text-anchor="middle">照合</text>
+    <text class="svg-text-m" x="445" y="301" text-anchor="middle">S5・GM-U・S6・S8</text>
+
+    <rect class="svg-box-accent" x="20" y="232" width="270" height="52" rx="10"/>
+    <text class="svg-text-b" x="155" y="264" text-anchor="middle">doc/omc-compare.md</text>
+    <rect class="svg-box" x="20" y="300" width="270" height="52" rx="10"/>
+    <text class="svg-text-b" x="155" y="332" text-anchor="middle">target/omc-compare.json</text>
+
+    <line class="svg-line" x1="115" y1="76" x2="115" y2="108" marker-end="url(#ah)"/>
+    <path class="svg-line" d="M320,48 H845 V108" marker-end="url(#ah)"/>
+    <line class="svg-line" x1="210" y1="145" x2="248" y2="145" marker-end="url(#ah)"/>
+    <line class="svg-line" x1="450" y1="145" x2="488" y2="145" marker-end="url(#ah)"/>
+    <line class="svg-line-accent" x1="690" y1="145" x2="728" y2="145" marker-end="url(#ah)"/>
+    <line class="svg-line" x1="960" y1="130" x2="988" y2="130" marker-end="url(#ah)"/>
+    <line class="svg-line" x1="990" y1="162" x2="962" y2="162" marker-end="url(#ah)"/>
+    <line class="svg-line-accent" x1="830" y1="180" x2="830" y2="248" marker-end="url(#ah)"/>
+    <line class="svg-line-accent" x1="700" y1="285" x2="562" y2="285" marker-end="url(#ah)"/>
+    <line class="svg-line" x1="350" y1="180" x2="350" y2="248" marker-end="url(#ah)"/>
+    <line class="svg-line-accent" x1="330" y1="262" x2="292" y2="262" marker-end="url(#ah)"/>
+    <line class="svg-line" x1="330" y1="310" x2="292" y2="310" marker-end="url(#ah)"/>
+    <path class="svg-line-accent" d="M155,352 V384 H445 V322" marker-end="url(#ah)"/>
+    <text class="svg-text-a" x="470" y="389">--reuse: omc を呼ばずに照合だけやり直す</text>
+  </svg>
+  <p class="small">omc の実行（S008）: 12 プロセス・424 s。時間切れ 0・異常終了 0・再実行 0・結果なし 0。<code>translateModel</code> は C のコードをカレントディレクトリに書くので、作業場所は <code>target/omc-compare</code>（<code>--work-dir</code>）。</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">決定と理由 · .mos と印</span>
+  <h1>文として呼び、印だけを <code>print</code> する</h1>
+  <div class="cols-2">
+    <div>
+      <h3>1 本分の <code>.mos</code>（<code>omc.rs</code> の <code>script()</code>）</h3>
+<pre><code>print("@@BEGIN M\n");
+checkModel(M);
+print("@@ERR\n"); getErrorString();
+print("@@TRANSLATE\n");
+translateModel(M);
+print("@@ERR\n"); getErrorString();
+print("@@END\n");</code></pre>
+      <p class="small">先頭で <code>setModelicaPath</code>、<code>loadModel(Modelica, {"4.1.0"})</code>、<code>setCommandLineOptions("-d=initialization")</code>。M は <code>Modelica.…</code> の完全修飾名。</p>
+    </div>
+    <div class="card hl">
+      <h3>読み方</h3>
+      <ul class="small">
+        <li><code>@@BEGIN</code> で切り、<code>@@END</code> まであればそのモデルの結果。無ければ「落ちた」</li>
+        <li><code>checkModel</code> の文字列から方程式数と変数数を取る</li>
+        <li><code>translateModel</code> の結果は、区間の<b>最後の空でない行</b>が <code>true</code> か</li>
+        <li><code>@@ERR</code> の後の <code>getErrorString()</code> の文言で、特異（structurally singular・pantelidesIndexReduction failed・error found sorting equations）/ 不均衡（imbalanced number of equations）/ その他に分ける</li>
+        <li>「over specified」と、冗長な初期方程式の本数（<code>The following N initial equations are redundant</code>）を取る</li>
+      </ul>
+      <h3>落ちたとき</h3>
+      <p class="small">プロセス単位の制限は既定 900 s。落ちたり時間切れになったりしたら、印の無いモデルを 1 本ずつ再実行し、それでも駄目なら「結果なし」にして続ける。</p>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">決定と理由 · omc の振る舞い</span>
+  <h1>手元で確かめた omc 1.27.1 の振る舞いと、その対応</h1>
+  <table class="compact">
+    <tr><th>omc の振る舞い（確認日 2026-10-19）</th><th>そのままだと</th><th>対応</th></tr>
+    <tr><td><code>checkModel</code> は partial や数が合わないモデルでも「completed successfully」。数だけが違う（<code>PartialOpAmp</code> は 23 / 27）</td><td>成否では判定できない</td><td>合う / 合わないは<b>数で判断</b>する</td></tr>
+    <tr><td><code>print(String(translateModel(M)))</code> のように<b>式の中で呼ぶ</b>と、失敗したときの <code>getErrorString()</code> が空</td><td>失敗の理由が読めない</td><td><b>文として呼ぶ</b>。<code>print</code> は印だけ</td></tr>
+    <tr><td><code>-d=initialization</code> を付けると、反復変数の一覧が <code>true</code> / <code>false</code> の<b>前に</b>標準出力へ出る</td><td class="ng">最初の全例題の実行で 52 本を「失敗」と読み違えた</td><td>結果は<b>区間の最後の行</b>で読む。単体テストを足した</td></tr>
+    <tr><td>初期条件の<b>不足</b>は、黙って start 値で埋めて警告を出さない（<code>-d=initialization</code> でも）</td><td>不足は比べられない</td><td>S8 は<b>過剰だけ</b>比べる</td></tr>
+    <tr><td>過剰は <code>The initial conditions are over specified</code>。<code>-d=initialization</code> で冗長な本数も出る</td><td>—</td><td>本数も globe の差と比べる</td></tr>
+    <tr><td>構造インデックスの数を出さない</td><td>—</td><td>S7 は比べない</td></tr>
+    <tr><td>同梱の MSL は <code>4.1.0+maint.om</code>。素の 4.1.0 も読める（ModelicaServices が patch されていない警告、<code>Complex</code> を読み飛ばす通知は出る）</td><td>—</td><td>素の 4.1.0 で照合</td></tr>
+  </table>
+  <p class="small">速さ: MSL の読み込み約 4.6 s、<code>checkModel</code> は 1 本 0.1 s 前後、<code>translateModel</code> は多くが数秒以内。出典と詳細は調査記録（<code>doc/research/openmodelica-dymola.md</code>）。</p>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">図 · 照合の規則</span>
+  <h1>段階ごとに、omc の何と比べるか（ADR-0010）</h1>
+  <table class="compact">
+    <tr><th>段階</th><th>globe check 側</th><th>omc 側</th><th>比べ方</th></tr>
+    <tr><td><b>S5</b></td><td>判定があるもの（OK、または S5 以降で止まったもの）</td><td><code>checkModel</code> の方程式数 = 変数数</td><td>「合う / 合わない」が同じなら一致。<b>一致率が P2 の完了条件</b>。数が同じかは副次的に数える</td></tr>
+    <tr><td><b>GM-U</b></td><td>GM-U にしたモデル（82 / 52 / 50）</td><td><code>checkModel</code> の数が合う、<code>translateModel</code> が通る</td><td>omc で通れば Rumoca の制約（ADR-0007 の C）。<code>GM-U0003</code> は 1 行ずつ表にする</td></tr>
+    <tr><td><b>S6</b></td><td>S6 で止めた（特異）か、通ったか</td><td><code>translateModel</code> の失敗の種類（特異 / 不均衡 / その他）</td><td>特異 ↔ 特異、通る ↔ 通る なら一致。omc が<b>別の理由</b>で失敗したものは比べない</td></tr>
+    <tr><td class="muted">S7</td><td class="muted">—</td><td class="muted">—</td><td class="muted">比べない（omc が数を出さない）</td></tr>
+    <tr><td><b>S8</b></td><td>与えた初期条件 &gt; 要る数（過剰）か</td><td>「over specified」の警告</td><td><b>過剰だけ</b>。omc の <code>translateModel</code> が失敗したものは比べない</td></tr>
+  </table>
+  <div class="cols-2">
+    <div class="card">
+      <h3>分母の内訳</h3>
+      <ul class="small">
+        <li>S5 の 382 = globe の OK 369 + S5 で NG 1 + S6 で NG 12</li>
+        <li>S6 の 363 = S6 の判定がある 381 − omc が別の理由で失敗した 18（partial の 12、<code>SpacePhasorLimiter</code>、値の無いパラメータで止まる <code>OpAmpCircuits.*</code> 5）</li>
+        <li>S8 の 355 = S8 まで来た 369 − omc の <code>translateModel</code> が失敗した 14</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>特異とみなす omc の文言</h3>
+      <ul class="small">
+        <li><code>Model is structurally singular, error found sorting equations</code></li>
+        <li><code>IndexReduction.pantelidesIndexReduction failed</code></li>
+        <li><code>An independent subset of the model has imbalanced number of equations</code></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S08">
+  <span class="tag">結果 · 集計</span>
+  <h1>MSL 4.1.0 の全例題 566 本の照合</h1>
+  <div class="cols-2">
+    <table class="compact">
+      <tr><th>項目</th><th>本数</th><th>割合</th></tr>
+      <tr><td>例題</td><td>566</td><td>–</td></tr>
+      <tr><td>omc の <code>checkModel</code> で数が出た</td><td>566</td><td>100%</td></tr>
+      <tr><td>時間切れ・異常終了・再実行・結果なし</td><td class="ok">0・0・0・0</td><td>–</td></tr>
+      <tr><td><b>S5: 判定が一致</b>（P2 の完了条件）</td><td class="ok"><b>382 / 382</b></td><td class="ok"><b>100%</b></td></tr>
+      <tr><td>S5: 方程式数と未知数が同じ数</td><td>307 / 382</td><td>80.4%</td></tr>
+      <tr><td>GM-U: <code>checkModel</code> で数が合う</td><td>184 / 184</td><td>100%</td></tr>
+      <tr><td>GM-U: <code>translateModel</code> も通る</td><td>180 / 184</td><td>97.8%</td></tr>
+      <tr><td><code>GM-U0003</code> の一覧が omc で通る</td><td class="ok">50 / 50</td><td>100%</td></tr>
+      <tr><td>S6: 一致</td><td>362 / 363</td><td>99.7%</td></tr>
+      <tr><td>S8（過剰だけ）: 一致</td><td>354 / 355</td><td>99.7%</td></tr>
+      <tr><td><code>translateModel</code>: 通る / 失敗 / 特異</td><td>535 / 21 / 10</td><td>–</td></tr>
+    </table>
+    <div>
+      <div class="kpis">
+        <div class="kpi"><span class="n">424 s</span><span class="l">omc の実行（12 プロセス、50 本ごと）</span></div>
+        <div class="kpi"><span class="n">2</span><span class="l">食い違い（S6 の 1 本、S8 の 1 本）</span></div>
+      </div>
+      <div class="card hl">
+        <h3>P2 の完了条件</h3>
+        <p class="small">「S5 が omc と 95% 以上一致する」は <b class="ok">100%</b> で<b>達成</b>。P2 の完了条件 3 つのうち、残っていた最後の 1 つ。</p>
+      </div>
+      <p class="small">ファネルの回し直し（<code>counts.unknowns</code> を足した JSON のため）: OK 369・NG 13（S5 1・S6 12）・GM-U 184・panic 0、S6 と Rumoca の照合 381 / 381。S007 と同じ本数。検査 913.7 s、最大 RSS 7.2 GiB。</p>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S09">
+  <span class="tag">結果 · S5 と数の差</span>
+  <h1>数が違う 75 本も、差は方程式と変数に同じだけ付く</h1>
+  <div class="cols-2">
+    <div>
+      <table class="compact">
+        <tr><th>omc − globe</th><th><code>Clocked.Examples.*</code></th><th>そのほか</th></tr>
+        <tr><td>+2</td><td>16</td><td>2</td></tr>
+        <tr><td>+3</td><td>48</td><td>0</td></tr>
+        <tr><td>+5</td><td>5</td><td>0</td></tr>
+        <tr><td>+6</td><td>1</td><td>0</td></tr>
+        <tr><td>+8</td><td>0</td><td>1</td></tr>
+        <tr><td>+11</td><td>1</td><td>0</td></tr>
+        <tr><td>+30</td><td>1</td><td>0</td></tr>
+        <tr><td><b>計</b></td><td><b>72</b></td><td><b>3</b></td></tr>
+      </table>
+      <ul class="small">
+        <li>差は方程式数と変数数の差（両方で同じ値）</li>
+        <li>大きいもの: <code>LogicalSample</code> 212 → 242（+30）、<code>EngineThrottleControl</code> 117 → 128（+11）、<code>AbsoluteClocks</code> 67 → 73（+6）</li>
+        <li>そのほかの 3 本: <code>InverseParameterization</code>（+8）、<code>SpacePhasorLimiter</code>（+2）、<code>TwoPhaseWater.BaseProperties</code>（+2）</li>
+      </ul>
+    </div>
+    <div>
+      <div class="card hl">
+        <h3>判定は変わらない</h3>
+        <ul class="small">
+          <li>差はどれも方程式数と変数数の<b>両方に同じだけ</b>付く。合う / 合わないの判定は同じ</li>
+          <li>globe の数は S5 の数え方（どちらもスカラーの総数）</li>
+          <li>S5 で NG の 1 本 <code>PartialOpAmp</code>（partial）は、globe も omc も 23 / 27</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3 class="warn">未確認</h3>
+        <p class="small">omc が余分に数えているもの（クロックの変数など）の内訳は調べていない。判定には影響しない。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S10">
+  <span class="tag">結果 · GM-U</span>
+  <h1>GM-U の 184 本は omc では数が合う → Rumoca の制約</h1>
+  <div class="cols-2">
+    <div>
+      <div class="kpis">
+        <div class="kpi"><span class="n">184 / 184</span><span class="l">omc の <code>checkModel</code> で数が合う</span></div>
+        <div class="kpi"><span class="n">180 / 184</span><span class="l"><code>translateModel</code> も通る（97.8%）</span></div>
+      </div>
+      <table class="compact">
+        <tr><th><code>GM-U0003</code> の一覧（Rumoca のコード）</th><th>本数</th><th>omc</th></tr>
+        <tr><td>ED001</td><td>41</td><td class="ok">全部通る</td></tr>
+        <tr><td>ET004（FFT・整流器の FFT）</td><td>4</td><td class="ok">全部通る</td></tr>
+        <tr><td>ED010（<code>Digital.Counter</code> など）</td><td>3</td><td class="ok">全部通る</td></tr>
+        <tr><td>ER130（<code>Translational.Friction</code>・<code>HeatLosses</code>）</td><td>2</td><td class="ok">全部通る</td></tr>
+        <tr><td><b>計</b></td><td><b>50</b></td><td class="ok"><b>50 / 50</b></td></tr>
+      </table>
+      <p class="small">一覧は Rumoca の制約として正しい（ADR-0007 の C を実施）。上流への報告はユーザーが出す。</p>
+    </div>
+    <div class="card">
+      <h3><code>translateModel</code> が通らない 4 本</h3>
+      <table class="compact">
+        <tr><th>モデル</th><th>omc</th></tr>
+        <tr><td><code>Transformer1PhaseWithHysteresis</code><br><span class="muted">FluxTubes の Hysteresis.Components</span></td><td>特異（接続の無い部品モデル）</td></tr>
+        <tr><td><code>Transformer3PhaseYyWithHysteresis</code><br><span class="muted">同上</span></td><td>特異（同上）</td></tr>
+        <tr><td><code>FieldWeakeningController</code><br><span class="muted">QuasiStatic.FundamentalWave の ExampleUtilities</span></td><td>omc 側の別の失敗</td></tr>
+        <tr><td><code>ReadRealMatrixFromFile</code><br><span class="muted">Utilities.Examples</span></td><td>omc が modelica:// のファイルを開けない</td></tr>
+      </table>
+      <p class="small">4 本とも <code>checkModel</code> の数は合う。GM-U の内訳は U0001 が 82・U0002 が 52・U0003 が 50。</p>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S11">
+  <span class="tag">結果 · S6 構造特異</span>
+  <h1>S6 で止めた 12 本のうち 7 本は omc も特異</h1>
+  <div class="cols-2">
+    <table class="compact">
+      <tr><th>globe が S6 で止めたモデル</th><th>omc の translateModel</th></tr>
+      <tr><td><code>OpAmpCircuits.Add</code>・<code>Gain</code></td><td class="ok">特異: Pantelides 法が失敗（Found empty set of continuous equations）</td></tr>
+      <tr><td><code>OpAmpCircuits.Buffer</code>・<code>Feedback</code></td><td class="ok">特異: Found equation without time-dependent variables（in_p.i = 0.0、r4.i = 0.0）</td></tr>
+      <tr><td>FluxTubes の <code>ConstantActuator</code>・<code>PermeanceActuator</code>・<code>SimpleSolenoid</code></td><td class="ok">特異: 同じ文言（接続の無いピンの n.i = 0.0）</td></tr>
+      <tr><td><code>OpAmpCircuits.Der</code>・<code>Derivative</code>・<code>FirstOrder</code>・<code>Integrator</code>・<code>PI</code></td><td class="muted">比べない: 手前で止まる（Parameter f / T has neither value nor start value, and is fixed）。globe なら S8 の GM-W8003 にあたる</td></tr>
+    </table>
+    <div class="card hl">
+      <h3 class="warn">不一致の 1 本: <code>AdvancedSolenoid</code></h3>
+      <p class="small muted">Magnetic.FluxTubes.Examples.SolenoidActuator.Components</p>
+      <ul class="small">
+        <li><b>globe</b>: OK。S5 は 292 / 292（omc も同じ）。S6 は x と der(x) をまとめた二部グラフで <b>290 / 290</b> の完全マッチング（der の形では 287 / 290）。S7 はインデックス 2（175 本を 1 回ずつ微分、動的な状態 5 / 8）</li>
+        <li><b>omc</b>: Internal error IndexReduction.pantelidesIndexReduction failed! Found empty set of continuous equations</li>
+        <li><b>どちらが正しいかは未確認。</b>omc の <code>-d=bltdump</code> と globe の S6・S7 の詳細を見る（S009 の候補 1）</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S12">
+  <span class="tag">結果 · S8 と omc が通さないもの</span>
+  <h1>過剰の見込みの 3 本は、余分な本数まで omc と同じ</h1>
+  <div class="cols-2">
+    <div>
+      <table class="compact">
+        <tr><th>モデル</th><th>globe の S8（与えた / 要る）</th><th>omc</th></tr>
+        <tr><td><code>Analog…GenerationOfFMUs</code></td><td>過剰 8 / 6</td><td class="ok">過剰 2</td></tr>
+        <tr><td><code>Lines.CompareLineTrunks</code></td><td>過剰 60 / 57</td><td class="ok">過剰 3</td></tr>
+        <tr><td><code>HeatTransfer…GenerationOfFMUs</code></td><td>過剰 4 / 3</td><td class="ok">過剰 1</td></tr>
+        <tr><td><code>Fluid…NonCircularPipes</code></td><td>不足 4 / 40</td><td class="ng">過剰 2</td></tr>
+      </table>
+      <ul class="small">
+        <li>上の 3 本は globe の GM-W8004（S007 で Error から警告に下げた）。omc も同じ本数を冗長として取り除いた</li>
+        <li><code>NonCircularPipes</code> が<b>不一致</b>。数だけで見る S8 は、与えた初期条件の中の冗長さを見られない（S009 の候補 3）</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>globe は OK、omc は通さない 13 本</h3>
+      <ul class="small">
+        <li><b>12 本</b>: partial の PowerConverters の <code>ExampleTemplates.*</code>。omc は「Illegal to instantiate partial class」。globe は Rumoca のハーネスと同じく partial も判定する</li>
+        <li><b>1 本</b>: <code>SpacePhasorLimiter</code>。omc は「Parameter yMax has neither value nor start value」を Error に。globe は S8 の警告 GM-W8003</li>
+      </ul>
+      <h3>検証用モデル</h3>
+      <ul class="small">
+        <li><code>Invalid.StructurallySingular</code>: omc も checkModel は 3 / 3、translateModel が imbalanced (1) と (2) で失敗</li>
+        <li><code>Invalid.HighIndexDuplicate</code>: omc は structurally singular と over specified</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S13">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+<pre><code>omc --version                         # OpenModelica 1.27.1~2-g6db4671
+mise run msl:funnel                   # 全例題の判定（release、約 14〜15 分）。JSON が target/msl-funnel.json に残る
+mise run msl:omc                      # omc と照合（約 7 分）。報告は doc/omc-compare.md、生の結果は target/omc-compare.json
+cargo xtask omc-compare --reuse target/omc-compare.json \
+  --funnel-json target/msl-funnel.json --report doc/omc-compare.md   # omc を呼ばずに照合だけやり直す</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">566</span><span class="l">照合した例題（omc の結果なし 0）</span></div>
+    <div class="kpi"><span class="n">424 s</span><span class="l">omc の実行（12 プロセス。時間切れ・異常終了・再実行 0）</span></div>
+    <div class="kpi"><span class="n">913.7 s</span><span class="l">ファネルの回し直しの検査（最大 RSS 7.2 GiB）</span></div>
+    <div class="kpi"><span class="n">7</span><span class="l"><code>omc.rs</code> の単体テスト（印の読み取り、文言の分類、照合の規則、JSON の読み取り）</span></div>
+    <div class="kpi"><span class="n">52 → 0</span><span class="l">反復変数の一覧の読み違いで「失敗」にした本数（直した後）</span></div>
+  </div>
+  <p class="small">CI には入れていない（ランナーに omc が無い）。<code>msl:funnel</code> のあと、omc が入っていれば手で <code>mise run msl:omc</code> を回し、S5 の一致率を作業記録に書く（CLAUDE.md §2、ADR-0010）。</p>
+</section>
+
+<section class="slide" id="S14">
+  <span class="tag">次回</span>
+  <h1>S009 — P2 の 5 回目の候補</h1>
+  <div class="cols-2">
+    <div class="card hl">
+      <h3>1. omc と食い違った 2 本を調べる</h3>
+      <ul class="small">
+        <li><code>AdvancedSolenoid</code> の真偽（omc の <code>-d=bltdump</code>、globe の S6・S7 の詳細）</li>
+        <li><code>NonCircularPipes</code>（globe は不足、omc は冗長な初期方程式 2 本。候補 3 と同じ話）</li>
+        <li>omc が手前で止める「fixed なパラメータに値が無い」（<code>GM-W8003</code> 相当、<code>OpAmpCircuits.Der</code> など 5 本）を S6 より前で報告するか</li>
+      </ul>
+      <h3>残したこと</h3>
+      <ul class="small">
+        <li>数の差（<code>Clocked</code> の 72 本など、2〜30）の内訳</li>
+        <li>S7 と S8 の不足は omc と比べられない</li>
+        <li>検証用モデルの omc での検査は手で行った（自動化していない）</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>ほかの候補（roadmap のまま）</h3>
+      <ol class="small" start="2">
+        <li>閉包の切り替えの費用を和らげる（<code>Checker</code> に文書の和集合を持たせる、など）</li>
+        <li>S8 を精密に: 初期方程式の incidence で初期化系をマッチングし、冗長さも見る</li>
+        <li>離散変数の when の区別（<code>GM-W8004</code> と柔らかい <code>GM-W8001</code> を確定させる）</li>
+        <li>S9（代数ループ）・S10（プリフライト）</li>
+        <li><code>Checker</code> のメモリの上限（P4 のプロセス構成が決まってから）</li>
+        <li>Rumoca の制約の上流報告（ユーザーが出す。<code>GM-U0003</code> の 50 本は omc で通ると確かめた）</li>
+        <li><code>class_index</code> の残り（for や if の中の connect、継承したクラスの入れ子）</li>
+      </ol>
+      <p class="small">omc は照合にだけ使い、globe check の判定には使わない（ライセンス、速さ、依存の方針は変えない）。</p>
+    </div>
+  </div>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

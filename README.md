@@ -12,7 +12,7 @@ GlobeMode is planned to run on Linux (Debian family), Windows 11, Android, in th
 
 Phase A uses [Rumoca](https://github.com/CogniPilot/rumoca) (Apache-2.0) behind an adapter as the compiler frontend.
 
-> **Status:** P1 (skeleton) done; P2 (lazy queries and checks) in progress. The `globe` CLI checks models through salsa queries (whitespace-only edits do not recompile; MSL is loaded once; only the files a model uses are passed to the compiler, so editing an unused file does not recompile), reports structural singularity (S6, perfect matching with a Dulmage–Mendelsohn breakdown), estimates the structural index and state-selection candidates with the Pantelides algorithm (S7), checks the count of initial conditions (S8), and separates compiler limitations (GM-U) from model errors. All 566 MSL 4.1.0 examples get a verdict. Comparison with OpenModelica (`omc`) is postponed until `omc` is installed. See [doc/roadmap.md](doc/roadmap.md).
+> **Status:** P1 (skeleton) done; P2 (lazy queries and checks) in progress. The `globe` CLI checks models through salsa queries (whitespace-only edits do not recompile; MSL is loaded once; only the files a model uses are passed to the compiler, so editing an unused file does not recompile), reports structural singularity (S6, perfect matching with a Dulmage–Mendelsohn breakdown), estimates the structural index and state-selection candidates with the Pantelides algorithm (S7), checks the count of initial conditions (S8), and separates compiler limitations (GM-U) from model errors. All 566 MSL 4.1.0 examples get a verdict. S5 (equation/variable balance) agrees with OpenModelica's `omc checkModel()` on all 382 examples that have a verdict (S008; `omc` is only called as a separate process, for comparison). See [doc/roadmap.md](doc/roadmap.md).
 
 Licensed under either of [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE) at your option. Unless you explicitly state otherwise, any contribution you intentionally submit for inclusion in the work, as defined in the Apache-2.0 license, will be dual licensed as above, without any additional terms or conditions.
 
@@ -20,7 +20,7 @@ Licensed under either of [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE) at y
 
 ## 日本語
 
-GlobeMode は Rust で作る OSS の Modelica IDE。P1（骨格）まで済み、P2（遅延クエリと検査）を進めている。CLI `globe` で、アウトラインの表示、connect グラフ、S0〜S8 の検査（方程式数と変数数、構造特異、Pantelides 法による構造インデックスと状態選択の候補、初期条件の数）ができる。検査は salsa のクエリで、空白だけの編集や、モデルが使わないファイルの編集では再コンパイルしない（`globe deps` で使うファイルを見られる）。MSL 4.1.0 の全例題 566 本に判定を出した。omc との照合は、omc を入れてから行う。
+GlobeMode は Rust で作る OSS の Modelica IDE。P1（骨格）まで済み、P2（遅延クエリと検査）を進めている。CLI `globe` で、アウトラインの表示、connect グラフ、S0〜S8 の検査（方程式数と変数数、構造特異、Pantelides 法による構造インデックスと状態選択の候補、初期条件の数）ができる。検査は salsa のクエリで、空白だけの編集や、モデルが使わないファイルの編集では再コンパイルしない（`globe deps` で使うファイルを見られる）。MSL 4.1.0 の全例題 566 本に判定を出した。S5（方程式数と変数数）は OpenModelica の `omc checkModel()` と、判定のある 382 本すべてで一致した（S008。omc は照合のために別プロセスで呼ぶだけ）。
 
 | 文書 | 内容 |
 | --- | --- |

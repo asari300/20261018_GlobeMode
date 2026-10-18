@@ -366,13 +366,15 @@ impl S8Balance {
     }
 }
 
-/// 成功したときの数（状態 / 代数 / 出力は配列を 1 個、方程式はスカラー）。
+/// 成功したときの数（状態 / 代数 / 出力は配列を 1 個、方程式と未知数はスカラー）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Counts {
     pub states: usize,
     pub algebraics: usize,
     pub outputs: usize,
     pub equations: usize,
+    /// スカラーの未知数の総数（S5 の数え方。omc の `checkModel` の変数数と比べる、S008）
+    pub unknowns: usize,
 }
 
 /// 1 本の結果。
@@ -454,6 +456,7 @@ impl Row {
                 algebraics: d.algebraics,
                 outputs: d.outputs,
                 equations: b.equations,
+                unknowns: b.unknowns,
             }),
             s6: None,
             s6_note: None,
@@ -1411,6 +1414,7 @@ fn render_json(rows: &[Row], s: &Summary, run: &RunInfo<'_>) -> serde_json::Valu
                     "algebraics": c.algebraics,
                     "outputs": c.outputs,
                     "equations": c.equations,
+                    "unknowns": c.unknowns,
                 })),
                 "s6": r.s6.as_ref().map(|x| json!({
                     "equations": x.equations,
@@ -1926,7 +1930,8 @@ mod tests {
                 states: 0,
                 algebraics: 2,
                 outputs: 0,
-                equations: 2
+                equations: 2,
+                unknowns: 2,
             })
         );
 

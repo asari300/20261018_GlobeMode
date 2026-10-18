@@ -36,8 +36,8 @@ GlobeModeValidation/
 | `Connect.Subsystem` | 外に 2 つのピンを出す部分回路 | — | OK |
 | `Connect.Hierarchical` | 部分回路を 2 つ直列（depth のテスト） | depth 1 はノード 4・辺 4、depth 2 はノード 10・辺 10 | OK。40 = 40。S8 は警告（GM-W8001 と GM-W8002 × 2） |
 | `Invalid.SignalTypeMismatch` | Real の出力を Boolean の入力に接続 | ノード 2・辺 1 | S4（GM-E4001）で止まる |
-| `Invalid.StructurallySingular` | なし（x だけを含む方程式が 2 本あり、y と z を 1 本の方程式で決めている） | — | S6（GM-E6001）で止まる。方程式 3 = 変数 3 なので S5 は通る |
-| `Invalid.HighIndexDuplicate` | なし（RC 回路を式だけで書き、電圧則を 2 回書いてオームの法則を書き忘れた） | — | S6 は通る。S7 の情報 GM-I7001（インデックス 2）と GM-I7002。構造的には動的な状態が 0 なので `fixed = true` が 1 つ余り、S8 は警告 GM-W8004（インデックスの低減で状態が減るため確定できない）。OK（警告だけ） |
+| `Invalid.StructurallySingular` | なし（x だけを含む方程式が 2 本あり、y と z を 1 本の方程式で決めている） | — | S6（GM-E6001）で止まる。方程式 3 = 変数 3 なので S5 は通る。omc 1.27.1 でも `checkModel` は 3 / 3 で通り、`translateModel` が「An independent subset of the model has imbalanced number of equations (1) and variables (2)」で失敗する（S008 で確認） |
+| `Invalid.HighIndexDuplicate` | なし（RC 回路を式だけで書き、電圧則を 2 回書いてオームの法則を書き忘れた） | — | S6 は通る。S7 の情報 GM-I7001（インデックス 2）と GM-I7002。構造的には動的な状態が 0 なので `fixed = true` が 1 つ余り、S8 は警告 GM-W8004（インデックスの低減で状態が減るため確定できない）。OK（警告だけ）。omc 1.27.1 では `translateModel` が「Model is structurally singular, error found sorting equations」（`der(vC)` の dummy derivative）を出し、「The initial conditions are over specified」の警告も出る（S008 で確認） |
 | `Index.Pendulum` | なし（直交座標の平面の振り子を式だけで書いた。状態 x, y, vx, vy と張力 lambda） | — | OK。方程式 5 = 変数 5。S7 の情報 GM-I7001（構造インデックス 3: 拘束 `x ^ 2 + y ^ 2 = L ^ 2` を 2 回、`der(x) = vx` と `der(y) = vy` を 1 回ずつ微分）と GM-I7002（状態選択の候補 x, y, vx, vy。動的な状態の見込み 2）。fixed は x と vx の 2 つ |
 | `Index.ParallelCapacitors` | なし（電流源と 2 つのコンデンサを理想的に並列にした回路を式だけで書いた） | — | OK。方程式 5 = 変数 5。S7 の情報 GM-I7001（構造インデックス 2: `v1 = v2` を 1 回微分）と GM-I7002（状態選択の候補 v1, v2。動的な状態の見込み 1）。fixed は v1 だけ |
 | `Init.Balanced` | なし（ばね・質量・ダンパを式だけで書いた。状態 x, v の 2 つ） | — | OK。方程式 2 = 変数 2。S8 は初期条件 2 / 2（x の `fixed = true` と `initial equation` の `v = 0`） |
