@@ -52,7 +52,24 @@ def _local_names() -> set[str]:
         names.add(getpass.getuser())
     except Exception:                            # noqa: BLE001
         pass
+    names |= _windows_profiles()
     return {n for n in names if n and len(n) >= 3 and n not in {"root", "user"}}
+
+
+def _windows_profiles() -> set[str]:
+    """WSL から見える Windows のユーザープロファイル名（/mnt/c/Users/<名前>）。
+
+    S006 で Windows 側の LM Studio を調べたとき、パスの外（「プロファイル名 X は読めない」などの文）にも
+    プロファイル名が出た。パスの規則だけでは消えないので、名前そのものを伏せ字にする。
+    """
+    builtin = {"public", "default", "default user", "all users", "defaultuser0", "wsiaccount"}
+    try:
+        profiles = {d.name for d in Path("/mnt/c/Users").iterdir() if d.is_dir() and d.name.lower() not in builtin}
+    except OSError:
+        return set()
+    # 「姓 名」のような名前は、語に分かれて現れることもある（コマンドの引数など）。4 文字以上の語も消す。
+    parts = {w for n in profiles for w in re.split(r"[\s._-]+", n) if len(w) >= 4}
+    return profiles | parts
 
 
 # 順番に意味がある。具体的なもの（トークン・パス）から先に潰す。
@@ -68,6 +85,9 @@ REDACTIONS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"/mnt/[a-z]/Users/[^/\s\"'`]+", re.I), "~"),
     (re.compile(r"[A-Za-z]:[\\/]+Users[\\/]+[^\\/\s\"'`]+", re.I), "~"),
     (re.compile(r"/home/[^/\s\"'`]+"), "~"),
+    # LAN と Tailscale（100.64.0.0/10）のアドレス。10.x は WSL の DNS（10.255.255.254）など説明に使うので残す。
+    (re.compile(r"\b(?:192\.168|172\.(?:1[6-9]|2\d|3[01]))\.\d{1,3}\.\d{1,3}\b"), "<private-ip>"),
+    (re.compile(r"\b100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3}\b"), "<private-ip>"),
     (re.compile(r"/Users/[^/\s\"'`]+"), "~"),
 ]
 

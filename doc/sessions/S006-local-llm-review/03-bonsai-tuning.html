@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S006-03 Bonsai の調整 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S006 · 03 Bonsai の調整">
+
+<section class="slide" id="S01">
+  <span class="tag">S006 · 03 Bonsai の調整</span>
+  <h1>「Bonsai」は 4 系列ある。入っているのは Bonsai-27B（Q1_0）</h1>
+  <table class="compact">
+    <tr><th>系列</th><th>大きさ</th><th>ベース</th><th>形式</th><th>最大 ctx</th></tr>
+    <tr><td>1-bit Bonsai（2026-03）</td><td>8B / 4B / 1.7B</td><td>Qwen3（dense）</td><td>Q1_0（1.125 bpw）</td><td>64K / 32K / 32K</td></tr>
+    <tr><td>Ternary Bonsai（2026-04）</td><td>8B / 4B / 1.7B</td><td>Qwen3</td><td>1.58 bit</td><td>—</td></tr>
+    <tr class="accent"><td><b>Bonsai-27B</b>（この PC）</td><td><b>27B</b>、3.8 GB ＋ mmproj 0.9 GB</td><td>Qwen3.6 27B（<code>qwen35</code>）</td><td><b>Q1_0</b></td><td><b>262K</b></td></tr>
+    <tr><td>Ternary-Bonsai-2（2026-09〜10）</td><td>27B / 9B / 4B / 2B</td><td>Qwen3.5</td><td>PTQ1_0 / PQ2_0（専用ビルドが要る）</td><td>—</td></tr>
+  </table>
+  <ul class="small">
+    <li>LM Studio の公式カタログにあるのは <code>prism-ml/bonsai-27b</code>。ツール呼び出し・推論（既定で有効）・画像入力に対応する</li>
+    <li>8B と 27B では、層の数も KV キャッシュの式も違う。調整の前に、どれが入っているかを <code>/api/v0/models</code> の <code>arch</code> と <code>quantization</code> で確かめる</li>
+  </ul>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">構成 · GGUF のメタデータ（実機）</span>
+  <h1>64 層のうち、KV キャッシュを持つのは 16 層だけ</h1>
+  <svg class="fig" viewBox="0 0 1000 220" role="img" aria-label="qwen35 のハイブリッドな層の並び">
+    <rect class="svg-box" x="20" y="40" width="50" height="60" rx="6"/>
+    <rect class="svg-box" x="80" y="40" width="50" height="60" rx="6"/>
+    <rect class="svg-box" x="140" y="40" width="50" height="60" rx="6"/>
+    <rect class="svg-box-accent" x="200" y="40" width="50" height="60" rx="6"/>
+    <rect class="svg-box" x="270" y="40" width="50" height="60" rx="6"/>
+    <rect class="svg-box" x="330" y="40" width="50" height="60" rx="6"/>
+    <rect class="svg-box" x="390" y="40" width="50" height="60" rx="6"/>
+    <rect class="svg-box-accent" x="450" y="40" width="50" height="60" rx="6"/>
+    <text class="svg-text-b" x="560" y="78" text-anchor="middle">…</text>
+    <rect class="svg-box" x="620" y="40" width="50" height="60" rx="6"/>
+    <rect class="svg-box" x="680" y="40" width="50" height="60" rx="6"/>
+    <rect class="svg-box" x="740" y="40" width="50" height="60" rx="6"/>
+    <rect class="svg-box-accent" x="800" y="40" width="50" height="60" rx="6"/>
+    <text class="svg-text-m" x="935" y="78" text-anchor="middle">× 16 組</text>
+    <rect class="svg-box" x="40" y="140" width="40" height="30" rx="5"/>
+    <text class="svg-text" x="95" y="161">線形注意（Gated DeltaNet）48 層 — 状態は ctx に依らず一定（約 144 MiB）</text>
+    <rect class="svg-box-accent" x="40" y="180" width="40" height="30" rx="5"/>
+    <text class="svg-text" x="95" y="201">full attention 16 層 — KV キャッシュは ctx に比例（4 KV ヘッド × 256 次元）</text>
+  </svg>
+  <table class="compact">
+    <tr><th>block_count</th><th>full_attention_interval</th><th>head_count / kv</th><th>key / value length</th><th>ssm.state_size / inner</th></tr>
+    <tr><td>64</td><td>4</td><td>24 / 4</td><td>256 / 256</td><td>128 / 6144</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">KV キャッシュ · 計算</span>
+  <h1>1 トークンあたり 64 KiB。dense の 27B の 4 分の 1</h1>
+  <div class="cols-2">
+    <div>
+<pre><code>KV = 2 (K,V) × 16 層 × 4 KV ヘッド × 256 × ctx × バイト
+   = 32,768 × ctx × バイト
+fp16: 64 KiB/トークン   q8_0: 約 34 KiB   q4_0: 約 18 KiB</code></pre>
+      <table class="compact">
+        <tr><th>ctx</th><th>fp16</th><th>q8_0</th><th>q4_0</th><th>全体の見積もり*</th></tr>
+        <tr><td>8K</td><td>0.50 GiB</td><td>0.27</td><td>0.14</td><td>5.27 GiB</td></tr>
+        <tr class="accent"><td><b>12K</b></td><td>0.75 GiB</td><td>0.40</td><td>0.21</td><td>—</td></tr>
+        <tr><td>16K</td><td>1.00 GiB</td><td>0.53</td><td>0.28</td><td>5.66 GiB</td></tr>
+        <tr><td>32K</td><td>2.00 GiB</td><td>1.06</td><td>0.56</td><td>6.44 GiB</td></tr>
+        <tr><td>64K</td><td>4.00 GiB</td><td>2.13</td><td>1.13</td><td>7.99 GiB</td></tr>
+        <tr><td>262K</td><td>16.0 GiB</td><td>8.50</td><td>4.50</td><td>—</td></tr>
+      </table>
+      <p class="small">* <code>lms load … --estimate-only</code>（実機）。重み 3.8 GB と mmproj を含む。</p>
+    </div>
+    <div class="card hl">
+      <h3>この PC での意味</h3>
+      <ul class="small">
+        <li>RAM 31GB に対し、32K でも 6.4 GiB。<b>メモリは律速ではない</b></li>
+        <li>律速は<b>計算</b>: prompt 処理が 8〜10 tok/s しか出ない。16K の入力を読むだけで約 30 分</li>
+        <li>→ ctx は「1 回に読ませたい量」で決める。差分 6K ＋ system ＋ 出力 768 が入る <b>12K</b> を推奨</li>
+        <li>KV の量子化（q8_0）は GUI で選べるが、節約は 0.35 GiB ほど。品質への影響を避けて fp16 のままでよい</li>
+        <li>JIT の既定の ctx（この PC は「最大」）で読み込まれると KV だけで 16 GiB。<b>必ず ctx を指定して読み込む</b></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">実測 · 2026-10-18</span>
+  <h1>GPU に載せても速くならない。CPU だけで同じ速さ</h1>
+  <table class="compact">
+    <tr><th>構成</th><th>入力</th><th>最初のトークンまで</th><th>prompt 処理</th><th>生成</th></tr>
+    <tr><td>GPU max、ctx 32K、parallel 4</td><td>2,124</td><td>262.8 秒</td><td>8.1 tok/s</td><td>1.81 tok/s</td></tr>
+    <tr><td>GPU off、ctx 16K、parallel 1</td><td>2,124</td><td>267.1 秒</td><td>8.0 tok/s</td><td>2.24 tok/s</td></tr>
+    <tr><td>GPU max、ctx 12K、parallel 1</td><td>1,152</td><td>117.9 秒</td><td>9.8 tok/s</td><td>2.24 tok/s</td></tr>
+    <tr class="accent"><td><b>GPU off、ctx 12K、parallel 1</b></td><td>1,152</td><td>121.7 秒</td><td>9.5 tok/s</td><td><b>2.31 tok/s</b></td></tr>
+  </table>
+  <div class="cols-2">
+    <ul class="small">
+      <li>内蔵 GPU の専用 VRAM は 3.00 GiB（<code>lms runtime survey</code>）。5〜6 GiB のモデルは収まらない</li>
+      <li>Vulkan 版のランタイムが Q1_0 を GPU で計算していない可能性もある【未確認】</li>
+      <li>読み込みは GPU off で 8.5 秒、GPU max で 53 秒。<b>GPU off を推奨</b></li>
+    </ul>
+    <div class="kpis">
+      <div class="kpi"><span class="n">約 9</span><span class="l">prompt 処理 tok/s</span></div>
+      <div class="kpi"><span class="n">約 2.3</span><span class="l">生成 tok/s</span></div>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">推論（thinking）を切る</span>
+  <h1>推論を切らないと、「17×23」に 2 分かかる</h1>
+  <table class="compact">
+    <tr><th>リクエストの指定</th><th>結果</th><th>時間</th></tr>
+    <tr><td>何も付けない（既定で推論あり）</td><td>推論 186 トークンのあとに "391"</td><td class="ng">126.7 秒</td></tr>
+    <tr class="accent"><td><code>"reasoning_effort": "none"</code>（OpenAI 互換・REST）</td><td class="ok">推論 0 で "391"</td><td class="ok">3.8 秒</td></tr>
+    <tr><td><code>"thinking": {"type": "disabled"}</code>（<code>/v1/messages</code>）</td><td class="ok">推論なしで "pong"</td><td class="ok">6 秒</td></tr>
+    <tr><td><code>"chat_template_kwargs": {"enable_thinking": false}</code></td><td class="ng">無視された（推論 269 トークン）</td><td class="ng">148.5 秒</td></tr>
+  </table>
+  <ul class="small">
+    <li>チャットテンプレートは <code>enable_thinking</code> が false のときだけ空の <code>&lt;think&gt;&lt;/think&gt;</code> を入れる。LM Studio は <code>reasoning_effort</code> をこれに対応づけている（実測からの推定）</li>
+    <li>Qwen3 の <code>/no_think</code> の書き方は、このテンプレートでは扱われない</li>
+    <li>/local-review は既定で <code>reasoning_effort: "none"</code>。<code>--think</code> で推論ありに戻せる（1 塊で数十分延びる）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">推奨の読み込み設定</span>
+  <h1>12K・CPU・並列 1・TTL 30 分</h1>
+  <div class="cols-2">
+<pre><code># Windows（PowerShell）でも WSL（alias lms=…lms.exe）でも同じ
+lms unload --all
+lms load prism-ml/bonsai-27b -c 12288 \
+    --gpu off --parallel 1 --ttl 1800 -y
+lms ps
+# IDENTIFIER           CONTEXT  PARALLEL  TTL
+# prism-ml/bonsai-27b  12288    1         30m
+
+# WSL から REST で（ctx と Flash Attention を指定）
+S=.claude/skills/local-review/lmstudio_review.py
+python3 -I $S --load 12288</code></pre>
+    <table class="compact">
+      <tr><th>設定</th><th>値</th><th>どこで</th></tr>
+      <tr><td>Context Length</td><td>12288</td><td><code>-c</code> / REST</td></tr>
+      <tr><td>GPU Offload</td><td>off</td><td><code>--gpu</code>（REST には無い）</td></tr>
+      <tr><td>Max Concurrent Predictions</td><td>1</td><td><code>--parallel</code></td></tr>
+      <tr><td>TTL</td><td>1800 秒</td><td><code>--ttl</code> / リクエスト</td></tr>
+      <tr><td>Flash Attention</td><td>on</td><td>REST / GUI</td></tr>
+      <tr><td>K / V Cache Quantization</td><td>既定（fp16）。詰めるなら q8_0</td><td>GUI のみ</td></tr>
+      <tr><td>CPU Thread Pool Size</td><td>物理コア数（8）</td><td>GUI のみ</td></tr>
+      <tr><td>mmap / Keep in Memory</td><td>既定</td><td>GUI のみ</td></tr>
+    </table>
+  </div>
+  <p class="small">GUI: My Models → bonsai-27b の歯車 → Load タブ。保存先は <code>%USERPROFILE%\.lmstudio\.internal\user-concrete-model-default-config\prism-ml\bonsai-27b.json</code>（いまは ctx 32768 だけが入っている）。<code>--parallel</code> を省くと既定の 4 になる。</p>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">まとめ</span>
+  <h1>小さい PC では「ctx を詰める」より「入力を絞る」</h1>
+  <div class="big">KV は <b>64 KiB/トークン</b>で軽い。重いのは計算で、<b>約 9 tok/s</b> で読む前提で差分を絞る。</div>
+  <ul class="small">
+    <li>速さが要るときは、モデルを替える（MoE の <code>gpt-oss-20b</code>、<code>gemma-4-26b-a4b</code>、小さい <code>nemotron-3-nano-4b</code> など、インストール済み）。<code>LMSTUDIO_MODEL</code> を変えるだけで済む【速さは未計測】</li>
+  </ul>
+  <p><a href="slides.html">← 全体のスライドへ戻る</a> ／ 前: <a href="02-lmstudio-server.html">02</a> ／ 次: <a href="04-review-skill.html">04 /local-review</a></p>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
