@@ -82,13 +82,37 @@ git commit
 - 何か出たら、それが意図した記述かを1件ずつ確かめる。疑わしければ止める。
 - コミットメッセージは「何を・なぜ」。末尾に、システムが指示する Co-Authored-By の行を付ける。
 
-## 6. 報告する
+## 6. main にマージして push する（CI を回す）
+
+CI は **main を直接 push して回す**（ユーザーの決定。PR は使わない）。
+
+```bash
+MAIN=$(git worktree list --porcelain | awk '/^worktree /{print $2; exit}')
+BRANCH=$(git branch --show-current)
+git -C "$MAIN" status --porcelain        # main に未コミットの変更が無いか。あれば止めて伝える
+git -C "$MAIN" merge --no-ff -m "Merge $BRANCH: <要約>" "$BRANCH"
+git -C "$MAIN" push origin main
+```
+
+- push の前に、5 の漏洩検査を **main と origin/main の差分**に対しても実行する。
+  - `git -C "$MAIN" diff origin/main..main -U0 | grep '^+' | grep -nE "$LEAK"` が 0 件であることを確かめる。
+- feature ブランチは push しない。
+- push したら Actions の結果を確かめる（`gh` が無いので、公開リポジトリなら API で見る）。
+
+  ```bash
+  curl -s "https://api.github.com/repos/asari300/20261018_GlobeMode/actions/runs?branch=main&per_page=1" \
+    | python3 -c "import sys,json; r=json.load(sys.stdin)['workflow_runs'][0]; print(r['head_sha'][:7], r['status'], r['conclusion'], r['html_url'])"
+  ```
+
+- CI が落ちたら、新しいセッション（worktree）で直して、同じ手順でもう一度 push する。
+
+## 7. 報告する
 
 ユーザーには次を伝える。
 
 - 何を作ったか・変えたか
 - 検査の結果（数字）
-- ブランチ名と worktree のパス、`main` への取り込み方（`git merge --no-ff feature/sNNN-<topic>`）
+- ブランチ名と worktree のパス、main のコミット、CI の結果（URL）
 - 積み残しと、次のセッションでやること
 
-worktree の片付け（`git worktree remove` / `git branch -d`）は、**取り込みが済んでからユーザーが判断する**。勝手に消さない。
+worktree の片付け（`git worktree remove` / `git branch -d`）は、**ユーザーが判断する**。勝手に消さない。
