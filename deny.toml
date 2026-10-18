@@ -1,0 +1,50 @@
+# cargo-deny の設定。方針は doc/licenses.md、手順は .claude/skills/add-dependency/SKILL.md。
+# 実行: cargo deny check（mise run check にも含まれる）
+
+[graph]
+all-features = false
+
+[advisories]
+version = 2
+# 例外は「脆弱性ではなく保守終了の勧告で、Rumoca 経由でしか入らない」ものに限る。
+# Rumoca の rev を上げるたびに、まだ要るかを確かめる（xtask bump-rumoca）。
+ignore = [
+  { id = "RUSTSEC-2025-0141", reason = "bincode 1.x の保守終了。rumoca-compile 経由（2026-10-18、Rumoca v0.10.2）" },
+  { id = "RUSTSEC-2024-0436", reason = "paste の保守終了。faer → gemm 経由の proc-macro（2026-10-18）" },
+]
+
+[licenses]
+version = 2
+# doc/licenses.md の「許可」。条件付き（MPL-2.0 / EPL-2.0）は exceptions に crate ごとに足す。
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Zlib",
+  "Unicode-3.0",
+  "CC0-1.0",
+  "BSL-1.0",
+]
+confidence-threshold = 0.9
+exceptions = []
+
+[bans]
+multiple-versions = "allow"
+wildcards = "deny"
+allow-wildcard-paths = true
+deny = [
+  # umbrella crate は zenoh・gamepad・UDP を引き込む。rumoca-compile などの個別の crate を使う（ADR-0002）
+  { crate = "rumoca", reason = "umbrella crate を使わない（ADR-0002）" },
+  # Rumoca を使ってよいのはアダプタだけ
+  { crate = "rumoca-compile", wrappers = ["globe-mode-frontend", "globe-mode-exec"], reason = "Rumoca はアダプタからだけ使う（ADR-0002）" },
+  { crate = "zenoh", reason = "EPL-2.0 OR Apache-2.0。IDE のコアに要らない" },
+  { crate = "russell_sparse", reason = "GPL の UMFPACK をリンクする" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-git = ["https://github.com/CogniPilot/rumoca"]

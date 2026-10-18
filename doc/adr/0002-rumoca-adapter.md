@@ -24,6 +24,27 @@
 
 ## 結果
 
+- **S002 で実装した**（2026-10-18）。
+  - `rev` は v0.10.2（`276e82bd`）。依存するのは `rumoca-compile` だけ（`default-features = false`）。
+  - アダプタは `globe-mode-frontend` の `rumoca.rs` 1 ファイルに閉じ込めた。外には中立 IR（`Outline`、`BalanceCount`）と GlobeMode の診断だけを出す。
+  - Rumoca の失敗段階と GM コードの対応:
+
+    | Rumoca | GlobeMode |
+    | --- | --- |
+    | 構文の誤り | S0 / GM-E0001 |
+    | Typecheck | S2 / GM-E2001 |
+    | Instantiate | S3 / GM-E3001 |
+    | NeedsInner | S3 / GM-E3002 |
+    | Flatten | S4 / GM-E4001 |
+    | ToDae | S5 / GM-E5001 |
+    | ToDae のうち ED001（数が合わない） | S5 / GM-E5002 |
+
+  - Rumoca のコードは、診断の `notes` に残す（例: `rumoca: ED001`）。
+- Rumoca 経由で、保守終了の勧告が出ている crate が 2 つ入る。`deny.toml` で理由を書いて例外にし、`rev` を上げるたびに見直す。
+  - bincode 1.x（RUSTSEC-2025-0141）
+  - paste（RUSTSEC-2024-0436、faer 経由）
+- git 依存を持つので、GlobeMode の crate は crates.io に公開できない（`publish = false`）。
+
 - P1 で stable でビルドできるか確かめる必要がある（[ADR-0003](0003-toolchain.md)）。
 - 月に1回 `xtask bump-rumoca` で更新し、MSL のファネルの差分を記録する。
 - 配布物には Rumoca のライセンス文を同梱する。改変した場合は Apache-2.0 §4b に従って明記する。製品名に「Rumoca」を使わない。

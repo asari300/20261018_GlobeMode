@@ -7,11 +7,29 @@ precompiled_os = "ubuntu-26.04"    # Ubuntu 26.04 は自動判定されないの
 
 [tools]
 uv     = "0.13.1"                    # pyproject.toml の uv_build に合わせる
-rust   = { version = "stable", profile = "default", components = ["rust-analyzer"] }  # edition 2024 は 1.85 以上
+rust   = { version = "stable", profile = "default", components = ["rust-analyzer"], targets = "wasm32-unknown-unknown,wasm32-wasip2,aarch64-linux-android" }  # edition 2024 は 1.85 以上。rust-toolchain.toml は置かない
+cargo-deny = "0.20.2"             # ライセンスと依存の監査（doc/licenses.md）
 zig    = "latest"
 julia  = "latest"
 erlang = "27"                      # いま apt で入っている組み合わせと同じ
 elixir = "1.18.3-otp-27"           # erlang のメジャー番号と -otp-NN を必ず揃える
 gleam  = "latest"
+
+[tasks.check]
+description = "Rust の fmt / clippy / test / deny と、uv.lock の整合を確かめる"
+run = [
+  "cargo fmt --all --check",
+  "cargo clippy --workspace --all-targets -- -D warnings",
+  "cargo test --workspace",
+  "cargo deny check",
+  "uv sync --locked",
+]
+
+[tasks."docs:check"]
+description = "スライド・リンクの検査と、Playwright でのブラウザ表示の検査"
+run = [
+  "python3 -I .claude/skills/session-docs/check_docs.py",
+  "uv run python .claude/skills/session-docs/render_slides.py",
+]
 
 # python は書かない。Python 本体は uv が .python-version (3.12) から取得する。

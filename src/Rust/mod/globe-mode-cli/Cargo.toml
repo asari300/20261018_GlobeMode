@@ -1,0 +1,23 @@
+[package]
+name = "globe-mode-cli"
+description = "GlobeMode command line interface (`globe`)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "globe"
+path = "src/main.rs"
+
+[dependencies]
+globe-mode-core = { workspace = true }
+globe-mode-ir = { workspace = true }
+globe-mode-frontend = { workspace = true }
+clap = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

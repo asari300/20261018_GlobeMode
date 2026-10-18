@@ -1,8 +1,8 @@
 # ADR-0003 ツールチェーン（mise・uv・cargo）
 
-- 状態: **Proposed**（2026-10-18、S001）。
-  - ツールの管理方法は決定済み。
-  - Rumoca が stable でビルドできるかは P1 で確かめる。確かめたら Accepted にする。
+- 状態: **Accepted**（2026-10-18、S002）。
+  - S001 で Proposed として書いた。
+  - S002 で、Rumoca v0.10.2 の `rumoca-compile` が stable 1.99.1 でビルドできることを確かめた。
 
 ## 背景
 
@@ -33,6 +33,11 @@
   3. 最後の手段として、mise の rust を nightly に固定する。
 
 ## 結果
+
+- **S002 の確認**（2026-10-18）: Rumoca v0.10.2（`276e82bd`）の `rumoca-compile` について、stable 1.99.1 で次が通った。
+  - ネイティブ: `cargo check` と `cargo test`
+  - wasm32-unknown-unknown: `cargo check`
+  - 上の「stable で通らなかった場合」の手順は使わずに済んだ。Rumoca の `nightly-2026-02-27` の固定は、Rumoca 自身の wasm スレッドのためだけのものだった。
 
 - CI でも mise を使う（`mise install --locked`）。手元と同じ版でビルドする。
 - 既定のブラウザ版はシングルスレッドになる。rayon が現在のスレッドで動くようにフォールバックするかは P1 で確かめる。

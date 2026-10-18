@@ -22,6 +22,8 @@
 | diffsol | MIT | 許可 | 既定のソルバ |
 | SUNDIALS（sundials-sys） | BSD-3-Clause | 許可 | feature `sundials`。wasm では使えない |
 | faer、egg、salsa、rowan、petgraph、lsp-types | MIT / Apache-2.0 | 許可 | — |
+| serde、serde_json、clap | MIT OR Apache-2.0 | 許可 | S002 で導入 |
+| cargo-deny | MIT OR Apache-2.0 | 許可（ツール） | mise で入れる。配布物には入らない |
 | fmi、fmi-schema、fmi-sys、fmi-export | MIT OR Apache-2.0 | 許可 | — |
 | FMI ヘッダ、Reference-FMUs | BSD-2-Clause | 許可 | — |
 | MSL 4.1.0 | BSD-3-Clause | 許可 | 同梱せず取得する。同梱するならライセンス文を付ける |
@@ -43,9 +45,10 @@
 | fdg-sim 0.4 系、fdg-img、fdg-macroquad | GPL-3.0 | 禁止 | 0.6 / 0.9 以降の fdg-sim は MIT |
 | Dyad | PolyForm Strict を改変したもの | 禁止 | — |
 
-## 3. 監査の仕組み（P1 で導入する）
+## 3. 監査の仕組み
 
-- **cargo-deny**: `licenses.allow` に §1 の許可リストを入れ、条件付きのものは `exceptions` で個別に許す。
+- **cargo-deny**（S002 で導入。設定は [deny.toml](../deny.toml)）: `licenses.allow` に §1 の許可リストを入れ、条件付きのものは `exceptions` で個別に許す。
+  - 保守終了の勧告（unmaintained）は、Rumoca 経由のものに限って理由を書いて例外にする（bincode、paste）。
   - `bans` に `zenoh*`、`russell_sparse` と、umbrella crate の `rumoca` を入れる。
   - `wrappers = ["globe-mode-frontend", "globe-mode-exec"]` で、Rumoca を使える crate を制限する。
 - **cargo-about**: 配布物に入れる `THIRD_PARTY_LICENSES.html` を生成する。

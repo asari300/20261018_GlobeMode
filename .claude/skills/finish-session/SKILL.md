@@ -16,10 +16,11 @@ MAIN=$(git worktree list --porcelain | awk '/^worktree /{print $2; exit}')
 ## 1. コードの検査（Rust・Python・JS を触ったときだけ）
 
 ```bash
-cargo fmt --all --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
-cargo deny check            # ライセンスと bans。doc/licenses.md と食い違ったら止める
+mise run check              # 下の 4 つと uv sync --locked をまとめて実行する
+# cargo fmt --all --check
+# cargo clippy --workspace --all-targets -- -D warnings
+# cargo test --workspace
+# cargo deny check          # ライセンスと bans。doc/licenses.md と食い違ったら止める
 ```
 
 - workspace ができる前（P0）は不要。
