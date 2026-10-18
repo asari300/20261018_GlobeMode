@@ -98,3 +98,8 @@
 - `ClassOutline.imports` は保持するだけ（`deps_closure` は識別子で import の名前も拾う）。`class_index` の残り（for や if の中の connect、継承したクラスの中の入れ子のクラス）は未着手。
 - `Checker` のメモリの上限（P4 のプロセス構成が決まってから）、Rumoca の制約の上流報告（ユーザーが出す）。
 - `msl-funnel` は CI に入れていない。
+
+## 追記（CI）
+
+- 最初の push（run 39125953597、49 ファイル）は、ADR-0005 の anchor の修正を続けて push したときに GitHub の concurrency で **cancelled** になり、修正の push（run 39126005841）は差分だけの判定で plan と docs しか回らなかった（どちらも success）。Rust・deny・msl・Windows のジョブが S007 のコードに対して回っていないので、`[full-ci]` で全体を回し直した（下の run）。
+- 教訓: 直前の push が走っている間に push し直すと前の run が消える。続けて push するときはマージのメッセージに `[full-ci]` を入れる。
