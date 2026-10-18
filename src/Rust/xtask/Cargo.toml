@@ -1,6 +1,6 @@
 [package]
 name = "xtask"
-description = "GlobeMode development tasks (fetch MSL / Rumoca CLI, compare with Rumoca)"
+description = "GlobeMode development tasks (fetch MSL / Rumoca CLI, compare with Rumoca, MSL funnel)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,7 +10,10 @@ publish.workspace = true
 
 [dependencies]
 globe-mode-core = { workspace = true }
+globe-mode-ir = { workspace = true }
 globe-mode-frontend = { workspace = true }
+globe-mode-db = { workspace = true }
+globe-mode-analysis = { workspace = true }
 clap = { workspace = true }
 serde_json = { workspace = true }
 sha2 = "0.10"

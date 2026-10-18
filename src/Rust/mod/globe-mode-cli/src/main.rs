@@ -3,8 +3,11 @@
 //! ```text
 //! globe outline <FILE> [--json]
 //! globe check [<FILE|DIR>...] [--library <DIR>]... --model <NAME> [--json]
+//! globe flat  [<FILE|DIR>...] [--library <DIR>]... --model <NAME> [--json]
 //! globe graph <FILE|DIR>... --model <NAME> [--depth N] [--json]
 //! ```
+//!
+//! `check` と `flat` は salsa の DB（`globe-mode-db`）を通す。ライブラリは一度だけ読む。
 //!
 //! 終了コード: 0 = 成功 / 1 = Error の診断がある / 2 = 入力の読み込みに失敗。
 
@@ -13,9 +16,10 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
-use globe_mode_core::{Diagnostic, line_col};
+use globe_mode_core::{Diagnostic, Stage, line_col};
+use globe_mode_db::{GlobeDb, normalize_path};
 use globe_mode_frontend::{Frontend, RumocaFrontend, Source};
-use globe_mode_ir::{ClassOutline, Outline};
+use globe_mode_ir::{ClassOutline, FlatSummary, Outline};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -52,7 +56,7 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// モデルを DAE まで変換して検査する（S0〜S5）
+    /// モデルを DAE まで変換して検査する（S0〜S6）
     Check {
         /// 検査するファイルまたはディレクトリ（ディレクトリは下の .mo をすべて読む）。
         /// モデルがライブラリの中にあるなら省略できる
@@ -62,6 +66,21 @@ enum Command {
         #[arg(long, short = 'L')]
         library: Vec<PathBuf>,
         /// 検査するモデルの完全修飾名（例: GlobeModeExamples.RC）
+        #[arg(long, short)]
+        model: String,
+        /// JSON で出力する
+        #[arg(long)]
+        json: bool,
+    },
+    /// flat モデルの要約（変数・方程式の数、部品ごとの方程式数）を表示する
+    Flat {
+        /// ファイルまたはディレクトリ。モデルがライブラリの中にあるなら省略できる
+        #[arg(required_unless_present = "library")]
+        files: Vec<PathBuf>,
+        /// ライブラリのディレクトリ（例: data/msl）。何度でも指定できる
+        #[arg(long, short = 'L')]
+        library: Vec<PathBuf>,
+        /// モデルの完全修飾名
         #[arg(long, short)]
         model: String,
         /// JSON で出力する
@@ -86,7 +105,13 @@ fn main() -> ExitCode {
             library,
             model,
             json,
-        } => check(&frontend, &files, &library, &model, json),
+        } => check(&files, &library, &model, json),
+        Command::Flat {
+            files,
+            library,
+            model,
+            json,
+        } => flat(&files, &library, &model, json),
     }
 }
 
@@ -162,52 +187,70 @@ fn outline(frontend: &impl Frontend, file: &PathBuf, json: bool) -> ExitCode {
     }
 }
 
-fn check(
-    frontend: &impl Frontend,
+/// 入力を読み込んだ DB と、診断の位置を行と列に直すための本文
+/// （キーは DB と同じく区切りを `/` にそろえたパス）。
+struct Loaded {
+    db: GlobeDb,
+    texts: HashMap<String, String>,
+}
+
+/// ライブラリを読んだ DB に、入力のファイルを入れる。ライブラリを読めなければ `Ok(Err(診断))`。
+fn load_db(
     files: &[PathBuf],
     library: &[PathBuf],
-    model: &str,
-    json: bool,
-) -> ExitCode {
+) -> Result<Result<Loaded, Vec<Diagnostic>>, ExitCode> {
     for lib in library {
         if !lib.is_dir() {
             eprintln!("error: ライブラリ {} がディレクトリではない", lib.display());
-            return ExitCode::from(2);
+            return Err(ExitCode::from(2));
         }
     }
-    let libraries: Vec<&std::path::Path> = library.iter().map(PathBuf::as_path).collect();
+    let files = expand_inputs(files)?;
+    let mut inputs = Vec::new();
+    for f in &files {
+        inputs.push(read(f)?);
+    }
+    let mut db = match GlobeDb::with_libraries(library) {
+        Ok(db) => db,
+        Err(diags) => return Ok(Err(diags)),
+    };
     let mut texts = HashMap::new();
-    let mut order = Vec::new();
-    let files = match expand_inputs(files) {
-        Ok(f) => f,
+    for (name, text) in inputs {
+        db.set_file(&name, text.clone());
+        texts.insert(normalize_path(&name), text);
+    }
+    Ok(Ok(Loaded { db, texts }))
+}
+
+fn check(files: &[PathBuf], library: &[PathBuf], model: &str, json: bool) -> ExitCode {
+    let Loaded { mut db, texts } = match load_db(files, library) {
+        Ok(Ok(v)) => v,
+        // ライブラリを読めない（S1）
+        Ok(Err(diags)) => return report_early_failure(model, &diags, json),
         Err(code) => return code,
     };
-    for f in &files {
-        match read(f) {
-            Ok((name, text)) => {
-                order.push(name.clone());
-                texts.insert(name, text);
-            }
-            Err(code) => return code,
-        }
-    }
-    let sources: Vec<Source<'_>> = order
-        .iter()
-        .map(|n| Source {
-            name: n,
-            text: &texts[n],
-        })
-        .collect();
-    let report = frontend.check(&sources, &libraries, model);
+    let report = db.check_model(model);
+    let check = &report.check;
 
     if json {
+        let structure = check.structure.as_ref().map(|s| {
+            serde_json::json!({
+                "unknowns": s.unknowns.len(),
+                "equations": s.equations.len(),
+                "derivatives": s.unknowns.iter().filter(|u| u.kind == globe_mode_ir::UnknownKind::Derivative).count(),
+            })
+        });
         let value = serde_json::json!({
             "model": report.model,
             "passed": report.passed(),
             "failed_stage": report.failed_stage(),
-            "balance": report.balance,
-            "dae": report.dae,
+            "balance": check.balance,
+            "dae": check.dae,
+            "structure": structure,
+            "s6": report.structural,
+            "flat": check.flat,
             "diagnostics": report.diagnostics,
+            "notes": check.notes,
         });
         println!(
             "{}",
@@ -215,7 +258,7 @@ fn check(
         );
     } else {
         print_diagnostics(&report.diagnostics, &texts, false);
-        if let Some(b) = report.balance {
+        if let Some(b) = check.balance {
             println!(
                 "{}: 方程式 {} / 変数 {}（状態 {}・代数 {}・出力 {}・離散 {}）",
                 report.model,
@@ -227,14 +270,46 @@ fn check(
                 b.discrete
             );
         }
-        if let Some(d) = report.dae {
+        if let Some(d) = check.dae {
             println!(
                 "{}: DAE の変数（配列は 1 個）: 状態 {}・代数 {}・出力 {}・連続方程式 {}",
                 report.model, d.states, d.algebraics, d.outputs, d.continuous_equations
             );
         }
+        for note in &check.notes {
+            println!("{}: note: {note}", report.model);
+        }
+        if let Some(s6) = &report.structural {
+            // S6 の判定は x と der(x) を 1 つの列にまとめたグラフ（structural_matching）。
+            // der の形（matching）で完全マッチングが無いのは、微分インデックスが 1 より大きい見込み（S7 の情報）。
+            if s6.is_regular() {
+                let index = if s6.index_reduction_needed {
+                    format!(
+                        "。der の形では {} / {}（インデックス低減が要る見込み）",
+                        s6.matching, s6.n_equations
+                    )
+                } else {
+                    String::new()
+                };
+                println!(
+                    "{}: S6: 完全マッチング {} / {}{index}",
+                    report.model, s6.structural_matching, s6.n_equations
+                );
+            } else {
+                println!(
+                    "{}: S6: 最大マッチング {}（方程式 {} / 未知数 {}）。構造特異",
+                    report.model, s6.structural_matching, s6.n_equations, s6.n_unknowns
+                );
+            }
+        }
         match report.failed_stage() {
-            None => println!("{}: OK（S0〜S5 を通過）", report.model),
+            None if report.structural.is_some() => {
+                println!("{}: OK（S0〜S6 を通過）", report.model)
+            }
+            None => println!(
+                "{}: OK（S0〜S5 を通過。S6 は判定できなかった）",
+                report.model
+            ),
             Some(stage) => println!(
                 "{}: NG（{:?} {} で停止）",
                 report.model,
@@ -248,6 +323,89 @@ fn check(
     } else {
         ExitCode::from(1)
     }
+}
+
+fn flat(files: &[PathBuf], library: &[PathBuf], model: &str, json: bool) -> ExitCode {
+    let Loaded { mut db, texts } = match load_db(files, library) {
+        Ok(Ok(v)) => v,
+        Ok(Err(diags)) => return report_early_failure(model, &diags, json),
+        Err(code) => return code,
+    };
+    let Some(summary) = db.flat_summary(model) else {
+        // flatten まで通らなかった。検査の診断を出す
+        let report = db.check_model(model);
+        if json {
+            print_diagnostics(&report.diagnostics, &texts, true);
+        } else {
+            print_diagnostics(&report.diagnostics, &texts, false);
+            println!("{model}: flat モデルを作れなかった");
+        }
+        return ExitCode::from(1);
+    };
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&summary).expect("serialize flat summary")
+        );
+    } else {
+        print_flat(model, &summary);
+    }
+    ExitCode::SUCCESS
+}
+
+fn print_flat(model: &str, f: &FlatSummary) {
+    let partial = if f.partial { "（partial）" } else { "" };
+    println!(
+        "{model}{partial}: 変数 {}（配列は 1 個）・方程式 {}・初期方程式 {}（スカラー）",
+        f.variables, f.equations, f.initial_equations
+    );
+    if !f.top_level_connectors.is_empty() {
+        println!(
+            "  トップレベルのコネクタ: {}",
+            f.top_level_connectors.join(", ")
+        );
+    }
+    println!("  部品ごとの方程式:");
+    for (component, n) in &f.equations_by_component {
+        let component = if component.is_empty() {
+            "（トップレベル）"
+        } else {
+            component
+        };
+        println!("    {n:>5}  {component}");
+    }
+}
+
+/// ライブラリを読めないなど、検査の前に止まったときの出力（`check` と同じ形）。
+fn report_early_failure(model: &str, diags: &[Diagnostic], json: bool) -> ExitCode {
+    let stage = diags
+        .iter()
+        .filter(|d| d.is_error())
+        .map(|d| d.stage)
+        .min()
+        .unwrap_or(Stage::S1);
+    if json {
+        let value = serde_json::json!({
+            "model": model,
+            "passed": false,
+            "failed_stage": stage,
+            "balance": null,
+            "dae": null,
+            "structure": null,
+            "s6": null,
+            "flat": null,
+            "diagnostics": diags,
+            "notes": [],
+        });
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&value).expect("serialize report")
+        );
+    } else {
+        print_diagnostics(diags, &HashMap::new(), false);
+        println!("{model}: NG（{stage:?} {} で停止）", stage.title());
+    }
+    ExitCode::from(1)
 }
 
 fn graph(inputs: &[PathBuf], model: &str, depth: u32, json: bool) -> ExitCode {
@@ -339,7 +497,10 @@ fn print_diagnostics(diags: &[Diagnostic], texts: &HashMap<String, String>, json
     for d in diags {
         let place = match (&d.file, d.range) {
             (Some(f), Some(r)) => {
-                let at = texts.get(f).map(|t| line_col(t, r.start));
+                let at = texts
+                    .get(f)
+                    .or_else(|| texts.get(&normalize_path(f)))
+                    .map(|t| line_col(t, r.start));
                 at.map_or_else(
                     || format!("{f}: "),
                     |at| format!("{f}:{}:{}: ", at.line, at.column),
@@ -348,10 +509,15 @@ fn print_diagnostics(diags: &[Diagnostic], texts: &HashMap<String, String>, json
             (Some(f), None) => format!("{f}: "),
             _ => String::new(),
         };
-        let severity = serde_json::to_value(d.severity)
-            .ok()
-            .and_then(|v| v.as_str().map(str::to_owned))
-            .unwrap_or_default();
+        // 「コンパイラが未対応」（GM-U）は、モデルの誤りと見分けがつくように別の名前で出す
+        let severity = if d.is_unsupported() {
+            "unsupported".to_string()
+        } else {
+            serde_json::to_value(d.severity)
+                .ok()
+                .and_then(|v| v.as_str().map(str::to_owned))
+                .unwrap_or_default()
+        };
         println!(
             "{place}{severity}[{}] {:?} {}: {}",
             d.code,

@@ -13,6 +13,7 @@ globe-mode-core = { workspace = true }
 globe-mode-ir = { workspace = true }
 globe-mode-frontend = { workspace = true }
 globe-mode-graph = { workspace = true }
+globe-mode-analysis = { workspace = true }
 salsa = { workspace = true }
 
 [lints]

@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S005 check のクエリ化・GM-U・S6・MSL の全例題 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S005 · check のクエリ化・GM-U・S6・MSL の全例題">
+
+<section class="slide" id="S01">
+  <span class="tag">S005 · 2026-10-18 · P2 遅延クエリと検査（2 回目）</span>
+  <h1>検査が salsa のクエリに載り、MSL の全例題 566 本に判定が出た</h1>
+  <div class="kpis">
+    <div class="kpi"><span class="n">0.01 ms</span><span class="l">空白だけの編集のあとの再検査（S0〜S6、中央値。目標 50 ms 未満）</span></div>
+    <div class="kpi"><span class="n">0 回</span><span class="l">そのとき再実行された <code>check</code>（Rumoca のコンパイル）</span></div>
+    <div class="kpi"><span class="n">566 本</span><span class="l">判定を出した MSL 4.1.0 の例題（Rumoca の基準値と同じ本数）</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">panic（モデルごとに <code>catch_unwind</code> で数えた）</span></div>
+  </div>
+  <div class="big">防火壁を 3 段にし、<b>構造特異（S6）</b>と<b>「コンパイラが未対応」（GM-U）</b>を、モデルの誤りと分けて出す。</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやったこと</h1>
+  <div class="cols-2">
+    <div class="card hl">
+      <h3>roadmap の S005（P2 の 2 回目）</h3>
+      <ol class="small">
+        <li><code>flat</code> と <code>check</code> を salsa のクエリにする。MSL は一度だけ読んで使い回す</li>
+        <li>「コンパイラが未対応」（GM-U）の振り分けを決める</li>
+        <li>S6（構造特異）の最初の版: 完全マッチングと Dulmage–Mendelsohn 分解</li>
+        <li>MSL の全例題に判定を出し、ファネルを数える</li>
+      </ol>
+      <h3>ユーザーの依頼</h3>
+      <p class="small">経緯を確かめて計画をレビューし、直す必要が無ければ Auto モードの Opus で続ける。並列で作業できるようにタスクを分ける。</p>
+    </div>
+    <div class="card">
+      <h3>計画のレビューで直したこと</h3>
+      <ul class="small">
+        <li><b>防火壁 0</b> を足す: Rumoca に渡せるのは本文なので、<code>outline</code> では <code>check</code> を止められない</li>
+        <li>GM-U は <b>A（コード）+ B（一覧）</b>の併用。コードだけで決まるものがあると分かった</li>
+        <li>incidence は<b>自前で組む</b>（Rumoca の <code>build_incidence</code> は非公開）</li>
+        <li>例題は Rumoca と同じ名前の規則（566 本）にして、基準値と比べられるようにする</li>
+        <li>1 つの worktree で、所有ファイルを分けた Opus 3 つ（A: frontend・db・cli、B: analysis、C: xtask・GM-U）。共有の型は先に凍結した</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">調査 · Rumoca v0.10.2（rev 276e82bd）</span>
+  <h1>設計の根拠になった API の事実</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>事実</th><th>GlobeMode の扱い</th></tr>
+    <tr><td><code>Session</code></td><td><code>Clone</code>。<code>add_document</code> は差し替え、<code>remove_document</code> あり。文書を変えると resolve 済みの状態を捨てるが、parse の結果とモデルごとの LRU（256 / 64 件、blake3 の fingerprint）は残る</td><td><code>Checker</code> が 1 つ持ち、本文が変わった文書だけ差し替える</td></tr>
+    <tr><td>incidence</td><td><code>build_incidence</code> は <code>pub(crate)</code>。<code>for_each_scalar_coordinate</code> は公開</td><td>自前で <code>DaeStructure</code> を組む</td></tr>
+    <tr><td>構造解析</td><td><code>phase_structural::analyze</code> は公開。マッチングの大きさと unmatched の名前。DM 分解は無い</td><td>照合にだけ使う。DM は自前</td></tr>
+    <tr><td>エラーコード</td><td>一覧表は無い。phase ごとの <code>errors.rs</code> に散らばる。ED019・ED008 などは名前で「未対応」「内部エラー」と読める</td><td>GM-U の規則 1（ADR-0007）</td></tr>
+    <tr><td>MSL のハーネス</td><td>名前の規則 <code>Modelica.*.Examples.*</code>。補助のパッケージを除く。基準値 566 / 494 / 305 / 293</td><td>同じ規則で選ぶ（partial 13 本を含む）</td></tr>
+  </table>
+  <p class="small">出典はファイルのパスつきで <code>doc/research/rumoca.md</code> の「S005 で調べた API」に書いた。</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由 · 防火壁 0 と Checker</span>
+  <h1>本文を正規化して比べ、MSL は salsa の外で一度だけ読む</h1>
+  <div class="cols-2">
+    <div class="card hl">
+      <h3><code>source_shape</code>（防火壁 0）</h3>
+<pre><code>model RC  // 抵抗とコンデンサ
+  Real v;   /* 電圧 */
+
+equation
+  der(v) = -v;
+end RC;</code></pre>
+      <p class="small">↓ コメントを除き、空白と改行を 1 個に畳む</p>
+<pre><code>model RC Real v; equation der(v) = -v; end RC;</code></pre>
+      <ul class="small">
+        <li>文字列 <code>"…"</code> と引用識別子 <code>'…'</code> の中は触らない</li>
+        <li>位置の対応表（<code>shape_map</code>）は別のクエリ。<code>check</code> の依存に入れず、診断の位置だけを戻す</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3><code>Checker</code>（salsa の外の値）</h3>
+      <ul class="small">
+        <li>MSL を読んだ Rumoca の <code>Session</code> を <code>Arc&lt;Mutex&lt;_&gt;&gt;</code> で持つ（<code>GlobeDb::with_libraries</code>）</li>
+        <li>本文が変わった文書だけ <code>add_document</code>、無くなった文書は <code>remove_document</code></li>
+        <li>panic で Mutex が毒されたら、読んだ直後の写しに戻す</li>
+        <li><code>reset()</code> でモデルごとのキャッシュを捨てる（1 回 0.4 s）</li>
+      </ul>
+      <table class="compact">
+        <tr><th>計測（2026-10-18）</th><th>値</th></tr>
+        <tr><td>MSL の読み込み</td><td>6〜16 s・1.24 GB</td></tr>
+        <tr><td>読んだあとの別のモデル</td><td class="ok">0.12 s</td></tr>
+        <tr><td>同じモデルの再検査</td><td class="ok">0.08 s</td></tr>
+        <tr><td>1 回限りの CLI（ChuaCircuit、release、S6 込み）</td><td>11.3 s・1.5 GB</td></tr>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">図 · クエリの連鎖</span>
+  <h1>防火壁は 3 段（<code>globe-mode-db</code>）</h1>
+  <svg class="fig" viewBox="0 0 1000 340" role="img" aria-label="salsa のクエリの連鎖と 3 つの防火壁">
+    <defs>
+      <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path class="svg-arrowhead" d="M0,0 L10,5 L0,10 z"/>
+      </marker>
+    </defs>
+    <rect class="svg-box" x="10" y="135" width="130" height="70" rx="10"/>
+    <text class="svg-text-b" x="75" y="165" text-anchor="middle">SourceFile</text>
+    <text class="svg-text-m" x="75" y="187" text-anchor="middle">入力（本文）</text>
+    <line class="svg-line" x1="140" y1="155" x2="168" y2="80" marker-end="url(#ah)"/>
+    <line class="svg-line" x1="140" y1="185" x2="168" y2="260" marker-end="url(#ah)"/>
+
+    <rect class="svg-box" x="170" y="40" width="140" height="60" rx="10"/>
+    <text class="svg-text-b" x="240" y="66" text-anchor="middle">outline</text>
+    <text class="svg-text-m" x="240" y="86" text-anchor="middle">位置あり</text>
+    <text class="svg-text-a" x="405" y="30" text-anchor="middle">防火壁 1（Eq）</text>
+    <rect class="svg-box-accent" x="335" y="40" width="140" height="60" rx="10"/>
+    <text class="svg-text-b" x="405" y="66" text-anchor="middle">outline_shape</text>
+    <text class="svg-text-m" x="405" y="86" text-anchor="middle">位置を 0 に</text>
+    <rect class="svg-box" x="500" y="40" width="140" height="60" rx="10"/>
+    <text class="svg-text-b" x="570" y="66" text-anchor="middle">class_index</text>
+    <text class="svg-text-m" x="570" y="86" text-anchor="middle">索引</text>
+    <rect class="svg-box" x="665" y="40" width="140" height="60" rx="10"/>
+    <text class="svg-text-b" x="735" y="66" text-anchor="middle">connect_graph</text>
+    <text class="svg-text-m" x="735" y="86" text-anchor="middle">グラフ</text>
+    <text class="svg-text-m" x="900" y="66" text-anchor="middle">IDE の機能</text>
+    <text class="svg-text-m" x="900" y="86" text-anchor="middle">（S004）</text>
+    <line class="svg-line" x1="310" y1="70" x2="333" y2="70" marker-end="url(#ah)"/>
+    <line class="svg-line" x1="475" y1="70" x2="498" y2="70" marker-end="url(#ah)"/>
+    <line class="svg-line" x1="640" y1="70" x2="663" y2="70" marker-end="url(#ah)"/>
+
+    <rect class="svg-box-warn" x="455" y="135" width="230" height="64" rx="10"/>
+    <text class="svg-text-b" x="570" y="162" text-anchor="middle">Checker（salsa の外）</text>
+    <text class="svg-text-m" x="570" y="184" text-anchor="middle">MSL を一度だけ読む</text>
+    <line class="svg-line" x1="570" y1="199" x2="570" y2="238" marker-end="url(#ah)"/>
+
+    <rect class="svg-box" x="170" y="240" width="140" height="60" rx="10"/>
+    <text class="svg-text-b" x="240" y="266" text-anchor="middle">shape</text>
+    <text class="svg-text-m" x="240" y="286" text-anchor="middle">正規化と対応表</text>
+    <rect class="svg-box-accent" x="335" y="240" width="140" height="60" rx="10"/>
+    <text class="svg-text-b" x="405" y="266" text-anchor="middle">source_shape</text>
+    <text class="svg-text-m" x="405" y="286" text-anchor="middle">畳んだ本文</text>
+    <rect class="svg-box-accent2" x="500" y="240" width="140" height="60" rx="10"/>
+    <text class="svg-text-b" x="570" y="266" text-anchor="middle">check</text>
+    <text class="svg-text-m" x="570" y="286" text-anchor="middle">S0〜S5</text>
+    <rect class="svg-box-accent" x="665" y="240" width="140" height="60" rx="10"/>
+    <text class="svg-text-b" x="735" y="266" text-anchor="middle">dae_shape</text>
+    <text class="svg-text-m" x="735" y="286" text-anchor="middle">位置を落とす</text>
+    <rect class="svg-box-accent2" x="830" y="240" width="140" height="60" rx="10"/>
+    <text class="svg-text-b" x="900" y="266" text-anchor="middle">structural</text>
+    <text class="svg-text-m" x="900" y="286" text-anchor="middle">S6</text>
+    <line class="svg-line" x1="310" y1="270" x2="333" y2="270" marker-end="url(#ah)"/>
+    <line class="svg-line" x1="475" y1="270" x2="498" y2="270" marker-end="url(#ah)"/>
+    <line class="svg-line" x1="640" y1="270" x2="663" y2="270" marker-end="url(#ah)"/>
+    <line class="svg-line" x1="805" y1="270" x2="828" y2="270" marker-end="url(#ah)"/>
+    <text class="svg-text-m" x="240" y="325" text-anchor="middle">shape_map で位置を戻す</text>
+    <text class="svg-text-a" x="405" y="325" text-anchor="middle">防火壁 0（Eq）</text>
+    <text class="svg-text-m" x="570" y="325" text-anchor="middle">flat_summary も</text>
+    <text class="svg-text-a" x="735" y="325" text-anchor="middle">防火壁 2（Eq）</text>
+  </svg>
+  <p class="small"><code>check</code> はワークスペースの全ファイルの <code>source_shape</code> を文書として渡す。必要なファイルだけに絞る <code>deps_closure</code> は S006 の候補。</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">結果 · 防火壁のテスト</span>
+  <h1>どの編集で、どこまで再実行されるか</h1>
+  <table class="compact">
+    <tr><th>編集（検証用パッケージ）</th><th>check</th><th>dae_shape</th><th>structural</th></tr>
+    <tr><td>変更なしで、もう一度検査する</td><td>0</td><td>0</td><td>0</td></tr>
+    <tr><td><code>RealCircuit.mo</code> に空白とコメントを足す</td><td class="ok">0</td><td>0</td><td>0</td></tr>
+    <tr><td>別のファイル（<code>Connectors.mo</code>）の先頭と末尾にコメント</td><td class="ok">0</td><td>0</td><td>0</td></tr>
+    <tr><td>パラメータの値を同じ長さで変える（<code>k = 0.5</code> → <code>0.7</code>）</td><td>1</td><td class="ok">0</td><td>0</td></tr>
+    <tr><td>パラメータの値の長さを変える（<code>0.5</code> → <code>0.125</code>）</td><td>1</td><td>1</td><td class="ok">0</td></tr>
+    <tr><td>部品と connect を足す（方程式 5 → 7）</td><td>1</td><td>1</td><td>1</td></tr>
+  </table>
+  <p class="small">数えたのは salsa の <code>WillExecute</code> イベント（<code>GlobeDb::take_executed</code>）。空白だけの編集のあとの再検査は中央値 <b>0.01 ms</b>・最大 0.02 ms（release、20 回、<code>RealCircuit</code>）。最初の検査は 17.2 ms。</p>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">決定と理由 · S6 の判定を直した</span>
+  <h1>der の形の完全マッチングは、正しい例題でも無いことがある</h1>
+  <div class="cols-2">
+    <div class="card">
+      <h3>最初の版（der の形 = Rumoca と同じ）</h3>
+      <ul class="small">
+        <li>未知数は <code>der(x)</code>・代数・出力。状態 <code>x</code> は既知とみなす</li>
+        <li>MSL の全例題を回すと、<b class="ng">正しい例題 166 本</b>が「構造特異」になった</li>
+        <li>例: <code>Rotational.Examples.First</code>（52 / 54）、<code>MultiBody.Examples.Elementary.Pendulum</code>（891 / 898）、<code>Blocks.Examples.PID_Controller</code>（83 / 86）</li>
+        <li>これらは<b>微分インデックスが 1 より大きい</b> DAE。der の形に完全マッチングが無いのは正常で、インデックスの低減で解く</li>
+      </ul>
+    </div>
+    <div class="card hl">
+      <h3>直した版</h3>
+      <ul class="small">
+        <li><b>S6 は <code>x</code> と <code>der(x)</code> を 1 つの列にまとめたグラフ</b>で判定する。Pantelides 法が失敗するのは、ここに完全マッチングが無いときだけ</li>
+        <li>無ければ <code>GM-E6001</code>（Error）。過剰な方程式と不足している未知数を、位置つきで示す（粗い DM 分解）</li>
+        <li>der の形の結果は <b>S7 の情報 <code>GM-I7001</code></b>（微分インデックスが 1 より大きい見込み）。実行は止めない</li>
+        <li>IR に <code>state_refs</code>（状態そのものの参照）を足した</li>
+        <li>Rumoca の <code>analyze</code> との照合は der の形のまま（最初の実行で 381 / 381 一致）</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S08">
+  <span class="tag">図 · 二部グラフ</span>
+  <h1>位置を時間で与えた質点（<code>x = sin(time)</code>）</h1>
+  <svg class="fig" viewBox="0 0 1000 380" role="img" aria-label="der の形とまとめた形の二部グラフ">
+    <text class="svg-text-b" x="240" y="30" text-anchor="middle">der の形（Rumoca と同じ）</text>
+    <text class="svg-text-b" x="760" y="30" text-anchor="middle">まとめた形（S6 の判定）</text>
+    <line class="svg-line" x1="490" y1="15" x2="490" y2="365"/>
+
+    <line class="svg-line-accent" x1="200" y1="100" x2="320" y2="100"/>
+    <line class="svg-line-accent" x1="200" y1="180" x2="320" y2="180"/>
+    <line class="svg-line" x1="200" y1="180" x2="320" y2="260"/>
+    <rect class="svg-box" x="20" y="78" width="180" height="44" rx="8"/>
+    <text class="svg-text" x="110" y="105" text-anchor="middle">e1: der(x) = v</text>
+    <rect class="svg-box" x="20" y="158" width="180" height="44" rx="8"/>
+    <text class="svg-text" x="110" y="185" text-anchor="middle">e2: m·der(v) = F</text>
+    <rect class="svg-box-warn" x="20" y="238" width="180" height="44" rx="8"/>
+    <text class="svg-text" x="110" y="265" text-anchor="middle">e3: x = sin(time)</text>
+    <circle class="svg-node" cx="330" cy="100" r="10"/>
+    <circle class="svg-node" cx="330" cy="180" r="10"/>
+    <circle class="svg-node-2" cx="330" cy="260" r="10"/>
+    <text class="svg-text" x="348" y="105">der(x)</text>
+    <text class="svg-text" x="348" y="185">der(v)</text>
+    <text class="svg-text" x="348" y="265">F</text>
+    <text class="svg-text-m" x="20" y="320">e3 は未知数を含まない → マッチング 2 / 3</text>
+    <text class="svg-text-a" x="20" y="350">S7 の情報 GM-I7001（実行は止めない）</text>
+
+    <line class="svg-line" x1="720" y1="100" x2="840" y2="100"/>
+    <line class="svg-line-accent" x1="720" y1="100" x2="840" y2="180" stroke-dasharray="6 4"/>
+    <line class="svg-line" x1="720" y1="180" x2="840" y2="180"/>
+    <line class="svg-line-accent" x1="720" y1="180" x2="840" y2="260"/>
+    <line class="svg-line-accent" x1="720" y1="260" x2="840" y2="100" stroke-dasharray="6 4"/>
+    <rect class="svg-box" x="540" y="78" width="180" height="44" rx="8"/>
+    <text class="svg-text" x="630" y="105" text-anchor="middle">e1: der(x) = v</text>
+    <rect class="svg-box" x="540" y="158" width="180" height="44" rx="8"/>
+    <text class="svg-text" x="630" y="185" text-anchor="middle">e2: m·der(v) = F</text>
+    <rect class="svg-box" x="540" y="238" width="180" height="44" rx="8"/>
+    <text class="svg-text" x="630" y="265" text-anchor="middle">e3: x = sin(time)</text>
+    <circle class="svg-node" cx="850" cy="100" r="10"/>
+    <circle class="svg-node" cx="850" cy="180" r="10"/>
+    <circle class="svg-node-2" cx="850" cy="260" r="10"/>
+    <text class="svg-text" x="868" y="105">x | der(x)</text>
+    <text class="svg-text" x="868" y="185">v | der(v)</text>
+    <text class="svg-text" x="868" y="265">F</text>
+    <text class="svg-text-m" x="540" y="320">点線は状態そのもの（x、v）の参照（state_refs）</text>
+    <text class="svg-text-a" x="540" y="350">完全マッチング 3 / 3 → S6 は通る</text>
+  </svg>
+  <p class="small">色の付いた線は、マッチングに使った辺。<code>globe check</code> の出力も同じ: 「S6: 完全マッチング 3 / 3。der の形では 2 / 3（インデックス低減が要る見込み）」。</p>
+</section>
+
+<section class="slide" id="S09">
+  <span class="tag">結果 · 検証モデル</span>
+  <h1><code>Invalid</code> に 2 本足した</h1>
+  <div class="cols-2">
+    <div class="card">
+      <h3><code>StructurallySingular</code> → S6 で止まる</h3>
+<pre><code> 9   Real z(start = 0, fixed = true);
+11   x = 1;
+12   x = 2;
+13   y + z = der(z);</code></pre>
+<pre><code>…Singular.mo:12:3: error[GM-E6001]
+  方程式 `x = 2` はどの未知数とも
+  対応づけられない（過剰な方程式）
+…Singular.mo:9:3: error[GM-E6001]
+  未知数 `der(z)` を決める方程式が
+  足りない
+S6: 最大マッチング 2 / 3。構造特異</code></pre>
+      <p class="small">方程式 3 = 未知数 3 なので S5 は通る。終了コード 1。</p>
+    </div>
+    <div class="card">
+      <h3><code>HighIndexDuplicate</code> → S6 は通る</h3>
+<pre><code>// 電圧則を 2 回書き、オームの法則が無い
+C * der(vC) = i;
+V = vR + vC;
+vR = V - vC;</code></pre>
+<pre><code>info[GM-I7001] S7: 微分インデックスが
+  1 より大きい見込み（der の形 2 / 3）
+S6: 完全マッチング 3 / 3
+OK（S0〜S6 を通過）</code></pre>
+      <p class="small warn">2 本の電圧則は同じ式なので、実際には数値的に特異。構造（S6）では見つからず、S7 以降の課題。</p>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S10">
+  <span class="tag">決定と理由 · GM-U（ADR-0007）</span>
+  <h1>「コンパイラが未対応」は、コードの規則と一覧で振り分ける</h1>
+  <table class="compact">
+    <tr><th>順</th><th>規則</th><th>GM コード</th><th>Rumoca のコード（例）</th></tr>
+    <tr><td>1</td><td>未対応の言語機能・実装の制限（コードで決まる）</td><td><code>GM-U0001</code></td><td>ED019・ED013・ED018・ED020・EF020・ER073 など 12 個</td></tr>
+    <tr><td>1</td><td>コンパイラの内部エラー（コードで決まる）</td><td><code>GM-U0002</code></td><td>ED008・EF023・EF024・EF025・ES014 など 20 個</td></tr>
+    <tr><td>2</td><td>既知の制約の一覧に（モデル, コード）がある</td><td><code>GM-U0003</code></td><td>ED001 41 行・ET004 4 行・ED010 3 行・ER130 2 行</td></tr>
+    <tr><td>—</td><td>どれにも当たらない</td><td>GM-E のまま</td><td>ED001・EF002・ER003 はコードだけでは決めない</td></tr>
+  </table>
+  <div class="cols-2">
+    <ul class="small">
+      <li>一覧は <code>src/Modelica/msl-known-unsupported.txt</code>。1 行 = <code>&lt;モデル&gt; &lt;コード&gt; # 理由</code>。frontend に <code>include_str!</code> で埋め込む</li>
+      <li>中身は <code>msl-funnel</code> の報告の「一覧の原稿」から、理由を確かめて移す</li>
+    </ul>
+    <ul class="small">
+      <li>severity は <b>Error のまま</b>（<code>--force</code> 無しでは実行しない）。CLI は <code>unsupported[GM-U…]</code> と表示</li>
+      <li>案 C（omc と照合）は任意。omc を入れていないので S005 では行わない</li>
+    </ul>
+  </div>
+</section>
+
+<section class="slide" id="S11">
+  <span class="tag">結果 · MSL の全例題</span>
+  <h1><code>cargo xtask msl-funnel</code> の判定</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>最初の実行（S6 を直す前）</th><th>最終の実行</th></tr>
+    <tr><td>例題（うち partial）</td><td>566（13）</td><td>566（13）</td></tr>
+    <tr><td>OK</td><td>215</td><td class="ok">369</td></tr>
+    <tr><td>NG S5（数が合わない）</td><td>1（partial の <code>PartialOpAmp</code>）</td><td>1（同じ）</td></tr>
+    <tr><td>NG S6（構造特異）</td><td class="ng">166（すべて誤検出）</td><td>12（接地の無い部品モデル）</td></tr>
+    <tr><td>S7 の情報 GM-I7001</td><td>—</td><td>154（OK のうち）</td></tr>
+    <tr><td>GM-U0001 / GM-U0002 / GM-U0003</td><td>82 / 52 / 50（計 184）</td><td>82 / 52 / 50（計 184、同じ）</td></tr>
+    <tr><td>panic</td><td class="ok">0</td><td class="ok">0</td></tr>
+    <tr><td>S6（der の形）と Rumoca の <code>analyze</code> の照合</td><td>381 / 381 一致</td><td>381 / 381 一致</td></tr>
+    <tr><td>検査の時間（1 本あたり）</td><td>1011.6 s（1.79 s）</td><td>1068.3 s（1.89 s）</td></tr>
+    <tr><td>最大 RSS</td><td class="warn">7.5 GiB</td><td class="warn">7.2 GiB（50 本ごとに <code>reset()</code>。1 本の大きなモデルが単独で 6.3 GiB）</td></tr>
+  </table>
+  <p class="small">検査器は 1 つ（MSL を一度だけ読む）。モデルごとに <code>catch_unwind</code> で囲む。時間がかかるので CI には入れない（<code>mise run msl:funnel</code>）。報告は <code>msl-funnel.md</code>。</p>
+</section>
+
+<section class="slide" id="S12">
+  <span class="tag">結果 · Rumoca と比べる</span>
+  <h1>通った本数と、止まった Rumoca のコード</h1>
+  <div class="cols-2">
+    <div>
+      <table class="compact">
+        <tr><th>通った本数</th><th>Rumoca の基準値</th><th>GlobeMode（最初の実行）</th></tr>
+        <tr><td>構文</td><td>566</td><td>566</td></tr>
+        <tr><td>flatten</td><td>494</td><td>532</td></tr>
+        <tr><td>DAE</td><td>305</td><td>382</td></tr>
+        <tr><td>釣り合い</td><td>293</td><td>381</td></tr>
+      </table>
+      <ul class="small">
+        <li>基準値は Rumoca の別の commit（<code>b92932c0</code>）で記録されたもの。差の内訳は確かめていない</li>
+        <li>最終の実行の本数: OK 369・NG 13（S5 1・S6 12）・GM-U 184・panic 0。S6 で止まった 12 本は、接地の無い部品モデル（Examples の下の OpAmpCircuits と FluxTubes の Components）</li>
+      </ul>
+    </div>
+    <table class="compact">
+      <tr><th>Rumoca のコード</th><th>本数</th><th>振り分け</th></tr>
+      <tr><td>ED019</td><td>52</td><td>GM-U0001（コード）</td></tr>
+      <tr><td>ED001</td><td>41</td><td>GM-U0003（一覧）</td></tr>
+      <tr><td>ED008</td><td>28</td><td>GM-U0002（コード）</td></tr>
+      <tr><td>ED013</td><td>21</td><td>GM-U0001（コード）</td></tr>
+      <tr><td>EF023</td><td>17</td><td>GM-U0002（コード）</td></tr>
+      <tr><td>ほか 10 種</td><td>25</td><td>EF025・ET004・ED010 など</td></tr>
+    </table>
+  </div>
+  <p class="small">右の表は最初の実行の度数（計 184 本）。コードだけでは決まらないもの（ED001・ET004・ED010・ER130）は、すべて一覧に載せた。</p>
+</section>
+
+<section class="slide" id="S13">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+<pre><code>globe check src/Modelica/GlobeModeValidation -m GlobeModeValidation.Invalid.StructurallySingular
+globe check src/Modelica/GlobeModeValidation -m GlobeModeValidation.Invalid.HighIndexDuplicate
+globe flat  -L data/msl -m Modelica.Electrical.Analog.Examples.ChuaCircuit
+cargo test --release -p globe-mode-db -- --ignored --nocapture   # 再検査の時間
+mise run msl:funnel                                              # 全例題（release、CI の外）
+mise run check</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">32</span><span class="l">analysis のテスト（HK・DM・診断）</span></div>
+    <div class="kpi"><span class="n">32</span><span class="l">frontend のテスト（単体 13・結合 19）</span></div>
+    <div class="kpi"><span class="n">25 + 2</span><span class="l">db のテスト（計測の無視指定 2）</span></div>
+    <div class="kpi"><span class="n">13</span><span class="l">core のテスト（normalize を含む）</span></div>
+    <div class="kpi"><span class="n">18</span><span class="l">CI の判定のテスト</span></div>
+    <div class="kpi"><span class="n">6 crate</span><span class="l">wasm32 のビルド（core・ir・frontend・graph・db・analysis）</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S14">
+  <span class="tag">次回</span>
+  <h1>S006 — P2 の 3 回目の候補</h1>
+  <div class="cols-2">
+    <div class="card hl">
+      <h3>候補</h3>
+      <ol class="small">
+        <li><code>deps_closure</code>: <code>check</code> に渡すファイルを、モデルが使うものだけに絞る</li>
+        <li><code>Checker</code> のメモリの上限（566 本で最大 7.2 GiB。大部分は 1 本の大きなモデル）。<code>reset()</code> を呼ぶ条件</li>
+        <li>S7: Pantelides 法と状態選択</li>
+        <li>S8: 初期化（初期化系のバランス、start 値、fixed の過剰）</li>
+        <li><code>class_index</code>: for や if の中の connect、import</li>
+      </ol>
+    </div>
+    <div class="card">
+      <h3>残したこと</h3>
+      <ul class="small">
+        <li><b>omc を入れていない</b>ので、P2 の条件「S5 が omc と 95% 以上一致」は測れていない。入れるかどうかはユーザーが決める</li>
+        <li>入れたら、GM-U0003 の一覧が本当に Rumoca の制約かも確かめる（ADR-0007 の C）</li>
+        <li>Rumoca の制約の上流への報告（ライブラリ間の extends、ED001 の数え方、ET004 の次元）</li>
+        <li>数値的な特異（<code>HighIndexDuplicate</code>）は構造では見つからない</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

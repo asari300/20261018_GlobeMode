@@ -1011,6 +1011,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f70749695b063ecbf6b62949ccccde2e733ec3ecbbd71d467dca4e5c6c97cca0"
 
 [[package]]
+name = "globe-mode-analysis"
+version = "0.0.1"
+dependencies = [
+ "globe-mode-core",
+ "globe-mode-ir",
+ "serde",
+]
+
+[[package]]
 name = "globe-mode-cli"
 version = "0.0.1"
 dependencies = [
@@ -1033,6 +1042,7 @@ dependencies = [
 name = "globe-mode-db"
 version = "0.0.1"
 dependencies = [
+ "globe-mode-analysis",
  "globe-mode-core",
  "globe-mode-frontend",
  "globe-mode-graph",
@@ -1047,6 +1057,9 @@ dependencies = [
  "globe-mode-core",
  "globe-mode-ir",
  "rumoca-compile",
+ "rumoca-core",
+ "rumoca-eval-dae",
+ "rumoca-ir-dae",
 ]
 
 [[package]]
@@ -2982,8 +2995,11 @@ name = "xtask"
 version = "0.0.1"
 dependencies = [
  "clap",
+ "globe-mode-analysis",
  "globe-mode-core",
+ "globe-mode-db",
  "globe-mode-frontend",
+ "globe-mode-ir",
  "serde_json",
  "sha2",
  "zip",

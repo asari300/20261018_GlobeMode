@@ -25,6 +25,7 @@
 | serde、serde_json、clap | MIT OR Apache-2.0 | 許可 | S002 で導入 |
 | sha2 | MIT OR Apache-2.0 | 許可 | S003 で導入（xtask の sha256） |
 | salsa 0.28.5 | Apache-2.0 OR MIT | 許可 | S004 で導入（`globe-mode-db`）。推移的な依存も cargo deny で ok |
+| rumoca-ir-dae、rumoca-eval-dae、rumoca-core | Apache-2.0（Rumoca のワークスペース） | 許可 | S005 で導入（`globe-mode-frontend` だけ）。DAE の incidence を自前で作るため。rumoca-compile の推移的依存なので、新しい外部依存は増えない |
 | zip | MIT | 許可 | S003 で導入（xtask で MSL を展開）。**9 系を使う**: 2 系には展開時の脆弱性（RUSTSEC-2026-0367 / 0368 / 0369）がある |
 | MSL 4.1.0、Rumoca の CLI（照合用） | BSD-3-Clause / Apache-2.0 | 許可 | `cargo xtask fetch-*` で sha256 を固定して取得する。配布物には入れない（`data/` は git 管理外） |
 | cargo-deny | MIT OR Apache-2.0 | 許可（ツール） | mise で入れる。配布物には入らない |

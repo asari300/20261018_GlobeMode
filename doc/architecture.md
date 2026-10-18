@@ -60,11 +60,11 @@ doc/  log/                      文書と記録
 
 | crate | 責務 | 主な依存 |
 | --- | --- | --- |
-| `globe-mode-core` **（S002）** | `TextRange`、`Diagnostic{code,severity,stage,message,file,range,notes}`、検査段階 `Stage`（S0〜S10）、診断コード。今後: ID、単位、修正案（fix） | serde |
-| `globe-mode-ir` **（S002）** | フロントエンドに依存しない中立 IR: `Outline`（クラス・コンポーネント・extends・connect、S004 で flow / stream と input / output）、`ClassIndex`（字句的な名前解決、extends を含むインターフェース、S004）、`BalanceCount`（スカラー）、`DaeCounts`（配列ごと、S003）。今後: `ConnectSet`、`DaeStructure`（変数、属性、incidence、初期方程式） | core |
-| `globe-mode-frontend` **（S002）** | `trait Frontend{outline, check}`。feature `rumoca`（Phase A、`src/rumoca.rs`）と feature `native`（Track B） | rumoca-compile |
-| `globe-mode-db` **（S004）** | salsa のクエリ DB: `outline` → `outline_shape`（防火壁）→ `class_index` → `connect_graph`。実行したクエリの記録（テストと計測） | salsa |
-| `globe-mode-analysis` | Hopcroft–Karp、Dulmage–Mendelsohn、Tarjan BLT、Pantelides、`SimulatabilityReport` | ir |
+| `globe-mode-core` **（S002）** | `TextRange`、`Diagnostic{code,severity,stage,message,file,range,notes}`、検査段階 `Stage`（S0〜S10）、診断コード。S005 で `normalize`（防火壁 0 の本文の正規化）、GM-U・GM-E6001・GM-I7001 のコード、`Diagnostic::is_unsupported`。今後: ID、単位、修正案（fix） | serde |
+| `globe-mode-ir` **（S002）** | フロントエンドに依存しない中立 IR: `Outline`（クラス・コンポーネント・extends・connect、S004 で flow / stream と input / output）、`ClassIndex`（字句的な名前解決、extends を含むインターフェース、S004）、`BalanceCount`（スカラー）、`DaeCounts`（配列ごと、S003）、`DaeStructure`（未知数・方程式・incidence・`state_refs`、`without_ranges`、`merged_incidence`、S005）、`FlatSummary`（部品ごとの方程式数、S005）。今後: `ConnectSet`、変数の属性、初期方程式 | core |
+| `globe-mode-frontend` **（S002）** | `trait Frontend{outline, check}`。feature `rumoca`（Phase A、`src/rumoca.rs`）と feature `native`（Track B）。S005 で `Checker`（ライブラリを一度だけ読んだ Session を使い回す）、`DaeStructure` の抽出（`structure.rs`）、GM-U の振り分け（`unsupported.rs`、[ADR-0007](adr/0007-unsupported-classification.md)） | rumoca-compile、rumoca-ir-dae・rumoca-eval-dae・rumoca-core（S005、同じ rev） |
+| `globe-mode-db` **（S004）** | salsa のクエリ DB（§3.2）: `outline` → `outline_shape`（防火壁 1）→ `class_index` → `connect_graph`（S004）。`shape` → `source_shape`（防火壁 0）/ `shape_map` → `check` → `flat_summary` / `dae_shape`（防火壁 2）→ `structural`（S005）。`GlobeDb::with_libraries` と `check_model`（S0〜S6）。実行したクエリの記録（テストと計測） | salsa、frontend、graph、analysis |
+| `globe-mode-analysis` **（S005: S6）** | Hopcroft–Karp、粗い Dulmage–Mendelsohn 分解、`StructuralReport`（S6 の GM-E6001 と、S7 の情報 GM-I7001）。今後: Tarjan BLT、Pantelides、`SimulatabilityReport` | core、ir、serde（Rumoca に依存しない。wasm32 でビルドできる） |
 | `globe-mode-graph` **（S004: connect グラフ）** | connect グラフを flatten せずに作る。辺の種類（flow / stream / real / boolean …）、depth による部分回路の展開、graphology JSON。今後: ライブラリ / incidence のグラフ、差分、ForceAtlas2 | serde_json |
 | `globe-mode-exec` | `HybridSystem` の実装: Rumoca の実行系（feature `rumoca-exec`）、FMU-ME アダプタ | rumoca-sim |
 | `globe-mode-solver` | `trait Integrator`、ソルバ名の登録表、自前の固定刻みと陽的 RK | diffsol, sundials（feature） |
@@ -74,13 +74,13 @@ doc/  log/                      文書と記録
 | `globe-mode-protocol` | serde 型と JSON Schema。TypeScript と Python の型を生成する | serde, specta |
 | `globe-mode` | 公開する Rust API（facade）: `Workspace{open, set_text, outline, check, graph, simulate, export_fmu}` | 上記すべて |
 | `globe-mode-lsp` | `lsp-types` と自前のディスパッチャ。Transport は stdio / Tauri のチャネル / Web Worker | lsp-types |
-| `globe-mode-cli` **（S002）** | バイナリ `globe`（`outline` / `check` / `graph`、`--json`、S003 で `--library`、S004 で `graph` とディレクトリの入力。終了コード 0 / 1 / 2） | clap |
+| `globe-mode-cli` **（S002）** | バイナリ `globe`（`outline` / `check` / `graph` / `flat`、`--json`、S003 で `--library`、S004 で `graph` とディレクトリの入力、S005 で `check` を db 経由にして S6・GM-U を表示し、`flat` を足した。終了コード 0 / 1 / 2） | clap |
 | `globe-mode-capi` | `extern "C"`、不透明ハンドル、JSON とバイト列。cbindgen でヘッダを生成する | — |
 | `globe-mode-py` | PyO3（abi3-py312） | pyo3 |
 | `globe-mode-nif` | Rustler。Erlang モジュール名は `globe_mode_nif` | rustler |
 | `globe-mode-wasm` | wasm-bindgen。ブラウザの Worker、Gleam の JS target、marimo の anywidget から使う | wasm-bindgen |
-| `globe-mode-testkit` | MSL コーパス、ファネル比較、omc との照合、Reference-FMUs（S003 の突き合わせは、ひとまず xtask に置いた） | — |
-| `xtask` **（S003）** | `cargo xtask fetch-msl` / `fetch-rumoca` / `msl-compare` / `bump-rumoca`。場所は `src/Rust/xtask` | sha2, zip |
+| `globe-mode-testkit` | MSL コーパス、ファネル比較、omc との照合、Reference-FMUs（S003 の突き合わせと S005 のファネルは、ひとまず xtask に置いた） | — |
+| `xtask` **（S003）** | `cargo xtask fetch-msl` / `fetch-rumoca` / `msl-compare` / `msl-funnel`（S005）/ `bump-rumoca`。場所は `src/Rust/xtask` | sha2, zip, db, analysis |
 
 ### 2.3 ツールチェーン
 
@@ -107,6 +107,7 @@ doc/  log/                      文書と記録
 #### 閉じ込め方
 
 - cargo-deny の `bans` に `wrappers = ["globe-mode-frontend", "globe-mode-exec"]` を設定し、ほかの crate から Rumoca を直接使わせない。
+  - 対象は `rumoca-compile`。S005 で足した `rumoca-ir-dae`・`rumoca-eval-dae`・`rumoca-core` は Rumoca の内部の crate からも使われるので、`wrappers` に書けない。frontend だけが直接依存することは、Cargo.toml のレビューで守る。
 - Rumoca の型は中立 IR（`globe-mode-ir`）に変換してから外に出す。Rumoca の API が変わっても直すのはアダプタだけで済み、Track B（自前コア）に替えても下流は変わらない。
 
 #### 更新
@@ -118,21 +119,39 @@ doc/  log/                      文書と記録
 
 [ADR-0005](adr/0005-lazy-query-db.md) にまとめた。
 
-**salsa のクエリ**（Phase A から使う）:
+**salsa のクエリ**（`globe-mode-db`。S004・S005 で作ったものと、予定のもの）:
 
-| クエリ | 入力 | 比較 | 役割 |
-| --- | --- | --- | --- |
-| `SourceFile` | （入力） | — | ユーザーのファイルは Durability LOW、MSL は HIGH |
-| `parse(file)` | SourceFile | `no_eq`（`Arc`） | Rumoca の AST |
-| `outline(file)` | parse | **Eq** | **第1の防火壁**。空白やコメントだけの編集では、ここから先が再計算されない |
-| `class_index(root)` | outline | Eq | `package.order` から作る。MSL は名前解決で必要になったファイルだけ parse する |
-| `class_interface(path)` | class_index | Eq | extends を解決した後のコンポーネントと、flow / stream / potential の区別 |
-| `connect_graph(path, depth)` | class_interface | Eq | **flatten しなくても描ける**。ノードは要求されたときに展開する |
-| `deps_closure(model)` | class_interface | Eq | Rumoca に渡すファイル集合（広めに見積もる）。無効化を正確にするため |
-| `flat(model)` | deps_closure | `no_eq` | Rumoca の resolve と flatten。`catch_unwind` で包む |
-| `dae_structure(model)` | flat | **Eq** | **第2の防火壁** |
-| `simulatability(model)` | dae_structure | Eq | 下表の S0〜S10 |
-| `executable(model, backend)` | dae_structure | LRU | 実行形式 |
+```text
+SourceFile ─┬─▶ outline ─▶ outline_shape ─▶ class_index ─▶ connect_graph     IDE の機能（S004）
+            │              防火壁 1
+            └─▶ shape ─┬─▶ source_shape ─▶ check ─┬─▶ flat_summary          検査（S005）
+                       │   防火壁 0        S0〜S5 └─▶ dae_shape ─▶ structural
+                       └─▶ shape_map                  防火壁 2      S6
+```
+
+| クエリ | 入力 | 比較 | 役割 | 状態 |
+| --- | --- | --- | --- | --- |
+| `SourceFile` / `Workspace` | （入力） | — | ファイルのパスと本文 / 開いているファイルの集まり。MSL などのライブラリは salsa に入れず、`Checker` が一度だけ読む | S004 |
+| `outline(file)` | SourceFile | Eq | アウトライン（位置あり）。IDE の機能（アウトライン、位置）に使う。構文の誤りは S0 | S004 |
+| `outline_shape(file)` | outline | **Eq** | **防火壁 1**。位置を 0 にした写し。索引とグラフは、空白やコメントだけの編集では再計算しない | S004 |
+| `class_index(workspace)` | outline_shape | Eq | 完全修飾名の索引（`within` を反映）。字句的な名前解決と、extends を含むインターフェース（`interface`） | S004 |
+| `connect_graph(workspace, request)` | class_index | Eq | **flatten しなくても描ける**。`GraphRequest`（モデル、depth） | S004 |
+| `shape(file)` | SourceFile | Eq | 正規化した本文と位置の対応表（`globe_mode_core::normalize`） | S005 |
+| `source_shape(file)` | shape | **Eq** | **防火壁 0**。コメントを除き、空白を 1 個に畳んだ本文。空白やコメントだけの編集では、Rumoca のコンパイルが走らない | S005 |
+| `shape_map(file)` | shape | Eq | 正規化後の位置 → 元の本文の位置。診断の位置を戻すのに使い、`check` の依存には入れない | S005 |
+| `check(workspace, request)` | 全ファイルの `source_shape` と `Checker` | Eq | Rumoca の resolve・flatten・ToDae。`CheckReport`（S0〜S5 の診断、位置付きの `DaeStructure`、`FlatSummary`）。`CheckRequest` はモデル名 | S005 |
+| `flat_summary(workspace, request)` | check | Eq | flat モデルの要約（`globe flat`）。S5 で数が合わないときの、部品ごとの方程式数 | S005 |
+| `dae_shape(workspace, request)` | check | **Eq** | **防火壁 2**。位置を落とした `DaeStructure` | S005 |
+| `structural(workspace, request)` | dae_shape | Eq | S6（`globe-mode-analysis` の `StructuralReport`） | S005 |
+| `deps_closure(model)` | class_index | Eq | Rumoca に渡すファイル集合（広めに見積もる）。今はワークスペースの全ファイルを渡すので、どのファイルの中身が変わっても `check` が再実行される | 予定（S006 の候補） |
+| `simulatability(model)` | structural など | Eq | 下表の S0〜S10 をまとめた `SimulatabilityReport` | 予定 |
+| `executable(model, backend)` | dae_shape | LRU | 実行形式 | 予定（P3） |
+
+- **`Checker`**（`globe-mode-frontend`）は salsa の外の値。MSL などのライブラリを読んだ Rumoca の `Session` を `Arc<Mutex<_>>` で持ち、`GlobeDb::with_libraries(paths)` で作る（[ADR-0005](adr/0005-lazy-query-db.md) の結果）。
+  - 文書は、本文が変わったものだけ差し替え、無くなったものは取り除く。文書を変えると Rumoca は解決済みの状態を捨てるが、parse の結果とモデルごとのキャッシュは残る。
+  - panic で Mutex が毒されたら、ライブラリを読んだ直後の写しに戻す。`reset()` でモデルごとのキャッシュを捨てられる。
+- `GlobeDb::check_model(model)` は、`check`（S0〜S5）と `structural`（S6）をまとめ、診断の位置を `shape_map` で元の本文に戻す。S6 は S0〜S5 を通ったときだけ行う。
+- Rumoca の AST は salsa に載せない。`outline` が、そのファイルを毎回 parse する。
 
 シミュレーションの実行は salsa の外のジョブにする。結果は (executable, settings) のハッシュでキャッシュする。
 
@@ -149,15 +168,17 @@ doc/  log/                      文書と記録
 | S3 | instantiate: partial なトップクラス、redeclare されていない replaceable | GM-E3xx |
 | S4 | connector のバランス（MLS 9.3）、非互換な接続、未接続（警告）、トップレベルの input（情報。FMU の入力になる） | GM-E4xx / W4xx / I4xx |
 | S5 | 方程式数と変数数。コンポーネントごとのローカルバランス（MLS 4.7）で、どのコンポーネントが原因かを示す | GM-E5xx |
-| S6 | 構造特異: 完全マッチングの有無。無ければ Dulmage–Mendelsohn 分解で過剰・不足の部分を span 付きで示す | GM-E6xx |
-| S7 | インデックス: Pantelides と状態選択 | GM-E7xx / W7xx |
+| S6 | 構造特異: `x` と `der(x)` を 1 つの列にまとめた二部グラフ（方程式 × 未知数）に完全マッチングがあるか。Pantelides 法が失敗するのと同じ条件。無ければ粗い Dulmage–Mendelsohn 分解で、過剰な方程式と不足している未知数を span 付きで示す（S005） | GM-E6001 |
+| S7 | インデックス: der の形（状態を既知とみなす）に完全マッチングが無ければ、微分インデックスが 1 より大きい見込みとして情報を出す（S005。モデルの誤りではない）。今後: Pantelides と状態選択 | GM-I7001 / E7xx / W7xx |
 | S8 | 初期化: 初期化系のバランス、start 値の無い状態変数、fixed の過剰、値の無いパラメータ | GM-E8xx / W8xx |
 | S9 | 代数ループ: 非線形の反復変数に start 値が無い | GM-W9xx |
 | S10 | プリフライト: パラメータの評価、t0 で残差が有限か、ソルバの能力が足りるか、experiment annotation が妥当か | GM-E10xx |
 
 - **「コンパイラが未対応」は GM-Uxxx として分ける**。対象は stream / expandable / overconstrained connector、state machine、operator record など。「モデルの誤り」と混同させないため。
+  - 振り分けは [ADR-0007](adr/0007-unsupported-classification.md)。Rumoca のコードで決まるもの（`GM-U0001` 未対応、`GM-U0002` 内部エラー）と、既知の制約の一覧（`src/Modelica/msl-known-unsupported.txt`）に当たったもの（`GM-U0003`）。
+  - severity は Error のまま（`--force` 無しでは実行しない）。CLI は `unsupported[GM-U…]` と表示する。
 - 結果は `SimulatabilityReport{verdict, stages[], stats}` として返す。出力先は LSP の診断、CLI（ariadne 風）、protocol の JSON、グラフのハイライト。
-- S5 の正しさは `omc checkModel()` の方程式数・変数数と照合して確かめる。
+- S5 の正しさは `omc checkModel()` の方程式数・変数数と照合して確かめる（S005 の時点では omc を入れていないので、まだ照合していない）。
 
 ### 3.3 ソルバ
 
@@ -298,10 +319,11 @@ Svelte の UI は `Backend` インターフェースだけに依存する。実�
 
 | 対象 | 方法 |
 | --- | --- |
-| フロントエンド | MSL 4.1.0 の例題でファネルを数え、Rumoca の値と比べる（Track B では native と rumoca の差分） |
+| フロントエンド | MSL 4.1.0 の例題でファネルを数え、Rumoca の値と比べる（Track B では native と rumoca の差分）。例題 20 本で Rumoca の CLI と突き合わせる（`cargo xtask msl-compare`、S003） |
+| MSL の全例題 | `cargo xtask msl-funnel`（`mise run msl:funnel`、S005）。Rumoca と同じ名前の規則で選んだ 566 本に S0〜S6 / OK / GM-U の判定を出し、Rumoca の基準値と並べる。検査器は 1 つ（MSL を一度だけ読む）で、モデルごとに `catch_unwind` で囲み panic を数える。時間がかかるので CI には入れない |
 | 検査 | S5 を `omc checkModel()` と照合する（別プロセス） |
 | シミュレーション | MSL の参照結果と、ファネル（許容帯）で比較する |
 | FMI | Reference-FMUs、FMPy、fmusim、fmuCheck、往復 |
 | ライセンス | cargo-deny、`pnpm licenses`、cargo-about、CycloneDX SBOM |
 | CI | 差分だけを検査し、依存・ツール・CI の定義の変更や大きな変更のときだけ全体を検査する（[ADR-0006](adr/0006-incremental-ci.md)） |
-| 性能 | P2: 空白だけの編集の再検査が 50 ms 未満。P4: 5k ノードのグラフが 30 fps 以上 |
+| 性能 | P2: 空白だけの編集の再検査が 50 ms 未満（S005: S0〜S6 の再検査で中央値 0.01 ms）。P4: 5k ノードのグラフが 30 fps 以上 |
