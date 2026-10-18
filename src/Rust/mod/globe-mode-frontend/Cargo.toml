@@ -11,12 +11,15 @@ publish.workspace = true
 [features]
 default = ["rumoca"]
 # Phase A のフロントエンド。Rumoca を import してよいのはこの feature の中だけ。
-rumoca = ["dep:rumoca-compile"]
+rumoca = ["dep:rumoca-compile", "dep:rumoca-ir-dae", "dep:rumoca-eval-dae", "dep:rumoca-core"]
 
 [dependencies]
 globe-mode-core = { workspace = true }
 globe-mode-ir = { workspace = true }
 rumoca-compile = { workspace = true, optional = true }
+rumoca-ir-dae = { workspace = true, optional = true }
+rumoca-eval-dae = { workspace = true, optional = true }
+rumoca-core = { workspace = true, optional = true }
 
 [lints]
 workspace = true

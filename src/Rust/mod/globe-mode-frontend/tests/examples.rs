@@ -3,8 +3,8 @@
 use std::path::PathBuf;
 
 use globe_mode_core::{Stage, codes};
-use globe_mode_frontend::{Frontend, RumocaFrontend, Source};
-use globe_mode_ir::ClassKind;
+use globe_mode_frontend::{Checker, Frontend, RumocaFrontend, Source};
+use globe_mode_ir::{ClassKind, EquationOrigin, UnknownKind};
 
 fn modelica(rel: &str) -> (String, String) {
     // わざと誤ったファイルは src/Modelica（ほかの IDE でも開くライブラリ）に置かず、tests/data に置く
@@ -249,4 +249,205 @@ fn medium_model_needs_msl() {
     // Modelica.Media は MSL にある。MSL 無しでは名前解決（S1）で止まる。MSL ありの検査は CI の msl ジョブで行う
     let r = check_validation("Connect.MediumFlow");
     assert_eq!(r.failed_stage(), Some(Stage::S1));
+}
+
+// --------------------------------------------------------------------------- Checker（Session の使い回し）
+
+#[test]
+fn one_checker_checks_two_models_in_a_row() {
+    let (name, text) = modelica(PACKAGE);
+    let sources = [Source {
+        name: &name,
+        text: &text,
+    }];
+    let checker = Checker::new(&[]).expect("ライブラリ無し");
+    let rc = checker.check(&sources, "GlobeModeExamples.RC");
+    assert!(rc.passed(), "{:?}", rc.diagnostics);
+    let unbalanced = checker.check(&sources, "GlobeModeExamples.Unbalanced");
+    assert_eq!(unbalanced.failed_stage(), Some(Stage::S5));
+    // 同じモデルをもう一度（Session のキャッシュから）
+    let again = checker.check(&sources, "GlobeModeExamples.RC");
+    assert_eq!(again, rc);
+}
+
+#[test]
+fn recheck_after_replacing_a_document_reflects_the_edit() {
+    let (name, text) = modelica(PACKAGE);
+    let checker = Checker::new(&[]).unwrap();
+    let before = checker.check(
+        &[Source {
+            name: &name,
+            text: &text,
+        }],
+        "GlobeModeExamples.Unbalanced",
+    );
+    assert_eq!(before.failed_stage(), Some(Stage::S5));
+
+    // y の方程式を足すと、数が合う
+    let fixed = text.replace("    der(x) = -x;\n", "    der(x) = -x;\n    y = 2 * x;\n");
+    assert_ne!(fixed, text);
+    let after = checker.check(
+        &[Source {
+            name: &name,
+            text: &fixed,
+        }],
+        "GlobeModeExamples.Unbalanced",
+    );
+    assert!(after.passed(), "{:?}", after.diagnostics);
+    assert_eq!(after.balance.unwrap().equations, 2);
+}
+
+#[test]
+fn documents_not_passed_again_are_removed() {
+    let (name, text) = modelica(PACKAGE);
+    let checker = Checker::new(&[]).unwrap();
+    let extra = "model Extra\n  Real x;\nequation\n  x = 1;\nend Extra;\n";
+    let both = [
+        Source {
+            name: &name,
+            text: &text,
+        },
+        Source {
+            name: "Extra.mo",
+            text: extra,
+        },
+    ];
+    assert!(checker.check(&both, "Extra").passed());
+    // Extra.mo を渡さなければ、Extra は見つからない
+    let r = checker.check(&both[..1], "Extra");
+    assert_eq!(r.diagnostics[0].code, codes::MODEL_NOT_FOUND);
+}
+
+#[test]
+fn rc_structure_is_square_and_matches_rumoca() {
+    let (name, text) = modelica(PACKAGE);
+    let sources = [Source {
+        name: &name,
+        text: &text,
+    }];
+    let checker = Checker::new(&[]).unwrap();
+    let r = checker.check(&sources, "GlobeModeExamples.RC");
+    let s = r.structure.as_ref().expect("structure");
+    assert_eq!((s.unknowns.len(), s.equations.len()), (20, 20));
+    assert!(s.incidence.iter().all(|row| !row.is_empty()));
+    assert_eq!(
+        s.unknowns
+            .iter()
+            .filter(|u| u.kind == UnknownKind::Derivative)
+            .count(),
+        1
+    );
+    // 位置はソースの中（方程式 `v = R * i` は Resistor の中）
+    let e = s
+        .equations
+        .iter()
+        .find(|e| e.label == "v = R * i")
+        .expect("Resistor の方程式");
+    assert_eq!(e.origin, EquationOrigin::Source);
+    let range = e.range.unwrap();
+    assert_eq!(&text[range.start as usize..range.end as usize], "v = R * i");
+
+    // Rumoca 自身の構造解析と同じ大きさ
+    let reference = checker
+        .reference_structure(&sources, "GlobeModeExamples.RC")
+        .expect("reference");
+    assert_eq!(
+        (
+            reference.n_equations,
+            reference.n_unknowns,
+            reference.matching
+        ),
+        (20, 20, 20)
+    );
+    // flat の要約
+    let flat = r.flat.as_ref().expect("flat");
+    assert!(!flat.partial);
+    assert!(flat.equations_by_component.iter().any(|(c, _)| c == "r"));
+}
+
+#[test]
+fn hierarchical_structure_is_40_by_40() {
+    let r = check_validation("Connect.Hierarchical");
+    let s = r.structure.expect("structure");
+    assert_eq!((s.unknowns.len(), s.equations.len()), (40, 40));
+    assert!(s.incidence.iter().all(|row| !row.is_empty()));
+    let ders: Vec<&str> = s
+        .unknowns
+        .iter()
+        .filter(|u| u.kind == UnknownKind::Derivative)
+        .map(|u| u.name.as_str())
+        .collect();
+    assert_eq!(ders.len(), 2, "{ders:?}");
+}
+
+#[test]
+fn medium_model_without_msl_has_no_structure() {
+    let r = check_validation("Connect.MediumFlow");
+    assert_eq!(r.failed_stage(), Some(Stage::S1));
+    assert!(r.structure.is_none());
+}
+
+#[test]
+fn unbalanced_reports_equations_by_component() {
+    let (name, text) = modelica(PACKAGE);
+    let r = RumocaFrontend::new().check(
+        &[Source {
+            name: &name,
+            text: &text,
+        }],
+        &[],
+        "GlobeModeExamples.Unbalanced",
+    );
+    assert_eq!(r.failed_stage(), Some(Stage::S5));
+    let flat = r.flat.as_ref().expect("ToDae で失敗しても flat は取れる");
+    assert_eq!(flat.equations, 1);
+    assert_eq!(flat.equations_by_component, [(String::new(), 1)]);
+    assert!(
+        r.diagnostics[0]
+            .notes
+            .iter()
+            .any(|n| n.contains("（トップレベル） 1")),
+        "{:?}",
+        r.diagnostics[0].notes
+    );
+    assert!(r.structure.is_none());
+}
+
+#[test]
+fn checker_can_be_shared_and_unwound() {
+    fn shared<T: Send + Sync + std::panic::RefUnwindSafe>() {}
+    shared::<Checker>();
+    let checker = Checker::new(&[]).unwrap();
+    // panic を catch_unwind で受けても、次の検査は使える（Session はライブラリを読んだ直後に戻る）
+    let caught = std::panic::catch_unwind(|| {
+        let _ = checker.check(&[], "Nope");
+        panic!("わざと");
+    });
+    assert!(caught.is_err());
+    let (name, text) = modelica(PACKAGE);
+    let r = checker.check(
+        &[Source {
+            name: &name,
+            text: &text,
+        }],
+        "GlobeModeExamples.RC",
+    );
+    assert!(r.passed(), "{:?}", r.diagnostics);
+}
+
+#[test]
+fn compile_failures_point_into_the_source() {
+    // S4 の誤り（Real の出力を Boolean の入力につないだ）の位置は、そのモデルのファイルの中
+    let r = check_validation("Invalid.SignalTypeMismatch");
+    let d = &r.diagnostics[0];
+    let file = d.file.as_deref().expect("file");
+    assert!(file.ends_with("SignalTypeMismatch.mo"), "{file}");
+    let range = d.range.expect("range");
+    let text = std::fs::read_to_string(file).unwrap();
+    // connect 文の行（6 行目）
+    assert_eq!(
+        globe_mode_core::line_col(&text, range.start).line,
+        6,
+        "{d:?}"
+    );
 }

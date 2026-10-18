@@ -5,6 +5,8 @@
 
 use serde::Serialize;
 
+pub mod normalize;
+
 /// ソース中のバイト範囲（半開区間 `start..end`）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize)]
 pub struct TextRange {
@@ -129,6 +131,20 @@ impl Diagnostic {
         }
     }
 
+    pub fn warning(code: &'static str, stage: Stage, message: impl Into<String>) -> Self {
+        Self {
+            severity: Severity::Warning,
+            ..Self::error(code, stage, message)
+        }
+    }
+
+    pub fn info(code: &'static str, stage: Stage, message: impl Into<String>) -> Self {
+        Self {
+            severity: Severity::Info,
+            ..Self::error(code, stage, message)
+        }
+    }
+
     pub fn at(mut self, file: impl Into<String>, range: Option<TextRange>) -> Self {
         self.file = Some(file.into());
         self.range = range;
@@ -142,6 +158,11 @@ impl Diagnostic {
 
     pub fn is_error(&self) -> bool {
         self.severity == Severity::Error
+    }
+
+    /// 「コンパイラが未対応」（`GM-U…`）。モデルの誤りと分けて表示する。実行は Error と同じく拒む。
+    pub fn is_unsupported(&self) -> bool {
+        self.code.starts_with("GM-U")
     }
 }
 
@@ -167,6 +188,16 @@ pub mod codes {
     pub const TO_DAE: &str = "GM-E5001";
     /// S5: 方程式数と変数数が合わない
     pub const UNBALANCED: &str = "GM-E5002";
+    /// S6: 構造特異（`x` と `der(x)` をまとめても、方程式と未知数の完全マッチングが無い）
+    pub const SINGULAR: &str = "GM-E6001";
+    /// S7: 微分インデックスが 1 より大きい見込み（der の形では完全マッチングが無い。情報）
+    pub const HIGH_INDEX: &str = "GM-I7001";
+    /// コンパイラが未対応の言語機能（フロントエンドのコードで決まる。例: Rumoca の ED019）
+    pub const UNSUPPORTED: &str = "GM-U0001";
+    /// コンパイラの内部エラー（例: Rumoca の ED008）
+    pub const COMPILER_BUG: &str = "GM-U0002";
+    /// 既知の制約の一覧（src/Modelica/msl-known-unsupported.txt）に当たった
+    pub const KNOWN_LIMITATION: &str = "GM-U0003";
 }
 
 #[cfg(test)]

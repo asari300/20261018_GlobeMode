@@ -4,6 +4,7 @@
 //! cargo xtask fetch-msl        MSL 4.1.0 を data/msl/ に取得する（sha256 で確かめる）
 //! cargo xtask fetch-rumoca     Rumoca の CLI（v0.10.2、Linux x86_64）を data/rumoca/ に取得する
 //! cargo xtask msl-compare      MSL の例題で globe check と Rumoca の CLI を突き合わせる
+//! cargo xtask msl-funnel       MSL の全例題（566 本）に globe check の判定を出し、報告を書く
 //! cargo xtask bump-rumoca      固定している Rumoca の rev と、最新のタグを表示する
 //! ```
 //!
@@ -20,6 +21,8 @@ use std::time::Instant;
 use clap::{Parser, Subcommand};
 use globe_mode_frontend::{Frontend, RumocaFrontend};
 use sha2::{Digest, Sha256};
+
+mod funnel;
 
 /// MSL 4.1.0 の公式の配布物（BSD-3-Clause）。
 const MSL_URL: &str = "https://github.com/modelica/ModelicaStandardLibrary/releases/download/v4.1.0/ModelicaStandardLibrary_v4.1.0.zip";
@@ -65,6 +68,29 @@ enum Cmd {
         #[arg(long)]
         report: Option<PathBuf>,
     },
+    /// MSL の全例題（Rumoca と同じ名前の規則で選ぶ）に判定（S0〜S6 / OK / GM-U）を出し、報告を書く
+    MslFunnel {
+        #[arg(long, default_value = "data/msl")]
+        msl: PathBuf,
+        /// 先頭から N 本だけ検査する（--filter の後に当てる）
+        #[arg(long)]
+        limit: Option<usize>,
+        /// 名前にこの文字列を含む例題だけを検査する
+        #[arg(long)]
+        filter: Option<String>,
+        /// Markdown の報告を書くファイル
+        #[arg(long)]
+        report: Option<PathBuf>,
+        /// モデルごとの結果を JSON で書くファイル
+        #[arg(long)]
+        json: Option<PathBuf>,
+        /// 例題の名前だけを表示して終わる
+        #[arg(long)]
+        list: bool,
+        /// N 本ごとに Session を MSL を読んだ直後に戻す（メモリを抑える。0 なら戻さない）
+        #[arg(long, default_value_t = 50)]
+        reset_every: usize,
+    },
     /// 固定している Rumoca の rev と、上流の最新のタグを表示する
     BumpRumoca,
 }
@@ -79,6 +105,23 @@ fn main() -> ExitCode {
             models,
             report,
         } => msl_compare(&msl, &rumoca, &models, report.as_deref()),
+        Cmd::MslFunnel {
+            msl,
+            limit,
+            filter,
+            report,
+            json,
+            list,
+            reset_every,
+        } => funnel::msl_funnel(&funnel::Options {
+            msl: &msl,
+            limit,
+            filter: filter.as_deref(),
+            report: report.as_deref(),
+            json: json.as_deref(),
+            list,
+            reset_every,
+        }),
         Cmd::BumpRumoca => bump_rumoca(),
     };
     match result {

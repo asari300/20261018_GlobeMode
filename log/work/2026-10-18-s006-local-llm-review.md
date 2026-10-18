@@ -50,8 +50,8 @@
 
 - コードの検査: Rust は触っていない。`uv sync --locked` は通過。
 - `lmstudio_review.py` の単体テスト: 13 件中 13 件が通過。
-- `check_docs.py`: デッキ 11 件 OK、リンク 235 件中の切れ 0 件。
-- `render_slides.py`: デッキ 11 件 × 3 表示で問題 0 件。目視で見切れを 4 枚直した。
+- `check_docs.py`: デッキ 12 件 OK、リンク 277 件中の切れ 0 件（main とのマージ後）。
+- `render_slides.py`: デッキ 12 件 × 3 表示で問題 0 件。目視で見切れを 4 枚直した。
 - markdownlint: 新しい 5 件で MD013 以外 0 件。
 - セッション記録の `--check`: 取りこぼし 0 件。Windows のプロファイル名と私的 IP の伏せ字の規則を、フック（`save_session_log.py`）に足した。
 - ステージした差分の漏洩検査: finish-session の規則（ログイン名、git のメール、トークンの形）で 0 件。追加で Windows のユーザー名、プロファイル名、私的 IP も探して 0 件。Windows の作業フォルダ名（`WDir`）は `log/sessions/` に 17 件あるが、個人を特定しないフォルダ名なので伏せ字の対象外とした。

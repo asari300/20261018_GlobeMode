@@ -90,7 +90,7 @@ jobs:
       - run: cargo test $PKGS
       - name: wasm32 でビルドできるか（ブラウザ版の前提）
         if: needs.plan.outputs.wasm == 'true'
-        run: cargo check --target wasm32-unknown-unknown -p globe-mode-core -p globe-mode-ir -p globe-mode-frontend -p globe-mode-graph -p globe-mode-db
+        run: cargo check --target wasm32-unknown-unknown -p globe-mode-core -p globe-mode-ir -p globe-mode-frontend -p globe-mode-graph -p globe-mode-db -p globe-mode-analysis
       - name: サンプルの検査
         run: |
           cargo run -q -p globe-mode-cli -- check src/Modelica/GlobeModeExamples/package.mo -m GlobeModeExamples.RC

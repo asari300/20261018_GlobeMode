@@ -8,6 +8,7 @@
 | [0004](0004-ui-tauri-svelte.md) | UI は Tauri 2 + Svelte 5 | Accepted |
 | [0005](0005-lazy-query-db.md) | salsa による遅延評価とシミュレーション前のアサーション | Accepted |
 | [0006](0006-incremental-ci.md) | CI は差分だけを検査し、大きな変更のときだけ全体を検査する | Accepted |
+| [0007](0007-unsupported-classification.md) | 「コンパイラが未対応」（GM-U）を、コードの規則と既知の制約の一覧で振り分ける | Accepted |
 | [0008](0008-local-llm-reviewer.md) | ローカル LLM は副レビュアーとし、スキルから OpenAI 互換 API で呼ぶ | Accepted |
 
 書式: `NNNN-<題名>.md`。章は「状態 / 背景 / 決定 / 結果」の4つ。決定を覆すときは古い ADR を消さず、状態を Superseded にして新しい番号で書く。
