@@ -9,7 +9,7 @@
   - S8 は何も無かった。初期条件の過不足は、シミュレーションを始めるまで分からなかった。
 - S6 は、`x` と `der(x)` を 1 つの列にまとめた二部グラフに完全マッチングがあるかで判定する（[S005 の解説書](../sessions/S005-check-queries/解説書.md)の「S6 の判定を直した」）。これは Pantelides 法が失敗しない条件と同じなので、S6 を通った構造には Pantelides 法を最後まで回せる。
 - 入力に使える中立 IR は `DaeStructure`（der の形の `incidence` と、方程式が状態そのものを参照するときの `state_refs`）。`globe-mode-analysis` は Rumoca に依存しない（wasm32 でビルドでき、Track B の自前コアにもそのまま使える）。
-- Rumoca v0.10.2 の DAE は、変数ごとに `fixed` / `start` / 束縛と、初期方程式（`initialization_owners()`）を公開している。調べた事実は [research/rumoca.md](../research/rumoca.md#s006-で調べた-apiv0102) にある。
+- Rumoca v0.10.2 の DAE は、変数ごとに `fixed` / `start` / 束縛と、初期方程式（`initialization_owners()`）を公開している。調べた事実は [research/rumoca.md](../research/rumoca.md#s007-で調べた-apiv0102) にある。
 - omc はこの環境に入っていない。OpenModelica のサイトが重くて取得できず、**omc との照合はユーザーの指示で後回し**にした（入れたら再開する）。
 
 ## 決定
