@@ -42,12 +42,13 @@ class Plan(unittest.TestCase):
 
     def test_graph_change_reaches_db_and_cli(self):
         p = plan(["src/Rust/mod/globe-mode-graph/src/lib.rs"])
-        self.assertEqual(pkgs(p), {"globe-mode-graph", "globe-mode-db", "globe-mode-cli"})
+        # S005 から xtask（msl-funnel）も db を使う
+        self.assertEqual(pkgs(p), {"globe-mode-graph", "globe-mode-db", "globe-mode-cli", "xtask"})
         self.assertTrue(p["wasm"])
 
     def test_analysis_change_reaches_db_and_cli(self):
         p = plan(["src/Rust/mod/globe-mode-analysis/src/lib.rs"])
-        self.assertEqual(pkgs(p), {"globe-mode-analysis", "globe-mode-db", "globe-mode-cli"})
+        self.assertEqual(pkgs(p), {"globe-mode-analysis", "globe-mode-db", "globe-mode-cli", "xtask"})
         self.assertTrue(p["wasm"])
 
     def test_known_unsupported_list_affects_frontend(self):

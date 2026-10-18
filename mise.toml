@@ -16,8 +16,9 @@ elixir = "1.18.3-otp-27"           # erlang のメジャー番号と -otp-NN を
 gleam  = "latest"
 
 [tasks.check]
-description = "Rust の fmt / clippy / test / deny と、uv.lock の整合を確かめる"
+description = "CI の判定のテスト、Rust の fmt / clippy / test / deny と、uv.lock の整合を確かめる"
 run = [
+  "python3 .github/scripts/test_ci_plan.py",   # CI の plan ジョブと同じ。crate の依存を変えたときに手元で気づくため（S005 の CI の失敗から）
   "cargo fmt --all --check",
   "cargo clippy --workspace --all-targets -- -D warnings",
   "cargo test --workspace",

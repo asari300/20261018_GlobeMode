@@ -85,3 +85,13 @@
 - Rumoca の基準値は別の commit（`b92932c0`）で記録されたもので、GlobeMode の本数（flatten 532 など）との差の内訳は確かめていない。
 - Rumoca の制約の上流への報告（ライブラリ間の extends、ED001 の数え方、ET004 の次元）。
 - `class_index` の残り: for や if の中の connect、import、継承したクラスの中の入れ子のクラス。
+
+## 追記: S005 の CI の失敗（run 39115769958）と修正
+
+- **何が落ちたか**: plan ジョブの `test_ci_plan.py` が 2 件失敗し、ほかのジョブは動かなかった。
+  - `test_graph_change_reaches_db_and_cli` と `test_analysis_change_reaches_db_and_cli`。期待する crate の集合に `xtask` が無かった。
+- **原因**: S005 で xtask（`msl-funnel`）が `globe-mode-db` と `globe-mode-analysis` に依存するようになり、graph / analysis の変更が xtask にも及ぶようになった。判定のテストは Phase 0（依存を足す前）に直して、そのあと回し直していなかった。`mise run check` に入っていないので、手元の検査で気づけなかった。
+- **直したこと**（`feature/ops-ci-plan-xtask`）:
+  - 期待値に `xtask` を足した。
+  - `mise run check` の先頭で `test_ci_plan.py` を回すようにした（CI の plan ジョブと同じ）。
+- `mise.toml` を変えるので、CI は自動で全体を検査する。
