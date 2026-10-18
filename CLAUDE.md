@@ -1,0 +1,134 @@
+# このリポジトリでの作業ルール
+
+GlobeMode は Rust 製の OSS Modelica IDE。全体像は [README.md](README.md)、設計は [doc/architecture.md](doc/architecture.md)、順序は [doc/roadmap.md](doc/roadmap.md) にある。
+
+以下は**このリポジトリで作業するとき必ず守ること**。
+
+---
+
+## 1. 作業は git worktree の feature ブランチで行う
+
+`main` の作業ツリーを直接編集しない。作業（＝1セッション）ごとに worktree を切る。手順は `/start-session` スキルにある。
+
+```bash
+MAIN=$(git worktree list --porcelain | awk '/^worktree /{print $2; exit}')   # main のチェックアウト
+cd "$MAIN"
+git worktree add -b feature/<topic> .git-worktree/<topic> main
+cd .git-worktree/<topic>
+mise trust && mise install --locked   # worktree のパスごとに信頼が要る
+uv sync                      # worktree ごとに必須
+```
+
+- ブランチ名は `feature/<topic>`。`<topic>` は `sNNN-<英小文字とハイフン>`（例 `s002-workspace-skeleton`）。
+- worktree は `.git-worktree/<topic>` に置く（`.gitignore` 済み）。
+- **`.venv` を worktree 間で共有・symlink しない。** editable install はそのチェックアウトの `src/` を指すため。
+- コミットは feature ブランチに行う。`main` への取り込みと push はユーザーが判断する。
+- main に未コミットの変更があったら、そこで止めてユーザーに伝える。勝手にコミットも stash もしない。
+
+---
+
+## 2. ディレクトリ構造の意味
+
+| 場所 | 意味 | 編集してよいか |
+| --- | --- | --- |
+| `src/Rust/mod/<crate>/` | Rust のコア（workspace の library crate） | ○ |
+| `src/Rust/apps/` | Tauri のシェル、Leptos / Dioxus の試験版 | ○ |
+| `src/Svelte/` | UI（Tauri とブラウザで共用）。**業務ロジックを置かない** | ○ |
+| `src/Python/mod/` `marimo/` `streamlit/` | Python パッケージ、ノートブック、ダッシュボード | ○ |
+| `src/{Elixir,Gleam,Julia,Zig}/` | 各言語の薄いラッパ。ロジックは Rust 側に置く | ○ |
+| `src/Modelica/` | サンプルモデルと検証用ライブラリ | ○ |
+| `data/msl/` | MSL の取得物 | ×（取得スクリプトで置く。コミットしない） |
+| `doc/architecture.md` `roadmap.md` `features.md` `licenses.md` | **正典**。計画を変えたら同じコミットで直す | ○ |
+| `doc/adr/` | 設計判断の記録。覆すときは消さずに Superseded にする | ○（追記） |
+| `doc/research/` | 調査の記録。事実ごとに URL と確認日を付ける | ○ |
+| `doc/sessions/SNNN-<topic>/` | セッションごとのスライドと解説書 | ○（そのセッションの間だけ） |
+| `doc/assets/` | スライドの共通 CSS と JS | ○ |
+| `log/work/` | 作業記録（手動、1セッション1枚） | ○ |
+| `log/sessions/` | 伏せ字にしたセッション記録（コミットする） | ×（finish-session がコピーする） |
+| `log/local/` | フックの出力。生ログを含む | ×（**コミットしない**） |
+
+- Python パッケージ `src/20261018_globemode` は数字で始まるので import できない。P1 で `globe_mode` に改名して `src/Python/mod/` に移す。それまで触らない。
+- **言語の管理は mise・uv・cargo で分担する**（[ADR-0003](doc/adr/0003-toolchain.md)、手順は [doc/mise-setup.html](doc/mise-setup.html)）。
+
+  | 道具 | 受け持つもの | ロックファイル |
+  | --- | --- | --- |
+  | mise | ツールの版（rust / uv / zig / julia / erlang / elixir / gleam）とタスク | `mise.lock` |
+  | uv | Python 本体（`.python-version`）と Python の依存 | `uv.lock` |
+  | cargo | Rust の依存と workspace | `Cargo.lock` |
+
+  - `rust-toolchain.toml` は作らない（mise の `RUSTUP_TOOLCHAIN` が優先され、無視されるため）。
+  - Python を mise に入れない。ツールは `mise.toml` を、依存は各言語の道具を使って足す。
+  - ロックファイルはすべてコミットする。
+
+---
+
+## 3. ライセンス規則
+
+GlobeMode は **MIT OR Apache-2.0**。判断基準は [doc/licenses.md](doc/licenses.md)。依存を足す手順は `/add-dependency` スキルにある。
+
+- **許可**されたライセンスの依存だけを足す。条件付きのもの（MPL / EPL）は licenses.md に理由を書いてから足す。
+- **GPL / AGPL / LGPL を静的リンクしない。** KLU（LGPL）は任意の feature に限る。russell_sparse（GPL の UMFPACK）は使わない。
+- **Rumoca** は `globe-mode-frontend` と `globe-mode-exec` からだけ使う。
+  - umbrella crate `rumoca` は使わない（zenoh などを引き込むため）。
+  - 改変したら、そのファイルに明記する。製品名に「Rumoca」を使わない。
+- **OpenModelica** は読むだけにする。リンクもコードの複製もしない。`omc` を別プロセスで呼ぶ照合用途だけはよい。
+  - `tree-sitter-modelica` と `modelica-language-server` も AGPL / OSMC なので使わない。
+- Cosmograph（NC）、Slint（GPL）、symbolica（source-available）は使わない。
+- 依存を足したら、同じコミットで `doc/licenses.md` の表を更新する。
+
+---
+
+## 4. 文書の書き方
+
+- 文書は日本語で書く。README は英語の要約を付ける。
+- 調査した事実には出典 URL と確認日を付ける。確認できなかったものには【未確認】と書く。推測を事実のように書かない。
+- 設計の判断は ADR（`doc/adr/NNNN-*.md`、章は「状態 / 背景 / 決定 / 結果」）に書く。正典の文書からリンクする。
+- Markdown は markdownlint の警告を出さない。見出し・リスト・表・コードブロックの前後は空行にする。
+
+---
+
+## 5. セッションごとにスライドと解説書を作る
+
+毎セッション `doc/sessions/SNNN-<topic>/` に次の2つを作る。書き方は `/session-docs` スキルにある。
+
+| ファイル | 内容 |
+| --- | --- |
+| `slides.html` | HTML スライド。`../../assets/slides.css` と `slides.js` だけを使う。**外部 CDN・`<style>`・`style=` を使わない**（オフラインで開けるように） |
+| `解説書.md` | Markdown の解説書。章立ては「目的 / 決定と理由 / 図 / 再現手順 / 次回」。正典の文書へリンクする |
+
+索引は [doc/sessions/README.md](doc/sessions/README.md)。S 番号・日付・ブランチ・セッション ID・成果物を1行ずつ足す。
+
+---
+
+## 6. ログはすべて残す（公開用は伏せ字）
+
+### セッション記録（自動）
+
+`.claude/settings.json` の `Stop` / `SessionEnd` フックが [.claude/hooks/save_session_log.py](.claude/hooks/save_session_log.py) を呼ぶ。
+
+```text
+log/local/<日付>-<セッションID>.md           整形版（伏せ字済み）   … コミットしない
+log/local/raw/<日付>-<セッションID>.jsonl.gz 完全な生ログ（伏せ字なし）… 絶対にコミットしない
+log/sessions/<日付>-<セッションID>.md        finish-session がコピーした公開用 … コミットする
+```
+
+- 伏せ字にするもの: メールアドレス、ローカルのユーザー名とホームのパス、トークンらしき文字列。
+- コピーした後に `python3 .claude/hooks/save_session_log.py --check log/sessions/*.md` が取りこぼし 0 件であることを確かめてからコミットする。
+- フックは main のチェックアウトの `log/local/` に書く。worktree に記録を置くのは finish-session のコピーだけ。こうしておくと、main へのマージで未追跡ファイルとぶつからない。
+
+### 作業記録（手動・1セッション1枚）
+
+`log/work/<日付>-<topic>.md` を [log/work/_TEMPLATE.md](log/work/_TEMPLATE.md) から作る。セッション記録は「何が起きたか」の全量、作業記録は「何を決めたか」を残す。
+
+---
+
+## 7. 締めのチェックリスト
+
+`/finish-session` スキルの手順に従う。**どれかが落ちたらそこで止めて報告する。**
+
+1. Rust のコードを触ったら: `cargo fmt --check`、`cargo clippy -- -D warnings`、`cargo test`、`cargo deny check`
+2. スライドと解説書がある。`check_docs.py`（外部参照・`<style>`・`style=` が 0 件）と、Playwright の `render_slides.py`（ブラウザでの表示）を通す
+3. `doc/` と `log/` の相対リンク切れが 0 件
+4. セッション記録をコピーし、`--check` で取りこぼしが 0 件
+5. ステージした差分に、メールアドレス・ホームのパス・トークンが 0 件
+6. 作業記録を数字で仕上げてから、feature ブランチにコミットする

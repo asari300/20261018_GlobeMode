@@ -1,5 +1,4 @@
 # Python-generated files
-
 __pycache__/
 *.py[oc]
 build/
@@ -8,14 +7,36 @@ wheels/
 *.egg-info
 
 # Virtual environments
-
 .venv
 
 # Added by cargo
-
 /target
 
-# mise
+# Node (src/Svelte など)
+node_modules/
 
+# 作業用 git worktree の置き場所 (feature ブランチごとに作る。リポジトリの外に置かない)
+.git-worktree/
+
+# セッション記録の生ログとローカル整形版 (フックの出力先)。
+# 伏せ字済みの整形版だけを finish-session で log/sessions/ にコピーしてコミットする。
+log/local/
+
+# 取得物 (scripts で再取得できるのでコミットしない)。MSL など
+data/msl/
+
+# mise の個人用上書き
 mise.local.toml
 mise.local.lock
+
+# Claude Code
+# .claude/settings.json、.claude/hooks/、.claude/skills/ はリポジトリで共有する。
+# 以下は機密情報・ローカル実行状態なので絶対にコミットしない。
+.claude/.credentials.json
+.claude/settings.local.json
+.claude/projects/
+.claude/sessions/
+.claude/session-env/
+.claude/shell-snapshots/
+.claude/backups/
+.claude/ide/

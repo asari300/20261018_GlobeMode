@@ -1,0 +1,613 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S001 調査と計画 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S001 · 調査と計画、運用基盤">
+
+<!-- ============================================================ 結論 -->
+<section class="slide" id="S01">
+  <span class="tag">S001 · 2026-10-18 · P0 運用基盤</span>
+  <h1>GlobeMode — Rust 製 Modelica IDE の調査と計画</h1>
+  <p class="lead">OpenModelica と Rumoca を参考に必要な機能を整理し、最新技術を調べて、アーキテクチャとロードマップを決めた</p>
+  <div class="big">
+    コンパイラは <b>Rumoca をアダプタ越し</b>に使い、<br>
+    <b>salsa の遅延評価</b>と <b>S0〜S10 の実行前アサーション</b>で包む。<br>
+    UI は <b>Tauri 2 + Svelte 5</b>、ライセンスは <b>MIT OR Apache-2.0</b>。
+  </div>
+</section>
+
+<!-- ============================================================ 目的 -->
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>要件と対応方針</h1>
+  <table class="compact">
+    <tr><th>要件</th><th>対応方針</th></tr>
+    <tr><td>主要言語 Rust。API は Rust / Gleam / Elixir / Zig / Julia / Python</td><td>facade crate 1 つ ＋ C ABI・PyO3・Rustler・wasm-bindgen の 4 経路</td></tr>
+    <tr><td>デスクトップ / ブラウザ / CLI / Notebook（marimo）</td><td>Tauri 2 ＋ Svelte 5、Web Worker の wasm、<code>globe</code>、anywidget</td></tr>
+    <tr><td>ブラウザでは閲覧者の端末で計算する</td><td>静的配信。CSP <code>connect-src 'self'</code>。サーバーでは計算しない</td></tr>
+    <tr><td>Debian 系 / Windows 11 / Android</td><td>.deb・.msi・.apk を CI で作る</td></tr>
+    <tr><td>connect から Obsidian 風のネットワークグラフ</td><td>flatten 不要の <code>connect_graph</code> クエリ ＋ sigma.js（ForceAtlas2）</td></tr>
+    <tr><td>OSS として公開。依存のライセンスに注意</td><td>許可・条件付き・禁止の区分と cargo-deny</td></tr>
+    <tr><td>遅延評価で軽く。シミュレーションできるかを実行時にアサート</td><td>salsa のクエリと Eq の防火壁。<code>assert_simulatable</code>（S0〜S10）</td></tr>
+    <tr><td>ソルバを複数（OpenModelica / Dymola のように）</td><td><code>trait Integrator</code> と、両者の名前を受け付ける登録表</td></tr>
+    <tr><td>FMI 2.0 / 3.0、Co-Simulation などは必須</td><td>ME / CS / SE の Import と Export。Reference-FMUs と FMPy で検証</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>ユーザーと決めたこと</h1>
+  <table>
+    <tr><th>項目</th><th>決定</th></tr>
+    <tr><td>FMI</td><td><span class="accent">2.0 と 3.0 の両対応</span>。ME / CS / SE（SE は 3.0 のみ）の Import と Export</td></tr>
+    <tr><td>ライセンス</td><td><span class="accent">MIT OR Apache-2.0</span>。GPL / AGPL / LGPL を静的リンクしない</td></tr>
+    <tr><td>名称</td><td>GlobeMode（crate は <code>globe-mode-*</code>、CLI は <code>globe</code>）</td></tr>
+    <tr><td>コンパイラ</td><td>Phase A は <span class="accent">Rumoca を git 依存</span>で使う。余裕ができたら自前コア（Track B）に移り、Rumoca は照合の基準として残す</td></tr>
+    <tr><td>UI</td><td>本線は <span class="accent">Tauri 2 + Svelte 5</span>。Leptos と Dioxus は試験的に作り、負荷を比べる</td></tr>
+    <tr><td>配置</td><td>言語別の <code>src/&lt;Lang&gt;/</code>。<code>src/Zig/</code> と <code>src/Svelte/</code> を追加する</td></tr>
+    <tr><td>Streamlit</td><td>含める（結果ダッシュボードとパラメータスイープ）</td></tr>
+    <tr><td>セッション記録</td><td>伏せ字にした整形版をコミットする。生ログは git の管理外</td></tr>
+  </table>
+</section>
+
+<!-- ============================================================ 調査: OpenModelica -->
+<section class="slide" id="S04">
+  <span class="tag">調査 · OpenModelica / Dymola</span>
+  <h1>OpenModelica 1.27.1 から学ぶこと</h1>
+  <div class="cols-2">
+    <div class="card">
+      <h3>OMEdit の機能（機能表の元にした）</h3>
+      <ul class="small">
+        <li>Icon / Diagram / Text / Documentation の4ビュー</li>
+        <li>Check Model・Instantiate・Simulation Setup・再実行</li>
+        <li>プロット（時系列・パラメトリック・配列）</li>
+        <li>変換デバッガ・アルゴリズムデバッガ</li>
+        <li>パッケージマネージャ</li>
+        <li>FMU の Import と Export（FMI 1 / 2 / 3）、SSP エディタ</li>
+      </ul>
+      <h3>ソルバ</h3>
+      <p class="small">OpenModelica: dassl・ida・cvode・gbode・euler・heun・impeuler・trapezoid・symSolver・qss …<br>
+      Dymola: Lsodar・Dassl・Radau IIa・Esdirk23a/34a/45a・Dopri45/853・Sdirk34hw・Cerk・Cvode・Euler・Rkfix2/3/4</p>
+    </div>
+    <div class="card hl">
+      <h3>ライセンス: OSMC-PL 1.8 / AGPL-3.0</h3>
+      <ul class="small">
+        <li><span class="ok">よい</span>: 文書とソースを読んで振る舞いを学び、自分で実装し直す</li>
+        <li><span class="ok">よい</span>: <code>omc</code> を<b>別プロセス</b>で呼んで照合に使う（S5 の方程式数など）</li>
+        <li><span class="ng">だめ</span>: 静的リンク、埋め込み、コードの複製</li>
+        <li><span class="ng">だめ</span>: tree-sitter-modelica と modelica-language-server（AGPL / OSMC）</li>
+      </ul>
+      <h3>パイプライン</h3>
+      <p class="small">parse → NF の instantiate / flatten → 簡約 → マッチング → インデックス低減（Pantelides）→ BLT（Tarjan）→ tearing → C のコード生成 → ランタイム</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ 調査: Rumoca -->
+<section class="slide" id="S05">
+  <span class="tag">調査 · Rumoca</span>
+  <h1>Rumoca は想定以上に成熟している</h1>
+  <p class="lead">Apache-2.0（NOTICE は無い）・v0.10.3・約57 crate・開発が非常に活発。<span class="warn">nightly 固定、crates.io は 0.7.28 で止まっている</span></p>
+  <div class="cols-2">
+    <svg class="fig" viewBox="0 0 620 300" role="img" aria-label="MSL 4.1.0 の例題のファネル">
+      <text class="svg-text-m" x="0" y="18">MSL 4.1.0 の例題（2026-06-05 時点）</text>
+      <text class="svg-text" x="110" y="53" text-anchor="end">parse</text>
+      <rect class="svg-node" x="120" y="36" width="440" height="24" rx="4"/>
+      <text class="svg-text-b" x="568" y="54">566</text>
+      <text class="svg-text" x="110" y="93" text-anchor="end">flatten</text>
+      <rect class="svg-node" x="120" y="76" width="437" height="24" rx="4"/>
+      <text class="svg-text-b" x="565" y="94">562</text>
+      <text class="svg-text" x="110" y="133" text-anchor="end">DAE</text>
+      <rect class="svg-node" x="120" y="116" width="371" height="24" rx="4"/>
+      <text class="svg-text-b" x="499" y="134">477</text>
+      <text class="svg-text" x="110" y="173" text-anchor="end">balanced</text>
+      <rect class="svg-node" x="120" y="156" width="361" height="24" rx="4"/>
+      <text class="svg-text-b" x="489" y="174">464</text>
+      <text class="svg-text" x="110" y="213" text-anchor="end">初期化 OK</text>
+      <rect class="svg-node-2" x="120" y="196" width="174" height="24" rx="4"/>
+      <text class="svg-text-b" x="302" y="214">224</text>
+      <text class="svg-text" x="110" y="253" text-anchor="end">シミュ OK</text>
+      <rect class="svg-node-3" x="120" y="236" width="119" height="24" rx="4"/>
+      <text class="svg-text-b" x="247" y="254">153</text>
+      <text class="svg-text-m" x="120" y="292">OMC との比較: 143 本中 89 本が高い一致</text>
+    </svg>
+    <div>
+      <ul class="small">
+        <li>IR: <code>ast → flat → dae → solve</code>。フェーズごとに crate を分けている</li>
+        <li>構造解析: マッチング・BLT・Pantelides・tearing</li>
+        <li>MiniJinja のテンプレート: <b>fmi2 / fmi3</b>、c-ode、casadi、jax、base-modelica …</li>
+        <li>ソルバ: diffsol の BDF、RK45。LSP、WASM の playground、PyO3 もある</li>
+        <li><span class="warn">足りないもの</span>: salsa のようなインクリメンタル基盤。stream / expandable connector などは未対応だった</li>
+        <li><span class="warn">注意</span>: umbrella crate <code>rumoca</code> の既定 feature は zenoh・gamepad・UDP を引き込む</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ 機能 -->
+<section class="slide" id="S06">
+  <span class="tag">調査 · 必要な機能</span>
+  <h1>OMEdit × Rumoca から整理した 13 の機能領域</h1>
+  <div class="cols-3 small">
+    <div class="card"><b>1. エディタと LSP</b><br>エラーに強いパーサ、診断、補完、定義ジャンプ、リネーム、整形 <span class="muted">Must</span></div>
+    <div class="card"><b>2. ライブラリ</b><br>MSL の読み込み、ツリー、<code>uses</code> による版管理 <span class="muted">Must</span></div>
+    <div class="card"><b>3. ビュー</b><br>Text / Diagram / Icon / Documentation。テキストと双方向に同期 <span class="muted">Must〜Could</span></div>
+    <div class="card hl"><b>4. connect グラフ</b><br>Obsidian 風の力学レイアウト。flatten 不要 <span class="muted">Must</span></div>
+    <div class="card hl"><b>5. 検査</b><br>Check Model、実行前のアサーション S0〜S10 <span class="muted">Must</span></div>
+    <div class="card"><b>6. シミュレーション</b><br>複数ソルバ、再実行、スイープ <span class="muted">Must</span></div>
+    <div class="card"><b>7. 結果</b><br>プロット、変数ブラウザ、CSV / MAT / Arrow <span class="muted">Must</span></div>
+    <div class="card hl"><b>8. FMI と SSP</b><br>2.0 / 3.0 の ME / CS / SE、マスター <span class="muted">Must</span></div>
+    <div class="card"><b>9. デバッグ</b><br>BLT、インデックス低減、tearing の可視化 <span class="muted">Could</span></div>
+    <div class="card"><b>10. コード生成</b><br>Rumoca のターゲット経由 <span class="muted">Could</span></div>
+    <div class="card"><b>11. 実行環境</b><br>Desktop、Android、Browser、CLI、marimo、Streamlit <span class="muted">Must</span></div>
+    <div class="card"><b>12–13. API と品質</b><br>6 言語の API。MSL コーパス、omc・Rumoca との照合 <span class="muted">Must</span></div>
+  </div>
+  <p class="small muted">全体の表（OMEdit・Rumoca の有無、優先度、Phase）は doc/features.md</p>
+</section>
+
+<!-- ============================================================ 図: 全体 -->
+<section class="slide" id="S07">
+  <span class="tag">図 · アーキテクチャ</span>
+  <h1>計算はすべて Rust のコア。UI と API は同じ facade を呼ぶ</h1>
+  <svg class="fig" viewBox="0 0 1000 520" role="img" aria-label="全体のアーキテクチャ">
+    <defs>
+      <marker id="ah7" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path class="svg-arrowhead" d="M0,0 L10,5 L0,10 z"/>
+      </marker>
+    </defs>
+    <!-- clients -->
+    <rect class="svg-box" x="20" y="10" width="260" height="58" rx="10"/>
+    <text class="svg-text-b" x="150" y="36" text-anchor="middle">Svelte 5 UI</text>
+    <text class="svg-text-m" x="150" y="56" text-anchor="middle">TauriBackend ／ WorkerBackend</text>
+    <rect class="svg-box" x="300" y="10" width="150" height="58" rx="10"/>
+    <text class="svg-text-b" x="375" y="44" text-anchor="middle">LSP</text>
+    <rect class="svg-box" x="470" y="10" width="150" height="58" rx="10"/>
+    <text class="svg-text-b" x="545" y="44" text-anchor="middle">CLI globe</text>
+    <rect class="svg-box" x="640" y="10" width="340" height="58" rx="10"/>
+    <text class="svg-text-b" x="810" y="36" text-anchor="middle">言語 API</text>
+    <text class="svg-text-m" x="810" y="56" text-anchor="middle">Python · Julia · Zig · Elixir · Gleam</text>
+    <line class="svg-line" x1="500" y1="68" x2="500" y2="100" marker-end="url(#ah7)"/>
+    <!-- facade -->
+    <rect class="svg-box-accent" x="20" y="102" width="960" height="48" rx="10"/>
+    <text class="svg-text-b" x="500" y="132" text-anchor="middle">globe-mode（facade） ＋ globe-mode-protocol（serde 型 / JSON Schema → TS・Python の型）</text>
+    <line class="svg-line" x1="500" y1="150" x2="500" y2="180" marker-end="url(#ah7)"/>
+    <!-- db -->
+    <rect class="svg-box-accent2" x="20" y="182" width="960" height="48" rx="10"/>
+    <text class="svg-text-b" x="500" y="212" text-anchor="middle">globe-mode-db — salsa のクエリ（遅延評価・差分だけ再計算・キャンセル）</text>
+    <line class="svg-line" x1="500" y1="230" x2="500" y2="262" marker-end="url(#ah7)"/>
+    <!-- core crates -->
+    <rect class="svg-box" x="20" y="264" width="220" height="120" rx="10"/>
+    <text class="svg-text-b" x="130" y="292" text-anchor="middle">frontend</text>
+    <text class="svg-text" x="130" y="318" text-anchor="middle">rumoca アダプタ</text>
+    <line class="svg-line" x1="40" y1="332" x2="220" y2="332"/>
+    <text class="svg-text-m" x="130" y="356" text-anchor="middle">native（Track B）</text>
+    <text class="svg-text-m" x="130" y="374" text-anchor="middle">→ 中立 IR（Eq）</text>
+    <rect class="svg-box" x="255" y="264" width="170" height="120" rx="10"/>
+    <text class="svg-text-b" x="340" y="292" text-anchor="middle">analysis</text>
+    <text class="svg-text-m" x="340" y="318" text-anchor="middle">S0〜S10</text>
+    <text class="svg-text-m" x="340" y="338" text-anchor="middle">マッチング・DM</text>
+    <text class="svg-text-m" x="340" y="358" text-anchor="middle">BLT・Pantelides</text>
+    <rect class="svg-box" x="440" y="264" width="160" height="120" rx="10"/>
+    <text class="svg-text-b" x="520" y="292" text-anchor="middle">graph</text>
+    <text class="svg-text-m" x="520" y="318" text-anchor="middle">connect</text>
+    <text class="svg-text-m" x="520" y="338" text-anchor="middle">library</text>
+    <text class="svg-text-m" x="520" y="358" text-anchor="middle">incidence</text>
+    <rect class="svg-box" x="615" y="264" width="180" height="120" rx="10"/>
+    <text class="svg-text-b" x="705" y="292" text-anchor="middle">sim ＋ solver</text>
+    <text class="svg-text-m" x="705" y="318" text-anchor="middle">HybridSystem</text>
+    <text class="svg-text-m" x="705" y="338" text-anchor="middle">Integrator</text>
+    <text class="svg-text-m" x="705" y="358" text-anchor="middle">diffsol・SUNDIALS・自前</text>
+    <rect class="svg-box" x="810" y="264" width="170" height="120" rx="10"/>
+    <text class="svg-text-b" x="895" y="292" text-anchor="middle">fmi</text>
+    <text class="svg-text-m" x="895" y="318" text-anchor="middle">import ME/CS/SE</text>
+    <text class="svg-text-m" x="895" y="338" text-anchor="middle">master</text>
+    <text class="svg-text-m" x="895" y="358" text-anchor="middle">export 2.0 / 3.0</text>
+    <line class="svg-line" x1="500" y1="384" x2="500" y2="420" marker-end="url(#ah7)"/>
+    <!-- targets -->
+    <rect class="svg-band" x="20" y="422" width="960" height="84" rx="10"/>
+    <text class="svg-text-b" x="40" y="452">実行先</text>
+    <text class="svg-text" x="40" y="482">Desktop・Android: Tauri のプロセス内でネイティブ ／ Browser: Web Worker の wasm（閲覧者の端末）</text>
+    <text class="svg-text-m" x="40" y="500">marimo: anywidget ＋ wasm ／ Streamlit: PyO3 の wheel ／ CLI: ネイティブ</text>
+  </svg>
+</section>
+
+<section class="slide" id="S08">
+  <span class="tag">図 · 配置</span>
+  <h1>ユーザーが作った言語別の src/ に合わせる</h1>
+  <div class="cols-2">
+<pre><code>Cargo.toml              virtual workspace
+mise.toml / mise.lock   ツールの版（rust は stable）
+pyproject.toml / uv.lock  Python の依存
+src/Rust/mod/&lt;crate&gt;/   コアの library crate
+src/Rust/apps/desktop/  Tauri 2 のシェル
+src/Rust/apps/experimental/{leptos,dioxus}/
+src/Rust/xtask/
+src/Svelte/             UI（Tauri とブラウザで共用）
+src/Python/{mod,marimo,streamlit}/
+src/{Elixir,Gleam,Julia,Zig}/  薄いラッパ
+src/Modelica/           サンプルと検証用ライブラリ
+data/msl/               MSL 4.1.0（コミットしない）
+doc/  log/  .claude/</code></pre>
+    <div class="small">
+      <h3>Rust crate（src/Rust/mod/）</h3>
+      <table class="compact">
+        <tr><td><code>core</code> <code>ir</code></td><td>Diagnostic、中立 IR</td></tr>
+        <tr><td><code>frontend</code></td><td>Rumoca を使えるのはここと exec だけ</td></tr>
+        <tr><td><code>db</code> <code>analysis</code> <code>graph</code></td><td>salsa、S0〜S10、connect グラフ</td></tr>
+        <tr><td><code>exec</code> <code>solver</code> <code>sim</code></td><td>実行系、Integrator、driver</td></tr>
+        <tr><td><code>fmi</code> <code>fmu-runtime</code></td><td>Import / master / Export</td></tr>
+        <tr><td><code>protocol</code> <code>globe-mode</code></td><td>型、facade</td></tr>
+        <tr><td><code>lsp</code> <code>cli</code></td><td>LSP、<code>globe</code></td></tr>
+        <tr><td><code>capi</code> <code>py</code> <code>nif</code> <code>wasm</code></td><td>言語 API の 4 経路</td></tr>
+        <tr><td><code>testkit</code></td><td>MSL、omc、Reference-FMUs</td></tr>
+      </table>
+      <p class="muted">crate 名はすべて <code>globe-mode-</code> で始まる</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ 遅延評価 -->
+<section class="slide" id="S09">
+  <span class="tag">図 · 遅延評価</span>
+  <h1>salsa のクエリ連鎖と、Eq で比べる 2 つの防火壁</h1>
+  <svg class="fig" viewBox="0 0 1100 300" role="img" aria-label="クエリの連鎖">
+    <defs>
+      <marker id="ah9" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path class="svg-arrowhead" d="M0,0 L10,5 L0,10 z"/>
+      </marker>
+    </defs>
+    <!-- row A -->
+    <rect class="svg-box" x="20" y="40" width="150" height="56" rx="10"/>
+    <text class="svg-text-b" x="95" y="73" text-anchor="middle">SourceFile</text>
+    <rect class="svg-box" x="200" y="40" width="150" height="56" rx="10"/>
+    <text class="svg-text-b" x="275" y="73" text-anchor="middle">parse</text>
+    <text class="svg-text-a" x="455" y="30" text-anchor="middle">防火壁 1（Eq）</text>
+    <rect class="svg-box-accent" x="380" y="40" width="150" height="56" rx="10"/>
+    <text class="svg-text-b" x="455" y="73" text-anchor="middle">outline</text>
+    <rect class="svg-box" x="560" y="40" width="150" height="56" rx="10"/>
+    <text class="svg-text-b" x="635" y="73" text-anchor="middle">class_index</text>
+    <rect class="svg-box" x="740" y="40" width="150" height="56" rx="10"/>
+    <text class="svg-text-b" x="815" y="73" text-anchor="middle">class_interface</text>
+    <rect class="svg-box-accent2" x="925" y="40" width="160" height="56" rx="10"/>
+    <text class="svg-text-b" x="1005" y="73" text-anchor="middle">connect_graph</text>
+    <text class="svg-text-m" x="1005" y="116" text-anchor="middle">flatten 不要</text>
+    <line class="svg-line" x1="170" y1="68" x2="198" y2="68" marker-end="url(#ah9)"/>
+    <line class="svg-line" x1="350" y1="68" x2="378" y2="68" marker-end="url(#ah9)"/>
+    <line class="svg-line" x1="530" y1="68" x2="558" y2="68" marker-end="url(#ah9)"/>
+    <line class="svg-line" x1="710" y1="68" x2="738" y2="68" marker-end="url(#ah9)"/>
+    <line class="svg-line" x1="890" y1="68" x2="923" y2="68" marker-end="url(#ah9)"/>
+    <line class="svg-line" x1="815" y1="96" x2="815" y2="178" marker-end="url(#ah9)"/>
+    <!-- row B (right to left) -->
+    <rect class="svg-box" x="740" y="180" width="150" height="56" rx="10"/>
+    <text class="svg-text-b" x="815" y="213" text-anchor="middle">flat</text>
+    <text class="svg-text-a" x="635" y="170" text-anchor="middle">防火壁 2（Eq）</text>
+    <rect class="svg-box-accent" x="560" y="180" width="150" height="56" rx="10"/>
+    <text class="svg-text-b" x="635" y="213" text-anchor="middle">dae_structure</text>
+    <rect class="svg-box" x="380" y="180" width="150" height="56" rx="10"/>
+    <text class="svg-text-b" x="455" y="213" text-anchor="middle">simulatability</text>
+    <rect class="svg-box" x="200" y="180" width="150" height="56" rx="10"/>
+    <text class="svg-text-b" x="275" y="213" text-anchor="middle">executable</text>
+    <rect class="svg-box-warn" x="20" y="180" width="150" height="56" rx="10"/>
+    <text class="svg-text-b" x="95" y="213" text-anchor="middle">sim ジョブ</text>
+    <text class="svg-text-m" x="95" y="256" text-anchor="middle">salsa の外</text>
+    <line class="svg-line" x1="740" y1="208" x2="712" y2="208" marker-end="url(#ah9)"/>
+    <line class="svg-line" x1="560" y1="208" x2="532" y2="208" marker-end="url(#ah9)"/>
+    <line class="svg-line" x1="380" y1="208" x2="352" y2="208" marker-end="url(#ah9)"/>
+    <line class="svg-line" x1="200" y1="208" x2="172" y2="208" marker-end="url(#ah9)"/>
+    <text class="svg-text-m" x="275" y="256" text-anchor="middle">LRU</text>
+    <text class="svg-text-m" x="455" y="256" text-anchor="middle">S0〜S10</text>
+    <text class="svg-text-m" x="635" y="116" text-anchor="middle">MSL は必要になったファイルだけ parse</text>
+  </svg>
+  <ul class="small">
+    <li>空白やコメントだけの編集は <code>outline</code> が同じ値になるので、そこから先は再計算されない（P2 の目標: 再検査 50 ms 未満）</li>
+    <li>MSL は Durability HIGH。ユーザーのファイルだけが打鍵ごとに変わる</li>
+  </ul>
+</section>
+
+<section class="slide" id="S10">
+  <span class="tag">設計 · 実行前のアサーション</span>
+  <h1><code>assert_simulatable</code> — 段階ごとに止め、段階内の指摘は全件出す</h1>
+  <table class="compact">
+    <tr><th>段階</th><th>検査</th><th>段階</th><th>検査</th></tr>
+    <tr><td>S0–S2</td><td>構文、名前解決（<code>uses</code> の版）、型と次元</td><td>S6</td><td>構造特異: 完全マッチング。Dulmage–Mendelsohn 分解で過剰・不足の箇所を span 付きで示す</td></tr>
+    <tr><td>S3</td><td>partial なトップクラス、redeclare されていない replaceable</td><td>S7</td><td>インデックス: Pantelides と状態選択</td></tr>
+    <tr><td>S4</td><td>connector のバランス（MLS 9.3）、非互換な接続、未接続</td><td>S8</td><td>初期化: 初期化系のバランス、start 値の無い状態変数、fixed の過剰</td></tr>
+    <tr><td>S5</td><td>方程式数＝変数数。コンポーネントごとのローカルバランス（MLS 4.7）</td><td>S9–S10</td><td>代数ループの start 値。t0 で残差が有限か、ソルバの能力が足りるか</td></tr>
+  </table>
+  <div class="cols-3 small">
+    <div class="card"><b>GM-E / W / I</b><br>モデルの誤り・警告・情報。Error があれば <code>--force</code> 無しでは実行しない</div>
+    <div class="card hl"><b>GM-U</b><br>「コンパイラが未対応」（stream、expandable、state machine …）。モデルの誤りと混同させない</div>
+    <div class="card"><b>出力先</b><br>LSP の診断・CLI・JSON・グラフのハイライト。S5 は <code>omc checkModel()</code> と照合する</div>
+  </div>
+</section>
+
+<!-- ============================================================ ソルバ -->
+<section class="slide" id="S11">
+  <span class="tag">設計 · ソルバ</span>
+  <h1>OpenModelica と Dymola の名前で選べる、複数のソルバ</h1>
+  <table class="compact">
+    <tr><th>GlobeMode</th><th>OpenModelica / Dymola</th><th>実装</th><th>wasm</th></tr>
+    <tr><td><code>bdf</code>（既定）</td><td>dassl・ida・Dassl・Lsodar（別名として受け付ける）</td><td>diffsol BDF（MIT）</td><td class="ok">○</td></tr>
+    <tr><td><code>esdirk23/34/45</code>・<code>trbdf2</code>・<code>sdirk34hw</code></td><td>gbode・Esdirk*a・Sdirk34hw</td><td>diffsol SDIRK と自前の係数表</td><td class="ok">○</td></tr>
+    <tr><td><code>tsit45</code>・<code>dopri45/853</code></td><td>gbode dopri45・Dopri45/853</td><td>diffsol、自前の陽的 RK</td><td class="ok">○</td></tr>
+    <tr><td><code>euler</code>・<code>heun</code>・<code>rk4</code>・<code>impeuler</code>・<code>trapezoid</code></td><td>同名・Euler・Rkfix2/3/4</td><td>自前の固定刻み</td><td class="ok">○</td></tr>
+    <tr><td><code>ida</code>・<code>cvode</code></td><td>ida・cvode・Cvode</td><td>SUNDIALS（BSD-3、feature）</td><td class="ng">×</td></tr>
+    <tr><td><code>radau5</code>（P8）</td><td>gbode radau・Radau IIa</td><td>自前（russell は GPL の UMFPACK を引くので使わない）</td><td class="ok">○</td></tr>
+  </table>
+  <p class="small">ハイブリッドループ（時間イベント・根探索・イベント反復）は driver が持ち、<b>Modelica のモデルと FMU-ME で共用する</b>。別名で指定すると「dassl → bdf（同等の手法で、結果は一致しない）」と表示する。</p>
+</section>
+
+<!-- ============================================================ FMI -->
+<section class="slide" id="S12">
+  <span class="tag">設計 · FMI 2.0 / 3.0</span>
+  <h1>Import は既存の crate の上に、FMI 2 の Export は自前で</h1>
+  <div class="cols-2">
+    <div class="card">
+      <h3>Import（<code>fmi</code> 0.8 の上に作る）</h3>
+      <ul class="small">
+        <li><b>ME</b>: <code>HybridSystem</code> として扱い、全ソルバを使える</li>
+        <li><b>CS</b>: do_step、状態の保存と復元、early return</li>
+        <li><b>SE</b>（3.0）: 優先度付きのクロックスケジューラ</li>
+        <li>マスター: 固定刻みの Jacobi / Gauss–Seidel → ロールバック付きの可変刻み。系の構成は SSP か <code>.gmsys</code></li>
+        <li>ブラウザでは、ネイティブの FMU は中身の閲覧だけ。wasm バイナリ付きの FMU なら実行できる</li>
+      </ul>
+    </div>
+    <div class="card hl">
+      <h3>Export</h3>
+      <ul class="small">
+        <li><b>P5a</b>: Rumoca の fmi2 / fmi3 テンプレート → <code>cc</code> / <code>zig cc</code></li>
+        <li><b>P5b</b>: 自前の <code>fmu-runtime</code>（BSD-2 のヘッダの上に作る）。IR を埋め込んで解釈実行するので、ブラウザや Android からも出力できる</li>
+        <li><code>fmi-export</code> は FMI 3 しか出力できないので、代替手段にとどめる</li>
+      </ul>
+      <h3>検証</h3>
+      <p class="small">Reference-FMUs（BSD-2）・<code>fmpy.validate_fmu</code>・fmusim・fmuCheck（FMI 2）・往復（Export → Import）</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ connect グラフ -->
+<section class="slide" id="S13">
+  <span class="tag">設計 · connect グラフ</span>
+  <h1>connect() から Obsidian 風のネットワークグラフを描く</h1>
+  <div class="cols-2">
+    <svg class="fig" viewBox="0 0 560 380" role="img" aria-label="ChuaCircuit の connect グラフの例">
+      <line class="svg-line" x1="120" y1="80" x2="110" y2="250"/>
+      <line class="svg-line" x1="110" y1="250" x2="300" y2="320"/>
+      <line class="svg-line" x1="120" y1="80" x2="250" y2="130"/>
+      <line class="svg-line" x1="250" y1="130" x2="300" y2="320"/>
+      <line class="svg-line" x1="250" y1="130" x2="390" y2="80"/>
+      <line class="svg-line" x1="390" y1="80" x2="480" y2="150"/>
+      <line class="svg-line" x1="480" y1="150" x2="300" y2="320"/>
+      <line class="svg-line" x1="470" y1="290" x2="480" y2="150"/>
+      <line class="svg-line" x1="470" y1="290" x2="300" y2="320"/>
+      <line class="svg-line-accent" x1="390" y1="80" x2="470" y2="290"/>
+      <circle class="svg-node" cx="120" cy="80" r="16"/>
+      <circle class="svg-node" cx="110" cy="250" r="14"/>
+      <circle class="svg-node-2" cx="250" cy="130" r="18"/>
+      <circle class="svg-node" cx="390" cy="80" r="16"/>
+      <circle class="svg-node-2" cx="480" cy="150" r="18"/>
+      <circle class="svg-node" cx="470" cy="290" r="16"/>
+      <circle class="svg-node-3" cx="300" cy="320" r="24"/>
+      <text class="svg-text-b" x="120" y="56" text-anchor="middle">L</text>
+      <text class="svg-text-b" x="70" y="256" text-anchor="middle">Ro</text>
+      <text class="svg-text-b" x="250" y="102" text-anchor="middle">C2</text>
+      <text class="svg-text-b" x="390" y="56" text-anchor="middle">G</text>
+      <text class="svg-text-b" x="522" y="155" text-anchor="middle">C1</text>
+      <text class="svg-text-b" x="512" y="296" text-anchor="middle">Nr</text>
+      <text class="svg-text-b" x="300" y="365" text-anchor="middle">Gnd</text>
+      <text class="svg-text-m" x="10" y="20">例: Modelica.Electrical.Analog.Examples.ChuaCircuit</text>
+    </svg>
+    <div class="small">
+      <ul>
+        <li><b>データ</b>: <code>connect_graph(path, depth)</code> が graphology の JSON と、編集ごとの差分を返す。<b>flatten しなくても描ける</b></li>
+        <li><b>ノード</b>: コンポーネントとコネクタ。色は connector の種類、大きさは次数（接続の数）</li>
+        <li><b>エッジ</b>: connect 文、継承、包含</li>
+        <li><b>描画</b>: sigma.js（WebGL）＋ ForceAtlas2。レイアウトは Worker で回し、反復回数に上限を設ける。1 万ノードを超えたら cosmos.gl</li>
+        <li><b>操作</b>: 階層の展開と折り畳み、検索、近傍のハイライト。S4〜S6 の問題を色で示す</li>
+        <li class="warn">Cosmograph は NC ライセンスなので使わない（cosmos.gl とは別物）</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ ターゲット・API -->
+<section class="slide" id="S14">
+  <span class="tag">設計 · 実行環境</span>
+  <h1>同じコアを 6 つの場所で動かす</h1>
+  <table>
+    <tr><th>ターゲット</th><th>計算</th><th>UI / 配布物</th></tr>
+    <tr><td>Desktop（Debian 系 / Windows 11）</td><td>Tauri のプロセス内でネイティブ</td><td>Svelte 5 · .deb / .AppImage / .msi</td></tr>
+    <tr><td>Android（7 以降。検証は API 34）</td><td>同上（cranelift は無効）</td><td>Svelte 5 · .apk</td></tr>
+    <tr><td>Browser</td><td><b>閲覧者の端末の Web Worker で wasm</b>。既定はシングルスレッド</td><td>静的サイト。CSP <code>connect-src 'self'</code></td></tr>
+    <tr><td>CLI</td><td>ネイティブ</td><td><code>globe check | graph | simulate | export-fmu</code></td></tr>
+    <tr><td>marimo</td><td>anywidget に wasm（Pyodide とは独立）。代替は PyO3 の wheel</td><td>ノートブック（WASM 版は 2 GB まで）</td></tr>
+    <tr><td>Streamlit</td><td>PyO3 の wheel</td><td>結果ダッシュボード・スイープ</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S15">
+  <span class="tag">設計 · 言語 API</span>
+  <h1>6 言語の API は 4 つの経路にまとめる</h1>
+  <table>
+    <tr><th>経路（crate）</th><th>言語</th><th>道具</th></tr>
+    <tr><td><code>globe-mode</code>（facade）</td><td>Rust</td><td>そのまま使う</td></tr>
+    <tr><td><code>globe-mode-py</code></td><td>Python（marimo・Streamlit を含む）</td><td>PyO3 ＋ maturin（abi3-py312）</td></tr>
+    <tr><td><code>globe-mode-capi</code></td><td>Zig・Julia</td><td><code>extern "C"</code> ＋ cbindgen のヘッダ。Zig は <code>@cImport</code>、Julia は <code>ccall</code> と JLL</td></tr>
+    <tr><td><code>globe-mode-nif</code></td><td>Elixir・Gleam（Erlang target）</td><td>Rustler。Gleam は <code>@external</code> で同じ NIF を呼ぶ</td></tr>
+    <tr><td><code>globe-mode-wasm</code></td><td>ブラウザ・Gleam（JS target）・marimo</td><td>wasm-bindgen</td></tr>
+  </table>
+  <p class="small"><b>共通の参照シナリオ</b>: open → check → graph → simulate（bdf）→ 結果を取得 → FMU を出力。P7 では、これが 6 言語すべてで通ることを確かめる。</p>
+</section>
+
+<!-- ============================================================ ライセンス -->
+<section class="slide" id="S16">
+  <span class="tag">決定 · ライセンス</span>
+  <h1>Rumoca を git 依存にしてよいか → <span class="ok">問題ない</span></h1>
+  <div class="cols-3 small">
+    <div class="card">
+      <h3 class="ok">許可</h3>
+      <p>MIT・Apache-2.0（LLVM exception を含む）・BSD-2/3・ISC・Zlib・Unicode-3.0・CC0</p>
+      <p class="muted">Rumoca・diffsol・faer・salsa・rowan・fmi・Tauri・Svelte・CodeMirror・sigma.js・cosmos.gl・SUNDIALS</p>
+    </div>
+    <div class="card">
+      <h3 class="warn">条件付き</h3>
+      <p>MPL-2.0・EPL-2.0（改変しないで使う場合に限る）。LGPL は任意の feature に限る</p>
+      <p class="muted">cbindgen（ツール）・JointJS・ELK.js・KLU</p>
+    </div>
+    <div class="card">
+      <h3 class="ng">禁止</h3>
+      <p>GPL・AGPL・OSMC-PL・NC・source-available</p>
+      <p class="muted">OpenModelica のリンク・tree-sitter-modelica・russell_sparse（UMFPACK）・Slint・Cosmograph・symbolica・zenoh（<code>bans</code>）</p>
+    </div>
+  </div>
+  <div class="card hl small">
+    <b>Rumoca の扱い</b>: Apache-2.0 で NOTICE ファイルは無い。配布物にはライセンス文を同梱する（cargo-about）。改変したらそのファイルに明記する（§4b）。製品名に「Rumoca」を使わない。
+    依存は <code>rumoca-compile</code> などに絞り、umbrella crate の既定 feature（zenoh など）を避ける。<span class="warn">本当のリスクはライセンスではなく、nightly 固定と API の変化</span>。
+  </div>
+</section>
+
+<!-- ============================================================ ロードマップ -->
+<section class="slide" id="S17">
+  <span class="tag">図 · ロードマップ</span>
+  <h1>P0〜P8 と Track B（自前コア）</h1>
+  <svg class="fig" viewBox="0 0 1000 256" role="img" aria-label="ロードマップ">
+    <rect class="svg-box-accent" x="10" y="20" width="100" height="78" rx="10"/>
+    <text class="svg-text-b" x="60" y="50" text-anchor="middle">P0</text>
+    <text class="svg-text-m" x="60" y="72" text-anchor="middle">運用基盤</text>
+    <text class="svg-text-a" x="60" y="90" text-anchor="middle">S001</text>
+    <rect class="svg-box" x="120" y="20" width="100" height="78" rx="10"/>
+    <text class="svg-text-b" x="170" y="50" text-anchor="middle">P1</text>
+    <text class="svg-text-m" x="170" y="72" text-anchor="middle">骨格</text>
+    <text class="svg-text-m" x="170" y="90" text-anchor="middle">CI・deny</text>
+    <rect class="svg-box" x="230" y="20" width="100" height="78" rx="10"/>
+    <text class="svg-text-b" x="280" y="50" text-anchor="middle">P2</text>
+    <text class="svg-text-m" x="280" y="72" text-anchor="middle">遅延クエリ</text>
+    <text class="svg-text-m" x="280" y="90" text-anchor="middle">S0〜S10</text>
+    <rect class="svg-box" x="340" y="20" width="100" height="78" rx="10"/>
+    <text class="svg-text-b" x="390" y="50" text-anchor="middle">P3</text>
+    <text class="svg-text-m" x="390" y="72" text-anchor="middle">シミュ</text>
+    <text class="svg-text-m" x="390" y="90" text-anchor="middle">ソルバ</text>
+    <rect class="svg-box" x="450" y="20" width="100" height="78" rx="10"/>
+    <text class="svg-text-b" x="500" y="50" text-anchor="middle">P4</text>
+    <text class="svg-text-m" x="500" y="72" text-anchor="middle">Desktop</text>
+    <text class="svg-text-m" x="500" y="90" text-anchor="middle">MVP</text>
+    <rect class="svg-box" x="560" y="20" width="100" height="78" rx="10"/>
+    <text class="svg-text-b" x="610" y="50" text-anchor="middle">P5</text>
+    <text class="svg-text-m" x="610" y="72" text-anchor="middle">FMI</text>
+    <text class="svg-text-m" x="610" y="90" text-anchor="middle">2.0 / 3.0</text>
+    <rect class="svg-box" x="670" y="20" width="100" height="78" rx="10"/>
+    <text class="svg-text-b" x="720" y="50" text-anchor="middle">P6</text>
+    <text class="svg-text-m" x="720" y="72" text-anchor="middle">Web・marimo</text>
+    <text class="svg-text-m" x="720" y="90" text-anchor="middle">Android</text>
+    <rect class="svg-box" x="780" y="20" width="100" height="78" rx="10"/>
+    <text class="svg-text-b" x="830" y="50" text-anchor="middle">P7</text>
+    <text class="svg-text-m" x="830" y="72" text-anchor="middle">6 言語 API</text>
+    <text class="svg-text-m" x="830" y="90" text-anchor="middle">UI 比較</text>
+    <rect class="svg-box" x="890" y="20" width="100" height="78" rx="10"/>
+    <text class="svg-text-b" x="940" y="50" text-anchor="middle">P8</text>
+    <text class="svg-text-m" x="940" y="72" text-anchor="middle">拡充</text>
+    <text class="svg-text-m" x="940" y="90" text-anchor="middle">SSP・radau</text>
+    <rect class="svg-box-warn" x="430" y="132" width="560" height="84" rx="10"/>
+    <text class="svg-text-b" x="710" y="160" text-anchor="middle">Track B: 自前コア（rowan ＋ salsa）</text>
+    <text class="svg-text-m" x="710" y="182" text-anchor="middle">B1 パーサ → B2 resolve → B3 flatten → B4 DAE</text>
+    <text class="svg-text-m" x="710" y="202" text-anchor="middle">段階ごとに Rumoca 以上の数字を出したら、既定を切り替える</text>
+    <line class="svg-line" x1="500" y1="98" x2="500" y2="132"/>
+    <text class="svg-text-m" x="10" y="244">各 Phase の完了条件は数字で決めている（例 P2: 空白だけの編集の再検査 &lt; 50 ms、P3: MSL の例題 153 本以上を実行）</text>
+  </svg>
+</section>
+
+<section class="slide" id="S18">
+  <span class="tag">設計 · リスク</span>
+  <h1>主なリスクと対策</h1>
+  <table class="compact">
+    <tr><th>リスク</th><th>対策</th></tr>
+    <tr><td>Rumoca の nightly 固定と API の変化</td><td><code>rev</code> で固定、アダプタと中立 IR で影響を食い止める、毎月 <code>xtask bump-rumoca</code> でコーパスの差分を見る、上流に PR</td></tr>
+    <tr><td>wasm の制約（JIT・dlopen・既定のスレッドが無い、marimo は 2 GB まで）</td><td>解釈実行か wasm へのコード生成。diffsol を既定に。MSL はパッケージ単位で分割して読む</td></tr>
+    <tr><td>Android の WebView の性能</td><td>計算はネイティブ。グラフは LOD とノード数の上限、レイアウトは Worker で回す</td></tr>
+    <tr><td>ライセンスのドリフト（Rust・npm・生成コード）</td><td>cargo-deny・<code>pnpm licenses</code>・cargo-about・SBOM</td></tr>
+    <tr><td>FMI 2 の Export に使える既存の crate が無い</td><td>FMPy・fmusim・fmuCheck・往復の 4 つで検証する</td></tr>
+    <tr><td>範囲の広さ（6 言語 × 6 ターゲット）</td><td>facade と protocol を 1 つに保つ。CI を段階に分ける</td></tr>
+    <tr><td>セッション記録からの流出</td><td>生ログは管理外。伏せ字にして <code>--check</code> とコミット前の検査を通す</td></tr>
+  </table>
+</section>
+
+<!-- ============================================================ 運用 -->
+<section class="slide" id="S19">
+  <span class="tag">再現手順 · 運用基盤</span>
+  <h1>1 セッション = 1 worktree。記録は伏せ字にしてから公開する</h1>
+  <svg class="fig" viewBox="0 0 1000 260" role="img" aria-label="セッションの運用フロー">
+    <defs>
+      <marker id="ah19" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path class="svg-arrowhead" d="M0,0 L10,5 L0,10 z"/>
+      </marker>
+    </defs>
+    <rect class="svg-box-accent" x="10" y="20" width="170" height="64" rx="10"/>
+    <text class="svg-text-b" x="95" y="48" text-anchor="middle">/start-session</text>
+    <text class="svg-text-m" x="95" y="70" text-anchor="middle">worktree・雛形</text>
+    <rect class="svg-box" x="215" y="20" width="170" height="64" rx="10"/>
+    <text class="svg-text-b" x="300" y="48" text-anchor="middle">作業</text>
+    <text class="svg-text-m" x="300" y="70" text-anchor="middle">feature/sNNN-*</text>
+    <rect class="svg-box" x="420" y="20" width="170" height="64" rx="10"/>
+    <text class="svg-text-b" x="505" y="48" text-anchor="middle">/session-docs</text>
+    <text class="svg-text-m" x="505" y="70" text-anchor="middle">slides・解説書</text>
+    <rect class="svg-box-accent" x="625" y="20" width="170" height="64" rx="10"/>
+    <text class="svg-text-b" x="710" y="48" text-anchor="middle">/finish-session</text>
+    <text class="svg-text-m" x="710" y="70" text-anchor="middle">検査・コミット</text>
+    <rect class="svg-box-warn" x="830" y="20" width="160" height="64" rx="10"/>
+    <text class="svg-text-b" x="910" y="48" text-anchor="middle">main へ取り込み</text>
+    <text class="svg-text-m" x="910" y="70" text-anchor="middle">ユーザーが判断</text>
+    <line class="svg-line" x1="180" y1="52" x2="213" y2="52" marker-end="url(#ah19)"/>
+    <line class="svg-line" x1="385" y1="52" x2="418" y2="52" marker-end="url(#ah19)"/>
+    <line class="svg-line" x1="590" y1="52" x2="623" y2="52" marker-end="url(#ah19)"/>
+    <line class="svg-line" x1="795" y1="52" x2="828" y2="52" marker-end="url(#ah19)"/>
+    <rect class="svg-band" x="10" y="130" width="980" height="110" rx="10"/>
+    <text class="svg-text-b" x="30" y="158">Stop / SessionEnd フック</text>
+    <rect class="svg-box" x="30" y="172" width="260" height="52" rx="8"/>
+    <text class="svg-text" x="160" y="196" text-anchor="middle">log/local/*.md（伏せ字）</text>
+    <text class="svg-text-m" x="160" y="214" text-anchor="middle">raw/*.jsonl.gz（コミットしない）</text>
+    <rect class="svg-box" x="370" y="172" width="260" height="52" rx="8"/>
+    <text class="svg-text" x="500" y="196" text-anchor="middle">--check で取りこぼし 0 件</text>
+    <text class="svg-text-m" x="500" y="214" text-anchor="middle">差分の漏洩検査も通す</text>
+    <rect class="svg-box-accent2" x="710" y="172" width="260" height="52" rx="8"/>
+    <text class="svg-text" x="840" y="196" text-anchor="middle">log/sessions/*.md</text>
+    <text class="svg-text-m" x="840" y="214" text-anchor="middle">feature ブランチにコミット</text>
+    <line class="svg-line" x1="290" y1="198" x2="368" y2="198" marker-end="url(#ah19)"/>
+    <line class="svg-line" x1="630" y1="198" x2="708" y2="198" marker-end="url(#ah19)"/>
+  </svg>
+  <p class="small">CLAUDE.md（作業ルール）・スキル 4 つ（start-session / finish-session / session-docs / add-dependency）・check_docs.py（スライドとリンクの検査）・save_session_log.py（伏せ字）</p>
+</section>
+
+<!-- ============================================================ 次回 -->
+<section class="slide" id="S20">
+  <span class="tag">次回</span>
+  <h1>S002 — P1 骨格の 1 回目</h1>
+  <div class="cols-2">
+    <div class="card hl">
+      <h3>やること</h3>
+      <ol class="small">
+        <li>ルートの <code>Cargo.toml</code> を virtual workspace に。<code>src/main.rs</code> を <code>globe-mode-cli</code> へ移す</li>
+        <li><code>mise.toml</code> の rust に wasm と Android の targets を足す（言語の管理は mise・uv・cargo。<code>rust-toolchain.toml</code> は置かない）</li>
+        <li><code>deny.toml</code>（許可リスト・<code>bans</code>・<code>wrappers</code>）と CI の雛形</li>
+        <li>Rumoca の <code>rev</code> を決め、<b>stable でビルドできるか</b>を確かめる → ADR-0003</li>
+        <li>Python パッケージを <code>globe_mode</code> に改名（数字で始まる名前は import できない）</li>
+      </ol>
+    </div>
+    <div class="card">
+      <h3>残したこと・確かめること</h3>
+      <ul class="small">
+        <li>【未確認】の項目（doc/research/）を P1〜P5 で一次資料に当たって確かめる</li>
+        <li>Rumoca のテンプレートが生成するコードのライセンス（P5a）</li>
+        <li>marimo の <code>html-wasm</code> 出力で anywidget が動くか（P6）</li>
+        <li>スライドの見た目は、ブラウザで <code>file://</code> を開いて確かめる</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
