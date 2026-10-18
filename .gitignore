@@ -1,4 +1,5 @@
 # Python-generated files
+
 __pycache__/
 *.py[oc]
 build/
@@ -7,9 +8,14 @@ wheels/
 *.egg-info
 
 # Virtual environments
-.venv
 
+.venv
 
 # Added by cargo
 
 /target
+
+# mise
+
+mise.local.toml
+mise.local.lock

@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:mise.jdx.dev)",
+      "Read(//tmp/**)",
+      "Bash(/usr/bin/python3 -I -)"
+    ]
+  }
+}
