@@ -1,4 +1,4 @@
-//! Rumoca の DAE から、初期化系の構造（[`InitStructure`]、S8 の入力）を取り出す（S007）。
+//! Rumoca の DAE から、初期化系の構造（[`InitStructure`]、S8 の入力）を取り出す（S007。参照は S009）。
 //!
 //! - 状態: `VariableRole::State` の変数を、変数の順にスカラーごとに 1 つ。`structure.rs` の
 //!   `Derivative` の未知数（`der(x)`）と同じ順になる。`fixed` の既定は false（MLS §4.8）。
@@ -11,6 +11,17 @@
 //!   - Real でない `fixed = false` のパラメータを決める式（`initial_parameter_values()`。Rumoca は初期化の
 //!     方程式として扱う）
 //!   - 離散変数の、初期化の時点の値を決める式や代入（`initial_discrete_values()`）
+//! - 初期方程式の参照（S009）: 行ごとに `rumoca_eval_dae::for_each_scalar_coordinate_cached` で依存する
+//!   スカラーの座標を列挙し、`structure.rs` と同じ鍵（[`crate::structure::unknowns_and_keys`]）で
+//!   [`DaeStructure`](globe_mode_ir::DaeStructure) の未知数の添字に写す。
+//!   - `der(x)` と代数（`pre(z)` も）→ `initial_incidence`、状態そのもの `x`（`pre(x)` も）→ `initial_state_refs`
+//!   - パラメータ → `initial_parameter_refs`、離散変数（`pre(d)` も）→ `initial_discrete_refs`
+//!   - 取り分けた定義の行は、対象のスカラーと、値の式の参照。値の式を射影できなければ対象だけ
+//!   - `fixed = false` で束縛の無いパラメータ（初期化の未知数）が 1 つでもあれば、束縛がそれに（推移的に）
+//!     依存するパラメータも初期化の未知数として `parameter_binding_refs` に残し（`Sub s(k = c)` の `s.k`。
+//!     DAE の方程式は `c` ではなく `s.k` を参照する）、DAE の連続の方程式ももう一度歩いて、それらへの参照を
+//!     `equation_parameter_refs` に残す（無ければどちらも歩かない）
+//!   - 式を 1 つでも射影できなければ `has_incidence = false`（S8 は数と属性だけで判定する）
 //!
 //! Rumoca v0.10.2 の DAE への変換（`compile_model_strict`）について、テストで確かめたこと:
 //!
@@ -31,11 +42,16 @@
 //!
 //! 取り出せないときは Err（理由）。panic しても Err にする。
 
+use std::collections::HashMap;
+
 use globe_mode_ir::{EquationRow, InitStructure, InitVariable};
-use rumoca_compile::compile::{Dae, DaeProvenance, DaeView, VariableRole, VariableView};
+use rumoca_compile::compile::{
+    ContinuousOwnerView, CoordinateView, Dae, DaeProvenance, DaeView, VariableRole, VariableView,
+};
+use rumoca_eval_dae::{ScalarCoordinateProjectionCache, for_each_scalar_coordinate_cached};
 use rumoca_ir_dae::{DaeGeneration, DaeProvenanceOrigin, InitializationOwnerView};
 
-use crate::structure::{label, location, origin};
+use crate::structure::{Key, label, location, origin, unknowns_and_keys};
 
 /// 初期化系の構造を取り出す。
 pub(crate) fn extract(dae: &Dae) -> Result<InitStructure, String> {
@@ -55,11 +71,40 @@ pub(crate) fn extract(dae: &Dae) -> Result<InitStructure, String> {
     }
 }
 
+/// 1 行の初期方程式の参照（4 つの列の添字。昇順・重複なし）。
+#[derive(Debug, Default)]
+struct Refs {
+    incidence: Vec<u32>,
+    state_refs: Vec<u32>,
+    parameters: Vec<u32>,
+    discretes: Vec<u32>,
+}
+
+impl Refs {
+    fn finish(mut self) -> Self {
+        for v in [
+            &mut self.incidence,
+            &mut self.state_refs,
+            &mut self.parameters,
+            &mut self.discretes,
+        ] {
+            v.sort_unstable();
+            v.dedup();
+        }
+        self
+    }
+}
+
 fn extract_view<'dae>(dae: &Dae, view: DaeView<'dae>) -> Result<InitStructure, String> {
     let mut init = InitStructure::default();
+    // 未知数の鍵（structure.rs と同じ対応）
+    let (_, keys) = unknowns_and_keys(dae, view)?;
+    // パラメータと離散変数の鍵（変数の添字、スカラーの添字）→ parameters / discretes の添字
+    let mut parameter_keys: HashMap<(u32, u32), u32> = HashMap::new();
+    let mut discrete_keys: HashMap<(u32, u32), u32> = HashMap::new();
 
     // 変数（変数の順、スカラーごと。structure.rs の未知数と同じ順）
-    for (_, variable) in view.variables() {
+    for (id, variable) in view.variables() {
         let role = variable.role();
         let (list, default_fixed) = match role {
             VariableRole::State => (&mut init.states, false),
@@ -81,6 +126,8 @@ fn extract_view<'dae>(dae: &Dae, view: DaeView<'dae>) -> Result<InitStructure, S
         // 束縛はパラメータだけが意味を持つ（状態・離散・代数は常に false）
         let has_binding = role == VariableRole::Parameter && variable.binding().is_some();
         for scalar in 0..count {
+            let scalar_u32 =
+                u32::try_from(scalar).map_err(|_| "スカラーの添字が u32 に収まらない")?;
             list.push(InitVariable {
                 name: variable
                     .scalar_name(scalar)
@@ -91,12 +138,79 @@ fn extract_view<'dae>(dae: &Dae, view: DaeView<'dae>) -> Result<InitStructure, S
                 file: file.clone(),
                 range,
             });
+            let index = (list.len() - 1) as u32;
+            match role {
+                VariableRole::Parameter => {
+                    parameter_keys.insert((id.index(), scalar_u32), index);
+                }
+                VariableRole::DiscreteReal | VariableRole::DiscreteValue => {
+                    discrete_keys.insert((id.index(), scalar_u32), index);
+                }
+                _ => {}
+            }
         }
     }
 
+    // 1 つの式（スカラー）の参照を集める
+    let mut cache = ScalarCoordinateProjectionCache::default();
+    let mut project =
+        |expression, scalar: usize, point: Option<(_, &[i64])>| -> Result<Refs, String> {
+            let mut refs = Refs::default();
+            for_each_scalar_coordinate_cached(
+                view,
+                expression,
+                scalar,
+                point,
+                &mut cache,
+                |coordinate, scalar| {
+                    let Ok(scalar) = u32::try_from(scalar) else {
+                        return;
+                    };
+                    match coordinate {
+                        CoordinateView::Derivative(state) => {
+                            if let Some(&u) = keys.get(&Key::Derivative(state.index(), scalar)) {
+                                refs.incidence.push(u);
+                            }
+                        }
+                        CoordinateView::Algebraic(v) | CoordinateView::PreAlgebraic(v) => {
+                            if let Some(&u) = keys.get(&Key::Algebraic(v.index(), scalar)) {
+                                refs.incidence.push(u);
+                            }
+                        }
+                        CoordinateView::State(state) | CoordinateView::PreState(state) => {
+                            if let Some(&u) = keys.get(&Key::Derivative(state.index(), scalar)) {
+                                refs.state_refs.push(u);
+                            }
+                        }
+                        CoordinateView::Parameter(p) => {
+                            if let Some(&i) = parameter_keys.get(&(p.index(), scalar)) {
+                                refs.parameters.push(i);
+                            }
+                        }
+                        CoordinateView::DiscreteReal(d) | CoordinateView::PreDiscreteReal(d) => {
+                            if let Some(&i) = discrete_keys.get(&(d.index(), scalar)) {
+                                refs.discretes.push(i);
+                            }
+                        }
+                        CoordinateView::DiscreteValue(d) | CoordinateView::PreDiscreteValue(d) => {
+                            if let Some(&i) = discrete_keys.get(&(d.index(), scalar)) {
+                                refs.discretes.push(i);
+                            }
+                        }
+                        // 既知の値（入力・time など）や式の内部の束縛
+                        _ => {}
+                    }
+                },
+            )
+            .map_err(|e| e.to_string())?;
+            Ok(refs.finish())
+        };
+
     // 初期方程式（Rumoca の visit_initialization_rows と同じ順）
     let mut equations: Vec<EquationRow> = Vec::new();
-    let mut push_row = |provenance: DaeProvenance, suffix: Option<&[i64]>| {
+    let mut rows: Vec<Refs> = Vec::new();
+    let mut has_incidence = true;
+    let mut push_row = |provenance: DaeProvenance, suffix: Option<&[i64]>, refs: Option<Refs>| {
         let index = equations.len();
         let (file, range) = location(dae, provenance);
         equations.push(EquationRow {
@@ -105,11 +219,19 @@ fn extract_view<'dae>(dae: &Dae, view: DaeView<'dae>) -> Result<InitStructure, S
             file,
             range,
         });
+        rows.push(refs.unwrap_or_default());
     };
     for owner in view.initialization_owners() {
         match owner {
             InitializationOwnerView::Residual { equation, .. } => {
-                push_row(equation.provenance(), None);
+                let refs = match project(equation.residual(), 0, None) {
+                    Ok(r) => Some(r),
+                    Err(_) => {
+                        has_incidence = false;
+                        None
+                    }
+                };
+                push_row(equation.provenance(), None, refs);
             }
             InitializationOwnerView::Structured { family, .. } => {
                 let domain = view
@@ -121,39 +243,164 @@ fn extract_view<'dae>(dae: &Dae, view: DaeView<'dae>) -> Result<InitStructure, S
                         .index_tuple_at(point)
                         .map_err(|e| format!("定義域の点を作れない: {e:?}"))?
                         .ok_or("定義域の点が範囲の外")?;
-                    for _ in family.bodies().iter() {
-                        push_row(family.provenance(), Some(&values));
+                    let scalar = family
+                        .scalar_view()
+                        .body_scalar(point, domain.extents())
+                        .ok_or("族の本体のスカラーを決められない")?;
+                    for expression in family.bodies().iter() {
+                        let refs =
+                            match project(expression, scalar, Some((family.domain(), &values))) {
+                                Ok(r) => Some(r),
+                                Err(_) => {
+                                    has_incidence = false;
+                                    None
+                                }
+                            };
+                        push_row(family.provenance(), Some(&values), refs);
                     }
                 }
             }
         }
     }
     // Rumoca が初期化の行から取り分けた定義: Real でない fixed = false のパラメータの値と、
-    // 離散変数の初期化の時点の値。どちらも対象のスカラーごとに 1 行
+    // 離散変数の初期化の時点の値。どちらも対象のスカラーごとに 1 行（参照は対象 + 値の式）
     let definitions: Vec<_> = view
         .initial_parameter_values()
-        .map(|d| (d.target(), d.provenance()))
+        .map(|d| (d.target(), d.value(), d.provenance()))
         .chain(
             view.initial_discrete_values()
-                .map(|d| (d.target(), d.provenance())),
+                .map(|d| (d.target(), d.value(), d.provenance())),
         )
         .collect();
-    for (target, provenance) in definitions {
-        let target = view
+    for (target, value, provenance) in definitions {
+        let variable = view
             .variable(target)
             .ok_or("初期化で値を決める変数が見つからない")?;
-        let count = target.value_type().scalar_count().ok_or_else(|| {
+        let count = variable.value_type().scalar_count().ok_or_else(|| {
             format!(
                 "変数 `{}` の大きさがコンパイル時に決まっていない",
-                target.name()
+                variable.name()
             )
         })?;
         for scalar in 0..count {
             let point = [scalar as i64 + 1];
-            push_row(provenance, (count > 1).then_some(&point[..]));
+            // 値の式を射影できなければ対象だけ（定義は対象を決めるので、構造は保てる）
+            let mut refs = project(value, scalar, None).unwrap_or_default();
+            let scalar_u32 = u32::try_from(scalar).unwrap_or(u32::MAX);
+            if let Some(&i) = parameter_keys.get(&(target.index(), scalar_u32)) {
+                refs.parameters.push(i);
+            }
+            if let Some(&i) = discrete_keys.get(&(target.index(), scalar_u32)) {
+                refs.discretes.push(i);
+            }
+            push_row(
+                provenance,
+                (count > 1).then_some(&point[..]),
+                Some(refs.finish()),
+            );
         }
     }
     init.initial_equations = equations;
+
+    // 初期化で決めるパラメータがあれば、束縛を通して依存するパラメータと、DAE の連続の方程式からの参照も要る
+    let mut unknown: Vec<bool> = init
+        .parameters
+        .iter()
+        .map(|p| !p.fixed && !p.has_binding)
+        .collect();
+    let mut equation_parameter_refs: Vec<Vec<u32>> = Vec::new();
+    let mut parameter_binding_refs: Vec<(u32, Vec<u32>)> = Vec::new();
+    if has_incidence && unknown.iter().any(|&f| f) {
+        // 束縛のあるパラメータごとに、束縛が参照するパラメータ（射影できなければ無し）
+        let mut bindings: Vec<(u32, Vec<u32>)> = Vec::new();
+        for (id, variable) in view.variables() {
+            if variable.role() != VariableRole::Parameter {
+                continue;
+            }
+            let Some(binding) = variable.binding() else {
+                continue;
+            };
+            let count = variable.value_type().scalar_count().unwrap_or(0);
+            for scalar in 0..count {
+                let Some(&i) = parameter_keys.get(&(id.index(), scalar as u32)) else {
+                    continue;
+                };
+                if let Ok(refs) = project(binding, scalar, None) {
+                    bindings.push((i, refs.parameters));
+                }
+            }
+        }
+        // 固定点: 束縛が初期化の未知数を参照するパラメータも未知数
+        loop {
+            let mut changed = false;
+            for (i, refs) in &bindings {
+                let i = *i as usize;
+                if !unknown[i] && refs.iter().any(|&r| unknown[r as usize]) {
+                    unknown[i] = true;
+                    changed = true;
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+        for (i, refs) in bindings {
+            if unknown[i as usize] {
+                let refs: Vec<u32> = refs.into_iter().filter(|&r| unknown[r as usize]).collect();
+                parameter_binding_refs.push((i, refs));
+            }
+        }
+        // DAE の連続の方程式（structure.rs と同じ順に歩く）
+        let mut push_dae_row = |refs: Result<Refs, String>| match refs {
+            Ok(r) => equation_parameter_refs.push(
+                r.parameters
+                    .into_iter()
+                    .filter(|&i| unknown.get(i as usize).copied().unwrap_or(false))
+                    .collect(),
+            ),
+            Err(_) => has_incidence = false,
+        };
+        for owner in view.continuous_owners() {
+            match owner {
+                ContinuousOwnerView::Residual { equation, .. } => {
+                    push_dae_row(project(equation.residual(), 0, None));
+                }
+                ContinuousOwnerView::Structured { family, .. } => {
+                    let domain = view
+                        .domain(family.domain())
+                        .ok_or("構造化された方程式の定義域が見つからない")?;
+                    for point in 0..domain.scalar_count() as usize {
+                        let values = domain
+                            .structured()
+                            .index_tuple_at(point)
+                            .map_err(|e| format!("定義域の点を作れない: {e:?}"))?
+                            .ok_or("定義域の点が範囲の外")?;
+                        let scalar = family
+                            .scalar_view()
+                            .body_scalar(point, domain.extents())
+                            .ok_or("族の本体のスカラーを決められない")?;
+                        for expression in family.bodies().iter() {
+                            push_dae_row(project(
+                                expression,
+                                scalar,
+                                Some((family.domain(), &values)),
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    init.has_incidence = has_incidence;
+    if has_incidence {
+        init.initial_incidence = rows.iter().map(|r| r.incidence.clone()).collect();
+        init.initial_state_refs = rows.iter().map(|r| r.state_refs.clone()).collect();
+        init.initial_parameter_refs = rows.iter().map(|r| r.parameters.clone()).collect();
+        init.initial_discrete_refs = rows.iter().map(|r| r.discretes.clone()).collect();
+        init.equation_parameter_refs = equation_parameter_refs;
+        init.parameter_binding_refs = parameter_binding_refs;
+    }
     Ok(init)
 }
 
@@ -193,6 +440,25 @@ mod tests {
         vars.iter()
             .map(|v| (v.name.as_str(), v.fixed, v.has_start, v.has_binding))
             .collect()
+    }
+
+    #[test]
+    fn free_parameter_reached_through_a_binding_is_an_initialization_unknown() {
+        // c（fixed = false）は Sub の k = c の束縛を通してしか DAE に現れない。
+        // s.k を初期化の未知数にし、束縛 s.k = c を方程式にし、DAE の方程式は s.k を参照する
+        let text = "model Q\n  model Sub\n    parameter Real k = 1;\n    Real x(start = 1, fixed = true);\n  equation\n    der(x) = -k * x;\n  end Sub;\n  parameter Real c(fixed = false, start = 2);\n  Sub s(k = c);\ninitial equation\n  der(s.x) = -4;\nend Q;\n";
+        let init = compile("Q", text);
+        assert!(init.has_incidence);
+        let c = init.parameters.iter().position(|p| p.name == "c").unwrap() as u32;
+        let k = init
+            .parameters
+            .iter()
+            .position(|p| p.name == "s.k")
+            .unwrap() as u32;
+        assert_eq!(init.parameter_binding_refs, [(k, vec![c])]);
+        assert_eq!(init.equation_parameter_refs, [vec![k]]);
+        // initial equation der(s.x) = -4 は der(x)（未知数 0）を参照する
+        assert_eq!(init.initial_incidence, [vec![0]]);
     }
 
     #[test]

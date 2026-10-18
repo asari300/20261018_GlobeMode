@@ -25,7 +25,7 @@
 //!   使わないファイルの本文を変えても `check` は再実行されない。
 //! - `init_shape`（S8 の入力）と `dae_shape` は位置を落とした写しなので、`init_report`（S8）と
 //!   `index_report`（S7）は、位置だけが変わる編集では再計算されない。`init_report` は `init_shape` と
-//!   `index_report`（動的な状態の数）を読む。
+//!   `dae_shape` と `index_report`（動的な状態の数と微分の回数。S009 から初期化系のマッチングにも使う）を読む。
 //! - `dae_shape` は位置を落とした DAE の構造。パラメータの値だけを変えた編集などでは前と等しくなり、
 //!   `structural`（S6）は再計算されない。
 //! - どのクエリが実行されたかは [`GlobeDb::take_executed`] で取り出せる（テストと計測に使う）。
@@ -353,20 +353,20 @@ pub fn init_shape<'db>(
 ///
 /// 要る初期条件の数は「動的な状態の数（S7 の `dynamic_states`）+ fixed = false のパラメータ」。
 /// インデックスが 2 以上のモデルでは、状態の数をそのまま使うと誤った不足の警告になるため。
-/// S7 の結果が無い（DAE の構造が無い）か打ち切ったときは None を渡し、状態の数で数える。
+/// S7 の結果が無い（DAE の構造が無い）か打ち切ったときは状態の数で数える。
+/// S009 から、初期方程式の参照（`init_shape`）と `dae_shape`・`index_report` があれば初期化系を
+/// マッチングして、冗長な初期条件と初期条件の無い未知数も出す（`InitReport::matching`）。
 #[salsa::tracked(returns(ref))]
 pub fn init_report<'db>(
     db: &'db dyn Db,
     workspace: Workspace,
     request: CheckRequest<'db>,
 ) -> Option<InitReport> {
-    let dynamic_states = index_report(db, workspace, request)
-        .as_ref()
-        .filter(|r| !r.failed)
-        .map(|r| r.dynamic_states);
+    let structure = dae_shape(db, workspace, request).as_ref();
+    let index = index_report(db, workspace, request).as_ref();
     init_shape(db, workspace, request)
         .as_ref()
-        .map(|init| globe_mode_analysis::init::analyze_init_with_index(init, dynamic_states))
+        .map(|init| globe_mode_analysis::analyze_init_system(init, structure, index))
 }
 
 /// [`GlobeDb::check_model`] の結果: S0〜S5（`check`）、S6（`structural`）、S7（`index_report`）、

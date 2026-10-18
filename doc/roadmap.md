@@ -120,6 +120,20 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - 食い違い 2 本（`AdvancedSolenoid`: globe は通し omc は Pantelides の内部エラー。`NonCircularPipes`: globe は不足、omc は冗長な初期方程式 2 本）は S009 の候補にした。
 - `msl:funnel` は JSON（`target/msl-funnel.json`、`counts.unknowns` を追加）も残すようにした。ファネルを回し直した本数は S007 と同じ（OK 369・NG 13・GM-U 184・panic 0）。
 
+### S009（P2 の 5 回目、2026-10-19）で済んだこと
+
+- 範囲は S009 の候補のうち **omc と食い違った 2 本の調査（1）** と **S8 の精密化（3）**。1 の調査で `NonCircularPipes` の食い違いが「数だけの S8 は冗長を見られない」ことだったので、3 をそのまま主な実装にした。方法は [ADR-0011](adr/0011-init-system-matching.md)。
+- **`AdvancedSolenoid` は S6 の限界**（直さない）: 接地の無い部品の単体の検査で、枝 8 本 ≥ 節点 7 つなので二部グラフには完全マッチングがあるが、キルヒホッフの電流則が数値的に従属（電位は差しか決まらない）。omc は記号的な簡約の後に `0.0 = 0.0` を見つけて止める（`-d=bltdump`）。構造の検査では捕まえられないので、S10 のプリフライトで初期化のヤコビ行列の階数を見る候補にした。検証用のモデル `Invalid.UngroundedLoop` に記録（`Connect.Subsystem` のように枝 < 節点 なら構造でも特異で、S6 で止まる）。
+- **S8 の精密化**: 初期化系（DAE とその微分 + 初期方程式 + `fixed = true`）を二部グラフにして、最大マッチングと DM 分解で**冗長な初期条件**（過剰な部分）と**初期条件の無い未知数**（不足している部分）を名指しする（`globe-mode-analysis/src/init_system.rs`）。数だけの判定は「不足 − 冗長」しか分からなかった。
+  - `InitStructure` に初期方程式の参照（`der(x)`・代数、状態そのもの、パラメータ、離散）と、初期化で決めるパラメータへの DAE の方程式からの参照を足した。フロントエンドは `structure.rs` と同じ鍵で写す。
+  - 過剰は、過剰な部分に DAE の行（拘束やその微分）があれば `GM-W8004`（整合する値なら冗長なだけ。omc も Warning で外す）、無ければ `GM-E8001`。不足は `GM-W8001` と、不足している部分の start の無い状態に `GM-W8002`。両方あれば両方出す。
+  - `globe check` の S8 にマッチングの行、`--json` の `s8.matching`。`msl-funnel` の S8 の列に「冗長 k・決まらない m」、`omc-compare` の S8 の照合は「過剰 = 冗長が 1 つ以上」。
+  - 検証用のモデル `Init.RedundantAndMissing`（数は 1 / 1 で合うが、冗長 1・決まらない 1）。
+- **Rumoca v0.10.2 の制約を 2 つ見つけた**（どちらも S8 の入力が欠けたり誤ったりする。GlobeMode 側では直せないので記録し、上流への報告の候補にした）。(1) `outer` の参照を `inner` の修正ではなく型の既定で評価する。MSL の Fluid の例題 11 本は `inner Modelica.Fluid.System system(energyDynamics = FixedInitial)` の形なので、`PartialDistributedVolume` の `if` の中の初期方程式（`mediums.p = ps_start` など）が globe の DAE に無く、S8 が「不足」になる。`NonCircularPipes` で omc が冗長と言う 2 本はこれ（globe の入力に無い）。検証用のモデル `Init.OuterModification` と db のテスト（Rumoca が直ったら落ちる）に記録。(2) 例題の `wheelSet(theta1(fixed = true))` のような修正が、部品の中の同名の `wheelSetJoint.theta1`（MSL は `fixed = false` で外している）にも漏れる。`RollingWheelSetDriving` / `RollingWheelSetPulling` で S8 が「冗長 7」を出し、omc（過剰と言わない）と食い違うのはこのため。検証用のモデル `Init.ModifierScope` と db のテストに記録。
+- **MSL の全例題**（`mise run msl:funnel`、[msl-funnel.md](msl-funnel.md)）: 566 本: OK 369・NG 13（S5 1・S6 12）・GM-U 184・panic 0（S007・S008 と同じ本数）。S8 まで来た 369 本すべてで初期化系をマッチングできた（射影の失敗 0）。S8 の分布は合う 111・過剰 6（すべて `GM-W8004` の見込み。Error 0）・不足 252（S008 は 合う 111・過剰 3・不足 255。冗長と不足を両方持つ 3 本が過剰に移った）。検査 723.8 s（1 本 1.28 s）、全体 748 s、最大 RSS 7.1 GiB。
+- **omc との照合**（`cargo xtask omc-compare --reuse`。omc は S008 の結果を再利用、[omc-compare.md](omc-compare.md)）: S5 382 / 382、S6 362 / 363（`AdvancedSolenoid`。上の限界）、**S8（過剰）352 / 355**（S008 は 354 / 355）。不一致 3 本はどれも Rumoca の制約で入力が欠けるか誤るもの: `NonCircularPipes`（inner/outer で初期方程式が消え、omc の冗長 2 本が globe の入力に無い）、`RollingWheelSetDriving` / `RollingWheelSetPulling`（修正の漏れで別名の両方が `fixed = true` になり、globe が冗長 7 を出す）。globe の `GM-W8004` の 3 本（`GenerationOfFMUs` 2 本、`CompareLineTrunks`）は omc も過剰で、冗長の本数（2・3・1）まで一致した。
+- テストは workspace 全体で 232 本が通過（S008 は 216 本）。clippy 0 件、fmt の差分 0。
+
 ### P2 の完了条件の進み具合
 
 | 完了条件 | 状態 |
@@ -130,16 +144,15 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 
 ## 次のセッション
 
-**S009（P2 の 5 回目）** の候補:
+**S010（P2 の 6 回目）** の候補:
 
-1. **omc と食い違った 2 本を調べる**（[omc-compare.md](omc-compare.md)）: `SolenoidActuator.Components.AdvancedSolenoid`（globe は S6 を通し S7 でインデックス 2、omc は Pantelides の内部エラー。omc の `-d=bltdump` と globe の S6・S7 の詳細を見る）と、`Fluid.Examples.NonCircularPipes`（globe は不足、omc は冗長な初期方程式 2 本。下の 3 と同じ話）。omc が手前の「fixed なパラメータに値が無い」で止めるモデル（globe の `GM-W8003` 相当）を S6 より前で報告するかも決める。
+1. **離散変数の when の区別**: when の外の式で決まる離散変数（MLS 8.6 の暗黙の `pre(v) = v`）か、when の中で決まるかを分け、S8 の `GM-W8004` と柔らかい `GM-W8001` を確定させる。S009 の初期化系のマッチングでは、離散変数の列が DAE の行から参照されないので、初期条件の無い離散変数は常に不足している部分に入る。
 2. **閉包の切り替えの費用を和らげる**: `deps_closure` で文書の組が変わると、Rumoca が MSL ごと解決し直す（約 1.5〜1.8 s）。`Checker` に文書の和集合を持たせて、組が変わらないようにする、など。
-3. **S8 を精密にする**: 初期方程式の incidence を持ち、初期化系をマッチングする（どの初期方程式がどの変数を決めるか）。S7 で微分した拘束と合わせて組む。
-4. **離散変数の when の区別**: when の外の式で決まる離散変数（MLS 8.6 の暗黙の `pre(v) = v`）か、when の中で決まるかを分け、S8 の `GM-W8004` と柔らかい `GM-W8001` を確定させる。
-5. **S9（代数ループ）・S10（プリフライト）**: 非線形の反復変数の start 値、パラメータの評価、t0 での残差、experiment annotation。
-6. **`Checker` のメモリの上限**（P4 のプロセス構成が決まってから）: MSL の例題 566 本で最大 RSS 7.2 GiB（大部分は 1 本の大きなモデル）。大きなモデルの扱いと `reset()` を呼ぶ条件。
-7. **Rumoca の制約を上流に報告する**（ユーザーが出す）: ライブラリ間の extends（S004）、GM-U に振り分けたもの（ED001 の数え方、ET004 の次元など）。
-8. **`class_index` の残り**: for や if の中の connect、継承したクラスの中の入れ子のクラス（import は S007 でアウトラインに持たせた）。
+3. **S9（代数ループ）・S10（プリフライト）**: 非線形の反復変数の start 値、パラメータの評価、t0 での残差、experiment annotation。S10 には**初期化のヤコビ行列の階数**（S009 で分かった、構造では見えない数値的な特異。`Invalid.UngroundedLoop`、MSL の `AdvancedSolenoid`）を入れる。
+4. **`Checker` のメモリの上限**（P4 のプロセス構成が決まってから）: MSL の例題 566 本で最大 RSS 7.2 GiB（大部分は 1 本の大きなモデル）。大きなモデルの扱いと `reset()` を呼ぶ条件。
+5. **Rumoca の制約を上流に報告する**（ユーザーが出す）: ライブラリ間の extends（S004）、GM-U に振り分けたもの（ED001 の数え方、ET004 の次元など）、**inner の修正が outer に伝わらない**（S009。`Init.OuterModification`。MSL の Fluid の例題 11 本の初期方程式が消える）、**外からの修正が部品の中の同名の変数に漏れる**（S009。`Init.ModifierScope`。`RollingWheelSet*` の `fixed`）。
+6. **`class_index` の残り**: for や if の中の connect、継承したクラスの中の入れ子のクラス（import は S007 でアウトラインに持たせた）。
+7. **S8 の精密化の残り**: 初期方程式の射影に失敗したときの扱い（S009 のファネルでは 0 本）、`fixed = true` の start 値が拘束と整合するかの数値の検査（S10 と合わせて）。
 
 ## 運用上の決まり
 

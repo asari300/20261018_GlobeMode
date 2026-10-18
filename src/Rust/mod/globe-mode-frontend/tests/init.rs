@@ -261,3 +261,77 @@ fn boolean_signals_list_discretes() {
     assert!(init.discretes.iter().all(|v| !v.fixed));
     assert!(init.states.is_empty());
 }
+
+// --------------------------------------------------------------------------- 初期方程式の参照（S009）
+
+#[test]
+fn initial_equation_references_point_at_dae_unknowns() {
+    let p = Package::new();
+    // Init.Balanced: initial equation v = 0 は状態 v そのもの（der(v) の未知数の添字）を参照する
+    let report = p.check("Init.Balanced");
+    let init = report.init.as_ref().unwrap();
+    let structure = report.structure.as_ref().unwrap();
+    assert!(init.has_incidence);
+    assert_eq!(init.initial_equations.len(), 1);
+    assert_eq!(init.initial_equations[0].label, "v = 0");
+    assert!(init.initial_incidence[0].is_empty());
+    let der_v = structure
+        .unknowns
+        .iter()
+        .position(|u| u.name == "der(v)")
+        .unwrap() as u32;
+    assert_eq!(init.initial_state_refs[0], [der_v]);
+    assert!(init.initial_parameter_refs[0].is_empty());
+    assert!(init.initial_discrete_refs[0].is_empty());
+    // 初期化で決めるパラメータが無いので、DAE の方程式の参照は持たない
+    assert!(init.equation_parameter_refs.is_empty());
+}
+
+#[test]
+fn free_parameter_references_appear_in_initial_and_dae_equations() {
+    let p = Package::new();
+    // Init.FreeParameter: initial equation der(x) = 0 は der(x) を参照し、DAE の方程式が u0 を参照する
+    let report = p.check("Init.FreeParameter");
+    let init = report.init.as_ref().unwrap();
+    let structure = report.structure.as_ref().unwrap();
+    assert!(init.has_incidence);
+    let u0 = init
+        .parameters
+        .iter()
+        .position(|v| v.name == "u0" && !v.fixed && !v.has_binding)
+        .unwrap() as u32;
+    let der_x = structure
+        .unknowns
+        .iter()
+        .position(|u| u.name == "der(x)")
+        .unwrap() as u32;
+    assert_eq!(init.initial_equations.len(), 1);
+    assert_eq!(init.initial_incidence[0], [der_x]);
+    assert_eq!(
+        init.equation_parameter_refs.len(),
+        structure.equations.len()
+    );
+    assert!(
+        init.equation_parameter_refs.iter().any(|r| r == &[u0]),
+        "{:?}",
+        init.equation_parameter_refs
+    );
+}
+
+#[test]
+fn discrete_definitions_reference_their_target() {
+    let p = Package::new();
+    // Connect.BooleanSignals: 離散変数の初期化の時点の値（定義）は、対象の離散変数を参照する
+    let init = p.init("Connect.BooleanSignals");
+    assert!(init.has_incidence);
+    assert_eq!(
+        init.initial_discrete_refs.len(),
+        init.initial_equations.len()
+    );
+    assert!(
+        init.initial_equations.is_empty()
+            || init.initial_discrete_refs.iter().any(|r| !r.is_empty()),
+        "{:?}",
+        init.initial_discrete_refs
+    );
+}

@@ -86,6 +86,17 @@
 | 速さ | MSL 4.1.0 の読み込み約 4.6 s（`loadModel` だけのスクリプト）。`checkModel` は 1 本 0.1 s 前後（例題 20 本で 2 s）。`translateModel` は多くが数秒以内 |
 | 計時 | スクリプトの中では `time()` も `timerTick()` も無い（`Class time not found`）。時間は外から測る |
 
+### S009 で確かめた omc 1.27.1 の診断の文言
+
+S008 で食い違った 2 本と、検証用のモデルで確かめた（確認日 2026-10-19、`omc --version` は `OpenModelica 1.27.1~2-g6db4671`。GlobeMode の [ADR-0011](../adr/0011-init-system-matching.md)）。
+
+| 項目 | 事実 |
+| --- | --- |
+| 数値的な特異 | 接地の無い回路の部品を単体で `translateModel` すると、記号的な簡約（alias の除去）の後に `0.0 = 0.0` の方程式が残り、「Model is structurally singular, error found sorting equations」と、対応づかない変数（例: `r_par1.v`）が出る（`-d=bltdump` で確かめた。`AdvancedSolenoid`）。小さな部品では「Internal error Circular Equalities Detected for Variables」と「System is structurally singular and cannot be handled because the number of unassigned equations is larger than the number of states」（`GlobeModeValidation.Invalid.UngroundedLoop`）。どちらも二部グラフの完全マッチングはあるので、omc の「structurally」は記号的な簡約の後の構造を指す |
+| 不足の文言 | 初期条件が足りないとき、`-d=initialization` では「Assuming fixed start value for the following N variables: …」の Warning が出る（`GlobeModeValidation.Init.RedundantAndMissing` の `y`）。S008 では「不足は何も出ない」としていたが、`-d=initialization` を付ければこの文言で分かる。ただし何本足りないかではなく、omc がどの変数を fixed と仮定したかの一覧 |
+| 冗長の判定の条件 | 拘束で決まる状態に `fixed = true` が付いていても、拘束の相手（パラメータ）がコンパイル時に評価できて start と整合すれば、警告は出ない（`RedundantAndMissing` の `x = pb`、`pb = 1`、`start = 1`）。評価できないとき（`NonCircularPipes` の `boundary.p`）は「It was not possible to determine if the initialization problem is consistent」と「The initial conditions are over specified. The following N initial equations are redundant」が出て、冗長な初期方程式を外して進む |
+| `dumpInitialSystem` | 1.27.1 には無い（「Unknown debug flag dumpInitialSystem」） |
+
 ## Dymola（Dymosim の積分器）
 
 | 分類 | ソルバ |

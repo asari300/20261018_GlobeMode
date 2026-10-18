@@ -191,6 +191,21 @@ IR:        rumoca-ir-ast → rumoca-ir-flat → rumoca-ir-dae → rumoca-ir-solv
 | 無効化 | 文書の追加・差し替え・削除と、ソースの集合の変更で、`invalidate_resolved_state` が resolve 済みの状態（`query_state.resolved`）をすべて捨てる。S005 の表の「無効化」の行の関数は、定義がこのファイルにある | `crates/rumoca-compile/src/session/session_impl_queries.rs`（定義）、`session_impl.rs`・`session_impl_inputs.rs`（呼び出し） |
 | 費用 | MSL を読んだ Session で、渡す文書の組が変わると、次の検査で MSL ごと解決し直す。約 1.5〜1.8 s（release。閉包の違うモデルを初めて検査したとき中央値 1700 ms、文書の組を変えずに同じモデルを検査したとき 67 ms） | GlobeMode の計測（`src/Rust/mod/globe-mode-db/tests/deps.rs` の `measure_checks_with_msl`。[ADR-0005](../adr/0005-lazy-query-db.md) の結果） |
 
+## S009 で調べた API（v0.10.2）
+
+初期方程式の参照（S8 のマッチングの入力、[ADR-0011](../adr/0011-init-system-matching.md)）に使ったもの。確認日 2026-10-19、rev は `Cargo.toml` のもの。
+
+| 項目 | 事実 | 出典 |
+| --- | --- | --- |
+| 初期方程式の式 | `InitializationOwnerView::Residual { equation: ResidualEquationView, .. }` の `equation.residual()` と、`Structured { family: StructuredFamilyView, .. }` の `family.bodies()` は、連続の方程式（`ContinuousOwnerView`）と同じ型。`rumoca_eval_dae::for_each_scalar_coordinate_cached` でそのまま射影できる | `crates/rumoca-ir-dae/src/model/view.rs`（`InitializationOwnerView`）、GlobeMode の `globe-mode-frontend/src/init.rs` |
+| 座標の種類 | `CoordinateView` は `Parameter` / `Input` / `State` / `Derivative` / `Algebraic` / `DiscreteReal` / `DiscreteValue` / `PreDiscreteReal` / `PreDiscreteValue` / `PreState` / `PreAlgebraic` / `Time` / `ClockInterval` / `Condition` / `Delay` / `Previous` / `Terminal` / `Binder` / `FunctionParameter`。S8 のマッチングでは `State` と `PreState` を状態の階数 0、`Derivative` を階数 1、`Algebraic` と `PreAlgebraic` を代数の階数 0、`Parameter` と離散（`pre` を含む）をそれぞれの列に写し、残りは既知として捨てる | `crates/rumoca-ir-dae/src/model/view.rs:1580` |
+| 役割つきの ID | `ParameterId` / `StateId` / `AlgebraicId` / `DiscreteRealId` / `DiscreteValueId` の `index()` は `VariableId` の添字と同じ（`variable_identity_conversion!` で `VariableId::from_raw(value.index())`）。`view.variables()` の `(id, variable)` の `id.index()` と突き合わせられる | `crates/rumoca-ir-dae/src/ids.rs:168-186` |
+| 取り分けた定義の式 | `InitialParameterValueView` と `InitialDiscreteValueView` は `target()`（`VariableId`）と `value()`（`ExprId`）と `provenance()` を持つ。`value()` も同じ射影で参照を取れる | `crates/rumoca-ir-dae/src/model/initial_parameters.rs`、`crates/rumoca-ir-dae/src/equations.rs:295-311` |
+| パラメータの束縛 | パラメータの束縛（`VariableView::binding()` の `ExprId`）は `continuous_owners()` の方程式ではない。`Sub s(k = c)` の DAE の方程式は `s.k` を参照し、`c` は `s.k` の束縛にだけ現れる。束縛の式も同じ射影で参照を取れる | GlobeMode の `globe-mode-frontend/src/init.rs` のテスト `free_parameter_reached_through_a_binding_is_an_initialization_unknown` |
+| 射影の失敗 | MSL の例題 566 本で、初期方程式の射影が失敗したものは無かった（S8 まで来た 369 本すべてでマッチングできた。[msl-funnel.md](../msl-funnel.md)） | GlobeMode の `cargo xtask msl-funnel` |
+| **外からの修正が部品の中の同名の変数に漏れる** | `Part` が `Real theta1(fixed = true)` と `Joint joint(theta1(fixed = false))` を持ち `joint.theta1 = theta1` で結ぶとき、`Part part` をそのまま使えば `part.joint.theta1` は `fixed = false`（正しい）。例題の形で `Part part(theta1(fixed = true))` と修正すると、`part.joint.theta1` と `part.joint.der_theta1` も `fixed = true` になる（`VariableView::fixed_scalar`）。MSL の `Parts.RollingWheelSet` を `wheelSet(theta1(fixed = true), …)` と修正する `RollingWheelSetDriving` / `RollingWheelSetPulling` で、S8 のマッチングが「冗長 7」を出すのはこのため（omc は過剰と言わない）。**上流に報告する候補**。検証用のモデル `GlobeModeValidation.Init.ModifierScope` と db のテスト `modifier_leaks_into_subcomponents_in_the_compiler` に記録した | GlobeMode の計測（`globe check` で `Alias2.W1` / `W2`。2026-10-19） |
+| **inner の修正が outer に伝わらない** | `inner System system(energyDynamics = FixedInitial)` を部品の `outer System system` から読む（`parameter Dynamics d = system.energyDynamics`、または条件に `system.energyDynamics` を直接書く）と、Rumoca は **型の既定**（`Free`）で評価する。`initial equation` の `if d == FixedInitial then p = ps_start; end if;` は消え（`initialization_owners()` に無い）、型の既定を `FixedInitial` にすれば現れる。outer を使わない連鎖（`parameter D b = a`、部品のパラメータの修正、親のパラメータでの修正）は正しい。MSL の Fluid の例題は `system(energyDynamics = FixedInitial)` の形なので、`PartialDistributedVolume` の初期方程式（`mediums.p = ps_start` など）が globe の DAE に無く、S8 が「不足」になる（`NonCircularPipes` で omc が冗長と言う 2 本はこれ）。**上流に報告する候補**。検証用のモデル `GlobeModeValidation.Init.OuterModification` と db のテスト `outer_modification_is_lost_by_the_compiler` に記録した | GlobeMode の計測（`globe check` で、`IfInit4` の 5 通りと MSL の `NonCircularPipes`。2026-10-19） |
+
 ## 依存として取り込むときの注意
 
 `rumoca`（umbrella crate）を**使わない**。理由はデフォルト feature にある。

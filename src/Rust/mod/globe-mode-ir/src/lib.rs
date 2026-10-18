@@ -491,7 +491,8 @@ pub struct FlatSummary {
 /// 初期化系の構造（S8 の入力、S007）。`check` が DAE から取り出す。
 ///
 /// 位置（`file` / `range`）は、コンパイルに渡した本文（`source_shape` で正規化した本文）の中の位置。
-/// S8 の判定は数と属性だけで行う（初期方程式の incidence は持たない。S008 以降の候補）。
+/// S007 の S8 は数と属性だけで判定した。S009 から初期方程式の参照（`initial_incidence` など）も持ち、
+/// 同じ DAE の [`DaeStructure`] と S7 の結果と合わせて初期化系をマッチングする（ADR-0011）。
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize)]
 pub struct InitStructure {
     /// 状態（スカラー）。順は [`DaeStructure::unknowns`] の `Derivative` の順と同じ（`der(x)` の `x`）。
@@ -507,6 +508,30 @@ pub struct InitStructure {
     /// 初期方程式（スカラー。`initial equation` 節。構造化された族は点ごとに 1 行）。フロントエンドが
     /// 初期方程式や初期アルゴリズムから別に取り分けた定義（離散変数や Real でないパラメータの値）も含む。
     pub initial_equations: Vec<EquationRow>,
+    /// 初期方程式の参照を取り出せた（S009）。false なら下の 4 つは空で、S8 は数と属性だけで判定する
+    /// （手で組んだ構造や、射影できない式があったとき）。
+    pub has_incidence: bool,
+    /// 初期方程式ごとに、参照する未知数（同じ DAE の [`DaeStructure::unknowns`] の添字: `der(x)` と代数・出力。
+    /// `pre(z)` の代数 z もここ）。昇順・重複なし。長さは `initial_equations.len()`
+    pub initial_incidence: Vec<Vec<u32>>,
+    /// 初期方程式ごとに、**状態そのもの**（`x` と `pre(x)`）を参照しているときの、その `der(x)` の未知数の添字
+    /// （[`DaeStructure::state_refs`] と同じ約束）。長さは `initial_equations.len()`
+    pub initial_state_refs: Vec<Vec<u32>>,
+    /// 初期方程式ごとに、参照するパラメータ（`parameters` の添字）。`fixed = false` で束縛の無いものだけが
+    /// 初期化の未知数になる（それ以外は既知）。長さは `initial_equations.len()`
+    pub initial_parameter_refs: Vec<Vec<u32>>,
+    /// 初期方程式ごとに、参照する離散変数（`discretes` の添字。`pre(d)` も同じ列）。長さは `initial_equations.len()`
+    pub initial_discrete_refs: Vec<Vec<u32>>,
+    /// DAE の連続の方程式（[`DaeStructure::equations`] の順）ごとに、参照する **`fixed = false` で束縛の無い**
+    /// パラメータ（`parameters` の添字）と、その束縛を通して依存するパラメータ（下）。初期化で決めるパラメータが
+    /// 1 つも無ければ空（長さ 0）、あれば長さは `DaeStructure::equations.len()`。初期化系では、そのパラメータが
+    /// 未知数になるので、DAE の方程式からの参照も要る
+    pub equation_parameter_refs: Vec<Vec<u32>>,
+    /// 束縛が（推移的に）初期化で決めるパラメータを参照するパラメータ: (`parameters` の添字, 束縛が参照する
+    /// 初期化の未知数のパラメータの添字)。例: `Sub s(k = c)` の `s.k`（`c` が `fixed = false`）。初期化系では
+    /// 束縛 `s.k = c` が方程式に、`s.k` が未知数になる（DAE の方程式は `c` ではなく `s.k` を参照するため）。
+    /// 初期化で決めるパラメータが無ければ空
+    pub parameter_binding_refs: Vec<(u32, Vec<u32>)>,
 }
 
 impl InitStructure {
@@ -529,6 +554,13 @@ impl InitStructure {
                     ..e.clone()
                 })
                 .collect(),
+            has_incidence: self.has_incidence,
+            initial_incidence: self.initial_incidence.clone(),
+            initial_state_refs: self.initial_state_refs.clone(),
+            initial_parameter_refs: self.initial_parameter_refs.clone(),
+            initial_discrete_refs: self.initial_discrete_refs.clone(),
+            equation_parameter_refs: self.equation_parameter_refs.clone(),
+            parameter_binding_refs: self.parameter_binding_refs.clone(),
         }
     }
 }
@@ -682,6 +714,13 @@ mod tests {
                 file: Some("M.mo".into()),
                 range: Some(TextRange::new(5, 10)),
             }],
+            has_incidence: true,
+            initial_incidence: vec![vec![]],
+            initial_state_refs: vec![vec![0]],
+            initial_parameter_refs: vec![vec![]],
+            initial_discrete_refs: vec![vec![]],
+            equation_parameter_refs: Vec::new(),
+            parameter_binding_refs: Vec::new(),
         };
         let s = init.without_ranges();
         let all = s
@@ -696,6 +735,9 @@ mod tests {
         }
         assert_eq!(s.initial_equations[0].range, None);
         assert_eq!(s.algebraics[0].name, "y");
+        // 初期方程式の参照は構造なので残す（位置ではない）
+        assert!(s.has_incidence);
+        assert_eq!(s.initial_state_refs, vec![vec![0]]);
         assert_eq!(s, s.without_ranges());
     }
 

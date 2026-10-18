@@ -68,9 +68,24 @@ pub(crate) struct Ours {
 pub(crate) struct OursS8 {
     pub required: usize,
     pub provided: usize,
+    /// 初期化系をマッチングできた（S009）。そのときは `extra`（冗長）と `missing`（決まらない）が確か
+    pub matched: bool,
+    pub extra: usize,
+    pub missing: usize,
     /// `合う` / `過剰` / `不足`
     pub balance: String,
     pub uncertain: bool,
+}
+
+impl OursS8 {
+    /// 過剰（冗長な初期条件がある）。マッチングがあれば `extra > 0`、無ければ与えた数 > 要る数。
+    pub(crate) fn is_over(&self) -> bool {
+        if self.matched {
+            self.extra > 0
+        } else {
+            self.provided > self.required
+        }
+    }
 }
 
 impl Ours {
@@ -143,6 +158,9 @@ fn ours_from_json(v: &Value) -> Ours {
     let s8 = v.get("s8").filter(|x| !x.is_null()).map(|x| OursS8 {
         required: x.get("required").and_then(Value::as_u64).unwrap_or(0) as usize,
         provided: x.get("provided").and_then(Value::as_u64).unwrap_or(0) as usize,
+        matched: x.get("matched").and_then(Value::as_bool).unwrap_or(false),
+        extra: x.get("extra").and_then(Value::as_u64).unwrap_or(0) as usize,
+        missing: x.get("missing").and_then(Value::as_u64).unwrap_or(0) as usize,
         balance: x
             .get("balance")
             .and_then(Value::as_str)
@@ -665,8 +683,7 @@ impl Compared {
         if t.kind != TranslateKind::Ok {
             return None;
         }
-        let ours_over = ours.provided > ours.required;
-        Some(ours_over == t.over_specified.is_some())
+        Some(ours.is_over() == t.over_specified.is_some())
     }
 }
 
@@ -1201,7 +1218,7 @@ fn render_report(rows: &[Compared], s: &Summary, run: &RunInfo<'_>) -> String {
         let over: Vec<&Compared> = rows
             .iter()
             .filter(|r| {
-                r.ours.s8.as_ref().is_some_and(|x| x.provided > x.required)
+                r.ours.s8.as_ref().is_some_and(OursS8::is_over)
                     || r.omc
                         .translate
                         .as_ref()
@@ -1354,17 +1371,14 @@ fn s8_cell(ours: &Ours) -> String {
     ours.s8.as_ref().map_or_else(
         || "-".to_string(),
         |x| {
-            format!(
-                "{} {} / {}{}",
-                x.balance,
-                x.provided,
-                x.required,
-                if x.uncertain {
-                    "（確定できない）"
-                } else {
-                    ""
-                }
-            )
+            let mut s = format!("{} {} / {}", x.balance, x.provided, x.required);
+            if x.matched && (x.extra > 0 || x.missing > 0) {
+                s.push_str(&format!("（冗長 {}・決まらない {}）", x.extra, x.missing));
+            }
+            if x.uncertain {
+                s.push_str("（確定できない）");
+            }
+            s
         },
     )
 }
@@ -1398,6 +1412,7 @@ fn render_json(rows: &[Compared], s: &Summary, run: &RunInfo<'_>) -> Value {
                     "s7_index": r.ours.s7_index,
                     "s8": r.ours.s8.as_ref().map(|x| json!({
                         "required": x.required, "provided": x.provided, "balance": x.balance, "uncertain": x.uncertain,
+                        "matched": x.matched, "extra": x.extra, "missing": x.missing,
                     })),
                 },
                 "omc": {
@@ -1888,6 +1903,9 @@ Class Modelica.A.Examples.Crashed has 3 equation(s) and 3 variable(s).
         o.s8 = Some(OursS8 {
             required: 6,
             provided: 8,
+            matched: false,
+            extra: 0,
+            missing: 0,
             balance: "過剰".into(),
             uncertain: true,
         });
@@ -1904,6 +1922,9 @@ Class Modelica.A.Examples.Crashed has 3 equation(s) and 3 variable(s).
         o.s8 = Some(OursS8 {
             required: 7,
             provided: 0,
+            matched: false,
+            extra: 0,
+            missing: 0,
             balance: "不足".into(),
             uncertain: false,
         });
@@ -1912,6 +1933,26 @@ Class Modelica.A.Examples.Crashed has 3 equation(s) and 3 variable(s).
             omc: omc(8, 8, Some((true, ""))),
         };
         assert_eq!(r.s8_over(), Some(true));
+        // マッチングがあれば、数の差ではなく冗長の数で過剰を決める（NonCircularPipes: 不足 4 / 40 だが冗長 2）
+        o.s8 = Some(OursS8 {
+            required: 40,
+            provided: 36,
+            matched: true,
+            extra: 2,
+            missing: 6,
+            balance: "過剰".into(),
+            uncertain: true,
+        });
+        let r = Compared {
+            ours: o.clone(),
+            omc: omc(8, 8, Some((true, over))),
+        };
+        assert_eq!(r.s8_over(), Some(true));
+        assert!(
+            s8_cell(&o).contains("冗長 2・決まらない 6"),
+            "{}",
+            s8_cell(&o)
+        );
         let r = Compared {
             ours: o,
             omc: omc(8, 8, Some((false, singular))),

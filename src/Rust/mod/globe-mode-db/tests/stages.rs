@@ -190,3 +190,144 @@ fn real_circuit_is_under_determined_but_passes() {
     assert!(has(&r, codes::INIT_UNDERDETERMINED, Severity::Warning));
     assert!(has(&r, codes::STATE_WITHOUT_START, Severity::Warning));
 }
+
+// --------------------------------------------------------------------------- S8 のマッチング（S009）
+
+#[test]
+fn init_matching_is_available_for_models_that_reach_s8() {
+    for model in ["Init.Balanced", "Index.Pendulum", "Init.FreeParameter"] {
+        let r = check(model);
+        assert!(r.passed(), "{model}: {:?}", r.diagnostics);
+        let s8 = r.init.as_ref().expect("S8");
+        let m = s8
+            .matching
+            .as_ref()
+            .unwrap_or_else(|| panic!("{model}: マッチングが無い"));
+        assert!(m.is_balanced(), "{model}: {m:?}");
+        assert_eq!(m.n_unknowns, m.n_equations, "{model}: {m:?}");
+        assert_eq!(m.matching, m.n_equations, "{model}: {m:?}");
+    }
+}
+
+#[test]
+fn init_over_determined_is_a_pure_redundancy_in_the_matching() {
+    let r = check("Init.OverDetermined");
+    let s8 = r.init.as_ref().expect("S8");
+    let m = s8.matching.as_ref().expect("マッチング");
+    assert_eq!((m.extra, m.missing), (1, 0), "{m:?}");
+    assert!(!m.over_with_dae, "拘束と重ならない: 確かな過剰");
+    assert_eq!(
+        m.redundant.len(),
+        2,
+        "初期方程式 x = 2 と x の fixed = true: {m:?}"
+    );
+    let d = r
+        .diagnostics
+        .iter()
+        .find(|d| d.code == codes::INIT_OVERDETERMINED)
+        .expect("GM-E8001");
+    assert!(
+        d.notes
+            .iter()
+            .any(|n| n.contains("冗長な初期条件の候補") && n.contains("`x = 2`")),
+        "{:?}",
+        d.notes
+    );
+}
+
+#[test]
+fn redundant_fixed_and_missing_state_are_both_named() {
+    // 数は 1 / 1 で合うが、x の fixed = true は拘束 x = pb と重なり、y には初期条件が無い
+    let r = check("Init.RedundantAndMissing");
+    assert!(r.passed(), "警告だけなので通る: {:?}", r.diagnostics);
+    let s7 = r.index.as_ref().expect("S7");
+    assert_eq!((s7.index, s7.dynamic_states), (2, 1), "{s7:?}");
+    let s8 = r.init.as_ref().expect("S8");
+    assert_eq!((s8.required, s8.provided), (1, 1), "数は合う: {s8:?}");
+    let m = s8.matching.as_ref().expect("マッチング");
+    assert_eq!((m.extra, m.missing), (1, 1), "{m:?}");
+    assert!(m.over_with_dae, "x の fixed は拘束と重なる");
+    assert!(!s8.is_balanced());
+    assert!(has(
+        &r,
+        codes::INIT_OVERDETERMINED_UNCERTAIN,
+        Severity::Warning
+    ));
+    assert!(!has(&r, codes::INIT_OVERDETERMINED, Severity::Error));
+    assert!(has(&r, codes::INIT_UNDERDETERMINED, Severity::Warning));
+    let without_start: Vec<_> = r
+        .diagnostics
+        .iter()
+        .filter(|d| d.code == codes::STATE_WITHOUT_START)
+        .collect();
+    assert_eq!(without_start.len(), 1, "{:?}", r.diagnostics);
+    assert!(
+        without_start[0].message.contains("`y`"),
+        "{:?}",
+        without_start[0]
+    );
+    let over = r
+        .diagnostics
+        .iter()
+        .find(|d| d.code == codes::INIT_OVERDETERMINED_UNCERTAIN)
+        .unwrap();
+    assert!(
+        over.notes.iter().any(|n| n.contains("`x` の fixed = true")),
+        "{:?}",
+        over.notes
+    );
+    assert!(
+        over.file
+            .as_deref()
+            .is_some_and(|f| f.ends_with("RedundantAndMissing.mo"))
+            && over.range.is_some(),
+        "位置は x の宣言: {over:?}"
+    );
+}
+
+#[test]
+fn ungrounded_loop_passes_the_structural_checks() {
+    // 接地の無い部品の単体: 数値的には特異だが、二部グラフでは見えない（限界の記録。omc は止まる）
+    let r = check("Invalid.UngroundedLoop");
+    assert!(r.passed(), "{:?}", r.diagnostics);
+    let s6 = r.structural.as_ref().expect("S6");
+    assert!(s6.is_regular(), "{s6:?}");
+    let s7 = r.index.as_ref().expect("S7");
+    assert_eq!(s7.index, 1);
+}
+
+#[test]
+fn outer_modification_is_lost_by_the_compiler() {
+    // Rumoca v0.10.2 の制約の記録: inner の修正（FixedInitial）が outer に伝わらず、if の中の初期方程式が消える。
+    // 正しくは初期方程式 2 本で 2 / 2。Rumoca が直ってこのテストが落ちたら、README と research/rumoca.md の記録を直す
+    let r = check("Init.OuterModification");
+    assert!(r.passed(), "{:?}", r.diagnostics);
+    let init = r.check.init.as_ref().expect("S8 の入力");
+    assert_eq!(init.initial_equations.len(), 0, "Rumoca が直った: {init:?}");
+    let s8 = r.init.as_ref().expect("S8");
+    assert_eq!((s8.provided, s8.required), (0, 2), "{s8:?}");
+    assert!(has(&r, codes::INIT_UNDERDETERMINED, Severity::Warning));
+}
+
+#[test]
+fn modifier_leaks_into_subcomponents_in_the_compiler() {
+    // Rumoca v0.10.2 の制約の記録: part(theta1(fixed = true)) が part.joint.theta1 にも効き、内側の fixed = false を
+    // 上書きする。正しくは 2 / 2 で合う。Rumoca が直ってこのテストが落ちたら、README と research/rumoca.md の記録を直す
+    let r = check("Init.ModifierScope");
+    assert!(r.passed(), "{:?}", r.diagnostics);
+    let init = r.check.init.as_ref().expect("S8 の入力");
+    let joint_theta1 = init
+        .states
+        .iter()
+        .find(|s| s.name == "part.joint.theta1")
+        .expect("part.joint.theta1");
+    assert!(joint_theta1.fixed, "Rumoca が直った: {init:?}");
+    let s8 = r.init.as_ref().expect("S8");
+    let m = s8.matching.as_ref().expect("マッチング");
+    assert_eq!((m.extra, m.missing), (2, 0), "{m:?}");
+    assert!(has(
+        &r,
+        codes::INIT_OVERDETERMINED_UNCERTAIN,
+        Severity::Warning
+    ));
+}

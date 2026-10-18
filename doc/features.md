@@ -46,7 +46,7 @@ OpenModelica（OMEdit）と Rumoca を参考に、GlobeMode に要る機能を�
 | Check Model（方程式数と変数数） | ○ | ○ | Must | P2（S005 でクエリ化） | S5。`check` クエリ（MSL は一度だけ読む）。MSL の全例題 566 本に判定を出した（S005）。S008 で `omc checkModel()` と照合し、判定のある 382 本すべてで一致（[omc-compare.md](omc-compare.md)） |
 | **シミュレーション前のアサーション（S0〜S10）** | △ | △ | **Must** | P2（S005 で S0〜S6、S007 で S7・S8） | `assert_simulatable`。Error があれば `--force` 無しでは実行しない。S005 で S6（構造特異、GM-E6001）と「コンパイラが未対応」の GM-U（[ADR-0007](adr/0007-unsupported-classification.md)）。S007 で S7・S8（[ADR-0009](adr/0009-structural-index-and-init.md)）。`globe check` に S7・S8 の行と `--json` の `s7` / `s8` / `init` |
 | S7: 構造インデックスと状態選択の候補 | ○（Pantelides とダミー微分） | ○（Pantelides） | Must | P2（S007） | Pantelides 法を `DaeStructure` の上で回す（Rumoca に依存しない）。構造インデックスの見込み、微分する方程式と回数、状態選択の候補、動的な状態の数を情報（GM-I7001 / GM-I7002）として出す。打ち切りは GM-E7001 |
-| S8: 初期化系の検査 | ○（実行時の初期化） | △（初期化の計画） | Must | P2（S007） | 初期条件の数と属性で判定する。過剰は GM-E8001（離散変数を含むか、インデックスの低減で状態が減るときは確定できないので GM-W8004）、不足は GM-W8001・GM-W8002（start の無い状態）、値の無いパラメータは GM-W8003。初期方程式の incidence でのマッチングは S008 以降 |
+| S8: 初期化系の検査 | ○（実行時の初期化。冗長な初期方程式は警告して外す） | △（初期化の計画） | Must | P2（S007、S009） | 初期条件の数と属性で判定し（S007）、S009 から初期化系（DAE とその微分 + 初期方程式 + `fixed = true`）をマッチングして冗長な初期条件と初期条件の無い未知数を名指しする（[ADR-0011](adr/0011-init-system-matching.md)）。過剰は GM-E8001（冗長な初期条件が拘束と重なるか離散変数を含むときは確定できないので GM-W8004）、不足は GM-W8001・GM-W8002（start の無い状態）、値の無いパラメータは GM-W8003。omc と「over specified」で照合する（S008・S009） |
 | 複数ソルバ（OpenModelica / Dymola の名前を受け付ける） | ○ | △（bdf / rk） | Must | P3 / P8 | `trait Integrator` と名前の登録表 |
 | experiment annotation と実行設定 | ○ | ○ | Must | P3 | 設定は protocol 型で持つ |
 | パラメータを変えた再実行（再コンパイル無し） | ○ | △ | Should | P3 | `executable` を LRU に保持する |
