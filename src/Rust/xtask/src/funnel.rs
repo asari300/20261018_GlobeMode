@@ -5,7 +5,7 @@
 //!   （Mutex が毒されたら、`Checker` が次の検査でライブラリを読んだ直後の Session に戻す）。
 //! - S5 まで通ったモデルは、`globe-mode-analysis` で S6（構造特異）も見て、Rumoca 自身の構造解析の数と照合する。
 //! - S6 を通ったモデルは S7（Pantelides 法、[`analyze_index`]）を、そこまで Error が無ければ S8（初期化、
-//!   [`analyze_init_with_index`]。要る初期条件の数は S7 の動的な状態の数で数える）を回す。
+//!   [`analyze_init_system`]。要る初期条件の数は S7 の動的な状態の数で数え、S009 から初期化系もマッチングする）を回す。
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -16,7 +16,7 @@ use std::path::Path;
 use std::process::ExitCode;
 use std::time::Instant;
 
-use globe_mode_analysis::init::analyze_init_with_index;
+use globe_mode_analysis::analyze_init_system;
 use globe_mode_analysis::{IndexReport, InitReport, StructuralReport, analyze_index};
 use globe_mode_core::{Diagnostic, Severity, Stage, codes};
 use globe_mode_db::GlobeDb;
@@ -313,11 +313,17 @@ pub(crate) struct S8 {
     /// 要る初期条件の数 / 与えられた初期条件の数
     pub required: usize,
     pub provided: usize,
+    /// 初期化系をマッチングできた（S009。初期方程式の参照と S7 の結果があるとき）
+    pub matched: bool,
+    /// 過剰（冗長な初期条件）の数と不足（初期条件の無い未知数）の数。マッチングがあればその値、
+    /// 無ければ与えた数と要る数の差（片方は 0）
+    pub extra: usize,
+    pub missing: usize,
     /// 値の無いパラメータの数
     pub parameters_without_value: usize,
     /// `GM-W8003`（値の無いパラメータ）が出た
     pub w8003: bool,
-    /// 過剰だが確定できない（`GM-W8004`。離散変数を含む、またはインデックスの低減で状態が減る）
+    /// 過剰だが確定できない（`GM-W8004`。離散変数を含む、拘束と重なる、またはインデックスの低減で状態が減る）
     pub uncertain: bool,
 }
 
@@ -326,6 +332,9 @@ impl S8 {
         Self {
             required: r.required,
             provided: r.provided,
+            matched: r.matching.is_some(),
+            extra: r.extra(),
+            missing: r.missing(),
             parameters_without_value: r.parameters_without_value.len(),
             w8003: diagnostics
                 .iter()
@@ -336,11 +345,15 @@ impl S8 {
         }
     }
 
+    /// 分布の区分。過剰（冗長）が 1 つでもあれば過剰（不足も同時にあるモデルは過剰に数える）、
+    /// 無ければ不足があるかで分ける。
     fn balance(&self) -> S8Balance {
-        match self.provided.cmp(&self.required) {
-            std::cmp::Ordering::Equal => S8Balance::Balanced,
-            std::cmp::Ordering::Greater => S8Balance::Over,
-            std::cmp::Ordering::Less => S8Balance::Under,
+        if self.extra > 0 {
+            S8Balance::Over
+        } else if self.missing > 0 {
+            S8Balance::Under
+        } else {
+            S8Balance::Balanced
         }
     }
 }
@@ -477,6 +490,7 @@ impl Row {
             row.message = d.message.clone();
             return row;
         }
+        let mut index: Option<IndexReport> = None;
         match &report.structure {
             Some(structure) => {
                 let s6 = S6::new(
@@ -502,11 +516,12 @@ impl Row {
                     );
                 } else {
                     // S7: S6 を通った（正方で、まとめた形に完全マッチングがある）構造だけ
-                    let index = analyze_index(structure);
-                    if let Some(d) = first_stage_error(&index.diagnostics(structure)) {
+                    let ix = analyze_index(structure);
+                    if let Some(d) = first_stage_error(&ix.diagnostics(structure)) {
                         row.stop(Stage::S7, d.code, d.message.clone());
                     }
-                    row.s7 = Some(S7::new(structure, &index));
+                    row.s7 = Some(S7::new(structure, &ix));
+                    index = Some(ix);
                 }
                 row.s6 = Some(s6);
             }
@@ -526,19 +541,25 @@ impl Row {
         // S8: S7 までに Error が無ければ（S6 が判定不能でも、初期化は構造と別に見られる）
         row.s8_reached = true;
         if let Some(init) = &report.init {
-            // 要る初期条件の数は、S7 の動的な状態の数で数える（S7 を回せなかったか打ち切ったら None）
-            let dynamic_states = row
-                .s7
-                .as_ref()
-                .filter(|x| !x.failed)
-                .map(|x| x.dynamic_states);
-            row.s8 = Some(Self::run_s8(&mut row, init, dynamic_states));
+            // 要る初期条件の数は、S7 の動的な状態の数で数える（S7 を回せなかったか打ち切ったら無し）。
+            // S009 から、S7 の結果と DAE の構造があれば初期化系もマッチングする
+            row.s8 = Some(Self::run_s8(
+                &mut row,
+                init,
+                report.structure.as_ref(),
+                index.as_ref(),
+            ));
         }
         row
     }
 
-    fn run_s8(row: &mut Row, init: &InitStructure, dynamic_states: Option<usize>) -> S8 {
-        let r = analyze_init_with_index(init, dynamic_states);
+    fn run_s8(
+        row: &mut Row,
+        init: &InitStructure,
+        structure: Option<&DaeStructure>,
+        index: Option<&IndexReport>,
+    ) -> S8 {
+        let r = analyze_init_system(init, structure, index);
         let diagnostics = r.diagnostics(init);
         if let Some(d) = first_stage_error(&diagnostics) {
             row.stop(Stage::S8, d.code, d.message.clone());
@@ -1385,6 +1406,10 @@ fn s8_cell(x: &S8) -> String {
         S8Balance::Under => format!("不足（{}）", codes::INIT_UNDERDETERMINED),
     };
     let mut cell = format!("{head} {}/{}", x.provided, x.required);
+    if x.matched && (x.extra > 0 || x.missing > 0) {
+        // S009: マッチングで分かった冗長と不足（数の差は 不足 − 冗長）
+        cell.push_str(&format!("（冗長 {}・決まらない {}）", x.extra, x.missing));
+    }
     if x.w8003 {
         cell.push_str(&format!(
             "・{} {}",
@@ -1444,6 +1469,9 @@ fn render_json(rows: &[Row], s: &Summary, run: &RunInfo<'_>) -> serde_json::Valu
                 "s8": r.s8.as_ref().map(|x| json!({
                     "required": x.required,
                     "provided": x.provided,
+                    "matched": x.matched,
+                    "extra": x.extra,
+                    "missing": x.missing,
                     "balance": x.balance().label(),
                     "parameters_without_value": x.parameters_without_value,
                     "w8003": x.w8003,
@@ -1694,6 +1722,9 @@ mod tests {
         high_index.s8 = Some(S8 {
             required: 2,
             provided: 2,
+            matched: false,
+            extra: 0,
+            missing: 0,
             parameters_without_value: 1,
             w8003: true,
             uncertain: false,
@@ -1702,6 +1733,9 @@ mod tests {
         under.s8 = Some(S8 {
             required: 3,
             provided: 1,
+            matched: false,
+            extra: 0,
+            missing: 2,
             parameters_without_value: 0,
             w8003: false,
             uncertain: false,
@@ -1714,6 +1748,9 @@ mod tests {
         over.s8 = Some(S8 {
             required: 1,
             provided: 2,
+            matched: false,
+            extra: 1,
+            missing: 0,
             parameters_without_value: 0,
             w8003: false,
             uncertain: false,
@@ -2040,6 +2077,7 @@ mod tests {
                     range: None,
                 })
                 .collect(),
+            ..Default::default()
         };
         // 合う: 状態 1・fixed 1
         let mut r = passed_report(Some(ode()));

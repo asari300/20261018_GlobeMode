@@ -5,7 +5,8 @@
 //! - 粗い Dulmage–Mendelsohn 分解（[`dulmage_mendelsohn`]: 過剰な方程式 / 不足している未知数 / 適定の部分）
 //! - S6 の結果は [`StructuralReport`]（[`analyze`]）。診断は `GM-E6001`
 //! - S7 の結果は [`IndexReport`]（[`analyze_index`]、Pantelides 法）。診断は `GM-I7001` / `GM-I7002` / `GM-E7001`
-//! - S8 の結果は [`InitReport`]（[`analyze_init`]）
+//! - S8 の結果は [`InitReport`]（[`analyze_init_system`]。数と属性の判定は [`analyze_init`]、
+//!   初期化系のマッチングは [`init_system`]（S009））
 //!
 //! S6 では二部グラフを 2 つ見る。
 //!
@@ -21,6 +22,7 @@
 mod bipartite;
 mod dm;
 pub mod init;
+pub mod init_system;
 mod matching;
 pub mod pantelides;
 #[cfg(test)]
@@ -32,7 +34,8 @@ use serde::Serialize;
 
 use crate::bipartite::Bipartite;
 pub use crate::dm::{Decomposition, dulmage_mendelsohn};
-pub use crate::init::{InitReport, analyze_init};
+pub use crate::init::{InitReport, analyze_init, analyze_init_system};
+pub use crate::init_system::{InitCondition, InitMatching, InitUnknown, match_init_system};
 pub use crate::matching::{Matching, hopcroft_karp};
 pub use crate::pantelides::{IndexReport, analyze_index};
 

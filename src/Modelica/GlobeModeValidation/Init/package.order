@@ -3,3 +3,6 @@ OverDetermined
 UnderDetermined
 ParameterWithoutValue
 FreeParameter
+RedundantAndMissing
+OuterModification
+ModifierScope

@@ -436,6 +436,7 @@ fn print_s8(report: &FullReport) {
         .as_ref()
         .is_some_and(|s7| !s7.failed && s7.dynamic_states < states);
     let balance = match s8.provided.cmp(&s8.required) {
+        _ if s8.matching.is_some() => String::new(),
         std::cmp::Ordering::Equal => String::new(),
         std::cmp::Ordering::Greater if discretes > 0 || index_reduced => format!(
             "。{} 個多い見込み（離散変数かインデックスの低減のため確定できない）",
@@ -470,6 +471,32 @@ fn print_s8(report: &FullReport) {
         s8.fixed_states.len(),
         s8.free_parameters.len()
     );
+    // S009: 初期化系のマッチング（冗長な初期条件と、初期条件の無い未知数）
+    if let Some(m) = &s8.matching {
+        let verdict = match (m.extra, m.missing) {
+            (0, 0) => "合う".to_string(),
+            (e, 0) => format!("冗長 {e}"),
+            (0, u) => format!("決まらない {u}"),
+            (e, u) => format!("冗長 {e}・決まらない {u}"),
+        };
+        println!(
+            "{}: S8: 初期化系のマッチング: 方程式 {}（DAE とその微分、初期方程式、fixed = true）/ 未知数 {}、マッチング {}。{verdict}{}",
+            report.model,
+            m.n_equations,
+            m.n_unknowns,
+            m.matching,
+            if m.extra > 0 && m.over_with_dae {
+                "（冗長な初期条件は拘束と重なる。整合する値なら冗長なだけ）"
+            } else {
+                ""
+            }
+        );
+    } else if report.check.init.as_ref().is_some_and(|i| !i.has_incidence) {
+        println!(
+            "{}: S8: 初期方程式の参照を取り出せなかったので、数と属性だけで判定した",
+            report.model
+        );
+    }
 }
 
 /// `globe deps`: 検査に渡すファイル（閉包）と、ワークスペースの全ファイル数。

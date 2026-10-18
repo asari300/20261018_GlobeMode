@@ -1,7 +1,9 @@
-//! S8: 初期化系の検査（S007）。
+//! S8: 初期化系の検査（S007。S009 でマッチングを足した）。
 //!
 //! 入力は [`InitStructure`]（状態・パラメータ・離散変数・代数変数の `fixed` / `start` / 束縛と、初期方程式の数）。
-//! 判定は数と属性だけで行う（どの初期方程式がどの変数を決めるかは見ない。S008 以降の候補）。
+//! まず数と属性で判定する（要る数と与えた数）。初期方程式の参照（`InitStructure::has_incidence`）と
+//! S7 の結果があれば、さらに初期化系をマッチングして（[`crate::init_system`]）、冗長な初期条件と
+//! 初期条件の無い未知数を名指しする（[`analyze_init_system`]、[`InitReport::matching`]）。
 //!
 //! - 要る初期条件の数 = 動的な状態の数（S7。無ければ状態の数）+ 離散変数の数 + `fixed = false` で束縛の無い
 //!   パラメータの数
@@ -37,10 +39,12 @@
 //! Rumoca に依存しない。wasm32 でも動く。
 
 use globe_mode_core::{Diagnostic, Stage, TextRange, codes};
-use globe_mode_ir::{InitStructure, InitVariable};
+use globe_mode_ir::{DaeStructure, InitStructure, InitVariable};
 use serde::Serialize;
 
-use crate::NOTE_LIST_LIMIT;
+use crate::init_system::{InitCondition, InitMatching, InitUnknown, match_init_system};
+use crate::pantelides::IndexReport;
+use crate::{NOTE_LIST_LIMIT, list_by};
 
 /// S8 の結果。添字は [`InitStructure`] の `states` / `parameters` のもの（昇順）。
 ///
@@ -59,12 +63,35 @@ pub struct InitReport {
     pub free_parameters: Vec<usize>,
     /// 束縛も start も無い `fixed = true` のパラメータ（`parameters` の添字）
     pub parameters_without_value: Vec<usize>,
+    /// 初期化系のマッチング（S009）。初期方程式の参照と S7 の結果があるときだけ Some。
+    /// あれば、過剰（`extra`）と不足（`missing`）はこちらが確か（数だけの判定は `不足 − 過剰` しか分からない）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub matching: Option<InitMatching>,
 }
 
 impl InitReport {
-    /// 初期条件の数が合っている。
+    /// 初期条件が合っている（マッチングがあれば過剰も不足も無いこと。無ければ数が合っていること）。
     pub fn is_balanced(&self) -> bool {
-        self.required == self.provided
+        match &self.matching {
+            Some(m) => m.is_balanced(),
+            None => self.required == self.provided,
+        }
+    }
+
+    /// 過剰な初期条件の数（マッチングがあれば `extra`、無ければ与えた数 − 要る数）。
+    pub fn extra(&self) -> usize {
+        match &self.matching {
+            Some(m) => m.extra,
+            None => self.provided.saturating_sub(self.required),
+        }
+    }
+
+    /// 足りない初期条件の数（マッチングがあれば `missing`、無ければ要る数 − 与えた数）。
+    pub fn missing(&self) -> usize {
+        match &self.matching {
+            Some(m) => m.missing,
+            None => self.required.saturating_sub(self.provided),
+        }
     }
 
     /// 診断（S8）。
@@ -147,6 +174,9 @@ impl InitReport {
         });
 
         let mut out = Vec::new();
+        if let Some(m) = &self.matching {
+            return self.diagnostics_with_matching(m, init, out, &counts, index_note.as_deref());
+        }
         if self.provided > self.required {
             let extra = self.provided - self.required;
             let equations: Vec<usize> = (0..init.initial_equations.len()).collect();
@@ -289,6 +319,216 @@ impl InitReport {
         self.push_parameters_without_value(out, init)
     }
 
+    /// マッチング（S009）がある場合の診断。過剰と不足を別々に出す（両方あることもある）。
+    ///
+    /// - 過剰（`extra > 0`）: 過剰な部分の初期条件（冗長の候補）を名指しする。過剰な部分に DAE の方程式
+    ///   （拘束やその微分）が無く、離散変数も含まなければ `GM-E8001`（Error）。そうでなければ `GM-W8004`。
+    ///   位置は最初の冗長の候補（初期方程式の位置か、fixed = true の宣言）。
+    /// - 不足（`missing > 0`）: 不足している部分の未知数を名指しする。不足の数が、不足している部分の
+    ///   `fixed = false` の離散変数の数以下なら柔らかい `GM-W8001`。そうでなければ `GM-W8001` と、
+    ///   不足している部分にある start の無い状態（階数 0）ごとに `GM-W8002`。
+    fn diagnostics_with_matching(
+        &self,
+        m: &InitMatching,
+        init: &InitStructure,
+        mut out: Vec<Diagnostic>,
+        counts: &str,
+        index_note: Option<&str>,
+    ) -> Vec<Diagnostic> {
+        let condition_name = |c: &InitCondition| match *c {
+            InitCondition::InitialEquation(i) => format!(
+                "`{}`",
+                init.initial_equations
+                    .get(i)
+                    .map(|e| e.label.as_str())
+                    .filter(|s| !s.is_empty())
+                    .map_or_else(|| format!("#{i}"), str::to_string)
+            ),
+            InitCondition::FixedState(i) => format!("`{}` の fixed = true", name(&init.states, i)),
+            InitCondition::FixedAlgebraic(i) => {
+                format!("`{}` の fixed = true", name(&init.algebraics, i))
+            }
+            InitCondition::FixedDiscrete(i) => {
+                format!("`{}` の fixed = true", name(&init.discretes, i))
+            }
+        };
+        let unknown_name = |u: &InitUnknown| match *u {
+            InitUnknown::State { index, order } => {
+                derivative_name(&name(&init.states, index), order)
+            }
+            InitUnknown::Algebraic { index, order } => {
+                derivative_name(&name(&init.algebraics, index), order)
+            }
+            InitUnknown::Parameter { index } => name(&init.parameters, index),
+            InitUnknown::Discrete { index } => format!("pre({})", name(&init.discretes, index)),
+        };
+        let condition_location = |c: &InitCondition| -> (Option<&str>, Option<TextRange>) {
+            match *c {
+                InitCondition::InitialEquation(i) => init
+                    .initial_equations
+                    .get(i)
+                    .map_or((None, None), |e| (e.file.as_deref(), e.range)),
+                InitCondition::FixedState(i) => init
+                    .states
+                    .get(i)
+                    .map_or((None, None), |v| (v.file.as_deref(), v.range)),
+                InitCondition::FixedAlgebraic(i) => init
+                    .algebraics
+                    .get(i)
+                    .map_or((None, None), |v| (v.file.as_deref(), v.range)),
+                InitCondition::FixedDiscrete(i) => init
+                    .discretes
+                    .get(i)
+                    .map_or((None, None), |v| (v.file.as_deref(), v.range)),
+            }
+        };
+        let redundant_indices: Vec<usize> = (0..m.redundant.len()).collect();
+        let undetermined_indices: Vec<usize> = (0..m.undetermined.len()).collect();
+
+        if m.extra > 0 {
+            let with_discrete = m.redundant.iter().any(|c| match *c {
+                InitCondition::FixedDiscrete(_) => true,
+                InitCondition::InitialEquation(i) => init
+                    .initial_discrete_refs
+                    .get(i)
+                    .is_some_and(|r| !r.is_empty()),
+                _ => false,
+            });
+            let mut uncertain = Vec::new();
+            if m.over_with_dae {
+                uncertain.push("拘束（またはその微分）と同じ変数を決めている");
+            }
+            if with_discrete {
+                uncertain.push("離散変数を含む");
+            }
+            let redundant_note = format!(
+                "冗長な初期条件の候補（過剰な部分にある初期条件 {} 個。このうち {} 個が余る）: {}",
+                m.redundant.len(),
+                m.extra,
+                list_by(&redundant_indices, |i| condition_name(&m.redundant[i]))
+            );
+            let d = if uncertain.is_empty() {
+                Diagnostic::error(
+                    codes::INIT_OVERDETERMINED,
+                    Stage::S8,
+                    format!(
+                        "初期条件が {} 個多い（初期化系のマッチング）: {counts}",
+                        m.extra
+                    ),
+                )
+            } else {
+                Diagnostic::warning(
+                    codes::INIT_OVERDETERMINED_UNCERTAIN,
+                    Stage::S8,
+                    format!(
+                        "初期条件が {} 個多い見込み（{}ため、整合する値なら冗長なだけ）: {counts}",
+                        m.extra,
+                        uncertain.join("・")
+                    ),
+                )
+            };
+            let (file, range) = m.redundant.first().map_or((None, None), condition_location);
+            let mut d = locate(d, file, range).note(redundant_note);
+            if let Some(n) = index_note {
+                d = d.note(n.to_string());
+            }
+            if m.over_with_dae {
+                d = d.note(
+                    "拘束（S7 で微分した方程式を含む）が同じ変数を決めるので、初期条件の値が拘束と整合しなければ初期化に失敗する。omc はこのとき冗長な初期方程式を外して進む",
+                );
+            }
+            if with_discrete {
+                d = d.note("離散変数は when の外の pre(d) = d の暗黙の式などで数が揺れるので、過剰とは確定しない");
+            }
+            out.push(d.note(
+                "冗長な候補のうち、拘束や別の初期条件で決まる変数の fixed = true（または初期方程式）を外す",
+            ));
+        }
+        if m.missing > 0 {
+            let open_discretes = m
+                .undetermined
+                .iter()
+                .filter(|u| match **u {
+                    InitUnknown::Discrete { index } => {
+                        init.discretes.get(index).is_some_and(|d| !d.fixed)
+                    }
+                    _ => false,
+                })
+                .count();
+            let uncertain = m.missing <= open_discretes;
+            let message = if uncertain {
+                format!(
+                    "初期条件が {} 個足りない見込み（離散変数の pre の初期値に start を使えば足りる。MLS 8.6）: {counts}",
+                    m.missing
+                )
+            } else {
+                format!(
+                    "初期条件が {} 個足りない（不足分は start 値を推定値として使う見込み）: {counts}",
+                    m.missing
+                )
+            };
+            let mut d = Diagnostic::warning(codes::INIT_UNDERDETERMINED, Stage::S8, message).note(
+                format!(
+                    "初期条件の無い未知数（不足している部分の未知数 {} 個。このうち {} 個が決まらない）: {}",
+                    m.undetermined.len(),
+                    m.missing,
+                    list_by(&undetermined_indices, |i| format!(
+                        "`{}`",
+                        unknown_name(&m.undetermined[i])
+                    ))
+                ),
+            );
+            if let Some(n) = index_note {
+                d = d.note(n.to_string());
+            }
+            if !self.free_parameters.is_empty() {
+                d = d.note(format!(
+                    "初期化で決めるパラメータ（fixed = false、{} 個）: {}",
+                    self.free_parameters.len(),
+                    list(&self.free_parameters, |i| name(&init.parameters, i))
+                ));
+            }
+            if uncertain {
+                out.push(d.note(format!(
+                    "不足の {} 個は fixed = false の離散変数（{open_discretes} 個）の分に収まる。when の外の式で決まる離散変数には初期条件が要らないので、確定しない",
+                    m.missing
+                )));
+            } else {
+                out.push(
+                    d.note("決まらない状態に fixed = true を付けるか、initial equation を足す"),
+                );
+                // 不足している部分にある、start の無い状態（階数 0）
+                for u in &m.undetermined {
+                    let InitUnknown::State { index, order: 0 } = *u else {
+                        continue;
+                    };
+                    let Some(s) = init.states.get(index) else {
+                        continue;
+                    };
+                    if s.fixed || s.has_start {
+                        continue;
+                    }
+                    out.push(
+                        locate(
+                            Diagnostic::warning(
+                                codes::STATE_WITHOUT_START,
+                                Stage::S8,
+                                format!(
+                                    "状態 `{}` に start 値が無い（初期条件が無いので、既定の値から推定する見込み）",
+                                    name(&init.states, index)
+                                ),
+                            ),
+                            s.file.as_deref(),
+                            s.range,
+                        )
+                        .note("start = … を書くか、fixed = true にして初期値を決める"),
+                    );
+                }
+            }
+        }
+        self.push_parameters_without_value(out, init)
+    }
+
     /// 値の無いパラメータごとの `GM-W8003` を `out` に足して返す。
     fn push_parameters_without_value(
         &self,
@@ -323,6 +563,27 @@ pub fn analyze_init(init: &InitStructure) -> InitReport {
     analyze_init_with_index(init, None)
 }
 
+/// 初期化系を調べる（S009）。数と属性の判定に、初期化系のマッチング（[`match_init_system`]）を足す。
+///
+/// - `index` が Some で打ち切っていなければ、要る数の状態の分は動的な状態の数。
+/// - さらに `structure` も Some で、`init.has_incidence` なら初期化系をマッチングして
+///   [`InitReport::matching`] に入れる（組めなければ None のまま）。
+///
+/// `structure` と `index` と `init` は同じ DAE から出たものを渡す（位置は見ないので、`dae_shape` と
+/// `init_shape` でよい）。
+pub fn analyze_init_system(
+    init: &InitStructure,
+    structure: Option<&DaeStructure>,
+    index: Option<&IndexReport>,
+) -> InitReport {
+    let index = index.filter(|r| !r.failed);
+    let mut report = analyze_init_with_index(init, index.map(|r| r.dynamic_states));
+    if let (Some(structure), Some(index)) = (structure, index) {
+        report.matching = match_init_system(structure, index, init);
+    }
+    report
+}
+
 /// 初期化系を調べる。`dynamic_states` には S7 の `IndexReport::dynamic_states` を渡す
 /// （S7 が打ち切ったときや、S7 を通っていないときは None）。
 ///
@@ -352,6 +613,16 @@ pub fn analyze_init_with_index(init: &InitStructure, dynamic_states: Option<usiz
         states_without_start,
         free_parameters,
         parameters_without_value,
+        matching: None,
+    }
+}
+
+/// 族の階数つきの名前: 0 は `x`、1 は `der(x)`、2 以上は `der2(x)` など。
+fn derivative_name(base: &str, order: u32) -> String {
+    match order {
+        0 => base.to_string(),
+        1 => format!("der({base})"),
+        n => format!("der{n}({base})"),
     }
 }
 

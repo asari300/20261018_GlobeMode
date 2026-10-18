@@ -27,9 +27,9 @@ use rumoca_ir_dae::{DaeGeneration, DaeProvenanceOrigin};
 /// 表示用のラベルの長さの上限（文字数）。
 const LABEL_CHARS: usize = 60;
 
-/// 未知数の鍵（変数の添字、スカラーの添字）。
+/// 未知数の鍵（変数の添字、スカラーの添字）。`init.rs` も同じ鍵で初期方程式の参照を写す。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum Key {
+pub(crate) enum Key {
     Derivative(u32, u32),
     Algebraic(u32, u32),
 }
@@ -52,10 +52,14 @@ pub(crate) fn extract(dae: &Dae) -> Result<DaeStructure, String> {
     }
 }
 
-fn extract_view<'dae>(dae: &Dae, view: DaeView<'dae>) -> Result<DaeStructure, String> {
+/// 未知数（Rumoca の build_unknowns と同じ順）と、その鍵から添字への対応。
+///
+/// `init.rs` も同じ対応を使うので、[`DaeStructure::unknowns`] の添字と初期方程式の参照が揃う。
+pub(crate) fn unknowns_and_keys<'dae>(
+    dae: &Dae,
+    view: DaeView<'dae>,
+) -> Result<(Vec<Unknown>, HashMap<Key, u32>), String> {
     let locate = |provenance: DaeProvenance| location(dae, provenance);
-
-    // 未知数（Rumoca の build_unknowns と同じ順）
     let mut keys: HashMap<Key, u32> = HashMap::new();
     let mut unknowns = Vec::new();
     for (id, variable) in view.variables() {
@@ -101,6 +105,12 @@ fn extract_view<'dae>(dae: &Dae, view: DaeView<'dae>) -> Result<DaeStructure, St
             });
         }
     }
+    Ok((unknowns, keys))
+}
+
+fn extract_view<'dae>(dae: &Dae, view: DaeView<'dae>) -> Result<DaeStructure, String> {
+    let locate = |provenance: DaeProvenance| location(dae, provenance);
+    let (unknowns, keys) = unknowns_and_keys(dae, view)?;
 
     // 方程式（Rumoca の visit_owner_rows と同じ順）
     let mut equations = Vec::new();

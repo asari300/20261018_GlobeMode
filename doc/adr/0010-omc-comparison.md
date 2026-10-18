@@ -46,3 +46,4 @@
 - 最初の全例題の実行では、`-d=initialization` の反復変数の一覧が `true` の前に出るのを読み違え、52 本を「失敗」と数えた。結果を区間の最後の行で読むように直し、単体テストを足した。
 - 検証用モデルでも確かめた: `Invalid.StructurallySingular` は omc でも `translateModel` が「imbalanced number of equations (1) and variables (2)」で失敗し、`Invalid.HighIndexDuplicate` は「Model is structurally singular, error found sorting equations」と「over specified」が出る。
 - 残り: `AdvancedSolenoid` の真偽、S8 の冗長な初期条件、omc が手前で止めるモデル（`GM-W8003` 相当）の扱い。omc は照合にだけ使い、検査の判定には使わない（ライセンス、速さ、依存の方針は変えない）。
+- **S009 で分かったこと**（[ADR-0011](0011-init-system-matching.md)）: `AdvancedSolenoid` は接地の無い部品の単体の検査で、枝 8 本 ≥ 節点 7 つなので二部グラフには完全マッチングがあるが、キルヒホッフの電流則が数値的に従属（電位は差しか決まらない）。omc は記号的な簡約の後に `0.0 = 0.0` を見つけて止める。**構造の検査では見えない数値的な特異**で、S6 の誤りではない（検証用のモデル `Invalid.UngroundedLoop`）。`NonCircularPipes` は S8 を初期化系のマッチングに精密化して「冗長 2・決まらない 6」になり、omc の「冗長 2」と一致した。S8 の照合の規則は「過剰 = 冗長が 1 つ以上」に変えた。
