@@ -23,17 +23,30 @@ class Plan(unittest.TestCase):
 
     def test_change_propagates_to_dependents(self):
         p = plan(["src/Rust/mod/globe-mode-ir/src/lib.rs"])
-        self.assertEqual(pkgs(p), {"globe-mode-ir", "globe-mode-frontend", "globe-mode-cli"})
+        self.assertEqual(pkgs(p), {"globe-mode-ir", "globe-mode-frontend", "globe-mode-cli", "xtask"})
         self.assertTrue(p["wasm"])
 
     def test_core_change_tests_everything_but_is_not_full(self):
         p = plan(["src/Rust/mod/globe-mode-core/src/lib.rs"])
         self.assertFalse(p["full"])
-        self.assertEqual(pkgs(p), {"globe-mode-core", "globe-mode-ir", "globe-mode-frontend", "globe-mode-cli"})
+        self.assertEqual(pkgs(p), {"globe-mode-core", "globe-mode-ir", "globe-mode-frontend", "globe-mode-cli", "xtask"})
+        self.assertFalse(p["msl"])
+
+    def test_xtask_only(self):
+        p = plan(["src/Rust/xtask/src/main.rs"])
+        self.assertEqual(pkgs(p), {"xtask"})
+        self.assertFalse(p["wasm"])
+
+    def test_msl_model_list_affects_xtask_only(self):
+        self.assertEqual(pkgs(plan(["src/Modelica/msl-compare.txt"])), {"xtask"})
+
+    def test_full_runs_msl_compare(self):
+        self.assertTrue(plan(["Cargo.lock"])["msl"])
 
     def test_modelica_samples_affect_frontend_tests(self):
         p = plan(["src/Modelica/GlobeModeExamples/package.mo"])
-        self.assertEqual(pkgs(p), {"globe-mode-frontend", "globe-mode-cli"})
+        # xtask は frontend に依存するので、依存元として入る
+        self.assertEqual(pkgs(p), {"globe-mode-frontend", "globe-mode-cli", "xtask"})
 
     def test_crate_manifest_needs_deny_but_not_full(self):
         p = plan(["src/Rust/mod/globe-mode-cli/Cargo.toml"])
@@ -71,7 +84,7 @@ class Plan(unittest.TestCase):
 
     def test_nothing_relevant(self):
         p = plan(["data/.gitkeep"])
-        self.assertFalse(any(p[k] for k in ["full", "rust", "deny", "python", "docs", "slides"]))
+        self.assertFalse(any(p[k] for k in ["full", "rust", "deny", "python", "docs", "slides", "msl"]))
 
 
 if __name__ == "__main__":

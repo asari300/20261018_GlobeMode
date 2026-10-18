@@ -44,6 +44,11 @@
   - bincode 1.x（RUSTSEC-2025-0141）
   - paste（RUSTSEC-2024-0436、faer 経由）
 - git 依存を持つので、GlobeMode の crate は crates.io に公開できない（`publish = false`）。
+- **S003 で改めたこと**（2026-10-18）:
+  - コンパイルを `compile_model_phases` から `compile_model_strict` に替えた（Rumoca の CLI と同じ経路）。前者は、MSL を解決するときの警告（WR006 など）も失敗として返していた。
+  - ライブラリ（MSL）は `load_source_root_tolerant`（`DurableExternal`）で読む。読めなければ S1 / GM-E1003。
+  - 数え方を 2 つ返す。`BalanceCount` は配列をスカラーに展開した数（S5 の釣り合い）。`DaeCounts` は DAE の変数を配列ごとに 1 個と数えた数（Rumoca の CLI の `-v` と同じ粒度）。
+  - **MSL 4.1.0 の例題 20 本で、Rumoca の CLI と 20 本すべて一致した**（[報告](../sessions/S003-msl-check/msl-compare.md)）。両方成功が 17 本、両方同じ理由で失敗が 3 本。
 
 - P1 で stable でビルドできるか確かめる必要がある（[ADR-0003](0003-toolchain.md)）。
 - 月に1回 `xtask bump-rumoca` で更新し、MSL のファネルの差分を記録する。

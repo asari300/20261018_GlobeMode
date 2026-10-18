@@ -1,0 +1,3 @@
+[alias]
+# 開発用のタスク（MSL・Rumoca の CLI の取得、MSL での突き合わせ）。src/Rust/xtask
+xtask = "run --release -q -p xtask --"

@@ -46,7 +46,8 @@ uv sync                      # worktree ごとに必須
 | `src/Python/mod/` `marimo/` `streamlit/` | Python パッケージ、ノートブック、ダッシュボード | ○ |
 | `src/{Elixir,Gleam,Julia,Zig}/` | 各言語の薄いラッパ。ロジックは Rust 側に置く | ○ |
 | `src/Modelica/` | サンプルモデルと検証用ライブラリ | ○ |
-| `data/msl/` | MSL の取得物 | ×（取得スクリプトで置く。コミットしない） |
+| `data/msl/` `data/rumoca/` | MSL 4.1.0 と Rumoca の CLI の取得物（`cargo xtask fetch-msl` / `fetch-rumoca`） | ×（コミットしない） |
+| `src/Rust/xtask/` | 開発用のタスク（取得、MSL での突き合わせ、Rumoca の更新） | ○ |
 | `doc/architecture.md` `roadmap.md` `features.md` `licenses.md` | **正典**。計画を変えたら同じコミットで直す | ○ |
 | `doc/adr/` | 設計判断の記録。覆すときは消さずに Superseded にする | ○（追記） |
 | `doc/research/` | 調査の記録。事実ごとに URL と確認日を付ける | ○ |
@@ -58,6 +59,7 @@ uv sync                      # worktree ごとに必須
 
 - Python パッケージは `src/Python/mod/globe_mode`（S002 で `src/20261018_globemode` から改名した）。
 - 検査はまとめて `mise run check`（Rust の fmt / clippy / test / deny と `uv sync --locked`）と `mise run docs:check`（スライドとリンク、Playwright）で回せる。
+- フロントエンド（Rumoca アダプタ）や Rumoca の rev を変えたら、`mise run msl:compare`（MSL の例題 20 本で Rumoca の CLI と突き合わせ）も通す。
 - **言語の管理は mise・uv・cargo で分担する**（[ADR-0003](doc/adr/0003-toolchain.md)、手順は [doc/mise-setup.html](doc/mise-setup.html)）。
 
   | 道具 | 受け持つもの | ロックファイル |

@@ -12,7 +12,7 @@ GlobeMode is planned to run on Linux (Debian family), Windows 11, Android, in th
 
 Phase A uses [Rumoca](https://github.com/CogniPilot/rumoca) (Apache-2.0) behind an adapter as the compiler frontend.
 
-> **Status:** P1 (skeleton). The `globe` CLI can outline a Modelica file and check a model through DAE balance using Rumoca. See [doc/roadmap.md](doc/roadmap.md).
+> **Status:** P1 (skeleton) done. The `globe` CLI outlines Modelica files and checks models (including MSL 4.1.0 examples) through DAE balance using Rumoca; results match the Rumoca CLI on 20/20 MSL examples. See [doc/roadmap.md](doc/roadmap.md).
 
 Licensed under either of [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE) at your option. Unless you explicitly state otherwise, any contribution you intentionally submit for inclusion in the work, as defined in the Apache-2.0 license, will be dual licensed as above, without any additional terms or conditions.
 
@@ -20,7 +20,7 @@ Licensed under either of [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE) at y
 
 ## 日本語
 
-GlobeMode は Rust で作る OSS の Modelica IDE。現在は P1（骨格）の段階。CLI `globe` で、アウトラインの表示と、DAE までの検査（方程式数と変数数）ができる。
+GlobeMode は Rust で作る OSS の Modelica IDE。P1（骨格）まで済んだ。CLI `globe` で、アウトラインの表示と、DAE までの検査（方程式数と変数数）ができる。MSL 4.1.0 の例題 20 本で、Rumoca の CLI と結果が一致することを確かめた。
 
 | 文書 | 内容 |
 | --- | --- |

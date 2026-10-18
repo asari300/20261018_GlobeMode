@@ -16,7 +16,7 @@
       * 定期実行（schedule）、手動実行で full を指定、比較元が無い（新しいブランチ・履歴の書き換え）
 
 出力（JSON。--github-output を付けると GitHub Actions の出力にも書く）:
-  full, rust, rust_packages（"-p a -p b"）, wasm, deny, python, docs, slides, reasons
+  full, rust, rust_packages（"-p a -p b"）, wasm, deny, python, docs, slides, msl, reasons
 標準ライブラリだけで動く（Python 3.11 以上、tomllib を使う）。
 """
 
@@ -41,7 +41,10 @@ DEPENDENCY_FILES = ["Cargo.toml", "Cargo.lock", "deny.toml", "src/Rust/mod/*/Car
 # wasm でビルドできることを守る crate
 WASM_CRATES = {"globe-mode-core", "globe-mode-ir", "globe-mode-frontend"}
 # Rust 以外のファイルで、特定の crate のテストが読むもの
-EXTRA_INPUTS = {"src/Modelica/*": {"globe-mode-frontend", "globe-mode-cli"}}
+EXTRA_INPUTS = {
+    "src/Modelica/msl-compare.txt": {"xtask"},
+    "src/Modelica/*": {"globe-mode-frontend", "globe-mode-cli"},
+}
 PYTHON_FILES = ["pyproject.toml", "uv.lock", ".python-version", "src/Python/*"]
 DOC_FILES = ["*.md", "doc/*", "log/*", ".claude/skills/*", "src/*/README.md"]
 SLIDE_FILES = ["doc/sessions/*", "doc/assets/*", ".claude/skills/session-docs/*"]
@@ -58,11 +61,13 @@ def git(*args: str) -> str:
 def workspace_crates() -> dict[str, dict]:
     """crate 名 → {dir, deps（workspace 内の依存）}。Cargo.toml を直接読む（cargo が無くても動く）。"""
     crates = {}
-    for manifest in sorted((ROOT / "src/Rust/mod").glob("globe-mode-*/Cargo.toml")):
+    manifests = sorted((ROOT / "src/Rust/mod").glob("globe-mode-*/Cargo.toml"))
+    manifests += [m for m in [ROOT / "src/Rust/xtask/Cargo.toml"] if m.exists()]
+    for manifest in manifests:
         data = tomllib.loads(manifest.read_text(encoding="utf-8"))
         deps = set()
         for table in ("dependencies", "dev-dependencies", "build-dependencies"):
-            deps |= {d for d in data.get(table, {}) if d.startswith("globe-mode-")}
+            deps |= {d for d in data.get(table, {}) if d.startswith("globe-mode-") or d == "xtask"}
         crates[data["package"]["name"]] = {"dir": manifest.parent.relative_to(ROOT).as_posix(), "deps": deps}
     return crates
 
@@ -74,9 +79,11 @@ def affected_crates(changed: list[str], crates: dict[str, dict]) -> set[str]:
         for name, c in crates.items():
             if path.startswith(c["dir"] + "/"):
                 direct.add(name)
+        # 最初に当たった規則だけを使う（具体的な規則を先に書く）
         for pattern, names in EXTRA_INPUTS.items():
             if fnmatch(path, pattern):
                 direct |= names & crates.keys()
+                break
     result = set(direct)
     grew = True
     while grew:
@@ -120,6 +127,8 @@ def plan(changed: list[str] | None, message: str = "", force_full: bool = False,
         "python": full or any(match(p, PYTHON_FILES) for p in changed),
         "docs": full or any(match(p, DOC_FILES) for p in changed),
         "slides": full or any(match(p, SLIDE_FILES) for p in changed),
+        # MSL での Rumoca との突き合わせは重い（MSL と Rumoca の CLI の取得、20 本の検査）ので、全体を検査するときだけ
+        "msl": full,
         "changed_files": len(changed),
         "reasons": "; ".join(reasons) if reasons else "差分のみ",
     }

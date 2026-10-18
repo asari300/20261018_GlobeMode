@@ -29,6 +29,14 @@ run = [
 description = "origin/main との差分で、CI が何を検査するかを表示する（ADR-0006）"
 run = "python3 .github/scripts/ci_plan.py --base origin/main --head HEAD"
 
+[tasks."msl:compare"]
+description = "MSL 4.1.0 と Rumoca の CLI を取得し、例題 20 本で globe check と突き合わせる"
+run = [
+  "cargo xtask fetch-msl",
+  "cargo xtask fetch-rumoca",
+  "cargo xtask msl-compare",
+]
+
 [tasks."docs:check"]
 description = "スライド・リンクの検査と、Playwright でのブラウザ表示の検査"
 run = [

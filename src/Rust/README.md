@@ -9,7 +9,8 @@ S002 の時点で、次の 4 つの crate がある。
 | `mod/globe-mode-core` | 診断（`Diagnostic`）、検査段階（`Stage` S0〜S10）、ソースの範囲 |
 | `mod/globe-mode-ir` | 中立 IR（`Outline`、`Connect`、`BalanceCount`） |
 | `mod/globe-mode-frontend` | `trait Frontend` と Rumoca アダプタ（feature `rumoca`） |
-| `mod/globe-mode-cli` | CLI `globe`（`outline` / `check`） |
+| `mod/globe-mode-cli` | CLI `globe`（`outline` / `check`、`--library`） |
+| `xtask` | `cargo xtask fetch-msl` / `fetch-rumoca` / `msl-compare` / `bump-rumoca`（S003） |
 
 ```bash
 cargo run -p globe-mode-cli -- check src/Modelica/GlobeModeExamples/package.mo -m GlobeModeExamples.RC

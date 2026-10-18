@@ -87,7 +87,21 @@ pub struct Connect {
     pub range: TextRange,
 }
 
-/// 方程式数と変数数（S5 の検査に使う）。
+/// DAE の変数を、配列を 1 個として数えたもの（Rumoca の CLI の `-v` と同じ粒度）。
+///
+/// [`BalanceCount`] は配列をスカラーに展開して数えるので、配列を含むモデルでは数が合わない。
+/// Rumoca の CLI との突き合わせにはこちらを使う。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize)]
+pub struct DaeCounts {
+    pub states: usize,
+    pub algebraics: usize,
+    pub outputs: usize,
+    pub inputs: usize,
+    pub parameters: usize,
+    pub continuous_equations: usize,
+}
+
+/// 方程式数と変数数（S5 の検査に使う）。配列はスカラーに展開して数える（MLS 4.7 の釣り合い）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize)]
 pub struct BalanceCount {
     pub equations: usize,

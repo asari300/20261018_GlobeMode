@@ -18,7 +18,7 @@ flowchart LR
 | Phase | 範囲 | 完了条件 | 目安 |
 | --- | --- | --- | --- |
 | **P0 運用基盤** | 調査、計画、CLAUDE.md、スキル、セッション記録のフック、スライドと解説書の型 | S001 の成果物がそろう。フックが伏せ字版を出力する。リンク切れが 0 件 | S001 |
-| **P1 骨格**（進行中） | workspace 化、mise の rust の targets、cargo-deny、CI（Linux / Windows / wasm）。core / ir / frontend / cli。MSL の取得スクリプト。Python パッケージの改名 | `cargo deny check` が通る。MSL の例題 20 本で `globe check` の結果が Rumoca と一致する。frontend が wasm32 向けにビルドできる。[ADR-0003](adr/0003-toolchain.md) が Accepted になる | 3 回（workspace と CI / アダプタと CLI / wasm の確認） |
+| **P1 骨格**（S003 で完了） | workspace 化、mise の rust の targets、cargo-deny、CI（Linux / Windows / wasm）。core / ir / frontend / cli。MSL の取得スクリプト。Python パッケージの改名 | `cargo deny check` が通る。MSL の例題 20 本で `globe check` の結果が Rumoca と一致する。frontend が wasm32 向けにビルドできる。[ADR-0003](adr/0003-toolchain.md) が Accepted になる | 3 回（workspace と CI / アダプタと CLI / wasm の確認） |
 | **P2 遅延クエリと検査** | db、outline、class_index、connect_graph、`assert_simulatable` の S0〜S10 | 空白だけの編集の再検査が 50 ms 未満で、`flat` が再実行されない（salsa のイベントで確かめる）。MSL の全例題に判定が出て、panic は 0 件。S5 が omc と 95% 以上一致する | 4 回 |
 | **P3 シミュレーション** | exec、driver、bdf / esdirk34 / tsit45 / dopri / 固定刻み、ResultStore | MSL の例題 153 本以上が実行できる。そのうち 90% 以上が参照結果のファネルに収まる。bdf が wasm で（Node 上で）動く | 5 回 |
 | **P4 Desktop MVP** | CodeMirror 6 と LSP、ライブラリツリー、検査パネル、プロット、sigma.js の connect グラフ | ChuaCircuit で開く・検査・実行・プロットが通る。5k ノードのグラフが 30 fps 以上で動く。RSS の基準値を記録する。CI が .deb と .msi を作る | 6 回 |
@@ -52,17 +52,26 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 | `cargo deny check` が通る | 済（S002） |
 | frontend が wasm32 向けにビルドできる | 済（S002、`cargo check`） |
 | ADR-0003 が Accepted | 済（S002） |
-| MSL の例題 20 本で `globe check` の結果が Rumoca と一致する | 残り（S003） |
-| CI が GitHub 上で通る | 残り（push してから） |
+| MSL の例題 20 本で `globe check` の結果が Rumoca と一致する | 済（S003、20 本中 20 本） |
+| CI が GitHub 上で通る | 済（run 39093072719、全ジョブ成功） |
+
+### S003（P1 の 2 回目、2026-10-18）で済んだこと
+
+- `cargo xtask fetch-msl`: MSL 4.1.0 を sha256 で確かめて `data/msl/` に展開する。
+- `cargo xtask fetch-rumoca`: Rumoca の CLI v0.10.2 を取得する（照合用、Linux x86_64）。
+- `globe check --library data/msl -m <モデル>`: MSL の中のモデルを検査できるようにした。
+- `cargo xtask msl-compare`: 例題 20 本で Rumoca の CLI と突き合わせた。**20 本すべて一致**（[報告](sessions/S003-msl-check/msl-compare.md)）。
+- CI に `msl` ジョブを足した（全体を検査するときだけ）。
+- これで **P1 の完了条件はすべて満たした**。
 
 ## 次のセッション
 
-**S003（P1 の 2 回目）** で行うこと:
+**S004（P2 の 1 回目）** で行うこと:
 
-1. MSL 4.1.0 の取得スクリプト（`data/msl/`、sha256 で確かめる）と、`globe check` の MSL 読み込み（`--library`）。
-2. MSL の例題 20 本を選び、`globe check` の結果を Rumoca の CLI（GitHub Releases のバイナリ）と比べる仕組み（`globe-mode-testkit`）。
-3. `xtask`（`bump-rumoca` の雛形と、ライセンス一覧の生成）。
-4. CI を GitHub で実際に動かして直す（push はユーザーの判断）。
+1. `globe-mode-db`: salsa のクエリ DB を置き、`parse` → `outline`（Eq の防火壁）までをクエリにする。
+2. 空白だけの編集で、`outline` から先が再計算されないことを、salsa のイベントで確かめるテスト。
+3. `class_index` と `connect_graph(path, depth)` の最初の版（flatten 不要）。
+4. S003 で見つけた課題: MSL の正しい例題（CoupledClutches、Friction）が Rumoca の制約で S5 に落ちる。「コンパイラが未対応」（GM-U）に振り分ける規則を検討する。
 
 ## 運用上の決まり
 
