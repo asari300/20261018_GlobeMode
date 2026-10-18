@@ -1,8 +1,10 @@
 [project]
-name = "20261018-globemode"
+name = "globe-mode"
 version = "0.1.0"
-description = "Add your description here"
+description = "GlobeMode — an open-source Modelica IDE (Python API, notebooks and dashboards)"
 readme = "README.md"
+license = "MIT OR Apache-2.0"
+license-files = ["LICENSE-MIT", "LICENSE-APACHE"]
 authors = [
     { name = "asari300", email = "nk.mwhrskaomr.93@gmail.com" }
 ]
@@ -14,13 +16,18 @@ dependencies = [
 ]
 
 [project.scripts]
-20261018-globemode = "20261018_globemode:main"
+globe-mode = "globe_mode:main"
 
 [build-system]
-requires = ["uv_build>=0.12.6,<0.13.1"]
+requires = ["uv_build>=0.13.1,<0.14.0"]
 build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
     "playwright>=1.64.0",
 ]
+
+[tool.uv.build-backend]
+# パッケージは言語別の src/Python/mod/ に置く（CLAUDE.md）
+module-name = "globe_mode"
+module-root = "src/Python/mod"

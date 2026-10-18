@@ -18,7 +18,7 @@ flowchart LR
 | Phase | 範囲 | 完了条件 | 目安 |
 | --- | --- | --- | --- |
 | **P0 運用基盤** | 調査、計画、CLAUDE.md、スキル、セッション記録のフック、スライドと解説書の型 | S001 の成果物がそろう。フックが伏せ字版を出力する。リンク切れが 0 件 | S001 |
-| **P1 骨格** | workspace 化、mise の rust の targets、cargo-deny、CI（Linux / Windows / wasm）。core / ir / frontend / cli。MSL の取得スクリプト。Python パッケージの改名 | `cargo deny check` が通る。MSL の例題 20 本で `globe check` の結果が Rumoca と一致する。frontend が wasm32 向けにビルドできる。[ADR-0003](adr/0003-toolchain.md) が Accepted になる | 3 回（workspace と CI / アダプタと CLI / wasm の確認） |
+| **P1 骨格**（進行中） | workspace 化、mise の rust の targets、cargo-deny、CI（Linux / Windows / wasm）。core / ir / frontend / cli。MSL の取得スクリプト。Python パッケージの改名 | `cargo deny check` が通る。MSL の例題 20 本で `globe check` の結果が Rumoca と一致する。frontend が wasm32 向けにビルドできる。[ADR-0003](adr/0003-toolchain.md) が Accepted になる | 3 回（workspace と CI / アダプタと CLI / wasm の確認） |
 | **P2 遅延クエリと検査** | db、outline、class_index、connect_graph、`assert_simulatable` の S0〜S10 | 空白だけの編集の再検査が 50 ms 未満で、`flat` が再実行されない（salsa のイベントで確かめる）。MSL の全例題に判定が出て、panic は 0 件。S5 が omc と 95% 以上一致する | 4 回 |
 | **P3 シミュレーション** | exec、driver、bdf / esdirk34 / tsit45 / dopri / 固定刻み、ResultStore | MSL の例題 153 本以上が実行できる。そのうち 90% 以上が参照結果のファネルに収まる。bdf が wasm で（Node 上で）動く | 5 回 |
 | **P4 Desktop MVP** | CodeMirror 6 と LSP、ライブラリツリー、検査パネル、プロット、sigma.js の connect グラフ | ChuaCircuit で開く・検査・実行・プロットが通る。5k ノードのグラフが 30 fps 以上で動く。RSS の基準値を記録する。CI が .deb と .msi を作る | 6 回 |
@@ -30,15 +30,39 @@ flowchart LR
 
 Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先に使える。コンパイルのパイプラインは引き続き Rumoca が受け持つ。ただし AST が別物なので、両者を混ぜるのは「IDE 機能か、コンパイルか」の境目に限る。
 
+## 進み具合
+
+### S002（P1 の 1 回目、2026-10-18）で済んだこと
+
+- ルートを virtual workspace にし、4 つの crate を作った: `globe-mode-core`、`globe-mode-ir`、`globe-mode-frontend`（Rumoca アダプタ）、`globe-mode-cli`（`globe outline` / `globe check`）。
+- **Rumoca v0.10.2（`276e82bd`）の `rumoca-compile` が、stable 1.99.1 でビルドできることを確かめた**。
+  - ネイティブでも `wasm32-unknown-unknown` でも `cargo check` が通る。
+  - これで [ADR-0003](adr/0003-toolchain.md) を Accepted にした。
+- `mise.toml` に wasm と Android の target、cargo-deny、`mise run check` / `mise run docs:check` を足した。
+- `deny.toml` を作った。
+  - ライセンス・bans・取得元はすべて ok。
+  - `rumoca-compile` を使えるのはアダプタだけに限った（wrappers）。違反させて検出できることも確かめた。
+- CI の雛形（`.github/workflows/ci.yml`）を作った。Linux・Windows・wasm・Python とスライドの検査の各ジョブ。**まだ push していないので、実行は確かめていない**。
+- Python パッケージを `globe_mode`（`src/Python/mod/`）に改名した。
+
+### P1 の残り（S003〜）
+
+| 完了条件 | 状態 |
+| --- | --- |
+| `cargo deny check` が通る | 済（S002） |
+| frontend が wasm32 向けにビルドできる | 済（S002、`cargo check`） |
+| ADR-0003 が Accepted | 済（S002） |
+| MSL の例題 20 本で `globe check` の結果が Rumoca と一致する | 残り（S003） |
+| CI が GitHub 上で通る | 残り（push してから） |
+
 ## 次のセッション
 
-**S002（P1 の 1 回目）** で行うこと:
+**S003（P1 の 2 回目）** で行うこと:
 
-1. ルートの `Cargo.toml` を virtual workspace にする。`src/main.rs` を `src/Rust/mod/globe-mode-cli` に移す。
-2. `mise.toml` の rust に wasm と Android の `targets` を足す。`rust-toolchain.toml` は置かない（ツールの版は mise、依存は uv と cargo）。
-3. `deny.toml`（許可リスト、`bans`、`wrappers`）と、CI の雛形（Linux / Windows / wasm）を作る。
-4. Rumoca の `rev` を決めて `rumoca-compile` に依存させ、**stable でビルドできるか確かめる**。結果を ADR-0003 に書く。
-5. Python パッケージを `20261018_globemode` から `globe_mode` に改名し、`src/Python/mod/` に移す。数字で始まる名前は import できないため。
+1. MSL 4.1.0 の取得スクリプト（`data/msl/`、sha256 で確かめる）と、`globe check` の MSL 読み込み（`--library`）。
+2. MSL の例題 20 本を選び、`globe check` の結果を Rumoca の CLI（GitHub Releases のバイナリ）と比べる仕組み（`globe-mode-testkit`）。
+3. `xtask`（`bump-rumoca` の雛形と、ライセンス一覧の生成）。
+4. CI を GitHub で実際に動かして直す（push はユーザーの判断）。
 
 ## 運用上の決まり
 

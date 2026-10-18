@@ -1,6 +1,32 @@
-[package]
-name = "globe-mode"
-version = "0.1.0"
-edition = "2024"
+[workspace]
+resolver = "3"
+members = ["src/Rust/mod/globe-mode-*"]
 
-[dependencies]
+[workspace.package]
+version = "0.0.1"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/asari300/20261018_GlobeMode"
+rust-version = "1.99"
+# Rumoca を git 依存で使う間は crates.io に公開できない（ADR-0002）
+publish = false
+
+[workspace.dependencies]
+globe-mode-core = { path = "src/Rust/mod/globe-mode-core", version = "0.0.1" }
+globe-mode-ir = { path = "src/Rust/mod/globe-mode-ir", version = "0.0.1" }
+globe-mode-frontend = { path = "src/Rust/mod/globe-mode-frontend", version = "0.0.1" }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+clap = { version = "4.5", features = ["derive"] }
+
+# Rumoca はアダプタ（globe-mode-frontend / globe-mode-exec）からだけ使う。umbrella crate `rumoca` は使わない。
+# rev は v0.10.2（2026-10-04）。更新は MSL のファネルの差分を記録してから行う（doc/adr/0002-rumoca-adapter.md）。
+rumoca-compile = { git = "https://github.com/CogniPilot/rumoca", rev = "276e82bd0fd48960ac201e782918d28bf19cf7ce", default-features = false }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+dbg_macro = "warn"

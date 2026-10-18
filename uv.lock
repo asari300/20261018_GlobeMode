@@ -3,31 +3,6 @@ revision = 5
 requires-python = ">=3.12"
 
 [[package]]
-name = "20261018-globemode"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "marimo" },
-    { name = "plotly" },
-    { name = "polars" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "playwright" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "marimo", specifier = ">=0.25.1" },
-    { name = "plotly", specifier = ">=7.1.0" },
-    { name = "polars", specifier = ">=2.0.0" },
-]
-
-[package.metadata.requires-dev]
-dev = [{ name = "playwright", specifier = ">=1.64.0" }]
-
-[[package]]
 name = "anyio"
 version = "4.15.1"
 source = { registry = "https://pypi.org/simple" }
@@ -142,6 +117,31 @@ sdist = { url = "https://files.pythonhosted.org/packages/39/a4/5180d9afc57e8fca0
 wheels = [
     { url = "https://files.pythonhosted.org/packages/32/91/30151a39f7570f448ed84529390628a651d7f27c87d73c9b887f8189695e/docutils-0.23-py3-none-any.whl", hash = "sha256:25d013af9bf23bc1c7b2b093dff4208166c53a94786c9e447808335ef1185fea", size = 634701, upload-time = "2026-05-27T17:40:58.442Z" },
 ]
+
+[[package]]
+name = "globe-mode"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "marimo" },
+    { name = "plotly" },
+    { name = "polars" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "playwright" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "marimo", specifier = ">=0.25.1" },
+    { name = "plotly", specifier = ">=7.1.0" },
+    { name = "polars", specifier = ">=2.0.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "playwright", specifier = ">=1.64.0" }]
 
 [[package]]
 name = "greenlet"

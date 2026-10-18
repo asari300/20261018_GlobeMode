@@ -47,7 +47,8 @@ uv sync                      # worktree ごとに必須
 | `log/sessions/` | 伏せ字にしたセッション記録（コミットする） | ×（finish-session がコピーする） |
 | `log/local/` | フックの出力。生ログを含む | ×（**コミットしない**） |
 
-- Python パッケージ `src/20261018_globemode` は数字で始まるので import できない。P1 で `globe_mode` に改名して `src/Python/mod/` に移す。それまで触らない。
+- Python パッケージは `src/Python/mod/globe_mode`（S002 で `src/20261018_globemode` から改名した）。
+- 検査はまとめて `mise run check`（Rust の fmt / clippy / test / deny と `uv sync --locked`）と `mise run docs:check`（スライドとリンク、Playwright）で回せる。
 - **言語の管理は mise・uv・cargo で分担する**（[ADR-0003](doc/adr/0003-toolchain.md)、手順は [doc/mise-setup.html](doc/mise-setup.html)）。
 
   | 道具 | 受け持つもの | ロックファイル |
@@ -126,7 +127,7 @@ log/sessions/<日付>-<セッションID>.md        finish-session がコピー�
 
 `/finish-session` スキルの手順に従う。**どれかが落ちたらそこで止めて報告する。**
 
-1. Rust のコードを触ったら: `cargo fmt --check`、`cargo clippy -- -D warnings`、`cargo test`、`cargo deny check`
+1. Rust のコードを触ったら: `mise run check`（`cargo fmt --check`、`cargo clippy -- -D warnings`、`cargo test`、`cargo deny check`、`uv sync --locked`）
 2. スライドと解説書がある。`check_docs.py`（外部参照・`<style>`・`style=` が 0 件）と、Playwright の `render_slides.py`（ブラウザでの表示）を通す
 3. `doc/` と `log/` の相対リンク切れが 0 件
 4. セッション記録をコピーし、`--check` で取りこぼしが 0 件

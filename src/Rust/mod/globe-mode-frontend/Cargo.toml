@@ -1,0 +1,22 @@
+[package]
+name = "globe-mode-frontend"
+description = "GlobeMode: the Frontend trait and the Rumoca adapter"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[features]
+default = ["rumoca"]
+# Phase A のフロントエンド。Rumoca を import してよいのはこの feature の中だけ。
+rumoca = ["dep:rumoca-compile"]
+
+[dependencies]
+globe-mode-core = { workspace = true }
+globe-mode-ir = { workspace = true }
+rumoca-compile = { workspace = true, optional = true }
+
+[lints]
+workspace = true

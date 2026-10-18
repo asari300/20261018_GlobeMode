@@ -1,0 +1,63 @@
+# GlobeMode の CI。ツールの版は mise.toml / mise.lock、依存は Cargo.lock と uv.lock で固定する（ADR-0003）。
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # mise.toml の erlang の precompiled_os は Ubuntu 26.04 向け。CI では Rust・uv・cargo-deny だけを入れる
+  MISE_TOOLS: rust uv cargo-deny
+
+jobs:
+  rust-linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+        with:
+          install_args: ${{ env.MISE_TOOLS }}
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+      - run: cargo deny check
+      - name: wasm32 でビルドできるか（ブラウザ版の前提）
+        run: cargo check --target wasm32-unknown-unknown -p globe-mode-core -p globe-mode-ir -p globe-mode-frontend
+      - name: サンプルの検査
+        run: |
+          cargo run -q -p globe-mode-cli -- check src/Modelica/GlobeModeExamples/package.mo -m GlobeModeExamples.RC
+          ! cargo run -q -p globe-mode-cli -- check src/Modelica/GlobeModeExamples/package.mo -m GlobeModeExamples.Unbalanced
+
+  rust-windows:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+        with:
+          install_args: rust
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace
+
+  python-and-docs:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+        with:
+          install_args: uv
+      - run: uv sync --locked
+      - run: uv run globe-mode
+      - run: python3 -I .claude/skills/session-docs/check_docs.py
+      - run: uv run playwright install --with-deps chromium
+      - run: uv run python .claude/skills/session-docs/render_slides.py --out render
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: slide-screenshots
+          path: render/
