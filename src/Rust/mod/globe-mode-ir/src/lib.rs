@@ -76,6 +76,23 @@ impl Outline {
         walk("", &self.classes, &mut out);
         out
     }
+
+    /// このファイルが、完全修飾名 `qualified`（`A.B.C`。先頭の `.` は無視）のクラスを定義しているか。
+    /// `within` を前に付けて比べる。入れ子のクラスも含む（`deps_closure` の起点を探すのに使う）。
+    pub fn defines(&self, qualified: &str) -> bool {
+        let qualified = qualified.trim_start_matches('.');
+        let rest = match self.within.as_deref().filter(|w| !w.is_empty()) {
+            Some(within) => match qualified
+                .strip_prefix(within)
+                .and_then(|r| r.strip_prefix('.'))
+            {
+                Some(rest) => rest,
+                None => return false,
+            },
+            None => qualified,
+        };
+        self.qualified_classes().iter().any(|(n, _)| n == rest)
+    }
 }
 
 /// クラスの種類。
@@ -103,6 +120,10 @@ pub struct ClassOutline {
     pub causality: Causality,
     pub range: TextRange,
     pub extends: Vec<String>,
+    /// `import` 文（S007）。`import A.B.C;` は `A.B.C`、`import D = A.B.C;` は `A.B.C`、
+    /// `import A.B.*;` は `A.B.*`、`import A.B.{C,D};` は `A.B.C` と `A.B.D`。
+    /// `deps_closure`（Rumoca に渡すファイルの絞り込み）が、参照先のクラスを探すのに使う。
+    pub imports: Vec<String>,
     pub components: Vec<ComponentOutline>,
     /// このクラスの equation 節に直接書かれた connect 文（for や if の中は P2 で扱う）。
     pub connects: Vec<Connect>,
@@ -467,6 +488,68 @@ pub struct FlatSummary {
     pub equations_by_component: Vec<(String, usize)>,
 }
 
+/// 初期化系の構造（S8 の入力、S007）。`check` が DAE から取り出す。
+///
+/// 位置（`file` / `range`）は、コンパイルに渡した本文（`source_shape` で正規化した本文）の中の位置。
+/// S8 の判定は数と属性だけで行う（初期方程式の incidence は持たない。S008 以降の候補）。
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize)]
+pub struct InitStructure {
+    /// 状態（スカラー）。順は [`DaeStructure::unknowns`] の `Derivative` の順と同じ（`der(x)` の `x`）。
+    pub states: Vec<InitVariable>,
+    /// パラメータ（スカラー）。`fixed = false` のものは初期化の未知数になり、束縛の無いものは警告の対象。
+    pub parameters: Vec<InitVariable>,
+    /// 離散変数（スカラー。DiscreteReal / DiscreteValue）。`pre(d)` が初期化の未知数になり（MLS §8.6）、
+    /// `fixed = true` なら `pre(d) = start` が初期方程式に加わる（初期条件 1 つ）。
+    pub discretes: Vec<InitVariable>,
+    /// 代数変数（スカラー。Algebraic / Output）。`fixed = true` なら `v = start` が初期方程式に加わる
+    /// （初期条件 1 つ）。
+    pub algebraics: Vec<InitVariable>,
+    /// 初期方程式（スカラー。`initial equation` 節。構造化された族は点ごとに 1 行）。フロントエンドが
+    /// 初期方程式や初期アルゴリズムから別に取り分けた定義（離散変数や Real でないパラメータの値）も含む。
+    pub initial_equations: Vec<EquationRow>,
+}
+
+impl InitStructure {
+    /// 位置をすべて落とした写し（`init_shape` クエリの防火壁）。
+    pub fn without_ranges(&self) -> InitStructure {
+        let strip = |v: &InitVariable| InitVariable {
+            range: None,
+            ..v.clone()
+        };
+        InitStructure {
+            states: self.states.iter().map(strip).collect(),
+            parameters: self.parameters.iter().map(strip).collect(),
+            discretes: self.discretes.iter().map(strip).collect(),
+            algebraics: self.algebraics.iter().map(strip).collect(),
+            initial_equations: self
+                .initial_equations
+                .iter()
+                .map(|e| EquationRow {
+                    range: None,
+                    ..e.clone()
+                })
+                .collect(),
+        }
+    }
+}
+
+/// 初期化に関わる変数 1 つ（スカラー）。
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+pub struct InitVariable {
+    /// 表示名（例: `capacitor.v`、`x[2]`）
+    pub name: String,
+    /// `fixed` 属性。宣言が無ければ MLS 4.8 の既定（状態・離散・代数は false、パラメータは true）
+    pub fixed: bool,
+    /// `start` 属性が明示されている（修飾子か、型の宣言から受け継いだもの）
+    pub has_start: bool,
+    /// 束縛（`= 式`）がある。パラメータだけ意味を持つ（状態・離散・代数は常に false）
+    pub has_binding: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub range: Option<TextRange>,
+}
+
 /// [`ClassIndex::interface`] が返すコンポーネント。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedComponent {
@@ -491,6 +574,7 @@ mod tests {
             causality: Causality::None,
             range: TextRange::default(),
             extends: vec![],
+            imports: vec![],
             components: vec![],
             connects: vec![],
             classes,
@@ -536,6 +620,33 @@ mod tests {
     }
 
     #[test]
+    fn defines_matches_qualified_names_after_within() {
+        let o = Outline {
+            within: Some("Lib.Sub".into()),
+            classes: vec![class("P", vec![class("A", vec![])])],
+        };
+        assert!(o.defines("Lib.Sub.P"));
+        assert!(o.defines("Lib.Sub.P.A"));
+        assert!(o.defines(".Lib.Sub.P.A"));
+        assert!(!o.defines("P.A"), "within を付けない名前は別のクラス");
+        assert!(
+            !o.defines("Lib.Sub"),
+            "within のパッケージそのものは、このファイルの定義ではない"
+        );
+        assert!(!o.defines("Lib.SubP"));
+        assert!(!o.defines("Lib.Sub.P.B"));
+        // `within;`（空）と within 無しは、トップレベルから
+        for within in [None, Some(String::new())] {
+            let top = Outline {
+                within,
+                classes: vec![class("Q", vec![])],
+            };
+            assert!(top.defines("Q"));
+            assert!(!top.defines("Lib.Q"));
+        }
+    }
+
+    #[test]
     fn without_ranges_drops_only_positions() {
         let mut c = class("A", vec![]);
         c.range = TextRange::new(3, 9);
@@ -547,6 +658,44 @@ mod tests {
         assert_eq!(s.classes[0].range, TextRange::default());
         assert_eq!(s.within.as_deref(), Some("P"));
         assert_ne!(o, s);
+        assert_eq!(s, s.without_ranges());
+    }
+
+    #[test]
+    fn init_without_ranges_drops_positions_of_every_list() {
+        let v = |name: &str| InitVariable {
+            name: name.into(),
+            fixed: true,
+            has_start: true,
+            has_binding: false,
+            file: Some("M.mo".into()),
+            range: Some(TextRange::new(1, 4)),
+        };
+        let init = InitStructure {
+            states: vec![v("x")],
+            parameters: vec![v("p")],
+            discretes: vec![v("d")],
+            algebraics: vec![v("y")],
+            initial_equations: vec![EquationRow {
+                label: "x = 1".into(),
+                origin: EquationOrigin::Source,
+                file: Some("M.mo".into()),
+                range: Some(TextRange::new(5, 10)),
+            }],
+        };
+        let s = init.without_ranges();
+        let all = s
+            .states
+            .iter()
+            .chain(&s.parameters)
+            .chain(&s.discretes)
+            .chain(&s.algebraics);
+        assert_eq!(all.clone().count(), 4);
+        for v in all {
+            assert_eq!((v.range, v.file.as_deref()), (None, Some("M.mo")));
+        }
+        assert_eq!(s.initial_equations[0].range, None);
+        assert_eq!(s.algebraics[0].name, "y");
         assert_eq!(s, s.without_ranges());
     }
 

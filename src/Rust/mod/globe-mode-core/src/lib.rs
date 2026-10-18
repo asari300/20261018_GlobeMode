@@ -192,6 +192,20 @@ pub mod codes {
     pub const SINGULAR: &str = "GM-E6001";
     /// S7: 微分インデックスが 1 より大きい見込み（der の形では完全マッチングが無い。情報）
     pub const HIGH_INDEX: &str = "GM-I7001";
+    /// S7: 状態選択が要る見込み（Pantelides 法で階数が上がった状態。dummy derivative の候補。情報）
+    pub const STATE_SELECTION: &str = "GM-I7002";
+    /// S7: インデックス低減（Pantelides 法）が終わらない（構造特異、または回数の上限）
+    pub const INDEX_REDUCTION_FAILED: &str = "GM-E7001";
+    /// S8: 初期条件が多すぎる（初期方程式と fixed = true の状態が、状態と fixed = false のパラメータより多い）
+    pub const INIT_OVERDETERMINED: &str = "GM-E8001";
+    /// S8: 初期条件が足りない（不足分は start 値を推定値として使う見込み。警告）
+    pub const INIT_UNDERDETERMINED: &str = "GM-W8001";
+    /// S8: start 値の無い状態変数（初期条件が足りないときだけ。警告）
+    pub const STATE_WITHOUT_START: &str = "GM-W8002";
+    /// S8: 値（束縛）の無いパラメータ（警告）
+    pub const PARAMETER_WITHOUT_VALUE: &str = "GM-W8003";
+    /// S8: 初期条件が多い見込みだが、離散変数を含むため確定できない（警告。MLS 8.6 の暗黙の初期方程式で数が揺れる）
+    pub const INIT_OVERDETERMINED_UNCERTAIN: &str = "GM-W8004";
     /// コンパイラが未対応の言語機能（フロントエンドのコードで決まる。例: Rumoca の ED019）
     pub const UNSUPPORTED: &str = "GM-U0001";
     /// コンパイラの内部エラー（例: Rumoca の ED008）

@@ -5,9 +5,11 @@
 //! globe check [<FILE|DIR>...] [--library <DIR>]... --model <NAME> [--json]
 //! globe flat  [<FILE|DIR>...] [--library <DIR>]... --model <NAME> [--json]
 //! globe graph <FILE|DIR>... --model <NAME> [--depth N] [--json]
+//! globe deps  <FILE|DIR>... --model <NAME> [--json]
 //! ```
 //!
 //! `check` と `flat` は salsa の DB（`globe-mode-db`）を通す。ライブラリは一度だけ読む。
+//! Rumoca に渡すのは、モデルが使うファイル（`globe deps` が表示する閉包）だけ。
 //!
 //! 終了コード: 0 = 成功 / 1 = Error の診断がある / 2 = 入力の読み込みに失敗。
 
@@ -17,7 +19,7 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 use globe_mode_core::{Diagnostic, Stage, line_col};
-use globe_mode_db::{GlobeDb, normalize_path};
+use globe_mode_db::{FullReport, GlobeDb, normalize_path};
 use globe_mode_frontend::{Frontend, RumocaFrontend, Source};
 use globe_mode_ir::{ClassOutline, FlatSummary, Outline};
 
@@ -56,7 +58,7 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// モデルを DAE まで変換して検査する（S0〜S6）
+    /// モデルを DAE まで変換して検査する（S0〜S8）
     Check {
         /// 検査するファイルまたはディレクトリ（ディレクトリは下の .mo をすべて読む）。
         /// モデルがライブラリの中にあるなら省略できる
@@ -69,6 +71,18 @@ enum Command {
         #[arg(long, short)]
         model: String,
         /// JSON で出力する
+        #[arg(long)]
+        json: bool,
+    },
+    /// 検査に渡すファイル（モデルが使うファイルの閉包）を表示する
+    Deps {
+        /// ファイルまたはディレクトリ（ディレクトリは下の .mo をすべて読む）
+        #[arg(required = true)]
+        inputs: Vec<PathBuf>,
+        /// モデルの完全修飾名
+        #[arg(long, short)]
+        model: String,
+        /// JSON（パスの配列）で出力する
         #[arg(long)]
         json: bool,
     },
@@ -106,6 +120,11 @@ fn main() -> ExitCode {
             model,
             json,
         } => check(&files, &library, &model, json),
+        Command::Deps {
+            inputs,
+            model,
+            json,
+        } => deps(&inputs, &model, json),
         Command::Flat {
             files,
             library,
@@ -248,6 +267,10 @@ fn check(files: &[PathBuf], library: &[PathBuf], model: &str, json: bool) -> Exi
             "dae": check.dae,
             "structure": structure,
             "s6": report.structural,
+            "s7": report.index,
+            "s8": report.init,
+            // 位置は元の本文の中に戻す（check の結果のままでは、正規化した本文の中の位置）
+            "init": check.init.as_ref().map(|i| db.init_in_original(i)),
             "flat": check.flat,
             "diagnostics": report.diagnostics,
             "notes": check.notes,
@@ -302,12 +325,22 @@ fn check(files: &[PathBuf], library: &[PathBuf], model: &str, json: bool) -> Exi
                 );
             }
         }
+        print_s7(&report);
+        print_s8(&report);
         match report.failed_stage() {
-            None if report.structural.is_some() => {
-                println!("{}: OK（S0〜S6 を通過）", report.model)
+            None if report.init.is_some() => {
+                println!("{}: OK（S0〜S8 を通過）", report.model)
             }
+            None if report.index.is_some() => println!(
+                "{}: OK（S0〜S7 を通過。S8 は判定できなかった）",
+                report.model
+            ),
+            None if report.structural.is_some() => println!(
+                "{}: OK（S0〜S6 を通過。S7 以降は判定できなかった）",
+                report.model
+            ),
             None => println!(
-                "{}: OK（S0〜S5 を通過。S6 は判定できなかった）",
+                "{}: OK（S0〜S5 を通過。S6 以降は判定できなかった）",
                 report.model
             ),
             Some(stage) => println!(
@@ -323,6 +356,155 @@ fn check(files: &[PathBuf], library: &[PathBuf], model: &str, json: bool) -> Exi
     } else {
         ExitCode::from(1)
     }
+}
+
+/// S7 の行（構造インデックスの見込みと、状態選択の候補）。
+fn print_s7(report: &FullReport) {
+    let Some(s7) = &report.index else {
+        return;
+    };
+    if s7.failed {
+        println!(
+            "{}: S7: Pantelides 法を打ち切った（構造インデックスを決められない）",
+            report.model
+        );
+        return;
+    }
+    if s7.index <= 1 {
+        println!(
+            "{}: S7: 構造インデックス {}（微分なし）",
+            report.model, s7.index
+        );
+        return;
+    }
+    let max = s7.differentiations.iter().max().copied().unwrap_or(0);
+    // 状態選択の候補は、GM-I7002 と同じく「動的な状態 < 状態の数」のときだけ出す
+    let unknowns = report.check.structure.as_ref().map(|s| &s.unknowns);
+    let states = unknowns.map_or(0, |u| {
+        u.iter()
+            .filter(|u| u.kind == globe_mode_ir::UnknownKind::Derivative)
+            .count()
+    });
+    let selection = if s7.dynamic_states < states {
+        let names: Vec<String> = s7
+            .dummy_candidates
+            .iter()
+            .map(|&i| {
+                unknowns
+                    .and_then(|u| u.get(i))
+                    .map_or_else(|| format!("#{i}"), |u| state_name(&u.name).to_string())
+            })
+            .collect();
+        format!(
+            "。動的な状態 {} / {states}、状態選択の候補: {}",
+            s7.dynamic_states,
+            names.join(", ")
+        )
+    } else {
+        String::new()
+    };
+    println!(
+        "{}: S7: 構造インデックス {} の見込み（微分した方程式 {} 本、最大 {} 回）{selection}",
+        report.model, s7.index, s7.n_differentiated, max
+    );
+}
+
+/// `der(x[2])` → `x[2]`（状態選択の候補は状態の名前で出す）。
+fn state_name(unknown: &str) -> &str {
+    unknown
+        .strip_prefix("der(")
+        .and_then(|s| s.strip_suffix(')'))
+        .unwrap_or(unknown)
+}
+
+/// S8 の行（初期条件の数と、過剰・不足）。
+fn print_s8(report: &FullReport) {
+    let Some(s8) = &report.init else {
+        return;
+    };
+    let init = report.check.init.as_ref();
+    let initial_equations = init.map_or(0, |i| i.initial_equations.len());
+    let states = init.map_or(0, |i| i.states.len());
+    let discretes = init.map_or(0, |i| i.discretes.len());
+    // fixed でない離散変数の分の不足は確定しない（analysis::init の柔らかい警告と同じ条件）
+    let open_discretes = init.map_or(0, |i| i.discretes.iter().filter(|d| !d.fixed).count());
+    let fixed_discretes = discretes - open_discretes;
+    let fixed_algebraics = init.map_or(0, |i| i.algebraics.iter().filter(|a| a.fixed).count());
+    // 過剰が確定するのは、離散変数が無く、インデックスの低減で状態が減っていないときだけ（analysis::init と同じ条件）
+    let index_reduced = report
+        .index
+        .as_ref()
+        .is_some_and(|s7| !s7.failed && s7.dynamic_states < states);
+    let balance = match s8.provided.cmp(&s8.required) {
+        std::cmp::Ordering::Equal => String::new(),
+        std::cmp::Ordering::Greater if discretes > 0 || index_reduced => format!(
+            "。{} 個多い見込み（離散変数かインデックスの低減のため確定できない）",
+            s8.provided - s8.required
+        ),
+        std::cmp::Ordering::Greater => {
+            format!("。{} 個多い（過剰）", s8.provided - s8.required)
+        }
+        std::cmp::Ordering::Less if s8.required - s8.provided <= open_discretes => format!(
+            "。{} 個足りない見込み（離散変数の pre の初期値に start を使えば足りる）",
+            s8.required - s8.provided
+        ),
+        std::cmp::Ordering::Less => format!(
+            "。{} 個足りない（start 値を推定値として使う見込み）",
+            s8.required - s8.provided
+        ),
+    };
+    // 要る数は「動的な状態（S7）+ fixed = false のパラメータ」なので、S7 の数を添える
+    let dynamic = report
+        .index
+        .as_ref()
+        .filter(|s7| !s7.failed)
+        .map_or_else(String::new, |s7| {
+            format!("動的な状態 {} / ", s7.dynamic_states)
+        });
+    println!(
+        "{}: S8: 初期条件 {} / {}（{dynamic}状態 {states}・離散 {discretes}・初期方程式 {}・fixed = true の状態 {}・離散 {fixed_discretes}・代数 {fixed_algebraics}・fixed = false のパラメータ {}）{balance}",
+        report.model,
+        s8.provided,
+        s8.required,
+        initial_equations,
+        s8.fixed_states.len(),
+        s8.free_parameters.len()
+    );
+}
+
+/// `globe deps`: 検査に渡すファイル（閉包）と、ワークスペースの全ファイル数。
+fn deps(inputs: &[PathBuf], model: &str, json: bool) -> ExitCode {
+    let files = match expand_inputs(inputs) {
+        Ok(f) => f,
+        Err(code) => return code,
+    };
+    let mut db = GlobeDb::new();
+    for f in &files {
+        match read(f) {
+            Ok((name, text)) => db.set_file(&name, text),
+            Err(code) => return code,
+        }
+    }
+    let closure = db.deps_closure(model);
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&closure).expect("serialize closure")
+        );
+        return ExitCode::SUCCESS;
+    }
+    for path in &closure {
+        println!("{path}");
+    }
+    let total = db.paths().count();
+    if closure.is_empty() {
+        println!(
+            "{model}: 0 / {total} ファイル（モデルがワークスペースに無い。ライブラリの中のモデルか、存在しないモデル）"
+        );
+    } else {
+        println!("{model}: {} / {total} ファイル", closure.len());
+    }
+    ExitCode::SUCCESS
 }
 
 fn flat(files: &[PathBuf], library: &[PathBuf], model: &str, json: bool) -> ExitCode {
@@ -393,6 +575,9 @@ fn report_early_failure(model: &str, diags: &[Diagnostic], json: bool) -> ExitCo
             "dae": null,
             "structure": null,
             "s6": null,
+            "s7": null,
+            "s8": null,
+            "init": null,
             "flat": null,
             "diagnostics": diags,
             "notes": [],

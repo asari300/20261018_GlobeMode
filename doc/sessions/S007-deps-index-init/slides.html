@@ -1,0 +1,503 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S007 deps_closure・S7 Pantelides・S8 初期化 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S007 · deps_closure・S7 Pantelides・S8 初期化">
+
+<section class="slide" id="S01">
+  <span class="tag">S007 · 2026-10-18 · P2 遅延クエリと検査（3 回目）</span>
+  <h1>使わないファイルの編集では再コンパイルせず、S7・S8 まで検査する</h1>
+  <div class="kpis">
+    <div class="kpi"><span class="n">0.19 ms</span><span class="l">MSL を使うモデルで、使わないファイルの式を変えた後の再検査（中央値。<code>check</code> 0 回）</span></div>
+    <div class="kpi"><span class="n">5 / 23</span><span class="l"><code>Connect.RealCircuit</code> が使うファイル（<code>deps_closure</code>）</span></div>
+    <div class="kpi"><span class="n">3</span><span class="l">直交座標の振り子の構造インデックス（Pantelides 法。動的な状態 2 / 4）</span></div>
+    <div class="kpi"><span class="n">209</span><span class="l">workspace 全体のテスト（clippy 0 件・fmt の差分 0）</span></div>
+  </div>
+  <div class="big"><code>deps_closure</code>・<b>S7（Pantelides 法）</b>・<b>S8（初期化）</b>を足した。omc との照合は<b>後回し</b>（omc 未導入。入れたら再開する）。</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやったこと</h1>
+  <div class="cols-2">
+    <div class="card hl">
+      <h3>roadmap の S007 の候補（7 つ）から選んだ 3 つ</h3>
+      <ol class="small">
+        <li class="ok"><code>deps_closure</code>: <code>check</code> に渡すファイルを、モデルが使うものだけに絞る</li>
+        <li class="muted"><code>Checker</code> のメモリの上限 → P4 のプロセス構成が決まってから</li>
+        <li class="ok">S7: Pantelides 法と状態選択の候補</li>
+        <li class="ok">S8: 初期化系の検査</li>
+        <li class="warn">omc との照合 → <b>ユーザーの指示で後回し</b>（omc 未導入）</li>
+        <li class="muted">Rumoca への上流報告 → ユーザーが出す</li>
+        <li class="muted"><code>class_index</code> の残り → import だけを扱った</li>
+      </ol>
+    </div>
+    <div class="card">
+      <h3>ユーザーの依頼</h3>
+      <p class="small">「S007 を進めよ。OpenModelica のサイトが重くてアクセスできないため、omc との照合は後回しにして先に進めたい。インストール後に再開するため、このような区切りごとにリマインドしてください。」</p>
+      <h3>進め方（S005 と同じ）</h3>
+      <ul class="small">
+        <li>1 つの worktree で、所有ファイルを分けた Opus のサブエージェント 3 つ</li>
+        <li>A: <code>deps_closure</code>・db の S7 / S8 の配線・CLI</li>
+        <li>B: Pantelides 法・<code>Index.*</code>・funnel の S7 / S8 の列</li>
+        <li>C: S8 の抽出（frontend）と判定（analysis）・<code>Init.*</code></li>
+        <li>共有の型（<code>ClassOutline.imports</code>、<code>InitStructure</code>、<code>IndexReport</code>、<code>InitReport</code>、コード）は先に凍結。文書は D</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由 · 一覧</span>
+  <h1>決めたこと</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td><code>deps_closure</code></td><td>本文の識別子の<b>単純名の一致</b>で、ファイル単位に広めに見積もる。固定点まで広げる</td><td>アウトライン（extends・部品の型・import）だけでは、式の中の関数・定数・redeclare の参照を拾えない。余計に入っても、足りないことは無い</td></tr>
+    <tr><td>閉包の切り替え</td><td>Rumoca の再 resolve（約 1.5〜1.8 s）をトレードオフとして受け入れる</td><td>本文の編集で文書を差し替えたときにも同じことが起きる。費用の種類は増えない</td></tr>
+    <tr><td>S7</td><td>Pantelides 法を <code>DaeStructure</code> の上で回す。<b>情報にとどめる</b>（GM-I7001 / I7002）</td><td>インデックス 2 以上はモデルの誤りではない。<code>globe-mode-analysis</code> は Rumoca に依存しない</td></tr>
+    <tr><td>S8</td><td><b>数と属性だけ</b>で判定する。Error は確かなときだけ</td><td>初期方程式の incidence は <code>InitStructure</code> に無い（S008 以降の候補）。離散変数の when の区別ができないので、揺れる所は Warning</td></tr>
+    <tr><td>S8 の要る数</td><td>宣言した状態ではなく <b>S7 の動的な状態</b>の数を使う</td><td>インデックス 2 以上では、状態の一部が微分した拘束で決まる</td></tr>
+    <tr><td><code>msl:funnel</code></td><td>報告の置き場を <code>doc/msl-funnel.md</code> に固定</td><td>セッションの文書はそのセッションの間だけ編集するもの。S005 の報告はそのまま残す</td></tr>
+    <tr><td>omc</td><td class="warn">後回し（未導入）</td><td>OpenModelica のサイトが重くて取得できない。入れたら再開する</td></tr>
+  </table>
+  <p class="small">設計の記録: <code>doc/adr/0005-lazy-query-db.md</code> の結果（<code>deps_closure</code>）、<code>doc/adr/0009-structural-index-and-init.md</code>（S7・S8）。</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由 · deps_closure</span>
+  <h1>識別子と、トップレベルのクラスの名前を突き合わせる</h1>
+  <div class="cols-2">
+    <div class="card hl">
+      <h3>固定点（<code>globe-mode-db</code> の <code>deps_closure</code>）</h3>
+      <ol class="small">
+        <li>モデルの完全修飾名を定義するファイルを起点にする（<code>Outline::defines</code>）</li>
+        <li>構文の誤りのあるファイルは、<b>いつも入れる</b>（何を定義しているか分からない。S0 で止まる）</li>
+        <li>閉包の中のファイルの <code>identifiers</code>（本文の識別子。文字列の中は除く）にある名前ごとに、その名前を<b>トップレベル</b>に定義するファイル（<code>class_files</code>）を足す。増えなくなるまで繰り返す</li>
+      </ol>
+      <p class="small">モデルがワークスペースに無い（MSL の中のモデル、存在しないモデル）ときは<b>空</b>。文書を 1 つも渡さない。「見つからない」にはワークスペースのモデルを候補として足す。</p>
+    </div>
+    <div class="card">
+      <h3>入れ子のクラスを入れない理由</h3>
+      <ul class="small">
+        <li><code>Components.mo</code> の <code>replaceable package Medium</code> と、<code>MediumFlow.mo</code> の入れ子の <code>Medium</code> が同じ名前。入れ子まで数えると、無関係のファイルが入る</li>
+        <li>トップレベルだけで足りる: 入れ子のクラス <code>T.N</code> に届く道（修飾名、<code>within</code>、<code>import</code>、<code>T</code> を継承したクラス）には、必ず <code>T</code> か、<code>T</code> を名指すファイルが現れる</li>
+      </ul>
+      <h3><code>globe deps</code> の出力</h3>
+<pre><code>$ globe deps src/Modelica/GlobeModeValidation \
+    -m GlobeModeValidation.Connect.RealCircuit
+…/Components.mo
+…/Connect/RealCircuit.mo
+…/Connect/package.mo
+…/Connectors.mo
+…/package.mo
+GlobeModeValidation.Connect.RealCircuit: 5 / 23 ファイル</code></pre>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">図 · クエリの連鎖</span>
+  <h1>閉包のファイルだけを <code>check</code> に渡す</h1>
+  <svg class="fig" viewBox="0 0 1230 450" role="img" aria-label="S007 の salsa のクエリの連鎖">
+    <defs>
+      <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path class="svg-arrowhead" d="M0,0 L10,5 L0,10 z"/>
+      </marker>
+    </defs>
+
+    <rect class="svg-box" x="10" y="115" width="155" height="54" rx="10"/>
+    <text class="svg-text-b" x="87" y="138" text-anchor="middle">SourceFile</text>
+    <text class="svg-text-m" x="87" y="158" text-anchor="middle">入力（本文）</text>
+
+    <text class="svg-text-a" x="437" y="24" text-anchor="middle">防火壁 1（Eq）</text>
+    <rect class="svg-box" x="185" y="34" width="155" height="54" rx="10"/>
+    <text class="svg-text-b" x="262" y="57" text-anchor="middle">outline</text>
+    <text class="svg-text-m" x="262" y="77" text-anchor="middle">位置あり</text>
+    <rect class="svg-box-accent" x="360" y="34" width="155" height="54" rx="10"/>
+    <text class="svg-text-b" x="437" y="57" text-anchor="middle">outline_shape</text>
+    <text class="svg-text-m" x="437" y="77" text-anchor="middle">位置を 0 に</text>
+    <rect class="svg-box" x="535" y="34" width="155" height="54" rx="10"/>
+    <text class="svg-text-b" x="612" y="57" text-anchor="middle">class_index</text>
+    <text class="svg-text-m" x="612" y="77" text-anchor="middle">索引</text>
+    <rect class="svg-box" x="710" y="34" width="155" height="54" rx="10"/>
+    <text class="svg-text-b" x="787" y="57" text-anchor="middle">connect_graph</text>
+    <text class="svg-text-m" x="787" y="77" text-anchor="middle">グラフ</text>
+
+    <rect class="svg-box-accent2" x="535" y="112" width="155" height="54" rx="10"/>
+    <text class="svg-text-b" x="612" y="135" text-anchor="middle">defined_classes</text>
+    <text class="svg-text-m" x="612" y="155" text-anchor="middle">トップレベルの名前</text>
+    <rect class="svg-box-accent2" x="710" y="112" width="155" height="54" rx="10"/>
+    <text class="svg-text-b" x="787" y="135" text-anchor="middle">class_files</text>
+    <text class="svg-text-m" x="787" y="155" text-anchor="middle">名前 → ファイル</text>
+
+    <rect class="svg-box" x="185" y="196" width="155" height="54" rx="10"/>
+    <text class="svg-text-b" x="262" y="219" text-anchor="middle">shape</text>
+    <text class="svg-text-m" x="262" y="239" text-anchor="middle">正規化と対応表</text>
+    <rect class="svg-box-accent" x="360" y="196" width="155" height="54" rx="10"/>
+    <text class="svg-text-b" x="437" y="219" text-anchor="middle">source_shape</text>
+    <text class="svg-text-m" x="437" y="239" text-anchor="middle">畳んだ本文</text>
+    <text class="svg-text-a" x="405" y="272" text-anchor="middle">防火壁 0（Eq）</text>
+    <rect class="svg-box-accent2" x="535" y="196" width="155" height="54" rx="10"/>
+    <text class="svg-text-b" x="612" y="219" text-anchor="middle">identifiers</text>
+    <text class="svg-text-m" x="612" y="239" text-anchor="middle">本文の識別子</text>
+    <rect class="svg-box-accent2" x="710" y="196" width="155" height="54" rx="10"/>
+    <text class="svg-text-b" x="787" y="219" text-anchor="middle">deps_closure</text>
+    <text class="svg-text-m" x="787" y="239" text-anchor="middle">固定点</text>
+
+    <rect class="svg-box" x="185" y="286" width="155" height="54" rx="10"/>
+    <text class="svg-text-b" x="262" y="309" text-anchor="middle">shape_map</text>
+    <text class="svg-text-m" x="262" y="329" text-anchor="middle">位置を戻す</text>
+    <rect class="svg-box" x="710" y="286" width="155" height="54" rx="10"/>
+    <text class="svg-text-b" x="787" y="309" text-anchor="middle">check</text>
+    <text class="svg-text-m" x="787" y="329" text-anchor="middle">S0〜S5</text>
+    <text class="svg-text-m" x="797" y="273">閉包のファイルだけ</text>
+
+    <rect class="svg-box" x="710" y="376" width="155" height="54" rx="10"/>
+    <text class="svg-text-b" x="787" y="399" text-anchor="middle">flat_summary</text>
+    <text class="svg-text-m" x="787" y="419" text-anchor="middle">globe flat</text>
+
+    <rect class="svg-box-accent" x="885" y="286" width="155" height="54" rx="10"/>
+    <text class="svg-text-b" x="962" y="309" text-anchor="middle">dae_shape</text>
+    <text class="svg-text-m" x="962" y="329" text-anchor="middle">位置を落とす</text>
+    <text class="svg-text-a" x="962" y="361" text-anchor="middle">防火壁 2（Eq）</text>
+    <rect class="svg-box" x="1060" y="196" width="155" height="54" rx="10"/>
+    <text class="svg-text-b" x="1137" y="219" text-anchor="middle">structural</text>
+    <text class="svg-text-m" x="1137" y="239" text-anchor="middle">S6</text>
+    <rect class="svg-box-accent2" x="1060" y="286" width="155" height="54" rx="10"/>
+    <text class="svg-text-b" x="1137" y="309" text-anchor="middle">index_report</text>
+    <text class="svg-text-m" x="1137" y="329" text-anchor="middle">S7 Pantelides</text>
+    <text class="svg-text-m" x="1127" y="362" text-anchor="end">動的な状態</text>
+
+    <rect class="svg-box-accent" x="885" y="376" width="155" height="54" rx="10"/>
+    <text class="svg-text-b" x="962" y="399" text-anchor="middle">init_shape</text>
+    <text class="svg-text-m" x="962" y="419" text-anchor="middle">位置を落とす</text>
+    <rect class="svg-box-accent2" x="1060" y="376" width="155" height="54" rx="10"/>
+    <text class="svg-text-b" x="1137" y="399" text-anchor="middle">init_report</text>
+    <text class="svg-text-m" x="1137" y="419" text-anchor="middle">S8</text>
+
+    <line class="svg-line" x1="165" y1="132" x2="183" y2="68" marker-end="url(#ah)"/>
+    <line class="svg-line" x1="165" y1="154" x2="183" y2="218" marker-end="url(#ah)"/>
+    <line class="svg-line" x1="340" y1="61" x2="358" y2="61" marker-end="url(#ah)"/>
+    <line class="svg-line" x1="515" y1="61" x2="533" y2="61" marker-end="url(#ah)"/>
+    <line class="svg-line" x1="690" y1="61" x2="708" y2="61" marker-end="url(#ah)"/>
+    <path class="svg-line" d="M437,88 V139 H533" marker-end="url(#ah)"/>
+    <line class="svg-line" x1="690" y1="139" x2="708" y2="139" marker-end="url(#ah)"/>
+    <line class="svg-line-accent" x1="787" y1="166" x2="787" y2="194" marker-end="url(#ah)"/>
+    <line class="svg-line" x1="340" y1="223" x2="358" y2="223" marker-end="url(#ah)"/>
+    <line class="svg-line" x1="515" y1="223" x2="533" y2="223" marker-end="url(#ah)"/>
+    <line class="svg-line-accent" x1="690" y1="223" x2="708" y2="223" marker-end="url(#ah)"/>
+    <line class="svg-line" x1="262" y1="250" x2="262" y2="284" marker-end="url(#ah)"/>
+    <line class="svg-line-accent" x1="787" y1="250" x2="787" y2="284" marker-end="url(#ah)"/>
+    <path class="svg-line" d="M475,250 V313 H708" marker-end="url(#ah)"/>
+    <line class="svg-line" x1="865" y1="313" x2="883" y2="313" marker-end="url(#ah)"/>
+    <line class="svg-line" x1="787" y1="340" x2="787" y2="374" marker-end="url(#ah)"/>
+    <path class="svg-line" d="M865,332 H874 V403 H883" marker-end="url(#ah)"/>
+    <line class="svg-line" x1="1040" y1="298" x2="1058" y2="242" marker-end="url(#ah)"/>
+    <line class="svg-line" x1="1040" y1="313" x2="1058" y2="313" marker-end="url(#ah)"/>
+    <line class="svg-line-accent" x1="1137" y1="340" x2="1137" y2="374" marker-end="url(#ah)"/>
+    <line class="svg-line" x1="1040" y1="403" x2="1058" y2="403" marker-end="url(#ah)"/>
+
+    <rect class="svg-box-accent" x="10" y="388" width="34" height="20" rx="5"/>
+    <text class="svg-text-m" x="52" y="403">防火壁（Eq で比べる）</text>
+    <rect class="svg-box-accent2" x="230" y="388" width="34" height="20" rx="5"/>
+    <text class="svg-text-m" x="272" y="403">S007 で足した</text>
+    <rect class="svg-box" x="400" y="388" width="34" height="20" rx="5"/>
+    <text class="svg-text-m" x="442" y="403">S004・S005</text>
+  </svg>
+  <p class="small">S7・S8 は防火壁（<code>dae_shape</code>・<code>init_shape</code>）の下流。使わないファイルの式を変えても、<code>source_shape</code>・<code>deps_closure</code>・<code>check</code>・<code>structural</code> は 0 回（salsa の <code>WillExecute</code> で数えた）。パラメータの値の編集では <code>check</code> は 1 回で、<code>index_report</code>・<code>init_report</code> は 0 回。</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">結果 · deps_closure の計測</span>
+  <h1>使わないファイルの編集は 0.2 ms、切り替えは約 1.7 s</h1>
+  <div class="cols-2">
+    <table class="compact">
+      <tr><th>場合（release、MSL 4.1.0、各 5 回）</th><th>中央値（ms）</th><th>最大（ms）</th></tr>
+      <tr><td>MSL の読み込み</td><td>3822（1 回目 13096）</td><td>–</td></tr>
+      <tr><td>(a) <code>MediumFlow</code> の最初の検査</td><td>1963</td><td>–</td></tr>
+      <tr><td>(b) 使わないファイルの式を変えた後（<code>check</code> 0 回）</td><td class="ok">0.19</td><td>0.35</td></tr>
+      <tr><td>(c) 閉包の中の <code>Components.mo</code> を変えた後</td><td>1815</td><td>1879</td></tr>
+      <tr><td>参考: 全ファイルを渡して (c) と同じ編集（S005 の方式）</td><td>1746</td><td>1856</td></tr>
+      <tr><td>(d) 編集の後に MediumFlow → RealCircuit</td><td>1485</td><td>1543</td></tr>
+      <tr><td>(e) 編集なしで、閉包の違うモデルを初めて検査</td><td class="warn">1700</td><td>2851</td></tr>
+      <tr><td>参考: 全ファイルを渡したまま (e) と同じモデル</td><td>67</td><td>122</td></tr>
+    </table>
+    <div>
+      <div class="card hl">
+        <h3>得たもの</h3>
+        <p class="small">使わないファイルの編集のあとの再検査が、約 1.8 s から <b class="ok">0.2 ms</b> に（S005 の方式では、どのファイルを変えても <code>check</code> が走る）。</p>
+      </div>
+      <div class="card">
+        <h3>失ったもの</h3>
+        <p class="small">閉包の違うモデルへ初めて切り替えると、67 ms から <b class="warn">約 1.7 s</b> に。Rumoca は、渡す文書の組が変わるたびに MSL ごと解決し直す（約 1.5〜1.8 s）。2 回目からは salsa が覚えている。</p>
+      </div>
+      <p class="small">トレードオフとして ADR-0005 に書いた。和らげる案（<code>Checker</code> に文書の和集合を持たせる、など）は S008 の候補。計測は <code>cargo test --release -p globe-mode-db --test deps -- --ignored --nocapture</code>。</p>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">決定と理由 · S7 Pantelides 法</span>
+  <h1>族ごとに階数を持ち、最高階だけをマッチングする</h1>
+  <div class="cols-2">
+    <div class="card hl">
+      <h3>グラフと手順（<code>pantelides.rs</code>）</h3>
+      <ul class="small">
+        <li>状態 <code>x</code> の族は階数 0（<code>x</code>）と 1（<code>der(x)</code>）から、代数の族は階数 0 から始める</li>
+        <li>方程式 e を d 回微分すると、参照（族 f、階数 o）ごとに階数 o..o+d を参照する。<code>o + d[e] == top[f]</code> のときだけ辺を張る</li>
+        <li>der の形の Hopcroft–Karp から始め、対応の無い方程式ごとに彩色つきの交互路を探す（再帰ではなくスタック）</li>
+        <li>失敗したら、彩色した方程式を 1 回微分し、彩色した族の最高階を 1 つ上げて探し直す</li>
+      </ul>
+      <p class="small">S6 が構造特異でない（regular）ときだけ回す。S6 を通った構造なら、最後まで回せる。</p>
+    </div>
+    <div class="card">
+      <h3><code>IndexReport</code> と診断</h3>
+      <ul class="small">
+        <li><code>index</code> = 微分の最大回数 + 1（微分が要らなければ 1）</li>
+        <li><code>dummy_candidates</code> = 1 回以上微分した方程式が参照する状態</li>
+        <li><b><code>dynamic_states</code> = 状態の数 + Σ（新しく作った微分のノード）− Σ（微分回数）</b>。拡張した系の「未知数 − 方程式」= 積分器の数</li>
+      </ul>
+      <table class="compact">
+        <tr><th>コード</th><th>重さ</th><th>条件</th></tr>
+        <tr><td>GM-I7001</td><td>Info</td><td>インデックス 2 以上（見込みと微分の内訳）</td></tr>
+        <tr><td>GM-I7002</td><td>Info</td><td>動的な状態 &lt; 状態の数（状態選択の候補）</td></tr>
+        <tr><td>GM-E7001</td><td class="ng">Error</td><td>打ち切り（S6 を通った構造では起きないはず）</td></tr>
+      </table>
+      <p class="small">S6 の <code>StructuralReport::diagnostics</code> から GM-I7001 を外し、<code>IndexReport</code> に一本化した。</p>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S08">
+  <span class="tag">図 · 振り子の例</span>
+  <h1>直交座標の振り子は、拘束を 2 回微分してインデックス 3</h1>
+  <div class="cols-2">
+    <div>
+      <table class="compact">
+        <tr><th>方程式（<code>Index.Pendulum</code>）</th><th>微分の回数</th></tr>
+        <tr><td><code>der(x) = vx</code></td><td>1</td></tr>
+        <tr><td><code>der(y) = vy</code></td><td>1</td></tr>
+        <tr><td><code>der(vx) = lambda * x</code></td><td>0</td></tr>
+        <tr><td><code>der(vy) = lambda * y - g</code></td><td>0</td></tr>
+        <tr><td><code>x ^ 2 + y ^ 2 = L ^ 2</code>（拘束）</td><td class="accent">2</td></tr>
+      </table>
+      <ul class="small">
+        <li>der の形では、拘束は状態だけを含むので、どの未知数とも対応づかない</li>
+        <li>最高階: <code>x</code>・<code>y</code> は 2 階、<code>vx</code>・<code>vy</code> は 1 階、<code>lambda</code> は 0 階。新しく作った微分のノードは 2</li>
+        <li>構造インデックス = 2 + 1 = <b>3</b>。候補は x, y, vx, vy</li>
+        <li>fixed は x と vx の 2 つ。糸が水平（x = L）で x を固定すると 2y = 0 で y が決まらないので、x = 0.6 から放す</li>
+      </ul>
+    </div>
+    <div>
+      <table class="compact">
+        <tr><th>モデル</th><th>状態</th><th>＋ 新ノード</th><th>− Σ 微分</th><th>＝ 動的</th></tr>
+        <tr><td>Pendulum</td><td>4</td><td>2</td><td>4</td><td class="ok">2</td></tr>
+        <tr><td>ParallelCapacitors</td><td>2</td><td>0</td><td>1</td><td class="ok">1</td></tr>
+        <tr><td>HighIndexDuplicate</td><td>1</td><td>1</td><td>2</td><td class="ok">0</td></tr>
+      </table>
+      <p class="small">新ノード = 新しく作った微分のノード、Σ 微分 = 方程式の微分回数の合計。</p>
+      <div class="card">
+        <h3>最初の式は誤りだった</h3>
+        <p class="small">「状態の数 − Σ（状態の階数 − 1）」は、並列コンデンサ（<code>v1 = v2</code> を 1 回微分するだけで、階数の上がる族が無い）で <b class="ng">2</b> になる。正しくは 1。</p>
+      </div>
+      <p class="small">乱択のテスト: 3000 件で「S6 の <code>index_reduction_needed</code> ⇔ <code>index &gt;= 2</code>」、1916 件で微分の回数が Pryce の Σ 法の最小のオフセットと一致（証明はしていない）。</p>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S09">
+  <span class="tag">決定と理由 · S8 初期化</span>
+  <h1>初期条件の数と属性で判定し、Error は確かなときだけ</h1>
+  <div class="cols-2">
+    <div class="card hl">
+      <h3>入力（<code>InitStructure</code>）</h3>
+      <ul class="small">
+        <li>frontend が Rumoca の DAE から取り出す。状態・パラメータ・離散変数・代数変数のスカラーごとの <code>fixed</code> / <code>has_start</code> / <code>has_binding</code> と位置、初期方程式</li>
+        <li><code>has_start</code> は<b>明示された</b> start。Rumoca は start を書かなくても既定の start を補う（式の位置が宣言と同じか、由来が <code>DaeGeneration::DefaultStart</code>）ので、それを除く</li>
+        <li><code>fixed = true</code> の start は、ToDae では初期方程式にならない → 2 重に数えない</li>
+        <li>Real でない <code>fixed = false</code> のパラメータの式（<code>initial_parameter_values()</code>）と、離散変数の初期値（<code>initial_discrete_values()</code>）も初期方程式として数える</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>近似であること</h3>
+      <ul class="small">
+        <li>離散変数は <code>pre(d)</code> が初期化の未知数になる（MLS 8.6）ので、要る数に入れる</li>
+        <li>ただし、when の外の式で決まる離散変数（暗黙の <code>pre(v) = v</code> で初期条件が要らない）か、when の中かは <code>InitStructure</code> で区別できない</li>
+        <li>インデックスの低減で状態が減るとき、余った fixed が拘束と矛盾しないか（整合する冗長な初期条件か）は数値でしか決まらない</li>
+        <li>だから、離散変数を含むか状態が減るときの過剰は確定させず（<code>GM-W8004</code>）、不足が離散変数の数に収まるときは柔らかい <code>GM-W8001</code> にする</li>
+        <li>初期方程式の incidence（どれがどの変数を決めるか）は見ない（S008 以降）</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S10">
+  <span class="tag">図 · S8 の数え方</span>
+  <h1>要る数と与えた数を比べる</h1>
+  <svg class="fig" viewBox="0 0 1000 350" role="img" aria-label="S8 の初期条件の数え方と診断">
+    <defs>
+      <marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path class="svg-arrowhead" d="M0,0 L10,5 L0,10 z"/>
+      </marker>
+    </defs>
+    <rect class="svg-box-accent" x="20" y="20" width="400" height="160" rx="12"/>
+    <text class="svg-text-b" x="220" y="52" text-anchor="middle">要る数</text>
+    <text class="svg-text" x="44" y="88">動的な状態（S7 の dynamic_states）</text>
+    <text class="svg-text" x="44" y="120">＋ 離散変数（pre(d)、MLS 8.6）</text>
+    <text class="svg-text" x="44" y="152">＋ fixed = false で束縛の無いパラメータ</text>
+
+    <rect class="svg-box-accent2" x="580" y="20" width="400" height="160" rx="12"/>
+    <text class="svg-text-b" x="780" y="52" text-anchor="middle">与えた数</text>
+    <text class="svg-text" x="604" y="88">初期方程式（initial equation など）</text>
+    <text class="svg-text" x="604" y="120">＋ fixed = true の状態</text>
+    <text class="svg-text" x="604" y="152">＋ fixed = true の離散変数・代数変数</text>
+
+    <circle class="svg-box" cx="500" cy="100" r="42"/>
+    <text class="svg-text-b" x="500" y="106" text-anchor="middle">比べる</text>
+    <line class="svg-line" x1="420" y1="100" x2="456" y2="100" marker-end="url(#ah2)"/>
+    <line class="svg-line" x1="580" y1="100" x2="544" y2="100" marker-end="url(#ah2)"/>
+
+    <path class="svg-line" d="M500,142 V200 H175 V226" marker-end="url(#ah2)"/>
+    <line class="svg-line" x1="500" y1="142" x2="500" y2="226" marker-end="url(#ah2)"/>
+    <path class="svg-line" d="M500,200 H825 V226" marker-end="url(#ah2)"/>
+
+    <rect class="svg-box-warn" x="20" y="228" width="310" height="104" rx="10"/>
+    <text class="svg-text-b" x="175" y="256" text-anchor="middle">与えた ＞ 要る（過剰）</text>
+    <text class="svg-text" x="175" y="284" text-anchor="middle">GM-E8001（Error）</text>
+    <text class="svg-text-m" x="175" y="310" text-anchor="middle">離散変数を含むか状態が減れば W8004</text>
+
+    <rect class="svg-box" x="345" y="228" width="310" height="104" rx="10"/>
+    <text class="svg-text-b" x="500" y="256" text-anchor="middle">与えた ＝ 要る</text>
+    <text class="svg-text" x="500" y="284" text-anchor="middle">診断なし（OK）</text>
+    <text class="svg-text-m" x="500" y="310" text-anchor="middle">値の無いパラメータは別に GM-W8003</text>
+
+    <rect class="svg-box-warn" x="670" y="228" width="310" height="104" rx="10"/>
+    <text class="svg-text-b" x="825" y="256" text-anchor="middle">与えた ＜ 要る（不足）</text>
+    <text class="svg-text" x="825" y="284" text-anchor="middle">GM-W8001 ＋ GM-W8002（start 無し）</text>
+    <text class="svg-text-m" x="825" y="310" text-anchor="middle">不足 ≦ 離散変数なら柔らかい W8001 だけ</text>
+  </svg>
+  <p class="small">判定は <code>globe-mode-analysis/src/init.rs</code>。S8 は S0〜S7 に Error が無いときだけ回す。<code>GM-W8003</code>（束縛も start も無い <code>fixed = true</code> のパラメータ）は、数が合っていても出す。</p>
+</section>
+
+<section class="slide" id="S11">
+  <span class="tag">決定と理由 · 作業の途中で直したこと</span>
+  <h1>誤った警告とエラーを 4 つ直した</h1>
+  <table class="compact">
+    <tr><th>見つけたこと</th><th>原因</th><th>直したこと</th></tr>
+    <tr><td><code>Index.Pendulum</code>（状態 4、自由度 2、fixed 2）に「2 個足りない」、<code>Index.ParallelCapacitors</code>（状態 2、自由度 1）に「1 個足りない」</td><td>要る数を宣言した状態の数で数えていた。インデックス 2 以上では、拘束で自由度が減る</td><td><code>analyze_init_with_index(init, dynamic_states)</code> を足し、db の <code>init_report</code> が S7 の動的な状態を渡す（S7 が打ち切りなら状態の数）</td></tr>
+    <tr><td>並列コンデンサの動的な状態が 2 になった</td><td>式「状態 − Σ（階数 − 1）」が、階数の上がらない微分を数えない</td><td>「状態 + Σ 新しい微分のノード − Σ 微分回数」。状態選択の候補は「1 回以上微分した方程式が参照する状態」</td></tr>
+    <tr><td>MSL の <code>DemonstrateContinuousSignalExtrema</code>（要る 3 に対し与えた 9）と <code>DemonstrateSignalExtrema</code> が <code>GM-E8001</code></td><td>離散変数と代数変数の <code>fixed = true</code> を、要る数にも与えた数にも入れていなかった</td><td>離散変数を要る数に、<code>fixed = true</code> の離散・代数を与えた数に入れた → <b class="ok">21 / 21</b>、<b class="ok">11 / 11</b></td></tr>
+    <tr><td>最初の全例題のファネルで、MSL の正しい例題 3 本が <code>GM-E8001</code>（<code>Analog…GenerationOfFMUs</code> 8 / 6、<code>Lines.CompareLineTrunks</code> 60 / 57、<code>HeatTransfer…GenerationOfFMUs</code> 4 / 3）</td><td>どれもインデックス 2 で、拘束でつながった状態すべてに <code>fixed = true</code>。余った fixed が整合するかは数値でしか決まらない</td><td><code>GM-E8001</code> は「離散変数が無く、動的な状態 = 状態の数」のときだけ。それ以外の過剰は警告 <code>GM-W8004</code></td></tr>
+  </table>
+  <p class="small"><code>Invalid.HighIndexDuplicate</code> は動的な状態が 0 なので、<code>vC(fixed = true)</code> が 1 つ余る。状態が減るので確定させず、<b>S8 の警告 GM-W8004 を出して通る</b>（<code>src/Modelica/README.md</code> と .mo のコメントも同じ）。</p>
+</section>
+
+<section class="slide" id="S12">
+  <span class="tag">結果 · 検証モデルと MSL</span>
+  <h1><code>globe check</code> の S7・S8</h1>
+  <div class="cols-2">
+    <table class="compact">
+      <tr><th>検証用モデル</th><th>S7</th><th>S8</th></tr>
+      <tr><td><code>Index.Pendulum</code></td><td>3（2 / 4）</td><td class="ok">2 / 2</td></tr>
+      <tr><td><code>Index.ParallelCapacitors</code></td><td>2（1 / 2）</td><td class="ok">1 / 1</td></tr>
+      <tr><td><code>Invalid.HighIndexDuplicate</code></td><td>2（0 / 1）</td><td class="warn">1 / 0 W8004</td></tr>
+      <tr><td><code>Init.Balanced</code></td><td>1</td><td class="ok">2 / 2</td></tr>
+      <tr><td><code>Init.OverDetermined</code></td><td>1</td><td class="ng">2 / 1 E8001</td></tr>
+      <tr><td><code>Init.UnderDetermined</code></td><td>1</td><td class="warn">0 / 2 W8001・W8002</td></tr>
+      <tr><td><code>Init.ParameterWithoutValue</code></td><td>1</td><td class="warn">1 / 1 W8003</td></tr>
+      <tr><td><code>Init.FreeParameter</code></td><td>1</td><td class="ok">2 / 2</td></tr>
+      <tr><td><code>Connect.RealCircuit</code></td><td>1</td><td class="warn">0 / 1 W8001・W8002</td></tr>
+    </table>
+    <div>
+      <table class="compact">
+        <tr><th>MSL 4.1.0（<code>-L data/msl</code>）</th><th>S7</th><th>S8</th></tr>
+        <tr><td>ChuaCircuit</td><td>1（微分なし）</td><td class="ok">3 / 3</td></tr>
+        <tr><td>Rotational.Examples.First</td><td>3（4 / 8）</td><td class="ok">4 / 4</td></tr>
+        <tr><td>PID_Controller</td><td>3（6 / 10）</td><td class="warn">6 / 9 W8001</td></tr>
+      </table>
+      <ul class="small">
+        <li>S7 はインデックス（括弧の中は動的な状態 / 状態）。S8 は「与えた数 / 要る数」</li>
+        <li>E8001 の位置: <code>Init.OverDetermined</code> は <code>x = 2</code>。W8002 は h2、W8003 は T、RealCircuit は <code>capacitor.v</code></li>
+        <li>PID_Controller の要る数は動的な状態 6 + 離散 3。不足 3 が離散変数の数に収まるので、柔らかい W8001 だけ</li>
+        <li><code>Init.FreeParameter</code> は <code>parameter Real u0(fixed = false)</code> を定常状態の初期方程式で決める</li>
+        <li>RealCircuit と <code>GlobeModeExamples.RC</code> は fixed の無い RC で、警告だけ（終了コード 0）</li>
+        <li>「—」は S007 の報告に記録が無いもの</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S13">
+  <span class="tag">結果 · MSL の全例題</span>
+  <h1><code>cargo xtask msl-funnel</code>（S0〜S8）</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>S005（S0〜S6）</th><th>S007 最初（規則を直す前）</th><th>S007 最終</th></tr>
+    <tr><td>例題（うち partial）</td><td>566（13）</td><td>566（13）</td><td>566（13）</td></tr>
+    <tr><td>OK</td><td>369</td><td>366</td><td class="ok">369</td></tr>
+    <tr><td>NG（段階ごと）</td><td>13（S5 1・S6 12）</td><td class="warn">16（S5 1・S6 12・S8 3）</td><td class="ok">13（S5 1・S6 12）</td></tr>
+    <tr><td>GM-U0001 / U0002 / U0003</td><td>82 / 52 / 50</td><td>82 / 52 / 50</td><td>82 / 52 / 50</td></tr>
+    <tr><td>panic</td><td class="ok">0</td><td class="ok">0</td><td class="ok">0</td></tr>
+    <tr><td>S7: 構造インデックス 1 / 2 / 3 / 4 以上 / 打ち切り</td><td>—（S7 の情報 154）</td><td>215 / 58 / 95 / 1 / 0（369 本）</td><td>215 / 58 / 95 / 1 / 0（369 本）</td></tr>
+    <tr><td>状態選択が要るもの（GM-I7002）</td><td>—</td><td>154</td><td>154</td></tr>
+    <tr><td>S8: 合う / 過剰 / 不足 / 入力なし</td><td>—</td><td>111 / 3 / 255 / 0（369 本）</td><td>111 / 3（見込み。Error 0） / 255 / 0</td></tr>
+    <tr><td>GM-W8003 が出たもの</td><td>—</td><td>2</td><td>2</td></tr>
+    <tr><td>S6 と Rumoca の照合</td><td>381 / 381</td><td>381 / 381</td><td>381 / 381</td></tr>
+    <tr><td>時間・最大 RSS</td><td>1068.3 s・7.2 GiB</td><td>881.8 s・7.1 GiB</td><td>833.0 s・7.2 GiB</td></tr>
+  </table>
+  <p class="small">最初の実行で S8 の Error になった 3 本は、MSL の正しい例題（インデックス 2）。過剰の規則を直して回し直した。インデックス 4 以上の 1 本は <code>Blocks.Examples.FilterWithDifferentiation</code>（微分 14 本・最大 3 回）。報告は <code>doc/msl-funnel.md</code>（S007 から置き場を固定）。CI には入れていない。</p>
+</section>
+
+<section class="slide" id="S14">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+<pre><code>globe deps  src/Modelica/GlobeModeValidation -m GlobeModeValidation.Connect.RealCircuit
+globe check src/Modelica/GlobeModeValidation -m GlobeModeValidation.Index.Pendulum
+globe check src/Modelica/GlobeModeValidation -m GlobeModeValidation.Init.OverDetermined   # 終了コード 1
+globe check src/Modelica/GlobeModeValidation -m GlobeModeValidation.Index.ParallelCapacitors --json
+cargo test --release -p globe-mode-db --test deps -- --ignored --nocapture                # deps_closure の計測
+mise run msl:funnel                                                                       # 全例題（release、CI の外）
+mise run check</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">209</span><span class="l">workspace のテスト（analysis 68、db 58、frontend 52、ir 6、core 13、xtask 12）</span></div>
+    <div class="kpi"><span class="n">17 + 1</span><span class="l">Pantelides 法のテスト（ほかに funnel の 1 本）</span></div>
+    <div class="kpi"><span class="n">11</span><span class="l">db の端から端までのテスト <code>tests/stages.rs</code>（S7・S8）</span></div>
+    <div class="kpi"><span class="n">20 本以上</span><span class="l">閉包だけと全ファイルとで検査の結果が一致したモデル</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">clippy の警告・fmt の差分</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S15">
+  <span class="tag">次回</span>
+  <h1>S008 — P2 の 4 回目の候補</h1>
+  <div class="cols-2">
+    <div class="card hl">
+      <h3 class="warn">リマインド: omc は未導入</h3>
+      <p class="small">OpenModelica のサイトが重くて取得できず、ユーザーの指示で後回しにした。<b>omc を入れたら最初に再開する</b>:</p>
+      <ul class="small">
+        <li>S5 が omc と 95% 以上一致するか（P2 の完了条件の残り）</li>
+        <li>S6 で NG の MSL 12 本（接地の無い部品モデル）が、単体で本当に特異か</li>
+        <li>GM-U0003 の一覧が本当に Rumoca の制約か（ADR-0007 の C）</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>ほかの候補</h3>
+      <ol class="small">
+        <li>閉包の切り替えの費用を和らげる（<code>Checker</code> に文書の和集合を持たせる、など）</li>
+        <li>S8 を精密に: 初期方程式の incidence で初期化系をマッチングする</li>
+        <li>離散変数の when の区別と、状態が減ったときの余った fixed の扱い（GM-W8004 と柔らかい W8001 を確定させる）</li>
+        <li>S9（代数ループ）・S10（プリフライト）</li>
+        <li><code>Checker</code> のメモリの上限（P4 のプロセス構成が決まってから）</li>
+        <li>Rumoca の制約の上流報告（ユーザーが出す）</li>
+        <li><code>class_index</code> の残り（for や if の中の connect、継承したクラスの入れ子）</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

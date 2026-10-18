@@ -1,23 +1,28 @@
-//! DAE の構造解析（S6: 構造特異）。フロントエンドに依存せず、`globe-mode-ir` の [`DaeStructure`] だけを読む。
+//! DAE の構造解析（S6: 構造特異、S7: インデックス、S8: 初期化）。フロントエンドに依存せず、
+//! `globe-mode-ir` の [`DaeStructure`] / `InitStructure` だけを読む。doc/architecture.md §3.2
 //!
 //! - 二部グラフ（方程式 × 未知数）の最大マッチング（[`hopcroft_karp`]、O(E√V)）
 //! - 粗い Dulmage–Mendelsohn 分解（[`dulmage_mendelsohn`]: 過剰な方程式 / 不足している未知数 / 適定の部分）
-//! - 結果は [`StructuralReport`]（[`analyze`]）。診断は `GM-E6001`（S6）と `GM-I7001`（S7 の情報）。
-//!   doc/architecture.md §3.2
+//! - S6 の結果は [`StructuralReport`]（[`analyze`]）。診断は `GM-E6001`
+//! - S7 の結果は [`IndexReport`]（[`analyze_index`]、Pantelides 法）。診断は `GM-I7001` / `GM-I7002` / `GM-E7001`
+//! - S8 の結果は [`InitReport`]（[`analyze_init`]）
 //!
-//! 二部グラフは 2 つ見る。
+//! S6 では二部グラフを 2 つ見る。
 //!
 //! - **まとめた形**（`incidence ∪ state_refs`）: 状態 `x` と微分 `der(x)` を 1 つの列にまとめる。
 //!   ここで完全マッチングが無ければ構造特異（Pantelides 法が失敗するのと同じ条件）で、モデルの誤り（`GM-E6001`）。
 //! - **der の形**（`incidence` だけ）: 状態を既知とみなす。まとめた形では完全でも、ここで完全マッチングが
-//!   無ければ、微分インデックスが 1 より大きい見込み（S7 の情報 `GM-I7001`。モデルの誤りではない）。
+//!   無ければ、微分インデックスが 1 より大きい見込み（[`StructuralReport::index_reduction_needed`]。
+//!   モデルの誤りではない。S7 の情報は [`IndexReport`] が出す）。
 //!   Rumoca の構造解析（`phase_structural::analyze`）はこちらを数えるので、突き合わせにはこちらを使う。
 //!
 //! wasm32 でも動くように、依存は core と ir と serde だけにする。
 
 mod bipartite;
 mod dm;
+pub mod init;
 mod matching;
+pub mod pantelides;
 #[cfg(test)]
 mod testutil;
 
@@ -27,7 +32,9 @@ use serde::Serialize;
 
 use crate::bipartite::Bipartite;
 pub use crate::dm::{Decomposition, dulmage_mendelsohn};
+pub use crate::init::{InitReport, analyze_init};
 pub use crate::matching::{Matching, hopcroft_karp};
+pub use crate::pantelides::{IndexReport, analyze_index};
 
 /// 診断の補足に並べる項目の上限。超えた分は「ほか k 件」にまとめる。
 pub const NOTE_LIST_LIMIT: usize = 10;
@@ -65,19 +72,20 @@ pub struct StructuralReport {
 impl StructuralReport {
     /// 構造特異でない（方程式数 = 未知数で、まとめた形に完全マッチングがある）。
     ///
-    /// true でも、[`Self::index_reduction_needed`] なら S7 の情報が 1 件出る（実行は止めない）。
+    /// true でも [`Self::index_reduction_needed`] なら、S7（[`analyze_index`]）で方程式を微分する
+    /// （[`IndexReport::index`] が 2 以上になる）。
     pub fn is_regular(&self) -> bool {
         self.n_equations == self.n_unknowns && self.structural_matching == self.n_equations
     }
 
-    /// 診断。
+    /// 診断（S6）。
     ///
     /// - 構造特異なら、すべて `GM-E6001`（S6、Error）で、次の順に並べる。
     ///   1. 方程式数と未知数が違えば、その要約（位置なし）
     ///   2. マッチしなかった方程式ごとに 1 件（方程式の位置。補足に過剰な部分の未知数と方程式）
     ///   3. マッチしなかった未知数ごとに 1 件（宣言の位置。補足に不足している部分の方程式と未知数）
-    /// - 構造特異でなく、der の形でだけ完全マッチングが無ければ、`GM-I7001`（S7、Info）を 1 件だけ（位置なし）。
-    /// - どちらでもなければ空。
+    /// - 構造特異でなければ空。der の形でだけ完全マッチングが無くても、ここでは出さない
+    ///   （S007 から、S7 の情報 `GM-I7001` は [`IndexReport::diagnostics`] が出す）。
     ///
     /// `structure` は、この結果を作ったときと同じ（位置のある）`DaeStructure` を渡す。
     /// 添字が範囲外なら、名前の代わりに `#添字` と書く。
@@ -100,24 +108,7 @@ impl StructuralReport {
         };
 
         if self.is_regular() {
-            if !self.index_reduction_needed {
-                return Vec::new();
-            }
-            return vec![
-                Diagnostic::info(
-                    codes::HIGH_INDEX,
-                    Stage::S7,
-                    format!(
-                        "微分インデックスが 1 より大きい見込み（der の形では完全マッチングが無い: マッチング {} / {}）",
-                        self.matching, self.n_equations
-                    ),
-                )
-                .note(format!(
-                    "der の形で対応のない方程式（{} 本）: {}",
-                    self.der_unmatched_equations.len(),
-                    list(&self.der_unmatched_equations, equation)
-                )),
-            ];
+            return Vec::new();
         }
 
         let mut out = Vec::new();
@@ -258,7 +249,11 @@ pub fn analyze(structure: &DaeStructure) -> StructuralReport {
 }
 
 /// 位置を付ける。ファイルが分からなくても範囲だけは残す。
-fn locate(mut d: Diagnostic, file: Option<&str>, range: Option<TextRange>) -> Diagnostic {
+pub(crate) fn locate(
+    mut d: Diagnostic,
+    file: Option<&str>,
+    range: Option<TextRange>,
+) -> Diagnostic {
     match file {
         Some(f) => d.at(f, range),
         None => {
@@ -269,14 +264,19 @@ fn locate(mut d: Diagnostic, file: Option<&str>, range: Option<TextRange>) -> Di
 }
 
 /// 名前を `` `a`, `b` `` の形に並べる。[`NOTE_LIST_LIMIT`] を超えた分は「ほか k 件」にまとめる。
-fn list(items: &[usize], name: impl Fn(usize) -> String) -> String {
+pub(crate) fn list(items: &[usize], name: impl Fn(usize) -> String) -> String {
+    list_by(items, |i| format!("`{}`", name(i)))
+}
+
+/// 項目を `item` で書いて `, ` で並べる（[`list`] の、書き方を決められる版）。
+pub(crate) fn list_by(items: &[usize], item: impl Fn(usize) -> String) -> String {
     if items.is_empty() {
         return "なし".to_string();
     }
     let mut s = items
         .iter()
         .take(NOTE_LIST_LIMIT)
-        .map(|&i| format!("`{}`", name(i)))
+        .map(|&i| item(i))
         .collect::<Vec<_>>()
         .join(", ");
     if items.len() > NOTE_LIST_LIMIT {
@@ -288,61 +288,8 @@ fn list(items: &[usize], name: impl Fn(usize) -> String) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::XorShift;
+    use crate::testutil::{FILE, XorShift, equation, structure, unknown, with_state_refs};
     use globe_mode_core::Severity;
-    use globe_mode_ir::{EquationOrigin, EquationRow, Unknown};
-
-    const FILE: &str = "M.mo";
-
-    /// 未知数（位置は添字から作る。ファイルは M.mo）。`der(` で始まる名前は状態の微分。
-    fn unknown(i: usize, name: &str) -> Unknown {
-        let at = 1000 + 10 * i as u32;
-        Unknown {
-            name: name.into(),
-            kind: if name.starts_with("der(") {
-                UnknownKind::Derivative
-            } else {
-                UnknownKind::Algebraic
-            },
-            file: Some(FILE.into()),
-            range: Some(TextRange::new(at, at + 5)),
-        }
-    }
-
-    /// 方程式（位置は添字から作る）。
-    fn equation(i: usize, label: &str) -> EquationRow {
-        let at = 10 * i as u32;
-        EquationRow {
-            label: label.into(),
-            origin: EquationOrigin::Source,
-            file: Some(FILE.into()),
-            range: Some(TextRange::new(at, at + 8)),
-        }
-    }
-
-    /// 未知数の名前と、（ラベル, 含む未知数）の並びから `DaeStructure` を作る（state_refs は空）。
-    fn structure(unknowns: &[&str], equations: &[(&str, &[u32])]) -> DaeStructure {
-        DaeStructure {
-            unknowns: unknowns
-                .iter()
-                .enumerate()
-                .map(|(i, n)| unknown(i, n))
-                .collect(),
-            equations: equations
-                .iter()
-                .enumerate()
-                .map(|(i, (l, _))| equation(i, l))
-                .collect(),
-            incidence: equations.iter().map(|(_, r)| r.to_vec()).collect(),
-            state_refs: vec![Vec::new(); equations.len()],
-        }
-    }
-
-    /// state_refs（方程式ごとの、状態 x そのものを参照している der(x) の添字）を付ける。
-    fn with_state_refs(mut s: DaeStructure, refs: &[&[u32]]) -> DaeStructure {
-        s.state_refs = refs.iter().map(|r| r.to_vec()).collect();
-        s
-    }
 
     /// HighIndexDuplicate.mo と同じ形: C * der(vC) = i; V = vR + vC; vR = V - vC;
     fn kvl_written_twice() -> DaeStructure {
@@ -457,23 +404,18 @@ mod tests {
         assert!(r.unmatched_equations.is_empty() && r.unmatched_unknowns.is_empty());
         assert!(r.over_equations.is_empty() && r.under_unknowns.is_empty());
 
-        let ds = r.diagnostics(&s);
-        assert_eq!(ds.len(), 1, "{ds:#?}");
-        let d = &ds[0];
-        assert_eq!(
-            (d.code, d.stage, d.severity),
-            (codes::HIGH_INDEX, Stage::S7, Severity::Info)
-        );
-        assert!(!d.is_error());
-        assert_eq!(
-            d.message,
-            "微分インデックスが 1 より大きい見込み（der の形では完全マッチングが無い: マッチング 1 / 2）"
-        );
-        assert_eq!((&d.file, d.range), (&None, None));
-        assert_eq!(
-            d.notes,
-            ["der の形で対応のない方程式（1 本）: `x = sin(time)`"]
-        );
+        // S6 の診断は出さない。S7 の情報（GM-I7001）は IndexReport が出す
+        assert!(r.diagnostics(&s).is_empty());
+        let index = analyze_index(&s);
+        assert_eq!(index.index, 2);
+        let ds = index.diagnostics(&s);
+        assert!(ds.iter().all(|d| !d.is_error() && d.stage == Stage::S7));
+        let d = ds
+            .iter()
+            .find(|d| d.code == codes::HIGH_INDEX)
+            .expect("GM-I7001");
+        assert_eq!(d.severity, Severity::Info);
+        assert_eq!(d.range, s.equations[1].range);
     }
 
     #[test]
@@ -621,10 +563,9 @@ mod tests {
         assert!(r.index_reduction_needed);
         assert_eq!(r.der_unmatched_equations.len(), 1);
         assert!(r.over_equations.is_empty() && r.under_unknowns.is_empty());
-        let ds = r.diagnostics(&s);
-        assert_eq!(ds.len(), 1);
-        assert_eq!(ds[0].code, codes::HIGH_INDEX);
-        assert_eq!(ds[0].severity, Severity::Info);
+        // S6 は通る。S7 の情報は IndexReport が出す
+        assert!(r.diagnostics(&s).is_empty());
+        assert_eq!(analyze_index(&s).index, 2);
         // state_refs が無ければ（状態を見なければ）構造特異と誤判定する: S005 の MSL ファネルで見つけた誤り
         let mut no_refs = s.clone();
         no_refs.state_refs.clear();
@@ -651,7 +592,7 @@ mod tests {
     }
 
     #[test]
-    fn high_index_note_is_capped() {
+    fn states_only_constraints_are_regular_but_not_der_matched() {
         // x_j = sin(time)（j = 0..12）: どの方程式も状態 x_j だけを含む。
         // まとめた形は完全（方程式 j ↔ der(x_j)）、der の形では 12 本すべてが対応を持たない
         let names: Vec<String> = (0..12).map(|j| format!("der(x{j})")).collect();
@@ -673,15 +614,8 @@ mod tests {
         let r = analyze(&s);
         assert!(r.is_regular() && r.index_reduction_needed);
         assert_eq!((r.matching, r.structural_matching), (0, 12));
-        let ds = r.diagnostics(&s);
-        assert_eq!(ds.len(), 1);
-        assert!(ds[0].message.ends_with("マッチング 0 / 12）"));
-        let note = &ds[0].notes[0];
-        assert!(
-            note.starts_with("der の形で対応のない方程式（12 本）: `x0 = sin(time)`, "),
-            "{note}"
-        );
-        assert!(note.ends_with("`x9 = sin(time)` ほか 2 件"), "{note}");
+        assert_eq!(r.der_unmatched_equations.len(), 12);
+        assert!(r.diagnostics(&s).is_empty());
     }
 
     #[test]
@@ -795,18 +729,15 @@ mod tests {
             assert_eq!(r.under_unknowns, dm.under_unknowns);
             assert_eq!(r.index_reduction_needed, r.is_regular() && r.matching < n);
             assert_eq!(analyze(&s.without_ranges()), r);
-            // 診断: 特異なら GM-E6001 だけ、高インデックスなら GM-I7001 を 1 件だけ、どちらでもなければ空
+            // 診断: 特異なら GM-E6001 だけ、そうでなければ空（S7 の情報は IndexReport が出す）
             let ds = r.diagnostics(&s);
             if !r.is_regular() {
                 assert!(!ds.is_empty() && ds.iter().all(|d| d.code == codes::SINGULAR));
                 let expected =
                     r.unmatched_equations.len() + r.unmatched_unknowns.len() + usize::from(n != m);
                 assert_eq!(ds.len(), expected);
-            } else if r.index_reduction_needed {
-                high_index += 1;
-                assert_eq!(ds.len(), 1);
-                assert_eq!(ds[0].code, codes::HIGH_INDEX);
             } else {
+                high_index += usize::from(r.index_reduction_needed);
                 assert!(ds.is_empty());
             }
         }

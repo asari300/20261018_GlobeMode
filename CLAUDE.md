@@ -60,7 +60,7 @@ uv sync                      # worktree ごとに必須
 - Python パッケージは `src/Python/mod/globe_mode`（S002 で `src/20261018_globemode` から改名した）。
 - 検査はまとめて `mise run check`（Rust の fmt / clippy / test / deny と `uv sync --locked`）と `mise run docs:check`（スライドとリンク、Playwright）で回せる。
 - フロントエンド（Rumoca アダプタ）や Rumoca の rev を変えたら、`mise run msl:compare`（MSL の例題 20 本で Rumoca の CLI と突き合わせ）も通す。
-- 検査の段階（S0〜S6）、GM-U の振り分けや一覧（`src/Modelica/msl-known-unsupported.txt`）、Rumoca の rev を変えたら、`mise run msl:funnel`（MSL の全例題 566 本に判定を出し、報告を書く。S005 では release で検査だけ約 18 分、最大 RSS 7.2 GiB）も回し、OK・GM-U・panic の本数の変化を作業記録に書く。CI には入れていない。
+- 検査の段階（S0〜S8）、GM-U の振り分けや一覧（`src/Modelica/msl-known-unsupported.txt`）、Rumoca の rev を変えたら、`mise run msl:funnel`（MSL の全例題 566 本に判定を出し、報告を `doc/msl-funnel.md` に書く。S005 では release で検査だけ約 18 分、最大 RSS 7.2 GiB）も回し、OK・GM-U・panic の本数の変化を作業記録に書く。CI には入れていない。
 - **言語の管理は mise・uv・cargo で分担する**（[ADR-0003](doc/adr/0003-toolchain.md)、手順は [doc/mise-setup.html](doc/mise-setup.html)）。
 
   | 道具 | 受け持つもの | ロックファイル |
