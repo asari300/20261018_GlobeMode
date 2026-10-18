@@ -6,7 +6,8 @@ use std::path::Path;
 
 use globe_mode_core::{Diagnostic, Stage, TextRange, codes};
 use globe_mode_ir::{
-    BalanceCount, ClassKind, ClassOutline, ComponentOutline, Connect, DaeCounts, Outline,
+    BalanceCount, Causality, ClassKind, ClassOutline, ComponentOutline, Connect, ConnectPrefix,
+    DaeCounts, Outline,
 };
 use rumoca_compile::compile::{Dae, FailedPhase, PhaseResult, SourceRootKind, VariableRole};
 use rumoca_compile::parsing::{ParseError, ast};
@@ -253,6 +254,7 @@ fn class_outline(c: &ast::ClassDef) -> ClassOutline {
         name: c.name.text.to_string(),
         kind: class_kind(c.class_type.as_str()),
         partial: c.partial,
+        causality: causality(&c.causality),
         range: TextRange::new(c.location.start, c.location.end),
         extends: c.extends.iter().map(|e| e.base_name.to_string()).collect(),
         components: c
@@ -261,11 +263,29 @@ fn class_outline(c: &ast::ClassDef) -> ClassOutline {
             .map(|comp| ComponentOutline {
                 name: comp.name.clone(),
                 type_name: comp.type_name.to_string(),
+                prefix: match comp.connection {
+                    ast::Connection::Flow(_) => ConnectPrefix::Flow,
+                    ast::Connection::Stream(_) => ConnectPrefix::Stream,
+                    ast::Connection::Empty => ConnectPrefix::Potential,
+                },
+                causality: causality(&comp.causality),
                 range: TextRange::new(comp.name_token.location.start, comp.name_token.location.end),
             })
             .collect(),
         connects,
         classes: c.classes.values().map(class_outline).collect(),
+    }
+}
+
+/// rumoca の Causality は公開されていないので、Debug の表記で見分ける（`Input(..)` / `Output(..)` / `Empty`）。
+fn causality(c: &impl std::fmt::Debug) -> Causality {
+    let s = format!("{c:?}");
+    if s.starts_with("Input") {
+        Causality::Input
+    } else if s.starts_with("Output") {
+        Causality::Output
+    } else {
+        Causality::None
     }
 }
 

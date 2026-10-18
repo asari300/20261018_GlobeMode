@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S004 遅延クエリと connect グラフ — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S004 · 遅延クエリと connect グラフ">
+
+<section class="slide" id="S01">
+  <span class="tag">S004 · 2026-10-18 · P2 遅延クエリと検査（1 回目）</span>
+  <h1>salsa の防火壁が効き、connect グラフが Real・Boolean・Medium を見分ける</h1>
+  <div class="kpis">
+    <div class="kpi"><span class="n">0.20 ms</span><span class="l">空白だけの編集のあとの再計算（中央値、目標 50 ms 未満）</span></div>
+    <div class="kpi"><span class="n">0 回</span><span class="l">そのとき再実行された <code>class_index</code> と <code>connect_graph</code></span></div>
+    <div class="kpi"><span class="n">4 種類</span><span class="l">辺の種類（flow・stream・real・boolean）を検証モデルで確認</span></div>
+    <div class="kpi"><span class="n">7 本</span><span class="l">ほかの IDE でも開ける検証用パッケージのモデル</span></div>
+  </div>
+  <div class="big">遅延評価の土台（<b>globe-mode-db</b>）と、flatten しない <b>connect グラフ</b>ができた。</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやったこと</h1>
+  <div class="cols-2">
+    <div class="card hl">
+      <h3>roadmap の S004（P2 の 1 回目）</h3>
+      <ol class="small">
+        <li><code>globe-mode-db</code>: salsa のクエリ。<code>parse</code> → <code>outline</code>（Eq の防火壁）</li>
+        <li>空白だけの編集で、下流が再計算されないことをテストで確かめる</li>
+        <li><code>class_index</code> と <code>connect_graph(path, depth)</code>（flatten 不要）</li>
+        <li>GM-U（コンパイラが未対応）の振り分けの検討</li>
+      </ol>
+    </div>
+    <div class="card">
+      <h3>ユーザーの依頼</h3>
+      <ul class="small">
+        <li>connect のテストでは、型（Real、Boolean、Medium など）を試すモデルを <code>src/Modelica</code> に作る</li>
+        <li>そのディレクトリを Modelica のパッケージ（<code>…Validation/</code>）にし、ほかの Modelica の IDE でも開けるようにする</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由 · 検証用パッケージ</span>
+  <h1><code>src/Modelica/GlobeModeValidation</code> — OMEdit でも開ける構成</h1>
+  <div class="cols-2">
+<pre><code>GlobeModeValidation/
+├── package.mo     uses(Modelica(version="4.1.0"))
+├── package.order
+├── Connectors.mo  Pin / Real・Boolean の入出力
+│                  / FluidPort（Medium と stream）
+├── Components.mo  電気・信号・流体の部品
+├── Connect/       1 モデル 1 ファイル
+│   ├── package.mo, package.order
+│   ├── RealCircuit.mo   RealSignals.mo
+│   ├── BooleanSignals.mo  MediumFlow.mo
+│   └── Subsystem.mo  Hierarchical.mo
+└── Invalid/       SignalTypeMismatch.mo</code></pre>
+    <ul class="small">
+      <li>1 ファイルのサブパッケージ（<code>Connectors.mo</code>）とディレクトリのサブパッケージ（<code>Connect/</code>）の両方を入れ、読み込み側を試す</li>
+      <li><code>src/Modelica</code> は MODELICAPATH の 1 項目として使える。わざと構文を誤ったファイルは <code>tests/data</code> に移した</li>
+      <li><code>extends Modelica.Icons.*</code> は書かない。書くと Real や Boolean だけのモデルの検査にも MSL が要るため</li>
+      <li>OMEdit では <code>package.mo</code> を開く。<code>uses</code> の注記から MSL 4.1.0 も読み込まれる</li>
+    </ul>
+  </div>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">結果 · connect の型</span>
+  <h1>型ごとの connect グラフと検査</h1>
+  <table class="compact">
+    <tr><th>モデル</th><th>connect の型</th><th>グラフ（depth 1）</th><th><code>globe check</code></th></tr>
+    <tr><td><code>RealCircuit</code></td><td>Real の potential / flow（電気のピン）</td><td>ノード 4・辺 4（<b>flow</b>）</td><td class="ok">OK 20 = 20</td></tr>
+    <tr><td><code>RealSignals</code></td><td>Real の信号</td><td>ノード 3・辺 2（<b>real</b>）</td><td class="ok">OK 5 = 5</td></tr>
+    <tr><td><code>BooleanSignals</code></td><td>Boolean の信号と Real の混在</td><td>ノード 4・辺 3（<b>boolean</b> 2、real 1）</td><td class="ok">OK 7 = 7（離散 4）</td></tr>
+    <tr><td><code>MediumFlow</code></td><td>Medium の流体ポート（flow と stream、inStream）</td><td>ノード 3・辺 2（<b>stream</b>）</td><td class="ok">OK 12 = 12（MSL が要る）</td></tr>
+    <tr><td><code>Hierarchical</code></td><td>部分回路 2 つを直列</td><td>depth 1: 4・4 ／ depth 2: 10・10</td><td class="ok">OK 40 = 40</td></tr>
+    <tr><td><code>Invalid.SignalTypeMismatch</code></td><td>Real の出力 → Boolean の入力</td><td>ノード 2・辺 1（real）</td><td class="ng">S4 GM-E4001</td></tr>
+  </table>
+  <p class="small">方程式数と変数数は手で数えた値と一致することを確かめてテストに入れた（frontend のテスト 3 件、db のテスト 13 件）。</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">図 · 遅延評価</span>
+  <h1>クエリの連鎖と防火壁（<code>globe-mode-db</code>）</h1>
+  <svg class="fig" viewBox="0 0 1000 250" role="img" aria-label="salsa のクエリの連鎖">
+    <defs>
+      <marker id="ah5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path class="svg-arrowhead" d="M0,0 L10,5 L0,10 z"/>
+      </marker>
+    </defs>
+    <rect class="svg-box" x="10" y="80" width="150" height="70" rx="10"/>
+    <text class="svg-text-b" x="85" y="110" text-anchor="middle">SourceFile</text>
+    <text class="svg-text-m" x="85" y="132" text-anchor="middle">入力（本文）</text>
+    <rect class="svg-box" x="205" y="80" width="150" height="70" rx="10"/>
+    <text class="svg-text-b" x="280" y="110" text-anchor="middle">outline</text>
+    <text class="svg-text-m" x="280" y="132" text-anchor="middle">位置あり</text>
+    <text class="svg-text-a" x="475" y="66" text-anchor="middle">防火壁 1（Eq）</text>
+    <rect class="svg-box-accent" x="400" y="80" width="150" height="70" rx="10"/>
+    <text class="svg-text-b" x="475" y="110" text-anchor="middle">outline_shape</text>
+    <text class="svg-text-m" x="475" y="132" text-anchor="middle">位置を 0 に</text>
+    <rect class="svg-box" x="595" y="80" width="150" height="70" rx="10"/>
+    <text class="svg-text-b" x="670" y="110" text-anchor="middle">class_index</text>
+    <text class="svg-text-m" x="670" y="132" text-anchor="middle">Workspace</text>
+    <rect class="svg-box-accent2" x="790" y="80" width="190" height="70" rx="10"/>
+    <text class="svg-text-b" x="885" y="110" text-anchor="middle">connect_graph</text>
+    <text class="svg-text-m" x="885" y="132" text-anchor="middle">モデル・depth</text>
+    <line class="svg-line" x1="160" y1="115" x2="203" y2="115" marker-end="url(#ah5)"/>
+    <line class="svg-line" x1="355" y1="115" x2="398" y2="115" marker-end="url(#ah5)"/>
+    <line class="svg-line" x1="550" y1="115" x2="593" y2="115" marker-end="url(#ah5)"/>
+    <line class="svg-line" x1="745" y1="115" x2="788" y2="115" marker-end="url(#ah5)"/>
+    <text class="svg-text-m" x="280" y="190" text-anchor="middle">編集のたびに作り直す</text>
+    <text class="svg-text-m" x="475" y="190" text-anchor="middle">前と等しければ、ここで止まる</text>
+    <text class="svg-text-m" x="777" y="190" text-anchor="middle">止まれば再実行されない（backdate）</text>
+  </svg>
+  <p class="small">実行されたクエリは salsa の <code>WillExecute</code> イベントで記録する（<code>GlobeDb::take_executed</code>）。テストと計測に使う。</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">結果 · 防火壁のテスト</span>
+  <h1>どの編集で、どこまで再実行されるか</h1>
+  <table>
+    <tr><th>編集</th><th>outline</th><th>outline_shape</th><th>class_index</th><th>connect_graph</th></tr>
+    <tr><td>変更なしで、もう一度求める</td><td>0</td><td>0</td><td>0</td><td>0</td></tr>
+    <tr><td><code>RealCircuit.mo</code> に空白とコメントを足す</td><td>1</td><td>1</td><td class="ok">0</td><td class="ok">0</td></tr>
+    <tr><td>別のファイル（<code>Connectors.mo</code>）の先頭にコメント</td><td>1</td><td>1</td><td class="ok">0</td><td class="ok">0</td></tr>
+    <tr><td><code>RealSignals.mo</code> に部品と connect を足す</td><td>1</td><td>1</td><td>1</td><td>1（辺 2 → 3）</td></tr>
+    <tr><td>1 ファイルに構文の誤り</td><td colspan="4">そのファイルのクラスだけが索引から消え、ほかのモデルのグラフは作れる</td></tr>
+  </table>
+  <p class="small">空白だけの編集のあとの再計算は、中央値 <b>0.20 ms</b>・最大 0.30 ms（リリースビルド、20 回、depth 2）。<code>globe-mode-db</code> と <code>globe-mode-graph</code> は wasm32 向けにもビルドできる。</p>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">図 · connect グラフ</span>
+  <h1><code>Hierarchical</code> を depth 2 で展開する</h1>
+  <div class="cols-2">
+    <svg class="fig" viewBox="0 0 660 400" role="img" aria-label="Hierarchical の connect グラフ（depth 2）">
+      <line class="svg-line" x1="80" y1="200" x2="170" y2="80"/>
+      <line class="svg-line" x1="170" y1="80" x2="300" y2="60"/>
+      <line class="svg-line" x1="300" y1="60" x2="430" y2="80"/>
+      <line class="svg-line" x1="430" y1="80" x2="480" y2="200"/>
+      <line class="svg-line" x1="480" y1="200" x2="430" y2="320"/>
+      <line class="svg-line" x1="430" y1="320" x2="300" y2="340"/>
+      <line class="svg-line" x1="300" y1="340" x2="170" y2="320"/>
+      <line class="svg-line" x1="170" y1="320" x2="80" y2="200"/>
+      <line class="svg-line" x1="80" y1="200" x2="200" y2="200"/>
+      <circle class="svg-node-3" cx="80" cy="200" r="20"/>
+      <circle class="svg-node" cx="200" cy="200" r="13"/>
+      <circle class="svg-node-2" cx="170" cy="80" r="9"/>
+      <circle class="svg-node" cx="300" cy="60" r="14"/>
+      <circle class="svg-node" cx="430" cy="80" r="14"/>
+      <circle class="svg-node-2" cx="480" cy="200" r="9"/>
+      <circle class="svg-node" cx="430" cy="320" r="14"/>
+      <circle class="svg-node" cx="300" cy="340" r="14"/>
+      <circle class="svg-node-2" cx="170" cy="320" r="9"/>
+      <text class="svg-text-b" x="80" y="240" text-anchor="middle">source</text>
+      <text class="svg-text-b" x="225" y="205">ground</text>
+      <text class="svg-text-m" x="150" y="60" text-anchor="middle">stage1.p</text>
+      <text class="svg-text" x="300" y="38" text-anchor="middle">stage1.resistor</text>
+      <text class="svg-text" x="448" y="64">stage1.capacitor</text>
+      <text class="svg-text-m" x="500" y="205">stage1.n — stage2.p</text>
+      <text class="svg-text" x="448" y="342">stage2.resistor</text>
+      <text class="svg-text" x="300" y="372" text-anchor="middle">stage2.capacitor</text>
+      <text class="svg-text-m" x="150" y="345" text-anchor="middle">stage2.n</text>
+    </svg>
+    <ul class="small">
+      <li>中に connect を持つ部品（<code>Subsystem</code>）を展開し、そのコネクタを<b>つなぎ目のノード</b>（<code>stage1.p</code> など）にする</li>
+      <li>外側の <code>connect(source.p, stage1.p)</code> と内側の <code>connect(p, resistor.p)</code> が、つなぎ目で出会う</li>
+      <li>depth 1 はノード 4・辺 4、depth 2 はノード 10・辺 10（図はつなぎ目の一部を省略）</li>
+      <li>継承した connect（<code>TwoPin</code> の p / n）も、部品のノードに付く</li>
+      <li>出力は graphology の JSON（<code>globe graph --json</code>）。P4 で sigma.js がそのまま読む</li>
+    </ul>
+  </div>
+</section>
+
+<section class="slide" id="S08">
+  <span class="tag">発見 · Rumoca の制約</span>
+  <h1>ライブラリから別のライブラリは extends できなかった</h1>
+  <div class="cols-2">
+    <div class="card">
+      <h3>症状</h3>
+      <p class="small"><code>MediumFlow</code> を <code>--library src/Modelica -L data/msl</code> で検査すると、<code>Modelica.Media.Interfaces.PartialMedium</code> が見つからない（ER003）。</p>
+      <h3>切り分け（最小のモデルで）</h3>
+      <table class="compact">
+        <tr><th>参照の置き場所</th><th>結果</th></tr>
+        <tr><td>コンパイルする文書の中</td><td class="ok">解決できる</td></tr>
+        <tr><td>ライブラリ（1 ファイル）の中</td><td class="ng">ER003</td></tr>
+        <tr><td>ライブラリ（複数ファイル）の中</td><td class="ng">ER003</td></tr>
+        <tr><td>MODELICAPATH でも</td><td class="ng">ER003</td></tr>
+      </table>
+    </div>
+    <div class="card hl">
+      <h3>対応</h3>
+      <ul class="small">
+        <li>作業中のパッケージは<b>文書</b>として渡す。<code>globe check &lt;DIR&gt;</code> はディレクトリの下の .mo を文書として読む</li>
+        <li><code>--library</code> には MSL などの外部ライブラリだけを渡す</li>
+        <li>これで <code>MediumFlow</code> も通った（12 = 12）。IDE としても、作業中のファイルはワークスペース（文書）として扱うのが自然</li>
+        <li>上流（Rumoca）への報告は P2 の中で行う。ADR-0002 と research/rumoca.md に記録した</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S09">
+  <span class="tag">検討 · GM-U</span>
+  <h1>「コンパイラが未対応」をどう見分けるか</h1>
+  <table class="compact">
+    <tr><th>案</th><th>やり方</th><th>長所</th><th>短所</th></tr>
+    <tr><td>A. コードで決める</td><td>Rumoca のエラーコードごとに GM-U かどうかを決めておく</td><td>単純</td><td>ED001（数が合わない）はモデルの誤りでも出るので、区別できない</td></tr>
+    <tr><td>B. 既知の制約の一覧</td><td>MSL の例題と Rumoca のコードの組（S003 の CoupledClutches・Friction など）を一覧にし、当たれば GM-U</td><td>誤りの出方を変えずに済む</td><td>MSL の外のモデルには効かない</td></tr>
+    <tr><td>C. omc と照合</td><td>Rumoca で失敗したときだけ omc（別プロセス）で検査し、omc が通れば GM-U</td><td>根拠がはっきりする</td><td>omc が要る。遅い</td></tr>
+  </table>
+  <p class="small"><b>案</b>: B を既定にし、C は任意（omc があるときだけ）にする。S005 で決めて ADR に書く。</p>
+</section>
+
+<section class="slide" id="S10">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+<pre><code>globe graph src/Modelica/GlobeModeValidation -m GlobeModeValidation.Connect.Hierarchical -d 2
+globe check src/Modelica/GlobeModeValidation -m GlobeModeValidation.Connect.BooleanSignals
+globe check src/Modelica/GlobeModeValidation -L data/msl -m GlobeModeValidation.Connect.MediumFlow
+cargo test --release -p globe-mode-db -- --ignored --nocapture   # 再計算の時間
+mise run check</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">32</span><span class="l">Rust のテスト（core 3・db 13・frontend 10・ir 4・xtask 2）＋計測 1</span></div>
+    <div class="kpi"><span class="n">16</span><span class="l">CI の判定のテスト</span></div>
+    <div class="kpi"><span class="n">4 / 4</span><span class="l">cargo-deny の ok（salsa を含む）</span></div>
+    <div class="kpi"><span class="n">○</span><span class="l">graph と db の wasm32 のビルド</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S11">
+  <span class="tag">次回</span>
+  <h1>S005 — P2 の 2 回目: 検査をクエリに載せる</h1>
+  <div class="cols-2">
+    <div class="card hl">
+      <h3>やること</h3>
+      <ol class="small">
+        <li><code>flat</code> と <code>check</code>（S0〜S5）を salsa のクエリにする。MSL は一度だけ読んで使い回す</li>
+        <li>GM-U の振り分けを決める（案 B を既定、C を任意）</li>
+        <li>S6（構造特異）の最初の版: 完全マッチングと Dulmage–Mendelsohn 分解</li>
+        <li>MSL の全例題に判定を出す（ファネルの計測）</li>
+      </ol>
+    </div>
+    <div class="card">
+      <h3>残したこと</h3>
+      <ul class="small">
+        <li>名前解決は字句的なスコープだけ（import と、継承したクラスの中の入れ子のクラスはまだ）</li>
+        <li>for や if の中の connect はまだ拾わない</li>
+        <li>Rumoca の制約（ライブラリ間の extends）の上流への報告</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

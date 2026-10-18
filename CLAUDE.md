@@ -45,7 +45,7 @@ uv sync                      # worktree ごとに必須
 | `src/Svelte/` | UI（Tauri とブラウザで共用）。**業務ロジックを置かない** | ○ |
 | `src/Python/mod/` `marimo/` `streamlit/` | Python パッケージ、ノートブック、ダッシュボード | ○ |
 | `src/{Elixir,Gleam,Julia,Zig}/` | 各言語の薄いラッパ。ロジックは Rust 側に置く | ○ |
-| `src/Modelica/` | サンプルモデルと検証用ライブラリ | ○ |
+| `src/Modelica/` | 検証用の Modelica ライブラリ。**MODELICAPATH として開けるパッケージだけを置く**（わざと構文を誤ったファイルは `globe-mode-frontend/tests/data/` へ）。説明は [src/Modelica/README.md](src/Modelica/README.md) | ○ |
 | `data/msl/` `data/rumoca/` | MSL 4.1.0 と Rumoca の CLI の取得物（`cargo xtask fetch-msl` / `fetch-rumoca`） | ×（コミットしない） |
 | `src/Rust/xtask/` | 開発用のタスク（取得、MSL での突き合わせ、Rumoca の更新） | ○ |
 | `doc/architecture.md` `roadmap.md` `features.md` `licenses.md` | **正典**。計画を変えたら同じコミットで直す | ○ |
