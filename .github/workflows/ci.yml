@@ -1,40 +1,112 @@
 # GlobeMode の CI。ツールの版は mise.toml / mise.lock、依存は Cargo.lock と uv.lock で固定する（ADR-0003）。
+#
+# 差分だけを検査する（ADR-0006）。最初の plan ジョブが .github/scripts/ci_plan.py で
+# 「何を検査するか」を決め、各ジョブはその結果で実行か省略かを決める。
+#   - 変更した crate と、それに依存する crate だけを clippy / test にかける
+#   - 依存の集合（Cargo.lock / Cargo.toml / deny.toml）を変えていなければ cargo deny を省く
+#   - 次のときは全体を検査する: 依存・ツール・CI の定義の変更、40 ファイルを超える変更、
+#     コミットメッセージの [full-ci]、毎週の定期実行、手動実行（full）
+#   - コンパイル済みの依存は rust-cache で使い回す（Cargo.lock が同じなら再ビルドしない）
 name: ci
 
 on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: "0 18 * * 0"   # 毎週月曜 03:00 JST に全体を検査する
+  workflow_dispatch:
+    inputs:
+      full:
+        description: 全体を検査する
+        type: boolean
+        default: true
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
-  # mise.toml の erlang の precompiled_os は Ubuntu 26.04 向け。CI では Rust・uv・cargo-deny だけを入れる
-  MISE_TOOLS: rust uv cargo-deny
 
 jobs:
-  rust-linux:
+  plan:
     runs-on: ubuntu-24.04
+    outputs:
+      full: ${{ steps.plan.outputs.full }}
+      rust: ${{ steps.plan.outputs.rust }}
+      rust_packages: ${{ steps.plan.outputs.rust_packages }}
+      wasm: ${{ steps.plan.outputs.wasm }}
+      deny: ${{ steps.plan.outputs.deny }}
+      python: ${{ steps.plan.outputs.python }}
+      docs: ${{ steps.plan.outputs.docs }}
+      slides: ${{ steps.plan.outputs.slides }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: 判定ロジックの単体テスト
+        run: python3 .github/scripts/test_ci_plan.py
+      - id: plan
+        name: 何を検査するかを決める
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          FULL_INPUT: ${{ inputs.full }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          ARGS=()
+          case "$EVENT" in
+            push) ARGS+=(--base "$BEFORE") ;;
+            pull_request) ARGS+=(--base "$PR_BASE") ;;
+            schedule) ARGS+=(--full --reason "定期実行") ;;
+            workflow_dispatch)
+              if [ "$FULL_INPUT" = "true" ]; then ARGS+=(--full --reason "手動実行"); else ARGS+=(--base "$HEAD_SHA~1"); fi ;;
+          esac
+          python3 .github/scripts/ci_plan.py "${ARGS[@]}" --head "$HEAD_SHA" --github-output "$GITHUB_OUTPUT"
+
+  rust-linux:
+    needs: plan
+    if: needs.plan.outputs.rust == 'true'
+    runs-on: ubuntu-24.04
+    env:
+      PKGS: ${{ needs.plan.outputs.rust_packages }}
     steps:
       - uses: actions/checkout@v4
       - uses: jdx/mise-action@v2
         with:
-          install_args: ${{ env.MISE_TOOLS }}
+          install_args: rust
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all --check
-      - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: cargo test --workspace
-      - run: cargo deny check
+      - run: cargo clippy $PKGS --all-targets -- -D warnings
+      - run: cargo test $PKGS
       - name: wasm32 でビルドできるか（ブラウザ版の前提）
+        if: needs.plan.outputs.wasm == 'true'
         run: cargo check --target wasm32-unknown-unknown -p globe-mode-core -p globe-mode-ir -p globe-mode-frontend
       - name: サンプルの検査
         run: |
           cargo run -q -p globe-mode-cli -- check src/Modelica/GlobeModeExamples/package.mo -m GlobeModeExamples.RC
           ! cargo run -q -p globe-mode-cli -- check src/Modelica/GlobeModeExamples/package.mo -m GlobeModeExamples.Unbalanced
 
+  deny:
+    needs: plan
+    if: needs.plan.outputs.deny == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+        with:
+          install_args: rust cargo-deny
+      - run: cargo deny check
+
   rust-windows:
+    # Windows は時間（無料枠では 2 倍で数える）がかかるので、全体を検査するときだけ
+    needs: plan
+    if: needs.plan.outputs.full == 'true'
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@v4
@@ -44,7 +116,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace
 
-  python-and-docs:
+  python:
+    needs: plan
+    if: needs.plan.outputs.python == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -53,11 +127,25 @@ jobs:
           install_args: uv
       - run: uv sync --locked
       - run: uv run globe-mode
+
+  docs:
+    needs: plan
+    if: needs.plan.outputs.docs == 'true' || needs.plan.outputs.slides == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
       - run: python3 -I .claude/skills/session-docs/check_docs.py
-      - run: uv run playwright install --with-deps chromium
-      - run: uv run python .claude/skills/session-docs/render_slides.py --out render
+      - uses: jdx/mise-action@v2
+        if: needs.plan.outputs.slides == 'true'
+        with:
+          install_args: uv
+      - if: needs.plan.outputs.slides == 'true'
+        run: |
+          uv sync --locked
+          uv run playwright install --with-deps chromium
+          uv run python .claude/skills/session-docs/render_slides.py --out render
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: always() && needs.plan.outputs.slides == 'true'
         with:
           name: slide-screenshots
           path: render/
