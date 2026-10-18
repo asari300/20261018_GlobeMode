@@ -39,5 +39,9 @@
   - wasm32-unknown-unknown: `cargo check`
   - 上の「stable で通らなかった場合」の手順は使わずに済んだ。Rumoca の `nightly-2026-02-27` の固定は、Rumoca 自身の wasm スレッドのためだけのものだった。
 
-- CI でも mise を使う（`mise install --locked`）。手元と同じ版でビルドする。
+- CI でも mise を使う（mise-action で必要なツールだけを入れる）。手元と同じ版でビルドする。
+  - **例外: Windows の CI ジョブは rustup を直接使う**（2026-10-18）。
+    - mise の shim 経由の `cargo` が、指定していないツールを自動で入れ始め、`rustc -vV` で失敗した（run 39091325647）。
+    - `mise.lock` の rust は stable なので、rustup の stable と版はそろう。
+  - CI では `MISE_AUTO_INSTALL=false` にして、実行時の自動インストールを止める。
 - 既定のブラウザ版はシングルスレッドになる。rayon が現在のスレッドで動くようにフォールバックするかは P1 で確かめる。

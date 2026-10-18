@@ -69,3 +69,19 @@
 
 - 2 の worktree の掃除。CI の結果の確認を待っている。
 - CI の結果をこちらで確かめる手段。`gh` の導入か、読み取り用のトークンが要る。
+
+## 追記: 最初の CI の失敗（run 39091325647）
+
+- **原因の調べ方**: ユーザーがリポジトリを公開にしたので、ジョブと注釈は API から読めた。ログの全文は公開リポジトリでも認証が要る（403）ので読めなかった。
+- **何が失敗したか**: 対象は main の `c22e1e2`（差分 CI を入れる前の ci.yml）。
+  - rust-linux と python-and-docs は成功した。
+  - **rust-windows の `cargo test --workspace` だけが失敗した**。
+- **注釈から分かったこと**:
+  1. mise の shim 経由の `cargo` が、指定していないツール 7 つ（zig・julia・erlang など）を実行時に自動で入れ始めた。
+  2. そのあと `Command failed: rustc -vV` で止まった。
+- **直したこと**（`feature/ops-ci-windows-fix`）:
+  - Windows のジョブは mise を使わず、ランナーの rustup で stable を入れて使う。`mise.lock` の rust も stable なので版はそろう。ADR-0003 に例外として書いた。
+  - 全ジョブで `MISE_AUTO_INSTALL=false` にした。
+  - 「Node.js 20 は非推奨」の警告が出ていたので、Actions を新しいメジャー版に上げた: checkout v4 → v7、upload-artifact v4 → v7、mise-action v2 → v5。
+    - mise-action v5 でも `install_args` が使えることは、action.yml で確かめた。
+- **検証**: actionlint は 0 件。判定のテストも通った。Windows での実行は、次の push（全体の検査になる）で確かめる。

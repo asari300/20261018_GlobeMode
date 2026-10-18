@@ -31,6 +31,9 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  # mise の shim が、指定していないツールを実行時に自動で入れないようにする
+  # （Windows で cargo の実行中に zig・julia・erlang などを入れ始めた: run 39091325647）
+  MISE_AUTO_INSTALL: "false"
 
 jobs:
   plan:
@@ -45,7 +48,7 @@ jobs:
       docs: ${{ steps.plan.outputs.docs }}
       slides: ${{ steps.plan.outputs.slides }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: 判定ロジックの単体テスト
@@ -76,8 +79,8 @@ jobs:
     env:
       PKGS: ${{ needs.plan.outputs.rust_packages }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
         with:
           install_args: rust
       - uses: Swatinem/rust-cache@v2
@@ -97,8 +100,8 @@ jobs:
     if: needs.plan.outputs.deny == 'true'
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
         with:
           install_args: rust cargo-deny
       - run: cargo deny check
@@ -109,10 +112,11 @@ jobs:
     if: needs.plan.outputs.full == 'true'
     runs-on: windows-2025
     steps:
-      - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
-        with:
-          install_args: rust
+      - uses: actions/checkout@v7
+      # Windows では mise の shim 経由の cargo が rustc -vV で失敗した（run 39091325647）。
+      # ランナーに入っている rustup を直接使う。mise.lock の rust も stable なので版はそろう（ADR-0003）。
+      - run: rustup toolchain install stable --profile minimal --no-self-update && rustup default stable
+      - run: rustc -vV
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace
 
@@ -121,8 +125,8 @@ jobs:
     if: needs.plan.outputs.python == 'true'
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
         with:
           install_args: uv
       - run: uv sync --locked
@@ -133,9 +137,9 @@ jobs:
     if: needs.plan.outputs.docs == 'true' || needs.plan.outputs.slides == 'true'
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: python3 -I .claude/skills/session-docs/check_docs.py
-      - uses: jdx/mise-action@v2
+      - uses: jdx/mise-action@v5
         if: needs.plan.outputs.slides == 'true'
         with:
           install_args: uv
@@ -144,7 +148,7 @@ jobs:
           uv sync --locked
           uv run playwright install --with-deps chromium
           uv run python .claude/skills/session-docs/render_slides.py --out render
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always() && needs.plan.outputs.slides == 'true'
         with:
           name: slide-screenshots
