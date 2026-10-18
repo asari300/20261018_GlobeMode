@@ -2,7 +2,7 @@
 //!
 //! ```text
 //! globe outline <FILE> [--json]
-//! globe check <FILE>... --model <NAME> [--json]
+//! globe check [<FILE>...] [--library <DIR>]... --model <NAME> [--json]
 //! ```
 //!
 //! 終了コード: 0 = 成功 / 1 = Error の診断がある / 2 = 入力の読み込みに失敗。
@@ -38,8 +38,12 @@ enum Command {
     },
     /// モデルを DAE まで変換して検査する（S0〜S5）
     Check {
-        #[arg(required = true)]
+        /// 検査するファイル。モデルがライブラリの中にあるなら省略できる
+        #[arg(required_unless_present = "library")]
         files: Vec<PathBuf>,
+        /// ライブラリのディレクトリ（例: data/msl）。何度でも指定できる
+        #[arg(long, short = 'L')]
+        library: Vec<PathBuf>,
         /// 検査するモデルの完全修飾名（例: GlobeModeExamples.RC）
         #[arg(long, short)]
         model: String,
@@ -54,7 +58,12 @@ fn main() -> ExitCode {
     let frontend = RumocaFrontend::new();
     match cli.command {
         Command::Outline { file, json } => outline(&frontend, &file, json),
-        Command::Check { files, model, json } => check(&frontend, &files, &model, json),
+        Command::Check {
+            files,
+            library,
+            model,
+            json,
+        } => check(&frontend, &files, &library, &model, json),
     }
 }
 
@@ -96,7 +105,20 @@ fn outline(frontend: &impl Frontend, file: &PathBuf, json: bool) -> ExitCode {
     }
 }
 
-fn check(frontend: &impl Frontend, files: &[PathBuf], model: &str, json: bool) -> ExitCode {
+fn check(
+    frontend: &impl Frontend,
+    files: &[PathBuf],
+    library: &[PathBuf],
+    model: &str,
+    json: bool,
+) -> ExitCode {
+    for lib in library {
+        if !lib.is_dir() {
+            eprintln!("error: ライブラリ {} がディレクトリではない", lib.display());
+            return ExitCode::from(2);
+        }
+    }
+    let libraries: Vec<&std::path::Path> = library.iter().map(PathBuf::as_path).collect();
     let mut texts = HashMap::new();
     let mut order = Vec::new();
     for f in files {
@@ -115,7 +137,7 @@ fn check(frontend: &impl Frontend, files: &[PathBuf], model: &str, json: bool) -
             text: &texts[n],
         })
         .collect();
-    let report = frontend.check(&sources, model);
+    let report = frontend.check(&sources, &libraries, model);
 
     if json {
         let value = serde_json::json!({
@@ -123,6 +145,7 @@ fn check(frontend: &impl Frontend, files: &[PathBuf], model: &str, json: bool) -
             "passed": report.passed(),
             "failed_stage": report.failed_stage(),
             "balance": report.balance,
+            "dae": report.dae,
             "diagnostics": report.diagnostics,
         });
         println!(
@@ -141,6 +164,12 @@ fn check(frontend: &impl Frontend, files: &[PathBuf], model: &str, json: bool) -
                 b.algebraics,
                 b.outputs,
                 b.discrete
+            );
+        }
+        if let Some(d) = report.dae {
+            println!(
+                "{}: DAE の変数（配列は 1 個）: 状態 {}・代数 {}・出力 {}・連続方程式 {}",
+                report.model, d.states, d.algebraics, d.outputs, d.continuous_equations
             );
         }
         match report.failed_stage() {

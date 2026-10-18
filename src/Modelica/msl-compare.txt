@@ -1,0 +1,22 @@
+# globe check と Rumoca の CLI を突き合わせる MSL 4.1.0 の例題（cargo xtask msl-compare が読む）
+# 分野をまたいで 20 本。流体（stream）と StateGraph は、両方とも同じように失敗するかを見るために入れてある。
+Modelica.Electrical.Analog.Examples.ChuaCircuit
+Modelica.Electrical.Analog.Examples.CauerLowPassAnalog
+Modelica.Electrical.Analog.Examples.HeatingRectifier
+Modelica.Electrical.Analog.Examples.CharacteristicIdealDiodes
+Modelica.Electrical.Analog.Examples.Rectifier
+Modelica.Mechanics.Rotational.Examples.First
+Modelica.Mechanics.Rotational.Examples.CoupledClutches
+Modelica.Mechanics.Rotational.Examples.Friction
+Modelica.Mechanics.Translational.Examples.SignConvention
+Modelica.Mechanics.Translational.Examples.Oscillator
+Modelica.Mechanics.Translational.Examples.Damper
+Modelica.Thermal.HeatTransfer.Examples.TwoMasses
+Modelica.Thermal.HeatTransfer.Examples.Motor
+Modelica.Blocks.Examples.PID_Controller
+Modelica.Blocks.Examples.Filter
+Modelica.Blocks.Examples.InverseModel
+Modelica.Electrical.Machines.Examples.DCMachines.DCPM_Start
+Modelica.Mechanics.MultiBody.Examples.Elementary.Pendulum
+Modelica.Fluid.Examples.Tanks.EmptyTanks
+Modelica.StateGraph.Examples.FirstExample

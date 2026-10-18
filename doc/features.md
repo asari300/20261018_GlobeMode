@@ -31,7 +31,7 @@ OpenModelica（OMEdit）と Rumoca を参考に、GlobeMode に要る機能を�
 
 | 機能 | OMEdit | Rumoca | 優先度 | Phase | GlobeMode での方針 |
 | --- | --- | --- | --- | --- | --- |
-| MSL の読み込み（4.1.0） | ○ | ○ | Must | P1 | `data/msl/` に取得する。必要になったファイルだけ parse する |
+| MSL の読み込み（4.1.0） | ○ | ○ | Must | P1（S003 で済） | `cargo xtask fetch-msl` で `data/msl/` に取得し、`globe check --library` で読む。必要になったファイルだけ parse するのは P2 |
 | ライブラリツリー | ○ | × | Must | P4 | `class_index`（`package.order`） |
 | パッケージマネージャ（`uses` の版） | ○ | × | Could | P8 | 版の不一致は S1 の検査で警告する |
 | **connect のネットワークグラフ（Obsidian 風）** | × | × | **Must** | P2（データ）/ P4（描画） | flatten 不要の `connect_graph(path, depth)`。sigma.js + ForceAtlas2。巨大なグラフには cosmos.gl |

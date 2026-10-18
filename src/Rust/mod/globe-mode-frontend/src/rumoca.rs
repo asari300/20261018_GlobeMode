@@ -2,9 +2,13 @@
 //!
 //! Rumoca の型を使ってよいのはこのファイルだけ。外へは中立 IR と GlobeMode の診断だけを出す。
 
+use std::path::Path;
+
 use globe_mode_core::{Diagnostic, Stage, TextRange, codes};
-use globe_mode_ir::{BalanceCount, ClassKind, ClassOutline, ComponentOutline, Connect, Outline};
-use rumoca_compile::compile::{FailedPhase, PhaseResult};
+use globe_mode_ir::{
+    BalanceCount, ClassKind, ClassOutline, ComponentOutline, Connect, DaeCounts, Outline,
+};
+use rumoca_compile::compile::{Dae, FailedPhase, PhaseResult, SourceRootKind, VariableRole};
 use rumoca_compile::parsing::{ParseError, ast};
 use rumoca_compile::{Session, SessionConfig};
 
@@ -36,10 +40,11 @@ impl Frontend for RumocaFrontend {
         }
     }
 
-    fn check(&self, sources: &[Source<'_>], model: &str) -> CheckReport {
+    fn check(&self, sources: &[Source<'_>], libraries: &[&Path], model: &str) -> CheckReport {
         let mut report = CheckReport {
             model: model.to_string(),
             balance: None,
+            dae: None,
             diagnostics: Vec::new(),
         };
 
@@ -58,6 +63,30 @@ impl Frontend for RumocaFrontend {
         }
 
         let mut session = Session::new(SessionConfig::default());
+
+        // ライブラリ（MSL など）。めったに変わらないので DurableExternal として読む。
+        // Rumoca は解析結果をキャッシュするので、2 回目からは速い。
+        for lib in libraries {
+            let load = session.load_source_root_tolerant(
+                &format!("library:{}", lib.display()),
+                SourceRootKind::DurableExternal,
+                lib,
+                None,
+            );
+            if !load.diagnostics.is_empty() || load.parsed_file_count == 0 {
+                let mut d = Diagnostic::error(
+                    codes::LIBRARY,
+                    Stage::S1,
+                    format!("ライブラリ {} を読み込めない", lib.display()),
+                );
+                for msg in load.diagnostics.iter().take(5) {
+                    d = d.note(msg.clone());
+                }
+                report.diagnostics.push(d);
+                return report;
+            }
+        }
+
         for s in sources {
             if let Err(e) = session.add_document(s.name, s.text) {
                 report.diagnostics.push(
@@ -67,33 +96,29 @@ impl Frontend for RumocaFrontend {
             }
         }
 
-        match session.model_names() {
-            Ok(names) if !names.iter().any(|n| n == model) => {
-                let mut d = Diagnostic::error(
-                    codes::MODEL_NOT_FOUND,
-                    Stage::S1,
-                    format!("モデル `{model}` が見つからない"),
-                );
-                if !names.is_empty() {
-                    d = d.note(format!("候補: {}", names.join(", ")));
-                }
-                report.diagnostics.push(d);
-                return report;
+        // 候補を出すための事前確認。ユーザーのファイルだけのときに限る。
+        // model_names() は、ライブラリ（MSL）の解決時の警告（WR006 など）でも Err を返すので、
+        // Err のときは止めずにコンパイルに進む（見つからなければ compile が失敗を返す）。
+        if libraries.is_empty()
+            && let Ok(names) = session.model_names()
+            && !names.iter().any(|n| n == model)
+        {
+            let mut d = Diagnostic::error(
+                codes::MODEL_NOT_FOUND,
+                Stage::S1,
+                format!("モデル `{model}` が見つからない"),
+            );
+            if !names.is_empty() {
+                d = d.note(format!("候補: {}", names.join(", ")));
             }
-            Err(e) => {
-                report.diagnostics.push(Diagnostic::error(
-                    codes::RESOLVE,
-                    Stage::S1,
-                    e.to_string(),
-                ));
-                return report;
-            }
-            Ok(_) => {}
+            report.diagnostics.push(d);
+            return report;
         }
 
-        match session.compile_model_phases(model) {
-            Ok(PhaseResult::Success(result)) => {
-                let b = &result.balance_detail;
+        // Rumoca の CLI と同じ strict-reachable のコンパイル。MSL を解決したときの警告では失敗しない。
+        match session.compile_model_strict(model) {
+            Ok(compilation) => {
+                let b = &compilation.result().balance_detail;
                 let balance = BalanceCount {
                     equations: b.equations(),
                     unknowns: b.unknowns(),
@@ -113,44 +138,89 @@ impl Frontend for RumocaFrontend {
                     ));
                 }
                 report.balance = Some(balance);
+                report.dae = Some(dae_counts(&compilation.result().dae));
             }
-            Ok(PhaseResult::NeedsInner { missing_inners, .. }) => {
-                report.diagnostics.push(Diagnostic::error(
-                    codes::MISSING_INNER,
-                    Stage::S3,
-                    format!(
-                        "outer に対応する inner が無い: {}",
-                        missing_inners.join(", ")
+            Err(strict) => {
+                let d = match &strict.requested_result {
+                    Some(PhaseResult::NeedsInner { missing_inners, .. }) => Diagnostic::error(
+                        codes::MISSING_INNER,
+                        Stage::S3,
+                        format!(
+                            "outer に対応する inner が無い: {}",
+                            missing_inners.join(", ")
+                        ),
                     ),
-                ));
-            }
-            Ok(PhaseResult::Failed {
-                phase,
-                error,
-                error_code,
-                ..
-            }) => {
-                let (code, stage) = match (phase, error_code.as_deref()) {
-                    // rumoca の ED001 は「方程式数と変数数が合わない」
-                    (FailedPhase::ToDae, Some("ED001")) => (codes::UNBALANCED, Stage::S5),
-                    (FailedPhase::Instantiate, _) => (codes::INSTANTIATE, Stage::S3),
-                    (FailedPhase::Typecheck, _) => (codes::TYPECHECK, Stage::S2),
-                    (FailedPhase::Flatten, _) => (codes::FLATTEN, Stage::S4),
-                    (FailedPhase::ToDae, _) => (codes::TO_DAE, Stage::S5),
+                    Some(PhaseResult::Failed {
+                        phase,
+                        error,
+                        error_code,
+                        ..
+                    }) => phase_diagnostic(Some(*phase), error_code.as_deref(), error.clone()),
+                    // 要求したモデル自体ではなく、依存先のクラスで失敗したとき
+                    _ => match strict.failures.first() {
+                        Some(f) => {
+                            phase_diagnostic(f.phase, f.error_code.as_deref(), f.error.clone())
+                                .note(format!("失敗したクラス: {}", f.model_name))
+                        }
+                        None => {
+                            Diagnostic::error(codes::RESOLVE, Stage::S1, strict.failure_summary(5))
+                        }
+                    },
                 };
-                let mut d = Diagnostic::error(code, stage, error);
-                if let Some(c) = error_code {
-                    d = d.note(format!("rumoca: {c}"));
-                }
-                report.diagnostics.push(d);
-            }
-            Err(e) => {
-                report
-                    .diagnostics
-                    .push(Diagnostic::error(codes::RESOLVE, Stage::S1, e.to_string()))
+                let more = strict.failures.len().saturating_sub(1);
+                report.diagnostics.push(if more > 0 {
+                    d.note(format!("ほかに {more} 件の失敗がある"))
+                } else {
+                    d
+                });
             }
         }
         report
+    }
+}
+
+/// DAE の変数を役割ごとに数える（Rumoca の CLI の `dae_counts` と同じ数え方）。
+fn dae_counts(dae: &Dae) -> DaeCounts {
+    dae.inspect(|view| {
+        let mut c = DaeCounts {
+            continuous_equations: view.continuous_equation_count(),
+            ..DaeCounts::default()
+        };
+        for (_, v) in view.variables() {
+            match v.role() {
+                VariableRole::State => c.states += 1,
+                VariableRole::Algebraic => c.algebraics += 1,
+                VariableRole::Output => c.outputs += 1,
+                VariableRole::Input => c.inputs += 1,
+                VariableRole::Parameter => c.parameters += 1,
+                VariableRole::Constant
+                | VariableRole::DiscreteReal
+                | VariableRole::DiscreteValue => {}
+            }
+        }
+        c
+    })
+}
+
+/// Rumoca の失敗段階とエラーコードを、GlobeMode の検査段階と GM コードに対応づける（ADR-0002）。
+fn phase_diagnostic(
+    phase: Option<FailedPhase>,
+    error_code: Option<&str>,
+    error: String,
+) -> Diagnostic {
+    let (code, stage) = match (phase, error_code) {
+        // rumoca の ED001 は「方程式数と変数数が合わない」
+        (Some(FailedPhase::ToDae), Some("ED001")) => (codes::UNBALANCED, Stage::S5),
+        (Some(FailedPhase::Instantiate), _) => (codes::INSTANTIATE, Stage::S3),
+        (Some(FailedPhase::Typecheck), _) => (codes::TYPECHECK, Stage::S2),
+        (Some(FailedPhase::Flatten), _) => (codes::FLATTEN, Stage::S4),
+        (Some(FailedPhase::ToDae), _) => (codes::TO_DAE, Stage::S5),
+        (None, _) => (codes::RESOLVE, Stage::S1),
+    };
+    let d = Diagnostic::error(code, stage, error);
+    match error_code {
+        Some(c) => d.note(format!("rumoca: {c}")),
+        None => d,
     }
 }
 

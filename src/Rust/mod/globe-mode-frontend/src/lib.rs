@@ -3,8 +3,10 @@
 //! フロントエンドの型を外に出さず、`globe-mode-ir` の中立 IR と
 //! `globe-mode-core` の診断に変換して返す（ADR-0002）。
 
+use std::path::Path;
+
 use globe_mode_core::{Diagnostic, Stage};
-use globe_mode_ir::{BalanceCount, Outline};
+use globe_mode_ir::{BalanceCount, DaeCounts, Outline};
 
 #[cfg(feature = "rumoca")]
 mod rumoca;
@@ -22,8 +24,10 @@ pub struct Source<'a> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CheckReport {
     pub model: String,
-    /// DAE まで変換できたときの方程式数と変数数。
+    /// DAE まで変換できたときの方程式数と変数数（配列はスカラーに展開）。
     pub balance: Option<BalanceCount>,
+    /// DAE まで変換できたときの変数の数（配列は 1 個）。
+    pub dae: Option<DaeCounts>,
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -48,6 +52,7 @@ pub trait Frontend {
     /// 1 ファイルを構文解析してアウトラインを返す。構文の誤りは S0 の診断として返す。
     fn outline(&self, source: Source<'_>) -> Result<Outline, Vec<Diagnostic>>;
 
-    /// `sources` を読み込み、`model` を DAE まで変換して検査する。
-    fn check(&self, sources: &[Source<'_>], model: &str) -> CheckReport;
+    /// `libraries`（MSL などのライブラリのディレクトリ）と `sources` を読み込み、
+    /// `model` を DAE まで変換して検査する。モデルはライブラリの中にあってもよい。
+    fn check(&self, sources: &[Source<'_>], libraries: &[&Path], model: &str) -> CheckReport;
 }

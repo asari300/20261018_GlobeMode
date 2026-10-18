@@ -61,7 +61,7 @@ doc/  log/                      文書と記録
 | crate | 責務 | 主な依存 |
 | --- | --- | --- |
 | `globe-mode-core` **（S002）** | `TextRange`、`Diagnostic{code,severity,stage,message,file,range,notes}`、検査段階 `Stage`（S0〜S10）、診断コード。今後: ID、単位、修正案（fix） | serde |
-| `globe-mode-ir` **（S002）** | フロントエンドに依存しない中立 IR: `Outline`（クラス・コンポーネント・extends・connect）、`BalanceCount`。今後: `ConnectSet`、`DaeStructure`（変数、属性、incidence、初期方程式） | core |
+| `globe-mode-ir` **（S002）** | フロントエンドに依存しない中立 IR: `Outline`（クラス・コンポーネント・extends・connect）、`BalanceCount`（スカラー）、`DaeCounts`（配列ごと、S003）。今後: `ConnectSet`、`DaeStructure`（変数、属性、incidence、初期方程式） | core |
 | `globe-mode-frontend` **（S002）** | `trait Frontend{outline, check}`。feature `rumoca`（Phase A、`src/rumoca.rs`）と feature `native`（Track B） | rumoca-compile |
 | `globe-mode-db` | salsa のクエリ DB。リビジョン管理とキャンセル | salsa |
 | `globe-mode-analysis` | Hopcroft–Karp、Dulmage–Mendelsohn、Tarjan BLT、Pantelides、`SimulatabilityReport` | ir |
@@ -74,12 +74,13 @@ doc/  log/                      文書と記録
 | `globe-mode-protocol` | serde 型と JSON Schema。TypeScript と Python の型を生成する | serde, specta |
 | `globe-mode` | 公開する Rust API（facade）: `Workspace{open, set_text, outline, check, graph, simulate, export_fmu}` | 上記すべて |
 | `globe-mode-lsp` | `lsp-types` と自前のディスパッチャ。Transport は stdio / Tauri のチャネル / Web Worker | lsp-types |
-| `globe-mode-cli` **（S002）** | バイナリ `globe`（`outline` / `check`、`--json`。終了コード 0 / 1 / 2） | clap |
+| `globe-mode-cli` **（S002）** | バイナリ `globe`（`outline` / `check`、`--json`、S003 で `--library`。終了コード 0 / 1 / 2） | clap |
 | `globe-mode-capi` | `extern "C"`、不透明ハンドル、JSON とバイト列。cbindgen でヘッダを生成する | — |
 | `globe-mode-py` | PyO3（abi3-py312） | pyo3 |
 | `globe-mode-nif` | Rustler。Erlang モジュール名は `globe_mode_nif` | rustler |
 | `globe-mode-wasm` | wasm-bindgen。ブラウザの Worker、Gleam の JS target、marimo の anywidget から使う | wasm-bindgen |
-| `globe-mode-testkit` | MSL コーパス、ファネル比較、omc との照合、Reference-FMUs | — |
+| `globe-mode-testkit` | MSL コーパス、ファネル比較、omc との照合、Reference-FMUs（S003 の突き合わせは、ひとまず xtask に置いた） | — |
+| `xtask` **（S003）** | `cargo xtask fetch-msl` / `fetch-rumoca` / `msl-compare` / `bump-rumoca`。場所は `src/Rust/xtask` | sha2, zip |
 
 ### 2.3 ツールチェーン
 

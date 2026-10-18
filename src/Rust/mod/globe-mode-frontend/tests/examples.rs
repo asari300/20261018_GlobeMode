@@ -82,6 +82,7 @@ fn rc_passes_with_balanced_counts() {
             name: &name,
             text: &text,
         }],
+        &[],
         "GlobeModeExamples.RC",
     );
     assert!(r.passed(), "{:?}", r.diagnostics);
@@ -97,6 +98,7 @@ fn unbalanced_stops_at_s5() {
             name: &name,
             text: &text,
         }],
+        &[],
         "GlobeModeExamples.Unbalanced",
     );
     assert_eq!(r.failed_stage(), Some(Stage::S5));
@@ -111,6 +113,7 @@ fn syntax_error_stops_at_s0_with_range() {
             name: &name,
             text: &text,
         }],
+        &[],
         "Broken",
     );
     assert_eq!(r.failed_stage(), Some(Stage::S0));
@@ -134,8 +137,40 @@ fn unknown_model_is_reported_with_candidates() {
             name: &name,
             text: &text,
         }],
+        &[],
         "GlobeModeExamples.Nope",
     );
     assert_eq!(r.diagnostics[0].code, codes::MODEL_NOT_FOUND);
     assert!(r.diagnostics[0].notes[0].contains("GlobeModeExamples.RC"));
+}
+
+/// サンプルのパッケージを一時ディレクトリにコピーし、ライブラリとして読ませる（MSL の代わり）。
+fn temp_library(tag: &str) -> PathBuf {
+    let root = std::env::temp_dir().join(format!("globe-mode-lib-{tag}-{}", std::process::id()));
+    let pkg = root.join("GlobeModeExamples");
+    std::fs::create_dir_all(&pkg).unwrap();
+    let (_, text) = modelica(PACKAGE);
+    std::fs::write(pkg.join("package.mo"), text).unwrap();
+    root
+}
+
+#[test]
+fn model_inside_a_library_can_be_checked_without_sources() {
+    let lib = temp_library("ok");
+    let r = RumocaFrontend::new().check(&[], &[lib.as_path()], "GlobeModeExamples.RC");
+    assert!(r.passed(), "{:?}", r.diagnostics);
+    let d = r.dae.expect("dae counts");
+    assert_eq!(
+        (d.states, d.algebraics, d.outputs, d.continuous_equations),
+        (1, 19, 0, 20)
+    );
+    let _ = std::fs::remove_dir_all(lib);
+}
+
+#[test]
+fn missing_library_is_reported_at_s1() {
+    let missing = std::env::temp_dir().join("globe-mode-no-such-library");
+    let r = RumocaFrontend::new().check(&[], &[missing.as_path()], "Anything");
+    assert_eq!(r.failed_stage(), Some(Stage::S1));
+    assert_eq!(r.diagnostics[0].code, codes::LIBRARY);
 }

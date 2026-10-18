@@ -25,6 +25,7 @@ log/local/
 
 # 取得物 (scripts で再取得できるのでコミットしない)。MSL など
 data/msl/
+data/rumoca/
 
 # mise
 mise.local.toml

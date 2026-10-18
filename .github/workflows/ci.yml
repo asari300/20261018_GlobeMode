@@ -47,6 +47,7 @@ jobs:
       python: ${{ steps.plan.outputs.python }}
       docs: ${{ steps.plan.outputs.docs }}
       slides: ${{ steps.plan.outputs.slides }}
+      msl: ${{ steps.plan.outputs.msl }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -119,6 +120,33 @@ jobs:
       - run: rustc -vV
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace
+
+  msl:
+    # MSL 4.1.0 の例題 20 本で、globe check と Rumoca の CLI を突き合わせる（P1 の完了条件）。
+    # 重いので全体を検査するときだけ。MSL と Rumoca の CLI は sha256 を固定して取得し、キャッシュする。
+    needs: plan
+    if: needs.plan.outputs.msl == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+        with:
+          install_args: rust
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/cache@v6
+        with:
+          path: |
+            data/msl
+            data/rumoca
+          key: msl-rumoca-${{ hashFiles('src/Rust/xtask/src/main.rs') }}
+      - run: cargo xtask fetch-msl
+      - run: cargo xtask fetch-rumoca
+      - run: cargo xtask msl-compare --report msl-compare.md
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: msl-compare
+          path: msl-compare.md
 
   python:
     needs: plan

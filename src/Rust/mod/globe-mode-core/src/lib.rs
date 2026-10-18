@@ -153,6 +153,8 @@ pub mod codes {
     pub const RESOLVE: &str = "GM-E1001";
     /// S1: 指定したモデルが見つからない
     pub const MODEL_NOT_FOUND: &str = "GM-E1002";
+    /// S1: ライブラリ（MSL など）を読み込めない
+    pub const LIBRARY: &str = "GM-E1003";
     /// S2: 型検査の誤り
     pub const TYPECHECK: &str = "GM-E2001";
     /// S3: instantiate の誤り
