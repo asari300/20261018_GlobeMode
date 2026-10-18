@@ -25,7 +25,8 @@ class Plan(unittest.TestCase):
         p = plan(["src/Rust/mod/globe-mode-ir/src/lib.rs"])
         self.assertEqual(
             pkgs(p),
-            {"globe-mode-ir", "globe-mode-frontend", "globe-mode-graph", "globe-mode-db", "globe-mode-cli", "xtask"},
+            {"globe-mode-ir", "globe-mode-frontend", "globe-mode-graph", "globe-mode-analysis", "globe-mode-db",
+             "globe-mode-cli", "xtask"},
         )
         self.assertTrue(p["wasm"])
 
@@ -34,8 +35,8 @@ class Plan(unittest.TestCase):
         self.assertFalse(p["full"])
         self.assertEqual(
             pkgs(p),
-            {"globe-mode-core", "globe-mode-ir", "globe-mode-frontend", "globe-mode-graph", "globe-mode-db",
-             "globe-mode-cli", "xtask"},
+            {"globe-mode-core", "globe-mode-ir", "globe-mode-frontend", "globe-mode-graph", "globe-mode-analysis",
+             "globe-mode-db", "globe-mode-cli", "xtask"},
         )
         self.assertFalse(p["msl"])
 
@@ -43,6 +44,15 @@ class Plan(unittest.TestCase):
         p = plan(["src/Rust/mod/globe-mode-graph/src/lib.rs"])
         self.assertEqual(pkgs(p), {"globe-mode-graph", "globe-mode-db", "globe-mode-cli"})
         self.assertTrue(p["wasm"])
+
+    def test_analysis_change_reaches_db_and_cli(self):
+        p = plan(["src/Rust/mod/globe-mode-analysis/src/lib.rs"])
+        self.assertEqual(pkgs(p), {"globe-mode-analysis", "globe-mode-db", "globe-mode-cli"})
+        self.assertTrue(p["wasm"])
+
+    def test_known_unsupported_list_affects_frontend(self):
+        p = plan(["src/Modelica/msl-known-unsupported.txt"])
+        self.assertEqual(pkgs(p), {"globe-mode-frontend", "globe-mode-cli", "globe-mode-db", "xtask"})
 
     def test_xtask_only(self):
         p = plan(["src/Rust/xtask/src/main.rs"])

@@ -31,19 +31,19 @@ OpenModelica（OMEdit）と Rumoca を参考に、GlobeMode に要る機能を�
 
 | 機能 | OMEdit | Rumoca | 優先度 | Phase | GlobeMode での方針 |
 | --- | --- | --- | --- | --- | --- |
-| MSL の読み込み（4.1.0） | ○ | ○ | Must | P1（S003 で済） | `cargo xtask fetch-msl` で `data/msl/` に取得し、`globe check --library` で読む。必要になったファイルだけ parse するのは P2 |
+| MSL の読み込み（4.1.0） | ○ | ○ | Must | P1（S003 で済） | `cargo xtask fetch-msl` で `data/msl/` に取得し、`globe check --library` で読む。S005 から、読んだ Session を `Checker` で使い回す。必要になったファイルだけ parse するのは P2 |
 | ライブラリツリー | ○ | × | Must | P4 | `class_index`（`package.order`） |
 | パッケージマネージャ（`uses` の版） | ○ | × | Could | P8 | 版の不一致は S1 の検査で警告する |
 | **connect のネットワークグラフ（Obsidian 風）** | × | × | **Must** | P2（データは S004 で最初の版）/ P4（描画） | flatten 不要の `connect_graph(path, depth)`。sigma.js + ForceAtlas2。巨大なグラフには cosmos.gl |
 | incidence グラフ・BLT の可視化 | △（変換デバッガ） | × | Should | P8 | `dae_structure` を同じグラフ基盤で描く |
-| フラットモデルの表示（Instantiate） | ○ | ○ | Should | P2 | `flat` クエリの結果を表示する |
+| フラットモデルの表示（Instantiate） | ○ | ○ | Should | P2（S005 で要約） | `globe flat`（S005）: 変数・方程式の数、部品ごとの方程式数（`flat_summary` クエリ）。フラットモデルの本文の表示は後回し |
 
 ## 3. 検査とシミュレーション
 
 | 機能 | OMEdit | Rumoca | 優先度 | Phase | GlobeMode での方針 |
 | --- | --- | --- | --- | --- | --- |
-| Check Model（方程式数と変数数） | ○ | ○ | Must | P2 | S5。`omc checkModel()` と照合する |
-| **シミュレーション前のアサーション（S0〜S10）** | △ | △ | **Must** | P2 | `assert_simulatable`。Error があれば `--force` 無しでは実行しない |
+| Check Model（方程式数と変数数） | ○ | ○ | Must | P2（S005 でクエリ化） | S5。`check` クエリ（MSL は一度だけ読む）。MSL の全例題 566 本に判定を出した（S005）。`omc checkModel()` との照合は omc を入れてから |
+| **シミュレーション前のアサーション（S0〜S10）** | △ | △ | **Must** | P2（S005 で S0〜S6） | `assert_simulatable`。Error があれば `--force` 無しでは実行しない。S005 で S6（構造特異、GM-E6001）と S7 の情報（GM-I7001）、「コンパイラが未対応」の GM-U（[ADR-0007](adr/0007-unsupported-classification.md)） |
 | 複数ソルバ（OpenModelica / Dymola の名前を受け付ける） | ○ | △（bdf / rk） | Must | P3 / P8 | `trait Integrator` と名前の登録表 |
 | experiment annotation と実行設定 | ○ | ○ | Must | P3 | 設定は protocol 型で持つ |
 | パラメータを変えた再実行（再コンパイル無し） | ○ | △ | Should | P3 | `executable` を LRU に保持する |
@@ -85,7 +85,7 @@ OpenModelica（OMEdit）と Rumoca を参考に、GlobeMode に要る機能を�
 
 | 機能 | 優先度 | Phase | 方針 |
 | --- | --- | --- | --- |
-| MSL コーパスのファネル計測（parse → flatten → DAE → balanced → init → simulate） | Must | P1〜 | Rumoca と同じ段階で数える |
+| MSL コーパスのファネル計測（parse → flatten → DAE → balanced → init → simulate） | Must | P1〜（S005 で全例題） | Rumoca と同じ段階で数える。`cargo xtask msl-funnel` が、Rumoca と同じ名前の規則で選んだ 566 本を数える（S005） |
 | Rumoca との差分照合 | Must | P1〜 | Track B に移ってからも続ける |
 | `omc` との照合（別プロセス） | Should | P2〜 | 照合用に限る。リンクしない |
 | Reference-FMUs、FMPy、fmusim、fmuCheck | Must | P5 | FMI の Import と Export の両方 |

@@ -34,6 +34,8 @@ GlobeModeValidation/
 | `Connect.Subsystem` | 外に 2 つのピンを出す部分回路 | — | OK |
 | `Connect.Hierarchical` | 部分回路を 2 つ直列（depth のテスト） | depth 1 はノード 4・辺 4、depth 2 はノード 10・辺 10 | OK。40 = 40 |
 | `Invalid.SignalTypeMismatch` | Real の出力を Boolean の入力に接続 | ノード 2・辺 1 | S4（GM-E4001）で止まる |
+| `Invalid.StructurallySingular` | なし（x だけを含む方程式が 2 本あり、y と z を 1 本の方程式で決めている） | — | S6（GM-E6001）で止まる。方程式 3 = 変数 3 なので S5 は通る |
+| `Invalid.HighIndexDuplicate` | なし（RC 回路を式だけで書き、電圧則を 2 回書いてオームの法則を書き忘れた） | — | S6 は通る。S7 の情報 GM-I7001（数値的な特異は後の段階で見つかる） |
 
 ## 使い方
 

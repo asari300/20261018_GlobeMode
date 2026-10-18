@@ -330,6 +330,143 @@ impl ClassIndex {
     }
 }
 
+/// DAE の構造（S6 の入力）。方程式と未知数の incidence を、配列をスカラーに展開した粒度で持つ。
+///
+/// 未知数は Rumoca の構造解析と同じ約束: 状態ごとの `der(x)[k]` と、Algebraic / Output のスカラー。
+/// 状態・パラメータ・入力・離散変数・`pre()`・`time` は既知として数えない。
+/// 位置（`file` / `range`）は、コンパイルに渡した本文（`source_shape` で正規化した本文）の中の位置。
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize)]
+pub struct DaeStructure {
+    pub unknowns: Vec<Unknown>,
+    pub equations: Vec<EquationRow>,
+    /// 方程式ごとに、参照する未知数の添字（昇順、重複なし）。長さは `equations.len()`。
+    pub incidence: Vec<Vec<u32>>,
+    /// 方程式ごとに、**状態そのもの**（`x`。`der(x)` ではない）を参照しているときの、
+    /// その状態の `der(x)` の未知数の添字（昇順、重複なし）。長さは `equations.len()`。
+    ///
+    /// S6（構造特異）は `x` と `der(x)` を 1 つの列にまとめた二部グラフ（`incidence ∪ state_refs`）で
+    /// 完全マッチングを調べる。`incidence` だけ（der の形）で完全マッチングが無いのは、
+    /// 微分インデックスが 1 より大きい（S7 の情報）ということで、モデルの誤りではない。
+    pub state_refs: Vec<Vec<u32>>,
+}
+
+impl DaeStructure {
+    /// 位置をすべて落とした写し（防火壁 2、ADR-0005）。
+    /// パラメータの値だけを変えた編集などでは前と等しくなり、S6 以降は再計算されない。
+    pub fn without_ranges(&self) -> DaeStructure {
+        DaeStructure {
+            unknowns: self
+                .unknowns
+                .iter()
+                .map(|u| Unknown {
+                    range: None,
+                    ..u.clone()
+                })
+                .collect(),
+            equations: self
+                .equations
+                .iter()
+                .map(|e| EquationRow {
+                    range: None,
+                    ..e.clone()
+                })
+                .collect(),
+            incidence: self.incidence.clone(),
+            state_refs: self.state_refs.clone(),
+        }
+    }
+
+    /// `x` と `der(x)` を 1 つの列にまとめた incidence（S6 の判定に使う）。各行は昇順・重複なし。
+    pub fn merged_incidence(&self) -> Vec<Vec<u32>> {
+        self.incidence
+            .iter()
+            .enumerate()
+            .map(|(i, row)| {
+                let mut merged = row.clone();
+                if let Some(extra) = self.state_refs.get(i) {
+                    merged.extend(extra.iter().copied());
+                }
+                merged.sort_unstable();
+                merged.dedup();
+                merged
+            })
+            .collect()
+    }
+
+    /// 方程式数と未知数が同じ。
+    pub fn is_square(&self) -> bool {
+        self.equations.len() == self.unknowns.len()
+    }
+}
+
+/// DAE の未知数 1 つ（スカラー）。
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+pub struct Unknown {
+    /// 表示名（例: `der(x[2])`、`capacitor.v`）
+    pub name: String,
+    pub kind: UnknownKind,
+    /// 宣言のあるファイル（分かるときだけ）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
+    /// 宣言の位置（分かるときだけ）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub range: Option<TextRange>,
+}
+
+/// 未知数の種類。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UnknownKind {
+    /// 状態の微分 `der(x)`
+    Derivative,
+    Algebraic,
+    Output,
+}
+
+/// DAE の方程式 1 本（スカラー）。
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
+pub struct EquationRow {
+    /// 表示用の短いラベル（例: ソースの一部、`f[3]`）
+    pub label: String,
+    pub origin: EquationOrigin,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub range: Option<TextRange>,
+}
+
+/// 方程式の由来。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EquationOrigin {
+    /// ソースに書かれた方程式
+    Source,
+    /// connect 文から作った（potential の等式）
+    Connection,
+    /// connect 文から作った（flow の総和 = 0）
+    FlowBalance,
+    /// 宣言の束縛（`Real y = 2 * x`）
+    Binding,
+    /// そのほかコンパイラが生成したもの
+    Generated,
+}
+
+/// flat モデルの要約（`flat_summary` クエリ）。S5 で数が合わないときに、どの部品が原因かを示すのに使う。
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize)]
+pub struct FlatSummary {
+    /// 変数の宣言の数（配列は 1 個）
+    pub variables: usize,
+    /// 方程式の数（スカラー）
+    pub equations: usize,
+    /// 初期方程式の数（スカラー）
+    pub initial_equations: usize,
+    pub partial: bool,
+    /// トップレベルのコネクタ（FMU の入出力になる）
+    pub top_level_connectors: Vec<String>,
+    /// 部品ごとの方程式の数（スカラー）。部品のパス順
+    pub equations_by_component: Vec<(String, usize)>,
+}
+
 /// [`ClassIndex::interface`] が返すコンポーネント。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedComponent {

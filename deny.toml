@@ -40,6 +40,9 @@ deny = [
   { crate = "rumoca", reason = "umbrella crate を使わない（ADR-0002）" },
   # Rumoca を使ってよいのはアダプタだけ
   { crate = "rumoca-compile", wrappers = ["globe-mode-frontend", "globe-mode-exec"], reason = "Rumoca はアダプタからだけ使う（ADR-0002）" },
+  # S005 で足した rumoca-ir-dae / rumoca-eval-dae / rumoca-core は Rumoca の内部の crate からも使われるので、
+  # wrappers には書けない（書くと Rumoca の内部の依存まで違反になる）。GlobeMode 側の直接依存が frontend だけであることは、
+  # 各 crate の Cargo.toml のレビューで守る
   { crate = "zenoh", reason = "EPL-2.0 OR Apache-2.0。IDE のコアに要らない" },
   { crate = "russell_sparse", reason = "GPL の UMFPACK をリンクする" },
 ]

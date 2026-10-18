@@ -17,6 +17,7 @@ globe-mode-ir = { path = "src/Rust/mod/globe-mode-ir", version = "0.0.1" }
 globe-mode-frontend = { path = "src/Rust/mod/globe-mode-frontend", version = "0.0.1" }
 globe-mode-graph = { path = "src/Rust/mod/globe-mode-graph", version = "0.0.1" }
 globe-mode-db = { path = "src/Rust/mod/globe-mode-db", version = "0.0.1" }
+globe-mode-analysis = { path = "src/Rust/mod/globe-mode-analysis", version = "0.0.1" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -26,6 +27,10 @@ salsa = "0.28.5"
 # Rumoca はアダプタ（globe-mode-frontend / globe-mode-exec）からだけ使う。umbrella crate `rumoca` は使わない。
 # rev は v0.10.2（2026-10-04）。更新は MSL のファネルの差分を記録してから行う（doc/adr/0002-rumoca-adapter.md）。
 rumoca-compile = { git = "https://github.com/CogniPilot/rumoca", rev = "276e82bd0fd48960ac201e782918d28bf19cf7ce", default-features = false }
+# S005: DAE の incidence（方程式 × 未知数）を自前で作るために、DAE の IR と式の射影も同じ rev で使う（rumoca-compile の推移的依存。新しい外部依存は増えない）
+rumoca-ir-dae = { git = "https://github.com/CogniPilot/rumoca", rev = "276e82bd0fd48960ac201e782918d28bf19cf7ce", default-features = false }
+rumoca-eval-dae = { git = "https://github.com/CogniPilot/rumoca", rev = "276e82bd0fd48960ac201e782918d28bf19cf7ce", default-features = false }
+rumoca-core = { git = "https://github.com/CogniPilot/rumoca", rev = "276e82bd0fd48960ac201e782918d28bf19cf7ce", default-features = false }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

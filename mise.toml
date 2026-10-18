@@ -37,6 +37,13 @@ run = [
   "cargo xtask msl-compare",
 ]
 
+[tasks."msl:funnel"]
+description = "MSL 4.1.0 の全例題（Examples の下、566 本）に globe check の判定を出し、報告を書く（S005）"
+run = [
+  "cargo xtask fetch-msl",
+  "cargo xtask msl-funnel --report doc/sessions/S005-check-queries/msl-funnel.md",
+]
+
 [tasks."docs:check"]
 description = "スライド・リンクの検査と、Playwright でのブラウザ表示の検査"
 run = [

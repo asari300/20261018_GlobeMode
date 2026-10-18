@@ -1,0 +1,57 @@
+# 既知の制約の一覧（ADR-0007）。globe-mode-frontend が include_str! で読む。
+# 1 行 = <モデルの完全修飾名> <Rumoca のエラーコード> # 理由（任意）
+# ここに当たった失敗は「モデルの誤り」ではなく GM-U0003（コンパイラの既知の制約）として報告する。
+# 中身は cargo xtask msl-funnel の結果から作る（S005）。
+# S005: MSL 4.1.0 の全例題（566 本）を Rumoca v0.10.2 で検査し、コードだけでは決まらない失敗を移した。
+# Rumoca の rev を上げたら、msl-funnel の報告の「一覧にあるのに、今回は当たらなかった行」を見て消す。
+
+Modelica.Blocks.Examples.Rectifier12pulseFFT ET004 # 配列の次元が関数 realFFTsamplePoints の呼び出しで決まり、Rumoca v0.10.2 が評価できない
+Modelica.Blocks.Examples.Rectifier6pulseFFT ET004 # 配列の次元が関数 realFFTsamplePoints の呼び出しで決まり、Rumoca v0.10.2 が評価できない
+Modelica.Electrical.Batteries.Examples.CCCV_CellRC ED001 # Rumoca v0.10.2 の数え方では方程式 144・変数 154（差 -10）。MSL の例題なので、モデルの誤りではなく Rumoca の制約とみなす
+Modelica.Electrical.Batteries.Examples.CCCVcharging ED001 # Rumoca v0.10.2 の数え方では方程式 113・変数 123（差 -10）。MSL の例題なので、モデルの誤りではなく Rumoca の制約とみなす
+Modelica.Electrical.Digital.Examples.Counter ED010 # Rumoca v0.10.2 が離散の方程式の形を受け付けない（Appendix B の解いた形: 要素ごとの代入が離散の座標をちょうど 1 回ずつ覆わない）
+Modelica.Electrical.Digital.Examples.Counter3 ED010 # Rumoca v0.10.2 が離散の方程式の形を受け付けない（Appendix B の解いた形: 要素ごとの代入が離散の座標をちょうど 1 回ずつ覆わない）
+Modelica.Electrical.Machines.Examples.SynchronousMachines.SMEE_LoadDump ED010 # Rumoca v0.10.2 が離散の方程式の形を受け付けない（Appendix B の解いた形: 要素ごとの代入が離散の座標をちょうど 1 回ずつ覆わない）
+Modelica.Electrical.PowerConverters.Examples.ACAC.SoftStarter ED001 # Rumoca v0.10.2 の数え方では方程式 1165・変数 1192（差 -27）。MSL の例題なので、モデルの誤りではなく Rumoca の制約とみなす
+Modelica.Magnetic.FundamentalWave.Examples.BasicMachines.InductionMachines.ComparisonPolyphase.IMC_DOL_CommonLeakage ED001 # Rumoca v0.10.2 の数え方では方程式 3447・変数 3573（差 -126）。MSL の例題なので、モデルの誤りではなく Rumoca の制約とみなす
+Modelica.Magnetic.FundamentalWave.Examples.BasicMachines.InductionMachines.ComparisonPolyphase.IMC_DOL_Polyphase ED001 # Rumoca v0.10.2 の数え方では方程式 2069・変数 2135（差 -66）。MSL の例題なので、モデルの誤りではなく Rumoca の制約とみなす
+Modelica.Magnetic.FundamentalWave.Examples.BasicMachines.InductionMachines.ComparisonPolyphase.IMS_Start_Polyphase ED001 # Rumoca v0.10.2 の数え方では方程式 2613・変数 2681（差 -68）。MSL の例題なので、モデルの誤りではなく Rumoca の制約とみなす
+Modelica.Magnetic.FundamentalWave.Examples.BasicMachines.InductionMachines.IMC_Conveyor ED001 # Rumoca v0.10.2 の数え方では方程式 816・変数 843（差 -27）。MSL の例題なので、モデルの誤りではなく Rumoca の制約とみなす
+Modelica.Magnetic.FundamentalWave.Examples.BasicMachines.InductionMachines.IMC_DOL ED001 # Rumoca v0.10.2 の数え方では方程式 1321・変数 1348（差 -27）。MSL の例題なので、モデルの誤りではなく Rumoca の制約とみなす
+Modelica.Magnetic.FundamentalWave.Examples.BasicMachines.InductionMachines.IMC_Initialize ED001 # Rumoca v0.10.2 の数え方では方程式 792・変数 819（差 -27）。MSL の例題なので、モデルの誤りではなく Rumoca の制約とみなす
+Modelica.Magnetic.FundamentalWave.Examples.BasicMachines.InductionMachines.IMC_Inverter ED001 # Rumoca v0.10.2 の数え方では方程式 795・変数 822（差 -27）。MSL の例題なので、モデルの誤りではなく Rumoca の制約とみなす
+Modelica.Magnetic.FundamentalWave.Examples.BasicMachines.InductionMachines.IMC_Steinmetz ED001 # Rumoca v0.10.2 の数え方では方程式 817・変数 844（差 -27）。MSL の例題なので、モデルの誤りではなく Rumoca の制約とみなす
+Modelica.Magnetic.FundamentalWave.Examples.BasicMachines.InductionMachines.IMC_Transformer ED001 # Rumoca v0.10.2 の数え方では方程式 1260・変数 1287（差 -27）。MSL の例題なので、モデルの誤りではなく Rumoca の制約とみなす
+Modelica.Magnetic.FundamentalWave.Examples.BasicMachines.InductionMachines.IMC_YD ED001 # Rumoca v0.10.2 の数え方では方程式 984・変数 1011（差 -27）。MSL の例題なので、モデルの誤りではなく Rumoca の制約とみなす
+Modelica.Magnetic.FundamentalWave.Examples.BasicMachines.InductionMachines.IMC_withLosses ED001 # Rumoca v0.10.2 の数え方では方程式 850・変数 877（差 -27）。MSL の例題なので、モデルの誤りではなく Rumoca の制約とみなす
+Modelica.Magnetic.FundamentalWave.Examples.BasicMachines.InductionMachines.IMS_Start ED001 # Rumoca v0.10.2 の数え方では方程式 1750・変数 1778（差 -28）。MSL の例題なので、モデルの誤りではなく Rumoca の制約とみなす
+Modelica.Magnetic.FundamentalWave.Examples.BasicMachines.SynchronousMachines.ComparisonPolyphase.SMEE_Generator_Polyphase ED001 # Rumoca v0.10.2 の数え方では方程式 2231・変数 2293（差 -62）。MSL の例題なので、モデルの誤りではなく Rumoca の制約とみなす
+Modelica.Magnetic.FundamentalWave.Examples.BasicMachines.SynchronousMachines.ComparisonPolyphase.SMPM_Inverter_Polyphase ED001 # Rumoca v0.10.2 の数え方では方程式 1874・変数 1932（差 -58）。MSL の例題なので、モデルの誤りではなく Rumoca の制約とみなす
+Modelica.Magnetic.FundamentalWave.Examples.BasicMachines.SynchronousMachines.ComparisonPolyphase.SMR_Inverter_Polyphase ED001 # Rumoca v0.10.2 の数え方では方程式 1800・変数 1854（差 -54）。MSL の例題なので、モデルの誤りではなく Rumoca の制約とみなす
+Modelica.Magnetic.FundamentalWave.Examples.BasicMachines.SynchronousMachines.SMEE_DOL ED001 # Rumoca v0.10.2 の数え方では方程式 1023・変数 1051（差 -28）。MSL の例題なので、モデルの誤りではなく Rumoca の制約とみなす
+Modelica.Magnetic.FundamentalWave.Examples.BasicMachines.SynchronousMachines.SMEE_Generator ED001 # Rumoca v0.10.2 の数え方では方程式 1468・変数 1496（差 -28）。MSL の例題なので、モデルの誤りではなく Rumoca の制約とみなす
+Modelica.Magnetic.FundamentalWave.Examples.BasicMachines.SynchronousMachines.SMEE_LoadDump ED001 # Rumoca v0.10.2 の数え方では方程式 1048・変数 1076（差 -28）。MSL の例題なので、モデルの誤りではなく Rumoca の制約とみなす
+Modelica.Magnetic.FundamentalWave.Examples.BasicMachines.SynchronousMachines.SMEE_Rectifier ED001 # Rumoca v0.10.2 の数え方では方程式 930・変数 958（差 -28）。MSL の例題なので、モデルの誤りではなく Rumoca の制約とみなす
+Modelica.Magnetic.FundamentalWave.Examples.BasicMachines.SynchronousMachines.SMPM_Braking ED001 # Rumoca v0.10.2 の数え方では方程式 799・変数 818（差 -19）。MSL の例題なので、モデルの誤りではなく Rumoca の制約とみなす
+Modelica.Magnetic.FundamentalWave.Examples.BasicMachines.SynchronousMachines.SMPM_CurrentSource ED001 # Rumoca v0.10.2 の数え方では方程式 807・変数 826（差 -19）。MSL の例題なので、モデルの誤りではなく Rumoca の制約とみなす
+Modelica.Magnetic.FundamentalWave.Examples.BasicMachines.SynchronousMachines.SMPM_Inverter ED001 # Rumoca v0.10.2 の数え方では方程式 1387・変数 1413（差 -26）。MSL の例題なので、モデルの誤りではなく Rumoca の制約とみなす
+Modelica.Magnetic.FundamentalWave.Examples.BasicMachines.SynchronousMachines.SMPM_VoltageSource ED001 # Rumoca v0.10.2 の数え方では方程式 892・変数 911（差 -19）。MSL の例題なので、モデルの誤りではなく Rumoca の制約とみなす
+Modelica.Magnetic.FundamentalWave.Examples.BasicMachines.SynchronousMachines.SMR_Inverter ED001 # Rumoca v0.10.2 の数え方では方程式 1323・変数 1347（差 -24）。MSL の例題なので、モデルの誤りではなく Rumoca の制約とみなす
+Modelica.Magnetic.FundamentalWave.Examples.Components.EddyCurrentLosses ED001 # Rumoca v0.10.2 の数え方では方程式 668・変数 689（差 -21）。MSL の例題なので、モデルの誤りではなく Rumoca の制約とみなす
+Modelica.Magnetic.FundamentalWave.Examples.Components.PolyphaseInductance ED001 # Rumoca v0.10.2 の数え方では方程式 566・変数 588（差 -22）。MSL の例題なので、モデルの誤りではなく Rumoca の制約とみなす
+Modelica.Magnetic.FundamentalWave.Examples.Components.SinglePhaseInductance ED001 # Rumoca v0.10.2 の数え方では方程式 80・変数 84（差 -4）。MSL の例題なので、モデルの誤りではなく Rumoca の制約とみなす
+Modelica.Magnetic.QuasiStatic.FluxTubes.Examples.FixedShapes.CuboidSections ED001 # Rumoca v0.10.2 の数え方では方程式 161・変数 188（差 -27）。MSL の例題なので、モデルの誤りではなく Rumoca の制約とみなす
+Modelica.Math.FastFourierTransform.Examples.RealFFT1 ET004 # 配列の次元が関数 realFFTsamplePoints の呼び出しで決まり、Rumoca v0.10.2 が評価できない
+Modelica.Math.FastFourierTransform.Examples.RealFFT2 ET004 # 配列の次元が関数 realFFTsamplePoints の呼び出しで決まり、Rumoca v0.10.2 が評価できない
+Modelica.Mechanics.Rotational.Examples.CoupledClutches ED001 # Rumoca v0.10.2 の数え方では方程式 115・変数 112（差 +3）。MSL の例題なので、モデルの誤りではなく Rumoca の制約とみなす
+Modelica.Mechanics.Rotational.Examples.Friction ED001 # Rumoca v0.10.2 の数え方では方程式 104・変数 102（差 +2）。MSL の例題なので、モデルの誤りではなく Rumoca の制約とみなす
+Modelica.Mechanics.Rotational.Examples.HeatLosses ED001 # Rumoca v0.10.2 の数え方では方程式 269・変数 248（差 +21）。MSL の例題なので、モデルの誤りではなく Rumoca の制約とみなす
+Modelica.Mechanics.Rotational.Examples.LossyGearDemo1 ED001 # Rumoca v0.10.2 の数え方では方程式 84・変数 76（差 +8）。MSL の例題なので、モデルの誤りではなく Rumoca の制約とみなす
+Modelica.Mechanics.Rotational.Examples.LossyGearDemo2 ED001 # Rumoca v0.10.2 の数え方では方程式 108・変数 100（差 +8）。MSL の例題なので、モデルの誤りではなく Rumoca の制約とみなす
+Modelica.Mechanics.Rotational.Examples.LossyGearDemo3 ED001 # Rumoca v0.10.2 の数え方では方程式 75・変数 67（差 +8）。MSL の例題なので、モデルの誤りではなく Rumoca の制約とみなす
+Modelica.Mechanics.Rotational.Examples.OneWayClutch ED001 # Rumoca v0.10.2 の数え方では方程式 44・変数 43（差 +1）。MSL の例題なので、モデルの誤りではなく Rumoca の制約とみなす
+Modelica.Mechanics.Rotational.Examples.OneWayClutchDisengaged ED001 # Rumoca v0.10.2 の数え方では方程式 47・変数 46（差 +1）。MSL の例題なので、モデルの誤りではなく Rumoca の制約とみなす
+Modelica.Mechanics.Rotational.Examples.SimpleGearShift ED001 # Rumoca v0.10.2 の数え方では方程式 90・変数 88（差 +2）。MSL の例題なので、モデルの誤りではなく Rumoca の制約とみなす
+Modelica.Mechanics.Translational.Examples.Brake ED001 # Rumoca v0.10.2 の数え方では方程式 75・変数 73（差 +2）。MSL の例題なので、モデルの誤りではなく Rumoca の制約とみなす
+Modelica.Mechanics.Translational.Examples.Friction ER130 # Rumoca v0.10.2 が、入れ子のクラスから定数でない変数 s への参照を MLS §5.3.1 違反として拒む
+Modelica.Mechanics.Translational.Examples.HeatLosses ER130 # Rumoca v0.10.2 が、入れ子のクラスから定数でない変数 s への参照を MLS §5.3.1 違反として拒む
