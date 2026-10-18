@@ -15,10 +15,13 @@ publish = false
 globe-mode-core = { path = "src/Rust/mod/globe-mode-core", version = "0.0.1" }
 globe-mode-ir = { path = "src/Rust/mod/globe-mode-ir", version = "0.0.1" }
 globe-mode-frontend = { path = "src/Rust/mod/globe-mode-frontend", version = "0.0.1" }
+globe-mode-graph = { path = "src/Rust/mod/globe-mode-graph", version = "0.0.1" }
+globe-mode-db = { path = "src/Rust/mod/globe-mode-db", version = "0.0.1" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 clap = { version = "4.5", features = ["derive"] }
+salsa = "0.28.5"
 
 # Rumoca はアダプタ（globe-mode-frontend / globe-mode-exec）からだけ使う。umbrella crate `rumoca` は使わない。
 # rev は v0.10.2（2026-10-04）。更新は MSL のファネルの差分を記録してから行う（doc/adr/0002-rumoca-adapter.md）。

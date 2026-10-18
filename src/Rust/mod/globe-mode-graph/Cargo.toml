@@ -1,0 +1,17 @@
+[package]
+name = "globe-mode-graph"
+description = "GlobeMode: connect graph (graphology JSON) built from the neutral IR without flattening"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+globe-mode-ir = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

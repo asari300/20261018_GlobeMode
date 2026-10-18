@@ -59,8 +59,16 @@ IR:        rumoca-ir-ast → rumoca-ir-flat → rumoca-ir-dae → rumoca-ir-solv
 
 - **対応済み**: extends、modifier、connect/flow、配列、関数、when/pre/edge/reinit/sample。
 - **0.7.28 時点で未実装**だったもの: stream / expandable / overconstrained connector、演算子オーバーロード、state machine。
+  - **S003・S004 で確かめたこと（v0.10.2）**: stream connector は使える。MSL の `Fluid.Examples.Tanks.EmptyTanks` と、自作の流体ポート（`inStream`）のモデルが DAE まで通った。
   - 現在の状況は【未確認】。v0.10.1 でも Fluid は作業中だった。
 - GlobeMode は、これらを「コンパイラが未対応」の **GM-U コード**として「モデルの誤り」と分けて報告する（[architecture.md](../architecture.md#32-遅延評価とシミュレーション前のアサーション)）。
+
+## S004 で見つけた制約（v0.10.2）
+
+- ライブラリ（`--source-root`）として読んだクラスが、別のライブラリのクラスを extends すると、ER003（base class not found）になる。
+  - 例: ライブラリの中の `replaceable package Medium = Modelica.Media.Interfaces.PartialMedium`。
+  - コンパイルする文書の中に書けば解決できる。
+- GlobeMode は、作業中のパッケージを文書として渡して回避している（[ADR-0002](../adr/0002-rumoca-adapter.md)）。
 
 ## 依存として取り込むときの注意
 

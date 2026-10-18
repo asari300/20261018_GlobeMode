@@ -1,0 +1,19 @@
+[package]
+name = "globe-mode-db"
+description = "GlobeMode: salsa query database (lazy, incremental evaluation)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+globe-mode-core = { workspace = true }
+globe-mode-ir = { workspace = true }
+globe-mode-frontend = { workspace = true }
+globe-mode-graph = { workspace = true }
+salsa = { workspace = true }
+
+[lints]
+workspace = true

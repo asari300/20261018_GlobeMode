@@ -2,7 +2,8 @@
 //!
 //! ```text
 //! globe outline <FILE> [--json]
-//! globe check [<FILE>...] [--library <DIR>]... --model <NAME> [--json]
+//! globe check [<FILE|DIR>...] [--library <DIR>]... --model <NAME> [--json]
+//! globe graph <FILE|DIR>... --model <NAME> [--depth N] [--json]
 //! ```
 //!
 //! 終了コード: 0 = 成功 / 1 = Error の診断がある / 2 = 入力の読み込みに失敗。
@@ -36,9 +37,25 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// connect グラフ（flatten しない）を表示する。--json は graphology の形式
+    Graph {
+        /// ファイルまたはディレクトリ（ディレクトリは下の .mo をすべて読む）
+        #[arg(required = true)]
+        inputs: Vec<PathBuf>,
+        /// モデルの完全修飾名
+        #[arg(long, short)]
+        model: String,
+        /// 展開する深さ（1 は直下の部品だけ）
+        #[arg(long, short, default_value_t = 1)]
+        depth: u32,
+        /// graphology の JSON で出力する
+        #[arg(long)]
+        json: bool,
+    },
     /// モデルを DAE まで変換して検査する（S0〜S5）
     Check {
-        /// 検査するファイル。モデルがライブラリの中にあるなら省略できる
+        /// 検査するファイルまたはディレクトリ（ディレクトリは下の .mo をすべて読む）。
+        /// モデルがライブラリの中にあるなら省略できる
         #[arg(required_unless_present = "library")]
         files: Vec<PathBuf>,
         /// ライブラリのディレクトリ（例: data/msl）。何度でも指定できる
@@ -58,6 +75,12 @@ fn main() -> ExitCode {
     let frontend = RumocaFrontend::new();
     match cli.command {
         Command::Outline { file, json } => outline(&frontend, &file, json),
+        Command::Graph {
+            inputs,
+            model,
+            depth,
+            json,
+        } => graph(&inputs, &model, depth, json),
         Command::Check {
             files,
             library,
@@ -65,6 +88,40 @@ fn main() -> ExitCode {
             json,
         } => check(&frontend, &files, &library, &model, json),
     }
+}
+
+/// 入力のうちディレクトリは、その下の `.mo` をすべて（名前順に）展開する。
+///
+/// 作業中のパッケージ（`src/Modelica/GlobeModeValidation` など）は、ライブラリ（`--library`）ではなく
+/// 文書として読む。Rumoca v0.10.2 は、ライブラリとして読んだクラスから別のライブラリ（MSL）を
+/// extends できない（S004 で確かめた）ため。
+fn expand_inputs(inputs: &[PathBuf]) -> Result<Vec<PathBuf>, ExitCode> {
+    fn walk(dir: &std::path::Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
+        for entry in std::fs::read_dir(dir)? {
+            let p = entry?.path();
+            if p.is_dir() {
+                walk(&p, out)?;
+            } else if p.extension().is_some_and(|e| e == "mo") {
+                out.push(p);
+            }
+        }
+        Ok(())
+    }
+    let mut out = Vec::new();
+    for input in inputs {
+        if input.is_dir() {
+            let mut found = Vec::new();
+            if let Err(e) = walk(input, &mut found) {
+                eprintln!("error: {} を読めない: {e}", input.display());
+                return Err(ExitCode::from(2));
+            }
+            found.sort();
+            out.extend(found);
+        } else {
+            out.push(input.clone());
+        }
+    }
+    Ok(out)
 }
 
 fn read(path: &PathBuf) -> Result<(String, String), ExitCode> {
@@ -121,7 +178,11 @@ fn check(
     let libraries: Vec<&std::path::Path> = library.iter().map(PathBuf::as_path).collect();
     let mut texts = HashMap::new();
     let mut order = Vec::new();
-    for f in files {
+    let files = match expand_inputs(files) {
+        Ok(f) => f,
+        Err(code) => return code,
+    };
+    for f in &files {
         match read(f) {
             Ok((name, text)) => {
                 order.push(name.clone());
@@ -186,6 +247,56 @@ fn check(
         ExitCode::SUCCESS
     } else {
         ExitCode::from(1)
+    }
+}
+
+fn graph(inputs: &[PathBuf], model: &str, depth: u32, json: bool) -> ExitCode {
+    let files = match expand_inputs(inputs) {
+        Ok(f) => f,
+        Err(code) => return code,
+    };
+    let mut db = globe_mode_db::GlobeDb::new();
+    for f in &files {
+        match read(f) {
+            Ok((name, text)) => db.set_file(&name, text),
+            Err(code) => return code,
+        }
+    }
+    match db.connect_graph(model, depth) {
+        Ok(g) if json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&g.to_graphology()).expect("serialize graph")
+            );
+            ExitCode::SUCCESS
+        }
+        Ok(g) => {
+            println!(
+                "{}（depth {}）: ノード {} / 辺 {}",
+                g.model,
+                g.depth,
+                g.nodes.len(),
+                g.edges.len()
+            );
+            for e in &g.edges {
+                let domain = serde_json::to_value(e.domain)
+                    .ok()
+                    .and_then(|v| v.as_str().map(str::to_owned))
+                    .unwrap_or_default();
+                println!(
+                    "  {:<8} {} -- {}   ({} — {})",
+                    domain, e.source, e.target, e.lhs, e.rhs
+                );
+            }
+            if !g.unresolved.is_empty() {
+                println!("  未解決の型: {}", g.unresolved.join(", "));
+            }
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("error: {e}");
+            ExitCode::from(1)
+        }
     }
 }
 

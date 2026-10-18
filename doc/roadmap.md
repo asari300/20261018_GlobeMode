@@ -19,7 +19,7 @@ flowchart LR
 | --- | --- | --- | --- |
 | **P0 運用基盤** | 調査、計画、CLAUDE.md、スキル、セッション記録のフック、スライドと解説書の型 | S001 の成果物がそろう。フックが伏せ字版を出力する。リンク切れが 0 件 | S001 |
 | **P1 骨格**（S003 で完了） | workspace 化、mise の rust の targets、cargo-deny、CI（Linux / Windows / wasm）。core / ir / frontend / cli。MSL の取得スクリプト。Python パッケージの改名 | `cargo deny check` が通る。MSL の例題 20 本で `globe check` の結果が Rumoca と一致する。frontend が wasm32 向けにビルドできる。[ADR-0003](adr/0003-toolchain.md) が Accepted になる | 3 回（workspace と CI / アダプタと CLI / wasm の確認） |
-| **P2 遅延クエリと検査** | db、outline、class_index、connect_graph、`assert_simulatable` の S0〜S10 | 空白だけの編集の再検査が 50 ms 未満で、`flat` が再実行されない（salsa のイベントで確かめる）。MSL の全例題に判定が出て、panic は 0 件。S5 が omc と 95% 以上一致する | 4 回 |
+| **P2 遅延クエリと検査**（S004 から進行中） | db、outline、class_index、connect_graph、`assert_simulatable` の S0〜S10 | 空白だけの編集の再検査が 50 ms 未満で、`flat` が再実行されない（salsa のイベントで確かめる）。MSL の全例題に判定が出て、panic は 0 件。S5 が omc と 95% 以上一致する | 4 回 |
 | **P3 シミュレーション** | exec、driver、bdf / esdirk34 / tsit45 / dopri / 固定刻み、ResultStore | MSL の例題 153 本以上が実行できる。そのうち 90% 以上が参照結果のファネルに収まる。bdf が wasm で（Node 上で）動く | 5 回 |
 | **P4 Desktop MVP** | CodeMirror 6 と LSP、ライブラリツリー、検査パネル、プロット、sigma.js の connect グラフ | ChuaCircuit で開く・検査・実行・プロットが通る。5k ノードのグラフが 30 fps 以上で動く。RSS の基準値を記録する。CI が .deb と .msi を作る | 6 回 |
 | **P5 FMI** | Import（ME / CS / SE）とマスター。Export は P5a（Rumoca のテンプレート）の後に P5b（自前のランタイム） | Reference-FMUs が linux64 と win64 で一致する。Export した FMU が FMPy・fmusim・fmuCheck を通る。Clocks（SE）が往復できる | 8 回 |
@@ -64,14 +64,38 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - CI に `msl` ジョブを足した（全体を検査するときだけ）。
 - これで **P1 の完了条件はすべて満たした**。
 
+### S004（P2 の 1 回目、2026-10-18）で済んだこと
+
+- `globe-mode-db`（salsa 0.28.5）を作った。クエリは `outline` → `outline_shape`（位置を落とした防火壁）→ `class_index` → `connect_graph`。
+- `globe-mode-graph`: connect グラフを flatten せずに作る。
+  - 辺の種類は flow / stream / real / boolean …。
+  - depth で部分回路を展開できる。
+  - 出力は graphology の JSON。CLI は `globe graph`。
+- 検証用のパッケージ `src/Modelica/GlobeModeValidation` を作った。
+  - Real の potential / flow、Real と Boolean の信号、Medium の流体ポート、階層、型の誤りのモデルを入れた。
+  - OMEdit などでも開けるパッケージの構成にした。
+- **空白とコメントだけの編集では、`class_index` と `connect_graph` が再実行されないことをテストで確かめた。**
+  - 再計算は中央値 0.20 ms で、目標の 50 ms 未満。
+- Rumoca v0.10.2 の制約を見つけた（ライブラリとして読んだクラスから別のライブラリを extends できない）。作業中のパッケージは文書として読んで回避した。
+
+### P2 の完了条件の進み具合
+
+| 完了条件 | 状態 |
+| --- | --- |
+| 空白だけの編集の再検査が 50 ms 未満で、下流が再実行されない | connect グラフでは済（S004、0.20 ms）。`flat` と検査（S0〜S10）をクエリに載せるのは S005 以降 |
+| MSL の全例題に判定が出て、panic は 0 件 | 残り |
+| S5 が omc と 95% 以上一致する | 残り |
+
 ## 次のセッション
 
-**S004（P2 の 1 回目）** で行うこと:
+**S005（P2 の 2 回目）** で行うこと:
 
-1. `globe-mode-db`: salsa のクエリ DB を置き、`parse` → `outline`（Eq の防火壁）までをクエリにする。
-2. 空白だけの編集で、`outline` から先が再計算されないことを、salsa のイベントで確かめるテスト。
-3. `class_index` と `connect_graph(path, depth)` の最初の版（flatten 不要）。
-4. S003 で見つけた課題: MSL の正しい例題（CoupledClutches、Friction）が Rumoca の制約で S5 に落ちる。「コンパイラが未対応」（GM-U）に振り分ける規則を検討する。
+1. `flat` と `check`（S0〜S5）を salsa のクエリにする。MSL はライブラリとして一度だけ読み、使い回す。
+2. 「コンパイラが未対応」（GM-U）の振り分けを決める。
+   - 候補: 既知の制約の一覧（MSL の例題と Rumoca のコードの組）を持つ。または omc（別プロセス）と照合して振り分ける。
+   - S004 の解説書に、比べた結果がある。
+3. S6（構造特異）の最初の版: 完全マッチングの有無と、Dulmage–Mendelsohn 分解。
+4. MSL の全例題に判定を出す、ファネルの計測。
 
 ## 運用上の決まり
 

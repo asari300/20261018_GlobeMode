@@ -39,11 +39,11 @@ FULL_TRIGGERS = ["Cargo.toml", "Cargo.lock", "mise.toml", "mise.lock", "deny.tom
 # 依存の集合が変わる（cargo deny が要る）
 DEPENDENCY_FILES = ["Cargo.toml", "Cargo.lock", "deny.toml", "src/Rust/mod/*/Cargo.toml"]
 # wasm でビルドできることを守る crate
-WASM_CRATES = {"globe-mode-core", "globe-mode-ir", "globe-mode-frontend"}
+WASM_CRATES = {"globe-mode-core", "globe-mode-ir", "globe-mode-frontend", "globe-mode-graph", "globe-mode-db"}
 # Rust 以外のファイルで、特定の crate のテストが読むもの
 EXTRA_INPUTS = {
     "src/Modelica/msl-compare.txt": {"xtask"},
-    "src/Modelica/*": {"globe-mode-frontend", "globe-mode-cli"},
+    "src/Modelica/*": {"globe-mode-frontend", "globe-mode-cli", "globe-mode-db"},
 }
 PYTHON_FILES = ["pyproject.toml", "uv.lock", ".python-version", "src/Python/*"]
 DOC_FILES = ["*.md", "doc/*", "log/*", ".claude/skills/*", "src/*/README.md"]

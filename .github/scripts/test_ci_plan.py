@@ -23,14 +23,26 @@ class Plan(unittest.TestCase):
 
     def test_change_propagates_to_dependents(self):
         p = plan(["src/Rust/mod/globe-mode-ir/src/lib.rs"])
-        self.assertEqual(pkgs(p), {"globe-mode-ir", "globe-mode-frontend", "globe-mode-cli", "xtask"})
+        self.assertEqual(
+            pkgs(p),
+            {"globe-mode-ir", "globe-mode-frontend", "globe-mode-graph", "globe-mode-db", "globe-mode-cli", "xtask"},
+        )
         self.assertTrue(p["wasm"])
 
     def test_core_change_tests_everything_but_is_not_full(self):
         p = plan(["src/Rust/mod/globe-mode-core/src/lib.rs"])
         self.assertFalse(p["full"])
-        self.assertEqual(pkgs(p), {"globe-mode-core", "globe-mode-ir", "globe-mode-frontend", "globe-mode-cli", "xtask"})
+        self.assertEqual(
+            pkgs(p),
+            {"globe-mode-core", "globe-mode-ir", "globe-mode-frontend", "globe-mode-graph", "globe-mode-db",
+             "globe-mode-cli", "xtask"},
+        )
         self.assertFalse(p["msl"])
+
+    def test_graph_change_reaches_db_and_cli(self):
+        p = plan(["src/Rust/mod/globe-mode-graph/src/lib.rs"])
+        self.assertEqual(pkgs(p), {"globe-mode-graph", "globe-mode-db", "globe-mode-cli"})
+        self.assertTrue(p["wasm"])
 
     def test_xtask_only(self):
         p = plan(["src/Rust/xtask/src/main.rs"])
@@ -45,8 +57,8 @@ class Plan(unittest.TestCase):
 
     def test_modelica_samples_affect_frontend_tests(self):
         p = plan(["src/Modelica/GlobeModeExamples/package.mo"])
-        # xtask は frontend に依存するので、依存元として入る
-        self.assertEqual(pkgs(p), {"globe-mode-frontend", "globe-mode-cli", "xtask"})
+        # db のテストも src/Modelica を読む。xtask は frontend に依存するので、依存元として入る
+        self.assertEqual(pkgs(p), {"globe-mode-frontend", "globe-mode-cli", "globe-mode-db", "xtask"})
 
     def test_crate_manifest_needs_deny_but_not_full(self):
         p = plan(["src/Rust/mod/globe-mode-cli/Cargo.toml"])

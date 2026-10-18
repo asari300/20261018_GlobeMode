@@ -7,9 +7,13 @@ use globe_mode_frontend::{Frontend, RumocaFrontend, Source};
 use globe_mode_ir::ClassKind;
 
 fn modelica(rel: &str) -> (String, String) {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../Modelica")
-        .join(rel);
+    // わざと誤ったファイルは src/Modelica（ほかの IDE でも開くライブラリ）に置かず、tests/data に置く
+    let base = if rel == "SyntaxError.mo" {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/data")
+    } else {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../Modelica")
+    };
+    let path = base.join(rel);
     let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     (rel.to_string(), text)
 }
@@ -173,4 +177,76 @@ fn missing_library_is_reported_at_s1() {
     let r = RumocaFrontend::new().check(&[], &[missing.as_path()], "Anything");
     assert_eq!(r.failed_stage(), Some(Stage::S1));
     assert_eq!(r.diagnostics[0].code, codes::LIBRARY);
+}
+
+/// GlobeModeValidation の .mo をすべて文書として読む（ワークスペースとして扱う）。
+fn validation_sources() -> Vec<(String, String)> {
+    fn walk(dir: &std::path::Path, out: &mut Vec<PathBuf>) {
+        for e in std::fs::read_dir(dir).unwrap() {
+            let p = e.unwrap().path();
+            if p.is_dir() {
+                walk(&p, out);
+            } else if p.extension().is_some_and(|x| x == "mo") {
+                out.push(p);
+            }
+        }
+    }
+    let root =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../Modelica/GlobeModeValidation");
+    let mut paths = Vec::new();
+    walk(&root, &mut paths);
+    paths.sort();
+    paths
+        .into_iter()
+        .map(|p| {
+            (
+                p.display().to_string(),
+                std::fs::read_to_string(&p).unwrap(),
+            )
+        })
+        .collect()
+}
+
+fn check_validation(model: &str) -> globe_mode_frontend::CheckReport {
+    let files = validation_sources();
+    let sources: Vec<Source<'_>> = files
+        .iter()
+        .map(|(n, t)| Source { name: n, text: t })
+        .collect();
+    RumocaFrontend::new().check(&sources, &[], &format!("GlobeModeValidation.{model}"))
+}
+
+#[test]
+fn validation_models_without_msl_pass() {
+    // (モデル, 状態, 離散, スカラーの方程式数)。手で数えた値と一致することを確かめてある（S004）
+    for (model, states, discrete, equations) in [
+        ("Connect.RealCircuit", 1, 0, 20),
+        ("Connect.RealSignals", 0, 0, 5),
+        ("Connect.BooleanSignals", 0, 4, 7),
+        ("Connect.Hierarchical", 2, 0, 40),
+    ] {
+        let r = check_validation(model);
+        assert!(r.passed(), "{model}: {:?}", r.diagnostics);
+        let b = r.balance.unwrap();
+        assert_eq!(
+            (b.states, b.discrete, b.equations),
+            (states, discrete, equations),
+            "{model}"
+        );
+        assert!(b.is_balanced(), "{model}");
+    }
+}
+
+#[test]
+fn signal_type_mismatch_stops_at_s4() {
+    let r = check_validation("Invalid.SignalTypeMismatch");
+    assert_eq!(r.failed_stage(), Some(Stage::S4));
+    assert_eq!(r.diagnostics[0].code, codes::FLATTEN);
+}
+
+#[test]
+fn medium_model_needs_msl() {
+    // Modelica.Media は MSL にある。MSL 無しでは名前解決（S1）で止まる。MSL ありの検査は CI の msl ジョブで行う
+    let r = check_validation("Connect.MediumFlow");
+    assert_eq!(r.failed_stage(), Some(Stage::S1));
 }
