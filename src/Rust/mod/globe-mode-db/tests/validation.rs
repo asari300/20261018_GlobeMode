@@ -19,8 +19,17 @@ fn loaded() -> GlobeDb {
     db
 }
 
+/// パッケージの中のファイルのパス。区切りは OS に合わせる（`load_dir` が読んだパスと同じ形にする）。
 fn file(name: &str) -> String {
-    package_dir().join(name).display().to_string()
+    name.split('/')
+        .fold(package_dir(), |p, part| p.join(part))
+        .display()
+        .to_string()
+}
+
+/// ファイルの本文。Windows で CRLF になっていても、テストの置換が当たるように LF にそろえる。
+fn read(path: &str) -> String {
+    std::fs::read_to_string(path).unwrap().replace("\r\n", "\n")
 }
 
 fn domains(db: &mut GlobeDb, model: &str, depth: u32) -> BTreeMap<Domain, usize> {
@@ -181,7 +190,7 @@ fn whitespace_and_comment_edits_stop_at_the_firewall() {
         .unwrap();
     db.take_executed();
 
-    let text = std::fs::read_to_string(&path).unwrap();
+    let text = read(&path);
     let edited = text.replace(
         "equation\n",
         "\n  // コメントを足し、空白を増やした\n\nequation\n\n",
@@ -210,7 +219,7 @@ fn edits_in_another_file_also_stop_at_the_firewall() {
         .unwrap();
     db.take_executed();
 
-    let text = std::fs::read_to_string(&path).unwrap();
+    let text = read(&path);
     db.set_file(&path, format!("// 先頭にコメント\n\n{text}"));
     db.connect_graph("GlobeModeValidation.Connect.MediumFlow", 1)
         .unwrap();
@@ -228,7 +237,7 @@ fn a_new_connect_reaches_the_graph() {
         .unwrap();
     db.take_executed();
 
-    let text = std::fs::read_to_string(&path).unwrap();
+    let text = read(&path);
     let edited = text.replace(
         "  Components.RealGain gain2(k = 0.5);\n",
         "  Components.RealGain gain2(k = 0.5);\n  Components.RealGain gain3;\n",
@@ -276,7 +285,7 @@ fn syntax_error_keeps_other_files_usable() {
 fn measure_requery_after_whitespace_edit() {
     let mut db = loaded();
     let path = file("Connect/RealCircuit.mo");
-    let text = std::fs::read_to_string(&path).unwrap();
+    let text = read(&path);
     db.connect_graph("GlobeModeValidation.Connect.RealCircuit", 2)
         .unwrap();
     let mut times = Vec::new();

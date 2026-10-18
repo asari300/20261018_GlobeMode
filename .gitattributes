@@ -1,0 +1,5 @@
+# Modelica のソースと package.order は、どの OS でも LF で checkout する。
+# Windows の CI で CRLF に変わると、テストの文字列の置換が当たらなくなった（S004、run 39100593298）。
+# ほかの Modelica の IDE も LF で読める。
+*.mo          text eol=lf
+package.order text eol=lf
