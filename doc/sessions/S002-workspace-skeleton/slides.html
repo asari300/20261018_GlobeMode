@@ -251,6 +251,33 @@ cargo check --target wasm32-unknown-unknown -p globe-mode-frontend</code></pre>
   </div>
 </section>
 
+<section class="slide" id="S12">
+  <span class="tag">追記 · CI の運用</span>
+  <h1>CI は main への push で回し、差分だけを検査する</h1>
+  <div class="cols-2">
+    <div class="card hl">
+      <h3>plan ジョブが範囲を決める（ADR-0006）</h3>
+      <ul class="small">
+        <li>変更した crate と、それに依存する crate だけを clippy・test</li>
+        <li>依存（<code>Cargo.lock</code> など）を変えていなければ cargo deny を省く</li>
+        <li>コンパイル済みの依存は rust-cache で使い回す</li>
+        <li><b>全体を検査</b>: 依存・ツール・CI の定義の変更、40 ファイル超、<code>[full-ci]</code>、毎週月曜、手動実行</li>
+        <li>判定は単体テスト 12 件で守る。手元では <code>mise run ci:plan</code></li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>変更の例</h3>
+      <table class="compact">
+        <tr><th>変更</th><th>実行されるもの</th></tr>
+        <tr><td><code>doc/roadmap.md</code></td><td>docs だけ</td></tr>
+        <tr><td>cli のソース</td><td>rust-linux（cli）</td></tr>
+        <tr><td>ir のソース</td><td>rust-linux（ir・frontend・cli）＋ wasm32</td></tr>
+        <tr><td><code>Cargo.lock</code></td><td class="warn">全体（Windows・deny を含む）</td></tr>
+      </table>
+    </div>
+  </div>
+</section>
+
 <script src="../../assets/slides.js"></script>
 </body>
 </html>

@@ -26,6 +26,11 @@ uv sync                      # worktree ごとに必須
 - **CI は main を直接 push して回す**（2026-10-18 にユーザーが決めた。PR は使わない）。
   - 手順: 検査を通した feature ブランチを main に `--no-ff` でマージし、`git push origin main` する。そのあと Actions の結果を確かめる（`/finish-session` の 6）。
   - feature ブランチ自体は push しない。
+  - **CI は差分だけを検査する**（[ADR-0006](doc/adr/0006-incremental-ci.md)）。
+    - 変更した crate とその依存元だけをテストし、依存を変えていなければ cargo deny を省く。
+    - 依存・ツール・CI の定義の変更、40 ファイルを超える変更、毎週の定期実行のときは全体を検査する。
+    - 全体を検査したいときは、コミットメッセージに `[full-ci]` を入れる。
+    - push の前に `mise run ci:plan` で、何が検査されるかを確かめられる。
 - main に未コミットの変更があったら、そこで止めてユーザーに伝える。勝手にコミットも stash もしない。
 
 ---

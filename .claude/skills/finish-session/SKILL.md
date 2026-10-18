@@ -97,6 +97,8 @@ git -C "$MAIN" push origin main
 - push の前に、5 の漏洩検査を **main と origin/main の差分**に対しても実行する。
   - `git -C "$MAIN" diff origin/main..main -U0 | grep '^+' | grep -nE "$LEAK"` が 0 件であることを確かめる。
 - feature ブランチは push しない。
+- CI は差分だけを検査する（ADR-0006）。push の前に `mise run ci:plan` で計画を見る。
+  - 大きな作り直しや、判定に入っていない種類のファイルを触ったときは、マージのコミットメッセージに `[full-ci]` を入れて全体を検査する。
 - push したら Actions の結果を確かめる（`gh` が無いので、公開リポジトリなら API で見る）。
 
   ```bash

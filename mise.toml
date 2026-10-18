@@ -25,6 +25,10 @@ run = [
   "uv sync --locked",
 ]
 
+[tasks."ci:plan"]
+description = "origin/main との差分で、CI が何を検査するかを表示する（ADR-0006）"
+run = "python3 .github/scripts/ci_plan.py --base origin/main --head HEAD"
+
 [tasks."docs:check"]
 description = "スライド・リンクの検査と、Playwright でのブラウザ表示の検査"
 run = [
