@@ -1,0 +1,21 @@
+[project]
+name = "20261018-globemode"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "asari300", email = "nk.mwhrskaomr.93@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "marimo>=0.25.1",
+    "plotly>=7.1.0",
+    "polars>=2.0.0",
+]
+
+[project.scripts]
+20261018-globemode = "20261018_globemode:main"
+
+[build-system]
+requires = ["uv_build>=0.12.6,<0.13.0"]
+build-backend = "uv_build"
