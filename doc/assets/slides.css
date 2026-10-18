@@ -214,7 +214,13 @@ svg.fig text { font-family: var(--font); }
   border-top: 1px solid var(--line);
   color: var(--muted);
   font-size: 0.68em;
+  /* 右下の操作ボタン（.ctl）にページ番号が隠れないよう、右側を空ける */
+  padding-right: 200px;
+  gap: 1em;
 }
+
+.foot span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.foot span:last-child { flex: none; }
 
 .progress {
   position: fixed;
@@ -273,7 +279,9 @@ body.overview .foot { display: none; }
 @media (max-width: 720px) {
   .slide { padding: 4vh 16px 12vh; font-size: 15px; }
   .cols-2, .cols-3 { grid-template-columns: 1fr; }
-  .foot { left: 16px; right: 16px; }
+  .foot { left: 16px; right: 16px; padding-right: 210px; }
+  /* 横長の図は縮めずに、スライドの中で横にスクロールさせる（文字が読める大きさを保つ） */
+  svg.fig { min-width: 760px; max-height: none; }
   .big { margin-top: 6vh; font-size: 1.3em; }
 }
 

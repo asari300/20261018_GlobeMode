@@ -1,0 +1,17 @@
+[settings]
+lockfile = true                    # 解決した正確なバージョンを mise.lock に記録する
+
+[settings.erlang]
+precompiled_os = "ubuntu-26.04"    # Ubuntu 26.04 は自動判定されないので明示する
+# compile = true                   # プリコンパイル版が無いときは kerl でソースビルド (3-3 の apt が必要)
+
+[tools]
+uv     = "0.13.1"                    # pyproject.toml の uv_build に合わせる
+rust   = { version = "stable", profile = "default", components = ["rust-analyzer"] }  # edition 2024 は 1.85 以上
+zig    = "latest"
+julia  = "latest"
+erlang = "27"                      # いま apt で入っている組み合わせと同じ
+elixir = "1.18.3-otp-27"           # erlang のメジャー番号と -otp-NN を必ず揃える
+gleam  = "latest"
+
+# python は書かない。Python 本体は uv が .python-version (3.12) から取得する。

@@ -31,12 +31,14 @@ cargo deny check            # ライセンスと bans。doc/licenses.md と食�
 
 ```bash
 python3 -I .claude/skills/session-docs/check_docs.py
+uv run python .claude/skills/session-docs/render_slides.py     # Playwright でブラウザ表示を確かめる
 ```
 
 期待する結果:
 
 - 全デッキが OK（連番、外部参照 0、`<style>` 0、`style=` 0、共通 CSS と JS を読んでいる）
 - 相対リンク切れ 0 件（見出しの anchor も含む）
+- `render_slides.py` の問題 0 件。スクリーンショットを目で見て、図の文字のはみ出しが無い
 
 ## 3. セッション記録をコピーして伏せ字を検査する
 

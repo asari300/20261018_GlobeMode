@@ -1,0 +1,513 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mise でモノレポを管理する</title>
+<style>
+  :root {
+    --bg: #f7f7f4;
+    --surface: #ffffff;
+    --text: #1d2125;
+    --muted: #5a636d;
+    --border: #d9ddd8;
+    --accent: #0c6b4d;
+    --accent-soft: #e3f1ea;
+    --code-bg: #f1f2ee;
+    --code-head: #e6e8e2;
+    --warn-bg: #fff4dc;
+    --warn-border: #e2b960;
+    --focus: #1a5fd0;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #14171a;
+      --surface: #1b1f23;
+      --text: #e4e7ea;
+      --muted: #9aa4ad;
+      --border: #2f363c;
+      --accent: #4cc39a;
+      --accent-soft: #19302a;
+      --code-bg: #101316;
+      --code-head: #232a30;
+      --warn-bg: #2d2615;
+      --warn-border: #7a6226;
+      --focus: #7aa7ff;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14171a;
+    --surface: #1b1f23;
+    --text: #e4e7ea;
+    --muted: #9aa4ad;
+    --border: #2f363c;
+    --accent: #4cc39a;
+    --accent-soft: #19302a;
+    --code-bg: #101316;
+    --code-head: #232a30;
+    --warn-bg: #2d2615;
+    --warn-border: #7a6226;
+    --focus: #7aa7ff;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 16px; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Hiragino Sans", "Noto Sans JP", "Yu Gothic", system-ui, sans-serif;
+    font-size: 16px;
+    line-height: 1.85;
+    overflow-wrap: anywhere;
+  }
+  code, pre, .mono {
+    font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+
+  .page { max-width: 1080px; margin: 0 auto; padding: 0 16px 64px; }
+  header.top { padding: 40px 0 24px; border-bottom: 1px solid var(--border); }
+  header.top h1 { margin: 0 0 8px; font-size: 1.9rem; line-height: 1.35; }
+  header.top p { margin: 0; color: var(--muted); }
+
+  .layout { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 40px; margin-top: 28px; }
+  nav.toc { position: sticky; top: 16px; align-self: start; font-size: 0.9rem; line-height: 1.6; }
+  nav.toc strong { display: block; margin-bottom: 8px; color: var(--muted); font-weight: 600; }
+  nav.toc ol { margin: 0; padding: 0; list-style: none; }
+  nav.toc li { margin: 0; }
+  nav.toc a {
+    display: block; padding: 5px 10px; border-left: 2px solid var(--border);
+    color: var(--muted); text-decoration: none;
+  }
+  nav.toc a:hover { color: var(--accent); border-left-color: var(--accent); }
+
+  main section { margin-bottom: 52px; }
+  main h2 { margin: 0 0 14px; font-size: 1.35rem; line-height: 1.4; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+  main h3 { margin: 28px 0 8px; font-size: 1.05rem; }
+  main p { margin: 0 0 14px; }
+  main ul, main ol { margin: 0 0 14px; padding-left: 1.4em; }
+  main li { margin-bottom: 4px; }
+  :not(pre) > code {
+    background: var(--code-bg); border: 1px solid var(--border);
+    padding: 1px 6px; border-radius: 4px; font-size: 0.88em;
+  }
+  a { color: var(--accent); }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+  .callout {
+    background: var(--warn-bg); border: 1px solid var(--warn-border);
+    border-radius: 8px; padding: 12px 16px; margin: 0 0 24px;
+  }
+  .callout p:last-child { margin-bottom: 0; }
+  .note {
+    background: var(--accent-soft); border-radius: 8px; padding: 10px 14px; margin: 0 0 16px; font-size: 0.95rem;
+  }
+
+  .table-wrap { overflow-x: auto; margin: 0 0 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-size: 0.92rem; line-height: 1.6; }
+  th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--border); }
+  th { background: var(--code-head); font-weight: 600; white-space: nowrap; }
+  tr:last-child td { border-bottom: 0; }
+
+  .code { margin: 0 0 18px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--code-bg); }
+  .code-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 6px 8px 6px 14px; background: var(--code-head); border-bottom: 1px solid var(--border);
+  }
+  .code-label { font-size: 0.8rem; color: var(--muted); }
+  button.copy {
+    font: inherit; font-size: 0.8rem; line-height: 1.4; cursor: pointer;
+    color: var(--text); background: var(--surface);
+    border: 1px solid var(--border); border-radius: 6px; padding: 3px 12px; min-width: 7.5em;
+  }
+  button.copy:hover { border-color: var(--accent); color: var(--accent); }
+  button.copy[data-state="done"] { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+  button.copy[data-state="error"] { border-color: #c0392b; color: #c0392b; }
+  pre { margin: 0; padding: 14px 16px; overflow-x: auto; font-size: 0.86rem; line-height: 1.65; tab-size: 2; }
+  pre code { white-space: pre; overflow-wrap: normal; }
+
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+  @media (max-width: 860px) {
+    .layout { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+    nav.toc { position: static; border: 1px solid var(--border); border-radius: 8px; padding: 12px; background: var(--surface); }
+    header.top h1 { font-size: 1.55rem; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="top">
+  <h1>mise でモノレポを管理する</h1>
+  <p>20261018_GlobeMode — Python (uv) / Rust (Cargo) / Zig / Julia / Elixir / Gleam を 1 つの <code>mise.toml</code> で揃える手順</p>
+</header>
+
+<div class="layout">
+<nav class="toc" aria-label="目次">
+  <strong>目次</strong>
+  <ol>
+    <li><a href="#overview">1. 全体像</a></li>
+    <li><a href="#nix">2. Nix と mise</a></li>
+    <li><a href="#setup">3. セットアップ手順</a></li>
+    <li><a href="#toml">4. mise.toml の完成例</a></li>
+    <li><a href="#usage">5. 言語別の使い方</a></li>
+    <li><a href="#tasks">6. タスク定義の例</a></li>
+    <li><a href="#lock">7. ロックファイルの運用</a></li>
+    <li><a href="#coexist">8. 既存環境との共存</a></li>
+    <li><a href="#verify">9. 動作確認チェックリスト</a></li>
+  </ol>
+</nav>
+
+<main>
+
+<div class="callout" role="note">
+  <p><strong>この手順の確度について。</strong> 作成時点で mise は未インストールだったため、ここに載せたコマンドは実行して確認していません。内容は mise の公式ドキュメント (mise.jdx.dev) と、このリポジトリ・マシンの現状調査に基づきます。バージョン番号は固定で書かず、<code>mise ls-remote</code> で確認する手順にしています。</p>
+</div>
+
+<section id="overview">
+  <h2>1. 全体像</h2>
+  <p>リポジトリのルートに <code>mise.toml</code> を 1 つ置き、全言語のツールチェーンとバージョンをそこで宣言します。依存パッケージの管理は各言語の標準ツール(uv / Cargo / mix など)に任せ、mise は「どのバージョンのツールを PATH に出すか」と「タスク実行」だけを担当します。</p>
+
+  <div class="table-wrap"><table>
+    <thead><tr><th>言語</th><th>mise で入れるもの</th><th>プロジェクト管理</th><th>備考</th></tr></thead>
+    <tbody>
+      <tr><td>Python</td><td><code>uv</code></td><td>uv (<code>pyproject.toml</code> / <code>uv.lock</code>)</td><td>Python 本体は uv が <code>.python-version</code> (3.12) から取得する。mise には <code>python</code> を入れない</td></tr>
+      <tr><td>Rust</td><td><code>rust</code> (rustup 経由)</td><td>Cargo</td><td>既存の <code>~/.rustup</code> / <code>~/.cargo</code> を再利用。edition 2024 なので Rust 1.85 以上</td></tr>
+      <tr><td>Zig</td><td><code>zig</code></td><td><code>zig build</code></td><td>mise の core ツール</td></tr>
+      <tr><td>Julia</td><td><code>julia</code></td><td>Pkg (<code>Project.toml</code>)</td><td>juliaup には触らない</td></tr>
+      <tr><td>Elixir</td><td><code>erlang</code> + <code>elixir</code></td><td>mix</td><td>Elixir は OTP のメジャー番号とセットで指定する</td></tr>
+      <tr><td>Gleam</td><td><code>gleam</code></td><td><code>gleam</code></td><td>実行に Erlang が必要。上の <code>erlang</code> を共用する</td></tr>
+    </tbody>
+  </table></div>
+
+  <p>追加・変更されるファイルは次のとおりです。</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>ファイル</th><th>役割</th><th>コミット</th></tr></thead>
+    <tbody>
+      <tr><td><code>mise.toml</code></td><td>ツールのバージョン・設定・タスク</td><td>する</td></tr>
+      <tr><td><code>mise.lock</code></td><td>解決済みの正確なバージョン</td><td>する</td></tr>
+      <tr><td><code>mise.local.toml</code> / <code>mise.local.lock</code></td><td>個人用の上書き</td><td>しない (<code>.gitignore</code> へ)</td></tr>
+      <tr><td><code>.python-version</code>, <code>pyproject.toml</code>, <code>uv.lock</code>, <code>Cargo.toml</code></td><td>既存のまま。mise は書き換えない</td><td>既存どおり</td></tr>
+    </tbody>
+  </table></div>
+  <p><code>src/Modelica</code> は今回の対象外です。</p>
+</section>
+
+<section id="nix">
+  <h2>2. Nix と mise</h2>
+  <p><strong>結論: このリポジトリでは mise を選びます。</strong> 1 人で使う実験用のモノレポで、6 言語のツールチェーンを揃えてバージョンを固定できれば足りるためです。</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>観点</th><th>mise</th><th>Nix</th></tr></thead>
+    <tbody>
+      <tr><td>学習コスト</td><td>低い。TOML 1 ファイル</td><td>高い。Nix 言語と flakes を覚える</td></tr>
+      <tr><td>uv / Cargo との関係</td><td>そのまま併用できる</td><td>Nix 側と二重管理になりやすい (Python の取得、ホイール、Cargo の依存など)</td></tr>
+      <tr><td>再現性</td><td>ツールのバージョンまで (<code>mise.lock</code>)</td><td>OS ライブラリを含めてほぼ完全に再現できる</td></tr>
+      <tr><td>タスク実行</td><td>標準機能</td><td>標準のタスクランナーはない</td></tr>
+      <tr><td>WSL2 (Ubuntu)</td><td>そのまま動く</td><td>動くが、導入と設定の手間が増える</td></tr>
+    </tbody>
+  </table></div>
+  <p>Nix が向くのは、ネイティブライブラリまで含めた厳密な再現が必要になったとき (チーム共有や CI で環境差が問題になったとき) です。その段階で移行を検討すれば十分です。</p>
+</section>
+
+<section id="setup">
+  <h2>3. セットアップ手順</h2>
+
+  <h3>3-1. mise を入れる (Homebrew)</h3>
+  <p>この環境には Homebrew (<code>/home/linuxbrew</code>) があるので、それで入れます。apt には mise のパッケージがありません。</p>
+  <div class="code">
+    <div class="code-head"><span class="code-label">shell</span><button type="button" class="copy" aria-label="mise のインストールコマンドをコピー">コピー</button></div>
+    <pre tabindex="0"><code>brew install mise
+mise --version</code></pre>
+  </div>
+
+  <h3>3-2. zsh に有効化を追加する</h3>
+  <p>Homebrew の <code>shellenv</code> を読み込む行より<strong>後ろ</strong>に書いてください。ディレクトリに入ると <code>mise.toml</code> のツールが PATH の先頭に出るようになります。</p>
+  <div class="code">
+    <div class="code-head"><span class="code-label">shell</span><button type="button" class="copy" aria-label="zsh 有効化コマンドをコピー">コピー</button></div>
+    <pre tabindex="0"><code>echo 'eval "$(mise activate zsh)"' &gt;&gt; ~/.zshrc
+exec zsh</code></pre>
+  </div>
+  <p>IDE のタスクや cron のような非対話シェルから使う場合は、<code>~/.zshenv</code> に shims 版を足します。</p>
+  <div class="code">
+    <div class="code-head"><span class="code-label">~/.zshenv (任意)</span><button type="button" class="copy" aria-label="shims 版の有効化をコピー">コピー</button></div>
+    <pre tabindex="0"><code>eval "$(mise activate zsh --shims)"</code></pre>
+  </div>
+
+  <h3>3-3. Erlang のビルド依存を入れる (ソースビルドする場合のみ)</h3>
+  <p>Ubuntu 26.04 は mise の Erlang プリコンパイル版の自動判定に含まれません。まず <a href="#toml">4 章</a>の <code>precompiled_os</code> 指定を試し、「プリコンパイル版が見つからない」と失敗したときだけ、<code>compile = true</code> にして kerl でソースビルドします。そのときは次のパッケージが必要です (現時点では未導入)。</p>
+  <div class="code">
+    <div class="code-head"><span class="code-label">shell</span><button type="button" class="copy" aria-label="apt パッケージのインストールコマンドをコピー">コピー</button></div>
+    <pre tabindex="0"><code>sudo apt install -y autoconf m4 libssl-dev libncurses-dev unzip</code></pre>
+  </div>
+
+  <h3>3-4. バージョンを確認する</h3>
+  <p>各ツールの利用可能なバージョンを確認してから <code>mise.toml</code> を書きます。Elixir は <code>X.Y.Z-otp-NN</code> という形式で、OTP のメジャー番号ごとにビルドがあります。</p>
+  <div class="code">
+    <div class="code-head"><span class="code-label">shell</span><button type="button" class="copy" aria-label="バージョン確認コマンドをコピー">コピー</button></div>
+    <pre tabindex="0"><code>mise ls-remote erlang
+mise ls-remote elixir 1.18
+mise ls-remote zig
+mise ls-remote julia
+mise ls-remote gleam
+mise ls-remote uv 0.12</code></pre>
+  </div>
+
+  <h3>3-5. mise.toml を作って導入する</h3>
+  <p><code>mise.toml</code> は <a href="#toml">4 章</a>の内容でリポジトリのルートに作ります。その後、次の順に実行します。</p>
+  <div class="code">
+    <div class="code-head"><span class="code-label">shell (リポジトリのルートで)</span><button type="button" class="copy" aria-label="導入コマンドをコピー">コピー</button></div>
+    <pre tabindex="0"><code>mise trust
+mise install
+mise lock
+uv sync</code></pre>
+  </div>
+  <p class="note"><code>mise trust</code> は、その <code>mise.toml</code> を信頼すると mise に伝えるコマンドです。初回だけ必要です。<code>mise lock</code> は解決結果を <code>mise.lock</code> に書きます。</p>
+</section>
+
+<section id="toml">
+  <h2>4. mise.toml の完成例</h2>
+  <p>リポジトリのルートに置きます。ポイントは次の 4 つです。</p>
+  <ul>
+    <li><strong>Python は書かない。</strong> Python 本体は uv が <code>.python-version</code> (3.12) から取得します。mise にも <code>python</code> を入れると、どちらの Python が使われるかが曖昧になります。</li>
+    <li><strong><code>uv</code> は <code>0.12</code> に固定。</strong> <code>pyproject.toml</code> のビルドバックエンドが <code>uv_build&gt;=0.12.6,&lt;0.13.0</code> を要求しているためです。</li>
+    <li><strong>Erlang と Elixir は OTP 番号を揃える。</strong> <code>elixir = "latest"</code> は最新の OTP 向けビルドを選ぶので、<code>erlang</code> を古い版に固定していると食い違います。</li>
+    <li><strong>Ubuntu 26.04 では <code>precompiled_os</code> を明示する。</strong> 自動判定されないためです。</li>
+  </ul>
+  <div class="code">
+    <div class="code-head"><span class="code-label">mise.toml</span><button type="button" class="copy" aria-label="mise.toml の完成例をコピー">コピー</button></div>
+    <pre tabindex="0"><code>[settings]
+lockfile = true                    # 解決した正確なバージョンを mise.lock に記録する
+
+[settings.erlang]
+precompiled_os = "ubuntu-26.04"    # Ubuntu 26.04 は自動判定されないので明示する
+# compile = true                   # プリコンパイル版が無いときは kerl でソースビルド (3-3 の apt が必要)
+
+[tools]
+uv     = "0.12"                    # pyproject.toml の uv_build&gt;=0.12.6,&lt;0.13.0 に合わせる
+rust   = { version = "stable", profile = "default", components = ["rust-analyzer"] }  # edition 2024 は 1.85 以上
+zig    = "latest"
+julia  = "latest"
+erlang = "27"                      # いま apt で入っている組み合わせと同じ
+elixir = "1.18.3-otp-27"           # erlang のメジャー番号と -otp-NN を必ず揃える
+gleam  = "latest"
+
+# python は書かない。Python 本体は uv が .python-version (3.12) から取得する。</code></pre>
+  </div>
+  <p><code>latest</code> や <code>stable</code> を使っても、<code>mise.lock</code> に正確なバージョンが記録されるので再現性は保たれます。新しい OTP に上げるときは、<code>erlang</code> と <code>elixir</code> の OTP 番号を<strong>同時に</strong>変えてください。</p>
+  <p class="note">Rust の <code>stable</code> 指定が通らない場合は、<code>rustc --version</code> で確認した 1.85 以上の数値 (例: <code>version = "1.xx"</code>) に置き換えてください。<code>profile = "default"</code> には clippy と rustfmt が含まれます。</p>
+
+  <h3>.gitignore に追加する</h3>
+  <div class="code">
+    <div class="code-head"><span class="code-label">.gitignore</span><button type="button" class="copy" aria-label=".gitignore への追記をコピー">コピー</button></div>
+    <pre tabindex="0"><code># mise (個人用の上書き)
+mise.local.toml
+mise.local.lock</code></pre>
+  </div>
+</section>
+
+<section id="usage">
+  <h2>5. 言語別の使い方</h2>
+  <p>mise は PATH にツールを出すだけなので、日常の操作は各言語の標準コマンドのままです。</p>
+
+  <h3>Python (uv)</h3>
+  <p><code>uv</code> が <code>.python-version</code> を読み、必要なら CPython 3.12 を取得します。</p>
+  <div class="code">
+    <div class="code-head"><span class="code-label">shell</span><button type="button" class="copy" aria-label="Python のコマンドをコピー">コピー</button></div>
+    <pre tabindex="0"><code>uv sync
+uv run 20261018-globemode
+uv run python -V</code></pre>
+  </div>
+
+  <h3>Rust (Cargo)</h3>
+  <p>ルートの <code>Cargo.toml</code> と <code>src/main.rs</code> をそのまま Cargo で扱います。<code>rust-toolchain.toml</code> は作らず、バージョンは <code>mise.toml</code> に一本化してください (mise が設定する <code>RUSTUP_TOOLCHAIN</code> が優先され、ファイルが無視されるため)。</p>
+  <div class="code">
+    <div class="code-head"><span class="code-label">shell</span><button type="button" class="copy" aria-label="Rust のコマンドをコピー">コピー</button></div>
+    <pre tabindex="0"><code>cargo build
+cargo run
+cargo fmt --check
+cargo clippy -- -D warnings</code></pre>
+  </div>
+
+  <h3>Zig</h3>
+  <div class="code">
+    <div class="code-head"><span class="code-label">shell</span><button type="button" class="copy" aria-label="Zig のコマンドをコピー">コピー</button></div>
+    <pre tabindex="0"><code>cd src/Zig
+zig init
+zig build run</code></pre>
+  </div>
+
+  <h3>Julia</h3>
+  <p><code>src/Julia</code> に <code>Project.toml</code> ができた後の操作です。</p>
+  <div class="code">
+    <div class="code-head"><span class="code-label">shell</span><button type="button" class="copy" aria-label="Julia のコマンドをコピー">コピー</button></div>
+    <pre tabindex="0"><code>julia --project=src/Julia -e 'using Pkg; Pkg.instantiate()'
+julia --project=src/Julia</code></pre>
+  </div>
+
+  <h3>Elixir</h3>
+  <p>初回に Hex と rebar を入れておくと、対話の確認で止まりません。</p>
+  <div class="code">
+    <div class="code-head"><span class="code-label">shell</span><button type="button" class="copy" aria-label="Elixir のコマンドをコピー">コピー</button></div>
+    <pre tabindex="0"><code>mix local.hex --force
+mix local.rebar --force
+cd src/Elixir
+mix new . --app globe_mode
+mix deps.get
+mix test</code></pre>
+  </div>
+
+  <h3>Gleam</h3>
+  <p>Gleam のプロジェクト名は小文字とアンダースコアのみなので、<code>--name</code> を付けます。</p>
+  <div class="code">
+    <div class="code-head"><span class="code-label">shell</span><button type="button" class="copy" aria-label="Gleam のコマンドをコピー">コピー</button></div>
+    <pre tabindex="0"><code>cd src/Gleam
+gleam new . --name globe_mode
+gleam test
+gleam run</code></pre>
+  </div>
+</section>
+
+<section id="tasks">
+  <h2>6. タスク定義の例</h2>
+  <p>任意です。実際にプロジェクトがある Python と Rust だけを定義しています。空の <code>src/Elixir</code> などは、プロジェクトを作った後に同じ形で足してください。コロンを含むタスク名は、TOML のキーとして引用符で囲む必要があります。</p>
+  <div class="code">
+    <div class="code-head"><span class="code-label">mise.toml (末尾に追記)</span><button type="button" class="copy" aria-label="タスク定義の例をコピー">コピー</button></div>
+    <pre tabindex="0"><code>[tasks.setup]
+description = "ツールを導入して Python 依存を同期する"
+run = ["mise install", "uv sync"]
+
+[tasks."py:run"]
+description = "Python のエントリポイントを実行する"
+run = "uv run 20261018-globemode"
+
+[tasks."rust:run"]
+description = "Rust のバイナリを実行する"
+run = "cargo run"
+
+[tasks.check]
+description = "uv.lock の整合と Rust の fmt / clippy を確認する"
+run = ["uv sync --locked", "cargo fmt --check", "cargo clippy -- -D warnings"]</code></pre>
+  </div>
+  <div class="code">
+    <div class="code-head"><span class="code-label">shell</span><button type="button" class="copy" aria-label="タスク実行コマンドをコピー">コピー</button></div>
+    <pre tabindex="0"><code>mise tasks ls
+mise run setup
+mise run check
+mise run py:run</code></pre>
+  </div>
+</section>
+
+<section id="lock">
+  <h2>7. ロックファイルの運用</h2>
+  <p><code>mise.toml</code> には「許容する範囲」、<code>mise.lock</code> には「実際に解決した正確なバージョン」が入ります。両方をコミットします。</p>
+  <div class="code">
+    <div class="code-head"><span class="code-label">shell</span><button type="button" class="copy" aria-label="ロックファイル運用のコマンドをコピー">コピー</button></div>
+    <pre tabindex="0"><code># ロックの記録どおりに導入する (別マシン・CI 向け)
+mise install --locked
+
+# 更新の差分だけ確認する (何も書き換えない)
+mise lock --bump zig --dry-run
+
+# 許容範囲の最新を導入して mise.lock も更新する
+mise upgrade zig</code></pre>
+  </div>
+  <p>ロックの対象はツールだけです。<code>uv.lock</code> や <code>Cargo.lock</code> など各言語のロックファイルも引き続きコミットします。</p>
+</section>
+
+<section id="coexist">
+  <h2>8. 既存環境との共存</h2>
+  <p>このマシンには mise 以外の経路で入ったツールがあります。<code>mise activate</code> したシェルでは mise のツールが PATH の先頭に来るので、基本的には mise 側が優先されます。どれが使われているかは <code>mise which</code> で確認できます。</p>
+  <ul>
+    <li><strong>apt の Erlang / Elixir</strong> (<code>/usr/bin/erl</code>, OTP 27 / Elixir 1.18.3): 消さずに残して構いません。mise の版が優先されます。</li>
+    <li><strong>uv</strong> (<code>~/.local/bin/uv</code> 0.12.6): mise の <code>uv = "0.12"</code> と併存します。どちらも 0.12 系なので実害はありません。</li>
+    <li><strong>rustup</strong> (<code>~/.rustup</code>, <code>~/.cargo</code>): mise は既存の rustup を使い、<code>RUSTUP_TOOLCHAIN</code> を設定してツールチェーンを選びます。<code>cargo install</code> の成果物は <code>~/.cargo/bin</code> に入り、全ツールチェーンで共有されます。</li>
+    <li><strong>juliaup</strong> (<code>~/.juliaup</code>): <code>~/.profile</code> で PATH に追加されていますが、確認時点では <code>julia</code> コマンドは見つかりませんでした。mise の Julia を使う限り juliaup は不要です。両方が見える状態になったら <code>which -a julia</code> で順序を確認してください。</li>
+    <li><strong>Homebrew の Python</strong>: uv の Python 一覧に出てきますが、このリポジトリの Python 3.12 は uv が取得するものを使います。</li>
+  </ul>
+  <p>おかしいときは、まず次を実行してください。</p>
+  <div class="code">
+    <div class="code-head"><span class="code-label">shell</span><button type="button" class="copy" aria-label="診断コマンドをコピー">コピー</button></div>
+    <pre tabindex="0"><code>mise doctor
+mise ls
+mise which erl
+mise which uv
+which -a julia</code></pre>
+  </div>
+</section>
+
+<section id="verify">
+  <h2>9. 動作確認チェックリスト</h2>
+  <p>リポジトリのルートで、すべてがエラーなく版数を返せば導入は完了です。Elixir の出力に含まれる <code>compiled with Erlang/OTP NN</code> が、<code>mise.toml</code> の OTP 番号と一致していることも確認します。</p>
+  <div class="code">
+    <div class="code-head"><span class="code-label">shell</span><button type="button" class="copy" aria-label="動作確認コマンドをコピー">コピー</button></div>
+    <pre tabindex="0"><code>mise doctor
+uv --version
+uv run python -V
+rustc --version
+cargo --version
+zig version
+julia --version
+elixir --version
+gleam --version</code></pre>
+  </div>
+  <p>mise を有効化していないシェルで試すときは、各コマンドの前に <code>mise exec --</code> を付けます (例: <code>mise exec -- zig version</code>)。</p>
+</section>
+
+</main>
+</div>
+</div>
+
+<span class="sr-only" id="copy-status" role="status" aria-live="polite"></span>
+
+<script>
+(function () {
+  var timers = new WeakMap();
+  var status = document.getElementById('copy-status');
+
+  function legacyCopy(text) {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    document.body.removeChild(ta);
+    return ok;
+  }
+
+  function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      return navigator.clipboard.writeText(text).then(
+        function () { return true; },
+        function () { return legacyCopy(text); }
+      );
+    }
+    return Promise.resolve(legacyCopy(text));
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll('.code'), function (block) {
+    var btn = block.querySelector('button.copy');
+    var code = block.querySelector('pre code');
+    if (!btn || !code) { return; }
+    btn.addEventListener('click', function () {
+      copyText(code.textContent.replace(/\n$/, '')).then(function (ok) {
+        btn.textContent = ok ? 'コピーしました' : 'コピーできません';
+        btn.setAttribute('data-state', ok ? 'done' : 'error');
+        status.textContent = ok ? 'コピーしました' : 'コピーに失敗しました';
+        clearTimeout(timers.get(btn));
+        timers.set(btn, setTimeout(function () {
+          btn.textContent = 'コピー';
+          btn.removeAttribute('data-state');
+          status.textContent = '';
+        }, 1500));
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>

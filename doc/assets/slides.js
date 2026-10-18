@@ -104,7 +104,10 @@
   });
 
   let touchX = null;
-  document.addEventListener("touchstart", (e) => { touchX = e.touches[0].clientX; }, { passive: true });
+  // 図・表・コードの上のスワイプは横スクロールに使うので、ページ送りにしない
+  document.addEventListener("touchstart", (e) => {
+    touchX = e.target.closest("svg.fig, pre, table") ? null : e.touches[0].clientX;
+  }, { passive: true });
   document.addEventListener("touchend", (e) => {
     if (touchX === null) return;
     const dx = e.changedTouches[0].clientX - touchX;

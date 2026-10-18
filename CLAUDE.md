@@ -15,6 +15,7 @@ MAIN=$(git worktree list --porcelain | awk '/^worktree /{print $2; exit}')   # m
 cd "$MAIN"
 git worktree add -b feature/<topic> .git-worktree/<topic> main
 cd .git-worktree/<topic>
+mise trust && mise install --locked   # worktree のパスごとに信頼が要る
 uv sync                      # worktree ごとに必須
 ```
 
@@ -47,7 +48,17 @@ uv sync                      # worktree ごとに必須
 | `log/local/` | フックの出力。生ログを含む | ×（**コミットしない**） |
 
 - Python パッケージ `src/20261018_globemode` は数字で始まるので import できない。P1 で `globe_mode` に改名して `src/Python/mod/` に移す。それまで触らない。
-- 言語ごとのツールの版は mise でそろえる（main で手順書を準備中）。Python 本体は uv が `.python-version` から取得する。
+- **言語の管理は mise・uv・cargo で分担する**（[ADR-0003](doc/adr/0003-toolchain.md)、手順は [doc/mise-setup.html](doc/mise-setup.html)）。
+
+  | 道具 | 受け持つもの | ロックファイル |
+  | --- | --- | --- |
+  | mise | ツールの版（rust / uv / zig / julia / erlang / elixir / gleam）とタスク | `mise.lock` |
+  | uv | Python 本体（`.python-version`）と Python の依存 | `uv.lock` |
+  | cargo | Rust の依存と workspace | `Cargo.lock` |
+
+  - `rust-toolchain.toml` は作らない（mise の `RUSTUP_TOOLCHAIN` が優先され、無視されるため）。
+  - Python を mise に入れない。ツールは `mise.toml` を、依存は各言語の道具を使って足す。
+  - ロックファイルはすべてコミットする。
 
 ---
 
@@ -116,7 +127,7 @@ log/sessions/<日付>-<セッションID>.md        finish-session がコピー�
 `/finish-session` スキルの手順に従う。**どれかが落ちたらそこで止めて報告する。**
 
 1. Rust のコードを触ったら: `cargo fmt --check`、`cargo clippy -- -D warnings`、`cargo test`、`cargo deny check`
-2. スライドと解説書がある。スライドの検査（外部参照・`<style>`・`style=` が 0 件）を通る
+2. スライドと解説書がある。`check_docs.py`（外部参照・`<style>`・`style=` が 0 件）と、Playwright の `render_slides.py`（ブラウザでの表示）を通す
 3. `doc/` と `log/` の相対リンク切れが 0 件
 4. セッション記録をコピーし、`--check` で取りこぼしが 0 件
 5. ステージした差分に、メールアドレス・ホームのパス・トークンが 0 件

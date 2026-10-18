@@ -121,16 +121,38 @@ Modelica 言語の IDE を作る。以下の要件について現在の技術を
   - 追加で直接検索した結果、ログイン名・git のメールアドレス・`gmail`・`/home/` はいずれも 0 件だった。
   - 途中で、マスク済みのメール（`n***@…`）が伏せ字にならないことに気づいた。メールの正規表現のローカル部に `*` を足して直した。
 - ステージした差分の漏洩検査（ログイン名・git のメールアドレス・トークンの形）: 0 件。
-- ブラウザでの見た目: **確かめていない**。この環境にはブラウザも node も無い。
+- ブラウザでの見た目（Playwright 1.64、Chromium build 1248）: `render_slides.py` で問題 0 件。
+  - 2 デッキ × 3 表示（デスクトップのライト・デスクトップのダーク・スマートフォン）で確かめた。
+  - 最初の実行で、機械検査は 0 件だったが、スクリーンショットを見て次の 4 点を直した。
+    - 右下の操作ボタンがページ番号を隠していた。`.foot` の右に余白を取り、この重なりを検査に加えた。
+    - スマートフォンでは横長の図が縮みすぎて読めなかった。図に最小幅を付け、スライドの中で横にスクロールさせた。図・表・コードの上のスワイプはページ送りにしない。
+    - S17 で、Track B の説明文が枠からはみ出していた。
+    - S05 のファネル図の文字が小さかった。
+
+## 追記: main の取り込み（同じ日、ユーザーの依頼で）
+
+- main に `db789c4 Added manage project file` が入っていた。内容は mise の導入。
+  - `mise.toml`、`mise.lock`、`doc/mise-setup.html`、`.claude/settings.json`、`.gitignore`、`pyproject.toml` の uv_build の範囲。
+- そのコミットには、worktree `.git-worktree/s001-research-plan` が **gitlink（mode 160000）** として入っていた。
+  - クローンすると壊れたサブモジュールになるので、取り込むときに index から外した（`git rm --cached`）。
+  - `.gitignore` に `.git-worktree/` があるので、今後は入らない。
+- 衝突は 2 件で、どちらもこのブランチの版を採った。
+  - `.claude/settings.json`: main の権限 3 件をすでに含む上位互換。
+  - `.gitignore`: mise の 2 行をすでに含む。
+- ユーザーの指示「言語管理は mise・uv・cargo」に合わせて、次を直した。
+  - ADR-0003、architecture、CLAUDE.md、roadmap、スキル、スライド、解説書
+  - `rust-toolchain.toml` は置かない。mise の `RUSTUP_TOOLCHAIN` が優先されるため。手順書の方針に合わせた。
+  - worktree では `mise trust && mise install --locked` を実行してから `uv sync` する。
+- ブラウザでの確認は Playwright に決めた。
+  - `uv add --dev playwright`（Apache-2.0）で開発依存として入れた。
+  - `.claude/skills/session-docs/render_slides.py` を足した。
 
 ## 残したこと
 
-- main に未コミットのファイルが2つある（このセッションの外で作られた）。
-  - `.claude/settings.json`: 権限設定のみ。
-  - `doc/mise-setup.html`: mise の手順書。
-  - この worktree の `.claude/settings.json` は、main の内容を含んだうえで上書きする形にしてある。
-  - このブランチを main にマージする前に、main 側の未追跡の `.claude/settings.json` を退避か削除しておかないと、git がマージを止める。
-  - `doc/mise-setup.html` はこのブランチでは作っていないので、ぶつからない。
+- （解決済み）main に未コミットだった `.claude/settings.json` と `doc/mise-setup.html` は、ユーザーが main にコミットした。上の「追記」のとおり取り込んだ。
+- `pyproject.toml` の `uv_build>=0.12.6,<0.13.1` は、mise の uv 0.13.1 を範囲に含まない。
+  - ビルドのたびに uv_build 0.13.0 が PyPI から取得される。動作はする。
+  - 意図した範囲かどうかは S002 で確かめる。
 - 調査文書の【未確認】の項目。P1〜P5 で一次資料に当たって確かめる。
-- `mise.toml` は S002 で、main の手順書と内容をそろえて作る。
+- `mise.toml` の rust に wasm と Android の `targets` を足すのは S002 で行う。
 - git の作者のメールアドレスはコミットのメタデータに入る。公開前に、GitHub の noreply アドレスに変えるかを検討する。

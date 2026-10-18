@@ -37,8 +37,8 @@ flowchart LR
 
 ```text
 Cargo.toml                      virtual workspace（resolver 3, edition 2024）
-rust-toolchain.toml             stable 1.99.1。target に wasm32-unknown-unknown, wasm32-wasip2, aarch64-linux-android
-mise.toml                       言語ごとのツールの版をそろえる（uv / rust / zig / julia / erlang / elixir / gleam / node）
+mise.toml / mise.lock           ツールの版（rust / uv / zig / julia / erlang / elixir / gleam。P4 で node）。rust-toolchain.toml は置かない
+pyproject.toml / uv.lock        Python の依存（uv）
 src/Rust/mod/<crate>/           workspace の library crate（2.2 の表）
 src/Rust/apps/desktop/          Tauri 2 のシェル（Linux, Windows, Android）
 src/Rust/apps/experimental/     leptos/ と dioxus/（default-members から外す）
@@ -83,10 +83,12 @@ doc/  log/                      文書と記録
 
 [ADR-0003](adr/0003-toolchain.md) にまとめた。
 
+- **言語の管理は mise・uv・cargo で分担する**。mise がツールの版（`mise.lock`）、uv が Python と依存（`uv.lock`）、cargo が Rust の依存（`Cargo.lock`）を受け持つ。
+- Rust の版は `mise.toml` に一本化し、`rust-toolchain.toml` は置かない。mise が設定する `RUSTUP_TOOLCHAIN` が優先されるため。
 - **既定は stable**。Rumoca の `rust-toolchain.toml`（nightly 固定）は Rumoca 自身のワークスペースでしか効かない。git 依存として取り込むと、GlobeMode 側のツールチェーンでビルドされる。
   - ただし、Rumoca のコードが nightly の機能を使っていれば stable では通らない。**P1 で確かめる**。
 - スレッドを使う wasm だけは nightly でビルドする。`-Z build-std` と atomics が要るためで、コマンドは `xtask wasm --threads`。配信には COOP/COEP のヘッダか coi-serviceworker が要る。
-- 言語ごとのツールの版は mise でそろえる（main で手順書を準備中）。Python 本体は uv が `.python-version` から取得する。
+- wasm と Android の target は mise の rust の `targets` で宣言する。Python 本体は uv が `.python-version` から取得する。手順は [mise-setup.html](mise-setup.html)。
 
 ## 3. 中核の設計
 

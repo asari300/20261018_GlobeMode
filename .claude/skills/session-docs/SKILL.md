@@ -63,4 +63,22 @@ python3 -I .claude/skills/session-docs/check_docs.py
 
 デッキが NG、またはリンク切れが 1 件でもあれば直す。
 
-ブラウザでの見た目は、ユーザーに `file://` で開いてもらって確かめる。この環境にはブラウザが無い。
+### ブラウザでの確認（Playwright）
+
+```bash
+uv run python .claude/skills/session-docs/render_slides.py            # 全デッキ
+```
+
+- Playwright は Python の開発依存（`uv sync` で入る）。初回だけ `uv run playwright install chromium` を実行する。
+- 3 つの表示で、全スライドを `file://` から開く。
+  - デスクトップ（1600x900）のライト
+  - デスクトップ（1600x900）のダーク
+  - スマートフォン（390x844）
+- 検査すること:
+  - コンソールのエラーが無い
+  - スライドがはみ出さない
+  - ページ番号が操作ボタンに隠れない
+  - → キーとハッシュで移動できる
+- 問題が 0 件でも、スクリーンショット（既定は `log/local/render/`）を**目で見る**。
+  - 特にインライン SVG の中の文字のはみ出しは、機械では検出できない。
+  - 図や表の多いスライドは、ライト・ダーク・スマートフォンの3つとも見る。

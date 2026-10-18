@@ -28,6 +28,8 @@
 | cranelift | Apache-2.0 WITH LLVM-exception | 許可 | ネイティブ版のみ |
 | PyO3、maturin、Rustler、wasm-bindgen | MIT / Apache-2.0 | 許可 | — |
 | Tauri 2、Svelte、CodeMirror 6、sigma.js、graphology、cosmos.gl、xyflow、maxGraph | MIT / Apache-2.0 | 許可 | npm 側は `pnpm licenses` で確かめる |
+| Playwright（Python、開発依存） | Apache-2.0 | 許可 | スライドのブラウザ検査（`render_slides.py`）。配布物には入らない |
+| mise | MIT | 許可（ツール） | ツールの版の管理。配布物には入らない |
 | cbindgen | MPL-2.0（ツール） | 許可（ツールとして） | 生成するヘッダには `header=` で GlobeMode のライセンス表示を入れる |
 | uniffi | MPL-2.0 | 条件付き | 今は使わない |
 | JointJS core | MPL-2.0 | 条件付き | 回路図ライブラリの第二候補 |

@@ -26,7 +26,7 @@ cd "$MAIN"
 git worktree list                      # 同名が無いか確認
 git status --porcelain                 # main 側に未コミットの変更が無いか確認
 git worktree add -b "feature/$TOPIC" "$WT" main
-cd "$WT" && uv sync
+cd "$WT" && mise trust && mise install --locked && uv sync
 ```
 
 - `main` に未コミットの変更（未追跡ファイルを含む）があったら、**そこで止めてユーザーに伝える**。勝手にコミットも stash もしない。

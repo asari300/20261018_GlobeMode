@@ -93,29 +93,27 @@
   <h1>Rumoca は想定以上に成熟している</h1>
   <p class="lead">Apache-2.0（NOTICE は無い）・v0.10.3・約57 crate・開発が非常に活発。<span class="warn">nightly 固定、crates.io は 0.7.28 で止まっている</span></p>
   <div class="cols-2">
-    <svg class="fig" viewBox="0 0 860 300" role="img" aria-label="MSL 4.1.0 の例題のファネル">
+    <svg class="fig" viewBox="0 0 620 300" role="img" aria-label="MSL 4.1.0 の例題のファネル">
       <text class="svg-text-m" x="0" y="18">MSL 4.1.0 の例題（2026-06-05 時点）</text>
-      <g>
-        <text class="svg-text" x="150" y="52" text-anchor="end">parse</text>
-        <rect class="svg-node" x="165" y="36" width="640" height="22" rx="4"/>
-        <text class="svg-text-b" x="815" y="53">566</text>
-        <text class="svg-text" x="150" y="92" text-anchor="end">flatten</text>
-        <rect class="svg-node" x="165" y="76" width="636" height="22" rx="4"/>
-        <text class="svg-text-b" x="811" y="93">562</text>
-        <text class="svg-text" x="150" y="132" text-anchor="end">DAE</text>
-        <rect class="svg-node" x="165" y="116" width="539" height="22" rx="4"/>
-        <text class="svg-text-b" x="714" y="133">477</text>
-        <text class="svg-text" x="150" y="172" text-anchor="end">balanced</text>
-        <rect class="svg-node" x="165" y="156" width="525" height="22" rx="4"/>
-        <text class="svg-text-b" x="700" y="173">464</text>
-        <text class="svg-text" x="150" y="212" text-anchor="end">初期化 OK</text>
-        <rect class="svg-node-2" x="165" y="196" width="253" height="22" rx="4"/>
-        <text class="svg-text-b" x="428" y="213">224</text>
-        <text class="svg-text" x="150" y="252" text-anchor="end">シミュ OK</text>
-        <rect class="svg-node-3" x="165" y="236" width="173" height="22" rx="4"/>
-        <text class="svg-text-b" x="348" y="253">153</text>
-      </g>
-      <text class="svg-text-m" x="165" y="290">OMC との比較: 143 本中 89 本が高い一致</text>
+      <text class="svg-text" x="110" y="53" text-anchor="end">parse</text>
+      <rect class="svg-node" x="120" y="36" width="440" height="24" rx="4"/>
+      <text class="svg-text-b" x="568" y="54">566</text>
+      <text class="svg-text" x="110" y="93" text-anchor="end">flatten</text>
+      <rect class="svg-node" x="120" y="76" width="437" height="24" rx="4"/>
+      <text class="svg-text-b" x="565" y="94">562</text>
+      <text class="svg-text" x="110" y="133" text-anchor="end">DAE</text>
+      <rect class="svg-node" x="120" y="116" width="371" height="24" rx="4"/>
+      <text class="svg-text-b" x="499" y="134">477</text>
+      <text class="svg-text" x="110" y="173" text-anchor="end">balanced</text>
+      <rect class="svg-node" x="120" y="156" width="361" height="24" rx="4"/>
+      <text class="svg-text-b" x="489" y="174">464</text>
+      <text class="svg-text" x="110" y="213" text-anchor="end">初期化 OK</text>
+      <rect class="svg-node-2" x="120" y="196" width="174" height="24" rx="4"/>
+      <text class="svg-text-b" x="302" y="214">224</text>
+      <text class="svg-text" x="110" y="253" text-anchor="end">シミュ OK</text>
+      <rect class="svg-node-3" x="120" y="236" width="119" height="24" rx="4"/>
+      <text class="svg-text-b" x="247" y="254">153</text>
+      <text class="svg-text-m" x="120" y="292">OMC との比較: 143 本中 89 本が高い一致</text>
     </svg>
     <div>
       <ul class="small">
@@ -222,8 +220,8 @@
   <h1>ユーザーが作った言語別の src/ に合わせる</h1>
   <div class="cols-2">
 <pre><code>Cargo.toml              virtual workspace
-rust-toolchain.toml     stable 1.99.1 (+wasm, android)
-mise.toml               言語ごとのツールの版
+mise.toml / mise.lock   ツールの版（rust は stable）
+pyproject.toml / uv.lock  Python の依存
 src/Rust/mod/&lt;crate&gt;/   コアの library crate
 src/Rust/apps/desktop/  Tauri 2 のシェル
 src/Rust/apps/experimental/{leptos,dioxus}/
@@ -476,7 +474,7 @@ doc/  log/  .claude/</code></pre>
 <section class="slide" id="S17">
   <span class="tag">図 · ロードマップ</span>
   <h1>P0〜P8 と Track B（自前コア）</h1>
-  <svg class="fig" viewBox="0 0 1000 250" role="img" aria-label="ロードマップ">
+  <svg class="fig" viewBox="0 0 1000 256" role="img" aria-label="ロードマップ">
     <rect class="svg-box-accent" x="10" y="20" width="100" height="78" rx="10"/>
     <text class="svg-text-b" x="60" y="50" text-anchor="middle">P0</text>
     <text class="svg-text-m" x="60" y="72" text-anchor="middle">運用基盤</text>
@@ -513,11 +511,12 @@ doc/  log/  .claude/</code></pre>
     <text class="svg-text-b" x="940" y="50" text-anchor="middle">P8</text>
     <text class="svg-text-m" x="940" y="72" text-anchor="middle">拡充</text>
     <text class="svg-text-m" x="940" y="90" text-anchor="middle">SSP・radau</text>
-    <rect class="svg-box-warn" x="560" y="140" width="430" height="64" rx="10"/>
-    <text class="svg-text-b" x="775" y="168" text-anchor="middle">Track B: 自前コア（rowan ＋ salsa）</text>
-    <text class="svg-text-m" x="775" y="190" text-anchor="middle">B1 パーサ → B2 resolve → B3 flatten → B4 DAE。Rumoca 以上の数字で既定を切り替える</text>
-    <line class="svg-line" x1="500" y1="98" x2="560" y2="160"/>
-    <text class="svg-text-m" x="10" y="238">各 Phase の完了条件は数字で決めている（例 P2: 空白だけの編集の再検査 &lt; 50 ms、P3: MSL の例題 153 本以上を実行）</text>
+    <rect class="svg-box-warn" x="430" y="132" width="560" height="84" rx="10"/>
+    <text class="svg-text-b" x="710" y="160" text-anchor="middle">Track B: 自前コア（rowan ＋ salsa）</text>
+    <text class="svg-text-m" x="710" y="182" text-anchor="middle">B1 パーサ → B2 resolve → B3 flatten → B4 DAE</text>
+    <text class="svg-text-m" x="710" y="202" text-anchor="middle">段階ごとに Rumoca 以上の数字を出したら、既定を切り替える</text>
+    <line class="svg-line" x1="500" y1="98" x2="500" y2="132"/>
+    <text class="svg-text-m" x="10" y="244">各 Phase の完了条件は数字で決めている（例 P2: 空白だけの編集の再検査 &lt; 50 ms、P3: MSL の例題 153 本以上を実行）</text>
   </svg>
 </section>
 
@@ -591,7 +590,7 @@ doc/  log/  .claude/</code></pre>
       <h3>やること</h3>
       <ol class="small">
         <li>ルートの <code>Cargo.toml</code> を virtual workspace に。<code>src/main.rs</code> を <code>globe-mode-cli</code> へ移す</li>
-        <li><code>rust-toolchain.toml</code> と <code>mise.toml</code>（main で準備中の手順書と内容をそろえる）</li>
+        <li><code>mise.toml</code> の rust に wasm と Android の targets を足す（言語の管理は mise・uv・cargo。<code>rust-toolchain.toml</code> は置かない）</li>
         <li><code>deny.toml</code>（許可リスト・<code>bans</code>・<code>wrappers</code>）と CI の雛形</li>
         <li>Rumoca の <code>rev</code> を決め、<b>stable でビルドできるか</b>を確かめる → ADR-0003</li>
         <li>Python パッケージを <code>globe_mode</code> に改名（数字で始まる名前は import できない）</li>
