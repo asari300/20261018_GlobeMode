@@ -59,7 +59,7 @@ def _local_names() -> set[str]:
 def _windows_profiles() -> set[str]:
     """WSL から見える Windows のユーザープロファイル名（/mnt/c/Users/<名前>）。
 
-    S005 で Windows 側の LM Studio を調べたとき、パスの外（「プロファイル名 X は読めない」などの文）にも
+    S006 で Windows 側の LM Studio を調べたとき、パスの外（「プロファイル名 X は読めない」などの文）にも
     プロファイル名が出た。パスの規則だけでは消えないので、名前そのものを伏せ字にする。
     """
     builtin = {"public", "default", "default user", "all users", "defaultuser0", "wsiaccount"}

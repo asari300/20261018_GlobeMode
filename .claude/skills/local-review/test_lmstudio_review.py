@@ -59,7 +59,7 @@ class SplitAndFilter(unittest.TestCase):
         for p in ["Cargo.lock", "uv.lock", "data/msl/x.mo", "log/local/a.md", ".env", ".env.local",
                   "web/node_modules/x.js", "keys/server.pem", "doc/a.png"]:
             self.assertTrue(lr.excluded(p), p)
-        for p in ["src/a.rs", "doc/sessions/S005/slides.html", ".claude/skills/x/y.py"]:
+        for p in ["src/a.rs", "doc/sessions/S006/slides.html", ".claude/skills/x/y.py"]:
             self.assertFalse(lr.excluded(p), p)
 
 

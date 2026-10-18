@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>S005 ローカル LLM の副レビュー — GlobeMode</title>
+<title>S006 ローカル LLM の副レビュー — GlobeMode</title>
 <link rel="stylesheet" href="../../assets/slides.css">
 </head>
-<body data-deck="GlobeMode S005 · ローカル LLM の副レビュー（全体）">
+<body data-deck="GlobeMode S006 · ローカル LLM の副レビュー（全体）">
 
 <section class="slide" id="S01">
-  <span class="tag">S005 · 2026-10-18 · 運用（開発環境）</span>
+  <span class="tag">S006 · 2026-10-18 · 運用（開発環境）</span>
   <h1>WSL2 の Claude Code が、Windows の LM Studio（Bonsai-27B）にもレビューさせる</h1>
   <div class="kpis">
     <div class="kpi"><span class="n">localhost</span><span class="l">mirrored モードなので WSL から <code>:1234</code> にそのまま届く</span></div>
@@ -92,13 +92,13 @@
     <div class="card hl"><h3><a href="03-bonsai-tuning.html">03 Bonsai の調整</a></h3><p class="small">系列の見分け方、ハイブリッドな層と KV、実測、推論の切り方、推奨の読み込み</p></div>
     <div class="card"><h3><a href="04-review-skill.html">04 /local-review</a></h3><p class="small">分割と行番号、使い方、Claude が裁く手順、このセッションでの実例</p></div>
     <div class="card"><h3><a href="05-alternatives.html">05 ほかの方式との比較</a></h3><p class="small">MCP（houtini-lm）、<code>claude --bare -p</code>、hooks の実測と、採らなかった理由</p></div>
-    <div class="card"><h3>文書</h3><p class="small">解説書・調査記録・ADR-0007 は、この下のスライド（S10）にリンクがある</p></div>
+    <div class="card"><h3>文書</h3><p class="small">解説書・調査記録・ADR-0008 は、この下のスライド（S10）にリンクがある</p></div>
   </div>
 </section>
 
 <section class="slide" id="S05">
   <span class="tag">決定と理由 · 方式</span>
-  <h1>4 案を実測して、スキル＋スクリプトにした（ADR-0007）</h1>
+  <h1>4 案を実測して、スキル＋スクリプトにした（ADR-0008）</h1>
   <table class="compact">
     <tr><th>案</th><th>実測・事実</th><th>判定</th></tr>
     <tr><td><b>A. スキル＋スクリプト</b>（<code>/local-review</code>）</td><td>依存なし。分割・除外・推論の切り替え・見積もりを自分で制御できる</td><td class="ok">採用</td></tr>
@@ -185,14 +185,14 @@ python3 -I -m unittest discover -s .claude/skills/local-review -p 'test_*.py'</c
 
 <section class="slide" id="S10">
   <span class="tag">次回</span>
-  <h1>速いモデルとの比較と、本来の P2 へ</h1>
+  <h1>速いモデルとの比較と、ユーザーの設定変更</h1>
   <div class="cols-2">
     <div class="card hl">
       <h3>やること</h3>
       <ol class="small">
         <li>インストール済みの MoE（<code>gpt-oss-20b</code>、<code>gemma-4-26b-a4b</code>）と小さい <code>nemotron-3-nano-4b</code> を同じ差分で測る</li>
         <li>CPU Thread Pool Size（GUI）で prompt 処理が速くなるかを測る</li>
-        <li>P2 の 2 回目（flat と check をクエリに載せる、GM-U の振り分け）</li>
+        <li>/local-review を、実際の Rust の変更（P2 の続き）のレビューで使ってみる</li>
       </ol>
     </div>
     <div class="card">
@@ -200,7 +200,7 @@ python3 -I -m unittest discover -s .claude/skills/local-review -p 'test_*.py'</c
       <ul class="small">
         <li><a href="解説書.md">解説書</a>（手順の全体）</li>
         <li><a href="../../research/lmstudio-wsl2-review.md">調査記録</a>（出典と確認日）</li>
-        <li><a href="../../adr/0007-local-llm-reviewer.md">ADR-0007</a>（判断）</li>
+        <li><a href="../../adr/0008-local-llm-reviewer.md">ADR-0008</a>（判断）</li>
         <li><a href="../../../.claude/skills/local-review/SKILL.md">SKILL.md</a>（Claude の手順）</li>
         <li class="warn">ユーザーの作業: LM Studio を 127.0.0.1 にし、全文ログを切る</li>
       </ul>

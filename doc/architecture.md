@@ -304,5 +304,5 @@ Svelte の UI は `Backend` インターフェースだけに依存する。実�
 | FMI | Reference-FMUs、FMPy、fmusim、fmuCheck、往復 |
 | ライセンス | cargo-deny、`pnpm licenses`、cargo-about、CycloneDX SBOM |
 | CI | 差分だけを検査し、依存・ツール・CI の定義の変更や大きな変更のときだけ全体を検査する（[ADR-0006](adr/0006-incremental-ci.md)） |
-| コードレビュー | Claude Code が主。副次的に、Windows 側の LM Studio のローカルモデルにも差分を読ませる（スキル `/local-review`、[ADR-0007](adr/0007-local-llm-reviewer.md)）。指摘は Claude が確かめて採否を決める |
+| コードレビュー | Claude Code が主。副次的に、Windows 側の LM Studio のローカルモデルにも差分を読ませる（スキル `/local-review`、[ADR-0008](adr/0008-local-llm-reviewer.md)）。指摘は Claude が確かめて採否を決める |
 | 性能 | P2: 空白だけの編集の再検査が 50 ms 未満。P4: 5k ノードのグラフが 30 fps 以上 |

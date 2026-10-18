@@ -6,7 +6,7 @@ allowed-tools: Bash(python3 -I .claude/skills/local-review/lmstudio_review.py:*)
 
 # ローカル LLM の副レビュー
 
-実装とレビューの主は Claude。このスキルは、WSL2 から Windows の LM Studio に差分を送り、小型モデルの指摘を**参考として**集める。背景と設定の手順は [S005 の解説書](../../../doc/sessions/S005-local-llm-review/解説書.md)、判断は [ADR-0007](../../../doc/adr/0007-local-llm-reviewer.md) にある。
+実装とレビューの主は Claude。このスキルは、WSL2 から Windows の LM Studio に差分を送り、小型モデルの指摘を**参考として**集める。背景と設定の手順は [S006 の解説書](../../../doc/sessions/S006-local-llm-review/解説書.md)、判断は [ADR-0008](../../../doc/adr/0008-local-llm-reviewer.md) にある。
 
 ## 前提
 
@@ -60,4 +60,4 @@ allowed-tools: Bash(python3 -I .claude/skills/local-review/lmstudio_review.py:*)
 
 - ローカル LLM の指摘を根拠に、確かめないまま変更しない。
 - 秘密を含みうるファイルを `--path` で無理に送らない。LM Studio は設定によってはプロンプトを全文ログに書く。
-- Stop フックなどで自動実行しない。1 回に 10 分以上かかり、会話を止めてしまう（ADR-0007）。
+- Stop フックなどで自動実行しない。1 回に 10 分以上かかり、会話を止めてしまう（ADR-0008）。

@@ -2,7 +2,7 @@
 
 - 確認日: 2026-10-18（すべての項目）。確認できなかった項目には【未確認】と書いた。
 - 「実機」は、この PC で測った・読んだ値（Ryzen 7 7730U、RAM 31GB、AMD Radeon 内蔵 GPU、Windows 11 + WSL2 Ubuntu 26.04.1、LM Studio の llama.cpp ランタイムは Vulkan 版 2.60.0）。
-- 結論: Claude Code が主に実装とレビューを行う。副レビューは、スキル `/local-review` が差分を LM Studio の OpenAI 互換 API に送る形にした（[ADR-0007](../adr/0007-local-llm-reviewer.md)）。手順は [S005 の解説書](../sessions/S005-local-llm-review/解説書.md) にある。
+- 結論: Claude Code が主に実装とレビューを行う。副レビューは、スキル `/local-review` が差分を LM Studio の OpenAI 互換 API に送る形にした（[ADR-0008](../adr/0008-local-llm-reviewer.md)）。手順は [S006 の解説書](../sessions/S006-local-llm-review/解説書.md) にある。
 
 ## 1. WSL2 から Windows のサービスへつなぐ
 
@@ -158,4 +158,4 @@ ANTHROPIC_DEFAULT_HAIKU_MODEL=prism-ml/bonsai-27b \
 
 - houtini-lm の環境変数は `HOUTINI_LM_ENDPOINT_URL`（`/v1` なし）、`HOUTINI_LM_API_KEY`、`HOUTINI_LM_MODEL`、`HOUTINI_LM_THINKING`（auto / off / on）、`HOUTINI_LM_SERIALISE`（既定 1）、`HOUTINI_LM_MIN_TOKENS`（**既定 4096**）。
 - 生成が 2 tok/s のこの PC では、`MIN_TOKENS` の既定のままだと 1 回の出力に最大 34 分かかる。
-- 実機で試した結果は [S005 の解説書 §2](../sessions/S005-local-llm-review/解説書.md#2-決定と理由) にある。
+- 実機で試した結果は [S006 の解説書 §2](../sessions/S006-local-llm-review/解説書.md#2-決定と理由) にある。

@@ -1,4 +1,4 @@
-# ADR-0007 ローカル LLM は副レビュアーとし、スキルから OpenAI 互換 API で呼ぶ
+# ADR-0008 ローカル LLM は副レビュアーとし、スキルから OpenAI 互換 API で呼ぶ
 
 - 状態: Accepted（2026-10-18）
 
@@ -30,7 +30,7 @@
 
 | 案 | 理由 |
 | --- | --- |
-| B. MCP（houtini-lm） | 動くが、Node の外部パッケージを `npx` で毎回取ってくる。要る設定（`HOUTINI_LM_MIN_TOKENS` の既定 4096 を下げる、推論を切る）を全員の環境で揃える必要がある。分割や除外を自分で制御できない。試し方は [S005 の解説書](../sessions/S005-local-llm-review/解説書.md) に残す |
+| B. MCP（houtini-lm） | 動くが、Node の外部パッケージを `npx` で毎回取ってくる。要る設定（`HOUTINI_LM_MIN_TOKENS` の既定 4096 を下げる、推論を切る）を全員の環境で揃える必要がある。分割や除外を自分で制御できない。試し方は [S006 の解説書](../sessions/S006-local-llm-review/解説書.md) に残す |
 | C. `claude --bare -p` | Claude Code の推奨は 25K 以上のコンテキストで、Claude 以外のモデルは Anthropic のサポート外。"pong" と返すだけで 179 秒かかった。Claude Code がこのモデルのコンテキストを 200K と仮定する |
 | D. hooks | 1 回に 10 分以上かかり、会話が止まる。小さいモデルの誤った指摘に毎回 Claude が振り回される |
 
@@ -38,7 +38,7 @@
 
 - `/local-review` で、作業ツリーの差分を数分〜数十分でレビューさせられる。`--dry-run` で所要時間の見積もりを先に出せる。
 - 小さいモデルの誤検知は Claude が裁くので、誤った修正は入らない。その代わり、確かめる手間が増える。
-- LM Studio の設定はユーザーが GUI で変える（Windows 側）。推奨は次の 3 つで、[S005 の解説書](../sessions/S005-local-llm-review/解説書.md) にある。
+- LM Studio の設定はユーザーが GUI で変える（Windows 側）。推奨は次の 3 つで、[S006 の解説書](../sessions/S006-local-llm-review/解説書.md) にある。
   - 127.0.0.1 で待ち受ける
   - 必要なら認証を有効にする
   - プロンプトの全文ログを止める

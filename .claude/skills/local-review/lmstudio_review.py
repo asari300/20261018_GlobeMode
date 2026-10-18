@@ -40,7 +40,7 @@ from pathlib import Path
 DEFAULT_BASE_URL = "http://localhost:1234"
 DEFAULT_MODEL = "prism-ml/bonsai-27b"
 # LM Studio のモデル一覧（/api/v0/models、/api/v1/models）は、眠っていたサービスを起こすときや
-# ディスクを走査するときに 14〜63 秒かかった（S005 で実測。/v1/models は 0.1 秒以内）。
+# ディスクを走査するときに 14〜63 秒かかった（S006 で実測。/v1/models は 0.1 秒以内）。
 STATUS_TIMEOUT = 120
 
 # 送らないファイル。生成物・ロックファイル・取得物・ログ・秘密の入りうるもの。
@@ -193,7 +193,7 @@ def annotate(text: str) -> str:
 def estimate_tokens(text: str) -> int:
     """トークン数を多めに見積もる。ASCII は 3 文字で 1、それ以外（日本語など）は 1 文字で 1。
 
-    Bonsai-27B（Qwen 系のトークナイザ）で Rust のソースを測ると 3.3 文字で 1 トークンだった（S005）。
+    Bonsai-27B（Qwen 系のトークナイザ）で Rust のソースを測ると 3.3 文字で 1 トークンだった（S006）。
     """
     ascii_chars = sum(1 for c in text if ord(c) < 128)
     return math.ceil(ascii_chars / 3) + (len(text) - ascii_chars)
@@ -348,7 +348,7 @@ def review_chunk(cfg: Config, chunk: Chunk, idx: int, total: int, args: argparse
     }
     if not args.think:
         # Bonsai-27B（qwen35）は推論が既定で有効。LM Studio では reasoning_effort "none" で切れる。
-        # chat_template_kwargs.enable_thinking は無視された（S005 で確認）。
+        # chat_template_kwargs.enable_thinking は無視された（S006 で確認）。
         body["reasoning_effort"] = "none"
     start = time.monotonic()
     res = api(cfg, "/api/v0/chat/completions", body)
@@ -396,8 +396,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--think", action="store_true", help="推論（thinking）を切らない。遅くなる")
     p.add_argument("--ttl", type=int, default=1800, help="使われなくなってから解放するまでの秒数。既定 1800")
     p.add_argument("--timeout", type=float, default=3600, help="1 回のリクエストの待ち時間（秒）。既定 3600")
-    p.add_argument("--pp-tps", type=float, default=8.0, help="見積もり用。prompt 処理の tok/s（S005 の実測 8）")
-    p.add_argument("--gen-tps", type=float, default=2.0, help="見積もり用。生成の tok/s（S005 の実測 2）")
+    p.add_argument("--pp-tps", type=float, default=8.0, help="見積もり用。prompt 処理の tok/s（S006 の実測 8）")
+    p.add_argument("--gen-tps", type=float, default=2.0, help="見積もり用。生成の tok/s（S006 の実測 2）")
     p.add_argument("--dry-run", action="store_true", help="分割の計画と見積もりだけを出す（モデルに送らない）")
     p.add_argument("--out", help="レポートの書き出し先（既定は標準出力だけ）")
     return p.parse_args(argv)
