@@ -87,6 +87,21 @@
 - `test_ci_plan.py` は 16 件すべて通過。actionlint の指摘は 0 件。
 - Playwright（S004 のデッキ）: 問題 0 件。目で見て、S05 と S07 の文字のはみ出しを直した。
 
+## 追記: S004 の CI の失敗（run 39100593298）と修正
+
+- **何が落ちたか**: rust-windows の `globe-mode-db` のテスト 3 件だけ。ほかの 6 ジョブ（msl を含む）は成功した。
+  - `whitespace_and_comment_edits_stop_at_the_firewall`
+  - `a_new_connect_reaches_the_graph`
+  - `syntax_error_keeps_other_files_usable`
+- **原因 1（改行）**: Windows のランナーは `.mo` を CRLF で checkout する。テストの `replace("equation\n", …)` が当たらず、編集そのものが起きていなかった。
+- **原因 2（パス）**: `load_dir` は `\` 区切りのパスで登録するが、テストは `Connect/RealSignals.mo`（`/` 区切り）で差し替えていた。差し替えではなく、別のファイルとして追加されていた。
+- **直したこと**（`feature/ops-windows-paths`）:
+  - `.gitattributes` で `*.mo` と `package.order` を LF に固定した。
+  - `GlobeDb` がファイルのキーの区切りを `/` にそろえるようにした（単体テスト 1 件を足した）。
+  - テストは OS の区切りでパスを組み、本文の CRLF を LF に直してから使う。
+- `.github/` を変えていないので、差分だけの CI では Windows のジョブが動かない。マージのコミットに `[full-ci]` を入れて、全体を検査した。
+- 失敗したので、手順どおり worktree の片付けは見送った。修正の CI が通ってから行う。
+
 ## 残したこと
 
 - `flat` と検査（S0〜S5）をクエリに載せる（S005）。

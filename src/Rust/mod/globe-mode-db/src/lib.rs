@@ -134,8 +134,11 @@ impl GlobeDb {
     }
 
     /// ファイルを足すか、本文を差し替える。
+    ///
+    /// パスは区切りを `/` にそろえてから使う（Windows の `\\` と混ざっても同じファイルになるように）。
     pub fn set_file(&mut self, path: &str, text: impl Into<String>) {
         let text = text.into();
+        let path = &normalize(path);
         if let Some(file) = self.files.get(path).copied() {
             file.set_text(self).to(text);
             return;
@@ -175,7 +178,7 @@ impl GlobeDb {
     }
 
     pub fn outline(&self, path: &str) -> Option<&Result<Outline, Vec<Diagnostic>>> {
-        self.files.get(path).map(|f| outline(self, *f))
+        self.files.get(&normalize(path)).map(|f| outline(self, *f))
     }
 
     pub fn class_index(&mut self) -> &ClassIndex {
@@ -198,6 +201,11 @@ impl GlobeDb {
     }
 }
 
+/// パスの区切りを `/` にそろえる。
+fn normalize(path: &str) -> String {
+    path.replace('\\', "/")
+}
+
 fn collect_mo(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) -> std::io::Result<()> {
     for entry in std::fs::read_dir(dir)? {
         let path = entry?.path();
@@ -208,4 +216,20 @@ fn collect_mo(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) -> std::
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn backslash_and_slash_paths_are_the_same_file() {
+        let mut db = GlobeDb::new();
+        db.set_file("lib\\P\\A.mo", "within P;\nmodel A\nend A;\n");
+        db.set_file("lib/P/A.mo", "within P;\nmodel B\nend B;\n");
+        assert_eq!(db.files.len(), 1);
+        assert!(db.class_index().get("P.B").is_some());
+        assert!(db.class_index().get("P.A").is_none());
+        assert!(db.outline("lib\\P\\A.mo").is_some());
+    }
 }
