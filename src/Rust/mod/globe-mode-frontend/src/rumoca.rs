@@ -271,6 +271,12 @@ impl Checker {
                         "S6 の入力（方程式 × 未知数）を作れなかった: {reason}"
                     )),
                 }
+                match crate::init::extract(&result.dae) {
+                    Ok(init) => report.init = Some(init),
+                    Err(reason) => report
+                        .notes
+                        .push(format!("S8 の入力（初期化系）を作れなかった: {reason}")),
+                }
             }
             Err(strict) => {
                 let (d, rumoca_code) = strict_failure_diagnostic(&strict);
@@ -548,6 +554,20 @@ fn parse_diagnostic(file: &str, e: &ParseError) -> Diagnostic {
 }
 
 fn class_outline(c: &ast::ClassDef) -> ClassOutline {
+    /// `import` 文 1 つを、IR の書式（[`ClassOutline::imports`]）の名前に直す。
+    /// 先頭の `.`（`import .A.B;` のグローバルスコープ）は落とす（どちらも完全修飾名なので）。
+    fn import_paths(i: &ast::Import) -> Vec<String> {
+        match i {
+            ast::Import::Qualified { path, .. } | ast::Import::Renamed { path, .. } => {
+                vec![path.to_string()]
+            }
+            ast::Import::Unqualified { path, .. } => vec![format!("{path}.*")],
+            ast::Import::Selective { path, names, .. } => {
+                names.iter().map(|n| format!("{path}.{}", n.text)).collect()
+            }
+        }
+    }
+
     let connects = c
         .equations
         .iter()
@@ -568,6 +588,7 @@ fn class_outline(c: &ast::ClassDef) -> ClassOutline {
         causality: causality(&c.causality),
         range: TextRange::new(c.location.start, c.location.end),
         extends: c.extends.iter().map(|e| e.base_name.to_string()).collect(),
+        imports: c.imports.iter().flat_map(import_paths).collect(),
         components: c
             .components
             .values()

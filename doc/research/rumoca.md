@@ -148,6 +148,49 @@ IR:        rumoca-ir-ast → rumoca-ir-flat → rumoca-ir-dae → rumoca-ir-solv
   - モデルごとの結果の一覧は、リポジトリに入っていない（ハーネスの実行時に作る）。
 - GlobeMode の `cargo xtask msl-funnel` は同じ名前の規則で選び、**566 本（うち partial 13 本）で一致した**（[報告](../sessions/S005-check-queries/msl-funnel.md)）。
 
+## S006 で調べた API（v0.10.2）
+
+- 確認日: 2026-10-18。
+- 読んだのは S005 と同じ rev `276e82bd` のソース（cargo の git の取得物。GitHub では <https://github.com/CogniPilot/rumoca/tree/276e82bd0fd48960ac201e782918d28bf19cf7ce>）。下の表のパスは、リポジトリのルートからのもの。
+- 「出典」が GlobeMode のテストのものは、ソースを読んだのではなく、Rumoca に小さなモデルを通して確かめた事実（テストは `src/Rust/mod/globe-mode-frontend/src/init.rs` の単体テストと `tests/init.rs`）。
+- S006 の設計（[ADR-0005](../adr/0005-lazy-query-db.md) の結果の `deps_closure`、[ADR-0008](../adr/0008-structural-index-and-init.md)）は、この調査に基づく。
+
+### import の AST
+
+| 項目 | 事実 | 出典 |
+| --- | --- | --- |
+| 型 | `rumoca_ir_ast::Import` は 4 つの形の enum: `Qualified { path }`（`import A.B.C;`）、`Renamed { alias, path }`（`import D = A.B.C;`）、`Unqualified { path }`（`import A.B.*;`）、`Selective { path, names }`（`import A.B.{C, D};`）。どれも `location` と、先頭の `.`（`import .A.B.C;`）を表す `global_scope` を持つ | `crates/rumoca-ir-ast/src/nodes.rs`（`pub enum Import`） |
+| 置き場 | `ClassDef` の `imports: Vec<Import>` | 同上（`pub struct ClassDef`） |
+| GlobeMode の扱い | アウトラインの `ClassOutline.imports` に文字列で写す（`A.B.C`、`A.B.*`、`A.B.C` と `A.B.D`）。別名（`D =`）は落とす | `src/Rust/mod/globe-mode-frontend/src/rumoca.rs`（`import_paths`） |
+
+### 変数の属性（`VariableView`）
+
+| 項目 | 事実 | 出典 |
+| --- | --- | --- |
+| 取り出し | `start()` と `binding()` は `Option<ExprId>`、`fixed()` は `Option<&[bool]>` を返す | `crates/rumoca-ir-dae/src/model/view.rs`（`impl VariableView`） |
+| `fixed_scalar(i)` | スカラー 1 つの `fixed`。値が 1 つなら全要素に行き渡らせ、配列なら要素の位置で引く（MLS §4.8、§4.8.6）。属性が無ければ None（GlobeMode は MLS の既定を使う: 状態・離散・代数は false、パラメータは true） | 同上 |
+| 既定の start の補完 | DAE を組むとき、start の無い変数のうち、状態・代数・出力・離散 Real・離散値と、`fixed = false` のパラメータには、既定の start の式を補う（`needs_default_start`、`default_start_expression`） | `crates/rumoca-phase-dae/src/construction/variable_construction.rs` |
+| 補った式の由来 | `DaeGeneration::DefaultStart`（説明は "language-defined default start"） | `crates/rumoca-ir-dae/src/provenance.rs` |
+| `start()` はほぼ常に Some | 何も書かなくても Some になる。組み込みの型（`Real x;`）では、式の位置が宣言そのものと同じ。start の無い型（`type V = Real(unit = "V")`）では、由来が `DefaultStart`。GlobeMode は、このどちらでもない start を「明示された start」（`has_start`）とする | GlobeMode のテスト（`src/Rust/mod/globe-mode-frontend/src/init.rs` の単体テストと `explicit_start`、`tests/init.rs`） |
+| 明示とみなすもの | 型から受け継いだ start（`type V = Real(start = 1)`）、式の start（`start = p`）、外からの修正（`Sub s(x(start = 2))`）。束縛のあるパラメータ（`parameter Real p = 2`）は、束縛が start にも写される（MLS §4.4.4） | 同上 |
+
+### 初期化系
+
+| 項目 | 事実 | 出典 |
+| --- | --- | --- |
+| 初期方程式 | `DaeView::initialization_owners()` が、初期方程式を Residual（1 行）か Structured（族）として列挙する | `crates/rumoca-ir-dae/src/model/view.rs` |
+| `fixed = true` の start | ToDae（`compile_model_strict`）は、`fixed = true` の start を初期方程式に**変えない**（`initialization_owners()` に現れない）。S8 は `fixed = true` の状態を初期方程式とは別に数えればよく、2 重には数えない | GlobeMode のテスト（`src/Rust/mod/globe-mode-frontend/src/init.rs` の `fixed_start_is_not_turned_into_an_initial_equation`、`tests/init.rs` の `fixed_start_alone_adds_no_initial_equation`） |
+| パラメータの初期値 | `DaeView::initial_parameter_values()`: 初期化で決めるパラメータの定義。Real でない `fixed = false` のパラメータを決める式は、`initialization_owners()` ではなくここに入る | `crates/rumoca-ir-dae/src/model/initial_parameters.rs`、GlobeMode のテスト |
+| 離散変数の初期値 | `DaeView::initial_discrete_values()`: 離散変数の、初期化の時点の値（MLS §8.6）。定数で決まる離散値と、初期アルゴリズムの代入はここに入り、`initialization_owners()` には入らない（連続の変数を読む離散 Real の式は入る） | `crates/rumoca-ir-dae/src/model/view/arena_walks.rs`、GlobeMode のテスト |
+| 初期アルゴリズムのパラメータ | 初期アルゴリズムで決める `fixed = false` のパラメータ（`p := 2`）は、束縛のあるパラメータになる | GlobeMode のテスト |
+
+### 文書の組が変わったときの費用
+
+| 項目 | 事実 | 出典 |
+| --- | --- | --- |
+| 無効化 | 文書の追加・差し替え・削除と、ソースの集合の変更で、`invalidate_resolved_state` が resolve 済みの状態（`query_state.resolved`）をすべて捨てる。S005 の表の「無効化」の行の関数は、定義がこのファイルにある | `crates/rumoca-compile/src/session/session_impl_queries.rs`（定義）、`session_impl.rs`・`session_impl_inputs.rs`（呼び出し） |
+| 費用 | MSL を読んだ Session で、渡す文書の組が変わると、次の検査で MSL ごと解決し直す。約 1.5〜1.8 s（release。閉包の違うモデルを初めて検査したとき中央値 1700 ms、文書の組を変えずに同じモデルを検査したとき 67 ms） | GlobeMode の計測（`src/Rust/mod/globe-mode-db/tests/deps.rs` の `measure_checks_with_msl`。[ADR-0005](../adr/0005-lazy-query-db.md) の結果） |
+
 ## 依存として取り込むときの注意
 
 `rumoca`（umbrella crate）を**使わない**。理由はデフォルト feature にある。
@@ -192,3 +235,10 @@ default = ["scheduled-sim", "scenario-config", "input-keyboard", "input-gamepad"
 - <https://github.com/CogniPilot/rumoca/blob/276e82bd0fd48960ac201e782918d28bf19cf7ce/spec/SPEC_0008_PHASE_ERRORS.md>
 - <https://github.com/CogniPilot/rumoca/blob/276e82bd0fd48960ac201e782918d28bf19cf7ce/crates/rumoca-phase-structural/src/incidence.rs>
 - <https://github.com/CogniPilot/rumoca/blob/276e82bd0fd48960ac201e782918d28bf19cf7ce/crates/rumoca-test-msl/tests/msl_tests/msl_quality_baseline.json>
+- <https://github.com/CogniPilot/rumoca/blob/276e82bd0fd48960ac201e782918d28bf19cf7ce/crates/rumoca-ir-ast/src/nodes.rs>（S006）
+- <https://github.com/CogniPilot/rumoca/blob/276e82bd0fd48960ac201e782918d28bf19cf7ce/crates/rumoca-ir-dae/src/model/view.rs>（S006）
+- <https://github.com/CogniPilot/rumoca/blob/276e82bd0fd48960ac201e782918d28bf19cf7ce/crates/rumoca-ir-dae/src/provenance.rs>（S006）
+- <https://github.com/CogniPilot/rumoca/blob/276e82bd0fd48960ac201e782918d28bf19cf7ce/crates/rumoca-phase-dae/src/construction/variable_construction.rs>（S006）
+- <https://github.com/CogniPilot/rumoca/blob/276e82bd0fd48960ac201e782918d28bf19cf7ce/crates/rumoca-ir-dae/src/model/initial_parameters.rs>（S006）
+- <https://github.com/CogniPilot/rumoca/blob/276e82bd0fd48960ac201e782918d28bf19cf7ce/crates/rumoca-ir-dae/src/model/view/arena_walks.rs>（S006）
+- <https://github.com/CogniPilot/rumoca/blob/276e82bd0fd48960ac201e782918d28bf19cf7ce/crates/rumoca-compile/src/session/session_impl_queries.rs>（S006）

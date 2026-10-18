@@ -6,8 +6,10 @@
 use std::path::Path;
 
 use globe_mode_core::{Diagnostic, Stage};
-use globe_mode_ir::{BalanceCount, DaeCounts, DaeStructure, FlatSummary, Outline};
+use globe_mode_ir::{BalanceCount, DaeCounts, DaeStructure, FlatSummary, InitStructure, Outline};
 
+#[cfg(feature = "rumoca")]
+mod init;
 #[cfg(feature = "rumoca")]
 mod rumoca;
 #[cfg(feature = "rumoca")]
@@ -35,6 +37,9 @@ pub struct CheckReport {
     /// DAE まで変換できたときの、方程式 × 未知数の構造（S6 の入力）。位置はコンパイルに渡した本文の中。
     /// 作れなかったときは None で、理由は [`CheckReport::notes`] にある。
     pub structure: Option<DaeStructure>,
+    /// DAE まで変換できたときの、初期化系の構造（S8 の入力、S006）。位置はコンパイルに渡した本文の中。
+    /// 作れなかったときは None で、理由は [`CheckReport::notes`] にある。
+    pub init: Option<InitStructure>,
     /// flat モデルの要約。DAE への変換で失敗したとき（S5）も、flatten まで通れば入る。
     pub flat: Option<FlatSummary>,
     pub diagnostics: Vec<Diagnostic>,

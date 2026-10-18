@@ -79,6 +79,34 @@ fn outline_lists_classes_components_and_connects() {
 }
 
 #[test]
+fn outline_lists_imports_in_the_ir_format() {
+    // 4 つの書き方（修飾・別名・`*`・`{…}`）と、先頭の `.`（グローバルスコープ）
+    let text = "package P\n  import A.B.C;\n  import D = A.B.C;\n  model M\n    import A.B.*;\n    import A.B.{C, D};\n    import .A.E;\n    Real x;\n  equation\n    x = 1;\n  end M;\nend P;\n";
+    let o = RumocaFrontend::new()
+        .outline(Source { name: "P.mo", text })
+        .expect("parses");
+    let classes = o.qualified_classes();
+    let imports = |name: &str| {
+        classes
+            .iter()
+            .find(|(n, _)| n == name)
+            .unwrap_or_else(|| panic!("{name} が無い"))
+            .1
+            .imports
+            .clone()
+    };
+    assert_eq!(imports("P"), ["A.B.C", "A.B.C"]);
+    assert_eq!(imports("P.M"), ["A.B.*", "A.B.C", "A.B.D", "A.E"]);
+    // 位置を落とした写し（防火壁 1）でも import は残る
+    let shape = o.without_ranges();
+    assert_eq!(shape.classes[0].imports, ["A.B.C", "A.B.C"]);
+    assert_eq!(
+        shape.classes[0].classes[0].imports,
+        ["A.B.*", "A.B.C", "A.B.D", "A.E"]
+    );
+}
+
+#[test]
 fn rc_passes_with_balanced_counts() {
     let (name, text) = modelica(PACKAGE);
     let r = RumocaFrontend::new().check(

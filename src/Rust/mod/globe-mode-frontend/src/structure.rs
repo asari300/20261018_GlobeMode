@@ -207,7 +207,10 @@ fn extract_view<'dae>(dae: &Dae, view: DaeView<'dae>) -> Result<DaeStructure, St
 }
 
 /// 位置（ファイル名とバイト範囲）。範囲がその本文の中に収まるときだけ返す。
-fn location(dae: &Dae, provenance: DaeProvenance) -> (Option<String>, Option<TextRange>) {
+pub(crate) fn location(
+    dae: &Dae,
+    provenance: DaeProvenance,
+) -> (Option<String>, Option<TextRange>) {
     span_location(dae.source_map(), provenance.span())
 }
 
@@ -231,7 +234,7 @@ pub(crate) fn span_location(
 
 /// 表示用の短いラベル: ソースの一部（1 行、60 文字まで）。取れなければ `f[i]`（1 始まり）。
 /// 族の行には定義域の点を `[i,j]` で添える。
-fn label(
+pub(crate) fn label(
     view: DaeView<'_>,
     provenance: DaeProvenance,
     index: usize,
@@ -256,7 +259,7 @@ fn label(
     label
 }
 
-fn origin(provenance: DaeProvenance) -> EquationOrigin {
+pub(crate) fn origin(provenance: DaeProvenance) -> EquationOrigin {
     match provenance.origin() {
         DaeProvenanceOrigin::Source
         // 書かれた配列やレコードの方程式を、スカラーに分けたもの

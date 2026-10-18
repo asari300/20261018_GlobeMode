@@ -1,9 +1,11 @@
-//! `cargo xtask msl-funnel`: MSL 4.1.0 の全例題に判定（S0〜S6 / OK / GM-U）を出し、報告を書く（S005）。
+//! `cargo xtask msl-funnel`: MSL 4.1.0 の全例題に判定（S0〜S8 / OK / GM-U）を出し、報告を書く（S005、S7・S8 は S006）。
 //!
 //! - 例題の選び方は Rumoca の MSL ハーネスと同じ名前の規則（[`examples_in`]）。Rumoca の基準値と比べられるようにする。
 //! - 検査器（[`Checker`]）は 1 つだけ作り、MSL を一度だけ読む。モデルごとに `catch_unwind` で囲み、panic したら数えて続ける
 //!   （Mutex が毒されたら、`Checker` が次の検査でライブラリを読んだ直後の Session に戻す）。
 //! - S5 まで通ったモデルは、`globe-mode-analysis` で S6（構造特異）も見て、Rumoca 自身の構造解析の数と照合する。
+//! - S6 を通ったモデルは S7（Pantelides 法、[`analyze_index`]）を、そこまで Error が無ければ S8（初期化、
+//!   [`analyze_init_with_index`]。要る初期条件の数は S7 の動的な状態の数で数える）を回す。
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -14,11 +16,12 @@ use std::path::Path;
 use std::process::ExitCode;
 use std::time::Instant;
 
-use globe_mode_analysis::StructuralReport;
-use globe_mode_core::{Diagnostic, Stage, codes};
+use globe_mode_analysis::init::analyze_init_with_index;
+use globe_mode_analysis::{IndexReport, InitReport, StructuralReport, analyze_index};
+use globe_mode_core::{Diagnostic, Severity, Stage, codes};
 use globe_mode_db::GlobeDb;
 use globe_mode_frontend::{CheckReport, Checker, ReferenceStructure, unsupported};
-use globe_mode_ir::{ClassIndex, ClassKind, DaeStructure};
+use globe_mode_ir::{ClassIndex, ClassKind, DaeStructure, InitStructure, UnknownKind};
 
 use crate::{MSL_SHA256, MSL_VERSION, RUMOCA_REV, RUMOCA_VERSION, Result};
 
@@ -152,7 +155,7 @@ fn check_one(checker: &Checker, model: &str) -> (CheckReport, Option<ReferenceSt
 /// 1 本の判定。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum Verdict {
-    /// S0〜S6 で Error が無い
+    /// S0〜S8 で Error が無い（S005 の報告では S0〜S6）
     Ok,
     /// モデルの誤り（GM-E）で止まった
     Ng,
@@ -173,7 +176,7 @@ pub(crate) struct S6 {
     pub structural_matching: usize,
     /// 構造特異でない（まとめた形で完全マッチングがある）
     pub regular: bool,
-    /// まとめた形では完全マッチングがあるが、der の形では無い（S7 の情報 `GM-I7001`: インデックス > 1 の見込み）
+    /// まとめた形では完全マッチングがあるが、der の形では無い（インデックス > 1 の見込み。S7 の結果と同値）
     pub index_reduction_needed: bool,
     /// der の形で未知数を 1 つも含まない方程式の数（状態・パラメータ・入力だけの拘束）。
     /// このような方程式は der の形ではどの未知数ともマッチしない
@@ -211,6 +214,158 @@ impl S6 {
     }
 }
 
+/// S7 の結果の要約（[`IndexReport`]）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct S7 {
+    /// 構造インデックスの見込み（打ち切ったら 0）
+    pub index: usize,
+    /// 1 回以上微分した方程式の数
+    pub n_differentiated: usize,
+    /// 微分の最大回数
+    pub max_differentiations: u32,
+    /// 状態選択（dummy derivative）の候補の状態の数
+    pub dummy_candidates: usize,
+    /// 状態の数（スカラー）と、動的な状態の数の見込み（自由度）
+    pub states: usize,
+    pub dynamic_states: usize,
+    /// 打ち切った（`GM-E7001`）
+    pub failed: bool,
+}
+
+impl S7 {
+    fn new(structure: &DaeStructure, r: &IndexReport) -> Self {
+        Self {
+            index: r.index,
+            n_differentiated: r.n_differentiated,
+            max_differentiations: r.max_differentiations(),
+            dummy_candidates: r.dummy_candidates.len(),
+            states: structure
+                .unknowns
+                .iter()
+                .filter(|u| u.kind == UnknownKind::Derivative)
+                .count(),
+            dynamic_states: r.dynamic_states,
+            failed: r.failed,
+        }
+    }
+
+    /// 動的な状態が状態の数より少ない（状態選択が要る。`GM-I7002`）。
+    fn needs_state_selection(&self) -> bool {
+        !self.failed && self.dynamic_states < self.states
+    }
+
+    /// 構造インデックスの分布の区分。
+    fn bucket(&self) -> IndexBucket {
+        match (self.failed, self.index) {
+            (true, _) => IndexBucket::Failed,
+            (false, 0 | 1) => IndexBucket::One,
+            (false, 2) => IndexBucket::Two,
+            (false, 3) => IndexBucket::Three,
+            (false, _) => IndexBucket::FourOrMore,
+        }
+    }
+}
+
+/// 構造インデックスの分布の区分（未知数の無い構造のインデックス 0 は 1 に入れる）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum IndexBucket {
+    One,
+    Two,
+    Three,
+    FourOrMore,
+    /// 打ち切り（`GM-E7001`）
+    Failed,
+}
+
+impl IndexBucket {
+    const ALL: [IndexBucket; 5] = [
+        IndexBucket::One,
+        IndexBucket::Two,
+        IndexBucket::Three,
+        IndexBucket::FourOrMore,
+        IndexBucket::Failed,
+    ];
+
+    fn label(self) -> &'static str {
+        match self {
+            IndexBucket::One => "1",
+            IndexBucket::Two => "2",
+            IndexBucket::Three => "3",
+            IndexBucket::FourOrMore => "4 以上",
+            IndexBucket::Failed => "打ち切り（GM-E7001）",
+        }
+    }
+
+    fn key(self) -> &'static str {
+        match self {
+            IndexBucket::One => "1",
+            IndexBucket::Two => "2",
+            IndexBucket::Three => "3",
+            IndexBucket::FourOrMore => "4+",
+            IndexBucket::Failed => "failed",
+        }
+    }
+}
+
+/// S8 の結果の要約（[`InitReport`]）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct S8 {
+    /// 要る初期条件の数 / 与えられた初期条件の数
+    pub required: usize,
+    pub provided: usize,
+    /// 値の無いパラメータの数
+    pub parameters_without_value: usize,
+    /// `GM-W8003`（値の無いパラメータ）が出た
+    pub w8003: bool,
+    /// 過剰だが確定できない（`GM-W8004`。離散変数を含む、またはインデックスの低減で状態が減る）
+    pub uncertain: bool,
+}
+
+impl S8 {
+    fn new(r: &InitReport, diagnostics: &[Diagnostic]) -> Self {
+        Self {
+            required: r.required,
+            provided: r.provided,
+            parameters_without_value: r.parameters_without_value.len(),
+            w8003: diagnostics
+                .iter()
+                .any(|d| d.code == codes::PARAMETER_WITHOUT_VALUE),
+            uncertain: diagnostics
+                .iter()
+                .any(|d| d.code == codes::INIT_OVERDETERMINED_UNCERTAIN),
+        }
+    }
+
+    fn balance(&self) -> S8Balance {
+        match self.provided.cmp(&self.required) {
+            std::cmp::Ordering::Equal => S8Balance::Balanced,
+            std::cmp::Ordering::Greater => S8Balance::Over,
+            std::cmp::Ordering::Less => S8Balance::Under,
+        }
+    }
+}
+
+/// S8 の分布の区分。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum S8Balance {
+    /// 合う
+    Balanced,
+    /// 過剰（`GM-E8001`）
+    Over,
+    /// 不足（`GM-W8001`）
+    Under,
+}
+
+impl S8Balance {
+    fn label(self) -> &'static str {
+        match self {
+            S8Balance::Balanced => "合う",
+            S8Balance::Over => "過剰",
+            S8Balance::Under => "不足",
+        }
+    }
+}
+
 /// 成功したときの数（状態 / 代数 / 出力は配列を 1 個、方程式はスカラー）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Counts {
@@ -240,6 +395,12 @@ pub(crate) struct Row {
     pub s6: Option<S6>,
     /// S6 を判定できなかった理由（DAE まで通ったのに構造が無い、など）
     pub s6_note: Option<String>,
+    /// S7 の結果（S6 を通ったときだけ）
+    pub s7: Option<S7>,
+    /// S8 まで来た（S7 までに Error が無い）。S8 の入力が無くても true
+    pub s8_reached: bool,
+    /// S8 の結果（S8 まで来て、入力 `CheckReport::init` があるときだけ）
+    pub s8: Option<S8>,
     pub seconds: f64,
 }
 
@@ -257,11 +418,22 @@ impl Row {
             counts: None,
             s6: None,
             s6_note: None,
+            s7: None,
+            s8_reached: false,
+            s8: None,
             seconds,
         }
     }
 
-    /// 検査の結果から判定を出す。Error で止まっていなければ S6 を回す。
+    /// 段階 `stage` の Error で止めた印を付ける。
+    fn stop(&mut self, stage: Stage, code: &'static str, message: String) {
+        self.verdict = Verdict::Ng;
+        self.stage = Some(stage);
+        self.gm_code = Some(code);
+        self.message = message;
+    }
+
+    /// 検査の結果から判定を出す。Error で止まっていなければ S6〜S8 を回す。
     fn from_report(
         example: &Example,
         report: &CheckReport,
@@ -285,6 +457,9 @@ impl Row {
             }),
             s6: None,
             s6_note: None,
+            s7: None,
+            s8_reached: false,
+            s8: None,
             seconds,
         };
         if let Some(d) = first_error(report) {
@@ -314,13 +489,21 @@ impl Row {
                         s6.equations, s6.unknowns
                     ));
                 } else if !s6.regular {
-                    row.verdict = Verdict::Ng;
-                    row.stage = Some(Stage::S6);
-                    row.gm_code = Some(codes::SINGULAR);
-                    row.message = format!(
-                        "構造特異: 方程式 {} 本・未知数 {} 個のうち、マッチングは {}（der の形 {}）",
-                        s6.equations, s6.unknowns, s6.structural_matching, s6.matching
+                    row.stop(
+                        Stage::S6,
+                        codes::SINGULAR,
+                        format!(
+                            "構造特異: 方程式 {} 本・未知数 {} 個のうち、マッチングは {}（der の形 {}）",
+                            s6.equations, s6.unknowns, s6.structural_matching, s6.matching
+                        ),
                     );
+                } else {
+                    // S7: S6 を通った（正方で、まとめた形に完全マッチングがある）構造だけ
+                    let index = analyze_index(structure);
+                    if let Some(d) = first_stage_error(&index.diagnostics(structure)) {
+                        row.stop(Stage::S7, d.code, d.message.clone());
+                    }
+                    row.s7 = Some(S7::new(structure, &index));
                 }
                 row.s6 = Some(s6);
             }
@@ -334,7 +517,30 @@ impl Row {
                 );
             }
         }
+        if row.verdict != Verdict::Ok {
+            return row;
+        }
+        // S8: S7 までに Error が無ければ（S6 が判定不能でも、初期化は構造と別に見られる）
+        row.s8_reached = true;
+        if let Some(init) = &report.init {
+            // 要る初期条件の数は、S7 の動的な状態の数で数える（S7 を回せなかったか打ち切ったら None）
+            let dynamic_states = row
+                .s7
+                .as_ref()
+                .filter(|x| !x.failed)
+                .map(|x| x.dynamic_states);
+            row.s8 = Some(Self::run_s8(&mut row, init, dynamic_states));
+        }
         row
+    }
+
+    fn run_s8(row: &mut Row, init: &InitStructure, dynamic_states: Option<usize>) -> S8 {
+        let r = analyze_init_with_index(init, dynamic_states);
+        let diagnostics = r.diagnostics(init);
+        if let Some(d) = first_stage_error(&diagnostics) {
+            row.stop(Stage::S8, d.code, d.message.clone());
+        }
+        S8::new(&r, &diagnostics)
     }
 
     /// 段階を越えたか（Rumoca の基準値と比べるため）。OK は全段階を越えた。panic は数えない。
@@ -353,17 +559,29 @@ impl Row {
             .as_deref()
             .map_or(String::new(), |c| format!(" ({c})"));
         match self.verdict {
-            Verdict::Ok => match (
-                &self.s6_note,
-                self.s6.as_ref().and_then(S6::agrees_with_rumoca),
-            ) {
-                (Some(_), _) => "OK（S6 判定不能）".to_string(),
-                (None, Some(false)) => "OK（S6 が Rumoca と食い違う）".to_string(),
-                (None, _) if self.s6.as_ref().is_some_and(|x| x.index_reduction_needed) => {
-                    format!("OK（{}）", codes::HIGH_INDEX)
+            Verdict::Ok => {
+                let mut notes = Vec::new();
+                if self.s6_note.is_some() {
+                    notes.push("S6 判定不能".to_string());
+                } else if self.s6.as_ref().and_then(S6::agrees_with_rumoca) == Some(false) {
+                    notes.push("S6 が Rumoca と食い違う".to_string());
                 }
-                (None, _) => "OK".to_string(),
-            },
+                if let Some(x) = self.s7.as_ref().filter(|x| x.index >= 2) {
+                    notes.push(format!("{}: インデックス {}", codes::HIGH_INDEX, x.index));
+                }
+                if let Some(x) = self
+                    .s8
+                    .as_ref()
+                    .filter(|x| x.balance() != S8Balance::Balanced)
+                {
+                    notes.push(format!("S8 {}", x.balance().label()));
+                }
+                if notes.is_empty() {
+                    "OK".to_string()
+                } else {
+                    format!("OK（{}）", notes.join("・"))
+                }
+            }
             Verdict::Ng => format!(
                 "NG {} {}{rumoca}",
                 self.stage.map_or("-".to_string(), |s| format!("{s:?}")),
@@ -373,6 +591,11 @@ impl Row {
             Verdict::Panic => "PANIC".to_string(),
         }
     }
+}
+
+/// 1 つの段階の診断のうち、最初の Error。
+fn first_stage_error(diagnostics: &[Diagnostic]) -> Option<&Diagnostic> {
+    diagnostics.iter().find(|d| d.severity == Severity::Error)
 }
 
 /// 止まった段階の最初の Error。
@@ -425,8 +648,23 @@ pub(crate) struct Summary {
     /// S6 を Rumoca 自身の構造解析と照合した本数と、そのうち一致した本数
     pub s6_compared: usize,
     pub s6_agreed: usize,
-    /// OK のうち S7 の情報（`GM-I7001`: インデックス > 1 の見込み）が付くもの
+    /// OK のうち S7 の情報（`GM-I7001`: インデックス > 1 の見込み）が付くもの（S006 から [`IndexReport`] で数える）
     pub s7_info: usize,
+    /// S7 を回した本数と、構造インデックスの分布
+    pub s7_ran: usize,
+    pub s7_index: BTreeMap<IndexBucket, usize>,
+    /// S7 を回したモデルのうち、状態選択が要るもの（動的な状態 < 状態の数。`GM-I7002`）
+    pub s7_state_selection: usize,
+    /// S8 まで来た本数と、その分布（合う / 過剰 / 不足 / 入力なし）
+    pub s8_reached: usize,
+    pub s8_balanced: usize,
+    pub s8_over: usize,
+    /// 過剰のうち確定できないもの（`GM-W8004`。OK のまま）
+    pub s8_over_uncertain: usize,
+    pub s8_under: usize,
+    pub s8_no_input: usize,
+    /// S8 で `GM-W8003`（値の無いパラメータ）が出たモデル
+    pub s8_w8003: usize,
     /// S6 を見たモデルのうち、der の形で未知数を含まない方程式があるもの
     pub s6_with_der_no_unknown_equations: usize,
     /// 段階ごとの NG（GM-E）の本数
@@ -489,8 +727,27 @@ impl Summary {
             {
                 s.s6_with_der_no_unknown_equations += 1;
             }
-            if r.verdict == Verdict::Ok && r.s6.as_ref().is_some_and(|x| x.index_reduction_needed) {
-                s.s7_info += 1;
+            if let Some(x) = &r.s7 {
+                s.s7_ran += 1;
+                *s.s7_index.entry(x.bucket()).or_default() += 1;
+                s.s7_state_selection += usize::from(x.needs_state_selection());
+                if r.verdict == Verdict::Ok && x.index >= 2 {
+                    s.s7_info += 1;
+                }
+            }
+            if r.s8_reached {
+                s.s8_reached += 1;
+                match r.s8.as_ref().map(S8::balance) {
+                    Some(S8Balance::Balanced) => s.s8_balanced += 1,
+                    Some(S8Balance::Over) => {
+                        s.s8_over += 1;
+                        s.s8_over_uncertain +=
+                            usize::from(r.s8.as_ref().is_some_and(|x| x.uncertain));
+                    }
+                    Some(S8Balance::Under) => s.s8_under += 1,
+                    None => s.s8_no_input += 1,
+                }
+                s.s8_w8003 += usize::from(r.s8.as_ref().is_some_and(|x| x.w8003));
             }
         }
         s.funnel = Funnel {
@@ -667,6 +924,7 @@ pub(crate) fn msl_funnel(opts: &Options<'_>) -> Result<ExitCode> {
         peak_rss_kb,
     };
     println!("{}", summary_line(&summary));
+    println!("{}", s7_s8_line(&summary));
     println!("時間: {}", time_line(&summary, &run));
     if let Some(kb) = peak_rss_kb {
         println!("最大の常駐メモリ（VmHWM）: {}", gigabytes(kb));
@@ -742,7 +1000,29 @@ fn summary_line(s: &Summary) -> String {
     )
 }
 
-const STAGES: [Stage; 7] = [
+/// S7・S8 の 1 行の要約（S006 から）。
+fn s7_s8_line(s: &Summary) -> String {
+    let index = IndexBucket::ALL
+        .iter()
+        .map(|b| format!("{} {}", b.label(), s.s7_index.get(b).copied().unwrap_or(0)))
+        .collect::<Vec<_>>()
+        .join("・");
+    format!(
+        "S7 {} 本（インデックス {index}、状態選択が要る {}）・S8 {} 本（合う {}・過剰 {}（うち見込み {}）・不足 {}・入力なし {}、{} あり {}）",
+        s.s7_ran,
+        s.s7_state_selection,
+        s.s8_reached,
+        s.s8_balanced,
+        s.s8_over,
+        s.s8_over_uncertain,
+        s.s8_under,
+        s.s8_no_input,
+        codes::PARAMETER_WITHOUT_VALUE,
+        s.s8_w8003
+    )
+}
+
+const STAGES: [Stage; 9] = [
     Stage::S0,
     Stage::S1,
     Stage::S2,
@@ -750,6 +1030,8 @@ const STAGES: [Stage; 7] = [
     Stage::S4,
     Stage::S5,
     Stage::S6,
+    Stage::S7,
+    Stage::S8,
 ];
 
 fn render_report(rows: &[Row], s: &Summary, run: &RunInfo<'_>) -> String {
@@ -792,12 +1074,23 @@ fn render_report(rows: &[Row], s: &Summary, run: &RunInfo<'_>) -> String {
         }
     );
     let _ = writeln!(md, "| 検査器 | {CHECKER_KIND} |");
-    let _ = writeln!(md, "| 結果 | **{}** |\n", summary_line(s));
+    let _ = writeln!(
+        md,
+        "| 段階 | S0〜S8。**S006 から S7（インデックス、Pantelides 法）・S8（初期化）を含む**（S005 の報告は S0〜S6。OK は S7・S8 の Error（{}・{}）が無いもの） |",
+        codes::INDEX_REDUCTION_FAILED,
+        codes::INIT_OVERDETERMINED
+    );
+    let _ = writeln!(md, "| 結果 | **{}** |", summary_line(s));
+    let _ = writeln!(md, "| S7・S8 | {} |\n", s7_s8_line(s));
 
     let _ = writeln!(md, "## 集計\n");
     let _ = writeln!(md, "| 項目 | 本数 |\n| --- | ---: |");
     let _ = writeln!(md, "| 対象 | {} |", s.total);
-    let _ = writeln!(md, "| OK（S0〜S6 で Error 無し） | {} |", s.ok);
+    let _ = writeln!(
+        md,
+        "| OK（S0〜S8 で Error 無し。S005 の報告では S0〜S6） | {} |",
+        s.ok
+    );
     let _ = writeln!(
         md,
         "| うち S6 判定不能（構造が無い・正方でない） | {} |",
@@ -838,6 +1131,58 @@ fn render_report(rows: &[Row], s: &Summary, run: &RunInfo<'_>) -> String {
         md,
         "| S6 を見たモデルのうち、der の形で未知数を含まない方程式（状態・パラメータ・入力だけの拘束）があるもの | {} |",
         s.s6_with_der_no_unknown_equations
+    );
+    let _ = writeln!(
+        md,
+        "| S7（Pantelides 法）を回した本数（S6 を通ったもの） | {} |",
+        s.s7_ran
+    );
+    for b in IndexBucket::ALL {
+        let _ = writeln!(
+            md,
+            "| うち構造インデックス {} | {} |",
+            b.label(),
+            s.s7_index.get(&b).copied().unwrap_or(0)
+        );
+    }
+    let _ = writeln!(
+        md,
+        "| うち状態選択（dummy derivative）が要るもの（{}: 動的な状態 < 状態の数） | {} |",
+        codes::STATE_SELECTION,
+        s.s7_state_selection
+    );
+    let _ = writeln!(
+        md,
+        "| S8（初期化）まで来た本数（S7 までに Error が無いもの） | {} |",
+        s.s8_reached
+    );
+    for (label, n) in [
+        ("うち初期条件の数が合う".to_string(), s.s8_balanced),
+        (
+            format!(
+                "うち初期条件が過剰（{}。うち確定できず警告にとどめた {} が {} 本）",
+                codes::INIT_OVERDETERMINED,
+                codes::INIT_OVERDETERMINED_UNCERTAIN,
+                s.s8_over_uncertain
+            ),
+            s.s8_over,
+        ),
+        (
+            format!("うち初期条件が不足（{}）", codes::INIT_UNDERDETERMINED),
+            s.s8_under,
+        ),
+        (
+            "うち S8 の入力なし（初期化系の構造を作れなかった）".to_string(),
+            s.s8_no_input,
+        ),
+    ] {
+        let _ = writeln!(md, "| {label} | {n} |");
+    }
+    let _ = writeln!(
+        md,
+        "| うち {}（値の無いパラメータ）が出たもの | {} |",
+        codes::PARAMETER_WITHOUT_VALUE,
+        s.s8_w8003
     );
     let _ = writeln!(
         md,
@@ -930,15 +1275,15 @@ fn render_report(rows: &[Row], s: &Summary, run: &RunInfo<'_>) -> String {
     let _ = writeln!(md, "## モデルごとの結果\n");
     let _ = writeln!(
         md,
-        "- 数は、状態 / 代数 / 出力（配列は 1 個）と、方程式（スカラー。S5 の釣り合いで数える本数で、離散の方程式を含む）。\n- S6 は、マッチングの大きさ / 方程式の数（連続の部分だけ。未知数は `der(x)` と代数・出力のスカラー）。構造特異の判定は `x` と `der(x)` を 1 つの列にまとめた形で行う。der の形（`der(x)` だけを未知数に数える形）のマッチングが完全でないときは括弧に書き、S7 の情報 `GM-I7001`（インデックス > 1 の見込み）を付ける。der の形のマッチングが Rumoca の構造解析と食い違うときは、その数も括弧に書く。\n- 秒は、検査（と S6 の照合）にかかった時間。MSL の読み込みは含まない。\n"
+        "- 数は、状態 / 代数 / 出力（配列は 1 個）と、方程式（スカラー。S5 の釣り合いで数える本数で、離散の方程式を含む）。\n- S6 は、マッチングの大きさ / 方程式の数（連続の部分だけ。未知数は `der(x)` と代数・出力のスカラー）。構造特異の判定は `x` と `der(x)` を 1 つの列にまとめた形で行う。der の形（`der(x)` だけを未知数に数える形）のマッチングが完全でないときは括弧に書き、S7 の情報 `GM-I7001`（インデックス > 1 の見込み）を付ける。der の形のマッチングが Rumoca の構造解析と食い違うときは、その数も括弧に書く。\n- S7（S006 から）は、Pantelides 法の構造インデックスの見込み（`index k`）と、微分した方程式の数・微分の最大回数・状態選択の候補の状態の数・動的な状態の見込み / 状態の数（動的な状態が少なければ `GM-I7002`）。打ち切りは `GM-E7001`。\n- S8（S006 から）は、与えられた初期条件の数 / 要る数と、合う・過剰（`GM-E8001`。離散変数を含むかインデックスの低減で状態が減るときは確定できないので、過剰の見込み `GM-W8004` の警告にとどめる）・不足（`GM-W8001`）。`GM-W8003` は値の無いパラメータがあること。入力なしは初期化系の構造を作れなかったもの。\n- 秒は、検査（と S6 の照合）にかかった時間。MSL の読み込みと S6〜S8 の解析は含まない。\n"
     );
     let _ = writeln!(
         md,
-        "| # | モデル | 判定 | 段階 | GM コード | Rumoca | 状態 / 代数 / 出力・方程式 | S6 | 秒 |"
+        "| # | モデル | 判定 | 段階 | GM コード | Rumoca | 状態 / 代数 / 出力・方程式 | S6 | S7 | S8 | 秒 |"
     );
     let _ = writeln!(
         md,
-        "| ---: | --- | --- | --- | --- | --- | --- | --- | ---: |"
+        "| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: |"
     );
     for (i, r) in rows.iter().enumerate() {
         let short = r.model.strip_prefix("Modelica.").unwrap_or(&r.model);
@@ -981,15 +1326,21 @@ fn render_report(rows: &[Row], s: &Summary, run: &RunInfo<'_>) -> String {
             (None, Some(_)) => "判定不能".to_string(),
             (None, None) => "-".to_string(),
         };
+        let s7 = r.s7.as_ref().map_or("-".to_string(), s7_cell);
+        let s8 = match (&r.s8, r.s8_reached) {
+            (Some(x), _) => s8_cell(x),
+            (None, true) => "入力なし".to_string(),
+            (None, false) => "-".to_string(),
+        };
         let _ = writeln!(
             md,
-            "| {} | `{short}`{} | {verdict} | {} | {} | {} | {counts} | {s6} | {:.2} |",
+            "| {} | `{short}`{} | {verdict} | {} | {} | {} | {counts} | {s6} | {s7} | {s8} | {:.2} |",
             i + 1,
             if r.partial { "（partial）" } else { "" },
             r.stage.map_or("-".to_string(), |s| format!("{s:?}")),
             match r.gm_code {
                 Some(c) => c.to_string(),
-                None if r.s6.as_ref().is_some_and(|x| x.index_reduction_needed) => {
+                None if r.s7.as_ref().is_some_and(|x| x.index >= 2) => {
                     format!("{}（情報）", codes::HIGH_INDEX)
                 }
                 None => "-".to_string(),
@@ -999,6 +1350,46 @@ fn render_report(rows: &[Row], s: &Summary, run: &RunInfo<'_>) -> String {
         );
     }
     md
+}
+
+/// 報告の S7 の欄。
+fn s7_cell(x: &S7) -> String {
+    if x.failed {
+        return format!("**打ち切り**（{}）", codes::INDEX_REDUCTION_FAILED);
+    }
+    let mut cell = format!("index {}", x.index);
+    if x.n_differentiated > 0 {
+        cell.push_str(&format!(
+            "（微分 {} 本・最大 {} 回・候補 {}・動的 {}/{}）",
+            x.n_differentiated,
+            x.max_differentiations,
+            x.dummy_candidates,
+            x.dynamic_states,
+            x.states
+        ));
+    }
+    cell
+}
+
+/// 報告の S8 の欄。
+fn s8_cell(x: &S8) -> String {
+    let head = match x.balance() {
+        S8Balance::Balanced => "合う".to_string(),
+        S8Balance::Over if x.uncertain => {
+            format!("過剰の見込み（{}）", codes::INIT_OVERDETERMINED_UNCERTAIN)
+        }
+        S8Balance::Over => format!("**過剰**（{}）", codes::INIT_OVERDETERMINED),
+        S8Balance::Under => format!("不足（{}）", codes::INIT_UNDERDETERMINED),
+    };
+    let mut cell = format!("{head} {}/{}", x.provided, x.required);
+    if x.w8003 {
+        cell.push_str(&format!(
+            "・{} {}",
+            codes::PARAMETER_WITHOUT_VALUE,
+            x.parameters_without_value
+        ));
+    }
+    cell
 }
 
 fn render_json(rows: &[Row], s: &Summary, run: &RunInfo<'_>) -> serde_json::Value {
@@ -1036,6 +1427,24 @@ fn render_json(rows: &[Row], s: &Summary, run: &RunInfo<'_>) -> serde_json::Valu
                     })),
                 })),
                 "s6_note": r.s6_note,
+                "s7": r.s7.as_ref().map(|x| json!({
+                    "index": x.index,
+                    "n_differentiated": x.n_differentiated,
+                    "max_differentiations": x.max_differentiations,
+                    "dummy_candidates": x.dummy_candidates,
+                    "states": x.states,
+                    "dynamic_states": x.dynamic_states,
+                    "failed": x.failed,
+                })),
+                "s8_reached": r.s8_reached,
+                "s8": r.s8.as_ref().map(|x| json!({
+                    "required": x.required,
+                    "provided": x.provided,
+                    "balance": x.balance().label(),
+                    "parameters_without_value": x.parameters_without_value,
+                    "w8003": x.w8003,
+                    "uncertain": x.uncertain,
+                })),
                 "seconds": r.seconds,
             })
         })
@@ -1073,6 +1482,20 @@ fn render_json(rows: &[Row], s: &Summary, run: &RunInfo<'_>) -> serde_json::Valu
             "reset_seconds": run.reset_seconds,
             "peak_rss_kb": run.peak_rss_kb,
             "s7_info": s.s7_info,
+            "s7_ran": s.s7_ran,
+            "s7_index": IndexBucket::ALL
+                .iter()
+                .map(|b| (b.key(), s.s7_index.get(b).copied().unwrap_or(0)))
+                .collect::<BTreeMap<_, _>>(),
+            "s7_state_selection": s.s7_state_selection,
+            "s8_reached": s.s8_reached,
+            "s8_balanced": s.s8_balanced,
+            "s8_over": s.s8_over,
+            "s8_over_uncertain": s.s8_over_uncertain,
+            "s8_under": s.s8_under,
+            "s8_no_input": s.s8_no_input,
+            "s8_w8003": s.s8_w8003,
+            "stages": "S0-S8",
             "index_seconds": run.index_seconds,
             "s6_compared": s.s6_compared,
             "s6_agreed": s.s6_agreed,
@@ -1088,7 +1511,7 @@ mod tests {
     use globe_mode_core::TextRange;
     use globe_mode_ir::{
         BalanceCount, Causality, ClassOutline, DaeCounts, DaeStructure, EquationOrigin,
-        EquationRow, Outline, Unknown, UnknownKind,
+        EquationRow, InitVariable, Outline, Unknown, UnknownKind,
     };
 
     fn class(name: &str, kind: ClassKind, classes: Vec<ClassOutline>) -> ClassOutline {
@@ -1099,6 +1522,7 @@ mod tests {
             causality: Causality::None,
             range: TextRange::default(),
             extends: Vec::new(),
+            imports: Vec::new(),
             components: Vec::new(),
             connects: Vec::new(),
             classes,
@@ -1225,6 +1649,17 @@ mod tests {
                 rumoca: Some((3, 3, 3)),
             }),
             s6_note: None,
+            s7: matches!(verdict, Verdict::Ok).then_some(S7 {
+                index: 1,
+                n_differentiated: 0,
+                max_differentiations: 0,
+                dummy_candidates: 0,
+                states: 0,
+                dynamic_states: 0,
+                failed: false,
+            }),
+            s8_reached: matches!(verdict, Verdict::Ok),
+            s8: None,
             seconds: 0.5,
         }
     }
@@ -1235,6 +1670,7 @@ mod tests {
         no_s6.s6 = None;
         no_s6.s6_note = Some("構造が無い".into());
         no_s6.partial = true;
+        no_s6.s7 = None;
         let mut high_index = row("M.Index", Verdict::Ok, None, None);
         if let Some(x) = high_index.s6.as_mut() {
             x.matching = 2;
@@ -1242,23 +1678,81 @@ mod tests {
             x.der_no_unknown_equations = 1;
             x.rumoca = Some((3, 3, 2));
         }
+        high_index.s7 = Some(S7 {
+            index: 3,
+            n_differentiated: 3,
+            max_differentiations: 2,
+            dummy_candidates: 4,
+            states: 4,
+            dynamic_states: 2,
+            failed: false,
+        });
+        high_index.s8 = Some(S8 {
+            required: 2,
+            provided: 2,
+            parameters_without_value: 1,
+            w8003: true,
+            uncertain: false,
+        });
+        let mut under = row("M.Under", Verdict::Ok, None, None);
+        under.s8 = Some(S8 {
+            required: 3,
+            provided: 1,
+            parameters_without_value: 0,
+            w8003: false,
+            uncertain: false,
+        });
+        // S8 で止まった（GM-E8001）: S7 は回した
+        let mut over = row("M.Over", Verdict::Ok, None, None);
+        over.verdict = Verdict::Ng;
+        over.stage = Some(Stage::S8);
+        over.gm_code = Some(codes::INIT_OVERDETERMINED);
+        over.s8 = Some(S8 {
+            required: 1,
+            provided: 2,
+            parameters_without_value: 0,
+            w8003: false,
+            uncertain: false,
+        });
         let rows = vec![
             row("M.Ok", Verdict::Ok, None, None),
             no_s6,
             high_index,
+            under,
+            over,
             row("M.S5", Verdict::Ng, Some(Stage::S5), Some("ED001")),
             row("M.S3", Verdict::Ng, Some(Stage::S3), Some("EI008")),
             row("M.U", Verdict::Unsupported, Some(Stage::S5), Some("ED019")),
             row("M.P", Verdict::Panic, None, None),
         ];
         let s = Summary::from_rows(&rows);
-        assert_eq!(s.total, 7);
-        assert_eq!(s.ok, 3);
+        assert_eq!(s.total, 9);
+        assert_eq!(s.ok, 4);
         assert_eq!(s.ok_without_s6, 1);
+        // S7 の情報は IndexReport のインデックスで数える（OK のものだけ）
         assert_eq!(s.s7_info, 1);
+        assert_eq!(s.s7_ran, 4);
+        assert_eq!(s.s7_index.get(&IndexBucket::One), Some(&3));
+        assert_eq!(s.s7_index.get(&IndexBucket::Three), Some(&1));
+        assert_eq!(s.s7_state_selection, 1);
+        assert_eq!(s.ng_by_stage.get(&Stage::S8), Some(&1));
+        // S8: 来たのは OK の 4 本と S8 で止まった 1 本。入力なしは S8 を持たない OK の 2 本
+        assert_eq!(s.s8_reached, 5);
+        assert_eq!(
+            (
+                s.s8_balanced,
+                s.s8_over,
+                s.s8_under,
+                s.s8_no_input,
+                s.s8_w8003
+            ),
+            (1, 1, 1, 2, 1)
+        );
+        let line = s7_s8_line(&s);
+        assert!(line.starts_with("S7 4 本（インデックス 1 3・2 0・3 1・4 以上 0・打ち切り（GM-E7001） 0、状態選択が要る 1）"), "{line}");
         assert_eq!(s.s6_with_der_no_unknown_equations, 1);
         // Rumoca とは der の形のマッチングで照合する
-        assert_eq!((s.s6_agreed, s.s6_compared), (2, 2));
+        assert_eq!((s.s6_agreed, s.s6_compared), (4, 4));
         assert_eq!(s.ng_by_stage.get(&Stage::S5), Some(&1));
         assert_eq!(s.ng_by_stage.get(&Stage::S3), Some(&1));
         assert_eq!(s.unsupported_by_code.get(codes::UNSUPPORTED), Some(&1));
@@ -1266,15 +1760,15 @@ mod tests {
         assert_eq!((s.partial, s.partial_ok), (1, 1));
         assert_eq!(s.rumoca_codes.get("ED001"), Some(&1));
         assert_eq!(s.rumoca_codes.len(), 3);
-        assert!((s.seconds - 3.5).abs() < 1e-9);
+        assert!((s.seconds - 4.5).abs() < 1e-9);
         assert_eq!(
             s.funnel,
             Funnel {
-                examples: 7,
-                parse: 6,    // panic だけ数えない
-                flatten: 5,  // S3 で止まったものと panic を除く
-                dae: 3,      // 試験の行では OK だけが DAE を持つ
-                balanced: 3, // S5 で止まったもの（GM-U を含む）を除く
+                examples: 9,
+                parse: 8,    // panic だけ数えない
+                flatten: 7,  // S3 で止まったものと panic を除く
+                dae: 5,      // 試験の行では OK（として作った行）だけが DAE を持つ
+                balanced: 5, // S5 で止まったもの（GM-U を含む）を除く
             }
         );
     }
@@ -1328,16 +1822,26 @@ mod tests {
     }
 
     /// `state_refs`（方程式ごとに、参照する状態 x の `der(x)` の未知数の添字）付きの構造。
+    /// state_refs に現れる未知数は状態の微分（`der(x…)`、Derivative）、ほかは代数にする。
     fn with_states(
         n_unknowns: usize,
         incidence: Vec<Vec<u32>>,
         state_refs: Vec<Vec<u32>>,
     ) -> DaeStructure {
+        let is_state = |i: usize| state_refs.iter().flatten().any(|&u| u as usize == i);
         DaeStructure {
             unknowns: (0..n_unknowns)
                 .map(|i| Unknown {
-                    name: format!("x{i}"),
-                    kind: UnknownKind::Algebraic,
+                    name: if is_state(i) {
+                        format!("der(x{i})")
+                    } else {
+                        format!("x{i}")
+                    },
+                    kind: if is_state(i) {
+                        UnknownKind::Derivative
+                    } else {
+                        UnknownKind::Algebraic
+                    },
                     file: None,
                     range: None,
                 })
@@ -1456,12 +1960,33 @@ mod tests {
         assert!(s6.regular && s6.index_reduction_needed);
         assert_eq!((s6.matching, s6.structural_matching), (1, 2));
         assert_eq!(s6.agrees_with_rumoca(), Some(true));
-        assert_eq!(row.status(), format!("OK（{}）", codes::HIGH_INDEX));
+        // S7: e1 を 1 回微分してインデックス 2。状態 x は代数的に決まる（動的な状態 0）
+        let s7 = row.s7.as_ref().unwrap();
+        assert_eq!(
+            (s7.index, s7.n_differentiated, s7.max_differentiations),
+            (2, 1, 1)
+        );
+        assert_eq!(
+            (s7.states, s7.dynamic_states, s7.dummy_candidates),
+            (1, 0, 1)
+        );
+        assert!(!s7.failed && s7.needs_state_selection());
+        assert_eq!(
+            row.status(),
+            format!("OK（{}: インデックス 2）", codes::HIGH_INDEX)
+        );
+        assert_eq!(
+            s7_cell(s7),
+            "index 2（微分 1 本・最大 1 回・候補 1・動的 0/1）"
+        );
         let s = Summary::from_rows(std::slice::from_ref(&row));
         assert_eq!(
             (s.ok, s.s7_info, s.s6_with_der_no_unknown_equations),
             (1, 1, 1)
         );
+        // S8 の入力が無いので、S8 は「入力なし」
+        assert!(row.s8_reached && row.s8.is_none());
+        assert_eq!((s.s8_reached, s.s8_no_input), (1, 1));
 
         // 正方でない: 判定不能（OK のまま）
         let r = passed_report(Some(structure(3, vec![vec![0], vec![1]])));
@@ -1477,6 +2002,81 @@ mod tests {
         assert_eq!(row.verdict, Verdict::Ok);
         assert_eq!(row.s6_note.as_deref(), Some("射影できなかった"));
         assert!(row.s6.is_none());
+    }
+
+    fn variable(name: &str, fixed: bool, has_start: bool) -> InitVariable {
+        InitVariable {
+            name: name.to_string(),
+            fixed,
+            has_start,
+            has_binding: false,
+            file: None,
+            range: None,
+        }
+    }
+
+    #[test]
+    fn s8_runs_after_s7_and_stops_on_overdetermined_init() {
+        let ode = || {
+            let mut s = with_states(1, vec![vec![0]], vec![vec![0]]);
+            s.equations[0].label = "der(x0) = -x0".into();
+            s
+        };
+        let init = |fixed: bool, initial_equations: usize| InitStructure {
+            states: vec![variable("x0", fixed, true)],
+            parameters: Vec::new(),
+            discretes: Vec::new(),
+            algebraics: Vec::new(),
+            initial_equations: (0..initial_equations)
+                .map(|i| EquationRow {
+                    label: format!("x0 = {i}"),
+                    origin: EquationOrigin::Source,
+                    file: None,
+                    range: None,
+                })
+                .collect(),
+        };
+        // 合う: 状態 1・fixed 1
+        let mut r = passed_report(Some(ode()));
+        r.init = Some(init(true, 0));
+        let row = Row::from_report(&example("M.X"), &r, None, 1.0);
+        assert_eq!(row.verdict, Verdict::Ok);
+        assert_eq!(row.s7.as_ref().map(|x| x.index), Some(1));
+        let s8 = row.s8.as_ref().unwrap();
+        assert_eq!((s8.provided, s8.required), (1, 1));
+        assert_eq!(s8.balance(), S8Balance::Balanced);
+        assert_eq!(row.status(), "OK");
+        assert_eq!(s8_cell(s8), "合う 1/1");
+
+        // 不足: Warning なので OK のまま
+        r.init = Some(init(false, 0));
+        let row = Row::from_report(&example("M.X"), &r, None, 1.0);
+        assert_eq!(row.verdict, Verdict::Ok);
+        assert_eq!(row.s8.as_ref().unwrap().balance(), S8Balance::Under);
+        assert_eq!(row.status(), "OK（S8 不足）");
+
+        // 過剰: fixed = true と初期方程式の両方 → GM-E8001 で S8 の NG
+        r.init = Some(init(true, 1));
+        let row = Row::from_report(&example("M.X"), &r, None, 1.0);
+        assert_eq!(row.verdict, Verdict::Ng);
+        assert_eq!(row.stage, Some(Stage::S8));
+        assert_eq!(row.gm_code, Some(codes::INIT_OVERDETERMINED));
+        assert_eq!(row.s8.as_ref().unwrap().balance(), S8Balance::Over);
+        assert_eq!(row.status(), "NG S8 GM-E8001");
+        let s = Summary::from_rows(std::slice::from_ref(&row));
+        assert_eq!((s.ok, s.ng_by_stage.get(&Stage::S8)), (0, Some(&1)));
+        assert_eq!((s.s8_reached, s.s8_over), (1, 1));
+
+        // S5 までに Error があれば S7・S8 は回さない
+        let mut failed = passed_report(Some(ode()));
+        failed.init = Some(init(true, 1));
+        failed.diagnostics.push(Diagnostic::error(
+            codes::UNBALANCED,
+            Stage::S5,
+            "unbalanced",
+        ));
+        let row = Row::from_report(&example("M.X"), &failed, None, 1.0);
+        assert!(row.s7.is_none() && row.s8.is_none() && !row.s8_reached);
     }
 
     #[test]
