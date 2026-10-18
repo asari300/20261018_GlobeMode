@@ -5,11 +5,13 @@
   python3 -I .claude/skills/session-docs/check_docs.py <root>   # ルートを指定
 
 検査すること:
-  1. スライド（doc/sessions/*/slides.html, doc/sessions/_template/slides.html）
+  1. スライド（doc/sessions/*/*.html。全体の slides.html と、トピック別の NN-<topic>.html）
      - <section class="slide" id="S01"> … が S01 から連番になっている
      - 外部参照（http:// / https:// / // で始まる src・href）が無い。オフラインで開くため
      - <style> 要素と style= 属性が無い。見た目は doc/assets/slides.css だけで決める
      - ../../assets/slides.css と ../../assets/slides.js を読んでいる
+     - トピック別のデッキがあるセッションでは、slides.html が各デッキへリンクし、
+       各デッキが slides.html へリンクしている（全体へ戻れるように）
   2. 相対リンク（Markdown と HTML）
      - 対象: README.md, CLAUDE.md, doc/**, log/**（log/local/ は除く）, src/*/README.md, .claude/skills/**
      - リンク先のファイルがある
@@ -62,9 +64,14 @@ class SlideParser(HTMLParser):
                 self.refs.append(v)
 
 
-def check_slides(path: Path) -> list[str]:
+def parse_deck(path: Path) -> SlideParser:
     p = SlideParser()
     p.feed(path.read_text(encoding="utf-8"))
+    return p
+
+
+def check_slides(path: Path) -> list[str]:
+    p = parse_deck(path)
     errs = []
     want = [f"S{i:02d}" for i in range(1, len(p.slide_ids) + 1)]
     if not p.slide_ids:
@@ -80,6 +87,21 @@ def check_slides(path: Path) -> list[str]:
     for need in ("../../assets/slides.css", "../../assets/slides.js"):
         if need not in p.refs:
             errs.append(f"{need} を読んでいない")
+    return errs
+
+
+def check_topic_links(session: Path) -> list[str]:
+    """全体の slides.html とトピック別のデッキ（NN-<topic>.html）が相互にリンクしているか。"""
+    topics = sorted(session.glob("[0-9][0-9]-*.html"))
+    overall = session / "slides.html"
+    if not topics or not overall.exists():
+        return []
+    errs = []
+    refs = {r.split("#", 1)[0] for r in parse_deck(overall).refs}
+    errs += [f"slides.html から {t.name} へのリンクが無い" for t in topics if t.name not in refs]
+    for t in topics:
+        if "slides.html" not in {r.split("#", 1)[0] for r in parse_deck(t).refs}:
+            errs.append(f"{t.name} から slides.html へ戻るリンクが無い")
     return errs
 
 
@@ -146,13 +168,20 @@ def main(argv: list[str]) -> int:
     root = Path(argv[0]).resolve() if argv else Path.cwd()
     failed = False
 
-    decks = sorted(root.glob("doc/sessions/*/slides.html"))
+    decks = sorted(root.glob("doc/sessions/*/*.html"))
     for deck in decks:
         errs = check_slides(deck)
         rel = deck.relative_to(root).as_posix()
         print(f"[slides] {rel}: {'OK' if not errs else 'NG'}")
         for e in errs:
             print(f"    {e}")
+        failed |= bool(errs)
+    for session in sorted({d.parent for d in decks}):
+        errs = check_topic_links(session)
+        if errs:
+            print(f"[topics] {session.relative_to(root).as_posix()}: NG")
+            for e in errs:
+                print(f"    {e}")
         failed |= bool(errs)
 
     files = doc_files(root)
