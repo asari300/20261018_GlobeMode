@@ -22,7 +22,10 @@ uv sync                      # worktree ごとに必須
 - ブランチ名は `feature/<topic>`。`<topic>` は `sNNN-<英小文字とハイフン>`（例 `s002-workspace-skeleton`）。
 - worktree は `.git-worktree/<topic>` に置く（`.gitignore` 済み）。
 - **`.venv` を worktree 間で共有・symlink しない。** editable install はそのチェックアウトの `src/` を指すため。
-- コミットは feature ブランチに行う。`main` への取り込みと push はユーザーが判断する。
+- コミットは feature ブランチに行う。
+- **CI は main を直接 push して回す**（2026-10-18 にユーザーが決めた。PR は使わない）。
+  - 手順: 検査を通した feature ブランチを main に `--no-ff` でマージし、`git push origin main` する。そのあと Actions の結果を確かめる（`/finish-session` の 6）。
+  - feature ブランチ自体は push しない。
 - main に未コミットの変更があったら、そこで止めてユーザーに伝える。勝手にコミットも stash もしない。
 
 ---
@@ -133,3 +136,4 @@ log/sessions/<日付>-<セッションID>.md        finish-session がコピー�
 4. セッション記録をコピーし、`--check` で取りこぼしが 0 件
 5. ステージした差分に、メールアドレス・ホームのパス・トークンが 0 件
 6. 作業記録を数字で仕上げてから、feature ブランチにコミットする
+7. main に `--no-ff` でマージし、`git push origin main` で CI を回して、結果を確かめる
