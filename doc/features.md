@@ -44,14 +44,15 @@ OpenModelica（OMEdit）と Rumoca を参考に、GlobeMode に要る機能を�
 | 機能 | OMEdit | Rumoca | 優先度 | Phase | GlobeMode での方針 |
 | --- | --- | --- | --- | --- | --- |
 | Check Model（方程式数と変数数） | ○ | ○ | Must | P2（S005 でクエリ化） | S5。`check` クエリ（MSL は一度だけ読む）。MSL の全例題 566 本に判定を出した（S005）。S008 で `omc checkModel()` と照合し、判定のある 382 本すべてで一致（[omc-compare.md](omc-compare.md)） |
-| **シミュレーション前のアサーション（S0〜S10）** | △ | △ | **Must** | P2（S005 で S0〜S6、S007 で S7・S8、S010 で S9・S10 の静的な部分） | `assert_simulatable`。Error があれば `--force` 無しでは実行しない。S005 で S6（構造特異、GM-E6001）と「コンパイラが未対応」の GM-U（[ADR-0007](adr/0007-unsupported-classification.md)）。S007 で S7・S8（[ADR-0009](adr/0009-structural-index-and-init.md)）。`globe check` に S7・S8 の行と `--json` の `s7` / `s8` / `init`。S010 で S9（代数ループ、GM-I9001 / GM-W9001）と S10（パラメータと start 値の評価、experiment annotation。GM-E10001〜GM-E10004 ほか）、`--json` の `s9` / `s10`（[ADR-0012](adr/0012-loops-and-preflight.md)）。t0 の残差・初期化のヤコビ行列の階数・ソルバの能力は P3 |
+| **シミュレーション前のアサーション（S0〜S10）** | △ | △ | **Must** | P2（S005 で S0〜S6、S007 で S7・S8、S010 で S9・S10 の静的な部分） | `assert_simulatable`。Error があれば `--force` 無しでは実行しない。S005 で S6（構造特異、GM-E6001）と「コンパイラが未対応」の GM-U（[ADR-0007](adr/0007-unsupported-classification.md)）。S007 で S7・S8（[ADR-0009](adr/0009-structural-index-and-init.md)）。`globe check` に S7・S8 の行と `--json` の `s7` / `s8` / `init`。S010 で S9（代数ループ、GM-I9001 / GM-W9001）と S10（パラメータと start 値の評価、experiment annotation。GM-E10001〜GM-E10004 ほか）、`--json` の `s9` / `s10`（[ADR-0012](adr/0012-loops-and-preflight.md)）。S011 で S10 の数値の部分を実行の直前に足した（start 値で評価した t0 の値が有限か GM-W10002、ソルバの名前 GM-E10005 / GM-I10003。[ADR-0013](adr/0013-exec-backend.md)）。初期化のヤコビ行列の階数は、Rumoca に公開の API が無いので後回し |
 | S7: 構造インデックスと状態選択の候補 | ○（Pantelides とダミー微分） | ○（Pantelides） | Must | P2（S007） | Pantelides 法を `DaeStructure` の上で回す（Rumoca に依存しない）。構造インデックスの見込み、微分する方程式と回数、状態選択の候補、動的な状態の数を情報（GM-I7001 / GM-I7002）として出す。打ち切りは GM-E7001 |
 | S8: 初期化系の検査 | ○（実行時の初期化。冗長な初期方程式は警告して外す） | △（初期化の計画） | Must | P2（S007、S009） | 初期条件の数と属性で判定し（S007）、S009 から初期化系（DAE とその微分 + 初期方程式 + `fixed = true`）をマッチングして冗長な初期条件と初期条件の無い未知数を名指しする（[ADR-0011](adr/0011-init-system-matching.md)）。過剰は GM-E8001（冗長な初期条件が拘束と重なるか離散変数を含むときは確定できないので GM-W8004）、不足は GM-W8001・GM-W8002（start の無い状態）、値の無いパラメータは GM-W8003。omc と「over specified」で照合する（S008・S009） |
-| 複数ソルバ（OpenModelica / Dymola の名前を受け付ける） | ○ | △（bdf / rk） | Must | P3 / P8 | `trait Integrator` と名前の登録表 |
-| experiment annotation と実行設定 | ○ | ○ | Must | P3 | 設定は protocol 型で持つ |
+| シミュレーションの実行（`globe simulate`） | ○ | ○ | **Must** | P3（S011 で着手） | S011: Phase A は Rumoca の実行系（`rumoca-sim`）を `globe-mode-exec` に閉じ込めて使い、結果は中立の `SimRun`、失敗は `GM-E11001`〜`GM-E11006`・`GM-U0004` / `GM-U0005` で返す（[ADR-0013](adr/0013-exec-backend.md)）。`globe simulate` は検査（S0〜S10）を通してから実行し、`--output` に CSV を書く |
+| 複数ソルバ（OpenModelica / Dymola の名前を受け付ける） | ○ | △（bdf / rk） | Must | P3 / P8 | 名前の登録表（`globe-mode-sim::solvers`、S011）。S011 で使えるのは `bdf`・`dopri45`・`auto`。`dassl` などは別名（GM-I10003）、表にあって未実装のものは GM-E10005。自前の `trait Integrator` は Rumoca の数値積分のプラグインとして差し込む見込み（S012 以降） |
+| experiment annotation と実行設定 | ○ | ○ | Must | P3（S011） | 「指定 > experiment annotation > 既定」で決め、出どころを表示する（`globe-mode-sim::settings`、S011）。設定は protocol 型で持つ |
 | パラメータを変えた再実行（再コンパイル無し） | ○ | △ | Should | P3 | `executable` を LRU に保持する |
 | パラメータスイープ | △ | × | Should | P6 | Streamlit と marimo から使う |
-| 結果のプロット（時系列・パラメトリック・大容量） | ○ | △ | Must | P4 | uPlot 系。ResultStore は CSV / MAT v4 / Arrow |
+| 結果のプロット（時系列・パラメトリック・大容量） | ○ | △ | Must | P4 | uPlot 系。ResultStore は CSV / MAT v4 / Arrow（S011 で CSV。`globe-mode-sim::store`） |
 | 変換デバッガ（インデックス低減、tearing） | ○ | × | Could | P8 | BLT ビュー |
 | 線形化（A/B/C/D） | ○ | ○ | Could | P8 | Rumoca の機能をアダプタ経由で使う |
 
@@ -89,6 +90,7 @@ OpenModelica（OMEdit）と Rumoca を参考に、GlobeMode に要る機能を�
 | 機能 | 優先度 | Phase | 方針 |
 | --- | --- | --- | --- |
 | MSL コーパスのファネル計測（parse → flatten → DAE → balanced → init → simulate） | Must | P1〜（S005 で全例題） | Rumoca と同じ段階で数える。`cargo xtask msl-funnel` が、Rumoca と同じ名前の規則で選んだ 566 本を数える（S005） |
+| MSL の参照結果との照合（ファネル） | Must | P3（S011） | `cargo xtask msl-sim`（`mise run msl:sim`）が `msl:funnel` で OK の例題を別プロセスで実行し、MAP-LIB の参照結果（v4.1.0）と csv-compare の矩形の管（許容差 0.002）で比べる。報告は [msl-sim.md](msl-sim.md)（[ADR-0013](adr/0013-exec-backend.md)） |
 | Rumoca との差分照合 | Must | P1〜 | Track B に移ってからも続ける |
 | `omc` との照合（別プロセス） | Should | P2〜（S008 で実施） | 照合用に限る。リンクしない。`cargo xtask omc-compare`（`mise run msl:omc`、[ADR-0010](adr/0010-omc-comparison.md)）が `msl-funnel --json` の結果を omc の `checkModel` / `translateModel` と突き合わせ、報告を [omc-compare.md](omc-compare.md) に書く |
 | Reference-FMUs、FMPy、fmusim、fmuCheck | Must | P5 | FMI の Import と Export の両方 |

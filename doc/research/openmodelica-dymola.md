@@ -108,6 +108,35 @@ GlobeMode の S9・S10（[ADR-0012](../adr/0012-loops-and-preflight.md)）の照
 | 線形のループ | 線形の系の反復変数は「torn linear equation system」として一覧に出るが、start 値の警告の対象ではない |
 | S10 の検証用のモデル | `checkModel` は `GlobeModeValidation.Preflight` の 9 本すべてで「completed successfully」（静的には誤りを見つけない）。`simulate` では、`sqrt(-1)` のパラメータは「Model error: Argument of sqrt(area) was -1 should be >= 0」と「simulation terminated by an assertion at initialization」、start の `log(0)` は「Argument of log(x0) was 0 should be > 0」、関数の中の `assert` は初期化で当たる。`experiment(StartTime = 1, StopTime = 0.5)` は警告（「Integrator step size greater than length of experiment … start time: 1.000000, stop time: 0.500000, integrator step size: -0.001000」）だけで進み、`Tolerance = 0` は「DASKR--  ALL ELEMENTS OF RTOL AND ATOL ARE ZERO」で失敗する |
 
+## S011 で調べた参照結果と比較の方法
+
+確認日はすべて 2026-10-19。
+
+### MSL 4.1.0 の参照結果（MAP-LIB）
+
+- リポジトリは <https://github.com/modelica/MAP-LIB_ReferenceResults>。いまは archived で、master の README は「参照結果は MSL 本体の `ReferenceResults/` に移した」と書く（開発版の参照結果）。
+- **4.1.0 用はブランチ `v4.1.0`**（先頭 `dac67829`、2025-05-22）。OpenModelica のライブラリ試験も同じコミットを使う（<https://github.com/OpenModelica/OpenModelicaLibraryTesting/blob/master/configs/conf.json>）。
+- ライセンス: リポジトリに LICENSE が無い（GitHub API の license は null）。移した先の MSL は BSD-3-Clause。v4.1.0 のブランチの再配布の条件は【未確認】。GlobeMode は試験のときに取得するだけで、コミットしない。
+- 置き場所は `Modelica/<パッケージのパス>/<モデル名>/` で、`<モデル名>.csv`・`comparisonSignals.txt`・`creation.txt` などがある。1 本ずつ `https://raw.githubusercontent.com/modelica/MAP-LIB_ReferenceResults/<コミット>/<パス>` で取れる。
+- CSV は、1 行目が二重引用符で囲んだ名前で先頭の列が `"time"`。イベントの時刻は同じ時刻の行が 2 つ並ぶ。`comparisonSignals.txt` は 1 行に 1 信号で、先頭は `time`。ChuaCircuit など 4 本は CSV を手で途中まで切ってある（元は `.csv.uncut`）。
+- 本数（git の tree API で数えた）: `Modelica/` が 534 本（OpenModelica の試験の Total 534 と同じ）。GlobeMode の例題 566 本のうち約 32 本には参照結果が無い見込み。
+- 大きさ: ブランチの zip は 816,750,068 B（約 779 MiB）、展開すると約 2.72 GB（`Modelica/` の CSV が 2.01 GB、最大は SoftStarter.csv の 104 MB）。
+- 作った設定（534 本の `creation.txt` を集計）: Dymola 2020x が 487 本、2023x〜2025x が 47 本。積分法はすべて Dassl。StopTime はモデルの値。Tolerance は注釈が無ければ 1e-6、あれば注釈の値の 0.1 倍。Interval は区間の 1/5000 か注釈の値の 0.5 倍。experiment annotation より厳しい設定で作ってある。
+
+### 比較の方法
+
+- **csv-compare**（<https://github.com/modelica-tools/csv-compare>、BSD-3-Clause、ESI ITI。v2.1.1、2024-09-26）: 既定の許容差 `--tolerance 0.002`。参照結果の compare log も「Tolerance 2e-3」（CSV Compare 2.0.3）。既定のアルゴリズムは Rectangle。
+  - 半幅は時間 δt = tol·max(t_N − t_0, |t_0|, 1e-12)、値 δy = tol·max(y_max − y_min, |y_min|, 0.001)（下限 0.001 は v2.1.0 で入った）。
+  - 参照値の折れ線の各頂点に幅 2δt・高さ 2δy の矩形を置いて包んだ管で、試験側の各点を判定する。参照の終わりより後の点は捨てる。試験側に無い信号は警告を出して飛ばす。
+- **LBNL funnel**（<https://github.com/lbl-srg/funnel>、修正 3 条項 BSD）: atol・ltol・rtol を x と y それぞれに指定できる。
+- **FMPy `validate_signal`**（<https://github.com/CATIA-Systems/FMPy/blob/main/src/fmpy/util.py>、BSD-2-Clause）: 参照を 1000 点に取り直し、移動 min / max を幅だけ広げる簡易版。
+- **OpenModelica `diffSimulationResults`**（<https://openmodelica.org/doc/OpenModelicaUsersGuide/latest/scripting_api.html>）: 既定は relTol 1e-3、relTolDiffMinMax 1e-4、rangeDelta 0.002。ライブラリ試験の既定は reltol 3e-3（<https://github.com/OpenModelica/OpenModelicaLibraryTesting/blob/master/shared.py>）。OpenModelica には Rust 版の比較器もあるが OSMC / AGPL なので読まない。
+
+### 基準値
+
+- **OpenModelica**（MSL 4.1.0、534 本）: master（2026-10-17、v1.28.0-dev）はシミュレーション 533 本、参照結果との一致 510 本。v1.25（2026-04-13）は 524 本と 499 本（<https://libraries.openmodelica.org/branches/master/Modelica_4.1.0/Modelica_4.1.0.html>）。
+- **Rumoca**: 2026-06-05 の記録で Simulation OK 153、OMC 1.26.7 と比べた 143 本のうち high agreement 89 本（<https://github.com/CogniPilot/rumoca/blob/main/docs/dev-guide/src/tooling/msl-baseline-promotion-analysis-2026-06-05.md>）。比べた相手は OMC の結果で、MAP-LIB の参照結果ではない。指標は平均の誤差（[rumoca.md](rumoca.md#s011-で調べた実行系v0102)）なので、管の合格数として読まない。rev `276e82bd` の基準値の json は simulate 216。
+
 ## Dymola（Dymosim の積分器）
 
 | 分類 | ソルバ |
@@ -147,3 +176,4 @@ GlobeMode のソルバ名との対応は [architecture.md](../architecture.md#33
 - <https://github.com/OpenModelica/tree-sitter-modelica>
 - <https://github.com/OpenModelica/modelica-language-server>
 - Dymola: <https://help-3dexperience.aesvietnam.com/English/SemUserMap/svecommon-c-DymosimIntegrators.htm>
+- 参照結果と比較（S011、確認日 2026-10-19）: <https://github.com/modelica/MAP-LIB_ReferenceResults>、<https://github.com/modelica-tools/csv-compare>、<https://github.com/lbl-srg/funnel>、<https://github.com/OpenModelica/OpenModelicaLibraryTesting>、<https://libraries.openmodelica.org/branches/master/Modelica_4.1.0/Modelica_4.1.0.html>

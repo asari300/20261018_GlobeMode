@@ -19,7 +19,14 @@
 | --- | --- | --- | --- |
 | Rumoca（`rumoca-*`） | Apache-2.0（NOTICE は無い） | 許可 | git の `rev` で固定する。改変した場合は §4b に従って明記する。商標は許諾されないので、製品名に使わない |
 | zenoh | EPL-2.0 OR Apache-2.0 | **禁止（`bans`）** | IDE に要らない。Rumoca の umbrella crate を使わなければ入らない |
-| diffsol | MIT | 許可 | 既定のソルバ |
+| diffsol | MIT | 許可 | 既定のソルバ。S011 から Rumoca が数値の修正を当てた 0.13.2（Rumoca の `vendor/diffsol`、修正の記録は `RUMOCA_PATCH.md`）を `[patch.crates-io]` で使う（[ADR-0013](adr/0013-exec-backend.md)） |
+| rumoca-sim、rumoca-solver、rumoca-solver-diffsol、rumoca-solver-rk45、rumoca-phase-solve、rumoca-exec-cranelift | Apache-2.0（Rumoca のワークスペース） | 許可 | S011 で導入（`globe-mode-exec` だけ。cargo-deny の `wrappers`）。feature は `solver-diffsol` と `solver-rk45` だけ（zenoh・UDP・gamepad は入らない） |
+| Cranelift 0.125（cranelift-*、regalloc2、target-lexicon、wasmtime-internal-*） | Apache-2.0 WITH LLVM-exception | 許可 | S011 で `rumoca-exec-cranelift` 経由（wasm 以外で無条件）。region（MIT）、arbitrary（MIT OR Apache-2.0）も同じ経路 |
+| nalgebra-sparse 0.11 | Apache-2.0 | 許可 | S011 で diffsol 経由 |
+| self_cell 1.3 | Apache-2.0 OR GPL-2.0-only | 許可（Apache-2.0 を選ぶ） | S011 で rumoca-solver-diffsol 経由 |
+| atomic-wait 1.1 | BSD-2-Clause | 許可 | S011 で faer の rayon（spindle）経由 |
+| instant 0.1 | BSD-3-Clause | 許可 | S011 で rumoca-solver が wasm32 のときだけ使う。保守終了の勧告 RUSTSEC-2024-0384 を deny.toml の `ignore` に理由付きで足した |
+| MSL 4.1.0 の参照結果（MAP-LIB_ReferenceResults、ブランチ v4.1.0） | リポジトリに LICENSE が無い【未確認】 | 取得だけ（コミットしない） | S011。`cargo xtask fetch-msl-ref` が固定したコミットから `data/msl-ref/` に取り、試験の比較にだけ使う。配布物に入れない |
 | SUNDIALS（sundials-sys） | BSD-3-Clause | 許可 | feature `sundials`。wasm では使えない |
 | faer、egg、salsa、rowan、petgraph、lsp-types | MIT / Apache-2.0 | 許可 | — |
 | serde、serde_json、clap | MIT OR Apache-2.0 | 許可 | S002 で導入 |

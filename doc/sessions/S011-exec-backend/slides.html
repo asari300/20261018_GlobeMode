@@ -6,61 +6,588 @@
 <title>S011 実行系の着手 — GlobeMode</title>
 <link rel="stylesheet" href="../../assets/slides.css">
 </head>
-<body data-deck="GlobeMode S011 実行系の着手">
+<body data-deck="GlobeMode S011 · P3 実行系の着手">
 
 <section class="slide" id="S01">
-  <span class="tag">S011 · 2026-10-19 · P3</span>
-  <h1>題名</h1>
-  <p class="lead">このセッションの結論を1文で</p>
-  <div class="big">結論を<b>強調</b>して1〜2行で</div>
+  <span class="tag">S011 · 2026-10-19 · P3 シミュレーション（1 回目）</span>
+  <h1>P3 の実行系に着手し、MSL の例題 303 本を実行した</h1>
+  <div class="kpis">
+    <div class="kpi"><span class="n">303 / 357</span><span class="l">終了時刻まで進んだ例題（検査が OK の 369 本から partial の 12 本を除いた対象。目標は 153 本以上）</span></div>
+    <div class="kpi"><span class="n">292 / 302</span><span class="l">MSL 4.1.0 の参照結果（MAP-LIB）の管に収まった（96.7%。目標は 90% 以上）</span></div>
+    <div class="kpi"><span class="n">2 / 3</span><span class="l">P3 の完了条件のうち満たしたもの（残りは bdf を wasm で動かすこと）</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">panic とワーカーの異常終了（応答が無く外から止めたのは 7 本）</span></div>
+  </div>
+  <div class="card hl">
+    <p>Phase A の実行系は <b>Rumoca の実行系（<code>rumoca-sim</code>）を <code>globe-mode-exec</code> に閉じ込めて使う</b>。結果は中立の <code>SimRun</code>、失敗は <code>Stage::Run</code> の診断で返し、参照結果とは csv-compare の矩形の管（許容差 0.002）で比べる（ADR-0013）。</p>
+    <p class="small">調べもの 2 つ → 骨格のコミット → 所有するファイルを分けた 3 つのサブエージェントで並列に作った。<code>globe simulate</code> で検査を通したモデルを実行して CSV に書ける。</p>
+  </div>
 </section>
 
 <section class="slide" id="S02">
   <span class="tag">目的</span>
-  <h1>このセッションでやること</h1>
-  <ul>
-    <li>依頼の要約</li>
-    <li>どの Phase のどの完了条件に向けた作業か</li>
-  </ul>
-</section>
-
-<section class="slide" id="S03">
-  <span class="tag">決定と理由</span>
-  <h1>決めたこと</h1>
-  <table>
-    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
-    <tr><td>…</td><td>…</td><td>…</td></tr>
-  </table>
-</section>
-
-<section class="slide" id="S04">
-  <span class="tag">図</span>
-  <h1>構成</h1>
-  <svg class="fig" viewBox="0 0 800 260" role="img" aria-label="構成図">
-    <rect class="svg-box-accent" x="40" y="90" width="200" height="80" rx="10"/>
-    <text class="svg-text-b" x="140" y="136" text-anchor="middle">A</text>
-    <line class="svg-line" x1="240" y1="130" x2="560" y2="130"/>
-    <rect class="svg-box" x="560" y="90" width="200" height="80" rx="10"/>
-    <text class="svg-text-b" x="660" y="136" text-anchor="middle">B</text>
-  </svg>
-</section>
-
-<section class="slide" id="S05">
-  <span class="tag">再現手順</span>
-  <h1>再現と検証</h1>
-  <pre><code>コマンド</code></pre>
-  <div class="kpis">
-    <div class="kpi"><span class="n">0</span><span class="l">リンク切れ</span></div>
+  <h1>P3 の完了条件を測れるところまで作る</h1>
+  <div class="cols-2">
+    <div class="card hl">
+      <h3>ユーザーの依頼</h3>
+      <p class="small">「P3の実行系の着手」。S010 の締めで挙げた S011 の候補 1（P3 の始め: 実行系 <code>globe-mode-exec</code> と driver、S10 の数値の部分）にあたる。ほかの指示は無いので、範囲や方式は既定のまま進めた。</p>
+      <h3>P3 の範囲（roadmap）と S011 で作ったもの</h3>
+      <table class="compact">
+        <tr><th>範囲</th><th>S011</th></tr>
+        <tr><td>exec（実行系）</td><td class="ok">Rumoca の実行系のアダプタ</td></tr>
+        <tr><td>driver</td><td>Rumoca の driver を使う（自前は P5 で）</td></tr>
+        <tr><td>bdf / dopri</td><td class="ok"><code>bdf</code>・<code>dopri45</code>・<code>auto</code></td></tr>
+        <tr><td>esdirk34 / tsit45 / 固定刻み</td><td>登録表だけ（未実装）</td></tr>
+        <tr><td>ResultStore</td><td class="ok">CSV（MAT v4・Arrow は後で）</td></tr>
+      </table>
+    </div>
+    <div class="card">
+      <h3>P3 の完了条件</h3>
+      <table class="compact">
+        <tr><th>完了条件</th><th>S011 の状態</th></tr>
+        <tr><td>MSL の例題 153 本以上が実行できる</td><td class="ok">済。303 本</td></tr>
+        <tr><td>そのうち 90% 以上が参照結果のファネルに収まる</td><td class="ok">済。292 / 302 本（96.7%）</td></tr>
+        <tr><td>bdf が wasm で（Node 上で）動く</td><td class="warn">未着手。Rumoca の BDF の道が <code>Instant::now()</code> を呼ぶ</td></tr>
+      </table>
+      <h3>取らなかった候補（S012 へ持ち越し）</h3>
+      <p class="small">S9 を omc と照らして詰める、閉包の切り替えの残り、<code>Checker</code> のメモリの上限、Rumoca の制約の上流報告（ユーザーが出す）、字面の 0 除算の振り分け、S8 の残り、<code>class_index</code> の残り。</p>
+    </div>
   </div>
 </section>
 
+<section class="slide" id="S03">
+  <span class="tag">調べたこと · Rumoca の実行系</span>
+  <h1>Rumoca v0.10.2 の実行系で分かったこと</h1>
+  <div class="cols-3">
+    <div class="card hl">
+      <h3>外の driver から回せない</h3>
+      <p class="small">核 <code>SolveMeKernel</code> の導関数・イベント更新などは <code>pub(crate)</code>。差し替えられるのは数値積分のプラグイン <code>MeIntegratorBackend</code> だけ。<b>自前の <code>HybridSystem</code> として包めない。</b></p>
+    </div>
+    <div class="card">
+      <h3>入口とソルバ</h3>
+      <p class="small">型付きの道（<code>build_simulation</code> → 初期化の確認 → 実行）は BDF だけで、失敗の段が分かる。ソルバは diffsol 0.13 の BDF と Dormand–Prince 5(4) の 2 つ。</p>
+    </div>
+    <div class="card">
+      <h3>時間切れは協調型</h3>
+      <p class="small">予算を見るのは積分の繰り返しと根探索だけ。初期化と積分器の 1 歩の内側では止まらない。Rumoca の MSL のハーネスも別プロセスを外から止める。</p>
+    </div>
+    <div class="card">
+      <h3>diffsol の修正版</h3>
+      <p class="small">Rumoca はルートの <code>[patch]</code> で diffsol 0.13.2 に BDF の修正を 4 件当てている。<code>[patch]</code> はルートでしか効かないので、git 依存では修正前の版が入る。</p>
+    </div>
+    <div class="card">
+      <h3>依存</h3>
+      <p class="small">wasm 以外では Cranelift の JIT が必ず付く。<code>Cargo.lock</code> の外部の package は 101 増えた（Windows の target と Cranelift 0.125 が多い）。ライセンスはすべて許可の区分。</p>
+    </div>
+    <div class="card">
+      <h3>無いもの</h3>
+      <p class="small">初期化系のヤコビ行列の階数を返す公開の API。wasm32 では BDF の道が <code>Instant::now()</code> を呼ぶので動かない見込み【未確認】。</p>
+    </div>
+  </div>
+  <p class="small">rev <code>276e82bd</code> のソースを読んだ（2026-10-19）。出典の行番号は <code>doc/research/rumoca.md</code> の「S011 で調べた実行系（v0.10.2）」。</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">調べたこと · 参照結果と比較の方法</span>
+  <h1>参照結果は MAP-LIB の v4.1.0、比較は矩形の管</h1>
+  <div class="cols-2">
+    <div class="card hl">
+      <h3>MSL 4.1.0 の参照結果（MAP-LIB）</h3>
+      <ul class="small">
+        <li>4.1.0 用はブランチ <code>v4.1.0</code>（先頭 <code>dac67829</code>、2025-05-22）。OpenModelica のライブラリ試験も同じコミット</li>
+        <li><code>Modelica/</code> の下に 534 本（CSV と <code>comparisonSignals.txt</code>）。zip で約 779 MiB、展開して約 2.72 GB</li>
+        <li>作った設定は Dymola の Dassl。Tolerance は注釈の 0.1 倍（無ければ 1e-6）、Interval も注釈より細かい</li>
+        <li>リポジトリに LICENSE が無い（再配布の条件は【未確認】）→ <b>取得して試験に使うだけ</b>。コミットしない</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>比べ方の候補</h3>
+      <table class="compact">
+        <tr><th>方法</th><th>中身</th></tr>
+        <tr><td class="ok">csv-compare</td><td>BSD-3。既定は Rectangle の管、許容差 0.002（MAP-LIB の compare log と同じ）。<b>これを書き直す</b></td></tr>
+        <tr><td>LBNL funnel</td><td>x と y に atol・ltol・rtol</td></tr>
+        <tr><td>FMPy</td><td><code>validate_signal</code>。1000 点に取り直す簡易版</td></tr>
+        <tr><td>Rumoca</td><td><code>sim_trace_compare</code>。正規化した平均の絶対誤差で、管ではない</td></tr>
+      </table>
+      <h3>基準値（物差しが違うので並べるだけ）</h3>
+      <p class="small">OpenModelica master（2026-10-17）は 534 本中 533 本を実行し 510 本が一致。Rumoca の基準値（rev <code>276e82bd</code>）は試した 286 本で simulate 216（予算 12 s）。</p>
+    </div>
+  </div>
+  <p class="small">出典と確認日は <code>doc/research/openmodelica-dymola.md</code> の「S011 で調べた参照結果と比較の方法」。</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">決定と理由 · 一覧</span>
+  <h1>決めたこと（ADR-0013。指示のほかは既定のまま）</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>実行系</td><td>Phase A は <code>rumoca-sim</code> を <code>globe-mode-exec</code> の feature <code>rumoca-exec</code> の中だけで使う（<code>solver-diffsol</code>・<code>solver-rk45</code>）</td><td>公開の API では自前の <code>HybridSystem</code> で包めない。自前の driver では P3 の 1 回目に MSL を回せない</td></tr>
+    <tr><td>diffsol</td><td>Rumoca と同じ修正版を、ルートの <code>[patch.crates-io]</code> で Rumoca の git から使う</td><td>Rumoca の CLI と同じ数値になる</td></tr>
+    <tr><td>モデルの渡し方</td><td><code>CompiledModel</code>（<code>Arc&lt;Dae&gt;</code> と生の experiment）。db は <code>compiled_model</code>（salsa の外）</td><td>db は wasm でビルドするので exec に依存しない</td></tr>
+    <tr><td>結果</td><td>中立の <code>SimRun</code>（<code>globe-mode-ir</code>）。Rumoca の型は外へ出さない</td><td>保存・比較・UI を Rumoca から切り離す</td></tr>
+    <tr><td>S10 の数値</td><td>t0 で代数変数と導関数が有限か（<code>eval_dae_at</code>）を<b>警告</b> <code>GM-W10002</code> に</td><td>start 値で評価するので、初期化で動く値を誤って止めうる</td></tr>
+    <tr><td>ヤコビ行列の階数</td><td>後回し</td><td>公開の API が無い。tracing を拾うのは安定しない</td></tr>
+    <tr><td>実行の失敗</td><td><code>Stage::Run</code> を足し、同じ診断の形で返す</td><td>CLI と JSON で検査と同じに扱える</td></tr>
+    <tr><td>MSL の一括実行</td><td>別プロセスのワーカー。120 s で応答が無ければ外から止める</td><td>協調型の時間切れは初期化の中で止まらない</td></tr>
+  </table>
+  <p class="small">参照結果の取り方・管・partial の扱いは後のスライド（管の比較、一括実行）。全文は <a href="../../adr/0013-exec-backend.md">ADR-0013</a>。</p>
+</section>
+
 <section class="slide" id="S06">
-  <span class="tag">次回</span>
-  <h1>次のセッション</h1>
-  <ul>
-    <li>積み残し</li>
-    <li>次にやること</li>
+  <span class="tag">決定と理由 · 選ばなかった案</span>
+  <h1>自前の実行系と自前の driver は、まだ作らない</h1>
+  <div class="cols-2">
+    <table class="compact">
+      <tr><th>案</th><th>選ばなかった理由</th></tr>
+      <tr><td>実行系を自前で作る（評価器・driver・ソルバ）</td><td>P3 の 1 回目で MSL の例題を回せない。Rumoca は基準値で 216 本を回せる</td></tr>
+      <tr><td>Rumoca のモデルを自前の <code>HybridSystem</code> で包む</td><td>公開の API では包めない。<code>SolveRuntime</code> の低い層は安定でない</td></tr>
+      <tr><td>diffsol を crates.io の版のまま</td><td>BDF の修正 4 件が入らず、Rumoca の数字と比べられない</td></tr>
+      <tr><td>時間切れを同じプロセスの協調型の予算だけで守る</td><td>初期化と積分器の 1 歩の内側で止まらない</td></tr>
+      <tr><td>Rumoca の比較の指標を使う</td><td>平均した L1 で、0.2% の管よりずっと緩い</td></tr>
+      <tr><td>参照結果を zip で一度に取る</td><td>約 779 MiB（展開して約 2.7 GB）。要るのは OK の例題の分だけ</td></tr>
+    </table>
+    <div class="card hl">
+      <h3>「Modelica と FMU は同じ driver」はどうなるか</h3>
+      <ul class="small">
+        <li>Phase A では成り立たない。Modelica のモデルは Rumoca の driver で回す（architecture §3.3 に書いた）</li>
+        <li>自前の <code>HybridSystem</code> と driver は、FMU の Import（P5）と Track B の自前コアで作る</li>
+        <li>Modelica のモデルを自前の driver に載せる道は (a) Rumoca の FMU の出力（C のコンパイラが要る）、(b) 低い層の <code>SolveRuntime</code>、(c) 上流に <code>SolveMeKernel</code> の公開を提案。決めるのは P5 の前</li>
+        <li>自前の積分器（<code>esdirk34</code>・<code>tsit45</code>・固定刻み）は <code>MeIntegratorBackend</code> として差し込める見込み（S012 以降に試す）</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">図 · 構成</span>
+  <h1>Rumoca の型は globe-mode-exec の中に閉じ込める</h1>
+  <svg class="fig" viewBox="0 0 1200 440" role="img" aria-label="上の帯は wasm32 でもビルドできる crate（frontend、db、sim、ir）、下の帯は native だけの crate（呼び出し側、globe-mode-exec、rumoca-sim）。CompiledModel が db から exec へ、SimRun が exec から sim の保存と比較へ流れる図">
+    <defs>
+      <marker id="ah1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path class="svg-arrowhead" d="M0,0 L10,5 L0,10 z"/>
+      </marker>
+    </defs>
+    <rect class="svg-band" x="10" y="8" width="1180" height="190" rx="10"/>
+    <text class="svg-text-m" x="24" y="30">wasm32 でもビルドできる（Rumoca の実行系に依存しない）</text>
+    <rect class="svg-band" x="10" y="226" width="1180" height="210" rx="10"/>
+    <text class="svg-text-m" x="24" y="426">native だけ（feature <tspan class="svg-text-a">rumoca-exec</tspan>）</text>
+
+    <rect class="svg-box" x="30" y="46" width="250" height="134" rx="10"/>
+    <text class="svg-text-b" x="46" y="74">globe-mode-frontend</text>
+    <text class="svg-text-m" x="46" y="100">Checker::compile_retaining</text>
+    <text class="svg-text-m" x="46" y="122">→ CompiledModel</text>
+    <text class="svg-text-m" x="46" y="144">（Arc&lt;Dae&gt; と生の experiment。</text>
+    <text class="svg-text-m" x="46" y="164">中身は exec だけが見る）</text>
+
+    <rect class="svg-box" x="320" y="46" width="260" height="134" rx="10"/>
+    <text class="svg-text-b" x="336" y="74">globe-mode-db</text>
+    <text class="svg-text-m" x="336" y="100">check_model（S0〜S10）</text>
+    <text class="svg-text-m" x="336" y="122">compiled_model（salsa の外。</text>
+    <text class="svg-text-m" x="336" y="144">check と同じ文書を渡すので、</text>
+    <text class="svg-text-m" x="336" y="164">検査の直後ならキャッシュから）</text>
+
+    <rect class="svg-box-accent2" x="620" y="46" width="270" height="134" rx="10"/>
+    <text class="svg-text-b" x="636" y="74">globe-mode-sim</text>
+    <text class="svg-text-m" x="636" y="100">solvers（名前の登録表）</text>
+    <text class="svg-text-m" x="636" y="122">settings（指定 &gt; experiment &gt; 既定）</text>
+    <text class="svg-text-m" x="636" y="144">store（CSV）</text>
+    <text class="svg-text-m" x="636" y="164">compare（矩形の管）</text>
+
+    <rect class="svg-box" x="930" y="46" width="240" height="134" rx="10"/>
+    <text class="svg-text-b" x="946" y="74">globe-mode-ir::sim</text>
+    <text class="svg-text-m" x="946" y="100">SimSettings</text>
+    <text class="svg-text-m" x="946" y="122">ResolvedSettings（出どころ付き）</text>
+    <text class="svg-text-m" x="946" y="144">Trajectory・Termination</text>
+    <text class="svg-text-m" x="946" y="164">SimRun（中立の結果）</text>
+
+    <rect class="svg-box" x="30" y="266" width="250" height="138" rx="10"/>
+    <text class="svg-text-b" x="46" y="294">呼び出し側</text>
+    <text class="svg-text-m" x="46" y="320">globe simulate（CLI）</text>
+    <text class="svg-text-m" x="46" y="342">xtask msl-sim のワーカー</text>
+    <text class="svg-text-m" x="46" y="364">検査に Error があれば</text>
+    <text class="svg-text-m" x="46" y="386">--force が無い限り実行しない</text>
+
+    <rect class="svg-box-accent" x="320" y="266" width="570" height="138" rx="10"/>
+    <text class="svg-text-b" x="336" y="294">globe-mode-exec::run</text>
+    <text class="svg-text" x="336" y="322">① settings::resolve で設定を決める（GM-E10004 / E10005 / I10003）</text>
+    <text class="svg-text" x="336" y="348">② preflight: eval_dae_at で t0 の値を見る（GM-W10002）</text>
+    <text class="svg-text" x="336" y="374">③ simulate: bdf / dopri45 / auto → SimRun か Stage::Run の診断</text>
+    <text class="svg-text-m" x="336" y="396">失敗は Rumoca の段 → エラーの種類 → 呼んだ位置の順に振り分ける</text>
+
+    <rect class="svg-box-warn" x="930" y="266" width="240" height="138" rx="10"/>
+    <text class="svg-text-b" x="946" y="294">Rumoca（Apache-2.0）</text>
+    <text class="svg-text-m" x="946" y="320">rumoca-sim・rumoca-solver</text>
+    <text class="svg-text-m" x="946" y="342">diffsol 0.13.2（Rumoca の patch）</text>
+    <text class="svg-text-m" x="946" y="364">rk45・Cranelift の JIT</text>
+    <text class="svg-text-m" x="946" y="386">型は exec の外へ出さない</text>
+
+    <line class="svg-line" x1="280" y1="113" x2="318" y2="113" marker-end="url(#ah1)"/>
+    <line class="svg-line-accent" x1="450" y1="180" x2="450" y2="264" marker-end="url(#ah1)"/>
+    <text class="svg-text-a" x="460" y="214">CompiledModel</text>
+    <line class="svg-line" x1="280" y1="335" x2="318" y2="335" marker-end="url(#ah1)"/>
+    <path class="svg-line" d="M155,266 V212 H380 V182" marker-end="url(#ah1)"/>
+    <text class="svg-text-m" x="168" y="230">① 検査 ② DAE</text>
+    <line class="svg-line-accent" x1="755" y1="264" x2="755" y2="182" marker-end="url(#ah1)"/>
+    <text class="svg-text-a" x="765" y="214">設定・CSV・管</text>
+    <line class="svg-line" x1="890" y1="335" x2="928" y2="335" marker-start="url(#ah1)" marker-end="url(#ah1)"/>
+    <path class="svg-line" d="M890,290 H910 V113 H928" marker-end="url(#ah1)"/>
+    <text class="svg-text-m" x="914" y="214">SimRun</text>
+  </svg>
+  <p class="small">exec だけが Rumoca の実行系に触る（cargo-deny の <code>wrappers</code> で <code>rumoca-sim</code> を exec に限る。umbrella crate は使わない）。</p>
+</section>
+
+<section class="slide" id="S08">
+  <span class="tag">決定と理由 · 診断コード</span>
+  <h1>S10 の数値の部分と、実行の失敗のコード</h1>
+  <table class="compact">
+    <tr><th>コード</th><th>意味</th><th>コード</th><th>意味</th></tr>
+    <tr><td class="warn">GM-W10002</td><td>S10: start 値で評価した t0 の値が有限でない</td><td><span class="ng">GM-E10005</span> / I10003</td><td>S10: ソルバが使えない / 別名を置き換えた</td></tr>
+    <tr><td class="ng">GM-E11001</td><td>初期化に失敗した</td><td class="ng">GM-E11002</td><td>積分に失敗した</td></tr>
+    <tr><td class="ng">GM-E11003</td><td>イベントの反復が収束しない</td><td class="ng">GM-E11004</td><td>assert で止まった</td></tr>
+    <tr><td class="ng">GM-E11005</td><td>時間切れ（協調型の予算）</td><td class="ng">GM-E11006</td><td>結果に NaN・inf が出た</td></tr>
+    <tr><td>GM-I11001</td><td><code>terminate()</code> で前に終わった（失敗ではない）</td><td class="warn">GM-W11001</td><td>止めない警告（warning の assert）</td></tr>
+    <tr><td>GM-U0004</td><td>実行系が未対応（lowering・組み立て）</td><td>GM-U0005</td><td>実行系の内部エラー（panic・契約違反）</td></tr>
+  </table>
+  <div class="cols-2">
+    <div class="card hl">
+      <h3>t0 で有限にならないのは警告</h3>
+      <p class="small"><code>eval_dae_at</code> は start 値を状態に入れて評価する（初期化の残差ではない）。最初は Error にしていたが、骨格の段階で警告に変えた（<code>092b888</code>）。MSL では 3 本に出た: <code>TestCylinder</code>・<code>TestOpenTank</code> は <code>GM-E11001</code> で止まり補足にこの警告が付き、<code>TwoTanks</code> は終了時刻まで進んで管にも収まった。</p>
+    </div>
+    <div class="card">
+      <h3>失敗の振り分け</h3>
+      <ul class="small">
+        <li>Rumoca が付けた段（<code>SimFailureStage</code>・<code>MeStage</code>）→ エラーの種類（<code>MeSessionError</code> などを型で match）→ こちらが呼んだ位置、の順に見る</li>
+        <li>型に無い 4 つだけ文言から読む: 時刻、有限でない変数の名前、位置、rk45 の lowering の <code>[EX…]</code> の印</li>
+        <li>実行は検査段階ではないが、同じ形で返すため <code>Stage::Run</code> を足した</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S09">
+  <span class="tag">結果 · 検証用のモデル</span>
+  <h1>GlobeModeValidation.Simulation の 12 本</h1>
+  <table class="compact">
+    <tr><th>モデル</th><th>中身</th><th>実行の結果</th></tr>
+    <tr><td><code>Decay</code></td><td><code>der(x) = -k*x</code>（Tolerance 1e-8）</td><td><span class="ok">成功</span> x(1) = 0.367879468（解析解 0.367879441、dopri45 は 0.367879443）</td></tr>
+    <tr><td><code>HarmonicOscillator</code></td><td>調和振動子（w = 2）</td><td><span class="ok">成功</span> x(1) = −0.4161468（解析解 cos 2）</td></tr>
+    <tr><td><code>NonlinearLoop</code></td><td>大きさ 2 の非線形の代数ループ</td><td><span class="ok">成功</span> 各点で y = 1 + t、z = 3 + t（start 値の側の解）</td></tr>
+    <tr><td><code>NoStates</code></td><td><code>y = sin(time)</code></td><td><span class="ok">成功</span> 状態 0 で時刻を進めて評価。y(1) = sin 1</td></tr>
+    <tr><td><code>BouncingBall</code></td><td><code>when h &lt; 0 then reinit(v, -e*pre(v))</code></td><td><span class="ok">成功</span> 2 s までに 3 回跳ね、h(2) = 0.26074（解析解 0.260739）</td></tr>
+    <tr><td><code>SampleCounter</code></td><td><code>sample(0.05, 0.1)</code> で数える</td><td><span class="ok">成功</span> n = 10、xs = 0.95</td></tr>
+    <tr><td><code>Terminate</code></td><td><code>when x &gt;= 0.5 then terminate(…)</code></td><td><span class="ok">成功</span> t = 0.5 で止まる。情報 GM-I11001</td></tr>
+    <tr><td><code>WarningAssert</code></td><td><code>assert(…, AssertionLevel.warning)</code></td><td><span class="ok">成功</span> 警告 <span class="warn">GM-W11001</span>（Rumoca の WX001）</td></tr>
+    <tr><td><code>RuntimeAssert</code></td><td><code>assert(x &lt; 0.5, …)</code></td><td><span class="ng">GM-E11004</span>（t = 0.5）</td></tr>
+    <tr><td><code>EventNotSettling</code></td><td><code>k = if x &gt; 0.5 then 1 - pre(k) else 0</code></td><td><span class="ng">GM-E11003</span>（t = 0.5）</td></tr>
+    <tr><td><code>NotFiniteAtStart</code></td><td><code>y = 1 / x</code>、x の start は 0（<code>fixed = true</code>）</td><td><span class="warn">GM-W10002</span> のあと <span class="ng">GM-E11001</span>（補足にプリフライトの警告）</td></tr>
+    <tr><td><code>InitNoSolution</code></td><td>初期方程式 <code>x * x = -1</code>（S8 は合う）</td><td><span class="ng">GM-E11001</span>（初期化系が解けない）</td></tr>
+  </table>
+  <p class="small">どれも <code>globe check</code> は通る正しいモデル。bdf と dopri45 で判定は同じ（exec の結合テスト 19 本）。</p>
+</section>
+
+<section class="slide" id="S10">
+  <span class="tag">決定と理由 · ソルバと設定</span>
+  <h1>ソルバは登録表で引き、設定は指定を優先する</h1>
+  <div class="cols-2">
+    <div>
+      <table class="compact">
+        <tr><th>種類</th><th>名前</th><th>診断</th></tr>
+        <tr><td>実装</td><td><code>bdf</code>（既定）・<code>dopri45</code>・<code>auto</code></td><td>—</td></tr>
+        <tr><td>別名</td><td><code>dassl</code>・<code>lsodar</code> → <code>bdf</code><br><code>rk45</code>・<code>dopri5</code> → <code>dopri45</code></td><td>GM-I10003</td></tr>
+        <tr><td>未実装</td><td><code>esdirk34</code>・<code>tsit45</code>・<code>euler</code> など 19 個</td><td>GM-E10005</td></tr>
+        <tr><td>その他</td><td>表に無い名前</td><td>GM-E10005</td></tr>
+      </table>
+      <ul class="small">
+        <li><code>bdf</code> は diffsol の BDF、<code>dopri45</code> は Rumoca の Dormand–Prince 5(4)。<code>auto</code> は Rumoca の選び方をなぞる（BDF の初期の線形化が作れないときだけ陽的 RK）</li>
+        <li>別名は同等の手法に置き換えるが、結果は一致しない。未実装の名前には代わりを、表に無い名前には近い名前を 3 つまで添える</li>
+        <li>表は <code>globe-mode-sim::solvers</code>（architecture §3.3 の表と同じ名前）</li>
+      </ul>
+    </div>
+    <div class="card hl">
+      <h3>設定の決め方（項目ごとに 指定 &gt; experiment &gt; 既定）</h3>
+      <table class="compact">
+        <tr><th>項目</th><th>既定値</th></tr>
+        <tr><td>StartTime</td><td>0</td></tr>
+        <tr><td>StopTime</td><td>開始 + 1</td></tr>
+        <tr><td>Tolerance</td><td>1e-6（相対と絶対の両方。Rumoca のハーネスと同じ）</td></tr>
+        <tr><td>Interval</td><td>区間の 1/500（決まった区間から計算する）</td></tr>
+        <tr><td>ソルバ</td><td><code>bdf</code></td></tr>
+      </table>
+      <ul class="small">
+        <li>値がどこから来たか（指定・experiment・既定）も返して表示する。失敗しても使った設定を出す</li>
+        <li>experiment の StopTime = StartTime（MSL の <code>Inverse_sine</code>）は開始 + 1 まで回して GM-W10001。指定した値が同じなら誤り（GM-E10004）</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S11">
+  <span class="tag">決定と理由 · 参照結果との比較</span>
+  <h1>csv-compare の矩形の管を、記述から書き直した</h1>
+  <svg class="fig" viewBox="0 0 1200 300" role="img" aria-label="参照の折れ線に沿って幅 2δt、高さ 2δy の矩形を動かした管。試験側の点はほとんど管の中にあり、δt より遅れたイベントの点だけが管の外に出る。右に管の半幅の式">
+    <g transform="translate(0,-30)">
+      <polygon class="svg-band" points="56,240 206,170 335,170 336,100 496,75 664,75 664,115 544,115 385,139.8 384,210 254,210 104,280 56,280"/>
+      <rect class="svg-line" x="206" y="170" width="48" height="40"/>
+      <rect class="svg-line" x="496" y="75" width="48" height="40"/>
+      <polyline class="svg-line-accent" points="80,260 230,190 360,190 360,120 520,95 640,95"/>
+      <circle class="svg-node" cx="110" cy="248" r="5"/>
+      <circle class="svg-node" cx="170" cy="222" r="5"/>
+      <circle class="svg-node" cx="250" cy="196" r="5"/>
+      <circle class="svg-node" cx="320" cy="186" r="5"/>
+      <circle class="svg-node" cx="372" cy="185" r="5"/>
+      <circle class="svg-node-3" cx="400" cy="188" r="6"/>
+      <circle class="svg-node" cx="450" cy="112" r="5"/>
+      <circle class="svg-node" cx="560" cy="100" r="5"/>
+      <circle class="svg-node" cx="620" cy="90" r="5"/>
+      <line class="svg-line" x1="40" y1="300" x2="680" y2="300"/>
+      <line class="svg-line" x1="80" y1="294" x2="80" y2="306"/>
+      <line class="svg-line" x1="640" y1="294" x2="640" y2="306"/>
+      <text class="svg-text-m" x="80" y="324" text-anchor="middle">t₀</text>
+      <text class="svg-text-m" x="640" y="324" text-anchor="middle">t_N</text>
+      <text class="svg-text-m" x="230" y="162" text-anchor="middle">2δt × 2δy</text>
+      <text class="svg-text-a" x="420" y="62">参照（折れ線）と管</text>
+      <text class="svg-text-m" x="410" y="196">δt より遅れたイベントの点 → 管の外</text>
+      <text class="svg-text-m" x="96" y="290">● 試験側の点</text>
+    </g>
+    <text class="svg-text-b" x="760" y="44">管の半幅（tol = 0.002、csv-compare の既定）</text>
+    <text class="svg-text" x="760" y="82">δt = tol·max(t_N − t₀, |t₀|, 1e-12)</text>
+    <text class="svg-text" x="760" y="112">δy = tol·max(y_max − y_min, |y_min|, 0.001)</text>
+    <text class="svg-text" x="760" y="152">上の縁 = 窓 |s − t| ≤ δt での参照の最大 + δy</text>
+    <text class="svg-text" x="760" y="182">下の縁 = 同じ窓での参照の最小 − δy</text>
+    <text class="svg-text-m" x="760" y="208">（縁の言い換えは GlobeMode での導出）</text>
+    <text class="svg-text-m" x="760" y="248">窓の最大・最小はセグメント木で引く</text>
+    <text class="svg-text-m" x="760" y="270">参照 n 点・試験 m 点で、信号 1 つ O(n + m log n)</text>
+  </svg>
+  <ul class="small">
+    <li>参照の区間 [t₀, t_N] の外の点は判定しない（外挿しない）</li>
+    <li><b>試験側に無い信号は不合格</b>（csv-compare は警告を出して飛ばす）。参照の区間を覆わない（途中で止まった）信号も不合格</li>
+    <li>比べる信号は <code>comparisonSignals.txt</code>。<code>//</code> で始まる行（比べないことにした信号）は読み飛ばす。最初の実行で 3 本がこの行を信号と読んで落ちたので直した</li>
   </ul>
+</section>
+
+<section class="slide" id="S12">
+  <span class="tag">決定と理由 · MSL の一括実行</span>
+  <h1>別プロセスのワーカーで回し、外から止める</h1>
+  <svg class="fig" viewBox="0 0 1200 330" role="img" aria-label="msl-funnel の JSON から partial を除いた 357 本を、親の msl-sim が 1 本ずつワーカーに送る。ワーカーは MSL を一度だけ読み、コンパイル、実行、管の比較をする。参照結果は fetch-msl-ref が固定したコミットから取得する">
+    <defs>
+      <marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path class="svg-arrowhead" d="M0,0 L10,5 L0,10 z"/>
+      </marker>
+    </defs>
+    <rect class="svg-box" x="20" y="30" width="230" height="120" rx="10"/>
+    <text class="svg-text-b" x="36" y="58">msl-funnel の JSON</text>
+    <text class="svg-text-m" x="36" y="84">OK 369 本（S010 のもの）</text>
+    <text class="svg-text-m" x="36" y="106">partial の 12 本を除く</text>
+    <text class="svg-text-a" x="36" y="132">→ 対象 357 本</text>
+
+    <rect class="svg-box-accent" x="300" y="30" width="330" height="150" rx="10"/>
+    <text class="svg-text-b" x="316" y="58">親（cargo xtask msl-sim）</text>
+    <text class="svg-text-m" x="316" y="84">1 本ずつ要求を送る</text>
+    <text class="svg-text-m" x="316" y="106">120 s 応答が無ければ kill して立て直す</text>
+    <text class="svg-text-m" x="316" y="128">（--kill-seconds。落ちたときも立て直す）</text>
+    <text class="svg-text-m" x="316" y="150">報告 doc/msl-sim.md と JSON を書く</text>
+
+    <rect class="svg-box-accent2" x="700" y="30" width="480" height="150" rx="10"/>
+    <text class="svg-text-b" x="716" y="58">ワーカー（隠しサブコマンド msl-sim-worker）</text>
+    <text class="svg-text-m" x="716" y="84">MSL を一度だけ読み、1 本ごとに</text>
+    <text class="svg-text" x="716" y="108">compile_retaining → exec::run（予算 30 s）→ compare</text>
+    <text class="svg-text-m" x="716" y="132">panic は catch_unwind で拾って続ける</text>
+    <text class="svg-text-m" x="716" y="154">50 本ごとに Checker::reset で Session を戻す</text>
+
+    <rect class="svg-box" x="700" y="220" width="480" height="96" rx="10"/>
+    <text class="svg-text-b" x="716" y="248">cargo xtask fetch-msl-ref → data/msl-ref/</text>
+    <text class="svg-text-m" x="716" y="274">MAP-LIB のコミット dac67829 に固定、要るモデルの分だけ</text>
+    <text class="svg-text-m" x="716" y="296">.part に書いて rename。無いモデルにも印を置く</text>
+
+    <rect class="svg-band" x="20" y="220" width="610" height="96" rx="10"/>
+    <text class="svg-text" x="36" y="248">時間切れの二重の守り</text>
+    <text class="svg-text-m" x="36" y="274">協調型の予算 30 s（--wall-seconds）→ GM-E11005。Rumoca のハーネスは 12 s</text>
+    <text class="svg-text-m" x="36" y="296">初期化や 1 歩の内側で止まらないものは、親が 120 s で外から止める</text>
+
+    <line class="svg-line" x1="250" y1="90" x2="298" y2="90" marker-end="url(#ah2)"/>
+    <line class="svg-line-accent" x1="630" y1="90" x2="698" y2="90" marker-start="url(#ah2)" marker-end="url(#ah2)"/>
+    <text class="svg-text-m" x="664" y="116" text-anchor="middle">JSON</text>
+    <text class="svg-text-m" x="664" y="134" text-anchor="middle">の行</text>
+    <line class="svg-line" x1="940" y1="218" x2="940" y2="182" marker-end="url(#ah2)"/>
+  </svg>
+  <ul class="small">
+    <li>親とワーカーは標準入出力の JSON の行で話す。Rumoca などが標準出力に書いても混ざらないよう、ワーカーの行には接頭辞を付ける</li>
+    <li>参照結果の取得（release、4 並列）: 参照結果のある 353 本の分、1010 MB を 66 s。無いものは 16 本（partial の 12 本と <code>AdvancedSolenoid</code> など 4 本）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S13">
+  <span class="tag">結果 · MSL の全例題の実行</span>
+  <h1>303 本が終了時刻まで進み、292 本が管に収まった</h1>
+  <svg class="fig" viewBox="0 0 1200 170" role="img" aria-label="対象 357 本の帯グラフ（終了時刻まで 303、止まった 54）と、参照結果と比べた 302 本の帯グラフ（管に収まった 292、外れ 10）">
+    <text class="svg-text-b" x="10" y="24">対象 357 本</text>
+    <rect class="svg-node" x="10" y="38" width="475" height="34"/>
+    <rect class="svg-node-3" x="485" y="38" width="85" height="34"/>
+    <text class="svg-text-m" x="10" y="94">終了時刻まで 303（85%）</text>
+    <text class="svg-text-m" x="570" y="94" text-anchor="end">止まった 54</text>
+    <text class="svg-text-b" x="630" y="24">参照結果と比べた 302 本</text>
+    <rect class="svg-node-2" x="630" y="38" width="541" height="34"/>
+    <rect class="svg-node-3" x="1171" y="38" width="19" height="34"/>
+    <text class="svg-text-m" x="630" y="94">管に収まった 292（96.7%）</text>
+    <text class="svg-text-m" x="1190" y="94" text-anchor="end">外れ 10</text>
+    <text class="svg-text-m" x="10" y="132">信号の数では 1713 本中 1687 本が合格。参照結果の無いもの 1 本（BusUsage_Utilities.Part）。GM-W10002 が出たのは 3 本</text>
+    <text class="svg-text-m" x="10" y="158">全体 31 分 52 秒（コンパイル 183.7 s・実行系の準備 139.8 s・初期化と積分 159.5 s）・ワーカーの最大の常駐メモリ 3.5 GiB</text>
+  </svg>
+  <div class="cols-2">
+    <table class="compact">
+      <tr><th>項目</th><th>値</th></tr>
+      <tr><td>条件</td><td class="ok">153 本以上・90% 以上の 2 つとも満たす</td></tr>
+      <tr><td>停止</td><td>GM-U0004 26・GM-E11001 6・GM-E11002 6・GM-E11005 5・GM-U0005 4・外から停止 7</td></tr>
+      <tr><td>panic</td><td>0。ワーカーの異常終了も 0（起動は 8 回）</td></tr>
+      <tr><td>1 回目</td><td><code>//</code> の行を直す前は 302 本・288 / 301 本（95.7%）</td></tr>
+      <tr><td>基準値</td><td>Rumoca 216（286 本中、12 s）・OpenModelica 533 本中 510 本が一致（物差しが違う）</td></tr>
+    </table>
+    <div class="card">
+      <ul class="small">
+        <li>時間の残りの多くは、外から止めた 7 本（各 120 s）と時間切れの 5 本</li>
+        <li><code>CauerLowPassSC</code> は 1 回目に 33 s で時間切れ、2 回目は 16.3 s で通った（予算 30 s のぎりぎり）</li>
+        <li>全文は <a href="../../msl-sim.md">doc/msl-sim.md</a>（xtask が生成。手で編集しない）</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S14">
+  <span class="tag">結果 · 止まったものと外れたもの</span>
+  <h1>止まった 54 本と、管から外れた 10 本</h1>
+  <div class="cols-2">
+    <table class="compact">
+      <tr><th>止まった理由</th><th>数</th><th>内訳・主なもの</th></tr>
+      <tr><td>GM-U0004 未対応</td><td>26</td><td>構造解析 19・Solve IR 3・組み立て 2・方向微分 2（<code>AdvancedSolenoid</code> は構造解析）</td></tr>
+      <tr><td>GM-E11001 初期化</td><td>6</td><td><code>RobotR3</code> 2・FluidHeatFlow 2 など</td></tr>
+      <tr><td>GM-E11002 積分</td><td>6</td><td><code>TanksWithOverflow</code> など</td></tr>
+      <tr><td>GM-E11005 時間切れ</td><td>5</td><td>PowerConverters 4・<code>IMC_YDarc</code></td></tr>
+      <tr><td>GM-U0005 内部エラー</td><td>4</td><td>実行時の契約違反。PowerConverters 3 など</td></tr>
+      <tr><td>外から停止</td><td>7</td><td>Fluid 5・<code>EngineV6</code> 2</td></tr>
+    </table>
+    <table class="compact">
+      <tr><th>管から外れたモデル</th><th>外れ方</th></tr>
+      <tr><td>Clocked の <code>LogicalSample</code>・<code>RotationalSample</code></td><td>向きの信号などが t ≈ 1.40 で外れる</td></tr>
+      <tr><td>PowerConverters の <code>Dimmer_R</code>・<code>PolyphaseTwoLevel_R</code>・<code>_RL</code></td><td><code>PolyphaseTwoLevel</code> は 1 点だけ外れる</td></tr>
+      <tr><td><code>DemonstrateSignalExtrema</code></td><td>極値の信号 <code>y_min</code>・<code>y_max</code></td></tr>
+      <tr><td><code>OpAmps.Multivibrator</code></td><td>3 本とも t ≈ 0.03 から外れる</td></tr>
+      <tr><td><code>DemoSignalCharacteristic</code></td><td>はみ出し 5.6e-5 だが 1006 / 1051 点</td></tr>
+      <tr><td><code>DemoPowerSupplyWithBuffer</code></td><td>電流 2 本、t ≈ 0.52</td></tr>
+      <tr><td><code>DoublePendulumInitTip</code></td><td>501 点中 3 点（t = 4.83）</td></tr>
+    </table>
+  </div>
+  <p class="small">原因は<b>確かめていない</b>。見込みは、イベントの時刻のずれ（Clocked・PowerConverters）、極値の追跡、発振の位相、初期化が協調型の予算の外（外から止めた 7 本）。調べて上流に報告するものを分けるのは S012 の候補 2。</p>
+</section>
+
+<section class="slide" id="S15">
+  <span class="tag">決定と理由 · 並列の作業</span>
+  <h1>調べもの 2 つ → 骨格 → 3 並列で作った</h1>
+  <svg class="fig" viewBox="0 0 1200 360" role="img" aria-label="調べもの 2 つの結果で骨格を固め、3 つのサブエージェント A、B、C が並列に作り、統合に集まる図">
+    <defs>
+      <marker id="ah3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path class="svg-arrowhead" d="M0,0 L10,5 L0,10 z"/>
+      </marker>
+    </defs>
+    <rect class="svg-box" x="20" y="40" width="220" height="110" rx="10"/>
+    <text class="svg-text-b" x="36" y="68">調べもの 1</text>
+    <text class="svg-text-m" x="36" y="94">Rumoca の実行系</text>
+    <text class="svg-text-m" x="36" y="116">（入口・時間切れ・patch）</text>
+    <rect class="svg-box" x="20" y="200" width="220" height="110" rx="10"/>
+    <text class="svg-text-b" x="36" y="228">調べもの 2</text>
+    <text class="svg-text-m" x="36" y="254">参照結果と比較の方法</text>
+    <text class="svg-text-m" x="36" y="276">（MAP-LIB・csv-compare）</text>
+
+    <rect class="svg-box-accent" x="290" y="85" width="260" height="190" rx="10"/>
+    <text class="svg-text-b" x="420" y="113" text-anchor="middle">骨格（先に固めた）</text>
+    <text class="svg-text-m" x="306" y="141">core の Stage::Run と診断コード</text>
+    <text class="svg-text-m" x="306" y="163">ir の sim.rs・CompiledModel</text>
+    <text class="svg-text-m" x="306" y="185">exec と sim の空の関数</text>
+    <text class="svg-text-m" x="306" y="207">依存と diffsol の patch</text>
+    <text class="svg-text-m" x="306" y="229">検証用の Simulation の器</text>
+    <text class="svg-text-a" x="306" y="259">7ab4fb0・092b888</text>
+
+    <rect class="svg-box" x="610" y="20" width="330" height="96" rx="10"/>
+    <text class="svg-text-b" x="626" y="46">A · exec</text>
+    <text class="svg-text-m" x="626" y="70">globe-mode-exec: アダプタ・失敗の振り分け</text>
+    <text class="svg-text-m" x="626" y="92">プリフライト・Simulation/*.mo 12 本</text>
+    <text class="svg-text-a" x="924" y="46" text-anchor="end">テスト 13 + 19</text>
+
+    <rect class="svg-box" x="610" y="132" width="330" height="96" rx="10"/>
+    <text class="svg-text-b" x="626" y="158">B · sim</text>
+    <text class="svg-text-m" x="626" y="182">globe-mode-sim: 登録表・設定・CSV・管</text>
+    <text class="svg-text-m" x="626" y="204">（Rumoca に依存しない）</text>
+    <text class="svg-text-a" x="924" y="158" text-anchor="end">テスト 49</text>
+
+    <rect class="svg-box" x="610" y="244" width="330" height="96" rx="10"/>
+    <text class="svg-text-b" x="626" y="270">C · xtask</text>
+    <text class="svg-text-m" x="626" y="294">fetch-msl-ref・msl-sim（ワーカー・監視）</text>
+    <text class="svg-text-m" x="626" y="316">reference.rs・sim.rs</text>
+    <text class="svg-text-a" x="924" y="270" text-anchor="end">テスト 37</text>
+
+    <rect class="svg-box-accent2" x="990" y="85" width="190" height="190" rx="10"/>
+    <text class="svg-text-b" x="1085" y="113" text-anchor="middle">統合（メイン）</text>
+    <text class="svg-text-m" x="1004" y="141">db の compiled_model</text>
+    <text class="svg-text-m" x="1004" y="163">globe simulate</text>
+    <text class="svg-text-m" x="1004" y="185">// の行の読み飛ばし</text>
+    <text class="svg-text-m" x="1004" y="207">ADR-0013 と文書</text>
+    <text class="svg-text-a" x="1004" y="259">db のテスト 3</text>
+
+    <path class="svg-line" d="M240,95 H265 V180 H288" marker-end="url(#ah3)"/>
+    <path class="svg-line" d="M240,255 H265 V180"/>
+    <path class="svg-line-accent" d="M550,180 H580 V68 H608" marker-end="url(#ah3)"/>
+    <line class="svg-line-accent" x1="550" y1="180" x2="608" y2="180" marker-end="url(#ah3)"/>
+    <path class="svg-line-accent" d="M550,180 H580 V292 H608" marker-end="url(#ah3)"/>
+    <path class="svg-line" d="M940,68 H965 V180 H988" marker-end="url(#ah3)"/>
+    <line class="svg-line" x1="940" y1="180" x2="965" y2="180"/>
+    <path class="svg-line" d="M940,292 H965 V180"/>
+  </svg>
+  <p class="small">1 つの worktree で、所有するファイルを分けた 3 つのサブエージェントを同時に走らせた（effort は指定が無かったので既定のまま）。骨格の 2 つ目のコミット（<code>092b888</code>）で、t0 で有限にならないのを Error から警告 <code>GM-W10002</code> に変え、ソルバが使えないのを <code>GM-E10005</code> にした。</p>
+</section>
+
+<section class="slide" id="S16">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+<pre><code>mise run check            # fmt・clippy・test（422 本通過・7 本 ignore）・deny・uv sync --locked
+mise run msl:compare      # MSL の例題 20 本を Rumoca の CLI と突き合わせ（frontend に compile_retaining を足した）
+mise run msl:sim          # target/msl-funnel.json の OK の例題を実行し、参照結果を取得して管で比べる（31 分 52 秒）
+globe simulate src/Modelica/GlobeModeValidation -m GlobeModeValidation.Simulation.BouncingBall -o ball.csv
+globe simulate src/Modelica/GlobeModeValidation -m GlobeModeValidation.Simulation.Decay --solver dassl   # GM-I10003</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">422</span><span class="l">workspace のテスト（S010 は 324）。exec 13 + 19、sim 49、xtask 37、db 3 が新しい</span></div>
+    <div class="kpi"><span class="n">20 / 20</span><span class="l"><code>msl:compare</code> の一致（両方とも成功 17 本）</span></div>
+    <div class="kpi"><span class="n">101</span><span class="l"><code>Cargo.lock</code> に増えた外部の package（Cranelift・diffsol・Windows の target）</span></div>
+    <div class="kpi"><span class="n">12</span><span class="l">足した検証用のモデル（<code>Simulation.*</code>）</span></div>
+  </div>
+  <p class="small"><code>msl:funnel</code> は回し直していない（S0〜S10 の規則は変えていない。入力は S010 の JSON）。wasm32 の <code>cargo check</code>（core・ir・frontend・graph・db・analysis・sim）と、<code>globe-mode-exec</code> の <code>--no-default-features</code> も通る。</p>
+</section>
+
+<section class="slide" id="S17">
+  <span class="tag">次回</span>
+  <h1>S012 — wasm の bdf と、止まった 54 本</h1>
+  <div class="cols-2">
+    <div class="card hl">
+      <h3>候補（roadmap）</h3>
+      <ol class="small">
+        <li><b>bdf を wasm で（Node 上で）動かす</b>（P3 の残りの完了条件）。getrandom の <code>wasm_js</code>、<code>Instant::now()</code> を呼ばない道</li>
+        <li><b>止まった 54 本と外れた 10 本を調べる</b>。上流に報告するものを分ける</li>
+        <li>自前の積分器（<code>esdirk34</code>・<code>tsit45</code>・固定刻み）を <code>MeIntegratorBackend</code> として試す</li>
+        <li>パラメータを変えた再実行（<code>param_overrides</code>）、MAT v4 / Arrow IPC</li>
+        <li>S10 の残り: 初期化のヤコビ行列の階数</li>
+        <li>S9 を omc と照らして詰める、閉包の切り替えの残り（持ち越し）</li>
+        <li><code>Checker</code> のメモリの上限（P4 の後）、Rumoca の制約の上流報告（ユーザーが出す）など</li>
+      </ol>
+    </div>
+    <div class="card">
+      <h3>残したこと</h3>
+      <ul class="small">
+        <li><code>globe-mode-exec</code> は native だけ</li>
+        <li>dopri45 は組み立てから積分までを 1 回で呼ぶので、準備の時間が 0 になる</li>
+        <li>プリフライトは lowering を 1 回余計にする（<code>eval_dae_at</code> が自分で lowering する）</li>
+        <li>Rumoca の文言から読んでいる 4 つは、rev を上げたら exec のテストで確かめる</li>
+        <li>次に Rumoca の rev か検査を変えたら、<code>msl:funnel</code> → <code>msl:sim</code> の順に回す</li>
+        <li>上流への報告の候補に、<code>SolveMeKernel</code> が非公開、diffsol の修正、ヤコビ行列の階数の API、wasm の <code>Instant::now()</code> を足した</li>
+      </ul>
+    </div>
+  </div>
 </section>
 
 <script src="../../assets/slides.js"></script>

@@ -36,6 +36,8 @@ rumoca-core = { git = "https://github.com/CogniPilot/rumoca", rev = "276e82bd0fd
 # S011: 実行系（globe-mode-exec だけ）。umbrella crate の既定の feature（zenoh・gamepad・UDP・web viewer）は使わず、
 # diffsol の BDF と Rumoca の RK45 だけを有効にする（ADR-0013）。wasm 以外では Cranelift の JIT も入る
 rumoca-sim = { git = "https://github.com/CogniPilot/rumoca", rev = "276e82bd0fd48960ac201e782918d28bf19cf7ce", default-features = false, features = ["solver-diffsol", "solver-rk45"] }
+# S011: 実行の失敗の型（MeSessionError など）を名前で振り分けるため。rumoca-sim の推移的依存で、新しい外部依存は増えない
+rumoca-solver = { git = "https://github.com/CogniPilot/rumoca", rev = "276e82bd0fd48960ac201e782918d28bf19cf7ce", default-features = false }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

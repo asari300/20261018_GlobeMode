@@ -20,7 +20,7 @@ flowchart LR
 | **P0 運用基盤** | 調査、計画、CLAUDE.md、スキル、セッション記録のフック、スライドと解説書の型 | S001 の成果物がそろう。フックが伏せ字版を出力する。リンク切れが 0 件 | S001 |
 | **P1 骨格**（S003 で完了） | workspace 化、mise の rust の targets、cargo-deny、CI（Linux / Windows / wasm）。core / ir / frontend / cli。MSL の取得スクリプト。Python パッケージの改名 | `cargo deny check` が通る。MSL の例題 20 本で `globe check` の結果が Rumoca と一致する。frontend が wasm32 向けにビルドできる。[ADR-0003](adr/0003-toolchain.md) が Accepted になる | 3 回（workspace と CI / アダプタと CLI / wasm の確認） |
 | **P2 遅延クエリと検査**（S004〜S010。完了条件は S008 で 3 つとも満たした。S9・S10 は S010 で足した。S10 の数値の部分は P3） | db、outline、class_index、connect_graph、`assert_simulatable` の S0〜S10 | 空白だけの編集の再検査が 50 ms 未満で、`flat` が再実行されない（salsa のイベントで確かめる）。MSL の全例題に判定が出て、panic は 0 件。S5 が omc と 95% 以上一致する | 4 回 |
-| **P3 シミュレーション** | exec、driver、bdf / esdirk34 / tsit45 / dopri / 固定刻み、ResultStore | MSL の例題 153 本以上が実行できる。そのうち 90% 以上が参照結果のファネルに収まる。bdf が wasm で（Node 上で）動く | 5 回 |
+| **P3 シミュレーション**（S011 で着手。完了条件の 1 つ目と 2 つ目は S011 で満たした） | exec、driver、bdf / esdirk34 / tsit45 / dopri / 固定刻み、ResultStore | MSL の例題 153 本以上が実行できる。そのうち 90% 以上が参照結果のファネルに収まる。bdf が wasm で（Node 上で）動く | 5 回 |
 | **P4 Desktop MVP** | CodeMirror 6 と LSP、ライブラリツリー、検査パネル、プロット、sigma.js の connect グラフ | ChuaCircuit で開く・検査・実行・プロットが通る。5k ノードのグラフが 30 fps 以上で動く。RSS の基準値を記録する。CI が .deb と .msi を作る | 6 回 |
 | **P5 FMI** | Import（ME / CS / SE）とマスター。Export は P5a（Rumoca のテンプレート）の後に P5b（自前のランタイム） | Reference-FMUs が linux64 と win64 で一致する。Export した FMU が FMPy・fmusim・fmuCheck を通る。Clocks（SE）が往復できる | 8 回 |
 | **P6 Web / marimo / Streamlit / Android** | WorkerBackend、MSL のパッケージ単位の分割読み込み、anywidget、wheel、APK | ブラウザが CSP `connect-src 'self'` のまま実行できる（サーバーで計算しない）。marimo の WASM で 2 GB 未満に収まる。Android API 34 のエミュレータで検査と実行が通る | 5 回 |
@@ -146,6 +146,25 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **omc との照合**（`mise run msl:omc`、omc を回し直した。[omc-compare.md](omc-compare.md)）: S5 382 / 382、S6 362 / 363、S8（過剰）352 / 355（S009 と同じ）。**S9（非線形のループの有無）282 / 355（79.4%）、S9（start の無い非線形の反復変数の有無）312 / 355（87.9%）**。omc は別名の消去と式の変形を先にするので有無だけを比べた。食い違いの主な見込みは、線形の判定が方程式ごとの集合しか持たないこと（`v = R*i` の `R` がループの外で決まっても非線形とみなす。`ShowVariableResistor`）。
 - テストは workspace 全体で 324 本が通過（S009 は 232 本）。clippy 0 件、fmt の差分 0。`msl:compare` は 20 / 20。
 
+### S011（P3 の 1 回目、2026-10-19）で済んだこと
+
+- 範囲は S011 の候補 1（P3 の始め: 実行系と S10 の数値の部分）。Rumoca の実行系と参照結果の調べもの 2 つを先に並べ、その結果で骨格を固めてから、所有するファイルを分けた 3 つのサブエージェント（exec、sim、xtask）を同時に走らせた。
+- **実行系 `globe-mode-exec`**（[ADR-0013](adr/0013-exec-backend.md)）: Phase A は Rumoca の実行系（`rumoca-sim`。diffsol の BDF と Rumoca の Dormand–Prince 5(4)）をそのまま使い、`globe-mode-exec` に閉じ込めた。Rumoca のモデルを自前の `HybridSystem` で包む公開の API が無いため、自前の driver は FMU（P5）と Track B で作る。diffsol は Rumoca が数値の修正を当てた版を `[patch]` で使う（Rumoca の CLI と同じ数値）。結果は中立の `SimRun`、失敗は `Stage::Run` の診断（`GM-E11001`〜`GM-E11006`、`GM-I11001`、`GM-W11001`、`GM-U0004` / `GM-U0005`）。
+- **S10 の数値の部分**: start 値で評価して t0 で代数変数と導関数が有限か（`GM-W10002`。初期化で変わりうるので警告）、ソルバの名前（`GM-E10005` / `GM-I10003`）。初期化のヤコビ行列の階数は Rumoca に公開の API が無いので送った。
+- **`globe-mode-sim`**: ソルバの名前の登録表（`bdf`・`dopri45`・`auto`、別名、未実装のもの）、設定の決定（指定 > experiment > 既定。出どころも返す）、CSV の読み書き、参照結果との比較（csv-compare の矩形の管を書き直したもの。許容差 0.002）。Rumoca に依存しない（wasm32 でビルドできる）。
+- **`globe simulate`**: 検査（S0〜S10）を通してから実行し（Error があれば `--force` が無い限り実行しない）、`--output` に CSV を書く。db に `GlobeDb::compiled_model`（`check` と同じ文書で DAE を返す）。
+- 検証用のモデル `Simulation.*` 12 本（[src/Modelica/README.md](../src/Modelica/README.md)）。
+- **MSL の全例題の実行**（`mise run msl:sim`、[msl-sim.md](msl-sim.md)）: OK の 369 本のうち partial の 12 本を除く 357 本を別プロセスのワーカーで実行し、**303 本が終了時刻まで進んだ**。MAP-LIB の参照結果（v4.1.0）と比べた 302 本のうち **292 本（96.7%）が管に収まった**。止まった 54 本は、実行系が未対応 26・初期化 6・積分 6・時間切れ 5・実行系の内部エラー 4・外から停止（120 s）7。全体 31 分 52 秒、ワーカーの最大の常駐メモリ 3.5 GiB。
+- テストは workspace 全体で 422 本が通過（S010 は 324 本）。`msl:compare` は 20 / 20。
+
+### P3 の完了条件の進み具合
+
+| 完了条件 | 状態 |
+| --- | --- |
+| MSL の例題 153 本以上が実行できる | **済**（S011）。303 本（[msl-sim.md](msl-sim.md)） |
+| そのうち 90% 以上が参照結果のファネルに収まる | **済**（S011）。参照結果と比べた 302 本のうち 292 本（96.7%）。MAP-LIB の参照結果（v4.1.0）と csv-compare の矩形の管（許容差 0.002） |
+| bdf が wasm で（Node 上で）動く | 未着手。`rumoca-sim` の BDF の道は `std::time::Instant::now()` を呼び、faer の乱数で getrandom の backend の指定も要る（[research/rumoca.md](research/rumoca.md#s011-で調べた実行系v0102)） |
+
 ### P2 の完了条件の進み具合
 
 | 完了条件 | 状態 |
@@ -156,16 +175,18 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 
 ## 次のセッション
 
-**S011** の候補（P2 の S0〜S10 は、S10 の数値の部分を除いてそろった。P3 に進むかどうかを決める）:
+**S012** の候補（P3 の完了条件は wasm の 1 つが残る。ソルバの範囲（esdirk34・tsit45・固定刻み）も P3 の範囲）:
 
-1. **P3 の始め（実行系 `globe-mode-exec` と driver）**: Rumoca の実行の道具（`rumoca-sim` など）を `globe-mode-exec` から使うか、自前の評価器を作るかを決める（ADR）。そこで S10 の数値の部分（t0 の残差が有限か、**初期化のヤコビ行列の階数**: S009 の `Invalid.UngroundedLoop`、MSL の `AdvancedSolenoid`、ソルバの能力）も入れる。
-2. **S9 を omc と照らして詰める**: `omc-compare` の S9 の照合（非線形のループの有無と、start の無い反復変数の有無。[omc-compare.md](omc-compare.md)）の食い違いを調べる。omc は別名の消去と式の変形を先にするので、globe のループが多めに出る見込み。tearing の選び方（start 値を優先）と、`abs`・`min`・`max` を非線形とみなす広めの判定の影響を切り分ける。状態選択（dummy derivative）の後の系で数えるかも決める。
-3. **閉包の切り替えの残り**: ワークスペースの全ファイルを最初に一度だけ Session に入れておき、初めて検査するモデルも速くする（[ADR-0005](adr/0005-lazy-query-db.md) の結果）。
-4. **`Checker` のメモリの上限**（P4 のプロセス構成が決まってから）: MSL の例題 566 本で最大 RSS 7.1 GiB。
-5. **Rumoca の制約を上流に報告する**（ユーザーが出す）: ライブラリ間の extends（S004）、GM-U に振り分けたもの（ED001 の数え方、ET004 の次元など）、inner の修正が outer に伝わらない（S009）、外からの修正が部品の中の同名の変数に漏れる（S009）、**`phase_structural::analyze` が `algebraic_loops` を埋めない**（S010）。
-6. **字面の 0 除算の振り分け**: `parameter Real T = 1 / a`（a = 0）は Rumoca が `ED019` で止め、[ADR-0007](adr/0007-unsupported-classification.md) のコードの規則で `GM-U0001`（未対応）になる。モデルの誤りなので、文言（"division by zero"）で GM-E に戻すかを決める。
-7. **S8 の残り**: アルゴリズムの `when {…, initial()}` で読み出しを `pre` にする形（MSL の `Interaction1`。omc は何も言わない）、DAE の連続の方程式の中の `pre(d)`、クロックの区間の変数（`Unknown` のまま）。
-8. **`class_index` の残り**: for や if の中の connect、継承したクラスの中の入れ子のクラス。
+1. **bdf を wasm で（Node 上で）動かす**（P3 の残りの完了条件）: `globe-mode-exec` を wasm32 でビルドする（getrandom の `wasm_js`、`Instant::now()` を呼ばない道。Rumoca の `rumoca-bind-wasm-diffsol` は Lower した部品を JSON で受け取って BDF で回す）。Node で `Simulation.Decay` と MSL の例題 1 本を回す。
+2. **止まった 54 本を調べる**（[msl-sim.md](msl-sim.md)）: 実行系が未対応の 26 本（多くは Rumoca の構造解析。S7 のインデックスと照らす）、初期化の 6 本（`RobotR3` など。S8・S9 の警告と照らす）、外から止めた 7 本（Fluid の 5 本と `EngineV6`。初期化が予算の外）、管から外れた 10 本（イベントの時刻のずれが多い）。上流に報告するものを分ける。
+3. **自前の積分器**: `esdirk34`・`tsit45`・固定刻み（`euler`・`rk4` など）を、Rumoca の数値積分のプラグイン（`MeIntegratorBackend`）として差し込めるか試す（[ADR-0013](adr/0013-exec-backend.md)）。
+4. **パラメータを変えた再実行**（再コンパイル無し。Rumoca の `param_overrides`）と、ResultStore の MAT v4 / Arrow IPC。
+5. **S10 の残り**: 初期化のヤコビ行列の階数（S009 の `Invalid.UngroundedLoop`、MSL の `AdvancedSolenoid`）。`UngroundedLoop` は S011 の実行系では誤りにならず、値 0 のまま終了時刻まで進む（数値的な特異を見つける手段が今は無い）。Rumoca に公開の API が無いので、上流に提案するか、tracing の出力を拾うかを決める。
+6. **S9 を omc と照らして詰める**（S011 の候補 2 の持ち越し）: `omc-compare` の S9 の食い違い（[omc-compare.md](omc-compare.md)）。
+7. **閉包の切り替えの残り**（持ち越し）: 初めて検査するモデルも速くする（[ADR-0005](adr/0005-lazy-query-db.md) の結果）。
+8. **`Checker` のメモリの上限**（P4 のプロセス構成が決まってから）: MSL の例題 566 本の検査で最大 RSS 7.1 GiB。実行のワーカーは 3.5 GiB。
+9. **Rumoca の制約を上流に報告する**（ユーザーが出す）: S010 までの分（ライブラリ間の extends、ED001 の数え方、ET004 の次元、inner の修正、外からの修正の漏れ、`algebraic_loops` が空）に、S011 の分（外の driver から回す API（`SolveMeKernel`）が非公開、diffsol の修正の上流への取り込み、初期化のヤコビ行列の階数の API、wasm で `Instant::now()`）を足す。
+10. **字面の 0 除算の振り分け**、**S8 の残り**、**`class_index` の残り**（S011 の候補 6〜8 の持ち越し）。
 
 ## 運用上の決まり
 

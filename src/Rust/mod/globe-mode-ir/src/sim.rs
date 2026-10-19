@@ -106,7 +106,8 @@ pub struct TrajectoryVariable {
     pub values: Vec<f64>,
 }
 
-/// 時系列の結果（列ごとに持つ）。イベントの時刻では同じ時刻が 2 行続くことがある（左極限と、イベント後の値）。
+/// 時系列の結果（列ごとに持つ）。イベントの時刻では 2 行続くことがある（左極限と、イベント後の値。Rumoca は
+/// 2 行目の時刻を数 ulp だけずらして書くので、時刻は等しいとは限らない）。
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Trajectory {
     pub time: Vec<f64>,

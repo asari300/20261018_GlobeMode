@@ -18,7 +18,7 @@ GlobeMode の検証用の Modelica ライブラリ。**このディレクトリ�
 ```text
 GlobeModeValidation/
 ├── package.mo          uses(Modelica(version="4.1.0"))
-├── package.order       Connectors, Components, Connect, Index, Init, Invalid, Loops, Preflight
+├── package.order       Connectors, Components, Connect, Index, Init, Invalid, Loops, Preflight, Simulation
 ├── Connectors.mo       Pin（Real の potential / flow）、RealInput / RealOutput、BooleanInput / BooleanOutput、FluidPort（Medium と stream）
 ├── Components.mo       抵抗・コンデンサ・電源・接地、Real と Boolean のブロック、流体の境界と抵抗
 ├── Connect/            connect の型ごとのテストモデル（1 モデル 1 ファイル）
@@ -26,7 +26,8 @@ GlobeModeValidation/
 ├── Init/               初期化系の検証モデル（S8、S007）
 ├── Invalid/            わざと誤ったモデル
 ├── Loops/              代数ループの検証モデル（S9、S010）
-└── Preflight/          プリフライトの検証モデル（S10、S010）
+├── Preflight/          プリフライトの検証モデル（S10、S010）
+└── Simulation/         実行の検証モデル（解析解のある ODE、イベント、assert、terminate、初期化の失敗。S011）
 ```
 
 | モデル | 試す connect | connect グラフ（depth 1） | 検査（`globe check`） |
@@ -71,6 +72,25 @@ GlobeModeValidation/
 | `Preflight.NoExperiment` | なし（experiment annotation が無い） | — | OK。S10 の情報 GM-I10001 |
 | `Preflight.ExternalParameter` | なし（`external "C"` の関数で決まるパラメータ） | — | OK。S10 の情報 GM-I10002（静的には評価できない） |
 | `Preflight.FreeParameterDependency` | なし（`fixed = false` の u0 に依存する `k = 1 / u0`） | — | OK。初期化で決まるパラメータとその依存は評価しない（u0 の仮の start 0 で偽の 0 除算を出さない） |
+
+### GlobeModeValidation.Simulation
+
+実行系（`globe-mode-exec`。Rumoca の rumoca-sim の BDF と Dormand–Prince 5(4)）の検証モデル（S011）。どれも検査（`globe check`）は S0〜S10 を通る正しいモデルで、失敗は実行してから分かるものだけにしてある。値は experiment annotation の設定（出力の間隔は区間の 1/500）で、`bdf` と `dopri45` のどちらでも同じ結果になる（S011 で確認。テストは `src/Rust/mod/globe-mode-exec/tests/simulate.rs`）。
+
+| モデル | 内容 | 実行（`globe-mode-exec::run`） |
+| --- | --- | --- |
+| `Simulation.Decay` | 1 次の減衰 `der(x) = -k*x`（Tolerance = 1e-8） | 成功。x(1) = 0.367879468（解析解 exp(−1) = 0.367879441。dopri45 は 0.367879443） |
+| `Simulation.HarmonicOscillator` | 調和振動子（w = 2、Tolerance = 1e-8。減衰が無いので誤差がそのまま残る） | 成功。x(1) = −0.4161468、v(1) = −1.8185947（解析解 cos 2、−2 sin 2） |
+| `Simulation.NonlinearLoop` | 積分の各点で解く大きさ 2 の非線形の代数ループ（S9 は GM-I9001） | 成功。各点で y = 1 + t、z = 3 + t（start 値の側の解）。x(1) = 1.5 |
+| `Simulation.NoStates` | 状態の無いモデル `y = sin(time)` | 成功（状態 0。Rumoca は積分器を使わず時刻を進めて評価する）。y(1) = sin 1 |
+| `Simulation.BouncingBall` | 跳ねるボール（`when h < 0 then reinit(v, -e*pre(v))`、跳ねた回数 n） | 成功。StopTime = 2 までに n = 3、h(2) = 0.26074（解析解 0.260739）。イベントでは左極限とイベントの後の 2 行が数 ulp 離れて並ぶ |
+| `Simulation.SampleCounter` | `sample(0.05, 0.1)` の時刻イベントで Integer を数え、x を標本化する | 成功。n = 10、xs = 0.95 |
+| `Simulation.Terminate` | `when x >= 0.5 then terminate(…)` | 成功（失敗ではない）。t = 0.5 で止まり、情報 GM-I11001 |
+| `Simulation.RuntimeAssert` | `assert(x < 0.5, …)` が t = 0.5 で破れる | GM-E11004「t = 0.5 で assert が失敗した: x が上限に達した」 |
+| `Simulation.WarningAssert` | RuntimeAssert と同じ条件の `assert(…, AssertionLevel.warning)` | 成功（終了時刻まで進む）。警告 GM-W11001「t = 0.5 で assert（AssertionLevel.warning）の条件が破れた: x が上限を超えた」（位置は assert の文。Rumoca の WX001） |
+| `Simulation.EventNotSettling` | `k = if x > 0.5 then 1 - pre(k) else 0`（t = 0.5 から k が 0 と 1 を行き来する） | GM-E11003「t = 0.5 でイベントの反復が収束しない」 |
+| `Simulation.NotFiniteAtStart` | `y = 1 / x` で、x は `fixed = true` の start 値 0 | S10 の数値の検査が警告 GM-W10002（「y = inf」、位置は y の宣言）。実行は GM-E11001「初期化に失敗した（y の値が inf になった）」で、補足にプリフライトの警告が付く |
+| `Simulation.InitNoSolution` | 初期方程式 `x * x = -1`（実数の解が無い。S8 は 1 / 1 で合う） | GM-E11001「初期化に失敗した（初期化系が解けない）」 |
 
 ## 使い方
 

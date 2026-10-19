@@ -62,6 +62,7 @@ uv sync                      # worktree ごとに必須
 - フロントエンド（Rumoca アダプタ）や Rumoca の rev を変えたら、`mise run msl:compare`（MSL の例題 20 本で Rumoca の CLI と突き合わせ）も通す。
 - 検査の段階（S0〜S10）、GM-U の振り分けや一覧（`src/Modelica/msl-known-unsupported.txt`）、Rumoca の rev を変えたら、`mise run msl:funnel`（MSL の全例題 566 本に判定を出し、報告を `doc/msl-funnel.md` に書く。S005 では release で検査だけ約 18 分、S009 では約 16 分、最大 RSS 7.2 GiB）も回し、OK・GM-U・panic の本数の変化を作業記録に書く。CI には入れていない。
 - `msl:funnel` のあと、omc（OpenModelica）が入っていれば `mise run msl:omc`（`target/msl-funnel.json` を omc の `checkModel` / `translateModel` と突き合わせ、報告を `doc/omc-compare.md` に書く。S008 では約 7 分）も回し、S5 の一致率を作業記録に書く（[ADR-0010](doc/adr/0010-omc-comparison.md)）。omc は別プロセスで呼ぶだけで、CI には入れていない。
+- 実行系（`globe-mode-exec`・`globe-mode-sim`）、Rumoca の rev、diffsol の patch を変えたら、`msl:funnel` のあと `mise run msl:sim`（`msl:funnel` で OK の例題を別プロセスのワーカーで実行し、MAP-LIB の参照結果 v4.1.0 と矩形の管で比べ、報告を `doc/msl-sim.md` に書く。初回は参照結果を約 1 GB 取得する。[ADR-0013](doc/adr/0013-exec-backend.md)）も回し、実行できた本数と管に収まった本数の変化を作業記録に書く。CI には入れていない。
 - **言語の管理は mise・uv・cargo で分担する**（[ADR-0003](doc/adr/0003-toolchain.md)、手順は [doc/mise-setup.html](doc/mise-setup.html)）。
 
   | 道具 | 受け持つもの | ロックファイル |

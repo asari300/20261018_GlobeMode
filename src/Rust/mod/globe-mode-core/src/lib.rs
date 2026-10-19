@@ -249,6 +249,8 @@ pub mod codes {
     pub const RUN_NOT_FINITE: &str = "GM-E11006";
     /// 実行: terminate() で終了時刻の前に終わった（情報。S011）
     pub const RUN_TERMINATED: &str = "GM-I11001";
+    /// 実行: 実行系が止めずに出した警告（例: 警告の重さの assert。S011）
+    pub const RUN_WARNING: &str = "GM-W11001";
     /// コンパイラが未対応の言語機能（フロントエンドのコードで決まる。例: Rumoca の ED019）
     pub const UNSUPPORTED: &str = "GM-U0001";
     /// コンパイラの内部エラー（例: Rumoca の ED008）

@@ -1358,6 +1358,7 @@ dependencies = [
  "globe-mode-sim",
  "rumoca-ir-dae",
  "rumoca-sim",
+ "rumoca-solver",
 ]
 
 [[package]]

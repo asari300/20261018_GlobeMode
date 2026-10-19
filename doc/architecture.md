@@ -66,9 +66,9 @@ doc/  log/                      文書と記録
 | `globe-mode-db` **（S004）** | salsa のクエリ DB（§3.2）: `outline` → `outline_shape`（防火壁 1）→ `class_index` → `connect_graph`（S004）。`shape` → `source_shape`（防火壁 0）/ `shape_map` → `check` → `flat_summary` / `dae_shape`（防火壁 2）→ `structural`（S005）。`identifiers` / `defined_classes` / `class_files` → `deps_closure`（S007。`check` に渡すファイルの絞り込み）。`index_report`（S7）、`init_shape` → `init_report`（S8、S007）。`loop_report`（S9）、`preflight_shape` → `preflight_report`（S10、S010）。`GlobeDb::with_libraries` と `check_model`（S0〜S10）。実行したクエリの記録（テストと計測） | salsa、frontend、graph、analysis |
 | `globe-mode-analysis` **（S005: S6、S007: S7・S8）** | Hopcroft–Karp、粗い Dulmage–Mendelsohn 分解、`StructuralReport`（S6 の GM-E6001）。S007 で Pantelides 法（`pantelides.rs`、`IndexReport`。構造インデックスの見込み、状態選択の候補、動的な状態の数）と初期化系の検査（`init.rs`、`InitReport`）。S009 で初期化系のマッチング（`init_system.rs`、`InitMatching`。DAE とその微分 + 初期条件の二部グラフを DM 分解し、冗長な初期条件と初期条件の無い未知数を名指しする）。S010 で S9（`loops.rs`、`LoopReport`。BLT（再帰を使わない Tarjan 法）、貪欲な tearing、非線形のループの反復変数の start 値）と S10 の判定（`preflight.rs`、`PreflightReport`）。[ADR-0009](adr/0009-structural-index-and-init.md)、[ADR-0011](adr/0011-init-system-matching.md)、[ADR-0012](adr/0012-loops-and-preflight.md)。今後: `SimulatabilityReport` | core、ir、serde（Rumoca に依存しない。wasm32 でビルドできる） |
 | `globe-mode-graph` **（S004: connect グラフ）** | connect グラフを flatten せずに作る。辺の種類（flow / stream / real / boolean …）、depth による部分回路の展開、graphology JSON。今後: ライブラリ / incidence のグラフ、差分、ForceAtlas2 | serde_json |
-| `globe-mode-exec` | `HybridSystem` の実装: Rumoca の実行系（feature `rumoca-exec`）、FMU-ME アダプタ | rumoca-sim |
-| `globe-mode-solver` | `trait Integrator`、ソルバ名の登録表、自前の固定刻みと陽的 RK | diffsol, sundials（feature） |
-| `globe-mode-sim` | ハイブリッドループの driver、`ResultStore`（CSV / MAT v4 / Arrow IPC） | solver |
+| `globe-mode-exec` **（S011）** | 実行系。Phase A は Rumoca の実行系（feature `rumoca-exec`、`rumoca-sim` の diffsol の BDF と Dormand–Prince 5(4)）で `CompiledModel` を実行し、中立の `SimRun` と診断（S10 の数値の部分 `GM-W10002`、実行の `GM-E11001`〜`GM-E11006`・`GM-I11001`・`GM-W11001`・`GM-U0004` / `GM-U0005`）を返す（[ADR-0013](adr/0013-exec-backend.md)）。今後: FMU-ME アダプタ（P5） | rumoca-sim、rumoca-solver（失敗の型）、frontend、sim |
+| `globe-mode-solver` | `trait Integrator`、自前の固定刻みと陽的 RK（Rumoca の数値積分のプラグイン `MeIntegratorBackend` として差し込む見込み。S012 以降） | diffsol, sundials（feature） |
+| `globe-mode-sim` **（S011）** | ソルバの名前の登録表（§3.3）、実行の設定の決定（指定 > experiment > 既定）、`ResultStore`（S011 は CSV。MAT v4 / Arrow IPC は後で）、参照結果との比較（csv-compare の矩形の管を書き直したもの）。Rumoca にも実行系にも依存しない（wasm32 でビルドできる）。今後: ハイブリッドループの driver（FMU と Track B 用） | core、ir |
 | `globe-mode-fmi` | FMU の Import、マスターアルゴリズム、パッケージング | fmi, fmi-schema |
 | `globe-mode-fmu-runtime` | FMI 2 / 3 の C API を実装する cdylib（P5b） | — |
 | `globe-mode-protocol` | serde 型と JSON Schema。TypeScript と Python の型を生成する | serde, specta |
@@ -160,7 +160,7 @@ SourceFile ─┬─▶ outline ─▶ outline_shape ─┬─▶ class_index �
 | `preflight_shape(workspace, request)` | check | **Eq** | 位置を落としたプリフライトの入力（`PreflightStructure::without_ranges`）。防火壁 | S010 |
 | `preflight_report(workspace, request)` | preflight_shape | Eq | S10 の静的な部分（`PreflightReport`。パラメータと start 値の評価、experiment annotation） | S010 |
 | `simulatability(model)` | structural など | Eq | 下表の S0〜S10 をまとめた `SimulatabilityReport` | 予定 |
-| `executable(model, backend)` | dae_shape | LRU | 実行形式 | 予定（P3） |
+| `executable(model, backend)` | dae_shape | LRU | 実行形式 | 予定。S011 は salsa の外の `GlobeDb::compiled_model(model)`（`check` と同じ文書で Rumoca の `Arc<Dae>` を返す）を `globe-mode-exec` に渡す（[ADR-0013](adr/0013-exec-backend.md)） |
 
 - **`Checker`**（`globe-mode-frontend`）は salsa の外の値。MSL などのライブラリを読んだ Rumoca の `Session` を `Arc<Mutex<_>>` で持ち、`GlobeDb::with_libraries(paths)` で作る（[ADR-0005](adr/0005-lazy-query-db.md) の結果）。
   - 文書は、本文が変わったものだけ差し替え、無くなったものは取り除く。文書を変えると Rumoca は解決済みの状態を捨てるが、parse の結果とモデルごとのキャッシュは残る。
@@ -188,7 +188,8 @@ SourceFile ─┬─▶ outline ─▶ outline_shape ─┬─▶ class_index �
 | S7 | インデックス: Pantelides 法で、構造インデックスの見込み（方程式の微分の最大回数 + 1）、微分する方程式と回数、状態選択の候補、動的な状態の数を出す。情報にとどめ、実行は止めない（S007、[ADR-0009](adr/0009-structural-index-and-init.md)）。S6 が構造特異でないときだけ | GM-I7001（インデックス 2 以上）/ GM-I7002（状態選択が要る）/ GM-E7001（打ち切り） |
 | S8 | 初期化: 初期条件の数と属性で判定する。要る数 = 動的な状態（S7）+ 離散変数 + `fixed = false` で束縛の無いパラメータ、与えた数 = 初期方程式 + `fixed = true` の状態・離散・代数変数（S007、[ADR-0009](adr/0009-structural-index-and-init.md)）。S009 から、初期化系（DAE とその微分 + 初期方程式 + `fixed = true`）をマッチングして、冗長な初期条件（過剰な部分）と初期条件の無い未知数（不足している部分）を名指しする（[ADR-0011](adr/0011-init-system-matching.md)。数だけの判定は不足 − 冗長の差しか分からない） | GM-E8001（過剰。冗長な初期条件が拘束と重ならず、離散変数も含まないときだけ）/ GM-W8001（不足）/ GM-W8002（start の無い状態）/ GM-W8003（値の無いパラメータ）/ GM-W8004（過剰の見込み。冗長な初期条件が拘束と重なる（整合する値なら冗長なだけ）か、離散変数を含むため確定できない） |
 | S9 | 代数ループ: BLT に分けたときの大きさ 2 以上のブロック。非線形のループの反復変数（貪欲な tearing で選ぶ。start 値のある代数・出力を優先）に start 値が無いと警告。インデックス 2 以上は Pantelides 法の最高階の系で数える見込み。線形・非線形は `DaeStructure::nonlinear`（フロントエンドが式木から広めに判定）。Error は出さない（S010、[ADR-0012](adr/0012-loops-and-preflight.md)） | GM-I9001（ループがある）/ GM-W9001（start 値の無い反復変数） |
-| S10 | プリフライト: S010 は静的な部分（パラメータと start 値を Rumoca の評価器で評価、experiment annotation の生の値）。t0 で残差が有限か・初期化のヤコビ行列の階数・ソルバの能力は P3 の実行系ができてから（[ADR-0012](adr/0012-loops-and-preflight.md)） | GM-E10001（パラメータが有限にならない）/ GM-E10002（assert）/ GM-E10003（start 値が有限にならない）/ GM-E10004（experiment が妥当でない）/ GM-W10001（experiment が疑わしい）/ GM-I10001（experiment が無い）/ GM-I10002（静的に評価できないパラメータ） |
+| S10 | プリフライト: S010 は静的な部分（パラメータと start 値を Rumoca の評価器で評価、experiment annotation の生の値。[ADR-0012](adr/0012-loops-and-preflight.md)）。S011 で数値の部分を実行の直前に足した: start 値で評価して t0 で代数変数と導関数が有限か（初期化で変わりうるので警告）、ソルバの名前（[ADR-0013](adr/0013-exec-backend.md)）。初期化のヤコビ行列の階数は、Rumoca に公開の API が無いので後回し | GM-E10001（パラメータが有限にならない）/ GM-E10002（assert）/ GM-E10003（start 値が有限にならない）/ GM-E10004（experiment が妥当でない）/ GM-W10001（experiment が疑わしい）/ GM-I10001（experiment が無い）/ GM-I10002（静的に評価できないパラメータ）/ GM-W10002（t0 で有限にならない、S011）/ GM-E10005（ソルバが使えない、S011）/ GM-I10003（ソルバの別名、S011） |
+| 実行 | S0〜S10 の後のシミュレーション（`Stage::Run`、S011）。検査段階ではないが、失敗を同じ診断の形で返す（[ADR-0013](adr/0013-exec-backend.md)） | GM-E11001（初期化）/ GM-E11002（積分）/ GM-E11003（イベントの反復）/ GM-E11004（assert）/ GM-E11005（時間切れ）/ GM-E11006（結果に NaN・inf）/ GM-I11001（terminate）/ GM-W11001（実行が止まらない警告。warning レベルの assert）/ GM-U0004（実行系が未対応）/ GM-U0005（実行系の内部エラー） |
 
 - **「コンパイラが未対応」は GM-Uxxx として分ける**。対象は stream / expandable / overconstrained connector、state machine、operator record など。「モデルの誤り」と混同させないため。
   - 振り分けは [ADR-0007](adr/0007-unsupported-classification.md)。Rumoca のコードで決まるもの（`GM-U0001` 未対応、`GM-U0002` 内部エラー）と、既知の制約の一覧（`src/Modelica/msl-known-unsupported.txt`）に当たったもの（`GM-U0003`）。
@@ -219,22 +220,25 @@ trait Integrator {
 ```
 
 - ハイブリッドループは `globe-mode-sim` の driver が持つ。担当は時間イベント、根探索（ソルバ自身の機能か、密出力と Illinois 法）、イベント反復、リセット。
-- **Modelica のモデルと FMI-ME の FMU は同じ driver を使う。**
+- **Modelica のモデルと FMI-ME の FMU は同じ driver を使う**（目標）。ただし Phase A（S011〜）の Modelica のモデルは、Rumoca の実行系の driver で回す。Rumoca のモデルを外の driver から回す公開の API が無いため（[ADR-0013](adr/0013-exec-backend.md)）。上の trait と自前の driver は FMU の Import（P5）と Track B で作り、Modelica のモデルをどう載せるかは P5 の前に決める。
+- S011 で使えるソルバは `bdf`（diffsol の BDF。Rumoca が数値の修正を当てた 0.13.2）と `dopri45`（Rumoca の Dormand–Prince 5(4)）と `auto`。名前の登録表は `globe-mode-sim::solvers`。
 - 代数ループは faer の LU を使った減衰 Newton 法で解く。feature `sundials` を有効にしたときは KINSOL を使う。
 
 | GlobeMode ID | OpenModelica | Dymola | 実装 | ライセンス | wasm |
 | --- | --- | --- | --- | --- | --- |
-| `bdf`（既定） | dassl†、ida† | Dassl†、Lsodar† | diffsol BDF | MIT | ○ |
+| `bdf`（既定。別名 `dassl`・`lsodar`） | dassl† | Dassl†、Lsodar† | diffsol BDF（S011 は Rumoca の実行系経由） | MIT | ○ |
 | `ida`、`cvode` | ida、cvode | Cvode | SUNDIALS（feature `sundials`） | BSD-3 | × |
 | `esdirk34`、`trbdf2` | gbode（esdirk） | Esdirk34a | diffsol SDIRK | MIT | ○ |
 | `esdirk23`、`esdirk45`、`sdirk34hw` | gbode | Esdirk23a/45a、Sdirk34hw | diffsol SDIRK と自前の係数表 | MIT | ○ |
 | `tsit45` | — | — | diffsol | MIT | ○ |
-| `dopri45`、`dopri853` | gbode（dopri45） | Dopri45、Dopri853 | 自前の陽的 RK（ode_solvers と照合する） | 自前 | ○ |
+| `dopri45`（S011。別名 `rk45`・`dopri5`） | gbode（dopri45） | Dopri45 | Phase A は Rumoca の Dormand–Prince 5(4)（`rumoca-solver-rk45`） | Apache-2.0 | ○ |
+| `dopri853` | — | Dopri853 | 自前の陽的 RK（ode_solvers と照合する） | 自前 | ○ |
+| `auto`（S011） | — | — | Rumoca の Auto（系を見て BDF か陽的 RK を選ぶ） | Apache-2.0 | ○ |
 | `euler`、`heun`、`rk4`、`impeuler`、`trapezoid` | 同名、rungekutta | Euler、Rkfix2/3/4 | 自前の固定刻み | 自前 | ○ |
 | `radau5`（P8） | gbode（radau） | Radau IIa | 自前。russell_ode は GPL の UMFPACK をリンクするので**使わない** | 自前 | ○ |
 | `cerk23/34/45`、`qss` | qss | Cerk23/34/45 | 後回し | — | — |
 
-† は別名。指定すると「dassl → bdf（同等の手法で、結果は一致しない）」と表示する。
+† は別名。指定すると「dassl → bdf（同等の手法で、結果は一致しない）」と表示する（`GM-I10003`）。OpenModelica の `ida` は GlobeMode でも `ida`（SUNDIALS の行）で、feature `sundials` を入れるまでは「まだ実装していない」（`GM-E10005`、代わりに `bdf`）になる（S011）。
 
 KLU（LGPL）は同梱しない。
 
@@ -338,7 +342,7 @@ Svelte の UI は `Backend` インターフェースだけに依存する。実�
 | フロントエンド | MSL 4.1.0 の例題でファネルを数え、Rumoca の値と比べる（Track B では native と rumoca の差分）。例題 20 本で Rumoca の CLI と突き合わせる（`cargo xtask msl-compare`、S003） |
 | MSL の全例題 | `cargo xtask msl-funnel`（`mise run msl:funnel`、S005。報告は [msl-funnel.md](msl-funnel.md)、S007 から置き場を固定）。Rumoca と同じ名前の規則で選んだ 566 本に S0〜S8 / OK / GM-U の判定を出し、Rumoca の基準値と並べる。S7 の構造インデックスの分布と、S8 の合う・過剰・不足の本数も数える（S007）。検査器は 1 つ（MSL を一度だけ読む）で、モデルごとに `catch_unwind` で囲み panic を数える。時間がかかるので CI には入れない |
 | 検査 | S5 を `omc checkModel()` と、S6・S8 を `omc translateModel()` の文言と照合する（別プロセス。`cargo xtask omc-compare`、S008、[ADR-0010](adr/0010-omc-comparison.md)。報告は [omc-compare.md](omc-compare.md)） |
-| シミュレーション | MSL の参照結果と、ファネル（許容帯）で比較する |
+| シミュレーション | `cargo xtask msl-sim`（`mise run msl:sim`、S011）: `msl:funnel` で OK の例題を別プロセスのワーカーで実行し、MSL 4.1.0 の参照結果（MAP-LIB、ブランチ v4.1.0、`cargo xtask fetch-msl-ref` で `data/msl-ref/` に取得）と矩形の管（csv-compare の既定、許容差 0.002）で比べる。報告は [msl-sim.md](msl-sim.md)（[ADR-0013](adr/0013-exec-backend.md)）。時間がかかるので CI には入れない |
 | FMI | Reference-FMUs、FMPy、fmusim、fmuCheck、往復 |
 | ライセンス | cargo-deny、`pnpm licenses`、cargo-about、CycloneDX SBOM |
 | CI | 差分だけを検査し、依存・ツール・CI の定義の変更や大きな変更のときだけ全体を検査する（[ADR-0006](adr/0006-incremental-ci.md)） |
