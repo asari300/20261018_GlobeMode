@@ -224,7 +224,7 @@ trait Integrator {
 - **Modelica のモデルと FMI-ME の FMU は同じ driver を使う**（目標）。ただし Phase A（S011〜）の Modelica のモデルは、Rumoca の実行系の driver で回す。Rumoca のモデルを外の driver から回す公開の API が無いため（[ADR-0013](adr/0013-exec-backend.md)）。上の trait と自前の driver は FMU の Import（P5）と Track B で作り、Modelica のモデルをどう載せるかは P5 の前に決める。
 - S011 で使えるソルバは `bdf`（diffsol の BDF。Rumoca が数値の修正を当てた 0.13.2）と `dopri45`（Rumoca の Dormand–Prince 5(4)）と `auto`。名前の登録表は `globe-mode-sim::solvers`。
 - S012 で 6 つを足し、使えるソルバは 9 つになった（`esdirk34`・`trbdf2`・`tsit45`・`euler`・`heun`・`rk4`）。自前の積分器は Rumoca の FMI ME 風の host に差す数値積分のプラグイン（`MeIntegratorBackend`）で、ハイブリッドの driver は Rumoca の host のまま（[ADR-0014](adr/0014-session-route-wasm.md)）。ネイティブの `bdf`・`dopri45`・`auto` は S011 の型付きの道、wasm32 はすべて session の道で回す。
-- `auto` は BDF が組み立て・初期化で方向微分を作れない、積分に失敗した（`GM-E11002`）、サンプラが食い違ったときに dopri45 で回し直す（`GM-I11002`、S012）。積分の途中で方向微分が作れない失敗では切り替えない。
+- `auto` は BDF が積分に失敗した（`GM-E11002`）、サンプラが食い違ったときに dopri45 で回し直す（`GM-I11002`、S012）。方向微分が作れない失敗（`GM-U0004`）では、組み立て・初期化でも積分の途中でも切り替えない（S013。RK に切り替えると誤った結果になる例があった。[ADR-0015](adr/0015-auto-and-reference-tolerance.md)）。
 - 固定刻み（`euler`・`heun`・`rk4`）の刻み幅は `--step`（既定は出力の間隔）。格子は t0 + k·h で、イベントの後も同じ格子に戻る。許容誤差は使わない（`GM-I10004`）。
 - 代数ループは faer の LU を使った減衰 Newton 法で解く。feature `sundials` を有効にしたときは KINSOL を使う。
 
@@ -237,7 +237,7 @@ trait Integrator {
 | `tsit45`（S012） | — | — | diffsol の Tsitouras 5(4)（自前のプラグイン） | MIT / Apache-2.0 | ○ |
 | `dopri45`（S011。別名 `rk45`・`dopri5`） | gbode（dopri45） | Dopri45 | Phase A は Rumoca の Dormand–Prince 5(4)（`rumoca-solver-rk45`） | Apache-2.0 | ○ |
 | `dopri853` | — | Dopri853 | 自前の陽的 RK（ode_solvers と照合する）。未実装 | 自前 | ○ |
-| `auto`（S011。S012 から BDF が失敗したら dopri45 で回し直す） | — | — | Rumoca の選び方をなぞる（BDF で始め、方向微分が作れないときと積分の失敗で dopri45） | Apache-2.0 | ○ |
+| `auto`（S011。S012 から BDF が失敗したら dopri45 で回し直す） | — | — | BDF で始め、積分の失敗とサンプラの食い違いで dopri45（S013 から方向微分が作れないときは切り替えない。Rumoca の選び方とはここがずれる。[ADR-0015](adr/0015-auto-and-reference-tolerance.md)） | Apache-2.0 | ○ |
 | `euler`、`heun`、`rk4`（S012） | 同名、rungekutta | Euler、Rkfix2/3/4 | 自前の固定刻み（係数と Hermite 補間は `globe-mode-sim::integrators`） | 自前 | ○ |
 | `impeuler`、`trapezoid` | 同名 | — | 自前の固定刻み。未実装 | 自前 | ○ |
 | `radau5`（P8） | gbode（radau） | Radau IIa | 自前。russell_ode は GPL の UMFPACK をリンクするので**使わない**。未実装 | 自前 | ○ |

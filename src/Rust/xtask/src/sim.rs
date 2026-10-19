@@ -548,6 +548,8 @@ pub(crate) struct WorkerOptions {
     pub ref_dir: PathBuf,
     pub wall_seconds: f64,
     pub solver: Option<String>,
+    /// 許容誤差の倍率（1 なら experiment annotation のまま）
+    pub tolerance_scale: f64,
     pub reset_every: usize,
     pub keep_results: Option<PathBuf>,
     pub tube_tolerance: f64,
@@ -637,6 +639,7 @@ fn simulate_one(checker: &Checker, model: &str, opts: &WorkerOptions) -> Record 
     let settings = SimSettings {
         max_wall_seconds: Some(opts.wall_seconds),
         solver: opts.solver.clone(),
+        tolerance: scaled_tolerance(&compiled, opts.tolerance_scale),
         ..SimSettings::default()
     };
     send_stage(model, WorkerStage::Exec);
@@ -689,6 +692,13 @@ fn simulate_one(checker: &Checker, model: &str, opts: &WorkerOptions) -> Record 
     ));
     rec.compare_seconds = t.elapsed().as_secs_f64();
     rec
+}
+
+/// experiment annotation の Tolerance に倍率を掛けたもの。倍率 1 か注釈に Tolerance が無ければ None（実行系が
+/// 決める。既定 1e-6）。MAP-LIB の参照結果と同じ規則（注釈があれば 0.1 倍、無ければ 1e-6 のまま）。
+fn scaled_tolerance(compiled: &globe_mode_frontend::CompiledModel, scale: f64) -> Option<f64> {
+    let annotated = compiled.experiment.as_ref()?.tolerance?.get();
+    (scale != 1.0).then_some(scale * annotated)
 }
 
 /// 結果を `<dir>/<モデル>.csv` に書く。
@@ -1235,6 +1245,8 @@ pub(crate) struct Options<'a> {
     pub retry_wall_seconds: f64,
     pub reset_every: usize,
     pub solver: Option<&'a str>,
+    /// 許容誤差の倍率（ワーカーの `--tolerance-scale`）
+    pub tolerance_scale: f64,
     pub keep_results: Option<&'a Path>,
     /// 既知の外れの一覧（`src/Modelica/msl-sim-known-deviations.txt`）
     pub known_deviations: Option<&'a Path>,
@@ -1276,6 +1288,12 @@ fn worker_args(opts: &Options<'_>, wall_seconds: f64) -> Vec<OsString> {
     ];
     if let Some(s) = opts.solver {
         args.extend(["--solver".into(), s.into()]);
+    }
+    if opts.tolerance_scale != 1.0 {
+        args.extend([
+            "--tolerance-scale".into(),
+            opts.tolerance_scale.to_string().into(),
+        ]);
     }
     if let Some(dir) = opts.keep_results {
         args.extend(["--keep-results".into(), dir.into()]);
@@ -1967,7 +1985,15 @@ fn render_report(records: &[Record], s: &Summary, run: &RunInfo<'_>) -> String {
     };
     let _ = writeln!(
         md,
-        "| 実行の設定 | StartTime・StopTime・Interval・Tolerance は experiment annotation（無い項目は既定値: StartTime 0、StopTime は開始 + 1、Tolerance 1e-6、Interval は区間の 1/500）。ソルバは{}（実行できたもの: {solvers}）。壁時計の予算 {} s（協調型。超えると {}）。応答が {} s 無ければ親がワーカーを止める |",
+        "| 実行の設定 | StartTime・StopTime・Interval・Tolerance は experiment annotation（無い項目は既定値: StartTime 0、StopTime は開始 + 1、Tolerance 1e-6、Interval は区間の 1/500）{}。ソルバは{}（実行できたもの: {solvers}）。壁時計の予算 {} s（協調型。超えると {}）。応答が {} s 無ければ親がワーカーを止める |",
+        if opts.tolerance_scale == 1.0 {
+            String::new()
+        } else {
+            format!(
+                "。注釈の Tolerance はその {} 倍（`--tolerance-scale`。注釈に無ければ 1e-6 のまま）",
+                opts.tolerance_scale
+            )
+        },
         opts.solver
             .map_or("既定（実行系の既定）".to_string(), |x| format!(
                 " `--solver {x}`"
@@ -2515,6 +2541,7 @@ fn render_json(records: &[Record], s: &Summary, run: &RunInfo<'_>) -> Value {
             "known_deviations": opts.known_deviations.map(|p| p.display().to_string()),
             "reset_every": opts.reset_every,
             "solver": opts.solver,
+            "tolerance_scale": opts.tolerance_scale,
             "tube_tolerance": TubeOptions::default().tolerance,
             "only": opts.only,
             "limit": opts.limit,
@@ -2837,6 +2864,7 @@ mod tests {
             retry_wall_seconds: 180.0,
             reset_every: 50,
             solver: Some("auto"),
+            tolerance_scale: 1.0,
             keep_results: None,
             known_deviations: Some(Path::new("src/Modelica/msl-sim-known-deviations.txt")),
             baseline_json: None,
@@ -3217,6 +3245,7 @@ mod tests {
             retry_wall_seconds: 180.0,
             reset_every: 50,
             solver: Some("dopri45"),
+            tolerance_scale: 0.1,
             keep_results: Some(Path::new("out")),
             known_deviations: None,
             baseline_json: None,
@@ -3249,6 +3278,7 @@ mod tests {
             ["--reset-every", "50"],
             ["--tube-tolerance", "0.002"],
             ["--solver", "dopri45"],
+            ["--tolerance-scale", "0.1"],
             ["--keep-results", "out"],
         ] {
             assert!(

@@ -279,3 +279,15 @@ Rumoca の文言はどれも `[StructuralAnalysis] solve-IR evaluation failed: [
 - 前回との差は `--baseline-json`（`mise run msl:sim` は前回の `target/msl-sim.json` を渡す）で報告に書く。
 - 4（プリフライトの lowering を 1 回にする）と 7（参照結果と同じ許容誤差で回す選択肢）は持ち越した。4 は S012 でプリフライトにパラメータの上書きを反映するため `lower_for_simulation_with_overrides` を使うようにしたが、lowering は 2 回のまま（`DoublePendulum` でプリフライト 0.94 s・組み立て 2.07 s、release）。
 - 上流に報告する候補の 9 つは変わらない（報告はユーザーが出す。[roadmap.md](../roadmap.md#次のセッション)）。
+
+## S013 で直したもの
+
+持ち越した 7（参照結果と同じ許容誤差で回す選択肢）と、S012 で残した `auto` の初期化での切り替えを S013 で扱った（確認日 2026-10-20。設計は [ADR-0015](../adr/0015-auto-and-reference-tolerance.md)）。
+
+| # | 直したこと | 場所 | 全例題での結果（[msl-sim.md](../msl-sim.md)） |
+| ---: | --- | --- | --- |
+| 1 | `auto` は方向微分が作れない失敗（`GM-U0004`）では、組み立て・初期化でも dopri45 に切り替えない | `globe-mode-exec/src/rumoca.rs` | `GenerationOfFMUs` は誤った結果（管 2/3）を返さず `GM-U0004` で止まる。実行できた 309 → 308 |
+| 7 | `cargo xtask msl-sim --tolerance-scale <倍率>`。注釈に Tolerance があるときだけ倍率を掛ける（無ければ 1e-6 のまま）。`mise run msl:sim` は 0.1 | xtask の `sim.rs`・`main.rs`、`mise.toml` | `DemonstrateSignalExtrema`・`DemoPowerSupplyWithBuffer` が管に収まる。管に収まった 299 → 301。収まらなくなったものは無い |
+| — | 既知の外れの一覧に `DoublePendulumInitTip`（上の表の 5）を足した | `src/Modelica/msl-sim-known-deviations.txt` | 外れ 6 本のうち既知 3 本 |
+
+- 既知の外れでない残りは 3 本（上の表の 8〜10）。いずれも許容誤差では変わらない。

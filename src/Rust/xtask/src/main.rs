@@ -188,6 +188,9 @@ enum Cmd {
         /// ソルバ（`bdf`、`dopri45`、`auto` など。既定の `auto` は、BDF が積分で失敗したら dopri45 で回し直す。S012）
         #[arg(long, default_value = "auto")]
         solver: Option<String>,
+        /// experiment annotation の Tolerance をこの倍にする（注釈に無ければ既定 1e-6 のまま）。MAP-LIB の参照結果と同じ規則（S013）
+        #[arg(long, default_value_t = 1.0)]
+        tolerance_scale: f64,
         /// 実行の結果の CSV を、このディレクトリに `<モデル>.csv` で残す
         #[arg(long)]
         keep_results: Option<PathBuf>,
@@ -215,6 +218,8 @@ enum Cmd {
         wall_seconds: f64,
         #[arg(long)]
         solver: Option<String>,
+        #[arg(long, default_value_t = 1.0)]
+        tolerance_scale: f64,
         #[arg(long, default_value_t = 50)]
         reset_every: usize,
         #[arg(long)]
@@ -299,6 +304,7 @@ fn main() -> ExitCode {
             retry_wall_seconds,
             reset_every,
             solver,
+            tolerance_scale,
             keep_results,
             known_deviations,
             baseline_json,
@@ -317,6 +323,7 @@ fn main() -> ExitCode {
             retry_wall_seconds,
             reset_every,
             solver: solver.as_deref(),
+            tolerance_scale,
             keep_results: keep_results.as_deref(),
             known_deviations: Some(&known_deviations),
             baseline_json: baseline_json.as_deref(),
@@ -328,6 +335,7 @@ fn main() -> ExitCode {
             ref_dir,
             wall_seconds,
             solver,
+            tolerance_scale,
             reset_every,
             keep_results,
             tube_tolerance,
@@ -336,6 +344,7 @@ fn main() -> ExitCode {
             ref_dir,
             wall_seconds,
             solver,
+            tolerance_scale,
             reset_every,
             keep_results,
             tube_tolerance,
