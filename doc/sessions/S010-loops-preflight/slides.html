@@ -116,16 +116,16 @@
 
 <section class="slide" id="S04">
   <span class="tag">決定と理由 · 一覧</span>
-  <h1>決めたこと（指示は範囲と並列の仕方だけ。ほかは既定のまま）</h1>
+  <h1>決めたこと（指示のほかは既定のまま）</h1>
   <table class="compact">
     <tr><th>項目</th><th>決定</th><th>理由</th></tr>
-    <tr><td>S9 の解く系</td><td>インデックス 1 なら der の形、2 以上なら <b>Pantelides 法の最高階の系</b>（状態選択の前の見込み）</td><td>状態選択の後の系は dummy derivative の選び方が要る。P3 へ送った</td></tr>
-    <tr><td>S9 の重さ</td><td><b>Error を出さない</b>。<code>GM-I9001</code>（情報）と <code>GM-W9001</code>（警告）だけ</td><td>start 値の無い反復変数は既定の 0 から反復するだけで、解けないとは限らない（omc も警告）</td></tr>
-    <tr><td>線形・非線形</td><td><b>族（変数）の単位で広めに</b>判定する。<code>abs</code>・<code>min</code>・<code>max</code> も非線形</td><td>誤るのは「線形なのに非線形」の側（警告が多めに出る側）だけ。要素ごとの展開は大きなモデルで遅い</td></tr>
-    <tr><td>S10 の範囲</td><td><b>静的な部分だけ</b>（パラメータと start 値の評価、experiment annotation）</td><td>Rumoca の評価器は実行時の座標を評価しない。t0 の残差と初期化のヤコビ行列の階数は P3 の実行系と一緒に</td></tr>
-    <tr><td>experiment</td><td>根のクラスの本文を Rumoca の parser で読み直し、<b>生の値</b>で判定する。StopTime = StartTime は誤りにしない</td><td>Rumoca は不正な値を黙って捨てる。MSL の <code>Inverse_sine</code> が <code>StopTime = 0</code> を使う</td></tr>
+    <tr><td>S9 の解く系</td><td>インデックス 1 なら der の形、2 以上なら <b>Pantelides 法の最高階の系</b>（状態選択の前の見込み）</td><td>状態選択の後の系は P3 へ</td></tr>
+    <tr><td>S9 の重さ</td><td><b>Error を出さない</b>。<code>GM-I9001</code>（情報）と <code>GM-W9001</code>（警告）だけ</td><td>既定の 0 から反復するだけで、解けないとは限らない</td></tr>
+    <tr><td>線形・非線形</td><td><b>族（変数）の単位で広めに</b>判定する。<code>abs</code>・<code>min</code>・<code>max</code> も非線形</td><td>誤るのは警告が多めに出る側だけ。要素ごとの展開は遅い</td></tr>
+    <tr><td>S10 の範囲</td><td><b>静的な部分だけ</b>（パラメータと start 値の評価、experiment annotation）</td><td>Rumoca の評価器は実行時の座標を評価しない。t0 の残差とヤコビ行列の階数は P3</td></tr>
+    <tr><td>experiment</td><td>根のクラスの本文を Rumoca の parser で読み直し、<b>生の値</b>で判定する。StopTime = StartTime は誤りにしない</td><td>Rumoca は不正な値を黙って捨てる。MSL に <code>StopTime = 0</code> の例題がある</td></tr>
     <tr><td>S8 の離散変数</td><td>when の中・when の外・<code>when initial()</code>・不明 の 4 通りに分け、離散の方程式を行に足す</td><td>MLS 3.6 §8.6。決まり方の分かる離散変数の不足と冗長は確定できる</td></tr>
-    <tr><td>閉包の切り替え</td><td><code>Checker</code> に<b>文書の和集合</b>を持たせ、結果が変わる文書だけ取り除く</td><td>Rumoca の Session にライブラリの解決だけを残す道が無い。文書の組を変えないしかない</td></tr>
+    <tr><td>閉包の切り替え</td><td><code>Checker</code> に<b>文書の和集合</b>を持たせ、結果が変わる文書だけ取り除く</td><td>Session にライブラリの解決だけを残す道が無い</td></tr>
     <tr><td>字面の 0 除算</td><td><code>ED019</code> → <code>GM-U0001</code> の振り分けは<b>変えない</b>（候補に残す）</td><td>ADR-0007 のコードの規則を文言で例外にするのは方針の変更</td></tr>
     <tr><td>Rumoca との照合</td><td>ES002 の文言からループの大きさを読む</td><td>Rumoca の <code>algebraic_loops</code> は空のまま（B が見つけた）</td></tr>
   </table>
