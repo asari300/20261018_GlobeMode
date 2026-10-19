@@ -221,6 +221,26 @@ S9（代数ループ）・S10（プリフライト）の入力と、閉包の切
 | 文書の差し替えと解決 | `add_document` は毎回 `invalidate_resolved_state(DocumentMutation)` を呼び、`query_state.resolved.clear()` で解決済みの状態（`model_names`、`builds`、`dependency_fingerprints`）を捨てる。解決は Session の全文書（ライブラリを含む）を `merge_stored_definitions` で 1 つの木にまとめてやり直す。source root ごとに保存した解決を使い回す道は、source root の外から足した文書が 1 つでもあると使われない | `rumoca-compile/src/session/session_impl.rs:219`、`:312`（`remove_document`）、`:447-499`、`session/session_impl_queries.rs:79-83`、`:336-376`、`session.rs:1435` |
 | モデルの名前の一覧 | `Session::model_names()` は解決を経るので、どれかの文書が解決できないと Err を返す。`rumoca_compile::parsing::collect_model_names` は構文木から名前を集める（公開） | `rumoca-compile/src/session/session_impl.rs:656`、`merge.rs:493` |
 
+## S011 で調べた実行系（v0.10.2）
+
+確認日 2026-10-19。rev `276e82bd` のソース（`crates/rumoca-sim`、`rumoca-solver`、`rumoca-solver-diffsol`、`rumoca-solver-rk45`、`rumoca-phase-solve`、`rumoca-test-msl`）を読んだ。行番号はこの rev のもの。
+
+- **入口**（`rumoca_sim::`）:
+  - `simulate_with_diagnostics(&Dae, &SimOptions) -> Result<SimResult, SimulationDiagnosticError>`（`lib.rs:128`）は `solver_mode`（Auto / Bdf / RkLike）で振り分けるが、失敗を `Solver(String)` に文字列化する。
+  - `build_simulation` → `check_prepared_initialization` → `run_prepared_simulation`（`diffsol.rs:168,310,304`）は **`solver_mode` を見ず BDF だけ**。失敗は `SimError`（`stage()` で `SimFailureStage`: SolveLowering / StructuralAnalysis / BackendBuild / Initialization / EventIteration / ManifoldProjection / TargetIsolation / Integration）。`PreparedSimulation` は `Rc` と `RefCell` を持つので Send でない。
+  - ソルバは diffsol 0.13 の BDF と、`rumoca-solver-rk45` の Dormand–Prince 5(4) だけ（`DiffsolMethod` は `Bdf` だけ。`rumoca-solver/src/solver.rs:59`）。
+- **`SimOptions`**（`rumoca-solver/src/solver.rs:139-197`）: `t_start = 0`、`t_end = 1`、`rtol = atol = 1e-6`、`dt`（None なら区間の 1/500）、`max_wall_seconds = None`、`solver_mode = Auto`。最大の刻み数は無い。
+- **`SimResult`**（`solver.rs:245-255`）: `times`、`names`、`data[変数][時刻]`、`n_states`、`variable_meta`（役割・単位・start など）、`termination`。行は初期化・出力の格子・イベントの左極限・イベント後の 4 種類で、同じ時刻が 2 行続くことがある。パラメータは含まない。Serialize は無い。
+- **時間切れ**: 協調型。`TimeoutBudget::check()` は `advance_to` の繰り返しと根探索でだけ見る（`fmi_me/session.rs:486,1414`）。FMI の初期化は予算の外で、積分器の 1 歩の内側も見ない。Rumoca の MSL のハーネスは別プロセスのワーカーを監視から `process::exit` で止める（`rumoca-test-msl/src/bin/rumoca-sim-worker.rs:290-318`）。
+- **大域の状態**: スレッドごとの計数（`step_counts`、`projection_fallbacks` など）と、プロセス全体の `nan_trace`（`simulate_with_diagnostics_auto_nan_trace` が切り替える。並列に回すと巻き込む）。
+- **FMI-ME 風の境界**（`rumoca_solver::fmi_me`）: 公開されているのは `MeModelArtifact`・`MeSimulationSession` などと、数値積分のプラグインの trait `MeIntegratorBackend`（`initialize`・`advance`・`sample`・`truncate_reset`。`integrator.rs:874-923`）。核 `SolveMeKernel` の set_time・状態・導関数・イベント指標・イベント更新は `pub(crate)`（`kernel.rs:283-966`）。**外の driver から Rumoca のモデルを回す公開の API は無い。**
+- **数値のプリフライトに使えるもの**: `eval_dae_at`（start 値で評価し、代数変数を Newton で更新したあとの値と `der(x)` を名前付きで返す。`nonfinite()` がある。初期化方程式の残差ではない）、`jacobian_for_dae`（状態についての ∂der(x)/∂x）、`diagnose_structural_singularity`（構造だけ）。**初期化系のヤコビ行列の階数を返す API は無い**（`runtime/projection/initial.rs:500-562` で SVD の数値の階数を tracing の debug に出すだけ）。
+- **diffsol のパッチ**: ルートの `Cargo.toml:294-297` の `[patch.crates-io] diffsol = { path = "vendor/diffsol" }` で、crates.io の 0.13.2 に 4 件の修正（BDF の確定解、最小刻み、line search の Newton の収束の履歴、非線形の失敗の予算を 1 歩ごとにする）を当てている（`vendor/diffsol/RUMOCA_PATCH.md`）。`[patch]` はルートでしか効かないので、git 依存では修正前の版が入る。GlobeMode はルートに `diffsol = { git = "https://github.com/CogniPilot/rumoca", rev = "276e82bd…" }` の patch を置き、同じ版を使う（[ADR-0013](../adr/0013-exec-backend.md)）。
+- **依存**: `default-features = false, features = ["solver-diffsol", "solver-rk45"]` で、GlobeMode の `Cargo.lock` に外部の package が 101 増えた（GlobeMode の crate 2 つを含めると 325 → 428。Windows の target の crate と Cranelift 0.125 が多い。wasm 以外では `rumoca-exec-cranelift` が無条件の依存）。ライセンスはすべて許可の区分（cargo deny で確かめた）。`instant` に保守終了の勧告 RUSTSEC-2024-0384 があり、wasm32 のときだけ使うので deny.toml の `ignore` に理由付きで足した。
+- **wasm**: `build_simulation` の道と `SimulationSession` は `std::time::Instant::now()` を呼ぶ（`diffsol.rs:200,206`、`rk45.rs:107,112`）。wasm32-unknown-unknown では実行時に panic する見込み【未確認】。faer の `rand` 経由で getrandom 0.3 が入り、`--cfg getrandom_backend="wasm_js"` が要る。
+- **MSL のハーネス**（`rumoca-test-msl/src/bin/rumoca-worker.rs`）: 区間は experiment（無ければ 0 → 1）、許容誤差は `Tolerance` を rtol と atol の両方に、出力は `Interval` か 500 区間、壁時計の予算は 12 秒。BDF の型付きの道で回し、エラー無く終わって NaN・inf が無ければ成功。
+- **比較の指標**（`rumoca-sim/src/sim_trace_compare.rs`）: チャネルごとに時間平均の絶対誤差を参照の p95 − p05 で割って L とし、e = L/(1+L)。0.05 未満を high、0.20 未満を minor。管（ファネル）ではない。
+
 ## 依存として取り込むときの注意
 
 `rumoca`（umbrella crate）を**使わない**。理由はデフォルト feature にある。

@@ -12,8 +12,10 @@ use globe_mode_core::TextRange;
 use serde::Serialize;
 
 mod preflight;
+mod sim;
 
 pub use preflight::*;
+pub use sim::*;
 
 /// 1 ファイル分のアウトライン。
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize)]

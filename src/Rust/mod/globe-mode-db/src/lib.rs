@@ -50,7 +50,7 @@ pub use globe_mode_analysis::preflight::ExperimentVerdict;
 use globe_mode_analysis::{IndexReport, InitReport, LoopReport, PreflightReport, StructuralReport};
 use globe_mode_core::normalize::{self, SourceShape};
 use globe_mode_core::{Diagnostic, Stage, codes};
-use globe_mode_frontend::{CheckReport, Checker, Frontend, RumocaFrontend, Source};
+use globe_mode_frontend::{CheckReport, Checker, CompiledModel, Frontend, RumocaFrontend, Source};
 use globe_mode_graph::{ConnectGraph, GraphError};
 use globe_mode_ir::{
     ClassIndex, ClassKind, DaeStructure, FlatSummary, InitStructure, Outline, PreflightStructure,
@@ -641,6 +641,28 @@ impl GlobeDb {
         let ws = self.workspace();
         let request = CheckRequest::new(self, model.to_string());
         dae_shape(self, ws, request).clone()
+    }
+
+    /// DAE まで変換したモデル（S011。実行系 `globe-mode-exec` に渡す）。salsa の外の値。
+    ///
+    /// `check` と同じ文書（`deps_closure` のファイルの `source_shape`）を検査器に渡すので、検査の直後なら
+    /// Rumoca はモデルごとのキャッシュから返す。失敗の診断の位置は元の本文に戻す。DAE の中の位置は
+    /// 正規化した本文の中のまま（実行系は位置を使わない）。
+    pub fn compiled_model(&mut self, model: &str) -> Result<CompiledModel, Vec<Diagnostic>> {
+        let ws = self.workspace();
+        let request = CheckRequest::new(self, model.to_string());
+        let files = deps_closure(self, ws, request);
+        let texts: Vec<(String, String)> = files
+            .iter()
+            .map(|f| (f.path(self).clone(), source_shape(self, *f).clone()))
+            .collect();
+        let sources: Vec<Source<'_>> = texts
+            .iter()
+            .map(|(name, text)| Source { name, text })
+            .collect();
+        self.checker()
+            .compile_retaining(&sources, model)
+            .map_err(|ds| ds.iter().map(|d| self.to_original(d)).collect())
     }
 
     /// `check` に渡すファイル（モデルが使うもの。パスの昇順）。モデルがワークスペースに無ければ空。

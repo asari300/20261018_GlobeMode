@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use globe_mode_core::{Diagnostic, Stage, TextRange, codes};
 use globe_mode_ir::{
     BalanceCount, Causality, ClassKind, ClassOutline, ComponentOutline, Connect, ConnectPrefix,
-    DaeCounts, FlatSummary, Outline,
+    DaeCounts, Experiment, FlatSummary, Outline,
 };
 use rumoca_compile::compile::{
     Dae, FailedPhase, FlatModel, PhaseResult, SourceRootKind, StrictCompileReport, VariableRole,
@@ -127,6 +127,36 @@ impl std::fmt::Debug for Checker {
     }
 }
 
+/// DAE まで変換したモデル（S011）。実行系（`globe-mode-exec`）に渡す。
+///
+/// Rumoca の DAE を `Arc` で持つ（Session の結果と共有するので写さない）。中身に手が届くのは
+/// [`CompiledModel::rumoca_dae`] だけで、使ってよいのは `globe-mode-exec` だけ（ADR-0002、ADR-0013）。
+#[derive(Clone)]
+pub struct CompiledModel {
+    /// モデルの完全修飾名
+    pub model: String,
+    /// モデルの experiment annotation（根のクラスの本文を読み直した生の値。S010 の S10 と同じ）
+    pub experiment: Option<Experiment>,
+    dae: Arc<Dae>,
+}
+
+impl CompiledModel {
+    /// Rumoca の DAE。`globe-mode-exec` だけが使う。
+    #[doc(hidden)]
+    pub fn rumoca_dae(&self) -> &Arc<Dae> {
+        &self.dae
+    }
+}
+
+impl std::fmt::Debug for CompiledModel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CompiledModel")
+            .field("model", &self.model)
+            .field("experiment", &self.experiment)
+            .finish_non_exhaustive()
+    }
+}
+
 /// Rumoca 自身の構造解析（`phase_structural::analyze`）の数。自前の S6 との照合に使う。
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ReferenceStructure {
@@ -230,6 +260,48 @@ impl Checker {
             return report;
         }
         self.check_synced(sources, model, Some(self.owner))
+    }
+
+    /// `sources` を文書として渡し、`model` を DAE まで変換して返す（S011。実行系に渡す）。
+    ///
+    /// 文書の扱いは [`Checker::check_retaining`] と同じ（和集合を持つ）。同じ文書の組で検査した直後なら、
+    /// Rumoca はモデルごとのキャッシュから返す。失敗したら [`Checker::check`] と同じ診断（S0〜S5）を返す。
+    pub fn compile_retaining(
+        &self,
+        sources: &[Source<'_>],
+        model: &str,
+    ) -> Result<CompiledModel, Vec<Diagnostic>> {
+        let syntax = syntax_diagnostics(sources);
+        if !syntax.is_empty() {
+            return Err(syntax);
+        }
+        let mut state = self.lock();
+        sync_documents(&mut state, sources, Some(self.owner)).map_err(|d| vec![d])?;
+        match state.session.compile_model_strict(model) {
+            Ok(compilation) => {
+                let result = compilation.result();
+                Ok(CompiledModel {
+                    model: model.to_string(),
+                    experiment: crate::preflight::experiment_for_model(result, model),
+                    dae: Arc::clone(&result.dae),
+                })
+            }
+            Err(strict) => {
+                let (d, rumoca_code) = strict_failure_diagnostic(&strict);
+                let d = match rumoca_code
+                    .as_deref()
+                    .and_then(|c| crate::unsupported::classify(model, c))
+                {
+                    Some(u) => {
+                        let mut d = d.note(u.reason);
+                        d.code = u.code;
+                        d
+                    }
+                    None => d,
+                };
+                Err(vec![d])
+            }
+        }
     }
 
     /// この取っ手が [`Checker::check_retaining`] で足し、いま Session に残してある文書なら true。

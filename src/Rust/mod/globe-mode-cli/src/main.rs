@@ -6,10 +6,14 @@
 //! globe flat  [<FILE|DIR>...] [--library <DIR>]... --model <NAME> [--json]
 //! globe graph <FILE|DIR>... --model <NAME> [--depth N] [--json]
 //! globe deps  <FILE|DIR>... --model <NAME> [--json]
+//! globe simulate [<FILE|DIR>...] [--library <DIR>]... --model <NAME> [--stop-time T] [--solver bdf|dopri45|auto]
+//!                [--tolerance X] [--interval X] [--start-time T] [--timeout S] [--output result.csv|-] [--force] [--json]
 //! ```
 //!
 //! `check` と `flat` は salsa の DB（`globe-mode-db`）を通す。ライブラリは一度だけ読む。
 //! Rumoca に渡すのは、モデルが使うファイル（`globe deps` が表示する閉包）だけ。
+//!
+//! `simulate` は検査（S0〜S10）を通してから実行する（Error があれば `--force` が無い限り実行しない）。
 //!
 //! 終了コード: 0 = 成功 / 1 = Error の診断がある / 2 = 入力の読み込みに失敗。
 
@@ -21,7 +25,9 @@ use clap::{Parser, Subcommand};
 use globe_mode_core::{Diagnostic, Stage, line_col};
 use globe_mode_db::{ExperimentVerdict, FullReport, GlobeDb, normalize_path};
 use globe_mode_frontend::{Frontend, RumocaFrontend, Source};
-use globe_mode_ir::{ClassOutline, FlatSummary, Outline};
+use globe_mode_ir::{ClassOutline, FlatSummary, Outline, SimSettings};
+
+mod simulate;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -86,6 +92,45 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// 検査（S0〜S10）を通してから実行し、結果を CSV に書く（S011）
+    Simulate {
+        /// ファイルまたはディレクトリ。モデルがライブラリの中にあるなら省略できる
+        #[arg(required_unless_present = "library")]
+        files: Vec<PathBuf>,
+        /// ライブラリのディレクトリ（例: data/msl）。何度でも指定できる
+        #[arg(long, short = 'L')]
+        library: Vec<PathBuf>,
+        /// モデルの完全修飾名
+        #[arg(long, short)]
+        model: String,
+        /// 開始時刻（省略すると experiment annotation、無ければ 0）
+        #[arg(long)]
+        start_time: Option<f64>,
+        /// 終了時刻（省略すると experiment annotation、無ければ開始 + 1）
+        #[arg(long)]
+        stop_time: Option<f64>,
+        /// 許容誤差（相対と絶対の両方。省略すると experiment annotation、無ければ 1e-6）
+        #[arg(long)]
+        tolerance: Option<f64>,
+        /// 出力の間隔（省略すると experiment annotation、無ければ区間の 1/500）
+        #[arg(long)]
+        interval: Option<f64>,
+        /// ソルバ（bdf・dopri45・auto。別名 dassl → bdf など）
+        #[arg(long)]
+        solver: Option<String>,
+        /// 壁時計の予算（秒）。初期化と積分器の 1 歩の内側では止まらない
+        #[arg(long)]
+        timeout: Option<f64>,
+        /// 結果の CSV の書き先（`-` は標準出力）
+        #[arg(long, short)]
+        output: Option<PathBuf>,
+        /// S0〜S10 に Error があっても実行する
+        #[arg(long)]
+        force: bool,
+        /// JSON で出力する（時系列は含めない。CSV は --output）
+        #[arg(long)]
+        json: bool,
+    },
     /// flat モデルの要約（変数・方程式の数、部品ごとの方程式数）を表示する
     Flat {
         /// ファイルまたはディレクトリ。モデルがライブラリの中にあるなら省略できる
@@ -131,6 +176,35 @@ fn main() -> ExitCode {
             model,
             json,
         } => flat(&files, &library, &model, json),
+        Command::Simulate {
+            files,
+            library,
+            model,
+            start_time,
+            stop_time,
+            tolerance,
+            interval,
+            solver,
+            timeout,
+            output,
+            force,
+            json,
+        } => simulate::simulate(simulate::SimulateArgs {
+            files,
+            library,
+            model,
+            settings: SimSettings {
+                start_time,
+                stop_time,
+                tolerance,
+                interval,
+                solver,
+                max_wall_seconds: timeout,
+            },
+            output,
+            force,
+            json,
+        }),
     }
 }
 

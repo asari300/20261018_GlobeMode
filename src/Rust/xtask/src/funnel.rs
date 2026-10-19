@@ -135,7 +135,7 @@ const CHECKER_KIND: &str =
     "`globe_mode_frontend::Checker`（MSL を一度だけ読み、Rumoca の Session を使い回す）";
 
 /// 検査器を作る（MSL を読む）。
-fn make_checker(msl: &Path) -> Result<Checker> {
+pub(crate) fn make_checker(msl: &Path) -> Result<Checker> {
     Checker::new(&[msl]).map_err(|ds| {
         ds.iter()
             .map(|d| format!("{} {}", d.code, d.message))
@@ -747,7 +747,7 @@ fn rumoca_code(d: &Diagnostic) -> Option<String> {
         .map(|c| c.rsplit("::").next().unwrap_or(c).trim().to_string())
 }
 
-fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
+pub(crate) fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
     payload
         .downcast_ref::<&str>()
         .map(|s| (*s).to_string())
@@ -973,7 +973,7 @@ fn stale_entries(rows: &[Row]) -> Vec<String> {
 }
 
 /// 改行を空白にし、`max` 文字で切る。
-fn one_line(s: &str, max: usize) -> String {
+pub(crate) fn one_line(s: &str, max: usize) -> String {
     let flat: String = s.split_whitespace().collect::<Vec<_>>().join(" ");
     if flat.chars().count() > max {
         let cut: String = flat.chars().take(max).collect();
@@ -1134,19 +1134,19 @@ struct RunInfo<'a> {
 }
 
 /// 最大の常駐メモリ（kB）。Linux の `/proc/self/status` の `VmHWM` を読む。ほかの OS では None。
-fn peak_rss_kb() -> Option<u64> {
+pub(crate) fn peak_rss_kb() -> Option<u64> {
     let status = fs::read_to_string("/proc/self/status").ok()?;
     parse_vm_hwm(&status)
 }
 
-fn parse_vm_hwm(status: &str) -> Option<u64> {
+pub(crate) fn parse_vm_hwm(status: &str) -> Option<u64> {
     status
         .lines()
         .find_map(|l| l.strip_prefix("VmHWM:"))
         .and_then(|v| v.trim().trim_end_matches("kB").trim().parse().ok())
 }
 
-fn gigabytes(kb: u64) -> String {
+pub(crate) fn gigabytes(kb: u64) -> String {
     format!("{:.1} GiB", kb as f64 / (1024.0 * 1024.0))
 }
 

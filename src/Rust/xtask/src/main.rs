@@ -6,6 +6,8 @@
 //! cargo xtask msl-compare      MSL の例題で globe check と Rumoca の CLI を突き合わせる
 //! cargo xtask msl-funnel       MSL の全例題（566 本）に globe check の判定を出し、報告を書く
 //! cargo xtask omc-compare      msl-funnel の結果（--json）を omc（OpenModelica、別プロセス）と突き合わせ、報告を書く
+//! cargo xtask fetch-msl-ref    MAP-LIB の参照結果（MSL 4.1.0、commit 固定）を data/msl-ref/ に取得する
+//! cargo xtask msl-sim          msl-funnel で OK の例題を実行し（別プロセスのワーカー）、参照結果と管で比べ、報告を書く
 //! cargo xtask bump-rumoca      固定している Rumoca の rev と、最新のタグを表示する
 //! ```
 //!
@@ -25,6 +27,8 @@ use sha2::{Digest, Sha256};
 
 mod funnel;
 mod omc;
+mod reference;
+mod sim;
 
 /// MSL 4.1.0 の公式の配布物（BSD-3-Clause）。
 const MSL_URL: &str = "https://github.com/modelica/ModelicaStandardLibrary/releases/download/v4.1.0/ModelicaStandardLibrary_v4.1.0.zip";
@@ -131,6 +135,83 @@ enum Cmd {
         #[arg(long)]
         no_translate: bool,
     },
+    /// MAP-LIB の参照結果（MSL 4.1.0、commit 固定）の CSV と comparisonSignals.txt を取得する（S011）
+    FetchMslRef {
+        /// 置き場（取得元と同じ形で置く）
+        #[arg(long, default_value = "data/msl-ref")]
+        dir: PathBuf,
+        /// `msl-funnel --json` が書いたファイル（--model が無ければ、判定が OK の例題を partial を除いて取得する）
+        #[arg(long, default_value = "target/msl-funnel.json")]
+        funnel_json: PathBuf,
+        /// 取得するモデル（何度でも。指定すると --funnel-json を使わない）
+        #[arg(long = "model")]
+        models: Vec<String>,
+        /// 同時に取得する本数
+        #[arg(long, default_value_t = 4)]
+        jobs: usize,
+    },
+    /// msl-funnel で OK の例題を実行し（別プロセスのワーカー）、MAP-LIB の参照結果と管で比べ、報告を書く（S011）
+    MslSim {
+        /// `msl-funnel --json` が書いたファイル（判定が OK の例題を、partial を除いて実行する）
+        #[arg(long, default_value = "target/msl-funnel.json")]
+        funnel_json: PathBuf,
+        #[arg(long, default_value = "data/msl")]
+        msl: PathBuf,
+        /// 参照結果の置き場（`fetch-msl-ref` の --dir）
+        #[arg(long, default_value = "data/msl-ref")]
+        ref_dir: PathBuf,
+        /// 実行の前に、対象の参照結果を取得する（取得済みのものは取り直さない）
+        #[arg(long)]
+        fetch_ref: bool,
+        /// --fetch-ref で同時に取得する本数
+        #[arg(long, default_value_t = 4)]
+        jobs: usize,
+        /// 先頭から N 本だけ実行する（--only の後に当てる）
+        #[arg(long)]
+        limit: Option<usize>,
+        /// 名前にこの文字列を含む例題だけを実行する
+        #[arg(long)]
+        only: Option<String>,
+        /// 1 本の壁時計の予算（秒、実行系の協調型の時間切れ GM-E11005）
+        #[arg(long, default_value_t = 30.0)]
+        wall_seconds: f64,
+        /// 1 本の応答をこの秒数だけ待ち、無ければワーカーを kill して立て直す
+        #[arg(long, default_value_t = 120)]
+        kill_seconds: u64,
+        /// N 本ごとにワーカーの Session を MSL を読んだ直後に戻す（0 なら戻さない。msl-funnel と同じ既定）
+        #[arg(long, default_value_t = 50)]
+        reset_every: usize,
+        /// ソルバ（`bdf`、`dopri45`、`auto` など。無ければ既定）
+        #[arg(long)]
+        solver: Option<String>,
+        /// 実行の結果の CSV を、このディレクトリに `<モデル>.csv` で残す
+        #[arg(long)]
+        keep_results: Option<PathBuf>,
+        /// Markdown の報告を書くファイル
+        #[arg(long)]
+        report: Option<PathBuf>,
+        /// モデルごとの結果と集計を JSON で書くファイル
+        #[arg(long)]
+        json: Option<PathBuf>,
+    },
+    /// msl-sim のワーカー（msl-sim が起動する。標準入出力の JSON の行で話す）
+    #[command(hide = true)]
+    MslSimWorker {
+        #[arg(long)]
+        msl: PathBuf,
+        #[arg(long)]
+        ref_dir: PathBuf,
+        #[arg(long)]
+        wall_seconds: f64,
+        #[arg(long)]
+        solver: Option<String>,
+        #[arg(long, default_value_t = 50)]
+        reset_every: usize,
+        #[arg(long)]
+        keep_results: Option<PathBuf>,
+        #[arg(long, default_value_t = 0.002)]
+        tube_tolerance: f64,
+    },
     /// 固定している Rumoca の rev と、上流の最新のタグを表示する
     BumpRumoca,
 }
@@ -188,6 +269,60 @@ fn main() -> ExitCode {
             limit,
             work_dir: &work_dir,
             no_translate,
+        }),
+        Cmd::FetchMslRef {
+            dir,
+            funnel_json,
+            models,
+            jobs,
+        } => reference::fetch_msl_ref(&dir, &funnel_json, &models, jobs),
+        Cmd::MslSim {
+            funnel_json,
+            msl,
+            ref_dir,
+            fetch_ref,
+            jobs,
+            limit,
+            only,
+            wall_seconds,
+            kill_seconds,
+            reset_every,
+            solver,
+            keep_results,
+            report,
+            json,
+        } => sim::msl_sim(&sim::Options {
+            funnel_json: &funnel_json,
+            msl: &msl,
+            ref_dir: &ref_dir,
+            fetch_ref,
+            jobs,
+            limit,
+            only: only.as_deref(),
+            wall_seconds,
+            kill_seconds,
+            reset_every,
+            solver: solver.as_deref(),
+            keep_results: keep_results.as_deref(),
+            report: report.as_deref(),
+            json: json.as_deref(),
+        }),
+        Cmd::MslSimWorker {
+            msl,
+            ref_dir,
+            wall_seconds,
+            solver,
+            reset_every,
+            keep_results,
+            tube_tolerance,
+        } => sim::worker(&sim::WorkerOptions {
+            msl,
+            ref_dir,
+            wall_seconds,
+            solver,
+            reset_every,
+            keep_results,
+            tube_tolerance,
         }),
         Cmd::BumpRumoca => bump_rumoca(),
     };
@@ -668,6 +803,92 @@ mod tests {
         ));
         assert!(agrees(&o(false, None), &o(false, None)));
         assert!(!agrees(&o(true, Some((1, 1, 0))), &o(false, None)));
+    }
+
+    #[test]
+    fn msl_sim_arguments_parse() {
+        let cli = Cli::try_parse_from([
+            "xtask",
+            "msl-sim",
+            "--funnel-json",
+            "f.json",
+            "--limit",
+            "5",
+            "--fetch-ref",
+            "--only",
+            "Analog",
+            "--wall-seconds",
+            "10.5",
+            "--kill-seconds",
+            "60",
+            "--keep-results",
+            "out",
+        ])
+        .unwrap();
+        match cli.command {
+            Cmd::MslSim {
+                funnel_json,
+                limit,
+                fetch_ref,
+                only,
+                wall_seconds,
+                kill_seconds,
+                keep_results,
+                ref_dir,
+                reset_every,
+                ..
+            } => {
+                assert_eq!(funnel_json, PathBuf::from("f.json"));
+                assert_eq!(limit, Some(5));
+                assert!(fetch_ref);
+                assert_eq!(only.as_deref(), Some("Analog"));
+                assert_eq!(wall_seconds, 10.5);
+                assert_eq!(kill_seconds, 60);
+                assert_eq!(keep_results, Some(PathBuf::from("out")));
+                assert_eq!(ref_dir, PathBuf::from("data/msl-ref"));
+                assert_eq!(reset_every, 50);
+            }
+            other => panic!("msl-sim でない: {other:?}"),
+        }
+        // 既定値（mise の msl:sim と同じ呼び方）
+        let cli = Cli::try_parse_from(["xtask", "msl-sim", "--report", "r.md"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Cmd::MslSim { wall_seconds, kill_seconds: 120, fetch_ref: false, .. } if wall_seconds == 30.0
+        ));
+        let cli = Cli::try_parse_from([
+            "xtask",
+            "fetch-msl-ref",
+            "--model",
+            "Modelica.A.B",
+            "--model",
+            "Modelica.C.D",
+        ])
+        .unwrap();
+        assert!(matches!(
+            cli.command,
+            Cmd::FetchMslRef { ref models, jobs: 4, .. } if models.len() == 2
+        ));
+        // ワーカーの引数は親（sim::worker_args）が組む形で読める
+        let cli = Cli::try_parse_from([
+            "xtask",
+            "msl-sim-worker",
+            "--msl",
+            "data/msl",
+            "--ref-dir",
+            "data/msl-ref",
+            "--wall-seconds",
+            "30",
+            "--reset-every",
+            "25",
+            "--tube-tolerance",
+            "0.002",
+        ])
+        .unwrap();
+        assert!(matches!(
+            cli.command,
+            Cmd::MslSimWorker { solver: None, .. }
+        ));
     }
 
     #[test]

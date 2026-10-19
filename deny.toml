@@ -11,6 +11,7 @@ version = 2
 ignore = [
   { id = "RUSTSEC-2025-0141", reason = "bincode 1.x の保守終了。rumoca-compile 経由（2026-10-18、Rumoca v0.10.2）" },
   { id = "RUSTSEC-2024-0436", reason = "paste の保守終了。faer → gemm 経由の proc-macro（2026-10-18）" },
+  { id = "RUSTSEC-2024-0384", reason = "instant の保守終了。rumoca-solver が wasm32 のときだけ使う（S011、2026-10-19、Rumoca v0.10.2）" },
 ]
 
 [licenses]
@@ -40,6 +41,8 @@ deny = [
   { crate = "rumoca", reason = "umbrella crate を使わない（ADR-0002）" },
   # Rumoca を使ってよいのはアダプタだけ
   { crate = "rumoca-compile", wrappers = ["globe-mode-frontend", "globe-mode-exec"], reason = "Rumoca はアダプタからだけ使う（ADR-0002）" },
+  # S011: 実行系は globe-mode-exec からだけ（ADR-0013）
+  { crate = "rumoca-sim", wrappers = ["globe-mode-exec"], reason = "Rumoca の実行系は globe-mode-exec からだけ使う（ADR-0013）" },
   # S005 で足した rumoca-ir-dae / rumoca-eval-dae / rumoca-core は Rumoca の内部の crate からも使われるので、
   # wrappers には書けない（書くと Rumoca の内部の依存まで違反になる）。GlobeMode 側の直接依存が frontend だけであることは、
   # 各 crate の Cargo.toml のレビューで守る

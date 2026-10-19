@@ -1,0 +1,27 @@
+[package]
+name = "globe-mode-exec"
+description = "GlobeMode: the execution backend (Rumoca's simulation stack behind a neutral API)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[features]
+default = ["rumoca-exec"]
+# Phase A の実行系。Rumoca を import してよいのはこの feature の中だけ（ADR-0002、ADR-0013）
+rumoca-exec = ["dep:rumoca-sim", "dep:rumoca-solver", "dep:rumoca-ir-dae"]
+
+[dependencies]
+globe-mode-core = { workspace = true }
+globe-mode-ir = { workspace = true }
+# CompiledModel は frontend の feature `rumoca` にある（exec の feature を切っても型は要る）
+globe-mode-frontend = { workspace = true }
+globe-mode-sim = { workspace = true }
+rumoca-sim = { workspace = true, optional = true }
+rumoca-solver = { workspace = true, optional = true }
+rumoca-ir-dae = { workspace = true, optional = true }
+
+[lints]
+workspace = true
