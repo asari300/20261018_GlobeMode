@@ -25,6 +25,9 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 clap = { version = "4.5", features = ["derive"] }
 salsa = "0.28.5"
+# S012: wasm の束ね（globe-mode-wasm だけ）。CLI の wasm-bindgen（mise.toml）と同じ版でないと糊が作れないので、
+# `=` で固定する。上げるときは mise.toml の github:wasm-bindgen/wasm-bindgen も同じ版にする
+wasm-bindgen = "=0.2.129"
 
 # Rumoca はアダプタ（globe-mode-frontend / globe-mode-exec）からだけ使う。umbrella crate `rumoca` は使わない。
 # rev は v0.10.2（2026-10-04）。更新は MSL のファネルの差分を記録してから行う（doc/adr/0002-rumoca-adapter.md）。
@@ -36,8 +39,19 @@ rumoca-core = { git = "https://github.com/CogniPilot/rumoca", rev = "276e82bd0fd
 # S011: 実行系（globe-mode-exec だけ）。umbrella crate の既定の feature（zenoh・gamepad・UDP・web viewer）は使わず、
 # diffsol の BDF と Rumoca の RK45 だけを有効にする（ADR-0013）。wasm 以外では Cranelift の JIT も入る
 rumoca-sim = { git = "https://github.com/CogniPilot/rumoca", rev = "276e82bd0fd48960ac201e782918d28bf19cf7ce", default-features = false, features = ["solver-diffsol", "solver-rk45"] }
+# S012: lowering と実行を分けて呼ぶ道（globe-mode-exec だけ。wasm32 と自前の積分器）。Solve IR を FMI の部品に
+# する `fmi::finish_fmi_component`。rumoca-sim の推移的依存で、新しい外部依存は増えない
+rumoca-phase-solve = { git = "https://github.com/CogniPilot/rumoca", rev = "276e82bd0fd48960ac201e782918d28bf19cf7ce", default-features = false }
 # S011: 実行の失敗の型（MeSessionError など）を名前で振り分けるため。rumoca-sim の推移的依存で、新しい外部依存は増えない
 rumoca-solver = { git = "https://github.com/CogniPilot/rumoca", rev = "276e82bd0fd48960ac201e782918d28bf19cf7ce", default-features = false }
+# S012: Rumoca の数値積分のプラグイン（FMI ME の host に差す BDF と RK45）。wasm32 の道と自前の積分器の道で使う
+# （globe-mode-exec だけ）。rumoca-sim の推移的依存で、新しい外部依存は増えない
+rumoca-solver-diffsol = { git = "https://github.com/CogniPilot/rumoca", rev = "276e82bd0fd48960ac201e782918d28bf19cf7ce" }
+rumoca-solver-rk45 = { git = "https://github.com/CogniPilot/rumoca", rev = "276e82bd0fd48960ac201e782918d28bf19cf7ce" }
+# S012: 自前の積分器（esdirk34・trbdf2・tsit45）。下の [patch] で Rumoca が修正を当てた 0.13.2 になる。
+# self_cell は問題とソルバの自己参照に使う（rumoca-solver-diffsol と同じ）。どちらも Cargo.lock に既にある
+diffsol = "0.13"
+self_cell = "1.2.2"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

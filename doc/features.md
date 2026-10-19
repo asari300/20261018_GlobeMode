@@ -47,12 +47,12 @@ OpenModelica（OMEdit）と Rumoca を参考に、GlobeMode に要る機能を�
 | **シミュレーション前のアサーション（S0〜S10）** | △ | △ | **Must** | P2（S005 で S0〜S6、S007 で S7・S8、S010 で S9・S10 の静的な部分） | `assert_simulatable`。Error があれば `--force` 無しでは実行しない。S005 で S6（構造特異、GM-E6001）と「コンパイラが未対応」の GM-U（[ADR-0007](adr/0007-unsupported-classification.md)）。S007 で S7・S8（[ADR-0009](adr/0009-structural-index-and-init.md)）。`globe check` に S7・S8 の行と `--json` の `s7` / `s8` / `init`。S010 で S9（代数ループ、GM-I9001 / GM-W9001）と S10（パラメータと start 値の評価、experiment annotation。GM-E10001〜GM-E10004 ほか）、`--json` の `s9` / `s10`（[ADR-0012](adr/0012-loops-and-preflight.md)）。S011 で S10 の数値の部分を実行の直前に足した（start 値で評価した t0 の値が有限か GM-W10002、ソルバの名前 GM-E10005 / GM-I10003。[ADR-0013](adr/0013-exec-backend.md)）。初期化のヤコビ行列の階数は、Rumoca に公開の API が無いので後回し |
 | S7: 構造インデックスと状態選択の候補 | ○（Pantelides とダミー微分） | ○（Pantelides） | Must | P2（S007） | Pantelides 法を `DaeStructure` の上で回す（Rumoca に依存しない）。構造インデックスの見込み、微分する方程式と回数、状態選択の候補、動的な状態の数を情報（GM-I7001 / GM-I7002）として出す。打ち切りは GM-E7001 |
 | S8: 初期化系の検査 | ○（実行時の初期化。冗長な初期方程式は警告して外す） | △（初期化の計画） | Must | P2（S007、S009） | 初期条件の数と属性で判定し（S007）、S009 から初期化系（DAE とその微分 + 初期方程式 + `fixed = true`）をマッチングして冗長な初期条件と初期条件の無い未知数を名指しする（[ADR-0011](adr/0011-init-system-matching.md)）。過剰は GM-E8001（冗長な初期条件が拘束と重なるか離散変数を含むときは確定できないので GM-W8004）、不足は GM-W8001・GM-W8002（start の無い状態）、値の無いパラメータは GM-W8003。omc と「over specified」で照合する（S008・S009） |
-| シミュレーションの実行（`globe simulate`） | ○ | ○ | **Must** | P3（S011 で着手） | S011: Phase A は Rumoca の実行系（`rumoca-sim`）を `globe-mode-exec` に閉じ込めて使い、結果は中立の `SimRun`、失敗は `GM-E11001`〜`GM-E11006`・`GM-U0004` / `GM-U0005` で返す（[ADR-0013](adr/0013-exec-backend.md)）。`globe simulate` は検査（S0〜S10）を通してから実行し、`--output` に CSV を書く |
-| 複数ソルバ（OpenModelica / Dymola の名前を受け付ける） | ○ | △（bdf / rk） | Must | P3 / P8 | 名前の登録表（`globe-mode-sim::solvers`、S011）。S011 で使えるのは `bdf`・`dopri45`・`auto`。`dassl` などは別名（GM-I10003）、表にあって未実装のものは GM-E10005。自前の `trait Integrator` は Rumoca の数値積分のプラグインとして差し込む見込み（S012 以降） |
-| experiment annotation と実行設定 | ○ | ○ | Must | P3（S011） | 「指定 > experiment annotation > 既定」で決め、出どころを表示する（`globe-mode-sim::settings`、S011）。設定は protocol 型で持つ |
-| パラメータを変えた再実行（再コンパイル無し） | ○ | △ | Should | P3 | `executable` を LRU に保持する |
+| シミュレーションの実行（`globe simulate`） | ○ | ○ | **Must** | P3（S011 で着手） | S011: Phase A は Rumoca の実行系（`rumoca-sim`）を `globe-mode-exec` に閉じ込めて使い、結果は中立の `SimRun`、失敗は `GM-E11001`〜`GM-E11006`・`GM-U0004` / `GM-U0005` で返す（[ADR-0013](adr/0013-exec-backend.md)）。`globe simulate` は検査（S0〜S10）を通してから実行し、`--output` に CSV を書く。S012 で `--format mat`（MAT v4）、wasm32 でも同じ道で実行できるようにした（`globe-mode-wasm`、Node で確認。[ADR-0014](adr/0014-session-route-wasm.md)） |
+| 複数ソルバ（OpenModelica / Dymola の名前を受け付ける） | ○ | △（bdf / rk） | Must | P3（S011・S012）/ P8 | 名前の登録表（`globe-mode-sim::solvers`、S011）。S011 で `bdf`・`dopri45`・`auto`。S012 で自前の積分器 6 つ（`esdirk34`・`trbdf2`・`tsit45`・`euler`・`heun`・`rk4`）を Rumoca の数値積分のプラグインとして差し、9 つになった（[ADR-0014](adr/0014-session-route-wasm.md)）。固定刻みの刻み幅は `--step`。`auto` は BDF が失敗したら dopri45 で回し直す（GM-I11002）。`dassl` などは別名（GM-I10003）、表にあって未実装のもの（`radau5`・`ida` など）は GM-E10005。`globe simulate --list-solvers` で一覧 |
+| experiment annotation と実行設定 | ○ | ○ | Must | P3（S011） | 「指定 > experiment annotation > 既定」で決め、出どころを表示する（`globe-mode-sim::settings`、S011）。S012 で許容誤差の下限 1e-10（GM-W10003）と固定刻みの検査（GM-I10004・GM-E10004）。設定は protocol 型で持つ |
+| パラメータを変えた再実行（再コンパイル無し） | ○ | △ | Should | P3（S012） | S012: `globe simulate --param NAME=VALUE`（Rumoca の `param_overrides`。DAE は使い回し、lowering と組み立てはやり直す）。変えられるのは tunable なパラメータだけ（`--list-parameters`、`globe_mode_exec::tunable_parameters`）。構造パラメータ・`final`・`Evaluate = true`・定数、無い名前、有限でない値は GM-E10006（[ADR-0014](adr/0014-session-route-wasm.md)）。今後: `executable` を LRU に保持する |
 | パラメータスイープ | △ | × | Should | P6 | Streamlit と marimo から使う |
-| 結果のプロット（時系列・パラメトリック・大容量） | ○ | △ | Must | P4 | uPlot 系。ResultStore は CSV / MAT v4 / Arrow（S011 で CSV。`globe-mode-sim::store`） |
+| 結果のプロット（時系列・パラメトリック・大容量） | ○ | △ | Must | P4 | uPlot 系。ResultStore は CSV / MAT v4 / Arrow（S011 で CSV。`globe-mode-sim::store`。S012 で MAT v4（`globe-mode-sim::mat`、OpenModelica・Dymola の dsres の形）。Arrow IPC は持ち越し） |
 | 変換デバッガ（インデックス低減、tearing） | ○ | × | Could | P8 | BLT ビュー |
 | 線形化（A/B/C/D） | ○ | ○ | Could | P8 | Rumoca の機能をアダプタ経由で使う |
 
@@ -74,7 +74,7 @@ OpenModelica（OMEdit）と Rumoca を参考に、GlobeMode に要る機能を�
 | --- | --- | --- | --- | --- | --- |
 | Desktop（Debian 系 Linux / Windows 11） | ○ | ×（VS Code） | Must | P4 | Tauri 2 + Svelte 5 |
 | Android | × | × | Must | P6 | Tauri 2。計算はネイティブ |
-| ブラウザ（閲覧者の端末で計算） | ×（OMWebbook はサーバー側） | ○（playground） | Must | P6 | Web Worker で wasm を動かす。サーバーでは計算しない |
+| ブラウザ（閲覧者の端末で計算） | ×（OMWebbook はサーバー側） | ○（playground） | Must | P6（S012 で Node の wasm） | Web Worker で wasm を動かす。サーバーでは計算しない。S012 で `globe-mode-wasm`（wasm32-unknown-unknown + wasm-bindgen）の検査 → 実行を Node で確かめた（`mise run wasm:node`・`wasm:compare`、CI の `wasm-node`）。ブラウザ（`--target web`、Worker）は未試験 |
 | CLI | ○（omc） | ○ | Must | P1 | `globe` |
 | marimo | × | × | Must | P6 | anywidget に wasm を載せる。代替は PyO3 の wheel |
 | Streamlit（結果ダッシュボード） | × | × | Should | P6 | PyO3 の wheel |

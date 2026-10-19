@@ -178,15 +178,25 @@ enum Cmd {
         /// 1 本の応答をこの秒数だけ待ち、無ければワーカーを kill して立て直す
         #[arg(long, default_value_t = 120)]
         kill_seconds: u64,
+        /// 時間切れ（GM-E11005）になったものだけを、この予算（秒）で回し直す。外から止めるのは予算 + 60 s。
+        /// --wall-seconds 以下（0 など）なら回し直さない（S012）
+        #[arg(long, default_value_t = 180.0)]
+        retry_wall_seconds: f64,
         /// N 本ごとにワーカーの Session を MSL を読んだ直後に戻す（0 なら戻さない。msl-funnel と同じ既定）
         #[arg(long, default_value_t = 50)]
         reset_every: usize,
-        /// ソルバ（`bdf`、`dopri45`、`auto` など。無ければ既定）
-        #[arg(long)]
+        /// ソルバ（`bdf`、`dopri45`、`auto` など。既定の `auto` は、BDF が積分で失敗したら dopri45 で回し直す。S012）
+        #[arg(long, default_value = "auto")]
         solver: Option<String>,
         /// 実行の結果の CSV を、このディレクトリに `<モデル>.csv` で残す
         #[arg(long)]
         keep_results: Option<PathBuf>,
+        /// 管の既知の外れの一覧（1 行 = `<モデル> # 理由と出典`。報告で分けて数える。S012）
+        #[arg(long, default_value = "src/Modelica/msl-sim-known-deviations.txt")]
+        known_deviations: PathBuf,
+        /// 比べる前回の結果（`msl-sim --json`。--json と同じファイルでもよい。書く前に読む。S012）
+        #[arg(long)]
+        baseline_json: Option<PathBuf>,
         /// Markdown の報告を書くファイル
         #[arg(long)]
         report: Option<PathBuf>,
@@ -286,9 +296,12 @@ fn main() -> ExitCode {
             only,
             wall_seconds,
             kill_seconds,
+            retry_wall_seconds,
             reset_every,
             solver,
             keep_results,
+            known_deviations,
+            baseline_json,
             report,
             json,
         } => sim::msl_sim(&sim::Options {
@@ -301,9 +314,12 @@ fn main() -> ExitCode {
             only: only.as_deref(),
             wall_seconds,
             kill_seconds,
+            retry_wall_seconds,
             reset_every,
             solver: solver.as_deref(),
             keep_results: keep_results.as_deref(),
+            known_deviations: Some(&known_deviations),
+            baseline_json: baseline_json.as_deref(),
             report: report.as_deref(),
             json: json.as_deref(),
         }),
@@ -855,6 +871,41 @@ mod tests {
         assert!(matches!(
             cli.command,
             Cmd::MslSim { wall_seconds, kill_seconds: 120, fetch_ref: false, .. } if wall_seconds == 30.0
+        ));
+        // S012 の既定: ソルバは auto、時間切れは 180 s で回し直す、既知の外れの一覧を読む、前回の結果は読まない
+        match Cli::try_parse_from(["xtask", "msl-sim"]).unwrap().command {
+            Cmd::MslSim {
+                solver,
+                retry_wall_seconds,
+                known_deviations,
+                baseline_json,
+                ..
+            } => {
+                assert_eq!(solver.as_deref(), Some("auto"));
+                assert_eq!(retry_wall_seconds, 180.0);
+                assert_eq!(
+                    known_deviations,
+                    PathBuf::from("src/Modelica/msl-sim-known-deviations.txt")
+                );
+                assert_eq!(baseline_json, None);
+            }
+            other => panic!("msl-sim でない: {other:?}"),
+        }
+        let cli = Cli::try_parse_from([
+            "xtask",
+            "msl-sim",
+            "--solver",
+            "bdf",
+            "--retry-wall-seconds",
+            "0",
+            "--baseline-json",
+            "target/msl-sim.json",
+        ])
+        .unwrap();
+        assert!(matches!(
+            cli.command,
+            Cmd::MslSim { ref solver, retry_wall_seconds, baseline_json: Some(_), .. }
+                if solver.as_deref() == Some("bdf") && retry_wall_seconds == 0.0
         ));
         let cli = Cli::try_parse_from([
             "xtask",

@@ -16,7 +16,7 @@
       * 定期実行（schedule）、手動実行で full を指定、比較元が無い（新しいブランチ・履歴の書き換え）
 
 出力（JSON。--github-output を付けると GitHub Actions の出力にも書く）:
-  full, rust, rust_packages（"-p a -p b"）, wasm, deny, python, docs, slides, msl, reasons
+  full, rust, rust_packages（"-p a -p b"）, wasm, wasm_node, deny, python, docs, slides, msl, reasons
 標準ライブラリだけで動く（Python 3.11 以上、tomllib を使う）。
 """
 
@@ -38,13 +38,17 @@ ZERO_SHA = "0" * 40
 FULL_TRIGGERS = ["Cargo.toml", "Cargo.lock", "mise.toml", "mise.lock", "deny.toml", ".github/*"]
 # 依存の集合が変わる（cargo deny が要る）
 DEPENDENCY_FILES = ["Cargo.toml", "Cargo.lock", "deny.toml", "src/Rust/mod/*/Cargo.toml"]
-# wasm でビルドできることを守る crate
-WASM_CRATES = {"globe-mode-core", "globe-mode-ir", "globe-mode-frontend", "globe-mode-graph", "globe-mode-db", "globe-mode-analysis", "globe-mode-sim"}
+# wasm でビルドできることを守る crate（S012 から実行系と wasm の束ねも）
+WASM_CRATES = {"globe-mode-core", "globe-mode-ir", "globe-mode-frontend", "globe-mode-graph", "globe-mode-db", "globe-mode-analysis",
+               "globe-mode-sim", "globe-mode-exec", "globe-mode-wasm"}
+# wasm の束ね。これが影響を受けたら（依存する exec・sim・db・frontend などの変更も含む）、release の wasm を
+# ビルドして Node で回す（S012。P3 の「bdf が wasm で動く」）
+WASM_NODE_CRATE = "globe-mode-wasm"
 # Rust 以外のファイルで、特定の crate のテストが読むもの
 EXTRA_INPUTS = {
     "src/Modelica/msl-compare.txt": {"xtask"},
     "src/Modelica/msl-known-unsupported.txt": {"globe-mode-frontend"},
-    "src/Modelica/*": {"globe-mode-frontend", "globe-mode-cli", "globe-mode-db", "globe-mode-exec"},
+    "src/Modelica/*": {"globe-mode-frontend", "globe-mode-cli", "globe-mode-db", "globe-mode-exec", "globe-mode-wasm"},
 }
 PYTHON_FILES = ["pyproject.toml", "uv.lock", ".python-version", "src/Python/*"]
 DOC_FILES = ["*.md", "doc/*", "log/*", ".claude/skills/*", "src/*/README.md"]
@@ -124,6 +128,7 @@ def plan(changed: list[str] | None, message: str = "", force_full: bool = False,
         "rust": bool(affected),
         "rust_packages": " ".join(f"-p {c}" for c in sorted(affected)),
         "wasm": full or bool(affected & WASM_CRATES),
+        "wasm_node": full or WASM_NODE_CRATE in affected,
         "deny": full or any(match(p, DEPENDENCY_FILES) for p in changed),
         "python": full or any(match(p, PYTHON_FILES) for p in changed),
         "docs": full or any(match(p, DOC_FILES) for p in changed),

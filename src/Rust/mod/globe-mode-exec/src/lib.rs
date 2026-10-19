@@ -13,7 +13,7 @@
 
 use globe_mode_core::{Diagnostic, Stage, codes};
 pub use globe_mode_frontend::CompiledModel;
-use globe_mode_ir::{ResolvedSettings, SimRun, SimSettings, Termination};
+use globe_mode_ir::{ResolvedSettings, SimRun, SimSettings, Termination, TunableParameter};
 
 #[cfg(feature = "rumoca-exec")]
 mod rumoca;
@@ -49,27 +49,59 @@ pub fn preflight(model: &CompiledModel, settings: &ResolvedSettings) -> Vec<Diag
     }
 }
 
-/// モデルを実行する。成功なら結果、失敗なら診断を返す。実行が止まらない Rumoca の警告（GM-W11001）と、
-/// 結果から分かる診断（GM-I11001・GM-E11006）は [`run`] だけが集める。
+/// モデルを実行する。成功なら結果、失敗なら診断（先頭が失敗の診断）を返す。実行が止まらない診断（Rumoca の
+/// 警告 GM-W11001、auto の切り替え GM-I11002）と、結果から分かる診断（GM-I11001・GM-E11006）は [`run`] だけが
+/// 集める。
 pub fn simulate(
     model: &CompiledModel,
     settings: &ResolvedSettings,
 ) -> Result<SimRun, Vec<Diagnostic>> {
-    simulate_with_warnings(model, settings).map(|(run, _)| run)
+    simulate_with_warnings(model, settings, false).map(|(run, _)| run)
 }
 
-/// [`simulate`] と同じ。成功なら、実行が止まらない Rumoca の警告（GM-W11001）も返す。
-fn simulate_with_warnings(
+/// [`simulate`] と同じだが、ネイティブでも bdf・dopri45・auto を wasm32 と同じ session の道（Rumoca の FMI ME 風の
+/// host に Rumoca の積分器を差す道。インタプリタで回る）で回す。型付きの道と結果を比べる試験と、wasm の試験の
+/// 手本に使う。成功なら、実行が止まらない診断（GM-W11001・GM-I11002）も返す。
+#[doc(hidden)]
+pub fn simulate_via_session(
     model: &CompiledModel,
     settings: &ResolvedSettings,
 ) -> Result<(SimRun, Vec<Diagnostic>), Vec<Diagnostic>> {
+    simulate_with_warnings(model, settings, true)
+}
+
+/// 再コンパイル無しに変えられる（tunable な）パラメータの一覧（`globe simulate --list-parameters`、結果の
+/// パラメータの表）。既定値はモデルの値（上書きを反映しない）。lowering に失敗したら、その診断を返す。
+pub fn tunable_parameters(model: &CompiledModel) -> Result<Vec<TunableParameter>, Vec<Diagnostic>> {
     #[cfg(feature = "rumoca-exec")]
     {
-        rumoca::simulate(model, settings)
+        rumoca::tunable_parameters(model)
     }
     #[cfg(not(feature = "rumoca-exec"))]
     {
-        let _ = (model, settings);
+        let _ = model;
+        Ok(Vec::new())
+    }
+}
+
+/// [`simulate`] と同じ。成功なら、実行が止まらない診断（GM-W11001・GM-I11002）も返す。
+fn simulate_with_warnings(
+    model: &CompiledModel,
+    settings: &ResolvedSettings,
+    via_session: bool,
+) -> Result<(SimRun, Vec<Diagnostic>), Vec<Diagnostic>> {
+    #[cfg(feature = "rumoca-exec")]
+    {
+        let route = if via_session {
+            rumoca::Route::Session
+        } else {
+            rumoca::Route::Default
+        };
+        rumoca::simulate(model, settings, route)
+    }
+    #[cfg(not(feature = "rumoca-exec"))]
+    {
+        let _ = (model, settings, via_session);
         Err(Vec::new())
     }
 }
@@ -103,7 +135,7 @@ pub fn run(model: &CompiledModel, requested: &SimSettings) -> SimReport {
     if stop {
         return report;
     }
-    match simulate_with_warnings(model, &settings) {
+    match simulate_with_warnings(model, &settings, false) {
         Ok((run, warnings)) => {
             report.diagnostics.extend(warnings);
             report.diagnostics.extend(outcome_diagnostics(&run));
@@ -201,12 +233,15 @@ mod tests {
                 interval: 0.5,
                 solver: SolverId::Bdf,
                 max_wall_seconds: None,
+                step: None,
+                parameters: Default::default(),
                 origins: SettingOrigins {
                     start_time: o,
                     stop_time: o,
                     tolerance: o,
                     interval: o,
                     solver: o,
+                    step: None,
                 },
             },
             trajectory: Trajectory {
@@ -215,11 +250,13 @@ mod tests {
                     name: "x".to_string(),
                     role: VariableRole::State,
                     unit: None,
+                    description: None,
                     values,
                 }],
             },
             termination,
             stats: SimStats::default(),
+            parameters: Vec::new(),
         }
     }
 

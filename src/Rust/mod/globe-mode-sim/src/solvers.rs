@@ -2,10 +2,10 @@
 //!
 //! 名前は 3 種類ある。
 //!
-//! - 実装のあるもの（`bdf`、`dopri45`、`auto`）
+//! - 実装のあるもの（`bdf`、`dopri45`、`auto`。S012 から `esdirk34`、`trbdf2`、`tsit45`、`euler`、`heun`、`rk4`）
 //! - 別名（`dassl`、`lsodar` → `bdf`、`rk45`、`dopri5` → `dopri45`）。同等の手法に置き換えるが、
 //!   刻み幅の制御などが違うので結果は一致しない
-//! - 登録表にはあるが、まだ実装していないもの（`esdirk34`、`radau5` など）
+//! - 登録表にはあるが、まだ実装していないもの（`radau5`、`ida` など）
 //!
 //! 表に無い名前は、編集距離の近い名前を 3 つまで挙げる。
 
@@ -19,7 +19,7 @@ pub enum SolverLookup {
     Available(SolverId),
     /// 別名（例: `dassl` → `bdf`。同等の手法で、結果は一致しない）
     Alias { requested: String, id: SolverId },
-    /// 登録表にはあるが、まだ実装していない（例: `esdirk34`）
+    /// 登録表にはあるが、まだ実装していない（例: `radau5`）
     Planned { name: String },
     /// 名前が無い。`suggestions` は近い名前
     Unknown {
@@ -94,7 +94,34 @@ pub const SOLVERS: &[SolverEntry] = &[
         SolverId::Dopri45,
         "Dormand–Prince 5(4)（陽的、刻み幅の制御あり。Rumoca の RK45）",
     ),
-    available(SolverId::Auto, "実行系が系を見て BDF か陽的 RK を選ぶ"),
+    available(
+        SolverId::Auto,
+        "実行系が系を見て BDF か陽的 RK を選ぶ（BDF が積分で失敗したら dopri45 で回し直す）",
+    ),
+    available(
+        SolverId::Esdirk34,
+        "ESDIRK 3(4)（diffsol の SDIRK。陰的、刻み幅の制御あり）",
+    ),
+    available(
+        SolverId::Trbdf2,
+        "TR-BDF2（diffsol の SDIRK。2 次、L 安定。陰的、刻み幅の制御あり）",
+    ),
+    available(
+        SolverId::Tsit45,
+        "Tsitouras 5(4)（diffsol の陽的 RK、刻み幅の制御あり）",
+    ),
+    available(
+        SolverId::Euler,
+        "陽的 Euler 法（固定刻み、1 次。刻み幅は --step、既定は出力の間隔。刻みの間は 3 次の Hermite 補間）",
+    ),
+    available(
+        SolverId::Heun,
+        "Heun 法（固定刻み、2 次。刻み幅は --step、既定は出力の間隔。刻みの間は 3 次の Hermite 補間）",
+    ),
+    available(
+        SolverId::Rk4,
+        "古典的な 4 段の Runge–Kutta 法（固定刻み、4 次。刻み幅は --step、既定は出力の間隔。刻みの間は 3 次の Hermite 補間）",
+    ),
     alias(
         "dassl",
         SolverId::Bdf,
@@ -117,8 +144,6 @@ pub const SOLVERS: &[SolverEntry] = &[
         "SUNDIALS の CVODE（feature `sundials`。未実装）",
         BDF,
     ),
-    planned("esdirk34", "ESDIRK 3(4)（diffsol の SDIRK。未実装）", BDF),
-    planned("trbdf2", "TR-BDF2（diffsol の SDIRK。未実装）", BDF),
     planned("esdirk23", "ESDIRK 2(3)（自前の係数表。未実装）", BDF),
     planned("esdirk45", "ESDIRK 4(5)（自前の係数表。未実装）", BDF),
     planned(
@@ -126,15 +151,7 @@ pub const SOLVERS: &[SolverEntry] = &[
         "SDIRK 3(4)（Hairer–Wanner の係数。未実装）",
         BDF,
     ),
-    planned("tsit45", "Tsitouras 5(4)（diffsol。未実装）", DOPRI45),
     planned("dopri853", "Dormand–Prince 8(5,3)（自前。未実装）", DOPRI45),
-    planned("euler", "陽的 Euler 法（固定刻み。未実装）", DOPRI45),
-    planned("heun", "Heun 法（固定刻み。未実装）", DOPRI45),
-    planned(
-        "rk4",
-        "古典的な 4 段の Runge–Kutta 法（固定刻み。未実装）",
-        DOPRI45,
-    ),
     planned("impeuler", "陰的 Euler 法（固定刻み。未実装）", BDF),
     planned("trapezoid", "台形公式（固定刻み。未実装）", BDF),
     planned("radau5", "Radau IIA 5 次（自前。P8 の予定。未実装）", BDF),
@@ -232,8 +249,15 @@ mod tests {
         );
         assert_eq!(lookup("auto"), SolverLookup::Available(SolverId::Auto));
         assert_eq!(
+            lookup("esdirk34"),
+            SolverLookup::Available(SolverId::Esdirk34)
+        );
+        assert_eq!(lookup("RK4"), SolverLookup::Available(SolverId::Rk4));
+        assert_eq!(
             available_names().collect::<Vec<_>>(),
-            ["bdf", "dopri45", "auto"]
+            [
+                "bdf", "dopri45", "auto", "esdirk34", "trbdf2", "tsit45", "euler", "heun", "rk4"
+            ]
         );
     }
 
@@ -273,16 +297,10 @@ mod tests {
         for name in [
             "ida",
             "cvode",
-            "esdirk34",
-            "trbdf2",
             "esdirk23",
             "esdirk45",
             "sdirk34hw",
-            "tsit45",
             "dopri853",
-            "euler",
-            "heun",
-            "rk4",
             "impeuler",
             "trapezoid",
             "radau5",

@@ -9,6 +9,10 @@
 //! - ワーカーは検査器（MSL）を一度だけ読み、1 本ごとに `compile_retaining` → `globe_mode_exec::run`（壁時計の予算は
 //!   `--wall-seconds`）→ 参照結果があれば `globe_mode_sim::compare`（`comparisonSignals.txt` の信号）で比べる。
 //!   panic は `catch_unwind` で拾って続け、N 本ごとに `Checker::reset` で Session を小さく戻す。
+//! - S012: ワーカーは 1 本の段（[`WorkerStage`]）に入るたびに知らせ、親は外から止めたものに最後の段を付ける。
+//!   時間切れ（GM-E11005）のものだけを長い予算（`--retry-wall-seconds`）で回し直す。例題でないもの
+//!   （[`Target::not_example`]）は実行せず、管の既知の外れの一覧（`--known-deviations`）に載ったものは分けて数え、
+//!   前回の結果（`--baseline-json`）との差を報告に書く。
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -36,6 +40,10 @@ use crate::{MSL_SHA256, MSL_VERSION, RUMOCA_REV, RUMOCA_VERSION, Result};
 /// ワーカーの行の印。この後ろが JSON（[`WorkerMessage`]）。
 pub(crate) const MESSAGE_PREFIX: &str = "@globe-mode-sim ";
 
+/// 結果に残す補足の数と、1 つの長さの上限（Rumoca の文言は数千字になることがある）。
+const NOTES_MAX: usize = 4;
+const NOTE_MAX_CHARS: usize = 600;
+
 /// ワーカーの用意（MSL の読み込み）を待つ上限。
 const SETUP_TIMEOUT: Duration = Duration::from_secs(900);
 
@@ -55,6 +63,9 @@ const RUMOCA_BASELINE_SIM_TIMEOUT: f64 = 12.0;
 pub(crate) struct Target {
     pub model: String,
     pub partial: bool,
+    /// 例題でない（experiment annotation が無く（S10 の GM-I10001）、値の無い最上位の入力かパラメータがある
+    /// （S8 の GM-W8003）クラス。例: `ExampleUtilities.SpacePhasorLimiter`。S012）
+    pub not_example: bool,
 }
 
 /// `msl-funnel --json` の結果から、判定が OK の例題を（書かれた順に）取り出す。
@@ -81,10 +92,75 @@ fn ok_models_in(root: &Value) -> Option<Vec<Target>> {
                 Some(Target {
                     model: m.get("model")?.as_str()?.to_string(),
                     partial: m.get("partial").and_then(Value::as_bool).unwrap_or(false),
+                    not_example: not_example(m),
                 })
             })
             .collect(),
     )
+}
+
+/// `msl-funnel --json` の 1 行が「例題でない」か。experiment annotation が無く（S10 の GM-I10001）、
+/// 値の無いものがある（S8 の GM-W8003。最上位の入力も数える）クラスは、値を与えないと実行できない部品なので
+/// partial と同じく実行しない。experiment が無いだけの例題（既定の設定で回る）は対象に残す。
+fn not_example(m: &Value) -> bool {
+    let no_experiment = m
+        .pointer("/s10/codes")
+        .and_then(Value::as_object)
+        .is_some_and(|c| c.contains_key(codes::EXPERIMENT_MISSING));
+    let without_value = m
+        .pointer("/s8/w8003")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    no_experiment && without_value
+}
+
+// --------------------------------------------------------------------------- 既知の外れ
+
+/// 既知の外れの一覧（`src/Modelica/msl-sim-known-deviations.txt`）を読む。1 行 = `<モデル> # 理由と出典`。
+/// `#` で始まる行と空行は飛ばす。戻り値はモデル → 理由。
+pub(crate) fn parse_known_deviations(text: &str) -> Result<BTreeMap<String, String>> {
+    let mut out = BTreeMap::new();
+    for (i, line) in text.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let (model, reason) = line.split_once('#').unwrap_or((line, ""));
+        let model = model.trim();
+        if model.is_empty() || model.contains(char::is_whitespace) {
+            return Err(format!(
+                "既知の外れの一覧の {} 行目が `<モデル> # 理由` の形でない: {line}",
+                i + 1
+            ));
+        }
+        if out
+            .insert(model.to_string(), reason.trim().to_string())
+            .is_some()
+        {
+            return Err(format!(
+                "既知の外れの一覧の {} 行目: {model} が重なっている",
+                i + 1
+            ));
+        }
+    }
+    Ok(out)
+}
+
+/// 既知の外れの一覧のファイルを読む（無ければ空の一覧にして、注意を出す）。
+fn load_known_deviations(path: Option<&Path>) -> Result<BTreeMap<String, String>> {
+    let Some(path) = path else {
+        return Ok(BTreeMap::new());
+    };
+    match fs::read_to_string(path) {
+        Ok(text) => parse_known_deviations(&text).map_err(|e| format!("{}: {e}", path.display())),
+        Err(e) => {
+            println!(
+                "注意: 既知の外れの一覧 {} を読めない（{e}）。一覧なしで数える",
+                path.display()
+            );
+            Ok(BTreeMap::new())
+        }
+    }
 }
 
 // --------------------------------------------------------------------------- 取り決め（親 ↔ ワーカー）
@@ -104,8 +180,53 @@ pub(crate) enum WorkerMessage {
         setup_seconds: f64,
         rss_kb: Option<u64>,
     },
+    /// 1 本の段に入った（親は、外から止めたときに最後の段を記録する。S012）
+    Stage { model: String, stage: WorkerStage },
     /// 1 本の結果
     Done { record: Box<Record> },
+}
+
+/// ワーカーが自分で区切れる段（1 本の中）。実行系の中（S10 のプリフライト・lowering と組み立て・初期化・積分）は
+/// `globe_mode_exec::run` を 1 回で呼ぶので、外からは分けられない。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum WorkerStage {
+    /// `compile_retaining`（読み込んだ MSL からモデルを DAE まで変換する）
+    Compile,
+    /// `globe_mode_exec::run`（設定・S10 のプリフライト・lowering と組み立て・初期化・積分）
+    Exec,
+    /// 結果の CSV の書き出しと、参照結果の読み込みと比較
+    Compare,
+}
+
+impl WorkerStage {
+    /// JSON と同じ名前
+    fn key(self) -> &'static str {
+        match self {
+            WorkerStage::Compile => "compile",
+            WorkerStage::Exec => "exec",
+            WorkerStage::Compare => "compare",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            WorkerStage::Compile => "コンパイル",
+            WorkerStage::Exec => "実行系（S10・lowering と組み立て・初期化・積分）",
+            WorkerStage::Compare => "参照結果との比較",
+        }
+    }
+}
+
+/// 時間切れ（GM-E11005）で回し直す前の 1 回目の結果（S012）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct FirstAttempt {
+    pub outcome: Outcome,
+    pub code: Option<String>,
+    /// 1 回目の壁時計の予算（秒）
+    pub wall_budget: f64,
+    /// 1 回目に親が測った時間
+    pub wall_seconds: f64,
 }
 
 /// 1 本の結果の分類。
@@ -256,6 +377,17 @@ pub(crate) struct Record {
     pub code: Option<String>,
     /// 最初の Error の文言（terminate で終わったときはその文言、panic・停止・異常終了はその説明）
     pub message: String,
+    /// 最初の Error の補足（Rumoca の文言 `rumoca: …` など。1 つ [`NOTE_MAX_CHARS`] 字で切る。S012）
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub notes: Vec<String>,
+    /// 外から止めた・落ちたときに、ワーカーが最後に報告した段と、その段に入ってからの秒（S012）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worker_stage: Option<WorkerStage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stage_seconds: Option<f64>,
+    /// 時間切れで回し直したときの 1 回目（S012）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_attempt: Option<FirstAttempt>,
     /// 出た診断のコード（情報と警告を含む。出た順、重複なし）
     pub codes: Vec<String>,
     pub settings: Option<ResolvedSettings>,
@@ -283,6 +415,10 @@ impl Record {
             stage: None,
             code: None,
             message: String::new(),
+            notes: Vec::new(),
+            worker_stage: None,
+            stage_seconds: None,
+            first_attempt: None,
             codes: Vec::new(),
             settings: None,
             termination: None,
@@ -318,6 +454,17 @@ impl Record {
         self.stage = Some(format!("{:?}", d.stage));
         self.code = Some(d.code.to_string());
         self.message = d.message.clone();
+        self.notes = d
+            .notes
+            .iter()
+            .take(NOTES_MAX)
+            .map(|n| one_line(n, NOTE_MAX_CHARS))
+            .collect();
+    }
+
+    /// 管から外れたか（比べて、すべての信号が収まったのではない）
+    fn tube_failed(&self) -> bool {
+        self.comparison().is_some_and(|c| !c.passed_all())
     }
 
     fn add_codes(&mut self, diagnostics: &[Diagnostic]) {
@@ -326,6 +473,16 @@ impl Record {
                 self.codes.push(d.code.to_string());
             }
         }
+    }
+
+    /// 使ったソルバの名前（`auto` で dopri45 に切り替えたら `auto → dopri45`）
+    fn solver_used(&self) -> Option<String> {
+        let name = self.settings.as_ref()?.solver.name();
+        Some(if self.has_code(codes::RUN_SOLVER_FALLBACK) {
+            format!("{name} → dopri45")
+        } else {
+            name.to_string()
+        })
     }
 
     fn has_code(&self, code: &str) -> bool {
@@ -448,9 +605,18 @@ pub(crate) fn worker(opts: &WorkerOptions) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
+/// 段に入ったことを親に知らせる（書けなくても続ける。親が居なければ次の `send` で分かる）。
+fn send_stage(model: &str, stage: WorkerStage) {
+    let _ = send(&WorkerMessage::Stage {
+        model: model.to_string(),
+        stage,
+    });
+}
+
 /// 1 本を実行し、参照結果と比べる。
 fn simulate_one(checker: &Checker, model: &str, opts: &WorkerOptions) -> Record {
     let mut rec = Record::new(model, Outcome::RunFailed);
+    send_stage(model, WorkerStage::Compile);
     let t = Instant::now();
     let compiled = checker.compile_retaining(&[], model);
     rec.compile_seconds = t.elapsed().as_secs_f64();
@@ -473,6 +639,7 @@ fn simulate_one(checker: &Checker, model: &str, opts: &WorkerOptions) -> Record 
         solver: opts.solver.clone(),
         ..SimSettings::default()
     };
+    send_stage(model, WorkerStage::Exec);
     let report = globe_mode_exec::run(&compiled, &settings);
     drop(compiled);
     rec.add_codes(&report.diagnostics);
@@ -507,6 +674,7 @@ fn simulate_one(checker: &Checker, model: &str, opts: &WorkerOptions) -> Record 
     rec.settings = Some(run.settings.clone());
     rec.termination = Some(run.termination.clone());
     rec.stats = Some(run.stats.clone());
+    send_stage(model, WorkerStage::Compare);
     if let Some(dir) = &opts.keep_results
         && let Err(e) = keep_result(dir, model, &run.trajectory)
     {
@@ -685,7 +853,7 @@ impl Worker {
                     setup_seconds,
                     rss_kb,
                 }) => return Ok((setup_seconds, rss_kb)),
-                Recv::Message(WorkerMessage::Done { .. }) => {}
+                Recv::Message(_) => {}
                 Recv::Bad(e) => {
                     let status = self.stop();
                     return Err(format!("ワーカーが読めない行を返した（{status}）: {e}"));
@@ -765,28 +933,48 @@ fn start_worker(exe: &Path, args: &[OsString], stats: &mut WorkerStats) -> Resul
 #[derive(Debug)]
 enum Reply {
     Done(Box<Record>),
-    /// `--kill-seconds` を超えた（止める前に読んだ VmHWM）
-    Timeout(Option<u64>),
-    /// 応答の前に落ちたか、読めない行を返した
-    Crash(String),
+    /// `--kill-seconds` を超えた（止める前に読んだ VmHWM と、最後の段）
+    Timeout(Option<u64>, Option<StageAt>),
+    /// 応答の前に落ちたか、読めない行を返した（最後の段）
+    Crash(String, Option<StageAt>),
+}
+
+/// ワーカーが最後に報告した段と、その段に入った時刻。
+#[derive(Debug, Clone, Copy)]
+struct StageAt {
+    stage: WorkerStage,
+    since: Instant,
+}
+
+impl StageAt {
+    fn seconds(self) -> f64 {
+        self.since.elapsed().as_secs_f64()
+    }
 }
 
 fn request(worker: &mut Worker, model: &str, kill: Duration) -> Reply {
     if let Err(e) = worker.send(&Request {
         model: model.to_string(),
     }) {
-        return Reply::Crash(format!("要求を送れない: {e}"));
+        return Reply::Crash(format!("要求を送れない: {e}"), None);
     }
     let deadline = Instant::now() + kill;
+    let mut last: Option<StageAt> = None;
     loop {
         match worker.recv(deadline) {
             Recv::Message(WorkerMessage::Done { record }) if record.model == model => {
                 return Reply::Done(record);
             }
+            Recv::Message(WorkerMessage::Stage { model: m, stage }) if m == model => {
+                last = Some(StageAt {
+                    stage,
+                    since: Instant::now(),
+                });
+            }
             Recv::Message(_) => {}
-            Recv::Bad(e) => return Reply::Crash(format!("読めない行: {e}")),
-            Recv::Eof => return Reply::Crash("応答の前に標準出力が閉じた".to_string()),
-            Recv::Timeout => return Reply::Timeout(worker.rss_kb()),
+            Recv::Bad(e) => return Reply::Crash(format!("読めない行: {e}"), last),
+            Recv::Eof => return Reply::Crash("応答の前に標準出力が閉じた".to_string(), last),
+            Recv::Timeout => return Reply::Timeout(worker.rss_kb(), last),
         }
     }
 }
@@ -829,8 +1017,18 @@ pub(crate) struct Summary {
     pub t0_not_finite: usize,
     /// ソルバの別名を置き換えた（GM-I10003）
     pub solver_alias: usize,
-    /// 実行できたモデルのソルバごとの本数
+    /// `auto` で BDF が失敗したので dopri45 で回し直した（GM-I11002。実行できたかを問わない。S012）
+    pub solver_fallbacks: usize,
+    /// 実行できたモデルのソルバごとの本数（GM-I11002 が出たものは `auto → dopri45`）
     pub solvers: BTreeMap<String, usize>,
+    /// 外から止めたものの、ワーカーが最後に報告した段ごとの本数（S012）
+    pub hard_timeouts_by_stage: BTreeMap<String, usize>,
+    /// 時間切れ（GM-E11005）で、長い予算で回し直した本数と、そのうち実行できた・管に収まった本数（S012）
+    pub retried: usize,
+    pub retry_simulated: usize,
+    pub retry_ref_passed: usize,
+    /// 管から外れたもののうち、既知の外れの一覧に載っているもの（合否の数は変えない。S012）
+    pub ref_failed_known: usize,
     /// 参照結果と比べた本数と、その内訳
     pub compared: usize,
     pub ref_passed: usize,
@@ -860,12 +1058,27 @@ pub(crate) struct Summary {
 }
 
 impl Summary {
-    pub(crate) fn from_records(records: &[Record]) -> Self {
+    /// `known` は既知の外れの一覧（モデル → 理由）。
+    pub(crate) fn from_records(records: &[Record], known: &BTreeMap<String, String>) -> Self {
         let mut s = Summary {
             total: records.len(),
             ..Summary::default()
         };
         for r in records {
+            if let Some(first) = &r.first_attempt {
+                // 1 回目の時間も全体の時間に入れる（最大は回し直しの 1 回で見る）
+                s.wall_seconds += first.wall_seconds;
+                s.retried += 1;
+                s.retry_simulated += usize::from(r.outcome.simulated());
+                s.retry_ref_passed += usize::from(r.comparison().is_some_and(|c| c.passed_all()));
+            }
+            if r.outcome == Outcome::HardTimeout {
+                let stage = r.worker_stage.map_or("-", WorkerStage::key);
+                *s.hard_timeouts_by_stage
+                    .entry(stage.to_string())
+                    .or_default() += 1;
+            }
+            s.ref_failed_known += usize::from(r.tube_failed() && known.contains_key(&r.model));
             match r.outcome {
                 Outcome::StopTime => s.stop_time += 1,
                 Outcome::Terminated => s.terminated += 1,
@@ -888,12 +1101,11 @@ impl Summary {
             s.non_finite += usize::from(r.code.as_deref() == Some(codes::RUN_NOT_FINITE));
             s.t0_not_finite += usize::from(r.has_code(codes::T0_NOT_FINITE));
             s.solver_alias += usize::from(r.has_code(codes::SOLVER_ALIAS));
+            s.solver_fallbacks += usize::from(r.has_code(codes::RUN_SOLVER_FALLBACK));
             if r.outcome.simulated()
-                && let Some(settings) = &r.settings
+                && let Some(name) = r.solver_used()
             {
-                *s.solvers
-                    .entry(settings.solver.name().to_string())
-                    .or_default() += 1;
+                *s.solvers.entry(name).or_default() += 1;
             }
             match &r.reference {
                 None => {}
@@ -1019,15 +1231,36 @@ pub(crate) struct Options<'a> {
     pub only: Option<&'a str>,
     pub wall_seconds: f64,
     pub kill_seconds: u64,
+    /// 時間切れ（GM-E11005）になったものだけを回し直す予算（秒。`wall_seconds` 以下なら回し直さない）
+    pub retry_wall_seconds: f64,
     pub reset_every: usize,
     pub solver: Option<&'a str>,
     pub keep_results: Option<&'a Path>,
+    /// 既知の外れの一覧（`src/Modelica/msl-sim-known-deviations.txt`）
+    pub known_deviations: Option<&'a Path>,
+    /// 比べる前回の `msl-sim --json`（S011 の結果など）
+    pub baseline_json: Option<&'a Path>,
     pub report: Option<&'a Path>,
     pub json: Option<&'a Path>,
 }
 
-/// ワーカーに渡す引数。
-fn worker_args(opts: &Options<'_>) -> Vec<OsString> {
+impl Options<'_> {
+    /// 回し直すか
+    fn retries(&self) -> bool {
+        self.retry_wall_seconds > self.wall_seconds
+    }
+
+    /// 回し直しで外から止めるまでの秒（予算 + 60 s）
+    fn retry_kill_seconds(&self) -> u64 {
+        self.retry_wall_seconds.ceil() as u64 + RETRY_KILL_MARGIN
+    }
+}
+
+/// 回し直しで、予算を超えてから外から止めるまでの余裕（秒）。
+const RETRY_KILL_MARGIN: u64 = 60;
+
+/// ワーカーに渡す引数（壁時計の予算は `wall_seconds`）。
+fn worker_args(opts: &Options<'_>, wall_seconds: f64) -> Vec<OsString> {
     let mut args: Vec<OsString> = vec![
         "msl-sim-worker".into(),
         "--msl".into(),
@@ -1035,7 +1268,7 @@ fn worker_args(opts: &Options<'_>) -> Vec<OsString> {
         "--ref-dir".into(),
         opts.ref_dir.into(),
         "--wall-seconds".into(),
-        opts.wall_seconds.to_string().into(),
+        wall_seconds.to_string().into(),
         "--reset-every".into(),
         opts.reset_every.to_string().into(),
         "--tube-tolerance".into(),
@@ -1050,28 +1283,175 @@ fn worker_args(opts: &Options<'_>) -> Vec<OsString> {
     args
 }
 
-/// 対象を選ぶ。partial のモデル（テンプレート）は実行しないので除き、`--only` の後に `--limit` を当てる。
-/// 戻り値は（実行するもの, partial のため実行しないもの）。後者には `--only` だけを当てる。
-pub(crate) fn select(
-    all: &[Target],
-    only: Option<&str>,
-    limit: Option<usize>,
-) -> (Vec<Target>, Vec<String>) {
+/// 対象の選び方の結果。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) struct Selection {
+    /// 実行するもの
+    pub targets: Vec<Target>,
+    /// partial のため実行しないもの
+    pub partial: Vec<String>,
+    /// 例題でないため実行しないもの（[`Target::not_example`]）
+    pub not_example: Vec<String>,
+}
+
+/// 対象を選ぶ。partial のモデル（テンプレート）と例題でないもの（値を与えないと動かない部品）は実行しないので
+/// 除き、`--only` の後に `--limit` を当てる。実行しないものには `--only` だけを当てる。
+pub(crate) fn select(all: &[Target], only: Option<&str>, limit: Option<usize>) -> Selection {
     let matches = |t: &&Target| only.is_none_or(|o| t.model.contains(o));
-    let skipped = all
+    let names = |f: fn(&Target) -> bool| -> Vec<String> {
+        all.iter()
+            .filter(|t| f(t))
+            .filter(matches)
+            .map(|t| t.model.clone())
+            .collect()
+    };
+    Selection {
+        partial: names(|t| t.partial),
+        not_example: names(|t| !t.partial && t.not_example),
+        targets: all
+            .iter()
+            .filter(|t| !t.partial && !t.not_example)
+            .filter(matches)
+            .take(limit.unwrap_or(usize::MAX))
+            .cloned()
+            .collect(),
+    }
+}
+
+/// ワーカーで `models` を 1 本ずつ回す（落ちたり止めたりしたら立て直す）。`label` は進み具合の行の頭。
+fn run_models(
+    exe: &Path,
+    args: &[OsString],
+    models: &[&str],
+    kill_seconds: u64,
+    stats: &mut WorkerStats,
+    label: &str,
+) -> Result<Vec<Record>> {
+    let kill = Duration::from_secs(kill_seconds);
+    let mut worker: Option<Worker> = None;
+    let mut records = Vec::with_capacity(models.len());
+    let width = models.len().to_string().len();
+    for (i, model) in models.iter().enumerate() {
+        let w = match worker.as_mut() {
+            Some(w) => w,
+            None => match start_worker(exe, args, stats) {
+                Ok(w) => worker.insert(w),
+                // 最初の起動の失敗（MSL が読めないなど）はそこで止める
+                Err(e) if stats.spawns == 0 => return Err(e),
+                // 途中で立て直せなければ、残りを異常終了として記録し、そこまでの報告を書く
+                Err(e) => {
+                    println!("ワーカーを立て直せない: {e}");
+                    for m in &models[i..] {
+                        records.push(Record::aborted(
+                            m,
+                            Outcome::Crash,
+                            format!("ワーカーを立て直せない: {e}"),
+                            0.0,
+                            None,
+                        ));
+                    }
+                    break;
+                }
+            },
+        };
+        let t = Instant::now();
+        let reply = request(w, model, kill);
+        let wall = t.elapsed().as_secs_f64();
+        let with_stage = |mut r: Record, at: Option<StageAt>| {
+            if let Some(at) = at {
+                r.worker_stage = Some(at.stage);
+                r.stage_seconds = Some(at.seconds());
+                r.message = format!(
+                    "{}。最後の段: {}（入ってから {:.1} s）",
+                    r.message,
+                    at.stage.label(),
+                    at.seconds()
+                );
+            }
+            r
+        };
+        let record = match reply {
+            Reply::Done(record) => Record {
+                wall_seconds: wall,
+                ..*record
+            },
+            Reply::Timeout(rss, at) => {
+                let status = worker.take().map_or_else(String::new, |mut w| w.stop());
+                stats.kills += 1;
+                with_stage(
+                    Record::aborted(
+                        model,
+                        Outcome::HardTimeout,
+                        format!("{kill_seconds} s で応答が無いので止めた（{status}）"),
+                        wall,
+                        rss,
+                    ),
+                    at,
+                )
+            }
+            Reply::Crash(why, at) => {
+                let status = worker.take().map_or_else(String::new, |mut w| w.stop());
+                stats.crashes += 1;
+                with_stage(
+                    Record::aborted(
+                        model,
+                        Outcome::Crash,
+                        format!("{why}（{status}）"),
+                        wall,
+                        None,
+                    ),
+                    at,
+                )
+            }
+        };
+        println!(
+            "{label}[{:>width$}/{}] {} {}  {}  {wall:.2} s",
+            i + 1,
+            models.len(),
+            record.status(),
+            model,
+            record.reference_cell().replace("**", ""),
+        );
+        if matches!(
+            record.outcome,
+            Outcome::Panic | Outcome::Crash | Outcome::HardTimeout
+        ) {
+            println!("    {}", one_line(&record.message, 300));
+        }
+        let _ = std::io::stdout().flush();
+        records.push(record);
+    }
+    if let Some(w) = worker.take() {
+        w.finish();
+    }
+    Ok(records)
+}
+
+/// 時間切れ（GM-E11005）になったものの位置。
+fn timed_out(records: &[Record]) -> Vec<usize> {
+    records
         .iter()
-        .filter(|t| t.partial)
-        .filter(matches)
-        .map(|t| t.model.clone())
-        .collect();
-    let targets = all
-        .iter()
-        .filter(|t| !t.partial)
-        .filter(matches)
-        .take(limit.unwrap_or(usize::MAX))
-        .cloned()
-        .collect();
-    (targets, skipped)
+        .enumerate()
+        .filter(|(_, r)| r.code.as_deref() == Some(codes::RUN_TIMEOUT))
+        .map(|(i, _)| i)
+        .collect()
+}
+
+/// 回し直した結果で置き換える（1 回目は `first_attempt` に残す）。
+fn merge_retry(records: &mut [Record], at: &[usize], retried: Vec<Record>, wall_budget: f64) {
+    for (&i, r) in at.iter().zip(retried) {
+        let first = &records[i];
+        let first = FirstAttempt {
+            outcome: first.outcome,
+            code: first.code.clone(),
+            wall_budget,
+            wall_seconds: first.wall_seconds,
+        };
+        records[i] = Record {
+            first_attempt: Some(first),
+            ..r
+        };
+    }
 }
 
 pub(crate) fn msl_sim(opts: &Options<'_>) -> Result<ExitCode> {
@@ -1083,16 +1463,40 @@ pub(crate) fn msl_sim(opts: &Options<'_>) -> Result<ExitCode> {
     }
     let started = SystemTime::now();
     let t_all = Instant::now();
+    let known = load_known_deviations(opts.known_deviations)?;
+    // 前回の結果は、この実行が同じファイルに書く前に読む
+    let baseline = match opts.baseline_json {
+        Some(p) if !p.exists() => {
+            println!(
+                "注意: 前回の結果 {} が無い。前回との差は書かない",
+                p.display()
+            );
+            None
+        }
+        Some(p) => Some(Baseline::load(p)?),
+        None => None,
+    };
     let all = funnel_ok_models(opts.funnel_json)?;
-    let (targets, skipped_partial) = select(&all, opts.only, opts.limit);
+    let selection = select(&all, opts.only, opts.limit);
+    let targets = &selection.targets;
     println!(
-        "{} の OK {} 本のうち {} 本を実行する（partial のため実行しない {} 本。壁時計の予算 {} s、外から止める {} s）",
+        "{} の OK {} 本のうち {} 本を実行する（partial のため実行しない {} 本・例題でないため実行しない {} 本。壁時計の予算 {} s、外から止める {} s。時間切れの回し直し {}）",
         opts.funnel_json.display(),
         all.len(),
         targets.len(),
-        skipped_partial.len(),
+        selection.partial.len(),
+        selection.not_example.len(),
         opts.wall_seconds,
-        opts.kill_seconds
+        opts.kill_seconds,
+        if opts.retries() {
+            format!(
+                "予算 {} s・外から止める {} s",
+                opts.retry_wall_seconds,
+                opts.retry_kill_seconds()
+            )
+        } else {
+            "しない".to_string()
+        }
     );
     let fetch = if opts.fetch_ref {
         let models: Vec<String> = targets.iter().map(|t| t.model.clone()).collect();
@@ -1111,99 +1515,65 @@ pub(crate) fn msl_sim(opts: &Options<'_>) -> Result<ExitCode> {
 
     let exe =
         std::env::current_exe().map_err(|e| format!("自分の実行ファイルが分からない: {e}"))?;
-    let args = worker_args(opts);
-    let kill = Duration::from_secs(opts.kill_seconds);
     let mut stats = WorkerStats::default();
-    let mut worker: Option<Worker> = None;
-    let mut records = Vec::with_capacity(targets.len());
-    let width = targets.len().to_string().len();
-    for (i, target) in targets.iter().enumerate() {
-        let w = match worker.as_mut() {
-            Some(w) => w,
-            None => match start_worker(&exe, &args, &mut stats) {
-                Ok(w) => worker.insert(w),
-                // 最初の起動の失敗（MSL が読めないなど）はそこで止める
-                Err(e) if stats.spawns == 0 => return Err(e),
-                // 途中で立て直せなければ、残りを異常終了として記録し、そこまでの報告を書く
-                Err(e) => {
-                    println!("ワーカーを立て直せない: {e}");
-                    for t in &targets[i..] {
-                        records.push(Record::aborted(
-                            &t.model,
-                            Outcome::Crash,
-                            format!("ワーカーを立て直せない: {e}"),
-                            0.0,
-                            None,
-                        ));
-                    }
-                    break;
-                }
-            },
-        };
-        let t = Instant::now();
-        let reply = request(w, &target.model, kill);
-        let wall = t.elapsed().as_secs_f64();
-        let record = match reply {
-            Reply::Done(record) => Record {
-                wall_seconds: wall,
-                ..*record
-            },
-            Reply::Timeout(rss) => {
-                let status = worker.take().map_or_else(String::new, |mut w| w.stop());
-                stats.kills += 1;
-                Record::aborted(
-                    &target.model,
-                    Outcome::HardTimeout,
-                    format!("{} s で応答が無いので止めた（{status}）", opts.kill_seconds),
-                    wall,
-                    rss,
-                )
-            }
-            Reply::Crash(why) => {
-                let status = worker.take().map_or_else(String::new, |mut w| w.stop());
-                stats.crashes += 1;
-                Record::aborted(
-                    &target.model,
-                    Outcome::Crash,
-                    format!("{why}（{status}）"),
-                    wall,
-                    None,
-                )
-            }
-        };
+    let models: Vec<&str> = targets.iter().map(|t| t.model.as_str()).collect();
+    let mut records = run_models(
+        &exe,
+        &worker_args(opts, opts.wall_seconds),
+        &models,
+        opts.kill_seconds,
+        &mut stats,
+        "",
+    )?;
+    let retry_at = if opts.retries() {
+        timed_out(&records)
+    } else {
+        Vec::new()
+    };
+    if !retry_at.is_empty() {
         println!(
-            "[{:>width$}/{}] {} {}  {}  {wall:.2} s",
-            i + 1,
-            targets.len(),
-            record.status(),
-            target.model,
-            record.reference_cell().replace("**", ""),
+            "時間切れ（{}）の {} 本を、予算 {} s（外から止める {} s）で回し直す",
+            codes::RUN_TIMEOUT,
+            retry_at.len(),
+            opts.retry_wall_seconds,
+            opts.retry_kill_seconds()
         );
-        if matches!(
-            record.outcome,
-            Outcome::Panic | Outcome::Crash | Outcome::HardTimeout
-        ) {
-            println!("    {}", one_line(&record.message, 300));
-        }
-        let _ = std::io::stdout().flush();
-        records.push(record);
-    }
-    if let Some(w) = worker.take() {
-        w.finish();
+        let models: Vec<&str> = retry_at
+            .iter()
+            .map(|&i| records[i].model.as_str())
+            .collect();
+        let retried = run_models(
+            &exe,
+            &worker_args(opts, opts.retry_wall_seconds),
+            &models,
+            opts.retry_kill_seconds(),
+            &mut stats,
+            "回し直し ",
+        )?;
+        merge_retry(&mut records, &retry_at, retried, opts.wall_seconds);
     }
 
-    let summary = Summary::from_records(&records);
+    let summary = Summary::from_records(&records, &known);
     let run = RunInfo {
         opts,
         started,
         enumerated: all.len(),
-        skipped_partial,
+        skipped_partial: selection.partial,
+        skipped_not_example: selection.not_example,
+        known,
+        baseline,
         fetch,
         workers: stats,
         total_seconds: t_all.elapsed().as_secs_f64(),
     };
     println!("{}", summary_line(&summary));
     println!("{}", reference_line(&summary));
+    if opts.retries() {
+        println!("{}", retry_line(&summary, opts));
+    }
+    if let Some(b) = &run.baseline {
+        println!("{}", b.diff(&records).line());
+    }
     println!("P3: {}", p3_line(&summary).replace("**", ""));
     println!("時間: {}", time_line(&summary, &run));
     if let Some(path) = opts.report {
@@ -1223,6 +1593,180 @@ pub(crate) fn msl_sim(opts: &Options<'_>) -> Result<ExitCode> {
     })
 }
 
+// --------------------------------------------------------------------------- 前回との比較
+
+/// 前回の結果（`msl-sim --json`）の 1 本。形が変わっても読めるよう、要る欄だけを JSON から拾う。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+struct BaseModel {
+    stop_time: bool,
+    simulated: bool,
+    compared: bool,
+    passed: bool,
+}
+
+impl BaseModel {
+    fn of_record(r: &Record) -> Self {
+        let c = r.comparison();
+        BaseModel {
+            stop_time: r.outcome == Outcome::StopTime,
+            simulated: r.outcome.simulated(),
+            compared: c.is_some(),
+            passed: c.is_some_and(CompareSummary::passed_all),
+        }
+    }
+
+    fn of_json(m: &Value) -> Option<(String, Self)> {
+        let model = m.get("model")?.as_str()?.to_string();
+        let outcome = m.get("outcome")?.as_str()?;
+        let reference = m.get("reference");
+        let compared = reference
+            .and_then(|r| r.get("kind"))
+            .and_then(Value::as_str)
+            == Some("compared");
+        let count = |k: &str| {
+            reference
+                .and_then(|r| r.pointer(&format!("/comparison/{k}")))
+                .and_then(Value::as_u64)
+        };
+        let passed = compared
+            && matches!((count("signals"), count("passed")), (Some(n), Some(p)) if n > 0 && n == p);
+        Some((
+            model,
+            BaseModel {
+                stop_time: outcome == "stop_time",
+                simulated: matches!(outcome, "stop_time" | "terminated"),
+                compared,
+                passed,
+            },
+        ))
+    }
+}
+
+/// 前回の結果（`--baseline-json`）。
+#[derive(Debug, Clone, PartialEq, Default)]
+pub(crate) struct Baseline {
+    path: PathBuf,
+    started: String,
+    models: BTreeMap<String, BaseModel>,
+}
+
+impl Baseline {
+    fn load(path: &Path) -> Result<Baseline> {
+        let text = fs::read_to_string(path)
+            .map_err(|e| format!("前回の結果 {} を読めない: {e}", path.display()))?;
+        let root: Value = serde_json::from_str(&text)
+            .map_err(|e| format!("{} の JSON が壊れている: {e}", path.display()))?;
+        Baseline::from_json(path, &root)
+            .ok_or_else(|| format!("{} に models が無い", path.display()))
+    }
+
+    fn from_json(path: &Path, root: &Value) -> Option<Baseline> {
+        Some(Baseline {
+            path: path.to_path_buf(),
+            started: root
+                .get("started")
+                .and_then(Value::as_str)
+                .unwrap_or("-")
+                .to_string(),
+            models: root
+                .get("models")?
+                .as_array()?
+                .iter()
+                .filter_map(BaseModel::of_json)
+                .collect(),
+        })
+    }
+
+    /// この実行と比べる（両方にあるモデルだけで数える）。
+    fn diff(&self, records: &[Record]) -> BaselineDiff {
+        let mut d = BaselineDiff {
+            baseline_total: self.models.len(),
+            ..BaselineDiff::default()
+        };
+        for r in records {
+            let Some(before) = self.models.get(&r.model) else {
+                d.not_in_baseline += 1;
+                continue;
+            };
+            let now = BaseModel::of_record(r);
+            d.common += 1;
+            for (count, b, n) in [
+                (&mut d.stop_time, before.stop_time, now.stop_time),
+                (&mut d.simulated, before.simulated, now.simulated),
+                (&mut d.compared, before.compared, now.compared),
+                (&mut d.passed, before.passed, now.passed),
+            ] {
+                count.0 += usize::from(b);
+                count.1 += usize::from(n);
+            }
+            let name = r.model.clone();
+            match (before.simulated, now.simulated) {
+                (false, true) => d.newly_simulated.push(name.clone()),
+                (true, false) => d.no_longer_simulated.push(name.clone()),
+                _ => {}
+            }
+            match (before.passed, now.passed) {
+                (false, true) => d.newly_passed.push(name),
+                (true, false) => d.no_longer_passed.push(name),
+                _ => {}
+            }
+        }
+        d
+    }
+}
+
+/// 前回との差（両方にあるモデルで、（前回, この実行）の本数）。
+#[derive(Debug, Clone, PartialEq, Default, Serialize)]
+pub(crate) struct BaselineDiff {
+    /// 前回の結果の本数（全部）
+    pub baseline_total: usize,
+    /// 両方にあるモデル
+    pub common: usize,
+    /// この実行にあって前回に無いモデル
+    pub not_in_baseline: usize,
+    pub stop_time: (usize, usize),
+    pub simulated: (usize, usize),
+    pub compared: (usize, usize),
+    pub passed: (usize, usize),
+    pub newly_simulated: Vec<String>,
+    pub no_longer_simulated: Vec<String>,
+    pub newly_passed: Vec<String>,
+    pub no_longer_passed: Vec<String>,
+}
+
+fn signed(before: usize, now: usize) -> String {
+    match now.cmp(&before) {
+        std::cmp::Ordering::Greater => format!("+{}", now - before),
+        std::cmp::Ordering::Less => format!("−{}", before - now),
+        std::cmp::Ordering::Equal => "±0".to_string(),
+    }
+}
+
+impl BaselineDiff {
+    fn line(&self) -> String {
+        let pair = |(b, n): (usize, usize)| format!("{b} → {n}（{}）", signed(b, n));
+        format!(
+            "前回との差（両方にある {} 本で）: 終了時刻まで {}・実行できた {}・管に収まった {}（比べた {}）",
+            self.common,
+            pair(self.stop_time),
+            pair(self.simulated),
+            pair(self.passed),
+            pair(self.compared)
+        )
+    }
+}
+
+fn retry_line(s: &Summary, opts: &Options<'_>) -> String {
+    format!(
+        "時間切れ（{}）の回し直し（予算 {} s）: {} 本のうち実行できた {}・管に収まった {}",
+        codes::RUN_TIMEOUT,
+        opts.retry_wall_seconds,
+        s.retried,
+        s.retry_simulated,
+        s.retry_ref_passed
+    )
+}
+
 // --------------------------------------------------------------------------- 報告
 
 /// 報告に書く実行の情報。
@@ -1234,6 +1778,12 @@ struct RunInfo<'a> {
     enumerated: usize,
     /// partial（テンプレート）のため実行しないモデル（`--only` を当てた後）
     skipped_partial: Vec<String>,
+    /// 例題でないため実行しないモデル（`--only` を当てた後）
+    skipped_not_example: Vec<String>,
+    /// 既知の外れの一覧（モデル → 理由）
+    known: BTreeMap<String, String>,
+    /// 前回の結果（`--baseline-json`）
+    baseline: Option<Baseline>,
     fetch: Option<reference::FetchStats>,
     workers: WorkerStats,
     /// 全体の壁時計（参照結果の取得を含む）
@@ -1389,6 +1939,13 @@ fn render_report(records: &[Record], s: &Summary, run: &RunInfo<'_>) -> String {
         "| partial のため実行しない | {} 本（例題のテンプレートの partial なクラス。対象に数えない。名前は「partial のため実行しないモデル」の節） |",
         run.skipped_partial.len()
     );
+    let _ = writeln!(
+        md,
+        "| 例題でないため実行しない | {} 本（experiment annotation が無く（{}）、値の無い入力かパラメータがある（{}）クラス。対象に数えない。名前は「例題でないため実行しないモデル」の節） |",
+        run.skipped_not_example.len(),
+        codes::EXPERIMENT_MISSING,
+        codes::PARAMETER_WITHOUT_VALUE
+    );
     let fetch = run.fetch.as_ref().map_or_else(
         || "（この実行では取得していない）".to_string(),
         |f| format!("。この実行での取得: {}", f.line()),
@@ -1411,12 +1968,34 @@ fn render_report(records: &[Record], s: &Summary, run: &RunInfo<'_>) -> String {
     let _ = writeln!(
         md,
         "| 実行の設定 | StartTime・StopTime・Interval・Tolerance は experiment annotation（無い項目は既定値: StartTime 0、StopTime は開始 + 1、Tolerance 1e-6、Interval は区間の 1/500）。ソルバは{}（実行できたもの: {solvers}）。壁時計の予算 {} s（協調型。超えると {}）。応答が {} s 無ければ親がワーカーを止める |",
-        opts.solver.map_or("既定（bdf）".to_string(), |x| format!(
-            " `--solver {x}`"
-        )),
+        opts.solver
+            .map_or("既定（実行系の既定）".to_string(), |x| format!(
+                " `--solver {x}`"
+            )),
         opts.wall_seconds,
         codes::RUN_TIMEOUT,
         opts.kill_seconds
+    );
+    let _ = writeln!(
+        md,
+        "| 時間切れの回し直し | {} |",
+        if opts.retries() {
+            format!(
+                "時間切れ（{}）になったものだけを、予算 {} s・応答が {} s 無ければ外から止める設定でもう一度回す（1 回目は JSON の `first_attempt`）",
+                codes::RUN_TIMEOUT,
+                opts.retry_wall_seconds,
+                opts.retry_kill_seconds()
+            )
+        } else {
+            "しない".to_string()
+        }
+    );
+    let _ = writeln!(
+        md,
+        "| 既知の外れの一覧 | {}（{} 本。管の外れのうち一覧にあるものを分けて数える。合否の数は変えない） |",
+        opts.known_deviations
+            .map_or("-".to_string(), |p| format!("`{}`", p.display())),
+        run.known.len()
     );
     let _ = writeln!(
         md,
@@ -1434,6 +2013,12 @@ fn render_report(records: &[Record], s: &Summary, run: &RunInfo<'_>) -> String {
     );
     let _ = writeln!(md, "| 結果 | **{}** |", summary_line(s));
     let _ = writeln!(md, "| 参照結果との比較 | {} |", reference_line(s));
+    if opts.retries() {
+        let _ = writeln!(md, "| 回し直し | {} |", retry_line(s, opts));
+    }
+    if let Some(b) = &run.baseline {
+        let _ = writeln!(md, "| 前回との差 | {} |", b.diff(records).line());
+    }
     let _ = writeln!(md, "| P3 の完了条件 | {} |\n", p3_line(s));
 
     let _ = writeln!(md, "## 集計\n");
@@ -1442,6 +2027,10 @@ fn render_report(records: &[Record], s: &Summary, run: &RunInfo<'_>) -> String {
         (
             "partial のため実行しない（対象に数えない）".to_string(),
             run.skipped_partial.len(),
+        ),
+        (
+            "例題でないため実行しない（対象に数えない）".to_string(),
+            run.skipped_not_example.len(),
         ),
         ("対象".to_string(), s.total),
         ("終了時刻まで実行できた".to_string(), s.stop_time),
@@ -1471,6 +2060,11 @@ fn render_report(records: &[Record], s: &Summary, run: &RunInfo<'_>) -> String {
             s.non_finite,
         ),
         (
+            format!("時間切れで回し直した（予算 {} s）", opts.retry_wall_seconds),
+            s.retried,
+        ),
+        ("うち回し直して実行できた".to_string(), s.retry_simulated),
+        (
             format!("外から止めた（{} s で応答が無い）", opts.kill_seconds),
             s.hard_timeouts,
         ),
@@ -1483,6 +2077,13 @@ fn render_report(records: &[Record], s: &Summary, run: &RunInfo<'_>) -> String {
         (
             format!("ソルバの別名を置き換えた（{}）", codes::SOLVER_ALIAS),
             s.solver_alias,
+        ),
+        (
+            format!(
+                "auto で BDF が失敗し dopri45 で回し直した（{}）",
+                codes::RUN_SOLVER_FALLBACK
+            ),
+            s.solver_fallbacks,
         ),
     ] {
         let _ = writeln!(md, "| {label} | {n} |");
@@ -1502,6 +2103,36 @@ fn render_report(records: &[Record], s: &Summary, run: &RunInfo<'_>) -> String {
         let _ = writeln!(md);
     }
 
+    if !s.hard_timeouts_by_stage.is_empty() {
+        let _ = writeln!(md, "### 外から止めたモデルの段\n");
+        let _ = writeln!(
+            md,
+            "ワーカーが最後に報告した段。実行系の中（S10・lowering と組み立て・初期化・積分）はワーカーからは分けられない。\n"
+        );
+        let _ = writeln!(md, "| 段 | 本数 |\n| --- | ---: |");
+        for (stage, n) in &s.hard_timeouts_by_stage {
+            let label = [
+                WorkerStage::Compile,
+                WorkerStage::Exec,
+                WorkerStage::Compare,
+            ]
+            .into_iter()
+            .find(|w| w.key() == stage)
+            .map_or("（段の報告の前）", WorkerStage::label);
+            let _ = writeln!(md, "| {label} | {n} |");
+        }
+        let _ = writeln!(md);
+    }
+
+    if !s.solvers.is_empty() {
+        let _ = writeln!(md, "### 実行できたモデルのソルバ\n");
+        let _ = writeln!(md, "| ソルバ | 本数 |\n| --- | ---: |");
+        for (k, v) in &s.solvers {
+            let _ = writeln!(md, "| {k} | {v} |");
+        }
+        let _ = writeln!(md);
+    }
+
     let _ = writeln!(md, "### 参照結果との比較\n");
     let _ = writeln!(md, "| 項目 | 本数 |\n| --- | ---: |");
     for (label, n) in [
@@ -1509,6 +2140,11 @@ fn render_report(records: &[Record], s: &Summary, run: &RunInfo<'_>) -> String {
         ("うち参照結果と比べた", s.compared),
         ("**管に収まった（すべての信号）**", s.ref_passed),
         ("管から外れた信号がある", s.ref_failed),
+        ("うち既知の外れ（一覧にある）", s.ref_failed_known),
+        (
+            "うち既知の外れを除いたもの",
+            s.ref_failed - s.ref_failed_known.min(s.ref_failed),
+        ),
         ("外れは無いが、どちらかに無い信号がある", s.ref_missing_only),
         (
             "試験側に無い信号がある（外れの有無を問わず）",
@@ -1573,6 +2209,10 @@ fn render_report(records: &[Record], s: &Summary, run: &RunInfo<'_>) -> String {
         "| OpenModelica master（2026-10-17 の実行、MSL 4.1.0） | 533 | - | 510（verified） | MAP-LIB の参照結果との照合 | [libraries.openmodelica.org](https://libraries.openmodelica.org/branches/master/Modelica_4.1.0/Modelica_4.1.0.html)（2026-10-19） |\n"
     );
 
+    if let Some(b) = &run.baseline {
+        render_baseline(&mut md, b, records);
+    }
+
     let _ = writeln!(md, "## 時間とメモリ\n");
     let _ = writeln!(md, "| 項目 | 値 |\n| --- | --- |");
     let _ = writeln!(md, "| 時間 | {} |", time_line(s, run));
@@ -1590,18 +2230,68 @@ fn render_report(records: &[Record], s: &Summary, run: &RunInfo<'_>) -> String {
     } else {
         let _ = writeln!(
             md,
-            "| # | モデル | 結果 | 段階 | コード | 文言（先頭） | 秒 |\n| ---: | --- | --- | --- | --- | --- | ---: |"
+            "「段階」は最初の Error の段階。外から止めたものと落ちたものは、ワーカーが最後に報告した段。「補足」は最初の Error の補足（Rumoca の文言など。全文は JSON の `notes`）。\n"
+        );
+        let _ = writeln!(
+            md,
+            "| # | モデル | 結果 | 段階 | コード | 文言（先頭） | 補足（先頭） | 秒 |\n| ---: | --- | --- | --- | --- | --- | --- | ---: |"
         );
         for (i, r) in failures.iter().enumerate() {
+            let stage = match (&r.stage, r.worker_stage) {
+                (Some(x), _) => x.clone(),
+                (None, Some(w)) => {
+                    format!("{}（{:.0} s）", w.label(), r.stage_seconds.unwrap_or(0.0))
+                }
+                (None, None) => "-".to_string(),
+            };
+            let notes = if r.notes.is_empty() {
+                "-".to_string()
+            } else {
+                md_cell(&r.notes.join(" / "), 200)
+            };
             let _ = writeln!(
                 md,
-                "| {} | `{}` | {} | {} | {} | {} | {:.2} |",
+                "| {} | `{}` | {} | {} | {} | {} | {notes} | {:.2} |",
                 i + 1,
                 short(&r.model),
                 r.outcome.label(),
-                r.stage.as_deref().unwrap_or("-"),
+                md_cell(&stage, 80),
                 r.code.as_deref().unwrap_or("-"),
                 md_cell(&r.message, 160),
+                r.wall_seconds
+            );
+        }
+        let _ = writeln!(md);
+    }
+
+    let retried: Vec<&Record> = records
+        .iter()
+        .filter(|r| r.first_attempt.is_some())
+        .collect();
+    if !retried.is_empty() {
+        let _ = writeln!(md, "## 時間切れで回し直したモデル\n");
+        let _ = writeln!(
+            md,
+            "| # | モデル | 1 回目（予算・秒） | 回し直し | 参照結果 | 秒 |\n| ---: | --- | --- | --- | --- | ---: |"
+        );
+        for (i, r) in retried.iter().enumerate() {
+            let first = r.first_attempt.as_ref().map_or("-".to_string(), |f| {
+                format!(
+                    "{} {}（{} s・{:.1} s）",
+                    f.outcome.label(),
+                    f.code.as_deref().unwrap_or(""),
+                    f.wall_budget,
+                    f.wall_seconds
+                )
+            });
+            let _ = writeln!(
+                md,
+                "| {} | `{}` | {} | {} | {} | {:.2} |",
+                i + 1,
+                short(&r.model),
+                md_cell(&first, 80),
+                r.status(),
+                r.reference_cell(),
                 r.wall_seconds
             );
         }
@@ -1622,18 +2312,42 @@ fn render_report(records: &[Record], s: &Summary, run: &RunInfo<'_>) -> String {
         );
         let _ = writeln!(
             md,
-            "| # | モデル | 合格 / 信号 | 外れた信号 |\n| ---: | --- | --- | --- |"
+            "| # | モデル | 合格 / 信号 | 外れた信号 | 既知の外れ |\n| ---: | --- | --- | --- | --- |"
         );
         for (i, (r, c)) in off.iter().enumerate() {
             let _ = writeln!(
                 md,
-                "| {} | `{}` | {}/{} | {} |",
+                "| {} | `{}` | {}/{} | {} | {} |",
                 i + 1,
                 short(&r.model),
                 c.passed,
                 c.signals,
-                failed_signals_cell(c, 5)
+                failed_signals_cell(c, 5),
+                run.known
+                    .get(&r.model)
+                    .map_or("-".to_string(), |why| format!(
+                        "**既知**: {}",
+                        md_cell(why, 160)
+                    ))
             );
+        }
+        let _ = writeln!(md);
+    }
+
+    let _ = writeln!(md, "## 既知の外れの一覧\n");
+    if run.known.is_empty() {
+        let _ = writeln!(md, "（無い）\n");
+    } else {
+        let _ = writeln!(
+            md,
+            "| モデル | この実行 | 理由と出典 |\n| --- | --- | --- |"
+        );
+        for (model, why) in &run.known {
+            let now = records
+                .iter()
+                .find(|r| &r.model == model)
+                .map_or("（対象に無い）".to_string(), Record::reference_cell);
+            let _ = writeln!(md, "| `{}` | {now} | {} |", short(model), md_cell(why, 300));
         }
         let _ = writeln!(md);
     }
@@ -1647,6 +2361,20 @@ fn render_report(records: &[Record], s: &Summary, run: &RunInfo<'_>) -> String {
             "`msl-funnel` では OK だが、partial なクラス（例題のテンプレート）なので実行しない。\n"
         );
         for m in &run.skipped_partial {
+            let _ = writeln!(md, "- `{}`", short(m));
+        }
+        let _ = writeln!(md);
+    }
+
+    let _ = writeln!(md, "## 例題でないため実行しないモデル\n");
+    if run.skipped_not_example.is_empty() {
+        let _ = writeln!(md, "（無い）\n");
+    } else {
+        let _ = writeln!(
+            md,
+            "`msl-funnel` では OK だが、experiment annotation が無く、値の無い入力かパラメータがあるので、値を与えないと実行できない部品とみなして実行しない。\n"
+        );
+        for m in &run.skipped_not_example {
             let _ = writeln!(md, "- `{}`", short(m));
         }
         let _ = writeln!(md);
@@ -1691,12 +2419,58 @@ fn render_report(records: &[Record], s: &Summary, run: &RunInfo<'_>) -> String {
             i + 1,
             short(&r.model),
             r.outcome.label(),
-            r.settings.as_ref().map_or("-", |x| x.solver.name()),
+            r.solver_used().unwrap_or_else(|| "-".to_string()),
             r.reference_cell(),
             r.wall_seconds
         );
     }
     md
+}
+
+/// 前回との差の節。
+fn render_baseline(md: &mut String, b: &Baseline, records: &[Record]) {
+    let d = b.diff(records);
+    let _ = writeln!(md, "## 前回の結果との差\n");
+    let _ = writeln!(
+        md,
+        "前回の結果 `{}`（{}、{} 本）と、両方にある {} 本で比べる（この実行にあって前回に無いもの {} 本）。\n",
+        b.path.display(),
+        b.started,
+        d.baseline_total,
+        d.common,
+        d.not_in_baseline
+    );
+    let _ = writeln!(
+        md,
+        "| 項目 | 前回 | この実行 | 差 |\n| --- | ---: | ---: | ---: |"
+    );
+    for (label, (before, now)) in [
+        ("終了時刻まで進んだ", d.stop_time),
+        ("実行できた（terminate を含む）", d.simulated),
+        ("参照結果と比べた", d.compared),
+        ("**管に収まった**", d.passed),
+    ] {
+        let _ = writeln!(
+            md,
+            "| {label} | {before} | {now} | {} |",
+            signed(before, now)
+        );
+    }
+    let _ = writeln!(md);
+    for (label, names) in [
+        ("新しく実行できた", &d.newly_simulated),
+        ("実行できなくなった", &d.no_longer_simulated),
+        ("新しく管に収まった", &d.newly_passed),
+        ("管に収まらなくなった", &d.no_longer_passed),
+    ] {
+        if names.is_empty() {
+            let _ = writeln!(md, "- {label}: 無い");
+        } else {
+            let list: Vec<String> = names.iter().map(|m| format!("`{}`", short(m))).collect();
+            let _ = writeln!(md, "- {label}（{} 本）: {}", names.len(), list.join("、"));
+        }
+    }
+    let _ = writeln!(md);
 }
 
 fn render_json(records: &[Record], s: &Summary, run: &RunInfo<'_>) -> Value {
@@ -1710,6 +2484,13 @@ fn render_json(records: &[Record], s: &Summary, run: &RunInfo<'_>) -> Value {
         "funnel_json": opts.funnel_json.display().to_string(),
         "funnel_ok": run.enumerated,
         "skipped_partial": run.skipped_partial,
+        "skipped_not_example": run.skipped_not_example,
+        "known_deviations": run.known,
+        "baseline": run.baseline.as_ref().map(|b| json!({
+            "path": b.path.display().to_string(),
+            "started": b.started,
+            "diff": b.diff(records),
+        })),
         "reference": {
             "repo": MAP_LIB_REPO,
             "branch": MAP_LIB_BRANCH,
@@ -1729,6 +2510,9 @@ fn render_json(records: &[Record], s: &Summary, run: &RunInfo<'_>) -> Value {
         "settings": {
             "wall_seconds": opts.wall_seconds,
             "kill_seconds": opts.kill_seconds,
+            "retry_wall_seconds": opts.retries().then_some(opts.retry_wall_seconds),
+            "retry_kill_seconds": opts.retries().then(|| opts.retry_kill_seconds()),
+            "known_deviations": opts.known_deviations.map(|p| p.display().to_string()),
             "reset_every": opts.reset_every,
             "solver": opts.solver,
             "tube_tolerance": TubeOptions::default().tolerance,
@@ -1774,12 +2558,15 @@ mod tests {
             interval: 0.002,
             solver: SolverId::Bdf,
             max_wall_seconds: Some(30.0),
+            step: None,
+            parameters: Default::default(),
             origins: SettingOrigins {
                 start_time: o,
                 stop_time: o,
                 tolerance: o,
                 interval: o,
                 solver: SettingOrigin::Default,
+                step: None,
             },
         }
     }
@@ -1793,6 +2580,7 @@ mod tests {
                 name: "x".into(),
                 role: globe_mode_ir::VariableRole::State,
                 unit: None,
+                description: None,
                 values: vec![1.0, 2.0],
             }],
         };
@@ -1978,7 +2766,7 @@ mod tests {
 
     #[test]
     fn summary_counts_outcomes_and_references() {
-        let s = Summary::from_records(&records());
+        let s = Summary::from_records(&records(), &BTreeMap::new());
         assert_eq!(s.total, 12);
         assert_eq!((s.stop_time, s.terminated, s.simulated()), (4, 1, 5));
         assert_eq!(
@@ -2005,8 +2793,37 @@ mod tests {
 
     #[test]
     fn report_shows_counts_and_tables() {
-        let records = records();
-        let s = Summary::from_records(&records);
+        let mut records = records();
+        // 時間切れから回し直して通ったもの・実行系の中で外から止めたもの・補足のある失敗・auto の切り替え
+        records[0].first_attempt = Some(FirstAttempt {
+            outcome: Outcome::RunFailed,
+            code: Some(codes::RUN_TIMEOUT.to_string()),
+            wall_budget: 30.0,
+            wall_seconds: 30.5,
+        });
+        records[1]
+            .codes
+            .push(codes::RUN_SOLVER_FALLBACK.to_string());
+        if let Some(x) = records[1].settings.as_mut() {
+            x.solver = globe_mode_ir::SolverId::Auto;
+        }
+        records[7].notes = vec!["rumoca: [EL005] structurally | singular".into()];
+        records[9].worker_stage = Some(WorkerStage::Exec);
+        records[9].stage_seconds = Some(115.0);
+        let known: BTreeMap<String, String> = [(
+            "Modelica.A.Examples.Off".to_string(),
+            "解析解が 0 の信号（Rumoca の除外の一覧）".to_string(),
+        )]
+        .into();
+        let s = Summary::from_records(&records, &known);
+        assert_eq!(
+            (s.retried, s.retry_simulated, s.retry_ref_passed),
+            (1, 1, 1)
+        );
+        assert_eq!((s.ref_failed, s.ref_failed_known), (1, 1));
+        assert_eq!(s.solver_fallbacks, 1);
+        assert_eq!(s.solvers.get("auto → dopri45"), Some(&1));
+        assert_eq!(s.hard_timeouts_by_stage.get("exec"), Some(&1));
         let opts = Options {
             funnel_json: Path::new("target/msl-funnel.json"),
             msl: Path::new("data/msl"),
@@ -2017,17 +2834,47 @@ mod tests {
             only: None,
             wall_seconds: 30.0,
             kill_seconds: 120,
+            retry_wall_seconds: 180.0,
             reset_every: 50,
-            solver: None,
+            solver: Some("auto"),
             keep_results: None,
+            known_deviations: Some(Path::new("src/Modelica/msl-sim-known-deviations.txt")),
+            baseline_json: None,
             report: None,
             json: None,
         };
+        // 前回: Pass は外れ、Off は通っていた、Slow は実行できていた
+        let baseline = Baseline::from_json(
+            Path::new("target/msl-sim.json"),
+            &serde_json::json!({
+                "started": "2026-10-19 07:00 UTC",
+                "models": [
+                    {"model": "Modelica.A.Examples.Pass", "outcome": "stop_time",
+                     "reference": {"kind": "compared", "comparison": {"signals": 2, "passed": 1}}},
+                    {"model": "Modelica.A.Examples.Off", "outcome": "stop_time",
+                     "reference": {"kind": "compared", "comparison": {"signals": 2, "passed": 2}}},
+                    {"model": "Modelica.A.Examples.Slow", "outcome": "terminated"},
+                    {"model": "Modelica.A.Examples.Gone", "outcome": "stop_time"}
+                ]
+            }),
+        )
+        .unwrap();
+        let d = baseline.diff(&records);
+        assert_eq!((d.baseline_total, d.common, d.not_in_baseline), (4, 3, 9));
+        assert_eq!(d.stop_time, (2, 2));
+        assert_eq!(d.simulated, (3, 2));
+        assert_eq!(d.passed, (1, 1));
+        assert_eq!(d.newly_passed, ["Modelica.A.Examples.Pass"]);
+        assert_eq!(d.no_longer_passed, ["Modelica.A.Examples.Off"]);
+        assert_eq!(d.no_longer_simulated, ["Modelica.A.Examples.Slow"]);
         let run = RunInfo {
             opts: &opts,
             started: UNIX_EPOCH + Duration::from_secs(1_792_368_000),
             enumerated: 369,
             skipped_partial: vec!["Modelica.A.Examples.ExampleTemplates.T".into()],
+            skipped_not_example: vec!["Modelica.A.Examples.Utilities.Limiter".into()],
+            known,
+            baseline: Some(baseline),
             fetch: None,
             workers: WorkerStats {
                 spawns: 3,
@@ -2063,6 +2910,30 @@ mod tests {
             "| partial のため実行しない | 1 本",
             "| partial のため実行しない（対象に数えない） | 1 |",
             "- `A.Examples.ExampleTemplates.T`",
+            "| 例題でないため実行しない（対象に数えない） | 1 |",
+            "- `A.Examples.Utilities.Limiter`",
+            "| 時間切れで回し直した（予算 180 s） | 1 |",
+            "| うち回し直して実行できた | 1 |",
+            "回し直し（予算 180 s）: 1 本のうち実行できた 1・管に収まった 1",
+            "| auto で BDF が失敗し dopri45 で回し直した（GM-I11002） | 1 |",
+            "| auto → dopri45 | 1 |",
+            "| 実行系（S10・lowering と組み立て・初期化・積分） | 1 |",
+            "| 実行系（S10・lowering と組み立て・初期化・積分）（115 s） |",
+            "rumoca: [EL005] structurally \\| singular",
+            "| うち既知の外れ（一覧にある） | 1 |",
+            "| うち既知の外れを除いたもの | 0 |",
+            "**既知**: 解析解が 0 の信号（Rumoca の除外の一覧）",
+            "| `A.Examples.Off` | **管 NG** 1/2（外れ 1） | 解析解が 0 の信号（Rumoca の除外の一覧） |",
+            "## 時間切れで回し直したモデル",
+            "| 1 | `A.Examples.Pass` | 実行 NG GM-E11005（30 s・30.5 s） | 終了時刻まで | 管 OK 2/2 |",
+            "## 前回の結果との差",
+            "| 実行できた（terminate を含む） | 3 | 2 | −1 |",
+            "| **管に収まった** | 1 | 1 | ±0 |",
+            "- 新しく管に収まった（1 本）: `A.Examples.Pass`",
+            "- 管に収まらなくなった（1 本）: `A.Examples.Off`",
+            "- 新しく実行できた: 無い",
+            "前回との差（両方にある 3 本で）: 終了時刻まで 2 → 2（±0）",
+            "ソルバは `--solver auto`",
         ] {
             assert!(md.contains(needle), "報告に {needle:?} が無い:\n{md}");
         }
@@ -2102,8 +2973,21 @@ mod tests {
         assert_eq!(json["models"].as_array().map(Vec::len), Some(12));
         assert_eq!(json["reference"]["sha"], MAP_LIB_SHA);
         // JSON の models はワーカーの応答と同じ形で読み戻せる
-        let back: Record = serde_json::from_value(json["models"][1].clone()).unwrap();
-        assert_eq!(back, records[1]);
+        for i in [0, 1, 7, 9] {
+            let back: Record = serde_json::from_value(json["models"][i].clone()).unwrap();
+            assert_eq!(back, records[i]);
+        }
+        assert_eq!(json["summary"]["retried"], 1);
+        assert_eq!(json["baseline"]["diff"]["common"], 3);
+        assert_eq!(
+            json["skipped_not_example"][0],
+            "Modelica.A.Examples.Utilities.Limiter"
+        );
+        assert_eq!(json["settings"]["retry_kill_seconds"], 240);
+        // 前回の結果として読み戻せる（この実行の JSON を次の実行の --baseline-json にする）
+        let again = Baseline::from_json(Path::new("x.json"), &json).unwrap();
+        let d = again.diff(&records);
+        assert_eq!((d.common, d.simulated, d.passed), (12, (5, 5), (1, 1)));
     }
 
     #[test]
@@ -2128,18 +3012,100 @@ mod tests {
         );
         assert!(all[1].partial);
         // partial は実行しない（--limit に数えず、別に返す）
-        let (targets, skipped) = select(&all, None, Some(2));
+        let sel = select(&all, None, Some(2));
         assert_eq!(
-            targets.iter().map(|t| t.model.as_str()).collect::<Vec<_>>(),
+            sel.targets
+                .iter()
+                .map(|t| t.model.as_str())
+                .collect::<Vec<_>>(),
             ["Modelica.A.Examples.X", "Modelica.B.Examples.Z"]
         );
-        assert_eq!(skipped, ["Modelica.A.Examples.Template"]);
-        let (targets, skipped) = select(&all, Some("Examples.Z"), None);
-        assert_eq!((targets.len(), skipped.len()), (1, 0));
-        let (targets, skipped) = select(&all, Some(".A."), Some(1));
-        assert_eq!(targets[0].model, "Modelica.A.Examples.X");
-        assert_eq!(skipped.len(), 1);
+        assert_eq!(sel.partial, ["Modelica.A.Examples.Template"]);
+        let sel = select(&all, Some("Examples.Z"), None);
+        assert_eq!((sel.targets.len(), sel.partial.len()), (1, 0));
+        let sel = select(&all, Some(".A."), Some(1));
+        assert_eq!(sel.targets[0].model, "Modelica.A.Examples.X");
+        assert_eq!(sel.partial.len(), 1);
         assert!(ok_models_in(&serde_json::json!({})).is_none());
+    }
+
+    #[test]
+    fn components_without_experiment_and_values_are_not_examples() {
+        let root: Value = serde_json::from_str(
+            r#"{"models":[
+                {"model":"M.Examples.Utilities.Limiter","verdict":"Ok",
+                 "s8":{"w8003":true},"s10":{"codes":{"GM-I10001":1}}},
+                {"model":"M.Examples.NoExperiment","verdict":"Ok",
+                 "s8":{"w8003":false},"s10":{"codes":{"GM-I10001":1}}},
+                {"model":"M.Examples.Inverse","verdict":"Ok",
+                 "s8":{"w8003":true},"s10":{"codes":{}}},
+                {"model":"M.Examples.Plain","verdict":"Ok"}
+            ]}"#,
+        )
+        .unwrap();
+        let all = ok_models_in(&root).unwrap();
+        assert_eq!(
+            all.iter().map(|t| t.not_example).collect::<Vec<_>>(),
+            [true, false, false, false]
+        );
+        let sel = select(&all, None, None);
+        assert_eq!(sel.not_example, ["M.Examples.Utilities.Limiter"]);
+        assert_eq!(sel.targets.len(), 3);
+        assert!(select(&all, Some("Plain"), None).not_example.is_empty());
+    }
+
+    #[test]
+    fn known_deviations_parse() {
+        let text = "# 見出し\n\nModelica.A.B # 理由と出典 (x.json:5) # 続き\n  Modelica.C  \n";
+        let known = parse_known_deviations(text).unwrap();
+        assert_eq!(known["Modelica.A.B"], "理由と出典 (x.json:5) # 続き");
+        assert_eq!(known["Modelica.C"], "");
+        assert!(parse_known_deviations("Modelica.A B # 2 語").is_err());
+        assert!(parse_known_deviations("A # 1\nA # 2\n").is_err());
+        // リポジトリの一覧そのものが読める（xtask はリポジトリの根から回す）
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../Modelica/msl-sim-known-deviations.txt");
+        let known = parse_known_deviations(&fs::read_to_string(path).unwrap()).unwrap();
+        assert!(
+            known
+                .keys()
+                .all(|m| m.starts_with("Modelica.") && m.contains(".Examples."))
+        );
+        assert!(known.values().all(|why| !why.is_empty()));
+    }
+
+    #[test]
+    fn timeouts_are_retried_and_merged() {
+        let mut records = records();
+        let at = timed_out(&records);
+        assert_eq!(at, [5]);
+        let mut again = simulated("Modelica.A.Examples.Slow", None);
+        again.wall_seconds = 95.0;
+        merge_retry(&mut records, &at, vec![again], 30.0);
+        let r = &records[5];
+        assert_eq!(r.outcome, Outcome::StopTime);
+        assert_eq!(r.wall_seconds, 95.0);
+        let first = r.first_attempt.as_ref().unwrap();
+        assert_eq!(first.code.as_deref(), Some(codes::RUN_TIMEOUT));
+        assert_eq!((first.wall_budget, first.wall_seconds), (30.0, 1.0));
+        assert!(timed_out(&records).is_empty());
+        let s = Summary::from_records(&records, &BTreeMap::new());
+        assert_eq!(
+            (s.retried, s.retry_simulated, s.cooperative_timeouts),
+            (1, 1, 0)
+        );
+    }
+
+    #[test]
+    fn error_notes_are_kept_and_cut() {
+        let mut d = Diagnostic::error(codes::RUN_UNSUPPORTED, Stage::Run, "準備で止まった");
+        d.notes = vec![format!("rumoca: {}", "x".repeat(2000)), "二つ目".into()];
+        let mut r = Record::new("M", Outcome::RunFailed);
+        r.set_error(Outcome::RunFailed, &d);
+        assert_eq!(r.notes.len(), 2);
+        assert_eq!(r.notes[0].chars().count(), NOTE_MAX_CHARS + 1);
+        assert!(r.notes[0].ends_with('…'));
+        assert_eq!(r.notes[1], "二つ目");
     }
 
     #[test]
@@ -2182,7 +3148,7 @@ mod tests {
         let t = Instant::now();
         assert!(matches!(
             request(&mut w, "Modelica.A.C", Duration::from_millis(300)),
-            Reply::Timeout(_)
+            Reply::Timeout(_, None)
         ));
         assert!(t.elapsed() < Duration::from_secs(5));
         let status = w.stop();
@@ -2194,9 +3160,31 @@ mod tests {
         let mut w = start_worker(Path::new("sh"), &args, &mut stats).unwrap();
         assert!(matches!(
             request(&mut w, "Modelica.A.B", Duration::from_secs(10)),
-            Reply::Crash(_)
+            Reply::Crash(_, None)
         ));
         assert!(w.stop().contains('3'));
+
+        // 段を報告してから止まる（外から止めたときに最後の段が分かる。別のモデルの段は数えない）
+        let stage = |model: &str, stage| {
+            serde_json::to_string(&WorkerMessage::Stage {
+                model: model.into(),
+                stage,
+            })
+            .unwrap()
+        };
+        let script = format!(
+            "printf '%s\\n' '{MESSAGE_PREFIX}{ready}'; read line; printf '%s\\n' '{MESSAGE_PREFIX}{}' '{MESSAGE_PREFIX}{}' '{MESSAGE_PREFIX}{}'; exec sleep 30",
+            stage("Modelica.A.B", WorkerStage::Compile),
+            stage("Modelica.A.B", WorkerStage::Exec),
+            stage("Modelica.Other", WorkerStage::Compare),
+        );
+        let args: Vec<OsString> = vec!["-c".into(), script.into()];
+        let mut w = start_worker(Path::new("sh"), &args, &mut stats).unwrap();
+        match request(&mut w, "Modelica.A.B", Duration::from_millis(500)) {
+            Reply::Timeout(_, Some(at)) => assert_eq!(at.stage, WorkerStage::Exec),
+            other => panic!("段が無い: {other:?}"),
+        }
+        w.stop();
 
         // 用意の前に終わる・読めない行を返す
         let args: Vec<OsString> = vec!["-c".into(), "exit 1".into()];
@@ -2204,7 +3192,7 @@ mod tests {
         let script = format!("printf '%s\\n' '{MESSAGE_PREFIX}{{broken'; exec sleep 30");
         let args: Vec<OsString> = vec!["-c".into(), script.into()];
         assert!(start_worker(Path::new("sh"), &args, &mut stats).is_err());
-        assert_eq!(stats.spawns, 2);
+        assert_eq!(stats.spawns, 3);
     }
 
     #[test]
@@ -2226,13 +3214,30 @@ mod tests {
             only: None,
             wall_seconds: 30.0,
             kill_seconds: 120,
+            retry_wall_seconds: 180.0,
             reset_every: 50,
             solver: Some("dopri45"),
             keep_results: Some(Path::new("out")),
+            known_deviations: None,
+            baseline_json: None,
             report: None,
             json: None,
         };
-        let args: Vec<String> = worker_args(&opts)
+        assert!(opts.retries());
+        assert_eq!(opts.retry_kill_seconds(), 240);
+        assert!(
+            !Options {
+                retry_wall_seconds: 0.0,
+                ..opts
+            }
+            .retries()
+        );
+        let retry: Vec<String> = worker_args(&opts, opts.retry_wall_seconds)
+            .into_iter()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        assert!(retry.windows(2).any(|w| w == ["--wall-seconds", "180"]));
+        let args: Vec<String> = worker_args(&opts, opts.wall_seconds)
             .into_iter()
             .map(|a| a.to_string_lossy().into_owned())
             .collect();

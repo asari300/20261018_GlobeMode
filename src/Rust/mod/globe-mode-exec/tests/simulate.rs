@@ -12,7 +12,9 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use globe_mode_core::{Diagnostic, Severity, Stage, codes};
-use globe_mode_exec::{CompiledModel, preflight, run, simulate};
+use globe_mode_exec::{
+    CompiledModel, preflight, run, simulate, simulate_via_session, tunable_parameters,
+};
 use globe_mode_frontend::{Checker, Source};
 use globe_mode_ir::{
     ResolvedSettings, SettingOrigin, SettingOrigins, SimRun, SimSettings, SolverId, Termination,
@@ -81,12 +83,15 @@ fn settings(model: &CompiledModel, solver: SolverId) -> ResolvedSettings {
             .map_or((stop_time - start_time) / 500.0, |b| b.get()),
         solver,
         max_wall_seconds: Some(30.0),
+        step: None,
+        parameters: Default::default(),
         origins: SettingOrigins {
             start_time: o,
             stop_time: o,
             tolerance: o,
             interval: o,
             solver: o,
+            step: None,
         },
     }
 }
@@ -477,6 +482,260 @@ fn run_fails_the_assertion_model() {
     );
 }
 
+/// `Simulation.*` の 12 本（S011）。session の道と型付きの道を比べる。
+const VALIDATION_MODELS: [&str; 12] = [
+    "Decay",
+    "HarmonicOscillator",
+    "NonlinearLoop",
+    "NoStates",
+    "BouncingBall",
+    "SampleCounter",
+    "Terminate",
+    "RuntimeAssert",
+    "WarningAssert",
+    "EventNotSettling",
+    "NotFiniteAtStart",
+    "InitNoSolution",
+];
+
+/// 結果の要約（行の数、終わり方、変数ごとの最後の値）か、失敗の診断（コードと本文）。
+#[derive(Debug)]
+enum Summary {
+    Ok {
+        rows: usize,
+        termination: Termination,
+        last: Vec<(String, f64)>,
+        warnings: Vec<&'static str>,
+    },
+    /// 診断（補足と位置まで比べる）
+    Err(Vec<Diagnostic>),
+}
+
+fn summary(result: Result<(SimRun, Vec<Diagnostic>), Vec<Diagnostic>>) -> Summary {
+    match result {
+        Ok((run, warnings)) => {
+            check_trajectory(&run);
+            Summary::Ok {
+                rows: run.trajectory.time.len(),
+                termination: run.termination.clone(),
+                last: run
+                    .trajectory
+                    .variables
+                    .iter()
+                    .map(|v| (v.name.clone(), *v.values.last().unwrap()))
+                    .collect(),
+                warnings: warnings.iter().map(|d| d.code).collect(),
+            }
+        }
+        Err(d) => Summary::Err(d),
+    }
+}
+
+/// session の道（wasm32 の道）の Rumoca の BDF が、ネイティブの型付きの道（Cranelift の JIT）と同じ行の数・
+/// 最後の値（ビット単位で同じ）・診断（コード・本文・補足・位置）になる。wasm の試験（Node で同じ 12 本を
+/// 回す）の正しさは、これに依る。
+#[test]
+fn the_session_route_matches_the_typed_route() {
+    for name in VALIDATION_MODELS {
+        let model = compile(name);
+        let s = settings(&model, SolverId::Bdf);
+        let typed = summary(simulate(&model, &s).map(|run| (run, Vec::new())));
+        let session = summary(simulate_via_session(&model, &s));
+        match (&typed, &session) {
+            (
+                Summary::Ok {
+                    rows: r1,
+                    termination: t1,
+                    last: l1,
+                    ..
+                },
+                Summary::Ok {
+                    rows: r2,
+                    termination: t2,
+                    last: l2,
+                    warnings,
+                },
+            ) => {
+                assert_eq!(r1, r2, "{name}: 行の数");
+                assert_eq!(t1, t2, "{name}: 終わり方");
+                assert_eq!(l1.len(), l2.len(), "{name}: 変数の数");
+                for ((n1, v1), (n2, v2)) in l1.iter().zip(l2) {
+                    assert_eq!(n1, n2, "{name}: 変数の並び");
+                    assert_eq!(v1.to_bits(), v2.to_bits(), "{name}.{n1}: {v1} と {v2}");
+                }
+                // 止まらない警告は session の道でも出る（型付きの道は simulate が捨てるので run で比べる）
+                if name == "WarningAssert" {
+                    assert_eq!(warnings, &[codes::RUN_WARNING], "{name}");
+                } else {
+                    assert!(warnings.is_empty(), "{name}: {warnings:?}");
+                }
+            }
+            (Summary::Err(d1), Summary::Err(d2)) => assert_eq!(d1, d2, "{name}: 診断"),
+            _ => panic!("{name}: 型付きの道 {typed:#?}、session の道 {session:#?}"),
+        }
+        eprintln!("{name}: {session:?}");
+    }
+}
+
+/// session の道の dopri45 と auto も、型付きの道と同じ結果になる（解析解のあるモデルとイベントのモデル）。
+#[test]
+fn the_session_route_runs_dopri45_and_auto() {
+    for name in ["Decay", "HarmonicOscillator", "BouncingBall", "NoStates"] {
+        for solver in [SolverId::Dopri45, SolverId::Auto] {
+            let model = compile(name);
+            let s = settings(&model, solver);
+            let typed = simulate(&model, &s).unwrap_or_else(|d| panic!("{name}: {d:#?}"));
+            let (session, info) =
+                simulate_via_session(&model, &s).unwrap_or_else(|d| panic!("{name}: {d:#?}"));
+            assert!(info.is_empty(), "{name}: {info:#?}");
+            assert_eq!(
+                typed.trajectory.time.len(),
+                session.trajectory.time.len(),
+                "{name}（{}）: 行の数",
+                solver.name()
+            );
+            for v in &typed.trajectory.variables {
+                assert_close(
+                    last(&session, &v.name),
+                    *v.values.last().unwrap(),
+                    1e-9,
+                    &format!("{name}.{}（{}）", v.name, solver.name()),
+                );
+            }
+        }
+    }
+}
+
+/// パラメータの上書きの設定。
+fn with_parameters(model: &CompiledModel, solver: SolverId, p: &[(&str, f64)]) -> ResolvedSettings {
+    ResolvedSettings {
+        parameters: p.iter().map(|(n, v)| (n.to_string(), *v)).collect(),
+        ..settings(model, solver)
+    }
+}
+
+#[test]
+fn a_tunable_parameter_is_overridden_without_recompiling() {
+    let model = compile("Parameters");
+    for solver in [SolverId::Bdf, SolverId::Dopri45, SolverId::Auto] {
+        let s = with_parameters(&model, solver, &[("k", 2.0)]);
+        for (route, run) in [
+            ("型付き", simulate(&model, &s)),
+            ("session", simulate_via_session(&model, &s).map(|(r, _)| r)),
+        ] {
+            let what = format!("{}・{route}", solver.name());
+            let run = run.unwrap_or_else(|d| panic!("{what}: {d:#?}"));
+            check_trajectory(&run);
+            // der(x) = -k x、k = 2 で x(1) = exp(-2)。c = 2 k は k に従う
+            assert_close(last(&run, "x"), (-2.0f64).exp(), 1e-6, &what);
+            assert_close(last(&run, "y[1]"), 4.0, 1e-12, &what);
+            assert_close(last(&run, "y[2]"), 4.0, 1e-12, &what);
+            assert_eq!(run.settings.parameters.get("k"), Some(&2.0), "{what}");
+            // 実行に使った値（rk45 の型付きの道は lowering が見えないので空）
+            if solver == SolverId::Dopri45 && route == "型付き" {
+                assert!(run.parameters.is_empty(), "{what}: {:?}", run.parameters);
+            } else {
+                let value = |n: &str| {
+                    run.parameters
+                        .iter()
+                        .find(|p| p.name == n)
+                        .unwrap_or_else(|| panic!("{what}: {n} が無い: {:?}", run.parameters))
+                        .value
+                };
+                assert_eq!(value("k"), 2.0, "{what}");
+                assert_eq!(value("c"), 4.0, "{what}");
+                let k = run.parameters.iter().find(|p| p.name == "k").unwrap();
+                assert_eq!(k.description.as_deref(), Some("減衰の速さ（tunable）"));
+            }
+        }
+    }
+    // 上書きが無ければモデルの値
+    let run = simulate(&model, &settings(&model, SolverId::Bdf)).unwrap();
+    assert_close(last(&run, "x"), (-1.0f64).exp(), 1e-6, "k = 1");
+    assert_close(last(&run, "y[1]"), 2.0, 1e-12, "c = 2");
+}
+
+#[test]
+fn parameters_that_cannot_change_are_rejected_before_running() {
+    let model = compile("Parameters");
+    let cases: [(&str, f64, &str); 7] = [
+        ("n", 3.0, "パラメータ n は実行の前に変えられない"),
+        ("e", 2.0, "パラメータ e は実行の前に変えられない"),
+        ("f", 2.0, "パラメータ f は実行の前に変えられない"),
+        ("g", 2.0, "パラメータ g は実行の前に変えられない"),
+        ("x", 2.0, "このモデルに x という"),
+        ("nosuch", 1.0, "このモデルに nosuch という"),
+        ("k", f64::NAN, "パラメータ k の上書きの値が有限でない"),
+    ];
+    for (name, value, expected) in cases {
+        for solver in [SolverId::Bdf, SolverId::Dopri45] {
+            let s = with_parameters(&model, solver, &[(name, value)]);
+            for (route, result) in [
+                ("型付き", simulate(&model, &s)),
+                ("session", simulate_via_session(&model, &s).map(|(r, _)| r)),
+            ] {
+                let what = format!("{name} = {value}（{}・{route}）", solver.name());
+                let d = result.expect_err(&what);
+                assert_eq!(d.len(), 1, "{what}: {d:#?}");
+                let d = &d[0];
+                assert_eq!(d.code, codes::PARAMETER_OVERRIDE_INVALID, "{what}: {d:#?}");
+                assert_eq!(d.stage, Stage::S10, "{what}");
+                assert!(d.message.starts_with(expected), "{what}: {}", d.message);
+                assert!(
+                    d.notes.iter().any(|n| n.starts_with("rumoca: [EX003] ")),
+                    "{what}: {d:#?}"
+                );
+            }
+        }
+    }
+    // run でも同じ（プリフライトは上書きの誤りで黙り、実行が GM-E10006 を出す）
+    let report = run(
+        &model,
+        &SimSettings {
+            parameters: [("n".to_string(), 3.0)].into(),
+            ..SimSettings::default()
+        },
+    );
+    assert!(!report.succeeded());
+    let found: Vec<_> = report.diagnostics.iter().map(|d| d.code).collect();
+    assert_eq!(
+        found,
+        [codes::PARAMETER_OVERRIDE_INVALID],
+        "{:#?}",
+        report.diagnostics
+    );
+}
+
+#[test]
+fn tunable_parameters_are_listed() {
+    let model = compile("Parameters");
+    let listed = tunable_parameters(&model).unwrap_or_else(|d| panic!("{d:#?}"));
+    let names: Vec<_> = listed.iter().map(|p| p.name.as_str()).collect();
+    assert_eq!(names, ["k", "c"], "{listed:#?}");
+    assert_eq!(listed[0].default, 1.0);
+    assert_eq!(listed[1].default, 2.0);
+    assert_eq!(
+        listed[0].description.as_deref(),
+        Some("減衰の速さ（tunable）")
+    );
+    // 状態の無いモデルにはパラメータが無い
+    assert!(tunable_parameters(&compile("NoStates")).unwrap().is_empty());
+}
+
+#[test]
+fn run_passes_parameter_overrides_through() {
+    let report = run(
+        &compile("Parameters"),
+        &SimSettings {
+            parameters: [("k".to_string(), 2.0)].into(),
+            ..SimSettings::default()
+        },
+    );
+    assert!(report.succeeded(), "{:#?}", report.diagnostics);
+    let r = report.run.unwrap();
+    assert_close(last(&r, "x"), (-2.0f64).exp(), 1e-6, "x(1)");
+}
+
 fn msl_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../../data/msl")
 }
@@ -535,4 +794,107 @@ fn msl_chua_circuit_simulates() {
         .unwrap()
         .join()
         .unwrap();
+}
+
+/// MSL を読む試験の下ごしらえ（スタックを 64 MiB にしたスレッドで回す）。`data/msl` が無ければ何もしない。
+fn with_msl(f: impl FnOnce(&Checker) + Send + 'static) {
+    let msl = msl_dir();
+    if !msl.is_dir() {
+        eprintln!("{} が無いので確かめない", msl.display());
+        return;
+    }
+    std::thread::Builder::new()
+        .stack_size(64 << 20)
+        .spawn(move || f(&Checker::new(&[msl.as_path()]).expect("MSL を読める")))
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+/// auto の切り替え（S012）: `TwoMass` は BDF の積分で特異な代数ブロックに入って止まる（GM-E11002）が、dopri45 では
+/// 終了時刻まで進む（doc/research/msl-sim-failures.md の #38）。
+#[test]
+#[ignore = "MSL を読む（遅い）。cargo test -p globe-mode-exec --test simulate -- --ignored"]
+fn msl_auto_falls_back_to_dopri45_when_bdf_fails_to_integrate() {
+    with_msl(|checker| {
+        let name = "Modelica.Thermal.FluidHeatFlow.Examples.TwoMass";
+        let model = checker
+            .compile_retaining(&[], name)
+            .unwrap_or_else(|d| panic!("{d:#?}"));
+        let requested = |solver: &str| SimSettings {
+            solver: Some(solver.to_string()),
+            max_wall_seconds: Some(300.0),
+            ..SimSettings::default()
+        };
+        let bdf = run(&model, &requested("bdf"));
+        assert!(
+            bdf.diagnostics
+                .iter()
+                .any(|d| d.code == codes::RUN_INTEGRATION_FAILED),
+            "{:#?}",
+            bdf.diagnostics
+        );
+        let auto = run(&model, &requested("auto"));
+        assert!(auto.succeeded(), "{:#?}", auto.diagnostics);
+        let info: Vec<_> = auto
+            .diagnostics
+            .iter()
+            .filter(|d| d.code == codes::RUN_SOLVER_FALLBACK)
+            .collect();
+        assert_eq!(info.len(), 1, "{:#?}", auto.diagnostics);
+        assert_eq!(info[0].severity, Severity::Info);
+        assert!(
+            info[0].notes[0].starts_with("BDF の失敗: ")
+                && info[0].notes[0].ends_with("（GM-E11002）"),
+            "{:#?}",
+            info[0]
+        );
+        let r = auto.run.unwrap();
+        assert_eq!(r.termination, Termination::StopTime);
+        assert!(
+            !r.parameters.is_empty(),
+            "BDF の lowering から読んだ値が残る"
+        );
+    });
+}
+
+/// プリフライト（`eval_dae_at` と同じ評価。lowering をもう 1 回する）と、実行系の組み立て（lowering を含む）の
+/// 時間を比べる（doc/research/msl-sim-failures.md の「GlobeMode で直すもの」の 4）。数を出すだけで、合否は見ない。
+#[test]
+#[ignore = "MSL を読む（遅い）。cargo test -p globe-mode-exec --test simulate -- --ignored --nocapture"]
+fn msl_preflight_time_against_the_build() {
+    with_msl(|checker| {
+        for name in [
+            "Modelica.Electrical.Analog.Examples.ChuaCircuit",
+            "Modelica.Mechanics.MultiBody.Examples.Elementary.DoublePendulum",
+            "Modelica.Fluid.Examples.HeatingSystem",
+        ] {
+            let Ok(model) = checker.compile_retaining(&[], name) else {
+                eprintln!("{name}: 変換できない");
+                continue;
+            };
+            let report = run(
+                &model,
+                &SimSettings {
+                    stop_time: Some(1e-3),
+                    max_wall_seconds: Some(60.0),
+                    ..SimSettings::default()
+                },
+            );
+            let Some(s) = report.settings.clone() else {
+                continue;
+            };
+            let started = std::time::Instant::now();
+            let _ = preflight(&model, &s);
+            let preflight_seconds = started.elapsed().as_secs_f64();
+            let build = report
+                .run
+                .as_ref()
+                .map(|r| format!("{:.3} 秒", r.stats.build_seconds))
+                .unwrap_or_else(|| "失敗".to_string());
+            eprintln!(
+                "{name}: プリフライト {preflight_seconds:.3} 秒、組み立て（lowering を含む）{build}"
+            );
+        }
+    });
 }

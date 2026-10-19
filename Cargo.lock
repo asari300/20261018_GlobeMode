@@ -1171,9 +1171,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "899def5c37c4fd7b2664648c28120ecec138e4d395b459e5ca34f9cce2dd77fd"
 dependencies = [
  "cfg-if",
+ "js-sys",
  "libc",
  "r-efi 5.3.0",
  "wasip2",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -1352,13 +1354,19 @@ dependencies = [
 name = "globe-mode-exec"
 version = "0.0.1"
 dependencies = [
+ "diffsol",
+ "getrandom 0.3.4",
  "globe-mode-core",
  "globe-mode-frontend",
  "globe-mode-ir",
  "globe-mode-sim",
  "rumoca-ir-dae",
+ "rumoca-phase-solve",
  "rumoca-sim",
  "rumoca-solver",
+ "rumoca-solver-diffsol",
+ "rumoca-solver-rk45",
+ "self_cell",
 ]
 
 [[package]]
@@ -1397,6 +1405,21 @@ dependencies = [
  "globe-mode-core",
  "globe-mode-ir",
  "serde",
+]
+
+[[package]]
+name = "globe-mode-wasm"
+version = "0.0.1"
+dependencies = [
+ "globe-mode-core",
+ "globe-mode-db",
+ "globe-mode-exec",
+ "globe-mode-frontend",
+ "globe-mode-ir",
+ "globe-mode-sim",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
 ]
 
 [[package]]

@@ -62,23 +62,23 @@ doc/  log/                      文書と記録
 | --- | --- | --- |
 | `globe-mode-core` **（S002）** | `TextRange`、`Diagnostic{code,severity,stage,message,file,range,notes}`、検査段階 `Stage`（S0〜S10）、診断コード。S005 で `normalize`（防火壁 0 の本文の正規化）、GM-U・GM-E6001・GM-I7001 のコード、`Diagnostic::is_unsupported`。S007 で S7・S8 のコード（`GM-I7002`、`GM-E7001`、`GM-E8001`、`GM-W8001`〜`GM-W8004`）。今後: ID、単位、修正案（fix） | serde |
 | `globe-mode-ir` **（S002）** | フロントエンドに依存しない中立 IR: `Outline`（クラス・コンポーネント・extends・connect、S004 で flow / stream と input / output）、`ClassIndex`（字句的な名前解決、extends を含むインターフェース、S004）、`BalanceCount`（スカラー）、`DaeCounts`（配列ごと、S003）、`DaeStructure`（未知数・方程式・incidence・`state_refs`、`without_ranges`、`merged_incidence`、S005）、`FlatSummary`（部品ごとの方程式数、S005）。S007 で `ClassOutline.imports`、`Outline::defines`、`InitStructure`（状態・パラメータ・離散・代数のスカラーごとの `fixed` / 明示された start / 束縛と、初期方程式）。S009 で初期方程式の参照。S010 で `DaeStructure::nonlinear`（方程式ごとに非線形に現れる未知数）と `PreflightStructure`（パラメータと start 値の評価の失敗、experiment annotation の生の値）。今後: `ConnectSet` | core |
-| `globe-mode-frontend` **（S002）** | `trait Frontend{outline, check}`。feature `rumoca`（Phase A、`src/rumoca.rs`）と feature `native`（Track B）。S005 で `Checker`（ライブラリを一度だけ読んだ Session を使い回す）、`DaeStructure` の抽出（`structure.rs`）、GM-U の振り分け（`unsupported.rs`、[ADR-0007](adr/0007-unsupported-classification.md)）。S007 で初期化系の構造の抽出（`init.rs`）と import のアウトライン。S010 で線形・非線形の判定（`structure.rs`）、プリフライトの入力の取り出し（`preflight.rs`。Rumoca の `NumericEvaluator` と、experiment annotation の読み直し）、`Checker` の文書の和集合（`check_retaining`、[ADR-0005](adr/0005-lazy-query-db.md)） | rumoca-compile、rumoca-ir-dae・rumoca-eval-dae・rumoca-core（S005、同じ rev） |
-| `globe-mode-db` **（S004）** | salsa のクエリ DB（§3.2）: `outline` → `outline_shape`（防火壁 1）→ `class_index` → `connect_graph`（S004）。`shape` → `source_shape`（防火壁 0）/ `shape_map` → `check` → `flat_summary` / `dae_shape`（防火壁 2）→ `structural`（S005）。`identifiers` / `defined_classes` / `class_files` → `deps_closure`（S007。`check` に渡すファイルの絞り込み）。`index_report`（S7）、`init_shape` → `init_report`（S8、S007）。`loop_report`（S9）、`preflight_shape` → `preflight_report`（S10、S010）。`GlobeDb::with_libraries` と `check_model`（S0〜S10）。実行したクエリの記録（テストと計測） | salsa、frontend、graph、analysis |
+| `globe-mode-frontend` **（S002）** | `trait Frontend{outline, check}`。feature `rumoca`（Phase A、`src/rumoca.rs`）と feature `native`（Track B）。S005 で `Checker`（ライブラリを一度だけ読んだ Session を使い回す）、`DaeStructure` の抽出（`structure.rs`）、GM-U の振り分け（`unsupported.rs`、[ADR-0007](adr/0007-unsupported-classification.md)）。S007 で初期化系の構造の抽出（`init.rs`）と import のアウトライン。S010 で線形・非線形の判定（`structure.rs`）、プリフライトの入力の取り出し（`preflight.rs`。Rumoca の `NumericEvaluator` と、experiment annotation の読み直し）、`Checker` の文書の和集合（`check_retaining`、[ADR-0005](adr/0005-lazy-query-db.md)）。S011 で `CompiledModel` と `compile_retaining`。S012 で in-memory のライブラリ（`Checker::with_library_sources`。ファイルの組を Rumoca の in-memory の組（DurableExternal）として読む。wasm32 用） | rumoca-compile、rumoca-ir-dae・rumoca-eval-dae・rumoca-core（S005、同じ rev） |
+| `globe-mode-db` **（S004）** | salsa のクエリ DB（§3.2）: `outline` → `outline_shape`（防火壁 1）→ `class_index` → `connect_graph`（S004）。`shape` → `source_shape`（防火壁 0）/ `shape_map` → `check` → `flat_summary` / `dae_shape`（防火壁 2）→ `structural`（S005）。`identifiers` / `defined_classes` / `class_files` → `deps_closure`（S007。`check` に渡すファイルの絞り込み）。`index_report`（S7）、`init_shape` → `init_report`（S8、S007）。`loop_report`（S9）、`preflight_shape` → `preflight_report`（S10、S010）。`GlobeDb::with_libraries` と `check_model`（S0〜S10）。S011 で `compiled_model`。S012 で `GlobeDb::with_library_sources`（ライブラリをファイルの組で渡す。wasm32 用）。実行したクエリの記録（テストと計測） | salsa、frontend、graph、analysis |
 | `globe-mode-analysis` **（S005: S6、S007: S7・S8）** | Hopcroft–Karp、粗い Dulmage–Mendelsohn 分解、`StructuralReport`（S6 の GM-E6001）。S007 で Pantelides 法（`pantelides.rs`、`IndexReport`。構造インデックスの見込み、状態選択の候補、動的な状態の数）と初期化系の検査（`init.rs`、`InitReport`）。S009 で初期化系のマッチング（`init_system.rs`、`InitMatching`。DAE とその微分 + 初期条件の二部グラフを DM 分解し、冗長な初期条件と初期条件の無い未知数を名指しする）。S010 で S9（`loops.rs`、`LoopReport`。BLT（再帰を使わない Tarjan 法）、貪欲な tearing、非線形のループの反復変数の start 値）と S10 の判定（`preflight.rs`、`PreflightReport`）。[ADR-0009](adr/0009-structural-index-and-init.md)、[ADR-0011](adr/0011-init-system-matching.md)、[ADR-0012](adr/0012-loops-and-preflight.md)。今後: `SimulatabilityReport` | core、ir、serde（Rumoca に依存しない。wasm32 でビルドできる） |
 | `globe-mode-graph` **（S004: connect グラフ）** | connect グラフを flatten せずに作る。辺の種類（flow / stream / real / boolean …）、depth による部分回路の展開、graphology JSON。今後: ライブラリ / incidence のグラフ、差分、ForceAtlas2 | serde_json |
-| `globe-mode-exec` **（S011）** | 実行系。Phase A は Rumoca の実行系（feature `rumoca-exec`、`rumoca-sim` の diffsol の BDF と Dormand–Prince 5(4)）で `CompiledModel` を実行し、中立の `SimRun` と診断（S10 の数値の部分 `GM-W10002`、実行の `GM-E11001`〜`GM-E11006`・`GM-I11001`・`GM-W11001`・`GM-U0004` / `GM-U0005`）を返す（[ADR-0013](adr/0013-exec-backend.md)）。今後: FMU-ME アダプタ（P5） | rumoca-sim、rumoca-solver（失敗の型）、frontend、sim |
-| `globe-mode-solver` | `trait Integrator`、自前の固定刻みと陽的 RK（Rumoca の数値積分のプラグイン `MeIntegratorBackend` として差し込む見込み。S012 以降） | diffsol, sundials（feature） |
-| `globe-mode-sim` **（S011）** | ソルバの名前の登録表（§3.3）、実行の設定の決定（指定 > experiment > 既定）、`ResultStore`（S011 は CSV。MAT v4 / Arrow IPC は後で）、参照結果との比較（csv-compare の矩形の管を書き直したもの）。Rumoca にも実行系にも依存しない（wasm32 でビルドできる）。今後: ハイブリッドループの driver（FMU と Track B 用） | core、ir |
+| `globe-mode-exec` **（S011）** | 実行系。Phase A は Rumoca の実行系（feature `rumoca-exec`、`rumoca-sim` の diffsol の BDF と Dormand–Prince 5(4)）で `CompiledModel` を実行し、中立の `SimRun` と診断（S10 の数値の部分 `GM-W10002`、実行の `GM-E11001`〜`GM-E11006`・`GM-I11001`・`GM-W11001`・`GM-U0004` / `GM-U0005`）を返す（[ADR-0013](adr/0013-exec-backend.md)）。S012 で session の道（`rumoca/session.rs`。Rumoca の FMI ME 風の host に数値積分のプラグインを差す。wasm32 のすべてのソルバと自前の積分器が通る。ネイティブの bdf・dopri45・auto は型付きの道のまま）、自前の積分器 6 つ（`rumoca/plugins.rs`、`plugins/rk.rs`（diffsol の esdirk34・trbdf2・tsit45）、`plugins/fixed.rs`（euler・heun・rk4））、`auto` の dopri45 への切り替え（`GM-I11002`）、パラメータの上書き（`param_overrides`、`GM-E10006`）と `tunable_parameters`。wasm32 でビルドできる（[ADR-0014](adr/0014-session-route-wasm.md)）。今後: FMU-ME アダプタ（P5） | rumoca-sim、rumoca-solver（失敗の型）、rumoca-phase-solve、rumoca-solver-diffsol、rumoca-solver-rk45、diffsol、self_cell、frontend、sim |
+| `globe-mode-solver` | `trait Integrator`（自前の driver 用。P5 と Track B）。S012 の自前の積分器は、Rumoca の数値積分のプラグイン `MeIntegratorBackend` に結びつくので exec に置き、Rumoca に依存しない係数と補間は sim の `integrators` に置いた（[ADR-0014](adr/0014-session-route-wasm.md)）。この crate はまだ作っていない | diffsol, sundials（feature） |
+| `globe-mode-sim` **（S011）** | ソルバの名前の登録表（§3.3）、実行の設定の決定（指定 > experiment > 既定）、`ResultStore`（S011 は CSV。S012 で MAT v4 の `mat`（`write_mat4` / `read_mat4`、dsres の形）。Arrow IPC は持ち越し）、参照結果との比較（csv-compare の矩形の管を書き直したもの。S012 で比べる前のイベントの行の正規化 `normalize_events`）。S012 で固定刻みの係数と 3 次の Hermite 補間（`integrators`）、許容誤差の下限 1e-10（`GM-W10003`）、固定刻みの検査（`GM-I10004`・`GM-E10004`）。Rumoca にも実行系にも依存しない（wasm32 でビルドできる）。今後: ハイブリッドループの driver（FMU と Track B 用） | core、ir |
 | `globe-mode-fmi` | FMU の Import、マスターアルゴリズム、パッケージング | fmi, fmi-schema |
 | `globe-mode-fmu-runtime` | FMI 2 / 3 の C API を実装する cdylib（P5b） | — |
 | `globe-mode-protocol` | serde 型と JSON Schema。TypeScript と Python の型を生成する | serde, specta |
 | `globe-mode` | 公開する Rust API（facade）: `Workspace{open, set_text, outline, check, graph, simulate, export_fmu}` | 上記すべて |
 | `globe-mode-lsp` | `lsp-types` と自前のディスパッチャ。Transport は stdio / Tauri のチャネル / Web Worker | lsp-types |
-| `globe-mode-cli` **（S002）** | バイナリ `globe`（`outline` / `check` / `graph` / `flat`、`--json`、S003 で `--library`、S004 で `graph` とディレクトリの入力、S005 で `check` を db 経由にして S6・GM-U を表示し、`flat` を足した。S007 で `check` に S7・S8 の行と `--json` の `s7` / `s8` / `init`、`deps`（`check` に渡すファイルの閉包）を足した。終了コード 0 / 1 / 2） | clap |
+| `globe-mode-cli` **（S002）** | バイナリ `globe`（`outline` / `check` / `graph` / `flat`、`--json`、S003 で `--library`、S004 で `graph` とディレクトリの入力、S005 で `check` を db 経由にして S6・GM-U を表示し、`flat` を足した。S007 で `check` に S7・S8 の行と `--json` の `s7` / `s8` / `init`、`deps`（`check` に渡すファイルの閉包）を足した。S011 で `simulate`。S012 で `simulate` に `--param NAME=VALUE`・`--step`・`--list-parameters`・`--list-solvers`・`--format csv\|mat`。終了コード 0 / 1 / 2） | clap |
 | `globe-mode-capi` | `extern "C"`、不透明ハンドル、JSON とバイト列。cbindgen でヘッダを生成する | — |
 | `globe-mode-py` | PyO3（abi3-py312） | pyo3 |
 | `globe-mode-nif` | Rustler。Erlang モジュール名は `globe_mode_nif` | rustler |
-| `globe-mode-wasm` | wasm-bindgen。ブラウザの Worker、Gleam の JS target、marimo の anywidget から使う | wasm-bindgen |
+| `globe-mode-wasm` **（S012）** | wasm-bindgen（wasm32-unknown-unknown）。`Workspace`（ライブラリを 1 回だけ読む、`set_file`・`remove_file`・`files`・`simulate`）と `simulate`・`solvers`・`version`・`memory_bytes`・`last_panic`。入出力は JSON の文字列。ネイティブの `globe simulate` と同じ道（db の `check_model` → `compiled_model` → exec の `run`）。S012 は Node で確かめた（[ADR-0014](adr/0014-session-route-wasm.md)）。今後: ブラウザの Worker（`--target web`）、Gleam の JS target、marimo の anywidget | wasm-bindgen 0.2.129（`=` で固定）、db、exec、sim |
 | `globe-mode-testkit` | MSL コーパス、ファネル比較、omc との照合、Reference-FMUs（S003 の突き合わせと S005 のファネルは、ひとまず xtask に置いた） | — |
 | `xtask` **（S003）** | `cargo xtask fetch-msl` / `fetch-rumoca` / `msl-compare` / `msl-funnel`（S005。S007 で S7・S8 の列）/ `omc-compare`（S008。omc を別プロセスで呼ぶ）/ `bump-rumoca`。場所は `src/Rust/xtask` | sha2, zip, db, analysis |
 
@@ -92,6 +92,7 @@ doc/  log/                      文書と記録
   - ただし、Rumoca のコードが nightly の機能を使っていれば stable では通らない。**P1 で確かめる**。
 - スレッドを使う wasm だけは nightly でビルドする。`-Z build-std` と atomics が要るためで、コマンドは `xtask wasm --threads`。配信には COOP/COEP のヘッダか coi-serviceworker が要る。
 - wasm と Android の target は mise の rust の `targets` で宣言する。Python 本体は uv が `.python-version` から取得する。手順は [mise-setup.html](mise-setup.html)。
+- wasm の糊を作る `wasm-bindgen` の CLI も mise で入れる（`"github:wasm-bindgen/wasm-bindgen" = "0.2.129"`、S012）。Cargo.toml の `wasm-bindgen = "=0.2.129"` と同じ版でないと糊が作れないので、上げるときは両方を同じにする。getrandom 0.3 の wasm の backend は `.cargo/config.toml` の `[target.wasm32-unknown-unknown]` の rustflags（`getrandom_backend="wasm_js"`）と getrandom の feature `wasm_js`（`globe-mode-exec` が wasm32 のときだけ直接の依存にして有効にする）で与える（[ADR-0014](adr/0014-session-route-wasm.md)）。
 
 ## 3. 中核の設計
 
@@ -188,8 +189,8 @@ SourceFile ─┬─▶ outline ─▶ outline_shape ─┬─▶ class_index �
 | S7 | インデックス: Pantelides 法で、構造インデックスの見込み（方程式の微分の最大回数 + 1）、微分する方程式と回数、状態選択の候補、動的な状態の数を出す。情報にとどめ、実行は止めない（S007、[ADR-0009](adr/0009-structural-index-and-init.md)）。S6 が構造特異でないときだけ | GM-I7001（インデックス 2 以上）/ GM-I7002（状態選択が要る）/ GM-E7001（打ち切り） |
 | S8 | 初期化: 初期条件の数と属性で判定する。要る数 = 動的な状態（S7）+ 離散変数 + `fixed = false` で束縛の無いパラメータ、与えた数 = 初期方程式 + `fixed = true` の状態・離散・代数変数（S007、[ADR-0009](adr/0009-structural-index-and-init.md)）。S009 から、初期化系（DAE とその微分 + 初期方程式 + `fixed = true`）をマッチングして、冗長な初期条件（過剰な部分）と初期条件の無い未知数（不足している部分）を名指しする（[ADR-0011](adr/0011-init-system-matching.md)。数だけの判定は不足 − 冗長の差しか分からない） | GM-E8001（過剰。冗長な初期条件が拘束と重ならず、離散変数も含まないときだけ）/ GM-W8001（不足）/ GM-W8002（start の無い状態）/ GM-W8003（値の無いパラメータ）/ GM-W8004（過剰の見込み。冗長な初期条件が拘束と重なる（整合する値なら冗長なだけ）か、離散変数を含むため確定できない） |
 | S9 | 代数ループ: BLT に分けたときの大きさ 2 以上のブロック。非線形のループの反復変数（貪欲な tearing で選ぶ。start 値のある代数・出力を優先）に start 値が無いと警告。インデックス 2 以上は Pantelides 法の最高階の系で数える見込み。線形・非線形は `DaeStructure::nonlinear`（フロントエンドが式木から広めに判定）。Error は出さない（S010、[ADR-0012](adr/0012-loops-and-preflight.md)） | GM-I9001（ループがある）/ GM-W9001（start 値の無い反復変数） |
-| S10 | プリフライト: S010 は静的な部分（パラメータと start 値を Rumoca の評価器で評価、experiment annotation の生の値。[ADR-0012](adr/0012-loops-and-preflight.md)）。S011 で数値の部分を実行の直前に足した: start 値で評価して t0 で代数変数と導関数が有限か（初期化で変わりうるので警告）、ソルバの名前（[ADR-0013](adr/0013-exec-backend.md)）。初期化のヤコビ行列の階数は、Rumoca に公開の API が無いので後回し | GM-E10001（パラメータが有限にならない）/ GM-E10002（assert）/ GM-E10003（start 値が有限にならない）/ GM-E10004（experiment が妥当でない）/ GM-W10001（experiment が疑わしい）/ GM-I10001（experiment が無い）/ GM-I10002（静的に評価できないパラメータ）/ GM-W10002（t0 で有限にならない、S011）/ GM-E10005（ソルバが使えない、S011）/ GM-I10003（ソルバの別名、S011） |
-| 実行 | S0〜S10 の後のシミュレーション（`Stage::Run`、S011）。検査段階ではないが、失敗を同じ診断の形で返す（[ADR-0013](adr/0013-exec-backend.md)） | GM-E11001（初期化）/ GM-E11002（積分）/ GM-E11003（イベントの反復）/ GM-E11004（assert）/ GM-E11005（時間切れ）/ GM-E11006（結果に NaN・inf）/ GM-I11001（terminate）/ GM-W11001（実行が止まらない警告。warning レベルの assert）/ GM-U0004（実行系が未対応）/ GM-U0005（実行系の内部エラー） |
+| S10 | プリフライト: S010 は静的な部分（パラメータと start 値を Rumoca の評価器で評価、experiment annotation の生の値。[ADR-0012](adr/0012-loops-and-preflight.md)）。S011 で数値の部分を実行の直前に足した: start 値で評価して t0 で代数変数と導関数が有限か（初期化で変わりうるので警告）、ソルバの名前（[ADR-0013](adr/0013-exec-backend.md)）。初期化のヤコビ行列の階数は、Rumoca に公開の API が無いので後回し | GM-E10001（パラメータが有限にならない）/ GM-E10002（assert）/ GM-E10003（start 値が有限にならない）/ GM-E10004（experiment が妥当でない）/ GM-W10001（experiment が疑わしい）/ GM-I10001（experiment が無い）/ GM-I10002（静的に評価できないパラメータ）/ GM-W10002（t0 で有限にならない、S011）/ GM-E10005（ソルバが使えない、S011）/ GM-I10003（ソルバの別名、S011）/ GM-E10006（パラメータの上書きが使えない、S012）/ GM-W10003（許容誤差を下限 1e-10 に上げた、S012）/ GM-I10004（固定刻みは許容誤差を使わない、S012） |
+| 実行 | S0〜S10 の後のシミュレーション（`Stage::Run`、S011）。検査段階ではないが、失敗を同じ診断の形で返す（[ADR-0013](adr/0013-exec-backend.md)） | GM-E11001（初期化）/ GM-E11002（積分）/ GM-E11003（イベントの反復）/ GM-E11004（assert）/ GM-E11005（時間切れ）/ GM-E11006（結果に NaN・inf）/ GM-I11001（terminate）/ GM-W11001（実行が止まらない警告。warning レベルの assert）/ GM-I11002（`auto` で BDF が失敗したので dopri45 で回し直した、S012）/ GM-U0004（実行系が未対応）/ GM-U0005（実行系の内部エラー） |
 
 - **「コンパイラが未対応」は GM-Uxxx として分ける**。対象は stream / expandable / overconstrained connector、state machine、operator record など。「モデルの誤り」と混同させないため。
   - 振り分けは [ADR-0007](adr/0007-unsupported-classification.md)。Rumoca のコードで決まるもの（`GM-U0001` 未対応、`GM-U0002` 内部エラー）と、既知の制約の一覧（`src/Modelica/msl-known-unsupported.txt`）に当たったもの（`GM-U0003`）。
@@ -222,23 +223,27 @@ trait Integrator {
 - ハイブリッドループは `globe-mode-sim` の driver が持つ。担当は時間イベント、根探索（ソルバ自身の機能か、密出力と Illinois 法）、イベント反復、リセット。
 - **Modelica のモデルと FMI-ME の FMU は同じ driver を使う**（目標）。ただし Phase A（S011〜）の Modelica のモデルは、Rumoca の実行系の driver で回す。Rumoca のモデルを外の driver から回す公開の API が無いため（[ADR-0013](adr/0013-exec-backend.md)）。上の trait と自前の driver は FMU の Import（P5）と Track B で作り、Modelica のモデルをどう載せるかは P5 の前に決める。
 - S011 で使えるソルバは `bdf`（diffsol の BDF。Rumoca が数値の修正を当てた 0.13.2）と `dopri45`（Rumoca の Dormand–Prince 5(4)）と `auto`。名前の登録表は `globe-mode-sim::solvers`。
+- S012 で 6 つを足し、使えるソルバは 9 つになった（`esdirk34`・`trbdf2`・`tsit45`・`euler`・`heun`・`rk4`）。自前の積分器は Rumoca の FMI ME 風の host に差す数値積分のプラグイン（`MeIntegratorBackend`）で、ハイブリッドの driver は Rumoca の host のまま（[ADR-0014](adr/0014-session-route-wasm.md)）。ネイティブの `bdf`・`dopri45`・`auto` は S011 の型付きの道、wasm32 はすべて session の道で回す。
+- `auto` は BDF が組み立て・初期化で方向微分を作れない、積分に失敗した（`GM-E11002`）、サンプラが食い違ったときに dopri45 で回し直す（`GM-I11002`、S012）。積分の途中で方向微分が作れない失敗では切り替えない。
+- 固定刻み（`euler`・`heun`・`rk4`）の刻み幅は `--step`（既定は出力の間隔）。格子は t0 + k·h で、イベントの後も同じ格子に戻る。許容誤差は使わない（`GM-I10004`）。
 - 代数ループは faer の LU を使った減衰 Newton 法で解く。feature `sundials` を有効にしたときは KINSOL を使う。
 
 | GlobeMode ID | OpenModelica | Dymola | 実装 | ライセンス | wasm |
 | --- | --- | --- | --- | --- | --- |
-| `bdf`（既定。別名 `dassl`・`lsodar`） | dassl† | Dassl†、Lsodar† | diffsol BDF（S011 は Rumoca の実行系経由） | MIT | ○ |
-| `ida`、`cvode` | ida、cvode | Cvode | SUNDIALS（feature `sundials`） | BSD-3 | × |
-| `esdirk34`、`trbdf2` | gbode（esdirk） | Esdirk34a | diffsol SDIRK | MIT | ○ |
-| `esdirk23`、`esdirk45`、`sdirk34hw` | gbode | Esdirk23a/45a、Sdirk34hw | diffsol SDIRK と自前の係数表 | MIT | ○ |
-| `tsit45` | — | — | diffsol | MIT | ○ |
+| `bdf`（既定。S011。別名 `dassl`・`lsodar`） | dassl† | Dassl†、Lsodar† | diffsol BDF（Rumoca の実行系経由。wasm32 は Rumoca の BDF のプラグイン、S012） | MIT | ○（S012 に Node で確認） |
+| `ida`、`cvode` | ida、cvode | Cvode | SUNDIALS（feature `sundials`）。未実装 | BSD-3 | × |
+| `esdirk34`、`trbdf2`（S012） | gbode（esdirk） | Esdirk34a | diffsol SDIRK（自前のプラグイン。Rumoca の `me_integrator.rs` を写して改変） | MIT（diffsol）/ Apache-2.0（写したプラグイン） | ○ |
+| `esdirk23`、`esdirk45`、`sdirk34hw` | gbode | Esdirk23a/45a、Sdirk34hw | diffsol SDIRK と自前の係数表。未実装 | MIT | ○ |
+| `tsit45`（S012） | — | — | diffsol の Tsitouras 5(4)（自前のプラグイン） | MIT / Apache-2.0 | ○ |
 | `dopri45`（S011。別名 `rk45`・`dopri5`） | gbode（dopri45） | Dopri45 | Phase A は Rumoca の Dormand–Prince 5(4)（`rumoca-solver-rk45`） | Apache-2.0 | ○ |
-| `dopri853` | — | Dopri853 | 自前の陽的 RK（ode_solvers と照合する） | 自前 | ○ |
-| `auto`（S011） | — | — | Rumoca の Auto（系を見て BDF か陽的 RK を選ぶ） | Apache-2.0 | ○ |
-| `euler`、`heun`、`rk4`、`impeuler`、`trapezoid` | 同名、rungekutta | Euler、Rkfix2/3/4 | 自前の固定刻み | 自前 | ○ |
-| `radau5`（P8） | gbode（radau） | Radau IIa | 自前。russell_ode は GPL の UMFPACK をリンクするので**使わない** | 自前 | ○ |
+| `dopri853` | — | Dopri853 | 自前の陽的 RK（ode_solvers と照合する）。未実装 | 自前 | ○ |
+| `auto`（S011。S012 から BDF が失敗したら dopri45 で回し直す） | — | — | Rumoca の選び方をなぞる（BDF で始め、方向微分が作れないときと積分の失敗で dopri45） | Apache-2.0 | ○ |
+| `euler`、`heun`、`rk4`（S012） | 同名、rungekutta | Euler、Rkfix2/3/4 | 自前の固定刻み（係数と Hermite 補間は `globe-mode-sim::integrators`） | 自前 | ○ |
+| `impeuler`、`trapezoid` | 同名 | — | 自前の固定刻み。未実装 | 自前 | ○ |
+| `radau5`（P8） | gbode（radau） | Radau IIa | 自前。russell_ode は GPL の UMFPACK をリンクするので**使わない**。未実装 | 自前 | ○ |
 | `cerk23/34/45`、`qss` | qss | Cerk23/34/45 | 後回し | — | — |
 
-† は別名。指定すると「dassl → bdf（同等の手法で、結果は一致しない）」と表示する（`GM-I10003`）。OpenModelica の `ida` は GlobeMode でも `ida`（SUNDIALS の行）で、feature `sundials` を入れるまでは「まだ実装していない」（`GM-E10005`、代わりに `bdf`）になる（S011）。
+† は別名。指定すると「dassl → bdf（同等の手法で、結果は一致しない）」と表示する（`GM-I10003`）。OpenModelica の `ida` は GlobeMode でも `ida`（SUNDIALS の行）で、feature `sundials` を入れるまでは「まだ実装していない」（`GM-E10005`、代わりに `bdf`）になる（S011）。「未実装」と書いた行は、登録表に名前だけあって `GM-E10005` になる（S012 の時点）。
 
 KLU（LGPL）は同梱しない。
 
@@ -342,9 +347,10 @@ Svelte の UI は `Backend` インターフェースだけに依存する。実�
 | フロントエンド | MSL 4.1.0 の例題でファネルを数え、Rumoca の値と比べる（Track B では native と rumoca の差分）。例題 20 本で Rumoca の CLI と突き合わせる（`cargo xtask msl-compare`、S003） |
 | MSL の全例題 | `cargo xtask msl-funnel`（`mise run msl:funnel`、S005。報告は [msl-funnel.md](msl-funnel.md)、S007 から置き場を固定）。Rumoca と同じ名前の規則で選んだ 566 本に S0〜S8 / OK / GM-U の判定を出し、Rumoca の基準値と並べる。S7 の構造インデックスの分布と、S8 の合う・過剰・不足の本数も数える（S007）。検査器は 1 つ（MSL を一度だけ読む）で、モデルごとに `catch_unwind` で囲み panic を数える。時間がかかるので CI には入れない |
 | 検査 | S5 を `omc checkModel()` と、S6・S8 を `omc translateModel()` の文言と照合する（別プロセス。`cargo xtask omc-compare`、S008、[ADR-0010](adr/0010-omc-comparison.md)。報告は [omc-compare.md](omc-compare.md)） |
-| シミュレーション | `cargo xtask msl-sim`（`mise run msl:sim`、S011）: `msl:funnel` で OK の例題を別プロセスのワーカーで実行し、MSL 4.1.0 の参照結果（MAP-LIB、ブランチ v4.1.0、`cargo xtask fetch-msl-ref` で `data/msl-ref/` に取得）と矩形の管（csv-compare の既定、許容差 0.002）で比べる。報告は [msl-sim.md](msl-sim.md)（[ADR-0013](adr/0013-exec-backend.md)）。時間がかかるので CI には入れない |
+| シミュレーション | `cargo xtask msl-sim`（`mise run msl:sim`、S011）: `msl:funnel` で OK の例題を別プロセスのワーカーで実行し、MSL 4.1.0 の参照結果（MAP-LIB、ブランチ v4.1.0、`cargo xtask fetch-msl-ref` で `data/msl-ref/` に取得）と矩形の管（csv-compare の既定、許容差 0.002）で比べる。報告は [msl-sim.md](msl-sim.md)（[ADR-0013](adr/0013-exec-backend.md)）。S012 から既定のソルバは `auto`、時間切れ（`GM-E11005`）だけ予算 180 s で回し直し、前回の `target/msl-sim.json` との差と、既知の外れの一覧（`src/Modelica/msl-sim-known-deviations.txt`）を報告に書く。時間がかかるので CI には入れない |
+| wasm | `mise run wasm:build`（release の wasm32-unknown-unknown を、lto・opt-level s などの環境変数でビルドし、`wasm-bindgen --target nodejs` で糊を作る）、`mise run wasm:node`（Node で `Simulation.Decay` を bdf・dopri45・auto で回す。`data/msl` があれば MSL の `ChuaCircuit` も、panic の文言も確かめる）、`mise run wasm:compare`（`Simulation.*` を実装のある 9 つのソルバで wasm とネイティブの `globe simulate` の両方で回し、診断のコードと結果の CSV を突き合わせる）。S012、[ADR-0014](adr/0014-session-route-wasm.md) |
 | FMI | Reference-FMUs、FMPy、fmusim、fmuCheck、往復 |
 | ライセンス | cargo-deny、`pnpm licenses`、cargo-about、CycloneDX SBOM |
-| CI | 差分だけを検査し、依存・ツール・CI の定義の変更や大きな変更のときだけ全体を検査する（[ADR-0006](adr/0006-incremental-ci.md)） |
+| CI | 差分だけを検査し、依存・ツール・CI の定義の変更や大きな変更のときだけ全体を検査する（[ADR-0006](adr/0006-incremental-ci.md)）。S012 からジョブ `wasm-node`（exec・sim・db・frontend・wasm とその依存を変えたとき。`mise run wasm:build` のあと Node で Decay を回し、wasm の大きさを Step Summary に書く）。wasm32 の `cargo check` に exec と wasm を足した |
 | コードレビュー | Claude Code が主。副次的に、Windows 側の LM Studio のローカルモデルにも差分を読ませる（スキル `/local-review`、[ADR-0008](adr/0008-local-llm-reviewer.md)）。指摘は Claude が確かめて採否を決める |
 | 性能 | P2: 空白だけの編集の再検査が 50 ms 未満（S005: S0〜S6 の再検査で中央値 0.01 ms。S007: MSL を使うモデルで、使わないファイルを編集した後の再検査が中央値 0.19 ms）。P4: 5k ノードのグラフが 30 fps 以上 |

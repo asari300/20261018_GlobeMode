@@ -11,7 +11,17 @@ publish.workspace = true
 [features]
 default = ["rumoca-exec"]
 # Phase A の実行系。Rumoca を import してよいのはこの feature の中だけ（ADR-0002、ADR-0013）
-rumoca-exec = ["dep:rumoca-sim", "dep:rumoca-solver", "dep:rumoca-ir-dae"]
+rumoca-exec = [
+  "dep:rumoca-sim",
+  "dep:rumoca-solver",
+  "dep:rumoca-ir-dae",
+  "dep:rumoca-phase-solve",
+  "dep:rumoca-solver-diffsol",
+  "dep:rumoca-solver-rk45",
+  "dep:diffsol",
+  "dep:self_cell",
+  "dep:getrandom",
+]
 
 [dependencies]
 globe-mode-core = { workspace = true }
@@ -22,6 +32,17 @@ globe-mode-sim = { workspace = true }
 rumoca-sim = { workspace = true, optional = true }
 rumoca-solver = { workspace = true, optional = true }
 rumoca-ir-dae = { workspace = true, optional = true }
+# S012: lowering と実行を分けて呼ぶ道（src/rumoca/session.rs）と、数値積分のプラグイン（src/rumoca/plugins.rs）
+rumoca-phase-solve = { workspace = true, optional = true }
+rumoca-solver-diffsol = { workspace = true, optional = true }
+rumoca-solver-rk45 = { workspace = true, optional = true }
+diffsol = { workspace = true, optional = true }
+self_cell = { workspace = true, optional = true }
+
+# S012: wasm32 では diffsol の faer → rand → getrandom 0.3 に、JS の乱数の backend が要る
+# （.cargo/config.toml の cfg `getrandom_backend="wasm_js"` と対で使う）
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.3", features = ["wasm_js"], optional = true }
 
 [lints]
 workspace = true

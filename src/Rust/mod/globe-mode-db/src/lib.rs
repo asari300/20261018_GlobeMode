@@ -513,6 +513,17 @@ impl GlobeDb {
         Ok(Self::with_checker(Checker::new(&paths)?))
     }
 
+    /// ライブラリをファイルの組（名前 → 本文）で一度だけ読み込んだ DB（S012。wasm32 のため）。
+    /// [`Checker::with_library_sources`] を使う。ライブラリのファイルはワークスペースに入れない。
+    pub fn with_library_sources(
+        name: &str,
+        sources: &[Source<'_>],
+    ) -> Result<GlobeDb, Vec<Diagnostic>> {
+        Ok(Self::with_checker(Checker::with_library_sources(
+            name, sources,
+        )?))
+    }
+
     /// 作ってある検査器を使う DB（Session を別の DB や処理と共有するとき）。
     ///
     /// 検査器は持ち主を分けた取っ手（[`Checker::new_handle`]）にして持つ。`check` が Session に残す文書は

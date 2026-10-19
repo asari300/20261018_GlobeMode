@@ -12,6 +12,12 @@
 //! 妥当でない値は GM-E10004（Error）にし、値が指定・experiment annotation・既定値のどれから来たかを書く。
 //! experiment annotation の不正は S10 の静的な検査（`globe-mode-analysis` の preflight）も同じコードで報告する。
 //! ソルバが使えないときは GM-E10005、別名を置き換えたときは GM-I10003（情報）にする。
+//!
+//! S012 から: Tolerance が下限 [`MIN_TOLERANCE`]（1e-10）より小さければ下限にして GM-W10003（警告）。
+//! 固定刻みのソルバ（`euler`・`heun`・`rk4`）は Tolerance を使わず、指定か experiment annotation にあれば
+//! GM-I10004（情報）。刻み幅は正の有限の数で区間より長くないこと（だめなら GM-E10004）。固定刻みでない
+//! ソルバに刻み幅を指定したら GM-W10001（使わない）。パラメータの上書きの値が有限でなければ GM-E10006
+//! （tunable かどうかは実行系が確かめる）。
 
 use globe_mode_core::{Diagnostic, Stage, codes};
 use globe_mode_ir::{
@@ -29,6 +35,9 @@ pub const DEFAULT_SPAN: f64 = 1.0;
 pub const DEFAULT_TOLERANCE: f64 = 1e-6;
 /// 既定の Interval は区間をこの数で割ったもの。
 pub const DEFAULT_INTERVALS: f64 = 500.0;
+/// 許容誤差の下限。これより小さい値は下限にして GM-W10003（警告）を出す（S012。Rumoca の実行系は 1e-10 より
+/// 小さい許容誤差で、受け入れた歩の端の点とサンプラの照合が丸めの誤差に負ける。doc/research/msl-sim-failures.md）。
+pub const MIN_TOLERANCE: f64 = 1e-10;
 /// 既定のソルバ。
 pub const DEFAULT_SOLVER: SolverId = SolverId::Bdf;
 
@@ -167,6 +176,113 @@ pub fn resolve(
         ),
     };
 
+    let fixed = solver.is_fixed_step();
+    // 許容誤差: 固定刻みのソルバは使わない（指定か experiment annotation にあれば GM-I10004）。
+    // 下限より小さければ下限にする（固定刻みのソルバでは使わないので、知らせずに直す）
+    let mut tolerance = tolerance;
+    if fixed && tolerance.origin != SettingOrigin::Default {
+        out.push(
+            tolerance.origin,
+            Diagnostic::info(
+                codes::FIXED_STEP_IGNORES_TOLERANCE,
+                Stage::S10,
+                format!(
+                    "{}（{}）は固定刻みのソルバ {} では使わない（精度は刻み幅で決まる）",
+                    tolerance.label(),
+                    format_number(tolerance.value),
+                    solver.name()
+                ),
+            ),
+        );
+    }
+    if tolerance.value.is_finite() && tolerance.value > 0.0 && tolerance.value < MIN_TOLERANCE {
+        if !fixed {
+            out.push(
+                tolerance.origin,
+                Diagnostic::warning(
+                    codes::TOLERANCE_CLAMPED,
+                    Stage::S10,
+                    format!(
+                        "{}（{}）が下限（{}）より小さいので、下限にした",
+                        tolerance.label(),
+                        format_number(tolerance.value),
+                        format_number(MIN_TOLERANCE)
+                    ),
+                )
+                .note(
+                    "Rumoca の実行系は 1e-10 より小さい許容誤差で、受け入れた歩の端の点の照合が丸めの誤差に負ける",
+                ),
+            );
+        }
+        tolerance.value = MIN_TOLERANCE;
+    }
+
+    // 固定刻みの幅（固定刻みのソルバのときだけ。指定が無ければ出力の間隔）
+    let (step, step_origin) = if fixed {
+        match requested.step {
+            Some(h) => {
+                let problem = if !h.is_finite() {
+                    Some("が有限でない".to_string())
+                } else if h <= 0.0 {
+                    Some("が正でない".to_string())
+                } else if span_ok && h > span {
+                    Some(format!(
+                        "が区間（{}〜{}）より長い",
+                        format_number(start.value),
+                        format_number(stop.value)
+                    ))
+                } else {
+                    None
+                };
+                if let Some(problem) = problem {
+                    out.push(
+                        SettingOrigin::Requested,
+                        Diagnostic::error(
+                            codes::EXPERIMENT_INVALID,
+                            Stage::S10,
+                            format!("指定した刻み幅（{}）{problem}", format_number(h)),
+                        ),
+                    );
+                }
+                (Some(h), Some(SettingOrigin::Requested))
+            }
+            None => (Some(interval.value), Some(SettingOrigin::Default)),
+        }
+    } else {
+        if let Some(h) = requested.step {
+            out.push(
+                SettingOrigin::Requested,
+                Diagnostic::warning(
+                    codes::EXPERIMENT_SUSPICIOUS,
+                    Stage::S10,
+                    format!(
+                        "指定した刻み幅（{}）はソルバ {} では使わない（固定刻みのソルバ euler・heun・rk4 だけが使う）",
+                        format_number(h),
+                        solver.name()
+                    ),
+                ),
+            );
+        }
+        (None, None)
+    };
+
+    // パラメータの上書きの値（tunable かどうかは実行系が確かめる）
+    for (name, &value) in &requested.parameters {
+        if !value.is_finite() {
+            out.push(
+                SettingOrigin::Requested,
+                Diagnostic::error(
+                    codes::PARAMETER_OVERRIDE_INVALID,
+                    Stage::S10,
+                    format!(
+                        "パラメータ {name} の上書きの値（{}）が有限でない",
+                        format_number(value)
+                    ),
+                ),
+            );
+        }
+    }
+
     let diagnostics = out.list;
     if diagnostics.iter().any(Diagnostic::is_error) {
         return Err(diagnostics);
@@ -178,12 +294,15 @@ pub fn resolve(
         interval: interval.value,
         solver,
         max_wall_seconds: requested.max_wall_seconds,
+        step,
+        parameters: requested.parameters.clone(),
         origins: SettingOrigins {
             start_time: start.origin,
             stop_time: stop.origin,
             tolerance: tolerance.origin,
             interval: interval.origin,
             solver: solver_origin,
+            step: step_origin,
         },
     };
     Ok((settings, diagnostics))
@@ -424,6 +543,7 @@ mod tests {
                 tolerance: SettingOrigin::Default,
                 interval: SettingOrigin::Default,
                 solver: SettingOrigin::Default,
+                step: None,
             }
         );
     }
@@ -452,6 +572,7 @@ mod tests {
             interval: Some(0.1),
             solver: Some("dopri45".into()),
             max_wall_seconds: Some(30.0),
+            ..SimSettings::default()
         };
         let (s, d) = ok(&requested, Some(&e));
         assert!(d.is_empty());
@@ -469,6 +590,7 @@ mod tests {
                 tolerance: SettingOrigin::Requested,
                 interval: SettingOrigin::Requested,
                 solver: SettingOrigin::Requested,
+                step: None,
             }
         );
     }
@@ -698,21 +820,20 @@ mod tests {
     #[test]
     fn planned_solver_is_an_error_with_a_substitute() {
         let requested = SimSettings {
-            solver: Some("esdirk34".into()),
+            solver: Some("radau5".into()),
             ..SimSettings::default()
         };
         let d = err(&requested, None);
         assert_eq!(codes_of(&d), [(codes::SOLVER_UNAVAILABLE, Severity::Error)]);
-        assert_eq!(d[0].message, "ソルバ esdirk34 はまだ実装していない");
+        assert_eq!(d[0].message, "ソルバ radau5 はまだ実装していない");
         assert!(
             d[0].notes.iter().any(|n| n == "近い手法で使えるもの: bdf"),
             "{:?}",
             d[0].notes
         );
         assert!(
-            d[0].notes
-                .iter()
-                .any(|n| n == "使えるソルバ: bdf、dopri45、auto")
+            d[0].notes.iter().any(|n| n
+                == "使えるソルバ: bdf、dopri45、auto、esdirk34、trbdf2、tsit45、euler、heun、rk4")
         );
     }
 
@@ -731,7 +852,10 @@ mod tests {
             ..SimSettings::default()
         };
         let d = err(&requested, None);
-        assert_eq!(d[0].notes, ["使えるソルバ: bdf、dopri45、auto"]);
+        assert_eq!(
+            d[0].notes,
+            ["使えるソルバ: bdf、dopri45、auto、esdirk34、trbdf2、tsit45、euler、heun、rk4"]
+        );
     }
 
     #[test]
@@ -752,6 +876,164 @@ mod tests {
                 (codes::EXPERIMENT_INVALID, Severity::Error),
                 (codes::SOLVER_ALIAS, Severity::Info),
             ]
+        );
+    }
+
+    #[test]
+    fn tolerance_below_the_floor_is_raised_with_a_warning() {
+        let requested = SimSettings {
+            tolerance: Some(1e-12),
+            ..SimSettings::default()
+        };
+        let (s, d) = ok(&requested, None);
+        assert_eq!(s.tolerance, MIN_TOLERANCE);
+        assert_eq!(s.origins.tolerance, SettingOrigin::Requested);
+        assert_eq!(
+            codes_of(&d),
+            [(codes::TOLERANCE_CLAMPED, Severity::Warning)]
+        );
+        assert_eq!(
+            d[0].message,
+            "指定した Tolerance（1e-12）が下限（1e-10）より小さいので、下限にした"
+        );
+        assert_eq!(d[0].file, None);
+        // experiment annotation の値（MSL の SimpleTriacCircuit は 1e-12）も同じ。注釈の位置を付ける
+        let e = experiment(None, None, None, Some(1e-12));
+        let (s, d) = ok(&SimSettings::default(), Some(&e));
+        assert_eq!(s.tolerance, MIN_TOLERANCE);
+        assert_eq!(
+            codes_of(&d),
+            [(codes::TOLERANCE_CLAMPED, Severity::Warning)]
+        );
+        assert!(
+            d[0].message
+                .starts_with("experiment annotation の Tolerance（1e-12）")
+        );
+        assert_eq!(d[0].file.as_deref(), Some("M.mo"));
+        // 下限ちょうどと、それより大きいものはそのまま
+        for tol in [1e-10, 1e-9] {
+            let requested = SimSettings {
+                tolerance: Some(tol),
+                ..SimSettings::default()
+            };
+            let (s, d) = ok(&requested, None);
+            assert_eq!(s.tolerance, tol);
+            assert!(d.is_empty());
+        }
+    }
+
+    fn fixed(step: Option<f64>) -> SimSettings {
+        SimSettings {
+            solver: Some("rk4".into()),
+            step,
+            ..SimSettings::default()
+        }
+    }
+
+    #[test]
+    fn fixed_step_defaults_to_the_interval() {
+        let (s, d) = ok(&fixed(None), None);
+        assert!(d.is_empty(), "{d:?}");
+        assert_eq!(s.solver, SolverId::Rk4);
+        assert_eq!(s.step, Some(1.0 / 500.0));
+        assert_eq!(s.origins.step, Some(SettingOrigin::Default));
+        let (s, _) = ok(&fixed(Some(0.01)), None);
+        assert_eq!(s.step, Some(0.01));
+        assert_eq!(s.origins.step, Some(SettingOrigin::Requested));
+        // 区間の長さちょうどは 1 歩
+        let (s, _) = ok(&fixed(Some(1.0)), None);
+        assert_eq!(s.step, Some(1.0));
+    }
+
+    #[test]
+    fn fixed_step_must_be_positive_finite_and_within_the_span() {
+        for (h, message) in [
+            (0.0, "指定した刻み幅（0）が正でない"),
+            (-0.1, "指定した刻み幅（-0.1）が正でない"),
+            (f64::NAN, "指定した刻み幅（NaN）が有限でない"),
+            (f64::INFINITY, "指定した刻み幅（Inf）が有限でない"),
+            (2.0, "指定した刻み幅（2）が区間（0〜1）より長い"),
+        ] {
+            let d = err(&fixed(Some(h)), None);
+            assert_eq!(
+                codes_of(&d),
+                [(codes::EXPERIMENT_INVALID, Severity::Error)],
+                "{h}"
+            );
+            assert_eq!(d[0].message, message);
+        }
+    }
+
+    #[test]
+    fn step_is_ignored_by_adaptive_solvers_with_a_warning() {
+        let requested = SimSettings {
+            step: Some(0.01),
+            ..SimSettings::default()
+        };
+        let (s, d) = ok(&requested, None);
+        assert_eq!((s.step, s.origins.step), (None, None));
+        assert_eq!(
+            codes_of(&d),
+            [(codes::EXPERIMENT_SUSPICIOUS, Severity::Warning)]
+        );
+        assert!(
+            d[0].message.contains("ソルバ bdf では使わない"),
+            "{}",
+            d[0].message
+        );
+    }
+
+    #[test]
+    fn fixed_step_solvers_report_an_unused_tolerance() {
+        // 既定の Tolerance なら何も出さない
+        let (_, d) = ok(&fixed(None), None);
+        assert!(d.is_empty());
+        let requested = SimSettings {
+            tolerance: Some(1e-8),
+            ..fixed(None)
+        };
+        let (s, d) = ok(&requested, None);
+        assert_eq!(s.tolerance, 1e-8);
+        assert_eq!(
+            codes_of(&d),
+            [(codes::FIXED_STEP_IGNORES_TOLERANCE, Severity::Info)]
+        );
+        assert_eq!(
+            d[0].message,
+            "指定した Tolerance（1e-8）は固定刻みのソルバ rk4 では使わない（精度は刻み幅で決まる）"
+        );
+        // experiment annotation の値は位置付き。下限より小さくても警告は出さない（使わないので）
+        let e = experiment(None, None, None, Some(1e-12));
+        let (s, d) = ok(&fixed(None), Some(&e));
+        assert_eq!(s.tolerance, MIN_TOLERANCE);
+        assert_eq!(
+            codes_of(&d),
+            [(codes::FIXED_STEP_IGNORES_TOLERANCE, Severity::Info)]
+        );
+        assert_eq!(d[0].file.as_deref(), Some("M.mo"));
+    }
+
+    #[test]
+    fn parameter_overrides_must_be_finite() {
+        let mut requested = SimSettings::default();
+        requested.parameters.insert("R".into(), 10.0);
+        let (s, d) = ok(&requested, None);
+        assert!(d.is_empty());
+        assert_eq!(s.parameters.get("R"), Some(&10.0));
+        requested.parameters.insert("C".into(), f64::NAN);
+        requested.parameters.insert("L".into(), f64::NEG_INFINITY);
+        let d = err(&requested, None);
+        assert_eq!(
+            codes_of(&d),
+            [
+                (codes::PARAMETER_OVERRIDE_INVALID, Severity::Error),
+                (codes::PARAMETER_OVERRIDE_INVALID, Severity::Error)
+            ]
+        );
+        assert_eq!(d[0].message, "パラメータ C の上書きの値（NaN）が有限でない");
+        assert_eq!(
+            d[1].message,
+            "パラメータ L の上書きの値（-Inf）が有限でない"
         );
     }
 }

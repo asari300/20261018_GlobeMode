@@ -210,6 +210,65 @@ impl Checker {
         })
     }
 
+    /// ライブラリを、ディレクトリの代わりにファイルの組（名前 → 本文）で読み込む（S012。wasm32 には
+    /// ファイルシステムが無い）。[`Checker::new`] と同じく DurableExternal の組として Session に入れるので、
+    /// ライブラリの文書は検査のたびに渡し直さない。構文の誤りのあるファイルがあれば S1 の診断（`GM-E1003`）。
+    ///
+    /// `name` は組の名前（診断に出す）。[`Checker::libraries`] は組の名前 `library:<name>` を 1 つだけ返す
+    /// （ディレクトリではない。ライブラリがあることを示し、モデルの事前確認をライブラリのあるときと同じにする）。
+    pub fn with_library_sources(
+        name: &str,
+        sources: &[Source<'_>],
+    ) -> Result<Checker, Vec<Diagnostic>> {
+        use rumoca_compile::compile::ParsedSourceDocument;
+        let mut session = Session::new(SessionConfig::default());
+        let mut documents = Vec::with_capacity(sources.len());
+        let mut errors = Vec::new();
+        for source in sources {
+            match ParsedSourceDocument::parse(source.name, source.text) {
+                Ok(doc) => documents.push(doc),
+                Err(e) => errors.push(format!("{}: {e}", source.name)),
+            }
+        }
+        if !errors.is_empty() || documents.is_empty() {
+            let mut d = Diagnostic::error(
+                codes::LIBRARY,
+                Stage::S1,
+                format!("ライブラリ {name} を読み込めない"),
+            );
+            if documents.is_empty() && errors.is_empty() {
+                d = d.note("ファイルが 1 つも無い");
+            }
+            for msg in errors.iter().take(5) {
+                d = d.note(msg.clone());
+            }
+            return Err(vec![d]);
+        }
+        let set_id = format!("library:{name}");
+        session.replace_in_memory_source_set(
+            &set_id,
+            SourceRootKind::DurableExternal,
+            documents,
+            None,
+        );
+        let library_classes = session
+            .document_uris()
+            .into_iter()
+            .filter_map(|uri| session.get_document(uri).and_then(|d| d.parsed()))
+            .flat_map(top_level_classes)
+            .collect();
+        Ok(Checker {
+            state: Arc::new(Mutex::new(CheckerState {
+                pristine: session.clone(),
+                session,
+                documents: HashMap::new(),
+                library_classes,
+            })),
+            libraries: Arc::from(vec![PathBuf::from(set_id)]),
+            owner: next_owner(),
+        })
+    }
+
     /// 同じ Session を共有し、文書の持ち主だけを分けた取っ手。
     ///
     /// [`Checker::check_retaining`] は、自分の取っ手が足した文書だけを残す（ほかの取っ手が足した文書は、

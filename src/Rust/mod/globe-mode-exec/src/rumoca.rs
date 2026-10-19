@@ -5,11 +5,17 @@
 //! ソルバごとの呼び方（どれもエラーに型が付いた入口を使う。`simulate_with_diagnostics` はエラーを文字列に
 //! するので使わない）:
 //!
-//! - `bdf` … `build_simulation` → `check_prepared_initialization` → `run_prepared_simulation`。Rumoca の
-//!   MSL のワーカーと同じ道で、どこで失敗したか（組み立て・初期化・積分）がこちらの呼んだ位置で分かる。
+//! - `bdf` … `build_simulation`（lowering の結果が見える版。パラメータの値を読む）→
+//!   `check_prepared_initialization` → `run_prepared_simulation`。Rumoca の MSL のワーカーと同じ道で、
+//!   どこで失敗したか（組み立て・初期化・積分）がこちらの呼んだ位置で分かる。
 //! - `dopri45` … `rk45::simulate`（組み立てから積分までを 1 回で呼ぶ。初期化・イベント・積分の失敗には
 //!   Rumoca が段を付けるので、`bdf` と同じように分けられる。lowering の失敗だけは段が無く、`[EX…]` の印で見分ける）。
-//! - `auto` … Rumoca の選び方（BDF の初期の線形化が作れないときだけ陽的 RK にする）を、`bdf` の道でなぞる。
+//! - `auto` … `bdf` の道で回し、BDF の初期の線形化が作れないとき（Rumoca の選び方）と、BDF が積分で失敗したか
+//!   Rumoca のサンプラの食い違いで止まったとき（S012）に `dopri45` で回し直す（情報 GM-I11002。[`fallback`]）。
+//! - 自前の積分器（S012）と wasm32 のすべてのソルバ … lowering と実行を分けて呼ぶ session の道（[`session`]）。
+//!
+//! パラメータの上書き（`ResolvedSettings::parameters`）は `SimOptions::param_overrides` に渡す。Rumoca が断った
+//! もの（`InvalidOverride`、`[EX003]`）は GM-E10006（S10）にする。
 //!
 //! 失敗の振り分けは、Rumoca が付けた段（`SimFailureStage`・`MeStage`）、エラーの種類（`SimError::kind`、
 //! FMI ME のセッションの `MeSessionError`・`MeIntegrationError`・`MeError`）、こちらの呼んだ位置（[`Phase`]）の順に
@@ -24,8 +30,8 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use globe_mode_core::{Diagnostic, Stage, TextRange, codes};
 use globe_mode_ir::{
-    ResolvedSettings, SimRun, SimStats, SolverId, Termination, Trajectory, TrajectoryVariable,
-    VariableRole,
+    ResolvedSettings, ResultParameter, SimRun, SimStats, SolverId, Termination, Trajectory,
+    TrajectoryVariable, TunableParameter, VariableRole,
 };
 use rumoca_ir_dae::Dae;
 use rumoca_sim::{
@@ -35,6 +41,9 @@ use rumoca_solver::fmi_me::{MeError, MeIntegrationError, MeSessionError, MeStage
 use rumoca_solver::{SimDiagnostic, WARNING_ASSERTION_CODE};
 
 use crate::{CompiledModel, time_text};
+
+mod plugins;
+mod session;
 
 /// GM-W10002 の本文に並べる名前の数の上限。
 const LISTED_NAMES: usize = 10;
@@ -56,7 +65,16 @@ fn options(settings: &ResolvedSettings) -> SimOptions {
             SolverId::Bdf => SimSolverMode::Bdf,
             SolverId::Dopri45 => SimSolverMode::RkLike,
             SolverId::Auto => SimSolverMode::Auto,
+            // 自前の積分器は session の道で回すので、Rumoca の振り分けは使わない
+            _ => SimSolverMode::Bdf,
         },
+        // tunable なパラメータの上書き。変えられないものは Rumoca が lowering の前に InvalidOverride（EX003）で
+        // 断る（[`override_diagnostic`]）
+        param_overrides: settings
+            .parameters
+            .iter()
+            .map(|(name, value)| (name.clone(), *value))
+            .collect(),
         ..SimOptions::default()
     }
 }
@@ -70,20 +88,18 @@ pub(crate) fn preflight(model: &CompiledModel, settings: &ResolvedSettings) -> V
     let dae: &Dae = model.rumoca_dae();
     // start 値（Rumoca の initial_y）を状態に入れ、代数変数を Newton 法で合わせてから、代数変数と der(x) を
     // 評価する。初期化の残差ではない（fixed = false の状態は初期化で動く）ので、見つけても警告にとどめる。
-    let probe = catch_unwind(AssertUnwindSafe(|| {
-        rumoca_sim::eval_dae_at(dae, &opts, &[], settings.start_time)
-    }));
-    // 評価そのものができない（lowering の失敗、panic）ときは黙る。実行の側で同じ失敗を診断にする
-    let Ok(Ok(probe)) = probe else {
+    // 評価そのものができない（lowering の失敗、パラメータの上書きの誤り、panic）ときは黙る。実行の側で同じ失敗を
+    // 診断にする
+    let probe = catch_unwind(AssertUnwindSafe(|| eval_at_start(dae, &opts)));
+    let Ok(Some(probe)) = probe else {
         return Vec::new();
     };
     let mut bad: Vec<String> = probe
-        .report
         .nonfinite()
         .map(|(_, slot)| format!("{} = {}", slot.name, slot.nonfinite_kind().unwrap_or("NaN")))
         .collect();
     // Rumoca は有限でない値を変数に書かずに評価を止め、その名前を error の文言でだけ知らせる
-    let stopped = probe.report.error.as_deref().and_then(non_finite_in);
+    let stopped = probe.error.as_deref().and_then(non_finite_in);
     if let Some((name, kind)) = &stopped
         && !bad.iter().any(|b| b.starts_with(&format!("{name} = ")))
     {
@@ -111,10 +127,75 @@ pub(crate) fn preflight(model: &CompiledModel, settings: &ResolvedSettings) -> V
     let mut d = Diagnostic::warning(codes::T0_NOT_FINITE, Stage::S10, message).note(
         "初期化では fixed = false の状態や反復変数が動くので、実行では有限になることもある（確定できないので警告）",
     );
-    if let Some(error) = &probe.report.error {
+    if let Some(error) = &probe.error {
         d = locate(d, dae, error).note(rumoca_note(None, &without_span(error)));
     }
     vec![d]
+}
+
+/// Rumoca の `eval_dae_at` と同じ評価（start 値の状態、Newton 法の許容誤差 1e-10・反復 32 回。rumoca-sim の
+/// `solve_lowering/probe.rs`）を、パラメータの上書きを反映した lowering で行う（`eval_dae_at` は上書きを見ない）。
+fn eval_at_start(dae: &Dae, opts: &SimOptions) -> Option<rumoca_sim::EvalAtReport> {
+    let model = rumoca_sim::lower_for_simulation_with_overrides(dae, opts).ok()?;
+    let states = model.state_scalar_count();
+    let mut state = vec![0.0; states];
+    for (dst, src) in state.iter_mut().zip(model.initial_y.iter().copied()) {
+        *dst = src;
+    }
+    let runtime = rumoca_solver::SolveRuntime::new(&model).ok()?;
+    Some(runtime.eval_at(opts.t_start, &state, &model.parameters, 1.0e-10, 32))
+}
+
+// ---------------------------------------------------------------------------------------------
+// tunable なパラメータ
+// ---------------------------------------------------------------------------------------------
+
+/// 再コンパイル無しに変えられるパラメータの一覧（既定値は上書きを反映しない値）。
+pub(crate) fn tunable_parameters(
+    model: &CompiledModel,
+) -> Result<Vec<TunableParameter>, Vec<Diagnostic>> {
+    let dae: &Dae = model.rumoca_dae();
+    let listed = catch_unwind(AssertUnwindSafe(|| {
+        let solve = rumoca_sim::lower_for_simulation_with_overrides(dae, &SimOptions::default())?;
+        rumoca_sim::build_tunable_parameter_meta(dae, &solve)
+    }));
+    match listed {
+        Ok(Ok(meta)) => Ok(meta
+            .into_iter()
+            .map(|m| TunableParameter {
+                name: m.name,
+                default: m.default_value,
+                unit: m.unit.filter(|u| !u.is_empty()),
+                min: m.min_value,
+                max: m.max_value,
+                description: m.description.filter(|d| !d.is_empty()),
+            })
+            .collect()),
+        Ok(Err(e)) => {
+            let error = session::lowering_error(&e);
+            Err(vec![failure_diagnostic(dae, &error, Phase::Build, None)])
+        }
+        Err(payload) => Err(vec![panic_diagnostic(payload.as_ref(), None)]),
+    }
+}
+
+/// lowering の結果（上書きを反映した Solve IR）から、実行に使った tunable なパラメータの値を読む。読めなければ空。
+fn result_parameters(
+    dae: &Dae,
+    lowered: &rumoca_phase_solve::LoweredSolveModel<'_>,
+) -> Vec<ResultParameter> {
+    rumoca_sim::build_tunable_parameter_meta(dae, lowered.model())
+        .map(|meta| {
+            meta.into_iter()
+                .map(|m| ResultParameter {
+                    name: m.name,
+                    value: m.default_value,
+                    unit: m.unit.filter(|u| !u.is_empty()),
+                    description: m.description.filter(|d| !d.is_empty()),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -126,9 +207,9 @@ pub(crate) fn preflight(model: &CompiledModel, settings: &ResolvedSettings) -> V
 enum Phase {
     /// lowering と実行系の組み立て（`build_simulation`）
     Build,
-    /// 初期化（`check_prepared_initialization`）
+    /// 初期化（`check_prepared_initialization`、session の道の `into_lease`）
     Initialization,
-    /// 積分（`run_prepared_simulation`、`rk45::simulate`）
+    /// 積分（`run_prepared_simulation`、`rk45::simulate`、session の道の `run_to_stop`）
     Integration,
 }
 
@@ -137,12 +218,44 @@ struct Outcome {
     result: Result<SimResult, (SimError, Phase)>,
     build_seconds: f64,
     run_seconds: f64,
+    /// 実行に使った tunable なパラメータの値（lowering の結果から読む。分からなければ空）
+    parameters: Vec<ResultParameter>,
+    /// 実行の途中で決まった情報（auto の切り替えの GM-I11002）
+    info: Vec<Diagnostic>,
 }
 
-/// 実行する。成功なら結果と、実行が止まらない Rumoca の警告（GM-W11001）を返す。
+impl Outcome {
+    fn new(
+        result: Result<SimResult, (SimError, Phase)>,
+        build_seconds: f64,
+        run_seconds: f64,
+    ) -> Self {
+        Self {
+            result,
+            build_seconds,
+            run_seconds,
+            parameters: Vec::new(),
+            info: Vec::new(),
+        }
+    }
+}
+
+/// Rumoca の呼び方。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Route {
+    /// ネイティブの bdf・dopri45・auto は rumoca-sim の型付きの入口（Cranelift の JIT）、自前の積分器は
+    /// session の道。wasm32 では [`Route::Session`] と同じ
+    Default,
+    /// どのソルバも session の道（[`session`]。wasm32 の道。ネイティブでは試験で型付きの道と比べる）
+    Session,
+}
+
+/// 実行する。成功なら結果と、実行が止まらない診断（Rumoca の警告 GM-W11001、auto の切り替え GM-I11002）を返す。
+/// 失敗なら、失敗の診断を先頭に置いた診断を返す。
 pub(crate) fn simulate(
     model: &CompiledModel,
     settings: &ResolvedSettings,
+    route: Route,
 ) -> Result<(SimRun, Vec<Diagnostic>), Vec<Diagnostic>> {
     let opts = options(settings);
     let dae: &Dae = model.rumoca_dae();
@@ -150,16 +263,30 @@ pub(crate) fn simulate(
     // NaN の追跡（nan_trace）はプロセス全体のスイッチなので触らない
     rumoca_sim::reset_step_counts();
     rumoca_sim::reset_projection_fallbacks();
-    // PreparedSimulation は Send でない（Rc / RefCell）。作るのも使い終えるのもこのスレッドの中で行う
-    let caught = catch_unwind(AssertUnwindSafe(|| match settings.solver {
-        SolverId::Bdf => run_bdf(dae, &opts),
-        SolverId::Dopri45 => run_rk(dae, &opts),
-        SolverId::Auto => run_auto(dae, &opts),
-    }));
-    let outcome = match caught {
-        Ok(outcome) => outcome,
-        Err(payload) => return Err(vec![panic_diagnostic(payload.as_ref(), settings)]),
+    // wasm32 は Instant::now を呼ばない session の道だけを使う
+    #[cfg(target_arch = "wasm32")]
+    let route = {
+        let _ = route;
+        Route::Session
     };
+    // PreparedSimulation は Send でない（Rc / RefCell）。作るのも使い終えるのもこのスレッドの中で行う。
+    // wasm32-unknown-unknown は panic=abort なので catch_unwind は何も捕まえない（panic は JS の例外になり、
+    // インスタンスは使えなくなる）
+    let caught = catch_unwind(AssertUnwindSafe(|| match route {
+        #[cfg(not(target_arch = "wasm32"))]
+        Route::Default => run_typed(dae, &opts, settings),
+        _ => run_session(dae, &opts, settings),
+    }));
+    let mut outcome = match caught {
+        Ok(outcome) => outcome,
+        Err(payload) => {
+            return Err(vec![panic_diagnostic(
+                payload.as_ref(),
+                settings.max_wall_seconds,
+            )]);
+        }
+    };
+    let info = std::mem::take(&mut outcome.info);
     let run = |trajectory: Trajectory, termination: Termination, states: usize| SimRun {
         model: model.model.clone(),
         settings: settings.clone(),
@@ -171,6 +298,7 @@ pub(crate) fn simulate(
         },
         trajectory,
         termination,
+        parameters: outcome.parameters.clone(),
     };
     match outcome.result {
         Ok(result) => {
@@ -182,8 +310,9 @@ pub(crate) fn simulate(
                 None => Termination::StopTime,
             };
             let states = result.n_states;
-            let warnings = warning_diagnostics(dae, &result.diagnostics);
-            Ok((run(trajectory(result), termination, states), warnings))
+            let mut diagnostics = info;
+            diagnostics.extend(warning_diagnostics(dae, &result.diagnostics));
+            Ok((run(trajectory(result), termination, states), diagnostics))
         }
         Err((error, phase)) => match error.kind() {
             // terminate() は失敗ではない。v0.10.2 のバッチの道はこれを返さず結果の termination に入れるが、
@@ -197,10 +326,46 @@ pub(crate) fn simulate(
                     },
                     0,
                 ),
-                Vec::new(),
+                info,
             )),
-            _ => Err(vec![failure_diagnostic(dae, &error, phase, settings)]),
+            _ => {
+                let failed = match override_diagnostic(&error) {
+                    Some(d) => d,
+                    None => failure_diagnostic(dae, &error, phase, settings.max_wall_seconds),
+                };
+                let mut diagnostics = vec![failed];
+                diagnostics.extend(info);
+                Err(diagnostics)
+            }
         },
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+/// ネイティブの既定の道。
+fn run_typed(dae: &Dae, opts: &SimOptions, settings: &ResolvedSettings) -> Outcome {
+    match settings.solver {
+        SolverId::Bdf => run_bdf(dae, opts),
+        SolverId::Dopri45 => run_rk(dae, opts),
+        SolverId::Auto => run_auto(dae, settings, || run_bdf(dae, opts), || run_rk(dae, opts)),
+        own => session::run(dae, opts, settings, session::Integrator::Own(own)),
+    }
+}
+
+/// session の道（wasm32 の道）。bdf・dopri45 は Rumoca の積分器を Rumoca の host に差す。
+fn run_session(dae: &Dae, opts: &SimOptions, settings: &ResolvedSettings) -> Outcome {
+    use session::Integrator;
+    let with = |integrator| session::run(dae, opts, settings, integrator);
+    match settings.solver {
+        SolverId::Bdf => with(Integrator::RumocaBdf),
+        SolverId::Dopri45 => with(Integrator::RumocaRk45),
+        SolverId::Auto => run_auto(
+            dae,
+            settings,
+            || with(Integrator::RumocaBdf),
+            || with(Integrator::RumocaRk45),
+        ),
+        own => with(Integrator::Own(own)),
     }
 }
 
@@ -224,40 +389,50 @@ impl Stopwatch {
     }
 }
 
-/// BDF（diffsol）。組み立て・初期化・積分を分けて呼ぶ。
+#[cfg(not(target_arch = "wasm32"))]
+/// BDF（diffsol）。組み立て・初期化・積分を分けて呼ぶ。組み立ての途中の lowering の結果から、実行に使う
+/// tunable なパラメータの値を読む（lowering を増やさない）。
 fn run_bdf(dae: &Dae, opts: &SimOptions) -> Outcome {
     let started = Stopwatch::start();
-    let prepared = rumoca_sim::build_simulation(dae, opts);
+    let mut parameters = Vec::new();
+    let prepared = rumoca_sim::build_simulation_with_stage_timing_and_lowered_model(
+        dae,
+        opts,
+        |_| {},
+        |lowered| parameters = result_parameters(dae, lowered),
+    );
     let build_seconds = started.seconds();
     let prepared = match prepared {
-        Ok(p) => p,
+        Ok((p, _)) => p,
         Err(e) => {
             return Outcome {
-                result: Err((e, Phase::Build)),
-                build_seconds,
-                run_seconds: 0.0,
+                parameters,
+                ..Outcome::new(Err((e, Phase::Build)), build_seconds, 0.0)
             };
         }
     };
     let started = Stopwatch::start();
     if let Err(e) = rumoca_sim::check_prepared_initialization(&prepared) {
         return Outcome {
-            result: Err((e, Phase::Initialization)),
-            build_seconds,
-            run_seconds: started.seconds(),
+            parameters,
+            ..Outcome::new(
+                Err((e, Phase::Initialization)),
+                build_seconds,
+                started.seconds(),
+            )
         };
     }
     let result =
         rumoca_sim::run_prepared_simulation(&prepared).map_err(|e| (e, Phase::Integration));
     Outcome {
-        result,
-        build_seconds,
-        run_seconds: started.seconds(),
+        parameters,
+        ..Outcome::new(result, build_seconds, started.seconds())
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// Dormand–Prince 5(4)（Rumoca の rk45）。組み立てから積分までを 1 回で呼ぶので、組み立ての時間は分からない
-/// （`build_seconds` は 0、全体を `run_seconds` に入れる）。
+/// （`build_seconds` は 0、全体を `run_seconds` に入れる）。パラメータの値も分からない（空）。
 fn run_rk(dae: &Dae, opts: &SimOptions) -> Outcome {
     let started = Stopwatch::start();
     let result = rumoca_sim::rk45::simulate(dae, opts).map_err(|e| {
@@ -269,28 +444,80 @@ fn run_rk(dae: &Dae, opts: &SimOptions) -> Outcome {
         };
         (e, phase)
     });
-    Outcome {
-        result,
-        build_seconds: 0.0,
-        run_seconds: started.seconds(),
+    Outcome::new(result, 0.0, started.seconds())
+}
+
+/// auto: BDF で回し、[`fallback`] の規則に当たれば dopri45 で回し直す（情報 GM-I11002）。ネイティブの
+/// 型付きの道と session の道（wasm32）で同じ規則を使う。
+fn run_auto(
+    dae: &Dae,
+    settings: &ResolvedSettings,
+    bdf: impl FnOnce() -> Outcome,
+    rk: impl FnOnce() -> Outcome,
+) -> Outcome {
+    let first = bdf();
+    let (reason, failed) = match &first.result {
+        Err((error, phase)) => match fallback(error, *phase) {
+            Some(reason) => (
+                reason,
+                failure_diagnostic(dae, error, *phase, settings.max_wall_seconds),
+            ),
+            None => return first,
+        },
+        Ok(_) => return first,
+    };
+    let mut second = rk();
+    second.build_seconds += first.build_seconds;
+    second.run_seconds += first.run_seconds;
+    if second.parameters.is_empty() {
+        second.parameters = first.parameters;
+    }
+    second.info.insert(0, fallback_diagnostic(reason, &failed));
+    second
+}
+
+/// auto が BDF から dopri45 に切り替える理由。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Fallback {
+    /// 組み立て・初期化で BDF の初期の線形化（方向微分）が作れない（rumoca-sim の `select_auto_integrator` と
+    /// 同じ判断）
+    InitialLinearization,
+    /// BDF が積分で失敗した（GM-E11002）
+    Integration,
+    /// BDF の連続な補間（サンプラ）が受け入れた歩の端の点と食い違った（Rumoca の実行時の契約違反。GM-U0005）
+    SamplerDisagreement,
+}
+
+/// BDF の失敗が dopri45 に切り替える失敗か。積分の途中で方向微分が作れなくなった失敗（GM-U0004）では
+/// 切り替えない（MSL の `GenerationOfFMUs` は RK で終了時刻まで進むが、温度が動かない誤った結果になる。
+/// doc/research/msl-sim-failures.md）。
+fn fallback(error: &SimError, phase: Phase) -> Option<Fallback> {
+    match phase {
+        Phase::Build | Phase::Initialization if directional_derivative_unavailable(error) => {
+            Some(Fallback::InitialLinearization)
+        }
+        _ if sampler_disagreement(error) => Some(Fallback::SamplerDisagreement),
+        _ if classify(error, phase) == Kind::Integration => Some(Fallback::Integration),
+        _ => None,
     }
 }
 
-/// Rumoca の Auto をなぞる: BDF で組み立てて初期化し、初期の線形化（方向微分）が作れないときだけ陽的 RK に
-/// 切り替える（rumoca-sim の `select_auto_integrator` と同じ判断。積分の途中の失敗では切り替えない）。
-fn run_auto(dae: &Dae, opts: &SimOptions) -> Outcome {
-    let bdf = run_bdf(dae, opts);
-    match &bdf.result {
-        Err((e, Phase::Build | Phase::Initialization)) if directional_derivative_unavailable(e) => {
-            let rk = run_rk(dae, opts);
-            Outcome {
-                build_seconds: bdf.build_seconds + rk.build_seconds,
-                run_seconds: bdf.run_seconds + rk.run_seconds,
-                result: rk.result,
-            }
+fn fallback_diagnostic(reason: Fallback, failed: &Diagnostic) -> Diagnostic {
+    let message = match reason {
+        Fallback::InitialLinearization => {
+            "BDF の初期の線形化（方向微分）が作れないので、dopri45 で回した"
         }
-        _ => bdf,
+        Fallback::Integration => "BDF が積分で失敗したので、dopri45 で回し直した",
+        Fallback::SamplerDisagreement => {
+            "BDF の補間が受け入れた歩の端の点と食い違って止まったので、dopri45 で回し直した"
+        }
+    };
+    let mut d = Diagnostic::info(codes::RUN_SOLVER_FALLBACK, Stage::Run, message)
+        .note(format!("BDF の失敗: {}（{}）", failed.message, failed.code));
+    for note in &failed.notes {
+        d = d.note(note.clone());
     }
+    d.note("dopri45 は陽的な方法なので、硬い系では遅い。結果は参照結果などと比べて確かめる")
 }
 
 /// BDF の初期の線形化が作れない失敗か（rumoca-sim の `classify_bdf_capability` と同じ判定）。
@@ -302,6 +529,56 @@ fn directional_derivative_unavailable(error: &SimError) -> bool {
         }
         _ => false,
     }
+}
+
+/// Rumoca のサンプラの食い違い（`accepted-interval left endpoint sampler state <i> is <a>, but the checked
+/// point carries <b>; …`。rumoca-solver の `fmi_me/root.rs` の `require_endpoint_agreement`）か。型は
+/// `MeSessionError::Contract` で、ほかの契約違反と分ける印は文言にしか無い。
+fn sampler_disagreement(error: &SimError) -> bool {
+    match error.kind() {
+        SimError::ModelExchangeSession(MeSessionError::Contract { reason }) => {
+            reason.contains(" sampler state ") && reason.contains("the checked point carries")
+        }
+        _ => false,
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// パラメータの上書きの誤り
+// ---------------------------------------------------------------------------------------------
+
+/// Rumoca が断ったパラメータの上書き（`InvalidOverride`。文言の頭に `[EX003]` が付く）を GM-E10006 にする。
+/// 上書きの誤りでなければ None。
+fn override_diagnostic(error: &SimError) -> Option<Diagnostic> {
+    if lowering_tag(error).as_deref() != Some("EX003") {
+        return None;
+    }
+    let SimError::SolveIr(text) = error.kind() else {
+        return None;
+    };
+    let reason = text.split_once("] ").map_or(text.as_str(), |(_, r)| r);
+    // 名前は最初の `…` の中（rumoca-sim の `solve_lowering/overrides.rs` の `tunable_param_overrides`）
+    let name = reason
+        .split_once('`')
+        .and_then(|(_, rest)| rest.split_once('`'))
+        .map(|(name, _)| name.to_string());
+    let shown = name.as_deref().unwrap_or("?");
+    let message = if reason.contains("is structural or constant") {
+        format!(
+            "パラメータ {shown} は実行の前に変えられない（構造パラメータ・final・Evaluate = true・定数のどれか）。\
+             値を変えるには、モデルを書き換えて再コンパイルする"
+        )
+    } else if reason.contains("is not a tunable parameter") {
+        format!("このモデルに {shown} という変えられる（tunable な）パラメータは無い")
+    } else if reason.starts_with("override for") && reason.contains("must be finite") {
+        format!("パラメータ {shown} の上書きの値が有限でない")
+    } else {
+        "パラメータの上書きを実行系（Rumoca）が受け付けない".to_string()
+    };
+    Some(
+        Diagnostic::error(codes::PARAMETER_OVERRIDE_INVALID, Stage::S10, message)
+            .note(rumoca_note(None, text)),
+    )
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -330,6 +607,10 @@ fn trajectory(result: SimResult) -> Trajectory {
                 unit: m
                     .and_then(|m| m.unit.as_deref())
                     .filter(|u| !u.is_empty())
+                    .map(str::to_string),
+                description: m
+                    .and_then(|m| m.description.as_deref())
+                    .filter(|d| !d.is_empty())
                     .map(str::to_string),
                 values,
             }
@@ -394,7 +675,7 @@ fn failure_diagnostic(
     dae: &Dae,
     error: &SimError,
     phase: Phase,
-    settings: &ResolvedSettings,
+    max_wall_seconds: Option<f64>,
 ) -> Diagnostic {
     let text = error.to_string();
     let detail = detail(error, &text);
@@ -442,7 +723,7 @@ fn failure_diagnostic(
                 ),
             )
         }
-        Kind::Timeout => timeout_diagnostic(settings),
+        Kind::Timeout => timeout_diagnostic(max_wall_seconds),
         Kind::Unsupported => Diagnostic::error(
             codes::RUN_UNSUPPORTED,
             Stage::Run,
@@ -466,11 +747,11 @@ fn failure_diagnostic(
     d.note(rumoca_note(detail.stage.as_deref(), &without_span(&text)))
 }
 
-fn timeout_diagnostic(settings: &ResolvedSettings) -> Diagnostic {
+fn timeout_diagnostic(max_wall_seconds: Option<f64>) -> Diagnostic {
     Diagnostic::error(
         codes::RUN_TIMEOUT,
         Stage::Run,
-        match settings.max_wall_seconds {
+        match max_wall_seconds {
             Some(s) => format!("時間切れ（壁時計の予算 {s} 秒を超えた）"),
             None => "時間切れ（壁時計の予算を超えた）".to_string(),
         },
@@ -640,14 +921,21 @@ const fn me_stage_name(stage: MeStage) -> &'static str {
 
 /// 未対応で止まった場所の説明。
 fn unsupported_where(error: &SimError, phase: Phase) -> &'static str {
+    // 方向微分は積分器の準備で作るが、積分の途中（代数変数の射影の感度）でも作り直す。途中で作れなくなったものを
+    // 「準備」と書かない（doc/research/msl-sim-failures.md）
+    let derivative = if during_integration(error, phase) {
+        "積分の途中の方向微分（ヤコビアン）の計算"
+    } else {
+        "方向微分（ヤコビアン）の準備"
+    };
     match error.kind() {
         SimError::UnsupportedSolverMode { .. } => "ソルバの方式の選択",
         SimError::EmptySystem => "解く方程式の無い系",
-        SimError::DirectionalDerivativeUnavailable { .. } => "方向微分（ヤコビアン）の準備",
+        SimError::DirectionalDerivativeUnavailable { .. } => derivative,
         SimError::ModelExchangeSession(MeSessionError::Component(e))
             if matches!(e.kind(), MeError::DirectionalDerivativeUnavailable { .. }) =>
         {
-            "方向微分（ヤコビアン）の準備"
+            derivative
         }
         _ => match error.stage() {
             Some(SimFailureStage::SolveLowering) => "Solve IR への変換",
@@ -662,6 +950,28 @@ fn unsupported_where(error: &SimError, phase: Phase) -> &'static str {
                 Phase::Integration => "積分の準備",
             },
         },
+    }
+}
+
+/// 積分の途中の失敗か。Rumoca が付けた段（`SimFailureStage`、部品の `MeStage`）を先に見て、無ければこちらの
+/// 呼んだ位置。
+fn during_integration(error: &SimError, phase: Phase) -> bool {
+    let me_stage = match error.kind() {
+        SimError::ModelExchangeSession(MeSessionError::Component(e)) => e.stage(),
+        SimError::ModelExchangeSession(MeSessionError::Integration(
+            MeIntegrationError::Component(e),
+        )) => e.stage(),
+        _ => None,
+    };
+    match (error.stage(), me_stage) {
+        (Some(stage), _) => matches!(
+            stage,
+            SimFailureStage::Integration
+                | SimFailureStage::ManifoldProjection
+                | SimFailureStage::TargetIsolation
+        ),
+        (None, Some(stage)) => matches!(stage, MeStage::Integration | MeStage::ManifoldProjection),
+        (None, None) => phase == Phase::Integration,
     }
 }
 
@@ -803,10 +1113,10 @@ fn warning_diagnostics(dae: &Dae, diagnostics: &[SimDiagnostic]) -> Vec<Diagnost
 /// panic を診断にする。Rumoca の積分器の期限切れの panic（`SolverTimeoutPanic`）は時間切れ、そのほかは内部エラー。
 fn panic_diagnostic(
     payload: &(dyn std::any::Any + Send),
-    settings: &ResolvedSettings,
+    max_wall_seconds: Option<f64>,
 ) -> Diagnostic {
     if rumoca_sim::is_solver_timeout_panic(payload) {
-        return timeout_diagnostic(settings);
+        return timeout_diagnostic(max_wall_seconds);
     }
     let message = payload
         .downcast_ref::<&str>()
@@ -824,6 +1134,7 @@ fn panic_diagnostic(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rumoca_sim::SimulationDiagnosticError;
 
     #[test]
     fn time_is_read_from_rumoca_messages() {
@@ -1093,6 +1404,191 @@ mod tests {
     }
 
     #[test]
+    fn auto_falls_back_to_dopri45_only_for_the_listed_failures() {
+        use rumoca_solver::fmi_me::MeNumericalFailure;
+        let session = |e: MeSessionError| SimError::from(e);
+        // BDF が積分で失敗した（GM-E11002）
+        let numerical = session(MeSessionError::Integration(MeIntegrationError::Numerical {
+            method: "bdf",
+            category: MeNumericalFailure::AdvanceExhausted,
+            detail: String::new(),
+        }));
+        assert_eq!(
+            fallback(&numerical, Phase::Integration),
+            Some(Fallback::Integration)
+        );
+        let underflow = session(MeSessionError::Integration(
+            MeIntegrationError::StepSizeUnderflow {
+                method: "bdf",
+                from_time: 0.25,
+                to_time: 0.3,
+            },
+        ));
+        assert_eq!(
+            fallback(&underflow, Phase::Integration),
+            Some(Fallback::Integration)
+        );
+        // 段の付いた積分の失敗（代数変数の射影の収束など）
+        let staged = SimError::SolveIr("[EX004] singular".to_string())
+            .at_stage(SimFailureStage::Integration);
+        assert_eq!(
+            fallback(&staged, Phase::Integration),
+            Some(Fallback::Integration)
+        );
+        // サンプラの食い違い（GM-U0005）。ほかの契約違反では切り替えない
+        let sampler = session(MeSessionError::Contract {
+            reason: "accepted-interval left endpoint sampler state 1 is 31.2994, but the checked \
+                     point carries 31.2995; the disagreement exceeds 0.0000312"
+                .to_string(),
+        });
+        assert_eq!(classify(&sampler, Phase::Integration), Kind::Internal);
+        assert_eq!(
+            fallback(&sampler, Phase::Integration),
+            Some(Fallback::SamplerDisagreement)
+        );
+        let other = session(MeSessionError::Contract {
+            reason: "lease".to_string(),
+        });
+        assert_eq!(fallback(&other, Phase::Integration), None);
+        // 方向微分: 初期化では切り替える（Rumoca の Auto と同じ）、積分の途中では切り替えない
+        let derivative = |stage| {
+            session(MeSessionError::Component(
+                MeError::DirectionalDerivativeUnavailable {
+                    reason: "singular".to_string(),
+                }
+                .at_stage(stage),
+            ))
+        };
+        assert_eq!(
+            fallback(&derivative(MeStage::Initialization), Phase::Initialization),
+            Some(Fallback::InitialLinearization)
+        );
+        assert_eq!(
+            fallback(&derivative(MeStage::Integration), Phase::Integration),
+            None
+        );
+        let typed = SimError::DirectionalDerivativeUnavailable {
+            reason: "x".to_string(),
+        }
+        .at_stage(SimFailureStage::Integration);
+        assert_eq!(fallback(&typed, Phase::Integration), None);
+        // 初期化・assert・イベント・時間切れ・lowering では切り替えない
+        let init =
+            SimError::SolverError("boom".to_string()).at_stage(SimFailureStage::Initialization);
+        assert_eq!(fallback(&init, Phase::Initialization), None);
+        let assertion = SimError::AssertionFailed {
+            time: 0.5,
+            message: "x".to_string(),
+        };
+        assert_eq!(fallback(&assertion, Phase::Integration), None);
+        let event = session(MeSessionError::EventIterationDiverged {
+            time: 0.5,
+            limit: 100,
+        });
+        assert_eq!(fallback(&event, Phase::Integration), None);
+        let timeout = session(MeSessionError::Timeout { seconds: 1.0 });
+        assert_eq!(fallback(&timeout, Phase::Integration), None);
+        let lowering = SimError::SolveIr("[EX002] cannot lower".to_string());
+        assert_eq!(fallback(&lowering, Phase::Build), None);
+    }
+
+    #[test]
+    fn the_fallback_is_reported_with_the_bdf_failure() {
+        let failed = Diagnostic::error(
+            codes::RUN_INTEGRATION_FAILED,
+            Stage::Run,
+            "t = 0.3 で積分に失敗した",
+        )
+        .note("rumoca: [Integration] boom");
+        let d = fallback_diagnostic(Fallback::Integration, &failed);
+        assert_eq!(d.code, codes::RUN_SOLVER_FALLBACK);
+        assert_eq!(d.stage, Stage::Run);
+        assert!(!d.is_error());
+        assert_eq!(d.message, "BDF が積分で失敗したので、dopri45 で回し直した");
+        assert_eq!(
+            d.notes[0],
+            "BDF の失敗: t = 0.3 で積分に失敗した（GM-E11002）"
+        );
+        assert_eq!(d.notes[1], "rumoca: [Integration] boom");
+    }
+
+    #[test]
+    fn rejected_overrides_are_split_into_three_messages() {
+        let rejected = |message: &str| {
+            let e = session::lowering_error(&SimulationDiagnosticError::InvalidOverride {
+                message: message.to_string(),
+            });
+            override_diagnostic(&e).expect("上書きの誤り")
+        };
+        let d = rejected("`n` is structural or constant; change it by recompiling");
+        assert_eq!(d.code, codes::PARAMETER_OVERRIDE_INVALID);
+        assert_eq!(d.stage, Stage::S10);
+        assert!(d.is_error());
+        assert!(
+            d.message
+                .starts_with("パラメータ n は実行の前に変えられない"),
+            "{}",
+            d.message
+        );
+        assert!(d.message.contains("再コンパイル"), "{}", d.message);
+        assert_eq!(
+            d.notes,
+            ["rumoca: [EX003] `n` is structural or constant; change it by recompiling"]
+        );
+        let d = rejected("`nosuch` is not a tunable parameter of this model");
+        assert_eq!(
+            d.message,
+            "このモデルに nosuch という変えられる（tunable な）パラメータは無い"
+        );
+        let d = rejected("override for `k` must be finite");
+        assert_eq!(d.message, "パラメータ k の上書きの値が有限でない");
+        let d = rejected("override for `k` was not applied while evaluating dependent bindings");
+        assert_eq!(
+            d.message,
+            "パラメータの上書きを実行系（Rumoca）が受け付けない"
+        );
+        // 上書きの誤りでないもの
+        assert!(override_diagnostic(&SimError::SolveIr("[EX002] x".to_string())).is_none());
+        assert!(override_diagnostic(&SimError::EmptySystem).is_none());
+    }
+
+    #[test]
+    fn a_derivative_lost_during_integration_is_not_called_preparation() {
+        let derivative = |stage| {
+            SimError::from(MeSessionError::Component(
+                MeError::DirectionalDerivativeUnavailable {
+                    reason: "singular".to_string(),
+                }
+                .at_stage(stage),
+            ))
+        };
+        assert_eq!(
+            unsupported_where(&derivative(MeStage::Initialization), Phase::Initialization),
+            "方向微分（ヤコビアン）の準備"
+        );
+        assert_eq!(
+            unsupported_where(&derivative(MeStage::Integration), Phase::Integration),
+            "積分の途中の方向微分（ヤコビアン）の計算"
+        );
+        // Rumoca の段（`[Integration] directional derivative is unavailable: …`）
+        let typed = SimError::DirectionalDerivativeUnavailable {
+            reason: "x".to_string(),
+        }
+        .at_stage(SimFailureStage::Integration);
+        assert_eq!(
+            unsupported_where(&typed, Phase::Initialization),
+            "積分の途中の方向微分（ヤコビアン）の計算"
+        );
+        let untagged = SimError::DirectionalDerivativeUnavailable {
+            reason: "x".to_string(),
+        };
+        assert_eq!(
+            unsupported_where(&untagged, Phase::Build),
+            "方向微分（ヤコビアン）の準備"
+        );
+    }
+
+    #[test]
     fn notes_are_tagged_and_truncated() {
         assert_eq!(
             rumoca_note(Some("Initialization"), " boom "),
@@ -1149,12 +1645,15 @@ mod tests {
             interval: 0.01,
             solver: SolverId::Dopri45,
             max_wall_seconds: Some(5.0),
+            step: None,
+            parameters: Default::default(),
             origins: globe_mode_ir::SettingOrigins {
                 start_time: o,
                 stop_time: o,
                 tolerance: o,
                 interval: o,
                 solver: o,
+                step: None,
             },
         };
         let opts = options(&settings);
