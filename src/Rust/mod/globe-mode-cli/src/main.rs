@@ -19,7 +19,7 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 use globe_mode_core::{Diagnostic, Stage, line_col};
-use globe_mode_db::{FullReport, GlobeDb, normalize_path};
+use globe_mode_db::{ExperimentVerdict, FullReport, GlobeDb, normalize_path};
 use globe_mode_frontend::{Frontend, RumocaFrontend, Source};
 use globe_mode_ir::{ClassOutline, FlatSummary, Outline};
 
@@ -269,6 +269,8 @@ fn check(files: &[PathBuf], library: &[PathBuf], model: &str, json: bool) -> Exi
             "s6": report.structural,
             "s7": report.index,
             "s8": report.init,
+            "s9": report.loops,
+            "s10": report.preflight,
             // 位置は元の本文の中に戻す（check の結果のままでは、正規化した本文の中の位置）
             "init": check.init.as_ref().map(|i| db.init_in_original(i)),
             "flat": check.flat,
@@ -327,7 +329,12 @@ fn check(files: &[PathBuf], library: &[PathBuf], model: &str, json: bool) -> Exi
         }
         print_s7(&report);
         print_s8(&report);
+        print_s9(&report);
+        print_s10(&report);
         match report.failed_stage() {
+            None if report.preflight.is_some() && report.loops.is_some() => {
+                println!("{}: OK（S0〜S10 を通過）", report.model)
+            }
             None if report.init.is_some() => {
                 println!("{}: OK（S0〜S8 を通過）", report.model)
             }
@@ -499,6 +506,83 @@ fn print_s8(report: &FullReport) {
     }
 }
 
+/// S9 の行（代数ループの数と大きさ、非線形のループの反復変数）。
+fn print_s9(report: &FullReport) {
+    let Some(s9) = &report.loops else {
+        return;
+    };
+    if let Some(reason) = &s9.skipped {
+        println!("{}: S9: 代数ループを解析しなかった: {reason}", report.model);
+        return;
+    }
+    let reduced = if s9.reduced {
+        "。インデックス低減の最高階の系で数えた（状態選択の前の見込み）"
+    } else {
+        ""
+    };
+    if s9.n_loops() == 0 {
+        println!(
+            "{}: S9: 代数ループなし（BLT のブロック {}）{reduced}",
+            report.model, s9.blocks
+        );
+        return;
+    }
+    let start = if s9.start_checked {
+        format!("（start 値なし {}）", s9.n_iteration_without_start())
+    } else {
+        String::new()
+    };
+    println!(
+        "{}: S9: 代数ループ {}（線形 {}・非線形 {}、最大 {} 本の方程式）、BLT のブロック {}。非線形のループの反復変数 {}{start}{reduced}",
+        report.model,
+        s9.n_loops(),
+        s9.n_linear(),
+        s9.n_nonlinear(),
+        s9.max_loop_size(),
+        s9.blocks,
+        s9.n_iteration_variables()
+    );
+}
+
+/// S10 の行（評価したパラメータと start 値の数、失敗の数、experiment annotation）。
+fn print_s10(report: &FullReport) {
+    let Some(s10) = &report.preflight else {
+        return;
+    };
+    let failures = s10.not_finite_parameters.len()
+        + s10.assertion_parameters.len()
+        + s10.not_finite_starts.len();
+    let external = if s10.external_parameters.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "、静的に評価できないもの {}（外部関数）",
+            s10.external_parameters.len()
+        )
+    };
+    let experiment = match &s10.experiment {
+        ExperimentVerdict::Missing => "experiment annotation なし".to_string(),
+        ExperimentVerdict::Checked {
+            invalid,
+            suspicious,
+        } if invalid.is_empty() && suspicious.is_empty() => {
+            "experiment annotation は妥当".to_string()
+        }
+        ExperimentVerdict::Checked {
+            invalid,
+            suspicious,
+        } => format!(
+            "experiment annotation の誤り {}・疑わしい値 {}",
+            invalid.len(),
+            suspicious.len()
+        ),
+    };
+    println!(
+        "{}: S10: パラメータ {}・start 値 {} を評価し、有限にならないか assert が失敗したもの {}{external}。{experiment}",
+        report.model, s10.parameters_evaluated, s10.starts_evaluated, failures
+    );
+}
+
 /// `globe deps`: 検査に渡すファイル（閉包）と、ワークスペースの全ファイル数。
 fn deps(inputs: &[PathBuf], model: &str, json: bool) -> ExitCode {
     let files = match expand_inputs(inputs) {
@@ -604,6 +688,8 @@ fn report_early_failure(model: &str, diags: &[Diagnostic], json: bool) -> ExitCo
             "s6": null,
             "s7": null,
             "s8": null,
+            "s9": null,
+            "s10": null,
             "init": null,
             "flat": null,
             "diagnostics": diags,

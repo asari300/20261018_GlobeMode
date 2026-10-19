@@ -4,6 +4,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use globe_mode_core::{Diagnostic, Stage, TextRange, codes};
@@ -70,22 +71,46 @@ impl Frontend for RumocaFrontend {
 /// - [`Checker::check`] は、渡された文書を Session に足し（本文が変わったものだけ差し替え）、
 ///   渡されなかった文書を取り除いてからコンパイルする。文書を変えなければ、Rumoca は解決済みの
 ///   状態とモデルごとの結果を使い回す。
+/// - [`Checker::check_retaining`] は、渡されなかった文書も残す（文書の和集合を持つ。S010）。
+///   Rumoca は文書を 1 つでも足すか除くと、ライブラリ（MSL）ごと解決し直す（約 1.8 s）ので、
+///   閉包の違うモデルへ切り替えるたびに組をそろえると、そのたびに解決し直すことになる。
+///   残した文書の本文が変わったら（消えたら）、持ち主が [`Checker::document_changed`] で知らせる。
 /// - 検査の途中で Rumoca が panic して Mutex が毒されたら、次の検査でライブラリを読んだ直後の
 ///   状態に戻して続ける（`catch_unwind` で包んで使うとき）。
 ///
-/// `Clone` は同じ Session を共有する。
+/// `Clone` は同じ Session と、同じ文書の持ち主を共有する（持ち主を分けるなら [`Checker::new_handle`]）。
 #[derive(Clone)]
 pub struct Checker {
     state: Arc<Mutex<CheckerState>>,
     libraries: Arc<[PathBuf]>,
+    /// [`Checker::check_retaining`] で残す文書の持ち主
+    owner: u64,
+}
+
+/// 文書の持ち主の番号を配る（検査器の取っ手ごとに別の番号）。
+static NEXT_OWNER: AtomicU64 = AtomicU64::new(1);
+
+fn next_owner() -> u64 {
+    NEXT_OWNER.fetch_add(1, Ordering::Relaxed)
 }
 
 struct CheckerState {
     session: Session,
     /// ライブラリだけを読んだ直後の写し（Mutex が毒されたときに戻す先）
     pristine: Session,
-    /// Session に足してある文書（名前 → 本文）
-    documents: HashMap<String, String>,
+    /// Session に足してある文書（名前 → 記録）
+    documents: HashMap<String, DocumentRecord>,
+    /// ライブラリのトップレベルのクラスの完全修飾名（残した文書と名前がぶつかるかを見る）
+    library_classes: HashSet<String>,
+}
+
+/// Session に足してある文書 1 つの記録。
+struct DocumentRecord {
+    text: String,
+    /// [`Checker::check_retaining`] で足した持ち主。`check` で足したものは None（次に渡されなければ除く）
+    owner: Option<u64>,
+    /// トップレベルのクラスの完全修飾名（`within` を付けたもの）
+    classes: Vec<String>,
 }
 
 impl std::fmt::Debug for Checker {
@@ -103,12 +128,14 @@ impl std::fmt::Debug for Checker {
 }
 
 /// Rumoca 自身の構造解析（`phase_structural::analyze`）の数。自前の S6 との照合に使う。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ReferenceStructure {
     pub n_equations: usize,
     pub n_unknowns: usize,
     /// 最大マッチングの大きさ
     pub matching: usize,
+    /// 代数ループ（BLT の大きさ 2 以上のブロック）の大きさ（方程式の数、昇順）。自前の S9 との照合に使う（S010）
+    pub loops: Vec<usize>,
 }
 
 impl Checker {
@@ -135,14 +162,34 @@ impl Checker {
                 return Err(vec![d]);
             }
         }
+        let library_classes = session
+            .document_uris()
+            .into_iter()
+            .filter_map(|uri| session.get_document(uri).and_then(|d| d.parsed()))
+            .flat_map(top_level_classes)
+            .collect();
         Ok(Checker {
             state: Arc::new(Mutex::new(CheckerState {
                 pristine: session.clone(),
                 session,
                 documents: HashMap::new(),
+                library_classes,
             })),
             libraries: libraries.iter().map(|p| p.to_path_buf()).collect(),
+            owner: next_owner(),
         })
+    }
+
+    /// 同じ Session を共有し、文書の持ち主だけを分けた取っ手。
+    ///
+    /// [`Checker::check_retaining`] は、自分の取っ手が足した文書だけを残す（ほかの取っ手が足した文書は、
+    /// 渡されなければ取り除く）。ワークスペースの違う DB が 1 つの Session を共有しても、互いの文書を
+    /// 見ないようにするため。
+    pub fn new_handle(&self) -> Checker {
+        Checker {
+            owner: next_owner(),
+            ..self.clone()
+        }
     }
 
     /// 読み込んだライブラリのディレクトリ。
@@ -164,6 +211,58 @@ impl Checker {
         self.check_parsed(sources, model)
     }
 
+    /// [`Checker::check`] と同じ検査。ただし、前の呼び出しで渡して今回渡さなかった文書を残す（和集合）。
+    ///
+    /// 閉包の違うモデルへ切り替えても文書の組が変わらないので、Rumoca が解決し直さない。
+    /// 結果は「`sources` だけを渡した `check`」と同じになるように、次のものは残さない:
+    /// - ほかの取っ手（[`Checker::new_handle`]）か `check` が足した文書
+    /// - 本文が変わったか消えたと [`Checker::document_changed`] で知らされた文書（知らされた時に除く）
+    /// - トップレベルのクラスの完全修飾名が、ほかの文書かライブラリのクラスとぶつかる文書
+    ///   （同じクラスを別のファイルへ移したときに、古い定義が残らないように）
+    ///
+    /// 前提: `sources` は、モデルが使うファイルをすべて含む（globe-mode-db の `deps_closure`）。
+    /// 残した文書は、モデルから参照されない名前しか定義しないので、結果を変えない。
+    pub fn check_retaining(&self, sources: &[Source<'_>], model: &str) -> CheckReport {
+        let syntax = syntax_diagnostics(sources);
+        if !syntax.is_empty() {
+            let mut report = CheckReport::new(model);
+            report.diagnostics = syntax;
+            return report;
+        }
+        self.check_synced(sources, model, Some(self.owner))
+    }
+
+    /// この取っ手が [`Checker::check_retaining`] で足し、いま Session に残してある文書なら true。
+    pub fn retains(&self, name: &str) -> bool {
+        self.lock()
+            .documents
+            .get(name)
+            .is_some_and(|d| d.owner == Some(self.owner))
+    }
+
+    /// 残してある文書の本文が変わった（`Some`、渡すのと同じ形の本文）か、消えた（`None`）ことを知らせる。
+    ///
+    /// この取っ手の文書で本文が違えば、すぐに Session から取り除く（次に渡されたときに足し直す）。
+    /// 取り除いても、解決し直すのは次のコンパイルのとき（Rumoca の解決は遅延）。
+    pub fn document_changed(&self, name: &str, text: Option<&str>) {
+        let mut state = self.lock();
+        let stale = state
+            .documents
+            .get(name)
+            .is_some_and(|d| d.owner == Some(self.owner) && text != Some(d.text.as_str()));
+        if stale {
+            state.session.remove_document(name);
+            state.documents.remove(name);
+        }
+    }
+
+    /// Session に足してある文書の名前（昇順。ライブラリの文書は含まない）。
+    pub fn document_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self.lock().documents.keys().cloned().collect();
+        names.sort();
+        names
+    }
+
     /// Rumoca 自身の構造解析の数（照合用）。DAE まで変換できなければ None。
     pub fn reference_structure(
         &self,
@@ -171,16 +270,33 @@ impl Checker {
         model: &str,
     ) -> Option<ReferenceStructure> {
         let mut state = self.lock();
-        sync_documents(&mut state, sources).ok()?;
+        sync_documents(&mut state, sources, None).ok()?;
         let compilation = state.session.compile_model_strict(model).ok()?;
         let r = compilation
             .result()
             .dae
             .inspect(rumoca_compile::phase_structural::analyze);
+        // v0.10.2 の `analyze` は `algebraic_loops` を埋めず、ループを ES002 の警告（"algebraic loop detected:
+        // {n} equations must be solved simultaneously"）として diagnostics に積むだけなので、文言から n を読む
+        let mut loops: Vec<usize> = r
+            .diagnostics
+            .iter()
+            .filter(|d| d.code.as_deref() == Some("ES002"))
+            .filter_map(|d| {
+                d.message
+                    .strip_prefix("algebraic loop detected: ")?
+                    .split(' ')
+                    .next()?
+                    .parse()
+                    .ok()
+            })
+            .collect();
+        loops.sort_unstable();
         Some(ReferenceStructure {
             n_equations: r.n_equations,
             n_unknowns: r.n_unknowns,
             matching: r.matching_size,
+            loops,
         })
     }
 
@@ -210,21 +326,28 @@ impl Checker {
 
     /// S0 を通った後の検査。
     fn check_parsed(&self, sources: &[Source<'_>], model: &str) -> CheckReport {
+        self.check_synced(sources, model, None)
+    }
+
+    /// 文書をそろえてから検査する。`owner` が Some なら、その持ち主の文書を残す（[`Checker::check_retaining`]）。
+    fn check_synced(&self, sources: &[Source<'_>], model: &str, owner: Option<u64>) -> CheckReport {
         let mut report = CheckReport::new(model);
         let mut state = self.lock();
-        if let Err(d) = sync_documents(&mut state, sources) {
+        if let Err(d) = sync_documents(&mut state, sources, owner) {
             report.diagnostics.push(d);
             return report;
         }
         let session = &mut state.session;
 
         // 候補を出すための事前確認。ユーザーのファイルだけのときに限る。
-        // model_names() は、ライブラリ（MSL）の解決時の警告（WR006 など）でも Err を返すので、
-        // Err のときは止めずにコンパイルに進む（見つからなければ compile が失敗を返す）。
-        if self.libraries.is_empty()
-            && let Ok(names) = session.model_names()
-            && !names.iter().any(|n| n == model)
-        {
+        // 名前は渡した文書の構文木から集める（S010。Session の model_names() は残した文書のモデルも
+        // 数え、解決に失敗すると Err を返すので使わない）
+        let names = if self.libraries.is_empty() {
+            passed_model_names(session, sources)
+        } else {
+            Vec::new()
+        };
+        if self.libraries.is_empty() && !names.iter().any(|n| n == model) {
             let mut d = Diagnostic::error(
                 codes::MODEL_NOT_FOUND,
                 Stage::S1,
@@ -277,6 +400,12 @@ impl Checker {
                         .notes
                         .push(format!("S8 の入力（初期化系）を作れなかった: {reason}")),
                 }
+                match crate::preflight::extract_for_model(result, model) {
+                    Ok(preflight) => report.preflight = Some(preflight),
+                    Err(reason) => report.notes.push(format!(
+                        "S10 の入力（プリフライト）を作れなかった: {reason}"
+                    )),
+                }
             }
             Err(strict) => {
                 let (d, rumoca_code) = strict_failure_diagnostic(&strict);
@@ -326,20 +455,33 @@ fn syntax_diagnostics(sources: &[Source<'_>]) -> Vec<Diagnostic> {
 
 /// Session の文書を `sources` にそろえる。本文が変わっていない文書は触らない
 /// （差し替えると Rumoca が解決済みの状態を捨てるため）。
-fn sync_documents(state: &mut CheckerState, sources: &[Source<'_>]) -> Result<(), Diagnostic> {
+///
+/// `owner` が None なら、渡されなかった文書をすべて取り除く（組を `sources` にそろえる）。
+/// Some なら、その持ち主が足した文書は残す。ただし、トップレベルのクラスの完全修飾名がほかの文書か
+/// ライブラリとぶつかるものは取り除く（[`Checker::check_retaining`]）。
+fn sync_documents(
+    state: &mut CheckerState,
+    sources: &[Source<'_>],
+    owner: Option<u64>,
+) -> Result<(), Diagnostic> {
     let wanted: HashSet<&str> = sources.iter().map(|s| s.name).collect();
     let stale: Vec<String> = state
         .documents
-        .keys()
-        .filter(|name| !wanted.contains(name.as_str()))
-        .cloned()
+        .iter()
+        .filter(|(name, d)| {
+            !wanted.contains(name.as_str()) && (owner.is_none() || d.owner != owner)
+        })
+        .map(|(name, _)| name.clone())
         .collect();
     for name in stale {
         state.session.remove_document(&name);
         state.documents.remove(&name);
     }
     for s in sources {
-        if state.documents.get(s.name).is_some_and(|t| t == s.text) {
+        if let Some(d) = state.documents.get_mut(s.name)
+            && d.text == s.text
+        {
+            d.owner = owner;
             continue;
         }
         if let Err(e) = state.session.add_document(s.name, s.text) {
@@ -350,11 +492,76 @@ fn sync_documents(state: &mut CheckerState, sources: &[Source<'_>]) -> Result<()
                 Diagnostic::error(codes::RESOLVE, Stage::S1, e.to_string()).at(s.name, None)
             );
         }
-        state
-            .documents
-            .insert(s.name.to_string(), s.text.to_string());
+        let classes = state
+            .session
+            .get_document(s.name)
+            .and_then(|d| d.parsed())
+            .map(top_level_classes)
+            .unwrap_or_default();
+        state.documents.insert(
+            s.name.to_string(),
+            DocumentRecord {
+                text: s.text.to_string(),
+                owner,
+                classes,
+            },
+        );
+    }
+    if owner.is_some() {
+        remove_colliding_documents(state, &wanted);
     }
     Ok(())
+}
+
+/// 残した文書（渡されなかったもの）のうち、トップレベルのクラスの完全修飾名がほかの文書か
+/// ライブラリのクラスとぶつかるものを取り除く。
+///
+/// 同じクラスを別のファイルへ移した（改名した）ときに古い定義が残ると、渡した文書だけのときと
+/// 違う結果になる（Rumoca が 2 つの定義をまとめるか、まとめられずに解決が止まる）ため。
+fn remove_colliding_documents(state: &mut CheckerState, wanted: &HashSet<&str>) {
+    let mut defined: HashMap<&str, usize> = HashMap::new();
+    for d in state.documents.values() {
+        for c in &d.classes {
+            *defined.entry(c.as_str()).or_default() += 1;
+        }
+    }
+    let colliding: Vec<String> = state
+        .documents
+        .iter()
+        .filter(|(name, d)| {
+            !wanted.contains(name.as_str())
+                && d.classes.iter().any(|c| {
+                    defined.get(c.as_str()).is_some_and(|&n| n > 1)
+                        || state.library_classes.contains(c)
+                })
+        })
+        .map(|(name, _)| name.clone())
+        .collect();
+    for name in colliding {
+        state.session.remove_document(&name);
+        state.documents.remove(&name);
+    }
+}
+
+/// 文書のトップレベルのクラスの完全修飾名（`within A.B; model C` なら `A.B.C`）。
+fn top_level_classes(def: &ast::StoredDefinition) -> Vec<String> {
+    def.classes
+        .keys()
+        .map(|c| rumoca_compile::parsing::qualify_stored_definition_class_name(def, c))
+        .collect()
+}
+
+/// 渡した文書のモデル・ブロック・クラスの完全修飾名（渡した順、文書の中では宣言の順）。
+///
+/// Rumoca の `collect_model_names`（`Session::model_names` が解決した木から集めるのと同じ規則）を、
+/// Session の文書ごとの構文木に使う。解決しないので、ほかの文書の名前の誤りに左右されず、
+/// [`Checker::check_retaining`] で残した文書のモデルも入らない。
+fn passed_model_names(session: &Session, sources: &[Source<'_>]) -> Vec<String> {
+    sources
+        .iter()
+        .filter_map(|s| session.get_document(s.name).and_then(|d| d.parsed()))
+        .flat_map(rumoca_compile::parsing::collect_model_names)
+        .collect()
 }
 
 /// strict のコンパイルの失敗を診断にする。2 つ目は Rumoca のエラーコード（GM-U の振り分けに使う）。
@@ -683,6 +890,41 @@ mod tests {
         checker.reset();
         let r = checker.check(&[], "A");
         assert_eq!(r.diagnostics[0].code, codes::MODEL_NOT_FOUND);
+    }
+
+    #[test]
+    fn check_retaining_keeps_documents_until_check_or_a_change() {
+        let checker = Checker::new(&[]).unwrap();
+        let a = Source {
+            name: "A.mo",
+            text: "model A\n  Real x;\nequation\n  x = 1;\nend A;\n",
+        };
+        let b = Source {
+            name: "B.mo",
+            text: "model B\n  Real y;\nequation\n  y = 2;\nend B;\n",
+        };
+        assert!(checker.check_retaining(&[a], "A").passed());
+        assert!(checker.check_retaining(&[b], "B").passed());
+        // A.mo は渡していないが残る。候補には渡した文書のモデルだけを出す
+        assert_eq!(checker.document_names(), ["A.mo", "B.mo"]);
+        let r = checker.check_retaining(&[b], "A");
+        assert_eq!(r.diagnostics[0].code, codes::MODEL_NOT_FOUND);
+        assert_eq!(r.diagnostics[0].notes, ["候補: B"]);
+        // 別の取っ手は、この取っ手の文書を残さない
+        let other = checker.new_handle();
+        assert!(!other.retains("B.mo"));
+        assert!(other.check_retaining(&[a], "A").passed());
+        assert_eq!(checker.document_names(), ["A.mo"]);
+        // 本文が同じなら残し、違えば（消えれば）すぐに取り除く
+        other.document_changed("A.mo", Some(a.text));
+        assert!(other.retains("A.mo"));
+        other.document_changed("A.mo", Some("model A\nend A;\n"));
+        assert!(checker.document_names().is_empty());
+        // check は組を渡した文書にそろえる（残さない）
+        assert!(other.check_retaining(&[a], "A").passed());
+        assert!(checker.check(&[b], "B").passed());
+        assert_eq!(checker.document_names(), ["B.mo"]);
+        assert!(!checker.retains("B.mo"));
     }
 
     #[test]

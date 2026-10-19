@@ -6,3 +6,9 @@ FreeParameter
 RedundantAndMissing
 OuterModification
 ModifierScope
+DiscreteWhen
+DiscreteOutsideWhen
+DiscreteEdge
+DiscreteWhenInitial
+DiscretePreInitial
+DiscreteRedundant

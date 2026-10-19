@@ -13,5 +13,6 @@
 | [0009](0009-structural-index-and-init.md) | S7 は Pantelides 法で構造インデックスを見積もり、S8 は初期条件の数と属性で判定する | Accepted |
 | [0010](0010-omc-comparison.md) | omc との照合は別プロセスで行い、checkModel の数と translateModel の文言で突き合わせる | Accepted |
 | [0011](0011-init-system-matching.md) | S8 は初期化系（DAE とその微分 + 初期条件）をマッチングして、冗長な初期条件と初期条件の無い未知数を名指しする | Accepted |
+| [0012](0012-loops-and-preflight.md) | S9 は BLT と貪欲な tearing で非線形の代数ループの反復変数を見る。S10 は静的な部分（パラメータと start 値の評価、experiment annotation）から始める | Accepted |
 
 書式: `NNNN-<題名>.md`。章は「状態 / 背景 / 決定 / 結果」の4つ。決定を覆すときは古い ADR を消さず、状態を Superseded にして新しい番号で書く。

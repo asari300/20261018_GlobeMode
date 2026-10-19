@@ -206,6 +206,24 @@ pub mod codes {
     pub const PARAMETER_WITHOUT_VALUE: &str = "GM-W8003";
     /// S8: 初期条件が多い見込みだが、離散変数を含むため確定できない（警告。MLS 8.6 の暗黙の初期方程式で数が揺れる）
     pub const INIT_OVERDETERMINED_UNCERTAIN: &str = "GM-W8004";
+    /// S9: 代数ループがある（BLT の大きさ 2 以上のブロック。数と大きさ、線形・非線形の見込み。情報。S010）
+    pub const ALGEBRAIC_LOOP: &str = "GM-I9001";
+    /// S9: 非線形の代数ループの反復変数（tearing 変数）に start 値が無い（既定の 0 から反復する。警告。S010）
+    pub const LOOP_ITERATION_WITHOUT_START: &str = "GM-W9001";
+    /// S10: パラメータの値が有限にならない（0 除算、NaN、範囲外の添字など。S010）
+    pub const PARAMETER_NOT_FINITE: &str = "GM-E10001";
+    /// S10: パラメータの評価で assert が失敗した（S010）
+    pub const PARAMETER_ASSERTION: &str = "GM-E10002";
+    /// S10: start 値が有限にならない（S010）
+    pub const START_NOT_FINITE: &str = "GM-E10003";
+    /// S10: experiment annotation が妥当でない（StopTime ≤ StartTime、Tolerance ≤ 0、Interval ≤ 0 など。S010）
+    pub const EXPERIMENT_INVALID: &str = "GM-E10004";
+    /// S10: experiment annotation の値が疑わしい（Interval が区間より長い、Tolerance が大きすぎるなど。警告。S010）
+    pub const EXPERIMENT_SUSPICIOUS: &str = "GM-W10001";
+    /// S10: experiment annotation が無い（既定の区間で実行する見込み。情報。S010）
+    pub const EXPERIMENT_MISSING: &str = "GM-I10001";
+    /// S10: 静的に評価できないパラメータ（外部関数・外部オブジェクトなど。実行時に決まる。情報。S010）
+    pub const PARAMETER_NOT_STATIC: &str = "GM-I10002";
     /// コンパイラが未対応の言語機能（フロントエンドのコードで決まる。例: Rumoca の ED019）
     pub const UNSUPPORTED: &str = "GM-U0001";
     /// コンパイラの内部エラー（例: Rumoca の ED008）

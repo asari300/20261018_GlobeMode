@@ -6,10 +6,14 @@
 use std::path::Path;
 
 use globe_mode_core::{Diagnostic, Stage};
-use globe_mode_ir::{BalanceCount, DaeCounts, DaeStructure, FlatSummary, InitStructure, Outline};
+use globe_mode_ir::{
+    BalanceCount, DaeCounts, DaeStructure, FlatSummary, InitStructure, Outline, PreflightStructure,
+};
 
 #[cfg(feature = "rumoca")]
 mod init;
+#[cfg(feature = "rumoca")]
+mod preflight;
 #[cfg(feature = "rumoca")]
 mod rumoca;
 #[cfg(feature = "rumoca")]
@@ -40,6 +44,9 @@ pub struct CheckReport {
     /// DAE まで変換できたときの、初期化系の構造（S8 の入力、S007）。位置はコンパイルに渡した本文の中。
     /// 作れなかったときは None で、理由は [`CheckReport::notes`] にある。
     pub init: Option<InitStructure>,
+    /// DAE まで変換できたときの、プリフライトの入力（S10、S010）。位置はコンパイルに渡した本文の中。
+    /// 作れなかったときは None で、理由は [`CheckReport::notes`] にある。
+    pub preflight: Option<PreflightStructure>,
     /// flat モデルの要約。DAE への変換で失敗したとき（S5）も、flatten まで通れば入る。
     pub flat: Option<FlatSummary>,
     pub diagnostics: Vec<Diagnostic>,

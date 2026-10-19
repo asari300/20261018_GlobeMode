@@ -9,8 +9,10 @@
 //!                        │   (正規化・Eq)    │                                (CheckRequest)
 //!                        │   ▲ 防火壁 0      └──────────────────────────────▶ check ──┬─▶ flat_summary
 //!                        └─▶ shape_map                                       (S0〜S5) ├─▶ init_shape ──▶ init_report (S8)
-//!                            (診断の位置を元の本文に戻す)                             └─▶ dae_shape ──┬─▶ structural (S6)
-//!                                                                                      ▲ 防火壁 2   └─▶ index_report (S7)
+//!                            (診断の位置を元の本文に戻す)                             ├─▶ dae_shape ──┬─▶ structural (S6)
+//!                                                                                     │  ▲ 防火壁 2   ├─▶ index_report (S7)
+//!                                                                                     │               └─▶ loop_report (S9)
+//!                                                                                     └─▶ preflight_shape ──▶ preflight_report (S10)
 //! ```
 //!
 //! - `outline` はファイルの本文が変わるたびに作り直す（エディタの位置の情報に使う）。
@@ -23,11 +25,18 @@
 //! - `check` に渡す文書は、モデルが使うファイルだけ（`deps_closure`）。モデルのファイルから始め、
 //!   本文の識別子（`identifiers`）と同じ名前のクラスを定義するファイル（`defined_classes`）を固定点まで足す。
 //!   使わないファイルの本文を変えても `check` は再実行されない。
+//! - `check` は [`Checker::check_retaining`] を使い、前に渡した文書を Session に残す（文書の和集合。S010）。
+//!   Rumoca は文書の組が変わるとライブラリごと解決し直すので、閉包の違うモデルへ切り替えるたびに
+//!   組をそろえると約 1.8 s かかる。残した文書の本文が変わったか消えたら、[`GlobeDb::set_file`] と
+//!   [`GlobeDb::remove_file`] が検査器に知らせて取り除かせる（salsa の依存は閉包のファイルのままなので、
+//!   使わないファイルの編集で `check` が再実行されない性質は変わらない）。
 //! - `init_shape`（S8 の入力）と `dae_shape` は位置を落とした写しなので、`init_report`（S8）と
 //!   `index_report`（S7）は、位置だけが変わる編集では再計算されない。`init_report` は `init_shape` と
 //!   `dae_shape` と `index_report`（動的な状態の数と微分の回数。S009 から初期化系のマッチングにも使う）を読む。
 //! - `dae_shape` は位置を落とした DAE の構造。パラメータの値だけを変えた編集などでは前と等しくなり、
 //!   `structural`（S6）は再計算されない。
+//! - `loop_report`（S9、S010）は `dae_shape` と `index_report` と `init_shape`（反復変数の start 値の有無）を読む。
+//!   `preflight_report`（S10、S010）は `preflight_shape`（位置を落としたプリフライトの入力）だけを読む。
 //! - どのクエリが実行されたかは [`GlobeDb::take_executed`] で取り出せる（テストと計測に使う）。
 
 mod deps;
@@ -36,12 +45,16 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use globe_mode_analysis::{IndexReport, InitReport, StructuralReport};
+/// CLI が S10 の experiment の判定を表示するのに使う（S010）
+pub use globe_mode_analysis::preflight::ExperimentVerdict;
+use globe_mode_analysis::{IndexReport, InitReport, LoopReport, PreflightReport, StructuralReport};
 use globe_mode_core::normalize::{self, SourceShape};
 use globe_mode_core::{Diagnostic, Stage, codes};
 use globe_mode_frontend::{CheckReport, Checker, Frontend, RumocaFrontend, Source};
 use globe_mode_graph::{ConnectGraph, GraphError};
-use globe_mode_ir::{ClassIndex, ClassKind, DaeStructure, FlatSummary, InitStructure, Outline};
+use globe_mode_ir::{
+    ClassIndex, ClassKind, DaeStructure, FlatSummary, InitStructure, Outline, PreflightStructure,
+};
 use salsa::Setter;
 
 /// salsa の外で持つものに手が届く DB（`check` が使う）。
@@ -237,6 +250,9 @@ pub fn deps_closure<'db>(
 
 /// モデルの検査（S0〜S5 と、S6〜S8 の入力）。`deps_closure` のファイルの `source_shape` だけを
 /// 文書として Rumoca に渡す。位置は正規化した本文の中のもの。
+///
+/// 前の検査で渡した文書は Session に残す（[`Checker::check_retaining`]）。結果は閉包の文書だけで
+/// 検査したときと同じ（残した文書は、モデルから参照されない名前しか定義しないため）。
 #[salsa::tracked(returns(ref))]
 pub fn check<'db>(
     db: &'db dyn Db,
@@ -252,7 +268,7 @@ pub fn check<'db>(
         .iter()
         .map(|(name, text)| Source { name, text })
         .collect();
-    let mut report = db.checker().check(&sources, request.model(db));
+    let mut report = db.checker().check_retaining(&sources, request.model(db));
     if files.is_empty() {
         add_workspace_candidates(&mut report, class_index(db, workspace));
     }
@@ -369,8 +385,50 @@ pub fn init_report<'db>(
         .map(|init| globe_mode_analysis::analyze_init_system(init, structure, index))
 }
 
+/// S9（代数ループ。S010）。DAE の構造と S7 の結果が無ければ None。
+///
+/// S7 で微分が要らなければ der の形の incidence を、要れば Pantelides 法の最高階の系を BLT に分ける。
+/// 反復変数の start 値の有無に初期化系の構造（`init_shape`）を読む（無ければ判定しない）。
+/// どれも位置を落とした写しなので、位置だけの編集では再計算されない。
+#[salsa::tracked(returns(ref))]
+pub fn loop_report<'db>(
+    db: &'db dyn Db,
+    workspace: Workspace,
+    request: CheckRequest<'db>,
+) -> Option<LoopReport> {
+    let structure = dae_shape(db, workspace, request).as_ref()?;
+    let index = index_report(db, workspace, request).as_ref()?;
+    let init = init_shape(db, workspace, request).as_ref();
+    Some(globe_mode_analysis::analyze_loops(structure, index, init))
+}
+
+/// 位置を落としたプリフライトの入力（S10 の入力。防火壁）。取り出せなければ None（理由は `check` の notes）。
+#[salsa::tracked(returns(ref))]
+pub fn preflight_shape<'db>(
+    db: &'db dyn Db,
+    workspace: Workspace,
+    request: CheckRequest<'db>,
+) -> Option<PreflightStructure> {
+    check(db, workspace, request)
+        .preflight
+        .as_ref()
+        .map(PreflightStructure::without_ranges)
+}
+
+/// S10（プリフライトの静的な部分: パラメータと start 値の評価、experiment annotation。S010）。
+#[salsa::tracked(returns(ref))]
+pub fn preflight_report<'db>(
+    db: &'db dyn Db,
+    workspace: Workspace,
+    request: CheckRequest<'db>,
+) -> Option<PreflightReport> {
+    preflight_shape(db, workspace, request)
+        .as_ref()
+        .map(globe_mode_analysis::analyze_preflight)
+}
+
 /// [`GlobeDb::check_model`] の結果: S0〜S5（`check`）、S6（`structural`）、S7（`index_report`）、
-/// S8（`init_report`）をまとめたもの。
+/// S8（`init_report`）、S9（`loop_report`）、S10（`preflight_report`）をまとめたもの。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FullReport {
     pub model: String,
@@ -382,7 +440,11 @@ pub struct FullReport {
     pub index: Option<IndexReport>,
     /// S8 の結果。S0〜S7 に Error が無く、初期化系の構造を取り出せたときだけ。
     pub init: Option<InitReport>,
-    /// S0〜S8 の診断。位置は元の本文の中に戻してある。
+    /// S9 の結果。S0〜S8 に Error が無く、S7 の結果があるときだけ。
+    pub loops: Option<LoopReport>,
+    /// S10 の結果。S0〜S9 に Error が無く、プリフライトの入力を取り出せたときだけ。
+    pub preflight: Option<PreflightReport>,
+    /// S0〜S10 の診断。位置は元の本文の中に戻してある。
     pub diagnostics: Vec<Diagnostic>,
 }
 
@@ -452,7 +514,11 @@ impl GlobeDb {
     }
 
     /// 作ってある検査器を使う DB（Session を別の DB や処理と共有するとき）。
+    ///
+    /// 検査器は持ち主を分けた取っ手（[`Checker::new_handle`]）にして持つ。`check` が Session に残す文書は
+    /// この DB のファイルだけになり、同じ Session を共有するほかの DB の文書は残さない。
     pub fn with_checker(checker: Checker) -> Self {
+        let checker = checker.new_handle();
         let executed: Arc<Mutex<Vec<String>>> = Arc::default();
         let log = executed.clone();
         Self {
@@ -480,6 +546,12 @@ impl GlobeDb {
         let text = text.into();
         let path = &normalize_path(path);
         if let Some(file) = self.files.get(path).copied() {
+            // `check` が Session に残した文書なら、検査器に本文（渡すのと同じ正規化した形）を知らせる。
+            // 形が変わっていれば取り除かれ、次にこのファイルを使うモデルの検査で足し直す
+            if self.checker.retains(path) {
+                self.checker
+                    .document_changed(path, Some(&normalize::source_shape(&text).text));
+            }
             file.set_text(self).to(text);
             return;
         }
@@ -492,6 +564,22 @@ impl GlobeDb {
             }
             None => self.workspace = Some(Workspace::new(self, files)),
         }
+    }
+
+    /// ファイルをワークスペースから除く。無ければ false。
+    ///
+    /// `check` が Session に残した文書なら、検査器からも取り除く。
+    pub fn remove_file(&mut self, path: &str) -> bool {
+        let path = &normalize_path(path);
+        if self.files.remove(path).is_none() {
+            return false;
+        }
+        self.checker.document_changed(path, None);
+        let files: Vec<SourceFile> = self.files.values().copied().collect();
+        if let Some(ws) = self.workspace {
+            ws.set_files(self).to(files);
+        }
+        true
     }
 
     /// ディレクトリの下の `.mo` をすべて読む（Modelica のパッケージのディレクトリなど）。
@@ -570,12 +658,14 @@ impl GlobeDb {
         self.files.keys().map(String::as_str)
     }
 
-    /// S0〜S8 をまとめて検査する。診断の位置は元の本文の中に戻す。
+    /// S0〜S10 をまとめて検査する。診断の位置は元の本文の中に戻す。
     ///
     /// Error の出た段階で止める約束:
     /// - S6 は S0〜S5 を通ったときだけ
     /// - S7 は S6 が構造特異でない（regular）ときだけ。S7 の Info（インデックス > 1 の見込み、状態選択の候補）では止めない
     /// - S8 は S0〜S7 に Error が無い（`GM-E7001` などが出ていない）ときだけ
+    /// - S9 は S0〜S8 に Error が無く、S7 の結果があるときだけ（S9 は Warning と Info だけで止めない）
+    /// - S10 は S0〜S9 に Error が無いときだけ
     pub fn check_model(&mut self, model: &str) -> FullReport {
         let ws = self.workspace();
         let request = CheckRequest::new(self, model.to_string());
@@ -631,12 +721,42 @@ impl GlobeDb {
             );
         }
 
+        // S9
+        let stopped = stopped || diagnostics.iter().any(Diagnostic::is_error);
+        let loops = match (&index, &report.structure) {
+            (Some(_), Some(structure)) if !stopped => {
+                let s9 = loop_report(self, ws, request).clone();
+                if let Some(s9) = &s9 {
+                    diagnostics.extend(
+                        s9.diagnostics(structure, report.init.as_ref())
+                            .iter()
+                            .map(|d| self.to_original(d)),
+                    );
+                }
+                s9
+            }
+            _ => None,
+        };
+
+        // S10
+        let stopped = stopped || diagnostics.iter().any(Diagnostic::is_error);
+        let preflight = if stopped {
+            None
+        } else {
+            preflight_report(self, ws, request).clone()
+        };
+        if let (Some(s10), Some(input)) = (&preflight, &report.preflight) {
+            diagnostics.extend(s10.diagnostics(input).iter().map(|d| self.to_original(d)));
+        }
+
         FullReport {
             model: model.to_string(),
             check: report,
             structural,
             index,
             init,
+            loops,
+            preflight,
             diagnostics,
         }
     }

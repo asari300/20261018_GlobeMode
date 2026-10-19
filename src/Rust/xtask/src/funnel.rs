@@ -6,6 +6,8 @@
 //! - S5 まで通ったモデルは、`globe-mode-analysis` で S6（構造特異）も見て、Rumoca 自身の構造解析の数と照合する。
 //! - S6 を通ったモデルは S7（Pantelides 法、[`analyze_index`]）を、そこまで Error が無ければ S8（初期化、
 //!   [`analyze_init_system`]。要る初期条件の数は S7 の動的な状態の数で数え、S009 から初期化系もマッチングする）を回す。
+//! - S010 から、S8 までに Error が無ければ S9（代数ループ、[`analyze_loops`]。微分の要らない系では Rumoca の構造解析の
+//!   ループの大きさと照合する）と S10（プリフライトの静的な部分、[`analyze_preflight`]）も回す。
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -16,8 +18,10 @@ use std::path::Path;
 use std::process::ExitCode;
 use std::time::Instant;
 
-use globe_mode_analysis::analyze_init_system;
-use globe_mode_analysis::{IndexReport, InitReport, StructuralReport, analyze_index};
+use globe_mode_analysis::{
+    IndexReport, InitReport, LoopReport, StructuralReport, analyze_index, analyze_init_system,
+    analyze_loops, analyze_preflight,
+};
 use globe_mode_core::{Diagnostic, Severity, Stage, codes};
 use globe_mode_db::GlobeDb;
 use globe_mode_frontend::{CheckReport, Checker, ReferenceStructure, unsupported};
@@ -379,6 +383,76 @@ impl S8Balance {
     }
 }
 
+/// S9 の結果の要約（[`LoopReport`]、S010）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct S9 {
+    /// BLT のブロックの数（大きさ 1 を含む）
+    pub blocks: usize,
+    /// 代数ループ（大きさ 2 以上のブロック）の数と、線形・非線形の内訳
+    pub loops: usize,
+    pub linear: usize,
+    pub nonlinear: usize,
+    /// 一番大きいループの方程式の数
+    pub max_size: usize,
+    /// 非線形のループの反復変数（tearing 変数）の数と、そのうち start 値の無いもの（`GM-W9001` の対象）
+    pub iteration_vars: usize,
+    pub without_start: usize,
+    /// start 値の有無を判定できた（初期化系の構造があった）
+    pub start_checked: bool,
+    /// インデックス 2 以上で、Pantelides 法の最高階の系で数えた（状態選択の前の見込み）
+    pub reduced: bool,
+    /// 解析しなかった理由
+    pub skipped: Option<String>,
+    /// ループの大きさ（方程式の数、昇順）
+    pub sizes: Vec<usize>,
+    /// Rumoca 自身の構造解析（`phase_structural::analyze` の ES002）のループの大きさ（昇順）
+    pub rumoca: Option<Vec<usize>>,
+}
+
+impl S9 {
+    fn new(r: &LoopReport, rumoca: Option<Vec<usize>>) -> Self {
+        Self {
+            blocks: r.blocks,
+            loops: r.n_loops(),
+            linear: r.n_linear(),
+            nonlinear: r.n_nonlinear(),
+            max_size: r.max_loop_size(),
+            iteration_vars: r.n_iteration_variables(),
+            without_start: r.n_iteration_without_start(),
+            start_checked: r.start_checked,
+            reduced: r.reduced,
+            skipped: r.skipped.clone(),
+            sizes: r.loop_sizes(),
+            rumoca,
+        }
+    }
+
+    /// Rumoca の構造解析とループの大きさの一覧が同じか。微分の要らない系（`reduced` でない）を解析したときだけ比べる
+    /// （Rumoca は der の形の incidence でループを数えるので、インデックス 2 以上の系とは比べられない）。
+    pub(crate) fn agrees_with_rumoca(&self) -> Option<bool> {
+        if self.reduced || self.skipped.is_some() {
+            return None;
+        }
+        self.rumoca.as_ref().map(|r| *r == self.sizes)
+    }
+}
+
+/// S10 の結果の要約（プリフライトの診断のコードごとの数、S010）。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) struct S10 {
+    pub codes: BTreeMap<&'static str, usize>,
+}
+
+impl S10 {
+    fn new(diagnostics: &[Diagnostic]) -> Self {
+        let mut codes = BTreeMap::new();
+        for d in diagnostics {
+            *codes.entry(d.code).or_default() += 1;
+        }
+        Self { codes }
+    }
+}
+
 /// 成功したときの数（状態 / 代数 / 出力は配列を 1 個、方程式と未知数はスカラー）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Counts {
@@ -416,6 +490,10 @@ pub(crate) struct Row {
     pub s8_reached: bool,
     /// S8 の結果（S8 まで来て、入力 `CheckReport::init` があるときだけ）
     pub s8: Option<S8>,
+    /// S9 の結果（S8 までに Error が無く、S7 の結果があるときだけ。S010）
+    pub s9: Option<S9>,
+    /// S10 の結果（S9 までに Error が無く、入力 `CheckReport::preflight` があるときだけ。S010）
+    pub s10: Option<S10>,
     pub seconds: f64,
 }
 
@@ -436,6 +514,8 @@ impl Row {
             s7: None,
             s8_reached: false,
             s8: None,
+            s9: None,
+            s10: None,
             seconds,
         }
     }
@@ -476,6 +556,8 @@ impl Row {
             s7: None,
             s8_reached: false,
             s8: None,
+            s9: None,
+            s10: None,
             seconds,
         };
         if let Some(d) = first_error(report) {
@@ -491,6 +573,7 @@ impl Row {
             return row;
         }
         let mut index: Option<IndexReport> = None;
+        let rumoca_loops = reference.as_ref().map(|r| r.loops.clone());
         match &report.structure {
             Some(structure) => {
                 let s6 = S6::new(
@@ -550,6 +633,26 @@ impl Row {
                 index.as_ref(),
             ));
         }
+        // S9: S8 までに Error が無く、S7 の結果があるとき（S9 は Warning と Info だけ）
+        if row.verdict == Verdict::Ok
+            && let (Some(structure), Some(ix)) = (&report.structure, &index)
+        {
+            let r = analyze_loops(structure, ix, report.init.as_ref());
+            if let Some(d) = first_stage_error(&r.diagnostics(structure, report.init.as_ref())) {
+                row.stop(Stage::S9, d.code, d.message.clone());
+            }
+            row.s9 = Some(S9::new(&r, rumoca_loops));
+        }
+        // S10: S9 までに Error が無ければ
+        if row.verdict == Verdict::Ok
+            && let Some(input) = &report.preflight
+        {
+            let diagnostics = analyze_preflight(input).diagnostics(input);
+            if let Some(d) = first_stage_error(&diagnostics) {
+                row.stop(Stage::S10, d.code, d.message.clone());
+            }
+            row.s10 = Some(S10::new(&diagnostics));
+        }
         row
     }
 
@@ -599,6 +702,12 @@ impl Row {
                     .filter(|x| x.balance() != S8Balance::Balanced)
                 {
                     notes.push(format!("S8 {}", x.balance().label()));
+                }
+                if let Some(x) = self.s9.as_ref().filter(|x| x.nonlinear > 0) {
+                    notes.push(format!("S9 非線形のループ {}", x.nonlinear));
+                }
+                if self.s9.as_ref().and_then(S9::agrees_with_rumoca) == Some(false) {
+                    notes.push("S9 が Rumoca と食い違う".to_string());
                 }
                 if notes.is_empty() {
                     "OK".to_string()
@@ -689,6 +798,24 @@ pub(crate) struct Summary {
     pub s8_no_input: usize,
     /// S8 で `GM-W8003`（値の無いパラメータ）が出たモデル
     pub s8_w8003: usize,
+    /// S9 を回した本数（S010）と、そのうち解析しなかったもの、最高階の系で数えたもの
+    pub s9_ran: usize,
+    pub s9_skipped: usize,
+    pub s9_reduced: usize,
+    /// 代数ループのあるモデル、非線形のループのあるモデル、`GM-W9001`（start の無い反復変数）のあるモデル
+    pub s9_with_loops: usize,
+    pub s9_with_nonlinear: usize,
+    pub s9_w9001: usize,
+    /// ループの総数（線形・非線形）と、一番大きいループの方程式の数
+    pub s9_linear_loops: usize,
+    pub s9_nonlinear_loops: usize,
+    pub s9_max_size: usize,
+    /// ループの大きさの一覧を Rumoca の構造解析と照合した本数と、そのうち一致した本数（微分の要らない系だけ）
+    pub s9_compared: usize,
+    pub s9_agreed: usize,
+    /// S10 を回した本数（S010）と、診断のコードごとのモデルの数
+    pub s10_ran: usize,
+    pub s10_codes: BTreeMap<&'static str, usize>,
     /// S6 を見たモデルのうち、der の形で未知数を含まない方程式があるもの
     pub s6_with_der_no_unknown_equations: usize,
     /// 段階ごとの NG（GM-E）の本数
@@ -772,6 +899,27 @@ impl Summary {
                     None => s.s8_no_input += 1,
                 }
                 s.s8_w8003 += usize::from(r.s8.as_ref().is_some_and(|x| x.w8003));
+            }
+            if let Some(x) = &r.s9 {
+                s.s9_ran += 1;
+                s.s9_skipped += usize::from(x.skipped.is_some());
+                s.s9_reduced += usize::from(x.reduced);
+                s.s9_with_loops += usize::from(x.loops > 0);
+                s.s9_with_nonlinear += usize::from(x.nonlinear > 0);
+                s.s9_w9001 += usize::from(x.without_start > 0);
+                s.s9_linear_loops += x.linear;
+                s.s9_nonlinear_loops += x.nonlinear;
+                s.s9_max_size = s.s9_max_size.max(x.max_size);
+                if let Some(agree) = x.agrees_with_rumoca() {
+                    s.s9_compared += 1;
+                    s.s9_agreed += usize::from(agree);
+                }
+            }
+            if let Some(x) = &r.s10 {
+                s.s10_ran += 1;
+                for code in x.codes.keys() {
+                    *s.s10_codes.entry(code).or_default() += 1;
+                }
             }
         }
         s.funnel = Funnel {
@@ -1046,7 +1194,7 @@ fn s7_s8_line(s: &Summary) -> String {
     )
 }
 
-const STAGES: [Stage; 9] = [
+const STAGES: [Stage; 11] = [
     Stage::S0,
     Stage::S1,
     Stage::S2,
@@ -1056,7 +1204,38 @@ const STAGES: [Stage; 9] = [
     Stage::S6,
     Stage::S7,
     Stage::S8,
+    Stage::S9,
+    Stage::S10,
 ];
+
+/// S9・S10 の 1 行の要約（S010 から）。
+fn s9_s10_line(s: &Summary) -> String {
+    let s10 = if s.s10_codes.is_empty() {
+        "診断なし".to_string()
+    } else {
+        s.s10_codes
+            .iter()
+            .map(|(c, n)| format!("{c} {n}"))
+            .collect::<Vec<_>>()
+            .join("・")
+    };
+    format!(
+        "S9 {} 本（ループあり {}・非線形のループあり {}・{} あり {}、ループは線形 {}・非線形 {}・最大 {} 本の方程式、最高階の系 {}・解析なし {}、Rumoca との照合 {}/{} 一致）・S10 {} 本（{s10}）",
+        s.s9_ran,
+        s.s9_with_loops,
+        s.s9_with_nonlinear,
+        codes::LOOP_ITERATION_WITHOUT_START,
+        s.s9_w9001,
+        s.s9_linear_loops,
+        s.s9_nonlinear_loops,
+        s.s9_max_size,
+        s.s9_reduced,
+        s.s9_skipped,
+        s.s9_agreed,
+        s.s9_compared,
+        s.s10_ran
+    )
+}
 
 fn render_report(rows: &[Row], s: &Summary, run: &RunInfo<'_>) -> String {
     let mut md = String::new();
@@ -1100,19 +1279,20 @@ fn render_report(rows: &[Row], s: &Summary, run: &RunInfo<'_>) -> String {
     let _ = writeln!(md, "| 検査器 | {CHECKER_KIND} |");
     let _ = writeln!(
         md,
-        "| 段階 | S0〜S8。**S007 から S7（インデックス、Pantelides 法）・S8（初期化）を含む**（S005 の報告は S0〜S6。OK は S7・S8 の Error（{}・{}）が無いもの） |",
+        "| 段階 | S0〜S10。S007 から S7（インデックス、Pantelides 法）・S8（初期化）、**S010 から S9（代数ループ）・S10（プリフライトの静的な部分）を含む**（S005 の報告は S0〜S6、S007〜S009 は S0〜S8。OK は S7・S8・S10 の Error（{}・{}・GM-E10xxx）が無いもの） |",
         codes::INDEX_REDUCTION_FAILED,
         codes::INIT_OVERDETERMINED
     );
     let _ = writeln!(md, "| 結果 | **{}** |", summary_line(s));
-    let _ = writeln!(md, "| S7・S8 | {} |\n", s7_s8_line(s));
+    let _ = writeln!(md, "| S7・S8 | {} |", s7_s8_line(s));
+    let _ = writeln!(md, "| S9・S10 | {} |\n", s9_s10_line(s));
 
     let _ = writeln!(md, "## 集計\n");
     let _ = writeln!(md, "| 項目 | 本数 |\n| --- | ---: |");
     let _ = writeln!(md, "| 対象 | {} |", s.total);
     let _ = writeln!(
         md,
-        "| OK（S0〜S8 で Error 無し。S005 の報告では S0〜S6） | {} |",
+        "| OK（S0〜S10 で Error 無し。S005 の報告では S0〜S6、S007〜S009 では S0〜S8） | {} |",
         s.ok
     );
     let _ = writeln!(
@@ -1210,6 +1390,45 @@ fn render_report(rows: &[Row], s: &Summary, run: &RunInfo<'_>) -> String {
     );
     let _ = writeln!(
         md,
+        "| S9（代数ループ）を回した本数（S8 までに Error が無く、S7 の結果があるもの） | {} |",
+        s.s9_ran
+    );
+    for (label, n) in [
+        ("うち代数ループがある".to_string(), s.s9_with_loops),
+        (
+            "うち非線形の代数ループがある".to_string(),
+            s.s9_with_nonlinear,
+        ),
+        (
+            format!(
+                "うち {}（非線形のループの反復変数に start 値が無い）が出た",
+                codes::LOOP_ITERATION_WITHOUT_START
+            ),
+            s.s9_w9001,
+        ),
+        (
+            "うちインデックス低減の最高階の系で数えた（状態選択の前の見込み）".to_string(),
+            s.s9_reduced,
+        ),
+        ("うち解析しなかった".to_string(), s.s9_skipped),
+    ] {
+        let _ = writeln!(md, "| {label} | {n} |");
+    }
+    let _ = writeln!(
+        md,
+        "| S9 のループの大きさの一覧を Rumoca の構造解析（`phase_structural::analyze` の ES002）と照合（一致 / 照合した本数。微分の要らない系だけ） | {} / {} |",
+        s.s9_agreed, s.s9_compared
+    );
+    let _ = writeln!(
+        md,
+        "| S10（プリフライト）を回した本数（S9 までに Error が無いもの） | {} |",
+        s.s10_ran
+    );
+    for (code, n) in &s.s10_codes {
+        let _ = writeln!(md, "| うち {code} が出た | {n} |");
+    }
+    let _ = writeln!(
+        md,
         "| partial（参考。うち OK） | {}（{}） |",
         s.partial, s.partial_ok
     );
@@ -1299,15 +1518,15 @@ fn render_report(rows: &[Row], s: &Summary, run: &RunInfo<'_>) -> String {
     let _ = writeln!(md, "## モデルごとの結果\n");
     let _ = writeln!(
         md,
-        "- 数は、状態 / 代数 / 出力（配列は 1 個）と、方程式（スカラー。S5 の釣り合いで数える本数で、離散の方程式を含む）。\n- S6 は、マッチングの大きさ / 方程式の数（連続の部分だけ。未知数は `der(x)` と代数・出力のスカラー）。構造特異の判定は `x` と `der(x)` を 1 つの列にまとめた形で行う。der の形（`der(x)` だけを未知数に数える形）のマッチングが完全でないときは括弧に書き、S7 の情報 `GM-I7001`（インデックス > 1 の見込み）を付ける。der の形のマッチングが Rumoca の構造解析と食い違うときは、その数も括弧に書く。\n- S7（S007 から）は、Pantelides 法の構造インデックスの見込み（`index k`）と、微分した方程式の数・微分の最大回数・状態選択の候補の状態の数・動的な状態の見込み / 状態の数（動的な状態が少なければ `GM-I7002`）。打ち切りは `GM-E7001`。\n- S8（S007 から）は、与えられた初期条件の数 / 要る数と、合う・過剰（`GM-E8001`。離散変数を含むかインデックスの低減で状態が減るときは確定できないので、過剰の見込み `GM-W8004` の警告にとどめる）・不足（`GM-W8001`）。`GM-W8003` は値の無いパラメータがあること。入力なしは初期化系の構造を作れなかったもの。\n- 秒は、検査（と S6 の照合）にかかった時間。MSL の読み込みと S6〜S8 の解析は含まない。\n"
+        "- 数は、状態 / 代数 / 出力（配列は 1 個）と、方程式（スカラー。S5 の釣り合いで数える本数で、離散の方程式を含む）。\n- S6 は、マッチングの大きさ / 方程式の数（連続の部分だけ。未知数は `der(x)` と代数・出力のスカラー）。構造特異の判定は `x` と `der(x)` を 1 つの列にまとめた形で行う。der の形（`der(x)` だけを未知数に数える形）のマッチングが完全でないときは括弧に書き、S7 の情報 `GM-I7001`（インデックス > 1 の見込み）を付ける。der の形のマッチングが Rumoca の構造解析と食い違うときは、その数も括弧に書く。\n- S7（S007 から）は、Pantelides 法の構造インデックスの見込み（`index k`）と、微分した方程式の数・微分の最大回数・状態選択の候補の状態の数・動的な状態の見込み / 状態の数（動的な状態が少なければ `GM-I7002`）。打ち切りは `GM-E7001`。\n- S8（S007 から）は、与えられた初期条件の数 / 要る数と、合う・過剰（`GM-E8001`。離散変数を含むかインデックスの低減で状態が減るときは確定できないので、過剰の見込み `GM-W8004` の警告にとどめる）・不足（`GM-W8001`）。`GM-W8003` は値の無いパラメータがあること。入力なしは初期化系の構造を作れなかったもの。\n- S9（S010 から）は、代数ループ（BLT の大きさ 2 以上のブロック）の数と非線形の数・一番大きいループの方程式の数・非線形のループの反復変数（tearing 変数）の数と start 値の無いもの（`GM-W9001`）。「最高階」はインデックス 2 以上で、Pantelides 法の最高階の系で数えた見込み。Rumoca の構造解析とループの大きさが食い違うときは、その一覧も書く。\n- S10（S010 から）は、プリフライトの診断のコード（`GM-E10001` パラメータが有限にならない・`GM-E10002` assert・`GM-E10003` start 値・`GM-E10004` experiment が妥当でない・`GM-W10001` experiment が疑わしい・`GM-I10001` experiment が無い・`GM-I10002` 静的に評価できないパラメータ）。\n- 秒は、検査（と S6 の照合）にかかった時間。MSL の読み込みと S6〜S10 の解析は含まない。\n"
     );
     let _ = writeln!(
         md,
-        "| # | モデル | 判定 | 段階 | GM コード | Rumoca | 状態 / 代数 / 出力・方程式 | S6 | S7 | S8 | 秒 |"
+        "| # | モデル | 判定 | 段階 | GM コード | Rumoca | 状態 / 代数 / 出力・方程式 | S6 | S7 | S8 | S9 | S10 | 秒 |"
     );
     let _ = writeln!(
         md,
-        "| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: |"
+        "| ---: | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---: |"
     );
     for (i, r) in rows.iter().enumerate() {
         let short = r.model.strip_prefix("Modelica.").unwrap_or(&r.model);
@@ -1356,9 +1575,11 @@ fn render_report(rows: &[Row], s: &Summary, run: &RunInfo<'_>) -> String {
             (None, true) => "入力なし".to_string(),
             (None, false) => "-".to_string(),
         };
+        let s9 = r.s9.as_ref().map_or("-".to_string(), s9_cell);
+        let s10 = r.s10.as_ref().map_or("-".to_string(), s10_cell);
         let _ = writeln!(
             md,
-            "| {} | `{short}`{} | {verdict} | {} | {} | {} | {counts} | {s6} | {s7} | {s8} | {:.2} |",
+            "| {} | `{short}`{} | {verdict} | {} | {} | {} | {counts} | {s6} | {s7} | {s8} | {s9} | {s10} | {:.2} |",
             i + 1,
             if r.partial { "（partial）" } else { "" },
             r.stage.map_or("-".to_string(), |s| format!("{s:?}")),
@@ -1420,6 +1641,57 @@ fn s8_cell(x: &S8) -> String {
     cell
 }
 
+/// 報告の S9 の欄（S010）。
+fn s9_cell(x: &S9) -> String {
+    if x.skipped.is_some() {
+        return "解析なし".to_string();
+    }
+    let mut cell = if x.loops == 0 {
+        "なし".to_string()
+    } else {
+        let mut c = format!(
+            "ループ {}（非線形 {}・最大 {}）",
+            x.loops, x.nonlinear, x.max_size
+        );
+        if x.iteration_vars > 0 {
+            c.push_str(&format!("、反復変数 {}", x.iteration_vars));
+            if x.without_start > 0 {
+                c.push_str(&format!(
+                    "（start なし {}、{}）",
+                    x.without_start,
+                    codes::LOOP_ITERATION_WITHOUT_START
+                ));
+            }
+        }
+        c
+    };
+    if x.reduced {
+        cell.push_str("・最高階");
+    }
+    if let (Some(false), Some(r)) = (x.agrees_with_rumoca(), &x.rumoca) {
+        cell.push_str(&format!("（**Rumoca のループ: {r:?}**）"));
+    }
+    cell
+}
+
+/// 報告の S10 の欄（S010）。
+fn s10_cell(x: &S10) -> String {
+    if x.codes.is_empty() {
+        return "-".to_string();
+    }
+    x.codes
+        .iter()
+        .map(|(c, n)| {
+            if *n > 1 {
+                format!("{c}×{n}")
+            } else {
+                c.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("・")
+}
+
 fn render_json(rows: &[Row], s: &Summary, run: &RunInfo<'_>) -> serde_json::Value {
     use serde_json::json;
     let models: Vec<serde_json::Value> = rows
@@ -1477,6 +1749,22 @@ fn render_json(rows: &[Row], s: &Summary, run: &RunInfo<'_>) -> serde_json::Valu
                     "w8003": x.w8003,
                     "uncertain": x.uncertain,
                 })),
+                "s9": r.s9.as_ref().map(|x| json!({
+                    "blocks": x.blocks,
+                    "loops": x.loops,
+                    "linear": x.linear,
+                    "nonlinear": x.nonlinear,
+                    "max_size": x.max_size,
+                    "iteration_vars": x.iteration_vars,
+                    "without_start": x.without_start,
+                    "start_checked": x.start_checked,
+                    "reduced": x.reduced,
+                    "skipped": x.skipped,
+                    "sizes": x.sizes,
+                    "rumoca": x.rumoca,
+                    "rumoca_agrees": x.agrees_with_rumoca(),
+                })),
+                "s10": r.s10.as_ref().map(|x| json!({ "codes": x.codes })),
                 "seconds": r.seconds,
             })
         })
@@ -1490,6 +1778,21 @@ fn render_json(rows: &[Row], s: &Summary, run: &RunInfo<'_>) -> serde_json::Valu
             "balanced": f.balanced,
         })
     };
+    // S9・S10 の集計（S010）。json! の入れ子が深くなりすぎないよう、別に組む
+    let s9_summary = json!({
+        "ran": s.s9_ran,
+        "skipped": s.s9_skipped,
+        "reduced": s.s9_reduced,
+        "with_loops": s.s9_with_loops,
+        "with_nonlinear": s.s9_with_nonlinear,
+        "w9001": s.s9_w9001,
+        "linear_loops": s.s9_linear_loops,
+        "nonlinear_loops": s.s9_nonlinear_loops,
+        "max_size": s.s9_max_size,
+        "rumoca_compared": s.s9_compared,
+        "rumoca_agreed": s.s9_agreed,
+    });
+    let s10_summary = json!({ "ran": s.s10_ran, "codes": s.s10_codes });
     json!({
         "msl_version": MSL_VERSION,
         "rumoca_rev": RUMOCA_REV,
@@ -1527,7 +1830,9 @@ fn render_json(rows: &[Row], s: &Summary, run: &RunInfo<'_>) -> serde_json::Valu
             "s8_under": s.s8_under,
             "s8_no_input": s.s8_no_input,
             "s8_w8003": s.s8_w8003,
-            "stages": "S0-S8",
+            "s9": s9_summary,
+            "s10": s10_summary,
+            "stages": "S0-S10",
             "index_seconds": run.index_seconds,
             "s6_compared": s.s6_compared,
             "s6_agreed": s.s6_agreed,
@@ -1692,6 +1997,8 @@ mod tests {
             }),
             s8_reached: matches!(verdict, Verdict::Ok),
             s8: None,
+            s9: None,
+            s10: None,
             seconds: 0.5,
         }
     }
@@ -1897,6 +2204,7 @@ mod tests {
                 .collect(),
             incidence,
             state_refs,
+            nonlinear: Vec::new(),
         }
     }
 
@@ -1945,12 +2253,50 @@ mod tests {
     }
 
     #[test]
+    fn s9_runs_after_s8_and_is_compared_with_rumoca() {
+        let reference = |loops: Vec<usize>| {
+            Some(ReferenceStructure {
+                n_equations: 3,
+                n_unknowns: 3,
+                matching: 3,
+                loops,
+            })
+        };
+        // 2 本の線形のループ（e0, e1）と、それに続く 1 本（`nonlinear` は空なので非線形とみなす）
+        let mut st = structure(3, vec![vec![0, 1], vec![0, 1], vec![1, 2]]);
+        st.nonlinear = vec![Vec::new(); 3];
+        let r = passed_report(Some(st));
+        let row = Row::from_report(&example("M.X"), &r, reference(vec![2]), 1.0);
+        assert_eq!(row.verdict, Verdict::Ok);
+        let s9 = row.s9.as_ref().unwrap();
+        assert_eq!((s9.loops, s9.linear, s9.nonlinear), (1, 1, 0));
+        assert_eq!(s9.sizes, vec![2]);
+        assert_eq!(s9.agrees_with_rumoca(), Some(true));
+        assert!(
+            row.s10.is_none(),
+            "プリフライトの入力が無ければ S10 は回さない"
+        );
+        let s = Summary::from_rows(std::slice::from_ref(&row));
+        assert_eq!(
+            (s.s9_ran, s.s9_with_loops, s.s9_compared, s.s9_agreed),
+            (1, 1, 1, 1)
+        );
+        assert!(s9_cell(s9).starts_with("ループ 1（非線形 0・最大 2）"));
+
+        // Rumoca と大きさが食い違う
+        let row = Row::from_report(&example("M.X"), &r, reference(vec![]), 1.0);
+        assert_eq!(row.s9.as_ref().unwrap().agrees_with_rumoca(), Some(false));
+        assert!(row.status().contains("S9 が Rumoca と食い違う"));
+    }
+
+    #[test]
     fn s6_runs_only_after_s5_and_is_compared_with_rumoca() {
         let reference = |e, u, m| {
             Some(ReferenceStructure {
                 n_equations: e,
                 n_unknowns: u,
                 matching: m,
+                loops: Vec::new(),
             })
         };
         // 正則（Rumoca と一致）

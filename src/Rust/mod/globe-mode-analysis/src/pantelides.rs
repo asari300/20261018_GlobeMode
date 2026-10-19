@@ -870,6 +870,7 @@ mod tests {
                 .collect(),
             incidence: vec![Vec::new(); 12],
             state_refs: (0..12u32).map(|j| vec![j]).collect(),
+            nonlinear: Vec::new(),
         };
         let r = analyze_index(&s);
         assert_eq!((r.index, r.n_differentiated, r.dynamic_states), (2, 12, 0));
@@ -974,6 +975,7 @@ mod tests {
             equations: (0..n).map(|i| equation(i, &format!("e{i}"))).collect(),
             incidence,
             state_refs,
+            nonlinear: Vec::new(),
         }
     }
 
@@ -1164,6 +1166,7 @@ mod tests {
             equations: (0..m).map(|i| equation(i, &format!("e{i}"))).collect(),
             incidence,
             state_refs,
+            nonlinear: Vec::new(),
         };
         let out = run(&s, differentiation_limit(m));
         let r = &out.report;

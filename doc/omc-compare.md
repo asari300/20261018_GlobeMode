@@ -1,6 +1,6 @@
 # MSL 4.1.0 の全例題の omc との照合（globe check ↔ OpenModelica）
 
-`cargo xtask omc-compare` が書く。`msl-funnel --json` の結果（globe check の S0〜S8 の判定）を、omc（OpenModelica のコンパイラ、別プロセス）の `checkModel`（方程式数と変数数）と `translateModel`（バックエンドまで。構造特異と初期条件の過剰）と突き合わせる。規則は [ADR-0010](adr/0010-omc-comparison.md)。
+`cargo xtask omc-compare` が書く。`msl-funnel --json` の結果（globe check の S0〜S10 の判定）を、omc（OpenModelica のコンパイラ、別プロセス）の `checkModel`（方程式数と変数数）と `translateModel`（バックエンドまで。構造特異と初期条件の過剰）と突き合わせる。規則は [ADR-0010](adr/0010-omc-comparison.md)。
 
 | 項目 | 値 |
 | --- | --- |
@@ -8,7 +8,7 @@
 | MSL | `data/msl`（4.1.0。omc 同梱の `+maint.om` ではなく、globe check と同じ素の MSL） |
 | globe check の結果 | `target/msl-funnel.json` |
 | 例題 | 566 本 |
-| omc の実行 | 12 プロセス（50 本ごと、制限 900 s）、390.8 s、時間切れ 0 回、異常終了 0 回、1 本ずつの再実行 0 本、結果の無いモデル 0 本（前回の omc の結果を `--reuse` で再利用し、照合だけやり直した） |
+| omc の実行 | 12 プロセス（50 本ごと、制限 900 s）、370.2 s、時間切れ 0 回、異常終了 0 回、1 本ずつの再実行 0 本、結果の無いモデル 0 本（前回の omc の結果を `--reuse` で再利用し、照合だけやり直した） |
 | translateModel | 呼んだ |
 
 ## 集計
@@ -227,12 +227,67 @@ globe check の S8 の判定（要る数と与えられた数）と、omc の `t
 | --- | --- | --- |
 | `Electrical.Analog.Examples.GenerationOfFMUs` | 過剰 8 / 6（冗長 2・決まらない 0）（確定できない） | 過剰 2 |
 | `Electrical.Analog.Examples.Lines.CompareLineTrunks` | 過剰 60 / 57（冗長 3・決まらない 0）（確定できない） | 過剰 3 |
-| `Fluid.Examples.NonCircularPipes` | 不足 4 / 40（冗長 0・決まらない 36） | 過剰 2 |
+| `Fluid.Examples.NonCircularPipes` | 不足 4 / 10（冗長 0・決まらない 6） | 過剰 2 |
 | `Magnetic.FluxTubes.Examples.Hysteresis.ThreePhaseTransformerWithRectifier` | - | 過剰 2 |
-| `Magnetic.FluxTubes.Examples.SolenoidActuator.Components.AdvancedSolenoid` | 過剰 5 / 7（冗長 1・決まらない 3）（確定できない） | （失敗） |
-| `Mechanics.MultiBody.Examples.Elementary.RollingWheelSetDriving` | 過剰 14 / 88（冗長 7・決まらない 81）（確定できない） | 過剰でない |
-| `Mechanics.MultiBody.Examples.Elementary.RollingWheelSetPulling` | 過剰 16 / 93（冗長 7・決まらない 84）（確定できない） | 過剰でない |
+| `Magnetic.FluxTubes.Examples.SolenoidActuator.Components.AdvancedSolenoid` | 過剰 5 / 5（冗長 1・決まらない 1）（確定できない） | （失敗） |
+| `Mechanics.MultiBody.Examples.Elementary.RollingWheelSetDriving` | 過剰 14 / 7（冗長 7・決まらない 0）（確定できない） | 過剰でない |
+| `Mechanics.MultiBody.Examples.Elementary.RollingWheelSetPulling` | 過剰 16 / 9（冗長 7・決まらない 0）（確定できない） | 過剰でない |
 | `Thermal.HeatTransfer.Examples.GenerationOfFMUs` | 過剰 4 / 3（冗長 1・決まらない 0）（確定できない） | 過剰 1 |
+
+### S9（代数ループ）の照合
+
+globe check の S9（BLT の大きさ 2 以上のブロック。非線形の見込みと、非線形のループの tearing 変数の start 値）と、omc の `translateModel` の `-d=iterationVars`（シミュレーションの系の反復変数の一覧と、その属性の `start`）を比べる。omc は先に別名の消去や式の変形をして、解ける式は陽に解くので、ループの数は比べず**有無だけ**を比べる。omc の translateModel が失敗したものと、omc の一覧の無いもの（S008 の保存）は比べない。omc の `-d=initialization` の「Nonlinear iteration variables with default zero start attribute」（表の zero start）は条件がもっと狭く、同じものを数えていないので、参考に書くだけにする。
+
+| 項目 | 比べたモデル | 一致 | 不一致 |
+| --- | --- | --- | --- |
+| 非線形の代数ループの有無 | 355 | 282（79.4%） | 73 |
+| start 値の無い非線形の反復変数の有無 | 355 | 312（87.9%） | 43 |
+
+食い違ったモデル（先頭の 40 本）:
+
+| モデル | globe check の S9 | omc |
+| --- | --- | --- |
+| `Electrical.Analog.Examples.ControlledSwitchWithArc` | ループ 0（非線形 0）、反復変数 0（start なし 0） | 非線形 1・線形 0、反復変数 1（start なし 1）、zero start 0 |
+| `Electrical.Analog.Examples.DifferenceAmplifier` | ループ 1（非線形 1）、反復変数 4（start なし 4）、最高階の系 | 非線形 0・線形 1、反復変数 0（start なし 0）、zero start 0 |
+| `Electrical.Analog.Examples.IdealTriacCircuit` | ループ 1（非線形 1）、反復変数 2（start なし 1） | 非線形 1・線形 0、反復変数 2（start なし 0）、zero start 0 |
+| `Electrical.Analog.Examples.InvertingAmp` | ループ 1（非線形 1）、反復変数 2（start なし 1） | 非線形 1・線形 0、反復変数 1（start なし 0）、zero start 0 |
+| `Electrical.Analog.Examples.Lines.CompareLineTrunks` | ループ 7（非線形 1）、反復変数 1（start なし 0）、最高階の系 | 非線形 0・線形 7、反復変数 0（start なし 0）、zero start 0 |
+| `Electrical.Analog.Examples.Lines.CompareLosslessLines` | ループ 4（非線形 4）、反復変数 4（start なし 3） | 非線形 0・線形 4、反復変数 0（start なし 0）、zero start 0 |
+| `Electrical.Analog.Examples.Lines.LightningLosslessTransmissionLine` | ループ 2（非線形 1）、反復変数 1（start なし 0） | 非線形 0・線形 2、反復変数 0（start なし 0）、zero start 0 |
+| `Electrical.Analog.Examples.Lines.SmoothStep` | ループ 1（非線形 1）、反復変数 1（start なし 0） | 非線形 0・線形 1、反復変数 0（start なし 0）、zero start 0 |
+| `Electrical.Analog.Examples.OpAmps.Comparator` | ループ 1（非線形 1）、反復変数 1（start なし 1） | 非線形 0・線形 1、反復変数 0（start なし 0）、zero start 0 |
+| `Electrical.Analog.Examples.OpAmps.LCOscillator` | ループ 1（非線形 1）、反復変数 1（start なし 0） | 非線形 1・線形 0、反復変数 1（start なし 1）、zero start 0 |
+| `Electrical.Analog.Examples.OpAmps.Multivibrator` | ループ 1（非線形 1）、反復変数 1（start なし 0） | 非線形 1・線形 0、反復変数 1（start なし 1）、zero start 0 |
+| `Electrical.Analog.Examples.OpAmps.SignalGenerator` | ループ 2（非線形 2）、反復変数 2（start なし 0） | 非線形 2・線形 0、反復変数 2（start なし 1）、zero start 0 |
+| `Electrical.Analog.Examples.Rectifier` | ループ 4（非線形 0）、反復変数 0（start なし 0）、最高階の系 | 非線形 3・線形 1、反復変数 6（start なし 0）、zero start 0 |
+| `Electrical.Analog.Examples.ShowSaturatingInductor` | ループ 0（非線形 0）、反復変数 0（start なし 0） | 非線形 1・線形 0、反復変数 1（start なし 0）、zero start 0 |
+| `Electrical.Analog.Examples.ShowVariableResistor` | ループ 2（非線形 2）、反復変数 2（start なし 2） | 非線形 0・線形 2、反復変数 0（start なし 0）、zero start 0 |
+| `Electrical.Analog.Examples.SwitchWithArc` | ループ 0（非線形 0）、反復変数 0（start なし 0） | 非線形 1・線形 0、反復変数 1（start なし 1）、zero start 0 |
+| `Electrical.Analog.Examples.ThyristorBehaviourTest` | ループ 0（非線形 0）、反復変数 0（start なし 0） | 非線形 2・線形 0、反復変数 2（start なし 0）、zero start 0 |
+| `Electrical.Machines.Examples.DCMachines.DCPM_withLosses` | ループ 3（非線形 1）、反復変数 1（start なし 0）、最高階の系 | 非線形 1・線形 2、反復変数 1（start なし 1）、zero start 0 |
+| `Electrical.Machines.Examples.DCMachines.DC_CompareCharacteristics` | ループ 4（非線形 1）、反復変数 1（start なし 1）、最高階の系 | 非線形 0・線形 4、反復変数 0（start なし 0）、zero start 0 |
+| `Electrical.Machines.Examples.InductionMachines.IMC_Conveyor` | ループ 3（非線形 1）、反復変数 2（start なし 2）、最高階の系 | 非線形 0・線形 4、反復変数 0（start なし 0）、zero start 0 |
+| `Electrical.Machines.Examples.InductionMachines.IMC_DCBraking` | ループ 3（非線形 1）、反復変数 2（start なし 2）、最高階の系 | 非線形 0・線形 3、反復変数 0（start なし 0）、zero start 0 |
+| `Electrical.Machines.Examples.InductionMachines.IMC_DOL` | ループ 4（非線形 1）、反復変数 2（start なし 2）、最高階の系 | 非線形 0・線形 3、反復変数 0（start なし 0）、zero start 0 |
+| `Electrical.Machines.Examples.InductionMachines.IMC_Inverter` | ループ 3（非線形 1）、反復変数 2（start なし 2）、最高階の系 | 非線形 0・線形 4、反復変数 0（start なし 0）、zero start 0 |
+| `Electrical.Machines.Examples.InductionMachines.IMC_Steinmetz` | ループ 6（非線形 1）、反復変数 2（start なし 2）、最高階の系 | 非線形 0・線形 4、反復変数 0（start なし 0）、zero start 0 |
+| `Electrical.Machines.Examples.InductionMachines.IMC_Transformer` | ループ 5（非線形 1）、反復変数 2（start なし 2）、最高階の系 | 非線形 0・線形 4、反復変数 0（start なし 0）、zero start 0 |
+| `Electrical.Machines.Examples.InductionMachines.IMC_YD` | ループ 5（非線形 1）、反復変数 2（start なし 2）、最高階の系 | 非線形 0・線形 4、反復変数 0（start なし 0）、zero start 0 |
+| `Electrical.Machines.Examples.InductionMachines.IMC_withLosses` | ループ 4（非線形 2）、反復変数 3（start なし 3）、最高階の系 | 非線形 0・線形 3、反復変数 0（start なし 0）、zero start 0 |
+| `Electrical.Machines.Examples.InductionMachines.IMS_Start` | ループ 8（非線形 4）、反復変数 5（start なし 5）、最高階の系 | 非線形 0・線形 7、反復変数 0（start なし 0）、zero start 0 |
+| `Electrical.Machines.Examples.SynchronousMachines.SMEE_Rectifier` | ループ 4（非線形 0）、反復変数 0（start なし 0）、最高階の系 | 非線形 3・線形 3、反復変数 6（start なし 0）、zero start 0 |
+| `Electrical.Machines.Examples.SynchronousMachines.SMPM_ResistiveBraking` | ループ 5（非線形 3）、反復変数 6（start なし 6）、最高階の系 | 非線形 0・線形 10、反復変数 0（start なし 0）、zero start 0 |
+| `Electrical.Machines.Examples.Transformers.IMC_Transformer` | ループ 5（非線形 1）、反復変数 2（start なし 2）、最高階の系 | 非線形 0・線形 4、反復変数 0（start なし 0）、zero start 0 |
+| `Electrical.Machines.Examples.Transformers.Rectifier12pulse` | ループ 10（非線形 0）、反復変数 0（start なし 0）、最高階の系 | 非線形 6・線形 4、反復変数 12（start なし 0）、zero start 0 |
+| `Electrical.Machines.Examples.Transformers.Rectifier6pulse` | ループ 4（非線形 0）、反復変数 0（start なし 0）、最高階の系 | 非線形 3・線形 1、反復変数 6（start なし 0）、zero start 0 |
+| `Electrical.Polyphase.Examples.Rectifier` | ループ 4（非線形 0）、反復変数 0（start なし 0）、最高階の系 | 非線形 3・線形 1、反復変数 6（start なし 0）、zero start 0 |
+| `Electrical.PowerConverters.Examples.ACAC.Dimmer_RL` | ループ 1（非線形 0）、反復変数 0（start なし 0） | 非線形 1・線形 0、反復変数 2（start なし 0）、zero start 0 |
+| `Electrical.PowerConverters.Examples.ACDC.RectifierBridge2Pulse.ThyristorBridge2Pulse_DC_Drive` | ループ 2（非線形 0）、反復変数 0（start なし 0）、最高階の系 | 非線形 1・線形 1、反復変数 4（start なし 0）、zero start 0 |
+| `Electrical.PowerConverters.Examples.ACDC.RectifierBridge2Pulse.ThyristorBridge2Pulse_RL` | ループ 2（非線形 0）、反復変数 0（start なし 0） | 非線形 2・線形 0、反復変数 4（start なし 0）、zero start 0 |
+| `Electrical.PowerConverters.Examples.ACDC.RectifierBridge2Pulse.ThyristorBridge2Pulse_RLV` | ループ 2（非線形 0）、反復変数 0（start なし 0） | 非線形 2・線形 0、反復変数 4（start なし 0）、zero start 0 |
+| `Electrical.PowerConverters.Examples.ACDC.RectifierBridge2Pulse.ThyristorBridge2Pulse_RLV_Characteristic` | ループ 2（非線形 0）、反復変数 0（start なし 0） | 非線形 2・線形 0、反復変数 4（start なし 0）、zero start 0 |
+| `Electrical.PowerConverters.Examples.ACDC.RectifierBridge2mPulse.ThyristorBridge2mPulse_DC_Drive` | ループ 3（非線形 0）、反復変数 0（start なし 0）、最高階の系 | 非線形 1・線形 2、反復変数 6（start なし 0）、zero start 0 |
+| … ほか 51 本 | | |
 
 ### globe check が OK なのに omc の translateModel が失敗したモデル
 
@@ -260,8 +315,8 @@ globe check の列は msl-funnel の判定（OK、NG と止まった段階、GM-
 | # | モデル | globe check | 数 | omc checkModel | S5 | omc translateModel | S8 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | `Blocks.Examples.BooleanNetwork1` | GM-U0001 ED019 | - | 88 / 88 ○ | - | 通る | - |
-| 2 | `Blocks.Examples.BusUsage` | OK | 14 / 14 | 14 / 14 ○ | ○ | 通る | 不足 0 / 7（冗長 0・決まらない 7） ↔ 過剰でない |
-| 3 | `Blocks.Examples.BusUsage_Utilities.Part` | OK | 4 / 4 | 4 / 4 ○ | ○ | 通る | 不足 0 / 2（冗長 0・決まらない 2） ↔ 過剰でない |
+| 2 | `Blocks.Examples.BusUsage` | OK | 14 / 14 | 14 / 14 ○ | ○ | 通る | 合う 0 / 0 ↔ 過剰でない |
+| 3 | `Blocks.Examples.BusUsage_Utilities.Part` | OK | 4 / 4 | 4 / 4 ○ | ○ | 通る | 合う 0 / 0 ↔ 過剰でない |
 | 4 | `Blocks.Examples.CompareSincExpSine` | OK | 4 / 4 | 4 / 4 ○ | ○ | 通る | 合う 0 / 0 ↔ 過剰でない |
 | 5 | `Blocks.Examples.DemoSignalCharacteristic` | OK | 53 / 53 | 53 / 53 ○ | ○ | 通る | 合う 17 / 17 ↔ 過剰でない |
 | 6 | `Blocks.Examples.DemonstrateContinuousSignalExtrema` | OK | 43 / 43 | 43 / 43 ○ | ○ | 通る | 合う 21 / 21 ↔ 過剰でない |
@@ -270,9 +325,9 @@ globe check の列は msl-funnel の判定（OK、NG と止まった段階、GM-
 | 9 | `Blocks.Examples.FilterWithDifferentiation` | OK | 15 / 15 | 15 / 15 ○ | ○ | 通る | 合う 10 / 10 ↔ 過剰でない |
 | 10 | `Blocks.Examples.FilterWithRiseTime` | OK | 22 / 22 | 22 / 22 ○ | ○ | 通る | 合う 18 / 18 ↔ 過剰でない |
 | 11 | `Blocks.Examples.IntegerNetwork1` | GM-U0001 ED019 | - | 38 / 38 ○ | - | 通る | - |
-| 12 | `Blocks.Examples.Interaction1` | OK | 50 / 50 | 50 / 50 ○ | ○ | 通る | 不足 18 / 33（冗長 0・決まらない 15） ↔ 過剰でない |
+| 12 | `Blocks.Examples.Interaction1` | OK | 50 / 50 | 50 / 50 ○ | ○ | 通る | 不足 18 / 19（冗長 0・決まらない 1） ↔ 過剰でない |
 | 13 | `Blocks.Examples.InverseModel` | OK | 15 / 15 | 15 / 15 ○ | ○ | 通る | 合う 2 / 2 ↔ 過剰でない |
-| 14 | `Blocks.Examples.LogicalNetwork1` | OK | 24 / 24 | 24 / 24 ○ | ○ | 通る | 不足 5 / 18（冗長 0・決まらない 13） ↔ 過剰でない |
+| 14 | `Blocks.Examples.LogicalNetwork1` | OK | 24 / 24 | 24 / 24 ○ | ○ | 通る | 合う 5 / 5 ↔ 過剰でない |
 | 15 | `Blocks.Examples.Modulation` | OK | 32 / 32 | 32 / 32 ○ | ○ | 通る | 合う 5 / 5 ↔ 過剰でない |
 | 16 | `Blocks.Examples.Noise.ActuatorWithNoise` | GM-U0001 ED019 | - | 814 / 814 ○ | - | 通る | - |
 | 17 | `Blocks.Examples.Noise.AutomaticSeed` | GM-U0001 ED019 | - | 45 / 45 ○ | - | 通る | - |
@@ -283,56 +338,56 @@ globe check の列は msl-funnel の判定（OK、NG と止まった段階、GM-
 | 22 | `Blocks.Examples.Noise.NormalNoiseProperties` | GM-U0001 ED019 | - | 38 / 38 ○ | - | 通る | - |
 | 23 | `Blocks.Examples.Noise.UniformNoise` | GM-U0001 ED019 | - | 15 / 15 ○ | - | 通る | - |
 | 24 | `Blocks.Examples.Noise.UniformNoiseProperties` | GM-U0001 ED019 | - | 38 / 38 ○ | - | 通る | - |
-| 25 | `Blocks.Examples.PID_Controller` | OK | 89 / 89 | 89 / 89 ○ | ○ | 通る | 不足 6 / 9（冗長 0・決まらない 3） ↔ 過剰でない |
+| 25 | `Blocks.Examples.PID_Controller` | OK | 89 / 89 | 89 / 89 ○ | ○ | 通る | 合う 6 / 6 ↔ 過剰でない |
 | 26 | `Blocks.Examples.RealNetwork1` | GM-U0001 ED019 | - | 34 / 34 ○ | - | 通る | - |
 | 27 | `Blocks.Examples.Rectifier12pulseFFT` | GM-U0003 ET004 | - | 5853 / 5853 ○ | - | 通る | - |
 | 28 | `Blocks.Examples.Rectifier6pulseFFT` | GM-U0003 ET004 | - | 5386 / 5386 ○ | - | 通る | - |
-| 29 | `Blocks.Examples.ShowLogicalSources` | OK | 13 / 13 | 13 / 13 ○ | ○ | 通る | 不足 3 / 10（冗長 0・決まらない 7） ↔ 過剰でない |
-| 30 | `Blocks.Examples.SinCosEncoder` | OK | 53 / 53 | 53 / 53 ○ | ○ | 通る | 不足 5 / 6（冗長 0・決まらない 1） ↔ 過剰でない |
-| 31 | `Blocks.Examples.SlewRateLimiter` | OK | 19 / 19 | 19 / 19 ○ | ○ | 通る | 不足 3 / 4（冗長 0・決まらない 1） ↔ 過剰でない |
-| 32 | `Blocks.Examples.TotalHarmonicDistortion` | OK | 141 / 141 | 141 / 141 ○ | ○ | 通る | 不足 18 / 34（冗長 0・決まらない 16） ↔ 過剰でない |
-| 33 | `Clocked.Examples.CascadeControlledDrive.AbsoluteClocks` | OK | 67 / 67 | 73 / 73 ○ | ○ | 通る | 不足 3 / 23（冗長 0・決まらない 20） ↔ 過剰でない |
-| 34 | `Clocked.Examples.CascadeControlledDrive.Continuous` | OK | 56 / 56 | 56 / 56 ○ | ○ | 通る | 不足 3 / 6（冗長 0・決まらない 3） ↔ 過剰でない |
-| 35 | `Clocked.Examples.CascadeControlledDrive.SubClocked` | OK | 67 / 67 | 72 / 72 ○ | ○ | 通る | 不足 3 / 23（冗長 0・決まらない 20） ↔ 過剰でない |
-| 36 | `Clocked.Examples.CascadeControlledDrive.SuperSampled` | OK | 67 / 67 | 69 / 69 ○ | ○ | 通る | 不足 3 / 23（冗長 0・決まらない 20） ↔ 過剰でない |
+| 29 | `Blocks.Examples.ShowLogicalSources` | OK | 13 / 13 | 13 / 13 ○ | ○ | 通る | 合う 3 / 3 ↔ 過剰でない |
+| 30 | `Blocks.Examples.SinCosEncoder` | OK | 53 / 53 | 53 / 53 ○ | ○ | 通る | 合う 5 / 5 ↔ 過剰でない |
+| 31 | `Blocks.Examples.SlewRateLimiter` | OK | 19 / 19 | 19 / 19 ○ | ○ | 通る | 合う 3 / 3 ↔ 過剰でない |
+| 32 | `Blocks.Examples.TotalHarmonicDistortion` | OK | 141 / 141 | 141 / 141 ○ | ○ | 通る | 合う 18 / 18 ↔ 過剰でない |
+| 33 | `Clocked.Examples.CascadeControlledDrive.AbsoluteClocks` | OK | 67 / 67 | 73 / 73 ○ | ○ | 通る | 不足 3 / 20（冗長 0・決まらない 17） ↔ 過剰でない |
+| 34 | `Clocked.Examples.CascadeControlledDrive.Continuous` | OK | 56 / 56 | 56 / 56 ○ | ○ | 通る | 合う 3 / 3 ↔ 過剰でない |
+| 35 | `Clocked.Examples.CascadeControlledDrive.SubClocked` | OK | 67 / 67 | 72 / 72 ○ | ○ | 通る | 不足 3 / 20（冗長 0・決まらない 17） ↔ 過剰でない |
+| 36 | `Clocked.Examples.CascadeControlledDrive.SuperSampled` | OK | 67 / 67 | 69 / 69 ○ | ○ | 通る | 不足 3 / 20（冗長 0・決まらない 17） ↔ 過剰でない |
 | 37 | `Clocked.Examples.Elementary.BooleanSignals.AssignClock` | OK | 8 / 8 | 11 / 11 ○ | ○ | 通る | 不足 0 / 8（冗長 0・決まらない 8） ↔ 過剰でない |
 | 38 | `Clocked.Examples.Elementary.BooleanSignals.AssignClockVectorized` | OK | 16 / 16 | 19 / 19 ○ | ○ | 通る | 不足 0 / 16（冗長 0・決まらない 16） ↔ 過剰でない |
-| 39 | `Clocked.Examples.Elementary.BooleanSignals.BackSample` | OK | 13 / 13 | 16 / 16 ○ | ○ | 通る | 不足 2 / 10（冗長 0・決まらない 8） ↔ 過剰でない |
-| 40 | `Clocked.Examples.Elementary.BooleanSignals.Hold` | OK | 13 / 13 | 16 / 16 ○ | ○ | 通る | 不足 2 / 10（冗長 0・決まらない 8） ↔ 過剰でない |
-| 41 | `Clocked.Examples.Elementary.BooleanSignals.Sample1` | OK | 5 / 5 | 8 / 8 ○ | ○ | 通る | 不足 0 / 5（冗長 0・決まらない 5） ↔ 過剰でない |
-| 42 | `Clocked.Examples.Elementary.BooleanSignals.Sample2` | OK | 14 / 14 | 17 / 17 ○ | ○ | 通る | 不足 0 / 14（冗長 0・決まらない 14） ↔ 過剰でない |
-| 43 | `Clocked.Examples.Elementary.BooleanSignals.SampleClocked` | OK | 3 / 3 | 6 / 6 ○ | ○ | 通る | 不足 0 / 3（冗長 0・決まらない 3） ↔ 過剰でない |
-| 44 | `Clocked.Examples.Elementary.BooleanSignals.SampleVectorizedAndClocked` | OK | 6 / 6 | 9 / 9 ○ | ○ | 通る | 不足 0 / 6（冗長 0・決まらない 6） ↔ 過剰でない |
-| 45 | `Clocked.Examples.Elementary.BooleanSignals.ShiftSample` | OK | 11 / 11 | 14 / 14 ○ | ○ | 通る | 不足 2 / 8（冗長 0・決まらない 6） ↔ 過剰でない |
-| 46 | `Clocked.Examples.Elementary.BooleanSignals.SubSample` | OK | 11 / 11 | 14 / 14 ○ | ○ | 通る | 不足 2 / 8（冗長 0・決まらない 6） ↔ 過剰でない |
-| 47 | `Clocked.Examples.Elementary.BooleanSignals.SuperSample` | OK | 11 / 11 | 14 / 14 ○ | ○ | 通る | 不足 2 / 8（冗長 0・決まらない 6） ↔ 過剰でない |
+| 39 | `Clocked.Examples.Elementary.BooleanSignals.BackSample` | OK | 13 / 13 | 16 / 16 ○ | ○ | 通る | 不足 2 / 7（冗長 0・決まらない 5） ↔ 過剰でない |
+| 40 | `Clocked.Examples.Elementary.BooleanSignals.Hold` | OK | 13 / 13 | 16 / 16 ○ | ○ | 通る | 不足 2 / 6（冗長 0・決まらない 4） ↔ 過剰でない |
+| 41 | `Clocked.Examples.Elementary.BooleanSignals.Sample1` | OK | 5 / 5 | 8 / 8 ○ | ○ | 通る | 不足 0 / 3（冗長 0・決まらない 3） ↔ 過剰でない |
+| 42 | `Clocked.Examples.Elementary.BooleanSignals.Sample2` | OK | 14 / 14 | 17 / 17 ○ | ○ | 通る | 不足 0 / 10（冗長 0・決まらない 10） ↔ 過剰でない |
+| 43 | `Clocked.Examples.Elementary.BooleanSignals.SampleClocked` | OK | 3 / 3 | 6 / 6 ○ | ○ | 通る | 不足 0 / 1（冗長 0・決まらない 1） ↔ 過剰でない |
+| 44 | `Clocked.Examples.Elementary.BooleanSignals.SampleVectorizedAndClocked` | OK | 6 / 6 | 9 / 9 ○ | ○ | 通る | 不足 0 / 2（冗長 0・決まらない 2） ↔ 過剰でない |
+| 45 | `Clocked.Examples.Elementary.BooleanSignals.ShiftSample` | OK | 11 / 11 | 14 / 14 ○ | ○ | 通る | 不足 2 / 5（冗長 0・決まらない 3） ↔ 過剰でない |
+| 46 | `Clocked.Examples.Elementary.BooleanSignals.SubSample` | OK | 11 / 11 | 14 / 14 ○ | ○ | 通る | 不足 2 / 5（冗長 0・決まらない 3） ↔ 過剰でない |
+| 47 | `Clocked.Examples.Elementary.BooleanSignals.SuperSample` | OK | 11 / 11 | 14 / 14 ○ | ○ | 通る | 不足 2 / 5（冗長 0・決まらない 3） ↔ 過剰でない |
 | 48 | `Clocked.Examples.Elementary.BooleanSignals.TickBasedPulse` | OK | 5 / 5 | 7 / 7 ○ | ○ | 通る | 不足 0 / 5（冗長 0・決まらない 5） ↔ 過剰でない |
 | 49 | `Clocked.Examples.Elementary.BooleanSignals.TickBasedStep` | OK | 4 / 4 | 6 / 6 ○ | ○ | 通る | 不足 0 / 4（冗長 0・決まらない 4） ↔ 過剰でない |
 | 50 | `Clocked.Examples.Elementary.BooleanSignals.TimeBasedPulse` | OK | 6 / 6 | 8 / 8 ○ | ○ | 通る | 不足 1 / 6（冗長 0・決まらない 5） ↔ 過剰でない |
 | 51 | `Clocked.Examples.Elementary.BooleanSignals.TimeBasedStep` | OK | 4 / 4 | 6 / 6 ○ | ○ | 通る | 不足 0 / 4（冗長 0・決まらない 4） ↔ 過剰でない |
-| 52 | `Clocked.Examples.Elementary.BooleanSignals.UpSample` | OK | 24 / 24 | 27 / 27 ○ | ○ | 通る | 不足 2 / 21（冗長 0・決まらない 19） ↔ 過剰でない |
-| 53 | `Clocked.Examples.Elementary.ClockSignals.LogicalSample` | OK | 212 / 212 | 242 / 242 ○ | ○ | 通る | 不足 14 / 180（冗長 0・決まらない 166） ↔ 過剰でない |
-| 54 | `Clocked.Examples.Elementary.ClockSignals.RotationalSample` | OK | 34 / 34 | 39 / 39 ○ | ○ | 通る | 不足 3 / 17（冗長 0・決まらない 14） ↔ 過剰でない |
+| 52 | `Clocked.Examples.Elementary.BooleanSignals.UpSample` | OK | 24 / 24 | 27 / 27 ○ | ○ | 通る | 不足 2 / 18（冗長 0・決まらない 16） ↔ 過剰でない |
+| 53 | `Clocked.Examples.Elementary.ClockSignals.LogicalSample` | OK | 212 / 212 | 242 / 242 ○ | ○ | 通る | 不足 14 / 62（冗長 0・決まらない 48） ↔ 過剰でない |
+| 54 | `Clocked.Examples.Elementary.ClockSignals.RotationalSample` | OK | 34 / 34 | 39 / 39 ○ | ○ | 通る | 不足 3 / 15（冗長 0・決まらない 12） ↔ 過剰でない |
 | 55 | `Clocked.Examples.Elementary.ClockSignals.ShiftSample` | OK | 3 / 3 | 8 / 8 ○ | ○ | 通る | 不足 0 / 1（冗長 0・決まらない 1） ↔ 過剰でない |
 | 56 | `Clocked.Examples.Elementary.ClockSignals.SubSample` | OK | 3 / 3 | 8 / 8 ○ | ○ | 通る | 不足 0 / 1（冗長 0・決まらない 1） ↔ 過剰でない |
 | 57 | `Clocked.Examples.Elementary.ClockSignals.SuperSample` | OK | 3 / 3 | 8 / 8 ○ | ○ | 通る | 不足 0 / 1（冗長 0・決まらない 1） ↔ 過剰でない |
 | 58 | `Clocked.Examples.Elementary.IntegerSignals.AssignClock` | OK | 8 / 8 | 11 / 11 ○ | ○ | 通る | 不足 0 / 8（冗長 0・決まらない 8） ↔ 過剰でない |
 | 59 | `Clocked.Examples.Elementary.IntegerSignals.AssignClockVectorized` | OK | 16 / 16 | 19 / 19 ○ | ○ | 通る | 不足 0 / 16（冗長 0・決まらない 16） ↔ 過剰でない |
-| 60 | `Clocked.Examples.Elementary.IntegerSignals.BackSample` | OK | 13 / 13 | 16 / 16 ○ | ○ | 通る | 不足 2 / 10（冗長 0・決まらない 8） ↔ 過剰でない |
-| 61 | `Clocked.Examples.Elementary.IntegerSignals.Hold` | OK | 13 / 13 | 16 / 16 ○ | ○ | 通る | 不足 2 / 10（冗長 0・決まらない 8） ↔ 過剰でない |
-| 62 | `Clocked.Examples.Elementary.IntegerSignals.Sample1` | OK | 5 / 5 | 8 / 8 ○ | ○ | 通る | 不足 0 / 5（冗長 0・決まらない 5） ↔ 過剰でない |
-| 63 | `Clocked.Examples.Elementary.IntegerSignals.Sample2` | OK | 14 / 14 | 17 / 17 ○ | ○ | 通る | 不足 0 / 14（冗長 0・決まらない 14） ↔ 過剰でない |
-| 64 | `Clocked.Examples.Elementary.IntegerSignals.SampleClocked` | OK | 3 / 3 | 6 / 6 ○ | ○ | 通る | 不足 0 / 3（冗長 0・決まらない 3） ↔ 過剰でない |
-| 65 | `Clocked.Examples.Elementary.IntegerSignals.SampleVectorizedAndClocked` | OK | 6 / 6 | 9 / 9 ○ | ○ | 通る | 不足 0 / 6（冗長 0・決まらない 6） ↔ 過剰でない |
-| 66 | `Clocked.Examples.Elementary.IntegerSignals.ShiftSample` | OK | 11 / 11 | 14 / 14 ○ | ○ | 通る | 不足 2 / 8（冗長 0・決まらない 6） ↔ 過剰でない |
-| 67 | `Clocked.Examples.Elementary.IntegerSignals.SubSample` | OK | 11 / 11 | 14 / 14 ○ | ○ | 通る | 不足 2 / 8（冗長 0・決まらない 6） ↔ 過剰でない |
-| 68 | `Clocked.Examples.Elementary.IntegerSignals.SuperSample` | OK | 11 / 11 | 14 / 14 ○ | ○ | 通る | 不足 2 / 8（冗長 0・決まらない 6） ↔ 過剰でない |
+| 60 | `Clocked.Examples.Elementary.IntegerSignals.BackSample` | OK | 13 / 13 | 16 / 16 ○ | ○ | 通る | 不足 2 / 7（冗長 0・決まらない 5） ↔ 過剰でない |
+| 61 | `Clocked.Examples.Elementary.IntegerSignals.Hold` | OK | 13 / 13 | 16 / 16 ○ | ○ | 通る | 不足 2 / 6（冗長 0・決まらない 4） ↔ 過剰でない |
+| 62 | `Clocked.Examples.Elementary.IntegerSignals.Sample1` | OK | 5 / 5 | 8 / 8 ○ | ○ | 通る | 不足 0 / 3（冗長 0・決まらない 3） ↔ 過剰でない |
+| 63 | `Clocked.Examples.Elementary.IntegerSignals.Sample2` | OK | 14 / 14 | 17 / 17 ○ | ○ | 通る | 不足 0 / 10（冗長 0・決まらない 10） ↔ 過剰でない |
+| 64 | `Clocked.Examples.Elementary.IntegerSignals.SampleClocked` | OK | 3 / 3 | 6 / 6 ○ | ○ | 通る | 不足 0 / 1（冗長 0・決まらない 1） ↔ 過剰でない |
+| 65 | `Clocked.Examples.Elementary.IntegerSignals.SampleVectorizedAndClocked` | OK | 6 / 6 | 9 / 9 ○ | ○ | 通る | 不足 0 / 2（冗長 0・決まらない 2） ↔ 過剰でない |
+| 66 | `Clocked.Examples.Elementary.IntegerSignals.ShiftSample` | OK | 11 / 11 | 14 / 14 ○ | ○ | 通る | 不足 2 / 5（冗長 0・決まらない 3） ↔ 過剰でない |
+| 67 | `Clocked.Examples.Elementary.IntegerSignals.SubSample` | OK | 11 / 11 | 14 / 14 ○ | ○ | 通る | 不足 2 / 5（冗長 0・決まらない 3） ↔ 過剰でない |
+| 68 | `Clocked.Examples.Elementary.IntegerSignals.SuperSample` | OK | 11 / 11 | 14 / 14 ○ | ○ | 通る | 不足 2 / 5（冗長 0・決まらない 3） ↔ 過剰でない |
 | 69 | `Clocked.Examples.Elementary.IntegerSignals.TickBasedStep` | OK | 4 / 4 | 6 / 6 ○ | ○ | 通る | 不足 0 / 4（冗長 0・決まらない 4） ↔ 過剰でない |
 | 70 | `Clocked.Examples.Elementary.IntegerSignals.TimeBasedStep` | OK | 4 / 4 | 6 / 6 ○ | ○ | 通る | 不足 0 / 4（冗長 0・決まらない 4） ↔ 過剰でない |
-| 71 | `Clocked.Examples.Elementary.IntegerSignals.UpSample` | OK | 24 / 24 | 27 / 27 ○ | ○ | 通る | 不足 2 / 21（冗長 0・決まらない 19） ↔ 過剰でない |
+| 71 | `Clocked.Examples.Elementary.IntegerSignals.UpSample` | OK | 24 / 24 | 27 / 27 ○ | ○ | 通る | 不足 2 / 18（冗長 0・決まらない 16） ↔ 過剰でない |
 | 72 | `Clocked.Examples.Elementary.RealSignals.AssignClock` | OK | 8 / 8 | 11 / 11 ○ | ○ | 通る | 不足 0 / 8（冗長 0・決まらない 8） ↔ 過剰でない |
-| 73 | `Clocked.Examples.Elementary.RealSignals.AssignClockToSquareWaveHold` | OK | 7 / 7 | 10 / 10 ○ | ○ | 通る | 不足 0 / 5（冗長 0・決まらない 5） ↔ 過剰でない |
-| 74 | `Clocked.Examples.Elementary.RealSignals.AssignClockToTriggerHold` | OK | 11 / 11 | 14 / 14 ○ | ○ | 通る | 不足 2 / 8（冗長 0・決まらない 6） ↔ 過剰でない |
+| 73 | `Clocked.Examples.Elementary.RealSignals.AssignClockToSquareWaveHold` | OK | 7 / 7 | 10 / 10 ○ | ○ | 通る | 不足 0 / 4（冗長 0・決まらない 4） ↔ 過剰でない |
+| 74 | `Clocked.Examples.Elementary.RealSignals.AssignClockToTriggerHold` | OK | 11 / 11 | 14 / 14 ○ | ○ | 通る | 不足 2 / 6（冗長 0・決まらない 4） ↔ 過剰でない |
 | 75 | `Clocked.Examples.Elementary.RealSignals.AssignClockVectorized` | OK | 16 / 16 | 19 / 19 ○ | ○ | 通る | 不足 0 / 16（冗長 0・決まらない 16） ↔ 過剰でない |
 | 76 | `Clocked.Examples.Elementary.RealSignals.BackSample` | OK | 7 / 7 | 10 / 10 ○ | ○ | 通る | 不足 0 / 5（冗長 0・決まらない 5） ↔ 過剰でない |
 | 77 | `Clocked.Examples.Elementary.RealSignals.FractionalDelay` | OK | 8 / 8 | 11 / 11 ○ | ○ | 通る | 不足 0 / 6（冗長 0・決まらない 6） ↔ 過剰でない |
@@ -366,29 +421,29 @@ globe check の列は msl-funnel の判定（OK、NG と止まった段階、GM-
 | 105 | `Clocked.Examples.SimpleControlledDrive.Continuous` | OK | 21 / 21 | 21 / 21 ○ | ○ | 通る | 合う 3 / 3 ↔ 過剰でない |
 | 106 | `Clocked.Examples.SimpleControlledDrive.ExactlyClockedWithDiscreteController` | OK | 28 / 28 | 31 / 31 ○ | ○ | 通る | 不足 3 / 12（冗長 0・決まらない 9） ↔ 過剰でない |
 | 107 | `Clocked.Examples.Systems.ControlledMixingUnit` | GM-U0001 ED018 | - | 34 / 34 ○ | - | 通る | - |
-| 108 | `Clocked.Examples.Systems.EngineThrottleControl` | OK | 117 / 117 | 128 / 128 ○ | ○ | 通る | 不足 9 / 40（冗長 0・決まらない 31） ↔ 過剰でない |
+| 108 | `Clocked.Examples.Systems.EngineThrottleControl` | OK | 117 / 117 | 128 / 128 ○ | ○ | 通る | 不足 9 / 37（冗長 0・決まらない 28） ↔ 過剰でない |
 | 109 | `ComplexBlocks.Examples.ShowTransferFunction` | GM-U0001 ED019 | - | 29 / 29 ○ | - | 通る | - |
 | 110 | `ComplexBlocks.Examples.TestConversionBlock` | OK | 10 / 10 | 10 / 10 ○ | ○ | 通る | 合う 0 / 0 ↔ 過剰でない |
 | 111 | `Electrical.Analog.Examples.AD_DA_conversion` | GM-U0001 ED013 | - | 50 / 50 ○ | - | 通る | - |
 | 112 | `Electrical.Analog.Examples.AmplifierWithOpAmpDetailed` | OK | 79 / 79 | 79 / 79 ○ | ○ | 通る | 合う 7 / 7 ↔ 過剰でない |
 | 113 | `Electrical.Analog.Examples.CauerLowPassAnalog` | OK | 69 / 69 | 69 / 69 ○ | ○ | 通る | 合う 5 / 5 ↔ 過剰でない |
 | 114 | `Electrical.Analog.Examples.CauerLowPassOPV` | OK | 240 / 240 | 240 / 240 ○ | ○ | 通る | 合う 5 / 5 ↔ 過剰でない |
-| 115 | `Electrical.Analog.Examples.CauerLowPassSC` | OK | 658 / 658 | 658 / 658 ○ | ○ | 通る | 不足 27 / 137（冗長 0・決まらない 110） ↔ 過剰でない |
-| 116 | `Electrical.Analog.Examples.CharacteristicIdealDiodes` | OK | 80 / 80 | 80 / 80 ○ | ○ | 通る | 不足 0 / 3（冗長 0・決まらない 3） ↔ 過剰でない |
-| 117 | `Electrical.Analog.Examples.CharacteristicThyristors` | OK | 98 / 98 | 98 / 98 ○ | ○ | 通る | 不足 7 / 14（冗長 0・決まらない 7） ↔ 過剰でない |
+| 115 | `Electrical.Analog.Examples.CauerLowPassSC` | OK | 658 / 658 | 658 / 658 ○ | ○ | 通る | 合う 27 / 27 ↔ 過剰でない |
+| 116 | `Electrical.Analog.Examples.CharacteristicIdealDiodes` | OK | 80 / 80 | 80 / 80 ○ | ○ | 通る | 合う 0 / 0 ↔ 過剰でない |
+| 117 | `Electrical.Analog.Examples.CharacteristicThyristors` | OK | 98 / 98 | 98 / 98 ○ | ○ | 通る | 合う 7 / 7 ↔ 過剰でない |
 | 118 | `Electrical.Analog.Examples.ChuaCircuit` | OK | 44 / 44 | 44 / 44 ○ | ○ | 通る | 合う 3 / 3 ↔ 過剰でない |
 | 119 | `Electrical.Analog.Examples.CompareTransformers` | OK | 123 / 123 | 123 / 123 ○ | ○ | 通る | 合う 3 / 3 ↔ 過剰でない |
-| 120 | `Electrical.Analog.Examples.ControlledSwitchWithArc` | OK | 80 / 80 | 80 / 80 ○ | ○ | 通る | 不足 5 / 6（冗長 0・決まらない 1） ↔ 過剰でない |
-| 121 | `Electrical.Analog.Examples.DemoPowerSupply` | OK | 24 / 24 | 24 / 24 ○ | ○ | 通る | 不足 0 / 2（冗長 0・決まらない 2） ↔ 過剰でない |
-| 122 | `Electrical.Analog.Examples.DemoPowerSupplyWithBuffer` | OK | 50 / 50 | 50 / 50 ○ | ○ | 通る | 不足 3 / 6（冗長 0・決まらない 3） ↔ 過剰でない |
-| 123 | `Electrical.Analog.Examples.DemonstrateLightning` | OK | 58 / 58 | 58 / 58 ○ | ○ | 通る | 不足 12 / 14（冗長 0・決まらない 2） ↔ 過剰でない |
+| 120 | `Electrical.Analog.Examples.ControlledSwitchWithArc` | OK | 80 / 80 | 80 / 80 ○ | ○ | 通る | 合う 5 / 5 ↔ 過剰でない |
+| 121 | `Electrical.Analog.Examples.DemoPowerSupply` | OK | 24 / 24 | 24 / 24 ○ | ○ | 通る | 合う 0 / 0 ↔ 過剰でない |
+| 122 | `Electrical.Analog.Examples.DemoPowerSupplyWithBuffer` | OK | 50 / 50 | 50 / 50 ○ | ○ | 通る | 合う 3 / 3 ↔ 過剰でない |
+| 123 | `Electrical.Analog.Examples.DemonstrateLightning` | OK | 58 / 58 | 58 / 58 ○ | ○ | 通る | 合う 12 / 12 ↔ 過剰でない |
 | 124 | `Electrical.Analog.Examples.DifferenceAmplifier` | OK | 221 / 221 | 221 / 221 ○ | ○ | 通る | 合う 9 / 9 ↔ 過剰でない |
 | 125 | `Electrical.Analog.Examples.GenerationOfFMUs` | OK | 306 / 306 | 306 / 306 ○ | ○ | 通る | 過剰 8 / 6（冗長 2・決まらない 0）（確定できない） ↔ 過剰 2 |
 | 126 | `Electrical.Analog.Examples.HeatingMOSInverter` | OK | 92 / 92 | 92 / 92 ○ | ○ | 通る | 合う 2 / 2 ↔ 過剰でない |
 | 127 | `Electrical.Analog.Examples.HeatingNPN_NORGate` | OK | 158 / 158 | 158 / 158 ○ | ○ | 通る | 不足 5 / 8（冗長 0・決まらない 3） ↔ 過剰でない |
 | 128 | `Electrical.Analog.Examples.HeatingPNP_NORGate` | OK | 158 / 158 | 158 / 158 ○ | ○ | 通る | 不足 5 / 8（冗長 0・決まらない 3） ↔ 過剰でない |
 | 129 | `Electrical.Analog.Examples.HeatingRectifier` | OK | 49 / 49 | 49 / 49 ○ | ○ | 通る | 合う 2 / 2 ↔ 過剰でない |
-| 130 | `Electrical.Analog.Examples.IdealTriacCircuit` | OK | 62 / 62 | 62 / 62 ○ | ○ | 通る | 不足 4 / 8（冗長 0・決まらない 4） ↔ 過剰でない |
+| 130 | `Electrical.Analog.Examples.IdealTriacCircuit` | OK | 62 / 62 | 62 / 62 ○ | ○ | 通る | 合う 4 / 4 ↔ 過剰でない |
 | 131 | `Electrical.Analog.Examples.InvertingAmp` | OK | 60 / 60 | 60 / 60 ○ | ○ | 通る | 合う 2 / 2 ↔ 過剰でない |
 | 132 | `Electrical.Analog.Examples.Lines.CompareLineTrunks` | OK | 1091 / 1091 | 1091 / 1091 ○ | ○ | 通る | 過剰 60 / 57（冗長 3・決まらない 0）（確定できない） ↔ 過剰 3 |
 | 133 | `Electrical.Analog.Examples.Lines.CompareLosslessLines` | OK | 118 / 118 | 118 / 118 ○ | ○ | 通る | 合う 2 / 2 ↔ 過剰でない |
@@ -425,23 +480,23 @@ globe check の列は msl-funnel の判定（OK、NG と止まった段階、GM-
 | 164 | `Electrical.Analog.Examples.OpAmps.VoltageFollower` | OK | 49 / 49 | 49 / 49 ○ | ○ | 通る | 合う 2 / 2 ↔ 過剰でない |
 | 165 | `Electrical.Analog.Examples.OvervoltageProtection` | OK | 49 / 49 | 49 / 49 ○ | ○ | 通る | 合う 1 / 1 ↔ 過剰でない |
 | 166 | `Electrical.Analog.Examples.ParallelResonance` | OK | 79 / 79 | 79 / 79 ○ | ○ | 通る | 合う 6 / 6 ↔ 過剰でない |
-| 167 | `Electrical.Analog.Examples.Rectifier` | OK | 128 / 128 | 128 / 128 ○ | ○ | 通る | 不足 4 / 10（冗長 0・決まらない 6） ↔ 過剰でない |
+| 167 | `Electrical.Analog.Examples.Rectifier` | OK | 128 / 128 | 128 / 128 ○ | ○ | 通る | 合う 4 / 4 ↔ 過剰でない |
 | 168 | `Electrical.Analog.Examples.Resistor` | OK | 28 / 28 | 28 / 28 ○ | ○ | 通る | 合う 0 / 0 ↔ 過剰でない |
 | 169 | `Electrical.Analog.Examples.ResonanceCircuits` | OK | 252 / 252 | 252 / 252 ○ | ○ | 通る | 合う 4 / 4 ↔ 過剰でない |
 | 170 | `Electrical.Analog.Examples.SeriesResonance` | OK | 79 / 79 | 79 / 79 ○ | ○ | 通る | 合う 6 / 6 ↔ 過剰でない |
 | 171 | `Electrical.Analog.Examples.ShowSaturatingInductor` | OK | 23 / 23 | 23 / 23 ○ | ○ | 通る | 合う 3 / 3 ↔ 過剰でない |
 | 172 | `Electrical.Analog.Examples.ShowVariableResistor` | OK | 67 / 67 | 67 / 67 ○ | ○ | 通る | 合う 0 / 0 ↔ 過剰でない |
-| 173 | `Electrical.Analog.Examples.SimpleTriacCircuit` | OK | 89 / 89 | 89 / 89 ○ | ○ | 通る | 不足 5 / 7（冗長 0・決まらない 2） ↔ 過剰でない |
-| 174 | `Electrical.Analog.Examples.SwitchWithArc` | OK | 71 / 71 | 71 / 71 ○ | ○ | 通る | 不足 6 / 10（冗長 0・決まらない 4） ↔ 過剰でない |
+| 173 | `Electrical.Analog.Examples.SimpleTriacCircuit` | OK | 89 / 89 | 89 / 89 ○ | ○ | 通る | 合う 5 / 5 ↔ 過剰でない |
+| 174 | `Electrical.Analog.Examples.SwitchWithArc` | OK | 71 / 71 | 71 / 71 ○ | ○ | 通る | 合う 6 / 6 ↔ 過剰でない |
 | 175 | `Electrical.Analog.Examples.ThyristorBehaviourTest` | OK | 48 / 48 | 48 / 48 ○ | ○ | 通る | 合う 4 / 4 ↔ 過剰でない |
 | 176 | `Electrical.Batteries.Examples.BatteryDischargeCharge` | GM-U0001 ED020 | - | 215 / 215 ○ | - | 通る | - |
-| 177 | `Electrical.Batteries.Examples.CCCV_Cell` | OK | 120 / 120 | 120 / 120 ○ | ○ | 通る | 不足 4 / 7（冗長 0・決まらない 3） ↔ 過剰でない |
+| 177 | `Electrical.Batteries.Examples.CCCV_Cell` | OK | 120 / 120 | 120 / 120 ○ | ○ | 通る | 合う 4 / 4 ↔ 過剰でない |
 | 178 | `Electrical.Batteries.Examples.CCCV_CellRC` | GM-U0003 ED001 | - | 154 / 154 ○ | - | 通る | - |
 | 179 | `Electrical.Batteries.Examples.CCCV_Stack` | GM-U0001 EF020 | - | 837 / 837 ○ | - | 通る | - |
 | 180 | `Electrical.Batteries.Examples.CCCV_StackRC` | GM-U0001 EF020 | - | 1013 / 1013 ○ | - | 通る | - |
 | 181 | `Electrical.Batteries.Examples.CCCVcharging` | GM-U0003 ED001 | - | 123 / 123 ○ | - | 通る | - |
 | 182 | `Electrical.Batteries.Examples.ShowImpedance` | GM-U0001 ED019 | - | 4 / 4 ○ | - | 通る | - |
-| 183 | `Electrical.Batteries.Examples.SuperCapDischargeCharge` | OK | 77 / 77 | 77 / 77 ○ | ○ | 通る | 不足 2 / 5（冗長 0・決まらない 3） ↔ 過剰でない |
+| 183 | `Electrical.Batteries.Examples.SuperCapDischargeCharge` | OK | 77 / 77 | 77 / 77 ○ | ○ | 通る | 合う 2 / 2 ↔ 過剰でない |
 | 184 | `Electrical.Digital.Examples.Adder4` | GM-U0001 ED013 | - | 341 / 341 ○ | - | 通る | - |
 | 185 | `Electrical.Digital.Examples.BUF3S` | GM-U0001 ED013 | - | 14 / 14 ○ | - | 通る | - |
 | 186 | `Electrical.Digital.Examples.Counter` | GM-U0003 ED010 | - | 322 / 322 ○ | - | 通る | - |
@@ -470,8 +525,8 @@ globe check の列は msl-funnel の判定（OK、NG と止まった段階、GM-
 | 209 | `Electrical.Machines.Examples.ControlledDCDrives.SpeedControlledDCPM` | GM-U0002 EF024 | - | 413 / 413 ○ | - | 通る | - |
 | 210 | `Electrical.Machines.Examples.DCMachines.DCEE_Start` | OK | 246 / 246 | 246 / 246 ○ | ○ | 通る | 合う 4 / 4 ↔ 過剰でない |
 | 211 | `Electrical.Machines.Examples.DCMachines.DCPM_Cooling` | OK | 272 / 272 | 272 / 272 ○ | ○ | 通る | 合う 7 / 7 ↔ 過剰でない |
-| 212 | `Electrical.Machines.Examples.DCMachines.DCPM_CurrentControlled` | OK | 247 / 247 | 247 / 247 ○ | ○ | 通る | 不足 5 / 6（冗長 0・決まらない 1） ↔ 過剰でない |
-| 213 | `Electrical.Machines.Examples.DCMachines.DCPM_Drive` | OK | 671 / 671 | 671 / 671 ○ | ○ | 通る | 不足 16 / 21（冗長 0・決まらない 5） ↔ 過剰でない |
+| 212 | `Electrical.Machines.Examples.DCMachines.DCPM_CurrentControlled` | OK | 247 / 247 | 247 / 247 ○ | ○ | 通る | 合う 5 / 5 ↔ 過剰でない |
+| 213 | `Electrical.Machines.Examples.DCMachines.DCPM_Drive` | OK | 671 / 671 | 671 / 671 ○ | ○ | 通る | 合う 16 / 16 ↔ 過剰でない |
 | 214 | `Electrical.Machines.Examples.DCMachines.DCPM_QuasiStatic` | OK | 392 / 392 | 392 / 392 ○ | ○ | 通る | 合う 7 / 7 ↔ 過剰でない |
 | 215 | `Electrical.Machines.Examples.DCMachines.DCPM_Start` | OK | 200 / 200 | 200 / 200 ○ | ○ | 通る | 合う 3 / 3 ↔ 過剰でない |
 | 216 | `Electrical.Machines.Examples.DCMachines.DCPM_Temperature` | OK | 214 / 214 | 214 / 214 ○ | ○ | 通る | 合う 3 / 3 ↔ 過剰でない |
@@ -481,97 +536,97 @@ globe check の列は msl-funnel の判定（OK、NG と止まった段階、GM-
 | 220 | `Electrical.Machines.Examples.DCMachines.DC_CompareCharacteristics` | OK | 666 / 666 | 666 / 666 ○ | ○ | 通る | 合う 6 / 6 ↔ 過剰でない |
 | 221 | `Electrical.Machines.Examples.InductionMachines.IMC_Conveyor` | OK | 490 / 490 | 490 / 490 ○ | ○ | 通る | 合う 9 / 9 ↔ 過剰でない |
 | 222 | `Electrical.Machines.Examples.InductionMachines.IMC_DCBraking` | OK | 392 / 392 | 392 / 392 ○ | ○ | 通る | 合う 6 / 6 ↔ 過剰でない |
-| 223 | `Electrical.Machines.Examples.InductionMachines.IMC_DOL` | OK | 524 / 524 | 524 / 524 ○ | ○ | 通る | 不足 7 / 19（冗長 0・決まらない 12） ↔ 過剰でない |
+| 223 | `Electrical.Machines.Examples.InductionMachines.IMC_DOL` | OK | 524 / 524 | 524 / 524 ○ | ○ | 通る | 合う 7 / 7 ↔ 過剰でない |
 | 224 | `Electrical.Machines.Examples.InductionMachines.IMC_Initialize` | OK | 466 / 466 | 466 / 466 ○ | ○ | 通る | 合う 7 / 7 ↔ 過剰でない |
 | 225 | `Electrical.Machines.Examples.InductionMachines.IMC_Inverter` | OK | 468 / 468 | 468 / 468 ○ | ○ | 通る | 合う 7 / 7 ↔ 過剰でない |
-| 226 | `Electrical.Machines.Examples.InductionMachines.IMC_InverterDrive` | OK | 1064 / 1064 | 1064 / 1064 ○ | ○ | 通る | 不足 22 / 98（冗長 0・決まらない 76） ↔ 過剰でない |
-| 227 | `Electrical.Machines.Examples.InductionMachines.IMC_Steinmetz` | OK | 491 / 491 | 491 / 491 ○ | ○ | 通る | 不足 9 / 15（冗長 0・決まらない 6） ↔ 過剰でない |
-| 228 | `Electrical.Machines.Examples.InductionMachines.IMC_Transformer` | OK | 934 / 934 | 934 / 934 ○ | ○ | 通る | 不足 9 / 30（冗長 0・決まらない 21） ↔ 過剰でない |
-| 229 | `Electrical.Machines.Examples.InductionMachines.IMC_YD` | OK | 658 / 658 | 658 / 658 ○ | ○ | 通る | 不足 10 / 55（冗長 0・決まらない 45） ↔ 過剰でない |
-| 230 | `Electrical.Machines.Examples.InductionMachines.IMC_YDarc` | OK | 745 / 745 | 745 / 745 ○ | ○ | 通る | 不足 30 / 69（冗長 0・決まらない 39） ↔ 過剰でない |
+| 226 | `Electrical.Machines.Examples.InductionMachines.IMC_InverterDrive` | OK | 1064 / 1064 | 1064 / 1064 ○ | ○ | 通る | 不足 22 / 23（冗長 0・決まらない 1） ↔ 過剰でない |
+| 227 | `Electrical.Machines.Examples.InductionMachines.IMC_Steinmetz` | OK | 491 / 491 | 491 / 491 ○ | ○ | 通る | 合う 9 / 9 ↔ 過剰でない |
+| 228 | `Electrical.Machines.Examples.InductionMachines.IMC_Transformer` | OK | 934 / 934 | 934 / 934 ○ | ○ | 通る | 合う 9 / 9 ↔ 過剰でない |
+| 229 | `Electrical.Machines.Examples.InductionMachines.IMC_YD` | OK | 658 / 658 | 658 / 658 ○ | ○ | 通る | 合う 10 / 10 ↔ 過剰でない |
+| 230 | `Electrical.Machines.Examples.InductionMachines.IMC_YDarc` | OK | 745 / 745 | 745 / 745 ○ | ○ | 通る | 合う 30 / 30 ↔ 過剰でない |
 | 231 | `Electrical.Machines.Examples.InductionMachines.IMC_withLosses` | OK | 524 / 524 | 524 / 524 ○ | ○ | 通る | 合う 8 / 8 ↔ 過剰でない |
-| 232 | `Electrical.Machines.Examples.InductionMachines.IMS_Start` | OK | 798 / 798 | 798 / 798 ○ | ○ | 通る | 不足 8 / 29（冗長 0・決まらない 21） ↔ 過剰でない |
-| 233 | `Electrical.Machines.Examples.SynchronousMachines.SMEE_DOL` | OK | 701 / 701 | 701 / 701 ○ | ○ | 通る | 不足 7 / 21（冗長 0・決まらない 14） ↔ 過剰でない |
+| 232 | `Electrical.Machines.Examples.InductionMachines.IMS_Start` | OK | 798 / 798 | 798 / 798 ○ | ○ | 通る | 合う 8 / 8 ↔ 過剰でない |
+| 233 | `Electrical.Machines.Examples.SynchronousMachines.SMEE_DOL` | OK | 701 / 701 | 701 / 701 ○ | ○ | 通る | 合う 7 / 7 ↔ 過剰でない |
 | 234 | `Electrical.Machines.Examples.SynchronousMachines.SMEE_Generator` | OK | 656 / 656 | 656 / 656 ○ | ○ | 通る | 合う 5 / 5 ↔ 過剰でない |
 | 235 | `Electrical.Machines.Examples.SynchronousMachines.SMEE_LoadDump` | GM-U0003 ED010 | - | 731 / 731 ○ | - | 通る | - |
-| 236 | `Electrical.Machines.Examples.SynchronousMachines.SMEE_Rectifier` | OK | 617 / 617 | 617 / 617 ○ | ○ | 通る | 不足 16 / 23（冗長 0・決まらない 7） ↔ 過剰でない |
-| 237 | `Electrical.Machines.Examples.SynchronousMachines.SMPM_Braking` | OK | 653 / 653 | 653 / 653 ○ | ○ | 通る | 不足 5 / 11（冗長 0・決まらない 6） ↔ 過剰でない |
+| 236 | `Electrical.Machines.Examples.SynchronousMachines.SMEE_Rectifier` | OK | 617 / 617 | 617 / 617 ○ | ○ | 通る | 合う 16 / 16 ↔ 過剰でない |
+| 237 | `Electrical.Machines.Examples.SynchronousMachines.SMPM_Braking` | OK | 653 / 653 | 653 / 653 ○ | ○ | 通る | 合う 5 / 5 ↔ 過剰でない |
 | 238 | `Electrical.Machines.Examples.SynchronousMachines.SMPM_CurrentSource` | OK | 659 / 659 | 659 / 659 ○ | ○ | 通る | 合う 2 / 2 ↔ 過剰でない |
 | 239 | `Electrical.Machines.Examples.SynchronousMachines.SMPM_Inverter` | OK | 581 / 581 | 581 / 581 ○ | ○ | 通る | 合う 7 / 7 ↔ 過剰でない |
 | 240 | `Electrical.Machines.Examples.SynchronousMachines.SMPM_NoLoad` | OK | 404 / 404 | 404 / 404 ○ | ○ | 通る | 合う 1 / 1 ↔ 過剰でない |
-| 241 | `Electrical.Machines.Examples.SynchronousMachines.SMPM_ResistiveBraking` | OK | 739 / 739 | 739 / 739 ○ | ○ | 通る | 不足 6 / 34（冗長 0・決まらない 28） ↔ 過剰でない |
-| 242 | `Electrical.Machines.Examples.SynchronousMachines.SMPM_VoltageSource` | OK | 775 / 775 | 775 / 775 ○ | ○ | 通る | 不足 7 / 8（冗長 0・決まらない 1） ↔ 過剰でない |
-| 243 | `Electrical.Machines.Examples.SynchronousMachines.SMR_DOL` | OK | 606 / 606 | 606 / 606 ○ | ○ | 通る | 不足 6 / 18（冗長 0・決まらない 12） ↔ 過剰でない |
+| 241 | `Electrical.Machines.Examples.SynchronousMachines.SMPM_ResistiveBraking` | OK | 739 / 739 | 739 / 739 ○ | ○ | 通る | 合う 6 / 6 ↔ 過剰でない |
+| 242 | `Electrical.Machines.Examples.SynchronousMachines.SMPM_VoltageSource` | OK | 775 / 775 | 775 / 775 ○ | ○ | 通る | 合う 7 / 7 ↔ 過剰でない |
+| 243 | `Electrical.Machines.Examples.SynchronousMachines.SMR_DOL` | OK | 606 / 606 | 606 / 606 ○ | ○ | 通る | 合う 6 / 6 ↔ 過剰でない |
 | 244 | `Electrical.Machines.Examples.SynchronousMachines.SMR_Inverter` | OK | 553 / 553 | 553 / 553 ○ | ○ | 通る | 合う 7 / 7 ↔ 過剰でない |
 | 245 | `Electrical.Machines.Examples.Transformers.AsymmetricalLoad` | OK | 474 / 474 | 474 / 474 ○ | ○ | 通る | 合う 1 / 1 ↔ 過剰でない |
-| 246 | `Electrical.Machines.Examples.Transformers.IMC_Transformer` | OK | 934 / 934 | 934 / 934 ○ | ○ | 通る | 不足 9 / 30（冗長 0・決まらない 21） ↔ 過剰でない |
-| 247 | `Electrical.Machines.Examples.Transformers.Rectifier12pulse` | OK | 1046 / 1046 | 1046 / 1046 ○ | ○ | 通る | 不足 7 / 19（冗長 0・決まらない 12） ↔ 過剰でない |
-| 248 | `Electrical.Machines.Examples.Transformers.Rectifier6pulse` | OK | 579 / 579 | 579 / 579 ○ | ○ | 通る | 不足 4 / 10（冗長 0・決まらない 6） ↔ 過剰でない |
+| 246 | `Electrical.Machines.Examples.Transformers.IMC_Transformer` | OK | 934 / 934 | 934 / 934 ○ | ○ | 通る | 合う 9 / 9 ↔ 過剰でない |
+| 247 | `Electrical.Machines.Examples.Transformers.Rectifier12pulse` | OK | 1046 / 1046 | 1046 / 1046 ○ | ○ | 通る | 合う 7 / 7 ↔ 過剰でない |
+| 248 | `Electrical.Machines.Examples.Transformers.Rectifier6pulse` | OK | 579 / 579 | 579 / 579 ○ | ○ | 通る | 合う 4 / 4 ↔ 過剰でない |
 | 249 | `Electrical.Machines.Examples.Transformers.TransformerTestbench` | OK | 772 / 772 | 772 / 772 ○ | ○ | 通る | 合う 2 / 2 ↔ 過剰でない |
 | 250 | `Electrical.Polyphase.Examples.PolyphaseRectifier` | GM-U0001 ED019 | - | 1254 / 1254 ○ | - | 通る | - |
-| 251 | `Electrical.Polyphase.Examples.Rectifier` | OK | 531 / 531 | 531 / 531 ○ | ○ | 通る | 不足 4 / 10（冗長 0・決まらない 6） ↔ 過剰でない |
+| 251 | `Electrical.Polyphase.Examples.Rectifier` | OK | 531 / 531 | 531 / 531 ○ | ○ | 通る | 合う 4 / 4 ↔ 過剰でない |
 | 252 | `Electrical.Polyphase.Examples.TestSensors` | OK | 578 / 578 | 578 / 578 ○ | ○ | 通る | 合う 2 / 2 ↔ 過剰でない |
 | 253 | `Electrical.Polyphase.Examples.TransformerYD` | OK | 285 / 285 | 285 / 285 ○ | ○ | 通る | 合う 3 / 3 ↔ 過剰でない |
 | 254 | `Electrical.Polyphase.Examples.TransformerYY` | OK | 281 / 281 | 281 / 281 ○ | ○ | 通る | 合う 2 / 2 ↔ 過剰でない |
-| 255 | `Electrical.PowerConverters.Examples.ACAC.Dimmer_R` | OK | 197 / 197 | 197 / 197 ○ | ○ | 通る | 不足 30 / 42（冗長 0・決まらない 12） ↔ 過剰でない |
-| 256 | `Electrical.PowerConverters.Examples.ACAC.Dimmer_RL` | OK | 203 / 203 | 203 / 203 ○ | ○ | 通る | 不足 31 / 43（冗長 0・決まらない 12） ↔ 過剰でない |
-| 257 | `Electrical.PowerConverters.Examples.ACAC.ExampleTemplates.Dimmer`（partial） | OK | 188 / 188 | 188 / 188 ○ | ○ | 失敗 | 不足 30 / 42（冗長 0・決まらない 12） ↔ （失敗） |
+| 255 | `Electrical.PowerConverters.Examples.ACAC.Dimmer_R` | OK | 197 / 197 | 197 / 197 ○ | ○ | 通る | 合う 30 / 30 ↔ 過剰でない |
+| 256 | `Electrical.PowerConverters.Examples.ACAC.Dimmer_RL` | OK | 203 / 203 | 203 / 203 ○ | ○ | 通る | 合う 31 / 31 ↔ 過剰でない |
+| 257 | `Electrical.PowerConverters.Examples.ACAC.ExampleTemplates.Dimmer`（partial） | OK | 188 / 188 | 188 / 188 ○ | ○ | 失敗 | 合う 30 / 30 ↔ （失敗） |
 | 258 | `Electrical.PowerConverters.Examples.ACAC.SoftStarter` | GM-U0003 ED001 | - | 1192 / 1192 ○ | - | 通る | - |
-| 259 | `Electrical.PowerConverters.Examples.ACDC.ExampleTemplates.Thyristor1Pulse`（partial） | OK | 93 / 93 | 93 / 93 ○ | ○ | 失敗 | 不足 12 / 23（冗長 0・決まらない 11） ↔ （失敗） |
-| 260 | `Electrical.PowerConverters.Examples.ACDC.ExampleTemplates.ThyristorBridge2Pulse`（partial） | OK | 154 / 154 | 154 / 154 ○ | ○ | 失敗 | 不足 15 / 41（冗長 0・決まらない 26） ↔ （失敗） |
-| 261 | `Electrical.PowerConverters.Examples.ACDC.ExampleTemplates.ThyristorBridge2mPulse`（partial） | OK | 443 / 443 | 443 / 443 ○ | ○ | 失敗 | 不足 27 / 113（冗長 0・決まらない 86） ↔ （失敗） |
-| 262 | `Electrical.PowerConverters.Examples.ACDC.ExampleTemplates.ThyristorCenterTap2Pulse`（partial） | OK | 137 / 137 | 137 / 137 ○ | ○ | 失敗 | 不足 13 / 37（冗長 0・決まらない 24） ↔ （失敗） |
-| 263 | `Electrical.PowerConverters.Examples.ACDC.ExampleTemplates.ThyristorCenterTap2mPulse`（partial） | OK | 441 / 441 | 441 / 441 ○ | ○ | 失敗 | 不足 21 / 101（冗長 0・決まらない 80） ↔ （失敗） |
-| 264 | `Electrical.PowerConverters.Examples.ACDC.ExampleTemplates.ThyristorCenterTapmPulse`（partial） | OK | 325 / 325 | 325 / 325 ○ | ○ | 失敗 | 不足 18 / 77（冗長 0・決まらない 59） ↔ （失敗） |
-| 265 | `Electrical.PowerConverters.Examples.ACDC.Rectifier1Pulse.Thyristor1Pulse_R` | OK | 102 / 102 | 102 / 102 ○ | ○ | 通る | 不足 12 / 23（冗長 0・決まらない 11） ↔ 過剰でない |
-| 266 | `Electrical.PowerConverters.Examples.ACDC.Rectifier1Pulse.Thyristor1Pulse_R_Characteristic` | OK | 104 / 104 | 104 / 104 ○ | ○ | 通る | 不足 12 / 23（冗長 0・決まらない 11） ↔ 過剰でない |
-| 267 | `Electrical.PowerConverters.Examples.ACDC.RectifierBridge2Pulse.DiodeBridge2Pulse` | OK | 103 / 103 | 103 / 103 ○ | ○ | 通る | 不足 9 / 13（冗長 0・決まらない 4） ↔ 過剰でない |
-| 268 | `Electrical.PowerConverters.Examples.ACDC.RectifierBridge2Pulse.HalfControlledBridge2Pulse` | OK | 161 / 161 | 161 / 161 ○ | ○ | 通る | 不足 13 / 39（冗長 0・決まらない 26） ↔ 過剰でない |
-| 269 | `Electrical.PowerConverters.Examples.ACDC.RectifierBridge2Pulse.ThyristorBridge2Pulse_DC_Drive` | OK | 373 / 373 | 373 / 373 ○ | ○ | 通る | 不足 22 / 48（冗長 0・決まらない 26） ↔ 過剰でない |
-| 270 | `Electrical.PowerConverters.Examples.ACDC.RectifierBridge2Pulse.ThyristorBridge2Pulse_R` | OK | 163 / 163 | 163 / 163 ○ | ○ | 通る | 不足 15 / 41（冗長 0・決まらない 26） ↔ 過剰でない |
-| 271 | `Electrical.PowerConverters.Examples.ACDC.RectifierBridge2Pulse.ThyristorBridge2Pulse_RL` | OK | 169 / 169 | 169 / 169 ○ | ○ | 通る | 不足 16 / 42（冗長 0・決まらない 26） ↔ 過剰でない |
-| 272 | `Electrical.PowerConverters.Examples.ACDC.RectifierBridge2Pulse.ThyristorBridge2Pulse_RLV` | OK | 175 / 175 | 175 / 175 ○ | ○ | 通る | 不足 16 / 42（冗長 0・決まらない 26） ↔ 過剰でない |
-| 273 | `Electrical.PowerConverters.Examples.ACDC.RectifierBridge2Pulse.ThyristorBridge2Pulse_RLV_Characteristic` | OK | 177 / 177 | 177 / 177 ○ | ○ | 通る | 不足 16 / 42（冗長 0・決まらない 26） ↔ 過剰でない |
-| 274 | `Electrical.PowerConverters.Examples.ACDC.RectifierBridge2mPulse.DiodeBridge2mPulse` | OK | 251 / 251 | 251 / 251 ○ | ○ | 通る | 不足 9 / 15（冗長 0・決まらない 6） ↔ 過剰でない |
-| 275 | `Electrical.PowerConverters.Examples.ACDC.RectifierBridge2mPulse.HalfControlledBridge2mPulse` | OK | 425 / 425 | 425 / 425 ○ | ○ | 通る | 不足 21 / 86（冗長 0・決まらない 65） ↔ 過剰でない |
-| 276 | `Electrical.PowerConverters.Examples.ACDC.RectifierBridge2mPulse.ThyristorBridge2mPulse_DC_Drive` | OK | 748 / 748 | 748 / 748 ○ | ○ | 通る | 不足 41 / 127（冗長 0・決まらない 86） ↔ 過剰でない |
-| 277 | `Electrical.PowerConverters.Examples.ACDC.RectifierBridge2mPulse.ThyristorBridge2mPulse_R` | OK | 452 / 452 | 452 / 452 ○ | ○ | 通る | 不足 27 / 113（冗長 0・決まらない 86） ↔ 過剰でない |
-| 278 | `Electrical.PowerConverters.Examples.ACDC.RectifierBridge2mPulse.ThyristorBridge2mPulse_RL` | OK | 458 / 458 | 458 / 458 ○ | ○ | 通る | 不足 28 / 114（冗長 0・決まらない 86） ↔ 過剰でない |
-| 279 | `Electrical.PowerConverters.Examples.ACDC.RectifierBridge2mPulse.ThyristorBridge2mPulse_RLV` | OK | 464 / 464 | 464 / 464 ○ | ○ | 通る | 不足 28 / 114（冗長 0・決まらない 86） ↔ 過剰でない |
-| 280 | `Electrical.PowerConverters.Examples.ACDC.RectifierBridge2mPulse.ThyristorBridge2mPulse_RLV_Characteristic` | OK | 466 / 466 | 466 / 466 ○ | ○ | 通る | 不足 28 / 114（冗長 0・決まらない 86） ↔ 過剰でない |
-| 281 | `Electrical.PowerConverters.Examples.ACDC.RectifierCenterTap2Pulse.DiodeCenterTap2Pulse` | OK | 88 / 88 | 88 / 88 ○ | ○ | 通る | 不足 9 / 11（冗長 0・決まらない 2） ↔ 過剰でない |
-| 282 | `Electrical.PowerConverters.Examples.ACDC.RectifierCenterTap2Pulse.ThyristorCenterTap2Pulse_R` | OK | 146 / 146 | 146 / 146 ○ | ○ | 通る | 不足 13 / 37（冗長 0・決まらない 24） ↔ 過剰でない |
-| 283 | `Electrical.PowerConverters.Examples.ACDC.RectifierCenterTap2Pulse.ThyristorCenterTap2Pulse_RL` | OK | 152 / 152 | 152 / 152 ○ | ○ | 通る | 不足 14 / 38（冗長 0・決まらない 24） ↔ 過剰でない |
-| 284 | `Electrical.PowerConverters.Examples.ACDC.RectifierCenterTap2Pulse.ThyristorCenterTap2Pulse_RLV` | OK | 158 / 158 | 158 / 158 ○ | ○ | 通る | 不足 14 / 38（冗長 0・決まらない 24） ↔ 過剰でない |
-| 285 | `Electrical.PowerConverters.Examples.ACDC.RectifierCenterTap2Pulse.ThyristorCenterTap2Pulse_RLV_Characteristic` | OK | 160 / 160 | 160 / 160 ○ | ○ | 通る | 不足 14 / 38（冗長 0・決まらない 24） ↔ 過剰でない |
-| 286 | `Electrical.PowerConverters.Examples.ACDC.RectifierCenterTap2mPulse.DiodeCenterTap2mPulse` | OK | 267 / 267 | 267 / 267 ○ | ○ | 通る | 不足 9 / 15（冗長 0・決まらない 6） ↔ 過剰でない |
-| 287 | `Electrical.PowerConverters.Examples.ACDC.RectifierCenterTap2mPulse.ThyristorCenterTap2mPulse_R` | OK | 450 / 450 | 450 / 450 ○ | ○ | 通る | 不足 21 / 101（冗長 0・決まらない 80） ↔ 過剰でない |
-| 288 | `Electrical.PowerConverters.Examples.ACDC.RectifierCenterTap2mPulse.ThyristorCenterTap2mPulse_RL` | OK | 456 / 456 | 456 / 456 ○ | ○ | 通る | 不足 22 / 102（冗長 0・決まらない 80） ↔ 過剰でない |
-| 289 | `Electrical.PowerConverters.Examples.ACDC.RectifierCenterTap2mPulse.ThyristorCenterTap2mPulse_RLV` | OK | 462 / 462 | 462 / 462 ○ | ○ | 通る | 不足 22 / 102（冗長 0・決まらない 80） ↔ 過剰でない |
-| 290 | `Electrical.PowerConverters.Examples.ACDC.RectifierCenterTap2mPulse.ThyristorCenterTap2mPulse_RLV_Characteristic` | OK | 464 / 464 | 464 / 464 ○ | ○ | 通る | 不足 22 / 102（冗長 0・決まらない 80） ↔ 過剰でない |
-| 291 | `Electrical.PowerConverters.Examples.ACDC.RectifierCenterTapmPulse.DiodeCenterTapmPulse` | OK | 166 / 166 | 166 / 166 ○ | ○ | 通る | 不足 9 / 12（冗長 0・決まらない 3） ↔ 過剰でない |
-| 292 | `Electrical.PowerConverters.Examples.ACDC.RectifierCenterTapmPulse.ThyristorCenterTapmPulse_R` | OK | 334 / 334 | 334 / 334 ○ | ○ | 通る | 不足 18 / 77（冗長 0・決まらない 59） ↔ 過剰でない |
-| 293 | `Electrical.PowerConverters.Examples.ACDC.RectifierCenterTapmPulse.ThyristorCenterTapmPulse_RL` | OK | 340 / 340 | 340 / 340 ○ | ○ | 通る | 不足 19 / 78（冗長 0・決まらない 59） ↔ 過剰でない |
-| 294 | `Electrical.PowerConverters.Examples.ACDC.RectifierCenterTapmPulse.ThyristorCenterTapmPulse_RLV` | OK | 346 / 346 | 346 / 346 ○ | ○ | 通る | 不足 19 / 78（冗長 0・決まらない 59） ↔ 過剰でない |
-| 295 | `Electrical.PowerConverters.Examples.ACDC.RectifierCenterTapmPulse.ThyristorCenterTapmPulse_RLV_Characteristic` | OK | 348 / 348 | 348 / 348 ○ | ○ | 通る | 不足 19 / 78（冗長 0・決まらない 59） ↔ 過剰でない |
-| 296 | `Electrical.PowerConverters.Examples.DCAC.ExampleTemplates.SinglePhaseTwoLevel`（partial） | OK | 162 / 162 | 162 / 162 ○ | ○ | 失敗 | 不足 16 / 40（冗長 0・決まらない 24） ↔ （失敗） |
-| 297 | `Electrical.PowerConverters.Examples.DCAC.PolyphaseTwoLevel.PolyphaseTwoLevel_R` | OK | 614 / 614 | 614 / 614 ○ | ○ | 通る | 不足 48 / 122（冗長 0・決まらない 74） ↔ 過剰でない |
-| 298 | `Electrical.PowerConverters.Examples.DCAC.PolyphaseTwoLevel.PolyphaseTwoLevel_RL` | OK | 1268 / 1268 | 1268 / 1268 ○ | ○ | 通る | 不足 101 / 247（冗長 0・決まらない 146） ↔ 過剰でない |
-| 299 | `Electrical.PowerConverters.Examples.DCAC.PolyphaseTwoLevel.ThreePhaseTwoLevel_PWM` | OK | 402 / 402 | 402 / 402 ○ | ○ | 通る | 不足 30 / 100（冗長 0・決まらない 70） ↔ 過剰でない |
-| 300 | `Electrical.PowerConverters.Examples.DCAC.SinglePhaseTwoLevel.SinglePhaseTwoLevel_R` | OK | 171 / 171 | 171 / 171 ○ | ○ | 通る | 不足 16 / 40（冗長 0・決まらない 24） ↔ 過剰でない |
-| 301 | `Electrical.PowerConverters.Examples.DCAC.SinglePhaseTwoLevel.SinglePhaseTwoLevel_RL` | OK | 177 / 177 | 177 / 177 ○ | ○ | 通る | 不足 17 / 41（冗長 0・決まらない 24） ↔ 過剰でない |
-| 302 | `Electrical.PowerConverters.Examples.DCDC.ChopperBuckBoost.ChopperBuckBoost_DutyCycle` | OK | 174 / 174 | 174 / 174 ○ | ○ | 通る | 不足 19 / 43（冗長 0・決まらない 24） ↔ 過剰でない |
-| 303 | `Electrical.PowerConverters.Examples.DCDC.ChopperStepDown.ChopperStepDown_R` | OK | 116 / 116 | 116 / 116 ○ | ○ | 通る | 不足 12 / 29（冗長 0・決まらない 17） ↔ 過剰でない |
-| 304 | `Electrical.PowerConverters.Examples.DCDC.ChopperStepDown.ChopperStepDown_RL` | OK | 122 / 122 | 122 / 122 ○ | ○ | 通る | 不足 13 / 30（冗長 0・決まらない 17） ↔ 過剰でない |
-| 305 | `Electrical.PowerConverters.Examples.DCDC.ChopperStepUp.ChopperStepUp_R` | OK | 116 / 116 | 116 / 116 ○ | ○ | 通る | 不足 12 / 29（冗長 0・決まらない 17） ↔ 過剰でない |
-| 306 | `Electrical.PowerConverters.Examples.DCDC.ExampleTemplates.ChopperBuckBoost`（partial） | OK | 173 / 173 | 173 / 173 ○ | ○ | 失敗 | 不足 19 / 43（冗長 0・決まらない 24） ↔ （失敗） |
-| 307 | `Electrical.PowerConverters.Examples.DCDC.ExampleTemplates.ChopperStepDown`（partial） | OK | 102 / 102 | 102 / 102 ○ | ○ | 失敗 | 不足 12 / 29（冗長 0・決まらない 17） ↔ （失敗） |
-| 308 | `Electrical.PowerConverters.Examples.DCDC.ExampleTemplates.ChopperStepUp`（partial） | OK | 102 / 102 | 102 / 102 ○ | ○ | 失敗 | 不足 12 / 29（冗長 0・決まらない 17） ↔ （失敗） |
-| 309 | `Electrical.PowerConverters.Examples.DCDC.ExampleTemplates.HBridge`（partial） | OK | 213 / 213 | 213 / 213 ○ | ○ | 失敗 | 不足 10 / 68（冗長 0・決まらない 58） ↔ （失敗） |
-| 310 | `Electrical.PowerConverters.Examples.DCDC.HBridge.HBridge_DC_Drive` | OK | 421 / 421 | 421 / 421 ○ | ○ | 通る | 不足 17 / 80（冗長 0・決まらない 63） ↔ 過剰でない |
-| 311 | `Electrical.PowerConverters.Examples.DCDC.HBridge.HBridge_R` | OK | 222 / 222 | 222 / 222 ○ | ○ | 通る | 不足 10 / 68（冗長 0・決まらない 58） ↔ 過剰でない |
-| 312 | `Electrical.PowerConverters.Examples.DCDC.HBridge.HBridge_RL` | OK | 228 / 228 | 228 / 228 ○ | ○ | 通る | 不足 11 / 69（冗長 0・決まらない 58） ↔ 過剰でない |
-| 313 | `Electrical.PowerConverters.Examples.DCDC.HBridge.HBridge_TrianglePWM_RL` | OK | 233 / 233 | 233 / 233 ○ | ○ | 通る | 不足 13 / 72（冗長 0・決まらない 59） ↔ 過剰でない |
+| 259 | `Electrical.PowerConverters.Examples.ACDC.ExampleTemplates.Thyristor1Pulse`（partial） | OK | 93 / 93 | 93 / 93 ○ | ○ | 失敗 | 合う 12 / 12 ↔ （失敗） |
+| 260 | `Electrical.PowerConverters.Examples.ACDC.ExampleTemplates.ThyristorBridge2Pulse`（partial） | OK | 154 / 154 | 154 / 154 ○ | ○ | 失敗 | 合う 15 / 15 ↔ （失敗） |
+| 261 | `Electrical.PowerConverters.Examples.ACDC.ExampleTemplates.ThyristorBridge2mPulse`（partial） | OK | 443 / 443 | 443 / 443 ○ | ○ | 失敗 | 合う 27 / 27 ↔ （失敗） |
+| 262 | `Electrical.PowerConverters.Examples.ACDC.ExampleTemplates.ThyristorCenterTap2Pulse`（partial） | OK | 137 / 137 | 137 / 137 ○ | ○ | 失敗 | 合う 13 / 13 ↔ （失敗） |
+| 263 | `Electrical.PowerConverters.Examples.ACDC.ExampleTemplates.ThyristorCenterTap2mPulse`（partial） | OK | 441 / 441 | 441 / 441 ○ | ○ | 失敗 | 合う 21 / 21 ↔ （失敗） |
+| 264 | `Electrical.PowerConverters.Examples.ACDC.ExampleTemplates.ThyristorCenterTapmPulse`（partial） | OK | 325 / 325 | 325 / 325 ○ | ○ | 失敗 | 合う 18 / 18 ↔ （失敗） |
+| 265 | `Electrical.PowerConverters.Examples.ACDC.Rectifier1Pulse.Thyristor1Pulse_R` | OK | 102 / 102 | 102 / 102 ○ | ○ | 通る | 合う 12 / 12 ↔ 過剰でない |
+| 266 | `Electrical.PowerConverters.Examples.ACDC.Rectifier1Pulse.Thyristor1Pulse_R_Characteristic` | OK | 104 / 104 | 104 / 104 ○ | ○ | 通る | 合う 12 / 12 ↔ 過剰でない |
+| 267 | `Electrical.PowerConverters.Examples.ACDC.RectifierBridge2Pulse.DiodeBridge2Pulse` | OK | 103 / 103 | 103 / 103 ○ | ○ | 通る | 合う 9 / 9 ↔ 過剰でない |
+| 268 | `Electrical.PowerConverters.Examples.ACDC.RectifierBridge2Pulse.HalfControlledBridge2Pulse` | OK | 161 / 161 | 161 / 161 ○ | ○ | 通る | 合う 13 / 13 ↔ 過剰でない |
+| 269 | `Electrical.PowerConverters.Examples.ACDC.RectifierBridge2Pulse.ThyristorBridge2Pulse_DC_Drive` | OK | 373 / 373 | 373 / 373 ○ | ○ | 通る | 合う 22 / 22 ↔ 過剰でない |
+| 270 | `Electrical.PowerConverters.Examples.ACDC.RectifierBridge2Pulse.ThyristorBridge2Pulse_R` | OK | 163 / 163 | 163 / 163 ○ | ○ | 通る | 合う 15 / 15 ↔ 過剰でない |
+| 271 | `Electrical.PowerConverters.Examples.ACDC.RectifierBridge2Pulse.ThyristorBridge2Pulse_RL` | OK | 169 / 169 | 169 / 169 ○ | ○ | 通る | 合う 16 / 16 ↔ 過剰でない |
+| 272 | `Electrical.PowerConverters.Examples.ACDC.RectifierBridge2Pulse.ThyristorBridge2Pulse_RLV` | OK | 175 / 175 | 175 / 175 ○ | ○ | 通る | 合う 16 / 16 ↔ 過剰でない |
+| 273 | `Electrical.PowerConverters.Examples.ACDC.RectifierBridge2Pulse.ThyristorBridge2Pulse_RLV_Characteristic` | OK | 177 / 177 | 177 / 177 ○ | ○ | 通る | 合う 16 / 16 ↔ 過剰でない |
+| 274 | `Electrical.PowerConverters.Examples.ACDC.RectifierBridge2mPulse.DiodeBridge2mPulse` | OK | 251 / 251 | 251 / 251 ○ | ○ | 通る | 合う 9 / 9 ↔ 過剰でない |
+| 275 | `Electrical.PowerConverters.Examples.ACDC.RectifierBridge2mPulse.HalfControlledBridge2mPulse` | OK | 425 / 425 | 425 / 425 ○ | ○ | 通る | 合う 21 / 21 ↔ 過剰でない |
+| 276 | `Electrical.PowerConverters.Examples.ACDC.RectifierBridge2mPulse.ThyristorBridge2mPulse_DC_Drive` | OK | 748 / 748 | 748 / 748 ○ | ○ | 通る | 合う 41 / 41 ↔ 過剰でない |
+| 277 | `Electrical.PowerConverters.Examples.ACDC.RectifierBridge2mPulse.ThyristorBridge2mPulse_R` | OK | 452 / 452 | 452 / 452 ○ | ○ | 通る | 合う 27 / 27 ↔ 過剰でない |
+| 278 | `Electrical.PowerConverters.Examples.ACDC.RectifierBridge2mPulse.ThyristorBridge2mPulse_RL` | OK | 458 / 458 | 458 / 458 ○ | ○ | 通る | 合う 28 / 28 ↔ 過剰でない |
+| 279 | `Electrical.PowerConverters.Examples.ACDC.RectifierBridge2mPulse.ThyristorBridge2mPulse_RLV` | OK | 464 / 464 | 464 / 464 ○ | ○ | 通る | 合う 28 / 28 ↔ 過剰でない |
+| 280 | `Electrical.PowerConverters.Examples.ACDC.RectifierBridge2mPulse.ThyristorBridge2mPulse_RLV_Characteristic` | OK | 466 / 466 | 466 / 466 ○ | ○ | 通る | 合う 28 / 28 ↔ 過剰でない |
+| 281 | `Electrical.PowerConverters.Examples.ACDC.RectifierCenterTap2Pulse.DiodeCenterTap2Pulse` | OK | 88 / 88 | 88 / 88 ○ | ○ | 通る | 合う 9 / 9 ↔ 過剰でない |
+| 282 | `Electrical.PowerConverters.Examples.ACDC.RectifierCenterTap2Pulse.ThyristorCenterTap2Pulse_R` | OK | 146 / 146 | 146 / 146 ○ | ○ | 通る | 合う 13 / 13 ↔ 過剰でない |
+| 283 | `Electrical.PowerConverters.Examples.ACDC.RectifierCenterTap2Pulse.ThyristorCenterTap2Pulse_RL` | OK | 152 / 152 | 152 / 152 ○ | ○ | 通る | 合う 14 / 14 ↔ 過剰でない |
+| 284 | `Electrical.PowerConverters.Examples.ACDC.RectifierCenterTap2Pulse.ThyristorCenterTap2Pulse_RLV` | OK | 158 / 158 | 158 / 158 ○ | ○ | 通る | 合う 14 / 14 ↔ 過剰でない |
+| 285 | `Electrical.PowerConverters.Examples.ACDC.RectifierCenterTap2Pulse.ThyristorCenterTap2Pulse_RLV_Characteristic` | OK | 160 / 160 | 160 / 160 ○ | ○ | 通る | 合う 14 / 14 ↔ 過剰でない |
+| 286 | `Electrical.PowerConverters.Examples.ACDC.RectifierCenterTap2mPulse.DiodeCenterTap2mPulse` | OK | 267 / 267 | 267 / 267 ○ | ○ | 通る | 合う 9 / 9 ↔ 過剰でない |
+| 287 | `Electrical.PowerConverters.Examples.ACDC.RectifierCenterTap2mPulse.ThyristorCenterTap2mPulse_R` | OK | 450 / 450 | 450 / 450 ○ | ○ | 通る | 合う 21 / 21 ↔ 過剰でない |
+| 288 | `Electrical.PowerConverters.Examples.ACDC.RectifierCenterTap2mPulse.ThyristorCenterTap2mPulse_RL` | OK | 456 / 456 | 456 / 456 ○ | ○ | 通る | 合う 22 / 22 ↔ 過剰でない |
+| 289 | `Electrical.PowerConverters.Examples.ACDC.RectifierCenterTap2mPulse.ThyristorCenterTap2mPulse_RLV` | OK | 462 / 462 | 462 / 462 ○ | ○ | 通る | 合う 22 / 22 ↔ 過剰でない |
+| 290 | `Electrical.PowerConverters.Examples.ACDC.RectifierCenterTap2mPulse.ThyristorCenterTap2mPulse_RLV_Characteristic` | OK | 464 / 464 | 464 / 464 ○ | ○ | 通る | 合う 22 / 22 ↔ 過剰でない |
+| 291 | `Electrical.PowerConverters.Examples.ACDC.RectifierCenterTapmPulse.DiodeCenterTapmPulse` | OK | 166 / 166 | 166 / 166 ○ | ○ | 通る | 合う 9 / 9 ↔ 過剰でない |
+| 292 | `Electrical.PowerConverters.Examples.ACDC.RectifierCenterTapmPulse.ThyristorCenterTapmPulse_R` | OK | 334 / 334 | 334 / 334 ○ | ○ | 通る | 合う 18 / 18 ↔ 過剰でない |
+| 293 | `Electrical.PowerConverters.Examples.ACDC.RectifierCenterTapmPulse.ThyristorCenterTapmPulse_RL` | OK | 340 / 340 | 340 / 340 ○ | ○ | 通る | 合う 19 / 19 ↔ 過剰でない |
+| 294 | `Electrical.PowerConverters.Examples.ACDC.RectifierCenterTapmPulse.ThyristorCenterTapmPulse_RLV` | OK | 346 / 346 | 346 / 346 ○ | ○ | 通る | 合う 19 / 19 ↔ 過剰でない |
+| 295 | `Electrical.PowerConverters.Examples.ACDC.RectifierCenterTapmPulse.ThyristorCenterTapmPulse_RLV_Characteristic` | OK | 348 / 348 | 348 / 348 ○ | ○ | 通る | 合う 19 / 19 ↔ 過剰でない |
+| 296 | `Electrical.PowerConverters.Examples.DCAC.ExampleTemplates.SinglePhaseTwoLevel`（partial） | OK | 162 / 162 | 162 / 162 ○ | ○ | 失敗 | 合う 16 / 16 ↔ （失敗） |
+| 297 | `Electrical.PowerConverters.Examples.DCAC.PolyphaseTwoLevel.PolyphaseTwoLevel_R` | OK | 614 / 614 | 614 / 614 ○ | ○ | 通る | 合う 48 / 48 ↔ 過剰でない |
+| 298 | `Electrical.PowerConverters.Examples.DCAC.PolyphaseTwoLevel.PolyphaseTwoLevel_RL` | OK | 1268 / 1268 | 1268 / 1268 ○ | ○ | 通る | 合う 101 / 101 ↔ 過剰でない |
+| 299 | `Electrical.PowerConverters.Examples.DCAC.PolyphaseTwoLevel.ThreePhaseTwoLevel_PWM` | OK | 402 / 402 | 402 / 402 ○ | ○ | 通る | 合う 30 / 30 ↔ 過剰でない |
+| 300 | `Electrical.PowerConverters.Examples.DCAC.SinglePhaseTwoLevel.SinglePhaseTwoLevel_R` | OK | 171 / 171 | 171 / 171 ○ | ○ | 通る | 合う 16 / 16 ↔ 過剰でない |
+| 301 | `Electrical.PowerConverters.Examples.DCAC.SinglePhaseTwoLevel.SinglePhaseTwoLevel_RL` | OK | 177 / 177 | 177 / 177 ○ | ○ | 通る | 合う 17 / 17 ↔ 過剰でない |
+| 302 | `Electrical.PowerConverters.Examples.DCDC.ChopperBuckBoost.ChopperBuckBoost_DutyCycle` | OK | 174 / 174 | 174 / 174 ○ | ○ | 通る | 合う 19 / 19 ↔ 過剰でない |
+| 303 | `Electrical.PowerConverters.Examples.DCDC.ChopperStepDown.ChopperStepDown_R` | OK | 116 / 116 | 116 / 116 ○ | ○ | 通る | 合う 12 / 12 ↔ 過剰でない |
+| 304 | `Electrical.PowerConverters.Examples.DCDC.ChopperStepDown.ChopperStepDown_RL` | OK | 122 / 122 | 122 / 122 ○ | ○ | 通る | 合う 13 / 13 ↔ 過剰でない |
+| 305 | `Electrical.PowerConverters.Examples.DCDC.ChopperStepUp.ChopperStepUp_R` | OK | 116 / 116 | 116 / 116 ○ | ○ | 通る | 合う 12 / 12 ↔ 過剰でない |
+| 306 | `Electrical.PowerConverters.Examples.DCDC.ExampleTemplates.ChopperBuckBoost`（partial） | OK | 173 / 173 | 173 / 173 ○ | ○ | 失敗 | 合う 19 / 19 ↔ （失敗） |
+| 307 | `Electrical.PowerConverters.Examples.DCDC.ExampleTemplates.ChopperStepDown`（partial） | OK | 102 / 102 | 102 / 102 ○ | ○ | 失敗 | 合う 12 / 12 ↔ （失敗） |
+| 308 | `Electrical.PowerConverters.Examples.DCDC.ExampleTemplates.ChopperStepUp`（partial） | OK | 102 / 102 | 102 / 102 ○ | ○ | 失敗 | 合う 12 / 12 ↔ （失敗） |
+| 309 | `Electrical.PowerConverters.Examples.DCDC.ExampleTemplates.HBridge`（partial） | OK | 213 / 213 | 213 / 213 ○ | ○ | 失敗 | 合う 10 / 10 ↔ （失敗） |
+| 310 | `Electrical.PowerConverters.Examples.DCDC.HBridge.HBridge_DC_Drive` | OK | 421 / 421 | 421 / 421 ○ | ○ | 通る | 不足 17 / 19（冗長 0・決まらない 2） ↔ 過剰でない |
+| 311 | `Electrical.PowerConverters.Examples.DCDC.HBridge.HBridge_R` | OK | 222 / 222 | 222 / 222 ○ | ○ | 通る | 合う 10 / 10 ↔ 過剰でない |
+| 312 | `Electrical.PowerConverters.Examples.DCDC.HBridge.HBridge_RL` | OK | 228 / 228 | 228 / 228 ○ | ○ | 通る | 合う 11 / 11 ↔ 過剰でない |
+| 313 | `Electrical.PowerConverters.Examples.DCDC.HBridge.HBridge_TrianglePWM_RL` | OK | 233 / 233 | 233 / 233 ○ | ○ | 通る | 合う 13 / 13 ↔ 過剰でない |
 | 314 | `Electrical.QuasiStatic.Machines.Examples.TransformerTestbench` | GM-U0002 ED008 | - | 4885 / 4885 ○ | - | 通る | - |
 | 315 | `Electrical.QuasiStatic.Polyphase.Examples.BalancingDelta` | GM-U0002 ED008 | - | 1104 / 1104 ○ | - | 通る | - |
 | 316 | `Electrical.QuasiStatic.Polyphase.Examples.BalancingStar` | GM-U0002 ED008 | - | 1224 / 1224 ○ | - | 通る | - |
@@ -597,27 +652,27 @@ globe check の列は msl-funnel の判定（OK、NG と止まった段階、GM-
 | 336 | `Electrical.Spice3.Examples.Spice3BenchmarkFourBitBinaryAdder` | GM-U0001 ED019 | - | 10307 / 10307 ○ | - | 通る | - |
 | 337 | `Electrical.Spice3.Examples.Spice3BenchmarkMosfetCharacterization` | GM-U0001 ED019 | - | 64 / 64 ○ | - | 通る | - |
 | 338 | `Electrical.Spice3.Examples.Spice3BenchmarkRtlInverter` | GM-U0001 ED019 | - | 76 / 76 ○ | - | 通る | - |
-| 339 | `Fluid.Examples.AST_BatchPlant.BatchPlant_StandardWater` | OK | 2389 / 2389 | 2389 / 2389 ○ | ○ | 通る | 不足 237 / 672（冗長 0・決まらない 435） ↔ 過剰でない |
-| 340 | `Fluid.Examples.AST_BatchPlant.Test.OneTank` | OK | 126 / 126 | 126 / 126 ○ | ○ | 通る | 不足 6 / 11（冗長 0・決まらない 5） ↔ 過剰でない |
-| 341 | `Fluid.Examples.AST_BatchPlant.Test.TankWithEmptyingPipe1` | OK | 145 / 145 | 145 / 145 ○ | ○ | 通る | 不足 6 / 10（冗長 0・決まらない 4） ↔ 過剰でない |
+| 339 | `Fluid.Examples.AST_BatchPlant.BatchPlant_StandardWater` | OK | 2389 / 2389 | 2389 / 2389 ○ | ○ | 通る | 不足 219 / 248（冗長 0・決まらない 29） ↔ 過剰でない |
+| 340 | `Fluid.Examples.AST_BatchPlant.Test.OneTank` | OK | 126 / 126 | 126 / 126 ○ | ○ | 通る | 不足 6 / 9（冗長 0・決まらない 3） ↔ 過剰でない |
+| 341 | `Fluid.Examples.AST_BatchPlant.Test.TankWithEmptyingPipe1` | OK | 145 / 145 | 145 / 145 ○ | ○ | 通る | 不足 6 / 8（冗長 0・決まらない 2） ↔ 過剰でない |
 | 342 | `Fluid.Examples.AST_BatchPlant.Test.TankWithEmptyingPipe2` | OK | 164 / 164 | 164 / 164 ○ | ○ | 通る | 不足 8 / 10（冗長 0・決まらない 2） ↔ 過剰でない |
 | 343 | `Fluid.Examples.AST_BatchPlant.Test.TanksWithEmptyingPipe1` | OK | 256 / 256 | 256 / 256 ○ | ○ | 通る | 不足 14 / 18（冗長 0・決まらない 4） ↔ 過剰でない |
-| 344 | `Fluid.Examples.AST_BatchPlant.Test.TanksWithEmptyingPipe2` | OK | 315 / 315 | 315 / 315 ○ | ○ | 通る | 不足 18 / 26（冗長 0・決まらない 8） ↔ 過剰でない |
+| 344 | `Fluid.Examples.AST_BatchPlant.Test.TanksWithEmptyingPipe2` | OK | 315 / 315 | 315 / 315 ○ | ○ | 通る | 不足 18 / 24（冗長 0・決まらない 6） ↔ 過剰でない |
 | 345 | `Fluid.Examples.AST_BatchPlant.Test.TwoTanks` | OK | 120 / 120 | 120 / 120 ○ | ○ | 通る | 不足 6 / 10（冗長 0・決まらない 4） ↔ 過剰でない |
 | 346 | `Fluid.Examples.BranchingDynamicPipes` | GM-U0002 ED008 | - | 2025 / 2025 ○ | - | 通る | - |
-| 347 | `Fluid.Examples.ControlledTankSystem.ControlledTanks` | OK | 527 / 527 | 527 / 527 ○ | ○ | 通る | 不足 111 / 256（冗長 0・決まらない 145） ↔ 過剰でない |
-| 348 | `Fluid.Examples.DrumBoiler.DrumBoiler` | OK | 152 / 152 | 152 / 152 ○ | ○ | 通る | 不足 7 / 20（冗長 0・決まらない 13） ↔ 過剰でない |
-| 349 | `Fluid.Examples.Explanatory.MeasuringTemperature` | OK | 462 / 462 | 462 / 462 ○ | ○ | 通る | 不足 0 / 48（冗長 0・決まらない 48） ↔ 過剰でない |
-| 350 | `Fluid.Examples.Explanatory.MomentumBalanceFittings` | OK | 256 / 256 | 256 / 256 ○ | ○ | 通る | 不足 0 / 24（冗長 0・決まらない 24） ↔ 過剰でない |
+| 347 | `Fluid.Examples.ControlledTankSystem.ControlledTanks` | OK | 527 / 527 | 527 / 527 ○ | ○ | 通る | 不足 103 / 107（冗長 0・決まらない 4） ↔ 過剰でない |
+| 348 | `Fluid.Examples.DrumBoiler.DrumBoiler` | OK | 152 / 152 | 152 / 152 ○ | ○ | 通る | 不足 7 / 9（冗長 0・決まらない 2） ↔ 過剰でない |
+| 349 | `Fluid.Examples.Explanatory.MeasuringTemperature` | OK | 462 / 462 | 462 / 462 ○ | ○ | 通る | 不足 0 / 12（冗長 0・決まらない 12） ↔ 過剰でない |
+| 350 | `Fluid.Examples.Explanatory.MomentumBalanceFittings` | OK | 256 / 256 | 256 / 256 ○ | ○ | 通る | 合う 0 / 0 ↔ 過剰でない |
 | 351 | `Fluid.Examples.HeatExchanger.HeatExchangerSimulation` | GM-U0001 ED019 | - | 3731 / 3731 ○ | - | 通る | - |
-| 352 | `Fluid.Examples.HeatingSystem` | OK | 538 / 538 | 538 / 538 ○ | ○ | 通る | 不足 8 / 21（冗長 0・決まらない 13） ↔ 過剰でない |
+| 352 | `Fluid.Examples.HeatingSystem` | OK | 538 / 538 | 538 / 538 ○ | ○ | 通る | 不足 8 / 17（冗長 0・決まらない 9） ↔ 過剰でない |
 | 353 | `Fluid.Examples.IncompressibleFluidNetwork` | GM-U0001 ED019 | - | 1492 / 1492 ○ | - | 通る | - |
-| 354 | `Fluid.Examples.InverseParameterization` | OK | 279 / 279 | 287 / 287 ○ | ○ | 通る | 不足 1 / 20（冗長 0・決まらない 19） ↔ 過剰でない |
-| 355 | `Fluid.Examples.NonCircularPipes` | OK | 391 / 391 | 391 / 391 ○ | ○ | 通る | 不足 4 / 40（冗長 0・決まらない 36） ↔ 過剰 2 |
-| 356 | `Fluid.Examples.PumpingSystem` | OK | 307 / 307 | 307 / 307 ○ | ○ | 通る | 不足 6 / 36（冗長 0・決まらない 30） ↔ 過剰でない |
-| 357 | `Fluid.Examples.Tanks.EmptyTanks` | OK | 138 / 138 | 138 / 138 ○ | ○ | 通る | 不足 2 / 10（冗長 0・決まらない 8） ↔ 過剰でない |
-| 358 | `Fluid.Examples.Tanks.TanksWithOverflow` | OK | 271 / 271 | 271 / 271 ○ | ○ | 通る | 不足 5 / 20（冗長 0・決まらない 15） ↔ 過剰でない |
-| 359 | `Fluid.Examples.Tanks.ThreeTanks` | OK | 261 / 261 | 261 / 261 ○ | ○ | 通る | 不足 6 / 18（冗長 0・決まらない 12） ↔ 過剰でない |
+| 354 | `Fluid.Examples.InverseParameterization` | OK | 279 / 279 | 287 / 287 ○ | ○ | 通る | 合う 1 / 1 ↔ 過剰でない |
+| 355 | `Fluid.Examples.NonCircularPipes` | OK | 391 / 391 | 391 / 391 ○ | ○ | 通る | 不足 4 / 10（冗長 0・決まらない 6） ↔ 過剰 2 |
+| 356 | `Fluid.Examples.PumpingSystem` | OK | 307 / 307 | 307 / 307 ○ | ○ | 通る | 不足 6 / 8（冗長 0・決まらない 2） ↔ 過剰でない |
+| 357 | `Fluid.Examples.Tanks.EmptyTanks` | OK | 138 / 138 | 138 / 138 ○ | ○ | 通る | 不足 2 / 6（冗長 0・決まらない 4） ↔ 過剰でない |
+| 358 | `Fluid.Examples.Tanks.TanksWithOverflow` | OK | 271 / 271 | 271 / 271 ○ | ○ | 通る | 不足 5 / 9（冗長 0・決まらない 4） ↔ 過剰でない |
+| 359 | `Fluid.Examples.Tanks.ThreeTanks` | OK | 261 / 261 | 261 / 261 ○ | ○ | 通る | 不足 6 / 12（冗長 0・決まらない 6） ↔ 過剰でない |
 | 360 | `Fluid.Examples.TraceSubstances.RoomCO2` | GM-U0002 ED008 | - | 228 / 228 ○ | - | 通る | - |
 | 361 | `Fluid.Examples.TraceSubstances.RoomCO2WithControls` | GM-U0001 ED019 | - | 829 / 829 ○ | - | 通る | - |
 | 362 | `Magnetic.FluxTubes.Examples.BasicExamples.QuadraticCoreAirgap` | OK | 128 / 128 | 128 / 128 ○ | ○ | 通る | 合う 0 / 0 ↔ 過剰でない |
@@ -631,14 +686,14 @@ globe check の列は msl-funnel の判定（OK、NG と止まった段階、GM-
 | 370 | `Magnetic.FluxTubes.Examples.Hysteresis.SinglePhaseTransformerWithHysteresis1` | GM-U0001 ED019 | - | 89 / 89 ○ | - | 通る | - |
 | 371 | `Magnetic.FluxTubes.Examples.Hysteresis.SinglePhaseTransformerWithHysteresis2` | GM-U0001 ED019 | - | 138 / 138 ○ | - | 通る | - |
 | 372 | `Magnetic.FluxTubes.Examples.Hysteresis.ThreePhaseTransformerWithRectifier` | GM-U0001 ED019 | - | 490 / 490 ○ | - | 通る | - ↔ 過剰 2 |
-| 373 | `Magnetic.FluxTubes.Examples.MovingCoilActuator.ArmatureStroke` | OK | 249 / 249 | 249 / 249 ○ | ○ | 通る | 不足 6 / 10（冗長 0・決まらない 4） ↔ 過剰でない |
+| 373 | `Magnetic.FluxTubes.Examples.MovingCoilActuator.ArmatureStroke` | OK | 249 / 249 | 249 / 249 ○ | ○ | 通る | 合う 6 / 6 ↔ 過剰でない |
 | 374 | `Magnetic.FluxTubes.Examples.MovingCoilActuator.Components.ConstantActuator` | NG S6 GM-E6001 | 84 / 84 | 84 / 84 ○ | ○ | 特異 | - |
 | 375 | `Magnetic.FluxTubes.Examples.MovingCoilActuator.Components.PermeanceActuator` | NG S6 GM-E6001 | 133 / 133 | 133 / 133 ○ | ○ | 特異 | - |
-| 376 | `Magnetic.FluxTubes.Examples.MovingCoilActuator.ForceCurrentBehaviour` | OK | 246 / 246 | 246 / 246 ○ | ○ | 通る | 不足 0 / 4（冗長 0・決まらない 4） ↔ 過剰でない |
-| 377 | `Magnetic.FluxTubes.Examples.MovingCoilActuator.ForceStrokeBehaviour` | OK | 153 / 153 | 153 / 153 ○ | ○ | 通る | 不足 0 / 2（冗長 0・決まらない 2） ↔ 過剰でない |
-| 378 | `Magnetic.FluxTubes.Examples.SolenoidActuator.ComparisonPullInStroke` | OK | 532 / 532 | 532 / 532 ○ | ○ | 通る | 不足 11 / 15（冗長 0・決まらない 4） ↔ 過剰でない |
-| 379 | `Magnetic.FluxTubes.Examples.SolenoidActuator.ComparisonQuasiStatic` | OK | 531 / 531 | 531 / 531 ○ | ○ | 通る | 不足 9 / 13（冗長 0・決まらない 4） ↔ 過剰でない |
-| 380 | `Magnetic.FluxTubes.Examples.SolenoidActuator.Components.AdvancedSolenoid` | OK | 292 / 292 | 292 / 292 ○ | ○ | 特異 | 過剰 5 / 7（冗長 1・決まらない 3）（確定できない） ↔ （失敗） |
+| 376 | `Magnetic.FluxTubes.Examples.MovingCoilActuator.ForceCurrentBehaviour` | OK | 246 / 246 | 246 / 246 ○ | ○ | 通る | 合う 0 / 0 ↔ 過剰でない |
+| 377 | `Magnetic.FluxTubes.Examples.MovingCoilActuator.ForceStrokeBehaviour` | OK | 153 / 153 | 153 / 153 ○ | ○ | 通る | 合う 0 / 0 ↔ 過剰でない |
+| 378 | `Magnetic.FluxTubes.Examples.SolenoidActuator.ComparisonPullInStroke` | OK | 532 / 532 | 532 / 532 ○ | ○ | 通る | 合う 11 / 11 ↔ 過剰でない |
+| 379 | `Magnetic.FluxTubes.Examples.SolenoidActuator.ComparisonQuasiStatic` | OK | 531 / 531 | 531 / 531 ○ | ○ | 通る | 合う 9 / 9 ↔ 過剰でない |
+| 380 | `Magnetic.FluxTubes.Examples.SolenoidActuator.Components.AdvancedSolenoid` | OK | 292 / 292 | 292 / 292 ○ | ○ | 特異 | 過剰 5 / 5（冗長 1・決まらない 1）（確定できない） ↔ （失敗） |
 | 381 | `Magnetic.FluxTubes.Examples.SolenoidActuator.Components.SimpleSolenoid` | NG S6 GM-E6001 | 202 / 202 | 202 / 202 ○ | ○ | 特異 | - |
 | 382 | `Magnetic.FundamentalWave.Examples.BasicMachines.InductionMachines.ComparisonPolyphase.IMC_DOL_CommonLeakage` | GM-U0003 ED001 | - | 3573 / 3573 ○ | - | 通る | - |
 | 383 | `Magnetic.FundamentalWave.Examples.BasicMachines.InductionMachines.ComparisonPolyphase.IMC_DOL_Polyphase` | GM-U0003 ED001 | - | 2135 / 2135 ○ | - | 通る | - |
@@ -701,48 +756,48 @@ globe check の列は msl-funnel の判定（OK、NG と止まった段階、GM-
 | 440 | `Math.FastFourierTransform.Examples.RealFFT2` | GM-U0003 ET004 | - | 224 / 224 ○ | - | 通る | - |
 | 441 | `Math.Nonlinear.Examples.QuadratureLobatto3` | GM-U0001 ED020 | - | 3 / 3 ○ | - | 通る | - |
 | 442 | `Math.Random.Examples.GenerateRandomNumbers` | GM-U0001 ED019 | - | 44 / 44 ○ | - | 通る | - |
-| 443 | `Mechanics.MultiBody.Examples.Constraints.PrismaticConstraint` | OK | 2429 / 2429 | 2429 / 2429 ○ | ○ | 通る | 不足 8 / 124（冗長 0・決まらない 116） ↔ 過剰でない |
-| 444 | `Mechanics.MultiBody.Examples.Constraints.RevoluteConstraint` | OK | 2312 / 2312 | 2312 / 2312 ○ | ○ | 通る | 不足 4 / 108（冗長 0・決まらない 104） ↔ 過剰でない |
-| 445 | `Mechanics.MultiBody.Examples.Constraints.SphericalConstraint` | OK | 2323 / 2323 | 2323 / 2323 ○ | ○ | 通る | 不足 12 / 116（冗長 0・決まらない 104） ↔ 過剰でない |
-| 446 | `Mechanics.MultiBody.Examples.Constraints.UniversalConstraint` | OK | 2598 / 2598 | 2598 / 2598 ○ | ○ | 通る | 不足 8 / 124（冗長 0・決まらない 116） ↔ 過剰でない |
-| 447 | `Mechanics.MultiBody.Examples.Elementary.DoublePendulum` | OK | 1302 / 1302 | 1302 / 1302 ○ | ○ | 通る | 不足 4 / 61（冗長 0・決まらない 57） ↔ 過剰でない |
-| 448 | `Mechanics.MultiBody.Examples.Elementary.DoublePendulumInitTip` | OK | 1479 / 1479 | 1479 / 1479 ○ | ○ | 通る | 不足 4 / 73（冗長 0・決まらない 69） ↔ 過剰でない |
-| 449 | `Mechanics.MultiBody.Examples.Elementary.ForceAndTorque` | OK | 1541 / 1541 | 1541 / 1541 ○ | ○ | 通る | 不足 4 / 77（冗長 0・決まらない 73） ↔ 過剰でない |
-| 450 | `Mechanics.MultiBody.Examples.Elementary.FreeBody` | OK | 1330 / 1330 | 1330 / 1330 ○ | ○ | 通る | 不足 12 / 81（冗長 0・決まらない 69） ↔ 過剰でない |
-| 451 | `Mechanics.MultiBody.Examples.Elementary.HeatLosses` | OK | 2151 / 2151 | 2151 / 2151 ○ | ○ | 通る | 不足 37 / 139（冗長 0・決まらない 102） ↔ 過剰でない |
-| 452 | `Mechanics.MultiBody.Examples.Elementary.InitSpringConstant` | OK | 1275 / 1275 | 1275 / 1275 ○ | ○ | 通る | 不足 3 / 63（冗長 0・決まらない 60） ↔ 過剰でない |
-| 453 | `Mechanics.MultiBody.Examples.Elementary.LineForceWithTwoMasses` | OK | 2303 / 2303 | 2303 / 2303 ○ | ○ | 通る | 不足 4 / 103（冗長 0・決まらない 99） ↔ 過剰でない |
-| 454 | `Mechanics.MultiBody.Examples.Elementary.Pendulum` | OK | 934 / 934 | 934 / 934 ○ | ○ | 通る | 不足 2 / 38（冗長 0・決まらない 36） ↔ 過剰でない |
-| 455 | `Mechanics.MultiBody.Examples.Elementary.PendulumWithSpringDamper` | OK | 1349 / 1349 | 1349 / 1349 ○ | ○ | 通る | 不足 4 / 64（冗長 0・決まらない 60） ↔ 過剰でない |
-| 456 | `Mechanics.MultiBody.Examples.Elementary.PointGravity` | OK | 911 / 911 | 911 / 911 ○ | ○ | 通る | 不足 24 / 63（冗長 0・決まらない 39） ↔ 過剰でない |
-| 457 | `Mechanics.MultiBody.Examples.Elementary.PointGravityWithPointMasses` | OK | 1113 / 1113 | 1113 / 1113 ○ | ○ | 通る | 不足 24 / 75（冗長 0・決まらない 51） ↔ 過剰でない |
-| 458 | `Mechanics.MultiBody.Examples.Elementary.PointGravityWithPointMasses2` | OK | 2860 / 2860 | 2860 / 2860 ○ | ○ | 通る | 不足 24 / 149（冗長 0・決まらない 125） ↔ 過剰でない |
-| 459 | `Mechanics.MultiBody.Examples.Elementary.RollingWheel` | OK | 947 / 947 | 947 / 947 ○ | ○ | 通る | 不足 8 / 44（冗長 0・決まらない 36） ↔ 過剰でない |
-| 460 | `Mechanics.MultiBody.Examples.Elementary.RollingWheelSetDriving` | OK | 1959 / 1959 | 1959 / 1959 ○ | ○ | 通る | 過剰 14 / 88（冗長 7・決まらない 81）（確定できない） ↔ 過剰でない |
-| 461 | `Mechanics.MultiBody.Examples.Elementary.RollingWheelSetPulling` | OK | 2047 / 2047 | 2047 / 2047 ○ | ○ | 通る | 過剰 16 / 93（冗長 7・決まらない 84）（確定できない） ↔ 過剰でない |
-| 462 | `Mechanics.MultiBody.Examples.Elementary.SpringDamperSystem` | OK | 1686 / 1686 | 1686 / 1686 ○ | ○ | 通る | 不足 14 / 92（冗長 0・決まらない 78） ↔ 過剰でない |
-| 463 | `Mechanics.MultiBody.Examples.Elementary.SpringMassSystem` | OK | 1469 / 1469 | 1469 / 1469 ○ | ○ | 通る | 不足 4 / 67（冗長 0・決まらない 63） ↔ 過剰でない |
-| 464 | `Mechanics.MultiBody.Examples.Elementary.SpringWithMass` | OK | 968 / 968 | 968 / 968 ○ | ○ | 通る | 不足 12 / 57（冗長 0・決まらない 45） ↔ 過剰でない |
-| 465 | `Mechanics.MultiBody.Examples.Elementary.Surfaces` | OK | 1143 / 1143 | 1143 / 1143 ○ | ○ | 通る | 不足 2 / 41（冗長 0・決まらない 39） ↔ 過剰でない |
-| 466 | `Mechanics.MultiBody.Examples.Elementary.ThreeSprings` | OK | 1516 / 1516 | 1516 / 1516 ○ | ○ | 通る | 不足 12 / 87（冗長 0・決まらない 75） ↔ 過剰でない |
-| 467 | `Mechanics.MultiBody.Examples.Elementary.UserDefinedGravityField` | OK | 951 / 951 | 951 / 951 ○ | ○ | 通る | 不足 2 / 41（冗長 0・決まらない 39） ↔ 過剰でない |
-| 468 | `Mechanics.MultiBody.Examples.Loops.Engine1a` | OK | 2386 / 2386 | 2386 / 2386 ○ | ○ | 通る | 不足 2 / 119（冗長 0・決まらない 117） ↔ 過剰でない |
-| 469 | `Mechanics.MultiBody.Examples.Loops.Engine1b` | OK | 2488 / 2488 | 2488 / 2488 ○ | ○ | 通る | 不足 2 / 125（冗長 0・決まらない 123） ↔ 過剰でない |
-| 470 | `Mechanics.MultiBody.Examples.Loops.Engine1b_analytic` | OK | 2752 / 2752 | 2752 / 2752 ○ | ○ | 通る | 不足 7 / 154（冗長 0・決まらない 147） ↔ 過剰でない |
-| 471 | `Mechanics.MultiBody.Examples.Loops.EngineV6` | OK | 11107 / 11107 | 11107 / 11107 ○ | ○ | 通る | 不足 4 / 619（冗長 0・決まらない 615） ↔ 過剰でない |
-| 472 | `Mechanics.MultiBody.Examples.Loops.EngineV6_analytic` | OK | 9001 / 9001 | 9001 / 9001 ○ | ○ | 通る | 不足 34 / 592（冗長 0・決まらない 558） ↔ 過剰でない |
-| 473 | `Mechanics.MultiBody.Examples.Loops.Fourbar1` | OK | 2058 / 2058 | 2058 / 2058 ○ | ○ | 通る | 不足 2 / 89（冗長 0・決まらない 87） ↔ 過剰でない |
-| 474 | `Mechanics.MultiBody.Examples.Loops.Fourbar2` | OK | 2242 / 2242 | 2242 / 2242 ○ | ○ | 通る | 不足 3 / 90（冗長 0・決まらない 87） ↔ 過剰でない |
-| 475 | `Mechanics.MultiBody.Examples.Loops.Fourbar_analytic` | OK | 1743 / 1743 | 1743 / 1743 ○ | ○ | 通る | 不足 3 / 87（冗長 0・決まらない 84） ↔ 過剰でない |
-| 476 | `Mechanics.MultiBody.Examples.Loops.PlanarFourbar` | OK | 2348 / 2348 | 2348 / 2348 ○ | ○ | 通る | 不足 2 / 92（冗長 0・決まらない 90） ↔ 過剰でない |
-| 477 | `Mechanics.MultiBody.Examples.Loops.PlanarLoops_analytic` | OK | 4012 / 4012 | 4012 / 4012 ○ | ○ | 通る | 不足 17 / 185（冗長 0・決まらない 168） ↔ 過剰でない |
-| 478 | `Mechanics.MultiBody.Examples.Rotational3DEffects.ActuatedDrive` | OK | 1413 / 1413 | 1413 / 1413 ○ | ○ | 通る | 不足 4 / 69（冗長 0・決まらない 65） ↔ 過剰でない |
-| 479 | `Mechanics.MultiBody.Examples.Rotational3DEffects.BevelGear1D` | OK | 1750 / 1750 | 1750 / 1750 ○ | ○ | 通る | 不足 8 / 71（冗長 0・決まらない 63） ↔ 過剰でない |
-| 480 | `Mechanics.MultiBody.Examples.Rotational3DEffects.GearConstraint` | OK | 1731 / 1731 | 1731 / 1731 ○ | ○ | 通る | 不足 4 / 81（冗長 0・決まらない 77） ↔ 過剰でない |
-| 481 | `Mechanics.MultiBody.Examples.Rotational3DEffects.GyroscopicEffects` | OK | 2276 / 2276 | 2276 / 2276 ○ | ○ | 通る | 不足 16 / 121（冗長 0・決まらない 105） ↔ 過剰でない |
-| 482 | `Mechanics.MultiBody.Examples.Rotational3DEffects.MovingActuatedDrive` | OK | 1736 / 1736 | 1736 / 1736 ○ | ○ | 通る | 不足 8 / 79（冗長 0・決まらない 71） ↔ 過剰でない |
-| 483 | `Mechanics.MultiBody.Examples.Systems.RobotR3.FullRobot` | OK | 4570 / 4570 | 4570 / 4570 ○ | ○ | 通る | 不足 54 / 315（冗長 0・決まらない 261） ↔ 過剰でない |
-| 484 | `Mechanics.MultiBody.Examples.Systems.RobotR3.OneAxis` | OK | 391 / 391 | 391 / 391 ○ | ○ | 通る | 不足 10 / 25（冗長 0・決まらない 15） ↔ 過剰でない |
+| 443 | `Mechanics.MultiBody.Examples.Constraints.PrismaticConstraint` | OK | 2429 / 2429 | 2429 / 2429 ○ | ○ | 通る | 合う 8 / 8 ↔ 過剰でない |
+| 444 | `Mechanics.MultiBody.Examples.Constraints.RevoluteConstraint` | OK | 2312 / 2312 | 2312 / 2312 ○ | ○ | 通る | 合う 4 / 4 ↔ 過剰でない |
+| 445 | `Mechanics.MultiBody.Examples.Constraints.SphericalConstraint` | OK | 2323 / 2323 | 2323 / 2323 ○ | ○ | 通る | 合う 12 / 12 ↔ 過剰でない |
+| 446 | `Mechanics.MultiBody.Examples.Constraints.UniversalConstraint` | OK | 2598 / 2598 | 2598 / 2598 ○ | ○ | 通る | 合う 8 / 8 ↔ 過剰でない |
+| 447 | `Mechanics.MultiBody.Examples.Elementary.DoublePendulum` | OK | 1302 / 1302 | 1302 / 1302 ○ | ○ | 通る | 合う 4 / 4 ↔ 過剰でない |
+| 448 | `Mechanics.MultiBody.Examples.Elementary.DoublePendulumInitTip` | OK | 1479 / 1479 | 1479 / 1479 ○ | ○ | 通る | 合う 4 / 4 ↔ 過剰でない |
+| 449 | `Mechanics.MultiBody.Examples.Elementary.ForceAndTorque` | OK | 1541 / 1541 | 1541 / 1541 ○ | ○ | 通る | 合う 4 / 4 ↔ 過剰でない |
+| 450 | `Mechanics.MultiBody.Examples.Elementary.FreeBody` | OK | 1330 / 1330 | 1330 / 1330 ○ | ○ | 通る | 合う 12 / 12 ↔ 過剰でない |
+| 451 | `Mechanics.MultiBody.Examples.Elementary.HeatLosses` | OK | 2151 / 2151 | 2151 / 2151 ○ | ○ | 通る | 合う 37 / 37 ↔ 過剰でない |
+| 452 | `Mechanics.MultiBody.Examples.Elementary.InitSpringConstant` | OK | 1275 / 1275 | 1275 / 1275 ○ | ○ | 通る | 合う 3 / 3 ↔ 過剰でない |
+| 453 | `Mechanics.MultiBody.Examples.Elementary.LineForceWithTwoMasses` | OK | 2303 / 2303 | 2303 / 2303 ○ | ○ | 通る | 合う 4 / 4 ↔ 過剰でない |
+| 454 | `Mechanics.MultiBody.Examples.Elementary.Pendulum` | OK | 934 / 934 | 934 / 934 ○ | ○ | 通る | 合う 2 / 2 ↔ 過剰でない |
+| 455 | `Mechanics.MultiBody.Examples.Elementary.PendulumWithSpringDamper` | OK | 1349 / 1349 | 1349 / 1349 ○ | ○ | 通る | 合う 4 / 4 ↔ 過剰でない |
+| 456 | `Mechanics.MultiBody.Examples.Elementary.PointGravity` | OK | 911 / 911 | 911 / 911 ○ | ○ | 通る | 合う 24 / 24 ↔ 過剰でない |
+| 457 | `Mechanics.MultiBody.Examples.Elementary.PointGravityWithPointMasses` | OK | 1113 / 1113 | 1113 / 1113 ○ | ○ | 通る | 合う 24 / 24 ↔ 過剰でない |
+| 458 | `Mechanics.MultiBody.Examples.Elementary.PointGravityWithPointMasses2` | OK | 2860 / 2860 | 2860 / 2860 ○ | ○ | 通る | 合う 24 / 24 ↔ 過剰でない |
+| 459 | `Mechanics.MultiBody.Examples.Elementary.RollingWheel` | OK | 947 / 947 | 947 / 947 ○ | ○ | 通る | 合う 8 / 8 ↔ 過剰でない |
+| 460 | `Mechanics.MultiBody.Examples.Elementary.RollingWheelSetDriving` | OK | 1959 / 1959 | 1959 / 1959 ○ | ○ | 通る | 過剰 14 / 7（冗長 7・決まらない 0）（確定できない） ↔ 過剰でない |
+| 461 | `Mechanics.MultiBody.Examples.Elementary.RollingWheelSetPulling` | OK | 2047 / 2047 | 2047 / 2047 ○ | ○ | 通る | 過剰 16 / 9（冗長 7・決まらない 0）（確定できない） ↔ 過剰でない |
+| 462 | `Mechanics.MultiBody.Examples.Elementary.SpringDamperSystem` | OK | 1686 / 1686 | 1686 / 1686 ○ | ○ | 通る | 合う 14 / 14 ↔ 過剰でない |
+| 463 | `Mechanics.MultiBody.Examples.Elementary.SpringMassSystem` | OK | 1469 / 1469 | 1469 / 1469 ○ | ○ | 通る | 合う 4 / 4 ↔ 過剰でない |
+| 464 | `Mechanics.MultiBody.Examples.Elementary.SpringWithMass` | OK | 968 / 968 | 968 / 968 ○ | ○ | 通る | 合う 12 / 12 ↔ 過剰でない |
+| 465 | `Mechanics.MultiBody.Examples.Elementary.Surfaces` | OK | 1143 / 1143 | 1143 / 1143 ○ | ○ | 通る | 合う 2 / 2 ↔ 過剰でない |
+| 466 | `Mechanics.MultiBody.Examples.Elementary.ThreeSprings` | OK | 1516 / 1516 | 1516 / 1516 ○ | ○ | 通る | 合う 12 / 12 ↔ 過剰でない |
+| 467 | `Mechanics.MultiBody.Examples.Elementary.UserDefinedGravityField` | OK | 951 / 951 | 951 / 951 ○ | ○ | 通る | 合う 2 / 2 ↔ 過剰でない |
+| 468 | `Mechanics.MultiBody.Examples.Loops.Engine1a` | OK | 2386 / 2386 | 2386 / 2386 ○ | ○ | 通る | 合う 2 / 2 ↔ 過剰でない |
+| 469 | `Mechanics.MultiBody.Examples.Loops.Engine1b` | OK | 2488 / 2488 | 2488 / 2488 ○ | ○ | 通る | 合う 2 / 2 ↔ 過剰でない |
+| 470 | `Mechanics.MultiBody.Examples.Loops.Engine1b_analytic` | OK | 2752 / 2752 | 2752 / 2752 ○ | ○ | 通る | 合う 7 / 7 ↔ 過剰でない |
+| 471 | `Mechanics.MultiBody.Examples.Loops.EngineV6` | OK | 11107 / 11107 | 11107 / 11107 ○ | ○ | 通る | 合う 4 / 4 ↔ 過剰でない |
+| 472 | `Mechanics.MultiBody.Examples.Loops.EngineV6_analytic` | OK | 9001 / 9001 | 9001 / 9001 ○ | ○ | 通る | 合う 34 / 34 ↔ 過剰でない |
+| 473 | `Mechanics.MultiBody.Examples.Loops.Fourbar1` | OK | 2058 / 2058 | 2058 / 2058 ○ | ○ | 通る | 合う 2 / 2 ↔ 過剰でない |
+| 474 | `Mechanics.MultiBody.Examples.Loops.Fourbar2` | OK | 2242 / 2242 | 2242 / 2242 ○ | ○ | 通る | 合う 3 / 3 ↔ 過剰でない |
+| 475 | `Mechanics.MultiBody.Examples.Loops.Fourbar_analytic` | OK | 1743 / 1743 | 1743 / 1743 ○ | ○ | 通る | 合う 3 / 3 ↔ 過剰でない |
+| 476 | `Mechanics.MultiBody.Examples.Loops.PlanarFourbar` | OK | 2348 / 2348 | 2348 / 2348 ○ | ○ | 通る | 合う 2 / 2 ↔ 過剰でない |
+| 477 | `Mechanics.MultiBody.Examples.Loops.PlanarLoops_analytic` | OK | 4012 / 4012 | 4012 / 4012 ○ | ○ | 通る | 合う 17 / 17 ↔ 過剰でない |
+| 478 | `Mechanics.MultiBody.Examples.Rotational3DEffects.ActuatedDrive` | OK | 1413 / 1413 | 1413 / 1413 ○ | ○ | 通る | 合う 4 / 4 ↔ 過剰でない |
+| 479 | `Mechanics.MultiBody.Examples.Rotational3DEffects.BevelGear1D` | OK | 1750 / 1750 | 1750 / 1750 ○ | ○ | 通る | 合う 8 / 8 ↔ 過剰でない |
+| 480 | `Mechanics.MultiBody.Examples.Rotational3DEffects.GearConstraint` | OK | 1731 / 1731 | 1731 / 1731 ○ | ○ | 通る | 合う 4 / 4 ↔ 過剰でない |
+| 481 | `Mechanics.MultiBody.Examples.Rotational3DEffects.GyroscopicEffects` | OK | 2276 / 2276 | 2276 / 2276 ○ | ○ | 通る | 合う 16 / 16 ↔ 過剰でない |
+| 482 | `Mechanics.MultiBody.Examples.Rotational3DEffects.MovingActuatedDrive` | OK | 1736 / 1736 | 1736 / 1736 ○ | ○ | 通る | 合う 8 / 8 ↔ 過剰でない |
+| 483 | `Mechanics.MultiBody.Examples.Systems.RobotR3.FullRobot` | OK | 4570 / 4570 | 4570 / 4570 ○ | ○ | 通る | 合う 54 / 54 ↔ 過剰でない |
+| 484 | `Mechanics.MultiBody.Examples.Systems.RobotR3.OneAxis` | OK | 391 / 391 | 391 / 391 ○ | ○ | 通る | 合う 10 / 10 ↔ 過剰でない |
 | 485 | `Mechanics.Rotational.Examples.Backlash` | OK | 62 / 62 | 62 / 62 ○ | ○ | 通る | 合う 6 / 6 ↔ 過剰でない |
 | 486 | `Mechanics.Rotational.Examples.CompareBrakingTorque` | OK | 52 / 52 | 52 / 52 ○ | ○ | 通る | 合う 8 / 8 ↔ 過剰でない |
 | 487 | `Mechanics.Rotational.Examples.CoupledClutches` | GM-U0003 ED001 | - | 112 / 112 ○ | - | 通る | - |
@@ -765,13 +820,13 @@ globe check の列は msl-funnel の判定（OK、NG と止まった段階、GM-
 | 504 | `Mechanics.Translational.Examples.CompareBrakingForce` | OK | 52 / 52 | 52 / 52 ○ | ○ | 通る | 合う 8 / 8 ↔ 過剰でない |
 | 505 | `Mechanics.Translational.Examples.Damper` | OK | 59 / 59 | 59 / 59 ○ | ○ | 通る | 合う 6 / 6 ↔ 過剰でない |
 | 506 | `Mechanics.Translational.Examples.EddyCurrentBrake` | OK | 25 / 25 | 25 / 25 ○ | ○ | 通る | 合う 3 / 3 ↔ 過剰でない |
-| 507 | `Mechanics.Translational.Examples.ElastoGap` | OK | 72 / 72 | 72 / 72 ○ | ○ | 通る | 不足 4 / 6（冗長 0・決まらない 2） ↔ 過剰でない |
+| 507 | `Mechanics.Translational.Examples.ElastoGap` | OK | 72 / 72 | 72 / 72 ○ | ○ | 通る | 合う 4 / 4 ↔ 過剰でない |
 | 508 | `Mechanics.Translational.Examples.Friction` | GM-U0003 ER130 | - | 90 / 90 ○ | - | 通る | - |
 | 509 | `Mechanics.Translational.Examples.GenerationOfFMUs` | OK | 201 / 201 | 201 / 201 ○ | ○ | 通る | 合う 10 / 10 ↔ 過剰でない |
 | 510 | `Mechanics.Translational.Examples.HeatLosses` | GM-U0003 ER130 | - | 174 / 174 ○ | - | 通る | - |
 | 511 | `Mechanics.Translational.Examples.InitialConditions` | OK | 64 / 64 | 64 / 64 ○ | ○ | 通る | 合う 8 / 8 ↔ 過剰でない |
 | 512 | `Mechanics.Translational.Examples.Oscillator` | OK | 50 / 50 | 50 / 50 ○ | ○ | 通る | 合う 4 / 4 ↔ 過剰でない |
-| 513 | `Mechanics.Translational.Examples.PreLoad` | OK | 120 / 120 | 120 / 120 ○ | ○ | 通る | 不足 6 / 10（冗長 0・決まらない 4） ↔ 過剰でない |
+| 513 | `Mechanics.Translational.Examples.PreLoad` | OK | 120 / 120 | 120 / 120 ○ | ○ | 通る | 合う 6 / 6 ↔ 過剰でない |
 | 514 | `Mechanics.Translational.Examples.Sensors` | OK | 38 / 38 | 38 / 38 ○ | ○ | 通る | 合う 2 / 2 ↔ 過剰でない |
 | 515 | `Mechanics.Translational.Examples.SignConvention` | OK | 41 / 41 | 41 / 41 ○ | ○ | 通る | 合う 6 / 6 ↔ 過剰でない |
 | 516 | `Mechanics.Translational.Examples.Vehicle` | OK | 249 / 249 | 249 / 249 ○ | ○ | 通る | 不足 11 / 12（冗長 0・決まらない 1） ↔ 過剰でない |
@@ -794,18 +849,18 @@ globe check の列は msl-funnel の判定（OK、NG と止まった段階、GM-
 | 533 | `Media.Examples.SolveOneNonlinearEquation.Inverse_sh_T` | GM-U0002 ED008 | - | 6 / 6 ○ | - | 通る | - |
 | 534 | `Media.Examples.SolveOneNonlinearEquation.Inverse_sh_TX` | GM-U0002 ED008 | - | 6 / 6 ○ | - | 通る | - |
 | 535 | `Media.Examples.SolveOneNonlinearEquation.Inverse_sine` | GM-U0001 ED019 | - | 1 / 1 ○ | - | 通る | - |
-| 536 | `Media.Examples.TwoPhaseWater.BaseProperties` | OK | 16 / 16 | 18 / 18 ○ | ○ | 通る | 不足 0 / 2（冗長 0・決まらない 2） ↔ 過剰でない |
+| 536 | `Media.Examples.TwoPhaseWater.BaseProperties` | OK | 16 / 16 | 18 / 18 ○ | ○ | 通る | 合う 0 / 0 ↔ 過剰でない |
 | 537 | `Media.Examples.TwoPhaseWater.ExtendedProperties` | GM-U0001 ED019 | - | 53 / 53 ○ | - | 通る | - |
 | 538 | `Media.Examples.TwoPhaseWater.TestTwoPhaseStates` | GM-U0001 ED019 | - | 53 / 53 ○ | - | 通る | - |
-| 539 | `Media.Examples.WaterIF97` | OK | 34 / 34 | 34 / 34 ○ | ○ | 通る | 不足 3 / 7（冗長 0・決まらない 4） ↔ 過剰でない |
+| 539 | `Media.Examples.WaterIF97` | OK | 34 / 34 | 34 / 34 ○ | ○ | 通る | 合う 3 / 3 ↔ 過剰でない |
 | 540 | `Media.Incompressible.Examples.TestGlycol` | GM-U0001 ED019 | - | 20 / 20 ○ | - | 通る | - |
-| 541 | `StateGraph.Examples.ControlledTanks` | OK | 319 / 319 | 319 / 319 ○ | ○ | 通る | 不足 113 / 252（冗長 0・決まらない 139） ↔ 過剰でない |
-| 542 | `StateGraph.Examples.ExecutionPaths` | OK | 243 / 243 | 243 / 243 ○ | ○ | 通る | 不足 84 / 203（冗長 0・決まらない 119） ↔ 過剰でない |
-| 543 | `StateGraph.Examples.FirstExample` | OK | 55 / 55 | 55 / 55 ○ | ○ | 通る | 不足 20 / 45（冗長 0・決まらない 25） ↔ 過剰でない |
-| 544 | `StateGraph.Examples.FirstExample_Variant2` | OK | 60 / 60 | 60 / 60 ○ | ○ | 通る | 不足 22 / 48（冗長 0・決まらない 26） ↔ 過剰でない |
-| 545 | `StateGraph.Examples.FirstExample_Variant3` | OK | 60 / 60 | 60 / 60 ○ | ○ | 通る | 不足 22 / 49（冗長 0・決まらない 27） ↔ 過剰でない |
-| 546 | `StateGraph.Examples.ShowCompositeStep` | OK | 261 / 261 | 261 / 261 ○ | ○ | 通る | 不足 87 / 221（冗長 0・決まらない 134） ↔ 過剰でない |
-| 547 | `StateGraph.Examples.ShowExceptions` | OK | 299 / 299 | 299 / 299 ○ | ○ | 通る | 不足 95 / 249（冗長 0・決まらない 154） ↔ 過剰でない |
+| 541 | `StateGraph.Examples.ControlledTanks` | OK | 319 / 319 | 319 / 319 ○ | ○ | 通る | 合う 105 / 105 ↔ 過剰でない |
+| 542 | `StateGraph.Examples.ExecutionPaths` | OK | 243 / 243 | 243 / 243 ○ | ○ | 通る | 合う 76 / 76 ↔ 過剰でない |
+| 543 | `StateGraph.Examples.FirstExample` | OK | 55 / 55 | 55 / 55 ○ | ○ | 通る | 合う 18 / 18 ↔ 過剰でない |
+| 544 | `StateGraph.Examples.FirstExample_Variant2` | OK | 60 / 60 | 60 / 60 ○ | ○ | 通る | 合う 20 / 20 ↔ 過剰でない |
+| 545 | `StateGraph.Examples.FirstExample_Variant3` | OK | 60 / 60 | 60 / 60 ○ | ○ | 通る | 合う 20 / 20 ↔ 過剰でない |
+| 546 | `StateGraph.Examples.ShowCompositeStep` | OK | 261 / 261 | 261 / 261 ○ | ○ | 通る | 合う 79 / 79 ↔ 過剰でない |
+| 547 | `StateGraph.Examples.ShowExceptions` | OK | 299 / 299 | 299 / 299 ○ | ○ | 通る | 合う 87 / 87 ↔ 過剰でない |
 | 548 | `Thermal.FluidHeatFlow.Examples.IndirectCooling` | OK | 169 / 169 | 169 / 169 ○ | ○ | 通る | 合う 4 / 4 ↔ 過剰でない |
 | 549 | `Thermal.FluidHeatFlow.Examples.OneMass` | OK | 79 / 79 | 79 / 79 ○ | ○ | 通る | 合う 2 / 2 ↔ 過剰でない |
 | 550 | `Thermal.FluidHeatFlow.Examples.ParallelCooling` | OK | 144 / 144 | 144 / 144 ○ | ○ | 通る | 合う 5 / 5 ↔ 過剰でない |
@@ -817,11 +872,11 @@ globe check の列は msl-funnel の判定（OK、NG と止まった段階、GM-
 | 556 | `Thermal.FluidHeatFlow.Examples.TestOpenTank` | OK | 47 / 47 | 47 / 47 ○ | ○ | 通る | 合う 4 / 4 ↔ 過剰でない |
 | 557 | `Thermal.FluidHeatFlow.Examples.TwoMass` | OK | 137 / 137 | 137 / 137 ○ | ○ | 通る | 合う 5 / 5 ↔ 過剰でない |
 | 558 | `Thermal.FluidHeatFlow.Examples.TwoTanks` | OK | 50 / 50 | 50 / 50 ○ | ○ | 通る | 合う 4 / 4 ↔ 過剰でない |
-| 559 | `Thermal.FluidHeatFlow.Examples.WaterPump` | OK | 127 / 127 | 127 / 127 ○ | ○ | 通る | 不足 3 / 4（冗長 0・決まらない 1） ↔ 過剰でない |
-| 560 | `Thermal.HeatTransfer.Examples.ControlledTemperature` | OK | 52 / 52 | 52 / 52 ○ | ○ | 通る | 不足 2 / 6（冗長 0・決まらない 4） ↔ 過剰でない |
+| 559 | `Thermal.FluidHeatFlow.Examples.WaterPump` | OK | 127 / 127 | 127 / 127 ○ | ○ | 通る | 合う 3 / 3 ↔ 過剰でない |
+| 560 | `Thermal.HeatTransfer.Examples.ControlledTemperature` | OK | 52 / 52 | 52 / 52 ○ | ○ | 通る | 合う 2 / 2 ↔ 過剰でない |
 | 561 | `Thermal.HeatTransfer.Examples.GenerationOfFMUs` | OK | 102 / 102 | 102 / 102 ○ | ○ | 通る | 過剰 4 / 3（冗長 1・決まらない 0）（確定できない） ↔ 過剰 1 |
 | 562 | `Thermal.HeatTransfer.Examples.Motor` | OK | 41 / 41 | 41 / 41 ○ | ○ | 通る | 合う 4 / 4 ↔ 過剰でない |
 | 563 | `Thermal.HeatTransfer.Examples.TwoMasses` | OK | 20 / 20 | 20 / 20 ○ | ○ | 通る | 合う 3 / 3 ↔ 過剰でない |
 | 564 | `Utilities.Examples.ReadRealMatrixFromFile` | GM-U0002 EF025 | - | 1 / 1 ○ | - | 失敗 | - |
-| 565 | `Utilities.Examples.WriteRealMatrixToFile` | OK | 4 / 4 | 4 / 4 ○ | ○ | 通る | 不足 0 / 4（冗長 0・決まらない 4） ↔ 過剰でない |
+| 565 | `Utilities.Examples.WriteRealMatrixToFile` | OK | 4 / 4 | 4 / 4 ○ | ○ | 通る | 合う 0 / 0 ↔ 過剰でない |
 | 566 | `Utilities.Examples.readRealParameterModel` | GM-U0002 EF025 | - | 0 / 0 ○ | - | 通る | - |
