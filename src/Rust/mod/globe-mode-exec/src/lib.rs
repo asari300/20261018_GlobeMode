@@ -4,7 +4,7 @@
 //! フロントエンドが DAE まで変換したモデル（[`CompiledModel`]）を実行する。Rumoca の型は外へ出さず、
 //! 結果は中立の [`SimRun`]（`globe-mode-ir`）、失敗は GlobeMode の診断（`Stage::S10` と `Stage::Run`）で返す。
 //!
-//! - [`preflight`] … S10 の数値の部分（t0 で式の値が有限か）。積分の前に一度だけ。
+//! - [`preflight`] … S10 の数値の部分（start 値で評価して t0 で式の値が有限か。警告 GM-W10002）。積分の前に一度だけ。
 //! - [`simulate`] … 実行。失敗は段階ごとのコード（GM-E11001〜GM-E11006、GM-U0004 / GM-U0005）にする。
 //! - [`run`] … 設定を決め（`globe_mode_sim::settings::resolve`）、プリフライトを通してから実行する。
 //!
@@ -34,7 +34,7 @@ impl SimReport {
     }
 }
 
-/// S10 の数値の部分（積分の前の検査）。t0 で start 値から評価した代数変数と導関数が有限か（GM-E10005）。
+/// S10 の数値の部分（積分の前の検査）。t0 で start 値から評価した代数変数と導関数が有限か（GM-W10002）。
 pub fn preflight(model: &CompiledModel, settings: &ResolvedSettings) -> Vec<Diagnostic> {
     #[cfg(feature = "rumoca-exec")]
     {

@@ -228,10 +228,11 @@ pub mod codes {
     pub const EXPERIMENT_MISSING: &str = "GM-I10001";
     /// S10: 静的に評価できないパラメータ（外部関数・外部オブジェクトなど。実行時に決まる。情報。S010）
     pub const PARAMETER_NOT_STATIC: &str = "GM-I10002";
-    /// S10: t0 で式の値が有限にならない（start 値で評価した代数変数・導関数が NaN / inf。実行の直前の数値の検査。S011）
-    pub const T0_NOT_FINITE: &str = "GM-E10005";
+    /// S10: start 値で評価すると t0 で式の値が有限にならない（代数変数・導関数が NaN / inf。実行の直前の数値の検査。
+    /// `fixed = false` の状態などは初期化で変わるので、確定できず警告にとどめる。S011）
+    pub const T0_NOT_FINITE: &str = "GM-W10002";
     /// S10: 指定したソルバが使えない（名前が無い、またはまだ実装していない。S011）
-    pub const SOLVER_UNAVAILABLE: &str = "GM-E10006";
+    pub const SOLVER_UNAVAILABLE: &str = "GM-E10005";
     /// S10: ソルバの別名を置き換えた（例: dassl → bdf。同等の手法で、結果は一致しない。情報。S011）
     pub const SOLVER_ALIAS: &str = "GM-I10003";
     /// 実行: 初期化に失敗した（初期化系が解けない。S011）
