@@ -6,8 +6,10 @@
 //! globe flat  [<FILE|DIR>...] [--library <DIR>]... --model <NAME> [--json]
 //! globe graph <FILE|DIR>... --model <NAME> [--depth N] [--json]
 //! globe deps  <FILE|DIR>... --model <NAME> [--json]
-//! globe simulate [<FILE|DIR>...] [--library <DIR>]... --model <NAME> [--stop-time T] [--solver bdf|dopri45|auto]
-//!                [--tolerance X] [--interval X] [--start-time T] [--timeout S] [--output result.csv|-] [--force] [--json]
+//! globe simulate [<FILE|DIR>...] [--library <DIR>]... --model <NAME> [--stop-time T] [--solver NAME] [--step H]
+//!                [--tolerance X] [--interval X] [--start-time T] [--timeout S] [--param NAME=VALUE]...
+//!                [--output result.csv|result.mat|-] [--format csv|mat] [--list-parameters] [--force] [--json]
+//! globe simulate --list-solvers [--json]
 //! ```
 //!
 //! `check` と `flat` は salsa の DB（`globe-mode-db`）を通す。ライブラリは一度だけ読む。
@@ -92,42 +94,58 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// 検査（S0〜S10）を通してから実行し、結果を CSV に書く（S011）
+    /// 検査（S0〜S10）を通してから実行し、結果を CSV か MAT v4 に書く（S011、S012）
     Simulate {
         /// ファイルまたはディレクトリ。モデルがライブラリの中にあるなら省略できる
-        #[arg(required_unless_present = "library")]
+        #[arg(required_unless_present_any = ["library", "list_solvers"])]
         files: Vec<PathBuf>,
         /// ライブラリのディレクトリ（例: data/msl）。何度でも指定できる
         #[arg(long, short = 'L')]
         library: Vec<PathBuf>,
-        /// モデルの完全修飾名
-        #[arg(long, short)]
-        model: String,
+        /// モデルの完全修飾名（--list-solvers だけなら要らない）
+        #[arg(long, short, required_unless_present = "list_solvers")]
+        model: Option<String>,
         /// 開始時刻（省略すると experiment annotation、無ければ 0）
         #[arg(long)]
         start_time: Option<f64>,
         /// 終了時刻（省略すると experiment annotation、無ければ開始 + 1）
         #[arg(long)]
         stop_time: Option<f64>,
-        /// 許容誤差（相対と絶対の両方。省略すると experiment annotation、無ければ 1e-6）
+        /// 許容誤差（相対と絶対の両方。省略すると experiment annotation、無ければ 1e-6。下限 1e-10）
         #[arg(long)]
         tolerance: Option<f64>,
         /// 出力の間隔（省略すると experiment annotation、無ければ区間の 1/500）
         #[arg(long)]
         interval: Option<f64>,
-        /// ソルバ（bdf・dopri45・auto。別名 dassl → bdf など）
+        /// ソルバ（bdf・dopri45・auto・esdirk34・trbdf2・tsit45・euler・heun・rk4。別名 dassl → bdf など。
+        /// 一覧は --list-solvers）
         #[arg(long)]
         solver: Option<String>,
+        /// 固定刻みのソルバ（euler・heun・rk4）の刻み幅（省略すると出力の間隔）
+        #[arg(long)]
+        step: Option<f64>,
+        /// パラメータの上書き `名前=値`。何度でも指定できる（変えられるものは --list-parameters）
+        #[arg(long = "param", value_name = "NAME=VALUE")]
+        params: Vec<String>,
         /// 壁時計の予算（秒）。初期化と積分器の 1 歩の内側では止まらない
         #[arg(long)]
         timeout: Option<f64>,
-        /// 結果の CSV の書き先（`-` は標準出力）
+        /// 結果の書き先（`-` は標準出力）。拡張子 `.mat` なら MAT v4、それ以外は CSV
         #[arg(long, short)]
         output: Option<PathBuf>,
+        /// 結果の形式（拡張子より優先する）
+        #[arg(long, value_enum)]
+        format: Option<simulate::OutputFormat>,
+        /// 再コンパイル無しに変えられるパラメータの一覧を表示する（実行しない）
+        #[arg(long)]
+        list_parameters: bool,
+        /// ソルバの一覧を表示する（実行しない。モデルは要らない）
+        #[arg(long)]
+        list_solvers: bool,
         /// S0〜S10 に Error があっても実行する
         #[arg(long)]
         force: bool,
-        /// JSON で出力する（時系列は含めない。CSV は --output）
+        /// JSON で出力する（時系列は含めない。結果は --output）
         #[arg(long)]
         json: bool,
     },
@@ -185,26 +203,47 @@ fn main() -> ExitCode {
             tolerance,
             interval,
             solver,
+            step,
+            params,
             timeout,
             output,
+            format,
+            list_parameters,
+            list_solvers,
             force,
             json,
-        } => simulate::simulate(simulate::SimulateArgs {
-            files,
-            library,
-            model,
-            settings: SimSettings {
-                start_time,
-                stop_time,
-                tolerance,
-                interval,
-                solver,
-                max_wall_seconds: timeout,
-            },
-            output,
-            force,
-            json,
-        }),
+        } => {
+            if list_solvers {
+                return simulate::list_solvers(json);
+            }
+            let parameters = match simulate::parse_params(&params) {
+                Ok(p) => p,
+                Err(message) => {
+                    eprintln!("error: {message}");
+                    return ExitCode::from(2);
+                }
+            };
+            simulate::simulate(simulate::SimulateArgs {
+                files,
+                library,
+                model: model.expect("clap が --model を求める"),
+                settings: SimSettings {
+                    start_time,
+                    stop_time,
+                    tolerance,
+                    interval,
+                    solver,
+                    max_wall_seconds: timeout,
+                    step,
+                    parameters,
+                },
+                format: simulate::OutputFormat::resolve(format, output.as_deref()),
+                output,
+                list_parameters,
+                force,
+                json,
+            })
+        }
     }
 }
 

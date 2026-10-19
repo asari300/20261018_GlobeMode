@@ -190,6 +190,7 @@ pub fn parse_csv(text: &str) -> Result<Trajectory, CsvError> {
             name,
             role: VariableRole::Algebraic,
             unit: None,
+            description: None,
             values,
         })
         .collect();
@@ -323,6 +324,7 @@ mod tests {
             name: name.into(),
             role: VariableRole::State,
             unit: Some("V".into()),
+            description: None,
             values,
         }
     }

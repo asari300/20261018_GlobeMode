@@ -241,6 +241,36 @@ S9（代数ループ）・S10（プリフライト）の入力と、閉包の切
 - **MSL のハーネス**（`rumoca-test-msl/src/bin/rumoca-worker.rs`）: 区間は experiment（無ければ 0 → 1）、許容誤差は `Tolerance` を rtol と atol の両方に、出力は `Interval` か 500 区間、壁時計の予算は 12 秒。BDF の型付きの道で回し、エラー無く終わって NaN・inf が無ければ成功。
 - **比較の指標**（`rumoca-sim/src/sim_trace_compare.rs`）: チャネルごとに時間平均の絶対誤差を参照の p95 − p05 で割って L とし、e = L/(1+L)。0.05 未満を high、0.20 未満を minor。管（ファネル）ではない。
 
+## S012 で調べた実行系の公開の道（v0.10.2）
+
+確認日 2026-10-19。rev `276e82bd` のソース（`crates/rumoca-sim`、`rumoca-solver`、`rumoca-phase-solve`、`rumoca-solver-diffsol`、`rumoca-solver-rk45`、`rumoca-phase-dae`）を読み、wasm の試作（wasm32-unknown-unknown + wasm-bindgen、Node v24.22.0）で確かめた。行番号はこの rev のもの。設計の判断は [ADR-0014](../adr/0014-session-route-wasm.md)。
+
+- **数値積分のプラグイン**: `rumoca_solver::fmi_me` の trait `MeIntegratorBackend`（`initialize`・`advance`・`sample`・`truncate_reset`。`rumoca-solver/src/fmi_me/integrator.rs:874-923`）は公開。Rumoca の BDF と RK45 のプラグイン（`rumoca_solver_diffsol::model_exchange_integrator`、`rumoca_solver_rk45::model_exchange_integrator`）も公開。
+- **FMI ME 風の host の生成と実行**（どれも公開。Rumoca に手を入れずに積分器を差せる）:
+
+  | 順 | 関数 | 場所 |
+  | ---: | --- | --- |
+  | 1 | `lower_correlated_for_simulation_with_overrides`（lowering。パラメータの上書きを入れる） | `rumoca-sim/src/solve_lowering/overrides.rs:30` |
+  | 2 | `rumoca_phase_solve::fmi::finish_fmi_component`（Solve IR を FMI の部品にする） | `rumoca-phase-solve` の `fmi.rs:125` |
+  | 3 | `MeModelArtifact::new` | `rumoca_solver::fmi_me` |
+  | 4 | `MeRetainedComponent::instantiate` | `rumoca-solver/src/fmi_me/session.rs:72` |
+  | 5 | `into_lease`（初期化） | 同 `:116` |
+  | 6 | `numerical_setup` | 同 `:238` |
+  | 7 | `into_session(Some(Box<dyn MeIntegratorBackend>))` | 同 `:285` |
+  | 8 | `run_to_stop` → `finish` | 同 `:502` |
+
+  ハイブリッドの driver（イベント・根探索・出力の格子・時間切れ）は host が受け持つ。呼ぶ順は rumoca-sim の `me_backend::simulate_artifact` と同じ。
+- **JIT は使えない**: Cranelift の JIT を使うかを決める `admitted_native_execution_backend` は `pub(crate)`（`rumoca-sim/src/native_execution.rs:311`）。上の道はネイティブでもインタプリタで回る。S012 の `Simulation.*` 12 本では、型付きの道と上の道（BDF のプラグイン）の結果がビット単位で同じだった。型付きの道で JIT が本当に使われているかは【未確認】。
+- **`Instant::now` と wasm**: 型付きの道（`build_simulation`）と `rk45::simulate` は std の `Instant::now()` を呼ぶ（`rumoca-sim/src/diffsol.rs:200,206`、`rk45.rs:107,112`）。Node で実際に `RuntimeError: unreachable … <std::time::Instant>::now … build_simulation` になった（S011 の【未確認】を確かめた）。上の host の道の時間切れは `rumoca-solver/src/runtime/timeout.rs` で、wasm32 のときは `instant`（RUSTSEC-2024-0384、deny.toml で ignore 済み）を使うので、wasm でも効く。
+- **Cranelift と wasm32**: `rumoca-exec-cranelift` は wasm32 では依存から自動で外れる（`rumoca-sim/Cargo.toml` の cfg、`rumoca-sim/src/lib.rs:50-70`）。wasm32 ではインタプリタで回る。
+- **getrandom**: diffsol → faer → rand で getrandom 0.3 が入る。`.cargo/config.toml` の `[target.wasm32-unknown-unknown] rustflags = ['--cfg', 'getrandom_backend="wasm_js"']` だけでは「backend requires the `wasm_js` feature」で落ち、getrandom の feature `wasm_js` も要る。
+- **フロントエンドと wasm**: フロントエンドは wasm32 で動く（rayon は呼んだスレッドで逐次に回る。`std::thread::scope` は Rumoca 側で `cfg(not(wasm32))`）。MSL 4.1.0 の `.mo` は 2556 本・15.3 MB で、in-memory の組（DurableExternal）として渡せる。wasm32-unknown-unknown は panic=abort なので `catch_unwind` は効かない。
+- **パラメータの上書き**: `SimOptions::param_overrides: Vec<(String, f64)>`（`rumoca-solver/src/solver.rs:164`）。DAE は使い回せて再コンパイルは要らないが、lowering と組み立てはやり直す。`PreparedSimulation` は opts を固定で持つので使い回せない。実行の途中で変えられるのは入力だけ。
+  - 変えられるのは role が Parameter で `is_tunable` が真のもの（`rumoca-phase-dae/src/construction/variable_construction.rs:332`）。一覧は `build_tunable_parameter_meta`（`rumoca-sim/src/lib.rs:545`）。
+  - 失敗は `SimulationDiagnosticError::InvalidOverride`（`rumoca-sim/src/solve_lowering/overrides.rs:53-88`、`[EX003]`）。文言は 3 つ（structural or constant / not a tunable parameter / must be finite）。GlobeMode は `GM-E10006` にして文言を分ける。
+  - Rumoca の `eval_dae_at` は上書きを見ない。プリフライトに上書きを反映するには、`lower_for_simulation_with_overrides` と `SolveRuntime::eval_at` を使う。
+- **diffsol の陽的 RK**: diffsol の `ClosureNoJac` は非公開なので、陽的 RK（tsit45）もヤコビ行列つきの `rhs_implicit` で問題を作る。
+
 ## 依存として取り込むときの注意
 
 `rumoca`（umbrella crate）を**使わない**。理由はデフォルト feature にある。
@@ -292,3 +322,4 @@ default = ["scheduled-sim", "scenario-config", "input-keyboard", "input-gamepad"
 - <https://github.com/CogniPilot/rumoca/blob/276e82bd0fd48960ac201e782918d28bf19cf7ce/crates/rumoca-ir-dae/src/model/initial_parameters.rs>（S007）
 - <https://github.com/CogniPilot/rumoca/blob/276e82bd0fd48960ac201e782918d28bf19cf7ce/crates/rumoca-ir-dae/src/model/view/arena_walks.rs>（S007）
 - <https://github.com/CogniPilot/rumoca/blob/276e82bd0fd48960ac201e782918d28bf19cf7ce/crates/rumoca-compile/src/session/session_impl_queries.rs>（S007）
+- S012（確認日 2026-10-19）: rev `276e82bd` のソース <https://github.com/CogniPilot/rumoca/tree/276e82bd0fd48960ac201e782918d28bf19cf7ce/crates>（`rumoca-sim`、`rumoca-solver`、`rumoca-phase-solve`、`rumoca-solver-diffsol`、`rumoca-solver-rk45`、`rumoca-phase-dae`）

@@ -235,6 +235,14 @@ pub mod codes {
     pub const SOLVER_UNAVAILABLE: &str = "GM-E10005";
     /// S10: ソルバの別名を置き換えた（例: dassl → bdf。同等の手法で、結果は一致しない。情報。S011）
     pub const SOLVER_ALIAS: &str = "GM-I10003";
+    /// S10: パラメータの上書きが使えない（構造パラメータ・`final`・`Evaluate = true`・定数で再コンパイルが要る、
+    /// tunable なパラメータに名前が無い、値が有限でない。S012）
+    pub const PARAMETER_OVERRIDE_INVALID: &str = "GM-E10006";
+    /// S10: 許容誤差が小さすぎるので下限に上げた（Rumoca の実行系は 1e-10 未満で歩の端の点の照合が丸めに負ける。
+    /// 警告。S012）
+    pub const TOLERANCE_CLAMPED: &str = "GM-W10003";
+    /// S10: 固定刻みのソルバは許容誤差を使わない（刻み幅で精度が決まる。情報。S012）
+    pub const FIXED_STEP_IGNORES_TOLERANCE: &str = "GM-I10004";
     /// 実行: 初期化に失敗した（初期化系が解けない。S011）
     pub const RUN_INIT_FAILED: &str = "GM-E11001";
     /// 実行: 積分に失敗した（刻みが小さくなりすぎた、Newton が収束しないなど。S011）
@@ -251,6 +259,8 @@ pub mod codes {
     pub const RUN_TERMINATED: &str = "GM-I11001";
     /// 実行: 実行系が止めずに出した警告（例: 警告の重さの assert。S011）
     pub const RUN_WARNING: &str = "GM-W11001";
+    /// 実行: `auto` で BDF が積分に失敗したので dopri45 で回し直した（情報。S012）
+    pub const RUN_SOLVER_FALLBACK: &str = "GM-I11002";
     /// コンパイラが未対応の言語機能（フロントエンドのコードで決まる。例: Rumoca の ED019）
     pub const UNSUPPORTED: &str = "GM-U0001";
     /// コンパイラの内部エラー（例: Rumoca の ED008）

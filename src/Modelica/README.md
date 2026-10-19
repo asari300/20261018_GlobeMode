@@ -91,6 +91,7 @@ GlobeModeValidation/
 | `Simulation.EventNotSettling` | `k = if x > 0.5 then 1 - pre(k) else 0`（t = 0.5 から k が 0 と 1 を行き来する） | GM-E11003「t = 0.5 でイベントの反復が収束しない」 |
 | `Simulation.NotFiniteAtStart` | `y = 1 / x` で、x は `fixed = true` の start 値 0 | S10 の数値の検査が警告 GM-W10002（「y = inf」、位置は y の宣言）。実行は GM-E11001「初期化に失敗した（y の値が inf になった）」で、補足にプリフライトの警告が付く |
 | `Simulation.InitNoSolution` | 初期方程式 `x * x = -1`（実数の解が無い。S8 は 1 / 1 で合う） | GM-E11001「初期化に失敗した（初期化系が解けない）」 |
+| `Simulation.Parameters` | パラメータの上書き（S012）。tunable な `k`、`k` から決まる `c = 2*k`、構造パラメータ `n`（配列の大きさ）、`Evaluate = true` の `e`、`final` の `f`、定数 `g` | 成功。`k = 2` で x(1) = exp(−2)、y = {4, 4}（`c` が `k` に従う）。`n`・`e`・`f`・`g` の上書きは GM-E10006「…は実行の前に変えられない…再コンパイルする」、無い名前（`x` を含む）も GM-E10006。`tunable_parameters`（`globe simulate --list-parameters`）は `k` と `c` だけ |
 
 ## 使い方
 

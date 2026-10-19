@@ -1,0 +1,421 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S012 wasm の bdf とソルバの範囲 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S012 · P3 wasm の bdf とソルバの範囲">
+
+<section class="slide" id="S01">
+  <span class="tag">S012 · 2026-10-19 · P3 シミュレーション（2 回目）</span>
+  <h1>bdf が Node の wasm で動き、P3 の条件がそろった</h1>
+  <div class="kpis">
+    <div class="kpi"><span class="n">114 / 117</span><span class="l">wasm（Node）とネイティブの突き合わせで一致（13 本 × 9 ソルバ。bdf・dopri45・auto は全件、最大 3 ulp）</span></div>
+    <div class="kpi"><span class="n">9</span><span class="l">使えるソルバ（S011 は 3。自前の esdirk34・trbdf2・tsit45・euler・heun・rk4 を足した）</span></div>
+    <div class="kpi"><span class="n">3 / 3</span><span class="l">P3 の完了条件のうち満たしたもの</span></div>
+    <div class="kpi"><span class="n">485</span><span class="l">workspace のテストが通過（S011 は 422。10 本 ignore、0 失敗）</span></div>
+  </div>
+  <div class="card hl">
+    <p>Rumoca の FMI ME 風の host に数値積分のプラグインを差す <b>session の道</b>を作り、wasm32 のすべてのソルバと自前の積分器をそこで回す。ネイティブの <code>bdf</code>・<code>dopri45</code>・<code>auto</code> は S011 の型付きの道のまま（ADR-0014）。</p>
+    <p class="small">ほかに <code>auto</code> の dopri45 への切り替え、パラメータの上書き（再コンパイル無し）、結果の MAT v4、止まった例題の調査と直せるものの修正。MSL の全例題は 309 本が終了時刻まで（S011 は 303 本）、299 / 308 本（97.1%）が管に収まった。</p>
+  </div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>P3 の残りの完了条件と、ソルバ・ResultStore の範囲</h1>
+  <div class="cols-2">
+    <div class="card hl">
+      <h3>ユーザーの依頼</h3>
+      <p class="small">「進めて。サブエージェントはOpusのeffort-medium」。S011 の締めで挙げた S012 の候補のうち、1（bdf を wasm で）を中心に、3（自前の積分器）、4（パラメータの再実行と MAT v4）、2（止まった例題の調査）を進めた。5〜10 は持ち越し。</p>
+      <h3>進め方（S011 と同じ形）</h3>
+      <p class="small">調べもの 3 つ → 骨格（型と空の関数）を固める → 所有するファイルを分けた 5 つ（A 実行系の本体、C 自前の積分器、B wasm、D sim と CLI、X xtask）を同時に → 文書。</p>
+    </div>
+    <div class="card">
+      <h3>P3 の完了条件</h3>
+      <table class="compact">
+        <tr><th>完了条件</th><th>S012 の後</th></tr>
+        <tr><td>MSL の例題 153 本以上が実行できる</td><td class="ok">済（S011 303 本）。測り直し: 309 本</td></tr>
+        <tr><td>そのうち 90% 以上が管に収まる</td><td class="ok">済（S011 96.7%）。測り直し: 299 / 308 本（97.1%）</td></tr>
+        <tr><td>bdf が wasm で（Node 上で）動く</td><td class="ok"><b>済</b>。13 本の bdf がネイティブと全件一致、MSL の ChuaCircuit も回った</td></tr>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">調べたこと · wasm の試作</span>
+  <h1>検査 → 実行が Node の wasm で通った</h1>
+  <div class="cols-3">
+    <div class="card hl">
+      <h3>型付きの道は panic する</h3>
+      <p class="small"><code>build_simulation</code> と <code>rk45::simulate</code> は std の <code>Instant::now()</code> を呼ぶ。Node で実際に <code>RuntimeError: unreachable</code> になった。</p>
+    </div>
+    <div class="card">
+      <h3>getrandom</h3>
+      <p class="small">diffsol → faer → rand で getrandom 0.3。<code>--cfg getrandom_backend="wasm_js"</code> だけでは落ち、feature <code>wasm_js</code> も要る。</p>
+    </div>
+    <div class="card">
+      <h3>Cranelift</h3>
+      <p class="small">wasm32 では自動で外れ、インタプリタで回る。<code>instant</code>（RUSTSEC-2024-0384、ignore 済み）が実際に使われる。</p>
+    </div>
+    <div class="card">
+      <h3>フロントエンド</h3>
+      <p class="small">wasm で動く（rayon は呼んだスレッドで逐次）。MSL の .mo は 2556 本・15.3 MB。</p>
+    </div>
+    <div class="card">
+      <h3>panic=abort</h3>
+      <p class="small"><code>catch_unwind</code> は効かない。文言は panic の hook で残すしかない。</p>
+    </div>
+    <div class="card">
+      <h3>ほかの手段</h3>
+      <p class="small">wasm32-wasip1（WASI の時計で動くが wasm-bindgen が使えない）、上流で <code>web-time</code> などに替えてもらう（本命）。</p>
+    </div>
+  </div>
+  <p class="small">rev <code>276e82bd</code>、Node v24.22.0（2026-10-19）。出典の行番号は <code>doc/research/rumoca.md</code> の「S012 で調べた実行系の公開の道（v0.10.2）」。</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">調べたこと · 積分器・再実行・結果の形式</span>
+  <h1>host の生成と実行の関数はどれも公開されていた</h1>
+  <div class="cols-2">
+    <div class="card hl">
+      <h3>数値積分のプラグインを差せる</h3>
+      <ul class="small">
+        <li><code>MeIntegratorBackend</code>（initialize・advance・sample・truncate_reset）は公開。Rumoca の BDF・RK45 のプラグインも公開</li>
+        <li>lowering → <code>finish_fmi_component</code> → <code>instantiate</code> → <code>into_lease</code>（初期化）→ <code>numerical_setup</code> → <code>into_session</code> → <code>run_to_stop</code></li>
+        <li>driver（イベント・根探索・出力・時間切れ）は host が持つ。時間切れは wasm でも効く</li>
+        <li>JIT の可否の関数は <code>pub(crate)</code> → この道はネイティブでもインタプリタ</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>パラメータの上書き</h3>
+      <p class="small"><code>SimOptions::param_overrides</code>。DAE は使い回し（再コンパイル不要）、lowering と組み立てはやり直す。変えられるのは tunable なパラメータだけ。失敗の文言は 3 つ。</p>
+      <h3>MAT v4 と Arrow</h3>
+      <p class="small">MAT v4（dsres）は OpenModelica の文書の rst と omc 1.27.1 の実物で配置を確かめた（Dymola の実物は【未確認】）。Arrow は OpenModelica の形式が 0.1 の開発版、arrow-rs 60 で依存が 25 増える → <b>持ち越し</b>。</p>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">調べたこと · 止まった 54 本と外れた 10 本</span>
+  <h1>Rumoca の CLI で通るのに止まるものは 0 本</h1>
+  <div class="cols-2">
+    <table class="compact">
+      <tr><th>分類（止まった 54 本）</th><th>本数</th></tr>
+      <tr><td>構造解析の EL005（インデックスの低減が足りない）</td><td>18</td></tr>
+      <tr><td>構造解析のその他・Solve IR・組み立て</td><td>6</td></tr>
+      <tr><td>方向微分が作れない</td><td>2</td></tr>
+      <tr><td>初期化 / 積分 / 時間切れ</td><td>6 / 6 / 5</td></tr>
+      <tr><td>GM-U0005（サンプラの端点の食い違い）</td><td>4</td></tr>
+      <tr><td>外から停止（Solve IR への変換が終わらない）</td><td>7</td></tr>
+    </table>
+    <div class="card hl">
+      <h3>GlobeMode で直せるもの</h3>
+      <ul class="small">
+        <li><code>auto</code> の dopri45 への切り替え +3（<code>TwoMass</code> など）</li>
+        <li>許容誤差の下限 1e-10 +1（<code>SimpleTriacCircuit</code>）</li>
+        <li>時間切れの回し直し +1（102〜152 s）</li>
+        <li>比べ方（イベントの行）で管 +2（<code>PolyphaseTwoLevel_R</code>・<code>_RL</code>）</li>
+        <li>例題でないもの（<code>SpacePhasorLimiter</code>）を外す、既知の外れの一覧</li>
+      </ul>
+      <p class="small">上流への報告の候補は 9 つ。記録は <code>doc/research/msl-sim-failures.md</code>。</p>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">決定と理由 · 一覧</span>
+  <h1>決めたこと（ADR-0014。指示のほかは既定のまま）</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>実行の道</td><td>session の道を 1 つ作り、wasm32 のすべてのソルバと自前の積分器に使う</td><td><code>Instant::now()</code> を呼ばない。積分器だけを替えられる</td></tr>
+    <tr><td>ネイティブ</td><td><code>bdf</code>・<code>dopri45</code>・<code>auto</code> は型付きの道のまま</td><td>Rumoca の CLI と同じ数値。S011 の数字と比べられる</td></tr>
+    <tr><td>wasm</td><td>wasm32-unknown-unknown + wasm-bindgen 0.2.129。Node で確かめる</td><td>目標はブラウザの Worker。wasip1 は wasm-bindgen が使えない</td></tr>
+    <tr><td>自前の積分器</td><td>diffsol の esdirk34・trbdf2・tsit45、固定刻みの euler・heun・rk4</td><td>P3 の範囲。Rumoca に手を入れずに差せる</td></tr>
+    <tr><td><code>auto</code></td><td>BDF が積分に失敗・サンプラが食い違ったら dopri45 で回し直す（GM-I11002）</td><td>調査で +3 本の見込み</td></tr>
+    <tr><td>パラメータ</td><td><code>param_overrides</code>。使えないものは GM-E10006</td><td>再コンパイルが要らない</td></tr>
+    <tr><td>結果</td><td>MAT v4 を足し、Arrow は持ち越す</td><td>MAT v4 は omc・scipy・DyMat で読める</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">決定と理由 · 選ばなかった案</span>
+  <h1>試作の「文言を読み直す道」は捨てた</h1>
+  <table class="compact">
+    <tr><th>案</th><th>選ばなかった理由</th></tr>
+    <tr><td>試作の <code>simulate_fmi_component</code>（失敗を文言で返す）</td><td>初期化と積分のどちらで止まったかが型で分からない。session の道は同じ公開の部品を自分で順に呼ぶ</td></tr>
+    <tr><td>ネイティブもすべて session の道にする</td><td>Cranelift の JIT を使えない。型付きの道は Rumoca の CLI と同じで、S011 の数字と比べられる</td></tr>
+    <tr><td>wasm32-wasip1</td><td>wasm-bindgen が使えず、ブラウザでは WASI の shim が要る</td></tr>
+    <tr><td>上流の修正（<code>web-time</code> など）を待つ</td><td>本命だが、このセッションで完了条件を満たせない。上流への報告の候補に入れた</td></tr>
+    <tr><td>結果を Arrow IPC で書く</td><td>OpenModelica の形式が 0.1 の開発版。依存が 25 増える</td></tr>
+    <tr><td>自前の積分器を新しい crate に置く</td><td>Rumoca のプラグインの trait に結びつくので exec に置いた。係数と補間は sim に</td></tr>
+  </table>
+  <p class="small">2 つの道は <code>Simulation.*</code> 12 本の bdf で<b>ビット単位で同じ</b>（成功 8 本の行数・終わり方・全変数の最後の値、失敗 4 本の診断の全体）。dopri45・auto も一致。これを wasm の正しさの根拠にした。</p>
+</section>
+
+<section class="slide" id="S08">
+  <span class="tag">図 · 2 つの道</span>
+  <h1>どちらの道も Rumoca の型は exec の中に閉じ込める</h1>
+  <svg class="fig" viewBox="0 0 1200 420" role="img" aria-label="globe_mode_exec::run から、ネイティブの bdf・dopri45・auto は型付きの道へ、wasm32 と自前の積分器は session の道へ分かれる。session の道は Rumoca の FMI ME 風の host に数値積分のプラグインを差す。どちらも SimRun か診断を返す">
+    <defs>
+      <marker id="ah1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path class="svg-arrowhead" d="M0,0 L10,5 L0,10 z"/>
+      </marker>
+    </defs>
+    <rect class="svg-box" x="20" y="160" width="230" height="100" rx="10"/>
+    <text class="svg-text-b" x="36" y="192">globe_mode_exec::run</text>
+    <text class="svg-text-m" x="36" y="218">設定の決定（sim）</text>
+    <text class="svg-text-m" x="36" y="240">プリフライト（上書きも）</text>
+
+    <rect class="svg-box" x="330" y="30" width="400" height="130" rx="10"/>
+    <text class="svg-text-b" x="346" y="60">型付きの道（S011 のまま）</text>
+    <text class="svg-text-m" x="346" y="86">ネイティブの bdf・dopri45・auto</text>
+    <text class="svg-text-m" x="346" y="108">build_simulation → 初期化 → 実行</text>
+    <text class="svg-text-m" x="346" y="130">rk45::simulate（Cranelift の JIT）</text>
+    <text class="svg-text-m" x="346" y="150">Instant::now() を呼ぶ（wasm で panic）</text>
+
+    <rect class="svg-box-accent" x="330" y="220" width="400" height="180" rx="10"/>
+    <text class="svg-text-b" x="346" y="250">session の道（S012）</text>
+    <text class="svg-text-m" x="346" y="276">wasm32 のすべて・自前の積分器</text>
+    <text class="svg-text-m" x="346" y="300">lowering（上書き）→ finish_fmi_component</text>
+    <text class="svg-text-m" x="346" y="322">→ instantiate → into_lease（初期化）</text>
+    <text class="svg-text-m" x="346" y="344">→ numerical_setup → into_session</text>
+    <text class="svg-text-m" x="346" y="366">→ run_to_stop（driver は host）</text>
+    <text class="svg-text-m" x="346" y="388">インタプリタで回る</text>
+
+    <rect class="svg-box-accent2" x="790" y="220" width="200" height="180" rx="10"/>
+    <text class="svg-text-b" x="806" y="250">プラグイン</text>
+    <text class="svg-text-m" x="806" y="276">Rumoca の BDF</text>
+    <text class="svg-text-m" x="806" y="298">Rumoca の RK45</text>
+    <text class="svg-text-m" x="806" y="320">esdirk34・trbdf2</text>
+    <text class="svg-text-m" x="806" y="342">tsit45（diffsol）</text>
+    <text class="svg-text-m" x="806" y="364">euler・heun・rk4</text>
+    <text class="svg-text-m" x="806" y="386">（固定刻み）</text>
+
+    <rect class="svg-box" x="1030" y="160" width="150" height="100" rx="10"/>
+    <text class="svg-text-b" x="1046" y="192">SimRun</text>
+    <text class="svg-text-m" x="1046" y="218">CSV・MAT v4</text>
+    <text class="svg-text-m" x="1046" y="240">か診断</text>
+
+    <line class="svg-line" x1="250" y1="195" x2="328" y2="100" marker-end="url(#ah1)"/>
+    <line class="svg-line-accent" x1="250" y1="225" x2="328" y2="300" marker-end="url(#ah1)"/>
+    <line class="svg-line-accent" x1="730" y1="310" x2="788" y2="310" marker-end="url(#ah1)"/>
+    <line class="svg-line" x1="730" y1="95" x2="1028" y2="195" marker-end="url(#ah1)"/>
+    <line class="svg-line-accent" x1="990" y1="300" x2="1028" y2="230" marker-end="url(#ah1)"/>
+  </svg>
+  <p class="small">失敗は呼んだ位置（lowering・組み立て・初期化・積分）と Rumoca の型で振り分ける（S011 と同じコード）。<code>auto</code> の切り替えの判断（<code>fallback()</code>）はネイティブと wasm32 で共通。</p>
+</section>
+
+<section class="slide" id="S09">
+  <span class="tag">決定と理由 · wasm の束ね</span>
+  <h1>wasm の束ねも globe simulate と同じ道を通る</h1>
+  <div class="cols-2">
+    <div class="card hl">
+      <h3>JS から使う形</h3>
+      <ul class="small">
+        <li><code>new Workspace(libraryJson?, name?)</code>: ライブラリを 1 回だけ読む</li>
+        <li><code>set_file</code>・<code>remove_file</code>・<code>files()</code>・<code>simulate(requestJson)</code></li>
+        <li>関数 <code>simulate</code>・<code>solvers()</code>・<code>version()</code>・<code>memory_bytes()</code>・<code>last_panic()</code></li>
+        <li>MSL はファイルの組で渡し、Rumoca の in-memory の組として読む（<code>with_library_sources</code>）。文書として渡す道とビット単位で同じ</li>
+        <li>時計は <code>performance.now()</code>。panic の文言は hook で残す</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>ビルドと CI</h3>
+      <ul class="small">
+        <li>wasm-bindgen は Cargo.toml で <code>=0.2.129</code>、CLI も mise で同じ版</li>
+        <li><code>mise run wasm:build</code>: 最適化（lto=fat・codegen-units=1・opt-level=s・strip）は環境変数で与え、<code>[profile.release]</code> は変えない</li>
+        <li><code>wasm:node</code>（smoke）・<code>wasm:compare</code>（突き合わせ）</li>
+        <li>CI に新しいジョブ <code>wasm-node</code>（Decay を Node で。Actions の上では未確認）</li>
+      </ul>
+      <h3>大きさ</h3>
+      <p class="small">既定の release 28.2 MB（gzip 7.07 MB）→ 最適化して 14.5 MB（gzip 4.48 MB）。opt-level=s は 3 より 10〜20% 遅い。</p>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S10">
+  <span class="tag">結果 · wasm の突き合わせ</span>
+  <h1>bdf・dopri45・auto は Node でもネイティブと全件一致</h1>
+  <div class="cols-2">
+    <div>
+      <table class="compact">
+        <tr><th>ChuaCircuit（bdf）</th><th>読み込み</th><th>検査</th><th>実行</th></tr>
+        <tr><td>ネイティブ・in-memory</td><td>6.9 s</td><td>2.0 s</td><td>0.19 s</td></tr>
+        <tr><td>Node・in-memory</td><td>10.5〜11.9 s</td><td>2.8〜3.2 s</td><td>0.45〜0.5 s</td></tr>
+        <tr><td>Node・文書</td><td colspan="3">1 本で 24.0 s</td></tr>
+      </table>
+      <p class="small">読み込みは 1 回だけ。コンパイルは 0.06 s（ネイティブ）・0.09 s（Node）。線形メモリは MSL を読んで 262 MiB、ChuaCircuit の後 513 MiB、Node の RSS 886 MiB。</p>
+    </div>
+    <div class="card hl">
+      <h3><code>mise run wasm:compare</code>（13 本 × 9 ソルバ）</h3>
+      <ul class="small">
+        <li><b>117 件中 114 件が一致</b>。bdf・dopri45・auto は全件（最大 3 ulp）、自前の 6 つは最大 1588 ulp</li>
+        <li>一致しない 3 件はどれも <code>BouncingBall</code> のイベントの近くの自前の積分器（esdirk34 の相対差 9.4e-4、trbdf2 と tsit45 で行数が 1 違う）</li>
+        <li>ChuaCircuit は t = 3686 s まで一致し、その後はカオスで分かれる</li>
+        <li>Decay の 1 本目 228〜293 ms、2 本目以降は約 5 ms</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S11">
+  <span class="tag">決定と理由 · 自前の積分器</span>
+  <h1>自前の積分器 6 つを Rumoca の host に差した</h1>
+  <div class="cols-2">
+    <div>
+      <table class="compact">
+        <tr><th>名前</th><th>中身</th><th>Decay の x(1) の誤差</th></tr>
+        <tr><td><code>esdirk34</code></td><td>diffsol の SDIRK、陰的</td><td>−1.1e-7</td></tr>
+        <tr><td><code>trbdf2</code></td><td>diffsol の SDIRK、L 安定</td><td>−3.2e-7</td></tr>
+        <tr><td><code>tsit45</code></td><td>diffsol の陽的 RK</td><td>7.3e-10</td></tr>
+        <tr><td><code>euler</code></td><td>固定刻み 1 次</td><td>−1.7e-16（0.9^10 と、h 0.1）</td></tr>
+        <tr><td><code>heun</code></td><td>固定刻み 2 次</td><td>次数の実測 2.06</td></tr>
+        <tr><td><code>rk4</code></td><td>固定刻み 4 次</td><td>h 0.1 で 3.3e-7、h 1/500 で 4.8e-14</td></tr>
+      </table>
+      <p class="small">Tolerance 1e-8。次数の実測は euler 1.03・heun 2.06・rk4 4.06。BouncingBall は 6 つとも 3 回跳ねた。</p>
+    </div>
+    <div class="card">
+      <h3>MSL（予算 30 s、回し直し無し）</h3>
+      <table class="compact">
+        <tr><th>Analog.Examples 54 本</th><th>実行</th><th>管</th></tr>
+        <tr><td>bdf</td><td>50</td><td>48</td></tr>
+        <tr><td>esdirk34</td><td>42</td><td>39</td></tr>
+        <tr><td>tsit45</td><td>40</td><td>36</td></tr>
+      </table>
+      <ul class="small">
+        <li><code>rk.rs</code> は Rumoca の <code>me_integrator.rs</code>（Apache-2.0）を写して改変（先頭に明記）</li>
+        <li>固定刻みの格子は t0 + k·h。イベントの後も同じ格子に戻る</li>
+        <li>Rotational 7 本: heun（h = 出力の間隔）は 3/7</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S12">
+  <span class="tag">決定と理由 · auto・パラメータ・設定</span>
+  <h1>新しい診断のコードは 4 つ</h1>
+  <table class="compact">
+    <tr><th>コード</th><th>段階</th><th>意味</th><th>例</th></tr>
+    <tr><td class="ng">GM-E10006</td><td>S10</td><td>パラメータの上書きが使えない（構造・final・Evaluate・定数、無い名前、有限でない値）</td><td><code>Simulation.Parameters</code> の n・e・f・g</td></tr>
+    <tr><td class="warn">GM-W10003</td><td>S10</td><td>許容誤差を下限 1e-10 に上げた</td><td><code>SimpleTriacCircuit</code>（1e-12）</td></tr>
+    <tr><td>GM-I10004</td><td>S10</td><td>固定刻みのソルバは許容誤差を使わない</td><td><code>--solver rk4</code> と Tolerance</td></tr>
+    <tr><td>GM-I11002</td><td>実行</td><td><code>auto</code> で BDF が失敗したので dopri45 で回し直した</td><td><code>TwoMass</code>（管 5/5）</td></tr>
+  </table>
+  <div class="cols-2">
+    <div class="card hl">
+      <h3><code>auto</code> の切り替え</h3>
+      <p class="small">組み立て・初期化で方向微分が作れない（S011 は黙って切り替えていた）、積分の失敗、サンプラの食い違いで dopri45 に。<b>積分の途中で方向微分が作れない失敗では切り替えない</b>。ただし初期化での規則（Rumoca と同じ）に当たる <code>GenerationOfFMUs</code> は RK で進んで誤った結果になる（S013 で見直す）。</p>
+    </div>
+    <div class="card">
+      <h3>パラメータの上書き</h3>
+      <p class="small"><code>--param k=2</code> で x(1) = exp(−2)、<code>c = 2k</code> が追従。<code>--list-parameters</code> は k と c。プリフライトも上書きを反映する（<code>eval_dae_at</code> は上書きを見ないので置き換えた）。lowering は 2 回のまま。</p>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S13">
+  <span class="tag">決定と理由 · 結果の形式と比べ方</span>
+  <h1>MAT v4 を書き、比べる前にイベントの行を整える</h1>
+  <div class="cols-2">
+    <div class="card hl">
+      <h3>MAT v4（<code>--format mat</code>）</h3>
+      <table class="compact">
+        <tr><th>行列</th><th>中身</th></tr>
+        <tr><td><code>Aclass</code></td><td>Atrajectory / 1.1 / 空 / binTrans</td></tr>
+        <tr><td><code>name</code>・<code>description</code></td><td>1 列が 1 変数</td></tr>
+        <tr><td><code>dataInfo</code></td><td>別名は同じ行、負の別名は (2, −i)</td></tr>
+        <tr><td><code>data_1</code>・<code>data_2</code></td><td>パラメータ / 1 列が 1 時点</td></tr>
+      </table>
+      <p class="small">scipy・DyMat 0.7 で読め、omc 1.27.1 の実物と同じに読めた。依存は増やしていない。</p>
+    </div>
+    <div class="card">
+      <h3>比べる前の正規化（<code>normalize_events</code>）</h3>
+      <ul class="small">
+        <li><code>1e-12·max(1, |t|)</code> 以内に続く 3 行以上は最初と最後だけ</li>
+        <li>終了時刻の瞬間は最初の 1 行だけ</li>
+        <li>結果の CSV そのものは変えない</li>
+        <li>S011 の結果を比べ直すと<b>管 292 → 294 本</b>（PolyphaseTwoLevel_R 24/24、_RL 47/47）</li>
+      </ul>
+      <h3>設定の検査</h3>
+      <p class="small">刻み幅が有限でない・0 以下・区間より長いは GM-E10004。固定刻みでないソルバに <code>--step</code> は GM-W10001。</p>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S14">
+  <span class="tag">決定と理由 · MSL の一括実行</span>
+  <h1>msl:sim の既定を auto にし、時間切れだけ回し直す</h1>
+  <table class="compact">
+    <tr><th>変えたこと</th><th>中身</th><th>1 本ずつの確かめ（<code>--only</code>）</th></tr>
+    <tr><td>既定のソルバ</td><td><code>auto</code></td><td>TwoMass: auto → dopri45 で 5/5</td></tr>
+    <tr><td>回し直し</td><td>GM-E11005 だけ予算 180 s で（kill は + 60 s）</td><td>ThyristorBridge2mPulse: 133 s で 25/25</td></tr>
+    <tr><td>例題でないもの</td><td>S10 の GM-I10001 と S8 の w8003 で外す</td><td>SpacePhasorLimiter は対象外</td></tr>
+    <tr><td>既知の外れ</td><td><code>msl-sim-known-deviations.txt</code>（2 行）</td><td>Multivibrator は既知の外れ</td></tr>
+    <tr><td>段と補足</td><td>段（コンパイル・実行系・比較）、Error の補足を最大 4 つ</td><td>DrumBoiler は実行系の段で停止</td></tr>
+    <tr><td>前回との差</td><td><code>--baseline-json</code></td><td>—</td></tr>
+  </table>
+  <p class="small">段は exec の外の 3 つまで（exec の中に段の知らせの口が無い。持ち越し）。直したものの全体は <code>doc/research/msl-sim-failures.md</code> の「S012 で直したもの」。</p>
+</section>
+
+<section class="slide" id="S15">
+  <span class="tag">結果 · MSL の全例題の実行</span>
+  <h1>新しい既定で MSL の全例題を回し直した</h1>
+  <div class="big">309 本が終了時刻まで・299 / 308 本（97.1%）が管に収まった</div>
+  <div class="cols-2">
+    <div class="card">
+      <h3>S011（比べる相手）</h3>
+      <p class="small">357 本のうち 303 本が終了時刻まで、参照結果と比べた 302 本のうち 292 本（96.7%）が管に収まった。止まった 54 本、外から停止 7 本。全体 31 分 52 秒。</p>
+    </div>
+    <div class="card hl">
+      <h3>S012（対象 356 本）</h3>
+      <p class="small">止まった 47 本（未対応 24・初期化 6・時間切れ 5・積分 4・イベント 1・外から停止 7）。新しく実行できた 6 本・管に収まった 7 本、悪くなったもの 0。管の外れ 9 本のうち既知 2 本。<code>GenerationOfFMUs</code> は RK に切り替わって進むが温度が動かず外れる（上流の候補）。全体 49 分（回し直しを含む）。</p>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S16">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>mise run check                 # fmt・clippy・test・deny・uv sync --locked
+mise run wasm:node             # release の wasm を Node で（Decay、data/msl があれば ChuaCircuit）
+mise run wasm:compare          # Simulation.* × 9 ソルバを wasm とネイティブで突き合わせ
+mise run msl:sim               # 既定 auto、時間切れは 180 s で回し直し、前回との差
+globe simulate src/Modelica/GlobeModeValidation -m GlobeModeValidation.Simulation.Parameters --param k=2 -o p.mat
+globe simulate src/Modelica/GlobeModeValidation -m GlobeModeValidation.Simulation.Decay --solver rk4 --step 0.01</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">485</span><span class="l">テスト通過（10 ignore・0 失敗）</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">clippy の警告</span></div>
+    <div class="kpi"><span class="n">114 / 117</span><span class="l">wasm の突き合わせ</span></div>
+    <div class="kpi"><span class="n">12 / 12</span><span class="l">2 つの道がビット単位で同じ（bdf）</span></div>
+  </div>
+  <p class="small"><code>mise run check</code>・<code>msl:sim</code>・<code>msl:compare</code>・docs の検査の結果は作業記録の「検証」に書いた。</p>
+</section>
+
+<section class="slide" id="S17">
+  <span class="tag">次回</span>
+  <h1>S013 の候補</h1>
+  <div class="cols-2">
+    <ul class="small">
+      <li><b>止まった例題の残り</b>: EL005 の 18 本、Solve IR への変換が終わらない Fluid など（多くは上流）</li>
+      <li><b>自前の積分器の詰め</b>: esdirk34 の失敗 5 本、射影の収束 5 本、固定刻みの既定の刻み（heun）</li>
+      <li><b>ブラウザ</b>: <code>--target web</code>、Worker、panic の後の作り直し、メモリ</li>
+      <li><b>プリフライトの lowering が 2 回</b>、<b>exec の中の段の知らせ</b></li>
+      <li><b>Arrow IPC</b>、残りの計画のソルバ（radau5・ida など）</li>
+    </ul>
+    <ul class="small">
+      <li><b>S10</b>: 初期化のヤコビ行列の階数</li>
+      <li><b>持ち越し</b>: S9 を omc と照らす、閉包の切り替え、<code>Checker</code> のメモリ、字面の 0 除算・S8・<code>class_index</code> の残り</li>
+      <li><b>上流への報告</b>（ユーザーが出す）: 型付きの道の <code>Instant::now()</code>、JIT の可否の関数と <code>ClosureNoJac</code> が非公開、調査の 9 つ</li>
+      <li><b>残したこと</b>: サンプラの食い違いは文言頼み、型付きの道で JIT が使われているかは【未確認】</li>
+    </ul>
+  </div>
+  <p class="small">正典: <a href="../../roadmap.md">roadmap.md</a> の「次のセッション」、<a href="../../adr/0014-session-route-wasm.md">ADR-0014</a>、<a href="解説書.md">解説書</a>。</p>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

@@ -3,13 +3,17 @@
 //! Rumoca にも実行系にも依存しない（wasm32 でビルドできる）。実行は `globe-mode-exec` が受け持つ。
 //!
 //! - [`solvers`] … GlobeMode のソルバの名前の登録表（doc/architecture.md §3.3）。別名（`dassl` → `bdf`）と、
-//!   計画だけあってまだ実装の無いもの（`esdirk34` など）を見分ける。
+//!   計画だけあってまだ実装の無いもの（`radau5` など）を見分ける。
 //! - [`settings`] … 利用者の指定・experiment annotation・既定値から実行の設定を決める。
 //! - [`store`] … 結果の CSV（MAP-LIB の参照結果と同じ形: 1 行目は二重引用符で囲んだ名前、先頭の列は `time`）。
 //! - [`compare`] … 参照結果との比較。csv-compare（BSD-3-Clause）の矩形の管（ファネル）を、アルゴリズムの
 //!   記述から書き直したもの（コードは写していない）。
+//! - [`integrators`] … 固定刻みの積分の係数と補間（S012）。
+//! - [`mat`] … 結果の MAT v4 ファイル（dsres 形式。S012）。
 
 pub mod compare;
+pub mod integrators;
+pub mod mat;
 pub mod settings;
 pub mod solvers;
 pub mod store;

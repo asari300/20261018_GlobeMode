@@ -23,6 +23,20 @@
 //! 試験側の時刻の範囲が参照の区間を覆わない（最初の時刻が t_0 + δt より後か、最後の時刻が t_N − δt より前。
 //! 途中で止まった実行など）信号は、管の中にあっても不合格にする（`uncovered`）。
 //!
+//! # 比べる前の正規化（S012）
+//!
+//! 比べる前に、参照と試験の両方の時系列のイベントの行を整える（結果の CSV そのものは変えない）。
+//!
+//! 1. 時刻の差が `1e-12 · max(1, |t|)` 以内に続く行を同じ瞬間とみなし、3 行以上あれば最初（左極限）と
+//!    最後（右極限）の行だけを残す。Rumoca は同じ瞬間の 2 つの時間イベントを浮動小数点の和の誤差で
+//!    別々の時刻（例: 0.04524999999999976 と 0.04525000000000025）に処理し、その間の出力の格子
+//!    （0.04525）に中間の値を書く。参照はその瞬間に跳ぶだけなので、中間の行は管の外に出る。
+//! 2. 時系列の最後の瞬間（終了時刻）の行は、最初の 1 行だけを残す。Rumoca は終了時刻のイベントを
+//!    処理して後の値を書くが、参照（Dymola）は処理しない。
+//!
+//! 調査は doc/research/msl-sim-failures.md の「GlobeMode で直すもの」の 6
+//! （`PolyphaseTwoLevel_R`・`PolyphaseTwoLevel_RL`）。
+//!
 //! # 計算
 //!
 //! 折れ線は頂点の間で 1 次式なので、窓 [a, b] = [max(t − δt, t_0), min(t + δt, t_N)] の中の最大・最小は、
@@ -124,6 +138,9 @@ pub fn compare(
     } else {
         0.0
     };
+    let reference = normalize_events(reference);
+    let actual = normalize_events(actual);
+    let (reference, actual) = (reference.as_ref(), actual.as_ref());
     let reference_time = ReferenceTime::new(&reference.time);
     let reference_vars = by_name(reference);
     let actual_vars = by_name(actual);
@@ -153,6 +170,65 @@ pub fn compare(
         })
         .collect();
     Comparison { signals }
+}
+
+/// 同じ瞬間とみなす時刻の差（相対。`max(1, |t|)` を掛ける）。
+pub const SAME_INSTANT: f64 = 1e-12;
+
+/// 比べる前の正規化（モジュールの説明の「比べる前の正規化」）。同じ瞬間の 3 行以上は最初と最後だけに、
+/// 最後の瞬間は最初の 1 行だけにする。変えるところが無ければ元を借りる。
+///
+/// 値の数が時刻の数と違う変数は、値を空にする（比べるときに無いものとみなされる）。
+pub fn normalize_events(t: &Trajectory) -> Cow<'_, Trajectory> {
+    let Some(keep) = kept_rows(&t.time) else {
+        return Cow::Borrowed(t);
+    };
+    let n = t.time.len();
+    let pick = |values: &[f64]| keep.iter().map(|&i| values[i]).collect::<Vec<f64>>();
+    Cow::Owned(Trajectory {
+        time: pick(&t.time),
+        variables: t
+            .variables
+            .iter()
+            .map(|v| TrajectoryVariable {
+                values: if v.values.len() == n {
+                    pick(&v.values)
+                } else {
+                    Vec::new()
+                },
+                ..v.clone()
+            })
+            .collect(),
+    })
+}
+
+/// 正規化で残す行の番号（すべて残すなら None）。並びはそのまま、隣り合う行だけを同じ瞬間とみなす。
+fn kept_rows(time: &[f64]) -> Option<Vec<usize>> {
+    let n = time.len();
+    let mut keep = Vec::with_capacity(n);
+    let mut dropped = false;
+    let mut i = 0;
+    while i < n {
+        let mut j = i + 1;
+        if time[i].is_finite() {
+            let eps = SAME_INSTANT * time[i].abs().max(1.0);
+            while j < n && time[j].is_finite() && (time[j] - time[i]).abs() <= eps {
+                j += 1;
+            }
+        }
+        if j == n && j - i > 1 {
+            // 最後の瞬間は最初の 1 行だけ
+            keep.push(i);
+            dropped = true;
+        } else if j - i > 2 {
+            keep.extend([i, j - 1]);
+            dropped = true;
+        } else {
+            keep.extend(i..j);
+        }
+        i = j;
+    }
+    dropped.then_some(keep)
 }
 
 /// MAP-LIB の `comparisonSignals.txt` を読む（1 行に名前 1 つ）。前後の空白を除き、空行と `time` の行
@@ -402,6 +478,7 @@ mod tests {
                     name: (*name).to_string(),
                     role: VariableRole::Algebraic,
                     unit: None,
+                    description: None,
                     values: values.clone(),
                 })
                 .collect(),
@@ -720,5 +797,96 @@ mod tests {
             parse_comparison_signals("time\nx\n// shiftSample1.y\n  //y\n"),
             ["x"]
         );
+    }
+
+    #[test]
+    fn rows_of_one_instant_keep_the_first_and_the_last() {
+        // 2 行（ふつうのイベント）はそのまま
+        assert_eq!(kept_rows(&[0.0, 0.5, 0.5, 1.0]), None);
+        // 同じ瞬間の 3 行（PolyphaseTwoLevel_R の 0.04525 の形）は最初と最後
+        let t = [
+            0.0,
+            0.04524999999999976,
+            0.04525,
+            0.04525000000000025,
+            0.05,
+            0.1,
+        ];
+        assert_eq!(kept_rows(&t), Some(vec![0, 1, 3, 4, 5]));
+        // 最後の瞬間は最初の 1 行だけ（PolyphaseTwoLevel_RL の終了時刻の形）
+        let t = [0.0, 0.05, 0.09999999999999999, 0.09999999999999999, 0.1];
+        assert_eq!(kept_rows(&t), Some(vec![0, 1, 2]));
+        // 1e-12 より離れていれば別の瞬間。大きな時刻では相対の差で見る
+        assert_eq!(kept_rows(&[0.0, 0.5, 0.5 + 2e-12, 0.5 + 4e-12, 1.0]), None);
+        assert_eq!(
+            kept_rows(&[0.0, 1e6, 1e6 + 1e-7, 1e6 + 2e-7, 2e6]),
+            Some(vec![0, 1, 3, 4])
+        );
+        // NaN の時刻はまとめない
+        assert_eq!(kept_rows(&[0.0, f64::NAN, f64::NAN, f64::NAN, 1.0]), None);
+        assert_eq!(kept_rows(&[]), None);
+        assert_eq!(kept_rows(&[1.0]), None);
+    }
+
+    #[test]
+    fn intermediate_row_between_two_events_at_one_instant_is_not_compared() {
+        // 参照: 0.5 で +1 → −1 に跳ぶ。試験: 同じ瞬間を 2 回に分けて処理し、間の行に −3 を書く
+        let r = trajectory(
+            vec![0.0, 0.5, 0.5, 1.0],
+            &[("y", vec![1.0, 1.0, -1.0, -1.0])],
+        );
+        let a = trajectory(
+            vec![
+                0.0,
+                0.5 - 2e-16,
+                0.5 - 2e-16,
+                0.5,
+                0.5 + 2e-16,
+                0.5 + 2e-16,
+                1.0,
+            ],
+            &[("y", vec![1.0, 1.0, -3.0, -3.0, -3.0, -1.0, -1.0])],
+        );
+        let s = compare_y(&r, &a);
+        assert!(s.passed, "{s:?}");
+        assert_eq!(s.checked, 4);
+        // 正規化しなければ外れる（−3 は管の外）
+        let raw = trajectory(vec![0.0, 0.25, 1.0], &[("y", vec![1.0, -3.0, -1.0])]);
+        assert!(!compare_y(&r, &raw).passed);
+    }
+
+    #[test]
+    fn event_at_the_stop_time_is_compared_before_the_event() {
+        let r = trajectory(vec![0.0, 0.5, 1.0], &[("y", vec![0.0, 0.0, 0.0])]);
+        // 終了時刻の直前にイベントを処理して、後の値（16.67）を書いた
+        let a = trajectory(
+            vec![0.0, 0.5, 1.0 - 1e-16, 1.0 - 1e-16, 1.0],
+            &[("y", vec![0.0, 0.0, 0.0, 16.67, 16.67])],
+        );
+        let s = compare_y(&r, &a);
+        assert!(s.passed && !s.uncovered, "{s:?}");
+        assert_eq!(s.checked, 3);
+        // 参照の側の終了時刻のイベントも同じ扱い（跳ぶ前の値だけで管を作る）
+        let r = trajectory(vec![0.0, 0.5, 1.0, 1.0], &[("y", vec![0.0, 0.0, 0.0, 5.0])]);
+        let a = trajectory(vec![0.0, 0.5, 1.0], &[("y", vec![0.0, 0.0, 0.0])]);
+        assert!(compare_y(&r, &a).passed);
+        let a = trajectory(vec![0.0, 0.5, 1.0], &[("y", vec![0.0, 0.0, 5.0])]);
+        assert!(!compare_y(&r, &a).passed);
+    }
+
+    #[test]
+    fn normalization_borrows_when_nothing_changes_and_drops_broken_variables() {
+        let t = trajectory(vec![0.0, 0.5, 0.5, 1.0], &[("y", vec![0.0, 1.0, 2.0, 3.0])]);
+        assert!(matches!(normalize_events(&t), Cow::Borrowed(_)));
+        let mut t = trajectory(
+            vec![0.0, 1.0, 1.0],
+            &[("y", vec![0.0, 1.0, 2.0]), ("bad", vec![1.0])],
+        );
+        t.variables[1].values.clear();
+        t.variables[1].values.push(1.0);
+        let n = normalize_events(&t);
+        assert_eq!(n.time, [0.0, 1.0]);
+        assert_eq!(n.variables[0].values, [0.0, 1.0]);
+        assert!(n.variables[1].values.is_empty());
     }
 }

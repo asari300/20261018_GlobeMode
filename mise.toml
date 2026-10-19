@@ -9,6 +9,7 @@ precompiled_os = "ubuntu-26.04"    # Ubuntu 26.04 は自動判定されないの
 uv     = "0.13.1"                    # pyproject.toml の uv_build に合わせる
 rust   = { version = "stable", profile = "default", components = ["rust-analyzer"], targets = "wasm32-unknown-unknown,wasm32-wasip2,aarch64-linux-android" }  # edition 2024 は 1.85 以上。rust-toolchain.toml は置かない
 cargo-deny = "0.20.2"             # ライセンスと依存の監査（doc/licenses.md）
+"github:wasm-bindgen/wasm-bindgen" = "0.2.129"  # S012: wasm の束ねの JS の糊（wasm-bindgen --target nodejs）。版は Cargo.lock の wasm-bindgen と必ず同じにする
 zig    = "latest"
 julia  = "latest"
 erlang = "27"                      # いま apt で入っている組み合わせと同じ
@@ -46,10 +47,10 @@ run = [
 ]
 
 [tasks."msl:sim"]
-description = "msl:funnel で OK になった MSL の例題（target/msl-funnel.json）を実行し、MAP-LIB の参照結果（v4.1.0。初回は約 1 GB を data/msl-ref/ に取得）と管で比べ、報告 doc/msl-sim.md を書く（S011。別プロセスのワーカーで回し、時間切れは外から止める）"
+description = "msl:funnel で OK になった MSL の例題（target/msl-funnel.json）を実行し、MAP-LIB の参照結果（v4.1.0。初回は約 1 GB を data/msl-ref/ に取得）と管で比べ、報告 doc/msl-sim.md を書く（S011。別プロセスのワーカーで回し、時間切れは外から止める。S012 から既定のソルバは auto、時間切れは予算 180 s で回し直し、前回の target/msl-sim.json との差を書く）"
 run = [
   "cargo xtask fetch-msl",
-  "cargo xtask msl-sim --funnel-json target/msl-funnel.json --fetch-ref --report doc/msl-sim.md --json target/msl-sim.json",
+  "cargo xtask msl-sim --funnel-json target/msl-funnel.json --fetch-ref --baseline-json target/msl-sim.json --report doc/msl-sim.md --json target/msl-sim.json",
 ]
 
 [tasks."msl:omc"]
@@ -57,6 +58,33 @@ description = "msl:funnel の結果（target/msl-funnel.json）を omc（OpenMod
 run = [
   "cargo xtask omc-compare --funnel-json target/msl-funnel.json --report doc/omc-compare.md --json target/omc-compare.json",
 ]
+
+[tasks."wasm:build"]
+description = "release の wasm（globe-mode-wasm、wasm32-unknown-unknown）をビルドし、wasm-bindgen --target nodejs で ${CARGO_TARGET_DIR:-target}/wasm-pkg/node に糊を作る（S012）"
+# 大きさの最適化は workspace の [profile.release] を変えず、ここで環境変数で与える（ネイティブの release に影響させない）
+env = { CARGO_PROFILE_RELEASE_LTO = "fat", CARGO_PROFILE_RELEASE_CODEGEN_UNITS = "1", CARGO_PROFILE_RELEASE_OPT_LEVEL = "s", CARGO_PROFILE_RELEASE_STRIP = "true" }
+run = """
+set -eu
+T="${CARGO_TARGET_DIR:-target}"
+cargo build --release --target wasm32-unknown-unknown -p globe-mode-wasm
+wasm-bindgen --target nodejs --out-dir "$T/wasm-pkg/node" "$T/wasm32-unknown-unknown/release/globe_mode_wasm.wasm"
+ls -l "$T/wasm-pkg/node/globe_mode_wasm_bg.wasm"
+"""
+
+[tasks."wasm:node"]
+description = "release の wasm を Node で回す（S012。Decay を bdf・dopri45・auto で、data/msl があれば MSL の ChuaCircuit も。panic の文言も確かめる）"
+depends = ["wasm:build"]
+run = "node src/Rust/mod/globe-mode-wasm/node/smoke.mjs --msl data/msl"
+
+[tasks."wasm:compare"]
+description = "GlobeModeValidation.Simulation の例題を、実装のあるソルバすべてで wasm（Node）とネイティブの globe simulate の両方で回し、診断のコードと結果の CSV を突き合わせる（S012）"
+depends = ["wasm:build"]
+run = """
+set -eu
+T="${CARGO_TARGET_DIR:-target}"
+cargo build --release -q -p globe-mode-cli
+node src/Rust/mod/globe-mode-wasm/node/compare.mjs --globe "$T/release/globe"
+"""
 
 [tasks."docs:check"]
 description = "スライド・リンクの検査と、Playwright でのブラウザ表示の検査"

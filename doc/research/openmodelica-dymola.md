@@ -137,6 +137,32 @@ GlobeMode の S9・S10（[ADR-0012](../adr/0012-loops-and-preflight.md)）の照
 - **OpenModelica**（MSL 4.1.0、534 本）: master（2026-10-17、v1.28.0-dev）はシミュレーション 533 本、参照結果との一致 510 本。v1.25（2026-04-13）は 524 本と 499 本（<https://libraries.openmodelica.org/branches/master/Modelica_4.1.0/Modelica_4.1.0.html>）。
 - **Rumoca**: 2026-06-05 の記録で Simulation OK 153、OMC 1.26.7 と比べた 143 本のうち high agreement 89 本（<https://github.com/CogniPilot/rumoca/blob/main/docs/dev-guide/src/tooling/msl-baseline-promotion-analysis-2026-06-05.md>）。比べた相手は OMC の結果で、MAP-LIB の参照結果ではない。指標は平均の誤差（[rumoca.md](rumoca.md#s011-で調べた実行系v0102)）なので、管の合格数として読まない。rev `276e82bd` の基準値の json は simulate 216。
 
+## S012 で調べた結果の形式（MAT v4 と Arrow）
+
+確認日はすべて 2026-10-19。GlobeMode の実装は `globe-mode-sim/src/mat.rs`（[ADR-0014](../adr/0014-session-route-wasm.md)）。
+
+### MAT v4（dsres、binTrans）
+
+- 出典: OpenModelica の利用者向け文書の rst `doc/UsersGuide/source/technical_details.rst`（<https://github.com/OpenModelica/OpenModelica/blob/master/doc/UsersGuide/source/technical_details.rst>、master の 94185df、2026-09-09）と、omc 1.27.1 が書いた実物（調べもので読んだ）。MathWorks の MAT 形式の PDF は取得できなかった。Dymola が書いた実物は【未確認】（Dymola を持っていない）。
+- 行列の頭は int32 × 5（MOPT、mrows、ncols、imagf、namlen）。続いて NUL で終わる名前、値は列優先。MOPT は double が 0、int32 が 20、文字が 51。
+- 行列は 6 つ:
+
+  | 名前 | 中身 |
+  | --- | --- |
+  | `Aclass` | 文字 4 × 11。行は `Atrajectory` / `1.1` / 空 / `binTrans`。この行列だけ、行が変数ではない |
+  | `name`・`description` | 文字。1 列が 1 変数 |
+  | `dataInfo` | int32 の 4 × n。`time` は (0, 1, 0, −1)。ほかの変数の外挿の欄は 0（文書は −1 と書くが、omc の実物は 0）。パラメータは (1, i, 0, 0)。別名は別名の元と同じ行、負の別名は (2, −i) |
+  | `data_1` | 1 行目が time の [t0, t1]、残りの行がパラメータ |
+  | `data_2` | 1 列が 1 時点 |
+
+- 読めるかの確かめには scipy と DyMat 0.7（BSD）を使った。
+
+### Arrow IPC
+
+- OpenModelica の `arrow.modelica` は `modelica.format` 0.1 の開発版（仕様は `OMCompiler/SimulationRuntime/rust/openmodelica_arrow_writer/SPECIFICATION.md`、<https://github.com/OpenModelica/OpenModelica/blob/master/OMCompiler/SimulationRuntime/rust/openmodelica_arrow_writer/SPECIFICATION.md>、3f2118f、2026-09-07）。形がまだ固まっていない。
+- arrow-rs 60（`arrow-array`・`arrow-schema`・`arrow-ipc`、`default-features = false`）を GlobeMode に入れると、通常の依存が 41 crate（GlobeMode に無いもの 25）増える。ライセンスはすべて許可の区分（[licenses.md](../licenses.md)）。wasm32 の release ビルドは 45.8 s で通った。
+- S012 では Arrow を持ち越した（[ADR-0014](../adr/0014-session-route-wasm.md)）。
+
 ## Dymola（Dymosim の積分器）
 
 | 分類 | ソルバ |
@@ -177,3 +203,4 @@ GlobeMode のソルバ名との対応は [architecture.md](../architecture.md#33
 - <https://github.com/OpenModelica/modelica-language-server>
 - Dymola: <https://help-3dexperience.aesvietnam.com/English/SemUserMap/svecommon-c-DymosimIntegrators.htm>
 - 参照結果と比較（S011、確認日 2026-10-19）: <https://github.com/modelica/MAP-LIB_ReferenceResults>、<https://github.com/modelica-tools/csv-compare>、<https://github.com/lbl-srg/funnel>、<https://github.com/OpenModelica/OpenModelicaLibraryTesting>、<https://libraries.openmodelica.org/branches/master/Modelica_4.1.0/Modelica_4.1.0.html>
+- 結果の形式（S012、確認日 2026-10-19）: <https://github.com/OpenModelica/OpenModelica/blob/master/doc/UsersGuide/source/technical_details.rst>、<https://github.com/OpenModelica/OpenModelica/blob/master/OMCompiler/SimulationRuntime/rust/openmodelica_arrow_writer/SPECIFICATION.md>

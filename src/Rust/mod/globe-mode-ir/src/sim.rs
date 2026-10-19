@@ -3,6 +3,8 @@
 //!
 //! 値は f64 なので `Eq` にしない（salsa のクエリには載せない。実行は salsa の外のジョブ）。
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 /// 利用者が指定した実行の設定。None の項目は experiment annotation か既定値で決める
@@ -19,6 +21,13 @@ pub struct SimSettings {
     pub solver: Option<String>,
     /// 壁時計の予算（秒）。None は無制限
     pub max_wall_seconds: Option<f64>,
+    /// 固定刻みのソルバ（`euler`・`heun`・`rk4`）の刻み幅。None なら出力の間隔（S012）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step: Option<f64>,
+    /// パラメータの上書き（名前 → 値）。再コンパイル無しに変えられる（tunable な）パラメータだけ。
+    /// 変えられないものは GM-E10006（S012）
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub parameters: BTreeMap<String, f64>,
 }
 
 /// 設定の値をどこから決めたか。
@@ -41,8 +50,21 @@ pub enum SolverId {
     Bdf,
     /// Dormand–Prince 5(4)（陽的、刻み幅の制御あり）
     Dopri45,
-    /// 実行系に選ばせる（Rumoca の Auto: 系を見て BDF か陽的 RK を選ぶ）
+    /// 実行系に選ばせる（Rumoca の Auto: 系を見て BDF か陽的 RK を選ぶ。S012 から、BDF が積分で失敗したら
+    /// dopri45 で回し直す）
     Auto,
+    /// ESDIRK 3(4)（diffsol の SDIRK。陰的、刻み幅の制御あり。S012）
+    Esdirk34,
+    /// TR-BDF2（diffsol の SDIRK。陰的、刻み幅の制御あり。S012）
+    Trbdf2,
+    /// Tsitouras 5(4)（diffsol の陽的 RK、刻み幅の制御あり。S012）
+    Tsit45,
+    /// 陽的 Euler 法（固定刻み。S012）
+    Euler,
+    /// Heun 法（固定刻み、2 次。S012）
+    Heun,
+    /// 古典的な 4 段の Runge–Kutta 法（固定刻み。S012）
+    Rk4,
 }
 
 impl SolverId {
@@ -52,7 +74,18 @@ impl SolverId {
             SolverId::Bdf => "bdf",
             SolverId::Dopri45 => "dopri45",
             SolverId::Auto => "auto",
+            SolverId::Esdirk34 => "esdirk34",
+            SolverId::Trbdf2 => "trbdf2",
+            SolverId::Tsit45 => "tsit45",
+            SolverId::Euler => "euler",
+            SolverId::Heun => "heun",
+            SolverId::Rk4 => "rk4",
         }
+    }
+
+    /// 固定刻みのソルバか（許容誤差を使わず、刻み幅 [`ResolvedSettings::step`] で進む）。
+    pub const fn is_fixed_step(self) -> bool {
+        matches!(self, SolverId::Euler | SolverId::Heun | SolverId::Rk4)
     }
 }
 
@@ -65,6 +98,12 @@ pub struct ResolvedSettings {
     pub interval: f64,
     pub solver: SolverId,
     pub max_wall_seconds: Option<f64>,
+    /// 固定刻みの幅。固定刻みのソルバのときだけ Some（指定が無ければ出力の間隔）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step: Option<f64>,
+    /// パラメータの上書き（[`SimSettings::parameters`] をそのまま写す）
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub parameters: BTreeMap<String, f64>,
     /// 各項目の出どころ（start_time / stop_time / tolerance / interval / solver の順）
     pub origins: SettingOrigins,
 }
@@ -77,6 +116,9 @@ pub struct SettingOrigins {
     pub tolerance: SettingOrigin,
     pub interval: SettingOrigin,
     pub solver: SettingOrigin,
+    /// 固定刻みの幅の出どころ（固定刻みのソルバのときだけ Some）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step: Option<SettingOrigin>,
 }
 
 /// 結果の変数の役割。
@@ -102,6 +144,9 @@ pub struct TrajectoryVariable {
     pub role: VariableRole,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unit: Option<String>,
+    /// 変数の説明（Modelica の description string。S012）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     /// [`Trajectory::time`] と同じ長さ
     pub values: Vec<f64>,
 }
@@ -153,6 +198,34 @@ pub struct SimStats {
     pub points: usize,
 }
 
+/// 結果に添えるパラメータの値（MAT v4 の `data_1` などに書く。S012）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ResultParameter {
+    pub name: String,
+    /// 実行に使った値（上書きがあれば上書きの値）
+    pub value: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unit: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+/// 再コンパイル無しに変えられる（tunable な）パラメータ（`globe simulate --list-parameters` の 1 行。S012）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TunableParameter {
+    pub name: String,
+    /// モデルの既定値
+    pub default: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unit: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
 /// 成功した実行。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SimRun {
@@ -161,4 +234,7 @@ pub struct SimRun {
     pub trajectory: Trajectory,
     pub termination: Termination,
     pub stats: SimStats,
+    /// 実行に使ったパラメータの値（実行系が分かる範囲。無ければ空。S012）
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parameters: Vec<ResultParameter>,
 }

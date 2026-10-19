@@ -1,3 +1,8 @@
 [alias]
 # 開発用のタスク（MSL・Rumoca の CLI の取得、MSL での突き合わせ）。src/Rust/xtask
 xtask = "run --release -q -p xtask --"
+
+# S012: wasm32 の上の乱数の backend。faer（diffsol の BDF が使う）→ rand → getrandom 0.3 が要る。
+# cfg だけでは足りず、getrandom の feature `wasm_js` も要る（globe-mode-wasm が有効にする）
+[target.wasm32-unknown-unknown]
+rustflags = ['--cfg', 'getrandom_backend="wasm_js"']

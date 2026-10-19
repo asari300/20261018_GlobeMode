@@ -43,6 +43,7 @@ jobs:
       rust: ${{ steps.plan.outputs.rust }}
       rust_packages: ${{ steps.plan.outputs.rust_packages }}
       wasm: ${{ steps.plan.outputs.wasm }}
+      wasm_node: ${{ steps.plan.outputs.wasm_node }}
       deny: ${{ steps.plan.outputs.deny }}
       python: ${{ steps.plan.outputs.python }}
       docs: ${{ steps.plan.outputs.docs }}
@@ -90,13 +91,42 @@ jobs:
       - run: cargo test $PKGS
       - name: wasm32 でビルドできるか（ブラウザ版の前提）
         if: needs.plan.outputs.wasm == 'true'
-        run: cargo check --target wasm32-unknown-unknown -p globe-mode-core -p globe-mode-ir -p globe-mode-frontend -p globe-mode-graph -p globe-mode-db -p globe-mode-analysis -p globe-mode-sim
+        run: cargo check --target wasm32-unknown-unknown -p globe-mode-core -p globe-mode-ir -p globe-mode-frontend -p globe-mode-graph -p globe-mode-db -p globe-mode-analysis -p globe-mode-sim -p globe-mode-exec -p globe-mode-wasm
       - name: サンプルの検査
         run: |
           cargo run -q -p globe-mode-cli -- check src/Modelica/GlobeModeExamples/package.mo -m GlobeModeExamples.RC
           ! cargo run -q -p globe-mode-cli -- check src/Modelica/GlobeModeExamples/package.mo -m GlobeModeExamples.Unbalanced
           cargo run -q -p globe-mode-cli -- check src/Modelica/GlobeModeValidation -m GlobeModeValidation.Connect.BooleanSignals
           cargo run -q -p globe-mode-cli -- graph src/Modelica/GlobeModeValidation -m GlobeModeValidation.Connect.Hierarchical -d 2
+
+  wasm-node:
+    # S012: P3 の完了条件「bdf が wasm で（Node 上で）動く」。release の wasm をビルドし、wasm-bindgen（mise で
+    # ビルド済みのものを入れる。版は Cargo.toml の `=` と同じ）を通して、Node で Decay を bdf・dopri45・auto で回す。
+    # 実行系・sim・db・frontend・wasm の束ね（とその依存）を変えたときだけ（ci_plan.py の wasm_node）
+    needs: plan
+    if: needs.plan.outputs.wasm_node == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+        with:
+          install_args: rust github:wasm-bindgen/wasm-bindgen
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # lto などを環境変数で変えた release の wasm32 の成果物は、rust-linux のキャッシュと分ける
+          key: wasm-node
+      - run: node --version && wasm-bindgen --version
+      - name: release の wasm をビルドし、wasm-bindgen --target nodejs を通す（大きさの最適化は mise.toml の wasm:build）
+        env:
+          # mise run が、入れていないツール（zig・julia など）を入れ始めないように
+          MISE_TASK_RUN_AUTO_INSTALL: "false"
+        run: mise run wasm:build
+      - name: Node で Decay を回し、x(1) が exp(-1) に合うかを確かめる
+        run: node src/Rust/mod/globe-mode-wasm/node/smoke.mjs
+      - name: wasm の大きさ
+        run: |
+          W=target/wasm-pkg/node/globe_mode_wasm_bg.wasm
+          echo "wasm: $(stat -c %s "$W") bytes（gzip $(gzip -9c "$W" | wc -c) bytes）" | tee -a "$GITHUB_STEP_SUMMARY"
 
   deny:
     needs: plan
