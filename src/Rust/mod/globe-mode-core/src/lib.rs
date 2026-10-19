@@ -79,6 +79,9 @@ pub enum Stage {
     S9,
     /// プリフライト
     S10,
+    /// 実行（S0〜S10 を通った後のシミュレーション。S011、ADR-0013）。検査段階ではないが、
+    /// 実行の失敗も同じ診断の形で返すので段階として持つ
+    Run,
 }
 
 impl Stage {
@@ -96,6 +99,7 @@ impl Stage {
             Stage::S8 => "初期化",
             Stage::S9 => "代数ループ",
             Stage::S10 => "プリフライト",
+            Stage::Run => "実行",
         }
     }
 }
@@ -224,12 +228,36 @@ pub mod codes {
     pub const EXPERIMENT_MISSING: &str = "GM-I10001";
     /// S10: 静的に評価できないパラメータ（外部関数・外部オブジェクトなど。実行時に決まる。情報。S010）
     pub const PARAMETER_NOT_STATIC: &str = "GM-I10002";
+    /// S10: t0 で式の値が有限にならない（start 値で評価した代数変数・導関数が NaN / inf。実行の直前の数値の検査。S011）
+    pub const T0_NOT_FINITE: &str = "GM-E10005";
+    /// S10: 指定したソルバが使えない（名前が無い、またはまだ実装していない。S011）
+    pub const SOLVER_UNAVAILABLE: &str = "GM-E10006";
+    /// S10: ソルバの別名を置き換えた（例: dassl → bdf。同等の手法で、結果は一致しない。情報。S011）
+    pub const SOLVER_ALIAS: &str = "GM-I10003";
+    /// 実行: 初期化に失敗した（初期化系が解けない。S011）
+    pub const RUN_INIT_FAILED: &str = "GM-E11001";
+    /// 実行: 積分に失敗した（刻みが小さくなりすぎた、Newton が収束しないなど。S011）
+    pub const RUN_INTEGRATION_FAILED: &str = "GM-E11002";
+    /// 実行: イベントの反復が収束しない（S011）
+    pub const RUN_EVENT_FAILED: &str = "GM-E11003";
+    /// 実行: モデルの assert が失敗して止まった（S011）
+    pub const RUN_ASSERTION: &str = "GM-E11004";
+    /// 実行: 時間切れ（壁時計の予算を超えた。S011）
+    pub const RUN_TIMEOUT: &str = "GM-E11005";
+    /// 実行: 結果に NaN / inf が出た（S011）
+    pub const RUN_NOT_FINITE: &str = "GM-E11006";
+    /// 実行: terminate() で終了時刻の前に終わった（情報。S011）
+    pub const RUN_TERMINATED: &str = "GM-I11001";
     /// コンパイラが未対応の言語機能（フロントエンドのコードで決まる。例: Rumoca の ED019）
     pub const UNSUPPORTED: &str = "GM-U0001";
     /// コンパイラの内部エラー（例: Rumoca の ED008）
     pub const COMPILER_BUG: &str = "GM-U0002";
     /// 既知の制約の一覧（src/Modelica/msl-known-unsupported.txt）に当たった
     pub const KNOWN_LIMITATION: &str = "GM-U0003";
+    /// 実行系が未対応（Rumoca の実行系の lowering・組み立てで止まった。S011）
+    pub const RUN_UNSUPPORTED: &str = "GM-U0004";
+    /// 実行系の内部エラー（panic、Rumoca の実行時の契約違反。S011）
+    pub const RUN_INTERNAL: &str = "GM-U0005";
 }
 
 #[cfg(test)]

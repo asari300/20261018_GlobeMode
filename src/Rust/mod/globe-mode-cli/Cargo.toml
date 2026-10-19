@@ -17,6 +17,8 @@ globe-mode-core = { workspace = true }
 globe-mode-ir = { workspace = true }
 globe-mode-frontend = { workspace = true }
 globe-mode-db = { workspace = true }
+globe-mode-exec = { workspace = true }
+globe-mode-sim = { workspace = true }
 clap = { workspace = true }
 serde_json = { workspace = true }
 

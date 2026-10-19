@@ -18,6 +18,8 @@ globe-mode-frontend = { path = "src/Rust/mod/globe-mode-frontend", version = "0.
 globe-mode-graph = { path = "src/Rust/mod/globe-mode-graph", version = "0.0.1" }
 globe-mode-db = { path = "src/Rust/mod/globe-mode-db", version = "0.0.1" }
 globe-mode-analysis = { path = "src/Rust/mod/globe-mode-analysis", version = "0.0.1" }
+globe-mode-exec = { path = "src/Rust/mod/globe-mode-exec", version = "0.0.1" }
+globe-mode-sim = { path = "src/Rust/mod/globe-mode-sim", version = "0.0.1" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -31,6 +33,9 @@ rumoca-compile = { git = "https://github.com/CogniPilot/rumoca", rev = "276e82bd
 rumoca-ir-dae = { git = "https://github.com/CogniPilot/rumoca", rev = "276e82bd0fd48960ac201e782918d28bf19cf7ce", default-features = false }
 rumoca-eval-dae = { git = "https://github.com/CogniPilot/rumoca", rev = "276e82bd0fd48960ac201e782918d28bf19cf7ce", default-features = false }
 rumoca-core = { git = "https://github.com/CogniPilot/rumoca", rev = "276e82bd0fd48960ac201e782918d28bf19cf7ce", default-features = false }
+# S011: 実行系（globe-mode-exec だけ）。umbrella crate の既定の feature（zenoh・gamepad・UDP・web viewer）は使わず、
+# diffsol の BDF と Rumoca の RK45 だけを有効にする（ADR-0013）。wasm 以外では Cranelift の JIT も入る
+rumoca-sim = { git = "https://github.com/CogniPilot/rumoca", rev = "276e82bd0fd48960ac201e782918d28bf19cf7ce", default-features = false, features = ["solver-diffsol", "solver-rk45"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
@@ -38,3 +43,9 @@ missing_debug_implementations = "warn"
 
 [workspace.lints.clippy]
 dbg_macro = "warn"
+
+# S011: Rumoca は自分のワークスペースで crates.io の diffsol 0.13.2 に BDF の数値の修正を当てている
+# （vendor/diffsol/RUMOCA_PATCH.md）。[patch] はワークスペースのルートでしか効かないので、git 依存の
+# GlobeMode には修正前の版が入る。Rumoca の CLI と同じ数値にするため、同じ rev の vendor/diffsol を使う（ADR-0013）
+[patch.crates-io]
+diffsol = { git = "https://github.com/CogniPilot/rumoca", rev = "276e82bd0fd48960ac201e782918d28bf19cf7ce" }

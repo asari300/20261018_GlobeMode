@@ -71,6 +71,15 @@ pub(crate) fn extract_for_model(
     extract_inner(result, Some(model))
 }
 
+/// モデルの experiment annotation だけ（S011。実行の設定に使う）。根のクラスの本文を読み直した生の値で、
+/// 読み直せなければ Rumoca の（不正な値を捨てた後の）値。
+pub(crate) fn experiment_for_model(result: &CompilationResult, model: &str) -> Option<Experiment> {
+    let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        raw_experiment(&result.dae, model).unwrap_or_else(|| rumoca_experiment(result))
+    }));
+    caught.ok().flatten()
+}
+
 fn extract_inner(
     result: &CompilationResult,
     model: Option<&str>,

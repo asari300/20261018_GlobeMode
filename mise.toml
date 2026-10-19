@@ -45,6 +45,13 @@ run = [
   "cargo xtask msl-funnel --report doc/msl-funnel.md --json target/msl-funnel.json",
 ]
 
+[tasks."msl:sim"]
+description = "msl:funnel で OK になった MSL の例題（target/msl-funnel.json）を実行し、MAP-LIB の参照結果（v4.1.0、data/msl-ref/ に取得）と管で比べ、報告 doc/msl-sim.md を書く（S011。別プロセスのワーカーで回し、時間切れは外から止める）"
+run = [
+  "cargo xtask fetch-msl",
+  "cargo xtask msl-sim --funnel-json target/msl-funnel.json --report doc/msl-sim.md --json target/msl-sim.json",
+]
+
 [tasks."msl:omc"]
 description = "msl:funnel の結果（target/msl-funnel.json）を omc（OpenModelica、別プロセス）と突き合わせ、報告 doc/omc-compare.md を書く（S008。omc が PATH に要る）"
 run = [

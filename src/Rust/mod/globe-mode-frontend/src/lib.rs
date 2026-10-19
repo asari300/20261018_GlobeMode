@@ -21,7 +21,7 @@ mod structure;
 #[cfg(feature = "rumoca")]
 pub mod unsupported;
 #[cfg(feature = "rumoca")]
-pub use rumoca::{Checker, ReferenceStructure, RumocaFrontend};
+pub use rumoca::{Checker, CompiledModel, ReferenceStructure, RumocaFrontend};
 
 /// 1 つのソースファイル（名前と本文）。
 #[derive(Debug, Clone, Copy)]
