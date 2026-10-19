@@ -103,12 +103,14 @@ impl std::fmt::Debug for Checker {
 }
 
 /// Rumoca 自身の構造解析（`phase_structural::analyze`）の数。自前の S6 との照合に使う。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ReferenceStructure {
     pub n_equations: usize,
     pub n_unknowns: usize,
     /// 最大マッチングの大きさ
     pub matching: usize,
+    /// 代数ループ（BLT の大きさ 2 以上のブロック）の大きさ（方程式の数、昇順）。自前の S9 との照合に使う（S010）
+    pub loops: Vec<usize>,
 }
 
 impl Checker {
@@ -177,10 +179,17 @@ impl Checker {
             .result()
             .dae
             .inspect(rumoca_compile::phase_structural::analyze);
+        let mut loops: Vec<usize> = r
+            .algebraic_loops
+            .iter()
+            .map(|l| l.equation_origins.len())
+            .collect();
+        loops.sort_unstable();
         Some(ReferenceStructure {
             n_equations: r.n_equations,
             n_unknowns: r.n_unknowns,
             matching: r.matching_size,
+            loops,
         })
     }
 
@@ -276,6 +285,12 @@ impl Checker {
                     Err(reason) => report
                         .notes
                         .push(format!("S8 の入力（初期化系）を作れなかった: {reason}")),
+                }
+                match crate::preflight::extract(result) {
+                    Ok(preflight) => report.preflight = Some(preflight),
+                    Err(reason) => report.notes.push(format!(
+                        "S10 の入力（プリフライト）を作れなかった: {reason}"
+                    )),
                 }
             }
             Err(strict) => {

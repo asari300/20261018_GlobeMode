@@ -11,6 +11,10 @@ use std::collections::BTreeMap;
 use globe_mode_core::TextRange;
 use serde::Serialize;
 
+mod preflight;
+
+pub use preflight::*;
+
 /// 1 ファイル分のアウトライン。
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize)]
 pub struct Outline {
@@ -369,6 +373,14 @@ pub struct DaeStructure {
     /// 完全マッチングを調べる。`incidence` だけ（der の形）で完全マッチングが無いのは、
     /// 微分インデックスが 1 より大きい（S7 の情報）ということで、モデルの誤りではない。
     pub state_refs: Vec<Vec<u32>>,
+    /// 方程式ごとに、`incidence` のうち**非線形に現れる**未知数の添字（昇順、重複なし。`incidence` の部分集合）。
+    /// 長さは `equations.len()`。判定しなかったとき（手で組んだ構造など）は空（長さ 0）で、S9 はすべての参照を
+    /// 非線形とみなす（S010）。
+    ///
+    /// 「線形」は、残差がその未知数について 1 次（係数に未知数を含まない）であること。判定できない式は
+    /// 非線形にする（広めに見積もる）。S9 の代数ループの線形・非線形の判定と、tearing でその方程式を
+    /// その未知数について解けるか（線形に現れれば解ける）に使う。
+    pub nonlinear: Vec<Vec<u32>>,
 }
 
 impl DaeStructure {
@@ -394,6 +406,7 @@ impl DaeStructure {
                 .collect(),
             incidence: self.incidence.clone(),
             state_refs: self.state_refs.clone(),
+            nonlinear: self.nonlinear.clone(),
         }
     }
 

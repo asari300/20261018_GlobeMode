@@ -51,6 +51,7 @@ pub(crate) fn structure(unknowns: &[&str], equations: &[(&str, &[u32])]) -> DaeS
             .collect(),
         incidence: equations.iter().map(|(_, r)| r.to_vec()).collect(),
         state_refs: vec![Vec::new(); equations.len()],
+        nonlinear: Vec::new(),
     }
 }
 
@@ -107,6 +108,7 @@ pub(crate) fn dae(
             .collect(),
         incidence,
         state_refs,
+        nonlinear: Vec::new(),
     }
 }
 

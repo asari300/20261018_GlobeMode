@@ -213,6 +213,7 @@ fn extract_view<'dae>(dae: &Dae, view: DaeView<'dae>) -> Result<DaeStructure, St
         equations,
         incidence,
         state_refs,
+        nonlinear: Vec::new(),
     })
 }
 

@@ -23,8 +23,10 @@ mod bipartite;
 mod dm;
 pub mod init;
 pub mod init_system;
+pub mod loops;
 mod matching;
 pub mod pantelides;
+pub mod preflight;
 #[cfg(test)]
 mod testutil;
 
@@ -36,8 +38,10 @@ use crate::bipartite::Bipartite;
 pub use crate::dm::{Decomposition, dulmage_mendelsohn};
 pub use crate::init::{InitReport, analyze_init, analyze_init_system};
 pub use crate::init_system::{InitCondition, InitMatching, InitUnknown, match_init_system};
+pub use crate::loops::{LoopReport, analyze_loops};
 pub use crate::matching::{Matching, hopcroft_karp};
 pub use crate::pantelides::{IndexReport, analyze_index};
+pub use crate::preflight::{PreflightReport, analyze_preflight};
 
 /// 診断の補足に並べる項目の上限。超えた分は「ほか k 件」にまとめる。
 pub const NOTE_LIST_LIMIT: usize = 10;
@@ -613,6 +617,7 @@ mod tests {
                 .collect(),
             incidence: vec![Vec::new(); 12],
             state_refs: (0..12u32).map(|j| vec![j]).collect(),
+            nonlinear: Vec::new(),
         };
         let r = analyze(&s);
         assert!(r.is_regular() && r.index_reduction_needed);
@@ -716,6 +721,7 @@ mod tests {
                 equations: (0..n).map(|i| equation(i, &format!("e{i}"))).collect(),
                 incidence,
                 state_refs,
+                nonlinear: Vec::new(),
             };
             let r = analyze(&s);
             let der_form = hopcroft_karp(n, m, &s.incidence);

@@ -1897,6 +1897,7 @@ mod tests {
                 .collect(),
             incidence,
             state_refs,
+            nonlinear: Vec::new(),
         }
     }
 
@@ -1951,6 +1952,7 @@ mod tests {
                 n_equations: e,
                 n_unknowns: u,
                 matching: m,
+                loops: Vec::new(),
             })
         };
         // 正則（Rumoca と一致）
