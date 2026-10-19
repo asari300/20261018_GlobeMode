@@ -25,7 +25,7 @@
 - **不足している部分**（対応の無い列から交互路で届く列と行）: 列が行より `missing` 個多い。この部分の未知数には初期条件が無い（start 値を推定値として使う見込み）。
 - 初期化で決めるパラメータ（`fixed = false`、束縛なし）は初期化の未知数なので、DAE の方程式からの参照も要る。フロントエンドは、そのパラメータが 1 つでもあるときだけ DAE の連続の方程式をもう一度歩いて `InitStructure::equation_parameter_refs` に残す（無ければ歩かない。MSL の例題のほとんどは無い）。
 - **束縛を通した依存も追う**: `Sub s(k = c)` のように、`fixed = false` の `c` が部品の束縛を通してしか DAE に現れないことがある（MSL の `InitSpringConstant` の `spring.c` → `spring.spring.c`）。束縛が（推移的に）初期化の未知数を参照するパラメータも未知数にし、その束縛 `s.k = c` を行にする（`InitStructure::parameter_binding_refs`）。これが無いと `c` はどの行にも繋がらず、「決まらない」と「冗長」が 1 つずつ偽に出る（最初のファネルで起きた）。
-- 離散変数の列は DAE の行から参照されない（[`DaeStructure`] は離散変数を既知として数える）ので、初期条件の無い離散変数は常に不足している部分に入る。when の外の式で決まる離散変数には初期条件が要らない（MLS §8.6）が、その区別は持っていない（S009 の候補 4 のまま）ので、ADR-0009 の柔らかい警告の約束をそのまま使う。
+- 離散変数の列は DAE の行から参照されない（[`DaeStructure`] は離散変数を既知として数える）ので、初期条件の無い離散変数は常に不足している部分に入る。when の外の式で決まる離散変数には初期条件が要らない（MLS §8.6）が、その区別は持っていない（S009 の候補 4 のまま）ので、ADR-0009 の柔らかい警告の約束をそのまま使う。→ S010 で区別した（末尾の「S010 の追記」）。
 
 ### 入力（`globe-mode-ir`、`globe-mode-frontend/src/init.rs`）
 
@@ -71,3 +71,16 @@
 - **`NonCircularPipes` の冗長 2 本は globe の DAE に無い**: omc が冗長と言う `mediums[1].p = 1e6` は `PartialDistributedVolume` の `initial equation` の `if massDynamics == FixedInitial then mediums.p = ps_start` で、`massDynamics` は `outer system` から来る。Rumoca v0.10.2 は **`outer` の参照を `inner` の修正ではなく型の既定で評価する**（`IfInit4` の 5 通りで切り分けた。[research/rumoca.md](../research/rumoca.md#s009-で調べた-apiv0102)）ので、この初期方程式（2 本の配管で 8 本）が消え、globe は「決まらない 36」（与えた 4 / 要る 40）になる。マッチングの入力が欠けているのであって、マッチングの誤りではない。MSL の Fluid の例題 11 本が `inner Modelica.Fluid.System system(…)` でこの形。上流に報告する候補（roadmap の 7）。検証用のモデル `Init.OuterModification` と db のテスト `outer_modification_is_lost_by_the_compiler`（Rumoca が直ったら落ちる）に記録した。
 - **`RollingWheelSetDriving` / `RollingWheelSetPulling` の「冗長 7」も Rumoca の入力の問題**: 例題が `wheelSet(theta1(fixed = true), …)` と修正すると、Rumoca は部品の中の `wheelSet.wheelSetJoint.theta1`（MSL は `wheelSetJoint(theta1(fixed = false))` で外している）にも `fixed = true` を付ける（`Init.ModifierScope` で再現）。別名の両方が `fixed = true` なので、マッチングは正しく冗長と言う。omc は過剰と言わない。上流に報告する候補。検証用のモデルと db のテスト `modifier_leaks_into_subcomponents_in_the_compiler`（Rumoca が直ったら落ちる）に記録した。
 - **omc が手前で止めるモデル**（`GM-W8003` 相当。`OpAmpCircuits.*` の 5 本）は、globe では S8 の警告のまま S6 より前では報告しない。値の無いパラメータがあっても構造の検査は意味を持つ（S6・S7 は値を使わない）し、部品の単体の検査で値を与えないのは普通のため。omc との照合では「比べられない」のまま。
+
+## S010 の追記: 離散変数の決まり方を区別する（2026-10-19）
+
+S009 では離散変数の列が DAE の行から参照されず、初期条件の無い離散変数は常に不足している部分に入った。S010 で、離散変数ごとに初期化のときの決まり方を取り出し、初期化でも成り立つ離散の方程式を行に足した。
+
+- **MLS 3.6 §8.6**（[equations.html](https://specification.modelica.org/maint/3.6/equations.html)、2026-10-19 に確認）: when の式が初期化で働くのは `when initial() then` か `when {…, initial(), …} then` の形だけ。初期化で働かない when の式 `v = expr` には、初期化のために `v = pre(v)` が加わる。離散変数で `fixed = true` なら加わるのは `pre(vd) = start`（`vd = start` ではない）。`pre` は初期化では未知の代数変数として扱う。
+- **入力**（`InitStructure`）: 離散変数ごとの `DiscreteInit { kind, pre_referenced }`（`kind` は `When`（when の中で決まる）/ `Always`（when の外の式で決まる）/ `InitialWhen`（`when initial()` の枝で決まる）/ `Unknown`（取り出せない。クロックの区間の変数など））と、初期化でも成り立つ離散の方程式 `DiscreteEquation`（対象と参照）。初期方程式の `pre(d)` の参照は `initial_pre_discrete_refs` に分けた。Rumoca の `DaeView::discrete_value_owner(id)` の `branches()`（`DiscreteBranchActivation::{Always, When{trigger, guard}}`）と `DiscreteRealEquationView`、条件の `ConditionOperation::Initial` から取る（[research/rumoca.md](../research/rumoca.md)）。
+- **列**: `When` と `Unknown` は S009 と同じく `d` と `pre(d)` を 1 つの列にする（初期条件が 1 つ要る）。`Always` と `InitialWhen` は離散の方程式の行が `d` の列を決め、`pre(d)` が初期化で働く式に参照されるか `fixed = true` のときだけ、`pre(d)` を別の列にする（`InitUnknown::PreDiscrete`。`fixed = true` の行はこの列を決める）。
+- **要る数** = 動的な状態 + （`When` と `Unknown` の離散変数 + 別の列にした `pre(d)`）+ 初期化で決めるパラメータ。不変条件「列 − 行 = 要る数 − 与えた数」は保つ（単体テストで確かめた）。
+- **診断の規則の変更**: 過剰が確定しない理由の「離散変数を含む」は、決まり方の分からない（`Unknown`）離散変数が関わるときだけにした（when で決まる `n` に `fixed = true` と `initial equation n = 0` の両方があれば `GM-E8001`。omc も over specified）。柔らかい `GM-W8001` で数えるのは、不足している部分にある `Unknown` で `fixed = false` の離散変数だけ。決まり方の分かる離散変数の不足は確定した `GM-W8001`（補足に「start を初期値に使う見込み」）。離散の方程式の行は DAE の行として扱う（`over_with_dae`。`b = x > 0` に `initial equation b = true` も書くと `GM-W8004`）。
+- **Rumoca の癖への対処**: 初期方程式の `pre(a) = pre(b)` の連なりを、Rumoca は対象ごとの定義（`initial_discrete_values`）に取り分け、位置はどれも 1 本目になる（MSL の StateGraph の `PartialStep`）。そのままでは偽の冗長が出たので、本文が `pre(` で始まり、位置と部品が同じ k 個の定義を、参照をまとめた k − 1 行にした。
+- **検証用のモデル**: `Init.DiscreteWhen`（不足 2 の確定した `GM-W8001`。omc も「Assuming fixed start value for the following 2 variables」）、`DiscreteOutsideWhen`（合う）、`DiscreteEdge`（`edge(b)` の `pre(b)` が不足 1。omc も同じ）、`DiscreteWhenInitial`（合う）、`DiscretePreInitial`（合う）、`DiscreteRedundant`（`GM-E8001`）。
+- **残した近似**: DAE の連続の方程式の中の `pre(d)` は `pre_referenced` に数えていない。離散 Real の対象は残差 `d - 値` の左辺から取り、座標 1 つに決まらなければ飛ばす。アルゴリズムの `when {…, initial()} then last := f(…, last, …)` で Rumoca が読み出しの `last` を `pre(last)` にする形（MSL の `Interaction1` の `timeTable`）は、globe は不足 1 と言い、omc は何も言わない（式で書いた同じ形には omc も警告する）。

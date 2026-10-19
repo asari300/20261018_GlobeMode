@@ -6,61 +6,494 @@
 <title>S010 代数ループとプリフライト — GlobeMode</title>
 <link rel="stylesheet" href="../../assets/slides.css">
 </head>
-<body data-deck="GlobeMode S010 代数ループとプリフライト">
+<body data-deck="GlobeMode S010 · S9 代数ループと S10 プリフライト">
 
 <section class="slide" id="S01">
-  <span class="tag">S010 · 2026-10-19 · P2</span>
-  <h1>題名</h1>
-  <p class="lead">このセッションの結論を1文で</p>
-  <div class="big">結論を<b>強調</b>して1〜2行で</div>
+  <span class="tag">S010 · 2026-10-19 · P2 遅延クエリと検査（6 回目）</span>
+  <h1>S9（代数ループ）と S10（プリフライトの静的な部分）を足し、S8 の離散変数と閉包の切り替えを詰めた</h1>
+  <div class="kpis">
+    <div class="kpi"><span class="n">369 / 369</span><span class="l">S9 まで来た MSL の例題すべてで BLT と tearing を解析（解析なし 0）</span></div>
+    <div class="kpi"><span class="n">215 / 215</span><span class="l">微分の要らない系で、ループの大きさの一覧が Rumoca の構造解析（ES002）と一致</span></div>
+    <div class="kpi"><span class="n">111 → 269</span><span class="l">S8 の「合う」。離散変数の when の区別で、StateGraph などの「不足」が移った</span></div>
+    <div class="kpi"><span class="n">49 ms</span><span class="l">一度検査したモデルへ編集なしで戻るときの再検査（S007 の方式は 2099 ms。文書の和集合）</span></div>
+  </div>
+  <div class="big">検査の段階 <b>S0〜S10 が、S10 の数値の部分を除いてそろった</b>。5 つのサブエージェントが所有するファイルを分けて並列に作った（ADR-0012）。omc との S9 の一致は 282 / 355・312 / 355 で、食い違いの主な見込みは広めの線形の判定。</div>
 </section>
 
 <section class="slide" id="S02">
   <span class="tag">目的</span>
-  <h1>このセッションでやること</h1>
-  <ul>
-    <li>依頼の要約</li>
-    <li>どの Phase のどの完了条件に向けた作業か</li>
-  </ul>
-</section>
-
-<section class="slide" id="S03">
-  <span class="tag">決定と理由</span>
-  <h1>決めたこと</h1>
-  <table>
-    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
-    <tr><td>…</td><td>…</td><td>…</td></tr>
-  </table>
-</section>
-
-<section class="slide" id="S04">
-  <span class="tag">図</span>
-  <h1>構成</h1>
-  <svg class="fig" viewBox="0 0 800 260" role="img" aria-label="構成図">
-    <rect class="svg-box-accent" x="40" y="90" width="200" height="80" rx="10"/>
-    <text class="svg-text-b" x="140" y="136" text-anchor="middle">A</text>
-    <line class="svg-line" x1="240" y1="130" x2="560" y2="130"/>
-    <rect class="svg-box" x="560" y="90" width="200" height="80" rx="10"/>
-    <text class="svg-text-b" x="660" y="136" text-anchor="middle">B</text>
-  </svg>
-</section>
-
-<section class="slide" id="S05">
-  <span class="tag">再現手順</span>
-  <h1>再現と検証</h1>
-  <pre><code>コマンド</code></pre>
-  <div class="kpis">
-    <div class="kpi"><span class="n">0</span><span class="l">リンク切れ</span></div>
+  <h1>roadmap の S010 の候補から、並列にできる 5 つの作業を取った</h1>
+  <div class="cols-2">
+    <div class="card hl">
+      <h3>ユーザーの依頼</h3>
+      <p class="small">「S010を進めてください。サブエージェントは<code>/effort</code>を<code>medium</code>で複数並列実行してください。」ほかの指示は無いので、範囲や方式は既定のまま進めた。</p>
+      <h3>範囲（roadmap の S010 の候補）</h3>
+      <ul class="small">
+        <li>候補 <b>3</b>: S9（代数ループ）・S10（プリフライト）。BLT と tearing、線形・非線形の判定、S10 の 3 つの作業に分かれる</li>
+        <li>候補 <b>1</b>: S8 の離散変数の when の区別（S009 から送った）</li>
+        <li>候補 <b>2</b>: 閉包の切り替えの費用（<code>Checker</code> に文書の和集合）</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>取らなかった候補</h3>
+      <table class="compact">
+        <tr><th>候補</th><th>理由</th></tr>
+        <tr><td>4 <code>Checker</code> のメモリの上限</td><td>P4 のプロセス構成が決まってから</td></tr>
+        <tr><td>5 Rumoca の制約の上流報告</td><td>ユーザーが出す</td></tr>
+        <tr><td>6 <code>class_index</code> の残り</td><td>次へ送った</td></tr>
+        <tr><td>7 S8 の精密化の残り</td><td>次へ送った</td></tr>
+      </table>
+      <h3>どの完了条件に向けた作業か</h3>
+      <p class="small">P2 の完了条件 3 つは S008 で満たした。S010 は P2 の範囲の残り（<code>assert_simulatable</code> の S9・S10）を埋め、P3 に進む前の土台を作る作業にあたる。</p>
+    </div>
   </div>
 </section>
 
+<section class="slide" id="S03">
+  <span class="tag">決定と理由 · 並列の分け方</span>
+  <h1>共有の型を骨格として先に固め、所有するファイルを分けて 5 並列にした</h1>
+  <svg class="fig" viewBox="0 0 1200 420" role="img" aria-label="骨格のコミットから 5 つのサブエージェント A〜E に分かれ、統合に集まる図">
+    <defs>
+      <marker id="ah1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path class="svg-arrowhead" d="M0,0 L10,5 L0,10 z"/>
+      </marker>
+    </defs>
+    <rect class="svg-box-accent" x="20" y="120" width="250" height="170" rx="10"/>
+    <text class="svg-text-b" x="145" y="148" text-anchor="middle">骨格（先に固めた）</text>
+    <text class="svg-text-m" x="40" y="176">core の診断コード（GM-I9001…）</text>
+    <text class="svg-text-m" x="40" y="198">ir の DaeStructure::nonlinear</text>
+    <text class="svg-text-m" x="40" y="220">S10 の入力の型・空の関数</text>
+    <text class="svg-text-m" x="40" y="242">検証用 Loops・Preflight の器</text>
+    <text class="svg-text-a" x="40" y="272">コミット 9f33c79</text>
+
+    <rect class="svg-box" x="330" y="14" width="520" height="62" rx="10"/>
+    <text class="svg-text-b" x="350" y="40">A · S9 の BLT と tearing</text>
+    <text class="svg-text-m" x="350" y="62">globe-mode-analysis/src/loops.rs</text>
+    <text class="svg-text-a" x="830" y="40" text-anchor="end">テスト 12 本</text>
+
+    <rect class="svg-box" x="330" y="94" width="520" height="62" rx="10"/>
+    <text class="svg-text-b" x="350" y="120">B · S9 の線形・非線形の判定</text>
+    <text class="svg-text-m" x="350" y="142">frontend の structure.rs、tests/loops.rs、Loops/*.mo</text>
+    <text class="svg-text-a" x="830" y="120" text-anchor="end">テスト 7 本</text>
+
+    <rect class="svg-box" x="330" y="174" width="520" height="62" rx="10"/>
+    <text class="svg-text-b" x="350" y="200">C · S10 プリフライト（静的な部分）</text>
+    <text class="svg-text-m" x="350" y="222">ir・frontend・analysis の preflight.rs、Preflight/*.mo</text>
+    <text class="svg-text-a" x="830" y="200" text-anchor="end">テスト 32 本</text>
+
+    <rect class="svg-box" x="330" y="254" width="520" height="62" rx="10"/>
+    <text class="svg-text-b" x="350" y="280">D · 閉包の切り替え</text>
+    <text class="svg-text-m" x="350" y="302">rumoca.rs の Checker、db の lib.rs、tests/switching.rs</text>
+    <text class="svg-text-a" x="830" y="280" text-anchor="end">テスト 12 本</text>
+
+    <rect class="svg-box" x="330" y="334" width="520" height="62" rx="10"/>
+    <text class="svg-text-b" x="350" y="360">E · S8 の離散変数（when の区別）</text>
+    <text class="svg-text-m" x="350" y="382">frontend と analysis の init、Init/Discrete*.mo</text>
+    <text class="svg-text-a" x="830" y="360" text-anchor="end">テスト 19 本</text>
+
+    <rect class="svg-box-accent2" x="910" y="110" width="270" height="190" rx="10"/>
+    <text class="svg-text-b" x="1045" y="138" text-anchor="middle">統合（メインの作業者）</text>
+    <text class="svg-text-m" x="928" y="166">db: loop_report・preflight_report</text>
+    <text class="svg-text-m" x="928" y="188">check_model の S9・S10</text>
+    <text class="svg-text-m" x="928" y="210">CLI の S9・S10 の行と --json</text>
+    <text class="svg-text-m" x="928" y="232">msl-funnel・omc-compare の S9</text>
+    <text class="svg-text-m" x="928" y="254">ES002 の読み取り</text>
+    <text class="svg-text-m" x="928" y="276">ADR-0012 と正典の文書</text>
+
+    <path class="svg-line-accent" d="M270,205 H300 V45 H328" marker-end="url(#ah1)"/>
+    <path class="svg-line-accent" d="M270,205 H300 V125 H328" marker-end="url(#ah1)"/>
+    <line class="svg-line-accent" x1="270" y1="205" x2="328" y2="205" marker-end="url(#ah1)"/>
+    <path class="svg-line-accent" d="M270,205 H300 V285 H328" marker-end="url(#ah1)"/>
+    <path class="svg-line-accent" d="M270,205 H300 V365 H328" marker-end="url(#ah1)"/>
+    <path class="svg-line" d="M850,45 H880 V205 H908" marker-end="url(#ah1)"/>
+    <path class="svg-line" d="M850,125 H880 V205"/>
+    <line class="svg-line" x1="850" y1="205" x2="880" y2="205"/>
+    <path class="svg-line" d="M850,285 H880 V205"/>
+    <path class="svg-line" d="M850,365 H880 V205"/>
+  </svg>
+  <p class="small">1 つの worktree で、5 つのサブエージェント（effort medium）を同時に走らせた。ほかの担当の所有ファイルは触らない約束。B・C・E は途中で API の使用量の上限で止まり、上限が戻ってから続きを頼んだ。統合（db のクエリ、CLI、ファネル、omc の照合、文書）はメインの作業者がまとめた。</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由 · 一覧</span>
+  <h1>決めたこと（指示は範囲と並列の仕方だけ。ほかは既定のまま）</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>S9 の解く系</td><td>インデックス 1 なら der の形、2 以上なら <b>Pantelides 法の最高階の系</b>（状態選択の前の見込み）</td><td>状態選択の後の系は dummy derivative の選び方が要る。P3 へ送った</td></tr>
+    <tr><td>S9 の重さ</td><td><b>Error を出さない</b>。<code>GM-I9001</code>（情報）と <code>GM-W9001</code>（警告）だけ</td><td>start 値の無い反復変数は既定の 0 から反復するだけで、解けないとは限らない（omc も警告）</td></tr>
+    <tr><td>線形・非線形</td><td><b>族（変数）の単位で広めに</b>判定する。<code>abs</code>・<code>min</code>・<code>max</code> も非線形</td><td>誤るのは「線形なのに非線形」の側（警告が多めに出る側）だけ。要素ごとの展開は大きなモデルで遅い</td></tr>
+    <tr><td>S10 の範囲</td><td><b>静的な部分だけ</b>（パラメータと start 値の評価、experiment annotation）</td><td>Rumoca の評価器は実行時の座標を評価しない。t0 の残差と初期化のヤコビ行列の階数は P3 の実行系と一緒に</td></tr>
+    <tr><td>experiment</td><td>根のクラスの本文を Rumoca の parser で読み直し、<b>生の値</b>で判定する。StopTime = StartTime は誤りにしない</td><td>Rumoca は不正な値を黙って捨てる。MSL の <code>Inverse_sine</code> が <code>StopTime = 0</code> を使う</td></tr>
+    <tr><td>S8 の離散変数</td><td>when の中・when の外・<code>when initial()</code>・不明 の 4 通りに分け、離散の方程式を行に足す</td><td>MLS 3.6 §8.6。決まり方の分かる離散変数の不足と冗長は確定できる</td></tr>
+    <tr><td>閉包の切り替え</td><td><code>Checker</code> に<b>文書の和集合</b>を持たせ、結果が変わる文書だけ取り除く</td><td>Rumoca の Session にライブラリの解決だけを残す道が無い。文書の組を変えないしかない</td></tr>
+    <tr><td>字面の 0 除算</td><td><code>ED019</code> → <code>GM-U0001</code> の振り分けは<b>変えない</b>（候補に残す）</td><td>ADR-0007 のコードの規則を文言で例外にするのは方針の変更</td></tr>
+    <tr><td>Rumoca との照合</td><td>ES002 の文言からループの大きさを読む</td><td>Rumoca の <code>algebraic_loops</code> は空のまま（B が見つけた）</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">図 · S9 の流れ</span>
+  <h1>解く系を BLT に分け、非線形のループの反復変数の start 値を見る</h1>
+  <svg class="fig" viewBox="0 0 1200 330" role="img" aria-label="解く系、完全マッチング、依存グラフ、強連結成分、線形・非線形、貪欲な tearing の 6 段の流れと、診断 GM-I9001 と GM-W9001">
+    <defs>
+      <marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path class="svg-arrowhead" d="M0,0 L10,5 L0,10 z"/>
+      </marker>
+    </defs>
+    <rect class="svg-box-accent" x="20" y="40" width="165" height="130" rx="10"/>
+    <text class="svg-text-b" x="102" y="70" text-anchor="middle">解く系</text>
+    <text class="svg-text-m" x="102" y="96" text-anchor="middle">インデックス 1:</text>
+    <text class="svg-text-m" x="102" y="114" text-anchor="middle">der の形</text>
+    <text class="svg-text-m" x="102" y="134" text-anchor="middle">2 以上: 最高階の系</text>
+    <text class="svg-text-m" x="102" y="152" text-anchor="middle">（reduced の印）</text>
+
+    <rect class="svg-box" x="221" y="40" width="165" height="130" rx="10"/>
+    <text class="svg-text-b" x="303" y="70" text-anchor="middle">完全マッチング</text>
+    <text class="svg-text-m" x="303" y="100" text-anchor="middle">Hopcroft–Karp</text>
+    <text class="svg-text-m" x="303" y="122" text-anchor="middle">方程式 ↔ 未知数</text>
+
+    <rect class="svg-box" x="422" y="40" width="165" height="130" rx="10"/>
+    <text class="svg-text-b" x="504" y="70" text-anchor="middle">依存グラフ</text>
+    <text class="svg-text-m" x="504" y="100" text-anchor="middle">e が e' にマッチした</text>
+    <text class="svg-text-m" x="504" y="122" text-anchor="middle">未知数を参照 → 辺</text>
+
+    <rect class="svg-box" x="623" y="40" width="165" height="130" rx="10"/>
+    <text class="svg-text-b" x="705" y="70" text-anchor="middle">強連結成分</text>
+    <text class="svg-text-m" x="705" y="100" text-anchor="middle">Tarjan 法（再帰なし）</text>
+    <text class="svg-text-m" x="705" y="122" text-anchor="middle">O(E)。出た順に解く</text>
+    <text class="svg-text-m" x="705" y="144" text-anchor="middle">大きさ 2 以上 = ループ</text>
+
+    <rect class="svg-box" x="824" y="40" width="165" height="130" rx="10"/>
+    <text class="svg-text-b" x="906" y="70" text-anchor="middle">線形・非線形</text>
+    <text class="svg-text-m" x="906" y="100" text-anchor="middle">nonlinear で判定</text>
+    <text class="svg-text-m" x="906" y="122" text-anchor="middle">最高階の系の c ≥ 1</text>
+    <text class="svg-text-m" x="906" y="144" text-anchor="middle">の行は線形（連鎖律）</text>
+
+    <rect class="svg-box-accent2" x="1025" y="40" width="165" height="130" rx="10"/>
+    <text class="svg-text-b" x="1107" y="70" text-anchor="middle">貪欲な tearing</text>
+    <text class="svg-text-m" x="1107" y="100" text-anchor="middle">残り 1 つで線形</text>
+    <text class="svg-text-m" x="1107" y="118" text-anchor="middle">なら解く</text>
+    <text class="svg-text-m" x="1107" y="140" text-anchor="middle">無ければ反復変数</text>
+
+    <line class="svg-line" x1="185" y1="100" x2="219" y2="100" marker-end="url(#ah2)"/>
+    <line class="svg-line" x1="386" y1="100" x2="420" y2="100" marker-end="url(#ah2)"/>
+    <line class="svg-line" x1="587" y1="100" x2="621" y2="100" marker-end="url(#ah2)"/>
+    <line class="svg-line" x1="788" y1="100" x2="822" y2="100" marker-end="url(#ah2)"/>
+    <line class="svg-line" x1="989" y1="100" x2="1023" y2="100" marker-end="url(#ah2)"/>
+
+    <rect class="svg-band" x="20" y="190" width="1170" height="120" rx="8"/>
+    <rect class="svg-box-accent" x="40" y="206" width="36" height="20" rx="5"/>
+    <text class="svg-text" x="90" y="222">GM-I9001（情報）: ループがあれば 1 つ。「代数ループが N 個（線形 a・非線形 b、最大 k 本の方程式）」</text>
+    <rect class="svg-box-warn" x="40" y="240" width="36" height="20" rx="5"/>
+    <text class="svg-text" x="90" y="256">GM-W9001（警告）: 非線形のループの反復変数（階数 0 の代数・出力）に start 値が無い。位置はその変数の宣言</text>
+    <text class="svg-text-m" x="40" y="292">反復変数の選ぶ順: start 値のある代数・出力 → start の無い代数・出力 → der(x) と階数 1 以上の列（同じ組では出現の多い順）。S9 は Error を出さない</text>
+  </svg>
+  <p class="small">ブロックの分け方はマッチングの選び方によらない（Duff 1981。並べ替えの乱択テストで確かめた）。最小の tearing は NP 困難なので貪欲法（O(E + k log k)）。start 値のある変数を先に選ぶので、警告は「避けられないもの」に近い。解析できない（S7 の打ち切り、長さの不一致、完全マッチングが無い）ときは <code>LoopReport::skipped</code> に理由を残す。</p>
+</section>
+
 <section class="slide" id="S06">
+  <span class="tag">決定と理由 · S9 の解く系</span>
+  <h1>インデックス 2 以上は Pantelides 法の最高階の系で数える</h1>
+  <div class="cols-2">
+    <div class="card hl">
+      <h3>最高階の系（状態選択の前の見込み）</h3>
+      <ul class="small">
+        <li>行: 方程式 e を S7 の <code>differentiations[e]</code> 回微分したもの</li>
+        <li>列: 各族の最高階 <code>orders[u]</code></li>
+        <li>行 e<sup>(c)</sup> は、元の参照（階数 o）が c 回の微分で o+c になり、それが <code>orders[u]</code> と等しいものだけを未知数として参照する（ADR-0011 の「j 回の微分は族の階数 o..=o+j を参照する」の最高階だけ）</li>
+        <li><code>reduced</code> の印を付ける。dummy derivative で状態を選んだ後の系は P3 へ</li>
+      </ul>
+      <p class="small">MSL では、S7 でインデックス 2 以上だった 154 本（2 が 58・3 が 95・4 以上が 1）をこの系で数えた。</p>
+    </div>
+    <div class="card">
+      <h3>検証用のモデル（<code>GlobeModeValidation.Loops</code>）</h3>
+      <table class="compact">
+        <tr><th>モデル</th><th>形</th><th>globe check の S9</th></tr>
+        <tr><td><code>LinearLoop</code></td><td><code>x + y = time; x - a*y = 1</code></td><td class="ok">GM-I9001（線形 1）。GM-W9001 は出ない</td></tr>
+        <tr><td><code>NonlinearLoopWithStart</code></td><td><code>x*y = 1; x + y = 3</code>、start あり</td><td class="ok">GM-I9001（非線形 1）。start のある方を tearing 変数に選ぶ</td></tr>
+        <tr><td><code>NonlinearLoopWithoutStart</code></td><td>同じ連立で start なし</td><td class="warn">GM-I9001 + GM-W9001</td></tr>
+        <tr><td><code>NoLoop</code></td><td><code>z = y^2</code> は非線形だが上から順に解ける</td><td class="ok">ループなし（ブロック 3）、診断なし</td></tr>
+      </table>
+      <p class="small">A のテスト 12 本: 乱数の構造 300 個で BLT と tearing の性質、10 万本の鎖と 1 つの大きなループ。</p>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">決定と理由 · 線形・非線形</span>
+  <h1>残差の式木を族の単位で歩き、広めに非線形とみなす（<code>DaeStructure::nonlinear</code>）</h1>
+  <table class="compact">
+    <tr><th>式</th><th>非線形とみなす未知数</th></tr>
+    <tr><td>加減・符号・配列の構築・添字</td><td>各項の和（線形のまま）</td></tr>
+    <tr><td>積 <code>a*b</code></td><td>両辺に未知数があれば両辺とも</td></tr>
+    <tr><td>商 <code>a/b</code></td><td>分母に未知数があれば全部</td></tr>
+    <tr><td>冪 <code>a^b</code></td><td>底に未知数があり指数がリテラル 1 でないか、指数に未知数があれば全部</td></tr>
+    <tr><td>組み込み・利用者の関数</td><td>引数の全部（<code>abs</code>・<code>min</code>・<code>max</code> も広めに）</td></tr>
+    <tr><td>if 式</td><td>分岐の和。条件の関係演算はイベントで凍結されるので非線形にしない。<code>noEvent</code> の中の条件は凍結しないので、その if 式は全部</td></tr>
+    <tr><td><code>homotopy(actual, simplified)</code></td><td>両方の和</td></tr>
+    <tr><td>状態 <code>x</code>・パラメータ・離散・<code>pre</code>・<code>time</code></td><td>既知（未知数ではない）</td></tr>
+  </table>
+  <div class="cols-2">
+    <p class="small"><b>選ばなかった案:</b> スカラーの単位の判定（配列を要素ごとに展開すると MSL の大きなモデルで遅い）、Rumoca の <code>phase_structural::sort</code> と <code>tear_algebraic_loop</code> をそのまま使う（analysis crate は Rumoca に依存しない約束。wasm32 と Track B でも同じ検査を使う）。</p>
+    <p class="small"><b>費用:</b> <code>ChuaCircuit</code> の extract は 0.97 ms → 1.5〜2.3 ms。<b>弱さ:</b> 方程式ごとの「非線形に現れる未知数の集合」しか持たないので、<code>v = R*i</code> の <code>R</code> がループの外で決まっても <code>i</code> を非線形とみなす（omc との食い違いの主な見込み。S13）。</p>
+  </div>
+</section>
+
+<section class="slide" id="S08">
+  <span class="tag">決定と理由 · S10</span>
+  <h1>S10 は静的な部分だけ。数値の部分は P3 へ</h1>
+  <table class="compact">
+    <tr><th>対象</th><th>取り出し（frontend）</th><th>判定（analysis）</th></tr>
+    <tr><td>パラメータ</td><td>パラメータと定数を Rumoca の <code>NumericEvaluator::initial_value</code> で変数ごとに評価。<code>fixed = false</code> のパラメータと、それに（推移的に）依存するものは評価しない（仮の start で偽の 0 除算を出さない）</td><td>非有限 → <code>GM-E10001</code>。関数の中の <code>assert</code> の失敗 → <code>GM-E10002</code>。外部関数 → <code>GM-I10002</code>（1 つにまとめる）</td></tr>
+    <tr><td>start 値</td><td>状態・代数・出力・離散変数の start を評価。値が無いのは既定の 0 なので失敗にしない</td><td>非有限 → <code>GM-E10003</code></td></tr>
+    <tr><td>experiment annotation</td><td>根のクラスを定義するファイルを <code>Dae::source_map()</code> から探し、<b>Rumoca の parser で読み直して生の値</b>と位置を取る</td><td>無い → <code>GM-I10001</code>。StopTime &lt; StartTime・Tolerance ≤ 0・Interval ≤ 0 → <code>GM-E10004</code>。Interval が区間より長い・Tolerance ≥ 0.1・数の字面でない → <code>GM-W10001</code></td></tr>
+  </table>
+  <div class="cols-2">
+    <div class="card hl">
+      <h3>P3 へ送ったもの</h3>
+      <ul class="small">
+        <li>t0 で残差が有限か</li>
+        <li><b>初期化のヤコビ行列の階数</b>（S009 の <code>Invalid.UngroundedLoop</code>・MSL の <code>AdvancedSolenoid</code> の数値的な特異）</li>
+        <li>ソルバの能力</li>
+      </ul>
+      <p class="small">Rumoca の評価器は実行時の座標を拒む。残差の評価は実行系と重なるので二重に作らない。</p>
+    </div>
+    <div class="card">
+      <h3>なぜ experiment を読み直すか</h3>
+      <p class="small">Rumoca の <code>experiment_*</code> は不正な値（非有限、Tolerance ≤ 0 など）を<b>黙って捨てた</b>後の値で、flat のモデルにも annotation が残らない。その値で判定すると、誤りが値ごと消える（S14）。</p>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S09">
+  <span class="tag">結果 · S10 の検証用のモデル</span>
+  <h1><code>simulate</code> で初めて分かる誤りを、静的に見つける</h1>
+  <table class="compact">
+    <tr><th>モデル（<code>GlobeModeValidation.Preflight</code>）</th><th>形</th><th>globe check の S10</th><th>omc 1.27.1 の <code>simulate</code></th></tr>
+    <tr><td><code>NotFiniteParameter</code></td><td><code>r = sqrt(area)</code>、area = −1</td><td class="ng">GM-E10001</td><td>「Argument of sqrt(area) was -1 should be &gt;= 0」</td></tr>
+    <tr><td><code>StartNotFinite</code></td><td>状態の start が <code>log(0)</code></td><td class="ng">GM-E10003</td><td>「Argument of log(x0) was 0 should be &gt; 0」</td></tr>
+    <tr><td><code>FunctionAssertion</code></td><td>関数の中の <code>assert</code> が失敗するパラメータ</td><td class="ng">GM-E10002</td><td>初期化で assert に当たる</td></tr>
+    <tr><td><code>StopBeforeStart</code></td><td><code>StartTime = 1, StopTime = 0.5</code></td><td class="ng">GM-E10004</td><td>警告だけで進む</td></tr>
+    <tr><td><code>InvalidExperiment</code></td><td><code>Tolerance = 0</code>、<code>Interval = -0.1</code></td><td class="ng">GM-E10004 × 2</td><td>「DASKR-- ALL ELEMENTS OF RTOL AND ATOL ARE ZERO」</td></tr>
+    <tr><td><code>SuspiciousExperiment</code></td><td>Interval = 5 が区間 0〜1 より長い、Tolerance = 0.5</td><td class="warn">GM-W10001 × 2</td><td>–</td></tr>
+    <tr><td><code>NoExperiment</code> / <code>ExternalParameter</code></td><td>annotation が無い / <code>external "C"</code> で決まるパラメータ</td><td>GM-I10001 / GM-I10002</td><td>–</td></tr>
+    <tr><td><code>Valid</code> / <code>FreeParameterDependency</code></td><td>正しい / <code>k = 1 / u0</code>（u0 は <code>fixed = false</code>）</td><td class="ok">診断なし</td><td>–</td></tr>
+  </table>
+  <p class="small">S10 の 9 本は omc の <code>checkModel</code> がすべて通す。字面の 0 除算は S10 に届かない（S14）ので <code>sqrt(-1)</code> にした。</p>
+</section>
+
+<section class="slide" id="S10">
+  <span class="tag">決定と理由 · S8 の離散変数</span>
+  <h1>離散変数を決まり方で 4 通りに分け、初期化でも成り立つ離散の方程式を行に足した</h1>
+  <div class="cols-2">
+    <div>
+      <p class="small"><b>MLS 3.6 §8.6:</b> when の式が初期化で働くのは <code>when initial()</code> か <code>when {…, initial(), …}</code> の形だけ。働かない when の式 <code>v = expr</code> には初期化のために <code>v = pre(v)</code> が加わる。<code>fixed = true</code> なら加わるのは <code>pre(vd) = start</code>。</p>
+      <table class="compact">
+        <tr><th><code>kind</code></th><th>決まり方</th><th>列</th></tr>
+        <tr><td><code>When</code></td><td>when の中</td><td><code>d</code> と <code>pre(d)</code> を 1 列（初期条件が 1 つ要る）</td></tr>
+        <tr><td><code>Always</code></td><td>when の外の式</td><td rowspan="2">離散の方程式の行が <code>d</code> を決める。<code>pre(d)</code> が初期化で参照されるか <code>fixed = true</code> のときだけ別の列</td></tr>
+        <tr><td><code>InitialWhen</code></td><td><code>when initial()</code> の枝</td></tr>
+        <tr><td><code>Unknown</code></td><td>取り出せない（クロックの区間など）</td><td>S009 と同じく 1 列</td></tr>
+      </table>
+      <p class="small">取り出しは Rumoca の <code>DaeView::discrete_value_owner(id)</code> の <code>branches()</code>（<code>Always</code> / <code>When{trigger, guard}</code>）と条件の <code>ConditionOperation::Initial</code>。</p>
+    </div>
+    <div>
+      <ul class="small">
+        <li><b>規則の変更:</b> 過剰を確定しない理由の「離散変数を含む」は <code>Unknown</code> が関わるときだけ。柔らかい <code>GM-W8001</code> で数えるのも <code>Unknown</code> で <code>fixed = false</code> のものだけ。決まり方の分かる離散変数の不足は確定した <code>GM-W8001</code></li>
+        <li><b>Rumoca の癖:</b> 初期方程式の <code>pre(a) = pre(b)</code> の連なり（StateGraph の <code>PartialStep</code>）は対象ごとの定義に取り分けられ、位置はどれも 1 本目。偽の冗長が出たので、位置と部品が同じ k 個を k − 1 行に束ねた</li>
+      </ul>
+      <table class="compact">
+        <tr><th>モデル（<code>Init.</code>）</th><th>S8</th></tr>
+        <tr><td><code>DiscreteWhen</code></td><td class="warn">不足 2（確定した GM-W8001。omc も「Assuming fixed start value for … 2 variables」）</td></tr>
+        <tr><td><code>DiscreteOutsideWhen</code></td><td class="ok">合う 2 / 2</td></tr>
+        <tr><td><code>DiscreteEdge</code></td><td class="warn"><code>edge(b)</code> の <code>pre(b)</code> が不足 1（omc も同じ）</td></tr>
+        <tr><td><code>DiscreteWhenInitial</code> / <code>DiscretePreInitial</code></td><td class="ok">合う 1 / 1・2 / 2</td></tr>
+        <tr><td><code>DiscreteRedundant</code></td><td class="ng">GM-E8001（omc も over specified）</td></tr>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S11">
+  <span class="tag">決定と理由 · 閉包の切り替え</span>
+  <h1><code>Checker</code> に文書の和集合を持たせ、前に検査したモデルへ戻るのを速くした</h1>
+  <div class="cols-2">
+    <div class="card hl">
+      <h3>なぜ和集合か（Rumoca v0.10.2）</h3>
+      <ul class="small">
+        <li><code>add_document</code> と <code>remove_document</code> は毎回 <code>invalidate_resolved_state</code> で解決済みの状態を捨て、解決は Session の全文書（MSL を含む）をまとめてやり直す（約 1.5〜1.8 s）</li>
+        <li>source root ごとの解決を使い回す道は、外から足した文書が 1 つでもあると使われない → <b>文書の組を変えない</b>しかない</li>
+      </ul>
+      <h3><code>Checker::check_retaining</code></h3>
+      <ul class="small">
+        <li>渡された文書は本文が変わったものだけ差し替え、渡されなかった文書も残す</li>
+        <li>閉包だけの検査と結果を変えないため、本文が変わった・消えた文書（<code>document_changed</code> で知らせる）、名前のぶつかる文書、ほかの DB が足した文書（<code>new_handle</code>）は取り除く</li>
+        <li>知らせを止めると、改名したファイルの古い定義が残ってテスト 4 本が落ちた</li>
+      </ul>
+    </div>
+    <div>
+      <table class="compact">
+        <tr><th>計測（release、MSL 4.1.0）</th><th>S007 の方式</th><th>S010</th></tr>
+        <tr><td>一度検査したモデルへ、編集なしで切り替え（6 本）</td><td>2099 ms</td><td class="ok"><b>49 ms</b>（最大 90 ms）</td></tr>
+        <tr><td>両方が使う <code>Components.mo</code> を変えた後</td><td>1825 ms</td><td class="ok">95 ms</td></tr>
+        <tr><td>(d) MediumFlow → RealCircuit</td><td>1872 ms</td><td>1671 ms</td></tr>
+        <tr><td>(c) 使うファイルを変えた後</td><td>1950 ms</td><td>2290 ms</td></tr>
+        <tr><td>(e) 閉包の違うモデルを初めて検査</td><td>1791 ms</td><td>1950 ms</td></tr>
+        <tr><td>(b) 使わないファイルを変えた後（<code>check</code> 0 回）</td><td>0.19 ms</td><td>0.45 ms</td></tr>
+      </table>
+      <p class="small">ほかの作業と同時に動かしたので揺れがある。初めてのモデルと使うファイルの編集は、文書の追加や差し替えが要るので今も約 1.7〜2.3 s（次の手はワークスペースの全ファイルを最初に入れる案）。salsa の依存は閉包の本文のままなので、使わないファイルの編集で <code>check</code> は再実行されない。最大 RSS 1.56 GB。D のテスト 12 本（<code>switching.rs</code> は 11 本）。</p>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S12">
+  <span class="tag">結果 · MSL の全例題</span>
+  <h1>判定の本数は同じで、S8 の「不足」が大きく減った</h1>
+  <div class="cols-2">
+    <div>
+      <svg class="fig" viewBox="0 0 640 250" role="img" aria-label="S8 の分布の帯グラフ。S009 は合う 111・過剰 6・不足 252、S010 は合う 269・過剰 6・不足 94">
+        <text class="svg-text-b" x="20" y="30">S8 の分布（S8 まで来た 369 本）</text>
+        <text class="svg-text-b" x="20" y="86">S009</text>
+        <rect class="svg-node" x="90" y="66" width="144" height="30"/>
+        <rect class="svg-node-3" x="234" y="66" width="8" height="30"/>
+        <rect class="svg-node-2" x="242" y="66" width="328" height="30"/>
+        <text class="svg-text-m" x="90" y="116">合う 111</text>
+        <text class="svg-text-m" x="250" y="116">過剰 6・不足 252</text>
+        <text class="svg-text-b" x="20" y="166">S010</text>
+        <rect class="svg-node" x="90" y="146" width="350" height="30"/>
+        <rect class="svg-node-3" x="440" y="146" width="8" height="30"/>
+        <rect class="svg-node-2" x="448" y="146" width="122" height="30"/>
+        <text class="svg-text-m" x="90" y="196">合う 269</text>
+        <text class="svg-text-m" x="448" y="196">過剰 6・不足 94</text>
+        <rect class="svg-node" x="90" y="220" width="14" height="14"/>
+        <text class="svg-text-m" x="110" y="232">合う</text>
+        <rect class="svg-node-3" x="170" y="220" width="14" height="14"/>
+        <text class="svg-text-m" x="190" y="232">過剰（すべて GM-W8004）</text>
+        <rect class="svg-node-2" x="370" y="220" width="14" height="14"/>
+        <text class="svg-text-m" x="390" y="232">不足</text>
+      </svg>
+      <p class="small">離散変数の区別で、StateGraph などの「不足」が「合う」に移った。S9・S10 で止まったものは 0 本。検査の時間の増分は、後半に <code>msl:compare</code> を同時に回した揺れを含む。照合の 215 本は微分の要らない系だけ。</p>
+    </div>
+    <table class="compact">
+      <tr><th>項目</th><th>S010</th><th>S009</th></tr>
+      <tr><td>OK・NG・GM-U・panic</td><td>369・13・184・0</td><td>同じ</td></tr>
+      <tr><td>S9 を解析した / 解析なし</td><td class="ok">369 / 0</td><td>–</td></tr>
+      <tr><td>代数ループあり・非線形あり</td><td>226・142</td><td>–</td></tr>
+      <tr><td>ループ（線形・非線形）</td><td>254・260</td><td>–</td></tr>
+      <tr><td><code>GM-W9001</code> あり（反復変数）</td><td>57 本（188 個）</td><td>–</td></tr>
+      <tr><td>一番大きいループ</td><td><code>EngineV6</code> 4584 本</td><td>–</td></tr>
+      <tr><td>最高階の系で数えた</td><td>154</td><td>–</td></tr>
+      <tr><td>Rumoca（ES002）との照合</td><td class="ok">215 / 215</td><td>–</td></tr>
+      <tr><td>S10 の Error・<code>GM-I10001</code></td><td>0・16 本</td><td>–</td></tr>
+      <tr><td>1 本あたり・最大 RSS</td><td>1.50 s・7.1 GiB</td><td>1.28 s・7.1 GiB</td></tr>
+    </table>
+  </div>
+</section>
+
+<section class="slide" id="S13">
+  <span class="tag">結果 · omc との照合</span>
+  <h1>S9 は有無だけを比べて 282 / 355・312 / 355。S5・S6・S8 は S009 と同じ</h1>
+  <div class="cols-2">
+    <div>
+      <table class="compact">
+        <tr><th>照合（比べた 355 本）</th><th>一致</th><th>両方</th><th>globe だけ</th><th>omc だけ</th></tr>
+        <tr><td>非線形の代数ループの有無</td><td><b>282</b>（79.4%）</td><td>103</td><td>38</td><td>35</td></tr>
+        <tr><td>start の無い非線形の反復変数の有無</td><td><b>312</b>（87.9%）</td><td>29</td><td>28</td><td>15</td></tr>
+      </table>
+      <ul class="small">
+        <li>omc は <code>-d=initialization,iterationVars</code> で回し直した（12 プロセス、omc 370.2 s、全体 6 分 11 秒、時間切れ 0・結果なし 0）。反復変数の一覧と各変数の属性の <code>start</code> を読む</li>
+        <li>omc は別名の消去と式の変形を先にするので、数は比べない</li>
+        <li>最初は omc の「Nonlinear iteration variables with default zero start attribute」と比べて 303 / 355 だったが、この文言は MSL で 5 本にしか出ない（属性に start の無い非線形の反復変数は 81 本）。同じものを数えていないので一覧の属性と比べるように直し、<code>--reuse</code> で照合だけやり直した</li>
+      </ul>
+      <table class="compact">
+        <tr><th>ほかの段階</th><th>S010</th></tr>
+        <tr><td>S5（P2 の完了条件）</td><td class="ok">382 / 382</td></tr>
+        <tr><td>S6・S8（過剰）</td><td>362 / 363・352 / 355</td></tr>
+      </table>
+    </div>
+    <div class="card hl">
+      <h3>食い違いの見込み（確かめたのは一部）</h3>
+      <ul class="small">
+        <li><b>globe だけが非線形:</b> 線形の判定が方程式ごとの「非線形に現れる未知数の集合」しか持たない。<code>ShowVariableResistor</code> は <code>v = R*i</code> の <code>R</code> がループの外で決まるのに、globe は非線形 2、omc は線形 2</li>
+        <li><code>smooth</code> の中の条件や <code>abs</code>・<code>min</code>・<code>max</code> も広めに非線形（<code>OpAmps.*</code>）</li>
+        <li><b>omc だけが非線形:</b> 35 本（<code>SwitchWithArc</code> など、globe ではループが無い）は<b>確かめていない</b></li>
+        <li>直す案: 積の項ごとの未知数の組を持ち、ループの未知数だけで線形かを判定する（S011 の候補）</li>
+      </ul>
+      <p class="small">omc は照合にだけ使い、<code>globe check</code> の判定には使わない（ADR-0010）。</p>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S14">
+  <span class="tag">結果 · Rumoca で分かったこと</span>
+  <h1>Rumoca v0.10.2 で見つけた 3 つの事実（2026-10-19）</h1>
+  <div class="cols-3">
+    <div class="card hl">
+      <h3><code>algebraic_loops</code> が空</h3>
+      <p class="small"><code>phase_structural::analyze</code> は <code>StructuralDiagnostics::algebraic_loops</code> を一度も埋めない（宣言だけ）。ループは ES002 の警告「algebraic loop detected: {n} equations must be solved simultaneously」として積むだけ。</p>
+      <p class="small">GlobeMode の照合（<code>Checker::reference_structure</code> の <code>loops</code>）は文言から n を読む。<b>上流への報告の候補</b>に足した（ユーザーが出す）。</p>
+    </div>
+    <div class="card">
+      <h3>experiment を黙って捨てる</h3>
+      <p class="small"><code>sanitize_experiment_settings</code> が非有限・StopTime &lt; 0・Tolerance ≤ 0・Interval ≤ 0 を捨て、StopTime &lt; StartTime なら StopTime を捨てる。値は数の字面だけ、根のクラスの <code>annotation</code> だけを見る。</p>
+      <p class="small">GlobeMode は <code>Dae::source_map()</code> の本文を Rumoca の parser で読み直す（S08）。</p>
+    </div>
+    <div class="card">
+      <h3>字面の 0 除算は <code>ED019</code></h3>
+      <p class="small"><code>parameter Real T = 1 / a</code>（a = 0）は、使われていなくても flat の定数評価が「division by zero」を出し、DAE への変換が <code>ED019</code>（cannot be evaluated）で止める。</p>
+      <p class="small">ADR-0007 のコードの規則で <code>GM-U0001</code>（未対応）に振り分けられ、S10 に届かない。モデルの誤りなので、文言で GM-E に戻すかは S011 の候補 6。</p>
+    </div>
+  </div>
+  <p class="small">ほかに使った API: <code>NumericEvaluator</code>（静的な値だけ。非有限は <code>InvalidValue</code>、関数の assert は <code>AssertionFailed</code>、外部関数は <code>ExternalFunction</code>）、<code>discrete_value_owner</code> の <code>branches()</code>、<code>collect_model_names</code>（<code>Session::model_names()</code> は解決できない文書があると Err なので、構文木から名前を集める）。出典は <code>doc/research/rumoca.md</code>。</p>
+</section>
+
+<section class="slide" id="S15">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+<pre><code>cargo fmt --all --check &amp;&amp; cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace                                   # 324 本通過・6 本 ignore（mise run check は締めで回す）
+mise run msl:compare                                     # MSL の例題 20 本を Rumoca の CLI と突き合わせ
+cargo xtask msl-funnel --report doc/msl-funnel.md --json target/msl-funnel.json   # mise run msl:funnel と同じ
+mise run msl:omc                                         # omc を回し直す（S9 の一覧のため。6 分 11 秒）
+cargo test --release -p globe-mode-db --test switching -- --ignored --nocapture  # 閉包の切り替えの計測
+globe check src/Modelica/GlobeModeValidation -m GlobeModeValidation.Loops.NonlinearLoopWithoutStart</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">324</span><span class="l">workspace のテスト（S009 は 232）。clippy 0、fmt の差分 0</span></div>
+    <div class="kpi"><span class="n">20 / 20</span><span class="l"><code>msl:compare</code> の一致（両方とも成功 17 本）</span></div>
+    <div class="kpi"><span class="n">14 分 42 秒</span><span class="l">ファネル全体（検査 849.8 s、最大 RSS 7.1 GiB）</span></div>
+    <div class="kpi"><span class="n">20</span><span class="l">足した検証用のモデル（<code>Loops.*</code> 4、<code>Preflight.*</code> 10、<code>Init.Discrete*</code> 6）</span></div>
+  </div>
+  <p class="small">db のテスト 9 本（<code>stages.rs</code>）、funnel と omc のテスト 4 本も統合で足した。報告は <code>doc/msl-funnel.md</code> と <code>doc/omc-compare.md</code>（xtask が生成。手で編集しない）。</p>
+</section>
+
+<section class="slide" id="S16">
   <span class="tag">次回</span>
-  <h1>次のセッション</h1>
-  <ul>
-    <li>積み残し</li>
-    <li>次にやること</li>
-  </ul>
+  <h1>S011 — S0〜S10 がそろったので、P3 に進むかを決める</h1>
+  <div class="cols-2">
+    <div class="card hl">
+      <h3>候補（roadmap）</h3>
+      <ol class="small">
+        <li><b>P3 の始め</b>（実行系 <code>globe-mode-exec</code> と driver）: Rumoca の実行の道具を使うか自前の評価器かを決める（ADR）。S10 の数値の部分（t0 の残差、<b>初期化のヤコビ行列の階数</b>、ソルバの能力）もここで</li>
+        <li><b>S9 を omc と照らして詰める</b>: 食い違いの切り分け（tearing の選び方、広めの線形の判定）、状態選択の後の系で数えるか</li>
+        <li>閉包の切り替えの残り（ワークスペースの全ファイルを最初に入れる）</li>
+        <li><code>Checker</code> のメモリの上限（P4 のプロセス構成の後。最大 RSS 7.1 GiB）</li>
+        <li>Rumoca の制約の上流報告（ユーザーが出す。<b><code>algebraic_loops</code> を埋めない</b>が増えた）</li>
+        <li>字面の 0 除算の振り分け（<code>ED019</code> → <code>GM-U0001</code> を GM-E に戻すか）</li>
+        <li>S8 の残り（<code>Interaction1</code> の形、連続の方程式の中の <code>pre(d)</code>、クロックの区間の変数）</li>
+        <li><code>class_index</code> の残り</li>
+      </ol>
+    </div>
+    <div class="card">
+      <h3>残したこと</h3>
+      <ul class="small">
+        <li>S9 は状態選択の前の最高階の系で数える（154 本）。dummy derivative の後の系は P3 で</li>
+        <li>S9 の線形の判定は族の単位で広め（<code>abs</code>・<code>min</code>・<code>max</code>、<code>smooth</code> の中の条件も非線形）</li>
+        <li>S8: アルゴリズムの <code>when {…, initial()}</code> で読み出しが <code>pre</code> になる形（<code>Interaction1</code>。globe は不足 1、omc は何も言わない）</li>
+        <li>閉包の違うモデルを初めて検査するときは今も約 1.7〜2.0 s</li>
+      </ul>
+      <p class="small">omc は照合にだけ使う方針は変えない（ライセンス、速さ、依存）。</p>
+    </div>
+  </div>
 </section>
 
 <script src="../../assets/slides.js"></script>

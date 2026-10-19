@@ -331,3 +331,142 @@ fn modifier_leaks_into_subcomponents_in_the_compiler() {
         Severity::Warning
     ));
 }
+
+// --------------------------------------------------------------------------- S9（S010）
+
+#[test]
+fn linear_loop_is_reported_without_a_start_warning() {
+    let r = check("Loops.LinearLoop");
+    assert!(r.passed(), "{:?}", r.diagnostics);
+    let s9 = r.loops.as_ref().expect("S9");
+    assert!(s9.skipped.is_none());
+    assert_eq!((s9.n_loops(), s9.n_linear(), s9.n_nonlinear()), (1, 1, 0));
+    assert_eq!(s9.loop_sizes(), vec![2]);
+    assert!(has(&r, codes::ALGEBRAIC_LOOP, Severity::Info));
+    assert!(!codes_of(&r).contains(&codes::LOOP_ITERATION_WITHOUT_START));
+}
+
+#[test]
+fn nonlinear_loop_with_start_needs_no_warning() {
+    let r = check("Loops.NonlinearLoopWithStart");
+    assert!(r.passed(), "{:?}", r.diagnostics);
+    let s9 = r.loops.as_ref().expect("S9");
+    assert_eq!((s9.n_nonlinear(), s9.n_iteration_variables()), (1, 1));
+    assert_eq!(s9.n_iteration_without_start(), 0);
+    assert!(!codes_of(&r).contains(&codes::LOOP_ITERATION_WITHOUT_START));
+}
+
+#[test]
+fn nonlinear_loop_without_start_warns_at_the_declaration() {
+    let r = check("Loops.NonlinearLoopWithoutStart");
+    assert!(r.passed(), "警告だけで止めない: {:?}", r.diagnostics);
+    let w = r
+        .diagnostics
+        .iter()
+        .find(|d| d.code == codes::LOOP_ITERATION_WITHOUT_START)
+        .expect("GM-W9001");
+    assert_eq!(w.severity, Severity::Warning);
+    assert_eq!(w.stage, Stage::S9);
+    assert!(
+        w.file
+            .as_deref()
+            .is_some_and(|f| f.ends_with("NonlinearLoopWithoutStart.mo")),
+        "{w:?}"
+    );
+    assert!(w.range.is_some(), "宣言の位置: {w:?}");
+}
+
+#[test]
+fn model_without_loops_has_no_s9_diagnostics() {
+    let r = check("Loops.NoLoop");
+    assert!(r.passed(), "{:?}", r.diagnostics);
+    let s9 = r.loops.as_ref().expect("S9");
+    assert_eq!(s9.n_loops(), 0);
+    assert!(r.diagnostics.iter().all(|d| d.stage != Stage::S9));
+}
+
+#[test]
+fn pendulum_loops_are_counted_on_the_highest_order_system() {
+    let r = check("Index.Pendulum");
+    let s9 = r.loops.as_ref().expect("S9");
+    assert!(s9.reduced, "インデックス 3 なので最高階の系で数える");
+    assert_eq!(s9.loop_sizes(), vec![5]);
+    assert_eq!(s9.n_nonlinear(), 0, "微分した行は最高階について線形");
+}
+
+#[test]
+fn s9_is_skipped_when_an_earlier_stage_fails() {
+    let r = check("Invalid.StructurallySingular");
+    assert!(r.loops.is_none());
+    assert!(r.preflight.is_none());
+}
+
+// --------------------------------------------------------------------------- S10（S010）
+
+#[test]
+fn valid_preflight_passes_all_stages() {
+    let r = check("Preflight.Valid");
+    assert!(r.passed(), "{:?}", r.diagnostics);
+    let s10 = r.preflight.as_ref().expect("S10");
+    assert!(!s10.has_errors());
+    assert!(r.diagnostics.iter().all(|d| d.stage != Stage::S10));
+}
+
+#[test]
+fn preflight_errors_stop_at_s10() {
+    for (model, code, n) in [
+        (
+            "Preflight.NotFiniteParameter",
+            codes::PARAMETER_NOT_FINITE,
+            1,
+        ),
+        ("Preflight.StartNotFinite", codes::START_NOT_FINITE, 1),
+        ("Preflight.FunctionAssertion", codes::PARAMETER_ASSERTION, 1),
+        ("Preflight.StopBeforeStart", codes::EXPERIMENT_INVALID, 1),
+        ("Preflight.InvalidExperiment", codes::EXPERIMENT_INVALID, 2),
+    ] {
+        let r = check(model);
+        assert_eq!(
+            r.failed_stage(),
+            Some(Stage::S10),
+            "{model}: {:?}",
+            r.diagnostics
+        );
+        let found: Vec<_> = r.diagnostics.iter().filter(|d| d.code == code).collect();
+        assert_eq!(found.len(), n, "{model}: {:?}", r.diagnostics);
+        assert!(
+            found
+                .iter()
+                .all(|d| d.severity == Severity::Error && d.range.is_some()),
+            "{model}: 位置付きの Error: {found:?}"
+        );
+    }
+}
+
+#[test]
+fn preflight_warnings_and_infos_do_not_stop() {
+    for (model, code, severity) in [
+        (
+            "Preflight.SuspiciousExperiment",
+            codes::EXPERIMENT_SUSPICIOUS,
+            Severity::Warning,
+        ),
+        (
+            "Preflight.NoExperiment",
+            codes::EXPERIMENT_MISSING,
+            Severity::Info,
+        ),
+        (
+            "Preflight.ExternalParameter",
+            codes::PARAMETER_NOT_STATIC,
+            Severity::Info,
+        ),
+    ] {
+        let r = check(model);
+        assert!(r.passed(), "{model}: {:?}", r.diagnostics);
+        assert!(has(&r, code, severity), "{model}: {:?}", r.diagnostics);
+    }
+    let r = check("Preflight.FreeParameterDependency");
+    assert!(r.passed(), "{:?}", r.diagnostics);
+    assert!(r.diagnostics.iter().all(|d| d.stage != Stage::S10));
+}

@@ -7,7 +7,7 @@
 use std::path::{Path, PathBuf};
 
 use globe_mode_frontend::{CheckReport, Checker, Source};
-use globe_mode_ir::{InitStructure, InitVariable, UnknownKind};
+use globe_mode_ir::{DiscreteInitKind, InitStructure, InitVariable, UnknownKind};
 
 fn package_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../Modelica/GlobeModeValidation")
@@ -333,5 +333,158 @@ fn discrete_definitions_reference_their_target() {
             || init.initial_discrete_refs.iter().any(|r| !r.is_empty()),
         "{:?}",
         init.initial_discrete_refs
+    );
+}
+
+// --------------------------------------------------------------------------- 離散変数の決まり方（S010）
+
+/// 離散変数ごとの (名前, 決まり方, pre(d) が参照される)
+fn discrete_kinds(init: &InitStructure) -> Vec<(&str, DiscreteInitKind, bool)> {
+    assert_eq!(init.discrete_init.len(), init.discretes.len());
+    init.discretes
+        .iter()
+        .zip(&init.discrete_init)
+        .map(|(v, d)| (v.name.as_str(), d.kind, d.pre_referenced))
+        .collect()
+}
+
+/// 初期化でも成り立つ離散の方程式の対象の名前
+fn discrete_targets(init: &InitStructure) -> Vec<&str> {
+    init.discrete_equations
+        .iter()
+        .map(|e| init.discretes[e.target as usize].name.as_str())
+        .collect()
+}
+
+#[test]
+fn discretes_defined_only_inside_when_have_no_initialization_rows() {
+    // Init.DiscreteWhen: n と d は when x < 0.5 の中だけで決まる。when の本体の pre(n) は初期化で働かない
+    let p = Package::new();
+    let init = p.init("Init.DiscreteWhen");
+    assert!(init.has_incidence);
+    assert_eq!(
+        discrete_kinds(&init),
+        [
+            ("n", DiscreteInitKind::When, false),
+            ("d", DiscreteInitKind::When, false)
+        ]
+    );
+    assert!(init.discrete_equations.is_empty());
+    assert!(init.initial_equations.is_empty());
+}
+
+#[test]
+fn discretes_defined_outside_when_are_initialization_rows() {
+    // Init.DiscreteOutsideWhen: b と k は when の外の式（x を読む）、c は when b の中。when b は pre(b) を読まない
+    let p = Package::new();
+    let report = p.check("Init.DiscreteOutsideWhen");
+    let init = report.init.as_ref().unwrap();
+    let structure = report.structure.as_ref().unwrap();
+    assert_eq!(
+        discrete_kinds(init),
+        [
+            ("b", DiscreteInitKind::Always, false),
+            ("k", DiscreteInitKind::Always, false),
+            ("c", DiscreteInitKind::When, false)
+        ]
+    );
+    assert_eq!(discrete_targets(init), ["b", "k"]);
+    let der_x = structure
+        .unknowns
+        .iter()
+        .position(|u| u.name == "der(x)")
+        .unwrap() as u32;
+    for e in &init.discrete_equations {
+        // 対象の離散変数と、状態 x そのもの
+        assert_eq!(e.discretes, [e.target]);
+        assert_eq!(e.state_refs, [der_x]);
+        assert!(e.incidence.is_empty() && e.pre_discretes.is_empty());
+    }
+    // initial equation c = 0 は c そのもの（pre(c) ではない）
+    assert_eq!(labels(init), ["c = 0"]);
+    let c = init.discretes.iter().position(|v| v.name == "c").unwrap() as u32;
+    assert_eq!(init.initial_discrete_refs, [vec![c]]);
+    assert_eq!(init.initial_pre_discrete_refs, [Vec::<u32>::new()]);
+}
+
+#[test]
+fn edge_in_a_when_condition_references_pre() {
+    // Init.DiscreteEdge: when edge(b) の条件は b and not pre(b)。b は when の外で決まるが、pre(b) が参照される
+    let p = Package::new();
+    let init = p.init("Init.DiscreteEdge");
+    assert_eq!(
+        discrete_kinds(&init),
+        [
+            ("b", DiscreteInitKind::Always, true),
+            ("c", DiscreteInitKind::When, false)
+        ]
+    );
+    assert_eq!(discrete_targets(&init), ["b"]);
+}
+
+#[test]
+fn when_initial_branches_are_initialization_rows() {
+    // Init.DiscreteWhenInitial: when initial() の枝（m = 3、d = 2 * x）は初期化で働く。elsewhen の pre(m) は働かない
+    let p = Package::new();
+    let init = p.init("Init.DiscreteWhenInitial");
+    assert_eq!(
+        discrete_kinds(&init),
+        [
+            ("m", DiscreteInitKind::InitialWhen, false),
+            ("d", DiscreteInitKind::InitialWhen, false)
+        ]
+    );
+    assert_eq!(discrete_targets(&init), ["m", "d"]);
+    let m = &init.discrete_equations[0];
+    assert!(m.state_refs.is_empty() && m.incidence.is_empty());
+    // d = 2 * x は状態 x を参照する（離散 Real は残差 d - 2 * x の右辺から）
+    assert_eq!(init.discrete_equations[1].state_refs.len(), 1);
+}
+
+#[test]
+fn initial_equation_on_pre_is_kept_apart_from_the_discrete_itself() {
+    // Init.DiscretePreInitial: initial equation pre(y) = false は pre(y) を決め、y は when の外の式（pre(y) を読む）
+    let p = Package::new();
+    let init = p.init("Init.DiscretePreInitial");
+    assert_eq!(
+        discrete_kinds(&init),
+        [("y", DiscreteInitKind::Always, true)]
+    );
+    assert_eq!(labels(&init), ["pre(y) = false"]);
+    assert_eq!(init.initial_discrete_refs, [Vec::<u32>::new()]);
+    assert_eq!(init.initial_pre_discrete_refs, [vec![0]]);
+    let e = &init.discrete_equations[0];
+    assert_eq!(
+        (e.target, &e.discretes[..], &e.pre_discretes[..]),
+        (0, &[0][..], &[0][..])
+    );
+}
+
+#[test]
+fn fixed_discrete_with_an_initial_equation_inside_when() {
+    // Init.DiscreteRedundant: n は when の中で決まり、fixed = true と initial equation n = 0 の両方がある
+    let p = Package::new();
+    let init = p.init("Init.DiscreteRedundant");
+    assert_eq!(
+        discrete_kinds(&init),
+        [("n", DiscreteInitKind::When, false)]
+    );
+    assert_eq!(flags(&init.discretes), [("n", true, true, false)]);
+    assert_eq!(init.initial_discrete_refs, [vec![0]]);
+    assert!(init.discrete_equations.is_empty());
+}
+
+#[test]
+fn boolean_signals_are_defined_outside_when() {
+    // Connect.BooleanSignals: BooleanStep の出力（when の外の式 y = time >= startTime）と BooleanNot の出力
+    let p = Package::new();
+    let init = p.init("Connect.BooleanSignals");
+    assert_eq!(init.discrete_init.len(), init.discretes.len());
+    assert!(
+        init.discrete_init
+            .iter()
+            .all(|d| d.kind != DiscreteInitKind::Unknown),
+        "{:?}",
+        discrete_kinds(&init)
     );
 }

@@ -19,7 +19,7 @@ flowchart LR
 | --- | --- | --- | --- |
 | **P0 運用基盤** | 調査、計画、CLAUDE.md、スキル、セッション記録のフック、スライドと解説書の型 | S001 の成果物がそろう。フックが伏せ字版を出力する。リンク切れが 0 件 | S001 |
 | **P1 骨格**（S003 で完了） | workspace 化、mise の rust の targets、cargo-deny、CI（Linux / Windows / wasm）。core / ir / frontend / cli。MSL の取得スクリプト。Python パッケージの改名 | `cargo deny check` が通る。MSL の例題 20 本で `globe check` の結果が Rumoca と一致する。frontend が wasm32 向けにビルドできる。[ADR-0003](adr/0003-toolchain.md) が Accepted になる | 3 回（workspace と CI / アダプタと CLI / wasm の確認） |
-| **P2 遅延クエリと検査**（S004〜S008。完了条件は S008 で 3 つとも満たした。S9・S10 は候補のまま） | db、outline、class_index、connect_graph、`assert_simulatable` の S0〜S10 | 空白だけの編集の再検査が 50 ms 未満で、`flat` が再実行されない（salsa のイベントで確かめる）。MSL の全例題に判定が出て、panic は 0 件。S5 が omc と 95% 以上一致する | 4 回 |
+| **P2 遅延クエリと検査**（S004〜S010。完了条件は S008 で 3 つとも満たした。S9・S10 は S010 で足した。S10 の数値の部分は P3） | db、outline、class_index、connect_graph、`assert_simulatable` の S0〜S10 | 空白だけの編集の再検査が 50 ms 未満で、`flat` が再実行されない（salsa のイベントで確かめる）。MSL の全例題に判定が出て、panic は 0 件。S5 が omc と 95% 以上一致する | 4 回 |
 | **P3 シミュレーション** | exec、driver、bdf / esdirk34 / tsit45 / dopri / 固定刻み、ResultStore | MSL の例題 153 本以上が実行できる。そのうち 90% 以上が参照結果のファネルに収まる。bdf が wasm で（Node 上で）動く | 5 回 |
 | **P4 Desktop MVP** | CodeMirror 6 と LSP、ライブラリツリー、検査パネル、プロット、sigma.js の connect グラフ | ChuaCircuit で開く・検査・実行・プロットが通る。5k ノードのグラフが 30 fps 以上で動く。RSS の基準値を記録する。CI が .deb と .msi を作る | 6 回 |
 | **P5 FMI** | Import（ME / CS / SE）とマスター。Export は P5a（Rumoca のテンプレート）の後に P5b（自前のランタイム） | Reference-FMUs が linux64 と win64 で一致する。Export した FMU が FMPy・fmusim・fmuCheck を通る。Clocks（SE）が往復できる | 8 回 |
@@ -134,6 +134,18 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **omc との照合**（`cargo xtask omc-compare --reuse`。omc は S008 の結果を再利用、[omc-compare.md](omc-compare.md)）: S5 382 / 382、S6 362 / 363（`AdvancedSolenoid`。上の限界）、**S8（過剰）352 / 355**（S008 は 354 / 355）。不一致 3 本はどれも Rumoca の制約で入力が欠けるか誤るもの: `NonCircularPipes`（inner/outer で初期方程式が消え、omc の冗長 2 本が globe の入力に無い）、`RollingWheelSetDriving` / `RollingWheelSetPulling`（修正の漏れで別名の両方が `fixed = true` になり、globe が冗長 7 を出す）。globe の `GM-W8004` の 3 本（`GenerationOfFMUs` 2 本、`CompareLineTrunks`）は omc も過剰で、冗長の本数（2・3・1）まで一致した。
 - テストは workspace 全体で 232 本が通過（S008 は 216 本）。clippy 0 件、fmt の差分 0。
 
+### S010（P2 の 6 回目、2026-10-19）で済んだこと
+
+- 範囲は S010 の候補のうち **S9・S10（3）**、**離散変数の when の区別（1）**、**閉包の切り替えの費用（2）**。5 つのサブエージェントが所有するファイルを分けて同時に作業した（S9 の BLT と tearing、S9 の線形・非線形の判定、S10、閉包、S8 の when）。`Checker` のメモリ（4）は P4 のプロセス構成が決まってから、上流への報告（5）はユーザーが出す。
+- **S9（代数ループ）**（[ADR-0012](adr/0012-loops-and-preflight.md)）: BLT（Hopcroft–Karp と再帰を使わない Tarjan 法）で大きさ 2 以上のブロックを見つけ、貪欲な tearing で反復変数を選び、非線形のループの反復変数に start 値が無ければ `GM-W9001`（警告）。ループがあれば `GM-I9001`（情報）。インデックス 2 以上のモデルは Pantelides 法の最高階の系で数える（状態選択の前の見込み）。線形・非線形は、フロントエンドが残差の式木を族の単位で広めに判定する（`DaeStructure::nonlinear`）。
+- **S10（プリフライトの静的な部分）**（[ADR-0012](adr/0012-loops-and-preflight.md)）: パラメータと start 値を Rumoca の評価器で評価し、非有限は `GM-E10001` / `GM-E10003`、関数の中の assert の失敗は `GM-E10002`。experiment annotation は Rumoca が不正な値を黙って捨てるので、根のクラスの本文を読み直して生の値で判定する（`GM-E10004` / `GM-W10001` / `GM-I10001`）。t0 の残差・初期化のヤコビ行列の階数・ソルバの能力は P3 の実行系ができてから。
+- **S8 の離散変数の when の区別**（[ADR-0011](adr/0011-init-system-matching.md) の S010 の追記）: when の中で決まる・when の外の式で決まる・`when initial()` で決まるを分け、初期化でも成り立つ離散の方程式を行に足した（MLS §8.6）。決まり方の分かる離散変数の不足と冗長は確定させた。
+- **閉包の切り替えの費用**（[ADR-0005](adr/0005-lazy-query-db.md) の結果）: `Checker` に文書の和集合を持たせた。一度検査したモデルへ編集なしで戻るときは約 2.1 s → **49 ms**。Rumoca の Session にはライブラリの解決だけを残す道が無いので、文書の組を変えないようにした。閉包の違うモデルを初めて検査するときは今も約 1.7〜2.0 s。
+- 検証用のモデル 20 本: `Loops.*` 4 本、`Preflight.*` 10 本、`Init.Discrete*` 6 本（[src/Modelica/README.md](../src/Modelica/README.md)）。
+- **MSL の全例題**（`mise run msl:funnel`、[msl-funnel.md](msl-funnel.md)）: 566 本: OK 369・NG 13（S5 1・S6 12）・GM-U 184・panic 0（S009 と同じ本数）。S8 の分布は **合う 269**・過剰 6（すべて `GM-W8004`）・**不足 94**（S009 は 111・6・252。離散変数の区別で StateGraph などの「不足」が「合う」に移った）。S9 は 369 本すべてで解析し、代数ループのあるもの 226・非線形のループのあるもの 142・`GM-W9001` のあるもの 57（反復変数 188 個）、一番大きいループは `MultiBody.Examples.Loops.EngineV6` の 4584 本（最高階の系）。**ループの大きさの一覧は Rumoca の構造解析と、微分の要らない 215 本すべてで一致**。S10 は Error 0（experiment annotation の無い 16 本に `GM-I10001`）。検査 849.8 s（1 本 1.50 s。S009 は 1.28 s。後半に `msl:compare` を同時に回したので揺れを含む）、最大 RSS 7.1 GiB。
+- **omc との照合**（`mise run msl:omc`、omc を回し直した。[omc-compare.md](omc-compare.md)）: S5 382 / 382、S6 362 / 363、S8（過剰）352 / 355（S009 と同じ）。**S9（非線形のループの有無）282 / 355（79.4%）、S9（start の無い非線形の反復変数の有無）312 / 355（87.9%）**。omc は別名の消去と式の変形を先にするので有無だけを比べた。食い違いの主な見込みは、線形の判定が方程式ごとの集合しか持たないこと（`v = R*i` の `R` がループの外で決まっても非線形とみなす。`ShowVariableResistor`）。
+- テストは workspace 全体で 324 本が通過（S009 は 232 本）。clippy 0 件、fmt の差分 0。`msl:compare` は 20 / 20。
+
 ### P2 の完了条件の進み具合
 
 | 完了条件 | 状態 |
@@ -144,15 +156,16 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 
 ## 次のセッション
 
-**S010（P2 の 6 回目）** の候補:
+**S011** の候補（P2 の S0〜S10 は、S10 の数値の部分を除いてそろった。P3 に進むかどうかを決める）:
 
-1. **離散変数の when の区別**: when の外の式で決まる離散変数（MLS 8.6 の暗黙の `pre(v) = v`）か、when の中で決まるかを分け、S8 の `GM-W8004` と柔らかい `GM-W8001` を確定させる。S009 の初期化系のマッチングでは、離散変数の列が DAE の行から参照されないので、初期条件の無い離散変数は常に不足している部分に入る。
-2. **閉包の切り替えの費用を和らげる**: `deps_closure` で文書の組が変わると、Rumoca が MSL ごと解決し直す（約 1.5〜1.8 s）。`Checker` に文書の和集合を持たせて、組が変わらないようにする、など。
-3. **S9（代数ループ）・S10（プリフライト）**: 非線形の反復変数の start 値、パラメータの評価、t0 での残差、experiment annotation。S10 には**初期化のヤコビ行列の階数**（S009 で分かった、構造では見えない数値的な特異。`Invalid.UngroundedLoop`、MSL の `AdvancedSolenoid`）を入れる。
-4. **`Checker` のメモリの上限**（P4 のプロセス構成が決まってから）: MSL の例題 566 本で最大 RSS 7.2 GiB（大部分は 1 本の大きなモデル）。大きなモデルの扱いと `reset()` を呼ぶ条件。
-5. **Rumoca の制約を上流に報告する**（ユーザーが出す）: ライブラリ間の extends（S004）、GM-U に振り分けたもの（ED001 の数え方、ET004 の次元など）、**inner の修正が outer に伝わらない**（S009。`Init.OuterModification`。MSL の Fluid の例題 11 本の初期方程式が消える）、**外からの修正が部品の中の同名の変数に漏れる**（S009。`Init.ModifierScope`。`RollingWheelSet*` の `fixed`）。
-6. **`class_index` の残り**: for や if の中の connect、継承したクラスの中の入れ子のクラス（import は S007 でアウトラインに持たせた）。
-7. **S8 の精密化の残り**: 初期方程式の射影に失敗したときの扱い（S009 のファネルでは 0 本）、`fixed = true` の start 値が拘束と整合するかの数値の検査（S10 と合わせて）。
+1. **P3 の始め（実行系 `globe-mode-exec` と driver）**: Rumoca の実行の道具（`rumoca-sim` など）を `globe-mode-exec` から使うか、自前の評価器を作るかを決める（ADR）。そこで S10 の数値の部分（t0 の残差が有限か、**初期化のヤコビ行列の階数**: S009 の `Invalid.UngroundedLoop`、MSL の `AdvancedSolenoid`、ソルバの能力）も入れる。
+2. **S9 を omc と照らして詰める**: `omc-compare` の S9 の照合（非線形のループの有無と、start の無い反復変数の有無。[omc-compare.md](omc-compare.md)）の食い違いを調べる。omc は別名の消去と式の変形を先にするので、globe のループが多めに出る見込み。tearing の選び方（start 値を優先）と、`abs`・`min`・`max` を非線形とみなす広めの判定の影響を切り分ける。状態選択（dummy derivative）の後の系で数えるかも決める。
+3. **閉包の切り替えの残り**: ワークスペースの全ファイルを最初に一度だけ Session に入れておき、初めて検査するモデルも速くする（[ADR-0005](adr/0005-lazy-query-db.md) の結果）。
+4. **`Checker` のメモリの上限**（P4 のプロセス構成が決まってから）: MSL の例題 566 本で最大 RSS 7.1 GiB。
+5. **Rumoca の制約を上流に報告する**（ユーザーが出す）: ライブラリ間の extends（S004）、GM-U に振り分けたもの（ED001 の数え方、ET004 の次元など）、inner の修正が outer に伝わらない（S009）、外からの修正が部品の中の同名の変数に漏れる（S009）、**`phase_structural::analyze` が `algebraic_loops` を埋めない**（S010）。
+6. **字面の 0 除算の振り分け**: `parameter Real T = 1 / a`（a = 0）は Rumoca が `ED019` で止め、[ADR-0007](adr/0007-unsupported-classification.md) のコードの規則で `GM-U0001`（未対応）になる。モデルの誤りなので、文言（"division by zero"）で GM-E に戻すかを決める。
+7. **S8 の残り**: アルゴリズムの `when {…, initial()}` で読み出しを `pre` にする形（MSL の `Interaction1`。omc は何も言わない）、DAE の連続の方程式の中の `pre(d)`、クロックの区間の変数（`Unknown` のまま）。
+8. **`class_index` の残り**: for や if の中の connect、継承したクラスの中の入れ子のクラス。
 
 ## 運用上の決まり
 

@@ -97,6 +97,17 @@ S008 で食い違った 2 本と、検証用のモデルで確かめた（確認
 | 冗長の判定の条件 | 拘束で決まる状態に `fixed = true` が付いていても、拘束の相手（パラメータ）がコンパイル時に評価できて start と整合すれば、警告は出ない（`RedundantAndMissing` の `x = pb`、`pb = 1`、`start = 1`）。評価できないとき（`NonCircularPipes` の `boundary.p`）は「It was not possible to determine if the initialization problem is consistent」と「The initial conditions are over specified. The following N initial equations are redundant」が出て、冗長な初期方程式を外して進む |
 | `dumpInitialSystem` | 1.27.1 には無い（「Unknown debug flag dumpInitialSystem」） |
 
+### S010 で確かめた omc 1.27.1 の代数ループとプリフライトの文言
+
+GlobeMode の S9・S10（[ADR-0012](../adr/0012-loops-and-preflight.md)）の照合のために、小さなモデルと MSL の数本で確かめた（確認日 2026-10-19、`OpenModelica 1.27.1~2-g6db4671`）。
+
+| 項目 | 事実 |
+| --- | --- |
+| 反復変数の一覧 | `setCommandLineOptions("-d=iterationVars")` で、`translateModel` の後の `getErrorString()` に「Notification: List of all iteration variables (DAE kind: initialization)」と「… (DAE kind: simulation)」が出る。系ごとに「Iteration variables of torn nonlinear equation system:」「… of torn linear equation system:」「… of equation system with analytic Jacobian:」の見出しと、変数の行（`  x:VARIABLE(start = 1.0 )  type: Real`。属性の括弧に `start = …` があれば start 値がある）が並ぶ。系が 1 つも無くても 2 つの見出しは出る |
+| start の無い非線形の反復変数 | `-d=initialization` を付けないと、`getErrorString()` に「Warning: There are nonlinear iteration variables with default zero start attribute found in NLSJac0. For more information set -d=initialization.」が出る。付けると、警告の代わりに**標準出力**に「Nonlinear iteration variables with default zero start attribute in NLSJac0. (1)」と番号付きの変数の一覧、「Info: Only non-linear iteration variables in non-linear eqation systems require start values.」が出る（`getErrorString()` には出ない）。2 元の `x*y = 1 + time; x + y = 3`（tearing で 1 元に縮む）では何も言わず、3 元の非線形の系で出た |
+| 線形のループ | 線形の系の反復変数は「torn linear equation system」として一覧に出るが、start 値の警告の対象ではない |
+| S10 の検証用のモデル | `checkModel` は `GlobeModeValidation.Preflight` の 9 本すべてで「completed successfully」（静的には誤りを見つけない）。`simulate` では、`sqrt(-1)` のパラメータは「Model error: Argument of sqrt(area) was -1 should be >= 0」と「simulation terminated by an assertion at initialization」、start の `log(0)` は「Argument of log(x0) was 0 should be > 0」、関数の中の `assert` は初期化で当たる。`experiment(StartTime = 1, StopTime = 0.5)` は警告（「Integrator step size greater than length of experiment … start time: 1.000000, stop time: 0.500000, integrator step size: -0.001000」）だけで進み、`Tolerance = 0` は「DASKR--  ALL ELEMENTS OF RTOL AND ATOL ARE ZERO」で失敗する |
+
 ## Dymola（Dymosim の積分器）
 
 | 分類 | ソルバ |

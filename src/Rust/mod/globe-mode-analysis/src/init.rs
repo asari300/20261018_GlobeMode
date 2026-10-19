@@ -5,8 +5,8 @@
 //! S7 の結果があれば、さらに初期化系をマッチングして（[`crate::init_system`]）、冗長な初期条件と
 //! 初期条件の無い未知数を名指しする（[`analyze_init_system`]、[`InitReport::matching`]）。
 //!
-//! - 要る初期条件の数 = 動的な状態の数（S7。無ければ状態の数）+ 離散変数の数 + `fixed = false` で束縛の無い
-//!   パラメータの数
+//! - 要る初期条件の数 = 動的な状態の数（S7。無ければ状態の数）+ 初期条件の要る離散変数の数（下）+
+//!   `fixed = false` で束縛の無いパラメータの数
 //! - 与えられた初期条件の数 = 初期方程式の数 + `fixed = true` の状態・離散変数・代数変数の数
 //! - 多ければ `GM-E8001`（Error）。ただし離散変数が 1 つでもあるか、インデックスの低減で動的な状態が
 //!   状態の数より少ない（余った fixed が矛盾しないかは数値で決まる。MSL の `GenerationOfFMUs` など）なら、
@@ -26,12 +26,20 @@
 //! - 離散変数は、`pre(d)` が初期化の未知数になるので 1 つずつ要る数に入れる（MLS §8.6）。`fixed = true` なら
 //!   `pre(d) = start` が 1 つ与えられる。初期方程式（`initial equation d = …`）や初期アルゴリズムの代入も
 //!   フロントエンドが `initial_equations` に入れる。
-//!   ただし離散変数が when の外の式で決まる（例 `y = x > 0`）か、when の中で決まるかは [`InitStructure`] では
-//!   分からない。前者は MLS §8.6 の暗黙の規則で初期条件が要らない（`pre(d)` は `d` から決まる）。数が揺れるので:
+//!   S010 から、離散変数の決まり方（[`InitStructure::discrete_init`]。[`crate::init_system`] の離散変数の節）が
+//!   分かれば、初期条件の要る数を決まり方で数える: when の中だけで決まるもの（初期化では `d = pre(d)`）は 1 つ、
+//!   when の外の方程式か `when initial()` で決まるもの（その方程式が初期化でも `d` を決める）は、`pre(d)` が
+//!   初期化で働く式に参照されるか `fixed = true` のときだけ 1 つ（`pre(d)` が別の未知数になる）、それ以外は 0。
+//!   決まり方が分からない離散変数（`Unknown`、または `discrete_init` が空）は S009 までと同じく 1 つずつ数え、
+//!   数が揺れるので:
 //!   - 離散変数があるとき、またはインデックスの低減で状態が減るときの過剰は確定させない（`GM-E8001` ではなく `GM-W8004`）。
+//!     マッチングがあるときは、過剰な部分の初期条件が決まり方の分からない離散変数に関わるときだけ確定させない。
 //!   - 不足の数が `fixed = false` の離散変数の数以下なら、離散変数の `pre` の初期値に start を使えば足りる
 //!     見込みなので、`GM-W8001` を「足りない見込み」の柔らかい警告にし、`GM-W8002` は出さない
 //!     （状態の初期条件が足りないとは確定しないため）。不足がそれより多ければ、今までどおり。
+//!     マッチングがあるときは、不足している部分の、決まり方の分からない `fixed = false` の離散変数だけを数える
+//!     （決まり方が分かる離散変数の不足は確定する。when で決まり start も fixed も無い離散変数は、本当に初期条件が
+//!     無く、既定の start を使う見込み）。
 //! - `fixed = true` の代数変数は `v = start` が 1 つ与えられる（要る数は増えない）。
 //! - `fixed = false` のパラメータでも、束縛（`parameter Real p(fixed = false) = …`。初期アルゴリズムで
 //!   決めるものも Rumoca は束縛にする）があれば、その束縛が自分を決めるので、要る数にも与えられた数にも入れない。
@@ -39,7 +47,7 @@
 //! Rumoca に依存しない。wasm32 でも動く。
 
 use globe_mode_core::{Diagnostic, Stage, TextRange, codes};
-use globe_mode_ir::{DaeStructure, InitStructure, InitVariable};
+use globe_mode_ir::{DaeStructure, DiscreteInitKind, InitStructure, InitVariable};
 use serde::Serialize;
 
 use crate::init_system::{InitCondition, InitMatching, InitUnknown, match_init_system};
@@ -51,8 +59,11 @@ use crate::{NOTE_LIST_LIMIT, list_by};
 /// 位置を持たないので、[`InitStructure::without_ranges`] を渡しても同じ値になる。
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize)]
 pub struct InitReport {
-    /// 要る初期条件の数（動的な状態（S7。無ければ状態）+ 離散変数 + fixed = false で束縛の無いパラメータ）
+    /// 要る初期条件の数（動的な状態（S7。無ければ状態）+ 初期条件の要る離散変数 + fixed = false で束縛の無い
+    /// パラメータ）
     pub required: usize,
+    /// `required` のうち離散変数の分（S010。決まり方が分からなければ離散変数の数。[`required_discretes`]）
+    pub required_discretes: usize,
     /// 与えられた初期条件の数（初期方程式 + fixed = true の状態・離散変数・代数変数）
     pub provided: usize,
     /// `fixed = true` の状態（`states` の添字）
@@ -124,14 +135,21 @@ impl InitReport {
         // 要る数のうち状態の分。S7 の動的な状態の数を使ったときは、状態の数と違う
         let dynamic = self
             .required
-            .saturating_sub(self.free_parameters.len() + n_discretes);
+            .saturating_sub(self.free_parameters.len() + self.required_discretes);
         let mut required_parts = vec![if dynamic == init.states.len() {
             format!("状態 {dynamic}")
         } else {
             format!("動的な状態 {dynamic}（状態 {} のうち）", init.states.len())
         }];
-        if n_discretes > 0 {
-            required_parts.push(format!("離散変数 {n_discretes}"));
+        if self.required_discretes == n_discretes {
+            if n_discretes > 0 {
+                required_parts.push(format!("離散変数 {n_discretes}"));
+            }
+        } else {
+            required_parts.push(format!(
+                "初期条件の要る離散変数 {}（離散変数 {n_discretes} のうち。残りは初期化でも成り立つ方程式で決まる）",
+                self.required_discretes
+            ));
         }
         required_parts.push(format!(
             "初期化で決めるパラメータ {}",
@@ -360,7 +378,12 @@ impl InitReport {
                 derivative_name(&name(&init.algebraics, index), order)
             }
             InitUnknown::Parameter { index } => name(&init.parameters, index),
-            InitUnknown::Discrete { index } => format!("pre({})", name(&init.discretes, index)),
+            InitUnknown::Discrete { index } if determined_discrete(init, index) => {
+                name(&init.discretes, index)
+            }
+            InitUnknown::Discrete { index } | InitUnknown::PreDiscrete { index } => {
+                format!("pre({})", name(&init.discretes, index))
+            }
         };
         let condition_location = |c: &InitCondition| -> (Option<&str>, Option<TextRange>) {
             match *c {
@@ -386,12 +409,16 @@ impl InitReport {
         let undetermined_indices: Vec<usize> = (0..m.undetermined.len()).collect();
 
         if m.extra > 0 {
+            // 決まり方の分からない離散変数が関わるときだけ確定させない（S010）
             let with_discrete = m.redundant.iter().any(|c| match *c {
-                InitCondition::FixedDiscrete(_) => true,
+                InitCondition::FixedDiscrete(i) => uncertain_discrete(init, i),
                 InitCondition::InitialEquation(i) => init
                     .initial_discrete_refs
                     .get(i)
-                    .is_some_and(|r| !r.is_empty()),
+                    .into_iter()
+                    .chain(init.initial_pre_discrete_refs.get(i))
+                    .flatten()
+                    .any(|&d| uncertain_discrete(init, d as usize)),
                 _ => false,
             });
             let mut uncertain = Vec::new();
@@ -438,20 +465,32 @@ impl InitReport {
                 );
             }
             if with_discrete {
-                d = d.note("離散変数は when の外の pre(d) = d の暗黙の式などで数が揺れるので、過剰とは確定しない");
+                d = d.note("決まり方（when の中か外か）の分からない離散変数は、初期条件の要る数が揺れるので、過剰とは確定しない");
             }
             out.push(d.note(
                 "冗長な候補のうち、拘束や別の初期条件で決まる変数の fixed = true（または初期方程式）を外す",
             ));
         }
         if m.missing > 0 {
+            // 柔らかい警告にするのは、決まり方の分からない fixed = false の離散変数の分だけ（S010）
             let open_discretes = m
                 .undetermined
                 .iter()
                 .filter(|u| match **u {
                     InitUnknown::Discrete { index } => {
-                        init.discretes.get(index).is_some_and(|d| !d.fixed)
+                        uncertain_discrete(init, index)
+                            && init.discretes.get(index).is_some_and(|d| !d.fixed)
                     }
+                    _ => false,
+                })
+                .count();
+            // 決まり方が分かっていて初期条件の無い離散変数（when で決まる d か、別の列の pre(d)）
+            let known_discretes = m
+                .undetermined
+                .iter()
+                .filter(|u| match **u {
+                    InitUnknown::Discrete { index } => !uncertain_discrete(init, index),
+                    InitUnknown::PreDiscrete { .. } => true,
                     _ => false,
                 })
                 .count();
@@ -486,6 +525,11 @@ impl InitReport {
                     "初期化で決めるパラメータ（fixed = false、{} 個）: {}",
                     self.free_parameters.len(),
                     list(&self.free_parameters, |i| name(&init.parameters, i))
+                ));
+            }
+            if known_discretes > 0 {
+                d = d.note(format!(
+                    "初期条件の無い離散変数の値（{known_discretes} 個。when の中で決まる d は初期化では d = pre(d)、when の外や when initial() で決まる d の pre(d) は別の未知数。MLS 8.6）は、start を初期値に使う見込み"
                 ));
             }
             if uncertain {
@@ -600,14 +644,16 @@ pub fn analyze_init_with_index(init: &InitStructure, dynamic_states: Option<usiz
     let parameters_without_value = indices(&init.parameters, |p| {
         p.fixed && !p.has_binding && !p.has_start
     });
+    let required_discretes = required_discretes(init);
     let required =
-        dynamic_states.unwrap_or(init.states.len()) + init.discretes.len() + free_parameters.len();
+        dynamic_states.unwrap_or(init.states.len()) + required_discretes + free_parameters.len();
     let provided = init.initial_equations.len()
         + fixed_states.len()
         + fixed(&init.discretes).len()
         + fixed(&init.algebraics).len();
     InitReport {
         required,
+        required_discretes,
         provided,
         fixed_states,
         states_without_start,
@@ -615,6 +661,43 @@ pub fn analyze_init_with_index(init: &InitStructure, dynamic_states: Option<usiz
         parameters_without_value,
         matching: None,
     }
+}
+
+/// 要る初期条件のうち離散変数の分（S010。モジュールの doc の数え方）。
+///
+/// [`InitStructure::discrete_init`] が無い（長さが合わない）なら離散変数の数。あれば、`When` と `Unknown` は 1 つ、
+/// `Always` と `InitialWhen` は `pre(d)` が参照されるか `fixed = true` のときだけ 1 つ。
+/// [`crate::init_system`] の列の数え方と同じなので、列 − 行 = 要る数 − 与えた数 が保たれる
+/// （`Always` と `InitialWhen` の離散変数は、フロントエンドが離散の方程式をスカラーごとに 1 行ずつ作る）。
+pub(crate) fn required_discretes(init: &InitStructure) -> usize {
+    if init.discrete_init.len() != init.discretes.len() {
+        return init.discretes.len();
+    }
+    init.discrete_init
+        .iter()
+        .zip(&init.discretes)
+        .filter(|(d, v)| match d.kind {
+            DiscreteInitKind::When | DiscreteInitKind::Unknown => true,
+            DiscreteInitKind::Always | DiscreteInitKind::InitialWhen => d.pre_referenced || v.fixed,
+        })
+        .count()
+}
+
+/// 離散変数 `i` の決まり方が分からない（S009 までと同じ扱い）。
+fn uncertain_discrete(init: &InitStructure, i: usize) -> bool {
+    init.discrete_init
+        .get(i)
+        .is_none_or(|d| d.kind == DiscreteInitKind::Unknown)
+}
+
+/// 離散変数 `i` が初期化でも成り立つ方程式で決まる（`Always` か `InitialWhen`）。
+fn determined_discrete(init: &InitStructure, i: usize) -> bool {
+    init.discrete_init.get(i).is_some_and(|d| {
+        matches!(
+            d.kind,
+            DiscreteInitKind::Always | DiscreteInitKind::InitialWhen
+        )
+    })
 }
 
 /// 族の階数つきの名前: 0 は `x`、1 は `der(x)`、2 以上は `der2(x)` など。
@@ -1238,5 +1321,178 @@ mod tests {
         assert!(ds[1].message.contains("`#4`"));
         assert!(ds[2].message.contains("`#7`"));
         assert!(ds.iter().all(|d| d.file.is_none() && d.range.is_none()));
+    }
+
+    // ----------------------------------------------------------------------- 離散変数の決まり方（S010）
+
+    /// der(x) = -x（x は fixed = true）と、決まり方の分かる離散変数
+    fn discrete_system(
+        discretes: &[(&str, bool, globe_mode_ir::DiscreteInitKind, bool)],
+    ) -> (DaeStructure, IndexReport, InitStructure) {
+        let s = crate::testutil::dae(&["x"], &[], &[("der(x) = -x", &["der(x)", "x"])]);
+        let ix = crate::pantelides::analyze_index(&s);
+        let init = InitStructure {
+            states: vec![state("x", true, true, 10)],
+            discretes: discretes
+                .iter()
+                .enumerate()
+                .map(|(i, (n, f, _, _))| state(n, *f, *f, 50 + 10 * i as u32))
+                .collect(),
+            discrete_init: discretes
+                .iter()
+                .map(
+                    |&(_, _, kind, pre_referenced)| globe_mode_ir::DiscreteInit {
+                        kind,
+                        pre_referenced,
+                    },
+                )
+                .collect(),
+            has_incidence: true,
+            ..Default::default()
+        };
+        (s, ix, init)
+    }
+
+    fn with_initial(mut init: InitStructure, label: &str, discretes: &[u32]) -> InitStructure {
+        init.initial_equations.push(equation(label, 80));
+        init.initial_incidence.push(Vec::new());
+        init.initial_state_refs.push(Vec::new());
+        init.initial_parameter_refs.push(Vec::new());
+        init.initial_discrete_refs.push(discretes.to_vec());
+        init.initial_pre_discrete_refs.push(Vec::new());
+        init
+    }
+
+    #[test]
+    fn missing_initial_condition_of_a_when_discrete_is_certain() {
+        use globe_mode_ir::DiscreteInitKind::When;
+        // Init.DiscreteWhen の形: n と d は when の中だけで決まる。決まり方が分かるので柔らかくしない
+        let (s, ix, init) =
+            discrete_system(&[("n", false, When, false), ("d", false, When, false)]);
+        let r = analyze_init_system(&init, Some(&s), Some(&ix));
+        assert_eq!((r.required, r.provided, r.required_discretes), (3, 1, 2));
+        let ds = r.diagnostics(&init);
+        assert_eq!(codes_of(&ds), [codes::INIT_UNDERDETERMINED]);
+        assert!(
+            ds[0].message.contains("2 個足りない（"),
+            "{}",
+            ds[0].message
+        );
+        assert!(
+            ds[0].notes.iter().any(|n| n.contains("`pre(n)`, `pre(d)`")),
+            "{:?}",
+            ds[0].notes
+        );
+        assert!(
+            ds[0]
+                .notes
+                .iter()
+                .any(|n| n.contains("start を初期値に使う見込み")),
+            "{:?}",
+            ds[0].notes
+        );
+        // 決まり方が分からなければ（S009 まで）、柔らかい警告のまま
+        let unknown = InitStructure {
+            discrete_init: Vec::new(),
+            ..init
+        };
+        let r = analyze_init_system(&unknown, Some(&s), Some(&ix));
+        let ds = r.diagnostics(&unknown);
+        assert!(
+            ds[0].message.contains("足りない見込み"),
+            "{}",
+            ds[0].message
+        );
+    }
+
+    #[test]
+    fn discretes_defined_by_initialization_equations_need_no_condition() {
+        use globe_mode_ir::DiscreteInitKind::{Always, InitialWhen, When};
+        // Init.DiscreteOutsideWhen の形: b と k は when の外、c は when の中で initial equation c = 0
+        let (s, ix, mut init) = discrete_system(&[
+            ("b", false, Always, false),
+            ("k", false, InitialWhen, false),
+            ("c", false, When, false),
+        ]);
+        init.discrete_equations = (0..2)
+            .map(|t| globe_mode_ir::DiscreteEquation {
+                target: t,
+                state_refs: vec![0],
+                discretes: vec![t],
+                ..Default::default()
+            })
+            .collect();
+        let init = with_initial(init, "c = 0", &[2]);
+        let r = analyze_init_system(&init, Some(&s), Some(&ix));
+        assert_eq!((r.required, r.provided, r.required_discretes), (2, 2, 1));
+        assert!(r.is_balanced(), "{:?}", r.matching);
+        assert!(r.diagnostics(&init).is_empty());
+        // 足りなくなったときの数の書き方: 初期条件の要る離散変数は 3 個のうち 1 個
+        let short = InitStructure {
+            states: vec![state("x", false, false, 10)],
+            ..init
+        };
+        let ds = analyze_init_system(&short, Some(&s), Some(&ix)).diagnostics(&short);
+        assert_eq!(
+            codes_of(&ds),
+            [codes::INIT_UNDERDETERMINED, codes::STATE_WITHOUT_START]
+        );
+        assert!(
+            ds[0]
+                .message
+                .contains("初期条件の要る離散変数 1（離散変数 3 のうち"),
+            "{}",
+            ds[0].message
+        );
+    }
+
+    #[test]
+    fn redundancy_on_a_when_discrete_is_an_error() {
+        use globe_mode_ir::DiscreteInitKind::{Unknown, When};
+        // Init.DiscreteRedundant の形: n は when の中、fixed = true と initial equation n = 0
+        let (s, ix, init) = discrete_system(&[("n", true, When, false)]);
+        let init = with_initial(init, "n = 0", &[0]);
+        let r = analyze_init_system(&init, Some(&s), Some(&ix));
+        let ds = r.diagnostics(&init);
+        assert_eq!(codes_of(&ds), [codes::INIT_OVERDETERMINED]);
+        assert_eq!(ds[0].severity, Severity::Error);
+        assert!(
+            ds[0]
+                .notes
+                .iter()
+                .any(|n| n.contains("`n = 0`") && n.contains("`n` の fixed = true")),
+            "{:?}",
+            ds[0].notes
+        );
+        // 決まり方が分からなければ、S009 と同じく確定させない
+        let (s, ix, init) = discrete_system(&[("n", true, Unknown, false)]);
+        let init = with_initial(init, "n = 0", &[0]);
+        let ds = analyze_init_system(&init, Some(&s), Some(&ix)).diagnostics(&init);
+        assert_eq!(codes_of(&ds), [codes::INIT_OVERDETERMINED_UNCERTAIN]);
+        assert!(
+            ds[0].notes.iter().any(|n| n.contains("決まり方")),
+            "{:?}",
+            ds[0].notes
+        );
+    }
+
+    #[test]
+    fn required_discretes_follow_the_kinds() {
+        use globe_mode_ir::DiscreteInitKind::{Always, InitialWhen, Unknown, When};
+        let (_, _, init) = discrete_system(&[
+            ("a", false, When, false),
+            ("b", false, Unknown, false),
+            ("c", false, Always, false),
+            ("d", false, Always, true),
+            ("e", true, InitialWhen, false),
+            ("f", false, InitialWhen, false),
+        ]);
+        // When と Unknown は 1 つ、Always と InitialWhen は pre(d) が参照されるか fixed のときだけ
+        assert_eq!(required_discretes(&init), 4);
+        let plain = InitStructure {
+            discrete_init: Vec::new(),
+            ..init
+        };
+        assert_eq!(required_discretes(&plain), 6);
     }
 }

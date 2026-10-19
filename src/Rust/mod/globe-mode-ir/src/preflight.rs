@@ -31,6 +31,10 @@ impl PreflightStructure {
         PreflightStructure {
             parameter_failures: self.parameter_failures.iter().map(strip).collect(),
             start_failures: self.start_failures.iter().map(strip).collect(),
+            experiment: self.experiment.as_ref().map(|e| Experiment {
+                range: None,
+                ..e.clone()
+            }),
             ..self.clone()
         }
     }
@@ -80,11 +84,19 @@ impl Bits {
     }
 }
 
-/// experiment annotation（MLS 18.4）。書かれていない項目は None。
+/// experiment annotation（MLS 18.4）。書かれていない項目と、数の字面でない項目（`StopTime = 2 * T` など）は None。
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize)]
 pub struct Experiment {
     pub start_time: Option<Bits>,
     pub stop_time: Option<Bits>,
     pub interval: Option<Bits>,
     pub tolerance: Option<Bits>,
+    /// 値が数の字面でない項目の名前（`StopTime` など。書かれた順）。MLS の文法では、どれも数の字面に限る
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub non_literal: Vec<String>,
+    /// 注釈の `experiment(...)` の位置。Rumoca の（不正な値を捨てた後の）値しか取れなかったときは None
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub range: Option<TextRange>,
 }

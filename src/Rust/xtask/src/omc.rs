@@ -62,6 +62,23 @@ pub(crate) struct Ours {
     pub s6_regular: Option<bool>,
     pub s7_index: Option<usize>,
     pub s8: Option<OursS8>,
+    /// S9 の結果（S010）。S9 を回さなかったか、解析しなかった（skipped）ときは None
+    pub s9: Option<OursS9>,
+}
+
+/// globe check の S9（代数ループ）のうち、照合に使う数。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct OursS9 {
+    /// 代数ループ（大きさ 2 以上の BLT のブロック）の数
+    pub loops: usize,
+    /// そのうち非線形のもの
+    pub nonlinear: usize,
+    /// 非線形のループの反復変数（tearing 変数）の数
+    pub iteration_vars: usize,
+    /// そのうち start 値の無いもの（GM-W9001 の対象）
+    pub without_start: usize,
+    /// インデックスが 2 以上で、状態選択の前の最高階の系で数えた見込み
+    pub reduced: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -168,6 +185,19 @@ fn ours_from_json(v: &Value) -> Ours {
             .to_string(),
         uncertain: x.get("uncertain").and_then(Value::as_bool).unwrap_or(false),
     });
+    let s9 = v
+        .get("s9")
+        .filter(|x| !x.is_null() && x.get("skipped").is_none_or(Value::is_null))
+        .map(|x| {
+            let n = |k: &str| x.get(k).and_then(Value::as_u64).unwrap_or(0) as usize;
+            OursS9 {
+                loops: n("loops"),
+                nonlinear: n("nonlinear"),
+                iteration_vars: n("iteration_vars"),
+                without_start: n("without_start"),
+                reduced: x.get("reduced").and_then(Value::as_bool).unwrap_or(false),
+            }
+        });
     Ours {
         model: s("model").unwrap_or_default(),
         partial: v.get("partial").and_then(Value::as_bool).unwrap_or(false),
@@ -179,6 +209,7 @@ fn ours_from_json(v: &Value) -> Ours {
         s6_regular,
         s7_index,
         s8,
+        s9,
     }
 }
 
@@ -237,6 +268,29 @@ pub(crate) struct OmcTranslate {
     pub errors: String,
     /// 「The initial conditions are over specified」が出た。`-d=initialization` なら余分な初期方程式の本数も分かる
     pub over_specified: Option<Option<usize>>,
+    /// シミュレーションの系の代数ループ（`-d=iterationVars` の一覧。S010）。一覧が無ければ None（S008 の保存など）
+    pub loops: Option<OmcLoops>,
+    /// 「Nonlinear iteration variables with default zero start attribute」に挙がった変数の数（`-d=initialization`。
+    /// 初期化とシミュレーションの系を合わせる。S010）。標準出力に出るので、保存から読み直すときは保存した数を使う。
+    /// 分からなければ None
+    pub zero_start: Option<usize>,
+}
+
+/// omc の `-d=iterationVars` の一覧（シミュレーションの系、`DAE kind: simulation`）を数えたもの。
+///
+/// 系ごとに「Iteration variables of torn nonlinear equation system:」「… torn linear …」「… equation system with
+/// analytic Jacobian:」などの見出しと、反復変数の行（`  x:VARIABLE(start = 1.0 )  type: Real`）が並ぶ。
+/// 見出しに `linear` があって `nonlinear` が無ければ線形、それ以外は非線形として数える。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct OmcLoops {
+    /// 非線形の系の数
+    pub nonlinear: usize,
+    /// 線形の系の数
+    pub linear: usize,
+    /// 非線形の系の反復変数の数
+    pub nonlinear_vars: usize,
+    /// 非線形の系の反復変数のうち、属性に `start` の無いもの
+    pub nonlinear_vars_without_start: usize,
 }
 
 /// 1 本分の omc の結果。
@@ -261,8 +315,11 @@ pub(crate) fn script(msl: &Path, models: &[&str], translate: bool) -> String {
         s,
         "loadModel(Modelica, {{\"{MSL_VERSION}\"}}); getErrorString();"
     );
-    // 初期条件の過剰で、余分な初期方程式の本数を出させる
-    let _ = writeln!(s, "setCommandLineOptions(\"-d=initialization\");");
+    // 初期条件の過剰で、余分な初期方程式の本数を出させる（initialization）。代数ループの反復変数の一覧も出させる（iterationVars、S010）
+    let _ = writeln!(
+        s,
+        "setCommandLineOptions(\"-d=initialization,iterationVars\");"
+    );
     let _ = writeln!(s, "print(\"@@LOADED\\n\");");
     for m in models {
         let _ = writeln!(s, "print(\"@@BEGIN {m}\\n\");");
@@ -372,6 +429,54 @@ fn parse_over_specified(errors: &str) -> Option<Option<usize>> {
     Some(count)
 }
 
+/// `-d=iterationVars` の一覧のうち、シミュレーションの系（`DAE kind: simulation`）を数える。一覧が無ければ None。
+pub(crate) fn parse_iteration_vars(errors: &str) -> Option<OmcLoops> {
+    const HEADER: &str = "List of all iteration variables (DAE kind: simulation)";
+    let start = errors.find(HEADER)? + HEADER.len();
+    let mut loops = OmcLoops::default();
+    let mut nonlinear = false;
+    for line in errors[start..].lines().skip(1) {
+        if line.starts_with("Notification:")
+            || line.starts_with("Warning:")
+            || line.starts_with("Error:")
+        {
+            break;
+        }
+        if let Some(header) = line.strip_prefix("Iteration variables of ") {
+            nonlinear = header.contains("nonlinear") || !header.contains("linear");
+            if nonlinear {
+                loops.nonlinear += 1;
+            } else {
+                loops.linear += 1;
+            }
+        } else if line.starts_with("  ") && nonlinear {
+            loops.nonlinear_vars += 1;
+            // 属性は名前の後の最初の括弧の中（`x:VARIABLE(start = 1.0 )`）
+            let attributes = line
+                .split_once('(')
+                .and_then(|(_, rest)| rest.split_once(')'))
+                .map_or("", |(a, _)| a);
+            if !attributes.contains("start = ") && !attributes.starts_with("start =") {
+                loops.nonlinear_vars_without_start += 1;
+            }
+        }
+    }
+    Some(loops)
+}
+
+/// `-d=initialization` の標準出力の「Nonlinear iteration variables with default zero start attribute in NLSJacN. (k)」
+/// の k を足し合わせる。
+pub(crate) fn parse_zero_start(result: &str) -> usize {
+    result
+        .lines()
+        .filter(|l| l.contains("iteration variables with default zero start attribute in"))
+        .filter_map(|l| {
+            let (_, tail) = l.trim_end().rsplit_once('(')?;
+            tail.strip_suffix(')')?.trim().parse::<usize>().ok()
+        })
+        .sum()
+}
+
 pub(crate) fn parse_translate(result: &str, errors: &str) -> OmcTranslate {
     // `-d=initialization` を付けると、結果の `true` / `false` の前に反復変数の一覧などが標準出力に出る。結果は最後の行
     let ok = result.lines().map(str::trim).rfind(|l| !l.is_empty()) == Some("true");
@@ -380,6 +485,8 @@ pub(crate) fn parse_translate(result: &str, errors: &str) -> OmcTranslate {
         kind: classify_translate(ok, errors),
         errors: errors.to_string(),
         over_specified: parse_over_specified(errors),
+        loops: parse_iteration_vars(errors),
+        zero_start: Some(parse_zero_start(result)),
     }
 }
 
@@ -685,6 +792,31 @@ impl Compared {
         }
         Some(ours.is_over() == t.over_specified.is_some())
     }
+
+    /// S9 の照合（S010）: 非線形の代数ループの有無。globe は BLT の大きさ 2 以上のブロックのうち非線形のもの、
+    /// omc は `-d=iterationVars` のシミュレーションの系のうち非線形のもの。omc の translateModel が通り、一覧が
+    /// あるときだけ比べる。omc は先に別名の消去や式の変形をするので、数は比べず有無だけを比べる。
+    pub(crate) fn s9_loops(&self) -> Option<bool> {
+        let ours = self.ours.s9.as_ref()?;
+        let t = self.omc.translate.as_ref()?;
+        if t.kind != TranslateKind::Ok {
+            return None;
+        }
+        Some((ours.nonlinear > 0) == (t.loops?.nonlinear > 0))
+    }
+
+    /// S9 の照合（S010）: start 値の無い非線形の反復変数の有無。globe は GM-W9001 の対象、omc は `-d=iterationVars`
+    /// のシミュレーションの非線形の系の反復変数のうち、属性に `start` の無いもの。omc の「Nonlinear iteration variables
+    /// with default zero start attribute」（`zero_start`）は条件がもっと狭く（MSL では 5 本だけ）、同じものを数えて
+    /// いないので、参考の列にとどめる。
+    pub(crate) fn s9_start(&self) -> Option<bool> {
+        let ours = self.ours.s9.as_ref()?;
+        let t = self.omc.translate.as_ref()?;
+        if t.kind != TranslateKind::Ok {
+            return None;
+        }
+        Some((ours.without_start > 0) == (t.loops?.nonlinear_vars_without_start > 0))
+    }
 }
 
 #[derive(Debug, Default)]
@@ -709,6 +841,12 @@ struct Summary {
     s8_compared: usize,
     s8_agree: usize,
     s8_disagree: Vec<String>,
+    s9_compared: usize,
+    s9_agree: usize,
+    s9_disagree: Vec<String>,
+    s9_start_compared: usize,
+    s9_start_agree: usize,
+    s9_start_disagree: Vec<String>,
     /// globe が OK なのに omc の translateModel が失敗したもの（種類ごと）
     ok_but_omc_failed: BTreeMap<&'static str, Vec<String>>,
 }
@@ -769,6 +907,22 @@ impl Summary {
                     s.s8_agree += 1;
                 } else {
                     s.s8_disagree.push(r.ours.model.clone());
+                }
+            }
+            if let Some(a) = r.s9_loops() {
+                s.s9_compared += 1;
+                if a {
+                    s.s9_agree += 1;
+                } else {
+                    s.s9_disagree.push(r.ours.model.clone());
+                }
+            }
+            if let Some(a) = r.s9_start() {
+                s.s9_start_compared += 1;
+                if a {
+                    s.s9_start_agree += 1;
+                } else {
+                    s.s9_start_disagree.push(r.ours.model.clone());
                 }
             }
             if r.ours.verdict == "Ok"
@@ -852,7 +1006,7 @@ fn render_report(rows: &[Compared], s: &Summary, run: &RunInfo<'_>) -> String {
     p(&mut o, "");
     p(
         &mut o,
-        "`cargo xtask omc-compare` が書く。`msl-funnel --json` の結果（globe check の S0〜S8 の判定）を、omc（OpenModelica のコンパイラ、別プロセス）の `checkModel`（方程式数と変数数）と `translateModel`（バックエンドまで。構造特異と初期条件の過剰）と突き合わせる。規則は [ADR-0010](adr/0010-omc-comparison.md)。",
+        "`cargo xtask omc-compare` が書く。`msl-funnel --json` の結果（globe check の S0〜S10 の判定）を、omc（OpenModelica のコンパイラ、別プロセス）の `checkModel`（方程式数と変数数）と `translateModel`（バックエンドまで。構造特異と初期条件の過剰）と突き合わせる。規則は [ADR-0010](adr/0010-omc-comparison.md)。",
     );
     p(&mut o, "");
     p(&mut o, "| 項目 | 値 |");
@@ -1246,6 +1400,7 @@ fn render_report(rows: &[Compared], s: &Summary, run: &RunInfo<'_>) -> String {
             }
             p(&mut o, "");
         }
+        render_s9_section(&mut o, rows, s);
         p(
             &mut o,
             "### globe check が OK なのに omc の translateModel が失敗したモデル",
@@ -1318,6 +1473,105 @@ fn render_report(rows: &[Compared], s: &Summary, run: &RunInfo<'_>) -> String {
         );
     }
     o
+}
+
+/// 報告の S9（代数ループ）の節（S010）。
+fn render_s9_section(o: &mut String, rows: &[Compared], s: &Summary) {
+    let p = |o: &mut String, line: &str| {
+        o.push_str(line);
+        o.push('\n');
+    };
+    p(o, "### S9（代数ループ）の照合");
+    p(o, "");
+    p(
+        o,
+        "globe check の S9（BLT の大きさ 2 以上のブロック。非線形の見込みと、非線形のループの tearing 変数の start 値）と、omc の `translateModel` の `-d=iterationVars`（シミュレーションの系の反復変数の一覧と、その属性の `start`）を比べる。omc は先に別名の消去や式の変形をして、解ける式は陽に解くので、ループの数は比べず**有無だけ**を比べる。omc の translateModel が失敗したものと、omc の一覧の無いもの（S008 の保存）は比べない。omc の `-d=initialization` の「Nonlinear iteration variables with default zero start attribute」（表の zero start）は条件がもっと狭く、同じものを数えていないので、参考に書くだけにする。",
+    );
+    p(o, "");
+    p(o, "| 項目 | 比べたモデル | 一致 | 不一致 |");
+    p(o, "| --- | --- | --- | --- |");
+    p(
+        o,
+        &format!(
+            "| 非線形の代数ループの有無 | {} | {}（{}） | {} |",
+            s.s9_compared,
+            s.s9_agree,
+            percent(s.s9_agree, s.s9_compared),
+            s.s9_disagree.len()
+        ),
+    );
+    p(
+        o,
+        &format!(
+            "| start 値の無い非線形の反復変数の有無 | {} | {}（{}） | {} |",
+            s.s9_start_compared,
+            s.s9_start_agree,
+            percent(s.s9_start_agree, s.s9_start_compared),
+            s.s9_start_disagree.len()
+        ),
+    );
+    p(o, "");
+    let disagree: Vec<&Compared> = rows
+        .iter()
+        .filter(|r| r.s9_loops() == Some(false) || r.s9_start() == Some(false))
+        .collect();
+    if disagree.is_empty() {
+        return;
+    }
+    p(o, "食い違ったモデル（先頭の 40 本）:");
+    p(o, "");
+    p(o, "| モデル | globe check の S9 | omc |");
+    p(o, "| --- | --- | --- |");
+    for r in disagree.iter().take(40) {
+        p(
+            o,
+            &format!(
+                "| `{}` | {} | {} |",
+                short_name(&r.ours.model),
+                s9_cell(&r.ours),
+                omc_s9_cell(&r.omc)
+            ),
+        );
+    }
+    if disagree.len() > 40 {
+        p(o, &format!("| … ほか {} 本 | | |", disagree.len() - 40));
+    }
+    p(o, "");
+}
+
+fn s9_cell(ours: &Ours) -> String {
+    ours.s9.as_ref().map_or_else(
+        || "-".to_string(),
+        |x| {
+            format!(
+                "ループ {}（非線形 {}）、反復変数 {}（start なし {}）{}",
+                x.loops,
+                x.nonlinear,
+                x.iteration_vars,
+                x.without_start,
+                if x.reduced { "、最高階の系" } else { "" }
+            )
+        },
+    )
+}
+
+fn omc_s9_cell(omc: &OmcModel) -> String {
+    let Some(t) = &omc.translate else {
+        return "-".to_string();
+    };
+    let loops = t.loops.map_or_else(
+        || "一覧なし".to_string(),
+        |l| {
+            format!(
+                "非線形 {}・線形 {}、反復変数 {}（start なし {}）",
+                l.nonlinear, l.linear, l.nonlinear_vars, l.nonlinear_vars_without_start
+            )
+        },
+    );
+    match t.zero_start {
+        Some(z) => format!("{loops}、zero start {z}"),
+        None => loops,
+    }
 }
 
 fn counts_cell(ours: &Ours) -> String {
@@ -1424,6 +1678,12 @@ fn render_json(rows: &[Compared], s: &Summary, run: &RunInfo<'_>) -> Value {
                     "translate": r.omc.translate.as_ref().map(|t| json!({
                         "ok": t.ok, "kind": t.kind.label(), "errors": t.errors,
                         "over_specified": t.over_specified.map(|n| json!(n)),
+                        "loops": t.loops.map(|l| json!({
+                            "nonlinear": l.nonlinear, "linear": l.linear,
+                            "nonlinear_vars": l.nonlinear_vars,
+                            "nonlinear_vars_without_start": l.nonlinear_vars_without_start,
+                        })),
+                        "zero_start": t.zero_start,
                     })),
                 },
                 "s5": match r.s5() {
@@ -1434,6 +1694,8 @@ fn render_json(rows: &[Compared], s: &Summary, run: &RunInfo<'_>) -> Value {
                 "counts_equal": r.counts_equal(),
                 "s6": r.s6(),
                 "s8_over": r.s8_over(),
+                "s9_loops": r.s9_loops(),
+                "s9_start": r.s9_start(),
             })
         })
         .collect();
@@ -1471,6 +1733,12 @@ fn render_json(rows: &[Compared], s: &Summary, run: &RunInfo<'_>) -> Value {
             "s8_compared": s.s8_compared,
             "s8_agree": s.s8_agree,
             "s8_disagree": s.s8_disagree,
+            "s9_compared": s.s9_compared,
+            "s9_agree": s.s9_agree,
+            "s9_disagree": s.s9_disagree,
+            "s9_start_compared": s.s9_start_compared,
+            "s9_start_agree": s.s9_start_agree,
+            "s9_start_disagree": s.s9_start_disagree,
             "ok_but_omc_failed": s.ok_but_omc_failed,
         },
         "models": models,
@@ -1524,7 +1792,13 @@ fn read_reuse(path: &Path) -> Result<(BTreeMap<String, OmcModel>, String, bool, 
         let translate_result = omc.get("translate").filter(|t| !t.is_null()).map(|t| {
             let ok = t.get("ok").and_then(Value::as_bool).unwrap_or(false);
             let errors = t.get("errors").and_then(Value::as_str).unwrap_or("");
-            parse_translate(if ok { "true" } else { "false" }, errors)
+            let mut parsed = parse_translate(if ok { "true" } else { "false" }, errors);
+            // 標準出力は保存していないので、数は保存したものを使う（S008 の保存には無い）
+            parsed.zero_start = t
+                .get("zero_start")
+                .and_then(Value::as_u64)
+                .map(|n| n as usize);
+            parsed
         });
         out.insert(
             name.clone(),
@@ -1603,7 +1877,7 @@ pub(crate) fn omc_compare(opts: &Options<'_>) -> Result<ExitCode> {
         timeout_secs: opts.timeout_secs,
     };
     println!(
-        "omc との照合: {} 本。S5 の一致 {} / {}（{}）、数が同じ {} / {}、GM-U {} 本中 omc で数が合う {}、S6 の一致 {} / {}、S8（過剰）の一致 {} / {}、omc の結果なし {}",
+        "omc との照合: {} 本。S5 の一致 {} / {}（{}）、数が同じ {} / {}、GM-U {} 本中 omc で数が合う {}、S6 の一致 {} / {}、S8（過剰）の一致 {} / {}、S9（非線形のループ）の一致 {} / {}、S9（start の無い反復変数）の一致 {} / {}、omc の結果なし {}",
         summary.total,
         summary.s5_agree,
         summary.s5_compared,
@@ -1618,6 +1892,10 @@ pub(crate) fn omc_compare(opts: &Options<'_>) -> Result<ExitCode> {
         summary.s6_compared,
         summary.s8_agree,
         summary.s8_compared,
+        summary.s9_agree,
+        summary.s9_compared,
+        summary.s9_start_agree,
+        summary.s9_start_compared,
         summary.omc_crashed
     );
     if let Some(path) = opts.report {
@@ -1750,6 +2028,113 @@ Class Modelica.A.Examples.Crashed has 3 equation(s) and 3 variable(s).
     }
 
     #[test]
+    fn counts_simulation_iteration_variables() {
+        // omc 1.27.1 の `-d=iterationVars` の出力（Modelica.Fluid.Examples.HeatingSystem を縮めたもの）
+        let errors = "Warning: The model contains alias variables with redundant start.
+Notification: List of all iteration variables (DAE kind: initialization)
+Iteration variables of torn nonlinear equation system:
+  tank.s[1]:VARIABLE(start = tank.fluidLevel_max )  type: Real [2]
+Notification: List of all iteration variables (DAE kind: simulation)
+Iteration variables of torn nonlinear equation system:
+  tank.s[2]:VARIABLE(start = tank.fluidLevel_max )  type: Real [2]
+  pump.dp_pump:VARIABLE(unit = \"Pa\" )  \"Pressure change\" type: Real
+Iteration variables of torn linear equation system:
+  $DER.tank.medium.d:DUMMY_DER(fixed = false )  \"Density of medium\" type: Real
+Iteration variables of equation system with analytic Jacobian:
+  x:VARIABLE()  type: Real
+";
+        let loops = parse_iteration_vars(errors).unwrap();
+        assert_eq!(
+            loops,
+            OmcLoops {
+                nonlinear: 2,
+                linear: 1,
+                nonlinear_vars: 3,
+                nonlinear_vars_without_start: 2,
+            }
+        );
+        // 系が 1 つも無いときも一覧の見出しは出る
+        let empty = "Notification: List of all iteration variables (DAE kind: initialization)
+Notification: List of all iteration variables (DAE kind: simulation)
+";
+        assert_eq!(parse_iteration_vars(empty), Some(OmcLoops::default()));
+        assert_eq!(parse_iteration_vars("Warning: other"), None);
+    }
+
+    #[test]
+    fn counts_zero_start_iteration_variables() {
+        // omc 1.27.1 の `-d=initialization` の標準出力
+        let result = "
+Nonlinear iteration variables with default zero start attribute in NLSJac0. (1)
+========================================
+1: z:VARIABLE()  type: Real
+
+Nonlinear iteration variables with default zero start attribute in NLSJac3. (2)
+========================================
+1: a:VARIABLE()  type: Real
+2: b:VARIABLE()  type: Real
+
+Info: Only non-linear iteration variables in non-linear eqation systems require start values.
+true
+";
+        assert_eq!(parse_zero_start(result), 3);
+        assert_eq!(parse_zero_start("true"), 0);
+        let t = parse_translate(result, "");
+        assert!(t.ok);
+        assert_eq!(t.zero_start, Some(3));
+    }
+
+    #[test]
+    fn s9_rules_compare_presence_only() {
+        let mut o = ours("Ok", None, Some((4, 4)));
+        o.s9 = Some(OursS9 {
+            loops: 3,
+            nonlinear: 1,
+            iteration_vars: 2,
+            without_start: 1,
+            reduced: false,
+        });
+        let errors = "Notification: List of all iteration variables (DAE kind: simulation)
+Iteration variables of torn nonlinear equation system:
+  x:VARIABLE()  type: Real
+  y:VARIABLE(start = 1.0 )  type: Real
+";
+        let mut m = omc(4, 4, Some((true, errors)));
+        m.translate.as_mut().unwrap().zero_start = Some(2);
+        let r = Compared {
+            ours: o.clone(),
+            omc: m.clone(),
+        };
+        // 数（ループ 3 個と系 1 つ、start なし 1 と 2）は違っても、有無が同じなら一致
+        assert_eq!(r.s9_loops(), Some(true));
+        assert_eq!(r.s9_start(), Some(true));
+        // omc に一覧が無い（S008 の保存）ときは比べない
+        let mut old = m.clone();
+        old.translate.as_mut().unwrap().loops = None;
+        old.translate.as_mut().unwrap().zero_start = None;
+        let r = Compared {
+            ours: o.clone(),
+            omc: old,
+        };
+        assert_eq!(r.s9_loops(), None);
+        assert_eq!(r.s9_start(), None);
+        // globe は非線形のループなし、omc は非線形の系あり
+        let mut linear = o.clone();
+        linear.s9 = Some(OursS9 {
+            nonlinear: 0,
+            iteration_vars: 0,
+            without_start: 0,
+            ..o.s9.unwrap()
+        });
+        let r = Compared {
+            ours: linear,
+            omc: m,
+        };
+        assert_eq!(r.s9_loops(), Some(false));
+        assert_eq!(r.s9_start(), Some(false));
+    }
+
+    #[test]
     fn unquotes_omc_echo() {
         assert_eq!(unquote("  \"a \\\"b\\\" c\"\n"), "a \"b\" c");
         assert_eq!(unquote("true"), "true");
@@ -1807,6 +2192,7 @@ Class Modelica.A.Examples.Crashed has 3 equation(s) and 3 variable(s).
             s6_regular: None,
             s7_index: None,
             s8: None,
+            s9: None,
         }
     }
 

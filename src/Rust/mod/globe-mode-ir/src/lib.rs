@@ -533,8 +533,13 @@ pub struct InitStructure {
     /// 初期方程式ごとに、参照するパラメータ（`parameters` の添字）。`fixed = false` で束縛の無いものだけが
     /// 初期化の未知数になる（それ以外は既知）。長さは `initial_equations.len()`
     pub initial_parameter_refs: Vec<Vec<u32>>,
-    /// 初期方程式ごとに、参照する離散変数（`discretes` の添字。`pre(d)` も同じ列）。長さは `initial_equations.len()`
+    /// 初期方程式ごとに、参照する離散変数そのもの `d`（`discretes` の添字）。長さは `initial_equations.len()`。
+    /// S009 では `pre(d)` も含めていた。S010 から `pre(d)` は [`Self::initial_pre_discrete_refs`] に分けた
     pub initial_discrete_refs: Vec<Vec<u32>>,
+    /// 初期方程式ごとに、`pre(d)` として参照する離散変数（`discretes` の添字）。長さは `initial_equations.len()`
+    /// （S010。手で組んだ構造では空でもよい。空なら `pre(d)` の参照は無いとみなす）。
+    /// Rumoca が取り分けた離散変数の定義（`initial equation pre(y) = false`）は、本文が `pre(` で始まればこちら
+    pub initial_pre_discrete_refs: Vec<Vec<u32>>,
     /// DAE の連続の方程式（[`DaeStructure::equations`] の順）ごとに、参照する **`fixed = false` で束縛の無い**
     /// パラメータ（`parameters` の添字）と、その束縛を通して依存するパラメータ（下）。初期化で決めるパラメータが
     /// 1 つも無ければ空（長さ 0）、あれば長さは `DaeStructure::equations.len()`。初期化系では、そのパラメータが
@@ -545,6 +550,55 @@ pub struct InitStructure {
     /// 束縛 `s.k = c` が方程式に、`s.k` が未知数になる（DAE の方程式は `c` ではなく `s.k` を参照するため）。
     /// 初期化で決めるパラメータが無ければ空
     pub parameter_binding_refs: Vec<(u32, Vec<u32>)>,
+    /// 離散変数ごとの、初期化での決まり方（S010。MLS §8.6）。長さは `discretes.len()`。取り出せなければ空で、
+    /// S8 は S009 までと同じく、どの離散変数にも初期条件が 1 つ要るとみなす（`d` と `pre(d)` を 1 つの列にする）
+    pub discrete_init: Vec<DiscreteInit>,
+    /// 初期化でも成り立つ離散の方程式（S010）: when の外の方程式と、`when initial()` の枝。決まる離散変数の
+    /// スカラーごとに 1 行（同じ変数を決める枝が複数あれば、参照をまとめて 1 行）。`discrete_init` が空なら空
+    pub discrete_equations: Vec<DiscreteEquation>,
+}
+
+/// 離散変数 1 つ（スカラー）の、初期化での決まり方（S010）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize)]
+pub struct DiscreteInit {
+    pub kind: DiscreteInitKind,
+    /// `pre(d)` を、初期化で働く式（初期方程式、初期化でも成り立つ離散の方程式、when の条件）が参照する。
+    /// `Always` と `InitialWhen` の離散変数では、このとき（か `fixed = true` のとき）だけ `pre(d)` が `d` と別の
+    /// 初期化の未知数になる（MLS §8.6 は `pre(d)` を決める式を足さない）
+    pub pre_referenced: bool,
+}
+
+/// 離散変数の決まり方（S010。MLS §8.6 と §8.3.5）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DiscreteInitKind {
+    /// 決まり方が分からない（S009 までと同じく、初期条件が 1 つ要るとみなす。確定させない）
+    #[default]
+    Unknown,
+    /// `initial()` を条件に含まない when の中だけで決まる。初期化では when が働かず、`d = pre(d)` が加わる
+    /// （`d` と `pre(d)` は 1 つの列。初期条件が 1 つ要る）
+    When,
+    /// when の外の方程式（`Boolean b = x > 0` など）で決まる。その方程式は初期化でも成り立つ
+    Always,
+    /// `when initial() then`（または `when {…, initial(), …}`）の枝で決まる。その枝は初期化で働く
+    InitialWhen,
+}
+
+/// 初期化でも成り立つ離散の方程式 1 行（S010）。添字は [`InitStructure`] の初期方程式の参照と同じ約束。
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize)]
+pub struct DiscreteEquation {
+    /// 決まる離散変数（`discretes` の添字）
+    pub target: u32,
+    /// 参照する未知数（[`DaeStructure::unknowns`] の添字: `der(x)` と代数・出力。`pre(z)` も）
+    pub incidence: Vec<u32>,
+    /// 参照する状態そのもの（`x` と `pre(x)`）の `der(x)` の未知数の添字
+    pub state_refs: Vec<u32>,
+    /// 参照するパラメータ（`parameters` の添字）
+    pub parameters: Vec<u32>,
+    /// 参照する離散変数そのもの `d`（`discretes` の添字。`target` を含む）
+    pub discretes: Vec<u32>,
+    /// `pre(d)` として参照する離散変数（`discretes` の添字）
+    pub pre_discretes: Vec<u32>,
 }
 
 impl InitStructure {
@@ -574,6 +628,9 @@ impl InitStructure {
             initial_discrete_refs: self.initial_discrete_refs.clone(),
             equation_parameter_refs: self.equation_parameter_refs.clone(),
             parameter_binding_refs: self.parameter_binding_refs.clone(),
+            initial_pre_discrete_refs: self.initial_pre_discrete_refs.clone(),
+            discrete_init: self.discrete_init.clone(),
+            discrete_equations: self.discrete_equations.clone(),
         }
     }
 }
@@ -734,6 +791,17 @@ mod tests {
             initial_discrete_refs: vec![vec![]],
             equation_parameter_refs: Vec::new(),
             parameter_binding_refs: Vec::new(),
+            initial_pre_discrete_refs: vec![vec![0]],
+            discrete_init: vec![DiscreteInit {
+                kind: DiscreteInitKind::Always,
+                pre_referenced: true,
+            }],
+            discrete_equations: vec![DiscreteEquation {
+                target: 0,
+                discretes: vec![0],
+                pre_discretes: vec![0],
+                ..Default::default()
+            }],
         };
         let s = init.without_ranges();
         let all = s
@@ -751,6 +819,10 @@ mod tests {
         // 初期方程式の参照は構造なので残す（位置ではない）
         assert!(s.has_incidence);
         assert_eq!(s.initial_state_refs, vec![vec![0]]);
+        // 離散変数の決まり方と、初期化でも成り立つ離散の方程式も残す（S010）
+        assert_eq!(s.discrete_init, init.discrete_init);
+        assert_eq!(s.discrete_equations, init.discrete_equations);
+        assert_eq!(s.initial_pre_discrete_refs, vec![vec![0]]);
         assert_eq!(s, s.without_ranges());
     }
 

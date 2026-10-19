@@ -10,7 +10,9 @@
 //!
 //! - **未知数（列）**: 未知数の族ごとに階数 0..=top（S7 の [`IndexReport::orders`]）。状態 `x` の族は
 //!   `x`、`der(x)`、…、代数 `z` の族は `z`、`der(z)`、…。これに `fixed = false` で束縛の無いパラメータと、
-//!   離散変数（`d` と `pre(d)` を 1 つの列にまとめる）を足す。
+//!   離散変数（`d` と `pre(d)` を 1 つの列にまとめる）を足す。ただし決まり方（[`InitStructure::discrete_init`]、
+//!   S010）が分かっていて、when の外か `when initial()` で決まる離散変数で、`pre(d)` が参照されるか `fixed = true`
+//!   なら、`pre(d)` を別の列にする（下の離散変数の節）。
 //! - **方程式（行）**:
 //!   - DAE の方程式 e と、それを 1..=d[e] 回微分したもの（d は [`IndexReport::differentiations`]）。
 //!     e を j 回微分した行は、元の参照（族 f、階数 o）ごとに階数 o..=o+j を参照する。
@@ -19,8 +21,11 @@
 //!     （パラメータは定数なので式の形は変わらないが、未知数としては現れ続ける）。
 //!   - 束縛が初期化で決めるパラメータに依存するパラメータの束縛（[`InitStructure::parameter_binding_refs`]。
 //!     `s.k = c` の形。そのパラメータも列になる）。
+//!   - 初期化でも成り立つ離散の方程式（[`InitStructure::discrete_equations`]、S010。when の外の方程式と
+//!     `when initial()` の枝）。対象の離散変数の列と、参照する列（連続の未知数は階数 0、`der(x)` は階数 1）。
 //!   - 初期方程式（[`InitStructure::initial_incidence`] などの参照。`der(x)` は階数 1、`x` と `pre(x)` は階数 0）。
-//!   - `fixed = true` の状態・代数変数・離散変数の `v = start`（階数 0 の列を 1 つ参照）。
+//!   - `fixed = true` の状態・代数変数の `v = start`（階数 0 の列を 1 つ参照）と、離散変数の `pre(d) = start`
+//!     （MLS §8.6。`pre(d)` の列を参照）。
 //! - 列 − 行 = 動的な状態（S7）+ 離散変数 + 初期化で決めるパラメータ − 与えた初期条件 = 要る数 − 与えた数
 //!   なので、数だけの判定と食い違わない（不足 − 過剰 = 要る数 − 与えた数）。
 //!
@@ -33,13 +38,25 @@
 //! - **不足している部分**（対応の無い列から交互路で届く列と行）: 列が行より `missing` 個多い。この部分の未知数
 //!   [`InitMatching::undetermined`] には初期条件が無い（start 値を推定値として使う見込み）。
 //!
-//! 離散変数の列は DAE の行から参照されない（[`DaeStructure`] は離散変数を既知として数える）ので、初期条件の無い
-//! 離散変数は常に不足している部分に入る。when の外の式で決まる離散変数には初期条件が要らない（MLS §8.6）が、
-//! その区別は持っていないので、[`crate::init`] の柔らかい警告の約束をそのまま使う。
+//! # 離散変数（S010。MLS §8.6、§8.3.5）
+//!
+//! 初期化では `d` と `pre(d)` がどちらも未知数になる。決まり方（[`DiscreteInitKind`]）ごとに:
+//!
+//! - **when の中だけで決まる**（`When`）: `initial()` を条件に含まない when は初期化で働かず、`d = pre(d)` が
+//!   加わる。だから `d` と `pre(d)` は 1 つの列で、初期条件（`fixed = true` の `pre(d) = start` か初期方程式）が
+//!   1 つ要る。無ければ不足している部分に入る（omc 1.27.1 も「Assuming fixed start value」と言う）。
+//! - **when の外の方程式で決まる**（`Always`）と **`when initial()` で決まる**（`InitialWhen`）: その方程式は
+//!   初期化でも成り立つので、行が `d` の列を決める（初期条件は要らない）。`d = pre(d)` は加わらないので、`pre(d)`
+//!   は別の未知数で、初期化で働く式（初期方程式、離散の方程式、`edge(b)` などの when の条件）が参照するときだけ
+//!   列にする。`fixed = true` は `pre(d) = start` を与える（`d` は決めない）ので、そのときも列にする。
+//! - **分からない**（`Unknown`、または [`InitStructure::discrete_init`] が空）: S009 と同じく `d` と `pre(d)` を
+//!   1 つの列にし、初期条件が 1 つ要るとみなす。この列が過剰や不足に関わると、[`crate::init`] は確定させない。
+//!
+//! 離散変数の列は、DAE の連続の方程式からは参照されない（[`DaeStructure`] は離散変数を既知として数える）。
 //!
 //! Rumoca に依存しない。wasm32 でも動く。
 
-use globe_mode_ir::{DaeStructure, InitStructure, UnknownKind};
+use globe_mode_ir::{DaeStructure, DiscreteInitKind, InitStructure, UnknownKind};
 use serde::Serialize;
 
 use crate::dm::dulmage_mendelsohn;
@@ -70,16 +87,19 @@ pub enum InitUnknown {
     Algebraic { index: usize, order: u32 },
     /// 初期化で決めるパラメータ（`parameters` の添字）
     Parameter { index: usize },
-    /// 離散変数（`discretes` の添字。`pre(d)`）
+    /// 離散変数（`discretes` の添字）。決まり方が `When` か分からないときは `d` と `pre(d)` をまとめた列
+    /// （初期条件で決まるのは `pre(d)`）、`Always` と `InitialWhen` のときは `d`
     Discrete { index: usize },
+    /// `d` と別の列にした `pre(d)`（S010。when の外か `when initial()` で決まる離散変数）
+    PreDiscrete { index: usize },
 }
 
 /// 初期化系のマッチングの結果。位置を持たない。
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, Serialize)]
 pub struct InitMatching {
-    /// 初期化系の方程式の数（DAE とその微分 + 初期方程式 + `fixed = true`）
+    /// 初期化系の方程式の数（DAE とその微分 + 初期化でも成り立つ離散の方程式 + 初期方程式 + `fixed = true`）
     pub n_equations: usize,
-    /// 初期化系の未知数の数（族ごとの階数 0..=top + 初期化で決めるパラメータ + 離散変数）
+    /// 初期化系の未知数の数（族ごとの階数 0..=top + 初期化で決めるパラメータ + 離散変数 + 別の列にした `pre(d)`）
     pub n_unknowns: usize,
     /// 最大マッチングの大きさ
     pub matching: usize,
@@ -132,6 +152,8 @@ pub fn match_init_system(
         || init.initial_state_refs.len() != k
         || init.initial_parameter_refs.len() != k
         || init.initial_discrete_refs.len() != k
+        || !(init.initial_pre_discrete_refs.is_empty() || init.initial_pre_discrete_refs.len() == k)
+        || !(init.discrete_init.is_empty() || init.discrete_init.len() == init.discretes.len())
     {
         return None;
     }
@@ -192,6 +214,21 @@ pub fn match_init_system(
         columns.push(InitUnknown::Discrete { index: i });
     }
     let discrete_column = |d: usize| (discrete_offset + d) as u32;
+    // pre(d) を別の列にする離散変数（初期化で働く方程式で決まり、pre(d) が参照されるか fixed = true）
+    let mut pre_column: Vec<Option<u32>> = vec![None; init.discretes.len()];
+    for (i, d) in init.discrete_init.iter().enumerate() {
+        let determined = matches!(
+            d.kind,
+            DiscreteInitKind::Always | DiscreteInitKind::InitialWhen
+        );
+        if determined && (d.pre_referenced || init.discretes[i].fixed) {
+            pre_column[i] = Some(columns.len() as u32);
+            columns.push(InitUnknown::PreDiscrete { index: i });
+        }
+    }
+    // pre(d) の列（別の列が無ければ d と同じ列）
+    let pre_discrete_column = |d: usize| pre_column[d].unwrap_or_else(|| discrete_column(d));
+    let n_discretes = init.discretes.len();
 
     // 行
     let mut rows: Vec<Row> = Vec::new();
@@ -236,6 +273,50 @@ pub fn match_init_system(
             push(Row::Dae, cols);
         }
     }
+    // 初期化でも成り立つ離散の方程式（対象の列 + 参照。微分しない）
+    if !init.discrete_init.is_empty() {
+        for e in &init.discrete_equations {
+            let target = e.target as usize;
+            if target >= n_discretes {
+                continue;
+            }
+            let mut cols = vec![discrete_column(target)];
+            cols.extend(
+                e.incidence
+                    .iter()
+                    .map(|&u| u as usize)
+                    .filter(|&u| u < m)
+                    .map(|u| column(u, base(u))),
+            );
+            cols.extend(
+                e.state_refs
+                    .iter()
+                    .map(|&u| u as usize)
+                    .filter(|&u| u < m)
+                    .map(|u| column(u, 0)),
+            );
+            cols.extend(
+                e.parameters
+                    .iter()
+                    .filter_map(|&p| parameter_column.get(p as usize).copied().flatten()),
+            );
+            cols.extend(
+                e.discretes
+                    .iter()
+                    .map(|&d| d as usize)
+                    .filter(|&d| d < n_discretes)
+                    .map(discrete_column),
+            );
+            cols.extend(
+                e.pre_discretes
+                    .iter()
+                    .map(|&d| d as usize)
+                    .filter(|&d| d < n_discretes)
+                    .map(pre_discrete_column),
+            );
+            push(Row::Dae, cols);
+        }
+    }
     // 初期方程式
     for i in 0..k {
         let mut cols = Vec::new();
@@ -262,9 +343,17 @@ pub fn match_init_system(
             init.initial_discrete_refs[i]
                 .iter()
                 .map(|&d| d as usize)
-                .filter(|&d| d < init.discretes.len())
+                .filter(|&d| d < n_discretes)
                 .map(discrete_column),
         );
+        if let Some(refs) = init.initial_pre_discrete_refs.get(i) {
+            cols.extend(
+                refs.iter()
+                    .map(|&d| d as usize)
+                    .filter(|&d| d < n_discretes)
+                    .map(pre_discrete_column),
+            );
+        }
         push(Row::Condition(InitCondition::InitialEquation(i)), cols);
     }
     // 束縛（s.k = c）: 依存するパラメータの列と、束縛が参照する未知数のパラメータの列
@@ -279,7 +368,7 @@ pub fn match_init_system(
         );
         push(Row::Dae, cols);
     }
-    // fixed = true（状態は der(x) の族の階数 0、代数はその族の階数 0、離散はその列）
+    // fixed = true（状態は der(x) の族の階数 0、代数はその族の階数 0、離散は pre(d) の列）
     let state_family: Vec<usize> = (0..m).filter(|&u| family[u].0).collect();
     let algebraic_family: Vec<usize> = (0..m).filter(|&u| !family[u].0).collect();
     for (i, s) in init.states.iter().enumerate() {
@@ -302,7 +391,7 @@ pub fn match_init_system(
         if d.fixed {
             push(
                 Row::Condition(InitCondition::FixedDiscrete(i)),
-                vec![discrete_column(i)],
+                vec![pre_discrete_column(i)],
             );
         }
     }
@@ -358,7 +447,9 @@ mod tests {
     use crate::pantelides::analyze_index;
     use crate::testutil::dae;
     use globe_mode_core::TextRange;
-    use globe_mode_ir::{EquationOrigin, EquationRow, InitVariable};
+    use globe_mode_ir::{
+        DiscreteEquation, DiscreteInit, DiscreteInitKind, EquationOrigin, EquationRow, InitVariable,
+    };
 
     fn variable(name: &str, fixed: bool, has_start: bool) -> InitVariable {
         InitVariable {
@@ -547,5 +638,186 @@ mod tests {
         failed.failed = true;
         assert!(match_init_system(&s, &ix, &init(&[("x", true)], &[], &[])).is_some());
         assert!(match_init_system(&s, &failed, &init(&[("x", true)], &[], &[])).is_none());
+    }
+
+    // ----------------------------------------------------------------------- 離散変数（S010）
+
+    /// der(x) = -x（x は fixed = true）に離散変数を足した初期化系。discretes は (名前, fixed, 決まり方, pre が参照される)
+    fn with_discretes(discretes: &[(&str, bool, DiscreteInitKind, bool)]) -> InitStructure {
+        let mut i = init(&[("x", true)], &[], &[]);
+        i.discretes = discretes
+            .iter()
+            .map(|(n, f, _, _)| variable(n, *f, *f))
+            .collect();
+        i.discrete_init = discretes
+            .iter()
+            .map(|&(_, _, kind, pre_referenced)| DiscreteInit {
+                kind,
+                pre_referenced,
+            })
+            .collect();
+        i
+    }
+
+    /// 初期方程式を足す（ラベル, d の参照, pre(d) の参照）
+    fn push_initial(i: &mut InitStructure, label: &str, discretes: &[u32], pre: &[u32]) {
+        i.initial_equations.push(equation(label));
+        i.initial_incidence.push(Vec::new());
+        i.initial_state_refs.push(Vec::new());
+        i.initial_parameter_refs.push(Vec::new());
+        i.initial_discrete_refs.push(discretes.to_vec());
+        i.initial_pre_discrete_refs
+            .resize(i.initial_equations.len() - 1, Vec::new());
+        i.initial_pre_discrete_refs.push(pre.to_vec());
+    }
+
+    /// 初期化でも成り立つ離散の方程式（対象, 状態 x を参照するか, pre(d) の参照）
+    fn row(target: u32, reads_x: bool, pre: &[u32]) -> DiscreteEquation {
+        DiscreteEquation {
+            target,
+            state_refs: if reads_x { vec![0] } else { Vec::new() },
+            discretes: vec![target],
+            pre_discretes: pre.to_vec(),
+            ..Default::default()
+        }
+    }
+
+    fn ode() -> (DaeStructure, IndexReport) {
+        let s = dae(&["x"], &[], &[("der(x) = -x", &["der(x)", "x"])]);
+        let ix = analyze_index(&s);
+        (s, ix)
+    }
+
+    /// 列 − 行 = 要る数 − 与えた数（ADR-0011 の不変条件。S010 の数え方でも保たれる）
+    fn assert_invariant(ix: &IndexReport, i: &InitStructure, m: &InitMatching) {
+        let r = crate::init::analyze_init_with_index(i, Some(ix.dynamic_states));
+        assert_eq!(
+            m.n_unknowns as isize - m.n_equations as isize,
+            r.required as isize - r.provided as isize,
+            "{m:?} {r:?}"
+        );
+        assert_eq!(
+            m.missing as isize - m.extra as isize,
+            r.required as isize - r.provided as isize
+        );
+    }
+
+    #[test]
+    fn discrete_defined_inside_when_needs_an_initial_condition() {
+        // Init.DiscreteWhen の形: n は when の中だけで決まる（初期化では n = pre(n)）
+        let (s, ix) = ode();
+        let i = with_discretes(&[("n", false, DiscreteInitKind::When, false)]);
+        let m = match_init_system(&s, &ix, &i).expect("組める");
+        assert_eq!((m.extra, m.missing), (0, 1));
+        assert_eq!(m.undetermined, [InitUnknown::Discrete { index: 0 }]);
+        assert_invariant(&ix, &i, &m);
+        // fixed = true（pre(n) = start）なら合う
+        let i = with_discretes(&[("n", true, DiscreteInitKind::When, false)]);
+        let m = match_init_system(&s, &ix, &i).expect("組める");
+        assert!(m.is_balanced(), "{m:?}");
+        assert_invariant(&ix, &i, &m);
+    }
+
+    #[test]
+    fn discrete_defined_outside_when_is_determined_by_its_equation() {
+        // Init.DiscreteOutsideWhen の形: b = x > 0.5 は初期化でも成り立つ
+        let (s, ix) = ode();
+        let mut i = with_discretes(&[("b", false, DiscreteInitKind::Always, false)]);
+        i.discrete_equations = vec![row(0, true, &[])];
+        let m = match_init_system(&s, &ix, &i).expect("組める");
+        assert!(m.is_balanced(), "{m:?}");
+        assert_eq!((m.n_equations, m.n_unknowns), (3, 3));
+        assert_invariant(&ix, &i, &m);
+        // fixed = true は pre(b) = start を与えるだけで、b の方程式と重ならない（pre(b) が別の列になる）
+        let mut fixed = with_discretes(&[("b", true, DiscreteInitKind::Always, false)]);
+        fixed.discrete_equations = vec![row(0, true, &[])];
+        let m = match_init_system(&s, &ix, &fixed).expect("組める");
+        assert!(m.is_balanced(), "{m:?}");
+        assert_eq!(m.n_unknowns, 4);
+        assert_invariant(&ix, &fixed, &m);
+        // edge(b) が pre(b) を読むと（Init.DiscreteEdge）、pre(b) が決まらない
+        let mut edge = with_discretes(&[("b", false, DiscreteInitKind::Always, true)]);
+        edge.discrete_equations = vec![row(0, true, &[])];
+        let m = match_init_system(&s, &ix, &edge).expect("組める");
+        assert_eq!((m.extra, m.missing), (0, 1));
+        assert_eq!(m.undetermined, [InitUnknown::PreDiscrete { index: 0 }]);
+        assert_invariant(&ix, &edge, &m);
+    }
+
+    #[test]
+    fn initial_equation_on_pre_and_on_the_value_of_an_outside_discrete() {
+        // Init.DiscretePreInitial の形: y = x > 0.8 or pre(y) and x > 0.2、initial equation pre(y) = false
+        let (s, ix) = ode();
+        let mut i = with_discretes(&[("y", false, DiscreteInitKind::Always, true)]);
+        i.discrete_equations = vec![row(0, true, &[0])];
+        push_initial(&mut i, "pre(y) = false", &[], &[0]);
+        let m = match_init_system(&s, &ix, &i).expect("組める");
+        assert!(m.is_balanced(), "{m:?}");
+        assert_invariant(&ix, &i, &m);
+        // b = x > 0 に initial equation b = true も書くと、b の方程式と重なる（omc は「over specified」）
+        let mut over = with_discretes(&[("b", false, DiscreteInitKind::Always, false)]);
+        over.discrete_equations = vec![row(0, true, &[])];
+        push_initial(&mut over, "b = true", &[0], &[]);
+        let m = match_init_system(&s, &ix, &over).expect("組める");
+        assert_eq!((m.extra, m.missing), (1, 0));
+        assert!(m.over_with_dae);
+        // b の方程式が x を読むので、x の fixed = true も過剰な部分に入る（どちらを外しても合う）
+        assert_eq!(
+            m.redundant,
+            [
+                InitCondition::InitialEquation(0),
+                InitCondition::FixedState(0)
+            ]
+        );
+        assert_invariant(&ix, &over, &m);
+    }
+
+    #[test]
+    fn when_initial_branch_determines_the_discrete() {
+        // Init.DiscreteWhenInitial の形: when initial() then m = 3。fixed = true は pre(m) = start だけを与える
+        let (s, ix) = ode();
+        for fixed in [false, true] {
+            let mut i = with_discretes(&[("m", fixed, DiscreteInitKind::InitialWhen, false)]);
+            i.discrete_equations = vec![row(0, false, &[])];
+            let m = match_init_system(&s, &ix, &i).expect("組める");
+            assert!(m.is_balanced(), "fixed = {fixed}: {m:?}");
+            assert_invariant(&ix, &i, &m);
+        }
+    }
+
+    #[test]
+    fn fixed_and_initial_equation_on_a_when_discrete_are_redundant() {
+        // Init.DiscreteRedundant の形: n は when の中、fixed = true と initial equation n = 0
+        let (s, ix) = ode();
+        let mut i = with_discretes(&[("n", true, DiscreteInitKind::When, false)]);
+        push_initial(&mut i, "n = 0", &[0], &[]);
+        let m = match_init_system(&s, &ix, &i).expect("組める");
+        assert_eq!((m.extra, m.missing), (1, 0));
+        assert!(!m.over_with_dae);
+        assert_eq!(
+            m.redundant,
+            [
+                InitCondition::InitialEquation(0),
+                InitCondition::FixedDiscrete(0)
+            ]
+        );
+        assert_invariant(&ix, &i, &m);
+    }
+
+    #[test]
+    fn without_discrete_kinds_discretes_keep_one_merged_column() {
+        // discrete_init が空なら S009 と同じ（d と pre(d) を 1 つの列にし、行は作らない）
+        let (s, ix) = ode();
+        let mut i = with_discretes(&[("b", false, DiscreteInitKind::Always, true)]);
+        i.discrete_init.clear();
+        i.discrete_equations = vec![row(0, true, &[])];
+        let m = match_init_system(&s, &ix, &i).expect("組める");
+        assert_eq!((m.extra, m.missing), (0, 1));
+        assert_eq!(m.undetermined, [InitUnknown::Discrete { index: 0 }]);
+        assert_invariant(&ix, &i, &m);
+        // 長さが合わなければ組まない
+        let mut bad = with_discretes(&[("b", false, DiscreteInitKind::Always, false)]);
+        bad.discrete_init.push(DiscreteInit::default());
+        assert!(match_init_system(&s, &ix, &bad).is_none());
     }
 }

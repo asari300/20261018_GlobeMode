@@ -61,10 +61,10 @@ doc/  log/                      文書と記録
 | crate | 責務 | 主な依存 |
 | --- | --- | --- |
 | `globe-mode-core` **（S002）** | `TextRange`、`Diagnostic{code,severity,stage,message,file,range,notes}`、検査段階 `Stage`（S0〜S10）、診断コード。S005 で `normalize`（防火壁 0 の本文の正規化）、GM-U・GM-E6001・GM-I7001 のコード、`Diagnostic::is_unsupported`。S007 で S7・S8 のコード（`GM-I7002`、`GM-E7001`、`GM-E8001`、`GM-W8001`〜`GM-W8004`）。今後: ID、単位、修正案（fix） | serde |
-| `globe-mode-ir` **（S002）** | フロントエンドに依存しない中立 IR: `Outline`（クラス・コンポーネント・extends・connect、S004 で flow / stream と input / output）、`ClassIndex`（字句的な名前解決、extends を含むインターフェース、S004）、`BalanceCount`（スカラー）、`DaeCounts`（配列ごと、S003）、`DaeStructure`（未知数・方程式・incidence・`state_refs`、`without_ranges`、`merged_incidence`、S005）、`FlatSummary`（部品ごとの方程式数、S005）。S007 で `ClassOutline.imports`、`Outline::defines`、`InitStructure`（状態・パラメータ・離散・代数のスカラーごとの `fixed` / 明示された start / 束縛と、初期方程式）。今後: `ConnectSet`、初期方程式の incidence | core |
-| `globe-mode-frontend` **（S002）** | `trait Frontend{outline, check}`。feature `rumoca`（Phase A、`src/rumoca.rs`）と feature `native`（Track B）。S005 で `Checker`（ライブラリを一度だけ読んだ Session を使い回す）、`DaeStructure` の抽出（`structure.rs`）、GM-U の振り分け（`unsupported.rs`、[ADR-0007](adr/0007-unsupported-classification.md)）。S007 で初期化系の構造の抽出（`init.rs`）と import のアウトライン | rumoca-compile、rumoca-ir-dae・rumoca-eval-dae・rumoca-core（S005、同じ rev） |
-| `globe-mode-db` **（S004）** | salsa のクエリ DB（§3.2）: `outline` → `outline_shape`（防火壁 1）→ `class_index` → `connect_graph`（S004）。`shape` → `source_shape`（防火壁 0）/ `shape_map` → `check` → `flat_summary` / `dae_shape`（防火壁 2）→ `structural`（S005）。`identifiers` / `defined_classes` / `class_files` → `deps_closure`（S007。`check` に渡すファイルの絞り込み）。`index_report`（S7）、`init_shape` → `init_report`（S8、S007）。`GlobeDb::with_libraries` と `check_model`（S0〜S8）。実行したクエリの記録（テストと計測） | salsa、frontend、graph、analysis |
-| `globe-mode-analysis` **（S005: S6、S007: S7・S8）** | Hopcroft–Karp、粗い Dulmage–Mendelsohn 分解、`StructuralReport`（S6 の GM-E6001）。S007 で Pantelides 法（`pantelides.rs`、`IndexReport`。構造インデックスの見込み、状態選択の候補、動的な状態の数）と初期化系の検査（`init.rs`、`InitReport`）。S009 で初期化系のマッチング（`init_system.rs`、`InitMatching`。DAE とその微分 + 初期条件の二部グラフを DM 分解し、冗長な初期条件と初期条件の無い未知数を名指しする）。[ADR-0009](adr/0009-structural-index-and-init.md)、[ADR-0011](adr/0011-init-system-matching.md)。今後: Tarjan BLT、`SimulatabilityReport` | core、ir、serde（Rumoca に依存しない。wasm32 でビルドできる） |
+| `globe-mode-ir` **（S002）** | フロントエンドに依存しない中立 IR: `Outline`（クラス・コンポーネント・extends・connect、S004 で flow / stream と input / output）、`ClassIndex`（字句的な名前解決、extends を含むインターフェース、S004）、`BalanceCount`（スカラー）、`DaeCounts`（配列ごと、S003）、`DaeStructure`（未知数・方程式・incidence・`state_refs`、`without_ranges`、`merged_incidence`、S005）、`FlatSummary`（部品ごとの方程式数、S005）。S007 で `ClassOutline.imports`、`Outline::defines`、`InitStructure`（状態・パラメータ・離散・代数のスカラーごとの `fixed` / 明示された start / 束縛と、初期方程式）。S009 で初期方程式の参照。S010 で `DaeStructure::nonlinear`（方程式ごとに非線形に現れる未知数）と `PreflightStructure`（パラメータと start 値の評価の失敗、experiment annotation の生の値）。今後: `ConnectSet` | core |
+| `globe-mode-frontend` **（S002）** | `trait Frontend{outline, check}`。feature `rumoca`（Phase A、`src/rumoca.rs`）と feature `native`（Track B）。S005 で `Checker`（ライブラリを一度だけ読んだ Session を使い回す）、`DaeStructure` の抽出（`structure.rs`）、GM-U の振り分け（`unsupported.rs`、[ADR-0007](adr/0007-unsupported-classification.md)）。S007 で初期化系の構造の抽出（`init.rs`）と import のアウトライン。S010 で線形・非線形の判定（`structure.rs`）、プリフライトの入力の取り出し（`preflight.rs`。Rumoca の `NumericEvaluator` と、experiment annotation の読み直し）、`Checker` の文書の和集合（`check_retaining`、[ADR-0005](adr/0005-lazy-query-db.md)） | rumoca-compile、rumoca-ir-dae・rumoca-eval-dae・rumoca-core（S005、同じ rev） |
+| `globe-mode-db` **（S004）** | salsa のクエリ DB（§3.2）: `outline` → `outline_shape`（防火壁 1）→ `class_index` → `connect_graph`（S004）。`shape` → `source_shape`（防火壁 0）/ `shape_map` → `check` → `flat_summary` / `dae_shape`（防火壁 2）→ `structural`（S005）。`identifiers` / `defined_classes` / `class_files` → `deps_closure`（S007。`check` に渡すファイルの絞り込み）。`index_report`（S7）、`init_shape` → `init_report`（S8、S007）。`loop_report`（S9）、`preflight_shape` → `preflight_report`（S10、S010）。`GlobeDb::with_libraries` と `check_model`（S0〜S10）。実行したクエリの記録（テストと計測） | salsa、frontend、graph、analysis |
+| `globe-mode-analysis` **（S005: S6、S007: S7・S8）** | Hopcroft–Karp、粗い Dulmage–Mendelsohn 分解、`StructuralReport`（S6 の GM-E6001）。S007 で Pantelides 法（`pantelides.rs`、`IndexReport`。構造インデックスの見込み、状態選択の候補、動的な状態の数）と初期化系の検査（`init.rs`、`InitReport`）。S009 で初期化系のマッチング（`init_system.rs`、`InitMatching`。DAE とその微分 + 初期条件の二部グラフを DM 分解し、冗長な初期条件と初期条件の無い未知数を名指しする）。S010 で S9（`loops.rs`、`LoopReport`。BLT（再帰を使わない Tarjan 法）、貪欲な tearing、非線形のループの反復変数の start 値）と S10 の判定（`preflight.rs`、`PreflightReport`）。[ADR-0009](adr/0009-structural-index-and-init.md)、[ADR-0011](adr/0011-init-system-matching.md)、[ADR-0012](adr/0012-loops-and-preflight.md)。今後: `SimulatabilityReport` | core、ir、serde（Rumoca に依存しない。wasm32 でビルドできる） |
 | `globe-mode-graph` **（S004: connect グラフ）** | connect グラフを flatten せずに作る。辺の種類（flow / stream / real / boolean …）、depth による部分回路の展開、graphology JSON。今後: ライブラリ / incidence のグラフ、差分、ForceAtlas2 | serde_json |
 | `globe-mode-exec` | `HybridSystem` の実装: Rumoca の実行系（feature `rumoca-exec`）、FMU-ME アダプタ | rumoca-sim |
 | `globe-mode-solver` | `trait Integrator`、ソルバ名の登録表、自前の固定刻みと陽的 RK | diffsol, sundials（feature） |
@@ -119,7 +119,7 @@ doc/  log/                      文書と記録
 
 [ADR-0005](adr/0005-lazy-query-db.md) にまとめた。
 
-**salsa のクエリ**（`globe-mode-db`。S004〜S007 で作ったものと、予定のもの）:
+**salsa のクエリ**（`globe-mode-db`。S004〜S010 で作ったものと、予定のもの）:
 
 ```text
 SourceFile ─┬─▶ outline ─▶ outline_shape ─┬─▶ class_index ─▶ connect_graph           （S004）
@@ -156,14 +156,17 @@ SourceFile ─┬─▶ outline ─▶ outline_shape ─┬─▶ class_index �
 | `index_report(workspace, request)` | dae_shape | Eq | S7（Pantelides 法の `IndexReport`。[ADR-0009](adr/0009-structural-index-and-init.md)） | S007 |
 | `init_shape(workspace, request)` | check | **Eq** | 位置を落とした初期化系の構造（`InitStructure::without_ranges`）。防火壁 | S007 |
 | `init_report(workspace, request)` | init_shape、dae_shape、index_report | Eq | S8（`InitReport`）。要る初期条件の数に、S7 の動的な状態の数を使う。S009 から、初期方程式の参照と S7 の微分の回数から初期化系をマッチングする（`InitReport::matching`） | S007、S009 |
+| `loop_report(workspace, request)` | dae_shape、index_report、init_shape | Eq | S9（`LoopReport`。[ADR-0012](adr/0012-loops-and-preflight.md)）。S7 で微分が要らなければ der の形、要れば Pantelides 法の最高階の系を BLT に分ける。反復変数の start 値の有無に `init_shape` を読む | S010 |
+| `preflight_shape(workspace, request)` | check | **Eq** | 位置を落としたプリフライトの入力（`PreflightStructure::without_ranges`）。防火壁 | S010 |
+| `preflight_report(workspace, request)` | preflight_shape | Eq | S10 の静的な部分（`PreflightReport`。パラメータと start 値の評価、experiment annotation） | S010 |
 | `simulatability(model)` | structural など | Eq | 下表の S0〜S10 をまとめた `SimulatabilityReport` | 予定 |
 | `executable(model, backend)` | dae_shape | LRU | 実行形式 | 予定（P3） |
 
 - **`Checker`**（`globe-mode-frontend`）は salsa の外の値。MSL などのライブラリを読んだ Rumoca の `Session` を `Arc<Mutex<_>>` で持ち、`GlobeDb::with_libraries(paths)` で作る（[ADR-0005](adr/0005-lazy-query-db.md) の結果）。
   - 文書は、本文が変わったものだけ差し替え、無くなったものは取り除く。文書を変えると Rumoca は解決済みの状態を捨てるが、parse の結果とモデルごとのキャッシュは残る。
   - panic で Mutex が毒されたら、ライブラリを読んだ直後の写しに戻す。`reset()` でモデルごとのキャッシュを捨てられる。
-- `GlobeDb::check_model(model)` は、`check`（S0〜S5）、`structural`（S6）、`index_report`（S7）、`init_report`（S8）をまとめ、診断の位置を `shape_map` で元の本文に戻す。S6 は S0〜S5 を通ったときだけ、S7 は S6 が構造特異でない（regular）ときだけ、S8 は S0〜S7 に Error が無いときだけ行う。
-- `deps_closure` で絞ると、閉包の違うモデルへ初めて切り替えたときに Rumoca が MSL ごと解決し直す（約 1.5〜1.8 s）。使わないファイルの編集の再検査は 0.2 ms になる。計測とトレードオフは [ADR-0005](adr/0005-lazy-query-db.md) の結果にある。
+- `GlobeDb::check_model(model)` は、`check`（S0〜S5）、`structural`（S6）、`index_report`（S7）、`init_report`（S8）、`loop_report`（S9）、`preflight_report`（S10）をまとめ、診断の位置を `shape_map` で元の本文に戻す。S6 は S0〜S5 を通ったときだけ、S7 は S6 が構造特異でない（regular）ときだけ、S8 は S0〜S7 に Error が無いときだけ、S9 は S0〜S8 に Error が無く S7 の結果があるときだけ、S10 は S0〜S9 に Error が無いときだけ行う。
+- `deps_closure` で絞ると、閉包の違うモデルへ初めて切り替えたときに Rumoca が MSL ごと解決し直す（約 1.5〜1.8 s）。使わないファイルの編集の再検査は 0.2 ms になる。S010 から `Checker` は文書の和集合を持つ（渡されなかった文書も Session に残し、本文が変わった・消えた・名前のぶつかる文書だけを取り除く）ので、一度検査したモデルへ編集なしで戻るときは約 2.1 s から約 49 ms になった。計測とトレードオフは [ADR-0005](adr/0005-lazy-query-db.md) の結果にある。
 - Rumoca の AST は salsa に載せない。`outline` が、そのファイルを毎回 parse する。
 
 シミュレーションの実行は salsa の外のジョブにする。結果は (executable, settings) のハッシュでキャッシュする。
@@ -184,8 +187,8 @@ SourceFile ─┬─▶ outline ─▶ outline_shape ─┬─▶ class_index �
 | S6 | 構造特異: `x` と `der(x)` を 1 つの列にまとめた二部グラフ（方程式 × 未知数）に完全マッチングがあるか。Pantelides 法が失敗するのと同じ条件。無ければ粗い Dulmage–Mendelsohn 分解で、過剰な方程式と不足している未知数を span 付きで示す（S005） | GM-E6001 |
 | S7 | インデックス: Pantelides 法で、構造インデックスの見込み（方程式の微分の最大回数 + 1）、微分する方程式と回数、状態選択の候補、動的な状態の数を出す。情報にとどめ、実行は止めない（S007、[ADR-0009](adr/0009-structural-index-and-init.md)）。S6 が構造特異でないときだけ | GM-I7001（インデックス 2 以上）/ GM-I7002（状態選択が要る）/ GM-E7001（打ち切り） |
 | S8 | 初期化: 初期条件の数と属性で判定する。要る数 = 動的な状態（S7）+ 離散変数 + `fixed = false` で束縛の無いパラメータ、与えた数 = 初期方程式 + `fixed = true` の状態・離散・代数変数（S007、[ADR-0009](adr/0009-structural-index-and-init.md)）。S009 から、初期化系（DAE とその微分 + 初期方程式 + `fixed = true`）をマッチングして、冗長な初期条件（過剰な部分）と初期条件の無い未知数（不足している部分）を名指しする（[ADR-0011](adr/0011-init-system-matching.md)。数だけの判定は不足 − 冗長の差しか分からない） | GM-E8001（過剰。冗長な初期条件が拘束と重ならず、離散変数も含まないときだけ）/ GM-W8001（不足）/ GM-W8002（start の無い状態）/ GM-W8003（値の無いパラメータ）/ GM-W8004（過剰の見込み。冗長な初期条件が拘束と重なる（整合する値なら冗長なだけ）か、離散変数を含むため確定できない） |
-| S9 | 代数ループ: 非線形の反復変数に start 値が無い | GM-W9xx |
-| S10 | プリフライト: パラメータの評価、t0 で残差が有限か、ソルバの能力が足りるか、experiment annotation が妥当か | GM-E10xx |
+| S9 | 代数ループ: BLT に分けたときの大きさ 2 以上のブロック。非線形のループの反復変数（貪欲な tearing で選ぶ。start 値のある代数・出力を優先）に start 値が無いと警告。インデックス 2 以上は Pantelides 法の最高階の系で数える見込み。線形・非線形は `DaeStructure::nonlinear`（フロントエンドが式木から広めに判定）。Error は出さない（S010、[ADR-0012](adr/0012-loops-and-preflight.md)） | GM-I9001（ループがある）/ GM-W9001（start 値の無い反復変数） |
+| S10 | プリフライト: S010 は静的な部分（パラメータと start 値を Rumoca の評価器で評価、experiment annotation の生の値）。t0 で残差が有限か・初期化のヤコビ行列の階数・ソルバの能力は P3 の実行系ができてから（[ADR-0012](adr/0012-loops-and-preflight.md)） | GM-E10001（パラメータが有限にならない）/ GM-E10002（assert）/ GM-E10003（start 値が有限にならない）/ GM-E10004（experiment が妥当でない）/ GM-W10001（experiment が疑わしい）/ GM-I10001（experiment が無い）/ GM-I10002（静的に評価できないパラメータ） |
 
 - **「コンパイラが未対応」は GM-Uxxx として分ける**。対象は stream / expandable / overconstrained connector、state machine、operator record など。「モデルの誤り」と混同させないため。
   - 振り分けは [ADR-0007](adr/0007-unsupported-classification.md)。Rumoca のコードで決まるもの（`GM-U0001` 未対応、`GM-U0002` 内部エラー）と、既知の制約の一覧（`src/Modelica/msl-known-unsupported.txt`）に当たったもの（`GM-U0003`）。
