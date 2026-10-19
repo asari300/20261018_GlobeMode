@@ -10,8 +10,8 @@
 //!   どこで失敗したか（組み立て・初期化・積分）がこちらの呼んだ位置で分かる。
 //! - `dopri45` … `rk45::simulate`（組み立てから積分までを 1 回で呼ぶ。初期化・イベント・積分の失敗には
 //!   Rumoca が段を付けるので、`bdf` と同じように分けられる。lowering の失敗だけは段が無く、`[EX…]` の印で見分ける）。
-//! - `auto` … `bdf` の道で回し、BDF の初期の線形化が作れないとき（Rumoca の選び方）と、BDF が積分で失敗したか
-//!   Rumoca のサンプラの食い違いで止まったとき（S012）に `dopri45` で回し直す（情報 GM-I11002。[`fallback`]）。
+//! - `auto` … `bdf` の道で回し、BDF が積分で失敗したか Rumoca のサンプラの食い違いで止まったとき（S012）に
+//!   `dopri45` で回し直す（情報 GM-I11002。[`fallback`]）。方向微分が作れないときは切り替えない（S013。ADR-0015）。
 //! - 自前の積分器（S012）と wasm32 のすべてのソルバ … lowering と実行を分けて呼ぶ session の道（[`session`]）。
 //!
 //! パラメータの上書き（`ResolvedSettings::parameters`）は `SimOptions::param_overrides` に渡す。Rumoca が断った
@@ -479,34 +479,27 @@ fn run_auto(
 /// auto が BDF から dopri45 に切り替える理由。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Fallback {
-    /// 組み立て・初期化で BDF の初期の線形化（方向微分）が作れない（rumoca-sim の `select_auto_integrator` と
-    /// 同じ判断）
-    InitialLinearization,
     /// BDF が積分で失敗した（GM-E11002）
     Integration,
     /// BDF の連続な補間（サンプラ）が受け入れた歩の端の点と食い違った（Rumoca の実行時の契約違反。GM-U0005）
     SamplerDisagreement,
 }
 
-/// BDF の失敗が dopri45 に切り替える失敗か。積分の途中で方向微分が作れなくなった失敗（GM-U0004）では
-/// 切り替えない（MSL の `GenerationOfFMUs` は RK で終了時刻まで進むが、温度が動かない誤った結果になる。
-/// doc/research/msl-sim-failures.md）。
+/// BDF の失敗が dopri45 に切り替える失敗か。方向微分が作れない失敗（GM-U0004）では、組み立て・初期化でも
+/// 積分の途中でも切り替えない（Rumoca の Auto は初期化なら RK に切り替えるが、MSL の `GenerationOfFMUs` は
+/// RK で終了時刻まで進んで温度が動かない誤った結果になる。ADR-0015、doc/research/msl-sim-failures.md）。
 fn fallback(error: &SimError, phase: Phase) -> Option<Fallback> {
-    match phase {
-        Phase::Build | Phase::Initialization if directional_derivative_unavailable(error) => {
-            Some(Fallback::InitialLinearization)
-        }
-        _ if sampler_disagreement(error) => Some(Fallback::SamplerDisagreement),
-        _ if classify(error, phase) == Kind::Integration => Some(Fallback::Integration),
-        _ => None,
+    if sampler_disagreement(error) {
+        Some(Fallback::SamplerDisagreement)
+    } else if classify(error, phase) == Kind::Integration {
+        Some(Fallback::Integration)
+    } else {
+        None
     }
 }
 
 fn fallback_diagnostic(reason: Fallback, failed: &Diagnostic) -> Diagnostic {
     let message = match reason {
-        Fallback::InitialLinearization => {
-            "BDF の初期の線形化（方向微分）が作れないので、dopri45 で回した"
-        }
         Fallback::Integration => "BDF が積分で失敗したので、dopri45 で回し直した",
         Fallback::SamplerDisagreement => {
             "BDF の補間が受け入れた歩の端の点と食い違って止まったので、dopri45 で回し直した"
@@ -518,17 +511,6 @@ fn fallback_diagnostic(reason: Fallback, failed: &Diagnostic) -> Diagnostic {
         d = d.note(note.clone());
     }
     d.note("dopri45 は陽的な方法なので、硬い系では遅い。結果は参照結果などと比べて確かめる")
-}
-
-/// BDF の初期の線形化が作れない失敗か（rumoca-sim の `classify_bdf_capability` と同じ判定）。
-fn directional_derivative_unavailable(error: &SimError) -> bool {
-    match error.kind() {
-        SimError::DirectionalDerivativeUnavailable { .. } => true,
-        SimError::ModelExchangeSession(MeSessionError::Component(e)) => {
-            matches!(e.kind(), MeError::DirectionalDerivativeUnavailable { .. })
-        }
-        _ => false,
-    }
 }
 
 /// Rumoca のサンプラの食い違い（`accepted-interval left endpoint sampler state <i> is <a>, but the checked
@@ -1388,19 +1370,17 @@ mod tests {
             ),
             Kind::Internal
         );
-        // 方向微分が作れない（auto が rk45 に切り替える条件）
+        // 方向微分が作れない（実行系が未対応。auto も切り替えない）
         let unavailable = SimError::from(MeSessionError::Component(
             MeError::DirectionalDerivativeUnavailable {
                 reason: "x".to_string(),
             }
             .at_stage(MeStage::Initialization),
         ));
-        assert!(directional_derivative_unavailable(&unavailable));
         assert_eq!(
             classify(&unavailable, Phase::Initialization),
             Kind::Unsupported
         );
-        assert!(!directional_derivative_unavailable(&SimError::EmptySystem));
     }
 
     #[test]
@@ -1450,7 +1430,7 @@ mod tests {
             reason: "lease".to_string(),
         });
         assert_eq!(fallback(&other, Phase::Integration), None);
-        // 方向微分: 初期化では切り替える（Rumoca の Auto と同じ）、積分の途中では切り替えない
+        // 方向微分: 初期化でも積分の途中でも切り替えない（S013。Rumoca の Auto は初期化なら切り替える）
         let derivative = |stage| {
             session(MeSessionError::Component(
                 MeError::DirectionalDerivativeUnavailable {
@@ -1461,7 +1441,7 @@ mod tests {
         };
         assert_eq!(
             fallback(&derivative(MeStage::Initialization), Phase::Initialization),
-            Some(Fallback::InitialLinearization)
+            None
         );
         assert_eq!(
             fallback(&derivative(MeStage::Integration), Phase::Integration),

@@ -1,6 +1,6 @@
 # ADR-0014 wasm32 と自前の積分器は、Rumoca の FMI ME 風の host に数値積分のプラグインを差す「session の道」で回す。ネイティブの bdf・dopri45・auto は型付きの道のまま
 
-- 状態: Accepted（2026-10-19、S012）
+- 状態: Accepted（2026-10-19、S012）。決定 (d) のうち、組み立て・初期化で方向微分が作れないときに切り替える規則は [ADR-0015](0015-auto-and-reference-tolerance.md) で覆した（S013）
 - 関係: [ADR-0013](0013-exec-backend.md)（実行系を `globe-mode-exec` に閉じ込める）を拡げる。ADR-0013 は覆さない
 
 ## 背景
@@ -52,7 +52,7 @@
 
 - ネイティブと wasm32 で同じ判断（`fallback()`）を使う。切り替えるのは、組み立て・初期化で方向微分が作れない（S011 の規則。S011 は黙って切り替えていた）、積分の失敗（`GM-E11002`）、サンプラの食い違い（`MeSessionError::Contract` の文言）の 3 つ。切り替えたら情報 `GM-I11002` を出す。
 - 積分の途中で方向微分が作れなくなった失敗では切り替えない（調査で、RK に切り替えると黙って誤った結果になる例があったため）。
-- ただし S011 の規則（組み立て・初期化で方向微分が作れないときは RK。Rumoca の Auto と同じ）は残した。MSL の全例題では、この規則に当たったのは `GenerationOfFMUs`（`Thermal.HeatTransfer.Examples`）の 1 本だけで、RK で終了時刻まで進むが温度が動かず管から外れる（[research/msl-sim-failures.md](../research/msl-sim-failures.md)）。`GM-I11002` で知らせるので黙ってはいないが、この規則を見直すかは S013 の候補にした。
+- ただし S011 の規則（組み立て・初期化で方向微分が作れないときは RK。Rumoca の Auto と同じ）は残した。MSL の全例題では、この規則に当たったのは `GenerationOfFMUs`（`Thermal.HeatTransfer.Examples`）の 1 本だけで、RK で終了時刻まで進むが温度が動かず管から外れる（[research/msl-sim-failures.md](../research/msl-sim-failures.md)）。`GM-I11002` で知らせるので黙ってはいないが、この規則を見直すかは S013 の候補にした。→ S013 で切り替えないことにした（[ADR-0015](0015-auto-and-reference-tolerance.md)）。
 - `cargo xtask msl-sim` の既定のソルバを `auto` にする。
 
 ### (e) パラメータの上書き（再コンパイル無し）

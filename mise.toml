@@ -47,10 +47,10 @@ run = [
 ]
 
 [tasks."msl:sim"]
-description = "msl:funnel で OK になった MSL の例題（target/msl-funnel.json）を実行し、MAP-LIB の参照結果（v4.1.0。初回は約 1 GB を data/msl-ref/ に取得）と管で比べ、報告 doc/msl-sim.md を書く（S011。別プロセスのワーカーで回し、時間切れは外から止める。S012 から既定のソルバは auto、時間切れは予算 180 s で回し直し、前回の target/msl-sim.json との差を書く）"
+description = "msl:funnel で OK になった MSL の例題（target/msl-funnel.json）を実行し、MAP-LIB の参照結果（v4.1.0。初回は約 1 GB を data/msl-ref/ に取得）と管で比べ、報告 doc/msl-sim.md を書く（S011。別プロセスのワーカーで回し、時間切れは外から止める。S012 から既定のソルバは auto、時間切れは予算 180 s で回し直し、前回の target/msl-sim.json との差を書く。S013 から注釈の Tolerance を参照結果と同じ 0.1 倍にする）"
 run = [
   "cargo xtask fetch-msl",
-  "cargo xtask msl-sim --funnel-json target/msl-funnel.json --fetch-ref --baseline-json target/msl-sim.json --report doc/msl-sim.md --json target/msl-sim.json",
+  "cargo xtask msl-sim --funnel-json target/msl-funnel.json --tolerance-scale 0.1 --fetch-ref --baseline-json target/msl-sim.json --report doc/msl-sim.md --json target/msl-sim.json",
 ]
 
 [tasks."msl:omc"]
