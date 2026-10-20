@@ -13,7 +13,8 @@ use std::sync::OnceLock;
 
 use globe_mode_core::{Diagnostic, Severity, Stage, codes};
 use globe_mode_exec::{
-    CompiledModel, preflight, run, simulate, simulate_via_session, tunable_parameters,
+    CompiledModel, ExecStage, preflight, run, run_with_progress, simulate, simulate_via_session,
+    tunable_parameters,
 };
 use globe_mode_frontend::{Checker, Source};
 use globe_mode_ir::{
@@ -339,6 +340,78 @@ fn not_finite_at_start_is_warned_and_then_fails_at_initialization() {
     assert_eq!(d.code, codes::RUN_INIT_FAILED, "{d:#?}");
     assert_eq!(d.message, "初期化に失敗した（y の値が inf になった）");
     assert_eq!(excerpt(&d), "Real y");
+}
+
+/// `run` のプリフライトは組み立ての lowering の結果で行う（S014）。どのソルバでも単独の `preflight` と同じ警告になる。
+#[test]
+fn run_preflights_on_the_lowering_of_every_solver() {
+    let model = compile("NotFiniteAtStart");
+    let alone = preflight(&model, &settings(&model, SolverId::Bdf));
+    for solver in ["bdf", "dopri45", "auto", "rk4"] {
+        let report = run(
+            &model,
+            &SimSettings {
+                solver: Some(solver.to_string()),
+                ..SimSettings::default()
+            },
+        );
+        let warned: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.code == codes::T0_NOT_FINITE)
+            .collect();
+        assert_eq!(warned.len(), 1, "{solver}: {:#?}", report.diagnostics);
+        assert_eq!(warned[0].message, alone[0].message, "{solver}");
+        assert_eq!(warned[0].range, alone[0].range, "{solver}");
+    }
+}
+
+#[test]
+fn run_reports_the_stages_inside_the_executor() {
+    use ExecStage::*;
+    let model = compile("Decay");
+    for (solver, expected) in [
+        (
+            "bdf",
+            vec![Lowering, Preflight, Build, Initialization, Integration],
+        ),
+        // auto は BDF で通るので bdf と同じ
+        (
+            "auto",
+            vec![Lowering, Preflight, Build, Initialization, Integration],
+        ),
+        // session の道
+        (
+            "rk4",
+            vec![Lowering, Preflight, Build, Initialization, Integration],
+        ),
+        // rk45::simulate は lowering から積分までを 1 回で呼ぶ。プリフライトは単独で先に行う
+        ("dopri45", vec![Preflight, Integration]),
+    ] {
+        let mut seen = Vec::new();
+        let report = run_with_progress(
+            &model,
+            &SimSettings {
+                solver: Some(solver.to_string()),
+                ..SimSettings::default()
+            },
+            &mut |stage| seen.push(stage),
+        );
+        assert!(report.succeeded(), "{solver}: {:#?}", report.diagnostics);
+        assert_eq!(seen, expected, "{solver}");
+    }
+    // 初期化で止まるモデルは積分の段に入らない
+    let mut seen = Vec::new();
+    let report = run_with_progress(
+        &compile("InitNoSolution"),
+        &SimSettings {
+            solver: Some("bdf".to_string()),
+            ..SimSettings::default()
+        },
+        &mut |stage| seen.push(stage),
+    );
+    assert!(!report.succeeded());
+    assert_eq!(seen, vec![Lowering, Preflight, Build, Initialization]);
 }
 
 #[test]
@@ -858,8 +931,9 @@ fn msl_auto_falls_back_to_dopri45_when_bdf_fails_to_integrate() {
     });
 }
 
-/// プリフライト（`eval_dae_at` と同じ評価。lowering をもう 1 回する）と、実行系の組み立て（lowering を含む）の
-/// 時間を比べる（doc/research/msl-sim-failures.md の「GlobeMode で直すもの」の 4）。数を出すだけで、合否は見ない。
+/// 単独のプリフライト（lowering をもう 1 回する。S013 までの `run` はこの分を毎回払っていた）と、`run`（S014 から
+/// プリフライトを組み立ての lowering の結果で行う）の時間を比べる（doc/research/msl-sim-failures.md の
+/// 「GlobeMode で直すもの」の 4）。数を出すだけで、合否は見ない。
 #[test]
 #[ignore = "MSL を読む（遅い）。cargo test -p globe-mode-exec --test simulate -- --ignored --nocapture"]
 fn msl_preflight_time_against_the_build() {
@@ -873,6 +947,7 @@ fn msl_preflight_time_against_the_build() {
                 eprintln!("{name}: 変換できない");
                 continue;
             };
+            let started = std::time::Instant::now();
             let report = run(
                 &model,
                 &SimSettings {
@@ -881,6 +956,7 @@ fn msl_preflight_time_against_the_build() {
                     ..SimSettings::default()
                 },
             );
+            let run_seconds = started.elapsed().as_secs_f64();
             let Some(s) = report.settings.clone() else {
                 continue;
             };
@@ -893,7 +969,7 @@ fn msl_preflight_time_against_the_build() {
                 .map(|r| format!("{:.3} 秒", r.stats.build_seconds))
                 .unwrap_or_else(|| "失敗".to_string());
             eprintln!(
-                "{name}: プリフライト {preflight_seconds:.3} 秒、組み立て（lowering を含む）{build}"
+                "{name}: run {run_seconds:.3} 秒（組み立て {build}）、単独のプリフライト {preflight_seconds:.3} 秒"
             );
         }
     });

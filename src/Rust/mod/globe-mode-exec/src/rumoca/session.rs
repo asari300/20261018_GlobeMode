@@ -26,7 +26,8 @@ use rumoca_solver::fmi_me::{
     session::MeRetainedComponent,
 };
 
-use super::{Outcome, Phase, Stopwatch, plugins, result_parameters};
+use super::{Hooks, Outcome, Phase, Stopwatch, plugins, result_parameters};
+use crate::ExecStage;
 
 /// Rumoca の host に差す数値積分のプラグイン。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,17 +49,18 @@ pub(super) fn run(
     opts: &SimOptions,
     settings: &ResolvedSettings,
     integrator: Integrator,
+    hooks: &mut Hooks<'_>,
 ) -> Outcome {
     let mut build_seconds = 0.0;
     let mut run_seconds = 0.0;
     let mut parameters = Vec::new();
     let result = (|| {
         let started = Stopwatch::start();
-        let built = build(dae, opts, &mut parameters);
+        let built = build(dae, opts, settings, &mut parameters, hooks);
         build_seconds = started.seconds();
         let (artifact, retained) = built.map_err(|e| (e, Phase::Build))?;
         let started = Stopwatch::start();
-        let result = integrate(&artifact, retained, opts, settings, integrator);
+        let result = integrate(&artifact, retained, opts, settings, integrator, hooks);
         run_seconds = started.seconds();
         result
     })();
@@ -68,15 +70,20 @@ pub(super) fn run(
     }
 }
 
-/// lowering と FMI の部品の組み立て。lowering の結果から、実行に使う tunable なパラメータの値を読む。
+/// lowering と FMI の部品の組み立て。lowering の結果から、実行に使う tunable なパラメータの値を読み、
+/// プリフライトを行う。
 fn build(
     dae: &Dae,
     opts: &SimOptions,
+    settings: &ResolvedSettings,
     parameters: &mut Vec<ResultParameter>,
+    hooks: &mut Hooks<'_>,
 ) -> Result<(MeModelArtifact, MeRetainedComponent), SimError> {
+    hooks.stage(ExecStage::Lowering);
     let lowered = rumoca_sim::lower_correlated_for_simulation_with_overrides(dae, opts)
         .map_err(|e| lowering_error(&e))?;
     *parameters = result_parameters(dae, &lowered);
+    hooks.lowered(dae, settings, &lowered);
     let component = rumoca_phase_solve::fmi::finish_fmi_component(lowered).map_err(|e| {
         lowering_error(&SimulationDiagnosticError::RuntimePreparation {
             message: e.to_string(),
@@ -98,6 +105,7 @@ fn integrate(
     opts: &SimOptions,
     settings: &ResolvedSettings,
     integrator: Integrator,
+    hooks: &mut Hooks<'_>,
 ) -> Result<SimResult, (SimError, Phase)> {
     let options = batch_session_options(
         &artifact.root_location(),
@@ -111,6 +119,7 @@ fn integrate(
     .map_err(|e| (SimError::from(e), Phase::Build))?;
     let mut cursor =
         batch_output_cursor(&options).map_err(|e| (SimError::from(e), Phase::Build))?;
+    hooks.stage(ExecStage::Initialization);
     let host = retained
         .into_lease(options)
         .map_err(|e| (SimError::from(e), Phase::Initialization))?;
@@ -125,6 +134,7 @@ fn integrate(
             .map_err(|e| (SimError::from(e), Phase::Initialization))?;
         Some(backend(integrator, setup, settings).map_err(|e| (e, Phase::Build))?)
     };
+    hooks.stage(ExecStage::Integration);
     let mut session = host
         .into_session(plugin)
         .map_err(|e| (SimError::from(e), Phase::Integration))?;

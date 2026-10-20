@@ -7,6 +7,8 @@
 //! - [`preflight`] … S10 の数値の部分（start 値で評価して t0 で式の値が有限か。警告 GM-W10002）。積分の前に一度だけ。
 //! - [`simulate`] … 実行。失敗は段階ごとのコード（GM-E11001〜GM-E11006、GM-U0004 / GM-U0005）にする。
 //! - [`run`] … 設定を決め（`globe_mode_sim::settings::resolve`）、プリフライトを通してから実行する。
+//!   bdf・auto と session の道は、組み立ての lowering の結果でプリフライトを行う（lowering は 1 回。S014）。
+//! - [`run_with_progress`] … [`run`] と同じで、実行系の中の段（[`ExecStage`]）に入るたびに知らせる（S014）。
 //!
 //! Rumoca の時間切れは協調型で、初期化と積分器の 1 歩の内側では止まらない。確実に止めたいときは
 //! 別プロセスで回して外から止める（xtask の `msl-sim`）。
@@ -17,6 +19,21 @@ use globe_mode_ir::{ResolvedSettings, SimRun, SimSettings, Termination, TunableP
 
 #[cfg(feature = "rumoca-exec")]
 mod rumoca;
+
+/// 実行系の中の段（[`run_with_progress`] が知らせる。S014）。ソルバと道によって通らない段がある。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExecStage {
+    /// S10 の数値の部分（t0 での評価）
+    Preflight,
+    /// DAE から実行できる形への変換（Rumoca の構造解析と Solve IR への変換）
+    Lowering,
+    /// 実行系の部品の組み立て
+    Build,
+    /// 初期化
+    Initialization,
+    /// 積分（ネイティブの dopri45 は lowering から積分までを 1 回で呼ぶので、この段だけを知らせる）
+    Integration,
+}
 
 /// [`run`] の結果。
 #[derive(Debug, Clone, Default)]
@@ -106,6 +123,26 @@ fn simulate_with_warnings(
     }
 }
 
+/// 実行の結果と、実行の側で出た診断。
+pub(crate) type Simulated = Result<(SimRun, Vec<Diagnostic>), Vec<Diagnostic>>;
+
+/// プリフライト（警告だけを出し、実行は止めない）と実行。
+fn checked_simulate(
+    model: &CompiledModel,
+    settings: &ResolvedSettings,
+    on_stage: &mut dyn FnMut(ExecStage),
+) -> (Vec<Diagnostic>, Simulated) {
+    #[cfg(feature = "rumoca-exec")]
+    {
+        rumoca::checked_simulate(model, settings, on_stage)
+    }
+    #[cfg(not(feature = "rumoca-exec"))]
+    {
+        let _ = (model, settings, on_stage);
+        (Vec::new(), Err(Vec::new()))
+    }
+}
+
 /// 設定を決め、プリフライト（S10 の数値の部分）を通してから実行する。
 ///
 /// 実行の後に、実行が止まらない Rumoca の警告（GM-W11001。warning レベルの assert など）と、結果から分かる
@@ -113,6 +150,16 @@ fn simulate_with_warnings(
 /// [`SimReport::run`] に残す）。プリフライトが GM-W10002 を出したうえで初期化か
 /// 積分に失敗したら、その失敗の診断に、t0 で有限にならなかった式を補足として付ける。
 pub fn run(model: &CompiledModel, requested: &SimSettings) -> SimReport {
+    run_with_progress(model, requested, &mut |_| {})
+}
+
+/// [`run`] と同じだが、実行系の中の段に入るたびに `on_stage` を呼ぶ（別プロセスのワーカーが、外から止めたものが
+/// どこで止まったかを親に知らせる。xtask の `msl-sim`）。
+pub fn run_with_progress(
+    model: &CompiledModel,
+    requested: &SimSettings,
+    on_stage: &mut dyn FnMut(ExecStage),
+) -> SimReport {
     let mut report = SimReport::default();
     let settings = match globe_mode_sim::settings::resolve(requested, model.experiment.as_ref()) {
         Ok((settings, diagnostics)) => {
@@ -125,17 +172,13 @@ pub fn run(model: &CompiledModel, requested: &SimSettings) -> SimReport {
             return report;
         }
     };
-    let checked = preflight(model, &settings);
-    let stop = checked.iter().any(Diagnostic::is_error);
+    let (checked, simulated) = checked_simulate(model, &settings, on_stage);
     let not_finite_at_t0 = checked
         .iter()
         .find(|d| d.code == codes::T0_NOT_FINITE)
         .map(|d| format!("{}（{}）", d.message, d.code));
     report.diagnostics.extend(checked);
-    if stop {
-        return report;
-    }
-    match simulate_with_warnings(model, &settings, false) {
+    match simulated {
         Ok((run, warnings)) => {
             report.diagnostics.extend(warnings);
             report.diagnostics.extend(outcome_diagnostics(&run));

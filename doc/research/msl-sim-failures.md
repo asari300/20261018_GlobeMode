@@ -291,3 +291,15 @@ Rumoca の文言はどれも `[StructuralAnalysis] solve-IR evaluation failed: [
 | — | 既知の外れの一覧に `DoublePendulumInitTip`（上の表の 5）を足した | `src/Modelica/msl-sim-known-deviations.txt` | 外れ 6 本のうち既知 3 本 |
 
 - 既知の外れでない残りは 3 本（上の表の 8〜10）。いずれも許容誤差では変わらない。
+
+## S014 で直したもの
+
+上の「GlobeMode で直すもの」の 4 と 5 を S014 で直した（確認日 2026-10-20。設計は [ADR-0016](../adr/0016-preflight-on-build-lowering.md)）。
+
+| # | 直したこと | 場所 | 結果 |
+| ---: | --- | --- | --- |
+| 4 | プリフライトを組み立ての lowering の結果で行う（bdf・auto と session の道。ネイティブの dopri45 だけは単独のまま） | `globe-mode-exec/src/rumoca.rs`・`rumoca/session.rs`・`lib.rs` | `run` の時間（release）: `DoublePendulum` 1.07 s（単独のプリフライト 0.39 s が要らなくなった）、`Fluid.Examples.HeatingSystem` 4.00 s（同じく 4.26 s）。`FullRobot` は `msl-sim` で 111.6 s → 57.9 s（同じ機械で続けて回した） |
+| 5 | 実行系の中の段（プリフライト・lowering・組み立て・初期化・積分）を `run_with_progress` で知らせ、ワーカーが親に送る | 同上と xtask の `sim.rs` | 外から止めた 7 本（節「外から停止」の 48〜54）は、**7 本とも lowering の段で止まっていた**（段に入ってから 84〜118 s で 120 s の kill）。上の「原因」の見立て（Solve IR への変換が終わらない）を全部で確かめた |
+
+- 節「外から停止」の【未確認】のうち「DrumBoiler 以外の 6 本でどの段か」と「プリフライトの側か組み立ての側か」は片付いた: lowering は 1 回になり、7 本ともその 1 回が終わらない。
+- 120 s 近くかかる例題（`LightningSegmentedTransmissionLine` 116 s、`FullRobot` 112 s、時間切れの回し直しの `ThyristorBridge2Pulse_DC_Drive` 197 s）は、機械が混んでいると外からの停止に変わる。S014 の 1 回目の全例題の実行（15 分の負荷の平均 26.7、16 コア）では 3 本がそうなった。同じ 3 本を空いた機械で S013 と S014 の実行ファイルで続けて回すと、どれも S014 のほうが同じか速かった。2 回目（負荷の平均 10〜12）では `LightningSegmentedTransmissionLine`（積分の段）と `FullRobot`（プリフライトの段。lowering が約 118 s で終わった直後）の 2 本が外からの停止に変わり、同じ負荷で 2 本を S013 と S014 の実行ファイルで続けて回すと、4 回とも 120 s で外から止まった。

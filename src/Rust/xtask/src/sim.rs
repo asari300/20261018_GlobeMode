@@ -13,6 +13,8 @@
 //!   時間切れ（GM-E11005）のものだけを長い予算（`--retry-wall-seconds`）で回し直す。例題でないもの
 //!   （[`Target::not_example`]）は実行せず、管の既知の外れの一覧（`--known-deviations`）に載ったものは分けて数え、
 //!   前回の結果（`--baseline-json`）との差を報告に書く。
+//! - S014: 実行系の中の段（プリフライト・lowering・組み立て・初期化・積分）も `globe_mode_exec::run_with_progress`
+//!   から受けて知らせる。
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -26,6 +28,7 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use globe_mode_core::{Diagnostic, Stage, codes};
+use globe_mode_exec::ExecStage;
 use globe_mode_frontend::Checker;
 use globe_mode_ir::{ResolvedSettings, SimSettings, SimStats, Termination, Trajectory};
 use globe_mode_sim::compare::{Comparison, TubeOptions, compare, parse_comparison_signals};
@@ -186,25 +189,50 @@ pub(crate) enum WorkerMessage {
     Done { record: Box<Record> },
 }
 
-/// ワーカーが自分で区切れる段（1 本の中）。実行系の中（S10 のプリフライト・lowering と組み立て・初期化・積分）は
-/// `globe_mode_exec::run` を 1 回で呼ぶので、外からは分けられない。
+/// ワーカーの段（1 本の中）。実行系の中の段は `globe_mode_exec::run_with_progress` が知らせる（S014）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum WorkerStage {
     /// `compile_retaining`（読み込んだ MSL からモデルを DAE まで変換する）
     Compile,
-    /// `globe_mode_exec::run`（設定・S10 のプリフライト・lowering と組み立て・初期化・積分）
+    /// `globe_mode_exec::run_with_progress` に入った（設定を決める。中の段の知らせの前）
     Exec,
+    /// S10 の数値の部分
+    Preflight,
+    /// Rumoca の構造解析と Solve IR への変換
+    Lowering,
+    /// 実行系の部品の組み立て
+    Build,
+    /// 初期化
+    Initialization,
+    /// 積分（ネイティブの dopri45 は lowering から積分までをこの段で知らせる）
+    Integration,
     /// 結果の CSV の書き出しと、参照結果の読み込みと比較
     Compare,
 }
 
 impl WorkerStage {
+    const ALL: [WorkerStage; 8] = [
+        WorkerStage::Compile,
+        WorkerStage::Exec,
+        WorkerStage::Preflight,
+        WorkerStage::Lowering,
+        WorkerStage::Build,
+        WorkerStage::Initialization,
+        WorkerStage::Integration,
+        WorkerStage::Compare,
+    ];
+
     /// JSON と同じ名前
     fn key(self) -> &'static str {
         match self {
             WorkerStage::Compile => "compile",
             WorkerStage::Exec => "exec",
+            WorkerStage::Preflight => "preflight",
+            WorkerStage::Lowering => "lowering",
+            WorkerStage::Build => "build",
+            WorkerStage::Initialization => "initialization",
+            WorkerStage::Integration => "integration",
             WorkerStage::Compare => "compare",
         }
     }
@@ -212,8 +240,25 @@ impl WorkerStage {
     fn label(self) -> &'static str {
         match self {
             WorkerStage::Compile => "コンパイル",
-            WorkerStage::Exec => "実行系（S10・lowering と組み立て・初期化・積分）",
+            WorkerStage::Exec => "実行系（設定）",
+            WorkerStage::Preflight => "実行系: S10 のプリフライト",
+            WorkerStage::Lowering => "実行系: lowering",
+            WorkerStage::Build => "実行系: 組み立て",
+            WorkerStage::Initialization => "実行系: 初期化",
+            WorkerStage::Integration => "実行系: 積分",
             WorkerStage::Compare => "参照結果との比較",
+        }
+    }
+}
+
+impl From<ExecStage> for WorkerStage {
+    fn from(stage: ExecStage) -> Self {
+        match stage {
+            ExecStage::Preflight => WorkerStage::Preflight,
+            ExecStage::Lowering => WorkerStage::Lowering,
+            ExecStage::Build => WorkerStage::Build,
+            ExecStage::Initialization => WorkerStage::Initialization,
+            ExecStage::Integration => WorkerStage::Integration,
         }
     }
 }
@@ -643,7 +688,9 @@ fn simulate_one(checker: &Checker, model: &str, opts: &WorkerOptions) -> Record 
         ..SimSettings::default()
     };
     send_stage(model, WorkerStage::Exec);
-    let report = globe_mode_exec::run(&compiled, &settings);
+    let report = globe_mode_exec::run_with_progress(&compiled, &settings, &mut |stage| {
+        send_stage(model, stage.into());
+    });
     drop(compiled);
     rec.add_codes(&report.diagnostics);
     if let Some(d) = report.diagnostics.iter().find(|d| d.is_error()) {
@@ -2133,18 +2180,14 @@ fn render_report(records: &[Record], s: &Summary, run: &RunInfo<'_>) -> String {
         let _ = writeln!(md, "### 外から止めたモデルの段\n");
         let _ = writeln!(
             md,
-            "ワーカーが最後に報告した段。実行系の中（S10・lowering と組み立て・初期化・積分）はワーカーからは分けられない。\n"
+            "ワーカーが最後に報告した段（実行系の中の段は S014 から）。\n"
         );
         let _ = writeln!(md, "| 段 | 本数 |\n| --- | ---: |");
         for (stage, n) in &s.hard_timeouts_by_stage {
-            let label = [
-                WorkerStage::Compile,
-                WorkerStage::Exec,
-                WorkerStage::Compare,
-            ]
-            .into_iter()
-            .find(|w| w.key() == stage)
-            .map_or("（段の報告の前）", WorkerStage::label);
+            let label = WorkerStage::ALL
+                .into_iter()
+                .find(|w| w.key() == stage)
+                .map_or("（段の報告の前）", WorkerStage::label);
             let _ = writeln!(md, "| {label} | {n} |");
         }
         let _ = writeln!(md);
@@ -2835,7 +2878,7 @@ mod tests {
             x.solver = globe_mode_ir::SolverId::Auto;
         }
         records[7].notes = vec!["rumoca: [EL005] structurally | singular".into()];
-        records[9].worker_stage = Some(WorkerStage::Exec);
+        records[9].worker_stage = Some(WorkerStage::Lowering);
         records[9].stage_seconds = Some(115.0);
         let known: BTreeMap<String, String> = [(
             "Modelica.A.Examples.Off".to_string(),
@@ -2850,7 +2893,7 @@ mod tests {
         assert_eq!((s.ref_failed, s.ref_failed_known), (1, 1));
         assert_eq!(s.solver_fallbacks, 1);
         assert_eq!(s.solvers.get("auto → dopri45"), Some(&1));
-        assert_eq!(s.hard_timeouts_by_stage.get("exec"), Some(&1));
+        assert_eq!(s.hard_timeouts_by_stage.get("lowering"), Some(&1));
         let opts = Options {
             funnel_json: Path::new("target/msl-funnel.json"),
             msl: Path::new("data/msl"),
@@ -2945,8 +2988,8 @@ mod tests {
             "回し直し（予算 180 s）: 1 本のうち実行できた 1・管に収まった 1",
             "| auto で BDF が失敗し dopri45 で回し直した（GM-I11002） | 1 |",
             "| auto → dopri45 | 1 |",
-            "| 実行系（S10・lowering と組み立て・初期化・積分） | 1 |",
-            "| 実行系（S10・lowering と組み立て・初期化・積分）（115 s） |",
+            "| 実行系: lowering | 1 |",
+            "| 実行系: lowering（115 s） |",
             "rumoca: [EL005] structurally \\| singular",
             "| うち既知の外れ（一覧にある） | 1 |",
             "| うち既知の外れを除いたもの | 0 |",

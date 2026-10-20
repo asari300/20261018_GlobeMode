@@ -102,4 +102,4 @@
 - `auto` の切り替えで MSL の `TwoMass` が通る（bdf は `GM-E11002`、auto は dopri45 で管 5/5）。
 - パラメータの上書きは `Simulation.Parameters` で確かめた（`k = 2` で x(1) = exp(−2)、`c = 2k` が追従。`n`・`e`・`f`・`g`・`x`・無い名前・NaN は `GM-E10006`）。
 - MAT v4 は scipy と DyMat 0.7 で読め、omc 1.27.1 の実物と同じスクリプトで同じに読めた。omc との違いは、変数の並び、omc は最後の時点を 2 回書く、omc はイベントの 2 行目の時刻を 1.5e-10 ずらす、の 3 つ。
-- 残した問題: プリフライトの lowering は 2 回のまま。サンプラの食い違いの判定は文言頼み。型付きの道で Cranelift の JIT が本当に使われているかは【未確認】（session の道（インタプリタ）とビット単位で同じだった）。panic の後の `Workspace` は使えない。ブラウザは未試験。
+- 残した問題: プリフライトの lowering は 2 回のまま（→ S014 で、ネイティブの dopri45 を除いて 1 回にした。[ADR-0016](0016-preflight-on-build-lowering.md)）。サンプラの食い違いの判定は文言頼み。型付きの道で Cranelift の JIT が本当に使われているかは【未確認】（session の道（インタプリタ）とビット単位で同じだった）。panic の後の `Workspace` は使えない。ブラウザは未試験。

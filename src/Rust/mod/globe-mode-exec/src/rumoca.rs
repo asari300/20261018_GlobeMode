@@ -22,6 +22,10 @@
 //! 見る。型に無いもの（Rumoca が文言に描き込んだ時刻・有限でない変数・位置、rk45 の lowering の `[EX…]` の印、
 //! `eval_dae_at` の error の文言）だけを文言から読む。
 //!
+//! プリフライト（S10 の数値の部分）は、[`run`](crate::run) からは組み立ての lowering の結果で行う（bdf・auto と
+//! session の道。S014）。lowering を自分で呼ばないネイティブの dopri45（`rk45::simulate`）と、単独の
+//! [`preflight`] だけが、プリフライトのために lowering をもう 1 回する。
+//!
 //! 実行が止まらない Rumoca の診断（`SimResult::diagnostics`。warning レベルの assert の WX001 など）は
 //! 警告 GM-W11001 にする。
 
@@ -40,7 +44,7 @@ use rumoca_sim::{
 use rumoca_solver::fmi_me::{MeError, MeIntegrationError, MeSessionError, MeStage};
 use rumoca_solver::{SimDiagnostic, WARNING_ASSERTION_CODE};
 
-use crate::{CompiledModel, time_text};
+use crate::{CompiledModel, ExecStage, Simulated, time_text};
 
 mod plugins;
 mod session;
@@ -83,15 +87,40 @@ fn options(settings: &ResolvedSettings) -> SimOptions {
 // プリフライト（S10 の数値の部分）
 // ---------------------------------------------------------------------------------------------
 
+/// 単独のプリフライト。実行の組み立てと同じ lowering を 1 回して評価する。
 pub(crate) fn preflight(model: &CompiledModel, settings: &ResolvedSettings) -> Vec<Diagnostic> {
     let opts = options(settings);
     let dae: &Dae = model.rumoca_dae();
-    // start 値（Rumoca の initial_y）を状態に入れ、代数変数を Newton 法で合わせてから、代数変数と der(x) を
-    // 評価する。初期化の残差ではない（fixed = false の状態は初期化で動く）ので、見つけても警告にとどめる。
-    // 評価そのものができない（lowering の失敗、パラメータの上書きの誤り、panic）ときは黙る。実行の側で同じ失敗を
-    // 診断にする
-    let probe = catch_unwind(AssertUnwindSafe(|| eval_at_start(dae, &opts)));
-    let Ok(Some(probe)) = probe else {
+    let probe = catch_unwind(AssertUnwindSafe(|| {
+        let lowered =
+            rumoca_sim::lower_correlated_for_simulation_with_overrides(dae, &opts).ok()?;
+        eval_at_start(&lowered, opts.t_start)
+    }));
+    preflight_diagnostics(dae, settings, probe.ok().flatten())
+}
+
+/// 組み立ての途中の lowering の結果でプリフライトを行う（lowering を増やさない。S014）。
+fn preflight_lowered(
+    dae: &Dae,
+    settings: &ResolvedSettings,
+    lowered: &rumoca_phase_solve::LoweredSolveModel<'_>,
+) -> Vec<Diagnostic> {
+    let probe = catch_unwind(AssertUnwindSafe(|| {
+        eval_at_start(lowered, settings.start_time)
+    }));
+    preflight_diagnostics(dae, settings, probe.ok().flatten())
+}
+
+/// start 値（Rumoca の initial_y）を状態に入れ、代数変数を Newton 法で合わせてから、代数変数と der(x) を
+/// 評価した結果を診断にする。初期化の残差ではない（fixed = false の状態は初期化で動く）ので、見つけても警告に
+/// とどめる。評価そのものができない（lowering の失敗、パラメータの上書きの誤り、panic。`probe` が None）ときは
+/// 黙る。実行の側で同じ失敗を診断にする。
+fn preflight_diagnostics(
+    dae: &Dae,
+    settings: &ResolvedSettings,
+    probe: Option<rumoca_sim::EvalAtReport>,
+) -> Vec<Diagnostic> {
+    let Some(probe) = probe else {
         return Vec::new();
     };
     let mut bad: Vec<String> = probe
@@ -134,16 +163,20 @@ pub(crate) fn preflight(model: &CompiledModel, settings: &ResolvedSettings) -> V
 }
 
 /// Rumoca の `eval_dae_at` と同じ評価（start 値の状態、Newton 法の許容誤差 1e-10・反復 32 回。rumoca-sim の
-/// `solve_lowering/probe.rs`）を、パラメータの上書きを反映した lowering で行う（`eval_dae_at` は上書きを見ない）。
-fn eval_at_start(dae: &Dae, opts: &SimOptions) -> Option<rumoca_sim::EvalAtReport> {
-    let model = rumoca_sim::lower_for_simulation_with_overrides(dae, opts).ok()?;
+/// `solve_lowering/probe.rs`）を、パラメータの上書きを反映した lowering の結果で行う（`eval_dae_at` は上書きを
+/// 見ない）。
+fn eval_at_start(
+    lowered: &rumoca_phase_solve::LoweredSolveModel<'_>,
+    t_start: f64,
+) -> Option<rumoca_sim::EvalAtReport> {
+    let model = lowered.model();
     let states = model.state_scalar_count();
     let mut state = vec![0.0; states];
     for (dst, src) in state.iter_mut().zip(model.initial_y.iter().copied()) {
         *dst = src;
     }
-    let runtime = rumoca_solver::SolveRuntime::new(&model).ok()?;
-    Some(runtime.eval_at(opts.t_start, &state, &model.parameters, 1.0e-10, 32))
+    let runtime = rumoca_solver::SolveRuntime::new(model).ok()?;
+    Some(runtime.eval_at(t_start, &state, &model.parameters, 1.0e-10, 32))
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -240,6 +273,60 @@ impl Outcome {
     }
 }
 
+/// 実行の途中で呼ぶもの: 段の知らせと、組み立ての lowering の結果で行うプリフライト（S014）。
+pub(crate) struct Hooks<'a> {
+    on_stage: &'a mut dyn FnMut(ExecStage),
+    preflight: Preflight,
+}
+
+enum Preflight {
+    /// 行わない（[`crate::simulate`]）
+    Skip,
+    /// 最初の lowering の結果で行う
+    Wanted,
+    Done(Vec<Diagnostic>),
+}
+
+impl<'a> Hooks<'a> {
+    fn new(on_stage: &'a mut dyn FnMut(ExecStage), preflight: bool) -> Self {
+        Self {
+            on_stage,
+            preflight: if preflight {
+                Preflight::Wanted
+            } else {
+                Preflight::Skip
+            },
+        }
+    }
+
+    fn stage(&mut self, stage: ExecStage) {
+        (self.on_stage)(stage);
+    }
+
+    /// lowering が終わった。プリフライトを待っていれば、その結果で行う（auto の dopri45 は BDF の lowering の
+    /// 結果を使う）。続けて組み立ての段に入る。
+    fn lowered(
+        &mut self,
+        dae: &Dae,
+        settings: &ResolvedSettings,
+        lowered: &rumoca_phase_solve::LoweredSolveModel<'_>,
+    ) {
+        if matches!(self.preflight, Preflight::Wanted) {
+            self.stage(ExecStage::Preflight);
+            self.preflight = Preflight::Done(preflight_lowered(dae, settings, lowered));
+        }
+        self.stage(ExecStage::Build);
+    }
+
+    /// プリフライトの診断（lowering の前に失敗して行えなかったら空）。
+    fn take_preflight(&mut self) -> Vec<Diagnostic> {
+        match std::mem::replace(&mut self.preflight, Preflight::Skip) {
+            Preflight::Done(d) => d,
+            _ => Vec::new(),
+        }
+    }
+}
+
 /// Rumoca の呼び方。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Route {
@@ -256,6 +343,31 @@ pub(crate) fn simulate(
     model: &CompiledModel,
     settings: &ResolvedSettings,
     route: Route,
+) -> Result<(SimRun, Vec<Diagnostic>), Vec<Diagnostic>> {
+    simulate_with(model, settings, route, &mut Hooks::new(&mut |_| {}, false))
+}
+
+/// プリフライトと実行（[`crate::run`]）。プリフライトは組み立ての lowering の結果で行う。lowering を自分で
+/// 呼ばないネイティブの dopri45 だけは、実行の前に単独のプリフライトをする。
+pub(crate) fn checked_simulate(
+    model: &CompiledModel,
+    settings: &ResolvedSettings,
+    on_stage: &mut dyn FnMut(ExecStage),
+) -> (Vec<Diagnostic>, Simulated) {
+    let mut hooks = Hooks::new(on_stage, true);
+    if cfg!(not(target_arch = "wasm32")) && settings.solver == SolverId::Dopri45 {
+        hooks.stage(ExecStage::Preflight);
+        hooks.preflight = Preflight::Done(preflight(model, settings));
+    }
+    let result = simulate_with(model, settings, Route::Default, &mut hooks);
+    (hooks.take_preflight(), result)
+}
+
+fn simulate_with(
+    model: &CompiledModel,
+    settings: &ResolvedSettings,
+    route: Route,
+    hooks: &mut Hooks<'_>,
 ) -> Result<(SimRun, Vec<Diagnostic>), Vec<Diagnostic>> {
     let opts = options(settings);
     let dae: &Dae = model.rumoca_dae();
@@ -274,8 +386,8 @@ pub(crate) fn simulate(
     // インスタンスは使えなくなる）
     let caught = catch_unwind(AssertUnwindSafe(|| match route {
         #[cfg(not(target_arch = "wasm32"))]
-        Route::Default => run_typed(dae, &opts, settings),
-        _ => run_session(dae, &opts, settings),
+        Route::Default => run_typed(dae, &opts, settings, hooks),
+        _ => run_session(dae, &opts, settings, hooks),
     }));
     let mut outcome = match caught {
         Ok(outcome) => outcome,
@@ -343,29 +455,46 @@ pub(crate) fn simulate(
 
 #[cfg(not(target_arch = "wasm32"))]
 /// ネイティブの既定の道。
-fn run_typed(dae: &Dae, opts: &SimOptions, settings: &ResolvedSettings) -> Outcome {
+fn run_typed(
+    dae: &Dae,
+    opts: &SimOptions,
+    settings: &ResolvedSettings,
+    hooks: &mut Hooks<'_>,
+) -> Outcome {
     match settings.solver {
-        SolverId::Bdf => run_bdf(dae, opts),
-        SolverId::Dopri45 => run_rk(dae, opts),
-        SolverId::Auto => run_auto(dae, settings, || run_bdf(dae, opts), || run_rk(dae, opts)),
-        own => session::run(dae, opts, settings, session::Integrator::Own(own)),
+        SolverId::Bdf => run_bdf(dae, opts, settings, hooks),
+        SolverId::Dopri45 => run_rk(dae, opts, hooks),
+        SolverId::Auto => run_auto(
+            dae,
+            settings,
+            hooks,
+            |h| run_bdf(dae, opts, settings, h),
+            |h| run_rk(dae, opts, h),
+        ),
+        own => session::run(dae, opts, settings, session::Integrator::Own(own), hooks),
     }
 }
 
 /// session の道（wasm32 の道）。bdf・dopri45 は Rumoca の積分器を Rumoca の host に差す。
-fn run_session(dae: &Dae, opts: &SimOptions, settings: &ResolvedSettings) -> Outcome {
+fn run_session(
+    dae: &Dae,
+    opts: &SimOptions,
+    settings: &ResolvedSettings,
+    hooks: &mut Hooks<'_>,
+) -> Outcome {
     use session::Integrator;
-    let with = |integrator| session::run(dae, opts, settings, integrator);
+    let with = |integrator, h: &mut Hooks<'_>| session::run(dae, opts, settings, integrator, h);
     match settings.solver {
-        SolverId::Bdf => with(Integrator::RumocaBdf),
-        SolverId::Dopri45 => with(Integrator::RumocaRk45),
+        SolverId::Bdf => with(Integrator::RumocaBdf, hooks),
+        SolverId::Dopri45 => with(Integrator::RumocaRk45, hooks),
         SolverId::Auto => run_auto(
             dae,
             settings,
-            || with(Integrator::RumocaBdf),
-            || with(Integrator::RumocaRk45),
+            hooks,
+            |h| with(Integrator::RumocaBdf, h),
+            |h| with(Integrator::RumocaRk45, h),
         ),
-        own => with(Integrator::Own(own)),
+        own => with(Integrator::Own(own), hooks),
     }
 }
 
@@ -391,15 +520,24 @@ impl Stopwatch {
 
 #[cfg(not(target_arch = "wasm32"))]
 /// BDF（diffsol）。組み立て・初期化・積分を分けて呼ぶ。組み立ての途中の lowering の結果から、実行に使う
-/// tunable なパラメータの値を読む（lowering を増やさない）。
-fn run_bdf(dae: &Dae, opts: &SimOptions) -> Outcome {
+/// tunable なパラメータの値を読み、プリフライトを行う（lowering を増やさない）。
+fn run_bdf(
+    dae: &Dae,
+    opts: &SimOptions,
+    settings: &ResolvedSettings,
+    hooks: &mut Hooks<'_>,
+) -> Outcome {
     let started = Stopwatch::start();
     let mut parameters = Vec::new();
+    hooks.stage(ExecStage::Lowering);
     let prepared = rumoca_sim::build_simulation_with_stage_timing_and_lowered_model(
         dae,
         opts,
         |_| {},
-        |lowered| parameters = result_parameters(dae, lowered),
+        |lowered| {
+            parameters = result_parameters(dae, lowered);
+            hooks.lowered(dae, settings, lowered);
+        },
     );
     let build_seconds = started.seconds();
     let prepared = match prepared {
@@ -412,6 +550,7 @@ fn run_bdf(dae: &Dae, opts: &SimOptions) -> Outcome {
         }
     };
     let started = Stopwatch::start();
+    hooks.stage(ExecStage::Initialization);
     if let Err(e) = rumoca_sim::check_prepared_initialization(&prepared) {
         return Outcome {
             parameters,
@@ -422,6 +561,7 @@ fn run_bdf(dae: &Dae, opts: &SimOptions) -> Outcome {
             )
         };
     }
+    hooks.stage(ExecStage::Integration);
     let result =
         rumoca_sim::run_prepared_simulation(&prepared).map_err(|e| (e, Phase::Integration));
     Outcome {
@@ -432,9 +572,11 @@ fn run_bdf(dae: &Dae, opts: &SimOptions) -> Outcome {
 
 #[cfg(not(target_arch = "wasm32"))]
 /// Dormand–Prince 5(4)（Rumoca の rk45）。組み立てから積分までを 1 回で呼ぶので、組み立ての時間は分からない
-/// （`build_seconds` は 0、全体を `run_seconds` に入れる）。パラメータの値も分からない（空）。
-fn run_rk(dae: &Dae, opts: &SimOptions) -> Outcome {
+/// （`build_seconds` は 0、全体を `run_seconds` に入れる）。パラメータの値も分からない（空）。段も分けられないので、
+/// 積分の段だけを知らせる。
+fn run_rk(dae: &Dae, opts: &SimOptions, hooks: &mut Hooks<'_>) -> Outcome {
     let started = Stopwatch::start();
+    hooks.stage(ExecStage::Integration);
     let result = rumoca_sim::rk45::simulate(dae, opts).map_err(|e| {
         // lowering の失敗は段の無い SolveIr（"[EX…] …" の形。rk45 は段を付けない）で返る
         let phase = if lowering_tag(&e).is_some() {
@@ -452,10 +594,11 @@ fn run_rk(dae: &Dae, opts: &SimOptions) -> Outcome {
 fn run_auto(
     dae: &Dae,
     settings: &ResolvedSettings,
-    bdf: impl FnOnce() -> Outcome,
-    rk: impl FnOnce() -> Outcome,
+    hooks: &mut Hooks<'_>,
+    bdf: impl FnOnce(&mut Hooks<'_>) -> Outcome,
+    rk: impl FnOnce(&mut Hooks<'_>) -> Outcome,
 ) -> Outcome {
-    let first = bdf();
+    let first = bdf(hooks);
     let (reason, failed) = match &first.result {
         Err((error, phase)) => match fallback(error, *phase) {
             Some(reason) => (
@@ -466,7 +609,7 @@ fn run_auto(
         },
         Ok(_) => return first,
     };
-    let mut second = rk();
+    let mut second = rk(hooks);
     second.build_seconds += first.build_seconds;
     second.run_seconds += first.run_seconds;
     if second.parameters.is_empty() {
