@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S014 実行系の段 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S014 · P3 実行系の段">
+
+<section class="slide" id="S01">
+  <span class="tag">S014 · 2026-10-20 · P3 シミュレーション（4 回目）</span>
+  <h1>lowering を 1 回にし、止まった所が見えるようにした</h1>
+  <div class="kpis">
+    <div class="kpi"><span class="n">7 / 7</span><span class="l">外から止めた例題のうち、lowering の段で止まっていたもの</span></div>
+    <div class="kpi"><span class="n">−0.39 s</span><span class="l">DoublePendulum の run（1.07 s）。lowering で止まる HeatingSystem は −4.26 s</span></div>
+    <div class="kpi"><span class="n">307 / 300</span><span class="l">MSL で実行できた本数 / 管に収まった本数（S013 から −1。機械の負荷による）</span></div>
+  </div>
+  <div class="card hl">
+    <p>プリフライトは組み立ての lowering の結果で行う。実行系の中の段を <code>run_with_progress</code> で知らせる（ADR-0016）。</p>
+  </div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>roadmap の候補 4 と 5</h1>
+  <div class="cols-2">
+    <div class="card hl">
+      <h3>依頼</h3>
+      <p class="small">「進めて」。S014 の候補から、実行系の中で閉じて数字で測れる 2 つを選んだ。残りの管の外れ 3 本は Rumoca の意味の問題なので後に回した。</p>
+    </div>
+    <div class="card">
+      <h3>S013 までの問題</h3>
+      <ul class="small">
+        <li>プリフライトのために lowering をもう 1 回していた（遅いモデルで時間が倍近く）</li>
+        <li>外から止めた 7 本が、実行系の中のどこで止まったか分からなかった</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと（ADR-0016）</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>プリフライト</td><td>bdf・auto・session の道は、組み立ての lowering の結果で評価する</td><td>lowering が 1 回になり、評価するモデルも実行と同じになる</td></tr>
+    <tr><td>ネイティブの dopri45</td><td>単独のプリフライトのまま</td><td><code>rk45::simulate</code> に口が無い</td></tr>
+    <tr><td>段の知らせ</td><td><code>run_with_progress</code> と <code>ExecStage</code>。ワーカーが親に送る</td><td>外から止めたものの段が分かる</td></tr>
+    <tr><td>Rumoca の細かい段</td><td>GlobeMode の 5 つの段に丸める</td><td>Rumoca の内部の名前は版で変わる</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>実行系の段（bdf・auto・session の道）</h1>
+  <svg class="fig" viewBox="0 0 800 200" role="img" aria-label="実行系の段の順">
+    <rect class="svg-box-accent" x="10" y="70" width="140" height="60" rx="10"/>
+    <text class="svg-text-b" x="80" y="106" text-anchor="middle">lowering</text>
+    <line class="svg-line" x1="150" y1="100" x2="170" y2="100"/>
+    <rect class="svg-box-accent" x="170" y="70" width="140" height="60" rx="10"/>
+    <text class="svg-text-b" x="240" y="106" text-anchor="middle">プリフライト</text>
+    <line class="svg-line" x1="310" y1="100" x2="330" y2="100"/>
+    <rect class="svg-box" x="330" y="70" width="140" height="60" rx="10"/>
+    <text class="svg-text-b" x="400" y="106" text-anchor="middle">組み立て</text>
+    <line class="svg-line" x1="470" y1="100" x2="490" y2="100"/>
+    <rect class="svg-box" x="490" y="70" width="140" height="60" rx="10"/>
+    <text class="svg-text-b" x="560" y="106" text-anchor="middle">初期化</text>
+    <line class="svg-line" x1="630" y1="100" x2="650" y2="100"/>
+    <rect class="svg-box" x="650" y="70" width="140" height="60" rx="10"/>
+    <text class="svg-text-b" x="720" y="106" text-anchor="middle">積分</text>
+    <text class="svg-text" x="160" y="170" text-anchor="middle">同じ lowering の結果を使う</text>
+  </svg>
+  <p class="small">ネイティブの dopri45 は、プリフライト（単独）→ 積分。</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>測った数字</h1>
+  <table class="compact">
+    <tr><th>モデル</th><th>S013</th><th>S014</th></tr>
+    <tr><td>DoublePendulum の run</td><td>1.07 s + 0.39 s</td><td class="ok">1.07 s</td></tr>
+    <tr><td>HeatingSystem の run</td><td>4.00 s + 4.26 s</td><td class="ok">4.00 s</td></tr>
+    <tr><td>FullRobot（msl-sim、空いた機械）</td><td>111.6 s</td><td class="ok">57.9 s</td></tr>
+  </table>
+  <p class="small">msl:sim（負荷 10〜12）: 実行できた 307・管 300 / 306（S013 は 308・301 / 307）。減った 1 本は負荷で 120 s を超えたもので、同じ負荷では S013 でも止まる。外から止めた 9 本の段は lowering 7・プリフライト 1・積分 1。</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション（S015 の候補）</h1>
+  <ul>
+    <li>lowering が終わらない例題を早く見切る（lowering の段に別の上限、GM-U として数える）</li>
+    <li>止まった例題の残り（EL005 の 18 本など。多くは上流）、既知でない管の外れ 3 本</li>
+    <li>自前の積分器の詰め、ブラウザ（Web Worker）</li>
+  </ul>
+  <p class="small">一覧は doc/roadmap.md の「次のセッション」。</p>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

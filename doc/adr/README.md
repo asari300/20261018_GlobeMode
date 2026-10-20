@@ -17,5 +17,6 @@
 | [0013](0013-exec-backend.md) | P3 の実行系は、Rumoca の実行系（rumoca-sim）を globe-mode-exec に閉じ込めて使う。結果は中立の型で返し、MAP-LIB の参照結果と矩形の管で比べる | Accepted |
 | [0014](0014-session-route-wasm.md) | wasm32 と自前の積分器は、Rumoca の FMI ME 風の host に数値積分のプラグインを差す session の道で回す。ネイティブの bdf・dopri45・auto は型付きの道のまま（wasm-bindgen、auto の切り替え、パラメータの上書き、MAT v4） | Accepted |
 | [0015](0015-auto-and-reference-tolerance.md) | `auto` は方向微分が作れないときに切り替えない。MSL の突き合わせは参照結果と同じ許容誤差（注釈の 0.1 倍、`--tolerance-scale`）で回す（ADR-0014 (d) の一部を覆す） | Accepted |
+| [0016](0016-preflight-on-build-lowering.md) | プリフライトは組み立ての lowering の結果で行い（lowering は 1 回）、実行系の中の段（プリフライト・lowering・組み立て・初期化・積分）を `run_with_progress` で知らせる | Accepted |
 
 書式: `NNNN-<題名>.md`。章は「状態 / 背景 / 決定 / 結果」の4つ。決定を覆すときは古い ADR を消さず、状態を Superseded にして新しい番号で書く。
