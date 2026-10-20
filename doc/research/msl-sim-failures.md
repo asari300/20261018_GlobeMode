@@ -303,3 +303,24 @@ Rumoca の文言はどれも `[StructuralAnalysis] solve-IR evaluation failed: [
 
 - 節「外から停止」の【未確認】のうち「DrumBoiler 以外の 6 本でどの段か」と「プリフライトの側か組み立ての側か」は片付いた: lowering は 1 回になり、7 本ともその 1 回が終わらない。
 - 120 s 近くかかる例題（`LightningSegmentedTransmissionLine` 116 s、`FullRobot` 112 s、時間切れの回し直しの `ThyristorBridge2Pulse_DC_Drive` 197 s）は、機械が混んでいると外からの停止に変わる。S014 の 1 回目の全例題の実行（15 分の負荷の平均 26.7、16 コア）では 3 本がそうなった。同じ 3 本を空いた機械で S013 と S014 の実行ファイルで続けて回すと、どれも S014 のほうが同じか速かった。2 回目（負荷の平均 10〜12）では `LightningSegmentedTransmissionLine`（積分の段）と `FullRobot`（プリフライトの段。lowering が約 118 s で終わった直後）の 2 本が外からの停止に変わり、同じ負荷で 2 本を S013 と S014 の実行ファイルで続けて回すと、4 回とも 120 s で外から止まった。
+
+## S015 で調べたこと
+
+節「外から停止」の 7 本を、上限を 600 s にして 1 本ずつ回した（確認日 2026-10-20。xtask は S014 のもの、`--wall-seconds 600 --kill-seconds 600 --tolerance-scale 0.1`、空いた機械で 15 分の負荷の平均 0.1〜4。設計は [ADR-0017](../adr/0017-lowering-limit-and-hard-timeout-retry.md)）。
+
+| # | モデル | 600 s での結果 | 壁時計 / CPU 時間（`/usr/bin/time`、MSL の読み込みを含む） |
+| ---: | --- | --- | --- |
+| 48 | `DrumBoiler` | **lowering は終わり**、S10 のプリフライト（t0 の評価 `SolveRuntime::eval_at`）が段に入ってから 481 s で終わらない（外から停止）。S015 の全例題の実行の回し直しでは lowering 117 s の後、プリフライトで 121 s | 604 s / 600 s |
+| 49 | `MeasuringTemperature` | lowering が終わらない（段に入ってから 593 s） | 604 s / 606 s |
+| 50 | `MomentumBalanceFittings` | lowering が終わらない（段に入ってから 595 s） | 603 s / 605 s |
+| 51 | `InverseParameterization` | 530 s で `GM-U0004`（`[SolveLowering] … [EL005] DAE system is not computable: … linear solve requires an aggregate function owner`） | 537 s / 541 s |
+| 52 | `NonCircularPipes` | lowering が終わらない（段に入ってから 594 s） | 603 s / 606 s |
+| 53 | `EngineV6` | **終了時刻まで 169 s**（コンパイル 14 s、準備 95 s のほとんどが lowering、積分 58 s）。管は 2 / 4（`filter.x[1]` など 2 つが外れる） | 2 本で 696 s / 739 s |
+| 54 | `EngineV6_analytic` | 523 s で `GM-U0004`（`[StructuralAnalysis] … [EL005] DAE structural proof failed: structurally singular system: 8318 matched out of 8443 equations`） | （同上）|
+
+- 3 本は 600 s でも lowering が終わらない。CPU 時間が壁時計とほぼ同じなので、待っているのではなく計算し続けている。
+- `DrumBoiler` は lowering が約 117 s で終わり、GlobeMode のプリフライトの評価が終わらない。S014 までの「7 本とも lowering の段」は、120 s の kill が lowering の終わる前に来ていたため。プリフライトは警告（`GM-W10002`）しか出さないので、ここで止まるのは GlobeMode の側で直せる【原因は未確認】。
+- 2 本は約 520 s で lowering（構造解析を含む）が終わり、EL005 の類の未対応になる。節「実行系が未対応（GM-U0004）」の EL005 と同じ上流の問題。
+- `EngineV6` は S014 で lowering が 1 回になって、終わるようになった（S012 の調べでは 400 s で kill）。ただしコンパイル 11 s・lowering 64 s・組み立て 12 s・積分 49 s（S015 の全例題の実行で測った段ごとの秒）で、120 s では終わらない。
+- 終わるもので lowering が長いのは、ほかに `FullRobot` 52 s、`Engine1b_analytic` 17 s（S015 の xtask で段ごとの秒を測った。負荷の平均 5〜9）。
+- ワーカーの CPU を使うのはほぼ 1 スレッド（17 スレッドのうち 1 本が 100%）。負荷で遅くなるのは CPU 時間も含めてなので、CPU 時間で止めても負荷の揺れは消えない（16 論理コアは 8 コア × 2 のハイパースレッド）。
