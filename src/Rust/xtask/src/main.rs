@@ -178,7 +178,11 @@ enum Cmd {
         /// 1 本の応答をこの秒数だけ待ち、無ければワーカーを kill して立て直す
         #[arg(long, default_value_t = 120)]
         kill_seconds: u64,
-        /// 時間切れ（GM-E11005）になったものだけを、この予算（秒）で回し直す。外から止めるのは予算 + 60 s。
+        /// lowering の段に入ってからこの秒数で終わらなければ、ワーカーを止めて回し直さない（S015）。
+        /// --kill-seconds より長ければ、1 回目は --kill-seconds で止めて回し直し、回し直しでこの上限が効く
+        #[arg(long, default_value_t = 150)]
+        lowering_kill_seconds: u64,
+        /// 時間切れ（GM-E11005）か外から止めたもの（lowering の段の上限で止めたものを除く）だけを、この予算（秒）で回し直す。外から止めるのは予算 + 60 s。
         /// --wall-seconds 以下（0 など）なら回し直さない（S012）
         #[arg(long, default_value_t = 180.0)]
         retry_wall_seconds: f64,
@@ -301,6 +305,7 @@ fn main() -> ExitCode {
             only,
             wall_seconds,
             kill_seconds,
+            lowering_kill_seconds,
             retry_wall_seconds,
             reset_every,
             solver,
@@ -320,6 +325,7 @@ fn main() -> ExitCode {
             only: only.as_deref(),
             wall_seconds,
             kill_seconds,
+            lowering_kill_seconds,
             retry_wall_seconds,
             reset_every,
             solver: solver.as_deref(),
@@ -879,7 +885,7 @@ mod tests {
         let cli = Cli::try_parse_from(["xtask", "msl-sim", "--report", "r.md"]).unwrap();
         assert!(matches!(
             cli.command,
-            Cmd::MslSim { wall_seconds, kill_seconds: 120, fetch_ref: false, .. } if wall_seconds == 30.0
+            Cmd::MslSim { wall_seconds, kill_seconds: 120, lowering_kill_seconds: 150, fetch_ref: false, .. } if wall_seconds == 30.0
         ));
         // S012 の既定: ソルバは auto、時間切れは 180 s で回し直す、既知の外れの一覧を読む、前回の結果は読まない
         match Cli::try_parse_from(["xtask", "msl-sim"]).unwrap().command {

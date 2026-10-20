@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S015 lowering の段の上限 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S015 · P3 lowering の段の上限">
+
+<section class="slide" id="S01">
+  <span class="tag">S015 · 2026-10-20 · P3 シミュレーション（5 回目）</span>
+  <h1>終わるものを落とさず、終わらないものに時間を使わない</h1>
+  <div class="kpis">
+    <div class="kpi"><span class="n">309 / 301</span><span class="l">MSL で実行できた本数 / 管に収まった本数（S014 から +2 / +1）</span></div>
+    <div class="kpi"><span class="n">150 s</span><span class="l">lowering の段の上限。終わるもので最長の EngineV6 は 64 s</span></div>
+    <div class="kpi"><span class="n">1 本</span><span class="l">lowering ではなくプリフライトで止まっていた（DrumBoiler）</span></div>
+  </div>
+  <div class="card hl">
+    <p>msl-sim は lowering の段に別の上限を掛け、外から止めたものも回し直す（ADR-0017）。製品の実行系は変えていない。</p>
+  </div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>S014 の報告で次に挙げた 2 つ</h1>
+  <div class="cols-2">
+    <div class="card hl">
+      <h3>lowering が終わらない例題を早く見切る</h3>
+      <p class="small">外から止めた 7 本は、120 s の時点で 7 本とも lowering の段にいた。Rumoca のハーネスは lowering に 10 s の上限を掛ける。</p>
+    </div>
+    <div class="card">
+      <h3>負荷で結果が揺れる</h3>
+      <p class="small">120 s 近いモデルが、機械の負荷で外からの停止に変わる。S014 の実行できた本数は、これで 1 本減った。</p>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>7 本を 600 s で回してから決めた</h1>
+  <table class="compact">
+    <tr><th>例題</th><th>600 s での結果</th></tr>
+    <tr><td>MomentumBalanceFittings・MeasuringTemperature・NonCircularPipes</td><td class="warn">lowering が終わらない</td></tr>
+    <tr><td>InverseParameterization・EngineV6_analytic</td><td>約 520 s で GM-U0004（EL005）</td></tr>
+    <tr><td>EngineV6</td><td class="ok">169 s で終了時刻まで</td></tr>
+    <tr><td>DrumBoiler</td><td class="warn">lowering は 117 s で終わり、プリフライトが 481 s で終わらない</td></tr>
+  </table>
+  <p class="small">120 s より短い上限では、終わる lowering と終わらない lowering を分けられない。だから「早く見切る」はしなかった。</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと（ADR-0017）</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>lowering の段</td><td>段に入ってから 150 s で止め、回し直さない</td><td>終わるもので最長 64 s（EngineV6）。負荷で 2 倍でも落とさない</td></tr>
+    <tr><td>外から止めたもの</td><td>時間切れと同じく予算 180 s で回し直す</td><td>負荷で 120 s を超えたものと EngineV6 を拾う</td></tr>
+    <tr><td>CPU 時間で止める</td><td>しない</td><td>負荷で CPU 時間も延びる（ハイパースレッド）</td></tr>
+    <tr><td>分類</td><td>外から停止のまま</td><td>GM-U は製品の診断。製品には lowering の上限が無い</td></tr>
+    <tr><td>段ごとの秒</td><td>JSON の stage_times と報告の表</td><td>次に上限を決める材料</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">図</span>
+  <h1>1 回目と回し直し</h1>
+  <svg class="fig" viewBox="0 0 800 220" role="img" aria-label="1 回目と回し直しの流れ">
+    <rect class="svg-box" x="10" y="80" width="190" height="60" rx="10"/>
+    <text class="svg-text-b" x="105" y="105" text-anchor="middle">1 回目</text>
+    <text class="svg-text" x="105" y="127" text-anchor="middle">120 s で外から停止</text>
+    <line class="svg-line" x1="200" y1="110" x2="290" y2="110"/>
+    <rect class="svg-box-accent" x="290" y="80" width="220" height="60" rx="10"/>
+    <text class="svg-text-b" x="400" y="105" text-anchor="middle">回し直し</text>
+    <text class="svg-text" x="400" y="127" text-anchor="middle">予算 180 s・240 s で停止</text>
+    <line class="svg-line" x1="510" y1="95" x2="580" y2="50"/>
+    <line class="svg-line" x1="510" y1="125" x2="580" y2="170"/>
+    <rect class="svg-box" x="580" y="20" width="210" height="60" rx="10"/>
+    <text class="svg-text" x="685" y="56" text-anchor="middle">lowering が 150 s で停止</text>
+    <rect class="svg-box" x="580" y="140" width="210" height="60" rx="10"/>
+    <text class="svg-text" x="685" y="176" text-anchor="middle">実行できた・実行 NG</text>
+  </svg>
+  <p class="small">回し直し 12 本: 時間切れ 5・外から停止 7。実行できたのは EngineV6 の 1 本。</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">再現手順</span>
+  <h1>MSL の全例題の実行（空いた機械）</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>S014</th><th>S015</th></tr>
+    <tr><td>実行できた（356 本中）</td><td>307</td><td class="ok">309</td></tr>
+    <tr><td>管に収まった</td><td>300 / 306</td><td class="ok">301 / 308（97.7%）</td></tr>
+    <tr><td>外から止めた</td><td>9</td><td class="ok">6</td></tr>
+    <tr><td>全体の時間</td><td>3627 s（負荷の下）</td><td>3733 s</td></tr>
+  </table>
+  <p class="small">増えたのは EngineV6（回し直しで 139 s、管は 2 / 4 で外れ）と LightningSegmentedTransmissionLine。mise run msl:sim、報告は doc/msl-sim.md。</p>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>次のセッション（S016 の候補）</h1>
+  <ul>
+    <li>DrumBoiler のプリフライト（t0 の評価）が終わらない。GlobeMode の側で直せる</li>
+    <li>新しく管から外れた EngineV6（filter.x が t = 0 から外れる）</li>
+    <li>lowering が終わらない 5 本は上流（EL005 の類）。自前の積分器の詰め、ブラウザ（Web Worker）</li>
+  </ul>
+  <p class="small">一覧は doc/roadmap.md の「次のセッション」。</p>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

@@ -15,6 +15,9 @@
 //!   前回の結果（`--baseline-json`）との差を報告に書く。
 //! - S014: 実行系の中の段（プリフライト・lowering・組み立て・初期化・積分）も `globe_mode_exec::run_with_progress`
 //!   から受けて知らせる。
+//! - S015: lowering の段は別の上限（`--lowering-kill-seconds`、段に入ってから）で止め、回し直さない。外から
+//!   止めたもののうちそれ以外（機械の負荷で応答の上限を超えたもの）は、時間切れと同じく回し直す。親は段ごとの秒を
+//!   記録する（JSON の `stage_times`）。
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -430,7 +433,10 @@ pub(crate) struct Record {
     pub worker_stage: Option<WorkerStage>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stage_seconds: Option<f64>,
-    /// 時間切れで回し直したときの 1 回目（S012）
+    /// 段ごとの秒（親が段の知らせの間隔で測る。同じ段に 2 度入ったら足す。S015）
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub stage_times: BTreeMap<WorkerStage, f64>,
+    /// 時間切れか外から止めたので回し直したときの 1 回目（S012。外から止めたものは S015 から）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub first_attempt: Option<FirstAttempt>,
     /// 出た診断のコード（情報と警告を含む。出た順、重複なし）
@@ -463,6 +469,7 @@ impl Record {
             notes: Vec::new(),
             worker_stage: None,
             stage_seconds: None,
+            stage_times: BTreeMap::new(),
             first_attempt: None,
             codes: Vec::new(),
             settings: None,
@@ -1009,31 +1016,51 @@ impl StageAt {
     }
 }
 
-fn request(worker: &mut Worker, model: &str, kill: Duration) -> Reply {
+/// 1 本を要求して応答を待つ。`kill` を超えるか、lowering の段に入ってから `lowering_kill` を超えたら
+/// [`Reply::Timeout`] を返す。段ごとの秒も返す。
+fn request(
+    worker: &mut Worker,
+    model: &str,
+    kill: Duration,
+    lowering_kill: Duration,
+) -> (Reply, BTreeMap<WorkerStage, f64>) {
+    let mut times = BTreeMap::new();
     if let Err(e) = worker.send(&Request {
         model: model.to_string(),
     }) {
-        return Reply::Crash(format!("要求を送れない: {e}"), None);
+        return (Reply::Crash(format!("要求を送れない: {e}"), None), times);
     }
     let deadline = Instant::now() + kill;
     let mut last: Option<StageAt> = None;
-    loop {
-        match worker.recv(deadline) {
+    let close = |last: Option<StageAt>, times: &mut BTreeMap<WorkerStage, f64>| {
+        if let Some(at) = last {
+            *times.entry(at.stage).or_insert(0.0) += at.seconds();
+        }
+    };
+    let reply = loop {
+        let until = match last {
+            Some(at) if at.stage == WorkerStage::Lowering => deadline.min(at.since + lowering_kill),
+            _ => deadline,
+        };
+        match worker.recv(until) {
             Recv::Message(WorkerMessage::Done { record }) if record.model == model => {
-                return Reply::Done(record);
+                break Reply::Done(record);
             }
             Recv::Message(WorkerMessage::Stage { model: m, stage }) if m == model => {
+                close(last, &mut times);
                 last = Some(StageAt {
                     stage,
                     since: Instant::now(),
                 });
             }
             Recv::Message(_) => {}
-            Recv::Bad(e) => return Reply::Crash(format!("読めない行: {e}"), last),
-            Recv::Eof => return Reply::Crash("応答の前に標準出力が閉じた".to_string(), last),
-            Recv::Timeout => return Reply::Timeout(worker.rss_kb(), last),
+            Recv::Bad(e) => break Reply::Crash(format!("読めない行: {e}"), last),
+            Recv::Eof => break Reply::Crash("応答の前に標準出力が閉じた".to_string(), last),
+            Recv::Timeout => break Reply::Timeout(worker.rss_kb(), last),
         }
-    }
+    };
+    close(last, &mut times);
+    (reply, times)
 }
 
 /// ワーカーの統計。
@@ -1288,7 +1315,10 @@ pub(crate) struct Options<'a> {
     pub only: Option<&'a str>,
     pub wall_seconds: f64,
     pub kill_seconds: u64,
-    /// 時間切れ（GM-E11005）になったものだけを回し直す予算（秒。`wall_seconds` 以下なら回し直さない）
+    /// lowering の段に入ってから、この秒数で終わらなければワーカーを止める（回し直さない。S015）
+    pub lowering_kill_seconds: u64,
+    /// 時間切れ（GM-E11005）か外から止めたもの（lowering の段の上限で止めたものを除く）だけを回し直す予算
+    /// （秒。`wall_seconds` 以下なら回し直さない）
     pub retry_wall_seconds: f64,
     pub reset_every: usize,
     pub solver: Option<&'a str>,
@@ -1314,6 +1344,9 @@ impl Options<'_> {
         self.retry_wall_seconds.ceil() as u64 + RETRY_KILL_MARGIN
     }
 }
+
+/// 報告の「lowering の段の長いもの」の行数。
+const LOWERING_ROWS: usize = 15;
 
 /// 回し直しで、予算を超えてから外から止めるまでの余裕（秒）。
 const RETRY_KILL_MARGIN: u64 = 60;
@@ -1389,10 +1422,12 @@ fn run_models(
     args: &[OsString],
     models: &[&str],
     kill_seconds: u64,
+    lowering_kill_seconds: u64,
     stats: &mut WorkerStats,
     label: &str,
 ) -> Result<Vec<Record>> {
     let kill = Duration::from_secs(kill_seconds);
+    let lowering_kill = Duration::from_secs(lowering_kill_seconds);
     let mut worker: Option<Worker> = None;
     let mut records = Vec::with_capacity(models.len());
     let width = models.len().to_string().len();
@@ -1420,7 +1455,7 @@ fn run_models(
             },
         };
         let t = Instant::now();
-        let reply = request(w, model, kill);
+        let (reply, stage_times) = request(w, model, kill, lowering_kill);
         let wall = t.elapsed().as_secs_f64();
         let with_stage = |mut r: Record, at: Option<StageAt>| {
             if let Some(at) = at {
@@ -1443,14 +1478,17 @@ fn run_models(
             Reply::Timeout(rss, at) => {
                 let status = worker.take().map_or_else(String::new, |mut w| w.stop());
                 stats.kills += 1;
+                let why = if at
+                    .is_some_and(|at| lowering_cut(at.stage, at.seconds(), lowering_kill_seconds))
+                {
+                    format!(
+                        "lowering が {lowering_kill_seconds} s で終わらないので止めた（{status}）"
+                    )
+                } else {
+                    format!("{kill_seconds} s で応答が無いので止めた（{status}）")
+                };
                 with_stage(
-                    Record::aborted(
-                        model,
-                        Outcome::HardTimeout,
-                        format!("{kill_seconds} s で応答が無いので止めた（{status}）"),
-                        wall,
-                        rss,
-                    ),
+                    Record::aborted(model, Outcome::HardTimeout, why, wall, rss),
                     at,
                 )
             }
@@ -1468,6 +1506,10 @@ fn run_models(
                     at,
                 )
             }
+        };
+        let record = Record {
+            stage_times,
+            ..record
         };
         println!(
             "{label}[{:>width$}/{}] {} {}  {}  {wall:.2} s",
@@ -1492,12 +1534,24 @@ fn run_models(
     Ok(records)
 }
 
-/// 時間切れ（GM-E11005）になったものの位置。
-fn timed_out(records: &[Record]) -> Vec<usize> {
+/// lowering の段の上限で止めたか（段に入ってからの秒が上限に届いた）。
+fn lowering_cut(stage: WorkerStage, seconds: f64, lowering_kill_seconds: u64) -> bool {
+    stage == WorkerStage::Lowering && seconds >= lowering_kill_seconds as f64
+}
+
+/// 回し直すものの位置: 時間切れ（GM-E11005）と、外から止めたもの（lowering の段の上限で止めたものを除く。
+/// 機械の負荷で 120 s を超えたものを拾う。S015）。
+fn timed_out(records: &[Record], lowering_kill_seconds: u64) -> Vec<usize> {
     records
         .iter()
         .enumerate()
-        .filter(|(_, r)| r.code.as_deref() == Some(codes::RUN_TIMEOUT))
+        .filter(|(_, r)| {
+            r.code.as_deref() == Some(codes::RUN_TIMEOUT)
+                || (r.outcome == Outcome::HardTimeout
+                    && !r.worker_stage.is_some_and(|w| {
+                        lowering_cut(w, r.stage_seconds.unwrap_or(0.0), lowering_kill_seconds)
+                    }))
+        })
         .map(|(i, _)| i)
         .collect()
 }
@@ -1587,17 +1641,18 @@ pub(crate) fn msl_sim(opts: &Options<'_>) -> Result<ExitCode> {
         &worker_args(opts, opts.wall_seconds),
         &models,
         opts.kill_seconds,
+        opts.lowering_kill_seconds,
         &mut stats,
         "",
     )?;
     let retry_at = if opts.retries() {
-        timed_out(&records)
+        timed_out(&records, opts.lowering_kill_seconds)
     } else {
         Vec::new()
     };
     if !retry_at.is_empty() {
         println!(
-            "時間切れ（{}）の {} 本を、予算 {} s（外から止める {} s）で回し直す",
+            "時間切れ（{}）と外から止めた（lowering の段の上限を除く） {} 本を、予算 {} s（外から止める {} s）で回し直す",
             codes::RUN_TIMEOUT,
             retry_at.len(),
             opts.retry_wall_seconds,
@@ -1612,6 +1667,7 @@ pub(crate) fn msl_sim(opts: &Options<'_>) -> Result<ExitCode> {
             &worker_args(opts, opts.retry_wall_seconds),
             &models,
             opts.retry_kill_seconds(),
+            opts.lowering_kill_seconds,
             &mut stats,
             "回し直し ",
         )?;
@@ -1823,7 +1879,7 @@ impl BaselineDiff {
 
 fn retry_line(s: &Summary, opts: &Options<'_>) -> String {
     format!(
-        "時間切れ（{}）の回し直し（予算 {} s）: {} 本のうち実行できた {}・管に収まった {}",
+        "時間切れ（{}）と外から停止の回し直し（予算 {} s）: {} 本のうち実行できた {}・管に収まった {}",
         codes::RUN_TIMEOUT,
         opts.retry_wall_seconds,
         s.retried,
@@ -2032,7 +2088,7 @@ fn render_report(records: &[Record], s: &Summary, run: &RunInfo<'_>) -> String {
     };
     let _ = writeln!(
         md,
-        "| 実行の設定 | StartTime・StopTime・Interval・Tolerance は experiment annotation（無い項目は既定値: StartTime 0、StopTime は開始 + 1、Tolerance 1e-6、Interval は区間の 1/500）{}。ソルバは{}（実行できたもの: {solvers}）。壁時計の予算 {} s（協調型。超えると {}）。応答が {} s 無ければ親がワーカーを止める |",
+        "| 実行の設定 | StartTime・StopTime・Interval・Tolerance は experiment annotation（無い項目は既定値: StartTime 0、StopTime は開始 + 1、Tolerance 1e-6、Interval は区間の 1/500）{}。ソルバは{}（実行できたもの: {solvers}）。壁時計の予算 {} s（協調型。超えると {}）。応答が {} s 無いか、lowering の段に入ってから {} s で終わらなければ、親がワーカーを止める |",
         if opts.tolerance_scale == 1.0 {
             String::new()
         } else {
@@ -2047,14 +2103,15 @@ fn render_report(records: &[Record], s: &Summary, run: &RunInfo<'_>) -> String {
             )),
         opts.wall_seconds,
         codes::RUN_TIMEOUT,
-        opts.kill_seconds
+        opts.kill_seconds,
+        opts.lowering_kill_seconds
     );
     let _ = writeln!(
         md,
         "| 時間切れの回し直し | {} |",
         if opts.retries() {
             format!(
-                "時間切れ（{}）になったものだけを、予算 {} s・応答が {} s 無ければ外から止める設定でもう一度回す（1 回目は JSON の `first_attempt`）",
+                "時間切れ（{}）と外から止めたもの（lowering の段の上限で止めたものを除く。機械の負荷で応答の上限を超えたものを拾う）だけを、予算 {} s・応答が {} s 無ければ外から止める設定でもう一度回す（1 回目は JSON の `first_attempt`）",
                 codes::RUN_TIMEOUT,
                 opts.retry_wall_seconds,
                 opts.retry_kill_seconds()
@@ -2133,12 +2190,18 @@ fn render_report(records: &[Record], s: &Summary, run: &RunInfo<'_>) -> String {
             s.non_finite,
         ),
         (
-            format!("時間切れで回し直した（予算 {} s）", opts.retry_wall_seconds),
+            format!(
+                "時間切れか外から止めたので回し直した（予算 {} s）",
+                opts.retry_wall_seconds
+            ),
             s.retried,
         ),
         ("うち回し直して実行できた".to_string(), s.retry_simulated),
         (
-            format!("外から止めた（{} s で応答が無い）", opts.kill_seconds),
+            format!(
+                "外から止めた（{} s で応答が無いか、lowering が {} s で終わらない）",
+                opts.kill_seconds, opts.lowering_kill_seconds
+            ),
             s.hard_timeouts,
         ),
         ("ワーカーが応答の前に落ちた".to_string(), s.crashes),
@@ -2291,6 +2354,32 @@ fn render_report(records: &[Record], s: &Summary, run: &RunInfo<'_>) -> String {
         run.workers.setup_rss_kb.map_or("-".to_string(), gigabytes),
         s.max_rss_kb.map_or("-".to_string(), gigabytes)
     );
+    let mut lowering: Vec<(f64, &Record)> = records
+        .iter()
+        .filter_map(|r| Some((*r.stage_times.get(&WorkerStage::Lowering)?, r)))
+        .collect();
+    lowering.sort_by(|a, b| b.0.total_cmp(&a.0));
+    if !lowering.is_empty() {
+        let _ = writeln!(md, "### lowering の段の長いもの\n");
+        let _ = writeln!(
+            md,
+            "親が段の知らせの間隔で測った秒（回し直したものは回し直しの回。`--lowering-kill-seconds` を決める材料。S015）。\n"
+        );
+        let _ = writeln!(
+            md,
+            "| # | モデル | lowering（秒） | 結果 |\n| ---: | --- | ---: | --- |"
+        );
+        for (i, (sec, r)) in lowering.iter().take(LOWERING_ROWS).enumerate() {
+            let _ = writeln!(
+                md,
+                "| {} | `{}` | {sec:.1} | {} |",
+                i + 1,
+                short(&r.model),
+                r.status()
+            );
+        }
+        let _ = writeln!(md);
+    }
 
     let _ = writeln!(md, "## 実行できなかったモデル\n");
     let failures: Vec<&Record> = records.iter().filter(|r| !r.outcome.simulated()).collect();
@@ -2338,7 +2427,7 @@ fn render_report(records: &[Record], s: &Summary, run: &RunInfo<'_>) -> String {
         .filter(|r| r.first_attempt.is_some())
         .collect();
     if !retried.is_empty() {
-        let _ = writeln!(md, "## 時間切れで回し直したモデル\n");
+        let _ = writeln!(md, "## 回し直したモデル\n");
         let _ = writeln!(
             md,
             "| # | モデル | 1 回目（予算・秒） | 回し直し | 参照結果 | 秒 |\n| ---: | --- | --- | --- | --- | ---: |"
@@ -2864,6 +2953,8 @@ mod tests {
     #[test]
     fn report_shows_counts_and_tables() {
         let mut records = records();
+        records[0].stage_times.insert(WorkerStage::Lowering, 2.5);
+        records[9].stage_times.insert(WorkerStage::Lowering, 60.2);
         // 時間切れから回し直して通ったもの・実行系の中で外から止めたもの・補足のある失敗・auto の切り替え
         records[0].first_attempt = Some(FirstAttempt {
             outcome: Outcome::RunFailed,
@@ -2904,6 +2995,7 @@ mod tests {
             only: None,
             wall_seconds: 30.0,
             kill_seconds: 120,
+            lowering_kill_seconds: 60,
             retry_wall_seconds: 180.0,
             reset_every: 50,
             solver: Some("auto"),
@@ -2962,7 +3054,10 @@ mod tests {
             "| **実行できた（計）** | 5 |",
             "| うち協調型の時間切れ（GM-E11005） | 1 |",
             "| うち結果が有限でない（GM-E11006） | 1 |",
-            "| 外から止めた（120 s で応答が無い） | 1 |",
+            "| 外から止めた（120 s で応答が無いか、lowering が 60 s で終わらない） | 1 |",
+            "### lowering の段の長いもの",
+            "| 1 | `A.Examples.Hang` | 60.2 | 外から停止 |",
+            "| 2 | `A.Examples.Pass` | 2.5 | 終了時刻まで |",
             "| ワーカーが応答の前に落ちた | 1 |",
             "| panic（ワーカーの中で拾った） | 1 |",
             "| うち参照結果と比べた | 3 |",
@@ -2983,7 +3078,7 @@ mod tests {
             "- `A.Examples.ExampleTemplates.T`",
             "| 例題でないため実行しない（対象に数えない） | 1 |",
             "- `A.Examples.Utilities.Limiter`",
-            "| 時間切れで回し直した（予算 180 s） | 1 |",
+            "| 時間切れか外から止めたので回し直した（予算 180 s） | 1 |",
             "| うち回し直して実行できた | 1 |",
             "回し直し（予算 180 s）: 1 本のうち実行できた 1・管に収まった 1",
             "| auto で BDF が失敗し dopri45 で回し直した（GM-I11002） | 1 |",
@@ -2995,7 +3090,7 @@ mod tests {
             "| うち既知の外れを除いたもの | 0 |",
             "**既知**: 解析解が 0 の信号（Rumoca の除外の一覧）",
             "| `A.Examples.Off` | **管 NG** 1/2（外れ 1） | 解析解が 0 の信号（Rumoca の除外の一覧） |",
-            "## 時間切れで回し直したモデル",
+            "## 回し直したモデル",
             "| 1 | `A.Examples.Pass` | 実行 NG GM-E11005（30 s・30.5 s） | 終了時刻まで | 管 OK 2/2 |",
             "## 前回の結果との差",
             "| 実行できた（terminate を含む） | 3 | 2 | −1 |",
@@ -3148,7 +3243,13 @@ mod tests {
     #[test]
     fn timeouts_are_retried_and_merged() {
         let mut records = records();
-        let at = timed_out(&records);
+        // 外から止めたもの（9）は、lowering の段の上限で止めたのでなければ回し直す
+        assert_eq!(timed_out(&records, 60), [5, 9]);
+        records[9].worker_stage = Some(WorkerStage::Lowering);
+        records[9].stage_seconds = Some(30.0);
+        assert_eq!(timed_out(&records, 60), [5, 9]);
+        records[9].stage_seconds = Some(60.2);
+        let at = timed_out(&records, 60);
         assert_eq!(at, [5]);
         let mut again = simulated("Modelica.A.Examples.Slow", None);
         again.wall_seconds = 95.0;
@@ -3159,7 +3260,7 @@ mod tests {
         let first = r.first_attempt.as_ref().unwrap();
         assert_eq!(first.code.as_deref(), Some(codes::RUN_TIMEOUT));
         assert_eq!((first.wall_budget, first.wall_seconds), (30.0, 1.0));
-        assert!(timed_out(&records).is_empty());
+        assert!(timed_out(&records, 60).is_empty());
         let s = Summary::from_records(&records, &BTreeMap::new());
         assert_eq!(
             (s.retried, s.retry_simulated, s.cooperative_timeouts),
@@ -3212,13 +3313,14 @@ mod tests {
         let mut stats = WorkerStats::default();
         let mut w = start_worker(Path::new("sh"), &args, &mut stats).unwrap();
         assert_eq!((stats.spawns, stats.setup_seconds), (1, 0.5));
-        match request(&mut w, "Modelica.A.B", Duration::from_secs(10)) {
+        let long = Duration::from_secs(60);
+        match request(&mut w, "Modelica.A.B", Duration::from_secs(10), long).0 {
             Reply::Done(r) => assert_eq!(*r, record),
             other => panic!("答えが無い: {other:?}"),
         }
         let t = Instant::now();
         assert!(matches!(
-            request(&mut w, "Modelica.A.C", Duration::from_millis(300)),
+            request(&mut w, "Modelica.A.C", Duration::from_millis(300), long).0,
             Reply::Timeout(_, None)
         ));
         assert!(t.elapsed() < Duration::from_secs(5));
@@ -3230,7 +3332,7 @@ mod tests {
         let args: Vec<OsString> = vec!["-c".into(), script.into()];
         let mut w = start_worker(Path::new("sh"), &args, &mut stats).unwrap();
         assert!(matches!(
-            request(&mut w, "Modelica.A.B", Duration::from_secs(10)),
+            request(&mut w, "Modelica.A.B", Duration::from_secs(10), long).0,
             Reply::Crash(_, None)
         ));
         assert!(w.stop().contains('3'));
@@ -3251,10 +3353,39 @@ mod tests {
         );
         let args: Vec<OsString> = vec!["-c".into(), script.into()];
         let mut w = start_worker(Path::new("sh"), &args, &mut stats).unwrap();
-        match request(&mut w, "Modelica.A.B", Duration::from_millis(500)) {
-            Reply::Timeout(_, Some(at)) => assert_eq!(at.stage, WorkerStage::Exec),
+        match request(&mut w, "Modelica.A.B", Duration::from_millis(500), long) {
+            (Reply::Timeout(_, Some(at)), times) => {
+                assert_eq!(at.stage, WorkerStage::Exec);
+                assert_eq!(
+                    times.keys().copied().collect::<Vec<_>>(),
+                    [WorkerStage::Compile, WorkerStage::Exec]
+                );
+            }
             other => panic!("段が無い: {other:?}"),
         }
+        w.stop();
+
+        // lowering の段は、全体の上限より先に段の上限で止める（S015）
+        let script = format!(
+            "printf '%s\\n' '{MESSAGE_PREFIX}{ready}'; read line; printf '%s\\n' '{MESSAGE_PREFIX}{}'; exec sleep 30",
+            stage("Modelica.A.B", WorkerStage::Lowering),
+        );
+        let args: Vec<OsString> = vec!["-c".into(), script.into()];
+        let mut w = start_worker(Path::new("sh"), &args, &mut stats).unwrap();
+        let t = Instant::now();
+        match request(
+            &mut w,
+            "Modelica.A.B",
+            Duration::from_secs(10),
+            Duration::from_millis(300),
+        ) {
+            (Reply::Timeout(_, Some(at)), times) => {
+                assert_eq!(at.stage, WorkerStage::Lowering);
+                assert!(times[&WorkerStage::Lowering] >= 0.3);
+            }
+            other => panic!("lowering で止まらない: {other:?}"),
+        }
+        assert!(t.elapsed() < Duration::from_secs(5));
         w.stop();
 
         // 用意の前に終わる・読めない行を返す
@@ -3263,7 +3394,7 @@ mod tests {
         let script = format!("printf '%s\\n' '{MESSAGE_PREFIX}{{broken'; exec sleep 30");
         let args: Vec<OsString> = vec!["-c".into(), script.into()];
         assert!(start_worker(Path::new("sh"), &args, &mut stats).is_err());
-        assert_eq!(stats.spawns, 3);
+        assert_eq!(stats.spawns, 4);
     }
 
     #[test]
@@ -3285,6 +3416,7 @@ mod tests {
             only: None,
             wall_seconds: 30.0,
             kill_seconds: 120,
+            lowering_kill_seconds: 60,
             retry_wall_seconds: 180.0,
             reset_every: 50,
             solver: Some("dopri45"),
