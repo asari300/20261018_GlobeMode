@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S016 プリフライトの上限 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S016 · P3 プリフライトの上限">
+
+<section class="slide" id="S01">
+  <span class="tag">S016 · 2026-10-20〜21 · P3 シミュレーション（6 回目）</span>
+  <h1>上限は掛けない。止まっていたのはプリフライトではなかった</h1>
+  <div class="kpis">
+    <div class="kpi"><span class="n">0 行</span><span class="l">コードの変更。調べた結果を文書と ADR-0018 に残した</span></div>
+    <div class="kpi"><span class="n">59.7 万</span><span class="l">DrumBoiler の根の条件 31 本の演算の数。この構造解析が終わらない</span></div>
+    <div class="kpi"><span class="n">2 件</span><span class="l">上流（Rumoca）に報告する候補を足した（10・11）</span></div>
+  </div>
+  <div class="card hl">
+    <p>DrumBoiler は Rumoca の実行時オブジェクトの組み立てで詰まる。EngineV6 の外れは Rumoca の初期化の不具合。どちらも GlobeMode の側では直らない。</p>
+  </div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>S015 の残しの 1 つ目</h1>
+  <div class="cols-2">
+    <div class="card hl">
+      <h3>DrumBoiler のプリフライトが終わらない</h3>
+      <p class="small">lowering が 117 s で終わったあと、S10 のプリフライト（t0 の評価）の段で 481 s を過ぎても終わらない。プリフライトは警告しか出さないので、上限を掛けられると見ていた。</p>
+    </div>
+    <div class="card">
+      <h3>あわせて: EngineV6 の外れ</h3>
+      <p class="small">S015 で初めて実行できたが、filter.x[1]・filter.x[2] が t = 0 から管を外れる（はみ出し 562）。</p>
+    </div>
+  </div>
+  <p class="small">サブエージェントは Opus・effort medium（ユーザーの指示）。WSL のメモリは 3 GB で、ビルドと実行は 1 人に限った。</p>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>DrumBoiler: 時間は eval_at の前で使われていた</h1>
+  <table class="compact">
+    <tr><th>ブロック</th><th>program 数</th><th>演算の数</th><th>解析の時間</th></tr>
+    <tr><td>implicit_rhs</td><td>129</td><td>715</td><td class="ok">0.09 s</td></tr>
+    <tr><td>implicit_jacobian_v</td><td>129</td><td>1,382</td><td class="ok">0.11 s</td></tr>
+    <tr><td>visible_value_rows</td><td>152</td><td>304</td><td class="ok">0.003 s</td></tr>
+    <tr><td>events.root_conditions</td><td>31</td><td>597,270</td><td class="ng">先頭の 1 本が 900 s で終わらない</td></tr>
+  </table>
+  <p class="small">SolveRuntime::new の construct が、根の条件の store ごとに依存集合を作り直す。eval_at（Newton 法）には一度も入らない。モデルの本体は状態 3・solver_y 135 と小さい。</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由</span>
+  <h1>上限を掛けない（ユーザーと決めた。ADR-0018）</h1>
+  <table class="compact">
+    <tr><th>案</th><th>採らなかった理由</th></tr>
+    <tr><td>別のスレッドで回し、待ちを打ち切る</td><td>組み立ても同じ construct で詰まる。打ち切ったスレッドは止められない</td></tr>
+    <tr><td>Rumoca の締め切りを使う</td><td>締め切りを確かめる所が無い</td></tr>
+    <tr><td>反復の上限・許容誤差を下げる</td><td>時間は反復の前の構造解析で使っている</td></tr>
+    <tr><td>組み立ての後に回す</td><td>本数は増えない。組み立てで失敗すると警告が消える</td></tr>
+  </table>
+  <p class="small">ほかの 355 本のプリフライトは最大 1.9 s。どの案も本数を増やさず、コードと危険だけが増える。</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">図</span>
+  <h1>プリフライトも組み立ても同じ所を通る</h1>
+  <svg class="fig" viewBox="0 0 800 230" role="img" aria-label="プリフライトと組み立てが同じ construct を通る図">
+    <rect class="svg-box" x="10" y="30" width="260" height="56" rx="10"/>
+    <text class="svg-text-b" x="140" y="55" text-anchor="middle">プリフライト</text>
+    <text class="svg-text" x="140" y="76" text-anchor="middle">SolveRuntime::new</text>
+    <rect class="svg-box" x="10" y="144" width="260" height="56" rx="10"/>
+    <text class="svg-text-b" x="140" y="169" text-anchor="middle">組み立て（FMI ME）</text>
+    <text class="svg-text" x="140" y="190" text-anchor="middle">new_with_execution_backend</text>
+    <line class="svg-line" x1="270" y1="58" x2="320" y2="105"/>
+    <line class="svg-line" x1="270" y1="172" x2="320" y2="125"/>
+    <rect class="svg-box-accent" x="320" y="85" width="200" height="60" rx="10"/>
+    <text class="svg-text-b" x="420" y="110" text-anchor="middle">construct</text>
+    <text class="svg-text" x="420" y="131" text-anchor="middle">root_condition_rows</text>
+    <line class="svg-line" x1="520" y1="115" x2="580" y2="115"/>
+    <rect class="svg-box" x="580" y="85" width="210" height="60" rx="10"/>
+    <text class="svg-text-b" x="685" y="110" text-anchor="middle">構造解析</text>
+    <text class="svg-text" x="685" y="131" text-anchor="middle">59.7 万演算で終わらない</text>
+  </svg>
+  <p class="small">プリフライトを飛ばした 2 回は、組み立ての段に 227 s・295 s いたところで止めた。初期化には入らなかった。</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">決定と理由</span>
+  <h1>EngineV6: 初期化方程式を関係式の既定値で解く</h1>
+  <table class="compact">
+    <tr><th>t = 0</th><th>参照</th><th>GlobeMode</th><th>Rumoca の CLI</th></tr>
+    <tr><td>filter.u</td><td>563.19</td><td>563.186</td><td>563.186</td></tr>
+    <tr><td>filter.x[1]・[2]</td><td>563.19</td><td class="ng">0.066</td><td class="ng">0.066</td></tr>
+    <tr><td>der(filter.x[1])</td><td>0</td><td class="ng">27487.7</td><td class="ng">27487.7</td></tr>
+  </table>
+  <p class="small">初期化方程式 der(x) = 0 を解く間、GasForce2 の関係式 v_rel &lt; 0 が既定の false のまま。初期化の後に true へ反転しても解き直さない。小さいモデル R1 で再現し、omc は正しい。既知の外れの一覧には載せない（実行系の不具合なので）。</p>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">再現手順</span>
+  <h1>回したもの</h1>
+  <table class="compact">
+    <tr><th>対象</th><th>コマンド</th><th>結果</th></tr>
+    <tr><td>DrumBoiler</td><td>cargo xtask msl-sim --only DrumBoiler.DrumBoiler（5 回）</td><td>5 回とも外から停止。perf の標本</td></tr>
+    <tr><td>EngineV6</td><td>globe simulate … --stop-time 0.01</td><td>約 5 分 40 秒、RSS 1.37 GB</td></tr>
+    <tr><td>R1</td><td>globe simulate X.mo -m X.R1</td><td>u = 1 なのに filter.x = 2</td></tr>
+  </table>
+  <p class="small">msl:funnel・msl:sim の全体は回していない（コードを変えていない。メモリも 3 GB）。数字は S015 のまま: 309 本が実行でき、301 / 308 本が管に収まる。</p>
+</section>
+
+<section class="slide" id="S08">
+  <span class="tag">次回</span>
+  <h1>次のセッション（S017 の候補）</h1>
+  <ul>
+    <li>初期化の後に初期化方程式の残差を見て警告する（EngineV6 のような誤りを黙って通さない）</li>
+    <li>上流への報告に 10（DrumBoiler の構造解析）と 11（初期化の関係式。再現 R1）を足す（ユーザーが出す）</li>
+    <li>自前の積分器の詰め、ブラウザ（Web Worker）、残りのソルバ</li>
+  </ul>
+  <p class="small">一覧は doc/roadmap.md の「次のセッション」。調べた記録は doc/research/msl-sim-failures.md の「S016 で調べたこと」。</p>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
