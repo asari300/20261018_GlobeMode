@@ -243,6 +243,8 @@ Rumoca の文言はどれも `[StructuralAnalysis] solve-IR evaluation failed: [
 7. **RK の道で壁時計の予算が守られない**: `Modelica.Electrical.Machines.Examples.InductionMachines.IMC_YDarc` を RK、`max_wall_seconds = 300` で回すと 400 s を過ぎても返らない。
 8. **関数呼び出しの Solve IR の契約（`pure-call argument or slot interface is invalid`）**: `Modelica.Clocked.Examples.Elementary.RealSignals.UniformNoiseXorshift64star`、`Modelica.Utilities.Examples.WriteRealMatrixToFile`。
 9. **同時のイベントと clock の意味**: `Modelica.Clocked.Examples.Elementary.ClockSignals.RotationalSample`（t = 1 の状態イベントと時間イベントの同時）、`LogicalSample`（`ConjunctiveClock` の最初の刻み）。Rumoca 自身の基準値も `LogicalSample` を `unexcepted_non_high_models` に載せている。
+10. **実行時オブジェクトの組み立てで、巨大な根の条件の構造解析が終わらない**（S016）: `Modelica.Fluid.Examples.DrumBoiler.DrumBoiler`。根の条件 31 本が計 59.7 万演算（1 本あたり約 6.5 万演算）。`SolveRuntime::construct` の `root_condition_rows`（`crates/rumoca-solver/src/runtime/solve_runtime.rs:938`）→ `target_assignment_shapes_with_output_offsets`（`crates/rumoca-eval-solve/src/prepared/construction.rs:68`）→ `crates/rumoca-ir-solve/src/refresh/assignment_shape.rs:100-118` が store の位置ごとに prefix の依存集合を作り直し、先頭の 1 本が 900 s で終わらない。組み立ての Cranelift の JIT（`regalloc2`）も長い。lowering の遅さ（117〜440 s）は `Box<[RegisteredAssertion]>::clone` と `CallScopedActionCollector::insert` が支配的。
+11. **初期化方程式を関係式の既定値で解き、関係式が反転しても解き直さない**（S016）: 上の R1（`CriticalDamping` の `initType=SteadyState` が `if v < 0 then 1 else 2` を読む）。t = 0 で `filter.x = 2`、正しくは 1（omc 1.27.1 は 1）。MSL では `Modelica.Mechanics.MultiBody.Examples.Loops.EngineV6`（`filter.x` が 0.066、参照 563.19）。Rumoca の CLI v0.10.2 でも同じ値。
 
 ## 確かめられなかったこと
 
@@ -319,8 +321,87 @@ Rumoca の文言はどれも `[StructuralAnalysis] solve-IR evaluation failed: [
 | 54 | `EngineV6_analytic` | 523 s で `GM-U0004`（`[StructuralAnalysis] … [EL005] DAE structural proof failed: structurally singular system: 8318 matched out of 8443 equations`） | （同上）|
 
 - 3 本は 600 s でも lowering が終わらない。CPU 時間が壁時計とほぼ同じなので、待っているのではなく計算し続けている。
-- `DrumBoiler` は lowering が約 117 s で終わり、GlobeMode のプリフライトの評価が終わらない。S014 までの「7 本とも lowering の段」は、120 s の kill が lowering の終わる前に来ていたため。プリフライトは警告（`GM-W10002`）しか出さないので、ここで止まるのは GlobeMode の側で直せる【原因は未確認】。
+- `DrumBoiler` は lowering が約 117 s で終わり、GlobeMode のプリフライトの評価が終わらない。S014 までの「7 本とも lowering の段」は、120 s の kill が lowering の終わる前に来ていたため。プリフライトは警告（`GM-W10002`）しか出さないので、ここで止まるのは GlobeMode の側で直せる【原因は未確認】。→ **S016 で誤りと分かった**。止まっているのはプリフライトの評価ではなく、Rumoca の実行時オブジェクトの組み立て（`SolveRuntime::new`）で、組み立ての段も同じ所を通る（節「S016 で調べたこと」）。
 - 2 本は約 520 s で lowering（構造解析を含む）が終わり、EL005 の類の未対応になる。節「実行系が未対応（GM-U0004）」の EL005 と同じ上流の問題。
 - `EngineV6` は S014 で lowering が 1 回になって、終わるようになった（S012 の調べでは 400 s で kill）。ただしコンパイル 11 s・lowering 64 s・組み立て 12 s・積分 49 s（S015 の全例題の実行で測った段ごとの秒）で、120 s では終わらない。
 - 終わるもので lowering が長いのは、ほかに `FullRobot` 52 s、`Engine1b_analytic` 17 s（S015 の xtask で段ごとの秒を測った。負荷の平均 5〜9）。
 - ワーカーの CPU を使うのはほぼ 1 スレッド（17 スレッドのうち 1 本が 100%）。負荷で遅くなるのは CPU 時間も含めてなので、CPU 時間で止めても負荷の揺れは消えない（16 論理コアは 8 コア × 2 のハイパースレッド）。
+
+## S016 で調べたこと
+
+### DrumBoiler: プリフライトの段で何に時間を使っているか
+
+`DrumBoiler` だけを 1 本ずつ 5 回回した（確認日 2026-10-21。`cargo xtask msl-sim --only DrumBoiler.DrumBoiler --wall-seconds 600 --kill-seconds 840〜900 --lowering-kill-seconds 同じ値 --retry-wall-seconds 0 --tolerance-scale 0.1`）。設計の判断は [ADR-0018](../adr/0018-no-preflight-limit.md)。
+
+- 機械は WSL のメモリ 3 GB（スワップ 16 GB）。同時に動いていたほかのプロセスとメモリを取り合い、ワーカーは何度も D 状態になった。壁時計の秒は参考にとどめ、CPU 時間を併記する。
+- `perf` は libelf と DWARF の巻き戻しの無い版で、gdb も無い。そこで `perf record -F 199` の IP を `nm` の表で関数名に直した。呼び出し元は `--call-graph dwarf` のスタックの生データから拾い、足りない所はコードを読んでつないだ。
+
+| 回 | 内容 | 結果 | user CPU | 最大 RSS |
+| --- | --- | --- | --- | --- |
+| 1 | そのまま | lowering 約 278 s の後、プリフライトの段に 562 s いて外から停止 | 745 s | 1.68 GB |
+| 2 | 計測を入れる | `eval_at_start` は `SolveRuntime::new` から戻らず、`eval_at` に一度も入らない | 279 s | 1.24 GB |
+| 3 | プリフライトを飛ばす（一時的な環境変数） | lowering 261 s の後、組み立ての段に 227 s いて外から停止 | 377 s | 1.73 GB |
+| 4 | 同上 | lowering 440 s の後、組み立ての段に 295 s（CPU 約 120 s）いて外から停止 | 379 s | 1.08 GB |
+| 5 | 同上、ブロックごとの解析の時間を測る | 根の条件の先頭の 1 本の解析が終わらないまま 900 s で停止 | — | — |
+
+- **時間は Newton 法ではなく、実行時オブジェクトの組み立て（`SolveRuntime::new` → `construct`、`crates/rumoca-solver/src/runtime/solve_runtime.rs:499,527`）で使っている。**
+  - 1 回目の 562 s の標本の先端は、`BTreeSet<usize>` の解放約 30%、`rumoca_ir_solve::structural_pattern::DependencyWalk::pure_call` 12〜39%、`BTreeMap::clone_subtree` 約 8%。
+  - 99.5% の標本に `PreparedScalarProgramBlock::with_facts` → `prepare_row` → `derive_target_assignment_shapes` があった。
+- 重いのは根の条件の program。5 回目にブロックごとに測った。
+
+  | ブロック | program 数 | 演算の数 | 解析の時間 |
+  | --- | ---: | ---: | --- |
+  | implicit_rhs | 129 | 715 | 0.09 s |
+  | implicit_jacobian_v | 129 | 1,382 | 0.11 s |
+  | visible_value_rows | 152 | 304 | 0.003 s |
+  | **events.root_conditions** | **31** | **597,270**（1 本あたり最大 64,828） | **先頭の 1 本が 900 s で終わらない** |
+
+  - 道筋: `construct` の `root_condition_rows: prepare(…)`（`solve_runtime.rs:938`）→ `RowFacts::Full` の `target_assignment_shapes_with_output_offsets`（`crates/rumoca-eval-solve/src/prepared/construction.rs:68`）→ `crates/rumoca-ir-solve/src/refresh/assignment_shape.rs:100-118`。store の位置ごとに、prefix について `UniqueProgram::new` と `ScalarProgramYDependency::new`（全レジスタの依存集合）を作り直す。
+  - 計算量はおよそ「store の数 × prefix の長さ × 依存集合の大きさ」。上限の無いループは見つからなかった。理屈の上では終わるが、上限の中では終わらない。
+  - 根の条件に Media（水と蒸気）の関数の中身が展開されている見込み（pure call が約 24 個）【未確認】。
+- モデルの本体は小さい: 状態 3、solver_y 135、パラメータ 218、代数の射影のブロック 122（最大 11 変数、ほかは 1 変数）。
+- **組み立ての段も同じ `construct` を通る。** FMI ME の部品を作る `SolveRuntime::new_with_execution_backend`（`crates/rumoca-solver/src/fmi_me/kernel/component.rs:547`）が、bdf・auto の型付きの道と session の道の両方から呼ばれる。3・4 回目の組み立ての段の標本は、Cranelift の JIT（`ProgramLayout::new` 26〜45%、3 回目の終わりは `regalloc2` の `split_into_minimal_bundles` 92〜95%）、同じ `DependencyWalk::pure_call`、`TypedProgram::clone` の順だった。
+- lowering の段の標本は、`Box<[RegisteredAssertion]>::clone` 25〜43%、`CallScopedActionCollector::insert` 27〜54%、`RegisteredCall` の解放 8〜14%（どれも `rumoca_phase_solve::lower`）。
+- Rumoca には評価を外から打ち切る手段が無い。スレッドごとの締め切りを確かめる `panic_on_expired_solver_deadline`（`crates/rumoca-solver/src/runtime/timeout.rs:97`）を呼ぶ所が無い。`max_wall_seconds` の予算は初期化の後に作られる（`crates/rumoca-solver/src/fmi_me/session.rs:164,184`）。見るのは刻みの頭と根の探索だけ（`:486`）。
+- ほかの 355 本のプリフライトの段は最大 1.9 s（S015 の `stage_times`）。
+
+**結論**: DrumBoiler は GlobeMode の側では実行できるようにならない。プリフライトに上限を掛けても、組み立ての段で同じ所に詰まる。上流に報告する候補の 10 に足した。
+
+### EngineV6: `filter.x` が t = 0 から外れる
+
+S015 で初めて実行できた `Modelica.Mechanics.MultiBody.Examples.Loops.EngineV6` は、管が 2 / 4 で、`filter.x[1]`・`filter.x[2]` が t = 0 から外れていた（はみ出し 562）。確認日 2026-10-21。
+
+- `filter` は `Blocks.Continuous.CriticalDamping(n=2, f=5, initType=SteadyState)` で、入力 u はエンジンの軸トルク `torqueSensor.tau`。初期化方程式は `der(x) = zeros(n)` なので、正しくは `x[1] = x[2] = u(0)`。
+
+  | t = 0 | 参照（MAP-LIB v4.1.0） | GlobeMode | Rumoca の CLI v0.10.2 |
+  | --- | --- | --- | --- |
+  | `filter.u` | 563.19 | 563.186235502294 | 563.186235502294 |
+  | `filter.x[1]`・`filter.x[2]` | 563.18623550229211 | 0.06599180619489453 | 0.06599180619489453 |
+  | `der(filter.x[1])` | 0 | 27487.7 | 27487.7 |
+
+- GlobeMode の u(0) は参照の x(0) と下の桁まで一致する。積分中の式と比べ方（変数の対応・添字・列名）は正しく、外れているのは `filter.x` の初期値だけ。`filter.x_start` を変えても同じ値になる。
+- **原因は Rumoca の初期化**: 初期化方程式を解く途中で、関係式 `v_rel < 0`（MSL の `Mechanics/MultiBody/Examples/Loops/Utilities/GasForce2.mo:30`、ガスの圧力の枝）の値（relation memory）が既定の false のまま使われる。そのため `filter.x` は膨張の枝で計算した軸トルク 0.066 に落ち着く。初期化の後に関係式は true（圧縮の枝）に更新され、トルクは 563.19 になる。ところが `filter.x` は解き直されず、初期化方程式を満たさないまま積分が始まる。
+  - cylinder1 の `gasForce.press` は、初期化の評価で 3.375e6、初期化の後で 1.053e6。GasForce2 の 2 つの枝を手で計算すると 3.375e6（膨張）と 1.055e6（圧縮）。
+- **小さいモデルで再現した**（GlobeMode と Rumoca の CLI の両方。omc 1.27.1 は `filter.x = 1`・`der(filter.x) = 0` で正しい）。
+
+  ```modelica
+  model R1
+    Real s(start=0, fixed=true); Real v; Real u;
+    Modelica.Blocks.Continuous.CriticalDamping filter(n=2, initType=Modelica.Blocks.Types.Init.SteadyState, f=5);
+  equation
+    der(s) = v; v = -0.5*cos(s); u = if v < 0 then 1 else 2; filter.u = u;
+  end R1;
+  ```
+
+  - GlobeMode では t = 0 で `u = 1` なのに `filter.x = 2`（else の枝）。v を -1e-16 にしても、v を非線形の代数ループの中に置いても同じ。関係式の無いモデル（インデックスの低減、非線形の代数ループ、歯車）では正しい。
+  - 起きる条件: 初期化方程式（SteadyState など）が、t = 0 で true になる関係式を読むとき。
+- Rumoca のコードの見立て【計測では未確認】: `crates/rumoca-solver/src/runtime/solve_runtime/initial_projection.rs:784` の写像の後で `update_root_relation_memory_from_values` の戻り値（変わったか）を捨てている。`settle_initialization_system` の繰り返し（`:831-838`）は delay と更新の行の変化しか見ないので、relation memory が反転しても写像をやり直さない。
+- **既知の外れの一覧には載せない**。一覧はモデル・参照・比べ方の限界で外れるものに限っていて、実行系（Rumoca）の不具合は外れとして数え続ける。上流に報告する候補の 11 に足した。
+- GlobeMode は初期化の後の初期化方程式の残差を見ていないので、この誤りを黙って通す。
+
+### 出典（S016）
+
+- Rumoca rev `276e82bd` のソース（2026-10-21）: `crates/rumoca-solver/src/runtime/solve_runtime.rs:499-530,938`、`crates/rumoca-solver/src/runtime/eval_at.rs:79-157`、`crates/rumoca-solver/src/runtime/timeout.rs:75-108`、`crates/rumoca-solver/src/fmi_me/kernel/component.rs:547`、`crates/rumoca-solver/src/fmi_me/session.rs:164,184,486`、`crates/rumoca-eval-solve/src/prepared/construction.rs:68`、`crates/rumoca-ir-solve/src/refresh/assignment_shape.rs:100-118`。
+- Rumoca rev `276e82bd` の `crates/rumoca-solver/src/runtime/solve_runtime/initial_projection.rs:784,831-838`、MSL 4.1.0 の `Mechanics/MultiBody/Examples/Loops/Utilities/GasForce2.mo:30`、参照結果 MAP-LIB v4.1.0 の EngineV6（2026-10-21）。
+- EngineV6 の再現: `globe simulate -L data/msl -m Modelica.Mechanics.MultiBody.Examples.Loops.EngineV6 --stop-time 0.01 --tolerance 1e-7 --timeout 600`（約 5 分 40 秒、最大 RSS 1.37 GB）、Rumoca の CLI の `sim … --inspect eval` と `--t-end 0.001`、R1 を `globe simulate` と omc で（2026-10-21）。
+- 測った値: S016 の `cargo xtask msl-sim --only DrumBoiler.DrumBoiler` の 5 回、`perf record -F 199`（`--call-graph dwarf` を含む）、S015 の `target/msl-sim.json` の `stage_times`（2026-10-21）。
