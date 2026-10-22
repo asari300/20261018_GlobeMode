@@ -405,3 +405,22 @@ S015 で初めて実行できた `Modelica.Mechanics.MultiBody.Examples.Loops.En
 - Rumoca rev `276e82bd` の `crates/rumoca-solver/src/runtime/solve_runtime/initial_projection.rs:784,831-838`、MSL 4.1.0 の `Mechanics/MultiBody/Examples/Loops/Utilities/GasForce2.mo:30`、参照結果 MAP-LIB v4.1.0 の EngineV6（2026-10-21）。
 - EngineV6 の再現: `globe simulate -L data/msl -m Modelica.Mechanics.MultiBody.Examples.Loops.EngineV6 --stop-time 0.01 --tolerance 1e-7 --timeout 600`（約 5 分 40 秒、最大 RSS 1.37 GB）、Rumoca の CLI の `sim … --inspect eval` と `--t-end 0.001`、R1 を `globe simulate` と omc で（2026-10-21）。
 - 測った値: S016 の `cargo xtask msl-sim --only DrumBoiler.DrumBoiler` の 5 回、`perf record -F 199`（`--call-graph dwarf` を含む）、S015 の `target/msl-sim.json` の `stage_times`（2026-10-21）。
+
+## S018 で足したもの
+
+### 初期化の解き直しの検査（GM-W10004）
+
+S016 の EngineV6 の原因（初期化方程式が読む関係式の反転で Rumoca が解き直さない）を、GlobeMode の側で検出できるようにした。設計の判断は [ADR-0020](../adr/0020-init-resettle-check.md)。確認日 2026-10-22。
+
+- Rumoca rev `276e82bd` で、初期化方程式の残差を評価する `eval_initial_residual` は crate の中の trait `AlgebraicProjectionModel`（`crates/rumoca-solver/src/runtime/projection.rs`。`runtime.rs` で `pub(crate) mod projection`）の実装で、公開されていない。公開は方向微分 `eval_initial_residual_jacobian_v`（`initial_projection.rs:493`）だけ。
+- 公開されている `settle_initialization_system`・`update_relation_memory_from_state`・`refresh_algebraic_and_output_slots` を、Rumoca の FMI ME の kernel（`fmi_me/kernel/component.rs:1184`、`exit_initialization_mode_inner`）と同じ順に呼ぶと、実行が始まる点を再現できる。関係式の記憶はパラメータの枠（`events.root_relation_memory_targets` の `ScalarSlot::P`）にあり、`p` に残る。
+- そこからもう一度 `settle_initialization_system` を呼ぶと、EngineV6 の仕組みでは反転した後の枝で解けて値が動く。初期化の結果が初期化方程式を満たしていれば動かない。これを S10 のプリフライト（`globe-mode-exec/src/rumoca.rs` の `resettle`）にし、動いた変数のうち、**実行が実際に始まった t0 の値（結果の最初の行）も 2 回目と違うもの**を GM-W10004 で知らせる（`run` だけ）。
+- 1 回目との差だけで警告したときの MSL の結果（RPi、2026-10-22、356 本）: 2 本で出た。
+  - `Electrical.Machines.Examples.InductionMachines.IMC_Initialize`: 169 変数が動く（`aimc.idq_ss[2] = 0 → -23.976`、相電流 `aimc.plug_sp.pin[2].i = 20.29 → -0.47` など）。ところが結果の t = 0 の行は 2 回目の値（`idq_ss[2] = -23.976`、`pin[2].i = -0.471`）で、管も 8 / 8 で収まる。Rumoca の FMI ME の host は初期化のあとに初期イベントの反復（`host_state.rs` の `update_discrete_states_to_completion`）を行い、このモデル（摩擦などの離散変数がある）ではそこで解き直される。`InitRelationBranch`（離散変数が無い）では解き直されない。1 回目との差で警告すると誤りになるので、実行の t0 の値と比べる形にした。
+  - `Fluid.Examples.Tanks.TanksWithOverflow`: 2 回目の `settle_initialization_system` が `initial homotopy continuation failed at lambda=0 … discrete iteration did not converge` で失敗する。1 回目（start 値からの homotopy の掃引）は通る。解いた点から λ = 0 の掃引をやり直すと収束しない。失敗は実行が始まる点の誤りを示さないので、2 回目の失敗は黙る。このモデルは S015 と同じく積分で GM-E11003（GM-E11002）になる。
+- 最小の再現 `GlobeModeValidation.Simulation.InitRelationBranch`（S016 の R1 と同じ仕組み。MSL に依らない）: 1 次のフィルタ `der(x) = (u - x) / T` の定常の初期化 `der(x) = 0` が `u = if v < 0 then 1 else 2`（t = 0 で v = -0.5）を読む。Rumoca は x(0) = 2、正しくは 1。プリフライトは `x = 2 → 1` を警告する。
+- MSL の全例題での本数と費用は [msl-sim.md](../msl-sim.md) と S018 の作業記録。
+
+### 出典（S018）
+
+- Rumoca rev `276e82bd` のソース（2026-10-22）: `crates/rumoca-solver/src/runtime.rs:23`（`pub(crate) mod projection`）、`crates/rumoca-solver/src/runtime/solve_runtime/initial_projection.rs:11-16,203,493,746,799`、`crates/rumoca-solver/src/runtime/solve_runtime/relation_memory.rs:4,755-794`、`crates/rumoca-solver/src/fmi_me/kernel/component.rs:1176-1205`、`crates/rumoca-sim/src/prepared_vectors.rs:15-16,88-110`。

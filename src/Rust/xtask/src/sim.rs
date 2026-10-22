@@ -1099,6 +1099,8 @@ pub(crate) struct Summary {
     pub non_finite: usize,
     /// t0 で有限にならない警告（GM-W10002）が出た
     pub t0_not_finite: usize,
+    /// 初期化の解き直しで値が変わる警告（GM-W10004）が出た（S018）
+    pub init_resettle_moved: usize,
     /// ソルバの別名を置き換えた（GM-I10003）
     pub solver_alias: usize,
     /// `auto` で BDF が失敗したので dopri45 で回し直した（GM-I11002。実行できたかを問わない。S012）
@@ -1184,6 +1186,7 @@ impl Summary {
             s.cooperative_timeouts += usize::from(r.code.as_deref() == Some(codes::RUN_TIMEOUT));
             s.non_finite += usize::from(r.code.as_deref() == Some(codes::RUN_NOT_FINITE));
             s.t0_not_finite += usize::from(r.has_code(codes::T0_NOT_FINITE));
+            s.init_resettle_moved += usize::from(r.has_code(codes::INIT_RESETTLE_MOVED));
             s.solver_alias += usize::from(r.has_code(codes::SOLVER_ALIAS));
             s.solver_fallbacks += usize::from(r.has_code(codes::RUN_SOLVER_FALLBACK));
             if r.outcome.simulated()
@@ -2211,6 +2214,13 @@ fn render_report(records: &[Record], s: &Summary, run: &RunInfo<'_>) -> String {
             s.t0_not_finite,
         ),
         (
+            format!(
+                "初期化の解き直しで値が変わる警告（{}）が出た",
+                codes::INIT_RESETTLE_MOVED
+            ),
+            s.init_resettle_moved,
+        ),
+        (
             format!("ソルバの別名を置き換えた（{}）", codes::SOLVER_ALIAS),
             s.solver_alias,
         ),
@@ -2937,6 +2947,7 @@ mod tests {
         assert_eq!(s.failed_by_code.get(codes::RUN_INIT_FAILED), Some(&1));
         assert_eq!(s.failed_by_code.get(codes::SOLVER_UNAVAILABLE), Some(&1));
         assert_eq!(s.t0_not_finite, 5);
+        assert_eq!(s.init_resettle_moved, 0);
         assert_eq!(s.solvers.get("bdf"), Some(&5));
         assert_eq!(
             (s.compared, s.ref_passed, s.ref_failed, s.ref_missing_only),
