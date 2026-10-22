@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S017 RPi（aarch64）への移行 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S017 RPi（aarch64）への移行">
+
+<section class="slide" id="S01">
+  <span class="tag">S017 · 2026-10-22 · P3</span>
+  <h1>Claude の実行場所を Raspberry Pi（aarch64）に移す</h1>
+  <p class="lead">fetch-rumoca の aarch64 対応、RPi の環境、msl:funnel のメモリ</p>
+  <div class="big">RPi でも <b>msl:compare 20 / 20</b>・<b>check 全段通過</b>。製品のコードは変えていない</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>S016 までは x86_64 の機械。ユーザーの指示で Raspberry Pi（aarch64、4 コア、RAM 7.9 GiB、glibc 2.36）に移す</li>
+    <li>roadmap の「S017 の最初にやること」の 3 つ:
+      <ol>
+        <li><code>cargo xtask fetch-rumoca</code> を aarch64 に対応させる</li>
+        <li>RPi の環境をそろえる（mise・uv・MSL・<code>mise run check</code>）</li>
+        <li><code>msl:funnel</code> のメモリ（最大 RSS 7.1 GiB）を RPi で回せるようにする</li>
+      </ol>
+    </li>
+    <li>決定は ADR-0019。検査・実行系のコードは変えない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>作業ツリー（ユーザー）</td><td>規約どおり main から <code>feature/s017-rpi-aarch64</code></td><td>orca の worktree だと finish-session と合わない</td></tr>
+    <tr><td>mise のツール（ユーザー）</td><td>全部入れる</td><td>環境をそろえるそのもの</td></tr>
+    <tr><td>fetch-rumoca</td><td><code>RUMOCA_ASSET</code> を <code>cfg!(target_arch)</code> で選ぶ</td><td>URL・sha256・名前を 1 か所に。未対応の機械でもビルドは通る</td></tr>
+    <tr><td>メモリ（ユーザー）</td><td>swap 512 MB → 8 GB</td><td>デスクトップが 2.7 GiB 使い、7.1 GiB の山が収まらない</td></tr>
+    <tr><td>elixir</td><td>今は入れない</td><td>erlang の arm64 ビルドが glibc 2.38 を要求</td></tr>
+    <tr><td>CI</td><td>変えない</td><td>aarch64 は RPi の手元で足りる</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>fetch-rumoca は target_arch で配布物を選ぶ</h1>
+  <svg class="fig" viewBox="0 0 800 300" role="img" aria-label="fetch-rumoca の分岐">
+    <rect class="svg-box-accent" x="30" y="110" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="130" y="145" text-anchor="middle">cfg!(target_arch)</text>
+    <text class="svg-text" x="130" y="170" text-anchor="middle">RUMOCA_ASSET</text>
+    <line class="svg-line" x1="230" y1="150" x2="330" y2="60"/>
+    <line class="svg-line" x1="230" y1="150" x2="330" y2="150"/>
+    <line class="svg-line" x1="230" y1="150" x2="330" y2="240"/>
+    <rect class="svg-box" x="330" y="25" width="250" height="70" rx="10"/>
+    <text class="svg-text-b" x="455" y="55" text-anchor="middle">x86_64</text>
+    <text class="svg-text" x="455" y="80" text-anchor="middle">rumoca-linux-x86_64</text>
+    <rect class="svg-box" x="330" y="115" width="250" height="70" rx="10"/>
+    <text class="svg-text-b" x="455" y="145" text-anchor="middle">aarch64（S017）</text>
+    <text class="svg-text" x="455" y="170" text-anchor="middle">rumoca-linux-aarch64</text>
+    <rect class="svg-box" x="330" y="205" width="250" height="70" rx="10"/>
+    <text class="svg-text-b" x="455" y="235" text-anchor="middle">その他</text>
+    <text class="svg-text" x="455" y="260" text-anchor="middle">None → 実行時に断る</text>
+    <line class="svg-line" x1="580" y1="60" x2="640" y2="150"/>
+    <line class="svg-line" x1="580" y1="150" x2="640" y2="150"/>
+    <rect class="svg-box-accent" x="640" y="110" width="140" height="80" rx="10"/>
+    <text class="svg-text-b" x="710" y="145" text-anchor="middle">msl-compare</text>
+    <text class="svg-text" x="710" y="170" text-anchor="middle">--rumoca の既定</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">図</span>
+  <h1>RPi の環境</h1>
+  <div class="cols-2">
+    <div class="card">
+      <h2>入った</h2>
+      <ul>
+        <li>mise 2026.10.15（linux-arm64）</li>
+        <li>rust 1.99.1、cargo-deny 0.20.2、wasm-bindgen 0.2.129</li>
+        <li>zig 0.17.0、julia 1.13.2、gleam 1.19.2、uv 0.13.1</li>
+        <li>erlang 27.3.4.19（入るが動かない）</li>
+        <li><code>uv sync</code>、MSL 4.1.0（4213 ファイル）、Rumoca CLI（aarch64）</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h2>入らない・足した</h2>
+      <ul>
+        <li class="warn">elixir 1.18.3-otp-27: erlang の arm64 ビルド（ubuntu-26.04 向け）が GLIBC_2.38 を要求。RPi は 2.36</li>
+        <li>→ <code>MISE_DISABLE_TOOLS=elixir</code> で外す</li>
+        <li class="ok">swap: dphys-swapfile 512 MB → 8 GB（再起動後も残る）</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>curl -fsSL https://mise.run | sh
+mise trust && MISE_DISABLE_TOOLS=elixir mise install --locked && uv sync
+export MISE_DISABLE_TOOLS=elixir
+mise run msl:compare     # fetch-msl → fetch-rumoca（aarch64）→ 20 本
+mise run check           # fmt / clippy / test / deny / uv sync --locked
+mise run msl:funnel      # release で 566 本（swap 8 GB）</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">20 / 20</span><span class="l">msl:compare 一致</span></div>
+    <div class="kpi"><span class="n">1055 s</span><span class="l">msl:compare（ビルド込み）</span></div>
+    <div class="kpi"><span class="n">3798 s</span><span class="l">mise run check</span></div>
+    <div class="kpi"><span class="n">369 / 566</span><span class="l">msl:funnel OK（x86_64 と同じ）</span></div>
+    <div class="kpi"><span class="n">6.5 GiB</span><span class="l">msl:funnel 最大 RSS（24.6 分）</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>elixir: erlang を kerl でソースビルドするか、apt の erlang を使うか（Elixir のラッパを触るときに）</li>
+    <li><code>msl:sim</code> は実行系を変えていないので回していない。参照結果（約 1 GB）も未取得</li>
+    <li>RPi では <code>mise run check</code> に約 63 分。変えた crate だけ <code>cargo test -p</code> で先に確かめる</li>
+    <li>S017 の候補の残り（止まった例題、自前の積分器、ブラウザ、初期化の後の検査、Arrow IPC、ソルバの残り、上流への報告）は roadmap のまま</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
