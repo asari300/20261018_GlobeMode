@@ -74,6 +74,7 @@ uv sync                      # worktree ごとに必須
 
   - `rust-toolchain.toml` は作らない（mise の `RUSTUP_TOOLCHAIN` が優先され、無視されるため）。
   - Python を mise に入れない。ツールは `mise.toml` を、依存は各言語の道具を使って足す。
+  - **RPi（aarch64、S017 から）では elixir が入らない**（erlang の arm64 ビルドが glibc 2.38 を要求する。[ADR-0019](doc/adr/0019-rpi-aarch64-environment.md)）。`MISE_DISABLE_TOOLS=elixir` を付けて mise を使う。
   - ロックファイルはすべてコミットする。
 
 ---

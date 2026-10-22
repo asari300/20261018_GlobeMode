@@ -20,5 +20,6 @@
 | [0016](0016-preflight-on-build-lowering.md) | プリフライトは組み立ての lowering の結果で行い（lowering は 1 回）、実行系の中の段（プリフライト・lowering・組み立て・初期化・積分）を `run_with_progress` で知らせる | Accepted |
 | [0017](0017-lowering-limit-and-hard-timeout-retry.md) | MSL の実行（`msl-sim`）では lowering の段に別の上限（150 s）を掛け、外から止めたもの（その上限で止めたものを除く）も時間切れと同じく回し直す。親は段ごとの秒を記録する | Accepted |
 | [0018](0018-no-preflight-limit.md) | プリフライトに上限を掛けない。DrumBoiler で詰まるのはプリフライトの評価ではなく、組み立ての段も通る Rumoca の実行時オブジェクトの組み立て（根の条件の構造解析）なので、上流に回す（ADR-0017 の結果の見込みを取り下げる） | Accepted |
+| [0019](0019-rpi-aarch64-environment.md) | Raspberry Pi（aarch64）を開発と MSL の全体実行の機械にする。`fetch-rumoca` は `target_arch` で配布物を選び、メモリは swap 8 GB で補う。elixir（erlang の glibc）は入れず、CI は x86_64 のまま | Accepted |
 
 書式: `NNNN-<題名>.md`。章は「状態 / 背景 / 決定 / 結果」の4つ。決定を覆すときは古い ADR を消さず、状態を Superseded にして新しい番号で書く。

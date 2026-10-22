@@ -38,9 +38,29 @@ const MSL_VERSION: &str = "4.1.0";
 /// Rumoca の CLI（Apache-2.0）。Cargo.toml で固定している rev（v0.10.2）と同じ版。
 const RUMOCA_VERSION: &str = "v0.10.2";
 const RUMOCA_REV: &str = "276e82bd0fd48960ac201e782918d28bf19cf7ce";
-const RUMOCA_URL: &str =
-    "https://github.com/CogniPilot/rumoca/releases/download/v0.10.2/rumoca-linux-x86_64";
-const RUMOCA_SHA256: &str = "d6c9b51eb207477908aa2b74636ac2aa3c5d149e4ff9e9cdd0d9cfeca54111ba";
+/// 配布物の (ファイル名, sha256)。この xtask を動かす機械の `target_arch` で選ぶ（S017 で aarch64 を足した。
+/// どちらも静的リンクの ELF。https://github.com/CogniPilot/rumoca/releases/tag/v0.10.2 、2026-10-22 確認）。
+/// 対応していない機械では `None`（Windows の CI でもビルドだけは通す）。
+const RUMOCA_ASSET: Option<(&str, &str)> = if cfg!(all(target_os = "linux", target_arch = "x86_64"))
+{
+    Some((
+        "rumoca-linux-x86_64",
+        "d6c9b51eb207477908aa2b74636ac2aa3c5d149e4ff9e9cdd0d9cfeca54111ba",
+    ))
+} else if cfg!(all(target_os = "linux", target_arch = "aarch64")) {
+    Some((
+        "rumoca-linux-aarch64",
+        "c12704c0f04af338dc32ab35801e45c322f9d64a26e0555a9f2b0b5901a2f7a9",
+    ))
+} else {
+    None
+};
+/// `msl-compare` の `--rumoca` の既定。`fetch-rumoca` が置く名前と同じにする。
+const RUMOCA_DEFAULT_PATH: &str = if cfg!(all(target_os = "linux", target_arch = "aarch64")) {
+    "data/rumoca/rumoca-linux-aarch64"
+} else {
+    "data/rumoca/rumoca-linux-x86_64"
+};
 
 #[derive(Debug, Parser)]
 #[command(name = "xtask", about = "GlobeMode の開発用タスク")]
@@ -56,7 +76,7 @@ enum Cmd {
         #[arg(long, default_value = "data/msl")]
         dest: PathBuf,
     },
-    /// Rumoca の CLI を取得する（Linux x86_64 だけ）
+    /// Rumoca の CLI を取得する（Linux の x86_64 と aarch64）
     FetchRumoca {
         #[arg(long, default_value = "data/rumoca")]
         dest: PathBuf,
@@ -65,7 +85,7 @@ enum Cmd {
     MslCompare {
         #[arg(long, default_value = "data/msl")]
         msl: PathBuf,
-        #[arg(long, default_value = "data/rumoca/rumoca-linux-x86_64")]
+        #[arg(long, default_value = RUMOCA_DEFAULT_PATH)]
         rumoca: PathBuf,
         /// 1 行 1 モデル（# から後はコメント）
         #[arg(long, default_value = "src/Modelica/msl-compare.txt")]
@@ -465,11 +485,15 @@ fn fetch_msl(dest: &Path) -> Result<ExitCode> {
 }
 
 fn fetch_rumoca(dest: &Path) -> Result<ExitCode> {
-    if !(cfg!(target_os = "linux") && cfg!(target_arch = "x86_64")) {
-        return Err("Rumoca の CLI の取得は、今は Linux x86_64 だけに対応している".into());
-    }
-    let path = dest.join("rumoca-linux-x86_64");
-    download(RUMOCA_URL, RUMOCA_SHA256, &path)?;
+    let Some((file, sha256)) = RUMOCA_ASSET else {
+        return Err(
+            "Rumoca の CLI の取得は、今は Linux の x86_64 と aarch64 だけに対応している".into(),
+        );
+    };
+    let url =
+        format!("https://github.com/CogniPilot/rumoca/releases/download/{RUMOCA_VERSION}/{file}");
+    let path = dest.join(file);
+    download(&url, sha256, &path)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
