@@ -87,42 +87,78 @@ fn options(settings: &ResolvedSettings) -> SimOptions {
 // プリフライト（S10 の数値の部分）
 // ---------------------------------------------------------------------------------------------
 
-/// 単独のプリフライト。実行の組み立てと同じ lowering を 1 回して評価する。
+/// 単独のプリフライト（GM-W10002）。実行の組み立てと同じ lowering を 1 回して評価する。初期化の解き直し
+/// （GM-W10004）は実行の t0 の値と比べて決めるので、[`checked_simulate`] だけが行う。
 pub(crate) fn preflight(model: &CompiledModel, settings: &ResolvedSettings) -> Vec<Diagnostic> {
+    preflight_alone(model, settings, false).0
+}
+
+/// 単独のプリフライト。`with_resettle` なら初期化の解き直しも行う（ネイティブの dopri45 の [`checked_simulate`]）。
+fn preflight_alone(
+    model: &CompiledModel,
+    settings: &ResolvedSettings,
+    with_resettle: bool,
+) -> (Vec<Diagnostic>, Option<Resettle>) {
     let opts = options(settings);
     let dae: &Dae = model.rumoca_dae();
     let probe = catch_unwind(AssertUnwindSafe(|| {
         let lowered =
             rumoca_sim::lower_correlated_for_simulation_with_overrides(dae, &opts).ok()?;
-        eval_at_start(&lowered, opts.t_start)
+        probe_start(&lowered, settings, with_resettle)
     }));
     preflight_diagnostics(dae, settings, probe.ok().flatten())
 }
 
-/// 組み立ての途中の lowering の結果でプリフライトを行う（lowering を増やさない。S014）。
+/// 組み立ての途中の lowering の結果でプリフライトを行う（lowering を増やさない。S014）。初期化の解き直しも行う。
 fn preflight_lowered(
     dae: &Dae,
     settings: &ResolvedSettings,
     lowered: &rumoca_phase_solve::LoweredSolveModel<'_>,
-) -> Vec<Diagnostic> {
-    let probe = catch_unwind(AssertUnwindSafe(|| {
-        eval_at_start(lowered, settings.start_time)
-    }));
+) -> (Vec<Diagnostic>, Option<Resettle>) {
+    let probe = catch_unwind(AssertUnwindSafe(|| probe_start(lowered, settings, true)));
     preflight_diagnostics(dae, settings, probe.ok().flatten())
+}
+
+/// プリフライトの評価（[`probe_start`]）の結果。
+struct StartProbe {
+    /// start 値での評価（GM-W10002）
+    eval: rumoca_sim::EvalAtReport,
+    /// 初期化の解き直し（GM-W10004）。行わなかったか、初期化が通らなければ None
+    resettle: Option<Resettle>,
+}
+
+/// 初期化の結果を初期化系にもう一度入れた結果（[`resettle`]、S018）。
+struct Resettle {
+    /// 2 回目で動いた変数（名前、1 回目の値、2 回目の値）
+    moved: Vec<(String, f64, f64)>,
+    /// 動いたと見る差（[`resettle`] と同じ規則を、実行の t0 の値との比較にも使う）
+    eps: f64,
+}
+
+/// 評価そのものができない（lowering の失敗、パラメータの上書きの誤り、panic。`probe` が None）ときは黙る。
+/// 実行の側で同じ失敗を診断にする。
+fn preflight_diagnostics(
+    dae: &Dae,
+    settings: &ResolvedSettings,
+    probe: Option<StartProbe>,
+) -> (Vec<Diagnostic>, Option<Resettle>) {
+    let Some(probe) = probe else {
+        return (Vec::new(), None);
+    };
+    (
+        t0_not_finite_diagnostics(dae, settings, &probe.eval),
+        probe.resettle,
+    )
 }
 
 /// start 値（Rumoca の initial_y）を状態に入れ、代数変数を Newton 法で合わせてから、代数変数と der(x) を
 /// 評価した結果を診断にする。初期化の残差ではない（fixed = false の状態は初期化で動く）ので、見つけても警告に
-/// とどめる。評価そのものができない（lowering の失敗、パラメータの上書きの誤り、panic。`probe` が None）ときは
-/// 黙る。実行の側で同じ失敗を診断にする。
-fn preflight_diagnostics(
+/// とどめる。
+fn t0_not_finite_diagnostics(
     dae: &Dae,
     settings: &ResolvedSettings,
-    probe: Option<rumoca_sim::EvalAtReport>,
+    probe: &rumoca_sim::EvalAtReport,
 ) -> Vec<Diagnostic> {
-    let Some(probe) = probe else {
-        return Vec::new();
-    };
     let mut bad: Vec<String> = probe
         .nonfinite()
         .map(|(_, slot)| format!("{} = {}", slot.name, slot.nonfinite_kind().unwrap_or("NaN")))
@@ -162,13 +198,91 @@ fn preflight_diagnostics(
     vec![d]
 }
 
-/// Rumoca の `eval_dae_at` と同じ評価（start 値の状態、Newton 法の許容誤差 1e-10・反復 32 回。rumoca-sim の
-/// `solve_lowering/probe.rs`）を、パラメータの上書きを反映した lowering の結果で行う（`eval_dae_at` は上書きを
-/// 見ない）。
-fn eval_at_start(
+/// 初期化の解き直し（2 回目）で動いた変数のうち、実行の t0 の値（結果の最初の行）も 2 回目の値と違うものを警告に
+/// する（GM-W10004）。Rumoca の FMI ME の host は初期化のあとに初期イベントの反復を行い、離散変数が変わる
+/// モデルではそこで初期化系を解き直す（MSL の `IMC_Initialize` は 1 回目と 2 回目が違っても、実行は 2 回目の値で
+/// 始まる）。そこで 1 回目との差ではなく、実行が実際に始まった値との差で決める。結果に名前が無い変数は数えない。
+fn resettle_diagnostic(
+    settings: &ResolvedSettings,
+    resettle: Option<&Resettle>,
+    trajectory: &Trajectory,
+) -> Option<Diagnostic> {
+    let resettle = resettle?;
+    let moved: Vec<(&str, f64, f64)> = resettle
+        .moved
+        .iter()
+        .filter_map(|(name, _, second)| {
+            let started = *trajectory.variable(name)?.values.first()?;
+            let scale = started.abs().max(second.abs()).max(1.0);
+            ((started - second).abs() > resettle.eps * scale).then_some((
+                name.as_str(),
+                started,
+                *second,
+            ))
+        })
+        .collect();
+    if moved.is_empty() {
+        return None;
+    }
+    let listed: Vec<String> = moved
+        .iter()
+        .take(LISTED_NAMES)
+        .map(|(name, started, second)| {
+            format!(
+                "{name} = {} → {}",
+                value_text(*started),
+                value_text(*second)
+            )
+        })
+        .collect();
+    let mut message = format!(
+        "初期化の結果を初期化系にもう一度入れると t = {} で値が変わる: {}",
+        time_text(settings.start_time),
+        listed.join(", ")
+    );
+    if moved.len() > LISTED_NAMES {
+        message.push_str(&format!(
+            " ほか {} 個（全 {} 個）",
+            moved.len() - LISTED_NAMES,
+            moved.len()
+        ));
+    }
+    Some(
+        Diagnostic::warning(codes::INIT_RESETTLE_MOVED, Stage::S10, message)
+            .note(
+                "初期化の結果が初期化方程式を満たしていない恐れがある。初期化方程式が t0 で反転する関係式（if v < 0 など）を読むと、\
+                 Rumoca の初期化は関係式の既定値の枝で解き、関係式が反転しても解き直さない（S016 の EngineV6）。実行は左の値で始まっている",
+            )
+            .note(
+                "右（もう一度解いた値）のほうが正しい見込み。初期化方程式が関係式を読まないようにする（例: initType = InitialState にして start 値を与える）と避けられる",
+            ),
+    )
+}
+
+/// 診断に書く値。小数 6 桁で丸め、末尾の 0 を落とす（1.0000000000000002 は 1、563.186235502294 は 563.186236）。
+fn value_text(v: f64) -> String {
+    if !v.is_finite() {
+        return format!("{v}");
+    }
+    let text = format!("{v:.6}");
+    let trimmed = text.trim_end_matches('0').trim_end_matches('.');
+    match trimmed {
+        "" | "-" | "-0" => "0".to_string(),
+        t => t.to_string(),
+    }
+}
+
+/// 初期化の反復の上限（rumoca-sim の `prepared_vectors.rs` の `SETTLE_MAX_ITERS` と同じ）。
+const SETTLE_MAX_ITERS: usize = 64;
+
+/// 実行時オブジェクトを作り、(1) Rumoca の `eval_dae_at` と同じ評価（start 値の状態、Newton 法の許容誤差 1e-10・
+/// 反復 32 回。rumoca-sim の `solve_lowering/probe.rs`）と、(2) 初期化の解き直し（[`resettle`]）を、パラメータの
+/// 上書きを反映した lowering の結果で行う（`eval_dae_at` は上書きを見ない）。実行時オブジェクトが作れなければ None。
+fn probe_start(
     lowered: &rumoca_phase_solve::LoweredSolveModel<'_>,
-    t_start: f64,
-) -> Option<rumoca_sim::EvalAtReport> {
+    settings: &ResolvedSettings,
+    with_resettle: bool,
+) -> Option<StartProbe> {
     let model = lowered.model();
     let states = model.state_scalar_count();
     let mut state = vec![0.0; states];
@@ -176,7 +290,69 @@ fn eval_at_start(
         *dst = src;
     }
     let runtime = rumoca_solver::SolveRuntime::new(model).ok()?;
-    Some(runtime.eval_at(t_start, &state, &model.parameters, 1.0e-10, 32))
+    let eval = runtime.eval_at(settings.start_time, &state, &model.parameters, 1.0e-10, 32);
+    let resettle = with_resettle
+        .then(|| resettle(&runtime, lowered, settings, &eval))
+        .flatten();
+    Some(StartProbe { eval, resettle })
+}
+
+/// 初期化系を 2 回解く（S018）。1 回目は Rumoca の初期化（FMI ME の `exit_initialization_mode`、rumoca-sim の
+/// `refresh_prepared_vectors`）と同じ順（初期化系 → 関係式の記憶 → 代数変数。許容誤差も同じ）で、実行が始まる点を
+/// 作る。2 回目はその点からもう一度初期化系を解く。初期化の結果が初期化方程式を満たしていれば 2 回目は動かない。
+/// 動くのは、1 回目が関係式の既定値（false）の枝で解き、その後に関係式の記憶（パラメータの枠にある）が反転したとき
+/// （S016 の EngineV6。Rumoca は解き直さない）。1 回目が失敗したら None（実行の側が GM-E11001 にする）。2 回目が
+/// 失敗しても None（homotopy のあるモデルでは、解いた点から λ = 0 の掃引をやり直すと収束しないことがある。MSL の
+/// `TanksWithOverflow`。失敗は実行が始まる点の誤りを示さない）。
+///
+/// Rumoca は初期化方程式の残差を評価する関数を公開していない（`eval_initial_residual` は crate の中の trait）ので、
+/// 残差ではなく「もう一度解いて動くか」で見る。警告にするかは、実行の t0 の値と比べて決める
+/// （[`resettle_diagnostic`]）。
+fn resettle(
+    runtime: &rumoca_solver::SolveRuntime,
+    lowered: &rumoca_phase_solve::LoweredSolveModel<'_>,
+    settings: &ResolvedSettings,
+    eval: &rumoca_sim::EvalAtReport,
+) -> Option<Resettle> {
+    let model = lowered.model();
+    let t = settings.start_time;
+    let tol = settings.tolerance;
+    let states = model.state_scalar_count();
+    let mut y = model.initial_y.clone();
+    let mut p = model.parameters.clone();
+    runtime
+        .settle_initialization_system(&mut y, &mut p, t, tol, SETTLE_MAX_ITERS)
+        .ok()?;
+    let state = y[..states.min(y.len())].to_vec();
+    runtime
+        .update_relation_memory_from_state(t, &state, &mut p, tol, SETTLE_MAX_ITERS)
+        .ok()?;
+    runtime
+        .refresh_algebraic_and_output_slots(t, &mut y, &p, tol, SETTLE_MAX_ITERS)
+        .ok()?;
+    let (mut y2, mut p2) = (y.clone(), p.clone());
+    runtime
+        .settle_initialization_system(&mut y2, &mut p2, t, tol, SETTLE_MAX_ITERS)
+        .ok()?;
+    runtime
+        .refresh_algebraic_and_output_slots(t, &mut y2, &p2, tol, SETTLE_MAX_ITERS)
+        .ok()?;
+    // 動いたと見る差: 許容誤差の 10 倍（1e-6 より小さければ 1e-6）を、値の大きさ（1 より小さければ 1）に掛けたもの
+    let eps = (10.0 * tol).max(1.0e-6);
+    let moved = y
+        .iter()
+        .zip(&y2)
+        .enumerate()
+        .filter(|(_, (a, b))| (*a - *b).abs() > eps * a.abs().max(b.abs()).max(1.0))
+        .map(|(i, (a, b))| {
+            let name = eval
+                .solver_y
+                .get(i)
+                .map_or_else(|| format!("y[{i}]"), |slot| slot.name.clone());
+            (name, *a, *b)
+        })
+        .collect();
+    Some(Resettle { moved, eps })
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -284,7 +460,11 @@ enum Preflight {
     Skip,
     /// 最初の lowering の結果で行う
     Wanted,
-    Done(Vec<Diagnostic>),
+    /// 行った。診断（GM-W10002）と、実行のあとに t0 の値と比べる初期化の解き直し（GM-W10004）
+    Done {
+        diagnostics: Vec<Diagnostic>,
+        resettle: Option<Resettle>,
+    },
 }
 
 impl<'a> Hooks<'a> {
@@ -313,16 +493,23 @@ impl<'a> Hooks<'a> {
     ) {
         if matches!(self.preflight, Preflight::Wanted) {
             self.stage(ExecStage::Preflight);
-            self.preflight = Preflight::Done(preflight_lowered(dae, settings, lowered));
+            let (diagnostics, resettle) = preflight_lowered(dae, settings, lowered);
+            self.preflight = Preflight::Done {
+                diagnostics,
+                resettle,
+            };
         }
         self.stage(ExecStage::Build);
     }
 
-    /// プリフライトの診断（lowering の前に失敗して行えなかったら空）。
-    fn take_preflight(&mut self) -> Vec<Diagnostic> {
+    /// プリフライトの診断と初期化の解き直し（lowering の前に失敗して行えなかったら空）。
+    fn take_preflight(&mut self) -> (Vec<Diagnostic>, Option<Resettle>) {
         match std::mem::replace(&mut self.preflight, Preflight::Skip) {
-            Preflight::Done(d) => d,
-            _ => Vec::new(),
+            Preflight::Done {
+                diagnostics,
+                resettle,
+            } => (diagnostics, resettle),
+            _ => (Vec::new(), None),
         }
     }
 }
@@ -357,10 +544,23 @@ pub(crate) fn checked_simulate(
     let mut hooks = Hooks::new(on_stage, true);
     if cfg!(not(target_arch = "wasm32")) && settings.solver == SolverId::Dopri45 {
         hooks.stage(ExecStage::Preflight);
-        hooks.preflight = Preflight::Done(preflight(model, settings));
+        let (diagnostics, resettle) = preflight_alone(model, settings, true);
+        hooks.preflight = Preflight::Done {
+            diagnostics,
+            resettle,
+        };
     }
     let result = simulate_with(model, settings, Route::Default, &mut hooks);
-    (hooks.take_preflight(), result)
+    let (mut diagnostics, resettle) = hooks.take_preflight();
+    // 初期化の解き直し（GM-W10004）は、実行が実際に始まった t0 の値と比べて決める。実行が失敗したら出さない
+    if let Ok((run, _)) = &result {
+        diagnostics.extend(resettle_diagnostic(
+            settings,
+            resettle.as_ref(),
+            &run.trajectory,
+        ));
+    }
+    (diagnostics, result)
 }
 
 fn simulate_with(

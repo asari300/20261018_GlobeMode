@@ -343,6 +343,52 @@ fn not_finite_at_start_is_warned_and_then_fails_at_initialization() {
 }
 
 /// `run` のプリフライトは組み立ての lowering の結果で行う（S014）。どのソルバでも単独の `preflight` と同じ警告になる。
+/// S018: 初期化方程式が t0 で反転する関係式を読むと、Rumoca の初期化は関係式の既定値（false）の枝で解き、
+/// 反転しても解き直さない（S016 の EngineV6 の最小の再現）。`run` は初期化系をもう一度解き、実行が始まった t0 の値と
+/// 違う変数を GM-W10004 で知らせる。実行は 1 回目の値（x(0) = 2。正しくは 1）で始まる。Rumoca がこれを直したら警告は
+/// 出なくなり x(0) = 1 になるので、そのときはこの試験の期待を入れ替える。単独の `preflight` は GM-W10002 だけで、
+/// この警告は出さない（実行の t0 の値が要るため）。
+#[test]
+fn an_initialization_that_reads_a_relation_flipped_at_t0_is_warned() {
+    let model = compile("InitRelationBranch");
+    let s = settings(&model, SolverId::Bdf);
+    let alone = preflight(&model, &s);
+    assert!(alone.is_empty(), "{alone:#?}");
+    let expected = "初期化の結果を初期化系にもう一度入れると t = 0 で値が変わる: x = 2 → 1";
+    // run はプリフライトの警告を診断に入れ、実行は 1 回目の値で始まる（どの道でも同じ）
+    for solver in ["bdf", "dopri45", "auto", "rk4"] {
+        let report = run(
+            &model,
+            &SimSettings {
+                solver: Some(solver.to_string()),
+                ..SimSettings::default()
+            },
+        );
+        let warned: Vec<_> = report
+            .diagnostics
+            .iter()
+            .filter(|d| d.code == codes::INIT_RESETTLE_MOVED)
+            .collect();
+        assert_eq!(warned.len(), 1, "{solver}: {:#?}", report.diagnostics);
+        assert_eq!(warned[0].message, expected, "{solver}");
+        assert_eq!(warned[0].severity, Severity::Warning, "{solver}");
+        assert_eq!(warned[0].stage, Stage::S10, "{solver}");
+        let run = report
+            .run
+            .as_ref()
+            .unwrap_or_else(|| panic!("{solver}: {:#?}", report.diagnostics));
+        let x = run.trajectory.variable("x").expect("x が結果に無い");
+        let u = run.trajectory.variable("u").expect("u が結果に無い");
+        assert_close(u.values[0], 1.0, 1e-9, &format!("{solver}: u(0)"));
+        assert_close(
+            x.values[0],
+            2.0,
+            1e-9,
+            &format!("{solver}: x(0)（Rumoca の不具合の値）"),
+        );
+    }
+}
+
 #[test]
 fn run_preflights_on_the_lowering_of_every_solver() {
     let model = compile("NotFiniteAtStart");
@@ -556,7 +602,7 @@ fn run_fails_the_assertion_model() {
 }
 
 /// `Simulation.*` の 12 本（S011）。session の道と型付きの道を比べる。
-const VALIDATION_MODELS: [&str; 12] = [
+const VALIDATION_MODELS: [&str; 13] = [
     "Decay",
     "HarmonicOscillator",
     "NonlinearLoop",
@@ -569,6 +615,7 @@ const VALIDATION_MODELS: [&str; 12] = [
     "EventNotSettling",
     "NotFiniteAtStart",
     "InitNoSolution",
+    "InitRelationBranch",
 ];
 
 /// 結果の要約（行の数、終わり方、変数ごとの最後の値）か、失敗の診断（コードと本文）。

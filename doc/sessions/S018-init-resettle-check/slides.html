@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S018 初期化の解き直しの検査 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S018 初期化の解き直しの検査">
+
+<section class="slide" id="S01">
+  <span class="tag">S018 · 2026-10-22 · P3</span>
+  <h1>初期化の結果を初期化系にもう一度入れて確かめる（GM-W10004）</h1>
+  <p class="lead">Rumoca が解き直さない初期化を、GlobeMode のプリフライトで 2 回解いて見つける</p>
+  <div class="big">残差は公開されていない。<b>もう一度解いて動いたら警告</b>。実行は変えない</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>S016 で見つけた: MSL の <code>EngineV6</code> は <code>filter.x</code> が t = 0 から参照と外れる。原因は Rumoca の初期化で、初期化方程式が読む関係式 <code>v_rel &lt; 0</code> を既定値 false の枝で解き、反転しても解き直さない</li>
+    <li>GlobeMode は初期化の後に初期化方程式を見ていないので、誤った初期値のまま黙って積分する</li>
+    <li>roadmap の候補 4「初期化の後の初期化方程式の検査」。Rumoca に残差を評価する公開の入口があるかは未確認だった</li>
+    <li>決定は ADR-0020。実行系の結果は変えない（警告だけ）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>残差か解き直しか</td><td>初期化系を <b>2 回解き</b>、2 回目で動いたら警告</td><td><code>eval_initial_residual</code> は crate の中の trait で公開されていない。<code>settle_initialization_system</code> は公開</td></tr>
+    <tr><td>1 回目の作り方</td><td>Rumoca の FMI ME の kernel と同じ順（初期化系 → 関係式の記憶 → 代数変数）、同じ許容誤差</td><td>実行が始まる点をそのまま再現する</td></tr>
+    <tr><td>動いたと見る差</td><td><code>max(10 tol, 1e-6) × max(1, |y1|, |y2|)</code></td><td>Newton の丸めを拾わず、EngineV6（0.066 → 563）は拾う</td></tr>
+    <tr><td>警告の判定</td><td>2 回目と<b>実行の t0 の値</b>が違うものだけ（<code>run</code> だけが出す）</td><td>MSL の <code>IMC_Initialize</code> は 1 回目と 2 回目が違っても、初期イベントの反復で解き直され、実行は 2 回目から始まる</td></tr>
+    <tr><td>2 回目の失敗</td><td>黙る</td><td><code>TanksWithOverflow</code>: 解いた点から homotopy の掃引をやり直すと収束しない。始まる点の誤りではない</td></tr>
+    <tr><td>実行</td><td>変えない</td><td>初期化の後の状態を差し替える公開の入口が無い。CLI と食い違わない</td></tr>
+    <tr><td>対象</td><td>全部のモデル</td><td>関係式の記憶以外の原因（固定点でない初期化）も拾う。費用は msl:sim で測る</td></tr>
+    <tr><td>置き場</td><td>プリフライト（組み立ての lowering の結果、1 回）</td><td>GM-W10002 と同じ実行時オブジェクトを使う（ADR-0016）</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>プリフライトの resettle: 2 回解いて差を見る</h1>
+  <svg class="fig" viewBox="0 0 1000 460" role="img" aria-label="初期化を 2 回解く流れ">
+    <rect class="svg-box" x="10" y="20" width="220" height="100" rx="10"/>
+    <text class="svg-text-b" x="120" y="62" text-anchor="middle">start 値 y0, p0</text>
+    <text class="svg-text" x="120" y="90" text-anchor="middle">initial_y, parameters</text>
+    <line class="svg-line" x1="230" y1="70" x2="270" y2="70"/>
+    <rect class="svg-box-accent" x="270" y="20" width="340" height="100" rx="10"/>
+    <text class="svg-text-b" x="440" y="50" text-anchor="middle">1 回目（Rumoca と同じ順）</text>
+    <text class="svg-text" x="440" y="78" text-anchor="middle">settle → 関係式の記憶 → 代数</text>
+    <text class="svg-text" x="440" y="104" text-anchor="middle">記憶は p の枠に残る</text>
+    <line class="svg-line" x1="610" y1="70" x2="650" y2="70"/>
+    <rect class="svg-box" x="650" y="20" width="200" height="100" rx="10"/>
+    <text class="svg-text-b" x="750" y="62" text-anchor="middle">y1, p1</text>
+    <text class="svg-text" x="750" y="90" text-anchor="middle">実行が始まる点</text>
+    <line class="svg-line" x1="750" y1="120" x2="750" y2="170"/>
+    <rect class="svg-box-accent" x="570" y="170" width="360" height="90" rx="10"/>
+    <text class="svg-text-b" x="750" y="205" text-anchor="middle">2 回目</text>
+    <text class="svg-text" x="750" y="235" text-anchor="middle">settle → 代数（同じ p1 から）</text>
+    <line class="svg-line" x1="750" y1="260" x2="750" y2="310"/>
+    <rect class="svg-box" x="560" y="310" width="430" height="130" rx="10"/>
+    <text class="svg-text-b" x="775" y="345" text-anchor="middle">|y2 − y1| &gt; eps</text>
+    <text class="svg-text-b" x="775" y="375" text-anchor="middle">かつ |y2 − y0| &gt; eps</text>
+    <text class="svg-text" x="775" y="412" text-anchor="middle">→ GM-W10004（y0 は実行の t0）</text>
+    <rect class="svg-box" x="10" y="170" width="520" height="270" rx="10"/>
+    <text class="svg-text-b" x="270" y="210" text-anchor="middle">EngineV6 / InitRelationBranch で起きること</text>
+    <text class="svg-text" x="270" y="260" text-anchor="middle">1 回目: 関係式 false の枝で x を解く</text>
+    <text class="svg-text" x="270" y="290" text-anchor="middle">→ 関係式の記憶が true に反転</text>
+    <text class="svg-text" x="270" y="335" text-anchor="middle">Rumoca はここで止まり、</text>
+    <text class="svg-text" x="270" y="365" text-anchor="middle">x は古い枝の値のまま</text>
+    <text class="svg-text" x="270" y="410" text-anchor="middle">2 回目: true の枝で解き直すので x が動く</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">図</span>
+  <h1>最小の再現 InitRelationBranch</h1>
+  <div class="cols-2">
+    <div class="card">
+      <h2>モデル（MSL に依らない）</h2>
+      <pre><code>Real s(start = 0, fixed = true);
+Real v;  Real u;  Real x(start = 0);
+parameter Real T = 0.1;
+equation
+  der(s) = v;
+  v = -0.5 * cos(s);        // t = 0 で負
+  u = if v &lt; 0 then 1 else 2;
+  der(x) = (u - x) / T;
+initial equation
+  der(x) = 0;               // 定常: x = u</code></pre>
+    </div>
+    <div class="card">
+      <h2>t = 0 の値</h2>
+      <table class="compact">
+        <tr><th>変数</th><th>正しい値</th><th>Rumoca</th><th>2 回目</th></tr>
+        <tr><td><code>u</code></td><td>1</td><td class="ok">1</td><td>1</td></tr>
+        <tr><td><code>x</code></td><td>1</td><td class="ng">2</td><td class="ok">1</td></tr>
+      </table>
+      <p>プリフライトの本文: <code>初期化の結果を初期化系にもう一度入れると t = 0 で値が変わる: x = 2 → 1</code></p>
+      <p>実行は x(0) = 2 のまま（bdf・dopri45・auto・rk4 とも）。Rumoca が直したら試験の期待を入れ替える</p>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>export MISE_DISABLE_TOOLS=elixir
+mise x -- cargo test -p globe-mode-exec --test simulate   # 新しい試験を含む
+mise run check                                           # fmt / clippy / test / deny
+mise run msl:sim                                         # 実行系を変えたので全体（RPi、参照結果の初回取得を含む）
+mise run wasm:node && mise run wasm:compare              # exec を変えたので</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">488</span><span class="l">テスト通過（workspace、失敗 0）</span></div>
+    <div class="kpi"><span class="n">307</span><span class="l">msl:sim 実行できた（S015 は 309）</span></div>
+    <div class="kpi"><span class="n">300 / 306</span><span class="l">管に収まった（S015 は 301 / 308）</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">GM-W10004 が出た本数（MSL。EngineV6 は別に確かめた）</span></div>
+    <div class="kpi"><span class="n">45.9 s</span><span class="l">プリフライトの段の最大（S015 は 1.9 s）</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>解き直しの費用: 根の条件の無いモデルでは解き直しを省く（ADR-0020 の案 D）。<code>LightningSegmentedTransmissionLine</code> は RPi で 240 s の上限に当たるようになった。あわせてレビューの指摘（解き直しの panic で GM-W10002 も消える、t0 の値との比較の単体試験、試験のコメントの取り違え）を直す</li>
+    <li>上流への報告（候補 8）に、残差の評価の公開（`eval_initial_residual`）の要望を足す。公開されたら、この検査を残差に置き換える</li>
+    <li>S017 の候補の残り（止まった例題、自前の積分器、ブラウザ、Arrow IPC、ソルバの残り）は roadmap のまま</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
