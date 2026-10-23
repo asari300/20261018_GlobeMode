@@ -22,5 +22,6 @@
 | [0018](0018-no-preflight-limit.md) | プリフライトに上限を掛けない。DrumBoiler で詰まるのはプリフライトの評価ではなく、組み立ての段も通る Rumoca の実行時オブジェクトの組み立て（根の条件の構造解析）なので、上流に回す（ADR-0017 の結果の見込みを取り下げる） | Accepted |
 | [0019](0019-rpi-aarch64-environment.md) | Raspberry Pi（aarch64）を開発と MSL の全体実行の機械にする。`fetch-rumoca` は `target_arch` で配布物を選び、メモリは swap 8 GB で補う。elixir（erlang の glibc）は入れず、CI は x86_64 のまま | Accepted |
 | [0020](0020-init-resettle-check.md) | プリフライトで初期化系を 2 回解き、2 回目で値が動いたら警告 GM-W10004 を出す（Rumoca は初期化方程式が読む関係式の反転で解き直さず、残差の評価を公開していない）。実行は変えない | Accepted |
+| [0021](0021-resettle-only-when-relations-flip.md) | 初期化の解き直し（GM-W10004）は、1 回目のあとに関係式の記憶が変わったときだけ行う（ADR-0020 の案 D を狭めた形。Lightning の費用を省く） | Accepted |
 
 書式: `NNNN-<題名>.md`。章は「状態 / 背景 / 決定 / 結果」の4つ。決定を覆すときは古い ADR を消さず、状態を Superseded にして新しい番号で書く。

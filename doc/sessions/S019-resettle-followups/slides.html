@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S019 解き直しの後始末 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S019 解き直しの後始末">
+
+<section class="slide" id="S01">
+  <span class="tag">S019 · 2026-10-24 · P3</span>
+  <h1>初期化の解き直しの後始末</h1>
+  <p class="lead">S018 のレビューの指摘を直し、解き直しを関係式が反転したモデルだけに絞った</p>
+  <div class="big">コードの検査は通った。<b>MSL での確かめは PC で行う</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>S018 で次回に残した、ADR-0020 の案 D と、レビューの指摘 1・2・4〜7 を片付ける</li>
+    <li>Phase P3 の後始末。新しい機能は足さない</li>
+    <li>ユーザーの決定: RPi の target は 1 つだけ持ち、次のセッションへ <code>mv</code> で渡す。<b>次回から作業は PC に戻す</b></li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>解き直しを省く条件</td><td>1 回目のあと、関係式の記憶が変わらなければ 2 回目を省く（ADR-0021）</td><td>EngineV6 の仕組みは関係式の反転だけ。記憶が変わらなければ 2 回目も同じ枝で同じ点に落ちる</td></tr>
+    <tr><td>失うもの</td><td>記憶が変わらないまま 2 回目が動く原因の検出</td><td>MSL では見つかっていない。見つかったら ADR を覆す</td></tr>
+    <tr><td>panic の扱い</td><td>解き直しを別の <code>catch_unwind</code> に入れる</td><td>解き直しの panic で GM-W10002 の評価まで失わないため</td></tr>
+    <tr><td>重い検査</td><td>PC に回す（次回の最初）</td><td>RPi は <code>msl:sim</code> が PC の約 2 倍かかり、時間切れの本数が機械で変わる</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>解き直しの流れ（S019 の後）</h1>
+  <svg class="fig" viewBox="0 0 1000 300" role="img" aria-label="初期化を 1 回解き、関係式の記憶が変わったときだけ 2 回目を解く流れ">
+    <rect class="svg-box" x="20" y="100" width="210" height="90" rx="10"/>
+    <text class="svg-text-b" x="125" y="150" text-anchor="middle">1 回目の初期化</text>
+    <line class="svg-line" x1="230" y1="145" x2="300" y2="145"/>
+    <rect class="svg-box-accent" x="300" y="100" width="250" height="90" rx="10"/>
+    <text class="svg-text-b" x="425" y="140" text-anchor="middle">関係式の記憶は</text>
+    <text class="svg-text-b" x="425" y="165" text-anchor="middle">変わったか</text>
+    <line class="svg-line" x1="550" y1="145" x2="620" y2="145"/>
+    <text class="svg-text" x="585" y="135" text-anchor="middle">はい</text>
+    <rect class="svg-box" x="620" y="100" width="170" height="90" rx="10"/>
+    <text class="svg-text-b" x="705" y="150" text-anchor="middle">2 回目</text>
+    <line class="svg-line" x1="790" y1="145" x2="830" y2="145"/>
+    <rect class="svg-box" x="830" y="100" width="150" height="90" rx="10"/>
+    <text class="svg-text-b" x="905" y="140" text-anchor="middle">t0 の値と</text>
+    <text class="svg-text-b" x="905" y="165" text-anchor="middle">比べる</text>
+    <line class="svg-line" x1="425" y1="190" x2="425" y2="250"/>
+    <text class="svg-text" x="440" y="225">いいえ</text>
+    <rect class="svg-box" x="300" y="250" width="250" height="40" rx="8"/>
+    <text class="svg-text" x="425" y="276" text-anchor="middle">省く（警告なし）</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>検証</h1>
+  <pre><code>export PATH="$HOME/.local/bin:$PATH" MISE_DISABLE_TOOLS=elixir
+CARGO_BUILD_JOBS=2 mise run check</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">489</span><span class="l">テスト通過（失敗 0、無視 10）</span></div>
+    <div class="kpi"><span class="n">+1</span><span class="l">単体試験（解き直しの判定）</span></div>
+    <div class="kpi"><span class="n warn">未</span><span class="l">msl:sim・wasm（PC で確かめる）</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション（PC）</h1>
+  <ul>
+    <li>最初に <code>msl:funnel</code>・<code>msl:sim</code>・<code>wasm:node</code>・<code>wasm:compare</code> を回し、S019 の作業記録に数字を書く</li>
+    <li>見るもの: EngineV6 で GM-W10004 が出る、MSL での GM-W10004 が 0 本、<code>Lightning</code> の費用が下がる</li>
+    <li>PC では RPi 向けの手順（<code>CARGO_BUILD_JOBS=2</code>、<code>target/</code> の移動）は要らない</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

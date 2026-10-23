@@ -129,8 +129,8 @@ struct StartProbe {
 
 /// 初期化の結果を初期化系にもう一度入れた結果（[`resettle`]、S018）。
 struct Resettle {
-    /// 2 回目で動いた変数（名前、1 回目の値、2 回目の値）
-    moved: Vec<(String, f64, f64)>,
+    /// 2 回目で動いた変数（名前、2 回目の値）
+    moved: Vec<(String, f64)>,
     /// 動いたと見る差（[`resettle`] と同じ規則を、実行の t0 の値との比較にも使う）
     eps: f64,
 }
@@ -211,14 +211,9 @@ fn resettle_diagnostic(
     let moved: Vec<(&str, f64, f64)> = resettle
         .moved
         .iter()
-        .filter_map(|(name, _, second)| {
+        .filter_map(|(name, second)| {
             let started = *trajectory.variable(name)?.values.first()?;
-            let scale = started.abs().max(second.abs()).max(1.0);
-            ((started - second).abs() > resettle.eps * scale).then_some((
-                name.as_str(),
-                started,
-                *second,
-            ))
+            differs(started, *second, resettle.eps).then_some((name.as_str(), started, *second))
         })
         .collect();
     if moved.is_empty() {
@@ -291,9 +286,14 @@ fn probe_start(
     }
     let runtime = rumoca_solver::SolveRuntime::new(model).ok()?;
     let eval = runtime.eval_at(settings.start_time, &state, &model.parameters, 1.0e-10, 32);
+    // 解き直しの panic で GM-W10002 の評価まで失わないよう、別に捕まえる
     let resettle = with_resettle
-        .then(|| resettle(&runtime, lowered, settings, &eval))
-        .flatten();
+        .then(|| {
+            catch_unwind(AssertUnwindSafe(|| {
+                resettle(&runtime, lowered, settings, &eval)
+            }))
+        })
+        .and_then(|r| r.ok().flatten());
     Some(StartProbe { eval, resettle })
 }
 
@@ -301,7 +301,7 @@ fn probe_start(
 /// `refresh_prepared_vectors`）と同じ順（初期化系 → 関係式の記憶 → 代数変数。許容誤差も同じ）で、実行が始まる点を
 /// 作る。2 回目はその点からもう一度初期化系を解く。初期化の結果が初期化方程式を満たしていれば 2 回目は動かない。
 /// 動くのは、1 回目が関係式の既定値（false）の枝で解き、その後に関係式の記憶（パラメータの枠にある）が反転したとき
-/// （S016 の EngineV6。Rumoca は解き直さない）。1 回目が失敗したら None（実行の側が GM-E11001 にする）。2 回目が
+/// （S016 の EngineV6。Rumoca は解き直さない）。関係式の記憶が変わらなければ 2 回目を省いて None（S019）。1 回目が失敗しても None（実行の側が GM-E11001 にする）。2 回目が
 /// 失敗しても None（homotopy のあるモデルでは、解いた点から λ = 0 の掃引をやり直すと収束しないことがある。MSL の
 /// `TanksWithOverflow`。失敗は実行が始まる点の誤りを示さない）。
 ///
@@ -324,9 +324,13 @@ fn resettle(
         .settle_initialization_system(&mut y, &mut p, t, tol, SETTLE_MAX_ITERS)
         .ok()?;
     let state = y[..states.min(y.len())].to_vec();
-    runtime
+    let flipped = runtime
         .update_relation_memory_from_state(t, &state, &mut p, tol, SETTLE_MAX_ITERS)
         .ok()?;
+    // 関係式の記憶が変わらなければ、1 回目は今の枝で解けているので 2 回目は省く（ADR-0020 の案 D を狭めたもの、S019）
+    if !flipped {
+        return None;
+    }
     runtime
         .refresh_algebraic_and_output_slots(t, &mut y, &p, tol, SETTLE_MAX_ITERS)
         .ok()?;
@@ -337,22 +341,27 @@ fn resettle(
     runtime
         .refresh_algebraic_and_output_slots(t, &mut y2, &p2, tol, SETTLE_MAX_ITERS)
         .ok()?;
-    // 動いたと見る差: 許容誤差の 10 倍（1e-6 より小さければ 1e-6）を、値の大きさ（1 より小さければ 1）に掛けたもの
+    // 動いたと見る差: 許容誤差の 10 倍（1e-6 より小さければ 1e-6）
     let eps = (10.0 * tol).max(1.0e-6);
     let moved = y
         .iter()
         .zip(&y2)
         .enumerate()
-        .filter(|(_, (a, b))| (*a - *b).abs() > eps * a.abs().max(b.abs()).max(1.0))
-        .map(|(i, (a, b))| {
+        .filter(|(_, (a, b))| differs(**a, **b, eps))
+        .map(|(i, (_, b))| {
             let name = eval
                 .solver_y
                 .get(i)
                 .map_or_else(|| format!("y[{i}]"), |slot| slot.name.clone());
-            (name, *a, *b)
+            (name, *b)
         })
         .collect();
     Some(Resettle { moved, eps })
+}
+
+/// `a` と `b` が `eps` を値の大きさ（1 より小さければ 1）に掛けたものより離れているか。
+fn differs(a: f64, b: f64, eps: f64) -> bool {
+    (a - b).abs() > eps * a.abs().max(b.abs()).max(1.0)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1995,5 +2004,60 @@ mod tests {
             ..settings
         });
         assert_eq!(auto.solver_mode, SimSolverMode::Auto);
+    }
+
+    /// GM-W10004 は、2 回目で動いた変数のうち実行の t0 の値も 2 回目と違うものだけを出す（S019）。
+    #[test]
+    fn resettle_warns_only_where_the_run_started_away_from_the_second_solve() {
+        let o = globe_mode_ir::SettingOrigin::Default;
+        let settings = ResolvedSettings {
+            start_time: 0.0,
+            stop_time: 1.0,
+            tolerance: 1e-6,
+            interval: 0.1,
+            solver: SolverId::Bdf,
+            max_wall_seconds: None,
+            step: None,
+            parameters: Default::default(),
+            origins: globe_mode_ir::SettingOrigins {
+                start_time: o,
+                stop_time: o,
+                tolerance: o,
+                interval: o,
+                solver: o,
+                step: None,
+            },
+        };
+        let variable = |name: &str, start: f64| TrajectoryVariable {
+            name: name.to_string(),
+            role: VariableRole::State,
+            unit: None,
+            description: None,
+            values: vec![start, 0.0],
+        };
+        // x は 2 で始まり 2 回目は 1（警告）、z は 2 回目と同じ 5 で始まった（IMC_Initialize の形。黙る）
+        let trajectory = Trajectory {
+            time: vec![0.0, 1.0],
+            variables: vec![variable("x", 2.0), variable("z", 5.0 + 1e-9)],
+        };
+        let resettle = Resettle {
+            moved: vec![
+                ("x".to_string(), 1.0),
+                ("z".to_string(), 5.0),
+                ("missing".to_string(), 3.0),
+            ],
+            eps: 1e-5,
+        };
+        let d = resettle_diagnostic(&settings, Some(&resettle), &trajectory).expect("x は警告");
+        assert_eq!(
+            d.message,
+            "初期化の結果を初期化系にもう一度入れると t = 0 で値が変わる: x = 2 → 1"
+        );
+        let quiet = Resettle {
+            moved: vec![("z".to_string(), 5.0)],
+            eps: 1e-5,
+        };
+        assert!(resettle_diagnostic(&settings, Some(&quiet), &trajectory).is_none());
+        assert!(resettle_diagnostic(&settings, None, &trajectory).is_none());
     }
 }

@@ -1,6 +1,6 @@
 # ADR-0020 初期化の結果を初期化系にもう一度入れて確かめる（GM-W10004）
 
-- 状態: Accepted（2026-10-22、S018）
+- 状態: Accepted（2026-10-22、S018）。「全部のモデルで解き直す」は [ADR-0021](0021-resettle-only-when-relations-flip.md)（S019）で、関係式の記憶が変わったときだけに改めた
 - 関係: [ADR-0016](0016-preflight-on-build-lowering.md)（プリフライトは組み立ての lowering の結果で行う）の上に足す。[ADR-0018](0018-no-preflight-limit.md)（プリフライトに上限を掛けない）は変えない。調べた経緯は [research/msl-sim-failures.md](../research/msl-sim-failures.md) の節「S016 で調べたこと」の EngineV6 と「S018 で足したもの」
 
 ## 背景

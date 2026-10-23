@@ -342,7 +342,6 @@ fn not_finite_at_start_is_warned_and_then_fails_at_initialization() {
     assert_eq!(excerpt(&d), "Real y");
 }
 
-/// `run` のプリフライトは組み立ての lowering の結果で行う（S014）。どのソルバでも単独の `preflight` と同じ警告になる。
 /// S018: 初期化方程式が t0 で反転する関係式を読むと、Rumoca の初期化は関係式の既定値（false）の枝で解き、
 /// 反転しても解き直さない（S016 の EngineV6 の最小の再現）。`run` は初期化系をもう一度解き、実行が始まった t0 の値と
 /// 違う変数を GM-W10004 で知らせる。実行は 1 回目の値（x(0) = 2。正しくは 1）で始まる。Rumoca がこれを直したら警告は
@@ -389,6 +388,7 @@ fn an_initialization_that_reads_a_relation_flipped_at_t0_is_warned() {
     }
 }
 
+/// `run` のプリフライトは組み立ての lowering の結果で行う（S014）。どのソルバでも単独の `preflight` と同じ警告になる。
 #[test]
 fn run_preflights_on_the_lowering_of_every_solver() {
     let model = compile("NotFiniteAtStart");
@@ -601,7 +601,7 @@ fn run_fails_the_assertion_model() {
     );
 }
 
-/// `Simulation.*` の 12 本（S011）。session の道と型付きの道を比べる。
+/// `Simulation.*` の 13 本（S011、S018 で 1 本足した）。session の道と型付きの道を比べる。
 const VALIDATION_MODELS: [&str; 13] = [
     "Decay",
     "HarmonicOscillator",
