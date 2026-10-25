@@ -22,6 +22,7 @@ node_modules/
 # セッション記録の生ログとローカル整形版 (フックの出力先)。
 # 伏せ字済みの整形版だけを finish-session で log/sessions/ にコピーしてコミットする。
 log/local/
+log/mise/
 
 # 取得物 (scripts で再取得できるのでコミットしない)。MSL など
 data/msl/

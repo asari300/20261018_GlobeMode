@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S020 PC での重い検査 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S020 PC での重い検査">
+
+<section class="slide" id="S01">
+  <span class="tag">S020 · 2026-10-24〜25 · P3</span>
+  <h1>PC での重い検査</h1>
+  <p class="lead">S019 が RPi から PC に回した 4 つの検査を回し、ADR-0021 の条件でも EngineV6 の初期化の誤りを検出できることを確かめた</p>
+  <div class="big">msl:sim 309 本実行・301 / 308 本が管に収まる（S015 と同じ）。<b>GM-W10004 は EngineV6 の 1 本だけ</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>S019（RPi）で通していない <code>msl:funnel</code>・<code>msl:sim</code>・<code>wasm:node</code>・<code>wasm:compare</code> を WSL（x86_64、RAM 3 GB + swap 16 GB）で回す</li>
+    <li>確かめること: EngineV6 で GM-W10004 が出る、MSL のほかの例題で GM-W10004 が 0 本、Lightning のプリフライトの費用</li>
+    <li>結果が違えば ADR-0021 を直す。コードは変えない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">結果</span>
+  <h1>4 つの検査</h1>
+  <table>
+    <tr><th>検査</th><th>結果</th><th>比較</th></tr>
+    <tr><td>msl:funnel</td><td>566 本: OK 369・NG 13・GM-U 184・panic 0</td><td>S017 と同じ</td></tr>
+    <tr><td>msl:sim</td><td>356 本: 実行 309・管 301 / 308（97.7%）・NG 41・外から停止 6</td><td>S015（PC）と同じ</td></tr>
+    <tr><td>GM-W10004</td><td>EngineV6 の 1 本（filter.x = 0.066 → 563）</td><td>ほかの 355 本は 0</td></tr>
+    <tr><td>wasm:node</td><td>通った（Decay 3 ソルバ、ChuaCircuit、panic の文言）</td><td>—</td></tr>
+    <tr><td>wasm:compare</td><td>126 件中 123 件が一致、既知の差 3、一致しない 0</td><td>S019 と同じ</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table>
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>ADR-0021</td><td>直さない</td><td>EngineV6 は検出でき、ほかの例題で GM-W10004 は出なかった</td></tr>
+    <tr><td>msl:sim の回し方</td><td>ユーザーの端末で nohup で回す</td><td>Claude Code は待ち状態でメモリが少ないと背景のコマンドを殺す（2 回止まった）</td></tr>
+    <tr><td>順番</td><td>wasm を先に、msl:sim を後に</td><td>ユーザーの選択。wasm は軽く 12 分で終わる</td></tr>
+    <tr><td>log/mise/</td><td>.gitignore に足す</td><td>ユーザーが置いた mise のログの置き場。コミットしない</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">図</span>
+  <h1>検査の流れと止まった所</h1>
+  <svg class="fig" viewBox="0 0 800 260" role="img" aria-label="検査の流れ">
+    <rect class="svg-box-accent" x="20" y="90" width="150" height="80" rx="10"/>
+    <text class="svg-text-b" x="95" y="126" text-anchor="middle">msl:funnel</text>
+    <text class="svg-text" x="95" y="150" text-anchor="middle">48 分・OK 369</text>
+    <line class="svg-line" x1="170" y1="130" x2="215" y2="130"/>
+    <rect class="svg-box" x="215" y="90" width="150" height="80" rx="10"/>
+    <text class="svg-text-b" x="290" y="126" text-anchor="middle">msl:sim ×2</text>
+    <text class="svg-text" x="290" y="150" text-anchor="middle">249・347 本で停止</text>
+    <line class="svg-line" x1="365" y1="130" x2="410" y2="130"/>
+    <rect class="svg-box" x="410" y="90" width="150" height="80" rx="10"/>
+    <text class="svg-text-b" x="485" y="126" text-anchor="middle">wasm ×2</text>
+    <text class="svg-text" x="485" y="150" text-anchor="middle">12 分・一致 123</text>
+    <line class="svg-line" x1="560" y1="130" x2="605" y2="130"/>
+    <rect class="svg-box-accent" x="605" y="90" width="175" height="80" rx="10"/>
+    <text class="svg-text-b" x="692" y="126" text-anchor="middle">msl:sim（端末）</text>
+    <text class="svg-text" x="692" y="150" text-anchor="middle">69 分・309 本</text>
+    <text class="svg-text" x="290" y="215" text-anchor="middle">Claude Code がメモリ不足で背景のコマンドを止めた</text>
+  </svg>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>mise run msl:funnel
+mise run wasm:node &amp;&amp; mise run wasm:compare
+nohup mise run msl:sim &amp;&gt; log/mise/msl-sim.log &amp;   # ユーザーの端末で
+target/release/globe simulate -L data/msl \
+  -m Modelica.Mechanics.MultiBody.Examples.Loops.EngineV6 --stop-time 0.01 --tolerance 1e-7</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">309</span><span class="l">実行できた</span></div>
+    <div class="kpi"><span class="n">301</span><span class="l">管に収まった / 308</span></div>
+    <div class="kpi"><span class="n">1</span><span class="l">GM-W10004（EngineV6）</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">wasm の不一致</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>ADR-0021 の費用の効果（Lightning のプリフライト 15.1 s）は、同じ機械での前後の比較が無く未確認。確かめるなら S017 と S019 の rev を同じ PC で回す</li>
+    <li>この PC で msl:sim を回すときは、ユーザーの端末で nohup で回す（Claude Code の背景では止められる）</li>
+    <li>main に残ったユーザーの log/mise/msl-sim.log（未追跡）を片付ける</li>
+    <li>roadmap の P3 の次の候補へ</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
