@@ -424,3 +424,34 @@ S016 の EngineV6 の原因（初期化方程式が読む関係式の反転で R
 ### 出典（S018）
 
 - Rumoca rev `276e82bd` のソース（2026-10-22）: `crates/rumoca-solver/src/runtime.rs:23`（`pub(crate) mod projection`）、`crates/rumoca-solver/src/runtime/solve_runtime/initial_projection.rs:11-16,203,493,746,799`、`crates/rumoca-solver/src/runtime/solve_runtime/relation_memory.rs:4,755-794`、`crates/rumoca-solver/src/fmi_me/kernel/component.rs:1176-1205`、`crates/rumoca-sim/src/prepared_vectors.rs:15-16,88-110`。
+
+## S021 で直したもの
+
+自前の積分器（S012）が MSL で落ちる原因を調べ、GlobeMode の側で直せるものを直した。確認日 2026-10-25。数字は S021 の作業記録。
+
+### esdirk34: Newton 法の失敗を積分全体で累積して数える（直した）
+
+- `Electrical.Analog.Examples` 54 本を `--solver esdirk34` で回すと、bdf で通る 7 本（`AmplifierWithOpAmpDetailed`・`CauerLowPassSC`・`DifferenceAmplifier`・`HeatingRectifier`・`OpAmps.Differentiator`・`OvervoltageProtection`・`ThyristorBehaviourTest`）が GM-E11002 で止まる。文言は 6 本が `Exceeded maximum number of nonlinear solver failures (50)`、`CauerLowPassSC` が `Step size is too small at time = 1.05`、`HeatingRectifier` が射影の収束（下）。
+- 原因は diffsol（Rumoca の vendor、0.13.2）の SDIRK。`vendor/diffsol/src/ode_solver/runge_kutta.rs:849-872` の `solve_fail` が `statistics.number_of_nonlinear_solver_fails`（積分全体の累計）を上限 `max_nonlinear_solver_failures`（既定 50）と比べる。BDF（`bdf.rs:1269,1356-1359`）は歩の始めの値との差（その歩の中の回数）で比べる。切り替え（ダイオード・サイリスタ・飽和する OpAmp）のたびに Newton 法が数回失敗するので、`Differentiator` は 55 歩目（t = 0.0092）で累計が 50 を超えた。
+- 直し方: SDIRK の問題を組むときに `ode_options.max_nonlinear_solver_failures = usize::MAX`（`globe-mode-exec/src/rumoca/plugins/rk.rs`）。1 歩の中の暴走は、失敗ごとに刻みを 0.3 倍にする diffsol の規則と刻みの下限（`min_timestep`）が止める。最小の再現 `GlobeModeValidation.Simulation.DiodeSwitching`（1 ms ごとに向きが変わる電流を、漏れ抵抗つきの膝の鋭いダイオード（熱電圧 2.6 mV）に流す。98 回の切り替え。直す前は esdirk34 が t = 0.0027、trbdf2 が t = 5e-6 で止まる）を足し、`globe-mode-exec/tests/integrators.rs` で esdirk34・trbdf2 が終了時刻まで進んで bdf と一致する（v(0.0985) の差 1.3e-5・2e-6）ことを確かめる。終点は平らな所に置いた（斜面の途中だと wasm とネイティブの bdf が 2.3e-4 ずれて `wasm:compare` が一致しないと数える）。
+- 上流への報告の候補 12（下）。
+
+### tsit45: 硬い回路で最初の刻みから状態が発散する（直さない）
+
+- `SimpleTriacCircuit`・`ThyristorBehaviourTest`・`HeatingNPN_NORGate` などで `[Integration] algebraic projection did not establish coordinate convergence`（`vAK` が 5e4〜5e12）。許容誤差を 1e-8 にしても、終了時刻を 1e-4 にしても同じ値で止まる。
+- `rhs` の呼び出しを印字すると、最初の刻み（h = 2e-5。出力の間隔で区切られた）の段の点で状態が 0 → 2.6e4 → 2.9e5 → 1.0e6 → -1.5e8 と発散し、刻みを半分にした試しの点で射影が発散して導関数が NaN になる。Rumoca の host は、chart を切り替える部品以外の評価の失敗を復帰不能として記憶する（`crates/rumoca-solver/src/fmi_me/integrator/derivative.rs:176-196` の `fail`。`discards_failed_trials()` が true の部品だけが「試しの点の棄却」になる）ので、プラグインが刻みを縮めても失敗のまま終わる。
+- Rumoca 自身の `dopri45` も最初の出力の間隔（`--stop-time 2e-5`）で失敗し、既定の終了時刻では 60 s の予算で時間切れになる。陽的 RK がこの硬さ（サイリスタの時定数）に向かないのが原因で、GlobeMode のプラグインの不具合ではない。直さない。ユーザーには `bdf`・`esdirk34` を使ってもらう。
+- 上流への報告の候補 13（下）。
+
+### esdirk34・trbdf2: OvervoltageProtection で誤った軌道（直していない）
+
+- 上限を外した esdirk34 は `OvervoltageProtection` を終了時刻まで進めるが、`CL.v` がツェナーの降伏（t = 0.0184、`ZDiode` の `smooth(1, if …)` の 3 つの領域の切り替え）から参照とずれ、終了時刻で -1.64 V（参照と bdf は -0.0006 V）。管 0/1。直す前も同じ軌道で t = 0.3088 に「nonlinear solver failures (50)」で止まっていたので、上限を外したことが誤りを作ったのではなく、黙って終わるようになっただけ。trbdf2 は同じ所で射影の発散（`zDiode.v` = 1.8e25）で止まる。SDIRK の段の Newton 法が強い非線形の代数ループ（ツェナーの 3 領域）で別の枝に落ちる見込み【未確認】。
+
+### heun: 既定の刻み（出力の間隔）での精度（変えない）
+
+- `Rotational.Examples` 7 本を `--solver heun` で回すと 7 本とも終了時刻まで進み、管に収まるのは 3 本（S012 と同じ）。`Backlash`・`First`・`FirstGrounded` は 1 信号ずつ外れ、`ElasticBearing` は `shaft.phi` が 1e139 まで発散する（bdf・rk4 は 445.56。陽的 2 次の固定刻みが硬いモデルで不安定になる）。値が有限なので失敗にならず「終了時刻まで」になる。既定の刻みは変えない（`--step` で選べる。精度は刻み幅で決まると [architecture](../architecture.md) に書いてある）。
+
+### 上流に報告する候補（S021 で足す）
+
+12. **diffsol の SDIRK が Newton 法の失敗を積分全体で累積して上限と比べる**: `vendor/diffsol/src/ode_solver/runge_kutta.rs:849-872`（`solve_fail`）。BDF は 1 歩の中で数える（`bdf.rs:1356-1359`）。切り替えの多いモデルは 50 回で止まる。再現は `GlobeModeValidation.Simulation.DiodeSwitching` を esdirk34 で。diffsol の本家（https://github.com/martinjrobins/diffsol ）で同じかは【未確認】。
+13. **陽的 RK の試しの点で代数の射影が発散すると、刻みを縮めて再試行できず失敗で終わる**: `crates/rumoca-solver/src/fmi_me/integrator/derivative.rs:176-196`。`SimpleTriacCircuit` を `dopri45` で `--stop-time 2e-5`。BDF では Newton 法の予測子が近いので当たらない。

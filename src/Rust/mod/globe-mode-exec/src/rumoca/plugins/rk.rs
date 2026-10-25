@@ -180,8 +180,12 @@ impl DiffsolRk {
                          SDIRK Jacobian with",
                     ));
                 }
-                let problem = build_problem(point, Rc::clone(&derivatives), rtol, atol, h0)
+                let mut problem = build_problem(point, Rc::clone(&derivatives), rtol, atol, h0)
                     .map_err(numerical)?;
+                // diffsol の SDIRK は Newton の失敗を積分全体で累積して数え、上限（既定 50）で止まる
+                // （`runge_kutta.rs` の `solve_fail`。BDF は 1 歩の中で数える）。切り替えの多い回路では
+                // 50 回をすぐ使い切るので上限を外す。刻みの下限（`min_timestep`）が暴走を止める
+                problem.ode_options.max_nonlinear_solver_failures = usize::MAX;
                 Solver::Sdirk(SdirkCell::try_new(problem, |problem| {
                     let state = initial_state(problem, point, &initial_derivatives, method.order())
                         .map_err(numerical)?;
