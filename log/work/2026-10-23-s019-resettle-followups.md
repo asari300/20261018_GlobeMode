@@ -32,9 +32,15 @@ S018 の締めの報告のあと「つづけて」。S018 で次回に残した�
 - `mise run check`（RPi、`CARGO_BUILD_JOBS=2`）: 通った。`cargo test` 489 本が通り、失敗 0、無視 10。fmt、clippy、deny、`uv sync --locked` も通った。最初の 1 回は `cargo fmt --check` の整形の違いで落ち、`cargo fmt` で直した。次の 1 回はセッションが切れて途中で止まった。
 - `an_initialization_that_reads_a_relation_flipped_at_t0_is_warned`: 通った（案 D を狭めた後も再現のモデルは警告される）。
 - `check_docs.py`: デッキ全件 OK、相対リンク 806 件中の切れ 0 件。`render_slides.py`: 問題 0 件。
-- **通していない**: `msl:funnel`、`msl:sim`、`wasm:node`、`wasm:compare`（PC に回した）。MSL での GM-W10004 の本数、EngineV6 の警告、Lightning の費用は未確認。
+- 4 つの検査は S020（2026-10-24〜25、WSL x86_64、RAM 3 GB + swap 16 GB）で回した。詳しくは [S020 の作業記録](2026-10-24-s020-pc-heavy-checks.md)。
+  - `msl:funnel`: 566 本: OK 369・NG 13・GM-U 184・panic 0（S017 と同じ）。
+  - `msl:sim`: 356 本: 実行できた 309・管に収まった 301 / 308（97.7%）・実行 NG 41・外から停止 6・panic 0（S015 の PC の数字と同じ）。**GM-W10004 は EngineV6 の 1 本だけ**（回し直しで終了時刻まで行き、管は 2 / 4）。ほかの 355 本では 0 本。
+  - EngineV6 単体: GM-W10004 が `filter.x[1] = 0.065992 → 563.186238` ほか 7 個で出た（S018 と同じ値）。
+  - `LightningSegmentedTransmissionLine` のプリフライト 15.1 s（S018 の RPi では 33.6 s。PC は約 2 倍速いので、費用そのものが下がったかは分からない。関係式の記憶が変わるので解き直しは省けていない）。プリフライトの段の合計は 356 本で 45.2 s（S018 の RPi 98.5 s）。
+  - `wasm:node`: 通った。`wasm:compare`: 126 件中 123 件が一致、既知の差 3 件、一致しない 0 件。
+  - ADR-0021 は直さない（EngineV6 は検出でき、ほかで GM-W10004 は出なかった）。
 
 ## 残したこと
 
-- **次の PC のセッションの最初に**、上の 4 つの検査を回して、この記録の「検証」に数字を足す。見ること: EngineV6 で `filter.x = 0.066 → 563` が警告される、MSL で GM-W10004 が 0 本のまま、`LightningSegmentedTransmissionLine` のプリフライトが下がる。結果が違えば ADR-0021 を直す。
+- ~~次の PC のセッションの最初に、上の 4 つの検査を回す~~ → S020 で済ませた（上の「検証」）。
 - swap が 8 GB から 5.7 GiB に下がった理由は不明のまま（今回の再起動のあと 8.0 GiB に戻っていた）。RPi を使わなければ不要。
