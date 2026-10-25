@@ -46,7 +46,7 @@ RPi での S019 を pull したので、WSL で作業を続ける。S019 が PC 
 - コードの検査（fmt / clippy / test / deny）: Rust のコードは触っていない。
 - `check_docs.py`: デッキ全件 OK、相対リンク 818 件中の切れ 0 件。`render_slides.py`: デッキ 26 件、問題 0 件
 - セッション記録の `--check`: 9 件を検査、取りこぼし 0 件
-- ステージした差分の漏洩検査: （finish-session で埋める）
+- ステージした差分の漏洩検査: 0 件（main と origin/main の差分も 0 件）。CI run 40148252147 は success（plan・docs が success、ほかは差分検査のため skipped）
 
 ## 残したこと
 

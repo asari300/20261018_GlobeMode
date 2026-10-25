@@ -299,3 +299,21 @@ fn fixed_step_defaults_to_the_output_interval() {
         "rk4 x(1)（h 1/500）",
     );
 }
+
+/// SDIRK は Newton 法の失敗が積分全体で 50 回を超えても止まらない（diffsol の累積の上限を外した。S021）。
+/// 矩形波の電流でダイオードを 98 回切り替えると、直す前の esdirk34 は途中で
+/// 「Exceeded maximum number of nonlinear solver failures (50)」で止まった。
+#[test]
+fn sdirk_survives_more_than_fifty_newton_failures() {
+    let model = compile("DiodeSwitching");
+    let bdf = run_with(&model, SolverId::Bdf, None);
+    // trbdf2 も同じ直しで通る（release で 1.7 s、v の差 2e-6）が、debug では 60 s の予算を超えるので回さない
+    let run = run_with(&model, SolverId::Esdirk34, None);
+    assert_eq!(last(&run, "k"), 98.0, "esdirk34 の切り替えの回数");
+    assert_close(
+        last(&run, "v"),
+        last(&bdf, "v"),
+        1e-4,
+        "esdirk34 v(0.0985)（bdf と）",
+    );
+}

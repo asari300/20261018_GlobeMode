@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S021 自前の積分器の詰め — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S021 自前の積分器の詰め">
+
+<section class="slide" id="S01">
+  <span class="tag">S021 · 2026-10-25 · P3</span>
+  <h1>自前の積分器の詰め</h1>
+  <p class="lead">esdirk34 が MSL の回路で落ちる原因は diffsol の SDIRK が Newton 法の失敗を積分全体で累積して数えることだった。上限を外して直した</p>
+  <div class="big">Electrical.Analog.Examples 54 本の esdirk34: 実行 42 → <b>45</b>、管 39 → <b>42</b>。tsit45 の射影の失敗は陽的 RK の限界で直さない</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>roadmap の候補 2。S012 の自前の積分器が MSL で落ちる 3 件を調べ、GlobeMode の側で直せるものを直す</li>
+    <li>esdirk34 が bdf で通る例題で落ちる / tsit45・esdirk34 で射影が収束しない / heun の既定の刻みの精度</li>
+    <li>既定のソルバ auto は触らない（P3 の完了条件はそのまま）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">原因</span>
+  <h1>esdirk34: 失敗を積分全体で数えていた</h1>
+  <table>
+    <tr><th>方法</th><th>Newton 法の失敗の数え方（diffsol 0.13.2）</th><th>上限 50 に当たると</th></tr>
+    <tr><td>BDF（bdf.rs）</td><td>1 歩の中の回数（歩の始めの値との差）</td><td>その歩で止まる。刻みの下限が先に効くので実質当たらない</td></tr>
+    <tr><td>SDIRK（runge_kutta.rs の solve_fail）</td><td>積分全体の累計（statistics）</td><td>切り替えのたびに数回失敗する回路では t = 0.009 で止まる（Differentiator は 55 歩目）</td></tr>
+  </table>
+  <p>直し: SDIRK の問題を組むときに max_nonlinear_solver_failures を外す（rk.rs の 1 行）。失敗ごとに刻みを 0.3 倍にする規則と刻みの下限が 1 歩の暴走を止める</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table>
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>esdirk34・trbdf2 の失敗の上限</td><td>外す</td><td>diffsol の数え方の違い。刻みの下限が暴走を止める</td></tr>
+    <tr><td>tsit45 の射影の失敗</td><td>直さない</td><td>硬い回路で最初の刻みから発散。試しの点の射影の発散を host が復帰不能の失敗にする。Rumoca の dopri45 も同じ</td></tr>
+    <tr><td>heun の既定の刻み</td><td>変えない</td><td>7 本で 3 / 7。ElasticBearing は発散（陽的 2 次の不安定）。--step で選べる</td></tr>
+    <tr><td>回帰の試験</td><td>DiodeSwitching を足す</td><td>直す前の binary で t = 0.0027 に止まることを確かめた</td></tr>
+    <tr><td>msl:sim の全体</td><td>--solver esdirk34 だけ</td><td>auto の道は直しを通らない</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">図</span>
+  <h1>落ちる 7 本を文言で分けた</h1>
+  <svg class="fig" viewBox="0 0 800 300" role="img" aria-label="原因の切り分け">
+    <rect class="svg-box" x="20" y="110" width="170" height="80" rx="10"/>
+    <text class="svg-text-b" x="105" y="145" text-anchor="middle">esdirk34 が落ちる</text>
+    <text class="svg-text" x="105" y="170" text-anchor="middle">bdf で通る 7 本</text>
+    <line class="svg-line" x1="190" y1="130" x2="270" y2="70"/>
+    <line class="svg-line" x1="190" y1="170" x2="270" y2="230"/>
+    <rect class="svg-box-accent" x="270" y="30" width="280" height="80" rx="10"/>
+    <text class="svg-text-b" x="410" y="62" text-anchor="middle">nonlinear failures (50)</text>
+    <text class="svg-text" x="410" y="88" text-anchor="middle">diffsol SDIRK の累積の数え方</text>
+    <rect class="svg-box-warn" x="270" y="190" width="280" height="80" rx="10"/>
+    <text class="svg-text-b" x="410" y="222" text-anchor="middle">projection did not converge</text>
+    <text class="svg-text" x="410" y="248" text-anchor="middle">host が試しの点の発散を失敗に</text>
+    <line class="svg-line" x1="550" y1="70" x2="600" y2="70"/>
+    <line class="svg-line" x1="550" y1="230" x2="600" y2="230"/>
+    <rect class="svg-box-accent" x="600" y="30" width="180" height="80" rx="10"/>
+    <text class="svg-text-b" x="690" y="62" text-anchor="middle">上限を外す</text>
+    <text class="svg-text" x="690" y="88" text-anchor="middle">実行 42 → 45、管 39 → 42</text>
+    <rect class="svg-box" x="600" y="190" width="180" height="80" rx="10"/>
+    <text class="svg-text-b" x="690" y="222" text-anchor="middle">直さない</text>
+    <text class="svg-text" x="690" y="248" text-anchor="middle">上流への候補 13</text>
+  </svg>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>mise run check                                            # 490 本通過
+cargo xtask msl-sim --only Modelica.Electrical.Analog.Examples --solver esdirk34 \
+  --tolerance-scale 0.1 --wall-seconds 30 --retry-wall-seconds 0
+cargo xtask msl-sim --solver esdirk34 --tolerance-scale 0.1 --wall-seconds 30 --retry-wall-seconds 0
+target/release/globe simulate -L src/Modelica \
+  -m GlobeModeValidation.Simulation.DiodeSwitching --solver esdirk34</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">45 / 54</span><span class="l">esdirk34 が実行（直す前 42）</span></div>
+    <div class="kpi"><span class="n">42</span><span class="l">管に収まった（直す前 39）</span></div>
+    <div class="kpi"><span class="n">272</span><span class="l">全体 356 本で esdirk34 が実行</span></div>
+    <div class="kpi"><span class="n">490</span><span class="l">テスト通過</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>esdirk34 が OvervoltageProtection で終了時刻まで進むが誤った軌道になる（ツェナーの降伏の分岐。直す前も同じ軌道で t = 0.31 に止まっていた）</li>
+    <li>esdirk34 の残り: CauerLowPassSC（刻みの下限）、HeatingRectifier・ThyristorBehaviourTest（射影）</li>
+    <li>固定刻みの発散（有限のまま大きくなる）を知らせる検査の要否</li>
+    <li>上流への報告の候補 12・13（ユーザーが出す）。roadmap の候補 1・3、ADR-0021 の費用の前後比較</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
