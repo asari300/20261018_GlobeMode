@@ -74,7 +74,7 @@ doc/  log/                      文書と記録
 | `globe-mode-protocol` | serde 型と JSON Schema。TypeScript と Python の型を生成する | serde, specta |
 | `globe-mode` | 公開する Rust API（facade）: `Workspace{open, set_text, outline, check, graph, simulate, export_fmu}` | 上記すべて |
 | `globe-mode-lsp` | `lsp-types` と自前のディスパッチャ。Transport は stdio / Tauri のチャネル / Web Worker | lsp-types |
-| `globe-mode-cli` **（S002）** | バイナリ `globe`（`outline` / `check` / `graph` / `flat`、`--json`、S003 で `--library`、S004 で `graph` とディレクトリの入力、S005 で `check` を db 経由にして S6・GM-U を表示し、`flat` を足した。S007 で `check` に S7・S8 の行と `--json` の `s7` / `s8` / `init`、`deps`（`check` に渡すファイルの閉包）を足した。S011 で `simulate`。S012 で `simulate` に `--param NAME=VALUE`・`--step`・`--list-parameters`・`--list-solvers`・`--format csv\|mat`。終了コード 0 / 1 / 2） | clap |
+| `globe-mode-cli` **（S002）** | バイナリ `globe`（`outline` / `check` / `graph` / `flat`、`--json`、S003 で `--library`、S004 で `graph` とディレクトリの入力、S005 で `check` を db 経由にして S6・GM-U を表示し、`flat` を足した。S007 で `check` に S7・S8 の行と `--json` の `s7` / `s8` / `init`、`deps`（`check` に渡すファイルの閉包）を足した。S011 で `simulate`。S012 で `simulate` に `--param NAME=VALUE`・`--step`・`--list-parameters`・`--list-solvers`・`--format csv\|mat`。S024 で `--param` があれば、ライブラリだけの session を複製して上書きを組み込んでからコンパイルし直す（`Checker::compile_retaining_with_overrides`。wasm も同じ。[ADR-0022](adr/0022-structural-parameter-overrides.md)）。終了コード 0 / 1 / 2） | clap |
 | `globe-mode-capi` | `extern "C"`、不透明ハンドル、JSON とバイト列。cbindgen でヘッダを生成する | — |
 | `globe-mode-py` | PyO3（abi3-py312） | pyo3 |
 | `globe-mode-nif` | Rustler。Erlang モジュール名は `globe_mode_nif` | rustler |

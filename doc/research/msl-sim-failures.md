@@ -503,4 +503,32 @@ S021 が残した esdirk34 の件を調べた。確認日 2026-10-27。数字は
 ### 上流に報告する候補（S023 で足す）
 
 15. **diffsol の最初の刻みの見積もりが `min_timestep` を下回る**: `RkState::set_step_size`（`ode_solver/state.rs:1039-1100`）は `h0 = 0.01·‖y‖/‖f‖` を下限と比べない。状態がほぼ 0 で導関数が大きい点から始めると、最初の `step()` が 1 歩も試さずに「Step size is too small」で終わる。再現は `x(start = 3e-11)`、`der(x) = if time < 1 then 0 else 1e5`。diffsol の本家で同じかは【未確認】。
-16. **Rumoca の DAE の段が時間イベントの時刻を調整できるパラメータの既定値で畳む**: `time_event_instant` が `constant_context()` で評価するため、実行時のパラメータの上書き（`param_overrides`）が時刻に届かない。`Modelica.Electrical.Analog.Basic` の回路に `StepVoltage` を置き、`startTime` を上書きして確かめられる。Rumoca の LSP と wasm でも同じはず【未確認】。
+16. **Rumoca の DAE の段が時間イベントの時刻を調整できるパラメータの既定値で畳む**（S024 で改めた: 根の原因ではない。候補 18）: `time_event_instant` が `constant_context()` で評価するため、実行時のパラメータの上書き（`param_overrides`）が時刻に届かない。`Modelica.Electrical.Analog.Basic` の回路に `StepVoltage` を置き、`startTime` を上書きして確かめられる。Rumoca の LSP と wasm でも同じはず【未確認】。
+
+## S024 で直したもの
+
+調査はユーザーの指示でサブエージェント（Sonnet、effort high）に分けた。1 本が `ThyristorBehaviourTest` の計測、1 本が `--param` の直し方の見積もり（読むだけ）、もう 1 本が決めた直しの実装。
+
+### `--param` が同じ名前の修飾で写された値に届かない（直した）
+
+- S023 の見立て（時間イベントの時刻の畳み込み）は根の原因ではなかった。実行時の上書きは、内側の部品が同じ名前の修飾で外側の値を受け取る形（`SineVoltage V(f = 1)` の中の `signalSource(final f = f)`、`StepVoltage` の `startTime` など）では、外側の `V.f` だけを変えて内側には届かない。instantiate が外側の修飾の値を内側の束縛にそのまま書き込むため（rumoca-phase-instantiate の `mod_env.rs:694` の同じ名前の参照の解決、`:722` の `resolve_single_part_ref_expr` と読んだ。行までは追い切っていない【未確認】）。DAE の時点で内側のパラメータは、`final` なら評価済み（調整できない）、そうでなければ値の書かれた調整できるパラメータで、外側との依存は消えている。
+- 時間イベントの畳み込みを調整できるパラメータで止める 15 行の patch（rumoca-phase-dae の `analysis.rs`・`expression_events.rs`）を試すと、静的な時間イベントは `Dynamic(deadline)` になったが、変わったのは実行時の上書きで既に効いていた形だけで、`StepVoltage` の形は `static [1.0]` のまま。
+- 再現（2026-10-28 確認）: `SineVoltage V(V = 1, f = 1)` を R と接地に繋ぎ、`globe simulate --param V.f=2` で V.v(0.05) = 0.309（f = 1 のまま。正しくは sin(2π·2·0.05) = 0.588）。警告も出ない。
+- 直し: 上書きがあれば、ライブラリだけの session を複製して `Session::set_structural_overrides` で組み込んでからコンパイルする（[ADR-0022](../adr/0022-structural-parameter-overrides.md)）。同じ session で一度コンパイルした後に呼ぶと ED020（`DAE provenance references an unknown source`。解決済みの木の `source_map` に合成のソースが無い。`session_impl.rs:1322-1328`）で落ちるので、複製してから使う。
+- 結果（2026-10-28、WSL、release）: 上の `SineVoltage` は `--param V.f=2` で V.v(0.05) = 0.5878・V.v(0.1) = 0.9511（上書きなしは 0.309・0.5878 で変わらない）。`--param R.R=2` は前と同じ R.i(0.05) = 0.1545。`CauerLowPassSC` に `--param V.startTime=0.5 --stop-time 0.7` で V.v は t = 0.45 まで 0、0.5 から 1（前は全区間 0）。費用は `CauerLowPassSC` で複製と文書の追加 0.4 s・コンパイル約 2 s、最大 RSS 1.58 → 2.0〜2.1 GB（3 GB の WSL では swap に入り、壁時計は 7 s → 16〜26 s）。構造パラメータ・`final`・`Evaluate = true`・定数・無い名前は前と同じく GM-E10006 で断る。最小の再現 `GlobeModeValidation.Simulation.InlinedParameters` と試験 `structural_overrides_reach_bindings_inlined_by_same_name_modifications`。
+
+### esdirk34: `ThyristorBehaviourTest`（直していない。host の限界）
+
+- msl-sim の許容誤差は 1e-7（注釈に Tolerance が無いので 1e-6 の 0.1 倍）。1e-6・1e-8 でも落ちる。
+- サイリスタが t = 5.016723e-5 で消弧し（状態 y1 が IH = 0.006）、host が積分器を作り直す（`initial_state`）。diffsol の最初の刻みの見積もりは esdirk34（4 次）で 4.05e-6、trbdf2（2 次）で 5.37e-7（イベントの前の刻みは 2.3e-7）。イベントで vConmain が 5 → 0 になり、d(vControl)/dt が -3.6e3 → -5.26e5 に跳ぶので、1 歩で vControl が Von = 5 から Voff = 1.5 の帯（抵抗の混合が 0.04〜1e6 Ω の 5 桁）を横切る。
+- ESDIRK の第 2 段（c = 0.8717、t = 5.3698e-5）の Newton 法の初期値（Euler の点、vControl 3.177、y1 -0.657）は host で評価できるが、次の反復が y1 を 0.006 → 8.32 に飛ばし、その点で host の射影が失敗する。`derivative.rs:176-196` の `fail()` は `discards_failed_trials()`（`switches_reduced_charts()`、`chart_switch.rs:12`）が偽のとき失敗を復帰不能として記憶するので、diffsol が刻みを縮めて回し直しても GM-E11002 で止まる（候補 13 と同じ機構で、陰的 RK でも起きる）。
+- ヤコビ行列の点（S022 の直し）は効かない（Euler の予測点で取っても落ちる）。受理点から遠い試しの点を host に渡さず NaN を返す番人も効かない（host の射影は前の解から始めるので、遠い点で失敗すると受理点の近くでも失敗が続く。1 回の計測からの推測【未確認】）。
+- 再開の刻みを小さくすると通る: 見積もりの 0.9 倍（3.6e-6）で通り、1 倍（4.05e-6）で落ちる。イベントの前の刻みの 4 倍で抑えても通る（`OvervoltageProtection`・`HeatingRectifier`・`CauerLowPassSC` の出力は変わらない）。崖が見積もりのすぐ下にある調整の値で、host の限界を避けるだけなので入れていない。
+- 通しても管には収まらない見込み: esdirk34 は最初の 2e-5 を 1 歩で進み、その間の出力（diffsol の Hermite の補間、`runge_kutta.rs:984-1005`）が硬い準静的な変数（Roff ≈ 1e6）で外れる（`Cathode.v` が 5.98 V、bdf は約 0）。補間は刻みの始めの導関数 f(y_n) ≈ 0 を使うが、真の傾きは 1.9。刻みの端の値は 3 つのソルバで一致する。
+
+### 上流に報告する候補（S024 で足す）
+
+17. **`set_structural_overrides` を一度コンパイルした session で呼ぶと ED020**: 平坦化と DAE のキャッシュだけを消し、解決済みの木の `source_map` に合成の上書きのソースが入らない（`session_impl.rs:1322-1328`）。上流の単体試験は最初のコンパイルの前に上書きを置くので通っている。名前の誤りも黙って無視する。
+18. **同じ名前の修飾の値を内側の束縛に書き込むので、実行時のパラメータの上書きが内側に届かない**: `SineVoltage` の `f`・`phase`・`startTime`、`StepVoltage` の `startTime` など。黙って誤った結果になる。候補 16 の時間イベントの時刻もこれの現れ。
+19. **host の射影の失敗を、陰的 RK の試しの点でも復帰不能として記憶する**: 候補 13 を陰的 RK に広げたもの。再現は `ThyristorBehaviourTest` の esdirk34。
+20. **diffsol の Hermite の補間が硬い準静的な変数で外れる**: 刻みの始めの導関数だけで補間するため。刻みの端は正しい。
