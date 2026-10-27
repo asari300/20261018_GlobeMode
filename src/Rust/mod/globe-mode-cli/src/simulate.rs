@@ -263,7 +263,7 @@ pub(crate) fn simulate(args: SimulateArgs) -> ExitCode {
             )),
         );
     }
-    let compiled = match db.compiled_model(model) {
+    let compiled = match db.compiled_model_with_overrides(model, &args.settings.parameters) {
         Ok(c) => c,
         Err(ds) => {
             diagnostics.extend(ds);

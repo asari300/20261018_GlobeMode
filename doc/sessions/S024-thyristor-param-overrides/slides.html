@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S024 サイリスタと時間イベントの上書き — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S024 サイリスタと時間イベントの上書き">
+
+<section class="slide" id="S01">
+  <span class="tag">S024 · 2026-10-28 · P3</span>
+  <h1>サイリスタと時間イベントの上書き</h1>
+  <p class="lead">--param は時間イベントだけでなく、同じ名前の修飾で写された値にも届かず、黙って誤っていた。上書きを組み込んでコンパイルし直すようにした（ADR-0022）。ThyristorBehaviourTest は host の限界で、直さずに分類した</p>
+  <div class="big">SineVoltage に --param V.f=2: V.v(0.05) = 0.309 → <b>0.588</b>。CauerLowPassSC の V.startTime=0.5 も t = 0.5 で立ち上がる</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>S023 の残し: esdirk34 の ThyristorBehaviourTest（消弧の逆回復で射影が発散）</li>
+    <li>S023 の残し: --param で時間イベントの時刻が変わらない件の手元での直し方</li>
+    <li>サブエージェント（Sonnet、high）3 本: サイリスタの計測 / 直し方の見積もり / 実装</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">原因</span>
+  <h1>実行時の上書きが内側に届かない</h1>
+  <table>
+    <tr><th>形</th><th>実行時の上書き</th><th>結果</th></tr>
+    <tr><td>SineVoltage V(f = 1) の signalSource(final f = f)</td><td>V.f だけが 2、内側の f は 1 のまま</td><td>黙って誤る</td></tr>
+    <tr><td>StepVoltage の startTime</td><td>時間イベントは既定の時刻のまま</td><td>黙って誤る</td></tr>
+    <tr><td>R.R、V.offset</td><td>そのまま効く</td><td>正しい</td></tr>
+  </table>
+  <p>Rumoca の instantiate が外側の値を内側の束縛に書き込むので、DAE には依存が残らない。警告で見分けることもできない</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table>
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>--param</td><td>上書きがあれば pristine を複製して組み込んでからコンパイル</td><td>ソースを書き換えたのと同じ結果。変換済みの session に足すと ED020</td></tr>
+    <tr><td>型</td><td>既定の DAE の型で Real・Int・Bool</td><td>Real を Integer に渡すと落ちる</td></tr>
+    <tr><td>失敗</td><td>診断を返す。既定に戻さない</td><td>戻すと黙って誤る</td></tr>
+    <tr><td>ThyristorBehaviourTest</td><td>直さない（候補 19・20）</td><td>host の失敗の記憶。刻み 0.9 倍で通る崖の調整</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">図</span>
+  <h1>上書きの 2 つの道</h1>
+  <svg class="fig" viewBox="0 0 800 300" role="img" aria-label="実行時の上書きと構造的な上書き">
+    <rect class="svg-box" x="20" y="110" width="180" height="80" rx="10"/>
+    <text class="svg-text-b" x="110" y="145" text-anchor="middle">--param V.f=2</text>
+    <text class="svg-text" x="110" y="170" text-anchor="middle">SineVoltage V(f = 1)</text>
+    <line class="svg-line" x1="200" y1="130" x2="270" y2="70"/>
+    <line class="svg-line" x1="200" y1="170" x2="270" y2="230"/>
+    <rect class="svg-box-warn" x="270" y="30" width="260" height="80" rx="10"/>
+    <text class="svg-text-b" x="400" y="62" text-anchor="middle">実行時だけ（S023 まで）</text>
+    <text class="svg-text" x="400" y="88" text-anchor="middle">内側の f は 1 のまま</text>
+    <rect class="svg-box-accent" x="270" y="190" width="260" height="80" rx="10"/>
+    <text class="svg-text-b" x="400" y="222" text-anchor="middle">組み込んでコンパイル</text>
+    <text class="svg-text" x="400" y="248" text-anchor="middle">pristine の複製で（S024）</text>
+    <line class="svg-line" x1="530" y1="70" x2="590" y2="70"/>
+    <line class="svg-line" x1="530" y1="230" x2="590" y2="230"/>
+    <rect class="svg-box-warn" x="590" y="30" width="190" height="80" rx="10"/>
+    <text class="svg-text-b" x="685" y="62" text-anchor="middle">V.v(0.05) = 0.309</text>
+    <text class="svg-text" x="685" y="88" text-anchor="middle">黙って誤る</text>
+    <rect class="svg-box-accent" x="590" y="190" width="190" height="80" rx="10"/>
+    <text class="svg-text-b" x="685" y="222" text-anchor="middle">0.588</text>
+    <text class="svg-text" x="685" y="248" text-anchor="middle">sin(2π·2·0.05)</text>
+  </svg>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>target/release/globe simulate -L data/msl SineF.mo -m SineF \
+  --solver bdf --interval 0.05 --param V.f=2
+target/release/globe simulate -L src/Modelica \
+  -m GlobeModeValidation.Simulation.InlinedParameters --param src.startTime=0.5
+mise run msl:compare &amp;&amp; mise run wasm:node &amp;&amp; mise run wasm:compare &amp;&amp; mise run check</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">0.588</span><span class="l">V.f=2 の V.v(0.05)（前は 0.309）</span></div>
+    <div class="kpi"><span class="n">約 2 s</span><span class="l">上書きのある実行で増えるコンパイル</span></div>
+    <div class="kpi"><span class="n">492</span><span class="l">テスト通過</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>上流への報告の候補 17〜20（ユーザーが出す）</li>
+    <li>配列の要素のパラメータの上書き、wasm での費用は確かめていない</li>
+    <li>roadmap の候補 1（止まった例題の残り）・3（ブラウザ）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

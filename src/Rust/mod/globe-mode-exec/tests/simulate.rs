@@ -775,6 +775,48 @@ fn a_tunable_parameter_is_overridden_without_recompiling() {
     assert_close(last(&run, "y[1]"), 2.0, 1e-12, "c = 2");
 }
 
+/// 構造的な上書き（S024）。既定を変換した後に同じ検査器で上書きを変換する（変換済みの Session に足すと ED020）。
+#[test]
+fn structural_overrides_reach_bindings_inlined_by_same_name_modifications() {
+    let sources: Vec<Source<'_>> = package_files()
+        .iter()
+        .map(|(n, t)| Source { name: n, text: t })
+        .collect();
+    let checker = Checker::new(&[]).unwrap();
+    let name = "GlobeModeValidation.Simulation.InlinedParameters";
+    let with = |p: &[(&str, f64)]| {
+        let overrides = p.iter().map(|(n, v)| (n.to_string(), *v)).collect();
+        checker
+            .compile_retaining_with_overrides(&sources, name, &overrides)
+            .unwrap_or_else(|d| panic!("{p:?}: {d:#?}"))
+    };
+    let y_z = |model: &CompiledModel| {
+        let run = simulate(model, &settings(model, SolverId::Bdf)).unwrap();
+        (last(&run, "src.y"), last(&run, "z"))
+    };
+    // 既定: startTime = 1 なので t = 1 で y = 0、z = n = 2
+    assert_eq!(y_z(&with(&[])), (0.0, 2.0));
+    // 実行時の上書きだけでは内側の r.startTime が 1 のまま（y = 0）。構造的に上書きすれば t = 1 で y = 0.5
+    let model = with(&[("src.startTime", 0.5)]);
+    let s = with_parameters(&model, SolverId::Bdf, &[("src.startTime", 0.5)]);
+    let run = simulate(&model, &s).unwrap();
+    assert_close(last(&run, "src.y"), 0.5, 1e-9, "src.startTime = 0.5");
+    // Integer は Int、Boolean は Bool で渡る（Real で渡すと ET000）。実行時の上書きは構造パラメータを断るので渡さない
+    assert_eq!(y_z(&with(&[("n", 3.0)])).1, 3.0);
+    assert_eq!(y_z(&with(&[("on", 0.0)])).1, 0.0);
+    // 知らない名前と有限でない値は渡さない（実行時の上書きが GM-E10006 で断る）
+    assert_eq!(
+        y_z(&with(&[("nosuch", 1.0), ("src.startTime", f64::NAN)])).0,
+        0.0
+    );
+    // final の修飾（final startTime = startTime）は上書きできず、変換の診断になる（EI028）
+    let overrides = [("src.r.startTime".to_string(), 2.0)].into_iter().collect();
+    let d = checker
+        .compile_retaining_with_overrides(&sources, name, &overrides)
+        .expect_err("final の上書き");
+    assert!(d.iter().any(|d| d.message.contains("final")), "{d:#?}");
+}
+
 #[test]
 fn parameters_that_cannot_change_are_rejected_before_running() {
     let model = compile("Parameters");

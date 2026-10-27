@@ -186,7 +186,7 @@ impl Workspace {
             ));
             return finish(response, timings);
         }
-        let compiled = match db.compiled_model(model) {
+        let compiled = match db.compiled_model_with_overrides(model, &request.settings.parameters) {
             Ok(c) => c,
             Err(ds) => {
                 response.diagnostics.extend(ds);

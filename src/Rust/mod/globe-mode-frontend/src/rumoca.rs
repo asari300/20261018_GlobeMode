@@ -13,10 +13,12 @@ use globe_mode_ir::{
     DaeCounts, Experiment, FlatSummary, Outline,
 };
 use rumoca_compile::compile::{
-    Dae, FailedPhase, FlatModel, PhaseResult, SourceRootKind, StrictCompileReport, VariableRole,
+    Dae, FailedPhase, FlatModel, PhaseResult, SourceRootKind, StrictCompileReport,
+    StructuralOverride, VariableRole,
 };
 use rumoca_compile::parsing::{ParseError, ast};
 use rumoca_compile::{Session, SessionConfig};
+use rumoca_ir_dae::ScalarType;
 
 use crate::{CheckReport, Frontend, Source};
 
@@ -336,31 +338,59 @@ impl Checker {
         }
         let mut state = self.lock();
         sync_documents(&mut state, sources, Some(self.owner)).map_err(|d| vec![d])?;
-        match state.session.compile_model_strict(model) {
-            Ok(compilation) => {
-                let result = compilation.result();
-                Ok(CompiledModel {
-                    model: model.to_string(),
-                    experiment: crate::preflight::experiment_for_model(result, model),
-                    dae: Arc::clone(&result.dae),
-                })
-            }
-            Err(strict) => {
-                let (d, rumoca_code) = strict_failure_diagnostic(&strict);
-                let d = match rumoca_code
-                    .as_deref()
-                    .and_then(|c| crate::unsupported::classify(model, c))
-                {
-                    Some(u) => {
-                        let mut d = d.note(u.reason);
-                        d.code = u.code;
-                        d
-                    }
-                    None => d,
-                };
-                Err(vec![d])
-            }
+        compile_strict(&mut state.session, model)
+    }
+
+    /// [`Checker::compile_retaining`] と同じ。ただし `overrides`（パラメータ名 → 値）を、ソースの修飾を直したのと同じに
+    /// 構造へ反映してから変換する（Rumoca の構造的な上書き）。空なら `compile_retaining` そのもの。
+    ///
+    /// 実行時の上書き（`SimOptions::param_overrides`）は、インスタンス化で同名の修飾が展開済みの束縛
+    /// （`SineVoltage V(f = 1)` の中の `signalSource(final f = f)`）や、静的に畳んだ時間イベントに届かない。
+    /// こちらは束縛そのものを書き換える。ライブラリだけを読んだ写し（`pristine`）に `sources` を足して変換するので、
+    /// 既定のモデルを変換済みの Session には触れない（変換済みの Session に上書きを足すと ED020）。
+    ///
+    /// 型は既定のモデル（`compile_retaining`、検査の直後ならキャッシュから返る）の DAE から読む。見つからない名前
+    /// と数値でない型は渡さない（名前の誤りは実行時の上書きが GM-E10006 で断る）。`final` などで失敗したら、
+    /// その診断（`compile_retaining` と同じ形）を返す。
+    pub fn compile_retaining_with_overrides(
+        &self,
+        sources: &[Source<'_>],
+        model: &str,
+        overrides: &BTreeMap<String, f64>,
+    ) -> Result<CompiledModel, Vec<Diagnostic>> {
+        let default = self.compile_retaining(sources, model)?;
+        if overrides.is_empty() {
+            return Ok(default);
         }
+        let types: HashMap<String, ScalarType> = default.dae.inspect(|view| {
+            view.variables()
+                .map(|(_, v)| (v.name().to_string(), v.value_type().scalar_type()))
+                .collect()
+        });
+        let typed: Vec<(String, StructuralOverride)> = overrides
+            .iter()
+            .filter_map(|(name, &value)| {
+                // 有限でない値は実行時の上書きが断る（GM-E10006）
+                let typed = match types.get(name).filter(|_| value.is_finite())? {
+                    ScalarType::Real => StructuralOverride::Real(value),
+                    ScalarType::Integer => StructuralOverride::Int(value.round() as i64),
+                    ScalarType::Boolean => StructuralOverride::Bool(value != 0.0),
+                    _ => return None,
+                };
+                Some((name.clone(), typed))
+            })
+            .collect();
+        if typed.is_empty() {
+            return Ok(default);
+        }
+        let mut session = self.lock().pristine.clone();
+        for s in sources {
+            session.add_document(s.name, s.text).map_err(|e| {
+                vec![Diagnostic::error(codes::RESOLVE, Stage::S1, e.to_string()).at(s.name, None)]
+            })?;
+        }
+        session.set_structural_overrides(&typed);
+        compile_strict(&mut session, model)
     }
 
     /// この取っ手が [`Checker::check_retaining`] で足し、いま Session に残してある文書なら true。
@@ -582,6 +612,35 @@ fn syntax_diagnostics(sources: &[Source<'_>]) -> Vec<Diagnostic> {
         }
     }
     out
+}
+
+/// `model` を DAE まで変換する。失敗は [`Checker::check`] と同じ診断（S0〜S5、GM-U）にする。
+fn compile_strict(session: &mut Session, model: &str) -> Result<CompiledModel, Vec<Diagnostic>> {
+    match session.compile_model_strict(model) {
+        Ok(compilation) => {
+            let result = compilation.result();
+            Ok(CompiledModel {
+                model: model.to_string(),
+                experiment: crate::preflight::experiment_for_model(result, model),
+                dae: Arc::clone(&result.dae),
+            })
+        }
+        Err(strict) => {
+            let (d, rumoca_code) = strict_failure_diagnostic(&strict);
+            let d = match rumoca_code
+                .as_deref()
+                .and_then(|c| crate::unsupported::classify(model, c))
+            {
+                Some(u) => {
+                    let mut d = d.note(u.reason);
+                    d.code = u.code;
+                    d
+                }
+                None => d,
+            };
+            Err(vec![d])
+        }
+    }
 }
 
 /// Session の文書を `sources` にそろえる。本文が変わっていない文書は触らない

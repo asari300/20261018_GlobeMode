@@ -660,6 +660,16 @@ impl GlobeDb {
     /// Rumoca はモデルごとのキャッシュから返す。失敗の診断の位置は元の本文に戻す。DAE の中の位置は
     /// 正規化した本文の中のまま（実行系は位置を使わない）。
     pub fn compiled_model(&mut self, model: &str) -> Result<CompiledModel, Vec<Diagnostic>> {
+        self.compiled_model_with_overrides(model, &BTreeMap::new())
+    }
+
+    /// [`GlobeDb::compiled_model`] と同じ。ただし `overrides`（パラメータ名 → 値）をモデルの構造へ反映する
+    /// （[`Checker::compile_retaining_with_overrides`]）。空なら `compiled_model` と同じ。
+    pub fn compiled_model_with_overrides(
+        &mut self,
+        model: &str,
+        overrides: &BTreeMap<String, f64>,
+    ) -> Result<CompiledModel, Vec<Diagnostic>> {
         let ws = self.workspace();
         let request = CheckRequest::new(self, model.to_string());
         let files = deps_closure(self, ws, request);
@@ -672,7 +682,7 @@ impl GlobeDb {
             .map(|(name, text)| Source { name, text })
             .collect();
         self.checker()
-            .compile_retaining(&sources, model)
+            .compile_retaining_with_overrides(&sources, model, overrides)
             .map_err(|ds| ds.iter().map(|d| self.to_original(d)).collect())
     }
 
