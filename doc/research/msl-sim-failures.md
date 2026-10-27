@@ -455,3 +455,29 @@ S016 の EngineV6 の原因（初期化方程式が読む関係式の反転で R
 
 12. **diffsol の SDIRK が Newton 法の失敗を積分全体で累積して上限と比べる**: `vendor/diffsol/src/ode_solver/runge_kutta.rs:849-872`（`solve_fail`）。BDF は 1 歩の中で数える（`bdf.rs:1356-1359`）。切り替えの多いモデルは 50 回で止まる。再現は `GlobeModeValidation.Simulation.DiodeSwitching` を esdirk34 で。diffsol の本家（https://github.com/martinjrobins/diffsol ）で同じかは【未確認】。
 13. **陽的 RK の試しの点で代数の射影が発散すると、刻みを縮めて再試行できず失敗で終わる**: `crates/rumoca-solver/src/fmi_me/integrator/derivative.rs:176-196`。`SimpleTriacCircuit` を `dopri45` で `--stop-time 2e-5`。BDF では Newton 法の予測子が近いので当たらない。
+
+## S022 で直したもの
+
+S021 が残した esdirk34 の件を調べた。確認日 2026-10-27。数字は S022 の作業記録。
+
+### esdirk34・trbdf2: diffsol の SDIRK がヤコビ行列を間違った点で取る（直した）
+
+- `OvervoltageProtection` を esdirk34 で回すと終了時刻まで進むが、ツェナーの降伏（t ≈ 0.018）から参照とずれ、CL.v(0.4) = -1.64 V（参照と bdf は -0.0006 V）。出力の `zDiode.i` = -7.4 A は、その `CL.v` に対しては正しい解（ZDiode の既定 Ibv = 0.7 A の指数の枝）で、代数ループは与えられた状態に対して正しく解けている。誤っているのは状態の軌道の方。
+- 原因は diffsol（0.13.2、Rumoca の vendor）の SDIRK。段の方程式は `F(x) = M x − h f(phi + c x)`（`op/sdirk.rs`）で、ヤコビ行列を取り直すとき `ode_solver/runge_kutta.rs:637` と `ode_solver/sdirk.rs:261,277`（`jacobian_updates`）が段の未知数 `x` の位置に状態 `y` をそのまま渡す（コードのコメントは「x は何でもよい」）。`jacobian_inplace` は `phi + c·y`（phi ≈ y_n なので y_n の約 1.4 倍の点）で部品の `f'` を呼ぶ。ツェナーの指数ではその点の `J` が 1e15（正しい点では 5e5）になり、Newton 法の更新量 `r / (1 − hγJ)` も、同じ行列で解く埋め込みの誤差の見積もりも 1e12 分の 1 に潰れる。解けていない段と大きな刻みをそのまま受理する。計測では、受理した点 `t = 0.0184, CL.v = 5.41` の導関数が -2.8e5 で、段の評価の後に Newton 法が `CL.v = -3839` まで飛んでから「収束」していた。
+- 直し方: `globe-mode-exec/src/rumoca/plugins/rk.rs` のヤコビ行列の閉包で、diffsol が渡す点を使わず、刻みの始めの受理した状態（`anchor`）で `directional_derivative_into` を呼ぶ。刻みの中では一歩分だけ古いヤコビ行列になるが、SDIRK はもともと刻みの中で行列を使い回す。
+- 直した後: esdirk34 の CL.v(0.4) = -0.00061562（bdf -0.00061563）、t = 0.02 の `CL.v`・`zDiode.i`・`Rv.i` が bdf と 5 桁で一致。trbdf2 も通る（直す前は射影の発散で止まっていた）。esdirk34 の `--tolerance 1e-7`（直す前は「accepted step … made no progress beyond roundoff」の契約違反 GM-U0005）も通る。`DiodeSwitching` の esdirk34・trbdf2 は bdf と 1.3e-6・1.9e-6 で一致（直す前は 1.3e-5）。回帰の試験の許容を 1e-4 から 1e-5 に締めた。
+- 直す前に `--tolerance 1e-8` にすると正しい値になるが 32 s かかる（直した後は 0.15 s）。許容誤差を締めても、ずれた点のヤコビ行列を力ずくで埋め合わせているだけ。
+- 残り: `--tolerance 1e-5` では esdirk34・trbdf2 とも t ≈ 0.225 で射影の発散（Newton 法が `CL.v = 7.6, f = -2e15` から -4e9 へ飛び、host がその点の代数ループを解けず、失敗を復帰不能として記憶する。候補 13 と同じ機構）。試しの点が受理点から 1e3 倍以上離れたら host を呼ばずに NaN を返す案は効いた（1e-5 で -0.00062）が、閾値が恣意的なので入れていない。
+- 上流への報告の候補 14（下）。
+
+### esdirk34 の残り 3 本の分類
+
+- **`HeatingRectifier`**（直った）: 直す前は t ∈ (3.12, 3.13] で射影の発散（`HeatingDiode1.auxp` = -6.3e4）。そこは bdf でダイオードが点き、t = 3.12 で v = 0.396、i = 2.0 A、Maxexp = 15 の線形の続きに入る所。残差の値が許容誤差に対して単調でなく（1e-4 で -1.2e4、1e-8 で i = 104）、軌道から遠い試しの点だった。上のヤコビ行列の直しで esdirk34（既定・1e-5・1e-7・1e-8）と trbdf2 が通る。tsit45・dopri45 は候補 13 の機構で落ちたまま。
+- **`ThyristorBehaviourTest`**（esdirk34 だけ残る）: t ∈ (5.3e-5, 5.5e-5] で射影の発散（`thyristor_v4_1.vAK`）。bdf ではサイリスタが 5.017e-5 で消弧し、逆回復で Anode.i が -0.40、vAK が -1.4 → -7.0 に動く所。vControl が Voff = 1.5 と Von = 5 の間にあり、導通の混合が約 5 桁（Ron 0.04、Roff 9.8e5）に広がるので残差が状態の小さな誤差に敏感。直す前の残差は許容誤差 1e-5〜1e-8 で -0.36 とほぼ一定（軌道の近く）、直した後は +8.3 に変わり失敗のまま。trbdf2 は直した後に通る。host の射影が硬い混合で失敗する（候補 13 の機構）と見るが、ESDIRK34 の段の点が関わる可能性もある【未確認、確信は低い】。
+- **`CauerLowPassSC`**（残る）: esdirk34・trbdf2 とも「Step size is too small at time = 1.05」。1.05 はスイッチトキャパシタの BooleanPulse（周期 0.1）の立ち下がりで、V.v が t = 1 で立ち上がった後の最初の電荷の移動（bdf では C1.i が -5.1e4 の尖り）。終了時刻 1.05 では通り 1.2 で落ちるので、イベントの後の再開で刻みが縮む。許容誤差 3e-6 以上と V.V ≤ 0.1 では通り、2e-6 以下と V.V ≥ 1 で落ちる（閾値が V / tol のように動くので絶対誤差が効いている）。出力の間隔は効かない。tsit45・dopri45・bdf は通る。刻みの下限は 1e-13 なので、再開の点から 10 桁以上縮んでも 1 歩も通らないことになり、丸めや条件数では説明がつかない。試しの点の NaN（host の失敗の記憶。`advance` は `step()` の誤りを先に返すので、記憶した失敗が「刻みが小さすぎる」の文言で出る）か、イベントの時刻の分解能の問題【未確認】。次は再開の後の刻みの列と NaN の回数を計測する。
+- 副次の発見: `globe simulate --param V.startTime=0.5` は `--list-parameters` に載っているのに効かない（`CauerLowPassSC` を bdf で `--stop-time 0.7` にしても V.v = 0 のまま。`V.V` は効く）。時間イベントに使うパラメータの上書きが積分の予定に届いていない見込み【未確認】。S022 では直していない。
+
+### 上流に報告する候補（S022 で足す）
+
+14. **diffsol の SDIRK がヤコビ行列を段の未知数ではなく状態の点で取る**: `vendor/diffsol/src/ode_solver/runge_kutta.rs:637`・`ode_solver/sdirk.rs:261,277` が `reset_jacobian(op, &state.y, t)` を呼び、`op/sdirk.rs` の `jacobian_inplace` が `phi + c·y` で `f'` を評価する。指数で立ち上がる式では Newton 法と誤差の見積もりが盲目になり、誤った軌道を黙って受理する。再現は `Modelica.Electrical.Analog.Examples.OvervoltageProtection` を esdirk34 で（CL.v(0.4) が -1.64、参照 -0.0006）。diffsol の本家で同じかは【未確認】。
+
