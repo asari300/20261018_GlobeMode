@@ -318,3 +318,19 @@ fn sdirk_survives_more_than_fifty_newton_failures() {
         "esdirk34 v(0.0985)（bdf と）",
     );
 }
+
+/// ほぼ 0 の状態から大きな導関数で再開しても、RK は最初の刻みを下限より上に取って進む（S023）。
+/// 直す前は esdirk34・trbdf2・tsit45 とも t = 1 の再開で「Step size is too small」で止まった。
+#[test]
+fn rk_restarts_from_a_tiny_state_with_a_large_derivative() {
+    let model = compile("TinyStateRestart");
+    for solver in ADAPTIVE {
+        let run = run_with(&model, solver, None);
+        assert_close(
+            last(&run, "x"),
+            1e5,
+            1e-6,
+            &format!("{} x(2)", solver.name()),
+        );
+    }
+}

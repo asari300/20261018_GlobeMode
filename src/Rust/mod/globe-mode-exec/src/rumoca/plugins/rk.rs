@@ -516,6 +516,15 @@ fn initial_state(
         *values.t = point.time();
     }
     state.set_step_size(problem.h0, &problem.atol, problem.rtol, &problem.eqn, order);
+    // diffsol の最初の刻みの見積もり（Hairer）は `h0 = 0.01·‖y‖/‖f‖`（重みは atol + rtol|y|）で、状態がほぼ 0
+    // のまま導関数だけが大きい再開（スイッチトキャパシタの立ち下がり: ‖f‖ 1e11、h = 2e-16）だと `min_timestep`
+    // を下回り、最初の `step()` が 1 歩も試さずに「Step size is too small」で終わる。下限の 10 倍に持ち上げる。
+    // 刻みは 1 歩ごとに 2 倍に伸びるので、必要な刻みまで十数歩で届く
+    let values = state.as_mut();
+    let floor = 10.0 * problem.ode_options.min_timestep;
+    if values.h.abs() < floor {
+        *values.h = floor.copysign(*values.h);
+    }
     Ok(state)
 }
 
