@@ -310,10 +310,11 @@ fn sdirk_survives_more_than_fifty_newton_failures() {
     // trbdf2 も同じ直しで通る（release で 1.7 s、v の差 2e-6）が、debug では 60 s の予算を超えるので回さない
     let run = run_with(&model, SolverId::Esdirk34, None);
     assert_eq!(last(&run, "k"), 98.0, "esdirk34 の切り替えの回数");
+    // S022 でヤコビ行列を刻みの始めの状態で取るようにして、bdf との差は 1.3e-5 から 1e-6 以下になった
     assert_close(
         last(&run, "v"),
         last(&bdf, "v"),
-        1e-4,
+        1e-5,
         "esdirk34 v(0.0985)（bdf と）",
     );
 }

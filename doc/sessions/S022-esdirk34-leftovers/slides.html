@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S022 esdirk34 の残り — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S022 esdirk34 の残り">
+
+<section class="slide" id="S01">
+  <span class="tag">S022 · 2026-10-27 · P3</span>
+  <h1>esdirk34 の残り</h1>
+  <p class="lead">OvervoltageProtection で黙って誤った軌道になる原因は、diffsol の SDIRK がヤコビ行列を状態の約 1.4 倍の点で取ること。刻みの始めの状態で取るようにして直した</p>
+  <div class="big">Electrical.Analog.Examples 54 本の esdirk34: 実行 45 → <b>48</b>、管 42 → <b>46</b>。trbdf2 も 48・45。全体 356 本は 282・273 / 281（S021 は 272・262 / 271）</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>S021 の残し: esdirk34 が OvervoltageProtection で終了時刻まで進むが誤った軌道になる（CL.v(0.4) = -1.64 V、参照 -0.0006 V）</li>
+    <li>残りの 3 本（CauerLowPassSC・HeatingRectifier・ThyristorBehaviourTest）の原因の分類</li>
+    <li>調査はサブエージェント（Sonnet、high）2 本に分けた: 機構と直し / 3 本の分類</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">原因</span>
+  <h1>ヤコビ行列を間違った点で取っていた</h1>
+  <table>
+    <tr><th>どこ</th><th>何をしている</th><th>結果</th></tr>
+    <tr><td>diffsol op/sdirk.rs</td><td>段の方程式 F(x) = M x − h f(phi + c x)。ヤコビ行列は phi + c·x で f' を呼ぶ</td><td>x が段の未知数なら正しい</td></tr>
+    <tr><td>runge_kutta.rs:637、sdirk.rs:261,277</td><td>reset_jacobian(op, &amp;state.y, t)。x の位置に状態 y を渡す</td><td>phi + c·y ≈ 1.4 倍の電圧で f' を取る</td></tr>
+    <tr><td>ツェナーの指数</td><td>その点の J は 1e15（正しい点では 5e5）</td><td>Newton 法の更新量と誤差の見積もりが 1e12 分の 1 に潰れる</td></tr>
+  </table>
+  <p>受理した点 t = 0.0184、CL.v = 5.41 の導関数は -2.8e5。段の Newton 法は CL.v = -3839 まで飛んでから「収束」していた。代数ループは与えられた状態に対しては正しく解けている</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table>
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>ヤコビ行列の点</td><td>diffsol が渡す点を使わず、刻みの始めの受理した状態（anchor）で取る</td><td>一歩分だけ古いが、SDIRK はもともと刻みの中で行列を使い回す。rk.rs の閉包だけで済み、vendor を patch しない</td></tr>
+    <tr><td>試しの点の番人</td><td>入れない</td><td>受理点から 1e3 倍離れたら NaN を返す案は 1e-5 で効いたが閾値が恣意的</td></tr>
+    <tr><td>回帰の試験</td><td>DiodeSwitching の許容を 1e-4 → 1e-5</td><td>直す前の差 1.3e-5 で落ち、直した後は 1.3e-6。新しいモデルは足さない</td></tr>
+    <tr><td>CauerLowPassSC・ThyristorBehaviourTest</td><td>分類だけ。直さない</td><td>前者は再開の後に刻みが縮む（未分類）、後者は host の射影（確信は低い）</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">図</span>
+  <h1>SDIRK の 1 歩で何が起きていたか</h1>
+  <svg class="fig" viewBox="0 0 800 300" role="img" aria-label="ヤコビ行列の評価点">
+    <rect class="svg-box" x="20" y="110" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="120" y="145" text-anchor="middle">刻みの始め y_n = 5.1 V</text>
+    <text class="svg-text" x="120" y="170" text-anchor="middle">正しい J = 5e5</text>
+    <line class="svg-line" x1="220" y1="130" x2="300" y2="70"/>
+    <line class="svg-line" x1="220" y1="170" x2="300" y2="230"/>
+    <rect class="svg-box-warn" x="300" y="30" width="260" height="80" rx="10"/>
+    <text class="svg-text-b" x="430" y="62" text-anchor="middle">diffsol: phi + c·y ≈ 7.8 V</text>
+    <text class="svg-text" x="430" y="88" text-anchor="middle">J = 1e15、更新量が 1e12 分の 1</text>
+    <rect class="svg-box-accent" x="300" y="190" width="260" height="80" rx="10"/>
+    <text class="svg-text-b" x="430" y="222" text-anchor="middle">S022: anchor = y_n</text>
+    <text class="svg-text" x="430" y="248" text-anchor="middle">rk.rs の閉包で点を差し替え</text>
+    <line class="svg-line" x1="560" y1="70" x2="610" y2="70"/>
+    <line class="svg-line" x1="560" y1="230" x2="610" y2="230"/>
+    <rect class="svg-box-warn" x="610" y="30" width="170" height="80" rx="10"/>
+    <text class="svg-text-b" x="695" y="62" text-anchor="middle">CL.v(0.4) = -1.64</text>
+    <text class="svg-text" x="695" y="88" text-anchor="middle">黙って誤った軌道</text>
+    <rect class="svg-box-accent" x="610" y="190" width="170" height="80" rx="10"/>
+    <text class="svg-text-b" x="695" y="222" text-anchor="middle">-0.00062</text>
+    <text class="svg-text" x="695" y="248" text-anchor="middle">bdf と 5 桁で一致</text>
+  </svg>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>target/release/globe simulate -L data/msl \
+  -m Modelica.Electrical.Analog.Examples.OvervoltageProtection --solver esdirk34   # CL.v(0.4)
+cargo xtask msl-sim --only Modelica.Electrical.Analog.Examples --solver esdirk34 \
+  --tolerance-scale 0.1 --wall-seconds 30 --retry-wall-seconds 0
+cargo xtask msl-sim --solver esdirk34 --tolerance-scale 0.1 --wall-seconds 30 --retry-wall-seconds 0
+mise run wasm:node &amp;&amp; mise run wasm:compare &amp;&amp; mise run check</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">48 / 54</span><span class="l">esdirk34 が実行（S021 は 45）</span></div>
+    <div class="kpi"><span class="n">46</span><span class="l">管に収まった（S021 は 42）</span></div>
+    <div class="kpi"><span class="n">282</span><span class="l">全体 356 本で esdirk34 が実行（S021 は 272）</span></div>
+    <div class="kpi"><span class="n">490</span><span class="l">テスト通過</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>CauerLowPassSC: t = 1.05 のイベントの後の再開で刻みが 1e-13 まで縮む。再開の後の刻みの列と NaN の回数を計測する（host の失敗の記憶が「刻みが小さすぎる」の文言で出ている可能性）</li>
+    <li>ThyristorBehaviourTest: esdirk34 だけ消弧の逆回復で射影が発散（trbdf2 は通る）</li>
+    <li>--param で時間イベントのパラメータ（V.startTime）を上書きしても効かない</li>
+    <li>上流への報告の候補 14（diffsol の SDIRK のヤコビ行列の点。ユーザーが出す）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

@@ -9,7 +9,10 @@
 //! `ClosureNoJac` は公開されておらず、self_cell に入れる型を書けないため。陽的 RK はヤコビ行列を呼ばない
 //! （build のときの疎の形の探りだけ。部品が状態ヤコビ行列の構造を持たなければ空の形で答える）。
 
-use std::{cell::Cell, rc::Rc};
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+};
 
 use diffsol::{
     Closure, ConstantClosure, DiffsolError, FaerSparseLU, FaerSparseMat, MatrixCommon, OdeBuilder,
@@ -123,6 +126,8 @@ pub(super) struct DiffsolRk {
     method: Method,
     setup: MeNumericalSetup,
     derivatives: Option<Rc<MeDerivativeHandle>>,
+    /// 受理した最新の状態。SDIRK のヤコビ行列はこの点で取る（`build_problem` を見よ）
+    anchor: Rc<RefCell<Vec<f64>>>,
     solver: Option<Solver>,
     accepted_interval: Option<(f64, f64)>,
 }
@@ -133,6 +138,7 @@ impl DiffsolRk {
             method,
             setup,
             derivatives: None,
+            anchor: Rc::new(RefCell::new(Vec::new())),
             solver: None,
             accepted_interval: None,
         }
@@ -160,12 +166,20 @@ impl DiffsolRk {
             .derivatives(point.time(), point.states())
             .map_err(MeIntegrationError::from)?;
         let method = self.method;
+        self.anchor.replace(point.states().to_vec());
         let numerical =
             |e: DiffsolError| MeIntegrationError::numerical(method.name(), failure, e.to_string());
         let solver = match method {
             Method::Tsit45 => {
-                let problem = build_problem(point, Rc::clone(&derivatives), rtol, atol, h0)
-                    .map_err(numerical)?;
+                let problem = build_problem(
+                    point,
+                    Rc::clone(&derivatives),
+                    Rc::clone(&self.anchor),
+                    rtol,
+                    atol,
+                    h0,
+                )
+                .map_err(numerical)?;
                 Solver::Explicit(ExplicitCell::try_new(problem, |problem| {
                     let state = initial_state(problem, point, &initial_derivatives, method.order())
                         .map_err(numerical)?;
@@ -180,8 +194,15 @@ impl DiffsolRk {
                          SDIRK Jacobian with",
                     ));
                 }
-                let mut problem = build_problem(point, Rc::clone(&derivatives), rtol, atol, h0)
-                    .map_err(numerical)?;
+                let mut problem = build_problem(
+                    point,
+                    Rc::clone(&derivatives),
+                    Rc::clone(&self.anchor),
+                    rtol,
+                    atol,
+                    h0,
+                )
+                .map_err(numerical)?;
                 // diffsol の SDIRK は Newton の失敗を積分全体で累積して数え、上限（既定 50）で止まる
                 // （`runge_kutta.rs` の `solve_fail`。BDF は 1 歩の中で数える）。切り替えの多い回路では
                 // 50 回をすぐ使い切るので上限を外す。刻みの下限（`min_timestep`）が暴走を止める
@@ -262,6 +283,7 @@ impl DiffsolRk {
             .derivatives(point.time(), point.states())
             .map_err(MeIntegrationError::from)?;
         let method_id = self.method;
+        self.anchor.replace(point.states().to_vec());
         let solver = self.solver.as_mut().ok_or_else(|| {
             MeIntegrationError::numerical(
                 method_id.name(),
@@ -323,6 +345,7 @@ impl MeIntegratorBackend for DiffsolRk {
                 "the host has not initialized the Runge-Kutta problem",
             )
         })?;
+        let anchor = Rc::clone(&self.anchor);
         let candidate = with_method_mut!(solver, |_problem, method| {
             method.set_stop_time(latest).map_err(numerical)?;
             let stop = method.step().map_err(numerical)?;
@@ -342,6 +365,7 @@ impl MeIntegratorBackend for DiffsolRk {
                     "Diffsol accepted a non-finite endpoint",
                 ));
             }
+            anchor.replace(states.clone());
             let order = u32::try_from(method.order()).unwrap_or(u32::MAX).max(1);
             Ok(MeStepCandidate::new(state.t, states, order))
         })?;
@@ -400,6 +424,7 @@ impl MeIntegratorBackend for DiffsolRk {
 fn build_problem(
     point: &MeContinuousPoint,
     derivatives: Rc<MeDerivativeHandle>,
+    anchor: Rc<RefCell<Vec<f64>>>,
     rtol: f64,
     atol: Vec<f64>,
     h0: f64,
@@ -410,7 +435,12 @@ fn build_problem(
     });
     let probing = Rc::new(Cell::new(true));
     let jacobian_probe = Rc::clone(&probing);
-    let jacobian: JacobianFn = Box::new(move |state, _parameters, time, seed, output| {
+    // diffsol の SDIRK はヤコビ行列を取るとき、段の未知数 `x` の位置に状態 `y` をそのまま渡し、
+    // 部品は `phi + c * y`（`y` の約 1.4 倍の点）で呼ばれる（`op/sdirk.rs` の `jacobian_inplace` と
+    // `ode_solver/sdirk.rs` の `jacobian_updates`）。ダイオードの膝のように指数で立ち上がる式では、その
+    // 遠い点のヤコビ行列が 1e15 になり、Newton 法の更新量も誤差の見積もりも 1e12 分の 1 に潰れて、
+    // 解けていない段や誤った刻みを受理する。そこで渡された点は使わず、刻みの始めの状態（`anchor`）で取る
+    let jacobian: JacobianFn = Box::new(move |_state, _parameters, time, seed, output| {
         if jacobian_probe.get() {
             probe_pattern(
                 derivatives.state_jacobian_columns().unwrap_or_default(),
@@ -421,7 +451,7 @@ fn build_problem(
         }
         derivatives.directional_derivative_into(
             time,
-            state.as_slice(),
+            &anchor.borrow(),
             seed.as_slice(),
             output.as_mut_slice(),
         );
