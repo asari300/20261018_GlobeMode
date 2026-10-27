@@ -474,10 +474,33 @@ S021 が残した esdirk34 の件を調べた。確認日 2026-10-27。数字は
 
 - **`HeatingRectifier`**（直った）: 直す前は t ∈ (3.12, 3.13] で射影の発散（`HeatingDiode1.auxp` = -6.3e4）。そこは bdf でダイオードが点き、t = 3.12 で v = 0.396、i = 2.0 A、Maxexp = 15 の線形の続きに入る所。残差の値が許容誤差に対して単調でなく（1e-4 で -1.2e4、1e-8 で i = 104）、軌道から遠い試しの点だった。上のヤコビ行列の直しで esdirk34（既定・1e-5・1e-7・1e-8）と trbdf2 が通る。tsit45・dopri45 は候補 13 の機構で落ちたまま。
 - **`ThyristorBehaviourTest`**（esdirk34 だけ残る）: t ∈ (5.3e-5, 5.5e-5] で射影の発散（`thyristor_v4_1.vAK`）。bdf ではサイリスタが 5.017e-5 で消弧し、逆回復で Anode.i が -0.40、vAK が -1.4 → -7.0 に動く所。vControl が Voff = 1.5 と Von = 5 の間にあり、導通の混合が約 5 桁（Ron 0.04、Roff 9.8e5）に広がるので残差が状態の小さな誤差に敏感。直す前の残差は許容誤差 1e-5〜1e-8 で -0.36 とほぼ一定（軌道の近く）、直した後は +8.3 に変わり失敗のまま。trbdf2 は直した後に通る。host の射影が硬い混合で失敗する（候補 13 の機構）と見るが、ESDIRK34 の段の点が関わる可能性もある【未確認、確信は低い】。
-- **`CauerLowPassSC`**（残る）: esdirk34・trbdf2 とも「Step size is too small at time = 1.05」。1.05 はスイッチトキャパシタの BooleanPulse（周期 0.1）の立ち下がりで、V.v が t = 1 で立ち上がった後の最初の電荷の移動（bdf では C1.i が -5.1e4 の尖り）。終了時刻 1.05 では通り 1.2 で落ちるので、イベントの後の再開で刻みが縮む。許容誤差 3e-6 以上と V.V ≤ 0.1 では通り、2e-6 以下と V.V ≥ 1 で落ちる（閾値が V / tol のように動くので絶対誤差が効いている）。出力の間隔は効かない。tsit45・dopri45・bdf は通る。刻みの下限は 1e-13 なので、再開の点から 10 桁以上縮んでも 1 歩も通らないことになり、丸めや条件数では説明がつかない。試しの点の NaN（host の失敗の記憶。`advance` は `step()` の誤りを先に返すので、記憶した失敗が「刻みが小さすぎる」の文言で出る）か、イベントの時刻の分解能の問題【未確認】。次は再開の後の刻みの列と NaN の回数を計測する。
-- 副次の発見: `globe simulate --param V.startTime=0.5` は `--list-parameters` に載っているのに効かない（`CauerLowPassSC` を bdf で `--stop-time 0.7` にしても V.v = 0 のまま。`V.V` は効く）。時間イベントに使うパラメータの上書きが積分の予定に届いていない見込み【未確認】。S022 では直していない。
+- **`CauerLowPassSC`**（S023 で直した。下の「S023 で直したもの」）: esdirk34・trbdf2 とも「Step size is too small at time = 1.05」。1.05 はスイッチトキャパシタの BooleanPulse（周期 0.1）の立ち下がりで、V.v が t = 1 で立ち上がった後の最初の電荷の移動。S022 では試しの点の NaN かイベントの時刻の分解能を疑ったが、S023 の計測で否定した（再開の後に 1 歩も試していない）。
+- 副次の発見: `globe simulate --param V.startTime=0.5` は `--list-parameters` に載っているのに効かない（`CauerLowPassSC` を bdf で `--stop-time 0.7` にしても V.v = 0 のまま。`V.V` は効く）。時間イベントに使うパラメータの上書きが積分の予定に届いていない見込み【未確認】。S022 では直していない。S023 で原因を確かめた（下）。
 
 ### 上流に報告する候補（S022 で足す）
 
 14. **diffsol の SDIRK がヤコビ行列を段の未知数ではなく状態の点で取る**: `vendor/diffsol/src/ode_solver/runge_kutta.rs:637`・`ode_solver/sdirk.rs:261,277` が `reset_jacobian(op, &state.y, t)` を呼び、`op/sdirk.rs` の `jacobian_inplace` が `phi + c·y` で `f'` を評価する。指数で立ち上がる式では Newton 法と誤差の見積もりが盲目になり、誤った軌道を黙って受理する。再現は `Modelica.Electrical.Analog.Examples.OvervoltageProtection` を esdirk34 で（CL.v(0.4) が -1.64、参照 -0.0006）。diffsol の本家で同じかは【未確認】。
 
+## S023 で直したもの
+
+調査はユーザーの指示でサブエージェント（Sonnet、effort high）2 本に分けた。
+
+### RK: 再開の最初の刻みの見積もりが刻みの下限を割る（直した）
+
+- `CauerLowPassSC` の esdirk34 は、t = 1.05 の再開の後に右辺もヤコビ行列も 1 度も呼ばずに `step()` が「Step size is too small」を返していた。試しの点の NaN でも host の失敗の記憶でもない。
+- 再開は `rk.rs` の `initial_state()` で diffsol の `RkState::set_step_size`（`vendor/diffsol/src/ode_solver/state.rs:1039-1100`、Hairer の見積もり）を呼ぶ。1.05 の状態はほぼ 0（|y| ≈ 1e-22）で、導関数は -3.8e4・4.3e3・2.3e3。重み付きのノルム（atol = rtol = 1e-6）で d0 = 2.5e-5、d1 = 1.25e11 になり、`h0 = 0.01·d0/d1 = 2e-18`、`h = min(100·h0, h1) = 1.994e-16`。刻みの下限 `min_timestep` は t ≈ 1 で 1e-13 なので、最初の `step()` が `runge_kutta.rs:841,866` の判定ですぐ失敗する。t = 1 の再開では d0 = 0（`h0 = 1e-6` の枝）で h = 1e-4 になり通る。S022 で見た許容誤差と V.V への依存もこれで説明がつく（d0 は y / atol）。
+- 直し: `initial_state()` の最後で、見積もった刻みが `min_timestep` の 10 倍より小さければ 10 倍に持ち上げる（符号は保つ）。刻みは受理ごとに伸びるので、計測では 2e-13 から十数歩で 2e-7 に届いた。esdirk34・trbdf2・tsit45 が同じ関数を通る。auto（Rumoca の BDF と dopri45）は通らない。
+- 結果: `CauerLowPassSC` は esdirk34（t = 60 まで 75 s）と trbdf2 で通り、bdf との差は全信号で |x−y|/(1+|y|) ≤ 5.4e-9・1.2e-8。`OvervoltageProtection`・`HeatingRectifier` の esdirk34 の出力は直す前と同じバイト列。最小の再現 `GlobeModeValidation.Simulation.TinyStateRestart`（x = 3e-11 から t = 1 で der(x) が 0 → 1e5）は、直す前は esdirk34・trbdf2・tsit45 とも再開で落ち、直した後は x(2) = 1e5。回帰の試験 `rk_restarts_from_a_tiny_state_with_a_large_derivative`。全体 356 本の esdirk34 は 実行 282 → 286、管 273 → 277（新たに通ったのはサイリスタの整流器 4 本: `HalfControlledBridge2mPulse`・`ThyristorBridge2mPulse_R`・`ThyristorCenterTap2mPulse_R`・`ThyristorCenterTapmPulse_R`。同じ再開の刻みで GM-E11002 だった）。
+- 上流への報告の候補 15（下）。
+
+### `--param` で時間イベントの時刻が変わらない（直していない）
+
+- `--param` の値は Rumoca に届き、パラメータの値は上書きされる（`globe-mode-exec/src/rumoca.rs:75-80` の `param_overrides`、`session.rs:83` の `lower_correlated_for_simulation_with_overrides`、rumoca-sim の `verify_parameter_overrides`）。抵抗・`V.offset`・`V.signalSource.height` の上書きは効く。
+- 時刻は DAE を組む段で既定値から決まっている。rumoca-phase-dae の `time_event_instant`（`construction/analysis/expression_events.rs:621`）が `time < startTime` を `constant_context()`（`construction/analysis.rs:1410`。調整できるパラメータも束縛の既定値で畳む）で評価し、静的な時間イベント（`TimeEventOperation::Static`）にする。solve の段はそれを `scheduled_time_events` に写し（`rumoca-phase-solve/src/lower/events.rs:1950-1958`）、実行時はその時刻で止まる。solve の段自身は調整できるパラメータを畳まない（`constants.rs:114`）ので、DAE の段と食い違っている。
+- `StepVoltage` を R と接地に繋いだ小さな回路で `--param V.startTime=0.5` としても、V.v は既定（1）と同じ時刻で 0 → 1 に変わる。関係式の値もその時刻まで固定される。時刻が式として残る単純なモデルでは上書きが効くが、既定の時刻にも静的なイベントが出るので、イベントの位置がずれる。どの形で固定されるかの境目は【未確認】。
+- 直す道: (1) 上流で `time_event_instant` が調整できるパラメータを畳まない（候補 16）。(2) 手元で `rumoca_compile::Session::set_structural_overrides` で上書きを組み込んでからコンパイルし直す（frontend の `Checker`・キャッシュ・wasm まで届く設計の変更なので、別のセッションで ADR を書いてから）。(3) 効かない上書きを警告する（DAE の関係式から時刻とパラメータの依存を辿る。新しい GM-W が要る）。S023 ではどれも入れていない。
+
+### 上流に報告する候補（S023 で足す）
+
+15. **diffsol の最初の刻みの見積もりが `min_timestep` を下回る**: `RkState::set_step_size`（`ode_solver/state.rs:1039-1100`）は `h0 = 0.01·‖y‖/‖f‖` を下限と比べない。状態がほぼ 0 で導関数が大きい点から始めると、最初の `step()` が 1 歩も試さずに「Step size is too small」で終わる。再現は `x(start = 3e-11)`、`der(x) = if time < 1 then 0 else 1e5`。diffsol の本家で同じかは【未確認】。
+16. **Rumoca の DAE の段が時間イベントの時刻を調整できるパラメータの既定値で畳む**: `time_event_instant` が `constant_context()` で評価するため、実行時のパラメータの上書き（`param_overrides`）が時刻に届かない。`Modelica.Electrical.Analog.Basic` の回路に `StepVoltage` を置き、`startTime` を上書きして確かめられる。Rumoca の LSP と wasm でも同じはず【未確認】。

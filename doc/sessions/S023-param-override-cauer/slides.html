@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S023 パラメータの上書きと CauerLowPassSC — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S023 パラメータの上書きと CauerLowPassSC">
+
+<section class="slide" id="S01">
+  <span class="tag">S023 · 2026-10-27 · P3</span>
+  <h1>パラメータの上書きと CauerLowPassSC</h1>
+  <p class="lead">CauerLowPassSC が再開で止まる原因は、diffsol の最初の刻みの見積もりが刻みの下限を割ること。下限の 10 倍まで持ち上げて直した。--param の時間イベントは Rumoca の DAE の段が原因で、直さずに上流の候補にした</p>
+  <div class="big">esdirk34・trbdf2 の CauerLowPassSC が t = 60 まで進み、bdf との差 5.4e-9。全体 356 本の esdirk34 は 282 → <b>286</b> 本実行、管 273 → <b>277</b>（サイリスタの整流器 4 本）</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>S022 の残し: esdirk34・trbdf2 の CauerLowPassSC が t = 1.05 のイベントの後に「Step size is too small」で止まる</li>
+    <li>S022 の副次の発見: globe simulate --param V.startTime=… が効かない</li>
+    <li>調査はサブエージェント（Sonnet、high）2 本に分けた: CauerLowPassSC の計測と直し / --param の原因</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">原因</span>
+  <h1>再開の最初の刻みが下限を割っていた</h1>
+  <table>
+    <tr><th>どこ</th><th>何をしている</th><th>結果</th></tr>
+    <tr><td>rk.rs の initial_state()</td><td>再開ごとに diffsol の set_step_size で最初の刻みを見積もる</td><td>h0 = 0.01·‖y‖/‖f‖</td></tr>
+    <tr><td>t = 1.05 の再開</td><td>状態はほぼ 0（1e-22）、導関数は 4e4。重み付きで d0 = 2.5e-5、d1 = 1.25e11</td><td>h = 2e-16</td></tr>
+    <tr><td>runge_kutta.rs:841,866</td><td>刻みが下限 1e-13 より小さいと誤り</td><td>1 歩も試さずに止まる</td></tr>
+  </table>
+  <p>S022 で疑った試しの点の NaN や host の失敗の記憶ではなかった（再開の後に右辺を 1 度も呼んでいない）</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table>
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>最初の刻み</td><td>下限の 10 倍を下回れば 10 倍に持ち上げる</td><td>使えない刻みを上げるだけ。通っていた例題の出力はバイト単位で同じ</td></tr>
+    <tr><td>回帰の試験</td><td>TinyStateRestart を esdirk34・trbdf2・tsit45 で</td><td>直す前は 3 つとも同じ所で落ちる最小の形</td></tr>
+    <tr><td>--param の時間イベント</td><td>直さない。上流の候補 16</td><td>Rumoca の DAE の段が時刻を既定値で畳む。手元で直すとコンパイルし直す設計の変更になる</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">図</span>
+  <h1>--param が時刻に届かない道</h1>
+  <svg class="fig" viewBox="0 0 800 300" role="img" aria-label="パラメータの上書きの道">
+    <rect class="svg-box" x="20" y="40" width="220" height="80" rx="10"/>
+    <text class="svg-text-b" x="130" y="74" text-anchor="middle">DAE の段</text>
+    <text class="svg-text" x="130" y="100" text-anchor="middle">startTime を既定値で畳む</text>
+    <line class="svg-line" x1="240" y1="80" x2="300" y2="80"/>
+    <rect class="svg-box-warn" x="300" y="40" width="220" height="80" rx="10"/>
+    <text class="svg-text-b" x="410" y="74" text-anchor="middle">静的な時間イベント</text>
+    <text class="svg-text" x="410" y="100" text-anchor="middle">t = 1 に固定</text>
+    <line class="svg-line" x1="520" y1="80" x2="580" y2="80"/>
+    <rect class="svg-box-warn" x="580" y="40" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="680" y="74" text-anchor="middle">実行時</text>
+    <text class="svg-text" x="680" y="100" text-anchor="middle">t = 1 で切り替わる</text>
+    <rect class="svg-box-accent" x="20" y="190" width="220" height="80" rx="10"/>
+    <text class="svg-text-b" x="130" y="224" text-anchor="middle">startTime=0.5 を上書き</text>
+    <text class="svg-text" x="130" y="250" text-anchor="middle">パラメータの値は上書きされる</text>
+    <line class="svg-line" x1="240" y1="230" x2="580" y2="230"/>
+    <rect class="svg-box" x="580" y="190" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="680" y="224" text-anchor="middle">値の上書き</text>
+    <text class="svg-text" x="680" y="250" text-anchor="middle">R・offset・height は効く</text>
+  </svg>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>target/release/globe simulate src/Modelica/GlobeModeValidation/Simulation/TinyStateRestart.mo \
+  -m TinyStateRestart --solver esdirk34
+cargo test -p globe-mode-exec --release --test integrators
+cargo xtask msl-sim --only Modelica.Electrical.Analog.Examples --solver esdirk34 \
+  --tolerance-scale 0.1 --wall-seconds 30 --retry-wall-seconds 0
+mise run wasm:node &amp;&amp; mise run wasm:compare &amp;&amp; mise run check</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">5.4e-9</span><span class="l">CauerLowPassSC の bdf との差（esdirk34）</span></div>
+    <div class="kpi"><span class="n">48・46</span><span class="l">Analog 54 本の esdirk34 の実行・管（S022 と同じ）</span></div>
+    <div class="kpi"><span class="n">286</span><span class="l">全体 356 本で esdirk34 が実行（S022 は 282）</span></div>
+    <div class="kpi"><span class="n">491</span><span class="l">テスト通過</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>--param の時間イベント: 上流の候補 16。手元で直すなら set_structural_overrides でコンパイルし直す（ADR を書いてから）</li>
+    <li>ThyristorBehaviourTest: esdirk34 だけ消弧の逆回復で射影が発散（trbdf2 は通る）</li>
+    <li>上流への報告の候補 15・16（ユーザーが出す）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
