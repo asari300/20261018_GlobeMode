@@ -362,11 +362,52 @@ impl Checker {
         if overrides.is_empty() {
             return Ok(default);
         }
-        let types: HashMap<String, ScalarType> = default.dae.inspect(|view| {
-            view.variables()
-                .map(|(_, v)| (v.name().to_string(), v.value_type().scalar_type()))
-                .collect()
-        });
+        let (types, names): (HashMap<String, ScalarType>, HashSet<String>) =
+            default.dae.inspect(|view| {
+                let names = view
+                    .variables()
+                    .map(|(_, v)| v.name().to_string())
+                    .collect();
+                let types = view
+                    .variables()
+                    // 配列の名前（`a`）は渡さない。Rumoca は配列の束縛をスカラのリテラルで置き換えて ED020 になる。
+                    // 実行時の上書きが GM-E10006 で断る（要素 `a[2]` は実行時の上書きで届く）
+                    .filter(|(_, v)| v.scalar_name(0).is_some_and(|n| n == v.name().as_str()))
+                    .map(|(_, v)| (v.name().to_string(), v.value_type().scalar_type()))
+                    .collect();
+                (types, names)
+            });
+        // 配列の要素は構造的な上書きに渡せない（Rumoca の上書きはスカラだけ）ので、実行時の上書きは同じ名前の修飾
+        // （`Inner i(final k = k)`）で写された内側の配列に届かず、黙って誤る。その形のものは断る。
+        // shortcut: 名前で見分けるだけで、違う名前の修飾（`final kk = k`）は見逃す。Rumoca が配列の構造的な上書きを持ったら外す
+        let rejected: Vec<Diagnostic> = overrides
+            .keys()
+            .filter_map(|name| {
+                let array = name.split_once('[')?.0;
+                names.contains(array).then_some(())?;
+                let (prefix, last) = array.rsplit_once('.').unwrap_or(("", array));
+                // 一つ内側の部品の同じ名前（`src.k` なら `src.<部品>.k`）
+                let inner = names.iter().find(|n| {
+                    let rest = match prefix {
+                        "" => Some(n.as_str()),
+                        _ => n.strip_prefix(prefix).and_then(|r| r.strip_prefix('.')),
+                    };
+                    rest.and_then(|r| r.strip_suffix(last)?.strip_suffix('.'))
+                        .is_some_and(|seg| !seg.is_empty() && !seg.contains('.'))
+                })?;
+                Some(Diagnostic::error(
+                    codes::PARAMETER_OVERRIDE_INVALID,
+                    Stage::S10,
+                    format!(
+                        "配列の要素 {name} は、同じ名前の修飾で写された {inner} に届かないので、実行の前に変えられない。\
+                         値を変えるには、モデルを書き換えて再コンパイルする"
+                    ),
+                ))
+            })
+            .collect();
+        if !rejected.is_empty() {
+            return Err(rejected);
+        }
         let typed: Vec<(String, StructuralOverride)> = overrides
             .iter()
             .filter_map(|(name, &value)| {

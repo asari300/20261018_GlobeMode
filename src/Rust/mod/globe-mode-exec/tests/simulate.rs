@@ -817,6 +817,45 @@ fn structural_overrides_reach_bindings_inlined_by_same_name_modifications() {
     assert!(d.iter().any(|d| d.message.contains("final")), "{d:#?}");
 }
 
+/// 配列パラメータの上書き（S025）。要素 `a[2]` は構造的な上書きに渡らず（Rumoca の上書きはスカラのリテラル）、
+/// 実行時の上書きで届く。配列全体の名前 `a` は構造的な上書きに渡さず（渡すと ED020）、実行時の上書きが GM-E10006 で断る。
+/// 同じ名前の修飾で内側に写された配列の要素（`src.k[1]`）は内側に届かないので、変換の前に GM-E10006 で断る。
+#[test]
+fn array_parameter_overrides_use_elements_at_run_time_and_reject_whole_arrays() {
+    let sources: Vec<Source<'_>> = package_files()
+        .iter()
+        .map(|(n, t)| Source { name: n, text: t })
+        .collect();
+    let checker = Checker::new(&[]).unwrap();
+    let name = "GlobeModeValidation.Simulation.ArrayParameters";
+    let run_with = |p: &[(&str, f64)]| {
+        let overrides = p.iter().map(|(n, v)| (n.to_string(), *v)).collect();
+        let model = checker.compile_retaining_with_overrides(&sources, name, &overrides)?;
+        simulate(&model, &with_parameters(&model, SolverId::Bdf, p))
+    };
+    let at = |run: &SimRun, column: &str, time: f64| {
+        let t = &run.trajectory;
+        let i = t.time.iter().position(|x| (x - time).abs() < 1e-9).unwrap();
+        t.variable(column).unwrap().values[i]
+    };
+    let base = run_with(&[]).unwrap();
+    assert_eq!(last(&base, "y_a"), 2.0);
+    assert_eq!(at(&base, "y_t", 0.5), 0.0);
+    // 要素の上書きは実行時に届く（直接使う配列と、時間イベントの時刻）
+    let run = run_with(&[("a[2]", 5.0), ("t[1]", 0.2)]).unwrap();
+    assert_eq!(last(&run, "y_a"), 5.0);
+    assert_eq!(at(&run, "y_t", 0.5), 1.0);
+    // 配列全体と、同じ名前の修飾で内側に写された配列の要素は断る（要素は内側に届かず黙って誤るため）
+    for p in [("a", 5.0), ("src.k[1]", 0.2)] {
+        let d = run_with(&[p]).expect_err(p.0);
+        assert!(
+            d.iter()
+                .any(|d| d.code == codes::PARAMETER_OVERRIDE_INVALID),
+            "{d:#?}"
+        );
+    }
+}
+
 #[test]
 fn parameters_that_cannot_change_are_rejected_before_running() {
     let model = compile("Parameters");

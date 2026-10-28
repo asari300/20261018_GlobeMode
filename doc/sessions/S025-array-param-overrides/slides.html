@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S025 配列パラメータの上書き — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S025 配列パラメータの上書き">
+
+<section class="slide" id="S01">
+  <span class="tag">S025 · 2026-10-28 · P3</span>
+  <h1>配列パラメータの上書き</h1>
+  <p class="lead">S024 の積み残し「<code>a[1]</code> は届くのか」を確かめた</p>
+  <div class="big">要素は届くが、<b>同じ名前の修飾で写された配列</b>だけ黙って誤る。そこは断る</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>S024 で構造的な上書きを入れた。配列の要素（<code>a[2]</code>）は型の表に無いので、実行時の上書きだけになる。これが正しいか確かめる</li>
+    <li>P3 の「パラメータを変えた再実行」の抜けを埋める</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">結果</span>
+  <h1>4 つの場合</h1>
+  <table>
+    <tr><th>上書き</th><th>以前</th><th>今</th></tr>
+    <tr><td><code>a[2]</code>、<code>t[1]</code></td><td>正しい</td><td>同じ</td></tr>
+    <tr><td><code>a</code>（全体）</td><td>GM-U0001（ED020）</td><td>GM-E10006</td></tr>
+    <tr><td><code>src.k[1]</code></td><td>黙って誤る</td><td>GM-E10006</td></tr>
+    <tr><td><code>src.i.k[1]</code></td><td>GM-E10006</td><td>同じ</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table>
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>配列全体</td><td>構造的に渡さない</td><td>Rumoca はスカラのリテラルで置き換え ED020</td></tr>
+    <tr><td>写された要素</td><td>変換の前に断る</td><td>内側に届かず黙って誤る</td></tr>
+    <tr><td>見分け方</td><td>名前の形だけ</td><td>DAE から届いたかを調べる安い道が無い</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>globe simulate -L src/Modelica/GlobeModeValidation \
+  -m GlobeModeValidation.Simulation.ArrayParameters \
+  --param 'src.k[1]=0.2'</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">493</span><span class="l">テスト通過</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">失敗</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>違う名前の修飾（<code>final kk = k</code>）は見逃す。Rumoca が配列の構造的な上書きを持ったら外す（上流の候補 21）</li>
+    <li>止まった例題の残り、ブラウザ（P6 の前提）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
