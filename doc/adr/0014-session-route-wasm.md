@@ -46,7 +46,7 @@
 - `rk.rs` は Rumoca の `crates/rumoca-solver-diffsol/src/me_integrator.rs`（Apache-2.0）を写して改変した。ファイルの先頭に明記した（[licenses.md](../licenses.md)）。
 - 固定刻みは、イベントや切り詰めの後も同じ格子に戻る。刻みの棄却（discard）は失敗にする（刻みを縮められないため）。刻み幅は `--step`、既定は出力の間隔。
 - 陽的 RK も、ヤコビ行列つきの `rhs_implicit` で作る（diffsol の `ClosureNoJac` が非公開のため）。
-- 計画の残り（`radau5`・`ida`・`cvode`・`esdirk23`・`esdirk45`・`sdirk34hw`・`dopri853`・`impeuler`・`trapezoid`・`cerk*`・`qss`）は持ち越す（`GM-E10005`）。
+- 計画の残り（`radau5`・`ida`・`cvode`・`esdirk23`・`esdirk45`・`sdirk34hw`・`dopri853`・`cerk*`・`qss`）は持ち越す（`GM-E10005`）。`impeuler`・`trapezoid` は S026 で足した（固定刻みの θ 法。`plugins/fixed.rs` が 1 歩ごとに Newton 法で解く）。
 
 ### (d) `auto` は BDF が失敗したら dopri45 で回し直す
 

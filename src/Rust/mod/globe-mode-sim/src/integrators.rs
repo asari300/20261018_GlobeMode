@@ -3,6 +3,7 @@
 //!
 //! - [`Tableau`] … 陽的な Runge–Kutta 法の係数（Butcher 表）。[`EULER`]・[`HEUN`]・[`RK4`]。
 //! - [`ExplicitStepper`] … 1 歩を進める（段の値の置き場を使い回す）。
+//! - [`ThetaMethod`]・[`ThetaStepper`] … 陰的 Euler 法と台形公式（θ 法）。1 歩ごとに Newton 法で解く。
 //! - [`hermite`] … 刻みの両端の値と微分（[`Knot`]）から作る 3 次の Hermite 補間。
 //! - [`next_grid_time`] … 固定刻みの格子 t0 + k·h の、今より先の最初の点。
 
@@ -57,7 +58,7 @@ pub const RK4: Tableau = Tableau {
     order: 4,
 };
 
-/// 固定刻みのソルバの係数。固定刻みでなければ None。
+/// 固定刻みのソルバの係数（陽的なもの）。陽的な固定刻みでなければ None。
 pub const fn fixed_step_tableau(id: SolverId) -> Option<&'static Tableau> {
     match id {
         SolverId::Euler => Some(&EULER),
@@ -65,6 +66,161 @@ pub const fn fixed_step_tableau(id: SolverId) -> Option<&'static Tableau> {
         SolverId::Rk4 => Some(&RK4),
         _ => None,
     }
+}
+
+/// θ 法 `y₁ = y₀ + h((1-θ) f(t₀, y₀) + θ f(t₁, y₁))`（陰的。θ = 1 が陰的 Euler 法、θ = ½ が台形公式）。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ThetaMethod {
+    /// 名前（GlobeMode のソルバの名前と同じ）
+    pub name: &'static str,
+    pub theta: f64,
+    /// 大域誤差の次数
+    pub order: u32,
+}
+
+/// 陰的 Euler 法（1 次、L 安定）。
+pub const IMPEULER: ThetaMethod = ThetaMethod {
+    name: "impeuler",
+    theta: 1.0,
+    order: 1,
+};
+
+/// 台形公式（2 次、A 安定）。
+pub const TRAPEZOID: ThetaMethod = ThetaMethod {
+    name: "trapezoid",
+    theta: 0.5,
+    order: 2,
+};
+
+/// 固定刻みの陰的なソルバの係数。θ 法でなければ None。
+pub const fn theta_method(id: SolverId) -> Option<&'static ThetaMethod> {
+    match id {
+        SolverId::Impeuler => Some(&IMPEULER),
+        SolverId::Trapezoid => Some(&TRAPEZOID),
+        _ => None,
+    }
+}
+
+/// Newton 法の反復の上限。
+const NEWTON_MAX_ITERATIONS: usize = 20;
+/// Newton 法の収束判定: 修正量が `NEWTON_TOLERANCE·(1 + |y|)` 以下（固定刻みは許容誤差を使わないので定数）。
+const NEWTON_TOLERANCE: f64 = 1e-12;
+
+/// θ 法で 1 歩を進める道具。段の方程式 `y - y₀ - h((1-θ) f₀ + θ f(t₁, y)) = 0` を Newton 法で解く。
+/// 行列 `I - hθJ` は密で、反復ごとに方向微分（単位ベクトル n 本）から作り直す。
+/// shortcut: 密な行列と毎回のヤコビ行列は状態の数 n に O(n²) の領域と O(n³) の時間がかかる。
+/// 状態が数百を超える系を回す必要が出たら、疎の形（`state_jacobian_columns`）と LU の使い回しにする。
+#[derive(Debug, Clone)]
+pub struct ThetaStepper {
+    method: &'static ThetaMethod,
+    f1: Vec<f64>,
+    /// 残差、続いて Newton の修正量
+    g: Vec<f64>,
+    /// `I - hθJ`（行優先）
+    matrix: Vec<f64>,
+    seed: Vec<f64>,
+    column: Vec<f64>,
+}
+
+impl ThetaStepper {
+    /// 状態の数 `width` の系に使う。
+    pub fn new(method: &'static ThetaMethod, width: usize) -> Self {
+        Self {
+            method,
+            f1: vec![0.0; width],
+            g: vec![0.0; width],
+            matrix: vec![0.0; width * width],
+            seed: vec![0.0; width],
+            column: vec![0.0; width],
+        }
+    }
+
+    /// 始点 `start`（時刻、値、f(t, y)）から刻み `h` で 1 歩進め、`out` に書く。`f(t, y, dy)` は導関数、
+    /// `jv(t, y, v, dv)` は `dv = (∂f/∂y)·v`。Newton 法が収束しなければ（特異な行列、非有限の値を含む）Err。
+    pub fn step(
+        &mut self,
+        start: Knot<'_>,
+        h: f64,
+        mut f: impl FnMut(f64, &[f64], &mut [f64]),
+        mut jv: impl FnMut(f64, &[f64], &[f64], &mut [f64]),
+        out: &mut [f64],
+    ) -> Result<(), String> {
+        let Knot { t, y, f: f0 } = start;
+        let n = y.len();
+        let (theta, t1) = (self.method.theta, t + h);
+        // 初期値は陽的 Euler 法の予測
+        for i in 0..n {
+            out[i] = y[i] + h * f0[i];
+        }
+        for _ in 0..NEWTON_MAX_ITERATIONS {
+            f(t1, out, &mut self.f1);
+            for i in 0..n {
+                self.g[i] = out[i] - y[i] - h * ((1.0 - theta) * f0[i] + theta * self.f1[i]);
+            }
+            for j in 0..n {
+                self.seed.fill(0.0);
+                self.seed[j] = 1.0;
+                jv(t1, out, &self.seed, &mut self.column);
+                for i in 0..n {
+                    let identity = if i == j { 1.0 } else { 0.0 };
+                    self.matrix[i * n + j] = identity - h * theta * self.column[i];
+                }
+            }
+            if !solve_dense(&mut self.matrix, &mut self.g, n) {
+                return Err(format!(
+                    "t = {t1} の段の行列 I - hθJ が特異か、値が有限でない"
+                ));
+            }
+            let mut converged = true;
+            for (o, g) in out.iter_mut().zip(&self.g) {
+                *o -= g;
+                if !o.is_finite() {
+                    return Err(format!("t = {t1} の Newton 法が有限でない値に達した"));
+                }
+                converged &= g.abs() <= NEWTON_TOLERANCE * (1.0 + o.abs());
+            }
+            if converged {
+                return Ok(());
+            }
+        }
+        Err(format!(
+            "t = {t1} の Newton 法が {NEWTON_MAX_ITERATIONS} 回で収束しなかった（刻み h = {h} が大きすぎる）"
+        ))
+    }
+}
+
+/// 密な連立方程式 `A x = b` を部分ピボットつきの LU 分解で解き、`b` を `x` で置き換える（`a` は壊れる）。
+/// 行列が特異（ピボットが 0 か非有限）なら false。
+fn solve_dense(a: &mut [f64], b: &mut [f64], n: usize) -> bool {
+    for k in 0..n {
+        let pivot_row = (k..n)
+            .max_by(|&i, &j| a[i * n + k].abs().total_cmp(&a[j * n + k].abs()))
+            .unwrap_or(k);
+        let pivot = a[pivot_row * n + k];
+        if !(pivot.abs() > 0.0 && pivot.is_finite()) {
+            return false;
+        }
+        if pivot_row != k {
+            for c in 0..n {
+                a.swap(k * n + c, pivot_row * n + c);
+            }
+            b.swap(k, pivot_row);
+        }
+        for i in k + 1..n {
+            let m = a[i * n + k] / pivot;
+            if m != 0.0 {
+                for c in k + 1..n {
+                    a[i * n + c] -= m * a[k * n + c];
+                }
+                b[i] -= m * b[k];
+            }
+        }
+    }
+    for k in (0..n).rev() {
+        let tail: f64 = (k + 1..n).map(|c| a[k * n + c] * b[c]).sum();
+        b[k] = (b[k] - tail) / a[k * n + k];
+    }
+    b.iter().all(|v| v.is_finite())
 }
 
 /// 陽的な Runge–Kutta 法で 1 歩を進める道具。段の値の置き場を持ち、歩ごとに確保しない。
@@ -279,5 +435,90 @@ mod tests {
             let next = next_grid_time(0.0, 0.001, now, gap);
             assert_eq!(next, f64::from(k + 1) * 0.001, "k = {k}");
         }
+    }
+
+    /// y' = λy の θ 法の 1 歩は解析的に y₁ = y₀(1 + (1-θ)hλ)/(1 - θhλ)（線形なので Newton 法は 1 回で解く）。
+    #[test]
+    fn theta_step_on_a_linear_system_is_exact() {
+        for method in [&IMPEULER, &TRAPEZOID] {
+            let (lambda, h) = (-3.0, 0.2);
+            let mut stepper = ThetaStepper::new(method, 2);
+            let mut out = [0.0; 2];
+            let f = |_: f64, y: &[f64], dy: &mut [f64]| {
+                dy[0] = lambda * y[0];
+                dy[1] = y[0] - y[1];
+            };
+            let jv = |_: f64, _: &[f64], v: &[f64], dv: &mut [f64]| {
+                dv[0] = lambda * v[0];
+                dv[1] = v[0] - v[1];
+            };
+            let (y0, f0) = ([1.0, 2.0], [lambda, -1.0]);
+            let start = Knot {
+                t: 0.0,
+                y: &y0,
+                f: &f0,
+            };
+            stepper.step(start, h, f, jv, &mut out).unwrap();
+            let th = method.theta;
+            let x = (1.0 + (1.0 - th) * h * lambda) / (1.0 - th * h * lambda);
+            assert!((out[0] - x).abs() < 1e-14, "{}: {}", method.name, out[0]);
+            // 第 2 成分 y₂' = y₁ - y₂: (1 + θh) y₂₁ = y₂₀ + h((1-θ)(y₁₀ - y₂₀) + θ y₁₁)
+            let y2 = (2.0 + h * ((1.0 - th) * (1.0 - 2.0) + th * x)) / (1.0 + th * h);
+            assert!((out[1] - y2).abs() < 1e-14, "{}: {}", method.name, out[1]);
+        }
+    }
+
+    /// 非線形 y' = -y³（解 1/√(1+2t)）で、h を半分にすると誤差が 2^p 分の 1 になる。
+    #[test]
+    fn theta_methods_converge_with_their_order_on_a_nonlinear_system() {
+        for method in [&IMPEULER, &TRAPEZOID] {
+            let error = |steps: usize| {
+                let h = 1.0 / steps as f64;
+                let mut stepper = ThetaStepper::new(method, 1);
+                let (mut y, mut out) = ([1.0_f64], [0.0_f64]);
+                for k in 0..steps {
+                    let t = k as f64 * h;
+                    let f0 = [-y[0].powi(3)];
+                    let start = Knot { t, y: &y, f: &f0 };
+                    stepper
+                        .step(
+                            start,
+                            h,
+                            |_, y, dy| dy[0] = -y[0].powi(3),
+                            |_, y, v, dv| dv[0] = -3.0 * y[0] * y[0] * v[0],
+                            &mut out,
+                        )
+                        .unwrap();
+                    y = out;
+                }
+                (y[0] - 3.0_f64.sqrt().recip()).abs()
+            };
+            let observed = (error(20) / error(40)).log2();
+            assert!(
+                (observed - f64::from(method.order)).abs() < 0.2,
+                "{}: 次数 {observed}",
+                method.name
+            );
+        }
+    }
+
+    /// 段の方程式に実数の解が無ければ（y' = y²、y₀ = 1、h = 2 は 1 = y₁ - 1 - ... で解なし）Newton 法の失敗を返す。
+    #[test]
+    fn newton_failure_is_an_error() {
+        let mut stepper = ThetaStepper::new(&IMPEULER, 1);
+        let mut out = [0.0];
+        let start = Knot {
+            t: 0.0,
+            y: &[1.0],
+            f: &[1.0],
+        };
+        let result = stepper.step(
+            start,
+            2.0,
+            |_, y, dy| dy[0] = y[0] * y[0],
+            |_, y, v, dv| dv[0] = 2.0 * y[0] * v[0],
+            &mut out,
+        );
+        assert!(result.is_err(), "{result:?} {out:?}");
     }
 }

@@ -21,7 +21,7 @@ pub struct SimSettings {
     pub solver: Option<String>,
     /// 壁時計の予算（秒）。None は無制限
     pub max_wall_seconds: Option<f64>,
-    /// 固定刻みのソルバ（`euler`・`heun`・`rk4`）の刻み幅。None なら出力の間隔（S012）
+    /// 固定刻みのソルバ（`euler`・`heun`・`rk4`・`impeuler`・`trapezoid`）の刻み幅。None なら出力の間隔（S012）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub step: Option<f64>,
     /// パラメータの上書き（名前 → 値）。再コンパイル無しに変えられる（tunable な）パラメータだけ。
@@ -65,6 +65,10 @@ pub enum SolverId {
     Heun,
     /// 古典的な 4 段の Runge–Kutta 法（固定刻み。S012）
     Rk4,
+    /// 陰的 Euler 法（固定刻み、1 次。S026）
+    Impeuler,
+    /// 台形公式（固定刻み、2 次。S026）
+    Trapezoid,
 }
 
 impl SolverId {
@@ -80,12 +84,21 @@ impl SolverId {
             SolverId::Euler => "euler",
             SolverId::Heun => "heun",
             SolverId::Rk4 => "rk4",
+            SolverId::Impeuler => "impeuler",
+            SolverId::Trapezoid => "trapezoid",
         }
     }
 
     /// 固定刻みのソルバか（許容誤差を使わず、刻み幅 [`ResolvedSettings::step`] で進む）。
     pub const fn is_fixed_step(self) -> bool {
-        matches!(self, SolverId::Euler | SolverId::Heun | SolverId::Rk4)
+        matches!(
+            self,
+            SolverId::Euler
+                | SolverId::Heun
+                | SolverId::Rk4
+                | SolverId::Impeuler
+                | SolverId::Trapezoid
+        )
     }
 }
 
