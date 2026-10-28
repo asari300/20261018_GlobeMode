@@ -1,7 +1,7 @@
 //! 自前の数値積分のプラグイン（S012）。Rumoca の FMI ME 風の host（[`super::session`]）に差す
 //! `MeIntegratorBackend` の実装。
 //!
-//! - 刻み幅の制御のあるもの: `esdirk34`・`trbdf2`（diffsol の SDIRK）、`tsit45`（diffsol の陽的 RK）。[`rk`]
+//! - 刻み幅の制御のあるもの: `esdirk34`・`trbdf2`（diffsol の SDIRK）、`esdirk23`・`esdirk45`・`sdirk34hw`（自前の係数表を diffsol の SDIRK に差す。S027）、`tsit45`（diffsol の陽的 RK）。[`rk`]
 //! - 固定刻み: `euler`・`heun`・`rk4`（陽的）と `impeuler`・`trapezoid`（陰的、1 歩ごとに Newton 法。S026）。
 //!   係数と補間は `globe_mode_sim::integrators`（Rumoca に依存しない）。[`fixed`]
 //!
@@ -24,6 +24,7 @@ pub(super) fn plugin(
         SolverId::Tsit45 => rk::Method::Tsit45,
         SolverId::Esdirk34 => rk::Method::Esdirk34,
         SolverId::Trbdf2 => rk::Method::TrBdf2,
+        SolverId::Esdirk23 | SolverId::Esdirk45 | SolverId::Sdirk34hw => rk::Method::Custom(id),
         SolverId::Euler
         | SolverId::Heun
         | SolverId::Rk4

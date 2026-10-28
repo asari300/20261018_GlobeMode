@@ -1,4 +1,5 @@
-//! diffsol の Runge–Kutta 法の積分器（`tsit45`・`esdirk34`・`trbdf2`）。刻み幅の制御は diffsol が受け持つ。
+//! diffsol の Runge–Kutta 法の積分器（`tsit45`・`esdirk34`・`trbdf2`、S027 から自前の係数表の `esdirk23`・
+//! `esdirk45`・`sdirk34hw`）。刻み幅の制御は diffsol が受け持つ。
 //!
 //! 出典と改変: Rumoca（Apache-2.0）の `crates/rumoca-solver-diffsol/src/me_integrator.rs`（rev 276e82bd）の
 //! BDF の積分器を写して改変した。変えたのは、方法を diffsol の BDF から陽的 RK（`tsit45_solver`）と SDIRK
@@ -15,10 +16,13 @@ use std::{
 };
 
 use diffsol::{
-    Closure, ConstantClosure, DiffsolError, FaerSparseLU, FaerSparseMat, MatrixCommon, OdeBuilder,
-    OdeSolverMethod, OdeSolverProblem, OdeSolverState, OdeSolverStopReason, RkState, UnitCallable,
-    VectorHost, error::OdeSolverError,
+    Closure, ConstantClosure, DenseMatrix, DiffsolError, FaerMat, FaerSparseLU, FaerSparseMat,
+    MatrixCommon, OdeBuilder, OdeSolverMethod, OdeSolverProblem, OdeSolverState,
+    OdeSolverStopReason, RkState, Tableau, UnitCallable, VectorCommon, VectorHost,
+    error::OdeSolverError,
 };
+use globe_mode_ir::SolverId;
+use globe_mode_sim::sdirk::sdirk_tableau;
 use rumoca_solver::fmi_me::{
     MeAdvanceRequest, MeContinuousPoint, MeDerivativeHandle, MeIntegrationError,
     MeIntegratorBackend, MeNumericalFailure, MeNumericalSetup, MeStepCandidate,
@@ -77,6 +81,8 @@ pub(super) enum Method {
     Esdirk34,
     /// TR-BDF2
     TrBdf2,
+    /// 自前の係数表（`globe_mode_sim::sdirk`）の SDIRK・ESDIRK（`esdirk23`・`esdirk45`・`sdirk34hw`。S027）
+    Custom(SolverId),
 }
 
 impl Method {
@@ -85,15 +91,19 @@ impl Method {
             Method::Tsit45 => "diffsol-tsit45",
             Method::Esdirk34 => "diffsol-esdirk34",
             Method::TrBdf2 => "diffsol-trbdf2",
+            Method::Custom(SolverId::Esdirk23) => "diffsol-esdirk23",
+            Method::Custom(SolverId::Esdirk45) => "diffsol-esdirk45",
+            Method::Custom(_) => "diffsol-sdirk34hw",
         }
     }
 
     /// 最初の刻みの見積もり（`RkState::set_step_size`）に渡す方法の次数。
-    const fn order(self) -> usize {
+    fn order(self) -> usize {
         match self {
             Method::Tsit45 => 5,
             Method::Esdirk34 => 4,
             Method::TrBdf2 => 2,
+            Method::Custom(id) => sdirk_tableau(id).map_or(1, |t| t.order),
         }
     }
 }
@@ -186,7 +196,7 @@ impl DiffsolRk {
                     problem.tsit45_solver(state).map_err(numerical)
                 })?)
             }
-            Method::Esdirk34 | Method::TrBdf2 => {
+            Method::Esdirk34 | Method::TrBdf2 | Method::Custom(_) => {
                 if derivatives.state_jacobian_columns().is_none() {
                     return Err(self.numerical(
                         failure,
@@ -212,6 +222,11 @@ impl DiffsolRk {
                         .map_err(numerical)?;
                     match method {
                         Method::Esdirk34 => problem.esdirk34_solver::<LinearSolver>(state),
+                        Method::Custom(id) => {
+                            let tableau =
+                                custom_tableau(id, *problem.context()).map_err(numerical)?;
+                            problem.sdirk_solver::<LinearSolver, FaerMat<f64>>(state, tableau)
+                        }
                         _ => problem.tr_bdf2_solver::<LinearSolver>(state),
                     }
                     .map_err(numerical)
@@ -418,6 +433,35 @@ impl MeIntegratorBackend for DiffsolRk {
         })?;
         self.reset_in_place(point, derivatives)
     }
+}
+
+/// 自前の係数表（`globe_mode_sim::sdirk`）から diffsol の `Tableau` を作る。補間の係数（beta）が無ければ
+/// （ESDIRK）、刻みの間は diffsol が 3 次の Hermite 補間にする。
+fn custom_tableau(
+    id: SolverId,
+    context: <Vector as VectorCommon>::C,
+) -> Result<Tableau<FaerMat<f64>>, DiffsolError> {
+    let table = sdirk_tableau(id).ok_or_else(|| {
+        DiffsolError::Other(format!("ソルバ {} の SDIRK の係数表が無い", id.name()))
+    })?;
+    let s = table.stages();
+    // diffsol の `from_vec` は列優先
+    let a = (0..s * s).map(|k| table.a[k % s][k / s]).collect();
+    let vector = |v: Vec<f64>| <Vector as diffsol::Vector>::from_vec(v, context);
+    let b = vector(table.b().to_vec());
+    let beta = table.beta.as_ref().map(|rows| {
+        let columns = rows[0].len();
+        let values = (0..s * columns).map(|k| rows[k % s][k / s]).collect();
+        <FaerMat<f64> as DenseMatrix>::from_vec(s, columns, values, context)
+    });
+    Ok(Tableau::new(
+        <FaerMat<f64> as DenseMatrix>::from_vec(s, s, a, context),
+        b,
+        vector(table.c.clone()),
+        vector(table.d.clone()),
+        table.order,
+        beta,
+    ))
 }
 
 /// 問題。ヤコビ行列の疎の形は、build の間だけ部品の状態ヤコビ行列の構造から答える（元の BDF と同じ）。

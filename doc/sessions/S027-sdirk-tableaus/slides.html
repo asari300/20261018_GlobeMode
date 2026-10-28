@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S027 自前の係数表の SDIRK — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S027 自前の係数表の SDIRK">
+
+<section class="slide" id="S01">
+  <span class="tag">S027 · 2026-10-29 · P3</span>
+  <h1>自前の係数表の SDIRK</h1>
+  <p class="lead">未実装だった <code>esdirk23</code>・<code>esdirk45</code>・<code>sdirk34hw</code> を使えるようにした</p>
+  <div class="big">係数表を diffsol の SDIRK に差し、次数条件の試験で写し間違いを捕まえる</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>ロードマップの候補 6（残りの計画のソルバ）の続き</li>
+    <li>diffsol の <code>Tableau::new</code> は公開なので、<code>esdirk34</code> と同じ道に差せる</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>係数の出典</h1>
+  <table>
+    <tr><th>ソルバ</th><th>出典</th><th>注</th></tr>
+    <tr><td><code>esdirk23</code></td><td>Jørgensen ら（arXiv:1803.01613）</td><td><code>trbdf2</code> と同じ方法</td></tr>
+    <tr><td><code>esdirk45</code></td><td>Kennedy–Carpenter 2019（OrdinaryDiffEq.jl の値）</td><td>写し元の c₄ の誤記を直した</td></tr>
+    <tr><td><code>sdirk34hw</code></td><td>Hairer–Wanner II の SDIRK4</td><td>補間の係数も渡す</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">結果</span>
+  <h1>試験のモデルでの誤差</h1>
+  <table>
+    <tr><th>ソルバ</th><th>Decay</th><th>Oscillator</th><th>BouncingBall h(2)</th></tr>
+    <tr><td><code>esdirk23</code></td><td>3.2e-7</td><td>2.0e-6</td><td>0.26074173</td></tr>
+    <tr><td><code>esdirk45</code></td><td>1.1e-10</td><td>1.4e-9</td><td>0.26074173</td></tr>
+    <tr><td><code>sdirk34hw</code></td><td>4.9e-8</td><td>4.3e-10</td><td>0.26074173</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現</h1>
+  <pre><code>globe simulate -L src/Modelica/GlobeModeValidation \
+  -m GlobeModeValidation.Simulation.Oscillator \
+  --solver esdirk45</code></pre>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>MSL の例題では回していない</li>
+    <li>残りの計画のソルバ（<code>radau5</code>・<code>dopri853</code> など）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
