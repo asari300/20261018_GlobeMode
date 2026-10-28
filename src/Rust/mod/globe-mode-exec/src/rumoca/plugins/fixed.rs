@@ -1,4 +1,5 @@
-//! 固定刻みの積分器（`euler`・`heun`・`rk4`）。係数・1 歩・補間・格子は `globe_mode_sim::integrators`。
+//! 固定刻みの積分器（`euler`・`heun`・`rk4`、陰的な `impeuler`・`trapezoid`）。係数・1 歩・補間・格子は
+//! `globe_mode_sim::integrators`。陰的なものは 1 歩ごとに Newton 法で解き、解けなければ失敗にする。
 //!
 //! - 格子は t0 + k·h（t0 は開始時刻）。1 歩は次の格子の点まで進む。ホストの上限（終了時刻・時間イベント・
 //!   遅延の上限。`latest_accepted_time`）が手前にあればそこで止まり、次の歩で格子に戻る。状態イベントで
@@ -7,22 +8,36 @@
 //!   `advance` の中で計算して取っておき、次の歩の始点がその終点と同じなら最初の段に使い回す（FSAL と同じ）。
 //! - 刻み幅は変えない。導関数が試しの点を断った（discard）ときは、刻みを縮めずに失敗にする。
 
-use globe_mode_sim::integrators::{ExplicitStepper, Knot, Tableau, hermite, next_grid_time};
+use globe_mode_sim::integrators::{
+    ExplicitStepper, Knot, Tableau, ThetaMethod, ThetaStepper, hermite, next_grid_time,
+};
 use rumoca_solver::fmi_me::{
     MeAdvanceRequest, MeContinuousPoint, MeDerivativeHandle, MeIntegrationError,
     MeIntegratorBackend, MeNumericalFailure, MeStepCandidate, accepted_interval_contains,
     accepted_step_roundoff,
 };
 
+/// 固定刻みの方法。
+#[derive(Clone, Copy)]
+pub(super) enum Method {
+    Explicit(&'static Tableau),
+    Theta(&'static ThetaMethod),
+}
+
+enum Stepper {
+    Explicit(ExplicitStepper),
+    Theta(ThetaStepper),
+}
+
 /// 固定刻みの積分器。
 pub(super) struct FixedStep {
-    tableau: &'static Tableau,
+    method: Method,
     /// 刻み幅
     h: f64,
     /// 格子の原点（開始時刻）
     origin: f64,
     derivatives: Option<MeDerivativeHandle>,
-    stepper: Option<ExplicitStepper>,
+    stepper: Option<Stepper>,
     /// 直近に受理した区間の始点（時刻、値、微分）
     start: Segment,
     /// 直近に受理した区間の終点。`valid` が false なら区間は無い
@@ -50,9 +65,9 @@ impl Segment {
 }
 
 impl FixedStep {
-    pub(super) fn new(tableau: &'static Tableau, h: f64, origin: f64) -> Self {
+    pub(super) fn new(method: Method, h: f64, origin: f64) -> Self {
         Self {
-            tableau,
+            method,
             h,
             origin,
             derivatives: None,
@@ -65,7 +80,18 @@ impl FixedStep {
     }
 
     fn method(&self) -> &'static str {
-        self.tableau.name
+        match self.method {
+            Method::Explicit(tableau) => tableau.name,
+            Method::Theta(theta) => theta.name,
+        }
+    }
+
+    /// 大域誤差の次数
+    fn order(&self) -> u32 {
+        match self.method {
+            Method::Explicit(tableau) => tableau.order,
+            Method::Theta(theta) => theta.order,
+        }
     }
 
     fn fail(&self, category: MeNumericalFailure, detail: impl Into<String>) -> MeIntegrationError {
@@ -93,7 +119,12 @@ impl FixedStep {
         self.valid = false;
         self.reusable = false;
         if self.stepper.is_none() {
-            self.stepper = Some(ExplicitStepper::new(self.tableau, width));
+            self.stepper = Some(match self.method {
+                Method::Explicit(tableau) => {
+                    Stepper::Explicit(ExplicitStepper::new(tableau, width))
+                }
+                Method::Theta(theta) => Stepper::Theta(ThetaStepper::new(theta, width)),
+            });
         }
     }
 }
@@ -162,26 +193,36 @@ impl MeIntegratorBackend for FixedStep {
         end.t = end_time;
         end.y.resize(current.width(), 0.0);
         end.f.resize(current.width(), 0.0);
+        let method = self.method();
         let stepper = self.stepper.as_mut().ok_or_else(|| {
             MeIntegrationError::numerical(
-                self.tableau.name,
+                method,
                 MeNumericalFailure::Construction,
                 "the host has not initialized the fixed-step integrator",
             )
         })?;
-        stepper.step(
-            now,
-            &start.y,
-            &start.f,
-            dt,
-            |t, y, dy| derivatives.derivatives_into(t, y, dy),
-            &mut end.y,
-        );
+        let f = |t: f64, y: &[f64], dy: &mut [f64]| derivatives.derivatives_into(t, y, dy);
+        let stepped = match stepper {
+            Stepper::Explicit(stepper) => {
+                stepper.step(now, &start.y, &start.f, dt, f, &mut end.y);
+                Ok(())
+            }
+            // Newton 法のヤコビ行列は部品の方向微分（単位ベクトルごと）から作る
+            Stepper::Theta(stepper) => stepper.step(
+                start.knot(),
+                dt,
+                f,
+                |t, y, v, dv| derivatives.directional_derivative_into(t, y, v, dv),
+                &mut end.y,
+            ),
+        };
         // 補間と次の歩のための終点の導関数
         derivatives.derivatives_into(end_time, &end.y, &mut end.f);
         self.start = start;
         self.end = end;
         self.check_handle(derivatives)?;
+        // 導関数の拒否が先（NaN で Newton 法も失敗するため）。Newton 法の失敗は黙って進まず失敗にする
+        stepped.map_err(|detail| self.fail(MeNumericalFailure::AdvanceExhausted, detail))?;
         if !self.end.y.iter().chain(&self.end.f).all(|v| v.is_finite()) {
             return Err(self.fail(
                 MeNumericalFailure::AdvanceExhausted,
@@ -194,7 +235,7 @@ impl MeIntegratorBackend for FixedStep {
             end_time,
             self.end.y.clone(),
             // 刻みの間の補間は 3 次の Hermite（局所 3 次）。方法の次数がそれより低ければそちら
-            self.tableau.order.min(3),
+            self.order().min(3),
         ))
     }
 

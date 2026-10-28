@@ -117,11 +117,11 @@ enum Command {
         /// 出力の間隔（省略すると experiment annotation、無ければ区間の 1/500）
         #[arg(long)]
         interval: Option<f64>,
-        /// ソルバ（bdf・dopri45・auto・esdirk34・trbdf2・tsit45・euler・heun・rk4。別名 dassl → bdf など。
+        /// ソルバ（bdf・dopri45・auto・esdirk34・trbdf2・tsit45・euler・heun・rk4・impeuler・trapezoid。別名 dassl → bdf など。
         /// 一覧は --list-solvers）
         #[arg(long)]
         solver: Option<String>,
-        /// 固定刻みのソルバ（euler・heun・rk4）の刻み幅（省略すると出力の間隔）
+        /// 固定刻みのソルバ（euler・heun・rk4・impeuler・trapezoid）の刻み幅（省略すると出力の間隔）
         #[arg(long)]
         step: Option<f64>,
         /// パラメータの上書き `名前=値`。何度でも指定できる（変えられるものは --list-parameters）

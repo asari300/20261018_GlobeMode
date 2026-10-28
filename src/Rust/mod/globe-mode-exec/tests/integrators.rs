@@ -1,4 +1,4 @@
-//! 自前の積分器（S012。`esdirk34`・`trbdf2`・`tsit45`・`euler`・`heun`・`rk4`）を、`globe_mode_exec::run` を通して
+//! 自前の積分器（S012。`esdirk34`・`trbdf2`・`tsit45`・`euler`・`heun`・`rk4`。S026 の `impeuler`・`trapezoid`）を、`globe_mode_exec::run` を通して
 //! src/Modelica/GlobeModeValidation/Simulation のモデルで確かめる。
 //!
 //! - Decay（x' = -x）: euler・dt 0.1 なら x(1) = 0.9^10。刻み幅の制御のあるものと rk4 は exp(-1) に近い。
@@ -143,6 +143,59 @@ fn euler_on_decay_is_the_geometric_sequence() {
     }
 }
 
+/// 陰的 Euler 法・台形公式は、x' = -x で 1 歩の増幅率 1/(1+h)・(1-h/2)/(1+h/2) の等比数列になる
+/// （Newton 法が線形の段の方程式を解き切る）。
+#[test]
+fn implicit_fixed_step_methods_on_decay_are_geometric_sequences() {
+    let model = compile("Decay");
+    let h = 0.1;
+    for (solver, ratio) in [
+        (SolverId::Impeuler, 1.0 / (1.0 + h)),
+        (SolverId::Trapezoid, (1.0 - h / 2.0) / (1.0 + h / 2.0)),
+    ] {
+        let run = run_with(&model, solver, Some(h));
+        assert_close(
+            last(&run, "x"),
+            f64::powi(ratio, 10),
+            1e-13,
+            &format!("{} x(1)", solver.name()),
+        );
+    }
+}
+
+/// 硬い系（x' = -1000 x、h 0.1 は h·λ = -100）。陽的 Euler 法は発散するが、陰的 Euler 法・台形公式は
+/// 安定で、陰的 Euler 法は 0 に潰れる（増幅率 1/101）。台形公式は A 安定だが L 安定でなく振動して減る（増幅率 -49/51）。
+#[test]
+fn implicit_fixed_step_methods_are_stable_on_a_stiff_decay() {
+    let model = compile("Parameters");
+    let stiff = |solver: SolverId| {
+        let requested = SimSettings {
+            solver: Some(solver.name().to_owned()),
+            step: Some(0.1),
+            parameters: [("k".to_owned(), 1000.0)].into(),
+            ..SimSettings::default()
+        };
+        let report = run(&model, &requested);
+        (report.succeeded(), report.run)
+    };
+    for (solver, ratio) in [
+        (SolverId::Impeuler, 1.0 / 101.0),
+        (SolverId::Trapezoid, -49.0 / 51.0),
+    ] {
+        let (ok, run) = stiff(solver);
+        assert!(ok, "{}", solver.name());
+        assert_close(
+            last(&run.unwrap(), "x"),
+            f64::powi(ratio, 10),
+            1e-13,
+            &format!("{} x(1)", solver.name()),
+        );
+    }
+    let (_, euler) = stiff(SolverId::Euler);
+    // 陽的 Euler 法の増幅率は 1 - 100 = -99、10 歩で (-99)^10。失敗するか、巨大な値になる
+    assert!(euler.is_none_or(|r| last(&r, "x").abs() > 1e10));
+}
+
 #[test]
 fn fixed_step_methods_converge_on_decay_with_their_order() {
     let model = compile("Decay");
@@ -151,6 +204,8 @@ fn fixed_step_methods_converge_on_decay_with_their_order() {
         (SolverId::Euler, 1),
         (SolverId::Heun, 2),
         (SolverId::Rk4, 4),
+        (SolverId::Impeuler, 1),
+        (SolverId::Trapezoid, 2),
     ] {
         let coarse = (last(&run_with(&model, solver, Some(0.1)), "x") - exact).abs();
         let fine = (last(&run_with(&model, solver, Some(0.05)), "x") - exact).abs();
@@ -210,6 +265,8 @@ fn oscillator_matches_the_analytic_solution() {
     // 固定刻み（h 0.01）。rk4 は 4 次、heun は 2 次、euler は 1 次（エネルギーが増える）
     for (solver, tol) in [
         (SolverId::Rk4, 1e-8),
+        (SolverId::Trapezoid, 1e-3),
+        (SolverId::Impeuler, 5e-2),
         (SolverId::Heun, 1e-3),
         (SolverId::Euler, 5e-2),
     ] {
@@ -244,6 +301,9 @@ fn bouncing_ball_matches_bdf() {
         (SolverId::Rk4, Some(0.01), 1e-4),
         (SolverId::Heun, Some(0.01), 1e-4),
         (SolverId::Euler, Some(0.001), 5e-2),
+        // 台形公式は導関数が 1 次式なら正確（heun と同じ）。陰的 Euler 法は 1 次
+        (SolverId::Trapezoid, Some(0.01), 1e-4),
+        (SolverId::Impeuler, Some(0.001), 5e-2),
     ] {
         let run = run_with(&model, solver, step);
         let name = solver.name();

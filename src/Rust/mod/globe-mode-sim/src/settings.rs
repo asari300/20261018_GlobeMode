@@ -14,7 +14,7 @@
 //! ソルバが使えないときは GM-E10005、別名を置き換えたときは GM-I10003（情報）にする。
 //!
 //! S012 から: Tolerance が下限 [`MIN_TOLERANCE`]（1e-10）より小さければ下限にして GM-W10003（警告）。
-//! 固定刻みのソルバ（`euler`・`heun`・`rk4`）は Tolerance を使わず、指定か experiment annotation にあれば
+//! 固定刻みのソルバ（`euler`・`heun`・`rk4`・`impeuler`・`trapezoid`）は Tolerance を使わず、指定か experiment annotation にあれば
 //! GM-I10004（情報）。刻み幅は正の有限の数で区間より長くないこと（だめなら GM-E10004）。固定刻みでない
 //! ソルバに刻み幅を指定したら GM-W10001（使わない）。パラメータの上書きの値が有限でなければ GM-E10006
 //! （tunable かどうかは実行系が確かめる）。
@@ -256,7 +256,7 @@ pub fn resolve(
                     codes::EXPERIMENT_SUSPICIOUS,
                     Stage::S10,
                     format!(
-                        "指定した刻み幅（{}）はソルバ {} では使わない（固定刻みのソルバ euler・heun・rk4 だけが使う）",
+                        "指定した刻み幅（{}）はソルバ {} では使わない（固定刻みのソルバ euler・heun・rk4・impeuler・trapezoid だけが使う）",
                         format_number(h),
                         solver.name()
                     ),
@@ -833,7 +833,7 @@ mod tests {
         );
         assert!(
             d[0].notes.iter().any(|n| n
-                == "使えるソルバ: bdf、dopri45、auto、esdirk34、trbdf2、tsit45、euler、heun、rk4")
+                == "使えるソルバ: bdf、dopri45、auto、esdirk34、trbdf2、tsit45、euler、heun、rk4、impeuler、trapezoid")
         );
     }
 
@@ -854,7 +854,9 @@ mod tests {
         let d = err(&requested, None);
         assert_eq!(
             d[0].notes,
-            ["使えるソルバ: bdf、dopri45、auto、esdirk34、trbdf2、tsit45、euler、heun、rk4"]
+            [
+                "使えるソルバ: bdf、dopri45、auto、esdirk34、trbdf2、tsit45、euler、heun、rk4、impeuler、trapezoid"
+            ]
         );
     }
 

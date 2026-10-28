@@ -2,7 +2,7 @@
 //!
 //! 名前は 3 種類ある。
 //!
-//! - 実装のあるもの（`bdf`、`dopri45`、`auto`。S012 から `esdirk34`、`trbdf2`、`tsit45`、`euler`、`heun`、`rk4`）
+//! - 実装のあるもの（`bdf`、`dopri45`、`auto`。S012 から `esdirk34`、`trbdf2`、`tsit45`、`euler`、`heun`、`rk4`。S026 から `impeuler`、`trapezoid`）
 //! - 別名（`dassl`、`lsodar` → `bdf`、`rk45`、`dopri5` → `dopri45`）。同等の手法に置き換えるが、
 //!   刻み幅の制御などが違うので結果は一致しない
 //! - 登録表にはあるが、まだ実装していないもの（`radau5`、`ida` など）
@@ -122,6 +122,14 @@ pub const SOLVERS: &[SolverEntry] = &[
         SolverId::Rk4,
         "古典的な 4 段の Runge–Kutta 法（固定刻み、4 次。刻み幅は --step、既定は出力の間隔。刻みの間は 3 次の Hermite 補間）",
     ),
+    available(
+        SolverId::Impeuler,
+        "陰的 Euler 法（固定刻み、1 次、L 安定。刻み幅は --step、既定は出力の間隔。1 歩ごとに Newton 法。刻みの間は 3 次の Hermite 補間）",
+    ),
+    available(
+        SolverId::Trapezoid,
+        "台形公式（固定刻み、2 次、A 安定。刻み幅は --step、既定は出力の間隔。1 歩ごとに Newton 法。刻みの間は 3 次の Hermite 補間）",
+    ),
     alias(
         "dassl",
         SolverId::Bdf,
@@ -152,8 +160,6 @@ pub const SOLVERS: &[SolverEntry] = &[
         BDF,
     ),
     planned("dopri853", "Dormand–Prince 8(5,3)（自前。未実装）", DOPRI45),
-    planned("impeuler", "陰的 Euler 法（固定刻み。未実装）", BDF),
-    planned("trapezoid", "台形公式（固定刻み。未実装）", BDF),
     planned("radau5", "Radau IIA 5 次（自前。P8 の予定。未実装）", BDF),
     planned("cerk23", "連続の陽的 RK 2(3)（後回し）", DOPRI45),
     planned("cerk34", "連続の陽的 RK 3(4)（後回し）", DOPRI45),
@@ -256,7 +262,17 @@ mod tests {
         assert_eq!(
             available_names().collect::<Vec<_>>(),
             [
-                "bdf", "dopri45", "auto", "esdirk34", "trbdf2", "tsit45", "euler", "heun", "rk4"
+                "bdf",
+                "dopri45",
+                "auto",
+                "esdirk34",
+                "trbdf2",
+                "tsit45",
+                "euler",
+                "heun",
+                "rk4",
+                "impeuler",
+                "trapezoid"
             ]
         );
     }
@@ -301,8 +317,6 @@ mod tests {
             "esdirk45",
             "sdirk34hw",
             "dopri853",
-            "impeuler",
-            "trapezoid",
             "radau5",
             "cerk23",
             "cerk34",
