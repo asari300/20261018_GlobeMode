@@ -532,3 +532,20 @@ S021 が残した esdirk34 の件を調べた。確認日 2026-10-27。数字は
 18. **同じ名前の修飾の値を内側の束縛に書き込むので、実行時のパラメータの上書きが内側に届かない**: `SineVoltage` の `f`・`phase`・`startTime`、`StepVoltage` の `startTime` など。黙って誤った結果になる。候補 16 の時間イベントの時刻もこれの現れ。
 19. **host の射影の失敗を、陰的 RK の試しの点でも復帰不能として記憶する**: 候補 13 を陰的 RK に広げたもの。再現は `ThyristorBehaviourTest` の esdirk34。
 20. **diffsol の Hermite の補間が硬い準静的な変数で外れる**: 刻みの始めの導関数だけで補間するため。刻みの端は正しい。
+
+## S025 で調べたこと
+
+調査と直しはサブエージェント（Sonnet、effort high）に任せ、断りの範囲は手元で広げた。再現は `GlobeModeValidation.Simulation.ArrayParameters`（2026-10-28 確認、debug の `globe simulate`、bdf）。
+
+| 上書き | 以前 | 今 |
+| --- | --- | --- |
+| `a[2]=5`（直接使う配列） | 正しい（y_a 2 → 5。実行時の上書きだけで届く） | 同じ |
+| `t[1]=0.2`（`if time < t[1]`） | 正しい（t = 0.5 の y_t が 0 → 1） | 同じ |
+| `a=5`（配列全体） | `GM-U0001`（ED020 の「未対応」）。Rumoca が配列の束縛をスカラのリテラルで置き換える | 構造的な上書きに渡さず、`GM-E10006` |
+| `src.k[1]=0.2`（`Inner i(final k = k)` で写される配列の要素） | 黙って誤る（`src.i.s` は 0.8 で切り替わったまま、`src.k[2]=7` でも `src.y` は 20 のまま） | 変換の前に `GM-E10006` |
+| `src.i.k[1]=0.2`（内側の要素。final） | `GM-E10006` | 同じ |
+
+- 原因: Rumoca の構造的な上書きはスカラだけ（`StructuralOverride` は `Bool`・`Int`・`Real`、`root_modifications` は session の非公開の欄で、`from_dotted` は添字を目的の経路に解かない。rumoca-compile の `session/structural_overrides.rs:36-77`、読んだだけで要素の名前を渡す試しはしていない）。実行時の上書きはスカラの名前で一致するので要素を受けるが、インスタンス化で同名の修飾が展開済みの束縛には届かない（候補 18 と同じ根）。
+- 断りの範囲は名前の形で決めている（`frontend/src/rumoca.rs` の `compile_retaining_with_overrides`）。違う名前の修飾（`final kk = k`）は見逃す。要素の上書きが届いたかを DAE から調べる安い方法は無い。
+- 上流への報告の候補 21: **構造的な上書きが配列と要素を受けない**（候補 17・18 と同じ報告にまとめてよい）。
+
