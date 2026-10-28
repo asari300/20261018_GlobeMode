@@ -2,7 +2,7 @@
 //!
 //! 名前は 3 種類ある。
 //!
-//! - 実装のあるもの（`bdf`、`dopri45`、`auto`。S012 から `esdirk34`、`trbdf2`、`tsit45`、`euler`、`heun`、`rk4`。S026 から `impeuler`、`trapezoid`）
+//! - 実装のあるもの（`bdf`、`dopri45`、`auto`。S012 から `esdirk34`、`trbdf2`、`tsit45`、`euler`、`heun`、`rk4`。S026 から `impeuler`、`trapezoid`。S027 から `esdirk23`、`esdirk45`、`sdirk34hw`）
 //! - 別名（`dassl`、`lsodar` → `bdf`、`rk45`、`dopri5` → `dopri45`）。同等の手法に置き換えるが、
 //!   刻み幅の制御などが違うので結果は一致しない
 //! - 登録表にはあるが、まだ実装していないもの（`radau5`、`ida` など）
@@ -130,6 +130,18 @@ pub const SOLVERS: &[SolverEntry] = &[
         SolverId::Trapezoid,
         "台形公式（固定刻み、2 次、A 安定。刻み幅は --step、既定は出力の間隔。1 歩ごとに Newton 法。刻みの間は 3 次の Hermite 補間）",
     ),
+    available(
+        SolverId::Esdirk23,
+        "ESDIRK 2(3)（3 段、2 次、L 安定。Jørgensen らの係数を diffsol の SDIRK に差す。陰的、刻み幅の制御あり）",
+    ),
+    available(
+        SolverId::Esdirk45,
+        "ESDIRK 5(4)（7 段、5 次、L 安定。Kennedy–Carpenter の ESDIRK5(4)7L[2]SA2 を diffsol の SDIRK に差す。陰的、刻み幅の制御あり）",
+    ),
+    available(
+        SolverId::Sdirk34hw,
+        "SDIRK 4(3)（5 段、4 次、L 安定。Hairer–Wanner の SDIRK4 を diffsol の SDIRK に差す。陰的、刻み幅の制御あり）",
+    ),
     alias(
         "dassl",
         SolverId::Bdf,
@@ -150,13 +162,6 @@ pub const SOLVERS: &[SolverEntry] = &[
     planned(
         "cvode",
         "SUNDIALS の CVODE（feature `sundials`。未実装）",
-        BDF,
-    ),
-    planned("esdirk23", "ESDIRK 2(3)（自前の係数表。未実装）", BDF),
-    planned("esdirk45", "ESDIRK 4(5)（自前の係数表。未実装）", BDF),
-    planned(
-        "sdirk34hw",
-        "SDIRK 3(4)（Hairer–Wanner の係数。未実装）",
         BDF,
     ),
     planned("dopri853", "Dormand–Prince 8(5,3)（自前。未実装）", DOPRI45),
@@ -260,6 +265,10 @@ mod tests {
         );
         assert_eq!(lookup("RK4"), SolverLookup::Available(SolverId::Rk4));
         assert_eq!(
+            lookup("SDIRK34HW"),
+            SolverLookup::Available(SolverId::Sdirk34hw)
+        );
+        assert_eq!(
             available_names().collect::<Vec<_>>(),
             [
                 "bdf",
@@ -272,7 +281,10 @@ mod tests {
                 "heun",
                 "rk4",
                 "impeuler",
-                "trapezoid"
+                "trapezoid",
+                "esdirk23",
+                "esdirk45",
+                "sdirk34hw"
             ]
         );
     }
@@ -311,17 +323,7 @@ mod tests {
     #[test]
     fn planned_solvers_are_recognised() {
         for name in [
-            "ida",
-            "cvode",
-            "esdirk23",
-            "esdirk45",
-            "sdirk34hw",
-            "dopri853",
-            "radau5",
-            "cerk23",
-            "cerk34",
-            "cerk45",
-            "qss",
+            "ida", "cvode", "dopri853", "radau5", "cerk23", "cerk34", "cerk45", "qss",
         ] {
             assert_eq!(
                 lookup(&name.to_uppercase()),

@@ -110,8 +110,16 @@ function compareCsv(a, b) {
 
 // 既知の差（S012）: 自前の刻み幅を制御する積分器（diffsol の SDIRK・陽的 RK）は、BouncingBall のイベントの
 // 近くで、ネイティブと wasm の丸めの違い（faer の SIMD の有無の見込み【未確認】）から、イベントの時刻が出力の
-// 格子の点とほぼ重なるところの行の数（1 行）や値が分かれる。成功と診断のコードは一致する
-const KNOWN_CSV_DIFFERENCES = new Set(["BouncingBall/esdirk34", "BouncingBall/trbdf2", "BouncingBall/tsit45"]);
+// 格子の点とほぼ重なるところの行の数（1 行）や値が分かれる。成功と診断のコードは一致する。
+// S027 の自前の係数表の SDIRK（esdirk23・esdirk45・sdirk34hw）も同じ道で、同じ所で分かれる
+const KNOWN_CSV_DIFFERENCES = new Set([
+  "BouncingBall/esdirk34",
+  "BouncingBall/trbdf2",
+  "BouncingBall/tsit45",
+  "BouncingBall/esdirk23",
+  "BouncingBall/esdirk45",
+  "BouncingBall/sdirk34hw",
+]);
 
 let failures = 0;
 let known = 0;

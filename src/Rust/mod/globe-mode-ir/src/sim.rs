@@ -69,6 +69,12 @@ pub enum SolverId {
     Impeuler,
     /// 台形公式（固定刻み、2 次。S026）
     Trapezoid,
+    /// ESDIRK 2(3)（3 段、2 次の主解と 3 次の埋め込み。diffsol の SDIRK に自前の係数表。S027）
+    Esdirk23,
+    /// ESDIRK 5(4)（7 段、5 次の主解と 4 次の埋め込み。diffsol の SDIRK に自前の係数表。S027）
+    Esdirk45,
+    /// Hairer–Wanner の SDIRK4（5 段、4 次の主解と 3 次の埋め込み。diffsol の SDIRK に自前の係数表。S027）
+    Sdirk34hw,
 }
 
 impl SolverId {
@@ -86,6 +92,9 @@ impl SolverId {
             SolverId::Rk4 => "rk4",
             SolverId::Impeuler => "impeuler",
             SolverId::Trapezoid => "trapezoid",
+            SolverId::Esdirk23 => "esdirk23",
+            SolverId::Esdirk45 => "esdirk45",
+            SolverId::Sdirk34hw => "sdirk34hw",
         }
     }
 

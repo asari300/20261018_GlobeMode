@@ -1,4 +1,4 @@
-//! 自前の積分器（S012。`esdirk34`・`trbdf2`・`tsit45`・`euler`・`heun`・`rk4`。S026 の `impeuler`・`trapezoid`）を、`globe_mode_exec::run` を通して
+//! 自前の積分器（S012。`esdirk34`・`trbdf2`・`tsit45`・`euler`・`heun`・`rk4`。S026 の `impeuler`・`trapezoid`。S027 の `esdirk23`・`esdirk45`・`sdirk34hw`）を、`globe_mode_exec::run` を通して
 //! src/Modelica/GlobeModeValidation/Simulation のモデルで確かめる。
 //!
 //! - Decay（x' = -x）: euler・dt 0.1 なら x(1) = 0.9^10。刻み幅の制御のあるものと rk4 は exp(-1) に近い。
@@ -117,7 +117,14 @@ fn assert_close(actual: f64, expected: f64, tol: f64, what: &str) {
     );
 }
 
-const ADAPTIVE: [SolverId; 3] = [SolverId::Tsit45, SolverId::Esdirk34, SolverId::Trbdf2];
+const ADAPTIVE: [SolverId; 6] = [
+    SolverId::Tsit45,
+    SolverId::Esdirk34,
+    SolverId::Trbdf2,
+    SolverId::Esdirk23,
+    SolverId::Esdirk45,
+    SolverId::Sdirk34hw,
+];
 
 #[test]
 fn euler_on_decay_is_the_geometric_sequence() {
@@ -296,6 +303,9 @@ fn bouncing_ball_matches_bdf() {
         (SolverId::Tsit45, None, 1e-4),
         (SolverId::Esdirk34, None, 1e-4),
         (SolverId::Trbdf2, None, 1e-4),
+        (SolverId::Esdirk23, None, 1e-4),
+        (SolverId::Esdirk45, None, 1e-4),
+        (SolverId::Sdirk34hw, None, 1e-4),
         // 固定刻み（h 0.01）。重力だけの区間は 2 次の多項式なので heun・rk4 は区間の中では正確で、
         // 誤差はイベントの位置（根探索の許容誤差）だけ
         (SolverId::Rk4, Some(0.01), 1e-4),

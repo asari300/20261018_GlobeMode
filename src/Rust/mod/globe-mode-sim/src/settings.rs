@@ -833,7 +833,7 @@ mod tests {
         );
         assert!(
             d[0].notes.iter().any(|n| n
-                == "使えるソルバ: bdf、dopri45、auto、esdirk34、trbdf2、tsit45、euler、heun、rk4、impeuler、trapezoid")
+                == "使えるソルバ: bdf、dopri45、auto、esdirk34、trbdf2、tsit45、euler、heun、rk4、impeuler、trapezoid、esdirk23、esdirk45、sdirk34hw")
         );
     }
 
@@ -855,7 +855,7 @@ mod tests {
         assert_eq!(
             d[0].notes,
             [
-                "使えるソルバ: bdf、dopri45、auto、esdirk34、trbdf2、tsit45、euler、heun、rk4、impeuler、trapezoid"
+                "使えるソルバ: bdf、dopri45、auto、esdirk34、trbdf2、tsit45、euler、heun、rk4、impeuler、trapezoid、esdirk23、esdirk45、sdirk34hw"
             ]
         );
     }
