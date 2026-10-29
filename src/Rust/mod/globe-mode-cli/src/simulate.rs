@@ -567,7 +567,7 @@ mod tests {
         assert!(line("dassl").contains("別名 → bdf"));
         assert!(line("radau5").contains("使える"));
         assert!(line("ida").contains("未実装（代わり: bdf）"));
-        assert!(line("qss").contains("未実装 "));
+        assert!(line("qss").contains("使える"));
         // 説明の列の始まりがそろう（全角を 2 と数える）
         let d = |l: &str| width(&l[..l.rfind("  ").unwrap()]);
         let first = d(&lines[1]);
