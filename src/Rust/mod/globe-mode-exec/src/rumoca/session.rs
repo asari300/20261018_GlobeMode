@@ -9,7 +9,7 @@
 //! - wasm32: rumoca-sim の `build_simulation`（diffsol.rs:200,206）と `rk45::simulate`（rk45.rs:107,112）は
 //!   std の `Instant::now` を呼び、wasm32-unknown-unknown では panic する。この道は呼ばない（Rumoca の時間切れは
 //!   wasm32 では `instant` を使う。`rumoca-solver/src/runtime/timeout.rs`）。
-//! - 自前の積分器（`esdirk34`・`trbdf2`・`tsit45`・`euler`・`heun`・`rk4`・`impeuler`・`trapezoid`・`esdirk23`・`esdirk45`・`sdirk34hw`・`dopri853`。[`super::plugins`]）。
+//! - 自前の積分器（`esdirk34`・`trbdf2`・`tsit45`・`euler`・`heun`・`rk4`・`impeuler`・`trapezoid`・`esdirk23`・`esdirk45`・`sdirk34hw`・`dopri853`・`cerk23`・`cerk34`・`cerk45`。[`super::plugins`]）。
 //!
 //! 呼ぶ順は rumoca-sim の `me_backend::simulate_artifact`（Apache-2.0、rev 276e82bd）と同じで、公開の関数だけを
 //! 使う（コードは写していない）: `lower_correlated_for_simulation_with_overrides` → `finish_fmi_component` →

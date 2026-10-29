@@ -2,7 +2,7 @@
 //!
 //! 名前は 3 種類ある。
 //!
-//! - 実装のあるもの（`bdf`、`dopri45`、`auto`。S012 から `esdirk34`、`trbdf2`、`tsit45`、`euler`、`heun`、`rk4`。S026 から `impeuler`、`trapezoid`。S027 から `esdirk23`、`esdirk45`、`sdirk34hw`。S028 から `dopri853`）
+//! - 実装のあるもの（`bdf`、`dopri45`、`auto`。S012 から `esdirk34`、`trbdf2`、`tsit45`、`euler`、`heun`、`rk4`。S026 から `impeuler`、`trapezoid`。S027 から `esdirk23`、`esdirk45`、`sdirk34hw`。S028 から `dopri853`。S029 から `cerk23`、`cerk34`、`cerk45`）
 //! - 別名（`dassl`、`lsodar` → `bdf`、`rk45`、`dopri5` → `dopri45`）。同等の手法に置き換えるが、
 //!   刻み幅の制御などが違うので結果は一致しない
 //! - 登録表にはあるが、まだ実装していないもの（`radau5`、`ida` など）
@@ -85,7 +85,6 @@ const fn planned(
 }
 
 const BDF: Option<SolverId> = Some(SolverId::Bdf);
-const DOPRI45: Option<SolverId> = Some(SolverId::Dopri45);
 
 /// ソルバの登録表（doc/architecture.md §3.3 の表の順。実装のあるもの、別名、計画の順に並べる）。
 pub const SOLVERS: &[SolverEntry] = &[
@@ -146,6 +145,18 @@ pub const SOLVERS: &[SolverEntry] = &[
         SolverId::Dopri853,
         "DOP853（13 段の FSAL、8 次。Hairer らの係数を diffsol の陽的 RK に差す。陽的、刻み幅の制御あり。刻み幅は 5 次の見積もりで決める）",
     ),
+    available(
+        SolverId::Cerk23,
+        "CERK 3(2)（Owren–Zennaro。4 段の FSAL、3 次、刻みの間も 3 次の補間。係数を diffsol の陽的 RK に差す。陽的、刻み幅の制御あり）",
+    ),
+    available(
+        SolverId::Cerk34,
+        "CERK 4(3)（Owren–Zennaro。6 段の FSAL、4 次、刻みの間も 4 次の補間。係数を diffsol の陽的 RK に差す。陽的、刻み幅の制御あり）",
+    ),
+    available(
+        SolverId::Cerk45,
+        "CERK 5(4)（Owren–Zennaro。8 段の FSAL、5 次、刻みの間も 5 次の補間。係数を diffsol の陽的 RK に差す。陽的、刻み幅の制御あり）",
+    ),
     alias(
         "dassl",
         SolverId::Bdf,
@@ -169,9 +180,6 @@ pub const SOLVERS: &[SolverEntry] = &[
         BDF,
     ),
     planned("radau5", "Radau IIA 5 次（自前。P8 の予定。未実装）", BDF),
-    planned("cerk23", "連続の陽的 RK 2(3)（後回し）", DOPRI45),
-    planned("cerk34", "連続の陽的 RK 3(4)（後回し）", DOPRI45),
-    planned("cerk45", "連続の陽的 RK 4(5)（後回し）", DOPRI45),
     planned("qss", "量子化状態法 QSS（後回し）", None),
 ];
 
@@ -275,6 +283,7 @@ mod tests {
             lookup("DOPRI853"),
             SolverLookup::Available(SolverId::Dopri853)
         );
+        assert_eq!(lookup("CERK34"), SolverLookup::Available(SolverId::Cerk34));
         assert_eq!(
             available_names().collect::<Vec<_>>(),
             [
@@ -292,7 +301,10 @@ mod tests {
                 "esdirk23",
                 "esdirk45",
                 "sdirk34hw",
-                "dopri853"
+                "dopri853",
+                "cerk23",
+                "cerk34",
+                "cerk45"
             ]
         );
     }
@@ -330,9 +342,7 @@ mod tests {
 
     #[test]
     fn planned_solvers_are_recognised() {
-        for name in [
-            "ida", "cvode", "radau5", "cerk23", "cerk34", "cerk45", "qss",
-        ] {
+        for name in ["ida", "cvode", "radau5", "qss"] {
             assert_eq!(
                 lookup(&name.to_uppercase()),
                 SolverLookup::Planned { name: name.into() },
