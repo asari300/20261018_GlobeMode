@@ -83,6 +83,8 @@ pub enum SolverId {
     Cerk34,
     /// CERK 5(4)（8 段の FSAL、5 次の主解と 4 次の埋め込み、5 次の補間。S029）
     Cerk45,
+    /// Radau IIA 3 段 5 次（陰的、刻み幅の制御あり、簡略 Newton 法。自前の積分器。S030）
+    Radau5,
 }
 
 impl SolverId {
@@ -107,6 +109,7 @@ impl SolverId {
             SolverId::Cerk23 => "cerk23",
             SolverId::Cerk34 => "cerk34",
             SolverId::Cerk45 => "cerk45",
+            SolverId::Radau5 => "radau5",
         }
     }
 

@@ -589,7 +589,7 @@ fn initial_state(
     Ok(state)
 }
 
-fn scaled_absolute_tolerances(setup: &MeNumericalSetup) -> Vec<f64> {
+pub(super) fn scaled_absolute_tolerances(setup: &MeNumericalSetup) -> Vec<f64> {
     let absolute_tolerance = setup.absolute_tolerance();
     setup
         .state_nominals()

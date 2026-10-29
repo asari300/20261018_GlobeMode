@@ -820,12 +820,12 @@ mod tests {
     #[test]
     fn planned_solver_is_an_error_with_a_substitute() {
         let requested = SimSettings {
-            solver: Some("radau5".into()),
+            solver: Some("ida".into()),
             ..SimSettings::default()
         };
         let d = err(&requested, None);
         assert_eq!(codes_of(&d), [(codes::SOLVER_UNAVAILABLE, Severity::Error)]);
-        assert_eq!(d[0].message, "ソルバ radau5 はまだ実装していない");
+        assert_eq!(d[0].message, "ソルバ ida はまだ実装していない");
         assert!(
             d[0].notes.iter().any(|n| n == "近い手法で使えるもの: bdf"),
             "{:?}",
@@ -833,7 +833,7 @@ mod tests {
         );
         assert!(
             d[0].notes.iter().any(|n| n
-                == "使えるソルバ: bdf、dopri45、auto、esdirk34、trbdf2、tsit45、euler、heun、rk4、impeuler、trapezoid、esdirk23、esdirk45、sdirk34hw、dopri853、cerk23、cerk34、cerk45")
+                == "使えるソルバ: bdf、dopri45、auto、esdirk34、trbdf2、tsit45、euler、heun、rk4、impeuler、trapezoid、esdirk23、esdirk45、sdirk34hw、dopri853、cerk23、cerk34、cerk45、radau5")
         );
     }
 
@@ -855,7 +855,7 @@ mod tests {
         assert_eq!(
             d[0].notes,
             [
-                "使えるソルバ: bdf、dopri45、auto、esdirk34、trbdf2、tsit45、euler、heun、rk4、impeuler、trapezoid、esdirk23、esdirk45、sdirk34hw、dopri853、cerk23、cerk34、cerk45"
+                "使えるソルバ: bdf、dopri45、auto、esdirk34、trbdf2、tsit45、euler、heun、rk4、impeuler、trapezoid、esdirk23、esdirk45、sdirk34hw、dopri853、cerk23、cerk34、cerk45、radau5"
             ]
         );
     }

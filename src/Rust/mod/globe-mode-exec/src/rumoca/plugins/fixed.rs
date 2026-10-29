@@ -48,14 +48,14 @@ pub(super) struct FixedStep {
 }
 
 #[derive(Debug, Default)]
-struct Segment {
-    t: f64,
-    y: Vec<f64>,
-    f: Vec<f64>,
+pub(super) struct Segment {
+    pub(super) t: f64,
+    pub(super) y: Vec<f64>,
+    pub(super) f: Vec<f64>,
 }
 
 impl Segment {
-    fn knot(&self) -> Knot<'_> {
+    pub(super) fn knot(&self) -> Knot<'_> {
         Knot {
             t: self.t,
             y: &self.y,

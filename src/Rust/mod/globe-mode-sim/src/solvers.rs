@@ -2,10 +2,10 @@
 //!
 //! 名前は 3 種類ある。
 //!
-//! - 実装のあるもの（`bdf`、`dopri45`、`auto`。S012 から `esdirk34`、`trbdf2`、`tsit45`、`euler`、`heun`、`rk4`。S026 から `impeuler`、`trapezoid`。S027 から `esdirk23`、`esdirk45`、`sdirk34hw`。S028 から `dopri853`。S029 から `cerk23`、`cerk34`、`cerk45`）
+//! - 実装のあるもの（`bdf`、`dopri45`、`auto`。S012 から `esdirk34`、`trbdf2`、`tsit45`、`euler`、`heun`、`rk4`。S026 から `impeuler`、`trapezoid`。S027 から `esdirk23`、`esdirk45`、`sdirk34hw`。S028 から `dopri853`。S029 から `cerk23`、`cerk34`、`cerk45`。S030 から `radau5`）
 //! - 別名（`dassl`、`lsodar` → `bdf`、`rk45`、`dopri5` → `dopri45`）。同等の手法に置き換えるが、
 //!   刻み幅の制御などが違うので結果は一致しない
-//! - 登録表にはあるが、まだ実装していないもの（`radau5`、`ida` など）
+//! - 登録表にはあるが、まだ実装していないもの（`ida`、`cvode` など）
 //!
 //! 表に無い名前は、編集距離の近い名前を 3 つまで挙げる。
 
@@ -19,7 +19,7 @@ pub enum SolverLookup {
     Available(SolverId),
     /// 別名（例: `dassl` → `bdf`。同等の手法で、結果は一致しない）
     Alias { requested: String, id: SolverId },
-    /// 登録表にはあるが、まだ実装していない（例: `radau5`）
+    /// 登録表にはあるが、まだ実装していない（例: `ida`）
     Planned { name: String },
     /// 名前が無い。`suggestions` は近い名前
     Unknown {
@@ -157,6 +157,10 @@ pub const SOLVERS: &[SolverEntry] = &[
         SolverId::Cerk45,
         "CERK 5(4)（Owren–Zennaro。8 段の FSAL、5 次、刻みの間も 5 次の補間。係数を diffsol の陽的 RK に差す。陽的、刻み幅の制御あり）",
     ),
+    available(
+        SolverId::Radau5,
+        "Radau IIA（3 段、5 次、L 安定。自前の簡略 Newton 法と HW の埋め込みの誤差の見積もり。陰的、刻み幅の制御あり。刻みの間は 3 次の Hermite 補間）",
+    ),
     alias(
         "dassl",
         SolverId::Bdf,
@@ -179,7 +183,6 @@ pub const SOLVERS: &[SolverEntry] = &[
         "SUNDIALS の CVODE（feature `sundials`。未実装）",
         BDF,
     ),
-    planned("radau5", "Radau IIA 5 次（自前。P8 の予定。未実装）", BDF),
     planned("qss", "量子化状態法 QSS（後回し）", None),
 ];
 
@@ -284,6 +287,7 @@ mod tests {
             SolverLookup::Available(SolverId::Dopri853)
         );
         assert_eq!(lookup("CERK34"), SolverLookup::Available(SolverId::Cerk34));
+        assert_eq!(lookup("Radau5"), SolverLookup::Available(SolverId::Radau5));
         assert_eq!(
             available_names().collect::<Vec<_>>(),
             [
@@ -304,7 +308,8 @@ mod tests {
                 "dopri853",
                 "cerk23",
                 "cerk34",
-                "cerk45"
+                "cerk45",
+                "radau5"
             ]
         );
     }
@@ -342,7 +347,7 @@ mod tests {
 
     #[test]
     fn planned_solvers_are_recognised() {
-        for name in ["ida", "cvode", "radau5", "qss"] {
+        for name in ["ida", "cvode", "qss"] {
             assert_eq!(
                 lookup(&name.to_uppercase()),
                 SolverLookup::Planned { name: name.into() },
