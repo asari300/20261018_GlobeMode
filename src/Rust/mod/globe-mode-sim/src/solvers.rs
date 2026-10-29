@@ -2,7 +2,7 @@
 //!
 //! 名前は 3 種類ある。
 //!
-//! - 実装のあるもの（`bdf`、`dopri45`、`auto`。S012 から `esdirk34`、`trbdf2`、`tsit45`、`euler`、`heun`、`rk4`。S026 から `impeuler`、`trapezoid`。S027 から `esdirk23`、`esdirk45`、`sdirk34hw`）
+//! - 実装のあるもの（`bdf`、`dopri45`、`auto`。S012 から `esdirk34`、`trbdf2`、`tsit45`、`euler`、`heun`、`rk4`。S026 から `impeuler`、`trapezoid`。S027 から `esdirk23`、`esdirk45`、`sdirk34hw`。S028 から `dopri853`）
 //! - 別名（`dassl`、`lsodar` → `bdf`、`rk45`、`dopri5` → `dopri45`）。同等の手法に置き換えるが、
 //!   刻み幅の制御などが違うので結果は一致しない
 //! - 登録表にはあるが、まだ実装していないもの（`radau5`、`ida` など）
@@ -142,6 +142,10 @@ pub const SOLVERS: &[SolverEntry] = &[
         SolverId::Sdirk34hw,
         "SDIRK 4(3)（5 段、4 次、L 安定。Hairer–Wanner の SDIRK4 を diffsol の SDIRK に差す。陰的、刻み幅の制御あり）",
     ),
+    available(
+        SolverId::Dopri853,
+        "DOP853（13 段の FSAL、8 次。Hairer らの係数を diffsol の陽的 RK に差す。陽的、刻み幅の制御あり。刻み幅は 5 次の見積もりで決める）",
+    ),
     alias(
         "dassl",
         SolverId::Bdf,
@@ -164,7 +168,6 @@ pub const SOLVERS: &[SolverEntry] = &[
         "SUNDIALS の CVODE（feature `sundials`。未実装）",
         BDF,
     ),
-    planned("dopri853", "Dormand–Prince 8(5,3)（自前。未実装）", DOPRI45),
     planned("radau5", "Radau IIA 5 次（自前。P8 の予定。未実装）", BDF),
     planned("cerk23", "連続の陽的 RK 2(3)（後回し）", DOPRI45),
     planned("cerk34", "連続の陽的 RK 3(4)（後回し）", DOPRI45),
@@ -269,6 +272,10 @@ mod tests {
             SolverLookup::Available(SolverId::Sdirk34hw)
         );
         assert_eq!(
+            lookup("DOPRI853"),
+            SolverLookup::Available(SolverId::Dopri853)
+        );
+        assert_eq!(
             available_names().collect::<Vec<_>>(),
             [
                 "bdf",
@@ -284,7 +291,8 @@ mod tests {
                 "trapezoid",
                 "esdirk23",
                 "esdirk45",
-                "sdirk34hw"
+                "sdirk34hw",
+                "dopri853"
             ]
         );
     }
@@ -323,7 +331,7 @@ mod tests {
     #[test]
     fn planned_solvers_are_recognised() {
         for name in [
-            "ida", "cvode", "dopri853", "radau5", "cerk23", "cerk34", "cerk45", "qss",
+            "ida", "cvode", "radau5", "cerk23", "cerk34", "cerk45", "qss",
         ] {
             assert_eq!(
                 lookup(&name.to_uppercase()),

@@ -75,6 +75,8 @@ pub enum SolverId {
     Esdirk45,
     /// Hairer–Wanner の SDIRK4（5 段、4 次の主解と 3 次の埋め込み。diffsol の SDIRK に自前の係数表。S027）
     Sdirk34hw,
+    /// DOP853（13 段の FSAL、8 次の主解と 5 次の埋め込み。diffsol の陽的 RK に自前の係数表。S028）
+    Dopri853,
 }
 
 impl SolverId {
@@ -95,6 +97,7 @@ impl SolverId {
             SolverId::Esdirk23 => "esdirk23",
             SolverId::Esdirk45 => "esdirk45",
             SolverId::Sdirk34hw => "sdirk34hw",
+            SolverId::Dopri853 => "dopri853",
         }
     }
 

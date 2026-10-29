@@ -9,7 +9,7 @@
 //! - [`compare`] … 参照結果との比較。csv-compare（BSD-3-Clause）の矩形の管（ファネル）を、アルゴリズムの
 //!   記述から書き直したもの（コードは写していない）。
 //! - [`integrators`] … 固定刻みの積分の係数と補間（S012）。
-//! - [`sdirk`] … 刻み幅の制御のある SDIRK・ESDIRK の係数表（`esdirk23`・`esdirk45`・`sdirk34hw`。S027）。
+//! - [`sdirk`] … 刻み幅の制御のある SDIRK・ESDIRK の係数表（`esdirk23`・`esdirk45`・`sdirk34hw`。S027）と、陽的 RK の `dopri853`（S028）。
 //! - [`mat`] … 結果の MAT v4 ファイル（dsres 形式。S012）。
 
 pub mod compare;
