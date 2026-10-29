@@ -1,4 +1,4 @@
-//! 自前の積分器（S012。`esdirk34`・`trbdf2`・`tsit45`・`euler`・`heun`・`rk4`。S026 の `impeuler`・`trapezoid`。S027 の `esdirk23`・`esdirk45`・`sdirk34hw`）を、`globe_mode_exec::run` を通して
+//! 自前の積分器（S012。`esdirk34`・`trbdf2`・`tsit45`・`euler`・`heun`・`rk4`。S026 の `impeuler`・`trapezoid`。S027 の `esdirk23`・`esdirk45`・`sdirk34hw`。S028 の `dopri853`）を、`globe_mode_exec::run` を通して
 //! src/Modelica/GlobeModeValidation/Simulation のモデルで確かめる。
 //!
 //! - Decay（x' = -x）: euler・dt 0.1 なら x(1) = 0.9^10。刻み幅の制御のあるものと rk4 は exp(-1) に近い。
@@ -117,8 +117,9 @@ fn assert_close(actual: f64, expected: f64, tol: f64, what: &str) {
     );
 }
 
-const ADAPTIVE: [SolverId; 6] = [
+const ADAPTIVE: [SolverId; 7] = [
     SolverId::Tsit45,
+    SolverId::Dopri853,
     SolverId::Esdirk34,
     SolverId::Trbdf2,
     SolverId::Esdirk23,
@@ -301,6 +302,7 @@ fn bouncing_ball_matches_bdf() {
     // 3 回目の後の放物線（解析解 h(2) ≈ 0.260739）
     for (solver, step, tol) in [
         (SolverId::Tsit45, None, 1e-4),
+        (SolverId::Dopri853, None, 1e-4),
         (SolverId::Esdirk34, None, 1e-4),
         (SolverId::Trbdf2, None, 1e-4),
         (SolverId::Esdirk23, None, 1e-4),
@@ -401,6 +403,32 @@ fn rk_restarts_from_a_tiny_state_with_a_large_derivative() {
             1e5,
             1e-6,
             &format!("{} x(2)", solver.name()),
+        );
+    }
+}
+
+/// `dopri853` の主解は 8 次なので、刻み幅を 5 次の埋め込みの見積もりで決めても、同じ許容誤差（1e-8）で
+/// `tsit45`（誤差 1e-10〜1e-8）よりずっと正確になる（S028。実測は Decay・Oscillator とも 1e-12 台）。
+#[test]
+fn dopri853_is_far_more_accurate_than_tsit45_at_the_same_tolerance() {
+    let decay = compile("Decay");
+    let oscillator = compile("HarmonicOscillator");
+    let (x1, v1) = (2.0f64.cos(), -2.0 * 2.0f64.sin());
+    let errors = |solver| {
+        let d = run_with(&decay, solver, None);
+        let o = run_with(&oscillator, solver, None);
+        [
+            (last(&d, "x") - (-1.0f64).exp()).abs(),
+            (last(&o, "x") - x1).abs(),
+            (last(&o, "v") - v1).abs(),
+        ]
+    };
+    let (tsit, dop) = (errors(SolverId::Tsit45), errors(SolverId::Dopri853));
+    for (t, d) in tsit.iter().zip(dop) {
+        assert!(d < 1e-10, "dopri853 の誤差 {d}");
+        assert!(
+            d * 10.0 < *t,
+            "dopri853 {d} は tsit45 {t} の 1/10 より小さいはず"
         );
     }
 }

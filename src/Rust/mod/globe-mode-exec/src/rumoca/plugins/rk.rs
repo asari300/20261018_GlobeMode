@@ -1,5 +1,5 @@
 //! diffsol の Runge–Kutta 法の積分器（`tsit45`・`esdirk34`・`trbdf2`、S027 から自前の係数表の `esdirk23`・
-//! `esdirk45`・`sdirk34hw`）。刻み幅の制御は diffsol が受け持つ。
+//! `esdirk45`・`sdirk34hw`、S028 から `dopri853`）。刻み幅の制御は diffsol が受け持つ。
 //!
 //! 出典と改変: Rumoca（Apache-2.0）の `crates/rumoca-solver-diffsol/src/me_integrator.rs`（rev 276e82bd）の
 //! BDF の積分器を写して改変した。変えたのは、方法を diffsol の BDF から陽的 RK（`tsit45_solver`）と SDIRK
@@ -22,7 +22,7 @@ use diffsol::{
     error::OdeSolverError,
 };
 use globe_mode_ir::SolverId;
-use globe_mode_sim::sdirk::sdirk_tableau;
+use globe_mode_sim::sdirk::{explicit_tableau, sdirk_tableau};
 use rumoca_solver::fmi_me::{
     MeAdvanceRequest, MeContinuousPoint, MeDerivativeHandle, MeIntegrationError,
     MeIntegratorBackend, MeNumericalFailure, MeNumericalSetup, MeStepCandidate,
@@ -77,6 +77,8 @@ self_cell!(
 pub(super) enum Method {
     /// Tsitouras 5(4)（陽的）
     Tsit45,
+    /// 自前の係数表（`globe_mode_sim::sdirk`）の DOP853（陽的。S028）
+    Dopri853,
     /// ESDIRK 3(4)
     Esdirk34,
     /// TR-BDF2
@@ -89,6 +91,7 @@ impl Method {
     const fn name(self) -> &'static str {
         match self {
             Method::Tsit45 => "diffsol-tsit45",
+            Method::Dopri853 => "diffsol-dopri853",
             Method::Esdirk34 => "diffsol-esdirk34",
             Method::TrBdf2 => "diffsol-trbdf2",
             Method::Custom(SolverId::Esdirk23) => "diffsol-esdirk23",
@@ -100,7 +103,7 @@ impl Method {
     /// 最初の刻みの見積もり（`RkState::set_step_size`）に渡す方法の次数。
     fn order(self) -> usize {
         match self {
-            Method::Tsit45 => 5,
+            Method::Tsit45 | Method::Dopri853 => 5,
             Method::Esdirk34 => 4,
             Method::TrBdf2 => 2,
             Method::Custom(id) => sdirk_tableau(id).map_or(1, |t| t.order),
@@ -180,7 +183,7 @@ impl DiffsolRk {
         let numerical =
             |e: DiffsolError| MeIntegrationError::numerical(method.name(), failure, e.to_string());
         let solver = match method {
-            Method::Tsit45 => {
+            Method::Tsit45 | Method::Dopri853 => {
                 let problem = build_problem(
                     point,
                     Rc::clone(&derivatives),
@@ -193,7 +196,14 @@ impl DiffsolRk {
                 Solver::Explicit(ExplicitCell::try_new(problem, |problem| {
                     let state = initial_state(problem, point, &initial_derivatives, method.order())
                         .map_err(numerical)?;
-                    problem.tsit45_solver(state).map_err(numerical)
+                    if method == Method::Tsit45 {
+                        return problem.tsit45_solver(state).map_err(numerical);
+                    }
+                    let tableau = custom_tableau(SolverId::Dopri853, *problem.context())
+                        .map_err(numerical)?;
+                    problem
+                        .explicit_rk_solver(state, tableau)
+                        .map_err(numerical)
                 })?)
             }
             Method::Esdirk34 | Method::TrBdf2 | Method::Custom(_) => {
@@ -436,14 +446,14 @@ impl MeIntegratorBackend for DiffsolRk {
 }
 
 /// 自前の係数表（`globe_mode_sim::sdirk`）から diffsol の `Tableau` を作る。補間の係数（beta）が無ければ
-/// （ESDIRK）、刻みの間は diffsol が 3 次の Hermite 補間にする。
+/// （ESDIRK・`dopri853`）、刻みの間は diffsol が 3 次の Hermite 補間にする。
 fn custom_tableau(
     id: SolverId,
     context: <Vector as VectorCommon>::C,
 ) -> Result<Tableau<FaerMat<f64>>, DiffsolError> {
-    let table = sdirk_tableau(id).ok_or_else(|| {
-        DiffsolError::Other(format!("ソルバ {} の SDIRK の係数表が無い", id.name()))
-    })?;
+    let table = sdirk_tableau(id)
+        .or_else(|| explicit_tableau(id))
+        .ok_or_else(|| DiffsolError::Other(format!("ソルバ {} の係数表が無い", id.name())))?;
     let s = table.stages();
     // diffsol の `from_vec` は列優先
     let a = (0..s * s).map(|k| table.a[k % s][k / s]).collect();
