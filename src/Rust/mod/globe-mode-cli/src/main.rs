@@ -117,7 +117,7 @@ enum Command {
         /// 出力の間隔（省略すると experiment annotation、無ければ区間の 1/500）
         #[arg(long)]
         interval: Option<f64>,
-        /// ソルバ（bdf・dopri45・auto・esdirk34・trbdf2・tsit45・euler・heun・rk4・impeuler・trapezoid・esdirk23・esdirk45・sdirk34hw・dopri853・cerk23・cerk34・cerk45。別名 dassl → bdf など。
+        /// ソルバ（bdf・dopri45・auto・esdirk34・trbdf2・tsit45・euler・heun・rk4・impeuler・trapezoid・esdirk23・esdirk45・sdirk34hw・dopri853・cerk23・cerk34・cerk45・radau5。別名 dassl → bdf など。
         /// 一覧は --list-solvers）
         #[arg(long)]
         solver: Option<String>,

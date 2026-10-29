@@ -1,4 +1,4 @@
-//! 自前の積分器（S012。`esdirk34`・`trbdf2`・`tsit45`・`euler`・`heun`・`rk4`。S026 の `impeuler`・`trapezoid`。S027 の `esdirk23`・`esdirk45`・`sdirk34hw`。S028 の `dopri853`。S029 の `cerk23`・`cerk34`・`cerk45`）を、`globe_mode_exec::run` を通して
+//! 自前の積分器（S012。`esdirk34`・`trbdf2`・`tsit45`・`euler`・`heun`・`rk4`。S026 の `impeuler`・`trapezoid`。S027 の `esdirk23`・`esdirk45`・`sdirk34hw`。S028 の `dopri853`。S029 の `cerk23`・`cerk34`・`cerk45`。S030 の `radau5`）を、`globe_mode_exec::run` を通して
 //! src/Modelica/GlobeModeValidation/Simulation のモデルで確かめる。
 //!
 //! - Decay（x' = -x）: euler・dt 0.1 なら x(1) = 0.9^10。刻み幅の制御のあるものと rk4 は exp(-1) に近い。
@@ -117,7 +117,7 @@ fn assert_close(actual: f64, expected: f64, tol: f64, what: &str) {
     );
 }
 
-const ADAPTIVE: [SolverId; 10] = [
+const ADAPTIVE: [SolverId; 11] = [
     SolverId::Tsit45,
     SolverId::Dopri853,
     SolverId::Esdirk34,
@@ -128,6 +128,7 @@ const ADAPTIVE: [SolverId; 10] = [
     SolverId::Cerk23,
     SolverId::Cerk34,
     SolverId::Cerk45,
+    SolverId::Radau5,
 ];
 
 #[test]
@@ -314,6 +315,7 @@ fn bouncing_ball_matches_bdf() {
         (SolverId::Cerk23, None, 1e-4),
         (SolverId::Cerk34, None, 1e-4),
         (SolverId::Cerk45, None, 1e-4),
+        (SolverId::Radau5, None, 1e-4),
         // 固定刻み（h 0.01）。重力だけの区間は 2 次の多項式なので heun・rk4 は区間の中では正確で、
         // 誤差はイベントの位置（根探索の許容誤差）だけ
         (SolverId::Rk4, Some(0.01), 1e-4),

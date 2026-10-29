@@ -10,11 +10,13 @@
 //!   記述から書き直したもの（コードは写していない）。
 //! - [`integrators`] … 固定刻みの積分の係数と補間（S012）。
 //! - [`sdirk`] … 刻み幅の制御のある SDIRK・ESDIRK の係数表（`esdirk23`・`esdirk45`・`sdirk34hw`。S027）と、陽的 RK の `dopri853`（S028）・`cerk23`・`cerk34`・`cerk45`（S029）。
+//! - [`radau`] … Radau IIA 3 段 5 次の刻み幅の制御つき積分（`radau5`。S030）。簡略 Newton 法と HW の埋め込みの誤差の見積もり。
 //! - [`mat`] … 結果の MAT v4 ファイル（dsres 形式。S012）。
 
 pub mod compare;
 pub mod integrators;
 pub mod mat;
+pub mod radau;
 pub mod sdirk;
 pub mod settings;
 pub mod solvers;
