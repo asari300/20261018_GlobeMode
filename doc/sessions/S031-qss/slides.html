@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S031 qss — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S031 qss">
+
+<section class="slide" id="S01">
+  <span class="tag">S031 · 2026-10-30 · P3</span>
+  <h1>qss</h1>
+  <p class="lead">計画だけあった量子化状態法を自前で書いた</p>
+  <div class="big">QSS2。時刻は刻みでなく量子の事象で決まる</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>ロードマップの候補 6（残りの計画のソルバ）の続き</li>
+    <li>依存を足さずに書ける <code>qss</code> を選んだ（<code>ida</code>・<code>cvode</code> は SUNDIALS の C のビルドが要る）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table>
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>方法</td><td>QSS2（x は 2 次、q は 1 次）</td><td>QSS1 は事象が多すぎる</td></tr>
+    <tr><td>量子</td><td>max(atol, rtol·|x|)</td><td>他のソルバと同じ許容誤差</td></tr>
+    <tr><td>2 次の項</td><td>f の前進差分</td><td>方向微分が要らない</td></tr>
+    <tr><td>更新</td><td>事象ごとに f 全体</td><td>依存の構造を持たない（後回し）</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">結果</span>
+  <h1>Decay x(1) の誤差</h1>
+  <table>
+    <tr><th>許容誤差</th><th>tsit45</th><th>qss</th><th>事象</th></tr>
+    <tr><td>1e-6</td><td>9.6e-8</td><td>2.1e-7</td><td>556</td></tr>
+    <tr><td>1e-8</td><td>7.3e-10</td><td>2.1e-9</td><td>5564</td></tr>
+  </table>
+  <p>誤差は量子に比例し、事象は量子の −1/2 乗で増える</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現</h1>
+  <pre><code>globe simulate -L src/Modelica/GlobeModeValidation \
+  -m GlobeModeValidation.Simulation.BouncingBall \
+  --solver qss</code></pre>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>状態が多いと遅い（依存の構造が無く、事象ごとに f 全体）</li>
+    <li>硬い系に弱い（LIQSS は無い）。壁時計の上限で止まる</li>
+    <li>残りの計画のソルバ（<code>ida</code>・<code>cvode</code>）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

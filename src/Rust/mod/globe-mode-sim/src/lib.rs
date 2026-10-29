@@ -3,7 +3,7 @@
 //! Rumoca にも実行系にも依存しない（wasm32 でビルドできる）。実行は `globe-mode-exec` が受け持つ。
 //!
 //! - [`solvers`] … GlobeMode のソルバの名前の登録表（doc/architecture.md §3.3）。別名（`dassl` → `bdf`）と、
-//!   計画だけあってまだ実装の無いもの（`radau5` など）を見分ける。
+//!   計画だけあってまだ実装の無いもの（`ida` など）を見分ける。
 //! - [`settings`] … 利用者の指定・experiment annotation・既定値から実行の設定を決める。
 //! - [`store`] … 結果の CSV（MAP-LIB の参照結果と同じ形: 1 行目は二重引用符で囲んだ名前、先頭の列は `time`）。
 //! - [`compare`] … 参照結果との比較。csv-compare（BSD-3-Clause）の矩形の管（ファネル）を、アルゴリズムの
@@ -11,11 +11,13 @@
 //! - [`integrators`] … 固定刻みの積分の係数と補間（S012）。
 //! - [`sdirk`] … 刻み幅の制御のある SDIRK・ESDIRK の係数表（`esdirk23`・`esdirk45`・`sdirk34hw`。S027）と、陽的 RK の `dopri853`（S028）・`cerk23`・`cerk34`・`cerk45`（S029）。
 //! - [`radau`] … Radau IIA 3 段 5 次の刻み幅の制御つき積分（`radau5`。S030）。簡略 Newton 法と HW の埋め込みの誤差の見積もり。
+//! - [`qss`] … 量子化状態法 QSS2（`qss`。S031）。事象（量子化した状態と元の状態の差が量子に達した時刻）ごとに進む。
 //! - [`mat`] … 結果の MAT v4 ファイル（dsres 形式。S012）。
 
 pub mod compare;
 pub mod integrators;
 pub mod mat;
+pub mod qss;
 pub mod radau;
 pub mod sdirk;
 pub mod settings;

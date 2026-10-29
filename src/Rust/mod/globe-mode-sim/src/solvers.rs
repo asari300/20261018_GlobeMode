@@ -2,10 +2,10 @@
 //!
 //! 名前は 3 種類ある。
 //!
-//! - 実装のあるもの（`bdf`、`dopri45`、`auto`。S012 から `esdirk34`、`trbdf2`、`tsit45`、`euler`、`heun`、`rk4`。S026 から `impeuler`、`trapezoid`。S027 から `esdirk23`、`esdirk45`、`sdirk34hw`。S028 から `dopri853`。S029 から `cerk23`、`cerk34`、`cerk45`。S030 から `radau5`）
+//! - 実装のあるもの（`bdf`、`dopri45`、`auto`。S012 から `esdirk34`、`trbdf2`、`tsit45`、`euler`、`heun`、`rk4`。S026 から `impeuler`、`trapezoid`。S027 から `esdirk23`、`esdirk45`、`sdirk34hw`。S028 から `dopri853`。S029 から `cerk23`、`cerk34`、`cerk45`。S030 から `radau5`。S031 から `qss`）
 //! - 別名（`dassl`、`lsodar` → `bdf`、`rk45`、`dopri5` → `dopri45`）。同等の手法に置き換えるが、
 //!   刻み幅の制御などが違うので結果は一致しない
-//! - 登録表にはあるが、まだ実装していないもの（`ida`、`cvode` など）
+//! - 登録表にはあるが、まだ実装していないもの（`ida`、`cvode`）
 //!
 //! 表に無い名前は、編集距離の近い名前を 3 つまで挙げる。
 
@@ -161,6 +161,10 @@ pub const SOLVERS: &[SolverEntry] = &[
         SolverId::Radau5,
         "Radau IIA（3 段、5 次、L 安定。自前の簡略 Newton 法と HW の埋め込みの誤差の見積もり。陰的、刻み幅の制御あり。刻みの間は 3 次の Hermite 補間）",
     ),
+    available(
+        SolverId::Qss,
+        "量子化状態法 QSS2（自前。状態と量子化した状態の差が量子に達した事象ごとに進む。陽的、2 次、誤差は量子に比例。硬い系は苦手）",
+    ),
     alias(
         "dassl",
         SolverId::Bdf,
@@ -183,7 +187,6 @@ pub const SOLVERS: &[SolverEntry] = &[
         "SUNDIALS の CVODE（feature `sundials`。未実装）",
         BDF,
     ),
-    planned("qss", "量子化状態法 QSS（後回し）", None),
 ];
 
 /// 近い名前として挙げる数の上限。
@@ -288,6 +291,7 @@ mod tests {
         );
         assert_eq!(lookup("CERK34"), SolverLookup::Available(SolverId::Cerk34));
         assert_eq!(lookup("Radau5"), SolverLookup::Available(SolverId::Radau5));
+        assert_eq!(lookup("QSS"), SolverLookup::Available(SolverId::Qss));
         assert_eq!(
             available_names().collect::<Vec<_>>(),
             [
@@ -309,7 +313,8 @@ mod tests {
                 "cerk23",
                 "cerk34",
                 "cerk45",
-                "radau5"
+                "radau5",
+                "qss"
             ]
         );
     }
@@ -347,7 +352,7 @@ mod tests {
 
     #[test]
     fn planned_solvers_are_recognised() {
-        for name in ["ida", "cvode", "qss"] {
+        for name in ["ida", "cvode"] {
             assert_eq!(
                 lookup(&name.to_uppercase()),
                 SolverLookup::Planned { name: name.into() },

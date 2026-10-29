@@ -4,12 +4,14 @@
 //! - 刻み幅の制御のあるもの: `esdirk34`・`trbdf2`（diffsol の SDIRK）、`esdirk23`・`esdirk45`・`sdirk34hw`（自前の係数表を diffsol の SDIRK に差す。S027）、`tsit45`（diffsol の陽的 RK）、`dopri853`（自前の係数表を diffsol の陽的 RK に差す。S028）、`cerk23`・`cerk34`・`cerk45`（同じ道で、連続の補間の係数も差す。S029）。[`rk`]
 //! - `radau5`（自前の Radau IIA 3 段 5 次。刻み幅の制御つき。簡略 Newton 法と HW の埋め込みの誤差の見積もり。S030）。
 //!   係数・1 歩・刻み幅の制御は `globe_mode_sim::radau`。[`radau`]
+//! - `qss`（自前の QSS2。刻みでなく量子化の事象で進む。S031）。事象の探索・状態の更新は `globe_mode_sim::qss`。[`qss`]
 //! - 固定刻み: `euler`・`heun`・`rk4`（陽的）と `impeuler`・`trapezoid`（陰的、1 歩ごとに Newton 法。S026）。
 //!   係数と補間は `globe_mode_sim::integrators`（Rumoca に依存しない）。[`fixed`]
 //!
 //! どれも積分器の歴史（刻み・段の値・補間）だけを持つ。初期化・イベント・根探索・出力の格子は host が受け持つ。
 
 mod fixed;
+mod qss;
 mod radau;
 mod rk;
 
@@ -32,6 +34,7 @@ pub(super) fn plugin(
         SolverId::Trbdf2 => rk::Method::TrBdf2,
         SolverId::Esdirk23 | SolverId::Esdirk45 | SolverId::Sdirk34hw => rk::Method::Custom(id),
         SolverId::Radau5 => return Ok(Box::new(radau::Radau5::new(setup))),
+        SolverId::Qss => return Ok(Box::new(qss::Qss::new(setup))),
         SolverId::Euler
         | SolverId::Heun
         | SolverId::Rk4

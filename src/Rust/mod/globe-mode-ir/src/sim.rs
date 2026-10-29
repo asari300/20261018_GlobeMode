@@ -85,6 +85,8 @@ pub enum SolverId {
     Cerk45,
     /// Radau IIA 3 段 5 次（陰的、刻み幅の制御あり、簡略 Newton 法。自前の積分器。S030）
     Radau5,
+    /// 量子化状態法 QSS2（事象ごとに進む、2 次。自前の積分器。S031）
+    Qss,
 }
 
 impl SolverId {
@@ -110,6 +112,7 @@ impl SolverId {
             SolverId::Cerk34 => "cerk34",
             SolverId::Cerk45 => "cerk45",
             SolverId::Radau5 => "radau5",
+            SolverId::Qss => "qss",
         }
     }
 
