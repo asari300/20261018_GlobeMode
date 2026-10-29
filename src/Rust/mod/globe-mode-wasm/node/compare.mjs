@@ -112,7 +112,10 @@ function compareCsv(a, b) {
 // 近くで、ネイティブと wasm の丸めの違い（faer の SIMD の有無の見込み【未確認】）から、イベントの時刻が出力の
 // 格子の点とほぼ重なるところの行の数（1 行）や値が分かれる。成功と診断のコードは一致する。
 // S027 の自前の係数表の SDIRK（esdirk23・esdirk45・sdirk34hw）も同じ道で、同じ所で分かれる。S028 の dopri853
-// は t ≈ 0.4515 でイベントの行が 1 行増え、t ≈ 1.174 で 1 行減るので、行数は同じでもその間の行がずれる
+// は t ≈ 0.4515 でイベントの行が 1 行増え、t ≈ 1.174 で 1 行減るので、行数は同じでもその間の行がずれる。
+// S029 の cerk23・cerk34・cerk45 は、BouncingBall で同じように分かれるほか、硬い DiodeSwitching で陽的 RK が
+// 安定の限界の刻みを刻むため、最初の出力行（t = 1e-4）から刻みの列が分かれる（相対の差は最大 8.9e-6、
+// 絶対では許容誤差 1e-6 の内側。丸めの違いは exp の実装の差の見込み【未確認】）
 const KNOWN_CSV_DIFFERENCES = new Set([
   "BouncingBall/esdirk34",
   "BouncingBall/trbdf2",
@@ -121,6 +124,12 @@ const KNOWN_CSV_DIFFERENCES = new Set([
   "BouncingBall/esdirk45",
   "BouncingBall/sdirk34hw",
   "BouncingBall/dopri853",
+  "BouncingBall/cerk23",
+  "BouncingBall/cerk34",
+  "BouncingBall/cerk45",
+  "DiodeSwitching/cerk23",
+  "DiodeSwitching/cerk34",
+  "DiodeSwitching/cerk45",
 ]);
 
 let failures = 0;

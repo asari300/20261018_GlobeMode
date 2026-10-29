@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S029 cerk23・cerk34・cerk45 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S029 cerk">
+
+<section class="slide" id="S01">
+  <span class="tag">S029 · 2026-10-29 · P3</span>
+  <h1>cerk23・cerk34・cerk45</h1>
+  <p class="lead">後回しだった連続の陽的 RK を使えるようにした</p>
+  <div class="big">Owren–Zennaro の係数と補間の多項式を、diffsol の陽的 RK に差した</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>ロードマップの候補 6（残りの計画のソルバ）の続き</li>
+    <li>S028 の係数表の道を使い回し、補間の係数を <code>beta</code> に渡す</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table>
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>方法</td><td>Owren–Zennaro 3(2)・4(3)・5(4)</td><td>3 つとも FSAL</td></tr>
+    <tr><td>係数</td><td>OrdinaryDiffEq.jl（MIT）から生成</td><td>手で写さない</td></tr>
+    <tr><td>補間</td><td>多項式を beta で渡す</td><td>刻みの間も主解と同じ次数</td></tr>
+    <tr><td>試験</td><td>主解・埋め込み・補間の次数条件</td><td>写し間違いを捕まえる</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">結果</span>
+  <h1>同じ許容誤差での x(1) の誤差</h1>
+  <table>
+    <tr><th>場合</th><th>tsit45</th><th>cerk23</th><th>cerk34</th><th>cerk45</th></tr>
+    <tr><td>Decay</td><td>7.3e-10</td><td>1.8e-9</td><td>9.1e-10</td><td>8.1e-10</td></tr>
+    <tr><td>Oscillator</td><td>3.6e-10</td><td>2.4e-9</td><td>3.7e-9</td><td>9.8e-10</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現</h1>
+  <pre><code>globe simulate -L src/Modelica/GlobeModeValidation \
+  -m GlobeModeValidation.Simulation.Oscillator \
+  --solver cerk45</code></pre>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>MSL の例題では回していない</li>
+    <li>残りの計画のソルバ（<code>radau5</code>・<code>ida</code>・<code>cvode</code>・<code>qss</code>）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

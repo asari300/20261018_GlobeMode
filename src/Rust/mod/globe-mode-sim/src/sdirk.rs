@@ -1,4 +1,4 @@
-//! 刻み幅の制御のある SDIRK・ESDIRK の係数表（S027）と、陽的 RK の `dopri853`（S028）の係数表。diffsol の
+//! 刻み幅の制御のある SDIRK・ESDIRK の係数表（S027）と、陽的 RK の `dopri853`（S028）・`cerk23`・`cerk34`・`cerk45`（S029）の係数表。diffsol の
 //! `Tableau::new` に差す（SDIRK は `sdirk_solver`、陽的 RK は `explicit_rk_solver`）。
 //!
 //! Rumoca にも diffsol にも依存しない純粋なデータ。実行系（`globe-mode-exec` の `plugins::rk`）が diffsol の
@@ -30,6 +30,14 @@
 //!   Hairer の `dop853.f`、<http://www.unige.ch/~hairer/software.html> から起こしたもの）の `C`・`A`・`E5` を、
 //!   <https://raw.githubusercontent.com/scipy/scipy/main/scipy/integrate/_ivp/dop853_coefficients.py> から
 //!   2026-10-29 に取得して桁を変えずに写した（`dop853.f` 本体は未確認）。詳しい扱いは [`dopri853`] を見る。
+//! - `cerk23`・`cerk34`・`cerk45`（S029）: B. Owren, M. Zennaro, "Derivation of efficient, continuous, explicit
+//!   Runge–Kutta methods", SIAM J. Sci. Stat. Comput. 13 (1992) 1488–1501 の 3(2)・4(3)・5(4)。係数と補間の多項式は
+//!   OrdinaryDiffEq.jl の `OwrenZen3`・`OwrenZen4`・`OwrenZen5`（MIT。
+//!   `lib/OrdinaryDiffEqLowOrderRK/src/low_order_rk_tableaus.jl` と `interpolants.jl`、master の
+//!   45ff46afe9919acf32e9af8058705073e0995503 = 2026-10-25 を 2026-10-29 に
+//!   <https://raw.githubusercontent.com/SciML/OrdinaryDiffEq.jl/45ff46afe9919acf32e9af8058705073e0995503/lib/OrdinaryDiffEqLowOrderRK/src/low_order_rk_tableaus.jl>
+//!   から取得）の有理数の版を、スクリプトで Rust に起こした（手で写していない）。【論文本体は未確認】
+//!   どれも FSAL（最後の行 = `b`、`c = 1`）で、補間は主解と同じ次数（3・4・5 次）。
 
 use globe_mode_ir::SolverId;
 
@@ -212,9 +220,225 @@ fn sdirk34hw() -> RkTableau {
     }
 }
 
-/// `id` の陽的 RK の係数表（`dopri853` でなければ None）。
+/// `id` の陽的 RK の係数表（`dopri853`・`cerk23`・`cerk34`・`cerk45` でなければ None）。
 pub fn explicit_tableau(id: SolverId) -> Option<RkTableau> {
-    (id == SolverId::Dopri853).then(dopri853)
+    match id {
+        SolverId::Dopri853 => Some(dopri853()),
+        SolverId::Cerk23 => Some(cerk23()),
+        SolverId::Cerk34 => Some(cerk34()),
+        SolverId::Cerk45 => Some(cerk45()),
+        _ => None,
+    }
+}
+
+/// 連続の陽的 RK（FSAL。最後の行 = `b`）の係数表を、下三角の `rows`（`rows[i]` は `a[i][0..i]`）、時刻 `c`、
+/// 埋め込みとの差 `btilde = b̂ − b`（出典の符号。`d = b − b̂ = −btilde`）、補間の `beta` から組む。
+fn continuous_explicit(
+    name: &'static str,
+    order: usize,
+    rows: &[&[f64]],
+    c: Vec<f64>,
+    btilde: &[f64],
+    beta: Vec<Vec<f64>>,
+) -> RkTableau {
+    let s = rows.len();
+    let a = (0..s)
+        .map(|i| {
+            let mut row = vec![0.0; s];
+            row[..i].copy_from_slice(rows[i]);
+            row
+        })
+        .collect();
+    RkTableau {
+        name,
+        order,
+        a,
+        c,
+        d: btilde.iter().map(|t| -t).collect(),
+        beta: Some(beta),
+    }
+}
+
+/// `cerk23`（Owren–Zennaro 1992 の連続の陽的 RK。3(2)、4 段の FSAL、主解は 3 次、埋め込みは 2 次、
+/// 刻みの間は 3 次の補間）。係数は OrdinaryDiffEq.jl の `OwrenZen3ConstantCache`（有理数の版）から生成した。
+fn cerk23() -> RkTableau {
+    let rows: [&[f64]; 4] = [
+        &[],
+        &[q(12, 23)],
+        &[q(-68, 375), q(368, 375)],
+        &[q(31, 144), q(529, 1152), q(125, 384)],
+    ];
+    // c（段 2..=4。最後の段は 1）
+    let c = vec![0.0, q(12, 23), q(4, 5), 1.0];
+    // btilde = b̂ − b（出典の符号。diffsol の d = b − b̂ = −btilde）
+    let btilde = [q(-25, 144), q(575, 1152), q(-125, 384), 0.0];
+    // 補間の係数 beta[段][θ^1..θ^3]（出典の r<段><べき> を並べ替えた）
+    let beta = vec![
+        vec![1.0, q(-65, 48), q(41, 72)],
+        vec![0.0, q(529, 384), q(-529, 576)],
+        vec![0.0, q(125, 128), q(-125, 192)],
+        vec![0.0, -1.0, 1.0],
+    ];
+    continuous_explicit("cerk23", 2, &rows, c, &btilde, beta)
+}
+
+/// `cerk34`（Owren–Zennaro 1992 の連続の陽的 RK。4(3)、6 段の FSAL、主解は 4 次、埋め込みは 3 次、
+/// 刻みの間は 4 次の補間）。係数は OrdinaryDiffEq.jl の `OwrenZen4ConstantCache`（有理数の版）から生成した。
+fn cerk34() -> RkTableau {
+    let rows: [&[f64]; 6] = [
+        &[],
+        &[q(1, 6)],
+        &[q(44, 1369), q(363, 1369)],
+        &[q(3388, 4913), q(-8349, 4913), q(8140, 4913)],
+        &[
+            q(-36764, 408375),
+            q(767, 1125),
+            q(-32708, 136125),
+            q(210392, 408375),
+        ],
+        &[
+            q(1697, 18876),
+            0.0,
+            q(50653, 116160),
+            q(299693, 1626240),
+            q(3375, 11648),
+        ],
+    ];
+    // c（段 2..=6。最後の段は 1）
+    let c = vec![0.0, q(1, 6), q(11, 37), q(11, 17), q(13, 15), 1.0];
+    // btilde = b̂ − b（出典の符号。diffsol の d = b − b̂ = −btilde）
+    let btilde = [
+        q(1185, 6292),
+        0.0,
+        q(-4107, 7744),
+        q(68493, 108416),
+        q(-3375, 11648),
+        0.0,
+    ];
+    // 補間の係数 beta[段][θ^1..θ^4]（出典の r<段><べき> を並べ替えた）
+    let beta = vec![
+        vec![
+            1.0,
+            q(-104217, 37466),
+            q(1806901, 618189),
+            q(-866577, 824252),
+        ],
+        vec![0.0, 0.0, 0.0, 0.0],
+        vec![
+            0.0,
+            q(861101, 230560),
+            q(-2178079, 380424),
+            q(12308679, 5072320),
+        ],
+        vec![
+            0.0,
+            q(-63869, 293440),
+            q(6244423, 5325936),
+            q(-7816583, 10144640),
+        ],
+        vec![
+            0.0,
+            q(-1522125, 762944),
+            q(982125, 190736),
+            q(-624375, 217984),
+        ],
+        vec![0.0, q(165, 131), q(-461, 131), q(296, 131)],
+    ];
+    continuous_explicit("cerk34", 3, &rows, c, &btilde, beta)
+}
+
+/// `cerk45`（Owren–Zennaro 1992 の連続の陽的 RK。5(4)、8 段の FSAL、主解は 5 次、埋め込みは 4 次、
+/// 刻みの間は 5 次の補間）。係数は OrdinaryDiffEq.jl の `OwrenZen5ConstantCache`（有理数の版）から生成した。
+fn cerk45() -> RkTableau {
+    let rows: [&[f64]; 8] = [
+        &[],
+        &[q(1, 6)],
+        &[q(1, 16), q(3, 16)],
+        &[q(1, 4), q(-3, 4), 1.0],
+        &[q(-3, 4), q(15, 4), -3.0, q(1, 2)],
+        &[
+            q(369, 1372),
+            q(-243, 343),
+            q(297, 343),
+            q(1485, 9604),
+            q(297, 4802),
+        ],
+        &[
+            q(-133, 4512),
+            q(1113, 6016),
+            q(7945, 16544),
+            q(-12845, 24064),
+            q(-315, 24064),
+            q(156065, 198528),
+        ],
+        &[
+            q(83, 945),
+            0.0,
+            q(248, 825),
+            q(41, 180),
+            q(1, 36),
+            q(2401, 38610),
+            q(6016, 20475),
+        ],
+    ];
+    // c（段 2..=8。最後の段は 1）
+    let c = vec![
+        0.0,
+        q(1, 6),
+        q(1, 4),
+        q(1, 2),
+        q(1, 2),
+        q(9, 14),
+        q(7, 8),
+        1.0,
+    ];
+    // btilde = b̂ − b（出典の符号。diffsol の d = b − b̂ = −btilde）
+    let btilde = [
+        q(-188, 945),
+        0.0,
+        q(752, 825),
+        q(-89, 45),
+        q(-1, 9),
+        q(32242, 19305),
+        q(-6016, 20475),
+        0.0,
+    ];
+    // 補間の係数 beta[段][θ^1..θ^5]（出典の r<段><べき> を並べ替えた）
+    let beta = vec![
+        vec![
+            1.0,
+            q(-3292, 819),
+            q(17893, 2457),
+            q(-4969, 819),
+            q(596, 315),
+        ],
+        vec![0.0, 0.0, 0.0, 0.0, 0.0],
+        vec![
+            0.0,
+            q(5112, 715),
+            q(-43568, 2145),
+            q(1344, 65),
+            q(-1984, 275),
+        ],
+        vec![0.0, q(-123, 52), q(3161, 234), q(-1465, 78), q(118, 15)],
+        vec![0.0, q(-63, 52), q(1061, 234), q(-413, 78), 2.0],
+        vec![
+            0.0,
+            q(-40817, 33462),
+            q(60025, 50193),
+            q(2401, 1521),
+            q(-9604, 6435),
+        ],
+        vec![
+            0.0,
+            q(18048, 5915),
+            q(-637696, 53235),
+            q(96256, 5915),
+            q(-48128, 6825),
+        ],
+        vec![0.0, q(-18, 13), q(75, 13), q(-109, 13), 4.0],
+    ];
+    continuous_explicit("cerk45", 4, &rows, c, &btilde, beta)
 }
 
 /// DOP853（Hairer–Nørsett–Wanner。8 次の主解、5 次の埋め込み）。
@@ -559,6 +783,28 @@ mod tests {
         }
     }
 
+    /// 補間の係数 `beta` が、次数 1..=max の木で Σ_i beta[i][j] Ψ_i = δ(j+1, ρ) / γ(木) を満たすときの残差の最大値
+    /// （θ の各べきごと。`beta` の列が θ^1.. に当たる）。
+    fn dense_residual(t: &RkTableau, max: usize) -> f64 {
+        let beta = t.beta.as_ref().expect("補間の係数がある");
+        let mut worst = 0.0f64;
+        for rho in 1..=max {
+            for tree in &trees_up_to(max)[rho] {
+                let psi = tree.psi(&t.a);
+                for j in 0..beta[0].len() {
+                    let lhs: f64 = beta.iter().zip(&psi).map(|(row, p)| row[j] * p).sum();
+                    let rhs = if j + 1 == rho {
+                        1.0 / tree.density()
+                    } else {
+                        0.0
+                    };
+                    worst = worst.max((lhs - rhs).abs());
+                }
+            }
+        }
+        worst
+    }
+
     #[test]
     fn dense_output_of_sdirk34hw_is_third_order() {
         let t = sdirk_tableau(SolverId::Sdirk34hw).unwrap();
@@ -567,30 +813,80 @@ mod tests {
         for (i, row) in beta.iter().enumerate() {
             assert!((row.iter().sum::<f64>() - t.b()[i]).abs() < TOL, "段 {i}");
         }
-        // 次数 ρ の木で Σ_i beta[i][j] Ψ_i = δ(j, ρ) / γ(木)（θ の各べきごと）
-        let worst = |max: usize| {
-            let mut worst = 0.0f64;
-            for rho in 1..=max {
-                for tree in &trees_up_to(max)[rho] {
-                    let psi = tree.psi(&t.a);
-                    for j in 0..beta[0].len() {
-                        let lhs: f64 = beta.iter().zip(&psi).map(|(row, p)| row[j] * p).sum();
-                        let rhs = if j + 1 == rho {
-                            1.0 / tree.density()
-                        } else {
-                            0.0
-                        };
-                        worst = worst.max((lhs - rhs).abs());
-                    }
-                }
-            }
-            worst
-        };
-        assert!(worst(3) < TOL, "3 次の条件の残差 {}", worst(3));
-        assert!(worst(4) > 1e-3, "4 次は満たさない（満たすなら係数が変）");
+        assert!(dense_residual(&t, 3) < TOL, "3 次の条件の残差");
+        assert!(
+            dense_residual(&t, 4) > 1e-3,
+            "4 次は満たさない（満たすなら係数が変）"
+        );
         // 補間の係数が無いのは Hermite で足りる ESDIRK
         assert!(sdirk_tableau(SolverId::Esdirk23).unwrap().beta.is_none());
         assert!(sdirk_tableau(SolverId::Esdirk45).unwrap().beta.is_none());
+    }
+
+    const CERK: [(SolverId, usize, usize, usize); 3] = [
+        // (名前, 主解の次数, 埋め込みの次数, 段の数)
+        (SolverId::Cerk23, 3, 2, 4),
+        (SolverId::Cerk34, 4, 3, 6),
+        (SolverId::Cerk45, 5, 4, 8),
+    ];
+
+    #[test]
+    fn cerk_tableaus_are_fsal_explicit_in_the_form_diffsol_requires() {
+        for (id, _, p_hat, s) in CERK {
+            let t = explicit_tableau(id).expect("係数表がある");
+            assert_eq!(t.name, id.name());
+            assert!(sdirk_tableau(id).is_none());
+            assert_eq!((t.stages(), t.d.len(), t.a.len()), (s, s, s), "{}", t.name);
+            for (i, row) in t.a.iter().enumerate() {
+                assert_eq!(row.len(), s);
+                assert!(row[i..].iter().all(|&x| x == 0.0), "{} 段 {i}", t.name);
+                // 行の和 = c
+                let sum: f64 = row.iter().sum();
+                assert!((sum - t.c[i]).abs() < TOL, "{} 段 {i}", t.name);
+            }
+            // diffsol の陽的 RK の条件: 最初の c = 0、最後の c = 1（最後の行 = b は b() が保証）。b の最後は 0（FSAL）
+            assert_eq!((t.c[0], t.c[s - 1]), (0.0, 1.0), "{}", t.name);
+            assert_eq!(t.b()[s - 1], 0.0, "{}", t.name);
+            assert_eq!(t.d[s - 1], 0.0, "{}", t.name);
+            assert!(t.c.iter().all(|&c| (0.0..=1.0).contains(&c)), "{}", t.name);
+            assert!(t.d.iter().sum::<f64>().abs() < TOL, "{}", t.name);
+            assert_eq!(t.order, p_hat, "{} diffsol に渡す次数は埋め込み", t.name);
+            let beta = t.beta.as_ref().expect("連続の方法は補間の係数を持つ");
+            assert_eq!(beta.len(), s);
+        }
+    }
+
+    #[test]
+    fn cerk_main_and_embedded_attain_their_orders() {
+        for (id, p, p_hat, _) in CERK {
+            let t = explicit_tableau(id).unwrap();
+            assert_eq!(attained_order(t.b(), &t.a, p + 1), p, "{} 主解", t.name);
+            assert_eq!(
+                attained_order(&embedded(&t), &t.a, p + 1),
+                p_hat,
+                "{} 埋め込み",
+                t.name
+            );
+        }
+    }
+
+    #[test]
+    fn cerk_dense_output_has_the_order_of_the_main_method() {
+        for (id, p, _, _) in CERK {
+            let t = explicit_tableau(id).unwrap();
+            let beta = t.beta.as_ref().unwrap();
+            assert_eq!(beta[0].len(), p, "{} 補間の多項式の次数", t.name);
+            // θ = 1 で主解に一致し、θ = 0 で 0（べきは θ^1 から）
+            for (i, row) in beta.iter().enumerate() {
+                assert!(
+                    (row.iter().sum::<f64>() - t.b()[i]).abs() < TOL,
+                    "{} 段 {i}",
+                    t.name
+                );
+            }
+            // 次数 p までの条件を、θ の各べきで満たす（連続の拡張の次数 p）
+            assert!(dense_residual(&t, p) < TOL, "{} {p} 次の条件", t.name);
+        }
     }
 
     #[test]

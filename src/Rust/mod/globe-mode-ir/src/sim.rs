@@ -77,6 +77,12 @@ pub enum SolverId {
     Sdirk34hw,
     /// DOP853（13 段の FSAL、8 次の主解と 5 次の埋め込み。diffsol の陽的 RK に自前の係数表。S028）
     Dopri853,
+    /// CERK 3(2)（4 段の FSAL、3 次の主解と 2 次の埋め込み、3 次の補間。Owren–Zennaro。diffsol の陽的 RK に自前の係数表。S029）
+    Cerk23,
+    /// CERK 4(3)（6 段の FSAL、4 次の主解と 3 次の埋め込み、4 次の補間。S029）
+    Cerk34,
+    /// CERK 5(4)（8 段の FSAL、5 次の主解と 4 次の埋め込み、5 次の補間。S029）
+    Cerk45,
 }
 
 impl SolverId {
@@ -98,6 +104,9 @@ impl SolverId {
             SolverId::Esdirk45 => "esdirk45",
             SolverId::Sdirk34hw => "sdirk34hw",
             SolverId::Dopri853 => "dopri853",
+            SolverId::Cerk23 => "cerk23",
+            SolverId::Cerk34 => "cerk34",
+            SolverId::Cerk45 => "cerk45",
         }
     }
 

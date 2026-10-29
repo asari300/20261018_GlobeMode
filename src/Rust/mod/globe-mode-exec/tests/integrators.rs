@@ -1,4 +1,4 @@
-//! 自前の積分器（S012。`esdirk34`・`trbdf2`・`tsit45`・`euler`・`heun`・`rk4`。S026 の `impeuler`・`trapezoid`。S027 の `esdirk23`・`esdirk45`・`sdirk34hw`。S028 の `dopri853`）を、`globe_mode_exec::run` を通して
+//! 自前の積分器（S012。`esdirk34`・`trbdf2`・`tsit45`・`euler`・`heun`・`rk4`。S026 の `impeuler`・`trapezoid`。S027 の `esdirk23`・`esdirk45`・`sdirk34hw`。S028 の `dopri853`。S029 の `cerk23`・`cerk34`・`cerk45`）を、`globe_mode_exec::run` を通して
 //! src/Modelica/GlobeModeValidation/Simulation のモデルで確かめる。
 //!
 //! - Decay（x' = -x）: euler・dt 0.1 なら x(1) = 0.9^10。刻み幅の制御のあるものと rk4 は exp(-1) に近い。
@@ -117,7 +117,7 @@ fn assert_close(actual: f64, expected: f64, tol: f64, what: &str) {
     );
 }
 
-const ADAPTIVE: [SolverId; 7] = [
+const ADAPTIVE: [SolverId; 10] = [
     SolverId::Tsit45,
     SolverId::Dopri853,
     SolverId::Esdirk34,
@@ -125,6 +125,9 @@ const ADAPTIVE: [SolverId; 7] = [
     SolverId::Esdirk23,
     SolverId::Esdirk45,
     SolverId::Sdirk34hw,
+    SolverId::Cerk23,
+    SolverId::Cerk34,
+    SolverId::Cerk45,
 ];
 
 #[test]
@@ -308,6 +311,9 @@ fn bouncing_ball_matches_bdf() {
         (SolverId::Esdirk23, None, 1e-4),
         (SolverId::Esdirk45, None, 1e-4),
         (SolverId::Sdirk34hw, None, 1e-4),
+        (SolverId::Cerk23, None, 1e-4),
+        (SolverId::Cerk34, None, 1e-4),
+        (SolverId::Cerk45, None, 1e-4),
         // 固定刻み（h 0.01）。重力だけの区間は 2 次の多項式なので heun・rk4 は区間の中では正確で、
         // 誤差はイベントの位置（根探索の許容誤差）だけ
         (SolverId::Rk4, Some(0.01), 1e-4),
@@ -430,5 +436,29 @@ fn dopri853_is_far_more_accurate_than_tsit45_at_the_same_tolerance() {
             d * 10.0 < *t,
             "dopri853 {d} は tsit45 {t} の 1/10 より小さいはず"
         );
+    }
+}
+
+/// `cerk23`・`cerk34`・`cerk45`（S029）は、出力の点（区間の 1/500）で刻みの間を自前の連続の補間
+/// （主解と同じ次数）から取る。Decay の出力すべての行が解析解 exp(-t) に、許容誤差（1e-8）に見合う精度で乗る。
+/// 実測の最大誤差は cerk23 1.8e-9、cerk34 9.2e-10、cerk45 8.4e-10。
+#[test]
+fn cerk_dense_output_tracks_the_analytic_solution_at_every_output_row() {
+    let model = compile("Decay");
+    for (solver, tol) in [
+        (SolverId::Cerk23, 1e-6),
+        (SolverId::Cerk34, 1e-7),
+        (SolverId::Cerk45, 1e-7),
+    ] {
+        let run = run_with(&model, solver, None);
+        let t = &run.trajectory.time;
+        let x = &run.trajectory.variable("x").unwrap().values;
+        let worst = t
+            .iter()
+            .zip(x)
+            .map(|(t, x)| (x - (-t).exp()).abs())
+            .fold(0.0, f64::max);
+        eprintln!("{} の全行の最大誤差 {worst:.3e}", solver.name());
+        assert!(worst < tol, "{} の最大誤差 {worst}", solver.name());
     }
 }
