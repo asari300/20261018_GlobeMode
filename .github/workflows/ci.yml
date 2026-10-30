@@ -123,6 +123,8 @@ jobs:
         run: mise run wasm:build
       - name: Node で Decay を回し、x(1) が exp(-1) に合うかを確かめる
         run: node src/Rust/mod/globe-mode-wasm/node/smoke.mjs
+      - name: Web Worker（Node の worker_threads）で Decay を回し、panic のあとの作り直しと再生を確かめる（S036）
+        run: node src/Rust/mod/globe-mode-wasm/web/worker-node.mjs
       - name: wasm の大きさ
         run: |
           W=target/wasm-pkg/node/globe_mode_wasm_bg.wasm

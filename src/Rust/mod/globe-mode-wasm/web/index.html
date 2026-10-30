@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>globe-mode-wasm Web Worker</title>
+</head>
+<body>
+<pre id="log">実行中…</pre>
+<script type="module">
+// browser.py が開く試験用のページ（S036）。結果は window.__result に入れる。
+import { GlobeWorker } from "./client.js";
+
+const log = (s) => { document.getElementById("log").textContent += `\n${s}`; };
+const out = { ok: false, log: [] };
+try {
+  const files = await (await fetch("/mo.json")).json();
+  const w = new GlobeWorker(() => new Worker(new URL("./worker.js", import.meta.url), { type: "module" }),
+                            { pkg: new URL("/pkg", location.href).href });
+  const run = async () => (await w.simulate({ model: "GlobeModeValidation.Simulation.Decay", settings: { solver: "bdf" } }));
+  out.version = await w.version();
+  for (const [name, text] of Object.entries(files)) await w.setFile(name, text);
+  out.first = await run();
+  out.memory = await w.memory();
+  try { await w.panicForTest("試験の panic"); out.panicError = null; } catch (e) { out.panicError = String(e.message); }
+  out.restarts = w.restarts;
+  out.second = await run();
+  out.restartsAfter = w.restarts;
+  await w.terminate();
+  out.ok = true;
+} catch (e) {
+  out.error = String(e?.stack ?? e);
+}
+log(JSON.stringify({ ok: out.ok, error: out.error }));
+window.__result = out;
+</script>
+</body>
+</html>
