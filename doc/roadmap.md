@@ -317,5 +317,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 
 ## 運用上の決まり
 
+- リリースまでの見積もりと、他のエージェントに渡す並行作業の指示書は [plan/2026-10-30-release-estimate-and-parallel-plan.md](plan/2026-10-30-release-estimate-and-parallel-plan.md)（S033）。
+
 - 各セッションでは `doc/sessions/SNNN-<topic>/` に `slides.html` と `解説書.md` を作る（[sessions/README.md](sessions/README.md)）。
 - 計画を変えたら、この文書と該当する ADR を同じコミットで直す。
