@@ -55,6 +55,7 @@ uv sync                      # worktree ごとに必須
 | `doc/assets/` | スライドの共通 CSS と JS | ○ |
 | `log/work/` | 作業記録（手動、1セッション1枚） | ○ |
 | `log/sessions/` | 伏せ字にしたセッション記録（コミットする） | ×（finish-session がコピーする） |
+| `log/review/` | 監査役（Codex ほか）のレビュー履歴（指摘と採否だけ。1 レビュー 1 枚） | ○ |
 | `log/local/` | フックの出力。生ログを含む | ×（**コミットしない**） |
 
 - Python パッケージは `src/Python/mod/globe_mode`（S002 で `src/20261018_globemode` から改名した）。
@@ -132,6 +133,10 @@ log/sessions/<日付>-<セッションID>.md        finish-session がコピー�
 - 伏せ字にするもの: メールアドレス、ローカルのユーザー名とホームのパス、トークンらしき文字列。
 - コピーした後に `python3 .claude/hooks/save_session_log.py --check log/sessions/*.md` が取りこぼし 0 件であることを確かめてからコミットする。
 - フックは main のチェックアウトの `log/local/` に書く。worktree に記録を置くのは finish-session のコピーだけ。こうしておくと、main へのマージで未追跡ファイルとぶつからない。
+
+### レビュー履歴（手動・1レビュー1枚）
+
+`log/review/<日付>-sNNN-<topic>-<レビュアー>.md` を [log/review/_TEMPLATE.md](log/review/_TEMPLATE.md) から作る。監査役（Codex）の指摘を原文のまま貼り、採否と理由を書く。コードの変更は書かない。
 
 ### 作業記録（手動・1セッション1枚）
 

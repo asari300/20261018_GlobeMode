@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S033 リリースの見積もりと並行作業プラン — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S033 リリースの見積もりと並行作業プラン">
+
+<section class="slide" id="S01">
+  <span class="tag">S033 · 2026-10-30 · 計画</span>
+  <h1>リリースの見積もりと並行作業プラン</h1>
+  <p class="lead">S032 までを俯瞰し、他のエージェントに渡せる指示書を書いた</p>
+  <div class="big">P3 は終わっている。次は <b>protocol と facade</b> を作って並行化の分岐点にする</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>リポジトリを俯瞰して設計に助言する</li>
+    <li>リリースまでの時間とトークンを、生ログの実測から見積もる</li>
+    <li>並行して進められる作業を、エージェントにそのまま貼れる指示書にする</li>
+    <li>Codex を監査役にするレビュー履歴の置き場 <code>log/review/</code> を作る</li>
+    <li>無料プロバイダ（Orca / Hermes Agent / OpenRouter）と判断特化モデルの使い方を残す</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>設計への助言</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>助言</th><th>理由</th></tr>
+    <tr><td>ソルバ</td><td>足すのを止める。<code>ida</code> は P8 へ</td><td>S026〜S032 の 7 回は P8 の内容で、リリースを近づけていない</td></tr>
+    <tr><td>次の 1 回</td><td><code>globe-mode-protocol</code> と facade <code>globe-mode</code></td><td>UI・LSP・Python・Tauri・wasm がここに依存する。並行化の分岐点</td></tr>
+    <tr><td>プロセス構成</td><td>P4 の最初に ADR</td><td>検査の RSS 7.2 GiB を UI から分ける。sidecar に <code>globe</code> の CLI</td></tr>
+    <tr><td>UI の順序</td><td>ブラウザ版 → Tauri</td><td>WSL の RAM 3 GB。ブラウザ版は P6 の前提も満たす</td></tr>
+    <tr><td>Track B</td><td>P4 が出るまで触らない</td><td>AST の二重化の費用が大きい</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由</span>
+  <h1>実測の費用（S001〜S032、主セッションの生ログ 10 本）</h1>
+  <div class="kpis">
+    <div class="kpi"><span class="n">32</span><span class="l">セッション / 13 日</span></div>
+    <div class="kpi"><span class="n">7.06 M</span><span class="l">出力トークン</span></div>
+    <div class="kpi"><span class="n">1.38 G</span><span class="l">キャッシュ読み出し</span></div>
+    <div class="kpi"><span class="n">220 k</span><span class="l">出力 / 1 回</span></div>
+  </div>
+  <p class="lead">サブエージェントの transcript は含まない（並列の回は 1.3〜1.5 倍）。本体の実装は roadmap の目安の約 2 倍かかった（P2 4 → 7 回、P3 5 → 10 回）</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">決定と理由</span>
+  <h1>リリースまでの見積もり</h1>
+  <table class="compact">
+    <tr><th>段</th><th>セッション</th><th>壁時計</th><th>出力トークン</th><th>キャッシュ読み出し</th></tr>
+    <tr><td>v0.1 CLI + wasm の配布</td><td>2〜3</td><td>1〜2 日</td><td>0.5〜1 M</td><td>90〜200 M</td></tr>
+    <tr><td>v0.2 Desktop MVP（P4）</td><td>12〜15</td><td>5〜8 日</td><td>2.6〜5 M</td><td>0.5〜1 G</td></tr>
+    <tr><td>v1.0（P4 + P5 FMI）</td><td>28〜32</td><td>2〜3 週</td><td>6〜10 M</td><td>1.2〜2 G</td></tr>
+    <tr><td>roadmap 全体（P4〜P7）</td><td>50〜60</td><td>4〜6 週</td><td>11〜20 M</td><td>2〜4 G</td></tr>
+  </table>
+  <p class="lead warn">UI は 1 行も無く生産性は未測定。Tauri と Android は WSL では回らない。金額は単価を写さず出していない</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">図</span>
+  <h1>作業パッケージの依存</h1>
+  <svg class="fig" viewBox="0 0 900 300" role="img" aria-label="作業パッケージの依存関係">
+    <rect class="svg-box-accent" x="10" y="120" width="200" height="60" rx="10"/>
+    <text class="svg-text-b" x="110" y="156" text-anchor="middle">WP-0 protocol</text>
+    <rect class="svg-box" x="260" y="20" width="140" height="50" rx="10"/>
+    <text class="svg-text-b" x="330" y="50" text-anchor="middle">WP-A LSP</text>
+    <rect class="svg-box" x="260" y="90" width="140" height="50" rx="10"/>
+    <text class="svg-text-b" x="330" y="120" text-anchor="middle">WP-B UI</text>
+    <rect class="svg-box" x="260" y="160" width="140" height="50" rx="10"/>
+    <text class="svg-text-b" x="330" y="190" text-anchor="middle">WP-C Tauri</text>
+    <rect class="svg-box" x="260" y="230" width="140" height="50" rx="10"/>
+    <text class="svg-text-b" x="330" y="260" text-anchor="middle">WP-G Python</text>
+    <rect class="svg-box" x="470" y="55" width="140" height="50" rx="10"/>
+    <text class="svg-text-b" x="540" y="85" text-anchor="middle">WP-D プロット</text>
+    <rect class="svg-box" x="470" y="125" width="140" height="50" rx="10"/>
+    <text class="svg-text-b" x="540" y="155" text-anchor="middle">WP-E グラフ</text>
+    <rect class="svg-box" x="680" y="20" width="200" height="50" rx="10"/>
+    <text class="svg-text-b" x="780" y="50" text-anchor="middle">独立: WP-F wasm web</text>
+    <rect class="svg-box" x="680" y="90" width="200" height="50" rx="10"/>
+    <text class="svg-text-b" x="780" y="120" text-anchor="middle">独立: WP-H 上流報告</text>
+    <rect class="svg-box" x="680" y="160" width="200" height="50" rx="10"/>
+    <text class="svg-text-b" x="780" y="190" text-anchor="middle">独立: WP-I v0.1 配布</text>
+    <rect class="svg-box" x="680" y="230" width="200" height="50" rx="10"/>
+    <text class="svg-text-b" x="780" y="260" text-anchor="middle">独立: WP-J ADR 構成</text>
+    <line class="svg-line" x1="210" y1="150" x2="260" y2="45"/>
+    <line class="svg-line" x1="210" y1="150" x2="260" y2="115"/>
+    <line class="svg-line" x1="210" y1="150" x2="260" y2="185"/>
+    <line class="svg-line" x1="210" y1="150" x2="260" y2="255"/>
+    <line class="svg-line" x1="400" y1="115" x2="470" y2="80"/>
+    <line class="svg-line" x1="400" y1="115" x2="470" y2="150"/>
+  </svg>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">決定と理由</span>
+  <h1>監査役と安いワーカー</h1>
+  <div class="cols-2">
+    <div class="card">
+      <h2>Codex（監査役）</h2>
+      <ul>
+        <li><code>log/review/</code> に 1 レビュー 1 枚。指摘は原文のまま、採否は実装側</li>
+        <li><code>/finish-session</code> の検査の後、コミットの前</li>
+        <li>助言にとどめる（ADR-0008 と同じ扱い）</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h2>無料プロバイダ・判断特化モデル</h2>
+      <ul>
+        <li>向く: 機械的に検証できる作業（issue の下書き、試験の追加、ログの分類、文書の整形）</li>
+        <li>渡さない: 数値・unsafe・ライセンス・ADR</li>
+        <li>worktree を分けて push させない。<code>log/local/</code> と <code>data/</code> は渡さない</li>
+        <li>判断特化モデルは採否の判定だけ。一致率を作業記録に</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S08">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>gunzip -c log/local/raw/*.jsonl.gz | python3 -I -c '...usage を合計...'
+python3 -I .claude/skills/session-docs/check_docs.py</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">5,427</span><span class="l">API のターン</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">リンク切れ</span></div>
+    <div class="kpi"><span class="n">11</span><span class="l">作業パッケージ</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S09">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>WP-0（protocol と facade）を 1 人で終える</li>
+    <li>その後 WP-A / WP-B / WP-F / WP-G / WP-H / WP-I を同時に走らせる</li>
+    <li>Codex のレビューを最初の WP から <code>log/review/</code> に残す</li>
+    <li>無料プロバイダは WP-H の issue の下書きで試し、確認の時間を測る</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

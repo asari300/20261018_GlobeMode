@@ -9,6 +9,9 @@ log/
 │   └── raw/<日付>-<セッションID>.jsonl.gz  完全な生ログ（伏せ字なし。絶対にコミットしない）
 ├── sessions/                       公開用のセッション記録（コミットする）
 │   └── <日付>-<セッションID>.md      finish-session が local/ からコピーしたもの
+├── review/                         レビュー履歴（手動。1レビュー1枚。指摘と採否だけ）
+│   ├── _TEMPLATE.md
+│   └── <日付>-sNNN-<topic>-<レビュアー>.md
 └── work/                           作業記録（手動。1セッション1枚）
     ├── _TEMPLATE.md
     └── <日付>-sNNN-<topic>.md
@@ -31,3 +34,8 @@ log/
 
 - セッション記録が「何が起きたか」の全量なのに対して、こちらは**「何を決めたか」**を残す。
 - 1セッション（＝1つの feature ブランチ）につき1枚。雛形は [work/_TEMPLATE.md](work/_TEMPLATE.md)。
+
+## review/ — 手動
+
+- 監査役（Codex。副次的に `/local-review`）の指摘を**原文のまま**貼り、採否（採用 / 保留 / 不採用）と理由を実装側が書く。書き方は [review/README.md](review/README.md)。
+- コミットの前に `python3 .claude/hooks/save_session_log.py --check log/review/*.md` で伏せ字の取りこぼしが 0 件であることを確かめる。
