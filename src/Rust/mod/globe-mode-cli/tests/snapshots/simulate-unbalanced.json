@@ -1,0 +1,27 @@
+{
+  "model": "GlobeModeExamples.Unbalanced",
+  "succeeded": false,
+  "refused": "実行しない（S5 方程式数と変数数 で Error。force で強行できる）",
+  "settings": null,
+  "termination": null,
+  "stats": null,
+  "variables": null,
+  "final": null,
+  "diagnostics": [
+    {
+      "code": "GM-E5002",
+      "severity": "error",
+      "stage": "S5",
+      "message": "unbalanced model: 1 equations, 2 unknowns (balance = -1); unknowns[state=1 algebraic=1 output=0 discrete_real=0 discrete_value=0] equations[continuous=1 discrete_real=0 b1c_definition=0]",
+      "file": "src/Modelica/GlobeModeExamples/package.mo",
+      "range": {
+        "start": 1160,
+        "end": 1170
+      },
+      "notes": [
+        "rumoca: ED001",
+        "flat の方程式 1 個（部品ごと、多い順）: （トップレベル） 1"
+      ]
+    }
+  ]
+}

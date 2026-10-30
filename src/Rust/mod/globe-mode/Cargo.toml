@@ -1,0 +1,29 @@
+[package]
+name = "globe-mode"
+description = "GlobeMode: the public Rust API (facade over the query DB, the checks and the execution backend)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[features]
+# S032・S034: CVODE と IDA（SUNDIALS）。cmake と C コンパイラが要る
+sundials = ["globe-mode-exec/sundials"]
+
+[dependencies]
+globe-mode-core = { workspace = true }
+globe-mode-ir = { workspace = true }
+globe-mode-frontend = { workspace = true }
+globe-mode-graph = { workspace = true }
+globe-mode-db = { workspace = true }
+globe-mode-exec = { workspace = true }
+globe-mode-sim = { workspace = true }
+globe-mode-protocol = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

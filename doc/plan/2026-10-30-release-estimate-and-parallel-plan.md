@@ -89,6 +89,8 @@ flowchart LR
 
 ### WP-0 `protocol` と facade（モデル A、先行、1 回）
 
+**S035 で実施（済）**。4 の JSON Schema の書き出しだけ持ち越した（core・analysis の型に `JsonSchema` の derive が要り、WP-0 の「触らない」に当たるため。WP-B が TypeScript の型を要るときに、schemars を足すか、protocol の型から手で書くかを決める）。完了条件の「（S033）」は「（S035）」と読み替える。
+
 ```text
 目的: globe-mode-protocol（serde の型）と globe-mode（facade）を作り、UI・LSP・Python・wasm がこの 2 つだけに依存できるようにする。新しい計算は入れない。
 先に読む: doc/architecture.md §2.2（protocol / globe-mode の行）、src/Rust/mod/globe-mode-wasm/src/lib.rs（Request / Response）、src/Rust/mod/globe-mode-cli（check / simulate の --json の形）、doc/adr/0014-session-route-wasm.md。

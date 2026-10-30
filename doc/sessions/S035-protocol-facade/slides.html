@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S035 protocol と facade — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S035 protocol と facade">
+
+<section class="slide" id="S01">
+  <span class="tag">S035 · 2026-10-30 · P4 の準備</span>
+  <h1>protocol と facade</h1>
+  <p class="lead">計画書の WP-0。UI・LSP・Python・wasm が依存する 2 つの crate を作った</p>
+  <div class="big">CLI と wasm を <b>globe-mode</b> 経由にし、JSON は <b>1 バイトも変えない</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>S033 の計画書で決めた「次の 1 回は protocol と facade」を実施する</li>
+    <li><code>globe-mode-protocol</code>: CLI の <code>--json</code> と wasm の JSON の serde 型</li>
+    <li><code>globe-mode</code>: <code>Workspace</code> が検査・グラフ・コンパイル・実行を束ねる facade</li>
+    <li>新しい計算は入れない。db・exec・sim・frontend・analysis の中身は触らない</li>
+    <li>ここが並行化の分岐点。次から WP-A / B / F / G を同時に始められる</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>protocol の型</td><td>今の JSON の形をそのまま struct に</td><td>後方互換。serde_json は preserve_order が有効なので struct の順 = JSON の順</td></tr>
+    <tr><td>simulate_with(request, now)</td><td>検査 → コンパイル → 実行を 1 本に。時計は引数</td><td>CLI と wasm が別々に持っていた。wasm32 は std の時計が無い</td></tr>
+    <tr><td>Simulated { response, run, compiled }</td><td>JSON と Rust だけの結果を分ける</td><td>CLI は MAT に時系列とパラメータが要る。wasm の応答は太らせない</td></tr>
+    <tr><td>CLI の文字の表示</td><td><code>ws.db().check_model()</code> のまま</td><td>未知数の一覧まで読む。<code>--json</code> だけ protocol の型にすれば外から見える形は守れる</td></tr>
+    <tr><td>断る文言</td><td><code>--force</code> → <code>force</code></td><td>facade は CLI のフラグ名を知らない。JSON で唯一の変化</td></tr>
+    <tr><td>JSON Schema</td><td>持ち越し</td><td>core・ir・analysis の約 50 の型に derive が要る。WP-B が要るときに</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>依存の形（S035 から）</h1>
+  <svg class="fig" viewBox="0 0 900 300" role="img" aria-label="CLI と wasm が facade を通り、facade が protocol・db・exec・sim を呼ぶ">
+    <rect class="svg-box" x="20" y="40" width="200" height="60" rx="10"/>
+    <text class="svg-text-b" x="120" y="76" text-anchor="middle">globe-mode-cli</text>
+    <rect class="svg-box" x="20" y="200" width="200" height="60" rx="10"/>
+    <text class="svg-text-b" x="120" y="236" text-anchor="middle">globe-mode-wasm</text>
+    <rect class="svg-box-accent" x="290" y="120" width="230" height="60" rx="10"/>
+    <text class="svg-text-b" x="405" y="156" text-anchor="middle">globe-mode (facade)</text>
+    <rect class="svg-box-accent2" x="600" y="20" width="220" height="56" rx="10"/>
+    <text class="svg-text-b" x="710" y="54" text-anchor="middle">globe-mode-protocol</text>
+    <rect class="svg-box" x="600" y="100" width="220" height="56" rx="10"/>
+    <text class="svg-text" x="710" y="134" text-anchor="middle">globe-mode-db</text>
+    <rect class="svg-box" x="600" y="170" width="220" height="56" rx="10"/>
+    <text class="svg-text" x="710" y="204" text-anchor="middle">globe-mode-exec</text>
+    <rect class="svg-box" x="600" y="240" width="220" height="50" rx="10"/>
+    <text class="svg-text" x="710" y="271" text-anchor="middle">globe-mode-sim</text>
+    <line class="svg-line-accent" x1="220" y1="70" x2="290" y2="140"/>
+    <line class="svg-line-accent" x1="220" y1="230" x2="290" y2="160"/>
+    <line class="svg-line" x1="520" y1="140" x2="600" y2="48"/>
+    <line class="svg-line" x1="520" y1="150" x2="600" y2="128"/>
+    <line class="svg-line" x1="520" y1="155" x2="600" y2="198"/>
+    <line class="svg-line" x1="520" y1="165" x2="600" y2="265"/>
+    <text class="svg-text-m" x="270" y="60" text-anchor="middle">--json は protocol の型</text>
+    <text class="svg-text-m" x="270" y="270" text-anchor="middle">直接の依存は facade だけ</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">図</span>
+  <h1>facade の公開 API</h1>
+  <div class="cols-2">
+    <div class="card">
+      <h3>Workspace</h3>
+      <ul>
+        <li><code>new</code> / <code>with_libraries</code> / <code>with_library_sources</code></li>
+        <li><code>set_file</code> / <code>remove_file</code> / <code>load_dir</code> / <code>files</code></li>
+        <li><code>outline</code> / <code>check</code> / <code>deps</code> / <code>flat</code> / <code>graph</code></li>
+        <li><code>compile</code> / <code>tunable_parameters</code></li>
+        <li><code>simulate</code> / <code>simulate_with(request, now)</code></li>
+        <li><code>db()</code>（facade に無いクエリを呼ぶとき）</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>protocol の型</h3>
+      <ul>
+        <li><code>CheckResponse</code>（= <code>globe check --json</code>）</li>
+        <li><code>SimulateRequest</code> / <code>SimulateResponse</code>（= wasm の Request / Response）</li>
+        <li><code>ParametersResponse</code>（= <code>--list-parameters --json</code>）</li>
+        <li><code>StructureCounts</code></li>
+        <li>core・ir・analysis の型を再公開</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">再現手順</span>
+  <h1>検証</h1>
+  <pre><code>mise run check
+cargo test -p globe-mode-cli --test json_snapshots
+mise run wasm:node
+python3 -I .github/scripts/test_ci_plan.py</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">19</span><span class="l">変更前後で diff した CLI の出力</span></div>
+    <div class="kpi"><span class="n">1 語</span><span class="l">JSON で変わった箇所（--force → force）</span></div>
+    <div class="kpi"><span class="n">4</span><span class="l">snapshot（check 2・simulate 1・parameters 1）</span></div>
+    <div class="kpi"><span class="n">21</span><span class="l">CI 判定の単体試験</span></div>
+  </div>
+  <p>数字の全量は作業記録 <code>log/work/2026-10-30-s035-protocol-facade.md</code>。</p>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>WP-A（LSP）・WP-B（ブラウザ UI）・WP-F（wasm の web target）・WP-G（Python）を同時に始められる</li>
+    <li>JSON Schema（schemars）は WP-B が TypeScript の型を要るときに決める</li>
+    <li>最初の Codex のレビューを <code>log/review/</code> に残す</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

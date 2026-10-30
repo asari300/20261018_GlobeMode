@@ -12,7 +12,8 @@
 //! globe simulate --list-solvers [--json]
 //! ```
 //!
-//! `check` と `flat` は salsa の DB（`globe-mode-db`）を通す。ライブラリは一度だけ読む。
+//! すべて facade（`globe-mode` の `Workspace`）を通す（S035）。`--json` の形は `globe-mode-protocol` の型。
+//! ライブラリは一度だけ読む。
 //! Rumoca に渡すのは、モデルが使うファイル（`globe deps` が表示する閉包）だけ。
 //!
 //! `simulate` は検査（S0〜S10）を通してから実行する（Error があれば `--force` が無い限り実行しない）。
@@ -24,9 +25,9 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
-use globe_mode_core::{Diagnostic, Stage, line_col};
-use globe_mode_db::{ExperimentVerdict, FullReport, GlobeDb, normalize_path};
-use globe_mode_frontend::{Frontend, RumocaFrontend, Source};
+use globe_mode::db::{ExperimentVerdict, FullReport, normalize_path};
+use globe_mode::{CheckResponse, Workspace};
+use globe_mode_core::{Diagnostic, line_col};
 use globe_mode_ir::{ClassOutline, FlatSummary, Outline, SimSettings};
 
 mod simulate;
@@ -168,9 +169,8 @@ enum Command {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
-    let frontend = RumocaFrontend::new();
     match cli.command {
-        Command::Outline { file, json } => outline(&frontend, &file, json),
+        Command::Outline { file, json } => outline(&file, json),
         Command::Graph {
             inputs,
             model,
@@ -291,15 +291,14 @@ fn read(path: &PathBuf) -> Result<(String, String), ExitCode> {
     }
 }
 
-fn outline(frontend: &impl Frontend, file: &PathBuf, json: bool) -> ExitCode {
+fn outline(file: &PathBuf, json: bool) -> ExitCode {
     let (name, text) = match read(file) {
         Ok(v) => v,
         Err(code) => return code,
     };
-    match frontend.outline(Source {
-        name: &name,
-        text: &text,
-    }) {
+    let mut ws = Workspace::new();
+    ws.set_file(&name, text.clone());
+    match ws.outline(&name).expect("足したファイルのアウトライン") {
         Ok(o) if json => {
             println!(
                 "{}",
@@ -308,12 +307,12 @@ fn outline(frontend: &impl Frontend, file: &PathBuf, json: bool) -> ExitCode {
             ExitCode::SUCCESS
         }
         Ok(o) => {
-            print_outline(&o, &text);
+            print_outline(o, &text);
             ExitCode::SUCCESS
         }
         Err(diags) => {
             let texts = HashMap::from([(name, text)]);
-            print_diagnostics(&diags, &texts, json);
+            print_diagnostics(diags, &texts, json);
             ExitCode::from(1)
         }
     }
@@ -322,7 +321,7 @@ fn outline(frontend: &impl Frontend, file: &PathBuf, json: bool) -> ExitCode {
 /// 入力を読み込んだ DB と、診断の位置を行と列に直すための本文
 /// （キーは DB と同じく区切りを `/` にそろえたパス）。
 struct Loaded {
-    db: GlobeDb,
+    ws: Workspace,
     texts: HashMap<String, String>,
 }
 
@@ -342,59 +341,36 @@ fn load_db(
     for f in &files {
         inputs.push(read(f)?);
     }
-    let mut db = match GlobeDb::with_libraries(library) {
-        Ok(db) => db,
+    let mut ws = match Workspace::with_libraries(library) {
+        Ok(ws) => ws,
         Err(diags) => return Ok(Err(diags)),
     };
     let mut texts = HashMap::new();
     for (name, text) in inputs {
-        db.set_file(&name, text.clone());
+        ws.set_file(&name, text.clone());
         texts.insert(normalize_path(&name), text);
     }
-    Ok(Ok(Loaded { db, texts }))
+    Ok(Ok(Loaded { ws, texts }))
 }
 
 fn check(files: &[PathBuf], library: &[PathBuf], model: &str, json: bool) -> ExitCode {
-    let Loaded { mut db, texts } = match load_db(files, library) {
+    let Loaded { mut ws, texts } = match load_db(files, library) {
         Ok(Ok(v)) => v,
         // ライブラリを読めない（S1）
         Ok(Err(diags)) => return report_early_failure(model, &diags, json),
         Err(code) => return code,
     };
-    let report = db.check_model(model);
-    let check = &report.check;
-
-    if json {
-        let structure = check.structure.as_ref().map(|s| {
-            serde_json::json!({
-                "unknowns": s.unknowns.len(),
-                "equations": s.equations.len(),
-                "derivatives": s.unknowns.iter().filter(|u| u.kind == globe_mode_ir::UnknownKind::Derivative).count(),
-            })
-        });
-        let value = serde_json::json!({
-            "model": report.model,
-            "passed": report.passed(),
-            "failed_stage": report.failed_stage(),
-            "balance": check.balance,
-            "dae": check.dae,
-            "structure": structure,
-            "s6": report.structural,
-            "s7": report.index,
-            "s8": report.init,
-            "s9": report.loops,
-            "s10": report.preflight,
-            // 位置は元の本文の中に戻す（check の結果のままでは、正規化した本文の中の位置）
-            "init": check.init.as_ref().map(|i| db.init_in_original(i)),
-            "flat": check.flat,
-            "diagnostics": report.diagnostics,
-            "notes": check.notes,
-        });
+    let passed = if json {
+        let response = ws.check(model);
         println!(
             "{}",
-            serde_json::to_string_pretty(&value).expect("serialize report")
+            serde_json::to_string_pretty(&response).expect("serialize report")
         );
+        response.passed
     } else {
+        // 文字の表示は DAE の未知数や初期化系の構造まで読むので、protocol の型でなく DB の報告を使う
+        let report = ws.db().check_model(model);
+        let check = &report.check;
         print_diagnostics(&report.diagnostics, &texts, false);
         if let Some(b) = check.balance {
             println!(
@@ -470,8 +446,9 @@ fn check(files: &[PathBuf], library: &[PathBuf], model: &str, json: bool) -> Exi
                 stage.title()
             ),
         }
-    }
-    if report.passed() {
+        report.passed()
+    };
+    if passed {
         ExitCode::SUCCESS
     } else {
         ExitCode::from(1)
@@ -702,14 +679,14 @@ fn deps(inputs: &[PathBuf], model: &str, json: bool) -> ExitCode {
         Ok(f) => f,
         Err(code) => return code,
     };
-    let mut db = GlobeDb::new();
+    let mut ws = Workspace::new();
     for f in &files {
         match read(f) {
-            Ok((name, text)) => db.set_file(&name, text),
+            Ok((name, text)) => ws.set_file(&name, text),
             Err(code) => return code,
         }
     }
-    let closure = db.deps_closure(model);
+    let closure = ws.deps(model);
     if json {
         println!(
             "{}",
@@ -720,7 +697,7 @@ fn deps(inputs: &[PathBuf], model: &str, json: bool) -> ExitCode {
     for path in &closure {
         println!("{path}");
     }
-    let total = db.paths().count();
+    let total = ws.files().count();
     if closure.is_empty() {
         println!(
             "{model}: 0 / {total} ファイル（モデルがワークスペースに無い。ライブラリの中のモデルか、存在しないモデル）"
@@ -732,14 +709,14 @@ fn deps(inputs: &[PathBuf], model: &str, json: bool) -> ExitCode {
 }
 
 fn flat(files: &[PathBuf], library: &[PathBuf], model: &str, json: bool) -> ExitCode {
-    let Loaded { mut db, texts } = match load_db(files, library) {
+    let Loaded { mut ws, texts } = match load_db(files, library) {
         Ok(Ok(v)) => v,
         Ok(Err(diags)) => return report_early_failure(model, &diags, json),
         Err(code) => return code,
     };
-    let Some(summary) = db.flat_summary(model) else {
+    let Some(summary) = ws.flat(model) else {
         // flatten まで通らなかった。検査の診断を出す
-        let report = db.check_model(model);
+        let report = ws.check(model);
         if json {
             print_diagnostics(&report.diagnostics, &texts, true);
         } else {
@@ -784,36 +761,15 @@ fn print_flat(model: &str, f: &FlatSummary) {
 
 /// ライブラリを読めないなど、検査の前に止まったときの出力（`check` と同じ形）。
 fn report_early_failure(model: &str, diags: &[Diagnostic], json: bool) -> ExitCode {
-    let stage = diags
-        .iter()
-        .filter(|d| d.is_error())
-        .map(|d| d.stage)
-        .min()
-        .unwrap_or(Stage::S1);
+    let response = CheckResponse::failed(model, diags.to_vec());
     if json {
-        let value = serde_json::json!({
-            "model": model,
-            "passed": false,
-            "failed_stage": stage,
-            "balance": null,
-            "dae": null,
-            "structure": null,
-            "s6": null,
-            "s7": null,
-            "s8": null,
-            "s9": null,
-            "s10": null,
-            "init": null,
-            "flat": null,
-            "diagnostics": diags,
-            "notes": [],
-        });
         println!(
             "{}",
-            serde_json::to_string_pretty(&value).expect("serialize report")
+            serde_json::to_string_pretty(&response).expect("serialize report")
         );
     } else {
         print_diagnostics(diags, &HashMap::new(), false);
+        let stage = response.failed_stage.expect("failed には段階がある");
         println!("{model}: NG（{stage:?} {} で停止）", stage.title());
     }
     ExitCode::from(1)
@@ -824,14 +780,14 @@ fn graph(inputs: &[PathBuf], model: &str, depth: u32, json: bool) -> ExitCode {
         Ok(f) => f,
         Err(code) => return code,
     };
-    let mut db = globe_mode_db::GlobeDb::new();
+    let mut ws = Workspace::new();
     for f in &files {
         match read(f) {
-            Ok((name, text)) => db.set_file(&name, text),
+            Ok((name, text)) => ws.set_file(&name, text),
             Err(code) => return code,
         }
     }
-    match db.connect_graph(model, depth) {
+    match ws.graph(model, depth) {
         Ok(g) if json => {
             println!(
                 "{}",

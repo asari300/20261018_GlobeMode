@@ -1,0 +1,21 @@
+[package]
+name = "globe-mode-protocol"
+description = "GlobeMode: the serde request / response types shared by the CLI, wasm, LSP and language bindings"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+globe-mode-core = { workspace = true }
+globe-mode-ir = { workspace = true }
+globe-mode-analysis = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

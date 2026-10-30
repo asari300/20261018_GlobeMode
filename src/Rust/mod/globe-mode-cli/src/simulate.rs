@@ -9,13 +9,13 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use globe_mode::sim::solvers::{SOLVERS, SolverStatus};
+use globe_mode::{CompiledModel, ParametersResponse, SimulateRequest, Simulated};
 use globe_mode_core::Diagnostic;
-use globe_mode_exec::{CompiledModel, SimReport};
 use globe_mode_ir::{
     ResolvedSettings, ResultParameter, SettingOrigin, SimRun, SimSettings, Termination,
     TunableParameter, VariableRole,
 };
-use globe_mode_sim::solvers::{SOLVERS, SolverStatus};
 
 use super::{Loaded, load_db, print_diagnostics, report_early_failure};
 
@@ -187,30 +187,21 @@ fn fallback_parameters(
         .collect()
 }
 
-/// `--list-parameters`: DAE まで変換して、tunable なパラメータを表示する（検査の Error では止めない）。
+/// `--list-parameters`: tunable なパラメータを表示する（検査の Error では止めない）。
 fn list_parameters(
     args: &SimulateArgs,
     texts: &std::collections::HashMap<String, String>,
-    compiled: &CompiledModel,
+    response: &ParametersResponse,
 ) -> ExitCode {
     let model = args.model.as_str();
-    let (parameters, diagnostics) = match globe_mode_exec::tunable_parameters(compiled) {
-        Ok(p) => (Some(p), Vec::new()),
-        Err(d) => (None, d),
-    };
     if args.json {
-        let value = serde_json::json!({
-            "model": model,
-            "parameters": parameters,
-            "diagnostics": diagnostics,
-        });
         println!(
             "{}",
-            serde_json::to_string_pretty(&value).expect("serialize parameters")
+            serde_json::to_string_pretty(response).expect("serialize parameters")
         );
     } else {
-        print_diagnostics(&diagnostics, texts, false);
-        if let Some(p) = &parameters {
+        print_diagnostics(&response.diagnostics, texts, false);
+        if let Some(p) = &response.parameters {
             for line in parameter_lines(model, p) {
                 println!("{line}");
             }
@@ -218,7 +209,7 @@ fn list_parameters(
             println!("{model}: パラメータの一覧を作れない");
         }
     }
-    if parameters.is_some() {
+    if response.parameters.is_some() {
         ExitCode::SUCCESS
     } else {
         ExitCode::from(1)
@@ -227,15 +218,15 @@ fn list_parameters(
 
 pub(crate) fn simulate(args: SimulateArgs) -> ExitCode {
     let model = args.model.as_str();
-    let Loaded { mut db, texts } = match load_db(&args.files, &args.library) {
+    let Loaded { mut ws, texts } = match load_db(&args.files, &args.library) {
         Ok(Ok(v)) => v,
         Ok(Err(diags)) => return report_early_failure(model, &diags, args.json),
         Err(code) => return code,
     };
 
     if args.list_parameters {
-        return match db.compiled_model(model) {
-            Ok(compiled) => list_parameters(&args, &texts, &compiled),
+        return match ws.tunable_parameters(model) {
+            Ok(response) => list_parameters(&args, &texts, &response),
             Err(ds) => finish(
                 &args,
                 &texts,
@@ -246,55 +237,32 @@ pub(crate) fn simulate(args: SimulateArgs) -> ExitCode {
         };
     }
 
-    // assert_simulatable: S0〜S10 で Error があれば、--force が無い限り実行しない
-    let checked = db.check_model(model);
-    let mut diagnostics: Vec<Diagnostic> = checked.diagnostics.clone();
-    if let Some(stage) = checked.failed_stage()
-        && !args.force
-    {
-        return finish(
-            &args,
-            &texts,
-            &diagnostics,
-            None,
-            Some(format!(
-                "実行しない（{stage:?} {} で Error。--force で強行できる）",
-                stage.title()
-            )),
-        );
-    }
-    let compiled = match db.compiled_model_with_overrides(model, &args.settings.parameters) {
-        Ok(c) => c,
-        Err(ds) => {
-            diagnostics.extend(ds);
-            return finish(
-                &args,
-                &texts,
-                &diagnostics,
-                None,
-                Some("DAE まで変換できないので実行できない".to_string()),
-            );
-        }
+    // 検査（S0〜S10）→ コンパイル → 実行は facade に 1 本にまとめてある（Error があれば --force が無い限り実行しない）
+    let request = SimulateRequest {
+        files: BTreeMap::new(),
+        model: model.to_string(),
+        settings: args.settings.clone(),
+        force: args.force,
+        no_csv: true,
     };
-    let SimReport {
-        diagnostics: ran,
+    let Simulated {
+        response,
         run,
-        settings,
-    } = globe_mode_exec::run(&compiled, &args.settings);
-    diagnostics.extend(ran);
+        compiled,
+    } = ws.simulate_with(&request, &globe_mode::now_ms);
 
-    if let (Some(run), Some(path)) = (&run, &args.output)
-        && let Err(e) = write_result(run, path, args.format, &compiled)
+    if let (Some(run), Some(path), Some(compiled)) = (&run, &args.output, &compiled)
+        && let Err(e) = write_result(run, path, args.format, compiled)
     {
         eprintln!("error: 結果を {} に書けない: {e}", path.display());
         return ExitCode::from(2);
     }
-    let refused = match (&run, &settings) {
+    let refused = match (&run, &response.settings) {
         // 実行に失敗しても、使った設定は表示する
         (None, Some(s)) => Some(format!("実行に失敗した（{}）", settings_text(s))),
-        _ => None,
+        _ => response.refused,
     };
-    finish(&args, &texts, &diagnostics, run.as_ref(), refused)
+    finish(&args, &texts, &response.diagnostics, run.as_ref(), refused)
 }
 
 fn write_result(
@@ -306,7 +274,7 @@ fn write_result(
     // MAT にはパラメータの値を添える。実行系が返さなかったら tunable なパラメータから補う
     let filled;
     let run = if format == OutputFormat::Mat && run.parameters.is_empty() {
-        match globe_mode_exec::tunable_parameters(compiled) {
+        match globe_mode::exec::tunable_parameters(compiled) {
             Ok(p) if !p.is_empty() => {
                 filled = SimRun {
                     parameters: fallback_parameters(&p, &run.settings.parameters),
@@ -320,8 +288,8 @@ fn write_result(
         run
     };
     let write = |out: &mut dyn Write| match format {
-        OutputFormat::Csv => globe_mode_sim::store::write_csv(&run.trajectory, out),
-        OutputFormat::Mat => globe_mode_sim::mat::write_mat4(run, out),
+        OutputFormat::Csv => globe_mode::sim::store::write_csv(&run.trajectory, out),
+        OutputFormat::Mat => globe_mode::sim::mat::write_mat4(run, out),
     };
     if path == Path::new("-") {
         let stdout = std::io::stdout();

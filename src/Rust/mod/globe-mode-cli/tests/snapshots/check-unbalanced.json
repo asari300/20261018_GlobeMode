@@ -1,0 +1,45 @@
+{
+  "model": "GlobeModeExamples.Unbalanced",
+  "passed": false,
+  "failed_stage": "S5",
+  "balance": null,
+  "dae": null,
+  "structure": null,
+  "s6": null,
+  "s7": null,
+  "s8": null,
+  "s9": null,
+  "s10": null,
+  "init": null,
+  "flat": {
+    "variables": 2,
+    "equations": 1,
+    "initial_equations": 0,
+    "partial": false,
+    "top_level_connectors": [],
+    "equations_by_component": [
+      [
+        "",
+        1
+      ]
+    ]
+  },
+  "diagnostics": [
+    {
+      "code": "GM-E5002",
+      "severity": "error",
+      "stage": "S5",
+      "message": "unbalanced model: 1 equations, 2 unknowns (balance = -1); unknowns[state=1 algebraic=1 output=0 discrete_real=0 discrete_value=0] equations[continuous=1 discrete_real=0 b1c_definition=0]",
+      "file": "src/Modelica/GlobeModeExamples/package.mo",
+      "range": {
+        "start": 1160,
+        "end": 1170
+      },
+      "notes": [
+        "rumoca: ED001",
+        "flat の方程式 1 個（部品ごと、多い順）: （トップレベル） 1"
+      ]
+    }
+  ],
+  "notes": []
+}

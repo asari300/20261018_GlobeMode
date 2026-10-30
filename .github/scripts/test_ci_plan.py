@@ -27,7 +27,8 @@ class Plan(unittest.TestCase):
         self.assertEqual(
             pkgs(p),
             {"globe-mode-ir", "globe-mode-frontend", "globe-mode-graph", "globe-mode-analysis", "globe-mode-db",
-             "globe-mode-cli", "globe-mode-exec", "globe-mode-sim", "globe-mode-wasm", "xtask"},
+             "globe-mode-cli", "globe-mode-exec", "globe-mode-sim", "globe-mode-protocol", "globe-mode", "globe-mode-wasm",
+             "xtask"},
         )
         self.assertTrue(p["wasm"])
         self.assertTrue(p["wasm_node"])
@@ -38,27 +39,35 @@ class Plan(unittest.TestCase):
         self.assertEqual(
             pkgs(p),
             {"globe-mode-core", "globe-mode-ir", "globe-mode-frontend", "globe-mode-graph", "globe-mode-analysis",
-             "globe-mode-db", "globe-mode-cli", "globe-mode-exec", "globe-mode-sim", "globe-mode-wasm", "xtask"},
+             "globe-mode-db", "globe-mode-cli", "globe-mode-exec", "globe-mode-sim", "globe-mode-protocol", "globe-mode",
+             "globe-mode-wasm", "xtask"},
         )
         self.assertFalse(p["msl"])
 
     def test_graph_change_reaches_db_and_cli(self):
         p = plan(["src/Rust/mod/globe-mode-graph/src/lib.rs"])
-        # S005 から xtask（msl-funnel）も db を使う
-        self.assertEqual(pkgs(p), {"globe-mode-graph", "globe-mode-db", "globe-mode-cli", "globe-mode-wasm", "xtask"})
+        # S005 から xtask（msl-funnel）も db を使う。S035 から cli と wasm は facade globe-mode 経由
+        self.assertEqual(
+            pkgs(p), {"globe-mode-graph", "globe-mode-db", "globe-mode", "globe-mode-cli", "globe-mode-wasm", "xtask"}
+        )
         self.assertTrue(p["wasm"])
 
     def test_analysis_change_reaches_db_and_cli(self):
         p = plan(["src/Rust/mod/globe-mode-analysis/src/lib.rs"])
-        self.assertEqual(pkgs(p), {"globe-mode-analysis", "globe-mode-db", "globe-mode-cli", "globe-mode-wasm", "xtask"})
+        self.assertEqual(
+            pkgs(p),
+            {"globe-mode-analysis", "globe-mode-db", "globe-mode-protocol", "globe-mode", "globe-mode-cli", "globe-mode-wasm",
+             "xtask"},
+        )
         self.assertTrue(p["wasm"])
 
     def test_known_unsupported_list_affects_frontend(self):
         p = plan(["src/Modelica/msl-known-unsupported.txt"])
-        # S011 から exec も frontend に依存する。S012 から wasm の束ねも
+        # S011 から exec も frontend に依存する。S012 から wasm の束ねも。S035 から facade も
         self.assertEqual(
             pkgs(p),
-            {"globe-mode-frontend", "globe-mode-cli", "globe-mode-db", "globe-mode-exec", "globe-mode-wasm", "xtask"},
+            {"globe-mode-frontend", "globe-mode-cli", "globe-mode-db", "globe-mode-exec", "globe-mode", "globe-mode-wasm",
+             "xtask"},
         )
 
     def test_wasm_node_runs_for_exec_sim_and_wasm(self):
@@ -76,6 +85,15 @@ class Plan(unittest.TestCase):
     def test_wasm_crate_only_tests_itself(self):
         p = plan(["src/Rust/mod/globe-mode-wasm/src/lib.rs"])
         self.assertEqual(pkgs(p), {"globe-mode-wasm"})
+
+    def test_facade_and_protocol_reach_cli_and_wasm(self):
+        # S035: facade を変えたら cli と wasm、protocol を変えたら facade も
+        p = plan(["src/Rust/mod/globe-mode/src/lib.rs"])
+        self.assertEqual(pkgs(p), {"globe-mode", "globe-mode-cli", "globe-mode-wasm"})
+        self.assertTrue(p["wasm"])
+        self.assertTrue(p["wasm_node"])
+        p = plan(["src/Rust/mod/globe-mode-protocol/src/lib.rs"])
+        self.assertEqual(pkgs(p), {"globe-mode-protocol", "globe-mode", "globe-mode-cli", "globe-mode-wasm"})
 
     def test_xtask_only(self):
         p = plan(["src/Rust/xtask/src/main.rs"])
@@ -95,7 +113,8 @@ class Plan(unittest.TestCase):
         # db・exec・wasm のテストも src/Modelica を読む。xtask は frontend に依存するので、依存元として入る
         self.assertEqual(
             pkgs(p),
-            {"globe-mode-frontend", "globe-mode-cli", "globe-mode-db", "globe-mode-exec", "globe-mode-wasm", "xtask"},
+            {"globe-mode-frontend", "globe-mode-cli", "globe-mode-db", "globe-mode-exec", "globe-mode", "globe-mode-wasm",
+             "xtask"},
         )
         self.assertTrue(p["wasm_node"])
 
