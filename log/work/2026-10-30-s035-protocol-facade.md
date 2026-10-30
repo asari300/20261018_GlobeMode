@@ -44,6 +44,11 @@ S033 の計画書の方針どおり、このセッションで WP-0（`globe-mod
 - セッション記録の `--check`: 10 件 / 取りこぼし 0 件
 - ステージした差分の漏洩検査: 0 件（28 ファイル）
 
+## CI
+
+- run 41018689866（全体検査）: plan・docs・msl・wasm-node・deny・python・rust-linux は success、**rust-windows が failure**。`json_snapshots` の 2 本で、fixture が Windows の checkout（autocrlf）で CRLF になり、中身は同じなのに一致しなかった。
+- `feature/s035-snapshot-crlf` で試験の側の読み込みを `\r\n` → `\n` に正規化して直した（同じ S 番号の別ブランチ。S010 のはみ出し修正と同じ扱い）。
+
 ## 残したこと
 
 - JSON Schema の書き出し（xtask）と TypeScript / Python の型の生成。
