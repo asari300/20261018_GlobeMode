@@ -17,7 +17,8 @@
 //! 読むので、ライブラリの文書を検査のたびに渡し直さない。ライブラリを文書として `files` に入れることも
 //! できる（遅い。`globe-mode-db` が `deps_closure` で使うファイルだけを渡す）。
 //!
-//! 入出力は JSON の文字列（[`Request`] と [`Response`]）。Rust からは同じ処理を [`Workspace::run`] と
+//! 入出力は JSON の文字列（[`Request`] と [`Response`]。S035 から `globe-mode-protocol` の型で、中身は facade
+//! `globe-mode` の `Workspace::simulate_with`）。Rust からは同じ処理を [`Workspace::run`] と
 //! [`run`] で呼べる（ネイティブの試験のため。JS 向けの関数は `JsValue` を作るので wasm32 でしか呼べない）。
 //!
 //! wasm32-unknown-unknown は panic=abort なので、panic は JS では `RuntimeError: unreachable` になる。
@@ -27,56 +28,11 @@
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 
-use globe_mode_core::Diagnostic;
-use globe_mode_db::GlobeDb;
-use globe_mode_frontend::Source;
-use globe_mode_ir::{ResolvedSettings, SimSettings, SimStats, Termination};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
-/// [`Workspace::run`] の入力。
-#[derive(Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Request {
-    /// 実行の前にワークスペースに足す（差し替える）ファイル（名前 → 本文）。ライブラリを文書として
-    /// 入れてもよい
-    #[serde(default)]
-    pub files: BTreeMap<String, String>,
-    /// モデルの完全修飾名
-    pub model: String,
-    /// 実行の設定（None の項目は experiment annotation か既定値）
-    #[serde(default)]
-    pub settings: SimSettings,
-    /// S0〜S10 に Error があっても実行する
-    #[serde(default)]
-    pub force: bool,
-    /// 結果の CSV を返さない（大きな結果で JSON を小さくするため。最後の値は `final` に入る）
-    #[serde(default)]
-    pub no_csv: bool,
-}
-
-/// [`Workspace::run`] の出力。
-#[derive(Debug, Serialize)]
-pub struct Response {
-    pub model: String,
-    /// 結果があり、Error の診断が無い
-    pub ok: bool,
-    /// 実行しなかった・失敗した理由（成功なら None）
-    pub refused: Option<String>,
-    pub diagnostics: Vec<Diagnostic>,
-    pub settings: Option<ResolvedSettings>,
-    pub termination: Option<Termination>,
-    pub stats: Option<SimStats>,
-    /// 最後の時刻の値（変数名 → 値。`globe simulate --json` の `final` と同じ）
-    #[serde(rename = "final")]
-    pub final_values: Option<BTreeMap<String, f64>>,
-    /// 結果の CSV（`globe_mode_sim::store::write_csv` と同じ形。`globe simulate -o` と同じ）
-    pub csv: Option<String>,
-    /// 段階ごとの壁時計（ミリ秒）: load / check / compile / run
-    pub timings_ms: BTreeMap<&'static str, f64>,
-    /// 返す時点の wasm の線形メモリ（バイト。ネイティブでは 0）
-    pub memory_bytes: f64,
-}
+use globe_mode::{Diagnostic, Simulated};
+pub use globe_mode::{SimulateRequest as Request, SimulateResponse as Response};
 
 /// 壁時計（ミリ秒）。wasm32-unknown-unknown では std の `Instant::now` が panic するので JS の
 /// `performance.now()`（Node・ブラウザ・Worker にある。`Date.now()` は 1 ms 刻みなので使わない）を使う。
@@ -87,28 +43,16 @@ pub fn now_ms() -> f64 {
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        use std::time::{SystemTime, UNIX_EPOCH};
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0.0, |d| d.as_secs_f64() * 1e3)
+        globe_mode::now_ms()
     }
 }
 
-/// ライブラリを 1 回だけ読み、作業中のファイルを出し入れしながら何度も実行する。
+/// ライブラリを 1 回だけ読み、作業中のファイルを出し入れしながら何度も実行する（facade の
+/// [`globe_mode::Workspace`] に JS の時計とメモリの大きさを足したもの）。
 #[wasm_bindgen]
+#[derive(Debug)]
 pub struct Workspace {
-    db: GlobeDb,
-    library_files: usize,
-    library_load_ms: f64,
-}
-
-impl std::fmt::Debug for Workspace {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Workspace")
-            .field("files", &self.db.paths().count())
-            .field("library_files", &self.library_files)
-            .finish()
-    }
+    inner: globe_mode::Workspace,
 }
 
 impl Default for Workspace {
@@ -122,9 +66,7 @@ impl Workspace {
     /// ライブラリ無しのワークスペース。
     pub fn new() -> Self {
         Workspace {
-            db: GlobeDb::new(),
-            library_files: 0,
-            library_load_ms: 0.0,
+            inner: globe_mode::Workspace::new(),
         }
     }
 
@@ -133,115 +75,34 @@ impl Workspace {
         name: &str,
         files: &BTreeMap<String, String>,
     ) -> Result<Workspace, Vec<Diagnostic>> {
+        // 読み込みの時間は facade の時計（wasm32 では 0）でなく、ここで測る
         let t = now_ms();
-        let sources: Vec<Source<'_>> = files
-            .iter()
-            .map(|(name, text)| Source { name, text })
-            .collect();
-        let db = GlobeDb::with_library_sources(name, &sources)?;
-        Ok(Workspace {
-            db,
-            library_files: files.len(),
-            library_load_ms: now_ms() - t,
-        })
+        let mut inner = globe_mode::Workspace::with_library_sources(name, files)?;
+        inner.set_library_load_ms(now_ms() - t);
+        Ok(Workspace { inner })
     }
 
     /// 検査 → コンパイル → 実行。`request.files` は先にワークスペースに足す（残る）。
     pub fn run(&mut self, request: &Request) -> Response {
-        let mut timings = BTreeMap::new();
-        let mut t = now_ms();
-        let mut lap = |name: &'static str, timings: &mut BTreeMap<&'static str, f64>| {
-            let n = now_ms();
-            timings.insert(name, n - t);
-            t = n;
-        };
-        let model = request.model.as_str();
-        let mut response = Response {
-            model: model.to_string(),
-            ok: false,
-            refused: None,
-            diagnostics: Vec::new(),
-            settings: None,
-            termination: None,
-            stats: None,
-            final_values: None,
-            csv: None,
-            timings_ms: BTreeMap::new(),
-            memory_bytes: 0.0,
-        };
-        let db = &mut self.db;
-        for (name, text) in &request.files {
-            db.set_file(name, text.clone());
-        }
-        lap("load", &mut timings);
-        let checked = db.check_model(model);
-        lap("check", &mut timings);
-        response.diagnostics.extend(checked.diagnostics.clone());
-        if let Some(stage) = checked.failed_stage()
-            && !request.force
-        {
-            response.refused = Some(format!(
-                "実行しない（{stage:?} {} で Error。force で強行できる）",
-                stage.title()
-            ));
-            return finish(response, timings);
-        }
-        let compiled = match db.compiled_model_with_overrides(model, &request.settings.parameters) {
-            Ok(c) => c,
-            Err(ds) => {
-                response.diagnostics.extend(ds);
-                response.refused = Some("DAE まで変換できないので実行できない".to_string());
-                return finish(response, timings);
-            }
-        };
-        lap("compile", &mut timings);
-        let report = globe_mode_exec::run(&compiled, &request.settings);
-        lap("run", &mut timings);
-        response.ok = report.succeeded();
-        response.diagnostics.extend(report.diagnostics);
-        response.settings = report.settings;
-        if let Some(run) = report.run {
-            let traj = &run.trajectory;
-            response.final_values = Some(
-                traj.variables
-                    .iter()
-                    .filter_map(|v| v.values.last().map(|x| (v.name.clone(), *x)))
-                    .collect(),
-            );
-            if !request.no_csv {
-                let mut buf = Vec::new();
-                if globe_mode_sim::store::write_csv(traj, &mut buf).is_ok() {
-                    response.csv = String::from_utf8(buf).ok();
-                }
-            }
-            response.termination = Some(run.termination);
-            response.stats = Some(run.stats);
-        } else {
-            response.refused = Some("実行に失敗した".to_string());
-        }
-        finish(response, timings)
+        let Simulated { mut response, .. } = self.inner.simulate_with(request, &now_ms);
+        response.memory_bytes = memory_bytes();
+        response
     }
 
     /// ファイルを足すか、本文を差し替える。
     pub fn put_file(&mut self, name: &str, text: impl Into<String>) {
-        self.db.set_file(name, text);
+        self.inner.set_file(name, text);
     }
 
     /// ファイルを除く。無ければ false。
     pub fn delete_file(&mut self, name: &str) -> bool {
-        self.db.remove_file(name)
+        self.inner.remove_file(name)
     }
 
-    /// 検査器（DB）。
-    pub fn db(&mut self) -> &mut GlobeDb {
-        &mut self.db
+    /// facade のワークスペース（検査やグラフも呼べる）。
+    pub fn inner(&mut self) -> &mut globe_mode::Workspace {
+        &mut self.inner
     }
-}
-
-fn finish(mut response: Response, timings: BTreeMap<&'static str, f64>) -> Response {
-    response.timings_ms = timings;
-    response.memory_bytes = memory_bytes();
-    response
 }
 
 /// 一度きりの実行（Rust から呼ぶ形）。ライブラリ無しのワークスペースを作り、`request.files` を足して回す。
@@ -292,19 +153,19 @@ impl Workspace {
 
     /// ワークスペースのファイルの名前（JSON の配列。区切りは `/`、昇順）。
     pub fn files(&self) -> String {
-        serde_json::to_string(&self.db.paths().collect::<Vec<_>>()).unwrap_or_default()
+        serde_json::to_string(&self.inner.files().collect::<Vec<_>>()).unwrap_or_default()
     }
 
     /// 読み込んだライブラリのファイルの数。
     #[wasm_bindgen(getter)]
     pub fn library_files(&self) -> usize {
-        self.library_files
+        self.inner.library_files()
     }
 
     /// ライブラリを読み込むのにかかった時間（ミリ秒）。
     #[wasm_bindgen(getter)]
     pub fn library_load_ms(&self) -> f64 {
-        self.library_load_ms
+        self.inner.library_load_ms()
     }
 
     /// 検査 → コンパイル → 実行（[`Request`] の JSON → [`Response`] の JSON）。入力の JSON が読めなければ
@@ -330,7 +191,7 @@ pub fn solvers() -> String {
 
 /// [`solvers`] の中身（Rust から呼ぶ形）。
 pub fn solvers_json() -> String {
-    serde_json::to_string(globe_mode_sim::solvers::SOLVERS).unwrap_or_default()
+    serde_json::to_string(globe_mode::solvers()).unwrap_or_default()
 }
 
 /// 版（Cargo の版）。

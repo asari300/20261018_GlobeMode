@@ -49,7 +49,7 @@ fn list_solvers_needs_no_model() {
         .map(|e| e["name"].as_str().unwrap())
         .collect();
     assert_eq!(&names[..3], ["bdf", "dopri45", "auto"]);
-    assert_eq!(names.len(), globe_mode_sim::solvers::SOLVERS.len());
+    assert_eq!(names.len(), globe_mode::sim::solvers::SOLVERS.len());
 }
 
 #[test]
@@ -85,7 +85,7 @@ fn mat_output_carries_parameters_and_overrides() {
         stdout(&o)
     );
     let mut file = std::fs::File::open(&path).unwrap();
-    let m = globe_mode_sim::mat::read_mat4(&mut file).unwrap();
+    let m = globe_mode::sim::mat::read_mat4(&mut file).unwrap();
     let k = m.parameters.iter().find(|p| p.name == "k").expect("k");
     assert_eq!(k.value, 2.0);
     let x = m.trajectory.variable("x").expect("x");

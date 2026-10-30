@@ -1367,6 +1367,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e4eba85ea1d0a966a983acd07deee566e67395d2d96b6fb39e62b5a833f1eb0b"
 
 [[package]]
+name = "globe-mode"
+version = "0.0.1"
+dependencies = [
+ "globe-mode-core",
+ "globe-mode-db",
+ "globe-mode-exec",
+ "globe-mode-frontend",
+ "globe-mode-graph",
+ "globe-mode-ir",
+ "globe-mode-protocol",
+ "globe-mode-sim",
+ "serde_json",
+]
+
+[[package]]
 name = "globe-mode-analysis"
 version = "0.0.1"
 dependencies = [
@@ -1380,12 +1395,9 @@ name = "globe-mode-cli"
 version = "0.0.1"
 dependencies = [
  "clap",
+ "globe-mode",
  "globe-mode-core",
- "globe-mode-db",
- "globe-mode-exec",
- "globe-mode-frontend",
  "globe-mode-ir",
- "globe-mode-sim",
  "serde_json",
 ]
 
@@ -1458,6 +1470,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "globe-mode-protocol"
+version = "0.0.1"
+dependencies = [
+ "globe-mode-analysis",
+ "globe-mode-core",
+ "globe-mode-ir",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "globe-mode-sim"
 version = "0.0.1"
 dependencies = [
@@ -1470,12 +1493,7 @@ dependencies = [
 name = "globe-mode-wasm"
 version = "0.0.1"
 dependencies = [
- "globe-mode-core",
- "globe-mode-db",
- "globe-mode-exec",
- "globe-mode-frontend",
- "globe-mode-ir",
- "globe-mode-sim",
+ "globe-mode",
  "serde",
  "serde_json",
  "wasm-bindgen",

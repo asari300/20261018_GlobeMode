@@ -1,0 +1,16 @@
+{
+  "model": "GlobeModeValidation.Simulation.Parameters",
+  "parameters": [
+    {
+      "name": "k",
+      "default": 1.0,
+      "description": "減衰の速さ（tunable）"
+    },
+    {
+      "name": "c",
+      "default": 2.0,
+      "description": "k から決まる（k を変えると従う）"
+    }
+  ],
+  "diagnostics": []
+}

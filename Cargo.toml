@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["src/Rust/mod/globe-mode-*", "src/Rust/xtask"]
+members = ["src/Rust/mod/globe-mode", "src/Rust/mod/globe-mode-*", "src/Rust/xtask"]
 
 [workspace.package]
 version = "0.0.1"
@@ -20,6 +20,8 @@ globe-mode-db = { path = "src/Rust/mod/globe-mode-db", version = "0.0.1" }
 globe-mode-analysis = { path = "src/Rust/mod/globe-mode-analysis", version = "0.0.1" }
 globe-mode-exec = { path = "src/Rust/mod/globe-mode-exec", version = "0.0.1" }
 globe-mode-sim = { path = "src/Rust/mod/globe-mode-sim", version = "0.0.1" }
+globe-mode-protocol = { path = "src/Rust/mod/globe-mode-protocol", version = "0.0.1" }
+globe-mode = { path = "src/Rust/mod/globe-mode", version = "0.0.1" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

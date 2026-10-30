@@ -40,7 +40,7 @@ FULL_TRIGGERS = ["Cargo.toml", "Cargo.lock", "mise.toml", "mise.lock", "deny.tom
 DEPENDENCY_FILES = ["Cargo.toml", "Cargo.lock", "deny.toml", "src/Rust/mod/*/Cargo.toml"]
 # wasm でビルドできることを守る crate（S012 から実行系と wasm の束ねも）
 WASM_CRATES = {"globe-mode-core", "globe-mode-ir", "globe-mode-frontend", "globe-mode-graph", "globe-mode-db", "globe-mode-analysis",
-               "globe-mode-sim", "globe-mode-exec", "globe-mode-wasm"}
+               "globe-mode-sim", "globe-mode-exec", "globe-mode-protocol", "globe-mode", "globe-mode-wasm"}
 # wasm の束ね。これが影響を受けたら（依存する exec・sim・db・frontend などの変更も含む）、release の wasm を
 # ビルドして Node で回す（S012。P3 の「bdf が wasm で動く」）
 WASM_NODE_CRATE = "globe-mode-wasm"
@@ -66,13 +66,14 @@ def git(*args: str) -> str:
 def workspace_crates() -> dict[str, dict]:
     """crate 名 → {dir, deps（workspace 内の依存）}。Cargo.toml を直接読む（cargo が無くても動く）。"""
     crates = {}
-    manifests = sorted((ROOT / "src/Rust/mod").glob("globe-mode-*/Cargo.toml"))
+    # S035: facade は globe-mode/（ハイフン無し）
+    manifests = sorted((ROOT / "src/Rust/mod").glob("globe-mode*/Cargo.toml"))
     manifests += [m for m in [ROOT / "src/Rust/xtask/Cargo.toml"] if m.exists()]
     for manifest in manifests:
         data = tomllib.loads(manifest.read_text(encoding="utf-8"))
         deps = set()
         for table in ("dependencies", "dev-dependencies", "build-dependencies"):
-            deps |= {d for d in data.get(table, {}) if d.startswith("globe-mode-") or d == "xtask"}
+            deps |= {d for d in data.get(table, {}) if d.startswith("globe-mode") or d == "xtask"}
         crates[data["package"]["name"]] = {"dir": manifest.parent.relative_to(ROOT).as_posix(), "deps": deps}
     return crates
 

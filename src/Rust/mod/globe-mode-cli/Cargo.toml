@@ -14,15 +14,13 @@ path = "src/main.rs"
 
 [features]
 # S032・S034: CVODE と IDA（SUNDIALS）を使う。cmake と C コンパイラが要る
-sundials = ["globe-mode-exec/sundials"]
+sundials = ["globe-mode/sundials"]
 
 [dependencies]
+# S035: facade（と protocol の型）経由。db・exec・sim は facade の再公開を使う
+globe-mode = { workspace = true }
 globe-mode-core = { workspace = true }
 globe-mode-ir = { workspace = true }
-globe-mode-frontend = { workspace = true }
-globe-mode-db = { workspace = true }
-globe-mode-exec = { workspace = true }
-globe-mode-sim = { workspace = true }
 clap = { workspace = true }
 serde_json = { workspace = true }
 

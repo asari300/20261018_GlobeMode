@@ -12,13 +12,8 @@ publish.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-globe-mode-core = { workspace = true }
-globe-mode-ir = { workspace = true }
-globe-mode-db = { workspace = true }
-# ライブラリのファイルの組を渡す型（Source）
-globe-mode-frontend = { workspace = true }
-globe-mode-exec = { workspace = true }
-globe-mode-sim = { workspace = true }
+# S035: facade と protocol だけに依存する
+globe-mode = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 wasm-bindgen = { workspace = true }

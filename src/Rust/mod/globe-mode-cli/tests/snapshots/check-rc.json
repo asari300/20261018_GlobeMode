@@ -1,0 +1,538 @@
+{
+  "model": "GlobeModeExamples.RC",
+  "passed": true,
+  "failed_stage": null,
+  "balance": {
+    "equations": 20,
+    "unknowns": 20,
+    "states": 1,
+    "algebraics": 19,
+    "outputs": 0,
+    "discrete": 0
+  },
+  "dae": {
+    "states": 1,
+    "algebraics": 19,
+    "outputs": 0,
+    "inputs": 0,
+    "parameters": 3,
+    "continuous_equations": 20
+  },
+  "structure": {
+    "unknowns": 20,
+    "equations": 20,
+    "derivatives": 1
+  },
+  "s6": {
+    "n_equations": 20,
+    "n_unknowns": 20,
+    "matching": 20,
+    "structural_matching": 20,
+    "index_reduction_needed": false,
+    "unmatched_equations": [],
+    "unmatched_unknowns": [],
+    "der_unmatched_equations": [],
+    "over_equations": [],
+    "over_unknowns": [],
+    "under_equations": [],
+    "under_unknowns": []
+  },
+  "s7": {
+    "index": 1,
+    "differentiations": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "orders": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "dummy_candidates": [],
+    "n_differentiated": 0,
+    "dynamic_states": 1,
+    "failed": false
+  },
+  "s8": {
+    "required": 1,
+    "required_discretes": 0,
+    "provided": 0,
+    "fixed_states": [],
+    "states_without_start": [
+      0
+    ],
+    "free_parameters": [],
+    "parameters_without_value": [],
+    "matching": {
+      "n_equations": 20,
+      "n_unknowns": 21,
+      "matching": 20,
+      "extra": 0,
+      "missing": 1,
+      "redundant": [],
+      "over_with_dae": false,
+      "undetermined": [
+        {
+          "kind": "algebraic",
+          "index": 1,
+          "order": 0
+        },
+        {
+          "kind": "algebraic",
+          "index": 2,
+          "order": 0
+        },
+        {
+          "kind": "algebraic",
+          "index": 3,
+          "order": 0
+        },
+        {
+          "kind": "algebraic",
+          "index": 4,
+          "order": 0
+        },
+        {
+          "kind": "algebraic",
+          "index": 5,
+          "order": 0
+        },
+        {
+          "kind": "algebraic",
+          "index": 6,
+          "order": 0
+        },
+        {
+          "kind": "algebraic",
+          "index": 7,
+          "order": 0
+        },
+        {
+          "kind": "algebraic",
+          "index": 9,
+          "order": 0
+        },
+        {
+          "kind": "state",
+          "index": 0,
+          "order": 0
+        },
+        {
+          "kind": "state",
+          "index": 0,
+          "order": 1
+        },
+        {
+          "kind": "algebraic",
+          "index": 10,
+          "order": 0
+        },
+        {
+          "kind": "algebraic",
+          "index": 12,
+          "order": 0
+        },
+        {
+          "kind": "algebraic",
+          "index": 14,
+          "order": 0
+        },
+        {
+          "kind": "algebraic",
+          "index": 16,
+          "order": 0
+        },
+        {
+          "kind": "algebraic",
+          "index": 18,
+          "order": 0
+        }
+      ]
+    }
+  },
+  "s9": {
+    "blocks": 20,
+    "reduced": false,
+    "loops": [],
+    "start_checked": true
+  },
+  "s10": {
+    "parameters_evaluated": 3,
+    "starts_evaluated": 20,
+    "not_finite_parameters": [],
+    "assertion_parameters": [],
+    "external_parameters": [],
+    "other_parameters": [],
+    "not_finite_starts": [],
+    "other_starts": [],
+    "experiment": {
+      "verdict": "checked",
+      "invalid": [],
+      "suspicious": []
+    }
+  },
+  "init": {
+    "states": [
+      {
+        "name": "c.v",
+        "fixed": false,
+        "has_start": false,
+        "has_binding": false,
+        "file": "src/Modelica/GlobeModeExamples/package.mo",
+        "range": {
+          "start": 254,
+          "end": 260
+        }
+      }
+    ],
+    "parameters": [
+      {
+        "name": "r.R",
+        "fixed": true,
+        "has_start": false,
+        "has_binding": true,
+        "file": "src/Modelica/GlobeModeExamples/package.mo",
+        "range": {
+          "start": 455,
+          "end": 461
+        }
+      },
+      {
+        "name": "c.C",
+        "fixed": true,
+        "has_start": false,
+        "has_binding": true,
+        "file": "src/Modelica/GlobeModeExamples/package.mo",
+        "range": {
+          "start": 571,
+          "end": 577
+        }
+      },
+      {
+        "name": "src.V",
+        "fixed": true,
+        "has_start": false,
+        "has_binding": true,
+        "file": "src/Modelica/GlobeModeExamples/package.mo",
+        "range": {
+          "start": 705,
+          "end": 711
+        }
+      }
+    ],
+    "discretes": [],
+    "algebraics": [
+      {
+        "name": "r.p.v",
+        "fixed": false,
+        "has_start": false,
+        "has_binding": false,
+        "file": "src/Modelica/GlobeModeExamples/package.mo",
+        "range": {
+          "start": 126,
+          "end": 132
+        }
+      },
+      {
+        "name": "r.p.i",
+        "fixed": false,
+        "has_start": false,
+        "has_binding": false,
+        "file": "src/Modelica/GlobeModeExamples/package.mo",
+        "range": {
+          "start": 152,
+          "end": 158
+        }
+      },
+      {
+        "name": "r.n.v",
+        "fixed": false,
+        "has_start": false,
+        "has_binding": false,
+        "file": "src/Modelica/GlobeModeExamples/package.mo",
+        "range": {
+          "start": 126,
+          "end": 132
+        }
+      },
+      {
+        "name": "r.n.i",
+        "fixed": false,
+        "has_start": false,
+        "has_binding": false,
+        "file": "src/Modelica/GlobeModeExamples/package.mo",
+        "range": {
+          "start": 152,
+          "end": 158
+        }
+      },
+      {
+        "name": "r.v",
+        "fixed": false,
+        "has_start": false,
+        "has_binding": false,
+        "file": "src/Modelica/GlobeModeExamples/package.mo",
+        "range": {
+          "start": 254,
+          "end": 260
+        }
+      },
+      {
+        "name": "r.i",
+        "fixed": false,
+        "has_start": false,
+        "has_binding": false,
+        "file": "src/Modelica/GlobeModeExamples/package.mo",
+        "range": {
+          "start": 287,
+          "end": 293
+        }
+      },
+      {
+        "name": "c.p.v",
+        "fixed": false,
+        "has_start": false,
+        "has_binding": false,
+        "file": "src/Modelica/GlobeModeExamples/package.mo",
+        "range": {
+          "start": 126,
+          "end": 132
+        }
+      },
+      {
+        "name": "c.p.i",
+        "fixed": false,
+        "has_start": false,
+        "has_binding": false,
+        "file": "src/Modelica/GlobeModeExamples/package.mo",
+        "range": {
+          "start": 152,
+          "end": 158
+        }
+      },
+      {
+        "name": "c.n.v",
+        "fixed": false,
+        "has_start": false,
+        "has_binding": false,
+        "file": "src/Modelica/GlobeModeExamples/package.mo",
+        "range": {
+          "start": 126,
+          "end": 132
+        }
+      },
+      {
+        "name": "c.n.i",
+        "fixed": false,
+        "has_start": false,
+        "has_binding": false,
+        "file": "src/Modelica/GlobeModeExamples/package.mo",
+        "range": {
+          "start": 152,
+          "end": 158
+        }
+      },
+      {
+        "name": "c.i",
+        "fixed": false,
+        "has_start": false,
+        "has_binding": false,
+        "file": "src/Modelica/GlobeModeExamples/package.mo",
+        "range": {
+          "start": 287,
+          "end": 293
+        }
+      },
+      {
+        "name": "src.p.v",
+        "fixed": false,
+        "has_start": false,
+        "has_binding": false,
+        "file": "src/Modelica/GlobeModeExamples/package.mo",
+        "range": {
+          "start": 126,
+          "end": 132
+        }
+      },
+      {
+        "name": "src.p.i",
+        "fixed": false,
+        "has_start": false,
+        "has_binding": false,
+        "file": "src/Modelica/GlobeModeExamples/package.mo",
+        "range": {
+          "start": 152,
+          "end": 158
+        }
+      },
+      {
+        "name": "src.n.v",
+        "fixed": false,
+        "has_start": false,
+        "has_binding": false,
+        "file": "src/Modelica/GlobeModeExamples/package.mo",
+        "range": {
+          "start": 126,
+          "end": 132
+        }
+      },
+      {
+        "name": "src.n.i",
+        "fixed": false,
+        "has_start": false,
+        "has_binding": false,
+        "file": "src/Modelica/GlobeModeExamples/package.mo",
+        "range": {
+          "start": 152,
+          "end": 158
+        }
+      },
+      {
+        "name": "src.v",
+        "fixed": false,
+        "has_start": false,
+        "has_binding": false,
+        "file": "src/Modelica/GlobeModeExamples/package.mo",
+        "range": {
+          "start": 254,
+          "end": 260
+        }
+      },
+      {
+        "name": "src.i",
+        "fixed": false,
+        "has_start": false,
+        "has_binding": false,
+        "file": "src/Modelica/GlobeModeExamples/package.mo",
+        "range": {
+          "start": 287,
+          "end": 293
+        }
+      },
+      {
+        "name": "gnd.p.v",
+        "fixed": false,
+        "has_start": false,
+        "has_binding": false,
+        "file": "src/Modelica/GlobeModeExamples/package.mo",
+        "range": {
+          "start": 126,
+          "end": 132
+        }
+      },
+      {
+        "name": "gnd.p.i",
+        "fixed": false,
+        "has_start": false,
+        "has_binding": false,
+        "file": "src/Modelica/GlobeModeExamples/package.mo",
+        "range": {
+          "start": 152,
+          "end": 158
+        }
+      }
+    ],
+    "initial_equations": [],
+    "has_incidence": true,
+    "initial_incidence": [],
+    "initial_state_refs": [],
+    "initial_parameter_refs": [],
+    "initial_discrete_refs": [],
+    "initial_pre_discrete_refs": [],
+    "equation_parameter_refs": [],
+    "parameter_binding_refs": [],
+    "discrete_init": [],
+    "discrete_equations": []
+  },
+  "flat": {
+    "variables": 23,
+    "equations": 20,
+    "initial_equations": 0,
+    "partial": false,
+    "top_level_connectors": [],
+    "equations_by_component": [
+      [
+        "",
+        7
+      ],
+      [
+        "c",
+        4
+      ],
+      [
+        "gnd",
+        1
+      ],
+      [
+        "r",
+        4
+      ],
+      [
+        "src",
+        4
+      ]
+    ]
+  },
+  "diagnostics": [
+    {
+      "code": "GM-W8001",
+      "severity": "warning",
+      "stage": "S8",
+      "message": "初期条件が 1 個足りない（不足分は start 値を推定値として使う見込み）: 要る数 1（状態 1 + 初期化で決めるパラメータ 0）、与えられた数 0（初期方程式 0 + fixed = true の状態 0）",
+      "notes": [
+        "初期条件の無い未知数（不足している部分の未知数 15 個。このうち 1 個が決まらない）: `r.p.i`, `r.n.v`, `r.n.i`, `r.v`, `r.i`, `c.p.v`, `c.p.i`, `c.n.i`, `c.v`, `der(c.v)` ほか 5 件",
+        "決まらない状態に fixed = true を付けるか、initial equation を足す"
+      ]
+    },
+    {
+      "code": "GM-W8002",
+      "severity": "warning",
+      "stage": "S8",
+      "message": "状態 `c.v` に start 値が無い（初期条件が無いので、既定の値から推定する見込み）",
+      "file": "src/Modelica/GlobeModeExamples/package.mo",
+      "range": {
+        "start": 254,
+        "end": 260
+      },
+      "notes": [
+        "start = … を書くか、fixed = true にして初期値を決める"
+      ]
+    }
+  ],
+  "notes": []
+}
