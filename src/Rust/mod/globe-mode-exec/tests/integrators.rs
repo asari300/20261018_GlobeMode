@@ -1,4 +1,4 @@
-//! 自前の積分器（S012。`esdirk34`・`trbdf2`・`tsit45`・`euler`・`heun`・`rk4`。S026 の `impeuler`・`trapezoid`。S027 の `esdirk23`・`esdirk45`・`sdirk34hw`。S028 の `dopri853`。S029 の `cerk23`・`cerk34`・`cerk45`。S030 の `radau5`。S031 の `qss`）を、`globe_mode_exec::run` を通して
+//! 自前の積分器（S012。`esdirk34`・`trbdf2`・`tsit45`・`euler`・`heun`・`rk4`。S026 の `impeuler`・`trapezoid`。S027 の `esdirk23`・`esdirk45`・`sdirk34hw`。S028 の `dopri853`。S029 の `cerk23`・`cerk34`・`cerk45`。S030 の `radau5`。S031 の `qss`。feature `sundials` の S032 の `cvode`）を、`globe_mode_exec::run` を通して
 //! src/Modelica/GlobeModeValidation/Simulation のモデルで確かめる。
 //!
 //! - Decay（x' = -x）: euler・dt 0.1 なら x(1) = 0.9^10。刻み幅の制御のあるものと rk4 は exp(-1) に近い。
@@ -117,7 +117,7 @@ fn assert_close(actual: f64, expected: f64, tol: f64, what: &str) {
     );
 }
 
-const ADAPTIVE: [SolverId; 12] = [
+const ADAPTIVE: &[SolverId] = &[
     SolverId::Tsit45,
     SolverId::Dopri853,
     SolverId::Esdirk34,
@@ -130,6 +130,9 @@ const ADAPTIVE: [SolverId; 12] = [
     SolverId::Cerk45,
     SolverId::Radau5,
     SolverId::Qss,
+    // S032: SUNDIALS の CVODE（feature `sundials` のときだけ）
+    #[cfg(feature = "sundials")]
+    SolverId::Cvode,
 ];
 
 #[test]
@@ -241,7 +244,7 @@ fn fixed_step_methods_converge_on_decay_with_their_order() {
 #[test]
 fn adaptive_methods_match_decay() {
     let model = compile("Decay");
-    for solver in ADAPTIVE {
+    for &solver in ADAPTIVE {
         let run = run_with(&model, solver, None);
         // experiment の Tolerance = 1e-8
         assert_close(
@@ -259,7 +262,7 @@ fn adaptive_methods_match_decay() {
 fn oscillator_matches_the_analytic_solution() {
     let model = compile("HarmonicOscillator");
     let (x1, v1) = (2.0f64.cos(), -2.0 * 2.0f64.sin());
-    for solver in ADAPTIVE {
+    for &solver in ADAPTIVE {
         let run = run_with(&model, solver, None);
         assert_eq!(run.stats.states, 2);
         assert_close(
@@ -318,6 +321,8 @@ fn bouncing_ball_matches_bdf() {
         (SolverId::Cerk45, None, 1e-4),
         (SolverId::Radau5, None, 1e-4),
         (SolverId::Qss, None, 1e-4),
+        #[cfg(feature = "sundials")]
+        (SolverId::Cvode, None, 1e-4),
         // 固定刻み（h 0.01）。重力だけの区間は 2 次の多項式なので heun・rk4 は区間の中では正確で、
         // 誤差はイベントの位置（根探索の許容誤差）だけ
         (SolverId::Rk4, Some(0.01), 1e-4),
@@ -406,7 +411,7 @@ fn sdirk_survives_more_than_fifty_newton_failures() {
 #[test]
 fn rk_restarts_from_a_tiny_state_with_a_large_derivative() {
     let model = compile("TinyStateRestart");
-    for solver in ADAPTIVE {
+    for &solver in ADAPTIVE {
         let run = run_with(&model, solver, None);
         assert_close(
             last(&run, "x"),

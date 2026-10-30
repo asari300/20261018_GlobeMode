@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S032 cvode — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S032 cvode">
+
+<section class="slide" id="S01">
+  <span class="tag">S032 · 2026-10-30 · P3</span>
+  <h1>cvode</h1>
+  <p class="lead">計画だけあった SUNDIALS の CVODE をつないだ</p>
+  <div class="big">feature <code>sundials</code> を立てたビルドだけ。既定のビルドは変わらない</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>ロードマップの候補 6（残りの計画のソルバ）の続き</li>
+    <li>SUNDIALS を入れて <code>cvode</code> を使えるようにする（<code>ida</code> は次）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table>
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>crate</td><td>sundials-sys 0.6.2</td><td>BSD-3。同梱のソースを cmake でビルド</td></tr>
+    <tr><td>feature</td><td>cvode だけ</td><td>klu（LGPL）・openmp は使わない</td></tr>
+    <tr><td>線形</td><td>密な行列と差分商</td><td>最小。疎は後回し</td></tr>
+    <tr><td>unsafe</td><td>exec だけ deny、cvode.rs で許す</td><td>forbid は外せない</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">結果</span>
+  <h1>x(1) の誤差</h1>
+  <table>
+    <tr><th>場合</th><th>許容誤差</th><th>bdf</th><th>cvode</th></tr>
+    <tr><td>Decay</td><td>1e-6</td><td>2.9e-7</td><td>2.1e-6</td></tr>
+    <tr><td>Decay</td><td>1e-8</td><td>2.7e-8</td><td>5.2e-8</td></tr>
+    <tr><td>Oscillator</td><td>1e-8</td><td>1.4e-7</td><td>9.0e-8</td></tr>
+  </table>
+  <p>DiodeSwitching: 0.52 s（bdf 1.68 s）、bdf との差は最大 9.4e-6</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現</h1>
+  <pre><code>cargo build -p globe-mode-cli --features sundials
+globe simulate -L src/Modelica/GlobeModeValidation \
+  -m GlobeModeValidation.Simulation.DiodeSwitching \
+  --solver cvode</code></pre>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>CI は feature つきのビルドを回していない</li>
+    <li>状態が多いと遅い（密な線形ソルバ）</li>
+    <li>残りの計画のソルバ <code>ida</code></li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

@@ -87,6 +87,8 @@ pub enum SolverId {
     Radau5,
     /// 量子化状態法 QSS2（事象ごとに進む、2 次。自前の積分器。S031）
     Qss,
+    /// SUNDIALS の CVODE（BDF、陰的、刻み幅と次数の制御あり。feature `sundials` のときだけ実装がある。S032）
+    Cvode,
 }
 
 impl SolverId {
@@ -113,6 +115,7 @@ impl SolverId {
             SolverId::Cerk45 => "cerk45",
             SolverId::Radau5 => "radau5",
             SolverId::Qss => "qss",
+            SolverId::Cvode => "cvode",
         }
     }
 

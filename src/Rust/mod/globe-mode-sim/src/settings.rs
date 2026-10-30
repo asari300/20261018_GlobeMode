@@ -491,6 +491,14 @@ mod tests {
     use globe_mode_core::{Severity, TextRange};
     use globe_mode_ir::Bits;
 
+    const LISTED: &str = "使えるソルバ: bdf、dopri45、auto、esdirk34、trbdf2、tsit45、euler、heun、rk4、impeuler、trapezoid、esdirk23、esdirk45、sdirk34hw、dopri853、cerk23、cerk34、cerk45、radau5、qss";
+    // feature `sundials` のときは登録表の末尾に cvode が加わる
+    const SUNDIALS_SUFFIX: &str = if cfg!(feature = "sundials") {
+        "、cvode"
+    } else {
+        ""
+    };
+
     use super::*;
 
     fn experiment(
@@ -832,8 +840,9 @@ mod tests {
             d[0].notes
         );
         assert!(
-            d[0].notes.iter().any(|n| n
-                == "使えるソルバ: bdf、dopri45、auto、esdirk34、trbdf2、tsit45、euler、heun、rk4、impeuler、trapezoid、esdirk23、esdirk45、sdirk34hw、dopri853、cerk23、cerk34、cerk45、radau5、qss")
+            d[0].notes
+                .iter()
+                .any(|n| *n == format!("{LISTED}{SUNDIALS_SUFFIX}"))
         );
     }
 
@@ -852,12 +861,7 @@ mod tests {
             ..SimSettings::default()
         };
         let d = err(&requested, None);
-        assert_eq!(
-            d[0].notes,
-            [
-                "使えるソルバ: bdf、dopri45、auto、esdirk34、trbdf2、tsit45、euler、heun、rk4、impeuler、trapezoid、esdirk23、esdirk45、sdirk34hw、dopri853、cerk23、cerk34、cerk45、radau5、qss"
-            ]
-        );
+        assert_eq!(d[0].notes, [format!("{LISTED}{SUNDIALS_SUFFIX}")]);
     }
 
     #[test]

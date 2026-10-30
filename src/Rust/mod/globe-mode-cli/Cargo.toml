@@ -12,6 +12,10 @@ publish.workspace = true
 name = "globe"
 path = "src/main.rs"
 
+[features]
+# S032: CVODE（SUNDIALS）を使う。cmake と C コンパイラが要る
+sundials = ["globe-mode-exec/sundials"]
+
 [dependencies]
 globe-mode-core = { workspace = true }
 globe-mode-ir = { workspace = true }

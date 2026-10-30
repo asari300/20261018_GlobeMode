@@ -2,10 +2,10 @@
 //!
 //! 名前は 3 種類ある。
 //!
-//! - 実装のあるもの（`bdf`、`dopri45`、`auto`。S012 から `esdirk34`、`trbdf2`、`tsit45`、`euler`、`heun`、`rk4`。S026 から `impeuler`、`trapezoid`。S027 から `esdirk23`、`esdirk45`、`sdirk34hw`。S028 から `dopri853`。S029 から `cerk23`、`cerk34`、`cerk45`。S030 から `radau5`。S031 から `qss`）
+//! - 実装のあるもの（`bdf`、`dopri45`、`auto`。S012 から `esdirk34`、`trbdf2`、`tsit45`、`euler`、`heun`、`rk4`。S026 から `impeuler`、`trapezoid`。S027 から `esdirk23`、`esdirk45`、`sdirk34hw`。S028 から `dopri853`。S029 から `cerk23`、`cerk34`、`cerk45`。S030 から `radau5`。S031 から `qss`。feature `sundials` のとき S032 から `cvode`）
 //! - 別名（`dassl`、`lsodar` → `bdf`、`rk45`、`dopri5` → `dopri45`）。同等の手法に置き換えるが、
 //!   刻み幅の制御などが違うので結果は一致しない
-//! - 登録表にはあるが、まだ実装していないもの（`ida`、`cvode`）
+//! - 登録表にはあるが、まだ実装していないもの（`ida`。feature `sundials` を立てない `cvode` も）
 //!
 //! 表に無い名前は、編集距離の近い名前を 3 つまで挙げる。
 
@@ -165,6 +165,11 @@ pub const SOLVERS: &[SolverEntry] = &[
         SolverId::Qss,
         "量子化状態法 QSS2（自前。状態と量子化した状態の差が量子に達した事象ごとに進む。陽的、2 次、誤差は量子に比例。硬い系は苦手）",
     ),
+    #[cfg(feature = "sundials")]
+    available(
+        SolverId::Cvode,
+        "SUNDIALS の CVODE（BDF、可変次数 1〜5、可変刻み。密な線形ソルバと差分商のヤコビ行列。陰的、刻み幅の制御あり。feature `sundials`）",
+    ),
     alias(
         "dassl",
         SolverId::Bdf,
@@ -182,9 +187,10 @@ pub const SOLVERS: &[SolverEntry] = &[
     ),
     alias("dopri5", SolverId::Dopri45, "Dormand–Prince 5(4) の別名"),
     planned("ida", "SUNDIALS の IDA（feature `sundials`。未実装）", BDF),
+    #[cfg(not(feature = "sundials"))]
     planned(
         "cvode",
-        "SUNDIALS の CVODE（feature `sundials`。未実装）",
+        "SUNDIALS の CVODE（feature `sundials` を立てたビルドで使える。このビルドでは未実装）",
         BDF,
     ),
 ];
@@ -314,9 +320,17 @@ mod tests {
                 "cerk34",
                 "cerk45",
                 "radau5",
-                "qss"
+                "qss",
+                #[cfg(feature = "sundials")]
+                "cvode"
             ]
         );
+    }
+
+    #[cfg(feature = "sundials")]
+    #[test]
+    fn cvode_is_available_with_sundials() {
+        assert_eq!(lookup("CVODE"), SolverLookup::Available(SolverId::Cvode));
     }
 
     #[test]
@@ -352,7 +366,13 @@ mod tests {
 
     #[test]
     fn planned_solvers_are_recognised() {
-        for name in ["ida", "cvode"] {
+        // cvode は feature `sundials` を立てると使える（下のテスト）
+        let names: &[&str] = if cfg!(feature = "sundials") {
+            &["ida"]
+        } else {
+            &["ida", "cvode"]
+        };
+        for &name in names {
             assert_eq!(
                 lookup(&name.to_uppercase()),
                 SolverLookup::Planned { name: name.into() },

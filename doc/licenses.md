@@ -30,7 +30,7 @@
 | wasm-bindgen 0.2.129 | MIT OR Apache-2.0 | 許可 | S012 で導入（`globe-mode-wasm` の JS の束ね）。CLI と版を合わせるため Cargo.toml で `=0.2.129` に固定する |
 | wasm-bindgen-cli 0.2.129（`github:wasm-bindgen/wasm-bindgen`） | MIT OR Apache-2.0 | 許可（ツール） | S012。mise で取得するツールで、リンクしない（`wasm-bindgen --target nodejs` で糊を作るだけ） |
 | getrandom 0.3 | MIT OR Apache-2.0 | 許可 | S012 で `globe-mode-exec` の wasm32 のときだけの直接の依存（feature `wasm_js`。diffsol → faer → rand の乱数の backend）。Cargo.lock に既にある |
-| SUNDIALS（sundials-sys） | BSD-3-Clause | 許可 | feature `sundials`。wasm では使えない |
+| SUNDIALS（sundials-sys 0.6.2） | BSD-3-Clause（sundials-sys、同梱の SUNDIALS 7.1.1 とも。sundials-sys の `vendor/LICENSE` で確認、2026-10-30） | 許可 | S032 で導入。`globe-mode-exec` の optional な依存で、feature `sundials` を立てたときだけ入る（CLI は `--features sundials` で転送）。wasm では使えない。sundials-sys の feature は `cvode`・`build_libraries`・`static_libraries` だけ（`default-features = false` で arkode・ida・kinsol を切る）で、同梱のソースから cmake で CVODE と serial N_Vector・密な行列・密な線形ソルバ・Newton 法などを静的ライブラリにしてリンクする。`klu`（LGPL。suitesparse_sys が入る）・`nvecopenmp`・`nvecpthreads` は使わない。ビルド時の依存: bindgen 0.68.1（BSD-3-Clause）・cmake 0.1.58（MIT OR Apache-2.0）と、bindgen の推移的依存（clang-sys、cexpr、nom、which、peeking_take_while、lazycell、libloading、prettyplease など）。ビルドには cmake・C コンパイラ・libclang が要る。`cargo deny --all-features check` は ok（advisories・bans・licenses・sources。2026-10-30）。`deny.toml` は `all-features = false` のままで、既定の `cargo deny check` はこの依存を見ない（Cargo.lock には載る）。個々の推移的依存のライセンスの確認は cargo-deny の判定に任せた【crates.io での個別の確認は未確認、2026-10-30】 |
 | faer、egg、salsa、rowan、petgraph、lsp-types | MIT / Apache-2.0 | 許可 | — |
 | serde、serde_json、clap | MIT OR Apache-2.0 | 許可 | S002 で導入 |
 | sha2 | MIT OR Apache-2.0 | 許可 | S003 で導入（xtask の sha256） |
