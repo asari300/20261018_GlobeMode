@@ -25,7 +25,10 @@ fn assert_snapshot(name: &str, actual: &str) {
     if std::env::var_os("UPDATE_SNAPSHOTS").is_some() {
         std::fs::write(&path, actual).unwrap();
     }
-    let expected = std::fs::read_to_string(&path).unwrap_or_default();
+    // Windows の checkout は autocrlf で fixture が CRLF になる（run 41018689866）。改行だけそろえる
+    let expected = std::fs::read_to_string(&path)
+        .unwrap_or_default()
+        .replace("\r\n", "\n");
     assert!(
         expected == actual,
         "{name}: snapshot と違う（意図した変更なら UPDATE_SNAPSHOTS=1 で書き直す）\n--- expected\n{expected}\n--- actual\n{actual}"
