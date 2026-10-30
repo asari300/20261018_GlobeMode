@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S036 wasm-web-worker — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S036 wasm-web-worker">
+
+<section class="slide" id="S01">
+  <span class="tag">S036 · 2026-10-30 · P3</span>
+  <h1>wasm-web-worker</h1>
+  <p class="lead">wasm をブラウザの Web Worker で回した</p>
+  <div class="big">panic の後は Worker ごと作り直す</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>ロードマップの候補 3（ブラウザ。P6 の前提）</li>
+    <li>--target web の糊と Web Worker で回す</li>
+    <li>panic の後に使える状態へ戻す</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table>
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>糊</td><td>同じ .wasm に --target web</td><td>ビルドは 1 回</td></tr>
+    <tr><td>Worker</td><td>ブラウザと Node で共通</td><td>CI は Node で試せる</td></tr>
+    <tr><td>panic</td><td>Worker を捨てて再生</td><td>abort の後は使えない</td></tr>
+    <tr><td>Rust</td><td>変えない</td><td>lib.rs は S035 が持つ</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">結果</span>
+  <h1>Decay（bdf）の t = 1</h1>
+  <table>
+    <tr><th>場所</th><th>x(1) の誤差</th><th>panic の後</th></tr>
+    <tr><td>Node（worker_threads）</td><td>2.7e-8</td><td>restarts 1 で同じ値</td></tr>
+    <tr><td>Chromium（module Worker）</td><td>2.7e-8</td><td>restarts 1 で同じ値</td></tr>
+  </table>
+  <p>MSL の分割読み込み（メモリ）は次へ持ち越した</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現</h1>
+  <pre><code>mise run wasm:web
+# = wasm:build のあと
+node src/Rust/mod/globe-mode-wasm/web/worker-node.mjs
+uv run python src/Rust/mod/globe-mode-wasm/web/browser.py</code></pre>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>MSL を読んだ後のメモリを減らす（分割読み込み）</li>
+    <li>作り直しは MSL の読み直しを含む（約 13 s）</li>
+    <li>ブラウザ UI の骨格（WP-B）の土台になる</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

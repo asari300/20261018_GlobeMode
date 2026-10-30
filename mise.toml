@@ -60,7 +60,7 @@ run = [
 ]
 
 [tasks."wasm:build"]
-description = "release の wasm（globe-mode-wasm、wasm32-unknown-unknown）をビルドし、wasm-bindgen --target nodejs で ${CARGO_TARGET_DIR:-target}/wasm-pkg/node に糊を作る（S012）"
+description = "release の wasm（globe-mode-wasm、wasm32-unknown-unknown）をビルドし、wasm-bindgen --target nodejs で ${CARGO_TARGET_DIR:-target}/wasm-pkg/node に、同じ .wasm から --target web で wasm-pkg/web に糊を作る（S012、S036）"
 # 大きさの最適化は workspace の [profile.release] を変えず、ここで環境変数で与える（ネイティブの release に影響させない）
 env = { CARGO_PROFILE_RELEASE_LTO = "fat", CARGO_PROFILE_RELEASE_CODEGEN_UNITS = "1", CARGO_PROFILE_RELEASE_OPT_LEVEL = "s", CARGO_PROFILE_RELEASE_STRIP = "true" }
 run = """
@@ -68,13 +68,23 @@ set -eu
 T="${CARGO_TARGET_DIR:-target}"
 cargo build --release --target wasm32-unknown-unknown -p globe-mode-wasm
 wasm-bindgen --target nodejs --out-dir "$T/wasm-pkg/node" "$T/wasm32-unknown-unknown/release/globe_mode_wasm.wasm"
-ls -l "$T/wasm-pkg/node/globe_mode_wasm_bg.wasm"
+wasm-bindgen --target web --out-dir "$T/wasm-pkg/web" "$T/wasm32-unknown-unknown/release/globe_mode_wasm.wasm"
+ls -l "$T/wasm-pkg/node/globe_mode_wasm_bg.wasm" "$T/wasm-pkg/web/globe_mode_wasm_bg.wasm"
 """
 
 [tasks."wasm:node"]
 description = "release の wasm を Node で回す（S012。Decay を bdf・dopri45・auto で、data/msl があれば MSL の ChuaCircuit も。panic の文言も確かめる）"
 depends = ["wasm:build"]
 run = "node src/Rust/mod/globe-mode-wasm/node/smoke.mjs --msl data/msl"
+
+[tasks."wasm:web"]
+description = "wasm を Web Worker で回す（S036。Node の worker_threads と、Playwright の Chromium の module Worker で、Decay・panic・作り直しと再生を確かめる）"
+depends = ["wasm:build"]
+run = """
+set -eu
+node src/Rust/mod/globe-mode-wasm/web/worker-node.mjs
+uv run python src/Rust/mod/globe-mode-wasm/web/browser.py
+"""
 
 [tasks."wasm:compare"]
 description = "GlobeModeValidation.Simulation の例題を、実装のあるソルバすべてで wasm（Node）とネイティブの globe simulate の両方で回し、診断のコードと結果の CSV を突き合わせる（S012）"
