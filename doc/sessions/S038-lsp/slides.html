@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S038 LSP サーバ — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S038 LSP サーバ">
+
+<section class="slide" id="S01">
+  <span class="tag">S038 · 2026-10-30 · P4</span>
+  <h1>LSP サーバ <code>globe lsp</code></h1>
+  <p class="lead">計画書の WP-A。facade の上に、診断・documentSymbol・hover の 3 つだけ</p>
+  <div class="big">依存は <b>lsp-types の型</b>だけ。JSON-RPC は<b>自前の 1 本のループ</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>S035 の facade を最初に使う crate として <code>globe-mode-lsp</code> を作る</li>
+    <li>stdio の LSP。診断（検査 S0〜S10）、documentSymbol（アウトライン）、hover（クラスの種類）</li>
+    <li>補完・定義へ移動は入れない。新しい計算も入れない</li>
+    <li>実装は計画書の推奨どおり <b>Sonnet（effort high）のサブエージェント 1 人</b>。Fable はコードを読み、検査と文書を担当</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定</span>
+  <h1>小さく保つための判断</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>依存</td><td>lsp-types 0.97 の型だけ。枠とディスパッチは自前</td><td>architecture の方針。推移的依存は fluent-uri と serde_repr の 2 つ</td></tr>
+    <tr><td>同期</td><td>Full。最後の contentChanges が本文全体</td><td>差分の適用を書かない。位置だけの変更は salsa の防火壁で安い</td></tr>
+    <tr><td>検査する対象</td><td>最上位の model / block / class</td><td>package・record・connector を検査すると誤った診断が出る</td></tr>
+    <tr><td>位置</td><td>0 始まりの行、UTF-16 の列を直接数える</td><td>core の line_col は 1 始まりで文字数</td></tr>
+    <tr><td>hover</td><td>種類と extends だけ</td><td>アウトラインに説明文字列が無い</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>流れ</h1>
+  <svg class="fig" viewBox="0 0 900 240" role="img" aria-label="エディタが stdio で globe-mode-lsp に送り、lsp が facade を呼ぶ">
+    <rect class="svg-box" x="20" y="90" width="180" height="60" rx="10"/>
+    <text class="svg-text-b" x="110" y="126" text-anchor="middle">エディタ</text>
+    <rect class="svg-box-accent" x="280" y="90" width="240" height="60" rx="10"/>
+    <text class="svg-text-b" x="400" y="126" text-anchor="middle">globe-mode-lsp Server</text>
+    <rect class="svg-box-accent2" x="680" y="90" width="200" height="60" rx="10"/>
+    <text class="svg-text-b" x="780" y="126" text-anchor="middle">globe-mode (facade)</text>
+    <line class="svg-line-accent" x1="200" y1="120" x2="280" y2="120"/>
+    <text class="svg-text-m" x="240" y="108" text-anchor="middle">stdio</text>
+    <line class="svg-line" x1="520" y1="120" x2="680" y2="120"/>
+    <text class="svg-text-m" x="600" y="108" text-anchor="middle">set_file / check</text>
+    <text class="svg-text" x="430" y="200" text-anchor="middle">didOpen → outline → 各モデルを check → publishDiagnostics</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">検証</span>
+  <h1>通したもの</h1>
+  <div class="kpis">
+    <div class="kpi"><span class="n">6</span><span class="l">lsp の単体試験</span></div>
+    <div class="kpi"><span class="n">1</span><span class="l">子プロセスの統合試験</span></div>
+    <div class="kpi"><span class="n">GM-E6001</span><span class="l">Invalid を開いて届く診断</span></div>
+  </div>
+  <ul>
+    <li><code>mise run check</code>（fmt / clippy / test / deny）と <code>test_ci_plan.py</code> の 21 本</li>
+    <li>統合試験は <code>globe lsp --library src/Modelica</code> を叩き、診断 → documentSymbol → hover → shutdown → exit（終了コード 0）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>積み残し</h1>
+  <ul>
+    <li>パッケージの中のモデルの検査（再帰）。今は最上位だけ（<code>shortcut:</code> の注記）</li>
+    <li>hover の説明文字列（ir のアウトラインに足す）</li>
+    <li>shutdown 無しの exit の終了コード 1、エディタ（VS Code）での動作確認</li>
+    <li>WP-B（ブラウザ UI）で Web Worker の transport を決める</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
