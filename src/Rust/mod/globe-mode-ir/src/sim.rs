@@ -89,6 +89,8 @@ pub enum SolverId {
     Qss,
     /// SUNDIALS の CVODE（BDF、陰的、刻み幅と次数の制御あり。feature `sundials` のときだけ実装がある。S032）
     Cvode,
+    /// SUNDIALS の IDA（可変係数の BDF、陰的な残差 y' − f を解く。feature `sundials` のときだけ実装がある。S033）
+    Ida,
 }
 
 impl SolverId {
@@ -116,6 +118,7 @@ impl SolverId {
             SolverId::Radau5 => "radau5",
             SolverId::Qss => "qss",
             SolverId::Cvode => "cvode",
+            SolverId::Ida => "ida",
         }
     }
 

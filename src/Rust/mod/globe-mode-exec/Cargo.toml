@@ -22,7 +22,7 @@ rumoca-exec = [
   "dep:self_cell",
   "dep:getrandom",
 ]
-# S032: CVODE（SUNDIALS。cmake と C コンパイラが要る。wasm では使えない）。登録表の `cvode` も有効になる
+# S032: CVODE（SUNDIALS。cmake と C コンパイラが要る。wasm では使えない）。登録表の `cvode`・`ida` も有効になる
 sundials = ["rumoca-exec", "dep:sundials-sys", "globe-mode-sim/sundials"]
 
 [dependencies]

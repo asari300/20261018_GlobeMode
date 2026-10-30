@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S033 ida — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S033 ida">
+
+<section class="slide" id="S01">
+  <span class="tag">S033 · 2026-10-30 · P3</span>
+  <h1>ida</h1>
+  <p class="lead">計画だけあった SUNDIALS の IDA をつないだ</p>
+  <div class="big">S032 と同じ feature <code>sundials</code>。既定のビルドは変わらない</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>ロードマップの候補 6（残りの計画のソルバ）の最後</li>
+    <li>IDA を足して <code>ida</code> を使えるようにする</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table>
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>feature</td><td>sundials に ida を足す</td><td>依存は S032 と同じ</td></tr>
+    <tr><td>問題</td><td>残差 y' − f(t, y)</td><td>ホストは ODE を渡す</td></tr>
+    <tr><td>初期の傾き</td><td>y'0 = f(t0, y0)</td><td>IDACalcIC が要らない</td></tr>
+    <tr><td>コード</td><td>cvode.rs を写す</td><td>共通の層を足さない</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">結果</span>
+  <h1>t = 1 の誤差</h1>
+  <table>
+    <tr><th>場合</th><th>許容誤差</th><th>bdf</th><th>cvode</th><th>ida</th></tr>
+    <tr><td>Decay</td><td>1e-6</td><td>2.9e-7</td><td>2.1e-6</td><td>1.5e-9</td></tr>
+    <tr><td>Decay</td><td>1e-8</td><td>2.7e-8</td><td>5.2e-8</td><td>1.0e-8</td></tr>
+    <tr><td>Oscillator</td><td>1e-8</td><td>1.4e-7</td><td>8.9e-8</td><td>1.1e-7</td></tr>
+  </table>
+  <p>DiodeSwitching: 0.48 s（bdf 1.77 s）、bdf との差は最大 5.8e-7</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現</h1>
+  <pre><code>cargo build -p globe-mode-cli --features sundials
+globe simulate -L src/Modelica/GlobeModeValidation \
+  -m GlobeModeValidation.Simulation.DiodeSwitching \
+  --solver ida</code></pre>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>候補 6 はこれで終わり</li>
+    <li>CI は feature つきのビルドを回していない</li>
+    <li>IDA の本領（代数変数）はまだ使わない</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

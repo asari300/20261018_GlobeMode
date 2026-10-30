@@ -6,6 +6,7 @@
 //!   係数・1 歩・刻み幅の制御は `globe_mode_sim::radau`。[`radau`]
 //! - `qss`（自前の QSS2。刻みでなく量子化の事象で進む。S031）。事象の探索・状態の更新は `globe_mode_sim::qss`。[`qss`]
 //! - `cvode`（SUNDIALS の CVODE。feature `sundials` のときだけ。BDF、可変次数・可変刻み。S032）。[`cvode`]
+//! - `ida`（SUNDIALS の IDA。feature `sundials` のときだけ。残差 y' − f を解く可変係数の BDF。S033）。[`ida`]
 //! - 固定刻み: `euler`・`heun`・`rk4`（陽的）と `impeuler`・`trapezoid`（陰的、1 歩ごとに Newton 法。S026）。
 //!   係数と補間は `globe_mode_sim::integrators`（Rumoca に依存しない）。[`fixed`]
 //!
@@ -14,6 +15,8 @@
 #[cfg(feature = "sundials")]
 mod cvode;
 mod fixed;
+#[cfg(feature = "sundials")]
+mod ida;
 mod qss;
 mod radau;
 mod rk;
@@ -41,9 +44,14 @@ pub(super) fn plugin(
         #[cfg(feature = "sundials")]
         SolverId::Cvode => return Ok(Box::new(cvode::Cvode::new(setup))),
         #[cfg(not(feature = "sundials"))]
-        SolverId::Cvode => {
-            return Err("ソルバ cvode は feature `sundials` を立てたビルドで使える".to_string());
+        SolverId::Cvode | SolverId::Ida => {
+            return Err(format!(
+                "ソルバ {} は feature `sundials` を立てたビルドで使える",
+                id.name()
+            ));
         }
+        #[cfg(feature = "sundials")]
+        SolverId::Ida => return Ok(Box::new(ida::Ida::new(setup))),
         SolverId::Euler
         | SolverId::Heun
         | SolverId::Rk4

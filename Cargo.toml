@@ -52,9 +52,9 @@ rumoca-solver-rk45 = { git = "https://github.com/CogniPilot/rumoca", rev = "276e
 # self_cell は問題とソルバの自己参照に使う（rumoca-solver-diffsol と同じ）。どちらも Cargo.lock に既にある
 diffsol = "0.13"
 self_cell = "1.2.2"
-# S032: CVODE（globe-mode-exec の feature `sundials` だけ。wasm では使わない）。SUNDIALS を同梱のソースから cmake で
-# ビルドして静的にリンクする。既定の feature（arkode・ida・kinsol）は切って CVODE だけにする。klu（LGPL）・openmp・pthreads は使わない
-sundials-sys = { version = "0.6.2", default-features = false, features = ["cvode", "build_libraries", "static_libraries"] }
+# S032・S033: CVODE と IDA（globe-mode-exec の feature `sundials` だけ。wasm では使わない）。SUNDIALS を同梱のソースから cmake で
+# ビルドして静的にリンクする。既定の feature（arkode・ida・kinsol）は切って CVODE・IDA だけにする。klu（LGPL）・openmp・pthreads は使わない
+sundials-sys = { version = "0.6.2", default-features = false, features = ["cvode", "ida", "build_libraries", "static_libraries"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

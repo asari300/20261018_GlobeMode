@@ -13,7 +13,7 @@ name = "globe"
 path = "src/main.rs"
 
 [features]
-# S032: CVODE（SUNDIALS）を使う。cmake と C コンパイラが要る
+# S032・S033: CVODE と IDA（SUNDIALS）を使う。cmake と C コンパイラが要る
 sundials = ["globe-mode-exec/sundials"]
 
 [dependencies]

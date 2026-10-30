@@ -2,10 +2,10 @@
 //!
 //! 名前は 3 種類ある。
 //!
-//! - 実装のあるもの（`bdf`、`dopri45`、`auto`。S012 から `esdirk34`、`trbdf2`、`tsit45`、`euler`、`heun`、`rk4`。S026 から `impeuler`、`trapezoid`。S027 から `esdirk23`、`esdirk45`、`sdirk34hw`。S028 から `dopri853`。S029 から `cerk23`、`cerk34`、`cerk45`。S030 から `radau5`。S031 から `qss`。feature `sundials` のとき S032 から `cvode`）
+//! - 実装のあるもの（`bdf`、`dopri45`、`auto`。S012 から `esdirk34`、`trbdf2`、`tsit45`、`euler`、`heun`、`rk4`。S026 から `impeuler`、`trapezoid`。S027 から `esdirk23`、`esdirk45`、`sdirk34hw`。S028 から `dopri853`。S029 から `cerk23`、`cerk34`、`cerk45`。S030 から `radau5`。S031 から `qss`。feature `sundials` のとき S032 から `cvode`、S033 から `ida`）
 //! - 別名（`dassl`、`lsodar` → `bdf`、`rk45`、`dopri5` → `dopri45`）。同等の手法に置き換えるが、
 //!   刻み幅の制御などが違うので結果は一致しない
-//! - 登録表にはあるが、まだ実装していないもの（`ida`。feature `sundials` を立てない `cvode` も）
+//! - 登録表にはあるが、まだ実装していないもの（feature `sundials` を立てないときの `ida`・`cvode`。立てると無い）
 //!
 //! 表に無い名前は、編集距離の近い名前を 3 つまで挙げる。
 
@@ -19,7 +19,7 @@ pub enum SolverLookup {
     Available(SolverId),
     /// 別名（例: `dassl` → `bdf`。同等の手法で、結果は一致しない）
     Alias { requested: String, id: SolverId },
-    /// 登録表にはあるが、まだ実装していない（例: `ida`）
+    /// 登録表にはあるが、まだ実装していない（例: feature `sundials` を立てないときの `ida`）
     Planned { name: String },
     /// 名前が無い。`suggestions` は近い名前
     Unknown {
@@ -71,6 +71,8 @@ const fn alias(name: &'static str, id: SolverId, description: &'static str) -> S
     }
 }
 
+// feature `sundials` を立てると計画だけのソルバは無い
+#[cfg(not(feature = "sundials"))]
 const fn planned(
     name: &'static str,
     description: &'static str,
@@ -84,6 +86,7 @@ const fn planned(
     }
 }
 
+#[cfg(not(feature = "sundials"))]
 const BDF: Option<SolverId> = Some(SolverId::Bdf);
 
 /// ソルバの登録表（doc/architecture.md §3.3 の表の順。実装のあるもの、別名、計画の順に並べる）。
@@ -170,6 +173,11 @@ pub const SOLVERS: &[SolverEntry] = &[
         SolverId::Cvode,
         "SUNDIALS の CVODE（BDF、可変次数 1〜5、可変刻み。密な線形ソルバと差分商のヤコビ行列。陰的、刻み幅の制御あり。feature `sundials`）",
     ),
+    #[cfg(feature = "sundials")]
+    available(
+        SolverId::Ida,
+        "SUNDIALS の IDA（可変係数の BDF、可変次数 1〜5、可変刻み。残差 y' − f を解く。密な線形ソルバと差分商のヤコビ行列。陰的、刻み幅の制御あり。feature `sundials`）",
+    ),
     alias(
         "dassl",
         SolverId::Bdf,
@@ -186,7 +194,12 @@ pub const SOLVERS: &[SolverEntry] = &[
         "Rumoca の RK45 の別名（Dormand–Prince 5(4)）",
     ),
     alias("dopri5", SolverId::Dopri45, "Dormand–Prince 5(4) の別名"),
-    planned("ida", "SUNDIALS の IDA（feature `sundials`。未実装）", BDF),
+    #[cfg(not(feature = "sundials"))]
+    planned(
+        "ida",
+        "SUNDIALS の IDA（feature `sundials` を立てたビルドで使える。このビルドでは未実装）",
+        BDF,
+    ),
     #[cfg(not(feature = "sundials"))]
     planned(
         "cvode",
@@ -322,15 +335,18 @@ mod tests {
                 "radau5",
                 "qss",
                 #[cfg(feature = "sundials")]
-                "cvode"
+                "cvode",
+                #[cfg(feature = "sundials")]
+                "ida"
             ]
         );
     }
 
     #[cfg(feature = "sundials")]
     #[test]
-    fn cvode_is_available_with_sundials() {
+    fn cvode_and_ida_are_available_with_sundials() {
         assert_eq!(lookup("CVODE"), SolverLookup::Available(SolverId::Cvode));
+        assert_eq!(lookup("IDA"), SolverLookup::Available(SolverId::Ida));
     }
 
     #[test]
@@ -366,9 +382,9 @@ mod tests {
 
     #[test]
     fn planned_solvers_are_recognised() {
-        // cvode は feature `sundials` を立てると使える（下のテスト）
+        // cvode・ida は feature `sundials` を立てると使える（上のテスト）。立てると計画だけのものは無い
         let names: &[&str] = if cfg!(feature = "sundials") {
-            &["ida"]
+            &[]
         } else {
             &["ida", "cvode"]
         };
