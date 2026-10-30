@@ -22,6 +22,8 @@ rumoca-exec = [
   "dep:self_cell",
   "dep:getrandom",
 ]
+# S032: CVODE（SUNDIALS。cmake と C コンパイラが要る。wasm では使えない）。登録表の `cvode` も有効になる
+sundials = ["rumoca-exec", "dep:sundials-sys", "globe-mode-sim/sundials"]
 
 [dependencies]
 globe-mode-core = { workspace = true }
@@ -38,11 +40,18 @@ rumoca-solver-diffsol = { workspace = true, optional = true }
 rumoca-solver-rk45 = { workspace = true, optional = true }
 diffsol = { workspace = true, optional = true }
 self_cell = { workspace = true, optional = true }
+sundials-sys = { workspace = true, optional = true }
 
 # S012: wasm32 では diffsol の faer → rand → getrandom 0.3 に、JS の乱数の backend が要る
 # （.cargo/config.toml の cfg `getrandom_backend="wasm_js"` と対で使う）
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.3", features = ["wasm_js"], optional = true }
 
-[lints]
-workspace = true
+# workspace の lints（unsafe_code = "forbid"）と同じだが、unsafe だけ "deny" にする。forbid は `allow` で外せないため。
+# S032: C の API（SUNDIALS）を呼ぶ plugins/cvode.rs だけが `#![allow(unsafe_code)]` で許す。ほかの unsafe は deny のまま
+[lints.rust]
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+dbg_macro = "warn"

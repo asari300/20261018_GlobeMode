@@ -568,6 +568,12 @@ mod tests {
         assert!(line("radau5").contains("使える"));
         assert!(line("ida").contains("未実装（代わり: bdf）"));
         assert!(line("qss").contains("使える"));
+        // cvode は feature `sundials` を立てたビルドだけ使える（S032）
+        if cfg!(feature = "sundials") {
+            assert!(line("cvode").contains("使える"));
+        } else {
+            assert!(line("cvode").contains("未実装（代わり: bdf）"));
+        }
         // 説明の列の始まりがそろう（全角を 2 と数える）
         let d = |l: &str| width(&l[..l.rfind("  ").unwrap()]);
         let first = d(&lines[1]);
