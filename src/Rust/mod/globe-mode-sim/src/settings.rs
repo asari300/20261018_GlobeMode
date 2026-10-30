@@ -492,9 +492,9 @@ mod tests {
     use globe_mode_ir::Bits;
 
     const LISTED: &str = "使えるソルバ: bdf、dopri45、auto、esdirk34、trbdf2、tsit45、euler、heun、rk4、impeuler、trapezoid、esdirk23、esdirk45、sdirk34hw、dopri853、cerk23、cerk34、cerk45、radau5、qss";
-    // feature `sundials` のときは登録表の末尾に cvode が加わる
+    // feature `sundials` のときは登録表の末尾に cvode・ida が加わる
     const SUNDIALS_SUFFIX: &str = if cfg!(feature = "sundials") {
-        "、cvode"
+        "、cvode、ida"
     } else {
         ""
     };
@@ -825,6 +825,8 @@ mod tests {
         assert!(!d[0].notes.is_empty());
     }
 
+    // feature `sundials` を立てると計画だけのソルバは無い（ida・cvode は使える）
+    #[cfg(not(feature = "sundials"))]
     #[test]
     fn planned_solver_is_an_error_with_a_substitute() {
         let requested = SimSettings {
