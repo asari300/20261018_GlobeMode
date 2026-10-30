@@ -10,6 +10,7 @@
 //!                [--tolerance X] [--interval X] [--start-time T] [--timeout S] [--param NAME=VALUE]...
 //!                [--output result.csv|result.mat|-] [--format csv|mat] [--list-parameters] [--force] [--json]
 //! globe simulate --list-solvers [--json]
+//! globe lsp [--library <DIR>]...
 //! ```
 //!
 //! すべて facade（`globe-mode` の `Workspace`）を通す（S035）。`--json` の形は `globe-mode-protocol` の型。
@@ -82,6 +83,12 @@ enum Command {
         /// JSON で出力する
         #[arg(long)]
         json: bool,
+    },
+    /// LSP サーバ（標準入出力。診断・documentSymbol・hover。S038）
+    Lsp {
+        /// ライブラリのディレクトリ（例: data/msl）。何度でも指定できる
+        #[arg(long, short = 'L')]
+        library: Vec<PathBuf>,
     },
     /// 検査に渡すファイル（モデルが使うファイルの閉包）を表示する
     Deps {
@@ -183,6 +190,13 @@ fn main() -> ExitCode {
             model,
             json,
         } => check(&files, &library, &model, json),
+        Command::Lsp { library } => match globe_mode_lsp::run_stdio(&library) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("error: {e}");
+                ExitCode::from(2)
+            }
+        },
         Command::Deps {
             inputs,
             model,

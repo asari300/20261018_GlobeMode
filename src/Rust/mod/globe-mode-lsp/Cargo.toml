@@ -1,0 +1,20 @@
+[package]
+name = "globe-mode-lsp"
+description = "GlobeMode: a stdio LSP server (diagnostics, documentSymbol, hover) over the facade"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+# S038: facade 経由だけ（db・exec・sim には直接依存しない）
+globe-mode = { workspace = true }
+globe-mode-core = { workspace = true }
+globe-mode-ir = { workspace = true }
+lsp-types = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

@@ -107,6 +107,8 @@ flowchart LR
 
 ### WP-A `globe-mode-lsp`（モデル B、WP-0 の後）
 
+**S038 で実施（済）**。hover は「クラスの種類」だけ（アウトラインにコメントが無い）。パッケージの中のモデルは検査しない。
+
 ```text
 目的: stdio の LSP サーバ `globe lsp`。診断（check の結果）、documentSymbol（outline）、hover（クラスの種類とコメント）の 3 つだけ。補完・定義ジャンプは入れない。
 先に読む: doc/architecture.md §2.2 の globe-mode-lsp の行、src/Rust/mod/globe-mode/（WP-0）、src/Rust/mod/globe-mode-db/src/（check の経路）。
