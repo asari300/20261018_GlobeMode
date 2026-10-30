@@ -1,4 +1,4 @@
-//! `ida`: SUNDIALS の IDA（可変係数の BDF、可変次数 1〜5・可変刻み。DAE 用）を `MeIntegratorBackend` に包む（S033）。
+//! `ida`: SUNDIALS の IDA（可変係数の BDF、可変次数 1〜5・可変刻み。DAE 用）を `MeIntegratorBackend` に包む（S034）。
 //! feature `sundials` のときだけ組み込む。`cvode.rs` と同じ作りで、SUNDIALS の呼び出しもこの 2 ファイルだけ（unsafe）。
 //!
 //! - ホストが渡すのは ODE x' = f(t, x)。IDA には陰的な残差 F(t, y, y') = y' − f(t, y) として渡す（全成分が微分変数）。

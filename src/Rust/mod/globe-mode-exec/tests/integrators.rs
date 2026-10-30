@@ -1,4 +1,4 @@
-//! 自前の積分器（S012。`esdirk34`・`trbdf2`・`tsit45`・`euler`・`heun`・`rk4`。S026 の `impeuler`・`trapezoid`。S027 の `esdirk23`・`esdirk45`・`sdirk34hw`。S028 の `dopri853`。S029 の `cerk23`・`cerk34`・`cerk45`。S030 の `radau5`。S031 の `qss`。feature `sundials` の S032 の `cvode`、S033 の `ida`）を、`globe_mode_exec::run` を通して
+//! 自前の積分器（S012。`esdirk34`・`trbdf2`・`tsit45`・`euler`・`heun`・`rk4`。S026 の `impeuler`・`trapezoid`。S027 の `esdirk23`・`esdirk45`・`sdirk34hw`。S028 の `dopri853`。S029 の `cerk23`・`cerk34`・`cerk45`。S030 の `radau5`。S031 の `qss`。feature `sundials` の S032 の `cvode`、S034 の `ida`）を、`globe_mode_exec::run` を通して
 //! src/Modelica/GlobeModeValidation/Simulation のモデルで確かめる。
 //!
 //! - Decay（x' = -x）: euler・dt 0.1 なら x(1) = 0.9^10。刻み幅の制御のあるものと rk4 は exp(-1) に近い。
@@ -133,7 +133,7 @@ const ADAPTIVE: &[SolverId] = &[
     // S032: SUNDIALS の CVODE（feature `sundials` のときだけ）
     #[cfg(feature = "sundials")]
     SolverId::Cvode,
-    // S033: SUNDIALS の IDA（残差 y' − f。feature `sundials` のときだけ）
+    // S034: SUNDIALS の IDA（残差 y' − f。feature `sundials` のときだけ）
     #[cfg(feature = "sundials")]
     SolverId::Ida,
 ];

@@ -2,7 +2,7 @@
 //!
 //! 名前は 3 種類ある。
 //!
-//! - 実装のあるもの（`bdf`、`dopri45`、`auto`。S012 から `esdirk34`、`trbdf2`、`tsit45`、`euler`、`heun`、`rk4`。S026 から `impeuler`、`trapezoid`。S027 から `esdirk23`、`esdirk45`、`sdirk34hw`。S028 から `dopri853`。S029 から `cerk23`、`cerk34`、`cerk45`。S030 から `radau5`。S031 から `qss`。feature `sundials` のとき S032 から `cvode`、S033 から `ida`）
+//! - 実装のあるもの（`bdf`、`dopri45`、`auto`。S012 から `esdirk34`、`trbdf2`、`tsit45`、`euler`、`heun`、`rk4`。S026 から `impeuler`、`trapezoid`。S027 から `esdirk23`、`esdirk45`、`sdirk34hw`。S028 から `dopri853`。S029 から `cerk23`、`cerk34`、`cerk45`。S030 から `radau5`。S031 から `qss`。feature `sundials` のとき S032 から `cvode`、S034 から `ida`）
 //! - 別名（`dassl`、`lsodar` → `bdf`、`rk45`、`dopri5` → `dopri45`）。同等の手法に置き換えるが、
 //!   刻み幅の制御などが違うので結果は一致しない
 //! - 登録表にはあるが、まだ実装していないもの（feature `sundials` を立てないときの `ida`・`cvode`。立てると無い）

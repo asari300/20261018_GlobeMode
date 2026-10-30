@@ -567,7 +567,7 @@ mod tests {
         assert!(line("dassl").contains("別名 → bdf"));
         assert!(line("radau5").contains("使える"));
         assert!(line("qss").contains("使える"));
-        // cvode・ida は feature `sundials` を立てたビルドだけ使える（S032・S033）
+        // cvode・ida は feature `sundials` を立てたビルドだけ使える（S032・S034）
         for name in ["cvode", "ida"] {
             if cfg!(feature = "sundials") {
                 assert!(line(name).contains("使える"));

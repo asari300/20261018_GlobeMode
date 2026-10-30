@@ -6,7 +6,7 @@
 //!   係数・1 歩・刻み幅の制御は `globe_mode_sim::radau`。[`radau`]
 //! - `qss`（自前の QSS2。刻みでなく量子化の事象で進む。S031）。事象の探索・状態の更新は `globe_mode_sim::qss`。[`qss`]
 //! - `cvode`（SUNDIALS の CVODE。feature `sundials` のときだけ。BDF、可変次数・可変刻み。S032）。[`cvode`]
-//! - `ida`（SUNDIALS の IDA。feature `sundials` のときだけ。残差 y' − f を解く可変係数の BDF。S033）。[`ida`]
+//! - `ida`（SUNDIALS の IDA。feature `sundials` のときだけ。残差 y' − f を解く可変係数の BDF。S034）。[`ida`]
 //! - 固定刻み: `euler`・`heun`・`rk4`（陽的）と `impeuler`・`trapezoid`（陰的、1 歩ごとに Newton 法。S026）。
 //!   係数と補間は `globe_mode_sim::integrators`（Rumoca に依存しない）。[`fixed`]
 //!
