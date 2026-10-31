@@ -45,6 +45,18 @@ GlobeMode は MSL 4.1.0 しか持たない。`uses` が 4.0.0 のライブラリ
 - Buildings・AixLib・IBPSA・ClaRa・ThermofluidStream・Chemical は `Examples`。
 - DeltaRobot には `Examples` が無く、`Scenarios`（2 本ずつの完成した系）と `Tests`（部品の試験）に `experiment` 付きのモデルがある。この 2 つの段を例題とした（21 本）。
 
+## Rumoca の読み込みの検査に通らないファイル
+
+`Checker::new` は、ライブラリに構文の誤り（EP001）か配置の誤り（PKG-006: `package.mo` の無いディレクトリ、PKG-010: `within` とディレクトリ名が合わない）が 1 つでもあると、ライブラリ全体を断る（`GM-E1003`）。2026-11-01 に手元で見つけたもの:
+
+| ライブラリ | 見つけたもの |
+| --- | --- |
+| ThermofluidStream 1.4.1 | `TILMediaWrapper/UsersGuide/Contact.mo`: `revisions` の文字列の中の `<img src="…"/>` の引用符が閉じていない（構文の誤り）。`ThermofluidStream/Processes/Pipes/Internal/BaseClasses`・`Interfaces`: `package.mo` の無いディレクトリ |
+| ClaRa 1.9.0 | `.mo` 1483 ファイルが UTF-8 の BOM で始まり、BOM つきだと構文の誤りになって例題が 0 本。`Components/Mills/physicalMills/…` のファイルの `within` が `PhysicalMills`（大文字小文字が合わない。Windows の名前で書かれたものと思われる【未確認】） |
+| AixLib 3.0.1 | BOM つきの `.mo` が 2 ファイル |
+
+GlobeMode は次のように読む。`fetch-library` が `.mo` の BOM を外して置く（ほかは変えない）。`msl-funnel`・`msl-sim` は、MSL とライブラリを 1 つのルート（`target/library-roots/<名前>/`、symlink の木）にまとめ、1 ファイルずつ読んで構文の誤りのもの、`package.mo` の無いディレクトリ（`.mo` を含むもの）、診断（PKG-0xx）に出たファイルを除く。除いた一覧は `target/library-roots/<名前>.skipped.txt`。除いたクラスを使うモデルは名前が解決できず `GM-E1001` で止まる（数えるだけ）。
+
 ## 読んだ範囲と限界
 
 - アーカイブの中の `package.mo` の `uses(...)` と `version`、README と LICENSE の見出しを読んだ。ライセンス全文の突き合わせまではしていない。
