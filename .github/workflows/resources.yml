@@ -11,6 +11,12 @@ name: resources
 
 on:
   workflow_dispatch:
+    inputs:
+      jobs:
+        description: "回すジョブ（S054。rss だけ・wasm だけ・全部）"
+        type: choice
+        options: [all, rss, wasm]
+        default: all
 
 permissions:
   contents: read
@@ -21,6 +27,7 @@ concurrency:
 
 jobs:
   rss:
+    if: inputs.jobs != 'wasm'
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
@@ -76,6 +83,7 @@ jobs:
             rss-env.txt
 
   wasm:
+    if: inputs.jobs != 'rss'
     runs-on: ubuntu-24.04
     timeout-minutes: 300
     steps:
