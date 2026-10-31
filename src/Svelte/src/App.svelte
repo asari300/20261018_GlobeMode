@@ -7,6 +7,8 @@
   import { WorkerBackend } from "./lib/worker-backend";
   import type { Backend } from "./lib/backend";
   import type { Diagnostic } from "./lib/protocol";
+  import Plot from "./lib/plot/Plot.svelte";
+  import Graph from "./lib/graph/Graph.svelte";
 
   const FILE = "Model.mo";
   const backend: Backend = new WorkerBackend();
@@ -18,6 +20,8 @@
   let busy = $state(false);
   let failure = $state("");
   let diagnostics = $state<Diagnostic[]>([]);
+  let csv = $state<string | null>(null);
+  let graphModel = $state<string | null>(null); // 「グラフ」を押したときのモデル名（入力のたびに描き直さない）
 
   onMount(() => {
     view = new EditorView({
@@ -30,21 +34,48 @@
     return () => view.destroy();
   });
 
-  async function check() {
+  const bySeverity = (ds: Diagnostic[]) =>
+    // S0…S10 の順、同じ段階では error > warning > info
+    [...ds].sort((a, b) => Number(a.stage.slice(1)) - Number(b.stage.slice(1)) || severityRank[a.severity] - severityRank[b.severity]);
+
+  async function run(job: () => Promise<void>) {
     busy = true;
     failure = "";
     try {
       await backend.setFile(FILE, view.state.doc.toString());
-      const r = await backend.check(model);
-      // S0…S10 の順、同じ段階では error > warning > info
-      diagnostics = [...r.diagnostics].sort(
-        (a, b) => Number(a.stage.slice(1)) - Number(b.stage.slice(1)) || severityRank[a.severity] - severityRank[b.severity],
-      );
+      await job();
     } catch (e) {
       failure = String((e as Error).message ?? e);
     } finally {
       busy = false;
     }
+  }
+
+  const check = () => run(async () => {
+    diagnostics = bySeverity((await backend.check(model)).diagnostics);
+  });
+
+  const simulate = () =>
+    run(async () => {
+      const r = await backend.simulate({ model });
+      diagnostics = bySeverity(r.diagnostics);
+      csv = r.csv;
+      if (r.refused) failure = r.refused;
+      else if (!r.ok && !r.diagnostics.length) failure = "実行に失敗した（診断なし）";
+    });
+
+  const graph = () => run(async () => {
+    graphModel = model;
+  });
+
+  // ノードのキー（`stage1.resistor` など）の先頭の名前を、エディタの本文で最初に出る所で選ぶ
+  // shortcut: 宣言を名前の字面で探す。同じ名前が先に出ると外れる。outline の位置が要るなら LSP の documentSymbol を使う
+  function select(node: string) {
+    const name = node.split(".")[0];
+    const m = new RegExp(`\\b${name.replace(/[^\w]/g, "")}\\b`).exec(view.state.doc.toString());
+    if (!m) return;
+    view.dispatch({ selection: { anchor: m.index, head: m.index + name.length }, scrollIntoView: true });
+    view.focus();
   }
 
   // range は UTF-8 のバイト位置。CodeMirror は UTF-16 の位置なので変換する
@@ -61,6 +92,8 @@
   <div class="bar">
     <label>モデル名 <input bind:value={model} aria-label="モデル名"></label>
     <button onclick={check} disabled={busy}>検査</button>
+    <button onclick={simulate} disabled={busy}>実行</button>
+    <button onclick={graph} disabled={busy}>グラフ</button>
   </div>
   <div class="editor" bind:this={host}></div>
   {#if failure}<p class="failure" role="alert">{failure}</p>{/if}
@@ -73,6 +106,8 @@
       {/each}
     </tbody>
   </table>
+  {#if csv}<Plot {csv} />{/if}
+  {#if graphModel}<Graph {backend} model={graphModel} onSelect={select} />{/if}
 </main>
 
 <style>

@@ -147,6 +147,8 @@ flowchart LR
 完了条件: Decay と ChuaCircuit の結果を描く Playwright のスクリーンショット試験。10 万点で 30 fps（measure して作業記録に）。
 ```
 
+**S042 で実施（済）**。最小の形（実行ボタン、CSV の列分け、uPlot、信号の選択）。2 軸・MAT v4・ChuaCircuit のスクリーンショット試験・列ごとの API は持ち越し（[作業記録](../../log/work/2026-10-31-s042-plot.md)）。
+
 ### WP-E connect グラフの表示（モデル B、WP-B の後）
 
 **S046 で実施（済）**。wasm に `graph(model, depth)`、`Backend.graph`、`Graph.svelte`（sigma 4 + graphology + ForceAtlas2 100 反復）。fps は合成 5k ノードのグラフで測った（MSL の `Electrical.Analog.Examples` を wasm で読む測定はしていない）。App.svelte への組み込みは未了。
@@ -179,6 +181,8 @@ flowchart LR
 
 ### WP-H 上流への報告と CI の sundials（モデル C → A の確認。独立）
 
+**S045 で実施（済）**。下書きは 9 件の目標に対して 14 件（Rumoca 11・diffsol 3）、`doc/research/upstream/`。週次のジョブは `rust-sundials`。この環境に Rumoca の CLI が無く、再現は新しく確かめていない（本文に [not verified]）。出すのはユーザー。
+
 ```text
 目的: (1) doc/research/msl-sim-failures.md と roadmap の候補 8 から、Rumoca への issue の下書きを 1 件 1 ファイルで doc/research/upstream/ に書く（最小の再現 .mo つき。英語）。(2) .github/workflows/ci.yml の毎週の全体検査に `--features sundials` のジョブを足す（差分の検査には足さない）。
 所有: doc/research/upstream/**、ci.yml の週次ジョブ 1 つ。
@@ -186,6 +190,8 @@ flowchart LR
 ```
 
 ### WP-I v0.1 のリリース工程（モデル C → B の確認。独立）
+
+**S044 で実施（済）**。cargo-dist は足さず matrix で作った（aarch64 はネイティブランナー）。タグ `v0.1.0-rc1` の dry-run による完了条件の確認は CI で行う。crates.io の metadata は workspace と CLI だけ。
 
 ```text
 目的: `globe` の CLI を配る。cargo-dist か素の CI で linux x86_64 / aarch64 / windows のバイナリ、LICENSE-MIT と LICENSE-APACHE、CHANGELOG.md（S001〜S032 の作業記録から）、英語 README の更新、crates.io の metadata（publish はしない）。
