@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S037 msl-split-load — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S037 msl-split-load">
+
+<section class="slide" id="S01">
+  <span class="tag">S037 · 2026-10-31 · P3</span>
+  <h1>msl-split-load</h1>
+  <p class="lead">MSL は使うファイルだけを読む</p>
+  <div class="big">262 → 62 MiB</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>候補 3（ブラウザ）の残り: wasm のメモリ</li>
+    <li>MSL をパッケージ単位で分けて読む</li>
+    <li>msl:sim を GitHub Actions で回す道</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table>
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>たどり方</td><td>字句で名前をたどる</td><td>構文木を作らない</td></tr>
+    <tr><td>足し方</td><td>足りなければ作り直す</td><td>読んだものは外さない</td></tr>
+    <tr><td>既定</td><td>wasm だけ分割</td><td>CLI と funnel は不変</td></tr>
+    <tr><td>msl:sim</td><td>手動の workflow</td><td>手元は RAM 3 GB</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">結果</span>
+  <h1>wasm の線形メモリ（MSL）</h1>
+  <table>
+    <tr><th>時点</th><th>S012（全部）</th><th>S037（分割）</th></tr>
+    <tr><td>読み込み後</td><td>262 MiB</td><td>62 MiB</td></tr>
+    <tr><td>ChuaCircuit の後</td><td>513 MiB</td><td>113 MiB</td></tr>
+    <tr><td>Rotational First の後</td><td>—</td><td>113 MiB</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現</h1>
+  <pre><code>mise run wasm:node
+cargo test -p globe-mode-frontend --test split -- --ignored
+gh workflow run msl-sim.yml
+gh run download &lt;run-id&gt; -n msl-sim</code></pre>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次にやること</h1>
+  <ul>
+    <li>ブラウザ UI の骨格（WP-B）</li>
+    <li>分割読み込みを 566 本で確かめる</li>
+    <li>msl-sim.yml の結果を doc に取り込む</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

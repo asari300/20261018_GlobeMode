@@ -5,8 +5,9 @@
 // 1. 版とソルバの登録表（JSON）が読める
 // 2. GlobeModeValidation.Simulation.Decay（der(x) = -x、x(0) = 1）を bdf・dopri45・auto で回し、
 //    t = 1 の x が exp(-1) に合う（bdf は Rumoca の CLI と同じ道。P3 の「bdf が wasm で動く」）
-// 3. --msl があれば、MSL を in-memory のライブラリとして一度だけ読み、
-//    Modelica.Electrical.Analog.Examples.ChuaCircuit を bdf で回す（無ければ飛ばす）
+// 3. --msl があれば、MSL を in-memory のライブラリとして一度だけ読み（S037 から分割読み込み: 使うファイルだけを
+//    検査のときに読む）、ChuaCircuit（電気）と Rotational.Examples.First（機械）を bdf で回す（無ければ飛ばす）。
+//    読み込み後と各モデルの後のメモリ（MiB）と時間を出す
 // 4. panic の文言が last_panic() で読める（最後に回す。panic の後のモジュールは使えない）
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
@@ -78,8 +79,9 @@ if (msl && existsSync(msl)) {
   const lib = new gm.Workspace(JSON.stringify(files), "MSL");
   const load = ms(t);
   console.log(`MSL: ${Object.keys(files).length} ファイル（読み ${read} ms、in-memory のライブラリ ${load} ms、メモリ ${mb()} MiB）`);
-  for (const [model, check] of [
-    ["Modelica.Electrical.Analog.Examples.ChuaCircuit", (f) => Number.isFinite(f["C1.v"])],
+  for (const [model, check, shown] of [
+    ["Modelica.Electrical.Analog.Examples.ChuaCircuit", (f) => Number.isFinite(f["C1.v"]), "C1.v"],
+    ["Modelica.Mechanics.Rotational.Examples.First", (f) => Number.isFinite(f["inertia1.w"]), "inertia1.w"],
   ]) {
     t = performance.now();
     const r = JSON.parse(lib.simulate(JSON.stringify({ model, settings: { solver: "bdf" }, no_csv: true })));
@@ -87,7 +89,7 @@ if (msl && existsSync(msl)) {
     assert.ok(r.ok, `${model}: ${JSON.stringify(r.diagnostics.filter((d) => d.severity === "error"))}`);
     assert.ok(check(r.final), JSON.stringify(r.final));
     const p = Object.entries(r.timings_ms).map(([k, v]) => `${k} ${v.toFixed(0)}`).join(" / ");
-    console.log(`${model} bdf: ${wall} ms（${p} ms）、C1.v(T) = ${r.final["C1.v"]}、メモリ ${mb()} MiB`);
+    console.log(`${model} bdf: ${wall} ms（${p} ms）、${shown}(T) = ${r.final[shown]}、メモリ ${mb()} MiB`);
   }
 } else if (msl) {
   console.log(`MSL（${msl}）が無いので MSL の例題は飛ばす`);
