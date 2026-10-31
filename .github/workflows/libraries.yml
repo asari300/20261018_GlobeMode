@@ -22,6 +22,10 @@ on:
         default: ""
   schedule:
     - cron: "0 21 * * 0"   # 毎週月曜 06:00 JST（ci.yml は 03:00 JST）
+  # 一時: 新しいワークフローは main に入るまで workflow_dispatch で起動できないので、feature ブランチの push で試す。
+  # コミットメッセージの `[libraries: Chemical, DeltaRobot]` で絞る（無ければ DeltaRobot と Chemical）。main に取り込むときに消す。
+  push:
+    branches: [feature/s058-extra-libs-ci]
 
 permissions:
   contents: read
@@ -45,6 +49,8 @@ jobs:
         name: 検査するライブラリと分割を決める
         env:
           LIBRARIES: ${{ inputs.libraries }}
+          COMMIT_MESSAGE: ${{ github.event_name == 'push' && github.event.head_commit.message || '' }}
+          EVENT: ${{ github.event_name }}
         shell: python3 {0}
         run: |
           import json, os, re
@@ -58,7 +64,12 @@ jobs:
               ("DeltaRobot", "DeltaRobot", ["Scenarios", "Tests"], 1),
               ("Chemical", "Chemical", ["Examples"], 1),
           ]
-          want = {w.lower() for w in re.findall(r"[A-Za-z]+", os.environ.get("LIBRARIES", ""))}
+          if os.environ["EVENT"] == "push":
+              m = re.search(r"\[libraries:([^\]]*)\]", os.environ["COMMIT_MESSAGE"])
+              text = m.group(1) if m else "DeltaRobot, Chemical"
+          else:
+              text = os.environ.get("LIBRARIES", "")
+          want = {w.lower() for w in re.findall(r"[A-Za-z]+", text)}
           include = []
           for name, package, segments, shards in table:
               if want and name.lower() not in want:
