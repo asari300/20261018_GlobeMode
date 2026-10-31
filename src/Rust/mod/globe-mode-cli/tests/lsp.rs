@@ -47,12 +47,14 @@ fn response(out: &mut BufReader<ChildStdout>, id: u64) -> Value {
 
 #[test]
 fn lsp_serves_diagnostics_symbols_and_hover() {
-    let file = root().join("src/Modelica/GlobeModeValidation/Invalid/StructurallySingular.mo");
-    let text = std::fs::read_to_string(&file).unwrap();
-    let uri = format!("file://{}", file.canonicalize().unwrap().display());
+    // Invalid.StructurallySingular と同じ中身を within 無しで送る。ライブラリは読まない
+    // （同じクラスがライブラリと開いたファイルの両方にあると、どちらの診断になるかが OS のパスの順で変わる。
+    // Windows では canonicalize の `\\?\C:\...` が URI にならず、CI run 41035639355 で診断が 0 件になった）
+    let text = "// 構造特異\nmodel StructurallySingular\n  Real x;\n  Real y;\n  Real z(start = 0, fixed = true);\nequation\n  x = 1;\n  x = 2;\n  y + z = der(z);\nend StructurallySingular;\n";
+    let uri = "file:///C:/tmp/StructurallySingular.mo";
     let mut child = Command::new(env!("CARGO_BIN_EXE_globe"))
         .current_dir(root())
-        .args(["lsp", "--library", "src/Modelica"])
+        .args(["lsp"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()
