@@ -7,7 +7,7 @@
 | worktree | `.git-worktree/s049-desktop-tauri` |
 | Phase | P4（計画書の WP-C） |
 | セッション文書 | `doc/sessions/S049-desktop-tauri/` |
-| セッション記録 | 締めで `log/sessions/` にコピーする（親のセッションが行う） |
+| セッション記録 | `log/sessions/2026-10-31-0b797c72-9651-45d3-b466-98f7c341d068.md` |
 
 ## 依頼
 
@@ -55,7 +55,7 @@
   .deb の中身は `/usr/bin/globe-mode-desktop` と `/usr/bin/globe`（55,247,752 B）。
 - Actions 上の試験: `worker::tests` の 3 本 ok（Linux。本物の `globe` で `globe/check`・`simulate`・graph の誤り・通知・kill 後の作り直しと再生）、Windows は 2 本（予算の試験は `cfg(unix)`）ok。
 - **smoke（Linux、xvfb、.deb を `apt-get install` して `/usr/bin/globe-mode-desktop` を起動）**: `smoke: ok passed=true failed_stage=null`。最大の常駐メモリ（`/usr/bin/time -v`）**122,688 kB**（アプリ側の最大のプロセス）、sidecar の VmHWM **21,424 kB**（MSL なし・小さいモデル 1 つ）、壁時計 33 秒（WebKit の起動と終了を含む）。**MSL を読んだ後の Desktop の RSS は測っていない【未確認】**（ADR-0023 の `globe check ChuaCircuit` の 1.48 GiB がその目安）。
-- `check_docs.py`: 締めで回す。セッション記録の `--check`・漏洩検査: 締め（親のセッション）で行う。
+- 締め（親のセッション、S048 を取り込んだ後）: `mise run check` ok（fmt・clippy・test 45 件 ok・deny ok・`uv sync --locked`）。`App.svelte` で `inTauri()` なら `TauriBackend` を使うようにし、`TauriBackend.library` は未対応（reject）。`pnpm check` 0 件。`check_docs.py` 切れ 0 件（1190 本）、`render_slides.py` デッキ 56 件 / 問題 0 件。セッション記録の `--check` 取りこぼし 0 件。
 
 ## 残したこと
 
