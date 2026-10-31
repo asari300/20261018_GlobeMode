@@ -654,6 +654,10 @@ fn simulate_with(
                     Some(d) => d,
                     None => failure_diagnostic(dae, &error, phase, settings.max_wall_seconds),
                 };
+                let failed = match explicit_timeout_hint(settings.solver) {
+                    Some(hint) if failed.code == codes::RUN_TIMEOUT => failed.note(hint),
+                    _ => failed,
+                };
                 let mut diagnostics = vec![failed];
                 diagnostics.extend(info);
                 Err(diagnostics)
@@ -1081,6 +1085,22 @@ fn failure_diagnostic(
     d.note(rumoca_note(detail.stage.as_deref(), &without_span(&text)))
 }
 
+/// 陽的な刻み幅制御つきのソルバが時間切れになったときの補足（S055）。MSL 4.1.0 の S050 の表で、
+/// cerk23 の時間切れ 27 本のうち 24 本は陰的なソルバのどれかが終えた（21 本は bdf が 32 秒以内）。
+/// 陽的な方法は硬い系で刻みが安定限界（DCPM_Drive で 3e-8 秒）に張り付き、予算内に終わらない。
+fn explicit_timeout_hint(solver: SolverId) -> Option<&'static str> {
+    matches!(
+        solver,
+        SolverId::Dopri45
+            | SolverId::Tsit45
+            | SolverId::Dopri853
+            | SolverId::Cerk23
+            | SolverId::Cerk34
+            | SolverId::Cerk45
+    )
+    .then_some("陽的なソルバは硬い系で刻みが極小になり、予算内に終わらないことがある。--solver bdf・esdirk34・radau5・auto を試す")
+}
+
 fn timeout_diagnostic(max_wall_seconds: Option<f64>) -> Diagnostic {
     Diagnostic::error(
         codes::RUN_TIMEOUT,
@@ -1467,6 +1487,29 @@ fn panic_diagnostic(
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn only_explicit_adaptive_solvers_get_the_timeout_hint() {
+        for id in [
+            SolverId::Dopri45,
+            SolverId::Cerk23,
+            SolverId::Cerk34,
+            SolverId::Cerk45,
+            SolverId::Tsit45,
+            SolverId::Dopri853,
+        ] {
+            assert!(explicit_timeout_hint(id).is_some(), "{id:?}");
+        }
+        for id in [
+            SolverId::Bdf,
+            SolverId::Auto,
+            SolverId::Esdirk34,
+            SolverId::Radau5,
+            SolverId::Rk4,
+        ] {
+            assert!(explicit_timeout_hint(id).is_none(), "{id:?}");
+        }
+    }
     use super::*;
     use rumoca_sim::SimulationDiagnosticError;
 
