@@ -80,4 +80,6 @@ echo 'model M end M;' | globe fmt --json   # {"ok":true,"text":"…","error":nul
 globe lint --json FILE
 ```
 
+VS Code では拡張 [src/VSCode/globe-mode](../src/VSCode/globe-mode/README.md)（S059）を入れると、標準の「ドキュメントのフォーマット」（Linux は Ctrl+Shift+I、Windows は Shift+Alt+F）で整形し、lint は編集中に波線で出る。拡張は `.mo` の既定を `editor.tabSize: 2` にする（LSP の整形は tabSize をインデントに使うため）。
+
 S053 の時点で `src/Modelica/` の 69 ファイルすべてが整形で変わる（空行の規則のため）。既存ファイルの書き換えはしていない。

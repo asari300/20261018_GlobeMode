@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S059 VS Code 拡張 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S059 VS Code 拡張">
+
+<section class="slide" id="S01">
+  <span class="tag">S059 · 2026-11-01 · P4</span>
+  <h1>VS Code 拡張</h1>
+  <p class="lead">.mo を開くと globe lsp を起動してつなぐだけの小さな拡張</p>
+  <div class="big">標準の<b>整形キー</b>で GlobeMode の整形器が動き、lint は<b>波線</b>で出る</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>依頼: 標準キーで整形できるように、globe lsp を起動する小さな VS Code 拡張を作る</li>
+    <li>S053 の持ち越し「VS Code 拡張の実体」。P4 の LSP をエディタの外へ出す</li>
+    <li>計算は増やさない。整形・lint・補完・検査は S053 までの Rust 側をそのまま使う</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table>
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>クライアント</td><td>vscode-languageclient 9（MIT）を esbuild で 1 ファイルに束ねる</td><td>LSP の往復を自分で書かない。VSIX に node_modules を入れない</td></tr>
+    <tr><td>VSIX</td><td>pack_vsix.py（Python の標準ライブラリ）</td><td>@vscode/vsce はライセンス欄の無い署名用バイナリを引き込む</td></tr>
+    <tr><td>インデント</td><td>.mo の既定を tabSize 2 にする</td><td>LSP の整形は tabSize をインデントに使う。VS Code の既定 4 のままだと 4 段になる</td></tr>
+    <tr><td>動く側</td><td>extensionKind: workspace</td><td>Remote - WSL でも globe と同じ側で起動する</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>構成</h1>
+  <svg class="fig" viewBox="0 0 800 260" role="img" aria-label="VS Code から globe lsp への構成図">
+    <rect class="svg-box" x="20" y="90" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="120" y="126" text-anchor="middle">VS Code</text>
+    <text class="svg-text" x="120" y="152" text-anchor="middle">整形キー・波線</text>
+    <line class="svg-line" x1="220" y1="130" x2="300" y2="130"/>
+    <rect class="svg-box-accent" x="300" y="90" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="400" y="126" text-anchor="middle">拡張</text>
+    <text class="svg-text" x="400" y="152" text-anchor="middle">languageclient</text>
+    <line class="svg-line" x1="500" y1="130" x2="580" y2="130"/>
+    <rect class="svg-box" x="580" y="90" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="680" y="126" text-anchor="middle">globe lsp</text>
+    <text class="svg-text" x="680" y="152" text-anchor="middle">stdio の JSON-RPC</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>cd src/VSCode/globe-mode
+mise exec -- pnpm install &amp;&amp; mise exec -- pnpm package
+code --install-extension globe-mode-0.0.1.vsix
+GLOBE_BIN=…/target/debug/globe mise exec -- pnpm test</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">1/1</span><span class="l">LSP の往復の試験</span></div>
+    <div class="kpi"><span class="n">10</span><span class="l">同梱する npm（MIT・ISC）</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">リンク切れ</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>VS Code の本体を起動しての試験（@vscode/test-electron）</li>
+    <li>構文の色付け（TextMate 文法）と、設定を変えたときの自動の作り直し</li>
+    <li>Marketplace への公開は未定</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
