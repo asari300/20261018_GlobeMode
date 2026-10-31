@@ -2,6 +2,7 @@
 //!
 //! ```text
 //! cargo xtask fetch-msl        MSL 4.1.0 を data/msl/ に取得する（sha256 で確かめる）
+//! cargo xtask fetch-reference-fmus  Reference-FMUs（FMI 2.0 / 3.0、v0.0.42）を data/reference-fmus/ に取得する（sha256 で確かめる）
 //! cargo xtask fetch-rumoca     Rumoca の CLI（v0.10.2、Linux x86_64）を data/rumoca/ に取得する
 //! cargo xtask msl-compare      MSL の例題で globe check と Rumoca の CLI を突き合わせる
 //! cargo xtask msl-funnel       MSL の全例題（566 本）に globe check の判定を出し、報告を書く
@@ -36,6 +37,11 @@ mod solvers;
 const MSL_URL: &str = "https://github.com/modelica/ModelicaStandardLibrary/releases/download/v4.1.0/ModelicaStandardLibrary_v4.1.0.zip";
 const MSL_SHA256: &str = "5409cfa17797c52d866dc9d2675badc1378b4bbf88066e60899a489cb1cb8a2d";
 const MSL_VERSION: &str = "4.1.0";
+// S057: Reference-FMUs（BSD-2-Clause、FMI 2.0 / 3.0 の FMU。P5 の検証用）。release の資産 1 つ
+const REFFMU_VERSION: &str = "0.0.42";
+const REFFMU_URL: &str =
+    "https://github.com/modelica/Reference-FMUs/releases/download/v0.0.42/Reference-FMUs.zip";
+const REFFMU_SHA256: &str = "b6b4a195b9c0f6bdd3459cd949cbb35fc21ee2049d6dab4cb7a3ba7da63b1e97";
 
 /// Rumoca の CLI（Apache-2.0）。Cargo.toml で固定している rev（v0.10.2）と同じ版。
 const RUMOCA_VERSION: &str = "v0.10.2";
@@ -76,6 +82,11 @@ enum Cmd {
     /// MSL 4.1.0 を取得して展開する
     FetchMsl {
         #[arg(long, default_value = "data/msl")]
+        dest: PathBuf,
+    },
+    /// Reference-FMUs（FMI 2.0 / 3.0）を取得して展開する
+    FetchReferenceFmus {
+        #[arg(long, default_value = "data/reference-fmus")]
         dest: PathBuf,
     },
     /// Rumoca の CLI を取得する（Linux の x86_64 と aarch64）
@@ -269,6 +280,15 @@ enum Cmd {
 fn main() -> ExitCode {
     let result = match Cli::parse().command {
         Cmd::FetchMsl { dest } => fetch_msl(&dest),
+        Cmd::FetchReferenceFmus { dest } => fetch_zip(
+            "Reference-FMUs",
+            REFFMU_VERSION,
+            REFFMU_URL,
+            REFFMU_SHA256,
+            "Reference-FMUs.zip",
+            ".globe-mode-reference-fmus",
+            &dest,
+        ),
         Cmd::FetchRumoca { dest } => fetch_rumoca(&dest),
         Cmd::MslCompare {
             msl,
@@ -454,16 +474,35 @@ fn download(url: &str, sha256: &str, path: &Path) -> Result<()> {
 }
 
 fn fetch_msl(dest: &Path) -> Result<ExitCode> {
-    let marker = dest.join(".globe-mode-msl");
-    let expected = format!("{MSL_VERSION} {MSL_SHA256}\n");
+    fetch_zip(
+        "MSL",
+        MSL_VERSION,
+        MSL_URL,
+        MSL_SHA256,
+        &format!("ModelicaStandardLibrary_v{MSL_VERSION}.zip"),
+        ".globe-mode-msl",
+        dest,
+    )
+}
+
+/// release の zip を sha256 で確かめて `dest` に展開する（展開済みの目印は `marker_name`）。
+fn fetch_zip(
+    label: &str,
+    version: &str,
+    url: &str,
+    sha256: &str,
+    zip_name: &str,
+    marker_name: &str,
+    dest: &Path,
+) -> Result<ExitCode> {
+    let marker = dest.join(marker_name);
+    let expected = format!("{version} {sha256}\n");
     if fs::read_to_string(&marker).ok().as_deref() == Some(expected.as_str()) {
-        println!("MSL {MSL_VERSION} は展開済み: {}", dest.display());
+        println!("{label} {version} は展開済み: {}", dest.display());
         return Ok(ExitCode::SUCCESS);
     }
-    let zip_path = dest
-        .join(".download")
-        .join(format!("ModelicaStandardLibrary_v{MSL_VERSION}.zip"));
-    download(MSL_URL, MSL_SHA256, &zip_path)?;
+    let zip_path = dest.join(".download").join(zip_name);
+    download(url, sha256, &zip_path)?;
 
     let file = fs::File::open(&zip_path).map_err(|e| e.to_string())?;
     let mut archive = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
@@ -489,7 +528,7 @@ fn fetch_msl(dest: &Path) -> Result<ExitCode> {
     }
     fs::write(&marker, expected).map_err(|e| e.to_string())?;
     println!(
-        "MSL {MSL_VERSION} を展開した: {} ファイル → {}",
+        "{label} {version} を展開した: {} ファイル → {}",
         count,
         dest.display()
     );

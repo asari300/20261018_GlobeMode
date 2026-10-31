@@ -1,0 +1,15 @@
+# テスト用の設定。ログは出さない（tests/api.rs は HTTP を組み立てるだけで待ち受けない）
+logger:
+  enable: false
+  pretty_backtrace: false
+  level: info
+  format: compact
+  override_filter: ~
+  file_appender: ~
+server:
+  binding: 127.0.0.1
+  port: 8080
+  host: http://localhost
+# ワーカーは使わない（既定の BackgroundQueue は queue の設定を要求するため）
+workers:
+  mode: ForegroundBlocking

@@ -19,9 +19,9 @@ OpenModelica（OMEdit）と Rumoca を参考に、GlobeMode に要る機能を�
 | --- | --- | --- | --- | --- | --- |
 | エラーに強いパーサ | ○ | ○ | Must | P1 | Phase A は Rumoca（parol）。Track B は rowan |
 | 診断（構文・名前・型） | ○ | ○ | Must | P2 | salsa のクエリで差分だけ再計算する |
-| 補完・定義ジャンプ・参照・リネーム・ホバー | △ | ○ | Must | P4 | `globe-mode-lsp`（Transport を抽象化） |
+| 補完・定義ジャンプ・参照・リネーム・ホバー | △（S053: 補完は予約語と `Outline` の名前、`.` の後ろは部品の型の部品名） | ○ | Must | P4 | `globe-mode-lsp`（Transport を抽象化）。定義ジャンプ・参照・リネームは未着手 |
 | アウトライン・inlay hint・call hierarchy | △ | ○ | Should | P4 | `outline` クエリの結果をそのまま使う |
-| 整形・lint | × | ○ | Should | P4 | Rumoca の tool-fmt / tool-lint をアダプタ経由で使う |
+| 整形・lint | ○（S053） | ○ | Should | P4 | 自前の `globe-mode-fmt`（依存 0。[format-style.md](format-style.md)、[ADR-0024](adr/0024-own-formatter-and-lint.md)）。CLI `globe fmt` / `globe lint`、LSP、wasm、ブラウザ UI、ウェブアプリ群（[web-apps.md](web-apps.md)） |
 | Text ビュー | ○ | ○（VS Code） | Must | P4 | CodeMirror 6 |
 | Diagram / Icon ビュー（Placement / Line annotation） | ○ | × | Should | P8 | Svelte Flow。テキストと双方向に同期する |
 | Documentation ビュー（HTML annotation） | ○ | × | Could | P8 | サニタイズした HTML を表示する |

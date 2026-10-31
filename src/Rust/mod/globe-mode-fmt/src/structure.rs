@@ -1,0 +1,333 @@
+//! 文の切り出しと段付け。クラス・節・ブロック（if / for / while / when）を見分けて、
+//! 各文（要素）に段（インデントの深さ）と「前に空行を置くか」を付ける。
+
+use crate::lexer::Token;
+use crate::{FormatError, err};
+
+#[derive(Debug)]
+pub struct Element<'t, 'a> {
+    pub tokens: &'t [Token<'a>],
+    /// 段（0 がファイルの最上位）
+    pub indent: usize,
+    pub blank_before: bool,
+    /// 最初のトークンの位置（同じ行に続くコメントを後から足すため）
+    first: usize,
+}
+
+#[derive(Debug)]
+enum Ctx<'a> {
+    Class(&'a str),
+    Block,
+}
+
+const CLASS_PREFIX: &[&str] = &[
+    "partial",
+    "encapsulated",
+    "expandable",
+    "pure",
+    "impure",
+    "replaceable",
+    "redeclare",
+    "final",
+    "inner",
+    "outer",
+];
+const CLASS_KEYWORD: &[&str] = &[
+    "model",
+    "package",
+    "function",
+    "record",
+    "block",
+    "connector",
+    "type",
+    "class",
+    "operator",
+];
+const BLOCK_END: &[&str] = &["if", "for", "while", "when"];
+
+pub fn split<'t, 'a>(tokens: &'t [Token<'a>]) -> Result<Vec<Element<'t, 'a>>, FormatError> {
+    let mut out: Vec<Element<'t, 'a>> = Vec::new();
+    let mut stack: Vec<Ctx<'a>> = Vec::new();
+    let mut force_blank = false;
+    let mut i = 0;
+    let n = tokens.len();
+    let at = |i: usize| tokens.get(i).map_or(usize::MAX, |t| t.start);
+    while i < n {
+        let t = &tokens[i];
+        let mut blank = force_blank || (t.newlines_before >= 2 && !out.is_empty());
+        force_blank = false;
+        if t.is_comment() {
+            // 文の後ろに続くコメントは、その文の行に残す
+            if t.newlines_before == 0
+                && i > 0
+                && !tokens[i - 1].is_comment()
+                && let Some(last) = out.last_mut()
+            {
+                last.tokens = &tokens[last.first..=i];
+                i += 1;
+                continue;
+            }
+            let indent = stack.len();
+            out.push(Element {
+                tokens: &tokens[i..=i],
+                indent,
+                blank_before: blank,
+                first: i,
+            });
+            i += 1;
+            continue;
+        }
+        let start = i;
+        let mut indent = stack.len();
+        if t.is("end") {
+            let name = tokens
+                .get(i + 1)
+                .ok_or_else(|| err("end の後ろに名前が無い", t.start))?;
+            if !tokens.get(i + 2).is_some_and(|s| s.is(";")) {
+                return Err(err("end の後ろに ; が無い", at(i + 2)));
+            }
+            let is_block = BLOCK_END.contains(&name.text) && name.is_keyword();
+            match (stack.pop(), is_block) {
+                (Some(Ctx::Block), true) => {}
+                (Some(Ctx::Class(c)), false) if c == name.text => blank = true,
+                (Some(Ctx::Class(c)), false) => {
+                    return Err(err(
+                        format!("end {} が {} と合わない", name.text, c),
+                        name.start,
+                    ));
+                }
+                _ => return Err(err(format!("対応しない end {}", name.text), t.start)),
+            }
+            indent = stack.len();
+            i += 3;
+        } else if is_section(tokens, i) {
+            i += if t.is("initial") { 2 } else { 1 };
+            indent = class_level(&stack);
+        } else if t.is("if") || t.is("for") || t.is("while") || t.is("when") {
+            i = scan_to(tokens, i, |s| s.is("then") || s.is("loop"))?;
+            stack.push(Ctx::Block);
+        } else if t.is("else") || t.is("elseif") || t.is("elsewhen") {
+            if !matches!(stack.last(), Some(Ctx::Block)) {
+                return Err(err("ブロックの外の else", t.start));
+            }
+            indent = stack.len() - 1;
+            i = if t.is("else") {
+                i + 1
+            } else {
+                scan_to(tokens, i, |s| s.is("then"))?
+            };
+        } else if let Some((kw, name)) = class_header(tokens, i) {
+            if tokens.get(name + 1).is_some_and(|s| s.is("=")) {
+                // 短いクラス（type X = Real;）は文として扱う
+                i = scan_to(tokens, i, |s| s.is(";"))?;
+            } else if tokens.get(kw + 1).is_some_and(|s| s.is("extends")) {
+                // `model extends X(mods) "desc"` … `end X;`
+                i = name + 1;
+                while tokens
+                    .get(i)
+                    .is_some_and(|s| s.is("(") || s.kind == crate::lexer::Kind::Str || s.is("+"))
+                {
+                    i = if tokens[i].is("(") {
+                        scan_to(tokens, i + 1, |s| s.is(")"))?
+                    } else {
+                        i + 1
+                    };
+                }
+                stack.push(Ctx::Class(tokens[name].text));
+                force_blank = true;
+            } else {
+                i = name + 1;
+                while tokens
+                    .get(i)
+                    .is_some_and(|s| s.kind == crate::lexer::Kind::Str || s.is("+"))
+                {
+                    i += 1;
+                }
+                stack.push(Ctx::Class(tokens[name].text));
+                force_blank = true;
+            }
+        } else {
+            i = scan_to(tokens, i, |s| s.is(";"))?;
+            if t.is("within") {
+                force_blank = true;
+            }
+            if t.is("annotation") {
+                indent = class_level(&stack);
+            }
+        }
+        // 同じ行に続くコメント
+        while tokens
+            .get(i)
+            .is_some_and(|s| s.is_comment() && s.newlines_before == 0)
+        {
+            i += 1;
+        }
+        out.push(Element {
+            tokens: &tokens[start..i],
+            indent,
+            blank_before: blank,
+            first: start,
+        });
+    }
+    if let Some(ctx) = stack.last() {
+        let what = match ctx {
+            Ctx::Class(c) => format!("end {c}; が無い"),
+            Ctx::Block => "end if / for / while / when が無い".to_string(),
+        };
+        return Err(err(what, tokens.last().map_or(0, |t| t.start)));
+    }
+    Ok(out)
+}
+
+fn class_level(stack: &[Ctx<'_>]) -> usize {
+    match stack.last() {
+        Some(Ctx::Class(_)) => stack.len() - 1,
+        _ => stack.len(),
+    }
+}
+
+fn is_section(tokens: &[Token<'_>], i: usize) -> bool {
+    let t = &tokens[i];
+    (t.is("equation") || t.is("algorithm") || t.is("public") || t.is("protected"))
+        || (t.is("initial")
+            && tokens
+                .get(i + 1)
+                .is_some_and(|s| s.is("equation") || s.is("algorithm")))
+}
+
+/// 接頭辞を飛ばしてクラスの頭なら (キーワードの位置, 名前の位置) を返す。
+fn class_header(tokens: &[Token<'_>], mut i: usize) -> Option<(usize, usize)> {
+    while tokens
+        .get(i)
+        .is_some_and(|t| t.kind == crate::lexer::Kind::Ident && CLASS_PREFIX.contains(&t.text))
+    {
+        i += 1;
+    }
+    let kw = tokens.get(i)?;
+    if kw.kind != crate::lexer::Kind::Ident || !CLASS_KEYWORD.contains(&kw.text) {
+        return None;
+    }
+    // `operator record` / `operator function`
+    let kw_i = if kw.is("operator")
+        && tokens
+            .get(i + 1)
+            .is_some_and(|t| t.is("record") || t.is("function"))
+    {
+        i + 1
+    } else {
+        i
+    };
+    let name_i = if tokens.get(kw_i + 1).is_some_and(|t| t.is("extends")) {
+        kw_i + 2
+    } else {
+        kw_i + 1
+    };
+    let name = tokens.get(name_i)?;
+    (name.kind == crate::lexer::Kind::Ident && !name.is_keyword()).then_some((kw_i, name_i))
+}
+
+/// 括弧の深さ 0 で `stop` を満たすトークンまで進み、その次の位置を返す。
+fn scan_to(
+    tokens: &[Token<'_>],
+    from: usize,
+    stop: impl Fn(&Token<'_>) -> bool,
+) -> Result<usize, FormatError> {
+    let mut depth = 0i32;
+    let mut i = from;
+    while i < tokens.len() {
+        let t = &tokens[i];
+        if t.is("(") || t.is("[") || t.is("{") {
+            depth += 1;
+        } else if t.is(")") || t.is("]") || t.is("}") {
+            depth -= 1;
+            if depth < 0 {
+                return Err(err("閉じ括弧が多い", t.start));
+            }
+        } else if depth == 0 && stop(t) {
+            return Ok(i + 1);
+        } else if depth == 0
+            && i > from
+            && t.is_keyword()
+            && matches!(
+                t.text,
+                "equation" | "algorithm" | "public" | "protected" | "end"
+            )
+        {
+            return Err(err(
+                format!("文の途中に {}（; が抜けている）", t.text),
+                t.start,
+            ));
+        }
+        i += 1;
+    }
+    Err(err("文が終わらない（; が無い）", tokens[from].start))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lexer::lex;
+
+    fn shape(src: &str) -> Vec<(usize, bool, String)> {
+        let t = lex(src).unwrap();
+        split(&t)
+            .unwrap()
+            .iter()
+            .map(|e| {
+                (
+                    e.indent,
+                    e.blank_before,
+                    e.tokens
+                        .iter()
+                        .map(|t| t.text)
+                        .collect::<Vec<_>>()
+                        .join(" "),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn classes_sections_and_blocks() {
+        let s = shape(
+            "within A;\nmodel M \"d\"\n  Real x; // c\nequation\n  if x > 0 then\n    x = 1;\n  else\n    x = 2;\n  end if;\n  annotation(a = 1);\nend M;",
+        );
+        assert_eq!(
+            s,
+            vec![
+                (0, false, "within A ;".into()),
+                (0, true, "model M \"d\"".into()),
+                (1, true, "Real x ; // c".into()),
+                (0, false, "equation".into()),
+                (1, false, "if x > 0 then".into()),
+                (2, false, "x = 1 ;".into()),
+                (1, false, "else".into()),
+                (2, false, "x = 2 ;".into()),
+                (1, false, "end if ;".into()),
+                (0, false, "annotation ( a = 1 ) ;".into()),
+                (0, true, "end M ;".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn short_class_and_nested() {
+        let s = shape("package P\n  type T = Real;\n  partial model Q\n  end Q;\nend P;");
+        assert_eq!(s[1], (1, true, "type T = Real ;".into()));
+        assert_eq!(s[2], (1, false, "partial model Q".into()));
+        assert_eq!(s[3], (1, true, "end Q ;".into()));
+        assert_eq!(s[4], (0, true, "end P ;".into()));
+    }
+
+    #[test]
+    fn errors() {
+        for bad in [
+            "model M\n  Real x\nend M;",
+            "model M\nend N;",
+            "model M\n  x = (1;\nend M;",
+            "model M\n  Real x;",
+        ] {
+            assert!(split(&lex(bad).unwrap()).is_err(), "{bad}");
+        }
+    }
+}

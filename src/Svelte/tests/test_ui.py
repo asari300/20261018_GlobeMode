@@ -92,6 +92,19 @@ def main() -> int:
         print(f"10 万点の描画: 点 {n}、系列 {page.locator('.plot .signals input:checked').count()} 本、CSV の解析 {parse} ms を含めて最初の描画まで {ms} ms（目安 33 ms）")
         assert int(n or 0) >= 100_000
 
+        # 整形（S053）: 詰めた本文が doc/format-style.md の形になり、lint の波線（説明文字列が無い）が出る
+        page.locator(".cm-content").focus()
+        page.keyboard.press("Control+A")
+        page.keyboard.insert_text("model Fmt\n  Real x(start=1,fixed = true);\nequation\n  der(x)=-x;\nend Fmt;\n")
+        fmt = page.get_by_role("button", name="整形")
+        fmt.click(force=True)
+        expect(fmt).to_be_enabled(timeout=60_000)
+        assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
+        formatted = page.locator(".cm-content").inner_text()
+        assert "Real x(start = 1, fixed = true);" in formatted and "der(x) = -x;" in formatted, formatted
+        expect(page.locator(".cm-lintRange-warning").first).to_be_visible(timeout=30_000)
+        print("整形: 空白を直し、lint の波線あり")
+
         page.get_by_label("モデル名").fill("Bad")
         page.locator(".cm-content").focus()
         page.keyboard.press("Control+A")

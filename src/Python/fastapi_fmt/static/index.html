@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Modelica 整形・lint（FastAPI）</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 16px; line-height: 1.5; }
+  textarea { width: 100%; box-sizing: border-box; font-family: ui-monospace, monospace; font-size: 13px; }
+  textarea#source, textarea#output { height: 260px; }
+  .row { margin: 8px 0; }
+  .buttons button { margin-right: 8px; padding: 6px 14px; }
+  #error { color: #b00020; font-weight: bold; white-space: pre-wrap; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { border: 1px solid #999; padding: 4px 6px; text-align: left; }
+</style>
+</head>
+<body>
+<h1>Modelica 整形・lint（FastAPI）</h1>
+
+<div class="row">
+  <label>入力ファイル（.mo）: <input type="file" id="file" accept=".mo"></label>
+</div>
+<div class="row">
+  <textarea id="source" name="source" placeholder="Modelica のソースを貼り付けるか、.mo ファイルを選ぶ"></textarea>
+</div>
+
+<div class="row">
+  <label>インデント:
+    <select id="indent">
+      <option value="2" selected>2</option>
+      <option value="4">4</option>
+    </select>
+  </label>
+  <label><input type="checkbox" id="origin" checked> origin = {0, 0} を足す</label>
+</div>
+
+<div class="row buttons">
+  <button type="button" id="format">整形</button>
+  <button type="button" id="lint">lint</button>
+</div>
+
+<div id="error" role="alert"></div>
+
+<h2>出力</h2>
+<textarea id="output" name="output" readonly></textarea>
+<div class="row">
+  <button type="button" id="back">入力へ戻す</button>
+</div>
+
+<h2>lint の結果</h2>
+<table>
+  <thead><tr><th>rule</th><th>line</th><th>column</th><th>message</th></tr></thead>
+  <tbody id="messages"></tbody>
+</table>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+async function post(path, body) {
+  const res = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+  return data;
+}
+
+function showError(message) {
+  $("error").textContent = message || "";
+}
+
+$("file").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  if (file) $("source").value = await file.text();
+});
+
+$("format").addEventListener("click", async () => {
+  showError("");
+  try {
+    const data = await post("/api/format", {
+      text: $("source").value,
+      indent: Number($("indent").value),
+      insert_origin: $("origin").checked,
+    });
+    if (data.ok) {
+      $("output").value = data.text;
+    } else {
+      showError(data.error);
+    }
+  } catch (err) {
+    showError(String(err));
+  }
+});
+
+$("lint").addEventListener("click", async () => {
+  showError("");
+  $("messages").replaceChildren();
+  try {
+    const data = await post("/api/lint", { text: $("source").value });
+    for (const m of data.messages) {
+      const tr = document.createElement("tr");
+      for (const value of [m.rule, m.line, m.column, m.message]) {
+        const td = document.createElement("td");
+        td.textContent = String(value);
+        tr.appendChild(td);
+      }
+      $("messages").appendChild(tr);
+    }
+  } catch (err) {
+    showError(String(err));
+  }
+});
+
+$("back").addEventListener("click", () => {
+  $("source").value = $("output").value;
+});
+</script>
+</body>
+</html>

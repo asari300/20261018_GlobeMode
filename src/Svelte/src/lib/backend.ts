@@ -9,4 +9,14 @@ export interface Backend {
   /** connect グラフ（graphology の JSON）。depth は 1 なら直下の部品だけ。モデルが無ければ reject。 */
   graph(model: string, depth: number): Promise<GraphJson>;
   simulate(req: SimulateRequest): Promise<SimulateResponse>;
+  /** 整形（S053、globe-mode-fmt）。文法が壊れていれば reject で、本文は変えない。 */
+  format(text: string, indent: number, insertOrigin: boolean): Promise<string>;
+  lint(text: string): Promise<LintMessage[]>;
+}
+
+export interface LintMessage {
+  rule: string;
+  line: number;
+  column: number;
+  message: string;
 }

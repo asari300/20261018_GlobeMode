@@ -30,6 +30,7 @@ log/mise/
 data/msl/
 data/rumoca/
 data/msl-ref/
+data/reference-fmus/
 
 # mise
 mise.local.toml

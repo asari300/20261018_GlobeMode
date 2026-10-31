@@ -1,0 +1,15 @@
+# 開発用の設定（loco の Config）。起動は cargo run、待ち受けは config の server
+logger:
+  enable: true
+  pretty_backtrace: true
+  level: info
+  format: compact
+  override_filter: ~
+  file_appender: ~
+server:
+  binding: 127.0.0.1
+  port: 8080
+  host: http://localhost
+# ワーカーは使わない（既定の BackgroundQueue は queue の設定を要求するため）
+workers:
+  mode: ForegroundBlocking

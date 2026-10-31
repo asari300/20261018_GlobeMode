@@ -68,11 +68,20 @@ UI（Svelte）のプロセスでは検査も実行もしない。計算は 1 つ
   | `globe/check` | `{model}` | `CheckResponse` の JSON |
   | `globe/simulate` | `{request}`（`SimulateRequest` の JSON） | `SimulateResponse` の JSON |
   | `globe/graph` | `{model, depth}` | graphology の JSON（`ConnectGraph::to_graphology`） |
+  | `globe/format` | `{text, indent?, insertOrigin?}` | 整形後の本文（S053、[ADR-0024](0024-own-formatter-and-lint.md)。壊れていれば -32000） |
+  | `globe/lint` | `{text}` | `[{rule, line, column, message}]`（S053） |
 
   params が読めなければ -32602、モデルが無いなどの失敗は -32000（`message` に理由）。ファイルは標準の `textDocument/didOpen`（UI の `setFile`）で渡す。
 - **UI から sidecar まで**: Svelte の `TauriBackend`（`src/Svelte/src/lib/tauri-backend.ts`）→ `window.__TAURI__.core.invoke("rpc" | "notify", {method, params})` → Rust の `Worker`（`src/worker.rs`。stdio の枠、1 度に 1 要求）→ `globe lsp`。サーバの通知（`publishDiagnostics`）はイベント `globe-notification`。`@tauri-apps/api` は入れない。
 - **sidecar の起動と作り直し**: `tauri.conf.json` の `externalBin` が `binaries/globe`（CI が target triple 付きの名前で置く）。実行ファイルと同じ場所の `globe` を `globe lsp --library <DIR>...` で起動し、`--library` の引数と環境変数 `GLOBE_LIBRARY` で MSL を渡す。**予算の kill も入れた**: `globe/simulate` は 180 s を超えたらプロセスを kill し、次の要求で作り直す。開いているファイル（`didOpen`・`didChange`、`globe/simulate` の `files`）は作り直しで再生する。落ちた（panic・OOM）ときも同じ。検査には予算を付けない（ADR-0018）。
 - **CI の成果物**: artifact `desktop-linux`（.deb、ubuntu-24.04）と `desktop-windows`（.msi、windows-2025）。大きさと run の ID は [作業記録](../../log/work/2026-10-31-s049-desktop-tauri.md)。Linux では .deb を入れて xvfb でアプリを起動する smoke（sidecar に 1 モデルを検査させる）と、最大の常駐メモリの記録も回す。
+- **持ち越し**: MSL を同梱するか取得するか（今は `--library` か `GLOBE_LIBRARY`）、署名と自動更新、MSL を読んだ後の Desktop 全体の RSS（smoke は MSL なし）、`didOpen` が毎回全モデルの検査（診断）を回す点（静かな `globe/setFile` を足す案）。
+
+### S056 で決まったこと（2026-11-01）
+
+- **Desktop で MSL が読める**: 起動時の `--library` / `GLOBE_LIBRARY` を command `libraries` で UI に返し、`TauriBackend.library()` は「sidecar が既にライブラリを持っていれば resolve（JSON は捨てる）、無ければ reject」にした。「MSL を読む」ボタン（App.svelte）は変えずに動く。
+- **MSL を読んだ後の RSS の基準値**（`desktop.yml` run 41244465666、ubuntu-24.04 の .deb、xvfb、`GLOBE_LIBRARY=data/msl`、`Modelica.Electrical.Analog.Examples.ChuaCircuit`）: sidecar の VmHWM は検査の後 **1,565,032 kB（1.49 GiB）**、実行の後 **1,598,636 kB（1.52 GiB）**。アプリ（Tauri のシェル + WebKit）の VmHWM は **139,508 kB（136 MiB）**。背景の表の `globe check ChuaCircuit` 1.48 GiB と同じ桁で、Desktop 全体でも約 1.65 GiB。壁時計は WebKit の起動と終了を含めて 37.6 s。
+
 - **持ち越し**: App.svelte の `WorkerBackend` と `TauriBackend` の切り替え（`inTauri()`）、MSL を同梱するか取得するか（今は `--library` か `GLOBE_LIBRARY`）、署名と自動更新、MSL を読んだ後の Desktop 全体の RSS（smoke は MSL なし）、`didOpen` が毎回全モデルの検査（診断）を回す点（静かな `globe/setFile` を足す案）。
 
 ### S054 で決まったこと（2026-11-01）
