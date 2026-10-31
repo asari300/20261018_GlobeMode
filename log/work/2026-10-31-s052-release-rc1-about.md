@@ -7,7 +7,7 @@
 | worktree | `.git-worktree/s052-release-rc1-about` |
 | Phase | P8（S044 の持ち越し） |
 | セッション文書 | `doc/sessions/S052-release-rc1-about/` |
-| セッション記録 | 【finish-session で記入】 |
+| セッション記録 | `log/sessions/2026-10-31-0b797c72-9651-45d3-b466-98f7c341d068.md` |
 
 ## 依頼
 
@@ -52,3 +52,8 @@ S044 の持ち越し。(1) `release.yml` の dry-run を feature ブランチで
 - タグ `v0.1.0-rc1` の push（ユーザー）と、Release の prerelease に 3 つの成果物と `SHA256SUMS` が付くこと。dry-run は Release ジョブをスキップするので、この部分は初めて確かめる。
 - npm の分、wasm・Python の wheel、`sundials` ビルドの表、CycloneDX の SBOM。
 - `THIRD-PARTY.md` は Release の単独の asset には付けていない（アーカイブの中だけ）。
+
+## 締め（親セッション）
+
+- `check_docs.py`: デッキ OK / 相対リンク 1163 件中の切れ 0 件。`render_slides.py`: デッキ 54 件 / 問題 0 件。
+- セッション記録の `--check`: 取りこぼし 0 件（12 件を検査）。
