@@ -28,7 +28,7 @@ pub use globe_mode_frontend::CompiledModel;
 pub use globe_mode_graph::{ConnectGraph, GraphError};
 pub use globe_mode_ir::{FlatSummary, Outline, SimRun};
 pub use globe_mode_protocol::{
-    CheckResponse, ParametersResponse, SimulateRequest, SimulateResponse, StructureCounts,
+    CheckResponse, ColumnsLayout, ParametersResponse, SimulateRequest, SimulateResponse, StructureCounts,
 };
 pub use globe_mode_sim::solvers::{SOLVERS, SolverEntry};
 // facade に無いものを呼ぶとき（CLI の文字の表示が `FullReport` を読む、結果を CSV / MAT に書く）

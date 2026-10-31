@@ -94,6 +94,11 @@ export class GlobeWorker {
   async check(model) { return JSON.parse(await this.#call("check", { model })); }
   async graph(model, depth) { return JSON.parse(await this.#call("graph", { model, depth })); }
   async simulate(request) { return JSON.parse(await this.#call("simulate", { request: JSON.stringify(request) })); }
+  // 時系列を CSV でなく列ごとの Float64Array で返す（S051）。{response（csv 無し）, layout: {names, points}, columns}
+  async simulateColumns(request) {
+    const r = await this.#call("simulate_columns", { request: JSON.stringify(request) });
+    return { ...r, response: JSON.parse(r.response) };
+  }
   version() { return this.#call("version"); }
   async solvers() { return JSON.parse(await this.#call("solvers")); }
   memory() { return this.#call("memory"); }
