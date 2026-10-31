@@ -203,6 +203,15 @@ impl Workspace {
     pub fn check(&mut self, model: &str) -> Result<String, JsValue> {
         to_json(&self.inner.check(model))
     }
+
+    /// connect グラフ（graphology の JSON。`graph.import(json)` で読める形。S046）。ワークスペースの文書（`set_file`）のモデルだけ引ける（ライブラリとして読んだものは索引に無い）。モデルが無ければ例外（文字列）。
+    pub fn graph(&mut self, model: &str, depth: u32) -> Result<String, JsValue> {
+        let g = self
+            .inner
+            .graph(model, depth)
+            .map_err(|e| js_error(e.to_string()))?;
+        to_json(&g.to_graphology())
+    }
 }
 
 /// 一度きりの実行（JS から呼ぶ形）。ライブラリ無しで、`files` にすべてを入れる。

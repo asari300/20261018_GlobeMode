@@ -6,7 +6,7 @@
 // 呼び方は client.js の GlobeWorker が受け持つ。ここは `{id, op, …}` を受けて `{id, ok, value}` を返すだけ。
 //   init {pkg, wasm?}  : `${pkg}/globe_mode_wasm.js`（wasm-bindgen --target web の糊）を読んで初期化。
 //                        wasm に ArrayBuffer を渡すと、それで初期化（Node は file: を fetch できないため）
-//   library {json, name}, set_file {name, text}, remove_file {name}, check {model}（CheckResponse の JSON）, simulate {request}（JSON 文字列）、
+//   library {json, name}, set_file {name, text}, remove_file {name}, check {model}（CheckResponse の JSON）, graph {model, depth}（graphology の JSON）, simulate {request}（JSON 文字列）、
 //   version, solvers, memory, panic_for_test {message}
 // 失敗は `{id, ok:false, error, panic, poisoned}`。wasm32 は panic=abort なので、WebAssembly.RuntimeError のあとの
 // インスタンスは使えない（poisoned: true）。作り直しは client.js 側（worker を捨てて、新しく起こして、再生する）。
@@ -35,6 +35,9 @@ const ops = {
   },
   check({ model }) {
     return (ws ??= new gm.Workspace()).check(model);
+  },
+  graph({ model, depth }) {
+    return (ws ??= new gm.Workspace()).graph(model, depth);
   },
   simulate({ request }) {
     return (ws ??= new gm.Workspace()).simulate(request);

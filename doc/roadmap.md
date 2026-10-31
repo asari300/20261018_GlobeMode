@@ -303,11 +303,18 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **`globe-mode-protocol` と facade `globe-mode`**（[計画書](plan/2026-10-30-release-estimate-and-parallel-plan.md)の WP-0）: CLI の `--json` と wasm の `Request` / `Response` の形をそのまま protocol の serde 型（`CheckResponse`・`SimulateRequest`・`SimulateResponse`・`ParametersResponse`）に昇格させ、facade の `Workspace` が db の `check_model` / `compiled_model_with_overrides` と exec の `run` を呼ぶ。CLI と wasm はこの 2 つに依存する（wasm の直接の依存は facade だけ）。新しい計算は入れていない。JSON は 1 バイトも変えていない（CLI の snapshot 試験 `tests/snapshots/`）。例外は `simulate` が実行を断る文言の `--force` → `force`（facade は CLI のフラグ名を知らない）。
 - 持ち越し: JSON Schema の書き出し（core・analysis の型に `JsonSchema` の derive が要る）。WP-A（LSP）・WP-B（ブラウザ UI）・WP-F（wasm の web target）・WP-G（Python）はここから同時に始められる。
 
+### S046（P4、2026-10-31）で済んだこと
+
+- **connect グラフの表示**（[計画書](plan/2026-10-30-release-estimate-and-parallel-plan.md)の WP-E）: wasm の `Workspace` に `graph(model, depth)`（facade の `graph` の `to_graphology()` の JSON。`GraphError` は例外の文字列）、`worker.js`・`client.js`・`Backend`・`WorkerBackend` に `graph`。`src/Svelte/src/lib/graph/Graph.svelte` が sigma 4.0.4 + graphology 0.26 + ForceAtlas2（円に置いて 100 反復、同期）で描き、ノードのクリックで `onSelect(nodeId)`、深さは 1〜3。Playwright で RealCircuit のグラフ（4 ノード・4 辺）が描かれてクリックが通り、Hierarchical は深さ 2 で 10 ノード。合成 5k ノード・約 1 万辺の描画はヘッドレス Chromium（ソフトウェア GL）で約 10 fps（実 GPU では未測定）。npm は 63 パッケージ（追加の 6 つは MIT）。
+- 締めで `App.svelte` に「グラフ」ボタンと `onSelect`（名前の字面でエディタを選ぶ）を組み込み、`ui:check` に `test_graph.py` を足した。
+- 持ち越し: 実 GPU での fps、MSL のグラフ（wasm の `graph` は `set_file` の文書のモデルだけ引ける。ライブラリとして読んだものは索引に無い）。
+
 ### S045（運用、2026-10-31）で済んだこと
 
 - **上流への報告の下書き**（[計画書](plan/2026-10-30-release-estimate-and-parallel-plan.md)の WP-H）: Rumoca 11 件・diffsol 3 件の issue の下書きを英語で 1 件 1 ファイル [research/upstream/](research/upstream/README.md) に書いた。GlobeMode 側の回避の有無、環境（Rumoca v0.10.2、rev `276e82bd`、MSL 4.1.0）、再現（最小の `.mo` 7 本、MSL の例題はモデル名とコマンド）を付けた。出すのはユーザーで、出すときは Rumoca の最新で再現を確かめる。この環境に Rumoca の CLI が無かったので、再現は新しく確かめていない（本文に [not verified]）。
 - **週次の CI に sundials**: ci.yml のジョブ `rust-sundials`（毎週と手動の全体のときだけ。`cargo test -p globe-mode-cli -p globe-mode-exec -p globe-mode-sim --features sundials`、rust-cache の key は `sundials`）。cmake がランナーにあるかは初回の run で確かめる【未確認】。
 - 持ち越し: 下書きにしなかった候補（4・5・7・8・9・20）、diffsol の件を単体の diffsol のプログラムに縮めること。
+
 ### S044（P8 の 1 回目、2026-10-31）で済んだこと
 
 - **v0.1 のリリース工程**（[計画書](plan/2026-10-30-release-estimate-and-parallel-plan.md)の WP-I）: `.github/workflows/release.yml`（タグ `v*` の push で `globe` を linux x86_64・linux aarch64（`ubuntu-24.04-arm`）・windows x86_64 でビルドし、`.tar.gz` / `.zip`（`globe`・LICENSE-MIT・LICENSE-APACHE・README）と `SHA256SUMS` を Release に付ける。手動は dry-run で artifact だけ。`sundials` は付けない。cargo-dist は使わない）、`CHANGELOG.md`（S001〜S041）、`[workspace.package]` の metadata（`publish = false` と version は変えない）、README の Install。ビルドは CI の dry-run で確かめる。

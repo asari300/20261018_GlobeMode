@@ -8,6 +8,7 @@
   import type { Backend } from "./lib/backend";
   import type { Diagnostic } from "./lib/protocol";
   import Plot from "./lib/plot/Plot.svelte";
+  import Graph from "./lib/graph/Graph.svelte";
 
   const FILE = "Model.mo";
   const backend: Backend = new WorkerBackend();
@@ -20,6 +21,7 @@
   let failure = $state("");
   let diagnostics = $state<Diagnostic[]>([]);
   let csv = $state<string | null>(null);
+  let graphModel = $state<string | null>(null); // 「グラフ」を押したときのモデル名（入力のたびに描き直さない）
 
   onMount(() => {
     view = new EditorView({
@@ -62,6 +64,20 @@
       else if (!r.ok && !r.diagnostics.length) failure = "実行に失敗した（診断なし）";
     });
 
+  const graph = () => run(async () => {
+    graphModel = model;
+  });
+
+  // ノードのキー（`stage1.resistor` など）の先頭の名前を、エディタの本文で最初に出る所で選ぶ
+  // shortcut: 宣言を名前の字面で探す。同じ名前が先に出ると外れる。outline の位置が要るなら LSP の documentSymbol を使う
+  function select(node: string) {
+    const name = node.split(".")[0];
+    const m = new RegExp(`\\b${name.replace(/[^\w]/g, "")}\\b`).exec(view.state.doc.toString());
+    if (!m) return;
+    view.dispatch({ selection: { anchor: m.index, head: m.index + name.length }, scrollIntoView: true });
+    view.focus();
+  }
+
   // range は UTF-8 のバイト位置。CodeMirror は UTF-16 の位置なので変換する
   function jump(d: Diagnostic) {
     if (!d.range || (d.file && d.file !== FILE)) return;
@@ -77,6 +93,7 @@
     <label>モデル名 <input bind:value={model} aria-label="モデル名"></label>
     <button onclick={check} disabled={busy}>検査</button>
     <button onclick={simulate} disabled={busy}>実行</button>
+    <button onclick={graph} disabled={busy}>グラフ</button>
   </div>
   <div class="editor" bind:this={host}></div>
   {#if failure}<p class="failure" role="alert">{failure}</p>{/if}
@@ -90,6 +107,7 @@
     </tbody>
   </table>
   {#if csv}<Plot {csv} />{/if}
+  {#if graphModel}<Graph {backend} model={graphModel} onSelect={select} />{/if}
 </main>
 
 <style>

@@ -50,6 +50,7 @@
 | pytest 9（Python、開発依存） | MIT | 許可 | S039。`uv run pytest`（`src/Python/tests`）。配布物には入らない。推移的依存は iniconfig・pluggy（どちらも MIT） |
 | Tauri 2、Svelte、CodeMirror 6、sigma.js、graphology、cosmos.gl、xyflow、maxGraph | MIT / Apache-2.0 | 許可 | npm 側は `pnpm licenses` で確かめる |
 | npm（src/Svelte、S041・S042）: Svelte 5.57、Vite 8.3、@sveltejs/vite-plugin-svelte、CodeMirror 6（state・view・commands・language）、uPlot 1.6（S042、プロット）、svelte-check、typescript 6 | MIT（50）/ Apache-2.0（4）/ ISC（1）/ BSD-3-Clause（1）/ MPL-2.0（2、下記）（`pnpm licenses list`、2026-10-31 確認。推移的依存を含め計 58 パッケージ。配布物に入る prod は CodeMirror の 12 個と uPlot（依存なし）で全部 MIT） | 許可 | MPL-2.0 は Vite 8 が引く `lightningcss`（とその linux-x64 のバイナリ）だけ。ビルド時の CSS 変換にだけ使い、`dist/` にも配布物にも入らず、改変もしないので、cbindgen と同じく許可（ツールとして）。TypeScript は 7 でなく 6 に固定（svelte-check 4.7 が 7 を単独では受けない）。GPL・LGPL・NC は 0 |
+| npm（src/Svelte、S046）: sigma 4.0.4、graphology 0.26.0、graphology-layout-forceatlas2 0.10.1（推移的に graphology-utils 2.5.2、graphology-types 0.24.8、events 3.3.0） | 6 パッケージとも MIT（`pnpm licenses list`、registry.npmjs.org の package.json、2026-10-31 確認。S041・S042 の 58 と合わせて計 64 パッケージ） | 許可 | connect グラフの表示（`src/Svelte/src/lib/graph/`）で配布物に入る（prod）。GPL・LGPL・AGPL・NC は 0 |
 | Playwright（Python、開発依存） | Apache-2.0 | 許可 | スライドのブラウザ検査（`render_slides.py`）。配布物には入らない |
 | mise | MIT | 許可（ツール） | ツールの版の管理。配布物には入らない |
 | cbindgen | MPL-2.0（ツール） | 許可（ツールとして） | 生成するヘッダには `header=` で GlobeMode のライセンス表示を入れる |

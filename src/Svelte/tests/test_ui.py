@@ -4,7 +4,7 @@
   uv run python src/Svelte/tests/test_ui.py     # 先に pnpm build（mise run ui:check がやる）
 
 dist/ を localhost で配り（CSP は index.html の meta のまま）、Decay を検査して error の診断が 0 件であること、実行するとプロットが出て信号の選択が効くこと、
-10 万点（4 状態、出力間隔 0.01 s で 1000 s）の結果でも描けて時間を測ること、構造的に特異なモデルを検査して診断の行が出て、行を押すとエディタの選択が動くことを確かめる。console の error は失敗。
+10 万点（4 状態、出力間隔 0.01 s で 1000 s）の結果でも描けて時間を測ること、構造的に特異なモデルを検査して診断の行が出て、行を押すとエディタの選択が動くことを確かめる。最後に 1 ファイルの回路で「グラフ」を押して connect グラフが描かれることを確かめる（S046）。console の error は失敗。
 """
 
 from __future__ import annotations
@@ -23,6 +23,11 @@ BIG = (
     "model Big\n  Real a(start = 1, fixed = true);\n  Real b(start = 1, fixed = true);\n  Real c(start = 1, fixed = true);\n"
     "  Real d(start = 1, fixed = true);\nequation\n  der(a) = -a;\n  der(b) = -0.5 * b;\n  der(c) = -0.1 * c;\n  der(d) = -0.01 * d;\n"
     "  annotation(experiment(StartTime = 0, StopTime = 1000, Interval = 0.01));\nend Big;\n"
+)
+# connect グラフ（S046）: ライブラリ無しで描ける 1 ファイルの回路
+CIRCUIT = (
+    "model G\n  connector P\n    Real v;\n    flow Real i;\n  end P;\n  model R\n    P p;\n    P n;\n  equation\n    p.i + n.i = 0;\n  end R;\n"
+    "  R r1;\n  R r2;\nequation\n  connect(r1.n, r2.p);\nend G;\n"
 )
 BAD = "model Bad\n  Real x;\nequation\n  der(x) = -x;\n  x = 1;\nend Bad;\n"
 
@@ -96,6 +101,16 @@ def main() -> int:
         rows.first.click(force=True)
         selected = page.evaluate("window.getSelection().toString()")
         print(f"行を押したあとの選択: {selected!r}")
+
+        page.get_by_label("モデル名").fill("G")
+        page.locator(".cm-content").focus()
+        page.keyboard.press("Control+A")
+        page.keyboard.insert_text(CIRCUIT)
+        page.get_by_role("button", name="グラフ").click(force=True)
+        canvas = page.locator(".canvas[data-nodes]")
+        expect(canvas).not_to_have_attribute("data-nodes", "0", timeout=120_000)
+        assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
+        print(f"G のグラフ: ノード {canvas.get_attribute('data-nodes')}、辺 {canvas.get_attribute('data-edges')}")
         browser.close()
     server.shutdown()
     assert not errors, errors

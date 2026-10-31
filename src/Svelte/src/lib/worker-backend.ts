@@ -1,6 +1,6 @@
 import { GlobeWorker } from "../../../Rust/mod/globe-mode-wasm/web/client.js";
 import type { Backend } from "./backend";
-import type { CheckResponse, SimulateRequest, SimulateResponse } from "./protocol";
+import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse } from "./protocol";
 
 /** Web Worker 上の wasm（ADR-0014、ADR-0023）。呼び出しは直列で、panic のあとは worker を作り直す。 */
 export class WorkerBackend implements Backend {
@@ -14,6 +14,9 @@ export class WorkerBackend implements Backend {
   }
   check(model: string): Promise<CheckResponse> {
     return this.#w.check(model);
+  }
+  graph(model: string, depth: number): Promise<GraphJson> {
+    return this.#w.graph(model, depth);
   }
   simulate(req: SimulateRequest): Promise<SimulateResponse> {
     return this.#w.simulate(req);

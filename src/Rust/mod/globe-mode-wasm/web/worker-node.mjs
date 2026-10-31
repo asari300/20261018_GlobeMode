@@ -48,6 +48,10 @@ try {
   assert.ok((await w.solvers()).some((s) => s.name === "bdf" && s.status.kind === "available"));
   for (const [name, text] of Object.entries(readMo(join(repo, "src/Modelica/GlobeModeValidation")))) await w.setFile(name, text);
   await runDecay("Decay bdf");
+  const g = await w.graph("GlobeModeValidation.Connect.RealCircuit", 1);
+  assert.ok(g.nodes.length > 0 && g.edges.length > 0, "graph: ノードと辺がある");
+  await assert.rejects(w.graph("No.Such.Model", 1), /索引に無い/);
+  console.log(`graph: ノード ${g.nodes.length}、辺 ${g.edges.length}`);
   console.log(`wasm の線形メモリ ${(await w.memory()) / 2 ** 20 | 0} MiB`);
 
   await assert.rejects(w.panicForTest("試験の panic"), /試験の panic/);

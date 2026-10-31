@@ -151,6 +151,8 @@ flowchart LR
 
 ### WP-E connect グラフの表示（モデル B、WP-B の後）
 
+**S046 で実施（済）**。wasm に `graph(model, depth)`、`Backend.graph`、`Graph.svelte`（sigma 4 + graphology + ForceAtlas2 100 反復）。fps は合成 5k ノードのグラフで測った（MSL の `Electrical.Analog.Examples` を wasm で読む測定はしていない）。App.svelte への組み込みは未了。
+
 ```text
 目的: globe graph の graphology JSON を sigma.js + ForceAtlas2 で描く。depth の切り替え、ノードのクリックでエディタへ。
 先に読む: src/Rust/mod/globe-mode-graph/src/、doc/architecture.md §3.5。
