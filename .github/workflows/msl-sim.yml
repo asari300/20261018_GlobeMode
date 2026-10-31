@@ -1,0 +1,53 @@
+# MSL の全例題の検査（msl:funnel）と実行・参照結果との比較（msl:sim）を GitHub Actions で回す（S037）。
+#
+# 手元の機械（RAM 3 GB）では msl:funnel の最大 RSS 7.2 GiB が swap に乗って遅いので、ランナー（16 GB）で回す。
+# 手動だけ（Actions の画面か `gh workflow run msl-sim.yml`）。push の CI（ci.yml）には入れない。
+# 報告（doc/msl-funnel.md・doc/msl-sim.md）と JSON は artifact に残す。コミットは手元で artifact を取ってから行う。
+# 前回の target/msl-sim.json はキャッシュから戻し、前回との差を報告に書く。
+name: msl-sim
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: msl-sim
+  cancel-in-progress: false
+
+jobs:
+  msl-sim:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+        with:
+          install_args: rust
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/cache@v6
+        with:
+          path: data/msl
+          key: msl-${{ hashFiles('src/Rust/xtask/src/main.rs') }}
+      - uses: actions/cache@v6
+        with:
+          path: data/msl-ref
+          key: msl-ref-${{ hashFiles('src/Rust/xtask/src/reference.rs') }}
+      # 前回の結果。キーは毎回新しく、restore-keys で一番新しいものを戻す
+      - uses: actions/cache@v6
+        with:
+          path: target/msl-sim.json
+          key: msl-sim-json-${{ github.run_id }}
+          restore-keys: msl-sim-json-
+      - run: mise run msl:funnel
+      - run: mise run msl:sim
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: msl-sim
+          path: |
+            doc/msl-funnel.md
+            doc/msl-sim.md
+            target/msl-funnel.json
+            target/msl-sim.json

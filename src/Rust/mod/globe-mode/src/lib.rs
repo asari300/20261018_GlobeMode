@@ -108,12 +108,28 @@ impl Workspace {
         name: &str,
         files: &BTreeMap<String, String>,
     ) -> Result<Self, Vec<Diagnostic>> {
+        Self::from_sources(name, files, GlobeDb::with_library_sources)
+    }
+
+    /// [`Workspace::with_library_sources`] と同じ入力で、使うファイルだけを検査のときに読む（S037。メモリを減らす）。
+    pub fn with_library_sources_split(
+        name: &str,
+        files: &BTreeMap<String, String>,
+    ) -> Result<Self, Vec<Diagnostic>> {
+        Self::from_sources(name, files, GlobeDb::with_library_sources_split)
+    }
+
+    fn from_sources(
+        name: &str,
+        files: &BTreeMap<String, String>,
+        load: fn(&str, &[Source<'_>]) -> Result<GlobeDb, Vec<Diagnostic>>,
+    ) -> Result<Self, Vec<Diagnostic>> {
         let t = now_ms();
         let sources: Vec<Source<'_>> = files
             .iter()
             .map(|(name, text)| Source { name, text })
             .collect();
-        let db = GlobeDb::with_library_sources(name, &sources)?;
+        let db = load(name, &sources)?;
         Ok(Self::from_db(db, files.len(), now_ms() - t))
     }
 

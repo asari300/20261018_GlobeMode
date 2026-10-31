@@ -74,7 +74,7 @@ OpenModelica（OMEdit）と Rumoca を参考に、GlobeMode に要る機能を�
 | --- | --- | --- | --- | --- | --- |
 | Desktop（Debian 系 Linux / Windows 11） | ○ | ×（VS Code） | Must | P4 | Tauri 2 + Svelte 5 |
 | Android | × | × | Must | P6 | Tauri 2。計算はネイティブ |
-| ブラウザ（閲覧者の端末で計算） | ×（OMWebbook はサーバー側） | ○（playground） | Must | P6（S012 で Node の wasm） | Web Worker で wasm を動かす。サーバーでは計算しない。S012 で `globe-mode-wasm`（wasm32-unknown-unknown + wasm-bindgen）の検査 → 実行を Node で確かめた（`mise run wasm:node`・`wasm:compare`、CI の `wasm-node`）。S036 で `--target web` の糊と Web Worker（`src/Rust/mod/globe-mode-wasm/web/`）で回し、Node の `worker_threads` と Playwright の Chromium で Decay を確かめた（`mise run wasm:web`。panic の後は Worker を作り直して再生する）。MSL の分割読み込みは未着手 |
+| ブラウザ（閲覧者の端末で計算） | ×（OMWebbook はサーバー側） | ○（playground） | Must | P6（S012 で Node の wasm） | Web Worker で wasm を動かす。サーバーでは計算しない。S012 で `globe-mode-wasm`（wasm32-unknown-unknown + wasm-bindgen）の検査 → 実行を Node で確かめた（`mise run wasm:node`・`wasm:compare`、CI の `wasm-node`）。S036 で `--target web` の糊と Web Worker（`src/Rust/mod/globe-mode-wasm/web/`）で回し、Node の `worker_threads` と Playwright の Chromium で Decay を確かめた（`mise run wasm:web`。panic の後は Worker を作り直して再生する）。S037 で MSL の分割読み込み（使うファイルだけを検査のときに読む）を既定にし、読み込み後の線形メモリを 262 → 62 MiB にした |
 | CLI | ○（omc） | ○ | Must | P1 | `globe` |
 | marimo | × | × | Must | P6 | anywidget に wasm を載せる。代替は PyO3 の wheel |
 | Streamlit（結果ダッシュボード） | × | × | Should | P6 | PyO3 の wheel |

@@ -2,7 +2,7 @@
 //!
 //! Rumoca の型を使ってよいのはこのファイルだけ。外へは中立 IR と GlobeMode の診断だけを出す。
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -20,6 +20,7 @@ use rumoca_compile::parsing::{ParseError, ast};
 use rumoca_compile::{Session, SessionConfig};
 use rumoca_ir_dae::ScalarType;
 
+use crate::split_library::SplitLibrary;
 use crate::{CheckReport, Frontend, Source};
 
 /// Phase A のフロントエンド。
@@ -104,6 +105,15 @@ struct CheckerState {
     documents: HashMap<String, DocumentRecord>,
     /// ライブラリのトップレベルのクラスの完全修飾名（残した文書と名前がぶつかるかを見る）
     library_classes: HashSet<String>,
+    /// 分割読み込み（[`Checker::with_library_sources_split`]）のライブラリ。None なら全部を読んである
+    split: Option<SplitState>,
+}
+
+/// 分割読み込みのライブラリと、Session に読んであるファイル（増えるだけで減らない。S037）。
+struct SplitState {
+    set_id: String,
+    library: SplitLibrary,
+    loaded: BTreeSet<usize>,
 }
 
 /// Session に足してある文書 1 つの記録。
@@ -206,6 +216,7 @@ impl Checker {
                 session,
                 documents: HashMap::new(),
                 library_classes,
+                split: None,
             })),
             libraries: libraries.iter().map(|p| p.to_path_buf()).collect(),
             owner: next_owner(),
@@ -265,6 +276,48 @@ impl Checker {
                 session,
                 documents: HashMap::new(),
                 library_classes,
+                split: None,
+            })),
+            libraries: Arc::from(vec![PathBuf::from(set_id)]),
+            owner: next_owner(),
+        })
+    }
+
+    /// [`Checker::with_library_sources`] と同じ入力で、ライブラリを分割して読む（S037）。ファイルは本文のまま持ち、
+    /// 検査のたびにモデルと文書が使うファイルだけを（足りなければ）Session に足す。読んだものは外さない。
+    ///
+    /// MSL を全部読むと wasm の線形メモリが 262 MiB（`ChuaCircuit` の後 513 MiB）になる。使うファイルだけなら
+    /// 292 / 2556 ファイルで済む。選び方は [`crate::split_library`]。足すたびに Rumoca はライブラリを解決し直す。
+    ///
+    /// 構文の誤りは、そのファイルを読むときに S1 の診断（`GM-E1003`）になる。索引に載らないファイル
+    /// （クラスが見つからない）は、ここですぐ読んで確かめる。
+    pub fn with_library_sources_split(
+        name: &str,
+        sources: &[Source<'_>],
+    ) -> Result<Checker, Vec<Diagnostic>> {
+        let library = SplitLibrary::new(
+            sources
+                .iter()
+                .map(|s| (s.name.to_string(), s.text.to_string())),
+        );
+        if library.len() == 0 {
+            return Err(vec![library_error(name, &[]).note("ファイルが 1 つも無い")]);
+        }
+        let set_id = format!("library:{name}");
+        let library_classes = library.class_names().map(str::to_string).collect();
+        let loaded: BTreeSet<usize> = library.unindexed().iter().copied().collect();
+        let session = library_session(&set_id, &library, &loaded)?;
+        Ok(Checker {
+            state: Arc::new(Mutex::new(CheckerState {
+                pristine: session.clone(),
+                session,
+                documents: HashMap::new(),
+                library_classes,
+                split: Some(SplitState {
+                    set_id: set_id.clone(),
+                    library,
+                    loaded,
+                }),
             })),
             libraries: Arc::from(vec![PathBuf::from(set_id)]),
             owner: next_owner(),
@@ -337,7 +390,7 @@ impl Checker {
             return Err(syntax);
         }
         let mut state = self.lock();
-        sync_documents(&mut state, sources, Some(self.owner)).map_err(|d| vec![d])?;
+        sync_documents(&mut state, sources, model, Some(self.owner)).map_err(|d| vec![d])?;
         compile_strict(&mut state.session, model)
     }
 
@@ -472,7 +525,7 @@ impl Checker {
         model: &str,
     ) -> Option<ReferenceStructure> {
         let mut state = self.lock();
-        sync_documents(&mut state, sources, None).ok()?;
+        sync_documents(&mut state, sources, model, None).ok()?;
         let compilation = state.session.compile_model_strict(model).ok()?;
         let r = compilation
             .result()
@@ -535,7 +588,7 @@ impl Checker {
     fn check_synced(&self, sources: &[Source<'_>], model: &str, owner: Option<u64>) -> CheckReport {
         let mut report = CheckReport::new(model);
         let mut state = self.lock();
-        if let Err(d) = sync_documents(&mut state, sources, owner) {
+        if let Err(d) = sync_documents(&mut state, sources, model, owner) {
             report.diagnostics.push(d);
             return report;
         }
@@ -684,7 +737,92 @@ fn compile_strict(session: &mut Session, model: &str) -> Result<CompiledModel, V
     }
 }
 
-/// Session の文書を `sources` にそろえる。本文が変わっていない文書は触らない
+/// ライブラリを読めない診断（`GM-E1003`）。
+fn library_error(name: &str, errors: &[String]) -> Diagnostic {
+    let mut d = Diagnostic::error(
+        codes::LIBRARY,
+        Stage::S1,
+        format!("ライブラリ {name} を読み込めない"),
+    );
+    for msg in errors.iter().take(5) {
+        d = d.note(msg.clone());
+    }
+    d
+}
+
+/// 分割したライブラリの `loaded` のファイルだけを in-memory の組として読んだ Session。
+fn library_session(
+    set_id: &str,
+    library: &SplitLibrary,
+    loaded: &BTreeSet<usize>,
+) -> Result<Session, Vec<Diagnostic>> {
+    use rumoca_compile::compile::ParsedSourceDocument;
+    let mut documents = Vec::with_capacity(loaded.len());
+    let mut errors = Vec::new();
+    for &n in loaded {
+        let (name, text) = library.file(n);
+        match ParsedSourceDocument::parse(name, text) {
+            Ok(doc) => documents.push(doc),
+            Err(e) => errors.push(format!("{name}: {e}")),
+        }
+    }
+    if !errors.is_empty() {
+        return Err(vec![library_error(
+            set_id.strip_prefix("library:").unwrap_or(set_id),
+            &errors,
+        )]);
+    }
+    let mut session = Session::new(SessionConfig::default());
+    if !documents.is_empty() {
+        session.replace_in_memory_source_set(
+            set_id,
+            SourceRootKind::DurableExternal,
+            documents,
+            None,
+        );
+    }
+    Ok(session)
+}
+
+/// 分割したライブラリで、`model` と `sources` が使うファイルが Session に無ければ読み直す（Session を作り直す）。
+///
+/// 作り直すと文書は Session から消えるので、記録してある文書を足し直す（Rumoca は解決し直す）。
+/// 全部を読んである（`split` が None）か、足りているときは何もしない。
+fn ensure_library(
+    state: &mut CheckerState,
+    sources: &[Source<'_>],
+    model: &str,
+) -> Result<(), Diagnostic> {
+    let Some(split) = state.split.as_mut() else {
+        return Ok(());
+    };
+    let need = split.library.closure(model, sources.iter().map(|s| s.text));
+    if need.is_subset(&split.loaded) {
+        return Ok(());
+    }
+    let mut loaded = split.loaded.clone();
+    loaded.extend(need);
+    let session =
+        library_session(&split.set_id, &split.library, &loaded).map_err(|mut ds| ds.remove(0))?;
+    split.loaded = loaded;
+    state.pristine = session.clone();
+    state.session = session;
+    let records: Vec<(String, String)> = state
+        .documents
+        .iter()
+        .map(|(name, d)| (name.clone(), d.text.clone()))
+        .collect();
+    for (name, text) in records {
+        if state.session.add_document(&name, &text).is_err() {
+            state.session.remove_document(&name);
+            state.documents.remove(&name);
+        }
+    }
+    Ok(())
+}
+
+/// Session の文書を `sources` にそろえる（分割したライブラリなら、`model` と `sources` が使うファイルも読む）。
+/// 本文が変わっていない文書は触らない
 /// （差し替えると Rumoca が解決済みの状態を捨てるため）。
 ///
 /// `owner` が None なら、渡されなかった文書をすべて取り除く（組を `sources` にそろえる）。
@@ -693,8 +831,10 @@ fn compile_strict(session: &mut Session, model: &str) -> Result<CompiledModel, V
 fn sync_documents(
     state: &mut CheckerState,
     sources: &[Source<'_>],
+    model: &str,
     owner: Option<u64>,
 ) -> Result<(), Diagnostic> {
+    ensure_library(state, sources, model)?;
     let wanted: HashSet<&str> = sources.iter().map(|s| s.name).collect();
     let stale: Vec<String> = state
         .documents

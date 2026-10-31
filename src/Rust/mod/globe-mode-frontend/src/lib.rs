@@ -17,6 +17,8 @@ mod preflight;
 #[cfg(feature = "rumoca")]
 mod rumoca;
 #[cfg(feature = "rumoca")]
+mod split_library;
+#[cfg(feature = "rumoca")]
 mod structure;
 #[cfg(feature = "rumoca")]
 pub mod unsupported;

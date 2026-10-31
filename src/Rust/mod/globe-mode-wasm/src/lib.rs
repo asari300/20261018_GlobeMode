@@ -70,14 +70,29 @@ impl Workspace {
         }
     }
 
-    /// ライブラリ（名前 → 本文）を一度だけ読み込んだワークスペース。読めなければ S1 の診断（`GM-E1003`）。
+    /// ライブラリ（名前 → 本文）を一度だけ全部読み込んだワークスペース。読めなければ S1 の診断（`GM-E1003`）。
     pub fn with_library(
         name: &str,
         files: &BTreeMap<String, String>,
     ) -> Result<Workspace, Vec<Diagnostic>> {
+        Self::timed(|| globe_mode::Workspace::with_library_sources(name, files))
+    }
+
+    /// [`Workspace::with_library`] と同じ入力で、モデルが使うファイルだけを検査のときに読む（S037）。
+    /// MSL を全部読んだときの線形メモリ 262 MiB を 62 MiB にする（ブラウザ向け。JS の既定）。
+    pub fn with_library_split(
+        name: &str,
+        files: &BTreeMap<String, String>,
+    ) -> Result<Workspace, Vec<Diagnostic>> {
+        Self::timed(|| globe_mode::Workspace::with_library_sources_split(name, files))
+    }
+
+    fn timed(
+        load: impl FnOnce() -> Result<globe_mode::Workspace, Vec<Diagnostic>>,
+    ) -> Result<Workspace, Vec<Diagnostic>> {
         // 読み込みの時間は facade の時計（wasm32 では 0）でなく、ここで測る
         let t = now_ms();
-        let mut inner = globe_mode::Workspace::with_library_sources(name, files)?;
+        let mut inner = load()?;
         inner.set_library_load_ms(now_ms() - t);
         Ok(Workspace { inner })
     }
@@ -127,18 +142,27 @@ fn to_json<T: Serialize>(value: &T) -> Result<String, JsValue> {
 impl Workspace {
     /// `library_json` はライブラリのファイルの組（`{"名前": "本文", …}` の JSON。省略するとライブラリ無し）、
     /// `name` はその組の名前（診断に出す。既定は `library`）。読めなければ診断の配列の JSON を例外で投げる。
+    ///
+    /// ライブラリは分割して読む（S037）: 検査のたびにモデルと文書が使うファイルだけを足す。構文の誤りはそのファイルを
+    /// 使うときに分かる。1 ファイルに複数のトップレベルのクラスがあるライブラリは `eager = true` で全部を読む。
     #[wasm_bindgen(constructor)]
     pub fn js_new(
         library_json: Option<String>,
         name: Option<String>,
+        eager: Option<bool>,
     ) -> Result<Workspace, JsValue> {
         let Some(json) = library_json else {
             return Ok(Workspace::new());
         };
         let files: BTreeMap<String, String> = serde_json::from_str(&json)
             .map_err(|e| js_error(format!("ライブラリの JSON が読めない: {e}")))?;
-        Workspace::with_library(name.as_deref().unwrap_or("library"), &files)
-            .map_err(|ds| js_error(serde_json::to_string(&ds).unwrap_or_default()))
+        let name = name.as_deref().unwrap_or("library");
+        let loaded = if eager.unwrap_or(false) {
+            Workspace::with_library(name, &files)
+        } else {
+            Workspace::with_library_split(name, &files)
+        };
+        loaded.map_err(|ds| js_error(serde_json::to_string(&ds).unwrap_or_default()))
     }
 
     /// ファイルを足すか、本文を差し替える。
