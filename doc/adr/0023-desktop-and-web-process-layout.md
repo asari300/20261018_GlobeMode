@@ -73,7 +73,7 @@ UI（Svelte）のプロセスでは検査も実行もしない。計算は 1 つ
 - **UI から sidecar まで**: Svelte の `TauriBackend`（`src/Svelte/src/lib/tauri-backend.ts`）→ `window.__TAURI__.core.invoke("rpc" | "notify", {method, params})` → Rust の `Worker`（`src/worker.rs`。stdio の枠、1 度に 1 要求）→ `globe lsp`。サーバの通知（`publishDiagnostics`）はイベント `globe-notification`。`@tauri-apps/api` は入れない。
 - **sidecar の起動と作り直し**: `tauri.conf.json` の `externalBin` が `binaries/globe`（CI が target triple 付きの名前で置く）。実行ファイルと同じ場所の `globe` を `globe lsp --library <DIR>...` で起動し、`--library` の引数と環境変数 `GLOBE_LIBRARY` で MSL を渡す。**予算の kill も入れた**: `globe/simulate` は 180 s を超えたらプロセスを kill し、次の要求で作り直す。開いているファイル（`didOpen`・`didChange`、`globe/simulate` の `files`）は作り直しで再生する。落ちた（panic・OOM）ときも同じ。検査には予算を付けない（ADR-0018）。
 - **CI の成果物**: artifact `desktop-linux`（.deb、ubuntu-24.04）と `desktop-windows`（.msi、windows-2025）。大きさと run の ID は [作業記録](../../log/work/2026-10-31-s049-desktop-tauri.md)。Linux では .deb を入れて xvfb でアプリを起動する smoke（sidecar に 1 モデルを検査させる）と、最大の常駐メモリの記録も回す。
-- **持ち越し**: App.svelte の `WorkerBackend` と `TauriBackend` の切り替え（`inTauri()`）、MSL を同梱するか取得するか（今は `--library` か `GLOBE_LIBRARY`）、署名と自動更新、MSL を読んだ後の Desktop 全体の RSS（smoke は MSL なし）、`didOpen` が毎回全モデルの検査（診断）を回す点（静かな `globe/setFile` を足す案）。
+- **持ち越し**: MSL を同梱するか取得するか（今は `--library` か `GLOBE_LIBRARY`）、署名と自動更新、MSL を読んだ後の Desktop 全体の RSS（smoke は MSL なし）、`didOpen` が毎回全モデルの検査（診断）を回す点（静かな `globe/setFile` を足す案）。
 
 ### S056 で決まったこと（2026-11-01）
 
