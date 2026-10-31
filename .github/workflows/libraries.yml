@@ -7,7 +7,7 @@
 #   concurrency の group は自分専用（libraries）で、ci.yml の group（ci-<ref>）とは別。
 # - 落ちても全モデルを検査する。msl-sim は 1 本ずつ別プロセスのワーカーで回し、panic・時間切れ・外からの停止で全体は止まらない。
 #   funnel・sim のステップは continue-on-error で、報告は必ず artifact に上げる。OK でない例題が多くても失敗扱いにしない（数えるだけ）。
-# - 大きいライブラリは例題を `--shard i/n` で割り、分割ごとに 1 ジョブにする（Buildings 6、AixLib 3、IBPSA 2、ClaRa 2）。
+# - 大きいライブラリは例題を `--shard i/n` で割り、分割ごとに 1 ジョブにする（Buildings 4、AixLib 2。最初の run で Buildings 6 分割は 1 分割 約 10 分だったので減らした）。
 #   1 ジョブの上限は 360 分で、funnel と sim のステップに別の上限を付ける。funnel が間に合わないと JSON が書かれず、その分割は欠ける。
 # - 参照結果（MAP-LIB）は MSL のものだけなので、sim は実行できたかを数えるだけで管の比較はしない。
 # - 最後のジョブ libraries-report が分割ごとの JSON を集めて表（doc/libraries.md）を作り、artifact `libraries` に上げる。
@@ -22,6 +22,10 @@ on:
         default: ""
   schedule:
     - cron: "0 21 * * 0"   # 毎週月曜 06:00 JST（ci.yml は 03:00 JST）
+  # 一時: 新しいワークフローは main に入るまで workflow_dispatch で起動できないので、feature ブランチの push で試す。
+  # コミットメッセージの `[libraries: Chemical, DeltaRobot]` で絞る（無ければ DeltaRobot と Chemical）。main に取り込むときに消す。
+  push:
+    branches: [feature/s058-extra-libs-ci]
 
 permissions:
   contents: read
@@ -45,20 +49,27 @@ jobs:
         name: 検査するライブラリと分割を決める
         env:
           LIBRARIES: ${{ inputs.libraries }}
+          COMMIT_MESSAGE: ${{ github.event_name == 'push' && github.event.head_commit.message || '' }}
+          EVENT: ${{ github.event_name }}
         shell: python3 {0}
         run: |
           import json, os, re
           # (名前, 根のパッケージ, 例題を含むパッケージ名, 分割数)。fetch-library の名前と同じ綴り
           table = [
-              ("Buildings", "Buildings", ["Examples"], 6),
-              ("AixLib", "AixLib", ["Examples"], 3),
-              ("IBPSA", "IBPSA", ["Examples"], 2),
-              ("ClaRa", "ClaRa", ["Examples"], 2),
+              ("Buildings", "Buildings", ["Examples"], 4),
+              ("AixLib", "AixLib", ["Examples"], 2),
+              ("IBPSA", "IBPSA", ["Examples"], 1),
+              ("ClaRa", "ClaRa", ["Examples"], 1),
               ("ThermofluidStream", "ThermofluidStream", ["Examples"], 1),
               ("DeltaRobot", "DeltaRobot", ["Scenarios", "Tests"], 1),
               ("Chemical", "Chemical", ["Examples"], 1),
           ]
-          want = {w.lower() for w in re.findall(r"[A-Za-z]+", os.environ.get("LIBRARIES", ""))}
+          if os.environ["EVENT"] == "push":
+              m = re.search(r"\[libraries:([^\]]*)\]", os.environ["COMMIT_MESSAGE"])
+              text = m.group(1) if m else "DeltaRobot, Chemical"
+          else:
+              text = os.environ.get("LIBRARIES", "")
+          want = {w.lower() for w in re.findall(r"[A-Za-z]+", text)}
           include = []
           for name, package, segments, shards in table:
               if want and name.lower() not in want:
@@ -170,6 +181,7 @@ jobs:
             target/${{ matrix.id }}-funnel.json
             target/${{ matrix.id }}-sim.md
             target/${{ matrix.id }}-sim.json
+            target/library-roots/${{ matrix.name }}.skipped.txt
 
   libraries-report:
     needs: [plan, run]
