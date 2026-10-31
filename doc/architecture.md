@@ -320,8 +320,8 @@ S004 で最初の版を作った（`globe-mode-graph`、`globe graph`）。辺�
 
 | ターゲット | 計算 | UI | 配布物 |
 | --- | --- | --- | --- |
-| Desktop（Debian 系 / Windows 11） | Tauri のプロセス内でネイティブ実行 | Svelte 5（TauriBackend） | .deb、.AppImage、.msi |
-| Android（7 以降。検証は API 34） | 同上。cranelift は無効 | 同上 | .apk |
+| Desktop（Debian 系 / Windows 11） | `globe` の CLI を Tauri の sidecar にし、stdio の JSON-RPC（`globe lsp` の枠）で話す。UI のプロセスでは計算しない（[ADR-0023](adr/0023-desktop-and-web-process-layout.md)） | Svelte 5（TauriBackend） | .deb、.AppImage、.msi |
+| Android（7 以降。検証は API 34） | 同上（sidecar が使えるかは P6 で決める）。cranelift は無効 | 同上 | .apk |
 | ブラウザ | **閲覧者の端末の Web Worker で wasm を実行**。サーバーでは計算しない。既定はシングルスレッドの stable ビルド | Svelte 5（WorkerBackend） | 静的サイト（CSP は `connect-src 'self'`） |
 | CLI | ネイティブ | — | `globe` |
 | marimo | anywidget で wasm を読む。代替は PyO3 の wheel | ノートブック | wheel と ESM |

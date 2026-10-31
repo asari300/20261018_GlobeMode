@@ -191,6 +191,8 @@ flowchart LR
 
 ### WP-J プロセス構成の ADR（モデル A、独立。WP-C の前提）
 
+**S040 で実施（済）**（[ADR-0023](../adr/0023-desktop-and-web-process-layout.md)）。sidecar の独自の要求の名前は WP-C で決める。
+
 ```text
 目的: ADR-0023「Desktop と Web のプロセス構成」。検査（RSS 7.2 GiB）と実行を UI から分けるか、分けるなら sidecar（globe の CLI）か専用のワーカーか。wasm 側の上限（262 MiB → 目標）も決める。
 先に読む: doc/roadmap.md の候補 9、doc/msl-funnel.md の RSS、src/Rust/xtask の msl-sim のワーカー、doc/adr/0019。

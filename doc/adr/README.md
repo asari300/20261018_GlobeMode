@@ -24,5 +24,6 @@
 | [0020](0020-init-resettle-check.md) | プリフライトで初期化系を 2 回解き、2 回目で値が動いたら警告 GM-W10004 を出す（Rumoca は初期化方程式が読む関係式の反転で解き直さず、残差の評価を公開していない）。実行は変えない | Accepted |
 | [0021](0021-resettle-only-when-relations-flip.md) | 初期化の解き直し（GM-W10004）は、1 回目のあとに関係式の記憶が変わったときだけ行う（ADR-0020 の案 D を狭めた形。Lightning の費用を省く） | Accepted |
 | [0022](0022-structural-parameter-overrides.md) | パラメータの上書き（`--param`）があれば、ライブラリだけの session を複製して上書きを組み込んでからコンパイルする（実行時の上書きは同じ名前の修飾で写された値と時間イベントに届かず、黙って誤る） | Accepted |
+| [0023](0023-desktop-and-web-process-layout.md) | 検査と実行は UI のプロセスから分ける。Desktop は `globe` の CLI を Tauri の sidecar にして stdio の JSON-RPC（`globe lsp` の枠）で話し、Web は Web Worker の wasm のまま。ワーカーは 1 つで 1 度に 1 要求、落ちたら作り直す。wasm の線形メモリは目標 128 MiB / 1 GiB、上限 2 GiB | Accepted |
 
 書式: `NNNN-<題名>.md`。章は「状態 / 背景 / 決定 / 結果」の4つ。決定を覆すときは古い ADR を消さず、状態を Superseded にして新しい番号で書く。
