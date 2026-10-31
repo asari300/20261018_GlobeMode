@@ -107,6 +107,8 @@ flowchart LR
 
 ### WP-A `globe-mode-lsp`（モデル B、WP-0 の後）
 
+**S038 で実施（済）**。hover は「クラスの種類」だけ（アウトラインにコメントが無い）。パッケージの中のモデルは検査しない。
+
 ```text
 目的: stdio の LSP サーバ `globe lsp`。診断（check の結果）、documentSymbol（outline）、hover（クラスの種類とコメント）の 3 つだけ。補完・定義ジャンプは入れない。
 先に読む: doc/architecture.md §2.2 の globe-mode-lsp の行、src/Rust/mod/globe-mode/（WP-0）、src/Rust/mod/globe-mode-db/src/（check の経路）。
@@ -163,6 +165,8 @@ flowchart LR
 
 ### WP-G Python の wheel（モデル B、WP-0 の後。独立）
 
+**S039 で実施（済）**。numpy は足さず、結果の表は既に依存にある polars で読む。`graph` はライブラリとして読んだモデルを引けない（`load_dir` で回す）。
+
 ```text
 目的: globe-mode-py（PyO3、abi3-py312）と maturin で src/Python/mod/globe_mode に wheel。参照シナリオ open → check → graph → simulate → 結果を numpy で。
 所有: src/Rust/mod/globe-mode-py/**、src/Python/mod/**、pyproject.toml、uv.lock、.github/workflows/ci.yml（python のジョブ）。
@@ -186,6 +190,8 @@ flowchart LR
 ```
 
 ### WP-J プロセス構成の ADR（モデル A、独立。WP-C の前提）
+
+**S040 で実施（済）**（[ADR-0023](../adr/0023-desktop-and-web-process-layout.md)）。sidecar の独自の要求の名前は WP-C で決める。
 
 ```text
 目的: ADR-0023「Desktop と Web のプロセス構成」。検査（RSS 7.2 GiB）と実行を UI から分けるか、分けるなら sidecar（globe の CLI）か専用のワーカーか。wasm 側の上限（262 MiB → 目標）も決める。

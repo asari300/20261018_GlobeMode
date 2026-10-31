@@ -27,7 +27,7 @@ class Plan(unittest.TestCase):
         self.assertEqual(
             pkgs(p),
             {"globe-mode-ir", "globe-mode-frontend", "globe-mode-graph", "globe-mode-analysis", "globe-mode-db",
-             "globe-mode-cli", "globe-mode-exec", "globe-mode-sim", "globe-mode-protocol", "globe-mode", "globe-mode-wasm",
+             "globe-mode-cli", "globe-mode-lsp", "globe-mode-py", "globe-mode-exec", "globe-mode-sim", "globe-mode-protocol", "globe-mode", "globe-mode-wasm",
              "xtask"},
         )
         self.assertTrue(p["wasm"])
@@ -39,7 +39,7 @@ class Plan(unittest.TestCase):
         self.assertEqual(
             pkgs(p),
             {"globe-mode-core", "globe-mode-ir", "globe-mode-frontend", "globe-mode-graph", "globe-mode-analysis",
-             "globe-mode-db", "globe-mode-cli", "globe-mode-exec", "globe-mode-sim", "globe-mode-protocol", "globe-mode",
+             "globe-mode-db", "globe-mode-cli", "globe-mode-lsp", "globe-mode-py", "globe-mode-exec", "globe-mode-sim", "globe-mode-protocol", "globe-mode",
              "globe-mode-wasm", "xtask"},
         )
         self.assertFalse(p["msl"])
@@ -48,7 +48,7 @@ class Plan(unittest.TestCase):
         p = plan(["src/Rust/mod/globe-mode-graph/src/lib.rs"])
         # S005 から xtask（msl-funnel）も db を使う。S035 から cli と wasm は facade globe-mode 経由
         self.assertEqual(
-            pkgs(p), {"globe-mode-graph", "globe-mode-db", "globe-mode", "globe-mode-cli", "globe-mode-wasm", "xtask"}
+            pkgs(p), {"globe-mode-graph", "globe-mode-db", "globe-mode", "globe-mode-cli", "globe-mode-lsp", "globe-mode-py", "globe-mode-wasm", "xtask"}
         )
         self.assertTrue(p["wasm"])
 
@@ -56,7 +56,7 @@ class Plan(unittest.TestCase):
         p = plan(["src/Rust/mod/globe-mode-analysis/src/lib.rs"])
         self.assertEqual(
             pkgs(p),
-            {"globe-mode-analysis", "globe-mode-db", "globe-mode-protocol", "globe-mode", "globe-mode-cli", "globe-mode-wasm",
+            {"globe-mode-analysis", "globe-mode-db", "globe-mode-protocol", "globe-mode", "globe-mode-cli", "globe-mode-lsp", "globe-mode-py", "globe-mode-wasm",
              "xtask"},
         )
         self.assertTrue(p["wasm"])
@@ -66,7 +66,7 @@ class Plan(unittest.TestCase):
         # S011 から exec も frontend に依存する。S012 から wasm の束ねも。S035 から facade も
         self.assertEqual(
             pkgs(p),
-            {"globe-mode-frontend", "globe-mode-cli", "globe-mode-db", "globe-mode-exec", "globe-mode", "globe-mode-wasm",
+            {"globe-mode-frontend", "globe-mode-cli", "globe-mode-lsp", "globe-mode-py", "globe-mode-db", "globe-mode-exec", "globe-mode", "globe-mode-wasm",
              "xtask"},
         )
 
@@ -89,11 +89,16 @@ class Plan(unittest.TestCase):
     def test_facade_and_protocol_reach_cli_and_wasm(self):
         # S035: facade を変えたら cli と wasm、protocol を変えたら facade も
         p = plan(["src/Rust/mod/globe-mode/src/lib.rs"])
-        self.assertEqual(pkgs(p), {"globe-mode", "globe-mode-cli", "globe-mode-wasm"})
+        self.assertEqual(pkgs(p), {"globe-mode", "globe-mode-cli", "globe-mode-lsp", "globe-mode-py", "globe-mode-wasm"})
         self.assertTrue(p["wasm"])
         self.assertTrue(p["wasm_node"])
         p = plan(["src/Rust/mod/globe-mode-protocol/src/lib.rs"])
-        self.assertEqual(pkgs(p), {"globe-mode-protocol", "globe-mode", "globe-mode-cli", "globe-mode-wasm"})
+        self.assertEqual(pkgs(p), {"globe-mode-protocol", "globe-mode", "globe-mode-cli", "globe-mode-lsp", "globe-mode-py", "globe-mode-wasm"})
+
+    def test_python_runs_when_the_py_crate_is_affected(self):
+        # S039: wheel は globe-mode-py をビルドするので、facade の変更でも Python のジョブを回す。wasm の束ねだけなら回さない
+        self.assertTrue(plan(["src/Rust/mod/globe-mode/src/lib.rs"])["python"])
+        self.assertFalse(plan(["src/Rust/mod/globe-mode-wasm/src/lib.rs"])["python"])
 
     def test_xtask_only(self):
         p = plan(["src/Rust/xtask/src/main.rs"])
@@ -113,7 +118,7 @@ class Plan(unittest.TestCase):
         # db・exec・wasm のテストも src/Modelica を読む。xtask は frontend に依存するので、依存元として入る
         self.assertEqual(
             pkgs(p),
-            {"globe-mode-frontend", "globe-mode-cli", "globe-mode-db", "globe-mode-exec", "globe-mode", "globe-mode-wasm",
+            {"globe-mode-frontend", "globe-mode-cli", "globe-mode-lsp", "globe-mode-py", "globe-mode-db", "globe-mode-exec", "globe-mode", "globe-mode-wasm",
              "xtask"},
         )
         self.assertTrue(p["wasm_node"])

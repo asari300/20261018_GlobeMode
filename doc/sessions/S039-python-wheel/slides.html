@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S039 Python の wheel — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S039 Python の wheel">
+
+<section class="slide" id="S01">
+  <span class="tag">S039 · 2026-10-31 · P7</span>
+  <h1>Python の wheel <code>globe_mode</code></h1>
+  <p class="lead">計画書の WP-G。facade を PyO3 で包み、maturin で既存の Python パッケージに入れる</p>
+  <div class="big">入出力は <b>JSON の文字列</b>（wasm と同じ）。<b>dict と polars の表</b>は Python 側で</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>新しい crate <code>globe-mode-py</code>（PyO3 0.30、abi3-py312、facade だけに依存）</li>
+    <li>maturin で <code>src/Python/mod/globe_mode</code> の中の <code>_native</code> に入れる（uv_build から切り替え）</li>
+    <li>参照シナリオ open → check → graph → simulate → 結果を表で読む、を <code>uv run pytest</code> で</li>
+    <li>実装は計画書どおり <b>Sonnet（effort high）のサブエージェント 1 人</b>。Fable はコードを読み、検査と文書を担当</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定</span>
+  <h1>小さく保つための判断</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>型の受け渡し</td><td>Rust は JSON の文字列を返し、<code>__init__.py</code> が <code>json.loads</code></td><td>wasm と同じ形。pythonize を足さない。Rust の型を 1 つずつ写さない</td></tr>
+    <tr><td>結果の表</td><td><code>table(res)</code> が CSV を <code>polars.read_csv</code></td><td>polars は既に依存にある。numpy は足さない</td></tr>
+    <tr><td>ビルド</td><td>pyproject の build-backend を maturin に</td><td>uv sync が wheel を作る。mise には入れない</td></tr>
+    <tr><td>CI</td><td>python のジョブに rust と rust-cache を足し、pytest を回す。facade の変更でも回す</td><td>wheel が Rust をビルドするため（ci_plan.py）</td></tr>
+    <tr><td>スレッド</td><td><code>unsendable</code></td><td>salsa のデータベースは Sync でない</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>流れ</h1>
+  <svg class="fig" viewBox="0 0 900 240" role="img" aria-label="Python の globe_mode が _native を呼び、_native が facade を呼ぶ">
+    <rect class="svg-box" x="20" y="90" width="200" height="60" rx="10"/>
+    <text class="svg-text-b" x="120" y="126" text-anchor="middle">globe_mode (Python)</text>
+    <rect class="svg-box-accent" x="300" y="90" width="260" height="60" rx="10"/>
+    <text class="svg-text-b" x="430" y="126" text-anchor="middle">globe_mode._native (PyO3)</text>
+    <rect class="svg-box-accent2" x="680" y="90" width="200" height="60" rx="10"/>
+    <text class="svg-text-b" x="780" y="126" text-anchor="middle">globe-mode (facade)</text>
+    <line class="svg-line-accent" x1="220" y1="120" x2="300" y2="120"/>
+    <text class="svg-text-m" x="260" y="108" text-anchor="middle">JSON</text>
+    <line class="svg-line" x1="560" y1="120" x2="680" y2="120"/>
+    <text class="svg-text-m" x="620" y="108" text-anchor="middle">Workspace</text>
+    <text class="svg-text" x="450" y="200" text-anchor="middle">load_dir → check → graph → simulate → table()（polars の DataFrame）</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">検証</span>
+  <h1>通したもの</h1>
+  <div class="kpis">
+    <div class="kpi"><span class="n">2</span><span class="l">pytest（参照シナリオ、libraries=）</span></div>
+    <div class="kpi"><span class="n">17.3 MB</span><span class="l">wheel（cp312-abi3-linux_x86_64）</span></div>
+    <div class="kpi"><span class="n">22</span><span class="l">test_ci_plan.py</span></div>
+  </div>
+  <ul>
+    <li><code>mise run check</code>（fmt / clippy / test / deny / uv sync --locked）。新しい crate は pyo3 の 5 つだけ（MIT OR Apache-2.0）</li>
+    <li>Decay の x(1) が e⁻¹ と相対 1e-4 で一致。RealCircuit のグラフに node と edge がある</li>
+  </ul>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>積み残し</h1>
+  <ul>
+    <li><code>graph</code> はライブラリとして読んだモデルを引けない（<code>load_dir</code> で作業中のファイルとして読む）。facade 側の仕様の確認</li>
+    <li>結果の Arrow での受け渡し（CSV を介さない）、<code>export_fmu</code>（P5 の後）</li>
+    <li>Windows と macOS の wheel、CI での wheel の配布（WP-I）</li>
+    <li>marimo の anywidget（P6）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

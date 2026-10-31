@@ -1,6 +1,8 @@
 # Python-generated files
 __pycache__/
 *.py[oc]
+# maturin が globe_mode/ に置く拡張モジュール（S039）
+src/Python/mod/globe_mode/_native*.so
 build/
 dist/
 wheels/

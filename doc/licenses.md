@@ -32,6 +32,7 @@
 | getrandom 0.3 | MIT OR Apache-2.0 | 許可 | S012 で `globe-mode-exec` の wasm32 のときだけの直接の依存（feature `wasm_js`。diffsol → faer → rand の乱数の backend）。Cargo.lock に既にある |
 | SUNDIALS（sundials-sys 0.6.2） | BSD-3-Clause（sundials-sys、同梱の SUNDIALS 7.1.1 とも。sundials-sys の `vendor/LICENSE` で確認、2026-10-30） | 許可 | S032 で導入（S034 で IDA を足した）。`globe-mode-exec` の optional な依存で、feature `sundials` を立てたときだけ入る（CLI は `--features sundials` で転送）。wasm では使えない。sundials-sys の feature は `cvode`・`ida`・`build_libraries`・`static_libraries` だけ（`default-features = false` で arkode・kinsol を切る）で、同梱のソースから cmake で CVODE・IDA と serial N_Vector・密な行列・密な線形ソルバ・Newton 法などを静的ライブラリにしてリンクする。`klu`（LGPL。suitesparse_sys が入る）・`nvecopenmp`・`nvecpthreads` は使わない。ビルド時の依存: bindgen 0.68.1（BSD-3-Clause）・cmake 0.1.58（MIT OR Apache-2.0）と、bindgen の推移的依存（clang-sys、cexpr、nom、which、peeking_take_while、lazycell、libloading、prettyplease など）。ビルドには cmake・C コンパイラ・libclang が要る。`cargo deny --all-features check` は ok（advisories・bans・licenses・sources。2026-10-30）。`deny.toml` は `all-features = false` のままで、既定の `cargo deny check` はこの依存を見ない（Cargo.lock には載る）。個々の推移的依存のライセンスの確認は cargo-deny の判定に任せた【crates.io での個別の確認は未確認、2026-10-30】 |
 | faer、egg、salsa、rowan、petgraph、lsp-types | MIT / Apache-2.0 | 許可 | — |
+| lsp-types 0.97.0（fluent-uri 0.1.4、serde_repr 0.1.21） | MIT OR Apache-2.0（fluent-uri は MIT。crates.io の metadata で確認、2026-10-30） | 許可 | S038 で導入（`globe-mode-lsp`。型だけ使い、JSON-RPC は自前）。推移的依存で新しく入るのは fluent-uri と serde_repr の 2 つ。`cargo deny check` は ok |
 | serde、serde_json、clap | MIT OR Apache-2.0 | 許可 | S002 で導入 |
 | sha2 | MIT OR Apache-2.0 | 許可 | S003 で導入（xtask の sha256） |
 | salsa 0.28.5 | Apache-2.0 OR MIT | 許可 | S004 で導入（`globe-mode-db`）。推移的な依存も cargo deny で ok |
@@ -44,6 +45,9 @@
 | MSL 4.1.0 | BSD-3-Clause | 許可 | 同梱せず取得する。同梱するならライセンス文を付ける |
 | cranelift | Apache-2.0 WITH LLVM-exception | 許可 | ネイティブ版のみ |
 | PyO3、maturin、Rustler、wasm-bindgen | MIT / Apache-2.0 | 許可 | — |
+| pyo3 0.30.1（pyo3-ffi、pyo3-macros、pyo3-macros-backend、pyo3-build-config） | MIT OR Apache-2.0（cargo metadata の license 欄と `cargo deny check` で確認、2026-10-31） | 許可 | S039 で導入（`globe-mode-py` の直接の依存。feature `abi3-py312` は maturin が pyproject.toml の `[tool.maturin]` から立てる）。Cargo.lock に新しく入るのはこの 5 つだけ（heck・target-lexicon・libc・once_cell・portable-atomic・proc-macro2・quote・syn は既にある）。`cargo deny check` は ok |
+| maturin 1.x（Python 側のビルド依存） | MIT OR Apache-2.0 | 許可（ツール） | S039 で pyproject.toml の `[build-system]` に入れた（uv_build から切り替え）。wheel のビルドにだけ使い、配布物には入らない。mise には入れない（`uv sync` が隔離環境で取る） |
+| pytest 9（Python、開発依存） | MIT | 許可 | S039。`uv run pytest`（`src/Python/tests`）。配布物には入らない。推移的依存は iniconfig・pluggy（どちらも MIT） |
 | Tauri 2、Svelte、CodeMirror 6、sigma.js、graphology、cosmos.gl、xyflow、maxGraph | MIT / Apache-2.0 | 許可 | npm 側は `pnpm licenses` で確かめる |
 | Playwright（Python、開発依存） | Apache-2.0 | 許可 | スライドのブラウザ検査（`render_slides.py`）。配布物には入らない |
 | mise | MIT | 許可（ツール） | ツールの版の管理。配布物には入らない |

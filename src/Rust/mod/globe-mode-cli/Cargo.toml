@@ -20,6 +20,7 @@ sundials = ["globe-mode/sundials"]
 # S035: facade（と protocol の型）経由。db・exec・sim は facade の再公開を使う
 globe-mode = { workspace = true }
 globe-mode-core = { workspace = true }
+globe-mode-lsp = { workspace = true }
 globe-mode-ir = { workspace = true }
 clap = { workspace = true }
 serde_json = { workspace = true }
