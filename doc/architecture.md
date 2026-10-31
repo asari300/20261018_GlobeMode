@@ -48,6 +48,7 @@ src/Python/mod/                 Python パッケージ globe_mode（PyO3 と mat
 src/Python/marimo/              marimo のノートブックと anywidget
 src/Python/streamlit/           結果ダッシュボードとパラメータスイープ
 src/Elixir/  src/Gleam/         Rustler の NIF を呼ぶ薄いラッパ
+src/VSCode/globe-mode/          VS Code 拡張（S059）。`globe lsp` を起動してつなぐだけ（vscode-languageclient）。VSIX は pack_vsix.py で作る
 src/Julia/   src/Zig/           C ABI を呼ぶ薄いラッパ
 src/Modelica/                   サンプルモデルと検証用ライブラリ
 data/msl/                       MSL 4.1.0（取得スクリプトで置き、sha256 で確かめる。コミットしない）

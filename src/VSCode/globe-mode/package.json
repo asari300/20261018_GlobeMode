@@ -1,0 +1,77 @@
+{
+  "name": "globe-mode",
+  "displayName": "GlobeMode Modelica",
+  "description": "Modelica の整形・lint・補完・検査を GlobeMode の `globe lsp` で行う",
+  "version": "0.0.1",
+  "publisher": "globe-mode",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/asari300/20261018_GlobeMode"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Formatters",
+    "Linters"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "modelica",
+        "aliases": [
+          "Modelica"
+        ],
+        "extensions": [
+          ".mo"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "configuration": {
+      "title": "GlobeMode",
+      "properties": {
+        "globeMode.path": {
+          "type": "string",
+          "default": "globe",
+          "description": "`globe` の実行ファイル（PATH に無ければ絶対パス）"
+        },
+        "globeMode.libraries": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "`globe lsp --library` に渡すディレクトリ（MSL など）"
+        }
+      }
+    },
+    "configurationDefaults": {
+      "[modelica]": {
+        "editor.defaultFormatter": "globe-mode.globe-mode",
+        "editor.tabSize": 2,
+        "editor.insertSpaces": true,
+        "editor.rulers": [
+          80
+        ]
+      }
+    }
+  },
+  "scripts": {
+    "build": "esbuild extension.js --bundle --platform=node --format=cjs --external:vscode --outfile=dist/extension.js",
+    "package": "pnpm build && python3 -I pack_vsix.py",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  },
+  "extensionKind": [
+    "workspace"
+  ]
+}
