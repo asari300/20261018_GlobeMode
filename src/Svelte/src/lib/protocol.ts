@@ -37,3 +37,16 @@ export interface SimulateResponse {
   final: Record<string, number> | null;
   csv: string | null;
 }
+
+/** `ConnectGraph::to_graphology()` の JSON（graphology の `Graph.from` で読める形）。 */
+export interface GraphJson {
+  attributes: { model: string; depth: number; unresolved: string[] };
+  options: { type: "undirected"; multi: boolean; allowSelfLoops: boolean };
+  nodes: { key: string; attributes: { label: string; class: string; kind: "component" | "connector"; level: number } }[];
+  edges: {
+    key: string;
+    source: string;
+    target: string;
+    attributes: { lhs: string; rhs: string; domain: string; connector: string };
+  }[];
+}

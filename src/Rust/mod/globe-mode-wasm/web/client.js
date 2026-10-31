@@ -92,6 +92,7 @@ export class GlobeWorker {
   async setFile(name, text) { await this.#call("set_file", { name, text }); this.#files.set(name, text); }
   async removeFile(name) { const r = await this.#call("remove_file", { name }); this.#files.delete(name); return r; }
   async check(model) { return JSON.parse(await this.#call("check", { model })); }
+  async graph(model, depth) { return JSON.parse(await this.#call("graph", { model, depth })); }
   async simulate(request) { return JSON.parse(await this.#call("simulate", { request: JSON.stringify(request) })); }
   version() { return this.#call("version"); }
   async solvers() { return JSON.parse(await this.#call("solvers")); }

@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S046 connect グラフの表示 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S046 connect グラフの表示">
+
+<section class="slide" id="S01">
+  <span class="tag">S046 · 2026-10-31 · P4</span>
+  <h1>connect グラフの表示</h1>
+  <p class="lead">wasm の <code>graph</code> から sigma.js まで一本通した</p>
+  <div class="big">RealCircuit のグラフを描き、<b>クリックで onSelect</b>。合成 5k ノードは<b>ヘッドレスで 9.6 fps</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>計画書の WP-E: <code>globe graph</code> の graphology JSON を sigma.js と ForceAtlas2 で描く</li>
+    <li>S041 が <code>check</code> を通したのと同じ道で <code>graph(model, depth)</code> を通す</li>
+    <li>App.svelte への組み込みは S042 と競合するので入れない（試験用の入口で単体 mount）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>レイアウト</td><td>円 → ForceAtlas2 100 反復、同期</td><td>worker の layout は入れない</td></tr>
+    <tr><td>描画</td><td>sigma 4.0.4、動かす間は辺とラベルを隠す</td><td>大きなグラフの fps（4.2 → 9.6 fps）</td></tr>
+    <tr><td>型</td><td><code>GraphJson</code> を手書き</td><td>JSON Schema は持ち越し</td></tr>
+    <tr><td>依存</td><td>sigma・graphology・FA2（6 パッケージ、すべて MIT）</td><td>pnpm licenses で GPL・NC は 0</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>呼び出しの道</h1>
+  <svg class="fig" viewBox="0 0 800 160" role="img" aria-label="Graph から wasm までの呼び出しの道">
+    <rect class="svg-box-accent" x="10" y="50" width="140" height="60" rx="10"/>
+    <text class="svg-text-b" x="80" y="86" text-anchor="middle">Graph.svelte</text>
+    <line class="svg-line" x1="150" y1="80" x2="190" y2="80"/>
+    <rect class="svg-box" x="190" y="50" width="140" height="60" rx="10"/>
+    <text class="svg-text" x="260" y="86" text-anchor="middle">WorkerBackend</text>
+    <line class="svg-line" x1="330" y1="80" x2="370" y2="80"/>
+    <rect class="svg-box" x="370" y="50" width="130" height="60" rx="10"/>
+    <text class="svg-text" x="435" y="86" text-anchor="middle">worker.js</text>
+    <line class="svg-line" x1="500" y1="80" x2="540" y2="80"/>
+    <rect class="svg-box" x="540" y="50" width="120" height="60" rx="10"/>
+    <text class="svg-text" x="600" y="86" text-anchor="middle">wasm graph</text>
+    <line class="svg-line" x1="660" y1="80" x2="690" y2="80"/>
+    <rect class="svg-box" x="690" y="50" width="100" height="60" rx="10"/>
+    <text class="svg-text" x="740" y="86" text-anchor="middle">facade</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>mise run wasm:build
+node src/Rust/mod/globe-mode-wasm/web/worker-node.mjs
+cargo test -p globe-mode-wasm
+mise run ui:check
+uv run python src/Svelte/tests/test_graph.py</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">0</span><span class="l">svelte-check の誤り・警告</span></div>
+    <div class="kpi"><span class="n">9.6</span><span class="l">fps（5k ノード、ヘッドレス）</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>App.svelte にタブを足し、<code>onSelect</code> でエディタへ飛ぶ</li>
+    <li><code>ui:check</code> に <code>test_graph.py</code> を足す</li>
+    <li>MSL のグラフ: <code>graph</code> はライブラリのモデルを引けない</li>
+    <li>実 GPU のブラウザで fps を測る</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

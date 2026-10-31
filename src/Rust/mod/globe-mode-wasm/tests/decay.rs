@@ -219,3 +219,20 @@ fn check_returns_diagnostics_without_running() {
     assert_eq!(v["passed"], false);
     assert!(!v["diagnostics"].as_array().unwrap().is_empty(), "{v}");
 }
+
+#[test]
+fn graph_of_the_rc_circuit_is_graphology_json() {
+    // connect グラフは文書として渡したモデルから作る（ライブラリとして読んだモデルは索引に無い）
+    let mut ws = Workspace::new();
+    for (name, text) in package() {
+        ws.put_file(&name, text);
+    }
+    // JS から呼ぶ形（失敗の JsValue は wasm32 でしか作れないので、成功だけ）
+    let json = ws
+        .graph("GlobeModeValidation.Connect.RealCircuit", 1)
+        .unwrap();
+    let g: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert!(g["nodes"].as_array().unwrap().len() >= 4, "{g}");
+    assert!(g["edges"].as_array().unwrap().len() >= 4, "{g}");
+    assert!(ws.inner().graph("No.Such.Model", 1).is_err());
+}

@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- 実行時に外へは出ない。wasm の初期化に 'wasm-unsafe-eval'、Svelte と CodeMirror が注入する style に 'unsafe-inline' -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; connect-src 'self'; style-src 'self' 'unsafe-inline'">
+  <title>GlobeMode Graph（試験用の入口）</title>
+</head>
+<body>
+  <div id="app"></div>
+  <script type="module" src="/src/graph-test.ts"></script>
+</body>
+</html>
