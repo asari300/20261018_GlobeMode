@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S045 上流への報告の下書きと週次 CI の sundials — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S045 上流への報告と sundials">
+
+<section class="slide" id="S01">
+  <span class="tag">S045 · 2026-10-31 · 運用</span>
+  <h1>上流への報告の下書きと週次 CI の sundials</h1>
+  <p class="lead">計画書の WP-H。Rumoca と diffsol に出す issue を英語で 14 件書き、sundials の試験を毎週の CI に足す</p>
+  <div class="big">下書き <b>14 件</b>（出すのはユーザー）、週次のジョブ <b>rust-sundials</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>なぜ今やるか</h1>
+  <ul>
+    <li>上流への報告の候補は S011〜S025 で 21 件たまったが、issue の形になっていない（roadmap の候補 8）</li>
+    <li>GlobeMode 側で直した・避けたものも多い。回避の有無を件ごとに残さないと、上流が直したときに回避を外せない</li>
+    <li>feature <code>sundials</code>（CVODE・IDA）は push の CI では回していない。cmake で C のソースを作るので重い</li>
+    <li>他の作業（Svelte・Python・リリース）と所有するファイルが重ならない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>出す人</td><td>ユーザー。エージェントは出さない</td><td>他人のリポジトリへの発言は人が決める</td></tr>
+    <tr><td>書き方</td><td>1 件 1 ファイル、英語、<code>.mo</code> は <code>doc/research/upstream/</code> に</td><td>そのまま貼れる。<code>src/Modelica/</code> は MODELICAPATH だけ</td></tr>
+    <tr><td>断定の範囲</td><td>記録にある数字は出典の S 番号つきで引用。手元で確かめていない所は [not verified]</td><td>Rumoca の CLI がこの環境に無い</td></tr>
+    <tr><td>sundials</td><td>週次と手動の全体のときだけ、1 ジョブ</td><td>push の差分の検査を遅くしない</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>下書き 14 件の内訳</h1>
+  <svg class="fig" viewBox="0 0 800 270" role="img" aria-label="下書きの対象と回避の有無">
+    <rect class="svg-box-accent" x="30" y="30" width="230" height="70" rx="10"/>
+    <text class="svg-text-b" x="145" y="62" text-anchor="middle">Rumoca 11 件</text>
+    <text class="svg-text" x="145" y="86" text-anchor="middle">01〜09, 13, 14</text>
+    <rect class="svg-box" x="30" y="150" width="230" height="70" rx="10"/>
+    <text class="svg-text-b" x="145" y="182" text-anchor="middle">diffsol 3 件</text>
+    <text class="svg-text" x="145" y="206" text-anchor="middle">10, 11, 12</text>
+    <line class="svg-line" x1="260" y1="65" x2="400" y2="65"/>
+    <line class="svg-line" x1="260" y1="185" x2="400" y2="185"/>
+    <rect class="svg-box-warn" x="400" y="30" width="170" height="70" rx="10"/>
+    <text class="svg-text-b" x="485" y="62" text-anchor="middle">回避なし</text>
+    <text class="svg-text" x="485" y="86" text-anchor="middle">01, 03, 07, 08</text>
+    <rect class="svg-box-accent2" x="590" y="30" width="180" height="70" rx="10"/>
+    <text class="svg-text-b" x="680" y="62" text-anchor="middle">回避あり・一部</text>
+    <text class="svg-text" x="680" y="86" text-anchor="middle">02, 04〜06, 09, 13, 14</text>
+    <rect class="svg-box-accent2" x="400" y="150" width="370" height="70" rx="10"/>
+    <text class="svg-text-b" x="585" y="182" text-anchor="middle">回避あり（vendor 側の変更）</text>
+    <text class="svg-text" x="585" y="206" text-anchor="middle">10, 11, 12 は本家で同じか未確認</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">図</span>
+  <h1>週次の CI のジョブ</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>内容</th></tr>
+    <tr><td>名前・条件</td><td><code>rust-sundials</code>、<code>needs: plan</code>、<code>full == 'true'</code>（毎週月曜 03:00 JST と手動）</td></tr>
+    <tr><td>実行</td><td><code>cargo test -p globe-mode-cli -p globe-mode-exec -p globe-mode-sim --features sundials</code></td></tr>
+    <tr><td>キャッシュ</td><td>rust-cache の key <code>sundials</code>（rust-linux と分ける）</td></tr>
+    <tr><td>未確認</td><td>ランナーの cmake。初回の run で確かめる</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">再現手順</span>
+  <h1>検証</h1>
+  <pre><code>python3 -I .github/scripts/test_ci_plan.py
+python3 -I .claude/skills/session-docs/check_docs.py
+uv run --no-sync python .claude/skills/session-docs/render_slides.py \
+  doc/sessions/S045-upstream-sundials/slides.html</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">23</span><span class="l">test_ci_plan</span></div>
+    <div class="kpi"><span class="n">14</span><span class="l">下書き</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">cargo の実行</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>積み残し</h1>
+  <ul>
+    <li>ユーザーが Rumoca の最新で再現を確かめてから出す。出したら README の表に URL と日付を足す</li>
+    <li>diffsol の 3 件は単体の diffsol のプログラムに縮める</li>
+    <li>下書きにしなかった候補（4・5・7・8・9・20）</li>
+    <li>初回の <code>rust-sundials</code> の run で cmake と所要時間を確かめる</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

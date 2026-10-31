@@ -232,6 +232,8 @@ Rumoca の文言はどれも `[StructuralAnalysis] solve-IR evaluation failed: [
 
 ## 上流に報告する候補
 
+下書きは [upstream/README.md](upstream/README.md)（S045）。
+
 どれも MSL 4.1.0、Rumoca v0.10.2（rev `276e82bd`）、`data/rumoca/rumoca-linux-x86_64 sim "data/msl/Modelica 4.1.0/package.mo" -m <モデル> --source-root data/msl` で再現する（CLI で確かめたのは 1・3 だけ。他は GlobeMode から Rumoca のライブラリを呼んで確かめた）。
 
 1. **インデックス 2 以上の DAE で EL005（structurally singular）**: `Modelica.Blocks.Examples.FilterWithDifferentiation`（15 本で一番小さい。14 / 15）。他に変圧器・誘導機・FluxTubes・Media の 17 本。

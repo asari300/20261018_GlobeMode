@@ -6,6 +6,8 @@
 #   - 依存の集合（Cargo.lock / Cargo.toml / deny.toml）を変えていなければ cargo deny を省く
 #   - 次のときは全体を検査する: 依存・ツール・CI の定義の変更、40 ファイルを超える変更、
 #     コミットメッセージの [full-ci]、毎週の定期実行、手動実行（full）
+#   - sundials（CVODE・IDA。cmake で同梱のソースをビルドする）は重いので、全体を検査するとき（毎週・手動）の
+#     ジョブ rust-sundials だけが `--features sundials` で試験する。push の差分の検査には足さない
 #   - コンパイル済みの依存は rust-cache で使い回す（Cargo.lock が同じなら再ビルドしない）
 name: ci
 
@@ -187,6 +189,26 @@ jobs:
       - run: rustc -vV
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace
+
+  rust-sundials:
+    # S045: feature `sundials`（CVODE・IDA。globe-mode-exec の sundials-sys が同梱のソースを cmake でビルドする）は
+    # 重く、wasm では使えないので、push の差分の検査には入れず、毎週と手動の全体の検査のときだけ試験する。
+    # cmake はランナー（ubuntu-24.04）に入っている見込み。初回の run で確かめる【未確認】。
+    # CLI の feature は globe-mode → globe-mode-exec → globe-mode-sim に伝わるが、exec と sim の試験も
+    # sundials つきで回すため、3 つの crate を明示する。
+    needs: plan
+    if: needs.plan.outputs.full == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+        with:
+          install_args: rust
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # sundials つきの成果物は、rust-linux のキャッシュと分ける
+          key: sundials
+      - run: cargo test -p globe-mode-cli -p globe-mode-exec -p globe-mode-sim --features sundials
 
   msl:
     # MSL 4.1.0 の例題 20 本で、globe check と Rumoca の CLI を突き合わせる（P1 の完了条件）。
