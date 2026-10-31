@@ -117,7 +117,7 @@ jobs:
 
       - name: 成果物の大きさ
         run: |
-          ls -l "$DESKTOP"/target/release/bundle/${{ matrix.bundle }}/ | tee -a "$GITHUB_STEP_SUMMARY"
+          ls -l "$DESKTOP"/target/release/bundle/${{ matrix.bundle }}/*.${{ matrix.bundle }} | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: smoke（.deb を入れ、xvfb でアプリを起動して sidecar に検査させる。最大の常駐メモリも記録する）
         if: runner.os == 'Linux'
@@ -126,7 +126,7 @@ jobs:
           WEBKIT_DISABLE_DMABUF_RENDERER: "1"
           WEBKIT_DISABLE_COMPOSITING_MODE: "1"
         run: |
-          DEB="$(ls "$DESKTOP"/target/release/bundle/deb/*.deb)"
+          DEB="$(find "$PWD/$DESKTOP/target/release/bundle/deb" -maxdepth 1 -type f -name '*.deb')"
           sudo apt-get install -y "$DEB"
           PKG="$(dpkg-deb -f "$DEB" Package)"
           dpkg -L "$PKG" | grep -E '^/usr/(bin|lib)' | tee -a "$GITHUB_STEP_SUMMARY"
@@ -141,5 +141,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-${{ matrix.name }}
-          path: ${{ env.DESKTOP }}/target/release/bundle/${{ matrix.bundle }}/*
+          path: ${{ env.DESKTOP }}/target/release/bundle/${{ matrix.bundle }}/*.${{ matrix.bundle }}
           if-no-files-found: error

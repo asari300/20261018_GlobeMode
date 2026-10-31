@@ -364,6 +364,12 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **GitHub Actions の結果を取り込んだ**: `msl-sim.yml` の run 41174276501 の artifact で [msl-funnel.md](msl-funnel.md) と [msl-sim.md](msl-sim.md) を更新した。数字は 2026-10-24 の手元の実行と同じ（funnel: OK 369・GM-U 184・NG 13・panic 0、sim: 実行できた 309・管に収まった 301/308）。違うのは回し直し 13 → 12 本（実行できた 2 → 1）と時間・メモリ。ランナーで 2 回回し（run 41170414005 と 41174276501）、前回との差は 0（前回の JSON は actions/cache から戻った）。所要は msl-sim ジョブで 85 分・79 分。
 - **分割読み込みは全例題で全部読みと一致**: ジョブ `split-all`（S043）で MSL の 566 本すべての `CheckReport` が一致（`GM_SPLIT_FRESH=1`、試験 2932 s、ジョブ 61 分）。S037 の持ち越しを閉じた。
 
+### S049（P4、2026-10-31）で済んだこと
+
+- **Desktop の Tauri 2 のシェル**（計画書の WP-C）: `src/Rust/apps/desktop`（**別の Cargo workspace**。自分の `Cargo.lock` を持ち、ルートの workspace・差分 CI に webkit2gtk を持ち込まない）。同梱の `globe` を sidecar（`externalBin`）にして `globe lsp --library ...` で起動し、UI の `invoke("rpc" | "notify")` を stdio の JSON-RPC に中継する。facade はリンクしない。`globe/simulate` の予算 180 s を超えたら kill して作り直し、開いているファイルを再生する（[ADR-0023 の結果](adr/0023-desktop-and-web-process-layout.md)）。
+- **`globe lsp` の独自の要求**: `globe/check`・`globe/simulate`・`globe/graph`（中身は protocol の JSON）。UI 側は `src/Svelte/src/lib/tauri-backend.ts`（`TauriBackend`。`@tauri-apps/api` なし）。App.svelte の切り替えは未了。
+- **`.github/workflows/desktop.yml`**（手動）: .deb（ubuntu-24.04）と .msi（windows-2025）を artifact `desktop-linux`・`desktop-windows` に出す。結果と大きさは [作業記録](../log/work/2026-10-31-s049-desktop-tauri.md)。Tauri のライセンスは [licenses.md](licenses.md)（MPL-2.0 の 5 crate を desktop の `deny.toml` の例外に）。
+
 **S017 の最初にやること（ユーザーの指示、2026-10-22）**: Claude の実行場所を Raspberry Pi（aarch64）に移す。RPi での最初のセッションでは、下の候補より先に次を片付ける。**S017 で済んだ（上）。**
 
 - **`cargo xtask fetch-rumoca` を aarch64 に対応させる**: 今は Linux x86_64 でないと断る（`src/Rust/xtask/src/main.rs:468`）。Rumoca の v0.10.2 には `rumoca-linux-aarch64` がある（sha256 `c12704c0f04af338dc32ab35801e45c322f9d64a26e0555a9f2b0b5901a2f7a9`、静的リンクの ELF。https://github.com/CogniPilot/rumoca/releases/tag/v0.10.2 、2026-10-22 確認。ARM の機械では動かしていない）。`target_arch` で URL・sha256・ファイル名を選び、`msl-compare` の `--rumoca` の既定も同じ名前にする。`mise run msl:compare` で突き合わせが通ることを確かめる。

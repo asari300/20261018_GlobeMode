@@ -57,3 +57,20 @@ UI（Svelte）のプロセスでは検査も実行もしない。計算は 1 つ
 - [architecture.md §4](../architecture.md#4-ターゲットごとの実行方法) の Desktop と Android の行を「`globe` の sidecar（stdio の JSON-RPC）」に書き換えた。Android は Tauri の sidecar が使えない可能性があり【未確認】、P6 で決める。
 - 測定（背景の表）の数字を、P4 の完了条件「RSS の基準値を記録する」の最初の値にする。
 - 持ち越し: sidecar の独自の要求の名前と形（WP-C）、Android のプロセス構成（P6）、線形メモリの上限 2 GiB の実測（P6）。
+
+### S049 で決まったこと（WP-C、2026-10-31）
+
+- **Tauri のシェルは別の Cargo workspace**（`src/Rust/apps/desktop`）。自分の `[workspace]` と `Cargo.lock`（406 パッケージ）を持ち、ルートの workspace に入れない。webkit2gtk を要求するので、手元と差分 CI の `cargo build --workspace` に巻き込まないため。依存は `tauri` 2 と `serde_json` だけで、facade `globe-mode` はリンクしない（desktop の `deny.toml` の `bans` で守る）。ビルドは [desktop.yml](../../.github/workflows/desktop.yml)（手動だけ）。
+- **独自の要求の名前と形**（`globe lsp` の同じ接続。実装は `globe-mode-lsp`）:
+
+  | 要求 | params | result |
+  | --- | --- | --- |
+  | `globe/check` | `{model}` | `CheckResponse` の JSON |
+  | `globe/simulate` | `{request}`（`SimulateRequest` の JSON） | `SimulateResponse` の JSON |
+  | `globe/graph` | `{model, depth}` | graphology の JSON（`ConnectGraph::to_graphology`） |
+
+  params が読めなければ -32602、モデルが無いなどの失敗は -32000（`message` に理由）。ファイルは標準の `textDocument/didOpen`（UI の `setFile`）で渡す。
+- **UI から sidecar まで**: Svelte の `TauriBackend`（`src/Svelte/src/lib/tauri-backend.ts`）→ `window.__TAURI__.core.invoke("rpc" | "notify", {method, params})` → Rust の `Worker`（`src/worker.rs`。stdio の枠、1 度に 1 要求）→ `globe lsp`。サーバの通知（`publishDiagnostics`）はイベント `globe-notification`。`@tauri-apps/api` は入れない。
+- **sidecar の起動と作り直し**: `tauri.conf.json` の `externalBin` が `binaries/globe`（CI が target triple 付きの名前で置く）。実行ファイルと同じ場所の `globe` を `globe lsp --library <DIR>...` で起動し、`--library` の引数と環境変数 `GLOBE_LIBRARY` で MSL を渡す。**予算の kill も入れた**: `globe/simulate` は 180 s を超えたらプロセスを kill し、次の要求で作り直す。開いているファイル（`didOpen`・`didChange`、`globe/simulate` の `files`）は作り直しで再生する。落ちた（panic・OOM）ときも同じ。検査には予算を付けない（ADR-0018）。
+- **CI の成果物**: artifact `desktop-linux`（.deb、ubuntu-24.04）と `desktop-windows`（.msi、windows-2025）。大きさと run の ID は [作業記録](../../log/work/2026-10-31-s049-desktop-tauri.md)。Linux では .deb を入れて xvfb でアプリを起動する smoke（sidecar に 1 モデルを検査させる）と、最大の常駐メモリの記録も回す。
+- **持ち越し**: App.svelte の `WorkerBackend` と `TauriBackend` の切り替え（`inTauri()`）、MSL を同梱するか取得するか（今は `--library` か `GLOBE_LIBRARY`）、署名と自動更新、MSL を読んだ後の Desktop 全体の RSS（smoke は MSL なし）、`didOpen` が毎回全モデルの検査（診断）を回す点（静かな `globe/setFile` を足す案）。
