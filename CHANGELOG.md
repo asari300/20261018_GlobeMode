@@ -4,7 +4,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
-v0.1.0 に向けた S001〜S041 の要点。version はまだ 0.0.1 で、crates.io には出していない（Rumoca の git 依存。[ADR-0002](doc/adr/0002-rumoca-adapter.md)）。
+v0.1.0 に向けた S001〜S047 と S052 の要点。version はまだ 0.0.1 で、crates.io には出していない（Rumoca の git 依存。[ADR-0002](doc/adr/0002-rumoca-adapter.md)）。
 
 ### 運用・計画（P0）
 
@@ -39,6 +39,8 @@ v0.1.0 に向けた S001〜S041 の要点。version はまだ 0.0.1 で、crates
 - S032・S034: feature `sundials` を立てたビルドだけに SUNDIALS 7.1.1 の `cvode` と `ida` を足した（既定・wasm・CI のビルドは変わらない）。
 - S036: wasm を Web Worker で（ブラウザの module Worker と Node の `worker_threads` で共用）。panic の後は作り直して再生する。
 - S037: wasm の MSL の分割読み込み。読み込み後の線形メモリ 262 → 62 MiB、`ChuaCircuit` の後 513 → 113 MiB。`msl:funnel`・`msl:sim` を GitHub Actions で手動で回すワークフロー。
+- S043: 分割読み込みを MSL の全例題で全部読みと突き合わせる道（`tests/split.rs` の `GM_SPLIT_MODELS`・`GM_SPLIT_FRESH`、`msl-sim.yml` のジョブ `split-all`）。
+- S047: GitHub Actions の `msl-sim.yml` の結果で `doc/msl-funnel.md`・`doc/msl-sim.md` を更新（OK 369、実行できた 309、管に収まった 301/308、前回との差 0）。分割読み込みは MSL の 566 本すべてで全部読みと一致。
 
 ### P4 UI・LSP
 
@@ -46,6 +48,14 @@ v0.1.0 に向けた S001〜S041 の要点。version はまだ 0.0.1 で、crates
 - S038: stdio の LSP サーバ `globe lsp`（診断・documentSymbol・hover）。
 - S040: [ADR-0023](doc/adr/0023-desktop-and-web-process-layout.md) Desktop と Web のプロセス構成（Desktop は `globe` を Tauri の sidecar に、Web は Web Worker のまま）。コードは変えていない。
 - S041: `src/Svelte` にブラウザ UI の骨格（Svelte 5 + CodeMirror 6 + `WorkerBackend` + 診断パネル）。wasm に `check` を足した。
+- S042: 実行とプロットの UI（「実行」ボタン、uPlot の `Plot.svelte`、CSV の列分け）。npm は uPlot（MIT）を足して 58 パッケージ、GPL・NC は 0。
+- S046: connect グラフの表示（wasm の `graph`、sigma 4 + graphology + ForceAtlas2 の `Graph.svelte`、ノードのクリックで `onSelect`）。合成 5k ノード・約 1 万辺はヘッドレスで約 10 fps（参考値）。
+
+### P8 リリース・運用
+
+- S044: `globe` を linux x86_64・linux aarch64・windows x86_64 で配るワークフロー `release.yml`（タグ `v*` で Release、手動は dry-run、`SHA256SUMS` つき）、この `CHANGELOG.md`、Cargo の metadata、README の Install。
+- S045: 上流（Rumoca 11 件・diffsol 3 件）への issue の下書きを `doc/research/upstream/` に 14 件。ci.yml に毎週と手動の全体の検査のときだけ走る `rust-sundials`。
+- S052: 配布物に cargo-about で作ったサードパーティのライセンス表 `THIRD-PARTY.md` を同梱（`about.toml`・`about.hbs`、`release.yml` のジョブ `third-party`）。
 
 ### P7 言語 API
 

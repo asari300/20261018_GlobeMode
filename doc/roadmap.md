@@ -368,6 +368,12 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 
 - **ブラウザ UI で MSL を読み、ChuaCircuit の検査・実行・プロットが通った**（P4 の完了条件の前半）: `src/Svelte/scripts/pack-msl.mjs` が `data/msl` の `.mo`（2556 ファイル）を `public/msl/MSL.json`（15.2 MiB、`.gitignore` 済み）にし、`prepare-wasm` の段で呼ぶ（`data/msl` が無ければ警告だけ）。`Backend.library(name, json)` と `WorkerBackend` が `GlobeWorker.library` を呼び、`App.svelte` の「MSL を読む」ボタン（起動時は読まない）で読む。ヘッドレス Chromium で MSL を読む 0.5〜1.0 s、ChuaCircuit の検査 約 2 s（error 0）、実行（bdf）約 1.5 s（5 万点、44 信号）。`tests/test_ui.py` に試験、ci.yml の `ui` ジョブに `data/msl` の cache と `fetch-msl`。wasm・worker・client は変えていない。
 - 持ち越し: ライブラリのモデルの `graph`（「索引に無い」と赤字で出る）、実ブラウザでの計測、ライブラリツリー、LSP、Tauri のシェル。詳しくは [解説書](sessions/S048-ui-msl/解説書.md)。
+### S052（P8 の 2 回目、2026-10-31）で済んだこと
+
+- **release.yml の dry-run と配布物のライセンス表**（S044 の持ち越し）: feature ブランチで `gh workflow run release.yml --ref feature/s052-release-rc1-about`（run 41195617479、約 3.5 分）が success。artifact は `globe-x86_64-unknown-linux-gnu`（17,266,507 バイト）・`globe-aarch64-unknown-linux-gnu`（15,732,498）・`globe-x86_64-pc-windows-msvc`（14,763,818）と `SHA256SUMS`。タグは打っていない。
+- **`THIRD-PARTY.md`**: ジョブ `third-party` が cargo-about 0.9.2（`cargo install --locked --features cli`）で `globe-mode-cli` の依存 325 crate（Apache-2.0 240・MIT 67・Unicode-3.0 19・Zlib 2・BSD-2-Clause 1・ISC 1、338,277 バイト）の表を作り、3 つのビルドが各アーカイブに同梱する。`about.toml` の `accepted` は deny.toml の allow と同じ 10 個で、許可外があれば `--fail` で落ちる。[licenses.md](licenses.md) の 3・4 と末尾の節を直した。
+- `CHANGELOG.md` に S042〜S047 と S044・S045・S052 の項目を足した。
+- 持ち越し: タグ `v0.1.0-rc1` の Release（ユーザーが打つ）、npm・wasm・wheel のライセンス表、CycloneDX の SBOM、署名・deb・msi（WP-C）。
 
 **S017 の最初にやること（ユーザーの指示、2026-10-22）**: Claude の実行場所を Raspberry Pi（aarch64）に移す。RPi での最初のセッションでは、下の候補より先に次を片付ける。**S017 で済んだ（上）。**
 
