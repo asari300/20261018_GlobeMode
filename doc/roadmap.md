@@ -399,6 +399,14 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **MSL を読んだ後の RSS の基準値**（P4 の完了条件）: `desktop.yml`（run 41244465666、Linux・Windows とも成功）の smoke が `data/msl`（`msl-sim.yml` と同じ key で cache）を `GLOBE_LIBRARY` で渡して起動し、`ChuaCircuit` を `globe/check`・`globe/simulate` させる。sidecar の VmHWM は検査の後 1.49 GiB、実行の後 1.52 GiB、アプリは 136 MiB。artifact `desktop-linux-smoke`。結果は [ADR-0023](adr/0023-desktop-and-web-process-layout.md) の S056 の節と [作業記録](../log/work/2026-11-01-s056-desktop-msl.md)。
 - 持ち越し: MSL の置き場（同梱か取得か）、署名と自動更新、静かな `globe/setFile`。
 
+### S057（P5 の準備、2026-11-01）で済んだこと
+
+- **調査**: [research/fmi-2026-11-01.md](research/fmi-2026-11-01.md)。FMI のヘッダ・XSD・Reference-FMUs は 2-Clause BSD（仕様書の文書だけ CC BY-SA 4.0）。Reference-FMUs v0.0.42（zip 4.4 MB、2.0 が 6 本・3.0 が 9 本）。Rust の FMI crate は `fmi` 0.8（MIT OR Apache-2.0、`fmi-sys` が bindgen）、`fmi-rs` 0.3.4（BSD-2、公式 fmusim の基盤、公開から日が浅く wasm32 で build が落ちる）、`fmu-runner`（更新停止）。`fmi-schema` は wasm32 で通る。fmuCheck は開発終了（FMI 1/2 のみ）、検証は fmusim と FMPy。
+- **ADR-0026（Proposed）**: [adr/0026-fmi-import-placement.md](adr/0026-fmi-import-placement.md)。XML は自前（`roxmltree`）、共有ライブラリは Desktop・CLI の別プロセスのワーカーの中だけ、ME は GlobeMode のソルバ。C ABI を自前（推奨）か `fmi` 0.8 かは**ユーザーが決める**。決まったら architecture.md §3.4 を直す（S057 では触っていない）。
+- **骨格**: 新 crate `globe-mode-fmi`。`parse_model_description` が FMI 2.0 / 3.0 の `modelDescription.xml` を `ModelDescription`（変数表と ME / CS / SE の有無）にする。依存は `roxmltree` 0.21 の 1 つ。試験 4 本、wasm32 で `cargo check` が通る。fixture は Reference-FMUs の Dahlquist と Feedthrough の `modelDescription.xml` 4 つ（`tests/data/`、LICENSE 同梱）。
+- **取得**: `cargo xtask fetch-reference-fmus`（Reference-FMUs v0.0.42、sha256 固定、`data/reference-fmus/`、17 ファイル 8.6 MB）。`fetch-msl` の展開部分を `fetch_zip` に括り出して共有した。
+- 持ち越し: ADR-0026 (b) の決定、C ABI の関数の一覧、3.0 の `variability` の既定値、fmi-standard.org の validation のページ。
+
 **S017 の最初にやること（ユーザーの指示、2026-10-22）**: Claude の実行場所を Raspberry Pi（aarch64）に移す。RPi での最初のセッションでは、下の候補より先に次を片付ける。**S017 で済んだ（上）。**
 
 - **`cargo xtask fetch-rumoca` を aarch64 に対応させる**: 今は Linux x86_64 でないと断る（`src/Rust/xtask/src/main.rs:468`）。Rumoca の v0.10.2 には `rumoca-linux-aarch64` がある（sha256 `c12704c0f04af338dc32ab35801e45c322f9d64a26e0555a9f2b0b5901a2f7a9`、静的リンクの ELF。https://github.com/CogniPilot/rumoca/releases/tag/v0.10.2 、2026-10-22 確認。ARM の機械では動かしていない）。`target_arch` で URL・sha256・ファイル名を選び、`msl-compare` の `--rumoca` の既定も同じ名前にする。`mise run msl:compare` で突き合わせが通ることを確かめる。
