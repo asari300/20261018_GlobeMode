@@ -38,7 +38,7 @@
 - wheel: `globe_mode-0.1.0-cp312-abi3-linux_x86_64.whl` 17,281,282 バイト（17.3 MB。中の `_native.abi3.so` は 54 MB）。
 - `cargo deny check`: advisories / bans / licenses / sources ok。新しい crate は pyo3 0.30.1 と pyo3-ffi・pyo3-macros・pyo3-macros-backend・pyo3-build-config（MIT OR Apache-2.0）。
 - `test_ci_plan.py`: 22 本 OK。
-- `check_docs.py`: デッキ 44 件 OK / リンク 994 件中の切れ 0 件
+- `check_docs.py`: デッキ 44 件 OK / リンク 1035 件中の切れ 0 件（main の S040 を取り込んだ後）
 - `render_slides.py`: 問題 0 件
 - セッション記録の `--check`: 取りこぼし 0 件
 - ステージした差分の漏洩検査: 0 件
