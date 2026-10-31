@@ -10,6 +10,8 @@ uv     = "0.13.1"                    # pyproject.toml の build-backend は matu
 rust   = { version = "stable", profile = "default", components = ["rust-analyzer"], targets = "wasm32-unknown-unknown,wasm32-wasip2,aarch64-linux-android" }  # edition 2024 は 1.85 以上。rust-toolchain.toml は置かない
 cargo-deny = "0.20.2"             # ライセンスと依存の監査（doc/licenses.md）
 "github:wasm-bindgen/wasm-bindgen" = "0.2.129"  # S012: wasm の束ねの JS の糊（wasm-bindgen --target nodejs）。版は Cargo.lock の wasm-bindgen と必ず同じにする
+node   = "24.22.0"                   # S041: src/Svelte のビルド（Vite）と wasm の Node 試験。版は ADR-0003 と同じく mise.lock で固定
+pnpm   = "12.14.0"                   # S041: src/Svelte の npm 依存。ロックは src/Svelte/pnpm-lock.yaml
 zig    = "latest"
 julia  = "latest"
 erlang = "27"                      # いま apt で入っている組み合わせと同じ
@@ -94,6 +96,28 @@ set -eu
 T="${CARGO_TARGET_DIR:-target}"
 cargo build --release -q -p globe-mode-cli
 node src/Rust/mod/globe-mode-wasm/node/compare.mjs --globe "$T/release/globe"
+"""
+
+[tasks."ui:build"]
+description = "ブラウザ UI（src/Svelte）をビルドする（S041。wasm:build の出力を public/wasm/ にコピーして vite build。先に wasm:build が要る）"
+run = """
+set -eu
+cd src/Svelte
+pnpm install --frozen-lockfile
+pnpm build
+"""
+
+[tasks."ui:check"]
+description = "ブラウザ UI の検査（S041。svelte-check と、Playwright の Chromium で Decay と特異なモデルを検査する試験）"
+depends = ["wasm:build"]
+run = """
+set -eu
+cd src/Svelte
+pnpm install --frozen-lockfile
+pnpm check
+pnpm build
+cd ../..
+uv run python src/Svelte/tests/test_ui.py
 """
 
 [tasks."docs:check"]

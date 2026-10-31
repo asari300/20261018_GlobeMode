@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S041 ブラウザ UI の骨格 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S041 ブラウザ UI の骨格">
+
+<section class="slide" id="S01">
+  <span class="tag">S041 · 2026-10-31 · P4</span>
+  <h1>ブラウザ UI の骨格（Svelte 5）</h1>
+  <p class="lead">計画書の WP-B。Backend インターフェース、WorkerBackend（wasm を Web Worker で）、CodeMirror 6、診断パネル</p>
+  <div class="big">UI のプロセスでは計算しない（ADR-0023）。計算は <b>GlobeWorker</b> 越しの wasm だけ</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li><code>src/Svelte</code> に pnpm + Vite + Svelte 5 + TypeScript の最小の UI</li>
+    <li><code>Backend { setFile, check, simulate }</code> と、S036 の <code>GlobeWorker</code> を包む <code>WorkerBackend</code></li>
+    <li>CodeMirror 6 のエディタ、モデル名、「検査」、診断の一覧（段と重さで並べ、押すと範囲へ飛ぶ）</li>
+    <li>Tauri・プロット・グラフ・実行の UI は入れない。CSP は <code>connect-src 'self'</code> のまま</li>
+    <li>実装は <b>Sonnet（effort high）のサブエージェント 1 人</b>。Fable はコードを読み、作り直しの無限ループを直した</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定</span>
+  <h1>小さく保つための判断</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>wasm の check</td><td><code>Workspace::check(model)</code> を wasm と worker.js・client.js に足した（所有の例外）</td><td>検査パネルは実行せずに診断が要る。facade の check を JSON で返すだけ</td></tr>
+    <tr><td>型</td><td>protocol の構造体から TypeScript の型を手で書く（UI が使う項目だけ）</td><td>JSON Schema はまだ無い（WP-0 の持ち越し）</td></tr>
+    <tr><td>試験</td><td>Python の Playwright 1 本（<code>dist/</code> を localhost で配る）</td><td>Playwright は既に開発依存。npm の試験の枠を足さない</td></tr>
+    <tr><td>起動で落ちた worker</td><td>作り直さず、以後の呼び出しを reject</td><td>worker.js が読めないと 8 秒に 914 回の GET で無限に作り直していた</td></tr>
+    <tr><td>MPL-2.0</td><td>Vite 8 が引く lightningcss（ビルド時だけ）は cbindgen と同じくツールとして許可</td><td>dist にも配布物にも入らない。prod の 12 個は全部 MIT</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>流れ</h1>
+  <svg class="fig" viewBox="0 0 900 260" role="img" aria-label="App.svelte が Backend を通して WorkerBackend を呼び、GlobeWorker が Web Worker の wasm に postMessage する">
+    <rect class="svg-box" x="20" y="60" width="200" height="60" rx="10"/>
+    <text class="svg-text-b" x="120" y="96" text-anchor="middle">App.svelte</text>
+    <rect class="svg-box-accent" x="300" y="60" width="240" height="60" rx="10"/>
+    <text class="svg-text-b" x="420" y="96" text-anchor="middle">WorkerBackend</text>
+    <rect class="svg-box-accent2" x="640" y="60" width="240" height="60" rx="10"/>
+    <text class="svg-text-b" x="760" y="96" text-anchor="middle">Web Worker（wasm）</text>
+    <line class="svg-line-accent" x1="220" y1="90" x2="300" y2="90"/>
+    <text class="svg-text-m" x="260" y="78" text-anchor="middle">Backend</text>
+    <line class="svg-line" x1="540" y1="90" x2="640" y2="90"/>
+    <text class="svg-text-m" x="590" y="78" text-anchor="middle">GlobeWorker</text>
+    <text class="svg-text" x="450" y="180" text-anchor="middle">setFile → check → 診断を S0〜S10 と error / warning / info で並べる → 押すと範囲へ（UTF-8 のバイト → UTF-16）</text>
+    <text class="svg-text-m" x="450" y="225" text-anchor="middle">panic の後は作り直して再生。起動で落ちたら作り直さない</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">検証</span>
+  <h1>通したもの</h1>
+  <div class="kpis">
+    <div class="kpi"><span class="n">0</span><span class="l">svelte-check の誤り（151 ファイル）</span></div>
+    <div class="kpi"><span class="n">324 kB</span><span class="l">JS（gzip 108 kB、wasm 14.6 MB は別）</span></div>
+    <div class="kpi"><span class="n">57</span><span class="l">npm パッケージ。GPL・NC は 0</span></div>
+  </div>
+  <ul>
+    <li><code>mise run ui:check</code>: Decay は error 0 行（info の GM-I10001 が 1 行）、Bad は GM-E5002 が 1 行、押すと <code>Bad</code> が選択される。console の error 0</li>
+    <li><code>mise run check</code> 543 本通過、<code>wasm:node</code> と worker-node.mjs（作り直し 1 回、起動で落ちたら 0 回）、<code>test_ci_plan.py</code> 23 本</li>
+  </ul>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>積み残し</h1>
+  <ul>
+    <li>WP-D（プロット）・WP-E（connect グラフ）・実行の UI。<code>simulate</code> はインターフェースだけ</li>
+    <li>WP-C（Tauri）: <code>TauriBackend</code> が sidecar の <code>globe</code> に同じ Backend で話す（ADR-0023）</li>
+    <li>protocol の JSON Schema から TypeScript の型を生成する（今は手書き）</li>
+    <li>ヘッドレス Chromium の最初のページで frame が出ず screenshot と素の click が詰まる（WSL の環境。素の HTML でも起きる）。試験は force の click で回している</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

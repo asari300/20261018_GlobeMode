@@ -119,6 +119,8 @@ flowchart LR
 
 ### WP-B ブラウザ UI の骨格（モデル B、WP-0 と WP-F の後）
 
+**S041 で実施（済）**。wasm に `check` を足した（所有の例外）。TypeScript の型は手書き（JSON Schema は未着手）。試験は Python の Playwright。
+
 ```text
 目的: src/Svelte に Svelte 5 + TypeScript の最小の UI。Backend インターフェース、WorkerBackend（wasm を Web Worker で）、CodeMirror 6 のエディタ、検査パネル（診断の一覧）。Tauri・プロット・グラフは入れない。
 先に読む: src/Svelte/README.md、doc/architecture.md §4、doc/adr/0004-ui-tauri-svelte.md、WP-0 の JSON Schema、WP-F の wasm の糊。

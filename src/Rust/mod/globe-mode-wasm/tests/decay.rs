@@ -207,3 +207,15 @@ fn msl_library_in_memory_vs_documents() {
         assert_eq!(v.to_bits(), b[k].to_bits(), "{k}");
     }
 }
+
+#[test]
+fn check_returns_diagnostics_without_running() {
+    let mut ws = Workspace::new();
+    ws.put_file(
+        "Bad.mo",
+        "model Bad Real x; equation der(x) = -x; x = 1; end Bad;",
+    );
+    let v: serde_json::Value = serde_json::from_str(&ws.check("Bad").unwrap()).unwrap();
+    assert_eq!(v["passed"], false);
+    assert!(!v["diagnostics"].as_array().unwrap().is_empty(), "{v}");
+}

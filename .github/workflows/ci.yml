@@ -44,6 +44,7 @@ jobs:
       rust_packages: ${{ steps.plan.outputs.rust_packages }}
       wasm: ${{ steps.plan.outputs.wasm }}
       wasm_node: ${{ steps.plan.outputs.wasm_node }}
+      ui: ${{ steps.plan.outputs.ui }}
       deny: ${{ steps.plan.outputs.deny }}
       python: ${{ steps.plan.outputs.python }}
       docs: ${{ steps.plan.outputs.docs }}
@@ -129,6 +130,38 @@ jobs:
         run: |
           W=target/wasm-pkg/node/globe_mode_wasm_bg.wasm
           echo "wasm: $(stat -c %s "$W") bytes（gzip $(gzip -9c "$W" | wc -c) bytes）" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  ui:
+    # S041: ブラウザ UI（src/Svelte）。release の wasm（--target web の糊を含む）をビルドして UI に載せ、
+    # svelte-check と Playwright の Chromium での試験（Decay と特異なモデルの検査）を回し、npm のライセンスを一覧する
+    needs: plan
+    if: needs.plan.outputs.ui == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+        with:
+          install_args: rust github:wasm-bindgen/wasm-bindgen node pnpm uv
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: wasm-node
+      - run: uv sync --locked && uv run playwright install --with-deps chromium
+      - name: ui:check（wasm:build、svelte-check、vite build、Playwright）
+        env:
+          MISE_TASK_RUN_AUTO_INSTALL: "false"
+        run: mise run ui:check
+      - name: npm のライセンス
+        working-directory: src/Svelte
+        run: |
+          pnpm licenses list --json | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          print({k: len(v) for k, v in d.items()})
+          bad = [k for k in d if 'GPL' in k or '-NC' in k]
+          sys.exit(f'禁止のライセンス: {bad}' if bad else 0)
+          " | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: JS の大きさ
+        run: du -sk src/Svelte/dist/assets | tee -a "$GITHUB_STEP_SUMMARY"
 
   deny:
     needs: plan

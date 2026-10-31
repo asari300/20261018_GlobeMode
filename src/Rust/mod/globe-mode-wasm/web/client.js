@@ -13,6 +13,7 @@ export class GlobeWorker {
   #make; #init; #w; #pending = new Map(); #id = 0;
   #lib = null; #files = new Map(); // 再生用の記憶
   #ready; #tail = Promise.resolve();
+  #alive = false; // init が終わった worker か（終わる前に落ちたら作り直さない）
 
   constructor(make, init) {
     this.#make = make;
@@ -33,6 +34,7 @@ export class GlobeWorker {
       w.addEventListener("error", (e) => fail(e.error ?? e.message));
     }
     return this.#raw("init", this.#init).then(async () => {
+      this.#alive = true;
       if (this.#lib) await this.#raw("library", this.#lib);
       for (const [name, text] of this.#files) await this.#raw("set_file", { name, text });
     });
@@ -55,12 +57,21 @@ export class GlobeWorker {
   }
 
   // 現在の worker を捨てて作り直す。w が古い（既に作り直した）ときは何もしない
+  // 起動（init）が終わる前に落ちたときは作り直さない（worker.js や wasm が読めないと無限に作り直して要求を出し続けるため。
+  // S041 で 8 秒に 914 回の GET を確認）。以後の呼び出しはその誤りで reject する
   #die(w, err) {
     if (w !== this.#w) return;
     this.#w = null;
-    for (const p of this.#pending.values()) p.reject(err ?? new Error("worker を作り直した"));
+    err ??= new Error("worker を作り直した");
+    for (const p of this.#pending.values()) p.reject(err);
     this.#pending.clear();
     w.terminate?.();
+    if (!this.#alive) {
+      this.#ready = Promise.reject(err);
+      this.#ready.catch(() => {});
+      return;
+    }
+    this.#alive = false;
     this.restarts++;
     this.#ready = this.#start();
     this.#ready.catch(() => {}); // 失敗は次の呼び出しが受ける
@@ -80,6 +91,7 @@ export class GlobeWorker {
   }
   async setFile(name, text) { await this.#call("set_file", { name, text }); this.#files.set(name, text); }
   async removeFile(name) { const r = await this.#call("remove_file", { name }); this.#files.delete(name); return r; }
+  async check(model) { return JSON.parse(await this.#call("check", { model })); }
   async simulate(request) { return JSON.parse(await this.#call("simulate", { request: JSON.stringify(request) })); }
   version() { return this.#call("version"); }
   async solvers() { return JSON.parse(await this.#call("solvers")); }

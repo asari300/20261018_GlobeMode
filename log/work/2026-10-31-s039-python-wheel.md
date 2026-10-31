@@ -42,7 +42,7 @@
 - `render_slides.py`: 問題 0 件
 - セッション記録の `--check`: 取りこぼし 0 件
 - ステージした差分の漏洩検査: 0 件
-- CI: {{CI}}
+- CI: run 41168599319（全体）: plan / rust-linux / rust-windows / python / deny / msl / wasm-node / docs がすべて success。main のマージは 1020298
 
 ## 残したこと
 
