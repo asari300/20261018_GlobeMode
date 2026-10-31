@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S050 solver-matrix-ci — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S050 solver-matrix-ci">
+
+<section class="slide" id="S01">
+  <span class="tag">S050 · 2026-10-31 · P3</span>
+  <h1>solver-matrix-ci</h1>
+  <p class="lead">ソルバごとの MSL の結果を GitHub Actions で 1 枚の表にする</p>
+  <div class="big">15 ソルバが 356 本を実行</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>ソルバごとに、実行できた本数と参照結果の管に収まった本数を出す</li>
+    <li>手元（RAM 3 GB）では回せないので、Actions の matrix で並列に回す</li>
+    <li>roadmap P8「ソルバの表がそろう」の準備</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>どのソルバを並べたか</h1>
+  <table class="compact">
+    <tr><th>入れた</th><th>入れない</th><th>理由</th></tr>
+    <tr><td>bdf・dopri45・esdirk34・trbdf2・tsit45</td><td>esdirk23</td><td>trbdf2 と同じ方法</td></tr>
+    <tr><td>esdirk45・sdirk34hw・dopri853</td><td>euler・heun・rk4</td><td>固定刻みは既定の刻みで精度が足りない</td></tr>
+    <tr><td>cerk23・cerk34・cerk45・radau5</td><td>impeuler・trapezoid</td><td>同上</td></tr>
+    <tr><td>cvode・ida（sundials つき）</td><td>qss</td><td>硬い系は上限で止まり、時間がかかる</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>ジョブの流れ</h1>
+  <svg viewBox="0 0 640 170" role="img" aria-label="msl-sim から solvers を経て solvers-report へ">
+    <rect class="svg-box" x="10" y="60" width="130" height="50" rx="6"/>
+    <text class="svg-text" x="75" y="90" text-anchor="middle">msl-sim</text>
+    <rect class="svg-box" x="250" y="10" width="140" height="40" rx="6"/>
+    <text class="svg-text" x="320" y="35" text-anchor="middle">solvers (bdf)</text>
+    <rect class="svg-box" x="250" y="65" width="140" height="40" rx="6"/>
+    <text class="svg-text" x="320" y="90" text-anchor="middle">solvers (…14 本)</text>
+    <rect class="svg-accent" x="250" y="120" width="140" height="40" rx="6"/>
+    <text class="svg-text" x="320" y="145" text-anchor="middle">solvers (cvode/ida)</text>
+    <rect class="svg-box" x="500" y="60" width="130" height="50" rx="6"/>
+    <text class="svg-text" x="565" y="90" text-anchor="middle">solvers-report</text>
+    <path class="svg-line" d="M140 85 L250 30 M140 85 L250 85 M140 85 L250 140 M390 30 L500 85 M390 85 L500 85 M390 140 L500 85"/>
+  </svg>
+  <p>funnel の JSON を artifact で渡し、各ジョブは同じ入力で別のソルバを回す。</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">結果</span>
+  <h1>ソルバ別の実行と管（run 41194959752）</h1>
+  <table class="compact">
+    <tr><th>ソルバ</th><th>実行</th><th>管 / 比べた</th></tr>
+    <tr><td>auto</td><td>309</td><td>301 / 308</td></tr>
+    <tr><td>bdf</td><td>301</td><td>293 / 300</td></tr>
+    <tr><td>esdirk34</td><td>294</td><td>285 / 293</td></tr>
+    <tr><td>cvode</td><td>294</td><td>281 / 293</td></tr>
+    <tr><td>ida</td><td>289</td><td>283 / 288（98.3%）</td></tr>
+    <tr><td>dopri853</td><td>283</td><td>270 / 282（最少）</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">結果</span>
+  <h1>読み取れること</h1>
+  <ul>
+    <li>どのソルバも 283〜301 本実行でき、管の割合は 95〜98%</li>
+    <li>auto（309）が最多。bdf の内部エラー 10 本を dopri45 の回し直しで救う</li>
+    <li>時間切れは陽的 RK と SUNDIALS で 14〜27 本、bdf は 2 本</li>
+    <li>cvode・ida は cmake でビルドでき、そのまま動いた</li>
+  </ul>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">再現手順</span>
+  <h1>再現</h1>
+  <pre><code>gh workflow run msl-sim.yml
+gh run download &lt;run-id&gt; -n msl-solvers
+# 各ソルバの JSON: -n msl-sim-solver-&lt;名前&gt;</code></pre>
+</section>
+
+<section class="slide" id="S08">
+  <span class="tag">次回</span>
+  <h1>次にやること</h1>
+  <ul>
+    <li>時間切れの多いソルバ（cerk23・cerk34）の予算を見直す</li>
+    <li>固定刻みと qss は刻み幅つきの回し方を決めてから</li>
+    <li>解説書: <a href="解説書.md">解説書.md</a></li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
