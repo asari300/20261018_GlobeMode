@@ -43,6 +43,7 @@
   | --- | --- | --- |
   | 41195285155 | 失敗（Linux の smoke だけ） | .deb は作れた。`apt-get install` に渡した .deb のパスの探し方が悪かった（`ls` のグロブ。相対パスのまま渡した）。Windows の途中で次の push に置き換えて取り消し |
   | **41196686607** | **成功（ui・Linux・Windows）** | Linux 12 分 39 秒、Windows 17 分 46 秒（rust-cache が空の初回。`globe` の release ビルドが大半） |
+  | 41206718466 | 成功（main で `gh workflow run desktop.yml`） | 最終版（`workflow_dispatch` だけ）の確認。main の CI run 41206689527 も全ジョブ成功 |
 
 - run 41196686607 の artifact:
 
