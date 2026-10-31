@@ -2,6 +2,7 @@
 //!
 //! ```text
 //! cargo xtask fetch-msl        MSL 4.1.0 を data/msl/ に取得する（sha256 で確かめる）
+//! cargo xtask fetch-library   MSL 以外の公開ライブラリを data/libs/<名前>/ に取得する（S058）
 //! cargo xtask fetch-rumoca     Rumoca の CLI（v0.10.2、Linux x86_64）を data/rumoca/ に取得する
 //! cargo xtask msl-compare      MSL の例題で globe check と Rumoca の CLI を突き合わせる
 //! cargo xtask msl-funnel       MSL の全例題（566 本）に globe check の判定を出し、報告を書く
@@ -13,6 +14,8 @@
 //! ```
 //!
 //! ダウンロードは `curl` を呼ぶ（Linux・Windows 10 以降・CI のランナーに入っている）。
+
+#![recursion_limit = "256"] // funnel.rs の json! が S058 の欄で 128 を超えた
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -27,6 +30,7 @@ use globe_mode_frontend::{Frontend, RumocaFrontend};
 use sha2::{Digest, Sha256};
 
 mod funnel;
+mod libs;
 mod omc;
 mod reference;
 mod sim;
@@ -78,6 +82,22 @@ enum Cmd {
         #[arg(long, default_value = "data/msl")]
         dest: PathBuf,
     },
+    /// MSL 以外の公開ライブラリ（Buildings・AixLib・IBPSA・ClaRa・ThermofluidStream・DeltaRobot・Chemical）を
+    /// commit 固定のアーカイブから `data/libs/<名前>/` に取得する（S058）
+    FetchLibrary {
+        name: String,
+        #[arg(long, default_value = "data/libs")]
+        dest: PathBuf,
+    },
+    /// `<名前>-<分割>-funnel.json` と `-sim.json` を集めて、ライブラリ別の表を書く（S058）
+    LibrariesReport {
+        /// JSON のあるディレクトリ（下も探す）
+        #[arg(long)]
+        dir: PathBuf,
+        /// Markdown の報告を書くファイル（無ければ標準出力）
+        #[arg(long)]
+        report: Option<PathBuf>,
+    },
     /// Rumoca の CLI を取得する（Linux の x86_64 と aarch64）
     FetchRumoca {
         #[arg(long, default_value = "data/rumoca")]
@@ -100,6 +120,18 @@ enum Cmd {
     MslFunnel {
         #[arg(long, default_value = "data/msl")]
         msl: PathBuf,
+        /// MSL のほかに読むライブラリのディレクトリ（何度でも。`fetch-library` の `data/libs/<名前>`。S058）
+        #[arg(long = "library")]
+        libraries: Vec<PathBuf>,
+        /// 例題を集めるライブラリの根のパッケージ名（`Modelica` なら MSL の例題）
+        #[arg(long, default_value = "Modelica")]
+        package: String,
+        /// 例題を含むパッケージの名前（何度でも。既定 `Examples`。`Scenarios`・`Tests` など）
+        #[arg(long = "examples-in", default_value = "Examples")]
+        example_segments: Vec<String>,
+        /// 例題を n 組に分けた i 組目（`i/n`、1 始まり）だけを検査する。--filter の後、--limit の前に当てる
+        #[arg(long)]
+        shard: Option<String>,
         /// 先頭から N 本だけ検査する（--filter の後に当てる）
         #[arg(long)]
         limit: Option<usize>,
@@ -179,6 +211,12 @@ enum Cmd {
         funnel_json: PathBuf,
         #[arg(long, default_value = "data/msl")]
         msl: PathBuf,
+        /// MSL のほかに読むライブラリのディレクトリ（何度でも。S058）
+        #[arg(long = "library")]
+        libraries: Vec<PathBuf>,
+        /// 報告の見出しに書くライブラリの根のパッケージ名（`Modelica` なら MSL）
+        #[arg(long, default_value = "Modelica")]
+        package: String,
         /// 参照結果の置き場（`fetch-msl-ref` の --dir）
         #[arg(long, default_value = "data/msl-ref")]
         ref_dir: PathBuf,
@@ -238,6 +276,8 @@ enum Cmd {
     MslSimWorker {
         #[arg(long)]
         msl: PathBuf,
+        #[arg(long = "library")]
+        libraries: Vec<PathBuf>,
         #[arg(long)]
         ref_dir: PathBuf,
         #[arg(long)]
@@ -269,6 +309,8 @@ enum Cmd {
 fn main() -> ExitCode {
     let result = match Cli::parse().command {
         Cmd::FetchMsl { dest } => fetch_msl(&dest),
+        Cmd::FetchLibrary { name, dest } => libs::fetch_library(&name, &dest),
+        Cmd::LibrariesReport { dir, report } => libs::libraries_report(&dir, report.as_deref()),
         Cmd::FetchRumoca { dest } => fetch_rumoca(&dest),
         Cmd::MslCompare {
             msl,
@@ -278,6 +320,10 @@ fn main() -> ExitCode {
         } => msl_compare(&msl, &rumoca, &models, report.as_deref()),
         Cmd::MslFunnel {
             msl,
+            libraries,
+            package,
+            example_segments,
+            shard,
             limit,
             filter,
             report,
@@ -286,6 +332,10 @@ fn main() -> ExitCode {
             reset_every,
         } => funnel::msl_funnel(&funnel::Options {
             msl: &msl,
+            libraries: &libraries,
+            package: &package,
+            example_segments: &example_segments,
+            shard: shard.as_deref(),
             limit,
             filter: filter.as_deref(),
             report: report.as_deref(),
@@ -329,6 +379,8 @@ fn main() -> ExitCode {
         Cmd::MslSim {
             funnel_json,
             msl,
+            libraries,
+            package,
             ref_dir,
             fetch_ref,
             jobs,
@@ -349,6 +401,8 @@ fn main() -> ExitCode {
         } => sim::msl_sim(&sim::Options {
             funnel_json: &funnel_json,
             msl: &msl,
+            libraries: &libraries,
+            package: &package,
             ref_dir: &ref_dir,
             fetch_ref,
             jobs,
@@ -369,6 +423,7 @@ fn main() -> ExitCode {
         }),
         Cmd::MslSimWorker {
             msl,
+            libraries,
             ref_dir,
             wall_seconds,
             solver,
@@ -378,6 +433,7 @@ fn main() -> ExitCode {
             tube_tolerance,
         } => sim::worker(&sim::WorkerOptions {
             msl,
+            libraries,
             ref_dir,
             wall_seconds,
             solver,

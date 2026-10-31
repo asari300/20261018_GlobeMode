@@ -30,6 +30,7 @@ log/mise/
 data/msl/
 data/rumoca/
 data/msl-ref/
+data/libs/
 
 # mise
 mise.local.toml

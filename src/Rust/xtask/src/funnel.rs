@@ -14,7 +14,7 @@ use std::fmt::Write as _;
 use std::fs;
 use std::io::Write as _;
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Instant;
 
@@ -61,6 +61,20 @@ pub(crate) fn msl_examples(msl: &Path) -> Result<Vec<Example>> {
     Ok(examples_in(db.class_index()))
 }
 
+/// MSL 以外のライブラリ（`--library` のディレクトリ）から、根のパッケージ名 `package` の例題を選ぶ（S058）。
+pub(crate) fn library_examples(
+    libraries: &[PathBuf],
+    package: &str,
+    segments: &[&str],
+) -> Result<Vec<Example>> {
+    let mut db = GlobeDb::new();
+    for dir in libraries {
+        db.load_dir(dir)
+            .map_err(|e| format!("{}: {e}", dir.display()))?;
+    }
+    Ok(examples_in_package(db.class_index(), package, segments))
+}
+
 /// Rumoca の MSL ハーネスと同じ規則で例題を選ぶ（名前順）。
 ///
 /// `crates/rumoca-test-msl/tests/balance_pipeline/balance_pipeline_example_targets.rs`
@@ -73,11 +87,20 @@ pub(crate) fn msl_examples(msl: &Path) -> Result<Vec<Example>> {
 ///   （例題のモデルの中に入れ子にしたモデルは、親が package でないので外れる）
 /// - `partial` は除かない（Rumoca も除かない。結果に印を付ける）
 pub(crate) fn examples_in(index: &ClassIndex) -> Vec<Example> {
+    examples_in_package(index, "Modelica", &["Examples"])
+}
+
+/// [`examples_in`] の規則を、根のパッケージ名 `package` のライブラリに当てる（S058。MSL 以外のライブラリ）。
+pub(crate) fn examples_in_package(
+    index: &ClassIndex,
+    package: &str,
+    segments: &[&str],
+) -> Vec<Example> {
     index
         .names()
         .filter_map(|name| {
             let c = index.get(name)?;
-            is_root_example(index, name, c.kind).then(|| Example {
+            is_root_example(index, name, c.kind, package, segments).then(|| Example {
                 name: name.to_string(),
                 partial: c.partial,
             })
@@ -85,17 +108,26 @@ pub(crate) fn examples_in(index: &ClassIndex) -> Vec<Example> {
         .collect()
 }
 
-fn is_root_example(index: &ClassIndex, name: &str, kind: ClassKind) -> bool {
+fn is_root_example(
+    index: &ClassIndex,
+    name: &str,
+    kind: ClassKind,
+    package: &str,
+    segments_of_examples: &[&str],
+) -> bool {
     if !matches!(kind, ClassKind::Model | ClassKind::Block | ClassKind::Class)
         || is_builtin_operator(name)
     {
         return false;
     }
     let segments: Vec<&str> = name.split('.').collect();
-    if segments.first() != Some(&"Modelica") {
+    if segments.first() != Some(&package) {
         return false;
     }
-    let Some(examples) = segments.iter().position(|s| *s == "Examples") else {
+    let Some(examples) = segments
+        .iter()
+        .position(|s| segments_of_examples.contains(s))
+    else {
         return false;
     };
     if examples + 1 >= segments.len() {
@@ -135,13 +167,56 @@ const CHECKER_KIND: &str =
     "`globe_mode_frontend::Checker`（MSL を一度だけ読み、Rumoca の Session を使い回す）";
 
 /// 検査器を作る（MSL を読む）。
-pub(crate) fn make_checker(msl: &Path) -> Result<Checker> {
-    Checker::new(&[msl]).map_err(|ds| {
+pub(crate) fn make_checker(msl: &Path, libraries: &[PathBuf]) -> Result<Checker> {
+    // Rumoca の Session は、別々に読んだ 2 つ以上のライブラリの間で名前を引けない（`Chemical` の中の
+    // `import Modelica.Units.SI` が解決できない）。MSL とライブラリを 1 つのディレクトリにまとめて読む（S058）
+    let merged;
+    let dirs: Vec<&Path> = if libraries.is_empty() {
+        vec![msl]
+    } else {
+        merged = merge_roots(msl, libraries)?;
+        vec![merged.as_path()]
+    };
+    Checker::new(&dirs).map_err(|ds| {
         ds.iter()
             .map(|d| format!("{} {}", d.code, d.message))
             .collect::<Vec<_>>()
             .join("; ")
     })
+}
+
+/// `msl` と `libraries` の直下のエントリ（`Modelica 4.1.0`、`Buildings` など）への symlink を並べたディレクトリ
+/// `target/library-roots/<ライブラリ名>/` を作って返す（あれば作り直さない）。
+fn merge_roots(msl: &Path, libraries: &[PathBuf]) -> Result<PathBuf> {
+    let names: Vec<String> = libraries
+        .iter()
+        .filter_map(|l| l.file_name().map(|n| n.to_string_lossy().into_owned()))
+        .collect();
+    let merged = PathBuf::from("target/library-roots").join(names.join("+"));
+    if merged.exists() {
+        return merged.canonicalize().map_err(|e| e.to_string());
+    }
+    fs::create_dir_all(&merged).map_err(|e| format!("{}: {e}", merged.display()))?;
+    for dir in std::iter::once(msl).chain(libraries.iter().map(PathBuf::as_path)) {
+        let entries = fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        for entry in entries {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let name = entry.file_name();
+            if name.to_string_lossy().starts_with('.') {
+                continue; // .download や印のファイル
+            }
+            let target = entry.path().canonicalize().map_err(|e| e.to_string())?;
+            #[cfg(unix)]
+            std::os::unix::fs::symlink(&target, merged.join(&name))
+                .map_err(|e| format!("{}: {e}", name.to_string_lossy()))?;
+            #[cfg(not(unix))]
+            return Err(format!(
+                "symlink を張れない環境は未対応: {}",
+                target.display()
+            ));
+        }
+    }
+    merged.canonicalize().map_err(|e| e.to_string())
 }
 
 /// 1 本を検査する。S5 まで通って構造があれば、Rumoca 自身の構造解析の数も取る（S6 の照合用。
@@ -989,6 +1064,14 @@ pub(crate) fn one_line(s: &str, max: usize) -> String {
 #[derive(Debug)]
 pub(crate) struct Options<'a> {
     pub msl: &'a Path,
+    /// MSL のほかに読むライブラリ（S058）。空で `package` が `Modelica` なら MSL の例題を集める
+    pub libraries: &'a [PathBuf],
+    /// 例題を集めるライブラリの根のパッケージ名（既定 `Modelica`）
+    pub package: &'a str,
+    /// 例題を含むパッケージの名前（最初に当たった段で切る。既定 `Examples`。MSL 以外で `Scenarios` などを使う）
+    pub example_segments: &'a [String],
+    /// 例題を `n` 組に分けた `i` 組目（1 始まり、`i/n`）だけを検査する（S058。--filter の後、--limit の前）
+    pub shard: Option<&'a str>,
     pub limit: Option<usize>,
     pub filter: Option<&'a str>,
     pub report: Option<&'a Path>,
@@ -996,6 +1079,23 @@ pub(crate) struct Options<'a> {
     pub list: bool,
     /// N 本ごとに `Checker::reset` で Session を小さく戻す（0 なら戻さない）
     pub reset_every: usize,
+}
+
+/// `--shard i/n`（1 ≤ i ≤ n）を（i - 1, n）にする。無ければ（0, 1）。
+fn parse_shard(shard: Option<&str>) -> Result<(usize, usize)> {
+    let Some(text) = shard else {
+        return Ok((0, 1));
+    };
+    let bad = || format!("--shard は i/n（1 ≤ i ≤ n）の形で書く: {text}");
+    let (i, n) = text.split_once('/').ok_or_else(bad)?;
+    let (i, n) = (
+        i.parse::<usize>().map_err(|_| bad())?,
+        n.parse::<usize>().map_err(|_| bad())?,
+    );
+    if i == 0 || i > n {
+        return Err(bad());
+    }
+    Ok((i - 1, n))
 }
 
 pub(crate) fn msl_funnel(opts: &Options<'_>) -> Result<ExitCode> {
@@ -1006,10 +1106,20 @@ pub(crate) fn msl_funnel(opts: &Options<'_>) -> Result<ExitCode> {
         ));
     }
     let t = Instant::now();
-    let all = msl_examples(opts.msl)?;
+    let segments: Vec<&str> = opts.example_segments.iter().map(String::as_str).collect();
+    let all = if opts.package == "Modelica" {
+        msl_examples(opts.msl)?
+    } else {
+        library_examples(opts.libraries, opts.package, &segments)?
+    };
     let index_seconds = t.elapsed().as_secs_f64();
     let partial = all.iter().filter(|e| e.partial).count();
-    let count_note = if all.len() == RUMOCA_BASELINE.examples {
+    let count_note = if opts.package != "Modelica" {
+        format!(
+            "{} の例題。Rumoca の基準値は MSL のもので、比べない",
+            opts.package
+        )
+    } else if all.len() == RUMOCA_BASELINE.examples {
         format!("Rumoca の基準値 {} 本と一致", RUMOCA_BASELINE.examples)
     } else {
         format!(
@@ -1018,12 +1128,20 @@ pub(crate) fn msl_funnel(opts: &Options<'_>) -> Result<ExitCode> {
             all.len() as i64 - RUMOCA_BASELINE.examples as i64
         )
     };
-    let count_note = format!(
-        "{count_note}。うち partial {partial} 本（Rumoca の基準値は {RUMOCA_BASELINE_PARTIAL} 本）"
-    );
+    let count_note = if opts.package == "Modelica" {
+        format!(
+            "{count_note}。うち partial {partial} 本（Rumoca の基準値は {RUMOCA_BASELINE_PARTIAL} 本）"
+        )
+    } else {
+        format!("{count_note}。うち partial {partial} 本")
+    };
+    let (shard_i, shard_n) = parse_shard(opts.shard)?;
     let selected: Vec<Example> = all
         .iter()
         .filter(|e| opts.filter.is_none_or(|f| e.name.contains(f)))
+        .enumerate()
+        .filter(|(k, _)| k % shard_n == shard_i)
+        .map(|(_, e)| e)
         .take(opts.limit.unwrap_or(usize::MAX))
         .cloned()
         .collect();
@@ -1045,7 +1163,7 @@ pub(crate) fn msl_funnel(opts: &Options<'_>) -> Result<ExitCode> {
     );
 
     let t = Instant::now();
-    let checker = make_checker(opts.msl)?;
+    let checker = make_checker(opts.msl, opts.libraries)?;
     let setup_seconds = t.elapsed().as_secs_f64();
     println!("MSL を読み込んだ（{setup_seconds:.1} s）");
     let mut resets = 0usize;
@@ -1239,10 +1357,18 @@ fn s9_s10_line(s: &Summary) -> String {
 
 fn render_report(rows: &[Row], s: &Summary, run: &RunInfo<'_>) -> String {
     let mut md = String::new();
-    let _ = writeln!(
-        md,
-        "# MSL {MSL_VERSION} の全例題のファネル（globe check）\n"
-    );
+    if run.opts.package == "Modelica" {
+        let _ = writeln!(
+            md,
+            "# MSL {MSL_VERSION} の全例題のファネル（globe check）\n"
+        );
+    } else {
+        let _ = writeln!(
+            md,
+            "# {} の全例題のファネル（globe check、MSL {MSL_VERSION} と一緒に読む）\n",
+            run.opts.package
+        );
+    }
     let _ = writeln!(
         md,
         "`cargo xtask msl-funnel` が生成した。手で編集しない。\n"
@@ -1795,6 +1921,8 @@ fn render_json(rows: &[Row], s: &Summary, run: &RunInfo<'_>) -> serde_json::Valu
     let s10_summary = json!({ "ran": s.s10_ran, "codes": s.s10_codes });
     json!({
         "msl_version": MSL_VERSION,
+        "package": run.opts.package,
+        "libraries": run.opts.libraries.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
         "rumoca_rev": RUMOCA_REV,
         "enumerated": run.enumerated,
         "checker": CHECKER_KIND,
@@ -1924,6 +2052,15 @@ mod tests {
             )],
         };
         ClassIndex::from_outlines([&modelica, &mechanics, &other])
+    }
+
+    #[test]
+    fn shard_syntax() {
+        assert_eq!(parse_shard(None), Ok((0, 1)));
+        assert_eq!(parse_shard(Some("2/4")), Ok((1, 4)));
+        for bad in ["0/4", "5/4", "x", "1/", "/2"] {
+            assert!(parse_shard(Some(bad)).is_err(), "{bad}");
+        }
     }
 
     #[test]

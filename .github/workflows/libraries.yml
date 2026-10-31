@@ -1,0 +1,192 @@
+# MSL 以外の公開ライブラリ（Buildings・AixLib・IBPSA・ClaRa・ThermofluidStream・DeltaRobot・Chemical）にも、
+# msl-funnel（S0〜S10 の判定）と msl-sim（実行）を回す（S058）。
+#
+# - 結果を待たずに進める。手動（Actions の画面か `gh workflow run libraries.yml -f libraries='["Chemical"]'`）と、
+#   毎週月曜 06:00 JST（ci.yml の定期実行 03:00 JST の後）に起動する。push の CI（ci.yml）には入れない。
+# - 本筋の CI を優先する。各ジョブの最初に「ci.yml が実行中か待機中のあいだは待つ」（上限 30 分。超えたら進む）。
+#   concurrency の group は自分専用（libraries）で、ci.yml の group（ci-<ref>）とは別。
+# - 落ちても全モデルを検査する。msl-sim は 1 本ずつ別プロセスのワーカーで回し、panic・時間切れ・外からの停止で全体は止まらない。
+#   funnel・sim のステップは continue-on-error で、報告は必ず artifact に上げる。OK でない例題が多くても失敗扱いにしない（数えるだけ）。
+# - 大きいライブラリは例題を `--shard i/n` で割り、分割ごとに 1 ジョブにする（Buildings 6、AixLib 3、IBPSA 2、ClaRa 2）。
+#   1 ジョブの上限は 360 分で、funnel と sim のステップに別の上限を付ける。funnel が間に合わないと JSON が書かれず、その分割は欠ける。
+# - 参照結果（MAP-LIB）は MSL のものだけなので、sim は実行できたかを数えるだけで管の比較はしない。
+# - 最後のジョブ libraries-report が分割ごとの JSON を集めて表（doc/libraries.md）を作り、artifact `libraries` に上げる。
+name: libraries
+
+on:
+  workflow_dispatch:
+    inputs:
+      libraries:
+        description: '検査するライブラリ（JSON の配列か、コンマ区切り。空なら全部）。例 ["DeltaRobot","Chemical"]'
+        type: string
+        default: ""
+  schedule:
+    - cron: "0 21 * * 0"   # 毎週月曜 06:00 JST（ci.yml は 03:00 JST）
+
+permissions:
+  contents: read
+  actions: read   # gh run list で ci.yml の状態を見る
+
+concurrency:
+  group: libraries
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  MISE_AUTO_INSTALL: "false"
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - id: plan
+        name: 検査するライブラリと分割を決める
+        env:
+          LIBRARIES: ${{ inputs.libraries }}
+        shell: python3 {0}
+        run: |
+          import json, os, re
+          # (名前, 根のパッケージ, 例題を含むパッケージ名, 分割数)。fetch-library の名前と同じ綴り
+          table = [
+              ("Buildings", "Buildings", ["Examples"], 6),
+              ("AixLib", "AixLib", ["Examples"], 3),
+              ("IBPSA", "IBPSA", ["Examples"], 2),
+              ("ClaRa", "ClaRa", ["Examples"], 2),
+              ("ThermofluidStream", "ThermofluidStream", ["Examples"], 1),
+              ("DeltaRobot", "DeltaRobot", ["Scenarios", "Tests"], 1),
+              ("Chemical", "Chemical", ["Examples"], 1),
+          ]
+          want = {w.lower() for w in re.findall(r"[A-Za-z]+", os.environ.get("LIBRARIES", ""))}
+          include = []
+          for name, package, segments, shards in table:
+              if want and name.lower() not in want:
+                  continue
+              for i in range(1, shards + 1):
+                  include.append({
+                      "name": name,
+                      "package": package,
+                      "examples_in": " ".join(f"--examples-in {s}" for s in segments),
+                      "shard": f"{i}/{shards}",
+                      "id": f"{name}-{i}",
+                  })
+          if not include:
+              raise SystemExit(f"該当するライブラリが無い: {want}")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write("matrix=" + json.dumps({"include": include}) + "\n")
+          print(json.dumps(include, indent=1))
+
+  run:
+    needs: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - name: ci.yml が終わるまで待つ（上限 30 分）
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          deadline=$((SECONDS + 1800))
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            running=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --status in_progress --json databaseId --jq length)
+            queued=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --status queued --json databaseId --jq length)
+            if [ "$((running + queued))" = 0 ]; then
+              echo "ci.yml は動いていない。進む"
+              exit 0
+            fi
+            echo "ci.yml が実行中 $running・待機中 $queued。60 s 待つ"
+            sleep 60
+          done
+          echo "30 分待ったので進む"
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+        with:
+          install_args: rust
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/cache@v6
+        with:
+          path: data/msl
+          key: msl-${{ hashFiles('src/Rust/xtask/src/main.rs') }}
+      - uses: actions/cache@v6
+        with:
+          path: data/libs/${{ matrix.name }}
+          key: library-${{ matrix.name }}-${{ hashFiles('src/Rust/xtask/src/libs.rs') }}
+      - run: cargo xtask fetch-msl
+      - run: cargo xtask fetch-library ${{ matrix.name }}
+      - name: msl-funnel（S0〜S10 の判定）
+        id: funnel
+        continue-on-error: true
+        timeout-minutes: 170
+        shell: bash
+        run: |
+          mkdir -p target
+          cargo xtask msl-funnel --library data/libs/${{ matrix.name }} --package ${{ matrix.package }} ${{ matrix.examples_in }} --shard ${{ matrix.shard }} --report target/${{ matrix.id }}-funnel.md --json target/${{ matrix.id }}-funnel.json
+      - name: msl-sim（OK の例題を実行。参照結果は無い）
+        id: sim
+        continue-on-error: true
+        timeout-minutes: 170
+        shell: bash
+        run: |
+          cargo xtask msl-sim --library data/libs/${{ matrix.name }} --package ${{ matrix.package }} --funnel-json target/${{ matrix.id }}-funnel.json --tolerance-scale 0.1 --report target/${{ matrix.id }}-sim.md --json target/${{ matrix.id }}-sim.json
+      - name: ジョブの要約
+        if: always()
+        shell: python3 {0}
+        run: |
+          import json, os
+          line = f"### ${{ matrix.id }}（funnel: ${{ steps.funnel.outcome }}、sim: ${{ steps.sim.outcome }}）\n\n"
+          def load(path):
+              try:
+                  return json.load(open(path))
+              except Exception:
+                  return None
+          f = load("target/${{ matrix.id }}-funnel.json")
+          if f:
+              s = f["summary"]
+              gmu = sum(s.get("unsupported_by_code", {}).values())
+              line += f"- 判定: 例題 {s['total']} 本、OK {s['ok']}、GM-U {gmu}、panic {s['panics']}、NG {s['total'] - s['ok'] - gmu - s['panics']}（{s['seconds']:.0f} s）\n"
+          else:
+              line += "- 判定: JSON が無い（funnel が間に合わなかったか落ちた）\n"
+          m = load("target/${{ matrix.id }}-sim.json")
+          if m:
+              s = m["summary"]
+              line += f"- 実行: {s['total']} 本のうち {s.get('stop_time', 0) + s.get('terminated', 0)} 本が終わりまで実行できた（{m['total_seconds']:.0f} s）\n"
+          else:
+              line += "- 実行: JSON が無い\n"
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as out:
+              out.write(line + "\n")
+          print(line)
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: library-${{ matrix.id }}
+          if-no-files-found: warn
+          path: |
+            target/${{ matrix.id }}-funnel.md
+            target/${{ matrix.id }}-funnel.json
+            target/${{ matrix.id }}-sim.md
+            target/${{ matrix.id }}-sim.json
+
+  libraries-report:
+    needs: [plan, run]
+    if: always() && needs.plan.result == 'success'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+        with:
+          install_args: rust
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: library-*
+          merge-multiple: true
+          path: target/libs
+      - run: cargo xtask libraries-report --dir target/libs --report doc/libraries.md
+      - uses: actions/upload-artifact@v7
+        with:
+          name: libraries
+          path: doc/libraries.md

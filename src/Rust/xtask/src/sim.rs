@@ -597,6 +597,8 @@ impl Record {
 #[derive(Debug, Clone)]
 pub(crate) struct WorkerOptions {
     pub msl: PathBuf,
+    /// MSL のほかに読むライブラリ（S058）
+    pub libraries: Vec<PathBuf>,
     pub ref_dir: PathBuf,
     pub wall_seconds: f64,
     pub solver: Option<String>,
@@ -619,7 +621,7 @@ fn send(message: &WorkerMessage) -> Result<()> {
 /// `cargo xtask msl-sim-worker`（親が起動する。手で呼ばない）。
 pub(crate) fn worker(opts: &WorkerOptions) -> Result<ExitCode> {
     let t = Instant::now();
-    let checker = make_checker(&opts.msl)?;
+    let checker = make_checker(&opts.msl, &opts.libraries)?;
     send(&WorkerMessage::Ready {
         setup_seconds: t.elapsed().as_secs_f64(),
         rss_kb: peak_rss_kb(),
@@ -1311,6 +1313,10 @@ fn p3_line(s: &Summary) -> String {
 pub(crate) struct Options<'a> {
     pub funnel_json: &'a Path,
     pub msl: &'a Path,
+    /// MSL のほかに読むライブラリ（S058）
+    pub libraries: &'a [PathBuf],
+    /// 報告の見出しに書くライブラリの根のパッケージ名（既定 `Modelica`＝MSL）
+    pub package: &'a str,
     pub ref_dir: &'a Path,
     pub fetch_ref: bool,
     pub jobs: usize,
@@ -1369,6 +1375,9 @@ fn worker_args(opts: &Options<'_>, wall_seconds: f64) -> Vec<OsString> {
         "--tube-tolerance".into(),
         TubeOptions::default().tolerance.to_string().into(),
     ];
+    for lib in opts.libraries {
+        args.extend(["--library".into(), lib.into()]);
+    }
     if let Some(s) = opts.solver {
         args.extend(["--solver".into(), s.into()]);
     }
@@ -2015,10 +2024,18 @@ fn failed_signals_cell(c: &CompareSummary, max: usize) -> String {
 fn render_report(records: &[Record], s: &Summary, run: &RunInfo<'_>) -> String {
     let opts = run.opts;
     let mut md = String::new();
-    let _ = writeln!(
-        md,
-        "# MSL {MSL_VERSION} の例題の実行と参照結果との比較（globe-mode-exec）\n"
-    );
+    if opts.package == "Modelica" {
+        let _ = writeln!(
+            md,
+            "# MSL {MSL_VERSION} の例題の実行と参照結果との比較（globe-mode-exec）\n"
+        );
+    } else {
+        let _ = writeln!(
+            md,
+            "# {} の例題の実行（globe-mode-exec、MSL {MSL_VERSION} と一緒に読む。参照結果は無い）\n",
+            opts.package
+        );
+    }
     let _ = writeln!(
         md,
         "`cargo xtask msl-sim` が生成した。手で編集しない。`msl-funnel --json` で OK になった例題を、実行系 `globe-mode-exec`（Phase A は Rumoca の実行系）で別プロセスのワーカーから実行し、MAP-LIB の参照結果（MSL {MSL_VERSION}）と矩形の管（csv-compare の既定のアルゴリズムを書き直した `globe_mode_sim::compare`）で比べる。\n"
@@ -2648,6 +2665,7 @@ fn render_json(records: &[Record], s: &Summary, run: &RunInfo<'_>) -> Value {
         "generated_by": "cargo xtask msl-sim",
         "started": started_string(run.started),
         "msl_version": MSL_VERSION,
+        "package": opts.package,
         "rumoca_rev": RUMOCA_REV,
         "funnel_json": opts.funnel_json.display().to_string(),
         "funnel_ok": run.enumerated,
@@ -2999,6 +3017,8 @@ mod tests {
         let opts = Options {
             funnel_json: Path::new("target/msl-funnel.json"),
             msl: Path::new("data/msl"),
+            libraries: &[],
+            package: "Modelica",
             ref_dir: Path::new("data/msl-ref"),
             fetch_ref: false,
             jobs: 4,
@@ -3420,6 +3440,8 @@ mod tests {
         let opts = Options {
             funnel_json: Path::new("f.json"),
             msl: Path::new("data/msl"),
+            libraries: &[],
+            package: "Modelica",
             ref_dir: Path::new("data/msl-ref"),
             fetch_ref: false,
             jobs: 4,
