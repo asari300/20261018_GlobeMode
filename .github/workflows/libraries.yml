@@ -89,6 +89,7 @@ jobs:
           print(json.dumps(include, indent=1))
 
   run:
+    name: ${{ matrix.id }}
     needs: plan
     runs-on: ubuntu-24.04
     timeout-minutes: 360

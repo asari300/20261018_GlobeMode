@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S058 他のライブラリの検査 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S058 他のライブラリの検査">
+
+<section class="slide" id="S01">
+  <span class="tag">S058 · 2026-11-01 · P3</span>
+  <h1>MSL 以外の公開ライブラリも Actions で検査する</h1>
+  <p class="lead">Buildings・AixLib・IBPSA・ClaRa・ThermofluidStream・DeltaRobot・Chemical</p>
+  <div class="big"><b>msl-funnel と msl-sim</b> を 7 つのライブラリに回し、<br>落ちても全モデルを数える</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>S0〜S10 の判定と実行を、MSL だけでなく実際のライブラリにも回す</li>
+    <li>本筋の CI（ci.yml）を優先する。結果は待たずに進める</li>
+    <li>実行に失敗しても全モデルを検査する。落ちた本数は数えるだけ</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>取得と引数</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th></tr>
+    <tr><td>取得</td><td><code>fetch-library</code>: commit 固定のアーカイブを sha256 で確かめ <code>data/libs/&lt;名前&gt;/</code></td></tr>
+    <tr><td>引数</td><td><code>--library</code>・<code>--package</code>・<code>--examples-in</code>・<code>--shard i/n</code></td></tr>
+    <tr><td>既定</td><td>引数なしなら MSL の出力のまま（試験 46 本）</td></tr>
+    <tr><td>DeltaRobot</td><td><code>Examples</code> が無いので <code>Scenarios</code>・<code>Tests</code>（21 本）</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由</span>
+  <h1>見つけたこと: ルートを分けると名前が引けない</h1>
+  <div class="cols-2">
+    <div class="card">
+      <h3>そのまま</h3>
+      <p><code>Checker::new(&amp;[msl, lib])</code></p>
+      <p class="ng">全例題が <code>import Modelica.Units.SI</code> を解決できない（GM-E1001）</p>
+    </div>
+    <div class="card">
+      <h3>まとめて読む</h3>
+      <p><code>target/library-roots/&lt;名前&gt;/</code> に symlink を並べて 1 つのルートに</p>
+      <p class="ok">imports が解決した。frontend は触らず xtask で迂回</p>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">図</span>
+  <h1>ワークフローの流れ</h1>
+  <svg class="fig" viewBox="0 0 900 220" role="img" aria-label="libraries.yml の流れ">
+    <rect class="svg-box" x="10" y="80" width="130" height="60" rx="8"/>
+    <text class="svg-text" x="75" y="116" text-anchor="middle">plan</text>
+    <line class="svg-line" x1="140" y1="110" x2="190" y2="110"/>
+    <rect class="svg-box-accent" x="190" y="80" width="170" height="60" rx="8"/>
+    <text class="svg-text-b" x="275" y="106" text-anchor="middle">ci.yml を待つ</text>
+    <text class="svg-text" x="275" y="126" text-anchor="middle">最大 30 分</text>
+    <line class="svg-line" x1="360" y1="110" x2="410" y2="110"/>
+    <rect class="svg-box" x="410" y="80" width="190" height="60" rx="8"/>
+    <text class="svg-text" x="505" y="106" text-anchor="middle">funnel → sim</text>
+    <text class="svg-text" x="505" y="126" text-anchor="middle">continue-on-error</text>
+    <line class="svg-line" x1="600" y1="110" x2="650" y2="110"/>
+    <rect class="svg-box" x="650" y="80" width="110" height="60" rx="8"/>
+    <text class="svg-text" x="705" y="116" text-anchor="middle">artifact</text>
+    <line class="svg-line" x1="760" y1="110" x2="800" y2="110"/>
+    <rect class="svg-box" x="800" y="80" width="90" height="60" rx="8"/>
+    <text class="svg-text" x="845" y="116" text-anchor="middle">表</text>
+  </svg>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">決定と理由</span>
+  <h1>分割と失敗の扱い</h1>
+  <table class="compact">
+    <tr><th>ライブラリ</th><th>分割</th></tr>
+    <tr><td>Buildings</td><td>6</td></tr>
+    <tr><td>AixLib</td><td>3</td></tr>
+    <tr><td>IBPSA・ClaRa</td><td>2 ずつ</td></tr>
+    <tr><td>ThermofluidStream・DeltaRobot・Chemical</td><td>1</td></tr>
+  </table>
+  <ul>
+    <li><code>fail-fast: false</code>、ジョブ 360 分、funnel・sim は <code>continue-on-error</code></li>
+    <li>JSON は funnel の最後に書く。間に合わなかった分割だけが欠ける</li>
+  </ul>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">再現手順</span>
+  <h1>手元の確認（RAM 3 GB）</h1>
+  <pre><code>cargo xtask fetch-library DeltaRobot
+cargo xtask msl-funnel --library data/libs/DeltaRobot \
+  --package DeltaRobot --examples-in Scenarios --examples-in Tests
+cargo xtask msl-sim --library data/libs/DeltaRobot --package DeltaRobot ...</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">21</span><span class="l">DeltaRobot の例題</span></div>
+    <div class="kpi"><span class="n">9</span><span class="l">OK</span></div>
+    <div class="kpi"><span class="n">5</span><span class="l">終わりまで実行</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">panic</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S08">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>全部の run の結果を取り込み、<code>doc/libraries.md</code> を更新する</li>
+    <li>失敗の原因を、Rumoca の未対応・MSL の版の差・取得しない依存に分ける</li>
+    <li><code>Checker::new</code> のルート間の名前解決の原因を確かめる</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
