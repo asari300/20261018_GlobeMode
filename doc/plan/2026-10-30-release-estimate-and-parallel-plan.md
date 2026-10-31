@@ -147,6 +147,8 @@ flowchart LR
 完了条件: Decay と ChuaCircuit の結果を描く Playwright のスクリーンショット試験。10 万点で 30 fps（measure して作業記録に）。
 ```
 
+**S042 で実施（済）**。最小の形（実行ボタン、CSV の列分け、uPlot、信号の選択）。2 軸・MAT v4・ChuaCircuit のスクリーンショット試験・列ごとの API は持ち越し（[作業記録](../../log/work/2026-10-31-s042-plot.md)）。
+
 ### WP-E connect グラフの表示（モデル B、WP-B の後）
 
 ```text
