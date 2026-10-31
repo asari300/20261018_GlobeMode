@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Modelica の整形・lint</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 16px; max-width: 960px; color: #222; }
+      textarea { width: 100%; box-sizing: border-box; font-family: ui-monospace, monospace; font-size: 14px; }
+      #source { min-height: 220px; }
+      #out { min-height: 180px; background: #f6f6f6; }
+      .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 8px 0; }
+      button { padding: 6px 14px; }
+      #error { color: #b00020; font-weight: bold; white-space: pre-wrap; }
+      table { border-collapse: collapse; width: 100%; font-size: 14px; }
+      th, td { border: 1px solid #ccc; padding: 4px 8px; text-align: left; }
+    </style>
+  </head>
+  <body>
+    <h1>Modelica の整形・lint</h1>
+    <p>GlobeMode の整形器と lint（globe CLI）を呼ぶ画面です。</p>
+
+    <label>入力（Modelica）</label>
+    <textarea id="source" name="source" spellcheck="false"></textarea>
+    <div class="row">
+      <label>ファイルから読む <input type="file" id="file" accept=".mo" /></label>
+    </div>
+
+    <div class="row">
+      <label>インデント
+        <select id="indent">
+          <option value="2" selected>2</option>
+          <option value="4">4</option>
+        </select>
+      </label>
+      <label><input type="checkbox" id="insert-origin" checked /> origin = {0, 0} を足す</label>
+    </div>
+
+    <div class="row">
+      <button type="button" id="btn-format">整形</button>
+      <button type="button" id="btn-lint">lint</button>
+    </div>
+
+    <div id="error" role="alert"></div>
+
+    <label>整形後</label>
+    <textarea id="out" readonly></textarea>
+    <div class="row">
+      <button type="button" id="btn-back">入力へ戻す</button>
+    </div>
+
+    <h2>lint の結果</h2>
+    <table>
+      <thead>
+        <tr><th>rule</th><th>line</th><th>column</th><th>message</th></tr>
+      </thead>
+      <tbody id="lint-rows"></tbody>
+    </table>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+
+      async function post(path, body) {
+        const res = await fetch(path, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        return res.json();
+      }
+
+      function showError(msg) {
+        $('error').textContent = msg;
+      }
+
+      function cell(text) {
+        const td = document.createElement('td');
+        td.textContent = String(text);
+        return td;
+      }
+
+      $('file').addEventListener('change', async (e) => {
+        const f = e.target.files[0];
+        if (f) $('source').value = await f.text();
+      });
+
+      $('btn-format').addEventListener('click', async () => {
+        showError('');
+        try {
+          const r = await post('/api/format', {
+            text: $('source').value,
+            indent: Number($('indent').value),
+            insert_origin: $('insert-origin').checked,
+          });
+          if (r.ok) {
+            $('out').value = r.text;
+          } else {
+            $('out').value = '';
+            showError(r.error);
+          }
+        } catch (err) {
+          showError('整形に失敗: ' + err);
+        }
+      });
+
+      $('btn-lint').addEventListener('click', async () => {
+        showError('');
+        try {
+          const r = await post('/api/lint', { text: $('source').value });
+          if (r.error) {
+            showError(r.error);
+            return;
+          }
+          const rows = $('lint-rows');
+          rows.replaceChildren();
+          for (const m of r.messages) {
+            const tr = document.createElement('tr');
+            for (const v of [m.rule, m.line, m.column, m.message]) tr.appendChild(cell(v));
+            rows.appendChild(tr);
+          }
+          if (r.messages.length === 0) {
+            rows.appendChild(cell('指摘はありません'));
+            rows.lastChild.colSpan = 4;
+          }
+        } catch (err) {
+          showError('lint に失敗: ' + err);
+        }
+      });
+
+      $('btn-back').addEventListener('click', () => {
+        if ($('out').value) $('source').value = $('out').value;
+      });
+    </script>
+  </body>
+</html>

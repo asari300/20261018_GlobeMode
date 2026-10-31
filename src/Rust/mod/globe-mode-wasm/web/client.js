@@ -94,6 +94,8 @@ export class GlobeWorker {
   async check(model) { return JSON.parse(await this.#call("check", { model })); }
   async graph(model, depth) { return JSON.parse(await this.#call("graph", { model, depth })); }
   async simulate(request) { return JSON.parse(await this.#call("simulate", { request: JSON.stringify(request) })); }
+  format(text, indent = 2, insertOrigin = true) { return this.#call("format", { text, indent, insertOrigin }); }
+  async lint(text) { return JSON.parse(await this.#call("lint", { text })); }
   // 時系列を CSV でなく列ごとの Float64Array で返す（S051）。{response（csv 無し）, layout: {names, points}, columns}
   async simulateColumns(request) {
     const r = await this.#call("simulate_columns", { request: JSON.stringify(request) });

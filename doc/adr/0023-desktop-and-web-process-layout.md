@@ -68,6 +68,8 @@ UI（Svelte）のプロセスでは検査も実行もしない。計算は 1 つ
   | `globe/check` | `{model}` | `CheckResponse` の JSON |
   | `globe/simulate` | `{request}`（`SimulateRequest` の JSON） | `SimulateResponse` の JSON |
   | `globe/graph` | `{model, depth}` | graphology の JSON（`ConnectGraph::to_graphology`） |
+  | `globe/format` | `{text, indent?, insertOrigin?}` | 整形後の本文（S053、[ADR-0024](0024-own-formatter-and-lint.md)。壊れていれば -32000） |
+  | `globe/lint` | `{text}` | `[{rule, line, column, message}]`（S053） |
 
   params が読めなければ -32602、モデルが無いなどの失敗は -32000（`message` に理由）。ファイルは標準の `textDocument/didOpen`（UI の `setFile`）で渡す。
 - **UI から sidecar まで**: Svelte の `TauriBackend`（`src/Svelte/src/lib/tauri-backend.ts`）→ `window.__TAURI__.core.invoke("rpc" | "notify", {method, params})` → Rust の `Worker`（`src/worker.rs`。stdio の枠、1 度に 1 要求）→ `globe lsp`。サーバの通知（`publishDiagnostics`）はイベント `globe-notification`。`@tauri-apps/api` は入れない。

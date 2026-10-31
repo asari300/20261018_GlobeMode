@@ -1,4 +1,4 @@
-import type { Backend } from "./backend";
+import type { Backend, LintMessage } from "./backend";
 import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse } from "./protocol";
 
 // Tauri が `withGlobalTauri` で注入する関数だけを使う（@tauri-apps/api は入れない。npm の依存を増やさないため）。
@@ -34,6 +34,12 @@ export class TauriBackend implements Backend {
   }
   simulate(req: SimulateRequest): Promise<SimulateResponse> {
     return invoke("rpc", { method: "globe/simulate", params: { request: req } });
+  }
+  format(text: string, indent: number, insertOrigin: boolean): Promise<string> {
+    return invoke("rpc", { method: "globe/format", params: { text, indent, insertOrigin } });
+  }
+  lint(text: string): Promise<LintMessage[]> {
+    return invoke("rpc", { method: "globe/lint", params: { text } });
   }
 }
 

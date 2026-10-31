@@ -1,0 +1,124 @@
+//! 整形器の検査: ユーザーの Before/After、冪等、トークン不変、壊れた入力。
+
+use std::path::{Path, PathBuf};
+
+use globe_mode_fmt::{LintOptions, Options, format, lint};
+
+fn repo() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../..")
+        .canonicalize()
+        .unwrap()
+}
+
+fn mo_files(dir: &Path, out: &mut Vec<PathBuf>) {
+    for e in std::fs::read_dir(dir).unwrap().flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            mo_files(&p, out);
+        } else if p.extension().is_some_and(|x| x == "mo") {
+            out.push(p);
+        }
+    }
+}
+
+#[test]
+fn user_before_after() {
+    let before = include_str!("data/objects_before.mo");
+    let after = include_str!("data/objects_after.mo");
+    assert_eq!(format(before, &Options::default()).unwrap(), after);
+    assert_eq!(format(after, &Options::default()).unwrap(), after, "冪等");
+}
+
+#[test]
+fn no_origin_insertion_when_off() {
+    let before = include_str!("data/objects_before.mo");
+    let out = format(
+        before,
+        &Options {
+            insert_origin: false,
+            ..Options::default()
+        },
+    )
+    .unwrap();
+    assert!(!out.contains("origin = {0, 0}"));
+    assert!(out.contains("origin = {0, 40}"));
+}
+
+#[test]
+fn validation_library_is_idempotent() {
+    let mut files = Vec::new();
+    mo_files(&repo().join("src/Modelica"), &mut files);
+    assert!(files.len() > 50, "{}", files.len());
+    for f in files {
+        let src = std::fs::read_to_string(&f).unwrap();
+        let once =
+            format(&src, &Options::default()).unwrap_or_else(|e| panic!("{}: {e}", f.display()));
+        let twice = format(&once, &Options::default()).unwrap();
+        assert_eq!(once, twice, "{} が冪等でない", f.display());
+        assert!(once.ends_with('\n') && !once.ends_with("\n\n"));
+        assert!(
+            once.lines().all(|l| l == l.trim_end()),
+            "{} に行末の空白",
+            f.display()
+        );
+    }
+}
+
+#[test]
+fn broken_input_is_left_alone() {
+    let src = std::fs::read_to_string(
+        repo().join("src/Rust/mod/globe-mode-frontend/tests/data/SyntaxError.mo"),
+    )
+    .unwrap();
+    assert!(format(&src, &Options::default()).is_err());
+    assert!(format("model M\n  x = (1;\nend M;\n", &Options::default()).is_err());
+}
+
+#[test]
+fn spacing_and_blank_lines() {
+    let src = "within A.B;\nmodel M \"d\"\n  parameter Real k=-1 \"g\";\n  Real x(start=1,fixed=true);\n  Real y[3];\nequation\n  der(x)=-k*x+y[1]^2; // c\n  for i in 1:3 loop\n    y[i]=if x>0 then i else -i;\n  end for;\n\n\n  annotation (experiment(StopTime=1));\nend M;";
+    let want = "within A.B;\n\nmodel M \"d\"\n\n  parameter Real k = -1 \"g\";\n  Real x(start = 1, fixed = true);\n  Real y[3];\nequation\n  der(x) = -k * x + y[1]^2; // c\n  for i in 1:3 loop\n    y[i] = if x > 0 then i else -i;\n  end for;\n\nannotation(experiment(StopTime = 1));\n\nend M;\n";
+    assert_eq!(format(src, &Options::default()).unwrap(), want);
+    assert_eq!(format(want, &Options::default()).unwrap(), want);
+}
+
+#[test]
+fn indent_four_and_long_line_wraps() {
+    let src = "model M\n  Modelica.Blocks.Math.Gain gain(k = 2) annotation(Placement(transformation(extent = {{-10, -10}, {10, 10}})));\nend M;\n";
+    let out = format(
+        src,
+        &Options {
+            indent: 4,
+            ..Options::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        out,
+        "model M\n\n    Modelica.Blocks.Math.Gain gain(k = 2) annotation(\n        Placement(transformation(extent = {{-10, -10}, {10, 10}}))\n    );\n\nend M;\n"
+    );
+}
+
+#[test]
+fn lint_rules() {
+    let src = "model m\n  Real x;\nend m;\nmodel Ok \"d\"\n  Real s = \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\";\nend Ok;\n";
+    let msgs = lint(src, &LintOptions::default());
+    let rules: Vec<_> = msgs.iter().map(|m| (m.rule, m.line)).collect();
+    assert_eq!(
+        rules,
+        [
+            ("class-name-pascal-case", 1),
+            ("missing-description", 1),
+            ("line-too-long", 5)
+        ]
+    );
+    let only = lint(
+        src,
+        &LintOptions {
+            disabled: vec!["line-too-long".into(), "missing-description".into()],
+            ..LintOptions::default()
+        },
+    );
+    assert_eq!(only.len(), 1);
+}

@@ -1406,6 +1406,7 @@ dependencies = [
  "clap",
  "globe-mode",
  "globe-mode-core",
+ "globe-mode-fmt",
  "globe-mode-ir",
  "globe-mode-lsp",
  "serde_json",
@@ -1458,6 +1459,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "globe-mode-fmt"
+version = "0.0.1"
+
+[[package]]
 name = "globe-mode-frontend"
 version = "0.0.1"
 dependencies = [
@@ -1492,6 +1497,7 @@ version = "0.0.1"
 dependencies = [
  "globe-mode",
  "globe-mode-core",
+ "globe-mode-fmt",
  "globe-mode-ir",
  "lsp-types",
  "serde_json",
@@ -1532,6 +1538,7 @@ name = "globe-mode-wasm"
 version = "0.0.1"
 dependencies = [
  "globe-mode",
+ "globe-mode-fmt",
  "serde",
  "serde_json",
  "wasm-bindgen",
