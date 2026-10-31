@@ -1,0 +1,23 @@
+[package]
+name = "globe-mode-py"
+description = "GlobeMode: PyO3 bindings (Python package globe_mode, built with maturin)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lib]
+name = "_native"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# S039: facade だけに依存する（globe-mode-wasm と同じ）
+globe-mode = { workspace = true }
+pyo3 = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

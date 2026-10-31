@@ -6,7 +6,7 @@ precompiled_os = "ubuntu-26.04"    # Ubuntu 26.04 は自動判定されないの
 # compile = true                   # プリコンパイル版が無いときは kerl でソースビルド (3-3 の apt が必要)
 
 [tools]
-uv     = "0.13.1"                    # pyproject.toml の uv_build に合わせる
+uv     = "0.13.1"                    # pyproject.toml の build-backend は maturin（S039）。uv 自体の版はここで固定
 rust   = { version = "stable", profile = "default", components = ["rust-analyzer"], targets = "wasm32-unknown-unknown,wasm32-wasip2,aarch64-linux-android" }  # edition 2024 は 1.85 以上。rust-toolchain.toml は置かない
 cargo-deny = "0.20.2"             # ライセンスと依存の監査（doc/licenses.md）
 "github:wasm-bindgen/wasm-bindgen" = "0.2.129"  # S012: wasm の束ねの JS の糊（wasm-bindgen --target nodejs）。版は Cargo.lock の wasm-bindgen と必ず同じにする

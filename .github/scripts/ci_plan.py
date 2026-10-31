@@ -48,7 +48,7 @@ WASM_NODE_CRATE = "globe-mode-wasm"
 EXTRA_INPUTS = {
     "src/Modelica/msl-compare.txt": {"xtask"},
     "src/Modelica/msl-known-unsupported.txt": {"globe-mode-frontend"},
-    "src/Modelica/*": {"globe-mode-frontend", "globe-mode-cli", "globe-mode-db", "globe-mode-exec", "globe-mode-wasm"},
+    "src/Modelica/*": {"globe-mode-frontend", "globe-mode-cli", "globe-mode-db", "globe-mode-exec", "globe-mode-wasm", "globe-mode-py"},
 }
 PYTHON_FILES = ["pyproject.toml", "uv.lock", ".python-version", "src/Python/*"]
 DOC_FILES = ["*.md", "doc/*", "log/*", ".claude/skills/*", "src/*/README.md"]
@@ -131,7 +131,8 @@ def plan(changed: list[str] | None, message: str = "", force_full: bool = False,
         "wasm": full or bool(affected & WASM_CRATES),
         "wasm_node": full or WASM_NODE_CRATE in affected,
         "deny": full or any(match(p, DEPENDENCY_FILES) for p in changed),
-        "python": full or any(match(p, PYTHON_FILES) for p in changed),
+        # S039: Python の wheel は Rust の束ね（globe-mode-py）をビルドするので、その crate が影響を受けたときも回す
+        "python": full or "globe-mode-py" in affected or any(match(p, PYTHON_FILES) for p in changed),
         "docs": full or any(match(p, DOC_FILES) for p in changed),
         "slides": full or any(match(p, SLIDE_FILES) for p in changed),
         # MSL での Rumoca との突き合わせは重い（MSL と Rumoca の CLI の取得、20 本の検査）ので、全体を検査するときだけ
