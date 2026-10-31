@@ -11,6 +11,8 @@ name: resources
 
 on:
   workflow_dispatch:
+  push: # 試行のために一時的に足した（main にまだ無いワークフローは dispatch できない）。試行が済んだら消す
+    branches: [feature/s051-resources]
 
 permissions:
   contents: read
