@@ -37,13 +37,13 @@ flowchart LR
 
 ```text
 Cargo.toml                      virtual workspace（resolver 3, edition 2024）
-mise.toml / mise.lock           ツールの版（rust / uv / zig / julia / erlang / elixir / gleam。P4 で node）。rust-toolchain.toml は置かない
+mise.toml / mise.lock           ツールの版（rust / uv / zig / julia / erlang / elixir / gleam / node / pnpm）。rust-toolchain.toml は置かない
 pyproject.toml / uv.lock        Python の依存（uv）
 src/Rust/mod/<crate>/           workspace の library crate（2.2 の表）
 src/Rust/apps/desktop/          Tauri 2 のシェル（Linux, Windows, Android）
 src/Rust/apps/experimental/     leptos/ と dioxus/（default-members から外す）
 src/Rust/xtask/                 build、bump-rumoca、licenses、wasm --threads
-src/Svelte/                     Svelte 5 + TypeScript の UI。Tauri とブラウザで共用する
+src/Svelte/                     Svelte 5 + TypeScript の UI。Tauri とブラウザで共用する（S041: Backend、WorkerBackend、CodeMirror 6、診断パネルまで。Tauri と図は未実装）
 src/Python/mod/                 Python パッケージ globe_mode（PyO3 と maturin）
 src/Python/marimo/              marimo のノートブックと anywidget
 src/Python/streamlit/           結果ダッシュボードとパラメータスイープ

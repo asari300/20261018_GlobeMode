@@ -55,6 +55,13 @@ try {
   console.log("panic: reject され、worker を作り直した（restarts = 1）");
   await runDecay("作り直し後の Decay bdf");
   assert.equal(w.restarts, 1);
+
+  // 起動で落ちる worker（存在しないファイル）は作り直さず、呼び出しを reject する（S041）
+  const dead = new GlobeWorker(() => new Worker(new URL("./no-such-worker.js", import.meta.url)), {});
+  await assert.rejects(dead.version(), /異常終了/);
+  await assert.rejects(dead.version(), /異常終了/);
+  assert.equal(dead.restarts, 0);
+  console.log("起動で落ちた worker: 作り直さず reject した（restarts = 0）");
   console.log("ok");
 } finally {
   await w.terminate();

@@ -1,0 +1,26 @@
+{
+  "name": "globe-mode-ui",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "license": "MIT OR Apache-2.0",
+  "scripts": {
+    "prepare-wasm": "node scripts/copy-wasm.mjs",
+    "dev": "pnpm prepare-wasm && vite",
+    "build": "pnpm prepare-wasm && vite build",
+    "check": "svelte-check --tsconfig ./tsconfig.json"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^7.3.1",
+    "svelte": "^5.57.3",
+    "svelte-check": "^4.7.7",
+    "typescript": "~6.0.3",
+    "vite": "^8.3.5"
+  },
+  "dependencies": {
+    "@codemirror/commands": "^6.11.1",
+    "@codemirror/language": "^6.13.1",
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/view": "^6.43.15"
+  }
+}

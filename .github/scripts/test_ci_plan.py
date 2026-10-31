@@ -82,6 +82,17 @@ class Plan(unittest.TestCase):
                 self.assertTrue(p["wasm_node"])
                 self.assertIn("globe-mode-wasm", pkgs(p))
 
+    def test_ui_runs_for_svelte_and_wasm(self):
+        # S041: ブラウザ UI は src/Svelte の変更か wasm の束ねの影響で回す。無関係な crate では回さない
+        for path in ["src/Svelte/src/App.svelte", "src/Svelte/pnpm-lock.yaml", "src/Rust/mod/globe-mode-wasm/web/client.js",
+                     "src/Rust/mod/globe-mode-exec/src/lib.rs"]:
+            with self.subTest(path=path):
+                p = plan([path])
+                self.assertFalse(p["full"])
+                self.assertTrue(p["ui"])
+        self.assertFalse(plan(["src/Rust/mod/globe-mode-cli/src/main.rs"])["ui"])
+        self.assertTrue(plan(["Cargo.lock"])["ui"])
+
     def test_wasm_crate_only_tests_itself(self):
         p = plan(["src/Rust/mod/globe-mode-wasm/src/lib.rs"])
         self.assertEqual(pkgs(p), {"globe-mode-wasm"})
@@ -159,7 +170,7 @@ class Plan(unittest.TestCase):
 
     def test_nothing_relevant(self):
         p = plan(["data/.gitkeep"])
-        self.assertFalse(any(p[k] for k in ["full", "rust", "wasm", "wasm_node", "deny", "python", "docs", "slides", "msl"]))
+        self.assertFalse(any(p[k] for k in ["full", "rust", "wasm", "wasm_node", "ui", "deny", "python", "docs", "slides", "msl"]))
 
 
 if __name__ == "__main__":

@@ -16,7 +16,7 @@
       * 定期実行（schedule）、手動実行で full を指定、比較元が無い（新しいブランチ・履歴の書き換え）
 
 出力（JSON。--github-output を付けると GitHub Actions の出力にも書く）:
-  full, rust, rust_packages（"-p a -p b"）, wasm, wasm_node, deny, python, docs, slides, msl, reasons
+  full, rust, rust_packages（"-p a -p b"）, wasm, wasm_node, ui, deny, python, docs, slides, msl, reasons
 標準ライブラリだけで動く（Python 3.11 以上、tomllib を使う）。
 """
 
@@ -130,6 +130,8 @@ def plan(changed: list[str] | None, message: str = "", force_full: bool = False,
         "rust_packages": " ".join(f"-p {c}" for c in sorted(affected)),
         "wasm": full or bool(affected & WASM_CRATES),
         "wasm_node": full or WASM_NODE_CRATE in affected,
+        # S041: ブラウザ UI は src/Svelte を変えたときと、wasm の束ね（とその依存）が影響を受けたとき
+        "ui": full or WASM_NODE_CRATE in affected or any(match(p, ["src/Svelte/*"]) for p in changed),
         "deny": full or any(match(p, DEPENDENCY_FILES) for p in changed),
         # S039: Python の wheel は Rust の束ね（globe-mode-py）をビルドするので、その crate が影響を受けたときも回す
         "python": full or "globe-mode-py" in affected or any(match(p, PYTHON_FILES) for p in changed),

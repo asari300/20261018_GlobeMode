@@ -198,6 +198,11 @@ impl Workspace {
         let request = parse_request(request_json)?;
         to_json(&self.run(&request))
     }
+
+    /// モデルの検査だけ（S0〜S10。実行しない）。`CheckResponse` の JSON を返す（S041。ブラウザ UI の診断パネル用）。
+    pub fn check(&mut self, model: &str) -> Result<String, JsValue> {
+        to_json(&self.inner.check(model))
+    }
 }
 
 /// 一度きりの実行（JS から呼ぶ形）。ライブラリ無しで、`files` にすべてを入れる。
