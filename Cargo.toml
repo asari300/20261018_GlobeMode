@@ -7,6 +7,11 @@ version = "0.0.1"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/asari300/20261018_GlobeMode"
+homepage = "https://github.com/asari300/20261018_GlobeMode"
+description = "GlobeMode: an open-source Modelica IDE written in Rust"
+readme = "README.md"
+keywords = ["modelica", "simulation", "dae", "ide", "language-server"]
+categories = ["science", "development-tools", "simulation"]
 rust-version = "1.99"
 # Rumoca を git 依存で使う間は crates.io に公開できない（ADR-0002）
 publish = false

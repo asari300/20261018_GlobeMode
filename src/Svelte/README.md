@@ -22,6 +22,10 @@ mise run ui:check            # svelte-check と、Playwright の Chromium での
 mise run ui:build            # dist/ に静的サイトを作る
 ```
 
+## 実行とプロット（S042）
+
+「実行」ボタンが `Backend.simulate({ model })` を呼ぶ（ソルバは既定のまま）。`refused` と診断は診断パネルとその上の赤字に出る。結果の CSV（`SimulateResponse.csv`）は `src/lib/plot/csv.ts` が列に分け、`src/lib/plot/Plot.svelte` が uPlot（MIT）で時系列に描く。信号はチェックボックスで選ぶ（既定は最初の 3 本）。ズームは uPlot の既定（ドラッグで拡大、ダブルクリックで戻す）。2 軸、凡例の凝った UI、MAT v4 の読み込みは未実装。
+
 - CSP は `index.html` の meta で `connect-src 'self'` のまま。`'wasm-unsafe-eval'` は wasm の初期化に、`style-src 'unsafe-inline'` は Svelte と CodeMirror が注入する style に要る
 - TypeScript は 6 系（svelte-check 4.7 が 7 を単独では受けない）
 - 診断の `range` は UTF-8 のバイト位置。UI で UTF-16 の位置に直して選択する

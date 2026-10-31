@@ -106,6 +106,10 @@ fn split_library_reports_what_it_cannot_read() {
 }
 
 /// MSL の突き合わせ用の 20 本（`src/Modelica/msl-compare.txt`）が、全部を読んだ検査器と同じ結果になること。
+/// `GM_SPLIT_MODELS=<1 行 1 モデルのファイル>` で対象を差し替えられる（全例題 566 本なら
+/// `cargo xtask msl-funnel --list`。GitHub Actions の `msl-sim.yml` のジョブ `split-all`）。最初の不一致で止めず、全部回してから不一致の一覧を出して失敗する。
+/// `GM_SPLIT_FRESH=1` なら、モデルごとに分割読み込みの検査器を作り直す。既定では先に検査したモデルが読んだファイルが
+/// 残るので、閉包の足りなさを隠すことがある（作り直しは遅い）。
 /// MSL（`cargo xtask fetch-msl`）が要る。重い（release で 4 GB 近く）ので既定では回さない:
 /// `cargo test --release -p globe-mode-frontend --test split -- --ignored --nocapture`
 #[test]
@@ -116,27 +120,61 @@ fn msl_examples_match_the_full_load() {
         .spawn(|| {
             let msl = root().join("data/msl");
             assert!(msl.is_dir(), "data/msl が無い（cargo xtask fetch-msl）");
-            let models: Vec<String> =
-                std::fs::read_to_string(root().join("src/Modelica/msl-compare.txt"))
-                    .unwrap()
-                    .lines()
-                    .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
-                    .map(str::to_string)
-                    .collect();
+            let list = std::env::var_os("GM_SPLIT_MODELS").map_or_else(
+                || root().join("src/Modelica/msl-compare.txt"),
+                PathBuf::from,
+            );
+            let models: Vec<String> = std::fs::read_to_string(&list)
+                .unwrap_or_else(|e| panic!("{}: {e}", list.display()))
+                .lines()
+                .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
+                .map(|l| l.trim().to_string())
+                .collect();
+            assert!(!models.is_empty(), "{}: モデルが 0 本", list.display());
             let files = read_mo(Path::new("data/msl"));
             let full = Checker::with_library_sources("MSL", &sources(&files)).unwrap();
-            let split = Checker::with_library_sources_split("MSL", &sources(&files)).unwrap();
-            for model in &models {
-                let a = full.check(&[], model);
+            let fresh = std::env::var_os("GM_SPLIT_FRESH").is_some();
+            let mut split = Checker::with_library_sources_split("MSL", &sources(&files)).unwrap();
+            // panic も結果の一つとして比べる（Checker は panic のあと Session を戻す）
+            let run = |c: &Checker, model: &str| {
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| c.check(&[], model)))
+                    .map_err(|_| "panic".to_string())
+            };
+            let summary = |r: &Result<globe_mode_frontend::CheckReport, String>| match r {
+                Ok(r) => format!(
+                    "passed = {}, {:?}",
+                    r.passed(),
+                    r.diagnostics
+                        .iter()
+                        .map(|d| format!("{}: {}", d.code, d.message))
+                        .collect::<Vec<_>>()
+                ),
+                Err(e) => e.clone(),
+            };
+            let mut mismatches = Vec::new();
+            for (i, model) in models.iter().enumerate() {
+                let a = run(&full, model);
                 full.reset();
-                let b = split.check(&[], model);
-                eprintln!(
-                    "{model}: {} 件の診断、passed = {}",
-                    a.diagnostics.len(),
-                    a.passed()
-                );
-                assert_eq!(a, b, "{model}");
+                if fresh {
+                    split = Checker::with_library_sources_split("MSL", &sources(&files)).unwrap();
+                }
+                let b = run(&split, model);
+                eprintln!("[{}/{}] {model}: {}", i + 1, models.len(), summary(&a));
+                if a != b {
+                    mismatches.push(format!(
+                        "{model}\n  全部読み: {}\n  分割    : {}",
+                        summary(&a),
+                        summary(&b)
+                    ));
+                }
             }
+            assert!(
+                mismatches.is_empty(),
+                "{} 本中 {} 本が不一致:\n{}",
+                models.len(),
+                mismatches.len(),
+                mismatches.join("\n")
+            );
         })
         .unwrap()
         .join()

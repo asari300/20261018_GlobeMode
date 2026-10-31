@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S043 split-all-msl — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S043 split-all-msl">
+
+<section class="slide" id="S01">
+  <span class="tag">S043 · 2026-10-31 · P3</span>
+  <h1>split-all-msl</h1>
+  <p class="lead">分割読み込みを MSL の全例題で確かめる</p>
+  <div class="big">20 本 → 566 本</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>S037 の分割読み込みは 20 本でしか確かめていない</li>
+    <li>閉包が狭いとブラウザでだけ名前解決が落ちる</li>
+    <li>手元は RAM 3 GB なので GitHub Actions で回す</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table>
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>一覧</td><td>msl-funnel --list</td><td>検査を待たない</td></tr>
+    <tr><td>失敗</td><td>全部回して一覧</td><td>1 回で全部わかる</td></tr>
+    <tr><td>検査器</td><td>モデルごとに作り直す</td><td>前の読み込みが隠す</td></tr>
+    <tr><td>ジョブ</td><td>msl-sim と並行</td><td>落ちても止めない</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">結果</span>
+  <h1>手元の小さな確認</h1>
+  <table>
+    <tr><th>一覧</th><th>結果</th></tr>
+    <tr><td>4 本</td><td>全部一致</td></tr>
+    <tr><td>無いモデルを混ぜた 3 本</td><td>両方 GM-E1001 で一致</td></tr>
+    <tr><td>4 本、作り直しあり</td><td>一致（19.5 s）</td></tr>
+  </table>
+  <p>566 本は GitHub Actions のジョブ split-all で回す</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現</h1>
+  <pre><code>cargo xtask msl-funnel --list &gt; models.txt
+GM_SPLIT_MODELS=$PWD/models.txt GM_SPLIT_FRESH=1 \
+  cargo test --release -p globe-mode-frontend \
+  --test split -- --ignored --nocapture
+gh workflow run msl-sim.yml</code></pre>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次にやること</h1>
+  <ul>
+    <li>split-all の不一致があれば閉包を直す</li>
+    <li>msl-sim の artifact で doc/msl-sim.md を更新</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
