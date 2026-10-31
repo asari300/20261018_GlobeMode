@@ -35,7 +35,7 @@
 - `check_docs.py`: デッキ 48 件 OK / リンク 1097 件中の切れ 0 件（文書 211 件）
 - `render_slides.py`: 問題 0 件（S045 のデッキ 1 件。並行する別の Playwright と競合して screenshot が 30 s で時間切れになり、Chromium が静かになってから回し直して通った。S04 の図は目で確かめた）
 - ステージした差分の漏洩検査: 0 件
-- CI: {{CI}}
+- CI: main の push の run 41174919928（6c0abb6、ci.yml を変えたので全体検査）: plan / deny / rust-linux / rust-windows / rust-sundials（初回。cmake はランナーに入っていた）/ msl / python / ui / wasm-node / docs すべて success
 
 ## 残したこと
 
