@@ -9,6 +9,9 @@ export class WorkerBackend implements Backend {
     { pkg: new URL(`${import.meta.env.BASE_URL}wasm/pkg`, location.href).href },
   );
 
+  library(name: string, json: string): Promise<void> {
+    return this.#w.library(json, name);
+  }
   setFile(name: string, text: string): Promise<void> {
     return this.#w.setFile(name, text);
   }

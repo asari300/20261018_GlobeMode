@@ -21,6 +21,9 @@
   let failure = $state("");
   let diagnostics = $state<Diagnostic[]>([]);
   let csv = $state<string | null>(null);
+  // MSL（public/msl/MSL.json。pack-msl.mjs が data/msl から作る）。起動時には読まず、ボタンで読む
+  let msl = $state<"none" | "loading" | "loaded">("none");
+  let mslNote = $state("");
   let graphModel = $state<string | null>(null); // 「グラフ」を押したときのモデル名（入力のたびに描き直さない）
 
   onMount(() => {
@@ -33,6 +36,26 @@
     });
     return () => view.destroy();
   });
+
+  async function loadMsl() {
+    msl = "loading";
+    failure = "";
+    const t = performance.now();
+    try {
+      const res = await fetch(`${import.meta.env.BASE_URL}msl/MSL.json`);
+      if (!res.ok) throw new Error(`MSL.json を取得できない（${res.status}）。data/msl を取得して pnpm prepare-wasm（cargo xtask fetch-msl）`);
+      const json = await res.text();
+      await backend.library("MSL", json);
+      msl = "loaded";
+      mslNote = `MSL 4.1.0 を読んだ（${(json.length / 2 ** 20).toFixed(0)} MiB、${((performance.now() - t) / 1000).toFixed(1)} 秒）`;
+      diagnostics = [];
+      csv = null;
+      graphModel = null;
+    } catch (e) {
+      msl = "none";
+      failure = String((e as Error).message ?? e);
+    }
+  }
 
   const bySeverity = (ds: Diagnostic[]) =>
     // S0…S10 の順、同じ段階では error > warning > info
@@ -94,7 +117,13 @@
     <button onclick={check} disabled={busy}>検査</button>
     <button onclick={simulate} disabled={busy}>実行</button>
     <button onclick={graph} disabled={busy}>グラフ</button>
+    <button onclick={loadMsl} disabled={busy || msl !== "none"}>{msl === "loading" ? "MSL を読み込み中…" : "MSL を読む"}</button>
   </div>
+  <p class="note" data-msl={msl}>
+    {#if msl === "loaded"}{mslNote}。モデル名にライブラリのモデル（例 Modelica.Electrical.Analog.Examples.ChuaCircuit）を入れて検査・実行できる。グラフは編集中のファイルのモデルだけ（ライブラリのモデルは未対応）。
+    {:else if msl === "loading"}MSL.json を取得して読み込んでいる（十数秒）。
+    {:else}MSL は未読み込み。{/if}
+  </p>
   <div class="editor" bind:this={host}></div>
   {#if failure}<p class="failure" role="alert">{failure}</p>{/if}
   <table class="diagnostics" aria-label="診断">
@@ -112,7 +141,8 @@
 
 <style>
   main { font: 14px/1.4 system-ui, sans-serif; max-width: 60rem; margin: 0 auto; padding: 1rem; }
-  .bar { display: flex; gap: 1rem; margin-bottom: .5rem; }
+  .bar { display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: .5rem; }
+  .note { color: #555; margin: .25rem 0; }
   .editor { border: 1px solid #888; }
   .editor :global(.cm-editor) { height: 16rem; }
   .diagnostics { width: 100%; border-collapse: collapse; margin-top: .5rem; }
