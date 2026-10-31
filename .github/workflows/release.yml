@@ -1,0 +1,109 @@
+# `globe`（globe-mode-cli）のリリース用バイナリを作る（S044、計画書の WP-I）。
+#
+# タグ `v*` の push で、3 つの成果物（linux x86_64 / linux aarch64 / windows x86_64）と SHA256SUMS を作り、
+# GitHub Releases に付ける。手動実行（workflow_dispatch）は dry-run で、同じ成果物を artifact に残すだけ（Release は作らない）。
+# cargo-dist は使わない（依存を増やさない。3 つのターゲットは matrix で足りる）。`--features sundials` は付けない
+# （cmake と C コンパイラが要るため。ビルドの既定・wasm・CI と同じ構成）。ci.yml とは別の concurrency グループ。
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  MISE_AUTO_INSTALL: "false"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-24.04
+            exe: ""
+            archive: tar.gz
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm   # public リポジトリでは無料のネイティブ arm64 ランナー。クロスコンパイルはしない
+            exe: ""
+            archive: tar.gz
+          - target: x86_64-pc-windows-msvc
+            os: windows-2025
+            exe: .exe
+            archive: zip
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+        if: runner.os == 'Linux'
+        with:
+          install_args: rust
+      # Windows では mise の shim 経由の cargo が失敗したので、ランナーの rustup を直接使う（ci.yml の rust-windows と同じ）
+      - if: runner.os == 'Windows'
+        run: rustup toolchain install stable --profile minimal --no-self-update && rustup default stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+      - run: cargo build --release --locked -p globe-mode-cli
+      - name: 動くか確かめる
+        run: target/release/globe --version
+        shell: bash
+      - name: 成果物にまとめる
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          EXE: ${{ matrix.exe }}
+          ARCHIVE: ${{ matrix.archive }}
+          IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        run: |
+          if [ "$IS_TAG" = "true" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)-dryrun"
+          fi
+          NAME="globe-${VERSION}-${TARGET}"
+          mkdir "$NAME"
+          cp "target/release/globe${EXE}" LICENSE-MIT LICENSE-APACHE README.md "$NAME/"
+          if [ "$ARCHIVE" = "zip" ]; then 7z a -tzip "$NAME.zip" "$NAME" >/dev/null; else tar czf "$NAME.tar.gz" "$NAME"; fi
+          ls -l "$NAME.$ARCHIVE"
+          echo "ASSET=$NAME.$ARCHIVE" >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: globe-${{ matrix.target }}
+          path: ${{ env.ASSET }}
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write   # Release に付けるため。このジョブだけ
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: globe-*
+          path: dist
+          merge-multiple: true
+      - name: SHA256SUMS
+        working-directory: dist
+        run: sha256sum globe-* | tee SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SHA256SUMS
+          path: dist/SHA256SUMS
+      - name: Release に付ける（タグの push のときだけ）
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}

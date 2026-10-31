@@ -185,6 +185,8 @@ flowchart LR
 
 ### WP-I v0.1 のリリース工程（モデル C → B の確認。独立）
 
+**S044 で実施（済）**。cargo-dist は足さず matrix で作った（aarch64 はネイティブランナー）。タグ `v0.1.0-rc1` の dry-run による完了条件の確認は CI で行う。crates.io の metadata は workspace と CLI だけ。
+
 ```text
 目的: `globe` の CLI を配る。cargo-dist か素の CI で linux x86_64 / aarch64 / windows のバイナリ、LICENSE-MIT と LICENSE-APACHE、CHANGELOG.md（S001〜S032 の作業記録から）、英語 README の更新、crates.io の metadata（publish はしない）。
 所有: LICENSE-*、CHANGELOG.md、README.md、.github/workflows/release.yml、各 crate の Cargo.toml の [package] metadata。
