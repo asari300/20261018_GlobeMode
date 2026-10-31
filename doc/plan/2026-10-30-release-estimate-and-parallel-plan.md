@@ -165,6 +165,8 @@ flowchart LR
 
 ### WP-G Python の wheel（モデル B、WP-0 の後。独立）
 
+**S039 で実施（済）**。numpy は足さず、結果の表は既に依存にある polars で読む。`graph` はライブラリとして読んだモデルを引けない（`load_dir` で回す）。
+
 ```text
 目的: globe-mode-py（PyO3、abi3-py312）と maturin で src/Python/mod/globe_mode に wheel。参照シナリオ open → check → graph → simulate → 結果を numpy で。
 所有: src/Rust/mod/globe-mode-py/**、src/Python/mod/**、pyproject.toml、uv.lock、.github/workflows/ci.yml（python のジョブ）。

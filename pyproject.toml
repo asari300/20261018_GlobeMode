@@ -19,15 +19,21 @@ dependencies = [
 globe-mode = "globe_mode:main"
 
 [build-system]
-requires = ["uv_build>=0.13.1,<0.14.0"]
-build-backend = "uv_build"
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
 
 [dependency-groups]
 dev = [
     "playwright>=1.64.0",
+    "pytest>=8",
 ]
 
-[tool.uv.build-backend]
-# パッケージは言語別の src/Python/mod/ に置く（CLAUDE.md）
-module-name = "globe_mode"
-module-root = "src/Python/mod"
+[tool.maturin]
+# Rust の束ね（globe-mode-py）を Python のパッケージ globe_mode の中の _native として入れる（S039）
+manifest-path = "src/Rust/mod/globe-mode-py/Cargo.toml"
+python-source = "src/Python/mod"
+module-name = "globe_mode._native"
+features = ["pyo3/abi3-py312"]
+
+[tool.pytest.ini_options]
+testpaths = ["src/Python/tests"]
