@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S049 desktop-tauri — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S049 desktop-tauri">
+
+<section class="slide" id="S01">
+  <span class="tag">S049 · 2026-10-31 · P4</span>
+  <h1>Desktop: Tauri のシェルと sidecar</h1>
+  <p class="lead">計算は同梱の <code>globe lsp</code> に任せ、シェルは中継だけ</p>
+  <div class="big">.deb と .msi を <b>GitHub Actions</b> が artifact に出す</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>ADR-0023 の (b) を実装する（計画書の WP-C）</li>
+    <li><code>src/Rust/apps/desktop</code> に Tauri 2 のシェル。facade はリンクしない</li>
+    <li><code>globe lsp</code> に独自の要求 3 つ。UI 側は <code>TauriBackend</code></li>
+    <li>ubuntu-24.04 の .deb と windows-2025 の .msi を Actions で作る</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>workspace</td><td>desktop は別の workspace</td><td>webkit2gtk を手元と差分 CI に持ち込まない</td></tr>
+    <tr><td>独自の要求</td><td><code>globe/check</code> · <code>simulate</code> · <code>graph</code></td><td><code>Backend</code> の操作と 1 対 1</td></tr>
+    <tr><td>UI と Rust</td><td><code>rpc</code> と <code>notify</code> の 2 command</td><td>npm の依存を足さない</td></tr>
+    <tr><td>予算</td><td>simulate は 180 s で kill → 作り直し</td><td>止められない計算を外から止める</td></tr>
+    <tr><td>UI ビルド</td><td><code>vite build</code> だけ</td><td><code>pnpm build</code> は wasm が無いと落ちる</td></tr>
+    <tr><td>ライセンス</td><td>MPL-2.0 の 5 crate を例外に</td><td>改変せず使う。GPL・NC は 0</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>構成</h1>
+  <svg class="fig" viewBox="0 0 900 260" role="img" aria-label="UI、Tauri のシェル、sidecar の関係">
+    <rect class="svg-box" x="20" y="80" width="220" height="100" rx="10"/>
+    <text class="svg-text-b" x="130" y="125" text-anchor="middle">Svelte UI</text>
+    <text class="svg-text" x="130" y="150" text-anchor="middle">TauriBackend</text>
+    <rect class="svg-box-accent" x="340" y="80" width="220" height="100" rx="10"/>
+    <text class="svg-text-b" x="450" y="125" text-anchor="middle">Tauri シェル</text>
+    <text class="svg-text" x="450" y="150" text-anchor="middle">worker.rs</text>
+    <rect class="svg-box" x="660" y="80" width="220" height="100" rx="10"/>
+    <text class="svg-text-b" x="770" y="125" text-anchor="middle">globe lsp</text>
+    <text class="svg-text" x="770" y="150" text-anchor="middle">sidecar</text>
+    <line class="svg-line" x1="240" y1="130" x2="340" y2="130"/>
+    <line class="svg-line" x1="560" y1="130" x2="660" y2="130"/>
+    <text class="svg-text" x="290" y="115" text-anchor="middle">invoke</text>
+    <text class="svg-text" x="610" y="115" text-anchor="middle">stdio</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>cargo test -p globe-mode-lsp
+cargo deny --manifest-path src/Rust/apps/desktop/Cargo.toml \
+  --config src/Rust/apps/desktop/deny.toml check
+gh workflow run desktop.yml</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">7</span><span class="l">lsp の試験（新しい 1 本を含む）</span></div>
+    <div class="kpi"><span class="n">406</span><span class="l">desktop の依存パッケージ</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>App.svelte で Tauri のときだけ <code>TauriBackend</code></li>
+    <li>MSL の置き場と、読んだ後の RSS</li>
+    <li>署名、自動更新、静かな <code>globe/setFile</code></li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

@@ -1,0 +1,51 @@
+# Desktop（別の workspace）の cargo-deny の設定（S049）。ルートの deny.toml と同じ方針で、Tauri に要る分だけ足す。
+# 実行: cargo deny --manifest-path src/Rust/apps/desktop/Cargo.toml --config src/Rust/apps/desktop/deny.toml check
+# 手順は desktop.yml。Rumoca は Desktop に入らない（コアは sidecar の `globe` だけ。ADR-0023）ので、その bans と allow-git は無い。
+
+[graph]
+all-features = false
+
+[advisories]
+version = 2
+ignore = [
+  { id = "RUSTSEC-2024-0370", reason = "proc-macro-error の保守終了。tauri-utils → dom_query、gtk-rs（glib-macros 0.18）経由の proc-macro でビルド時だけ（S049、2026-10-31）" },
+]
+
+[licenses]
+version = 2
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Zlib",
+  "Unicode-3.0",
+  "CC0-1.0",
+  "BSL-1.0",
+]
+confidence-threshold = 0.9
+# 条件付き（MPL-2.0）。改変せずに使う。理由は doc/licenses.md の Tauri の行
+exceptions = [
+  { allow = ["MPL-2.0"], crate = "cssparser" },
+  { allow = ["MPL-2.0"], crate = "cssparser-macros" },
+  { allow = ["MPL-2.0"], crate = "dtoa-short" },
+  { allow = ["MPL-2.0"], crate = "selectors" },
+  { allow = ["MPL-2.0"], crate = "option-ext" },
+]
+
+[bans]
+multiple-versions = "allow"
+wildcards = "deny"
+allow-wildcard-paths = true
+deny = [
+  { crate = "rumoca", reason = "umbrella crate を使わない（ADR-0002）" },
+  { crate = "rumoca-compile", reason = "Desktop はコアをリンクしない（ADR-0023）" },
+  { crate = "globe-mode", reason = "Desktop は facade をリンクしない。sidecar の globe lsp と話す（ADR-0023）" },
+  { crate = "zenoh", reason = "EPL-2.0 OR Apache-2.0。IDE のコアに要らない" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

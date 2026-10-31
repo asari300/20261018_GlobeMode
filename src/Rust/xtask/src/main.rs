@@ -8,6 +8,7 @@
 //! cargo xtask omc-compare      msl-funnel の結果（--json）を omc（OpenModelica、別プロセス）と突き合わせ、報告を書く
 //! cargo xtask fetch-msl-ref    MAP-LIB の参照結果（MSL 4.1.0、commit 固定）を data/msl-ref/ に取得する
 //! cargo xtask msl-sim          msl-funnel で OK の例題を実行し（別プロセスのワーカー）、参照結果と管で比べ、報告を書く
+//! cargo xtask msl-solvers      ソルバごとの msl-sim の JSON を集め、実行・管の本数の表を書く
 //! cargo xtask bump-rumoca      固定している Rumoca の rev と、最新のタグを表示する
 //! ```
 //!
@@ -29,6 +30,7 @@ mod funnel;
 mod omc;
 mod reference;
 mod sim;
+mod solvers;
 
 /// MSL 4.1.0 の公式の配布物（BSD-3-Clause）。
 const MSL_URL: &str = "https://github.com/modelica/ModelicaStandardLibrary/releases/download/v4.1.0/ModelicaStandardLibrary_v4.1.0.zip";
@@ -251,6 +253,15 @@ enum Cmd {
         #[arg(long, default_value_t = 0.002)]
         tube_tolerance: f64,
     },
+    /// ソルバごとの `msl-sim --json` を集め、実行できた本数と管に収まった本数の表を書く（S050）
+    MslSolvers {
+        /// `msl-sim --json` が書いたファイル（ソルバは JSON の settings.solver から決める）
+        #[arg(long, required = true, num_args = 1..)]
+        inputs: Vec<PathBuf>,
+        /// Markdown の報告を書くファイル（無ければ標準出力）
+        #[arg(long)]
+        report: Option<PathBuf>,
+    },
     /// 固定している Rumoca の rev と、上流の最新のタグを表示する
     BumpRumoca,
 }
@@ -375,6 +386,7 @@ fn main() -> ExitCode {
             keep_results,
             tube_tolerance,
         }),
+        Cmd::MslSolvers { inputs, report } => solvers::msl_solvers(&inputs, report.as_deref()),
         Cmd::BumpRumoca => bump_rumoca(),
     };
     match result {

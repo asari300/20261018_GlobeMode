@@ -6,6 +6,7 @@
 # 前回の target/msl-sim.json はキャッシュから戻し、前回との差を報告に書く。
 # ジョブ split-all（S043）は wasm の分割読み込み（S037）が全部読みと同じ検査結果を返すかを全例題で確かめる。
 # msl-sim と並行に回し（needs を付けない）、こちらが落ちても msl-sim は止まらない。
+# ジョブ solvers・solvers-report（S050）は、msl-sim の後にソルバごとに msl-sim を回して、ソルバ別の表（doc/msl-solvers.md）を作る。
 name: msl-sim
 
 on:
@@ -88,3 +89,82 @@ jobs:
           path: |
             split-models.txt
             split-all.log
+
+  # S050: ソルバごとに msl-funnel で OK の例題を実行し、参照結果の管で比べる。msl-sim ジョブの funnel の JSON を使う。
+  # 並べるのは「自前または diffsol の、刻み幅を制御する積分器」。`auto` の行は msl-sim ジョブの結果を使う。
+  #   - 入れない: qss（事象ごとに f 全体を呼び、硬い系は壁時計の上限で止まる。時間がかかる割に比べる意味が薄い）、
+  #     euler・heun・rk4・impeuler・trapezoid（固定刻み。既定の刻み＝出力の間隔では精度が足りず、管に収まる本数に意味が出ない）、
+  #     esdirk23（trbdf2 と同じ方法で、刻みの端の値は一致する）、別名（dassl・lsodar・rk45・dopri5）。
+  #   - cvode・ida は feature `sundials`（SUNDIALS を cmake で同梱のソースからビルドする。ランナーに cmake が入っている）。
+  #     ワーカーは xtask 自身なので、xtask のビルドに `--features globe-mode-exec/sundials` を付ければ届く。
+  # 基準（baseline）は渡さない。1 ソルバは 60 分前後【未確認】、上限は 300 分。
+  solvers:
+    needs: msl-sim
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        solver: [bdf, dopri45, esdirk34, trbdf2, tsit45, esdirk45, sdirk34hw, dopri853, cerk23, cerk34, cerk45, radau5, cvode, ida]
+    env:
+      # cvode・ida だけ sundials つき（それ以外のビルドは msl-sim ジョブと同じ）
+      SUNDIALS: ${{ (matrix.solver == 'cvode' || matrix.solver == 'ida') && 'true' || 'false' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+        with:
+          install_args: rust
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ env.SUNDIALS == 'true' && 'sundials' || 'plain' }}
+      - uses: actions/cache@v6
+        with:
+          path: data/msl
+          key: msl-${{ hashFiles('src/Rust/xtask/src/main.rs') }}
+      - uses: actions/cache@v6
+        with:
+          path: data/msl-ref
+          key: msl-ref-${{ hashFiles('src/Rust/xtask/src/reference.rs') }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: msl-sim
+      - run: cargo xtask fetch-msl
+      - name: msl-sim --solver ${{ matrix.solver }}
+        shell: bash
+        run: |
+          features=""
+          if [ "$SUNDIALS" = true ]; then features="--features globe-mode-exec/sundials"; fi
+          cargo run --release -q -p xtask $features -- msl-sim --solver ${{ matrix.solver }} --funnel-json target/msl-funnel.json --tolerance-scale 0.1 --fetch-ref --report target/msl-sim-${{ matrix.solver }}.md --json target/msl-sim-${{ matrix.solver }}.json
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: msl-sim-solver-${{ matrix.solver }}
+          path: |
+            target/msl-sim-${{ matrix.solver }}.md
+            target/msl-sim-${{ matrix.solver }}.json
+
+  # 全ソルバの JSON を集めて表にする。落ちたソルバがあっても、できた分で表を作る（if: always()）。
+  solvers-report:
+    needs: [msl-sim, solvers]
+    if: always() && needs.msl-sim.result == 'success'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+        with:
+          install_args: rust
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/download-artifact@v8
+        with:
+          name: msl-sim
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: msl-sim-solver-*
+          merge-multiple: true
+          path: target
+      - run: cargo xtask msl-solvers --inputs target/msl-sim.json target/msl-sim-*.json --report doc/msl-solvers.md
+        shell: bash
+      - uses: actions/upload-artifact@v7
+        with:
+          name: msl-solvers
+          path: doc/msl-solvers.md

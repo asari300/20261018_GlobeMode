@@ -3,6 +3,18 @@
 //! 機能: 診断（`publishDiagnostics`、検査 S0〜S10 と lint）、`documentSymbol`（アウトライン）、
 //! `hover`（クラスの種類）、`formatting`（S053、`globe-mode-fmt`）、`completion`（S053、[`completion`]）。
 //! 定義へ移動は無い。同期は Full で、1 本のスレッドで順に処理する。
+//!
+//! 独自の要求（S049、ADR-0023。Desktop の UI が sidecar の `globe lsp` に同じ接続で頼む）:
+//!
+//! | 要求 | params | result |
+//! | --- | --- | --- |
+//! | `globe/check` | `{model}` | `CheckResponse` の JSON |
+//! | `globe/simulate` | `{request}`（`SimulateRequest` の JSON） | `SimulateResponse` の JSON |
+//! | `globe/graph` | `{model, depth}` | graphology の JSON（`ConnectGraph::to_graphology`） |
+//! | `globe/format` | `{text, indent?, insertOrigin?}` | 整形後の本文（S053。壊れていれば -32000） |
+//! | `globe/lint` | `{text}` | `[{rule, line, column, message}]`（S053） |
+//!
+//! params が読めなければ -32602、モデルが無いなど計算の失敗は -32000（`message` に理由）。
 //! facade（`globe-mode`）の `Workspace` だけを呼び、新しい計算は入れない。
 
 mod completion;
@@ -12,7 +24,7 @@ use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
 
 use globe_mode::db::normalize_path;
-use globe_mode::{Diagnostic, Workspace};
+use globe_mode::{Diagnostic, SimulateRequest, Workspace};
 use globe_mode_core::Severity;
 use globe_mode_ir::{ClassKind, ClassOutline};
 use lsp_types::{
@@ -130,6 +142,51 @@ impl Server {
                 };
                 reply(id, json!(items))
             }
+            "globe/check" => match params["model"].as_str() {
+                Some(model) => reply(id, json!(self.ws.check(model))),
+                None => error(id, -32602, "params.model が文字列でない"),
+            },
+            "globe/simulate" => {
+                match serde_json::from_value::<SimulateRequest>(params["request"].clone()) {
+                    Ok(request) => reply(id, json!(self.ws.simulate(&request))),
+                    Err(e) => error(id, -32602, &format!("params.request: {e}")),
+                }
+            }
+            "globe/graph" => match params["model"].as_str() {
+                Some(model) => {
+                    let depth = params["depth"].as_u64().unwrap_or(1) as u32;
+                    match self.ws.graph(model, depth) {
+                        Ok(g) => reply(id, g.to_graphology()),
+                        Err(e) => error(id, -32000, &e.to_string()),
+                    }
+                }
+                None => error(id, -32602, "params.model が文字列でない"),
+            },
+            // 文書に依らない整形と lint（S053。Desktop の UI が wasm と同じ口で頼む）
+            "globe/format" => match params["text"].as_str() {
+                Some(text) => {
+                    let options = globe_mode_fmt::Options {
+                        indent: params["indent"].as_u64().map_or(2, |n| n as usize),
+                        insert_origin: params["insertOrigin"].as_bool().unwrap_or(true),
+                        ..globe_mode_fmt::Options::default()
+                    };
+                    match globe_mode_fmt::format(text, &options) {
+                        Ok(out) => reply(id, json!(out)),
+                        Err(e) => error(id, -32000, &e.message),
+                    }
+                }
+                None => error(id, -32602, "params.text が文字列でない"),
+            },
+            "globe/lint" => match params["text"].as_str() {
+                Some(text) => reply(
+                    id,
+                    json!(globe_mode_fmt::lint(text, &globe_mode_fmt::LintOptions::default())
+                        .iter()
+                        .map(|m| json!({"rule": m.rule, "line": m.line, "column": m.column, "message": m.message}))
+                        .collect::<Vec<_>>()),
+                ),
+                None => error(id, -32602, "params.text が文字列でない"),
+            },
             // 要求（id あり）は断る。知らない通知は無視する
             _ => match id {
                 Some(id) => vec![
@@ -263,6 +320,13 @@ fn read_message(input: &mut impl BufRead) -> io::Result<Option<Value>> {
 /// 要求（id あり）への応答。通知なら何も返さない。
 fn reply(id: Option<Value>, result: Value) -> Vec<Value> {
     id.map(|id| json!({"jsonrpc": "2.0", "id": id, "result": result}))
+        .into_iter()
+        .collect()
+}
+
+/// 要求（id あり）へのエラー応答。通知なら何も返さない。
+fn error(id: Option<Value>, code: i32, message: &str) -> Vec<Value> {
+    id.map(|id| json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}}))
         .into_iter()
         .collect()
 }
@@ -500,6 +564,51 @@ mod tests {
             -32601
         );
         assert!(s.handle(json!({"method": "foo/bar"})).is_empty());
+    }
+
+    #[test]
+    fn custom_requests_check_simulate_and_graph() {
+        let mut s = Server::new(&[]).unwrap();
+        let src = "connector Pin\n  Real v;\n  flow Real i;\nend Pin;\n\
+                   model R\n  Pin p;\n  Pin n;\nequation\n  p.v - n.v = p.i;\n  p.i + n.i = 0;\nend R;\n\
+                   model C\n  R a;\n  R b;\nequation\n  connect(a.n, b.p);\nend C;\n\
+                   model D\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -x;\nend D;\n";
+        s.handle(
+            json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+            "uri": "A.mo", "languageId": "modelica", "version": 1, "text": src}}}),
+        );
+        let r = s.handle(json!({"id": 1, "method": "globe/check", "params": {"model": "D"}}));
+        assert_eq!(r[0]["result"]["model"], "D");
+        assert_eq!(r[0]["result"]["passed"], true);
+        let r = s.handle(
+            json!({"id": 2, "method": "globe/simulate", "params": {"request": {
+            "model": "D", "settings": {"stop_time": 1.0}, "no_csv": true}}}),
+        );
+        assert_eq!(r[0]["result"]["ok"], true, "{}", r[0]);
+        let x = r[0]["result"]["final"]["x"].as_f64().unwrap();
+        assert!((x - (-1f64).exp()).abs() < 1e-2, "x = {x}");
+        let r = s.handle(
+            json!({"id": 3, "method": "globe/graph", "params": {"model": "C", "depth": 1}}),
+        );
+        assert_eq!(
+            r[0]["result"]["edges"].as_array().unwrap().len(),
+            1,
+            "{}",
+            r[0]
+        );
+        // 読めない params は -32602、モデルが無ければ -32000、通知（id 無し）には何も返さない
+        for (method, params, code) in [
+            ("globe/check", json!({}), -32602),
+            ("globe/simulate", json!({"request": {"nope": 1}}), -32602),
+            ("globe/graph", json!({"model": "Nope"}), -32000),
+        ] {
+            let r = s.handle(json!({"id": 9, "method": method, "params": params}));
+            assert_eq!(r[0]["error"]["code"], code, "{method}: {}", r[0]);
+        }
+        assert!(
+            s.handle(json!({"method": "globe/check", "params": {}}))
+                .is_empty()
+        );
     }
 
     #[test]

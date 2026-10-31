@@ -48,6 +48,13 @@ try {
   assert.ok((await w.solvers()).some((s) => s.name === "bdf" && s.status.kind === "available"));
   for (const [name, text] of Object.entries(readMo(join(repo, "src/Modelica/GlobeModeValidation")))) await w.setFile(name, text);
   await runDecay("Decay bdf");
+  // 列ごとの結果（S051）: CSV でなく Float64Array。最後の行が final と同じ
+  const c = await w.simulateColumns({ model: decay, settings: { solver: "bdf" } });
+  assert.ok(c.response.ok && c.response.csv === null);
+  assert.deepEqual(c.layout.names, ["time", "x"]);
+  assert.ok(c.columns.every((col) => col instanceof Float64Array && col.length === c.layout.points));
+  assert.equal(c.columns[1].at(-1), c.response.final.x);
+  console.log(`simulateColumns: ${c.layout.points} 点 × ${c.columns.length} 列、x(1) = ${c.columns[1].at(-1)}`);
   const g = await w.graph("GlobeModeValidation.Connect.RealCircuit", 1);
   assert.ok(g.nodes.length > 0 && g.edges.length > 0, "graph: ノードと辺がある");
   await assert.rejects(w.graph("No.Such.Model", 1), /索引に無い/);

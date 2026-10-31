@@ -168,3 +168,88 @@ fn lsp_serves_diagnostics_symbols_and_hover() {
     send(&mut stdin, json!({"jsonrpc": "2.0", "method": "exit"}));
     assert!(child.wait().unwrap().success());
 }
+
+/// 独自の要求 `globe/check`・`globe/simulate`・`globe/graph`（S049、ADR-0023。Desktop の sidecar の話し方）
+#[test]
+fn lsp_serves_custom_requests() {
+    let text = "connector Pin\n  Real v;\n  flow Real i;\nend Pin;\nmodel R\n  Pin p;\n  Pin n;\nequation\n  p.v - n.v = p.i;\n  p.i + n.i = 0;\nend R;\nmodel C\n  R a;\n  R b;\nequation\n  connect(a.n, b.p);\nend C;\nmodel D\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -x;\nend D;\n";
+    let mut child = Command::new(env!("CARGO_BIN_EXE_globe"))
+        .current_dir(root())
+        .args(["lsp"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("run globe lsp");
+    let mut stdin = child.stdin.take().unwrap();
+    let mut out = BufReader::new(child.stdout.take().unwrap());
+    send(
+        &mut stdin,
+        json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"capabilities": {}}}),
+    );
+    response(&mut out, 1);
+    send(
+        &mut stdin,
+        json!({"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {
+        "uri": "A.mo", "languageId": "modelica", "version": 1, "text": text}}}),
+    );
+
+    send(
+        &mut stdin,
+        json!({"jsonrpc": "2.0", "id": 2, "method": "globe/check", "params": {"model": "D"}}),
+    );
+    let check = response(&mut out, 2);
+    assert_eq!(check["result"]["passed"], true, "{check}");
+
+    send(
+        &mut stdin,
+        json!({"jsonrpc": "2.0", "id": 3, "method": "globe/simulate", "params": {"request": {
+        "model": "D", "settings": {"stop_time": 1.0}, "no_csv": true}}}),
+    );
+    let sim = response(&mut out, 3);
+    assert_eq!(sim["result"]["ok"], true, "{sim}");
+    assert!((sim["result"]["final"]["x"].as_f64().unwrap() - (-1f64).exp()).abs() < 1e-2);
+
+    send(
+        &mut stdin,
+        json!({"jsonrpc": "2.0", "id": 4, "method": "globe/graph", "params": {"model": "C", "depth": 1}}),
+    );
+    let graph = response(&mut out, 4);
+    assert_eq!(
+        graph["result"]["edges"].as_array().unwrap().len(),
+        1,
+        "{graph}"
+    );
+
+    send(
+        &mut stdin,
+        json!({"jsonrpc": "2.0", "id": 5, "method": "globe/graph", "params": {"model": "Nope"}}),
+    );
+    assert_eq!(response(&mut out, 5)["error"]["code"], -32000);
+
+    // globe/format・globe/lint（S053。文書に依らず text をそのまま渡す）
+    send(
+        &mut stdin,
+        json!({"jsonrpc": "2.0", "id": 6, "method": "globe/format", "params": {"text": "model  a\nReal x(start=1);\nend a;\n"}}),
+    );
+    assert_eq!(
+        response(&mut out, 6)["result"],
+        "model a\n\n  Real x(start = 1);\n\nend a;\n"
+    );
+    send(
+        &mut stdin,
+        json!({"jsonrpc": "2.0", "id": 7, "method": "globe/lint", "params": {"text": "model a\nend a;\n"}}),
+    );
+    let rules: Vec<_> = response(&mut out, 7)["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| m["rule"].as_str().unwrap().to_string())
+        .collect();
+    assert!(
+        rules.contains(&"class-name-pascal-case".to_string()),
+        "{rules:?}"
+    );
+
+    send(&mut stdin, json!({"jsonrpc": "2.0", "method": "exit"}));
+    assert!(child.wait().unwrap().success());
+}

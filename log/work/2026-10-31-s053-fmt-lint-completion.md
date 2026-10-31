@@ -49,6 +49,8 @@
 - セッション記録の `--check`: 取りこぼし 0 件
 - ステージした差分の漏洩検査: 0 件（メール・ホームのパス・トークン）
 
+- main（S049〜S052）の取り込み: 競合は `lsp/lib.rs`・wasm の `client.js` / `worker.js`・sessions 索引の 4 つで、どれも差し込み行どうし。S049 の `TauriBackend` が `Backend.format` / `lint` を持たず svelte-check が落ちたので、LSP に独自の要求 `globe/format` / `globe/lint` を足して Desktop からも同じ口で呼べるようにした（ADR-0023 の表に追記）。
+
 ## 残したこと
 
 - 設定ファイル（`globe-fmt.toml`）、定義ジャンプ・リネーム、部品の型を辿る深い補完、VS Code 拡張の実体。

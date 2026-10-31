@@ -1,0 +1,5 @@
+/target
+/gen
+# CI が `globe` を target triple 付きの名前でここに置く（desktop.yml）
+/binaries/*
+!/binaries/.gitkeep
