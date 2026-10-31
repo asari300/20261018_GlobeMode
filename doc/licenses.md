@@ -40,8 +40,12 @@
 | zip | MIT | 許可 | S003 で導入（xtask で MSL を展開）。**9 系を使う**: 2 系には展開時の脆弱性（RUSTSEC-2026-0367 / 0368 / 0369）がある |
 | MSL 4.1.0、Rumoca の CLI（照合用） | BSD-3-Clause / Apache-2.0 | 許可 | `cargo xtask fetch-*` で sha256 を固定して取得する。配布物には入れない（`data/` は git 管理外） |
 | cargo-deny | MIT OR Apache-2.0 | 許可（ツール） | mise で入れる。配布物には入らない |
-| fmi、fmi-schema、fmi-sys、fmi-export | MIT OR Apache-2.0 | 許可 | — |
-| FMI ヘッダ、Reference-FMUs | BSD-2-Clause | 許可 | — |
+| fmi、fmi-schema、fmi-sys、fmi-export | MIT OR Apache-2.0 | 許可 | 依存には足していない（S057 の調査。crates.io で確認、2026-11-01）。`fmi-sys` の build に bindgen（libclang）、`fmi-schema` は `hard-xml`（MIT）など。使うかは [ADR-0026](adr/0026-fmi-import-placement.md) の (b) |
+| fmi-rs 0.3.4、fmusim | BSD-2-Clause | 許可（本体）。`fmi-rs` の依存 `colored`（MPL-2.0）は条件付き | 依存には足していない（S057。crates.io とリポジトリで確認、2026-11-01）。fmusim は検証の道具（別プロセスで呼ぶだけ）。`fmi-rs` の build.rs は C をコンパイルし wasm32 で落ちた |
+| FMI ヘッダ（fmi2Functions.h など）と XSD、Reference-FMUs | BSD-2-Clause | 許可 | ヘッダの先頭と LICENSE.txt で確認（2026-11-01）。仕様書の文書は CC BY-SA 4.0 なので複製しない。Reference-FMUs は `cargo xtask fetch-reference-fmus` で sha256 を固定して取得（`data/`、コミットしない）。試験の fixture に `modelDescription.xml` 4 つをコミットし、`tests/data/LICENSE` に原文を置いた |
+| roxmltree 0.21.2（memchr 2.8、既に Cargo.lock にある） | MIT OR Apache-2.0 | 許可 | S057 で導入（`globe-mode-fmi`。`modelDescription.xml` の読み取り）。crates.io の license 欄と `cargo deny check` で確認、2026-11-01。Cargo.lock に増えたのは roxmltree だけ。wasm32 でも通る |
+| FMPy | BSD-2-Clause | 許可（ツール） | 検証の道具。リポジトリの LICENSE.txt で確認、2026-11-01。Python の開発依存に足すかは P5 で決める |
+| FMU Compliance Checker（fmuCheck） | BSD-3-Clause | 許可（ツール） | 開発終了、FMI 1/2 のみ。FMI 2 の Export の検査にだけ使う |
 | MSL 4.1.0 | BSD-3-Clause | 許可 | 同梱せず取得する。同梱するならライセンス文を付ける |
 | cranelift | Apache-2.0 WITH LLVM-exception | 許可 | ネイティブ版のみ |
 | PyO3、maturin、Rustler、wasm-bindgen | MIT / Apache-2.0 | 許可 | — |
