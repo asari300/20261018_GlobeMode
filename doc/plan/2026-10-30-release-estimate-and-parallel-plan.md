@@ -179,6 +179,8 @@ flowchart LR
 
 ### WP-H 上流への報告と CI の sundials（モデル C → A の確認。独立）
 
+**S045 で実施（済）**。下書きは 9 件の目標に対して 14 件（Rumoca 11・diffsol 3）、`doc/research/upstream/`。週次のジョブは `rust-sundials`。この環境に Rumoca の CLI が無く、再現は新しく確かめていない（本文に [not verified]）。出すのはユーザー。
+
 ```text
 目的: (1) doc/research/msl-sim-failures.md と roadmap の候補 8 から、Rumoca への issue の下書きを 1 件 1 ファイルで doc/research/upstream/ に書く（最小の再現 .mo つき。英語）。(2) .github/workflows/ci.yml の毎週の全体検査に `--features sundials` のジョブを足す（差分の検査には足さない）。
 所有: doc/research/upstream/**、ci.yml の週次ジョブ 1 つ。
