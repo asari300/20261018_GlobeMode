@@ -39,3 +39,8 @@
 - `mise run wasm:compare`: 347 / 360 一致、既知の差 13、不一致 0（修正の前に回した。修正は分割の閉包だけで、compare は MSL を使わない）。
 - `mise run wasm:web`: Node と Chromium で Decay の誤差 2.7e-8、panic の後 restarts = 1（修正の前）。
 - `msl-sim.yml`: YAML として読めることだけを確かめた。GitHub Actions ではまだ回していない。
+
+## 追記（マージの後）
+
+- CI run 41169454984（全体の検査）: plan・rust-linux・rust-windows・deny・msl・python・docs・wasm-node の 8 ジョブが成功。
+- `msl-sim.yml` を一度回した（run 41170268465）ら、`mise run msl:funnel` が落ちた。`mise run` は mise.toml のツールをすべて入れようとし、elixir（erlang 27）がランナーの glibc に GLIBC_2.43 を求めて落ちる。ci.yml の `msl` ジョブと同じく `cargo xtask` を直接呼ぶように直した（ブランチ `feature/s037-msl-sim-direct`）。

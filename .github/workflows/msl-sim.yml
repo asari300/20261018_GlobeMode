@@ -40,8 +40,11 @@ jobs:
           path: target/msl-sim.json
           key: msl-sim-json-${{ github.run_id }}
           restore-keys: msl-sim-json-
-      - run: mise run msl:funnel
-      - run: mise run msl:sim
+      # mise run は mise.toml のツールをすべて入れようとし、elixir がランナーの glibc で落ちる（run 41170268465）。
+      # mise.toml の msl:funnel と msl:sim と同じコマンドを直接呼ぶ
+      - run: cargo xtask fetch-msl
+      - run: cargo xtask msl-funnel --report doc/msl-funnel.md --json target/msl-funnel.json
+      - run: cargo xtask msl-sim --funnel-json target/msl-funnel.json --tolerance-scale 0.1 --fetch-ref --baseline-json target/msl-sim.json --report doc/msl-sim.md --json target/msl-sim.json
       - uses: actions/upload-artifact@v7
         if: always()
         with:
