@@ -124,6 +124,14 @@ pub struct SimulateResponse {
     pub memory_bytes: f64,
 }
 
+/// 列ごとの結果の並び（wasm の `simulate_columns`。S051）。時系列を CSV の文字列でなく、列ごとの `Float64Array` で渡すときの
+/// 見出し。`names[0]` は `time`、残りは変数で、列 `i` は `points` 個の値を持つ（CSV の行数 - 1 と同じ）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ColumnsLayout {
+    pub names: Vec<String>,
+    pub points: usize,
+}
+
 /// tunable なパラメータの一覧（`globe simulate --list-parameters --json` と同じ形）。
 #[derive(Debug, Clone, Serialize)]
 pub struct ParametersResponse {
