@@ -5,13 +5,14 @@
   import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
   import { bracketMatching } from "@codemirror/language";
   import { WorkerBackend } from "./lib/worker-backend";
+  import { TauriBackend, inTauri } from "./lib/tauri-backend";
   import type { Backend } from "./lib/backend";
   import type { Diagnostic } from "./lib/protocol";
   import Plot from "./lib/plot/Plot.svelte";
   import Graph from "./lib/graph/Graph.svelte";
 
   const FILE = "Model.mo";
-  const backend: Backend = new WorkerBackend();
+  const backend: Backend = inTauri() ? new TauriBackend() : new WorkerBackend(); // S049: Tauri の中では sidecar
   const severityRank = { error: 0, warning: 1, info: 2 };
 
   let host: HTMLDivElement;
