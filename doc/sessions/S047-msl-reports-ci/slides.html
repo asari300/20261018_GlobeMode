@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S047 msl-reports-ci — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S047 msl-reports-ci">
+
+<section class="slide" id="S01">
+  <span class="tag">S047 · 2026-10-31 · P3</span>
+  <h1>msl-reports-ci</h1>
+  <p class="lead">GitHub Actions で回した MSL の結果を取り込む</p>
+  <div class="big">分割読み込み 566 / 566 一致</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>msl-sim.yml の artifact で報告を更新する</li>
+    <li>split-all の結果で S037 の持ち越しを閉じる</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table>
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>報告</td><td>2 回目の run を使う</td><td>前回との差が載る</td></tr>
+    <tr><td>手元</td><td>回し直さない</td><td>ランナーで 2 回一致</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">結果</span>
+  <h1>ランナーでの結果</h1>
+  <table>
+    <tr><th>項目</th><th>値</th></tr>
+    <tr><td>funnel</td><td>OK 369・panic 0</td></tr>
+    <tr><td>sim</td><td>実行 309・管 301/308</td></tr>
+    <tr><td>前回との差</td><td>0</td></tr>
+    <tr><td>split-all</td><td>566/566 一致（61 分）</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現</h1>
+  <pre><code>gh workflow run msl-sim.yml
+gh run download &lt;run-id&gt; -n msl-sim
+gh run download &lt;run-id&gt; -n split-all</code></pre>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次にやること</h1>
+  <ul>
+    <li>止まった例題の残り（候補 1）</li>
+    <li>上流への報告の整理（候補 8）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
