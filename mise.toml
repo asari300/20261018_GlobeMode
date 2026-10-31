@@ -108,7 +108,7 @@ pnpm build
 """
 
 [tasks."ui:check"]
-description = "ブラウザ UI の検査（S041。svelte-check と、Playwright の Chromium で Decay と特異なモデルを検査する試験。S046 から connect グラフの試験も）"
+description = "ブラウザ UI の検査（S041。svelte-check と、Playwright の Chromium で Decay と特異なモデルを検査する試験。S046 から connect グラフの試験も。S048 から data/msl があれば「MSL を読む」と ChuaCircuit の試験も）"
 depends = ["wasm:build"]
 run = """
 set -eu

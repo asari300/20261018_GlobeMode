@@ -364,6 +364,11 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **GitHub Actions の結果を取り込んだ**: `msl-sim.yml` の run 41174276501 の artifact で [msl-funnel.md](msl-funnel.md) と [msl-sim.md](msl-sim.md) を更新した。数字は 2026-10-24 の手元の実行と同じ（funnel: OK 369・GM-U 184・NG 13・panic 0、sim: 実行できた 309・管に収まった 301/308）。違うのは回し直し 13 → 12 本（実行できた 2 → 1）と時間・メモリ。ランナーで 2 回回し（run 41170414005 と 41174276501）、前回との差は 0（前回の JSON は actions/cache から戻った）。所要は msl-sim ジョブで 85 分・79 分。
 - **分割読み込みは全例題で全部読みと一致**: ジョブ `split-all`（S043）で MSL の 566 本すべての `CheckReport` が一致（`GM_SPLIT_FRESH=1`、試験 2932 s、ジョブ 61 分）。S037 の持ち越しを閉じた。
 
+### S048（P4、2026-10-31）で済んだこと
+
+- **ブラウザ UI で MSL を読み、ChuaCircuit の検査・実行・プロットが通った**（P4 の完了条件の前半）: `src/Svelte/scripts/pack-msl.mjs` が `data/msl` の `.mo`（2556 ファイル）を `public/msl/MSL.json`（15.2 MiB、`.gitignore` 済み）にし、`prepare-wasm` の段で呼ぶ（`data/msl` が無ければ警告だけ）。`Backend.library(name, json)` と `WorkerBackend` が `GlobeWorker.library` を呼び、`App.svelte` の「MSL を読む」ボタン（起動時は読まない）で読む。ヘッドレス Chromium で MSL を読む 0.5〜1.0 s、ChuaCircuit の検査 約 2 s（error 0）、実行（bdf）約 1.5 s（5 万点、44 信号）。`tests/test_ui.py` に試験、ci.yml の `ui` ジョブに `data/msl` の cache と `fetch-msl`。wasm・worker・client は変えていない。
+- 持ち越し: ライブラリのモデルの `graph`（「索引に無い」と赤字で出る）、実ブラウザでの計測、ライブラリツリー、LSP、Tauri のシェル。詳しくは [解説書](sessions/S048-ui-msl/解説書.md)。
+
 ### S052（P8 の 2 回目、2026-10-31）で済んだこと
 
 - **release.yml の dry-run と配布物のライセンス表**（S044 の持ち越し）: feature ブランチで `gh workflow run release.yml --ref feature/s052-release-rc1-about`（run 41195617479、約 3.5 分）が success。artifact は `globe-x86_64-unknown-linux-gnu`（17,266,507 バイト）・`globe-aarch64-unknown-linux-gnu`（15,732,498）・`globe-x86_64-pc-windows-msvc`（14,763,818）と `SHA256SUMS`。タグは打っていない。
