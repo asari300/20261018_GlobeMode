@@ -4,6 +4,8 @@
 # 手動だけ（Actions の画面か `gh workflow run msl-sim.yml`）。push の CI（ci.yml）には入れない。
 # 報告（doc/msl-funnel.md・doc/msl-sim.md）と JSON は artifact に残す。コミットは手元で artifact を取ってから行う。
 # 前回の target/msl-sim.json はキャッシュから戻し、前回との差を報告に書く。
+# ジョブ split-all（S043）は wasm の分割読み込み（S037）が全部読みと同じ検査結果を返すかを全例題で確かめる。
+# msl-sim と並行に回し（needs を付けない）、こちらが落ちても msl-sim は止まらない。
 name: msl-sim
 
 on:
@@ -54,3 +56,35 @@ jobs:
             doc/msl-sim.md
             target/msl-funnel.json
             target/msl-sim.json
+
+  # 例題の一覧は `msl-funnel --list`（索引だけで、検査はしない）から取る。funnel の JSON を待たないので並行に回せる。
+  # 不一致は一覧にして出す（最初の 1 本で止めない）。モデルごとに分割読み込みの検査器を作り直す（GM_SPLIT_FRESH。
+  # 先のモデルが読んだファイルが残ると閉包の足りなさを隠すため）。時間が足りなければ FRESH を外す。
+  split-all:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+        with:
+          install_args: rust
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/cache@v6
+        with:
+          path: data/msl
+          key: msl-${{ hashFiles('src/Rust/xtask/src/main.rs') }}
+      - run: cargo xtask fetch-msl
+      - run: cargo xtask msl-funnel --list > split-models.txt
+      - run: wc -l split-models.txt
+      - run: cargo test --release -p globe-mode-frontend --test split -- --ignored --nocapture msl_examples_match_the_full_load 2>&1 | tee split-all.log
+        shell: bash
+        env:
+          GM_SPLIT_MODELS: ${{ github.workspace }}/split-models.txt
+          GM_SPLIT_FRESH: "1"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: split-all
+          path: |
+            split-models.txt
+            split-all.log
