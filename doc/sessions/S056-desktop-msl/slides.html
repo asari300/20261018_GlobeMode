@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S056 desktop-msl — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S056 desktop-msl">
+
+<section class="slide" id="S01">
+  <span class="tag">S056 · 2026-11-01 · P4</span>
+  <h1>Desktop で MSL を読む</h1>
+  <p class="lead">sidecar が読んだ MSL に ChuaCircuit を検査・実行させ、RSS の基準値を記録する</p>
+  <div class="big">P4 の完了条件「<b>RSS の基準値を記録する</b>」を埋める</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>「MSL を読む」ボタン（<code>backend.library</code>）が Desktop でも動くようにする</li>
+    <li>MSL は JSON で送らない。sidecar が起動時に <code>--library</code> / <code>GLOBE_LIBRARY</code> で読む</li>
+    <li>CI の smoke で MSL を読んだ後の最大 RSS（アプリ・sidecar）を記録する</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>command</td><td><code>libraries</code>（起動時のパスの一覧）</td><td>sidecar を叩かず、ロックを待たずに答えられる</td></tr>
+    <tr><td><code>library()</code></td><td>一覧が空でなければ resolve、空なら reject</td><td>App.svelte を変えずにボタンが動く。JSON は捨てる</td></tr>
+    <tr><td>smoke の指定</td><td>環境変数 <code>GLOBE_DESKTOP_SMOKE_MODEL</code></td><td>最小の変更。無ければ今までの <code>D</code></td></tr>
+    <tr><td>RSS</td><td>アプリと sidecar の VmHWM を各段の後に表示</td><td><code>time -v</code> はプロセス木の最大 1 つだけ</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>流れ</h1>
+  <svg class="fig" viewBox="0 0 900 200" role="img" aria-label="smoke の流れ">
+    <rect class="svg-box" x="20" y="60" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="120" y="105" text-anchor="middle">fetch-msl</text>
+    <rect class="svg-box-accent" x="350" y="60" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="450" y="105" text-anchor="middle">アプリ (xvfb)</text>
+    <rect class="svg-box" x="680" y="60" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="780" y="105" text-anchor="middle">globe lsp</text>
+    <line class="svg-line" x1="220" y1="100" x2="350" y2="100"/>
+    <line class="svg-line" x1="550" y1="100" x2="680" y2="100"/>
+    <text class="svg-text" x="285" y="90" text-anchor="middle">GLOBE_LIBRARY</text>
+    <text class="svg-text" x="615" y="90" text-anchor="middle">check, simulate</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現と結果</h1>
+  <pre><code>cd src/Rust/apps/desktop &amp;&amp; cargo fmt -- --check
+cd src/Svelte &amp;&amp; pnpm run check
+gh workflow run desktop.yml --ref feature/s056-desktop-msl</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">41244465666</span><span class="l">desktop.yml の run</span></div>
+    <div class="kpi"><span class="n">1.52 GiB</span><span class="l">sidecar の VmHWM（simulate 後）</span></div>
+    <div class="kpi"><span class="n">136 MiB</span><span class="l">アプリの VmHWM（simulate 後）</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>App.svelte で Tauri のときだけ <code>TauriBackend</code>（並行セッションの後）</li>
+    <li>MSL の置き場（同梱か取得か）、署名、自動更新</li>
+    <li>静かな <code>globe/setFile</code></li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
