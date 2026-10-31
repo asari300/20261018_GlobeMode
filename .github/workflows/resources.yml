@@ -5,14 +5,12 @@
 # - ジョブ wasm   : release の wasm を Node で回し、`msl-funnel --list` の全例題を順に check して線形メモリの伸びを測る
 #                   （ADR-0023 (c) の上限 2 GiB に何本目で達するか。node/memory.mjs）。simulate と simulate_columns の
 #                   時間も比べる（node/columns.mjs）
-# 結果は artifact `resources`（rss.md・wasm-memory.json・wasm-memory.log・columns.log）と、各ジョブのサマリに残す。
+# 結果は artifact `resources-rss`（rss.md）と `resources-wasm`（wasm-memory*.json・wasm-memory*.log・columns.log）と、各ジョブのサマリに残す。
 # 報告は doc/research/resources-2026-10-31.md。
 name: resources
 
 on:
   workflow_dispatch:
-  push: # 試行のために一時的に足した（main にまだ無いワークフローは dispatch できない）。試行が済んだら消す
-    branches: [feature/s051-resources]
 
 permissions:
   contents: read
@@ -99,7 +97,7 @@ jobs:
         run: mise run wasm:build
       - run: cargo xtask msl-funnel --list > models.txt
       - run: wc -l models.txt
-      - name: simulate と simulate_columns の時間（Decay の 10 万点）
+      - name: simulate と simulate_columns の時間（Decay と Wide の 10 万点）
         run: node src/Rust/mod/globe-mode-wasm/node/columns.mjs --runs 9 2>&1 | tee columns.log
       - name: 線形メモリの伸び（MSL の全例題を順に check。上限 2 GiB で Worker を作り直す）
         run: node --max-old-space-size=4096 src/Rust/mod/globe-mode-wasm/node/memory.mjs --msl data/msl --list models.txt --recycle-mib 2048 --json wasm-memory.json 2>&1 | tee wasm-memory.log
