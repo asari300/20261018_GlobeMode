@@ -72,7 +72,7 @@
   - 保守終了の勧告（unmaintained）は、Rumoca 経由のものに限って理由を書いて例外にする（bincode、paste）。
   - `bans` に `zenoh*`、`russell_sparse` と、umbrella crate の `rumoca` を入れる。
   - `wrappers = ["globe-mode-frontend", "globe-mode-exec"]` で、Rumoca を使える crate を制限する。
-- **cargo-about**: 配布物に入れる `THIRD_PARTY_LICENSES.html` を生成する。
+- **cargo-about**（S052 で導入。設定は [about.toml](../about.toml)、テンプレートは [about.hbs](../about.hbs)）: 配布物に入れる `THIRD-PARTY.md` を生成する（4 を参照）。`accepted` は deny.toml の `licenses.allow` と同じ集合で、許可外のライセンスが 1 つでもあれば `--fail` で失敗する。
 - **npm 側**: `pnpm licenses list` を CI で検査する。
 - **SBOM**: リリースごとに CycloneDX 形式で出力する。
 - **生成コード**: Rumoca のテンプレートで生成したコードのライセンスは P5a で確かめ、この表に書き足す。
@@ -80,5 +80,19 @@
 ## 4. GlobeMode の配布物に入れるもの
 
 - `LICENSE-MIT`、`LICENSE-APACHE`
-- `THIRD_PARTY_LICENSES.html`（cargo-about と npm の分）
+- `THIRD-PARTY.md`（cargo-about。`globe` のバイナリに入る Rust の依存の一覧とライセンス文。S052）
 - 寄稿の扱い: Apache-2.0 §5 に従い、寄稿は MIT OR Apache-2.0 で受け入れる。README に明記する。
+
+### 配布物のサードパーティのライセンス表（S052、2026-10-31）
+
+- **何を同梱するか**: `release.yml` が作る 3 つのアーカイブ（linux x86_64 / linux aarch64 / windows x86_64）それぞれに、`globe`・`LICENSE-MIT`・`LICENSE-APACHE`・`README.md` と並べて `THIRD-PARTY.md` を入れる。中身は `globe`（globe-mode-cli。feature `sundials` なし）の依存の crate 名・版・リポジトリと、ライセンスごとの全文。
+- **作り方**: release.yml のジョブ `third-party` が `cargo install --locked --features cli --version 0.9.2 cargo-about`（EmbarkStudios、MIT OR Apache-2.0）を入れ、次を 1 回だけ回す。3 つのビルドはその artifact を取り込む。
+
+  ```bash
+  cargo about generate --locked --fail --manifest-path src/Rust/mod/globe-mode-cli/Cargo.toml about.hbs -o THIRD-PARTY.md
+  ```
+
+- **範囲**: `about.toml` の `targets` は 3 つの配布ターゲットの和集合。他のターゲットにしか入らない crate は除く。dev 依存と GlobeMode 自身の crate（`publish = false`）は入れない。build 依存は入れる。
+- **許可外のライセンス**: `accepted` が allow の一覧だけなので、満たせない crate があれば cargo-about が失敗し、成果物は出ない（確認の結果は作業記録の `log/work/2026-10-31-s052-release-rc1-about.md`）。
+- **含めていないもの**: npm の分（UI は配布物に入らない。Tauri の配布で足す）、wasm と Python の wheel、`sundials` ビルド、CycloneDX の SBOM。
+- 出典: https://github.com/EmbarkStudios/cargo-about 、https://embarkstudios.github.io/cargo-about/ （0.9.2 の docs/src、2026-10-31 確認）。
