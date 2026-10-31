@@ -84,7 +84,38 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// LSP サーバ（標準入出力。診断・documentSymbol・hover。S038）
+    /// Modelica のファイルを整形する（S053、`doc/format-style.md`）。ファイルが無ければ標準入力を整形して標準出力に書く
+    Fmt {
+        /// ファイルまたはディレクトリ（ディレクトリは下の .mo をすべて）。無ければ標準入力
+        files: Vec<PathBuf>,
+        /// 書き換えず、整形が要るファイルを列挙して終了コード 1
+        #[arg(long)]
+        check: bool,
+        /// 1 段のインデントの空白の数（既定 2）
+        #[arg(long, default_value_t = 2)]
+        indent: usize,
+        /// 行幅（既定 80）
+        #[arg(long, default_value_t = 80)]
+        width: usize,
+        /// 図形プリミティブに `origin = {0, 0}` を足さない
+        #[arg(long)]
+        no_insert_origin: bool,
+        /// 標準入力のとき、結果を JSON（{"ok":bool,"text":…,"error":…}）で返す
+        #[arg(long)]
+        json: bool,
+    },
+    /// Modelica のファイルを lint する（line-too-long / class-name-pascal-case / missing-description）
+    Lint {
+        /// ファイルまたはディレクトリ。無ければ標準入力
+        files: Vec<PathBuf>,
+        /// 止める規則（何度でも）
+        #[arg(long)]
+        disable: Vec<String>,
+        /// JSON（{"messages":[{file,rule,line,column,message}]}）で出力する
+        #[arg(long)]
+        json: bool,
+    },
+    /// LSP サーバ（標準入出力。診断・documentSymbol・hover・整形・補完。S038、S053）
     Lsp {
         /// ライブラリのディレクトリ（例: data/msl）。何度でも指定できる
         #[arg(long, short = 'L')]
@@ -190,6 +221,28 @@ fn main() -> ExitCode {
             model,
             json,
         } => check(&files, &library, &model, json),
+        Command::Fmt {
+            files,
+            check,
+            indent,
+            width,
+            no_insert_origin,
+            json,
+        } => fmt(
+            &files,
+            check,
+            &globe_mode_fmt::Options {
+                indent,
+                width,
+                insert_origin: !no_insert_origin,
+            },
+            json,
+        ),
+        Command::Lint {
+            files,
+            disable,
+            json,
+        } => lint(&files, &disable, json),
         Command::Lsp { library } => match globe_mode_lsp::run_stdio(&library) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
@@ -293,6 +346,121 @@ fn expand_inputs(inputs: &[PathBuf]) -> Result<Vec<PathBuf>, ExitCode> {
         }
     }
     Ok(out)
+}
+
+fn read_stdin() -> Result<String, ExitCode> {
+    let mut text = String::new();
+    std::io::Read::read_to_string(&mut std::io::stdin(), &mut text).map_err(|e| {
+        eprintln!("error: 標準入力を読めない: {e}");
+        ExitCode::from(2)
+    })?;
+    Ok(text)
+}
+
+/// `globe fmt`。ファイルが無ければ標準入力 → 標準出力。
+fn fmt(files: &[PathBuf], check: bool, options: &globe_mode_fmt::Options, json: bool) -> ExitCode {
+    if files.is_empty() {
+        let Ok(text) = read_stdin() else {
+            return ExitCode::from(2);
+        };
+        return match globe_mode_fmt::format(&text, options) {
+            Ok(out) if json => {
+                println!(
+                    "{}",
+                    serde_json::json!({"ok": true, "text": out, "error": null})
+                );
+                ExitCode::SUCCESS
+            }
+            Ok(out) => {
+                print!("{out}");
+                ExitCode::SUCCESS
+            }
+            Err(e) if json => {
+                println!(
+                    "{}",
+                    serde_json::json!({"ok": false, "text": null, "error": e.to_string()})
+                );
+                ExitCode::from(1)
+            }
+            Err(e) => {
+                eprintln!("error: {e}");
+                ExitCode::from(1)
+            }
+        };
+    }
+    let Ok(paths) = expand_inputs(files) else {
+        return ExitCode::from(2);
+    };
+    let mut changed = 0;
+    for path in &paths {
+        let Ok((name, text)) = read(path) else {
+            return ExitCode::from(2);
+        };
+        match globe_mode_fmt::format(&text, options) {
+            Ok(out) if out == text => {}
+            Ok(out) => {
+                changed += 1;
+                if check {
+                    println!("{name}");
+                } else if let Err(e) = std::fs::write(path, out) {
+                    eprintln!("error: {name} に書けない: {e}");
+                    return ExitCode::from(2);
+                }
+            }
+            Err(e) => {
+                eprintln!("error: {name}: {e}");
+                return ExitCode::from(1);
+            }
+        }
+    }
+    if check && changed > 0 {
+        ExitCode::from(1)
+    } else {
+        ExitCode::SUCCESS
+    }
+}
+
+/// `globe lint`。1 件以上あれば終了コード 1。
+fn lint(files: &[PathBuf], disable: &[String], json: bool) -> ExitCode {
+    let options = globe_mode_fmt::LintOptions {
+        disabled: disable.to_vec(),
+        ..globe_mode_fmt::LintOptions::default()
+    };
+    let inputs: Vec<(String, String)> = if files.is_empty() {
+        let Ok(text) = read_stdin() else {
+            return ExitCode::from(2);
+        };
+        vec![("<stdin>".to_string(), text)]
+    } else {
+        let Ok(paths) = expand_inputs(files) else {
+            return ExitCode::from(2);
+        };
+        let mut v = Vec::new();
+        for p in &paths {
+            let Ok(x) = read(p) else {
+                return ExitCode::from(2);
+            };
+            v.push(x);
+        }
+        v
+    };
+    let mut all = Vec::new();
+    for (name, text) in &inputs {
+        for m in globe_mode_fmt::lint(text, &options) {
+            if !json {
+                println!("{name}:{}:{}: {}: {}", m.line, m.column, m.rule, m.message);
+            }
+            all.push(serde_json::json!({"file": name, "rule": m.rule, "line": m.line, "column": m.column, "message": m.message}));
+        }
+    }
+    if json {
+        println!("{}", serde_json::json!({"messages": all}));
+    }
+    if all.is_empty() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    }
 }
 
 fn read(path: &PathBuf) -> Result<(String, String), ExitCode> {

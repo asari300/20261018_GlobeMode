@@ -4,6 +4,8 @@
   import { EditorView, keymap, lineNumbers, drawSelection } from "@codemirror/view";
   import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
   import { bracketMatching } from "@codemirror/language";
+  import { setDiagnostics } from "@codemirror/lint";
+  import { modelicaCompletion, modelicaLinter, toCmDiagnostics } from "./lib/editor";
   import { WorkerBackend } from "./lib/worker-backend";
   import type { Backend } from "./lib/backend";
   import type { Diagnostic } from "./lib/protocol";
@@ -31,7 +33,10 @@
       parent: host,
       state: EditorState.create({
         doc: "model Decay\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -x;\nend Decay;\n",
-        extensions: [lineNumbers(), history(), drawSelection(), bracketMatching(), keymap.of([...defaultKeymap, ...historyKeymap])],
+        extensions: [
+          lineNumbers(), history(), drawSelection(), bracketMatching(), keymap.of([...defaultKeymap, ...historyKeymap]),
+          modelicaCompletion(), modelicaLinter(backend, FILE), // S053
+        ],
       }),
     });
     return () => view.destroy();
@@ -76,6 +81,14 @@
 
   const check = () => run(async () => {
     diagnostics = bySeverity((await backend.check(model)).diagnostics);
+    view.dispatch(setDiagnostics(view.state, toCmDiagnostics(view.state.doc.toString(), diagnostics, FILE)));
+  });
+
+  // 整形（S053、doc/format-style.md）。文法が壊れていれば本文は変えず、理由を出す
+  const format = () => run(async () => {
+    const text = view.state.doc.toString();
+    const out = await backend.format(text, 2, true);
+    if (out !== text) view.dispatch({ changes: { from: 0, to: text.length, insert: out } });
   });
 
   const simulate = () =>
@@ -117,6 +130,7 @@
     <button onclick={check} disabled={busy}>検査</button>
     <button onclick={simulate} disabled={busy}>実行</button>
     <button onclick={graph} disabled={busy}>グラフ</button>
+    <button onclick={format} disabled={busy}>整形</button>
     <button onclick={loadMsl} disabled={busy || msl !== "none"}>{msl === "loading" ? "MSL を読み込み中…" : "MSL を読む"}</button>
   </div>
   <p class="note" data-msl={msl}>

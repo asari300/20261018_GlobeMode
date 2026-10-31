@@ -21,7 +21,7 @@ flowchart LR
 | **P1 骨格**（S003 で完了） | workspace 化、mise の rust の targets、cargo-deny、CI（Linux / Windows / wasm）。core / ir / frontend / cli。MSL の取得スクリプト。Python パッケージの改名 | `cargo deny check` が通る。MSL の例題 20 本で `globe check` の結果が Rumoca と一致する。frontend が wasm32 向けにビルドできる。[ADR-0003](adr/0003-toolchain.md) が Accepted になる | 3 回（workspace と CI / アダプタと CLI / wasm の確認） |
 | **P2 遅延クエリと検査**（S004〜S010。完了条件は S008 で 3 つとも満たした。S9・S10 は S010 で足した。S10 の数値の部分は P3） | db、outline、class_index、connect_graph、`assert_simulatable` の S0〜S10 | 空白だけの編集の再検査が 50 ms 未満で、`flat` が再実行されない（salsa のイベントで確かめる）。MSL の全例題に判定が出て、panic は 0 件。S5 が omc と 95% 以上一致する | 4 回 |
 | **P3 シミュレーション**（S011 で着手。完了条件の 1 つ目と 2 つ目は S011 で、3 つ目（wasm）は S012 で満たした。1 つ目と 2 つ目は S012 の既定（`auto`）で測り直した） | exec、driver、bdf / esdirk34 / tsit45 / dopri / 固定刻み、ResultStore | MSL の例題 153 本以上が実行できる。そのうち 90% 以上が参照結果のファネルに収まる。bdf が wasm で（Node 上で）動く | 5 回 |
-| **P4 Desktop MVP** | CodeMirror 6 と LSP、ライブラリツリー、検査パネル、プロット、sigma.js の connect グラフ | ChuaCircuit で開く・検査・実行・プロットが通る。5k ノードのグラフが 30 fps 以上で動く。RSS の基準値を記録する。CI が .deb と .msi を作る | 6 回 |
+| **P4 Desktop MVP** | CodeMirror 6 と LSP（S053 で整形・補完・lint）、ライブラリツリー、検査パネル、プロット、sigma.js の connect グラフ | ChuaCircuit で開く・検査・実行・プロットが通る。5k ノードのグラフが 30 fps 以上で動く。RSS の基準値を記録する。CI が .deb と .msi を作る | 6 回 |
 | **P5 FMI** | Import（ME / CS / SE）とマスター。Export は P5a（Rumoca のテンプレート）の後に P5b（自前のランタイム） | Reference-FMUs が linux64 と win64 で一致する。Export した FMU が FMPy・fmusim・fmuCheck を通る。Clocks（SE）が往復できる | 8 回 |
 | **P6 Web / marimo / Streamlit / Android** | WorkerBackend、MSL のパッケージ単位の分割読み込み、anywidget、wheel、APK | ブラウザが CSP `connect-src 'self'` のまま実行できる（サーバーで計算しない）。marimo の WASM で 2 GB 未満に収まる。Android API 34 のエミュレータで検査と実行が通る | 5 回 |
 | **P7 言語 API と UI 比較** | C / Zig / Julia、Elixir / Gleam、Python。Leptos 版と Dioxus 版、負荷の測定ハーネス | 参照シナリオが 6 言語で通る。`doc/bench/ui.md` に 3 UI × 3 OS の比較を書く | 6 回 |
@@ -368,6 +368,13 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 
 - **ブラウザ UI で MSL を読み、ChuaCircuit の検査・実行・プロットが通った**（P4 の完了条件の前半）: `src/Svelte/scripts/pack-msl.mjs` が `data/msl` の `.mo`（2556 ファイル）を `public/msl/MSL.json`（15.2 MiB、`.gitignore` 済み）にし、`prepare-wasm` の段で呼ぶ（`data/msl` が無ければ警告だけ）。`Backend.library(name, json)` と `WorkerBackend` が `GlobeWorker.library` を呼び、`App.svelte` の「MSL を読む」ボタン（起動時は読まない）で読む。ヘッドレス Chromium で MSL を読む 0.5〜1.0 s、ChuaCircuit の検査 約 2 s（error 0）、実行（bdf）約 1.5 s（5 万点、44 信号）。`tests/test_ui.py` に試験、ci.yml の `ui` ジョブに `data/msl` の cache と `fetch-msl`。wasm・worker・client は変えていない。
 - 持ち越し: ライブラリのモデルの `graph`（「索引に無い」と赤字で出る）、実ブラウザでの計測、ライブラリツリー、LSP、Tauri のシェル。詳しくは [解説書](sessions/S048-ui-msl/解説書.md)。
+
+### S053（P4、2026-10-31）で済んだこと
+
+- 整形器と lint を自前の crate `globe-mode-fmt`（依存 0、wasm 可）で作った（[format-style.md](format-style.md)、[ADR-0024](adr/0024-own-formatter-and-lint.md)）。規則はユーザーと対話して決めた: インデント 2、80 桁で括弧を折り返す、図形プリミティブの引数を位置・形状 → points → fill → line の順に並べ替えてグループの境目で改行、`origin = {0, 0}` の補完、`within` の後・クラス頭の後・`end` の前に空行。出力のトークン列を照合して意味を変えないことを保証する。
+- 入口: CLI `globe fmt` / `globe lint`（標準入力の `--json`）、LSP の `formatting` / `completion` / lint の診断（`GM-L0001`〜`GM-L0003`）、wasm の `format` / `lint`、ブラウザ UI の「整形」ボタンと CodeMirror の補完（`@codemirror/autocomplete`）・波線（`@codemirror/lint`）。
+- ウェブアプリ群 10 種（[web-apps.md](web-apps.md) の共通の契約。各アプリは独立したプロジェクトで、サブエージェントが 1 つずつ作った）: Rust の axum・actix-web・Rocket・loco（crate を直接）、Elixir Phoenix、Gleam wisp、Python の Streamlit・marimo・FastAPI、TypeScript の Astro（CLI を子プロセスで）。
+- 持ち越し: 設定ファイル、深い補完と定義ジャンプ、VS Code 拡張の実体、`src/Modelica` の書き換え（69 本すべてが変わる）、ウェブアプリの CI。詳しくは [解説書](sessions/S053-fmt-lint-completion/解説書.md)。
 
 ### S052（P8 の 2 回目、2026-10-31）で済んだこと
 

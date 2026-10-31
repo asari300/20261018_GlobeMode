@@ -118,6 +118,48 @@ fn lsp_serves_diagnostics_symbols_and_hover() {
             .contains("model")
     );
 
+    // S053: lint の警告（説明文字列が無い → GM-L0003）が診断に混ざる
+    assert!(
+        diags
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|d| d["code"] == "GM-L0003"),
+        "GM-L0003 が無い: {diags}"
+    );
+    // 整形: 文書全体を 1 つの TextEdit で返す（クラス頭の後ろと end の前に空行が入る）
+    send(
+        &mut stdin,
+        json!({"jsonrpc": "2.0", "id": 4, "method": "textDocument/formatting",
+        "params": {"textDocument": doc, "options": {"tabSize": 2, "insertSpaces": true}}}),
+    );
+    let fmt = response(&mut out, 4);
+    let new_text = fmt["result"][0]["newText"]
+        .as_str()
+        .expect("TextEdit が無い");
+    assert!(
+        new_text.contains("model StructurallySingular\n\n  Real x;"),
+        "{new_text}"
+    );
+    assert_eq!(fmt["result"][0]["range"]["start"]["line"], 0);
+    // 補完: 予約語と同じファイルの名前
+    send(
+        &mut stdin,
+        json!({"jsonrpc": "2.0", "id": 5, "method": "textDocument/completion",
+        "params": {"textDocument": doc, "position": {"line": 6, "character": 2}}}),
+    );
+    let comp = response(&mut out, 5);
+    let labels: Vec<&str> = comp["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|i| i["label"].as_str())
+        .collect();
+    assert!(
+        labels.contains(&"equation") && labels.contains(&"z"),
+        "{labels:?}"
+    );
+
     send(
         &mut stdin,
         json!({"jsonrpc": "2.0", "id": 4, "method": "shutdown"}),

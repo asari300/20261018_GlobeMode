@@ -14,6 +14,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 # S035: facade と protocol だけに依存する
 globe-mode = { workspace = true }
+globe-mode-fmt = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 wasm-bindgen = { workspace = true }

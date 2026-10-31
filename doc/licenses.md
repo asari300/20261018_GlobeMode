@@ -8,7 +8,7 @@
 
 | 区分 | ライセンス | 扱い |
 | --- | --- | --- |
-| **許可** | MIT、Apache-2.0、Apache-2.0 WITH LLVM-exception、BSD-2-Clause、BSD-3-Clause、ISC、Zlib、Unicode-3.0、CC0-1.0、BSL-1.0 | そのまま依存してよい。配布物にライセンス文を同梱する |
+| **許可** | MIT、Apache-2.0、Apache-2.0 WITH LLVM-exception、BSD-2-Clause、BSD-3-Clause、ISC、Zlib、Unicode-3.0、CC0-1.0、BSL-1.0、PSF-2.0（S053、Python の typing-extensions）、BlueOak-1.0.0（S053、npm の lru-cache など）、0BSD、CDLA-Permissive-2.0（S053、loco の lettre 経由の quoted_printable と webpki-roots。いずれも制約の無い寛容な許諾） | そのまま依存してよい。配布物にライセンス文を同梱する |
 | **条件付き** | MPL-2.0、EPL-2.0（別ライセンスとの OR を含む） | 改変しないで使う場合に限る。改変するなら、そのファイルを元のライセンスのまま公開する。cargo-deny では個別に例外として登録する |
 | **任意の feature に限る** | LGPL-2.1-or-later（KLU など） | 既定の配布物には含めない。利用者が自分でビルドする任意の feature に限る |
 | **禁止** | GPL-2.0 / 3.0、AGPL-3.0、OSMC-PL、SSPL、CC BY-NC、PolyForm（非商用）、独自の source-available | 依存しない。リンクもしない。コードを複製しない |
@@ -65,6 +65,14 @@
 | symbolica | source-available | 禁止 | — |
 | fdg-sim 0.4 系、fdg-img、fdg-macroquad | GPL-3.0 | 禁止 | 0.6 / 0.9 以降の fdg-sim は MIT |
 | Dyad | PolyForm Strict を改変したもの | 禁止 | — |
+
+| npm（src/Svelte、S053）: @codemirror/autocomplete 6.20、@codemirror/lint 6.9 | MIT | 許可 | 補完と波線。CodeMirror の他のパッケージと同じ作者・同じライセンス（`pnpm licenses list`、2026-10-31） |
+| ウェブアプリ群（S053、[web-apps.md](web-apps.md)。各アプリは独立したプロジェクトで、ルートの workspace・`pyproject.toml`・配布物には入らない。詳しい表は各アプリの README） | 下記 | 許可 | ライセンスは各アプリの README の表のとおり。確認日 2026-10-31 |
+| ├ Rust: axum 0.8（MIT）、tokio（MIT）、actix-web 4.18（MIT OR Apache-2.0）、rocket 0.5.2（MIT OR Apache-2.0）、loco-rs 1.2（Apache-2.0） | MIT / Apache-2.0 | 許可 | `src/Rust/apps/web-*`。独立した workspace で、`cargo deny --config deny.toml check licenses` は axum・actix・rocket で ok。rocket の r-efi（MIT OR Apache-2.0 OR LGPL-2.1-or-later）は MIT を選び、Linux のビルドには入らない。**loco は通らない**: 推移的依存に colored 2.2 / 3.1（MPL-2.0。改変しないので条件付きで許可）、webpki-roots（CDLA-Permissive-2.0）、quoted_printable（0BSD）があり、lettre は loco-rs の feature で外せない。開発時だけ scraper 経由の cssparser・selectors・dtoa-short（MPL-2.0）。どれも改変せず、配布物にも入らないので §1 に足して許可した。ルートの `deny.toml` は変えていない |
+| ├ Elixir: phoenix 1.8、bandit、jason、plug、telemetry ほか 16 本 | MIT / Apache-2.0 | 許可 | `src/Elixir/phoenix_fmt`。Hex のメタデータで確認 |
+| ├ Gleam: wisp 2.2、mist 6.0、gleam_json、gleam_stdlib ほか 22 本 | Apache-2.0（hpack_erl だけ MIT） | 許可 | `src/Gleam/wisp_fmt`。hex.pm の `meta.licenses` で確認 |
+| ├ Python: streamlit 1.66（Apache-2.0）、marimo 0.25（Apache-2.0、ルートの依存）、fastapi 0.162（MIT）、uvicorn（BSD-3）、httpx（BSD-3）、starlette（BSD-3）、pydantic（MIT） | 許可 | 許可 | `src/Python/{streamlit,marimo,fastapi_fmt}`。推移的依存のうち certifi は MPL-2.0（改変しないので条件付きで許可）、typing-extensions は PSF-2.0（§1 に足した）。配布物には入らない |
+| ├ TypeScript: astro 7.4（MIT）、@astrojs/node（MIT）、推移的依存 197 本（MIT 166、ISC 11、BSD 11、Apache-2.0 3、CC0 1、BlueOak-1.0.0 3、MPL-2.0 2） | 許可 | 許可 | `src/Astro/fmt`。MPL-2.0 は Vite の `lightningcss`（ビルド時だけ、上と同じ扱い）。astro の optional な `sharp`（LGPL-3.0-or-later）は `pnpm-workspace.yaml` の `ignoredOptionalDependencies` で除外した（画像機能は使わない） |
 
 ## 3. 監査の仕組み
 

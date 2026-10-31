@@ -1,8 +1,11 @@
 //! GlobeMode の LSP サーバ（S038）。stdio の JSON-RPC を自前で回し、型だけ `lsp-types` を使う。
 //!
-//! 機能は 3 つだけ: 診断（`publishDiagnostics`、検査 S0〜S10）、`documentSymbol`（アウトライン）、
-//! `hover`（クラスの種類）。補完・定義へ移動は無い。同期は Full で、1 本のスレッドで順に処理する。
+//! 機能: 診断（`publishDiagnostics`、検査 S0〜S10 と lint）、`documentSymbol`（アウトライン）、
+//! `hover`（クラスの種類）、`formatting`（S053、`globe-mode-fmt`）、`completion`（S053、[`completion`]）。
+//! 定義へ移動は無い。同期は Full で、1 本のスレッドで順に処理する。
 //! facade（`globe-mode`）の `Workspace` だけを呼び、新しい計算は入れない。
+
+mod completion;
 
 use std::collections::HashMap;
 use std::io::{self, BufRead, Write};
@@ -48,7 +51,8 @@ impl Server {
                 id,
                 json!({
                     // 1 = Full
-                    "capabilities": {"textDocumentSync": 1, "documentSymbolProvider": true, "hoverProvider": true},
+                    "capabilities": {"textDocumentSync": 1, "documentSymbolProvider": true, "hoverProvider": true,
+                        "documentFormattingProvider": true, "completionProvider": {"triggerCharacters": ["."]}},
                     "serverInfo": {"name": "globe-mode", "version": env!("CARGO_PKG_VERSION")},
                 }),
             ),
@@ -97,6 +101,35 @@ impl Server {
                 };
                 reply(id, json!(hover))
             }
+            "textDocument/formatting" => {
+                // 文書全体を 1 つの TextEdit で置き換える。整形できない（文法が壊れている）ときは null
+                let opts = &params["options"];
+                let options = globe_mode_fmt::Options {
+                    indent: opts["tabSize"].as_u64().map_or(2, |n| n as usize),
+                    ..globe_mode_fmt::Options::default()
+                };
+                let edit = self.texts.get(&uri).and_then(|text| {
+                    let out = globe_mode_fmt::format(text, &options).ok()?;
+                    (out != *text).then(|| {
+                        json!([{"range": range(text, globe_mode_core::TextRange { start: 0, end: text.len() as u32 }), "newText": out}])
+                    })
+                });
+                reply(id, edit.unwrap_or(Value::Null))
+            }
+            "textDocument/completion" => {
+                let pos = &params["position"];
+                let pos = Position::new(
+                    pos["line"].as_u64().unwrap_or(0) as u32,
+                    pos["character"].as_u64().unwrap_or(0) as u32,
+                );
+                let items = match self.texts.get(&uri) {
+                    Some(text) => {
+                        completion::complete(&self.ws, &uri_path(&uri), text, offset(text, pos))
+                    }
+                    None => vec![],
+                };
+                reply(id, json!(items))
+            }
             // 要求（id あり）は断る。知らない通知は無視する
             _ => match id {
                 Some(id) => vec![
@@ -138,7 +171,7 @@ impl Server {
             None => return vec![],
         };
         let key = normalize_path(path);
-        let mut out = Vec::new();
+        let mut out: Vec<lsp_types::Diagnostic> = lint_diagnostics(text);
         for model in models {
             for d in self.ws.check(&model).diagnostics {
                 if d.file.as_deref().is_none_or(|f| f == key) {
@@ -151,6 +184,32 @@ impl Server {
         }
         out
     }
+}
+
+/// lint（S053）を LSP の診断（warning、GM-L0001〜）にする。
+fn lint_diagnostics(text: &str) -> Vec<lsp_types::Diagnostic> {
+    globe_mode_fmt::lint(text, &globe_mode_fmt::LintOptions::default())
+        .into_iter()
+        .map(|m| {
+            let code = match m.rule {
+                "line-too-long" => "GM-L0001",
+                "class-name-pascal-case" => "GM-L0002",
+                _ => "GM-L0003",
+            };
+            let start = Position::new(
+                m.line.saturating_sub(1) as u32,
+                m.column.saturating_sub(1) as u32,
+            );
+            lsp_types::Diagnostic {
+                range: Range::new(start, start),
+                severity: Some(DiagnosticSeverity::WARNING),
+                code: Some(NumberOrString::String(code.to_string())),
+                source: Some("globe-mode".to_string()),
+                message: format!("{} ({})", m.message, m.rule),
+                ..Default::default()
+            }
+        })
+        .collect()
 }
 
 /// 標準入出力で LSP を回す。`exit` か入力の終わりで返る。

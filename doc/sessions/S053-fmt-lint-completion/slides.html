@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S053 整形器・lint・補完 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S053 整形器・lint・補完">
+
+<section class="slide" id="S01">
+  <span class="tag">S053 · 2026-10-31 · P4</span>
+  <h1>整形器・lint・補完</h1>
+  <p class="lead">Rumoca に依存しない自前の crate <code>globe-mode-fmt</code> を作り、CLI・LSP・wasm・ブラウザ UI・10 種のウェブアプリの共通のエンジンにした</p>
+  <div class="big">ユーザーと決めた整形の型を<b>1 つの crate</b>に閉じ込め、入口を 4 つ開けた</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>コード補完・リンタ・フォーマッタを作り、ユーザーの好みの整形の型を対話で記録する</li>
+    <li>IDE のほかに CLI・VS Code 拡張・ウェブアプリ（marimo、Streamlit、Phoenix、Astro、Axum、Actix-web、Rocket、loco …）から単体で使える設計にする</li>
+    <li>P4 Desktop MVP の「CodeMirror 6 と LSP」の一部。並行する s049〜s051 と衝突しない形で進める</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>整形器の作り</td><td>自前（字句解析 → 文の切り出し → 配置）。依存 0</td><td>上流 tool-fmt は折り返し・並べ替え・空行・origin の補完を持たない</td></tr>
+    <tr><td>安全装置</td><td>出力を字句解析し直してトークン列を照合。壊れた入力は触らない</td><td>整形で意味を変えない保証</td></tr>
+    <tr><td>補完</td><td>予約語と Outline の名前だけ</td><td>新しい解析を入れない（計画書の方針）</td></tr>
+    <tr><td>ウェブアプリ</td><td>共通の契約（web-apps.md）。Rust は crate、他は CLI の <code>--json</code></td><td>同じ機能を多言語で、エンジンは Rust 側だけ</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由</span>
+  <h1>ユーザーと決めた整形の型</h1>
+  <div class="cols-2">
+    <div class="card">
+      <ul>
+        <li>インデント 2（4 は明示したときだけ）</li>
+        <li>80 桁。収まらない <code>Name(</code> と <code>{</code> は開きで改行、閉じは元の段</li>
+        <li>図形プリミティブの引数は 位置・形状 → points → fill → line の順。グループの境目で改行</li>
+        <li><code>origin</code> が無ければ <code>origin = {0, 0}</code>（オフにできる）</li>
+      </ul>
+    </div>
+    <div class="card">
+      <ul>
+        <li><code>within</code> の後、クラス頭の後、<code>end</code> の前に空行</li>
+        <li><code>equation</code> / <code>algorithm</code> / クラス直下の <code>annotation(</code> はクラスと同じ段</li>
+        <li>二項演算子の両側に空白、カンマは後ろだけ、<code>start = 1</code></li>
+        <li>行末の空白なし、末尾に改行 1 つ。文字列とコメントは触らない</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">図</span>
+  <h1>構成</h1>
+  <svg class="fig" viewBox="0 0 900 300" role="img" aria-label="globe-mode-fmt を中心に、CLI・LSP・wasm・ウェブアプリが使う構成図">
+    <rect class="svg-box-accent" x="340" y="110" width="220" height="80" rx="10"/>
+    <text class="svg-text-b" x="450" y="145" text-anchor="middle">globe-mode-fmt</text>
+    <text class="svg-text" x="450" y="172" text-anchor="middle">lexer → structure → layout</text>
+    <rect class="svg-box" x="40" y="30" width="200" height="60" rx="10"/>
+    <text class="svg-text-b" x="140" y="66" text-anchor="middle">CLI globe fmt / lint</text>
+    <rect class="svg-box" x="40" y="210" width="200" height="60" rx="10"/>
+    <text class="svg-text-b" x="140" y="246" text-anchor="middle">LSP formatting / completion</text>
+    <rect class="svg-box" x="660" y="30" width="200" height="60" rx="10"/>
+    <text class="svg-text-b" x="760" y="66" text-anchor="middle">wasm → Svelte UI</text>
+    <rect class="svg-box" x="660" y="210" width="200" height="60" rx="10"/>
+    <text class="svg-text-b" x="760" y="246" text-anchor="middle">Rust のウェブアプリ 4 種</text>
+    <line class="svg-line" x1="240" y1="60" x2="340" y2="120"/>
+    <line class="svg-line" x1="240" y1="240" x2="340" y2="180"/>
+    <line class="svg-line" x1="560" y1="120" x2="660" y2="60"/>
+    <line class="svg-line" x1="560" y1="180" x2="660" y2="240"/>
+    <text class="svg-text" x="140" y="120" text-anchor="middle">--json の標準入出力 ↓</text>
+    <text class="svg-text" x="140" y="150" text-anchor="middle">Phoenix · Gleam · Streamlit</text>
+    <text class="svg-text" x="140" y="175" text-anchor="middle">marimo · FastAPI · Astro</text>
+  </svg>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>cargo test -p globe-mode-fmt            # Before/After、冪等、壊れた入力、lint
+cargo test -p globe-mode-cli --test lsp  # formatting / completion / GM-L0003
+globe fmt --check src/Modelica          # 変わるファイルを列挙
+mise run check &amp;&amp; mise run ui:check</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">69</span><span class="l">src/Modelica で冪等</span></div>
+    <div class="kpi"><span class="n">10</span><span class="l">ウェブアプリ</span></div>
+    <div class="kpi"><span class="n">3</span><span class="l">lint の規則</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li><code>src/Modelica</code> の書き換え（69 本すべてが変わる）をユーザーが決める</li>
+    <li>設定ファイル、深い補完と定義ジャンプ、VS Code 拡張の実体</li>
+    <li>ウェブアプリの CI と、画面の実ブラウザでの操作の確認（API と HTML の配信だけ確かめた）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

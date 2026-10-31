@@ -94,6 +94,8 @@ export class GlobeWorker {
   async check(model) { return JSON.parse(await this.#call("check", { model })); }
   async graph(model, depth) { return JSON.parse(await this.#call("graph", { model, depth })); }
   async simulate(request) { return JSON.parse(await this.#call("simulate", { request: JSON.stringify(request) })); }
+  format(text, indent = 2, insertOrigin = true) { return this.#call("format", { text, indent, insertOrigin }); }
+  async lint(text) { return JSON.parse(await this.#call("lint", { text })); }
   version() { return this.#call("version"); }
   async solvers() { return JSON.parse(await this.#call("solvers")); }
   memory() { return this.#call("memory"); }
