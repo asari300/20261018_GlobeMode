@@ -148,6 +148,12 @@ jobs:
         with:
           key: wasm-node
       - run: uv sync --locked && uv run playwright install --with-deps chromium
+      # S048: MSL を読む試験のために MSL 4.1.0 を取得する（msl-sim.yml と同じキャッシュ）
+      - uses: actions/cache@v6
+        with:
+          path: data/msl
+          key: msl-${{ hashFiles('src/Rust/xtask/src/main.rs') }}
+      - run: cargo xtask fetch-msl
       - name: ui:check（wasm:build、svelte-check、vite build、Playwright）
         env:
           MISE_TASK_RUN_AUTO_INSTALL: "false"

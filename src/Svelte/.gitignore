@@ -2,3 +2,4 @@ node_modules/
 dist/
 # wasm-bindgen --target web の出力と worker.js・client.js のコピー（scripts/copy-wasm.mjs が public/wasm/ に置く）
 public/wasm/
+public/msl/

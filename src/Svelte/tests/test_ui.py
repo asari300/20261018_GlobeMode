@@ -4,7 +4,8 @@
   uv run python src/Svelte/tests/test_ui.py     # 先に pnpm build（mise run ui:check がやる）
 
 dist/ を localhost で配り（CSP は index.html の meta のまま）、Decay を検査して error の診断が 0 件であること、実行するとプロットが出て信号の選択が効くこと、
-10 万点（4 状態、出力間隔 0.01 s で 1000 s）の結果でも描けて時間を測ること、構造的に特異なモデルを検査して診断の行が出て、行を押すとエディタの選択が動くことを確かめる。最後に 1 ファイルの回路で「グラフ」を押して connect グラフが描かれることを確かめる（S046）。console の error は失敗。
+10 万点（4 状態、出力間隔 0.01 s で 1000 s）の結果でも描けて時間を測ること、構造的に特異なモデルを検査して診断の行が出て、行を押すとエディタの選択が動くことを確かめる。1 ファイルの回路で「グラフ」を押して connect グラフが描かれることを確かめる（S046）。
+最後に「MSL を読む」で MSL 4.1.0 を読み（public/msl/MSL.json が無ければ飛ばす）、ChuaCircuit の検査（error 0）と実行（プロットの canvas と系列）を確かめて、秒数を出す（S048）。console の error は失敗。
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ import functools
 import http.server
 import sys
 import threading
+import time
 from pathlib import Path
 
 from playwright.sync_api import expect, sync_playwright
@@ -29,6 +31,7 @@ CIRCUIT = (
     "model G\n  connector P\n    Real v;\n    flow Real i;\n  end P;\n  model R\n    P p;\n    P n;\n  equation\n    p.i + n.i = 0;\n  end R;\n"
     "  R r1;\n  R r2;\nequation\n  connect(r1.n, r2.p);\nend G;\n"
 )
+CHUA = "Modelica.Electrical.Analog.Examples.ChuaCircuit"
 BAD = "model Bad\n  Real x;\nequation\n  der(x) = -x;\n  x = 1;\nend Bad;\n"
 
 
@@ -111,6 +114,41 @@ def main() -> int:
         expect(canvas).not_to_have_attribute("data-nodes", "0", timeout=120_000)
         assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
         print(f"G のグラフ: ノード {canvas.get_attribute('data-nodes')}、辺 {canvas.get_attribute('data-edges')}")
+
+        if (DIST / "msl/MSL.json").exists():
+            note = page.locator("p.note")
+            t = time.perf_counter()
+            page.get_by_role("button", name="MSL を読む").click(force=True)
+            expect(note).to_have_attribute("data-msl", "loaded", timeout=600_000)
+            print(f"MSL を読む: {time.perf_counter() - t:.1f} s（{note.inner_text()[:60]}）")
+            assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
+
+            page.get_by_label("モデル名").fill(CHUA)
+            t = time.perf_counter()
+            check()
+            took = time.perf_counter() - t
+            assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
+            assert page.locator("tr.error").count() == 0, rows.all_inner_texts()  # 診断は 0 行でよい（experiment がある）
+            print(f"ChuaCircuit の検査: {took:.1f} s、診断 {rows.count()} 行、error 0 行")
+
+            t = time.perf_counter()
+            simulate()
+            took = time.perf_counter() - t
+            assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
+            assert page.locator("tr.error").count() == 0, rows.all_inner_texts()
+            expect(page.locator(".plot canvas").first).to_be_visible()
+            boxes = page.locator(".plot .signals input[type=checkbox]")
+            lines = page.locator(".plot .u-legend .u-series:not(.u-off)").count()
+            print(f"ChuaCircuit の実行: {took:.1f} s、信号 {boxes.count()} 本、凡例の表示中 {lines} 行、点 {page.locator('.plot').get_attribute('data-points')}")
+            assert boxes.count() >= 1 and lines >= 2
+            assert "C1.v" in page.locator(".plot .signals").inner_text()
+
+            # グラフはライブラリのモデルを引けない（S046 の持ち越し）。エラーが分かる形で出る
+            page.get_by_role("button", name="グラフ").click(force=True)
+            expect(page.get_by_role("alert")).to_be_visible(timeout=60_000)
+            print(f"ChuaCircuit のグラフ（未対応）: {page.get_by_role('alert').first.inner_text()[:80]!r}")
+        else:
+            print("public/msl/MSL.json が無いので MSL の試験は飛ばす")
         browser.close()
     server.shutdown()
     assert not errors, errors
