@@ -25,7 +25,7 @@ uv sync                      # worktree ごとに必須
 - コミットは feature ブランチに行う。
 - **CI は main を直接 push して回す**（2026-10-18 にユーザーが決めた。PR は使わない）。
   - 手順: 検査を通した feature ブランチを main に `--no-ff` でマージし、`git push origin main` する。そのあと Actions の結果を確かめる（`/finish-session` の 6）。
-  - feature ブランチ自体は push しない。
+  - **feature ブランチも push してよい**（2026-10-31 にユーザーが決めた）。CI の試行は `git push -u origin feature/<topic>` のあと `gh workflow run <wf>.yml --ref feature/<topic>` で回す（`workflow_dispatch` のあるワークフローだけ）。push の `ci.yml` は main だけで起動する。main に取り込んだら remote の feature ブランチは `git push origin --delete` で消す。
   - CI が成功したら、最新から数えて 2 つ以上前の worktree を片付ける（`/finish-session` の 7）。
   - **CI は差分だけを検査する**（[ADR-0006](doc/adr/0006-incremental-ci.md)）。
     - 変更した crate とその依存元だけをテストし、依存を変えていなければ cargo deny を省く。
