@@ -40,3 +40,8 @@
 
 - 回し直しが 1 本減ったのは、`Electrical.Analog.Examples.Lines.LightningSegmentedTransmissionLine` がランナーでは 1 回目（予算 30 s・応答 120 s）で終わったため（手元では応答の上限で外から止め、回し直しで実行できていた）。実行できた本数 309 は変わらない。
 - `msl:omc` は回していない（ランナーに omc が無い）。
+
+## 追記（マージの後）
+
+- CI run 41191015871（差分だけ）: plan・docs が成功（docs ジョブの `render_slides.py` で、スライドの表示を CI 側で確かめた）。ほかのジョブは対象外で省略。
+- worktree: s046（別のセッション）と s047 の 2 つだけで、片付ける対象は無かった。
