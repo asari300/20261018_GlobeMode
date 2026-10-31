@@ -7,7 +7,7 @@
 | worktree | `.git-worktree/s050-solver-matrix-ci` |
 | Phase | P3 |
 | セッション文書 | `doc/sessions/S050-solver-matrix-ci/` |
-| セッション記録 | `log/sessions/2026-10-21-40b9a39f-6e5f-4daa-8928-20b6496f2093.md`（S047 と同じ親セッション） |
+| セッション記録 | `log/sessions/2026-10-31-0b797c72-9651-45d3-b466-98f7c341d068.md`（S048〜S052 と同じセッション） |
 
 ## 依頼
 
@@ -52,7 +52,7 @@
 | trbdf2 | 295 | 280 / 294 | 95.2% | 7962 |
 | tsit45 | 287 | 276 / 286 | 96.5% | 8424 |
 
-- `check_docs.py`、セッション記録の `--check`、漏洩検査: 結果は親が finish-session で確かめる（この作業では `check_docs.py` のみ実行）。
+- 締め（親のセッション、main の S048・S049・S051・S052 を取り込んだ後）: `mise run check` ok（test 45 件 ok）。`check_docs.py` 切れ 0 件（1220 本）、`render_slides.py` デッキ 58 件 / 問題 0 件。セッション記録の `--check` 取りこぼし 0 件。
 
 ## 残したこと
 
