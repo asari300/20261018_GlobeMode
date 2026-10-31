@@ -21,7 +21,7 @@ flowchart LR
 | **P1 骨格**（S003 で完了） | workspace 化、mise の rust の targets、cargo-deny、CI（Linux / Windows / wasm）。core / ir / frontend / cli。MSL の取得スクリプト。Python パッケージの改名 | `cargo deny check` が通る。MSL の例題 20 本で `globe check` の結果が Rumoca と一致する。frontend が wasm32 向けにビルドできる。[ADR-0003](adr/0003-toolchain.md) が Accepted になる | 3 回（workspace と CI / アダプタと CLI / wasm の確認） |
 | **P2 遅延クエリと検査**（S004〜S010。完了条件は S008 で 3 つとも満たした。S9・S10 は S010 で足した。S10 の数値の部分は P3） | db、outline、class_index、connect_graph、`assert_simulatable` の S0〜S10 | 空白だけの編集の再検査が 50 ms 未満で、`flat` が再実行されない（salsa のイベントで確かめる）。MSL の全例題に判定が出て、panic は 0 件。S5 が omc と 95% 以上一致する | 4 回 |
 | **P3 シミュレーション**（S011 で着手。完了条件の 1 つ目と 2 つ目は S011 で、3 つ目（wasm）は S012 で満たした。1 つ目と 2 つ目は S012 の既定（`auto`）で測り直した） | exec、driver、bdf / esdirk34 / tsit45 / dopri / 固定刻み、ResultStore | MSL の例題 153 本以上が実行できる。そのうち 90% 以上が参照結果のファネルに収まる。bdf が wasm で（Node 上で）動く | 5 回 |
-| **P4 Desktop MVP** | CodeMirror 6 と LSP（S053 で整形・補完・lint）、ライブラリツリー、検査パネル、プロット、sigma.js の connect グラフ | ChuaCircuit で開く・検査・実行・プロットが通る。5k ノードのグラフが 30 fps 以上で動く。RSS の基準値を記録する。CI が .deb と .msi を作る | 6 回 |
+| **P4 Desktop MVP** | CodeMirror 6 と LSP（S053 で整形・補完・lint）、ライブラリツリー、検査パネル、プロット、sigma.js の connect グラフ | ChuaCircuit で開く・検査・実行・プロットが通る。5k ノードのグラフが 30 fps 以上で動く。RSS の基準値を記録する（**S056 で記録**: MSL を読んだ後、sidecar 1.52 GiB・アプリ 136 MiB）。CI が .deb と .msi を作る（**S049 で済**） | 6 回 |
 | **P5 FMI** | Import（ME / CS / SE）とマスター。Export は P5a（Rumoca のテンプレート）の後に P5b（自前のランタイム） | Reference-FMUs が linux64 と win64 で一致する。Export した FMU が FMPy・fmusim・fmuCheck を通る。Clocks（SE）が往復できる | 8 回 |
 | **P6 Web / marimo / Streamlit / Android** | WorkerBackend、MSL のパッケージ単位の分割読み込み、anywidget、wheel、APK | ブラウザが CSP `connect-src 'self'` のまま実行できる（サーバーで計算しない）。marimo の WASM で 2 GB 未満に収まる。Android API 34 のエミュレータで検査と実行が通る | 5 回 |
 | **P7 言語 API と UI 比較** | C / Zig / Julia、Elixir / Gleam、Python。Leptos 版と Dioxus 版、負荷の測定ハーネス | 参照シナリオが 6 言語で通る。`doc/bench/ui.md` に 3 UI × 3 OS の比較を書く | 6 回 |
@@ -368,7 +368,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 ### S049（P4、2026-10-31）で済んだこと
 
 - **Desktop の Tauri 2 のシェル**（計画書の WP-C）: `src/Rust/apps/desktop`（**別の Cargo workspace**。自分の `Cargo.lock` を持ち、ルートの workspace・差分 CI に webkit2gtk を持ち込まない）。同梱の `globe` を sidecar（`externalBin`）にして `globe lsp --library ...` で起動し、UI の `invoke("rpc" | "notify")` を stdio の JSON-RPC に中継する。facade はリンクしない。`globe/simulate` の予算 180 s を超えたら kill して作り直し、開いているファイルを再生する（[ADR-0023 の結果](adr/0023-desktop-and-web-process-layout.md)）。
-- **`globe lsp` の独自の要求**: `globe/check`・`globe/simulate`・`globe/graph`（中身は protocol の JSON）。UI 側は `src/Svelte/src/lib/tauri-backend.ts`（`TauriBackend`。`@tauri-apps/api` なし）。App.svelte の切り替えは未了。
+- **`globe lsp` の独自の要求**: `globe/check`・`globe/simulate`・`globe/graph`（中身は protocol の JSON）。UI 側は `src/Svelte/src/lib/tauri-backend.ts`（`TauriBackend`。`@tauri-apps/api` なし）。App.svelte の切り替え（`inTauri()`）は S049 のマージ時に済ませた。
 - **`.github/workflows/desktop.yml`**（手動）: .deb（ubuntu-24.04）と .msi（windows-2025）を artifact `desktop-linux`・`desktop-windows` に出す。結果と大きさは [作業記録](../log/work/2026-10-31-s049-desktop-tauri.md)。Tauri のライセンスは [licenses.md](licenses.md)（MPL-2.0 の 5 crate を desktop の `deny.toml` の例外に）。
 
 ### S048（P4、2026-10-31）で済んだこと
@@ -399,6 +399,20 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 ### S050（P3、2026-10-31）で済んだこと
 
 - **ソルバ別の表**: `msl-sim.yml` にジョブ `solvers`（`msl-sim` の後。14 ソルバの matrix で `msl-sim --solver <名前> --tolerance-scale 0.1`。cvode・ida は xtask のビルドに `--features globe-mode-exec/sundials`）と `solvers-report`（`cargo xtask msl-solvers`）を足し、[msl-solvers.md](msl-solvers.md) を作った（run 41194959752、全ジョブ成功、ソルバのジョブは 63〜174 分）。対象 356 本のうち実行できたのは 283（dopri853）〜301（bdf）本、管に収まった割合は 95.2（trbdf2）〜98.3%（ida）。`auto` は 309・301/308。`bdf` 単独と `auto` の差 8 本は、`bdf` の内部エラー（`GM-U0005`）10 本を dopri45 の回し直しで救ったもの。入れなかったもの: `qss`、固定刻み、`esdirk23`、別名（理由は解説書）。これで P8「ソルバの表がそろう」の数字の土台ができた。更新は `gh workflow run msl-sim.yml`（手元では回さない）。
+
+### S056（P4、2026-11-01）で済んだこと
+
+- **Desktop で MSL が読める**: command `libraries`（起動時の `--library` / `GLOBE_LIBRARY` の一覧）を足し、`TauriBackend.library()` は sidecar が既にライブラリを持っていれば resolve（JSON は捨てる）、無ければ reject。App.svelte は変えていない。
+- **MSL を読んだ後の RSS の基準値**（P4 の完了条件）: `desktop.yml`（run 41244465666、Linux・Windows とも成功）の smoke が `data/msl`（`msl-sim.yml` と同じ key で cache）を `GLOBE_LIBRARY` で渡して起動し、`ChuaCircuit` を `globe/check`・`globe/simulate` させる。sidecar の VmHWM は検査の後 1.49 GiB、実行の後 1.52 GiB、アプリは 136 MiB。artifact `desktop-linux-smoke`。結果は [ADR-0023](adr/0023-desktop-and-web-process-layout.md) の S056 の節と [作業記録](../log/work/2026-11-01-s056-desktop-msl.md)。
+- 持ち越し: MSL の置き場（同梱か取得か）、署名と自動更新、静かな `globe/setFile`。
+
+### S057（P5 の準備、2026-11-01）で済んだこと
+
+- **調査**: [research/fmi-2026-11-01.md](research/fmi-2026-11-01.md)。FMI のヘッダ・XSD・Reference-FMUs は 2-Clause BSD（仕様書の文書だけ CC BY-SA 4.0）。Reference-FMUs v0.0.42（zip 4.4 MB、2.0 が 6 本・3.0 が 9 本）。Rust の FMI crate は `fmi` 0.8（MIT OR Apache-2.0、`fmi-sys` が bindgen）、`fmi-rs` 0.3.4（BSD-2、公式 fmusim の基盤、公開から日が浅く wasm32 で build が落ちる）、`fmu-runner`（更新停止）。`fmi-schema` は wasm32 で通る。fmuCheck は開発終了（FMI 1/2 のみ）、検証は fmusim と FMPy。
+- **ADR-0026（Proposed）**: [adr/0026-fmi-import-placement.md](adr/0026-fmi-import-placement.md)。XML は自前（`roxmltree`）、共有ライブラリは Desktop・CLI の別プロセスのワーカーの中だけ、ME は GlobeMode のソルバ。C ABI を自前（推奨）か `fmi` 0.8 かは**ユーザーが決める**。決まったら architecture.md §3.4 を直す（S057 では触っていない）。
+- **骨格**: 新 crate `globe-mode-fmi`。`parse_model_description` が FMI 2.0 / 3.0 の `modelDescription.xml` を `ModelDescription`（変数表と ME / CS / SE の有無）にする。依存は `roxmltree` 0.21 の 1 つ。試験 4 本、wasm32 で `cargo check` が通る。fixture は Reference-FMUs の Dahlquist と Feedthrough の `modelDescription.xml` 4 つ（`tests/data/`、LICENSE 同梱）。
+- **取得**: `cargo xtask fetch-reference-fmus`（Reference-FMUs v0.0.42、sha256 固定、`data/reference-fmus/`、17 ファイル 8.6 MB）。`fetch-msl` の展開部分を `fetch_zip` に括り出して共有した。
+- 持ち越し: ADR-0026 (b) の決定、C ABI の関数の一覧、3.0 の `variability` の既定値、fmi-standard.org の validation のページ。
 
 **S017 の最初にやること（ユーザーの指示、2026-10-22）**: Claude の実行場所を Raspberry Pi（aarch64）に移す。RPi での最初のセッションでは、下の候補より先に次を片付ける。**S017 で済んだ（上）。**
 

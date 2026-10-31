@@ -4,7 +4,8 @@
 # Desktop は別の Cargo workspace（src/Rust/apps/desktop）なので、ci.yml の `cargo build --workspace` には巻き込まれない。
 # 手順: UI を 1 度だけビルド（ui）→ OS ごとに `globe`（sidecar）を release で作って target triple 付きの名前で置き、
 # desktop の workspace を cargo deny・試験し、`cargo tauri build` で .deb（ubuntu-24.04）と .msi（windows-2025）を作る。
-# Linux では .deb を入れて、xvfb でアプリを起動して sidecar に 1 モデルを検査させる smoke と、最大の常駐メモリの記録も行う。
+# Linux では .deb を入れて、xvfb でアプリを起動し、MSL を読ませた sidecar に ChuaCircuit を検査・実行させる smoke と、
+# アプリと sidecar の最大の常駐メモリの記録も行う（S056。MSL は msl-sim.yml・ci.yml と同じ key で cache する）。
 # `cargo install tauri-cli`（^2、--locked）を使う理由: npm の依存（@tauri-apps/cli）を増やさず、Rust の道具だけで済むため。
 name: desktop
 
@@ -116,10 +117,22 @@ jobs:
         run: |
           ls -l "$DESKTOP"/target/release/bundle/${{ matrix.bundle }}/*.${{ matrix.bundle }} | tee -a "$GITHUB_STEP_SUMMARY"
 
-      - name: smoke（.deb を入れ、xvfb でアプリを起動して sidecar に検査させる。最大の常駐メモリも記録する）
+      - name: MSL 4.1.0 を取得する（smoke 用。msl-sim.yml・ci.yml と同じ cache）
+        if: runner.os == 'Linux'
+        uses: actions/cache@v6
+        with:
+          path: data/msl
+          key: msl-${{ hashFiles('src/Rust/xtask/src/main.rs') }}
+      - name: fetch-msl
+        if: runner.os == 'Linux'
+        run: cargo xtask fetch-msl
+
+      - name: smoke（.deb を入れ、xvfb でアプリを起動。MSL を読んだ sidecar に ChuaCircuit を検査・実行させ、最大の常駐メモリを記録する）
         if: runner.os == 'Linux'
         env:
           GLOBE_DESKTOP_SMOKE: "1"
+          GLOBE_DESKTOP_SMOKE_MODEL: Modelica.Electrical.Analog.Examples.ChuaCircuit
+          GLOBE_LIBRARY: ${{ github.workspace }}/data/msl
           WEBKIT_DISABLE_DMABUF_RENDERER: "1"
           WEBKIT_DISABLE_COMPOSITING_MODE: "1"
         run: |
@@ -130,10 +143,21 @@ jobs:
           APP="$(dpkg -L "$PKG" | grep '^/usr/bin/' | grep -v '/globe$' | head -1)"
           echo "app=$APP"
           ls -l /usr/bin/globe
-          /usr/bin/time -v -o time.txt timeout 120 xvfb-run -a "$APP" 2>&1 | tee smoke.txt || { cat time.txt; exit 1; }
+          # time -v の Maximum resident はプロセス木の最大。アプリ単体と sidecar 単体の VmHWM はアプリが表示する
+          /usr/bin/time -v -o time.txt timeout 600 xvfb-run -a "$APP" 2>&1 | tee smoke.txt || { cat time.txt; exit 1; }
           cat time.txt | grep -E "Maximum resident|Elapsed" | tee -a smoke.txt
           grep -q "smoke: ok passed=true" smoke.txt
+          grep -q "smoke: simulate ok=true" smoke.txt
           { echo '```'; cat smoke.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Linux'
+        with:
+          name: desktop-linux-smoke
+          path: |
+            smoke.txt
+            time.txt
+          if-no-files-found: error
 
       - uses: actions/upload-artifact@v4
         with:

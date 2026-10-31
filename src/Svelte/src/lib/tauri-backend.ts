@@ -10,9 +10,13 @@ const invoke: Invoke = (cmd, args) =>
 export class TauriBackend implements Backend {
   #version = 0;
 
-  // shortcut: Desktop ではライブラリは sidecar の起動時の --library で読む。JSON を送る道は無い。MSL の置き場を決めたら足す
-  library(name: string): Promise<void> {
-    return Promise.reject(new Error(`Desktop ではライブラリ ${name} を JSON では読めない（sidecar の --library で読む）`));
+  // Desktop ではライブラリは sidecar の起動時の --library / GLOBE_LIBRARY で読む。JSON を送る道は無い（S056）:
+  // 既に何か読んでいれば JSON は捨てて resolve、無ければ reject。
+  async library(name: string): Promise<void> {
+    const libs = await invoke<string[]>("libraries");
+    if (libs.length === 0) {
+      throw new Error(`Desktop ではライブラリ ${name} を JSON では読めない（--library か GLOBE_LIBRARY で sidecar に渡す）`);
+    }
   }
 
   /** `textDocument/didOpen` で文書を（差し替えて）開く。サーバは診断も出し直し、イベント `globe-notification` で届く。 */
