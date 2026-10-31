@@ -10,6 +10,9 @@ name: desktop
 
 on:
   workflow_dispatch:
+  # 暫定（S049）: main に無いワークフローは gh workflow run で起動できないので、feature ブランチの push で回す。main に入れる前に消す
+  push:
+    branches: [feature/s049-desktop-tauri]
 
 permissions:
   contents: read
