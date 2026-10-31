@@ -31,7 +31,7 @@ use std::sync::Mutex;
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
-use globe_mode::{Diagnostic, Simulated};
+use globe_mode::{ColumnsLayout, Diagnostic, SimRun, Simulated};
 pub use globe_mode::{SimulateRequest as Request, SimulateResponse as Response};
 
 /// 壁時計（ミリ秒）。wasm32-unknown-unknown では std の `Instant::now` が panic するので JS の
@@ -104,6 +104,19 @@ impl Workspace {
         response
     }
 
+    /// [`Workspace::run`] と同じだが、時系列を CSV にせず列ごとに持つ（S051。`request.no_csv` は無視して CSV を作らない）。
+    pub fn run_columns(&mut self, mut request: Request) -> SimColumns {
+        request.no_csv = true;
+        let Simulated {
+            mut response, run, ..
+        } = self.inner.simulate_with(&request, &now_ms);
+        response.memory_bytes = memory_bytes();
+        SimColumns {
+            response: serde_json::to_string(&response).unwrap_or_default(),
+            run,
+        }
+    }
+
     /// ファイルを足すか、本文を差し替える。
     pub fn put_file(&mut self, name: &str, text: impl Into<String>) {
         self.inner.set_file(name, text);
@@ -117,6 +130,56 @@ impl Workspace {
     /// facade のワークスペース（検査やグラフも呼べる）。
     pub fn inner(&mut self) -> &mut globe_mode::Workspace {
         &mut self.inner
+    }
+}
+
+/// 列ごとの実行の結果（S051）。時系列は wasm の中に残し、JS は列を 1 本ずつ `Float64Array` で受け取る（CSV の文字列を作らず、
+/// 解析もしない。コピーは wasm の線形メモリから JS への 1 回）。使い終わったら `free()`。
+#[wasm_bindgen]
+#[derive(Debug)]
+pub struct SimColumns {
+    response: String,
+    run: Option<SimRun>,
+}
+
+#[wasm_bindgen]
+impl SimColumns {
+    /// [`Response`] の JSON（`csv` は無い）。
+    #[wasm_bindgen(getter)]
+    pub fn response(&self) -> String {
+        self.response.clone()
+    }
+
+    /// [`ColumnsLayout`] の JSON。実行できなかったときは空の列と 0 点。
+    pub fn layout(&self) -> String {
+        let layout = match &self.run {
+            Some(run) => ColumnsLayout {
+                names: std::iter::once("time".to_string())
+                    .chain(run.trajectory.variables.iter().map(|v| v.name.clone()))
+                    .collect(),
+                points: run.trajectory.time.len(),
+            },
+            None => ColumnsLayout {
+                names: Vec::new(),
+                points: 0,
+            },
+        };
+        serde_json::to_string(&layout).unwrap_or_default()
+    }
+
+    /// 列 `i`（0 が時刻、1 から変数）。範囲外は空。
+    pub fn column(&self, i: usize) -> Vec<f64> {
+        let Some(run) = &self.run else {
+            return Vec::new();
+        };
+        match i {
+            0 => run.trajectory.time.clone(),
+            _ => run
+                .trajectory
+                .variables
+                .get(i - 1)
+                .map_or_else(Vec::new, |v| v.values.clone()),
+        }
     }
 }
 
@@ -197,6 +260,11 @@ impl Workspace {
     pub fn simulate(&mut self, request_json: &str) -> Result<String, JsValue> {
         let request = parse_request(request_json)?;
         to_json(&self.run(&request))
+    }
+
+    /// [`Workspace::simulate`] と同じだが、時系列を CSV でなく列ごとに返す（S051。[`SimColumns`]）。
+    pub fn simulate_columns(&mut self, request_json: &str) -> Result<SimColumns, JsValue> {
+        Ok(self.run_columns(parse_request(request_json)?))
     }
 
     /// モデルの検査だけ（S0〜S10。実行しない）。`CheckResponse` の JSON を返す（S041。ブラウザ UI の診断パネル用）。

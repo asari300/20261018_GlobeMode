@@ -1,0 +1,24 @@
+# cargo-about の設定。配布物の THIRD-PARTY.md を作る（S052。方針は doc/licenses.md の 4）。
+# accepted は deny.toml の [licenses].allow と同じ集合（優先順位つき。MIT OR Apache-2.0 の crate は先に書いた方で数える）。
+# 実行: cargo about generate --locked --fail --manifest-path src/Rust/mod/globe-mode-cli/Cargo.toml about.hbs -o THIRD-PARTY.md
+accepted = [
+  "Apache-2.0",
+  "MIT",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Zlib",
+  "Unicode-3.0",
+  "CC0-1.0",
+  "BSL-1.0",
+]
+# 配布する 3 つのターゲットの和集合（cfg で他のターゲットにしか入らない crate は除く）
+targets = [
+  "x86_64-unknown-linux-gnu",
+  "aarch64-unknown-linux-gnu",
+  "x86_64-pc-windows-msvc",
+]
+ignore-dev-dependencies = true
+# GlobeMode 自身の crate（publish = false）は LICENSE-MIT / LICENSE-APACHE で足りる
+private = { ignore = true }

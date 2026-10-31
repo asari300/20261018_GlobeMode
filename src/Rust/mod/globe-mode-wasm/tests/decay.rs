@@ -236,3 +236,29 @@ fn graph_of_the_rc_circuit_is_graphology_json() {
     assert!(g["edges"].as_array().unwrap().len() >= 4, "{g}");
     assert!(ws.inner().graph("No.Such.Model", 1).is_err());
 }
+
+#[test]
+fn columns_match_the_csv() {
+    let req = || {
+        request(serde_json::json!({
+            "files": package(),
+            "model": "GlobeModeValidation.Simulation.Decay",
+        }))
+    };
+    let csv = Workspace::new().run(&req()).csv.unwrap();
+    let columns = Workspace::new().run_columns(req());
+    let response: serde_json::Value = serde_json::from_str(&columns.response()).unwrap();
+    assert!(response["ok"].as_bool().unwrap() && response["csv"].is_null());
+    let layout: globe_mode::ColumnsLayout = serde_json::from_str(&columns.layout()).unwrap();
+    assert_eq!(layout.names, ["time", "x"]);
+    assert_eq!(layout.points, csv.lines().count() - 1);
+    for (i, _) in layout.names.iter().enumerate() {
+        let col = columns.column(i);
+        assert_eq!(col.len(), layout.points);
+        for (row, line) in csv.lines().skip(1).enumerate() {
+            let v: f64 = line.split(',').nth(i).unwrap().parse().unwrap();
+            assert_eq!(col[row], v);
+        }
+    }
+    assert!(columns.column(99).is_empty());
+}

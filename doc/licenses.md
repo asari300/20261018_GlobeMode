@@ -48,7 +48,8 @@
 | pyo3 0.30.1（pyo3-ffi、pyo3-macros、pyo3-macros-backend、pyo3-build-config） | MIT OR Apache-2.0（cargo metadata の license 欄と `cargo deny check` で確認、2026-10-31） | 許可 | S039 で導入（`globe-mode-py` の直接の依存。feature `abi3-py312` は maturin が pyproject.toml の `[tool.maturin]` から立てる）。Cargo.lock に新しく入るのはこの 5 つだけ（heck・target-lexicon・libc・once_cell・portable-atomic・proc-macro2・quote・syn は既にある）。`cargo deny check` は ok |
 | maturin 1.x（Python 側のビルド依存） | MIT OR Apache-2.0 | 許可（ツール） | S039 で pyproject.toml の `[build-system]` に入れた（uv_build から切り替え）。wheel のビルドにだけ使い、配布物には入らない。mise には入れない（`uv sync` が隔離環境で取る） |
 | pytest 9（Python、開発依存） | MIT | 許可 | S039。`uv run pytest`（`src/Python/tests`）。配布物には入らない。推移的依存は iniconfig・pluggy（どちらも MIT） |
-| Tauri 2、Svelte、CodeMirror 6、sigma.js、graphology、cosmos.gl、xyflow、maxGraph | MIT / Apache-2.0 | 許可 | npm 側は `pnpm licenses` で確かめる |
+| Svelte、CodeMirror 6、sigma.js、graphology、cosmos.gl、xyflow、maxGraph | MIT / Apache-2.0 | 許可 | npm 側は `pnpm licenses` で確かめる |
+| Tauri 2.12（`tauri`、`tauri-build`、`tauri-runtime-wry`、`wry`、`tao`、`webkit2gtk`・`gtk`・`glib`（gtk-rs 0.18、Linux）、`webview2-com`（Windows）など。desktop の `Cargo.lock` の 406 パッケージ） | MIT OR Apache-2.0 が大半（`cargo metadata` の license 欄を集計、2026-10-31: MIT OR Apache-2.0 186、MIT 98、Apache-2.0 OR MIT 30、Unicode-3.0 18、MPL-2.0 5、ほかに Zlib・BSD-3-Clause・Unlicense など）。GPL・AGPL・NC は 0 | 許可（MPL-2.0 の 5 つだけ条件付き） | S049 で導入（`src/Rust/apps/desktop`。**別の Cargo workspace**）。MPL-2.0 は `cssparser`・`cssparser-macros`・`dtoa-short`・`selectors`（tauri-utils → dom_query 経由）と `option-ext`（dirs-sys 経由）。どれも改変せずに使い、`src/Rust/apps/desktop/deny.toml` の `exceptions` に crate ごとに足した。LGPL は `r-efi`（`MIT OR Apache-2.0 OR LGPL-2.1-or-later` の 2 つ。MIT を選ぶので LGPL は適用されない）だけ。保守終了の勧告 RUSTSEC-2024-0370（proc-macro-error。gtk-rs・dom_query の proc-macro でビルド時のみ）を同じ `deny.toml` の `ignore` に理由付きで足した。`cargo deny --manifest-path src/Rust/apps/desktop/Cargo.toml --config src/Rust/apps/desktop/deny.toml check` は ok（advisories・bans・licenses・sources）。ルートの `deny.toml` は desktop を見ない（別 workspace）ので、desktop.yml が同じ検査を回す。Linux の配布物は OS の WebKitGTK（`libwebkit2gtk-4.1`）を動的リンクで使い、同梱しない（WebKitGTK のライセンスは LGPL 系とされる【一次資料での確認は未了】）。Windows は WebView2 ランタイム（OS 側）。公式の `tauri-cli` は `cargo install`（ビルド用のツール。配布物に入らない） |
 | npm（src/Svelte、S041・S042）: Svelte 5.57、Vite 8.3、@sveltejs/vite-plugin-svelte、CodeMirror 6（state・view・commands・language）、uPlot 1.6（S042、プロット）、svelte-check、typescript 6 | MIT（50）/ Apache-2.0（4）/ ISC（1）/ BSD-3-Clause（1）/ MPL-2.0（2、下記）（`pnpm licenses list`、2026-10-31 確認。推移的依存を含め計 58 パッケージ。配布物に入る prod は CodeMirror の 12 個と uPlot（依存なし）で全部 MIT） | 許可 | MPL-2.0 は Vite 8 が引く `lightningcss`（とその linux-x64 のバイナリ）だけ。ビルド時の CSS 変換にだけ使い、`dist/` にも配布物にも入らず、改変もしないので、cbindgen と同じく許可（ツールとして）。TypeScript は 7 でなく 6 に固定（svelte-check 4.7 が 7 を単独では受けない）。GPL・LGPL・NC は 0 |
 | npm（src/Svelte、S046）: sigma 4.0.4、graphology 0.26.0、graphology-layout-forceatlas2 0.10.1（推移的に graphology-utils 2.5.2、graphology-types 0.24.8、events 3.3.0） | 6 パッケージとも MIT（`pnpm licenses list`、registry.npmjs.org の package.json、2026-10-31 確認。S041・S042 の 58 と合わせて計 64 パッケージ） | 許可 | connect グラフの表示（`src/Svelte/src/lib/graph/`）で配布物に入る（prod）。GPL・LGPL・AGPL・NC は 0 |
 | Playwright（Python、開発依存） | Apache-2.0 | 許可 | スライドのブラウザ検査（`render_slides.py`）。配布物には入らない |
@@ -72,7 +73,7 @@
   - 保守終了の勧告（unmaintained）は、Rumoca 経由のものに限って理由を書いて例外にする（bincode、paste）。
   - `bans` に `zenoh*`、`russell_sparse` と、umbrella crate の `rumoca` を入れる。
   - `wrappers = ["globe-mode-frontend", "globe-mode-exec"]` で、Rumoca を使える crate を制限する。
-- **cargo-about**: 配布物に入れる `THIRD_PARTY_LICENSES.html` を生成する。
+- **cargo-about**（S052 で導入。設定は [about.toml](../about.toml)、テンプレートは [about.hbs](../about.hbs)）: 配布物に入れる `THIRD-PARTY.md` を生成する（4 を参照）。`accepted` は deny.toml の `licenses.allow` と同じ集合で、許可外のライセンスが 1 つでもあれば `--fail` で失敗する。
 - **npm 側**: `pnpm licenses list` を CI で検査する。
 - **SBOM**: リリースごとに CycloneDX 形式で出力する。
 - **生成コード**: Rumoca のテンプレートで生成したコードのライセンスは P5a で確かめ、この表に書き足す。
@@ -80,5 +81,19 @@
 ## 4. GlobeMode の配布物に入れるもの
 
 - `LICENSE-MIT`、`LICENSE-APACHE`
-- `THIRD_PARTY_LICENSES.html`（cargo-about と npm の分）
+- `THIRD-PARTY.md`（cargo-about。`globe` のバイナリに入る Rust の依存の一覧とライセンス文。S052）
 - 寄稿の扱い: Apache-2.0 §5 に従い、寄稿は MIT OR Apache-2.0 で受け入れる。README に明記する。
+
+### 配布物のサードパーティのライセンス表（S052、2026-10-31）
+
+- **何を同梱するか**: `release.yml` が作る 3 つのアーカイブ（linux x86_64 / linux aarch64 / windows x86_64）それぞれに、`globe`・`LICENSE-MIT`・`LICENSE-APACHE`・`README.md` と並べて `THIRD-PARTY.md` を入れる。中身は `globe`（globe-mode-cli。feature `sundials` なし）の依存の crate 名・版・リポジトリと、ライセンスごとの全文。
+- **作り方**: release.yml のジョブ `third-party` が `cargo install --locked --features cli --version 0.9.2 cargo-about`（EmbarkStudios、MIT OR Apache-2.0）を入れ、次を 1 回だけ回す。3 つのビルドはその artifact を取り込む。
+
+  ```bash
+  cargo about generate --locked --fail --manifest-path src/Rust/mod/globe-mode-cli/Cargo.toml about.hbs -o THIRD-PARTY.md
+  ```
+
+- **範囲**: `about.toml` の `targets` は 3 つの配布ターゲットの和集合。他のターゲットにしか入らない crate は除く。dev 依存と GlobeMode 自身の crate（`publish = false`）は入れない。build 依存は入れる。
+- **許可外のライセンス**: `accepted` が allow の一覧だけなので、満たせない crate があれば cargo-about が失敗し、成果物は出ない（確認の結果は作業記録の `log/work/2026-10-31-s052-release-rc1-about.md`）。
+- **含めていないもの**: npm の分（UI は配布物に入らない。Tauri の配布で足す）、wasm と Python の wheel、`sundials` ビルド、CycloneDX の SBOM。
+- 出典: https://github.com/EmbarkStudios/cargo-about 、https://embarkstudios.github.io/cargo-about/ （0.9.2 の docs/src、2026-10-31 確認）。

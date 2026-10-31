@@ -1,0 +1,125 @@
+# リソースの計測（S051）。手動だけ（`gh workflow run resources.yml`）。push の CI（ci.yml）には入れない。
+#
+# - ジョブ rss    : release の `globe` を /usr/bin/time -v で回し、MSL の 3 モデルの `globe check` と `globe simulate` の
+#                   最大の常駐メモリ（RSS）と壁時計を取る。`globe deps`（検査に渡すファイルの閉包）の本数も記録する
+# - ジョブ wasm   : release の wasm を Node で回し、`msl-funnel --list` の全例題を順に check して線形メモリの伸びを測る
+#                   （ADR-0023 (c) の上限 2 GiB に何本目で達するか。node/memory.mjs）。simulate と simulate_columns の
+#                   時間も比べる（node/columns.mjs）
+# 結果は artifact `resources-rss`（rss.md）と `resources-wasm`（wasm-memory*.json・wasm-memory*.log・columns.log）と、各ジョブのサマリに残す。
+# 報告は doc/research/resources-2026-10-31.md。
+name: resources
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: resources
+  cancel-in-progress: false
+
+jobs:
+  rss:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+        with:
+          install_args: rust
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/cache@v6
+        with:
+          path: data/msl
+          key: msl-${{ hashFiles('src/Rust/xtask/src/main.rs') }}
+      - run: cargo xtask fetch-msl
+      - run: cargo build --release -p globe-mode-cli
+      - name: 最大 RSS と壁時計（/usr/bin/time -v）
+        run: |
+          set -u
+          G=target/release/globe
+          free -m | tee rss-env.txt
+          nproc | sed 's/^/nproc /' | tee -a rss-env.txt
+          {
+            echo "| モデル | 操作 | 最大 RSS (MiB) | 壁時計 | 終了コード | 閉包のファイル数 |"
+            echo "| --- | --- | ---: | ---: | ---: | ---: |"
+          } > rss.md
+          for M in Modelica.Electrical.Analog.Examples.ChuaCircuit \
+                   Modelica.Mechanics.MultiBody.Examples.Systems.RobotR3.FullRobot \
+                   Modelica.Fluid.Examples.HeatingSystem; do
+            DEPS=$($G deps data/msl -m "$M" | wc -l)
+            for OP in check simulate; do
+              if [ "$OP" = check ]; then
+                CMD=($G check --library data/msl -m "$M")
+              else
+                # 結果は捨てる（CSV の書き出しの分は RSS に入る）。FullRobot などの重いものは 300 s で止める
+                CMD=($G simulate --library data/msl -m "$M" --timeout 300 -o /dev/null)
+              fi
+              set +e
+              timeout 1800 /usr/bin/time -v -o time.txt "${CMD[@]}" > out.txt 2> err.txt
+              CODE=$?
+              set -e
+              KB=$(awk '/Maximum resident set size/{print $NF}' time.txt)
+              WALL=$(awk '/Elapsed \(wall clock\)/{print $NF}' time.txt)
+              echo "| $M | $OP | $((KB / 1024)) | $WALL | $CODE | $DEPS |" | tee -a rss.md
+              tail -n 3 err.txt || true
+            done
+          done
+          cat rss.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: resources-rss
+          path: |
+            rss.md
+            rss-env.txt
+
+  wasm:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+        with:
+          install_args: rust github:wasm-bindgen/wasm-bindgen
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: wasm-node
+      - uses: actions/cache@v6
+        with:
+          path: data/msl
+          key: msl-${{ hashFiles('src/Rust/xtask/src/main.rs') }}
+      - run: cargo xtask fetch-msl
+      - name: release の wasm をビルドする（mise.toml の wasm:build と同じ）
+        env:
+          MISE_TASK_RUN_AUTO_INSTALL: "false"
+        run: mise run wasm:build
+      - run: cargo xtask msl-funnel --list > models.txt
+      - run: wc -l models.txt
+      - name: simulate と simulate_columns の時間（Decay と Wide の 10 万点）
+        run: node src/Rust/mod/globe-mode-wasm/node/columns.mjs --runs 9 2>&1 | tee columns.log
+      - name: 線形メモリの伸び（MSL の全例題を順に check。上限 2 GiB で Worker を作り直す）
+        run: node --max-old-space-size=4096 src/Rust/mod/globe-mode-wasm/node/memory.mjs --msl data/msl --list models.txt --recycle-mib 2048 --json wasm-memory.json 2>&1 | tee wasm-memory.log
+      - name: 作り直しをしない場合（上限を超えて伸びるか、落ちるか）
+        run: node --max-old-space-size=4096 src/Rust/mod/globe-mode-wasm/node/memory.mjs --msl data/msl --list models.txt --recycle-mib 0 --json wasm-memory-norecycle.json 2>&1 | tee wasm-memory-norecycle.log
+        continue-on-error: true
+      - run: |
+          {
+            echo '```'
+            cat columns.log
+            tail -n 3 wasm-memory.log
+            tail -n 3 wasm-memory-norecycle.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+        if: always()
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: resources-wasm
+          path: |
+            columns.log
+            wasm-memory.json
+            wasm-memory.log
+            wasm-memory-norecycle.json
+            wasm-memory-norecycle.log
