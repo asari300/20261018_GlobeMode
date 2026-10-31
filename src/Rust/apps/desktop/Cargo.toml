@@ -1,0 +1,27 @@
+# GlobeMode Desktop（S049、ADR-0023）。Tauri 2 のシェル。計算はせず、sidecar の `globe lsp` に stdio で頼む。
+# ルートの workspace には入れない（自分の [workspace] と Cargo.lock を持つ）。webkit2gtk を要求するので、
+# 手元と差分 CI の `cargo build --workspace` に巻き込まないため。ビルドは .github/workflows/desktop.yml が行う。
+[package]
+name = "globe-mode-desktop"
+version = "0.0.1"
+description = "GlobeMode Desktop: a Tauri shell that talks to the `globe lsp` sidecar"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/asari300/20261018_GlobeMode"
+publish = false
+
+[workspace]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# facade `globe-mode` はリンクしない（ADR-0023 の (b)）。コアの実体は sidecar の `globe` だけ
+tauri = { version = "2", features = [] }
+serde_json = "1"
+
+[profile.release]
+# 配布物を小さくする（ルートの workspace の release とは別。ここは UI のシェルだけ）
+lto = true
+codegen-units = 1
+strip = true

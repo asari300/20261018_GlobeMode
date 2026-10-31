@@ -1,0 +1,142 @@
+# GlobeMode Desktop（Tauri 2 のシェル。S049、計画書の WP-C、ADR-0023）の .deb と .msi を作る。
+#
+# 手動実行（workflow_dispatch）だけ。Release には付けない（artifact に残すだけ。署名は無い）。
+# Desktop は別の Cargo workspace（src/Rust/apps/desktop）なので、ci.yml の `cargo build --workspace` には巻き込まれない。
+# 手順: UI を 1 度だけビルド（ui）→ OS ごとに `globe`（sidecar）を release で作って target triple 付きの名前で置き、
+# desktop の workspace を cargo deny・試験し、`cargo tauri build` で .deb（ubuntu-24.04）と .msi（windows-2025）を作る。
+# Linux では .deb を入れて、xvfb でアプリを起動して sidecar に 1 モデルを検査させる smoke と、最大の常駐メモリの記録も行う。
+# `cargo install tauri-cli`（^2、--locked）を使う理由: npm の依存（@tauri-apps/cli）を増やさず、Rust の道具だけで済むため。
+name: desktop
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  MISE_AUTO_INSTALL: "false"
+
+jobs:
+  ui:
+    # src/Svelte のビルド成果物（dist）。wasm は Desktop の UI に要らない（計算は sidecar）ので prepare-wasm は通さず、
+    # `vite build` だけを回す（`pnpm build` は wasm:build の出力が無いと落ちる）
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+        with:
+          install_args: node pnpm
+      - working-directory: src/Svelte
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm exec vite build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ui-dist
+          path: src/Svelte/dist
+          if-no-files-found: error
+
+  build:
+    needs: ui
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            name: linux
+            exe: ""
+            bundle: deb
+          - os: windows-2025
+            name: windows
+            exe: .exe
+            bundle: msi
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      DESKTOP: src/Rust/apps/desktop
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+        if: runner.os == 'Linux'
+        with:
+          install_args: rust cargo-deny
+      # Windows では mise の shim 経由の cargo が失敗したので、ランナーの rustup を直接使う（release.yml と同じ）
+      - if: runner.os == 'Windows'
+        run: rustup toolchain install stable --profile minimal --no-self-update && rustup default stable
+      - name: Tauri 2 の依存（Linux）
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev \
+            libayatana-appindicator3-dev librsvg2-dev xvfb
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            ${{ env.DESKTOP }} -> target
+          key: desktop-${{ matrix.name }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: ui-dist
+          path: src/Svelte/dist
+
+      - name: sidecar の globe を release で作り、target triple 付きの名前で置く
+        run: |
+          cargo build --release --locked -p globe-mode-cli
+          TRIPLE="$(rustc -vV | sed -n 's/^host: //p')"
+          echo "TRIPLE=$TRIPLE" >> "$GITHUB_ENV"
+          cp "target/release/globe${{ matrix.exe }}" "$DESKTOP/binaries/globe-$TRIPLE${{ matrix.exe }}"
+          "target/release/globe${{ matrix.exe }}" --version
+
+      - name: cargo deny（desktop の workspace。ルートの方針に Tauri の分だけ足した設定）
+        if: runner.os == 'Linux'
+        run: cargo deny --manifest-path "$DESKTOP/Cargo.toml" --config "$DESKTOP/deny.toml" check
+
+      - name: 試験（sidecar の中継。本物の globe lsp に check・simulate・graph を頼む）
+        env:
+          GLOBE_BIN: ${{ github.workspace }}/target/release/globe${{ matrix.exe }}
+        run: cargo test --release --locked --manifest-path "$DESKTOP/Cargo.toml"
+
+      - name: tauri-cli を入れる
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: ${{ matrix.bundle }} を作る
+        working-directory: ${{ env.DESKTOP }}
+        run: cargo tauri build --bundles ${{ matrix.bundle }}
+
+      - name: 成果物の大きさ
+        run: |
+          ls -l "$DESKTOP"/target/release/bundle/${{ matrix.bundle }}/ | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: smoke（.deb を入れ、xvfb でアプリを起動して sidecar に検査させる。最大の常駐メモリも記録する）
+        if: runner.os == 'Linux'
+        env:
+          GLOBE_DESKTOP_SMOKE: "1"
+          WEBKIT_DISABLE_DMABUF_RENDERER: "1"
+          WEBKIT_DISABLE_COMPOSITING_MODE: "1"
+        run: |
+          DEB="$(ls "$DESKTOP"/target/release/bundle/deb/*.deb)"
+          sudo apt-get install -y "$DEB"
+          PKG="$(dpkg-deb -f "$DEB" Package)"
+          dpkg -L "$PKG" | grep -E '^/usr/(bin|lib)' | tee -a "$GITHUB_STEP_SUMMARY"
+          APP="$(dpkg -L "$PKG" | grep '^/usr/bin/' | grep -v '/globe$' | head -1)"
+          echo "app=$APP"
+          ls -l /usr/bin/globe
+          /usr/bin/time -v -o time.txt timeout 120 xvfb-run -a "$APP" 2>&1 | tee smoke.txt || { cat time.txt; exit 1; }
+          cat time.txt | grep -E "Maximum resident|Elapsed" | tee -a smoke.txt
+          grep -q "smoke: ok passed=true" smoke.txt
+          { echo '```'; cat smoke.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.name }}
+          path: ${{ env.DESKTOP }}/target/release/bundle/${{ matrix.bundle }}/*
+          if-no-files-found: error
