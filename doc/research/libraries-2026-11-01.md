@@ -219,7 +219,7 @@ S058・S063 の持ち越し。`Checker::new` は、ライブラリの `.mo` が 
 - **確かめたこと**（手元、release、2026-11-01）: 読み飛ばしが起きるのは S058 の `skipped.txt` が空でなかった **ClaRa（53 ファイル、PKG-010）と ThermofluidStream（構文の誤り 1 ファイル + `package.mo` の無いディレクトリ 2 つ）**。Chemical・DeltaRobot は一覧が空で、従来の道のまま（コードは通らない）。`msl-funnel` を S063 の run の `*-funnel.json`（41250636800）と比べて、**ThermofluidStream 122 本と ClaRa 5 本とも判定・段・GM コード・Rumoca コードが全部同じ（差 0）**。OK 4 / GM-U 115 / panic 0（ThermofluidStream）、OK 0・S1 で NG 5（ClaRa）も同じ。ClaRa は、元の 53 ファイルを除く代わりに全部読み（`physicalMills` の `within` の綴りの誤りは名前に効かない）、構文の誤りは 0 ファイルで「配置の検査を飛ばして読んだ」警告 1 件。ThermofluidStream は `Contact.mo` を読み飛ばした警告 1 件（`unexpected \`modelica\``）。時間は ThermofluidStream 134.2 秒（S063 の run は 135.3 秒）、ClaRa 6.5 秒（5.0 秒）で、変わらない。
 - **MSL の初回の速さ**: MSL は従来の道で全部読めるので、失敗の道は通らない（`mise run msl:compare` は 20/20 一致）。失敗の道の費用は、ClaRa（2,044 ファイル）で追加の 1 回の構文解析（構文木のキャッシュが効く）程度で、検査の秒数に差は出なかった。
 - **限界**: 失敗したルートでは配置の検査を飛ばすので、配置の誤り（PKG-0xx）は警告になる。`package.mo` の無いディレクトリのファイルは、これまで除いていたが、今は読む（ThermofluidStream で判定が変わらないことを確かめた）。
-- Actions（`libraries.yml`、run 41295588356、Chemical・ClaRa・ThermofluidStream・DeltaRobot）の結果は @@RUNRESULT@@。
+- Actions（`libraries.yml`、run 41295588356、Chemical・ClaRa・ThermofluidStream・DeltaRobot）の結果は s067 の run 41295445820 の後ろで待っていて、この記録の時点では未実行【未確認】。結果は親が追記する（見るのは、読み飛ばしが起きる ClaRa と ThermofluidStream の判定が S063 と同じか）。
 
 ## 読んだ範囲と限界
 
