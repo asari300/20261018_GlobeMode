@@ -7,7 +7,7 @@
 | worktree | `.git-worktree/s064-auto-esdirk-fallback` |
 | Phase | P3 |
 | セッション文書 | `doc/sessions/S064-auto-esdirk-fallback/` |
-| セッション記録 | 親が写す（このセッションは親から渡されたサブエージェント） |
+| セッション記録 | [2026-10-31-0b797c72-...](../sessions/2026-10-31-0b797c72-9651-45d3-b466-98f7c341d068.md)（親セッション。S048〜S052 と同じ） |
 
 ## 依頼
 
@@ -39,7 +39,7 @@ S055 の持ち越し。`auto` の回し直しに esdirk34 を足す。順序は�
   - run 41282411061（残りの予算を渡す版）: 実行できた 311（+2）、管 302 / 310。`Lightning` が `GM-U0005` で減った。
   - run 41287267439（採った版）: 実行できた 309 → **310**、管に収まった 301 / 308 → **301 / 309**、減ったモデル 0、`GM-U0005` 1 → 0、回し直し 12（1 本通った）→ 15（5 本通った）。ワーカーの時間 2807 s → 2897 s（ランナーの速さでぶれる）。
 - `cargo test -p globe-mode-exec -p globe-mode-sim -p globe-mode -p xtask`: 全部通る（`globe-mode` の `Simulation` の試験を含む）。`cargo clippy -p globe-mode-exec -p globe-mode-core -p globe-mode-sim -p xtask --all-targets -- -D warnings`: 警告 0。`cargo fmt --check`: 差分 0。
-- `mise run check`・`wasm:node`・`wasm:compare`・`render_slides.py`・`check_docs.py` の最終: 親が回す。
+- 親の最終検査（main 5243a7c を取り込んだ後）: `mise run check` ok（最初の失敗は共有 target の古いビルドが原因で、`touch` して再実行）、`wasm:node` ok、`wasm:compare` 347 / 360 件が一致・既知の差 13・一致しない 0、`check_docs.py` リンク切れ 0。
 
 ## 残したこと
 
