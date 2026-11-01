@@ -437,6 +437,12 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - VSIX は `@vscode/vsce` を使わず `pack_vsix.py`（標準ライブラリだけ）で作る（licenses.md）。VS Code Server の CLI で使い捨ての拡張フォルダに入れて受け付けられることを確かめた。
 - 持ち越し: VS Code の本体を起動しての試験（`@vscode/test-electron`）、Marketplace への公開、設定を変えたときの自動の作り直し、構文の色付け（TextMate 文法）。
 
+### S060（P4、2026-11-01）で済んだこと
+
+- **CLI の走査を ruff に倣う**: `globe fmt` / `globe lint` はパスを省くとカレントディレクトリ、`.gitignore`（crate `ignore`）と隠しディレクトリを除く、壊れたファイルがあっても続けて要約を出す（終了コード 2）。パイプと `--json` の標準入力は今までどおり（ウェブアプリ 10 種はそのまま動く）。
+- **VS Code 拡張 0.0.2**: Shift+Alt+F を `.mo` の整形に割り当て、設定 `globeMode.formatOnSave`（既定はオフ）を足した。プロファイルを使う窓には、画面の「VSIX からのインストール」で入れる（CLI は既定のプロファイルに入れる）。
+- [web-apps.md](web-apps.md) に起動コマンドの一覧（Phoenix の `mix deps.get` を含む）。
+
 ## 運用上の決まり
 
 - リリースまでの見積もりと、他のエージェントに渡す並行作業の指示書は [plan/2026-10-30-release-estimate-and-parallel-plan.md](plan/2026-10-30-release-estimate-and-parallel-plan.md)（S033）。

@@ -76,3 +76,37 @@ Streamlit・marimo のようにサーバの API を持たないものは、画�
 - 各アプリに `README.md`（起動手順、検査の手順、依存の表: 名前 / 版 / ライセンス / 出典 URL / 確認日）と、API を 1 往復する検査を 1 本置く。
 - 画面は外部 CDN を使わない。JS は素の `fetch` でよい。
 - メモリが少ない（RAM 3 GB）ので、Rust のビルドは `CARGO_BUILD_JOBS=2`、重いものは順番に回す。
+
+## 5. 起動コマンドの一覧
+
+S060 で足した。先に `globe` を作り、Rust 以外のアプリに場所を渡す（Rust の 4 つは crate を直接使うので要らない）。
+
+```bash
+cargo build -p globe-mode-cli                 # リポジトリのルートで
+export GLOBE_BIN=$PWD/target/debug/globe      # 省くと PATH の globe
+```
+
+どれも独立したプロジェクトなので、そのディレクトリに入ってから起動する。止めるのは Ctrl+C（Phoenix は 2 回）。
+
+| アプリ | 場所 | 初回だけ | 起動 | 開く URL |
+| --- | --- | --- | --- | --- |
+| axum | `src/Rust/apps/web-axum` | | `PORT=8080 cargo run` | <http://127.0.0.1:8080> |
+| actix-web | `src/Rust/apps/web-actix` | | `PORT=8080 cargo run` | <http://127.0.0.1:8080> |
+| Rocket | `src/Rust/apps/web-rocket` | | `cargo run`（ポートは `ROCKET_PORT`） | <http://127.0.0.1:8000> |
+| loco | `src/Rust/apps/web-loco` | | `CARGO_BUILD_JOBS=2 cargo run`（ポートは `config/development.yaml`） | <http://127.0.0.1:8080> |
+| Phoenix | `src/Elixir/phoenix_fmt` | `mise exec -- mix deps.get` | `mise exec -- mix phx.server`（ポートは `PORT`） | <http://localhost:4000> |
+| Gleam wisp | `src/Gleam/wisp_fmt` | （`gleam run` が依存を取る） | `PORT=8080 mise exec -- gleam run` | <http://localhost:8080> |
+| Streamlit | `src/Python/streamlit` | `uv sync` | `uv run streamlit run fmt_app.py` | 起動時に表示される URL |
+| marimo | リポジトリのルート | | `uv run marimo run src/Python/marimo/fmt_app.py` | 起動時に表示される URL |
+| FastAPI | `src/Python/fastapi_fmt` | `uv sync` | `uv run uvicorn app:app --port 8080` | <http://127.0.0.1:8080> |
+| Astro | `src/Astro/fmt` | `mise exec -- pnpm install` | `mise exec -- pnpm dev` | <http://localhost:4321> |
+
+- 初回の欄が空のものは、起動のときに依存を取る（cargo、uv run）。Phoenix は `mix deps.get` を飛ばすと「the dependency is not available」で止まる。
+- 8080 を使うものは 1 つずつ起動するか、`PORT` を変える。
+- サーバのある 8 つは、画面を使わずに確かめられる（ポートは上の表）。
+
+```bash
+curl -s localhost:8080/healthz
+curl -s -H 'content-type: application/json' \
+  -d '{"text":"model A Real x(start=1); end A;"}' localhost:8080/api/format
+```

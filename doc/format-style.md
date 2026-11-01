@@ -74,12 +74,19 @@ end Objects_Before;
 ## 4. 使い方
 
 ```bash
-globe fmt FILE_OR_DIR...            # 書き戻す
-globe fmt --check src/Modelica      # 差分のあるファイルを列挙して終了コード 1
-echo 'model M end M;' | globe fmt --json   # {"ok":true,"text":"…","error":null}
-globe lint --json FILE
+globe fmt                           # カレントディレクトリの下の .mo を整形（ruff format と同じ）
+globe fmt src/Modelica a.mo         # ファイルとディレクトリを混ぜてよい
+globe fmt --check .                 # 書き換えず、整形が要るファイルを列挙して終了コード 1
+globe lint                          # カレントディレクトリの下を lint（ruff check と同じ）
+echo 'model M end M;' | globe fmt --json   # 標準入力。{"ok":true,"text":"…","error":null}
 ```
 
-VS Code では拡張 [src/VSCode/globe-mode](../src/VSCode/globe-mode/README.md)（S059）を入れると、標準の「ドキュメントのフォーマット」（Linux は Ctrl+Shift+I、Windows は Shift+Alt+F）で整形し、lint は編集中に波線で出る。拡張は `.mo` の既定を `editor.tabSize: 2` にする（LSP の整形は tabSize をインデントに使うため）。
+ディレクトリの辿り方は ruff に倣う（S060）。
+
+- `.gitignore` に書いたものと、隠しディレクトリ（`.git` や `.venv` など）は辿らない。git の外でも `.gitignore` を読む。明示したファイルは除外しない。
+- 壊れたファイルがあっても残りを続け、最後に要約（「3 ファイルを整形した、66 ファイルは変更なし」）を出す。壊れたファイルがあれば終了コード 2。
+- パスを省いたとき、`--json` を付けたときか入力がパイプのときは標準入力を読む（ウェブアプリとエディタの呼び方）。`-` でも標準入力。
+
+VS Code では拡張 [src/VSCode/globe-mode](../src/VSCode/globe-mode/README.md)（S059）を入れると、Shift+Alt+F（拡張が `.mo` に割り当てる。S060）で整形し、lint は編集中に波線で出る。保存時の整形は設定 `globeMode.formatOnSave`（既定はオフ）。拡張は `.mo` の既定を `editor.tabSize: 2` にする（LSP の整形は tabSize をインデントに使うため）。
 
 S053 の時点で `src/Modelica/` の 69 ファイルすべてが整形で変わる（空行の規則のため）。既存ファイルの書き換えはしていない。
