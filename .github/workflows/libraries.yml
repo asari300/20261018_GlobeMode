@@ -20,6 +20,11 @@ on:
         description: '検査するライブラリ（JSON の配列か、コンマ区切り。空なら全部）。例 ["DeltaRobot","Chemical"]'
         type: string
         default: ""
+      msl:
+        description: '一緒に読む MSL の版（S067。公開ライブラリが前提にする 4.0.0 でも回せる）'
+        type: choice
+        options: ["4.1.0", "4.0.0"]
+        default: "4.1.0"
   schedule:
     - cron: "0 21 * * 0"   # 毎週月曜 06:00 JST（ci.yml は 03:00 JST）
 
@@ -32,6 +37,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
+  MSL_VERSION: ${{ inputs.msl || '4.1.0' }}   # 毎週の定期実行は inputs が空なので 4.1.0
   CARGO_TERM_COLOR: always
   MISE_AUTO_INSTALL: "false"
 
@@ -111,12 +117,12 @@ jobs:
       - uses: actions/cache@v6
         with:
           path: data/msl
-          key: msl-${{ hashFiles('src/Rust/xtask/src/main.rs') }}
+          key: msl-${{ env.MSL_VERSION }}-${{ hashFiles('src/Rust/xtask/src/main.rs') }}
       - uses: actions/cache@v6
         with:
           path: data/libs/${{ matrix.name }}
           key: library-${{ matrix.name }}-${{ hashFiles('src/Rust/xtask/src/libs.rs') }}
-      - run: cargo xtask fetch-msl
+      - run: cargo xtask fetch-msl --version ${{ env.MSL_VERSION }}
       - run: cargo xtask fetch-library ${{ matrix.name }}
       - name: msl-funnel（S0〜S10 の判定）
         id: funnel
@@ -187,7 +193,7 @@ jobs:
           pattern: library-*
           merge-multiple: true
           path: target/libs
-      - run: cargo xtask libraries-report --dir target/libs --report doc/libraries.md
+      - run: cargo xtask libraries-report --dir target/libs --msl ${{ env.MSL_VERSION }} --report doc/libraries.md
       - uses: actions/upload-artifact@v7
         with:
           name: libraries

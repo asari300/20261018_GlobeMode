@@ -341,11 +341,11 @@ fn hours(seconds: f64) -> String {
     format!("{}:{:02}", m / 60, m % 60)
 }
 
-fn render_libraries(rows: &std::collections::BTreeMap<String, Totals>) -> String {
+fn render_libraries(rows: &std::collections::BTreeMap<String, Totals>, msl: &str) -> String {
     use std::fmt::Write as _;
     let mut md =
         String::from("# MSL 以外の公開ライブラリの検査（globe check の S0〜S10 と実行）\n\n");
-    md.push_str("`.github/workflows/libraries.yml`（S058）が作った。手で編集しない。各ライブラリを `fetch-library` で取得し、MSL 4.1.0 と一緒に読んで `msl-funnel` で例題に判定を出し、OK の例題を `msl-sim` で実行した（参照結果は無いので、管の比較はしない）。\n\n");
+    md.push_str(&format!("`.github/workflows/libraries.yml`（S058）が作った。手で編集しない。各ライブラリを `fetch-library` で取得し、**MSL {msl}** と一緒に読んで `msl-funnel` で例題に判定を出し、OK の例題を `msl-sim` で実行した（参照結果は無いので、管の比較はしない）。\n\n"));
     md.push_str("| ライブラリ | 版 | 分割 | 例題 | OK | NG | GM-U | panic | 実行した | 実行できた | 時間（検査 + 実行） |\n| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |\n");
     for (name, t) in rows {
         let version = find(name).map_or("?", |l| l.version);
@@ -373,7 +373,7 @@ fn render_libraries(rows: &std::collections::BTreeMap<String, Totals>) -> String
 }
 
 /// `cargo xtask libraries-report --dir <D>`: `<D>` の下の `<名前>-<分割>-funnel.json` と `<名前>-<分割>-sim.json` を集めて表にする。
-pub(crate) fn libraries_report(dir: &Path, report: Option<&Path>) -> Result<ExitCode> {
+pub(crate) fn libraries_report(dir: &Path, msl: &str, report: Option<&Path>) -> Result<ExitCode> {
     let mut rows: std::collections::BTreeMap<String, Totals> = std::collections::BTreeMap::new();
     let mut files = Vec::new();
     collect_json(dir, &mut files).map_err(|e| format!("{}: {e}", dir.display()))?;
@@ -402,7 +402,7 @@ pub(crate) fn libraries_report(dir: &Path, report: Option<&Path>) -> Result<Exit
             totals.add_sim(&json);
         }
     }
-    let md = render_libraries(&rows);
+    let md = render_libraries(&rows, msl);
     match report {
         Some(p) => fs::write(p, md).map_err(|e| e.to_string())?,
         None => print!("{md}"),
@@ -440,7 +440,11 @@ mod report_tests {
             (2, 20, 12, 6, 2)
         );
         assert_eq!((t.sim_total, t.sim_ok), (6, 5));
-        let md = render_libraries(&[("Chemical".to_string(), t)].into_iter().collect());
+        let md = render_libraries(
+            &[("Chemical".to_string(), t)].into_iter().collect(),
+            "4.0.0",
+        );
+        assert!(md.contains("**MSL 4.0.0**"), "{md}");
         assert!(md.contains("| Chemical | 2.0.0"), "{md}");
         assert!(
             md.contains("| 1/2 | 20 | 12 | 0 | 6 | 2 | 6 | 5 | 0:03 + 1:00 |"),

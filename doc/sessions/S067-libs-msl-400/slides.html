@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S067 公開ライブラリを MSL 4.0.0 で回す — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S067 公開ライブラリを MSL 4.0.0 で回す">
+
+<section class="slide" id="S01">
+  <span class="tag">S067 · 2026-11-01 · P3</span>
+  <h1>公開ライブラリを MSL 4.0.0 で回す</h1>
+  <p class="lead">S063 の持ち越し「MSL の版の差の数」を測った</p>
+  <div class="big">判定の差は <b>2,132 本中 1 本</b>。実行は <b>-76 本</b>（<code>external "builtin"</code>）</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>版の差は失敗に混ざっているか</h1>
+  <ul>
+    <li>公開ライブラリ 7 つは MSL 4.1.0 と一緒に読んで検査してきた</li>
+    <li>AixLib・ClaRa・DeltaRobot・Chemical の <code>uses</code> は MSL <b>4.0.0</b></li>
+    <li>S063 の失敗 1,781 本の分類に、版の差が混ざっていないかが分からなかった</li>
+    <li>4.0.0 でも同じ検査を回せるようにして、本数の差を測る</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1><code>uses</code> の MSL</h1>
+  <table class="compact">
+    <tr><th>MSL の版</th><th>ライブラリ</th></tr>
+    <tr><td>4.1.0</td><td>Buildings・IBPSA・ThermofluidStream</td></tr>
+    <tr><td>4.0.0</td><td>AixLib・ClaRa（TILMedia）・DeltaRobot・Chemical</td></tr>
+  </table>
+  <p>どちらの版を前提にするライブラリも、もう一方の版で読んでみる。</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由</span>
+  <h1>最小の変更</h1>
+  <ul>
+    <li><code>fetch-msl --version 4.0.0</code>（既定 4.1.0）。sha256 は取得して計算した値</li>
+    <li>別の版が展開済みの <code>--dest</code> には重ねず断る（2 つの <code>Modelica</code> が読まれるため）</li>
+    <li><code>libraries.yml</code> に入力 <code>msl</code>、キャッシュのキーに版を入れる</li>
+    <li><code>libraries-report --msl</code> が表の見出しに版を書く</li>
+    <li>artifact 名・<code>doc/libraries.md</code>（4.1.0）はそのまま</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">図</span>
+  <h1>流れ</h1>
+  <svg class="fig" viewBox="0 0 800 200" role="img" aria-label="入力 msl から fetch-msl と libraries-report へ">
+    <rect class="svg-box-accent" x="20" y="70" width="150" height="60" rx="10"/>
+    <text class="svg-text-b" x="95" y="106" text-anchor="middle">input msl</text>
+    <line class="svg-line" x1="170" y1="100" x2="250" y2="50"/>
+    <line class="svg-line" x1="170" y1="100" x2="250" y2="150"/>
+    <rect class="svg-box" x="250" y="25" width="230" height="50" rx="10"/>
+    <text class="svg-text" x="365" y="56" text-anchor="middle">fetch-msl --version</text>
+    <rect class="svg-box" x="250" y="125" width="230" height="50" rx="10"/>
+    <text class="svg-text" x="365" y="156" text-anchor="middle">cache の key</text>
+    <line class="svg-line" x1="480" y1="50" x2="560" y2="100"/>
+    <line class="svg-line" x1="480" y1="150" x2="560" y2="100"/>
+    <rect class="svg-box" x="560" y="70" width="220" height="60" rx="10"/>
+    <text class="svg-text-b" x="670" y="106" text-anchor="middle">funnel · sim · report</text>
+  </svg>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">結果</span>
+  <h1>判定はほぼ同じ</h1>
+  <table class="compact">
+    <tr><th>ライブラリ</th><th>OK 4.1.0 / 4.0.0</th><th>判定の違い</th></tr>
+    <tr><td>AixLib</td><td>119 / 118</td><td class="ng">1 本（ED019）</td></tr>
+    <tr><td>Buildings</td><td>119 / 119</td><td class="ok">0</td></tr>
+    <tr><td>IBPSA</td><td>88 / 88</td><td class="ok">0</td></tr>
+    <tr><td>DeltaRobot・Chemical・ThermofluidStream・ClaRa</td><td>同じ</td><td class="ok">0</td></tr>
+  </table>
+  <p>S063 の分類（ER132・ER070・EI032・EF004・EF025）は版の差を含まない。</p>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">結果</span>
+  <h1>実行できた本数は減る</h1>
+  <table class="compact">
+    <tr><th>ライブラリ</th><th>実行できた 4.1.0 / 4.0.0</th><th>差</th></tr>
+    <tr><td>AixLib</td><td>98 / 71</td><td class="ng">-27</td></tr>
+    <tr><td>Buildings</td><td>88 / 61</td><td class="ng">-27</td></tr>
+    <tr><td>IBPSA</td><td>66 / 47</td><td class="ng">-19</td></tr>
+    <tr><td>DeltaRobot</td><td>5 / 2</td><td class="ng">-3</td></tr>
+  </table>
+  <p>計 259 → 183。逆に 4.0.0 だけで実行できた例題は 0 本。</p>
+</section>
+
+<section class="slide" id="S08">
+  <span class="tag">原因</span>
+  <h1><code>external "builtin"</code></h1>
+  <div class="cols-2">
+    <div class="card"><b>MSL 4.0.0</b><br><code>Math/package.mo</code> の 13 か所が <code>external "builtin" y = log(u);</code></div>
+    <div class="card"><b>MSL 4.1.0</b><br>同じ関数が <code>algorithm y := .log(u);</code>（<code>external "builtin"</code> は 0 か所）</div>
+  </div>
+  <p>実行系が builtin の外部関数を解けず <code>GM-U0004</code>。75 本のうち 70 本（sin 28・exp 27・log 10・cos 4・asin 1）。残り 5 本は Solve IR の契約。</p>
+</section>
+
+<section class="slide" id="S09">
+  <span class="tag">再現手順</span>
+  <h1>検証</h1>
+  <pre><code>cargo xtask fetch-msl --version 4.0.0 --dest data/msl-4.0.0
+gh workflow run libraries.yml -f msl=4.0.0
+gh run download &lt;run-id&gt; -n libraries</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">1</span><span class="l">判定の違う例題（2,132 本中）</span></div>
+    <div class="kpi"><span class="n">-76</span><span class="l">実行できた例題（259 → 183）</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S10">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>実行系で <code>external "builtin"</code> の数学関数を解く道（4.0.0 前提のライブラリを動かす）</li>
+    <li>ED019 の 1 本（SensorVerification）が 4.0.0 で変わる理由</li>
+    <li>ER132・ER070・EI032・ER023 を上流に出すか、GlobeMode で緩めるか</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

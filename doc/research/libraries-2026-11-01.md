@@ -190,7 +190,7 @@ run 41250636800（Buildings 4・AixLib 2・IBPSA・ClaRa・ThermofluidStream）�
 ### MSL 4.0.0 と 4.1.0 の差・取得しない依存
 
 - **取得しない依存を名指すもの**（メッセージに `Modelica_DeviceDrivers`・`SDF`・`SMArtInt` が出る失敗）: **AixLib 10 本**（`Modelica_DeviceDrivers.Communication.UDPSocket` の import 9、`TCPIPSocketClient` の型 1）、**ClaRa 2 本**（`SMArtInt.Internal.ClaRaDelay` が基底クラスに無い。`SteamPowerPlant_01`・`SteamPowerPlant_CombinedComponents_01`）。SDF は名指す失敗が 0 本。名前を直接出さずに、これらを使うクラスを使うために止まったものは分けられない【未確認】。
-- **MSL 4.1.0 で消えた・移った名前が原因のもの**（`uses` が 4.0.0 の AixLib・ClaRa・DeltaRobot・Chemical で、失敗メッセージに `Modelica.` の名前が出るもの）: 確かめられたのは **AixLib 1 本**（`base class not found: Modelica.Media.Examples.Tests.Components.PartialTestModel2`。MSL 4.1.0 には無く、`UsersGuide/ReleaseNotes.mo` の記述だけに出る）。そのほかの `Modelica.` の名前が出る失敗は、4.1.0 にある関数の扱い（`Modelica.Utilities.Files.loadResource` 51 本、`fullPathName` 2、`Math.Vectors.sort` 1、`SingleGasesData.Air.R_s` 2 など、すべて Rumoca の内部の失敗）で、版の差ではない。名前を出さない失敗の中に版の差が混ざるかは、MSL 4.0.0 で回し直さないと分からない【未確認】。
+- **MSL 4.1.0 で消えた・移った名前が原因のもの**（`uses` が 4.0.0 の AixLib・ClaRa・DeltaRobot・Chemical で、失敗メッセージに `Modelica.` の名前が出るもの）: 確かめられたのは **AixLib 1 本**（`base class not found: Modelica.Media.Examples.Tests.Components.PartialTestModel2`。MSL 4.1.0 には無く、`UsersGuide/ReleaseNotes.mo` の記述だけに出る）。そのほかの `Modelica.` の名前が出る失敗は、4.1.0 にある関数の扱い（`Modelica.Utilities.Files.loadResource` 51 本、`fullPathName` 2、`Math.Vectors.sort` 1、`SingleGasesData.Air.R_s` 2 など、すべて Rumoca の内部の失敗）で、版の差ではない。名前を出さない失敗の中に版の差が混ざるかは、S067 で MSL 4.0.0 で回し直して確かめた（判定の差は 1 本だけ。下の「MSL 4.0.0 で回し直した差（S067）」）。
 - **S1 の ER002（68 本、AixLib 67）**: `unresolved function call: 'specificEntropyOfpTX'` が 39 本（ライブラリの replaceable な Medium の関数）、成分の参照 14 本、import 10 本（9 本が Modelica_DeviceDrivers）。
 
 ### ClaRa（例題 5 本・OK 0）
@@ -220,6 +220,55 @@ S058・S063 の持ち越し。`Checker::new` は、ライブラリの `.mo` が 
 - **MSL の初回の速さ**: MSL は従来の道で全部読めるので、失敗の道は通らない（`mise run msl:compare` は 20/20 一致）。失敗の道の費用は、ClaRa（2,044 ファイル）で追加の 1 回の構文解析（構文木のキャッシュが効く）程度で、検査の秒数に差は出なかった。
 - **限界**: 失敗したルートでは配置の検査を飛ばすので、配置の誤り（PKG-0xx）は警告になる。`package.mo` の無いディレクトリのファイルは、これまで除いていたが、今は読む（ThermofluidStream で判定が変わらないことを確かめた）。
 - Actions（`libraries.yml`、run 41295588356、Chemical・ClaRa・ThermofluidStream・DeltaRobot）の結果は成功（親が確認）。表の 4 行は S063（run 41250636800）と例題・OK・NG・GM-U・panic・実行できた のすべてが同じ: Chemical 76 / 12 / 21 / 43 / 0 / 0、ClaRa 5 / 0 / 5 / 0 / 0 / 0、DeltaRobot 21 / 9 / 7 / 5 / 0 / 5、ThermofluidStream 122 / 4 / 3 / 115 / 0 / 2。
+## MSL 4.0.0 で回し直した差（S067）
+
+S063 の持ち越し「`uses` が 4.0.0 のライブラリを 4.1.0 で回したことによる版の差の数」を測った（確認日 2026-11-01）。
+
+### `uses(Modelica(version=…))`
+
+各ライブラリの `package.mo` を、取得に使う commit の `raw.githubusercontent.com` から読んだ（`fetch-library` と同じ commit）。
+
+| ライブラリ | `package.mo` の `uses` |
+| --- | --- |
+| Buildings 14.0.0 | `Modelica 4.1.0` |
+| IBPSA 4.0.0 | `Modelica 4.1.0` |
+| ThermofluidStream 1.4.1 | `Modelica 4.1.0`、`Complex 4.1.0` |
+| TILMediaWrapper（ThermofluidStream に同梱） | `Modelica 4.1.0`、`ThermofluidStream 1.4.1`、`TILMedia 3.15.0` |
+| AixLib 3.0.1 | `Modelica 4.0.0`、`SDF 0.4.4`、`Modelica_DeviceDrivers 2.1.1` |
+| ClaRa 1.9.0 | `Modelica 4.0.0`、`TILMedia 1.9.0 ClaRa`、`SMArtInt 0.5.1` |
+| TILMedia 1.9.0 ClaRa | `Modelica 4.0.0` |
+| DeltaRobot 1.0.2 | `Modelica 4.0.0` |
+| Chemical 2.0.0 | `Modelica 4.0.0` |
+
+つまり 4.1.0 が前提なのは Buildings・IBPSA・ThermofluidStream、4.0.0 が前提なのは AixLib・ClaRa・DeltaRobot・Chemical。
+
+### 取得物
+
+- `ModelicaStandardLibrary_v4.0.0.zip`: <https://github.com/modelica/ModelicaStandardLibrary/releases/tag/v4.0.0> の資産（29,117,960 バイト、GitHub の API は digest を返さない）。2026-11-01 に取得して計算した sha256 は `98d8e785d3383699008282b01728c2dad794317076eb31d341456e9ed053a783`。`cargo xtask fetch-msl --version 4.0.0 --dest data/msl-4.0.0` で取れる（12,403 ファイル。`Modelica 4.0.0`・`ModelicaServices 4.0.0`・`ModelicaReference 4.0.0` のディレクトリ名は 4.1.0 の配布物と同じ並び）。
+- `libraries.yml` は入力 `msl`（`4.1.0` 既定 / `4.0.0`）を取り、`fetch-msl --version` と `libraries-report --msl` に渡す。funnel の JSON の `msl_version` は xtask の定数（4.1.0）のままなので、版の表示は `--msl` だけが正。
+
+### 4.0.0 で回した結果（run 41295445820）と 4.1.0（S058 の run）の差
+
+同じ commit のライブラリ 7 つを、`libraries.yml -f msl=4.0.0`（run 41295445820、2026-11-01、全ジョブ success）で回し、4.1.0 の結果（run 41250636800 と 41248143483 の artifact の `*-funnel.json`・`*-sim.json`。表は [libraries.md](../libraries.md)）と例題ごとに突き合わせた。
+
+| ライブラリ | 例題 4.1.0 / 4.0.0 | OK | NG | GM-U | panic | 判定の違う例題 | 実行できた（OK のうち） |
+| --- | --- | --- | --- | --- | --- | ---: | --- |
+| AixLib | 642 / 642 | 119 / 118 | 360 / 360 | 163 / 164 | 0 / 0 | 1 | 98 / 71（**-27**） |
+| Buildings | 809 / 809 | 119 / 119 | 493 / 493 | 193 / 193 | 4 / 4 | 0 | 88 / 61（**-27**） |
+| IBPSA | 457 / 457 | 88 / 88 | 230 / 230 | 135 / 135 | 4 / 4 | 0 | 66 / 47（**-19**） |
+| DeltaRobot | 21 / 21 | 9 / 9 | 7 / 7 | 5 / 5 | 0 / 0 | 0 | 5 / 2（**-3**） |
+| Chemical | 76 / 76 | 12 / 12 | 21 / 21 | 43 / 43 | 0 / 0 | 0 | 0 / 0 |
+| ThermofluidStream | 122 / 122 | 4 / 4 | 3 / 3 | 115 / 115 | 0 / 0 | 0 | 2 / 2 |
+| ClaRa | 5 / 5 | 0 / 0 | 5 / 5 | 0 / 0 | 0 / 0 | 0 | 0 / 0 |
+| 計 | 2,132 / 2,132 | 351 / 350 | 1,119 / 1,119 | 654 / 655 | 8 / 8 | 1 | 259 / 183（**-76**） |
+
+- **判定（S0〜S10）の差はほぼ無い**: 2,132 本のうち、判定・段・GlobeMode のコード・Rumoca のコードのどれかが違うのは **1 本**だけ。`AixLib.Obsolete.YearIndependent.FastHVAC.Examples.Sensors.SensorVerification` が OK（4.1.0）→ GM-U S5 の ED019（`function shape proof`: dependent extent is not an exact Integer expression over proven shape axes、4.0.0）になった。ほかの 2,131 本は両方の版で同じ段・同じコード（ER132・ER070・EI032・EF004・EF025 の本数も同じ）。つまり S063 の失敗の分類に MSL の版の差は混ざっていない（上の「失敗の分類（S063）」は 4.1.0 でも 4.0.0 でも同じ）。4.0.0 が前提の AixLib・ClaRa・DeltaRobot・Chemical を 4.1.0 で読んでも、4.1.0 が前提の Buildings・IBPSA・ThermofluidStream を 4.0.0 で読んでも同じ。
+- **実行の差は 76 本（OK の例題が実行できなくなった）**: funnel が OK の例題のうち、4.1.0 で終わりまで実行できて 4.0.0 では `GM-U0004`（実行系が未対応）になったものが 75 本（Buildings 27・AixLib 26・IBPSA 19・DeltaRobot 3）と、判定が変わった AixLib の 1 本。逆（4.0.0 だけ実行できる）は 0 本。
+  - **70 本は同じ原因**: `Modelica.Math.sin`（28）・`exp`（27）・`log`（10）・`cos`（4）・`asin`（1）。メッセージは `external builtin function 'Modelica.Math.log' calls 'log', which this runtime cannot execute`（EL005 / EX002）。MSL 4.0.0 の `Modelica/Math/package.mo` はこれらの関数を `external "builtin" y = log(u);` で書く（13 か所）。MSL 4.1.0 は同じ関数を `algorithm y := .log(u);` に書き直した（`external "builtin"` は 0 か所）。Rumoca の実行系は `external "builtin"` の呼び出しを実行できず、ライブラリ側が `Modelica.Math.*` を呼ぶ例題が 4.0.0 で全部止まる。**ライブラリではなく MSL の版の差で、実行系の穴**（4.0.0 の `external "builtin"` を実行系が解く道が無い）。funnel の段では見えない。
+  - 残り 5 本: Buildings の `HeatTransfer.Convection.Examples.Interior`・`HeatTransfer.Windows.BaseClasses.Examples.InteriorConvection`（`invalid Solve IR contract: pure-call argument or slot interface is invalid`）と DeltaRobot の 3 本（`Disc_test`・`Functions_jointsCoordinates_actuatorsJointsRotationAngles_test`・`modelicaTransformations_test`。`Modelica.Mechanics.MultiBody.Frames.axesRotations` の record の戻り値を呼べない）。4.0.0 の MSL の関数の書き方（関数の中身）に依存する実行系の失敗と思われるが、MSL の差分は読んでいない【未確認】。
+- 4.0.0 でも `external "builtin"` で止まるのに 4.1.0 でも止まっていたものが 23 本あり（別の原因が先に出ていた例題）、これは差に数えていない。
+- **比較の土台の確認**: 4.1.0 の側は S058 の run なので、この branch の xtask・Rumoca で 4.1.0 を回し直した（run 41302566710、`-f msl=4.1.0`、Buildings を除く 6 つ、全ジョブ success）。S058 の run と 2,132 - 809 = 1,323 本すべてで判定・段・コードが同じで、実行できた本数も同じ（AixLib 98・IBPSA 66・DeltaRobot 5・ThermofluidStream 2・Chemical 0・ClaRa 0）。つまり上の差は S058 以降のコードの変化ではなく MSL の版の差。Buildings は回し直していない（S058 の 4.1.0 の run のまま。Buildings だけ分割 4 の 1 本が約 70 分かかるため）。
+- 時間（funnel の足し算）は 4.1.0 / 4.0.0 で AixLib 732 / 772 s、Buildings 4,361 / 5,529 s、IBPSA 314 / 305 s と同程度（Buildings は分割 4 の 1 本が 3,769 / 4,748 s。Actions のランナーの差もある）。
 
 ## 読んだ範囲と限界
 

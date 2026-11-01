@@ -41,6 +41,10 @@ mod solvers;
 const MSL_URL: &str = "https://github.com/modelica/ModelicaStandardLibrary/releases/download/v4.1.0/ModelicaStandardLibrary_v4.1.0.zip";
 const MSL_SHA256: &str = "5409cfa17797c52d866dc9d2675badc1378b4bbf88066e60899a489cb1cb8a2d";
 const MSL_VERSION: &str = "4.1.0";
+/// S067: 公開ライブラリが前提にする古い版（BSD-3-Clause）。`fetch-msl --version 4.0.0` だけで使う
+/// （報告の `MSL_VERSION` は 4.1.0 のまま。ファネルの Rust 側の定数は変えない）。2026-11-01 に取得して sha256 を計算した。
+const MSL_400_URL: &str = "https://github.com/modelica/ModelicaStandardLibrary/releases/download/v4.0.0/ModelicaStandardLibrary_v4.0.0.zip";
+const MSL_400_SHA256: &str = "98d8e785d3383699008282b01728c2dad794317076eb31d341456e9ed053a783";
 // S057: Reference-FMUs（BSD-2-Clause、FMI 2.0 / 3.0 の FMU。P5 の検証用）。release の資産 1 つ
 const REFFMU_VERSION: &str = "0.0.42";
 const REFFMU_URL: &str =
@@ -83,10 +87,12 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Cmd {
-    /// MSL 4.1.0 を取得して展開する
+    /// MSL を取得して展開する（既定 4.1.0。S067 から `--version 4.0.0` も選べる。版が違う展開先には重ねず、別の `--dest` を使う）
     FetchMsl {
         #[arg(long, default_value = "data/msl")]
         dest: PathBuf,
+        #[arg(long, default_value = MSL_VERSION)]
+        version: String,
     },
     /// Reference-FMUs（FMI 2.0 / 3.0）を取得して展開する
     FetchReferenceFmus {
@@ -105,6 +111,9 @@ enum Cmd {
         /// JSON のあるディレクトリ（下も探す）
         #[arg(long)]
         dir: PathBuf,
+        /// 表に書く MSL の版（検査に使った版。JSON の `msl_version` は xtask の定数なので当てにしない）
+        #[arg(long, default_value = MSL_VERSION)]
+        msl: String,
         /// Markdown の報告を書くファイル（無ければ標準出力）
         #[arg(long)]
         report: Option<PathBuf>,
@@ -319,7 +328,7 @@ enum Cmd {
 
 fn main() -> ExitCode {
     let result = match Cli::parse().command {
-        Cmd::FetchMsl { dest } => fetch_msl(&dest),
+        Cmd::FetchMsl { dest, version } => fetch_msl(&dest, &version),
         Cmd::FetchReferenceFmus { dest } => fetch_zip(
             "Reference-FMUs",
             REFFMU_VERSION,
@@ -330,7 +339,9 @@ fn main() -> ExitCode {
             &dest,
         ),
         Cmd::FetchLibrary { name, dest } => libs::fetch_library(&name, &dest),
-        Cmd::LibrariesReport { dir, report } => libs::libraries_report(&dir, report.as_deref()),
+        Cmd::LibrariesReport { dir, msl, report } => {
+            libs::libraries_report(&dir, &msl, report.as_deref())
+        }
         Cmd::FetchRumoca { dest } => fetch_rumoca(&dest),
         Cmd::MslCompare {
             msl,
@@ -529,13 +540,28 @@ fn download(url: &str, sha256: &str, path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn fetch_msl(dest: &Path) -> Result<ExitCode> {
+fn fetch_msl(dest: &Path, version: &str) -> Result<ExitCode> {
+    let (url, sha256) = match version {
+        MSL_VERSION => (MSL_URL, MSL_SHA256),
+        "4.0.0" => (MSL_400_URL, MSL_400_SHA256),
+        v => return Err(format!("対応していない MSL の版: {v}（4.1.0 か 4.0.0）")),
+    };
+    // 別の版が展開済みだと 2 つの Modelica が重なって読まれるので、目印が違う展開先は断る（空のディレクトリは可）
+    if let Ok(old) = fs::read_to_string(dest.join(".globe-mode-msl"))
+        && !old.starts_with(&format!("{version} "))
+    {
+        return Err(format!(
+            "{} には別の版（{}）が展開済み。別の --dest を使うか消してから取得する",
+            dest.display(),
+            old.split_whitespace().next().unwrap_or("?")
+        ));
+    }
     fetch_zip(
         "MSL",
-        MSL_VERSION,
-        MSL_URL,
-        MSL_SHA256,
-        &format!("ModelicaStandardLibrary_v{MSL_VERSION}.zip"),
+        version,
+        url,
+        sha256,
+        &format!("ModelicaStandardLibrary_v{version}.zip"),
         ".globe-mode-msl",
         dest,
     )
