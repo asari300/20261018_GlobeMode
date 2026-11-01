@@ -260,7 +260,7 @@ enum Cmd {
         /// N 本ごとにワーカーの Session を MSL を読んだ直後に戻す（0 なら戻さない。msl-funnel と同じ既定）
         #[arg(long, default_value_t = 50)]
         reset_every: usize,
-        /// ソルバ（`bdf`、`dopri45`、`auto` など。既定の `auto` は、BDF が積分で失敗したら dopri45 で回し直す。S012）
+        /// ソルバ（`bdf`、`dopri45`、`auto` など。既定の `auto` は、BDF が積分で失敗したら esdirk34、それも止まれば dopri45 で回し直す。S012・S064）
         #[arg(long, default_value = "auto")]
         solver: Option<String>,
         /// experiment annotation の Tolerance をこの倍にする（注釈に無ければ既定 1e-6 のまま）。MAP-LIB の参照結果と同じ規則（S013）

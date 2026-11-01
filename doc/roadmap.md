@@ -426,7 +426,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 
 - **S050 の表で目立った 2 件の原因を調べた**（[research/msl-sim-failures.md](research/msl-sim-failures.md) の節「S055 で調べたこと」）。`cerk23` の時間切れ 27 本は、24 本が硬い系（陰的ソルバ 8 本のどれかが終え、21 本は `bdf` が 32 秒以内）で、陽的な方法の刻みが安定限界に張り付く（`DCPM_Drive` は刻み幅 2.6e-8 で終了時刻まで 7.7e7 歩、刻み幅は次数 3 の `cerk23` から 8 の `dopri853` までほぼ同じ）。実装の誤りは見つからず、`cerk` は直さなかった。Rumoca の `dopri45` が終える 7 本（`IMC_Inverter` など）は diffsol の陽的 RK の刻み幅制御（釣り合う誤差が 0.35 で、誤差が 0.3〜0.4 で下げ止まる系では刻みが縮み続ける）との関係が疑わしいが、確かめていない【未確認】。`bdf` の `GM-U0005` 10 本は、9 本が Rumoca の host の左端の検査（補間と点の差が `rtol·|y|` 以内）に BDF の補間が通らないもの（上限の 1.1〜445 倍。許容誤差を 1e-6・3e-7 にしても 7 本中 4 本ずつしか通らず、単調でもない）で、1 本（`Dimmer_RL`）は歩が丸めの幅に潰れるもの。Rumoca の側なので直さず、上流の下書きを 1 件足した（[upstream/15](research/upstream/15-bdf-sampler-left-endpoint-tight-tolerance.md)）。
 - **足したもの**: GM-E11005 の補足（陽的ソルバが時間切れのとき `--solver bdf・esdirk34・radau5・auto` を勧める。数値は変えない）、`msl-sim.yml` の入力 `solvers`（ジョブ `solvers` の対象を JSON 配列で絞る。空なら 14 本）。run 41247200921 で `["cerk23","cerk34","bdf"]` を回した（全ジョブ成功）。`bdf`（301、管 293/300、`GM-U0005` 10）と `cerk34`（286、275/285、時間切れ 27）は S050 と全モデルで同じ結果。`cerk23` は 288 → 290 本で、`IMC_Inverter`（run_seconds 177.9 s）と `SMPM_VoltageSource`（164.4 s）が回し直しの予算 180 s の境目で通った。
-- **次の候補**: `auto` の切り替え先を、陽的の `dopri45` が時間切れになったときに `esdirk34` にする（`bdf` の内部エラー 10 本のうち `auto` が救えない 3 本を `esdirk34` が終える見込み。ADR-0015 の改訂が要る）。diffsol の陽的 RK に `dopri45` と同じ刻み幅制御を足して、7 本の差が縮むか確かめる。
+- **次の候補**: ~~`auto` の切り替え先を `esdirk34` にする~~ **S064 で済んだ**（[ADR-0028](adr/0028-auto-esdirk34-fallback.md)。救えたのは 3 本のうち `Dimmer_RL` の 1 本）。diffsol の陽的 RK に `dopri45` と同じ刻み幅制御を足して、7 本の差が縮むか確かめる。
 
 ### S058（P3、2026-11-01）で済んだこと
 
@@ -452,7 +452,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 
 
 1. **止まった例題の残り**（[research/msl-sim-failures.md](research/msl-sim-failures.md)、[msl-sim.md](msl-sim.md)）: Rumoca の構造解析でインデックスの低減が足りない EL005 の 18 本、Solve IR への変換が終わらない Fluid の例題など。多くは上流の問題なので、上流への報告（8）と合わせて扱う。管から外れた 6 本のうち既知の外れでない 3 本（`Clocked` の `RotationalSample`・`LogicalSample` は t = 1 の状態イベントと時間イベントの重なり、`Dimmer_R` は窓の更新の時刻での高調波の位相）。
-2. **自前の積分器の詰め**（**S021 で主な件を済ませた**。残りは S021 の節）: `esdirk34` が bdf で通る 5 本で落ちる（diffsol の非線形の失敗、刻みが小さすぎる）、`tsit45`・`esdirk34` の 5 本で射影が収束しない（`GM-E11002`）。固定刻みの既定の刻み（出力の間隔）では `heun` の精度が足りない（MSL の `Rotational.Examples` 7 本で 3 / 7）。陽的 RK もヤコビ行列つきで作っている（diffsol の `ClosureNoJac` が非公開）。
+2. **自前の積分器の詰め**（**S021 で主な件を済ませた**。残りは S021 の節）: `esdirk34` が bdf で通る 5 本で落ちる（diffsol の非線形の失敗、刻みが小さすぎる）、`tsit45`・`esdirk34` の 5 本で射影が収束しない（`GM-E11002`）。固定刻みの既定の刻み（出力の間隔）では `heun` の精度が足りない（MSL の `Rotational.Examples` 7 本で 3 / 7）。陽的 RK もヤコビ行列つきで作っている（diffsol の `ClosureNoJac` が非公開）。 **S064 の確認**: S050 の表で esdirk34 が落ちて bdf が通るのは 17 本（ほとんどが時間切れ。`IMC_*`・`SMPM_*`・`OneTank`・`ThreeTanks` など）。`auto` は BDF が通れば esdirk34 を呼ばないので、この弱点は `auto` の数字に出ない（手元で `SinCosEncoder`・`ThyristorBehaviourTest`・`IMC_DOL`・`SMPM_Braking`・`OneTank` を `auto` で回し、回し直しなしで終えた）。esdirk34 を単独で使うときの弱点は残っている。
 3. **ブラウザ**（P6 の前提。**S036 で Worker と作り直しを、S037 でメモリを済ませた**）: ~~`wasm-bindgen --target web` と Web Worker で回す。panic の後の `Workspace` は使えないので作り直す道を作る。MSL を読んだ後の線形メモリ 262 MiB（`ChuaCircuit` の後 513 MiB）を減らす（パッケージ単位の分割読み込み）。~~ 残りは UI（計画書の WP-B）。
 4. **初期化の後の初期化方程式の検査**（S016。**S018 で済んだ**: 初期化系をもう一度解いて動けば GM-W10004。[ADR-0020](adr/0020-init-resettle-check.md)）: Rumoca の初期化は、初期化方程式が関係式を読むと、関係式の既定値で解いて解き直さないことがある（`EngineV6`。[research/msl-sim-failures.md](research/msl-sim-failures.md) の節「S016 で調べたこと」）。GlobeMode は初期化の後に初期化方程式の残差を見ていないので、誤った初期値のまま黙って積分する。初期化の後に残差を評価して警告する案を考える（Rumoca に初期化方程式の残差を評価する公開の入口があるか【未確認】）。`DrumBoiler`（実行時オブジェクトの組み立てが終わらない）と lowering が終わらない 5 本は上流（8）。
 5. **Arrow IPC**（ResultStore）: OpenModelica の `arrow.modelica`（`modelica.format` 0.1）の形が固まるのを待つか、自前の形で先に書くかを決める（arrow-rs 60 で依存が 25 増える）。
@@ -466,6 +466,13 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **ブラウザ UI の結果を列ごとの道にした**（S051 の持ち越し。[解説書](sessions/S065-columns-ui/解説書.md)）: `Backend.simulateColumns`（`{response, columns}`、`columns` は `plot/csv.ts` の `Columns`＝`names`・`points`・`data: ArrayLike`）を足し、`WorkerBackend` は `GlobeWorker.simulateColumns`（`Float64Array` を転送）、`TauriBackend` は sidecar に列の道が無いので `simulate` の CSV を `parseCsv` して同じ形にする。`App.svelte` の実行は `simulateColumns`、`Plot` は `Columns` を受ける（`$state.raw`）。wasm・Rust は変えていない。`simulate` は残した。
 - **実行の時間**（ヘッドレス Chromium、10 万点 × 4 状態）: CSV の解析 129.9 ms がなくなり、最初の描画まで 151.3 → 20.7 / 27.0 ms、「実行」を押してから戻るまで 810 → 222 / 213 ms。ChuaCircuit（50195 点 × 44 列）は 1.3 → 0.8 s。Playwright の試験に `data-typed`（列の道で来たか）の確認を足した。
 - 列の道の NaN / Inf は `gapNonFinite` で null にする（有限だけの列は型付きのまま）。持ち越し: Desktop の sidecar に列の道は無い。
+### S064（P3、2026-11-01）で済んだこと
+
+- **`auto` の回し直しを BDF → esdirk34 → dopri45 にした**（[ADR-0028](adr/0028-auto-esdirk34-fallback.md)、Accepted）。dopri45 は陽的で、硬い系は予算を使い切って esdirk34 に時間が残らないので、陰的な esdirk34 を先に試す。esdirk34 が時間切れ以外で止まれば dopri45 に回る（`TwoMass` は dopri45 だけが救える）。対象に「歩が丸めの幅より進まない」（`Dimmer_RL` の BDF の止まり方）を足した。esdirk34 への切り替えは新しい情報 `GM-I11003`、dopri45 は `GM-I11002` のまま。`msl-sim` の欄は `auto → esdirk34`・`auto → esdirk34 → dopri45`。
+- **全例題 356 本の CI**（run 41287267439、`msl-sim.yml -f 'solvers=["auto"]'` の `msl-sim` ジョブ）: 実行できた 309 → **310**（`Dimmer_RL`。管は `y_arg` の 2 信号が外れる）、管に収まった 301 / 308 → **301 / 309**、`GM-U0005` の止まり 1 → 0、減ったモデルは 0。esdirk34 で終えたのは 8 本、esdirk34 → dopri45 は 1 本（`TwoMass`）。S055 の見込み（`auto` が救えない 3 本を esdirk34 が終える）は 2 本だった（`ThyristorBridge2Pulse_DC_Drive` は esdirk34 が `GM-E11003`）。`ThyristorBridge2mPulse_DC_Drive` は esdirk34 で 94 s かかり、ランナーの速さで時間切れの境目を行き来する（run 41282411061 で終え、41287267439 で時間切れ）。
+- **採らなかった版**: 回し直しに「予算の残り」を渡す版（run 41282411061）は `LightningSegmentedTransmissionLine` が 1 本減った（msl-sim の最初の予算 30 s を BDF の組み立てと積分が使い切る）。元の予算を渡す版に戻した。時間切れの回し直しが 12 → 15 本になった（esdirk34 は 30 s を超えることがあり、180 s で回し直されて終える）。
+- 手元の前後 21 本（release）は ADR-0028 の「結果」。`doc/msl-sim.md` は run の artifact の報告（「前回との差」は S055 の結果に直した）。`msl-solvers.md` は全ソルバの run でないので触っていない。
+- **次の候補**: `ThyristorBridge2mPulse_DC_Drive` の時間切れの境目（予算の分け方、陰的ソルバの速さ）。`auto` の全体の予算（Rumoca の dopri45 が最初の予算 30 s を超えて走る件を調べてから、残りの時間を渡す規則を決める）。`Dimmer_RL` の `y_arg` の外れの原因。
 
 ### S066（P3、2026-11-01）で済んだこと
 

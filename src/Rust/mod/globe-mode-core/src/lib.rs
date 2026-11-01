@@ -263,8 +263,10 @@ pub mod codes {
     pub const RUN_TERMINATED: &str = "GM-I11001";
     /// 実行: 実行系が止めずに出した警告（例: 警告の重さの assert。S011）
     pub const RUN_WARNING: &str = "GM-W11001";
-    /// 実行: `auto` で BDF が積分に失敗したので dopri45 で回し直した（情報。S012）
+    /// 実行: `auto` で積分器が止まったので dopri45 で回し直した（情報。S012）
     pub const RUN_SOLVER_FALLBACK: &str = "GM-I11002";
+    /// 実行: `auto` で BDF が止まったので esdirk34 で回し直した（情報。S064）
+    pub const RUN_SOLVER_FALLBACK_ESDIRK: &str = "GM-I11003";
     /// コンパイラが未対応の言語機能（フロントエンドのコードで決まる。例: Rumoca の ED019）
     pub const UNSUPPORTED: &str = "GM-U0001";
     /// コンパイラの内部エラー（例: Rumoca の ED008）
