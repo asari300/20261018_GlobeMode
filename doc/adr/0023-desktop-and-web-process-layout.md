@@ -87,3 +87,7 @@ UI（Svelte）のプロセスでは検査も実行もしない。計算は 1 つ
 ### S054 で決まったこと（2026-11-01）
 
 - **ネイティブの library も閉包だけ読む**（[ADR-0025](0025-native-library-closure.md)）: sidecar が使う `Workspace::with_libraries` を wasm の分割読み込みと同じ道にした。背景の測定の `ChuaCircuit` の最大 RSS 1.48 GiB は、この変更の前の値（全部読み）。変更後の値は [research/resources-2026-10-31.md](../research/resources-2026-10-31.md) の §6。
+
+### S069 で決まったこと（2026-11-01）
+
+- **MSL の置き場**: 同梱せず、初回に app data dir の `msl/4.1.0/` へ取得する。`--library`・`GLOBE_LIBRARY` があればそれを優先し（この ADR の (a) の道はそのまま）、無ければ UI のボタンが command `fetch_msl` を呼ぶ。取得したら sidecar を新しい `--library` で作り直す。理由と比べた案は [ADR-0030](0030-desktop-msl-placement.md)。
