@@ -78,9 +78,39 @@ fn broken_input_is_left_alone() {
 #[test]
 fn spacing_and_blank_lines() {
     let src = "within A.B;\nmodel M \"d\"\n  parameter Real k=-1 \"g\";\n  Real x(start=1,fixed=true);\n  Real y[3];\nequation\n  der(x)=-k*x+y[1]^2; // c\n  for i in 1:3 loop\n    y[i]=if x>0 then i else -i;\n  end for;\n\n\n  annotation (experiment(StopTime=1));\nend M;";
-    let want = "within A.B;\n\nmodel M \"d\"\n\n  parameter Real k = -1 \"g\";\n  Real x(start = 1, fixed = true);\n  Real y[3];\nequation\n  der(x) = -k * x + y[1]^2; // c\n  for i in 1:3 loop\n    y[i] = if x > 0 then i else -i;\n  end for;\n\nannotation(experiment(StopTime = 1));\n\nend M;\n";
+    let want = "within A.B;\n\nmodel M \"d\"\n\n  parameter Real k = -1 \"g\";\n  Real x(start = 1, fixed = true);\n  Real y[3];\n\nequation\n\n  der(x) = -k * x + y[1]^2; // c\n  for i in 1:3 loop\n    y[i] = if x > 0 then i else -i;\n  end for;\n\nannotation(experiment(StopTime = 1));\n\nend M;\n";
     assert_eq!(format(src, &Options::default()).unwrap(), want);
     assert_eq!(format(want, &Options::default()).unwrap(), want);
+    // S061: equation / algorithm の前後の空行は切れる。切ると元からあった空行だけが残る
+    let off = Options {
+        blank_around_sections: false,
+        ..Options::default()
+    };
+    let want_off = want.replace("\n\nequation\n\n", "\nequation\n");
+    assert_eq!(format(src, &off).unwrap(), want_off);
+    let alg = "model M\n  Real x;\nalgorithm\n  x := 1;\ninitial equation\n  x = 0;\nend M;\n";
+    assert_eq!(
+        format(alg, &Options::default()).unwrap(),
+        "model M\n\n  Real x;\n\nalgorithm\n\n  x := 1;\n\ninitial equation\n\n  x = 0;\n\nend M;\n"
+    );
+}
+
+#[test]
+fn annotation_and_documentation_order() {
+    let before = include_str!("data/annotation_order_before.mo");
+    let after = include_str!("data/annotation_order_after.mo");
+    assert_eq!(format(before, &Options::default()).unwrap(), after);
+    assert_eq!(format(after, &Options::default()).unwrap(), after, "冪等");
+    // lint: 並びがずれていれば annotation-order（annotation と Documentation で 1 件ずつ）、整形後は 0 件
+    let rules = |src: &str| -> Vec<(usize, &'static str)> {
+        lint(src, &LintOptions::default())
+            .into_iter()
+            .filter(|m| m.rule == "annotation-order")
+            .map(|m| (m.line, m.rule))
+            .collect()
+    };
+    assert_eq!(rules(before).len(), 2, "{:?}", rules(before));
+    assert!(rules(after).is_empty());
 }
 
 #[test]

@@ -8,6 +8,8 @@ S059 で作った。`.mo` を開くと `globe lsp` を起動してつなぐだ�
 | --- | --- |
 | 整形 | Shift+Alt+F（拡張が `.mo` に割り当てる。Windows の VS Code の標準と同じキーで、Linux でも同じ）。コマンドパレットの「ドキュメントのフォーマット」でもよい |
 | 保存時の整形 | 設定 `globeMode.formatOnSave`（既定はオフ）。設定画面で「globeMode」と検索してチェックを入れる。再読み込みは要らない |
+| 節の前後の空行 | 設定 `globeMode.blankAroundSections`（既定はオン）。`equation` / `algorithm` の前後に空行を置く。切ると書いた空行だけが残る。再読み込みは要らない（S061） |
+| annotation の並び | `experiment` → `Diagram` → `Icon` → `Documentation`（中は header → info → revisions）でなければ、通知（`GM-L0004`）が出る。整形で直る |
 | lint と検査の診断 | 開いて編集すると波線が出る（`GM-L0001`〜`0003` と検査の `GM-E…`）。一覧は Ctrl+Shift+M |
 | 補完 | Ctrl+Space、または `.` のあと |
 | アウトライン・ホバー | エクスプローラーのアウトライン、クラス名にマウスを載せる |
@@ -30,6 +32,8 @@ mise exec -- pnpm package                        # globe-mode-<版>.vsix
 3. `.mo` を開き、右下の言語が「Modelica」になっていることを確かめる。ほかの言語（Lua など）のときは、そこを押して Modelica を選ぶ。
 
 入ったかどうかは、拡張機能ビューの検索欄に `@installed GlobeMode` と打つと見える。Remote - WSL の窓では「WSL: …」の欄に出る。
+
+整形は独自の要求 `globe/format` で頼む（S061）。vscode-languageclient が `textDocument/formatting` の追加の設定を捨てるため。
 
 `globe` が PATH に無いときは、設定 `globeMode.path` に絶対パスを書く。MSL などのライブラリは `globeMode.libraries` に並べる（`globe lsp --library` に渡る）。どちらも変えたら「ウィンドウの再読み込み」。
 

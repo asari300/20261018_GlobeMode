@@ -1,7 +1,8 @@
 //! GlobeMode の Modelica 整形器と lint（S053）。依存は無く、wasm でも CLI でもそのまま使える。
 //!
 //! 規則は `doc/format-style.md`。流れは 字句解析（[`lexer`]）→ 文の切り出しと段付け（[`structure`]）→
-//! 80 桁への配置（[`layout`]）。図形プリミティブの引数の並べ替えと `origin` の補完は [`annotation`]。
+//! 80 桁への配置（[`layout`]）。図形プリミティブ・クラスの annotation・Documentation の引数の並べ替えと
+//! `origin` の補完は [`annotation`]。
 //! 整形の出力は再び字句解析して、空白以外のトークン列が意図どおりであることを確かめる（意味を変えない保証）。
 
 mod annotation;
@@ -80,7 +81,7 @@ pub const KEYWORDS: &[&str] = &[
     "String",
 ];
 
-/// 整形の設定。既定はインデント 2、80 桁、`origin` の補完あり。
+/// 整形の設定。既定はインデント 2、80 桁、`origin` の補完あり、節の前後に空行。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Options {
     /// 1 段のインデントの空白の数
@@ -89,6 +90,8 @@ pub struct Options {
     pub width: usize,
     /// 図形プリミティブに `origin` が無ければ `origin = {0, 0}` を足す
     pub insert_origin: bool,
+    /// `equation` / `algorithm`（`initial` 付きも）の前後に空行を置く（S061）
+    pub blank_around_sections: bool,
 }
 
 impl Default for Options {
@@ -97,6 +100,7 @@ impl Default for Options {
             indent: 2,
             width: 80,
             insert_origin: true,
+            blank_around_sections: true,
         }
     }
 }
@@ -126,7 +130,7 @@ fn err(message: impl Into<String>, offset: usize) -> FormatError {
 /// 本文を整形する。文法が壊れている（括弧や `end` が合わない）ときは `Err` を返し、本文には触らない。
 pub fn format(src: &str, options: &Options) -> Result<String, FormatError> {
     let tokens = lexer::lex(src)?;
-    let elements = structure::split(&tokens)?;
+    let elements = structure::split(&tokens, options.blank_around_sections)?;
     let newline = if src.contains("\r\n") { "\r\n" } else { "\n" };
     let mut out = String::with_capacity(src.len() + src.len() / 8);
     let mut expected: Vec<(lexer::Kind, &str)> = Vec::with_capacity(tokens.len());

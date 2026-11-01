@@ -101,6 +101,9 @@ enum Command {
         /// 図形プリミティブに `origin = {0, 0}` を足さない
         #[arg(long)]
         no_insert_origin: bool,
+        /// `equation` / `algorithm` の前後に空行を足さない（S061）
+        #[arg(long)]
+        no_blank_around_sections: bool,
         /// 標準入力のとき、結果を JSON（{"ok":bool,"text":…,"error":…}）で返す
         #[arg(long)]
         json: bool,
@@ -228,6 +231,7 @@ fn main() -> ExitCode {
             indent,
             width,
             no_insert_origin,
+            no_blank_around_sections,
             json,
         } => fmt(
             &files,
@@ -236,6 +240,7 @@ fn main() -> ExitCode {
                 indent,
                 width,
                 insert_origin: !no_insert_origin,
+                blank_around_sections: !no_blank_around_sections,
             },
             json,
         ),

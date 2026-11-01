@@ -45,7 +45,11 @@ const CLASS_KEYWORD: &[&str] = &[
 ];
 const BLOCK_END: &[&str] = &["if", "for", "while", "when"];
 
-pub fn split<'t, 'a>(tokens: &'t [Token<'a>]) -> Result<Vec<Element<'t, 'a>>, FormatError> {
+/// `blank_sections`: `equation` / `algorithm` の前後に空行を置く（S061、`Options::blank_around_sections`）。
+pub fn split<'t, 'a>(
+    tokens: &'t [Token<'a>],
+    blank_sections: bool,
+) -> Result<Vec<Element<'t, 'a>>, FormatError> {
     let mut out: Vec<Element<'t, 'a>> = Vec::new();
     let mut stack: Vec<Ctx<'a>> = Vec::new();
     let mut force_blank = false;
@@ -101,6 +105,10 @@ pub fn split<'t, 'a>(tokens: &'t [Token<'a>]) -> Result<Vec<Element<'t, 'a>>, Fo
             indent = stack.len();
             i += 3;
         } else if is_section(tokens, i) {
+            if blank_sections && !(t.is("public") || t.is("protected")) {
+                blank = true;
+                force_blank = true;
+            }
             i += if t.is("initial") { 2 } else { 1 };
             indent = class_level(&stack);
         } else if t.is("if") || t.is("for") || t.is("while") || t.is("when") {
@@ -270,7 +278,7 @@ mod tests {
 
     fn shape(src: &str) -> Vec<(usize, bool, String)> {
         let t = lex(src).unwrap();
-        split(&t)
+        split(&t, false)
             .unwrap()
             .iter()
             .map(|e| {
@@ -327,7 +335,7 @@ mod tests {
             "model M\n  x = (1;\nend M;",
             "model M\n  Real x;",
         ] {
-            assert!(split(&lex(bad).unwrap()).is_err(), "{bad}");
+            assert!(split(&lex(bad).unwrap(), true).is_err(), "{bad}");
         }
     }
 }
