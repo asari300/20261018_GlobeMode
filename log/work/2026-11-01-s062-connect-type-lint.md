@@ -46,6 +46,11 @@
 - セッション記録の `--check`: 取りこぼし 0 件
 - 漏洩検査: 0 件
 
+## 追加（マージ後）
+
+- ユーザーが loggerhead で書き換えた試験データ `objects_before.mo` / `objects_after.mo`（Documentation の HTML の例を足した）を取り込んだ。ユーザーが VS Code で成功を確かめた。
+- 新しい `objects_before.mo` は Rectangle に `origin = {0, 0}` を書いているので、`no_origin_insertion_when_off` は入力からそれを外してから「補わない」ことを見るように直した。`cargo test -p globe-mode-fmt`: 単体 6・統合 9 が通過。
+
 ## 残したこと
 
 - LSP が開いていないファイルと `--library` の型でも突き合わせる。
