@@ -4,6 +4,7 @@
 
 | S | 日付 | Phase | 題名 | ブランチ | 状態 | スライド | 解説書 | セッション記録 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| S070 | 2026-11-01 | P3 | `rumoca-upstream-libs`: S063 の持ち越し。公開ライブラリの失敗の上位 5 つ（ER132・ER070・EI032・EF025・EF004）を最小の再現 `.mo` にし、MLS 3.6 と omc 1.27.2 で判定した。**5 件とも Rumoca の穴**（ライブラリの誤りは 0）。上流への下書き `doc/research/upstream/17〜21`（出すのはユーザー）。EF025 の replaceable な Medium の関数は再現できず | `feature/s070-rumoca-upstream-libs` | 完了（main へのマージは親） | [slides](S070-rumoca-upstream-libs/slides.html) | [解説書](S070-rumoca-upstream-libs/解説書.md) | （親が写す） |
 | S001 | 2026-10-18 | P0 | 調査と計画、運用基盤 | `feature/s001-research-plan` | 完了 | [slides](S001-research-plan/slides.html) | [解説書](S001-research-plan/解説書.md) | [log](../../log/sessions/2026-10-18-cf689fe6-f0d2-41f8-a25d-1a34aca756c7.md) |
 | S002 | 2026-10-18 | P1 | workspace の骨格、Rumoca アダプタ、cargo-deny、Playwright | `feature/s002-workspace-skeleton` | 完了 | [slides](S002-workspace-skeleton/slides.html) | [解説書](S002-workspace-skeleton/解説書.md) | [log](../../log/sessions/2026-10-18-cf689fe6-f0d2-41f8-a25d-1a34aca756c7.md)（S001 と同じセッション） |
 | S003 | 2026-10-18 | P1 | MSL で Rumoca と突き合わせ（20 本中 20 本一致）、P1 完了 | `feature/s003-msl-check` | 完了 | [slides](S003-msl-check/slides.html) | [解説書](S003-msl-check/解説書.md) | [log](../../log/sessions/2026-10-18-cf689fe6-f0d2-41f8-a25d-1a34aca756c7.md)（S001 と同じセッション） |
