@@ -6,6 +6,8 @@
 # desktop の workspace を cargo deny・試験し、`cargo tauri build` で .deb（ubuntu-24.04）と .msi（windows-2025）を作る。
 # Linux では .deb を入れて、xvfb でアプリを起動し、MSL を読ませた sidecar に ChuaCircuit を検査・実行させる smoke と、
 # アプリと sidecar の最大の常駐メモリの記録も行う（S056。MSL は msl-sim.yml・ci.yml と同じ key で cache する）。
+# S069: さらに MSL を渡さずに起動し直し、アプリが app data dir に MSL 4.1.0 を取得して（毎回、cache しない）検査・実行する smoke と、
+# 取得済みの置き場を 2 度目の起動が見つけて使う smoke も回す。Rust の fmt と clippy（-D warnings）もここで回す（手元に webkit2gtk が無いため）。
 # `cargo install tauri-cli`（^2、--locked）を使う理由: npm の依存（@tauri-apps/cli）を増やさず、Rust の道具だけで済むため。
 name: desktop
 
@@ -101,6 +103,12 @@ jobs:
         if: runner.os == 'Linux'
         run: cargo deny --manifest-path "$DESKTOP/Cargo.toml" --config "$DESKTOP/deny.toml" check
 
+      - name: fmt と clippy（desktop の workspace）
+        if: runner.os == 'Linux'
+        run: |
+          cargo fmt --manifest-path "$DESKTOP/Cargo.toml" --check
+          cargo clippy --manifest-path "$DESKTOP/Cargo.toml" --all-targets --locked -- -D warnings
+
       - name: 試験（sidecar の中継。本物の globe lsp に check・simulate・graph を頼む）
         env:
           GLOBE_BIN: ${{ github.workspace }}/target/release/globe${{ matrix.exe }}
@@ -150,6 +158,22 @@ jobs:
           grep -q "smoke: simulate ok=true" smoke.txt
           { echo '```'; cat smoke.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
+          # S069: MSL を渡さない。1 度目は app data dir に MSL 4.1.0 を取得（GLOBE_DESKTOP_SMOKE_FETCH）して検査・実行、
+          # 2 度目は取得なしで、取得済みの置き場（目印あり）を起動時に見つけて検査・実行できる
+          STORE="$HOME/.local/share/io.github.asari300.globemode/msl/4.1.0"
+          rm -rf "$HOME/.local/share/io.github.asari300.globemode"
+          env -u GLOBE_LIBRARY GLOBE_DESKTOP_SMOKE_FETCH=1 /usr/bin/time -v -o time-fetch.txt \
+            timeout 900 xvfb-run -a "$APP" 2>&1 | tee smoke-fetch.txt
+          grep -E "Maximum resident|Elapsed" time-fetch.txt | tee -a smoke-fetch.txt
+          grep -q "smoke: fetched msl" smoke-fetch.txt
+          grep -q "smoke: ok passed=true" smoke-fetch.txt
+          grep -q "smoke: simulate ok=true" smoke-fetch.txt
+          test -f "$STORE/.globe-mode-msl"
+          env -u GLOBE_LIBRARY timeout 600 xvfb-run -a "$APP" 2>&1 | tee smoke-reuse.txt
+          if grep -q "smoke: fetched msl" smoke-reuse.txt; then echo "2 度目の起動で取得した"; exit 1; fi
+          grep -q "smoke: simulate ok=true" smoke-reuse.txt
+          { echo '取得して使う smoke:'; echo '```'; cat smoke-fetch.txt; echo '```'; echo '2 度目の起動:'; echo '```'; cat smoke-reuse.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/upload-artifact@v4
         if: runner.os == 'Linux'
         with:
@@ -157,6 +181,9 @@ jobs:
           path: |
             smoke.txt
             time.txt
+            time-fetch.txt
+            smoke-fetch.txt
+            smoke-reuse.txt
           if-no-files-found: error
 
       - uses: actions/upload-artifact@v4

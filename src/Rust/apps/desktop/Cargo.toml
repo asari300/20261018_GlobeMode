@@ -19,6 +19,9 @@ tauri-build = { version = "2", features = [] }
 # facade `globe-mode` はリンクしない（ADR-0023 の (b)）。コアの実体は sidecar の `globe` だけ
 tauri = { version = "2", features = [] }
 serde_json = "1"
+# MSL の取得（S069）。xtask と同じ版と features（zip は 9 系。2 系には展開時の脆弱性がある）
+sha2 = "0.10"
+zip = { version = "9", default-features = false, features = ["deflate"] }
 
 [profile.release]
 # 配布物を小さくする（ルートの workspace の release とは別。ここは UI のシェルだけ）

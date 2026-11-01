@@ -11,13 +11,16 @@ const invoke: Invoke = (cmd, args) =>
 export class TauriBackend implements Backend {
   #version = 0;
 
-  // Desktop ではライブラリは sidecar の起動時の --library / GLOBE_LIBRARY で読む。JSON を送る道は無い（S056）:
-  // 既に何か読んでいれば JSON は捨てて resolve、無ければ reject。
-  async library(name: string): Promise<void> {
+  // Desktop ではライブラリは sidecar の起動時の --library / GLOBE_LIBRARY で読む。JSON を送る道は無い（S056）。
+  // 何も読んでいなければ、MSL 4.1.0 を取得して展開し、sidecar を作り直させる（S069、command `fetch_msl`）。JSON は捨てる。
+  async library(_name: string): Promise<void> {
     const libs = await invoke<string[]>("libraries");
-    if (libs.length === 0) {
-      throw new Error(`Desktop ではライブラリ ${name} を JSON では読めない（--library か GLOBE_LIBRARY で sidecar に渡す）`);
-    }
+    if (libs.length === 0) await invoke("fetch_msl");
+  }
+
+  /** sidecar が既に何かライブラリを読んでいるか（起動時の MSL の表示用）。 */
+  async hasLibrary(): Promise<boolean> {
+    return (await invoke<string[]>("libraries")).length > 0;
   }
 
   /** `textDocument/didOpen` で文書を（差し替えて）開く。サーバは診断も出し直し、イベント `globe-notification` で届く。 */
