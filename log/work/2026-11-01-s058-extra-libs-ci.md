@@ -47,3 +47,7 @@ MSL で回している検査（`msl-funnel` の S0〜S10 と `msl-sim` の実行
 - ClaRa の依存 SMArtInt、AixLib の依存 SDF・Modelica_DeviceDrivers は取得していない。TILMedia のライセンスは【未確認】。
 - `Checker::new` がライブラリの構文の誤り・配置の誤り（PKG-006・PKG-010）・BOM 1 つで全体を断る。xtask が除いて読む迂回をしたが、frontend は並行セッションが編集中なので触っていない（IDE で開くときは同じ問題が起きる）。Buildings・AixLib・IBPSA で除くファイルが多いと、20 回の読み直しの上限に当たりうる【未確認】。
 - `doc/sessions/README.md` の S058 の行は末尾に足した（並びは親が直す）。状態は「作業中」。
+
+## 追記（親、2026-11-01）
+
+- 全部の run（41250636800、全ジョブ success。取り込みは親）: Buildings 例題 809・OK 119・GM-U 193・panic 4・実行できた 88/119（検査 1:13）、AixLib 642・119・163・0・98/119、IBPSA 457・88・135・4・66/88、ThermofluidStream 122・4・115・0・2/4、ClaRa 5・0（S1 で全部 NG）。7 ライブラリ合わせて例題 2,132 本、OK 351 本、実行できた 264 本。 `doc/libraries.md` に 2 つの run の表を合わせた。
