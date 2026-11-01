@@ -25,6 +25,8 @@
 //! panic の文言は [`last_panic`] で読める（モジュールを読み込んだときに panic の hook を差す）。
 //! panic の後の `Workspace` は使えない（作り直す）。
 
+mod fmt;
+
 use std::collections::BTreeMap;
 use std::sync::Mutex;
 

@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S054 library-closure — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S054 library-closure">
+
+<section class="slide" id="S01">
+  <span class="tag">S054 · 2026-11-01 · P3</span>
+  <h1>library-closure</h1>
+  <p class="lead">ネイティブの <code>--library</code> も、モデルが使うファイルの閉包だけを読む</p>
+  <div class="big">ChuaCircuit の check：<b>1,493 → 128 MiB</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li><code>globe check --library data/msl</code> は MSL の 2,556 ファイルを全部読み、最大 RSS が約 1.5 GiB</li>
+    <li>wasm には S037 の分割読み込みがある（S047 で 566 本すべて全部読みと同じ結果）</li>
+    <li>これを facade の <code>Workspace::with_libraries</code> の既定にする（CLI・<code>globe lsp</code>・Desktop の sidecar が使う道）</li>
+    <li>S051 の削減案 1 の実装</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと（<a href="../../adr/0025-native-library-closure.md">ADR-0025</a>）</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>どこで切り替えるか</td><td>facade の <code>with_libraries</code> だけ</td><td>CLI・LSP・Python・Desktop は呼び出しのまま変わる。CLI の main.rs は触らない</td></tr>
+    <tr><td>全部読む道</td><td><code>with_libraries_full</code> に残す</td><td>比べるため。1 ファイルに複数のトップレベルのクラスがあるライブラリ向け</td></tr>
+    <tr><td>戻る条件</td><td>パスが空、またはディレクトリでない</td><td>既存の挙動を壊さない</td></tr>
+    <tr><td>2 つ目のモデル</td><td>閉包が増えたら読み足す</td><td>S037 の <code>ensure_library</code> がそのまま使える。<code>globe lsp</code> は順に検査する</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>読み込みの流れ</h1>
+  <svg class="fig" viewBox="0 0 800 250" role="img" aria-label="全部読みと閉包だけ読む道">
+    <rect class="svg-box" x="20" y="25" width="170" height="60" rx="8"/>
+    <text class="svg-text-b" x="105" y="61" text-anchor="middle">data/msl 2,556 本</text>
+    <rect class="svg-box" x="300" y="25" width="190" height="60" rx="8"/>
+    <text class="svg-text-b" x="395" y="61" text-anchor="middle">Session に全部（前）</text>
+    <line class="svg-line" x1="190" y1="55" x2="300" y2="55"/>
+    <rect class="svg-box-accent" x="20" y="150" width="170" height="60" rx="8"/>
+    <text class="svg-text-b" x="105" y="186" text-anchor="middle">本文を文字列で持つ</text>
+    <rect class="svg-box-accent" x="300" y="150" width="190" height="60" rx="8"/>
+    <text class="svg-text-b" x="395" y="186" text-anchor="middle">閉包 約 1,075 本だけ</text>
+    <rect class="svg-box-accent" x="590" y="150" width="190" height="60" rx="8"/>
+    <text class="svg-text-b" x="685" y="186" text-anchor="middle">check / simulate</text>
+    <line class="svg-line" x1="190" y1="180" x2="300" y2="180"/>
+    <line class="svg-line" x1="490" y1="180" x2="590" y2="180"/>
+    <text class="svg-text-m" x="650" y="60" text-anchor="middle">RSS 約 1.5 GiB → 128 MiB</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">結果</span>
+  <h1>最大 RSS（ランナー run 41245881321）</h1>
+  <table class="compact">
+    <tr><th>モデル</th><th>操作</th><th>前（MiB）</th><th>後（MiB）</th></tr>
+    <tr><td>ChuaCircuit</td><td>check</td><td>1,493</td><td><b>128</b></td></tr>
+    <tr><td>ChuaCircuit</td><td>simulate</td><td>1,533</td><td>167</td></tr>
+    <tr><td>FullRobot</td><td>check</td><td>1,653</td><td>298</td></tr>
+    <tr><td>HeatingSystem</td><td>check</td><td>1,618</td><td>480</td></tr>
+  </table>
+  <p>ChuaCircuit の check の壁時計は 8.1 → 1.05 s。閉包が大きいモデルでも 1/4〜1/5.5。</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">結果</span>
+  <h1>検査の結果は変わらない</h1>
+  <ul>
+    <li>facade の試験 <code>tests/library_closure.rs</code>: <code>GlobeModeValidation</code> の全モデルと MSL の 3 モデルを 1 つの <code>Workspace</code> で順に検査し、<code>CheckResponse</code> の JSON が全部読みと一致</li>
+    <li>手元で <code>globe check</code> の出力の md5 は 3 モデルとも前後で一致。ChuaCircuit の simulate の CSV も一致</li>
+    <li><code>msl:compare</code>（Rumoca の CLI と 20 本）は xtask が <code>Checker::new</code> を直接呼ぶので、この変更の外</li>
+  </ul>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">再現手順</span>
+  <h1>再現</h1>
+  <pre><code>cargo test --release -p globe-mode --test library_closure
+cargo build --release -p globe-mode-cli
+/usr/bin/time -v target/release/globe check \
+  --library data/msl -m Modelica.Electrical.Analog.Examples.ChuaCircuit
+gh workflow run resources.yml --ref &lt;branch&gt; -f jobs=rss</code></pre>
+</section>
+
+<section class="slide" id="S08">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li><code>globe lsp</code> を長く使ったときの RSS の伸び（閉包の読み足し）を測る</li>
+    <li>ライブラリのファイルの構文の誤りは、そのファイルを読むときに見つかる点を UI でどう見せるか</li>
+    <li><code>Backend</code> / <code>Plot</code> への <code>simulateColumns</code> の接続（S051 の持ち越し）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

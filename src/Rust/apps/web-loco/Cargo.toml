@@ -1,0 +1,24 @@
+[package]
+name = "web-loco"
+description = "GlobeMode: Modelica の整形と lint の Web アプリ（loco。エンジンは globe-mode-fmt）"
+version = "0.0.1"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+# 独立した workspace（ルートの workspace に入れない。CI と cargo deny の対象を増やさない）
+[workspace]
+
+[dependencies]
+# DB・認証・メーラ・ワーカーは使わない（既定の機能を切る）
+loco-rs = { version = "1.2.0", default-features = false }
+axum = "0.8.9"
+async-trait = "0.1.92"
+globe-mode-fmt = { path = "../../mod/globe-mode-fmt" }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread"] }
+
+[dev-dependencies]
+# テストのサーバ（axum-test）を開けるのは開発時だけ
+loco-rs = { version = "1.2.0", default-features = false, features = ["testing"] }

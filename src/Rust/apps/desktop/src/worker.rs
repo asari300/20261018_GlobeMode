@@ -310,7 +310,14 @@ mod tests {
         let (sink, _) = collecting();
         let mut w = Worker::new(script, vec![], sink);
         w.start_budget = Duration::from_millis(300);
-        let e = w.request("globe/check", json!({"model": "D"})).unwrap_err();
+        // 並行する別の試験が fork した子が書き込みの fd を持つ間は ETXTBSY（Text file busy）になる。待って再試行する
+        let e = loop {
+            let e = w.request("globe/check", json!({"model": "D"})).unwrap_err();
+            if !e.contains("Text file busy") {
+                break e;
+            }
+            thread::sleep(Duration::from_millis(50));
+        };
         assert!(e.contains("予算"), "{e}");
         assert!(w.pid().is_none());
         // 2 回目も立ち上げ直して、また予算で止まる

@@ -1,0 +1,3 @@
+# esbuild の postinstall は自分の版の確かめだけ
+allowBuilds:
+  esbuild: true
