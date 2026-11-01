@@ -465,7 +465,14 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 
 - **公開ライブラリを MSL 4.0.0 でも回せる**（S063 の持ち越し。[解説書](sessions/S067-libs-msl-400/解説書.md)、[research](research/libraries-2026-11-01.md) の「MSL 4.0.0 で回し直した差（S067）」）: `cargo xtask fetch-msl --version 4.0.0`（既定 4.1.0。sha256 `98d8e785…a783`。別の版が展開済みの `--dest` は断る）、`libraries.yml` の入力 `msl`（cache の key に版）、`libraries-report --msl`（表の見出しに版）。`globe-mode-*`・`funnel.rs`・`sim.rs` は変えていない。
 - **差の数**（4.0.0 は run 41295445820、4.1.0 は S058 の run）: `uses` が 4.1.0 の Buildings・IBPSA・ThermofluidStream と 4.0.0 の AixLib・ClaRa・DeltaRobot・Chemical の全 2,132 例題のうち、判定が違うのは **1 本**（AixLib の `SensorVerification` が OK → ED019）。S063 の失敗の分類に版の差は混ざっていない。funnel が OK の例題の**実行**は 259 → 183 本（AixLib -27・Buildings -27・IBPSA -19・DeltaRobot -3）に減る。70 本は MSL 4.0.0 の `Modelica.Math.{sin,exp,log,cos,asin}` が `external "builtin"` で、Rumoca の実行系が解けない（4.1.0 は algorithm に書き直し済み）。
-- 持ち越し: 実行系で `external "builtin"` の数学関数を解く道。`SensorVerification` の ED019 の理由。Buildings 2 本・DeltaRobot 3 本の実行の差の原因。
+- 持ち越し: ~~実行系で `external "builtin"` の数学関数を解く道~~（S068 で済）。`SensorVerification` の ED019 の理由。Buildings 2 本・DeltaRobot 3 本の実行の差の原因。
+
+### S068（P3、2026-11-01）で済んだこと
+
+- **`external "builtin"` が組み込みの数学関数を呼ぶだけの関数を実行できる**（S067 の持ち越し。[ADR-0029](adr/0029-external-builtin-rewrite.md)、[research](research/external-builtin-2026-11-01.md)、[解説書](sessions/S068-external-builtin/解説書.md)）: MSL 4.0.0 の `Modelica.Math.{sin,cos,tan,asin,acos,atan,atan2,sinh,cosh,tanh,exp,log,log10}` が対象。Rumoca に hook が無いので、`globe-mode-frontend` の `compile_strict` が `Dae` を serde の形に直し、`call` を `builtin` に替えて読み戻す（読み戻せなければ元の `Dae`）。条件は関数の external 節で判定し、`"C"` などは今まで通り `GM-U0004`。`check` の判定は変わらない。検証用モデル `GlobeModeValidation.Simulation.ExternalBuiltin`（`wasm:compare` の package.order にも入れた）。
+- **S066 の退行を直した**: `X.mo` と `package.mo` の無い `X/` が並ぶ配置（AixLib の `RadiatorTypes`）を `Checker::new` の読み飛ばしの道が両方読み、全例題が EM001 になっていた。`X/` は読まない。
+- 数の前後は @@SUM@@。上流の下書き: [upstream/16](research/upstream/16-external-builtin-math-functions.md)。
+- 持ち越し: Buildings の `Interior`・`InteriorConvection`（`invalid Solve IR contract`）、DeltaRobot の 3 本（`axesRotations` の record の戻り値）、Buildings は 70 分かかるので CI で回し直していない。
 
 ### S065（P4、2026-11-01）で済んだこと
 

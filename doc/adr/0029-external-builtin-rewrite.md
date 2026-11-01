@@ -21,7 +21,7 @@
 ### (b) の中身
 
 - 場所は `globe-mode-frontend/src/external_builtin.rs`。`compile_strict`（`CompiledModel` を作る唯一の場所）が、Rumoca の Dae を `lower_builtin_externals` に通してから持つ。`check`（S0〜S10 の判定）は触らないので、判定の数は変わらない。
-- 関数ごとに、定義の external 節から次をすべて満たすかを判定する（名前の固定表は組み込みの名前と引数の数だけ。`Modelica.Math.sin` という名前は見ない）: 言語 `builtin`、記号が `sin cos tan asin acos atan atan2 sinh cosh tanh exp log log10 sqrt abs` のどれか、本体の文が空、入力が引数の数と一致、出力が 1 つ、external の引数が「この関数の k 番目の入力」を順に渡すだけ。
+- 関数ごとに、定義の external 節から次をすべて満たすかを判定する（名前の固定表は組み込みの名前と引数の数だけ。`Modelica.Math.sin` という名前は見ない）: 言語 `builtin`、記号が `sin cos tan asin acos atan atan2 sinh cosh tanh exp log log10 sqrt abs` のどれか、本体の文が空、入力が引数の数と一致、出力が 1 つ、external の引数がすべて入力で、番号が増える順（`atan2(u2, u1)` のような入れ替えを弾く。式の番号は Rumoca の内部の番号とずれるので、入力そのものかまでは確かめない）。
 - 満たす関数の `call` ノードを、同じ被演算子の `builtin` ノードに替える（被演算子は詰めた配列に順に入っているので、数が同じなら並びは変わらない）。関数の定義は残す（呼ばれないので害は無い）。
 - 条件に合わない external（`"C"`、別の記号、引数が入力そのままでないもの）は触らない。今まで通り `GM-U0004`。
 - 書き換えた Dae を Rumoca が受け付けなければ、元の Dae を返す（`GM-U0004` は今まで通り出る）。external の関数が無い Dae は直列化しない（費用なし）。
@@ -34,5 +34,6 @@
   - serde の形は Rumoca の公開契約ではない。rev を上げたら `external_builtin.rs` の試験（`ExternalBuiltin`）で確かめる。形が変われば書き換えは何もせず（元の Dae を返す）、`GM-U0004` に戻るだけで、誤った結果にはならない。
   - 大きな Dae は、external builtin を含むときだけ直列化と再構築の費用がかかる（MSL 4.0.0 で `Modelica.Math` に触れるモデルだけ）。
   - `external_tables`（読み込み済みの CombiTable の表）は直列化の形に入っていて読み戻せない（`deny_unknown_fields`）ので、外してから読み戻し、読み戻した Dae に `with_external_tables` で付け直す。最初の版は表を持つ Dae を書き換えなかったため、AixLib の 6 本ほど（`HumansSenTDep` など）が直らなかった。
+  - 直列化の式の番号（`arguments` の `input`）は、Rumoca の内部の式の番号とずれることがある（関数の入力の式の番号が、直列化の配列の並びの位置と一致しない例: AixLib の `Declination`）。最初の版は番号で式を引いて確かめたため、そのモデルで書き換えが何もしなかった。今は番号の大小だけを見る。
   - `derivative` 注釈を持つ call は組み込みに替わるので、導関数の注釈は使われない（組み込みの導関数は Rumoca が知っている）。
   - Rumoca 側で直る（上流の下書き 16）か、rev を上げて 4.0.0 のモデルが同じ結果なら、この変換は外してよい。

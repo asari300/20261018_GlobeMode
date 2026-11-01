@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S068 external-builtin — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S068 external-builtin">
+
+<section class="slide" id="S01">
+  <span class="tag">S068 · 2026-11-01 · P3</span>
+  <h1>external-builtin</h1>
+  <p class="lead">MSL 4.0.0 の Modelica.Math を実行できるようにする（S067 の持ち越し）</p>
+  <div class="big">external "builtin" y = sin(u); → <b>組み込みの sin</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>70 本が実行できなかった</h1>
+  <ul>
+    <li>MSL 4.0.0 の Modelica.Math は sin・cos・exp・log など 13 個を external "builtin" で書く（4.1.0 は algorithm）</li>
+    <li>Rumoca は実行を断る（EL005 / EX002、GlobeMode では GM-U0004）</li>
+    <li>公開ライブラリを 4.0.0 で回すと、funnel が OK の 70 本がこれだけで止まる（S067）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>道は 3 つ。小さい順に調べた</h1>
+  <table class="compact">
+    <tr><th>道</th><th>結果</th></tr>
+    <tr><td>(a) Rumoca の hook</td><td>無い（言語を分類するだけ）</td></tr>
+    <tr><td>(b) Dae を書き換える（採用）</td><td>Dae は不変だが serde を実装し、読み戻すと Rumoca が検査し直す。公開 API だけで成り立つ</td></tr>
+    <tr><td>(c) MSL の文字列を置換</td><td>版とライブラリに結びつく。採らない</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由</span>
+  <h1>書き換えの条件と失敗の扱い</h1>
+  <ul>
+    <li>場所は frontend の compile_strict（実行・プリフライト・wasm が同じ Dae を使う）。check の判定は変えない</li>
+    <li>関数の external 節で判定: 言語 builtin、記号が sin cos tan asin acos atan atan2 sinh cosh tanh exp log log10 sqrt abs、入力をそのまま渡す、出力 1 つ</li>
+    <li>call ノードを同じ被演算子の builtin ノードに替えて読み戻す</li>
+    <li>"C" や別の記号は今まで通り GM-U0004。読み戻せなければ元の Dae（誤った結果にならない）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">手元の結果</span>
+  <h1>前後（debug ビルド）</h1>
+  <table class="compact">
+    <tr><th>モデル</th><th>前</th><th>後</th></tr>
+    <tr><td>ExternalBuiltin（sin・exp）</td><td>GM-U0004</td><td>解析解と一致（bdf・dopri45）</td></tr>
+    <tr><td>wasm:compare ExternalBuiltin</td><td>-</td><td>20 / 20 件が一致</td></tr>
+    <tr><td>MultiBody Pendulum・Surfaces</td><td>GM-U0004</td><td>終了時刻まで進んだ</td></tr>
+    <tr><td>IMC_DOL</td><td>GM-U0004</td><td>実行できた</td></tr>
+    <tr><td>Polyphase TransformerYD</td><td>GM-U0004</td><td>別の原因で GM-U0004</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">CI の結果</span>
+  <h1>libraries.yml（MSL 4.0.0）</h1>
+  @@KPIS@@
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">見つけた退行</span>
+  <h1>S066 の退行: AixLib が全部 EM001</h1>
+  <ul>
+    <li>最初の CI で AixLib 642 本が全部 GM-E1001（Duplicate class RadiatorTypes.RadiatorType）</li>
+    <li>RadiatorTypes.mo と package.mo の無い RadiatorTypes/ が並ぶ（PKG-008）。S066 で迂回を外し、両方を読んでいた</li>
+    <li>S066 の確認に AixLib が入っていなかった</li>
+    <li>X.mo と並ぶ package.mo の無い X/ は読まないことにして直した（試験つき）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S08">
+  <span class="tag">再現手順</span>
+  <h1>再現</h1>
+  <pre><code>cargo test -p globe-mode-exec --test simulate external_builtin
+globe simulate -L data/msl-4.0.0 \
+  -m Modelica.Mechanics.MultiBody.Examples.Elementary.Pendulum -o /dev/null
+gh workflow run libraries.yml --ref feature/s068-external-builtin \
+  -f msl=4.0.0 -f 'libraries=["DeltaRobot","IBPSA","AixLib"]'</code></pre>
+</section>
+
+<section class="slide" id="S09">
+  <span class="tag">次回</span>
+  <h1>次にやること</h1>
+  <ul>
+    <li>残りの実行の差: Buildings の Interior ほか 2 本、DeltaRobot の 3 本（axesRotations）</li>
+    <li>Rumoca が直したらこの変換を外す（上流の下書き 16）。serde の形が変わっても元の Dae に戻るだけ</li>
+    <li>解説書: <a href="解説書.md">解説書.md</a>、ADR: <a href="../../adr/0029-external-builtin-rewrite.md">ADR-0029</a></li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

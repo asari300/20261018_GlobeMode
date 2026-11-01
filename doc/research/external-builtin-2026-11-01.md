@@ -28,7 +28,7 @@
 
 ### 書き換えの形
 
-直列化した `Dae` の `storage.functions[i].external` が `{language: "builtin", symbol: "sin", arguments: [{input: e}], result: 0}`、`storage.expressions.nodes` の `call` が `{owner, function: i, output: 0, operand_count: 1, derivative: null}`、`builtin` が `{builtin: "sin", operand_count: 1}`。被演算子は `expressions.operands` に呼び出しの順に詰まっているので、`call` を同じ `operand_count` の `builtin` に替えれば並びは変わらない。置き換えるのは、言語が `builtin`、記号が上の表にある、本体の文が空、入力の数が引数の数に一致、出力が 1 つ、external の引数が「この関数の k 番目の入力」を順に渡すだけの関数。
+直列化した `Dae` の `storage.functions[i].external` が `{language: "builtin", symbol: "sin", arguments: [{input: e}], result: 0}`、`storage.expressions.nodes` の `call` が `{owner, function: i, output: 0, operand_count: 1, derivative: null}`、`builtin` が `{builtin: "sin", operand_count: 1}`。被演算子は `expressions.operands` に呼び出しの順に詰まっているので、`call` を同じ `operand_count` の `builtin` に替えれば並びは変わらない。置き換えるのは、言語が `builtin`、記号が上の表にある、本体の文が空、入力の数が引数の数に一致、出力が 1 つ、external の引数がすべて入力で、番号が増える順（`atan2(u2, u1)` のような入れ替えを弾く。式の番号は Rumoca の内部の番号とずれるので、入力そのものかまでは確かめない）の関数。
 
 ## 前後の数
 

@@ -91,14 +91,12 @@ fn rewrite(dae: &Dae) -> Option<Dae> {
 
 /// 関数の番号ごとの、置き換え先（組み込み演算の名前と引数の数）。
 fn builtin_functions(storage: &Value) -> Vec<Option<(&'static str, usize)>> {
-    let nodes = storage["expressions"]["nodes"].as_array();
     let Some(functions) = storage["functions"].as_array() else {
         return Vec::new();
     };
     functions
         .iter()
-        .enumerate()
-        .map(|(index, function)| {
+        .map(|function| {
             let external = function.get("external").filter(|e| !e.is_null())?;
             if external["language"] != "builtin" || !function["statements"].as_array()?.is_empty() {
                 return None;
@@ -106,20 +104,18 @@ fn builtin_functions(storage: &Value) -> Vec<Option<(&'static str, usize)>> {
             let symbol = external["symbol"].as_str()?;
             let &(name, arity) = ARITY.iter().find(|(n, _)| *n == symbol)?;
             let arguments = external["arguments"].as_array()?;
+            // shortcut: 引数が「入力そのもの」かは式の番号で確かめられない（直列化の式の番号は Rumoca の内部の番号と
+            // ずれる）。入力の数・出力の数・引数がすべて入力であること・番号が増える順であること（atan2(u2, u1) を弾く）
+            // で代える。Rumoca が公開の読み取りで引数を引けるようになったら式まで確かめる。
+            let ids: Vec<u64> = arguments
+                .iter()
+                .map(|a| a["input"].as_u64())
+                .collect::<Option<_>>()?;
             let simple = function["parameters"].as_array()?.len() == arity
                 && function["outputs"].as_array()?.len() == 1
                 && external["result"].as_u64() == Some(0)
-                && arguments.len() == arity
-                && arguments.iter().enumerate().all(|(ordinal, a)| {
-                    // 引数 k は、この関数の k 番目の入力そのもの
-                    a["input"]
-                        .as_u64()
-                        .and_then(|e| nodes?.get(usize::try_from(e).ok()?))
-                        .is_some_and(|node| {
-                            node["coordinate"]["function_parameter"]
-                                == json!({ "function": index, "ordinal": ordinal })
-                        })
-                });
+                && ids.len() == arity
+                && ids.windows(2).all(|w| w[0] < w[1]);
             simple.then_some((name, arity))
         })
         .collect()
