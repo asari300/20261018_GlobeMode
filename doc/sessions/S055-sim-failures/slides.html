@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S055 sim-failures — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S055 sim-failures">
+
+<section class="slide" id="S01">
+  <span class="tag">S055 · 2026-11-01 · P3</span>
+  <h1>sim-failures</h1>
+  <p class="lead">S050 の表の 2 件（cerk の時間切れ、bdf の内部エラー）の原因を数字で出す</p>
+  <div class="big">cerk の 24/27 は<b>硬い系</b>、bdf の 9/10 は<b>Rumoca の左端の検査</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>cerk23・cerk34 の時間切れ 27 本（cerk45 は 22、bdf は 2）の原因</li>
+    <li>bdf 単独の GM-U0005 10 本の原因（auto は dopri45 で救っている）</li>
+    <li>直せるものだけ直す。数値は変えない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">調べたこと</span>
+  <h1>cerk23 の時間切れ 27 本の内訳</h1>
+  <div class="kpis">
+    <div class="kpi"><span class="n">24</span><span class="l">陰的 8 本のどれかが終えた（bdf は 21 本）</span></div>
+    <div class="kpi"><span class="n">2</span><span class="l">どれも終えない</span></div>
+    <div class="kpi"><span class="n">1</span><span class="l">dopri45 だけが終える</span></div>
+  </div>
+  <p>tsit45 の 20 本はすべて、dopri853 の 18/20、dopri45 の 17/18 が cerk23 の 27 本に入る。クラスの性質。</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">調べたこと</span>
+  <h1>刻みは安定限界に張り付く</h1>
+  <table class="compact">
+    <tr><th>モデル（cerk23）</th><th>刻み幅</th><th>終了まで必要な歩数</th></tr>
+    <tr><td>DCPM_Drive</td><td>2.6e-8</td><td>7.7e7</td></tr>
+    <tr><td>Polyphase.Rectifier</td><td>8.5e-9</td><td>1.2e7</td></tr>
+    <tr><td>SmoothStep</td><td>2.9e-9</td><td>9.2e5</td></tr>
+    <tr><td>SMPM_Braking</td><td>2.4e-10</td><td>3.3e9</td></tr>
+  </table>
+  <p>歩数は約 200〜1.1 万歩/秒。予算 180 s に届かない。bdf は DCPM_Drive を 0.35 s で終える。</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">調べたこと</span>
+  <h1>次数に依らない刻み幅</h1>
+  <table class="compact">
+    <tr><th>IMC_Inverter（t ≈ 0.12〜0.15）</th><th>刻み幅</th></tr>
+    <tr><td>cerk23（3 次）</td><td>2.6e-6〜9.5e-6</td></tr>
+    <tr><td>cerk45（5 次）</td><td>2.1e-6〜5.3e-6</td></tr>
+    <tr><td>dopri853（8 次）</td><td>6.9e-6〜1.4e-5</td></tr>
+  </table>
+  <p>精度で決まるなら次数で桁が変わるはず。cerk は直さない。GM-E11005 に「bdf・esdirk34・radau5・auto を試す」の補足を足した。</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">調べたこと</span>
+  <h1>bdf の GM-U0005 10 本</h1>
+  <table class="compact">
+    <tr><th>本数</th><th>メッセージ</th><th>auto</th></tr>
+    <tr><td>9</td><td>左端の補間が点と食い違う（上限の 1.1〜445 倍）</td><td>7 本は dopri45 で通る、2 本は時間切れ</td></tr>
+    <tr><td>1</td><td>Dimmer_RL: 歩が丸めの幅に潰れる</td><td>GM-U0005 のまま</td></tr>
+  </table>
+  <p>許容誤差を 1e-6・3e-7 にしても 7 本中 4 本ずつ。単調でない。Rumoca の側なので直さず、上流の下書き 15 を足した。</p>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">再現手順</span>
+  <h1>再現と CI</h1>
+  <pre><code>globe simulate -L data/msl -m &lt;モデル&gt; --solver bdf --tolerance 1e-7
+gh workflow run msl-sim.yml --ref feature/s055-sim-failures \
+  -f solvers='["cerk23","cerk34","bdf"]'</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">2/3</span><span class="l">bdf・cerk34 は S050 と同じ結果</span></div>
+    <div class="kpi"><span class="n">25</span><span class="l">cerk23 の時間切れ（S050 は 27）</span></div>
+  </div>
+  <p>run 41247200921。cerk23 の 2 本は 177.9 s・164.4 s で、予算 180 s の境目。</p>
+</section>
+
+<section class="slide" id="S08">
+  <span class="tag">次回</span>
+  <h1>次にやること</h1>
+  <ul>
+    <li>auto の切り替え先を esdirk34 にする案（ADR-0015 の改訂）</li>
+    <li>diffsol の陽的 RK に dopri45 と同じ刻み幅制御を足して差を確かめる</li>
+    <li>解説書: <a href="解説書.md">解説書.md</a></li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

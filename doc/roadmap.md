@@ -422,6 +422,12 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - `resources.yml` に `workflow_dispatch` の入力 `jobs`（`all`・`rss`・`wasm`）を足し、rss だけを回せるようにした。
 - 持ち越し: `globe lsp` を長く使ったときの RSS の伸び（閉包の読み足し）は測っていない。ライブラリのファイルの構文の誤りは、そのファイルを読むときに見つかる。
 
+### S055（P3、2026-11-01）で済んだこと
+
+- **S050 の表で目立った 2 件の原因を調べた**（[research/msl-sim-failures.md](research/msl-sim-failures.md) の節「S055 で調べたこと」）。`cerk23` の時間切れ 27 本は、24 本が硬い系（陰的ソルバ 8 本のどれかが終え、21 本は `bdf` が 32 秒以内）で、陽的な方法の刻みが安定限界に張り付く（`DCPM_Drive` は刻み幅 2.6e-8 で終了時刻まで 7.7e7 歩、刻み幅は次数 3 の `cerk23` から 8 の `dopri853` までほぼ同じ）。実装の誤りは見つからず、`cerk` は直さなかった。Rumoca の `dopri45` が終える 7 本（`IMC_Inverter` など）は diffsol の陽的 RK の刻み幅制御（釣り合う誤差が 0.35 で、誤差が 0.3〜0.4 で下げ止まる系では刻みが縮み続ける）との関係が疑わしいが、確かめていない【未確認】。`bdf` の `GM-U0005` 10 本は、9 本が Rumoca の host の左端の検査（補間と点の差が `rtol·|y|` 以内）に BDF の補間が通らないもの（上限の 1.1〜445 倍。許容誤差を 1e-6・3e-7 にしても 7 本中 4 本ずつしか通らず、単調でもない）で、1 本（`Dimmer_RL`）は歩が丸めの幅に潰れるもの。Rumoca の側なので直さず、上流の下書きを 1 件足した（[upstream/15](research/upstream/15-bdf-sampler-left-endpoint-tight-tolerance.md)）。
+- **足したもの**: GM-E11005 の補足（陽的ソルバが時間切れのとき `--solver bdf・esdirk34・radau5・auto` を勧める。数値は変えない）、`msl-sim.yml` の入力 `solvers`（ジョブ `solvers` の対象を JSON 配列で絞る。空なら 14 本）。run 41247200921 で `["cerk23","cerk34","bdf"]` を回した（全ジョブ成功）。`bdf`（301、管 293/300、`GM-U0005` 10）と `cerk34`（286、275/285、時間切れ 27）は S050 と全モデルで同じ結果。`cerk23` は 288 → 290 本で、`IMC_Inverter`（run_seconds 177.9 s）と `SMPM_VoltageSource`（164.4 s）が回し直しの予算 180 s の境目で通った。
+- **次の候補**: `auto` の切り替え先を、陽的の `dopri45` が時間切れになったときに `esdirk34` にする（`bdf` の内部エラー 10 本のうち `auto` が救えない 3 本を `esdirk34` が終える見込み。ADR-0015 の改訂が要る）。diffsol の陽的 RK に `dopri45` と同じ刻み幅制御を足して、7 本の差が縮むか確かめる。
+
 **S017 の最初にやること（ユーザーの指示、2026-10-22）**: Claude の実行場所を Raspberry Pi（aarch64）に移す。RPi での最初のセッションでは、下の候補より先に次を片付ける。**S017 で済んだ（上）。**
 
 - **`cargo xtask fetch-rumoca` を aarch64 に対応させる**: 今は Linux x86_64 でないと断る（`src/Rust/xtask/src/main.rs:468`）。Rumoca の v0.10.2 には `rumoca-linux-aarch64` がある（sha256 `c12704c0f04af338dc32ab35801e45c322f9d64a26e0555a9f2b0b5901a2f7a9`、静的リンクの ELF。https://github.com/CogniPilot/rumoca/releases/tag/v0.10.2 、2026-10-22 確認。ARM の機械では動かしていない）。`target_arch` で URL・sha256・ファイル名を選び、`msl-compare` の `--rumoca` の既定も同じ名前にする。`mise run msl:compare` で突き合わせが通ることを確かめる。

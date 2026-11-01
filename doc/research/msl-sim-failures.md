@@ -551,3 +551,173 @@ S021 が残した esdirk34 の件を調べた。確認日 2026-10-27。数字は
 - 断りの範囲は名前の形で決めている（`frontend/src/rumoca.rs` の `compile_retaining_with_overrides`）。違う名前の修飾（`final kk = k`）は見逃す。要素の上書きが届いたかを DAE から調べる安い方法は無い。
 - 上流への報告の候補 21: **構造的な上書きが配列と要素を受けない**（候補 17・18 と同じ報告にまとめてよい）。
 
+
+## S055 で調べたこと
+
+確認日は 2026-11-01。対象は S050 のソルバ別の表（[msl-solvers.md](../msl-solvers.md)、run 41194959752）で目立った 2 つ: `cerk23`・`cerk34` の時間切れ（`GM-E11005`）27 本（`cerk45` は 22、`bdf` は 2）と、`bdf` 単独の内部エラー（`GM-U0005`）10 本。JSON は `gh run download 41194959752 -n msl-sim-solver-<名前>` で取った（14 ソルバ）。手元の再現は release の `globe simulate -L data/msl -m <モデル> --solver <名前> --tolerance <S050 の settings の値>`。注意: 調べている間、同じ機械で他のセッションがビルドしていて load average が 10〜70 だった。**秒数と 1 秒あたりの歩数は目安**で、刻み幅と歩数の数字は負荷に依らない。
+
+### 結論の要約
+
+| 件 | 本数 | 原因 | GlobeMode で直せるか |
+| --- | ---: | --- | --- |
+| `cerk23` の時間切れ | 27 | 24 本は**硬い系**。陰的ソルバ 8 本（bdf・esdirk34・esdirk45・sdirk34hw・radau5・trbdf2・cvode・ida）のどれかが終えた（うち 21 本は bdf が 32 秒以内）。陽的な方法は刻みが安定限界に張り付く。残り 3 本は陰的でも終わらない（`IMC_YDarc`、`TanksWithOverflow`）か、`bdf` が未対応（`IMC_Conveyor`、Rumoca の dopri45 だけが終える） | **直せない**（`cerk` の実装の誤りではない）。分類と案内は足した（GM-E11005 の補足） |
+| `cerk45`（22 本）・`cerk34`（27 本）との差 | 6 本 / 4 本 | `cerk23` の時間切れのうち `SimpleTriacCircuit`・`ThyristorBehaviourTest`（cerk34 も）、`IMC_DOL`・`IMC_YDarc`・`IMS_Start`・`SMR_DOL`（cerk45）は、他の `cerk` が `GM-E11002`（積分の失敗）で先に止まる。逆に `cerk34` は `HBridge_DC_Drive`・`ComparisonPullInStroke`、`cerk45` は `HBridge_DC_Drive` で時間切れ（`cerk23` は通る） | 時間切れか失敗かの違い。直す対象ではない |
+| `bdf` の内部エラー | 10 | 9 本は Rumoca の host の契約検査（受け入れた歩の左端で補間と点の差が `rtol·\|y\|` 以内）に、Rumoca の BDF の補間が通らない。差は上限の 1.1〜445 倍。1 本（`Dimmer_RL`）は「歩が丸めの幅より進まない」 | **直せない**（Rumoca の `rumoca-solver-diffsol` と host の境界）。上流の下書きを 1 件足した（[upstream/15](upstream/15-bdf-sampler-left-endpoint-tight-tolerance.md)） |
+
+### cerk23 の時間切れ 27 本
+
+#### 27 本の一覧
+
+「陰的 8 本」は bdf・esdirk34・esdirk45・sdirk34hw・radau5・trbdf2・cvode・ida のうち、その例題を終了時刻まで進めた本数。「dopri45」「cerk45」は終了時刻まで進めたら o。許容誤差は S050 の設定（注釈の Tolerance の 0.1 倍。1e-10 未満は 1e-10）。
+
+| モデル | 終了時刻 | 許容誤差 | bdf | 陰的 8 本のうち終えた | dopri45 | cerk45 |
+| --- | ---: | ---: | ---: | ---: | :---: | :---: |
+| `El.Analog.AmplifierWithOpAmpDetailed` | 0.003 | 2e-08 | 0 s | 8 | o | - |
+| `El.Analog.CauerLowPassSC` | 60 | 1e-06 | 18 s | 7 | - | - |
+| `El.Analog.Lines.SmoothStep` | 0.003 | 1e-07 | 4 s | 7 | - | - |
+| `El.Analog.SimpleTriacCircuit` | 0.001 | 1e-10 | 2 s | 7 | - | - |
+| `El.Analog.ThyristorBehaviourTest` | 0.0002 | 1e-06 | 0 s | 5 | - | - |
+| `El.Machines.DCMachines.DCPM_Drive` | 2 | 1e-07 | 2 s | 8 | - | - |
+| `El.Machines.InductionMachines.IMC_Conveyor` | 20 | 1e-07 | GM-U0004 | 0 | o | - |
+| `El.Machines.InductionMachines.IMC_DOL` | 1.5 | 1e-07 | 2 s | 1 | - | - |
+| `El.Machines.InductionMachines.IMC_Initialize` | 1.5 | 1e-07 | 1 s | 1 | o | - |
+| `El.Machines.InductionMachines.IMC_Inverter` | 1.5 | 1e-07 | 2 s | 1 | o | - |
+| `El.Machines.InductionMachines.IMC_Steinmetz` | 1 | 1e-07 | 2 s | 1 | - | - |
+| `El.Machines.InductionMachines.IMC_YD` | 2.5 | 1e-07 | 3 s | 1 | - | - |
+| `El.Machines.InductionMachines.IMC_YDarc` | 2.5 | 1e-07 | GM-E11005 | 0 | - | - |
+| `El.Machines.InductionMachines.IMC_withLosses` | 5 | 1e-07 | 4 s | 1 | o | - |
+| `El.Machines.InductionMachines.IMS_Start` | 1.5 | 1e-07 | 3 s | 2 | - | - |
+| `El.Machines.SynchronousMachines.SMEE_Rectifier` | 1.1 | 1e-07 | 32 s | 1 | - | - |
+| `El.Machines.SynchronousMachines.SMPM_Braking` | 0.8 | 1e-07 | 3 s | 1 | - | - |
+| `El.Machines.SynchronousMachines.SMPM_VoltageSource` | 2 | 1e-07 | 4 s | 8 | - | - |
+| `El.Machines.SynchronousMachines.SMR_DOL` | 2.5 | 1e-06 | 2 s | 2 | - | - |
+| `El.Polyphase.Rectifier` | 0.1 | 1e-06 | 1 s | 8 | - | - |
+| `El.PowerConverters.ACAC.Dimmer_RL` | 8 | 1e-07 | GM-U0005 | 6 | - | - |
+| `El.PowerConverters.ACDC.RectifierBridge2Pulse.ThyristorBridge2Pulse_DC_Drive` | 15 | 1e-07 | GM-U0005 | 6 | - | - |
+| `El.PowerConverters.ACDC.RectifierBridge2mPulse.ThyristorBridge2mPulse_DC_Drive` | 15 | 1e-07 | GM-U0005 | 2 | - | - |
+| `Fluid.AST_BatchPlant.Test.OneTank` | 100 | 1e-06 | 6 s | 1 | o | - |
+| `Fluid.Tanks.TanksWithOverflow` | 25000 | 1e-06 | GM-E11002 | 0 | - | - |
+| `Fluid.Tanks.ThreeTanks` | 200 | 1e-06 | 12 s | 2 | o | - |
+| `Magnetic.FluxTubes.SolenoidActuator.ComparisonQuasiStatic` | 10 | 1e-08 | 3 s | 7 | - | - |
+
+#### 分けると
+
+- **陰的ソルバが終えた: 24 本**（bdf だけでも 21 本。3 本は bdf が未対応・内部エラー・積分の失敗で、他の陰的が終えた）。陽的な方法の弱点が出た本数と読める。`cerk34` も 27 本（`cerk23` から `SimpleTriacCircuit`・`ThyristorBehaviourTest` が抜け、`HBridge_DC_Drive`・`ComparisonPullInStroke` が入る）、`cerk45` は 22 本。
+- **どの陰的でも終わらない: 2 本**（`IMC_YDarc`、`TanksWithOverflow`）。`IMC_Conveyor` は bdf が `GM-U0004`（方向微分が作れない）で、他の陰的も終えず、Rumoca の dopri45 だけが終える。
+- **Rumoca の dopri45 が終えて、diffsol の陽的な方法（tsit45・dopri853・cerk）が終えない: 7 本**（`AmplifierWithOpAmpDetailed`、`IMC_Conveyor`、`IMC_Initialize`、`IMC_Inverter`、`IMC_withLosses`、`OneTank`、`ThreeTanks`）。tsit45 は 6 本、dopri853 は 8 本、cerk23 は 7 本が dopri45 と食い違う。陽的な方法の中での差で、下の「dopri45 との差」。
+
+#### 陽的な方法の刻みは安定限界に張り付いている
+
+`rk.rs`（diffsol の陽的 RK）に一時的な出力を入れて（コミットしていない）、受け入れた歩の刻み幅 `h` を見た。
+
+| モデル | ソルバ | 時刻 | 刻み幅 h | 終了時刻まで必要な歩数（その h のまま） |
+| --- | --- | ---: | ---: | ---: |
+| `DCPM_Drive`（終了 2 s、tol 1e-7） | cerk23 | 0.0035 | 2.6e-8 | 7.7e7 |
+| 同上 | cerk45 | 3.9e-4 | 3.0e-8 付近 | 約 6.7e7 |
+| `SmoothStep`（終了 0.003 s、tol 1e-7） | cerk23 | 3.6e-4 | 2.9e-9 | 9.2e5 |
+| `Polyphase.Rectifier`（終了 0.1 s、tol 1e-6） | cerk23 | 6.8e-4 | 8.5e-9 | 1.2e7 |
+| `SMPM_Braking`（終了 0.8 s、tol 1e-7） | cerk23 | 4.5e-6 | 2.4e-10 | 3.3e9 |
+| `ComparisonQuasiStatic`（終了 10 s、tol 1e-8） | cerk23 | 3.3e-3 | 1.5e-7 | 6.8e7 |
+| `SMPM_VoltageSource`（終了 2 s、tol 1e-7） | cerk23 | 0.064 | 1.3e-6 | 1.5e6 |
+| `CauerLowPassSC`（終了 60 s、tol 1e-6） | cerk23 | 1.19 | 5.5e-6 | 1.1e7 |
+
+1 秒あたりの歩数は約 200（`SMPM_Braking`）〜1.1 万（`DCPM_Drive`）歩で、`SmoothStep` は約 2 千歩/秒（負荷のあった機械での値。一時的な出力の 2 回分の差）。最良の `SmoothStep` でも 9.2e5 歩で、予算 180 s に対して数百秒かかる。`DCPM_Drive` は同じ速さで約 2 時間。bdf は同じ例題を 0.35 s（`DCPM_Drive` の run_seconds）で終える。
+
+**次数に依らない**ことが、安定限界の証拠になる。`IMC_Inverter`（tol 1e-7）の t ≈ 0.12〜0.15 で、受け入れた歩の刻み幅は次のとおり。精度で決まるなら、3 次の `cerk23` と 8 次の `dopri853` で桁が違うはず。
+
+| ソルバ（次数） | 刻み幅の範囲 |
+| --- | --- |
+| cerk23（3） | 2.6e-6〜9.5e-6 |
+| cerk34（4） | 3.5e-6〜9.9e-6 |
+| cerk45（5） | 2.1e-6〜5.3e-6 |
+| tsit45（5） | 6.1e-6〜1.4e-5 |
+| dopri853（8） | 6.9e-6〜1.4e-5 |
+
+さらに `DCPM_Drive` の刻み幅は cerk23 が 2.6e-8、cerk45 が 3.0e-8 とほぼ同じ。安定限界は刻み幅 × 最大固有値の大きさ（陽的 RK でおよそ 2.5〜3.5）で決まるので、`DCPM_Drive` の最大固有値は 1e8 /s のオーダー【推定。ヤコビ行列の固有値は測っていない】。`IMC_Inverter` の許容誤差を cerk45 で 1e-7 → 1e-4 にすると t = 0.37 で刻み幅が 2.8e-5（1e-7 では t = 0.26 で 2.7e-6）になるが、1e-4 でも t = 0.62 では 9e-6 まで縮む。
+
+#### 陽的な方法が硬い系で遅いのは仕様
+
+`cerk23`・`cerk34`・`cerk45` の実装（S029）は、解析解との誤差の試験と連続な補間の試験を通っている（`globe-mode-exec/tests/integrators.rs`）。時間切れの 27 本は、他の陽的なソルバの時間切れを含む: `tsit45` の 20 本はすべて、`dopri853` の 20 本のうち 18 本、`dopri45` の 18 本のうち 17 本が `cerk23` の 27 本に入る。**クラスの性質**と読む。`cerk` を直す対象は見つからなかった。表（[msl-solvers.md](../msl-solvers.md)）の読み方としては「陽的 6 本（dopri45・tsit45・dopri853・cerk23・cerk34・cerk45）の時間切れは硬い系」。
+
+#### dopri45 との差（未解決）
+
+Rumoca の `dopri45` は `IMC_Inverter` を終了時刻（1.5 s）まで 1〜3 秒で終えるが、diffsol の陽的な方法（tsit45・dopri853・cerk）は 180 s で終わらない。終了 0.15 s までで比べると run_seconds は dopri45 1.3 秒、tsit45 2.9 秒、cerk45 5.9 秒で、0.25 s までは dopri45 1.4 秒、cerk45 18.5 秒と差が開く。
+
+- cerk45 の受け入れた歩の誤差ノルム（diffsol の RMS）は t ≈ 0.03〜0.07 の間 0.31〜0.43 のまま、刻み幅だけが 1.4e-3 → 7.6e-5 に縮み続けた（ログで 100 歩ほどを目で確認）。刻みを 20 分の 1 にしても誤差ノルムがほぼ変わらない。
+- diffsol の陽的 RK の刻み幅制御（`vendor/diffsol/src/ode_solver/runge_kutta.rs` の `factor`）: `0.9 · err^(-0.5/(次数+1))`、増加は最大 2 倍、減少は最小 0.5 倍（`config.rs` の `ExplicitRkConfig`）、誤差は RMS ノルム。「次数」は diffsol に渡す係数表の `order`（埋め込みの次数: cerk23 は 2、cerk34 は 3、cerk45 は 4。`globe-mode-sim/src/sdirk.rs` の `continuous_explicit` の引数。ログの縮み率からも cerk45 は指数 0.1 と確かめた）。釣り合う誤差は 0.9^(2(次数+1)) で、cerk23 は 0.53、cerk34 は 0.43、cerk45 は 0.35。一方 Rumoca の RK45（`rumoca-solver-rk45/src/me_integrator.rs` の `adapt_step`）は `0.9 · err^(-0.2)`（0.2〜5 倍）、最大ノルムで、釣り合いは 0.59。
+- つまり誤差ノルムが 0.3〜0.4 付近で下げ止まる系では、diffsol の制御は（cerk45 の目標 0.35 より上に居続けて）縮み続け、Rumoca の目標 0.59 には届かず釣り合う。**これが原因だと確かめるところまでは行っていない**【未確認】。diffsol の制御を変えて試すには diffsol を差し替える必要があり（`factor` の指数は設定にない）、今回は見送った。試す案: 陽的 RK の自前の刻み幅制御（`radau5` と同じ作り）を足して、`dopri45` と同じ制御を cerk に使う。
+- `OneTank` は別の姿だった。tsit45 で `latest`（次の事象の時刻）まで進む間に、`advance` の間（ホストのイベント処理）に数秒かかっており、積分器の中の歩数は少ない。時刻 36.35 付近で 2.6e-13 しか離れないイベントが繰り返される。ホスト側の処理で、bdf や dopri45 では起きないのはなぜかは確かめていない【未確認】。
+
+### bdf の内部エラー 10 本（GM-U0005）
+
+#### 出どころ
+
+Rumoca の `rumoca-solver-diffsol`（BDF）と `rumoca-solver` の host（`fmi_me/root.rs` の `accept_step`）の境界。native の `bdf` は `rumoca_sim::simulate`（`run_bdf`）で回り、GlobeMode のコードは通らない。エラーの種類は `MeSessionError::Contract`（`classify_session` で `Kind::Internal`、GM-U0005）。
+
+| # | モデル | bdf で失敗するまで | メッセージ | 差 / 上限 | `auto` の結果 |
+| ---: | --- | ---: | --- | ---: | --- |
+| 1 | `Lines.LightningSegmentedTransmissionLine` | 74 s | 左端の補間が点と食い違う（状態 174） | 1.2 | dopri45 に切り替わり 3/3 |
+| 2 | `ACDC.RectifierBridge2Pulse.ThyristorBridge2Pulse_RLV_Characteristic` | 1 s | 同上（状態 2） | 1.1 | 13/13 |
+| 3 | `ACDC.RectifierCenterTap2Pulse.ThyristorCenterTap2Pulse_RLV_Characteristic` | 1 s | 同上 | 1.3 | 11/11 |
+| 4 | `ACDC.RectifierCenterTap2mPulse.ThyristorCenterTap2mPulse_RLV_Characteristic` | 1 s | 同上 | 10.3 | 19/19 |
+| 5 | `ACDC.RectifierCenterTapmPulse.ThyristorCenterTapmPulse_RLV_Characteristic` | 1 s | 同上 | 445.5 | 16/16 |
+| 6 | `ACDC.RectifierBridge2mPulse.ThyristorBridge2mPulse_RLV_Characteristic` | 24 s | 同上 | 1.5 | 25/25 |
+| 7 | `DCDC.ChopperBuckBoost.ChopperBuckBoost_DutyCycle` | 9 s | 同上 | 7.6 | 4/4 |
+| 8 | `ACDC.RectifierBridge2Pulse.ThyristorBridge2Pulse_DC_Drive` | 16 s | 同上 | 23.3 | 時間切れ（dopri45 は 180 s で終わらない） |
+| 9 | `ACDC.RectifierBridge2mPulse.ThyristorBridge2mPulse_DC_Drive` | 7 s | 同上 | 5.3 | 時間切れ |
+| 10 | `ACAC.Dimmer_RL` | 94 s | 「受け入れた歩 t = 5.0416408911668364 → 5.041640891166937 が丸めの幅より進まない」 | - | **`GM-U0005` のまま**（`fallback()` が拾わない文言） |
+
+「差 / 上限」は、メッセージの |補間 − 点| ÷ 「exceeds」の値。`auto` の列は S050 の run の `msl-sim.json`。
+
+#### 原因
+
+- host は受け入れた歩ごとに、積分器の補間（サンプラ）を歩の左端と右端で呼び、点との差が `max(abs_tol, rel_tol · max(名目値, |x0|, |x1|))` 以内かを確かめる（`root.rs:156-160`、`accept_step` は `340-358`）。`rel_tol` は積分の相対許容誤差と同じ値（S050 は 1e-7）。
+- BDF の補間は 1 歩前の点に厳密には一致せず、誤差は局所誤差と同じ桁になる。diffsol の BDF は RMS ノルムで局所誤差を試験するので、状態ごとの局所誤差は上限の数倍まで通る。上限が 1.1〜1.5 倍で当たる 4 本（#1・2・3・6）は「同じ桁」の範囲で、10〜445 倍の #4・#5・#8 は速い事象の直後の歩と読める【事象の直後かは確かめていない。#2 の失敗は、最後の `truncate_reset` の 8 ms 後の通常の歩（h = 2.1e-4）で、差は上限の 10.8 倍（トレース）】。
+- **許容誤差の係数だけでは説明できない**。7 本（#2〜#7 と #9）で、`bdf` の許容誤差を 1e-6・3e-7・1e-7 にして回した（`--tolerance`）。
+
+| モデル | 1e-6 | 3e-7 | 1e-7（S050） |
+| --- | --- | --- | --- |
+| `ThyristorBridge2Pulse_RLV_Characteristic` | 通る（8.9 s） | 通る（15.7 s） | `GM-U0005` |
+| `ThyristorCenterTap2Pulse_RLV_Characteristic` | 通る（4.9 s） | 通る（5.1 s） | `GM-U0005` |
+| `ThyristorCenterTap2mPulse_RLV_Characteristic` | `GM-U0005` | `GM-U0005` | `GM-U0005` |
+| `ThyristorCenterTapmPulse_RLV_Characteristic` | 通る（22.5 s） | 通る（27.3 s） | `GM-U0005` |
+| `ChopperBuckBoost_DutyCycle` | `GM-U0005` | 通る（19.9 s） | `GM-U0005` |
+| `ThyristorBridge2mPulse_DC_Drive` | `GM-U0005` | `GM-E11003` | `GM-U0005` |
+| `ThyristorBridge2mPulse_RLV_Characteristic` | 通る（73.4 s） | `GM-U0005` | `GM-U0005` |
+
+1e-7（S013 の `--tolerance-scale 0.1`）で 7/7 が落ち、1e-6 では 4/7、3e-7 では 4/7 が通る。**許容誤差に対して単調でなく**（`ChopperBuckBoost` は 3e-7 で通り 1e-6 で落ちる）、許容誤差を緩めても直らない本数が残る。
+- `Dimmer_RL`（#10）は別の件: 歩の幅が丸めの幅（約 1e-13）に潰れる。`auto` の `fallback()`（`globe-mode-exec/src/rumoca.rs`）は「サンプラの食い違い」の文言だけを拾うので、この文言では dopri45 に切り替わらない。切り替えても、`Dimmer_RL` は dopri45・cerk・tsit45・dopri853 のどれも時間切れ（陽的が硬い系で遅い）ので、救えない。esdirk34・esdirk45・sdirk34hw・radau5・trbdf2・cvode は終える（S050 の表）。
+
+#### 直せるか
+
+- **GlobeMode の側では直せない。** 検査は Rumoca の host のもので、native の `bdf` は GlobeMode のコードを通らない（`run_bdf`）。上限（`rel_tol`）を GlobeMode が変えると、Rumoca の契約を緩めることになる。
+- `auto` が救うのは 7/10 本（#1〜#7）。#8・#9 は dopri45 が硬い系で終わらない（時間切れ）。#10 は切り替わらない。
+- **案（実装していない）**: `auto` の切り替え先を、陽的で終わらなかったときに `esdirk34` にする（S050 の表で esdirk34 は #8・#9・#10 の 3 本とも終えている）。`auto` の挙動を変えるので ADR-0015 の改訂が要る。見込みは表の読みで、回して確かめていない【未確認】。
+- 上流の下書き: [upstream/15](upstream/15-bdf-sampler-left-endpoint-tight-tolerance.md)。
+
+### GlobeMode で足したもの
+
+- GM-E11005（時間切れ）の補足: ソルバが dopri45・tsit45・dopri853・cerk23・cerk34・cerk45 のとき、「陽的なソルバは硬い系で刻みが極小になり、予算内に終わらないことがある。--solver bdf・esdirk34・radau5・auto を試す」を付ける（`globe-mode-exec/src/rumoca.rs` の `explicit_timeout_hint`）。数値は変えない。
+- `msl-sim.yml` に入力 `solvers`（JSON 配列。空なら 14 本すべて）。
+
+### 確かめられなかったこと
+
+- 陽的 RK の刻み幅制御が dopri45 との差の原因か（上の「dopri45 との差」）。
+- `DCPM_Drive` などの最大固有値（ヤコビ行列の固有値は測っていない）。
+- `OneTank` で `advance` の間に数秒かかる理由（Rumoca の host のイベント処理）。
+- BDF の補間が上限を超える歩が、事象の直後かどうか（#2 の 1 例だけトレースした）。
+- `auto` の切り替え先を `esdirk34` にしたときの全体への影響。
+
+### CI での再確認
+
+`gh workflow run msl-sim.yml --ref feature/s055-sim-failures -f solvers='["cerk23","cerk34","bdf"]'`（run 41247200921、2026-11-01。コミット c07a133 = 入力 `solvers` を足した版で、数値は main と同じ。GM-E11005 の補足は含まない）。`msl-sim`・`split-all` と 3 つのソルバのジョブが成功した。S050（run 41194959752）との比較:
+
+| ソルバ | 実行できた | 管 / 比べた | 時間切れ | `GM-U0005` | 秒 | S050 との差 |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| `bdf` | 301 | 293 / 300 | 2 | 10 | 3305（S050 は 3294） | 全モデルで同じ結果 |
+| `cerk34` | 286 | 275 / 285 | 27 | 0 | 9421（9806） | 全モデルで同じ結果 |
+| `cerk23` | 290（S050 は 288） | 280 / 289（279 / 287） | 25（27） | 0 | 9612（10044） | `IMC_Inverter`・`SMPM_VoltageSource` が時間切れから通った |
+
+- `bdf` の `GM-U0005` 10 本、`cerk34` の時間切れ 27 本は再現した（同じモデル、同じコード）。
+- `cerk23` で差が出た 2 本は、回し直しの予算 180 s の境目にあった: `IMC_Inverter` は run_seconds 177.9 s（管 6/9）、`SMPM_VoltageSource` は 164.4 s（管 8/8）で終了時刻まで進んだ。S050 では同じ予算で時間切れだった。つまりこの 2 本は、陽的な方法が硬い系で予算の限界ぎりぎりまでかかるもので、ランナーの速さのゆらぎで決まる。時間切れの 27 本のうち少なくとも 2 本は「予算を少し延ばせば通る」。
+- 全体の時間は `bdf` が S050 と同じ、`cerk` は S050 の 96%。
