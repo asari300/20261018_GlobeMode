@@ -46,7 +46,7 @@ uv sync                      # worktree ごとに必須
 | `src/Python/mod/` `marimo/` `streamlit/` | Python パッケージ、ノートブック、ダッシュボード | ○ |
 | `src/{Elixir,Gleam,Julia,Zig}/` | 各言語の薄いラッパ。ロジックは Rust 側に置く | ○ |
 | `src/Modelica/` | 検証用の Modelica ライブラリ。**MODELICAPATH として開けるパッケージだけを置く**（わざと構文を誤ったファイルは `globe-mode-frontend/tests/data/` へ）。説明は [src/Modelica/README.md](src/Modelica/README.md) | ○ |
-| `data/msl/` `data/rumoca/` `data/reference-fmus/` | MSL 4.1.0、Rumoca の CLI、Reference-FMUs（FMI 2.0 / 3.0）の取得物（`cargo xtask fetch-msl` / `fetch-rumoca` / `fetch-reference-fmus`） | ×（コミットしない） |
+| `data/msl/` `data/rumoca/` `data/reference-fmus/` | MSL 4.1.0、Rumoca の CLI、Reference-FMUs（FMI 2.0 / 3.0）の取得物（`cargo xtask fetch-msl [--version 4.0.0]`＝既定 4.1.0、4.0.0 は別の `--dest` へ。S067 / `fetch-rumoca` / `fetch-reference-fmus`） | ×（コミットしない） |
 | `data/libs/` | MSL 以外の公開ライブラリ（Buildings・AixLib・IBPSA・ClaRa・ThermofluidStream・DeltaRobot・Chemical）の取得物（`cargo xtask fetch-library <名前>`。S058） | ×（コミットしない） |
 | `src/Rust/xtask/` | 開発用のタスク（取得、MSL での突き合わせ、Rumoca の更新） | ○ |
 | `doc/architecture.md` `roadmap.md` `features.md` `licenses.md` | **正典**。計画を変えたら同じコミットで直す | ○ |
