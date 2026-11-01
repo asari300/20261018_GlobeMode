@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import functools
 import http.server
+import subprocess
 import sys
 import threading
 import time
@@ -36,6 +37,8 @@ BAD = "model Bad\n  Real x;\nequation\n  der(x) = -x;\n  x = 1;\nend Bad;\n"
 
 
 def main() -> int:
+    # 列の道の NaN / Inf は null になる（uPlot の欠損。S065）
+    subprocess.run(["node", str(Path(__file__).with_name("test_columns.mjs"))], check=True)
     handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(DIST))
     handler.log_message = lambda *a: None  # type: ignore[attr-defined]
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
