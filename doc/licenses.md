@@ -35,10 +35,10 @@
 | lsp-types 0.97.0（fluent-uri 0.1.4、serde_repr 0.1.21） | MIT OR Apache-2.0（fluent-uri は MIT。crates.io の metadata で確認、2026-10-30） | 許可 | S038 で導入（`globe-mode-lsp`。型だけ使い、JSON-RPC は自前）。推移的依存で新しく入るのは fluent-uri と serde_repr の 2 つ。`cargo deny check` は ok |
 | serde、serde_json、clap | MIT OR Apache-2.0 | 許可 | S002 で導入 |
 | ignore 0.4.34、globset 0.4.21（globe-mode-cli、S060） | MIT OR Unlicense | 許可（MIT を選ぶ） | `globe fmt` / `globe lint` のディレクトリの走査で `.gitignore` を守る。ruff と同じ crate。ほかの推移的依存（walkdir・bstr・regex-automata・crossbeam-deque など）は Cargo.lock に既にある。`cargo deny check licenses` 通過、2026-11-01 |
-| sha2 | MIT OR Apache-2.0 | 許可 | S003 で導入（xtask の sha256） |
+| sha2 | MIT OR Apache-2.0 | 許可 | S003 で導入（xtask の sha256）。S069 で desktop（別 workspace）も MSL の sha256 の照合に使う（`Cargo.lock` に既にあった） |
 | salsa 0.28.5 | Apache-2.0 OR MIT | 許可 | S004 で導入（`globe-mode-db`）。推移的な依存も cargo deny で ok |
 | rumoca-ir-dae、rumoca-eval-dae、rumoca-core | Apache-2.0（Rumoca のワークスペース） | 許可 | S005 で導入（`globe-mode-frontend` だけ）。DAE の incidence を自前で作るため。rumoca-compile の推移的依存なので、新しい外部依存は増えない |
-| zip | MIT | 許可 | S003 で導入（xtask で MSL を展開）。**9 系を使う**: 2 系には展開時の脆弱性（RUSTSEC-2026-0367 / 0368 / 0369）がある |
+| zip | MIT | 許可 | S003 で導入（xtask で MSL を展開）。**9 系を使う**: 2 系には展開時の脆弱性（RUSTSEC-2026-0367 / 0368 / 0369）がある。S069 で desktop（別 workspace、`default-features = false, features = ["deflate"]`）も MSL の展開に使う。`zip` 9.2.1 のほか `typed-path`・`zopfli`・`nix`・`cfg_aliases` が `Cargo.lock` に増えた（desktop の `cargo deny` は ok） |
 | MSL 4.1.0、Rumoca の CLI（照合用） | BSD-3-Clause / Apache-2.0 | 許可 | `cargo xtask fetch-*` で sha256 を固定して取得する。配布物には入れない（`data/` は git 管理外） |
 | cargo-deny | MIT OR Apache-2.0 | 許可（ツール） | mise で入れる。配布物には入らない |
 | fmi、fmi-schema、fmi-sys、fmi-export | MIT OR Apache-2.0 | 許可 | 依存には足していない（S057 の調査。crates.io で確認、2026-11-01）。`fmi-sys` の build に bindgen（libclang）、`fmi-schema` は `hard-xml`（MIT）など。使うかは [ADR-0026](adr/0026-fmi-import-placement.md) の (b) |

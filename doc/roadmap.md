@@ -400,11 +400,18 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 
 - **ソルバ別の表**: `msl-sim.yml` にジョブ `solvers`（`msl-sim` の後。14 ソルバの matrix で `msl-sim --solver <名前> --tolerance-scale 0.1`。cvode・ida は xtask のビルドに `--features globe-mode-exec/sundials`）と `solvers-report`（`cargo xtask msl-solvers`）を足し、[msl-solvers.md](msl-solvers.md) を作った（run 41194959752、全ジョブ成功、ソルバのジョブは 63〜174 分）。対象 356 本のうち実行できたのは 283（dopri853）〜301（bdf）本、管に収まった割合は 95.2（trbdf2）〜98.3%（ida）。`auto` は 309・301/308。`bdf` 単独と `auto` の差 8 本は、`bdf` の内部エラー（`GM-U0005`）10 本を dopri45 の回し直しで救ったもの。入れなかったもの: `qss`、固定刻み、`esdirk23`、別名（理由は解説書）。これで P8「ソルバの表がそろう」の数字の土台ができた。更新は `gh workflow run msl-sim.yml`（手元では回さない）。
 
+### S069（P4、2026-11-01）で済んだこと
+
+- **MSL の置き場**（S056 の持ち越し）: [ADR-0030](adr/0030-desktop-msl-placement.md)。同梱せず、初回に app data dir の `msl/4.1.0/` へ取得する。`--library`・`GLOBE_LIBRARY` があればそれを優先。Rust 側は `src/Rust/apps/desktop/src/msl.rs`（`curl` で落とす → sha256 照合 → 展開 → 目印を最後に）と command `fetch_msl`（取得のあと sidecar を作り直す）。UI は Desktop でだけ「MSL を取得する（29 MB、初回のみ）」ボタン。URL・sha256・目印は xtask の `fetch-msl` と同じで、一致は `desktop.yml` が確かめる。
+- **CI の smoke**: `desktop.yml` が MSL を渡さずに起動し直し、取得 → `ChuaCircuit` の検査・実行（`smoke-fetch.txt`）と、取得済みの置き場を 2 度目の起動が使うこと（`smoke-reuse.txt`）を確かめる。結果は [ADR-0030](adr/0030-desktop-msl-placement.md) の「結果」と [作業記録](../log/work/2026-11-01-s069-desktop-msl-fetch.md)。
+- 足した依存: `zip` 9（xtask と同じ版・features）と `sha2`（desktop の workspace）。HTTP クライアントは足さず外部コマンドの `curl`（.deb は `Depends: curl`）。
+- 持ち越し: 署名と自動更新、取得の進捗の割合と取り消し、MSL 4.0.0 への切り替えの UI、静かな `globe/setFile`。
+
 ### S056（P4、2026-11-01）で済んだこと
 
 - **Desktop で MSL が読める**: command `libraries`（起動時の `--library` / `GLOBE_LIBRARY` の一覧）を足し、`TauriBackend.library()` は sidecar が既にライブラリを持っていれば resolve（JSON は捨てる）、無ければ reject。App.svelte は変えていない。
 - **MSL を読んだ後の RSS の基準値**（P4 の完了条件）: `desktop.yml`（run 41244465666、Linux・Windows とも成功）の smoke が `data/msl`（`msl-sim.yml` と同じ key で cache）を `GLOBE_LIBRARY` で渡して起動し、`ChuaCircuit` を `globe/check`・`globe/simulate` させる。sidecar の VmHWM は検査の後 1.49 GiB、実行の後 1.52 GiB、アプリは 136 MiB。artifact `desktop-linux-smoke`。結果は [ADR-0023](adr/0023-desktop-and-web-process-layout.md) の S056 の節と [作業記録](../log/work/2026-11-01-s056-desktop-msl.md)。
-- 持ち越し: MSL の置き場（同梱か取得か）、署名と自動更新、静かな `globe/setFile`。
+- 持ち越し: ~~MSL の置き場（同梱か取得か）~~（S069 で済）、署名と自動更新、静かな `globe/setFile`。
 
 ### S057（P5 の準備、2026-11-01）で済んだこと
 
