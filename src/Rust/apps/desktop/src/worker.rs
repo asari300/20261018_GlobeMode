@@ -65,6 +65,12 @@ impl Worker {
         }
     }
 
+    /// 渡すライブラリを替え、動いている sidecar は止める（次の要求で新しい `--library` で作り直し、開いているファイルを送り直す）。
+    pub fn set_libraries(&mut self, libraries: Vec<PathBuf>) {
+        self.libraries = libraries;
+        self.live = None;
+    }
+
     /// sidecar の pid（動いていなければ None）。
     pub fn pid(&self) -> Option<u32> {
         self.live.as_ref().map(|l| l.child.id())

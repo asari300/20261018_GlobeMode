@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S070 公開ライブラリの失敗を上流への下書きに — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S070 公開ライブラリの失敗を上流への下書きに">
+
+<section class="slide" id="S01">
+  <span class="tag">S070 · 2026-11-01 · P3</span>
+  <h1>公開ライブラリの失敗を上流への下書きに</h1>
+  <p class="lead">S063 の上位 5 つは「ライブラリの誤り」か「Rumoca の穴」か</p>
+  <div class="big"><b>5 件とも Rumoca の穴</b>。最小の再現と MLS の節を付けて下書きにした</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>S063 の持ち越し</h1>
+  <ul>
+    <li>失敗 1,781 本の上位 5 つの Rumoca のコードは、原因が【未確認】のまま</li>
+    <li>Buildings などに依存しない 10〜50 行の再現を作る</li>
+    <li>MLS 3.6 で書き方が合法かを引き、omc 1.27.2 でも確かめる</li>
+    <li>上流（Rumoca）に出す下書き 17〜21 を英語で書く。出すのはユーザー</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>判定は 5 件とも Rumoca の穴</h1>
+  <table class="compact">
+    <tr><th>下書き</th><th>コード</th><th>本数</th><th>MLS 3.6</th></tr>
+    <tr><td>17</td><td>ER132</td><td>267</td><td>§7.3.1・§5.3.1</td></tr>
+    <tr><td>18</td><td>ER070</td><td>258</td><td>§18.3</td></tr>
+    <tr><td>19</td><td>EI032</td><td>235</td><td>§4.8.1</td></tr>
+    <tr><td>20</td><td>EF025</td><td>138</td><td>§7.1.1</td></tr>
+    <tr><td>21</td><td>EF004</td><td>217</td><td>§3.7.4.6・§10.6.4</td></tr>
+  </table>
+  <p>omc 1.27.2 の <code>checkModel</code> は再現モデルをすべて通す。</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">17 · 18</span>
+  <h1>名前の衝突と、Evaluate の置き場</h1>
+  <div class="cols-2">
+    <div class="card"><b>ER132</b><br><code>redeclare function extends product</code> は継承した関数でなく組み込みの <code>product</code> に引かれる。<code>prod</code> に変えると通る。<code>sum</code>・<code>max</code>・<code>abs</code> も同じ</div>
+    <div class="card"><b>ER070</b><br>MLS は Evaluate を「component declaration に付けてよい。効くのは parameter だけ」とする。Rumoca は関数の局所変数だけ警告にして、成分は硬いエラー。節番号 §18.6 も誤り</div>
+  </div>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">19 · 20</span>
+  <h1>stateSelect と extends が 2 つの関数</h1>
+  <div class="cols-2">
+    <div class="card"><b>EI032</b><br><code>stateSelect</code> は <code>parameter StateSelect</code> 属性。兄弟成分の parameter を指す if 式と、親から渡す parameter の 2 形を断る</div>
+    <div class="card"><b>EF025</b><br>MSL <code>Files.loadResource</code> は interface と実装の 2 つを extends する。自己完結の 20 行でも再現。Medium の関数の分は不明</div>
+  </div>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">21</span>
+  <h1>EF004 は原因が 2 つ</h1>
+  <div class="cols-2">
+    <div class="card"><b>getInstanceName()</b><br>parameter の束縛に書くと断る。equation と initial equation の assert では通る</div>
+    <div class="card"><b>if 方程式の行数</b><br>成分配列の項 <code>s.n_flow*ones(n)</code> を含む式の行数を n と数え、n が 1 以外で断る</div>
+  </div>
+  <p>Rumoca の CLI と <code>globe check</code> で同じコード。出す前に Rumoca の main で確かめる。</p>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">再現手順</span>
+  <h1>検証</h1>
+  <pre><code>cargo xtask fetch-rumoca
+globe check doc/research/upstream/17-*.mo --model Rep17.M
+data/rumoca/rumoca-linux-x86_64 compile 17-*.mo -m Rep17.M
+omc: loadFile(...); checkModel(Rep17.M)</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">5/5</span><span class="l">再現できた件（EF025 は Medium の分を除く）</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">ライブラリ側の誤り</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S08">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>下書きを Rumoca の main で確かめて出す（ユーザー）</li>
+    <li>EF025 の replaceable な Medium の関数を最小の再現にする</li>
+    <li>ER023（ClaRa）・EI006・ED019 を同じ形で判定する</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

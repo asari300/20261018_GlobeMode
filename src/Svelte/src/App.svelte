@@ -15,7 +15,9 @@
   import Graph from "./lib/graph/Graph.svelte";
 
   const FILE = "Model.mo";
-  const backend: Backend = inTauri() ? new TauriBackend() : new WorkerBackend(); // S049: Tauri の中では sidecar
+  const desktop = inTauri();
+  const tauri = desktop ? new TauriBackend() : null;
+  const backend: Backend = tauri ?? new WorkerBackend(); // S049: Tauri の中では sidecar
   const severityRank = { error: 0, warning: 1, info: 2 };
 
   let host: HTMLDivElement;
@@ -31,6 +33,10 @@
   let graphModel = $state<string | null>(null); // 「グラフ」を押したときのモデル名（入力のたびに描き直さない）
 
   onMount(() => {
+    // S069: 取得済みの MSL を sidecar が読んでいれば、最初から「読んだ」状態にする
+    void tauri?.hasLibrary().then((has) => {
+      if (has && msl === "none") { msl = "loaded"; mslNote = "MSL を読んだ（取得済み）"; }
+    });
     view = new EditorView({
       parent: host,
       state: EditorState.create({
@@ -49,12 +55,16 @@
     failure = "";
     const t = performance.now();
     try {
-      const res = await fetch(`${import.meta.env.BASE_URL}msl/MSL.json`);
-      if (!res.ok) throw new Error(`MSL.json を取得できない（${res.status}）。data/msl を取得して pnpm prepare-wasm（cargo xtask fetch-msl）`);
-      const json = await res.text();
+      let json = "";
+      if (!desktop) { // Desktop は JSON を使わない（backend.library が MSL を取得して sidecar に渡す）
+        const res = await fetch(`${import.meta.env.BASE_URL}msl/MSL.json`);
+        if (!res.ok) throw new Error(`MSL.json を取得できない（${res.status}）。data/msl を取得して pnpm prepare-wasm（cargo xtask fetch-msl）`);
+        json = await res.text();
+      }
       await backend.library("MSL", json);
       msl = "loaded";
-      mslNote = `MSL 4.1.0 を読んだ（${(json.length / 2 ** 20).toFixed(0)} MiB、${((performance.now() - t) / 1000).toFixed(1)} 秒）`;
+      const size = desktop ? "" : `${(json.length / 2 ** 20).toFixed(0)} MiB、`;
+      mslNote = `MSL 4.1.0 を読んだ（${size}${((performance.now() - t) / 1000).toFixed(1)} 秒）`;
       diagnostics = [];
       columns = null;
       graphModel = null;
@@ -133,11 +143,11 @@
     <button onclick={simulate} disabled={busy}>実行</button>
     <button onclick={graph} disabled={busy}>グラフ</button>
     <button onclick={format} disabled={busy}>整形</button>
-    <button onclick={loadMsl} disabled={busy || msl !== "none"}>{msl === "loading" ? "MSL を読み込み中…" : "MSL を読む"}</button>
+    <button onclick={loadMsl} disabled={busy || msl !== "none"}>{msl === "loading" ? (desktop ? "MSL を取得中…" : "MSL を読み込み中…") : desktop ? "MSL を取得する（29 MB、初回のみ）" : "MSL を読む"}</button>
   </div>
   <p class="note" data-msl={msl}>
     {#if msl === "loaded"}{mslNote}。モデル名にライブラリのモデル（例 Modelica.Electrical.Analog.Examples.ChuaCircuit）を入れて検査・実行できる。グラフは編集中のファイルのモデルだけ（ライブラリのモデルは未対応）。
-    {:else if msl === "loading"}MSL.json を取得して読み込んでいる（十数秒）。
+    {:else if msl === "loading"}{desktop ? "MSL 4.1.0 を取得して展開している（回線しだい）。" : "MSL.json を取得して読み込んでいる（十数秒）。"}
     {:else}MSL は未読み込み。{/if}
   </p>
   <div class="editor" bind:this={host}></div>

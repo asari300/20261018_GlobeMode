@@ -8,14 +8,20 @@
 //! `GLOBE_DESKTOP_SMOKE=1` なら、起動して sidecar に 1 モデルの検査を頼み、結果を表示して終わる（CI の smoke）。
 //! さらに `GLOBE_DESKTOP_SMOKE_MODEL=<ライブラリのモデル名>` なら、そのモデルを `globe/check`・`globe/simulate` させ、
 //! 各段の後にアプリと sidecar の最大の常駐メモリ（VmHWM）を表示する（S056。MSL を読んだ後の RSS の基準値）。
+//!
+//! MSL（S069、ADR-0030）: ライブラリが渡されなければ、app data dir の `msl/4.1.0/` に展開済み（目印あり）のときそれを渡す。
+//! 無ければ UI のボタンが command `fetch_msl` を呼び、取得して展開し、sidecar を新しい `--library` で作り直す。
+//! `GLOBE_DESKTOP_SMOKE_FETCH=1` を足すと、smoke は検査の前にこの取得を 1 回行う（CI で取得の道を確かめる）。
 
 // Windows のリリースでコンソールを出さない
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod msl;
 mod worker;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::Instant;
 
 use serde_json::{Value, json};
 use tauri::{Emitter, Manager, State};
@@ -45,12 +51,55 @@ async fn notify(state: State<'_, Shared>, method: String, params: Value) -> Resu
         .map_err(|e| e.to_string())?
 }
 
-/// 起動時に渡したライブラリのパス（UI の `TauriBackend.library` が「sidecar が既に読んでいるか」を知るため）。
-struct Libraries(Vec<PathBuf>);
+/// sidecar に渡しているライブラリのパス（UI の `TauriBackend.library` が「sidecar が既に読んでいるか」を知るため）。
+/// 取得した MSL で増える。
+#[derive(Clone)]
+struct Libraries(Arc<Mutex<Vec<PathBuf>>>);
+
+/// MSL の置き場（app data dir の `msl/4.1.0`）。
+#[derive(Clone)]
+struct MslDir(PathBuf);
+
+fn names(libs: &Libraries) -> Vec<String> {
+    let libs = libs.0.lock().unwrap_or_else(|e| e.into_inner());
+    libs.iter().map(|p| p.display().to_string()).collect()
+}
 
 #[tauri::command]
 fn libraries(state: State<'_, Libraries>) -> Vec<String> {
-    state.0.iter().map(|p| p.display().to_string()).collect()
+    names(&state)
+}
+
+/// ライブラリが無ければ MSL を取得して展開し、sidecar を作り直す（ライブラリがあれば何もしない）。読んだパスを返す。
+fn install_msl(dir: &MslDir, libs: &Libraries, w: &Shared) -> Result<Vec<String>, String> {
+    if names(libs).is_empty() {
+        msl::fetch(&dir.0)?;
+        libs.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(dir.0.clone());
+        let mut w = lock(w);
+        w.set_libraries(vec![dir.0.clone()]);
+        w.ensure_live()?; // 読めない MSL はここで UI に返す
+    }
+    Ok(names(libs))
+}
+
+/// MSL 4.1.0 を取得して使えるようにする（UI の「MSL を取得する」）。
+#[tauri::command]
+async fn fetch_msl(
+    dir: State<'_, MslDir>,
+    libs: State<'_, Libraries>,
+    state: State<'_, Shared>,
+) -> Result<Vec<String>, String> {
+    let (dir, libs, w) = (
+        dir.inner().clone(),
+        libs.inner().clone(),
+        state.inner().clone(),
+    );
+    tauri::async_runtime::spawn_blocking(move || install_msl(&dir, &libs, &w))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 fn libraries_from_env() -> Vec<PathBuf> {
@@ -96,7 +145,15 @@ fn report_hwm(label: &str, w: &Worker) {
 
 /// smoke: 起動 → 検査（→ 実行）→ 最大の常駐メモリ（Linux）を表示 → 終了。失敗は終了コード 1。
 /// モデル名が `GLOBE_DESKTOP_SMOKE_MODEL` にあればライブラリのモデルを検査・実行し、無ければ埋め込みの小さい `D`。
-fn smoke(w: &Shared) -> Result<(), String> {
+fn smoke(w: &Shared, dir: &MslDir, libs: &Libraries) -> Result<(), String> {
+    if std::env::var_os("GLOBE_DESKTOP_SMOKE_FETCH").is_some() {
+        let t = Instant::now();
+        let got = install_msl(dir, libs, w)?;
+        println!(
+            "smoke: fetched msl in {:.1} s -> {got:?}",
+            t.elapsed().as_secs_f64()
+        );
+    }
     let text = "model D\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -x;\nend D;\n";
     let lib_model = std::env::var("GLOBE_DESKTOP_SMOKE_MODEL").ok();
     let model = lib_model.as_deref().unwrap_or("D");
@@ -129,7 +186,7 @@ fn smoke(w: &Shared) -> Result<(), String> {
 
 fn main() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![rpc, notify, libraries])
+        .invoke_handler(tauri::generate_handler![rpc, notify, libraries, fetch_msl])
         .setup(|app| {
             let handle = app.handle().clone();
             let sink: Sink = Arc::new({
@@ -138,15 +195,28 @@ fn main() {
                     let _ = handle.emit("globe-notification", m);
                 }
             });
-            let libs = libraries_from_env();
-            app.manage(Libraries(libs.clone()));
+            let mut libs = libraries_from_env();
+            let dir = MslDir(
+                app.path()
+                    .app_data_dir()
+                    .map_err(|e| e.to_string())?
+                    .join("msl")
+                    .join(msl::VERSION),
+            );
+            // 渡されたライブラリが優先。無くて、取得済みの MSL があればそれを渡す
+            if libs.is_empty() && msl::ready(&dir.0) {
+                libs.push(dir.0.clone());
+            }
+            let libs_state = Libraries(Arc::new(Mutex::new(libs.clone())));
+            app.manage(libs_state.clone());
+            app.manage(dir.clone());
             let w: Shared = Arc::new(Mutex::new(Worker::new(sidecar(), libs, sink)));
             app.manage(w.clone());
             // 起動と同時にライブラリを読み始める（待たされた要求はこのロックの後に走る）
             std::thread::spawn(move || {
                 let smoke_run = std::env::var_os("GLOBE_DESKTOP_SMOKE").is_some();
                 let r = if smoke_run {
-                    smoke(&w)
+                    smoke(&w, &dir, &libs_state)
                 } else {
                     lock(&w).ensure_live()
                 };
