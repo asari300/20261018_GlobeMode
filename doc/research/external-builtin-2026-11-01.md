@@ -47,7 +47,28 @@
 
 ## 公開ライブラリ（`libraries.yml -f msl=4.0.0`）
 
-@@CI@@
+`gh workflow run libraries.yml --ref feature/s068-external-builtin -f msl=4.0.0 -f 'libraries=["DeltaRobot","IBPSA","AixLib"]'`（Buildings は 70 分かかるので外した）。実行できた本数（funnel が OK の例題のうち）:
+
+| ライブラリ | 4.0.0 の実行できた（S067、run 41295445820） | 4.0.0 + 今回（run 41313259246） | 4.1.0（S058 の run） |
+| --- | ---: | ---: | ---: |
+| AixLib（OK 118） | 71 | **97** | 98（OK 119） |
+| IBPSA（OK 88） | 47 | **66** | 66 |
+| DeltaRobot（OK 9） | 2 | **5** | 5 |
+| 計 | 120 | **168** | 169 |
+
+- 判定（OK / NG / GM-U / panic）は S067 の 4.0.0 と同じ（AixLib 118 / 360 / 164 / 0、IBPSA 88 / 230 / 135 / 4、DeltaRobot 9 / 7 / 5 / 0）。`check` は元の `Dae` で行うので変わらない。
+- IBPSA と DeltaRobot は 4.1.0 の本数に届いた。AixLib は 4.1.0 の 98 に対し 97 で、4.1.0 で OK だった 1 本（`SensorVerification`。4.0.0 では ED019 で OK でなくなる。S067）の差を除くと同じ。AixLib は funnel が OK の 118 本のうち 21 本が実行できないままで、4.1.0 でも同じ原因（`Modelica.Math` 以外）。
+- **S067 が「残り 5 本」とした例題**: DeltaRobot の 3 本（`axesRotations` の record の戻り値）は、今回の変換で実行できるようになった（DeltaRobot 2 → 5、4.1.0 と同じ）。S067 は別の原因と書いたが、`axesRotations` が `Modelica.Math` を呼んでいたと思われる【呼び出しの確認はしていない】。Buildings の `HeatTransfer.Convection.Examples.Interior`・`HeatTransfer.Windows.BaseClasses.Examples.InteriorConvection` の 2 本（`invalid Solve IR contract: pure-call argument or slot interface is invalid`）は Buildings を回し直していないので未確認。Buildings の 27 本も CI で回し直していない。
+
+### CI を 4 回回した経緯
+
+| run | 結果 | 見つけたこと |
+| --- | --- | --- |
+| 41307189067 | AixLib 642 本が全部 NG（GM-E1001 / EM001）、IBPSA 66、DeltaRobot 5 | **S066 の退行**。`RadiatorTypes.mo` と package.mo の無い `RadiatorTypes/` が並ぶ配置を、読み飛ばしの道が両方読んで二重のクラスになっていた。S066 の確認に AixLib は入っていなかった |
+| 41309463666 | AixLib 92 | 退行を直した後。表（CombiTable）を持つ `Dae` を書き換えていなかった（`HumansSenTDep` など） |
+| 41312015621 | AixLib 94 | 表の対応後。直列化の式の番号が Rumoca の内部の番号とずれ、番号で式を引く確認が失敗する関数があった（`Declination` の `asin`・`cos`） |
+| 41313259246 | AixLib 97、IBPSA 66、DeltaRobot 5 | 番号の大小だけを見る確認に変えた後 |
+
 
 ## 限界
 

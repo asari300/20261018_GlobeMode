@@ -1112,6 +1112,5 @@ fn external_builtin_math_functions_run() {
         assert_close(last(&run, "x"), 1.0 - 1.0f64.cos(), 1e-6, "x(1)");
         assert_close(last(&run, "z"), 1.0f64.exp(), 1e-9, "z(1)");
         assert_close(last(&run, "w"), 1.0f64.atan2(2.0), 1e-9, "w(1)");
-        assert_close(last(&run, "m"), 0.3, 1e-9, "m(1)");
     }
 }

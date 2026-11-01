@@ -63,7 +63,12 @@
 <section class="slide" id="S06">
   <span class="tag">CI の結果</span>
   <h1>libraries.yml（MSL 4.0.0）</h1>
-  @@KPIS@@
+  <div class="kpis">
+    <div class="kpi"><span class="n">71 → 97</span><span class="l">AixLib 実行できた（4.1.0 は 98）</span></div>
+    <div class="kpi"><span class="n">47 → 66</span><span class="l">IBPSA（4.1.0 は 66）</span></div>
+    <div class="kpi"><span class="n">2 → 5</span><span class="l">DeltaRobot（4.1.0 は 5）</span></div>
+  </div>
+  <p>判定の本数は変わらない。run 41313259246（4 回目）。Buildings は回し直していない。</p>
 </section>
 
 <section class="slide" id="S07">
@@ -91,7 +96,7 @@ gh workflow run libraries.yml --ref feature/s068-external-builtin \
   <span class="tag">次回</span>
   <h1>次にやること</h1>
   <ul>
-    <li>残りの実行の差: Buildings の Interior ほか 2 本、DeltaRobot の 3 本（axesRotations）</li>
+    <li>残り: Buildings を回し直す（27 本と Interior ほか 2 本）。DeltaRobot の 3 本は今回直った</li>
     <li>Rumoca が直したらこの変換を外す（上流の下書き 16）。serde の形が変わっても元の Dae に戻るだけ</li>
     <li>解説書: <a href="解説書.md">解説書.md</a>、ADR: <a href="../../adr/0029-external-builtin-rewrite.md">ADR-0029</a></li>
   </ul>
