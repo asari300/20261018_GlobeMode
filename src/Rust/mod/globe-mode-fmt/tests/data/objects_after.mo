@@ -50,6 +50,28 @@ annotation(
         fillColor = {177, 211, 214}, fillPattern = FillPattern.Solid
       )
     }
+  ),
+  Documentation(
+    __OpenModelica_infoHeader = "
+      <html><head></head><body>
+        the Header
+      </body></html>
+    ",
+    info = "
+      <html><head></head><body>
+        <h1>The Infomation</h1>
+        <ul>List
+          <li>One</li>
+          <li>Two</li>
+          <li>Tree.js</li>
+        </ul>
+      </body></html>
+    ",
+    revisions = "
+      <html><head></head><body>
+        The Revision
+      </body></html>
+    "
   )
 );
 

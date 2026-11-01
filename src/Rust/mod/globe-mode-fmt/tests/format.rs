@@ -32,9 +32,11 @@ fn user_before_after() {
 
 #[test]
 fn no_origin_insertion_when_off() {
-    let before = include_str!("data/objects_before.mo");
+    // 例の Rectangle は origin = {0, 0} を書いているので、外してから補わないことを見る
+    let before = include_str!("data/objects_before.mo").replace("origin = {0, 0}, ", "");
+    assert!(!before.contains("origin = {0, 0}"));
     let out = format(
-        before,
+        &before,
         &Options {
             insert_origin: false,
             ..Options::default()
