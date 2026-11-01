@@ -7,7 +7,7 @@
 | worktree | `.git-worktree/s066-libs-tolerant-roots` |
 | Phase | P3 |
 | セッション文書 | `doc/sessions/S066-libs-tolerant-roots/` |
-| セッション記録 | （親が写す） |
+| セッション記録 | [2026-10-31-0b797c72-...](../sessions/2026-10-31-0b797c72-9651-45d3-b466-98f7c341d068.md)（親セッション。S048〜S052 と同じ） |
 
 ## 依頼
 
@@ -35,7 +35,7 @@
 - `cargo test -p globe-mode-frontend -p xtask`: 全部 OK（`tolerant_roots` 4 本、xtask 46 本）。`mise run check` は親が回す。
 - `mise run msl:compare`: 20 本中 20 本一致。
 - 手元の `msl-funnel`（release）を S063 の run（41250636800）の JSON と比較: ThermofluidStream 122 本（OK 4・GM-U 115・panic 0、134.2 秒。S063 は 135.3 秒）、ClaRa 5 本（OK 0・S1 で NG 5、6.5 秒。5.0 秒）とも、判定・段・GM コード・Rumoca コードの差 0。読み飛ばしの警告は ThermofluidStream で `Contact.mo` の 1 ファイル、ClaRa は「配置の検査を飛ばして読んだ」1 件。
-- Actions: `libraries.yml`（run 41295588356、Chemical・ClaRa・ThermofluidStream・DeltaRobot）は s067 の run 41295445820 の後ろで待っていて、この記録の時点では未実行【未確認】。結果は親が追記する（見るのは、読み飛ばしが起きる ClaRa と ThermofluidStream の判定が S063 と同じか）。Chemical・DeltaRobot は S058 の `skipped.txt` が空で、読み飛ばしの道を通らない。
+- Actions: `libraries.yml`（run 41295588356、Chemical・ClaRa・ThermofluidStream・DeltaRobot）は成功（親が確認）。表の 4 行は S063（run 41250636800）と例題・OK・NG・GM-U・panic・実行できた のすべてが同じ: Chemical 76 / 12 / 21 / 43 / 0 / 0、ClaRa 5 / 0 / 5 / 0 / 0 / 0、DeltaRobot 21 / 9 / 7 / 5 / 0 / 5、ThermofluidStream 122 / 4 / 3 / 115 / 0 / 2。Chemical・DeltaRobot は S058 の `skipped.txt` が空で、読み飛ばしの道を通らない。
 - `check_docs.py`: リンク切れ 0（`render_slides.py` は親が回す）。
 - 開発中に見つけたこと: 共有の `CARGO_TARGET_DIR`（`target-shared`）を複数の worktree で使うと、`cargo xtask`（release）が別の worktree が作った古い `globe-mode-core` を使い、コンパイルエラーになった。ソースを `touch` して直した（cargo が path の依存の指紋を mtime で見るため）。
 
