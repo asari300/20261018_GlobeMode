@@ -166,48 +166,37 @@ fn is_builtin_operator(name: &str) -> bool {
 const CHECKER_KIND: &str =
     "`globe_mode_frontend::Checker`（MSL を一度だけ読み、Rumoca の Session を使い回す）";
 
-/// 検査器を作る（MSL を読む）。
+/// 検査器を作る（MSL とライブラリを読む）。
+///
+/// 読めないファイルがあっても `Checker::new` は断らず、読めるファイルだけで読む（S066）。読み飛ばした
+/// ファイルは `target/library-roots/<ライブラリ名>.skipped.txt` に書く（libraries.yml が artifact に残す）。
 pub(crate) fn make_checker(msl: &Path, libraries: &[PathBuf]) -> Result<Checker> {
-    if libraries.is_empty() {
-        return Checker::new(&[msl]).map_err(|ds| diagnostics_text(&ds));
+    // 2 つ以上のルートは `Checker::new` が 1 つの組にまとめて読むので、MSL とは別のルートでよい（S063）
+    let mut roots: Vec<&Path> = vec![msl];
+    roots.extend(libraries.iter().map(PathBuf::as_path));
+    let checker = Checker::new(&roots).map_err(|ds| diagnostics_text(&ds))?;
+    for w in checker.library_warnings() {
+        println!("{}（{}）", w.message, w.notes.join(" / "));
     }
-    // 2 つ以上のルートは `Checker::new` が 1 つの組にまとめて読むので、MSL とは別のルートでよい（S063。S058 は
-    // 1 つのディレクトリに symlink でまとめていた）。ミラーは、読めないファイルを除くためだけに作る
-    let merged = mirror_libraries(libraries)?;
-    // 公開ライブラリには、ディレクトリ名と `within` の綴りが合わない（PKG-010）ファイルがある。Rumoca は 1 つでもあると
-    // ライブラリ全体を断るので、診断に出たファイルを除いて読み直す（上限 20 回）
-    for _ in 0..20 {
-        match Checker::new(&[msl, merged.as_path()]) {
-            Ok(checker) => return Ok(checker),
-            Err(ds) => {
-                let text = diagnostics_text(&ds);
-                let offenders = layout_offenders(&text, &merged);
-                if offenders.is_empty() {
-                    return Err(text);
-                }
-                let mut note = String::new();
-                for path in &offenders {
-                    let _ = if path.is_dir() {
-                        fs::remove_dir_all(path)
-                    } else {
-                        fs::remove_file(path)
-                    };
-                    println!(
-                        "読み飛ばした（Rumoca の配置の検査に合わない）: {}",
-                        path.display()
-                    );
-                    note.push_str(&format!("{}\n", path.display()));
-                }
-                if let Some(name) = merged.file_name() {
-                    let list =
-                        merged.with_file_name(format!("{}.skipped.txt", name.to_string_lossy()));
-                    let old = fs::read_to_string(&list).unwrap_or_default();
-                    let _ = fs::write(list, old + &note);
-                }
-            }
-        }
+    let skipped = checker.skipped_library_files();
+    if !libraries.is_empty() && !skipped.is_empty() {
+        let names: Vec<String> = libraries
+            .iter()
+            .filter_map(|l| l.file_name().map(|n| n.to_string_lossy().into_owned()))
+            .collect();
+        let base = PathBuf::from("target/library-roots");
+        fs::create_dir_all(&base).map_err(|e| format!("{}: {e}", base.display()))?;
+        let list: Vec<String> = skipped
+            .iter()
+            .map(|f| format!("{}\t{}", f.path.display(), f.reason))
+            .collect();
+        fs::write(
+            base.join(format!("{}.skipped.txt", names.join("+"))),
+            list.join("\n") + "\n",
+        )
+        .map_err(|e| e.to_string())?;
     }
-    Err("配置の検査に合わないファイルが多すぎる（20 回除いても読めない）".to_string())
+    Ok(checker)
 }
 
 fn diagnostics_text(ds: &[Diagnostic]) -> String {
@@ -215,121 +204,6 @@ fn diagnostics_text(ds: &[Diagnostic]) -> String {
         .map(|d| format!("{} {} {}", d.code, d.message, d.notes.join(" / ")))
         .collect::<Vec<_>>()
         .join("; ")
-}
-
-/// Rumoca の配置の検査（`PKG-0xx file '…'`・`directory '…'`）の診断から、`merged` の下にあるパスを取り出す。
-fn layout_offenders(text: &str, merged: &Path) -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    for item in text.split("PKG-").skip(1) {
-        for kind in ["file '", "directory '"] {
-            if let Some(rest) = item.split_once(kind).map(|(_, r)| r)
-                && let Some((path, _)) = rest.split_once('\'')
-            {
-                let path = PathBuf::from(path);
-                if path.starts_with(merged) && path != merged && !out.contains(&path) {
-                    out.push(path);
-                }
-                break;
-            }
-        }
-    }
-    out
-}
-
-/// `target/library-roots/<ライブラリ名>/` に、各ライブラリの木（ディレクトリは実体、ファイルは symlink）を並べて返す。構文の誤りで読めないファイル（[`crate::libs::unparsable_files`]）は
-/// 除き（`package.mo` の無いディレクトリで `.mo` を含むものも、Rumoca の PKG-006 で全体を断られるので除く）、一覧を `target/library-roots/<ライブラリ名>.skipped.txt` に書く。あれば作り直さない。
-fn mirror_libraries(libraries: &[PathBuf]) -> Result<PathBuf> {
-    let names: Vec<String> = libraries
-        .iter()
-        .filter_map(|l| l.file_name().map(|n| n.to_string_lossy().into_owned()))
-        .collect();
-    let base = PathBuf::from("target/library-roots");
-    let merged = base.join(names.join("+"));
-    if merged.exists() {
-        return merged.canonicalize().map_err(|e| e.to_string());
-    }
-    fs::create_dir_all(&merged).map_err(|e| format!("{}: {e}", merged.display()))?;
-    let mut skipped = Vec::new();
-    for lib in libraries {
-        let bad = crate::libs::unparsable_files(lib)?;
-        let mut bad = bad;
-        mirror_tree(lib, &merged, &mut bad)?;
-        skipped.extend(bad);
-    }
-    let list: Vec<String> = skipped.iter().map(|p| p.display().to_string()).collect();
-    println!(
-        "構文の誤りか package.mo の無い構成で読み飛ばしたライブラリのファイルとディレクトリ: {} 本",
-        list.len()
-    );
-    for p in list.iter().take(20) {
-        println!("  {p}");
-    }
-    fs::write(
-        base.join(format!("{}.skipped.txt", names.join("+"))),
-        list.join("\n") + "\n",
-    )
-    .map_err(|e| e.to_string())?;
-    merged.canonicalize().map_err(|e| e.to_string())
-}
-
-/// `from`（ファイルかディレクトリ）への symlink を `into` の下に張る。`.` で始まる名前（.download や印）は飛ばす。
-fn link_entry(from: &Path, into: &Path) -> Result<()> {
-    let name = from.file_name().ok_or("名前が無い")?;
-    if name.to_string_lossy().starts_with('.') {
-        return Ok(());
-    }
-    let target = from.canonicalize().map_err(|e| e.to_string())?;
-    #[cfg(unix)]
-    std::os::unix::fs::symlink(&target, into.join(name))
-        .map_err(|e| format!("{}: {e}", from.display()))?;
-    #[cfg(not(unix))]
-    return Err(format!(
-        "symlink を張れない環境は未対応: {}",
-        target.display()
-    ));
-    #[cfg(unix)]
-    Ok(())
-}
-
-/// `from` の木を `into` の下に写す（ディレクトリは作り、ファイルは symlink）。`skip` のファイルは写さない。
-/// `package.mo` の無いディレクトリで `.mo` を含むものは写さず、`skip` に足す（呼び出し側が一覧に書く）。
-fn mirror_tree(from: &Path, into: &Path, skip: &mut Vec<PathBuf>) -> Result<()> {
-    for entry in fs::read_dir(from).map_err(|e| format!("{}: {e}", from.display()))? {
-        let path = entry.map_err(|e| e.to_string())?.path();
-        if path.is_dir() {
-            let Some(name) = path.file_name() else {
-                continue;
-            };
-            if name.to_string_lossy().starts_with('.') {
-                continue;
-            }
-            if !path.join("package.mo").exists() && contains_mo(&path)? {
-                skip.push(path);
-                continue;
-            }
-            let sub = into.join(name);
-            fs::create_dir_all(&sub).map_err(|e| format!("{}: {e}", sub.display()))?;
-            mirror_tree(&path, &sub, skip)?;
-        } else if !skip.contains(&path) {
-            link_entry(&path, into)?;
-        }
-    }
-    Ok(())
-}
-
-/// `dir` の下に `.mo` があるか。
-fn contains_mo(dir: &Path) -> Result<bool> {
-    for entry in fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))? {
-        let path = entry.map_err(|e| e.to_string())?.path();
-        if path.is_dir() {
-            if contains_mo(&path)? {
-                return Ok(true);
-            }
-        } else if path.extension().is_some_and(|e| e == "mo") {
-            return Ok(true);
-        }
-    }
-    Ok(false)
 }
 
 /// 1 本を検査する。S5 まで通って構造があれば、Rumoca 自身の構造解析の数も取る（S6 の照合用。
@@ -2165,23 +2039,6 @@ mod tests {
             )],
         };
         ClassIndex::from_outlines([&modelica, &mechanics, &other])
-    }
-
-    #[test]
-    fn layout_offenders_come_from_the_diagnostic() {
-        let merged = Path::new("/w/target/library-roots/ClaRa");
-        let text = "GM-E1003 x Failed: invalid Modelica package layout under '/w/target/library-roots/ClaRa': \
-            PKG-010 file '/w/target/library-roots/ClaRa/ClaRa/A/m.mo' has `within X;` but expected `within Y;`; \
-            PKG-006 directory '/w/target/library-roots/ClaRa/ClaRa/B' is missing package.mo; \
-            PKG-010 file '/elsewhere/n.mo' has `within X;`";
-        assert_eq!(
-            layout_offenders(text, merged),
-            [
-                PathBuf::from("/w/target/library-roots/ClaRa/ClaRa/A/m.mo"),
-                PathBuf::from("/w/target/library-roots/ClaRa/ClaRa/B")
-            ]
-        );
-        assert!(layout_offenders("GM-E1003 syntax", merged).is_empty());
     }
 
     #[test]

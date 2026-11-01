@@ -89,6 +89,18 @@ pub struct Checker {
     libraries: Arc<[PathBuf]>,
     /// [`Checker::check_retaining`] で残す文書の持ち主
     owner: u64,
+    /// ライブラリのうち読み飛ばしたファイル（S066）。空なら全部読めた
+    skipped: Arc<[SkippedFile]>,
+    /// `skipped` を知らせる警告（`GM-W1001`）。検査のたびに結果の診断へ足す
+    warnings: Arc<[Diagnostic]>,
+}
+
+/// ライブラリのうち、読めずに読み飛ばしたファイル（S066）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SkippedFile {
+    pub path: PathBuf,
+    /// 読めなかった理由（構文の誤りの最初の 1 行）
+    pub reason: String,
 }
 
 /// 文書の持ち主の番号を配る（検査器の取っ手ごとに別の番号）。
@@ -181,8 +193,112 @@ pub struct ReferenceStructure {
     pub loops: Vec<usize>,
 }
 
+/// ルート `lib` の `.mo` を 1 つずつ読み、読めたものだけを返す（S066）。Rumoca の `parse_source_root_with_cache` は、
+/// 1 ファイルでも構文の誤りだと、あるいはパッケージ配置の検査（PKG-0xx）に合わないと、ルート全体を断る。
+/// 読めなかったファイルは `skipped` に、知らせる警告は `warnings` に足す。読めるファイルが 1 つも無ければ Err（理由）。
+///
+/// shortcut: Rumoca の配置の検査は呼べない（非公開）。`package.mo` の無いディレクトリや `within` の綴りの合わない
+/// ファイルも、そのまま文書として入れる（名前は `within` で決まるので解決には効かない）。
+fn read_tolerant(
+    lib: &Path,
+    reasons: &[String],
+    warnings: &mut Vec<Diagnostic>,
+    skipped: &mut Vec<SkippedFile>,
+) -> Result<Vec<(String, ast::StoredDefinition)>, Vec<String>> {
+    let mut files = Vec::new();
+    collect_mo_files(lib, &mut files).map_err(|e| vec![format!("{}: {e}", lib.display())])?;
+    files.sort();
+    if files.is_empty() {
+        return Err(reasons.to_vec());
+    }
+    let (documents, failures) = rumoca_compile::parsing::parse_files_parallel_lenient(&files);
+    // lenient の失敗は「Failed to parse file: パス」だけなので、理由は構文の誤りの最初の 1 件を読み直して得る
+    let failures: Vec<(String, String)> = failures
+        .into_iter()
+        .map(|(f, m)| {
+            let reason = std::fs::read_to_string(&f)
+                .ok()
+                .and_then(|text| {
+                    let errors =
+                        rumoca_compile::parsing::parse_source_to_ast_with_errors(&text, &f)
+                            .err()?;
+                    errors.first().map(|e| parse_diagnostic(&f, e).message)
+                })
+                .unwrap_or(m);
+            (f, reason)
+        })
+        .collect();
+    let first_line = |m: &str| m.lines().next().unwrap_or_default().to_string();
+    if documents.is_empty() {
+        return Err(failures
+            .iter()
+            .map(|(f, m)| format!("{f}: {}", first_line(m)))
+            .collect());
+    }
+    let mut d = if failures.is_empty() {
+        // 構文は全部読めた。配置の検査だけが断っていた
+        Diagnostic::warning(
+            codes::LIBRARY_PARTIAL,
+            Stage::S1,
+            format!(
+                "ライブラリ {} をパッケージ配置の検査を飛ばして読んだ",
+                lib.display()
+            ),
+        )
+        .note(first_line(reasons.first().map_or("", String::as_str)))
+    } else {
+        Diagnostic::warning(
+            codes::LIBRARY_PARTIAL,
+            Stage::S1,
+            format!(
+                "ライブラリ {} の {} ファイルを読めず、読み飛ばした",
+                lib.display(),
+                failures.len()
+            ),
+        )
+    };
+    for (f, m) in failures.iter().take(5) {
+        d = d.note(format!("{f}: {}", first_line(m)));
+    }
+    if failures.len() > 5 {
+        d = d.note(format!("ほか {} ファイル", failures.len() - 5));
+    }
+    warnings.push(d);
+    skipped.extend(failures.into_iter().map(|(f, m)| SkippedFile {
+        path: PathBuf::from(f),
+        reason: first_line(&m),
+    }));
+    Ok(documents)
+}
+
+/// `dir` の下の `.mo`（`.` で始まる名前は飛ばす）。
+fn collect_mo_files(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
+    if dir.is_file() {
+        out.push(dir.to_path_buf());
+        return Ok(());
+    }
+    for entry in std::fs::read_dir(dir)? {
+        let path = entry?.path();
+        if path
+            .file_name()
+            .is_some_and(|n| n.to_string_lossy().starts_with('.'))
+        {
+            continue;
+        }
+        if path.is_dir() {
+            collect_mo_files(&path, out)?;
+        } else if path.extension().is_some_and(|e| e == "mo") {
+            out.push(path);
+        }
+    }
+    Ok(())
+}
+
 impl Checker {
     /// ライブラリのディレクトリを読み込む。読めなければ S1 の診断（`GM-E1003`）。
+    ///
+    /// 構文の誤りのファイルがあっても断らず、読めるファイルだけで読む（S066）。読み飛ばしたファイルは
+    /// [`Checker::skipped_library_files`] と、検査の結果の S1 の警告（`GM-W1001`）で知らせる。
     pub fn new(libraries: &[&Path]) -> Result<Checker, Vec<Diagnostic>> {
         let mut session = Session::new(SessionConfig::default());
         // ライブラリ（MSL など）。めったに変わらないので DurableExternal として読む。
@@ -197,6 +313,10 @@ impl Checker {
             }
             vec![d]
         };
+        let mut skipped = Vec::new();
+        let mut warnings = Vec::new();
+        // 読み込めたファイルの組。None なら `load_source_root_tolerant` が Session に入れた（ルート 1 つで全部読めた）
+        let mut pending = None;
         if let [lib] = libraries {
             let load = session.load_source_root_tolerant(
                 &format!("library:{}", lib.display()),
@@ -204,8 +324,13 @@ impl Checker {
                 lib,
                 None,
             );
-            if !load.diagnostics.is_empty() || load.parsed_file_count == 0 {
-                return Err(fail(lib, &load.diagnostics));
+            if !load.diagnostics.is_empty() {
+                // 構文の誤りのファイルがあると全体を断られる。読めるファイルだけで読み直す（S066）
+                let docs = read_tolerant(lib, &load.diagnostics, &mut warnings, &mut skipped)
+                    .map_err(|notes| fail(lib, &notes))?;
+                pending = Some(docs);
+            } else if load.parsed_file_count == 0 {
+                return Err(fail(lib, &[]));
             }
         } else if !libraries.is_empty() {
             // 2 つ以上のルートは 1 つの組にまとめて Session に入れる。ルートごとに `load_source_root_tolerant` すると、
@@ -217,10 +342,16 @@ impl Checker {
                     Ok(parsed) if parsed.file_count > 0 => documents.extend(parsed.documents),
                     Ok(_) => return Err(fail(lib, &[])),
                     Err(e) => {
-                        return Err(fail(lib, &[format!("Failed to load source root: {e:#}")]));
+                        let reason = [format!("Failed to load source root: {e:#}")];
+                        let docs = read_tolerant(lib, &reason, &mut warnings, &mut skipped)
+                            .map_err(|notes| fail(lib, &notes))?;
+                        documents.extend(docs);
                     }
                 }
             }
+            pending = Some(documents);
+        }
+        if let Some(documents) = pending {
             let name: Vec<String> = libraries.iter().map(|p| p.display().to_string()).collect();
             session.replace_parsed_source_set(
                 &format!("library:{}", name.join(",")),
@@ -245,6 +376,8 @@ impl Checker {
             })),
             libraries: libraries.iter().map(|p| p.to_path_buf()).collect(),
             owner: next_owner(),
+            skipped: skipped.into(),
+            warnings: warnings.into(),
         })
     }
 
@@ -305,6 +438,8 @@ impl Checker {
             })),
             libraries: Arc::from(vec![PathBuf::from(set_id)]),
             owner: next_owner(),
+            skipped: Arc::default(),
+            warnings: Arc::default(),
         })
     }
 
@@ -346,6 +481,8 @@ impl Checker {
             })),
             libraries: Arc::from(vec![PathBuf::from(set_id)]),
             owner: next_owner(),
+            skipped: Arc::default(),
+            warnings: Arc::default(),
         })
     }
 
@@ -364,6 +501,17 @@ impl Checker {
     /// 読み込んだライブラリのディレクトリ。
     pub fn libraries(&self) -> &[PathBuf] {
         &self.libraries
+    }
+
+    /// ライブラリを一部だけ読んだことを知らせる警告（`GM-W1001`）。全部読めたなら空。検査の結果の診断にも足される。
+    pub fn library_warnings(&self) -> &[Diagnostic] {
+        &self.warnings
+    }
+
+    /// ライブラリのうち、読めずに読み飛ばしたファイル（構文の誤り。S066）。検査の結果にも警告
+    /// （`GM-W1001`、S1）として出る。そのファイルのクラスを使うモデルは、名前が解決できず失敗する。
+    pub fn skipped_library_files(&self) -> &[SkippedFile] {
+        &self.skipped
     }
 
     /// `sources` を文書として渡し、`model` を DAE まで変換して検査する（S0〜S5 と、S6 の入力）。
@@ -611,6 +759,17 @@ impl Checker {
 
     /// 文書をそろえてから検査する。`owner` が Some なら、その持ち主の文書を残す（[`Checker::check_retaining`]）。
     fn check_synced(&self, sources: &[Source<'_>], model: &str, owner: Option<u64>) -> CheckReport {
+        let mut report = self.check_synced_inner(sources, model, owner);
+        report.diagnostics.extend(self.warnings.iter().cloned());
+        report
+    }
+
+    fn check_synced_inner(
+        &self,
+        sources: &[Source<'_>],
+        model: &str,
+        owner: Option<u64>,
+    ) -> CheckReport {
         let mut report = CheckReport::new(model);
         let mut state = self.lock();
         if let Err(d) = sync_documents(&mut state, sources, model, owner) {

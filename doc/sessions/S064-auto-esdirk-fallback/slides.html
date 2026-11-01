@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S064 auto-esdirk-fallback — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S064 auto-esdirk-fallback">
+
+<section class="slide" id="S01">
+  <span class="tag">S064 · 2026-11-01 · P3</span>
+  <h1>auto-esdirk-fallback</h1>
+  <p class="lead">auto の回し直しに esdirk34 を足す（S055 の持ち越し）</p>
+  <div class="big">BDF → <b>esdirk34</b> → dopri45。残りの予算を渡す</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>dopri45 では救えない 3 本</h1>
+  <ul>
+    <li>bdf の GM-U0005 10 本のうち、auto は 7 本を dopri45 で救う</li>
+    <li>2 本は dopri45 でも時間切れ（硬い系）、1 本（Dimmer_RL）は文言が対象外</li>
+    <li>陰的な esdirk34 を先に試す。数値が変わるので、全例題の本数で確かめてから ADR を Accepted にする</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>順序は BDF → esdirk34 → dopri45</h1>
+  <table class="compact">
+    <tr><th>案</th><th>どうなるか</th></tr>
+    <tr><td>A: dopri45 を先に</td><td>硬い系は dopri45 が予算を使い切り、esdirk34 に時間が残らない</td></tr>
+    <tr><td>B: esdirk34 を先に（採用）</td><td>TwoMass のように dopri45 だけが救える系は、esdirk34 が 3 秒以内に落ちて dopri45 に回る</td></tr>
+    <tr><td>esdirk34 だけ</td><td>TwoMass を取りこぼす</td></tr>
+  </table>
+  <p>回し直しには元の予算を渡す。残りの時間を渡す版は Lightning が 1 本減ったのでやめた。</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由</span>
+  <h1>対象と診断</h1>
+  <ul>
+    <li>対象に「歩が丸めの幅より進まない」（Dimmer_RL の BDF）を足す</li>
+    <li>時間切れ・方向微分（GM-U0004）・初期化の失敗では切り替えない（ADR-0015 のまま）</li>
+    <li>esdirk34 への切り替えは GM-I11003、dopri45 は GM-I11002</li>
+    <li>msl-sim の欄は auto → esdirk34 / auto → dopri45 / auto → esdirk34 → dopri45</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">手元の結果</span>
+  <h1>21 本の前後（release、目安の秒数）</h1>
+  <table class="compact">
+    <tr><th>モデル</th><th>前</th><th>後</th></tr>
+    <tr><td>Dimmer_RL</td><td>GM-U0005</td><td>esdirk34 で終了</td></tr>
+    <tr><td>dopri45 で終えていた 7 本</td><td>終了</td><td>esdirk34 で終了（1.1〜2 倍の時間）</td></tr>
+    <tr><td>ThyristorBridge2mPulse_DC_Drive</td><td>時間切れ</td><td>手元は時間切れ（esdirk34 単独で 162 s。ランナーは 94 s）</td></tr>
+    <tr><td>ThyristorBridge2Pulse_DC_Drive</td><td>時間切れ</td><td>時間切れ（esdirk34 は GM-E11003）</td></tr>
+    <tr><td>TwoMass</td><td>dopri45 で終了</td><td>esdirk34 が失敗 → dopri45 で終了</td></tr>
+    <tr><td>BDF で通る 5 本</td><td>回し直しなし</td><td>回し直しなし</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">全例題の結果</span>
+  <h1>CI（run 41287267439）</h1>
+  <div class="kpis">
+    <div class="kpi"><span class="n">310</span><span class="l">実行できた（S055 は 309）</span></div>
+    <div class="kpi"><span class="n">301 / 309</span><span class="l">管に収まった（S055 は 301 / 308）</span></div>
+  </div>
+  <p>減ったモデルは 0。増えたのは Dimmer_RL（実行できるが y_arg が管の外）。GM-U0005 の止まりは 1 → 0。最初の版（残りの予算）は Lightning が減った。</p>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">再現手順</span>
+  <h1>再現</h1>
+  <pre><code>globe simulate -L data/msl -m &lt;モデル&gt; --solver auto \
+  --tolerance &lt;S050 の値&gt; --timeout 180 -o /dev/null
+gh workflow run msl-sim.yml --ref feature/s064-auto-esdirk-fallback \
+  -f 'solvers=["auto"]'  # msl-sim ジョブの後は gh run cancel</code></pre>
+</section>
+
+<section class="slide" id="S08">
+  <span class="tag">次回</span>
+  <h1>次にやること</h1>
+  <ul>
+    <li>esdirk34 で 94 s の ThyristorBridge2mPulse_DC_Drive が時間切れの境目。予算の分け方を決める</li>
+    <li>解説書: <a href="解説書.md">解説書.md</a>、ADR: <a href="../../adr/0028-auto-esdirk34-fallback.md">ADR-0028</a></li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

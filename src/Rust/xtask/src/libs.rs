@@ -10,8 +10,6 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
 
-use globe_mode_frontend::Checker;
-
 use crate::{Result, download};
 
 /// アーカイブ 1 つから取り出す部分。
@@ -279,38 +277,6 @@ mod tests {
 }
 
 // --------------------------------------------------------------------------- 構文の誤りのあるファイル
-
-/// `dir` の下の `.mo` のうち、構文の誤りで読めないもの（1 ファイルずつ別の Session で読んで確かめる）。
-///
-/// ThermofluidStream の `TILMediaWrapper/UsersGuide/Contact.mo` のように、公開されているライブラリにも
-/// 構文の誤りのファイルがある。`Checker::new` は 1 つでもあればライブラリ全体を断るので、
-/// [`crate::funnel`] はこのファイルを除いたルートを作って読む（S058）。
-pub(crate) fn unparsable_files(dir: &Path) -> Result<Vec<PathBuf>> {
-    let mut bad = Vec::new();
-    let mut stack = vec![dir.to_path_buf()];
-    while let Some(d) = stack.pop() {
-        for entry in fs::read_dir(&d).map_err(|e| format!("{}: {e}", d.display()))? {
-            let path = entry.map_err(|e| e.to_string())?.path();
-            if path.is_dir() {
-                stack.push(path);
-            } else if path.extension().is_some_and(|e| e == "mo") {
-                let ok = fs::read_to_string(&path).is_ok_and(|text| {
-                    let name = path.display().to_string();
-                    let source = [globe_mode_frontend::Source {
-                        name: &name,
-                        text: &text,
-                    }];
-                    Checker::with_library_sources("parse", &source).is_ok()
-                });
-                if !ok {
-                    bad.push(path);
-                }
-            }
-        }
-    }
-    bad.sort();
-    Ok(bad)
-}
 
 // --------------------------------------------------------------------------- 集計
 
