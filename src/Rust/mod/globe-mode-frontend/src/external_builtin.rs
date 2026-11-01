@@ -38,7 +38,7 @@ const ARITY: &[(&str, usize)] = &[
 
 /// `external "builtin"` の呼び出しを組み込み演算にした Dae。置き換えるものが無い・置き換えられなければ `dae` のまま。
 pub(crate) fn lower_builtin_externals(dae: &Arc<Dae>) -> Arc<Dae> {
-    if !has_builtin_external(dae) || !dae.external_tables().is_empty() {
+    if !has_builtin_external(dae) {
         return Arc::clone(dae);
     }
     rewrite(dae).map_or_else(|| Arc::clone(dae), Arc::new)
@@ -55,6 +55,8 @@ fn has_builtin_external(dae: &Dae) -> bool {
 
 fn rewrite(dae: &Dae) -> Option<Dae> {
     let mut wire = serde_json::to_value(dae).ok()?;
+    // 表は読み戻しの形（deny_unknown_fields）に無いので外し、読み戻した Dae に付け直す
+    wire.as_object_mut()?.remove("external_tables");
     let storage = wire.get_mut("storage")?;
     let table = builtin_functions(storage);
     if table.iter().all(Option::is_none) {
@@ -84,6 +86,7 @@ fn rewrite(dae: &Dae) -> Option<Dae> {
     changed
         .then(|| serde_json::from_value::<Dae>(wire).ok())
         .flatten()
+        .map(|rewritten| rewritten.with_external_tables(dae.external_tables().to_vec()))
 }
 
 /// 関数の番号ごとの、置き換え先（組み込み演算の名前と引数の数）。

@@ -29,5 +29,6 @@
 | [0025](0025-native-library-closure.md) | ネイティブの `Workspace::with_libraries`（CLI・`globe lsp`・Desktop の sidecar）も、wasm の分割読み込みと同じく閉包のファイルだけを Session に読む。全部読む道は `with_libraries_full` に残す | Accepted |
 | [0026](0026-fmi-import-placement.md) | FMI Import の置き方（案を 2 つ示す）。`modelDescription.xml` は自前（`roxmltree`）で読む。共有ライブラリの読み込みは Desktop・CLI の別プロセスに限る。ME は GlobeMode のソルバで積分する。C ABI は自前（推奨）か `fmi` 0.8 かをユーザーが決める | Proposed |
 | [0028](0028-auto-esdirk34-fallback.md) | `auto` の回し直しは BDF → esdirk34 → dopri45 の順にする（dopri45 は硬い系で予算を使い切るため、陰的な esdirk34 を先に）。歩が丸めの幅より進まない失敗も対象。回し直しには元の予算を渡す（残りの時間を渡す版は Lightning が減った）。全例題で実行できた 309 → 310、管 301 のまま、減ったモデル 0 | Accepted |
+| [0029](0029-external-builtin-rewrite.md) | `external "builtin"` が組み込みの数学関数を呼ぶだけの関数は、Dae を直列化の形で書き換えて組み込み演算にする（Rumoca の公開 API に hook が無く、構築 API は閉包だけのため）。MSL 4.0.0 の `Modelica.Math` の 13 個。限界は serde の形が非公開の契約であること | Accepted |
 
 書式: `NNNN-<題名>.md`。章は「状態 / 背景 / 決定 / 結果」の4つ。決定を覆すときは古い ADR を消さず、状態を Superseded にして新しい番号で書く。

@@ -1,6 +1,6 @@
 # 上流（Rumoca・diffsol）への報告の下書き
 
-S045（計画書の WP-H）で書いた（15 は S055）、[Rumoca](https://github.com/CogniPilot/rumoca) と [diffsol](https://github.com/martinjrobins/diffsol) に出す issue の下書き。元の記録は [../msl-sim-failures.md](../msl-sim-failures.md) の「上流に報告する候補」と、[../../roadmap.md](../../roadmap.md) の候補 8。
+S045（計画書の WP-H）で書いた（15 は S055、16 は S068）、[Rumoca](https://github.com/CogniPilot/rumoca) と [diffsol](https://github.com/martinjrobins/diffsol) に出す issue の下書き。元の記録は [../msl-sim-failures.md](../msl-sim-failures.md) の「上流に報告する候補」と、[../../roadmap.md](../../roadmap.md) の候補 8。
 
 - **出すのはユーザー。エージェントは出さない**（`gh issue create` を使わない）。
 - **出すときは、再現を Rumoca の最新（main）で確かめてから出す。** 下書きの環境は Rumoca v0.10.2（rev `276e82bd`）、MSL 4.1.0。Rumoca の CLI がこの環境に無いまま書いた件は、本文に「[not verified]」と書いてある。
@@ -26,6 +26,7 @@ S045（計画書の WP-H）で書いた（15 は S055）、[Rumoca](https://gith
 | 13 | [RK で黙って誤った結果になる](13-rk-silently-wrong-result-generationoffmus.md) | Rumoca | MSL `GenerationOfFMUs` | あり（auto は RK に切り替えない） | 下書き |
 | 14 | [wasm32 で型付きの道が `Instant::now()` で panic](14-wasm32-instant-now-in-typed-route.md) | Rumoca | 本文の手順 | あり（host の道） | 下書き |
 | 15 | [BDF の補間が host の左端の検査に通らない（rtol 1e-7、1e-6 でも）](15-bdf-sampler-left-endpoint-tight-tolerance.md) | Rumoca | MSL `ThyristorBridge2Pulse_RLV_Characteristic` ほか 9 本（`--solver bdf --tolerance 1e-7`） | 一部（auto が 7/10 を dopri45 で救う） | 下書き |
+| 16 | [`external "builtin"` が組み込み関数を呼ぶだけの関数を実行できない（MSL 4.0.0 の `Modelica.Math`）](16-external-builtin-math-functions.md) | Rumoca | [16](16-external-builtin-math-functions.mo) | あり（Dae を直列化の形で書き換える、ADR-0029） | 下書き |
 
 ## 下書きにしなかったもの
 
