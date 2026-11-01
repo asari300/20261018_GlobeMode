@@ -81,3 +81,9 @@ UI（Svelte）のプロセスでは検査も実行もしない。計算は 1 つ
 
 - **Desktop で MSL が読める**: 起動時の `--library` / `GLOBE_LIBRARY` を command `libraries` で UI に返し、`TauriBackend.library()` は「sidecar が既にライブラリを持っていれば resolve（JSON は捨てる）、無ければ reject」にした。「MSL を読む」ボタン（App.svelte）は変えずに動く。
 - **MSL を読んだ後の RSS の基準値**（`desktop.yml` run 41244465666、ubuntu-24.04 の .deb、xvfb、`GLOBE_LIBRARY=data/msl`、`Modelica.Electrical.Analog.Examples.ChuaCircuit`）: sidecar の VmHWM は検査の後 **1,565,032 kB（1.49 GiB）**、実行の後 **1,598,636 kB（1.52 GiB）**。アプリ（Tauri のシェル + WebKit）の VmHWM は **139,508 kB（136 MiB）**。背景の表の `globe check ChuaCircuit` 1.48 GiB と同じ桁で、Desktop 全体でも約 1.65 GiB。壁時計は WebKit の起動と終了を含めて 37.6 s。
+
+- **持ち越し**: App.svelte の `WorkerBackend` と `TauriBackend` の切り替え（`inTauri()`）、MSL を同梱するか取得するか（今は `--library` か `GLOBE_LIBRARY`）、署名と自動更新、MSL を読んだ後の Desktop 全体の RSS（smoke は MSL なし）、`didOpen` が毎回全モデルの検査（診断）を回す点（静かな `globe/setFile` を足す案）。
+
+### S054 で決まったこと（2026-11-01）
+
+- **ネイティブの library も閉包だけ読む**（[ADR-0025](0025-native-library-closure.md)）: sidecar が使う `Workspace::with_libraries` を wasm の分割読み込みと同じ道にした。背景の測定の `ChuaCircuit` の最大 RSS 1.48 GiB は、この変更の前の値（全部読み）。変更後の値は [research/resources-2026-10-31.md](../research/resources-2026-10-31.md) の §6。

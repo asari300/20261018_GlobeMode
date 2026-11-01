@@ -97,8 +97,42 @@ impl Workspace {
         Self::from_db(GlobeDb::new(), 0, 0.0)
     }
 
-    /// ライブラリのディレクトリ（MSL など）を一度だけ読み込んだワークスペース。読めなければ S1 の診断（`GM-E1003`）。
+    /// ライブラリのディレクトリ（MSL など）の `.mo` を本文のまま持ち、検査のたびにモデルが使うファイルだけを
+    /// Rumoca の Session に読むワークスペース（S054。wasm の分割読み込みと同じ。[`Workspace::with_library_sources_split`]）。
+    /// MSL の `ChuaCircuit` で最大 RSS を約 1.5 GiB から減らす。結果は [`Workspace::with_libraries_full`] と同じ。
+    /// 読めなければ S1 の診断（`GM-E1003`）。ディレクトリでないパスが混じるときは全部読む道に戻る。
     pub fn with_libraries(paths: &[PathBuf]) -> Result<Self, Vec<Diagnostic>> {
+        if paths.is_empty() || !paths.iter().all(|p| p.is_dir()) {
+            return Self::with_libraries_full(paths);
+        }
+        let t = now_ms();
+        let mut files = Vec::new();
+        for dir in paths {
+            collect_mo(dir, &mut files).map_err(|e| vec![library_error(dir, &e.to_string())])?;
+        }
+        files.sort();
+        let mut texts = Vec::with_capacity(files.len());
+        for f in &files {
+            let text =
+                std::fs::read_to_string(f).map_err(|e| vec![library_error(f, &e.to_string())])?;
+            texts.push((f.display().to_string(), text));
+        }
+        let sources: Vec<Source<'_>> = texts
+            .iter()
+            .map(|(name, text)| Source { name, text })
+            .collect();
+        let name = paths
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        let db = GlobeDb::with_library_sources_split(&name, &sources)?;
+        Ok(Self::from_db(db, paths.len(), now_ms() - t))
+    }
+
+    /// [`Workspace::with_libraries`] と同じ入力で、ライブラリのファイルを全部 Session に読む（S054 より前の道。
+    /// 比べるために残す。MSL で最大 RSS 約 1.5 GiB）。
+    pub fn with_libraries_full(paths: &[PathBuf]) -> Result<Self, Vec<Diagnostic>> {
         let t = now_ms();
         let db = GlobeDb::with_libraries(paths)?;
         Ok(Self::from_db(db, paths.len(), now_ms() - t))
@@ -376,4 +410,26 @@ fn checked_failed_stage(diagnostics: &[Diagnostic]) -> Option<Stage> {
         .filter(|d| d.is_error())
         .map(|d| d.stage)
         .min()
+}
+
+/// ディレクトリの下の `.mo` を集める。
+fn collect_mo(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(dir)? {
+        let path = entry?.path();
+        if path.is_dir() {
+            collect_mo(&path, out)?;
+        } else if path.extension().is_some_and(|e| e == "mo") {
+            out.push(path);
+        }
+    }
+    Ok(())
+}
+
+fn library_error(path: &Path, why: &str) -> Diagnostic {
+    Diagnostic::error(
+        globe_mode_core::codes::LIBRARY,
+        Stage::S1,
+        format!("ライブラリ {} を読み込めない", path.display()),
+    )
+    .note(why)
 }
