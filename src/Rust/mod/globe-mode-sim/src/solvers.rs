@@ -98,7 +98,7 @@ pub const SOLVERS: &[SolverEntry] = &[
     ),
     available(
         SolverId::Auto,
-        "実行系が系を見て BDF か陽的 RK を選ぶ（BDF が積分で失敗したら dopri45 で回し直す）",
+        "実行系が系を見て BDF か陽的 RK を選ぶ（BDF が積分で失敗したら esdirk34、それも止まれば dopri45 で回し直す）",
     ),
     available(
         SolverId::Esdirk34,
