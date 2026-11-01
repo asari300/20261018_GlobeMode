@@ -527,14 +527,18 @@ impl Record {
         }
     }
 
-    /// 使ったソルバの名前（`auto` で dopri45 に切り替えたら `auto → dopri45`）
+    /// 使ったソルバの名前（`auto` で回し直したら `auto → esdirk34`・`auto → dopri45`・`auto → esdirk34 → dopri45`）
     fn solver_used(&self) -> Option<String> {
-        let name = self.settings.as_ref()?.solver.name();
-        Some(if self.has_code(codes::RUN_SOLVER_FALLBACK) {
-            format!("{name} → dopri45")
-        } else {
-            name.to_string()
-        })
+        let mut name = self.settings.as_ref()?.solver.name().to_string();
+        for (code, to) in [
+            (codes::RUN_SOLVER_FALLBACK_ESDIRK, "esdirk34"),
+            (codes::RUN_SOLVER_FALLBACK, "dopri45"),
+        ] {
+            if self.has_code(code) {
+                name = format!("{name} → {to}");
+            }
+        }
+        Some(name)
     }
 
     fn has_code(&self, code: &str) -> bool {
@@ -1105,9 +1109,9 @@ pub(crate) struct Summary {
     pub init_resettle_moved: usize,
     /// ソルバの別名を置き換えた（GM-I10003）
     pub solver_alias: usize,
-    /// `auto` で BDF が失敗したので dopri45 で回し直した（GM-I11002。実行できたかを問わない。S012）
+    /// `auto` で BDF が失敗したので esdirk34 か dopri45 で回し直した（GM-I11003・GM-I11002。実行できたかを問わない。S012、S064）
     pub solver_fallbacks: usize,
-    /// 実行できたモデルのソルバごとの本数（GM-I11002 が出たものは `auto → dopri45`）
+    /// 実行できたモデルのソルバごとの本数（回し直したものは `auto → esdirk34` など）
     pub solvers: BTreeMap<String, usize>,
     /// 外から止めたものの、ワーカーが最後に報告した段ごとの本数（S012）
     pub hard_timeouts_by_stage: BTreeMap<String, usize>,
@@ -1190,7 +1194,10 @@ impl Summary {
             s.t0_not_finite += usize::from(r.has_code(codes::T0_NOT_FINITE));
             s.init_resettle_moved += usize::from(r.has_code(codes::INIT_RESETTLE_MOVED));
             s.solver_alias += usize::from(r.has_code(codes::SOLVER_ALIAS));
-            s.solver_fallbacks += usize::from(r.has_code(codes::RUN_SOLVER_FALLBACK));
+            s.solver_fallbacks += usize::from(
+                r.has_code(codes::RUN_SOLVER_FALLBACK)
+                    || r.has_code(codes::RUN_SOLVER_FALLBACK_ESDIRK),
+            );
             if r.outcome.simulated()
                 && let Some(name) = r.solver_used()
             {
@@ -2243,7 +2250,8 @@ fn render_report(records: &[Record], s: &Summary, run: &RunInfo<'_>) -> String {
         ),
         (
             format!(
-                "auto で BDF が失敗し dopri45 で回し直した（{}）",
+                "auto で BDF が失敗し esdirk34・dopri45 で回し直した（{}・{}）",
+                codes::RUN_SOLVER_FALLBACK_ESDIRK,
                 codes::RUN_SOLVER_FALLBACK
             ),
             s.solver_fallbacks,
@@ -3112,7 +3120,7 @@ mod tests {
             "| 時間切れか外から止めたので回し直した（予算 180 s） | 1 |",
             "| うち回し直して実行できた | 1 |",
             "回し直し（予算 180 s）: 1 本のうち実行できた 1・管に収まった 1",
-            "| auto で BDF が失敗し dopri45 で回し直した（GM-I11002） | 1 |",
+            "| auto で BDF が失敗し esdirk34・dopri45 で回し直した（GM-I11003・GM-I11002） | 1 |",
             "| auto → dopri45 | 1 |",
             "| 実行系: lowering | 1 |",
             "| 実行系: lowering（115 s） |",

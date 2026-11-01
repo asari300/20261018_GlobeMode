@@ -10,8 +10,9 @@
 //!   どこで失敗したか（組み立て・初期化・積分）がこちらの呼んだ位置で分かる。
 //! - `dopri45` … `rk45::simulate`（組み立てから積分までを 1 回で呼ぶ。初期化・イベント・積分の失敗には
 //!   Rumoca が段を付けるので、`bdf` と同じように分けられる。lowering の失敗だけは段が無く、`[EX…]` の印で見分ける）。
-//! - `auto` … `bdf` の道で回し、BDF が積分で失敗したか Rumoca のサンプラの食い違いで止まったとき（S012）に
-//!   `dopri45` で回し直す（情報 GM-I11002。[`fallback`]）。方向微分が作れないときは切り替えない（S013。ADR-0015）。
+//! - `auto` … `bdf` の道で回し、BDF が積分で失敗したか Rumoca のサンプラの食い違い・歩が丸めの幅より進まない
+//!   契約違反で止まったとき（S012、S064）に `esdirk34`、それも止まれば `dopri45` で回し直す（情報 GM-I11002。
+//!   [`fallback`]。回し直しには残りの予算を渡す。ADR-0028）。方向微分が作れないときは切り替えない（S013。ADR-0015）。
 //! - 自前の積分器（S012）と wasm32 のすべてのソルバ … lowering と実行を分けて呼ぶ session の道（[`session`]）。
 //!
 //! パラメータの上書き（`ResolvedSettings::parameters`）は `SimOptions::param_overrides` に渡す。Rumoca が断った
@@ -678,11 +679,15 @@ fn run_typed(
         SolverId::Bdf => run_bdf(dae, opts, settings, hooks),
         SolverId::Dopri45 => run_rk(dae, opts, hooks),
         SolverId::Auto => run_auto(
-            dae,
             settings,
+            |e, p| failure_diagnostic(dae, e, p, settings.max_wall_seconds),
             hooks,
             |h| run_bdf(dae, opts, settings, h),
-            |h| run_rk(dae, opts, h),
+            |h, wall| {
+                let integrator = session::Integrator::Own(SolverId::Esdirk34);
+                session::run(dae, &with_wall(opts, wall), settings, integrator, h)
+            },
+            |h, wall| run_rk(dae, &with_wall(opts, wall), h),
         ),
         own => session::run(dae, opts, settings, session::Integrator::Own(own), hooks),
     }
@@ -696,18 +701,27 @@ fn run_session(
     hooks: &mut Hooks<'_>,
 ) -> Outcome {
     use session::Integrator;
-    let with = |integrator, h: &mut Hooks<'_>| session::run(dae, opts, settings, integrator, h);
+    let with = |integrator, h: &mut Hooks<'_>, opts: &SimOptions| {
+        session::run(dae, opts, settings, integrator, h)
+    };
     match settings.solver {
-        SolverId::Bdf => with(Integrator::RumocaBdf, hooks),
-        SolverId::Dopri45 => with(Integrator::RumocaRk45, hooks),
+        SolverId::Bdf => with(Integrator::RumocaBdf, hooks, opts),
+        SolverId::Dopri45 => with(Integrator::RumocaRk45, hooks, opts),
         SolverId::Auto => run_auto(
-            dae,
             settings,
+            |e, p| failure_diagnostic(dae, e, p, settings.max_wall_seconds),
             hooks,
-            |h| with(Integrator::RumocaBdf, h),
-            |h| with(Integrator::RumocaRk45, h),
+            |h| with(Integrator::RumocaBdf, h, opts),
+            |h, wall| {
+                with(
+                    Integrator::Own(SolverId::Esdirk34),
+                    h,
+                    &with_wall(opts, wall),
+                )
+            },
+            |h, wall| with(Integrator::RumocaRk45, h, &with_wall(opts, wall)),
         ),
-        own => with(Integrator::Own(own), hooks),
+        own => with(Integrator::Own(own), hooks, opts),
     }
 }
 
@@ -802,51 +816,83 @@ fn run_rk(dae: &Dae, opts: &SimOptions, hooks: &mut Hooks<'_>) -> Outcome {
     Outcome::new(result, 0.0, started.seconds())
 }
 
-/// auto: BDF で回し、[`fallback`] の規則に当たれば dopri45 で回し直す（情報 GM-I11002）。ネイティブの
-/// 型付きの道と session の道（wasm32）で同じ規則を使う。
-fn run_auto(
-    dae: &Dae,
-    settings: &ResolvedSettings,
-    hooks: &mut Hooks<'_>,
-    bdf: impl FnOnce(&mut Hooks<'_>) -> Outcome,
-    rk: impl FnOnce(&mut Hooks<'_>) -> Outcome,
-) -> Outcome {
-    let first = bdf(hooks);
-    let (reason, failed) = match &first.result {
-        Err((error, phase)) => match fallback(error, *phase) {
-            Some(reason) => (
-                reason,
-                failure_diagnostic(dae, error, *phase, settings.max_wall_seconds),
-            ),
-            None => return first,
-        },
-        Ok(_) => return first,
-    };
-    let mut second = rk(hooks);
-    second.build_seconds += first.build_seconds;
-    second.run_seconds += first.run_seconds;
-    if second.parameters.is_empty() {
-        second.parameters = first.parameters;
+/// 回し直しに渡す壁時計の予算だけを差し替えた `SimOptions`。
+fn with_wall(opts: &SimOptions, wall: Option<f64>) -> SimOptions {
+    SimOptions {
+        max_wall_seconds: wall,
+        ..opts.clone()
     }
-    second.info.insert(0, fallback_diagnostic(reason, &failed));
-    second
 }
 
-/// auto が BDF から dopri45 に切り替える理由。
+/// auto: BDF で回し、[`fallback`] の規則に当たれば esdirk34、それも止まれば dopri45 で回し直す（情報 GM-I11002。
+/// S064、ADR-0028）。回し直しには、予算（`max_wall_seconds`）のうち残りの時間を渡す。ネイティブの型付きの道と
+/// session の道（wasm32）で同じ規則を使う。
+fn run_auto(
+    settings: &ResolvedSettings,
+    describe: impl Fn(&SimError, Phase) -> Diagnostic,
+    hooks: &mut Hooks<'_>,
+    bdf: impl FnOnce(&mut Hooks<'_>) -> Outcome,
+    esdirk: impl FnOnce(&mut Hooks<'_>, Option<f64>) -> Outcome,
+    rk: impl FnOnce(&mut Hooks<'_>, Option<f64>) -> Outcome,
+) -> Outcome {
+    type Retry<'a> = Box<dyn FnOnce(&mut Hooks<'_>, Option<f64>) -> Outcome + 'a>;
+    let mut out = bdf(hooks);
+    let mut from = "BDF";
+    let mut infos = Vec::new();
+    let retries: [(&str, Retry<'_>); 2] =
+        [("esdirk34", Box::new(esdirk)), ("dopri45", Box::new(rk))];
+    for (to, retry) in retries {
+        let Err((error, phase)) = &out.result else {
+            break;
+        };
+        // 最初の回し直しは規則に当たる失敗だけ。そのあとは、時間切れ以外の失敗なら次の方法を試す
+        // （dopri45 が救える系を、esdirk34 の失敗で取りこぼさない）
+        let reason = match (fallback(error, *phase), infos.is_empty()) {
+            (Some(reason), _) => reason,
+            (None, false) if classify(error, *phase) != Kind::Timeout => Fallback::Other,
+            _ => break,
+        };
+        let spent = out.build_seconds + out.run_seconds;
+        let wall = settings.max_wall_seconds.map(|w| w - spent);
+        if wall.is_some_and(|w| w <= 0.0) {
+            break;
+        }
+        let failed = describe(error, *phase);
+        infos.push(fallback_diagnostic(reason, from, to, &failed));
+        let mut next = retry(hooks, wall);
+        next.build_seconds += out.build_seconds;
+        next.run_seconds += out.run_seconds;
+        if next.parameters.is_empty() {
+            next.parameters = out.parameters;
+        }
+        out = next;
+        from = to;
+    }
+    out.info.splice(0..0, infos);
+    out
+}
+
+/// auto が次の積分器に切り替える理由。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Fallback {
-    /// BDF が積分で失敗した（GM-E11002）
+    /// 積分で失敗した（GM-E11002）
     Integration,
     /// BDF の連続な補間（サンプラ）が受け入れた歩の端の点と食い違った（Rumoca の実行時の契約違反。GM-U0005）
     SamplerDisagreement,
+    /// BDF の受け入れた歩が丸めの幅より進まない（Rumoca の実行時の契約違反。GM-U0005。S064）
+    NoProgress,
+    /// 前の回し直しが規則以外の理由で止まった（時間切れでない）
+    Other,
 }
 
-/// BDF の失敗が dopri45 に切り替える失敗か。方向微分が作れない失敗（GM-U0004）では、組み立て・初期化でも
+/// BDF の失敗が次の積分器に切り替える失敗か。方向微分が作れない失敗（GM-U0004）では、組み立て・初期化でも
 /// 積分の途中でも切り替えない（Rumoca の Auto は初期化なら RK に切り替えるが、MSL の `GenerationOfFMUs` は
 /// RK で終了時刻まで進んで温度が動かない誤った結果になる。ADR-0015、doc/research/msl-sim-failures.md）。
 fn fallback(error: &SimError, phase: Phase) -> Option<Fallback> {
     if sampler_disagreement(error) {
         Some(Fallback::SamplerDisagreement)
+    } else if no_progress(error) {
+        Some(Fallback::NoProgress)
     } else if classify(error, phase) == Kind::Integration {
         Some(Fallback::Integration)
     } else {
@@ -854,19 +900,31 @@ fn fallback(error: &SimError, phase: Phase) -> Option<Fallback> {
     }
 }
 
-fn fallback_diagnostic(reason: Fallback, failed: &Diagnostic) -> Diagnostic {
-    let message = match reason {
-        Fallback::Integration => "BDF が積分で失敗したので、dopri45 で回し直した",
+fn fallback_diagnostic(reason: Fallback, from: &str, to: &str, failed: &Diagnostic) -> Diagnostic {
+    let why = match reason {
+        Fallback::Integration => format!("{from} が積分で失敗した"),
         Fallback::SamplerDisagreement => {
-            "BDF の補間が受け入れた歩の端の点と食い違って止まったので、dopri45 で回し直した"
+            format!("{from} の補間が受け入れた歩の端の点と食い違って止まった")
         }
+        Fallback::NoProgress => format!("{from} の歩が丸めの幅より進まず止まった"),
+        Fallback::Other => format!("{from} が止まった"),
     };
-    let mut d = Diagnostic::info(codes::RUN_SOLVER_FALLBACK, Stage::Run, message)
-        .note(format!("BDF の失敗: {}（{}）", failed.message, failed.code));
+    let code = if to == "esdirk34" {
+        codes::RUN_SOLVER_FALLBACK_ESDIRK
+    } else {
+        codes::RUN_SOLVER_FALLBACK
+    };
+    let mut d = Diagnostic::info(code, Stage::Run, format!("{why}ので、{to} で回し直した")).note(
+        format!("{from} の失敗: {}（{}）", failed.message, failed.code),
+    );
     for note in &failed.notes {
         d = d.note(note.clone());
     }
-    d.note("dopri45 は陽的な方法なので、硬い系では遅い。結果は参照結果などと比べて確かめる")
+    d.note(if to == "dopri45" {
+        "dopri45 は陽的な方法なので、硬い系では遅い。結果は参照結果などと比べて確かめる"
+    } else {
+        "esdirk34 は BDF と別の積分器なので、結果は参照結果などと比べて確かめる"
+    })
 }
 
 /// Rumoca のサンプラの食い違い（`accepted-interval left endpoint sampler state <i> is <a>, but the checked
@@ -879,6 +937,15 @@ fn sampler_disagreement(error: &SimError) -> bool {
         }
         _ => false,
     }
+}
+
+/// 受け入れた歩が丸めの幅より進まない契約違反（`accepted step … made no progress beyond roundoff`。
+/// rumoca-solver の `MeIntegrationError::Contract`）か。`Dimmer_RL` の BDF がこれで止まる（S055）。
+/// 型に印が無いので文言で見分ける。
+fn no_progress(error: &SimError) -> bool {
+    error
+        .to_string()
+        .contains("made no progress beyond roundoff")
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1868,23 +1935,156 @@ mod tests {
     }
 
     #[test]
-    fn the_fallback_is_reported_with_the_bdf_failure() {
+    fn the_fallback_is_reported_with_the_previous_failure() {
         let failed = Diagnostic::error(
             codes::RUN_INTEGRATION_FAILED,
             Stage::Run,
             "t = 0.3 で積分に失敗した",
         )
         .note("rumoca: [Integration] boom");
-        let d = fallback_diagnostic(Fallback::Integration, &failed);
-        assert_eq!(d.code, codes::RUN_SOLVER_FALLBACK);
+        let d = fallback_diagnostic(Fallback::Integration, "BDF", "esdirk34", &failed);
+        assert_eq!(d.code, codes::RUN_SOLVER_FALLBACK_ESDIRK);
         assert_eq!(d.stage, Stage::Run);
         assert!(!d.is_error());
-        assert_eq!(d.message, "BDF が積分で失敗したので、dopri45 で回し直した");
+        assert_eq!(d.message, "BDF が積分で失敗したので、esdirk34 で回し直した");
         assert_eq!(
             d.notes[0],
             "BDF の失敗: t = 0.3 で積分に失敗した（GM-E11002）"
         );
         assert_eq!(d.notes[1], "rumoca: [Integration] boom");
+        let d = fallback_diagnostic(Fallback::Other, "esdirk34", "dopri45", &failed);
+        assert_eq!(d.code, codes::RUN_SOLVER_FALLBACK);
+        assert_eq!(d.message, "esdirk34 が止まったので、dopri45 で回し直した");
+        assert!(d.notes.last().is_some_and(|n| n.contains("陽的")));
+    }
+
+    /// `Dimmer_RL` の BDF の止まり方（歩が丸めの幅より進まない）も回し直しの対象（S064）。
+    #[test]
+    fn a_step_that_makes_no_progress_is_a_fallback_reason() {
+        let stalled = SimError::from(MeSessionError::Integration(MeIntegrationError::Contract {
+            reason: "accepted step from t=5.04 to t=5.04 made no progress beyond roundoff".into(),
+        }));
+        assert_eq!(classify(&stalled, Phase::Integration), Kind::Internal);
+        assert_eq!(
+            fallback(&stalled, Phase::Integration),
+            Some(Fallback::NoProgress)
+        );
+    }
+
+    fn outcome(result: Result<(), SimError>, run_seconds: f64) -> Outcome {
+        let result = result.map(|()| SimResult {
+            times: Vec::new(),
+            names: Vec::new(),
+            data: Vec::new(),
+            n_states: 0,
+            variable_meta: Vec::new(),
+            termination: None,
+            diagnostics: Vec::new(),
+        });
+        Outcome::new(
+            result.map_err(|e| (e, Phase::Integration)),
+            0.0,
+            run_seconds,
+        )
+    }
+
+    fn integration_failure() -> SimError {
+        SimError::SolveIr("[EX004] singular".to_string()).at_stage(SimFailureStage::Integration)
+    }
+
+    fn auto_settings(wall: Option<f64>) -> ResolvedSettings {
+        let o = globe_mode_ir::SettingOrigin::Default;
+        ResolvedSettings {
+            start_time: 0.0,
+            stop_time: 1.0,
+            tolerance: 1e-6,
+            interval: 0.1,
+            solver: SolverId::Auto,
+            max_wall_seconds: wall,
+            step: None,
+            parameters: Default::default(),
+            origins: globe_mode_ir::SettingOrigins {
+                start_time: o,
+                stop_time: o,
+                tolerance: o,
+                interval: o,
+                solver: o,
+                step: None,
+            },
+        }
+    }
+
+    /// 回し直しの順序（BDF → esdirk34 → dopri45）と、残りの予算の渡し方（S064）。
+    #[test]
+    fn auto_retries_with_esdirk34_then_dopri45_and_passes_the_remaining_budget() {
+        let describe = |e: &SimError, _: Phase| {
+            Diagnostic::error(codes::RUN_INTEGRATION_FAILED, Stage::Run, e.to_string())
+        };
+        let mut on_stage = |_: ExecStage| {};
+        let seen = std::cell::RefCell::new(Vec::new());
+        let mut run = |settings: &ResolvedSettings,
+                       bdf: Result<(), SimError>,
+                       esdirk: Result<(), SimError>,
+                       rk: Result<(), SimError>| {
+            seen.borrow_mut().clear();
+            let mut hooks = Hooks::new(&mut on_stage, false);
+            run_auto(
+                settings,
+                describe,
+                &mut hooks,
+                |_| outcome(bdf, 10.0),
+                |_, wall| {
+                    seen.borrow_mut().push(("esdirk34", wall));
+                    outcome(esdirk, 20.0)
+                },
+                |_, wall| {
+                    seen.borrow_mut().push(("dopri45", wall));
+                    outcome(rk, 5.0)
+                },
+            )
+        };
+        let budget = auto_settings(Some(100.0));
+        // BDF が通れば回し直さない
+        let out = run(&budget, Ok(()), Ok(()), Ok(()));
+        assert!(out.result.is_ok() && out.info.is_empty() && seen.borrow().is_empty());
+        // BDF の失敗 → esdirk34 が通る。残りの予算 90 s を渡し、時間は足す
+        let out = run(&budget, Err(integration_failure()), Ok(()), Ok(()));
+        assert!(out.result.is_ok());
+        assert_eq!(*seen.borrow(), [("esdirk34", Some(90.0))]);
+        assert_eq!(out.run_seconds, 30.0);
+        assert_eq!(out.info.len(), 1);
+        assert!(out.info[0].message.ends_with("esdirk34 で回し直した"));
+        // esdirk34 も積分で失敗 → dopri45。残りは 100 - 10 - 20 = 70 s
+        let out = run(
+            &budget,
+            Err(integration_failure()),
+            Err(integration_failure()),
+            Ok(()),
+        );
+        assert!(out.result.is_ok());
+        assert_eq!(
+            *seen.borrow(),
+            [("esdirk34", Some(90.0)), ("dopri45", Some(70.0))]
+        );
+        assert_eq!(out.run_seconds, 35.0);
+        assert_eq!(out.info.len(), 2);
+        assert!(out.info[1].message.ends_with("dopri45 で回し直した"));
+        // esdirk34 が時間切れなら dopri45 は試さない（予算が残っていないことが多い）
+        let timeout = || SimError::from(MeSessionError::Timeout { seconds: 90.0 });
+        let out = run(&budget, Err(integration_failure()), Err(timeout()), Ok(()));
+        assert!(out.result.is_err());
+        assert_eq!(seen.borrow().len(), 1);
+        // BDF の失敗が規則に当たらなければ（時間切れ）回し直さない
+        let out = run(&budget, Err(timeout()), Ok(()), Ok(()));
+        assert!(out.result.is_err() && seen.borrow().is_empty());
+        // 予算を使い切ったら回し直さない。予算が無ければ時間に依らず回し直す
+        let spent = auto_settings(Some(10.0));
+        let out = run(&spent, Err(integration_failure()), Ok(()), Ok(()));
+        assert!(out.result.is_err() && seen.borrow().is_empty());
+        let unlimited = auto_settings(None);
+        let out = run(&unlimited, Err(integration_failure()), Ok(()), Ok(()));
+        assert!(out.result.is_ok());
+        assert_eq!(*seen.borrow(), [("esdirk34", None)]);
     }
 
     #[test]
