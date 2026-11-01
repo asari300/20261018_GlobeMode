@@ -1,6 +1,6 @@
 # 上流（Rumoca・diffsol）への報告の下書き
 
-S045（計画書の WP-H）で書いた（15 は S055）、[Rumoca](https://github.com/CogniPilot/rumoca) と [diffsol](https://github.com/martinjrobins/diffsol) に出す issue の下書き。元の記録は [../msl-sim-failures.md](../msl-sim-failures.md) の「上流に報告する候補」と、[../../roadmap.md](../../roadmap.md) の候補 8。
+S045（計画書の WP-H）で書いた（15 は S055、17〜21 は S070）、[Rumoca](https://github.com/CogniPilot/rumoca) と [diffsol](https://github.com/martinjrobins/diffsol) に出す issue の下書き。元の記録は [../msl-sim-failures.md](../msl-sim-failures.md) の「上流に報告する候補」と、[../../roadmap.md](../../roadmap.md) の候補 8。
 
 - **出すのはユーザー。エージェントは出さない**（`gh issue create` を使わない）。
 - **出すときは、再現を Rumoca の最新（main）で確かめてから出す。** 下書きの環境は Rumoca v0.10.2（rev `276e82bd`）、MSL 4.1.0。Rumoca の CLI がこの環境に無いまま書いた件は、本文に「[not verified]」と書いてある。
@@ -26,6 +26,15 @@ S045（計画書の WP-H）で書いた（15 は S055）、[Rumoca](https://gith
 | 13 | [RK で黙って誤った結果になる](13-rk-silently-wrong-result-generationoffmus.md) | Rumoca | MSL `GenerationOfFMUs` | あり（auto は RK に切り替えない） | 下書き |
 | 14 | [wasm32 で型付きの道が `Instant::now()` で panic](14-wasm32-instant-now-in-typed-route.md) | Rumoca | 本文の手順 | あり（host の道） | 下書き |
 | 15 | [BDF の補間が host の左端の検査に通らない（rtol 1e-7、1e-6 でも）](15-bdf-sampler-left-endpoint-tight-tolerance.md) | Rumoca | MSL `ThyristorBridge2Pulse_RLV_Characteristic` ほか 9 本（`--solver bdf --tolerance 1e-7`） | 一部（auto が 7/10 を dopri45 で救う） | 下書き |
+| 17 | [`redeclare function extends product`（組み込みと同じ名前）を ER132 で断る](17-er132-redeclare-function-extends-product.md) — Rumoca の穴。267 本 | Rumoca | [17](17-er132-redeclare-function-extends-product.mo)（自己完結。`product` を `prod` に変えると通る） | なし | 下書き |
+| 18 | [非 parameter の成分への `annotation(Evaluate = true)` を ER070 で断る](18-er070-evaluate-on-non-parameter-component.md) — Rumoca の穴（MLS §18.3 は誤りと言わない）。258 本 | Rumoca | [18](18-er070-evaluate-on-non-parameter-component.mo)（MSL の `Constant` だけ） | なし | 下書き |
+| 19 | [`stateSelect` の parameter 式を EI032 で断る](19-ei032-statselect-parameter-expression.md) — Rumoca の穴（MLS §4.8.1 は parameter 属性）。235 本 | Rumoca | [19](19-ei032-statselect-parameter-expression.mo)（自己完結） | なし | 下書き |
+| 20 | [extends が 2 つの関数（MSL `Files.loadResource`）の呼び出しを EF025 で断る](20-ef025-function-selection-identity.md) — Rumoca の穴（`loadResource` 分だけ。replaceable な Medium の関数は不明）。138 本 | Rumoca | [20](20-ef025-function-selection-identity.mo)（MSL だけ、自己完結の版も） | なし | 下書き（Medium の関数は要再現） |
+| 21 | [`getInstanceName()` を parameter の束縛に書くと、成分配列を含む式の if 方程式で EF004](21-ef004-getinstancename-and-if-equation-branches.md) — どちらも Rumoca の穴（原因は 2 つ）。217 本 | Rumoca | [21](21-ef004-getinstancename-and-if-equation-branches.mo)（自己完結） | なし | 下書き |
+
+## 公開ライブラリの失敗から（17〜21、S070）
+
+S063 の失敗の分類（[../libraries-2026-11-01.md](../libraries-2026-11-01.md)）の上位 5 つの Rumoca のコードを、ライブラリを使わない最小の再現にし、MLS 3.6 の該当節と omc 1.27.2（`checkModel`）で「ライブラリの誤りか Rumoca の穴か」を判定した（確認日 2026-11-01）。**5 件とも Rumoca の穴で、ライブラリ側の誤りは無かった**（omc は全部通す）。再現は Rumoca v0.10.2 の CLI（`cargo xtask fetch-rumoca`）と `globe check` の両方で同じコードが出る。20 の Medium の関数の分は最小の再現を作れていない（本文の Notes）。これらの再現ファイルは同じフォルダの `.mo` を互いに読むので、モデル名は `Rep17`〜`Rep21` で始めて重ならないようにしてある。
 
 ## 下書きにしなかったもの
 

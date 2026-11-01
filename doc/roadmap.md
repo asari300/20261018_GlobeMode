@@ -449,7 +449,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **ルート間の名前解決の原因と修正**（[research/libraries-2026-11-01.md](research/libraries-2026-11-01.md)）: ルートごとに `load_source_root_tolerant` すると、Rumoca が作るルート単位の意味の要約（`sync_source_root_semantic_summary_cache`）が別のルートの名前を引けず、`import Modelica.Units.SI` が ER002 になる（メモリから読む道・1 組にまとめた道は成功。MSL なしの最小の 2 ルートでも再現）。`Checker::new` は 2 ルート以上のとき `parse_source_root_with_cache` で読んで 1 つの組にまとめるようにした（試験 `globe-mode-frontend/tests/multi_root.rs`）。xtask の MSL の symlink をやめ、ライブラリだけのミラー（読めないファイルを除く）にした。DeltaRobot の funnel は run 41248143483 と 21 本とも同じ。
 - **失敗 1,781 本の分類**（run 41250636800・41248143483 の artifact）: S1 の `GM-E1001` 617、S3 の `GM-E3001` 442、GM-U 652（S4 402・S5 250）。上位は ER132（`redeclare function extends product` を断る、267 本）、ER070（`Dzero` の `Evaluate`、258 本）、EI032（`stateSelect`、235 本）、EF004（`getInstanceName()` ほか、217 本）。取得しない依存を名指す失敗は AixLib 10・ClaRa 2、MSL 4.1.0 で名前が消えた失敗は AixLib 1 本。ライブラリごとの上位 5 つは research に表で書いた。
 - **ClaRa の 5 本**: BOM・大文字小文字の迂回で除いたファイルは原因でない（除いたのは `physicalMills` の 53 ファイルで、例題は使わない）。3 本は record の成分が TILMedia の ExternalObject（ER023）、2 本は取得しない SMArtInt（ER003）。
-- 持ち越し: ER132・ER070・ER023・EI032 は Rumoca 側の検査（上流に出していない）。ルートが 2 つ以上のときの要約を作らない分の初回の速さ。~~MSL 4.0.0 で回し直したときの版の差の数~~（S067 で済）。
+- 持ち越し: ~~ER132・ER070・EI032 は Rumoca 側の検査（上流に出していない）~~（S070 で下書きにした。EF025・EF004 も。上流にはユーザーが出す）。ER023（ClaRa の record の成分が ExternalObject）は未判定。ルートが 2 つ以上のときの要約を作らない分の初回の速さ。~~MSL 4.0.0 で回し直したときの版の差の数~~（S067 で済）。
 
 **S017 の最初にやること（ユーザーの指示、2026-10-22）**: Claude の実行場所を Raspberry Pi（aarch64）に移す。RPi での最初のセッションでは、下の候補より先に次を片付ける。**S017 で済んだ（上）。**
 
@@ -467,6 +467,13 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 7. **S10 の初期化のヤコビ行列の階数**（持ち越し）: `Invalid.UngroundedLoop` は実行しても誤りにならない。Rumoca に公開の API が無い。
 8. **Rumoca の制約を上流に報告する**（ユーザーが出す）: S011 までの分に、S012 の分（型付きの道の `Instant::now()`（wasm）、Cranelift の可否の関数 `admitted_native_execution_backend` が非公開、diffsol の `ClosureNoJac` が非公開、[research/msl-sim-failures.md](research/msl-sim-failures.md) の 9 つ: インデックス 2 以上の EL005、サンプラの端点の判定の丸め、Solve IR への変換が終わらず予算の外、理想スイッチで射影の収束の判定、fixed = true の代数変数から状態を解かない、RK で黙って誤った結果、RK の道で壁時計の予算が守られない、関数呼び出しの Solve IR の契約、同時イベントと clock）と、S016 の 10・11（`DrumBoiler`: 実行時オブジェクトの組み立てで巨大な根の条件の構造解析が終わらない、lowering で assert の登録を何度も写す。`EngineV6`: 初期化方程式を関係式の既定値で解き、反転しても解き直さない。小さい再現 R1 あり）を足す。**S045 で下書きを [research/upstream/](research/upstream/README.md) に 14 件書いた**（Rumoca 11 件・diffsol 3 件。ユーザーが出す）。
 9. **持ち越し**: S9 を omc と照らして詰める、閉包の切り替えの残り（初めて検査するモデルも速くする）、`Checker` のメモリの上限（**S051 で実測**: wasm の線形メモリは 566 本の通しで 336 本目に 3.8 GiB、[research/resources-2026-10-31.md](research/resources-2026-10-31.md)。**S040 の [ADR-0023](adr/0023-desktop-and-web-process-layout.md) で決めた**: 内側に上限を入れず、別プロセスのワーカーを外から止めて作り直す。検査は最大 RSS 7.1 GiB。**S054 で `globe --library` の分割読み込みを済ませた**: `ChuaCircuit` の check は 1,493 → 128 MiB、[ADR-0025](adr/0025-native-library-closure.md)）、字面の 0 除算の振り分け、S8 の残り、`class_index` の残り。
+
+### S070（P3、2026-11-01）で済んだこと
+
+- **公開ライブラリの失敗の上位 5 つを上流への下書きにした**（S063 の持ち越し。[research/upstream/README.md](research/upstream/README.md) の 17〜21、[解説書](sessions/S070-rumoca-upstream-libs/解説書.md)、[research](research/libraries-2026-11-01.md) の「原因の中身」）: ER132（267 本）、ER070（258）、EI032（235）、EF025（138）、EF004（217）を、ライブラリに依存しない最小の再現 `.mo`（10〜50 行）にし、`globe check` と Rumoca v0.10.2 の CLI の両方で同じコードが出ること、omc 1.27.2 の `checkModel` が通ることを確かめ、MLS 3.6 の該当節で判定した。
+- **判定**: 5 件とも **Rumoca の穴**で、ライブラリ側の誤りは無かった。ER132 は組み込みと同じ名前の関数（`product` ほか）の `redeclare function extends`（MLS §7.3.1）、ER070 は非 parameter の成分への Evaluate（MLS §18.3 は誤りと言わず、Rumoca の節番号 §18.6 も誤り）、EI032 は parameter 式の stateSelect（MLS §4.8.1）、EF025 は extends が 2 つの関数（MSL `Files.loadResource`。MLS §7.1.1）、EF004 は parameter の束縛の `getInstanceName()`（MLS §3.7.4.6）と成分配列を含む式の行数の数え違い（MLS §10.6.4）。EF025 の replaceable な Medium の関数の分（約 85 本）は最小の再現を作れず不明のまま。
+- 製品コード・xtask・CI は変えていない。issue は出していない（出すのはユーザー。出す前に Rumoca の最新で確かめる）。
+- 持ち越し: 下書きを Rumoca の main で確かめて出す（ユーザー）。EF025 の Medium の関数の再現。ER023・ER003（ClaRa）・EI006（条件付き成分の条件、Buildings・IBPSA）・ED019・ED008 の判定。
 
 ### S067（P3、2026-11-01）で済んだこと
 
