@@ -679,15 +679,14 @@ fn run_typed(
         SolverId::Bdf => run_bdf(dae, opts, settings, hooks),
         SolverId::Dopri45 => run_rk(dae, opts, hooks),
         SolverId::Auto => run_auto(
-            settings,
             |e, p| failure_diagnostic(dae, e, p, settings.max_wall_seconds),
             hooks,
             |h| run_bdf(dae, opts, settings, h),
-            |h, wall| {
+            |h| {
                 let integrator = session::Integrator::Own(SolverId::Esdirk34);
-                session::run(dae, &with_wall(opts, wall), settings, integrator, h)
+                session::run(dae, opts, settings, integrator, h)
             },
-            |h, wall| run_rk(dae, &with_wall(opts, wall), h),
+            |h| run_rk(dae, opts, h),
         ),
         own => session::run(dae, opts, settings, session::Integrator::Own(own), hooks),
     }
@@ -708,18 +707,11 @@ fn run_session(
         SolverId::Bdf => with(Integrator::RumocaBdf, hooks, opts),
         SolverId::Dopri45 => with(Integrator::RumocaRk45, hooks, opts),
         SolverId::Auto => run_auto(
-            settings,
             |e, p| failure_diagnostic(dae, e, p, settings.max_wall_seconds),
             hooks,
             |h| with(Integrator::RumocaBdf, h, opts),
-            |h, wall| {
-                with(
-                    Integrator::Own(SolverId::Esdirk34),
-                    h,
-                    &with_wall(opts, wall),
-                )
-            },
-            |h, wall| with(Integrator::RumocaRk45, h, &with_wall(opts, wall)),
+            |h| with(Integrator::Own(SolverId::Esdirk34), h, opts),
+            |h| with(Integrator::RumocaRk45, h, opts),
         ),
         own => with(Integrator::Own(own), hooks, opts),
     }
@@ -816,26 +808,18 @@ fn run_rk(dae: &Dae, opts: &SimOptions, hooks: &mut Hooks<'_>) -> Outcome {
     Outcome::new(result, 0.0, started.seconds())
 }
 
-/// 回し直しに渡す壁時計の予算だけを差し替えた `SimOptions`。
-fn with_wall(opts: &SimOptions, wall: Option<f64>) -> SimOptions {
-    SimOptions {
-        max_wall_seconds: wall,
-        ..opts.clone()
-    }
-}
-
 /// auto: BDF で回し、[`fallback`] の規則に当たれば esdirk34、それも止まれば dopri45 で回し直す（情報 GM-I11002。
-/// S064、ADR-0028）。回し直しには、予算（`max_wall_seconds`）のうち残りの時間を渡す。ネイティブの型付きの道と
-/// session の道（wasm32）で同じ規則を使う。
+/// S064、ADR-0028）。回し直しにも元の予算（`max_wall_seconds`）をそのまま渡す（残りの時間を渡すと、BDF の
+/// 組み立てと積分に時間がかかる系で回し直せなくなる。ADR-0028 (c)）。ネイティブの型付きの道と session の道
+/// （wasm32）で同じ規則を使う。
 fn run_auto(
-    settings: &ResolvedSettings,
     describe: impl Fn(&SimError, Phase) -> Diagnostic,
     hooks: &mut Hooks<'_>,
     bdf: impl FnOnce(&mut Hooks<'_>) -> Outcome,
-    esdirk: impl FnOnce(&mut Hooks<'_>, Option<f64>) -> Outcome,
-    rk: impl FnOnce(&mut Hooks<'_>, Option<f64>) -> Outcome,
+    esdirk: impl FnOnce(&mut Hooks<'_>) -> Outcome,
+    rk: impl FnOnce(&mut Hooks<'_>) -> Outcome,
 ) -> Outcome {
-    type Retry<'a> = Box<dyn FnOnce(&mut Hooks<'_>, Option<f64>) -> Outcome + 'a>;
+    type Retry<'a> = Box<dyn FnOnce(&mut Hooks<'_>) -> Outcome + 'a>;
     let mut out = bdf(hooks);
     let mut from = "BDF";
     let mut infos = Vec::new();
@@ -852,14 +836,9 @@ fn run_auto(
             (None, false) if classify(error, *phase) != Kind::Timeout => Fallback::Other,
             _ => break,
         };
-        let spent = out.build_seconds + out.run_seconds;
-        let wall = settings.max_wall_seconds.map(|w| w - spent);
-        if wall.is_some_and(|w| w <= 0.0) {
-            break;
-        }
         let failed = describe(error, *phase);
         infos.push(fallback_diagnostic(reason, from, to, &failed));
-        let mut next = retry(hooks, wall);
+        let mut next = retry(hooks);
         next.build_seconds += out.build_seconds;
         next.run_seconds += out.run_seconds;
         if next.parameters.is_empty() {
@@ -1992,99 +1971,61 @@ mod tests {
         SimError::SolveIr("[EX004] singular".to_string()).at_stage(SimFailureStage::Integration)
     }
 
-    fn auto_settings(wall: Option<f64>) -> ResolvedSettings {
-        let o = globe_mode_ir::SettingOrigin::Default;
-        ResolvedSettings {
-            start_time: 0.0,
-            stop_time: 1.0,
-            tolerance: 1e-6,
-            interval: 0.1,
-            solver: SolverId::Auto,
-            max_wall_seconds: wall,
-            step: None,
-            parameters: Default::default(),
-            origins: globe_mode_ir::SettingOrigins {
-                start_time: o,
-                stop_time: o,
-                tolerance: o,
-                interval: o,
-                solver: o,
-                step: None,
-            },
-        }
-    }
-
-    /// 回し直しの順序（BDF → esdirk34 → dopri45）と、残りの予算の渡し方（S064）。
+    /// 回し直しの順序（BDF → esdirk34 → dopri45）。時間は足し、予算は回し直しにも元のまま渡る（S064）。
     #[test]
-    fn auto_retries_with_esdirk34_then_dopri45_and_passes_the_remaining_budget() {
+    fn auto_retries_with_esdirk34_then_dopri45() {
         let describe = |e: &SimError, _: Phase| {
             Diagnostic::error(codes::RUN_INTEGRATION_FAILED, Stage::Run, e.to_string())
         };
         let mut on_stage = |_: ExecStage| {};
         let seen = std::cell::RefCell::new(Vec::new());
-        let mut run = |settings: &ResolvedSettings,
-                       bdf: Result<(), SimError>,
-                       esdirk: Result<(), SimError>,
-                       rk: Result<(), SimError>| {
-            seen.borrow_mut().clear();
-            let mut hooks = Hooks::new(&mut on_stage, false);
-            run_auto(
-                settings,
-                describe,
-                &mut hooks,
-                |_| outcome(bdf, 10.0),
-                |_, wall| {
-                    seen.borrow_mut().push(("esdirk34", wall));
-                    outcome(esdirk, 20.0)
-                },
-                |_, wall| {
-                    seen.borrow_mut().push(("dopri45", wall));
-                    outcome(rk, 5.0)
-                },
-            )
-        };
-        let budget = auto_settings(Some(100.0));
+        let mut run =
+            |bdf: Result<(), SimError>, esdirk: Result<(), SimError>, rk: Result<(), SimError>| {
+                seen.borrow_mut().clear();
+                let mut hooks = Hooks::new(&mut on_stage, false);
+                run_auto(
+                    describe,
+                    &mut hooks,
+                    |_| outcome(bdf, 10.0),
+                    |_| {
+                        seen.borrow_mut().push("esdirk34");
+                        outcome(esdirk, 20.0)
+                    },
+                    |_| {
+                        seen.borrow_mut().push("dopri45");
+                        outcome(rk, 5.0)
+                    },
+                )
+            };
         // BDF が通れば回し直さない
-        let out = run(&budget, Ok(()), Ok(()), Ok(()));
+        let out = run(Ok(()), Ok(()), Ok(()));
         assert!(out.result.is_ok() && out.info.is_empty() && seen.borrow().is_empty());
-        // BDF の失敗 → esdirk34 が通る。残りの予算 90 s を渡し、時間は足す
-        let out = run(&budget, Err(integration_failure()), Ok(()), Ok(()));
+        // BDF の失敗 → esdirk34 が通る。時間は足す
+        let out = run(Err(integration_failure()), Ok(()), Ok(()));
         assert!(out.result.is_ok());
-        assert_eq!(*seen.borrow(), [("esdirk34", Some(90.0))]);
+        assert_eq!(*seen.borrow(), ["esdirk34"]);
         assert_eq!(out.run_seconds, 30.0);
         assert_eq!(out.info.len(), 1);
         assert!(out.info[0].message.ends_with("esdirk34 で回し直した"));
-        // esdirk34 も積分で失敗 → dopri45。残りは 100 - 10 - 20 = 70 s
+        // esdirk34 も積分で失敗 → dopri45
         let out = run(
-            &budget,
             Err(integration_failure()),
             Err(integration_failure()),
             Ok(()),
         );
         assert!(out.result.is_ok());
-        assert_eq!(
-            *seen.borrow(),
-            [("esdirk34", Some(90.0)), ("dopri45", Some(70.0))]
-        );
+        assert_eq!(*seen.borrow(), ["esdirk34", "dopri45"]);
         assert_eq!(out.run_seconds, 35.0);
         assert_eq!(out.info.len(), 2);
         assert!(out.info[1].message.ends_with("dopri45 で回し直した"));
-        // esdirk34 が時間切れなら dopri45 は試さない（予算が残っていないことが多い）
+        // esdirk34 が時間切れなら dopri45 は試さない
         let timeout = || SimError::from(MeSessionError::Timeout { seconds: 90.0 });
-        let out = run(&budget, Err(integration_failure()), Err(timeout()), Ok(()));
+        let out = run(Err(integration_failure()), Err(timeout()), Ok(()));
         assert!(out.result.is_err());
-        assert_eq!(seen.borrow().len(), 1);
+        assert_eq!(*seen.borrow(), ["esdirk34"]);
         // BDF の失敗が規則に当たらなければ（時間切れ）回し直さない
-        let out = run(&budget, Err(timeout()), Ok(()), Ok(()));
+        let out = run(Err(timeout()), Ok(()), Ok(()));
         assert!(out.result.is_err() && seen.borrow().is_empty());
-        // 予算を使い切ったら回し直さない。予算が無ければ時間に依らず回し直す
-        let spent = auto_settings(Some(10.0));
-        let out = run(&spent, Err(integration_failure()), Ok(()), Ok(()));
-        assert!(out.result.is_err() && seen.borrow().is_empty());
-        let unlimited = auto_settings(None);
-        let out = run(&unlimited, Err(integration_failure()), Ok(()), Ok(()));
-        assert!(out.result.is_ok());
-        assert_eq!(*seen.borrow(), [("esdirk34", None)]);
     }
 
     #[test]
