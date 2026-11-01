@@ -18,7 +18,8 @@ S053 でユーザーと対話して決めた既定の形。実装は `src/Rust/m
 | 空白 | 二項演算子（`= := + - * / < > <= >= == <> .+ .- .* ./ .^`）の両側に 1 つ。カンマは後ろだけ。`^` `:` `.` は詰める。単項の `-` `+` は詰める。括弧の内側に空白なし。識別子と `(` `[` は詰める（`der(x)`、`x[1]`、`annotation(`）。`if (` `then (` など予約語の後ろの `(` は空ける |
 | 修飾子の `=` | `start = 1`（詰めない。リポジトリの Modelica と同じ） |
 | 行末 | 行末の空白を消し、末尾に改行 1 つ。改行コードは入力に CRLF があれば CRLF |
-| 触らないもの | 文字列とコメントの中身。行コメントは元の行に残す |
+| `Documentation` の HTML（S062） | `Documentation(…)` の `name = "…"` の文字列がタグを含めば、開きの `"` の後で改行し、HTML を 1 段下げて書き、閉じの `"` を引数の段に置く。ブロックの要素は 1 行ずつで中身を 1 段下げ、中身が文字とインラインの要素（`b` `i` `a` `code` `span` など）だけなら 1 行（`<h1>The Infomation</h1>`）。先頭の文字は開きタグの行に続ける（`<ul>List`）。`<html><head>…</head><body>` と `</body></html>` は 1 行にまとめる。変えるのは空白だけ（文字の中の空白の並びは 1 つに畳む）。`<pre>` `<textarea>` `<script>` `<style>` を含むもの、`<` の閉じないものは触らない。lint はしない。`--no-format-html`、`Options.format_html = false`、LSP の `formatHtml`、VS Code の `globeMode.formatHtml` で止められる |
+| 触らないもの | 上の HTML のほかは、文字列とコメントの中身。行コメントは元の行に残す |
 | 壊れた入力 | 括弧や `end` が合わない・`;` が抜けているときは、本文に触らず `Err`（CLI は終了コード 1） |
 
 安全装置: 整形の出力を字句解析し直し、空白以外のトークン列が意図した列（並べ替えと `origin` の補完を適用したもの）と一致しなければ `Err` にして本文を変えない。
@@ -70,6 +71,7 @@ end Objects_Before;
 | `class-name-pascal-case` | `GM-L0002` | クラス名が大文字で始まらない |
 | `missing-description` | `GM-L0003` | 長いクラス（`end` を持つもの）に説明の文字列が無い |
 | `annotation-order` | `GM-L0004`（通知の重さ） | `annotation(…)` と `Documentation(…)` の引数が 1 章の順でない（S061）。整形で直る |
+| `connect-type-mismatch` | `GM-L0005` | `connect(a, b)` の両端のコネクタの型が合わない（S062）。名前が違っても中身（変数の名前・flow / stream・型）が同じなら合うとみなす（`PositivePin` と `NegativePin`、`RealInput` と `RealOutput`）。型を解決できない端（`--library` で読んだ MSL の型、開いていないファイルの型）は判定しない。`globe lint` は渡したファイルをまとめて見る |
 
 `globe lint --disable <rule>` で止められる。意味の検査（S0〜S10）は従来どおり `globe check` と LSP の診断。
 

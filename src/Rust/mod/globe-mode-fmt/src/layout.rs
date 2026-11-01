@@ -243,7 +243,21 @@ impl Renderer<'_> {
             self.cur.push(' ');
         }
         self.prev_unary = is_unary(self.prev.as_ref(), t);
-        self.cur.push_str(t.text);
+        if t.kind == Kind::Html {
+            // 開きの `"` の後で改行し、中身を 1 段下げ、閉じの `"` を元の段に置く
+            let pad = |d: usize| " ".repeat(d * self.opt.indent);
+            self.cur.push('"');
+            for (d, line) in crate::html::pretty(t.text).unwrap_or_default() {
+                self.cur.push('\n');
+                self.cur.push_str(&pad(indent + 1 + d));
+                self.cur.push_str(&line);
+            }
+            self.cur.push('\n');
+            self.cur.push_str(&pad(indent));
+            self.cur.push('"');
+        } else {
+            self.cur.push_str(t.text);
+        }
         if t.kind == Kind::LineComment {
             self.after_line_comment = true;
         }
@@ -268,7 +282,7 @@ impl Renderer<'_> {
         for n in nodes {
             match n {
                 Node::Leaf(t) => {
-                    if t.kind == Kind::LineComment || t.text.contains('\n') {
+                    if matches!(t.kind, Kind::LineComment | Kind::Html) || t.text.contains('\n') {
                         return None;
                     }
                     self.push_token(t, 0);

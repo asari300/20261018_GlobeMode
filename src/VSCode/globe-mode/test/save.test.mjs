@@ -8,7 +8,7 @@ test("保存時の整形と、globe/format への振り替え", async () => {
   let ext;
   const calls = [];
   const settings = {
-    globeMode: { formatOnSave: false, blankAroundSections: true, libraries: [], path: "globe" },
+    globeMode: { formatOnSave: false, blankAroundSections: true, formatHtml: true, libraries: [], path: "globe" },
     editor: { tabSize: 2 },
   };
   const vscode = {
@@ -59,7 +59,7 @@ test("保存時の整形と、globe/format への振り替え", async () => {
   const doc = (text) => ({ getText: () => text, positionAt: (n) => n });
   settings.globeMode.blankAroundSections = false;
   const edits = await ext.formatEdits(doc("model M end M;"), { tabSize: 2 });
-  assert.deepEqual(requests.at(-1), ["globe/format", { text: "model M end M;", indent: 2, blankAroundSections: false }]);
+  assert.deepEqual(requests.at(-1), ["globe/format", { text: "model M end M;", indent: 2, blankAroundSections: false, formatHtml: true }]);
   assert.equal(edits[0].text, "整形後\n");
   assert.deepEqual(await ext.formatEdits(doc("model M (end M;"), { tabSize: 2 }), []); // 壊れていれば変えない
   assert.deepEqual(await ext.formatEdits(doc("整形後\n"), { tabSize: 2 }), []); // 変わらなければ空

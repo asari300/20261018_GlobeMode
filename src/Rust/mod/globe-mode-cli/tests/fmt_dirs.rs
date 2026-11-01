@@ -101,3 +101,35 @@ fn piped_stdin_still_formats_stdin() {
     let o = c.wait_with_output().unwrap();
     assert_eq!(stdout(&o), "model A\n\n  Real x(start = 1);\n\nend A;\n");
 }
+
+#[test]
+fn lint_reports_connect_with_different_types_across_files() {
+    let d = std::env::temp_dir().join(format!("globe-lint-types-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&d);
+    fs::create_dir_all(&d).unwrap();
+    fs::write(
+        d.join("Parts.mo"),
+        "package Parts \"p\"\n\n  connector Pin \"p\"\n    Real v;\n    flow Real i;\n  end Pin;\n\n  \
+         connector Port \"p\"\n    Real T;\n    flow Real Q;\n  end Port;\n\n  \
+         model R \"p\"\n    Pin p;\n    Port h;\n  end R;\n\nend Parts;\n",
+    )
+    .unwrap();
+    fs::write(
+        d.join("Top.mo"),
+        "model Top \"t\"\n\n  Parts.R a;\n  Parts.R b;\n\nequation\n\n  connect(a.p, b.p);\n  connect(a.p, b.h);\n\nend Top;\n",
+    )
+    .unwrap();
+    let o = globe(&d, &["lint", "."]);
+    let out = stdout(&o);
+    assert_eq!(o.status.code(), Some(1), "{out}");
+    assert!(
+        out.contains(&format!(
+            "{}:9:11: connect-type-mismatch: a.p は Parts.Pin、b.h は Parts.Port で、型が合わない",
+            rel("Top.mo")
+        )),
+        "{out}"
+    );
+    assert!(out.contains("1 件（2 ファイル）"), "{out}");
+    let o = globe(&d, &["lint", "--disable", "connect-type-mismatch", "."]);
+    assert_eq!(o.status.code(), Some(0), "{}", stdout(&o));
+}

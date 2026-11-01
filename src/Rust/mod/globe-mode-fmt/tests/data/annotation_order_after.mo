@@ -28,9 +28,21 @@ annotation(
     }
   ),
   Documentation(
-    __OpenModelica_infoHeader = "<html><head></head><body>the Header</body></html>",
-    info = "<html><head></head><body>The Infomation</body></html>",
-    revisions = "<html><head></head><body>The Revision</body></html>"
+    __OpenModelica_infoHeader = "
+      <html><head></head><body>
+        the Header
+      </body></html>
+    ",
+    info = "
+      <html><head></head><body>
+        The Infomation
+      </body></html>
+    ",
+    revisions = "
+      <html><head></head><body>
+        The Revision
+      </body></html>
+    "
   ),
   uses(Modelica(version = "4.1.0"))
 );

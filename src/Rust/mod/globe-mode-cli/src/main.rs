@@ -104,6 +104,9 @@ enum Command {
         /// `equation` / `algorithm` の前後に空行を足さない（S061）
         #[arg(long)]
         no_blank_around_sections: bool,
+        /// `Documentation(…)` の HTML の文字列を整えない（S062）
+        #[arg(long)]
+        no_format_html: bool,
         /// 標準入力のとき、結果を JSON（{"ok":bool,"text":…,"error":…}）で返す
         #[arg(long)]
         json: bool,
@@ -232,6 +235,7 @@ fn main() -> ExitCode {
             width,
             no_insert_origin,
             no_blank_around_sections,
+            no_format_html,
             json,
         } => fmt(
             &files,
@@ -241,6 +245,7 @@ fn main() -> ExitCode {
                 width,
                 insert_origin: !no_insert_origin,
                 blank_around_sections: !no_blank_around_sections,
+                format_html: !no_format_html,
             },
             json,
         ),
@@ -510,13 +515,40 @@ fn lint(files: &[PathBuf], disable: &[String], json: bool) -> ExitCode {
         };
         vec![("<stdin>".to_string(), text)]
     };
+    // S062: 渡したファイルをまとめて 1 つのワークスペースにし、connect の型を突き合わせる
+    let check_types = !disable.iter().any(|d| d == "connect-type-mismatch");
+    let mut ws = Workspace::new();
+    if check_types {
+        for (name, text) in &inputs {
+            ws.set_file(name, text.clone());
+        }
+    }
     let mut all = Vec::new();
     for (name, text) in &inputs {
-        for m in globe_mode_fmt::lint(text, &options) {
-            if !json {
-                println!("{name}:{}:{}: {}: {}", m.line, m.column, m.rule, m.message);
+        let mut found: Vec<(usize, usize, &str, String)> = globe_mode_fmt::lint(text, &options)
+            .into_iter()
+            .map(|m| (m.line, m.column, m.rule, m.message))
+            .collect();
+        if check_types {
+            for m in ws.connect_mismatches(name) {
+                let lc = globe_mode_core::line_col(text, m.connect.range.start);
+                found.push((
+                    lc.line as usize,
+                    lc.column as usize,
+                    "connect-type-mismatch",
+                    format!(
+                        "{} は {}、{} は {} で、型が合わない",
+                        m.connect.lhs, m.lhs_type, m.connect.rhs, m.rhs_type
+                    ),
+                ));
             }
-            all.push(serde_json::json!({"file": name, "rule": m.rule, "line": m.line, "column": m.column, "message": m.message}));
+            found.sort();
+        }
+        for (line, column, rule, message) in found {
+            if !json {
+                println!("{name}:{line}:{column}: {rule}: {message}");
+            }
+            all.push(serde_json::json!({"file": name, "rule": rule, "line": line, "column": column, "message": message}));
         }
     }
     if json {

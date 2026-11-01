@@ -7,6 +7,8 @@ pub enum Kind {
     Ident,
     Number,
     Str,
+    /// `Documentation(…)` の中の HTML の文字列（S062）。中身の空白を整える。字句としては `Str`
+    Html,
     LineComment,
     BlockComment,
     Punct,

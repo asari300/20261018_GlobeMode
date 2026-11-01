@@ -25,7 +25,7 @@ use globe_mode_ir::UnknownKind;
 
 pub use globe_mode_core::{Diagnostic, Stage};
 pub use globe_mode_frontend::CompiledModel;
-pub use globe_mode_graph::{ConnectGraph, GraphError};
+pub use globe_mode_graph::{ConnectGraph, ConnectMismatch, GraphError};
 pub use globe_mode_ir::{FlatSummary, Outline, SimRun};
 pub use globe_mode_protocol::{
     CheckResponse, ColumnsLayout, ParametersResponse, SimulateRequest, SimulateResponse,
@@ -231,6 +231,14 @@ impl Workspace {
     /// connect グラフ（flatten しない）。`depth` は展開する深さ（1 は直下の部品だけ）。
     pub fn graph(&mut self, model: &str, depth: u32) -> Result<ConnectGraph, GraphError> {
         self.db.connect_graph(model, depth)
+    }
+
+    /// ファイルの connect のうち、両端のコネクタの型が合わないもの（S062）。ワークスペースのファイルの型だけを見る。
+    pub fn connect_mismatches(&mut self, path: &str) -> Vec<ConnectMismatch> {
+        let Some(Ok(outline)) = self.db.outline(path).cloned() else {
+            return Vec::new();
+        };
+        globe_mode_graph::connect_mismatches(self.db.class_index(), &outline)
     }
 
     /// DAE まで変換したモデル（`overrides` はパラメータ名 → 値）。失敗の診断の位置は元の本文の中。

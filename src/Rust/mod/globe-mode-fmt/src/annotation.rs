@@ -84,7 +84,7 @@ pub fn misordered(nodes: &[Node<'_>], out: &mut Vec<(usize, &'static str)>) {
     }
 }
 
-pub fn apply(nodes: &mut [Node<'_>], insert_origin: bool) {
+pub fn apply(nodes: &mut [Node<'_>], insert_origin: bool, format_html: bool) {
     let mut prev: Option<&str> = None;
     for n in nodes.iter_mut() {
         match n {
@@ -100,13 +100,30 @@ pub fn apply(nodes: &mut [Node<'_>], insert_origin: bool) {
                         for (k, a) in args.iter_mut().enumerate() {
                             a.sep = (k + 1 < n).then_some(",");
                         }
+                        if format_html && name == "Documentation" {
+                            mark_html(args);
+                        }
                     }
                 }
                 prev = None;
                 for a in args.iter_mut() {
-                    apply(&mut a.nodes, insert_origin);
+                    apply(&mut a.nodes, insert_origin, format_html);
                 }
             }
+        }
+    }
+}
+
+/// `name = "…"` の文字列が HTML として整えられるなら、字句の種類を `Html` にする（S062）。
+fn mark_html(args: &mut [Arg<'_>]) {
+    for a in args {
+        if let [Node::Leaf(n), Node::Leaf(eq), Node::Leaf(s)] = a.nodes.as_mut_slice()
+            && n.kind == Kind::Ident
+            && eq.is("=")
+            && s.kind == Kind::Str
+            && crate::html::pretty(s.text).is_some()
+        {
+            s.kind = Kind::Html;
         }
     }
 }
