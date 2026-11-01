@@ -2,7 +2,7 @@
   "name": "globe-mode",
   "displayName": "GlobeMode Modelica",
   "description": "Modelica の整形・lint・補完・検査を GlobeMode の `globe lsp` で行う",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "publisher": "globe-mode",
   "license": "MIT OR Apache-2.0",
   "repository": {
@@ -56,6 +56,11 @@
           "type": "boolean",
           "default": true,
           "description": "equation / algorithm の前後に空行を置く（オフにすると、書いた空行だけが残る）"
+        },
+        "globeMode.formatHtml": {
+          "type": "boolean",
+          "default": true,
+          "description": "Documentation の info / revisions などの HTML を改行とインデントで整える（空白だけを変える）"
         }
       }
     },

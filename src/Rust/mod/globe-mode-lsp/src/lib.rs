@@ -11,7 +11,7 @@
 //! | `globe/check` | `{model}` | `CheckResponse` の JSON |
 //! | `globe/simulate` | `{request}`（`SimulateRequest` の JSON） | `SimulateResponse` の JSON |
 //! | `globe/graph` | `{model, depth}` | graphology の JSON（`ConnectGraph::to_graphology`） |
-//! | `globe/format` | `{text, indent?, insertOrigin?, blankAroundSections?}` | 整形後の本文（S053。壊れていれば -32000） |
+//! | `globe/format` | `{text, indent?, insertOrigin?, blankAroundSections?, formatHtml?}` | 整形後の本文（S053。壊れていれば -32000） |
 //! | `globe/lint` | `{text}` | `[{rule, line, column, message}]`（S053） |
 //!
 //! params が読めなければ -32602、モデルが無いなど計算の失敗は -32000（`message` に理由）。
@@ -121,6 +121,7 @@ impl Server {
                     indent: opts["tabSize"].as_u64().map_or(2, |n| n as usize),
                     insert_origin: opts["insertOrigin"].as_bool().unwrap_or(true),
                     blank_around_sections: opts["blankAroundSections"].as_bool().unwrap_or(true),
+                    format_html: opts["formatHtml"].as_bool().unwrap_or(true),
                     ..globe_mode_fmt::Options::default()
                 };
                 let edit = self.texts.get(&uri).and_then(|text| {
@@ -174,6 +175,7 @@ impl Server {
                         blank_around_sections: params["blankAroundSections"]
                             .as_bool()
                             .unwrap_or(true),
+                        format_html: params["formatHtml"].as_bool().unwrap_or(true),
                         ..globe_mode_fmt::Options::default()
                     };
                     match globe_mode_fmt::format(text, &options) {
@@ -235,6 +237,20 @@ impl Server {
         };
         let key = normalize_path(path);
         let mut out: Vec<lsp_types::Diagnostic> = lint_diagnostics(text);
+        // S062: 型の食い違う connect は、ワークスペースの型で解決できたものだけ warning にする
+        for m in self.ws.connect_mismatches(path) {
+            out.push(lsp_types::Diagnostic {
+                range: range(text, m.connect.range),
+                severity: Some(DiagnosticSeverity::WARNING),
+                code: Some(NumberOrString::String("GM-L0005".to_string())),
+                source: Some("globe-mode".to_string()),
+                message: format!(
+                    "{} は {}、{} は {} で、型が合わない (connect-type-mismatch)",
+                    m.connect.lhs, m.lhs_type, m.connect.rhs, m.rhs_type
+                ),
+                ..Default::default()
+            });
+        }
         for model in models {
             for d in self.ws.check(&model).diagnostics {
                 if d.file.as_deref().is_none_or(|f| f == key) {
@@ -506,6 +522,12 @@ mod tests {
         assert_eq!(order[0].severity, Some(DiagnosticSeverity::INFORMATION));
 
         let mut s = Server::new(&[]).unwrap();
+        // S062: formatHtml の切り替え
+        let html = "model H \"d\"\n  annotation(Documentation(info = \"<html><body><p>x</p></body></html>\"));\nend H;\n";
+        for (on, want) in [(true, "info = \"\n"), (false, "info = \"<html><body>")] {
+            let r = s.handle(json!({"id": 1, "method": "globe/format", "params": {"text": html, "formatHtml": on}}));
+            assert!(r[0]["result"].as_str().unwrap().contains(want), "{}", r[0]);
+        }
         let r = s.handle(json!({"id": 1, "method": "globe/format", "params": {"text": src, "blankAroundSections": false}}));
         let out = r[0]["result"].as_str().unwrap();
         assert!(out.contains("  Real x;\nequation\n  x = 1;"), "{out}");
@@ -593,6 +615,29 @@ mod tests {
             -32601
         );
         assert!(s.handle(json!({"method": "foo/bar"})).is_empty());
+    }
+
+    #[test]
+    fn connect_with_different_types_is_a_warning() {
+        let mut s = Server::new(&[]).unwrap();
+        let src = "connector Pin\n  Real v;\n  flow Real i;\nend Pin;\n\
+                   connector Port\n  Real T;\n  flow Real Q;\nend Port;\n\
+                   model R\n  Pin p;\n  Port h;\nend R;\n\
+                   model C\n  R a;\n  R b;\nequation\n  connect(a.p, b.p);\n  connect(a.p, b.h);\nend C;\n";
+        let out = s.handle(
+            json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+            "uri": "A.mo", "languageId": "modelica", "version": 1, "text": src}}}),
+        );
+        let d: Vec<_> = out[0]["params"]["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|d| d["code"] == "GM-L0005")
+            .collect();
+        assert_eq!(d.len(), 1, "{d:?}");
+        assert_eq!(d[0]["severity"], 2);
+        assert_eq!(d[0]["range"]["start"]["line"], 17); // 2 本目の connect
+        assert!(d[0]["message"].as_str().unwrap().contains("Port"));
     }
 
     #[test]

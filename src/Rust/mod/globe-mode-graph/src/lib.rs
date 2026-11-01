@@ -9,7 +9,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use globe_mode_ir::{ClassIndex, ClassKind, ConnectPrefix};
+use globe_mode_ir::{ClassIndex, ClassKind, Connect, ConnectPrefix, Outline};
 use serde::Serialize;
 
 /// 辺の種類。コネクタのクラスから決める。
@@ -311,5 +311,209 @@ impl Builder<'_> {
             return (key, connector);
         }
         (Self::join(prefix, head), connector)
+    }
+}
+
+/// 型の食い違う connect（S062）。`lhs_type` と `rhs_type` はコネクタのクラスの完全修飾名。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ConnectMismatch {
+    pub connect: Connect,
+    pub lhs_type: String,
+    pub rhs_type: String,
+}
+
+/// ファイル 1 つ（位置ありのアウトライン）の connect のうち、両端のコネクタの型が合わないもの。
+///
+/// 型の名前が違っても、中身（変数の名前・flow / stream・型）が同じなら合うとみなす（MLS 9.3。
+/// `PositivePin` と `NegativePin`、`RealInput` と `RealOutput` は合う）。
+/// どちらかの型を索引で解決できなければ、判定しない（誤った通知を出さない）。
+pub fn connect_mismatches(index: &ClassIndex, outline: &Outline) -> Vec<ConnectMismatch> {
+    let within = outline.within.as_deref().filter(|w| !w.is_empty());
+    let mut out = Vec::new();
+    for (name, class) in outline.qualified_classes() {
+        let qualified = within.map_or(name.clone(), |w| format!("{w}.{name}"));
+        for k in &class.connects {
+            let (Some(a), Some(b)) = (
+                connector_type(index, &qualified, &k.lhs),
+                connector_type(index, &qualified, &k.rhs),
+            ) else {
+                continue;
+            };
+            if !compatible(index, &a, &b, 0) {
+                out.push(ConnectMismatch {
+                    connect: k.clone(),
+                    lhs_type: a,
+                    rhs_type: b,
+                });
+            }
+        }
+    }
+    out
+}
+
+/// `class` の中から見た connect の片側（`a.p`、`p`、`a[1].p[2]`）のコネクタのクラス。解決できなければ None。
+fn connector_type(index: &ClassIndex, class: &str, reference: &str) -> Option<String> {
+    let mut current = class.to_string();
+    for part in reference.split('.') {
+        let name = part.split('[').next().unwrap_or(part);
+        let comp = index
+            .interface(&current)
+            .into_iter()
+            .find(|c| c.name == name)?;
+        if !comp.resolved {
+            return None;
+        }
+        current = comp.type_name;
+    }
+    Some(current)
+}
+
+/// 2 つのコネクタのクラスが合うか。分からないところは合うとみなす。
+fn compatible(index: &ClassIndex, a: &str, b: &str, depth: usize) -> bool {
+    if a == b || depth > 8 {
+        return true;
+    }
+    match (index.builtin_base(a), index.builtin_base(b)) {
+        (Some(x), Some(y)) => return x == y,
+        (Some(_), None) | (None, Some(_)) => return false,
+        (None, None) => {}
+    }
+    let (ia, ib) = (index.interface(a), index.interface(b));
+    if ia.len() != ib.len() {
+        return false;
+    }
+    ia.iter().all(|x| {
+        ib.iter().find(|y| y.name == x.name).is_some_and(|y| {
+            let builtin = |t: &str| globe_mode_ir::BUILTIN_TYPES.contains(&t);
+            x.prefix == y.prefix
+                && (x.type_name == y.type_name
+                    || (!x.resolved && !builtin(&x.type_name))
+                    || (!y.resolved && !builtin(&y.type_name))
+                    || (x.resolved
+                        && y.resolved
+                        && compatible(index, &x.type_name, &y.type_name, depth + 1)))
+        })
+    })
+}
+
+#[cfg(test)]
+mod mismatch_tests {
+    use super::*;
+    use globe_mode_ir::{Causality, ClassOutline, ComponentOutline};
+
+    fn class(
+        name: &str,
+        kind: ClassKind,
+        extends: &[&str],
+        comps: &[(&str, &str, ConnectPrefix)],
+        connects: &[(&str, &str)],
+    ) -> ClassOutline {
+        ClassOutline {
+            name: name.into(),
+            kind,
+            partial: false,
+            causality: Causality::None,
+            range: Default::default(),
+            extends: extends.iter().map(|s| s.to_string()).collect(),
+            imports: vec![],
+            components: comps
+                .iter()
+                .map(|(n, t, p)| ComponentOutline {
+                    name: n.to_string(),
+                    type_name: t.to_string(),
+                    prefix: *p,
+                    causality: Causality::None,
+                    range: Default::default(),
+                })
+                .collect(),
+            connects: connects
+                .iter()
+                .map(|(l, r)| Connect {
+                    lhs: l.to_string(),
+                    rhs: r.to_string(),
+                    range: Default::default(),
+                })
+                .collect(),
+            classes: vec![],
+        }
+    }
+
+    #[test]
+    fn mismatched_connector_types_are_reported() {
+        use ConnectPrefix::*;
+        let c = ClassKind::Connector;
+        let o = Outline {
+            within: None,
+            classes: vec![
+                class(
+                    "PositivePin",
+                    c,
+                    &[],
+                    &[("v", "Real", Potential), ("i", "Real", Flow)],
+                    &[],
+                ),
+                class(
+                    "NegativePin",
+                    c,
+                    &[],
+                    &[("v", "Real", Potential), ("i", "Real", Flow)],
+                    &[],
+                ),
+                class(
+                    "HeatPort",
+                    c,
+                    &[],
+                    &[("T", "Real", Potential), ("Q_flow", "Real", Flow)],
+                    &[],
+                ),
+                class("RealInput", c, &["Real"], &[], &[]),
+                class("RealOutput", c, &["Real"], &[], &[]),
+                class("BooleanInput", c, &["Boolean"], &[], &[]),
+                class(
+                    "Part",
+                    ClassKind::Model,
+                    &[],
+                    &[
+                        ("p", "PositivePin", Potential),
+                        ("n", "NegativePin", Potential),
+                        ("h", "HeatPort", Potential),
+                        ("u", "RealInput", Potential),
+                        ("y", "RealOutput", Potential),
+                        ("b", "BooleanInput", Potential),
+                    ],
+                    &[],
+                ),
+                class(
+                    "Top",
+                    ClassKind::Model,
+                    &[],
+                    &[
+                        ("a", "Part", Potential),
+                        ("c", "Part", Potential),
+                        ("x", "Lib.Unknown", Potential),
+                    ],
+                    &[
+                        ("a.p", "c.n"),
+                        ("a.p", "c.h"),
+                        ("a.y", "c.u"),
+                        ("a.y", "c.b"),
+                        ("a.p", "x.q"),
+                        ("a.p[1]", "c.n"),
+                    ],
+                ),
+            ],
+        };
+        let index = ClassIndex::from_outlines([&o]);
+        let found: Vec<_> = connect_mismatches(&index, &o)
+            .into_iter()
+            .map(|m| (m.connect.rhs, m.lhs_type, m.rhs_type))
+            .collect();
+        assert_eq!(
+            found,
+            vec![
+                ("c.h".into(), "PositivePin".into(), "HeatPort".into()),
+                ("c.b".into(), "RealOutput".into(), "BooleanInput".into()),
+            ]
+        );
     }
 }

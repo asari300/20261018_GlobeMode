@@ -152,3 +152,34 @@ fn lint_rules() {
     );
     assert_eq!(only.len(), 1);
 }
+
+#[test]
+fn documentation_html_is_indented_and_can_be_turned_off() {
+    let src = "model M \"m\"\n  annotation(Documentation(info = \"<html><head></head><body><h1>The Infomation</h1><ul>List<li>One</li><li>Two</li><li>Tree.js</li></ul></body></html>\"));\nend M;\n";
+    let want = "model M \"m\"\n\nannotation(\n  Documentation(\n    info = \"\n      <html><head></head><body>\n        <h1>The Infomation</h1>\n        <ul>List\n          <li>One</li>\n          <li>Two</li>\n          <li>Tree.js</li>\n        </ul>\n      </body></html>\n    \"\n  )\n);\n\nend M;\n";
+    assert_eq!(format(src, &Options::default()).unwrap(), want);
+    assert_eq!(format(want, &Options::default()).unwrap(), want, "冪等");
+    let crlf = src.replace('\n', "\r\n");
+    assert_eq!(
+        format(&crlf, &Options::default()).unwrap(),
+        want.replace('\n', "\r\n")
+    );
+    let off = Options {
+        format_html: false,
+        ..Options::default()
+    };
+    assert!(
+        format(src, &off)
+            .unwrap()
+            .contains("info = \"<html><head></head><body><h1>")
+    );
+    // lint は HTML を見ない（整形の前後で line-too-long 以外は同じ）
+    let rules = |s: &str| -> Vec<&str> {
+        lint(s, &LintOptions::default())
+            .into_iter()
+            .map(|m| m.rule)
+            .filter(|r| *r != "line-too-long")
+            .collect()
+    };
+    assert_eq!(rules(src), rules(want));
+}

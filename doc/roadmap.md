@@ -449,6 +449,12 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - lint `annotation-order`（`GM-L0004`、LSP では通知の重さ）。
 - VS Code 拡張 0.0.3: 整形を `globe/format` で頼む（vscode-languageclient は FormattingOptions の追加のキーを捨てる）。
 
+### S062（P4、2026-11-01）で済んだこと
+
+- **connect の型の検査**（lint `connect-type-mismatch`、LSP の `GM-L0005` warning）: `connect(a, b)` の両端のコネクタの型を、ワークスペースのクラスの索引で解決して突き合わせる（`globe_mode_graph::connect_mismatches`）。名前が違っても中身（変数の名前・flow / stream・型）が同じなら合う。解決できない端は判定しない。`globe lint` は渡したファイルをまとめて見る。
+- **`Documentation` の HTML の整形**（既定オン。CLI `--no-format-html`、VS Code `globeMode.formatHtml`）。空白だけを変え、lint はしない。VS Code 拡張 0.0.4。
+- README に、今の規則・今後必要になりそうな機能の表と、処理の流れの Mermaid 図。
+
 ## 運用上の決まり
 
 - リリースまでの見積もりと、他のエージェントに渡す並行作業の指示書は [plan/2026-10-30-release-estimate-and-parallel-plan.md](plan/2026-10-30-release-estimate-and-parallel-plan.md)（S033）。

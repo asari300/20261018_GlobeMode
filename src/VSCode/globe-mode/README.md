@@ -9,6 +9,7 @@ S059 で作った。`.mo` を開くと `globe lsp` を起動してつなぐだ�
 | 整形 | Shift+Alt+F（拡張が `.mo` に割り当てる。Windows の VS Code の標準と同じキーで、Linux でも同じ）。コマンドパレットの「ドキュメントのフォーマット」でもよい |
 | 保存時の整形 | 設定 `globeMode.formatOnSave`（既定はオフ）。設定画面で「globeMode」と検索してチェックを入れる。再読み込みは要らない |
 | 節の前後の空行 | 設定 `globeMode.blankAroundSections`（既定はオン）。`equation` / `algorithm` の前後に空行を置く。切ると書いた空行だけが残る。再読み込みは要らない（S061） |
+| HTML の整形 | 設定 `globeMode.formatHtml`（既定はオン）。`Documentation` の `info` / `revisions` などの HTML を改行とインデントで整える。変えるのは空白だけで、lint はしない（S062） |
 | annotation の並び | `experiment` → `Diagram` → `Icon` → `Documentation`（中は header → info → revisions）でなければ、通知（`GM-L0004`）が出る。整形で直る |
 | lint と検査の診断 | 開いて編集すると波線が出る（`GM-L0001`〜`0003` と検査の `GM-E…`）。一覧は Ctrl+Shift+M |
 | 補完 | Ctrl+Space、または `.` のあと |

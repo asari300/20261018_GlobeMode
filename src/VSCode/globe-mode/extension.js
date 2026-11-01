@@ -45,6 +45,7 @@ async function formatEdits(doc, options) {
       text,
       indent: options.tabSize,
       blankAroundSections: cfg.get("blankAroundSections", true),
+      formatHtml: cfg.get("formatHtml", true),
     })
     .catch(() => null); // 文法が壊れていれば変えない
   if (out == null || out === text) return [];

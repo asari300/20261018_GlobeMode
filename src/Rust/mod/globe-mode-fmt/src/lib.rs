@@ -6,6 +6,7 @@
 //! 整形の出力は再び字句解析して、空白以外のトークン列が意図どおりであることを確かめる（意味を変えない保証）。
 
 mod annotation;
+mod html;
 mod layout;
 mod lexer;
 mod lint;
@@ -92,6 +93,8 @@ pub struct Options {
     pub insert_origin: bool,
     /// `equation` / `algorithm`（`initial` 付きも）の前後に空行を置く（S061）
     pub blank_around_sections: bool,
+    /// `Documentation(…)` の文字列の HTML を改行とインデントで整える（S062）
+    pub format_html: bool,
 }
 
 impl Default for Options {
@@ -101,6 +104,7 @@ impl Default for Options {
             width: 80,
             insert_origin: true,
             blank_around_sections: true,
+            format_html: true,
         }
     }
 }
@@ -120,6 +124,10 @@ impl std::fmt::Display for FormatError {
 
 impl std::error::Error for FormatError {}
 
+fn squash(s: &str) -> String {
+    s.chars().filter(|c| !c.is_whitespace()).collect()
+}
+
 fn err(message: impl Into<String>, offset: usize) -> FormatError {
     FormatError {
         message: message.into(),
@@ -137,13 +145,14 @@ pub fn format(src: &str, options: &Options) -> Result<String, FormatError> {
     let mut first = true;
     for e in &elements {
         let mut tree = layout::build(e.tokens)?;
-        annotation::apply(&mut tree, options.insert_origin);
+        annotation::apply(&mut tree, options.insert_origin, options.format_html);
         layout::flatten(&tree, &mut expected);
         if e.blank_before && !first {
             out.push_str(newline);
         }
         for line in layout::render(&tree, e.indent, options) {
-            out.push_str(&line);
+            // HTML の文字列は行の中に改行を持つ
+            out.push_str(&line.replace('\n', newline));
             out.push_str(newline);
         }
         first = false;
@@ -153,11 +162,16 @@ pub fn format(src: &str, options: &Options) -> Result<String, FormatError> {
         .iter()
         .map(|t| (t.kind, t.text))
         .collect();
-    if actual != expected {
+    // HTML の文字列は空白だけが変わってよい
+    let same = |a: &(lexer::Kind, &str), e: &(lexer::Kind, &str)| {
+        a == e
+            || (e.0 == lexer::Kind::Html && a.0 == lexer::Kind::Str && squash(a.1) == squash(e.1))
+    };
+    if actual.len() != expected.len() || !actual.iter().zip(&expected).all(|(a, e)| same(a, e)) {
         let at = actual
             .iter()
             .zip(&expected)
-            .position(|(a, b)| a != b)
+            .position(|(a, b)| !same(a, b))
             .unwrap_or(expected.len().min(actual.len()));
         return Err(err(
             format!("整形でトークンが変わった（{at} 番目）。入力をそのまま残す"),
