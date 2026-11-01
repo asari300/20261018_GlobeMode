@@ -286,6 +286,11 @@ fn collect_mo_files(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
             continue;
         }
         if path.is_dir() {
+            // `X.mo` と `X/`（`package.mo` 無し）が並ぶ配置（AixLib の `RadiatorTypes`。PKG-008）は、両方を読むと
+            // 同じクラスが二重になり（EM001）全モデルが断られる。`X.mo` を正とし、`X/` は読まない（S068）
+            if !path.join("package.mo").exists() && path.with_extension("mo").is_file() {
+                continue;
+            }
             collect_mo_files(&path, out)?;
         } else if path.extension().is_some_and(|e| e == "mo") {
             out.push(path);
@@ -1500,5 +1505,41 @@ mod tests {
             origin_scope(None, None, "flow sum equation: a.i + b.i = 0"),
             ""
         );
+    }
+}
+
+#[cfg(test)]
+mod collect_tests {
+    use super::collect_mo_files;
+
+    /// `X.mo` と `package.mo` の無い `X/` が並ぶとき `X/` は読まない。`package.mo` のある `Y/` は読む
+    #[test]
+    fn sibling_file_wins_over_packageless_directory() {
+        let root = std::env::temp_dir().join(format!("gm-collect-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        for (path, text) in [
+            ("X.mo", "within ; package X end X;"),
+            ("X/A.mo", "within X; model A end A;"),
+            ("Y/package.mo", "within ; package Y end Y;"),
+            ("Y/B.mo", "within Y; model B end B;"),
+        ] {
+            let p = root.join(path);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, text).unwrap();
+        }
+        let mut files = Vec::new();
+        collect_mo_files(&root, &mut files).unwrap();
+        let mut names: Vec<_> = files
+            .iter()
+            .map(|f| {
+                f.strip_prefix(&root)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/")
+            })
+            .collect();
+        names.sort();
+        let _ = std::fs::remove_dir_all(&root);
+        assert_eq!(names, ["X.mo", "Y/B.mo", "Y/package.mo"]);
     }
 }
