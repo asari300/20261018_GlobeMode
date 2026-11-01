@@ -474,6 +474,13 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - 手元の前後 21 本（release）は ADR-0028 の「結果」。`doc/msl-sim.md` は run の artifact の報告（「前回との差」は S055 の結果に直した）。`msl-solvers.md` は全ソルバの run でないので触っていない。
 - **次の候補**: `ThyristorBridge2mPulse_DC_Drive` の時間切れの境目（予算の分け方、陰的ソルバの速さ）。`auto` の全体の予算（Rumoca の dopri45 が最初の予算 30 s を超えて走る件を調べてから、残りの時間を渡す規則を決める）。`Dimmer_RL` の `y_arg` の外れの原因。
 
+### S066（P3、2026-11-01）で済んだこと
+
+- **`Checker::new` が読めるファイルだけでライブラリを読む**（S058・S063 の持ち越し。[research/libraries-2026-11-01.md](research/libraries-2026-11-01.md) の節「読めるファイルだけでライブラリを読む」、[解説書](sessions/S066-libs-tolerant-roots/解説書.md)）: 従来の道（ルート 1 つは `load_source_root_tolerant`、2 つ以上は `parse_source_root_with_cache`）が失敗したルートだけ、`.mo` を集めて `parse_files_parallel_lenient` で 1 ファイルずつ読み、読めた文書を `replace_parsed_source_set` に渡す。読めなかったファイルは `Checker::skipped_library_files()` と、検査の結果の S1 の警告 `GM-W1001`（ルートごとに 1 件）で知らせる。Rumoca は改変せず、公開 API だけを使う。パッケージ配置の検査（PKG-006・PKG-010）は非公開で呼べないので、失敗したルートでは飛ばして警告に書く。全部読めるルート（MSL）の道は変えない。
+- **xtask の迂回を外した**: `mirror_libraries`・`layout_offenders`（最大 20 回の繰り返し）・`libs::unparsable_files` を削り、`make_checker` は `Checker::new(&[msl, lib…])` を呼ぶだけ。読み飛ばしの一覧 `target/library-roots/<名前>.skipped.txt` は今も書く（libraries.yml の artifact）。
+- 検証: `tests/tolerant_roots.rs` の 4 本（ルート 1 つ・2 つ・`package.mo` の無いディレクトリ・警告なし）、`cargo test -p globe-mode-frontend -p xtask`、`mise run msl:compare` 20/20。手元の `msl-funnel`（release）は ThermofluidStream 122 本・ClaRa 5 本とも S063 の run と判定の差 0（OK 4 / 0、時間も同じ）。Actions（`libraries.yml`、run 41295588356、Chemical・ClaRa・ThermofluidStream・DeltaRobot）の結果は成功（親が確認）。表の 4 行は S063（run 41250636800）と例題・OK・NG・GM-U・panic・実行できた のすべてが同じ: Chemical 76 / 12 / 21 / 43 / 0 / 0、ClaRa 5 / 0 / 5 / 0 / 0 / 0、DeltaRobot 21 / 9 / 7 / 5 / 0 / 5、ThermofluidStream 122 / 4 / 3 / 115 / 0 / 2。
+- 持ち越し: 配置の誤りを警告以上にするには Rumoca に検査の公開が要る。`GM-W1001` を UI の診断の一覧に出す。wasm の `with_library_sources` は構文の誤りで断るまま。
+
 ### S059（P4、2026-11-01）で済んだこと
 
 - **VS Code 拡張** `src/VSCode/globe-mode`（[README](../src/VSCode/globe-mode/README.md)）: `.mo` を開くと `globe lsp` を起動してつなぐだけの拡張（vscode-languageclient、本体は約 20 行）。標準の整形キー・lint と検査の波線・補完・アウトライン・ホバーが使える。`.mo` の既定を tabSize 2・80 桁のルーラーにする。

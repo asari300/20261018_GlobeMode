@@ -277,6 +277,8 @@ pub mod codes {
     pub const RUN_UNSUPPORTED: &str = "GM-U0004";
     /// 実行系の内部エラー（panic、Rumoca の実行時の契約違反。S011）
     pub const RUN_INTERNAL: &str = "GM-U0005";
+    /// S1: ライブラリの一部のファイル（構文の誤り、パッケージ配置の誤り）を読み飛ばして読んだ。警告（S066）
+    pub const LIBRARY_PARTIAL: &str = "GM-W1001";
 }
 
 #[cfg(test)]
