@@ -78,7 +78,11 @@
   <pre><code>globe simulate -L data/msl -m &lt;モデル&gt; --solver bdf --tolerance 1e-7
 gh workflow run msl-sim.yml --ref feature/s055-sim-failures \
   -f solvers='["cerk23","cerk34","bdf"]'</code></pre>
-  <p>run 41247200921。結果は research の節「CI での再確認」。</p>
+  <div class="kpis">
+    <div class="kpi"><span class="n">2/3</span><span class="l">bdf・cerk34 は S050 と同じ結果</span></div>
+    <div class="kpi"><span class="n">25</span><span class="l">cerk23 の時間切れ（S050 は 27）</span></div>
+  </div>
+  <p>run 41247200921。cerk23 の 2 本は 177.9 s・164.4 s で、予算 180 s の境目。</p>
 </section>
 
 <section class="slide" id="S08">
