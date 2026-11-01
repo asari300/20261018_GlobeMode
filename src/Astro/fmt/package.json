@@ -1,0 +1,18 @@
+{
+  "name": "globe-mode-fmt-astro",
+  "version": "0.1.0",
+  "private": true,
+  "description": "GlobeMode の整形と lint をブラウザで使う Astro アプリ（API ルートは globe CLI を呼ぶ）",
+  "license": "MIT OR Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "start": "node dist/server/entry.mjs",
+    "test": "node --test test/api.test.mjs"
+  },
+  "dependencies": {
+    "@astrojs/node": "11.1.9",
+    "astro": "7.4.4"
+  }
+}

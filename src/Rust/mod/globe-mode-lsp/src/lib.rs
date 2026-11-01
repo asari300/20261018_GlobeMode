@@ -1,7 +1,8 @@
 //! GlobeMode の LSP サーバ（S038）。stdio の JSON-RPC を自前で回し、型だけ `lsp-types` を使う。
 //!
-//! 機能は 3 つ（標準）と独自の要求 3 つ: 診断（`publishDiagnostics`、検査 S0〜S10）、`documentSymbol`（アウトライン）、
-//! `hover`（クラスの種類）。補完・定義へ移動は無い。同期は Full で、1 本のスレッドで順に処理する。
+//! 機能: 診断（`publishDiagnostics`、検査 S0〜S10 と lint）、`documentSymbol`（アウトライン）、
+//! `hover`（クラスの種類）、`formatting`（S053、`globe-mode-fmt`）、`completion`（S053、[`completion`]）。
+//! 定義へ移動は無い。同期は Full で、1 本のスレッドで順に処理する。
 //!
 //! 独自の要求（S049、ADR-0023。Desktop の UI が sidecar の `globe lsp` に同じ接続で頼む）:
 //!
@@ -10,9 +11,13 @@
 //! | `globe/check` | `{model}` | `CheckResponse` の JSON |
 //! | `globe/simulate` | `{request}`（`SimulateRequest` の JSON） | `SimulateResponse` の JSON |
 //! | `globe/graph` | `{model, depth}` | graphology の JSON（`ConnectGraph::to_graphology`） |
+//! | `globe/format` | `{text, indent?, insertOrigin?, blankAroundSections?, formatHtml?}` | 整形後の本文（S053。壊れていれば -32000） |
+//! | `globe/lint` | `{text}` | `[{rule, line, column, message}]`（S053） |
 //!
 //! params が読めなければ -32602、モデルが無いなど計算の失敗は -32000（`message` に理由）。
 //! facade（`globe-mode`）の `Workspace` だけを呼び、新しい計算は入れない。
+
+mod completion;
 
 use std::collections::HashMap;
 use std::io::{self, BufRead, Write};
@@ -58,7 +63,8 @@ impl Server {
                 id,
                 json!({
                     // 1 = Full
-                    "capabilities": {"textDocumentSync": 1, "documentSymbolProvider": true, "hoverProvider": true},
+                    "capabilities": {"textDocumentSync": 1, "documentSymbolProvider": true, "hoverProvider": true,
+                        "documentFormattingProvider": true, "completionProvider": {"triggerCharacters": ["."]}},
                     "serverInfo": {"name": "globe-mode", "version": env!("CARGO_PKG_VERSION")},
                 }),
             ),
@@ -107,6 +113,39 @@ impl Server {
                 };
                 reply(id, json!(hover))
             }
+            "textDocument/formatting" => {
+                // 文書全体を 1 つの TextEdit で置き換える。整形できない（文法が壊れている）ときは null
+                // FormattingOptions の追加のキー: insertOrigin・blankAroundSections（S061。VS Code の拡張が設定から渡す）
+                let opts = &params["options"];
+                let options = globe_mode_fmt::Options {
+                    indent: opts["tabSize"].as_u64().map_or(2, |n| n as usize),
+                    insert_origin: opts["insertOrigin"].as_bool().unwrap_or(true),
+                    blank_around_sections: opts["blankAroundSections"].as_bool().unwrap_or(true),
+                    format_html: opts["formatHtml"].as_bool().unwrap_or(true),
+                    ..globe_mode_fmt::Options::default()
+                };
+                let edit = self.texts.get(&uri).and_then(|text| {
+                    let out = globe_mode_fmt::format(text, &options).ok()?;
+                    (out != *text).then(|| {
+                        json!([{"range": range(text, globe_mode_core::TextRange { start: 0, end: text.len() as u32 }), "newText": out}])
+                    })
+                });
+                reply(id, edit.unwrap_or(Value::Null))
+            }
+            "textDocument/completion" => {
+                let pos = &params["position"];
+                let pos = Position::new(
+                    pos["line"].as_u64().unwrap_or(0) as u32,
+                    pos["character"].as_u64().unwrap_or(0) as u32,
+                );
+                let items = match self.texts.get(&uri) {
+                    Some(text) => {
+                        completion::complete(&self.ws, &uri_path(&uri), text, offset(text, pos))
+                    }
+                    None => vec![],
+                };
+                reply(id, json!(items))
+            }
             "globe/check" => match params["model"].as_str() {
                 Some(model) => reply(id, json!(self.ws.check(model))),
                 None => error(id, -32602, "params.model が文字列でない"),
@@ -126,6 +165,35 @@ impl Server {
                     }
                 }
                 None => error(id, -32602, "params.model が文字列でない"),
+            },
+            // 文書に依らない整形と lint（S053。Desktop の UI が wasm と同じ口で頼む）
+            "globe/format" => match params["text"].as_str() {
+                Some(text) => {
+                    let options = globe_mode_fmt::Options {
+                        indent: params["indent"].as_u64().map_or(2, |n| n as usize),
+                        insert_origin: params["insertOrigin"].as_bool().unwrap_or(true),
+                        blank_around_sections: params["blankAroundSections"]
+                            .as_bool()
+                            .unwrap_or(true),
+                        format_html: params["formatHtml"].as_bool().unwrap_or(true),
+                        ..globe_mode_fmt::Options::default()
+                    };
+                    match globe_mode_fmt::format(text, &options) {
+                        Ok(out) => reply(id, json!(out)),
+                        Err(e) => error(id, -32000, &e.message),
+                    }
+                }
+                None => error(id, -32602, "params.text が文字列でない"),
+            },
+            "globe/lint" => match params["text"].as_str() {
+                Some(text) => reply(
+                    id,
+                    json!(globe_mode_fmt::lint(text, &globe_mode_fmt::LintOptions::default())
+                        .iter()
+                        .map(|m| json!({"rule": m.rule, "line": m.line, "column": m.column, "message": m.message}))
+                        .collect::<Vec<_>>()),
+                ),
+                None => error(id, -32602, "params.text が文字列でない"),
             },
             // 要求（id あり）は断る。知らない通知は無視する
             _ => match id {
@@ -168,7 +236,21 @@ impl Server {
             None => return vec![],
         };
         let key = normalize_path(path);
-        let mut out = Vec::new();
+        let mut out: Vec<lsp_types::Diagnostic> = lint_diagnostics(text);
+        // S062: 型の食い違う connect は、ワークスペースの型で解決できたものだけ warning にする
+        for m in self.ws.connect_mismatches(path) {
+            out.push(lsp_types::Diagnostic {
+                range: range(text, m.connect.range),
+                severity: Some(DiagnosticSeverity::WARNING),
+                code: Some(NumberOrString::String("GM-L0005".to_string())),
+                source: Some("globe-mode".to_string()),
+                message: format!(
+                    "{} は {}、{} は {} で、型が合わない (connect-type-mismatch)",
+                    m.connect.lhs, m.lhs_type, m.connect.rhs, m.rhs_type
+                ),
+                ..Default::default()
+            });
+        }
         for model in models {
             for d in self.ws.check(&model).diagnostics {
                 if d.file.as_deref().is_none_or(|f| f == key) {
@@ -181,6 +263,34 @@ impl Server {
         }
         out
     }
+}
+
+/// lint（S053）を LSP の診断（warning、GM-L0001〜）にする。
+fn lint_diagnostics(text: &str) -> Vec<lsp_types::Diagnostic> {
+    globe_mode_fmt::lint(text, &globe_mode_fmt::LintOptions::default())
+        .into_iter()
+        .map(|m| {
+            let (code, severity) = match m.rule {
+                "line-too-long" => ("GM-L0001", DiagnosticSeverity::WARNING),
+                "class-name-pascal-case" => ("GM-L0002", DiagnosticSeverity::WARNING),
+                "missing-description" => ("GM-L0003", DiagnosticSeverity::WARNING),
+                // S061: 整形で直る並びの指摘は通知の重さ
+                _ => ("GM-L0004", DiagnosticSeverity::INFORMATION),
+            };
+            let start = Position::new(
+                m.line.saturating_sub(1) as u32,
+                m.column.saturating_sub(1) as u32,
+            );
+            lsp_types::Diagnostic {
+                range: Range::new(start, start),
+                severity: Some(severity),
+                code: Some(NumberOrString::String(code.to_string())),
+                source: Some("globe-mode".to_string()),
+                message: format!("{} ({})", m.message, m.rule),
+                ..Default::default()
+            }
+        })
+        .collect()
 }
 
 /// 標準入出力で LSP を回す。`exit` か入力の終わりで返る。
@@ -401,6 +511,33 @@ mod tests {
     use super::*;
 
     #[test]
+    fn annotation_order_is_information_and_blank_sections_can_be_turned_off() {
+        let src = "model A \"d\"\n  Real x;\nequation\n  x = 1;\n  annotation(Documentation(info = \"i\"), experiment(StopTime = 1));\nend A;\n";
+        let d = lint_diagnostics(src);
+        let order: Vec<_> = d
+            .iter()
+            .filter(|d| d.code == Some(NumberOrString::String("GM-L0004".into())))
+            .collect();
+        assert_eq!(order.len(), 1, "{d:?}");
+        assert_eq!(order[0].severity, Some(DiagnosticSeverity::INFORMATION));
+
+        let mut s = Server::new(&[]).unwrap();
+        // S062: formatHtml の切り替え
+        let html = "model H \"d\"\n  annotation(Documentation(info = \"<html><body><p>x</p></body></html>\"));\nend H;\n";
+        for (on, want) in [(true, "info = \"\n"), (false, "info = \"<html><body>")] {
+            let r = s.handle(json!({"id": 1, "method": "globe/format", "params": {"text": html, "formatHtml": on}}));
+            assert!(r[0]["result"].as_str().unwrap().contains(want), "{}", r[0]);
+        }
+        let r = s.handle(json!({"id": 1, "method": "globe/format", "params": {"text": src, "blankAroundSections": false}}));
+        let out = r[0]["result"].as_str().unwrap();
+        assert!(out.contains("  Real x;\nequation\n  x = 1;"), "{out}");
+        assert!(
+            out.contains("annotation(experiment(StopTime = 1), Documentation(info = \"i\"));"),
+            "{out}"
+        );
+    }
+
+    #[test]
     fn position_counts_utf16_units() {
         // 「日本語」は UTF-8 で 3 バイト、UTF-16 で 1 単位。絵文字は UTF-16 で 2 単位
         let text = "// 日本語😀x\nmodel A end A;";
@@ -478,6 +615,29 @@ mod tests {
             -32601
         );
         assert!(s.handle(json!({"method": "foo/bar"})).is_empty());
+    }
+
+    #[test]
+    fn connect_with_different_types_is_a_warning() {
+        let mut s = Server::new(&[]).unwrap();
+        let src = "connector Pin\n  Real v;\n  flow Real i;\nend Pin;\n\
+                   connector Port\n  Real T;\n  flow Real Q;\nend Port;\n\
+                   model R\n  Pin p;\n  Port h;\nend R;\n\
+                   model C\n  R a;\n  R b;\nequation\n  connect(a.p, b.p);\n  connect(a.p, b.h);\nend C;\n";
+        let out = s.handle(
+            json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+            "uri": "A.mo", "languageId": "modelica", "version": 1, "text": src}}}),
+        );
+        let d: Vec<_> = out[0]["params"]["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|d| d["code"] == "GM-L0005")
+            .collect();
+        assert_eq!(d.len(), 1, "{d:?}");
+        assert_eq!(d[0]["severity"], 2);
+        assert_eq!(d[0]["range"]["start"]["line"], 17); // 2 本目の connect
+        assert!(d[0]["message"].as_str().unwrap().contains("Port"));
     }
 
     #[test]

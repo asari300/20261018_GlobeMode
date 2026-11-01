@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Modelica の整形と lint（GlobeMode / loco）</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 16px; background: #fff; color: #111; }
+  h1 { font-size: 1.3rem; }
+  textarea { width: 100%; box-sizing: border-box; font-family: ui-monospace, monospace; font-size: 0.9rem; }
+  #source { min-height: 14rem; }
+  #out { min-height: 10rem; background: #f6f6f6; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
+  #error { color: #b00020; font-weight: bold; white-space: pre-wrap; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+  th, td { border: 1px solid #ccc; padding: 4px 6px; text-align: left; vertical-align: top; }
+</style>
+</head>
+<body>
+<h1>Modelica の整形と lint</h1>
+
+<label for="source">入力（Modelica）</label>
+<textarea id="source" name="source" spellcheck="false"></textarea>
+<div class="row">
+  <label>.mo ファイルを選ぶ <input type="file" id="file" accept=".mo"></label>
+</div>
+
+<div class="row">
+  <label>インデント
+    <select id="indent">
+      <option value="2" selected>2</option>
+      <option value="4">4</option>
+    </select>
+  </label>
+  <label><input type="checkbox" id="origin" checked> origin = {0, 0} を足す</label>
+</div>
+
+<div class="row">
+  <button type="button" id="format">整形</button>
+  <button type="button" id="lint">lint</button>
+</div>
+
+<div id="error" role="alert"></div>
+
+<h2>出力（整形後）</h2>
+<textarea id="out" name="out" readonly spellcheck="false"></textarea>
+<div class="row">
+  <button type="button" id="back">入力へ戻す</button>
+</div>
+
+<h2>lint の結果</h2>
+<p id="lint-count"></p>
+<table>
+  <thead>
+    <tr><th>rule</th><th>line</th><th>column</th><th>message</th></tr>
+  </thead>
+  <tbody id="lint-rows"></tbody>
+</table>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+
+  function showError(message) {
+    $('error').textContent = message;
+  }
+
+  async function post(path, body) {
+    const res = await fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    return res.json();
+  }
+
+  async function runFormat() {
+    showError('');
+    try {
+      const r = await post('/api/format', {
+        text: $('source').value,
+        indent: Number($('indent').value),
+        insert_origin: $('origin').checked,
+      });
+      if (r.ok) {
+        $('out').value = r.text;
+      } else {
+        $('out').value = '';
+        showError(r.error);
+      }
+    } catch (e) {
+      showError('通信に失敗しました: ' + e);
+    }
+  }
+
+  async function runLint() {
+    showError('');
+    try {
+      const r = await post('/api/lint', { text: $('source').value });
+      const tbody = $('lint-rows');
+      tbody.textContent = '';
+      for (const m of r.messages) {
+        const tr = document.createElement('tr');
+        for (const v of [m.rule, m.line, m.column, m.message]) {
+          const td = document.createElement('td');
+          td.textContent = String(v);
+          tr.appendChild(td);
+        }
+        tbody.appendChild(tr);
+      }
+      $('lint-count').textContent = r.messages.length === 0
+        ? '指摘はありません'
+        : r.messages.length + ' 件';
+    } catch (e) {
+      showError('通信に失敗しました: ' + e);
+    }
+  }
+
+  $('format').addEventListener('click', runFormat);
+  $('lint').addEventListener('click', runLint);
+  $('back').addEventListener('click', () => { $('source').value = $('out').value; });
+  $('file').addEventListener('change', async (ev) => {
+    const f = ev.target.files[0];
+    if (f) { $('source').value = await f.text(); }
+  });
+})();
+</script>
+</body>
+</html>

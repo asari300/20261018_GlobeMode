@@ -1,0 +1,3 @@
+# ビルド物はリポジトリ直下の target/ に共有する
+[build]
+target-dir = "../../../../target"

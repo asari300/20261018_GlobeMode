@@ -1,0 +1,15 @@
+[package]
+name = "web-rocket"
+description = "GlobeMode: Modelica の整形と lint の Web アプリ（Rocket。エンジンは globe-mode-fmt）"
+version = "0.0.1"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+# 独立した workspace（ルートの workspace に入れない。CI と cargo deny の対象を増やさない）
+[workspace]
+
+[dependencies]
+globe-mode-fmt = { path = "../../mod/globe-mode-fmt" }
+rocket = { version = "0.5.2", features = ["json"] }
+serde = { version = "1.0.229", features = ["derive"] }

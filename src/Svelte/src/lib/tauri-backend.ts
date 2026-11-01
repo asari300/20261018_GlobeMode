@@ -1,4 +1,4 @@
-import type { Backend } from "./backend";
+import type { Backend, LintMessage } from "./backend";
 import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse } from "./protocol";
 
 // Tauri が `withGlobalTauri` で注入する関数だけを使う（@tauri-apps/api は入れない。npm の依存を増やさないため）。
@@ -10,9 +10,13 @@ const invoke: Invoke = (cmd, args) =>
 export class TauriBackend implements Backend {
   #version = 0;
 
-  // shortcut: Desktop ではライブラリは sidecar の起動時の --library で読む。JSON を送る道は無い。MSL の置き場を決めたら足す
-  library(name: string): Promise<void> {
-    return Promise.reject(new Error(`Desktop ではライブラリ ${name} を JSON では読めない（sidecar の --library で読む）`));
+  // Desktop ではライブラリは sidecar の起動時の --library / GLOBE_LIBRARY で読む。JSON を送る道は無い（S056）:
+  // 既に何か読んでいれば JSON は捨てて resolve、無ければ reject。
+  async library(name: string): Promise<void> {
+    const libs = await invoke<string[]>("libraries");
+    if (libs.length === 0) {
+      throw new Error(`Desktop ではライブラリ ${name} を JSON では読めない（--library か GLOBE_LIBRARY で sidecar に渡す）`);
+    }
   }
 
   /** `textDocument/didOpen` で文書を（差し替えて）開く。サーバは診断も出し直し、イベント `globe-notification` で届く。 */
@@ -30,6 +34,12 @@ export class TauriBackend implements Backend {
   }
   simulate(req: SimulateRequest): Promise<SimulateResponse> {
     return invoke("rpc", { method: "globe/simulate", params: { request: req } });
+  }
+  format(text: string, indent: number, insertOrigin: boolean): Promise<string> {
+    return invoke("rpc", { method: "globe/format", params: { text, indent, insertOrigin } });
+  }
+  lint(text: string): Promise<LintMessage[]> {
+    return invoke("rpc", { method: "globe/lint", params: { text } });
   }
 }
 

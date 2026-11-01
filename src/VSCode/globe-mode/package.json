@@ -1,0 +1,99 @@
+{
+  "name": "globe-mode",
+  "displayName": "GlobeMode Modelica",
+  "description": "Modelica の整形・lint・補完・検査を GlobeMode の `globe lsp` で行う",
+  "version": "0.0.4",
+  "publisher": "globe-mode",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/asari300/20261018_GlobeMode"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Formatters",
+    "Linters"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "modelica",
+        "aliases": [
+          "Modelica"
+        ],
+        "extensions": [
+          ".mo"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "configuration": {
+      "title": "GlobeMode",
+      "properties": {
+        "globeMode.path": {
+          "type": "string",
+          "default": "globe",
+          "description": "`globe` の実行ファイル（PATH に無ければ絶対パス）"
+        },
+        "globeMode.libraries": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "`globe lsp --library` に渡すディレクトリ（MSL など）"
+        },
+        "globeMode.formatOnSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "保存するときに GlobeMode の整形を掛ける（.mo だけ）"
+        },
+        "globeMode.blankAroundSections": {
+          "type": "boolean",
+          "default": true,
+          "description": "equation / algorithm の前後に空行を置く（オフにすると、書いた空行だけが残る）"
+        },
+        "globeMode.formatHtml": {
+          "type": "boolean",
+          "default": true,
+          "description": "Documentation の info / revisions などの HTML を改行とインデントで整える（空白だけを変える）"
+        }
+      }
+    },
+    "configurationDefaults": {
+      "[modelica]": {
+        "editor.defaultFormatter": "globe-mode.globe-mode",
+        "editor.tabSize": 2,
+        "editor.insertSpaces": true,
+        "editor.rulers": [
+          80
+        ]
+      }
+    },
+    "keybindings": [
+      {
+        "key": "shift+alt+f",
+        "command": "editor.action.formatDocument",
+        "when": "editorTextFocus && !editorReadonly && editorLangId == modelica"
+      }
+    ]
+  },
+  "scripts": {
+    "build": "esbuild extension.js --bundle --platform=node --format=cjs --external:vscode --outfile=dist/extension.js",
+    "package": "pnpm build && python3 -I pack_vsix.py",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  },
+  "extensionKind": [
+    "workspace"
+  ]
+}

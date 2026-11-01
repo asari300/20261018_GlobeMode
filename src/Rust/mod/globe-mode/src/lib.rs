@@ -25,7 +25,7 @@ use globe_mode_ir::UnknownKind;
 
 pub use globe_mode_core::{Diagnostic, Stage};
 pub use globe_mode_frontend::CompiledModel;
-pub use globe_mode_graph::{ConnectGraph, GraphError};
+pub use globe_mode_graph::{ConnectGraph, ConnectMismatch, GraphError};
 pub use globe_mode_ir::{FlatSummary, Outline, SimRun};
 pub use globe_mode_protocol::{
     CheckResponse, ColumnsLayout, ParametersResponse, SimulateRequest, SimulateResponse,
@@ -97,8 +97,42 @@ impl Workspace {
         Self::from_db(GlobeDb::new(), 0, 0.0)
     }
 
-    /// ライブラリのディレクトリ（MSL など）を一度だけ読み込んだワークスペース。読めなければ S1 の診断（`GM-E1003`）。
+    /// ライブラリのディレクトリ（MSL など）の `.mo` を本文のまま持ち、検査のたびにモデルが使うファイルだけを
+    /// Rumoca の Session に読むワークスペース（S054。wasm の分割読み込みと同じ。[`Workspace::with_library_sources_split`]）。
+    /// MSL の `ChuaCircuit` で最大 RSS を約 1.5 GiB から減らす。結果は [`Workspace::with_libraries_full`] と同じ。
+    /// 読めなければ S1 の診断（`GM-E1003`）。ディレクトリでないパスが混じるときは全部読む道に戻る。
     pub fn with_libraries(paths: &[PathBuf]) -> Result<Self, Vec<Diagnostic>> {
+        if paths.is_empty() || !paths.iter().all(|p| p.is_dir()) {
+            return Self::with_libraries_full(paths);
+        }
+        let t = now_ms();
+        let mut files = Vec::new();
+        for dir in paths {
+            collect_mo(dir, &mut files).map_err(|e| vec![library_error(dir, &e.to_string())])?;
+        }
+        files.sort();
+        let mut texts = Vec::with_capacity(files.len());
+        for f in &files {
+            let text =
+                std::fs::read_to_string(f).map_err(|e| vec![library_error(f, &e.to_string())])?;
+            texts.push((f.display().to_string(), text));
+        }
+        let sources: Vec<Source<'_>> = texts
+            .iter()
+            .map(|(name, text)| Source { name, text })
+            .collect();
+        let name = paths
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        let db = GlobeDb::with_library_sources_split(&name, &sources)?;
+        Ok(Self::from_db(db, paths.len(), now_ms() - t))
+    }
+
+    /// [`Workspace::with_libraries`] と同じ入力で、ライブラリのファイルを全部 Session に読む（S054 より前の道。
+    /// 比べるために残す。MSL で最大 RSS 約 1.5 GiB）。
+    pub fn with_libraries_full(paths: &[PathBuf]) -> Result<Self, Vec<Diagnostic>> {
         let t = now_ms();
         let db = GlobeDb::with_libraries(paths)?;
         Ok(Self::from_db(db, paths.len(), now_ms() - t))
@@ -231,6 +265,14 @@ impl Workspace {
     /// connect グラフ（flatten しない）。`depth` は展開する深さ（1 は直下の部品だけ）。
     pub fn graph(&mut self, model: &str, depth: u32) -> Result<ConnectGraph, GraphError> {
         self.db.connect_graph(model, depth)
+    }
+
+    /// ファイルの connect のうち、両端のコネクタの型が合わないもの（S062）。ワークスペースのファイルの型だけを見る。
+    pub fn connect_mismatches(&mut self, path: &str) -> Vec<ConnectMismatch> {
+        let Some(Ok(outline)) = self.db.outline(path).cloned() else {
+            return Vec::new();
+        };
+        globe_mode_graph::connect_mismatches(self.db.class_index(), &outline)
     }
 
     /// DAE まで変換したモデル（`overrides` はパラメータ名 → 値）。失敗の診断の位置は元の本文の中。
@@ -368,4 +410,26 @@ fn checked_failed_stage(diagnostics: &[Diagnostic]) -> Option<Stage> {
         .filter(|d| d.is_error())
         .map(|d| d.stage)
         .min()
+}
+
+/// ディレクトリの下の `.mo` を集める。
+fn collect_mo(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(dir)? {
+        let path = entry?.path();
+        if path.is_dir() {
+            collect_mo(&path, out)?;
+        } else if path.extension().is_some_and(|e| e == "mo") {
+            out.push(path);
+        }
+    }
+    Ok(())
+}
+
+fn library_error(path: &Path, why: &str) -> Diagnostic {
+    Diagnostic::error(
+        globe_mode_core::codes::LIBRARY,
+        Stage::S1,
+        format!("ライブラリ {} を読み込めない", path.display()),
+    )
+    .note(why)
 }

@@ -107,7 +107,7 @@ Web Worker（`worker_threads`、`postMessage`。列の `buffer` は転送）越�
 
 | # | 案 | 費用 | 効果（見込み） | 根拠・注意 |
 | --- | --- | --- | --- | --- |
-| 1 | `globe`（CLI・LSP）の `--library` にも分割読み込み（S037）を使う。facade に `with_library_sources_split` があるので、ファイルを読む `with_libraries` に同じ分割を足す | 小〜中（facade と CLI の数十行。S043 の `split-all` が同じ検査結果を保証する道具として使える） | `check` の RSS 1.5 GiB → 0.5 GiB 前後（推測。閉包だけを渡した実験が 461 MiB）。Desktop の sidecar（ADR-0023 (b)）の常駐が 1/3 | 実験の 461 MiB は `--library` と別の道。実装して測るまで確かでない |
+| 1 | **S054 で実装した（§6。ChuaCircuit の check 1,493 → 128 MiB）。** `globe`（CLI・LSP）の `--library` にも分割読み込み（S037）を使う。facade に `with_library_sources_split` があるので、ファイルを読む `with_libraries` に同じ分割を足す | 小〜中（facade と CLI の数十行。S043 の `split-all` が同じ検査結果を保証する道具として使える） | `check` の RSS 1.5 GiB → 0.5 GiB 前後（推測。閉包だけを渡した実験が 461 MiB）。Desktop の sidecar（ADR-0023 (b)）の常駐が 1/3 | 実験の 461 MiB は `--library` と別の道。実装して測るまで確かでない |
 | 2 | UI の `Plot` に `simulateColumns` を接続する（`Backend.simulate` が CSV でなく列を受ける）。次回のセッション | 中（Svelte と `Backend` の型。`uPlot` は `Float64Array` を受けられるが、`null` でなく `NaN` が来る点の確認が要る【未確認】） | 10 万点 × 7 列で 400 ms 台 → 約 110 ms（Worker 越し）。S042 の「30 fps に届かない」の初回の待ちが縮む | 描画の fps は別の問題（間引き）。ここで測ったのは取り込みまで |
 | 3 | wasm の線形メモリが大きくなったら UI が `memory()` を見て Worker を作り直す（ADR-0023 (c) の通り）。作り直しは `GlobeWorker` の既存の仕組みで足りる（ランナーで 609 ms）。ただし **336 本目のように 1 回の検査で 3 GiB 伸びるモデルがある**ので、「検査の後に見て作り直す」だけでは 4 GiB を超えうる。検査の前に閉包の大きさなどで予告する、wasm の側で割り当てに上限を付けて診断にする、が要る（どちらも未設計）。2 GiB を下げるか（例 512 MiB）は、スマートフォンのブラウザで測ってから決める | 作り直しは小。予告か上限は中〜大（Rumoca の割り当てを wasm の側から止められるかが【未確認】） | 通しで 2 GiB に達する（336 本目）のを、ブラウザが落ちる前に捕まえる。作り直すとキャッシュが消えて次の検査が遅くなる | スマートフォンの上限は【未確認】 |
 
@@ -119,3 +119,45 @@ Web Worker（`worker_threads`、`postMessage`。列の `buffer` は転送）越�
 - `msl:funnel` の最大 RSS 7.2 GiB: [msl-funnel.md](../msl-funnel.md)。
 - `column(i)` の生成コード（`.slice()`）: `wasm-bindgen --target web` の出力 `globe_mode_wasm.js`（wasm-bindgen 0.2.129、2026-10-31 に手元で確認）。
 - GitHub Actions のランナーの仕様（4 vCPU、16 GB）は、`free -m` と `nproc` の実測（run 41196216961 の `rss-env.txt`）。公式文書の URL は確認していない【未確認】。
+
+## 6. S054: `globe --library` を閉包だけ読む道にした後の RSS（確認日 2026-11-01）
+
+§4 の案 1 を実装した（[ADR-0025](../adr/0025-native-library-closure.md)）。facade の `Workspace::with_libraries` が、ディレクトリの `.mo` を本文のまま持ち、検査のたびにモデルが使うファイルだけを Rumoca の Session に読む。変えたのは facade だけで、CLI・`globe lsp`・Desktop の sidecar は呼び出しのまま切り替わる。検査の結果が変わらないことは、facade の試験 `tests/library_closure.rs`（`GlobeModeValidation` の全モデルと MSL の 3 モデルを 1 つの `Workspace` で順に検査し、`CheckResponse` の JSON が全部読みと一致）と、手元で `globe check` の標準出力の md5 が前後で 3 モデルとも一致することで確かめた。
+
+### 6.1 ランナー（release、`/usr/bin/time -v`）
+
+run 41245881321（feature ブランチ `feature/s054-library-closure`、`gh workflow run resources.yml -f jobs=rss`、3 分 18 秒、成功）。環境は §2.1 と同じ（ubuntu-24.04、`free -m` で 15,982 MiB、`nproc` 4）。「前」は §2.1 の表（run 41196216961）。
+
+| モデル | 操作 | 最大 RSS 前 → 後 (MiB) | 壁時計 前 → 後 | 終了コード（後） |
+| --- | --- | --- | --- | ---: |
+| `ChuaCircuit` | check | 1,493 → **128** | 8.1 s → 1.05 s | 0 |
+| `ChuaCircuit` | simulate | 1,533 → **167** | 3.9 s → 1.40 s | 0 |
+| `FullRobot` | check | 1,653 → **298** | 6.4 s → 3.72 s | 0 |
+| `FullRobot` | simulate | 1,929 → **573** | 59.0 s → 56.73 s | 1 |
+| `HeatingSystem` | check | 1,618 → **480** | 10.1 s → 8.92 s | 0 |
+| `HeatingSystem` | simulate | 1,589 → **486** | 13.4 s → 11.96 s | 1 |
+
+- `ChuaCircuit` の check は **1/11.7**（1,493 → 128 MiB）。閉包が大きい（1,072〜1,103 ファイル）`FullRobot`・`HeatingSystem` でも 1/4〜1/5.5。§2.1 の見込み（0.5 GiB 前後）より小さい。見込みの 461 MiB は閉包のファイルを「文書」として渡した道で、`--library` と別の道だった。
+- 壁時計も縮む（読み込みの Session の構築が閉包の分だけになる）。`FullRobot` の simulate は実行が支配するので変わらない。
+- 終了コード 1 は §2.1 と同じ（`FullRobot`・`HeatingSystem` の simulate は実行系が止まる）。前後で同じ。
+
+### 6.2 手元（release、WSL2、RAM 3 GB + swap、ほかのセッションが同時にビルド中）
+
+同じソースで `with_libraries` だけを全部読む道（`with_libraries_full` 相当）にしたビルドを「前」とし、交互に回した。`check` の標準出力の md5 は 3 モデルとも前後で一致。`ChuaCircuit` の simulate の CSV も `cmp` で一致。
+
+| モデル | 操作 | 最大 RSS 前 → 後 (MiB) | 壁時計 前 → 後 |
+| --- | --- | --- | --- |
+| `ChuaCircuit` | check | 1,512 → **122** | 5.43 s → 2.12 s |
+| `ChuaCircuit` | simulate | 1,539 → **159** | 6.58 s → 2.01 s |
+| `FullRobot` | check | 1,655 → **291** | 9.76 s → 6.00 s |
+| `FullRobot` | simulate | 1,669 → **512** | 17 分 55 秒 → 2 分 41 秒 |
+| `HeatingSystem` | check | 1,614 → **476** | 13.54 s → 14.02 s |
+| `HeatingSystem` | simulate | 1,604 → **477** | 45.4 s → 22.5 s |
+
+- 壁時計は、ほかのセッションが同じ機械でビルドと検査を回していて swap に落ちた回があり、参考にならない。`FullRobot` の simulate の前の 17 分 55 秒は `--timeout 300` を超えており、swap の影響とみられる（推測。RSS は swap に落ちた分を含まない）。RSS の前後は比べられる。
+- facade の試験（`cargo test --release`）の最大 RSS は 2.2 GiB。1 つのプロセスに全部読みと閉包の両方の `Workspace` を持つためで、`globe` の値ではない。
+
+### 6.3 注意
+
+- 2 つ目以降のモデルで閉包が増えると、読み足して Session を作り直す（S037 の `ensure_library`）。試験は 1 つの `Workspace` で複数のモデルを順に検査して一致を見ている。`globe lsp` の長い会話での RSS の伸びは測っていない【未確認】。
+- ライブラリの全 `.mo` の本文は文字列として持つ（MSL で約 15 MB）。RSS 128 MiB にはこれを含む。

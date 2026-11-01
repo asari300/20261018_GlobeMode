@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S062 connect の型の検査と HTML の整形 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S062 connect の型の検査と HTML の整形">
+
+<section class="slide" id="S01">
+  <span class="tag">S062 · 2026-11-01 · P4</span>
+  <h1>connect の型の検査と HTML の整形</h1>
+  <p class="lead">VS Code で確かめたユーザーが頼んだ 3 つ</p>
+  <div class="big">型の合わない connect を<b>警告</b>、Documentation の HTML を<b>段付け</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>違う型で connect したら lint で通知する</li>
+    <li>README に今の規則と今後の機能の表、処理の流れの Mermaid 図</li>
+    <li>Documentation の HTML を改行とインデントで整える（既定オン、切れる、lint なし）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table>
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>同じ型</td><td>名前か中身が同じ</td><td>PositivePin と NegativePin はつなげる</td></tr>
+    <tr><td>解決できない端</td><td>判定しない</td><td>誤った通知を出さない</td></tr>
+    <tr><td>重さ</td><td>GM-L0005 の warning</td><td>コンパイルで落ちる誤り</td></tr>
+    <tr><td>HTML</td><td>空白だけを変える</td><td>意味を変えない保証を保つ</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>どこに足したか</h1>
+  <svg class="fig" viewBox="0 0 800 260" role="img" aria-label="足した場所">
+    <rect class="svg-box" x="20" y="40" width="180" height="60" rx="10"/>
+    <text class="svg-text-b" x="110" y="76" text-anchor="middle">クラスの索引</text>
+    <line class="svg-line" x1="200" y1="70" x2="250" y2="70"/>
+    <rect class="svg-box-accent" x="250" y="40" width="220" height="60" rx="10"/>
+    <text class="svg-text-b" x="360" y="66" text-anchor="middle">connect_mismatches</text>
+    <text class="svg-text" x="360" y="90" text-anchor="middle">graph crate</text>
+    <line class="svg-line" x1="470" y1="70" x2="520" y2="70"/>
+    <rect class="svg-box" x="520" y="40" width="260" height="60" rx="10"/>
+    <text class="svg-text-b" x="650" y="76" text-anchor="middle">LSP GM-L0005 / globe lint</text>
+    <rect class="svg-box" x="20" y="170" width="180" height="60" rx="10"/>
+    <text class="svg-text-b" x="110" y="206" text-anchor="middle">annotation</text>
+    <line class="svg-line" x1="200" y1="200" x2="250" y2="200"/>
+    <rect class="svg-box-accent" x="250" y="170" width="220" height="60" rx="10"/>
+    <text class="svg-text-b" x="360" y="196" text-anchor="middle">html.rs</text>
+    <text class="svg-text" x="360" y="220" text-anchor="middle">空白だけを整える</text>
+    <line class="svg-line" x1="470" y1="200" x2="520" y2="200"/>
+    <rect class="svg-box" x="520" y="170" width="260" height="60" rx="10"/>
+    <text class="svg-text-b" x="650" y="206" text-anchor="middle">render（改行と段）</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>cargo test -p globe-mode-graph -p globe-mode-fmt -p globe-mode-lsp -p globe-mode-cli
+./target/debug/globe lint src/Modelica | grep connect-type-mismatch</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">1</span><span class="l">src/Modelica の型の通知（わざと誤らせた 1 本）</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">誤った通知</span></div>
+    <div class="kpi"><span class="n">0.0.4</span><span class="l">拡張の版</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>開いていないファイルと MSL の型でも突き合わせる</li>
+    <li>connect の向き・配列の大きさ・単位の検査</li>
+    <li>wasm とウェブアプリに空行・HTML を切る口が無い</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
