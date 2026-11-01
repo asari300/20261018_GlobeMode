@@ -900,7 +900,8 @@ fn compile_strict(session: &mut Session, model: &str) -> Result<CompiledModel, V
             Ok(CompiledModel {
                 model: model.to_string(),
                 experiment: crate::preflight::experiment_for_model(result, model),
-                dae: Arc::clone(&result.dae),
+                // MSL 4.0.0 の `external "builtin"`（Modelica.Math.sin など）を組み込み演算にする（S068）
+                dae: crate::external_builtin::lower_builtin_externals(&result.dae),
             })
         }
         Err(strict) => {

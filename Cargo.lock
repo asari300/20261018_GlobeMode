@@ -1473,6 +1473,7 @@ dependencies = [
  "rumoca-core",
  "rumoca-eval-dae",
  "rumoca-ir-dae",
+ "serde_json",
 ]
 
 [[package]]

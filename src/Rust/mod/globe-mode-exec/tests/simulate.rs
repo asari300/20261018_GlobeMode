@@ -1102,3 +1102,14 @@ fn msl_preflight_time_against_the_build() {
         }
     });
 }
+
+/// S068: `external "builtin" y = sin(u);` だけの関数（MSL 4.0.0 の `Modelica.Math.sin` と同じ書き方）を実行できる。
+/// 直す前は GM-U0004（Rumoca の実行系は external builtin を実行できない）。
+#[test]
+fn external_builtin_math_functions_run() {
+    for solver in [SolverId::Bdf, SolverId::Dopri45] {
+        let run = simulate_ok("ExternalBuiltin", solver);
+        assert_close(last(&run, "x"), 1.0 - 1.0f64.cos(), 1e-6, "x(1)");
+        assert_close(last(&run, "z"), 1.0f64.exp(), 1e-9, "z(1)");
+    }
+}
