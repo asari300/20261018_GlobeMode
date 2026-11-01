@@ -84,9 +84,10 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Modelica のファイルを整形する（S053、`doc/format-style.md`）。ファイルが無ければ標準入力を整形して標準出力に書く
+    /// Modelica のファイルを整形する（S053、`doc/format-style.md`）。ruff のように、パスを省くとカレントディレクトリ（S060）
     Fmt {
-        /// ファイルまたはディレクトリ（ディレクトリは下の .mo をすべて）。無ければ標準入力
+        /// ファイルまたはディレクトリ（下の .mo を .gitignore と隠しディレクトリを除いてすべて）。
+        /// 省くとカレントディレクトリ。`-`、または `--json` か入力がパイプのときは標準入力 → 標準出力
         files: Vec<PathBuf>,
         /// 書き換えず、整形が要るファイルを列挙して終了コード 1
         #[arg(long)]
@@ -106,7 +107,7 @@ enum Command {
     },
     /// Modelica のファイルを lint する（line-too-long / class-name-pascal-case / missing-description）
     Lint {
-        /// ファイルまたはディレクトリ。無ければ標準入力
+        /// ファイルまたはディレクトリ。省くとカレントディレクトリ（`fmt` と同じ規則）
         files: Vec<PathBuf>,
         /// 止める規則（何度でも）
         #[arg(long)]
@@ -359,7 +360,7 @@ fn read_stdin() -> Result<String, ExitCode> {
 
 /// `globe fmt`。ファイルが無ければ標準入力 → 標準出力。
 fn fmt(files: &[PathBuf], check: bool, options: &globe_mode_fmt::Options, json: bool) -> ExitCode {
-    if files.is_empty() {
+    let Some(files) = paths_or_stdin(files, json) else {
         let Ok(text) = read_stdin() else {
             return ExitCode::from(2);
         };
@@ -387,37 +388,97 @@ fn fmt(files: &[PathBuf], check: bool, options: &globe_mode_fmt::Options, json: 
                 ExitCode::from(1)
             }
         };
-    }
-    let Ok(paths) = expand_inputs(files) else {
+    };
+    let Ok(paths) = collect_mo(&files) else {
         return ExitCode::from(2);
     };
-    let mut changed = 0;
+    // ruff と同じく、壊れたファイルがあっても残りを続け、最後に要約と終了コード 2 を返す
+    let (mut changed, mut failed) = (0, 0);
     for path in &paths {
-        let Ok((name, text)) = read(path) else {
-            return ExitCode::from(2);
+        let (name, text) = match read(path) {
+            Ok(x) => x,
+            Err(_) => {
+                failed += 1;
+                continue;
+            }
         };
         match globe_mode_fmt::format(&text, options) {
             Ok(out) if out == text => {}
-            Ok(out) => {
+            Ok(_) if check => {
                 changed += 1;
-                if check {
-                    println!("{name}");
-                } else if let Err(e) = std::fs::write(path, out) {
-                    eprintln!("error: {name} に書けない: {e}");
-                    return ExitCode::from(2);
-                }
+                println!("整形が要る: {name}");
             }
+            Ok(out) => match std::fs::write(path, out) {
+                Ok(()) => changed += 1,
+                Err(e) => {
+                    eprintln!("error: {name} に書けない: {e}");
+                    failed += 1;
+                }
+            },
             Err(e) => {
-                eprintln!("error: {name}: {e}");
-                return ExitCode::from(1);
+                eprintln!("error: {name} を整形できない: {e}");
+                failed += 1;
             }
         }
     }
-    if check && changed > 0 {
+    let same = paths.len() - changed - failed;
+    if check {
+        println!("{changed} ファイルは整形が要る、{same} ファイルは整形済み");
+    } else {
+        println!("{changed} ファイルを整形した、{same} ファイルは変更なし");
+    }
+    if failed > 0 {
+        println!("{failed} ファイルは整形できなかった");
+        ExitCode::from(2)
+    } else if check && changed > 0 {
         ExitCode::from(1)
     } else {
         ExitCode::SUCCESS
     }
+}
+
+/// パスが無いときの決め方（S060、ruff に倣う）。`None` は標準入力。
+/// `-` だけ、または `--json` か入力がパイプ（ウェブアプリ・エディタの呼び方）なら標準入力、端末から打ったならカレントディレクトリ。
+fn paths_or_stdin(files: &[PathBuf], json: bool) -> Option<Vec<PathBuf>> {
+    use std::io::IsTerminal;
+    match files {
+        [one] if one.as_os_str() == "-" => None,
+        [] if json || !std::io::stdin().is_terminal() => None,
+        [] => Some(vec![PathBuf::from(".")]),
+        _ => Some(files.to_vec()),
+    }
+}
+
+/// `fmt` / `lint` の対象。ディレクトリは ruff と同じく `.gitignore`・隠しディレクトリを除いた下の `.mo`（名前順）。
+/// 明示したファイルは除外しない。
+fn collect_mo(inputs: &[PathBuf]) -> Result<Vec<PathBuf>, ExitCode> {
+    let mut out = Vec::new();
+    for input in inputs {
+        if !input.is_dir() {
+            out.push(input.clone());
+            continue;
+        }
+        let mut found = Vec::new();
+        // require_git(false): git の外でも .gitignore を守る（ruff と同じ）
+        for entry in ignore::WalkBuilder::new(input).require_git(false).build() {
+            match entry {
+                Ok(e) => {
+                    if e.file_type().is_some_and(|t| t.is_file())
+                        && e.path().extension().is_some_and(|x| x == "mo")
+                    {
+                        found.push(e.into_path());
+                    }
+                }
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    return Err(ExitCode::from(2));
+                }
+            }
+        }
+        found.sort();
+        out.extend(found);
+    }
+    Ok(out)
 }
 
 /// `globe lint`。1 件以上あれば終了コード 1。
@@ -426,13 +487,8 @@ fn lint(files: &[PathBuf], disable: &[String], json: bool) -> ExitCode {
         disabled: disable.to_vec(),
         ..globe_mode_fmt::LintOptions::default()
     };
-    let inputs: Vec<(String, String)> = if files.is_empty() {
-        let Ok(text) = read_stdin() else {
-            return ExitCode::from(2);
-        };
-        vec![("<stdin>".to_string(), text)]
-    } else {
-        let Ok(paths) = expand_inputs(files) else {
+    let inputs: Vec<(String, String)> = if let Some(files) = paths_or_stdin(files, json) {
+        let Ok(paths) = collect_mo(&files) else {
             return ExitCode::from(2);
         };
         let mut v = Vec::new();
@@ -443,6 +499,11 @@ fn lint(files: &[PathBuf], disable: &[String], json: bool) -> ExitCode {
             v.push(x);
         }
         v
+    } else {
+        let Ok(text) = read_stdin() else {
+            return ExitCode::from(2);
+        };
+        vec![("<stdin>".to_string(), text)]
     };
     let mut all = Vec::new();
     for (name, text) in &inputs {
@@ -455,6 +516,10 @@ fn lint(files: &[PathBuf], disable: &[String], json: bool) -> ExitCode {
     }
     if json {
         println!("{}", serde_json::json!({"messages": all}));
+    } else if all.is_empty() {
+        println!("問題なし（{} ファイル）", inputs.len());
+    } else {
+        println!("{} 件（{} ファイル）", all.len(), inputs.len());
     }
     if all.is_empty() {
         ExitCode::SUCCESS

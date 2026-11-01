@@ -34,6 +34,7 @@
 | faer、egg、salsa、rowan、petgraph、lsp-types | MIT / Apache-2.0 | 許可 | — |
 | lsp-types 0.97.0（fluent-uri 0.1.4、serde_repr 0.1.21） | MIT OR Apache-2.0（fluent-uri は MIT。crates.io の metadata で確認、2026-10-30） | 許可 | S038 で導入（`globe-mode-lsp`。型だけ使い、JSON-RPC は自前）。推移的依存で新しく入るのは fluent-uri と serde_repr の 2 つ。`cargo deny check` は ok |
 | serde、serde_json、clap | MIT OR Apache-2.0 | 許可 | S002 で導入 |
+| ignore 0.4.34、globset 0.4.21（globe-mode-cli、S060） | MIT OR Unlicense | 許可（MIT を選ぶ） | `globe fmt` / `globe lint` のディレクトリの走査で `.gitignore` を守る。ruff と同じ crate。ほかの推移的依存（walkdir・bstr・regex-automata・crossbeam-deque など）は Cargo.lock に既にある。`cargo deny check licenses` 通過、2026-11-01 |
 | sha2 | MIT OR Apache-2.0 | 許可 | S003 で導入（xtask の sha256） |
 | salsa 0.28.5 | Apache-2.0 OR MIT | 許可 | S004 で導入（`globe-mode-db`）。推移的な依存も cargo deny で ok |
 | rumoca-ir-dae、rumoca-eval-dae、rumoca-core | Apache-2.0（Rumoca のワークスペース） | 許可 | S005 で導入（`globe-mode-frontend` だけ）。DAE の incidence を自前で作るため。rumoca-compile の推移的依存なので、新しい外部依存は増えない |

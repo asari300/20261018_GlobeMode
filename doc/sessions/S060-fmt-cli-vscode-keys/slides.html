@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S060 CLI の走査と VS Code のキー — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S060 CLI の走査と VS Code のキー">
+
+<section class="slide" id="S01">
+  <span class="tag">S060 · 2026-11-01 · P4</span>
+  <h1>CLI の走査と VS Code のキー</h1>
+  <p class="lead">ユーザーが試して見つけた 3 つの使いにくさを直した</p>
+  <div class="big"><b>globe fmt</b> は ruff のように辿り、VS Code は <b>Shift+Alt+F</b> で整形する</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>web-apps.md に起動コマンドの一覧（Phoenix の初回の mix deps.get で詰まった）</li>
+    <li>VS Code: Ctrl+Shift+I がエージェントの窓を開く。Shift+Alt+F で整形し、保存時の整形を設定で選べるように</li>
+    <li>拡張が見えない: プロファイルの窓に入っていなかった</li>
+    <li>CLI: ディレクトリを ruff のように辿る</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table>
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>パスを省く</td><td>端末ならカレントディレクトリ、パイプか --json なら標準入力</td><td>ruff と同じ操作性。ウェブアプリ 10 種の呼び方は変えない</td></tr>
+    <tr><td>除外</td><td>.gitignore と隠しディレクトリ（crate ignore）</td><td>data/msl などを誤って整形しない。ruff と同じ crate</td></tr>
+    <tr><td>壊れたファイル</td><td>続けて、最後に要約と終了コード 2</td><td>1 本で全体が止まらない</td></tr>
+    <tr><td>VS Code</td><td>Shift+Alt+F を .mo に割り当て、formatOnSave は既定オフ</td><td>ユーザーの指定。Linux でも同じキー</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>globe fmt の入口</h1>
+  <svg class="fig" viewBox="0 0 800 260" role="img" aria-label="globe fmt の入力の決め方">
+    <rect class="svg-box-accent" x="20" y="100" width="180" height="60" rx="10"/>
+    <text class="svg-text-b" x="110" y="136" text-anchor="middle">globe fmt</text>
+    <line class="svg-line" x1="200" y1="130" x2="300" y2="60"/>
+    <line class="svg-line" x1="200" y1="130" x2="300" y2="200"/>
+    <rect class="svg-box" x="300" y="30" width="460" height="60" rx="10"/>
+    <text class="svg-text" x="530" y="66" text-anchor="middle">パイプ・--json・「-」→ 標準入力（ウェブアプリ）</text>
+    <rect class="svg-box" x="300" y="170" width="460" height="60" rx="10"/>
+    <text class="svg-text" x="530" y="206" text-anchor="middle">端末・パス → .gitignore を守って .mo を辿る</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>cargo test -p globe-mode-cli --test fmt_dirs
+cd src/VSCode/globe-mode &amp;&amp; mise exec -- pnpm test
+cd src/Modelica &amp;&amp; globe fmt --check</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">3/3</span><span class="l">CLI の走査の試験</span></div>
+    <div class="kpi"><span class="n">2/2</span><span class="l">拡張の試験</span></div>
+    <div class="kpi"><span class="n">2</span><span class="l">増えた crate</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>--diff（差分の表示）と --exclude は入れていない</li>
+    <li>VS Code の窓での確認はユーザーが行う</li>
+    <li>src/Modelica の 69 本の書き換えはまだ</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
