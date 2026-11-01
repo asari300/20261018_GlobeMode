@@ -1,7 +1,12 @@
-/** uPlot の AlignedData の形（1 本目が x、残りが系列。有限でない値は null にして線を切る）。 */
+/**
+ * uPlot の AlignedData の形（1 本目が x、残りが系列）。Backend が返す列もこの形。
+ * CSV の道（parseCsv）は有限でない値を null にして線を切る。列の道（Float64Array）は NaN / Inf のまま。
+ * shortcut: 列の道の NaN は uPlot の欠損（null）にならない。発散した結果の描画が崩れたら Plot で null に直す。
+ */
 export interface Columns {
   names: string[]; // time を除く
-  data: (number | null)[][]; // [time, ...系列]
+  points: number;
+  data: ArrayLike<number | null>[]; // [time, ...系列]
 }
 
 // write_csv の形だけ読む: 見出しの名前は二重引用符で囲み（中の `"` は `""`）、値は数か NaN / Inf / -Inf。
@@ -26,5 +31,5 @@ export function parseCsv(text: string): Columns {
     const f = lines[i].replace(/\r$/, "").split(",");
     for (let c = 0; c < names.length; c++) data[c].push(num(f[c]));
   }
-  return { names: names.slice(1), data };
+  return { names: names.slice(1), points: data[0].length, data };
 }

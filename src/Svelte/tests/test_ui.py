@@ -3,7 +3,7 @@
 
   uv run python src/Svelte/tests/test_ui.py     # 先に pnpm build（mise run ui:check がやる）
 
-dist/ を localhost で配り（CSP は index.html の meta のまま）、Decay を検査して error の診断が 0 件であること、実行するとプロットが出て信号の選択が効くこと、
+dist/ を localhost で配り（CSP は index.html の meta のまま）、Decay を検査して error の診断が 0 件であること、実行するとプロットが出て信号の選択が効くこと（ブラウザの実行は列ごとの道で、data-typed が true。S065）、
 10 万点（4 状態、出力間隔 0.01 s で 1000 s）の結果でも描けて時間を測ること、構造的に特異なモデルを検査して診断の行が出て、行を押すとエディタの選択が動くことを確かめる。1 ファイルの回路で「グラフ」を押して connect グラフが描かれることを確かめる（S046）。
 最後に「MSL を読む」で MSL 4.1.0 を読み（public/msl/MSL.json が無ければ飛ばす）、ChuaCircuit の検査（error 0）と実行（プロットの canvas と系列）を確かめて、秒数を出す（S048）。console の error は失敗。
 """
@@ -84,12 +84,15 @@ def main() -> int:
         page.locator(".cm-content").focus()
         page.keyboard.press("Control+A")
         page.keyboard.insert_text(BIG)
+        t = time.perf_counter()
         simulate()
+        took = time.perf_counter() - t
         assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
         expect(page.locator(".plot canvas").first).to_be_visible()
         n, ms = page.locator(".plot").get_attribute("data-points"), page.locator(".plot").get_attribute("data-ms")
-        parse = page.locator(".plot").get_attribute("data-parse-ms")
-        print(f"10 万点の描画: 点 {n}、系列 {page.locator('.plot .signals input:checked').count()} 本、CSV の解析 {parse} ms を含めて最初の描画まで {ms} ms（目安 33 ms）")
+        typed = page.locator(".plot").get_attribute("data-typed")
+        assert typed == "true", "ブラウザの実行は列ごとの Float64Array の道（S065。CSV の解析は無い）"
+        print(f"10 万点の描画: 点 {n}、系列 {page.locator('.plot .signals input:checked').count()} 本、列の道で最初の描画まで {ms} ms（目安 33 ms）、「実行」を押してから戻るまで {took * 1000:.0f} ms")
         assert int(n or 0) >= 100_000
 
         # 整形（S053）: 詰めた本文が doc/format-style.md の形になり、lint の波線（説明文字列が無い）が出る

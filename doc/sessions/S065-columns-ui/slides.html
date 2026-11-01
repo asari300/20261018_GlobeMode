@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S065 ブラウザ UI の列ごとの結果 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S065 ブラウザ UI の列ごとの結果">
+
+<section class="slide" id="S01">
+  <span class="tag">S065 · 2026-11-01 · P4</span>
+  <h1>ブラウザ UI の列ごとの結果</h1>
+  <p class="lead">S051 の持ち越し: wasm の列の API を UI につなぐ</p>
+  <div class="big">CSV の解析を<b>やめて</b>、<b>Float64Array</b> をそのまま uPlot へ</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>Backend に <code>simulateColumns</code> を足す（既存の simulate は残す）</li>
+    <li>ブラウザは <code>GlobeWorker.simulateColumns</code>、Desktop は CSV を解析して同じ形にする</li>
+    <li>Plot は列の形（<code>Columns</code>）だけを見る</li>
+    <li>Playwright で「列の道で来た」ことを確かめる</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table>
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>Columns の形</td><td>points を足し、data は ArrayLike</td><td>Float64Array も number[] も同じ型で渡せる</td></tr>
+    <tr><td>Desktop</td><td>simulate の CSV を parseCsv</td><td>sidecar に列の道が無い。UI は 1 つの形だけ見る</td></tr>
+    <tr><td>App の状態</td><td>$state.raw</td><td>$state は配列を丸ごと Proxy にして 10 万点で遅い</td></tr>
+    <tr><td>確認</td><td>data-typed</td><td>先頭の列が Float64Array かを属性に出す</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">結果</span>
+  <h1>10 万点 × 4 状態の実行（Chromium、WSL）</h1>
+  <table>
+    <tr><th></th><th>CSV の道（前）</th><th>列の道（後）</th></tr>
+    <tr><td>CSV の解析</td><td>129.9 ms</td><td>なし</td></tr>
+    <tr><td>最初の描画まで</td><td>151.3 ms</td><td>20.7 / 27.0 ms</td></tr>
+    <tr><td>実行を押してから戻るまで</td><td>810 ms</td><td>222 / 213 ms</td></tr>
+    <tr><td>ChuaCircuit の実行</td><td>1.3 s</td><td>0.8 s</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>列の道の NaN / Inf は uPlot の欠損にならない（CSV の道は null にしていた）</li>
+    <li>sidecar（Desktop）に列の道を足すかは未定</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
