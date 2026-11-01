@@ -7,7 +7,7 @@
 | worktree | `.git-worktree/s063-libs-failures` |
 | Phase | P3 |
 | セッション文書 | `doc/sessions/S063-libs-failures/` |
-| セッション記録 | 親のセッションが写す（このサブエージェントは写さない） |
+| セッション記録 | [`log/sessions/2026-10-31-0b797c72-9651-45d3-b466-98f7c341d068.md`](../sessions/2026-10-31-0b797c72-9651-45d3-b466-98f7c341d068.md) |
 
 ## 依頼
 
