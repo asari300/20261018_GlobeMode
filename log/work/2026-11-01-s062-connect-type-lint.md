@@ -51,6 +51,9 @@
 - ユーザーが loggerhead で書き換えた試験データ `objects_before.mo` / `objects_after.mo`（Documentation の HTML の例を足した）を取り込んだ。ユーザーが VS Code で成功を確かめた。
 - 新しい `objects_before.mo` は Rectangle に `origin = {0, 0}` を書いているので、`no_origin_insertion_when_off` は入力からそれを外してから「補わない」ことを見るように直した。`cargo test -p globe-mode-fmt`: 単体 6・統合 9 が通過。
 
+- `cargo clippy -p globe-mode-fmt --all-targets -D warnings` と `cargo fmt --check`: 通過。main dbf02bb の CI（run 41275796845）: 成功（plan・rust-linux・wasm-node・ui・docs）。
+- ユーザーの確認用の worktree loggerhead を `~/orca/workspaces/20261018_GlobeMode/loggerhead` から `.git-worktree/loggerhead` に `git worktree move` で移し、元の場所に symlink を残した（ユーザーの依頼）。
+
 ## 残したこと
 
 - LSP が開いていないファイルと `--library` の型でも突き合わせる。
