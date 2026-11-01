@@ -7,7 +7,7 @@
 | worktree | `.git-worktree/s069-desktop-msl-fetch` |
 | Phase | P4 |
 | セッション文書 | `doc/sessions/S069-desktop-msl-fetch/` |
-| セッション記録 | （親が写す） |
+| セッション記録 | [2026-10-31-0b797c72-...](../sessions/2026-10-31-0b797c72-9651-45d3-b466-98f7c341d068.md)（親セッション。S048〜S052 と同じ） |
 
 ## 依頼
 
