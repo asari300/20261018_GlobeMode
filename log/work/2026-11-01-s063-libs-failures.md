@@ -41,3 +41,7 @@ S058 の持ち越し。(1) `Checker::new(&[msl, lib])` で `import Modelica.Unit
 - Rumoca 側の検査（ER132・ER070・EI032・ER023）を上流に出すか。
 - MSL 4.0.0 での回し直し（版の差の本数は、メッセージに名前が出るもの 1 本しか確かめていない）。
 - SDF を使って止まる本数は、名指すものが 0 本。名指さない分は分けられない。
+
+## 追記（親、2026-11-01）
+
+- `mise run check` ok（fmt / clippy / test / deny）。`mise run msl:compare` 20 本中 20 本一致。feature で `libraries.yml`（run 41281840210、DeltaRobot・Chemical）が success で、表の本数は S058 と同じ（DeltaRobot 21/9/7/5、Chemical 76/12/21/43）。
