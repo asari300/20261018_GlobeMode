@@ -435,7 +435,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **見つけたこと**: 公開ライブラリは Rumoca の読み込みの検査に通らないことが多い。ThermofluidStream の `TILMediaWrapper/UsersGuide/Contact.mo` は文字列の引用符の誤りで構文の誤り（EP001）、ThermofluidStream の `Pipes/Internal/BaseClasses` は `package.mo` の無いディレクトリ（PKG-006）、ClaRa は `physicalMills`/`PhysicalMills` のように `within` とディレクトリ名の大文字小文字が合わないファイル（PKG-010）と、1483 ファイルの UTF-8 BOM（BOM つきだと構文の誤りで例題が 0 本）があった。`Checker::new` はこれが 1 つでもあると全体を断るので、xtask が該当するファイルを除いたルートを作って読む（BOM は `fetch-library` が外す）。除いたファイルの一覧は `target/library-roots/<名前>.skipped.txt`（artifact に入る）。
 - **見つけたこと**: `Checker::new(&[msl, lib])` のように別々に読んだルートの間では名前が引けず、ライブラリの中の `import Modelica.Units.SI` が全例題で `GM-E1001` になる。MSL とライブラリを `target/library-roots/<名前>/` の symlink で 1 つのルートにまとめて読むと解決した（xtask 側の迂回。frontend は直していない）。
 - **全部の run**（41250636800、全ジョブ success。取り込みは親）: Buildings 例題 809・OK 119・GM-U 193・panic 4・実行できた 88/119（検査 1:13）、AixLib 642・119・163・0・98/119、IBPSA 457・88・135・4・66/88、ThermofluidStream 122・4・115・0・2/4、ClaRa 5・0（S1 で全部 NG）。7 ライブラリ合わせて例題 2,132 本、OK 351 本、実行できた 264 本。
-- 持ち越し:失敗の原因（Rumoca の未対応、MSL 4.0.0 と 4.1.0 の差、取得しない依存 SDF・Modelica_DeviceDrivers・SMArtInt）の分類。ルート間の名前解決の原因。`Checker::new` がライブラリの構文の誤り 1 つで全体を断る点。
+- 持ち越し: 失敗の原因（Rumoca の未対応、MSL 4.0.0 と 4.1.0 の差、取得しない依存 SDF・Modelica_DeviceDrivers・SMArtInt）の分類。ルート間の名前解決の原因。`Checker::new` がライブラリの構文の誤り 1 つで全体を断る点。
 
 **S017 の最初にやること（ユーザーの指示、2026-10-22）**: Claude の実行場所を Raspberry Pi（aarch64）に移す。RPi での最初のセッションでは、下の候補より先に次を片付ける。**S017 で済んだ（上）。**
 
