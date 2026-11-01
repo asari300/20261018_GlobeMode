@@ -7,7 +7,7 @@
 | worktree | `.git-worktree/s055-sim-failures` |
 | Phase | P3 |
 | セッション文書 | `doc/sessions/S055-sim-failures/` |
-| セッション記録 | 親セッションの記録に含まれる（`log/sessions/` へのコピーは親が行う） |
+| セッション記録 | [`log/sessions/2026-10-31-0b797c72-9651-45d3-b466-98f7c341d068.md`](../sessions/2026-10-31-0b797c72-9651-45d3-b466-98f7c341d068.md) |
 
 ## 依頼
 
