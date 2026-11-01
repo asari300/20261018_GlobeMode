@@ -33,6 +33,11 @@ fn tree(name: &str) -> PathBuf {
     d
 }
 
+/// `./a.mo` を OS の区切りで（Windows は `.\a.mo`）
+fn rel(p: &str) -> String {
+    Path::new(".").join(p).display().to_string()
+}
+
 fn stdout(o: &Output) -> String {
     String::from_utf8_lossy(&o.stdout).into_owned()
 }
@@ -43,7 +48,10 @@ fn fmt_walks_like_ruff() {
     let o = globe(&d, &["fmt", "--check", "."]);
     let out = stdout(&o);
     assert_eq!(o.status.code(), Some(2), "{out}"); // broken.mo があるので 2
-    assert!(out.contains("整形が要る: ./a.mo"), "{out}");
+    assert!(
+        out.contains(&format!("整形が要る: {}", rel("a.mo"))),
+        "{out}"
+    );
     assert!(!out.contains("c.mo") && !out.contains("d.mo"), "{out}");
     assert!(
         out.contains("1 ファイルは整形が要る、1 ファイルは整形済み"),
@@ -69,7 +77,10 @@ fn lint_walks_and_summarizes() {
     let o = globe(&d, &["lint", "."]);
     let out = stdout(&o);
     assert_eq!(o.status.code(), Some(1), "{out}");
-    assert!(out.contains("./a.mo:1:7: missing-description"), "{out}");
+    assert!(
+        out.contains(&format!("{}:1:7: missing-description", rel("a.mo"))),
+        "{out}"
+    );
     assert!(!out.contains("c.mo") && !out.contains("d.mo"), "{out}");
     assert!(
         out.lines().last().unwrap().ends_with("（2 ファイル）"),
