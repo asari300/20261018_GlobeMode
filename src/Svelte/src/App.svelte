@@ -9,6 +9,7 @@
   import { WorkerBackend } from "./lib/worker-backend";
   import { TauriBackend, inTauri } from "./lib/tauri-backend";
   import type { Backend } from "./lib/backend";
+  import type { Columns } from "./lib/plot/csv";
   import type { Diagnostic } from "./lib/protocol";
   import Plot from "./lib/plot/Plot.svelte";
   import Graph from "./lib/graph/Graph.svelte";
@@ -23,7 +24,7 @@
   let busy = $state(false);
   let failure = $state("");
   let diagnostics = $state<Diagnostic[]>([]);
-  let csv = $state<string | null>(null);
+  let columns = $state.raw<Columns | null>(null); // $state だと配列を丸ごと Proxy にする。10 万点では遅い
   // MSL（public/msl/MSL.json。pack-msl.mjs が data/msl から作る）。起動時には読まず、ボタンで読む
   let msl = $state<"none" | "loading" | "loaded">("none");
   let mslNote = $state("");
@@ -55,7 +56,7 @@
       msl = "loaded";
       mslNote = `MSL 4.1.0 を読んだ（${(json.length / 2 ** 20).toFixed(0)} MiB、${((performance.now() - t) / 1000).toFixed(1)} 秒）`;
       diagnostics = [];
-      csv = null;
+      columns = null;
       graphModel = null;
     } catch (e) {
       msl = "none";
@@ -94,9 +95,9 @@
 
   const simulate = () =>
     run(async () => {
-      const r = await backend.simulate({ model });
+      const { response: r, columns: c } = await backend.simulateColumns({ model });
       diagnostics = bySeverity(r.diagnostics);
-      csv = r.csv;
+      columns = c.points > 0 ? c : null;
       if (r.refused) failure = r.refused;
       else if (!r.ok && !r.diagnostics.length) failure = "実行に失敗した（診断なし）";
     });
@@ -150,7 +151,7 @@
       {/each}
     </tbody>
   </table>
-  {#if csv}<Plot {csv} />{/if}
+  {#if columns}<Plot {columns} />{/if}
   {#if graphModel}<Graph {backend} model={graphModel} onSelect={select} />{/if}
 </main>
 

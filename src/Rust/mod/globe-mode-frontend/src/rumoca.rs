@@ -17,6 +17,7 @@ use rumoca_compile::compile::{
     StructuralOverride, VariableRole,
 };
 use rumoca_compile::parsing::{ParseError, ast};
+use rumoca_compile::source_roots::parse_source_root_with_cache;
 use rumoca_compile::{Session, SessionConfig};
 use rumoca_ir_dae::ScalarType;
 
@@ -185,7 +186,18 @@ impl Checker {
     pub fn new(libraries: &[&Path]) -> Result<Checker, Vec<Diagnostic>> {
         let mut session = Session::new(SessionConfig::default());
         // ライブラリ（MSL など）。めったに変わらないので DurableExternal として読む。
-        for lib in libraries {
+        let fail = |lib: &Path, notes: &[String]| {
+            let mut d = Diagnostic::error(
+                codes::LIBRARY,
+                Stage::S1,
+                format!("ライブラリ {} を読み込めない", lib.display()),
+            );
+            for msg in notes.iter().take(5) {
+                d = d.note(msg.clone());
+            }
+            vec![d]
+        };
+        if let [lib] = libraries {
             let load = session.load_source_root_tolerant(
                 &format!("library:{}", lib.display()),
                 SourceRootKind::DurableExternal,
@@ -193,16 +205,29 @@ impl Checker {
                 None,
             );
             if !load.diagnostics.is_empty() || load.parsed_file_count == 0 {
-                let mut d = Diagnostic::error(
-                    codes::LIBRARY,
-                    Stage::S1,
-                    format!("ライブラリ {} を読み込めない", lib.display()),
-                );
-                for msg in load.diagnostics.iter().take(5) {
-                    d = d.note(msg.clone());
-                }
-                return Err(vec![d]);
+                return Err(fail(lib, &load.diagnostics));
             }
+        } else if !libraries.is_empty() {
+            // 2 つ以上のルートは 1 つの組にまとめて Session に入れる。ルートごとに `load_source_root_tolerant` すると、
+            // Rumoca がルートごとに作る意味の要約（SourceRootSemanticSummary）が、そのルートの中だけで名前を引いた
+            // 結果になり、別のルートの名前（MSL の `Modelica.Units.SI`）を引くライブラリが ER002 になる（S063）
+            let mut documents = Vec::new();
+            for lib in libraries {
+                match parse_source_root_with_cache(lib) {
+                    Ok(parsed) if parsed.file_count > 0 => documents.extend(parsed.documents),
+                    Ok(_) => return Err(fail(lib, &[])),
+                    Err(e) => {
+                        return Err(fail(lib, &[format!("Failed to load source root: {e:#}")]));
+                    }
+                }
+            }
+            let name: Vec<String> = libraries.iter().map(|p| p.display().to_string()).collect();
+            session.replace_parsed_source_set(
+                &format!("library:{}", name.join(",")),
+                SourceRootKind::DurableExternal,
+                documents,
+                None,
+            );
         }
         let library_classes = session
             .document_uris()

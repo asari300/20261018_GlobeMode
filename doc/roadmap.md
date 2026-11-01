@@ -323,7 +323,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 ### S042（P4 の 4 回目、2026-10-31）で済んだこと
 
 - **実行とプロットの UI**（[計画書](plan/2026-10-30-release-estimate-and-parallel-plan.md)の WP-D、最小の形）: `App.svelte` に「実行」ボタン（`Backend.simulate`、`refused` と診断は既存の診断パネル）。`src/Svelte/src/lib/plot/` に CSV を列に分ける `csv.ts` と uPlot の `Plot.svelte`（信号のチェックボックス、既定は最初の 3 本。ズームは uPlot の既定）。npm は uPlot（MIT、依存なし）を足して 58 パッケージ、GPL・NC は 0。Playwright の試験に、Decay の実行でプロットの canvas と系列が出ること、選択を外すと系列が消えること、10 万点 × 4 状態の結果を描く時間の測定を足した。実装は Sonnet のサブエージェント 1 人。
-- 持ち越し: 2 軸、凡例の凝った UI、MAT v4 の読み込み、ChuaCircuit のスクリーンショット試験、結果を列ごとに返す API（CSV の解析が 10 万点で約 0.3 s かかる）。
+- 持ち越し: 2 軸、凡例の凝った UI、MAT v4 の読み込み、ChuaCircuit のスクリーンショット試験、結果を列ごとに返す API（CSV の解析が 10 万点で約 0.3 s かかる。**S051 で wasm、S065 で UI に済んだ**）。
 
 ### S041（P4 の 3 回目、2026-10-31）で済んだこと
 
@@ -393,7 +393,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 ### S051（P3、2026-10-31）で済んだこと
 
 - **リソースの計測**（[research/resources-2026-10-31.md](research/resources-2026-10-31.md)、手動のワークフロー `resources.yml`、run 41196216961）: `globe check` / `simulate` の最大 RSS は 3 モデルで 1.5〜1.9 GiB（ChuaCircuit の check 1,493 MiB は ADR-0023 の 1.48 GiB と同じ）。MSL の全体を読まず閉包の 1,075 ファイルだけを渡すと 461 MiB（手元）。wasm の線形メモリは MSL の 566 本を順に `check` して 300 本目で 520 MiB だが、**336 本目の `Spice3BenchmarkFourBitBinaryAdder` 1 本で 668 → 3,802 MiB**（wasm32 の上限 4 GiB の手前）。ADR-0023 (c) の「検査の後に見て 2 GiB で作り直す」は 1 回の検査の中の伸びを止められない。
-- **列ごとの結果**: wasm の `Workspace.simulate_columns` が `SimColumns`（`response`・`layout()`・`column(i)` の `Float64Array`）を返す。protocol に `ColumnsLayout` を足しただけで、既存の JSON と CLI の snapshot は変わらない。10 万点 × 7 列で wasm の呼び出しから JS の配列まで 548 → 159 ms（ランナー）。Svelte への接続は次回。
+- **列ごとの結果**: wasm の `Workspace.simulate_columns` が `SimColumns`（`response`・`layout()`・`column(i)` の `Float64Array`）を返す。protocol に `ColumnsLayout` を足しただけで、既存の JSON と CLI の snapshot は変わらない。10 万点 × 7 列で wasm の呼び出しから JS の配列まで 548 → 159 ms（ランナー）。Svelte への接続は S065 で済んだ。
 - 持ち越し: `Backend`/`Plot` への接続、~~`globe --library` の分割読み込み（RSS 1/3 の見込み）~~（S054 で済）、1 回の検査で大きく伸びるモデルの予告か上限。
 
 ### S050（P3、2026-10-31）で済んだこと
@@ -433,9 +433,16 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **MSL 以外の公開ライブラリの検査**（[research/libraries-2026-11-01.md](research/libraries-2026-11-01.md)、`.github/workflows/libraries.yml`、[libraries.md](libraries.md)）: Buildings 14.0.0・AixLib 3.0.1・IBPSA 4.0.0・ClaRa 1.9.0（TILMedia 付き）・ThermofluidStream 1.4.1・DeltaRobot 1.0.2・Chemical 2.0.0 を `cargo xtask fetch-library <名前>`（commit 固定のアーカイブ + sha256、`data/libs/<名前>/`）で取得し、`msl-funnel --library data/libs/<名前> --package <根> [--examples-in <段>] --shard i/n` と `msl-sim --library … --package …` を matrix（Buildings 4・AixLib 2・ほか 1 の分割）で回す。手動（`libraries` に JSON か名前）と毎週月曜 06:00 JST。ジョブの最初に ci.yml が動いていれば待つ（上限 30 分）。`fail-fast: false`、funnel・sim は `continue-on-error`、落ちた本数は数えるだけ。ジョブ `libraries-report`（`cargo xtask libraries-report`）が表を作る。
 - **小さい 2 つの run**（41248143483、約 16 分、全ジョブ success）: DeltaRobot は例題 21 本（`Scenarios`・`Tests`）で OK 9・NG 7・GM-U 5・panic 0、OK の 9 本を実行して 5 本が終わりまで実行できた。Chemical は例題 76 本で OK 12・NG 21（GM-E4001）・GM-U 43（動的な if 方程式 41 本ほか）・panic 0、12 本を実行して 0 本（すべて実行系の未対応 GM-U0004）。
 - **見つけたこと**: 公開ライブラリは Rumoca の読み込みの検査に通らないことが多い。ThermofluidStream の `TILMediaWrapper/UsersGuide/Contact.mo` は文字列の引用符の誤りで構文の誤り（EP001）、ThermofluidStream の `Pipes/Internal/BaseClasses` は `package.mo` の無いディレクトリ（PKG-006）、ClaRa は `physicalMills`/`PhysicalMills` のように `within` とディレクトリ名の大文字小文字が合わないファイル（PKG-010）と、1483 ファイルの UTF-8 BOM（BOM つきだと構文の誤りで例題が 0 本）があった。`Checker::new` はこれが 1 つでもあると全体を断るので、xtask が該当するファイルを除いたルートを作って読む（BOM は `fetch-library` が外す）。除いたファイルの一覧は `target/library-roots/<名前>.skipped.txt`（artifact に入る）。
-- **見つけたこと**: `Checker::new(&[msl, lib])` のように別々に読んだルートの間では名前が引けず、ライブラリの中の `import Modelica.Units.SI` が全例題で `GM-E1001` になる。MSL とライブラリを `target/library-roots/<名前>/` の symlink で 1 つのルートにまとめて読むと解決した（xtask 側の迂回。frontend は直していない）。
+- **見つけたこと**: `Checker::new(&[msl, lib])` のように別々に読んだルートの間では名前が引けず、ライブラリの中の `import Modelica.Units.SI` が全例題で `GM-E1001` になる。MSL とライブラリを `target/library-roots/<名前>/` の symlink で 1 つのルートにまとめて読むと解決した（xtask 側の迂回。frontend は直していない。**S063 で原因を突き止めて `Checker::new` を直し、迂回を外した**）。
 - **全部の run**（41250636800、全ジョブ success。取り込みは親）: Buildings 例題 809・OK 119・GM-U 193・panic 4・実行できた 88/119（検査 1:13）、AixLib 642・119・163・0・98/119、IBPSA 457・88・135・4・66/88、ThermofluidStream 122・4・115・0・2/4、ClaRa 5・0（S1 で全部 NG）。7 ライブラリ合わせて例題 2,132 本、OK 351 本、実行できた 264 本。
-- 持ち越し: 失敗の原因（Rumoca の未対応、MSL 4.0.0 と 4.1.0 の差、取得しない依存 SDF・Modelica_DeviceDrivers・SMArtInt）の分類。ルート間の名前解決の原因。`Checker::new` がライブラリの構文の誤り 1 つで全体を断る点。
+- 持ち越し: ~~失敗の原因（Rumoca の未対応、MSL 4.0.0 と 4.1.0 の差、取得しない依存 SDF・Modelica_DeviceDrivers・SMArtInt）の分類~~（S063 で済）。~~ルート間の名前解決の原因~~（S063 で済）。`Checker::new` がライブラリの構文の誤り 1 つで全体を断る点（xtask が除いて読む迂回は残る）。
+
+### S063（P3、2026-11-01）で済んだこと
+
+- **ルート間の名前解決の原因と修正**（[research/libraries-2026-11-01.md](research/libraries-2026-11-01.md)）: ルートごとに `load_source_root_tolerant` すると、Rumoca が作るルート単位の意味の要約（`sync_source_root_semantic_summary_cache`）が別のルートの名前を引けず、`import Modelica.Units.SI` が ER002 になる（メモリから読む道・1 組にまとめた道は成功。MSL なしの最小の 2 ルートでも再現）。`Checker::new` は 2 ルート以上のとき `parse_source_root_with_cache` で読んで 1 つの組にまとめるようにした（試験 `globe-mode-frontend/tests/multi_root.rs`）。xtask の MSL の symlink をやめ、ライブラリだけのミラー（読めないファイルを除く）にした。DeltaRobot の funnel は run 41248143483 と 21 本とも同じ。
+- **失敗 1,781 本の分類**（run 41250636800・41248143483 の artifact）: S1 の `GM-E1001` 617、S3 の `GM-E3001` 442、GM-U 652（S4 402・S5 250）。上位は ER132（`redeclare function extends product` を断る、267 本）、ER070（`Dzero` の `Evaluate`、258 本）、EI032（`stateSelect`、235 本）、EF004（`getInstanceName()` ほか、217 本）。取得しない依存を名指す失敗は AixLib 10・ClaRa 2、MSL 4.1.0 で名前が消えた失敗は AixLib 1 本。ライブラリごとの上位 5 つは research に表で書いた。
+- **ClaRa の 5 本**: BOM・大文字小文字の迂回で除いたファイルは原因でない（除いたのは `physicalMills` の 53 ファイルで、例題は使わない）。3 本は record の成分が TILMedia の ExternalObject（ER023）、2 本は取得しない SMArtInt（ER003）。
+- 持ち越し: ER132・ER070・ER023・EI032 は Rumoca 側の検査（上流に出していない）。ルートが 2 つ以上のときの要約を作らない分の初回の速さ。MSL 4.0.0 で回し直したときの版の差の数。
 
 **S017 の最初にやること（ユーザーの指示、2026-10-22）**: Claude の実行場所を Raspberry Pi（aarch64）に移す。RPi での最初のセッションでは、下の候補より先に次を片付ける。**S017 で済んだ（上）。**
 
@@ -454,6 +461,11 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 8. **Rumoca の制約を上流に報告する**（ユーザーが出す）: S011 までの分に、S012 の分（型付きの道の `Instant::now()`（wasm）、Cranelift の可否の関数 `admitted_native_execution_backend` が非公開、diffsol の `ClosureNoJac` が非公開、[research/msl-sim-failures.md](research/msl-sim-failures.md) の 9 つ: インデックス 2 以上の EL005、サンプラの端点の判定の丸め、Solve IR への変換が終わらず予算の外、理想スイッチで射影の収束の判定、fixed = true の代数変数から状態を解かない、RK で黙って誤った結果、RK の道で壁時計の予算が守られない、関数呼び出しの Solve IR の契約、同時イベントと clock）と、S016 の 10・11（`DrumBoiler`: 実行時オブジェクトの組み立てで巨大な根の条件の構造解析が終わらない、lowering で assert の登録を何度も写す。`EngineV6`: 初期化方程式を関係式の既定値で解き、反転しても解き直さない。小さい再現 R1 あり）を足す。**S045 で下書きを [research/upstream/](research/upstream/README.md) に 14 件書いた**（Rumoca 11 件・diffsol 3 件。ユーザーが出す）。
 9. **持ち越し**: S9 を omc と照らして詰める、閉包の切り替えの残り（初めて検査するモデルも速くする）、`Checker` のメモリの上限（**S051 で実測**: wasm の線形メモリは 566 本の通しで 336 本目に 3.8 GiB、[research/resources-2026-10-31.md](research/resources-2026-10-31.md)。**S040 の [ADR-0023](adr/0023-desktop-and-web-process-layout.md) で決めた**: 内側に上限を入れず、別プロセスのワーカーを外から止めて作り直す。検査は最大 RSS 7.1 GiB。**S054 で `globe --library` の分割読み込みを済ませた**: `ChuaCircuit` の check は 1,493 → 128 MiB、[ADR-0025](adr/0025-native-library-closure.md)）、字面の 0 除算の振り分け、S8 の残り、`class_index` の残り。
 
+### S065（P4、2026-11-01）で済んだこと
+
+- **ブラウザ UI の結果を列ごとの道にした**（S051 の持ち越し。[解説書](sessions/S065-columns-ui/解説書.md)）: `Backend.simulateColumns`（`{response, columns}`、`columns` は `plot/csv.ts` の `Columns`＝`names`・`points`・`data: ArrayLike`）を足し、`WorkerBackend` は `GlobeWorker.simulateColumns`（`Float64Array` を転送）、`TauriBackend` は sidecar に列の道が無いので `simulate` の CSV を `parseCsv` して同じ形にする。`App.svelte` の実行は `simulateColumns`、`Plot` は `Columns` を受ける（`$state.raw`）。wasm・Rust は変えていない。`simulate` は残した。
+- **実行の時間**（ヘッドレス Chromium、10 万点 × 4 状態）: CSV の解析 129.9 ms がなくなり、最初の描画まで 151.3 → 20.7 / 27.0 ms、「実行」を押してから戻るまで 810 → 222 / 213 ms。ChuaCircuit（50195 点 × 44 列）は 1.3 → 0.8 s。Playwright の試験に `data-typed`（列の道で来たか）の確認を足した。
+- 列の道の NaN / Inf は `gapNonFinite` で null にする（有限だけの列は型付きのまま）。持ち越し: Desktop の sidecar に列の道は無い。
 ### S064（P3、2026-11-01）で済んだこと
 
 - **`auto` の回し直しを BDF → esdirk34 → dopri45 にした**（[ADR-0028](adr/0028-auto-esdirk34-fallback.md)、Accepted）。dopri45 は陽的で、硬い系は予算を使い切って esdirk34 に時間が残らないので、陰的な esdirk34 を先に試す。esdirk34 が時間切れ以外で止まれば dopri45 に回る（`TwoMass` は dopri45 だけが救える）。対象に「歩が丸めの幅より進まない」（`Dimmer_RL` の BDF の止まり方）を足した。esdirk34 への切り替えは新しい情報 `GM-I11003`、dopri45 は `GM-I11002` のまま。`msl-sim` の欄は `auto → esdirk34`・`auto → esdirk34 → dopri45`。

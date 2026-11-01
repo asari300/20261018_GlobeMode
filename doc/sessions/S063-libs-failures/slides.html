@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S063 ライブラリの失敗の分類 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S063 ライブラリの失敗の分類">
+
+<section class="slide" id="S01">
+  <span class="tag">S063 · 2026-11-01 · P3</span>
+  <h1>ライブラリの失敗の分類</h1>
+  <p class="lead">ルート間の名前解決を直し、1,781 本の失敗を原因別に数えた</p>
+  <div class="big"><b>2 ルート</b>の読み込みを 1 組にまとめて直した。失敗の上位は <b>Rumoca の検査</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>S058 の持ち越し</h1>
+  <ul>
+    <li>MSL とライブラリを別のルートで渡すと <code>import Modelica.Units.SI</code> が解決できない原因を探す</li>
+    <li>直せたら xtask の symlink の迂回を外す</li>
+    <li>run 41250636800・41248143483 の失敗を原因別に集計する</li>
+    <li>ClaRa の例題 5 本（OK 0）の原因を追う</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>原因は「ルートごとの要約」</h1>
+  <table class="compact">
+    <tr><th>読み方</th><th>結果</th></tr>
+    <tr><td>ディスクのルートを 2 回 <code>load_source_root_tolerant</code></td><td class="ng">失敗（ER002）</td></tr>
+    <tr><td>メモリから 2 組</td><td class="ok">成功</td></tr>
+    <tr><td>1 組にまとめる（メモリ・ディスク）</td><td class="ok">成功</td></tr>
+  </table>
+  <p>ディスクの読み込みはルートごとに意味の要約を作り、別のルートの名前を引けない。</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>修正</h1>
+  <svg class="fig" viewBox="0 0 800 220" role="img" aria-label="2 ルートを 1 組にまとめる">
+    <rect class="svg-box" x="30" y="30" width="200" height="60" rx="10"/>
+    <text class="svg-text-b" x="130" y="66" text-anchor="middle">MSL を parse</text>
+    <rect class="svg-box" x="30" y="130" width="200" height="60" rx="10"/>
+    <text class="svg-text-b" x="130" y="166" text-anchor="middle">Chemical を parse</text>
+    <line class="svg-line" x1="230" y1="60" x2="400" y2="110"/>
+    <line class="svg-line" x1="230" y1="160" x2="400" y2="110"/>
+    <rect class="svg-box-accent" x="400" y="70" width="190" height="80" rx="10"/>
+    <text class="svg-text-b" x="495" y="116" text-anchor="middle">1 組の Session</text>
+    <line class="svg-line" x1="590" y1="110" x2="650" y2="110"/>
+    <text class="svg-text" x="660" y="116">名前が引ける</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">分類</span>
+  <h1>失敗の上位</h1>
+  <table class="compact">
+    <tr><th>Rumoca のコード</th><th>本数</th><th>中身</th></tr>
+    <tr><td>ER132</td><td>267</td><td><code>redeclare function extends product</code></td></tr>
+    <tr><td>ER070</td><td>258</td><td><code>Dzero</code> の Evaluate</td></tr>
+    <tr><td>EI032</td><td>235</td><td><code>stateSelect</code> が定数でない</td></tr>
+    <tr><td>EF004</td><td>217</td><td><code>getInstanceName()</code> ほか</td></tr>
+  </table>
+  <p>版の差は AixLib 1 本、取得しない依存は AixLib 10・ClaRa 2。</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">ClaRa</span>
+  <h1>ClaRa の 5 本</h1>
+  <div class="cols-2">
+    <div class="card"><b>3 本</b><br>ER023: record の成分が TILMedia の ExternalObject</div>
+    <div class="card"><b>2 本</b><br>ER003: 取得しない SMArtInt が基底クラス</div>
+  </div>
+  <p>BOM・大文字小文字の迂回で除いた 53 ファイルは原因でない。</p>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">再現手順</span>
+  <h1>検証</h1>
+  <pre><code>cargo test -p globe-mode-frontend --test multi_root
+cargo xtask msl-funnel --library data/libs/Chemical --package Chemical</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">0</span><span class="l">S058 との判定の差（102 本）</span></div>
+    <div class="kpi"><span class="n">1,781</span><span class="l">分類した失敗</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S08">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>ER132・ER070・EI032・ER023 を上流に出すか、GlobeMode で緩めるか</li>
+    <li>MSL 4.0.0 で回し直して版の差を測る</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

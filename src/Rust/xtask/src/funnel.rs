@@ -168,16 +168,16 @@ const CHECKER_KIND: &str =
 
 /// 検査器を作る（MSL を読む）。
 pub(crate) fn make_checker(msl: &Path, libraries: &[PathBuf]) -> Result<Checker> {
-    // Rumoca の Session は、別々に読んだ 2 つ以上のライブラリの間で名前を引けない（`Chemical` の中の
-    // `import Modelica.Units.SI` が解決できない）。MSL とライブラリを 1 つのディレクトリにまとめて読む（S058）
     if libraries.is_empty() {
         return Checker::new(&[msl]).map_err(|ds| diagnostics_text(&ds));
     }
-    let merged = merge_roots(msl, libraries)?;
+    // 2 つ以上のルートは `Checker::new` が 1 つの組にまとめて読むので、MSL とは別のルートでよい（S063。S058 は
+    // 1 つのディレクトリに symlink でまとめていた）。ミラーは、読めないファイルを除くためだけに作る
+    let merged = mirror_libraries(libraries)?;
     // 公開ライブラリには、ディレクトリ名と `within` の綴りが合わない（PKG-010）ファイルがある。Rumoca は 1 つでもあると
     // ライブラリ全体を断るので、診断に出たファイルを除いて読み直す（上限 20 回）
     for _ in 0..20 {
-        match Checker::new(&[merged.as_path()]) {
+        match Checker::new(&[msl, merged.as_path()]) {
             Ok(checker) => return Ok(checker),
             Err(ds) => {
                 let text = diagnostics_text(&ds);
@@ -236,10 +236,9 @@ fn layout_offenders(text: &str, merged: &Path) -> Vec<PathBuf> {
     out
 }
 
-/// `target/library-roots/<ライブラリ名>/` に、MSL の直下のエントリへの symlink と、各ライブラリの木（ディレクトリは実体、
-/// ファイルは symlink）を並べて返す。構文の誤りで読めないファイル（[`crate::libs::unparsable_files`]）は
+/// `target/library-roots/<ライブラリ名>/` に、各ライブラリの木（ディレクトリは実体、ファイルは symlink）を並べて返す。構文の誤りで読めないファイル（[`crate::libs::unparsable_files`]）は
 /// 除き（`package.mo` の無いディレクトリで `.mo` を含むものも、Rumoca の PKG-006 で全体を断られるので除く）、一覧を `target/library-roots/<ライブラリ名>.skipped.txt` に書く。あれば作り直さない。
-fn merge_roots(msl: &Path, libraries: &[PathBuf]) -> Result<PathBuf> {
+fn mirror_libraries(libraries: &[PathBuf]) -> Result<PathBuf> {
     let names: Vec<String> = libraries
         .iter()
         .filter_map(|l| l.file_name().map(|n| n.to_string_lossy().into_owned()))
@@ -251,9 +250,6 @@ fn merge_roots(msl: &Path, libraries: &[PathBuf]) -> Result<PathBuf> {
     }
     fs::create_dir_all(&merged).map_err(|e| format!("{}: {e}", merged.display()))?;
     let mut skipped = Vec::new();
-    for entry in fs::read_dir(msl).map_err(|e| format!("{}: {e}", msl.display()))? {
-        link_entry(&entry.map_err(|e| e.to_string())?.path(), &merged)?;
-    }
     for lib in libraries {
         let bad = crate::libs::unparsable_files(lib)?;
         let mut bad = bad;
