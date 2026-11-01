@@ -7,7 +7,7 @@
 | worktree | `.git-worktree/s068-external-builtin` |
 | Phase | P3 |
 | セッション文書 | `doc/sessions/S068-external-builtin/` |
-| セッション記録 | （親が写す） |
+| セッション記録 | [2026-10-31-0b797c72-...](../sessions/2026-10-31-0b797c72-9651-45d3-b466-98f7c341d068.md)（親セッション。S048〜S052 と同じ） |
 
 ## 依頼
 
@@ -48,3 +48,5 @@ S067 の持ち越し。MSL 4.0.0 の `Modelica.Math` の `external "builtin"`（
 - 残り: Buildings の `Interior`・`InteriorConvection`（`invalid Solve IR contract`）。S067 が別の原因とした DeltaRobot の 3 本は直った（2 → 5）。AixLib の 4.1.0 との差は 1 本（97 / 98。4.1.0 の OK が 1 本多い差と同じ）。AixLib の残り 21 本の `GM-U0004` は `Modelica.Math` 以外（インデックス 3 の構造解析、`String` のメタデータ、非有限な値）。
 - 変換が `external_tables` を付け直す試験はモデルでは無い（AixLib の `HumansSenTDep` を手元と CI で確かめた）。
 - serde の形は Rumoca の公開契約ではない。rev を上げたら `ExternalBuiltin` の試験で確かめる。
+
+- 親の最終検査（main d3e932e を取り込んだ後）: `mise run check` ok、`wasm:node` ok、`wasm:compare` 367 / 380 件が一致・既知の差 13・一致しない 0、`check_docs.py` リンク切れ 0。
