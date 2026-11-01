@@ -1,3 +1,4 @@
+import type { Columns } from "./plot/csv";
 import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse } from "./protocol";
 
 /** UI が計算を頼む相手。WorkerBackend（ブラウザの wasm）と、あとで TauriBackend（sidecar）が実装する。 */
@@ -9,6 +10,8 @@ export interface Backend {
   /** connect グラフ（graphology の JSON）。depth は 1 なら直下の部品だけ。モデルが無ければ reject。 */
   graph(model: string, depth: number): Promise<GraphJson>;
   simulate(req: SimulateRequest): Promise<SimulateResponse>;
+  /** simulate と同じ実行で、時系列を CSV でなく列ごとに返す（S065）。response.csv は無い（null）。実行できなければ points 0。 */
+  simulateColumns(req: SimulateRequest): Promise<{ response: SimulateResponse; columns: Columns }>;
   /** 整形（S053、globe-mode-fmt）。文法が壊れていれば reject で、本文は変えない。 */
   format(text: string, indent: number, insertOrigin: boolean): Promise<string>;
   lint(text: string): Promise<LintMessage[]>;
