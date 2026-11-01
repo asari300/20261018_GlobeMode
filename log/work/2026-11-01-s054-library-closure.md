@@ -7,7 +7,7 @@
 | worktree | `.git-worktree/s054-library-closure` |
 | Phase | P3（S051 の削減案 1） |
 | セッション文書 | `doc/sessions/S054-library-closure/` |
-| セッション記録 | 親のセッションが写す（`log/sessions/`） |
+| セッション記録 | [`log/sessions/2026-10-31-0b797c72-9651-45d3-b466-98f7c341d068.md`](../sessions/2026-10-31-0b797c72-9651-45d3-b466-98f7c341d068.md) |
 
 ## 依頼
 
@@ -36,7 +36,7 @@
 - 手元（release）の最大 RSS、前 → 後（MiB）: `ChuaCircuit` check 1,512 → 122（5.43 → 2.12 s）、simulate 1,539 → 159。`FullRobot` check 1,655 → 291、simulate 1,669 → 512。`HeatingSystem` check 1,614 → 476、simulate 1,604 → 477。`check` の出力の md5 は 3 モデルとも前後で一致、ChuaCircuit の simulate の CSV は `cmp` で一致。壁時計は他セッションが同居していて参考にならない（`FullRobot` の simulate の前は 17 分 55 秒で swap の影響）。
 - ランナー（`resources.yml -f jobs=rss`、run 41245881321、成功、3 分 18 秒）: `ChuaCircuit` check 1,493 → 128（8.1 → 1.05 s）、simulate 1,533 → 167。`FullRobot` check 1,653 → 298、simulate 1,929 → 573（終了コード 1、前と同じ）。`HeatingSystem` check 1,618 → 480、simulate 1,589 → 486（終了コード 1、前と同じ）。
 - `mise run msl:compare`: 20 本中 20 本が一致（両方とも成功 17 本）。xtask は facade を通らないので、この変更の影響を受けない確認
-- `check_docs.py`: デッキ OK（S054 を含む）/ リンク 1242 件中の切れ 0 件。`mise run check` と `render_slides.py` は親が締めで回す。
+- `check_docs.py`: デッキ OK（S054 を含む）/ リンク 1242 件中の切れ 0 件。`mise run check` ok（親、fmt / clippy / test / deny ok、library_closure 2 件通過）。
 
 ## 残したこと
 
