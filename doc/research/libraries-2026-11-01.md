@@ -206,6 +206,21 @@ run 41250636800（Buildings 4・AixLib 2・IBPSA・ClaRa・ThermofluidStream）�
 - 例題の数が 5 本なのは `Examples` を含む名前だけを例題とする規則のため。ClaRa の試験は `ClaRa.*.Check` などにあり、例題としては数えていない（`experiment` を持つモデルの数は調べていない【未確認】）。
 - 先に直すと効くもの: ER023（Rumoca で record の成分の型を ExternalObject に緩める）が 3/5、SMArtInt の取得が 2/5。両方で S1 は抜けるが、その先（TILMedia の外部関数は実行系が未対応）で止まる見込み【未確認】。
 
+## 読めるファイルだけでライブラリを読む（S066）
+
+S058・S063 の持ち越し。`Checker::new` は、ライブラリの `.mo` が 1 つでも構文の誤りだと、またパッケージ配置の検査（PKG-0xx）に合わないと、ライブラリ全体を `GM-E1003` で断った（確認日 2026-11-01、Rumoca rev `276e82bd`、`~/.cargo/git/checkouts/rumoca-*/276e82b/crates/rumoca-compile/src/` のソース）。xtask は `mirror_libraries`（symlink の木で構文の誤りと `package.mo` の無いディレクトリを除く）と、診断から PKG-0xx のファイルを割り出して除いて読み直す最大 20 回の繰り返しで迂回していた。
+
+- **Rumoca の側**: `parse_source_root_with_cache`（`source_root_cache.rs`）は、ファイル一覧（`collect_source_root_source_files`、非公開）を rayon で `collect::<Result<Vec<_>>>()` するので、1 ファイルの構文の誤りで全体が Err になる。続けて `validate_source_root_package_layout`（非公開）が PKG-006（`package.mo` の無いディレクトリ）・PKG-010（`within` の綴りが合わない）などでルート全体を Err にする。`Session::load_source_root_tolerant` の `tolerant` は「読み込み前の失敗を `diagnostics` で返す」だけで、ファイル単位では寛容でない。ファイル単位で寛容な公開 API は `rumoca_compile::parsing::parse_files_parallel_lenient(&[path])`（成功と失敗の組を別々に返す。構文木のキャッシュも使う）で、`Session::replace_parsed_source_set` は自前で組んだ `documents` を受け取る。Rumoca は改変しない。
+- **採った方法**: `Checker::new` は従来の道（ルート 1 つは `load_source_root_tolerant`、2 つ以上は `parse_source_root_with_cache`）を先に試し、**失敗したルートだけ**、`.mo` を自前で集め（`.` で始まる名前は飛ばす）、`parse_files_parallel_lenient` で 1 ファイルずつ読む。読めたものを `replace_parsed_source_set` に渡し、読めなかったものは `Checker::skipped_library_files()`（パスと構文の誤りの最初の 1 件）と、検査の結果の診断（S1 の警告 `GM-W1001`、ルートごとに 1 件。ファイル名は先頭の 5 件を notes に）で知らせる。全部読めるルートの道は変わらない（MSL の初回の速さは変わらない。要約を作らない 2 ルート以上の制約も S063 のまま）。
+- **配置の検査は飛ばす**: 配置の検査は非公開で呼べないので、失敗したルートは検査せずに読む。`package.mo` の無いディレクトリや `within` の綴りの合わないファイルも文書として入る（Rumoca の名前は `within` で決まるので解決には効かない）。構文は全部読めて配置だけが断っていたルートも、読んだうえで同じ警告（「配置の検査を飛ばして読んだ」、元の PKG-0xx を notes に）を出す。PKG-006 は Rumoca の仕様のままで、GlobeMode は断らず警告にする。
+- **xtask**: `mirror_libraries`・`mirror_tree`・`link_entry`・`contains_mo`・`layout_offenders`（と繰り返し）・`libs::unparsable_files` を外した。`make_checker` は `Checker::new(&[msl, lib…])` を呼ぶだけで、読み飛ばしを `target/library-roots/<名前>.skipped.txt`（`パス<TAB>理由`。libraries.yml が artifact に残す）に書く。
+- **試験**: `globe-mode-frontend/tests/tolerant_roots.rs`（fixture は `tests/data/tolerant/`）。ルート 1 つ・2 つのどちらでも、構文の誤りのファイルを 1 つ含むライブラリで `Checker::new` が成り立ち、警告が 1 件出て、残りのモデルが検査でき、読み飛ばしたクラスを使うモデルだけが失敗する。`package.mo` の無いディレクトリだけのルートは、読み飛ばしなしで警告が出る。
+
+- **確かめたこと**（手元、release、2026-11-01）: 読み飛ばしが起きるのは S058 の `skipped.txt` が空でなかった **ClaRa（53 ファイル、PKG-010）と ThermofluidStream（構文の誤り 1 ファイル + `package.mo` の無いディレクトリ 2 つ）**。Chemical・DeltaRobot は一覧が空で、従来の道のまま（コードは通らない）。`msl-funnel` を S063 の run の `*-funnel.json`（41250636800）と比べて、**ThermofluidStream 122 本と ClaRa 5 本とも判定・段・GM コード・Rumoca コードが全部同じ（差 0）**。OK 4 / GM-U 115 / panic 0（ThermofluidStream）、OK 0・S1 で NG 5（ClaRa）も同じ。ClaRa は、元の 53 ファイルを除く代わりに全部読み（`physicalMills` の `within` の綴りの誤りは名前に効かない）、構文の誤りは 0 ファイルで「配置の検査を飛ばして読んだ」警告 1 件。ThermofluidStream は `Contact.mo` を読み飛ばした警告 1 件（`unexpected \`modelica\``）。時間は ThermofluidStream 134.2 秒（S063 の run は 135.3 秒）、ClaRa 6.5 秒（5.0 秒）で、変わらない。
+- **MSL の初回の速さ**: MSL は従来の道で全部読めるので、失敗の道は通らない（`mise run msl:compare` は 20/20 一致）。失敗の道の費用は、ClaRa（2,044 ファイル）で追加の 1 回の構文解析（構文木のキャッシュが効く）程度で、検査の秒数に差は出なかった。
+- **限界**: 失敗したルートでは配置の検査を飛ばすので、配置の誤り（PKG-0xx）は警告になる。`package.mo` の無いディレクトリのファイルは、これまで除いていたが、今は読む（ThermofluidStream で判定が変わらないことを確かめた）。
+- Actions（`libraries.yml`、run 41295588356、Chemical・ClaRa・ThermofluidStream・DeltaRobot）の結果は @@RUNRESULT@@。
+
 ## 読んだ範囲と限界
 
 - アーカイブの中の `package.mo` の `uses(...)` と `version`、README と LICENSE の見出しを読んだ。ライセンス全文の突き合わせまではしていない。
