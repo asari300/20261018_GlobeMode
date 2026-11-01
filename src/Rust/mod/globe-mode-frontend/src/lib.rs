@@ -11,6 +11,8 @@ use globe_mode_ir::{
 };
 
 #[cfg(feature = "rumoca")]
+mod external_builtin;
+#[cfg(feature = "rumoca")]
 mod init;
 #[cfg(feature = "rumoca")]
 mod preflight;
