@@ -323,7 +323,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 ### S042（P4 の 4 回目、2026-10-31）で済んだこと
 
 - **実行とプロットの UI**（[計画書](plan/2026-10-30-release-estimate-and-parallel-plan.md)の WP-D、最小の形）: `App.svelte` に「実行」ボタン（`Backend.simulate`、`refused` と診断は既存の診断パネル）。`src/Svelte/src/lib/plot/` に CSV を列に分ける `csv.ts` と uPlot の `Plot.svelte`（信号のチェックボックス、既定は最初の 3 本。ズームは uPlot の既定）。npm は uPlot（MIT、依存なし）を足して 58 パッケージ、GPL・NC は 0。Playwright の試験に、Decay の実行でプロットの canvas と系列が出ること、選択を外すと系列が消えること、10 万点 × 4 状態の結果を描く時間の測定を足した。実装は Sonnet のサブエージェント 1 人。
-- 持ち越し: 2 軸、凡例の凝った UI、MAT v4 の読み込み、ChuaCircuit のスクリーンショット試験、結果を列ごとに返す API（CSV の解析が 10 万点で約 0.3 s かかる）。
+- 持ち越し: 2 軸、凡例の凝った UI、MAT v4 の読み込み、ChuaCircuit のスクリーンショット試験、結果を列ごとに返す API（CSV の解析が 10 万点で約 0.3 s かかる。**S051 で wasm、S065 で UI に済んだ**）。
 
 ### S041（P4 の 3 回目、2026-10-31）で済んだこと
 
@@ -393,7 +393,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 ### S051（P3、2026-10-31）で済んだこと
 
 - **リソースの計測**（[research/resources-2026-10-31.md](research/resources-2026-10-31.md)、手動のワークフロー `resources.yml`、run 41196216961）: `globe check` / `simulate` の最大 RSS は 3 モデルで 1.5〜1.9 GiB（ChuaCircuit の check 1,493 MiB は ADR-0023 の 1.48 GiB と同じ）。MSL の全体を読まず閉包の 1,075 ファイルだけを渡すと 461 MiB（手元）。wasm の線形メモリは MSL の 566 本を順に `check` して 300 本目で 520 MiB だが、**336 本目の `Spice3BenchmarkFourBitBinaryAdder` 1 本で 668 → 3,802 MiB**（wasm32 の上限 4 GiB の手前）。ADR-0023 (c) の「検査の後に見て 2 GiB で作り直す」は 1 回の検査の中の伸びを止められない。
-- **列ごとの結果**: wasm の `Workspace.simulate_columns` が `SimColumns`（`response`・`layout()`・`column(i)` の `Float64Array`）を返す。protocol に `ColumnsLayout` を足しただけで、既存の JSON と CLI の snapshot は変わらない。10 万点 × 7 列で wasm の呼び出しから JS の配列まで 548 → 159 ms（ランナー）。Svelte への接続は次回。
+- **列ごとの結果**: wasm の `Workspace.simulate_columns` が `SimColumns`（`response`・`layout()`・`column(i)` の `Float64Array`）を返す。protocol に `ColumnsLayout` を足しただけで、既存の JSON と CLI の snapshot は変わらない。10 万点 × 7 列で wasm の呼び出しから JS の配列まで 548 → 159 ms（ランナー）。Svelte への接続は S065 で済んだ。
 - 持ち越し: `Backend`/`Plot` への接続、~~`globe --library` の分割読み込み（RSS 1/3 の見込み）~~（S054 で済）、1 回の検査で大きく伸びるモデルの予告か上限。
 
 ### S050（P3、2026-10-31）で済んだこと
@@ -460,6 +460,12 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 7. **S10 の初期化のヤコビ行列の階数**（持ち越し）: `Invalid.UngroundedLoop` は実行しても誤りにならない。Rumoca に公開の API が無い。
 8. **Rumoca の制約を上流に報告する**（ユーザーが出す）: S011 までの分に、S012 の分（型付きの道の `Instant::now()`（wasm）、Cranelift の可否の関数 `admitted_native_execution_backend` が非公開、diffsol の `ClosureNoJac` が非公開、[research/msl-sim-failures.md](research/msl-sim-failures.md) の 9 つ: インデックス 2 以上の EL005、サンプラの端点の判定の丸め、Solve IR への変換が終わらず予算の外、理想スイッチで射影の収束の判定、fixed = true の代数変数から状態を解かない、RK で黙って誤った結果、RK の道で壁時計の予算が守られない、関数呼び出しの Solve IR の契約、同時イベントと clock）と、S016 の 10・11（`DrumBoiler`: 実行時オブジェクトの組み立てで巨大な根の条件の構造解析が終わらない、lowering で assert の登録を何度も写す。`EngineV6`: 初期化方程式を関係式の既定値で解き、反転しても解き直さない。小さい再現 R1 あり）を足す。**S045 で下書きを [research/upstream/](research/upstream/README.md) に 14 件書いた**（Rumoca 11 件・diffsol 3 件。ユーザーが出す）。
 9. **持ち越し**: S9 を omc と照らして詰める、閉包の切り替えの残り（初めて検査するモデルも速くする）、`Checker` のメモリの上限（**S051 で実測**: wasm の線形メモリは 566 本の通しで 336 本目に 3.8 GiB、[research/resources-2026-10-31.md](research/resources-2026-10-31.md)。**S040 の [ADR-0023](adr/0023-desktop-and-web-process-layout.md) で決めた**: 内側に上限を入れず、別プロセスのワーカーを外から止めて作り直す。検査は最大 RSS 7.1 GiB。**S054 で `globe --library` の分割読み込みを済ませた**: `ChuaCircuit` の check は 1,493 → 128 MiB、[ADR-0025](adr/0025-native-library-closure.md)）、字面の 0 除算の振り分け、S8 の残り、`class_index` の残り。
+
+### S065（P4、2026-11-01）で済んだこと
+
+- **ブラウザ UI の結果を列ごとの道にした**（S051 の持ち越し。[解説書](sessions/S065-columns-ui/解説書.md)）: `Backend.simulateColumns`（`{response, columns}`、`columns` は `plot/csv.ts` の `Columns`＝`names`・`points`・`data: ArrayLike`）を足し、`WorkerBackend` は `GlobeWorker.simulateColumns`（`Float64Array` を転送）、`TauriBackend` は sidecar に列の道が無いので `simulate` の CSV を `parseCsv` して同じ形にする。`App.svelte` の実行は `simulateColumns`、`Plot` は `Columns` を受ける（`$state.raw`）。wasm・Rust は変えていない。`simulate` は残した。
+- **実行の時間**（ヘッドレス Chromium、10 万点 × 4 状態）: CSV の解析 129.9 ms がなくなり、最初の描画まで 151.3 → 20.7 / 27.0 ms、「実行」を押してから戻るまで 810 → 222 / 213 ms。ChuaCircuit（50195 点 × 44 列）は 1.3 → 0.8 s。Playwright の試験に `data-typed`（列の道で来たか）の確認を足した。
+- 列の道の NaN / Inf は `gapNonFinite` で null にする（有限だけの列は型付きのまま）。持ち越し: Desktop の sidecar に列の道は無い。
 
 ### S059（P4、2026-11-01）で済んだこと
 

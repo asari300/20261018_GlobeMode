@@ -1,9 +1,9 @@
 <script lang="ts">
   import uPlot from "uplot";
   import "uplot/dist/uPlot.min.css";
-  import { parseCsv } from "./csv";
+  import type { Columns } from "./csv";
 
-  let { csv }: { csv: string } = $props();
+  let { columns }: { columns: Columns } = $props();
 
   const COLORS = ["#1f77b4", "#d62728", "#2ca02c", "#9467bd", "#ff7f0e", "#17becf", "#8c564b", "#e377c2"];
   const DEFAULT_SHOWN = 3;
@@ -14,7 +14,6 @@
   let count = $state(0);
   let names = $state<string[]>([]);
   let lastMs = $state(0);
-  let parseMs = $state(0);
   let error = $state("");
 
   // 新しい結果が来たらグラフを作り直す。選択は最初の数本が既定
@@ -22,11 +21,10 @@
     error = "";
     try {
       const t0 = performance.now();
-      const cols = parseCsv(csv);
-      parseMs = performance.now() - t0;
+      const cols = columns;
       names = cols.names;
       shown = cols.names.map((_, i) => i < DEFAULT_SHOWN);
-      count = cols.data[0].length;
+      count = cols.points;
       plot = new uPlot(
         {
           width: host.clientWidth || 800,
@@ -52,7 +50,7 @@
   }
 </script>
 
-<div class="plot" data-points={count} data-ms={lastMs.toFixed(1)} data-parse-ms={parseMs.toFixed(1)}>
+<div class="plot" data-points={count} data-ms={lastMs.toFixed(1)} data-typed={columns.data[0] instanceof Float64Array}>
   {#if error}<p class="failure" role="alert">{error}</p>{/if}
   <div class="signals" aria-label="信号">
     {#each names as n, i}
