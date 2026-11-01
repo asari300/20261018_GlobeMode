@@ -1,5 +1,6 @@
 //! 図形プリミティブ（Rectangle, Ellipse, Polygon, Line, Text, Bitmap）の引数を
 //! 「位置・形状 → points → fill 系 → line 系 → その他」の順に並べ替え、`origin` が無ければ足す。
+//! `annotation(…)` と `Documentation(…)` の引数も決まった順に並べる（S061、[`ANNOTATION_ORDER`]）。
 
 use crate::layout::{Arg, Node};
 use crate::lexer::{Kind, Token};
@@ -25,16 +26,83 @@ const GROUPS: &[&[&str]] = &[
 ];
 const OTHER: u16 = (GROUPS.len() as u16 + 1) * 100;
 
+/// `annotation(…)` の引数の順（S061。ユーザーの指定は experiment → Diagram → Documentation。Icon は Diagram の隣に置いた）。
+/// 表に無いもの（uses、version など）は後ろに、元の順で。
+pub const ANNOTATION_ORDER: &[&str] = &["experiment", "Diagram", "Icon", "Documentation"];
+/// `Documentation(…)` の引数の順。header は OpenModelica の `__OpenModelica_infoHeader`。
+pub const DOCUMENTATION_ORDER: &[&str] = &["__OpenModelica_infoHeader", "info", "revisions"];
+
+/// 直前の名前がこれなら、続く `(…)` の引数をその表の順に並べる。
+fn order_table(name: &str) -> Option<&'static [&'static str]> {
+    match name {
+        "annotation" => Some(ANNOTATION_ORDER),
+        "Documentation" => Some(DOCUMENTATION_ORDER),
+        _ => None,
+    }
+}
+
+/// 引数の先頭の名前（`info = …` の info、`experiment(…)` の experiment）の、表での位置。無ければ表の長さ（後ろ）。
+fn position_in(table: &[&str], a: &Arg<'_>) -> usize {
+    match a.nodes.first() {
+        Some(Node::Leaf(t)) if t.kind == Kind::Ident => table
+            .iter()
+            .position(|n| *n == t.text)
+            .unwrap_or(table.len()),
+        _ => table.len(),
+    }
+}
+
+/// 並べ替えが要る `annotation(…)` / `Documentation(…)` を探す（lint の `annotation-order`）。
+/// 見つけたら (順を外れた最初の引数の先頭のバイト位置, 表の名前) を足す。
+pub fn misordered(nodes: &[Node<'_>], out: &mut Vec<(usize, &'static str)>) {
+    let mut prev: Option<&str> = None;
+    for n in nodes {
+        match n {
+            Node::Leaf(t) => prev = (t.kind == Kind::Ident).then_some(t.text),
+            Node::Group { open, args, .. } => {
+                if let (Some(name), true) = (prev, open.is("("))
+                    && let Some(table) = order_table(name)
+                {
+                    let pos: Vec<usize> = args.iter().map(|a| position_in(table, a)).collect();
+                    if let Some(k) = (1..pos.len()).find(|&k| pos[k] < pos[k - 1])
+                        && let Some(Node::Leaf(t)) = args[k].nodes.first()
+                    {
+                        let table = if name == "annotation" {
+                            "annotation"
+                        } else {
+                            "Documentation"
+                        };
+                        out.push((t.start, table));
+                    }
+                }
+                prev = None;
+                for a in args {
+                    misordered(&a.nodes, out);
+                }
+            }
+        }
+    }
+}
+
 pub fn apply(nodes: &mut [Node<'_>], insert_origin: bool) {
-    let mut prev_primitive = false;
+    let mut prev: Option<&str> = None;
     for n in nodes.iter_mut() {
         match n {
-            Node::Leaf(t) => prev_primitive = t.kind == Kind::Ident && PRIMITIVES.contains(&t.text),
+            Node::Leaf(t) => prev = (t.kind == Kind::Ident).then_some(t.text),
             Node::Group { open, args, .. } => {
-                if prev_primitive && open.is("(") {
-                    sort_args(args, insert_origin);
+                if let (Some(name), true) = (prev, open.is("(")) {
+                    if PRIMITIVES.contains(&name) {
+                        sort_args(args, insert_origin);
+                    } else if let Some(table) = order_table(name) {
+                        // 安定な並べ替え。rank は 0 のまま（グループの境目の改行は図形プリミティブだけ）
+                        args.sort_by_key(|a| position_in(table, a));
+                        let n = args.len();
+                        for (k, a) in args.iter_mut().enumerate() {
+                            a.sep = (k + 1 < n).then_some(",");
+                        }
+                    }
                 }
-                prev_primitive = false;
+                prev = None;
                 for a in args.iter_mut() {
                     apply(&mut a.nodes, insert_origin);
                 }

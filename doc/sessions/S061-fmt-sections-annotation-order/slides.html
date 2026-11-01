@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S061 節の空行と annotation の並び — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S061 節の空行と annotation の並び">
+
+<section class="slide" id="S01">
+  <span class="tag">S061 · 2026-11-01 · P4</span>
+  <h1>節の空行と annotation の並び</h1>
+  <p class="lead">ユーザーが VS Code で確かめたうえで頼んだ、整形の規則の追加</p>
+  <div class="big">equation の<b>前後に空行</b>、annotation は <b>experiment → Diagram → Icon → Documentation</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>equation / algorithm の前後に空行を置く。既定はオンで、切れるように</li>
+    <li>annotation の中を experiment → Diagram → Documentation（header → info → revisions）の順に整形する</li>
+    <li>順がずれていれば lint で通知（Information）する</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table>
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>Icon の位置</td><td>Diagram の直後</td><td>指定が無い。図の 2 つを隣に置く</td></tr>
+    <tr><td>表に無い引数</td><td>後ろに、元の順で</td><td>図形プリミティブの並べ替えと同じ規則</td></tr>
+    <tr><td>header</td><td>__OpenModelica_infoHeader</td><td>Modelica の仕様に header は無く、OMEdit の名前</td></tr>
+    <tr><td>VS Code の整形</td><td>独自の要求 globe/format で頼む</td><td>languageclient が追加の設定を捨てる</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>どこに足したか</h1>
+  <svg class="fig" viewBox="0 0 800 260" role="img" aria-label="規則を足した場所">
+    <rect class="svg-box" x="20" y="100" width="160" height="60" rx="10"/>
+    <text class="svg-text-b" x="100" y="136" text-anchor="middle">lexer</text>
+    <line class="svg-line" x1="180" y1="130" x2="230" y2="130"/>
+    <rect class="svg-box-accent" x="230" y="100" width="160" height="60" rx="10"/>
+    <text class="svg-text-b" x="310" y="126" text-anchor="middle">structure</text>
+    <text class="svg-text" x="310" y="150" text-anchor="middle">節の空行</text>
+    <line class="svg-line" x1="390" y1="130" x2="440" y2="130"/>
+    <rect class="svg-box" x="440" y="100" width="140" height="60" rx="10"/>
+    <text class="svg-text-b" x="510" y="136" text-anchor="middle">layout</text>
+    <line class="svg-line" x1="580" y1="130" x2="620" y2="130"/>
+    <rect class="svg-box-accent" x="620" y="100" width="160" height="60" rx="10"/>
+    <text class="svg-text-b" x="700" y="126" text-anchor="middle">annotation</text>
+    <text class="svg-text" x="700" y="150" text-anchor="middle">並べ替えと lint</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>cargo test -p globe-mode-fmt
+cargo test -p globe-mode-lsp --lib annotation_order
+cd src/VSCode/globe-mode &amp;&amp; mise exec -- pnpm test</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">8/8</span><span class="l">整形器の統合試験</span></div>
+    <div class="kpi"><span class="n">2/2</span><span class="l">拡張の試験</span></div>
+    <div class="kpi"><span class="n">0.0.3</span><span class="l">拡張の版</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>Icon の位置はユーザーに確かめる</li>
+    <li>wasm とウェブアプリには空行を切る口を足していない（既定のオンで動く）</li>
+    <li>src/Modelica の 69 本の書き換えはまだ</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

@@ -13,7 +13,10 @@ exports.activate = async (context) => {
     "globeMode",
     "GlobeMode",
     { command: cfg.get("path", "globe"), args },
-    { documentSelector: [{ scheme: "file", language: "modelica" }] },
+    {
+      documentSelector: [{ scheme: "file", language: "modelica" }],
+      middleware: { provideDocumentFormattingEdits: formatEdits },
+    },
   );
   // 保存時の整形（S060）。設定は保存のたびに読むので、切り替えに再読み込みは要らない
   context.subscriptions.push(
@@ -32,4 +35,21 @@ exports.activate = async (context) => {
   await client.start();
 };
 
+// 整形は独自の要求 globe/format で頼む（S061）。vscode-languageclient は FormattingOptions の追加のキーを捨てるので、
+// 標準の textDocument/formatting では blankAroundSections を渡せない。設定は整形のたびに読む
+async function formatEdits(doc, options) {
+  const text = doc.getText();
+  const cfg = vscode.workspace.getConfiguration("globeMode", doc);
+  const out = await client
+    .sendRequest("globe/format", {
+      text,
+      indent: options.tabSize,
+      blankAroundSections: cfg.get("blankAroundSections", true),
+    })
+    .catch(() => null); // 文法が壊れていれば変えない
+  if (out == null || out === text) return [];
+  return [vscode.TextEdit.replace(new vscode.Range(doc.positionAt(0), doc.positionAt(text.length)), out)];
+}
+
+exports.formatEdits = formatEdits;
 exports.deactivate = () => client?.stop();

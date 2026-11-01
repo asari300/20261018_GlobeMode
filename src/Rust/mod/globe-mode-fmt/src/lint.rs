@@ -1,8 +1,9 @@
-//! lint。規則は 3 つ: `line-too-long`（整形しても行幅を超える行）、
-//! `class-name-pascal-case`（クラス名が大文字で始まらない）、`missing-description`（長いクラスに説明文字列が無い）。
+//! lint。規則は 4 つ: `line-too-long`（整形しても行幅を超える行）、
+//! `class-name-pascal-case`（クラス名が大文字で始まらない）、`missing-description`（長いクラスに説明文字列が無い）、
+//! `annotation-order`（S061。annotation と Documentation の引数の順。整形で直る。LSP では通知の重さ）。
 
 use crate::lexer::{Kind, lex};
-use crate::{Options, format};
+use crate::{Options, annotation, format, layout, structure};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LintMessage {
@@ -80,6 +81,30 @@ pub fn lint(src: &str, options: &LintOptions) -> Vec<LintMessage> {
                 line,
                 column,
                 message: format!("{} {} に説明の文字列が無い", t.text, name.text),
+            });
+        }
+    }
+    if on("annotation-order")
+        && let Ok(elements) = structure::split(&tokens, false)
+    {
+        let mut found = Vec::new();
+        for e in &elements {
+            if let Ok(tree) = layout::build(e.tokens) {
+                annotation::misordered(&tree, &mut found);
+            }
+        }
+        for (start, table) in found {
+            let (line, column) = line_col(start);
+            let message = if table == "annotation" {
+                "annotation の引数は experiment → Diagram → Icon → Documentation の順（ほかは後ろ）。整形で直る"
+            } else {
+                "Documentation の引数は header（__OpenModelica_infoHeader）→ info → revisions の順。整形で直る"
+            };
+            out.push(LintMessage {
+                rule: "annotation-order",
+                line,
+                column,
+                message: message.to_string(),
             });
         }
     }

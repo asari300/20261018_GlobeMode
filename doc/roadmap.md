@@ -443,6 +443,12 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **VS Code 拡張 0.0.2**: Shift+Alt+F を `.mo` の整形に割り当て、設定 `globeMode.formatOnSave`（既定はオフ）を足した。プロファイルを使う窓には、画面の「VSIX からのインストール」で入れる（CLI は既定のプロファイルに入れる）。
 - [web-apps.md](web-apps.md) に起動コマンドの一覧（Phoenix の `mix deps.get` を含む）。
 
+### S061（P4、2026-11-01）で済んだこと
+
+- **整形の規則を 2 つ足した**（[format-style.md](format-style.md)）: `equation` / `algorithm` の前後に空行（既定オン。CLI `--no-blank-around-sections`、VS Code `globeMode.blankAroundSections`）。`annotation(…)` を experiment → Diagram → Icon → Documentation、`Documentation(…)` を header → info → revisions の順に並べ替える。
+- lint `annotation-order`（`GM-L0004`、LSP では通知の重さ）。
+- VS Code 拡張 0.0.3: 整形を `globe/format` で頼む（vscode-languageclient は FormattingOptions の追加のキーを捨てる）。
+
 ## 運用上の決まり
 
 - リリースまでの見積もりと、他のエージェントに渡す並行作業の指示書は [plan/2026-10-30-release-estimate-and-parallel-plan.md](plan/2026-10-30-release-estimate-and-parallel-plan.md)（S033）。

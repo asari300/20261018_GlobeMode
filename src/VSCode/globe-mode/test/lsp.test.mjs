@@ -59,7 +59,7 @@ test("標準の整形・lint の診断・補完が file:// の文書で返る", 
   const [edit] = (await s.until((m) => m.id === 2)).result;
   assert.equal(
     edit.newText,
-    "model small_model\n\n  Real x(start = 1);\nequation\n  der(x) = -x;\n\nend small_model;\n",
+    "model small_model\n\n  Real x(start = 1);\n\nequation\n\n  der(x) = -x;\n\nend small_model;\n",
   );
 
   s.send({ id: 3, method: "textDocument/completion", params: { textDocument: { uri }, position: { line: 3, character: 0 } } });

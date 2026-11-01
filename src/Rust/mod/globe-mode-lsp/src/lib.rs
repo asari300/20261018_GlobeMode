@@ -11,7 +11,7 @@
 //! | `globe/check` | `{model}` | `CheckResponse` の JSON |
 //! | `globe/simulate` | `{request}`（`SimulateRequest` の JSON） | `SimulateResponse` の JSON |
 //! | `globe/graph` | `{model, depth}` | graphology の JSON（`ConnectGraph::to_graphology`） |
-//! | `globe/format` | `{text, indent?, insertOrigin?}` | 整形後の本文（S053。壊れていれば -32000） |
+//! | `globe/format` | `{text, indent?, insertOrigin?, blankAroundSections?}` | 整形後の本文（S053。壊れていれば -32000） |
 //! | `globe/lint` | `{text}` | `[{rule, line, column, message}]`（S053） |
 //!
 //! params が読めなければ -32602、モデルが無いなど計算の失敗は -32000（`message` に理由）。
@@ -115,9 +115,12 @@ impl Server {
             }
             "textDocument/formatting" => {
                 // 文書全体を 1 つの TextEdit で置き換える。整形できない（文法が壊れている）ときは null
+                // FormattingOptions の追加のキー: insertOrigin・blankAroundSections（S061。VS Code の拡張が設定から渡す）
                 let opts = &params["options"];
                 let options = globe_mode_fmt::Options {
                     indent: opts["tabSize"].as_u64().map_or(2, |n| n as usize),
+                    insert_origin: opts["insertOrigin"].as_bool().unwrap_or(true),
+                    blank_around_sections: opts["blankAroundSections"].as_bool().unwrap_or(true),
                     ..globe_mode_fmt::Options::default()
                 };
                 let edit = self.texts.get(&uri).and_then(|text| {
@@ -168,6 +171,9 @@ impl Server {
                     let options = globe_mode_fmt::Options {
                         indent: params["indent"].as_u64().map_or(2, |n| n as usize),
                         insert_origin: params["insertOrigin"].as_bool().unwrap_or(true),
+                        blank_around_sections: params["blankAroundSections"]
+                            .as_bool()
+                            .unwrap_or(true),
                         ..globe_mode_fmt::Options::default()
                     };
                     match globe_mode_fmt::format(text, &options) {
@@ -248,10 +254,12 @@ fn lint_diagnostics(text: &str) -> Vec<lsp_types::Diagnostic> {
     globe_mode_fmt::lint(text, &globe_mode_fmt::LintOptions::default())
         .into_iter()
         .map(|m| {
-            let code = match m.rule {
-                "line-too-long" => "GM-L0001",
-                "class-name-pascal-case" => "GM-L0002",
-                _ => "GM-L0003",
+            let (code, severity) = match m.rule {
+                "line-too-long" => ("GM-L0001", DiagnosticSeverity::WARNING),
+                "class-name-pascal-case" => ("GM-L0002", DiagnosticSeverity::WARNING),
+                "missing-description" => ("GM-L0003", DiagnosticSeverity::WARNING),
+                // S061: 整形で直る並びの指摘は通知の重さ
+                _ => ("GM-L0004", DiagnosticSeverity::INFORMATION),
             };
             let start = Position::new(
                 m.line.saturating_sub(1) as u32,
@@ -259,7 +267,7 @@ fn lint_diagnostics(text: &str) -> Vec<lsp_types::Diagnostic> {
             );
             lsp_types::Diagnostic {
                 range: Range::new(start, start),
-                severity: Some(DiagnosticSeverity::WARNING),
+                severity: Some(severity),
                 code: Some(NumberOrString::String(code.to_string())),
                 source: Some("globe-mode".to_string()),
                 message: format!("{} ({})", m.message, m.rule),
@@ -485,6 +493,27 @@ fn hover(c: &ClassOutline) -> Hover {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn annotation_order_is_information_and_blank_sections_can_be_turned_off() {
+        let src = "model A \"d\"\n  Real x;\nequation\n  x = 1;\n  annotation(Documentation(info = \"i\"), experiment(StopTime = 1));\nend A;\n";
+        let d = lint_diagnostics(src);
+        let order: Vec<_> = d
+            .iter()
+            .filter(|d| d.code == Some(NumberOrString::String("GM-L0004".into())))
+            .collect();
+        assert_eq!(order.len(), 1, "{d:?}");
+        assert_eq!(order[0].severity, Some(DiagnosticSeverity::INFORMATION));
+
+        let mut s = Server::new(&[]).unwrap();
+        let r = s.handle(json!({"id": 1, "method": "globe/format", "params": {"text": src, "blankAroundSections": false}}));
+        let out = r[0]["result"].as_str().unwrap();
+        assert!(out.contains("  Real x;\nequation\n  x = 1;"), "{out}");
+        assert!(
+            out.contains("annotation(experiment(StopTime = 1), Documentation(info = \"i\"));"),
+            "{out}"
+        );
+    }
 
     #[test]
     fn position_counts_utf16_units() {
