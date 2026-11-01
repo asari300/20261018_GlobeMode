@@ -39,6 +39,7 @@
 ## 検証
 
 - `cargo test -p globe-mode-cli --test fmt_dirs`: 3/3。1 回目は lint の期待の桁を 1 と書いて落ちた（実際は 7。`model A` のクラス名の位置）。
+- CI（run 41259596381）は rust-windows だけ落ちた。`fmt_dirs` の期待値が `./a.mo` と `/` を決め打ちしていて、Windows では `.\a.mo` になるため（振る舞いは正しい）。期待値を `Path::new(".").join(..)` で作るように直した。
 - 拡張の `pnpm test`: 2/2（`globe lsp` との往復、保存時の整形）。
 - `cargo clippy -p globe-mode-cli --all-targets -- -D warnings`: 通過。`cargo deny check licenses`: 通過。
 - `src/Modelica` で `globe fmt --check`: 「69 ファイルは整形が要る、0 ファイルは整形済み」。
