@@ -80,9 +80,9 @@ OpenModelica（OMEdit）と Rumoca を参考に、GlobeMode に要る機能を�
 | Streamlit（結果ダッシュボード） | × | × | Should | P6 | PyO3 の wheel |
 | Rust API | — | ○ | Must | P1 | facade crate `globe-mode` |
 | Python API | ○（OMPython） | ○ | Must | P6 | PyO3（abi3-py312） |
-| Julia API | ○（OMJulia） | × | Must | P7 | C ABI と ccall |
+| Julia API | ○（OMJulia） | △（S075: `ccall` だけの `src/Julia/globe_mode.jl`。パッケージ・JLL は未） | Must | P7 | C ABI（`globe-mode-c`）と ccall |
 | Elixir / Gleam API | × | × | Must | P7 | Rustler の NIF。Gleam は `@external` |
-| Zig API | × | × | Must | P7 | C ABI と cbindgen のヘッダ |
+| Zig API | × | △（S075: `src/Zig` の例。手書きのヘッダを translate-c） | Must | P7 | C ABI（`globe-mode-c`）と手書きのヘッダ `globe_mode.h` |
 | Leptos / Dioxus 版 UI（負荷の比較用） | — | — | Could | P7 | 試験 feature。`doc/bench/ui.md` に結果を書く |
 
 ## 6. 品質

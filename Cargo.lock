@@ -1400,6 +1400,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "globe-mode-c"
+version = "0.0.1"
+dependencies = [
+ "globe-mode",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "globe-mode-cli"
 version = "0.0.1"
 dependencies = [
