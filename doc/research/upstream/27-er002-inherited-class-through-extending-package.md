@@ -14,7 +14,7 @@ If package `Q` is `extends P` and `P` declares `model B`, then `Q.B` (or `A.B` w
 
 `P.B` works, and so does `A.B` when the alias is `replaceable package A = Q`. A function inherited the same way (`Q.f(time)`) also resolves.
 
-This was seen while reducing other reproductions (S080, S083): a model with `package Medium = Modelica.Media.Incompressible.Examples.Glycol47; Medium.BaseProperties medium;` gives ER002 for `Medium.BaseProperties` with MSL 4.1.0, while `replaceable package Medium = ...` resolves. No example of GlobeMode's MSL or library runs was traced to this shape. [not verified]
+This was seen while reducing other reproductions (S080, S083): a model with `package Medium = Modelica.Media.Incompressible.Examples.Glycol47; Medium.BaseProperties medium;` gives ER002 for `Medium.BaseProperties` with MSL 4.1.0, while `replaceable package Medium = ...` resolves. No example of GlobeMode's library runs stops on this shape (S091): in run 41365960542 (2026-11-02) there are 68 ER002 (AixLib 67, Buildings 1), and none is an `unresolved type reference` to an inherited class. The only type references are to `Modelica_DeviceDrivers`, which is not fetched; the rest are `unresolved function call: 'specificEntropyOfpTX'` (39, AixLib, not traced), `unresolved component reference` (18) and `unresolved import` (10).
 
 ## Steps to reproduce
 
