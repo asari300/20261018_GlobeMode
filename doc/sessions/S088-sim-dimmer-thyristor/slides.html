@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S088 sim-dimmer-thyristor — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S088 sim-dimmer-thyristor">
+
+<section class="slide" id="S01">
+  <span class="tag">S088 · 2026-11-02 · P3</span>
+  <h1>sim-dimmer-thyristor</h1>
+  <p class="lead">S064 の持ち越し: Dimmer の y_arg と ThyristorBridge の時間切れ</p>
+  <div class="big">Dimmer_R・Dimmer_RL は<b>ほぼ 0 の振幅の位相</b>。既知の外れへ</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>Dimmer_RL の vH01.y_arg・iH01.y_arg が管から外れる原因。Dimmer_R と同じか</li>
+    <li>ThyristorBridge2mPulse_DC_Drive が回し直し（180 s）の時間切れの境目にある件</li>
+    <li>auto の全体の予算は計測だけ</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">原因</span>
+  <h1>外れるのはサイリスタが止まった窓だけ</h1>
+  <table class="compact">
+    <tr><th>区間（Dimmer_RL）</th><th>vH01.y_rms 参照 / GM</th><th>vH01.y_arg 参照 / GM</th></tr>
+    <tr><td>導通 t = 1.03〜6.99</td><td>0.1〜110 / 同じ</td><td>5 桁一致</td></tr>
+    <tr><td>止まっている t = 0.25〜1.01</td><td>2.67e-6 / 4〜8e-5</td><td>1.058 / 1.69〜1.79</td></tr>
+    <tr><td>止まっている t = 7.03〜8</td><td>2.67e-6 / 2〜8e-5</td><td>1.058 / 1.68〜1.72</td></tr>
+  </table>
+  <p>振幅は導通時の 2e-8。位相は Mean の積分の残差で決まる。RL は L·di/dt の誤差が乗るぶん大きく外れる。</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">判定</span>
+  <h1>Dimmer_R と同じ原因</h1>
+  <ul>
+    <li>Dimmer_R の点弧の時刻は参照と 1e-6 s まで一致（最初の 11 回）。research の「点弧のずれ」の見込みは外れ</li>
+    <li>外れる窓は t = 0.27〜0.39、振幅 7.9e-6 → 2.66e-6 V。位相の差 0.002〜0.02 rad</li>
+    <li>許容誤差を 1e-8 にすると 9/11 → 4/11 に悪くなる（参照も解けていない）</li>
+    <li>実行系は直さず、2 本とも既知の外れに理由付きで載せた</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">図</span>
+  <h1>位相が残差で決まる道</h1>
+  <svg class="fig" viewBox="0 0 800 260" role="img" aria-label="サイリスタが止まると振幅が漏れ電流まで落ち、位相が残差で決まる">
+    <rect class="svg-box" x="20" y="90" width="170" height="80" rx="10"/>
+    <text class="svg-text-b" x="105" y="135" text-anchor="middle">サイリスタ停止</text>
+    <line class="svg-line" x1="190" y1="130" x2="225" y2="130"/>
+    <rect class="svg-box" x="225" y="90" width="170" height="80" rx="10"/>
+    <text class="svg-text-b" x="310" y="125" text-anchor="middle">漏れ電流だけ</text>
+    <text class="svg-text" x="310" y="150" text-anchor="middle">2.7e-6 V</text>
+    <line class="svg-line" x1="395" y1="130" x2="430" y2="130"/>
+    <rect class="svg-box" x="430" y="90" width="170" height="80" rx="10"/>
+    <text class="svg-text-b" x="515" y="125" text-anchor="middle">Mean の積分</text>
+    <text class="svg-text" x="515" y="150" text-anchor="middle">許容誤差より小さい</text>
+    <line class="svg-line" x1="600" y1="130" x2="635" y2="130"/>
+    <rect class="svg-box-accent" x="635" y="90" width="150" height="80" rx="10"/>
+    <text class="svg-text-b" x="710" y="125" text-anchor="middle">y_arg</text>
+    <text class="svg-text" x="710" y="150" text-anchor="middle">残差の比</text>
+  </svg>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">時間切れ</span>
+  <h1>ThyristorBridge2mPulse_DC_Drive</h1>
+  <table class="compact">
+    <tr><th>計測</th><th>BDF</th><th>esdirk34</th></tr>
+    <tr><td>手元（release）</td><td>7.5 s で GM-U0005</td><td>159.8 s で終了</td></tr>
+    <tr><td>CI の回し直し（180 s）</td><td>約 5 s</td><td>180 s で時間切れ</td></tr>
+    <tr><td>S050 の単独（ランナー）</td><td>-</td><td>94.3 s</td></tr>
+  </table>
+  <p>格子の外の点 37528 ＝ イベント約 3.75 万回。1 回ごとに歩をやり直す。各段に 180 s を渡しているので、分け方の 1 行では収まらない → 持ち越し。</p>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>globe simulate -L data/msl -m Modelica.Electrical.PowerConverters.Examples.ACAC.Dimmer_RL \
+  --solver esdirk34 --tolerance 1e-7 --timeout 900 -o rl.csv
+gh workflow run msl-sim.yml --ref feature/s088-sim-dimmer-thyristor -f 'solvers=["esdirk34"]'</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">310</span><span class="l">実行できた（S064 と同じ）</span></div>
+    <div class="kpi"><span class="n">301 / 309</span><span class="l">管に収まった（同じ）</span></div>
+    <div class="kpi"><span class="n">3 → 5</span><span class="l">既知の外れ</span></div>
+  </div>
+  <p>run 41403194603 の msl-sim。モデルごとの判定は前回と 355 行すべて同じ。</p>
+</section>
+
+<section class="slide" id="S08">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>ThyristorBridge2mPulse_DC_Drive: イベント後のやり直しを軽くする、または回し直しの予算</li>
+    <li>auto の全体の予算: 今は段ごとに予算を渡し、超えるのは最大で段の数 × 30 s（7 本が 30 s を超えた）</li>
+    <li>ほぼ 0 の振幅の位相を管で比べない比べ方は、他の Harmonic の例題と合わせて考える</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

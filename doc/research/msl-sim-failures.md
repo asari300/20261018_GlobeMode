@@ -191,7 +191,7 @@ Rumoca の文言はどれも `[StructuralAnalysis] solve-IR evaluation failed: [
 | 7 | `Electrical.Analog.Examples.OpAmps.Multivibrator` | 3 個すべて、t = 0.032〜 | `noEvent` で包んだ飽和の弛張発振。周期がソルバに依存して位相がずれる。Rumoca の除外の一覧も model_issue（`msl_trace_compare_exclusions.json:136`。Rumoca の半周期 0.0472 s、OMC 0.0495 s） | 0/3（1e-8 も 0/3） | 直せない（モデルの性質）。一覧に載せる（8） |
 | 8 | `Clocked.Examples.Elementary.ClockSignals.RotationalSample` | `sample_angle.y` t = 1.0、`rotationalClock.direction` t = 1.3976 | t = 1 で、状態イベント（角度の変化が 1 rad に達する。sin が 0 を横切る点）と時間イベント（`trigger_interval` が 1 → 3）が数学的に同時に起こる。GlobeMode（Rumoca）は t = 1 で刻みを出し、参照は出さない。その後の向きの切り替えも 1.3976 と 1.4167 にずれる | - | 直せない（同時のイベントの順序。Rumoca の意味） |
 | 9 | `Clocked.Examples.Elementary.ClockSignals.LogicalSample` | `rotational_clock_1.direction` など 4 個、t = 0.056〜 | #8 と同じ t = 1 の件に加え、`ConjunctiveClock`（「すべての入力の clock が少なくとも 1 回刻んだら刻む」）が参照では t = 0.0485 で刻み、GlobeMode では刻まない（最初の刻みの数え方の違い）。Rumoca の基準値の `unexcepted_non_high_models` にこのモデルだけが載っている | - | 直せない（Rumoca の clock の意味） |
-| 10 | `Electrical.PowerConverters.Examples.ACAC.Dimmer_R` | `vH01.y_arg`・`iH01.y_arg`、t = 0.26〜 | 第 1 高調波の位相（`Harmonic` の y_arg）が、窓の更新の時刻 t = 0.26 で 2.796（参照）と 2.772 に分かれる。サイリスタの点弧の時刻のずれが窓の平均に入る見込み【未確認】 | 9/11（1e-8 は 4/11） | 直せない見込み。原因は【未確認】 |
+| 10 | `Electrical.PowerConverters.Examples.ACAC.Dimmer_R` | `vH01.y_arg`・`iH01.y_arg`、t = 0.26〜 | 第 1 高調波の位相（`Harmonic` の y_arg）が、窓の更新の時刻 t = 0.26 で 2.796（参照）と 2.772 に分かれる。サイリスタの点弧の時刻のずれが窓の平均に入る見込み【未確認】 | 9/11（1e-8 は 4/11） | 直せない見込み。**S088**: 点弧の時刻は参照と一致（最初の 11 回、1e-6 s まで）。外れる窓は振幅が漏れ電流（2.67e-6 V）まで落ちた窓で、ほぼ 0 の振幅の位相の差。`Dimmer_RL` と同じ原因として既知の外れに載せた（2026-11-02、[S088](../sessions/S088-sim-dimmer-thyristor/解説書.md)） |
 
 ## GlobeMode で直すもの
 
