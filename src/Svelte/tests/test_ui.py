@@ -3,10 +3,11 @@
 
   uv run python src/Svelte/tests/test_ui.py     # 先に pnpm build（mise run ui:check がやる）
 
-dist/ を localhost で配り（CSP は index.html の meta のまま）、Decay を検査して error の診断が 0 件であること、実行するとプロットが出て信号の選択が効くこと（ブラウザの実行は列ごとの道で、data-typed が true。S065）、
+dist/ を localhost で配り（CSP は index.html の meta と同じものを応答の header にも付ける。meta は Web Worker に効かないので。S093）、Decay を検査して error の診断が 0 件であること、実行するとプロットが出て信号の選択が効くこと（ブラウザの実行は列ごとの道で、data-typed が true。S065）、
 10 万点（4 状態、出力間隔 0.01 s で 1000 s）の結果でも描けて時間を測ること、構造的に特異なモデルを検査して診断の行が出て、行を押すとエディタの選択が動くことを確かめる。1 ファイルの回路で「グラフ」を押して connect グラフが描かれることを確かめる（S046）。
 最後に「MSL を読む」で MSL 4.1.0 を読み（public/msl/MSL.json が無ければ飛ばす）、ChuaCircuit の検査（error 0）と実行（プロットの canvas と系列）を確かめて、秒数を出す（S048）。
-別のページで MSL.json を構文の誤りのファイルを含むライブラリに差し替え、読み飛ばしの警告 GM-W1001 の行と notes のファイル名が出ることを確かめる（S071）。console の error は失敗。
+別のページで MSL.json を構文の誤りのファイルを含むライブラリに差し替え、読み飛ばしの警告 GM-W1001 の行と notes のファイル名が出ることを確かめる（S071）。
+console の error（CSP の違反を含む）と、配った origin の外への要求は失敗（S093）。
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from __future__ import annotations
 import functools
 import http.server
 import json
+import re
 import subprocess
 import sys
 import threading
@@ -42,16 +44,29 @@ BAD = "model Bad\n  Real x;\nequation\n  der(x) = -x;\n  x = 1;\nend Bad;\n"
 def main() -> int:
     # 列の道の NaN / Inf は null になる（uPlot の欠損。S065）
     subprocess.run(["node", str(Path(__file__).with_name("test_columns.mjs"))], check=True)
-    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(DIST))
-    handler.log_message = lambda *a: None  # type: ignore[attr-defined]
+    csp = re.search(r'http-equiv="Content-Security-Policy" content="([^"]+)"', (DIST / "index.html").read_text(encoding="utf-8"))
+    assert csp, "index.html に CSP の meta が無い"
+
+    class Handler(http.server.SimpleHTTPRequestHandler):
+        def end_headers(self) -> None:
+            self.send_header("Content-Security-Policy", csp[1])  # worker.js にも同じ CSP を効かせる
+            super().end_headers()
+
+        def log_message(self, *a: object) -> None:
+            pass
+
+    handler = functools.partial(Handler, directory=str(DIST))
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     errors: list[str] = []
+    origin = f"http://127.0.0.1:{server.server_port}/"
+    outside: list[str] = []
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page()
         page.on("console", lambda m: m.type == "error" and errors.append(m.text))
         page.on("pageerror", lambda e: errors.append(str(e)))
+        page.context.on("request", lambda r: r.url.startswith((origin, "data:", "blob:")) or outside.append(r.url))
         page.goto(f"http://127.0.0.1:{server.server_port}/")
         rows = page.locator("table.diagnostics tr")
 
@@ -195,6 +210,7 @@ def main() -> int:
         browser.close()
     server.shutdown()
     assert not errors, errors
+    assert not outside, outside
     print("ok")
     return 0
 

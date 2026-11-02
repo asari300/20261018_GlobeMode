@@ -106,9 +106,9 @@ jobs:
       - name: fmt と clippy（desktop の workspace）と、MSL の URL・sha256 が xtask と同じこと
         if: runner.os == 'Linux'
         run: |
-          # msl.rs は xtask の fetch-msl の定数を写している（ADR-0030）。ずれたらここで落とす
+          # msl.rs は xtask の fetch-msl の定数（4.1.0 と S084 の 4.0.0）を写している（ADR-0030）。ずれたらここで落とす
           X=src/Rust/xtask/src/main.rs
-          for pair in 'MSL_URL:URL' 'MSL_SHA256:SHA256'; do
+          for pair in 'MSL_URL:URL' 'MSL_SHA256:SHA256' 'MSL_400_URL:MSL_400_URL' 'MSL_400_SHA256:MSL_400_SHA256'; do
             a="$(sed -n "s/^const ${pair%%:*}: &str = \"\(.*\)\";/\1/p" "$X")"
             b="$(sed -n "s/^const ${pair##*:}: &str = \"\(.*\)\";/\1/p" "$DESKTOP/src/msl.rs")"
             test -n "$a" && test "$a" = "$b" || { echo "${pair%%:*} が xtask と違う: '$a' / '$b'"; exit 1; }

@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S084 Desktop の MSL の版の切り替え — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S084 Desktop の MSL の版の切り替え">
+
+<section class="slide" id="S01">
+  <span class="tag">S084 · 2026-11-02 · P4</span>
+  <h1>Desktop の MSL の版の切り替えと進捗・取り消し</h1>
+  <p class="lead">S069 の持ち越し 2 つ（進捗の割合と取り消し、4.0.0 への切り替えの UI）を閉じた</p>
+  <div class="big">版は <b>msl/&lt;version&gt;/</b> に分けて置き、<b>fetch_msl { version }</b> で取得して sidecar を作り直す</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>Desktop で MSL 4.1.0 と 4.0.0 を選んで取得・切り替えできる（公開ライブラリの多くは 4.0.0 が前提）</li>
+    <li>取得中に受信量と割合を出し、もう一度押すと取り消せる</li>
+    <li>4.0.0 の URL・sha256 は xtask の定数を写し、<code>desktop.yml</code> が 2 版分の一致を確かめる</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table>
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>置き場</td><td><code>msl/&lt;version&gt;/</code>。起動時は 4.1.0 から探す</td><td>目印が版ごとなので、2 版を並べて置ける</td></tr>
+    <tr><td>進捗</td><td>curl を spawn し、zip の大きさを 0.25 秒ごとにイベント <code>msl-progress</code> で出す</td><td>HTTP クライアントを足さない。全体は HEAD の Content-Length</td></tr>
+    <tr><td>取り消し</td><td>command <code>cancel_msl</code> が <code>AtomicBool</code> を立て、curl を止めて zip を消す</td><td>最小の形。展開中は止めない</td></tr>
+    <tr><td>UI</td><td>Desktop だけ版の <code>&lt;select&gt;</code>。取得中はボタンが「取り消す」</td><td>ブラウザ版の MSL.json は 4.1.0 だけ</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>取得の流れ</h1>
+  <svg class="fig" viewBox="0 0 800 260" role="img" aria-label="UI から fetch_msl、curl、sidecar への流れ">
+    <rect class="svg-box-accent" x="20" y="90" width="170" height="80" rx="10"/>
+    <text class="svg-text-b" x="105" y="126" text-anchor="middle">UI</text>
+    <text class="svg-text" x="105" y="150" text-anchor="middle">select + ボタン</text>
+    <line class="svg-line" x1="190" y1="130" x2="300" y2="130"/>
+    <rect class="svg-box" x="300" y="90" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="400" y="126" text-anchor="middle">fetch_msl</text>
+    <text class="svg-text" x="400" y="150" text-anchor="middle">msl/&lt;version&gt;/</text>
+    <line class="svg-line" x1="500" y1="130" x2="610" y2="130"/>
+    <rect class="svg-box" x="610" y="90" width="170" height="80" rx="10"/>
+    <text class="svg-text-b" x="695" y="126" text-anchor="middle">sidecar</text>
+    <text class="svg-text" x="695" y="150" text-anchor="middle">--library</text>
+    <text class="svg-text" x="400" y="215" text-anchor="middle">msl-progress { received, total } → UI ／ cancel_msl → AtomicBool</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>gh workflow run desktop.yml --ref feature/s084-desktop-msl-switch
+mise run ui:check</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">2</span><span class="l">版（4.1.0 / 4.0.0）</span></div>
+    <div class="kpi"><span class="n">4</span><span class="l">定数の一致の検査</span></div>
+    <div class="kpi"><span class="n">3</span><span class="l">msl.rs の単体試験</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>展開中の取り消し、複数ウィンドウでの同時取得の排他</li>
+    <li>使わなくなった版の置き場の削除、Windows での取得の確認</li>
+    <li>署名と自動更新、静かな <code>globe/setFile</code></li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
