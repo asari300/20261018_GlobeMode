@@ -1,6 +1,6 @@
 # 上流（Rumoca・diffsol）への報告の下書き
 
-S045（計画書の WP-H）で書いた（15 は S055、16 は S068、17〜21 は S070）、[Rumoca](https://github.com/CogniPilot/rumoca) と [diffsol](https://github.com/martinjrobins/diffsol) に出す issue の下書き。元の記録は [../msl-sim-failures.md](../msl-sim-failures.md) の「上流に報告する候補」と、[../../roadmap.md](../../roadmap.md) の候補 8。
+S045（計画書の WP-H）で書いた（15 は S055、16 は S068、17〜21 は S070、24〜26 は S072）、[Rumoca](https://github.com/CogniPilot/rumoca) と [diffsol](https://github.com/martinjrobins/diffsol) に出す issue の下書き。元の記録は [../msl-sim-failures.md](../msl-sim-failures.md) の「上流に報告する候補」と、[../../roadmap.md](../../roadmap.md) の候補 8。
 
 - **出すのはユーザー。エージェントは出さない**（`gh issue create` を使わない）。
 - **出すときは、再現を Rumoca の最新（main）で確かめてから出す。** 下書きの環境は Rumoca v0.10.2（rev `276e82bd`）、MSL 4.1.0。Rumoca の CLI がこの環境に無いまま書いた件は、本文に「[not verified]」と書いてある。
@@ -32,10 +32,25 @@ S045（計画書の WP-H）で書いた（15 は S055、16 は S068、17〜21 �
 | 19 | [`stateSelect` の parameter 式を EI032 で断る](19-ei032-statselect-parameter-expression.md) — Rumoca の穴（MLS §4.8.1 は parameter 属性）。235 本 | Rumoca | [19](19-ei032-statselect-parameter-expression.mo)（自己完結） | なし | 下書き |
 | 20 | [extends が 2 つの関数（MSL `Files.loadResource`）の呼び出しを EF025 で断る](20-ef025-function-selection-identity.md) — Rumoca の穴（`loadResource` 分だけ。replaceable な Medium の関数は不明）。138 本 | Rumoca | [20](20-ef025-function-selection-identity.mo)（MSL だけ、自己完結の版も） | なし | 下書き（Medium の関数は要再現） |
 | 21 | [`getInstanceName()` を parameter の束縛に書くと、成分配列を含む式の if 方程式で EF004](21-ef004-getinstancename-and-if-equation-branches.md) — どちらも Rumoca の穴（原因は 2 つ）。217 本 | Rumoca | [21](21-ef004-getinstancename-and-if-equation-branches.mo)（自己完結） | なし | 下書き |
+| 24 | [条件付き成分の条件が別の package の定数を読むと EI006 で断る](24-ei006-condition-on-package-constant.md) — Rumoca の穴（MLS §4.4.5・§3.8）。117 本 | Rumoca | [24](24-ei006-condition-on-package-constant.mo)（自己完結。モデルの定数・parameter なら通る） | なし | 下書き |
+| 25 | [Boolean の出力の関数で、if の枝が代入のあと for を回すと ED019 `function conditional`](25-ed019-function-conditional-boolean-loop.md) — Rumoca の未対応（MLS §11.2・§12.2 は制限しない）。ED019 125 本のうち同じメッセージ 44 本 | Rumoca | [25](25-ed019-function-conditional-boolean-loop.mo)（自己完結。Real の出力なら通る） | なし | 下書き（`splineDerivatives` と `function shape proof` は要再現） |
+| 26 | [package の record 定数の成分を読むと ED008 unresolved Flat reference](26-ed008-field-of-package-record-constant.md) — Rumoca の内部エラー。ED008 108 本のうち `Media.Air.dryair.cp` 47 本 | Rumoca | [26](26-ed008-field-of-package-record-constant.mo)（自己完結。スカラの定数・モデルの record 定数なら通る） | なし | 下書き（`i` の 18 本は要再現） |
 
 ## 公開ライブラリの失敗から（17〜21、S070）
 
 S063 の失敗の分類（[../libraries-2026-11-01.md](../libraries-2026-11-01.md)）の上位 5 つの Rumoca のコードを、ライブラリを使わない最小の再現にし、MLS 3.6 の該当節と omc 1.27.2（`checkModel`）で「ライブラリの誤りか Rumoca の穴か」を判定した（確認日 2026-11-01）。**5 件とも Rumoca の穴で、ライブラリ側の誤りは無かった**（omc は全部通す）。再現は Rumoca v0.10.2 の CLI（`cargo xtask fetch-rumoca`）と `globe check` の両方で同じコードが出る。20 の Medium の関数の分は最小の再現を作れていない（本文の Notes）。これらの再現ファイルは同じフォルダの `.mo` を互いに読むので、モデル名は `Rep17`〜`Rep21` で始めて重ならないようにしてある。
+
+## 公開ライブラリの失敗から（22〜26、S072）
+
+S070 と同じ手順で、S070 の「次回」に挙げた 5 つのコード（ER023・ER003・EI006・ED019・ED008）を判定した（確認日 2026-11-02）。再現は `globe check` と Rumoca v0.10.2 の CLI で同じコードが出る（対照のモデルは両方で通る）。omc 1.27.2 の `checkModel` は ER003 の再現だけを断り、ほかは通す。モデル名は `Rep22`〜`Rep26` で始める。
+
+| # | コード | 判定 | 根拠 |
+| ---: | --- | --- | --- |
+| 22 | ER023（ClaRa 3 本） | **正当**（MLS の規定上の拒否）。下書きは書かない | MLS 3.6 §4.6「record に直接宣言する成分は record か type に限る」。`class … extends ExternalObject`（TILMedia）は class。omc は緩く通す。Rumoca のメッセージの節番号 §4.7 は 3.6 では §4.6（Balanced Models が §4.7）。再現は [22](22-er023-record-component-externalobject.mo) |
+| 23 | ER003（ClaRa 2・AixLib 1） | **正当**（無い基底クラス）。ClaRa の 2 本は依存の取得で避けられる（GlobeMode 側の回避。SMArtInt は取得していない）、AixLib の 1 本はライブラリの誤り。下書きは書かない | ClaRa は取得しない依存 `SMArtInt.Internal.ClaRaDelay`。AixLib は `Modelica.Media.Examples.Tests.Components.PartialTestModel2` を引くが、MSL 4.0.0 にも 4.1.0 にも無い（`Modelica.Media.Examples.Utilities.PartialTestModel2` にある）。omc も同じ再現を断る。再現は [23](23-er003-base-class-not-found.mo) |
+| 24 | EI006 | **Rumoca の穴** | 別の package の定数を読む条件は parameter 式（MLS §4.4.5・§3.8.2・§3.8.3）。omc は通す |
+| 25 | ED019 | **Rumoca の未対応**（`function conditional`。代表の形だけ） | 文の組み合わせに MLS の制限は無い。omc は通す。`function shape proof`（MSL 4.0.0 の `SensorVerification` ほか 12 本）はライブラリで再現したが最小にできず【未確認】 |
+| 26 | ED008 | **Rumoca の穴**（内部エラー） | package の定数は名前で引ける（MLS §5.3.2）。omc は通す |
 
 ## 下書きにしなかったもの
 

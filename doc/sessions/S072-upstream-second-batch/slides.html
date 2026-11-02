@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S072 上流への下書き（2 回目） — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S072 上流への下書き（2 回目）">
+
+<section class="slide" id="S01">
+  <span class="tag">S072 · 2026-11-02 · P3</span>
+  <h1>上流への下書き（2 回目）</h1>
+  <p class="lead">S070 の次の 5 つ: ER023・ER003・EI006・ED019・ED008</p>
+  <div class="big"><b>3 件が Rumoca の穴</b>、2 件は規定どおりの拒否</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>S070 の持ち越し</h1>
+  <ul>
+    <li>ライブラリで出ている箇所を 1 つ選び、最小の再現 <code>Rep22</code>〜<code>Rep26</code> を書く</li>
+    <li><code>globe check</code> と Rumoca の CLI で同じコードか、omc 1.27.2 が通すかを見る</li>
+    <li>MLS 3.6 の節で、穴か正当な拒否かを決める</li>
+    <li>穴は英語の下書き 24〜26 にする。出すのはユーザー。コードは変えない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>5 つの判定</h1>
+  <table class="compact">
+    <tr><th>#</th><th>コード</th><th>本数</th><th>判定</th><th>MLS 3.6</th></tr>
+    <tr><td>22</td><td>ER023</td><td>3</td><td class="ok">正当</td><td>§4.6</td></tr>
+    <tr><td>23</td><td>ER003</td><td>3</td><td class="ok">正当</td><td>§7.1</td></tr>
+    <tr><td>24</td><td>EI006</td><td>117</td><td class="ng">穴</td><td>§4.4.5・§3.8</td></tr>
+    <tr><td>25</td><td>ED019</td><td>125</td><td class="ng">未対応</td><td>§11.2・§12.2</td></tr>
+    <tr><td>26</td><td>ED008</td><td>108</td><td class="ng">穴</td><td>§5.3.2</td></tr>
+  </table>
+  <p>omc は 22・24・25・26 の再現を通し、23 だけを断る。</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">22 · 23</span>
+  <h1>規定どおりの拒否</h1>
+  <div class="cols-2">
+    <div class="card"><b>ER023</b><br>record の成分は record か type に限る。ClaRa は TILMedia の ExternalObject（class）を成分にする。omc は緩く通す。Rumoca の「§4.7」は 3.6 では §4.6</div>
+    <div class="card"><b>ER003</b><br>ClaRa は取得しない依存 SMArtInt。AixLib の 1 本は MSL に無い古い名前 <code>Media.Examples.Tests.Components</code> を引く</div>
+  </div>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">24 · 25 · 26</span>
+  <h1>Rumoca の穴</h1>
+  <div class="cols-3">
+    <div class="card"><b>EI006</b><br><code>X_w if M.nXi &gt; 0</code>。別の package の定数を読む条件を断る。モデルの定数なら通る</div>
+    <div class="card"><b>ED019</b><br>Boolean の出力の関数で、枝が代入のあと for を回すと断る。Real なら通る</div>
+    <div class="card"><b>ED008</b><br>package の record 定数 <code>dryair.cp</code> が flat に無い。スカラの定数なら通る</div>
+  </div>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">再現手順</span>
+  <h1>検証</h1>
+  <pre><code>globe check doc/research/upstream/24-*.mo --model Rep24.C
+data/rumoca/rumoca-linux-x86_64 compile 24-*.mo -m Rep24.C
+omc: loadFile(...); checkModel(Rep24.C)</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">17/17</span><span class="l">globe と CLI のコードが一致</span></div>
+    <div class="kpi"><span class="n">3</span><span class="l">新しい下書き（24〜26）</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>下書きを Rumoca の main で確かめて出す（ユーザー）</li>
+    <li>ED019 の <code>function shape proof</code> と <code>splineDerivatives</code>、ED008 の <code>i</code> を最小にする</li>
+    <li>EI006 の残りの名前（<code>solRad</code> など）が同じ原因かを見る</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
