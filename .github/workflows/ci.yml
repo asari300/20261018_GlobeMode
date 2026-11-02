@@ -272,7 +272,12 @@ jobs:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v5
         with:
-          install_args: rust zig julia erlang elixir
+          install_args: rust zig julia
+      # mise の erlang 27 のビルドは glibc 2.43 を要る（ubuntu-24.04 は 2.39。run 41393072576）ので、BEAM は setup-beam で入れる
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27"
+          elixir-version: "1.18.3"
       - uses: Swatinem/rust-cache@v2
         with:
           # release の成果物は、rust-linux（debug）のキャッシュと分ける
