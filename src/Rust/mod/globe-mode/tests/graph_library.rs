@@ -72,6 +72,13 @@ fn msl_chua_circuit_graph() {
     let n = nodes(&mut ws, "Modelica.Electrical.Analog.Examples.ChuaCircuit");
     eprintln!("ChuaCircuit のノード {n}");
     assert!(n > 0);
+    // PartialStraightPipe の入れ子の `replaceable model FlowModel` を受け継いだ型で引く（S101）
+    let g = ws.graph("Modelica.Fluid.Pipes.StaticPipe", 1).unwrap();
+    assert!(
+        g.nodes.iter().any(|n| n.key == "flowModel"),
+        "{:?}",
+        g.unresolved
+    );
 }
 
 /// ワークスペースのモデルの中のライブラリの部品も、ライブラリの索引から引く（S081）。2 回目はアウトラインを持ち越す
