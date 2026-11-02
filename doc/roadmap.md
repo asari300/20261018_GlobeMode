@@ -403,7 +403,12 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 ### S081（P4、2026-11-02）で済んだこと
 
 - **文書のモデルの中のライブラリの部品**（S079 の持ち越し）: `GlobeDb::connect_graph` は、ライブラリがあれば常にライブラリ + 文書の索引で引く（分割読み込みは `Checker::library_outlines(sources, model, cached)` が文書の本文も渡して閉包を読む）。`tests/data/MslParts.mo` の `unresolved` がライブラリなしの 3 から 0 に。ライブラリのアウトラインは `GlobeDb` が世代（分割で読んだファイルの数、全部読みは 0）ごとに持ち越し、MSL 全部読みの `ChuaCircuit` の 2 回目は 234 → 52 ms（debug）。[解説書](sessions/S081-graph-library-parts/解説書.md)
-- 持ち越し: 索引（`ClassIndex`）ごとの持ち越し、import した名前の解決。
+- 持ち越し: ~~索引（`ClassIndex`）ごとの持ち越し~~、~~import した名前の解決~~（S089 で済）。
+
+### S089（P4、2026-11-02）で済んだこと
+
+- **graph の import と索引の持ち越し**（S081 の持ち越し）: `GlobeDb` はライブラリの `ClassIndex` を世代ごとに `Arc` で持ち、文書の小さな索引を `ClassIndex::over` でその上に重ねる（MSL 全部読みの `ChuaCircuit` の 2 回目 52 → 6.9 ms、debug）。`ClassIndex::resolve` は各スコープで「クラス → そのクラスの import」の順に引く（MLS §5.3.1・§13.2 の最小。qualified・renamed・unqualified・selective）。別名の import は `ClassOutline::imports` に `D=A.B.C` の形で入る。`tests/data/MslPartsImport.mo` の `unresolved` 0。[解説書](sessions/S089-graph-imports-index-cache/解説書.md)
+- 持ち越し: 継承したクラスの中の入れ子のクラスの解決。
 
 ### S082（P7、2026-11-02）で済んだこと
 

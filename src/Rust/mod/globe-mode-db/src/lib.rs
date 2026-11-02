@@ -474,8 +474,8 @@ pub struct GlobeDb {
     workspace: Option<Workspace>,
     /// salsa の外の検査器（中の Rumoca の Session は共有される）
     checker: Checker,
-    /// ライブラリの文書のアウトラインと、その世代（[`Checker::library_outlines`]。S081）
-    library_outlines: Option<(usize, Vec<Outline>)>,
+    /// ライブラリの文書のクラスの索引と、その世代（[`Checker::library_outlines`]。S081・S089）
+    library_index: Option<(usize, Arc<ClassIndex>)>,
 }
 
 #[salsa::db]
@@ -560,7 +560,7 @@ impl GlobeDb {
             files: BTreeMap::new(),
             workspace: None,
             checker,
-            library_outlines: None,
+            library_index: None,
         }
     }
 
@@ -648,8 +648,7 @@ impl GlobeDb {
             return connect_graph(self, ws, request).clone();
         }
         // ライブラリがあれば、ワークスペースのモデルの部品も引けるよう常に合わせる（S079・S081）。
-        // ワークスペースのクラスを後に置いて優先する。ライブラリのアウトラインは世代ごとに持つ
-        // shortcut: 索引（ClassIndex）は毎回作る（MSL で数十 ms）。遅ければ索引ごと持つ
+        // ワークスペースの索引をライブラリの索引（世代ごとに持つ。S089）に重ねて優先する。
         let sources: Vec<Source<'_>> = ws
             .files(self)
             .iter()
@@ -658,19 +657,17 @@ impl GlobeDb {
                 text: f.text(self),
             })
             .collect();
-        let cached = self.library_outlines.as_ref().map(|(g, _)| *g);
-        let fresh = self.checker.library_outlines(&sources, model, cached);
-        if fresh.is_some() {
-            self.library_outlines = fresh;
+        let cached = self.library_index.as_ref().map(|(g, _)| *g);
+        if let Some((g, outlines)) = self.checker.library_outlines(&sources, model, cached) {
+            self.library_index = Some((g, Arc::new(ClassIndex::from_outlines(&outlines))));
         }
-        let library = self.library_outlines.as_ref().map(|(_, o)| o.as_slice());
+        let library = self.library_index.as_ref().map(|(_, i)| i.clone());
         let index = ClassIndex::from_outlines(
-            library.unwrap_or_default().iter().chain(
-                ws.files(self)
-                    .iter()
-                    .filter_map(|f| outline_shape(self, *f).as_ref()),
-            ),
-        );
+            ws.files(self)
+                .iter()
+                .filter_map(|f| outline_shape(self, *f).as_ref()),
+        )
+        .over(library.unwrap_or_default());
         globe_mode_graph::build(&index, model, depth)
     }
 

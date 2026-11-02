@@ -7,6 +7,7 @@
 //! 呼び出し側で位置を落とした射影を使う（P2 で `outline` クエリを作るときに決める）。
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use globe_mode_core::TextRange;
 use serde::Serialize;
@@ -126,9 +127,9 @@ pub struct ClassOutline {
     pub causality: Causality,
     pub range: TextRange,
     pub extends: Vec<String>,
-    /// `import` 文（S007）。`import A.B.C;` は `A.B.C`、`import D = A.B.C;` は `A.B.C`、
+    /// `import` 文（S007）。`import A.B.C;` は `A.B.C`、`import D = A.B.C;` は `D=A.B.C`（S089）、
     /// `import A.B.*;` は `A.B.*`、`import A.B.{C,D};` は `A.B.C` と `A.B.D`。
-    /// `deps_closure`（Rumoca に渡すファイルの絞り込み）が、参照先のクラスを探すのに使う。
+    /// [`ClassIndex::resolve`] が、このクラスの中の名前を引くのに使う（S089）。
     pub imports: Vec<String>,
     pub components: Vec<ComponentOutline>,
     /// このクラスの equation 節に直接書かれた connect 文（for や if の中は P2 で扱う）。
@@ -214,11 +215,13 @@ pub const BUILTIN_TYPES: [&str; 5] = ["Real", "Integer", "Boolean", "String", "C
 /// クラスの索引: 完全修飾名（`A.B.C`）→ クラス。
 ///
 /// 複数のファイルのアウトラインを `within` に従ってまとめたもの。名前解決は
-/// Modelica の字句的なスコープ（内側のクラスから外側へ）だけを見る。import と
+/// Modelica の字句的なスコープ（内側のクラスから外側へ）と、各スコープの import（S089）を見る。
 /// 継承したクラスの中の入れ子のクラスは、まだ見ない（P2 の後半で足す）。
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ClassIndex {
     classes: BTreeMap<String, ClassOutline>,
+    /// 下に重ねた索引（ライブラリ。S089）。同じ名前は `classes` を優先する
+    base: Option<Arc<ClassIndex>>,
 }
 
 impl ClassIndex {
@@ -242,43 +245,89 @@ impl ClassIndex {
                 );
             }
         }
-        Self { classes }
+        Self {
+            classes,
+            base: None,
+        }
+    }
+
+    /// `base`（作り置きのライブラリの索引）の上に重ねる（S089）。作り直さずに文書のクラスを足せる。
+    pub fn over(self, base: Arc<ClassIndex>) -> Self {
+        Self {
+            base: Some(base),
+            ..self
+        }
     }
 
     pub fn get(&self, qualified: &str) -> Option<&ClassOutline> {
-        self.classes.get(qualified)
+        self.classes
+            .get(qualified)
+            .or_else(|| self.base.as_ref()?.get(qualified))
     }
 
     pub fn len(&self) -> usize {
-        self.classes.len()
+        self.names().count()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.classes.is_empty()
+        self.classes.is_empty() && self.base.as_ref().is_none_or(|b| b.is_empty())
     }
 
-    pub fn names(&self) -> impl Iterator<Item = &str> {
-        self.classes.keys().map(String::as_str)
+    /// 完全修飾名。重ねた索引の名前は後に並ぶ（重なった名前は 1 度だけ）。
+    pub fn names(&self) -> Box<dyn Iterator<Item = &str> + '_> {
+        // 重ねた索引の中へ再帰するので Box にする
+        Box::new(
+            self.classes.keys().map(String::as_str).chain(
+                self.base
+                    .iter()
+                    .flat_map(|b| b.names())
+                    .filter(|n| !self.classes.contains_key(*n)),
+            ),
+        )
     }
 
     /// `scope`（完全修飾名のクラス）の中から見た型名 `name` を、完全修飾名に解決する。
     ///
-    /// `A.B.C` の中の `D.E` は、`A.B.C.D.E` → `A.B.D.E` → `A.D.E` → `D.E` の順に探す。
+    /// `A.B.C` の中の `D.E` は、`A.B.C.D.E` → `A.B.C` の import → `A.B.D.E` → `A.B` の import → …
+    /// → `D.E` の順に探す（MLS §5.3.1・§13.2。import はそのスコープの要素の後に見る）。
+    /// import は `import X.Y.D;`（`D` で引く）、`import D = X.Y;`、`import X.*;` の 3 形（S089）。
     /// 組み込みの型と、見つからない型は None。
     pub fn resolve(&self, scope: &str, name: &str) -> Option<String> {
-        let name = name.trim_start_matches('.');
+        if let Some(global) = name.strip_prefix('.') {
+            return self.get(global).map(|_| global.to_string());
+        }
         if BUILTIN_TYPES.contains(&name) {
             return None;
         }
+        let (first, rest) = name.split_once('.').map_or((name, ""), |(f, r)| (f, r));
         let mut parts: Vec<&str> = scope.split('.').filter(|p| !p.is_empty()).collect();
         loop {
+            let joined = parts.join(".");
             let candidate = if parts.is_empty() {
                 name.to_string()
             } else {
-                format!("{}.{name}", parts.join("."))
+                format!("{joined}.{name}")
             };
-            if self.classes.contains_key(&candidate) {
+            if self.get(&candidate).is_some() {
                 return Some(candidate);
+            }
+            for import in self.get(&joined).map_or(&[][..], |c| c.imports.as_slice()) {
+                let target = if let Some((alias, path)) = import.split_once('=') {
+                    (alias == first).then(|| path.to_string())
+                } else if let Some(package) = import.strip_suffix(".*") {
+                    Some(format!("{package}.{first}"))
+                } else {
+                    (import.rsplit('.').next() == Some(first)).then(|| import.clone())
+                };
+                let Some(target) = target else { continue };
+                let candidate = if rest.is_empty() {
+                    target
+                } else {
+                    format!("{target}.{rest}")
+                };
+                if self.get(&candidate).is_some() {
+                    return Some(candidate);
+                }
             }
             parts.pop()?;
         }
@@ -293,7 +342,7 @@ impl ClassIndex {
     }
 
     fn collect_interface(&self, qualified: &str, out: &mut Vec<ResolvedComponent>, depth: usize) {
-        let Some(c) = self.classes.get(qualified) else {
+        let Some(c) = self.get(qualified) else {
             return;
         };
         if depth > 32 {
@@ -325,7 +374,7 @@ impl ClassIndex {
     }
 
     fn collect_connects(&self, qualified: &str, out: &mut Vec<Connect>, depth: usize) {
-        let Some(c) = self.classes.get(qualified) else {
+        let Some(c) = self.get(qualified) else {
             return;
         };
         if depth > 32 {
@@ -341,7 +390,7 @@ impl ClassIndex {
 
     /// 短いクラス定義などで、組み込みの型を（extends で）受け継いでいれば、その型名。
     pub fn builtin_base(&self, qualified: &str) -> Option<&'static str> {
-        let c = self.classes.get(qualified)?;
+        let c = self.get(qualified)?;
         for base in &c.extends {
             if let Some(b) = BUILTIN_TYPES.iter().find(|t| **t == base.as_str()) {
                 return Some(b);
@@ -721,6 +770,35 @@ mod tests {
         );
         assert_eq!(index.resolve("Lib", "Real"), None);
         assert_eq!(index.resolve("Lib", "Nope"), None);
+    }
+
+    #[test]
+    fn resolve_follows_imports_and_overlay() {
+        let lib = ClassIndex::from_outlines([&Outline {
+            within: None,
+            classes: vec![class(
+                "L",
+                vec![class("S", vec![class("A", vec![]), class("B", vec![])])],
+            )],
+        }]);
+        let mut m = class("M", vec![]);
+        m.imports = vec!["L.S.A".into(), "T=L.S".into(), "L.S.*".into()];
+        let index = ClassIndex::from_outlines([&Outline {
+            within: None,
+            classes: vec![m],
+        }])
+        .over(Arc::new(lib));
+        assert_eq!(index.resolve("M", "A").as_deref(), Some("L.S.A"));
+        assert_eq!(index.resolve("M", "T.B").as_deref(), Some("L.S.B"));
+        assert_eq!(index.resolve("M", "B").as_deref(), Some("L.S.B"));
+        assert_eq!(index.resolve("M", ".L.S").as_deref(), Some("L.S"));
+        assert_eq!(index.resolve("M", "C"), None);
+        assert_eq!(
+            index.resolve("L", "A"),
+            None,
+            "import は書いたクラスの中だけ"
+        );
+        assert_eq!(index.len(), 5);
     }
 
     #[test]
