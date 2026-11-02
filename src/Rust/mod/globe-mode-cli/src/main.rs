@@ -239,6 +239,10 @@ enum FmuCommand {
         /// `cc` で `binaries/linux64/<modelIdentifier>.so`（3.0 は `binaries/x86_64-linux/`）も作る（x86_64 の Linux だけ）
         #[arg(long, requires = "fmi_headers")]
         build: bool,
+        /// --build で `zig cc -target <triple>` を使い、その置き場に作る（何度でも。例: x86_64-windows-gnu → win64/*.dll、
+        /// aarch64-macos → darwin64/*.dylib（3.0 は aarch64-darwin）、x86_64-linux-gnu → linux64/*.so）。省略すると host を cc で
+        #[arg(long, requires = "build")]
+        target: Vec<String>,
         /// `fmi2Functions.h`（3.0 は `fmi3Functions.h`）などのあるディレクトリ（--build で使う。例: FMPy の `c-code`）
         #[arg(long)]
         fmi_headers: Option<PathBuf>,
@@ -314,6 +318,7 @@ fn main() -> ExitCode {
                     out,
                     fmi_version,
                     build,
+                    target,
                     fmi_headers,
                 },
         } => fmu_export(
@@ -323,6 +328,7 @@ fn main() -> ExitCode {
             &out,
             fmi_version,
             fmi_headers.filter(|_| build),
+            &target,
         ),
         Command::Simulate {
             files,
@@ -1079,6 +1085,7 @@ fn fmu_export(
     out: &std::path::Path,
     fmi_version: u8,
     fmi_headers: Option<PathBuf>,
+    targets: &[String],
 ) -> ExitCode {
     let Loaded { mut ws, texts } = match load_db(files, library) {
         Ok(Ok(v)) => v,
@@ -1093,8 +1100,10 @@ fn fmu_export(
             return ExitCode::from(1);
         }
     };
-    let written = globe_mode_fmi::export::export_me_sources(&compiled, fmi_version)
-        .and_then(|src| globe_mode_fmi::export::write_fmu(&src, out, fmi_headers.as_deref()));
+    let written =
+        globe_mode_fmi::export::export_me_sources(&compiled, fmi_version).and_then(|src| {
+            globe_mode_fmi::export::write_fmu(&src, out, fmi_headers.as_deref(), targets)
+        });
     match written {
         Ok(fmu) => {
             println!("{}", fmu.display());

@@ -4,6 +4,8 @@
 //! - `--build` で共有ライブラリまで作り、FMPy（別プロセス、BSD-2）で validate と simulate を回して
 //!   x(1) ≈ e⁻¹ になること（2.0 は ME、3.0 は ME と CS。S098）
 //!   （`cc` か `uv` が無い、または FMPy を取れない環境では飛ばす）
+//! - `--target x86_64-windows-gnu`（zig cc）で `binaries/win64/*.dll` ができること（S105。zig・uv・FMPy が無ければ飛ばす。
+//!   Windows・macOS での実行は fmu-export.yml の fmu-cross で確かめる）
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -176,4 +178,39 @@ fn fmpy_simulates_the_built_fmu() {
 #[test]
 fn fmpy_simulates_the_built_fmi3_fmu() {
     assert_e_inv(fmpy_x1("build3", "3", &["ModelExchange", "CoSimulation"]));
+}
+
+#[test]
+fn zig_cross_builds_a_win64_dll() {
+    if Command::new("zig").arg("version").output().is_err() {
+        eprintln!("skip: zig が無い");
+        return;
+    }
+    let code = "import fmpy, os; print(os.path.join(os.path.dirname(fmpy.__file__), 'c-code'))";
+    let Some(o) = fmpy(&["-c", code]) else {
+        eprintln!("skip: uv か FMPy が無い");
+        return;
+    };
+    let headers = String::from_utf8_lossy(&o.stdout).trim().to_owned();
+    for (v, platform) in [("2", "win64"), ("3", "x86_64-windows")] {
+        let out = out_dir(&format!("cross{v}"));
+        let o = export(
+            &out,
+            &[
+                "--fmi-version",
+                v,
+                "--build",
+                "--fmi-headers",
+                &headers,
+                "--target",
+                "x86_64-windows-gnu",
+            ],
+        );
+        assert!(o.status.success(), "{o:?}");
+        let dll = out.join(format!(
+            "GlobeModeValidation_Simulation_Decay/binaries/{platform}/GlobeModeValidation_Simulation_Decay.dll"
+        ));
+        let bytes = std::fs::read(&dll).unwrap();
+        assert_eq!(&bytes[..2], b"MZ", "{} は PE でない", dll.display());
+    }
 }
