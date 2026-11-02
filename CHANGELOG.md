@@ -56,6 +56,7 @@ v0.1.0 に向けた S001〜S047 と S052 の要点。version はまだ 0.0.1 で
 - S044: `globe` を linux x86_64・linux aarch64・windows x86_64 で配るワークフロー `release.yml`（タグ `v*` で Release、手動は dry-run、`SHA256SUMS` つき）、この `CHANGELOG.md`、Cargo の metadata、README の Install。
 - S045: 上流（Rumoca 11 件・diffsol 3 件）への issue の下書きを `doc/research/upstream/` に 14 件。ci.yml に毎週と手動の全体の検査のときだけ走る `rust-sundials`。
 - S052: 配布物に cargo-about で作ったサードパーティのライセンス表 `THIRD-PARTY.md` を同梱（`about.toml`・`about.hbs`、`release.yml` のジョブ `third-party`）。
+- S074: `release.yml` で Python の wheel を linux x86_64・aarch64・windows x86_64 の 3 つ作り、作った wheel を入れて pytest を回し、Release と `SHA256SUMS` に足す（wheel の中に `globe-mode-py` の `THIRD-PARTY.md`）。
 
 ### P7 言語 API
 
