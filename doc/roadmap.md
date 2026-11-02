@@ -338,7 +338,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 ### S039（P7 の 1 回目、2026-10-31）で済んだこと
 
 - **Python の wheel**（[計画書](plan/2026-10-30-release-estimate-and-parallel-plan.md)の WP-G）: 新しい crate `globe-mode-py`（PyO3 0.30、abi3-py312、facade だけに依存）を maturin で `src/Python/mod/globe_mode` の `_native` に入れた（`pyproject.toml` の build-backend を uv_build から maturin に）。`Workspace{set_file, load_dir, check, graph, simulate}` と `solvers()` の入出力は JSON の文字列で、`__init__.py` が `dict` と polars の表（`table()`）にする。参照シナリオ（`src/Python/tests/test_api.py`）: `load_dir(src/Modelica)` → `Decay` の check → `RealCircuit` の graph → `Decay` の simulate → x(1) が e⁻¹ と一致。wheel は 17.3 MB（linux x86_64）。CI の `python` のジョブに rust と `pytest`。実装は Sonnet のサブエージェント 1 人。
-- 持ち越し: `graph` がライブラリとして読んだモデルを引けない、Arrow での結果の受け渡し、anywidget。他の OS の wheel は S074 で済んだ（`release.yml` で linux x86_64・aarch64・windows x86_64 の wheel を作って pytest を回し、Release に付ける。[解説書](sessions/S074-wheel-release/解説書.md)）。PyPI への公開と macOS は持ち越し。
+- 持ち越し: `graph` がライブラリとして読んだモデルを引けない、Arrow での結果の受け渡し、~~anywidget~~（S078 で済んだ。[解説書](sessions/S078-marimo-anywidget/解説書.md)）。他の OS の wheel は S074 で済んだ（`release.yml` で linux x86_64・aarch64・windows x86_64 の wheel を作って pytest を回し、Release に付ける。[解説書](sessions/S074-wheel-release/解説書.md)）。PyPI への公開と macOS は持ち越し。
 
 ### S038（P4 の 1 回目、2026-10-30）で済んだこと
 
@@ -399,6 +399,11 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 ### S050（P3、2026-10-31）で済んだこと
 
 - **ソルバ別の表**: `msl-sim.yml` にジョブ `solvers`（`msl-sim` の後。14 ソルバの matrix で `msl-sim --solver <名前> --tolerance-scale 0.1`。cvode・ida は xtask のビルドに `--features globe-mode-exec/sundials`）と `solvers-report`（`cargo xtask msl-solvers`）を足し、[msl-solvers.md](msl-solvers.md) を作った（run 41194959752、全ジョブ成功、ソルバのジョブは 63〜174 分）。対象 356 本のうち実行できたのは 283（dopri853）〜301（bdf）本、管に収まった割合は 95.2（trbdf2）〜98.3%（ida）。`auto` は 309・301/308。`bdf` 単独と `auto` の差 8 本は、`bdf` の内部エラー（`GM-U0005`）10 本を dopri45 の回し直しで救ったもの。入れなかったもの: `qss`、固定刻み、`esdirk23`、別名（理由は解説書）。これで P8「ソルバの表がそろう」の数字の土台ができた。更新は `gh workflow run msl-sim.yml`（手元では回さない）。
+
+### S078（P6、2026-11-02）で済んだこと
+
+- **anywidget**（S039 の持ち越し）: `globe_mode.widget.SimulationPlot(result)` が `Workspace.simulate` の結果を traitlets（`time`・`series`・`visible`）に入れ、`_esm` の依存なしの `<canvas>` に折れ線を描く（CDN を使わない）。信号のチェックボックスと `visible` を同期する。整形は `plot_data()`（`table()` を使う）。marimo のノートブック `src/Python/marimo/sim_app.py` が Decay を実行して描く。`anywidget` 0.11（MIT）を通常の依存に足した（推移的に 18 本）。[解説書](sessions/S078-marimo-anywidget/解説書.md)
+- 持ち越し: Arrow での受け渡し、目盛り・ズーム（要るなら uPlot を同梱）、marimo の WASM で wheel を使う道。
 
 ### S075（P7、2026-11-02）で済んだこと
 

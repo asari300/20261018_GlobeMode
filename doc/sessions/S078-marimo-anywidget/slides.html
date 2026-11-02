@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S078 marimo と anywidget — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S078 marimo と anywidget">
+
+<section class="slide" id="S01">
+  <span class="tag">S078 · 2026-11-02 · P6</span>
+  <h1>marimo と anywidget</h1>
+  <p class="lead">Python の実行結果を、ノートブックの中で折れ線にする</p>
+  <div class="big"><b>SimulationPlot(result)</b> で<br>依存なしの canvas に描く</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>S039 の持ち越し「anywidget」を済ませる（P6 の範囲）</li>
+    <li><code>Workspace.simulate</code> の結果を anywidget で描く <code>globe_mode.widget.SimulationPlot</code></li>
+    <li>Decay を実行して描く最小の marimo ノートブック <code>src/Python/marimo/sim_app.py</code></li>
+    <li>Rust のコードは変えない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>描画</td><td>依存なしの <code>&lt;canvas&gt;</code></td><td>uPlot の CDN を使わずオフラインで開ける。同梱のビルドも要らない</td></tr>
+    <tr><td>依存の置き場</td><td>通常の依存に <code>anywidget</code></td><td>CI の <code>uv sync --locked</code> と release の wheel の pytest が extra を入れないため、変える所が最少</td></tr>
+    <tr><td>整形</td><td>Python の <code>plot_data()</code> 1 関数</td><td>既存の <code>table()</code>（polars）を使う。JS は描くだけ</td></tr>
+    <tr><td>表示の切り替え</td><td>trait <code>visible</code> とチェックボックスを同期</td><td>Python からも読める・書ける</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>結果が線になるまで</h1>
+  <svg class="fig" viewBox="0 0 800 220" role="img" aria-label="simulate から canvas までの流れ">
+    <rect class="svg-box" x="10" y="70" width="170" height="80" rx="10"/>
+    <text class="svg-text-b" x="95" y="105" text-anchor="middle">simulate</text>
+    <text class="svg-text" x="95" y="130" text-anchor="middle">JSON（csv）</text>
+    <line class="svg-line" x1="180" y1="110" x2="280" y2="110"/>
+    <rect class="svg-box-accent" x="280" y="70" width="210" height="80" rx="10"/>
+    <text class="svg-text-b" x="385" y="105" text-anchor="middle">plot_data</text>
+    <text class="svg-text" x="385" y="130" text-anchor="middle">time・series</text>
+    <line class="svg-line" x1="490" y1="110" x2="590" y2="110"/>
+    <rect class="svg-box" x="590" y="70" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="690" y="105" text-anchor="middle">_esm</text>
+    <text class="svg-text" x="690" y="130" text-anchor="middle">canvas と visible</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>uv sync --locked
+uv run pytest -q src/Python/tests
+uv run python src/Python/marimo/sim_app.py
+uv run marimo run src/Python/marimo/sim_app.py</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">4</span><span class="l">pytest passed</span></div>
+    <div class="kpi"><span class="n">501</span><span class="l">Decay の点</span></div>
+    <div class="kpi"><span class="n">18</span><span class="l">増えた Python パッケージ</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>結果を Arrow で渡す（S039 の持ち越し）。大きな結果では JSON の list が重い</li>
+    <li>軸の目盛り・ズームが要るなら uPlot を同梱する（大きさと根拠を記録して）</li>
+    <li>marimo の WASM（Pyodide）で wheel を使う道は未着手</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
