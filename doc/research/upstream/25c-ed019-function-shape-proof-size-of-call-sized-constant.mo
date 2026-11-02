@@ -1,4 +1,4 @@
-// Repro for upstream draft 25 (third shape, S083). Self-contained.
+// Repro for upstream draft 25c (third shape, S083). Self-contained.
 // Shape taken from MSL 4.1.0 Modelica.Media.Incompressible.TableBased:
 // `npolHeatCapacity = npol`,
 // `final constant Real poly_Cp[:] = Polynomials.fitting(..., npolHeatCapacity)`
