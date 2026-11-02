@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S103 Android で MSL を読む — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S103 Android で MSL を読む">
+
+<section class="slide" id="S01">
+  <span class="tag">S103 · 2026-11-03 · P6</span>
+  <h1>Android で MSL を読む</h1>
+  <p class="lead">APK に MSL.json を同梱し、エミュレータで ChuaCircuit を検査する</p>
+  <div class="big">msl=ok</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>S092 の持ち越しの 2 つ目</li>
+    <li>今の APK は MSL.json が無く「MSL を読む」が失敗する</li>
+    <li>署名つき APK、Rust の直接 link は持ち越し</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>2 つの道を比べた</h1>
+  <table>
+    <tr><th>道</th><th>要るもの</th><th>採否</th></tr>
+    <tr><td>(a) mobile で fetch_msl</td><td>Rust の command と、取得物を Worker に渡す新しい道。回線</td><td>採らない</td></tr>
+    <tr><td>(b) MSL.json を同梱</td><td>ui で fetch-msl を 1 段。アプリは不変</td><td>採る</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>android.yml の流れ</h1>
+  <svg class="fig" viewBox="0 0 800 200" role="img" aria-label="ui で MSL.json を作り apk に埋め emulator で msl=ok">
+    <rect class="svg-box" x="20" y="60" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="120" y="96" text-anchor="middle">ui</text>
+    <text class="svg-text" x="120" y="120" text-anchor="middle">fetch-msl と build</text>
+    <line class="svg-line" x1="220" y1="100" x2="300" y2="100"/>
+    <rect class="svg-box" x="300" y="60" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="400" y="96" text-anchor="middle">apk</text>
+    <text class="svg-text" x="400" y="120" text-anchor="middle">MSL.json を埋める</text>
+    <line class="svg-line" x1="500" y1="100" x2="580" y2="100"/>
+    <rect class="svg-box-accent" x="580" y="60" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="680" y="96" text-anchor="middle">emulator</text>
+    <text class="svg-text" x="680" y="120" text-anchor="middle">ChuaCircuit を検査</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>gh workflow run android.yml --ref &lt;branch&gt;
+gh run download &lt;run-id&gt; -n android-logcat</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">msl=ok</span><span class="l">run 41521456071</span></div>
+    <div class="kpi"><span class="n">+6.1 MiB</span><span class="l">APK の増分</span></div>
+    <div class="kpi"><span class="n">13.6 s</span><span class="l">起動から smoke の行まで</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>release の署名つき APK</li>
+    <li>Rust を mobile の lib に直接 link する道</li>
+    <li>分割読み込みを UI に使うとき Android も一緒に</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

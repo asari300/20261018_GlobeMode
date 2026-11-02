@@ -69,7 +69,11 @@
     const i = columns ? columns.names.indexOf("x") : -1;
     const x1 = columns && i >= 0 ? Number(columns.data[i + 1][columns.points - 1]) : NaN;
     const simulated = !failure && Math.abs(x1 - Math.exp(-1)) < 1e-3;
-    console.log(`GM-SMOKE check=${checked ? "ok" : "ng"} simulate=${simulated ? "ok" : "ng"} x1=${x1}${failure ? ` failure=${failure}` : ""}`);
+    // S103: 同梱の MSL.json を読み、MSL の例題を 1 つ検査する（Android の APK は android.yml が MSL.json を入れる）
+    await loadMsl();
+    if (msl === "loaded") { model = "Modelica.Electrical.Analog.Examples.ChuaCircuit"; await check(); }
+    const mslOk = msl === "loaded" && !failure && !diagnostics.some((d) => d.severity === "error");
+    console.log(`GM-SMOKE check=${checked ? "ok" : "ng"} simulate=${simulated ? "ok" : "ng"} x1=${x1} msl=${mslOk ? "ok" : "ng"}${failure ? ` failure=${failure}` : ""}`);
   }
 
   async function loadMsl() {
