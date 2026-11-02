@@ -121,6 +121,19 @@ T="$(realpath "${CARGO_TARGET_DIR:-target}")"
 GLOBE_MODE_LIB="$T/release/libglobe_mode_c.so" julia --startup-file=no src/Julia/test.jl src/Modelica/GlobeModeValidation GlobeModeValidation.Simulation.Decay
 """
 
+[tasks."elixir:test"]
+description = "Elixir の束ね（src/Elixir/globe_mode、Rustler の NIF の globe-mode-nif）で GlobeModeValidation.Simulation.Decay を check → simulate する（S082）"
+run = """
+set -eu
+# RPi（aarch64）では elixir が入らない（ADR-0019）。MISE_DISABLE_TOOLS=elixir のときは飛ばす
+case ",${MISE_DISABLE_TOOLS:-}," in *,elixir,*) echo "elixir:test: MISE_DISABLE_TOOLS に elixir があるので飛ばす"; exit 0 ;; esac
+cargo build --release -q -p globe-mode-nif
+T="$(realpath "${CARGO_TARGET_DIR:-target}")"
+cd src/Elixir/globe_mode
+mix deps.get
+GLOBE_MODE_NIF="$T/release/libglobe_mode_nif" mix test
+"""
+
 [tasks."ui:build"]
 description = "ブラウザ UI（src/Svelte）をビルドする（S041。wasm:build の出力を public/wasm/ にコピーして vite build。先に wasm:build が要る）"
 run = """

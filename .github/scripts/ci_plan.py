@@ -51,7 +51,7 @@ EXTRA_INPUTS = {
     "src/Modelica/*": {"globe-mode-frontend", "globe-mode-cli", "globe-mode-db", "globe-mode-exec", "globe-mode-wasm", "globe-mode-py"},
 }
 # S077: C ABI（globe-mode-c）を Zig と Julia から呼ぶ例。mise.toml の c:zig・c:julia は FULL_TRIGGERS で全体になる
-LANG_FILES = ["src/Zig/*", "src/Julia/*"]
+LANG_FILES = ["src/Zig/*", "src/Julia/*", "src/Elixir/*", "src/Gleam/*"]
 PYTHON_FILES = ["pyproject.toml", "uv.lock", ".python-version", "src/Python/*"]
 DOC_FILES = ["*.md", "doc/*", "log/*", ".claude/skills/*", "src/*/README.md"]
 SLIDE_FILES = ["doc/sessions/*", "doc/assets/*", ".claude/skills/session-docs/*"]
@@ -137,7 +137,7 @@ def plan(changed: list[str] | None, message: str = "", force_full: bool = False,
         "deny": full or any(match(p, DEPENDENCY_FILES) for p in changed),
         # S039: Python の wheel は Rust の束ね（globe-mode-py）をビルドするので、その crate が影響を受けたときも回す
         "python": full or "globe-mode-py" in affected or any(match(p, PYTHON_FILES) for p in changed),
-        "lang": full or "globe-mode-c" in affected or any(match(p, LANG_FILES) for p in changed),
+        "lang": full or "globe-mode-c" in affected or "globe-mode-nif" in affected or any(match(p, LANG_FILES) for p in changed),
         "docs": full or any(match(p, DOC_FILES) for p in changed),
         "slides": full or any(match(p, SLIDE_FILES) for p in changed),
         # MSL での Rumoca との突き合わせは重い（MSL と Rumoca の CLI の取得、20 本の検査）ので、全体を検査するときだけ

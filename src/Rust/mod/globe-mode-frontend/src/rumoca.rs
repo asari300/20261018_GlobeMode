@@ -561,13 +561,24 @@ impl Checker {
         &self.skipped
     }
 
-    /// ライブラリの文書のアウトライン（S079。connect グラフの索引に足す）。分割読み込みなら、先に `model` が使う
-    /// ファイルを Session に読む（検査と同じ閉包）。作業中の文書（検査で渡したもの）は含めない。
-    pub fn library_outlines(&self, model: &str) -> Vec<Outline> {
+    /// ライブラリの文書のアウトライン（S079。connect グラフの索引に足す）と、その世代（分割読み込みで読んだ
+    /// ファイルの数。全部読みなら 0）。分割読み込みなら、先に `model` と `sources` が使うファイルを Session に読む
+    /// （検査と同じ閉包。S081）。世代が `cached` と同じなら None（呼び手が前の結果を使う）。
+    /// 作業中の文書（検査で渡したもの）は含めない。
+    pub fn library_outlines(
+        &self,
+        sources: &[Source<'_>],
+        model: &str,
+        cached: Option<usize>,
+    ) -> Option<(usize, Vec<Outline>)> {
         let mut state = self.lock();
-        ensure_library(&mut state, &[], model);
+        ensure_library(&mut state, sources, model);
+        let generation = state.split.as_ref().map_or(0, |s| s.loaded.len());
+        if cached == Some(generation) {
+            return None;
+        }
         let session = &state.session;
-        session
+        let outlines = session
             .document_uris()
             .into_iter()
             .filter(|uri| !state.documents.contains_key(*uri))
@@ -576,7 +587,8 @@ impl Checker {
                 within: def.within.as_ref().map(ToString::to_string),
                 classes: def.classes.values().map(class_outline).collect(),
             })
-            .collect()
+            .collect();
+        Some((generation, outlines))
     }
 
     /// `sources` を文書として渡し、`model` を DAE まで変換して検査する（S0〜S5 と、S6 の入力）。
