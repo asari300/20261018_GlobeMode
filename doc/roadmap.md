@@ -408,6 +408,12 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **marimo の WASM の調査**（[調査](research/marimo-wasm-2026-11-02.md)）: 今の abi3 の wheel は Pyodide に入らない。`cargo check -p globe-mode-py --target wasm32-unknown-emscripten` は通る（cranelift は `target_arch = "wasm32"` で外れる。emsdk が無いと `psm` だけ落ちる）。先に試すのは anywidget の `_esm` から `globe-mode-wasm` を直接呼ぶ道。
 - 持ち越し: marimo の WASM でのメモリの実測（2 GB）、配信先での CSP の header。
 
+### S088（P3、2026-11-02）で済んだこと
+
+- **`Dimmer_RL`・`Dimmer_R` の `y_arg` の外れは同じ原因**（S064 の持ち越し。[解説書](sessions/S088-sim-dimmer-thyristor/解説書.md)）: 外れるのは、サイリスタが止まって第 1 高調波の振幅が漏れ電流（参照 2.67e-6 V、導通時の 2e-8）まで落ちる窓の位相だけ。点弧の時刻・電流・導通区間の信号は合う。`Dimmer_RL` は `L·di/dt` の積分誤差で止まっている間の振幅が 4〜8e-5 V になり、位相が 1.06 と 1.70 rad に分かれる。実行系は変えず、2 本とも `msl-sim-known-deviations.txt` に載せた（既知の外れ 3 → 5）。
+- **CI**（`msl-sim.yml` run 41403194603）: 実行できた 310・管に収まった 301 / 309 で S064 と同じ。モデルごとの判定も同じ。
+- **持ち越し**: `ThyristorBridge2mPulse_DC_Drive` は BDF が 5〜7.5 s で落ち、esdirk34 は手元 159.8 s・ランナー 94〜180 s 以上。時間はイベント約 3.75 万回（15 s）ごとのやり直しに使われる。回し直しの各段に 180 s を渡しているので、予算の分け方の 1 行では収まらない。`auto` の全体の予算は計測だけ（最初の試行で 30 s を超えたのは 7 本、最大 53.3 s）。
+
 ### S092（P6、2026-11-02）で済んだこと
 
 - **Android の debug APK**（S038 の持ち越し「Android の sidecar」。[解説書](sessions/S092-android-apk-ci/解説書.md)）: Android では sidecar を使えないので、Tauri の mobile の入口（desktop の `src/lib.rs`）は UI を表示するだけで、UI は Android なら `WorkerBackend`（wasm）を使う（[ADR-0023](adr/0023-desktop-and-web-process-layout.md) の「S092」）。`gen/android` をコミットし、`android.yml` が署名なしの debug APK（aarch64・x86_64、251,627,503 B、artifact `globe-android`）を作り、API 34 のエミュレータで起動（`Displayed` まで 2.5 s）を確かめる（run 41409143035）。
@@ -569,7 +575,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **全例題 356 本の CI**（run 41287267439、`msl-sim.yml -f 'solvers=["auto"]'` の `msl-sim` ジョブ）: 実行できた 309 → **310**（`Dimmer_RL`。管は `y_arg` の 2 信号が外れる）、管に収まった 301 / 308 → **301 / 309**、`GM-U0005` の止まり 1 → 0、減ったモデルは 0。esdirk34 で終えたのは 8 本、esdirk34 → dopri45 は 1 本（`TwoMass`）。S055 の見込み（`auto` が救えない 3 本を esdirk34 が終える）は 2 本だった（`ThyristorBridge2Pulse_DC_Drive` は esdirk34 が `GM-E11003`）。`ThyristorBridge2mPulse_DC_Drive` は esdirk34 で 94 s かかり、ランナーの速さで時間切れの境目を行き来する（run 41282411061 で終え、41287267439 で時間切れ）。
 - **採らなかった版**: 回し直しに「予算の残り」を渡す版（run 41282411061）は `LightningSegmentedTransmissionLine` が 1 本減った（msl-sim の最初の予算 30 s を BDF の組み立てと積分が使い切る）。元の予算を渡す版に戻した。時間切れの回し直しが 12 → 15 本になった（esdirk34 は 30 s を超えることがあり、180 s で回し直されて終える）。
 - 手元の前後 21 本（release）は ADR-0028 の「結果」。`doc/msl-sim.md` は run の artifact の報告（「前回との差」は S055 の結果に直した）。`msl-solvers.md` は全ソルバの run でないので触っていない。
-- **次の候補**: `ThyristorBridge2mPulse_DC_Drive` の時間切れの境目（予算の分け方、陰的ソルバの速さ）。`auto` の全体の予算（Rumoca の dopri45 が最初の予算 30 s を超えて走る件を調べてから、残りの時間を渡す規則を決める）。`Dimmer_RL` の `y_arg` の外れの原因。
+- **次の候補**: `ThyristorBridge2mPulse_DC_Drive` の時間切れの境目（予算の分け方、陰的ソルバの速さ）。`auto` の全体の予算（Rumoca の dopri45 が最初の予算 30 s を超えて走る件を調べてから、残りの時間を渡す規則を決める）。~~`Dimmer_RL` の `y_arg` の外れの原因。~~（S088 で済んだ。時間切れの境目と全体の予算は S088 で計測して持ち越し）
 
 ### S066（P3、2026-11-01）で済んだこと
 
