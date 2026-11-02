@@ -338,7 +338,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 ### S039（P7 の 1 回目、2026-10-31）で済んだこと
 
 - **Python の wheel**（[計画書](plan/2026-10-30-release-estimate-and-parallel-plan.md)の WP-G）: 新しい crate `globe-mode-py`（PyO3 0.30、abi3-py312、facade だけに依存）を maturin で `src/Python/mod/globe_mode` の `_native` に入れた（`pyproject.toml` の build-backend を uv_build から maturin に）。`Workspace{set_file, load_dir, check, graph, simulate}` と `solvers()` の入出力は JSON の文字列で、`__init__.py` が `dict` と polars の表（`table()`）にする。参照シナリオ（`src/Python/tests/test_api.py`）: `load_dir(src/Modelica)` → `Decay` の check → `RealCircuit` の graph → `Decay` の simulate → x(1) が e⁻¹ と一致。wheel は 17.3 MB（linux x86_64）。CI の `python` のジョブに rust と `pytest`。実装は Sonnet のサブエージェント 1 人。
-- 持ち越し: `graph` がライブラリとして読んだモデルを引けない、Arrow での結果の受け渡し、~~anywidget~~（S078 で済んだ。[解説書](sessions/S078-marimo-anywidget/解説書.md)）。他の OS の wheel は S074 で済んだ（`release.yml` で linux x86_64・aarch64・windows x86_64 の wheel を作って pytest を回し、Release に付ける。[解説書](sessions/S074-wheel-release/解説書.md)）。PyPI への公開と macOS は持ち越し。
+- 持ち越し: `graph` がライブラリとして読んだモデルを引けない、Arrow での結果の受け渡し、~~anywidget~~（S078 で済んだ。[解説書](sessions/S078-marimo-anywidget/解説書.md)）。他の OS の wheel は S074 で済んだ（`release.yml` で linux x86_64・aarch64・windows x86_64 の wheel を作って pytest を回し、Release に付ける。[解説書](sessions/S074-wheel-release/解説書.md)）。~~wheel の版をタグにそろえる、Linux の wheel を manylinux にする~~（S077 で済。タグの版と `manylinux_2_39`、[解説書](sessions/S077-ci-lang-wheel/解説書.md)）。PyPI への公開と macOS は持ち越し。
 
 ### S038（P4 の 1 回目、2026-10-30）で済んだこと
 
@@ -405,10 +405,16 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **anywidget**（S039 の持ち越し）: `globe_mode.widget.SimulationPlot(result)` が `Workspace.simulate` の結果を traitlets（`time`・`series`・`visible`）に入れ、`_esm` の依存なしの `<canvas>` に折れ線を描く（CDN を使わない）。信号のチェックボックスと `visible` を同期する。整形は `plot_data()`（`table()` を使う）。marimo のノートブック `src/Python/marimo/sim_app.py` が Decay を実行して描く。`anywidget` 0.11（MIT）を通常の依存に足した（推移的に 18 本）。[解説書](sessions/S078-marimo-anywidget/解説書.md)
 - 持ち越し: Arrow での受け渡し、目盛り・ズーム（要るなら uPlot を同梱）、marimo の WASM で wheel を使う道。
 
+### S076（P4、2026-11-02）で済んだこと
+
+- **Desktop の結果も列ごとの道にした**（S065 の持ち越し。[解説書](sessions/S076-desktop-columns/解説書.md)）: `globe-mode-lsp` に独自要求 `globe/simulateColumns`（params は `{request}`、result は `{response, layout, columns}`。`response` は `csv` の無い `SimulateResponse`、`layout` は `ColumnsLayout`、`columns[i]` は列 `i` の数の配列で NaN / Inf は null）を足した。facade の `simulate_with` の時系列を並べるだけ。`TauriBackend.simulateColumns` はそれを受け、UI の `parseCsv` を消した。desktop の `worker.rs` は予算 180 s と `files` の再生を新しい要求にも効かせる（`main.rs` は変えていない）。
+- **時間**（WSL、release の `globe lsp`、10 万点 × 7 列、5 回の中央値を 3 回）: 要求から解析済みの配列まで CSV の道 1425 / 1648 / 2538 ms → 列の JSON 1110 / 951 / 1551 ms。応答はどちらも 13.8 MiB。JSON の数の配列で足りるので、バイナリの道は作らない。
+- 持ち越し: 残りの約 1 s（サーバの `Value` の組み立てと `JSON.parse`）。速くするなら Tauri の生のバイト列。
+
 ### S075（P7、2026-11-02）で済んだこと
 
 - **C ABI と Zig・Julia の例**（[解説書](sessions/S075-c-abi/解説書.md)）: 新しい crate `globe-mode-c`（cdylib + staticlib、facade だけに依存、依存の追加 0）が `globe-mode-py` と同じ面を `extern "C"` で出す（`gm_workspace_new(libraries_json)` / `gm_workspace_free` / `gm_set_file` / `gm_load_dir` / `gm_check` / `gm_graph` / `gm_simulate` / `gm_solvers` / `gm_string_free`）。結果は JSON の `char *`、誤りは `{"error": …}`、panic は `catch_unwind` で止める。ヘッダ `include/globe_mode.h` は手書きで、`tests/header.rs` が署名を突き合わせる（cbindgen は入れない）。`src/Zig`（`build.zig` が translate-c と link、Zig 0.17）と `src/Julia/globe_mode.jl`（`ccall` だけ）が `GlobeModeValidation.Simulation.Decay` を check → simulate し、最後の時刻 1 を表示する（`mise run c:zig` / `c:julia`）。CI には入れていない。
-- 持ち越し: Zig・Julia を CI に入れる、Julia のパッケージ化と JLL、Elixir の NIF、参照シナリオの graph と FMU 出力を Zig・Julia で通す。
+- 持ち越し: ~~Zig・Julia を CI に入れる~~（S077 で済。ci.yml のジョブ `lang`、[解説書](sessions/S077-ci-lang-wheel/解説書.md)）、Julia のパッケージ化と JLL、Elixir の NIF、参照シナリオの graph と FMU 出力を Zig・Julia で通す。
 
 ### S071（P3、2026-11-02）で済んだこと
 
@@ -507,7 +513,8 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 
 - **ブラウザ UI の結果を列ごとの道にした**（S051 の持ち越し。[解説書](sessions/S065-columns-ui/解説書.md)）: `Backend.simulateColumns`（`{response, columns}`、`columns` は `plot/csv.ts` の `Columns`＝`names`・`points`・`data: ArrayLike`）を足し、`WorkerBackend` は `GlobeWorker.simulateColumns`（`Float64Array` を転送）、`TauriBackend` は sidecar に列の道が無いので `simulate` の CSV を `parseCsv` して同じ形にする。`App.svelte` の実行は `simulateColumns`、`Plot` は `Columns` を受ける（`$state.raw`）。wasm・Rust は変えていない。`simulate` は残した。
 - **実行の時間**（ヘッドレス Chromium、10 万点 × 4 状態）: CSV の解析 129.9 ms がなくなり、最初の描画まで 151.3 → 20.7 / 27.0 ms、「実行」を押してから戻るまで 810 → 222 / 213 ms。ChuaCircuit（50195 点 × 44 列）は 1.3 → 0.8 s。Playwright の試験に `data-typed`（列の道で来たか）の確認を足した。
-- 列の道の NaN / Inf は `gapNonFinite` で null にする（有限だけの列は型付きのまま）。持ち越し: Desktop の sidecar に列の道は無い。
+- 列の道の NaN / Inf は `gapNonFinite` で null にする（有限だけの列は型付きのまま）。持ち越し: ~~Desktop の sidecar に列の道は無い。~~（S076 で済んだ）
+
 ### S064（P3、2026-11-01）で済んだこと
 
 - **`auto` の回し直しを BDF → esdirk34 → dopri45 にした**（[ADR-0028](adr/0028-auto-esdirk34-fallback.md)、Accepted）。dopri45 は陽的で、硬い系は予算を使い切って esdirk34 に時間が残らないので、陰的な esdirk34 を先に試す。esdirk34 が時間切れ以外で止まれば dopri45 に回る（`TwoMass` は dopri45 だけが救える）。対象に「歩が丸めの幅より進まない」（`Dimmer_RL` の BDF の止まり方）を足した。esdirk34 への切り替えは新しい情報 `GM-I11003`、dopri45 は `GM-I11002` のまま。`msl-sim` の欄は `auto → esdirk34`・`auto → esdirk34 → dopri45`。
