@@ -7,28 +7,62 @@ use std::path::{Path, PathBuf};
 
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
+use pyo3::types::PyBytes;
 use serde::Serialize;
 
 fn json<T: Serialize>(value: &T) -> Result<String, String> {
     serde_json::to_string(value).map_err(|e| format!("JSON: {e}"))
 }
 
-/// `settings_json`（`{"stop_time": 2, "solver": "bdf"}` など。省略可）から実行の依頼を作って回す。
-fn simulate_json(
-    ws: &mut globe_mode::Workspace,
+/// `settings_json`（`{"stop_time": 2, "solver": "bdf"}` など。省略可）から実行の依頼を作る。
+fn request(
     model: &str,
     settings_json: Option<&str>,
-) -> Result<String, String> {
+) -> Result<globe_mode::SimulateRequest, String> {
     let settings: serde_json::Value = match settings_json {
         Some(s) => {
             serde_json::from_str(s).map_err(|e| format!("settings の JSON が読めない: {e}"))?
         }
         None => serde_json::json!({}),
     };
-    let request =
-        serde_json::from_value(serde_json::json!({ "model": model, "settings": settings }))
-            .map_err(|e| format!("settings が読めない: {e}"))?;
-    json(&ws.simulate(&request))
+    serde_json::from_value(serde_json::json!({ "model": model, "settings": settings }))
+        .map_err(|e| format!("settings が読めない: {e}"))
+}
+
+fn simulate_json(
+    ws: &mut globe_mode::Workspace,
+    model: &str,
+    settings_json: Option<&str>,
+) -> Result<String, String> {
+    json(&ws.simulate(&request(model, settings_json)?))
+}
+
+/// 結果の JSON（`csv` は無い）と、列の名前（`time` が先頭）と値（f64 の little-endian を並べたもの）。
+type Columns = (String, Vec<String>, Vec<Vec<u8>>);
+
+/// [`simulate_json`] と同じだが、時系列を CSV にせず列ごとに返す（S085。wasm の `SimColumns` と同じ並び）。
+fn simulate_columns(
+    ws: &mut globe_mode::Workspace,
+    model: &str,
+    settings_json: Option<&str>,
+) -> Result<Columns, String> {
+    let mut request = request(model, settings_json)?;
+    request.no_csv = true;
+    let globe_mode::Simulated { response, run, .. } =
+        ws.simulate_with(&request, &globe_mode::now_ms);
+    let bytes = |v: &[f64]| v.iter().flat_map(|x| x.to_le_bytes()).collect();
+    let (names, columns) = match &run {
+        Some(run) => std::iter::once(("time".to_string(), bytes(&run.trajectory.time)))
+            .chain(
+                run.trajectory
+                    .variables
+                    .iter()
+                    .map(|v| (v.name.clone(), bytes(&v.values))),
+            )
+            .unzip(),
+        None => (Vec::new(), Vec::new()),
+    };
+    Ok((json(&response)?, names, columns))
 }
 
 fn graph_json(ws: &mut globe_mode::Workspace, model: &str, depth: u32) -> Result<String, String> {
@@ -83,6 +117,20 @@ impl Workspace {
     fn simulate(&mut self, model: &str, settings: Option<&str>) -> PyResult<String> {
         simulate_json(&mut self.0, model, settings).map_err(PyValueError::new_err)
     }
+
+    /// [`Workspace::simulate`] と同じだが、時系列を `(結果の JSON, 列の名前, 列の bytes)` で返す（S085）。
+    #[pyo3(signature = (model, settings = None))]
+    fn simulate_columns<'py>(
+        &mut self,
+        py: Python<'py>,
+        model: &str,
+        settings: Option<&str>,
+    ) -> PyResult<(String, Vec<String>, Vec<Bound<'py, PyBytes>>)> {
+        let (response, names, columns) =
+            simulate_columns(&mut self.0, model, settings).map_err(PyValueError::new_err)?;
+        let columns = columns.iter().map(|c| PyBytes::new(py, c)).collect();
+        Ok((response, names, columns))
+    }
 }
 
 /// ソルバの登録表（JSON の配列）。
@@ -124,6 +172,12 @@ mod tests {
             "{res}"
         );
         assert!(simulate_json(&mut ws, "Decay", Some("{")).is_err());
+        let (res, names, columns) =
+            simulate_columns(&mut ws, "Decay", Some(r#"{"stop_time": 1}"#)).unwrap();
+        assert!(!res.contains("\"csv\":\""), "{res}");
+        assert_eq!(names, ["time", "x"]);
+        let last = f64::from_le_bytes(columns[1][columns[1].len() - 8..].try_into().unwrap());
+        assert!((last - (-1f64).exp()).abs() < 1e-4, "{last}");
         assert!(graph_json(&mut ws, "NoSuchModel", 1).is_err());
     }
 }

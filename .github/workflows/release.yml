@@ -4,6 +4,7 @@
 # GitHub Releases に付ける。手動実行（workflow_dispatch）は dry-run で、同じ成果物を artifact に残すだけ（Release は作らない）。
 # cargo-dist は使わない（依存を増やさない。3 つのターゲットは matrix で足りる）。`--features sundials` は付けない
 # （cmake と C コンパイラが要るため。ビルドの既定・wasm・CI と同じ構成）。ci.yml とは別の concurrency グループ。
+# Linux の globe は cargo-zigbuild（zig cc）で glibc 2.28 に link する（S090）。
 # 各アーカイブには、cargo-about（about.toml・about.hbs）で作ったサードパーティのライセンス表 THIRD-PARTY.md も入れる（S052）。
 # 同じ 3 ターゲットで Python の wheel（globe-mode-py、abi3-py312）も `uv build --wheel` で作り、その wheel を入れて pytest を回す（S074）。
 # wheel の版はタグの push ではタグ（v を除く）、dry-run では pyproject.toml の version。Linux の wheel は
@@ -90,15 +91,32 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: third-party
-      - run: cargo build --release --locked -p globe-mode-cli
+      # Linux は zig を cc/linker にして glibc 2.28 に link する（S090。ランナーの glibc 2.39 のままだと古い Linux で動かない）。
+      # aarch64 もネイティブのランナーで同じ（クロスはしない）
+      - if: runner.os == 'Linux'
+        run: cargo install --locked cargo-zigbuild
+      - name: globe を作る
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          EXE: ${{ matrix.exe }}
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            cargo zigbuild --release --locked -p globe-mode-cli --target "$TARGET.2.28"
+            echo "BIN=target/$TARGET/release/globe" >> "$GITHUB_ENV"
+          else
+            cargo build --release --locked -p globe-mode-cli
+            echo "BIN=target/release/globe$EXE" >> "$GITHUB_ENV"
+          fi
       - name: 動くか確かめる
-        run: target/release/globe --version
+        run: |
+          "$BIN" --version
+          if [ "$RUNNER_OS" = "Linux" ]; then objdump -T "$BIN" | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1; fi
         shell: bash
       - name: 成果物にまとめる
         shell: bash
         env:
           TARGET: ${{ matrix.target }}
-          EXE: ${{ matrix.exe }}
           ARCHIVE: ${{ matrix.archive }}
           IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
         run: |
@@ -109,7 +127,7 @@ jobs:
           fi
           NAME="globe-${VERSION}-${TARGET}"
           mkdir "$NAME"
-          cp "target/release/globe${EXE}" LICENSE-MIT LICENSE-APACHE README.md THIRD-PARTY.md "$NAME/"
+          cp "$BIN" LICENSE-MIT LICENSE-APACHE README.md THIRD-PARTY.md "$NAME/"
           if [ "$ARCHIVE" = "zip" ]; then 7z a -tzip "$NAME.zip" "$NAME" >/dev/null; else tar czf "$NAME.tar.gz" "$NAME"; fi
           ls -l "$NAME.$ARCHIVE"
           echo "ASSET=$NAME.$ARCHIVE" >> "$GITHUB_ENV"

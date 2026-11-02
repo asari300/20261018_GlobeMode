@@ -313,7 +313,7 @@ S070・S072 で最小にできなかった ED019 `function shape proof` と、EF
 - **ED019 `function shape proof`（再現 [25b](upstream/25b-ed019-function-shape-proof-modified-package-constant.mo)）**: `AixLib.Obsolete.YearIndependent.FastHVAC.Examples.Sensors.SensorVerification` の MSL の部分だけ（`Modelica.Fluid.Sources.MassFlowSource_T` と `FixedBoundary`、Medium は `Modelica.Media.Water.ConstantPropertyLiquidWater`）で MSL 4.0.0 だと同じエラーが出る（例題そのものも Rumoca の CLI で同じ ED019 を確かめた）。`BaseClasses.PartialSource` を extends するだけ（`medium` の `BaseProperties`）でも出る。MSL 4.0.0 の `Modelica/Media/package.mo` の 6035 行（`PartialSimpleMedium.specificEnthalpy_pTX` の `input MassFraction X[nX]`）だけを 4.1.0 と同じ `X[:]` に変えると消える。自己完結にすると「関数の入力の次元が package の定数 `n` で、その package を `extends P(n = 2)` のように修正付きで継ぐと出る」。修正の無い extends、`x[:]` の関数なら通る。MSL では `mediumName` の修正が `substanceNames = {mediumName}` → `nS` → `nX` に効く。
 - **ED019 の残り**: run 41365960542（2026-11-02、MSL 4.1.0）で `dependent extent ...` のメッセージは 12 本（ThermofluidStream の `myMedia` 5・AixLib の膨張弁と圧縮機 4・`OccupancySchedule` 3）。S083 で見ると、25b と同じ形は 1 本だけで、残りは別の形だった（下の「ED019 の残り（S083）」）。`` `X`/`b`: axis 1 is variable-size ... `` の 5 本も S083 で見た。
 - **EF025 の Medium（再現 [20b](upstream/20b-ef025-two-medium-aliases-modified-extends.mo)）**: run 41365960542 の `*-funnel.json` を数え直すと、EF025 138 本のうち `loadResource` が 136 本で、Medium は 2 本だけだった（S070 の「約 85 本」は、ライブラリ別の表の 1 行の 51 本を全体と読んだ誤り）。2 本はメッセージが `function source package has multiple exact override package selections` で、`ThermofluidStream.Media.myMedia.Examples.MixtureGases`（`molarMass`）と `Buildings.DHC.Plants.Steam.BaseClasses.Examples.ControlVolumeEvaporation`（`PartialSource.Medium.setState_pTX`）。Rumoca の CLI で 2 本とも同じメッセージを確かめた。自己完結にすると「同じモデルに 2 つの Medium の別名があり、それぞれが同じ基底の package を修正付きで継いだ別の package で、基底の中のモデル（`BaseProperties`）が基底の関数を修飾なしで呼ぶ」と出る。別名が 1 つ、修正の無い extends、同じ package を 2 回、部品ごとに `redeclare package Medium` するなら通る。
-- **ついでに見えたもの（下書きにしていない）**: 自己完結の再現を作る途中で、Rumoca の CLI は (1) extends で継いだ package の、継いだ入れ子のモデルを、同じファイルの中で置き換えできない別名（`package M1 = A; M1.BaseProperties b;`）や直接の名前（`A.BaseProperties`）で引くと ER002、(2) モデルの配列の成分の次元を replaceable な package の定数（`Real x[Medium.n]`）にすると EF024、package の定数（`Real x[P.n]`）にすると ET004 を出した。MSL の例題では出ていない形で、原因は追っていない【未確認】。(1) は S083 で自己完結の再現にし、Rumoca の穴と判定した（上流 [27](upstream/27-er002-inherited-class-through-extending-package.md)）。(2) は追っていない【未確認】。
+- **ついでに見えたもの（下書きにしていない）**: 自己完結の再現を作る途中で、Rumoca の CLI は (1) extends で継いだ package の、継いだ入れ子のモデルを、同じファイルの中で置き換えできない別名（`package M1 = A; M1.BaseProperties b;`）や直接の名前（`A.BaseProperties`）で引くと ER002、(2) モデルの配列の成分の次元を replaceable な package の定数（`Real x[Medium.n]`）にすると EF024、package の定数（`Real x[P.n]`）にすると ET004 を出した。MSL の例題では出ていない形で、原因は追っていない【未確認】。(1) は S083 で自己完結の再現にし、Rumoca の穴と判定した（上流 [27](upstream/27-er002-inherited-class-through-extending-package.md)）。(2) は S091 で自己完結の再現にし、Rumoca の穴と判定した（上流 [28](upstream/28-et004-ef024-dimension-from-package-constant.md)）。
 
 ## ED019 の残り（S083）
 
@@ -331,6 +331,20 @@ S080 で【未確認】だった MSL 4.1.0 の ED019（`dependent extent ...` 12
 
 - ライブラリ側の誤りは無い（どれも MLS 3.6 §11.2・§12.4 の範囲で、omc は通す）。12 本のうち 4 本（Glycol 2・MoistAir 2）と R134a の 2 本は MSL 4.1.0 の同名の例題でも出るので、MSL の funnel（`doc/msl-funnel.md`）の ED019 にも同じ形が含まれる。
 - S080 の途中で見えた CLI の別の失敗のうち、ER002（継いだ入れ子のクラスを継いだ package の名前や置き換えできない別名で引く）は自己完結の再現 [27](upstream/27-er002-inherited-class-through-extending-package.mo) にした。**Rumoca の穴**（MLS §7.1・§5.3.2。omc は通す）。修正付きの別名（MSL の `SimpleLiquidWater` の書き方）なら通る理由は追っていない【未確認】。ライブラリの例題のどれがこれで止まるかは数えていない【未確認】。EF024・ET004 の方は見ていない。
+
+## EF024・ET004 と ER002 の本数（S091）
+
+S080 の【未確認】（モデルの配列の次元を package の定数にすると EF024・ET004）と S083 の持ち越し（ER002 の 27 の形の本数）を、[run 41365960542](https://github.com/asari300/20261018_GlobeMode/actions/runs/41365960542)（確認日 2026-11-02）の `*-funnel.json` と自己完結の再現で確かめた。判定と再現の一覧は [upstream/README.md](upstream/README.md) の「EF024・ET004 と ER002 の本数（28〜30、S091）」。
+
+| コード | 本数 | 内訳（メッセージ） | 判定 |
+| --- | ---: | --- | --- |
+| EF024 | 27 | `temperature` 18（IBPSA・Buildings・AixLib の `Media.Examples` 各 6）、`nomVal` 7（Buildings）、`T` 1・`nXi` 1（AixLib） | `temperature` は Rumoca の穴（上流 [29](upstream/29-ef024-local-function-binding-calls-replaceable-package.md)）。残り 9 本は【未確認】 |
+| ET004 | 18 | `motorEfficiency_yMot_generic.eta` の `size(y, 1)` 15（3 ライブラリの `Fluid.Movers.Examples` 各 5）、`MediumA.nX` 2（IBPSA・Buildings の `WetCoilEffectivenessNTUMassFlow`）、`nSupPCM` 1（Buildings） | 15 本は Rumoca の穴（上流 [30](upstream/30-et004-record-size-dimension-bound-to-call.md)）、3 本は S080 で見えた形で Rumoca の穴（上流 [28](upstream/28-et004-ef024-dimension-from-package-constant.md)） |
+| ER002 | 68 | `specificEntropyOfpTX` の関数呼び出し 39、成分の参照 18、import 10、型の参照 1（いずれも AixLib。成分の参照の 1 本だけ Buildings） | 27 の形は 0 本。`Modelica_DeviceDrivers` は取得しない依存。`specificEntropyOfpTX` は追っていない【未確認】 |
+
+- ライブラリの写しで 1 か所だけ直して確かめた: IBPSA の `PartialProperties.checkState` の束縛を algorithm に移すと `IBPSA.Media.Examples.WaterProperties` は S0〜S10 を通る。`WetCoilEffectivenessNTU` の `UAFroRated` に `redeclare package MediumA = IBPSA.Media.Air` を足すと ET004 は消え、別の失敗（`for` の範囲が `Medium.nXi`、GM-U0001）で止まる。
+- 28 の形は、MSL の流体の部品（`Boundary_pT` の `X[Medium.nX]`）がいつも redeclare されて使われるので MSL の例題には出ない。モデルの直下の `Real X[Medium.nX]`（MSL の `ConstantPropertyLiquidWater`）は EF024 になった。
+- Rumoca の CLI に MSL のフォルダ全体（`--source-root data/msl`）を渡した `compile` は 6 分を超えても終わらなかったので止め、MSL を使う確認は `globe check -L data/msl` で行った。
 
 ## 読んだ範囲と限界
 

@@ -30,12 +30,20 @@
   // MSL（public/msl/MSL.json。pack-msl.mjs が data/msl から作る）。起動時には読まず、ボタンで読む
   let msl = $state<"none" | "loading" | "loaded">("none");
   let mslNote = $state("");
+  // S084: Desktop だけ版を選べる（4.0.0 は公開ライブラリの前提の版）。loadedVersion は起動時に取得済みを読んだときは不明（null）
+  let mslVersion = $state("4.1.0");
+  let loadedVersion = $state<string | null>(null);
+  let mslProgress = $state("");
   let graphModel = $state<string | null>(null); // 「グラフ」を押したときのモデル名（入力のたびに描き直さない）
 
   onMount(() => {
     // S069: 取得済みの MSL を sidecar が読んでいれば、最初から「読んだ」状態にする
     void tauri?.hasLibrary().then((has) => {
       if (has && msl === "none") { msl = "loaded"; mslNote = "MSL を読んだ（取得済み）"; }
+    });
+    const unlisten = tauri?.onMslProgress(({ received, total }) => {
+      const mib = (n: number) => (n / 2 ** 20).toFixed(1);
+      mslProgress = total ? `${mib(received)} / ${mib(total)} MiB（${Math.floor((100 * received) / total)}%）` : `${mib(received)} MiB`;
     });
     view = new EditorView({
       parent: host,
@@ -47,29 +55,34 @@
         ],
       }),
     });
-    return () => view.destroy();
+    return () => { view.destroy(); void unlisten?.then((f) => f()); };
   });
 
   async function loadMsl() {
+    if (tauri && msl === "loading") { void tauri.cancelMsl(); return; } // 取得中にもう一度押すと取り消す
+    const prev = msl;
     msl = "loading";
+    mslProgress = "";
     failure = "";
     const t = performance.now();
     try {
       let json = "";
-      if (!desktop) { // Desktop は JSON を使わない（backend.library が MSL を取得して sidecar に渡す）
+      if (tauri) await tauri.fetchMsl(mslVersion); // Desktop は JSON を使わない（sidecar が取得した MSL を読む）
+      else {
         const res = await fetch(`${import.meta.env.BASE_URL}msl/MSL.json`);
         if (!res.ok) throw new Error(`MSL.json を取得できない（${res.status}）。data/msl を取得して pnpm prepare-wasm（cargo xtask fetch-msl）`);
         json = await res.text();
+        await backend.library("MSL", json);
       }
-      await backend.library("MSL", json);
       msl = "loaded";
+      loadedVersion = desktop ? mslVersion : "4.1.0";
       const size = desktop ? "" : `${(json.length / 2 ** 20).toFixed(0)} MiB、`;
-      mslNote = `MSL 4.1.0 を読んだ（${size}${((performance.now() - t) / 1000).toFixed(1)} 秒）`;
+      mslNote = `MSL ${loadedVersion} を読んだ（${size}${((performance.now() - t) / 1000).toFixed(1)} 秒）`;
       diagnostics = [];
       columns = null;
       graphModel = null;
     } catch (e) {
-      msl = "none";
+      msl = prev; // 取り消し・失敗のときは前の MSL のまま
       failure = String((e as Error).message ?? e);
     }
   }
@@ -143,11 +156,19 @@
     <button onclick={simulate} disabled={busy}>実行</button>
     <button onclick={graph} disabled={busy}>グラフ</button>
     <button onclick={format} disabled={busy}>整形</button>
-    <button onclick={loadMsl} disabled={busy || msl !== "none"}>{msl === "loading" ? (desktop ? "MSL を取得中…" : "MSL を読み込み中…") : desktop ? "MSL を取得する（29 MB、初回のみ）" : "MSL を読む"}</button>
+    {#if desktop}
+      <select bind:value={mslVersion} disabled={msl === "loading"} aria-label="MSL の版">
+        <option value="4.1.0">MSL 4.1.0</option>
+        <option value="4.0.0">MSL 4.0.0</option>
+      </select>
+      <button onclick={loadMsl} disabled={busy || (msl === "loaded" && loadedVersion === mslVersion)}>{msl === "loading" ? "取り消す" : msl === "loaded" ? `MSL ${mslVersion} に切り替える` : `MSL ${mslVersion} を取得する（約 29 MB、初回のみ）`}</button>
+    {:else}
+      <button onclick={loadMsl} disabled={busy || msl !== "none"}>{msl === "loading" ? "MSL を読み込み中…" : "MSL を読む"}</button>
+    {/if}
   </div>
   <p class="note" data-msl={msl}>
     {#if msl === "loaded"}{mslNote}。モデル名にライブラリのモデル（例 Modelica.Electrical.Analog.Examples.ChuaCircuit）を入れて検査・実行できる。グラフも描ける。
-    {:else if msl === "loading"}{desktop ? "MSL 4.1.0 を取得して展開している（回線しだい）。" : "MSL.json を取得して読み込んでいる（十数秒）。"}
+    {:else if msl === "loading"}{desktop ? `MSL ${mslVersion} を取得して展開している（${mslProgress || "回線しだい"}）。もう一度押すと取り消す。` : "MSL.json を取得して読み込んでいる（十数秒）。"}
     {:else}MSL は未読み込み。{/if}
   </p>
   <div class="editor" bind:this={host}></div>
