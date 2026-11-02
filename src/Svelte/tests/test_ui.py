@@ -165,10 +165,12 @@ def main() -> int:
             assert boxes.count() >= 1 and lines >= 2
             assert "C1.v" in page.locator(".plot .signals").inner_text()
 
-            # グラフはライブラリのモデルを引けない（S046 の持ち越し）。エラーが分かる形で出る
+            # ライブラリのモデルのグラフも引ける（S079）
             page.get_by_role("button", name="グラフ").click(force=True)
-            expect(page.get_by_role("alert")).to_be_visible(timeout=60_000)
-            print(f"ChuaCircuit のグラフ（未対応）: {page.get_by_role('alert').first.inner_text()[:80]!r}")
+            canvas = page.locator(".canvas")
+            expect(canvas).not_to_have_attribute("data-nodes", "0", timeout=60_000)
+            assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
+            print(f"ChuaCircuit のグラフ: ノード {canvas.get_attribute('data-nodes')}、辺 {canvas.get_attribute('data-edges')}")
         else:
             print("public/msl/MSL.json が無いので MSL の試験は飛ばす")
         # ライブラリに構文の誤りのファイルがあっても読み、読み飛ばしを GM-W1001 の行（ファイル名は notes）で出す（S071）。

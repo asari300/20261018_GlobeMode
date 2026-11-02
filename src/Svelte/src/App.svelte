@@ -146,7 +146,7 @@
     <button onclick={loadMsl} disabled={busy || msl !== "none"}>{msl === "loading" ? (desktop ? "MSL を取得中…" : "MSL を読み込み中…") : desktop ? "MSL を取得する（29 MB、初回のみ）" : "MSL を読む"}</button>
   </div>
   <p class="note" data-msl={msl}>
-    {#if msl === "loaded"}{mslNote}。モデル名にライブラリのモデル（例 Modelica.Electrical.Analog.Examples.ChuaCircuit）を入れて検査・実行できる。グラフは編集中のファイルのモデルだけ（ライブラリのモデルは未対応）。
+    {#if msl === "loaded"}{mslNote}。モデル名にライブラリのモデル（例 Modelica.Electrical.Analog.Examples.ChuaCircuit）を入れて検査・実行できる。グラフも描ける。
     {:else if msl === "loading"}{desktop ? "MSL 4.1.0 を取得して展開している（回線しだい）。" : "MSL.json を取得して読み込んでいる（十数秒）。"}
     {:else}MSL は未読み込み。{/if}
   </p>
