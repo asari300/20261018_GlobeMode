@@ -338,7 +338,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 ### S039（P7 の 1 回目、2026-10-31）で済んだこと
 
 - **Python の wheel**（[計画書](plan/2026-10-30-release-estimate-and-parallel-plan.md)の WP-G）: 新しい crate `globe-mode-py`（PyO3 0.30、abi3-py312、facade だけに依存）を maturin で `src/Python/mod/globe_mode` の `_native` に入れた（`pyproject.toml` の build-backend を uv_build から maturin に）。`Workspace{set_file, load_dir, check, graph, simulate}` と `solvers()` の入出力は JSON の文字列で、`__init__.py` が `dict` と polars の表（`table()`）にする。参照シナリオ（`src/Python/tests/test_api.py`）: `load_dir(src/Modelica)` → `Decay` の check → `RealCircuit` の graph → `Decay` の simulate → x(1) が e⁻¹ と一致。wheel は 17.3 MB（linux x86_64）。CI の `python` のジョブに rust と `pytest`。実装は Sonnet のサブエージェント 1 人。
-- 持ち越し: ~~`graph` がライブラリとして読んだモデルを引けない~~（S079 で済んだ。[解説書](sessions/S079-graph-library-models/解説書.md)）、Arrow での結果の受け渡し、~~anywidget~~（S078 で済んだ。[解説書](sessions/S078-marimo-anywidget/解説書.md)）。他の OS の wheel は S074 で済んだ（`release.yml` で linux x86_64・aarch64・windows x86_64 の wheel を作って pytest を回し、Release に付ける。[解説書](sessions/S074-wheel-release/解説書.md)）。~~wheel の版をタグにそろえる、Linux の wheel を manylinux にする~~（S077 で済。タグの版と `manylinux_2_39`、[解説書](sessions/S077-ci-lang-wheel/解説書.md)）。~~Linux の wheel を古い glibc でも入るようにする~~（S086 で済。`--zig` で `manylinux_2_28`、[解説書](sessions/S086-wheel-manylinux-zig/解説書.md)）。PyPI への公開と macOS は持ち越し。
+- 持ち越し: ~~`graph` がライブラリとして読んだモデルを引けない~~（S079 で済んだ。[解説書](sessions/S079-graph-library-models/解説書.md)）、~~Arrow での結果の受け渡し~~（S085 で済んだ。Arrow でなく列ごとの f64 の `bytes` を `Workspace.simulate_columns` で返す。[解説書](sessions/S085-py-columns/解説書.md)）、~~anywidget~~（S078 で済んだ。[解説書](sessions/S078-marimo-anywidget/解説書.md)）。他の OS の wheel は S074 で済んだ（`release.yml` で linux x86_64・aarch64・windows x86_64 の wheel を作って pytest を回し、Release に付ける。[解説書](sessions/S074-wheel-release/解説書.md)）。~~wheel の版をタグにそろえる、Linux の wheel を manylinux にする~~（S077 で済。タグの版と `manylinux_2_39`、[解説書](sessions/S077-ci-lang-wheel/解説書.md)）。~~Linux の wheel を古い glibc でも入るようにする~~（S086 で済。`--zig` で `manylinux_2_28`、[解説書](sessions/S086-wheel-manylinux-zig/解説書.md)）。PyPI への公開と macOS は持ち越し。
 
 ### S038（P4 の 1 回目、2026-10-30）で済んだこと
 
@@ -410,6 +410,10 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **Elixir の NIF**（S075 の持ち越し。[解説書](sessions/S082-elixir-nif/解説書.md)）: 新しい crate `globe-mode-nif`（Rustler 0.39 の cdylib、facade だけに依存）が Erlang モジュール `globe_mode_nif` に `globe-mode-py` と同じ面（`new(libraries)` / `set_file` / `load_dir` / `check` / `graph` / `simulate` / `solvers`）を出す。結果は JSON の文字列で、`src/Elixir/globe_mode` の `GlobeMode` が Elixir 1.18 の標準 `JSON` でデコードする（Hex の依存 0）。重い呼び出しは dirty scheduler。`mise run elixir:test` が Decay を check → simulate して最後の時刻 1 を確かめ、CI のジョブ `lang` でも回す（`MISE_DISABLE_TOOLS=elixir` なら飛ばす）。
 - 持ち越し: Gleam の `@external` の例、rustler_precompiled での配布（Hex）。
 
+### S085（P6、2026-11-02）で済んだこと
+
+- **Python の結果を列で受け取る**（S039 の持ち越し「Arrow での結果の受け渡し」）: `Workspace.simulate_columns(model, **settings)` が `simulate` と同じ dict に `columns`（名前 → `pl.Series`、`time` が先頭）を足して返す（`csv` は `None`）。Rust の py crate が facade の `run.trajectory` から列ごとの f64 の little-endian の `bytes` を作り、Python が `memoryview` から polars にする。Arrow（`arrow` crate と `pyarrow`）も numpy も足さず、新しい依存は 0。`table()` は列があれば列から、無ければ CSV から表を作る（CSV の道は残した）。marimo の `sim_app.py` は列の道。10 万点 × 7 列で `simulate` + `table()` 485〜505 ms → 79〜82 ms（実行そのものは 44〜64 ms）。[解説書](sessions/S085-py-columns/解説書.md)
+
 ### S079（P4、2026-11-02）で済んだこと
 
 - **ライブラリのモデルの connect グラフ**（S039・S046・S048 の持ち越し）: `GlobeDb::connect_graph` は、ワークスペースの索引にモデルが無く、ライブラリがあれば、検査器の `Checker::library_outlines(model)`（Session のライブラリの文書のアウトライン。分割読み込みなら検査と同じ閉包を先に読む）とワークスペースの文書から索引を作って引く。`with_libraries`・`with_libraries_full`・`with_library_sources`・`with_library_sources_split` のどれでも `GlobeModeValidation.Connect.RealCircuit` が 4 ノード、MSL の `ChuaCircuit` が 7 ノード（深さ 1）。facade を通る UI（wasm）・Python・LSP にそのまま効く。[解説書](sessions/S079-graph-library-models/解説書.md)
@@ -418,7 +422,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 ### S078（P6、2026-11-02）で済んだこと
 
 - **anywidget**（S039 の持ち越し）: `globe_mode.widget.SimulationPlot(result)` が `Workspace.simulate` の結果を traitlets（`time`・`series`・`visible`）に入れ、`_esm` の依存なしの `<canvas>` に折れ線を描く（CDN を使わない）。信号のチェックボックスと `visible` を同期する。整形は `plot_data()`（`table()` を使う）。marimo のノートブック `src/Python/marimo/sim_app.py` が Decay を実行して描く。`anywidget` 0.11（MIT）を通常の依存に足した（推移的に 18 本）。[解説書](sessions/S078-marimo-anywidget/解説書.md)
-- 持ち越し: Arrow での受け渡し、目盛り・ズーム（要るなら uPlot を同梱）、marimo の WASM で wheel を使う道。
+- 持ち越し: ~~Arrow での受け渡し~~（S085 で済んだ）、目盛り・ズーム（要るなら uPlot を同梱）、marimo の WASM で wheel を使う道。
 
 ### S076（P4、2026-11-02）で済んだこと
 

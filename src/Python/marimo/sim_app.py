@@ -23,7 +23,7 @@ def _():
 def _(Path, Workspace):
     ws = Workspace()
     ws.load_dir(Path(__file__).parents[2] / "Modelica")
-    result = ws.simulate("GlobeModeValidation.Simulation.Decay")
+    result = ws.simulate_columns("GlobeModeValidation.Simulation.Decay")
     return (result,)
 
 
