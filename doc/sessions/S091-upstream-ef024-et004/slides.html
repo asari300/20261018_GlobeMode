@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S091 EF024・ET004 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S091 EF024・ET004">
+
+<section class="slide" id="S01">
+  <span class="tag">S091 · 2026-11-02 · P3</span>
+  <h1>EF024・ET004 と ER002 の本数</h1>
+  <p class="lead">S080 の【未確認】と S083 の持ち越し。文書だけで、Rust のコードは変えない</p>
+  <div class="big"><b>3 つの形、どれも Rumoca の穴</b>。下書き 28〜30 で 36 本（EF024 18・ET004 18）</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>何をしたか</h1>
+  <ul>
+    <li>モデルの配列の次元を package の定数にすると EF024・ET004（S080 で見えた形）を最小にする</li>
+    <li>libraries の run 41365960542 の JSON で EF024・ET004・ER002 を数える</li>
+    <li>25c の局所変数の名前の取り違えを、名前を変えた 8 通りで確かめる</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由 · 3 つの形</span>
+  <h1>下書き 28〜30</h1>
+  <table>
+    <tr><th>#</th><th>形</th><th>コード</th><th>本数</th></tr>
+    <tr><td>28</td><td><code>Real x[P.n]</code>。redeclare しない package の定数</td><td>ET004・EF024</td><td>3</td></tr>
+    <tr><td>29</td><td>モデルの中の関数の束縛 <code>Real w = Medium.f(u)</code></td><td>EF024</td><td>18</td></tr>
+    <tr><td>30</td><td>record の <code>eta[size(y, 1)]</code> を関数の呼び出しで束縛</td><td>ET004</td><td>15</td></tr>
+  </table>
+  <p class="small">omc 1.27.2 は再現の 12 本とも通す。EF024 の残り 9 本（<code>nomVal</code> 7 ほか）は【未確認】</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由 · ER002 と 25c</span>
+  <h1>持ち越しの 2 つ</h1>
+  <div class="cols-2">
+    <div class="card"><b>ER002 は 68 本、27 の形は 0 本</b><br>型の参照は取得しない <code>Modelica_DeviceDrivers</code> だけ。<code>specificEntropyOfpTX</code> 39 本は追っていない</div>
+    <div class="card"><b>25c は名前で決まる</b><br>局所変数が package の定数と同じ名前のときだけ目的のメッセージ。束縛を関数の範囲で引いていると読める【推測】</div>
+  </div>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">図</span>
+  <h1>JSON から再現へ</h1>
+  <svg viewBox="0 0 900 220" role="img" aria-label="JSON から自己完結の再現まで">
+    <rect class="svg-box" x="10" y="70" width="190" height="70" rx="8"/>
+    <text class="svg-text" x="105" y="100" text-anchor="middle">funnel の JSON</text>
+    <text class="svg-text" x="105" y="122" text-anchor="middle">メッセージで分ける</text>
+    <rect class="svg-box" x="240" y="70" width="190" height="70" rx="8"/>
+    <text class="svg-text" x="335" y="100" text-anchor="middle">二分法</text>
+    <text class="svg-text" x="335" y="122" text-anchor="middle">globe と CLI</text>
+    <rect class="svg-box" x="470" y="70" width="190" height="70" rx="8"/>
+    <text class="svg-text" x="565" y="100" text-anchor="middle">IBPSA の写し</text>
+    <text class="svg-text" x="565" y="122" text-anchor="middle">1 か所直す</text>
+    <rect class="svg-box-accent" x="700" y="70" width="190" height="70" rx="8"/>
+    <text class="svg-text" x="795" y="100" text-anchor="middle">Rep36〜Rep38</text>
+    <text class="svg-text" x="795" y="122" text-anchor="middle">自己完結</text>
+    <line class="svg-line" x1="200" y1="105" x2="240" y2="105"/>
+    <line class="svg-line" x1="430" y1="105" x2="470" y2="105"/>
+    <line class="svg-line" x1="660" y1="105" x2="700" y2="105"/>
+  </svg>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">再現手順</span>
+  <h1>検証</h1>
+  <pre><code>rumoca compile 28-*.mo -m Rep36.M     # ET004
+rumoca compile 29-*.mo -m Rep37.M     # EF024
+globe check 30-*.mo --model Rep38.M
+omc: loadFile(...); checkModel(Rep36.M)</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">12/12</span><span class="l">globe と CLI が一致</span></div>
+    <div class="kpi"><span class="n">12/12</span><span class="l">omc が通す</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>下書き 28〜30 を Rumoca の main で確かめて出す（ユーザー）</li>
+    <li>EF024 の <code>nomVal</code> 7 本、ER002 の <code>specificEntropyOfpTX</code> 39 本を最小にする</li>
+    <li>30 は IBPSA の写しで直して確かめる</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
