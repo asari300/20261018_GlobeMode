@@ -2,7 +2,7 @@
 # S106: 同じ apk ジョブで release の APK（aarch64・x86_64 の ABI ごと）も作り、artifact `globe-android-release` に残す。
 # secret ANDROID_KEYSTORE_BASE64・ANDROID_KEYSTORE_PASSWORD・ANDROID_KEY_ALIAS・ANDROID_KEY_PASSWORD があるときだけ署名し、
 # 無ければ署名なし（*-release-unsigned.apk）。emulator は debug と release の 2 本で smoke を回す（release が署名なしなら
-# smoke 用の写しだけを debug の鍵で署名する。署名なしの APK は入れられないため）。大きさは Step Summary に並べる。
+# smoke 用の写しだけを使い捨ての鍵で署名する。署名なしの APK は入れられないため）。大きさは Step Summary に並べる。
 #
 # Android では sidecar を使えないので、Tauri の mobile の入口（src/Rust/apps/desktop/src/lib.rs）は UI を表示するだけで、
 # 検査と実行は UI がブラウザと同じ WorkerBackend（wasm）で行う。だから UI のビルドは `pnpm build`（wasm:build の出力を入れる）。
@@ -133,14 +133,17 @@ jobs:
       - name: release APK を作る（ABI ごと。aarch64 は配布、x86_64 はエミュレータの smoke）
         working-directory: ${{ env.DESKTOP }}
         run: cargo tauri android build --apk --ci --split-per-abi --target aarch64 --target x86_64
-      - name: smoke 用の release APK（署名なしなら debug の鍵で写しに署名する。配布物には触らない）
+      - name: smoke 用の release APK（署名なしなら使い捨ての鍵で写しに署名する。配布物には触らない）
         run: |
           mkdir smoke
           src=$(find "$APK_OUT/x86_64/release" -name '*.apk' | head -1)
           case "$src" in
             *-unsigned.apk)
-              "$ANDROID_HOME/build-tools/34.0.0/apksigner" sign --ks "$HOME/.android/debug.keystore" \
-                --ks-pass pass:android --ks-key-alias androiddebugkey --out smoke/app-x86_64-release-smoke.apk "$src" ;;
+              # 使い捨て: この runner の中だけで作って捨てる。配布の鍵ではない（ランナーに debug.keystore は無い）
+              keytool -genkeypair -keystore "$RUNNER_TEMP/smoke.jks" -storepass smoke1 -keypass smoke1 -alias smoke \
+                -keyalg RSA -keysize 2048 -validity 1 -dname CN=smoke -noprompt
+              "$ANDROID_HOME/build-tools/34.0.0/apksigner" sign --ks "$RUNNER_TEMP/smoke.jks" \
+                --ks-pass pass:smoke1 --ks-key-alias smoke --out smoke/app-x86_64-release-smoke.apk "$src" ;;
             *) cp "$src" smoke/ ;;
           esac
       - name: APK の大きさ（debug と release を並べる）
@@ -179,7 +182,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # S106: release は globe-android-smoke（x86_64 の release APK。必要なら debug の鍵で署名した写し）
+        # S106: release は globe-android-smoke（x86_64 の release APK。署名なしなら使い捨ての鍵で署名した写し）
         include:
           - build: debug
             artifact: globe-android
