@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S102 marimo の WASM で anywidget から globe-mode-wasm — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S102 marimo の WASM で anywidget から globe-mode-wasm">
+
+<section class="slide" id="S01">
+  <span class="tag">S102 · 2026-11-03 · P6</span>
+  <h1>marimo の WASM で anywidget から globe-mode-wasm</h1>
+  <p class="lead">Pyodide は文面を渡すだけ。計算は _esm が読む wasm</p>
+  <div class="big">x(1) = 0.36788、RSS 1 GiB 未満</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>S093 の持ち越しの 1 つ目（調査の道 C）</li>
+    <li>marimo export html-wasm で Decay が動くか</li>
+    <li>メモリが 2 GB の条件に収まるか</li>
+    <li>ついで: README に extra widget の入れ方</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>置き場</td><td>新しいノートブック wasm_app.py</td><td>globe_mode は Pyodide で読めない</td></tr>
+    <tr><td>分担</td><td>traitlets で文面と設定、result で返す</td><td>Rust を Python から呼ばない</td></tr>
+    <tr><td>wasm</td><td>書き出し先の pkg/ に糊と .wasm</td><td>_esm は blob の URL。ページを基準</td></tr>
+    <tr><td>検査</td><td>wasm_check.py（http.server と Chromium）</td><td>test_ui.py の流儀。12 s で終わる</td></tr>
+    <tr><td>CSP</td><td>header を付けない</td><td>持ち越し。--offline で外への要求 0</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>traitlets の往復</h1>
+  <svg class="fig" viewBox="0 0 800 200" role="img" aria-label="Pyodide のセルから _esm へ文面を渡し、wasm で計算して result を返す">
+    <rect class="svg-box" x="20" y="60" width="220" height="80" rx="10"/>
+    <text class="svg-text-b" x="130" y="96" text-anchor="middle">Pyodide のセル</text>
+    <text class="svg-text" x="130" y="120" text-anchor="middle">text・model・settings</text>
+    <line class="svg-line" x1="240" y1="100" x2="300" y2="100"/>
+    <rect class="svg-box" x="300" y="60" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="400" y="96" text-anchor="middle">_esm</text>
+    <text class="svg-text" x="400" y="120" text-anchor="middle">import() と result</text>
+    <line class="svg-line" x1="500" y1="100" x2="560" y2="100"/>
+    <rect class="svg-box-accent" x="560" y="60" width="220" height="80" rx="10"/>
+    <text class="svg-text-b" x="670" y="96" text-anchor="middle">globe-mode-wasm</text>
+    <text class="svg-text" x="670" y="120" text-anchor="middle">check → simulate</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>uv run python src/Python/marimo/wasm_check.py [--offline]</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">2.7e-8</span><span class="l">x(1) と e⁻¹ の差</span></div>
+    <div class="kpi"><span class="n">857〜966</span><span class="l">ブラウザの RSS の合計（MiB）</span></div>
+    <div class="kpi"><span class="n">2</span><span class="l">wasm の線形メモリ（MiB）</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">--offline の外への要求</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>MSL を widget に渡す道とそのメモリ</li>
+    <li>marimo の WASM に合う CSP の header</li>
+    <li>Web Worker で回す（今はメインのスレッド）</li>
+    <li>emscripten の wheel（道 B）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
