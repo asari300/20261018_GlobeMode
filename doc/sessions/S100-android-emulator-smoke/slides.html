@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S100 Android のエミュレータで検査と実行 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S100 Android のエミュレータで検査と実行">
+
+<section class="slide" id="S01">
+  <span class="tag">S100 · 2026-11-02 · P6</span>
+  <h1>Android のエミュレータで検査と実行</h1>
+  <p class="lead">起動しただけでなく、UI から Decay の検査と実行が通ったことを logcat で確かめる</p>
+  <div class="big">GM-SMOKE check=ok simulate=ok</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>S092 の持ち越しの 1 つ目。P6 の Android の完了条件</li>
+    <li>今の emulator ジョブは monkey で起動して pidof を見るだけ</li>
+    <li>MSL の同梱、署名つき APK、Rust の直接 link は持ち越し</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table>
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>入口</td><td>VITE_GM_SMOKE=1 か ?smoke=1</td><td>Tauri の Android はクエリを渡せない。ブラウザの試験はクエリ</td></tr>
+    <tr><td>中身</td><td>既存の check と simulate を呼ぶ</td><td>ボタンと同じ道。新しい backend の道は無い</td></tr>
+    <tr><td>判定</td><td>error 0、x(1) が e⁻¹ と 1e-3 以内</td><td>Decay の答えが分かっている</td></tr>
+    <tr><td>出力</td><td>console.log の 1 行</td><td>WebView の console は logcat に出る</td></tr>
+    <tr><td>既定</td><td>どちらも無ければ何もしない</td><td>Desktop とブラウザの挙動は不変</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>android.yml の流れ</h1>
+  <svg class="fig" viewBox="0 0 800 200" role="img" aria-label="ui から apk を経て emulator へ">
+    <rect class="svg-box" x="20" y="60" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="120" y="96" text-anchor="middle">ui</text>
+    <text class="svg-text" x="120" y="120" text-anchor="middle">VITE_GM_SMOKE=1</text>
+    <line class="svg-line" x1="220" y1="100" x2="300" y2="100"/>
+    <rect class="svg-box" x="300" y="60" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="400" y="96" text-anchor="middle">apk</text>
+    <text class="svg-text" x="400" y="120" text-anchor="middle">tauri android build</text>
+    <line class="svg-line" x1="500" y1="100" x2="580" y2="100"/>
+    <rect class="svg-box-accent" x="580" y="60" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="680" y="96" text-anchor="middle">emulator</text>
+    <text class="svg-text" x="680" y="120" text-anchor="middle">logcat で GM-SMOKE</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>gh workflow run android.yml --ref &lt;branch&gt;
+gh run download &lt;run-id&gt; -n android-logcat</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">0.36788</span><span class="l">ブラウザの x1（test_ui.py）</span></div>
+    <div class="kpi"><span class="n">0.36788</span><span class="l">エミュレータの x1</span></div>
+    <div class="kpi"><span class="n">success</span><span class="l">run 41444392188</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>Android での MSL の置き場</li>
+    <li>Rust を mobile の lib に直接 link する道</li>
+    <li>release の署名つき APK（smoke を外したビルド）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
