@@ -11,6 +11,8 @@ English summary: a marimo notebook app (`fmt_app.py`) that formats Modelica sour
 | `fmt_app.py` | marimo のノートブック（画面）。入力・`.mo` の選択・インデント・origin・整形と lint のボタン・結果 |
 | `globe_cli.py` | `globe` を呼ぶ関数（`format_text`・`lint_text`）。画面に依存しない |
 | `sim_app.py` | `GlobeModeValidation.Simulation.Decay` を Python パッケージ `globe_mode` で実行し、`globe_mode.widget.SimulationPlot`（anywidget）で折れ線にする（S078。`uv run marimo run src/Python/marimo/sim_app.py`、`globe` は要らない。extra `widget` が要る: `uv sync --extra widget`、wheel なら `pip install "globe-mode[widget]"`。S097） |
+| `wasm_app.py` | marimo の WASM（Pyodide）の試作（S102）。anywidget の `_esm` が `globe-mode-wasm`（`mise run wasm:build` の `wasm-pkg/web`）を `import()` し、文面に書いた Decay を check → simulate して x(1) を出す。Pyodide 側は文面と設定を traitlets で渡すだけ。`uv run marimo export html-wasm src/Python/marimo/wasm_app.py -o OUT --mode run` のあと、糊と `.wasm` を `OUT/pkg/` に置く |
+| `wasm_check.py` | `wasm_app.py` を書き出して localhost で配り、Chromium で x(1) とメモリ（JS heap・wasm の線形メモリ・ブラウザの RSS の合計、2 GiB 未満）を確かめる（`uv run python src/Python/marimo/wasm_check.py`。Pyodide と anywidget を CDN・PyPI から取るのでネットが要る） |
 | `test_fmt_app.py` | 例題 `src/Rust/mod/globe-mode-fmt/tests/data/objects_before.mo` で CLI を 1 往復させる検査 |
 
 ## 起動
