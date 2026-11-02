@@ -85,6 +85,9 @@ jobs:
     env:
       PKGS: ${{ needs.plan.outputs.rust_packages }}
     steps:
+      # 全体検査では clippy と test の成果物でランナーの 14 GB が尽きる（S098 の run 41454128554）。使わない同梱物を消す
+      - name: ディスクを空ける
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL && df -h / | tail -1
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v5
         with:
