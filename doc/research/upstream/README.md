@@ -1,6 +1,6 @@
 # 上流（Rumoca・diffsol）への報告の下書き
 
-S045（計画書の WP-H）で書いた（15 は S055、16 は S068、17〜21 は S070、24〜26 は S072。20・25 の追記と `20b`・`25b` の再現は S080、25 の 2 回目の追記と `25c`〜`25h`・27 は S083）、[Rumoca](https://github.com/CogniPilot/rumoca) と [diffsol](https://github.com/martinjrobins/diffsol) に出す issue の下書き。元の記録は [../msl-sim-failures.md](../msl-sim-failures.md) の「上流に報告する候補」と、[../../roadmap.md](../../roadmap.md) の候補 8。
+S045（計画書の WP-H）で書いた（15 は S055、16 は S068、17〜21 は S070、24〜26 は S072。20・25 の追記と `20b`・`25b` の再現は S080、25 の 2 回目の追記と `25c`〜`25h`・27 は S083、28〜30 と 25・27 の追記は S091）、[Rumoca](https://github.com/CogniPilot/rumoca) と [diffsol](https://github.com/martinjrobins/diffsol) に出す issue の下書き。元の記録は [../msl-sim-failures.md](../msl-sim-failures.md) の「上流に報告する候補」と、[../../roadmap.md](../../roadmap.md) の候補 8。
 
 - **出すのはユーザー。エージェントは出さない**（`gh issue create` を使わない）。
 - **出すときは、再現を Rumoca の最新（main）で確かめてから出す。** 下書きの環境は Rumoca v0.10.2（rev `276e82bd`）、MSL 4.1.0。Rumoca の CLI がこの環境に無いまま書いた件は、本文に「[not verified]」と書いてある。
@@ -35,7 +35,10 @@ S045（計画書の WP-H）で書いた（15 は S055、16 は S068、17〜21 �
 | 24 | [条件付き成分の条件が別の package の定数を読むと EI006 で断る](24-ei006-condition-on-package-constant.md) — Rumoca の穴（MLS §4.4.5・§3.8）。117 本 | Rumoca | [24](24-ei006-condition-on-package-constant.mo)（自己完結。モデルの定数・parameter なら通る） | なし | 下書き |
 | 25 | [Boolean の出力の関数で、if の枝が代入のあと for を回すと ED019 `function conditional`](25-ed019-function-conditional-boolean-loop.md) — Rumoca の未対応（MLS §11.2・§12.2 は制限しない）。ED019 125 本のうち同じメッセージ 44 本。追記: 入力の次元が package の定数で、その定数を extends の修正で変えると ED019 `function shape proof`（MSL 4.0.0 の `PartialSimpleMedium`、`SensorVerification`） | Rumoca | [25](25-ed019-function-conditional-boolean-loop.mo)（自己完結。Real の出力なら通る）、[25b](25b-ed019-function-shape-proof-modified-package-constant.mo)（自己完結。修正の無い extends・`x[:]` なら通る）、S083 の [25c](25c-ed019-function-shape-proof-size-of-call-sized-constant.mo)〜[25h](25h-ed019-function-shape-proof-flexible-array-from-call.mo)（自己完結。下の「ED019 の残り（S083）」） | なし | 下書き |
 | 26 | [package の record 定数の成分を読むと ED008 unresolved Flat reference](26-ed008-field-of-package-record-constant.md) — Rumoca の内部エラー。ED008 108 本のうち `Media.Air.dryair.cp` 47 本 | Rumoca | [26](26-ed008-field-of-package-record-constant.mo)（自己完結。スカラの定数・モデルの record 定数なら通る） | なし | 下書き（`i` の 18 本は要再現） |
-| 27 | [extends で継いだ入れ子のクラスを、継いだ package の名前で引くと ER002](27-er002-inherited-class-through-extending-package.md) — Rumoca の穴（MLS §7.1・§5.3.2）。ライブラリの例題では未確認 | Rumoca | [27](27-er002-inherited-class-through-extending-package.mo)（自己完結。宣言した package・replaceable な別名なら通る） | なし（replaceable な別名で書く） | 下書き |
+| 27 | [extends で継いだ入れ子のクラスを、継いだ package の名前で引くと ER002](27-er002-inherited-class-through-extending-package.md) — Rumoca の穴（MLS §7.1・§5.3.2）。ライブラリの例題では 0 本（S091） | Rumoca | [27](27-er002-inherited-class-through-extending-package.mo)（自己完結。宣言した package・replaceable な別名なら通る） | なし（replaceable な別名で書く） | 下書き |
+| 28 | [配列の次元が別の package の定数だと ET004、redeclare しない replaceable な package を通すと EF024](28-et004-ef024-dimension-from-package-constant.md) — Rumoca の穴（MLS §3.8.1・§10.1）。3 本 | Rumoca | [28](28-et004-ef024-dimension-from-package-constant.mo)（自己完結。モデルの定数・`redeclare package` なら通る） | なし（部品で redeclare する） | 下書き |
+| 29 | [モデルの中の関数で、protected の束縛が replaceable な package の関数を呼ぶと EF024](29-ef024-local-function-binding-calls-replaceable-package.md) — Rumoca の穴（MLS §12.4.4・§5.3）。18 本 | Rumoca | [29](29-ef024-local-function-binding-calls-replaceable-package.mo)（自己完結。algorithm で呼ぶ・package の名前で呼ぶなら通る） | なし（algorithm で呼ぶ） | 下書き |
+| 30 | [`y[:]`・`eta[size(y, 1)]` の record の parameter を関数の呼び出しで束縛すると ET004](30-et004-record-size-dimension-bound-to-call.md) — Rumoca の穴（MLS §10.1・§12.4.5）。15 本 | Rumoca | [30](30-et004-record-size-dimension-bound-to-call.mo)（自己完結。成分を直接書けば通る） | なし | 下書き |
 
 ## 公開ライブラリの失敗から（17〜21、S070）
 
@@ -76,6 +79,20 @@ S080 で【未確認】だった、MSL 4.1.0 で出る ED019 を二分法で最�
 | [25h](25h-ed019-function-shape-proof-flexible-array-from-call.mo) | `` `X`: axis 1 is variable-size ... `` | **Rumoca の穴**（MLS §12.4.5）。別の形 | 局所の配列の大きさを宣言する | 2 |
 | [25g](25g-ed019-function-conditional-loop-only-branch.mo) | `function conditional`（`splineDerivatives`） | **Rumoca の未対応**（MLS §11.2）。25 と同じ検査の別の入り口（Real の配列の出力） | 最初の for を `d := y` にする、枝に代入を書く | 25 |
 | [27](27-er002-inherited-class-through-extending-package.mo) | ER002 | **Rumoca の穴**（MLS §7.1・§5.3.2）。S080 で見えた CLI の失敗 | 宣言した package か replaceable な別名で引く | 未確認 |
+
+## EF024・ET004 と ER002 の本数（28〜30、S091）
+
+S080 で見えた「モデルの配列の次元を package の定数にすると EF024・ET004」を二分法で最小にし、libraries の run 41365960542（2026-11-02）の `*-funnel.json` で同じコードの例題を数えた（確認日 2026-11-02）。EF024 は 27 本、ET004 は 18 本で、メッセージで 3 つの形に分かれた。再現は `globe check` と Rumoca v0.10.2 の CLI で同じコードが出て、対照は両方で通る。omc 1.27.2 の `checkModel` は 12 本とも通す。モデル名は `Rep36`〜`Rep38`。
+
+| 再現 | コード・メッセージ | 判定 | 消える条件 | 本数 |
+| --- | --- | --- | --- | ---: |
+| [28](28-et004-ef024-dimension-from-package-constant.mo) | ET004 `dimension expression could not be evaluated: P.n`、EF024 `missing structured identity: n` | **Rumoca の穴**（MLS §3.8.1・§10.1）。S080 で見えた形 | 次元をモデルの定数にする、package を `redeclare package` で渡す | 3（ET004） |
+| [29](29-ef024-local-function-binding-calls-replaceable-package.mo) | EF024 `missing structured identity: temperature` | **Rumoca の穴**（MLS §12.4.4・§5.3） | 束縛でなく algorithm で呼ぶ。IBPSA の写しで `WaterProperties` が S0〜S10 を通る | 18 |
+| [30](30-et004-record-size-dimension-bound-to-call.mo) | ET004 `size(y, 1)`（`motorEfficiency_yMot_generic.eta`） | **Rumoca の穴**（MLS §10.1・§12.4.5） | record の成分を直接書く。ライブラリの写しは直していない【未確認】 | 15 |
+
+- 残りの EF024 9 本（Buildings の `Fluid.DXSystems` の `nomVal` 7、AixLib の `T` 1・`nXi` 1）は最小にしていない【未確認】。
+- ER002 は 68 本（AixLib 67・Buildings 1）で、27 の形（継いだ入れ子のクラスへの `unresolved type reference`）は **0 本**。型の参照は取得しない `Modelica_DeviceDrivers` の 1 本だけで、残りは `specificEntropyOfpTX` の関数呼び出し 39（追っていない【未確認】）、成分の参照 18、import 10。
+- 25c の名前（S083 の持ち越し）: 8 通りの名前の組で、目的のメッセージは局所変数の名前が package の定数（`nc = n` の `n`）と同じときだけ出て、呼ぶ関数の入力の名前には依らない。束縛 `nc = n` を関数 `f` の範囲で引いている（MLS §5.3 は書かれた package で引く）と読めるが、コードは読んでいない【推測】。下書き 25 の Notes に書いた。
 
 ## 下書きにしなかったもの
 
