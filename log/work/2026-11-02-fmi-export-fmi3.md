@@ -45,3 +45,5 @@ S094 の持ち越しのうち 3 つ: (1) FMI 3.0 の Export（`--fmi-version 2|3
 - fmuCheck での検査。
 - main に入った後に `gh workflow run fmu-export.yml` で回し直す。
 - fmusim の ME の許容誤差を絞る試し。Windows・macOS 向けのビルド。入力・事象のあるモデル（P5b）。
+
+- 追記（親）: main の全体検査 run 41454128554 の rust-linux がランナーのディスク満杯（`No space left on device`）で落ちた。ci.yml の rust-linux にプリインストール（dotnet・Android SDK・ghc・CodeQL）を消す手順を足して再マージ。
