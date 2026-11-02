@@ -32,9 +32,9 @@
 - wheel: `linux_x86_64` 17,878,716 バイト、`linux_aarch64` 16,706,158、`win_amd64` 16,033,654（artifact の zip は 17,830,930・16,656,268・16,013,482）。
 - wheel を入れた pytest: 3 ターゲットとも `2 passed`。
 - `SHA256SUMS`: 6 行（globe 3、wheel 3）。
-- `python3 .github/scripts/test_ci_plan.py`: 23 件 OK。`mise run ci:plan`: 下に記す。
+- `python3 .github/scripts/test_ci_plan.py`: 23 件 OK。`mise run ci:plan`: `full: true`（理由「依存・ツール・CI の定義を変更: .github/workflows/release.yml」、7 ファイル）。main への push は全体の検査になる。
 - Rust は変えていないので `mise run check` は回していない。
-- `check_docs.py`: 下に記す。
+- `check_docs.py`: スライド OK、文書 319 件・相対リンク 1,552 件・切れ 0 件。`render_slides.py` は回していない（手元の `uv sync` が他の worktree の cargo と同時に重く、.venv が無いまま止めた。CI の docs ジョブに任せる）。
 
 ## 残したこと
 
