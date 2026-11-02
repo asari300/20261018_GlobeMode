@@ -1386,9 +1386,8 @@ fn class_outline(c: &ast::ClassDef) -> ClassOutline {
     /// 先頭の `.`（`import .A.B;` のグローバルスコープ）は落とす（どちらも完全修飾名なので）。
     fn import_paths(i: &ast::Import) -> Vec<String> {
         match i {
-            ast::Import::Qualified { path, .. } | ast::Import::Renamed { path, .. } => {
-                vec![path.to_string()]
-            }
+            ast::Import::Qualified { path, .. } => vec![path.to_string()],
+            ast::Import::Renamed { alias, path, .. } => vec![format!("{}={path}", alias.text)],
             ast::Import::Unqualified { path, .. } => vec![format!("{path}.*")],
             ast::Import::Selective { path, names, .. } => {
                 names.iter().map(|n| format!("{path}.{}", n.text)).collect()
