@@ -1,4 +1,4 @@
-// Repro for upstream draft 25 (fifth shape, S083). Self-contained.
+// Repro for upstream draft 25e (fifth shape, S083). Self-contained.
 // Shape taken from MSL 4.1.0 Modelica.Media.R134a: the record
 // Common.EOSIdealCoeff declares `parameter Integer nc = 5;
 // parameter Real[nc] a`, and the function fid_R134a declares

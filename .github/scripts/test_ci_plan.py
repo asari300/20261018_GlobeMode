@@ -22,6 +22,11 @@ class Plan(unittest.TestCase):
         self.assertFalse(p["wasm_node"])
         self.assertFalse(p["deny"])
 
+    def test_fmu_runtime_has_no_dependents(self):
+        # S095: globe-mode-fmu は workspace のどの crate にも依存せず、依存元も無い
+        self.assertEqual(pkgs(plan(["src/Rust/mod/globe-mode-fmu/src/lib.rs"])), {"globe-mode-fmu"})
+        self.assertNotIn("globe-mode-fmu", pkgs(plan(["src/Rust/mod/globe-mode-core/src/lib.rs"])))
+
     def test_change_propagates_to_dependents(self):
         p = plan(["src/Rust/mod/globe-mode-ir/src/lib.rs"])
         self.assertEqual(

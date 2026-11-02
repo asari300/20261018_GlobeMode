@@ -1,4 +1,4 @@
-// Repro for upstream draft 25 (fourth shape, S083). Self-contained.
+// Repro for upstream draft 25d (fourth shape, S083). Self-contained.
 // Shape taken from IBPSA (and AixLib, Buildings)
 // Controls.SetPoints.OccupancySchedule: the protected function getOutput
 // declares `input Real occupancy[nRow]` before `input Integer nRow`, and the

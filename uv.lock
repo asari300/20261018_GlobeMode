@@ -173,10 +173,14 @@ name = "globe-mode"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "anywidget" },
     { name = "marimo" },
     { name = "plotly" },
     { name = "polars" },
+]
+
+[package.optional-dependencies]
+widget = [
+    { name = "anywidget" },
 ]
 
 [package.dev-dependencies]
@@ -187,11 +191,12 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "anywidget", specifier = ">=0.11.0" },
+    { name = "anywidget", marker = "extra == 'widget'", specifier = ">=0.11.0" },
     { name = "marimo", specifier = ">=0.25.1" },
     { name = "plotly", specifier = ">=7.1.0" },
     { name = "polars", specifier = ">=2.0.0" },
 ]
+provides-extras = ["widget"]
 
 [package.metadata.requires-dev]
 dev = [

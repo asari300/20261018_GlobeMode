@@ -60,6 +60,7 @@ v0.1.0 に向けた S001〜S047 と S052 の要点。version はまだ 0.0.1 で
 - S077: ci.yml にジョブ `lang`（C ABI を Zig・Julia から呼ぶ例）。`release.yml` の wheel の版をタグから取り、Linux の wheel を `manylinux_2_39` にした（PyPI に出せる形）。
 - S086: Linux の wheel を maturin の `--zig` で `manylinux_2_28` にした（glibc 2.28 以上。Debian 12・RHEL 9 にも pip で入る）。
 - S090: Linux の `globe`（tarball）を `cargo-zigbuild` で glibc 2.28 に link した（前はランナーの 2.39。Debian 10・RHEL 8 以降でも動く）。
+- S097: anywidget を extra `widget` に移した（`pip install "globe-mode[widget]"`。extra なしの wheel の依存が減る）。
 
 ### P7 言語 API
 

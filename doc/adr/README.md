@@ -32,5 +32,6 @@
 | [0029](0029-external-builtin-rewrite.md) | `external "builtin"` が組み込みの数学関数を呼ぶだけの関数は、Dae を直列化の形で書き換えて組み込み演算にする（Rumoca の公開 API に hook が無く、構築 API は閉包だけのため）。MSL 4.0.0 の `Modelica.Math` の 13 個。限界は serde の形が非公開の契約であること | Accepted |
 | [0030](0030-desktop-msl-placement.md) | Desktop は MSL を同梱せず、初回に app data dir の `msl/4.1.0/` へ取得する（URL・sha256・目印は xtask の `fetch-msl` と同じ。ダウンロードは `curl`、展開は `zip`）。`--library`・`GLOBE_LIBRARY` があれば取得せずそれを優先。xtask のコードは共有せず、定数の一致を CI で確かめる | Accepted |
 | [0031](0031-fmi-export-p5a-first.md) | FMI Export は P5a（Rumoca の組み込みターゲット `fmi2` のテンプレートを改変せずに使う。Rumoca は frontend の `fmi_export.rs` からだけ呼ぶ）を先行し、P5b（自前のランタイム、S095）を並行して進める。FMI 2.0 のソースの FMU（ME・CS）、`globe fmu export` | Accepted |
+| [0032](0032-p5b-own-runtime.md) | P5b の自前のランタイムは、FMI 2.0 ME の 35 関数を自前の cdylib `globe-mode-fmu` で出す（`fmi-export` 0.3.0 は FMI 3.0 のみで依存が増えるので採らない）。S095 はモデル（Decay）を crate に固定し、載せ替えの 3 つの道（FMU ごとにビルド・Rumoca で compile・Solve IR の解釈実行）は持ち越し | Proposed |
 
 書式: `NNNN-<題名>.md`。章は「状態 / 背景 / 決定 / 結果」の4つ。決定を覆すときは古い ADR を消さず、状態を Superseded にして新しい番号で書く。
