@@ -338,7 +338,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 ### S039（P7 の 1 回目、2026-10-31）で済んだこと
 
 - **Python の wheel**（[計画書](plan/2026-10-30-release-estimate-and-parallel-plan.md)の WP-G）: 新しい crate `globe-mode-py`（PyO3 0.30、abi3-py312、facade だけに依存）を maturin で `src/Python/mod/globe_mode` の `_native` に入れた（`pyproject.toml` の build-backend を uv_build から maturin に）。`Workspace{set_file, load_dir, check, graph, simulate}` と `solvers()` の入出力は JSON の文字列で、`__init__.py` が `dict` と polars の表（`table()`）にする。参照シナリオ（`src/Python/tests/test_api.py`）: `load_dir(src/Modelica)` → `Decay` の check → `RealCircuit` の graph → `Decay` の simulate → x(1) が e⁻¹ と一致。wheel は 17.3 MB（linux x86_64）。CI の `python` のジョブに rust と `pytest`。実装は Sonnet のサブエージェント 1 人。
-- 持ち越し: ~~`graph` がライブラリとして読んだモデルを引けない~~（S079 で済んだ。[解説書](sessions/S079-graph-library-models/解説書.md)）、Arrow での結果の受け渡し、~~anywidget~~（S078 で済んだ。[解説書](sessions/S078-marimo-anywidget/解説書.md)）。他の OS の wheel は S074 で済んだ（`release.yml` で linux x86_64・aarch64・windows x86_64 の wheel を作って pytest を回し、Release に付ける。[解説書](sessions/S074-wheel-release/解説書.md)）。~~wheel の版をタグにそろえる、Linux の wheel を manylinux にする~~（S077 で済。タグの版と `manylinux_2_39`、[解説書](sessions/S077-ci-lang-wheel/解説書.md)）。~~Linux の wheel を古い glibc でも入るようにする~~（S086 で済。`--zig` で `manylinux_2_28`、[解説書](sessions/S086-wheel-manylinux-zig/解説書.md)）。PyPI への公開と macOS は持ち越し。
+- 持ち越し: ~~`graph` がライブラリとして読んだモデルを引けない~~（S079 で済んだ。[解説書](sessions/S079-graph-library-models/解説書.md)）、~~Arrow での結果の受け渡し~~（S085 で済んだ。Arrow でなく列ごとの f64 の `bytes` を `Workspace.simulate_columns` で返す。[解説書](sessions/S085-py-columns/解説書.md)）、~~anywidget~~（S078 で済んだ。[解説書](sessions/S078-marimo-anywidget/解説書.md)）。他の OS の wheel は S074 で済んだ（`release.yml` で linux x86_64・aarch64・windows x86_64 の wheel を作って pytest を回し、Release に付ける。[解説書](sessions/S074-wheel-release/解説書.md)）。~~wheel の版をタグにそろえる、Linux の wheel を manylinux にする~~（S077 で済。タグの版と `manylinux_2_39`、[解説書](sessions/S077-ci-lang-wheel/解説書.md)）。~~Linux の wheel を古い glibc でも入るようにする~~（S086 で済。`--zig` で `manylinux_2_28`、[解説書](sessions/S086-wheel-manylinux-zig/解説書.md)）。PyPI への公開と macOS は持ち越し。
 
 ### S038（P4 の 1 回目、2026-10-30）で済んだこと
 
@@ -415,6 +415,10 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **Elixir の NIF**（S075 の持ち越し。[解説書](sessions/S082-elixir-nif/解説書.md)）: 新しい crate `globe-mode-nif`（Rustler 0.39 の cdylib、facade だけに依存）が Erlang モジュール `globe_mode_nif` に `globe-mode-py` と同じ面（`new(libraries)` / `set_file` / `load_dir` / `check` / `graph` / `simulate` / `solvers`）を出す。結果は JSON の文字列で、`src/Elixir/globe_mode` の `GlobeMode` が Elixir 1.18 の標準 `JSON` でデコードする（Hex の依存 0）。重い呼び出しは dirty scheduler。`mise run elixir:test` が Decay を check → simulate して最後の時刻 1 を確かめ、CI のジョブ `lang` でも回す（`MISE_DISABLE_TOOLS=elixir` なら飛ばす）。
 - 持ち越し: ~~Gleam の `@external` の例~~（S087 で済。[解説書](sessions/S087-gleam-external/解説書.md)）、rustler_precompiled での配布（Hex）。
 
+### S085（P6、2026-11-02）で済んだこと
+
+- **Python の結果を列で受け取る**（S039 の持ち越し「Arrow での結果の受け渡し」）: `Workspace.simulate_columns(model, **settings)` が `simulate` と同じ dict に `columns`（名前 → `pl.Series`、`time` が先頭）を足して返す（`csv` は `None`）。Rust の py crate が facade の `run.trajectory` から列ごとの f64 の little-endian の `bytes` を作り、Python が `memoryview` から polars にする。Arrow（`arrow` crate と `pyarrow`）も numpy も足さず、新しい依存は 0。`table()` は列があれば列から、無ければ CSV から表を作る（CSV の道は残した）。marimo の `sim_app.py` は列の道。10 万点 × 7 列で `simulate` + `table()` 485〜505 ms → 79〜82 ms（実行そのものは 44〜64 ms）。[解説書](sessions/S085-py-columns/解説書.md)
+
 ### S079（P4、2026-11-02）で済んだこと
 
 - **ライブラリのモデルの connect グラフ**（S039・S046・S048 の持ち越し）: `GlobeDb::connect_graph` は、ワークスペースの索引にモデルが無く、ライブラリがあれば、検査器の `Checker::library_outlines(model)`（Session のライブラリの文書のアウトライン。分割読み込みなら検査と同じ閉包を先に読む）とワークスペースの文書から索引を作って引く。`with_libraries`・`with_libraries_full`・`with_library_sources`・`with_library_sources_split` のどれでも `GlobeModeValidation.Connect.RealCircuit` が 4 ノード、MSL の `ChuaCircuit` が 7 ノード（深さ 1）。facade を通る UI（wasm）・Python・LSP にそのまま効く。[解説書](sessions/S079-graph-library-models/解説書.md)
@@ -423,7 +427,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 ### S078（P6、2026-11-02）で済んだこと
 
 - **anywidget**（S039 の持ち越し）: `globe_mode.widget.SimulationPlot(result)` が `Workspace.simulate` の結果を traitlets（`time`・`series`・`visible`）に入れ、`_esm` の依存なしの `<canvas>` に折れ線を描く（CDN を使わない）。信号のチェックボックスと `visible` を同期する。整形は `plot_data()`（`table()` を使う）。marimo のノートブック `src/Python/marimo/sim_app.py` が Decay を実行して描く。`anywidget` 0.11（MIT）を通常の依存に足した（推移的に 18 本）。[解説書](sessions/S078-marimo-anywidget/解説書.md)
-- 持ち越し: Arrow での受け渡し、目盛り・ズーム（要るなら uPlot を同梱）、marimo の WASM で wheel を使う道。
+- 持ち越し: ~~Arrow での受け渡し~~（S085 で済んだ）、目盛り・ズーム（要るなら uPlot を同梱）、marimo の WASM で wheel を使う道。
 
 ### S076（P4、2026-11-02）で済んだこと
 
@@ -441,12 +445,18 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **in-memory のライブラリの読み込みも構文の誤りのファイルを読み飛ばす**（S066 の持ち越し。[解説書](sessions/S071-ui-w1001-tolerant-wasm/解説書.md)）: `Checker::with_library_sources`（全部読み）と `with_library_sources_split`（分割読み。wasm とネイティブの既定の `Workspace::with_libraries`）が、読めないファイルを読み飛ばして `GM-W1001` を付ける。読めるファイルが 0 なら今まで通り `GM-E1003`。警告の組み立ては `Checker::new` の道と共有する。分割読みは読んだファイルの分だけを知らせる（`skipped_library_files()` には出ない）。
 - **UI の診断の表に notes を出す**: ファイルや範囲の無い診断の行は元から出ていた。読み飛ばしたファイル名は notes にあるので、表のメッセージの下に出す。`test_ui.py` は `MSL.json` を fixture に差し替えて `GM-W1001` の行を確かめる。
 
+### S084（P4、2026-11-02）で済んだこと
+
+- **MSL の版の切り替え**（S069 の持ち越し）: Desktop で MSL 4.1.0 / 4.0.0 を選べる。置き場は app data dir の `msl/<version>/`（[ADR-0030](adr/0030-desktop-msl-placement.md) の S084 の追記）。command `fetch_msl { version }` が取得して sidecar を作り直す。4.0.0 の URL・sha256 は xtask の `MSL_400_*` を写し、`desktop.yml` が 2 版分の一致を確かめる。UI は取得ボタンの横に版の `<select>`。
+- **取得の進捗と取り消し**: イベント `msl-progress`（`{received, total}`。total は Content-Length、無ければ null）で UI が受信 MiB と割合を出す。取得中にもう一度押すと command `cancel_msl` が止め、途中の zip を消す。詳しくは [解説書](sessions/S084-desktop-msl-switch/解説書.md)。
+- 持ち越し: 展開中の取り消し、同時取得の排他、使わなくなった版の削除、Windows での取得の確認、署名と自動更新、静かな `globe/setFile`。
+
 ### S069（P4、2026-11-01）で済んだこと
 
 - **MSL の置き場**（S056 の持ち越し）: [ADR-0030](adr/0030-desktop-msl-placement.md)。同梱せず、初回に app data dir の `msl/4.1.0/` へ取得する。`--library`・`GLOBE_LIBRARY` があればそれを優先。Rust 側は `src/Rust/apps/desktop/src/msl.rs`（`curl` で落とす → sha256 照合 → 展開 → 目印を最後に）と command `fetch_msl`（取得のあと sidecar を作り直す）。UI は Desktop でだけ「MSL を取得する（29 MB、初回のみ）」ボタン。URL・sha256・目印は xtask の `fetch-msl` と同じで、一致は `desktop.yml` が確かめる。
 - **CI の smoke**: `desktop.yml` が MSL を渡さずに起動し直し、取得 → `ChuaCircuit` の検査・実行（`smoke-fetch.txt`）と、取得済みの置き場を 2 度目の起動が使うこと（`smoke-reuse.txt`）を確かめる。結果は [ADR-0030](adr/0030-desktop-msl-placement.md) の「結果」と [作業記録](../log/work/2026-11-01-s069-desktop-msl-fetch.md)。
 - 足した依存: `zip` 9（xtask と同じ版・features）と `sha2`（desktop の workspace）。HTTP クライアントは足さず外部コマンドの `curl`（.deb は `Depends: curl`）。
-- 持ち越し: 署名と自動更新、取得の進捗の割合と取り消し、MSL 4.0.0 への切り替えの UI、静かな `globe/setFile`。
+- 持ち越し: 署名と自動更新、~~取得の進捗の割合と取り消し、MSL 4.0.0 への切り替えの UI~~（S084 で済）、静かな `globe/setFile`。
 
 ### S056（P4、2026-11-01）で済んだこと
 

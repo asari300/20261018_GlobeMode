@@ -4,18 +4,34 @@ import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse } from
 
 // Tauri が `withGlobalTauri` で注入する関数だけを使う（@tauri-apps/api は入れない。npm の依存を増やさないため）。
 type Invoke = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
-const invoke: Invoke = (cmd, args) =>
-  (window as unknown as { __TAURI__: { core: { invoke: Invoke } } }).__TAURI__.core.invoke(cmd, args);
+type Listen = <T>(event: string, cb: (e: { payload: T }) => void) => Promise<() => void>;
+const tauriGlobal = () => (window as unknown as { __TAURI__: { core: { invoke: Invoke }; event: { listen: Listen } } }).__TAURI__;
+const invoke: Invoke = (cmd, args) => tauriGlobal().core.invoke(cmd, args);
+
+/** MSL の取得の進捗（イベント `msl-progress`）。total は Content-Length、分からなければ null。 */
+export type MslProgress = { received: number; total: number | null };
 
 /** 同梱の `globe` の sidecar（`globe lsp`、stdio の JSON-RPC。ADR-0023）。Rust 側（src/Rust/apps/desktop）は中継だけ。 */
 export class TauriBackend implements Backend {
   #version = 0;
 
   // Desktop ではライブラリは sidecar の起動時の --library / GLOBE_LIBRARY で読む。JSON を送る道は無い（S056）。
-  // 何も読んでいなければ、MSL 4.1.0 を取得して展開し、sidecar を作り直させる（S069、command `fetch_msl`）。JSON は捨てる。
+  // 何も読んでいなければ、MSL 4.1.0 を取得して展開し、sidecar を作り直させる（S069、command `fetch_msl`。S084 から版を選べる）。JSON は捨てる。
   async library(_name: string): Promise<void> {
     const libs = await invoke<string[]>("libraries");
-    if (libs.length === 0) await invoke("fetch_msl");
+    if (libs.length === 0) await this.fetchMsl("4.1.0");
+  }
+
+  /** その版の MSL を取得し、sidecar をそれで作り直させる（S084。版の切り替えも同じ）。取得済みなら展開を省く。 */
+  async fetchMsl(version: string): Promise<void> {
+    await invoke("fetch_msl", { version });
+  }
+  /** 取得中の fetchMsl を止める（fetchMsl は取り消しのエラーで終わる）。 */
+  cancelMsl(): Promise<void> {
+    return invoke("cancel_msl");
+  }
+  onMslProgress(cb: (p: MslProgress) => void): Promise<() => void> {
+    return tauriGlobal().event.listen<MslProgress>("msl-progress", (e) => cb(e.payload));
   }
 
   /** sidecar が既に何かライブラリを読んでいるか（起動時の MSL の表示用）。 */
