@@ -31,9 +31,9 @@ S082 の持ち越しの Gleam の `@external` の例（features 84 行「Gleam �
 
 ## 検証
 
-- `mise run gleam:test`（手元、WSL、gleam 1.19.2、OTP 27）: 1 本、失敗 0。`MISE_DISABLE_TOOLS=elixir` では飛ばして 0。`gleam format --check`: ok。
+- `mise run gleam:test`（手元、WSL、gleam 1.19.2、OTP 27）: 1 本、失敗 0（`set_file` の型を `#()` に直す前の版。直した後の手元の回し直しは、共有の target を別のセッションの release ビルドが握っていたので止めた。CI で通っている）。`MISE_DISABLE_TOOLS=elixir` では飛ばして 0。`gleam format --check`: ok。
 - `check_docs.py`: デッキ全部 OK / 相対リンク 1764 件中の切れ 0 件
-- CI（`gh workflow run ci.yml --ref feature/s087-gleam-external -f full=true`）: CI_RESULT
+- CI（`gh workflow run ci.yml --ref feature/s087-gleam-external -f full=true`）: run 41400365586 で全ジョブ success（plan・rust-linux・rust-windows・rust-sundials・deny・python・msl・wasm-node・ui・docs・lang）。`lang` は setup-beam の gleam 1.19.2 で `mise run gleam:test` が「1 passed, no failures」、`elixir:test` も 1 本・失敗 0。`render_slides.py` は手元で playwright が `.venv` に入る前だったので CI のジョブ `docs` に任せた（success）
 
 ## 残したこと
 
