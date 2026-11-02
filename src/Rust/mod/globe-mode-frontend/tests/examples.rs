@@ -95,11 +95,11 @@ fn outline_lists_imports_in_the_ir_format() {
             .imports
             .clone()
     };
-    assert_eq!(imports("P"), ["A.B.C", "A.B.C"]);
+    assert_eq!(imports("P"), ["A.B.C", "D=A.B.C"]);
     assert_eq!(imports("P.M"), ["A.B.*", "A.B.C", "A.B.D", "A.E"]);
     // 位置を落とした写し（防火壁 1）でも import は残る
     let shape = o.without_ranges();
-    assert_eq!(shape.classes[0].imports, ["A.B.C", "A.B.C"]);
+    assert_eq!(shape.classes[0].imports, ["A.B.C", "D=A.B.C"]);
     assert_eq!(
         shape.classes[0].classes[0].imports,
         ["A.B.*", "A.B.C", "A.B.D", "A.E"]

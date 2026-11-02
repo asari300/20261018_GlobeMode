@@ -93,6 +93,12 @@ fn workspace_model_with_msl_parts() {
         eprintln!("unresolved {} → {}: {after:?}", before.len(), after.len());
         assert!(after.len() < before.len(), "{before:?} → {after:?}");
     }
+    // import で書いた名前も解決する（S089）
+    let mut ws = Workspace::with_libraries(std::slice::from_ref(&msl)).unwrap();
+    ws.set_file("MslPartsImport.mo", include_str!("data/MslPartsImport.mo"));
+    let graph = ws.graph("MslPartsImport", 1).unwrap();
+    assert!(graph.unresolved.is_empty(), "{:?}", graph.unresolved);
+    assert!(!graph.edges.is_empty());
     let mut ws = Workspace::with_libraries_full(&[msl]).unwrap();
     for i in 1..=2 {
         let start = std::time::Instant::now();
