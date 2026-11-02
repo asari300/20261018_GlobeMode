@@ -84,10 +84,14 @@ fn install_msl(
 ) -> Result<Vec<String>, String> {
     let target = msl::dest(&dir.0, version);
     let current = libs.0.lock().unwrap_or_else(|e| e.into_inner()).clone();
-    if matches!(current.as_slice(), [p] if *p == target)
-        || current.iter().any(|p| !p.starts_with(&dir.0))
-    {
+    if matches!(current.as_slice(), [p] if *p == target) {
         return Ok(names(libs));
+    }
+    if current.iter().any(|p| !p.starts_with(&dir.0)) {
+        return Err(
+            "外から渡したライブラリ（--library・GLOBE_LIBRARY）を使っているので MSL を切り替えない"
+                .into(),
+        );
     }
     dir.1.store(false, Ordering::Relaxed);
     msl::fetch(&target, version, progress, &dir.1)?;
