@@ -187,6 +187,21 @@ run 41250636800（Buildings 4・AixLib 2・IBPSA・ClaRa・ThermofluidStream）�
 - **EF025（138 本）**: 136 本が `Modelica.Utilities.Files.loadResource`（51 本）や replaceable な Medium の関数（`setState_pTX` など）の「正確な関数の選択」が決まらない。S070 の判定: `loadResource`（extends が 2 つの関数。MLS §7.1.1 で合法）は **Rumoca の穴**で、MSL だけと自己完結の 2 通りで再現した。replaceable な Medium の関数の方は最小の再現を作れなかった（単純な `Medium.setState_pTX` は通る）ので不明。omc は通す。→ 上流 [20](upstream/20-ef025-function-selection-identity.md)
 - **EF004（217 本）**: ThermofluidStream の 93 本と Chemical の 41 本が上位。前者は `getInstanceName()`（全体で 119 本: ThermofluidStream 93・Buildings 11・IBPSA 8・AixLib 7）、後者は「if 方程式の枝で方程式の本数が違う」。S070 の判定: どちらも **Rumoca の穴**。`getInstanceName()` は parameter の束縛に書くと断る（equation の assert では通る。MLS §3.7.4.6）。後者の実体は「枝の方程式の本数」でなく、成分配列の項（`substrates.n_flow*ones(nS)`）を含む式の行数の数え違い（要素 1 個なら通り、2 個か 0 個で断る。MLS §10.6.4）。omc は通す。→ 上流 [21](upstream/21-ef004-getinstancename-and-if-equation-branches.md)
 
+### 2 回目の判定（S072）
+
+S070 の「次回」の 5 つのコードを同じ手順で判定した（確認日 2026-11-02。本数は run 41250636800 の artifact の `*-funnel.json` を数え直したもの）。最小の再現は `globe check` と Rumoca v0.10.2 の CLI で同じコードになり、対照は両方で通る。omc 1.27.2 の `checkModel` は ER003 の再現だけを断る。詳しくは [upstream/README.md](upstream/README.md) の「公開ライブラリの失敗から（22〜26、S072）」。
+
+| コード | 本数 | 実際の箇所 | 判定 |
+| --- | ---: | --- | --- |
+| ER023 | 3（ClaRa） | `ClaRa/Basics/Records/IComVLE_L2.mo` ほかの `TILMedia.Internals.TILMediaExternalObject fluidPointer_bulk` | **正当**。MLS 3.6 §4.6（[class-predefined-types-and-declarations](https://specification.modelica.org/maint/3.6/class-predefined-types-and-declarations.html)、2026-11-02）は record の成分を record か type に限る。ExternalObject は class。ClaRa の書き方は規定の外で、omc は緩く通す。Rumoca のメッセージの「§4.7」は 3.6 では §4.6。再現 [22](upstream/22-er023-record-component-externalobject.mo) |
+| ER003 | 3（ClaRa 2・AixLib 1） | ClaRa の `SMArtInt.Internal.ClaRaDelay`、AixLib の `Modelica.Media.Examples.Tests.Components.PartialTestModel2`（`AixLib.Media.Refrigerants.Examples.RefrigerantTestImplementation`） | **正当**。ClaRa は取得しない依存（取得すれば避けられる）。AixLib はライブラリの誤り（MSL 4.0.0・4.1.0 とも `Modelica.Media.Examples.Utilities.PartialTestModel2` にある）。omc も同じ再現を断る。再現 [23](upstream/23-er003-base-class-not-found.mo) |
+| EI006 | 117（Buildings 54・AixLib 33・IBPSA 30） | `IBPSA/Fluid/FMI/Interfaces/FluidProperties.mo` の `X_w if Medium.nXi > 0`（40 本）、`MassFlowSource_WeatherData` の `x_pTphi if (not singleSubstance)`（27 本） | **Rumoca の穴**。別の package の定数（直接でも、それを束縛にした parameter 経由でも）を読む条件を断る。モデルの定数・parameter なら通る。MLS §4.4.5 は parameter 式を求めるだけ。→ 上流 [24](upstream/24-ei006-condition-on-package-constant.md) |
+| ED019 | 125（AixLib 43・Buildings 38・IBPSA 33・ThermofluidStream 11） | `IBPSA/Utilities/Math/Functions/isMonotonic.mo`（`function conditional`、同じメッセージ 44 本） | **Rumoca の未対応**。Boolean の出力の関数で、if の枝が代入のあと for を回すと断る（Real の出力なら通る）。→ 上流 [25](upstream/25-ed019-function-conditional-boolean-loop.md)。`function shape proof`（12 本。MSL 4.0.0 の `SensorVerification` は `Modelica/Media/package.mo` を指す）と `splineDerivatives` の形は最小にできず【未確認】 |
+| ED008 | 108（Buildings 40・AixLib 29・IBPSA 29・ThermofluidStream 10） | `IBPSA/Media/Air.mo` の `constant GasProperties dryair(...)` を `dryair.cp` で読む（`<ライブラリ>.Media.Air.dryair.cp` が 47 本） | **Rumoca の穴**（内部エラー）。package の record 定数の成分が flat に無い。スカラの package 定数・モデルの record 定数なら通る。→ 上流 [26](upstream/26-ed008-field-of-package-record-constant.md)。ループ変数 `i` の 18 本は別の形で【未確認】 |
+
+- ライブラリ側の誤りは ER003 の AixLib の 1 本と、規定の外の書き方の ER023（ClaRa 3 本）。S070 の 5 つと合わせると、10 のコードのうち 8 つが Rumoca の側。
+- 実際の例題でも同じコードになることを確かめた: `IBPSA.Fluid.FMI.ExportContainers.Examples.FMUs.Fan`（EI006）、`IBPSA.Airflow.Multizone.BaseClasses.Examples.WindPressureProfile`（ED019）、`IBPSA.Airflow.Multizone.Examples.Orifice`（ED008）、`ClaRa.Examples.SteamCycle_01`（ER023）。
+
 ### MSL 4.0.0 と 4.1.0 の差・取得しない依存
 
 - **取得しない依存を名指すもの**（メッセージに `Modelica_DeviceDrivers`・`SDF`・`SMArtInt` が出る失敗）: **AixLib 10 本**（`Modelica_DeviceDrivers.Communication.UDPSocket` の import 9、`TCPIPSocketClient` の型 1）、**ClaRa 2 本**（`SMArtInt.Internal.ClaRaDelay` が基底クラスに無い。`SteamPowerPlant_01`・`SteamPowerPlant_CombinedComponents_01`）。SDF は名指す失敗が 0 本。名前を直接出さずに、これらを使うクラスを使うために止まったものは分けられない【未確認】。
@@ -269,6 +284,27 @@ S063 の持ち越し「`uses` が 4.0.0 のライブラリを 4.1.0 で回した
 - 4.0.0 でも `external "builtin"` で止まるのに 4.1.0 でも止まっていたものが 23 本あり（別の原因が先に出ていた例題）、これは差に数えていない。
 - **比較の土台の確認**: 4.1.0 の側は S058 の run なので、この branch の xtask・Rumoca で 4.1.0 を回し直した（run 41302566710、`-f msl=4.1.0`、Buildings を除く 6 つ、全ジョブ success）。S058 の run と 2,132 - 809 = 1,323 本すべてで判定・段・コードが同じで、実行できた本数も同じ（AixLib 98・IBPSA 66・DeltaRobot 5・ThermofluidStream 2・Chemical 0・ClaRa 0）。つまり上の差は S058 以降のコードの変化ではなく MSL の版の差。Buildings は回し直していない（S058 の 4.1.0 の run のまま。Buildings だけ分割 4 の 1 本が約 70 分かかるため）。
 - 時間（funnel の足し算）は 4.1.0 / 4.0.0 で AixLib 732 / 772 s、Buildings 4,361 / 5,529 s、IBPSA 314 / 305 s と同程度（Buildings は分割 4 の 1 本が 3,769 / 4,748 s。Actions のランナーの差もある）。
+
+## Buildings を MSL 4.0.0 で回し直した（S073）
+
+確認日 2026-11-02。S068（[ADR-0029](../adr/0029-external-builtin-rewrite.md)、`external "builtin"` を組み込み演算に書き換える）の後に Buildings だけ回し直していなかったので、main（a778ea9）で `gh workflow run libraries.yml --ref main -f libraries='["Buildings"]' -f msl=4.0.0` を回した（[run 41364279300](https://github.com/asari300/20261018_GlobeMode/actions/runs/41364279300)、全ジョブ success、壁時計 約 95 分、分割 4 の sim が約 76 分）。artifact `library-Buildings-1〜4` の `*-funnel.json`・`*-sim.json` を、S067 の 4.0.0（run 41295445820）と S058 の 4.1.0（run 41250636800）と例題ごとに突き合わせた。
+
+| | 例題 | OK | NG | GM-U | panic | 実行できた（OK のうち） |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 4.1.0（S058、run 41250636800） | 809 | 119 | 493 | 193 | 4 | 88 |
+| 4.0.0（S067、run 41295445820） | 809 | 119 | 493 | 193 | 4 | 61 |
+| 4.0.0 + S068（S073、run 41364279300） | 809 | 119 | 493 | 193 | 4 | **88** |
+
+- **判定は 809 本すべて S067 と同じ**（判定・段・コード）。
+- **実行は 61 → 88 で、4.1.0 と例題ごとに一致**: S067 が「4.1.0 で実行できて 4.0.0 で `GM-U0004`」とした 27 本が全部実行できるようになり、逆は 0 本。4.1.0（S058）との差は 0 本（実行できた 88・`hard_timeout` 1・`run_failed` 30 の内訳も同じ）。27 本のうち 25 本は S067 で構造解析の段の `external builtin function 'Modelica.Math.*'`（`exp` 9・`sin` 8・`log` 4・`cos` 4）、2 本が下の `invalid Solve IR contract`。
+- **`Interior`・`InteriorConvection` の `invalid Solve IR contract` も原因は `external "builtin"`**: 2 本とも `final parameter Real cosTil = Modelica.Math.cos(til)`・`sinTil = Modelica.Math.sin(til)`（`Buildings/HeatTransfer/Convection/Interior.mo` 24〜25 行、`Buildings/HeatTransfer/Windows/BaseClasses/InteriorConvection.mo` 30〜31 行）を持つ。MSL 4.0.0 では `cos`・`sin` が `external "builtin"`、4.1.0 では `algorithm y := .cos(u);`。S067 が疑った「MSL の別の関数の書き方」ではなく、S067 の 70 本と同じ差。手元の確かめ（release の `globe simulate -L data/msl-4.0.0 -L data/libs/Buildings`、1 本ずつ）:
+  - main のままでは 2 本とも 4.0.0 で終了時刻まで進み、CSV は 4.1.0 とバイト単位で同じ（`Interior` 37 s、`InteriorConvection` 67 s、最大 RSS 約 180 MB）。
+  - S068 の書き換えを一時的に外す（`lower_builtin_externals` の先頭で元の `Dae` を返す。コミットしていない）と、2 本とも `[EL005] invalid Solve IR contract: pure-call argument or slot interface is invalid` に戻る。
+  - MSL を使わない最小の再現: 自前の `function mycos ... external "builtin" y = cos(u);` を `final parameter Real c = mycos(til);` で使うと同じ `invalid Solve IR contract`、方程式で使う（`der(x) = -mycos(time) * x`）と `external builtin function 'mycos' calls 'cos', which this runtime cannot execute`。**同じ穴が、呼ぶ場所（parameter の束縛か方程式か）でメッセージだけ変わる**。
+  - メッセージの出所は Rumoca（rev 276e82b）の `rumoca-phase-solve/src/error.rs`（`invalid Solve IR contract: {reason}`）と `rumoca-ir-solve/src/typed_program/program/construction_error.rs`（`InvalidCallInterface`）。GlobeMode（globe-mode-exec）は Rumoca の文字列を `GM-U0004` の note に写すだけ。`rumoca-phase-solve/src/lower/typed_functions.rs` に `InvalidCallInterface` を返す所が十数か所あり、どれが出したかは追っていない【未確認】。
+- **判定: Rumoca の穴（`external "builtin"` を実行できない、上流の下書き 16）。メッセージが原因の関数を名指さないのは診断の質の問題**として、下書き 16 に追記した（→ 上流 [16](upstream/16-external-builtin-math-functions.md)）。GlobeMode 側は S068 の書き換えで足りており、コードは変えない。
+- これで S067 の「実行の差 76 本」は 75 本が S068 で解消した（Buildings 27・AixLib 26・IBPSA 19・DeltaRobot 3）。残りは AixLib の判定が変わった 1 本（`SensorVerification`、ED019）。
+- 時間（表の「検査 + 実行」、分割の足し算）は 1:25 + 0:06（S067 は 1:32 + 0:01）。実行の時間が延びたのは実行できる本数が増えたため。
 
 ## 読んだ範囲と限界
 

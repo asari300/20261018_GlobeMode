@@ -98,6 +98,29 @@ cargo build --release -q -p globe-mode-cli
 node src/Rust/mod/globe-mode-wasm/node/compare.mjs --globe "$T/release/globe"
 """
 
+[tasks."c:build"]
+description = "C ABI の共有ライブラリ（globe-mode-c の libglobe_mode_c.so と .a）を release でビルドする（S075）"
+run = "cargo build --release -q -p globe-mode-c"
+
+[tasks."c:zig"]
+description = "Zig の例（src/Zig）で C ABI に link し、GlobeModeValidation.Simulation.Decay を check → simulate する（S075）"
+depends = ["c:build"]
+run = """
+set -eu
+T="$(realpath "${CARGO_TARGET_DIR:-target}")"
+cd src/Zig
+zig build run -Dlib-dir="$T/release" -- "$(realpath ../Modelica/GlobeModeValidation)" GlobeModeValidation.Simulation.Decay
+"""
+
+[tasks."c:julia"]
+description = "Julia の例（src/Julia、ccall だけ）で C ABI を呼び、GlobeModeValidation.Simulation.Decay を check → simulate する（S075）"
+depends = ["c:build"]
+run = """
+set -eu
+T="$(realpath "${CARGO_TARGET_DIR:-target}")"
+GLOBE_MODE_LIB="$T/release/libglobe_mode_c.so" julia --startup-file=no src/Julia/test.jl src/Modelica/GlobeModeValidation GlobeModeValidation.Simulation.Decay
+"""
+
 [tasks."ui:build"]
 description = "ブラウザ UI（src/Svelte）をビルドする（S041。wasm:build の出力を public/wasm/ にコピーして vite build。先に wasm:build が要る）"
 run = """

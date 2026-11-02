@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S075 C ABI と Zig・Julia — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S075 C ABI と Zig・Julia">
+
+<section class="slide" id="S01">
+  <span class="tag">S075 · 2026-11-02 · P7</span>
+  <h1>C ABI と Zig・Julia の例</h1>
+  <p class="lead">facade を <code>extern "C"</code> で包む crate <code>globe-mode-c</code> を足した</p>
+  <div class="big">Zig と Julia から Decay を <b>check → simulate</b>、最後の時刻 1</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>P7「言語 API」の C / Zig / Julia（features.md の Julia API・Zig API）に手を付ける</li>
+    <li><code>globe-mode-py</code> と同じ面を C ABI で出す。新しい依存は足さない</li>
+    <li>Zig と Julia の最小の例を <code>mise run c:zig</code> / <code>c:julia</code> で手元で通す</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>受け渡し</td><td>JSON の <code>char *</code>、<code>gm_string_free</code> で放す</td><td>py・wasm と同じ形。型を言語ごとに写さない</td></tr>
+    <tr><td>誤り</td><td><code>{"error": …}</code>。NULL は <code>gm_workspace_new</code> だけ</td><td>呼び手が 1 通りに扱える</td></tr>
+    <tr><td>panic</td><td><code>catch_unwind</code> で止める</td><td>FFI の境界で unwind させない</td></tr>
+    <tr><td>ヘッダ</td><td>手書き＋署名を突き合わせる試験</td><td>cbindgen の依存を足さない</td></tr>
+    <tr><td>unsafe</td><td>この crate だけ workspace の forbid を外す</td><td>FFI は unsafe が要る</td></tr>
+    <tr><td>CI</td><td>入れない（mise の task だけ）</td><td>zig・julia のセットアップが重い。作業記録に残す</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>構成</h1>
+  <svg class="fig" viewBox="0 0 800 260" role="img" aria-label="Zig と Julia が globe-mode-c を経て facade を呼ぶ">
+    <rect class="svg-box" x="30" y="40" width="180" height="70" rx="10"/>
+    <text class="svg-text-b" x="120" y="82" text-anchor="middle">Zig（link）</text>
+    <rect class="svg-box" x="30" y="150" width="180" height="70" rx="10"/>
+    <text class="svg-text-b" x="120" y="192" text-anchor="middle">Julia（ccall）</text>
+    <line class="svg-line" x1="210" y1="75" x2="300" y2="130"/>
+    <line class="svg-line" x1="210" y1="185" x2="300" y2="130"/>
+    <rect class="svg-box-accent" x="300" y="90" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="400" y="125" text-anchor="middle">globe-mode-c</text>
+    <text class="svg-text" x="400" y="150" text-anchor="middle">globe_mode.h</text>
+    <line class="svg-line" x1="500" y1="130" x2="590" y2="130"/>
+    <rect class="svg-box" x="590" y="90" width="180" height="80" rx="10"/>
+    <text class="svg-text-b" x="680" y="136" text-anchor="middle">globe-mode</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>mise run c:zig     # check: passed=true / simulate: json=14522 bytes, last time=1
+mise run c:julia   # simulate: json=14521 bytes, last time=1.0
+cargo test -p globe-mode-c   # 3 本（C ABI の往復・panic・ヘッダの署名）</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">9</span><span class="l">C の関数</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">足した依存</span></div>
+    <div class="kpi"><span class="n">1</span><span class="l">Decay の最後の時刻</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>Zig・Julia を CI に入れるか決める</li>
+    <li>Julia のパッケージ化と JLL、Elixir の NIF</li>
+    <li>参照シナリオの graph と FMU 出力を Zig・Julia でも通す</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

@@ -39,3 +39,23 @@ Yes (S068, ADR-0029). After compiling, GlobeMode serializes the checked `Dae` (i
 
 - Source: `doc/research/external-builtin-2026-11-01.md`.
 - Impact measured by GlobeMode (S067): with MSL 4.0.0, 70 examples of Buildings, AixLib, IBPSA and DeltaRobot fail only for this reason.
+
+## Addendum (S073, 2026-11-02): in a parameter binding the failure is a generic contract error
+
+When the `external "builtin"` call sits in a parameter binding instead of an equation, the same root cause surfaces as a generic solve-IR contract error, without naming the function:
+
+```modelica
+model InParam "same mycos as in the reproduction file"
+  parameter Real til = 1.5707963267948966;
+  final parameter Real c = mycos(til);
+  Real x(start = 1, fixed = true);
+equation
+  der(x) = -c * x;
+end InParam;
+```
+
+```text
+[EL005] invalid Solve IR contract: pure-call argument or slot interface is invalid
+```
+
+The equation form (`der(x) = -mycos(time) * x`) gives the clear message above (`external builtin function 'mycos' calls 'cos', which this runtime cannot execute`). The message comes from `rumoca-phase-solve/src/error.rs` with `SolveProgramConstructionError::InvalidCallInterface` (`rumoca-ir-solve/src/typed_program/program/construction_error.rs`), which has many raise sites in `rumoca-phase-solve/src/lower/typed_functions.rs`; which one fires was not traced [not verified]. With MSL 4.0.0 this is how `Buildings.HeatTransfer.Convection.Examples.Interior` and `Buildings.HeatTransfer.Windows.BaseClasses.Examples.InteriorConvection` (Buildings 14.0.0, `final parameter Real cosTil = Modelica.Math.cos(til)`) fail. Suggested fix besides executing `builtin`: report the parameter path with the same `cannot execute` message.

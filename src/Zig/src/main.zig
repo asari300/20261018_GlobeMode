@@ -1,0 +1,41 @@
+//! S075: C ABI（globe_mode.h）で GlobeModeValidation.Simulation.Decay を check → simulate し、
+//! 結果の JSON の長さと最後の時刻を表示する。引数: <ライブラリのディレクトリ> <モデル>
+const std = @import("std");
+const gm = @import("gm");
+
+/// ライブラリが返した文字列を Zig の slice にする（放すのは呼び手が gm_string_free で）。
+fn text(p: [*c]u8) []const u8 {
+    return std.mem.span(@as([*:0]const u8, @ptrCast(p)));
+}
+
+pub fn main(init: std.process.Init) !void {
+    const arena = init.arena.allocator();
+    const args = try init.minimal.args.toSlice(arena);
+    if (args.len != 3) return error.Usage;
+
+    const libs = try std.fmt.allocPrintSentinel(arena, "[\"{s}\"]", .{args[1]}, 0);
+    const model = args[2];
+    const ws = gm.gm_workspace_new(libs.ptr) orelse return error.WorkspaceNew;
+    defer gm.gm_workspace_free(ws);
+
+    const check = gm.gm_check(ws, model.ptr);
+    defer gm.gm_string_free(check);
+    const checked = try std.json.parseFromSliceLeaky(std.json.Value, arena, text(check), .{});
+    const passed = checked.object.get("passed").?.bool;
+    std.debug.print("check: passed={}\n", .{passed});
+    if (!passed) return error.CheckFailed;
+
+    const sim = gm.gm_simulate(ws, model.ptr, null);
+    defer gm.gm_string_free(sim);
+    const json = text(sim);
+    const res = try std.json.parseFromSliceLeaky(std.json.Value, arena, json, .{});
+    if (!res.object.get("ok").?.bool) {
+        std.debug.print("{s}\n", .{json});
+        return error.SimulateFailed;
+    }
+    // CSV の最後の行の最初の列が最後の時刻
+    const csv = std.mem.trimEnd(u8, res.object.get("csv").?.string, "\n");
+    const last = csv[(std.mem.lastIndexOfScalar(u8, csv, '\n') orelse 0) + 1 ..];
+    const t = try std.fmt.parseFloat(f64, last[0..std.mem.indexOfScalar(u8, last, ',').?]);
+    std.debug.print("simulate: json={d} bytes, last time={d}\n", .{ json.len, t });
+}
