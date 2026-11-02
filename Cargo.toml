@@ -37,6 +37,8 @@ serde_json = "1"
 lsp-types = "0.97"
 # S039: Python の束ね（globe-mode-py だけ）。abi3-py312 は pyproject.toml の [tool.maturin] で立てる（Python 3.12 以上の 1 つの wheel）
 pyo3 = "0.30"
+# S082: Erlang の NIF の束ね（globe-mode-nif だけ。Elixir・Gleam から使う）
+rustler = "0.39"
 clap = { version = "4.5", features = ["derive"] }
 salsa = "0.28.5"
 # S012: wasm の束ね（globe-mode-wasm だけ）。CLI の wasm-bindgen（mise.toml）と同じ版でないと糊が作れないので、

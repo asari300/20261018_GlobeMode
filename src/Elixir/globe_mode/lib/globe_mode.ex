@@ -1,0 +1,47 @@
+defmodule :globe_mode_nif do
+  @moduledoc false
+  # S082: Rustler の NIF（globe-mode-nif の libglobe_mode_nif.so）。Gleam からも @external でこの名前で呼べる
+  @on_load :load
+
+  def load do
+    path = System.get_env("GLOBE_MODE_NIF", "libglobe_mode_nif")
+    :erlang.load_nif(String.to_charlist(path), 0)
+  end
+
+  def new(_libraries), do: :erlang.nif_error(:not_loaded)
+  def set_file(_ws, _path, _text), do: :erlang.nif_error(:not_loaded)
+  def load_dir(_ws, _dir), do: :erlang.nif_error(:not_loaded)
+  def check(_ws, _model), do: :erlang.nif_error(:not_loaded)
+  def graph(_ws, _model, _depth), do: :erlang.nif_error(:not_loaded)
+  def simulate(_ws, _model, _settings_json), do: :erlang.nif_error(:not_loaded)
+  def solvers, do: :erlang.nif_error(:not_loaded)
+end
+
+defmodule GlobeMode do
+  @moduledoc """
+  GlobeMode の Elixir の束ね（S082）。面は Python の `globe_mode.Workspace` と同じ。
+
+  NIF の場所は環境変数 `GLOBE_MODE_NIF`（拡張子 `.so` を除いたパス）。結果は `{:ok, map}` か `{:error, 理由}`。
+  """
+
+  @doc "`libraries` はライブラリのディレクトリ（MSL など）。"
+  def new(libraries \\ []), do: :globe_mode_nif.new(libraries)
+
+  def set_file(ws, path, text), do: :globe_mode_nif.set_file(ws, path, text)
+
+  @doc "ディレクトリの下の `.mo` をすべて読み、`{:ok, 読んだ数}`。"
+  def load_dir(ws, dir), do: :globe_mode_nif.load_dir(ws, dir)
+
+  def check(ws, model), do: decode(:globe_mode_nif.check(ws, model))
+
+  def graph(ws, model, depth \\ 1), do: decode(:globe_mode_nif.graph(ws, model, depth))
+
+  @doc "`settings` は `%{stop_time: 2, solver: \"bdf\"}` など。"
+  def simulate(ws, model, settings \\ %{}),
+    do: decode(:globe_mode_nif.simulate(ws, model, JSON.encode!(settings)))
+
+  def solvers, do: decode(:globe_mode_nif.solvers())
+
+  defp decode({:ok, json}), do: {:ok, JSON.decode!(json)}
+  defp decode(error), do: error
+end

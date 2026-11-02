@@ -400,6 +400,11 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 
 - **ソルバ別の表**: `msl-sim.yml` にジョブ `solvers`（`msl-sim` の後。14 ソルバの matrix で `msl-sim --solver <名前> --tolerance-scale 0.1`。cvode・ida は xtask のビルドに `--features globe-mode-exec/sundials`）と `solvers-report`（`cargo xtask msl-solvers`）を足し、[msl-solvers.md](msl-solvers.md) を作った（run 41194959752、全ジョブ成功、ソルバのジョブは 63〜174 分）。対象 356 本のうち実行できたのは 283（dopri853）〜301（bdf）本、管に収まった割合は 95.2（trbdf2）〜98.3%（ida）。`auto` は 309・301/308。`bdf` 単独と `auto` の差 8 本は、`bdf` の内部エラー（`GM-U0005`）10 本を dopri45 の回し直しで救ったもの。入れなかったもの: `qss`、固定刻み、`esdirk23`、別名（理由は解説書）。これで P8「ソルバの表がそろう」の数字の土台ができた。更新は `gh workflow run msl-sim.yml`（手元では回さない）。
 
+### S082（P7、2026-11-02）で済んだこと
+
+- **Elixir の NIF**（S075 の持ち越し。[解説書](sessions/S082-elixir-nif/解説書.md)）: 新しい crate `globe-mode-nif`（Rustler 0.39 の cdylib、facade だけに依存）が Erlang モジュール `globe_mode_nif` に `globe-mode-py` と同じ面（`new(libraries)` / `set_file` / `load_dir` / `check` / `graph` / `simulate` / `solvers`）を出す。結果は JSON の文字列で、`src/Elixir/globe_mode` の `GlobeMode` が Elixir 1.18 の標準 `JSON` でデコードする（Hex の依存 0）。重い呼び出しは dirty scheduler。`mise run elixir:test` が Decay を check → simulate して最後の時刻 1 を確かめ、CI のジョブ `lang` でも回す（`MISE_DISABLE_TOOLS=elixir` なら飛ばす）。
+- 持ち越し: Gleam の `@external` の例、rustler_precompiled での配布（Hex）。
+
 ### S079（P4、2026-11-02）で済んだこと
 
 - **ライブラリのモデルの connect グラフ**（S039・S046・S048 の持ち越し）: `GlobeDb::connect_graph` は、ワークスペースの索引にモデルが無く、ライブラリがあれば、検査器の `Checker::library_outlines(model)`（Session のライブラリの文書のアウトライン。分割読み込みなら検査と同じ閉包を先に読む）とワークスペースの文書から索引を作って引く。`with_libraries`・`with_libraries_full`・`with_library_sources`・`with_library_sources_split` のどれでも `GlobeModeValidation.Connect.RealCircuit` が 4 ノード、MSL の `ChuaCircuit` が 7 ノード（深さ 1）。facade を通る UI（wasm）・Python・LSP にそのまま効く。[解説書](sessions/S079-graph-library-models/解説書.md)
@@ -418,7 +423,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 ### S075（P7、2026-11-02）で済んだこと
 
 - **C ABI と Zig・Julia の例**（[解説書](sessions/S075-c-abi/解説書.md)）: 新しい crate `globe-mode-c`（cdylib + staticlib、facade だけに依存、依存の追加 0）が `globe-mode-py` と同じ面を `extern "C"` で出す（`gm_workspace_new(libraries_json)` / `gm_workspace_free` / `gm_set_file` / `gm_load_dir` / `gm_check` / `gm_graph` / `gm_simulate` / `gm_solvers` / `gm_string_free`）。結果は JSON の `char *`、誤りは `{"error": …}`、panic は `catch_unwind` で止める。ヘッダ `include/globe_mode.h` は手書きで、`tests/header.rs` が署名を突き合わせる（cbindgen は入れない）。`src/Zig`（`build.zig` が translate-c と link、Zig 0.17）と `src/Julia/globe_mode.jl`（`ccall` だけ）が `GlobeModeValidation.Simulation.Decay` を check → simulate し、最後の時刻 1 を表示する（`mise run c:zig` / `c:julia`）。CI には入れていない。
-- 持ち越し: ~~Zig・Julia を CI に入れる~~（S077 で済。ci.yml のジョブ `lang`、[解説書](sessions/S077-ci-lang-wheel/解説書.md)）、Julia のパッケージ化と JLL、Elixir の NIF、参照シナリオの graph と FMU 出力を Zig・Julia で通す。
+- 持ち越し: ~~Zig・Julia を CI に入れる~~（S077 で済。ci.yml のジョブ `lang`、[解説書](sessions/S077-ci-lang-wheel/解説書.md)）、Julia のパッケージ化と JLL、~~Elixir の NIF~~（S082 で済。[解説書](sessions/S082-elixir-nif/解説書.md)）、参照シナリオの graph と FMU 出力を Zig・Julia で通す。
 
 ### S071（P3、2026-11-02）で済んだこと
 
