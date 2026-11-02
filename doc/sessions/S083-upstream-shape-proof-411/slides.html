@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S083 MSL 4.1.0 の ED019 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S083 MSL 4.1.0 の ED019">
+
+<section class="slide" id="S01">
+  <span class="tag">S083 · 2026-11-02 · P3</span>
+  <h1>MSL 4.1.0 の ED019</h1>
+  <p class="lead">S080 の【未確認】: <code>function shape proof</code> 12 本・<code>axis 1</code> 5 本・<code>splineDerivatives</code></p>
+  <div class="big"><b>25b と同じは 1 本だけ</b>。残りは 6 つの別の形（25c〜25h）</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>何をしたか</h1>
+  <ul>
+    <li>例題の失敗の行を Rumoca の CLI で特定し、関数を写して 1 つずつ外す（二分法）</li>
+    <li>ライブラリの写しでその行だけを直し、エラーが消えるかを確かめる</li>
+    <li>S080 で見えた CLI の ER002 を 1 つ最小にする（下書き 27）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由 · dependent extent 12 本</span>
+  <h1>4 つの形</h1>
+  <table>
+    <tr><th>再現</th><th>形</th><th>本数</th></tr>
+    <tr><td>25b</td><td>TFS の MSL 4.0.0 の写し <code>X[nX]</code></td><td>1</td></tr>
+    <tr><td>25c</td><td><code>Integer npol = size(poly_Cp, 1) - 1</code></td><td>2</td></tr>
+    <tr><td>25d</td><td><code>occupancy[nRow]</code> が入力 <code>nRow</code> より前</td><td>3</td></tr>
+    <tr><td>25e</td><td>record の <code>Real[nc] a</code> を関数の局所変数に</td><td>6</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由 · 残り</span>
+  <h1>axis 1 と splineDerivatives</h1>
+  <div class="cols-2">
+    <div class="card"><b>25f・25h（5 本）</b><br><code>b[:]</code> が後で宣言する定数を読む（Steam 3）、<code>Real[:] X</code> を呼び出しの結果で決める（MoistAir 2）</div>
+    <div class="card"><b>25g（25 本）</b><br>for で定めた出力の配列を、for だけの if の枝で書き直す。25 と同じ検査の別の入り口</div>
+  </div>
+  <p>どれも MLS §11.2・§12.4 の範囲。omc は通す。<b>Rumoca の穴・未対応</b>で、ライブラリの誤りは 0。</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">図</span>
+  <h1>例題から再現へ</h1>
+  <svg viewBox="0 0 900 220" role="img" aria-label="例題から自己完結の再現まで">
+    <rect class="svg-box" x="10" y="70" width="190" height="70" rx="8"/>
+    <text class="svg-text" x="105" y="100" text-anchor="middle">例題</text>
+    <text class="svg-text" x="105" y="122" text-anchor="middle">artifact の JSON</text>
+    <rect class="svg-box" x="240" y="70" width="190" height="70" rx="8"/>
+    <text class="svg-text" x="335" y="100" text-anchor="middle">CLI で行を特定</text>
+    <text class="svg-text" x="335" y="122" text-anchor="middle">R134a.mo 53 行など</text>
+    <rect class="svg-box" x="470" y="70" width="190" height="70" rx="8"/>
+    <text class="svg-text" x="565" y="100" text-anchor="middle">写しで 1 行直す</text>
+    <text class="svg-text" x="565" y="122" text-anchor="middle">消えるか</text>
+    <rect class="svg-box-accent" x="700" y="70" width="190" height="70" rx="8"/>
+    <text class="svg-text" x="795" y="100" text-anchor="middle">Rep29〜Rep35</text>
+    <text class="svg-text" x="795" y="122" text-anchor="middle">自己完結</text>
+    <line class="svg-line" x1="200" y1="105" x2="240" y2="105"/>
+    <line class="svg-line" x1="430" y1="105" x2="470" y2="105"/>
+    <line class="svg-line" x1="660" y1="105" x2="700" y2="105"/>
+  </svg>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">再現手順</span>
+  <h1>検証</h1>
+  <pre><code>rumoca compile 25c-*.mo -m Rep29.M    # ED019
+rumoca compile 27-*.mo -m Rep35.M     # ER002
+globe check 25e-*.mo --model Rep31.M
+omc: loadFile(...); checkModel(Rep31.M)</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">25/25</span><span class="l">globe と CLI が一致</span></div>
+    <div class="kpi"><span class="n">25/25</span><span class="l">omc が通す</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>下書き 25・27 を Rumoca の main で確かめて出す（ユーザー）。25 は形ごとに分けるかを決める</li>
+    <li>ER002（27）で止まるライブラリの例題を数える。EF024・ET004 は持ち越し</li>
+    <li>ED008 の <code>i</code> の 18 本は持ち越し</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

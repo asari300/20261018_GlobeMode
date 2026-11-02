@@ -1,6 +1,6 @@
 # 上流（Rumoca・diffsol）への報告の下書き
 
-S045（計画書の WP-H）で書いた（15 は S055、16 は S068、17〜21 は S070、24〜26 は S072。20・25 の追記と `20b`・`25b` の再現は S080）、[Rumoca](https://github.com/CogniPilot/rumoca) と [diffsol](https://github.com/martinjrobins/diffsol) に出す issue の下書き。元の記録は [../msl-sim-failures.md](../msl-sim-failures.md) の「上流に報告する候補」と、[../../roadmap.md](../../roadmap.md) の候補 8。
+S045（計画書の WP-H）で書いた（15 は S055、16 は S068、17〜21 は S070、24〜26 は S072。20・25 の追記と `20b`・`25b` の再現は S080、25 の 2 回目の追記と `25c`〜`25h`・27 は S083）、[Rumoca](https://github.com/CogniPilot/rumoca) と [diffsol](https://github.com/martinjrobins/diffsol) に出す issue の下書き。元の記録は [../msl-sim-failures.md](../msl-sim-failures.md) の「上流に報告する候補」と、[../../roadmap.md](../../roadmap.md) の候補 8。
 
 - **出すのはユーザー。エージェントは出さない**（`gh issue create` を使わない）。
 - **出すときは、再現を Rumoca の最新（main）で確かめてから出す。** 下書きの環境は Rumoca v0.10.2（rev `276e82bd`）、MSL 4.1.0。Rumoca の CLI がこの環境に無いまま書いた件は、本文に「[not verified]」と書いてある。
@@ -33,8 +33,9 @@ S045（計画書の WP-H）で書いた（15 は S055、16 は S068、17〜21 �
 | 20 | [extends が 2 つの関数（MSL `Files.loadResource`）の呼び出しと、2 つの Medium の別名の関数を EF025 で断る](20-ef025-function-selection-identity.md) — どちらも Rumoca の穴。138 本（`loadResource` 136・Medium 2） | Rumoca | [20](20-ef025-function-selection-identity.mo)（MSL だけ、自己完結の版も）、[20b](20b-ef025-two-medium-aliases-modified-extends.mo)（自己完結。Medium が 1 つ・修正の無い extends・同じ package なら通る） | なし | 下書き |
 | 21 | [`getInstanceName()` を parameter の束縛に書くと、成分配列を含む式の if 方程式で EF004](21-ef004-getinstancename-and-if-equation-branches.md) — どちらも Rumoca の穴（原因は 2 つ）。217 本 | Rumoca | [21](21-ef004-getinstancename-and-if-equation-branches.mo)（自己完結） | なし | 下書き |
 | 24 | [条件付き成分の条件が別の package の定数を読むと EI006 で断る](24-ei006-condition-on-package-constant.md) — Rumoca の穴（MLS §4.4.5・§3.8）。117 本 | Rumoca | [24](24-ei006-condition-on-package-constant.mo)（自己完結。モデルの定数・parameter なら通る） | なし | 下書き |
-| 25 | [Boolean の出力の関数で、if の枝が代入のあと for を回すと ED019 `function conditional`](25-ed019-function-conditional-boolean-loop.md) — Rumoca の未対応（MLS §11.2・§12.2 は制限しない）。ED019 125 本のうち同じメッセージ 44 本。追記: 入力の次元が package の定数で、その定数を extends の修正で変えると ED019 `function shape proof`（MSL 4.0.0 の `PartialSimpleMedium`、`SensorVerification`） | Rumoca | [25](25-ed019-function-conditional-boolean-loop.mo)（自己完結。Real の出力なら通る）、[25b](25b-ed019-function-shape-proof-modified-package-constant.mo)（自己完結。修正の無い extends・`x[:]` なら通る） | なし | 下書き（`splineDerivatives` は要再現） |
+| 25 | [Boolean の出力の関数で、if の枝が代入のあと for を回すと ED019 `function conditional`](25-ed019-function-conditional-boolean-loop.md) — Rumoca の未対応（MLS §11.2・§12.2 は制限しない）。ED019 125 本のうち同じメッセージ 44 本。追記: 入力の次元が package の定数で、その定数を extends の修正で変えると ED019 `function shape proof`（MSL 4.0.0 の `PartialSimpleMedium`、`SensorVerification`） | Rumoca | [25](25-ed019-function-conditional-boolean-loop.mo)（自己完結。Real の出力なら通る）、[25b](25b-ed019-function-shape-proof-modified-package-constant.mo)（自己完結。修正の無い extends・`x[:]` なら通る）、S083 の [25c](25c-ed019-function-shape-proof-size-of-call-sized-constant.mo)〜[25h](25h-ed019-function-shape-proof-flexible-array-from-call.mo)（自己完結。下の「ED019 の残り（S083）」） | なし | 下書き |
 | 26 | [package の record 定数の成分を読むと ED008 unresolved Flat reference](26-ed008-field-of-package-record-constant.md) — Rumoca の内部エラー。ED008 108 本のうち `Media.Air.dryair.cp` 47 本 | Rumoca | [26](26-ed008-field-of-package-record-constant.mo)（自己完結。スカラの定数・モデルの record 定数なら通る） | なし | 下書き（`i` の 18 本は要再現） |
+| 27 | [extends で継いだ入れ子のクラスを、継いだ package の名前で引くと ER002](27-er002-inherited-class-through-extending-package.md) — Rumoca の穴（MLS §7.1・§5.3.2）。ライブラリの例題では未確認 | Rumoca | [27](27-er002-inherited-class-through-extending-package.mo)（自己完結。宣言した package・replaceable な別名なら通る） | なし（replaceable な別名で書く） | 下書き |
 
 ## 公開ライブラリの失敗から（17〜21、S070）
 
@@ -49,7 +50,7 @@ S070 と同じ手順で、S070 の「次回」に挙げた 5 つのコード（E
 | 22 | ER023（ClaRa 3 本） | **正当**（MLS の規定上の拒否）。下書きは書かない | MLS 3.6 §4.6「record に直接宣言する成分は record か type に限る」。`class … extends ExternalObject`（TILMedia）は class。omc は緩く通す。Rumoca のメッセージの節番号 §4.7 は 3.6 では §4.6（Balanced Models が §4.7）。再現は [22](22-er023-record-component-externalobject.mo) |
 | 23 | ER003（ClaRa 2・AixLib 1） | **正当**（無い基底クラス）。ClaRa の 2 本は依存の取得で避けられる（GlobeMode 側の回避。SMArtInt は取得していない）、AixLib の 1 本はライブラリの誤り。下書きは書かない | ClaRa は取得しない依存 `SMArtInt.Internal.ClaRaDelay`。AixLib は `Modelica.Media.Examples.Tests.Components.PartialTestModel2` を引くが、MSL 4.0.0 にも 4.1.0 にも無い（`Modelica.Media.Examples.Utilities.PartialTestModel2` にある）。omc も同じ再現を断る。再現は [23](23-er003-base-class-not-found.mo) |
 | 24 | EI006 | **Rumoca の穴** | 別の package の定数を読む条件は parameter 式（MLS §4.4.5・§3.8.2・§3.8.3）。omc は通す |
-| 25 | ED019 | **Rumoca の未対応**（`function conditional`。代表の形だけ） | 文の組み合わせに MLS の制限は無い。omc は通す。`function shape proof` は S080 で最小の再現 [25b](25b-ed019-function-shape-proof-modified-package-constant.mo) を作った（MSL 4.0.0 の `SensorVerification`。MSL 4.1.0 で出るほかの 12 本が同じ形かは【未確認】） |
+| 25 | ED019 | **Rumoca の未対応**（`function conditional`。代表の形だけ） | 文の組み合わせに MLS の制限は無い。omc は通す。`function shape proof` は S080 で最小の再現 [25b](25b-ed019-function-shape-proof-modified-package-constant.mo) を作った（MSL 4.0.0 の `SensorVerification`）。MSL 4.1.0 で出るほかの 12 本と `splineDerivatives` は S083 で 25c〜25h にした |
 | 26 | ED008 | **Rumoca の穴**（内部エラー） | package の定数は名前で引ける（MLS §5.3.2）。omc は通す |
 
 ## 残りの 2 つの形（20b・25b、S080）
@@ -60,6 +61,21 @@ S070・S072 で【未確認】だった 2 つを、ライブラリの例題か�
 | --- | --- | --- | --- |
 | [25b](25b-ed019-function-shape-proof-modified-package-constant.mo) | ED019 `function shape proof` | **Rumoca の穴**（MLS §10.1・§7.2） | 関数の入力 `x[n]` を `x[:]` にする、または package の `extends P(n = 2)` の修正を外す。MSL 4.0.0 の `PartialSimpleMedium.specificEnthalpy_pTX`（`X[nX]`）が原因で、4.1.0 は `X[:]` |
 | [20b](20b-ef025-two-medium-aliases-modified-extends.mo) | EF025 `multiple exact override package selections` | **Rumoca の穴**（MLS §5.3） | 同じモデルの Medium の別名を 1 つにする、extends の修正を外す、または同じ package を 2 回指す |
+
+## ED019 の残り（25c〜25h・27、S083）
+
+S080 で【未確認】だった、MSL 4.1.0 で出る ED019 を二分法で最小にした（確認日 2026-11-02。本数は libraries の run 41365960542 の `*-funnel.json`）。新しい番号は作らず、25 に「The remaining ED019 messages」の節を足した。再現は `globe check` と Rumoca v0.10.2 の CLI で同じコードが出て、対照は両方で通る。omc 1.27.2 の `checkModel` は全部通す（27 と合わせて 25 本）。モデル名は `Rep29`〜`Rep35`。
+
+| 再現 | メッセージ | 判定 | 消える条件 | 本数 |
+| --- | --- | --- | --- | ---: |
+| 25b（S080） | `dependent extent ...` | 同じ形（ThermofluidStream の MSL 4.0.0 の写しの `X[nX]`） | `X[:]` | 1 |
+| [25c](25c-ed019-function-shape-proof-size-of-call-sized-constant.mo) | `dependent extent ...` | **Rumoca の穴**（MLS §12.4.5）。別の形 | 呼び出しで大きさの決まる package 定数の `size` を関数の `Integer` の局所変数に束縛しない | 2 |
+| [25d](25d-ed019-function-shape-proof-dimension-before-input.mo) | `dependent extent ...` | **Rumoca の穴**（MLS §12.4.1・§12.4.4）。別の形 | 次元の入力 `n` を配列の入力より前に宣言する | 3 |
+| [25e](25e-ed019-function-shape-proof-record-local-dimension.mo) | `dependent extent ...` | **Rumoca の穴**（MLS §12.4.5。`constant` でも出る）。別の形 | record の配列の次元を数で書く | 6 |
+| [25f](25f-ed019-function-shape-proof-binding-reads-later-constant.mo) | `` `b`: axis 1 is variable-size ... `` | **Rumoca の穴**（MLS §12.4.4）。別の形 | 束縛が読む定数を前に宣言する | 3 |
+| [25h](25h-ed019-function-shape-proof-flexible-array-from-call.mo) | `` `X`: axis 1 is variable-size ... `` | **Rumoca の穴**（MLS §12.4.5）。別の形 | 局所の配列の大きさを宣言する | 2 |
+| [25g](25g-ed019-function-conditional-loop-only-branch.mo) | `function conditional`（`splineDerivatives`） | **Rumoca の未対応**（MLS §11.2）。25 と同じ検査の別の入り口（Real の配列の出力） | 最初の for を `d := y` にする、枝に代入を書く | 25 |
+| [27](27-er002-inherited-class-through-extending-package.mo) | ER002 | **Rumoca の穴**（MLS §7.1・§5.3.2）。S080 で見えた CLI の失敗 | 宣言した package か replaceable な別名で引く | 未確認 |
 
 ## 下書きにしなかったもの
 

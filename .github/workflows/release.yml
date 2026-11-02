@@ -7,7 +7,8 @@
 # 各アーカイブには、cargo-about（about.toml・about.hbs）で作ったサードパーティのライセンス表 THIRD-PARTY.md も入れる（S052）。
 # 同じ 3 ターゲットで Python の wheel（globe-mode-py、abi3-py312）も `uv build --wheel` で作り、その wheel を入れて pytest を回す（S074）。
 # wheel の版はタグの push ではタグ（v を除く）、dry-run では pyproject.toml の version。Linux の wheel は
-# maturin の --compatibility で manylinux_2_39 の tag を付ける（maturin が glibc の記号を検査する。S077）。
+# maturin の --zig（zig cc で glibc 2.28 を狙う）と --compatibility manylinux_2_28 で manylinux_2_28 の tag を付ける
+# （maturin が glibc の記号を検査する。S077・S086）。
 # wheel の中の globe_mode/THIRD-PARTY.md は同じ about.toml・about.hbs で globe-mode-py から作る（cli との差は pyo3 の 5 crate）。
 name: release
 
@@ -79,7 +80,7 @@ jobs:
       - uses: jdx/mise-action@v5
         if: runner.os == 'Linux'
         with:
-          install_args: rust uv
+          install_args: rust uv zig
       # Windows では mise の shim 経由の cargo が失敗したので、ランナーの rustup を直接使う（ci.yml の rust-windows と同じ）
       - if: runner.os == 'Windows'
         run: rustup toolchain install stable --profile minimal --no-self-update && rustup default stable && python -m pip install uv
@@ -125,8 +126,9 @@ jobs:
         run: |
           if [ "$IS_TAG" = "true" ]; then sed -i "0,/^version = /s/^version = .*/version = \"${GITHUB_REF_NAME#v}\"/" pyproject.toml; fi
           grep -m1 '^version' pyproject.toml
-          # PEP 517 の既定は linux_* の tag で PyPI に出せない。2_34 は GLIBC_2.39 の記号で落ちた（run 41376053596）ので、ランナーの glibc 2.39
-          if [ "$RUNNER_OS" = "Linux" ]; then export MATURIN_PEP517_ARGS="--compatibility manylinux_2_39"; fi
+          # PEP 517 の既定は linux_* の tag で PyPI に出せない。ランナーの glibc 2.39 のままだと 2_34 も落ちた（run 41376053596）ので、
+          # --zig で古い glibc に link する（S086。Debian 12・RHEL 9 にも入る）
+          if [ "$RUNNER_OS" = "Linux" ]; then export MATURIN_PEP517_ARGS="--compatibility manylinux_2_28 --zig"; fi
           cp THIRD-PARTY-wheel.md src/Python/mod/globe_mode/THIRD-PARTY.md
           uv build --wheel --out-dir wheel
           ls -l wheel
