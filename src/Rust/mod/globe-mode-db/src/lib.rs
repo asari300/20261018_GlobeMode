@@ -474,6 +474,8 @@ pub struct GlobeDb {
     workspace: Option<Workspace>,
     /// salsa の外の検査器（中の Rumoca の Session は共有される）
     checker: Checker,
+    /// ライブラリの文書のアウトラインと、その世代（[`Checker::library_outlines`]。S081）
+    library_outlines: Option<(usize, Vec<Outline>)>,
 }
 
 #[salsa::db]
@@ -558,6 +560,7 @@ impl GlobeDb {
             files: BTreeMap::new(),
             workspace: None,
             checker,
+            library_outlines: None,
         }
     }
 
@@ -640,16 +643,29 @@ impl GlobeDb {
 
     pub fn connect_graph(&mut self, model: &str, depth: u32) -> Result<ConnectGraph, GraphError> {
         let ws = self.workspace();
-        let request = GraphRequest::new(self, model.to_string(), depth);
-        let graph = connect_graph(self, ws, request).clone();
-        if graph.is_ok() || self.checker.libraries().is_empty() {
-            return graph;
+        if self.checker.libraries().is_empty() {
+            let request = GraphRequest::new(self, model.to_string(), depth);
+            return connect_graph(self, ws, request).clone();
         }
-        // ワークスペースに無いモデルはライブラリから引く（S079）。ワークスペースのクラスを後に置いて優先する
-        // shortcut: salsa の外で毎回索引を作る（MSL を全部読んだ DB で 2556 文書）。遅ければクエリにする
-        let library = self.checker.library_outlines(model);
+        // ライブラリがあれば、ワークスペースのモデルの部品も引けるよう常に合わせる（S079・S081）。
+        // ワークスペースのクラスを後に置いて優先する。ライブラリのアウトラインは世代ごとに持つ
+        // shortcut: 索引（ClassIndex）は毎回作る（MSL で数十 ms）。遅ければ索引ごと持つ
+        let sources: Vec<Source<'_>> = ws
+            .files(self)
+            .iter()
+            .map(|f| Source {
+                name: f.path(self),
+                text: f.text(self),
+            })
+            .collect();
+        let cached = self.library_outlines.as_ref().map(|(g, _)| *g);
+        let fresh = self.checker.library_outlines(&sources, model, cached);
+        if fresh.is_some() {
+            self.library_outlines = fresh;
+        }
+        let library = self.library_outlines.as_ref().map(|(_, o)| o.as_slice());
         let index = ClassIndex::from_outlines(
-            library.iter().chain(
+            library.unwrap_or_default().iter().chain(
                 ws.files(self)
                     .iter()
                     .filter_map(|f| outline_shape(self, *f).as_ref()),
