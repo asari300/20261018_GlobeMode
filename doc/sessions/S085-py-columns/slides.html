@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S085 Python の結果を列で受け取る — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S085 Python の結果を列で受け取る">
+
+<section class="slide" id="S01">
+  <span class="tag">S085 · 2026-11-02 · P6</span>
+  <h1>Python の結果を列で受け取る</h1>
+  <p class="lead">CSV の文字列を作らず、列ごとの f64 の bytes を polars に渡す</p>
+  <div class="big">10 万点 × 7 列で <b>約 490 → 80 ms</b>。新しい依存は 0</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>S039 の持ち越し「Arrow での結果の受け渡し」</li>
+    <li><code>Workspace.simulate</code> は CSV の文字列を返し、<code>table()</code> が解析していた</li>
+    <li>wasm（S051）・Desktop（S076）と同じく、Python も列で受け取る</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table>
+    <tr><th>案</th><th>要るもの</th><th>採否</th></tr>
+    <tr><td>(a) numpy の配列</td><td>crate <code>numpy</code> と Python の numpy</td><td>採らない</td></tr>
+    <tr><td>(b) Arrow IPC</td><td><code>arrow</code> crate（依存 約 25）と <code>pyarrow</code></td><td>採らない</td></tr>
+    <tr><td>(c) 列ごとの <code>bytes</code></td><td>なし（<code>memoryview</code> → <code>pl.Series</code>）</td><td><b>採る</b></td></tr>
+  </table>
+  <ul>
+    <li><code>table()</code> は列があれば列から。CSV の道（<code>simulate</code>）は残す</li>
+    <li>facade・protocol は変えず、py crate が <code>run.trajectory</code> から作る</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>受け渡しの道</h1>
+  <svg class="fig" viewBox="0 0 800 220" role="img" aria-label="facade から polars までの列の受け渡し">
+    <rect class="svg-box" x="10" y="80" width="170" height="70" rx="10"/>
+    <text class="svg-text-b" x="95" y="112" text-anchor="middle">facade</text>
+    <text class="svg-text" x="95" y="134" text-anchor="middle">run.trajectory</text>
+    <line class="svg-line" x1="180" y1="115" x2="215" y2="115"/>
+    <rect class="svg-box-accent" x="215" y="80" width="170" height="70" rx="10"/>
+    <text class="svg-text-b" x="300" y="112" text-anchor="middle">py crate</text>
+    <text class="svg-text" x="300" y="134" text-anchor="middle">列ごとの bytes</text>
+    <line class="svg-line" x1="385" y1="115" x2="420" y2="115"/>
+    <rect class="svg-box" x="420" y="80" width="170" height="70" rx="10"/>
+    <text class="svg-text-b" x="505" y="112" text-anchor="middle">memoryview</text>
+    <text class="svg-text" x="505" y="134" text-anchor="middle">pl.Series</text>
+    <line class="svg-line" x1="590" y1="115" x2="625" y2="115"/>
+    <rect class="svg-box" x="625" y="80" width="165" height="70" rx="10"/>
+    <text class="svg-text-b" x="707" y="112" text-anchor="middle">table()</text>
+    <text class="svg-text" x="707" y="134" text-anchor="middle">DataFrame</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>uv sync --reinstall-package globe-mode
+uv run pytest -q src/Python/tests</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">485〜505</span><span class="l">CSV の道（ms）</span></div>
+    <div class="kpi"><span class="n">79〜82</span><span class="l">列の道（ms）</span></div>
+    <div class="kpi"><span class="n">5</span><span class="l">pytest 通過</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>big-endian の機械は対象外（<code>memoryview</code> の "d" は native-endian）</li>
+    <li>結果のファイル形式としての Arrow IPC は P3 の持ち越しのまま</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
