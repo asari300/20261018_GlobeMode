@@ -5,13 +5,15 @@
 
 dist/ を localhost で配り（CSP は index.html の meta のまま）、Decay を検査して error の診断が 0 件であること、実行するとプロットが出て信号の選択が効くこと（ブラウザの実行は列ごとの道で、data-typed が true。S065）、
 10 万点（4 状態、出力間隔 0.01 s で 1000 s）の結果でも描けて時間を測ること、構造的に特異なモデルを検査して診断の行が出て、行を押すとエディタの選択が動くことを確かめる。1 ファイルの回路で「グラフ」を押して connect グラフが描かれることを確かめる（S046）。
-最後に「MSL を読む」で MSL 4.1.0 を読み（public/msl/MSL.json が無ければ飛ばす）、ChuaCircuit の検査（error 0）と実行（プロットの canvas と系列）を確かめて、秒数を出す（S048）。console の error は失敗。
+最後に「MSL を読む」で MSL 4.1.0 を読み（public/msl/MSL.json が無ければ飛ばす）、ChuaCircuit の検査（error 0）と実行（プロットの canvas と系列）を確かめて、秒数を出す（S048）。
+別のページで MSL.json を構文の誤りのファイルを含むライブラリに差し替え、読み飛ばしの警告 GM-W1001 の行と notes のファイル名が出ることを確かめる（S071）。console の error は失敗。
 """
 
 from __future__ import annotations
 
 import functools
 import http.server
+import json
 import subprocess
 import sys
 import threading
@@ -21,6 +23,7 @@ from pathlib import Path
 from playwright.sync_api import expect, sync_playwright
 
 DIST = Path(__file__).resolve().parents[1] / "dist"
+TOLERANT = Path(__file__).resolve().parents[2] / "Rust/mod/globe-mode-frontend/tests/data/tolerant/a/A"
 # 10 万点: 出力間隔 0.01 s で 1000 s
 BIG = (
     "model Big\n  Real a(start = 1, fixed = true);\n  Real b(start = 1, fixed = true);\n  Real c(start = 1, fixed = true);\n"
@@ -168,6 +171,25 @@ def main() -> int:
             print(f"ChuaCircuit のグラフ（未対応）: {page.get_by_role('alert').first.inner_text()[:80]!r}")
         else:
             print("public/msl/MSL.json が無いので MSL の試験は飛ばす")
+        # ライブラリに構文の誤りのファイルがあっても読み、読み飛ばしを GM-W1001 の行（ファイル名は notes）で出す（S071）。
+        # MSL.json の取得を差し替えて、frontend の fixture（tests/data/tolerant/a）を渡す
+        lib = TOLERANT.parent
+        files = {p.relative_to(lib).as_posix(): p.read_text(encoding="utf-8") for p in sorted(TOLERANT.glob("*.mo"))}
+        tolerant = browser.new_page()
+        tolerant.on("console", lambda m: m.type == "error" and errors.append(m.text))
+        tolerant.on("pageerror", lambda e: errors.append(str(e)))
+        tolerant.route("**/msl/MSL.json", lambda route: route.fulfill(status=200, content_type="application/json", body=json.dumps(files)))
+        tolerant.goto(f"http://127.0.0.1:{server.server_port}/")
+        tolerant.get_by_role("button", name="MSL を読む").click(force=True)
+        expect(tolerant.locator("p.note")).to_have_attribute("data-msl", "loaded", timeout=120_000)
+        tolerant.get_by_label("モデル名").fill("A.Broken")
+        button = tolerant.get_by_role("button", name="検査")
+        button.click(force=True)
+        expect(button).to_be_enabled(timeout=120_000)
+        warned = tolerant.locator("table.diagnostics tr", has_text="GM-W1001")
+        expect(warned).to_have_count(1, timeout=30_000)
+        assert "Broken.mo" in warned.inner_text(), warned.inner_text()
+        print(f"構文の誤りのライブラリ: {warned.inner_text().replace(chr(9), ' ')[:120]!r}")
         browser.close()
     server.shutdown()
     assert not errors, errors

@@ -405,6 +405,11 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **C ABI と Zig・Julia の例**（[解説書](sessions/S075-c-abi/解説書.md)）: 新しい crate `globe-mode-c`（cdylib + staticlib、facade だけに依存、依存の追加 0）が `globe-mode-py` と同じ面を `extern "C"` で出す（`gm_workspace_new(libraries_json)` / `gm_workspace_free` / `gm_set_file` / `gm_load_dir` / `gm_check` / `gm_graph` / `gm_simulate` / `gm_solvers` / `gm_string_free`）。結果は JSON の `char *`、誤りは `{"error": …}`、panic は `catch_unwind` で止める。ヘッダ `include/globe_mode.h` は手書きで、`tests/header.rs` が署名を突き合わせる（cbindgen は入れない）。`src/Zig`（`build.zig` が translate-c と link、Zig 0.17）と `src/Julia/globe_mode.jl`（`ccall` だけ）が `GlobeModeValidation.Simulation.Decay` を check → simulate し、最後の時刻 1 を表示する（`mise run c:zig` / `c:julia`）。CI には入れていない。
 - 持ち越し: Zig・Julia を CI に入れる、Julia のパッケージ化と JLL、Elixir の NIF、参照シナリオの graph と FMU 出力を Zig・Julia で通す。
 
+### S071（P3、2026-11-02）で済んだこと
+
+- **in-memory のライブラリの読み込みも構文の誤りのファイルを読み飛ばす**（S066 の持ち越し。[解説書](sessions/S071-ui-w1001-tolerant-wasm/解説書.md)）: `Checker::with_library_sources`（全部読み）と `with_library_sources_split`（分割読み。wasm とネイティブの既定の `Workspace::with_libraries`）が、読めないファイルを読み飛ばして `GM-W1001` を付ける。読めるファイルが 0 なら今まで通り `GM-E1003`。警告の組み立ては `Checker::new` の道と共有する。分割読みは読んだファイルの分だけを知らせる（`skipped_library_files()` には出ない）。
+- **UI の診断の表に notes を出す**: ファイルや範囲の無い診断の行は元から出ていた。読み飛ばしたファイル名は notes にあるので、表のメッセージの下に出す。`test_ui.py` は `MSL.json` を fixture に差し替えて `GM-W1001` の行を確かめる。
+
 ### S069（P4、2026-11-01）で済んだこと
 
 - **MSL の置き場**（S056 の持ち越し）: [ADR-0030](adr/0030-desktop-msl-placement.md)。同梱せず、初回に app data dir の `msl/4.1.0/` へ取得する。`--library`・`GLOBE_LIBRARY` があればそれを優先。Rust 側は `src/Rust/apps/desktop/src/msl.rs`（`curl` で落とす → sha256 照合 → 展開 → 目印を最後に）と command `fetch_msl`（取得のあと sidecar を作り直す）。UI は Desktop でだけ「MSL を取得する（29 MB、初回のみ）」ボタン。URL・sha256・目印は xtask の `fetch-msl` と同じで、一致は `desktop.yml` が確かめる。
@@ -511,7 +516,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **`Checker::new` が読めるファイルだけでライブラリを読む**（S058・S063 の持ち越し。[research/libraries-2026-11-01.md](research/libraries-2026-11-01.md) の節「読めるファイルだけでライブラリを読む」、[解説書](sessions/S066-libs-tolerant-roots/解説書.md)）: 従来の道（ルート 1 つは `load_source_root_tolerant`、2 つ以上は `parse_source_root_with_cache`）が失敗したルートだけ、`.mo` を集めて `parse_files_parallel_lenient` で 1 ファイルずつ読み、読めた文書を `replace_parsed_source_set` に渡す。読めなかったファイルは `Checker::skipped_library_files()` と、検査の結果の S1 の警告 `GM-W1001`（ルートごとに 1 件）で知らせる。Rumoca は改変せず、公開 API だけを使う。パッケージ配置の検査（PKG-006・PKG-010）は非公開で呼べないので、失敗したルートでは飛ばして警告に書く。全部読めるルート（MSL）の道は変えない。
 - **xtask の迂回を外した**: `mirror_libraries`・`layout_offenders`（最大 20 回の繰り返し）・`libs::unparsable_files` を削り、`make_checker` は `Checker::new(&[msl, lib…])` を呼ぶだけ。読み飛ばしの一覧 `target/library-roots/<名前>.skipped.txt` は今も書く（libraries.yml の artifact）。
 - 検証: `tests/tolerant_roots.rs` の 4 本（ルート 1 つ・2 つ・`package.mo` の無いディレクトリ・警告なし）、`cargo test -p globe-mode-frontend -p xtask`、`mise run msl:compare` 20/20。手元の `msl-funnel`（release）は ThermofluidStream 122 本・ClaRa 5 本とも S063 の run と判定の差 0（OK 4 / 0、時間も同じ）。Actions（`libraries.yml`、run 41295588356、Chemical・ClaRa・ThermofluidStream・DeltaRobot）の結果は成功（親が確認）。表の 4 行は S063（run 41250636800）と例題・OK・NG・GM-U・panic・実行できた のすべてが同じ: Chemical 76 / 12 / 21 / 43 / 0 / 0、ClaRa 5 / 0 / 5 / 0 / 0 / 0、DeltaRobot 21 / 9 / 7 / 5 / 0 / 5、ThermofluidStream 122 / 4 / 3 / 115 / 0 / 2。
-- 持ち越し: 配置の誤りを警告以上にするには Rumoca に検査の公開が要る。`GM-W1001` を UI の診断の一覧に出す。wasm の `with_library_sources` は構文の誤りで断るまま。
+- 持ち越し: 配置の誤りを警告以上にするには Rumoca に検査の公開が要る。~~`GM-W1001` を UI の診断の一覧に出す。wasm の `with_library_sources` は構文の誤りで断るまま。~~（S071 で済んだ）
 
 ### S059（P4、2026-11-01）で済んだこと
 

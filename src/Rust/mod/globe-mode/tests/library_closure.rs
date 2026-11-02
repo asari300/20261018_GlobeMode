@@ -73,3 +73,37 @@ fn msl_examples_match() {
         .join()
         .unwrap();
 }
+
+/// 構文の誤りのファイル（`a/A/Broken.mo`）があっても、in-memory の読み込み（分割と全部）が断らず、
+/// 読み飛ばしを `GM-W1001` で知らせる（S071。ディスクの `Checker::new` と同じ寛容さ。S066）。
+#[test]
+fn broken_library_file_is_skipped_in_memory() {
+    let a = root().join("src/Rust/mod/globe-mode-frontend/tests/data/tolerant/a");
+    let mut files = std::collections::BTreeMap::new();
+    for f in std::fs::read_dir(a.join("A")).unwrap() {
+        let p = f.unwrap().path();
+        let name = p
+            .strip_prefix(&a)
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/");
+        files.insert(name, std::fs::read_to_string(&p).unwrap());
+    }
+    let mut split = Workspace::with_library_sources_split("a", &files).expect("分割で読める");
+    let mut full = Workspace::with_library_sources("a", &files).expect("全部で読める");
+    let mut dirs = Workspace::with_libraries(&[a]).expect("ディレクトリの分割で読める");
+    for ws in [&mut split, &mut full, &mut dirs] {
+        let r = ws.check("A.Decay");
+        assert!(r.passed, "{:?}", r.diagnostics);
+        // 分割は Broken.mo を読んだ（A.Broken を引いた）ときから警告を付ける
+        let r = ws.check("A.Broken");
+        assert!(!r.passed);
+        let warned: Vec<_> = r
+            .diagnostics
+            .iter()
+            .filter(|d| d.code == "GM-W1001")
+            .collect();
+        assert_eq!(warned.len(), 1, "{:?}", r.diagnostics);
+        assert!(warned[0].notes.iter().any(|n| n.contains("Broken.mo")));
+    }
+}

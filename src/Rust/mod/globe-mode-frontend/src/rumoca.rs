@@ -127,6 +127,8 @@ struct SplitState {
     set_id: String,
     library: SplitLibrary,
     loaded: BTreeSet<usize>,
+    /// 読んだファイルのうち構文の誤りで読み飛ばしたものの警告（`GM-W1001`。S071）
+    warning: Option<Diagnostic>,
 }
 
 /// Session に足してある文書 1 つの記録。
@@ -218,24 +220,18 @@ fn read_tolerant(
         .map(|(f, m)| {
             let reason = std::fs::read_to_string(&f)
                 .ok()
-                .and_then(|text| {
-                    let errors =
-                        rumoca_compile::parsing::parse_source_to_ast_with_errors(&text, &f)
-                            .err()?;
-                    errors.first().map(|e| parse_diagnostic(&f, e).message)
-                })
+                .and_then(|text| syntax_reason(&f, &text))
                 .unwrap_or(m);
             (f, reason)
         })
         .collect();
-    let first_line = |m: &str| m.lines().next().unwrap_or_default().to_string();
     if documents.is_empty() {
         return Err(failures
             .iter()
             .map(|(f, m)| format!("{f}: {}", first_line(m)))
             .collect());
     }
-    let mut d = if failures.is_empty() {
+    let d = if failures.is_empty() {
         // 構文は全部読めた。配置の検査だけが断っていた
         Diagnostic::warning(
             codes::LIBRARY_PARTIAL,
@@ -247,28 +243,68 @@ fn read_tolerant(
         )
         .note(first_line(reasons.first().map_or("", String::as_str)))
     } else {
-        Diagnostic::warning(
-            codes::LIBRARY_PARTIAL,
-            Stage::S1,
-            format!(
-                "ライブラリ {} の {} ファイルを読めず、読み飛ばした",
-                lib.display(),
-                failures.len()
-            ),
-        )
+        skipped_warning(&lib.display().to_string(), &failures)
     };
+    warnings.push(d);
+    skipped.extend(to_skipped(failures));
+    Ok(documents)
+}
+
+/// 構文の誤りの最初の 1 件の文言。lenient の失敗は「Failed to parse file: パス」だけなので読み直して得る。
+fn syntax_reason(name: &str, text: &str) -> Option<String> {
+    let errors = rumoca_compile::parsing::parse_source_to_ast_with_errors(text, name).err()?;
+    errors.first().map(|e| parse_diagnostic(name, e).message)
+}
+
+fn first_line(m: &str) -> String {
+    m.lines().next().unwrap_or_default().to_string()
+}
+
+/// 読み飛ばしたファイル（名前, 理由）を知らせる S1 の警告（`GM-W1001`）。ディスクと in-memory で共有する（S071）。
+fn skipped_warning(lib: &str, failures: &[(String, String)]) -> Diagnostic {
+    let mut d = Diagnostic::warning(
+        codes::LIBRARY_PARTIAL,
+        Stage::S1,
+        format!(
+            "ライブラリ {lib} の {} ファイルを読めず、読み飛ばした",
+            failures.len()
+        ),
+    );
     for (f, m) in failures.iter().take(5) {
         d = d.note(format!("{f}: {}", first_line(m)));
     }
     if failures.len() > 5 {
         d = d.note(format!("ほか {} ファイル", failures.len() - 5));
     }
-    warnings.push(d);
-    skipped.extend(failures.into_iter().map(|(f, m)| SkippedFile {
+    d
+}
+
+fn to_skipped(failures: Vec<(String, String)>) -> impl Iterator<Item = SkippedFile> {
+    failures.into_iter().map(|(f, m)| SkippedFile {
         path: PathBuf::from(f),
         reason: first_line(&m),
-    }));
-    Ok(documents)
+    })
+}
+
+/// 本文の組を 1 つずつ読み、読めた文書と読めなかったもの（名前, 理由）に分ける（S071。in-memory の寛容な読み込み）。
+fn parse_sources_lenient<'a>(
+    sources: impl IntoIterator<Item = (&'a str, &'a str)>,
+) -> (
+    Vec<rumoca_compile::compile::ParsedSourceDocument>,
+    Vec<(String, String)>,
+) {
+    let mut documents = Vec::new();
+    let mut failures = Vec::new();
+    for (name, text) in sources {
+        match rumoca_compile::compile::ParsedSourceDocument::parse(name, text) {
+            Ok(doc) => documents.push(doc),
+            Err(e) => failures.push((
+                name.to_string(),
+                syntax_reason(name, text).unwrap_or_else(|| e.to_string()),
+            )),
+        }
+    }
+    (documents, failures)
 }
 
 /// `dir` の下の `.mo`（`.` で始まる名前は飛ばす）。
@@ -388,7 +424,8 @@ impl Checker {
 
     /// ライブラリを、ディレクトリの代わりにファイルの組（名前 → 本文）で読み込む（S012。wasm32 には
     /// ファイルシステムが無い）。[`Checker::new`] と同じく DurableExternal の組として Session に入れるので、
-    /// ライブラリの文書は検査のたびに渡し直さない。構文の誤りのあるファイルがあれば S1 の診断（`GM-E1003`）。
+    /// ライブラリの文書は検査のたびに渡し直さない。構文の誤りのあるファイルは [`Checker::new`] と同じく読み飛ばし、
+    /// `GM-W1001` で知らせる（S071）。読めるファイルが 1 つも無ければ S1 の診断（`GM-E1003`）。
     ///
     /// `name` は組の名前（診断に出す）。[`Checker::libraries`] は組の名前 `library:<name>` を 1 つだけ返す
     /// （ディレクトリではない。ライブラリがあることを示し、モデルの事前確認をライブラリのあるときと同じにする）。
@@ -396,30 +433,23 @@ impl Checker {
         name: &str,
         sources: &[Source<'_>],
     ) -> Result<Checker, Vec<Diagnostic>> {
-        use rumoca_compile::compile::ParsedSourceDocument;
         let mut session = Session::new(SessionConfig::default());
-        let mut documents = Vec::with_capacity(sources.len());
-        let mut errors = Vec::new();
-        for source in sources {
-            match ParsedSourceDocument::parse(source.name, source.text) {
-                Ok(doc) => documents.push(doc),
-                Err(e) => errors.push(format!("{}: {e}", source.name)),
-            }
-        }
-        if !errors.is_empty() || documents.is_empty() {
-            let mut d = Diagnostic::error(
-                codes::LIBRARY,
-                Stage::S1,
-                format!("ライブラリ {name} を読み込めない"),
-            );
-            if documents.is_empty() && errors.is_empty() {
+        let (documents, failures) = parse_sources_lenient(sources.iter().map(|s| (s.name, s.text)));
+        if documents.is_empty() {
+            let errors: Vec<String> = failures
+                .iter()
+                .map(|(f, m)| format!("{f}: {}", first_line(m)))
+                .collect();
+            let mut d = library_error(name, &errors);
+            if errors.is_empty() {
                 d = d.note("ファイルが 1 つも無い");
-            }
-            for msg in errors.iter().take(5) {
-                d = d.note(msg.clone());
             }
             return Err(vec![d]);
         }
+        let warnings: Vec<Diagnostic> = (!failures.is_empty())
+            .then(|| skipped_warning(name, &failures))
+            .into_iter()
+            .collect();
         let set_id = format!("library:{name}");
         session.replace_in_memory_source_set(
             &set_id,
@@ -443,8 +473,8 @@ impl Checker {
             })),
             libraries: Arc::from(vec![PathBuf::from(set_id)]),
             owner: next_owner(),
-            skipped: Arc::default(),
-            warnings: Arc::default(),
+            skipped: to_skipped(failures).collect(),
+            warnings: warnings.into(),
         })
     }
 
@@ -454,8 +484,12 @@ impl Checker {
     /// MSL を全部読むと wasm の線形メモリが 262 MiB（`ChuaCircuit` の後 513 MiB）になる。使うファイルだけなら
     /// 292 / 2556 ファイルで済む。選び方は [`crate::split_library`]。足すたびに Rumoca はライブラリを解決し直す。
     ///
-    /// 構文の誤りは、そのファイルを読むときに S1 の診断（`GM-E1003`）になる。索引に載らないファイル
-    /// （クラスが見つからない）は、ここですぐ読んで確かめる。
+    /// 構文の誤りのファイルは、そのファイルを読むときに読み飛ばし、以降の検査の結果に `GM-W1001` を付ける（S071）。
+    /// 索引に載らないファイル（クラスが見つからない）は、ここですぐ読んで確かめる。読めるファイルが 1 つも無ければ
+    /// S1 の診断（`GM-E1003`）。
+    ///
+    /// shortcut: 読み飛ばしは読んだファイルの分しか分からないので、[`Checker::skipped_library_files`] と
+    /// [`Checker::library_warnings`] には出ない（検査の結果にだけ出る）。要るなら作るときに全部の構文を確かめる。
     pub fn with_library_sources_split(
         name: &str,
         sources: &[Source<'_>],
@@ -471,7 +505,14 @@ impl Checker {
         let set_id = format!("library:{name}");
         let library_classes = library.class_names().map(str::to_string).collect();
         let loaded: BTreeSet<usize> = library.unindexed().iter().copied().collect();
-        let session = library_session(&set_id, &library, &loaded)?;
+        let (session, failures) = library_session(&set_id, &library, &loaded);
+        if failures.len() == library.len() {
+            let errors: Vec<String> = failures
+                .iter()
+                .map(|(f, m)| format!("{f}: {}", first_line(m)))
+                .collect();
+            return Err(vec![library_error(name, &errors)]);
+        }
         Ok(Checker {
             state: Arc::new(Mutex::new(CheckerState {
                 pristine: session.clone(),
@@ -479,6 +520,7 @@ impl Checker {
                 documents: HashMap::new(),
                 library_classes,
                 split: Some(SplitState {
+                    warning: (!failures.is_empty()).then(|| skipped_warning(name, &failures)),
                     set_id: set_id.clone(),
                     library,
                     loaded,
@@ -766,6 +808,9 @@ impl Checker {
     fn check_synced(&self, sources: &[Source<'_>], model: &str, owner: Option<u64>) -> CheckReport {
         let mut report = self.check_synced_inner(sources, model, owner);
         report.diagnostics.extend(self.warnings.iter().cloned());
+        if let Some(d) = self.lock().split.as_ref().and_then(|s| s.warning.clone()) {
+            report.diagnostics.push(d);
+        }
         report
     }
 
@@ -940,28 +985,14 @@ fn library_error(name: &str, errors: &[String]) -> Diagnostic {
     d
 }
 
-/// 分割したライブラリの `loaded` のファイルだけを in-memory の組として読んだ Session。
+/// 分割したライブラリの `loaded` のファイルだけを in-memory の組として読んだ Session と、構文の誤りで
+/// 読み飛ばしたファイル（名前, 理由）。
 fn library_session(
     set_id: &str,
     library: &SplitLibrary,
     loaded: &BTreeSet<usize>,
-) -> Result<Session, Vec<Diagnostic>> {
-    use rumoca_compile::compile::ParsedSourceDocument;
-    let mut documents = Vec::with_capacity(loaded.len());
-    let mut errors = Vec::new();
-    for &n in loaded {
-        let (name, text) = library.file(n);
-        match ParsedSourceDocument::parse(name, text) {
-            Ok(doc) => documents.push(doc),
-            Err(e) => errors.push(format!("{name}: {e}")),
-        }
-    }
-    if !errors.is_empty() {
-        return Err(vec![library_error(
-            set_id.strip_prefix("library:").unwrap_or(set_id),
-            &errors,
-        )]);
-    }
+) -> (Session, Vec<(String, String)>) {
+    let (documents, failures) = parse_sources_lenient(loaded.iter().map(|&n| library.file(n)));
     let mut session = Session::new(SessionConfig::default());
     if !documents.is_empty() {
         session.replace_in_memory_source_set(
@@ -971,29 +1002,29 @@ fn library_session(
             None,
         );
     }
-    Ok(session)
+    (session, failures)
 }
 
 /// 分割したライブラリで、`model` と `sources` が使うファイルが Session に無ければ読み直す（Session を作り直す）。
 ///
 /// 作り直すと文書は Session から消えるので、記録してある文書を足し直す（Rumoca は解決し直す）。
 /// 全部を読んである（`split` が None）か、足りているときは何もしない。
-fn ensure_library(
-    state: &mut CheckerState,
-    sources: &[Source<'_>],
-    model: &str,
-) -> Result<(), Diagnostic> {
+fn ensure_library(state: &mut CheckerState, sources: &[Source<'_>], model: &str) {
     let Some(split) = state.split.as_mut() else {
-        return Ok(());
+        return;
     };
     let need = split.library.closure(model, sources.iter().map(|s| s.text));
     if need.is_subset(&split.loaded) {
-        return Ok(());
+        return;
     }
     let mut loaded = split.loaded.clone();
     loaded.extend(need);
-    let session =
-        library_session(&split.set_id, &split.library, &loaded).map_err(|mut ds| ds.remove(0))?;
+    let (session, failures) = library_session(&split.set_id, &split.library, &loaded);
+    let name = split
+        .set_id
+        .strip_prefix("library:")
+        .unwrap_or(&split.set_id);
+    split.warning = (!failures.is_empty()).then(|| skipped_warning(name, &failures));
     split.loaded = loaded;
     state.pristine = session.clone();
     state.session = session;
@@ -1008,7 +1039,6 @@ fn ensure_library(
             state.documents.remove(&name);
         }
     }
-    Ok(())
 }
 
 /// Session の文書を `sources` にそろえる（分割したライブラリなら、`model` と `sources` が使うファイルも読む）。
@@ -1024,7 +1054,7 @@ fn sync_documents(
     model: &str,
     owner: Option<u64>,
 ) -> Result<(), Diagnostic> {
-    ensure_library(state, sources, model)?;
+    ensure_library(state, sources, model);
     let wanted: HashSet<&str> = sources.iter().map(|s| s.name).collect();
     let stale: Vec<String> = state
         .documents
