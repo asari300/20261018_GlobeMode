@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S082 Elixir の NIF — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S082 Elixir の NIF">
+
+<section class="slide" id="S01">
+  <span class="tag">S082 · 2026-11-02 · P7</span>
+  <h1>Elixir の NIF</h1>
+  <p class="lead">Rustler の crate globe-mode-nif で、Elixir から Python と同じ面を使う</p>
+  <div class="big">GlobeMode.check / simulate が <b>Decay を最後の時刻 1 まで</b>回す</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>S075 の持ち越し: features の「Elixir / Gleam API（Rustler の NIF）」</li>
+    <li>Python・C ABI と同じ面（new / set_file / load_dir / check / graph / simulate）</li>
+    <li>mix test を CI のジョブ lang で回す</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table>
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>経路</td><td>新しい crate globe-mode-nif（Rustler 0.39）</td><td>C ABI の .so を読むにも NIF が要る</td></tr>
+    <tr><td>結果</td><td>JSON の文字列</td><td>Python・C と同じ。型を写さない</td></tr>
+    <tr><td>状態</td><td>ResourceArc&lt;Mutex&lt;Workspace&gt;&gt;</td><td>salsa の DB は Sync でない</td></tr>
+    <tr><td>重い呼び出し</td><td>dirty scheduler</td><td>普通の scheduler を止めない</td></tr>
+    <tr><td>Elixir の依存</td><td>Hex 0（標準の JSON）</td><td>Elixir 1.18 に JSON がある</td></tr>
+    <tr><td>Gleam</td><td>持ち越し</td><td>Elixir に絞る</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>構成</h1>
+  <svg class="fig" viewBox="0 0 800 260" role="img" aria-label="Elixir から facade までの構成図">
+    <rect class="svg-box" x="20" y="90" width="170" height="80" rx="10"/>
+    <text class="svg-text-b" x="105" y="136" text-anchor="middle">GlobeMode</text>
+    <line class="svg-line" x1="190" y1="130" x2="220" y2="130"/>
+    <rect class="svg-box" x="220" y="90" width="170" height="80" rx="10"/>
+    <text class="svg-text-b" x="305" y="136" text-anchor="middle">globe_mode_nif</text>
+    <line class="svg-line" x1="390" y1="130" x2="420" y2="130"/>
+    <rect class="svg-box-accent" x="420" y="90" width="170" height="80" rx="10"/>
+    <text class="svg-text-b" x="505" y="136" text-anchor="middle">globe-mode-nif</text>
+    <line class="svg-line" x1="590" y1="130" x2="620" y2="130"/>
+    <rect class="svg-box" x="620" y="90" width="160" height="80" rx="10"/>
+    <text class="svg-text-b" x="700" y="136" text-anchor="middle">globe-mode</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>mise run elixir:test   # cargo build -p globe-mode-nif → mix test</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">1</span><span class="l">mix test（失敗 0）</span></div>
+    <div class="kpi"><span class="n">4</span><span class="l">新しい crate（Cargo.lock）</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">Hex の依存</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>Gleam の @external の例</li>
+    <li>rustler_precompiled で Hex に配る</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
