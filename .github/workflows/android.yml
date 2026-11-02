@@ -4,8 +4,8 @@
 # 検査と実行は UI がブラウザと同じ WorkerBackend（wasm）で行う。だから UI のビルドは `pnpm build`（wasm:build の出力を入れる）。
 # 手順: ui（wasm:build と vite build）→ apk（JDK 17・Android SDK と NDK・`cargo tauri android build --apk --debug`。
 # gen/android がまだ無ければ `cargo tauri android init --ci` で作り、artifact `gen-android` に残す）→ emulator（API 34 の
-# x86_64 のエミュレータに APK を入れて起動し、logcat に起動のログが出て、プロセスが生きていることを見る）。
-# 検査と実行を UI から自動で回すのは持ち越し（P6）。desktop.yml と同じ理由で tauri-cli は `cargo install` で入れる。
+# x86_64 のエミュレータに APK を入れて起動し、UI が組み込みの Decay を検査・実行して console に出す
+# `GM-SMOKE check=ok simulate=ok x1=…` の 1 行を logcat で待つ。S100、P6）。UI は VITE_GM_SMOKE=1 でビルドするので、この APK は起動すると smoke を回す。desktop.yml と同じ理由で tauri-cli は `cargo install` で入れる。
 name: android
 
 on:
@@ -42,6 +42,8 @@ jobs:
         with:
           key: android-wasm
       - name: release の wasm（mise.toml の wasm:build）と UI（pnpm build。MSL.json は data/msl が無いので作らない）
+        env:
+          VITE_GM_SMOKE: "1" # S100: 起動したら Decay を検査・実行して GM-SMOKE の行を console に出す（emulator が待つ）
         run: |
           mise run wasm:build
           cd src/Svelte
@@ -124,7 +126,7 @@ jobs:
         with:
           name: globe-android
           path: apk
-      - name: API 34 のエミュレータで起動する
+      - name: API 34 のエミュレータで起動し、UI からの検査と実行（GM-SMOKE の行）を待つ
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
@@ -137,11 +139,13 @@ jobs:
             adb install -r "$(find apk -name '*.apk' | head -1)"
             adb logcat -c
             adb shell monkey -p "$APP_ID" -c android.intent.category.LAUNCHER 1
-            sleep 45
+            for i in $(seq 60); do adb logcat -d | grep -q GM-SMOKE && break; sleep 5; done
             adb logcat -d > logcat.txt
             adb shell pidof "$APP_ID"
             grep -E "Displayed $APP_ID|$APP_ID.*(MainActivity|Tauri)" logcat.txt | head -20
             if grep -E "FATAL EXCEPTION|AndroidRuntime: Process: $APP_ID" logcat.txt; then exit 1; fi
+            grep -m1 GM-SMOKE logcat.txt | tee -a "$GITHUB_STEP_SUMMARY"
+            grep -q "GM-SMOKE check=ok simulate=ok" logcat.txt
       - if: always()
         uses: actions/upload-artifact@v4
         with:
