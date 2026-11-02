@@ -60,6 +60,8 @@ android {
         }
         getByName("release") {
             signingConfigs.findByName("release")?.let { signingConfig = it }
+            // S106: android.yml の smoke 用の写しだけ。wry の Logger は BuildConfig.DEBUG のときだけ console を logcat に出す
+            if (System.getenv("GM_SMOKE_DEBUGGABLE") == "1") isDebuggable = true
             optimization {
                enable = true
             }
