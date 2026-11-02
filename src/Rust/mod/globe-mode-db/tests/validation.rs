@@ -152,6 +152,45 @@ fn graphology_json_has_nodes_and_edges() {
     assert_eq!(json["edges"][0]["attributes"]["domain"], "boolean");
 }
 
+/// extends で受け継いだ入れ子のクラス（`Base.Part`）を部品の型に使う（S101）。
+#[test]
+fn nested_class_of_extended_class_is_resolved() {
+    let mut db = GlobeDb::new();
+    db.set_file(
+        "NestedInherited.mo",
+        "package NestedInherited
+  connector Pin Real v; flow Real i; end Pin;
+  partial model Base
+    model Part Pin p; end Part;
+  end Base;
+  partial model Mid extends Base; end Mid;
+  model Top
+    extends Mid;
+    Part a;
+    Part b;
+  equation
+    connect(a.p, b.p);
+  end Top;
+end NestedInherited;",
+    );
+    let g = db.connect_graph("NestedInherited.Top", 1).unwrap();
+    assert!(g.unresolved.is_empty(), "{:?}", g.unresolved);
+    let parts: Vec<_> = g
+        .nodes
+        .iter()
+        .map(|n| (n.key.as_str(), n.class.as_str()))
+        .collect();
+    assert_eq!(
+        parts,
+        [
+            ("a", "NestedInherited.Base.Part"),
+            ("b", "NestedInherited.Base.Part")
+        ]
+    );
+    assert_eq!(g.edges.len(), 1);
+    assert_eq!(g.edges[0].domain, Domain::Flow);
+}
+
 #[test]
 fn unknown_model_is_an_error() {
     let mut db = loaded();

@@ -215,8 +215,8 @@ pub const BUILTIN_TYPES: [&str; 5] = ["Real", "Integer", "Boolean", "String", "C
 /// クラスの索引: 完全修飾名（`A.B.C`）→ クラス。
 ///
 /// 複数のファイルのアウトラインを `within` に従ってまとめたもの。名前解決は
-/// Modelica の字句的なスコープ（内側のクラスから外側へ）と、各スコープの import（S089）を見る。
-/// 継承したクラスの中の入れ子のクラスは、まだ見ない（P2 の後半で足す）。
+/// Modelica の字句的なスコープ（内側のクラスから外側へ）と、各スコープの import（S089）、
+/// 各スコープのクラスが extends で受け継いだ入れ子のクラス（S101）を見る。
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ClassIndex {
     classes: BTreeMap<String, ClassOutline>,
@@ -291,8 +291,17 @@ impl ClassIndex {
     /// `A.B.C` の中の `D.E` は、`A.B.C.D.E` → `A.B.C` の import → `A.B.D.E` → `A.B` の import → …
     /// → `D.E` の順に探す（MLS §5.3.1・§13.2。import はそのスコープの要素の後に見る）。
     /// import は `import X.Y.D;`（`D` で引く）、`import D = X.Y;`、`import X.*;` の 3 形（S089）。
+    /// それでも見つからなければ、内側から外へ各スコープのクラスが extends で受け継いだ入れ子のクラスを見る（S101）。
     /// 組み込みの型と、見つからない型は None。
     pub fn resolve(&self, scope: &str, name: &str) -> Option<String> {
+        // shortcut: 受け継いだ入れ子は字句と import で引けないときだけ見る（MLS では外側のスコープより先）。
+        // 毎段で見ると MSL の graph（深さ 4）が約 4 倍遅い。外側と同じ名前で食い違う例が出たら順を直す
+        self.resolve_in(scope, name, false)
+            .or_else(|| self.resolve_in(scope, name, true))
+    }
+
+    /// `inherited` が false なら、受け継いだ入れ子のクラスを見ない（extends の名前を引くとき。MLS §5.6.1）。
+    fn resolve_in(&self, scope: &str, name: &str, inherited: bool) -> Option<String> {
         if let Some(global) = name.strip_prefix('.') {
             return self.get(global).map(|_| global.to_string());
         }
@@ -310,6 +319,9 @@ impl ClassIndex {
             };
             if self.get(&candidate).is_some() {
                 return Some(candidate);
+            }
+            if inherited && let Some(found) = self.inherited(&joined, name, 0) {
+                return Some(found);
             }
             for import in self.get(&joined).map_or(&[][..], |c| c.imports.as_slice()) {
                 let target = if let Some((alias, path)) = import.split_once('=') {
@@ -331,6 +343,26 @@ impl ClassIndex {
             }
             parts.pop()?;
         }
+    }
+
+    /// `class` が extends で（再帰して）受け継いだ入れ子のクラス `name` の完全修飾名（S101）。
+    fn inherited(&self, class: &str, name: &str, depth: usize) -> Option<String> {
+        if depth > 32 {
+            return None; // 循環する extends に備える
+        }
+        for base in &self.get(class)?.extends {
+            let Some(b) = self.resolve_in(class, base, false) else {
+                continue;
+            };
+            let candidate = format!("{b}.{name}");
+            if self.get(&candidate).is_some() {
+                return Some(candidate);
+            }
+            if let Some(found) = self.inherited(&b, name, depth + 1) {
+                return Some(found);
+            }
+        }
+        None
     }
 
     /// クラスのコンポーネント（extends で継承したものを含む）。
@@ -799,6 +831,30 @@ mod tests {
             "import は書いたクラスの中だけ"
         );
         assert_eq!(index.len(), 5);
+    }
+
+    #[test]
+    fn resolve_finds_nested_classes_of_extended_classes() {
+        // package P; model B; model C; end C; end B; model D extends B; end D;
+        //   model A extends D; C c; end A; model Loop extends Loop; end Loop; end P;
+        let mut b = class("B", vec![class("C", vec![])]);
+        b.kind = ClassKind::Model;
+        let mut d = class("D", vec![]);
+        d.extends = vec!["B".into()];
+        let mut a = class("A", vec![]);
+        a.extends = vec!["D".into()];
+        let mut looped = class("Loop", vec![]);
+        looped.extends = vec!["Loop".into()];
+        let index = ClassIndex::from_outlines([&Outline {
+            within: None,
+            classes: vec![class("P", vec![b, d, a, looped])],
+        }]);
+        assert_eq!(index.resolve("P.A", "C").as_deref(), Some("P.B.C"));
+        assert_eq!(
+            index.resolve("P.Loop", "C"),
+            None,
+            "循環する extends は打ち切る"
+        );
     }
 
     #[test]
