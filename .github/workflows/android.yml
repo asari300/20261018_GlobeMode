@@ -1,0 +1,149 @@
+# GlobeMode の Android の APK（S092、ADR-0023 の「Android」）。署名なしの debug APK を作り、artifact `globe-android` に残す。
+#
+# Android では sidecar を使えないので、Tauri の mobile の入口（src/Rust/apps/desktop/src/lib.rs）は UI を表示するだけで、
+# 検査と実行は UI がブラウザと同じ WorkerBackend（wasm）で行う。だから UI のビルドは `pnpm build`（wasm:build の出力を入れる）。
+# 手順: ui（wasm:build と vite build）→ apk（JDK 17・Android SDK と NDK・`cargo tauri android build --apk --debug`。
+# gen/android がまだ無ければ `cargo tauri android init --ci` で作り、artifact `gen-android` に残す）→ emulator（API 34 の
+# x86_64 のエミュレータに APK を入れて起動し、logcat に起動のログが出て、プロセスが生きていることを見る）。
+# 検査と実行を UI から自動で回すのは持ち越し（P6）。desktop.yml と同じ理由で tauri-cli は `cargo install` で入れる。
+name: android
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "src/Rust/apps/desktop/**"
+      - "src/Svelte/**"
+      - ".github/workflows/android.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  MISE_AUTO_INSTALL: "false"
+  DESKTOP: src/Rust/apps/desktop
+  APP_ID: io.github.asari300.globemode
+
+jobs:
+  ui:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+        with:
+          install_args: rust github:wasm-bindgen/wasm-bindgen node pnpm
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: android-wasm
+      - name: release の wasm（mise.toml の wasm:build）と UI（pnpm build。MSL.json は data/msl が無いので作らない）
+        run: |
+          mise run wasm:build
+          cd src/Svelte
+          pnpm install --frozen-lockfile
+          pnpm build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ui-dist-wasm
+          path: src/Svelte/dist
+          if-no-files-found: error
+
+  apk:
+    needs: ui
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+        with:
+          install_args: rust
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+      # 既定の packages（"tools"）は今の cmdline-tools に無く sdkmanager が落ちるので、要るものを名指しする
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools platforms;android-34 build-tools;34.0.0 ndk;27.0.12077973
+      - name: NDK と Rust の Android の target
+        run: |
+          echo "NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> "$GITHUB_ENV"
+          rustup target add aarch64-linux-android x86_64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ${{ env.DESKTOP }} -> target
+          key: android-apk
+      - uses: actions/download-artifact@v4
+        with:
+          name: ui-dist-wasm
+          path: src/Svelte/dist
+      - name: tauri-cli を入れる
+        run: cargo install tauri-cli --version "^2" --locked
+      - name: gen/android が無ければ作る（作ったものは artifact gen-android。コミットするのは人の手）
+        working-directory: ${{ env.DESKTOP }}
+        run: |
+          if [ ! -d gen/android ]; then
+            cargo tauri android init --ci
+            echo "GEN_ANDROID_NEW=1" >> "$GITHUB_ENV"
+          fi
+      - if: env.GEN_ANDROID_NEW == '1'
+        uses: actions/upload-artifact@v4
+        with:
+          name: gen-android
+          path: |
+            ${{ env.DESKTOP }}/gen/android
+            !${{ env.DESKTOP }}/gen/android/**/build
+            !${{ env.DESKTOP }}/gen/android/.gradle
+          include-hidden-files: true
+      - name: debug APK を作る（aarch64 は実機、x86_64 はエミュレータ）
+        working-directory: ${{ env.DESKTOP }}
+        run: cargo tauri android build --apk --debug --ci --target aarch64 --target x86_64
+      - name: APK の大きさ
+        run: |
+          find "$DESKTOP/gen/android/app/build/outputs/apk" -name '*.apk' -exec ls -l {} + | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: globe-android
+          path: ${{ env.DESKTOP }}/gen/android/app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+
+  emulator:
+    needs: apk
+    runs-on: ubuntu-24.04
+    steps:
+      - name: KVM を使えるようにする
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: actions/download-artifact@v4
+        with:
+          name: globe-android
+          path: apk
+      - name: API 34 のエミュレータで起動する
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          disable-animations: true
+          # script は 1 行ずつ sh で回る
+          script: |
+            adb install -r "$(find apk -name '*.apk' | head -1)"
+            adb logcat -c
+            adb shell monkey -p "$APP_ID" -c android.intent.category.LAUNCHER 1
+            sleep 45
+            adb logcat -d > logcat.txt
+            adb shell pidof "$APP_ID"
+            grep -E "Displayed $APP_ID|$APP_ID.*(MainActivity|Tauri)" logcat.txt | head -20
+            if grep -E "FATAL EXCEPTION|AndroidRuntime: Process: $APP_ID" logcat.txt; then exit 1; fi
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-logcat
+          path: logcat.txt

@@ -92,3 +92,9 @@ UI（Svelte）のプロセスでは検査も実行もしない。計算は 1 つ
 ### S069 で決まったこと（2026-11-01）
 
 - **MSL の置き場**: 同梱せず、初回に app data dir の `msl/4.1.0/` へ取得する。`--library`・`GLOBE_LIBRARY` があればそれを優先し（この ADR の (a) の道はそのまま）、無ければ UI のボタンが command `fetch_msl` を呼ぶ。取得したら sidecar を新しい `--library` で作り直す。理由と比べた案は [ADR-0030](0030-desktop-msl-placement.md)。
+
+### S092 で決まったこと（Android、2026-11-02）
+
+- **Android では sidecar を使わない**: Android のアプリは別プロセスの実行ファイル（`globe`）を同梱して起動できない（Tauri の `externalBin` は Desktop だけ）。だから (b) の道は Android に効かない。
+- **Android は Web と同じ (c) の道**: Tauri の mobile の入口（`src/Rust/apps/desktop/src/lib.rs` の `run`、`#[tauri::mobile_entry_point]`）は command を出さず、UI を表示するだけ。UI（`App.svelte`）は `__TAURI__` があっても User-Agent が Android なら `WorkerBackend`（wasm の Web Worker）を使う。`tauri.android.conf.json` が `externalBin` を空にする。APK は `android.yml`（署名なしの debug）が作る。
+- **持ち越し（P6）**: Rust のコア（facade）を Tauri の mobile の lib に直接 link して command で呼ぶ道（線形メモリの上限が無くなる代わりに、UI のプロセスで計算する。(a) を Android でどう守るかを決めてから）、Android での MSL の置き場（今は MSL.json を同梱しないので MSL を読めない）、エミュレータで検査と実行を UI から自動で回すこと。

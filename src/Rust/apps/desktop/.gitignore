@@ -1,5 +1,7 @@
 /target
-/gen
+# S092: gen/android は Tauri の指針どおりコミットする（ビルドの出力は gen/android/.gitignore が除く）
+/gen/*
+!/gen/android
 # CI が `globe` を target triple 付きの名前でここに置く（desktop.yml）
 /binaries/*
 !/binaries/.gitkeep

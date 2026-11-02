@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S092 Android の APK を CI で作る — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S092 Android の APK を CI で作る">
+
+<section class="slide" id="S01">
+  <span class="tag">S092 · 2026-11-02 · P6</span>
+  <h1>Android の APK を CI で作る</h1>
+  <p class="lead">sidecar は使わず、ブラウザと同じ Worker（wasm）で計算する</p>
+  <div class="big">API 34 のエミュレータで <b>起動 2.5 s</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>S038 の持ち越し「Android の sidecar（P6）」</li>
+    <li>Android は別プロセスの実行ファイル（globe）を起動できない</li>
+    <li>手元に SDK・NDK は無い。組み上げは GitHub Actions の android.yml</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table>
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>計算</td><td>WorkerBackend（wasm）</td><td>Web と同じ道。新しいコードが要らない</td></tr>
+    <tr><td>入口</td><td>desktop の src/lib.rs</td><td>mobile のときだけ中身。main.rs は不変</td></tr>
+    <tr><td>選択</td><td>UA が Android なら Worker</td><td>App.svelte の 1 行。tauri-backend.ts は不変</td></tr>
+    <tr><td>sidecar</td><td>tauri.android.conf.json で空</td><td>externalBin は Desktop だけ</td></tr>
+    <tr><td>gen/android</td><td>CI で init してコミット</td><td>手元に SDK が無い</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>android.yml</h1>
+  <svg class="fig" viewBox="0 0 800 200" role="img" aria-label="ui から apk を経て emulator へ">
+    <rect class="svg-box" x="20" y="60" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="120" y="96" text-anchor="middle">ui</text>
+    <text class="svg-text" x="120" y="120" text-anchor="middle">wasm:build + pnpm build</text>
+    <line class="svg-line" x1="220" y1="100" x2="300" y2="100"/>
+    <rect class="svg-box-accent" x="300" y="60" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="400" y="96" text-anchor="middle">apk</text>
+    <text class="svg-text" x="400" y="120" text-anchor="middle">tauri android build</text>
+    <line class="svg-line" x1="500" y1="100" x2="580" y2="100"/>
+    <rect class="svg-box" x="580" y="60" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="680" y="96" text-anchor="middle">emulator</text>
+    <text class="svg-text" x="680" y="120" text-anchor="middle">API 34 で起動</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>gh workflow run android.yml --ref main
+gh run download &lt;run-id&gt; -n globe-android</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">240 MiB</span><span class="l">debug APK（2 ABI）</span></div>
+    <div class="kpi"><span class="n">2.5 s</span><span class="l">Displayed まで</span></div>
+    <div class="kpi"><span class="n">success</span><span class="l">run 41409143035</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>エミュレータで検査と実行を UI から自動で回す</li>
+    <li>Android での MSL の置き場</li>
+    <li>Rust を mobile の lib に直接 link する道、release の署名つき APK</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
