@@ -641,7 +641,21 @@ impl GlobeDb {
     pub fn connect_graph(&mut self, model: &str, depth: u32) -> Result<ConnectGraph, GraphError> {
         let ws = self.workspace();
         let request = GraphRequest::new(self, model.to_string(), depth);
-        connect_graph(self, ws, request).clone()
+        let graph = connect_graph(self, ws, request).clone();
+        if graph.is_ok() || self.checker.libraries().is_empty() {
+            return graph;
+        }
+        // ワークスペースに無いモデルはライブラリから引く（S079）。ワークスペースのクラスを後に置いて優先する
+        // shortcut: salsa の外で毎回索引を作る（MSL を全部読んだ DB で 2556 文書）。遅ければクエリにする
+        let library = self.checker.library_outlines(model);
+        let index = ClassIndex::from_outlines(
+            library.iter().chain(
+                ws.files(self)
+                    .iter()
+                    .filter_map(|f| outline_shape(self, *f).as_ref()),
+            ),
+        );
+        globe_mode_graph::build(&index, model, depth)
     }
 
     /// モデルの検査（S0〜S5）。位置は正規化した本文の中（元に戻すなら [`GlobeDb::check_model`]）。

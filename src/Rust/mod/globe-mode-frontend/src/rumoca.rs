@@ -561,6 +561,24 @@ impl Checker {
         &self.skipped
     }
 
+    /// ライブラリの文書のアウトライン（S079。connect グラフの索引に足す）。分割読み込みなら、先に `model` が使う
+    /// ファイルを Session に読む（検査と同じ閉包）。作業中の文書（検査で渡したもの）は含めない。
+    pub fn library_outlines(&self, model: &str) -> Vec<Outline> {
+        let mut state = self.lock();
+        ensure_library(&mut state, &[], model);
+        let session = &state.session;
+        session
+            .document_uris()
+            .into_iter()
+            .filter(|uri| !state.documents.contains_key(*uri))
+            .filter_map(|uri| session.get_document(uri).and_then(|d| d.parsed()))
+            .map(|def| Outline {
+                within: def.within.as_ref().map(ToString::to_string),
+                classes: def.classes.values().map(class_outline).collect(),
+            })
+            .collect()
+    }
+
     /// `sources` を文書として渡し、`model` を DAE まで変換して検査する（S0〜S5 と、S6 の入力）。
     ///
     /// 前の呼び出しで渡して今回渡さなかった文書は、Session から取り除く。

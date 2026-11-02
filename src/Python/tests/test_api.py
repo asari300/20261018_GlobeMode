@@ -9,8 +9,7 @@ MODELICA = Path(__file__).parents[2] / "Modelica"
 
 
 def test_reference_scenario():
-    ws = Workspace()
-    assert ws.load_dir(MODELICA) > 0  # グラフと実行は作業中のファイルを引く（libraries= はライブラリとして読む）
+    ws = Workspace(libraries=[MODELICA])  # グラフもライブラリのモデルを引ける（S079）
 
     check = ws.check("GlobeModeValidation.Simulation.Decay")
     assert check["passed"]

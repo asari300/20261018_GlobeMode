@@ -222,7 +222,7 @@ fn check_returns_diagnostics_without_running() {
 
 #[test]
 fn graph_of_the_rc_circuit_is_graphology_json() {
-    // connect グラフは文書として渡したモデルから作る（ライブラリとして読んだモデルは索引に無い）
+    // connect グラフは文書として渡したモデルから作る（ライブラリとして読んだモデルも S079 から引ける。facade の tests/graph_library.rs）
     let mut ws = Workspace::new();
     for (name, text) in package() {
         ws.put_file(&name, text);

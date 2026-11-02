@@ -307,7 +307,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 
 - **connect グラフの表示**（[計画書](plan/2026-10-30-release-estimate-and-parallel-plan.md)の WP-E）: wasm の `Workspace` に `graph(model, depth)`（facade の `graph` の `to_graphology()` の JSON。`GraphError` は例外の文字列）、`worker.js`・`client.js`・`Backend`・`WorkerBackend` に `graph`。`src/Svelte/src/lib/graph/Graph.svelte` が sigma 4.0.4 + graphology 0.26 + ForceAtlas2（円に置いて 100 反復、同期）で描き、ノードのクリックで `onSelect(nodeId)`、深さは 1〜3。Playwright で RealCircuit のグラフ（4 ノード・4 辺）が描かれてクリックが通り、Hierarchical は深さ 2 で 10 ノード。合成 5k ノード・約 1 万辺の描画はヘッドレス Chromium（ソフトウェア GL）で約 10 fps（実 GPU では未測定）。npm は 63 パッケージ（追加の 6 つは MIT）。
 - 締めで `App.svelte` に「グラフ」ボタンと `onSelect`（名前の字面でエディタを選ぶ）を組み込み、`ui:check` に `test_graph.py` を足した。
-- 持ち越し: 実 GPU での fps、MSL のグラフ（wasm の `graph` は `set_file` の文書のモデルだけ引ける。ライブラリとして読んだものは索引に無い）。
+- 持ち越し: 実 GPU での fps、~~MSL のグラフ（wasm の `graph` は `set_file` の文書のモデルだけ引ける。ライブラリとして読んだものは索引に無い）~~（S079 で済んだ。[解説書](sessions/S079-graph-library-models/解説書.md)）。
 
 ### S045（運用、2026-10-31）で済んだこと
 
@@ -338,7 +338,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 ### S039（P7 の 1 回目、2026-10-31）で済んだこと
 
 - **Python の wheel**（[計画書](plan/2026-10-30-release-estimate-and-parallel-plan.md)の WP-G）: 新しい crate `globe-mode-py`（PyO3 0.30、abi3-py312、facade だけに依存）を maturin で `src/Python/mod/globe_mode` の `_native` に入れた（`pyproject.toml` の build-backend を uv_build から maturin に）。`Workspace{set_file, load_dir, check, graph, simulate}` と `solvers()` の入出力は JSON の文字列で、`__init__.py` が `dict` と polars の表（`table()`）にする。参照シナリオ（`src/Python/tests/test_api.py`）: `load_dir(src/Modelica)` → `Decay` の check → `RealCircuit` の graph → `Decay` の simulate → x(1) が e⁻¹ と一致。wheel は 17.3 MB（linux x86_64）。CI の `python` のジョブに rust と `pytest`。実装は Sonnet のサブエージェント 1 人。
-- 持ち越し: `graph` がライブラリとして読んだモデルを引けない、Arrow での結果の受け渡し、~~anywidget~~（S078 で済んだ。[解説書](sessions/S078-marimo-anywidget/解説書.md)）。他の OS の wheel は S074 で済んだ（`release.yml` で linux x86_64・aarch64・windows x86_64 の wheel を作って pytest を回し、Release に付ける。[解説書](sessions/S074-wheel-release/解説書.md)）。PyPI への公開と macOS は持ち越し。
+- 持ち越し: ~~`graph` がライブラリとして読んだモデルを引けない~~（S079 で済んだ。[解説書](sessions/S079-graph-library-models/解説書.md)）、Arrow での結果の受け渡し、~~anywidget~~（S078 で済んだ。[解説書](sessions/S078-marimo-anywidget/解説書.md)）。他の OS の wheel は S074 で済んだ（`release.yml` で linux x86_64・aarch64・windows x86_64 の wheel を作って pytest を回し、Release に付ける。[解説書](sessions/S074-wheel-release/解説書.md)）。PyPI への公開と macOS は持ち越し。
 
 ### S038（P4 の 1 回目、2026-10-30）で済んだこと
 
@@ -374,7 +374,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 ### S048（P4、2026-10-31）で済んだこと
 
 - **ブラウザ UI で MSL を読み、ChuaCircuit の検査・実行・プロットが通った**（P4 の完了条件の前半）: `src/Svelte/scripts/pack-msl.mjs` が `data/msl` の `.mo`（2556 ファイル）を `public/msl/MSL.json`（15.2 MiB、`.gitignore` 済み）にし、`prepare-wasm` の段で呼ぶ（`data/msl` が無ければ警告だけ）。`Backend.library(name, json)` と `WorkerBackend` が `GlobeWorker.library` を呼び、`App.svelte` の「MSL を読む」ボタン（起動時は読まない）で読む。ヘッドレス Chromium で MSL を読む 0.5〜1.0 s、ChuaCircuit の検査 約 2 s（error 0）、実行（bdf）約 1.5 s（5 万点、44 信号）。`tests/test_ui.py` に試験、ci.yml の `ui` ジョブに `data/msl` の cache と `fetch-msl`。wasm・worker・client は変えていない。
-- 持ち越し: ライブラリのモデルの `graph`（「索引に無い」と赤字で出る）、実ブラウザでの計測、ライブラリツリー、LSP、Tauri のシェル。詳しくは [解説書](sessions/S048-ui-msl/解説書.md)。
+- 持ち越し: ~~ライブラリのモデルの `graph`（「索引に無い」と赤字で出る）~~（S079 で済んだ。[解説書](sessions/S079-graph-library-models/解説書.md)）、実ブラウザでの計測、ライブラリツリー、LSP、Tauri のシェル。詳しくは [解説書](sessions/S048-ui-msl/解説書.md)。
 
 ### S053（P4、2026-10-31）で済んだこと
 
@@ -399,6 +399,10 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 ### S050（P3、2026-10-31）で済んだこと
 
 - **ソルバ別の表**: `msl-sim.yml` にジョブ `solvers`（`msl-sim` の後。14 ソルバの matrix で `msl-sim --solver <名前> --tolerance-scale 0.1`。cvode・ida は xtask のビルドに `--features globe-mode-exec/sundials`）と `solvers-report`（`cargo xtask msl-solvers`）を足し、[msl-solvers.md](msl-solvers.md) を作った（run 41194959752、全ジョブ成功、ソルバのジョブは 63〜174 分）。対象 356 本のうち実行できたのは 283（dopri853）〜301（bdf）本、管に収まった割合は 95.2（trbdf2）〜98.3%（ida）。`auto` は 309・301/308。`bdf` 単独と `auto` の差 8 本は、`bdf` の内部エラー（`GM-U0005`）10 本を dopri45 の回し直しで救ったもの。入れなかったもの: `qss`、固定刻み、`esdirk23`、別名（理由は解説書）。これで P8「ソルバの表がそろう」の数字の土台ができた。更新は `gh workflow run msl-sim.yml`（手元では回さない）。
+
+### S079（P4、2026-11-02）で済んだこと
+
+- **ライブラリのモデルの connect グラフ**（S039・S046・S048 の持ち越し）: `GlobeDb::connect_graph` は、ワークスペースの索引にモデルが無く、ライブラリがあれば、検査器の `Checker::library_outlines(model)`（Session のライブラリの文書のアウトライン。分割読み込みなら検査と同じ閉包を先に読む）とワークスペースの文書から索引を作って引く。`with_libraries`・`with_libraries_full`・`with_library_sources`・`with_library_sources_split` のどれでも `GlobeModeValidation.Connect.RealCircuit` が 4 ノード、MSL の `ChuaCircuit` が 7 ノード（深さ 1）。facade を通る UI（wasm）・Python・LSP にそのまま効く。[解説書](sessions/S079-graph-library-models/解説書.md)
 
 ### S078（P6、2026-11-02）で済んだこと
 
