@@ -153,6 +153,15 @@ class Plan(unittest.TestCase):
         self.assertTrue(p["python"])
         self.assertFalse(p["rust"])
 
+    def test_lang_runs_for_c_abi_zig_julia(self):
+        # S077: C ABI の crate（とその依存）か Zig・Julia の例を変えたときと、全体のときだけ
+        for path in ["src/Rust/mod/globe-mode-c/src/lib.rs", "src/Rust/mod/globe-mode-core/src/lib.rs",
+                     "src/Zig/build.zig", "src/Julia/test.jl", "mise.toml"]:
+            with self.subTest(path=path):
+                self.assertTrue(plan([path])["lang"])
+        self.assertFalse(plan(["src/Rust/mod/globe-mode-wasm/src/lib.rs"])["lang"])
+        self.assertFalse(plan(["doc/roadmap.md"])["lang"])
+
     def test_full_triggers(self):
         for path in ["Cargo.lock", "Cargo.toml", "mise.toml", "mise.lock", "deny.toml", ".github/workflows/ci.yml"]:
             with self.subTest(path=path):
@@ -170,7 +179,7 @@ class Plan(unittest.TestCase):
 
     def test_nothing_relevant(self):
         p = plan(["data/.gitkeep"])
-        self.assertFalse(any(p[k] for k in ["full", "rust", "wasm", "wasm_node", "ui", "deny", "python", "docs", "slides", "msl"]))
+        self.assertFalse(any(p[k] for k in ["full", "rust", "wasm", "wasm_node", "ui", "deny", "python", "lang", "docs", "slides", "msl"]))
 
 
 if __name__ == "__main__":

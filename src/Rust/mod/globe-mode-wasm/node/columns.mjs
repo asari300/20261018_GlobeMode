@@ -3,7 +3,7 @@
 //   node columns.mjs [--pkg DIR] [--interval 1e-5] [--runs 5]
 //
 // GlobeModeValidation.Simulation.Decay を Interval = 1e-5 で回して 100,001 点にし（S042 の 10 万点と同じ大きさ）、
-//   CSV の道   : simulate → JSON.parse → parseCsv（src/Svelte/src/lib/plot/csv.ts と同じ解析。S042 の UI がする仕事）
+//   CSV の道   : simulate → JSON.parse → parseCsv（S042〜S075 の UI の src/Svelte/src/lib/plot/csv.ts と同じ解析）
 //   列ごとの道 : simulate_columns → layout の JSON.parse → column(i)
 // を同じ wasm の上で交互に回し、1 回ごとの時間の中央値と、wasm の線形メモリを出す。値が一致することも確かめる。
 // そのあと Web Worker（worker_threads）の GlobeWorker.simulateColumns でも同じ値が返ることを確かめる（buffer は転送）。

@@ -10,6 +10,7 @@
 //! | --- | --- | --- |
 //! | `globe/check` | `{model}` | `CheckResponse` の JSON |
 //! | `globe/simulate` | `{request}`（`SimulateRequest` の JSON） | `SimulateResponse` の JSON |
+//! | `globe/simulateColumns` | `{request}` | `{response, layout, columns}`（S076。wasm の `simulate_columns` と同じ形。`response` に CSV は無く、`layout` は `ColumnsLayout`、`columns[i]` は列 `i` の数の配列で、有限でない値は null） |
 //! | `globe/graph` | `{model, depth}` | graphology の JSON（`ConnectGraph::to_graphology`） |
 //! | `globe/format` | `{text, indent?, insertOrigin?, blankAroundSections?, formatHtml?}` | 整形後の本文（S053。壊れていれば -32000） |
 //! | `globe/lint` | `{text}` | `[{rule, line, column, message}]`（S053） |
@@ -24,7 +25,7 @@ use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
 
 use globe_mode::db::normalize_path;
-use globe_mode::{Diagnostic, SimulateRequest, Workspace};
+use globe_mode::{ColumnsLayout, Diagnostic, SimulateRequest, Simulated, Workspace};
 use globe_mode_core::Severity;
 use globe_mode_ir::{ClassKind, ClassOutline};
 use lsp_types::{
@@ -153,6 +154,35 @@ impl Server {
             "globe/simulate" => {
                 match serde_json::from_value::<SimulateRequest>(params["request"].clone()) {
                     Ok(request) => reply(id, json!(self.ws.simulate(&request))),
+                    Err(e) => error(id, -32602, &format!("params.request: {e}")),
+                }
+            }
+            "globe/simulateColumns" => {
+                match serde_json::from_value::<SimulateRequest>(params["request"].clone()) {
+                    Ok(mut request) => {
+                        request.no_csv = true;
+                        let Simulated { response, run, .. } =
+                            self.ws.simulate_with(&request, &globe_mode::now_ms);
+                        let (names, columns) = match run {
+                            Some(run) => {
+                                let t = run.trajectory;
+                                let names = std::iter::once("time".to_string())
+                                    .chain(t.variables.iter().map(|v| v.name.clone()))
+                                    .collect();
+                                let columns: Vec<Vec<f64>> = std::iter::once(t.time)
+                                    .chain(t.variables.into_iter().map(|v| v.values))
+                                    .collect();
+                                (names, columns)
+                            }
+                            None => (Vec::new(), Vec::new()),
+                        };
+                        let points = columns.first().map_or(0, Vec::len);
+                        // serde_json は NaN / Inf を null にする（UI の欠損と同じ）
+                        reply(
+                            id,
+                            json!({"response": response, "layout": ColumnsLayout { names, points }, "columns": columns}),
+                        )
+                    }
                     Err(e) => error(id, -32602, &format!("params.request: {e}")),
                 }
             }
@@ -662,6 +692,18 @@ mod tests {
         let x = r[0]["result"]["final"]["x"].as_f64().unwrap();
         assert!((x - (-1f64).exp()).abs() < 1e-2, "x = {x}");
         let r = s.handle(
+            json!({"id": 4, "method": "globe/simulateColumns", "params": {"request": {
+            "model": "D", "settings": {"stop_time": 1.0}}}}),
+        );
+        let res = &r[0]["result"];
+        assert_eq!(res["response"]["ok"], true, "{}", r[0]);
+        assert!(res["response"]["csv"].is_null());
+        assert_eq!(res["layout"]["names"], json!(["time", "x"]));
+        let cols = res["columns"].as_array().unwrap();
+        let n = res["layout"]["points"].as_u64().unwrap() as usize;
+        assert!(n > 1 && cols.iter().all(|c| c.as_array().unwrap().len() == n));
+        assert_eq!(cols[1][n - 1].as_f64().unwrap(), x);
+        let r = s.handle(
             json!({"id": 3, "method": "globe/graph", "params": {"model": "C", "depth": 1}}),
         );
         assert_eq!(
@@ -674,6 +716,11 @@ mod tests {
         for (method, params, code) in [
             ("globe/check", json!({}), -32602),
             ("globe/simulate", json!({"request": {"nope": 1}}), -32602),
+            (
+                "globe/simulateColumns",
+                json!({"request": {"nope": 1}}),
+                -32602,
+            ),
             ("globe/graph", json!({"model": "Nope"}), -32000),
         ] {
             let r = s.handle(json!({"id": 9, "method": method, "params": params}));

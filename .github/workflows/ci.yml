@@ -49,6 +49,7 @@ jobs:
       ui: ${{ steps.plan.outputs.ui }}
       deny: ${{ steps.plan.outputs.deny }}
       python: ${{ steps.plan.outputs.python }}
+      lang: ${{ steps.plan.outputs.lang }}
       docs: ${{ steps.plan.outputs.docs }}
       slides: ${{ steps.plan.outputs.slides }}
       msl: ${{ steps.plan.outputs.msl }}
@@ -258,6 +259,27 @@ jobs:
       - run: uv sync --locked
       - run: uv run globe-mode
       - run: uv run pytest -q
+
+  lang:
+    # S077: C ABI（globe-mode-c の release の .so）を Zig（src/Zig）と Julia（src/Julia、ccall だけ）から呼び、
+    # Decay を check → simulate する（S075 の mise run c:zig・c:julia）。C ABI の crate（とその依存）か例を変えたときだけ
+    needs: plan
+    if: needs.plan.outputs.lang == 'true'
+    runs-on: ubuntu-24.04
+    env:
+      MISE_TASK_RUN_AUTO_INSTALL: "false"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+        with:
+          install_args: rust zig julia
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # release の成果物は、rust-linux（debug）のキャッシュと分ける
+          key: lang
+      - run: zig version && julia --version
+      - run: mise run c:zig
+      - run: mise run c:julia
 
   docs:
     needs: plan
