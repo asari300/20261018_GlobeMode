@@ -5,6 +5,8 @@
 # cargo-dist は使わない（依存を増やさない。3 つのターゲットは matrix で足りる）。`--features sundials` は付けない
 # （cmake と C コンパイラが要るため。ビルドの既定・wasm・CI と同じ構成）。ci.yml とは別の concurrency グループ。
 # 各アーカイブには、cargo-about（about.toml・about.hbs）で作ったサードパーティのライセンス表 THIRD-PARTY.md も入れる（S052）。
+# 同じ 3 ターゲットで Python の wheel（globe-mode-py、abi3-py312）も `uv build --wheel` で作り、その wheel を入れて pytest を回す（S074）。
+# wheel の中の globe_mode/THIRD-PARTY.md は同じ about.toml・about.hbs で globe-mode-py から作る（cli との差は pyo3 の 5 crate）。
 name: release
 
 on:
@@ -37,7 +39,9 @@ jobs:
           key: third-party
       - run: cargo install --locked --features cli --version 0.9.2 cargo-about
       - name: THIRD-PARTY.md を作る（許可外のライセンスがあれば失敗する）
-        run: cargo about generate --locked --fail --manifest-path src/Rust/mod/globe-mode-cli/Cargo.toml about.hbs -o THIRD-PARTY.md
+        run: |
+          cargo about generate --locked --fail --manifest-path src/Rust/mod/globe-mode-cli/Cargo.toml about.hbs -o THIRD-PARTY.md
+          cargo about generate --locked --fail --manifest-path src/Rust/mod/globe-mode-py/Cargo.toml about.hbs -o THIRD-PARTY-wheel.md
       - name: 大きさと crate 数
         run: |
           wc -c THIRD-PARTY.md
@@ -46,7 +50,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: third-party
-          path: THIRD-PARTY.md
+          path: THIRD-PARTY*.md
           if-no-files-found: error
 
   build:
@@ -73,10 +77,10 @@ jobs:
       - uses: jdx/mise-action@v5
         if: runner.os == 'Linux'
         with:
-          install_args: rust
+          install_args: rust uv
       # Windows では mise の shim 経由の cargo が失敗したので、ランナーの rustup を直接使う（ci.yml の rust-windows と同じ）
       - if: runner.os == 'Windows'
-        run: rustup toolchain install stable --profile minimal --no-self-update && rustup default stable
+        run: rustup toolchain install stable --profile minimal --no-self-update && rustup default stable && python -m pip install uv
       - uses: Swatinem/rust-cache@v2
         with:
           key: release-${{ matrix.target }}
@@ -111,6 +115,23 @@ jobs:
           name: globe-${{ matrix.target }}
           path: ${{ env.ASSET }}
           if-no-files-found: error
+      # wheel の名前は maturin が付ける（globe_mode-<pyproject の version>-cp312-abi3-<platform>.whl）
+      - name: wheel を作る
+        shell: bash
+        run: |
+          cp THIRD-PARTY-wheel.md src/Python/mod/globe_mode/THIRD-PARTY.md
+          uv build --wheel --out-dir wheel
+          ls -l wheel
+          uv run --no-project python -m zipfile -l wheel/*.whl | grep -E 'THIRD-PARTY|_native'
+      # --no-project: 作業ツリーの src/Python/mod ではなく、作った wheel の globe_mode を読む
+      - name: wheel を入れて pytest
+        shell: bash
+        run: uv run --isolated --no-project --with wheel/*.whl --with pytest pytest -q src/Python/tests
+      - uses: actions/upload-artifact@v4
+        with:
+          name: globe-wheel-${{ matrix.target }}
+          path: wheel/*.whl
+          if-no-files-found: error
 
   release:
     needs: build
@@ -125,7 +146,7 @@ jobs:
           merge-multiple: true
       - name: SHA256SUMS
         working-directory: dist
-        run: sha256sum globe-* | tee SHA256SUMS
+        run: sha256sum globe-* globe_mode-*.whl | tee SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
           name: SHA256SUMS

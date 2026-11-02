@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S074 wheel を release で配る — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S074 wheel を release で配る">
+
+<section class="slide" id="S01">
+  <span class="tag">S074 · 2026-11-02 · P6 / P8</span>
+  <h1>Python の wheel を release.yml で配る</h1>
+  <p class="lead">globe と同じ 3 ターゲットで wheel を作り、入れて pytest を回した</p>
+  <div class="big">dry-run で wheel <b>3 つ</b>、pytest は <b>3 ターゲットとも 2 passed</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>S039 の持ち越し: Linux x86_64 以外の wheel と、CI での配布</li>
+    <li>S052 の持ち越し: wheel のライセンス表</li>
+    <li>Release の assets と SHA256SUMS に wheel を足す</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table>
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>ジョブ</td><td>既存の build の matrix に step を足す</td><td>Rust と cache を共有</td></tr>
+    <tr><td>作り方</td><td>uv build --wheel</td><td>手元と同じ経路、action を足さない</td></tr>
+    <tr><td>aarch64</td><td>ネイティブの ubuntu-24.04-arm</td><td>globe と同じ。pytest も回せる</td></tr>
+    <tr><td>pytest</td><td>--no-project --with wheel</td><td>作った wheel を読む</td></tr>
+    <tr><td>ライセンス表</td><td>同じ about.toml で globe-mode-py にも回す</td><td>cli に無い pyo3 の 5 crate がある</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>構成</h1>
+  <svg class="fig" viewBox="0 0 800 260" role="img" aria-label="third-party から build、release への流れ">
+    <rect class="svg-box" x="20" y="90" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="120" y="126" text-anchor="middle">third-party</text>
+    <text class="svg-text" x="120" y="150" text-anchor="middle">表 2 つ</text>
+    <line class="svg-line" x1="220" y1="130" x2="300" y2="130"/>
+    <rect class="svg-box-accent" x="300" y="70" width="220" height="120" rx="10"/>
+    <text class="svg-text-b" x="410" y="110" text-anchor="middle">build x 3</text>
+    <text class="svg-text" x="410" y="136" text-anchor="middle">globe + wheel</text>
+    <text class="svg-text" x="410" y="160" text-anchor="middle">wheel で pytest</text>
+    <line class="svg-line" x1="520" y1="130" x2="580" y2="130"/>
+    <rect class="svg-box" x="580" y="90" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="680" y="126" text-anchor="middle">release</text>
+    <text class="svg-text" x="680" y="150" text-anchor="middle">SHA256SUMS 6 行</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>gh workflow run release.yml --ref feature/s074-wheel-release</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">17.9 MB</span><span class="l">linux x86_64</span></div>
+    <div class="kpi"><span class="n">16.7 MB</span><span class="l">linux aarch64</span></div>
+    <div class="kpi"><span class="n">16.0 MB</span><span class="l">windows x86_64</span></div>
+  </div>
+  <p>run 41365579800、約 20 分、5 ジョブとも success</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>PyPI への公開（manylinux のタグ、version をタグと揃える）</li>
+    <li>macOS の wheel</li>
+    <li>S039 の残り: graph とライブラリ、Arrow、anywidget</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
