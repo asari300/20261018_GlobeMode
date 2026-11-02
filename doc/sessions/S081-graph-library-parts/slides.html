@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S081 文書のモデルの中のライブラリの部品 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S081 文書のモデルの中のライブラリの部品">
+
+<section class="slide" id="S01">
+  <span class="tag">S081 · 2026-11-02 · P4</span>
+  <h1>文書のモデルの中のライブラリの部品</h1>
+  <p class="lead">graph が開いた文書の MSL の部品も引き、ライブラリのアウトラインを持ち越す</p>
+  <div class="big">unresolved <b>3 → 0</b>、2 回目の ChuaCircuit <b>234 → 52 ms</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>S079 の持ち越し 1: 文書のモデルが MSL の部品を持つと、型が <code>unresolved</code> に入る</li>
+    <li>S079 の持ち越し 2: graph のたびにライブラリのアウトラインを作り直す（MSL で 2556 文書）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table>
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>いつ見るか</td><td>ライブラリがあれば常に合わせる</td><td>文書の部品も引ける</td></tr>
+    <tr><td>分割読み込み</td><td>文書の本文も渡して閉包を読む</td><td>検査と同じ道</td></tr>
+    <tr><td>キャッシュ</td><td>アウトラインを世代ごとに GlobeDb に</td><td>閉包が増えたときだけ作り直す</td></tr>
+    <tr><td>索引</td><td>毎回作る（shortcut）</td><td>文書の編集で変わる。52 ms で足りる</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>graph の道</h1>
+  <svg class="fig" viewBox="0 0 800 260" role="img" aria-label="graph の道の図">
+    <rect class="svg-box-accent" x="20" y="100" width="170" height="60" rx="10"/>
+    <text class="svg-text-b" x="105" y="136" text-anchor="middle">graph</text>
+    <line class="svg-line" x1="190" y1="130" x2="300" y2="70"/>
+    <line class="svg-line" x1="190" y1="130" x2="300" y2="190"/>
+    <rect class="svg-box" x="300" y="40" width="200" height="60" rx="10"/>
+    <text class="svg-text" x="400" y="76" text-anchor="middle">ライブラリなし: salsa</text>
+    <rect class="svg-box" x="300" y="160" width="200" height="60" rx="10"/>
+    <text class="svg-text" x="400" y="196" text-anchor="middle">持ち越し + 文書</text>
+    <line class="svg-line" x1="500" y1="70" x2="610" y2="130"/>
+    <line class="svg-line" x1="500" y1="190" x2="610" y2="130"/>
+    <rect class="svg-box-accent" x="610" y="100" width="170" height="60" rx="10"/>
+    <text class="svg-text-b" x="695" y="136" text-anchor="middle">ConnectGraph</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>cargo test -p globe-mode --test graph_library -- --nocapture</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">3 → 0</span><span class="l">MslParts の unresolved</span></div>
+    <div class="kpi"><span class="n">52 ms</span><span class="l">2 回目の ChuaCircuit（debug）</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>索引ごとの持ち越し（要るなら）</li>
+    <li>import した名前の解決</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

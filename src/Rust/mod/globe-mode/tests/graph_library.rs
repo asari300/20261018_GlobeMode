@@ -73,3 +73,30 @@ fn msl_chua_circuit_graph() {
     eprintln!("ChuaCircuit のノード {n}");
     assert!(n > 0);
 }
+
+/// ワークスペースのモデルの中のライブラリの部品も、ライブラリの索引から引く（S081）。2 回目はアウトラインを持ち越す
+#[test]
+fn workspace_model_with_msl_parts() {
+    let msl = root().join("data/msl");
+    if !msl.is_dir() {
+        eprintln!("{} が無いので飛ばす", msl.display());
+        return;
+    }
+    let text = include_str!("data/MslParts.mo");
+    let mut plain = Workspace::new();
+    plain.set_file("MslParts.mo", text);
+    let before = plain.graph("MslParts", 1).unwrap().unresolved;
+    for open in [Workspace::with_libraries, Workspace::with_libraries_full] {
+        let mut ws = open(std::slice::from_ref(&msl)).unwrap();
+        ws.set_file("MslParts.mo", text);
+        let after = ws.graph("MslParts", 1).unwrap().unresolved;
+        eprintln!("unresolved {} → {}: {after:?}", before.len(), after.len());
+        assert!(after.len() < before.len(), "{before:?} → {after:?}");
+    }
+    let mut ws = Workspace::with_libraries_full(&[msl]).unwrap();
+    for i in 1..=2 {
+        let start = std::time::Instant::now();
+        nodes(&mut ws, "Modelica.Electrical.Analog.Examples.ChuaCircuit");
+        eprintln!("ChuaCircuit の graph {i} 回目 {:?}", start.elapsed());
+    }
+}

@@ -1,0 +1,30 @@
+[package]
+name = "globe-mode-nif"
+description = "GlobeMode: Erlang NIF (Rustler) for Elixir and Gleam"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lib]
+name = "globe_mode_nif"
+crate-type = ["cdylib"]
+# enif_* は BEAM が読み込むときに解決されるので、単体のテストの実行ファイルは作らない（試験は mix test）
+test = false
+doctest = false
+
+[dependencies]
+# S082: facade だけに依存する（globe-mode-py・globe-mode-c と同じ）
+globe-mode = { workspace = true }
+rustler = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# rustler::init! が unsafe の extern を作るので、workspace の unsafe_code = "forbid" を外す（残りは workspace と同じ）
+[lints.rust]
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+dbg_macro = "warn"
