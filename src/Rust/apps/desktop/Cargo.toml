@@ -12,6 +12,11 @@ publish = false
 
 [workspace]
 
+# S092: Android（Tauri の mobile）の入口。src/lib.rs は mobile のときだけ中身がある（Desktop は main.rs のまま）
+[lib]
+name = "globe_mode_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

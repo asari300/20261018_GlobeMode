@@ -15,7 +15,8 @@
   import Graph from "./lib/graph/Graph.svelte";
 
   const FILE = "Model.mo";
-  const desktop = inTauri();
+  // S092: Android の Tauri には sidecar が無い（ADR-0023）ので、ブラウザと同じ Worker（wasm）を使う
+  const desktop = inTauri() && !/Android/i.test(navigator.userAgent);
   const tauri = desktop ? new TauriBackend() : null;
   const backend: Backend = tauri ?? new WorkerBackend(); // S049: Tauri の中では sidecar
   const severityRank = { error: 0, warning: 1, info: 2 };
