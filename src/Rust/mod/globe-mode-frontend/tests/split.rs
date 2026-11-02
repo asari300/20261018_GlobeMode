@@ -84,7 +84,7 @@ fn split_library_reports_what_it_cannot_read() {
     assert_eq!(err[0].code, codes::LIBRARY, "{err:?}");
     let err = Checker::with_library_sources_split("empty", &[]).unwrap_err();
     assert_eq!(err[0].code, codes::LIBRARY, "{err:?}");
-    // 構文の誤りのあるファイルは、そのファイルを使うモデルの検査で GM-E1003 になる
+    // 構文の誤りのあるファイルは、そのファイルを使うモデルの検査で読み飛ばし、GM-W1001 を付ける（S071）
     files.insert(
         "Bad.mo".to_string(),
         "model Bad\n  Real x\nend Bad;\n".to_string(),
@@ -95,13 +95,31 @@ fn split_library_reports_what_it_cannot_read() {
     );
     files.remove("Broken.mo");
     let checker = Checker::with_library_sources_split("mixed", &sources(&files)).unwrap();
-    assert!(checker.check(&[], "Good").passed());
+    let report = checker.check(&[], "Good");
+    assert!(report.passed());
+    assert!(
+        !report
+            .diagnostics
+            .iter()
+            .any(|d| d.code == codes::LIBRARY_PARTIAL)
+    );
     let report = checker.check(&[], "Bad");
-    assert_eq!(
-        report.diagnostics[0].code,
-        codes::LIBRARY,
+    assert!(!report.passed());
+    assert!(
+        report
+            .diagnostics
+            .iter()
+            .any(|d| d.code == codes::LIBRARY_PARTIAL && d.notes[0].starts_with("Bad.mo: ")),
         "{:?}",
         report.diagnostics
+    );
+    // 読み飛ばしは読んだ後の検査にも付く
+    assert!(
+        checker
+            .check(&[], "Good")
+            .diagnostics
+            .iter()
+            .any(|d| d.code == codes::LIBRARY_PARTIAL)
     );
 }
 

@@ -156,7 +156,7 @@
     <tbody>
       {#each diagnostics as d}
         <tr class={d.severity} onclick={() => jump(d)}>
-          <td>{d.code}</td><td>{d.stage}</td><td>{d.severity}</td><td>{d.message}</td>
+          <td>{d.code}</td><td>{d.stage}</td><td>{d.severity}</td><td>{d.message}{#each d.notes ?? [] as n}<div class="dnote">{n}</div>{/each}</td>
         </tr>
       {/each}
     </tbody>
@@ -173,6 +173,7 @@
   .editor :global(.cm-editor) { height: 16rem; }
   .diagnostics { width: 100%; border-collapse: collapse; margin-top: .5rem; }
   td { border-bottom: 1px solid #ddd; padding: .2rem .5rem; vertical-align: top; }
+  .dnote { color: #555; font-size: .9em; }
   tr { cursor: pointer; }
   tr.error { color: #b00020; }
   tr.warning { color: #8a6100; }
