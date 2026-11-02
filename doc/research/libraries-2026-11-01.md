@@ -270,6 +270,27 @@ S063 の持ち越し「`uses` が 4.0.0 のライブラリを 4.1.0 で回した
 - **比較の土台の確認**: 4.1.0 の側は S058 の run なので、この branch の xtask・Rumoca で 4.1.0 を回し直した（run 41302566710、`-f msl=4.1.0`、Buildings を除く 6 つ、全ジョブ success）。S058 の run と 2,132 - 809 = 1,323 本すべてで判定・段・コードが同じで、実行できた本数も同じ（AixLib 98・IBPSA 66・DeltaRobot 5・ThermofluidStream 2・Chemical 0・ClaRa 0）。つまり上の差は S058 以降のコードの変化ではなく MSL の版の差。Buildings は回し直していない（S058 の 4.1.0 の run のまま。Buildings だけ分割 4 の 1 本が約 70 分かかるため）。
 - 時間（funnel の足し算）は 4.1.0 / 4.0.0 で AixLib 732 / 772 s、Buildings 4,361 / 5,529 s、IBPSA 314 / 305 s と同程度（Buildings は分割 4 の 1 本が 3,769 / 4,748 s。Actions のランナーの差もある）。
 
+## Buildings を MSL 4.0.0 で回し直した（S073）
+
+確認日 2026-11-02。S068（[ADR-0029](../adr/0029-external-builtin-rewrite.md)、`external "builtin"` を組み込み演算に書き換える）の後に Buildings だけ回し直していなかったので、main（a778ea9）で `gh workflow run libraries.yml --ref main -f libraries='["Buildings"]' -f msl=4.0.0` を回した（[run 41364279300](https://github.com/asari300/20261018_GlobeMode/actions/runs/41364279300)、全ジョブ success、壁時計 約 95 分、分割 4 の sim が約 76 分）。artifact `library-Buildings-1〜4` の `*-funnel.json`・`*-sim.json` を、S067 の 4.0.0（run 41295445820）と S058 の 4.1.0（run 41250636800）と例題ごとに突き合わせた。
+
+| | 例題 | OK | NG | GM-U | panic | 実行できた（OK のうち） |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 4.1.0（S058、run 41250636800） | 809 | 119 | 493 | 193 | 4 | 88 |
+| 4.0.0（S067、run 41295445820） | 809 | 119 | 493 | 193 | 4 | 61 |
+| 4.0.0 + S068（S073、run 41364279300） | 809 | 119 | 493 | 193 | 4 | **88** |
+
+- **判定は 809 本すべて S067 と同じ**（判定・段・コード）。
+- **実行は 61 → 88 で、4.1.0 と例題ごとに一致**: S067 が「4.1.0 で実行できて 4.0.0 で `GM-U0004`」とした 27 本が全部実行できるようになり、逆は 0 本。4.1.0（S058）との差は 0 本（実行できた 88・`hard_timeout` 1・`run_failed` 30 の内訳も同じ）。27 本のうち 25 本は S067 で構造解析の段の `external builtin function 'Modelica.Math.*'`（`exp` 9・`sin` 8・`log` 4・`cos` 4）、2 本が下の `invalid Solve IR contract`。
+- **`Interior`・`InteriorConvection` の `invalid Solve IR contract` も原因は `external "builtin"`**: 2 本とも `final parameter Real cosTil = Modelica.Math.cos(til)`・`sinTil = Modelica.Math.sin(til)`（`Buildings/HeatTransfer/Convection/Interior.mo` 24〜25 行、`Buildings/HeatTransfer/Windows/BaseClasses/InteriorConvection.mo` 30〜31 行）を持つ。MSL 4.0.0 では `cos`・`sin` が `external "builtin"`、4.1.0 では `algorithm y := .cos(u);`。S067 が疑った「MSL の別の関数の書き方」ではなく、S067 の 70 本と同じ差。手元の確かめ（release の `globe simulate -L data/msl-4.0.0 -L data/libs/Buildings`、1 本ずつ）:
+  - main のままでは 2 本とも 4.0.0 で終了時刻まで進み、CSV は 4.1.0 とバイト単位で同じ（`Interior` 37 s、`InteriorConvection` 67 s、最大 RSS 約 180 MB）。
+  - S068 の書き換えを一時的に外す（`lower_builtin_externals` の先頭で元の `Dae` を返す。コミットしていない）と、2 本とも `[EL005] invalid Solve IR contract: pure-call argument or slot interface is invalid` に戻る。
+  - MSL を使わない最小の再現: 自前の `function mycos ... external "builtin" y = cos(u);` を `final parameter Real c = mycos(til);` で使うと同じ `invalid Solve IR contract`、方程式で使う（`der(x) = -mycos(time) * x`）と `external builtin function 'mycos' calls 'cos', which this runtime cannot execute`。**同じ穴が、呼ぶ場所（parameter の束縛か方程式か）でメッセージだけ変わる**。
+  - メッセージの出所は Rumoca（rev 276e82b）の `rumoca-phase-solve/src/error.rs`（`invalid Solve IR contract: {reason}`）と `rumoca-ir-solve/src/typed_program/program/construction_error.rs`（`InvalidCallInterface`）。GlobeMode（globe-mode-exec）は Rumoca の文字列を `GM-U0004` の note に写すだけ。`rumoca-phase-solve/src/lower/typed_functions.rs` に `InvalidCallInterface` を返す所が十数か所あり、どれが出したかは追っていない【未確認】。
+- **判定: Rumoca の穴（`external "builtin"` を実行できない、上流の下書き 16）。メッセージが原因の関数を名指さないのは診断の質の問題**として、下書き 16 に追記した（→ 上流 [16](upstream/16-external-builtin-math-functions.md)）。GlobeMode 側は S068 の書き換えで足りており、コードは変えない。
+- これで S067 の「実行の差 76 本」は 75 本が S068 で解消した（Buildings 27・AixLib 26・IBPSA 19・DeltaRobot 3）。残りは AixLib の判定が変わった 1 本（`SensorVerification`、ED019）。
+- 時間（表の「検査 + 実行」、分割の足し算）は 1:25 + 0:06（S067 は 1:32 + 0:01）。実行の時間が延びたのは実行できる本数が増えたため。
+
 ## 読んだ範囲と限界
 
 - アーカイブの中の `package.mo` の `uses(...)` と `version`、README と LICENSE の見出しを読んだ。ライセンス全文の突き合わせまではしていない。

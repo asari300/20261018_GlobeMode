@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S073 buildings-msl-400 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S073 buildings-msl-400">
+
+<section class="slide" id="S01">
+  <span class="tag">S073 · 2026-11-02 · P3</span>
+  <h1>buildings-msl-400</h1>
+  <p class="lead">Buildings を MSL 4.0.0 で回し直す（S067・S068 の持ち越し）</p>
+  <div class="big">Buildings の実行できた本数 <b>61 → 88</b>（4.1.0 と同じ）</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>確かめ残しが 2 つあった</h1>
+  <ul>
+    <li>S068 で external "builtin" を書き換えたが、Buildings（分割 4 の 1 本が約 70 分）は回し直していない</li>
+    <li>S067 で 4.0.0 だけ実行できない Buildings の 27 本。そのうち Interior・InteriorConvection の 2 本は別のメッセージ（invalid Solve IR contract）</li>
+    <li>調査が中心。Rust のコードは変えない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>CI は 1 本、手元も 1 本ずつ</h1>
+  <ul>
+    <li>libraries.yml は concurrency の group が 1 つ。動いている run が無いのを見てから Buildings だけを 1 本出した</li>
+    <li>手元は RAM 3 GB。release の globe simulate を 1 本ずつ、端末から切り離して回した</li>
+    <li>原因の確かめは「S068 の書き換えを一時的に外す」と「MSL を使わない最小の再現」の 2 つ。どちらもコミットしない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">CI の結果</span>
+  <h1>libraries.yml run 41364279300（MSL 4.0.0）</h1>
+  <table class="compact">
+    <tr><th></th><th>例題</th><th>OK</th><th>実行できた</th></tr>
+    <tr><td>4.1.0（S058）</td><td>809</td><td>119</td><td>88</td></tr>
+    <tr><td>4.0.0（S067）</td><td>809</td><td>119</td><td>61</td></tr>
+    <tr><td>4.0.0 + S068（今回）</td><td>809</td><td>119</td><td class="ok">88</td></tr>
+  </table>
+  <p>判定は 809 本とも S067 と同じ。実行は 4.1.0 と例題ごとに一致（差 0 本）。27 本 = exp 9・sin 8・log 4・cos 4・Solve IR 2</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">図</span>
+  <h1>同じ穴、場所でメッセージが変わる</h1>
+  <svg viewBox="0 0 800 260" role="img" aria-label="external builtin の呼び出しの場所とメッセージ">
+    <rect class="svg-box" x="20" y="100" width="210" height="60" rx="8"/>
+    <text class="svg-text" x="125" y="126" text-anchor="middle">Modelica.Math.cos</text>
+    <text class="svg-text" x="125" y="148" text-anchor="middle">external "builtin"</text>
+    <line class="svg-line" x1="230" y1="115" x2="320" y2="60"/>
+    <line class="svg-line" x1="230" y1="145" x2="320" y2="200"/>
+    <rect class="svg-box" x="320" y="30" width="460" height="60" rx="8"/>
+    <text class="svg-text" x="550" y="56" text-anchor="middle">方程式の中: cannot execute</text>
+    <text class="svg-text" x="550" y="78" text-anchor="middle">（関数の名前が出る。S067 の 70 本）</text>
+    <rect class="svg-accent" x="320" y="170" width="460" height="60" rx="8"/>
+    <text class="svg-text" x="550" y="196" text-anchor="middle">parameter の束縛: invalid Solve IR contract</text>
+    <text class="svg-text" x="550" y="218" text-anchor="middle">（名前が出ない。Interior の 2 本）</text>
+  </svg>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">原因</span>
+  <h1>invalid Solve IR contract の出所</h1>
+  <ul>
+    <li>Rumoca の rumoca-phase-solve（error.rs）と rumoca-ir-solve の InvalidCallInterface。GlobeMode は文字列を GM-U0004 に写すだけ</li>
+    <li>2 本とも final parameter Real cosTil = Modelica.Math.cos(til)（sin も）。4.0.0 の cos・sin は external "builtin"</li>
+    <li>書き換えを外すと 2 本とも同じエラーに戻る。今の main では 4.0.0 で走り、CSV は 4.1.0 と同じ</li>
+    <li>判定: Rumoca の穴（上流の下書き 16 に追記）。名前を出さないのは診断の質の問題</li>
+  </ul>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">再現手順</span>
+  <h1>再現</h1>
+  <pre><code>gh workflow run libraries.yml --ref main \
+  -f libraries='["Buildings"]' -f msl=4.0.0
+cargo xtask fetch-library Buildings
+globe simulate -L data/msl-4.0.0 -L data/libs/Buildings \
+  -m Buildings.HeatTransfer.Convection.Examples.Interior -o out.csv</code></pre>
+</section>
+
+<section class="slide" id="S08">
+  <span class="tag">次回</span>
+  <h1>次にやること</h1>
+  <ul>
+    <li>S067 の実行の差 76 本は 75 本が解消。残りは AixLib の SensorVerification（判定が ED019 に変わった 1 本）</li>
+    <li>上流の下書き 16 を出すときは、parameter の束縛の形の追記も一緒に</li>
+    <li>解説書: <a href="解説書.md">解説書.md</a>、調査: <a href="../../research/libraries-2026-11-01.md">libraries-2026-11-01.md</a></li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
