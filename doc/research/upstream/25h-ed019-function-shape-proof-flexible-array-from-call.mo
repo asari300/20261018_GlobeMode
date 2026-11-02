@@ -1,4 +1,4 @@
-// Repro for upstream draft 25 (seventh shape, S083). Self-contained.
+// Repro for upstream draft 25h (seventh shape, S083). Self-contained.
 // Shape taken from MSL 4.1.0 Modelica.Media.Air.ReferenceMoistAir.Xsaturation:
 // `protected MassFraction[:] X;` is sized only by the assignment
 // `X := massFractionSaturation(state);`.
