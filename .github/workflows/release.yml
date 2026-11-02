@@ -151,10 +151,10 @@ jobs:
           uv build --wheel --out-dir wheel
           ls -l wheel
           uv run --no-project python -m zipfile -l wheel/*.whl | grep -E 'THIRD-PARTY|_native'
-      # --no-project: 作業ツリーの src/Python/mod ではなく、作った wheel の globe_mode を読む
+      # --no-project: 作業ツリーの src/Python/mod ではなく、作った wheel の globe_mode を読む。extra widget も wheel から入れる（S097）
       - name: wheel を入れて pytest
         shell: bash
-        run: uv run --isolated --no-project --with wheel/*.whl --with pytest pytest -q src/Python/tests
+        run: uv run --isolated --no-project --with "globe-mode[widget] @ $(ls wheel/*.whl)" --with pytest pytest -q src/Python/tests
       - uses: actions/upload-artifact@v4
         with:
           name: globe-wheel-${{ matrix.target }}
