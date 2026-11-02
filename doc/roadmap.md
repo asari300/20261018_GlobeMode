@@ -338,7 +338,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 ### S039（P7 の 1 回目、2026-10-31）で済んだこと
 
 - **Python の wheel**（[計画書](plan/2026-10-30-release-estimate-and-parallel-plan.md)の WP-G）: 新しい crate `globe-mode-py`（PyO3 0.30、abi3-py312、facade だけに依存）を maturin で `src/Python/mod/globe_mode` の `_native` に入れた（`pyproject.toml` の build-backend を uv_build から maturin に）。`Workspace{set_file, load_dir, check, graph, simulate}` と `solvers()` の入出力は JSON の文字列で、`__init__.py` が `dict` と polars の表（`table()`）にする。参照シナリオ（`src/Python/tests/test_api.py`）: `load_dir(src/Modelica)` → `Decay` の check → `RealCircuit` の graph → `Decay` の simulate → x(1) が e⁻¹ と一致。wheel は 17.3 MB（linux x86_64）。CI の `python` のジョブに rust と `pytest`。実装は Sonnet のサブエージェント 1 人。
-- 持ち越し: `graph` がライブラリとして読んだモデルを引けない、Arrow での結果の受け渡し、他の OS の wheel、anywidget。
+- 持ち越し: `graph` がライブラリとして読んだモデルを引けない、Arrow での結果の受け渡し、anywidget。他の OS の wheel は S074 で済んだ（`release.yml` で linux x86_64・aarch64・windows x86_64 の wheel を作って pytest を回し、Release に付ける。[解説書](sessions/S074-wheel-release/解説書.md)）。PyPI への公開と macOS は持ち越し。
 
 ### S038（P4 の 1 回目、2026-10-30）で済んだこと
 
@@ -388,7 +388,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **release.yml の dry-run と配布物のライセンス表**（S044 の持ち越し）: feature ブランチで `gh workflow run release.yml --ref feature/s052-release-rc1-about`（run 41195617479、約 3.5 分）が success。artifact は `globe-x86_64-unknown-linux-gnu`（17,266,507 バイト）・`globe-aarch64-unknown-linux-gnu`（15,732,498）・`globe-x86_64-pc-windows-msvc`（14,763,818）と `SHA256SUMS`。タグは打っていない。
 - **`THIRD-PARTY.md`**: ジョブ `third-party` が cargo-about 0.9.2（`cargo install --locked --features cli`）で `globe-mode-cli` の依存 325 crate（Apache-2.0 240・MIT 67・Unicode-3.0 19・Zlib 2・BSD-2-Clause 1・ISC 1、338,277 バイト）の表を作り、3 つのビルドが各アーカイブに同梱する。`about.toml` の `accepted` は deny.toml の allow と同じ 10 個で、許可外があれば `--fail` で落ちる。[licenses.md](licenses.md) の 3・4 と末尾の節を直した。
 - `CHANGELOG.md` に S042〜S047 と S044・S045・S052 の項目を足した。
-- 持ち越し: タグ `v0.1.0-rc1` の Release（ユーザーが打つ）、npm・wasm・wheel のライセンス表、CycloneDX の SBOM、署名・deb・msi（WP-C）。
+- 持ち越し: タグ `v0.1.0-rc1` の Release（ユーザーが打つ）、npm・wasm のライセンス表（wheel は S074）、CycloneDX の SBOM、署名・deb・msi（WP-C）。
 
 ### S051（P3、2026-10-31）で済んだこと
 

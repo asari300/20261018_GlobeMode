@@ -187,6 +187,21 @@ run 41250636800（Buildings 4・AixLib 2・IBPSA・ClaRa・ThermofluidStream）�
 - **EF025（138 本）**: 136 本が `Modelica.Utilities.Files.loadResource`（51 本）や replaceable な Medium の関数（`setState_pTX` など）の「正確な関数の選択」が決まらない。S070 の判定: `loadResource`（extends が 2 つの関数。MLS §7.1.1 で合法）は **Rumoca の穴**で、MSL だけと自己完結の 2 通りで再現した。replaceable な Medium の関数の方は最小の再現を作れなかった（単純な `Medium.setState_pTX` は通る）ので不明。omc は通す。→ 上流 [20](upstream/20-ef025-function-selection-identity.md)
 - **EF004（217 本）**: ThermofluidStream の 93 本と Chemical の 41 本が上位。前者は `getInstanceName()`（全体で 119 本: ThermofluidStream 93・Buildings 11・IBPSA 8・AixLib 7）、後者は「if 方程式の枝で方程式の本数が違う」。S070 の判定: どちらも **Rumoca の穴**。`getInstanceName()` は parameter の束縛に書くと断る（equation の assert では通る。MLS §3.7.4.6）。後者の実体は「枝の方程式の本数」でなく、成分配列の項（`substrates.n_flow*ones(nS)`）を含む式の行数の数え違い（要素 1 個なら通り、2 個か 0 個で断る。MLS §10.6.4）。omc は通す。→ 上流 [21](upstream/21-ef004-getinstancename-and-if-equation-branches.md)
 
+### 2 回目の判定（S072）
+
+S070 の「次回」の 5 つのコードを同じ手順で判定した（確認日 2026-11-02。本数は run 41250636800 の artifact の `*-funnel.json` を数え直したもの）。最小の再現は `globe check` と Rumoca v0.10.2 の CLI で同じコードになり、対照は両方で通る。omc 1.27.2 の `checkModel` は ER003 の再現だけを断る。詳しくは [upstream/README.md](upstream/README.md) の「公開ライブラリの失敗から（22〜26、S072）」。
+
+| コード | 本数 | 実際の箇所 | 判定 |
+| --- | ---: | --- | --- |
+| ER023 | 3（ClaRa） | `ClaRa/Basics/Records/IComVLE_L2.mo` ほかの `TILMedia.Internals.TILMediaExternalObject fluidPointer_bulk` | **正当**。MLS 3.6 §4.6（[class-predefined-types-and-declarations](https://specification.modelica.org/maint/3.6/class-predefined-types-and-declarations.html)、2026-11-02）は record の成分を record か type に限る。ExternalObject は class。ClaRa の書き方は規定の外で、omc は緩く通す。Rumoca のメッセージの「§4.7」は 3.6 では §4.6。再現 [22](upstream/22-er023-record-component-externalobject.mo) |
+| ER003 | 3（ClaRa 2・AixLib 1） | ClaRa の `SMArtInt.Internal.ClaRaDelay`、AixLib の `Modelica.Media.Examples.Tests.Components.PartialTestModel2`（`AixLib.Media.Refrigerants.Examples.RefrigerantTestImplementation`） | **正当**。ClaRa は取得しない依存（取得すれば避けられる）。AixLib はライブラリの誤り（MSL 4.0.0・4.1.0 とも `Modelica.Media.Examples.Utilities.PartialTestModel2` にある）。omc も同じ再現を断る。再現 [23](upstream/23-er003-base-class-not-found.mo) |
+| EI006 | 117（Buildings 54・AixLib 33・IBPSA 30） | `IBPSA/Fluid/FMI/Interfaces/FluidProperties.mo` の `X_w if Medium.nXi > 0`（40 本）、`MassFlowSource_WeatherData` の `x_pTphi if (not singleSubstance)`（27 本） | **Rumoca の穴**。別の package の定数（直接でも、それを束縛にした parameter 経由でも）を読む条件を断る。モデルの定数・parameter なら通る。MLS §4.4.5 は parameter 式を求めるだけ。→ 上流 [24](upstream/24-ei006-condition-on-package-constant.md) |
+| ED019 | 125（AixLib 43・Buildings 38・IBPSA 33・ThermofluidStream 11） | `IBPSA/Utilities/Math/Functions/isMonotonic.mo`（`function conditional`、同じメッセージ 44 本） | **Rumoca の未対応**。Boolean の出力の関数で、if の枝が代入のあと for を回すと断る（Real の出力なら通る）。→ 上流 [25](upstream/25-ed019-function-conditional-boolean-loop.md)。`function shape proof`（12 本。MSL 4.0.0 の `SensorVerification` は `Modelica/Media/package.mo` を指す）と `splineDerivatives` の形は最小にできず【未確認】 |
+| ED008 | 108（Buildings 40・AixLib 29・IBPSA 29・ThermofluidStream 10） | `IBPSA/Media/Air.mo` の `constant GasProperties dryair(...)` を `dryair.cp` で読む（`<ライブラリ>.Media.Air.dryair.cp` が 47 本） | **Rumoca の穴**（内部エラー）。package の record 定数の成分が flat に無い。スカラの package 定数・モデルの record 定数なら通る。→ 上流 [26](upstream/26-ed008-field-of-package-record-constant.md)。ループ変数 `i` の 18 本は別の形で【未確認】 |
+
+- ライブラリ側の誤りは ER003 の AixLib の 1 本と、規定の外の書き方の ER023（ClaRa 3 本）。S070 の 5 つと合わせると、10 のコードのうち 8 つが Rumoca の側。
+- 実際の例題でも同じコードになることを確かめた: `IBPSA.Fluid.FMI.ExportContainers.Examples.FMUs.Fan`（EI006）、`IBPSA.Airflow.Multizone.BaseClasses.Examples.WindPressureProfile`（ED019）、`IBPSA.Airflow.Multizone.Examples.Orifice`（ED008）、`ClaRa.Examples.SteamCycle_01`（ER023）。
+
 ### MSL 4.0.0 と 4.1.0 の差・取得しない依存
 
 - **取得しない依存を名指すもの**（メッセージに `Modelica_DeviceDrivers`・`SDF`・`SMArtInt` が出る失敗）: **AixLib 10 本**（`Modelica_DeviceDrivers.Communication.UDPSocket` の import 9、`TCPIPSocketClient` の型 1）、**ClaRa 2 本**（`SMArtInt.Internal.ClaRaDelay` が基底クラスに無い。`SteamPowerPlant_01`・`SteamPowerPlant_CombinedComponents_01`）。SDF は名指す失敗が 0 本。名前を直接出さずに、これらを使うクラスを使うために止まったものは分けられない【未確認】。
