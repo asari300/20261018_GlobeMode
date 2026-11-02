@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S086 Linux の wheel を zig で manylinux_2_28 に — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S086 Linux の wheel を zig で manylinux_2_28 に">
+
+<section class="slide" id="S01">
+  <span class="tag">S086 · 2026-11-02 · P8</span>
+  <h1>Linux の wheel を古い glibc でも入るようにする</h1>
+  <p class="lead">maturin の --zig で glibc 2.28 に link する</p>
+  <div class="big">manylinux_2_39 → <b>manylinux_2_28</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>S077 の持ち越し: manylinux_2_39 の wheel は Debian 12（glibc 2.36）や RHEL 9（2.34）に pip で入らない</li>
+    <li>ランナー（ubuntu-24.04、glibc 2.39）でビルドすると新しい記号が混じる</li>
+    <li>release.yml の Linux の wheel の段だけを変える。Rust のコードは変えない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table>
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>道</td><td>maturin の --zig</td><td>zig は mise.toml にある。docker image は要らない</td></tr>
+    <tr><td>段</td><td>manylinux_2_28</td><td>Debian 10 以降・RHEL 8 以降。manylinux2014 より新しい Rust の既定に合う</td></tr>
+    <tr><td>渡し方</td><td>MATURIN_PEP517_ARGS</td><td>uv build のまま。ziglang の pip パッケージは足さない</td></tr>
+    <tr><td>zig</td><td>mise-action の install_args</td><td>mise.lock の 0.17.0 を使う</td></tr>
+    <tr><td>aarch64</td><td>同じ行</td><td>ネイティブのランナーで --zig。クロスはしない</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>wheel の段</h1>
+  <svg class="fig" viewBox="0 0 800 200" role="img" aria-label="uv build から maturin と zig cc を経て manylinux_2_28 の wheel へ">
+    <rect class="svg-box" x="20" y="60" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="120" y="96" text-anchor="middle">uv build --wheel</text>
+    <text class="svg-text" x="120" y="120" text-anchor="middle">PEP 517</text>
+    <line class="svg-line" x1="220" y1="100" x2="300" y2="100"/>
+    <rect class="svg-box-accent" x="300" y="60" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="400" y="96" text-anchor="middle">maturin --zig</text>
+    <text class="svg-text" x="400" y="120" text-anchor="middle">zig cc が link</text>
+    <line class="svg-line" x1="500" y1="100" x2="580" y2="100"/>
+    <rect class="svg-box" x="580" y="60" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="680" y="96" text-anchor="middle">manylinux_2_28</text>
+    <text class="svg-text" x="680" y="120" text-anchor="middle">GLIBC_2.28 まで</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>uvx maturin build --release --zig --compatibility manylinux_2_28 --out /tmp/s086-wheel
+gh workflow run release.yml --ref feature/s086-wheel-manylinux-zig</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">2.28</span><span class="l">手元の最大の GLIBC 記号</span></div>
+    <div class="kpi"><span class="n">4 passed</span><span class="l">手元の pytest</span></div>
+    <div class="kpi"><span class="n">success</span><span class="l">release の dry-run</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>PyPI への公開（trusted publishing。ユーザーの設定が要る）</li>
+    <li>macOS の wheel と globe</li>
+    <li>globe の CLI 本体の glibc の縛り（今はランナーの 2.39）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
