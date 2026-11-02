@@ -7,6 +7,7 @@ dist/ を localhost で配り（CSP は index.html の meta と同じものを�
 10 万点（4 状態、出力間隔 0.01 s で 1000 s）の結果でも描けて時間を測ること、構造的に特異なモデルを検査して診断の行が出て、行を押すとエディタの選択が動くことを確かめる。1 ファイルの回路で「グラフ」を押して connect グラフが描かれることを確かめる（S046）。
 最後に「MSL を読む」で MSL 4.1.0 を読み（public/msl/MSL.json が無ければ飛ばす）、ChuaCircuit の検査（error 0）と実行（プロットの canvas と系列）を確かめて、秒数を出す（S048）。
 別のページで MSL.json を構文の誤りのファイルを含むライブラリに差し替え、読み飛ばしの警告 GM-W1001 の行と notes のファイル名が出ることを確かめる（S071）。
+`?smoke=1` で起動すると Decay の検査と実行の結果が console に `GM-SMOKE check=ok simulate=ok x1=…` の 1 行で出ること（S100、android.yml の smoke）。
 console の error（CSP の違反を含む）と、配った origin の外への要求は失敗（S093）。
 """
 
@@ -207,6 +208,14 @@ def main() -> int:
         expect(warned).to_have_count(1, timeout=30_000)
         assert "Broken.mo" in warned.inner_text(), warned.inner_text()
         print(f"構文の誤りのライブラリ: {warned.inner_text().replace(chr(9), ' ')[:120]!r}")
+        # ?smoke=1 で起動すると Decay を検査・実行して GM-SMOKE の 1 行を console に出す（S100。android.yml が logcat で待つ行）
+        smoke = browser.new_page()
+        smoke.on("pageerror", lambda e: errors.append(str(e)))
+        with smoke.expect_console_message(lambda m: m.text.startswith("GM-SMOKE"), timeout=120_000) as message:
+            smoke.goto(f"http://127.0.0.1:{server.server_port}/?smoke=1")
+        line = message.value.text
+        assert line.startswith("GM-SMOKE check=ok simulate=ok x1=0.36"), line
+        print(line)
         browser.close()
     server.shutdown()
     assert not errors, errors
