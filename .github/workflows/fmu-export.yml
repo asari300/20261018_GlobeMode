@@ -7,9 +7,6 @@ name: fmu-export
 
 on:
   workflow_dispatch:
-  # 一時: main に無いワークフローは dispatch できないので、feature ブランチの push で 1 度だけ回す（次のコミットで外す）
-  push:
-    branches: [feature/s098-fmi-export-fmi3]
 
 permissions:
   contents: read
