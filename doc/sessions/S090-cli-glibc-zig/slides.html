@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S090 globe の CLI を zig で glibc 2.28 に — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S090 globe の CLI を zig で glibc 2.28 に">
+
+<section class="slide" id="S01">
+  <span class="tag">S090 · 2026-11-02 · P8</span>
+  <h1>globe の CLI を古い Linux でも動くようにする</h1>
+  <p class="lead">cargo-zigbuild で glibc 2.28 に link する</p>
+  <div class="big">GLIBC_2.39 → <b>GLIBC_2.28</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>S086 の持ち越し: globe の tarball はランナー（ubuntu-24.04）の glibc 2.39 に link していた</li>
+    <li>wheel と同じく zig を cc/linker にする</li>
+    <li>release.yml の build の段だけを変える。Rust のコードは変えない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table>
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>道</td><td>cargo-zigbuild</td><td>CC と linker の wrapper を自前で書くより短い</td></tr>
+    <tr><td>指定</td><td>--target triple.2.28</td><td>末尾で glibc の版を選ぶ</td></tr>
+    <tr><td>確認</td><td>objdump -T</td><td>最大の GLIBC の版をログに出す</td></tr>
+    <tr><td>aarch64</td><td>同じ行</td><td>ネイティブのランナー。クロスはしない</td></tr>
+    <tr><td>Windows</td><td>変えない</td><td>cargo build のまま</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>build の段</h1>
+  <svg class="fig" viewBox="0 0 800 200" role="img" aria-label="cargo zigbuild から zig cc を経て glibc 2.28 の globe へ">
+    <rect class="svg-box" x="20" y="60" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="120" y="96" text-anchor="middle">cargo zigbuild</text>
+    <text class="svg-text" x="120" y="120" text-anchor="middle">triple.2.28</text>
+    <line class="svg-line" x1="220" y1="100" x2="300" y2="100"/>
+    <rect class="svg-box-accent" x="300" y="60" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="400" y="96" text-anchor="middle">zig cc</text>
+    <text class="svg-text" x="400" y="120" text-anchor="middle">link する</text>
+    <line class="svg-line" x1="500" y1="100" x2="580" y2="100"/>
+    <rect class="svg-box" x="580" y="60" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="680" y="96" text-anchor="middle">globe の tar.gz</text>
+    <text class="svg-text" x="680" y="120" text-anchor="middle">GLIBC_2.28 まで</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>cargo zigbuild --release --locked -p globe-mode-cli --target x86_64-unknown-linux-gnu.2.28
+gh workflow run release.yml --ref feature/s090-cli-glibc-zig</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">2.28</span><span class="l">手元の最大の GLIBC 記号</span></div>
+    <div class="kpi"><span class="n">2.28</span><span class="l">CI の x86_64 / aarch64</span></div>
+    <div class="kpi"><span class="n">success</span><span class="l">release の dry-run</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>PyPI への公開（trusted publishing。ユーザーの設定が要る）</li>
+    <li>macOS の wheel と globe</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
