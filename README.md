@@ -98,6 +98,7 @@ flowchart LR
 | [doc/architecture.md](doc/architecture.md) | crate の構成、遅延評価、実行前のアサーション、ソルバ、FMI、connect グラフ |
 | [doc/roadmap.md](doc/roadmap.md) | P0〜P8 と Track B（自前のコア）、各段階の完了条件 |
 | [doc/licenses.md](doc/licenses.md) | ライセンス方針。依存の許可・条件付き・禁止 |
+| [doc/upstream.md](doc/upstream.md) | 上流（Rumoca・diffsol）への issue の下書きの一覧、提出の順と手順 |
 | [doc/adr/](doc/adr/) | 設計判断の記録 |
 | [doc/research/](doc/research/) | 調査の記録（出典 URL と確認日つき） |
 | [doc/sessions/](doc/sessions/) | セッションごとの HTML スライドと解説書 |

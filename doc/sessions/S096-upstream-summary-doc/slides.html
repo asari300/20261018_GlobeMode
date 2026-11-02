@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S096 上流への報告のまとめ — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S096 上流への報告のまとめ">
+
+<section class="slide" id="S01">
+  <span class="tag">S096 · 2026-11-02 · P3</span>
+  <h1>上流への報告のまとめ</h1>
+  <p class="lead">下書き 01〜30 を正典の 1 枚 doc/upstream.md にまとめ、25 を形ごとに分けた</p>
+  <div class="big">表 <b>35 行</b>・提出の順の先頭は <b>17 ER132（267 本）</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>ユーザーの判断（2026-11-02）: 提出する前に doc にまとめる</li>
+    <li>下書きの一覧・影響の本数・回避・状態を 1 つの表にする</li>
+    <li>1 枚に 7 つの形が並ぶ下書き 25 を、1 枚 1 つの形に分ける</li>
+    <li>文書だけ。Rust のコードは変えない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>置き場</td><td><code>doc/upstream.md</code> を正典に（CLAUDE.md の正典の行に 1 語）</td><td>下書きの README は経緯の記録、まとめは提出の判断に使う</td></tr>
+    <tr><td>状態</td><td>「未提出」と「Rumoca main で再確認が要る」の 2 つ（提出済み 0）</td><td>CLI で再現を確かめたかで分ける</td></tr>
+    <tr><td>順</td><td>影響の本数順。回避のある件は後に</td><td>ユーザーの指示</td></tr>
+    <tr><td>25 の分け方</td><td>25 は <code>function conditional</code> だけ、25b〜25h に <code>.md</code></td><td>形ごとに別の issue にできる</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>文書の関係</h1>
+  <svg class="fig" viewBox="0 0 800 260" role="img" aria-label="文書の関係">
+    <rect class="svg-box-accent" x="30" y="90" width="220" height="80" rx="10"/>
+    <text class="svg-text-b" x="140" y="136" text-anchor="middle">doc/upstream.md</text>
+    <line class="svg-line" x1="250" y1="130" x2="300" y2="130"/>
+    <rect class="svg-box" x="300" y="90" width="220" height="80" rx="10"/>
+    <text class="svg-text-b" x="410" y="125" text-anchor="middle">upstream/README.md</text>
+    <text class="svg-text" x="410" y="150" text-anchor="middle">経緯の節</text>
+    <line class="svg-line" x1="520" y1="130" x2="570" y2="130"/>
+    <rect class="svg-box" x="570" y="90" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="670" y="125" text-anchor="middle">下書き 35 枚</text>
+    <text class="svg-text" x="670" y="150" text-anchor="middle">.md + .mo</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">決定と理由</span>
+  <h1>提出の順（上位 5）</h1>
+  <table class="compact">
+    <tr><th>順</th><th>#</th><th>コード</th><th>本数</th></tr>
+    <tr><td>1</td><td>17</td><td>ER132</td><td>267</td></tr>
+    <tr><td>2</td><td>18</td><td>ER070</td><td>258</td></tr>
+    <tr><td>3</td><td>19</td><td>EI032</td><td>235</td></tr>
+    <tr><td>4</td><td>21</td><td>EF004</td><td>217</td></tr>
+    <tr><td>5</td><td>20</td><td>EF025</td><td>138</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>python3 -I .claude/skills/session-docs/check_docs.py</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">35</span><span class="l">表の行</span></div>
+    <div class="kpi"><span class="n">7</span><span class="l">新しい下書き（25b〜25h）</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">リンク切れ</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>ユーザーが 17 から順に、Rumoca main で確かめて出す</li>
+    <li>出したら doc/upstream.md と README の状態に番号を書く</li>
+    <li>【未確認】の本数（04・05・07・08）は数えていない</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

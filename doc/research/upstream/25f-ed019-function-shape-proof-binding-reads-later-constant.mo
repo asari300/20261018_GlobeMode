@@ -1,4 +1,4 @@
-// Repro for upstream draft 25 (sixth shape, S083). Self-contained.
+// Repro for upstream draft 25f (sixth shape, S083). Self-contained.
 // Shape taken from IBPSA (and AixLib, Buildings) Media.Steam.temperature_ph:
 // `protected constant Real b[:] = {-a[1]*TSD/a[3]+TMean, ...}` is declared
 // before the constants `TMean` and `TSD` that its binding reads.

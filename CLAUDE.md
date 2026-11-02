@@ -49,7 +49,7 @@ uv sync                      # worktree ごとに必須
 | `data/msl/` `data/rumoca/` `data/reference-fmus/` | MSL 4.1.0、Rumoca の CLI、Reference-FMUs（FMI 2.0 / 3.0）の取得物（`cargo xtask fetch-msl [--version 4.0.0]`＝既定 4.1.0、4.0.0 は別の `--dest` へ。S067 / `fetch-rumoca` / `fetch-reference-fmus`） | ×（コミットしない） |
 | `data/libs/` | MSL 以外の公開ライブラリ（Buildings・AixLib・IBPSA・ClaRa・ThermofluidStream・DeltaRobot・Chemical）の取得物（`cargo xtask fetch-library <名前>`。S058） | ×（コミットしない） |
 | `src/Rust/xtask/` | 開発用のタスク（取得、MSL での突き合わせ、Rumoca の更新） | ○ |
-| `doc/architecture.md` `roadmap.md` `features.md` `licenses.md` | **正典**。計画を変えたら同じコミットで直す | ○ |
+| `doc/architecture.md` `roadmap.md` `features.md` `licenses.md` `upstream.md` | **正典**。計画を変えたら同じコミットで直す | ○ |
 | `doc/adr/` | 設計判断の記録。覆すときは消さずに Superseded にする | ○（追記） |
 | `doc/research/` | 調査の記録。事実ごとに URL と確認日を付ける | ○ |
 | `doc/sessions/SNNN-<topic>/` | セッションごとのスライドと解説書 | ○（そのセッションの間だけ） |

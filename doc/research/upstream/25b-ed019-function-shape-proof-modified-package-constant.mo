@@ -1,4 +1,4 @@
-// Repro for upstream draft 25 (second shape, S080). Self-contained.
+// Repro for upstream draft 25b (second shape, S080). Self-contained.
 // Shape taken from MSL 4.0.0 Modelica.Media.Interfaces.PartialSimpleMedium:
 // specificEnthalpy_pTX declares `input MassFraction X[nX]` and BaseProperties
 // calls it; ConstantPropertyLiquidWater extends the package with modifiers

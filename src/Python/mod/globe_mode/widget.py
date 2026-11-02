@@ -5,8 +5,11 @@
 JS は依存なしの <canvas>（CDN を使わず、オフラインで開ける）。結果の整形は `plot_data` に置く。
 """
 
-import anywidget
-import traitlets
+try:
+    import anywidget
+    import traitlets
+except ImportError as e:
+    raise ImportError('globe_mode.widget には extra が要る: pip install "globe-mode[widget]"') from e
 
 from . import table
 
