@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S077 Zig・Julia を CI に、wheel を manylinux に — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S077 Zig・Julia を CI に、wheel を manylinux に">
+
+<section class="slide" id="S01">
+  <span class="tag">S077 · 2026-11-02 · P7 / P8</span>
+  <h1>Zig・Julia を CI に入れ、wheel を PyPI に出せる形にする</h1>
+  <p class="lead">ci.yml にジョブ lang、release.yml の wheel に版と manylinux</p>
+  <div class="big">lang は <b>success（10 分）</b>、wheel は <b>manylinux_2_39</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>S075 の持ち越し: Zig・Julia の例（mise run c:zig・c:julia）を CI に入れる</li>
+    <li>S074 の持ち越し: wheel の版をタグにそろえる</li>
+    <li>S074 の持ち越し: Linux の wheel の platform tag を manylinux にする</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table>
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>いつ回すか</td><td>ci_plan.py の出力 lang</td><td>globe-mode-c とその依存、src/Zig・src/Julia、全体</td></tr>
+    <tr><td>キャッシュ</td><td>rust-cache の key: lang</td><td>release の成果物を debug と分ける</td></tr>
+    <tr><td>版</td><td>タグなら sed で pyproject を書き換え</td><td>dry-run は 0.1.0 のまま</td></tr>
+    <tr><td>manylinux</td><td>MATURIN_PEP517_ARGS</td><td>maturin が記号を検査。action も依存も足さない</td></tr>
+    <tr><td>tag の段</td><td>manylinux_2_39</td><td>2_34 は GLIBC_2.39 の記号で落ちた</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>構成</h1>
+  <svg class="fig" viewBox="0 0 800 260" role="img" aria-label="plan から lang への流れと、release の wheel">
+    <rect class="svg-box" x="20" y="40" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="120" y="76" text-anchor="middle">plan</text>
+    <text class="svg-text" x="120" y="100" text-anchor="middle">lang = true</text>
+    <line class="svg-line" x1="220" y1="80" x2="300" y2="80"/>
+    <rect class="svg-box-accent" x="300" y="40" width="240" height="80" rx="10"/>
+    <text class="svg-text-b" x="420" y="76" text-anchor="middle">lang</text>
+    <text class="svg-text" x="420" y="100" text-anchor="middle">c:zig と c:julia</text>
+    <rect class="svg-box" x="20" y="150" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="120" y="186" text-anchor="middle">release build</text>
+    <text class="svg-text" x="120" y="210" text-anchor="middle">タグなら版を差し替え</text>
+    <line class="svg-line" x1="220" y1="190" x2="300" y2="190"/>
+    <rect class="svg-box-accent" x="300" y="150" width="240" height="80" rx="10"/>
+    <text class="svg-text-b" x="420" y="186" text-anchor="middle">uv build --wheel</text>
+    <text class="svg-text" x="420" y="210" text-anchor="middle">manylinux_2_39</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>gh workflow run ci.yml --ref feature/s077-ci-lang-wheel -f full=true
+gh workflow run release.yml --ref feature/s077-ci-lang-wheel</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">success</span><span class="l">ci（lang）</span></div>
+    <div class="kpi"><span class="n">success</span><span class="l">release の dry-run</span></div>
+    <div class="kpi"><span class="n">24</span><span class="l">ci_plan のテスト</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>PyPI への公開（trusted publishing。ユーザーの設定が要る）</li>
+    <li>macOS の wheel と globe</li>
+    <li>Julia のパッケージ化と JLL、参照シナリオの graph を Zig・Julia で</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
