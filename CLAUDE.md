@@ -68,6 +68,7 @@ uv sync                      # worktree ごとに必須
 - MSL 以外の公開ライブラリの検査 `libraries.yml`（S058、手動と毎週月曜 06:00 JST）: ライブラリごとに `fetch-library` → `msl-funnel --library data/libs/<名前> --package <根> [--examples-in <段>] --shard i/n` → `msl-sim --library … --package …`（参照結果は無いので実行できたかを数えるだけ）。ジョブの最初に ci.yml が動いていれば待ち（上限 30 分）、funnel・sim は `continue-on-error`。ジョブ `libraries-report`（`cargo xtask libraries-report`）が表 `doc/libraries.md` を artifact `libraries` に出す。取得は `gh run download <run-id> -n libraries`。出典・版・ライセンスは [doc/research/libraries-2026-11-01.md](doc/research/libraries-2026-11-01.md)。
 - ソルバの表 `doc/msl-solvers.md`（S050）は `msl-sim.yml` のジョブ `solvers`（`msl-sim` の後、ソルバごとに `msl-sim --solver <名前>`。cvode・ida は `--features globe-mode-exec/sundials`）とジョブ `solvers-report`（`cargo xtask msl-solvers`）が作る。取得は `gh run download <run-id> -n msl-solvers`。ソルバを足す・直したら `gh workflow run msl-sim.yml` で回し直して表を更新する（手元では回さない）。
 - 実行系・`globe-mode-sim`・`globe-mode-wasm`（とその依存の frontend・db）を変えたら、`mise run wasm:node`（release の wasm を Node で回す）と `mise run wasm:compare`（`GlobeModeValidation.Simulation` を実装のあるソルバすべてで wasm とネイティブの両方で回して突き合わせる）も通す（[ADR-0014](doc/adr/0014-session-route-wasm.md)）。CI はジョブ `wasm-node` で Decay だけを回す。
+- C ABI（`globe-mode-c`）とその依存、`src/Zig`・`src/Julia` を変えたら、`mise run c:zig`・`mise run c:julia` も通す（S075）。CI はジョブ `lang`（S077、`ci_plan.py` の出力 `lang`）で同じものを回す。
 - **言語の管理は mise・uv・cargo で分担する**（[ADR-0003](doc/adr/0003-toolchain.md)、手順は [doc/mise-setup.html](doc/mise-setup.html)）。
 
   | 道具 | 受け持つもの | ロックファイル |
