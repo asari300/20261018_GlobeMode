@@ -67,6 +67,7 @@ UI（Svelte）のプロセスでは検査も実行もしない。計算は 1 つ
   | --- | --- | --- |
   | `globe/check` | `{model}` | `CheckResponse` の JSON |
   | `globe/simulate` | `{request}`（`SimulateRequest` の JSON） | `SimulateResponse` の JSON |
+  | `globe/simulateColumns` | `{request}` | `{response, layout, columns}`（S076。`csv` の無い `SimulateResponse`、`ColumnsLayout`、列ごとの数の配列で NaN / Inf は null。予算は `globe/simulate` と同じ） |
   | `globe/graph` | `{model, depth}` | graphology の JSON（`ConnectGraph::to_graphology`） |
   | `globe/format` | `{text, indent?, insertOrigin?}` | 整形後の本文（S053、[ADR-0024](0024-own-formatter-and-lint.md)。壊れていれば -32000） |
   | `globe/lint` | `{text}` | `[{rule, line, column, message}]`（S053） |

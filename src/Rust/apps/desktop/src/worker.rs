@@ -1,8 +1,8 @@
 //! sidecar の `globe lsp` との stdio の JSON-RPC（ADR-0023 の (a)(b)）。tauri に依存しない。
 //!
 //! - 要求は 1 度に 1 つ（`Worker` を `Mutex` に入れて呼ぶ。待たされた要求は順に処理される）。
-//! - 予算（`globe/simulate` は 180 s）を超えたら、プロセスを kill する。次の要求で作り直し、
-//!   開いているファイル（`textDocument/didOpen`・`didChange`、`globe/simulate` の `files`）を再生する。
+//! - 予算（`globe/simulate`・`globe/simulateColumns` は 180 s）を超えたら、プロセスを kill する。次の要求で作り直し、
+//!   開いているファイル（`textDocument/didOpen`・`didChange`、`globe/simulate`・`globe/simulateColumns` の `files`）を再生する。
 //! - 落ちた（panic・OOM）ときも同じ。その要求は Err を返し、次の要求で作り直す。
 //! - 通知（`publishDiagnostics` など）は読み取りのスレッドから `Sink` へ渡す。
 
@@ -100,8 +100,9 @@ impl Worker {
     /// 要求を 1 つ送り、応答の `result` を返す（JSON-RPC のエラーは `message` を Err にする）。
     pub fn request(&mut self, method: &str, params: Value) -> Result<Value, String> {
         self.ensure_live()?;
-        let budget = (method == "globe/simulate").then_some(self.simulate_budget);
-        if method == "globe/simulate" {
+        let simulate = matches!(method, "globe/simulate" | "globe/simulateColumns");
+        let budget = simulate.then_some(self.simulate_budget);
+        if simulate {
             // `files` はサーバのワークスペースに残る。作り直しで失わないよう覚える
             if let Some(files) = params["request"]["files"].as_object() {
                 for (name, text) in files {
@@ -287,6 +288,11 @@ mod tests {
             )
             .unwrap();
         assert_eq!(r["ok"], true);
+        let r = w
+            .request("globe/simulateColumns", json!({"request": {"model": "D"}}))
+            .unwrap();
+        assert_eq!(r["response"]["ok"], true);
+        assert_eq!(r["layout"]["names"][0], "time");
         assert!(w.request("globe/graph", json!({"model": "Nope"})).is_err());
         assert!(
             got.lock()
