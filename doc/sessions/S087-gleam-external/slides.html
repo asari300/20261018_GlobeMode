@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S087 Gleam の @external — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S087 Gleam の @external">
+
+<section class="slide" id="S01">
+  <span class="tag">S087 · 2026-11-02 · P7</span>
+  <h1>Gleam の @external</h1>
+  <p class="lead">S082 の NIF globe-mode-nif を Gleam から呼ぶ</p>
+  <div class="big">gleam test が <b>Decay を最後の時刻 1 まで</b>回す</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>S082 の持ち越し: features の「Gleam は @external」</li>
+    <li>Rust のコードは変えない</li>
+    <li>gleam test を CI のジョブ lang で回す</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table>
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>面</td><td>@external で 7 関数を宣言するだけ</td><td>ロジックは Rust 側</td></tr>
+    <tr><td>結果</td><td>Result(String, String)</td><td>Rustler の {ok, _} / {error, _} と同じ形</td></tr>
+    <tr><td>set_file</td><td>Result(#(), String)</td><td>Ok(()) は {ok, {}}</td></tr>
+    <tr><td>読み込み</td><td>globe_mode_nif.erl の -on_load</td><td>init! の名前と同じモジュール</td></tr>
+    <tr><td>試験</td><td>文字列を探す</td><td>Hex は gleeunit と stdlib だけ</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>構成</h1>
+  <svg class="fig" viewBox="0 0 800 260" role="img" aria-label="Gleam から facade までの構成図">
+    <rect class="svg-box" x="20" y="90" width="170" height="80" rx="10"/>
+    <text class="svg-text-b" x="105" y="136" text-anchor="middle">globe_mode.gleam</text>
+    <line class="svg-line" x1="190" y1="130" x2="220" y2="130"/>
+    <rect class="svg-box" x="220" y="90" width="170" height="80" rx="10"/>
+    <text class="svg-text-b" x="305" y="136" text-anchor="middle">globe_mode_nif.erl</text>
+    <line class="svg-line" x1="390" y1="130" x2="420" y2="130"/>
+    <rect class="svg-box-accent" x="420" y="90" width="170" height="80" rx="10"/>
+    <text class="svg-text-b" x="505" y="136" text-anchor="middle">globe-mode-nif</text>
+    <line class="svg-line" x1="590" y1="130" x2="620" y2="130"/>
+    <rect class="svg-box" x="620" y="90" width="160" height="80" rx="10"/>
+    <text class="svg-text-b" x="700" y="136" text-anchor="middle">globe-mode</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>mise run gleam:test   # cargo build -p globe-mode-nif → gleam test</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">1</span><span class="l">gleam test（失敗 0）</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">Rust の変更</span></div>
+    <div class="kpi"><span class="n">2</span><span class="l">Hex の依存</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>Gleam の JS target から globe-mode-wasm</li>
+    <li>rustler_precompiled で Hex に配る</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
