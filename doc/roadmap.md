@@ -440,12 +440,18 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **in-memory のライブラリの読み込みも構文の誤りのファイルを読み飛ばす**（S066 の持ち越し。[解説書](sessions/S071-ui-w1001-tolerant-wasm/解説書.md)）: `Checker::with_library_sources`（全部読み）と `with_library_sources_split`（分割読み。wasm とネイティブの既定の `Workspace::with_libraries`）が、読めないファイルを読み飛ばして `GM-W1001` を付ける。読めるファイルが 0 なら今まで通り `GM-E1003`。警告の組み立ては `Checker::new` の道と共有する。分割読みは読んだファイルの分だけを知らせる（`skipped_library_files()` には出ない）。
 - **UI の診断の表に notes を出す**: ファイルや範囲の無い診断の行は元から出ていた。読み飛ばしたファイル名は notes にあるので、表のメッセージの下に出す。`test_ui.py` は `MSL.json` を fixture に差し替えて `GM-W1001` の行を確かめる。
 
+### S084（P4、2026-11-02）で済んだこと
+
+- **MSL の版の切り替え**（S069 の持ち越し）: Desktop で MSL 4.1.0 / 4.0.0 を選べる。置き場は app data dir の `msl/<version>/`（[ADR-0030](adr/0030-desktop-msl-placement.md) の S084 の追記）。command `fetch_msl { version }` が取得して sidecar を作り直す。4.0.0 の URL・sha256 は xtask の `MSL_400_*` を写し、`desktop.yml` が 2 版分の一致を確かめる。UI は取得ボタンの横に版の `<select>`。
+- **取得の進捗と取り消し**: イベント `msl-progress`（`{received, total}`。total は Content-Length、無ければ null）で UI が受信 MiB と割合を出す。取得中にもう一度押すと command `cancel_msl` が止め、途中の zip を消す。詳しくは [解説書](sessions/S084-desktop-msl-switch/解説書.md)。
+- 持ち越し: 展開中の取り消し、同時取得の排他、使わなくなった版の削除、Windows での取得の確認、署名と自動更新、静かな `globe/setFile`。
+
 ### S069（P4、2026-11-01）で済んだこと
 
 - **MSL の置き場**（S056 の持ち越し）: [ADR-0030](adr/0030-desktop-msl-placement.md)。同梱せず、初回に app data dir の `msl/4.1.0/` へ取得する。`--library`・`GLOBE_LIBRARY` があればそれを優先。Rust 側は `src/Rust/apps/desktop/src/msl.rs`（`curl` で落とす → sha256 照合 → 展開 → 目印を最後に）と command `fetch_msl`（取得のあと sidecar を作り直す）。UI は Desktop でだけ「MSL を取得する（29 MB、初回のみ）」ボタン。URL・sha256・目印は xtask の `fetch-msl` と同じで、一致は `desktop.yml` が確かめる。
 - **CI の smoke**: `desktop.yml` が MSL を渡さずに起動し直し、取得 → `ChuaCircuit` の検査・実行（`smoke-fetch.txt`）と、取得済みの置き場を 2 度目の起動が使うこと（`smoke-reuse.txt`）を確かめる。結果は [ADR-0030](adr/0030-desktop-msl-placement.md) の「結果」と [作業記録](../log/work/2026-11-01-s069-desktop-msl-fetch.md)。
 - 足した依存: `zip` 9（xtask と同じ版・features）と `sha2`（desktop の workspace）。HTTP クライアントは足さず外部コマンドの `curl`（.deb は `Depends: curl`）。
-- 持ち越し: 署名と自動更新、取得の進捗の割合と取り消し、MSL 4.0.0 への切り替えの UI、静かな `globe/setFile`。
+- 持ち越し: 署名と自動更新、~~取得の進捗の割合と取り消し、MSL 4.0.0 への切り替えの UI~~（S084 で済）、静かな `globe/setFile`。
 
 ### S056（P4、2026-11-01）で済んだこと
 
