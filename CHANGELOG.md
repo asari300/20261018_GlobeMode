@@ -58,6 +58,7 @@ v0.1.0 に向けた S001〜S047 と S052 の要点。version はまだ 0.0.1 で
 - S052: 配布物に cargo-about で作ったサードパーティのライセンス表 `THIRD-PARTY.md` を同梱（`about.toml`・`about.hbs`、`release.yml` のジョブ `third-party`）。
 - S074: `release.yml` で Python の wheel を linux x86_64・aarch64・windows x86_64 の 3 つ作り、作った wheel を入れて pytest を回し、Release と `SHA256SUMS` に足す（wheel の中に `globe-mode-py` の `THIRD-PARTY.md`）。
 - S077: ci.yml にジョブ `lang`（C ABI を Zig・Julia から呼ぶ例）。`release.yml` の wheel の版をタグから取り、Linux の wheel を `manylinux_2_39` にした（PyPI に出せる形）。
+- S086: Linux の wheel を maturin の `--zig` で `manylinux_2_28` にした（glibc 2.28 以上。Debian 12・RHEL 9 にも pip で入る）。
 
 ### P7 言語 API
 
