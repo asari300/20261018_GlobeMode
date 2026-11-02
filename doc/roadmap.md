@@ -447,7 +447,12 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 ### S089（P4、2026-11-02）で済んだこと
 
 - **graph の import と索引の持ち越し**（S081 の持ち越し）: `GlobeDb` はライブラリの `ClassIndex` を世代ごとに `Arc` で持ち、文書の小さな索引を `ClassIndex::over` でその上に重ねる（MSL 全部読みの `ChuaCircuit` の 2 回目 52 → 6.9 ms、debug）。`ClassIndex::resolve` は各スコープで「クラス → そのクラスの import」の順に引く（MLS §5.3.1・§13.2 の最小。qualified・renamed・unqualified・selective）。別名の import は `ClassOutline::imports` に `D=A.B.C` の形で入る。`tests/data/MslPartsImport.mo` の `unresolved` 0。[解説書](sessions/S089-graph-imports-index-cache/解説書.md)
-- 持ち越し: 継承したクラスの中の入れ子のクラスの解決。
+- 持ち越し: ~~継承したクラスの中の入れ子のクラスの解決~~（S101 で済）。
+
+### S101（P4、2026-11-03）で済んだこと
+
+- **graph の継承した入れ子のクラス**（S089 の持ち越し）: `ClassIndex::resolve` は、字句のスコープと import で引けない名前を、内側から外へ各スコープのクラスの extends 先（再帰、深さ 32 で打ち切り）の入れ子から引く。extends の名前は受け継いだものを見ずに引く（MLS §5.6.1）。MSL の `Modelica.Fluid.Pipes.StaticPipe` のノード 1 → 2、MSL のモデル 2,002 本の `unresolved` 321 → 320、`ChuaCircuit` は 7 ノード・9 辺のまま。[解説書](sessions/S101-graph-nested-inherited/解説書.md)
+- 持ち越し: 短いクラスの別名の中（`Medium.AbsolutePressure`。`unresolved` 320 のうち 269）、受け継いだ入れ子と外側の名前がぶつかるときの順（`shortcut:`）。
 
 ### S087（P7、2026-11-02）で済んだこと
 
