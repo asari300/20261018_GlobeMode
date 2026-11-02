@@ -1,6 +1,6 @@
-//! S094（P5a）: FMI 2.0 のソースの FMU を書き出す（[ADR-0031]）。
+//! S094（P5a）: FMI 2.0 / 3.0（S098）のソースの FMU を書き出す（[ADR-0031]）。
 //!
-//! 中身は Rumoca の組み込みターゲット `fmi2` のテンプレートが描く（`globe-mode-frontend` の `fmi_export`）。
+//! 中身は Rumoca の組み込みターゲット `fmi2` / `fmi3` のテンプレートが描く（`globe-mode-frontend` の `fmi_export`）。
 //! ここではそれを FMU の形（展開したディレクトリと zip）に置き、求められれば `cc` で共有ライブラリにする。
 //!
 //! [ADR-0031]: https://github.com/asari300/20261018_GlobeMode/blob/main/doc/adr/0031-fmi-export-p5a-first.md
@@ -11,9 +11,20 @@ use std::process::Command;
 
 use globe_mode_frontend::CompiledModel;
 
-/// FMI 2.0 ME（と CS）のソースの FMU の中身。
+/// テンプレートは Rumoca（Apache-2.0）のものなので、FMU に Rumoca の著作権表示とライセンスを同梱する（doc/licenses.md）。
+const RUMOCA_LICENSE: &str = concat!(
+    "This FMU's sources were generated from the built-in FMI templates of Rumoca\n",
+    "(https://github.com/CogniPilot/rumoca, rev 276e82bd0fd48960ac201e782918d28bf19cf7ce),\n",
+    "which are licensed under the Apache License, Version 2.0.\n\n",
+    "   Copyright 2025-2026 CogniPilot Foundation\n\n",
+    include_str!("../../../../../LICENSE-APACHE")
+);
+
+/// FMI 2.0 / 3.0 の ME（と CS）のソースの FMU の中身。
 #[derive(Debug, Clone)]
 pub struct MeSources {
+    /// FMI の主版（2 か 3）。
+    pub fmi_version: u8,
     /// FMU のファイル名の元（モデルの完全修飾名の `.` を `_` にしたもの）。
     pub name: String,
     /// `ModelExchange` の `modelIdentifier`（共有ライブラリの名前）。
@@ -23,19 +34,26 @@ pub struct MeSources {
     pub c_sources: Vec<(String, String)>,
 }
 
-/// モデルを FMI 2.0 のソースの FMU にする。Rumoca の `fmi2` の対象外（イベント・外部関数など）は `Err`。
-pub fn export_me_sources(model: &CompiledModel) -> Result<MeSources, String> {
-    let mut files = globe_mode_frontend::fmi_export::render_rumoca_fmi(model, "fmi2")?;
+/// モデルを FMI `fmi_version`（2 か 3）のソースの FMU にする。Rumoca の対象外（イベント・外部関数など）は `Err`。
+pub fn export_me_sources(model: &CompiledModel, fmi_version: u8) -> Result<MeSources, String> {
+    if !matches!(fmi_version, 2 | 3) {
+        return Err(format!("FMI {fmi_version} は未対応（2 か 3）"));
+    }
+    let target = format!("fmi{fmi_version}");
+    let mut files = globe_mode_frontend::fmi_export::render_rumoca_fmi(model, &target)?;
     let at = files
         .iter()
         .position(|(p, _)| p == "modelDescription.xml")
-        .ok_or("Rumoca の fmi2 が modelDescription.xml を描かなかった")?;
+        .ok_or(format!(
+            "Rumoca の {target} が modelDescription.xml を描かなかった"
+        ))?;
     let (_, xml) = files.remove(at);
     let md = crate::parse_model_description(&xml).map_err(|e| e.to_string())?;
     let me = md
         .model_exchange
         .ok_or("modelDescription.xml に ModelExchange が無い")?;
     Ok(MeSources {
+        fmi_version,
         name: model.model.replace('.', "_"),
         model_identifier: me.model_identifier,
         model_description_xml: xml,
@@ -45,8 +63,8 @@ pub fn export_me_sources(model: &CompiledModel) -> Result<MeSources, String> {
 
 /// `out_dir/<name>/`（展開した FMU）と `out_dir/<name>.fmu` を書き、`.fmu` のパスを返す。
 ///
-/// `fmi_headers` を渡すと、その中の `fmi2Functions.h` などで `cc` を呼び、
-/// `binaries/linux64/<modelIdentifier>.so` も入れる（x86_64 の Linux だけ）。
+/// `fmi_headers` を渡すと、その中の `fmi2Functions.h`（3.0 は `fmi3Functions.h`）などで `cc` を呼び、
+/// `binaries/linux64/`（3.0 は `binaries/x86_64-linux/`）に `<modelIdentifier>.so` も入れる（x86_64 の Linux だけ）。
 pub fn write_fmu(
     src: &MeSources,
     out_dir: &Path,
@@ -66,6 +84,9 @@ pub fn write_fmu(
     for (path, text) in &src.c_sources {
         std::fs::write(root.join(path), text).map_err(io)?;
     }
+    let licenses = root.join("documentation/licenses");
+    std::fs::create_dir_all(&licenses).map_err(io)?;
+    std::fs::write(licenses.join("Rumoca-LICENSE.txt"), RUMOCA_LICENSE).map_err(io)?;
     if let Some(headers) = fmi_headers {
         build_linux64(src, &root, headers)?;
     }
@@ -76,12 +97,19 @@ pub fn write_fmu(
 
 fn build_linux64(src: &MeSources, root: &Path, headers: &Path) -> Result<(), String> {
     if !(cfg!(target_os = "linux") && cfg!(target_arch = "x86_64")) {
-        return Err("--build は x86_64 の Linux だけ（binaries/linux64）".into());
+        return Err("--build は x86_64 の Linux だけ".into());
     }
-    if !headers.join("fmi2Functions.h").is_file() {
-        return Err(format!("{} に fmi2Functions.h が無い", headers.display()));
+    let header = format!("fmi{}Functions.h", src.fmi_version);
+    if !headers.join(&header).is_file() {
+        return Err(format!("{} に {header} が無い", headers.display()));
     }
-    let bin = root.join("binaries/linux64");
+    // FMI 2.0 と 3.0 でプラットフォームの名前が違う
+    let platform = if src.fmi_version == 3 {
+        "x86_64-linux"
+    } else {
+        "linux64"
+    };
+    let bin = root.join("binaries").join(platform);
     std::fs::create_dir_all(&bin).map_err(|e| e.to_string())?;
     let out = bin.join(format!("{}.so", src.model_identifier));
     let sources = root.join("sources");
@@ -91,6 +119,25 @@ fn build_linux64(src: &MeSources, root: &Path, headers: &Path) -> Result<(), Str
         .arg(headers)
         .arg("-I")
         .arg(&sources);
+    // FMI 3.0 の buildDescription.xml の前処理の定義（Rumoca の fmi3 は FMI3_OVERRIDE_FUNCTION_PREFIX=1 で接頭辞なしの ABI を出す）
+    for (path, xml) in &src.c_sources {
+        if path != "sources/buildDescription.xml" {
+            continue;
+        }
+        let doc = roxmltree::Document::parse(xml).map_err(|e| e.to_string())?;
+        for d in doc
+            .descendants()
+            .filter(|n| n.has_tag_name("PreprocessorDefinition"))
+        {
+            let name = d
+                .attribute("name")
+                .ok_or("PreprocessorDefinition に name が無い")?;
+            cc.arg(match d.attribute("value") {
+                Some(v) => format!("-D{name}={v}"),
+                None => format!("-D{name}"),
+            });
+        }
+    }
     for (path, _) in src.c_sources.iter().filter(|(p, _)| p.ends_with(".c")) {
         cc.arg(root.join(path));
     }
