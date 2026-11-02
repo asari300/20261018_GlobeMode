@@ -1,4 +1,4 @@
-// Repro for upstream draft 25 (`splineDerivatives`, S083). Self-contained.
+// Repro for upstream draft 25g (`splineDerivatives`, S083). Self-contained.
 // Shape taken from IBPSA (and AixLib, Buildings)
 // Utilities.Math.Functions.splineDerivatives: the output array is defined
 // element by element in a `for` loop, and a later `if` whose branch is only
