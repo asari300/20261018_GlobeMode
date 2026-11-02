@@ -1478,6 +1478,10 @@ version = "0.0.1"
 [[package]]
 name = "globe-mode-fmu"
 version = "0.0.1"
+dependencies = [
+ "globe-mode-exec",
+ "globe-mode-frontend",
+]
 
 [[package]]
 name = "globe-mode-frontend"

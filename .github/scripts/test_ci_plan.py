@@ -23,16 +23,16 @@ class Plan(unittest.TestCase):
         self.assertFalse(p["deny"])
 
     def test_fmu_runtime_has_no_dependents(self):
-        # S095: globe-mode-fmu は workspace のどの crate にも依存せず、依存元も無い
+        # S095: globe-mode-fmu に依存元は無い。S099 から exec と frontend に依存するので、exec の変更で回る
         self.assertEqual(pkgs(plan(["src/Rust/mod/globe-mode-fmu/src/lib.rs"])), {"globe-mode-fmu"})
-        self.assertNotIn("globe-mode-fmu", pkgs(plan(["src/Rust/mod/globe-mode-core/src/lib.rs"])))
+        self.assertIn("globe-mode-fmu", pkgs(plan(["src/Rust/mod/globe-mode-exec/src/lib.rs"])))
 
     def test_change_propagates_to_dependents(self):
         p = plan(["src/Rust/mod/globe-mode-ir/src/lib.rs"])
         self.assertEqual(
             pkgs(p),
             {"globe-mode-ir", "globe-mode-frontend", "globe-mode-fmi", "globe-mode-graph", "globe-mode-analysis", "globe-mode-db",
-             "globe-mode-cli", "globe-mode-lsp", "globe-mode-py", "globe-mode-c", "globe-mode-nif", "globe-mode-exec", "globe-mode-sim", "globe-mode-protocol", "globe-mode", "globe-mode-wasm",
+             "globe-mode-cli", "globe-mode-lsp", "globe-mode-py", "globe-mode-c", "globe-mode-nif", "globe-mode-exec", "globe-mode-fmu", "globe-mode-sim", "globe-mode-protocol", "globe-mode", "globe-mode-wasm",
              "xtask"},
         )
         self.assertTrue(p["wasm"])
@@ -44,7 +44,7 @@ class Plan(unittest.TestCase):
         self.assertEqual(
             pkgs(p),
             {"globe-mode-core", "globe-mode-ir", "globe-mode-frontend", "globe-mode-fmi", "globe-mode-graph", "globe-mode-analysis",
-             "globe-mode-db", "globe-mode-cli", "globe-mode-lsp", "globe-mode-py", "globe-mode-c", "globe-mode-nif", "globe-mode-exec", "globe-mode-sim", "globe-mode-protocol", "globe-mode",
+             "globe-mode-db", "globe-mode-cli", "globe-mode-lsp", "globe-mode-py", "globe-mode-c", "globe-mode-nif", "globe-mode-exec", "globe-mode-fmu", "globe-mode-sim", "globe-mode-protocol", "globe-mode",
              "globe-mode-wasm", "xtask"},
         )
         self.assertFalse(p["msl"])
@@ -71,7 +71,7 @@ class Plan(unittest.TestCase):
         # S011 から exec も frontend に依存する。S094 から fmi（feature `export`）も。S012 から wasm の束ねも。S035 から facade も
         self.assertEqual(
             pkgs(p),
-            {"globe-mode-frontend", "globe-mode-fmi", "globe-mode-cli", "globe-mode-lsp", "globe-mode-py", "globe-mode-c", "globe-mode-nif", "globe-mode-db", "globe-mode-exec", "globe-mode", "globe-mode-wasm",
+            {"globe-mode-frontend", "globe-mode-fmi", "globe-mode-cli", "globe-mode-lsp", "globe-mode-py", "globe-mode-c", "globe-mode-nif", "globe-mode-db", "globe-mode-exec", "globe-mode-fmu", "globe-mode", "globe-mode-wasm",
              "xtask"},
         )
 
@@ -134,7 +134,7 @@ class Plan(unittest.TestCase):
         # db・exec・wasm のテストも src/Modelica を読む。xtask は frontend に依存するので、依存元として入る
         self.assertEqual(
             pkgs(p),
-            {"globe-mode-frontend", "globe-mode-fmi", "globe-mode-cli", "globe-mode-lsp", "globe-mode-py", "globe-mode-c", "globe-mode-nif", "globe-mode-db", "globe-mode-exec", "globe-mode", "globe-mode-wasm",
+            {"globe-mode-frontend", "globe-mode-fmi", "globe-mode-cli", "globe-mode-lsp", "globe-mode-py", "globe-mode-c", "globe-mode-nif", "globe-mode-db", "globe-mode-exec", "globe-mode-fmu", "globe-mode", "globe-mode-wasm",
              "xtask"},
         )
         self.assertTrue(p["wasm_node"])
