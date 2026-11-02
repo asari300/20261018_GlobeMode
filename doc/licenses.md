@@ -17,7 +17,7 @@
 
 | 対象 | ライセンス | 判定 | メモ |
 | --- | --- | --- | --- |
-| Rumoca（`rumoca-*`） | Apache-2.0（NOTICE は無い） | 許可 | git の `rev` で固定する。改変した場合は §4b に従って明記する。商標は許諾されないので、製品名に使わない。S012: `globe-mode-exec/src/rumoca/plugins/rk.rs` は Rumoca の `crates/rumoca-solver-diffsol/src/me_integrator.rs`（Apache-2.0）を写して改変したもので、ファイルの先頭に明記した。S094: `globe fmu export` が出す FMU の C と `modelDescription.xml` は Rumoca の組み込みターゲット `fmi2` のテンプレート（改変していない）の描画物で、テンプレートの文面を多く含む。FMU を配るときに Apache-2.0 の表示（§4）が要るかは【未確認】（[ADR-0031](adr/0031-fmi-export-p5a-first.md)） |
+| Rumoca（`rumoca-*`） | Apache-2.0（NOTICE は無い） | 許可 | git の `rev` で固定する。改変した場合は §4b に従って明記する。商標は許諾されないので、製品名に使わない。S012: `globe-mode-exec/src/rumoca/plugins/rk.rs` は Rumoca の `crates/rumoca-solver-diffsol/src/me_integrator.rs`（Apache-2.0）を写して改変したもので、ファイルの先頭に明記した。S094: `globe fmu export` が出す FMU の C と `modelDescription.xml` は Rumoca の組み込みターゲット `fmi2` のテンプレート（改変していない）の描画物で、テンプレートの文面を多く含む。S098: 描画物はテンプレートの文面を写した Rumoca の Work の派生物として扱い、Apache-2.0 §4(a)(c) に合わせて FMU の `documentation/licenses/Rumoca-LICENSE.txt` に Rumoca の著作権表示（`Copyright 2025-2026 CogniPilot Foundation`）と Apache-2.0 の全文を同梱する（下の「生成コード」） |
 | zenoh | EPL-2.0 OR Apache-2.0 | **禁止（`bans`）** | IDE に要らない。Rumoca の umbrella crate を使わなければ入らない |
 | diffsol | MIT | 許可 | 既定のソルバ。S011 から Rumoca が数値の修正を当てた 0.13.2（Rumoca の `vendor/diffsol`、修正の記録は `RUMOCA_PATCH.md`）を `[patch.crates-io]` で使う（[ADR-0013](adr/0013-exec-backend.md)）。S012 で `globe-mode-exec` の直接の依存にした（自前の積分器 esdirk34・trbdf2・tsit45。0.13 で、同じ patch 版。[ADR-0014](adr/0014-session-route-wasm.md)） |
 | rumoca-sim、rumoca-solver、rumoca-solver-diffsol、rumoca-solver-rk45、rumoca-phase-solve、rumoca-exec-cranelift | Apache-2.0（Rumoca のワークスペース） | 許可 | S011 で導入（`globe-mode-exec` だけ。cargo-deny の `wrappers`）。feature は `solver-diffsol` と `solver-rk45` だけ（zenoh・UDP・gamepad は入らない）。S012 で `rumoca-phase-solve`・`rumoca-solver-diffsol`・`rumoca-solver-rk45` を exec の直接の依存にした（session の道。どれも Cargo.lock に既にあり、外部の package は増えていない） |
@@ -96,7 +96,7 @@
 - **cargo-about**（S052 で導入。設定は [about.toml](../about.toml)、テンプレートは [about.hbs](../about.hbs)）: 配布物に入れる `THIRD-PARTY.md` を生成する（4 を参照）。`accepted` は deny.toml の `licenses.allow` と同じ集合で、許可外のライセンスが 1 つでもあれば `--fail` で失敗する。
 - **npm 側**: `pnpm licenses list` を CI で検査する。
 - **SBOM**: リリースごとに CycloneDX 形式で出力する。
-- **生成コード**: Rumoca のテンプレートで生成したコードのライセンスは P5a で確かめ、この表に書き足す。
+- **生成コード**（S098）: `globe fmu export`（FMI 2.0 / 3.0）が出す `sources/*.c|h`・`modelDescription.xml`・`buildDescription.xml` は Rumoca の組み込みターゲット `fmi2` / `fmi3` のテンプレート（Apache-2.0、改変していない）を描いたもので、テンプレートの C の文面をそのまま多く含む。生成物の扱いを Apache-2.0 は特に定めないので、安全側に倒して Rumoca の Work の派生物として扱い、§4(a)（ライセンスの写しを渡す）と §4(c)（著作権表示を残す）に合わせて、FMU の `documentation/licenses/Rumoca-LICENSE.txt`（FMI 3.0 の規格が使用許諾を置く場所。2.0 でも `documentation/` は自由に置ける）に、出典（リポジトリと rev）・著作権表示・Apache-2.0 の全文を入れる。Rumoca の rev `276e82bd` の LICENSE は Apache-2.0 の全文に `Copyright 2025-2026 CogniPilot Foundation` を書き足したもので、NOTICE は無い（<https://github.com/CogniPilot/rumoca/blob/276e82bd0fd48960ac201e782918d28bf19cf7ce/LICENSE>、cargo の git checkout で確認、2026-11-02）。モデルの式（利用者の Modelica から来た部分）の権利は利用者のもので、GlobeMode は主張しない。
 
 ## 4. GlobeMode の配布物に入れるもの
 

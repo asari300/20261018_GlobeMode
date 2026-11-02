@@ -1,0 +1,59 @@
+# Export した FMU（P5a、Rumoca のテンプレート）を FMPy と fmusim で確かめる（S098、ADR-0031）。
+#
+# 手元では外から取った fmusim のバイナリを実行できないので、ランナーで回す。手動だけ（`gh workflow run fmu-export.yml`）。
+# FMI 2.0 と 3.0 のそれぞれで `globe fmu export --build` → FMPy の validate・simulate（ME・CS）→ fmusim の validate・simulate（ME・CS）。
+# モデルは GlobeModeValidation.Simulation.Decay（der(x) = -x、x(0) = 1）。x(1) と e⁻¹ の差を出す。
+name: fmu-export
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fmu-export:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      # fmusim（modelica/fmusim、BSD-2-Clause）の release。sha256 は S094 で確かめたもの
+      FMUSIM_URL: https://github.com/modelica/fmusim/releases/download/v0.15.0/fmusim-x86_64-linux.zip
+      FMUSIM_SHA256: d92bd9054ac9693d263c4d68e75a6dd4d540cdd415c178dd75521571ed9e29a0
+      MODEL: GlobeModeValidation.Simulation.Decay
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+        with:
+          install_args: rust uv
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build -p globe-mode-cli --bin globe
+      - name: fmusim を取得する
+        run: |
+          mkdir -p "$RUNNER_TEMP/fmusim" && cd "$RUNNER_TEMP/fmusim"
+          curl -sSfL -o fmusim.zip "$FMUSIM_URL"
+          echo "$FMUSIM_SHA256  fmusim.zip" | sha256sum -c
+          unzip -q fmusim.zip && chmod +x fmusim
+          echo "$RUNNER_TEMP/fmusim" >> "$GITHUB_PATH"
+      - run: fmusim --version
+      - name: FMI 2.0 と 3.0 を出して FMPy と fmusim で回す
+        run: |
+          fmpy() { uv run --no-project --with fmpy==0.3.32 python -I -c "import sys; from fmpy.cli import main; sys.argv = ['fmpy'] + sys.argv[1:]; main()" "$@"; }
+          last_x() { python3 -I -c "import csv, math, sys; r = list(csv.reader(open(sys.argv[1]))); h = r[0]; row = r[-1]; x = float(row[[c.strip().strip('\"') for c in h].index('x')]); print(f'{sys.argv[2]}: t = {row[0]}, x(1) = {x!r}, x(1) - e^-1 = {x - math.exp(-1):.3e}')" "$@"; }
+          headers=$(uv run --no-project --with fmpy==0.3.32 python -I -c "import fmpy, os; print(os.path.join(os.path.dirname(fmpy.__file__), 'c-code'))")
+          for v in 2 3; do
+            out="$RUNNER_TEMP/fmi$v"
+            fmu="$out/${MODEL//./_}.fmu"
+            target/debug/globe fmu export src/Modelica/GlobeModeValidation -m "$MODEL" --out "$out" --fmi-version "$v" --build --fmi-headers "$headers"
+            unzip -l "$fmu"
+            fmpy validate "$fmu"
+            fmusim validate "$fmu"
+            for it in ModelExchange CoSimulation; do
+              fmpy simulate "$fmu" --interface-type "$it" --relative-tolerance 1e-8 --stop-time 1 --output-variables x --output-file "$out/fmpy-$it.csv"
+              last_x "$out/fmpy-$it.csv" "FMI $v FMPy $it" | tee -a "$RUNNER_TEMP/summary.txt"
+            done
+            for it in me cs; do
+              fmusim simulate "$fmu" --interface-type "$it" --stop-time 1 --output-variable x --output-file "$out/fmusim-$it.csv"
+              last_x "$out/fmusim-$it.csv" "FMI $v fmusim $it" | tee -a "$RUNNER_TEMP/summary.txt"
+            done
+          done
+          { echo '```text'; cat "$RUNNER_TEMP/summary.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"

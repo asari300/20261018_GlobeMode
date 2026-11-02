@@ -56,8 +56,25 @@
         ],
       }),
     });
+    // S100: Android のエミュレータの smoke（android.yml が logcat で GM-SMOKE の行を待つ）。クエリを渡せない Tauri の Android はビルド時の VITE_GM_SMOKE=1
+    if (import.meta.env.VITE_GM_SMOKE === "1" || new URLSearchParams(location.search).has("smoke")) void smoke();
     return () => { view.destroy(); void unlisten?.then((f) => f()); };
   });
+
+  // 起動時の Decay を検査・実行して、結果を console に 1 行出す。x1 は x(1)（e⁻¹ ≈ 0.3679）
+  async function smoke() {
+    await check();
+    const checked = !failure && !diagnostics.some((d) => d.severity === "error");
+    await simulate();
+    const i = columns ? columns.names.indexOf("x") : -1;
+    const x1 = columns && i >= 0 ? Number(columns.data[i + 1][columns.points - 1]) : NaN;
+    const simulated = !failure && Math.abs(x1 - Math.exp(-1)) < 1e-3;
+    // S103: 同梱の MSL.json を読み、MSL の例題を 1 つ検査する（Android の APK は android.yml が MSL.json を入れる）
+    await loadMsl();
+    if (msl === "loaded") { model = "Modelica.Electrical.Analog.Examples.ChuaCircuit"; await check(); }
+    const mslOk = msl === "loaded" && !failure && !diagnostics.some((d) => d.severity === "error");
+    console.log(`GM-SMOKE check=${checked ? "ok" : "ng"} simulate=${simulated ? "ok" : "ng"} x1=${x1} msl=${mslOk ? "ok" : "ng"}${failure ? ` failure=${failure}` : ""}`);
+  }
 
   async function loadMsl() {
     if (tauri && msl === "loading") { void tauri.cancelMsl(); return; } // 取得中にもう一度押すと取り消す

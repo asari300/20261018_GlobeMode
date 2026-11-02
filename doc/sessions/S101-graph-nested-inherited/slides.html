@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S101 graph の継承した入れ子のクラス — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S101 graph の継承した入れ子のクラス">
+
+<section class="slide" id="S01">
+  <span class="tag">S101 · 2026-11-03 · P4</span>
+  <h1>graph の継承した入れ子のクラス</h1>
+  <p class="lead">extends 先の中の入れ子のクラスも、索引が引く</p>
+  <div class="big">MSL の StaticPipe <b>ノード 1 → 2</b>、2,002 本の差はこの 1 本だけ</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>S089 の持ち越し 1: <code>model A extends B; C c; end A;</code> の <code>C</code>（<code>B</code> の入れ子）が <code>unresolved</code> になる</li>
+    <li>直すのは <code>ClassIndex::resolve</code> だけ。graph・db・frontend は変えない</li>
+    <li>salsa の backdate（持ち越し 2）は触らない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table>
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>探し方</td><td>各スコープのクラスの extends 先（再帰）の中</td><td>extends の名前は受け継いだものを見ずに引く（MLS §5.6.1）</td></tr>
+    <tr><td>循環</td><td>深さ 32 で打ち切る</td><td><code>collect_interface</code> と同じ</td></tr>
+    <tr><td>順</td><td>字句と import で引けないときだけ（shortcut）</td><td>毎段で見ると深さ 4 の graph が 40 → 174 s</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>引く順</h1>
+  <svg class="fig" viewBox="0 0 800 220" role="img" aria-label="引く順の図">
+    <rect class="svg-box-accent" x="20" y="80" width="150" height="60" rx="10"/>
+    <text class="svg-text-b" x="95" y="116" text-anchor="middle">resolve</text>
+    <line class="svg-line" x1="170" y1="110" x2="220" y2="110"/>
+    <rect class="svg-box" x="220" y="30" width="250" height="60" rx="10"/>
+    <text class="svg-text" x="345" y="66" text-anchor="middle">1. 字句 + import</text>
+    <rect class="svg-box" x="220" y="130" width="250" height="60" rx="10"/>
+    <text class="svg-text" x="345" y="166" text-anchor="middle">2. extends 先の入れ子</text>
+    <line class="svg-line" x1="345" y1="90" x2="345" y2="130"/>
+    <line class="svg-line" x1="470" y1="110" x2="610" y2="110"/>
+    <rect class="svg-box-accent" x="610" y="80" width="170" height="60" rx="10"/>
+    <text class="svg-text-b" x="695" y="116" text-anchor="middle">完全修飾名</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>cargo test -p globe-mode-ir -p globe-mode-graph -p globe-mode-db
+cargo test -p globe-mode --test graph_library -- --nocapture</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">1 → 2</span><span class="l">StaticPipe のノード</span></div>
+    <div class="kpi"><span class="n">321 → 320</span><span class="l">MSL 2,002 本の unresolved</span></div>
+    <div class="kpi"><span class="n">7 / 9</span><span class="l">ChuaCircuit のノード / 辺（不変）</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li><code>Medium.AbsolutePressure</code> のような短いクラスの別名の中（unresolved 320 のうち 269）</li>
+    <li>受け継いだ入れ子と外側の名前がぶつかるときの順（shortcut）</li>
+    <li>salsa の backdate</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

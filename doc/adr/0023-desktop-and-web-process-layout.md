@@ -97,4 +97,18 @@ UI（Svelte）のプロセスでは検査も実行もしない。計算は 1 つ
 
 - **Android では sidecar を使わない**: Android のアプリは別プロセスの実行ファイル（`globe`）を同梱して起動できない（Tauri の `externalBin` は Desktop だけ）。だから (b) の道は Android に効かない。
 - **Android は Web と同じ (c) の道**: Tauri の mobile の入口（`src/Rust/apps/desktop/src/lib.rs` の `run`、`#[tauri::mobile_entry_point]`）は command を出さず、UI を表示するだけ。UI（`App.svelte`）は `__TAURI__` があっても User-Agent が Android なら `WorkerBackend`（wasm の Web Worker）を使う。`tauri.android.conf.json` が `externalBin` を空にする。APK は `android.yml`（署名なしの debug）が作る。
-- **持ち越し（P6）**: Rust のコア（facade）を Tauri の mobile の lib に直接 link して command で呼ぶ道（線形メモリの上限が無くなる代わりに、UI のプロセスで計算する。(a) を Android でどう守るかを決めてから）、Android での MSL の置き場（今は MSL.json を同梱しないので MSL を読めない）、エミュレータで検査と実行を UI から自動で回すこと。
+- **持ち越し（P6）**: Rust のコア（facade）を Tauri の mobile の lib に直接 link して command で呼ぶ道（線形メモリの上限が無くなる代わりに、UI のプロセスで計算する。(a) を Android でどう守るかを決めてから）、~~Android での MSL の置き場~~（S103 で済）、~~エミュレータで検査と実行を UI から自動で回すこと~~（S100 で済）。
+
+### S100 で確かめたこと（Android、2026-11-02）
+
+- **Android のエミュレータで UI から検査と実行が通る**（P6 の Android の完了条件）: (c) の道（`WorkerBackend`、wasm の Web Worker）が Tauri の Android の WebView でそのまま動く。`App.svelte` はビルド時の `VITE_GM_SMOKE=1`（Android はクエリを渡せない）か `?smoke=1` のときだけ、起動時に Decay を検査・実行して `GM-SMOKE check=ok simulate=ok x1=…` を console に出す。`android.yml` はこの設定で UI を作り、API 34 のエミュレータの logcat でこの行を待つ（run 41444392188、x1 = 0.3678797279080248。console のタグは `Tauri/Console`）。既定のビルドの挙動は変えていない。[解説書](../sessions/S100-android-emulator-smoke/解説書.md)。
+
+### S103 で決まったこと（Android の MSL、2026-11-03）
+
+- **Android の APK は MSL.json を同梱する**（S092 の持ち越しの「Android での MSL の置き場」）。比べた 2 つの道:
+  - (a) Desktop と同じ `fetch_msl`（S069・S084）を mobile でも動かす: `#[cfg(mobile)]` の入口に command と `msl.rs`（取得・展開）を載せ、さらに app のデータディレクトリの `.mo` を WebView の `WorkerBackend` に渡す新しい道（command で JSON を返す等）が要る。Rust と TS の両方に新しいコード、初回は回線が要る。
+  - (b) ビルド時に同梱する: `android.yml` のジョブ `ui` で `cargo xtask fetch-msl` してから `pnpm build` するだけで、既存の `pack-msl.mjs` が `MSL.json` を `dist`（Tauri が APK に埋める）に入れ、UI の「MSL を読む」はブラウザと同じ `fetch("msl/MSL.json")` の道でそのまま動く。アプリのコードは変えない。
+  - → (b) を採った（変更は workflow の 1 段だけ。回線も要らない）。形はブラウザと同じ全部読みの `MSL.json`（15.2 MiB、2556 ファイル）。S054 の分割読み込みは UI がまだ使っていないので、使うときにブラウザと一緒に替える。
+- **APK の大きさ**: debug の universal APK（aarch64 と x86_64）が 251,629,679 → 257,983,183 bytes（+6,353,504 bytes、+6.1 MiB。Tauri が frontend を ABI ごとの lib に圧縮して埋めるので、gzip で約 2.6 MB の MSL.json が 2 つ分入る）。
+- **確かめ方**: S100 の smoke が Decay の後に「MSL を読む」と同じ `loadMsl()` を呼び、`Modelica.Electrical.Analog.Examples.ChuaCircuit` を検査して error 0 なら `msl=ok` を同じ行に足す。`android.yml` は `msl=ok` が無ければ失敗（run 41521456071、`Displayed` の 13.6 s 後に `GM-SMOKE check=ok simulate=ok x1=0.3678797279080248 msl=ok`）。[解説書](../sessions/S103-android-msl/解説書.md)。
+- 持ち越し: release の署名つき APK、Rust を mobile の lib に直接 link する道、MSL 4.0.0 の切り替え（Desktop だけ。Android は 4.1.0 のみ）。

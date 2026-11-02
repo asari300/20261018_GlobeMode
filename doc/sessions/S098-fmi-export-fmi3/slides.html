@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S098 FMI 3.0 の Export（P5a） — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S098 FMI 3.0 の Export（P5a）">
+
+<section class="slide" id="S01">
+  <span class="tag">S098 · 2026-11-02 · P5</span>
+  <h1>FMI 3.0 の Export と fmusim</h1>
+  <p class="lead"><code>globe fmu export --fmi-version 3</code> で Rumoca の <code>fmi3</code> を描く</p>
+  <div class="big">2.0・3.0 とも <b>FMPy と fmusim</b> の validate・ME・CS を通った</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること（S094 の持ち越し）</h1>
+  <ul>
+    <li>FMI 3.0 の FMU を出す（<code>binaries/x86_64-linux/</code>）</li>
+    <li>FMPy で 3.0 の validate と ME・CS の simulate を試験に足す</li>
+    <li>fmusim での検査（手元で実行できないので GitHub Actions）</li>
+    <li>FMU に Rumoca（Apache-2.0）の表示を同梱する</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと（ADR-0031 の追記）</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>版の選び方</td><td><code>--fmi-version 2|3</code>、既定 2</td><td>既存の呼び出しが変わらない</td></tr>
+    <tr><td>3.0 の <code>--build</code></td><td><code>buildDescription.xml</code> の定義を <code>-D</code> で渡す</td><td>無いと関数名に接頭辞が付き FMPy が読めない</td></tr>
+    <tr><td>fmusim</td><td>手動の <code>fmu-export.yml</code></td><td>外から取ったバイナリを手元で実行できない</td></tr>
+    <tr><td>ライセンス</td><td><code>documentation/licenses/Rumoca-LICENSE.txt</code></td><td>Apache-2.0 §4(a)(c)</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>流れ</h1>
+  <svg class="fig" viewBox="0 0 900 220" role="img" aria-label="FMI 3.0 の FMU を出して確かめる流れ">
+    <rect class="svg-box" x="10" y="70" width="190" height="80" rx="10"/>
+    <text class="svg-text-b" x="105" y="105" text-anchor="middle">CLI</text>
+    <text class="svg-text" x="105" y="130" text-anchor="middle">--fmi-version 3</text>
+    <line class="svg-line" x1="200" y1="110" x2="240" y2="110"/>
+    <rect class="svg-box-accent" x="240" y="70" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="340" y="105" text-anchor="middle">frontend</text>
+    <text class="svg-text" x="340" y="130" text-anchor="middle">Rumoca の fmi3</text>
+    <line class="svg-line" x1="440" y1="110" x2="480" y2="110"/>
+    <rect class="svg-box" x="480" y="70" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="580" y="105" text-anchor="middle">globe-mode-fmi</text>
+    <text class="svg-text" x="580" y="130" text-anchor="middle">cc -D… と zip</text>
+    <line class="svg-line" x1="680" y1="110" x2="720" y2="110"/>
+    <rect class="svg-box" x="720" y="70" width="170" height="80" rx="10"/>
+    <text class="svg-text-b" x="805" y="105" text-anchor="middle">.fmu</text>
+    <text class="svg-text" x="805" y="130" text-anchor="middle">FMPy・fmusim</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>x(1) − e⁻¹（Decay、2.0 と 3.0 で同じ）</h1>
+  <table class="compact">
+    <tr><th>道具</th><th>ME</th><th>CS</th></tr>
+    <tr><td>FMPy 0.3.32（rtol 1e-8）</td><td>−2.6e-8</td><td class="ok">3.3e-16</td></tr>
+    <tr><td>fmusim（既定、run 41445403219）</td><td>−1.6e-4</td><td class="ok">3.3e-16</td></tr>
+  </table>
+  <p>validate は FMPy「No problems found.」、fmusim は ZIP・model description・build description（3.0）を通過</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>fmuCheck（FMI 2.0）での検査</li>
+    <li>main に入った後に <code>gh workflow run fmu-export.yml</code> で回し直す</li>
+    <li>Windows・macOS 向けのビルド</li>
+    <li>入力・事象のあるモデルは P5b（S099）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

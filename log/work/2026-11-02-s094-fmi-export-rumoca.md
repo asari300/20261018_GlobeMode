@@ -40,7 +40,7 @@ P5 の FMI Export のうち P5a（Rumoca のテンプレート）を進める。
 ## 検証
 
 - Decay の FMU: 16,612 バイト。`modelDescription.xml`（fmiVersion 2.0、ScalarVariable 8、ME と CS）、`sources/` の C 7 ファイル 444 行（`model.c` 343 行）、`binaries/linux64/Rumoca_89c9c7fb_9a4c_6d51_81b7_3efcfd749be6.so`。`globe fmu export --build` は 1.6 s（debug）。
-- FMPy 0.3.32（`uv run --no-project --with fmpy`）: `validate` は「No problems found.」。`simulate --stop-time 1`: ME（既定の許容誤差）x(1) = 0.3678329758（差 4.6e-5）、ME（`--relative-tolerance 1e-8`）0.3678794151（差 2.6e-9）、CS 0.3678794412（e⁻¹ = 0.3678794412、差 3e-16）。
+- FMPy 0.3.32（`uv run --no-project --with fmpy`）: `validate` は「No problems found.」。`simulate --stop-time 1`: ME（既定の許容誤差）x(1) = 0.3678329758（差 4.6e-5）、ME（`--relative-tolerance 1e-8`）0.3678794151（差 2.6e-8。S101 で訂正）、CS 0.3678794412（e⁻¹ = 0.3678794412、差 3e-16）。
 - `cargo test -p globe-mode-cli --test fmu_export`: 2 passed（2.1 s）。
 - fmusim: v0.15.0 の `fmusim-x86_64-linux.zip`（sha256 `d92bd905…e29a0`）を取得したが、外から取ったバイナリの実行が手元の許可で止められたので消した。**通っていない（持ち越し）**。fmuCheck も持ち越し。
 - コードの検査（`mise run check`）: EXIT=0（2 回目）。テスト 606 passed・0 failed・11 ignored（60 バイナリ）、clippy・fmt 通過、`cargo deny` は advisories・bans・licenses・sources とも ok。1 回目は `.github/scripts/test_ci_plan.py` の期待値 4 件（frontend の依存元に fmi が入った）で落ち、直した後の 2 回目の前の回は共有 target の古いビルドで `globe-mode-fmt` の tests/format.rs が NotFound（core・fmi・fmt を touch して解消）

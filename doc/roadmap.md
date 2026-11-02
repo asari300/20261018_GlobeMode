@@ -22,8 +22,8 @@ flowchart LR
 | **P2 遅延クエリと検査**（S004〜S010。完了条件は S008 で 3 つとも満たした。S9・S10 は S010 で足した。S10 の数値の部分は P3） | db、outline、class_index、connect_graph、`assert_simulatable` の S0〜S10 | 空白だけの編集の再検査が 50 ms 未満で、`flat` が再実行されない（salsa のイベントで確かめる）。MSL の全例題に判定が出て、panic は 0 件。S5 が omc と 95% 以上一致する | 4 回 |
 | **P3 シミュレーション**（S011 で着手。完了条件の 1 つ目と 2 つ目は S011 で、3 つ目（wasm）は S012 で満たした。1 つ目と 2 つ目は S012 の既定（`auto`）で測り直した） | exec、driver、bdf / esdirk34 / tsit45 / dopri / 固定刻み、ResultStore | MSL の例題 153 本以上が実行できる。そのうち 90% 以上が参照結果のファネルに収まる。bdf が wasm で（Node 上で）動く | 5 回 |
 | **P4 Desktop MVP** | CodeMirror 6 と LSP（S053 で整形・補完・lint）、ライブラリツリー、検査パネル、プロット、sigma.js の connect グラフ | ChuaCircuit で開く・検査・実行・プロットが通る。5k ノードのグラフが 30 fps 以上で動く。RSS の基準値を記録する（**S056 で記録**: MSL を読んだ後、sidecar 1.52 GiB・アプリ 136 MiB）。CI が .deb と .msi を作る（**S049 で済**） | 6 回 |
-| **P5 FMI**（S094 で着手。Export は P5a を先行し P5b を並行する。[ADR-0031](adr/0031-fmi-export-p5a-first.md)） | Import（ME / CS / SE）とマスター。Export は P5a（Rumoca のテンプレート）と P5b（自前のランタイム、S095。S099 から resources の Modelica を compile して exec の `ModelInstance` で回す。事象なしのモデルだけ） | Reference-FMUs が linux64 と win64 で一致する。Export した FMU が FMPy・fmusim・fmuCheck を通る（**S094: Decay の FMI 2.0 の FMU が FMPy の validate と ME・CS の simulate を通った**。fmusim・fmuCheck は持ち越し）。Clocks（SE）が往復できる | 8 回 |
-| **P6 Web / marimo / Streamlit / Android** | WorkerBackend、MSL のパッケージ単位の分割読み込み、anywidget、wheel、APK | ブラウザが CSP `connect-src 'self'` のまま実行できる（サーバーで計算しない。**S093 で確かめた**: Worker にも同じ CSP の header を付け、`ui:check` が error 0・外への要求 0）。marimo の WASM で 2 GB 未満に収まる（S093 は調査だけ。[調査](research/marimo-wasm-2026-11-02.md)）。Android API 34 のエミュレータで検査と実行が通る | 5 回 |
+| **P5 FMI**（S094 で着手。Export は P5a を先行し P5b を並行する。[ADR-0031](adr/0031-fmi-export-p5a-first.md)） | Import（ME / CS / SE）とマスター。Export は P5a（Rumoca のテンプレート）と P5b（自前のランタイム、S095。S099 から resources の Modelica を compile して exec の `ModelInstance` で回す。事象なしのモデルだけ） | Reference-FMUs が linux64 と win64 で一致する。Export した FMU が FMPy・fmusim・fmuCheck を通る（**S094: Decay の FMI 2.0 の FMU が FMPy の validate と ME・CS の simulate を通った。S098: FMI 3.0 も同じく通り、2.0・3.0 とも fmusim の validate と ME・CS の simulate を GitHub Actions で通った**。fmuCheck は持ち越し）。Clocks（SE）が往復できる | 8 回 |
+| **P6 Web / marimo / Streamlit / Android** | WorkerBackend、MSL のパッケージ単位の分割読み込み、anywidget、wheel、APK | ブラウザが CSP `connect-src 'self'` のまま実行できる（サーバーで計算しない。**S093 で確かめた**: Worker にも同じ CSP の header を付け、`ui:check` が error 0・外への要求 0）。marimo の WASM で 2 GB 未満に収まる（S093 は調査だけ。[調査](research/marimo-wasm-2026-11-02.md)。**S102 で Decay を確かめた**: anywidget の `_esm` から `globe-mode-wasm` を呼び、ブラウザの RSS の合計 857〜966 MiB。MSL を渡す道は未）。Android API 34 のエミュレータで検査と実行が通る（**S100 で確かめた**: UI から Decay の検査と実行、logcat の `GM-SMOKE` の行。**S103 で MSL も**: APK に MSL.json を同梱し、ChuaCircuit の検査で `msl=ok`） | 5 回 |
 | **P7 言語 API と UI 比較** | C / Zig / Julia、Elixir / Gleam、Python。Leptos 版と Dioxus 版、負荷の測定ハーネス | 参照シナリオが 6 言語で通る。`doc/bench/ui.md` に 3 UI × 3 OS の比較を書く | 6 回 |
 | **P8 拡充** | radau5、SUNDIALS、ESDIRK / CERK、SSP 2.0.1、Diagram ビュー、BLT デバッガ | ソルバの表がそろう。SSP が往復できる | 未定 |
 | **Track B 自前コア** | B1 rowan の CST と寛容なパーサ → B2 resolve → B3 flatten → B4 DAE。`Frontend` の feature `native` として作る | 段階ごとに Rumoca 以上の数字を出す（parse 566 / flatten 562 / balanced 464 / simulate 153）。`xtask diff-frontend` で回帰が 0 件になったら既定を切り替える | P4 以降、余裕ができてから |
@@ -402,6 +402,21 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 
 - **ソルバ別の表**: `msl-sim.yml` にジョブ `solvers`（`msl-sim` の後。14 ソルバの matrix で `msl-sim --solver <名前> --tolerance-scale 0.1`。cvode・ida は xtask のビルドに `--features globe-mode-exec/sundials`）と `solvers-report`（`cargo xtask msl-solvers`）を足し、[msl-solvers.md](msl-solvers.md) を作った（run 41194959752、全ジョブ成功、ソルバのジョブは 63〜174 分）。対象 356 本のうち実行できたのは 283（dopri853）〜301（bdf）本、管に収まった割合は 95.2（trbdf2）〜98.3%（ida）。`auto` は 309・301/308。`bdf` 単独と `auto` の差 8 本は、`bdf` の内部エラー（`GM-U0005`）10 本を dopri45 の回し直しで救ったもの。入れなかったもの: `qss`、固定刻み、`esdirk23`、別名（理由は解説書）。これで P8「ソルバの表がそろう」の数字の土台ができた。更新は `gh workflow run msl-sim.yml`（手元では回さない）。
 
+### S103（P6、2026-11-03）で済んだこと
+
+- **Android で MSL を読む**（S092 の持ち越し。[解説書](sessions/S103-android-msl/解説書.md)、[ADR-0023 の S103](adr/0023-desktop-and-web-process-layout.md)）: `android.yml` のジョブ `ui` が `cargo xtask fetch-msl` してから `pnpm build` し、既存の `pack-msl.mjs` の `MSL.json`（15.2 MiB）が APK に入る。アプリのコードは変えず、「MSL を読む」はブラウザと同じ道。smoke は Decay の後に MSL を読んで ChuaCircuit を検査し、`msl=ok` を同じ行に足す（run 41521456071）。APK は +6.1 MiB（251,629,679 → 257,983,183 bytes）。
+- 持ち越し: release の署名つき APK、Rust を mobile の lib に直接 link する道。
+
+### S102（P6、2026-11-03）で済んだこと
+
+- **marimo の WASM で anywidget から `globe-mode-wasm`**（S093 の持ち越しの 1 つ目。[解説書](sessions/S102-marimo-wasm-anywidget/解説書.md)、[調査](research/marimo-wasm-2026-11-02.md)）: `src/Python/marimo/wasm_app.py` の widget の `_esm` が `--target web` の糊を `import()` し、文面の Decay を check → simulate する（Pyodide 側は traitlets で渡すだけ）。`marimo export html-wasm`（Pyodide v314.0.0）を Chromium で開いて x(1) = 0.367879468116207（e⁻¹ との差 2.7e-8）。メモリは JS heap 22〜25 MiB、wasm の線形メモリ 2 MiB、ブラウザの RSS の合計 857〜966 MiB で 2 GB 未満。`--offline` で書き出すと origin の外への要求は 0 件。検査は `uv run python src/Python/marimo/wasm_check.py [--offline]`（手元だけ、CI には入れていない）。README に extra `widget` の入れ方を足した（S097 の持ち越し）。
+- 持ち越し: MSL を widget に渡す道とそのメモリ、marimo の WASM に合う CSP の header、Web Worker での実行（今はメインのスレッドで同期）、emscripten の wheel（(B) の道）。
+
+### S100（P6、2026-11-02）で済んだこと
+
+- **Android のエミュレータで検査と実行**（S092 の持ち越し、P6 の Android の完了条件。[解説書](sessions/S100-android-emulator-smoke/解説書.md)）: `App.svelte` が `VITE_GM_SMOKE=1`（ビルド時）か `?smoke=1` のときだけ、起動時にエディタの Decay を検査・実行して `GM-SMOKE check=ok simulate=ok x1=…` を console に 1 行出す。`android.yml` のジョブ `ui` はこの設定でビルドし、`emulator` は logcat にこの行が出るまで最大 5 分待って `check=ok simulate=ok` を確かめる（run 41444392188、`Displayed` の 5.7 s 後に x1 = 0.3678797279080248）。`test_ui.py` も `?smoke=1` で同じ行を確かめる（x1 = 0.3678797279080248）。
+- 持ち越し: Android での MSL、Rust を mobile の lib に直接 link する道、release の署名つき APK（`VITE_GM_SMOKE` を付けない）。
+
 ### S099（P5b の 2 回目、2026-11-02）で済んだこと
 
 - **exec の微分の API と FMU の載せ替え**（[解説書](sessions/S099-fmu-exec-api/解説書.md)、[ADR-0032](adr/0032-p5b-own-runtime.md) の追記）: `globe-mode-exec` に公開の `ModelInstance`（`new(&CompiledModel, &上書き, 開始時刻)`・`set_time`・`set_states`・`derivatives` ほか。Rumoca の公開の `SolveRuntime` を包む。事象のあるモデルは `GM-U0004`）を足した。`globe-mode-fmu` は exec と frontend に依存し、`fmi2Instantiate` が `resources/<完全修飾名>.mo` を compile する（ADR-0032 の道 2）。`modelDescription.xml` は手書きをやめ `model_description` で生成。FMPy 0.3.32 の validate は問題 0、Decay の x(1) は e⁻¹ と 2.6e-8、HarmonicOscillator は exec の `run` と 2.7e-8（x）・1.5e-7（v）。cdylib は release 44.1 MB（strip 後 32.8 MB）。
@@ -437,7 +452,12 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 ### S089（P4、2026-11-02）で済んだこと
 
 - **graph の import と索引の持ち越し**（S081 の持ち越し）: `GlobeDb` はライブラリの `ClassIndex` を世代ごとに `Arc` で持ち、文書の小さな索引を `ClassIndex::over` でその上に重ねる（MSL 全部読みの `ChuaCircuit` の 2 回目 52 → 6.9 ms、debug）。`ClassIndex::resolve` は各スコープで「クラス → そのクラスの import」の順に引く（MLS §5.3.1・§13.2 の最小。qualified・renamed・unqualified・selective）。別名の import は `ClassOutline::imports` に `D=A.B.C` の形で入る。`tests/data/MslPartsImport.mo` の `unresolved` 0。[解説書](sessions/S089-graph-imports-index-cache/解説書.md)
-- 持ち越し: 継承したクラスの中の入れ子のクラスの解決。
+- 持ち越し: ~~継承したクラスの中の入れ子のクラスの解決~~（S101 で済）。
+
+### S101（P4、2026-11-03）で済んだこと
+
+- **graph の継承した入れ子のクラス**（S089 の持ち越し）: `ClassIndex::resolve` は、字句のスコープと import で引けない名前を、内側から外へ各スコープのクラスの extends 先（再帰、深さ 32 で打ち切り）の入れ子から引く。extends の名前は受け継いだものを見ずに引く（MLS §5.6.1）。MSL の `Modelica.Fluid.Pipes.StaticPipe` のノード 1 → 2、MSL のモデル 2,002 本の `unresolved` 321 → 320、`ChuaCircuit` は 7 ノード・9 辺のまま。[解説書](sessions/S101-graph-nested-inherited/解説書.md)
+- 持ち越し: 短いクラスの別名の中（`Medium.AbsolutePressure`。`unresolved` 320 のうち 269）、受け継いだ入れ子と外側の名前がぶつかるときの順（`shortcut:`）。
 
 ### S087（P7、2026-11-02）で済んだこと
 
@@ -506,6 +526,13 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **骨格**: 新 crate `globe-mode-fmi`。`parse_model_description` が FMI 2.0 / 3.0 の `modelDescription.xml` を `ModelDescription`（変数表と ME / CS / SE の有無）にする。依存は `roxmltree` 0.21 の 1 つ。試験 4 本、wasm32 で `cargo check` が通る。fixture は Reference-FMUs の Dahlquist と Feedthrough の `modelDescription.xml` 4 つ（`tests/data/`、LICENSE 同梱）。
 - **取得**: `cargo xtask fetch-reference-fmus`（Reference-FMUs v0.0.42、sha256 固定、`data/reference-fmus/`、17 ファイル 8.6 MB）。`fetch-msl` の展開部分を `fetch_zip` に括り出して共有した。
 - 持ち越し: ADR-0026 (b) の決定、C ABI の関数の一覧、3.0 の `variability` の既定値、fmi-standard.org の validation のページ。
+
+### S098（P5a の 2 回目、2026-11-02）で済んだこと
+
+- **FMI 3.0 の Export**（[解説書](sessions/S098-fmi-export-fmi3/解説書.md)、[ADR-0031](adr/0031-fmi-export-p5a-first.md) の追記）: `globe fmu export --fmi-version 2|3`（既定 2）。3.0 は Rumoca の `fmi3` を描き、`--build` は `binaries/x86_64-linux/` に置く（`buildDescription.xml` の前処理の定義を `cc` に渡す）。
+- **検査**: Decay の FMU を FMPy 0.3.32 が 2.0・3.0 とも validate し、x(1) − e⁻¹ は ME（相対許容誤差 1e-8）−2.6e-8、CS 3.3e-16。fmusim は手動の `fmu-export.yml`（run 41445403219）で 2.0・3.0 とも validate を通り、ME（既定の設定）−1.6e-4、CS 3.3e-16。試験 `globe-mode-cli/tests/fmu_export.rs` は 4 本。
+- **ライセンスの表示**: FMU に `documentation/licenses/Rumoca-LICENSE.txt`（Rumoca の著作権表示と Apache-2.0 の全文）を同梱する（[licenses.md](licenses.md)）。
+- 持ち越し: fmuCheck、`fmu-export.yml` を main から `gh workflow run` で回し直す、Windows・macOS 向けのビルド、入力・事象のあるモデル（P5b）。
 
 ### S094（P5 の 1 回目、P5a、2026-11-02）で済んだこと
 
