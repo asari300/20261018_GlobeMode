@@ -405,10 +405,15 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **文書のモデルの中のライブラリの部品**（S079 の持ち越し）: `GlobeDb::connect_graph` は、ライブラリがあれば常にライブラリ + 文書の索引で引く（分割読み込みは `Checker::library_outlines(sources, model, cached)` が文書の本文も渡して閉包を読む）。`tests/data/MslParts.mo` の `unresolved` がライブラリなしの 3 から 0 に。ライブラリのアウトラインは `GlobeDb` が世代（分割で読んだファイルの数、全部読みは 0）ごとに持ち越し、MSL 全部読みの `ChuaCircuit` の 2 回目は 234 → 52 ms（debug）。[解説書](sessions/S081-graph-library-parts/解説書.md)
 - 持ち越し: 索引（`ClassIndex`）ごとの持ち越し、import した名前の解決。
 
+### S087（P7、2026-11-02）で済んだこと
+
+- **Gleam の `@external`**（S082 の持ち越し。[解説書](sessions/S087-gleam-external/解説書.md)）: `src/Gleam/globe_mode`（Erlang target）の `globe_mode.gleam` が `@external(erlang, "globe_mode_nif", …)` で NIF の 7 関数を宣言し、`src/globe_mode_nif.erl` が `GLOBE_MODE_NIF` のパスから `erlang:load_nif` する。Rust のコードは変えていない。`mise run gleam:test` が Decay を check → simulate して最後の時刻 1 を確かめ（gleeunit、JSON は文字列で探す）、CI のジョブ `lang` でも回す（gleam は `erlef/setup-beam` の `gleam-version`）。
+- 持ち越し: Gleam の JS target から `globe-mode-wasm` を呼ぶ、rustler_precompiled での配布（Hex）。
+
 ### S082（P7、2026-11-02）で済んだこと
 
 - **Elixir の NIF**（S075 の持ち越し。[解説書](sessions/S082-elixir-nif/解説書.md)）: 新しい crate `globe-mode-nif`（Rustler 0.39 の cdylib、facade だけに依存）が Erlang モジュール `globe_mode_nif` に `globe-mode-py` と同じ面（`new(libraries)` / `set_file` / `load_dir` / `check` / `graph` / `simulate` / `solvers`）を出す。結果は JSON の文字列で、`src/Elixir/globe_mode` の `GlobeMode` が Elixir 1.18 の標準 `JSON` でデコードする（Hex の依存 0）。重い呼び出しは dirty scheduler。`mise run elixir:test` が Decay を check → simulate して最後の時刻 1 を確かめ、CI のジョブ `lang` でも回す（`MISE_DISABLE_TOOLS=elixir` なら飛ばす）。
-- 持ち越し: Gleam の `@external` の例、rustler_precompiled での配布（Hex）。
+- 持ち越し: ~~Gleam の `@external` の例~~（S087 で済。[解説書](sessions/S087-gleam-external/解説書.md)）、rustler_precompiled での配布（Hex）。
 
 ### S079（P4、2026-11-02）で済んだこと
 

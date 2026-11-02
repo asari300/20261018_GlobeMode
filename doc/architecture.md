@@ -341,7 +341,7 @@ Svelte の UI は `Backend` インターフェースだけに依存する。実�
 | Julia | `globe-mode-c` を ccall で呼ぶ（S075 は `globe_mode.jl` 1 本）。今後 BinaryBuilder の JLL で配る | `src/Julia` |
 | Zig | `globe-mode-c` の手書きのヘッダを `addTranslateC` で読む（S075） | `src/Zig` |
 | Elixir | `globe-mode-nif`（Rustler）を `:erlang.load_nif` で読む（S082 は `GlobeMode` 1 本、JSON は Elixir 1.18 の標準 `JSON`）。今後 rustler_precompiled で配る | `src/Elixir` |
-| Gleam | Erlang target は `@external` で `globe_mode_nif` を呼び、JS target は `globe-mode-wasm` を呼ぶ | `src/Gleam` |
+| Gleam | Erlang target は `@external` で `globe_mode_nif` を呼ぶ（S087 の `src/Gleam/globe_mode`。`.so` は `src/globe_mode_nif.erl` が `GLOBE_MODE_NIF` から `erlang:load_nif`、結果は JSON の文字列のまま）。今後 JS target は `globe-mode-wasm` を呼ぶ | `src/Gleam` |
 
 **共通の参照シナリオ**: 全言語で同じ手順を通す。open → check → graph → simulate（bdf）→ 結果を取得 → FMU を出力。P7 の完了条件はこれが6言語で通ること。
 
