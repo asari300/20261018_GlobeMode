@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S097 anywidget を extra に — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S097 anywidget を extra に">
+
+<section class="slide" id="S01">
+  <span class="tag">S097 · 2026-11-02 · P6</span>
+  <h1>anywidget を extra に戻す</h1>
+  <p class="lead">S078 で通常の依存にした anywidget を extra <code>widget</code> に移した</p>
+  <div class="big"><code>pip install globe-mode</code> の依存は <b>49 → 30</b>（ロック上、全 OS）</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>S078 は CI と release の pytest が extra を入れないので、anywidget を通常の依存にした</li>
+    <li>代償は wheel を入れる人全員に ipython など 18 本が付くこと</li>
+    <li>ユーザーの判断（2026-11-02）: extra に戻し、CI の側で extra を入れる</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>pyproject</td><td><code>widget = ["anywidget&gt;=0.11.0"]</code></td><td>使うのは <code>globe_mode.widget</code> だけ</td></tr>
+    <tr><td>ci.yml <code>python</code></td><td><code>uv sync --locked --extra widget</code></td><td><code>--all-extras</code> と同じ大きさで、何を入れるかが読める</td></tr>
+    <tr><td>release の pytest</td><td><code>--with "globe-mode[widget] @ wheel/…"</code></td><td>wheel の METADATA の extra が効くことを確かめる</td></tr>
+    <tr><td>test_widget.py</td><td><code>pytest.importorskip("anywidget")</code></td><td>extra なしの <code>uv sync --locked</code>（<code>mise run check</code>）でも通る</td></tr>
+    <tr><td>widget.py</td><td>import は遅延しない。無ければ ImportError に入れ方を添える</td><td>使う人に直し方を見せる</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>どこで extra を入れるか</h1>
+  <svg class="fig" viewBox="0 0 800 260" role="img" aria-label="extra widget を入れる場所">
+    <rect class="svg-box-accent" x="30" y="100" width="200" height="70" rx="10"/>
+    <text class="svg-text-b" x="130" y="140" text-anchor="middle">pyproject の extra</text>
+    <line class="svg-line" x1="230" y1="135" x2="300" y2="60"/>
+    <line class="svg-line" x1="230" y1="135" x2="300" y2="135"/>
+    <line class="svg-line" x1="230" y1="135" x2="300" y2="210"/>
+    <rect class="svg-box" x="300" y="30" width="460" height="56" rx="10"/>
+    <text class="svg-text" x="530" y="64" text-anchor="middle">ci.yml python: uv sync --locked --extra widget</text>
+    <rect class="svg-box" x="300" y="107" width="460" height="56" rx="10"/>
+    <text class="svg-text" x="530" y="141" text-anchor="middle">release: globe-mode[widget] @ wheel（3 OS）</text>
+    <rect class="svg-box" x="300" y="184" width="460" height="56" rx="10"/>
+    <text class="svg-text" x="530" y="218" text-anchor="middle">mise run check: extra なし → widget は skip</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>uv sync --locked --extra widget &amp;&amp; uv run pytest -q src/Python/tests
+uv sync --locked &amp;&amp; uv run pytest -q src/Python/tests   # widget は skip
+gh workflow run ci.yml --ref feature/s097-anywidget-extra -f full=true
+gh workflow run release.yml --ref feature/s097-anywidget-extra</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">30</span><span class="l">extra なしの依存（前 49）</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">Rust の変更</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>PyPI に出すときは README に <code>globe-mode[widget]</code> の入れ方を書く</li>
+    <li>marimo の WASM で wheel を使う道（S093 の調査）は持ち越し</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

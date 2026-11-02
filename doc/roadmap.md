@@ -451,6 +451,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 ### S078（P6、2026-11-02）で済んだこと
 
 - **anywidget**（S039 の持ち越し）: `globe_mode.widget.SimulationPlot(result)` が `Workspace.simulate` の結果を traitlets（`time`・`series`・`visible`）に入れ、`_esm` の依存なしの `<canvas>` に折れ線を描く（CDN を使わない）。信号のチェックボックスと `visible` を同期する。整形は `plot_data()`（`table()` を使う）。marimo のノートブック `src/Python/marimo/sim_app.py` が Decay を実行して描く。`anywidget` 0.11（MIT）を通常の依存に足した（推移的に 18 本）。[解説書](sessions/S078-marimo-anywidget/解説書.md)
+- S097: anywidget を extra `widget` に戻した（extra なしの wheel に ipython などが付かない。CI の `python` と release の wheel の pytest は extra を入れる。[解説書](sessions/S097-anywidget-extra/解説書.md)）。
 - 持ち越し: ~~Arrow での受け渡し~~（S085 で済んだ）、目盛り・ズーム（要るなら uPlot を同梱）、marimo の WASM で wheel を使う道。
 
 ### S076（P4、2026-11-02）で済んだこと

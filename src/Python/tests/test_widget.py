@@ -5,8 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from globe_mode import Workspace
-from globe_mode.widget import SimulationPlot
+pytest.importorskip("anywidget")  # extra widget が無ければ飛ばす（S097）
+
+from globe_mode import Workspace  # noqa: E402
+from globe_mode.widget import SimulationPlot  # noqa: E402
 
 MODELICA = Path(__file__).parents[2] / "Modelica"
 

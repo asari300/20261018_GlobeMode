@@ -256,7 +256,7 @@ jobs:
         with:
           install_args: rust uv
       - uses: Swatinem/rust-cache@v2
-      - run: uv sync --locked
+      - run: uv sync --locked --extra widget
       - run: uv run globe-mode
       - run: uv run pytest -q
 
