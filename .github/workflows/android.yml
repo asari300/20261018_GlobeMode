@@ -65,10 +65,12 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+      # 既定の packages（"tools"）は今の cmdline-tools に無く sdkmanager が落ちるので、要るものを名指しする
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools platforms;android-34 build-tools;34.0.0 ndk;27.0.12077973
       - name: NDK と Rust の Android の target
         run: |
-          sdkmanager --install "ndk;27.0.12077973" "platforms;android-34" "build-tools;34.0.0"
           echo "NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> "$GITHUB_ENV"
           rustup target add aarch64-linux-android x86_64-linux-android
       - uses: Swatinem/rust-cache@v2
