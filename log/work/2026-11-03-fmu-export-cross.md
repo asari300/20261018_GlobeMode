@@ -43,10 +43,10 @@ S094/S098 の持ち越しの「Windows・macOS 向けの FMU のビルド」。`
   | macos-latest（arm64） | No problems found. | −2.608e-8 | 3.331e-16 |
 
 - FMU の中の大きさ（2.0、CI）: `linux64/*.so` 37,784 B、`win64/*.dll` 226,304 B、`darwin64/*.dylib` 55,504 B。
-- コードの検査（`mise run check`）: CHECK_RESULT
-- `check_docs.py`: DOCS_RESULT
+- コードの検査（`mise run check`）: main（S101〜S103）を取り込んだ後に 1 回。fmt・clippy 通過、test 615 通過・0 失敗・11 無視（63 件）、deny は advisories・bans・licenses・sources とも ok、`uv sync --locked` 通過
+- `check_docs.py`: 外部参照・`<style>`・`style=` 0 件、相対リンク 2,113 件で切れ 0 件。`render_slides.py`（S105）は 6 枚 × 3 表示で問題 0 件（1 回目は Chromium の screenshot が 30 s で時間切れ、回し直しで通過）
 - セッション記録の `--check`: 親が写す
-- ステージした差分の漏洩検査: LEAK_RESULT
+- ステージした差分の漏洩検査: メールアドレス・ホームのパス・トークンとも 0 件
 
 ## 残したこと
 
