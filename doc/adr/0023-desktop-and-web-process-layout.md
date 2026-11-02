@@ -97,4 +97,8 @@ UI（Svelte）のプロセスでは検査も実行もしない。計算は 1 つ
 
 - **Android では sidecar を使わない**: Android のアプリは別プロセスの実行ファイル（`globe`）を同梱して起動できない（Tauri の `externalBin` は Desktop だけ）。だから (b) の道は Android に効かない。
 - **Android は Web と同じ (c) の道**: Tauri の mobile の入口（`src/Rust/apps/desktop/src/lib.rs` の `run`、`#[tauri::mobile_entry_point]`）は command を出さず、UI を表示するだけ。UI（`App.svelte`）は `__TAURI__` があっても User-Agent が Android なら `WorkerBackend`（wasm の Web Worker）を使う。`tauri.android.conf.json` が `externalBin` を空にする。APK は `android.yml`（署名なしの debug）が作る。
-- **持ち越し（P6）**: Rust のコア（facade）を Tauri の mobile の lib に直接 link して command で呼ぶ道（線形メモリの上限が無くなる代わりに、UI のプロセスで計算する。(a) を Android でどう守るかを決めてから）、Android での MSL の置き場（今は MSL.json を同梱しないので MSL を読めない）、エミュレータで検査と実行を UI から自動で回すこと。
+- **持ち越し（P6）**: Rust のコア（facade）を Tauri の mobile の lib に直接 link して command で呼ぶ道（線形メモリの上限が無くなる代わりに、UI のプロセスで計算する。(a) を Android でどう守るかを決めてから）、Android での MSL の置き場（今は MSL.json を同梱しないので MSL を読めない）、~~エミュレータで検査と実行を UI から自動で回すこと~~（S100 で済）。
+
+### S100 で確かめたこと（Android、2026-11-02）
+
+- **Android のエミュレータで UI から検査と実行が通る**（P6 の Android の完了条件）: (c) の道（`WorkerBackend`、wasm の Web Worker）が Tauri の Android の WebView でそのまま動く。`App.svelte` はビルド時の `VITE_GM_SMOKE=1`（Android はクエリを渡せない）か `?smoke=1` のときだけ、起動時に Decay を検査・実行して `GM-SMOKE check=ok simulate=ok x1=…` を console に出す。`android.yml` はこの設定で UI を作り、API 34 のエミュレータの logcat でこの行を待つ（run 41444392188、x1 = 0.3678797279080248。console のタグは `Tauri/Console`）。既定のビルドの挙動は変えていない。[解説書](../sessions/S100-android-emulator-smoke/解説書.md)。
