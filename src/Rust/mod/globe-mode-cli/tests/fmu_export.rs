@@ -207,10 +207,18 @@ fn zig_cross_builds_a_win64_dll() {
             ],
         );
         assert!(o.status.success(), "{o:?}");
-        let dll = out.join(format!(
-            "GlobeModeValidation_Simulation_Decay/binaries/{platform}/GlobeModeValidation_Simulation_Decay.dll"
+        // 名前は modelIdentifier（Rumoca_<uuid>）。.pdb・.lib は残さない
+        let bin = out.join(format!(
+            "GlobeModeValidation_Simulation_Decay/binaries/{platform}"
         ));
-        let bytes = std::fs::read(&dll).unwrap();
+        let files: Vec<_> = std::fs::read_dir(&bin)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .collect();
+        assert_eq!(files.len(), 1, "{files:?}");
+        let dll = &files[0];
+        assert_eq!(dll.extension().unwrap(), "dll");
+        let bytes = std::fs::read(dll).unwrap();
         assert_eq!(&bytes[..2], b"MZ", "{} は PE でない", dll.display());
     }
 }
