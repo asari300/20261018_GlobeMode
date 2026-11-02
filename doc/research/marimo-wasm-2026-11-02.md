@@ -71,3 +71,35 @@ PYO3_CROSS_PYTHON_VERSION=3.13 cargo check -p globe-mode-py --target wasm32-unkn
 3. Pyodide の venv か Node の Pyodide で `import globe_mode` → Decay の check → simulate を回す。
 
 - 気をつけること: 版の固定が mise の rust（stable）と別に要る。Python の版ごとに wheel を作る。threading は使えない（diffsol・faer が rayon を使うなら単一スレッドで動くか【未確認】。`globe-mode-wasm` は wasm32-unknown-unknown で動いているので、少なくとも同じ cfg の道は通る見込み）。
+
+## (C) の試作の結果（2026-11-03、S102）
+
+- 確認日: 2026-11-03。試作は `src/Python/marimo/wasm_app.py`（ノートブック）と `src/Python/marimo/wasm_check.py`（書き出し・配信・Chromium）。手順は [S102 の解説書](../sessions/S102-marimo-wasm-anywidget/解説書.md)。
+- **動いた**。`marimo export html-wasm --mode run`（marimo 0.25.1）で書き出したページを localhost で配り、Playwright の Chromium で開くと、anywidget の `_esm` が `globe-mode-wasm` の `--target web` の糊を `import()` し、文面に書いた Decay を check（passed）→ simulate（bdf）して x(1) = 0.367879468116207（e⁻¹ との差 2.7e-8）を出した。結果の traitlet `result` は `save_changes` で Pyodide 側へ戻る（marimo の RPC の `bridge` が成功で返る）。
+- 書き出しが読む Pyodide は v314.0.0（`index.html` などの `cdn.jsdelivr.net/pyodide/v314.0.0`。上の「今の版の番号」の【未確認】はこれで埋まる。v314 は CPython 3.14）。marimo の WASM で anywidget が動くこと（上の【未確認】）も確かめた。anywidget は Pyodide が起動時に読み込む（console に `Loading … anywidget …`）。
+- `_esm` は blob の URL で読まれる前提で、置き場は `new URL("pkg", document.baseURI)`（ページを基準）にした。`OUT/pkg/` に糊（`globe_mode_wasm.js`）と `globe_mode_wasm_bg.wasm`（15 MiB）を置けば、相対の `import()` と `fetch` の基準の問題（上の「気をつけること」）は起きない。
+
+### メモリ（Decay だけ、MSL なし。手元の WSL、Chromium 1248 headless、`--enable-precise-memory-info`）
+
+| 量 | 値 | 測り方 |
+| --- | --- | --- |
+| ページの JS heap | used 22〜25 MiB / total 25〜37 MiB | `performance.memory`（メインのページだけ。Pyodide の Worker は含まない） |
+| `globe-mode-wasm` の線形メモリ | 2 MiB | `memory_bytes()`（Workspace を 1 つ作り、Decay を回した後） |
+| ブラウザの RSS の合計 | 857〜966 MiB（4 回、`--offline` の 1 回を含む） | `psutil` でこの Python の子孫（Playwright の driver と Chromium の全プロセス）の RSS を足す。共有のページを重ねて数えるので上限の見積り |
+| 開いてから結果まで | 11.1〜11.8 s（負荷の低い時）、約 58 s（load average 29 の時） | `page.goto` から `window.__globe` まで |
+
+- 2 GB の条件: Decay では RSS の合計でも 1 GiB 未満で、**2 GB 未満に収まる**。MSL を読むと S036 の記録で線形メモリが 262 MiB 増える見込みで、それでも 2 GB 未満の見込みだが、MSL（15 MiB の JSON）を widget に渡す道は試していない【未確認】。
+- 手元の負荷が高いと、marimo の RPC が Pyodide の起動（約 45 s）より先に `RPC request timed out.` を投げる（ページの未捕捉の例外）。起動後の `bridge` は通り、結果も出るので、`wasm_check.py` はこの 1 つの文言だけを除いて判定する。
+
+### 試作で分かった制限
+
+- 既定の書き出しのページは Pyodide（`cdn.jsdelivr.net`）、marimo の資源（`wasm.marimo.app`）、PyPI（`files.pythonhosted.org`）を外から取る。`--offline` を付けると Pyodide とパッケージを書き出し先に取り（Playwright の Chromium で依存を解く。書き出し先は 42 → 52 MiB）、**配った origin の外への要求は 0 件**になった（`wasm_check.py --offline`、RSS の合計 951 MiB、11.8 s）。それでも `wasm_check.py` は CSP の header を付けていない。marimo の WASM に合う CSP（S093 の `connect-src 'self'` で足りるか、`'unsafe-eval'` が要るか）は持ち越し。
+- 計算はメインのスレッドで同期に走る（Web Worker の `GlobeWorker` は使っていない）。長いモデルでは UI が止まる。
+- `globe_mode` の Python の API（`Workspace`・`table`）は Pyodide から使えない（(B) の道が要る）。
+
+### 出典（2026-11-03 確認）
+
+- marimo の WASM の書き出し（`marimo export html-wasm`）: <https://docs.marimo.io/guides/exporting/>。`--offline`（Pyodide とパッケージを書き出し先に取る。Playwright の Chromium が要る）と HTTP サーバでの配信: <https://docs.marimo.io/guides/publishing/self_host_wasm/>。`--mode [edit|run]` は marimo 0.25.1 の `marimo export html-wasm --help`
+- marimo の anywidget（`mo.ui.anywidget`）: <https://docs.marimo.io/api/inputs/anywidget/>
+- anywidget の `_esm` と `model.get`・`model.set`・`save_changes`: <https://anywidget.dev/en/afm/>
+- `performance.memory`（Chromium の非標準。`--enable-precise-memory-info` で丸めない）: <https://developer.mozilla.org/en-US/docs/Web/API/Performance/memory>

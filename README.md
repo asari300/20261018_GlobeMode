@@ -22,6 +22,7 @@ The `globe` CLI is not on crates.io yet (it depends on Rumoca through a git depe
 
 - Download `globe-<version>-<target>.tar.gz` (Linux x86_64 / aarch64) or `.zip` (Windows x86_64) from the [Releases](https://github.com/asari300/20261018_GlobeMode/releases) page, check it against `SHA256SUMS`, and put `globe` on your `PATH`. Release builds are made by [release.yml](.github/workflows/release.yml); they do not include the optional `sundials` solvers (`cvode`, `ida`).
 - Or build from a checkout: `cargo install --path src/Rust/mod/globe-mode-cli` (add `--features sundials` if cmake and a C compiler are installed).
+- Python: the Releases page also has a wheel (`globe_mode-<version>-cp312-abi3-<platform>.whl`, not on PyPI). The marimo / Jupyter plot widget needs the `widget` extra: `pip install "./globe_mode-<version>-cp312-abi3-<platform>.whl[widget]"` (`pip install "globe-mode[widget]"` once it is on an index).
 
 Then `globe check <path> -m <Model>` and `globe simulate <path> -m <Model>`. Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
@@ -36,6 +37,8 @@ GlobeMode は Rust で作る OSS の Modelica IDE。P1（骨格）と P2（遅�
 ### インストール
 
 `globe` の CLI は、Releases から `globe-<version>-<target>.tar.gz`（Linux x86_64 / aarch64）か `.zip`（Windows x86_64）を取り、`SHA256SUMS` と照らして `PATH` に置く。ソースからは `cargo install --path src/Rust/mod/globe-mode-cli`。crates.io には出していない（Rumoca を git 依存で使うため。ADR-0002）。配布物に `sundials` のソルバ（`cvode`・`ida`）は入っていない。変更点は [CHANGELOG.md](CHANGELOG.md)。
+
+Python の wheel（`globe_mode-<version>-cp312-abi3-<platform>.whl`）も Releases にある（PyPI には出していない）。marimo・Jupyter の折れ線の widget（anywidget）は extra `widget` で入れる: `pip install "./globe_mode-<version>-cp312-abi3-<platform>.whl[widget]"`（index に載れば `pip install "globe-mode[widget]"`）。
 
 ### エディタ機能（整形・lint・LSP）
 
