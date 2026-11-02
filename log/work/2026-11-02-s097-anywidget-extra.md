@@ -35,8 +35,8 @@ S078 で `anywidget` を `globe_mode` の通常の依存にした（ci.yml の `
 - extra なしの依存（`uv export --frozen --no-dev --no-emit-project`、ロック上の全 OS）: 49 → 30（外れたのは anywidget と推移的な 18 本）。
 - 手元の pytest（`--extra widget`）: 5 passed
 - 手元の pytest（extra なし）: 3 passed, 1 skipped（`test_widget.py`）。`import globe_mode.widget` は入れ方を添えた ImportError
-- ci.yml（`-f full=true`）: RESULT_CI
-- release.yml（dry-run）: RESULT_REL
+- ci.yml（`-f full=true`）: run 41421793770 成功（`python` は 5 passed。docs の slides も成功）
+- release.yml（dry-run）: run 41421802034 成功（3 つの wheel の pytest がどれも 5 passed）
 - `check_docs.py`: デッキ OK、文書 396 件・相対リンク 1897 件・切れ 0 件
 - `render_slides.py`: 手元は時間切れ（他の worktree の cargo と同時。Page.screenshot 30 s）。CI の slides に任せた
 - コードの検査（fmt / clippy / test / deny）: Rust を変えていないので回していない。
