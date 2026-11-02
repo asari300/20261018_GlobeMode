@@ -8,9 +8,16 @@ repository.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
+[features]
+# S094（P5a）: FMI 2.0 のソースの FMU の書き出し。Rumoca のテンプレートは frontend の中で呼ぶ（ADR-0031）
+export = ["dep:globe-mode-frontend", "dep:zip"]
+
 [dependencies]
 # S057: modelDescription.xml の読み取りだけ（ADR-0026）。読み取り専用の DOM、依存は memchr のみ、wasm32 でも通る
 roxmltree = "0.21"
+globe-mode-frontend = { workspace = true, optional = true }
+# S094: FMU（zip）を書く。xtask と同じ 9 系（2 系には脆弱性がある。doc/licenses.md）
+zip = { version = "9", default-features = false, features = ["deflate"], optional = true }
 
 [lints]
 workspace = true

@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S094 FMI Export（P5a、Rumoca のテンプレート） — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S094 FMI Export（P5a）">
+
+<section class="slide" id="S01">
+  <span class="tag">S094 · 2026-11-02 · P5</span>
+  <h1>FMI Export（P5a）: Rumoca のテンプレートで FMU を出す</h1>
+  <p class="lead">Rumoca の組み込みターゲット <code>fmi2</code> を改変せずに使い、<code>globe fmu export</code> を足した</p>
+  <div class="big">Decay の FMI 2.0 の FMU が <b>FMPy の validate と ME・CS の simulate</b> を通った</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>P5 の完了条件「Export した FMU が FMPy・fmusim・fmuCheck を通る」に向けた 1 回目</li>
+    <li>ユーザーの判断（2026-11-02）: P5a（Rumoca のテンプレート）を先行し、P5b（自前のランタイム、S095）を並行する</li>
+    <li>まず Rumoca の rev に FMI の Export が何まであるかを調べ、あればそれを使う</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>Rumoca にあったもの</h1>
+  <table class="compact">
+    <tr><th>あったもの</th><th>場所</th></tr>
+    <tr><td>ターゲット <code>fmi2</code>・<code>fmi3</code>（ME と CS のソースの FMU）</td><td><code>rumoca-phase-codegen</code> の templates</td></tr>
+    <tr><td>能力の検査（事象・外部関数・表などを断る）</td><td><code>rumoca-compile</code> の <code>validate_*_target_capabilities</code></td></tr>
+    <tr><td>Solve IR → FMI の部品</td><td><code>rumoca_phase_solve::fmi::lower_to_fmi_component</code></td></tr>
+    <tr><td>テンプレートの描画</td><td><code>SolveTemplateRenderer::new_owned_with_fmi</code></td></tr>
+  </table>
+  <p>どれも公開 API。umbrella crate <code>rumoca</code> も自前のテンプレートも要らない</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと（ADR-0031）</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>Rumoca を呼ぶ場所</td><td>frontend の <code>fmi_export.rs</code></td><td>ADR-0002 の「アダプタからだけ」</td></tr>
+    <tr><td>FMU の形にする場所</td><td><code>globe-mode-fmi</code> の feature <code>export</code></td><td>既定では軽いまま（wasm でも通る）</td></tr>
+    <tr><td>版</td><td>FMI 2.0</td><td>fmuCheck が 2.0 まで</td></tr>
+    <tr><td>FMI のヘッダ</td><td>同梱しない（<code>--fmi-headers</code>）</td><td>FMPy の <code>c-code</code> が使える</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">図</span>
+  <h1>流れ</h1>
+  <svg class="fig" viewBox="0 0 900 220" role="img" aria-label="globe fmu export の流れ">
+    <rect class="svg-box" x="10" y="70" width="190" height="80" rx="10"/>
+    <text class="svg-text-b" x="105" y="105" text-anchor="middle">CLI</text>
+    <text class="svg-text" x="105" y="130" text-anchor="middle">globe fmu export</text>
+    <line class="svg-line" x1="200" y1="110" x2="240" y2="110"/>
+    <rect class="svg-box-accent" x="240" y="70" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="340" y="105" text-anchor="middle">frontend</text>
+    <text class="svg-text" x="340" y="130" text-anchor="middle">Rumoca の fmi2</text>
+    <line class="svg-line" x1="440" y1="110" x2="480" y2="110"/>
+    <rect class="svg-box" x="480" y="70" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="580" y="105" text-anchor="middle">globe-mode-fmi</text>
+    <text class="svg-text" x="580" y="130" text-anchor="middle">zip と cc</text>
+    <line class="svg-line" x1="680" y1="110" x2="720" y2="110"/>
+    <rect class="svg-box" x="720" y="70" width="170" height="80" rx="10"/>
+    <text class="svg-text-b" x="805" y="105" text-anchor="middle">.fmu</text>
+    <text class="svg-text" x="805" y="130" text-anchor="middle">FMPy で確認</text>
+  </svg>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>globe fmu export &lt;Validation&gt; \
+  -m &lt;…&gt;.Simulation.Decay \
+  --out out --build \
+  --fmi-headers &lt;c-code&gt;
+fmpy validate out/&lt;名前&gt;.fmu</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">0.36787942</span><span class="l">ME の x(1)（rtol 1e-8）</span></div>
+    <div class="kpi"><span class="n">0.36787944</span><span class="l">CS の x(1)（e⁻¹ と一致）</span></div>
+    <div class="kpi"><span class="n">16.6 KB</span><span class="l">FMU（C 444 行）</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>fmusim・fmuCheck での検査（今回は手元で実行できなかった）</li>
+    <li>FMI 3.0（<code>"fmi3"</code> を渡すだけの見込み）、Windows・macOS 向けのビルド</li>
+    <li>入力を持つモデル（start を種にしない）、事象のあるモデルは P5b（S095）で</li>
+    <li>生成物のライセンスの表示の要否【未確認】</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

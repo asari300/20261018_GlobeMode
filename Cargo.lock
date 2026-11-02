@@ -1415,6 +1415,7 @@ dependencies = [
  "clap",
  "globe-mode",
  "globe-mode-core",
+ "globe-mode-fmi",
  "globe-mode-fmt",
  "globe-mode-ir",
  "globe-mode-lsp",
@@ -1465,7 +1466,9 @@ dependencies = [
 name = "globe-mode-fmi"
 version = "0.0.1"
 dependencies = [
+ "globe-mode-frontend",
  "roxmltree",
+ "zip",
 ]
 
 [[package]]
@@ -1486,6 +1489,7 @@ dependencies = [
  "rumoca-core",
  "rumoca-eval-dae",
  "rumoca-ir-dae",
+ "rumoca-phase-solve",
  "serde_json",
 ]
 

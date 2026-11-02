@@ -22,7 +22,7 @@ flowchart LR
 | **P2 遅延クエリと検査**（S004〜S010。完了条件は S008 で 3 つとも満たした。S9・S10 は S010 で足した。S10 の数値の部分は P3） | db、outline、class_index、connect_graph、`assert_simulatable` の S0〜S10 | 空白だけの編集の再検査が 50 ms 未満で、`flat` が再実行されない（salsa のイベントで確かめる）。MSL の全例題に判定が出て、panic は 0 件。S5 が omc と 95% 以上一致する | 4 回 |
 | **P3 シミュレーション**（S011 で着手。完了条件の 1 つ目と 2 つ目は S011 で、3 つ目（wasm）は S012 で満たした。1 つ目と 2 つ目は S012 の既定（`auto`）で測り直した） | exec、driver、bdf / esdirk34 / tsit45 / dopri / 固定刻み、ResultStore | MSL の例題 153 本以上が実行できる。そのうち 90% 以上が参照結果のファネルに収まる。bdf が wasm で（Node 上で）動く | 5 回 |
 | **P4 Desktop MVP** | CodeMirror 6 と LSP（S053 で整形・補完・lint）、ライブラリツリー、検査パネル、プロット、sigma.js の connect グラフ | ChuaCircuit で開く・検査・実行・プロットが通る。5k ノードのグラフが 30 fps 以上で動く。RSS の基準値を記録する（**S056 で記録**: MSL を読んだ後、sidecar 1.52 GiB・アプリ 136 MiB）。CI が .deb と .msi を作る（**S049 で済**） | 6 回 |
-| **P5 FMI** | Import（ME / CS / SE）とマスター。Export は P5a（Rumoca のテンプレート）の後に P5b（自前のランタイム） | Reference-FMUs が linux64 と win64 で一致する。Export した FMU が FMPy・fmusim・fmuCheck を通る。Clocks（SE）が往復できる | 8 回 |
+| **P5 FMI**（S094 で着手。Export は P5a を先行し P5b を並行する。[ADR-0031](adr/0031-fmi-export-p5a-first.md)） | Import（ME / CS / SE）とマスター。Export は P5a（Rumoca のテンプレート）と P5b（自前のランタイム、S095） | Reference-FMUs が linux64 と win64 で一致する。Export した FMU が FMPy・fmusim・fmuCheck を通る（**S094: Decay の FMI 2.0 の FMU が FMPy の validate と ME・CS の simulate を通った**。fmusim・fmuCheck は持ち越し）。Clocks（SE）が往復できる | 8 回 |
 | **P6 Web / marimo / Streamlit / Android** | WorkerBackend、MSL のパッケージ単位の分割読み込み、anywidget、wheel、APK | ブラウザが CSP `connect-src 'self'` のまま実行できる（サーバーで計算しない。**S093 で確かめた**: Worker にも同じ CSP の header を付け、`ui:check` が error 0・外への要求 0）。marimo の WASM で 2 GB 未満に収まる（S093 は調査だけ。[調査](research/marimo-wasm-2026-11-02.md)）。Android API 34 のエミュレータで検査と実行が通る | 5 回 |
 | **P7 言語 API と UI 比較** | C / Zig / Julia、Elixir / Gleam、Python。Leptos 版と Dioxus 版、負荷の測定ハーネス | 参照シナリオが 6 言語で通る。`doc/bench/ui.md` に 3 UI × 3 OS の比較を書く | 6 回 |
 | **P8 拡充** | radau5、SUNDIALS、ESDIRK / CERK、SSP 2.0.1、Diagram ビュー、BLT デバッガ | ソルバの表がそろう。SSP が往復できる | 未定 |
@@ -501,6 +501,14 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **骨格**: 新 crate `globe-mode-fmi`。`parse_model_description` が FMI 2.0 / 3.0 の `modelDescription.xml` を `ModelDescription`（変数表と ME / CS / SE の有無）にする。依存は `roxmltree` 0.21 の 1 つ。試験 4 本、wasm32 で `cargo check` が通る。fixture は Reference-FMUs の Dahlquist と Feedthrough の `modelDescription.xml` 4 つ（`tests/data/`、LICENSE 同梱）。
 - **取得**: `cargo xtask fetch-reference-fmus`（Reference-FMUs v0.0.42、sha256 固定、`data/reference-fmus/`、17 ファイル 8.6 MB）。`fetch-msl` の展開部分を `fetch_zip` に括り出して共有した。
 - 持ち越し: ADR-0026 (b) の決定、C ABI の関数の一覧、3.0 の `variability` の既定値、fmi-standard.org の validation のページ。
+
+### S094（P5 の 1 回目、P5a、2026-11-02）で済んだこと
+
+- **Rumoca にあったもの**: rev `276e82bd` の `rumoca-phase-codegen` に組み込みのターゲット `fmi2`・`fmi3`（ME と CS のソースの FMU。`modelDescription.xml` と `sources/` の C 7 ファイル）がある。部品はすべて `rumoca-compile`・`rumoca-phase-solve` の公開 API で呼べる（umbrella crate `rumoca` は要らない）。自前のテンプレートは書かなかった。
+- **決定**: [ADR-0031](adr/0031-fmi-export-p5a-first.md)（Accepted）。P5a を先行し、P5b（S095、`globe-mode-fmu`）を並行する。Import の A/B（ADR-0026）はそのまま。
+- **実装**: `globe-mode-frontend` の `fmi_export::render_rumoca_fmi`（Rumoca を呼ぶのはここだけ）、`globe-mode-fmi` の feature `export`（`export_me_sources`・`write_fmu`。zip と `cc`）、CLI の `globe fmu export <files> -m <model> --out <dir> [--build --fmi-headers <dir>]`。
+- **結果**: `GlobeModeValidation.Simulation.Decay` の FMI 2.0 の FMU（16.6 KB、C 444 行、ScalarVariable 8）を FMPy 0.3.32 が `validate`（問題なし）、ME（相対許容誤差 1e-8）で x(1) = 0.36787942、CS で 0.36787944（e⁻¹ = 0.36787944）。試験 `globe-mode-cli/tests/fmu_export.rs`（2 本。cc・uv・FMPy が無ければ飛ばす）。
+- 持ち越し: fmusim・fmuCheck での検査、FMI 3.0（`"fmi3"` を渡すだけの見込み）、入力を持つモデル（start を種にしない）、事象のあるモデル（Rumoca の `fmi2` が断る）、Windows・macOS 向けのビルド、生成物のライセンスの表示【未確認】。
 
 ### S054（P3、2026-11-01）で済んだこと
 
