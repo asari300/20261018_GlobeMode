@@ -219,7 +219,7 @@ enum Command {
 
 #[derive(Debug, Subcommand)]
 enum FmuCommand {
-    /// FMI 2.0 のソースの FMU（ME と CS）を書き出す。中身は Rumoca の `fmi2` のテンプレート（ADR-0031）
+    /// FMI 2.0 / 3.0 のソースの FMU（ME と CS）を書き出す。中身は Rumoca の `fmi2` / `fmi3` のテンプレート（ADR-0031）
     Export {
         /// ファイルまたはディレクトリ。モデルがライブラリの中にあるなら省略できる
         #[arg(required_unless_present = "library")]
@@ -233,10 +233,13 @@ enum FmuCommand {
         /// 書き先のディレクトリ（`<名前>/` と `<名前>.fmu` を置く）
         #[arg(long)]
         out: PathBuf,
-        /// `cc` で `binaries/linux64/<modelIdentifier>.so` も作る（x86_64 の Linux だけ）
+        /// FMI の版（2 か 3）
+        #[arg(long, default_value_t = 2, value_parser = clap::value_parser!(u8).range(2..=3))]
+        fmi_version: u8,
+        /// `cc` で `binaries/linux64/<modelIdentifier>.so`（3.0 は `binaries/x86_64-linux/`）も作る（x86_64 の Linux だけ）
         #[arg(long, requires = "fmi_headers")]
         build: bool,
-        /// `fmi2Functions.h` などのあるディレクトリ（--build で使う。例: FMPy の `c-code`）
+        /// `fmi2Functions.h`（3.0 は `fmi3Functions.h`）などのあるディレクトリ（--build で使う。例: FMPy の `c-code`）
         #[arg(long)]
         fmi_headers: Option<PathBuf>,
     },
@@ -309,6 +312,7 @@ fn main() -> ExitCode {
                     library,
                     model,
                     out,
+                    fmi_version,
                     build,
                     fmi_headers,
                 },
@@ -317,6 +321,7 @@ fn main() -> ExitCode {
             &library,
             &model,
             &out,
+            fmi_version,
             fmi_headers.filter(|_| build),
         ),
         Command::Simulate {
@@ -1072,6 +1077,7 @@ fn fmu_export(
     library: &[PathBuf],
     model: &str,
     out: &std::path::Path,
+    fmi_version: u8,
     fmi_headers: Option<PathBuf>,
 ) -> ExitCode {
     let Loaded { mut ws, texts } = match load_db(files, library) {
@@ -1087,7 +1093,7 @@ fn fmu_export(
             return ExitCode::from(1);
         }
     };
-    let written = globe_mode_fmi::export::export_me_sources(&compiled)
+    let written = globe_mode_fmi::export::export_me_sources(&compiled, fmi_version)
         .and_then(|src| globe_mode_fmi::export::write_fmu(&src, out, fmi_headers.as_deref()));
     match written {
         Ok(fmu) => {
