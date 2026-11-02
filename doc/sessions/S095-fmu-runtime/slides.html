@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S095 自前の FMU ランタイム — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S095 自前の FMU ランタイム">
+
+<section class="slide" id="S01">
+  <span class="tag">S095 · 2026-11-02 · P5b</span>
+  <h1>自前の FMU ランタイム（1 回目）</h1>
+  <p class="lead">FMI 2.0 ME の 35 関数を新しい cdylib <code>globe-mode-fmu</code> で出し、Decay を FMPy で回した</p>
+  <div class="big">FMPy の x(1) = <b>0.3678794</b>（e⁻¹ との差 2.6e-8）、依存の追加 0</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>P5 の Export の P5b（自前のランタイム）を始める。P5a（Rumoca のテンプレート）は S094 が並行して進める</li>
+    <li>モデルは crate の中に固定（Decay）で最小にする。載せ替えの道は ADR-0032 に書いて持ち越す</li>
+    <li><code>globe-mode-fmi</code>・CLI・exec・sim は触らない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>自前の C ABI を取った</h1>
+  <table class="compact">
+    <tr><th>案</th><th>判定</th><th>理由</th></tr>
+    <tr><td>(a) <code>fmi-export</code> 0.3.0</td><td class="warn">採らない</td><td>FMI 3.0 のみ。依存が増える。1.0 前</td></tr>
+    <tr><td>(b) 自前の <code>fmi2*</code> 35 関数</td><td class="ok">採用</td><td>依存 0。FMI 2.0 は FMPy・fmusim で回せる。<code>globe-mode-c</code> と同じ形</td></tr>
+  </table>
+  <ul>
+    <li>exec に「状態 → 微分」の公開 API が無いので、Decay の式は Rust で手書き</li>
+    <li>FMUstate・方向微分・Integer/Boolean/String は <code>fmi2Error</code> の stub</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>FMU の組み立てと検査</h1>
+  <svg class="fig" viewBox="0 0 800 260" role="img" aria-label="cdylib と modelDescription.xml を zip に詰めて FMPy で回す流れ">
+    <rect class="svg-box-accent" x="20" y="40" width="220" height="70" rx="10"/>
+    <text class="svg-text-b" x="130" y="82" text-anchor="middle">libglobe_mode_fmu.so</text>
+    <rect class="svg-box" x="20" y="150" width="220" height="70" rx="10"/>
+    <text class="svg-text-b" x="130" y="192" text-anchor="middle">modelDescription.xml</text>
+    <line class="svg-line" x1="240" y1="75" x2="320" y2="130"/>
+    <line class="svg-line" x1="240" y1="185" x2="320" y2="130"/>
+    <rect class="svg-box" x="320" y="95" width="200" height="70" rx="10"/>
+    <text class="svg-text-b" x="420" y="128" text-anchor="middle">Decay.fmu</text>
+    <text class="svg-text" x="420" y="150" text-anchor="middle">binaries/linux64/</text>
+    <line class="svg-line" x1="520" y1="130" x2="580" y2="130"/>
+    <rect class="svg-box-accent" x="580" y="95" width="200" height="70" rx="10"/>
+    <text class="svg-text-b" x="680" y="128" text-anchor="middle">FMPy 0.3.32</text>
+    <text class="svg-text" x="680" y="150" text-anchor="middle">ME・CVode</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>cargo test -p globe-mode-fmu -- --nocapture
+# FMPy: x(1)=0.3678794150955906 t=1.0</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">35</span><span class="l">fmi2 の関数</span></div>
+    <div class="kpi"><span class="n">3</span><span class="l">試験</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">足した依存</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>exec に「状態・パラメータ・時刻 → 微分」の公開 API を足し、手書きの式を置き換える</li>
+    <li>載せ替えの道を選ぶ: FMU ごとにビルド / Rumoca で compile / Solve IR の解釈実行（ADR-0032）</li>
+    <li><code>modelDescription.xml</code> の生成は P5a（S094）と共有する。CS・FMI 3.0・Windows</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
