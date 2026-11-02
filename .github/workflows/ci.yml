@@ -278,14 +278,16 @@ jobs:
         with:
           otp-version: "27"
           elixir-version: "1.18.3"
+          gleam-version: "1.19.2"
       - uses: Swatinem/rust-cache@v2
         with:
           # release の成果物は、rust-linux（debug）のキャッシュと分ける
           key: lang
-      - run: zig version && julia --version && elixir --version
+      - run: zig version && julia --version && elixir --version && gleam --version
       - run: mise run c:zig
       - run: mise run c:julia
       - run: mise run elixir:test
+      - run: mise run gleam:test
 
   docs:
     needs: plan

@@ -134,6 +134,18 @@ mix deps.get
 GLOBE_MODE_NIF="$T/release/libglobe_mode_nif" mix test
 """
 
+[tasks."gleam:test"]
+description = "Gleam の束ね（src/Gleam/globe_mode、@external で globe-mode-nif を呼ぶ）で GlobeModeValidation.Simulation.Decay を check → simulate する（S087）"
+run = """
+set -eu
+# RPi（aarch64）では erlang・elixir が入らない（ADR-0019）。MISE_DISABLE_TOOLS に erlang か elixir があるときは飛ばす
+case ",${MISE_DISABLE_TOOLS:-}," in *,erlang,*|*,elixir,*) echo "gleam:test: MISE_DISABLE_TOOLS に erlang か elixir があるので飛ばす"; exit 0 ;; esac
+cargo build --release -q -p globe-mode-nif
+T="$(realpath "${CARGO_TARGET_DIR:-target}")"
+cd src/Gleam/globe_mode
+GLOBE_MODE_NIF="$T/release/libglobe_mode_nif" gleam test
+"""
+
 [tasks."ui:build"]
 description = "ブラウザ UI（src/Svelte）をビルドする（S041。wasm:build の出力を public/wasm/ にコピーして vite build。先に wasm:build が要る）"
 run = """
