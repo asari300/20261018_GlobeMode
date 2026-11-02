@@ -7,6 +7,9 @@
 
 use std::fmt;
 
+#[cfg(feature = "export")]
+pub mod export;
+
 /// 読み取りの失敗。
 #[derive(Debug, PartialEq, Eq)]
 pub enum Error {

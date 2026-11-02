@@ -1,0 +1,134 @@
+//! S094（P5a）: FMI 2.0 のソースの FMU を書き出す（[ADR-0031]）。
+//!
+//! 中身は Rumoca の組み込みターゲット `fmi2` のテンプレートが描く（`globe-mode-frontend` の `fmi_export`）。
+//! ここではそれを FMU の形（展開したディレクトリと zip）に置き、求められれば `cc` で共有ライブラリにする。
+//!
+//! [ADR-0031]: https://github.com/asari300/20261018_GlobeMode/blob/main/doc/adr/0031-fmi-export-p5a-first.md
+
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+use globe_mode_frontend::CompiledModel;
+
+/// FMI 2.0 ME（と CS）のソースの FMU の中身。
+#[derive(Debug, Clone)]
+pub struct MeSources {
+    /// FMU のファイル名の元（モデルの完全修飾名の `.` を `_` にしたもの）。
+    pub name: String,
+    /// `ModelExchange` の `modelIdentifier`（共有ライブラリの名前）。
+    pub model_identifier: String,
+    pub model_description_xml: String,
+    /// `sources/` の下のファイル（FMU の中の相対パスと中身）。
+    pub c_sources: Vec<(String, String)>,
+}
+
+/// モデルを FMI 2.0 のソースの FMU にする。Rumoca の `fmi2` の対象外（イベント・外部関数など）は `Err`。
+pub fn export_me_sources(model: &CompiledModel) -> Result<MeSources, String> {
+    let mut files = globe_mode_frontend::fmi_export::render_rumoca_fmi(model, "fmi2")?;
+    let at = files
+        .iter()
+        .position(|(p, _)| p == "modelDescription.xml")
+        .ok_or("Rumoca の fmi2 が modelDescription.xml を描かなかった")?;
+    let (_, xml) = files.remove(at);
+    let md = crate::parse_model_description(&xml).map_err(|e| e.to_string())?;
+    let me = md
+        .model_exchange
+        .ok_or("modelDescription.xml に ModelExchange が無い")?;
+    Ok(MeSources {
+        name: model.model.replace('.', "_"),
+        model_identifier: me.model_identifier,
+        model_description_xml: xml,
+        c_sources: files,
+    })
+}
+
+/// `out_dir/<name>/`（展開した FMU）と `out_dir/<name>.fmu` を書き、`.fmu` のパスを返す。
+///
+/// `fmi_headers` を渡すと、その中の `fmi2Functions.h` などで `cc` を呼び、
+/// `binaries/linux64/<modelIdentifier>.so` も入れる（x86_64 の Linux だけ）。
+pub fn write_fmu(
+    src: &MeSources,
+    out_dir: &Path,
+    fmi_headers: Option<&Path>,
+) -> Result<PathBuf, String> {
+    let root = out_dir.join(&src.name);
+    let io = |e: std::io::Error| e.to_string();
+    if root.exists() {
+        std::fs::remove_dir_all(&root).map_err(io)?;
+    }
+    std::fs::create_dir_all(root.join("sources")).map_err(io)?;
+    std::fs::write(
+        root.join("modelDescription.xml"),
+        &src.model_description_xml,
+    )
+    .map_err(io)?;
+    for (path, text) in &src.c_sources {
+        std::fs::write(root.join(path), text).map_err(io)?;
+    }
+    if let Some(headers) = fmi_headers {
+        build_linux64(src, &root, headers)?;
+    }
+    let fmu = out_dir.join(format!("{}.fmu", src.name));
+    zip_dir(&root, &fmu)?;
+    Ok(fmu)
+}
+
+fn build_linux64(src: &MeSources, root: &Path, headers: &Path) -> Result<(), String> {
+    if !(cfg!(target_os = "linux") && cfg!(target_arch = "x86_64")) {
+        return Err("--build は x86_64 の Linux だけ（binaries/linux64）".into());
+    }
+    if !headers.join("fmi2Functions.h").is_file() {
+        return Err(format!("{} に fmi2Functions.h が無い", headers.display()));
+    }
+    let bin = root.join("binaries/linux64");
+    std::fs::create_dir_all(&bin).map_err(|e| e.to_string())?;
+    let out = bin.join(format!("{}.so", src.model_identifier));
+    let sources = root.join("sources");
+    let mut cc = Command::new(std::env::var_os("CC").unwrap_or("cc".into()));
+    cc.args(["-shared", "-fPIC", "-O2", "-std=c99"])
+        .arg("-I")
+        .arg(headers)
+        .arg("-I")
+        .arg(&sources);
+    for (path, _) in src.c_sources.iter().filter(|(p, _)| p.ends_with(".c")) {
+        cc.arg(root.join(path));
+    }
+    cc.arg("-o").arg(&out).arg("-lm");
+    let status = cc.output().map_err(|e| format!("cc を起動できない: {e}"))?;
+    if !status.status.success() {
+        return Err(format!(
+            "cc が失敗した:\n{}",
+            String::from_utf8_lossy(&status.stderr)
+        ));
+    }
+    Ok(())
+}
+
+fn zip_dir(root: &Path, fmu: &Path) -> Result<(), String> {
+    let file = std::fs::File::create(fmu).map_err(|e| e.to_string())?;
+    let mut zip = zip::ZipWriter::new(file);
+    let options = zip::write::SimpleFileOptions::default();
+    let mut stack = vec![root.to_path_buf()];
+    let mut files = Vec::new();
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).map_err(|e| e.to_string())? {
+            let path = entry.map_err(|e| e.to_string())?.path();
+            if path.is_dir() {
+                stack.push(path)
+            } else {
+                files.push(path)
+            }
+        }
+    }
+    files.sort();
+    for path in files {
+        let rel = path.strip_prefix(root).map_err(|e| e.to_string())?;
+        let name = rel.to_string_lossy().replace('\\', "/");
+        zip.start_file(name, options).map_err(|e| e.to_string())?;
+        zip.write_all(&std::fs::read(&path).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())?;
+    }
+    zip.finish().map_err(|e| e.to_string())?;
+    Ok(())
+}

@@ -11,7 +11,7 @@ publish.workspace = true
 [features]
 default = ["rumoca"]
 # Phase A のフロントエンド。Rumoca を import してよいのはこの feature の中だけ。
-rumoca = ["dep:serde_json", "dep:rumoca-compile", "dep:rumoca-ir-dae", "dep:rumoca-eval-dae", "dep:rumoca-core"]
+rumoca = ["dep:serde_json", "dep:rumoca-compile", "dep:rumoca-ir-dae", "dep:rumoca-eval-dae", "dep:rumoca-core", "dep:rumoca-phase-solve"]
 
 [dependencies]
 globe-mode-core = { workspace = true }
@@ -21,6 +21,8 @@ rumoca-ir-dae = { workspace = true, optional = true }
 rumoca-eval-dae = { workspace = true, optional = true }
 rumoca-core = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
+# S094: Solve IR を FMI の部品にする（`fmi_export`）。rumoca-compile の推移的依存で、新しい外部依存は増えない
+rumoca-phase-solve = { workspace = true, optional = true }
 
 [lints]
 workspace = true

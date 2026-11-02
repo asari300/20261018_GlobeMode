@@ -195,6 +195,11 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// FMU（S094。今は `export` だけ）
+    Fmu {
+        #[command(subcommand)]
+        command: FmuCommand,
+    },
     /// flat モデルの要約（変数・方程式の数、部品ごとの方程式数）を表示する
     Flat {
         /// ファイルまたはディレクトリ。モデルがライブラリの中にあるなら省略できる
@@ -209,6 +214,31 @@ enum Command {
         /// JSON で出力する
         #[arg(long)]
         json: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum FmuCommand {
+    /// FMI 2.0 のソースの FMU（ME と CS）を書き出す。中身は Rumoca の `fmi2` のテンプレート（ADR-0031）
+    Export {
+        /// ファイルまたはディレクトリ。モデルがライブラリの中にあるなら省略できる
+        #[arg(required_unless_present = "library")]
+        files: Vec<PathBuf>,
+        /// ライブラリのディレクトリ（例: data/msl）。何度でも指定できる
+        #[arg(long, short = 'L')]
+        library: Vec<PathBuf>,
+        /// モデルの完全修飾名
+        #[arg(long, short)]
+        model: String,
+        /// 書き先のディレクトリ（`<名前>/` と `<名前>.fmu` を置く）
+        #[arg(long)]
+        out: PathBuf,
+        /// `cc` で `binaries/linux64/<modelIdentifier>.so` も作る（x86_64 の Linux だけ）
+        #[arg(long, requires = "fmi_headers")]
+        build: bool,
+        /// `fmi2Functions.h` などのあるディレクトリ（--build で使う。例: FMPy の `c-code`）
+        #[arg(long)]
+        fmi_headers: Option<PathBuf>,
     },
 }
 
@@ -272,6 +302,23 @@ fn main() -> ExitCode {
             model,
             json,
         } => flat(&files, &library, &model, json),
+        Command::Fmu {
+            command:
+                FmuCommand::Export {
+                    files,
+                    library,
+                    model,
+                    out,
+                    build,
+                    fmi_headers,
+                },
+        } => fmu_export(
+            &files,
+            &library,
+            &model,
+            &out,
+            fmi_headers.filter(|_| build),
+        ),
         Command::Simulate {
             files,
             library,
@@ -1018,6 +1065,40 @@ fn flat(files: &[PathBuf], library: &[PathBuf], model: &str, json: bool) -> Exit
         print_flat(model, &summary);
     }
     ExitCode::SUCCESS
+}
+
+fn fmu_export(
+    files: &[PathBuf],
+    library: &[PathBuf],
+    model: &str,
+    out: &std::path::Path,
+    fmi_headers: Option<PathBuf>,
+) -> ExitCode {
+    let Loaded { mut ws, texts } = match load_db(files, library) {
+        Ok(Ok(v)) => v,
+        Ok(Err(diags)) => return report_early_failure(model, &diags, false),
+        Err(code) => return code,
+    };
+    let compiled = match ws.compile(model, &Default::default()) {
+        Ok(c) => c,
+        Err(diags) => {
+            print_diagnostics(&diags, &texts, false);
+            println!("{model}: DAE まで変換できないので FMU を作れない");
+            return ExitCode::from(1);
+        }
+    };
+    let written = globe_mode_fmi::export::export_me_sources(&compiled)
+        .and_then(|src| globe_mode_fmi::export::write_fmu(&src, out, fmi_headers.as_deref()));
+    match written {
+        Ok(fmu) => {
+            println!("{}", fmu.display());
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("error: {e}");
+            ExitCode::from(1)
+        }
+    }
 }
 
 fn print_flat(model: &str, f: &FlatSummary) {

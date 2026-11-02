@@ -26,7 +26,7 @@ class Plan(unittest.TestCase):
         p = plan(["src/Rust/mod/globe-mode-ir/src/lib.rs"])
         self.assertEqual(
             pkgs(p),
-            {"globe-mode-ir", "globe-mode-frontend", "globe-mode-graph", "globe-mode-analysis", "globe-mode-db",
+            {"globe-mode-ir", "globe-mode-frontend", "globe-mode-fmi", "globe-mode-graph", "globe-mode-analysis", "globe-mode-db",
              "globe-mode-cli", "globe-mode-lsp", "globe-mode-py", "globe-mode-c", "globe-mode-nif", "globe-mode-exec", "globe-mode-sim", "globe-mode-protocol", "globe-mode", "globe-mode-wasm",
              "xtask"},
         )
@@ -38,7 +38,7 @@ class Plan(unittest.TestCase):
         self.assertFalse(p["full"])
         self.assertEqual(
             pkgs(p),
-            {"globe-mode-core", "globe-mode-ir", "globe-mode-frontend", "globe-mode-graph", "globe-mode-analysis",
+            {"globe-mode-core", "globe-mode-ir", "globe-mode-frontend", "globe-mode-fmi", "globe-mode-graph", "globe-mode-analysis",
              "globe-mode-db", "globe-mode-cli", "globe-mode-lsp", "globe-mode-py", "globe-mode-c", "globe-mode-nif", "globe-mode-exec", "globe-mode-sim", "globe-mode-protocol", "globe-mode",
              "globe-mode-wasm", "xtask"},
         )
@@ -63,10 +63,10 @@ class Plan(unittest.TestCase):
 
     def test_known_unsupported_list_affects_frontend(self):
         p = plan(["src/Modelica/msl-known-unsupported.txt"])
-        # S011 から exec も frontend に依存する。S012 から wasm の束ねも。S035 から facade も
+        # S011 から exec も frontend に依存する。S094 から fmi（feature `export`）も。S012 から wasm の束ねも。S035 から facade も
         self.assertEqual(
             pkgs(p),
-            {"globe-mode-frontend", "globe-mode-cli", "globe-mode-lsp", "globe-mode-py", "globe-mode-c", "globe-mode-nif", "globe-mode-db", "globe-mode-exec", "globe-mode", "globe-mode-wasm",
+            {"globe-mode-frontend", "globe-mode-fmi", "globe-mode-cli", "globe-mode-lsp", "globe-mode-py", "globe-mode-c", "globe-mode-nif", "globe-mode-db", "globe-mode-exec", "globe-mode", "globe-mode-wasm",
              "xtask"},
         )
 
@@ -129,7 +129,7 @@ class Plan(unittest.TestCase):
         # db・exec・wasm のテストも src/Modelica を読む。xtask は frontend に依存するので、依存元として入る
         self.assertEqual(
             pkgs(p),
-            {"globe-mode-frontend", "globe-mode-cli", "globe-mode-lsp", "globe-mode-py", "globe-mode-c", "globe-mode-nif", "globe-mode-db", "globe-mode-exec", "globe-mode", "globe-mode-wasm",
+            {"globe-mode-frontend", "globe-mode-fmi", "globe-mode-cli", "globe-mode-lsp", "globe-mode-py", "globe-mode-c", "globe-mode-nif", "globe-mode-db", "globe-mode-exec", "globe-mode", "globe-mode-wasm",
              "xtask"},
         )
         self.assertTrue(p["wasm_node"])

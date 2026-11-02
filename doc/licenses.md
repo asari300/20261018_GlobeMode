@@ -17,7 +17,7 @@
 
 | 対象 | ライセンス | 判定 | メモ |
 | --- | --- | --- | --- |
-| Rumoca（`rumoca-*`） | Apache-2.0（NOTICE は無い） | 許可 | git の `rev` で固定する。改変した場合は §4b に従って明記する。商標は許諾されないので、製品名に使わない。S012: `globe-mode-exec/src/rumoca/plugins/rk.rs` は Rumoca の `crates/rumoca-solver-diffsol/src/me_integrator.rs`（Apache-2.0）を写して改変したもので、ファイルの先頭に明記した |
+| Rumoca（`rumoca-*`） | Apache-2.0（NOTICE は無い） | 許可 | git の `rev` で固定する。改変した場合は §4b に従って明記する。商標は許諾されないので、製品名に使わない。S012: `globe-mode-exec/src/rumoca/plugins/rk.rs` は Rumoca の `crates/rumoca-solver-diffsol/src/me_integrator.rs`（Apache-2.0）を写して改変したもので、ファイルの先頭に明記した。S094: `globe fmu export` が出す FMU の C と `modelDescription.xml` は Rumoca の組み込みターゲット `fmi2` のテンプレート（改変していない）の描画物で、テンプレートの文面を多く含む。FMU を配るときに Apache-2.0 の表示（§4）が要るかは【未確認】（[ADR-0031](adr/0031-fmi-export-p5a-first.md)） |
 | zenoh | EPL-2.0 OR Apache-2.0 | **禁止（`bans`）** | IDE に要らない。Rumoca の umbrella crate を使わなければ入らない |
 | diffsol | MIT | 許可 | 既定のソルバ。S011 から Rumoca が数値の修正を当てた 0.13.2（Rumoca の `vendor/diffsol`、修正の記録は `RUMOCA_PATCH.md`）を `[patch.crates-io]` で使う（[ADR-0013](adr/0013-exec-backend.md)）。S012 で `globe-mode-exec` の直接の依存にした（自前の積分器 esdirk34・trbdf2・tsit45。0.13 で、同じ patch 版。[ADR-0014](adr/0014-session-route-wasm.md)） |
 | rumoca-sim、rumoca-solver、rumoca-solver-diffsol、rumoca-solver-rk45、rumoca-phase-solve、rumoca-exec-cranelift | Apache-2.0（Rumoca のワークスペース） | 許可 | S011 で導入（`globe-mode-exec` だけ。cargo-deny の `wrappers`）。feature は `solver-diffsol` と `solver-rk45` だけ（zenoh・UDP・gamepad は入らない）。S012 で `rumoca-phase-solve`・`rumoca-solver-diffsol`・`rumoca-solver-rk45` を exec の直接の依存にした（session の道。どれも Cargo.lock に既にあり、外部の package は増えていない） |
@@ -38,7 +38,7 @@
 | sha2 | MIT OR Apache-2.0 | 許可 | S003 で導入（xtask の sha256）。S069 で desktop（別 workspace）も MSL の sha256 の照合に使う（`Cargo.lock` に既にあった） |
 | salsa 0.28.5 | Apache-2.0 OR MIT | 許可 | S004 で導入（`globe-mode-db`）。推移的な依存も cargo deny で ok |
 | rumoca-ir-dae、rumoca-eval-dae、rumoca-core | Apache-2.0（Rumoca のワークスペース） | 許可 | S005 で導入（`globe-mode-frontend` だけ）。DAE の incidence を自前で作るため。rumoca-compile の推移的依存なので、新しい外部依存は増えない |
-| zip | MIT | 許可 | S003 で導入（xtask で MSL を展開）。**9 系を使う**: 2 系には展開時の脆弱性（RUSTSEC-2026-0367 / 0368 / 0369）がある。S069 で desktop（別 workspace、`default-features = false, features = ["deflate"]`）も MSL の展開に使う。`zip` 9.2.1 のほか `typed-path`・`zopfli`・`nix`・`cfg_aliases` が `Cargo.lock` に増えた（desktop の `cargo deny` は ok） |
+| zip | MIT | 許可 | S003 で導入（xtask で MSL を展開）。**9 系を使う**: 2 系には展開時の脆弱性（RUSTSEC-2026-0367 / 0368 / 0369）がある。S069 で desktop（別 workspace、`default-features = false, features = ["deflate"]`）も MSL の展開に使う。`zip` 9.2.1 のほか `typed-path`・`zopfli`・`nix`・`cfg_aliases` が `Cargo.lock` に増えた（desktop の `cargo deny` は ok）。S094 で `globe-mode-fmi` の feature `export` も FMU（zip）を書くのに使う（同じ 9 系・同じ feature。Cargo.lock に増えたパッケージは 0） |
 | MSL 4.1.0、Rumoca の CLI（照合用） | BSD-3-Clause / Apache-2.0 | 許可 | `cargo xtask fetch-*` で sha256 を固定して取得する。配布物には入れない（`data/` は git 管理外） |
 | cargo-deny | MIT OR Apache-2.0 | 許可（ツール） | mise で入れる。配布物には入らない |
 | fmi、fmi-schema、fmi-sys、fmi-export | MIT OR Apache-2.0 | 許可 | 依存には足していない（S057 の調査。crates.io で確認、2026-11-01）。`fmi-sys` の build に bindgen（libclang）、`fmi-schema` は `hard-xml`（MIT）など。使うかは [ADR-0026](adr/0026-fmi-import-placement.md) の (b) |
