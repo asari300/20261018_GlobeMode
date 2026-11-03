@@ -26,6 +26,8 @@ class Plan(unittest.TestCase):
         # S095: globe-mode-fmu に依存元は無い。S099 から exec と frontend に依存するので、exec の変更で回る
         self.assertEqual(pkgs(plan(["src/Rust/mod/globe-mode-fmu/src/lib.rs"])), {"globe-mode-fmu"})
         self.assertIn("globe-mode-fmu", pkgs(plan(["src/Rust/mod/globe-mode-exec/src/lib.rs"])))
+        # S117: fmu は fmi（既定の feature だけ）の書く側を使うので、fmi の変更で回る（S118 から facade も fmi に依存するので、その依存元も）
+        self.assertIn("globe-mode-fmu", pkgs(plan(["src/Rust/mod/globe-mode-fmi/src/lib.rs"])))
 
     def test_change_propagates_to_dependents(self):
         p = plan(["src/Rust/mod/globe-mode-ir/src/lib.rs"])
@@ -169,7 +171,9 @@ class Plan(unittest.TestCase):
                 self.assertTrue(plan([path])["lang"])
         self.assertFalse(plan(["src/Rust/mod/globe-mode-wasm/src/lib.rs"])["lang"])
         # S111: facade が globe-mode-fmt に依存するので、facade と fmt の変更で C・NIF・py と lang・python を回す
-        for path in ["src/Rust/mod/globe-mode/src/lib.rs", "src/Rust/mod/globe-mode-fmt/src/lib.rs"]:
+        # S118: facade の feature `fmu` が globe-mode-fmi に依存するので、fmi の変更でも
+        for path in ["src/Rust/mod/globe-mode/src/lib.rs", "src/Rust/mod/globe-mode-fmt/src/lib.rs",
+                     "src/Rust/mod/globe-mode-fmi/src/export.rs"]:
             with self.subTest(path=path):
                 p = plan([path])
                 self.assertTrue(p["lang"])

@@ -44,6 +44,16 @@ pub fn simulate_columns(
   settings_json: String,
 ) -> Result(#(String, List(BitArray)), String)
 
+/// FMU を書き出して `.fmu` のパス（S118。`globe fmu export` と同じ）。`options_json` は
+/// `{"fmi_version": 2, "build": false, "targets": [], "fmi_headers": null}`（`"{}"` で既定）。
+@external(erlang, "globe_mode_nif", "export_fmu")
+pub fn export_fmu(
+  ws: Workspace,
+  model: String,
+  out_dir: String,
+  options_json: String,
+) -> Result(String, String)
+
 @external(erlang, "globe_mode_nif", "solvers")
 pub fn solvers() -> Result(String, String)
 

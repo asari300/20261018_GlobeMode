@@ -35,6 +35,9 @@ char *gm_simulate(GmWorkspace *ws, const char *model, const char *settings_json)
  * *data は gm_doubles_free で放す。誤りや実行できなかったときは *data が NULL、*len が 0。 */
 char *gm_simulate_columns(GmWorkspace *ws, const char *model, const char *settings_json, double **data, size_t *len);
 void gm_doubles_free(double *data, size_t len);
+/* FMU の書き出し（S118、globe fmu export と同じ）。{"path": ".fmu のパス"}。options_json は NULL 可
+ * （{"fmi_version": 2, "build": false, "targets": [], "fmi_headers": null}）。 */
+char *gm_export_fmu(GmWorkspace *ws, const char *model, const char *out_dir, const char *options_json);
 /* ソルバの登録表（JSON の配列）。 */
 char *gm_solvers(void);
 /* 整形（S111）。{"text": "..."}、文法の誤りは {"error": "..."}。insert_origin は 0 か 1。 */

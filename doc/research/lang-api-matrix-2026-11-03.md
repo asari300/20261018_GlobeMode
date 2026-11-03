@@ -7,7 +7,7 @@
 
 ## 1. 機能表
 
-「—」は穴（その言語から呼べない）。括弧の中は根拠の関数名。「（S111）」は [S111](../sessions/S111-lang-format-lint/解説書.md)、「（S116）」は [S116](../sessions/S116-lang-columns/解説書.md) で埋めたもの（2026-11-03 に追記。下の 2・3 節は S110 のときの判定のまま）。
+「—」は穴（その言語から呼べない）。括弧の中は根拠の関数名。「（S111）」は [S111](../sessions/S111-lang-format-lint/解説書.md)、「（S116）」は [S116](../sessions/S116-lang-columns/解説書.md)、「（S118）」は [S118](../sessions/S118-lang-fmu-export/解説書.md) で埋めたもの（2026-11-03 に追記。下の 2・3 節は S110 のときの判定のまま）。
 
 | 機能 | Rust facade | C ABI | Zig | Julia | Elixir | Gleam | Python | wasm | LSP | CLI |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -24,6 +24,10 @@
 | 進捗（設計は [ADR-0033](../adr/0033-progress-and-cancel.md)） | `exec::run_with_progress`（実行系の段だけ。facade の `simulate` には無い） | — | — | — | — | — | — | — | — | — |
 | 中断（設計は [ADR-0033](../adr/0033-progress-and-cancel.md)） | `max_wall_seconds`（予算） | 予算 | 予算 | 予算 | 予算 | 予算 | 予算 | 予算と Worker の作り直し | 予算と sidecar の作り直し | `--timeout` |
 | FMU export | —（別 crate `globe_mode_fmi::write_fmu`） | — | — | — | — | — | — | — | — | `globe fmu export` |
+
+| 進捗 | `exec::run_with_progress`（実行系の段だけ。facade の `simulate` には無い） | — | — | — | — | — | — | — | — | — |
+| 中断 | `max_wall_seconds`（予算） | 予算 | 予算 | 予算 | 予算 | 予算 | 予算 | 予算と Worker の作り直し | 予算と sidecar の作り直し | `--timeout` |
+| FMU export | `export_fmu` / `Workspace::export_fmu`（feature `fmu`。S118） | `gm_export_fmu`（S118） | C と同じ（S118） | `export_fmu`（S118） | `export_fmu`（S118） | `export_fmu`（S118） | `Workspace.export_fmu`（S118） | 対象外（ファイルを書けない） | — | `globe fmu export`（S118 から facade の `export_fmu`） |
 
 ### 根拠
 
@@ -113,7 +117,7 @@ graph は S039 のシナリオにあるが、Julia 以外では既に通るの�
 | 2 | C ABI に `gm_format` / `gm_lint`、NIF に `format` / `lint`、py に `format` / `lint` を足し、Julia に `format`・`load_dir`・`graph` の包みを足す | 6 言語 | これで参照シナリオの 5 段が 6 言語でそろう。依存の追加は 0 |
 | 3 | 参照シナリオを各言語の試験にする（`test_api.py`、`main.zig`、`globe_mode.jl`、`globe_mode_test.exs`、`globe_mode_test.gleam` で x(1) と format を確かめる）。CI のジョブ `lang` で回す | 6 言語 | P7 の完了条件を CI で示す |
 | 4 | 列の道を C（`double *` と長さ）と NIF（binary）に（S116 で済） | C・Zig・Julia・Elixir・Gleam | 大きな結果で効く（S085 で Python は 6 倍）。シナリオには要らない |
-| 5 | FMU export を facade に（`globe-mode-fmi` の `write_fmu`） | 全部 | 呼ぶ人がいれば。S109 が `globe-mode-fmu` を触っている間は待つ |
+| 5 | FMU export を facade に（`globe-mode-fmi` の `write_fmu`。S118 で済、wasm は対象外） | 全部 | 呼ぶ人がいれば。S109 が `globe-mode-fmu` を触っている間は待つ |
 | 6 | 進捗と途中で止める口 | 全部 | 呼び手から止める形（コールバックか、フラグか）の設計が要る。ADR を書いてから |
 
 - 順の 6 の設計は S121 の [ADR-0033](../adr/0033-progress-and-cancel.md)（Proposed）。進捗は段と積分の時刻、中断は呼び手の持つトークン。実装の順は facade → wasm → Python → C・NIF → LSP。

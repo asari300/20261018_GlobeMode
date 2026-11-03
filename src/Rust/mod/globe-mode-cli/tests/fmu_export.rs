@@ -42,6 +42,13 @@ fn exports_a_source_fmu() {
     assert_eq!(md.fmi_version, "2.0");
     assert!(md.model_exchange.is_some());
     assert!(md.variables.iter().any(|v| v.name == "x"), "{xml}");
+    // S117: P5a の XML（Rumoca のテンプレート）も P5b の書く側を通して読み直すと同じ表になる
+    let again = globe_mode_fmi::write_model_description_2(&md).unwrap();
+    assert_eq!(
+        globe_mode_fmi::parse_model_description(&again).unwrap(),
+        md,
+        "{again}"
+    );
     assert!(root.join("sources/model.c").is_file());
     assert!(
         root.join("documentation/licenses/Rumoca-LICENSE.txt")

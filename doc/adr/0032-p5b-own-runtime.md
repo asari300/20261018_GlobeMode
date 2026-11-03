@@ -137,3 +137,8 @@
 
 - 初期化が入力に依るモデル（`ModelInstance::new` に入力を渡す）、代数・離散の変数の書き込み、Integer・Boolean の入力、exec の `run` に入力を与える道。
 - `Outputs` の `dependencies`、Enumeration・String、`initial()` の事象、MSL を使うモデル、`modelDescription.xml` の生成を P5a と共有、CS・FMI 3.0・Windows。
+
+## 追記（S117、2026-11-03）: `modelDescription.xml` は `globe-mode-fmi` が書く
+
+- **`globe-mode-fmu` の `model_description` は `globe_mode_fmi::ModelDescription` を組み立て、`write_model_description_2` を呼ぶだけにした**（文字列の連結をやめた）。`globe-mode-fmu` は `globe-mode-fmi` の既定の feature だけに依存し、feature `export`（Rumoca のテンプレート・zip）は引き込まない。外部の依存の追加 0。`ModelDescription` に `initial`・`start`（文字列のまま）・`derivative`、`ModelStructure`（Outputs・Derivatives・InitialUnknowns の索引）、`numberOfEventIndicators`、`DefaultExperiment`、`generationTool`・`variableNamingConvention` を足した。出力の XML は前と同じで、違いは状態の無いモデルで空の `<Derivatives>`・`<InitialUnknowns>` を書かなくなったことだけ（2.0 の XSD では `Unknown` が 1 つ以上要る）。`tests/fmpy.rs` の FMPy の validate はそのまま通る。
+- 持ち越し: FMI 3.0 の書く側、CS、`Outputs` の `dependencies`、Enumeration・String。
