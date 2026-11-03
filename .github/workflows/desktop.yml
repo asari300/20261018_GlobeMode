@@ -7,7 +7,9 @@
 # Linux では .deb を入れて、xvfb でアプリを起動し、MSL を読ませた sidecar に ChuaCircuit を検査・実行させる smoke と、
 # アプリと sidecar の最大の常駐メモリの記録も行う（S056。MSL は msl-sim.yml・ci.yml と同じ key で cache する）。
 # S069: さらに MSL を渡さずに起動し直し、アプリが app data dir に MSL 4.1.0 を取得して（毎回、cache しない）検査・実行する smoke と、
-# 取得済みの置き場を 2 度目の起動が見つけて使う smoke も回す。Rust の fmt と clippy（-D warnings）もここで回す（手元に webkit2gtk が無いため）。
+# 取得済みの置き場を 2 度目の起動が見つけて使う smoke も回す。
+# S125: UI の測定（ADR-0034）。GLOBE_DESKTOP_BENCH で UI が Decay と MSL・ChuaCircuit の手順を測り、GM-SMOKE の行を書く。
+# Linux と Windows で 3 回ずつ。行に最大の RSS（rss_kib）、末尾にインストーラの大きさ（GM-BUNDLE）を足し、artifact ui-bench-<os> に残す。Rust の fmt と clippy（-D warnings）もここで回す（手元に webkit2gtk が無いため）。
 # `cargo install tauri-cli`（^2、--locked）を使う理由: npm の依存（@tauri-apps/cli）を増やさず、Rust の道具だけで済むため。
 name: desktop
 
@@ -180,6 +182,63 @@ jobs:
           if grep -q "smoke: fetched msl" smoke-reuse.txt; then echo "2 度目の起動で取得した"; exit 1; fi
           grep -q "smoke: simulate ok=true" smoke-reuse.txt
           { echo '取得して使う smoke:'; echo '```'; cat smoke-fetch.txt; echo '```'; echo '2 度目の起動:'; echo '```'; cat smoke-reuse.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: UI の測定（Linux。S125。取得済みの MSL を UI の手順の中で読む。RSS は time -v の木の中の最大）
+        if: runner.os == 'Linux'
+        env:
+          WEBKIT_DISABLE_DMABUF_RENDERER: "1"
+          WEBKIT_DISABLE_COMPOSITING_MODE: "1"
+          # ランナーの既定（LANG=C）では WebKitGTK の既定の言語が "C" になり、CodeMirror の Intl.Segmenter が
+          # RangeError（invalid language tag: C）を投げて UI が描かれない（S125 の切り分け、run 41617814119）
+          LANG: en_US.UTF-8
+        run: |
+          DEB="$(find "$PWD/$DESKTOP/target/release/bundle/deb" -maxdepth 1 -type f -name '*.deb')"
+          APP="$(dpkg -L "$(dpkg-deb -f "$DEB" Package)" | grep '^/usr/bin/' | grep -v '/globe$' | head -1)"
+          for i in 1 2 3; do
+            rm -f line.txt
+            GLOBE_DESKTOP_BENCH="$PWD/line.txt" /usr/bin/time -v -o time-bench.txt timeout 300 xvfb-run -a "$APP" || echo "終了コード $?"
+            test -s line.txt || { echo "GM-SMOKE の行が無い"; exit 1; }
+            echo "$(cat line.txt) rss_kib=$(sed -n 's/.*Maximum resident set size (kbytes): //p' time-bench.txt)" >> bench.txt
+          done
+          echo "GM-BUNDLE kib=$(( $(stat -c %s "$DEB") / 1024 ))" >> bench.txt
+          { echo '```'; cat bench.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          test "$(grep -c 'GM-SMOKE check=ok simulate=ok .* msl=ok' bench.txt)" = 3
+
+      - name: UI の測定（Windows。S125。先に Rust の smoke で MSL を取得し、測る回にダウンロードを含めない。RSS はプロセスごとの PeakWorkingSet の最大）
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $app = (Get-ChildItem "$env:DESKTOP\target\release\*.exe" | Where-Object Name -ne 'globe.exe' | Select-Object -First 1).FullName
+          $env:GLOBE_SIDECAR = "$PWD\target\release\globe.exe"
+          $env:GLOBE_DESKTOP_SMOKE = "1"; $env:GLOBE_DESKTOP_SMOKE_FETCH = "1"
+          $p = Start-Process $app -PassThru
+          if (-not $p.WaitForExit(900000)) { $p.Kill(); throw "取得の smoke が時間切れ" }
+          if ($p.ExitCode -ne 0) { throw "取得の smoke が失敗（$($p.ExitCode)）" }
+          Remove-Item Env:GLOBE_DESKTOP_SMOKE, Env:GLOBE_DESKTOP_SMOKE_FETCH
+          $env:GLOBE_DESKTOP_BENCH = "$PWD\line.txt"
+          foreach ($i in 1..3) {
+            Remove-Item line.txt -ErrorAction SilentlyContinue
+            $p = Start-Process $app -PassThru; $peak = 0; $deadline = (Get-Date).AddMinutes(10)
+            while (-not $p.HasExited) {
+              $m = (Get-Process globe-mode-desktop, GlobeMode, globe, msedgewebview2 -ErrorAction SilentlyContinue | Measure-Object PeakWorkingSet64 -Maximum).Maximum
+              if ($m -gt $peak) { $peak = $m }
+              if ((Get-Date) -gt $deadline) { $p.Kill(); throw "測定が時間切れ" }
+              Start-Sleep -Milliseconds 200
+            }
+            if (-not (Test-Path line.txt)) { throw "GM-SMOKE の行が無い（終了コード $($p.ExitCode)）" }
+            "$((Get-Content line.txt -Raw).Trim()) rss_kib=$([math]::Round($peak / 1024))" | Add-Content bench.txt
+          }
+          $msi = Get-ChildItem "$env:DESKTOP\target\release\bundle\msi\*.msi" | Select-Object -First 1
+          "GM-BUNDLE kib=$([math]::Round($msi.Length / 1024))" | Add-Content bench.txt
+          Get-Content bench.txt
+          "``````", (Get-Content bench.txt), "``````" | Add-Content $env:GITHUB_STEP_SUMMARY
+          if (@(Select-String 'GM-SMOKE check=ok simulate=ok .* msl=ok' bench.txt).Count -ne 3) { throw "ok でない回がある" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ui-bench-${{ matrix.name }}
+          path: bench.txt
+          if-no-files-found: error
 
       - uses: actions/upload-artifact@v4
         if: runner.os == 'Linux'

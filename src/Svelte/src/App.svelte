@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import { EditorState } from "@codemirror/state";
   import { EditorView, keymap, lineNumbers, drawSelection } from "@codemirror/view";
   import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
@@ -60,22 +60,33 @@
     });
     // S100: Android のエミュレータの smoke（android.yml が logcat で GM-SMOKE の行を待つ）。クエリを渡せない Tauri の Android はビルド時の VITE_GM_SMOKE=1
     if (import.meta.env.VITE_GM_SMOKE === "1" || new URLSearchParams(location.search).has("smoke")) void smoke();
+    else void tauri?.bench().then((on) => { if (on) void smoke(); }); // S125: Desktop の測定（GLOBE_DESKTOP_BENCH）
     return () => { view.destroy(); void unlisten?.then((f) => f()); };
   });
 
   // 起動時の Decay を検査・実行して、結果を console に 1 行出す。x1 は x(1)（e⁻¹ ≈ 0.3679）
+  // S125: 末尾に時刻（ms、ADR-0034）。ready は最初の往復（ページの読み込みの始まりから）、decay は検査・実行・プロットの反映まで、msl は MSL を読み ChuaCircuit を検査するまで
   async function smoke() {
+    await backend.setFile(FILE, view.state.doc.toString()).catch((e) => { failure = String(e); });
+    const ready = performance.now();
     await check();
     const checked = !failure && !diagnostics.some((d) => d.severity === "error");
     await simulate();
+    await tick();
+    const decay = performance.now() - ready;
     const i = columns ? columns.names.indexOf("x") : -1;
     const x1 = columns && i >= 0 ? Number(columns.data[i + 1][columns.points - 1]) : NaN;
     const simulated = !failure && Math.abs(x1 - Math.exp(-1)) < 1e-3;
     // S103: 同梱の MSL.json を読み、MSL の例題を 1 つ検査する（Android の APK は android.yml が MSL.json を入れる）
+    const t = performance.now();
     await loadMsl();
     if (msl === "loaded") { model = "Modelica.Electrical.Analog.Examples.ChuaCircuit"; await check(); }
     const mslOk = msl === "loaded" && !failure && !diagnostics.some((d) => d.severity === "error");
-    console.log(`GM-SMOKE check=${checked ? "ok" : "ng"} simulate=${simulated ? "ok" : "ng"} x1=${x1} msl=${mslOk ? "ok" : "ng"}${failure ? ` failure=${failure}` : ""}`);
+    const ms = (x: number) => x.toFixed(0);
+    const line = `GM-SMOKE check=${checked ? "ok" : "ng"} simulate=${simulated ? "ok" : "ng"} x1=${x1} msl=${mslOk ? "ok" : "ng"}`
+      + ` ready_ms=${ms(ready)} decay_ms=${ms(decay)} msl_ms=${mslOk ? ms(performance.now() - t) : "-"}${failure ? ` failure=${failure}` : ""}`;
+    console.log(line);
+    void tauri?.bench(line);
   }
 
   async function loadMsl() {
