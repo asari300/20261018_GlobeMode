@@ -42,7 +42,24 @@
   let runState = $state<"idle" | "running" | "cancelled">("idle");
   let graphModel = $state<string | null>(null); // 「グラフ」を押したときのモデル名（入力のたびに描き直さない）
 
+  // S141: 自分のファイルを開く・保存する。本文・ファイル名・モデル名は localStorage に自動保存して起動時に戻す（使えなくても動く。S102）
+  // own はエディタの文書が自分のファイルか（ライブラリのファイルを開いている間は保存も上書きもしない）
+  const STORE = "globe-mode.doc";
+  const DECAY = "model Decay\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -x;\nend Decay;\n";
+  let own = true;
+  let saved = $state(""); // 保存した先（Desktop はパス、ブラウザは名前）
+  const persist = () => {
+    if (!own) return;
+    try { localStorage.setItem(STORE, JSON.stringify({ name: file, text: view.state.doc.toString(), model })); } catch { /* 保存できなくても使える */ }
+  };
+  $effect(() => { void [file, model]; if (view) persist(); });
+
   onMount(() => {
+    let text = DECAY;
+    try {
+      const d = JSON.parse(localStorage.getItem(STORE) ?? "null");
+      if (typeof d?.text === "string" && typeof d.name === "string" && typeof d.model === "string") ({ text, name: file, model } = d);
+    } catch { /* 無ければ Decay から */ }
     // S069: 取得済みの MSL を sidecar が読んでいれば、最初から「読んだ」状態にする
     void tauri?.hasLibrary().then((has) => {
       if (has && msl === "none") { msl = "loaded"; mslNote = "MSL を読んだ（取得済み）"; }
@@ -54,11 +71,12 @@
     view = new EditorView({
       parent: host,
       state: EditorState.create({
-        doc: "model Decay\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -x;\nend Decay;\n",
+        doc: text,
         extensions: [
           lineNumbers(), history(), drawSelection(), highlightActiveLine(), bracketMatching(), keymap.of([...defaultKeymap, ...historyKeymap]),
           modelicaCompletion(), modelicaLinter(backend, file), // S053
           modelicaDefinition(definition, goBack), // S138
+          EditorView.updateListener.of((u) => { if (u.docChanged) persist(); }),
         ],
       }),
     });
@@ -179,6 +197,7 @@
   // ライブラリの木で選んだクラスのファイルをエディタに開き、モデル名をそのクラスにする（S127）
   const openLibrary = (e: TreeEntry) => run(async () => {
     const src = await backend.librarySource(e.path);
+    own = false;
     file = src.file;
     model = e.path;
     view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: src.text } });
@@ -188,7 +207,7 @@
   });
 
   // S138: 定義ジャンプ。別のファイル（ライブラリ）なら openLibrary と同じく同じ名前の文書として開く。入る前の文書と位置は back に積む（Alt+←）
-  const back: { file: string; text: string; anchor: number }[] = [];
+  const back: { file: string; text: string; anchor: number; own: boolean }[] = [];
   // 範囲を選び、カーソル（head）は宣言の頭に置く（クラスは長いので、末尾だと宣言が画面の外に出る）
   const moveTo = (from: number, to: number) => {
     view.dispatch({ selection: { anchor: to, head: from }, scrollIntoView: true });
@@ -202,7 +221,8 @@
       const d = await backend.definition(file, line, character);
       if (!d) return;
       if (d.file !== file) {
-        back.push({ file, text: view.state.doc.toString(), anchor: view.state.selection.main.head });
+        back.push({ file, text: view.state.doc.toString(), anchor: view.state.selection.main.head, own });
+        own = false;
         file = d.file;
         replaceDoc(d.text);
         diagnostics = [];
@@ -219,8 +239,35 @@
     const b = back.pop();
     if (!b) return;
     file = b.file;
+    own = b.own;
     replaceDoc(b.text);
     moveTo(b.anchor, b.anchor);
+  }
+
+  // S141: 開く。いまの自分のファイルと名前が違えば、バックエンドの Workspace に残らないよう空にする（同じクラスの二重定義を避ける）
+  const guessModel = (t: string) => /^\s*(?:(?:partial|encapsulated)\s+)*(?:model|block|class|package)\s+(\w+)/m.exec(t)?.[1];
+  const openFromDisk = () => run(async () => {
+    const f = await backend.openFile();
+    if (!f) return;
+    if (own && f.name !== file) await backend.setFile(file, "");
+    own = true;
+    file = f.name;
+    model = guessModel(f.text) ?? model;
+    back.length = 0;
+    replaceDoc(f.text);
+    diagnostics = [];
+    columns = null;
+    graphModel = null;
+    saved = "";
+  });
+  async function save(saveAs = false) {
+    failure = "";
+    try {
+      const to = await backend.saveFile(file.split("/").pop()!, view.state.doc.toString(), saveAs);
+      if (to) saved = `保存した: ${to}`;
+    } catch (e) {
+      failure = String((e as Error).message ?? e);
+    }
   }
 
   const graph = () => run(async () => {
@@ -249,6 +296,9 @@
 
 <main>
   <div class="bar">
+    <button onclick={openFromDisk} disabled={busy}>開く</button>
+    <button onclick={() => save()}>保存</button>
+    {#if desktop}<button onclick={() => save(true)}>名前を付けて保存</button>{/if}
     <label>モデル名 <input bind:value={model} aria-label="モデル名"></label>
     <button onclick={check} disabled={busy}>検査</button>
     <button onclick={simulate} disabled={busy}>実行</button>
@@ -275,6 +325,7 @@
     {#if msl === "loaded"}<aside class="library"><LibraryTree {backend} onOpen={openLibrary} /></aside>{/if}
     <div class="editor" bind:this={host}></div>
   </div>
+  {#if saved}<p class="note" role="status" data-saved>{saved}</p>{/if}
   {#if runNote}<p class="run" role="status" data-run={runState}>{runNote}</p>{/if}
   {#if failure}<p class="failure" role="alert">{failure}</p>{/if}
   <table class="diagnostics" aria-label="診断">
