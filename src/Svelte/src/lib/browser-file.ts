@@ -19,10 +19,15 @@ export function browserOpen(): Promise<{ name: string; text: string } | null> {
   });
 }
 
-/** 本文（S144 から FMU のバイト列も）をダウンロードさせる。保存した名前を返す（保存先はブラウザが決めるので、名前だけ）。 */
-export async function browserSave(name: string, data: string | Uint8Array<ArrayBuffer>): Promise<string> {
-  const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([data], { type: typeof data === "string" ? "text/plain" : "application/octet-stream" })), download: name });
+/** 本文をダウンロードさせる。保存した名前を返す（保存先はブラウザが決めるので、名前だけ）。 */
+async function download(name: string, data: BlobPart, type: string): Promise<string> {
+  const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([data], { type })), download: name });
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
   return name;
 }
+/** 本文（S144 から FMU のバイト列も）をダウンロードさせる。 */
+export const browserSave = (name: string, data: string | Uint8Array<ArrayBuffer>) =>
+  download(name, data, typeof data === "string" ? "text/plain" : "application/octet-stream");
+/** PNG をダウンロードさせる（S146）。 */
+export const browserSaveBinary = (name: string, bytes: Uint8Array) => download(name, bytes as BlobPart, "image/png");
