@@ -22,7 +22,7 @@
 //! 終了コード: 0 = 成功 / 1 = Error の診断がある / 2 = 入力の読み込みに失敗。
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
@@ -84,7 +84,8 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Modelica のファイルを整形する（S053、`doc/format-style.md`）。ruff のように、パスを省くとカレントディレクトリ（S060）
+    /// Modelica のファイルを整形する（S053、`doc/format-style.md`）。ruff のように、パスを省くとカレントディレクトリ（S060）。
+    /// 設定は対象から上へたどって最初の `globe-mode.toml`（S130）。コマンドラインの引数が優先
     Fmt {
         /// ファイルまたはディレクトリ（下の .mo を .gitignore と隠しディレクトリを除いてすべて）。
         /// 省くとカレントディレクトリ。`-`、または `--json` か入力がパイプのときは標準入力 → 標準出力
@@ -92,12 +93,12 @@ enum Command {
         /// 書き換えず、整形が要るファイルを列挙して終了コード 1
         #[arg(long)]
         check: bool,
-        /// 1 段のインデントの空白の数（既定 2）
-        #[arg(long, default_value_t = 2)]
-        indent: usize,
+        /// 1 段のインデントの空白の数（既定 2。`globe-mode.toml` の `[fmt]` より優先、S130）
+        #[arg(long)]
+        indent: Option<usize>,
         /// 行幅（既定 80）
-        #[arg(long, default_value_t = 80)]
-        width: usize,
+        #[arg(long)]
+        width: Option<usize>,
         /// 図形プリミティブに `origin = {0, 0}` を足さない
         #[arg(long)]
         no_insert_origin: bool,
@@ -115,7 +116,7 @@ enum Command {
     Lint {
         /// ファイルまたはディレクトリ。省くとカレントディレクトリ（`fmt` と同じ規則）
         files: Vec<PathBuf>,
-        /// 止める規則（何度でも）
+        /// 止める規則（何度でも。`globe-mode.toml` の `[lint] disable` に足す、S130）
         #[arg(long)]
         disable: Vec<String>,
         /// JSON（{"messages":[{file,rule,line,column,message}]}）で出力する
@@ -277,12 +278,12 @@ fn main() -> ExitCode {
         } => fmt(
             &files,
             check,
-            &globe_mode_fmt::Options {
-                indent,
-                width,
-                insert_origin: !no_insert_origin,
-                blank_around_sections: !no_blank_around_sections,
-                format_html: !no_format_html,
+            &|o: &mut globe_mode_fmt::Options| {
+                o.indent = indent.unwrap_or(o.indent);
+                o.width = width.unwrap_or(o.width);
+                o.insert_origin &= !no_insert_origin;
+                o.blank_around_sections &= !no_blank_around_sections;
+                o.format_html &= !no_format_html;
             },
             json,
         ),
@@ -429,13 +430,39 @@ fn read_stdin() -> Result<String, ExitCode> {
     Ok(text)
 }
 
-/// `globe fmt`。ファイルが無ければ標準入力 → 標準出力。
-fn fmt(files: &[PathBuf], check: bool, options: &globe_mode_fmt::Options, json: bool) -> ExitCode {
+/// S130: `path` から上へたどって最初の `globe-mode.toml`（無ければ既定）。読めない・誤りがあれば終了コード 2。
+fn config(path: &Path) -> Result<globe_mode_fmt::LintOptions, ExitCode> {
+    globe_mode_fmt::LintOptions::find(path)
+        .map(Option::unwrap_or_default)
+        .map_err(|e| {
+            eprintln!("error: {e}");
+            ExitCode::from(2)
+        })
+}
+
+/// `globe fmt`。ファイルが無ければ標準入力 → 標準出力。`cli` はコマンドラインの引数で設定ファイルの値を上書きする。
+fn fmt(
+    files: &[PathBuf],
+    check: bool,
+    cli: &dyn Fn(&mut globe_mode_fmt::Options),
+    json: bool,
+) -> ExitCode {
+    let options_for = |path: &Path| {
+        config(path).map(|c| {
+            let mut o = c.format;
+            cli(&mut o);
+            o
+        })
+    };
     let Some(files) = paths_or_stdin(files, json) else {
         let Ok(text) = read_stdin() else {
             return ExitCode::from(2);
         };
-        return match globe_mode_fmt::format(&text, options) {
+        let options = match options_for(Path::new(".")) {
+            Ok(o) => o,
+            Err(code) => return code,
+        };
+        return match globe_mode_fmt::format(&text, &options) {
             Ok(out) if json => {
                 println!(
                     "{}",
@@ -466,6 +493,10 @@ fn fmt(files: &[PathBuf], check: bool, options: &globe_mode_fmt::Options, json: 
     // ruff と同じく、壊れたファイルがあっても残りを続け、最後に要約と終了コード 2 を返す
     let (mut changed, mut failed) = (0, 0);
     for path in &paths {
+        let options = match options_for(path) {
+            Ok(o) => o,
+            Err(code) => return code,
+        };
         let (name, text) = match read(path) {
             Ok(x) => x,
             Err(_) => {
@@ -473,7 +504,7 @@ fn fmt(files: &[PathBuf], check: bool, options: &globe_mode_fmt::Options, json: 
                 continue;
             }
         };
-        match globe_mode_fmt::format(&text, options) {
+        match globe_mode_fmt::format(&text, &options) {
             Ok(out) if out == text => {}
             Ok(_) if check => {
                 changed += 1;
@@ -554,43 +585,48 @@ fn collect_mo(inputs: &[PathBuf]) -> Result<Vec<PathBuf>, ExitCode> {
 
 /// `globe lint`。1 件以上あれば終了コード 1。
 fn lint(files: &[PathBuf], disable: &[String], json: bool) -> ExitCode {
-    let options = globe_mode_fmt::LintOptions {
-        disabled: disable.to_vec(),
-        ..globe_mode_fmt::LintOptions::default()
+    // S130: ファイルごとに設定ファイルの `[lint] disable` にコマンドラインの `--disable` を足す
+    let options_for = |path: &Path| {
+        config(path).map(|mut c| {
+            c.disabled.extend_from_slice(disable);
+            c
+        })
     };
-    let inputs: Vec<(String, String)> = if let Some(files) = paths_or_stdin(files, json) {
-        let Ok(paths) = collect_mo(&files) else {
-            return ExitCode::from(2);
-        };
-        let mut v = Vec::new();
-        for p in &paths {
-            let Ok(x) = read(p) else {
+    let inputs: Vec<(String, String, globe_mode_fmt::LintOptions)> =
+        if let Some(files) = paths_or_stdin(files, json) {
+            let Ok(paths) = collect_mo(&files) else {
                 return ExitCode::from(2);
             };
-            v.push(x);
-        }
-        v
-    } else {
-        let Ok(text) = read_stdin() else {
-            return ExitCode::from(2);
+            let mut v = Vec::new();
+            for p in &paths {
+                let (Ok(options), Ok((name, text))) = (options_for(p), read(p)) else {
+                    return ExitCode::from(2);
+                };
+                v.push((name, text, options));
+            }
+            v
+        } else {
+            let (Ok(options), Ok(text)) = (options_for(Path::new(".")), read_stdin()) else {
+                return ExitCode::from(2);
+            };
+            vec![("<stdin>".to_string(), text, options)]
         };
-        vec![("<stdin>".to_string(), text)]
-    };
     // S062: 渡したファイルをまとめて 1 つのワークスペースにし、connect の型を突き合わせる
-    let check_types = !disable.iter().any(|d| d == "connect-type-mismatch");
+    let check_types =
+        |o: &globe_mode_fmt::LintOptions| !o.disabled.iter().any(|d| d == "connect-type-mismatch");
     let mut ws = Workspace::new();
-    if check_types {
-        for (name, text) in &inputs {
+    if inputs.iter().any(|(_, _, o)| check_types(o)) {
+        for (name, text, _) in &inputs {
             ws.set_file(name, text.clone());
         }
     }
     let mut all = Vec::new();
-    for (name, text) in &inputs {
-        let mut found: Vec<(usize, usize, &str, String)> = globe_mode_fmt::lint(text, &options)
+    for (name, text, options) in &inputs {
+        let mut found: Vec<(usize, usize, &str, String)> = globe_mode_fmt::lint(text, options)
             .into_iter()
             .map(|m| (m.line, m.column, m.rule, m.message))
             .collect();
-        if check_types {
+        if check_types(options) {
             for m in ws.connect_mismatches(name) {
                 let lc = globe_mode_core::line_col(text, m.connect.range.start);
                 found.push((

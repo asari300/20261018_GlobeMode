@@ -73,7 +73,7 @@ end Objects_Before;
 | `annotation-order` | `GM-L0004`（通知の重さ） | `annotation(…)` と `Documentation(…)` の引数が 1 章の順でない（S061）。整形で直る |
 | `connect-type-mismatch` | `GM-L0005` | `connect(a, b)` の両端のコネクタの型が合わない（S062）。名前が違っても中身（変数の名前・flow / stream・型）が同じなら合うとみなす（`PositivePin` と `NegativePin`、`RealInput` と `RealOutput`）。型を解決できない端（`--library` で読んだ MSL の型、開いていないファイルの型）は判定しない。`globe lint` は渡したファイルをまとめて見る |
 
-`globe lint --disable <rule>` で止められる。意味の検査（S0〜S10）は従来どおり `globe check` と LSP の診断。
+`globe lint --disable <rule>` か、設定ファイルの `[lint] disable`（5 章）で止められる。意味の検査（S0〜S10）は従来どおり `globe check` と LSP の診断。
 
 ## 4. 使い方
 
@@ -92,5 +92,26 @@ echo 'model M end M;' | globe fmt --json   # 標準入力。{"ok":true,"text":"�
 - パスを省いたとき、`--json` を付けたときか入力がパイプのときは標準入力を読む（ウェブアプリとエディタの呼び方）。`-` でも標準入力。
 
 VS Code では拡張 [src/VSCode/globe-mode](../src/VSCode/globe-mode/README.md)（S059）を入れると、Shift+Alt+F（拡張が `.mo` に割り当てる。S060）で整形し、lint は編集中に波線で出る。保存時の整形は設定 `globeMode.formatOnSave`（既定はオフ）。拡張は `.mo` の既定を `editor.tabSize: 2` にする（LSP の整形は tabSize をインデントに使うため）。
+
+## 5. 設定ファイル `globe-mode.toml`（S130）
+
+ruff の `ruff.toml` に倣い、プロジェクトの設定ファイルで整形と lint の設定を決める。書いていないキーは既定。
+
+```toml
+[fmt]
+indent = 2                    # 1 段のインデントの空白の数
+width = 80                    # 行幅
+insert_origin = true          # 図形プリミティブに origin = {0, 0} を足す
+blank_around_sections = true  # equation / algorithm の前後に空行
+format_html = true            # Documentation の HTML を整える
+
+[lint]
+disable = ["missing-description", "GM-L0004"]  # 規則の名前でも LSP のコードでもよい
+```
+
+- 探し方: CLI は対象のファイル（標準入力ならカレントディレクトリ）から上へたどって最初の `globe-mode.toml`。ファイルごとに探すので、サブディレクトリに別の設定を置ける。LSP は `initialize` の `rootUri`（無ければ `rootPath`）から上へたどって最初のもの。無ければ既定。
+- 優先: CLI はコマンドラインの引数（`--indent`・`--width`・`--no-…`）が設定ファイルより優先し、`--disable` は `[lint] disable` に足す。LSP の `textDocument/formatting` は、設定ファイルがあれば `indent` に `tabSize` ではなく設定ファイルの値を使う（ruff と同じ。無ければ従来どおり `tabSize`）。拡張の追加のキー（`insertOrigin` など）は設定ファイルより優先する。
+- 誤り: 知らない表・キー・規則、型の違う値は誤り。CLI は終了コード 2、LSP は `window/showMessage` で知らせて既定で続ける。LSP は `workspace/didChangeConfiguration` で読み直し、開いている文書の診断を出し直す。
+- wasm・ブラウザ UI・`globe/format`・`globe/lint` は設定ファイルを読まない（引数で渡す）。読む処理は `globe-mode-fmt` の feature `config`（`LintOptions::from_toml`・`LintOptions::find`）で、CLI と LSP だけが立てる（[ADR-0024](adr/0024-own-formatter-and-lint.md)）。
 
 S053 の時点で `src/Modelica/` の 69 ファイルすべてが整形で変わる（空行の規則のため）。既存ファイルの書き換えはしていない。

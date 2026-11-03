@@ -13,7 +13,7 @@ publish.workspace = true
 globe-mode = { workspace = true }
 globe-mode-core = { workspace = true }
 globe-mode-ir = { workspace = true }
-globe-mode-fmt = { workspace = true }
+globe-mode-fmt = { workspace = true, features = ["config"] }
 lsp-types = { workspace = true }
 serde_json = { workspace = true }
 
