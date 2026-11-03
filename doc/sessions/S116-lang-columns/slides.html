@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S116 列の道を C ABI と NIF に — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S116 列の道を C ABI と NIF に">
+
+<section class="slide" id="S01">
+  <span class="tag">S116 · 2026-11-03 · P7</span>
+  <h1>列の道を C ABI と NIF に</h1>
+  <p class="lead">S110 の埋める順の 4。CSV の入った JSON でなく、列ごとの f64 で結果を受け取る</p>
+  <div class="big"><code>simulate_columns</code> が <b>C・Zig・Julia・Elixir・Gleam</b> でも使える</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>列の道は Python（S085）と wasm（S051）にだけあり、組み立てを別々に持っていた</li>
+    <li>facade に <code>Simulated::columns</code> を足して寄せ、C ABI と NIF に写す</li>
+    <li>各言語の試験に「Decay の列の道で x(1) が JSON の道と同じ、点の数も同じ」を 1 本ずつ</li>
+    <li>持ち越し: FMU export の facade、進捗と中断</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>口ごとの形</h1>
+  <table class="compact">
+    <tr><th>口</th><th>形</th></tr>
+    <tr><td>facade</td><td><code>Simulated::columns() -&gt; (ColumnsLayout, Vec&lt;&amp;[f64]&gt;)</code>（借用。写すのは束ね）</td></tr>
+    <tr><td>C ABI</td><td><code>gm_simulate_columns(ws, model, settings, double **data, size_t *len)</code> → <code>{"response","names","points"}</code>、列は 1 本の連続した配列。<code>gm_doubles_free</code> で放す</td></tr>
+    <tr><td>Zig・Julia</td><td>C を呼ぶ。Julia は配列に写してから放す</td></tr>
+    <tr><td>Elixir・Gleam</td><td>NIF の <code>simulate_columns/3</code> → <code>{layout_json, [binary]}</code>（DirtyCpu、little-endian）</td></tr>
+    <tr><td>Python・wasm</td><td>形は変えず、中を facade に寄せた</td></tr>
+  </table>
+  <p>外部の依存の追加は 0。CI の定義は変えていない（ジョブ <code>lang</code> が同じ試験を回す）</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>依存の向き</h1>
+  <svg viewBox="0 0 800 260" role="img" aria-label="依存の図">
+    <rect class="svg-box" x="20" y="10" width="170" height="40" rx="6"/>
+    <text class="svg-text" x="105" y="36" text-anchor="middle">globe-mode-c</text>
+    <rect class="svg-box" x="20" y="75" width="170" height="40" rx="6"/>
+    <text class="svg-text" x="105" y="101" text-anchor="middle">globe-mode-nif</text>
+    <rect class="svg-box" x="20" y="140" width="170" height="40" rx="6"/>
+    <text class="svg-text" x="105" y="166" text-anchor="middle">globe-mode-py</text>
+    <rect class="svg-box" x="20" y="205" width="170" height="40" rx="6"/>
+    <text class="svg-text" x="105" y="231" text-anchor="middle">globe-mode-wasm</text>
+    <rect class="svg-box-accent" x="420" y="105" width="300" height="44" rx="6"/>
+    <text class="svg-text" x="570" y="133" text-anchor="middle">globe-mode: Simulated::columns</text>
+    <line class="svg-line-accent" x1="190" y1="30" x2="420" y2="120"/>
+    <line class="svg-line-accent" x1="190" y1="95" x2="420" y2="125"/>
+    <line class="svg-line" x1="190" y1="160" x2="420" y2="130"/>
+    <line class="svg-line" x1="190" y1="225" x2="420" y2="135"/>
+  </svg>
+  <p>青い線が S116 で足した道。py・wasm は同じ関数に寄せただけ</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>5 言語の列の道（Decay）</h1>
+  <table class="compact">
+    <tr><th>言語</th><th>試験</th><th>結果</th></tr>
+    <tr><td>C</td><td><code>cargo test -p globe-mode-c</code></td><td class="ok">通った（ヘッダの突き合わせも）</td></tr>
+    <tr><td>Zig</td><td><code>mise run c:zig</code></td><td class="ok">501 点、x = 0.367879468116207</td></tr>
+    <tr><td>Julia</td><td><code>mise run c:julia</code></td><td class="ok">501 点、JSON 4.99 ms・列 4.16 ms</td></tr>
+    <tr><td>Elixir</td><td><code>mise run elixir:test</code></td><td class="ok">501 点、JSON 1,803 µs・列 1,602 µs</td></tr>
+    <tr><td>Gleam</td><td><code>mise run gleam:test</code></td><td class="ok">1 passed</td></tr>
+  </table>
+  <p>x(1) は JSON の道の <code>final.x</code> とビットまで同じ。Decay は小さいので時間の差は小さい</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ol>
+    <li>FMU export を facade に（埋める順の 5）</li>
+    <li>進捗と途中で止める口（順の 6。ADR を先に）</li>
+  </ol>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

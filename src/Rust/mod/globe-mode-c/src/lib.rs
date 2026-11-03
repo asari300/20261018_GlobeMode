@@ -56,22 +56,27 @@ fn guard(f: impl FnOnce() -> Result<String, String>) -> *mut c_char {
     CString::new(text).map_or(std::ptr::null_mut(), CString::into_raw)
 }
 
-/// `settings_json`（`{"stop_time": 2, "solver": "bdf"}` など。NULL 可）から実行の依頼を作って回す。
-fn simulate_json(
-    ws: &mut globe_mode::Workspace,
+/// `settings_json`（`{"stop_time": 2, "solver": "bdf"}` など。NULL 可）から実行の依頼を作る。
+fn request(
     model: &str,
     settings_json: Option<&str>,
-) -> Result<String, String> {
+) -> Result<globe_mode::SimulateRequest, String> {
     let settings: serde_json::Value = match settings_json {
         Some(s) => {
             serde_json::from_str(s).map_err(|e| format!("settings の JSON が読めない: {e}"))?
         }
         None => serde_json::json!({}),
     };
-    let request =
-        serde_json::from_value(serde_json::json!({ "model": model, "settings": settings }))
-            .map_err(|e| format!("settings が読めない: {e}"))?;
-    json(&ws.simulate(&request))
+    serde_json::from_value(serde_json::json!({ "model": model, "settings": settings }))
+        .map_err(|e| format!("settings が読めない: {e}"))
+}
+
+fn opt_str_arg<'a>(p: *const c_char, name: &str) -> Result<Option<&'a str>, String> {
+    if p.is_null() {
+        Ok(None)
+    } else {
+        str_arg(p, name).map(Some)
+    }
 }
 
 /// ワークスペースを作る。`libraries_json` はライブラリのディレクトリの JSON の配列（`["data/msl"]`。NULL か
@@ -204,13 +209,69 @@ pub unsafe extern "C" fn gm_simulate(
 ) -> *mut c_char {
     guard(|| {
         let model = str_arg(model, "model")?;
-        let settings = if settings_json.is_null() {
-            None
-        } else {
-            Some(str_arg(settings_json, "settings_json")?)
-        };
-        simulate_json(ws_arg(ws)?, model, settings)
+        let settings = opt_str_arg(settings_json, "settings_json")?;
+        json(&ws_arg(ws)?.simulate(&request(model, settings)?))
     })
+}
+
+/// 列の道（S116。Python の `simulate_columns`・wasm の `SimColumns` と同じ並び）。戻り値は
+/// `{"response": SimulateResponse（csv 無し）, "names": ["time", ...], "points": n}` の JSON。
+/// `*data` には列を順に並べた `names.len() * points` 個の f64（列 i は `data[i * points ..]`）を、`*len` にその個数を入れる。
+/// `*data` は [`gm_doubles_free`] で放す。誤りや実行できなかったときは `*data` が NULL で `*len` が 0。
+///
+/// # Safety
+///
+/// `ws`・`model`・`settings_json` は [`gm_simulate`] と同じ。`data`・`len` は書ける場所を指す。
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn gm_simulate_columns(
+    ws: *mut GmWorkspace,
+    model: *const c_char,
+    settings_json: *const c_char,
+    data: *mut *mut f64,
+    len: *mut usize,
+) -> *mut c_char {
+    if data.is_null() || len.is_null() {
+        return guard(|| Err("data か len が NULL".to_string()));
+    }
+    // SAFETY: 上で NULL でないことを確かめた。呼び手は書ける場所を渡す
+    unsafe {
+        *data = std::ptr::null_mut();
+        *len = 0;
+    }
+    guard(|| {
+        let model = str_arg(model, "model")?;
+        let mut request = request(model, opt_str_arg(settings_json, "settings_json")?)?;
+        request.no_csv = true;
+        let simulated = ws_arg(ws)?.simulate_with(&request, &globe_mode::now_ms);
+        let (layout, columns) = simulated.columns();
+        let flat: Box<[f64]> = columns.concat().into_boxed_slice();
+        let text = json(&serde_json::json!({
+            "response": simulated.response,
+            "names": layout.names,
+            "points": layout.points,
+        }))?;
+        if !flat.is_empty() {
+            // SAFETY: 上と同じ
+            unsafe {
+                *len = flat.len();
+                *data = Box::into_raw(flat).cast::<f64>();
+            }
+        }
+        Ok(text)
+    })
+}
+
+/// [`gm_simulate_columns`] が返した列を放す。NULL なら何もしない。
+///
+/// # Safety
+///
+/// `data`・`len` は [`gm_simulate_columns`] が返した組で、まだ放していないもの。
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn gm_doubles_free(data: *mut f64, len: usize) {
+    if !data.is_null() {
+        // SAFETY: 上の約束どおり Box<[f64]> を Box::into_raw で作ったポインタと長さ
+        drop(unsafe { Box::from_raw(std::ptr::slice_from_raw_parts_mut(data, len)) });
+    }
 }
 
 /// ソルバの登録表（JSON の配列）。
@@ -309,6 +370,31 @@ mod tests {
             );
             assert!(take(gm_format(c"model Decay".as_ptr(), 2, 0))["error"].is_string());
             assert!(take(gm_lint(c"model Decay Real x; end Decay;".as_ptr())).is_array());
+            // S116: 列の道。x(1) が e⁻¹、点の数が CSV の行数 - 1 と同じ
+            let (mut data, mut len) = (std::ptr::null_mut(), 0usize);
+            let lay = take(gm_simulate_columns(
+                ws,
+                c"Decay".as_ptr(),
+                cr#"{"stop_time": 1}"#.as_ptr(),
+                &mut data,
+                &mut len,
+            ));
+            assert!(lay["response"]["csv"].is_null(), "{lay}");
+            assert_eq!(lay["names"], serde_json::json!(["time", "x"]));
+            let points = lay["points"].as_u64().unwrap() as usize;
+            assert_eq!(points, res["csv"].as_str().unwrap().lines().count() - 1);
+            assert_eq!(len, 2 * points);
+            let cols = std::slice::from_raw_parts(data, len);
+            assert_eq!(cols[2 * points - 1], x);
+            gm_doubles_free(data, len);
+            let err = take(gm_simulate_columns(
+                ws,
+                c"Decay".as_ptr(),
+                c"{".as_ptr(),
+                &mut data,
+                &mut len,
+            ));
+            assert!(err["error"].is_string() && data.is_null() && len == 0);
             gm_workspace_free(ws);
             assert!(gm_workspace_new(c"{".as_ptr()).is_null());
         }

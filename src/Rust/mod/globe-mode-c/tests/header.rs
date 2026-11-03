@@ -19,6 +19,10 @@ fn c_type(rust: &str) -> String {
         "c_int" => "int",
         "i64" => "int64_t",
         "u32" => "uint32_t",
+        "usize" => "size_t",
+        "*mut f64" => "double *",
+        "*mut *mut f64" => "double **",
+        "*mut usize" => "size_t *",
         other => panic!("表に無い型: {other}"),
     }
     .to_string()
@@ -75,6 +79,6 @@ fn header_matches_extern_c_signatures() {
     let rust = rust_sigs(&std::fs::read_to_string(format!("{dir}/src/lib.rs")).unwrap());
     let header =
         header_sigs(&std::fs::read_to_string(format!("{dir}/include/globe_mode.h")).unwrap());
-    assert!(rust.len() >= 11, "{rust:?}");
+    assert!(rust.len() >= 13, "{rust:?}");
     assert_eq!(rust, header);
 }

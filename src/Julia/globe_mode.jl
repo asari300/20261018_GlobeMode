@@ -39,6 +39,19 @@ check(ws::Workspace, model) =
 simulate(ws::Workspace, model, settings=C_NULL) =
     take(ccall((:gm_simulate, LIB), Ptr{UInt8}, (Ptr{Cvoid}, Cstring, Cstring), ws.ptr, model, settings))
 
+# S116: 列の道。(レイアウトの JSON, 列ごとの Vector{Float64}) を返す。列は Julia の配列に写してから放す。
+function simulate_columns(ws::Workspace, model, settings=C_NULL)
+    data, len = Ref{Ptr{Float64}}(C_NULL), Ref{Csize_t}(0)
+    layout = take(ccall((:gm_simulate_columns, LIB), Ptr{UInt8},
+        (Ptr{Cvoid}, Cstring, Cstring, Ref{Ptr{Float64}}, Ref{Csize_t}), ws.ptr, model, settings, data, len))
+    flat = copy(unsafe_wrap(Vector{Float64}, data[], len[]))
+    ccall((:gm_doubles_free, LIB), Cvoid, (Ptr{Float64}, Csize_t), data[], len[])
+    # shortcut: JSON の標準ライブラリが無いので points を正規表現で拾う（test.jl と同じ）
+    m = match(r"\"points\":(\d+)", layout)
+    points = m === nothing ? 0 : parse(Int, m[1])
+    layout, points == 0 ? Vector{Float64}[] : [flat[i:i+points-1] for i in 1:points:length(flat)]
+end
+
 graph(ws::Workspace, model, depth=1) =
     take(ccall((:gm_graph, LIB), Ptr{UInt8}, (Ptr{Cvoid}, Cstring, UInt32), ws.ptr, model, depth))
 

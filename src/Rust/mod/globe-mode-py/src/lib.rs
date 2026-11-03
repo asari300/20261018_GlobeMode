@@ -40,7 +40,7 @@ fn simulate_json(
 /// 結果の JSON（`csv` は無い）と、列の名前（`time` が先頭）と値（f64 の little-endian を並べたもの）。
 type Columns = (String, Vec<String>, Vec<Vec<u8>>);
 
-/// [`simulate_json`] と同じだが、時系列を CSV にせず列ごとに返す（S085。wasm の `SimColumns` と同じ並び）。
+/// [`simulate_json`] と同じだが、時系列を CSV にせず列ごとに返す（S085。並びは facade の `Simulated::columns`）。
 fn simulate_columns(
     ws: &mut globe_mode::Workspace,
     model: &str,
@@ -48,20 +48,13 @@ fn simulate_columns(
 ) -> Result<Columns, String> {
     let mut request = request(model, settings_json)?;
     request.no_csv = true;
-    let globe_mode::Simulated { response, run, .. } =
-        ws.simulate_with(&request, &globe_mode::now_ms);
-    let bytes = |v: &[f64]| v.iter().flat_map(|x| x.to_le_bytes()).collect();
-    let (names, columns) = match &run {
-        Some(run) => std::iter::once(("time".to_string(), bytes(&run.trajectory.time)))
-            .chain(
-                run.trajectory
-                    .variables
-                    .iter()
-                    .map(|v| (v.name.clone(), bytes(&v.values))),
-            )
-            .unzip(),
-        None => (Vec::new(), Vec::new()),
-    };
+    let simulated = ws.simulate_with(&request, &globe_mode::now_ms);
+    let (layout, columns) = simulated.columns();
+    let columns = columns
+        .iter()
+        .map(|v| v.iter().flat_map(|x| x.to_le_bytes()).collect())
+        .collect();
+    let (response, names) = (simulated.response, layout.names);
     Ok((json(&response)?, names, columns))
 }
 

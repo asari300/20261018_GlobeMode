@@ -1,4 +1,4 @@
-//! S075: C ABI（globe_mode.h）で GlobeModeValidation.Simulation.Decay を check → simulate → format し（S111 で format）、
+//! S075: C ABI（globe_mode.h）で GlobeModeValidation.Simulation.Decay を check → simulate → format し（S111 で format、S116 で列の道）、
 //! 結果の JSON の長さと最後の時刻、x(1) を表示する。引数: <ライブラリのディレクトリ> <モデル>
 const std = @import("std");
 const gm = @import("gm");
@@ -40,6 +40,21 @@ pub fn main(init: std.process.Init) !void {
     const x = res.object.get("final").?.object.get("x").?.float;
     std.debug.print("simulate: json={d} bytes, last time={d}, x={d}\n", .{ json.len, t, x });
     if (@abs(x - @exp(-1.0)) > 1e-4) return error.WrongValue;
+
+    // S116: 列の道。点の数が CSV の行数 - 1（＝改行の数）と同じで、最後の値が x(1)
+    var data: [*c]f64 = null;
+    var len: usize = 0;
+    const cols = gm.gm_simulate_columns(ws, model.ptr, null, &data, &len);
+    defer gm.gm_string_free(cols);
+    defer gm.gm_doubles_free(data, len);
+    const layout = try std.json.parseFromSliceLeaky(std.json.Value, arena, text(cols), .{});
+    const points: usize = @intCast((layout.object.get("points") orelse {
+        std.debug.print("{s}\n", .{text(cols)});
+        return error.ColumnsFailed;
+    }).integer);
+    if (points != std.mem.count(u8, csv, "\n") or len != 2 * points) return error.ColumnsFailed;
+    std.debug.print("columns: points={d}, x={d}\n", .{ points, data[len - 1] });
+    if (data[len - 1] != x) return error.WrongValue;
 
     // S111: 参照シナリオの最後（format）
     const path = try std.fmt.allocPrint(arena, "{s}/Simulation/Decay.mo", .{args[1]});

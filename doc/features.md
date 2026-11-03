@@ -83,7 +83,7 @@ OpenModelica（OMEdit）と Rumoca を参考に、GlobeMode に要る機能を�
 | Julia API | ○（OMJulia） | △（S075: `ccall` だけの `src/Julia/globe_mode.jl`。パッケージ・JLL は未） | Must | P7 | C ABI（`globe-mode-c`）と ccall |
 | Elixir / Gleam API | × | △（S082: Elixir の `src/Elixir/globe_mode`、S087: Gleam の `src/Gleam/globe_mode`（Erlang target）。Hex での配布・Gleam の JS target は未） | Must | P7 | Rustler の NIF（`globe-mode-nif`、Erlang モジュール `globe_mode_nif`）。Gleam は `@external` |
 | Zig API | × | △（S075: `src/Zig` の例。手書きのヘッダを translate-c） | Must | P7 | C ABI（`globe-mode-c`）と手書きのヘッダ `globe_mode.h` |
-| 言語 API の機能表（参照シナリオ） | — | ○ | Must | P7（S110・S111） | [調査](research/lang-api-matrix-2026-11-03.md)。C・Zig・Julia・Elixir・Gleam・Python は open・check・simulate・graph・format・lint がある（format・lint と Julia の graph・`load_dir` は S111）。FMU export・進捗・列の道（C・NIF）が無い。参照シナリオ（Decay → check → simulate → x(1) → format）は S111 で 6 言語の試験に入り、6 言語・wasm・LSP・CLI で通る |
+| 言語 API の機能表（参照シナリオ） | — | ○ | Must | P7（S110・S111・S116） | [調査](research/lang-api-matrix-2026-11-03.md)。C・Zig・Julia・Elixir・Gleam・Python は open・check・simulate・graph・format・lint がある（format・lint と Julia の graph・`load_dir` は S111）。列の道（`simulate_columns`）は S116 で C・Zig・Julia・Elixir・Gleam にも入り、Python・wasm と同じ並び（facade の `Simulated::columns`）。FMU export・進捗が無い。参照シナリオ（Decay → check → simulate → x(1) → format）は S111 で 6 言語の試験に入り、6 言語・wasm・LSP・CLI で通る |
 | Leptos / Dioxus 版 UI（負荷の比較用） | — | — | Could | P7 | 試験 feature。`doc/bench/ui.md` に結果を書く |
 
 ## 6. 品質
