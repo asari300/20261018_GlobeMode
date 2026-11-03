@@ -5,7 +5,11 @@ import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse, Solve
 // Tauri が `withGlobalTauri` で注入する関数だけを使う（@tauri-apps/api は入れない。npm の依存を増やさないため）。
 type Invoke = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
 type Listen = <T>(event: string, cb: (e: { payload: T }) => void) => Promise<() => void>;
-const tauriGlobal = () => (window as unknown as { __TAURI__: { core: { invoke: Invoke }; event: { listen: Listen } } }).__TAURI__;
+type Dialog = { open(o: object): Promise<string | null>; save(o: object): Promise<string | null> };
+type Fs = { readTextFile(p: string): Promise<string>; writeTextFile(p: string, t: string): Promise<void> };
+const tauriGlobal = () => (window as unknown as { __TAURI__: { core: { invoke: Invoke }; event: { listen: Listen }; dialog: Dialog; fs: Fs } }).__TAURI__;
+const MO = [{ name: "Modelica", extensions: ["mo"] }];
+const baseName = (p: string) => p.split(/[\\/]/).pop() ?? p;
 const invoke: Invoke = (cmd, args) => tauriGlobal().core.invoke(cmd, args);
 
 /** `$/progress` の token（S136。実行は 1 度に 1 つなので固定）。 */
@@ -112,6 +116,25 @@ export class TauriBackend implements Backend {
   }
   definition(file: string, line: number, character: number): Promise<Definition | null> {
     return invoke("rpc", { method: "globe/definition", params: { file, line, character } }); // S138（textDocument/definition と同じ解決。本文付き）
+  }
+
+  // S141: 開く・保存は dialog / fs プラグイン（window.__TAURI__.dialog・fs。権限は capabilities/desktop.json）。dialog で選んだパスは fs の許可に自動で入る
+  #paths = new Map<string, string>(); // UI の文書の名前 → 開いた・保存したパス（「保存」は同じパスに上書きする）
+  async openFile(): Promise<{ name: string; text: string } | null> {
+    const t = tauriGlobal();
+    const path = await t.dialog.open({ multiple: false, filters: MO });
+    if (!path) return null;
+    const name = baseName(path);
+    this.#paths.set(name, path);
+    return { name, text: await t.fs.readTextFile(path) };
+  }
+  async saveFile(name: string, text: string, saveAs = false): Promise<string | null> {
+    const t = tauriGlobal();
+    const path = (!saveAs && this.#paths.get(name)) || (await t.dialog.save({ defaultPath: name, filters: MO }));
+    if (!path) return null;
+    await t.fs.writeTextFile(path, text);
+    this.#paths.set(name, path);
+    return path;
   }
 
   /** 更新を確かめ、あれば確かめてから入れる（S135、updater プラグインの `window.__TAURI__.updater`）。結果を短い文で返す。 */

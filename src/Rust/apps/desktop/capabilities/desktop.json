@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "desktop",
-  "description": "自動更新（S135）。Desktop だけ（Android には updater が無い）",
+  "description": "自動更新（S135）と、自分のファイルを開く・保存する（S141。fs は dialog で選んだパスだけ）。Desktop だけ（Android には無い）",
   "platforms": ["linux", "windows", "macOS"],
   "windows": ["main"],
-  "permissions": ["updater:default"]
+  "permissions": ["updater:default", "dialog:allow-open", "dialog:allow-save", "fs:allow-read-text-file", "fs:allow-write-text-file"]
 }
