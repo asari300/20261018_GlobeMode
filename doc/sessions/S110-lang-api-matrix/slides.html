@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S110 言語 API の機能表 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S110 言語 API の機能表">
+
+<section class="slide" id="S01">
+  <span class="tag">S110 · 2026-11-03 · P7</span>
+  <h1>言語 API の機能表</h1>
+  <p class="lead">10 の口が何を出しているかを並べ、参照シナリオを決めた（文書だけ）</p>
+  <div class="big">6 言語に足りないのは <b>format だけ</b>。今通るのは wasm・LSP・CLI</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>P7 の完了条件「参照シナリオが 6 言語で通る」の前段</li>
+    <li>Rust facade・C ABI・Zig・Julia・Elixir・Gleam・Python・wasm・LSP・CLI の公開 API を読み、機能 × 言語の表にする</li>
+    <li>参照シナリオを 1 つ決め、どこで通るかを確かめる。穴を埋める順を決める</li>
+    <li>コードは触らない。cargo のビルドも回さない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>参照シナリオ</h1>
+  <table>
+    <tr><th>段</th><th>中身</th></tr>
+    <tr><td>1 open</td><td><code>Decay.mo</code> を <code>set_file</code>（または <code>src/Modelica</code> を <code>load_dir</code>）</td></tr>
+    <tr><td>2 check</td><td><code>GlobeModeValidation.Simulation.Decay</code> が <code>passed</code></td></tr>
+    <tr><td>3 simulate</td><td>既定の設定で <code>ok</code></td></tr>
+    <tr><td>4 x(1)</td><td><code>final.x</code> が e⁻¹ と相対 1e-4</td></tr>
+    <tr><td>5 format</td><td>同じ本文を整形して文字列が返る</td></tr>
+  </table>
+  <p>S039 のシナリオ（graph を含む）に format を足し、MSL は使わない</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>P7 の 6 言語の機能表</h1>
+  <table class="compact">
+    <tr><th>機能</th><th>C</th><th>Zig</th><th>Julia</th><th>Elixir</th><th>Gleam</th><th>Python</th></tr>
+    <tr><td>open / check / simulate</td><td class="ok">○</td><td class="ok">○</td><td class="ok">○</td><td class="ok">○</td><td class="ok">○</td><td class="ok">○</td></tr>
+    <tr><td>simulate_columns</td><td class="ng">—</td><td class="ng">—</td><td class="ng">—</td><td class="ng">—</td><td class="ng">—</td><td class="ok">○</td></tr>
+    <tr><td>format / lint</td><td class="ng">—</td><td class="ng">—</td><td class="ng">—</td><td class="ng">—</td><td class="ng">—</td><td class="ng">—</td></tr>
+    <tr><td>graph</td><td class="ok">○</td><td class="ok">○</td><td class="ng">—</td><td class="ok">○</td><td class="ok">○</td><td class="ok">○</td></tr>
+    <tr><td>MSL の分割読み / override / 予算</td><td class="ok">○</td><td class="ok">○</td><td class="ok">○</td><td class="ok">○</td><td class="ok">○</td><td class="ok">○</td></tr>
+    <tr><td>全部読み・進捗・FMU export</td><td class="ng">—</td><td class="ng">—</td><td class="ng">—</td><td class="ng">—</td><td class="ng">—</td><td class="ng">—</td></tr>
+    <tr><th>穴（13 行中）</th><th>6</th><th>6</th><th>7</th><th>6</th><th>6</th><th>5</th></tr>
+  </table>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">図</span>
+  <h1>比べるための 4 つ</h1>
+  <div class="kpis">
+    <div class="kpi"><span class="n">4</span><span class="l">Rust facade（format・lint・FMU は別 crate、進捗は exec だけ）</span></div>
+    <div class="kpi"><span class="n">2</span><span class="l">wasm（進捗・FMU）</span></div>
+    <div class="kpi"><span class="n">3</span><span class="l">LSP（全部読み・進捗・FMU）</span></div>
+    <div class="kpi"><span class="n">2</span><span class="l">CLI（全部読み・進捗）</span></div>
+  </div>
+  <p>中断はどこも <code>max_wall_seconds</code> の予算だけ。呼び手が途中で止める口は無い</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">再現手順</span>
+  <h1>手元で回した結果</h1>
+  <table class="compact">
+    <tr><th>対象</th><th>結果</th></tr>
+    <tr><td>wasm（Node）</td><td class="ok">5 段とも通った。x = 0.367879468116207、815 ms</td></tr>
+    <tr><td>LSP（<code>globe lsp</code>）</td><td class="ok">5 段とも通った。<code>globe/simulateColumns</code> も同じ x</td></tr>
+    <tr><td>CLI（<code>globe</code>）</td><td class="ok">5 段とも通った（<code>fmt --check</code> が整形の差を示す）</td></tr>
+    <tr><td>Python（main の .venv）</td><td class="warn">1〜4 は通った（相対 7.3e-8）。format が無い</td></tr>
+    <tr><td>C・Zig・Julia・Elixir・Gleam</td><td class="warn">ソースで判定【未確認】。1〜4 はある、format が無い</td></tr>
+  </table>
+  <p>既にある build だけを使った。main の <code>_native.abi3.so</code> は S085 より前で <code>simulate_columns</code> が無かった</p>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>埋める順</h1>
+  <ol>
+    <li>facade に <code>format</code> / <code>lint</code>（<code>globe-mode-fmt</code> に依存、wasm の <code>fmt.rs</code> と同じ形）</li>
+    <li>C・NIF・py に <code>format</code> / <code>lint</code>、Julia に <code>format</code>・<code>load_dir</code>・<code>graph</code> の包み</li>
+    <li>参照シナリオを各言語の試験にし、CI の <code>lang</code> で回す</li>
+    <li>列の道を C と NIF に</li>
+    <li>FMU export を facade に（S109 の後）</li>
+    <li>進捗と途中で止める口（ADR を先に）</li>
+  </ol>
+  <p>1 と 2 で 6 言語の参照シナリオがそろう。依存の追加は 0</p>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
