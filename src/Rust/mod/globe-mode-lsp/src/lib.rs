@@ -19,6 +19,7 @@
 //! | `globe/libraryTree` | `{prefix}`（空ならトップレベル） | `[{name, path, kind, description, file, hasChildren}]`（S127。直下の子だけ。wasm の `library_tree` と同じ形） |
 //! | `globe/definition` | `{file, line, character}`（開いている文書。行は 0 始まり、列は UTF-16） | `{file, text, range}` か null（S138。`textDocument/definition` と同じ解決で、定義のあるファイルの本文も返す。wasm の `definition` と同じ形） |
 //! | `globe/solvers` | なし | ソルバの登録表（`[{name, status, description, instead?}]`。S142。wasm の `solvers` と同じ） |
+//! | `globe/exportFmu` | `{model, fmiVersion?, outDir}`（既定は FMI 2。`build` はしない） | `{path}`（S144。`outDir/<名前>.fmu` と展開した `outDir/<名前>/` を書く。DAE まで変換できなければ -32000） |
 //! | `globe/librarySource` | `{path}`（完全修飾名） | `{file, text}`（S127。そのクラスを定義するライブラリのファイル。無ければ -32000） |
 //!
 //! 設定ファイル（S130）: `initialize` の `rootUri`（無ければ `rootPath`）から上へたどって最初の `globe-mode.toml` を
@@ -396,6 +397,20 @@ impl Server {
             },
             // ソルバの登録表（S142。wasm の `solvers` と同じ JSON の配列）
             "globe/solvers" => reply(id, json!(globe_mode::solvers())),
+            // ソースの FMU の書き出し（S144。build 無し。`outDir/<名前>.fmu` と展開した `outDir/<名前>/` を書く）
+            "globe/exportFmu" => match (params["model"].as_str(), params["outDir"].as_str()) {
+                (Some(model), Some(out_dir)) => {
+                    let options = globe_mode::FmuOptions {
+                        fmi_version: params["fmiVersion"].as_u64().unwrap_or(2) as u8,
+                        ..Default::default()
+                    };
+                    match self.ws.export_fmu(model, std::path::Path::new(out_dir), &options) {
+                        Ok(path) => reply(id, json!({"path": path.to_string_lossy()})),
+                        Err(e) => error(id, -32000, &e),
+                    }
+                }
+                _ => error(id, -32602, "params.model と params.outDir が文字列でない"),
+            },
             "globe/lint" => match params["text"].as_str() {
                 Some(text) => reply(
                     id,
@@ -1081,6 +1096,31 @@ mod tests {
             s.handle(json!({"method": "globe/check", "params": {}}))
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn export_fmu_writes_the_source_fmu() {
+        let mut s = Server::new(&[]).unwrap();
+        let src = "model Decay\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -x;\nend Decay;\n";
+        s.handle(
+            json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+            "uri": "Decay.mo", "languageId": "modelica", "version": 1, "text": src}}}),
+        );
+        let dir = std::env::temp_dir().join(format!("globe-lsp-fmu-{}", std::process::id()));
+        let out = dir.to_string_lossy().to_string();
+        std::fs::create_dir_all(&dir).unwrap();
+        let r = s.handle(json!({"id": 1, "method": "globe/exportFmu",
+            "params": {"model": "Decay", "outDir": out}}));
+        let path = PathBuf::from(r[0]["result"]["path"].as_str().unwrap());
+        assert_eq!(path, dir.join("Decay.fmu"));
+        assert!(path.is_file());
+        assert!(dir.join("Decay/modelDescription.xml").is_file());
+        let r = s.handle(json!({"id": 2, "method": "globe/exportFmu",
+            "params": {"model": "Nope", "outDir": out}}));
+        assert_eq!(r[0]["error"]["code"], -32000);
+        let r = s.handle(json!({"id": 3, "method": "globe/exportFmu", "params": {"model": "Decay"}}));
+        assert_eq!(r[0]["error"]["code"], -32602);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

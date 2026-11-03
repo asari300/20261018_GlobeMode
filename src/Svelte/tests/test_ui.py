@@ -9,6 +9,7 @@ dist/ を localhost で配り（CSP は index.html の meta と同じものを�
 長いモデルの実行で進捗（段と t の割合）が出て、「止める」で止まり（data-run="cancelled"）、ボタンが戻ることを確かめる（S133）。
 Decay の `der(x)` の x で F12 を押すと宣言の行（`Real x`）へ動く。ChuaCircuit のファイルで型 `Modelica.Electrical.Analog.Basic.Resistor` の上の F12 は、ライブラリの Resistor.mo をエディタに開き、Alt+← で ChuaCircuit に戻る（S138）。
 `.mo` を開く（ファイル選択）とエディタに入りモデル名が本文から付いて検査が通り、「保存」でダウンロードされ、再読み込みで localStorage から戻る（S141）。
+FMU を書き出す（S144）: ブラウザの wasm が作ったソースの FMU がダウンロードされ、modelDescription.xml と sources/ がある。
 実行の設定（S142）: 終了時刻 2 とソルバ dopri45 で Decay を実行して x(2) が e⁻²、DecayK は experiment の Tolerance が初期値（出どころ experiment）に出て、k = 2 の上書きで x(1) が e⁻²。名前=値でない行は実行しない。
 ライブラリの木で Modelica → Electrical → Analog → Examples → ChuaCircuit と開き、そのファイルがエディタに開いて検査が通ることも確かめる（S127）。
 別のページで MSL.json を構文の誤りのファイルを含むライブラリに差し替え、読み飛ばしの警告 GM-W1001 の行と notes のファイル名が出ることを確かめる（S071）。
@@ -27,6 +28,7 @@ import subprocess
 import sys
 import threading
 import time
+import zipfile
 from pathlib import Path
 
 from playwright.sync_api import expect, sync_playwright
@@ -364,6 +366,15 @@ def main() -> int:
         expect(own.locator(".cm-content")).to_contain_text("model Mine", timeout=30_000)
         expect(own.get_by_label("モデル名")).to_have_value("Mine")
         print("開く・保存: Mine.mo を開いて検査が通り、ダウンロードの内容が一致し、再読み込みで戻った")
+        # FMU を書き出す（S144）: wasm が作ったソースの FMU（zip）がダウンロードされる
+        with own.expect_download() as fmu:
+            own.get_by_role("button", name="FMU を書き出す").click(force=True)
+        assert fmu.value.suggested_filename == "Mine.fmu"
+        with zipfile.ZipFile(fmu.value.path()) as z:
+            assert "modelDescription.xml" in z.namelist() and any(n.startswith("sources/") for n in z.namelist()), z.namelist()
+            assert b'modelName="Mine"' in z.read("modelDescription.xml")
+        expect(own.locator("p[data-saved]")).to_contain_text("Mine.fmu")
+        print("FMU: Mine.fmu がダウンロードされ、modelDescription.xml と sources/ がある")
         # ?smoke=1 で起動すると Decay を検査・実行して GM-SMOKE の 1 行を console に出す（S100。android.yml が logcat で待つ行）
         smoke = browser.new_page()
         smoke.on("pageerror", lambda e: errors.append(str(e)))

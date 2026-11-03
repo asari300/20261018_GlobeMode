@@ -272,6 +272,11 @@
     graphModel = null;
     saved = "";
   });
+  // S144: ソースの FMU（FMI 2.0）。ブラウザはダウンロード、Desktop は保存先のフォルダへ sidecar が書く
+  const exportFmu = () => run(async () => {
+    const to = await backend.exportFmu(model, 2);
+    if (to) saved = `FMU を書き出した: ${to}`;
+  });
   async function save(saveAs = false) {
     failure = "";
     try {
@@ -311,6 +316,7 @@
     <button onclick={openFromDisk} disabled={busy}>開く</button>
     <button onclick={() => save()}>保存</button>
     {#if desktop}<button onclick={() => save(true)}>名前を付けて保存</button>{/if}
+    <button onclick={exportFmu} disabled={busy}>FMU を書き出す</button>
     <label>モデル名 <input bind:value={model} aria-label="モデル名"></label>
     <button onclick={check} disabled={busy}>検査</button>
     <button onclick={simulate} disabled={busy}>実行</button>

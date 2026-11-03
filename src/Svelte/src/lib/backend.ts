@@ -29,6 +29,8 @@ export interface Backend {
   openFile(): Promise<{ name: string; text: string } | null>;
   /** 本文を手元に書く。保存先（Desktop はパス、ブラウザは名前）を返す。取り消しは null。saveAs は Desktop で保存先を選び直す（ブラウザは毎回ダウンロードなので同じ）。 */
   saveFile(name: string, text: string, saveAs?: boolean): Promise<string | null>;
+  /** ソースの FMU（FMI 2 か 3、build 無し）を書き出す（S144）。保存先（Desktop はパス、ブラウザは名前）を返す。取り消しは null。作れなければ reject。 */
+  exportFmu(model: string, fmiVersion: number): Promise<string | null>;
 }
 
 /** 定義の場所。text は定義のあるファイルの本文（ライブラリのファイルならエディタに開く）。range は LSP の Range。 */
