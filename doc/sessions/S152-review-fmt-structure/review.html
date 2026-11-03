@@ -1,0 +1,8 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>S152 fmt structure review</title><link rel="stylesheet" href="../../assets/slides.css"><script defer src="../../assets/slides.js"></script></head>
+<body data-deck="S152 fmt structure">
+<section class="slide" id="S01"><h1>整形器 structure の独立精査</h1><p>基準 <code>e73af106</code>。2 件を再現し Issue 化。</p><ul><li>有効な class extends 修飾の拒否: #20</li><li>不一致 block end の受理: #21</li></ul><p><a href="review_jp.md">日本語報告</a> · <a href="review_en.md">English report</a> · <a href="repro.rs">再現コード</a></p></section>
+<section class="slide" id="S02"><h2>#20: 有効な構文を拒否</h2><p><code>redeclare model extends M(x = 2)</code> が閉じ括弧エラー。修飾なし対照は成功。</p><p>Modelica 3.6 §7.3.1 は継承された replaceable class の任意の class modification を許す。</p><p>独立コンパイラでの意味検査は未確認。</p></section>
+<section class="slide" id="S03"><h2>#21: 不一致 end</h2><p><code>if ... end for;</code> でも整形成功。<code>end if;</code> の対照も成功。</p><p>完全な構文検証は未確認。ただし文書と API は不一致 end の拒否を明記し、この個別の契約に反する。</p><p>実害は不正な文書を整形成功として返すことに限定。</p></section>
+<section class="slide" id="S04"><h2>検証範囲</h2><ul><li>独立再現の assert 全通過。直接 rustc 既定 feature テスト 7/7。</li><li>Cargo offline は rumoca 依存不足でビルド前に停止。</li><li>統合試験・全 workspace・独立コンパイラは未確認。</li><li>製品コードの変更、新たな DFS 枝への調査は行わない。</li></ul></section>
+</body></html>
