@@ -2,7 +2,7 @@
 //!
 //! 機能: 診断（`publishDiagnostics`、検査 S0〜S10 と lint）、`documentSymbol`（アウトライン）、
 //! `hover`（クラスの種類）、`formatting`（S053、`globe-mode-fmt`）、`completion`（S053、[`completion`]）。
-//! 定義へ移動は無い。同期は Full で、1 本のスレッドで順に処理する。
+//! `definition`・`references`（S132、[`definition`]）。同期は Full で、1 本のスレッドで順に処理する。
 //!
 //! 独自の要求（S049、ADR-0023。Desktop の UI が sidecar の `globe lsp` に同じ接続で頼む）:
 //!
@@ -25,6 +25,7 @@
 //! facade（`globe-mode`）の `Workspace` だけを呼び、新しい計算は入れない。
 
 mod completion;
+mod definition;
 
 use std::collections::HashMap;
 use std::io::{self, BufRead, Write};
@@ -53,6 +54,8 @@ pub struct Server {
     root: Option<PathBuf>,
     /// 根の `globe-mode.toml`（S130）。無ければ None
     config: Option<globe_mode_fmt::LintOptions>,
+    /// 定義ジャンプで読んだライブラリのファイルのアウトラインだけを持つ（S132。検査には使わない）
+    scratch: Workspace,
 }
 
 impl Server {
@@ -65,6 +68,7 @@ impl Server {
             tree: None,
             root: None,
             config: None,
+            scratch: Workspace::new(),
         })
     }
 
@@ -124,7 +128,8 @@ impl Server {
                     json!({
                         // 1 = Full
                         "capabilities": {"textDocumentSync": 1, "documentSymbolProvider": true, "hoverProvider": true,
-                            "documentFormattingProvider": true, "completionProvider": {"triggerCharacters": ["."]}},
+                            "documentFormattingProvider": true, "completionProvider": {"triggerCharacters": ["."]},
+                            "definitionProvider": true, "referencesProvider": true},
                         "serverInfo": {"name": "globe-mode", "version": env!("CARGO_PKG_VERSION")},
                     }),
                 );
@@ -225,6 +230,44 @@ impl Server {
                     None => vec![],
                 };
                 reply(id, json!(items))
+            }
+            "textDocument/definition" => {
+                let Some(text) = self.texts.get(&uri).cloned() else {
+                    return reply(id, Value::Null);
+                };
+                let at = offset(&text, lsp_position(&params["position"]));
+                self.tree();
+                let tree = self.tree.as_ref().expect("tree() で作った");
+                let target = definition::Resolver {
+                    ws: &self.ws,
+                    tree,
+                    scratch: &mut self.scratch,
+                }
+                .definition(&uri_path(&uri), &text, at);
+                let location = target.and_then(|t| {
+                    // 開いている文書ならその本文と URI、無ければディスクから読む
+                    let open = self.texts.iter().find(|(u, _)| uri_path(u) == t.path);
+                    let (u, body) = match open {
+                        Some((u, body)) => (u.clone(), body.clone()),
+                        None => (file_uri(&t.path), std::fs::read_to_string(&t.path).ok()?),
+                    };
+                    Some(json!({"uri": u, "range": range(&body, t.range)}))
+                });
+                reply(id, location.unwrap_or(Value::Null))
+            }
+            "textDocument/references" => {
+                let refs: Vec<Value> = match self.texts.get(&uri) {
+                    Some(text) => {
+                        let at = offset(text, lsp_position(&params["position"]));
+                        let o = self.ws.outline(&uri_path(&uri)).and_then(|r| r.as_ref().ok());
+                        definition::references(o, text, at)
+                            .into_iter()
+                            .map(|r| json!({"uri": uri, "range": range(text, r)}))
+                            .collect()
+                    }
+                    None => vec![],
+                };
+                reply(id, json!(refs))
             }
             "globe/check" => match params["model"].as_str() {
                 Some(model) => reply(id, json!(self.ws.check(model))),
@@ -507,6 +550,32 @@ fn collect_mo(path: &std::path::Path, out: &mut Vec<PathBuf>) {
     } else if path.extension().is_some_and(|e| e == "mo") {
         out.push(path.to_path_buf());
     }
+}
+
+/// LSP の `Position` の JSON（読めない欄は 0）。
+fn lsp_position(p: &Value) -> Position {
+    Position::new(
+        p["line"].as_u64().unwrap_or(0) as u32,
+        p["character"].as_u64().unwrap_or(0) as u32,
+    )
+}
+
+/// パス → `file:` の URI（[`uri_path`] の逆。英数字と `/-._~:` 以外はパーセントにする）。
+fn file_uri(path: &str) -> String {
+    let path = path.replace('\\', "/");
+    let mut out = String::from(if path.starts_with('/') {
+        "file://"
+    } else {
+        "file:///"
+    });
+    for b in path.bytes() {
+        if b.is_ascii_alphanumeric() || b"/-._~:".contains(&b) {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
 }
 
 fn uri_path(uri: &str) -> String {
@@ -926,6 +995,106 @@ mod tests {
         assert_eq!(out[0]["method"], "window/showMessage");
         assert!(out[1].to_string().contains("GM-L0003"), "{}", out[1]);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// 文書を開き、`needle` の `k` 文字目に置いたカーソルで `method` を頼む。
+    fn ask_at(
+        s: &mut Server,
+        uri: &str,
+        text: &str,
+        method: &str,
+        needle: &str,
+        k: usize,
+    ) -> Value {
+        s.handle(
+            json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+            "uri": uri, "languageId": "modelica", "version": 1, "text": text}}}),
+        );
+        let pos = position(text, (text.find(needle).unwrap() + k) as u32);
+        s.handle(
+            json!({"id": 1, "method": method, "params": {"textDocument": {"uri": uri},
+            "position": pos, "context": {"includeDeclaration": true}}}),
+        )
+        .remove(0)
+    }
+
+    #[test]
+    fn definition_of_a_type_and_a_component_in_the_same_document() {
+        let mut s = Server::new(&[]).unwrap();
+        let init = s.handle(json!({"id": 0, "method": "initialize", "params": {}}));
+        assert_eq!(
+            init[0]["result"]["capabilities"]["definitionProvider"],
+            true
+        );
+        assert_eq!(
+            init[0]["result"]["capabilities"]["referencesProvider"],
+            true
+        );
+        let uri = "file:///tmp/D.mo";
+        let text = "package D\n  connector Pin\n    Real v;\n    flow Real i;\n  end Pin;\n  model M\n    Pin p;\n  equation\n    p.v = 0;\n  end M;\nend D;\n";
+        // 型 Pin の上 → connector Pin の範囲
+        let r = ask_at(&mut s, uri, text, "textDocument/definition", "Pin p;", 1);
+        assert_eq!(r["result"]["uri"], uri, "{r}");
+        assert_eq!(
+            r["result"]["range"]["start"],
+            json!({"line": 1, "character": 12}),
+            "{r}"
+        );
+        // p.v の v → Pin の部品 v
+        let r = ask_at(&mut s, uri, text, "textDocument/definition", "p.v =", 2);
+        assert_eq!(
+            r["result"]["range"]["start"],
+            json!({"line": 2, "character": 9}),
+            "{r}"
+        );
+        // 予約語や数は null
+        let r = ask_at(&mut s, uri, text, "textDocument/definition", "= 0", 2);
+        assert_eq!(r["result"], Value::Null, "{r}");
+    }
+
+    #[test]
+    fn definition_into_another_file_of_the_library() {
+        let lib =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../Modelica/GlobeModeValidation");
+        let mut s = Server::new(std::slice::from_ref(&lib)).unwrap();
+        let uri = "file:///tmp/T.mo";
+        let text = "model T\n  import GlobeModeValidation.Components;\n  Components.Resistor r1;\nequation\n  r1.p.v = 0;\nend T;\n";
+        let r = ask_at(
+            &mut s,
+            uri,
+            text,
+            "textDocument/definition",
+            "Resistor r1",
+            1,
+        );
+        let u = r["result"]["uri"].as_str().unwrap_or_default();
+        assert!(
+            u.starts_with("file://") && u.ends_with("/Components.mo"),
+            "{r}"
+        );
+        assert_eq!(r["result"]["range"]["start"]["line"], 13, "{r}");
+        // r1.p の p は extends TwoPin の先の部品
+        let r = ask_at(&mut s, uri, text, "textDocument/definition", "r1.p.v", 3);
+        assert_eq!(
+            r["result"]["range"]["start"],
+            json!({"line": 3, "character": 19}),
+            "{r}"
+        );
+    }
+
+    #[test]
+    fn references_in_the_same_class() {
+        let mut s = Server::new(&[]).unwrap();
+        let uri = "file:///tmp/R.mo";
+        let text = "model R\n  Real x;\n  Real xx;\nequation\n  der(x) = -x + xx;\nend R;\n";
+        let r = ask_at(&mut s, uri, text, "textDocument/references", "x;", 0);
+        let lines: Vec<_> = r["result"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|l| l["range"]["start"]["line"].clone())
+            .collect();
+        assert_eq!(lines, [json!(1), json!(4), json!(4)], "{r}");
     }
 
     #[test]
