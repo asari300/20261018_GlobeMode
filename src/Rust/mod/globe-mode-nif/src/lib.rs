@@ -106,6 +106,23 @@ fn simulate_columns<'a>(
     Ok((text, binaries))
 }
 
+/// FMU を書き出し（S118。`globe fmu export` と同じ）、`.fmu` のパスを返す。`options_json` は
+/// `{"fmi_version": 2, "build": false, "targets": [], "fmi_headers": null}`（省略した鍵は既定）。
+#[rustler::nif(schedule = "DirtyIo")]
+fn export_fmu(
+    ws: ResourceArc<Ws>,
+    model: String,
+    out_dir: String,
+    options_json: String,
+) -> Result<String, String> {
+    let options: globe_mode::FmuOptions =
+        serde_json::from_str(&options_json).map_err(|e| format!("options が読めない: {e}"))?;
+    let path = with(&ws, |w| {
+        w.export_fmu(&model, std::path::Path::new(&out_dir), &options)
+    })??;
+    Ok(path.display().to_string())
+}
+
 /// ソルバの登録表（JSON の配列）。
 #[rustler::nif]
 fn solvers() -> Result<String, String> {

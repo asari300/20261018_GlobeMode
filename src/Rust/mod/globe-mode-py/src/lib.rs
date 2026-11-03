@@ -124,6 +124,25 @@ impl Workspace {
         let columns = columns.iter().map(|c| PyBytes::new(py, c)).collect();
         Ok((response, names, columns))
     }
+
+    /// FMU を書き出し（S118。`globe fmu export` と同じ）、`.fmu` のパスを返す。`options` は
+    /// `{"fmi_version": 2, "build": false, "targets": [], "fmi_headers": null}` の JSON（省略可）。失敗は `ValueError`。
+    #[pyo3(signature = (model, out_dir, options = None))]
+    fn export_fmu(
+        &mut self,
+        model: &str,
+        out_dir: PathBuf,
+        options: Option<&str>,
+    ) -> PyResult<PathBuf> {
+        let options: globe_mode::FmuOptions = match options {
+            Some(s) => serde_json::from_str(s)
+                .map_err(|e| PyValueError::new_err(format!("options が読めない: {e}")))?,
+            None => Default::default(),
+        };
+        self.0
+            .export_fmu(model, &out_dir, &options)
+            .map_err(PyValueError::new_err)
+    }
 }
 
 /// ソルバの登録表（JSON の配列）。
