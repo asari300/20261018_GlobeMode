@@ -35,6 +35,7 @@ pub use globe_mode_sim::solvers::{SOLVERS, SolverEntry};
 // facade に無いものを呼ぶとき（CLI の文字の表示が `FullReport` を読む、結果を CSV / MAT に書く）
 pub use globe_mode_db as db;
 pub use globe_mode_exec as exec;
+pub use globe_mode_exec::{CancelToken, ExecStage, Progress};
 pub use globe_mode_sim as sim;
 
 /// ソルバの登録表（`globe simulate --list-solvers` と wasm の `solvers()` の中身）。
@@ -120,6 +121,22 @@ pub fn now_ms() -> f64 {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0.0, |d| d.as_secs_f64() * 1e3)
+    }
+}
+
+/// [`Workspace::simulate_observed`] に渡す進捗の受け手と中断のトークン（ADR-0033）。
+#[derive(Default)]
+pub struct SimulateHandle<'a> {
+    pub on_progress: Option<&'a mut dyn FnMut(&Progress)>,
+    pub cancel: Option<CancelToken>,
+}
+
+impl std::fmt::Debug for SimulateHandle<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SimulateHandle")
+            .field("on_progress", &self.on_progress.is_some())
+            .field("cancel", &self.cancel)
+            .finish()
     }
 }
 
@@ -423,6 +440,18 @@ impl Workspace {
     /// [`Workspace::simulate`] と同じ。`now` は壁時計（ミリ秒。`timings_ms` に使う）で、結果には時系列と
     /// コンパイル済みのモデルも添える。
     pub fn simulate_with(&mut self, request: &SimulateRequest, now: &dyn Fn() -> f64) -> Simulated {
+        self.simulate_observed(request, now, SimulateHandle::default())
+    }
+
+    /// [`Workspace::simulate_with`] と同じだが、実行系の進捗を `handle.on_progress` に知らせ、`handle.cancel` が
+    /// 立てられたら次の区切りで止まる（ADR-0033。止めたら情報 GM-I11004。積分の途中なら `termination` が
+    /// `cancelled` で途中までの列、それより前なら `ok: false`）。`now` は t の間引きにも使う。
+    pub fn simulate_observed(
+        &mut self,
+        request: &SimulateRequest,
+        now: &dyn Fn() -> f64,
+        handle: SimulateHandle<'_>,
+    ) -> Simulated {
         let model = request.model.as_str();
         let mut response = SimulateResponse {
             model: model.to_string(),
@@ -479,7 +508,16 @@ impl Workspace {
             }
         };
         lap("compile", &mut response.timings_ms);
-        let report = globe_mode_exec::run(&compiled, &request.settings);
+        let mut quiet = |_: &Progress| {};
+        let report = globe_mode_exec::run_observed(
+            &compiled,
+            &request.settings,
+            &mut globe_mode_exec::Observer {
+                on_progress: handle.on_progress.unwrap_or(&mut quiet),
+                cancel: handle.cancel,
+                now,
+            },
+        );
         lap("run", &mut response.timings_ms);
         response.ok = report.succeeded();
         response.diagnostics.extend(report.diagnostics);

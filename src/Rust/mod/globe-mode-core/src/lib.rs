@@ -267,6 +267,8 @@ pub mod codes {
     pub const RUN_SOLVER_FALLBACK: &str = "GM-I11002";
     /// 実行: `auto` で BDF が止まったので esdirk34 で回し直した（情報。S064）
     pub const RUN_SOLVER_FALLBACK_ESDIRK: &str = "GM-I11003";
+    /// 実行: 呼び手が CancelToken で止めた（情報。S123、ADR-0033）
+    pub const RUN_CANCELLED: &str = "GM-I11004";
     /// コンパイラが未対応の言語機能（フロントエンドのコードで決まる。例: Rumoca の ED019）
     pub const UNSUPPORTED: &str = "GM-U0001";
     /// コンパイラの内部エラー（例: Rumoca の ED008）
