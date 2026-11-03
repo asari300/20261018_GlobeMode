@@ -1,3 +1,6 @@
+import gleam/bit_array
+import gleam/int
+import gleam/list
 import gleam/string
 import gleeunit
 import globe_mode
@@ -32,4 +35,12 @@ pub fn decay_check_simulate_test() {
     globe_mode.lint("model Decay Real x; end Decay;"),
     "[",
   )
+  // S116: 列の道。x(1) が e⁻¹、点の数が CSV の行数 - 1（JSON の中の \n の数 - 1）と同じ
+  let assert Ok(#(layout, [_time, xs])) =
+    globe_mode.simulate_columns(ws, model, "{}")
+  let points = list.length(string.split(res, "\\n")) - 2
+  assert string.contains(layout, "\"points\":" <> int.to_string(points))
+  assert bit_array.byte_size(xs) == 8 * points
+  let assert Ok(<<x1:float-little>>) = bit_array.slice(xs, 8 * points - 8, 8)
+  assert x1 >. 0.367879 && x1 <. 0.36788
 }

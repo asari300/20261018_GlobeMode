@@ -91,6 +91,36 @@ pub struct Simulated {
     pub compiled: Option<CompiledModel>,
 }
 
+impl Simulated {
+    /// 列の道（S116。wasm の `SimColumns`・Python の `simulate_columns`・C の `gm_simulate_columns`・NIF と共通）。
+    /// 列の並び（`names[0]` は `time`）と、列ごとの値（`points` 個ずつ）。実行できなかったときは空の列と 0 点。
+    pub fn columns(&self) -> (ColumnsLayout, Vec<&[f64]>) {
+        let Some(run) = &self.run else {
+            return (
+                ColumnsLayout {
+                    names: Vec::new(),
+                    points: 0,
+                },
+                Vec::new(),
+            );
+        };
+        let traj = &run.trajectory;
+        let names = std::iter::once("time".to_string())
+            .chain(traj.variables.iter().map(|v| v.name.clone()))
+            .collect();
+        let columns = std::iter::once(traj.time.as_slice())
+            .chain(traj.variables.iter().map(|v| v.values.as_slice()))
+            .collect();
+        (
+            ColumnsLayout {
+                names,
+                points: traj.time.len(),
+            },
+            columns,
+        )
+    }
+}
+
 /// ライブラリを 1 回だけ読み、作業中のファイルを出し入れしながら、検査・グラフ・実行を繰り返す。
 pub struct Workspace {
     db: GlobeDb,

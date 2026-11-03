@@ -24,7 +24,7 @@ flowchart LR
 | **P4 Desktop MVP** | CodeMirror 6 と LSP（S053 で整形・補完・lint）、ライブラリツリー、検査パネル、プロット、sigma.js の connect グラフ | ChuaCircuit で開く・検査・実行・プロットが通る。5k ノードのグラフが 30 fps 以上で動く。RSS の基準値を記録する（**S056 で記録**: MSL を読んだ後、sidecar 1.52 GiB・アプリ 136 MiB）。CI が .deb と .msi を作る（**S049 で済**） | 6 回 |
 | **P5 FMI**（S094 で着手。Export は P5a を先行し P5b を並行する。[ADR-0031](adr/0031-fmi-export-p5a-first.md)） | Import（ME / CS / SE）とマスター。Export は P5a（Rumoca のテンプレート）と P5b（自前のランタイム、S095。S099 から resources の Modelica を compile して exec の `ModelInstance` で回す。S109 から事象のあるモデルも。S112 から代数・離散の変数も読める） | Reference-FMUs が linux64 と win64 で一致する。Export した FMU が FMPy・fmusim・fmuCheck を通る（**S094: Decay の FMI 2.0 の FMU が FMPy の validate と ME・CS の simulate を通った。S098: FMI 3.0 も同じく通り、2.0・3.0 とも fmusim の validate と ME・CS の simulate を GitHub Actions で通った。S105: `--target`（zig cc）で linux64・win64・darwin64 を 1 つの FMU に入れ、Ubuntu・Windows・macOS の FMPy で validate と ME・CS を通った**。fmuCheck は持ち越し）。Clocks（SE）が往復できる | 8 回 |
 | **P6 Web / marimo / Streamlit / Android** | WorkerBackend、MSL のパッケージ単位の分割読み込み、anywidget、wheel、APK | ブラウザが CSP `connect-src 'self'` のまま実行できる（サーバーで計算しない。**S093 で確かめた**: Worker にも同じ CSP の header を付け、`ui:check` が error 0・外への要求 0）。marimo の WASM で 2 GB 未満に収まる（S093 は調査だけ。[調査](research/marimo-wasm-2026-11-02.md)。**S102 で Decay を確かめた**: anywidget の `_esm` から `globe-mode-wasm` を呼び、ブラウザの RSS の合計 857〜966 MiB。MSL を渡す道は未）。Android API 34 のエミュレータで検査と実行が通る（**S100 で確かめた**: UI から Decay の検査と実行、logcat の `GM-SMOKE` の行。**S103 で MSL も**: APK に MSL.json を同梱し、ChuaCircuit の検査で `msl=ok`。**S106 で release の APK も**: ABI ごとの release APK を作り、secret があるときだけ署名、release でも smoke が `msl=ok`） | 5 回 |
-| **P7 言語 API と UI 比較** | C / Zig / Julia、Elixir / Gleam、Python。Leptos 版と Dioxus 版、負荷の測定ハーネス | 参照シナリオが 6 言語で通る（**S110 で参照シナリオを決め、機能表を作った**: Decay を開く → check → simulate → x(1) → format。[調査](research/lang-api-matrix-2026-11-03.md)。**S111 で 6 言語に format / lint を足し、参照シナリオが 6 言語の試験で通った**）。`doc/bench/ui.md` に 3 UI × 3 OS の比較を書く | 6 回 |
+| **P7 言語 API と UI 比較** | C / Zig / Julia、Elixir / Gleam、Python。Leptos 版と Dioxus 版、負荷の測定ハーネス | 参照シナリオが 6 言語で通る（**S110 で参照シナリオを決め、機能表を作った**: Decay を開く → check → simulate → x(1) → format。[調査](research/lang-api-matrix-2026-11-03.md)。**S111 で 6 言語に format / lint を足し、参照シナリオが 6 言語の試験で通った**。**S116 で列の道（`simulate_columns`）を C・Zig・Julia・Elixir・Gleam に足した**）。`doc/bench/ui.md` に 3 UI × 3 OS の比較を書く | 6 回 |
 | **P8 拡充** | radau5、SUNDIALS、ESDIRK / CERK、SSP 2.0.1、Diagram ビュー、BLT デバッガ | ソルバの表がそろう。SSP が往復できる | 未定 |
 | **Track B 自前コア** | B1 rowan の CST と寛容なパーサ → B2 resolve → B3 flatten → B4 DAE。`Frontend` の feature `native` として作る | 段階ごとに Rumoca 以上の数字を出す（parse 566 / flatten 562 / balanced 464 / simulate 153）。`xtask diff-frontend` で回帰が 0 件になったら既定を切り替える | P4 以降、余裕ができてから |
 
@@ -480,10 +480,15 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **graph の import と索引の持ち越し**（S081 の持ち越し）: `GlobeDb` はライブラリの `ClassIndex` を世代ごとに `Arc` で持ち、文書の小さな索引を `ClassIndex::over` でその上に重ねる（MSL 全部読みの `ChuaCircuit` の 2 回目 52 → 6.9 ms、debug）。`ClassIndex::resolve` は各スコープで「クラス → そのクラスの import」の順に引く（MLS §5.3.1・§13.2 の最小。qualified・renamed・unqualified・selective）。別名の import は `ClassOutline::imports` に `D=A.B.C` の形で入る。`tests/data/MslPartsImport.mo` の `unresolved` 0。[解説書](sessions/S089-graph-imports-index-cache/解説書.md)
 - 持ち越し: ~~継承したクラスの中の入れ子のクラスの解決~~（S101 で済）。
 
+### S116（P7、2026-11-03）で済んだこと
+
+- **列の道を C ABI と NIF に**（S110 の埋める順の 4。[解説書](sessions/S116-lang-columns/解説書.md)）: facade に `Simulated::columns`（列の並び `ColumnsLayout` と列ごとの `&[f64]`）を足し、Python・wasm の列の組み立てをそれに寄せた。C ABI に `gm_simulate_columns`（レイアウトの JSON と、列を順に並べた `double *` と個数。`gm_doubles_free` で放す）、NIF に `simulate_columns`（`{layout_json, [binary]}`、DirtyCpu）、Zig・Julia・Elixir・Gleam の包みと試験。Decay の列の道で x(1) が JSON の道の `final.x` と同じ値、点の数が CSV の行数 - 1 と同じ、を 5 言語で確かめた。
+- 持ち越し: FMU export を facade に、進捗と途中で止める口（S110 の順の 5・6）。
+
 ### S111（P7、2026-11-03）で済んだこと
 
 - **6 言語に format と lint**（S110 の埋める順の 1 と 2。[解説書](sessions/S111-lang-format-lint/解説書.md)）: facade `globe-mode` に `format`・`lint`（`globe-mode-fmt` に依存。wasm の `fmt.rs` と同じ形）、C ABI に `gm_format`・`gm_lint`、NIF・PyO3 に `format`・`lint`、Julia に `format`・`lint`・`load_dir`・`graph` の包み。参照シナリオ（Decay → check → simulate → `final.x` が e⁻¹ → format）を C・Zig・Julia・Elixir・Gleam・Python の試験に入れ、6 言語とも手元で通った（x = 0.367879468116207）。CI はジョブ `lang` と `python` が同じ試験を回す。
-- 持ち越し: 列の道を C・NIF に、FMU export を facade に、進捗と途中で止める口（S110 の順の 4〜6）。wasm の `fmt.rs` を facade に寄せること。
+- 持ち越し: ~~列の道を C・NIF に~~（S116 で済）、FMU export を facade に、進捗と途中で止める口（S110 の順の 4〜6）。wasm の `fmt.rs` を facade に寄せること。
 
 ### S110（P7、2026-11-03）で済んだこと
 

@@ -14,6 +14,7 @@ defmodule :globe_mode_nif do
   def check(_ws, _model), do: :erlang.nif_error(:not_loaded)
   def graph(_ws, _model, _depth), do: :erlang.nif_error(:not_loaded)
   def simulate(_ws, _model, _settings_json), do: :erlang.nif_error(:not_loaded)
+  def simulate_columns(_ws, _model, _settings_json), do: :erlang.nif_error(:not_loaded)
   def solvers, do: :erlang.nif_error(:not_loaded)
   def format(_text, _indent, _insert_origin), do: :erlang.nif_error(:not_loaded)
   def lint(_text), do: :erlang.nif_error(:not_loaded)
@@ -41,6 +42,16 @@ defmodule GlobeMode do
   @doc "`settings` は `%{stop_time: 2, solver: \"bdf\"}` など。"
   def simulate(ws, model, settings \\ %{}),
     do: decode(:globe_mode_nif.simulate(ws, model, JSON.encode!(settings)))
+
+  @doc """
+  列の道（S116）。`{:ok, layout, columns}` で、`layout` は `%{"response", "names", "points"}`（`response` に `csv` は無い）、
+  `columns` は `names` と同じ順の列ごとの f64（little-endian）の binary。値は `for <<x::float-little <- col>>, do: x` で読める。
+  """
+  def simulate_columns(ws, model, settings \\ %{}) do
+    with {:ok, {layout, columns}} <-
+           :globe_mode_nif.simulate_columns(ws, model, JSON.encode!(settings)),
+         do: {:ok, JSON.decode!(layout), columns}
+  end
 
   def solvers, do: decode(:globe_mode_nif.solvers())
 
