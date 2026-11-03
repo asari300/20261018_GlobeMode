@@ -26,10 +26,8 @@ class Plan(unittest.TestCase):
         # S095: globe-mode-fmu に依存元は無い。S099 から exec と frontend に依存するので、exec の変更で回る
         self.assertEqual(pkgs(plan(["src/Rust/mod/globe-mode-fmu/src/lib.rs"])), {"globe-mode-fmu"})
         self.assertIn("globe-mode-fmu", pkgs(plan(["src/Rust/mod/globe-mode-exec/src/lib.rs"])))
-        # S117: fmu は fmi（既定の feature だけ）の書く側を使うので、fmi の変更で回る
-        self.assertEqual(
-            pkgs(plan(["src/Rust/mod/globe-mode-fmi/src/lib.rs"])), {"globe-mode-fmi", "globe-mode-cli", "globe-mode-fmu"}
-        )
+        # S117: fmu は fmi（既定の feature だけ）の書く側を使うので、fmi の変更で回る（S118 から facade も fmi に依存するので、その依存元も）
+        self.assertIn("globe-mode-fmu", pkgs(plan(["src/Rust/mod/globe-mode-fmi/src/lib.rs"])))
 
     def test_change_propagates_to_dependents(self):
         p = plan(["src/Rust/mod/globe-mode-ir/src/lib.rs"])

@@ -1,0 +1,116 @@
+# ADR-0033 進捗は段と積分の時刻を 100 ms に 1 回まで、中断は呼び手の持つトークンを実行系が区切りごとに見る
+
+- 状態: Proposed（2026-11-03、S121。実装は次のセッションから）
+- 関係: [ADR-0014](0014-session-route-wasm.md)（session の道）、[ADR-0016](0016-preflight-on-build-lowering.md)（`run_with_progress` の段）、[ADR-0017](0017-lowering-limit-and-hard-timeout-retry.md)（lowering の上限と外から止めたものの回し直し）、[ADR-0023](0023-desktop-and-web-process-layout.md)（ワーカーを作り直して止める）。どれも覆さない。S110 の [言語 API の機能表](../research/lang-api-matrix-2026-11-03.md) の埋める順の 6
+
+## 背景
+
+### 今あるもの（2026-11-03、main `d41e130` のソースで確かめた）
+
+| 口 | 進捗 | 中断 | 置き場所 |
+| --- | --- | --- | --- |
+| `globe-mode-exec` | `run_with_progress(model, settings, &mut dyn FnMut(ExecStage))`。段（Preflight・Lowering・Build・Initialization・Integration）に入るたびに呼ぶ（S014）。積分の時刻は出さない | `SimSettings.max_wall_seconds` を Rumoca の `SimOptions` に渡すだけ。時間切れは `GM-E11005` | `src/Rust/mod/globe-mode-exec/src/lib.rs`、`rumoca.rs`、`rumoca/session.rs` |
+| Rumoca の型付きの道（ネイティブの bdf・dopri45・auto） | 中から知らせる口は無い | 期限（`Instant`）を中で見る。期限切れは panic（`SolverTimeoutPanic`）で戻り、`panic_diagnostic` が `GM-E11005` にする | `rumoca.rs` の `run_typed` |
+| Rumoca の session の道（wasm32 と自前の積分器） | 同上（`run_to_stop` を 1 回呼ぶ） | `run_to_stop` は `advance_to(stop)` を呼ぶだけで、`advance_to` は受理した 1 歩ごとに `TimeoutBudget::check` を見る。区切りの時刻は呼び手が選べ、止めたあとも `finish()` でそれまでの trace を取れる | `rumoca-solver/src/fmi_me/session.rs` の 462〜513 行（rev `276e82bd`） |
+| facade `globe-mode` | 無い（`simulate_with` は `exec::run` を呼ぶ。壁時計 `now` は差し込める） | 予算だけ | `src/Rust/mod/globe-mode/src/lib.rs` の 358〜421 行 |
+| C ABI・Zig・Julia | 無い | 予算だけ（`settings_json`） | `globe-mode-c` |
+| NIF・Elixir・Gleam | 無い。`simulate` は `DirtyCpu` | 予算だけ | `globe-mode-nif/src/lib.rs` |
+| Python | 無い。`simulate`・`simulate_columns`（S085）は GIL を持ったまま回る（`detach` を呼んでいない）ので、Ctrl-C は戻るまで届かない | 予算だけ | `globe-mode-py/src/lib.rs` |
+| wasm | 無い | 予算と、`GlobeWorker.terminate()`・`#die` による Worker の作り直し（S037・S104） | `globe-mode-wasm/web/client.js` |
+| LSP（`globe lsp`、Desktop の sidecar） | `$/progress` は使っていない | `$/cancelRequest` は扱っていない。stdin を 1 本のループで読み、要求を順に処理する | `globe-mode-lsp/src/lib.rs` |
+| Desktop | MSL の取得だけ: イベント `msl-progress`（`{received, total}`）と command `cancel_msl`（`Arc<AtomicBool>`。S084）。実行には無い | sidecar の作り直し（ADR-0023） | `src/Rust/apps/desktop/src/main.rs`・`msl.rs` |
+| CLI | 無い | `--timeout`（`max_wall_seconds`） | `globe-mode-cli/src/main.rs` |
+| xtask `msl-sim` | `run_with_progress` の段を親に送る | 親がワーカーのプロセスを止める（ADR-0017 の 120 / 150 / 240 s） | `src/Rust/xtask/src/sim.rs` |
+
+- ADR-0014 で、session の道と型付きの道は `Simulation.*` 12 本の bdf でビット単位で同じと確かめた。ただし session の道はネイティブでも Cranelift の JIT を使わない（インタプリタ）。速さの差は測っていない【未確認】。
+- ADR-0017: lowering は Rumoca の協調型の予算の外にあり、止めるには外からプロセスを止めるしかない。製品の実行系には lowering の上限が無い。
+- 呼び手が途中で止める口は、Desktop の MSL の取得（`cancel_msl`）にしか無い。その形（呼び手が `Arc<AtomicBool>` を持ち、仕事の側が区切りごとに見る）は既にこのリポジトリにある。
+
+### 外の仕様（確認日 2026-11-03）
+
+- LSP 3.17（<https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/>）: 取り消された要求にも応答を返す。取り消しのときに途中までの結果を返してよい。誤りで返すなら `RequestCancelled`（-32800）。進捗は要求の params の `workDoneToken` と `$/progress`（`begin` の `title` は必須、`percentage` は 0〜100 で増えていく）。
+- SharedArrayBuffer（<https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/SharedArrayBuffer>）: 使うには secure context で cross-origin isolated であること（ヘッダを 2 つ付ける）。付けないと `postMessage` が SharedArrayBuffer を投げられない。
+
+## 決定
+
+### (1) 進捗の単位: 段と、積分の時刻 t。時刻は 100 ms に 1 回まで
+
+- 進捗は `Progress { stage: ExecStage, time: Option<f64>, start_time: f64, stop_time: f64 }` の 1 つの形。
+- 段が変わったら必ず 1 回出す（今の `run_with_progress` と同じ）。積分の段では、t を出してから壁時計で 100 ms 以上たったときだけ次の t を出す。積分が終わったら t = 終了時刻（または止めた時刻）を 1 回出す。
+- 壁時計は facade の `simulate_with` に渡す `now`（ミリ秒。wasm は `performance.now()`）を使う。実行系は `Instant` を呼ばない（wasm32 で落ちるため、ADR-0014）。
+- t を出せるのは session の道（wasm と自前の積分器）だけ。ネイティブの型付きの道（bdf・dopri45・auto）は段だけ（Rumoca に口が無い）。
+
+却下した案:
+
+- 段だけ: wasm と自前の積分器で積分が長いモデル（Lightning の類）の動きが見えない。区切りは session の道にもうあるので費用は小さい。
+- 出力の点ごとに毎回: 10 万点で 10 万回呼ぶ。NIF のメッセージや LSP の通知があふれる。
+- 割合（%）や刻みの数で出す: 割合は t と開始・終了時刻から呼び手が出せる（LSP の `percentage` は glue で計算する）。刻みの数は終わりが分からない。
+
+### (2) 中断の仕組み: 呼び手が持つトークン（`Arc<AtomicBool>`）を、実行系が区切りごとに見る
+
+- facade に `CancelToken`（`Arc<AtomicBool>` の newtype、`Clone + Send + Sync`、`cancel()`・`is_cancelled()`）を置く。`cancel_msl` と同じ形。
+- 実行系は次の区切りでトークンを見る。
+  - 段に入る前（ネイティブの型付きの道でも効く）。
+  - `auto` の回し直しの前（ADR-0028 の esdirk34・dopri45 に進む前）。
+  - session の道の積分の中: `run_to_stop` を、出力の点を区切りにした `advance_to` の繰り返しに替え、区切りごとに見る。Rumoca は変えない（公開の `advance_to` だけ）。
+- 見られないところ: lowering と組み立て（Rumoca の中）、ネイティブの型付きの道の積分の中。ここは今まで通り `max_wall_seconds` と、外からプロセスやワーカーを止める道（ADR-0017・ADR-0023）が受け持つ。外から止める道は消さない。
+- 各口で同じ形になるか:
+  - wasm: Worker の中は 1 本のスレッドで、計算の間は `onmessage` が回らないので、外からトークンを立てられない。止めるのは今の `terminate()` と作り直しのまま（途中の列は返らない）。トークンは使わない。
+  - NIF: `DirtyCpu` のスケジューラで回し、トークンを resource（`ResourceArc`）に包んで返す。別の Erlang プロセスから NIF `cancel(ref)` で立てる。同じ形。
+  - C: コールバックの戻り値が 0 以外なら、glue がトークンを立てる。別のスレッドから止めたい呼び手は、`void *user` の先のフラグをコールバックで読んで返す。同じ形（呼ばれる頻度は進捗と同じ 100 ms に 1 回）。
+  - Python: GIL を放して回し（pyo3 0.30 の `Python::detach`。旧名 `allow_threads`【名前は実装のときに確かめる】）、進捗のたびに GIL を取り直してコールバックと `py.check_signals()` を呼ぶ。コールバックが真を返せばトークンを立てる。Ctrl-C ならトークンを立て、戻ったあと `KeyboardInterrupt` を上げ直す。同じ形。
+
+却下した案:
+
+- `max_wall_seconds` を拡げる: Rumoca の `TimeoutBudget` は作ったときに期限を決め、後から縮める口が無い。「今止めて」を秒で表せない。
+- スレッドを落とす: Rust にスレッドを外から止める手段は無く、Rumoca の `PreparedSimulation`（`Rc`・`RefCell`）を壊れたまま残す。プロセスを落とす道は ADR-0023 で既に外側にある。
+- wasm で SharedArrayBuffer のフラグを Worker と共有する: cross-origin isolated（ヘッダ 2 つ）が要り、静的な配信と marimo・Tauri の WebView のそれぞれで付けられるかを確かめていない【未確認】。`terminate()` で足りている。
+- 進捗のコールバックの戻り値だけで止める（トークンを持たない）: NIF と LSP は止める合図が計算と別のスレッド・プロセスから来るので、共有のフラグが要る。C だけは戻り値で受けて glue がトークンに写す。
+
+### (3) 各口の形: facade に 1 つの型、各口はそれを写す
+
+| 口 | 進捗 | 中断 |
+| --- | --- | --- |
+| `globe-mode-exec` | `run_observed(model, settings, &mut Observer)`（`Observer` は進捗の `FnMut(&Progress)` と `Option<CancelToken>` と `now`）。`run_with_progress` は段だけを写す薄い包みとして残す（xtask が使う） | `CancelToken` |
+| facade `globe-mode` | `SimulateHandle<'a> { on_progress: Option<&'a mut dyn FnMut(&Progress)>, cancel: Option<CancelToken> }` を受ける `Workspace::simulate_observed(request, now, handle) -> Simulated`。`Progress`・`ExecStage`・`CancelToken` を再公開する | 同左 |
+| C ABI | `typedef int (*gm_progress_fn)(void *user, int stage, double t, double start, double stop)`（t が無いときは NaN）と `gm_simulate_observed(ws, request_json, cb, user)`。列の版も同じ引数を足す | 戻り値 0 以外 |
+| NIF | `simulate_async(ws, request, pid)` が `{ref, token}` を返し、進捗は `{:globe_progress, ref, stage, t, start, stop}`、結果は `{:globe_result, ref, json}` を pid に送る | `cancel(token)` |
+| Python | `simulate(..., progress=None)`・`simulate_columns(..., progress=None)`。`progress(stage: str, t: float | None, start, stop) -> bool | None` | 真を返す、または Ctrl-C（`KeyboardInterrupt`） |
+| wasm | `simulate_columns(request, onProgress)`（JS の関数を同期で呼ぶ）。`GlobeWorker` は Worker の中で `postMessage({type: "progress", …})` に写し、呼び手の `onProgress` に渡す | `terminate()` と作り直し（今のまま） |
+| LSP | 要求の params に `workDoneToken` があれば `$/progress`（`begin`・`report` の `percentage` は `(t − start) / (stop − start) × 100`・`end`）。`initialize` の応答で知らせる | `$/cancelRequest`。読むループを計算のスレッドと分け、計算は別の 1 本のスレッドで 1 度に 1 要求（ADR-0023 の直列は変えない） |
+| Desktop | LSP のものを使う。UI の「止める」は `$/cancelRequest` を送り、応答が来なければ今の sidecar の作り直し | 同左 |
+| CLI | 変えない（`--timeout` のまま。Ctrl-C はプロセスを終える） | — |
+
+### (4) 中断後の結果: 積分に入っていれば止めた時刻までの列を返す。診断は情報の `GM-I11004`
+
+- 新しいコード `GM-I11004`（`RUN_CANCELLED`、情報、「呼び手が t = … で止めた」）。`GM-I11001` はモデルの `terminate()` なので分ける。
+- 積分の段で止めたら `Termination::Cancelled { time }` を足し、それまでの列を返す（`ok: true`、`terminate()` と同じ扱い）。session の道は `advance_to` の区切りで止めるので、trace は壊れていない。
+- 積分の前（段の境目）で止めたら、列は無く、`ok: false` と `GM-I11004` だけを返す。
+- LSP は誤りでなく普通の応答で返す（LSP 3.17 は取り消しのときに途中の結果を返すのを認めている）。
+
+却下した案:
+
+- 診断だけを返す: session の道は止めた時刻までの trace をそのまま持っているので、捨てる理由が無い。UI は途中まで描ける。
+- 誤り（`GM-E…`）にする: 呼び手が自分で止めたのは失敗ではない。`max_wall_seconds` の時間切れ（`GM-E11005`）とは分ける。
+
+## 結果
+
+### 実装の順と各段の試験の案
+
+| 順 | 何を | 試験の案 |
+| --- | --- | --- |
+| 1 | `globe-mode-core` に `GM-I11004`、`globe-mode-ir` に `Termination::Cancelled`、exec に `Observer`・`run_observed`、session の道を `advance_to` の繰り返しに、facade に `SimulateHandle`・`simulate_observed` | (a) トークンを止めずに回すと `run` と同じ（`Simulation.*` 12 本の session の道の全変数の最後の値がビット単位で同じ。`wasm:compare` の 400 件で不一致 0）。(b) Decay（esdirk34）で t ≥ 0.5 の進捗のときにトークンを立てると `Cancelled`、最後の時刻が 0.5 以上 0.5 + 出力の間隔以下。(c) 先にトークンを立てておくと、ネイティブの bdf でも lowering に入らず `GM-I11004` だけ。(d) 進捗の t が増えていき、呼ばれた回数が「段の数 + 壁時計 / 0.1 s + 1」以下 |
+| 2 | wasm（`globe-mode-wasm` と `GlobeWorker`、Svelte の進捗の表示） | `wasm:node` で Decay の進捗が 1 回以上、最後が Integration の t = 1。`terminate()` の作り直しの試験は今のまま |
+| 3 | Python | `test_api.py` で、コールバックが t > 0.5 で真を返すと `Cancelled` と途中の列。別のスレッドの `_thread.interrupt_main()` で `KeyboardInterrupt` が上がる |
+| 4 | C・Zig・Julia、NIF・Elixir・Gleam | C: Zig・Julia の試験でコールバックが 1 を返すと `Cancelled`。NIF: 別のプロセスから `cancel` を送ると `{:globe_result, …}` の termination が `cancelled` |
+| 5 | LSP と Desktop | `globe lsp` に `workDoneToken` 付きの `globe/simulate` を送ると `$/progress` の `begin`・`end` が来る。続けて `$/cancelRequest` を送ると、応答が `GM-I11004` を含む |
+
+- 機能表の「進捗」「中断」の行は、各段が終わるたびに埋める。
+- 速さ: session の道を `advance_to` の繰り返しにすると、区切りごとの呼び出しが増える。1 の試験で Decay と MSL の `Electrical.Analog.Examples` の壁時計を前と比べ、5% を超えて遅くなるなら区切りを出力の点でなく 100 ms の進捗の間隔に揃える。
+
+### 持ち越し
+
+- ネイティブの型付きの道（bdf・dopri45・auto）の積分の中では t も中断も出せない。session の道をネイティブの既定にする案は、JIT を使わない分の遅さを測ってから（ADR-0014 で数値は同じ。速さは【未確認】）。
+- lowering と組み立ての中で止めること（上流の Rumoca に口が要る。ADR-0017 の外から止める道のまま）。
+- CLI の Ctrl-C で途中の結果を書き出すこと。
+- wasm で途中の列を返すこと（SharedArrayBuffer か、Worker の中で計算を区切って返す形。要るときに）。
