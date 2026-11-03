@@ -1,4 +1,9 @@
 # GlobeMode の Android の APK（S092、ADR-0023 の「Android」）。署名なしの debug APK を作り、artifact `globe-android` に残す。
+# S106: 同じ apk ジョブで release の APK（aarch64・x86_64 の ABI ごと）も作り、artifact `globe-android-release` に残す。
+# secret ANDROID_KEYSTORE_BASE64・ANDROID_KEYSTORE_PASSWORD・ANDROID_KEY_ALIAS・ANDROID_KEY_PASSWORD があるときだけ署名し、
+# 無ければ署名なし（*-release-unsigned.apk）。emulator は debug と release の 2 本で smoke を回す（release は
+# smoke 用に x86_64 を debuggable で作り直し、署名なしなら使い捨ての鍵で署名する。Tauri は debuggable のときだけ console を logcat に出し、
+# 署名なしの APK は入れられないため）。大きさは Step Summary に並べる。
 #
 # Android では sidecar を使えないので、Tauri の mobile の入口（src/Rust/apps/desktop/src/lib.rs）は UI を表示するだけで、
 # 検査と実行は UI がブラウザと同じ WorkerBackend（wasm）で行う。だから UI のビルドは `pnpm build`（wasm:build の出力を入れる）。
@@ -62,6 +67,13 @@ jobs:
   apk:
     needs: ui
     runs-on: ubuntu-24.04
+    env:
+      # secrets は if: に書けないので env に写して分岐する（S106）
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      APK_OUT: src/Rust/apps/desktop/gen/android/app/build/outputs/apk
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v5
@@ -108,18 +120,83 @@ jobs:
       - name: debug APK を作る（aarch64 は実機、x86_64 はエミュレータ）
         working-directory: ${{ env.DESKTOP }}
         run: cargo tauri android build --apk --debug --ci --target aarch64 --target x86_64
-      - name: APK の大きさ
+      - name: 鍵があれば keystore.properties を書く（build.gradle.kts がこれを見て release に署名する）
+        if: env.ANDROID_KEYSTORE_BASE64 != ''
+        working-directory: ${{ env.DESKTOP }}/gen/android
         run: |
-          find "$DESKTOP/gen/android/app/build/outputs/apk" -name '*.apk' -exec ls -l {} + | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          {
+            echo "storeFile=$RUNNER_TEMP/release.jks"
+            echo "storePassword=$ANDROID_KEYSTORE_PASSWORD"
+            echo "keyAlias=$ANDROID_KEY_ALIAS"
+            echo "keyPassword=$ANDROID_KEY_PASSWORD"
+          } > keystore.properties
+      - name: release APK を作る（ABI ごと。aarch64 は配布、x86_64 はエミュレータの smoke）
+        working-directory: ${{ env.DESKTOP }}
+        run: cargo tauri android build --apk --ci --split-per-abi --target aarch64 --target x86_64
+      - name: APK の大きさ（debug と release を並べる）
+        run: |
+          {
+            echo "| APK | バイト | MiB |"
+            echo "| --- | ---: | ---: |"
+            find "$APK_OUT" -name '*.apk' | sort | while read -r f; do
+              b=$(stat -c %s "$f")
+              echo "| ${f#"$APK_OUT"/} | $b | $(awk "BEGIN{printf \"%.1f\", $b/1048576}") |"
+            done
+            echo
+            echo '```text'
+            for f in $(find "$APK_OUT" -name '*.apk' | sort); do echo "$f"; unzip -l "$f" 'lib/*'; done
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:
           name: globe-android
-          path: ${{ env.DESKTOP }}/gen/android/app/build/outputs/apk/**/*.apk
+          path: ${{ env.APK_OUT }}/universal/debug/*.apk
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: globe-android-release
+          path: ${{ env.APK_OUT }}/*/release/*.apk
+          if-no-files-found: error
+      - name: smoke 用の release APK（x86_64 を debuggable で作り直す。署名なしなら使い捨ての鍵で署名する。配布物は上で upload 済み）
+        # Tauri（wry の Logger.kt）は BuildConfig.DEBUG のときだけ WebView の console を logcat に出すので、
+        # 配布と同じ release（R8・release の Rust）のまま isDebuggable だけを立てる（build.gradle.kts の GM_SMOKE_DEBUGGABLE）
+        working-directory: ${{ env.DESKTOP }}
+        env:
+          GM_SMOKE_DEBUGGABLE: "1"
+        run: |
+          cargo tauri android build --apk --ci --split-per-abi --target x86_64
+          mkdir "$GITHUB_WORKSPACE/smoke"
+          src=$(find "$GITHUB_WORKSPACE/$APK_OUT/x86_64/release" -name '*.apk' | head -1)
+          case "$src" in
+            *-unsigned.apk)
+              # 使い捨て: この runner の中だけで作って捨てる。配布の鍵ではない（ランナーに debug.keystore は無い）
+              keytool -genkeypair -keystore "$RUNNER_TEMP/smoke.jks" -storepass smoke1 -keypass smoke1 -alias smoke \
+                -keyalg RSA -keysize 2048 -validity 1 -dname CN=smoke -noprompt
+              "$ANDROID_HOME/build-tools/34.0.0/apksigner" sign --ks "$RUNNER_TEMP/smoke.jks" \
+                --ks-pass pass:smoke1 --ks-key-alias smoke --out "$GITHUB_WORKSPACE/smoke/app-x86_64-release-smoke.apk" "$src" ;;
+            *) cp "$src" "$GITHUB_WORKSPACE/smoke/" ;;
+          esac
+      - uses: actions/upload-artifact@v4
+        with:
+          name: globe-android-smoke
+          path: smoke/*.apk
           if-no-files-found: error
 
   emulator:
     needs: apk
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        # S106: release は globe-android-smoke（x86_64 の release APK。署名なしなら使い捨ての鍵で署名した写し）
+        include:
+          - build: debug
+            artifact: globe-android
+            logcat: android-logcat
+          - build: release
+            artifact: globe-android-smoke
+            logcat: android-logcat-release
     steps:
       - name: KVM を使えるようにする
         run: |
@@ -128,7 +205,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
       - uses: actions/download-artifact@v4
         with:
-          name: globe-android
+          name: ${{ matrix.artifact }}
           path: apk
       - name: API 34 のエミュレータで起動し、UI からの検査と実行（GM-SMOKE の行）を待つ
         uses: reactivecircus/android-emulator-runner@v2
@@ -153,5 +230,5 @@ jobs:
       - if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: android-logcat
+          name: ${{ matrix.logcat }}
           path: logcat.txt

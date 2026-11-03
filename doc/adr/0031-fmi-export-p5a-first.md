@@ -32,3 +32,8 @@
 - Decay の x(1) − e⁻¹（FMPy 0.3.32、相対許容誤差 1e-8）: 2.0・3.0 とも ME −2.6e-8、CS 3.3e-16。S094 の「ME 2.6e-9」は 0.3678794151 − 0.3678794412 の桁の書き誤りで、正しくは 2.6e-8。
 - **fmusim は GitHub Actions で回す**（手動の `fmu-export.yml`。fmusim v0.15.0 の release の zip、sha256 固定）。run 41445403219 で 2.0・3.0 とも `fmusim validate` が通り、`fmusim simulate`（既定の設定）で ME −1.6e-4、CS 3.3e-16。fmuCheck は持ち越し。
 - **ライセンスの表示**: FMU に `documentation/licenses/Rumoca-LICENSE.txt`（Rumoca の著作権表示と Apache-2.0 の全文）を同梱する（[licenses.md](../licenses.md) の「生成コード」）。上の「表示の要否【未確認】」はこれで閉じる。
+
+## 追記（S105、2026-11-03）: Windows・macOS 向けのビルド
+
+- **`--build --target <triple>`（何度でも）で `zig cc -target <triple>` を呼ぶ**。省略すると今までどおり host（x86_64 の Linux）を `cc` で作る。zig は mise の道具で、新しい依存は無い。置き場は FMI 2.0 が `linux64`・`win64`・`darwin64`（`darwin64` は arch を区別しない）、3.0 が `<arch>-linux`・`<arch>-windows`・`<arch>-darwin`。1 つの FMU に複数の置き場を同梱する。zig の Windows 向けが置く `.pdb` と import library は消す。
+- 検査は `fmu-export.yml` のジョブ `fmu-cross`。Ubuntu で `--target x86_64-linux-gnu --target x86_64-windows-gnu --target aarch64-macos` の FMU を作り、ubuntu-24.04・windows-latest・macos-latest（arm64）の FMPy 0.3.32 で validate と ME・CS を回す。run 41531879481 で 3 つとも 2.0・3.0 の validate が通り、x(1) − e⁻¹ は ME −2.608e-8、CS 3.331e-16（[S105 の解説書](../sessions/S105-fmu-export-cross/解説書.md)）。Windows・macOS の fmusim は回していない。
