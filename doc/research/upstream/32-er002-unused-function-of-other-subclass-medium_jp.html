@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>上流の下書き 32 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode 上流の下書き 32">
+
+<section class="slide" id="S01">
+  <span class="tag">下書き 32 · Rumoca · 未提出 · 2026-11-03</span>
+  <h1>使わない別の派生クラスの Medium まで解決して ER002</h1>
+  <p class="lead">M は Good しか使わないのに、同じ基底を Bad で継ぐ別のモデルの壊れた関数で落ちる。v0.10.4 でも同じ</p>
+  <div class="cols-2">
+    <div>
+      <pre><code>partial model PFP
+  replaceable package Medium1 = PM;
+end PFP;
+model Engine
+  extends PFP(redeclare package Medium1 = Bad);
+end Engine;
+model M
+  extends PFP(redeclare package Medium1 = Good);
+  Real y = Medium1.f(time);
+  // ↑ ER002: specificEntropyOfpTX
+end M;
+// Bad.T_psX の中で未宣言の specificEntropyOfpTX を呼ぶ
+// M は Bad・Engine・T_psX を使わない（omc は通す）</code></pre>
+      <p class="small muted">本文: <a href="32-er002-unused-function-of-other-subclass-medium_jp.md">日本語</a> · <a href="32-er002-unused-function-of-other-subclass-medium.md">英語</a> · 再現 <a href="32-er002-unused-function-of-other-subclass-medium.mo">.mo</a> · 一覧 <a href="../../upstream.md">upstream.md</a></p>
+    </div>
+    <table class="small">
+      <tr><th>v0.10.4 の結果</th><td><span class="ng">再現</span>（M・Engine が ER002、M0・M1 は通る）</td></tr>
+      <tr><th>Rumoca の穴の根拠</th><td>平坦化で実体化するのはモデルとその基底と呼ぶ関数だけ（MLS §5.6）。omc は M・Engine も通す</td></tr>
+      <tr><th>影響</th><td>AixLib 39 本（ライブラリ全部を読むときだけ）</td></tr>
+      <tr><th>GlobeMode 側の回避</th><td>一部（<code>--library</code> は閉包だけ読むので <code>globe check</code> では出ない）</td></tr>
+      <tr><th>提出の判断材料</th><td>提出の順は 10 位。壊れた関数は AixLib の誤り（下書き 33）。AixLib が直すと 39 本は消えるが穴は残る</td></tr>
+    </table>
+  </div>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

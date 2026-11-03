@@ -1,11 +1,11 @@
 # 上流（Rumoca・diffsol）への報告のまとめ
 
-> **English summary.** GlobeMode keeps 37 draft issues for upstream projects (Rumoca, and diffsol as vendored by Rumoca) in [research/upstream/](research/upstream/README.md). None has been filed yet. This page lists them in one table (target, diagnostic code, symptom, minimal `.mo`, impact counts, GlobeMode's workaround, state), gives the filing order by impact (the top five are 17 ER132, 18 ER070, 19 EI032, 21 EF004, 20 EF025, each over 130 library examples), the steps to file (re-check on Rumoca main, file, write the issue number here), and when GlobeMode may drop each workaround. The user files the issues; agents do not.
+> **English summary.** GlobeMode keeps 38 draft issues for upstream projects (Rumoca, diffsol as vendored by Rumoca, and one for AixLib) in [research/upstream/](research/upstream/README.md). None has been filed yet. This page lists them in one table (target, diagnostic code, symptom, minimal `.mo`, impact counts, GlobeMode's workaround, state), gives the filing order by impact (the top five are 17 ER132, 18 ER070, 19 EI032, 21 EF004, 20 EF025, each over 130 library examples), Japanese versions with a one-slide explainer for 28 to 33 (`*_jp.md`, `*_jp.html`, S113), the re-check of 28 to 32 on Rumoca v0.10.4 (28 partly fixed, 29 to 32 still reproduce), the steps to file (re-check on Rumoca main, file, write the issue number here), and when GlobeMode may drop each workaround. The user files the issues; agents do not.
 
-この文書は上流への報告の正典。下書きの本文（英語、issue にそのまま貼れる形）と、作った経緯は [research/upstream/README.md](research/upstream/README.md) にある。表の数字は下書きから写した（確認日 2026-11-02。31・32 と 28 の追記は 2026-11-03）。
+この文書は上流への報告の正典。下書きの本文（英語、issue にそのまま貼れる形）と、作った経緯は [research/upstream/README.md](research/upstream/README.md) にある。表の数字は下書きから写した（確認日 2026-11-02。31・32 と 28 の追記は 2026-11-03）。28〜32 は 2026-11-03（S113）に Rumoca の最新のリリース v0.10.4 で確かめ直し、日本語版（`_jp.md`）と 1 枚の解説（`_jp.html`）を足した。33 は AixLib 向け（S113）。
 
 - **出すのはユーザー。エージェントは出さない**（`gh issue create` を使わない）。
-- 下書きの環境は Rumoca v0.10.2（rev `276e82bd`）、MSL 4.1.0。Rumoca: <https://github.com/CogniPilot/rumoca>、diffsol: <https://github.com/martinjrobins/diffsol>（確認日 2026-11-02）。
+- 下書きの環境は Rumoca v0.10.2（rev `276e82bd`）、MSL 4.1.0。28〜33 は v0.10.4（タグのコミット `9c8c56fc`、2026-11-02 公開、<https://github.com/CogniPilot/rumoca/releases/tag/v0.10.4>）でも確かめた。Rumoca の main（`91d6e936`、v0.10.4 の 10 コミット後、確認日 2026-11-03）はビルドしていない【未確認】。Rumoca: <https://github.com/CogniPilot/rumoca>、diffsol: <https://github.com/martinjrobins/diffsol>（確認日 2026-11-02）。
 - 影響の本数の出典:
   - 「MSL」は GlobeMode の MSL 4.1.0 の検査（S011 以降、[msl-sim.md](msl-sim.md)・[research/msl-sim-failures.md](research/msl-sim-failures.md)）。
   - 「ライブラリ」は公開ライブラリ 7 つの検査。17〜26 は [run 41250636800](https://github.com/asari300/20261018_GlobeMode/actions/runs/41250636800)（S063、失敗 1,781 本、[research/libraries-2026-11-01.md](research/libraries-2026-11-01.md)）、25b〜25h・27〜32 は [run 41365960542](https://github.com/asari300/20261018_GlobeMode/actions/runs/41365960542)（S083・S091・S108）、16 は S067 の MSL 4.0.0 の回し直し。
@@ -17,6 +17,8 @@
 状態:
 
 - **未提出**: Rumoca v0.10.2 の CLI（または自己完結の `.mo`）で再現を確かめてある。出す前に Rumoca main で確かめる（下の手順の 1）のは同じ。
+- **未提出（v0.10.4 で再現）**: 最新のリリース v0.10.4 でも再現する（S113）。main は【未確認】。
+- **一部は v0.10.4 で直った**: 再現のモデルの一部が v0.10.4 で通る。残りの形だけを出す。
 - **Rumoca main で再確認が要る**: 再現を Rumoca のライブラリの API だけで見た、CLI での形が【未確認】（本文に `[not verified]`）、または diffsol 本家で確かめていない（単体の diffsol のプログラムに縮めてから出す）。
 - **提出済み**: issue の番号と日付を書く（今は 0 件）。
 
@@ -54,11 +56,12 @@
 | 25h | Rumoca | ED019 | `Real[:]` の局所変数を呼び出しの代入だけで大きさを決める | [25h](research/upstream/25h-ed019-function-shape-proof-flexible-array-from-call.mo) | ライブラリ 2・MSL 2 | なし | 未提出 | [25h](research/upstream/25h-ed019-function-shape-proof-flexible-array-from-call.md) |
 | 26 | Rumoca | ED008 | package の record 定数の成分を読む | [26](research/upstream/26-ed008-field-of-package-record-constant.mo) | ライブラリ 47（ED008 108 のうち） | なし | 未提出 | [26](research/upstream/26-ed008-field-of-package-record-constant.md) |
 | 27 | Rumoca | ER002 | extends で継いだ入れ子のクラスを継いだ package の名前で引く | [27](research/upstream/27-er002-inherited-class-through-extending-package.mo) | ライブラリ 0（S091） | なし | 未提出 | [27](research/upstream/27-er002-inherited-class-through-extending-package.md) |
-| 28 | Rumoca | ET004・EF024 | 配列の次元が redeclare しない package の定数。モデルの中の record の次元が replaceable な package の定数（S108 の追記） | [28](research/upstream/28-et004-ef024-dimension-from-package-constant.mo) | ライブラリ 4（ET004 3・EF024 1） | なし | 未提出 | [28](research/upstream/28-et004-ef024-dimension-from-package-constant.md) |
-| 29 | Rumoca | EF024 | 関数の protected の束縛が replaceable な package の関数を呼ぶ | [29](research/upstream/29-ef024-local-function-binding-calls-replaceable-package.mo) | ライブラリ 18 | なし | 未提出 | [29](research/upstream/29-ef024-local-function-binding-calls-replaceable-package.md) |
-| 30 | Rumoca | ET004 | record の `eta[size(y, 1)]` を関数の呼び出しで束縛 | [30](research/upstream/30-et004-record-size-dimension-bound-to-call.mo) | ライブラリ 15 | なし | 未提出 | [30](research/upstream/30-et004-record-size-dimension-bound-to-call.md) |
-| 31 | Rumoca | EF024 | 束縛が replaceable な record（成分・クラス）を通して成分を読む | [31](research/upstream/31-ef024-binding-reads-field-of-replaceable-record.mo) | ライブラリ 8（`nomVal` 7・`T` 1） | なし | 未提出 | [31](research/upstream/31-ef024-binding-reads-field-of-replaceable-record.md) |
-| 32 | Rumoca | ER002 | モデルが使わない別の派生クラスの Medium の、壊れた関数まで名前を解決する | [32](research/upstream/32-er002-unused-function-of-other-subclass-medium.mo) | ライブラリ 39（AixLib。全部読みのときだけ） | 一部（`--library` は閉包だけ読む。ADR-0025） | 未提出 | [32](research/upstream/32-er002-unused-function-of-other-subclass-medium.md) |
+| 28 | Rumoca | ET004・EF024 | 配列の次元が replaceable な package を通して定数を読む（既定のまま・モデルの中の record）。別の package の定数を直接読む形は v0.10.4 で直った | [28](research/upstream/28-et004-ef024-dimension-from-package-constant.mo) | ライブラリ 4（ET004 3・EF024 1）。v0.10.4 で残る形は 3【未確認】 | なし | 一部は v0.10.4 で直った（`M`・`M2`。`M1`・`M3`・`M5` は再現。2026-11-03） | [28](research/upstream/28-et004-ef024-dimension-from-package-constant.md)（[日本語](research/upstream/28-et004-ef024-dimension-from-package-constant_jp.md)・[1 枚](research/upstream/28-et004-ef024-dimension-from-package-constant_jp.html)） |
+| 29 | Rumoca | EF024 | 関数の protected の束縛が replaceable な package の関数を呼ぶ | [29](research/upstream/29-ef024-local-function-binding-calls-replaceable-package.mo) | ライブラリ 18 | なし | 未提出（v0.10.4 で再現、2026-11-03） | [29](research/upstream/29-ef024-local-function-binding-calls-replaceable-package.md)（[日本語](research/upstream/29-ef024-local-function-binding-calls-replaceable-package_jp.md)・[1 枚](research/upstream/29-ef024-local-function-binding-calls-replaceable-package_jp.html)） |
+| 30 | Rumoca | ET004 | record の `eta[size(y, 1)]` を関数の呼び出しで束縛 | [30](research/upstream/30-et004-record-size-dimension-bound-to-call.mo) | ライブラリ 15 | なし | 未提出（v0.10.4 で再現、2026-11-03） | [30](research/upstream/30-et004-record-size-dimension-bound-to-call.md)（[日本語](research/upstream/30-et004-record-size-dimension-bound-to-call_jp.md)・[1 枚](research/upstream/30-et004-record-size-dimension-bound-to-call_jp.html)） |
+| 31 | Rumoca | EF024 | 束縛が replaceable な record（成分・クラス）を通して成分を読む | [31](research/upstream/31-ef024-binding-reads-field-of-replaceable-record.mo) | ライブラリ 8（`nomVal` 7・`T` 1） | なし | 未提出（v0.10.4 で再現、2026-11-03） | [31](research/upstream/31-ef024-binding-reads-field-of-replaceable-record.md)（[日本語](research/upstream/31-ef024-binding-reads-field-of-replaceable-record_jp.md)・[1 枚](research/upstream/31-ef024-binding-reads-field-of-replaceable-record_jp.html)） |
+| 32 | Rumoca | ER002 | モデルが使わない別の派生クラスの Medium の、壊れた関数まで名前を解決する | [32](research/upstream/32-er002-unused-function-of-other-subclass-medium.mo) | ライブラリ 39（AixLib。全部読みのときだけ） | 一部（`--library` は閉包だけ読む。ADR-0025） | 未提出（v0.10.4 で再現、2026-11-03） | [32](research/upstream/32-er002-unused-function-of-other-subclass-medium.md)（[日本語](research/upstream/32-er002-unused-function-of-other-subclass-medium_jp.md)・[1 枚](research/upstream/32-er002-unused-function-of-other-subclass-medium_jp.html)） |
+| 33 | **AixLib** | （ER002） | `CHPCombustionMixtureGasNasa.T_psX` が宣言の無い `specificEntropyOfpTX` を呼ぶ（MSL から protected の補助関数を写していない）。AixLib main（`e5df9a8d` = v3.0.1）でも同じ | [33](research/upstream/33-aixlib-specific-entropy-of-ptx-missing.mo) | omc・Dymola では例題 0（呼ぶモデルが無い）。Rumoca では 32 を通して 39 | 対象外（ライブラリの誤り） | 未提出（AixLib main で再現、2026-11-03） | [33](research/upstream/33-aixlib-specific-entropy-of-ptx-missing.md)（[日本語](research/upstream/33-aixlib-specific-entropy-of-ptx-missing_jp.md)・[1 枚](research/upstream/33-aixlib-specific-entropy-of-ptx-missing_jp.html)） |
 
 ## 提出の順（影響の本数順）
 
@@ -75,14 +78,15 @@
 | 7 | 16 EL005・EX002 | 70 | MSL 4.0.0 だけ。GlobeMode に回避あり |
 | 8 | 26 ED008 | 47 | `Media.Air.dryair.cp` |
 | 9 | 25 → 25g ED019 | 44・25 | 同じ検査（`function conditional`） |
-| 10 | 32 ER002 | 39 | AixLib の全部読みのときだけ（`globe check` は閉包だけ読むので出ない）。呼ばれる関数そのものは AixLib の誤り（S108） |
+| 10 | 32 ER002 | 39 | AixLib の全部読みのときだけ（`globe check` は閉包だけ読むので出ない）。呼ばれる関数そのものは AixLib の誤り（S108。AixLib 向けは 33） |
 | 11 | 01 EL005 | MSL 18 | 指数の低減の予定を尋ねる |
 | 12 | 29 EF024 | 18 | |
 | 13 | 30 ET004 | 15 | |
 | 14 | 31 EF024 | 8 | 29 と同じく関数・record の束縛の形。続けて出してもよい（S108） |
-| 15 | 25e・28・25d・25f・25c・25h・25b | 6・4・3・3・2・2・1 | ED019 の `function shape proof` は 1 つの issue にまとめてもよい。28 は ET004・EF024 |
+| 15 | 25e・28・25d・25f・25c・25h・25b | 6・4（v0.10.4 では 3【未確認】）・3・3・2・2・1 | ED019 の `function shape proof` は 1 つの issue にまとめてもよい。28 は ET004・EF024 で、v0.10.4 で残る `M1`・`M3`・`M5` に絞って出す（S113） |
 | 16 | 残り（02〜15） | MSL 1〜9 | 実行系。回避のあるものは後に。10〜12 は diffsol に出す |
 | — | 27 ER002 | 0 | 例題では出ない。出すかはユーザーが決める |
+| — | 33 AixLib | omc では 0 | AixLib に出す（Rumoca ではない）。AixLib の CI のホワイトリストに既に載る。出すかはユーザーが決める（S113） |
 
 ## 提出のときの手順
 
@@ -112,4 +116,4 @@
 | 15 | auto の dopri45 への切り替え（ADR-0015） | BDF の補間が rtol 1e-7 で左端の検査に通る |
 | 16 | `Dae` の直列化の形の書き換え（ADR-0029） | Rumoca が `external "builtin"` の組み込み関数を実行する |
 
-17〜32（01・03 を含む）は GlobeMode 側の回避が無い（32 は `--library` の閉包の読み込みで一部避けている）。直った rev に上げれば、`GM-U` の振り分けと既知の一覧（`src/Modelica/msl-known-unsupported.txt`）を `msl:funnel` で見直すだけでよい。
+17〜32（01・03 を含む）は GlobeMode 側の回避が無い（33 は AixLib の誤りで対象外）（32 は `--library` の閉包の読み込みで一部避けている）。直った rev に上げれば、`GM-U` の振り分けと既知の一覧（`src/Modelica/msl-known-unsupported.txt`）を `msl:funnel` で見直すだけでよい。

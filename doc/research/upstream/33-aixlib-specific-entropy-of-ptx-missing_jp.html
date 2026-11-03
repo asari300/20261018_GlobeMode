@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>上流の下書き 33 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode 上流の下書き 33">
+
+<section class="slide" id="S01">
+  <span class="tag">下書き 33 · AixLib · 未提出 · 2026-11-03</span>
+  <h1>AixLib の T_psX が宣言の無い specificEntropyOfpTX を呼ぶ</h1>
+  <p class="lead">MSL の MixtureGasNasa.T_psX を写したが、protected の補助関数を写していない。AixLib main でも同じ</p>
+  <div class="cols-2">
+    <div>
+      <pre><code>partial package CHPCombustionMixtureGasNasa
+  extends PartialMixtureMedium(...);
+  function T_psX ...
+  protected
+    function f_nonlinear ...
+    algorithm
+      // 670 行: specificEntropyOfpTX の宣言が無い
+      y := specificEntropyOfpTX(p=p, T=u, X=X) - s;
+    end f_nonlinear;
+  ...
+// omc: Function specificEntropyOfpTX
+//      not found in scope f_nonlinear.
+// setState_psX → T_psX を呼ぶ利用者のモデルが落ちる</code></pre>
+      <p class="small muted">本文: <a href="33-aixlib-specific-entropy-of-ptx-missing_jp.md">日本語</a> · <a href="33-aixlib-specific-entropy-of-ptx-missing.md">英語</a> · 再現 <a href="33-aixlib-specific-entropy-of-ptx-missing.mo">.mo</a> · 一覧 <a href="../../upstream.md">upstream.md</a></p>
+    </div>
+    <table class="small">
+      <tr><th>AixLib main の状態</th><td><span class="ng">直っていない</span>（main = v3.0.1 の <code>e5df9a8d</code>、ファイルは同一。確認日 2026-11-03）</td></tr>
+      <tr><th>誤りの根拠</th><td>関数は呼ぶ側から通常の探索で引く（MLS §5.3・§12.4）。MSL では <code>MixtureGasNasa</code> の protected にあり、AixLib の媒質は継いでいない。omc 1.27.2 も断る</td></tr>
+      <tr><th>影響</th><td>AixLib の例題は呼ばないので omc・Dymola では 0 本。Rumoca では下書き 32 を通して 39 本</td></tr>
+      <tr><th>既知か</th><td>AixLib の CI のホワイトリスト（om・dymola、49 行）と issue #1291（閉）に載る。原因を名指しする issue は見つからない</td></tr>
+      <tr><th>提出の判断材料</th><td>出すなら「ホワイトリストの件の原因と直し方」として。直し方は MSL の関数を写すだけ（試していない）</td></tr>
+    </table>
+  </div>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

@@ -50,11 +50,17 @@ The call is in `AixLib.DataBase.CHP.ModularCHPEngineMedia.CHPCombustionMixtureGa
 
 GlobeMode's `globe check` reads only the closure of the files the model uses (since S054, GlobeMode ADR-0025), so it does not see these 39 examples fail with ER002 (for example `AixLib.Airflow.Multizone.Examples.ZonalFlow` stops later, at EI032). The library run reads all of AixLib, so it does.
 
+## Re-check on Rumoca v0.10.4 (S113, 2026-11-03)
+
+Unchanged: `M` and `Engine` give `[ER002] unresolved function call: 'specificEntropyOfpTX'`; `M0` and `M1` compile (exit 0). The library examples were not re-run with v0.10.4. [not verified]
+
+The library side is drafted separately for AixLib as draft 33 (`33-aixlib-specific-entropy-of-ptx-missing.md`). AixLib main (`e5df9a8d`, the same commit as v3.0.1) still has the missing function (checked 2026-11-03).
+
 ## Environment
 
 - Rumoca v0.10.2, git rev `276e82bd0fd48960ac201e782918d28bf19cf7ce`; the prebuilt `rumoca-linux-x86_64` v0.10.2 binary.
 - Linux x86_64 (WSL2, Ubuntu).
-- Not yet re-checked against Rumoca main. Re-check before filing.
+- Re-checked on 2026-11-03 (S113) with the latest release, Rumoca v0.10.4 (tag commit `9c8c56fcd9f5ab9beb871f09bf5d9eed82971c54`, released 2026-11-02, prebuilt `rumoca-linux-x86_64`, https://github.com/CogniPilot/rumoca/releases/tag/v0.10.4). Rumoca main (`91d6e936648387d04648ec9c52237479eaec46d2`, 10 commits after v0.10.4) was not built; none of those 10 commit titles mentions name lookup, dimensions or bindings. [not verified on main]
 
 ## Workaround in GlobeMode
 

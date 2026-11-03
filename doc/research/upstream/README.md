@@ -2,7 +2,7 @@
 
 全体の一覧・提出の順・手順は正典の [../../upstream.md](../../upstream.md) にまとめた（S096）。
 
-S045（計画書の WP-H）で書いた（15 は S055、16 は S068、17〜21 は S070、24〜26 は S072。20・25 の追記と `20b`・`25b` の再現は S080、25 の 2 回目の追記と `25c`〜`25h`・27 は S083、28〜30 と 25・27 の追記は S091、31・32 と 28 の追記は S108。25 を形ごとに 25b〜25h の `.md` に分けたのは S096）、[Rumoca](https://github.com/CogniPilot/rumoca) と [diffsol](https://github.com/martinjrobins/diffsol) に出す issue の下書き。元の記録は [../msl-sim-failures.md](../msl-sim-failures.md) の「上流に報告する候補」と、[../../roadmap.md](../../roadmap.md) の候補 8。
+S045（計画書の WP-H）で書いた（15 は S055、16 は S068、17〜21 は S070、24〜26 は S072。20・25 の追記と `20b`・`25b` の再現は S080、25 の 2 回目の追記と `25c`〜`25h`・27 は S083、28〜30 と 25・27 の追記は S091、31・32 と 28 の追記は S108。28〜32 の v0.10.4 での再確認と日本語版（`_jp.md`・`_jp.html`）、AixLib 向けの 33 は S113。25 を形ごとに 25b〜25h の `.md` に分けたのは S096）、[Rumoca](https://github.com/CogniPilot/rumoca) と [diffsol](https://github.com/martinjrobins/diffsol) に出す issue の下書き。元の記録は [../msl-sim-failures.md](../msl-sim-failures.md) の「上流に報告する候補」と、[../../roadmap.md](../../roadmap.md) の候補 8。
 
 - **出すのはユーザー。エージェントは出さない**（`gh issue create` を使わない）。
 - **出すときは、再現を Rumoca の最新（main）で確かめてから出す。** 下書きの環境は Rumoca v0.10.2（rev `276e82bd`）、MSL 4.1.0。Rumoca の CLI がこの環境に無いまま書いた件は、本文に「[not verified]」と書いてある。
@@ -10,6 +10,7 @@ S045（計画書の WP-H）で書いた（15 は S055、16 は S068、17〜21 �
 - 再現ファイル（`.mo`）は、MSL の例題で再現する件では置かない（モデル名とコマンドを本文に書く）。`src/Modelica/` には置かない（MODELICAPATH として開けるパッケージだけを置く規則）。
 - diffsol の件（10〜12）は Rumoca が同梱する 0.13.2 での観測。diffsol 本家で同じかは確かめていない（本文に "not verified against upstream diffsol main"）。単体の diffsol のプログラムに縮めてから出す。
 - 状態は「下書き」のまま。出したら issue の URL と日付をこの表に足す。
+- 28〜33 には日本語版（`NN-<slug>_jp.md`、英語と同じ章立て）とスライド 1 枚の解説（`NN-<slug>_jp.html`、`doc/assets/slides.css`・`slides.js` だけを使う）がある（S113）。ユーザーが読んで出すかを決めるためのもの。
 
 | # | 件名 | 対象 | 再現 | GlobeMode 側の回避 | 状態 |
 | ---: | --- | --- | --- | --- | --- |
@@ -45,11 +46,12 @@ S045（計画書の WP-H）で書いた（15 は S055、16 は S068、17〜21 �
 | 25h | [`Real[:]` の局所変数を呼び出しの代入だけで大きさを決めると ED019 `axis 1 is variable-size`](25h-ed019-function-shape-proof-flexible-array-from-call.md) — Rumoca の穴（MLS §12.4.5）。2 本 | Rumoca | [25h](25h-ed019-function-shape-proof-flexible-array-from-call.mo) | なし | 下書き |
 | 26 | [package の record 定数の成分を読むと ED008 unresolved Flat reference](26-ed008-field-of-package-record-constant.md) — Rumoca の内部エラー。ED008 108 本のうち `Media.Air.dryair.cp` 47 本 | Rumoca | [26](26-ed008-field-of-package-record-constant.mo)（自己完結。スカラの定数・モデルの record 定数なら通る） | なし | 下書き（`i` の 18 本は要再現） |
 | 27 | [extends で継いだ入れ子のクラスを、継いだ package の名前で引くと ER002](27-er002-inherited-class-through-extending-package.md) — Rumoca の穴（MLS §7.1・§5.3.2）。ライブラリの例題では 0 本（S091） | Rumoca | [27](27-er002-inherited-class-through-extending-package.mo)（自己完結。宣言した package・replaceable な別名なら通る） | なし（replaceable な別名で書く） | 下書き |
-| 28 | [配列の次元が別の package の定数だと ET004、redeclare しない replaceable な package を通すと EF024](28-et004-ef024-dimension-from-package-constant.md) — Rumoca の穴（MLS §3.8.1・§10.1）。4 本（S108 でモデルの中の record の形を追記） | Rumoca | [28](28-et004-ef024-dimension-from-package-constant.mo)（自己完結。モデルの定数・`redeclare package` なら通る） | なし（部品で redeclare する） | 下書き |
-| 29 | [モデルの中の関数で、protected の束縛が replaceable な package の関数を呼ぶと EF024](29-ef024-local-function-binding-calls-replaceable-package.md) — Rumoca の穴（MLS §12.4.4・§5.3）。18 本 | Rumoca | [29](29-ef024-local-function-binding-calls-replaceable-package.mo)（自己完結。algorithm で呼ぶ・package の名前で呼ぶなら通る） | なし（algorithm で呼ぶ） | 下書き |
-| 30 | [`y[:]`・`eta[size(y, 1)]` の record の parameter を関数の呼び出しで束縛すると ET004](30-et004-record-size-dimension-bound-to-call.md) — Rumoca の穴（MLS §10.1・§12.4.5）。15 本 | Rumoca | [30](30-et004-record-size-dimension-bound-to-call.mo)（自己完結。成分を直接書けば通る） | なし | 下書き |
-| 31 | [束縛が replaceable な record（成分・クラス）を通して成分を読むと EF024](31-ef024-binding-reads-field-of-replaceable-record.md) — Rumoca の穴（MLS §7.3・§5.3・§12.4.4）。8 本 | Rumoca | [31](31-ef024-binding-reads-field-of-replaceable-record.mo)（自己完結。`replaceable` を外せば通る） | なし | 下書き |
-| 32 | [モデルが使わない、別の派生クラスの Medium の壊れた関数まで解決して ER002](32-er002-unused-function-of-other-subclass-medium.md) — Rumoca の穴（MLS §5.6）。呼ばれる関数そのものは AixLib の誤り。39 本 | Rumoca | [32](32-er002-unused-function-of-other-subclass-medium.mo)（自己完結。Medium を通して呼ばない・別の派生クラスが無いなら通る） | 一部（`--library` は閉包だけ読む） | 下書き |
+| 28 | [配列の次元が別の package の定数だと ET004、redeclare しない replaceable な package を通すと EF024](28-et004-ef024-dimension-from-package-constant.md) — Rumoca の穴（MLS §3.8.1・§10.1）。4 本（S108 でモデルの中の record の形を追記） | Rumoca | [28](28-et004-ef024-dimension-from-package-constant.mo)（自己完結。モデルの定数・`redeclare package` なら通る） | なし（部品で redeclare する） | 下書き。v0.10.4 で `M`・`M2` は直り、`M1`・`M3`・`M5` は再現（S113）。[日本語](28-et004-ef024-dimension-from-package-constant_jp.md)・[1 枚](28-et004-ef024-dimension-from-package-constant_jp.html) |
+| 29 | [モデルの中の関数で、protected の束縛が replaceable な package の関数を呼ぶと EF024](29-ef024-local-function-binding-calls-replaceable-package.md) — Rumoca の穴（MLS §12.4.4・§5.3）。18 本 | Rumoca | [29](29-ef024-local-function-binding-calls-replaceable-package.mo)（自己完結。algorithm で呼ぶ・package の名前で呼ぶなら通る） | なし（algorithm で呼ぶ） | 下書き。v0.10.4 で再現（S113）。[日本語](29-ef024-local-function-binding-calls-replaceable-package_jp.md)・[1 枚](29-ef024-local-function-binding-calls-replaceable-package_jp.html) |
+| 30 | [`y[:]`・`eta[size(y, 1)]` の record の parameter を関数の呼び出しで束縛すると ET004](30-et004-record-size-dimension-bound-to-call.md) — Rumoca の穴（MLS §10.1・§12.4.5）。15 本 | Rumoca | [30](30-et004-record-size-dimension-bound-to-call.mo)（自己完結。成分を直接書けば通る） | なし | 下書き。v0.10.4 で再現（S113）。[日本語](30-et004-record-size-dimension-bound-to-call_jp.md)・[1 枚](30-et004-record-size-dimension-bound-to-call_jp.html) |
+| 31 | [束縛が replaceable な record（成分・クラス）を通して成分を読むと EF024](31-ef024-binding-reads-field-of-replaceable-record.md) — Rumoca の穴（MLS §7.3・§5.3・§12.4.4）。8 本 | Rumoca | [31](31-ef024-binding-reads-field-of-replaceable-record.mo)（自己完結。`replaceable` を外せば通る） | なし | 下書き。v0.10.4 で再現（S113）。[日本語](31-ef024-binding-reads-field-of-replaceable-record_jp.md)・[1 枚](31-ef024-binding-reads-field-of-replaceable-record_jp.html) |
+| 32 | [モデルが使わない、別の派生クラスの Medium の壊れた関数まで解決して ER002](32-er002-unused-function-of-other-subclass-medium.md) — Rumoca の穴（MLS §5.6）。呼ばれる関数そのものは AixLib の誤り。39 本 | Rumoca | [32](32-er002-unused-function-of-other-subclass-medium.mo)（自己完結。Medium を通して呼ばない・別の派生クラスが無いなら通る） | 一部（`--library` は閉包だけ読む） | 下書き。v0.10.4 で再現（S113）。[日本語](32-er002-unused-function-of-other-subclass-medium_jp.md)・[1 枚](32-er002-unused-function-of-other-subclass-medium_jp.html) |
+| 33 | [AixLib の `CHPCombustionMixtureGasNasa.T_psX` が宣言の無い `specificEntropyOfpTX` を呼ぶ](33-aixlib-specific-entropy-of-ptx-missing.md) — **AixLib の誤り**（MSL の `MixtureGasNasa` から protected の補助関数を写していない）。omc も断る。32 の 39 本の元 | AixLib | [33](33-aixlib-specific-entropy-of-ptx-missing.mo)（自己完結。元の `T_psX` なら通る） | 対象外 | 下書き。AixLib main（`e5df9a8d`）でも同じ（S113）。[日本語](33-aixlib-specific-entropy-of-ptx-missing_jp.md)・[1 枚](33-aixlib-specific-entropy-of-ptx-missing_jp.html) |
 
 ## 公開ライブラリの失敗から（17〜21、S070）
 
@@ -119,6 +121,22 @@ S091 の持ち越し。run 41365960542（2026-11-02）の `*-funnel.json` の EF
 - 32 の道筋: `PartialFourPortInterface` を継ぐ部品が `Medium1.setState_phX` を呼ぶと、同じ基底を継ぐ `ModularCHP.BaseClasses.ExhaustHeatExchanger` の `Medium1 = CHPFlueGasLambdaOnePlus` まで解決し、その `setState_psX` → `T_psX.f_nonlinear` の未宣言の `specificEntropyOfpTX` で止まる。`ExhaustHeatExchanger.mo` を空のモデルにすると通り、`extends ...PartialFourPort(redeclare package Medium1 = ...CHPFlueGasLambdaOnePlus)` だけにすると戻る。Rumoca のコードは読んでいない【推測】。
 - `CHPCombustionMixtureGasNasa` は MSL の `MixtureGasNasa.T_psX` を写したが、そこで呼ぶ protected の `specificEntropyOfpTX` を写していない。AixLib の誤りで、AixLib に知らせるかはユーザーが決める（GlobeMode からは出さない）。
 - 29 の再現には replaceable な record が無く、31 と原因が同じかは追っていない【未確認】。
+
+## Rumoca v0.10.4 での再確認と AixLib 向けの 33（S113）
+
+28〜32 の再現の `.mo` を、Rumoca v0.10.2（`data/rumoca/`）と最新のリリース v0.10.4（タグのコミット `9c8c56fc`、2026-11-02 公開。配布バイナリを `data/rumoca-latest/` に置いた。コミットしない）の CLI で回した（確認日 2026-11-03）。Rumoca の main（`91d6e936`、v0.10.4 の 10 コミット後）はビルドしていない【未確認】。
+
+| # | v0.10.2 | v0.10.4 | 結果 |
+| --- | --- | --- | --- |
+| 28 | 失敗 5（ET004 3・EF024 2）、対照 2 が通る | `M`・`M2` が通り、失敗 3（`M3` ET004、`M1`・`M5` EF024） | **一部直った**。replaceable な package を通す形だけが残る |
+| 29 | EF024 2、対照 2 | 同じ | 再現 |
+| 30 | ET004 1、対照 1 | 同じ | 再現 |
+| 31 | EF024 4、対照 3 | 同じ | 再現 |
+| 32 | ER002 2、対照 2 | 同じ | 再現 |
+
+- 再現する件のメッセージの文面は v0.10.2 と同じ（`grep` で `[E…]` の行を突き合わせた）。
+- 28 の直った形は、v0.10.4 のコミット「Evaluate constant dimensions by declaration identity in typecheck and flatten」によると見られる【推測】。ライブラリの例題は v0.10.4 で回していない【未確認】。
+- 33（AixLib）: `CHPCombustionMixtureGasNasa.mo` の 670 行は AixLib main（`e5df9a8d` = v3.0.1）でも同じ（GitHub の API で取得して突き合わせ、確認日 2026-11-03）。omc 1.27.2 は CHP の媒質の `setState_psX` を呼ぶモデルを `Function specificEntropyOfpTX not found in scope f_nonlinear.` で断る（AixLib 3.0.1・MSL 4.0.0）。AixLib は既にこのパッケージを CI のホワイトリストに載せている（issue #1291）。
 
 ## 下書きにしなかったもの
 
