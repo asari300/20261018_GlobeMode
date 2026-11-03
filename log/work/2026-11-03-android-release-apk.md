@@ -32,7 +32,8 @@
 - APK の大きさ（run 41544046811 の Step Summary）: debug の universal 257,983,951 bytes（246.0 MiB）、release の aarch64 12,706,158 bytes（12.1 MiB）、x86_64 13,290,251 bytes（12.7 MiB）。いずれも署名なし（secret 未登録）。
 - Actions: run 41530541915 は failure（debug.keystore が無い）、41537215067 は cancelled、41537253164 は release の smoke だけ failure（`GM-SMOKE` が logcat に出ない）、41543973496 は push の失敗で古いコミットを回したので cancel。**41544046811（aec3f7b）が全ジョブ success**。release の smoke は `Displayed` の 14.7 s 後、debug は 11.8 s 後に `GM-SMOKE check=ok simulate=ok x1=0.3678797279080248 msl=ok`
 - コードの検査（fmt / clippy / test / deny）: Rust のコードは触っていないので回していない（`build.gradle.kts` と workflow だけ）
-- `check_docs.py`: デッキ全件 OK（S106 を含む）/ 文書 433 件・相対リンク 2113 件中の切れ 0 件
+- `check_docs.py`: デッキ全件 OK（S106 を含む）/ main を取り込んだ後で文書 436 件・相対リンク 2128 件中の切れ 0 件
+- `render_slides.py`（S106 のデッキ、desktop-light・desktop-dark・mobile で 7 枚ずつ）: 問題 0 件。図の文字のはみ出しなし（目で確かめた）
 - セッション記録の `--check`: 親が写すので、このセッションでは写していない
 - ステージした差分の漏洩検査: 0 件（ステージした差分 6 ファイル）
 
