@@ -3,7 +3,7 @@
 
   uv run python src/Svelte/tests/test_ui.py     # 先に pnpm build（mise run ui:check がやる）
 
-dist/ を localhost で配り（CSP は index.html の meta と同じものを応答の header にも付ける。meta は Web Worker に効かないので。S093）、Decay を検査して error の診断が 0 件であること、実行するとプロットが出て信号の選択が効くこと（ブラウザの実行は列ごとの道で、data-typed が true。S065）、
+dist/ を localhost で配り（CSP は index.html の meta と同じものを応答の header にも付ける。meta は Web Worker に効かないので。S093）、Decay を検査して error の診断が 0 件であること、実行するとプロットが出て信号の選択・右の軸・x の切り替え（S128）が効くこと（ブラウザの実行は列ごとの道で、data-typed が true。S065）、
 10 万点（4 状態、出力間隔 0.01 s で 1000 s）の結果でも描けて時間を測ること、構造的に特異なモデルを検査して診断の行が出て、行を押すとエディタの選択が動くことを確かめる。1 ファイルの回路で「グラフ」を押して connect グラフが描かれることを確かめる（S046）。
 最後に「MSL を読む」で MSL 4.1.0 を読み（public/msl/MSL.json が無ければ飛ばす）、ChuaCircuit の検査（error 0）と実行（プロットの canvas と系列）を確かめて、秒数を出す（S048）。
 別のページで MSL.json を構文の誤りのファイルを含むライブラリに差し替え、読み飛ばしの警告 GM-W1001 の行と notes のファイル名が出ることを確かめる（S071）。
@@ -92,8 +92,8 @@ def main() -> int:
         simulate()
         assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
         expect(page.locator(".plot canvas").first).to_be_visible()
-        boxes = page.locator(".plot .signals input[type=checkbox]")
-        shown = page.locator(".plot .signals input:checked").count()
+        boxes = page.locator(".plot .signals input[name=signal]")
+        shown = page.locator(".plot .signals input[name=signal]:checked").count()
         lines = page.locator(".plot .u-legend .u-series:not(.u-off)").count()  # time の行も含む
         print(f"Decay の実行: 信号 {boxes.count()} 本、選択 {shown} 本、凡例の表示中 {lines} 行、点 {page.locator('.plot').get_attribute('data-points')}")
         assert boxes.count() >= 1 and shown >= 1 and lines >= 2
@@ -101,6 +101,19 @@ def main() -> int:
         # 選択を外すと系列が消える
         boxes.first.uncheck(force=True)
         assert page.locator(".plot .u-legend .u-series:not(.u-off)").count() == lines - 1
+        # 系列の選択・右の軸・パラメトリックの x（S128）: 選んだ系列だけを uPlot に渡し、軸と x の選択が DOM に出る
+        plot = page.locator(".plot")
+        expect(plot).to_have_attribute("data-series", "0")
+        boxes.first.check(force=True)
+        expect(plot).to_have_attribute("data-series", "1")
+        page.get_by_label("x を右の軸に").check(force=True)
+        expect(plot).to_have_attribute("data-right", "1")
+        assert page.locator(".plot .u-axis").count() == 2  # x と右の y だけ（左の y は使う系列が無いので出さない）
+        page.get_by_label("x 軸").select_option(label="x")
+        expect(plot).to_have_attribute("data-x", "x")
+        expect(page.locator(".plot canvas").first).to_be_visible()
+        assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
+        print(f"Decay の系列の選択: data-series={plot.get_attribute('data-series')}、data-right={plot.get_attribute('data-right')}、data-x={plot.get_attribute('data-x')}")
 
         page.get_by_label("モデル名").fill("Big")
         page.locator(".cm-content").focus()
@@ -114,7 +127,7 @@ def main() -> int:
         n, ms = page.locator(".plot").get_attribute("data-points"), page.locator(".plot").get_attribute("data-ms")
         typed = page.locator(".plot").get_attribute("data-typed")
         assert typed == "true", "ブラウザの実行は列ごとの Float64Array の道（S065。CSV の解析は無い）"
-        print(f"10 万点の描画: 点 {n}、系列 {page.locator('.plot .signals input:checked').count()} 本、列の道で最初の描画まで {ms} ms（目安 33 ms）、「実行」を押してから戻るまで {took * 1000:.0f} ms")
+        print(f"10 万点の描画: 点 {n}、系列 {page.locator('.plot .signals input[name=signal]:checked').count()} 本、列の道で最初の描画まで {ms} ms（目安 33 ms）、「実行」を押してから戻るまで {took * 1000:.0f} ms")
         assert int(n or 0) >= 100_000
 
         # 整形（S053）: 詰めた本文が doc/format-style.md の形になり、lint の波線（説明文字列が無い）が出る
@@ -175,11 +188,17 @@ def main() -> int:
             assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
             assert page.locator("tr.error").count() == 0, rows.all_inner_texts()
             expect(page.locator(".plot canvas").first).to_be_visible()
-            boxes = page.locator(".plot .signals input[type=checkbox]")
+            boxes = page.locator(".plot .signals input[name=signal]")
             lines = page.locator(".plot .u-legend .u-series:not(.u-off)").count()
             print(f"ChuaCircuit の実行: {took:.1f} s、信号 {boxes.count()} 本、凡例の表示中 {lines} 行、点 {page.locator('.plot').get_attribute('data-points')}")
             assert boxes.count() >= 1 and lines >= 2
             assert "C1.v" in page.locator(".plot .signals").inner_text()
+            # パラメトリック（S128）: C1.v 対 C2.v
+            page.get_by_label("x 軸").select_option(label="C1.v")
+            page.get_by_role("checkbox", name="C2.v", exact=True).check(force=True)
+            expect(page.locator(".plot")).to_have_attribute("data-x", "C1.v")
+            assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
+            print(f"ChuaCircuit の C1.v 対 C2.v: 系列 {page.locator('.plot').get_attribute('data-series')} 本")
 
             # ライブラリのモデルのグラフも引ける（S079）
             page.get_by_role("button", name="グラフ").click(force=True)
