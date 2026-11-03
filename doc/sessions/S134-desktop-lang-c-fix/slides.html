@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S134 Desktop の C.UTF-8 の白画面 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S134 Desktop の C.UTF-8 の白画面">
+
+<section class="slide" id="S01">
+  <span class="tag">S134 · 2026-11-03 · P4</span>
+  <h1>Desktop の C.UTF-8 の白画面</h1>
+  <p class="lead">Linux の Desktop は起動時に locale を en_US.UTF-8 に替える</p>
+  <div class="big">WebKitGTK の言語が <b>C</b> にならないよう、根で直した</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>S125 で見つけた不具合: ランナーの既定の locale で Desktop を起動すると UI が白画面</li>
+    <li>原因は <code>RangeError: invalid language tag: C</code>（CodeMirror の <code>Intl.Segmenter</code>）</li>
+    <li>S125 は測定の段で <code>LANG=en_US.UTF-8</code> を足して避けただけ。製品を直す（P4、使える流れ）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>なぜ言語が C になるか</h1>
+  <ul>
+    <li>WebKitGTK は <code>setlocale(LC_CTYPE, nullptr)</code> から既定の言語を作る</li>
+    <li><code>C</code>・<code>POSIX</code> そのものなら <code>en-US</code> にする</li>
+    <li><code>C.UTF-8</code> は <code>.</code> 以降を落とすだけなので <code>C</code> になり、BCP 47 として不正</li>
+    <li>出典: WebKit の <code>Source/WTF/wtf/unix/LanguageUnix.cpp</code>（確認日 2026-11-03）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由</span>
+  <h1>2 つの直し方</h1>
+  <table class="compact">
+    <tr><th>案</th><th>やること</th><th>判断</th></tr>
+    <tr><td>(a) UI</td><td><code>Intl.Segmenter</code> の前に既定の言語を確かめて <code>en</code> を渡す</td><td class="warn">uPlot も module の評価で <code>Intl.NumberFormat</code>・<code>DateTimeFormat</code> を作る。全部を包むことになる</td></tr>
+    <tr><td>(b) Rust</td><td><code>main</code> の最初で、効いている locale が <code>C.</code>・<code>POSIX.</code> で始まれば <code>en_US.UTF-8</code> に替える</td><td class="ok">採った。言語の根で直すので <code>Intl</code> の使い手によらない</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">図</span>
+  <h1>起動の流れ</h1>
+  <svg class="fig" viewBox="0 0 800 220" role="img" aria-label="起動の流れ">
+    <rect class="svg-box" x="20" y="70" width="170" height="80" rx="10"/>
+    <text class="svg-text-b" x="105" y="105" text-anchor="middle">LANG=C.UTF-8</text>
+    <text class="svg-text" x="105" y="130" text-anchor="middle">ランナーの既定</text>
+    <line class="svg-line" x1="190" y1="110" x2="230" y2="110"/>
+    <rect class="svg-box-accent" x="230" y="70" width="170" height="80" rx="10"/>
+    <text class="svg-text-b" x="315" y="105" text-anchor="middle">fix_c_locale</text>
+    <text class="svg-text" x="315" y="130" text-anchor="middle">en_US.UTF-8 に</text>
+    <line class="svg-line" x1="400" y1="110" x2="440" y2="110"/>
+    <rect class="svg-box" x="440" y="70" width="160" height="80" rx="10"/>
+    <text class="svg-text-b" x="520" y="105" text-anchor="middle">WebKitGTK</text>
+    <text class="svg-text" x="520" y="130" text-anchor="middle">言語 en-US</text>
+    <line class="svg-line" x1="600" y1="110" x2="640" y2="110"/>
+    <rect class="svg-box" x="640" y="70" width="140" height="80" rx="10"/>
+    <text class="svg-text-b" x="710" y="105" text-anchor="middle">UI</text>
+    <text class="svg-text" x="710" y="130" text-anchor="middle">Intl が通る</text>
+  </svg>
+  <p>en_US.UTF-8 が無い環境では setlocale が失敗して C のまま。WebKit はそれを en-US にする。</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">再現手順</span>
+  <h1>確かめ方</h1>
+  <pre><code>gh workflow run desktop.yml --ref feature/s134-desktop-lang-c-fix</code></pre>
+  <ul>
+    <li>UI の測定の段から S125 の <code>LANG: en_US.UTF-8</code> を外した</li>
+    <li>ランナーの既定の locale のまま <code>GM-SMOKE … msl=ok</code> が 3 回（run RUNID）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ul>
+    <li>実機（Debian・Ubuntu の C.UTF-8 の環境）での確認</li>
+    <li>署名と自動更新は別の WP</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
