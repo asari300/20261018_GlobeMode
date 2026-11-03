@@ -14,6 +14,7 @@ FMU を書き出す（S144）: ブラウザの wasm が作ったソースの FMU
 ライブラリの木で Modelica → Electrical → Analog → Examples → ChuaCircuit と開き、そのファイルがエディタに開いて検査が通ることも確かめる（S127）。
 別のページで MSL.json を構文の誤りのファイルを含むライブラリに差し替え、読み飛ばしの警告 GM-W1001 の行と notes のファイル名が出ることを確かめる（S071）。
 `?smoke=1` で起動すると Decay の検査と実行の結果が console に `GM-SMOKE check=ok simulate=ok x1=… msl=… ready_ms=…` の 1 行で出ること（S100、android.yml の smoke。時刻は S125）。MSL.json があれば msl=ok（MSL を読んで ChuaCircuit の検査が error 0。S103）。
+UI の操作の項目 `tree= fmt= graph= cancel= settings= plot= def=`（S147。Desktop と Android の smoke と同じ。MSL.json が無ければ tree・graph は skip）も全部 ok で `failure=` が無いこと。
 console の error（CSP の違反を含む）と、配った origin の外への要求は失敗（S093）。
 """
 
@@ -388,6 +389,9 @@ def main() -> int:
         line = message.value.text
         assert line.startswith("GM-SMOKE check=ok simulate=ok x1=0.36"), line
         assert ("msl=ok" in line) == (DIST / "msl/MSL.json").exists(), line  # S103
+        # S147: UI の操作の項目。MSL が無ければ木とグラフは skip
+        skipped = "skip" if not (DIST / "msl/MSL.json").exists() else "ok"
+        assert f" tree={skipped} fmt=ok graph={skipped} cancel=ok settings=ok plot=ok def=ok " in line and "failure=" not in line, line
         assert re.search(r" ready_ms=\d+ decay_ms=\d+ msl_ms=", line), line  # S125: bench_ui.py が読む時刻
         print(line)
         # サブパス配信（S145）: dist/ を /app/ の下だけで配っても、worker・wasm・MSL.json が相対パスで引けて、検査と MSL の読み込みができる

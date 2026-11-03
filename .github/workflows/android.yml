@@ -11,7 +11,7 @@
 # gen/android がまだ無ければ `cargo tauri android init --ci` で作り、artifact `gen-android` に残す）→ emulator（API 34 の
 # x86_64 のエミュレータに APK を入れて起動し、UI が組み込みの Decay を検査・実行して console に出す
 # `GM-SMOKE check=ok simulate=ok x1=… msl=ok` の 1 行を logcat で待つ。S100、P6。msl=ok は S103: 同梱の MSL.json を読んで
-# ChuaCircuit を検査した）。MSL は ui で fetch-msl してから pnpm build するので、pack-msl.mjs の MSL.json が dist（APK の assets）に入る。UI は VITE_GM_SMOKE=1 でビルドするので、この APK は起動すると smoke を回す。desktop.yml と同じ理由で tauri-cli は `cargo install` で入れる。
+# ChuaCircuit を検査した）。S147: 同じ行に UI の操作の項目（tree・fmt・graph・cancel・settings・plot・def。ライブラリの木・整形・グラフ・止める・実行の設定・プロットの選択・定義ジャンプ）が付き、全部 ok を合格にする（待ちは 15 分）。MSL は ui で fetch-msl してから pnpm build するので、pack-msl.mjs の MSL.json が dist（APK の assets）に入る。UI は VITE_GM_SMOKE=1 でビルドするので、この APK は起動すると smoke を回す。desktop.yml と同じ理由で tauri-cli は `cargo install` で入れる。
 name: android
 
 on:
@@ -220,13 +220,13 @@ jobs:
             adb install -r "$(find apk -name '*.apk' | head -1)"
             adb logcat -c
             adb shell monkey -p "$APP_ID" -c android.intent.category.LAUNCHER 1
-            for i in $(seq 120); do adb logcat -d | grep -q GM-SMOKE && break; sleep 5; done
+            for i in $(seq 180); do adb logcat -d | grep -q GM-SMOKE && break; sleep 5; done
             adb logcat -d > logcat.txt
             adb shell pidof "$APP_ID"
             grep -E "Displayed $APP_ID|$APP_ID.*(MainActivity|Tauri)" logcat.txt | head -20
             if grep -E "FATAL EXCEPTION|AndroidRuntime: Process: $APP_ID" logcat.txt; then exit 1; fi
             grep -m1 GM-SMOKE logcat.txt | tee -a "$GITHUB_STEP_SUMMARY"
-            grep -q "GM-SMOKE check=ok simulate=ok .* msl=ok" logcat.txt
+            grep -q "GM-SMOKE check=ok simulate=ok .* msl=ok tree=ok fmt=ok graph=ok cancel=ok settings=ok plot=ok def=ok " logcat.txt
       - if: always()
         uses: actions/upload-artifact@v4
         with:
