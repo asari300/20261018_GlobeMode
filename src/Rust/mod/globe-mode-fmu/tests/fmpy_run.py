@@ -1,13 +1,16 @@
-"""S095・S099: globe-mode-fmu の cdylib・modelDescription.xml・モデルの .mo を FMU に詰め、FMPy の ME で回す
+"""S095・S099・S114: globe-mode-fmu の cdylib・modelDescription.xml・モデルの .mo を FMU に詰め、FMPy の ME で回す
 （tests/fmpy.rs が呼ぶ）。終了時刻での各変数の値を `名前=値` で出す。
 S109: 事象の回数も出す（`events=` は fmi2EnterEventMode の回数、`reinit=` は valuesOfContinuousStatesChanged が真の回数）。
+S114: 7 番目の引数（任意）は FMPy の `input=` に渡す入力（`{"u": [[時刻, 値], ...]}` の JSON）。
 
-使い方: python fmpy_run.py <libglobe_mode_fmu.so> <modelDescription.xml> <model.mo> <完全修飾名> <出力の .fmu> <変数,...>
+使い方: python fmpy_run.py <libglobe_mode_fmu.so> <modelDescription.xml> <model.mo> <完全修飾名> <出力の .fmu> <変数,...> [入力の JSON]
 """
 
+import json
 import sys
 import zipfile
 
+import numpy as np
 from fmpy import fmi2, simulate_fmu
 from fmpy.validation import validate_fmu
 
@@ -37,6 +40,14 @@ def counted_new_discrete_states(self):
 
 fmi2.FMU2Model.enterEventMode = counted_enter_event_mode
 fmi2.FMU2Model.newDiscreteStates = counted_new_discrete_states
-result = simulate_fmu(fmu, fmi_type="ModelExchange", output=names.split(","))
+signal = None
+if len(sys.argv) > 7 and sys.argv[7]:
+    columns = json.loads(sys.argv[7])
+    times = next(iter(columns.values()))
+    signal = np.array(
+        [(row[0], *(columns[n][i][1] for n in columns)) for i, row in enumerate(times)],
+        dtype=[("time", np.float64)] + [(n, np.float64) for n in columns],
+    )
+result = simulate_fmu(fmu, fmi_type="ModelExchange", output=names.split(","), input=signal)
 print(" ".join(f"{n}={float(result[n][-1])!r}" for n in names.split(",")), f"t={float(result['time'][-1])!r}",
       " ".join(f"{k}={v}" for k, v in counts.items()))

@@ -116,3 +116,24 @@
 - 入力（`causality="input"`）と、代数・離散の変数の書き込み。Enumeration・String の変数。
 - `ModelStructure` の `Outputs` の依存（`dependencies`）を書いていない（既定の「すべてに依存」）。
 - `initial()` の事象、MSL を使うモデル、`modelDescription.xml` の生成を P5a と共有、CS・FMI 3.0・Windows（S109 の持ち越しのまま）。
+
+## 追記（2026-11-03、S114）: 入力（`causality="input"`）を FMU の外から与える
+
+### 決定
+
+- `ModelInstance` に `set_input(name, value)` を足し、`variables()` に役割 `VariableRole::Input` の変数を含めた（値は `variable_values()` で読める。`visible_values` が入力も返す）。
+- 入力の置き場はパラメータの枠の `SolveLayout::input_parameter_index(name)`（公開）。Rumoca の FMI ME の host（`SolveMeKernel::set_float64`、`pub(crate)`）が入力を書く所と同じで、host がそのあと行うのは計算の控えの消去と `delay` の点の記録だけ（`ModelInstance` はどちらも持たない）。
+- lowering の前の値: `lower_for_simulation_with_overrides` は駆動されない入力を断るので、束縛の無い入力の `start` を `SimOptions::initial_inputs`（公開）で渡す。Rumoca の `host_driven_input_seeds`（FMI の export と GPU の準備が使う。`pub(super)` で crate の外から呼べない）と同じ処理を exec の `input_starts` に書いた（`numeric_attribute_values` は `rumoca_phase_solve::fmi` の公開関数）。Rumoca は改変していない。
+- `globe-mode-fmu`: 入力は値参照 `2n+p..` の変数の 1 つとして `causality="input"`・`variability="continuous"`・`initial` なし・`start`（初期化の後の値）で載せ、`fmi2SetReal` で書く（Real の入力だけ。出力・代数・離散への書き込みは `fmi2Error` のまま）。出力（`initial="calculated"`）は `ModelStructure` の `InitialUnknowns` にも並べた（FMI 2.0。S112 では欠けていて、FMPy の validate が `Expected {der(x), y}` で落ちた）。
+- パラメータを変えて `fmi2ExitInitializationMode` で作り直したときは、与えた入力を置き直す。初期化は入力の `start` で解く（`shortcut:` の注記）。
+
+### 結果
+
+- `Simulation/InputDecay`（`der(x) = -x + u`、`y = 2*x`、`u(start = 0)`）を FMPy 0.3.32 の ME（CVode）で、`input=` で t = 0.5 に 0 → 2 の階段を与えて回した: x(1) = 1.1548180654142353、y(1) = 2.3096361308284705。解析解 x(1) = 2 + (e^-0.5 − 2)e^-0.5 = 1.1548181217461755 と 5.6e-8、y(1) と 1.1e-7 の差（試験は 1e-5 以内）。`validate_fmu` は問題なし（`Outputs` を含む）。
+- exec の `run` には入力を与える道が無く（`ResolvedSettings` に入力が無い）、駆動されない入力を断るので、突き合わせは解析解で行った。
+- 外部の依存の追加 0。
+
+### 持ち越し
+
+- 初期化が入力に依るモデル（`ModelInstance::new` に入力を渡す）、代数・離散の変数の書き込み、Integer・Boolean の入力、exec の `run` に入力を与える道。
+- `Outputs` の `dependencies`、Enumeration・String、`initial()` の事象、MSL を使うモデル、`modelDescription.xml` の生成を P5a と共有、CS・FMI 3.0・Windows。
