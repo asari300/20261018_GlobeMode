@@ -8,6 +8,7 @@
 
 import io
 import json
+from pathlib import Path
 
 import polars as pl
 
@@ -41,6 +42,11 @@ class Workspace:
         # shortcut: memoryview の "d" は native-endian（Rust は little-endian で詰める）、big-endian の機械なら byteswap が要る
         response["columns"] = {n: pl.Series(n, memoryview(c).cast("d"), pl.Float64) for n, c in zip(names, columns)}
         return response
+
+    def export_fmu(self, model: str, out_dir: str, **options) -> Path:
+        """FMU を書き出し、`.fmu` のパスを返す（S118。`globe fmu export` と同じ）。options は `fmi_version`（2 か 3）・
+        `build`・`targets`・`fmi_headers`。"""
+        return Path(self._ws.export_fmu(model, str(out_dir), json.dumps(options)))
 
 
 def table(response: dict) -> pl.DataFrame:

@@ -15,6 +15,7 @@ defmodule :globe_mode_nif do
   def graph(_ws, _model, _depth), do: :erlang.nif_error(:not_loaded)
   def simulate(_ws, _model, _settings_json), do: :erlang.nif_error(:not_loaded)
   def simulate_columns(_ws, _model, _settings_json), do: :erlang.nif_error(:not_loaded)
+  def export_fmu(_ws, _model, _out_dir, _options_json), do: :erlang.nif_error(:not_loaded)
   def solvers, do: :erlang.nif_error(:not_loaded)
   def format(_text, _indent, _insert_origin), do: :erlang.nif_error(:not_loaded)
   def lint(_text), do: :erlang.nif_error(:not_loaded)
@@ -52,6 +53,13 @@ defmodule GlobeMode do
            :globe_mode_nif.simulate_columns(ws, model, JSON.encode!(settings)),
          do: {:ok, JSON.decode!(layout), columns}
   end
+
+  @doc """
+  FMU を書き出して `{:ok, .fmu のパス}`（S118。`globe fmu export` と同じ）。`options` は
+  `%{fmi_version: 2, build: false, targets: [], fmi_headers: nil}`（省略した鍵は既定）。
+  """
+  def export_fmu(ws, model, out_dir, options \\ %{}),
+    do: :globe_mode_nif.export_fmu(ws, model, out_dir, JSON.encode!(options))
 
   def solvers, do: decode(:globe_mode_nif.solvers())
 

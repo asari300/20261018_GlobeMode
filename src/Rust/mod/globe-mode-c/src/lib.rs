@@ -274,6 +274,31 @@ pub unsafe extern "C" fn gm_doubles_free(data: *mut f64, len: usize) {
     }
 }
 
+/// FMU を書き出す（S118。`globe fmu export` と同じ）。`{"path": ".fmu のパス"}`、誤りは `{"error": ...}`。
+/// `options_json` は NULL 可（`{"fmi_version": 2, "build": false, "targets": [], "fmi_headers": null}`）。
+///
+/// # Safety
+///
+/// `ws` は生きているワークスペース、`model`・`out_dir` は NUL 終端の UTF-8 の文字列、`options_json` は NULL か同じ。
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn gm_export_fmu(
+    ws: *mut GmWorkspace,
+    model: *const c_char,
+    out_dir: *const c_char,
+    options_json: *const c_char,
+) -> *mut c_char {
+    guard(|| {
+        let model = str_arg(model, "model")?;
+        let out_dir = str_arg(out_dir, "out_dir")?;
+        let options: globe_mode::FmuOptions = match opt_str_arg(options_json, "options_json")? {
+            Some(s) => serde_json::from_str(s).map_err(|e| format!("options が読めない: {e}"))?,
+            None => Default::default(),
+        };
+        let path = ws_arg(ws)?.export_fmu(model, Path::new(out_dir), &options)?;
+        Ok(serde_json::json!({ "path": path }).to_string())
+    })
+}
+
 /// ソルバの登録表（JSON の配列）。
 #[unsafe(no_mangle)]
 pub extern "C" fn gm_solvers() -> *mut c_char {
@@ -395,6 +420,28 @@ mod tests {
                 &mut len,
             ));
             assert!(err["error"].is_string() && data.is_null() && len == 0);
+            // S118: FMU（2.0、build なし）。展開したディレクトリに modelDescription.xml がある
+            let out = std::env::temp_dir().join(format!("gm-c-fmu-{}", std::process::id()));
+            let out_c = CString::new(out.to_str().unwrap()).unwrap();
+            let fmu = take(gm_export_fmu(
+                ws,
+                c"Decay".as_ptr(),
+                out_c.as_ptr(),
+                std::ptr::null(),
+            ));
+            assert!(
+                fmu["path"].as_str().unwrap().ends_with("Decay.fmu"),
+                "{fmu}"
+            );
+            assert!(out.join("Decay/modelDescription.xml").is_file());
+            std::fs::remove_dir_all(&out).unwrap();
+            let bad = take(gm_export_fmu(
+                ws,
+                c"Decay".as_ptr(),
+                out_c.as_ptr(),
+                cr#"{"fmi_version": 4}"#.as_ptr(),
+            ));
+            assert!(bad["error"].is_string(), "{bad}");
             gm_workspace_free(ws);
             assert!(gm_workspace_new(c"{".as_ptr()).is_null());
         }

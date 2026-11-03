@@ -38,6 +38,7 @@
   - connect を足すと `connect_graph` まで再実行される。
 - **計測**: 空白だけの編集のあとの再計算は中央値 0.20 ms、最大 0.30 ms（リリースビルド、20 回）。P2 の目標（50 ms 未満）を満たす。
 - `globe-mode-db` と `globe-mode-graph` は wasm32 向けにビルドできる（salsa を含む）。
+- **S122（ライブラリがあるときの graph）**: S081〜S089 はライブラリがあると graph を salsa の外で毎回作り、この防火壁が効かなかった。ライブラリの索引を salsa の入力 `Library`（`Arc<ClassIndex>`。`Checker::library_outlines` が新しい世代を返したときだけ差し替え、値は比べない）にし、graph を tracked の `library_graph(workspace, library, request)`（`class_index` をライブラリの索引に重ねる）にした。同じ文書の 2 回目とコメントだけの編集では `library_graph` が再実行されず、部品を足すと再実行される（`validation.rs` の `library_graph_is_backdated`）。MSL の `ChuaCircuit` の 2 回目は 4.6 → 0.069 ms（debug、7 ノード・9 辺は同じ）。[解説書](../sessions/S122-graph-salsa-backdate/解説書.md)
 - **S005 で、防火壁を 3 段にし、検査（S0〜S6）をクエリに載せた**（2026-10-18）。
 
   ```text

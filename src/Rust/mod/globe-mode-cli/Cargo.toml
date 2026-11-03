@@ -22,17 +22,20 @@ sundials = ["globe-mode/sundials"]
 
 [dependencies]
 # S035: facade（と protocol の型）経由。db・exec・sim は facade の再公開を使う
-globe-mode = { workspace = true }
+# S118: fmu で `globe fmu export` を facade の export_fmu から
+globe-mode = { workspace = true, features = ["fmu"] }
 globe-mode-core = { workspace = true }
 globe-mode-lsp = { workspace = true }
 globe-mode-fmt = { workspace = true }
-# S094: `globe fmu export`（FMI 2.0 のソースの FMU。ADR-0031）
-globe-mode-fmi = { workspace = true, features = ["export"] }
 globe-mode-ir = { workspace = true }
 clap = { workspace = true }
 serde_json = { workspace = true }
 # S060: fmt / lint のディレクトリの走査で .gitignore を守る（ruff と同じ crate。MIT OR Unlicense）
 ignore = "0.4"
+
+[dev-dependencies]
+# tests/fmu_export.rs が書いた modelDescription.xml を読む
+globe-mode-fmi = { workspace = true }
 
 [lints]
 workspace = true

@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S120 features.md の P4 の追いつき — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S120 features.md の P4 の追いつき">
+
+<section class="slide" id="S01">
+  <span class="tag">S120 · 2026-11-03 · P4</span>
+  <h1>features.md の P4 の追いつき</h1>
+  <p class="lead">エディタ・LSP・graph・プロット・Desktop などの行を roadmap に合わせた（文書だけ）</p>
+  <div class="big">features.md <b>15 行</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>S107 の持ち越し: P4 の行に S094 より前の成果を書く</li>
+    <li>S104〜S117 のうち main に入ったものを該当する行に書く</li>
+    <li>言語の行（S118）・コード・upstream.md は触らない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>直した行（P4）</h1>
+  <table class="compact">
+    <tr><th>行</th><th>足したこと</th></tr>
+    <tr><td>LSP・アウトライン</td><td>S038 診断・hover、S053 補完、S059 VS Code</td></tr>
+    <tr><td>整形・lint</td><td>S060〜S062（<code>GM-L0004</code>・<code>GM-L0005</code>）</td></tr>
+    <tr><td>Text ビュー</td><td>S041 CodeMirror と検査パネル</td></tr>
+    <tr><td>MSL の読み込み</td><td>S037 分割・S054 閉包</td></tr>
+    <tr><td>ライブラリツリー</td><td>UI は未</td></tr>
+    <tr><td>graph</td><td>S046 描画・S079〜S089 ライブラリ</td></tr>
+    <tr><td>プロット</td><td>S042 uPlot・S065/S076/S085 列</td></tr>
+    <tr><td>Desktop</td><td>S049・S056・S069・S084</td></tr>
+    <tr><td>ブラウザ</td><td>S041 UI・S048 ChuaCircuit</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由</span>
+  <h1>直した行（S104〜S117）</h1>
+  <table class="compact">
+    <tr><th>行</th><th>足したこと</th></tr>
+    <tr><td>FMI 2.0・3.0 Export</td><td>S105 複数 OS の置き場を同梱</td></tr>
+    <tr><td>FMPy・fmusim</td><td>S105 Windows・macOS の validate</td></tr>
+    <tr><td>Android</td><td>S106 release の APK</td></tr>
+    <tr><td>Rumoca との照合</td><td>S108・S113・S115</td></tr>
+  </table>
+  <p>S104・S117 は main に無いので書かない。言語の行は S118</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">図</span>
+  <h1>どこから何へ</h1>
+  <svg class="fig" viewBox="0 0 800 220" role="img" aria-label="根拠と更新した文書">
+    <rect class="svg-box" x="30" y="30" width="270" height="70" rx="10"/>
+    <text class="svg-text-b" x="165" y="62" text-anchor="middle">roadmap の「済んだこと」</text>
+    <text class="svg-text" x="165" y="86" text-anchor="middle">S038〜S089</text>
+    <rect class="svg-box" x="30" y="130" width="270" height="70" rx="10"/>
+    <text class="svg-text-b" x="165" y="162" text-anchor="middle">索引の「完了」</text>
+    <text class="svg-text" x="165" y="186" text-anchor="middle">S105〜S115</text>
+    <line class="svg-line" x1="300" y1="65" x2="500" y2="110"/>
+    <line class="svg-line" x1="300" y1="165" x2="500" y2="110"/>
+    <rect class="svg-box-accent" x="500" y="80" width="260" height="60" rx="10"/>
+    <text class="svg-text-b" x="630" y="116" text-anchor="middle">features.md 15 行</text>
+  </svg>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>git diff main -- doc/features.md
+python3 -I .claude/skills/session-docs/check_docs.py</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">15</span><span class="l">features.md の行</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">【未確認】</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ul>
+    <li>P4 の残り: ライブラリツリーの UI、定義ジャンプ、graph の実 GPU の fps</li>
+    <li>S104・S117 が main に入ったら marimo・FMI の行</li>
+    <li>言語の行は S118 のあとに見直す</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

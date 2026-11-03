@@ -6,6 +6,7 @@
 //! [ADR-0026]: https://github.com/asari300/20261018_GlobeMode/blob/main/doc/adr/0026-fmi-import-placement.md
 
 use std::fmt;
+use std::fmt::Write as _;
 
 #[cfg(feature = "export")]
 pub mod export;
@@ -49,6 +50,14 @@ pub enum Causality {
     StructuralParameter,
 }
 
+/// 属性 `initial`。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Initial {
+    Exact,
+    Approx,
+    Calculated,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Variability {
     Constant,
@@ -87,6 +96,29 @@ pub struct ScalarVariable {
     pub causality: Causality,
     pub variability: Variability,
     pub ty: VarType,
+    /// S117: 省略されていれば `None`（既定の initial は補わない）。
+    pub initial: Option<Initial>,
+    /// S117: 属性 `start` の文字列そのまま（型によらず書き戻せるように）。
+    pub start: Option<String>,
+    /// S117: 属性 `derivative`。2.0 は状態の索引（1 始まり）、3.0 は状態の valueReference。
+    pub derivative: Option<u32>,
+}
+
+/// `DefaultExperiment` の属性（文字列そのまま）。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DefaultExperiment {
+    pub start_time: Option<String>,
+    pub stop_time: Option<String>,
+    pub tolerance: Option<String>,
+}
+
+/// `ModelStructure`（S117）。2.0 は `Unknown` の `index`（変数の 1 始まりの索引）、3.0 は
+/// `Output`・`ContinuousStateDerivative`・`InitialUnknown` の `valueReference`。`dependencies` は読まない。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ModelStructure {
+    pub outputs: Vec<u32>,
+    pub derivatives: Vec<u32>,
+    pub initial_unknowns: Vec<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -101,6 +133,13 @@ pub struct ModelDescription {
     /// 3.0 のみ。
     pub scheduled_execution: Option<Interface>,
     pub variables: Vec<ScalarVariable>,
+    /// S117 から下は書く側（[`write_model_description_2`]）のために読む。
+    pub generation_tool: Option<String>,
+    pub variable_naming_convention: Option<String>,
+    /// 省略されていれば 0。
+    pub number_of_event_indicators: u32,
+    pub default_experiment: Option<DefaultExperiment>,
+    pub model_structure: ModelStructure,
 }
 
 impl ModelDescription {
@@ -136,6 +175,25 @@ fn causality(s: Option<&str>) -> Result<Causality, Error> {
         "structuralParameter" => Causality::StructuralParameter,
         other => return schema(format!("causality {other:?} は未知")),
     })
+}
+
+fn initial(s: Option<&str>) -> Result<Option<Initial>, Error> {
+    Ok(Some(match s {
+        None => return Ok(None),
+        Some("exact") => Initial::Exact,
+        Some("approx") => Initial::Approx,
+        Some("calculated") => Initial::Calculated,
+        Some(other) => return schema(format!("initial {other:?} は未知")),
+    }))
+}
+
+fn u32_attr(n: roxmltree::Node<'_, '_>, attr: &str) -> Result<Option<u32>, Error> {
+    n.attribute(attr)
+        .map(|v| {
+            v.parse()
+                .or_else(|_| schema(format!("{attr} {v:?} は u32 でない")))
+        })
+        .transpose()
 }
 
 fn variability(s: Option<&str>, default: Variability) -> Result<Variability, Error> {
@@ -190,15 +248,16 @@ fn variable(
     } else {
         Variability::Discrete
     };
-    let vr = required(n, "valueReference")?;
+    required(n, "valueReference")?;
     Ok(ScalarVariable {
         name: required(n, "name")?.to_string(),
-        value_reference: vr
-            .parse()
-            .or_else(|_| schema(format!("valueReference {vr:?} は u32 でない")))?,
+        value_reference: u32_attr(n, "valueReference")?.unwrap_or_default(),
         causality: causality(n.attribute("causality"))?,
         variability: variability(n.attribute("variability"), default)?,
         ty,
+        initial: initial(n.attribute("initial"))?,
+        start: ty_node.attribute("start").map(str::to_string),
+        derivative: u32_attr(ty_node, "derivative")?,
     })
 }
 
@@ -240,7 +299,44 @@ pub fn parse_model_description(xml: &str) -> Result<ModelDescription, Error> {
             variables.push(variable(n, ty, false)?);
         }
     }
+    let mut model_structure = ModelStructure::default();
+    let structure = child("ModelStructure");
+    let elements = structure.iter().flat_map(|s| s.children());
+    if v3 {
+        for n in elements {
+            let list = match n.tag_name().name() {
+                "Output" => &mut model_structure.outputs,
+                "ContinuousStateDerivative" => &mut model_structure.derivatives,
+                "InitialUnknown" => &mut model_structure.initial_unknowns,
+                _ => continue,
+            };
+            list.push(u32_attr(n, "valueReference")?.unwrap_or_default());
+        }
+    } else {
+        for n in elements {
+            let list = match n.tag_name().name() {
+                "Outputs" => &mut model_structure.outputs,
+                "Derivatives" => &mut model_structure.derivatives,
+                "InitialUnknowns" => &mut model_structure.initial_unknowns,
+                _ => continue,
+            };
+            for u in n.children().filter(|c| c.has_tag_name("Unknown")) {
+                required(u, "index")?;
+                list.push(u32_attr(u, "index")?.unwrap_or_default());
+            }
+        }
+    }
+    let text = |n: roxmltree::Node<'_, '_>, a: &str| n.attribute(a).map(str::to_string);
     Ok(ModelDescription {
+        generation_tool: text(root, "generationTool"),
+        variable_naming_convention: text(root, "variableNamingConvention"),
+        number_of_event_indicators: u32_attr(root, "numberOfEventIndicators")?.unwrap_or(0),
+        default_experiment: child("DefaultExperiment").map(|n| DefaultExperiment {
+            start_time: text(n, "startTime"),
+            stop_time: text(n, "stopTime"),
+            tolerance: text(n, "tolerance"),
+        }),
+        model_structure,
         model_name: required(root, "modelName")?.to_string(),
         instantiation_token: required(root, token_attr)?.to_string(),
         model_exchange: interface("ModelExchange")?,
@@ -249,4 +345,136 @@ pub fn parse_model_description(xml: &str) -> Result<ModelDescription, Error> {
         fmi_version,
         variables,
     })
+}
+
+/// FMI 2.0 の `modelDescription.xml` を書く（S117。P5b の `globe-mode-fmu` が使う。P5a は Rumoca のテンプレートの XML を
+/// そのまま使い、これは読み→書き→読みの試験にだけ通す）。
+///
+/// [`ModelDescription`] に持つものだけを書く（`description`・`unit`・`SourceFiles`・`dependencies` などは落ちる）。
+/// 書ける型は Real・Integer・Boolean だけで、それ以外と 2.0 にない causality は `Err`。
+// shortcut: 3.0 の書く側・String・Enumeration（declaredType が要る）は無い。P5b が 3.0 を出すときに足す
+pub fn write_model_description_2(md: &ModelDescription) -> Result<String, Error> {
+    if md.major() != Some(2) {
+        return schema(format!(
+            "fmiVersion {:?} は書けない（2.0 のみ）",
+            md.fmi_version
+        ));
+    }
+    let esc = |s: &str| {
+        s.replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('"', "&quot;")
+    };
+    let mut x = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<fmiModelDescription\n");
+    let root = [
+        ("fmiVersion", Some(&md.fmi_version)),
+        ("modelName", Some(&md.model_name)),
+        ("guid", Some(&md.instantiation_token)),
+        ("generationTool", md.generation_tool.as_ref()),
+        (
+            "variableNamingConvention",
+            md.variable_naming_convention.as_ref(),
+        ),
+    ];
+    for (k, v) in root {
+        if let Some(v) = v {
+            let _ = writeln!(x, "  {k}=\"{}\"", esc(v));
+        }
+    }
+    let _ = writeln!(
+        x,
+        "  numberOfEventIndicators=\"{}\">",
+        md.number_of_event_indicators
+    );
+    for (tag, i) in [
+        ("ModelExchange", &md.model_exchange),
+        ("CoSimulation", &md.co_simulation),
+    ] {
+        if let Some(i) = i {
+            let _ = writeln!(
+                x,
+                "  <{tag} modelIdentifier=\"{}\"/>",
+                esc(&i.model_identifier)
+            );
+        }
+    }
+    if let Some(e) = &md.default_experiment {
+        x.push_str("  <DefaultExperiment");
+        for (k, v) in [
+            ("startTime", &e.start_time),
+            ("stopTime", &e.stop_time),
+            ("tolerance", &e.tolerance),
+        ] {
+            if let Some(v) = v {
+                let _ = write!(x, " {k}=\"{}\"", esc(v));
+            }
+        }
+        x.push_str("/>\n");
+    }
+    x.push_str("  <ModelVariables>\n");
+    for v in &md.variables {
+        let causality = match v.causality {
+            Causality::Parameter => "parameter",
+            Causality::CalculatedParameter => "calculatedParameter",
+            Causality::Input => "input",
+            Causality::Output => "output",
+            Causality::Local => "local",
+            Causality::Independent => "independent",
+            Causality::StructuralParameter => return schema("structuralParameter は 2.0 に無い"),
+        };
+        let variability = match v.variability {
+            Variability::Constant => "constant",
+            Variability::Fixed => "fixed",
+            Variability::Tunable => "tunable",
+            Variability::Discrete => "discrete",
+            Variability::Continuous => "continuous",
+        };
+        let ty = match v.ty {
+            VarType::Float64 => "Real",
+            VarType::Int32 => "Integer",
+            VarType::Boolean => "Boolean",
+            other => return schema(format!("型 {other:?} は書けない")),
+        };
+        let _ = write!(
+            x,
+            "    <ScalarVariable name=\"{}\" valueReference=\"{}\" causality=\"{causality}\" variability=\"{variability}\"",
+            esc(&v.name),
+            v.value_reference
+        );
+        if let Some(i) = v.initial {
+            let i = match i {
+                Initial::Exact => "exact",
+                Initial::Approx => "approx",
+                Initial::Calculated => "calculated",
+            };
+            let _ = write!(x, " initial=\"{i}\"");
+        }
+        let _ = write!(x, ">\n      <{ty}");
+        if let Some(s) = &v.start {
+            let _ = write!(x, " start=\"{}\"", esc(s));
+        }
+        if let Some(d) = v.derivative {
+            let _ = write!(x, " derivative=\"{d}\"");
+        }
+        x.push_str("/>\n    </ScalarVariable>\n");
+    }
+    x.push_str("  </ModelVariables>\n  <ModelStructure>\n");
+    let s = &md.model_structure;
+    for (tag, list) in [
+        ("Outputs", &s.outputs),
+        ("Derivatives", &s.derivatives),
+        ("InitialUnknowns", &s.initial_unknowns),
+    ] {
+        // 2.0 の XSD では Unknown が 1 つ以上要るので、空の要素は書かない
+        if list.is_empty() {
+            continue;
+        }
+        let _ = writeln!(x, "    <{tag}>");
+        for i in list {
+            let _ = writeln!(x, "      <Unknown index=\"{i}\"/>");
+        }
+        let _ = writeln!(x, "    </{tag}>");
+    }
+    x.push_str("  </ModelStructure>\n</fmiModelDescription>\n");
+    Ok(x)
 }

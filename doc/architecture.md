@@ -146,6 +146,7 @@ SourceFile ─┬─▶ outline ─▶ outline_shape ─┬─▶ class_index �
 | `outline_shape(file)` | outline | **Eq** | **防火壁 1**。位置を 0 にした写し。索引とグラフは、空白やコメントだけの編集では再計算しない | S004 |
 | `class_index(workspace)` | outline_shape | Eq | 完全修飾名の索引（`within` を反映）。字句的な名前解決と、extends を含むインターフェース（`interface`） | S004 |
 | `connect_graph(workspace, request)` | class_index | Eq | **flatten しなくても描ける**。`GraphRequest`（モデル、depth） | S004 |
+| `library_graph(workspace, library, request)` | class_index、入力 `Library` | Eq | ライブラリがあるときの `connect_graph`。ワークスペースの索引をライブラリの索引（入力 `Library`。`Checker::library_outlines` の世代が変わったときだけ差し替える）に重ねる（[ADR-0005](adr/0005-lazy-query-db.md)） | S122 |
 | `shape(file)` | SourceFile | Eq | 正規化した本文と位置の対応表（`globe_mode_core::normalize`） | S005 |
 | `source_shape(file)` | shape | **Eq** | **防火壁 0**。コメントを除き、空白を 1 個に畳んだ本文。空白やコメントだけの編集では、Rumoca のコンパイルが走らない | S005 |
 | `shape_map(file)` | shape | Eq | 正規化後の位置 → 元の本文の位置。診断の位置を戻すのに使い、`check` の依存には入れない | S005 |
@@ -342,6 +343,8 @@ Svelte の UI は `Backend` インターフェースだけに依存する。実�
 | Zig | `globe-mode-c` の手書きのヘッダを `addTranslateC` で読む（S075） | `src/Zig` |
 | Elixir | `globe-mode-nif`（Rustler）を `:erlang.load_nif` で読む（S082 は `GlobeMode` 1 本、JSON は Elixir 1.18 の標準 `JSON`）。今後 rustler_precompiled で配る | `src/Elixir` |
 | Gleam | Erlang target は `@external` で `globe_mode_nif` を呼ぶ（S087 の `src/Gleam/globe_mode`。`.so` は `src/globe_mode_nif.erl` が `GLOBE_MODE_NIF` から `erlang:load_nif`、結果は JSON の文字列のまま）。今後 JS target は `globe-mode-wasm` を呼ぶ | `src/Gleam` |
+
+**進捗と中断**: facade の `SimulateHandle`（進捗のコールバックと `CancelToken`）を各口に写す。進捗は段と積分の時刻 t（100 ms に 1 回まで）、止めたら途中の列と `GM-I11004`（[ADR-0033](adr/0033-progress-and-cancel.md)、Proposed。S121）。
 
 **共通の参照シナリオ**: 全言語で同じ手順を通す。open → check → graph → simulate（bdf）→ 結果を取得 → FMU を出力。P7 の完了条件はこれが6言語で通ること。
 
