@@ -8,6 +8,7 @@ dist/ を localhost で配り（CSP は index.html の meta と同じものを�
 最後に「MSL を読む」で MSL 4.1.0 を読み（public/msl/MSL.json が無ければ飛ばす）、ChuaCircuit の検査（error 0）と実行（プロットの canvas と系列）を確かめて、秒数を出す（S048）。
 長いモデルの実行で進捗（段と t の割合）が出て、「止める」で止まり（data-run="cancelled"）、ボタンが戻ることを確かめる（S133）。
 Decay の `der(x)` の x で F12 を押すと宣言の行（`Real x`）へ動く。ChuaCircuit のファイルで型 `Modelica.Electrical.Analog.Basic.Resistor` の上の F12 は、ライブラリの Resistor.mo をエディタに開き、Alt+← で ChuaCircuit に戻る（S138）。
+実行の設定（S142）: 終了時刻 2 とソルバ dopri45 で Decay を実行して x(2) が e⁻²、DecayK は experiment の Tolerance が初期値（出どころ experiment）に出て、k = 2 の上書きで x(1) が e⁻²。名前=値でない行は実行しない。
 ライブラリの木で Modelica → Electrical → Analog → Examples → ChuaCircuit と開き、そのファイルがエディタに開いて検査が通ることも確かめる（S127）。
 別のページで MSL.json を構文の誤りのファイルを含むライブラリに差し替え、読み飛ばしの警告 GM-W1001 の行と notes のファイル名が出ることを確かめる（S071）。
 `?smoke=1` で起動すると Decay の検査と実行の結果が console に `GM-SMOKE check=ok simulate=ok x1=… msl=… ready_ms=…` の 1 行で出ること（S100、android.yml の smoke。時刻は S125）。MSL.json があれば msl=ok（MSL を読んで ChuaCircuit の検査が error 0。S103）。
@@ -19,6 +20,7 @@ from __future__ import annotations
 import functools
 import http.server
 import json
+import math
 import re
 import subprocess
 import sys
@@ -43,6 +45,11 @@ CIRCUIT = (
 )
 # 進捗と止める（S133）: 1000 s の振動（wasm で数秒かかる）
 LONG = "model Long\n  Real x(start = 0, fixed = true);\nequation\n  der(x) = sin(100 * time);\n  annotation(experiment(StopTime = 1000));\nend Long;\n"
+# 実行の設定（S142）: パラメータ k を上書きできる。experiment の Tolerance が初期値に出る
+DECAY_K = (
+    "model DecayK\n  parameter Real k = 1;\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -k * x;\n"
+    "  annotation(experiment(StopTime = 3, Tolerance = 1e-8));\nend DecayK;\n"
+)
 CHUA = "Modelica.Electrical.Analog.Examples.ChuaCircuit"
 BAD = "model Bad\n  Real x;\nequation\n  der(x) = -x;\n  x = 1;\nend Bad;\n"
 
@@ -137,6 +144,41 @@ def main() -> int:
         expect(page.locator(".plot canvas").first).to_be_visible()
         assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
         print(f"Decay の系列の選択: data-series={plot.get_attribute('data-series')}、data-right={plot.get_attribute('data-right')}、data-x={plot.get_attribute('data-x')}")
+
+        # 実行の設定（S142）: 終了時刻 2・dopri45 で Decay を実行すると x(2) = e⁻²。DecayK は experiment の Tolerance が初期値に出て、k = 2 の上書きで x(1) = e⁻²
+        tolerance, stop = page.get_by_label("許容誤差"), page.get_by_label("終了時刻")
+        expect(page.locator("[data-origin=tolerance]")).to_have_text("既定")
+        stop.fill("2")
+        page.get_by_label("ソルバ").select_option("dopri45")
+        simulate()
+        assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
+        last = page.locator("[data-last]").inner_text()
+        assert "終了 2（指定）" in last and "ソルバ dopri45（指定）" in last, last
+        x2 = json.loads(page.locator("[data-final]").get_attribute("data-final"))["x"]
+        assert abs(x2 - math.exp(-2)) < 1e-4, x2
+        page.get_by_label("モデル名").fill("DecayK")
+        page.locator(".cm-content").focus()
+        page.keyboard.press("Control+A")
+        page.keyboard.insert_text(DECAY_K)
+        check()
+        expect(tolerance).to_have_value("1e-8")
+        expect(page.locator("[data-origin=tolerance]")).to_have_text("experiment")
+        stop.fill("1")
+        page.get_by_label("パラメータの上書き").fill("k = 2")
+        simulate()
+        assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
+        last = page.locator("[data-last]").inner_text()
+        assert "許容誤差 1e-8（experiment）" in last, last
+        x1 = json.loads(page.locator("[data-final]").get_attribute("data-final"))["x"]
+        assert abs(x1 - math.exp(-2)) < 1e-4, x1
+        page.get_by_label("パラメータの上書き").fill("k 2")  # 名前=値でない行は実行しないで理由を出す
+        expect(page.get_by_role("alert")).to_contain_text("名前=値")
+        print(f"実行の設定: x(2) = {x2:.6f}（e⁻² = {math.exp(-2):.6f}）、k = 2 で x(1) = {x1:.6f}、{last!r}")
+        # 後の試験に残さない
+        page.get_by_label("パラメータの上書き").fill("")
+        stop.fill("")
+        stop.dispatch_event("change")
+        page.get_by_label("ソルバ").select_option("")
 
         page.get_by_label("モデル名").fill("Big")
         page.locator(".cm-content").focus()

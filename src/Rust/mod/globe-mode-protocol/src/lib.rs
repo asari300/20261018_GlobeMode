@@ -15,8 +15,8 @@ pub use globe_mode_analysis::{
 };
 pub use globe_mode_core::{Diagnostic, Severity, Stage};
 pub use globe_mode_ir::{
-    BalanceCount, DaeCounts, FlatSummary, InitStructure, Outline, ResolvedSettings, SimSettings,
-    SimStats, Termination, TunableParameter,
+    BalanceCount, Bits, DaeCounts, Experiment, FlatSummary, InitStructure, Outline,
+    ResolvedSettings, SimSettings, SimStats, Termination, TunableParameter,
 };
 
 /// 検査（S0〜S10）の結果（`globe check --json` と同じ形）。
@@ -36,6 +36,9 @@ pub struct CheckResponse {
     pub s8: Option<InitReport>,
     pub s9: Option<LoopReport>,
     pub s10: Option<PreflightReport>,
+    /// モデルの experiment annotation の数の字面（S142。UI の実行の設定の初期値。annotation が無ければ出ない）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub experiment: Option<ExperimentValues>,
     /// 初期化系の構造（位置は元の本文の中）
     pub init: Option<InitStructure>,
     pub flat: Option<FlatSummary>,
@@ -65,10 +68,32 @@ impl CheckResponse {
             s8: None,
             s9: None,
             s10: None,
+            experiment: None,
             init: None,
             flat: None,
             diagnostics,
             notes: Vec::new(),
+        }
+    }
+}
+
+/// experiment annotation の値（書かれていない項目と数の字面でない項目は None）。
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct ExperimentValues {
+    pub start_time: Option<f64>,
+    pub stop_time: Option<f64>,
+    pub tolerance: Option<f64>,
+    pub interval: Option<f64>,
+}
+
+impl From<&Experiment> for ExperimentValues {
+    fn from(e: &Experiment) -> Self {
+        let get = |b: Option<Bits>| b.map(Bits::get);
+        ExperimentValues {
+            start_time: get(e.start_time),
+            stop_time: get(e.stop_time),
+            tolerance: get(e.tolerance),
+            interval: get(e.interval),
         }
     }
 }
