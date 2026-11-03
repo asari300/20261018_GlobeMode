@@ -8,13 +8,15 @@
   import { modelicaCompletion, modelicaLinter, toCmDiagnostics } from "./lib/editor";
   import { WorkerBackend } from "./lib/worker-backend";
   import { TauriBackend, inTauri } from "./lib/tauri-backend";
-  import type { Backend } from "./lib/backend";
+  import type { Backend, TreeEntry } from "./lib/backend";
   import type { Columns } from "./lib/plot/csv";
   import type { Diagnostic } from "./lib/protocol";
   import Plot from "./lib/plot/Plot.svelte";
   import Graph from "./lib/graph/Graph.svelte";
+  import LibraryTree from "./lib/LibraryTree.svelte";
 
-  const FILE = "Model.mo";
+  // エディタの文書の名前。ライブラリの木で開くと、そのライブラリのファイルの名前（同じ名前で差し替える。S127）
+  let file = $state("Model.mo");
   // S092: Android の Tauri には sidecar が無い（ADR-0023）ので、ブラウザと同じ Worker（wasm）を使う
   const desktop = inTauri() && !/Android/i.test(navigator.userAgent);
   const tauri = desktop ? new TauriBackend() : null;
@@ -52,7 +54,7 @@
         doc: "model Decay\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -x;\nend Decay;\n",
         extensions: [
           lineNumbers(), history(), drawSelection(), bracketMatching(), keymap.of([...defaultKeymap, ...historyKeymap]),
-          modelicaCompletion(), modelicaLinter(backend, FILE), // S053
+          modelicaCompletion(), modelicaLinter(backend, file), // S053
         ],
       }),
     });
@@ -113,7 +115,7 @@
     busy = true;
     failure = "";
     try {
-      await backend.setFile(FILE, view.state.doc.toString());
+      await backend.setFile(file, view.state.doc.toString());
       await job();
     } catch (e) {
       failure = String((e as Error).message ?? e);
@@ -124,7 +126,7 @@
 
   const check = () => run(async () => {
     diagnostics = bySeverity((await backend.check(model)).diagnostics);
-    view.dispatch(setDiagnostics(view.state, toCmDiagnostics(view.state.doc.toString(), diagnostics, FILE)));
+    view.dispatch(setDiagnostics(view.state, toCmDiagnostics(view.state.doc.toString(), diagnostics, file)));
   });
 
   // 整形（S053、doc/format-style.md）。文法が壊れていれば本文は変えず、理由を出す
@@ -143,6 +145,17 @@
       else if (!r.ok && !r.diagnostics.length) failure = "実行に失敗した（診断なし）";
     });
 
+  // ライブラリの木で選んだクラスのファイルをエディタに開き、モデル名をそのクラスにする（S127）
+  const openLibrary = (e: TreeEntry) => run(async () => {
+    const src = await backend.librarySource(e.path);
+    file = src.file;
+    model = e.path;
+    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: src.text } });
+    diagnostics = [];
+    columns = null;
+    graphModel = null;
+  });
+
   const graph = () => run(async () => {
     graphModel = model;
   });
@@ -159,7 +172,7 @@
 
   // range は UTF-8 のバイト位置。CodeMirror は UTF-16 の位置なので変換する
   function jump(d: Diagnostic) {
-    if (!d.range || (d.file && d.file !== FILE)) return;
+    if (!d.range || (d.file && d.file !== file)) return;
     const bytes = new TextEncoder().encode(view.state.doc.toString());
     const at = (n: number) => new TextDecoder().decode(bytes.slice(0, n)).length;
     view.dispatch({ selection: { anchor: at(d.range.start), head: at(d.range.end) }, scrollIntoView: true });
@@ -185,11 +198,14 @@
     {/if}
   </div>
   <p class="note" data-msl={msl}>
-    {#if msl === "loaded"}{mslNote}。モデル名にライブラリのモデル（例 Modelica.Electrical.Analog.Examples.ChuaCircuit）を入れて検査・実行できる。グラフも描ける。
+    {#if msl === "loaded"}{mslNote}。左の木でモデルを選ぶか、モデル名にライブラリのモデル（例 Modelica.Electrical.Analog.Examples.ChuaCircuit）を入れて検査・実行できる。グラフも描ける。
     {:else if msl === "loading"}{desktop ? `MSL ${mslVersion} を取得して展開している（${mslProgress || "回線しだい"}）。もう一度押すと取り消す。` : "MSL.json を取得して読み込んでいる（十数秒）。"}
     {:else}MSL は未読み込み。{/if}
   </p>
-  <div class="editor" bind:this={host}></div>
+  <div class="work">
+    {#if msl === "loaded"}<aside class="library"><LibraryTree {backend} onOpen={openLibrary} /></aside>{/if}
+    <div class="editor" bind:this={host}></div>
+  </div>
   {#if failure}<p class="failure" role="alert">{failure}</p>{/if}
   <table class="diagnostics" aria-label="診断">
     <tbody>
@@ -208,7 +224,9 @@
   main { font: 14px/1.4 system-ui, sans-serif; max-width: 60rem; margin: 0 auto; padding: 1rem; }
   .bar { display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: .5rem; }
   .note { color: #555; margin: .25rem 0; }
-  .editor { border: 1px solid #888; }
+  .work { display: flex; gap: .5rem; }
+  .library { flex: 0 0 16rem; height: 16rem; overflow: auto; border: 1px solid #888; font-size: .9em; }
+  .editor { flex: 1; min-width: 0; border: 1px solid #888; }
   .editor :global(.cm-editor) { height: 16rem; }
   .diagnostics { width: 100%; border-collapse: collapse; margin-top: .5rem; }
   td { border-bottom: 1px solid #ddd; padding: .2rem .5rem; vertical-align: top; }

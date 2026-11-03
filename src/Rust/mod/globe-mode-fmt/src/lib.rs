@@ -13,10 +13,12 @@ mod layout;
 mod lexer;
 mod lint;
 mod structure;
+mod tree;
 
 #[cfg(feature = "config")]
 pub use config::CONFIG_FILE;
 pub use lint::{LintMessage, LintOptions, RULES, lint};
+pub use tree::{LibraryTree, TreeEntry};
 
 /// Modelica の予約語と組み込み型。補完の候補に使う。
 pub const KEYWORDS: &[&str] = &[

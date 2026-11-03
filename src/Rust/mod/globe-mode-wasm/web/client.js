@@ -96,6 +96,9 @@ export class GlobeWorker {
   async simulate(request) { return JSON.parse(await this.#call("simulate", { request: JSON.stringify(request) })); }
   format(text, indent = 2, insertOrigin = true) { return this.#call("format", { text, indent, insertOrigin }); }
   async lint(text) { return JSON.parse(await this.#call("lint", { text })); }
+  // ライブラリの木（S127）: prefix の直下の子 [{name, path, kind, description, file, hasChildren}] と、クラスのファイル {file, text}
+  async libraryTree(prefix) { return JSON.parse(await this.#call("library_tree", { prefix })); }
+  async librarySource(path) { return JSON.parse(await this.#call("library_source", { path })); }
   // 時系列を CSV でなく列ごとの Float64Array で返す（S051）。{response（csv 無し）, layout: {names, points}, columns}
   async simulateColumns(request) {
     const r = await this.#call("simulate_columns", { request: JSON.stringify(request) });

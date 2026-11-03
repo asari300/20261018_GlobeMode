@@ -14,6 +14,8 @@
 //! | `globe/graph` | `{model, depth}` | graphology の JSON（`ConnectGraph::to_graphology`） |
 //! | `globe/format` | `{text, indent?, insertOrigin?, blankAroundSections?, formatHtml?}` | 整形後の本文（S053。壊れていれば -32000） |
 //! | `globe/lint` | `{text}` | `[{rule, line, column, message}]`（S053） |
+//! | `globe/libraryTree` | `{prefix}`（空ならトップレベル） | `[{name, path, kind, description, file, hasChildren}]`（S127。直下の子だけ。wasm の `library_tree` と同じ形） |
+//! | `globe/librarySource` | `{path}`（完全修飾名） | `{file, text}`（S127。そのクラスを定義するライブラリのファイル。無ければ -32000） |
 //!
 //! 設定ファイル（S130）: `initialize` の `rootUri`（無ければ `rootPath`）から上へたどって最初の `globe-mode.toml` を
 //! 読み、lint の診断と `textDocument/formatting` に使う（`workspace/didChangeConfiguration` で読み直す）。
@@ -44,6 +46,9 @@ pub struct Server {
     ws: Workspace,
     /// 開いているファイルの本文（キーは URI の文字列）。位置の換算に使う
     texts: HashMap<String, String>,
+    libraries: Vec<PathBuf>,
+    /// ライブラリの木（S127。最初の `globe/libraryTree` で全ファイルの見出しを読んで作る）
+    tree: Option<globe_mode_fmt::LibraryTree>,
     /// ワークスペースの根（`initialize` の `rootUri`）
     root: Option<PathBuf>,
     /// 根の `globe-mode.toml`（S130）。無ければ None
@@ -56,8 +61,25 @@ impl Server {
         Ok(Server {
             ws: Workspace::with_libraries(libraries)?,
             texts: HashMap::new(),
+            libraries: libraries.to_vec(),
+            tree: None,
             root: None,
             config: None,
+        })
+    }
+
+    fn tree(&mut self) -> &globe_mode_fmt::LibraryTree {
+        self.tree.get_or_insert_with(|| {
+            let mut files = Vec::new();
+            for lib in &self.libraries {
+                collect_mo(lib, &mut files);
+            }
+            // 名前は Workspace::with_libraries がライブラリのファイルに付けるのと同じ（display）。開くと同じ文書を差し替える
+            let texts: Vec<(String, String)> = files
+                .iter()
+                .filter_map(|p| Some((p.display().to_string(), std::fs::read_to_string(p).ok()?)))
+                .collect();
+            globe_mode_fmt::LibraryTree::new(texts.iter().map(|(f, t)| (f.as_str(), t.as_str())))
         })
     }
 
@@ -282,6 +304,25 @@ impl Server {
                 ),
                 None => error(id, -32602, "params.text が文字列でない"),
             },
+            "globe/libraryTree" => {
+                let prefix = params["prefix"].as_str().unwrap_or("");
+                let entries: Vec<Value> = self
+                    .tree()
+                    .children(prefix)
+                    .iter()
+                    .map(|e| json!({"name": e.name, "path": e.path, "kind": e.kind,
+                        "description": e.description, "file": e.file, "hasChildren": e.has_children}))
+                    .collect();
+                reply(id, json!(entries))
+            }
+            "globe/librarySource" => match params["path"].as_str() {
+                Some(path) => match self.tree().file(path).map(|f| (f.to_string(), std::fs::read_to_string(f))) {
+                    Some((file, Ok(text))) => reply(id, json!({"file": file, "text": text})),
+                    Some((file, Err(e))) => error(id, -32000, &format!("{file}: {e}")),
+                    None => error(id, -32000, &format!("ライブラリに {path} が無い")),
+                },
+                None => error(id, -32602, "params.path が文字列でない"),
+            },
             // 要求（id あり）は断る。知らない通知は無視する
             _ => match id {
                 Some(id) => vec![
@@ -457,6 +498,17 @@ fn publish(uri: &str, diagnostics: &[lsp_types::Diagnostic]) -> Value {
 }
 
 /// URI をワークスペースのパスにする。`file:` はパーセントを戻した path、それ以外は URI の文字列のまま。
+/// `path` の下の `.mo`（`path` が `.mo` ならそれ自身）。読めないディレクトリは飛ばす。
+fn collect_mo(path: &std::path::Path, out: &mut Vec<PathBuf>) {
+    if path.is_dir() {
+        for entry in std::fs::read_dir(path).into_iter().flatten().flatten() {
+            collect_mo(&entry.path(), out);
+        }
+    } else if path.extension().is_some_and(|e| e == "mo") {
+        out.push(path.to_path_buf());
+    }
+}
+
 fn uri_path(uri: &str) -> String {
     match uri.parse::<Uri>() {
         Ok(u) if u.scheme().is_some_and(|s| s.as_str() == "file") => {
@@ -796,6 +848,47 @@ mod tests {
             s.handle(json!({"method": "globe/check", "params": {}}))
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn library_tree_and_source() {
+        let lib =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../Modelica/GlobeModeValidation");
+        let mut s = Server::new(std::slice::from_ref(&lib)).unwrap();
+        let r = s.handle(json!({"id": 1, "method": "globe/libraryTree", "params": {"prefix": ""}}));
+        assert_eq!(r[0]["result"][0]["path"], "GlobeModeValidation", "{}", r[0]);
+        let r = s.handle(json!({"id": 2, "method": "globe/libraryTree", "params": {"prefix": "GlobeModeValidation.Simulation"}}));
+        assert!(
+            r[0]["result"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|e| e["name"] == "Decay" && e["kind"] == "model"),
+            "{}",
+            r[0]
+        );
+        let model = "GlobeModeValidation.Simulation.Decay";
+        let r =
+            s.handle(json!({"id": 3, "method": "globe/librarySource", "params": {"path": model}}));
+        let (file, text) = (
+            r[0]["result"]["file"].as_str().unwrap(),
+            r[0]["result"]["text"].as_str().unwrap(),
+        );
+        assert!(
+            file.ends_with("Decay.mo") && text.contains("model Decay"),
+            "{}",
+            r[0]
+        );
+        // 開くとライブラリの同じファイルを差し替える（検査が通る）
+        s.handle(
+            json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+            "uri": file, "languageId": "modelica", "version": 1, "text": text}}}),
+        );
+        let r = s.handle(json!({"id": 4, "method": "globe/check", "params": {"model": model}}));
+        assert_eq!(r[0]["result"]["passed"], true, "{}", r[0]);
+        let r =
+            s.handle(json!({"id": 5, "method": "globe/librarySource", "params": {"path": "Nope"}}));
+        assert_eq!(r[0]["error"]["code"], -32000);
     }
 
     #[test]
