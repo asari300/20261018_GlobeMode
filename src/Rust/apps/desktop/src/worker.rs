@@ -5,13 +5,15 @@
 //!   開いているファイル（`textDocument/didOpen`・`didChange`、`globe/simulate`・`globe/simulateColumns` の `files`）を再生する。
 //! - 落ちた（panic・OOM）ときも同じ。その要求は Err を返し、次の要求で作り直す。
 //! - 通知（`publishDiagnostics` など）は読み取りのスレッドから `Sink` へ渡す。
+//! - 実行中の `globe/simulate*` は [`Canceller`] で `$/cancelRequest` を送って止める（S136、ADR-0033）。サーバが
+//!   [`CANCEL_GRACE`] の間に応えなければ（lowering やネイティブの積分の中は見られない）、プロセスを kill する。
 
 use std::collections::BTreeMap;
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -24,22 +26,62 @@ pub type Sink = Arc<dyn Fn(Value) + Send + Sync>;
 const SIMULATE_BUDGET: Duration = Duration::from_secs(180);
 /// `initialize` の応答まで（ライブラリを読む。MSL で約 3 s、遅い機械の余裕を見る）
 const START_BUDGET: Duration = Duration::from_secs(300);
+/// `$/cancelRequest` を送ってから、応答を待つ長さ（過ぎたら kill して作り直す）
+pub const CANCEL_GRACE: Duration = Duration::from_secs(2);
+/// 応答を待つ間に、止める合図を見る間隔
+const POLL: Duration = Duration::from_millis(200);
+
+/// 実行中の要求を止める口（S136）。`Worker` の `Mutex` の外から使う（実行中はそちらが握られているため）。
+#[derive(Clone, Default)]
+pub struct Canceller(Arc<Mutex<Option<Running>>>);
+
+struct Running {
+    stdin: Arc<Mutex<ChildStdin>>,
+    id: u64,
+    /// `cancel` を呼んだ時刻
+    asked: Option<Instant>,
+}
+
+impl Canceller {
+    /// 実行中の要求があれば `$/cancelRequest` を送る。無ければ何もしない。
+    pub fn cancel(&self) {
+        if let Some(r) = lock(&self.0).as_mut() {
+            r.asked.get_or_insert_with(Instant::now);
+            let msg =
+                json!({"jsonrpc": "2.0", "method": "$/cancelRequest", "params": {"id": r.id}});
+            let _ = write_frame(&mut *lock(&r.stdin), &msg);
+        }
+    }
+}
+
+fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+fn write_frame(w: &mut impl Write, msg: &Value) -> io::Result<()> {
+    let body = msg.to_string();
+    write!(w, "Content-Length: {}\r\n\r\n{body}", body.len())?;
+    w.flush()
+}
 
 pub struct Worker {
     program: PathBuf,
     libraries: Vec<PathBuf>,
+    /// ワークスペースの根。`initialize` の `rootPath` で渡し、サーバは根から上へ `globe-mode.toml` を探す（S143）
+    root: Option<PathBuf>,
     sink: Sink,
     live: Option<Live>,
     /// 開いているファイル（URI → 本文）。作り直したときに送り直す
     docs: BTreeMap<String, String>,
     next_id: u64,
+    running: Canceller,
     simulate_budget: Duration,
     start_budget: Duration,
 }
 
 struct Live {
     child: Child,
-    stdin: ChildStdin,
+    stdin: Arc<Mutex<ChildStdin>>,
     /// 応答（`id` があって `method` が無いメッセージ）
     rx: Receiver<Value>,
 }
@@ -56,19 +98,32 @@ impl Worker {
         Worker {
             program,
             libraries,
+            root: None,
             sink,
             live: None,
             docs: BTreeMap::new(),
             next_id: 0,
+            running: Canceller::default(),
             simulate_budget: SIMULATE_BUDGET,
             start_budget: START_BUDGET,
         }
+    }
+
+    /// ワークスペースの根（起動する前に呼ぶ）。
+    pub fn with_root(mut self, root: PathBuf) -> Self {
+        self.root = Some(root);
+        self
     }
 
     /// 渡すライブラリを替え、動いている sidecar は止める（次の要求で新しい `--library` で作り直し、開いているファイルを送り直す）。
     pub fn set_libraries(&mut self, libraries: Vec<PathBuf>) {
         self.libraries = libraries;
         self.live = None;
+    }
+
+    /// 実行中の要求を外から止める口（[`Canceller`]）。
+    pub fn canceller(&self) -> Canceller {
+        self.running.clone()
     }
 
     /// sidecar の pid（動いていなければ None）。
@@ -89,7 +144,8 @@ impl Worker {
                 .map_err(|e| format!("{}: {e}", self.program.display()))?,
         );
         let budget = Some(self.start_budget);
-        self.exchange("initialize", json!({"capabilities": {}}), budget)?;
+        let init = json!({"capabilities": {}, "rootPath": self.root.as_ref().map(|r| r.display().to_string())});
+        self.exchange("initialize", init, budget)?;
         self.send(&json!({"jsonrpc": "2.0", "method": "initialized", "params": {}}))?;
         for (uri, text) in self.docs.clone() {
             self.send(&did_open(&uri, &text))?;
@@ -167,14 +223,16 @@ impl Worker {
                 }
             }
         });
-        Ok(Live { child, stdin, rx })
+        Ok(Live {
+            child,
+            stdin: Arc::new(Mutex::new(stdin)),
+            rx,
+        })
     }
 
     fn send(&mut self, msg: &Value) -> Result<(), String> {
-        let body = msg.to_string();
-        let live = self.live.as_mut().ok_or("sidecar が動いていない")?;
-        let sent = write!(live.stdin, "Content-Length: {}\r\n\r\n{body}", body.len())
-            .and_then(|()| live.stdin.flush());
+        let live = self.live.as_ref().ok_or("sidecar が動いていない")?;
+        let sent = write_frame(&mut *lock(&live.stdin), msg);
         sent.map_err(|e| {
             self.live = None;
             format!("sidecar に書けない（次の要求で作り直す）: {e}")
@@ -192,10 +250,51 @@ impl Worker {
         let id = self.next_id;
         self.send(&json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}))?;
         let deadline = budget.map(|b| Instant::now() + b);
+        if budget.is_some() {
+            let stdin = self
+                .live
+                .as_ref()
+                .ok_or("sidecar が動いていない")?
+                .stdin
+                .clone();
+            *lock(&self.running.0) = Some(Running {
+                stdin,
+                id,
+                asked: None,
+            });
+        }
+        let r = self.wait(id, method, budget, deadline);
+        *lock(&self.running.0) = None;
+        r
+    }
+
+    /// `id` の応答を待つ。予算を超えるか、止める合図から [`CANCEL_GRACE`] たったら kill する。
+    fn wait(
+        &mut self,
+        id: u64,
+        method: &str,
+        budget: Option<Duration>,
+        deadline: Option<Instant>,
+    ) -> Result<Value, String> {
         loop {
             let rx = &self.live.as_ref().ok_or("sidecar が動いていない")?.rx;
             let got = match deadline {
-                Some(d) => rx.recv_timeout(d.saturating_duration_since(Instant::now())),
+                Some(d) => {
+                    let left = d.saturating_duration_since(Instant::now());
+                    match rx.recv_timeout(left.min(POLL)) {
+                        Err(RecvTimeoutError::Timeout) if !left.is_zero() => {
+                            let asked = lock(&self.running.0).as_ref().and_then(|r| r.asked);
+                            if asked.is_some_and(|a| a.elapsed() >= CANCEL_GRACE) {
+                                self.live = None;
+                                return Err(format!(
+                                    "{method}: 止めても応えないので sidecar を止めた（次の要求で作り直す）"
+                                ));
+                            }
+                            continue;
+                        }
+                        got => got,
+                    }
+                }
                 None => rx.recv().map_err(|_| RecvTimeoutError::Disconnected),
             };
             match got {
@@ -307,6 +406,65 @@ mod tests {
         let r = w.request("globe/check", json!({"model": "D"})).unwrap();
         assert_eq!(r["passed"], true);
         assert_ne!(w.pid().unwrap(), old);
+    }
+
+    /// S143: `with_root` の根の `globe-mode.toml` が `globe/format` に効き、`workspace/didChangeConfiguration` で読み直せる。
+    #[test]
+    fn root_config_drives_format_and_reloads() {
+        let Some(bin) = std::env::var_os("GLOBE_BIN") else {
+            eprintln!("GLOBE_BIN が無いので省く");
+            return;
+        };
+        let dir = std::env::temp_dir().join(format!("globe-desktop-root-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let toml = dir.join("globe-mode.toml");
+        std::fs::write(&toml, "[fmt]\nindent = 4\n").unwrap();
+        let (sink, _) = collecting();
+        let mut w = Worker::new(bin.into(), vec![], sink).with_root(dir.clone());
+        let text = json!({"text": "model C\nReal x;\nend C;\n"});
+        let r = w.request("globe/format", text.clone()).unwrap();
+        assert!(r.as_str().unwrap().contains("\n    Real x;"), "{r}");
+        std::fs::write(&toml, "[fmt]\nindent = 3\n").unwrap();
+        w.notify("workspace/didChangeConfiguration", json!({"settings": {}}))
+            .unwrap();
+        let r = w.request("globe/format", text).unwrap();
+        assert!(r.as_str().unwrap().contains("\n   Real x;"), "{r}");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// S136: 実行中に `Canceller` で止めると、途中までの列と GM-I11004 の普通の応答が返り、進捗が通知に届く。
+    #[test]
+    fn canceller_stops_a_long_simulate() {
+        let Some(bin) = std::env::var_os("GLOBE_BIN") else {
+            eprintln!("GLOBE_BIN が無いので省く");
+            return;
+        };
+        let (sink, got) = collecting();
+        let mut w = Worker::new(bin.into(), vec![], sink);
+        let c = w.canceller();
+        let run = thread::spawn(move || {
+            w.request(
+                "globe/simulateColumns",
+                json!({"workDoneToken": "run", "request": {"model": "Wiggle", "files": {"Wiggle.mo":
+                    "model Wiggle Real x(start = 0, fixed = true); equation der(x) = sin(100 * time); end Wiggle;"},
+                    "settings": {"solver": "esdirk34", "stop_time": 100000.0, "interval": 1.0}}}),
+            )
+        });
+        // 積分の t が届いてから止める
+        while !got.lock().unwrap().iter().any(|m| {
+            m["params"]["value"]["time"]
+                .as_f64()
+                .is_some_and(|t| t > 1.0)
+        }) {
+            thread::sleep(Duration::from_millis(20));
+        }
+        c.cancel();
+        let r = run.join().unwrap().unwrap();
+        assert_eq!(
+            r["response"]["termination"]["kind"], "cancelled",
+            "{}",
+            r["response"]
+        );
     }
 
     /// 応答しない sidecar は予算で止め、次の要求でまた立ち上げようとする。

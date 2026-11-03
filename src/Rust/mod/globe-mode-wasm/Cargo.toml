@@ -12,9 +12,10 @@ publish.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-# S035: facade と protocol だけに依存する
-globe-mode = { workspace = true }
+# S035: facade と protocol だけに依存する。S138: 定義ジャンプの解決（`globe_mode_lsp::definition`）だけ lsp から借りる
+globe-mode = { workspace = true, features = ["fmu"] } # S144: export_fmu_bytes
 globe-mode-fmt = { workspace = true }
+globe-mode-lsp = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 wasm-bindgen = { workspace = true }

@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S136 進捗と中断の LSP と Desktop の段 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S136 進捗と中断の LSP と Desktop の段">
+
+<section class="slide" id="S01">
+  <span class="tag">S136 · 2026-11-03 · P7</span>
+  <h1>進捗と中断の LSP と Desktop の段</h1>
+  <p class="lead">ADR-0033 の実装の順の 5（最後の段）: <code>globe-mode-lsp</code>、Desktop の <code>worker.rs</code>、<code>TauriBackend</code></p>
+  <div class="big">Desktop でも <b>進捗</b> が見え、<b>「止める」</b> で止まる。ADR-0033 は Accepted</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li><code>globe/simulate</code>・<code>globe/simulateColumns</code> で facade の <code>simulate_observed</code> を使う</li>
+    <li>進捗は <code>$/progress</code>（begin・report・end）、中断は <code>$/cancelRequest</code></li>
+    <li>そのために入力の読みを別のスレッドにする。計算は 1 度に 1 つのまま</li>
+    <li>Desktop の UI（S133 の進捗の行と「止める」）を sidecar の道でも動かす</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>スレッド</td><td>読みのスレッドがキューに積む。計算と書き出しは元のスレッド</td><td>書き手が 1 つで済む。<code>Server</code> は動かさない</td></tr>
+    <tr><td>トークン</td><td>読んだ時点で id の表に置く</td><td>キューで待つ要求も止められる</td></tr>
+    <tr><td>進捗のトークン</td><td>params の <code>workDoneToken</code>（クライアントが作る）</td><td>ADR の決定 (3)。create の往復が要らない</td></tr>
+    <tr><td>report の値</td><td>message・percentage に段と t を添える</td><td>UI の <code>Progress</code> をそのまま渡せる</td></tr>
+    <tr><td>Desktop</td><td><code>Canceller</code> と command <code>cancel_run</code></td><td>実行中は <code>Worker</code> の Mutex が握られている</td></tr>
+    <tr><td>応えないとき</td><td>2 s で sidecar を作り直す</td><td>ネイティブの積分の中では止まらない（ADR の表の Desktop の行）</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>LSP の中の流れ</h1>
+  <svg class="fig" viewBox="0 0 800 260" role="img" aria-label="stdin を読むスレッドがキューと中断の表に書き、計算のスレッドがキューから 1 つずつ取って stdout に書く">
+    <rect class="svg-box" x="10" y="100" width="130" height="60" rx="10"/>
+    <text class="svg-text-b" x="75" y="135" text-anchor="middle">stdin</text>
+    <line class="svg-line" x1="140" y1="130" x2="180" y2="130"/>
+    <rect class="svg-box-accent" x="180" y="100" width="170" height="60" rx="10"/>
+    <text class="svg-text-b" x="265" y="135" text-anchor="middle">読みのスレッド</text>
+    <line class="svg-line" x1="350" y1="130" x2="390" y2="130"/>
+    <rect class="svg-box" x="390" y="100" width="130" height="60" rx="10"/>
+    <text class="svg-text-b" x="455" y="135" text-anchor="middle">キュー</text>
+    <line class="svg-line" x1="520" y1="130" x2="560" y2="130"/>
+    <rect class="svg-box-accent" x="560" y="100" width="230" height="60" rx="10"/>
+    <text class="svg-text-b" x="675" y="135" text-anchor="middle">計算（1 度に 1 つ）</text>
+    <rect class="svg-box" x="180" y="10" width="610" height="50" rx="10"/>
+    <text class="svg-text" x="485" y="40" text-anchor="middle">$/cancelRequest: id の表の CancelToken を立てる</text>
+    <rect class="svg-box" x="180" y="200" width="610" height="50" rx="10"/>
+    <text class="svg-text" x="485" y="230" text-anchor="middle">stdout: $/progress（begin・report・end）と応答</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">図</span>
+  <h1>Desktop の「止める」</h1>
+  <table class="compact">
+    <tr><th>段</th><th>何が起きるか</th></tr>
+    <tr><td>UI</td><td><code>TauriBackend.cancel()</code> が command <code>cancel_run</code> を呼ぶ</td></tr>
+    <tr><td>シェル</td><td><code>Canceller</code> が sidecar の stdin に <code>$/cancelRequest</code> を書く（Mutex の外）</td></tr>
+    <tr><td>sidecar が止めた</td><td>普通の応答: <code>cancelled</code>、途中までの列、<code>GM-I11004</code></td></tr>
+    <tr><td>2 s 応えない</td><td>sidecar を kill。次の要求で作り直し、UI は「止めた」</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">再現手順</span>
+  <h1>試験</h1>
+  <ul>
+    <li><code>cargo test -p globe-mode-lsp</code>: 17 本通過（新しい 1 本は pipe で <code>serve</code> を回し、t > 1（出力の間隔）の最初の report で止める）</li>
+    <li><code>worker.rs</code> の <code>canceller_stops_a_long_simulate</code>: 本物の <code>globe</code> で <code>cancelled</code></li>
+    <li><code>pnpm check</code>: 0 errors</li>
+    <li><code>desktop.yml</code> の smoke（feature で dispatch）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ul>
+    <li>Desktop の既定（auto）はネイティブの型付きの道。積分の中では t も中断も出ない</li>
+    <li>CodeMirror と LSP の直接の接続</li>
+    <li>wasm で止めたときの途中の列</li>
+    <li>lowering と組み立ての中で止めること（上流の Rumoca に口が要る）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

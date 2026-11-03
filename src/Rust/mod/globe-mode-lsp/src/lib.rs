@@ -2,7 +2,9 @@
 //!
 //! 機能: 診断（`publishDiagnostics`、検査 S0〜S10 と lint）、`documentSymbol`（アウトライン）、
 //! `hover`（クラスの種類）、`formatting`（S053、`globe-mode-fmt`）、`completion`（S053、[`completion`]）。
-//! `definition`・`references`（S132、[`definition`]）。同期は Full で、1 本のスレッドで順に処理する。
+//! `definition`・`references`（S132、[`definition`]）。同期は Full で、要求は 1 本のスレッドで順に処理する
+//! （S136: 入力の読みは別のスレッド。`$/cancelRequest` で `globe/simulate`・`globe/simulateColumns` を止め、
+//! params に `workDoneToken` があれば `$/progress` で進捗を出す。ADR-0033）。
 //!
 //! 独自の要求（S049、ADR-0023。Desktop の UI が sidecar の `globe lsp` に同じ接続で頼む）:
 //!
@@ -15,6 +17,9 @@
 //! | `globe/format` | `{text, indent?, insertOrigin?, blankAroundSections?, formatHtml?}` | 整形後の本文（S053。壊れていれば -32000） |
 //! | `globe/lint` | `{text}` | `[{rule, line, column, message}]`（S053） |
 //! | `globe/libraryTree` | `{prefix}`（空ならトップレベル） | `[{name, path, kind, description, file, hasChildren}]`（S127。直下の子だけ。wasm の `library_tree` と同じ形） |
+//! | `globe/definition` | `{file, line, character}`（開いている文書。行は 0 始まり、列は UTF-16） | `{file, text, range}` か null（S138。`textDocument/definition` と同じ解決で、定義のあるファイルの本文も返す。wasm の `definition` と同じ形） |
+//! | `globe/solvers` | なし | ソルバの登録表（`[{name, status, description, instead?}]`。S142。wasm の `solvers` と同じ） |
+//! | `globe/exportFmu` | `{model, fmiVersion?, outDir}`（既定は FMI 2。`build` はしない） | `{path}`（S144。`outDir/<名前>.fmu` と展開した `outDir/<名前>/` を書く。DAE まで変換できなければ -32000） |
 //! | `globe/librarySource` | `{path}`（完全修飾名） | `{file, text}`（S127。そのクラスを定義するライブラリのファイル。無ければ -32000） |
 //!
 //! 設定ファイル（S130）: `initialize` の `rootUri`（無ければ `rootPath`）から上へたどって最初の `globe-mode.toml` を
@@ -25,14 +30,19 @@
 //! facade（`globe-mode`）の `Workspace` だけを呼び、新しい計算は入れない。
 
 mod completion;
-mod definition;
+pub mod definition;
 
 use std::collections::HashMap;
 use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex, MutexGuard, mpsc};
+use std::thread;
 
 use globe_mode::db::normalize_path;
-use globe_mode::{ColumnsLayout, Diagnostic, SimulateRequest, Simulated, Workspace};
+use globe_mode::{
+    CancelToken, ColumnsLayout, Diagnostic, Progress, SimulateHandle, SimulateRequest, Simulated,
+    Workspace,
+};
 use globe_mode_core::Severity;
 use globe_mode_ir::{ClassKind, ClassOutline};
 use lsp_types::{
@@ -110,6 +120,20 @@ impl Server {
 
     /// 受けたメッセージ 1 つに対して、送り返すメッセージ（応答と通知）を返す。
     pub fn handle(&mut self, msg: Value) -> Vec<Value> {
+        let mut notes = Vec::new();
+        let replies = self.handle_with(msg, None, &mut |m| notes.push(m));
+        notes.extend(replies);
+        notes
+    }
+
+    /// [`Server::handle`] と同じだが、実行の要求は `cancel` で止められ、進捗（`$/progress`）は返り値を待たずに
+    /// `notify` へ渡す（S136、ADR-0033）。
+    pub fn handle_with(
+        &mut self,
+        msg: Value,
+        cancel: Option<CancelToken>,
+        notify: &mut dyn FnMut(Value),
+    ) -> Vec<Value> {
         let id = msg.get("id").cloned();
         let params = &msg["params"];
         let uri = params["textDocument"]["uri"]
@@ -242,6 +266,7 @@ impl Server {
                     ws: &self.ws,
                     tree,
                     scratch: &mut self.scratch,
+                    read: &|f| std::fs::read_to_string(f).ok(),
                 }
                 .definition(&uri_path(&uri), &text, at);
                 let location = target.and_then(|t| {
@@ -254,6 +279,36 @@ impl Server {
                     Some(json!({"uri": u, "range": range(&body, t.range)}))
                 });
                 reply(id, location.unwrap_or(Value::Null))
+            }
+            // UI 向け（S138）: 開いている文書 `file` の行・列の定義を `{file, text, range}` で返す（無ければ null）
+            "globe/definition" => {
+                let Some(file) = params["file"].as_str() else {
+                    return error(id, -32602, "params.file が文字列でない");
+                };
+                let Some(text) = self.texts.get(file).cloned() else {
+                    return reply(id, Value::Null);
+                };
+                self.tree();
+                let tree = self.tree.as_ref().expect("tree() で作った");
+                let open = &self.texts;
+                let found = definition::definition_at(
+                    &mut definition::Resolver {
+                        ws: &self.ws,
+                        tree,
+                        scratch: &mut self.scratch,
+                        read: &|f| {
+                            open.iter()
+                                .find(|(u, _)| uri_path(u) == f)
+                                .map(|(_, t)| t.clone())
+                                .or_else(|| std::fs::read_to_string(f).ok())
+                        },
+                    },
+                    &uri_path(file),
+                    &text,
+                    params["line"].as_u64().unwrap_or(0) as u32,
+                    params["character"].as_u64().unwrap_or(0) as u32,
+                );
+                reply(id, found.unwrap_or(Value::Null))
             }
             "textDocument/references" => {
                 let refs: Vec<Value> = match self.texts.get(&uri) {
@@ -275,7 +330,10 @@ impl Server {
             },
             "globe/simulate" => {
                 match serde_json::from_value::<SimulateRequest>(params["request"].clone()) {
-                    Ok(request) => reply(id, json!(self.ws.simulate(&request))),
+                    Ok(request) => {
+                        let s = self.simulate(&request, params.get("workDoneToken"), cancel, notify);
+                        reply(id, json!(s.response))
+                    }
                     Err(e) => error(id, -32602, &format!("params.request: {e}")),
                 }
             }
@@ -284,7 +342,7 @@ impl Server {
                     Ok(mut request) => {
                         request.no_csv = true;
                         let Simulated { response, run, .. } =
-                            self.ws.simulate_with(&request, &globe_mode::now_ms);
+                            self.simulate(&request, params.get("workDoneToken"), cancel, notify);
                         let (names, columns) = match run {
                             Some(run) => {
                                 let t = run.trajectory;
@@ -319,16 +377,19 @@ impl Server {
                 None => error(id, -32602, "params.model が文字列でない"),
             },
             // 文書に依らない整形と lint（S053。Desktop の UI が wasm と同じ口で頼む）
+            // S143: 設定ファイル（globe-mode.toml）があればそれを土台にし、params のキーがあればそれを優先する
+            // （ブラウザ版の UI は設定ファイルが無いので indent などを渡す。Desktop は渡さず設定に任せる）
             "globe/format" => match params["text"].as_str() {
                 Some(text) => {
+                    let base = self.config.clone().unwrap_or_default().format;
                     let options = globe_mode_fmt::Options {
-                        indent: params["indent"].as_u64().map_or(2, |n| n as usize),
-                        insert_origin: params["insertOrigin"].as_bool().unwrap_or(true),
+                        indent: params["indent"].as_u64().map_or(base.indent, |n| n as usize),
+                        insert_origin: params["insertOrigin"].as_bool().unwrap_or(base.insert_origin),
                         blank_around_sections: params["blankAroundSections"]
                             .as_bool()
-                            .unwrap_or(true),
-                        format_html: params["formatHtml"].as_bool().unwrap_or(true),
-                        ..globe_mode_fmt::Options::default()
+                            .unwrap_or(base.blank_around_sections),
+                        format_html: params["formatHtml"].as_bool().unwrap_or(base.format_html),
+                        ..base
                     };
                     match globe_mode_fmt::format(text, &options) {
                         Ok(out) => reply(id, json!(out)),
@@ -337,10 +398,26 @@ impl Server {
                 }
                 None => error(id, -32602, "params.text が文字列でない"),
             },
+            // ソルバの登録表（S142。wasm の `solvers` と同じ JSON の配列）
+            "globe/solvers" => reply(id, json!(globe_mode::solvers())),
+            // ソースの FMU の書き出し（S144。build 無し。`outDir/<名前>.fmu` と展開した `outDir/<名前>/` を書く）
+            "globe/exportFmu" => match (params["model"].as_str(), params["outDir"].as_str()) {
+                (Some(model), Some(out_dir)) => {
+                    let options = globe_mode::FmuOptions {
+                        fmi_version: params["fmiVersion"].as_u64().unwrap_or(2) as u8,
+                        ..Default::default()
+                    };
+                    match self.ws.export_fmu(model, std::path::Path::new(out_dir), &options) {
+                        Ok(path) => reply(id, json!({"path": path.to_string_lossy()})),
+                        Err(e) => error(id, -32000, &e),
+                    }
+                }
+                _ => error(id, -32602, "params.model と params.outDir が文字列でない"),
+            },
             "globe/lint" => match params["text"].as_str() {
                 Some(text) => reply(
                     id,
-                    json!(globe_mode_fmt::lint(text, &globe_mode_fmt::LintOptions::default())
+                    json!(globe_mode_fmt::lint(text, &self.config.clone().unwrap_or_default())
                         .iter()
                         .map(|m| json!({"rule": m.rule, "line": m.line, "column": m.column, "message": m.message}))
                         .collect::<Vec<_>>()),
@@ -377,6 +454,48 @@ impl Server {
     }
 
     /// 本文を差し替えて、診断を出し直す。
+    /// 実行（ADR-0033）。`token`（params の `workDoneToken`）があれば `$/progress` の begin・report・end を出す。
+    /// report の value には LSP の `message`（段）と `percentage`（t のあるときだけ）に、facade の `Progress` の
+    /// `stage`・`time`・`start_time`・`stop_time` を添える（Desktop の UI がそのまま使う）。
+    fn simulate(
+        &mut self,
+        request: &SimulateRequest,
+        token: Option<&Value>,
+        cancel: Option<CancelToken>,
+        notify: &mut dyn FnMut(Value),
+    ) -> Simulated {
+        let mut progress = |value: Value| {
+            if let Some(token) = token {
+                notify(json!({"jsonrpc": "2.0", "method": "$/progress",
+                    "params": {"token": token, "value": value}}));
+            }
+        };
+        progress(
+            json!({"kind": "begin", "title": format!("simulate {}", request.model), "cancellable": true}),
+        );
+        let mut on_progress = |p: &Progress| {
+            let stage = format!("{:?}", p.stage).to_lowercase();
+            let mut v = json!({"kind": "report", "message": stage, "stage": stage,
+                "start_time": p.start_time, "stop_time": p.stop_time});
+            if let Some(t) = p.time {
+                let pct = (t - p.start_time) / (p.stop_time - p.start_time) * 100.0;
+                v["time"] = json!(t);
+                // 幅が 0 なら NaN で、`as` は 0 にする
+                v["percentage"] = json!(pct.clamp(0.0, 100.0) as u32);
+            }
+            progress(v);
+        };
+        let handle = SimulateHandle {
+            on_progress: Some(&mut on_progress),
+            cancel,
+        };
+        let s = self
+            .ws
+            .simulate_observed(request, &globe_mode::now_ms, handle);
+        progress(json!({"kind": "end"}));
+        s
+    }
+
     fn update(&mut self, uri: String, text: String) -> Vec<Value> {
         let path = uri_path(&uri);
         self.ws.set_file(&path, text.clone());
@@ -475,23 +594,86 @@ fn lint_diagnostics(
 
 /// 標準入出力で LSP を回す。`exit` か入力の終わりで返る。
 pub fn run_stdio(libraries: &[PathBuf]) -> io::Result<()> {
-    let mut server = Server::new(libraries).map_err(|ds| {
+    let server = Server::new(libraries).map_err(|ds| {
         let msgs: Vec<_> = ds.iter().map(|d| d.message.as_str()).collect();
         io::Error::other(msgs.join("; "))
     })?;
-    let mut input = io::stdin().lock();
-    let mut out = io::stdout().lock();
-    while let Some(msg) = read_message(&mut input)? {
-        if msg["method"] == "exit" {
-            break;
+    serve(server, io::BufReader::new(io::stdin()), io::stdout().lock())
+}
+
+/// 実行の要求（`$/cancelRequest` で止められるもの。ADR-0033）。
+fn cancellable(method: &str) -> bool {
+    matches!(method, "globe/simulate" | "globe/simulateColumns")
+}
+
+/// 読みと計算を分けて回す（S136、ADR-0033）。読みのスレッドは枠を読んでキューに積み、実行の要求には
+/// トークンを作って表に置く。`$/cancelRequest` はキューに積まず、表のトークンを立てる（待っている要求にも効く）。
+/// 計算はこのスレッドで 1 度に 1 つ。書くのもこのスレッドだけ。
+fn serve(
+    mut server: Server,
+    mut input: impl BufRead + Send + 'static,
+    mut out: impl Write,
+) -> io::Result<()> {
+    let tokens: Arc<Mutex<HashMap<String, CancelToken>>> = Arc::default();
+    let (tx, rx) = mpsc::channel::<io::Result<(Value, Option<CancelToken>)>>();
+    let table = tokens.clone();
+    let reader = thread::spawn(move || {
+        loop {
+            let msg = match read_message(&mut input) {
+                Ok(Some(m)) => m,
+                Ok(None) => break,
+                Err(e) => {
+                    let _ = tx.send(Err(e));
+                    break;
+                }
+            };
+            let method = msg["method"].as_str().unwrap_or("");
+            if method == "exit" {
+                break;
+            }
+            if method == "$/cancelRequest" {
+                if let Some(t) = lock(&table).get(&msg["params"]["id"].to_string()) {
+                    t.cancel();
+                }
+                continue;
+            }
+            let token = (cancellable(method) && msg.get("id").is_some()).then(|| {
+                let t = CancelToken::new();
+                lock(&table).insert(msg["id"].to_string(), t.clone());
+                t
+            });
+            if tx.send(Ok((msg, token))).is_err() {
+                break;
+            }
         }
-        for m in server.handle(msg) {
-            let body = m.to_string();
-            write!(out, "Content-Length: {}\r\n\r\n{body}", body.len())?;
-            out.flush()?;
+    });
+    let mut write = |m: Value| -> io::Result<()> {
+        let body = m.to_string();
+        write!(out, "Content-Length: {}\r\n\r\n{body}", body.len())?;
+        out.flush()
+    };
+    for got in rx {
+        let (msg, token) = got?;
+        let id = msg["id"].to_string();
+        let mut failed = Ok(());
+        let replies = server.handle_with(msg, token, &mut |m| {
+            if failed.is_ok() {
+                failed = write(m);
+            }
+        });
+        lock(&tokens).remove(&id);
+        failed?;
+        for m in replies {
+            write(m)?;
         }
     }
+    // 読みのスレッドは入力の終わりか `exit` で抜けている（キューが閉じたので）
+    let _ = reader.join();
     Ok(())
+}
+
+fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 /// `Content-Length` の枠 1 つを読む。入力が終わっていれば None。
@@ -920,6 +1102,57 @@ mod tests {
     }
 
     #[test]
+    fn export_fmu_writes_the_source_fmu() {
+        let mut s = Server::new(&[]).unwrap();
+        let src = "model Decay\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -x;\nend Decay;\n";
+        s.handle(
+            json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+            "uri": "Decay.mo", "languageId": "modelica", "version": 1, "text": src}}}),
+        );
+        let dir = std::env::temp_dir().join(format!("globe-lsp-fmu-{}", std::process::id()));
+        let out = dir.to_string_lossy().to_string();
+        std::fs::create_dir_all(&dir).unwrap();
+        let r = s.handle(json!({"id": 1, "method": "globe/exportFmu",
+            "params": {"model": "Decay", "outDir": out}}));
+        let path = PathBuf::from(r[0]["result"]["path"].as_str().unwrap());
+        assert_eq!(path, dir.join("Decay.fmu"));
+        assert!(path.is_file());
+        assert!(dir.join("Decay/modelDescription.xml").is_file());
+        let r = s.handle(json!({"id": 2, "method": "globe/exportFmu",
+            "params": {"model": "Nope", "outDir": out}}));
+        assert_eq!(r[0]["error"]["code"], -32000);
+        let r =
+            s.handle(json!({"id": 3, "method": "globe/exportFmu", "params": {"model": "Decay"}}));
+        assert_eq!(r[0]["error"]["code"], -32602);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn solvers_and_experiment() {
+        let mut s = Server::new(&[]).unwrap();
+        let r = s.handle(json!({"id": 1, "method": "globe/solvers"}));
+        let all = r[0]["result"].as_array().unwrap();
+        assert!(
+            all.iter()
+                .any(|e| e["name"] == "dopri45" && e["status"]["kind"] == "available")
+        );
+        let src = "model E\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -x;\n  annotation(experiment(StopTime = 3, Tolerance = 1e-5));\nend E;\n";
+        s.handle(
+            json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+            "uri": "E.mo", "languageId": "modelica", "version": 1, "text": src}}}),
+        );
+        let r = s.handle(json!({"id": 2, "method": "globe/check", "params": {"model": "E"}}));
+        let e = &r[0]["result"]["experiment"];
+        assert_eq!(
+            (e["stop_time"].as_f64(), e["tolerance"].as_f64()),
+            (Some(3.0), Some(1e-5)),
+            "{}",
+            r[0]
+        );
+        assert!(e["interval"].is_null());
+    }
+
+    #[test]
     fn library_tree_and_source() {
         let lib =
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../Modelica/GlobeModeValidation");
@@ -967,7 +1200,7 @@ mod tests {
         let toml = dir.join("globe-mode.toml");
         std::fs::write(
             &toml,
-            "[fmt]\nindent = 4\n[lint]\ndisable = [\"GM-L0003\"]\n",
+            "[fmt]\nindent = 4\n[lint]\ndisable = [\"GM-L0003\", \"class-name-pascal-case\"]\n",
         )
         .unwrap();
         let mut s = Server::new(&[]).unwrap();
@@ -987,6 +1220,25 @@ mod tests {
             "{}",
             f[0]
         );
+        // S143: UI 向けの globe/format・globe/lint も、params に indent が無ければ設定ファイル、あればそれを採る
+        let f = s.handle(json!({"id": 2, "method": "globe/format", "params": {"text": text}}));
+        assert!(
+            f[0]["result"].as_str().unwrap().contains("\n    Real x;"),
+            "{}",
+            f[0]
+        );
+        let f = s.handle(
+            json!({"id": 3, "method": "globe/format", "params": {"text": text, "indent": 2}}),
+        );
+        assert!(
+            f[0]["result"].as_str().unwrap().contains("\n  Real x;"),
+            "{}",
+            f[0]
+        );
+        let l = s.handle(
+            json!({"id": 4, "method": "globe/lint", "params": {"text": "model c\nend c;\n"}}),
+        );
+        assert_eq!(l[0]["result"], json!([]), "{}", l[0]);
         // 誤りを書いて読み直すと showMessage で知らせ、既定に戻る
         std::fs::write(&toml, "[fmt]\nindnt = 4\n").unwrap();
         let out = s.handle(
@@ -1083,6 +1335,32 @@ mod tests {
     }
 
     #[test]
+    fn globe_definition_returns_the_target_file_text() {
+        let lib =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../Modelica/GlobeModeValidation");
+        let mut s = Server::new(std::slice::from_ref(&lib)).unwrap();
+        let text = "model T\n  import GlobeModeValidation.Components;\n  Components.Resistor r1;\nend T;\n";
+        s.handle(
+            json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+            "uri": "T.mo", "languageId": "modelica", "version": 1, "text": text}}}),
+        );
+        let ask = |s: &mut Server, line: u32, character: u32| {
+            s.handle(json!({"id": 1, "method": "globe/definition",
+                "params": {"file": "T.mo", "line": line, "character": character}}))
+                .remove(0)["result"]
+                .clone()
+        };
+        let r = ask(&mut s, 2, 15); // Resistor
+        assert!(
+            r["file"].as_str().unwrap().ends_with("Components.mo"),
+            "{r}"
+        );
+        assert!(r["text"].as_str().unwrap().contains("Resistor"), "{r}");
+        assert_eq!(r["range"]["start"]["line"], 13, "{r}");
+        assert_eq!(ask(&mut s, 0, 0), Value::Null); // 予約語 model
+    }
+
+    #[test]
     fn references_in_the_same_class() {
         let mut s = Server::new(&[]).unwrap();
         let uri = "file:///tmp/R.mo";
@@ -1095,6 +1373,74 @@ mod tests {
             .map(|l| l["range"]["start"]["line"].clone())
             .collect();
         assert_eq!(lines, [json!(1), json!(4), json!(4)], "{r}");
+    }
+
+    /// S136（ADR-0033）: 読みを別のスレッドにした `serve` を pipe で回す。長い実行の進捗が `$/progress` で届き、
+    /// `$/cancelRequest` で止めると、普通の応答に GM-I11004 と途中までの列が載る。
+    #[test]
+    fn cancel_request_stops_a_long_run_with_partial_columns() {
+        const WIGGLE: &str = "model Wiggle Real x(start = 0, fixed = true); equation der(x) = sin(100 * time); end Wiggle;";
+        fn send(w: &mut impl Write, m: Value) {
+            let b = m.to_string();
+            write!(w, "Content-Length: {}\r\n\r\n{b}", b.len()).unwrap();
+        }
+        let (in_r, mut in_w) = io::pipe().unwrap();
+        let (out_r, out_w) = io::pipe().unwrap();
+        let server = Server::new(&[]).unwrap();
+        let t = thread::spawn(move || serve(server, io::BufReader::new(in_r), out_w));
+        let mut out = io::BufReader::new(out_r);
+        send(
+            &mut in_w,
+            json!({"jsonrpc": "2.0", "id": 7, "method": "globe/simulateColumns", "params": {
+                "workDoneToken": "run", "request": {"model": "Wiggle", "files": {"Wiggle.mo": WIGGLE},
+                "settings": {"solver": "esdirk34", "stop_time": 100000.0, "interval": 1.0}}}}),
+        );
+        let mut kinds = Vec::new();
+        loop {
+            let m = read_message(&mut out).unwrap().unwrap();
+            assert_eq!(m["method"], "$/progress", "{m}");
+            kinds.push(m["params"]["value"]["kind"].clone());
+            // 列は出力の点（間隔 1）までなので、t > 1 の report を待ってから止める（それより前だと列は t = 0 の 1 点だけ）
+            if m["params"]["value"]["time"]
+                .as_f64()
+                .is_some_and(|t| t > 1.0)
+            {
+                assert!(m["params"]["value"]["percentage"].is_number(), "{m}");
+                break;
+            }
+        }
+        assert_eq!(kinds[0], "begin");
+        send(
+            &mut in_w,
+            json!({"jsonrpc": "2.0", "method": "$/cancelRequest", "params": {"id": 7}}),
+        );
+        let r = loop {
+            let m = read_message(&mut out).unwrap().unwrap();
+            if m["id"] == 7 {
+                break m;
+            }
+            kinds.push(m["params"]["value"]["kind"].clone());
+        };
+        assert_eq!(kinds.last().unwrap(), "end");
+        let res = &r["result"];
+        assert_eq!(
+            res["response"]["termination"]["kind"], "cancelled",
+            "{}",
+            res["response"]
+        );
+        let codes: Vec<_> = res["response"]["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|d| d["code"].clone())
+            .collect();
+        assert!(codes.contains(&json!("GM-I11004")), "{codes:?}");
+        let time = res["columns"][0].as_array().unwrap();
+        let last = time.last().unwrap().as_f64().unwrap();
+        assert!((1.0..100000.0).contains(&last), "{last}");
+        // exit で読みのスレッドが抜け、serve が返る
+        send(&mut in_w, json!({"jsonrpc": "2.0", "method": "exit"}));
+        t.join().unwrap().unwrap();
     }
 
     #[test]

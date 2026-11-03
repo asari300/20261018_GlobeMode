@@ -1,7 +1,10 @@
 <script lang="ts">
   import uPlot from "uplot";
   import "uplot/dist/uPlot.min.css";
-  import type { Columns } from "./csv";
+  import { toCsv, type Columns } from "./csv";
+  import type { Backend } from "../backend";
+  import { TauriBackend, inTauri } from "../tauri-backend";
+  import { browserSave, browserSaveBinary } from "../browser-file";
 
   let { columns }: { columns: Columns } = $props();
 
@@ -16,6 +19,31 @@
   let xi = $derived.by(() => (void columns, -1)); // -1 は time、それ以外は names の添字（パラメトリック）
   let lastMs = $state(0);
   let error = $state("");
+  let saved = $state("");
+  // Plot の中で完結させる（App から backend を受けない）。Desktop は dialog / fs、ブラウザ・Android はダウンロード
+  const out: Pick<Backend, "saveFile" | "saveBinary"> = inTauri() ? new TauriBackend() : { saveFile: browserSave, saveBinary: browserSaveBinary };
+
+  const done = (p: string | null) => void (p && (saved = p));
+  const fail = (e: unknown) => (error = String((e as Error).message ?? e));
+  // 選んだ系列と x の列（画面と同じ）。欠損は空欄
+  function exportCsv() {
+    const ys = columns.names.flatMap((_, i) => (shown[i] ? [i] : []));
+    const head = [xi < 0 ? "time" : columns.names[xi], ...ys.map((i) => columns.names[i])];
+    out.saveFile("result.csv", toCsv(head, [columns.data[xi + 1], ...ys.map((i) => columns.data[i + 1])]), true).then(done, fail);
+  }
+  // shortcut: canvas だけ（凡例と DOM の軸ラベルは入らない）。白地に写すのは、透明のままだと暗い背景で線が見えないため
+  function exportPng() {
+    if (!plot) return;
+    const src = plot.ctx.canvas;
+    const c = Object.assign(document.createElement("canvas"), { width: src.width, height: src.height });
+    const g = c.getContext("2d")!;
+    g.fillStyle = "#fff";
+    g.fillRect(0, 0, c.width, c.height);
+    g.drawImage(src, 0, 0);
+    c.toBlob(async (b) => {
+      try { done(await out.saveBinary!("result.png", new Uint8Array(await b!.arrayBuffer()))); } catch (e) { fail(e); }
+    }, "image/png");
+  }
 
   // 選んだ系列だけを uPlot に渡す（列が数百あっても重くしない）。選択が変わるたびに作り直す
   $effect(() => {
@@ -82,11 +110,17 @@
       </span>
     {/each}
   </div>
+  <div class="export">
+    <button onclick={exportCsv}>CSV</button>
+    <button onclick={exportPng}>PNG</button>
+    {#if saved}<span data-exported>{saved}</span>{/if}
+  </div>
   <div bind:this={host}></div>
 </div>
 
 <style>
   .signals { display: flex; flex-wrap: wrap; gap: .25rem 1rem; margin: .5rem 0; max-height: 6rem; overflow: auto; }
+  .export { display: flex; gap: .5rem; align-items: center; margin-bottom: .5rem; }
   .side { font-size: .85em; opacity: .8; }
   .failure { color: #b00020; white-space: pre-wrap; }
 </style>
