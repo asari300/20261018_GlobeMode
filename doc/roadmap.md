@@ -402,6 +402,11 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 
 - **ソルバ別の表**: `msl-sim.yml` にジョブ `solvers`（`msl-sim` の後。14 ソルバの matrix で `msl-sim --solver <名前> --tolerance-scale 0.1`。cvode・ida は xtask のビルドに `--features globe-mode-exec/sundials`）と `solvers-report`（`cargo xtask msl-solvers`）を足し、[msl-solvers.md](msl-solvers.md) を作った（run 41194959752、全ジョブ成功、ソルバのジョブは 63〜174 分）。対象 356 本のうち実行できたのは 283（dopri853）〜301（bdf）本、管に収まった割合は 95.2（trbdf2）〜98.3%（ida）。`auto` は 309・301/308。`bdf` 単独と `auto` の差 8 本は、`bdf` の内部エラー（`GM-U0005`）10 本を dopri45 の回し直しで救ったもの。入れなかったもの: `qss`、固定刻み、`esdirk23`、別名（理由は解説書）。これで P8「ソルバの表がそろう」の数字の土台ができた。更新は `gh workflow run msl-sim.yml`（手元では回さない）。
 
+### S148（CI の基盤、2026-11-04）で済んだこと
+
+- **zig の取得を安定させた**（[解説書](sessions/S148-ci-zig-mirror/解説書.md)、[ADR-0006 の S148](adr/0006-incremental-ci.md)）: `ci.yml` の `lang` が、mise の zig のコミュニティのミラー（502・500）と、そのあとのファイル名の取り違え（404）で落ちた（run 41702810070）。zig を入れる 3 か所（`ci.yml` の `lang`、`fmu-export.yml`、`release.yml`）に `MISE_ZIG_USE_COMMUNITY_MIRRORS=false` を足し、ziglang.org から直接取る。
+- 持ち越し: ファイル名の取り違えの原因（mise 側、【未確認】）。ziglang.org が落ちたら zig の install 先の `actions/cache`。
+
 ### S145（P6、2026-11-04）で済んだこと
 
 - **ブラウザ版を配れる形にした**（S140 の点検の順位 7。[解説書](sessions/S145-web-bundle/解説書.md)、[ADR-0023 の S145](adr/0023-desktop-and-web-process-layout.md)）: 手動の `web.yml`（wasm:build、`pnpm build`＝`MSL.json` 込み、`test_ui.py`、`scripts/web-bundle.sh`）が artifact `globe-web` を出し、大きさ（生・gzip・brotli）を Step Summary に書く。vite の `base` を `./` にして、サブパスに置いても動く。CSP は `index.html` の meta が正で、`_headers`（Cloudflare Pages / Netlify）と `nginx.csp.conf` に写す。`SharedArrayBuffer` を使わないので COOP / COEP は不要。`App.svelte` に `@media (max-width: 600px)` を足し、`test_ui.py` に `/app/` での検査と MSL の読み込み、幅 400 px の試験を足した。
