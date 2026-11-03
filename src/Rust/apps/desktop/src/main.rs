@@ -1,6 +1,6 @@
 //! GlobeMode Desktop（S049、ADR-0023）。Tauri のシェル。検査も実行もここではしない。
 //! 同梱の `globe`（sidecar）を `globe lsp` として立ち上げ、UI（`src/Svelte`）からの要求を stdio の JSON-RPC に中継する。
-//! facade `globe-mode` はリンクしない。UI へは 2 つの command（`rpc`・`notify`）とイベント `globe-notification`
+//! facade `globe-mode` はリンクしない。UI へは command（`rpc`・`notify`、実行を止める `cancel_run`。S136）とイベント `globe-notification`
 //! （サーバからの通知。`publishDiagnostics` など）を出す。
 //!
 //! 引数・環境変数: `--library <DIR>`（何度でも）と `GLOBE_LIBRARY`（パスの区切りで複数。MSL を渡す）、
@@ -47,6 +47,12 @@ async fn rpc(state: State<'_, Shared>, method: String, params: Value) -> Result<
     tauri::async_runtime::spawn_blocking(move || lock(&w).request(&method, params))
         .await
         .map_err(|e| e.to_string())?
+}
+
+/// 実行中の `globe/simulate*` を止める（S136、ADR-0033）。`Worker` の `Mutex` を待たずに `$/cancelRequest` を送る。
+#[tauri::command]
+fn cancel_run(c: State<'_, worker::Canceller>) {
+    c.cancel();
 }
 
 /// 通知を 1 つ送る（`textDocument/didOpen` など）。
@@ -237,7 +243,7 @@ fn smoke(w: &Shared, dir: &MslDir, libs: &Libraries) -> Result<(), String> {
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
-            rpc, notify, libraries, fetch_msl, cancel_msl, bench
+            rpc, notify, cancel_run, libraries, fetch_msl, cancel_msl, bench
         ])
         .setup(|app| {
             let handle = app.handle().clone();
@@ -266,7 +272,9 @@ fn main() {
             let libs_state = Libraries(Arc::new(Mutex::new(libs.clone())));
             app.manage(libs_state.clone());
             app.manage(dir.clone());
-            let w: Shared = Arc::new(Mutex::new(Worker::new(sidecar(), libs, sink)));
+            let worker = Worker::new(sidecar(), libs, sink);
+            app.manage(worker.canceller());
+            let w: Shared = Arc::new(Mutex::new(worker));
             app.manage(w.clone());
             // 起動と同時にライブラリを読み始める（待たされた要求はこのロックの後に走る）
             std::thread::spawn(move || {
