@@ -286,7 +286,7 @@ fn main() {
                 std::thread::spawn(move || {
                     std::thread::sleep(std::time::Duration::from_secs(90));
                     if let Some(v) = h.get_webview_window("main") {
-                        let _ = v.eval("location.href='https://diag.invalid/?'+encodeURIComponent([location.href, typeof window.__TAURI__, typeof window.__TAURI_INTERNALS__, document.readyState, document.body && document.body.innerText.slice(0, 300)].join('|'))");
+                        let _ = v.eval(r#"let v_=[];addEventListener('securitypolicyviolation',e=>v_.push(e.violatedDirective+' '+e.blockedURI));const s=document.querySelector('script[type=module]');import(s?s.src:'/x.js').then(()=>'ok',e=>'err '+e).then(r=>setTimeout(()=>{location.href='https://diag.invalid/?'+encodeURIComponent([location.href,document.body.innerText.slice(0,100),s&&s.src,r,v_.join(';')].join('|'))},500))"#);
                     }
                 });
             }
