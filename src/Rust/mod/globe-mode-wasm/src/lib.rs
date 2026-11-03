@@ -55,6 +55,9 @@ pub fn now_ms() -> f64 {
 #[derive(Debug)]
 pub struct Workspace {
     inner: globe_mode::Workspace,
+    /// ライブラリの木と本文（S127。`library_tree`・`library_source`）。
+    /// shortcut: 本文を分割読み込みの写しと別に持つ（MSL で約 15 MiB）。facade が本文を返せるようになったらそちらを引く
+    tree: Option<(globe_mode_fmt::LibraryTree, BTreeMap<String, String>)>,
 }
 
 impl Default for Workspace {
@@ -69,6 +72,7 @@ impl Workspace {
     pub fn new() -> Self {
         Workspace {
             inner: globe_mode::Workspace::new(),
+            tree: None,
         }
     }
 
@@ -96,7 +100,36 @@ impl Workspace {
         let t = now_ms();
         let mut inner = load()?;
         inner.set_library_load_ms(now_ms() - t);
-        Ok(Workspace { inner })
+        Ok(Workspace { inner, tree: None })
+    }
+
+    /// ライブラリの木を引けるようにする（S127。`files` は読み込みに渡したのと同じ組）。
+    pub fn with_tree(mut self, files: BTreeMap<String, String>) -> Self {
+        let tree =
+            globe_mode_fmt::LibraryTree::new(files.iter().map(|(f, t)| (f.as_str(), t.as_str())));
+        self.tree = Some((tree, files));
+        self
+    }
+
+    /// `prefix`（空ならトップレベル）の直下の子（`[{name, path, kind, description, file, hasChildren}]` の JSON）。ライブラリが無ければ `[]`。
+    pub fn tree_children(&self, prefix: &str) -> String {
+        let entries: Vec<serde_json::Value> = self.tree.as_ref().map_or_else(Vec::new, |(t, _)| {
+            t.children(prefix)
+                .iter()
+                .map(|e| {
+                    serde_json::json!({"name": e.name, "path": e.path, "kind": e.kind,
+                "description": e.description, "file": e.file, "hasChildren": e.has_children})
+                })
+                .collect()
+        });
+        serde_json::to_string(&entries).unwrap_or_default()
+    }
+
+    /// `path`（完全修飾名）を定義するライブラリのファイルと本文。
+    pub fn tree_source(&self, path: &str) -> Option<(&str, &str)> {
+        let (t, files) = self.tree.as_ref()?;
+        let file = t.file(path)?;
+        Some((file, files.get(file)?.as_str()))
     }
 
     /// 検査 → コンパイル → 実行。`request.files` は先にワークスペースに足す（残る）。
@@ -209,7 +242,22 @@ impl Workspace {
         } else {
             Workspace::with_library_split(name, &files)
         };
-        loaded.map_err(|ds| js_error(serde_json::to_string(&ds).unwrap_or_default()))
+        loaded
+            .map(|ws| ws.with_tree(files))
+            .map_err(|ds| js_error(serde_json::to_string(&ds).unwrap_or_default()))
+    }
+
+    /// ライブラリの木の `prefix` の直下の子（S127。[`Workspace::tree_children`]）。
+    pub fn library_tree(&self, prefix: &str) -> String {
+        self.tree_children(prefix)
+    }
+
+    /// ライブラリのクラス `path` を定義するファイルの `{file, text}` の JSON（S127）。無ければ例外（文字列）。
+    pub fn library_source(&self, path: &str) -> Result<String, JsValue> {
+        let (file, text) = self
+            .tree_source(path)
+            .ok_or_else(|| js_error(format!("ライブラリに {path} が無い")))?;
+        to_json(&serde_json::json!({"file": file, "text": text}))
     }
 
     /// ファイルを足すか、本文を差し替える。

@@ -10,6 +10,7 @@
 //!   bdf・auto と session の道は、組み立ての lowering の結果でプリフライトを行う（lowering は 1 回。S014）。
 //! - [`ModelInstance`] … 時刻と状態を外から与えて微分を返す（FMI 2.0 ME の形。S099、ADR-0032）。
 //! - [`run_with_progress`] … [`run`] と同じで、実行系の中の段（[`ExecStage`]）に入るたびに知らせる（S014）。
+//! - [`run_observed`] … [`run`] と同じで、進捗（[`Progress`]）を知らせ、[`CancelToken`] で止められる（S123、ADR-0033）。
 //!
 //! Rumoca の時間切れは協調型で、初期化と積分器の 1 歩の内側では止まらない。確実に止めたいときは
 //! 別プロセスで回して外から止める（xtask の `msl-sim`）。
@@ -17,6 +18,8 @@
 use globe_mode_core::{Diagnostic, Stage, codes};
 pub use globe_mode_frontend::CompiledModel;
 use globe_mode_ir::{ResolvedSettings, SimRun, SimSettings, Termination, TunableParameter};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[cfg(feature = "rumoca-exec")]
 mod rumoca;
@@ -39,6 +42,51 @@ pub enum ExecStage {
     Initialization,
     /// 積分（ネイティブの dopri45 は lowering から積分までを 1 回で呼ぶので、この段だけを知らせる）
     Integration,
+}
+
+/// 進捗（[`run_observed`] が知らせる。ADR-0033）。段が変わるたびに `time: None` で 1 回、積分の段では
+/// session の道だけ t を 100 ms に 1 回まで、積分の終わり（止めた時刻）に 1 回。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Progress {
+    pub stage: ExecStage,
+    /// 積分の時刻（session の道の積分の段だけ）
+    pub time: Option<f64>,
+    pub start_time: f64,
+    pub stop_time: f64,
+}
+
+/// 呼び手が実行を止める合図（ADR-0033）。実行系は段の前・`auto` の回し直しの前・session の道の積分器の
+/// 1 歩ごとに見る。lowering・組み立て・ネイティブの型付きの道の積分の中では見られない。
+#[derive(Debug, Clone, Default)]
+pub struct CancelToken(Arc<AtomicBool>);
+
+impl CancelToken {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn cancel(&self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.0.load(Ordering::Relaxed)
+    }
+}
+
+/// [`run_observed`] に渡すもの。`now` は壁時計（ミリ秒。wasm は `performance.now()`）で、t の間引きに使う。
+pub struct Observer<'a> {
+    pub on_progress: &'a mut dyn FnMut(&Progress),
+    pub cancel: Option<CancelToken>,
+    pub now: &'a dyn Fn() -> f64,
+}
+
+impl std::fmt::Debug for Observer<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Observer")
+            .field("cancel", &self.cancel)
+            .finish_non_exhaustive()
+    }
 }
 
 /// [`run`] の結果。
@@ -136,15 +184,15 @@ pub(crate) type Simulated = Result<(SimRun, Vec<Diagnostic>), Vec<Diagnostic>>;
 fn checked_simulate(
     model: &CompiledModel,
     settings: &ResolvedSettings,
-    on_stage: &mut dyn FnMut(ExecStage),
+    observer: &mut Observer<'_>,
 ) -> (Vec<Diagnostic>, Simulated) {
     #[cfg(feature = "rumoca-exec")]
     {
-        rumoca::checked_simulate(model, settings, on_stage)
+        rumoca::checked_simulate(model, settings, observer)
     }
     #[cfg(not(feature = "rumoca-exec"))]
     {
-        let _ = (model, settings, on_stage);
+        let _ = (model, settings, observer);
         (Vec::new(), Err(Vec::new()))
     }
 }
@@ -166,6 +214,30 @@ pub fn run_with_progress(
     requested: &SimSettings,
     on_stage: &mut dyn FnMut(ExecStage),
 ) -> SimReport {
+    let mut on_progress = |p: &Progress| {
+        if p.time.is_none() {
+            on_stage(p.stage)
+        }
+    };
+    run_observed(
+        model,
+        requested,
+        &mut Observer {
+            on_progress: &mut on_progress,
+            cancel: None,
+            now: &|| 0.0,
+        },
+    )
+}
+
+/// [`run`] と同じだが、進捗を `observer.on_progress` に知らせ、`observer.cancel` が立てられたら次の区切りで止まる
+/// （ADR-0033）。積分の途中で止めたら `Termination::Cancelled` とそこまでの列、それより前なら結果は無く、
+/// どちらも情報 GM-I11004 を足す。
+pub fn run_observed(
+    model: &CompiledModel,
+    requested: &SimSettings,
+    observer: &mut Observer<'_>,
+) -> SimReport {
     let mut report = SimReport::default();
     let settings = match globe_mode_sim::settings::resolve(requested, model.experiment.as_ref()) {
         Ok((settings, diagnostics)) => {
@@ -178,7 +250,7 @@ pub fn run_with_progress(
             return report;
         }
     };
-    let (checked, simulated) = checked_simulate(model, &settings, on_stage);
+    let (checked, simulated) = checked_simulate(model, &settings, observer);
     let not_finite_at_t0 = checked
         .iter()
         .find(|d| d.code == codes::T0_NOT_FINITE)
@@ -224,6 +296,9 @@ fn outcome_diagnostics(run: &SimRun) -> Vec<Diagnostic> {
         }
         out.push(d);
     }
+    if let Termination::Cancelled { time } = &run.termination {
+        out.push(cancelled_diagnostic(Some(*time)));
+    }
     let bad = run.trajectory.non_finite();
     if !bad.is_empty() {
         let first = run
@@ -250,6 +325,15 @@ fn outcome_diagnostics(run: &SimRun) -> Vec<Diagnostic> {
         out.push(d);
     }
     out
+}
+
+/// 呼び手が止めた（GM-I11004）。`time` は積分の途中で止めた時刻。
+pub(crate) fn cancelled_diagnostic(time: Option<f64>) -> Diagnostic {
+    let message = match time {
+        Some(t) => format!("呼び手が t = {} で止めた", time_text(t)),
+        None => "呼び手が積分の前に止めた".to_string(),
+    };
+    Diagnostic::info(codes::RUN_CANCELLED, Stage::Run, message)
 }
 
 /// 時刻の表示（9 桁で丸め、末尾の 0 を除く。0.5000000000000001 → 0.5）。

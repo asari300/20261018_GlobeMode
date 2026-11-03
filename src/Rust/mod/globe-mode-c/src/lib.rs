@@ -6,10 +6,56 @@
 //! - 返す `char*` は必ず [`gm_string_free`] で放す。誤りは `{"error": "..."}` の JSON で返す（NULL は返さない）。
 //! - panic は境界で `catch_unwind` で止め、`{"error": "panic: ..."}` にする（unwind を C 側へ出さない）。
 //! - `GmWorkspace` は作ったスレッドからだけ使う（salsa のデータベースは Sync でない）。
+//! - 進捗と中断（S131、ADR-0033）: `*_observed` は進捗のたびに `GmProgressCallback` を呼び、非 0 が返ったら次の区切りで止める。
 
-use std::ffi::{CStr, CString, c_char, c_int};
+use std::ffi::{CStr, CString, c_char, c_int, c_void};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
+
+/// 実行の進捗（ADR-0033。facade の `Progress` を写す）。`stage` は `"lowering"`・`"integration"` などの小文字で、
+/// コールバックの間だけ有効。`time` は積分の段だけ（`has_time` が 0 なら NaN）。
+#[repr(C)]
+#[derive(Debug)]
+pub struct GmProgress {
+    pub stage: *const c_char,
+    pub time: f64,
+    pub has_time: c_int,
+    pub start_time: f64,
+    pub stop_time: f64,
+}
+
+/// 進捗のコールバック。非 0 を返すと中断する（`termination.kind = "cancelled"` と `GM-I11004`）。
+pub type GmProgressCallback = Option<unsafe extern "C" fn(*const GmProgress, *mut c_void) -> c_int>;
+
+/// `callback` を facade の `SimulateHandle` に写して `run` を回す（NULL なら進捗も中断も無い道）。
+fn observed<T>(
+    callback: GmProgressCallback,
+    user_data: *mut c_void,
+    run: impl FnOnce(globe_mode::SimulateHandle<'_>) -> T,
+) -> T {
+    let Some(cb) = callback else {
+        return run(globe_mode::SimulateHandle::default());
+    };
+    let token = globe_mode::CancelToken::new();
+    let mut notify = |p: &globe_mode::Progress| {
+        let stage = CString::new(format!("{:?}", p.stage).to_lowercase()).unwrap_or_default();
+        let progress = GmProgress {
+            stage: stage.as_ptr(),
+            time: p.time.unwrap_or(f64::NAN),
+            has_time: c_int::from(p.time.is_some()),
+            start_time: p.start_time,
+            stop_time: p.stop_time,
+        };
+        // SAFETY: 呼び手は (const GmProgress*, void*) を受ける関数と、その関数が受け付ける user_data を渡す
+        if unsafe { cb(&progress, user_data) } != 0 {
+            token.cancel();
+        }
+    };
+    run(globe_mode::SimulateHandle {
+        on_progress: Some(&mut notify),
+        cancel: Some(token.clone()),
+    })
+}
 
 /// 不透明なワークスペース（C からは `GmWorkspace *` だけを持つ）。
 #[derive(Debug)]
@@ -214,6 +260,32 @@ pub unsafe extern "C" fn gm_simulate(
     })
 }
 
+/// [`gm_simulate`] と同じだが、進捗のたびに `callback(progress, user_data)` を呼び、非 0 が返ったら次の区切りで
+/// 止める（S131、ADR-0033）。積分の途中なら `termination.kind = "cancelled"` と途中までの CSV、前なら `ok: false`。
+/// どちらも `GM-I11004`。`callback` が NULL なら [`gm_simulate`] と同じ。
+///
+/// # Safety
+///
+/// [`gm_simulate`] と同じ。`callback` は NULL か、`user_data` を受け付ける関数。
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn gm_simulate_observed(
+    ws: *mut GmWorkspace,
+    model: *const c_char,
+    settings_json: *const c_char,
+    callback: GmProgressCallback,
+    user_data: *mut c_void,
+) -> *mut c_char {
+    guard(|| {
+        let model = str_arg(model, "model")?;
+        let request = request(model, opt_str_arg(settings_json, "settings_json")?)?;
+        let ws = ws_arg(ws)?;
+        let simulated = observed(callback, user_data, |h| {
+            ws.simulate_observed(&request, &globe_mode::now_ms, h)
+        });
+        json(&simulated.response)
+    })
+}
+
 /// 列の道（S116。Python の `simulate_columns`・wasm の `SimColumns` と同じ並び）。戻り値は
 /// `{"response": SimulateResponse（csv 無し）, "names": ["time", ...], "points": n}` の JSON。
 /// `*data` には列を順に並べた `names.len() * points` 個の f64（列 i は `data[i * points ..]`）を、`*len` にその個数を入れる。
@@ -230,6 +302,36 @@ pub unsafe extern "C" fn gm_simulate_columns(
     data: *mut *mut f64,
     len: *mut usize,
 ) -> *mut c_char {
+    // SAFETY: 引数の約束は同じ
+    unsafe {
+        gm_simulate_columns_observed(
+            ws,
+            model,
+            settings_json,
+            data,
+            len,
+            None,
+            std::ptr::null_mut(),
+        )
+    }
+}
+
+/// [`gm_simulate_columns`] に [`gm_simulate_observed`] と同じ `callback` を足したもの（S131）。中断したら
+/// 止めた時刻までの列を返す。
+///
+/// # Safety
+///
+/// [`gm_simulate_columns`] と [`gm_simulate_observed`] と同じ。
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn gm_simulate_columns_observed(
+    ws: *mut GmWorkspace,
+    model: *const c_char,
+    settings_json: *const c_char,
+    data: *mut *mut f64,
+    len: *mut usize,
+    callback: GmProgressCallback,
+    user_data: *mut c_void,
+) -> *mut c_char {
     if data.is_null() || len.is_null() {
         return guard(|| Err("data か len が NULL".to_string()));
     }
@@ -242,7 +344,10 @@ pub unsafe extern "C" fn gm_simulate_columns(
         let model = str_arg(model, "model")?;
         let mut request = request(model, opt_str_arg(settings_json, "settings_json")?)?;
         request.no_csv = true;
-        let simulated = ws_arg(ws)?.simulate_with(&request, &globe_mode::now_ms);
+        let ws = ws_arg(ws)?;
+        let simulated = observed(callback, user_data, |h| {
+            ws.simulate_observed(&request, &globe_mode::now_ms, h)
+        });
         let (layout, columns) = simulated.columns();
         let flat: Box<[f64]> = columns.concat().into_boxed_slice();
         let text = json(&serde_json::json!({
@@ -444,6 +549,57 @@ mod tests {
             assert!(bad["error"].is_string(), "{bad}");
             gm_workspace_free(ws);
             assert!(gm_workspace_new(c"{".as_ptr()).is_null());
+        }
+    }
+
+    /// 最初の t の進捗で 1 を返す（S131）。`user_data` は呼ばれた回数。
+    unsafe extern "C" fn stop_at_first_time(p: *const GmProgress, user: *mut c_void) -> c_int {
+        unsafe {
+            *user.cast::<u32>() += 1;
+            c_int::from((*p).has_time != 0)
+        }
+    }
+
+    #[test]
+    fn a_nonzero_callback_cancels_with_the_partial_trajectory() {
+        unsafe {
+            let ws = gm_workspace_new(std::ptr::null());
+            gm_set_file(
+                ws,
+                c"Wiggle.mo".as_ptr(),
+                c"model Wiggle Real x(start = 0, fixed = true); equation der(x) = sin(100 * time); end Wiggle;"
+                    .as_ptr(),
+            );
+            let settings = cr#"{"solver": "esdirk34", "stop_time": 1000, "interval": 1}"#;
+            let mut calls = 0u32;
+            let user = (&raw mut calls).cast::<c_void>();
+            let res = take(gm_simulate_observed(
+                ws,
+                c"Wiggle".as_ptr(),
+                settings.as_ptr(),
+                Some(stop_at_first_time),
+                user,
+            ));
+            assert_eq!(res["termination"]["kind"], "cancelled", "{res}");
+            assert!(calls >= 2, "{calls}");
+            let codes = res["diagnostics"].to_string();
+            assert!(codes.contains("GM-I11004"), "{codes}");
+            let (mut data, mut len) = (std::ptr::null_mut(), 0usize);
+            let lay = take(gm_simulate_columns_observed(
+                ws,
+                c"Wiggle".as_ptr(),
+                settings.as_ptr(),
+                &mut data,
+                &mut len,
+                Some(stop_at_first_time),
+                user,
+            ));
+            let time = lay["response"]["termination"]["time"].as_f64().unwrap();
+            let points = lay["points"].as_u64().unwrap() as usize;
+            assert!(0.0 < time && time < 1000.0, "{lay}");
+            assert_eq!(std::slice::from_raw_parts(data, len)[points - 1], time);
+            gm_doubles_free(data, len);
+            gm_workspace_free(ws);
         }
     }
 

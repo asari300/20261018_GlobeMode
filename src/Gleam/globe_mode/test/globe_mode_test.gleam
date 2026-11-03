@@ -60,3 +60,34 @@ pub fn decay_check_simulate_test() {
       "{\"fmi_version\": 4}",
     )
 }
+
+/// 別のプロセスで `simulate_observed` を回し、最初の t の進捗で `cancel` して結果を返す（受信と spawn は
+/// gleam_erlang を足さずに済むよう test/globe_mode_test_ffi.erl に置く）。
+@external(erlang, "globe_mode_test_ffi", "run_and_cancel")
+fn run_and_cancel(
+  ws: globe_mode.Workspace,
+  model: String,
+  settings_json: String,
+  token: globe_mode.CancelToken,
+) -> Result(String, String)
+
+/// S131（ADR-0033）: S129 と同じ、積分に 100 ms より長くかかるモデル
+pub fn cancel_from_another_process_test() {
+  let assert Ok(ws) = globe_mode.new([])
+  let assert Ok(_) =
+    globe_mode.set_file(
+      ws,
+      "Wiggle.mo",
+      "model Wiggle Real x(start = 0, fixed = true); equation der(x) = sin(100 * time); end Wiggle;",
+    )
+  let token = globe_mode.cancel_token()
+  let assert Ok(res) =
+    run_and_cancel(
+      ws,
+      "Wiggle",
+      "{\"solver\": \"esdirk34\", \"stop_time\": 1000, \"interval\": 1}",
+      token,
+    )
+  assert string.contains(res, "\"kind\":\"cancelled\"")
+  assert string.contains(res, "GM-I11004")
+}

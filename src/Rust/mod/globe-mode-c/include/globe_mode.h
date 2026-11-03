@@ -17,6 +17,18 @@ extern "C" {
 
 typedef struct GmWorkspace GmWorkspace;
 
+/* 実行の進捗（S131、ADR-0033）。stage は "lowering"・"integration" などの小文字で、コールバックの間だけ有効。
+ * time は積分の段だけ（has_time が 0 なら NaN）。 */
+typedef struct GmProgress {
+    const char *stage;
+    double time;
+    int has_time;
+    double start_time;
+    double stop_time;
+} GmProgress;
+/* 進捗のコールバック。非 0 を返すと次の区切りで中断する（termination.kind = "cancelled" と GM-I11004）。 */
+typedef int (*GmProgressCallback)(const GmProgress *progress, void *user_data);
+
 /* libraries_json: ライブラリのディレクトリの JSON の配列（NULL か "[]" で無し）。失敗で NULL。 */
 GmWorkspace *gm_workspace_new(const char *libraries_json);
 void gm_workspace_free(GmWorkspace *ws);
@@ -35,6 +47,10 @@ char *gm_simulate(GmWorkspace *ws, const char *model, const char *settings_json)
  * *data は gm_doubles_free で放す。誤りや実行できなかったときは *data が NULL、*len が 0。 */
 char *gm_simulate_columns(GmWorkspace *ws, const char *model, const char *settings_json, double **data, size_t *len);
 void gm_doubles_free(double *data, size_t len);
+/* gm_simulate・gm_simulate_columns に進捗と中断を足したもの（S131）。callback は NULL 可（そのときは同じ道）。
+ * 積分の途中で止めたら止めた時刻までの CSV・列、前なら ok: false。 */
+char *gm_simulate_observed(GmWorkspace *ws, const char *model, const char *settings_json, GmProgressCallback callback, void *user_data);
+char *gm_simulate_columns_observed(GmWorkspace *ws, const char *model, const char *settings_json, double **data, size_t *len, GmProgressCallback callback, void *user_data);
 /* FMU の書き出し（S118、globe fmu export と同じ）。{"path": ".fmu のパス"}。options_json は NULL 可
  * （{"fmi_version": 2, "build": false, "targets": [], "fmi_headers": null}）。 */
 char *gm_export_fmu(GmWorkspace *ws, const char *model, const char *out_dir, const char *options_json);

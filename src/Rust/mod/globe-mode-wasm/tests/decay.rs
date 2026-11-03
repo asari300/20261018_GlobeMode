@@ -262,3 +262,33 @@ fn columns_match_the_csv() {
     }
     assert!(columns.column(99).is_empty());
 }
+
+#[test]
+fn library_tree_opens_a_model_file_as_the_document() {
+    // S127: UI のライブラリツリー。木で選んだモデルのファイルを同じ名前の文書として開き、編集すると検査・実行に効く
+    let mut ws = Workspace::with_library_split("GlobeModeValidation", &package())
+        .unwrap()
+        .with_tree(package());
+    let top: serde_json::Value = serde_json::from_str(&ws.tree_children("")).unwrap();
+    assert_eq!(top[0]["path"], "GlobeModeValidation", "{top}");
+    let sim: serde_json::Value =
+        serde_json::from_str(&ws.tree_children("GlobeModeValidation")).unwrap();
+    let sim = sim.as_array().unwrap();
+    assert!(
+        sim.iter()
+            .any(|e| e["name"] == "Simulation" && e["hasChildren"] == true),
+        "{sim:?}"
+    );
+    let model = "GlobeModeValidation.Simulation.Decay";
+    let (file, text) = ws.tree_source(model).unwrap();
+    let (file, text) = (file.to_string(), text.replace("k = 1", "k = 2"));
+    assert!(file.ends_with("Simulation/Decay.mo"), "{file}");
+    ws.put_file(&file, text);
+    assert!(ws.inner().check(model).passed);
+    let response = ws.run(&request(
+        serde_json::json!({ "model": model, "no_csv": true }),
+    ));
+    assert!(response.ok, "{:?}", response.diagnostics);
+    let x = response.final_values.unwrap()["x"];
+    assert!((x - (-2.0f64).exp()).abs() < 1e-4, "{x}");
+}

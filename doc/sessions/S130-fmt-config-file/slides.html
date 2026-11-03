@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S130 整形と lint の設定ファイル — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S130 整形と lint の設定ファイル">
+
+<section class="slide" id="S01">
+  <span class="tag">S130 · 2026-11-03 · P4</span>
+  <h1>整形と lint の設定ファイル</h1>
+  <p class="lead">features.md の「設定ファイルは未」を埋める</p>
+  <div class="big">プロジェクトに <code>globe-mode.toml</code> を置けば、CLI と LSP が同じ設定で整形・lint する</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>ruff の <code>ruff.toml</code> のように、整形のインデント・行幅などと lint の止める規則をファイルで決める</li>
+    <li>CLI <code>globe fmt</code> / <code>globe lint</code> は対象から上へたどって探す。引数が優先</li>
+    <li>LSP はワークスペースの根から探し、<code>didChangeConfiguration</code> で読み直す</li>
+    <li>wasm とブラウザ UI は対象外（設定ファイルが無い。引数で渡すまま）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>形</h1>
+  <div class="cols-2">
+    <pre><code>[fmt]
+indent = 2
+width = 80
+insert_origin = true
+blank_around_sections = true
+format_html = true
+
+[lint]
+disable = ["missing-description",
+           "GM-L0004"]</code></pre>
+    <ul>
+      <li>書いていないキーは既定</li>
+      <li><code>disable</code> は規則の名前でも LSP のコードでもよい（<code>RULES</code> の表で名前にそろえる）</li>
+      <li>知らない表・キー・規則、型の違う値は誤り</li>
+      <li>CLI は終了コード 2、LSP は <code>window/showMessage</code> で知らせて既定で続ける</li>
+    </ul>
+  </div>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由</span>
+  <h1>どこで読むか</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>読む処理</td><td><code>globe-mode-fmt</code> の optional な feature <code>config</code></td><td>CLI と LSP に別々に書くと規則が 2 か所に分かれる</td></tr>
+    <tr><td>依存 0</td><td>既定と wasm では保つ（feature を立てるのは CLI と LSP だけ）</td><td>ADR-0024 の決定 1</td></tr>
+    <tr><td>TOML</td><td><code>toml</code> 0.8.23</td><td>rumoca-core の依存で Cargo.lock に既にある。新しい crate は 0</td></tr>
+    <tr><td>LSP の indent</td><td>設定ファイルがあれば <code>tabSize</code> より設定ファイル</td><td>ruff と同じ。エディタの既定 4 に負けない</td></tr>
+    <tr><td>探し方（CLI）</td><td>ファイルごとに上へたどる</td><td>サブディレクトリに別の設定を置ける</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">図</span>
+  <h1>流れ</h1>
+  <svg class="fig" viewBox="0 0 800 240" role="img" aria-label="globe-mode.toml を fmt の feature config が読み、CLI と LSP に渡す">
+    <rect class="svg-box-accent" x="20" y="90" width="180" height="60" rx="10"/>
+    <text class="svg-text-b" x="110" y="125" text-anchor="middle">globe-mode.toml</text>
+    <rect class="svg-box" x="290" y="90" width="220" height="60" rx="10"/>
+    <text class="svg-text" x="400" y="117" text-anchor="middle">LintOptions::find</text>
+    <text class="svg-text" x="400" y="137" text-anchor="middle">from_toml（feature config）</text>
+    <rect class="svg-box" x="600" y="30" width="180" height="60" rx="10"/>
+    <text class="svg-text" x="690" y="65" text-anchor="middle">globe fmt / lint</text>
+    <rect class="svg-box" x="600" y="150" width="180" height="60" rx="10"/>
+    <text class="svg-text" x="690" y="185" text-anchor="middle">globe lsp</text>
+    <line class="svg-line" x1="200" y1="120" x2="290" y2="120"/>
+    <line class="svg-line" x1="510" y1="110" x2="600" y2="60"/>
+    <line class="svg-line" x1="510" y1="130" x2="600" y2="180"/>
+  </svg>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">再現手順</span>
+  <h1>試験</h1>
+  <table class="compact">
+    <tr><th>場所</th><th>中身</th><th>結果</th></tr>
+    <tr><td>fmt の単体 2 本</td><td>正常な設定と、知らないキー・表・規則・負の数・型の違い・壊れた TOML</td><td class="ok">通過</td></tr>
+    <tr><td>CLI 1 本</td><td><code>indent = 4</code> で <code>fmt --check</code> が 0 から 1 に、<code>--indent 2</code> で 0 に戻る。<code>disable = ["GM-L0003"]</code> で lint が 0</td><td class="ok">通過</td></tr>
+    <tr><td>LSP 1 本</td><td>根の設定で GM-L0003 が消え、整形が 4 字下げ。誤りを書いて読み直すと showMessage</td><td class="ok">通過</td></tr>
+  </table>
+  <pre><code>cargo test -p globe-mode-fmt --features config -p globe-mode-cli -p globe-mode-lsp</code></pre>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ul>
+    <li>VS Code 拡張の設定 UI と、エディタのオプションとの同期</li>
+    <li>ブラウザ UI でプロジェクトの設定を持つ形（今は引数だけ）</li>
+    <li>LSP はワークスペースの根の 1 つだけ（複数の根、サブディレクトリの設定は見ない）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

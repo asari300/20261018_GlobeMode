@@ -21,10 +21,10 @@ flowchart LR
 | **P1 骨格**（S003 で完了） | workspace 化、mise の rust の targets、cargo-deny、CI（Linux / Windows / wasm）。core / ir / frontend / cli。MSL の取得スクリプト。Python パッケージの改名 | `cargo deny check` が通る。MSL の例題 20 本で `globe check` の結果が Rumoca と一致する。frontend が wasm32 向けにビルドできる。[ADR-0003](adr/0003-toolchain.md) が Accepted になる | 3 回（workspace と CI / アダプタと CLI / wasm の確認） |
 | **P2 遅延クエリと検査**（S004〜S010。完了条件は S008 で 3 つとも満たした。S9・S10 は S010 で足した。S10 の数値の部分は P3） | db、outline、class_index、connect_graph、`assert_simulatable` の S0〜S10 | 空白だけの編集の再検査が 50 ms 未満で、`flat` が再実行されない（salsa のイベントで確かめる）。MSL の全例題に判定が出て、panic は 0 件。S5 が omc と 95% 以上一致する | 4 回 |
 | **P3 シミュレーション**（S011 で着手。完了条件の 1 つ目と 2 つ目は S011 で、3 つ目（wasm）は S012 で満たした。1 つ目と 2 つ目は S012 の既定（`auto`）で測り直した。公開ライブラリの失敗の上流への下書きは [upstream.md](upstream.md)、S108 で 31・32 を足して 37 件。S113 で 28〜32 を Rumoca v0.10.4 で確かめ直し、日本語版と AixLib 向けの 33 を足して 38 件。S115 で 17〜27 を v0.10.4 で確かめ直し、25・25b・25c・25g・26 は直っていたので提出の順から外した） | exec、driver、bdf / esdirk34 / tsit45 / dopri / 固定刻み、ResultStore | MSL の例題 153 本以上が実行できる。そのうち 90% 以上が参照結果のファネルに収まる。bdf が wasm で（Node 上で）動く | 5 回 |
-| **P4 Desktop MVP** | CodeMirror 6 と LSP（S053 で整形・補完・lint）、ライブラリツリー、検査パネル、プロット、sigma.js の connect グラフ | ChuaCircuit で開く・検査・実行・プロットが通る。5k ノードのグラフが 30 fps 以上で動く。RSS の基準値を記録する（**S056 で記録**: MSL を読んだ後、sidecar 1.52 GiB・アプリ 136 MiB）。CI が .deb と .msi を作る（**S049 で済**） | 6 回 |
-| **P5 FMI**（S094 で着手。Export は P5a を先行し P5b を並行する。[ADR-0031](adr/0031-fmi-export-p5a-first.md)） | Import（ME / CS / SE）とマスター。Export は P5a（Rumoca のテンプレート）と P5b（自前のランタイム、S095。S099 から resources の Modelica を compile して exec の `ModelInstance` で回す。S109 から事象のあるモデルも。S112 から代数・離散の変数も読める。S114 から入力も与えられる。S117 から `modelDescription.xml` の型と書く側を `globe-mode-fmi` で P5a と共有） | Reference-FMUs が linux64 と win64 で一致する。Export した FMU が FMPy・fmusim・fmuCheck を通る（**S094: Decay の FMI 2.0 の FMU が FMPy の validate と ME・CS の simulate を通った。S098: FMI 3.0 も同じく通り、2.0・3.0 とも fmusim の validate と ME・CS の simulate を GitHub Actions で通った。S105: `--target`（zig cc）で linux64・win64・darwin64 を 1 つの FMU に入れ、Ubuntu・Windows・macOS の FMPy で validate と ME・CS を通った**。fmuCheck は持ち越し）。Clocks（SE）が往復できる | 8 回 |
+| **P4 Desktop MVP** | CodeMirror 6 と LSP（S053 で整形・補完・lint、S130 で設定ファイル `globe-mode.toml`）、ライブラリツリー（**S127 で UI**）、検査パネル、プロット（S128 で系列の選択・2 軸・パラメトリック）、sigma.js の connect グラフ | ChuaCircuit で開く・検査・実行・プロットが通る。5k ノードのグラフが 30 fps 以上で動く。RSS の基準値を記録する（**S056 で記録**: MSL を読んだ後、sidecar 1.52 GiB・アプリ 136 MiB）。CI が .deb と .msi を作る（**S049 で済**） | 6 回 |
+| **P5 FMI**（S094 で着手。Export は P5a を先行し P5b を並行する。[ADR-0031](adr/0031-fmi-export-p5a-first.md)） | Import（ME / CS / SE）とマスター。Export は P5a（Rumoca のテンプレート）と P5b（自前のランタイム、S095。S099 から resources の Modelica を compile して exec の `ModelInstance` で回す。S109 から事象のあるモデルも。S112 から代数・離散の変数も読める。S114 から入力も与えられる。S117 から `modelDescription.xml` の型と書く側を `globe-mode-fmi` で P5a と共有。S124 から書く側は FMI 3.0 も） | Reference-FMUs が linux64 と win64 で一致する。Export した FMU が FMPy・fmusim・fmuCheck を通る（**S094: Decay の FMI 2.0 の FMU が FMPy の validate と ME・CS の simulate を通った。S098: FMI 3.0 も同じく通り、2.0・3.0 とも fmusim の validate と ME・CS の simulate を GitHub Actions で通った。S105: `--target`（zig cc）で linux64・win64・darwin64 を 1 つの FMU に入れ、Ubuntu・Windows・macOS の FMPy で validate と ME・CS を通った**。fmuCheck は持ち越し）。Clocks（SE）が往復できる | 8 回 |
 | **P6 Web / marimo / Streamlit / Android** | WorkerBackend、MSL のパッケージ単位の分割読み込み、anywidget、wheel、APK | ブラウザが CSP `connect-src 'self'` のまま実行できる（サーバーで計算しない。**S093 で確かめた**: Worker にも同じ CSP の header を付け、`ui:check` が error 0・外への要求 0）。marimo の WASM で 2 GB 未満に収まる（S093 は調査だけ。[調査](research/marimo-wasm-2026-11-02.md)。**S102 で Decay を確かめた**: anywidget の `_esm` から `globe-mode-wasm` を呼び、ブラウザの RSS の合計 857〜966 MiB。**S104 で MSL も**: Web Worker で ChuaCircuit を渡す道は未回し、RSS の合計 1152〜1154 MiB、`--offline` の書き出しに CSP を付けて違反 0 件）。Android API 34 のエミュレータで検査と実行が通る（**S100 で確かめた**: UI から Decay の検査と実行、logcat の `GM-SMOKE` の行。**S103 で MSL も**: APK に MSL.json を同梱し、ChuaCircuit の検査で `msl=ok`。**S106 で release の APK も**: ABI ごとの release APK を作り、secret があるときだけ署名、release でも smoke が `msl=ok`） | 5 回 |
-| **P7 言語 API と UI 比較** | C / Zig / Julia、Elixir / Gleam、Python。Leptos 版と Dioxus 版、負荷の測定ハーネス | 参照シナリオが 6 言語で通る（**S110 で参照シナリオを決め、機能表を作った**: Decay を開く → check → simulate → x(1) → format。[調査](research/lang-api-matrix-2026-11-03.md)。**S111 で 6 言語に format / lint を足し、参照シナリオが 6 言語の試験で通った**。**S116 で列の道（`simulate_columns`）を C・Zig・Julia・Elixir・Gleam に足した**。**S118 で FMU export を facade に置き、C・Zig・Julia・Elixir・Gleam・Python から呼べるようにした**。**S121 で進捗と中断の設計を [ADR-0033](adr/0033-progress-and-cancel.md) に書いた**）。`doc/bench/ui.md` に 3 UI × 3 OS の比較を書く（**S125 で測定ハーネス（[ADR-0034](adr/0034-ui-bench-method.md)）を作り、Svelte のブラウザ（Linux）と Desktop（Linux・Windows）を [doc/bench/ui.md](bench/ui.md) に載せた**。Leptos・Dioxus・macOS は未） | 6 回 |
+| **P7 言語 API と UI 比較** | C / Zig / Julia、Elixir / Gleam、Python。Leptos 版と Dioxus 版、負荷の測定ハーネス | 参照シナリオが 6 言語で通る（**S110 で参照シナリオを決め、機能表を作った**: Decay を開く → check → simulate → x(1) → format。[調査](research/lang-api-matrix-2026-11-03.md)。**S111 で 6 言語に format / lint を足し、参照シナリオが 6 言語の試験で通った**。**S116 で列の道（`simulate_columns`）を C・Zig・Julia・Elixir・Gleam に足した**。**S118 で FMU export を facade に置き、C・Zig・Julia・Elixir・Gleam・Python から呼べるようにした**。**S121 で進捗と中断の設計を [ADR-0033](adr/0033-progress-and-cancel.md) に書いた**。**S123 で core・IR・exec・facade に進捗と中断を入れた（ADR-0033 の順の 1）**。**S129 で Python に `on_progress` と中断を入れた（順の 3）**。**S131 で C・Zig・Julia と NIF・Elixir・Gleam に進捗と中断を入れた（順の 4）**）。`doc/bench/ui.md` に 3 UI × 3 OS の比較を書く（**S125 で測定ハーネス（[ADR-0034](adr/0034-ui-bench-method.md)）を作り、Svelte のブラウザ（Linux）と Desktop（Linux・Windows）を [doc/bench/ui.md](bench/ui.md) に載せた**。Leptos・Dioxus・macOS は未） | 6 回 |
 | **P8 拡充** | radau5、SUNDIALS、ESDIRK / CERK、SSP 2.0.1、Diagram ビュー、BLT デバッガ | ソルバの表がそろう。SSP が往復できる | 未定 |
 | **Track B 自前コア** | B1 rowan の CST と寛容なパーサ → B2 resolve → B3 flatten → B4 DAE。`Frontend` の feature `native` として作る | 段階ごとに Rumoca 以上の数字を出す（parse 566 / flatten 562 / balanced 464 / simulate 153）。`xtask diff-frontend` で回帰が 0 件になったら既定を切り替える | P4 以降、余裕ができてから |
 
@@ -376,7 +376,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 ### S048（P4、2026-10-31）で済んだこと
 
 - **ブラウザ UI で MSL を読み、ChuaCircuit の検査・実行・プロットが通った**（P4 の完了条件の前半）: `src/Svelte/scripts/pack-msl.mjs` が `data/msl` の `.mo`（2556 ファイル）を `public/msl/MSL.json`（15.2 MiB、`.gitignore` 済み）にし、`prepare-wasm` の段で呼ぶ（`data/msl` が無ければ警告だけ）。`Backend.library(name, json)` と `WorkerBackend` が `GlobeWorker.library` を呼び、`App.svelte` の「MSL を読む」ボタン（起動時は読まない）で読む。ヘッドレス Chromium で MSL を読む 0.5〜1.0 s、ChuaCircuit の検査 約 2 s（error 0）、実行（bdf）約 1.5 s（5 万点、44 信号）。`tests/test_ui.py` に試験、ci.yml の `ui` ジョブに `data/msl` の cache と `fetch-msl`。wasm・worker・client は変えていない。
-- 持ち越し: ~~ライブラリのモデルの `graph`（「索引に無い」と赤字で出る）~~（S079 で済んだ。[解説書](sessions/S079-graph-library-models/解説書.md)）、実ブラウザでの計測、ライブラリツリー、LSP、Tauri のシェル。詳しくは [解説書](sessions/S048-ui-msl/解説書.md)。
+- 持ち越し: ~~ライブラリのモデルの `graph`（「索引に無い」と赤字で出る）~~（S079 で済んだ。[解説書](sessions/S079-graph-library-models/解説書.md)）、実ブラウザでの計測、~~ライブラリツリー~~（S127 で済んだ。[解説書](sessions/S127-ui-library-tree/解説書.md)）、LSP、Tauri のシェル。詳しくは [解説書](sessions/S048-ui-msl/解説書.md)。
 
 ### S053（P4、2026-10-31）で済んだこと
 
@@ -401,6 +401,16 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 ### S050（P3、2026-10-31）で済んだこと
 
 - **ソルバ別の表**: `msl-sim.yml` にジョブ `solvers`（`msl-sim` の後。14 ソルバの matrix で `msl-sim --solver <名前> --tolerance-scale 0.1`。cvode・ida は xtask のビルドに `--features globe-mode-exec/sundials`）と `solvers-report`（`cargo xtask msl-solvers`）を足し、[msl-solvers.md](msl-solvers.md) を作った（run 41194959752、全ジョブ成功、ソルバのジョブは 63〜174 分）。対象 356 本のうち実行できたのは 283（dopri853）〜301（bdf）本、管に収まった割合は 95.2（trbdf2）〜98.3%（ida）。`auto` は 309・301/308。`bdf` 単独と `auto` の差 8 本は、`bdf` の内部エラー（`GM-U0005`）10 本を dopri45 の回し直しで救ったもの。入れなかったもの: `qss`、固定刻み、`esdirk23`、別名（理由は解説書）。これで P8「ソルバの表がそろう」の数字の土台ができた。更新は `gh workflow run msl-sim.yml`（手元では回さない）。
+
+### S127（P4、2026-11-03）で済んだこと
+
+- **ライブラリツリーの UI**（S048 の持ち越し。[解説書](sessions/S127-ui-library-tree/解説書.md)）: 「MSL を読む」の後に左の木（`src/Svelte/src/lib/LibraryTree.svelte`）を出し、展開のたびに直下の子だけを引く。モデルを押すとそのファイルをライブラリと同じ名前でエディタに開き、モデル名を入れる（同じ名前の `setFile` がライブラリのファイルを差し替えるので、編集が検査・実行に効く）。口は `globe-mode-fmt` の `LibraryTree`（ファイルの見出しだけを読む）と、wasm の `library_tree` / `library_source`、LSP の `globe/libraryTree` / `globe/librarySource`。`test_ui.py` で Modelica → Electrical → Analog → Examples → ChuaCircuit を開いて検査が通る。
+- 持ち越し: 検索、アイコン、`package.order` の順、1 ファイルのパッケージの中の入れ子のクラス、wasm でライブラリの本文を 2 重に持つ（約 15 MiB）こと。
+
+### S130（P4、2026-11-03）で済んだこと
+
+- **整形と lint の設定ファイル**（features.md の「設定ファイルは未」。[解説書](sessions/S130-fmt-config-file/解説書.md)）: プロジェクトの `globe-mode.toml`（`[fmt]` の `indent`・`width`・`insert_origin`・`blank_around_sections`・`format_html`、`[lint]` の `disable`）を CLI `globe fmt` / `globe lint`（対象から上へたどる。引数が優先）と LSP（`initialize` の根から。`workspace/didChangeConfiguration` で読み直し）が読む。読む処理は `globe-mode-fmt` の optional な feature `config`（`LintOptions::from_toml`・`find`）で、既定と wasm は依存 0 のまま（[ADR-0024](adr/0024-own-formatter-and-lint.md) 追記、[format-style.md](format-style.md) の 5 章）。
+- 持ち越し: VS Code 拡張の設定 UI とエディタのオプションとの同期、ブラウザ UI の設定、LSP の複数の根。
 
 ### S120（P4、2026-11-03）で済んだこと
 
@@ -449,6 +459,11 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **Android のエミュレータで検査と実行**（S092 の持ち越し、P6 の Android の完了条件。[解説書](sessions/S100-android-emulator-smoke/解説書.md)）: `App.svelte` が `VITE_GM_SMOKE=1`（ビルド時）か `?smoke=1` のときだけ、起動時にエディタの Decay を検査・実行して `GM-SMOKE check=ok simulate=ok x1=…` を console に 1 行出す。`android.yml` のジョブ `ui` はこの設定でビルドし、`emulator` は logcat にこの行が出るまで最大 5 分待って `check=ok simulate=ok` を確かめる（run 41444392188、`Displayed` の 5.7 s 後に x1 = 0.3678797279080248）。`test_ui.py` も `?smoke=1` で同じ行を確かめる（x1 = 0.3678797279080248）。
 - 持ち越し: Android での MSL、Rust を mobile の lib に直接 link する道、release の署名つき APK（`VITE_GM_SMOKE` を付けない）。
 
+### S124（P5a・P5b の共通、2026-11-03）で済んだこと
+
+- **FMI 3.0 の `modelDescription.xml` の書く側**（S117 の持ち越し。[解説書](sessions/S124-fmi3-writer/解説書.md)、[ADR-0031](adr/0031-fmi-export-p5a-first.md) の追記）: `globe-mode-fmi` の `write_model_description_3`（`instantiationToken`、`Float64`・`Int32`・`Boolean` の要素、`ModelStructure` の `Output`・`ContinuousStateDerivative`・`InitialUnknown` の `valueReference`）。2.0 と private な関数を共有し、2.0 の出力と試験は変えていない。読む側は 3.0 で `<EventIndicator>` の数を `number_of_event_indicators` に入れ、書く側はそれが 1 つ以上なら `Err`。Reference-FMUs の Dahlquist 3.0 と P5a の Decay 3.0 で読み→書き→読みが同じ `ModelDescription` になる。`globe-mode-fmu` は 2.0 のまま。
+- 持ち越し: P5b の 3.0 のランタイム（そのとき `ModelStructure` に `EventIndicator` の valueReference を足す）、CS、`dependencies`、Enumeration・String。
+
 ### S117（P5a・P5b の共通、2026-11-03）で済んだこと
 
 - **`modelDescription.xml` の書く側を `globe-mode-fmi` に 1 つ置いた**（[解説書](sessions/S117-fmi-model-description-shared/解説書.md)、[ADR-0031](adr/0031-fmi-export-p5a-first.md)・[ADR-0032](adr/0032-p5b-own-runtime.md) の追記）: `write_model_description_2`（FMI 2.0、Real・Integer・Boolean）。`ModelDescription` に `initial`・`start`・`derivative`・`ModelStructure`・`numberOfEventIndicators`・`DefaultExperiment` などを足して読む側も合わせた。`globe-mode-fmu` の `model_description` は型を組み立てて呼ぶだけになり（`globe-mode-fmi` の既定の feature に依存）、FMPy の validate はそのまま通る。P5a は Rumoca のテンプレートの XML のまま、Decay の 2.0 で読み→書き→読みが同じ `ModelDescription` になる。
@@ -491,6 +506,12 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **CI**（`msl-sim.yml` run 41403194603）: 実行できた 310・管に収まった 301 / 309 で S064 と同じ。モデルごとの判定も同じ。
 - **持ち越し**: `ThyristorBridge2mPulse_DC_Drive` は BDF が 5〜7.5 s で落ち、esdirk34 は手元 159.8 s・ランナー 94〜180 s 以上。時間はイベント約 3.75 万回（15 s）ごとのやり直しに使われる。回し直しの各段に 180 s を渡しているので、予算の分け方の 1 行では収まらない。`auto` の全体の予算は計測だけ（最初の試行で 30 s を超えたのは 7 本、最大 53.3 s）。
 
+### S119（P3、2026-11-03）で済んだこと
+
+- **サイリスタの事象 1 回あたりの費用を測って軽くした**（S088 の持ち越し。[解説書](sessions/S119-sim-thyristor-event-cost/解説書.md)、[ADR-0013](adr/0013-exec-backend.md) の追記）: `ThyristorBridge2mPulse_DC_Drive` の esdirk34（0〜2 s）で、実行 27.6 s のうち事象の後の最初の刻みが 28%（1 回 2.58 ms、通常の刻みの約 14 倍）、通常の刻み 37%、Rumoca の host 28%、reset と作り直し 7%。session の道の SDIRK で、事象のあとの最初の刻みを直前に diffsol が選んでいた刻みで上から抑えた（誤差の検査の失敗 18,273 → 7,612、右辺の評価 -14%、最初の刻みの時間 -29%、実行 -7%）。
+- **CI**（`msl-sim.yml` run 41589277425）: `ThyristorBridge2mPulse_DC_Drive` が回し直しの esdirk34 で終了時刻まで（積分 177.1 s / 予算 180 s、管 OK 38/38。前は 187.5 s で時間切れ）、`ThyristorBridge2Pulse_DC_Drive` も（63.4 s、管 OK 19/19。前は 197.4 s で時間切れ）。実行できた 310 → 312、管に収まった 301 / 309 → 303 / 311。ほかの 353 本の判定と管は変わらない。2mPulse は予算 180 s に対して 177.1 s で余裕が小さい。
+- 持ち越し: reset の直後の `initialize` で捨てられるヤコビ行列と LU（5%）、Rumoca の host の部分、`--stop-time 0.5`・`1` で t = 0.0617 s に `GM-E11003` になる件（直す前から）。
+
 ### S092（P6、2026-11-02）で済んだこと
 
 - **Android の debug APK**（S038 の持ち越し「Android の sidecar」。[解説書](sessions/S092-android-apk-ci/解説書.md)）: Android では sidecar を使えないので、Tauri の mobile の入口（desktop の `src/lib.rs`）は UI を表示するだけで、UI は Android なら `WorkerBackend`（wasm）を使う（[ADR-0023](adr/0023-desktop-and-web-process-layout.md) の「S092」）。`gen/android` をコミットし、`android.yml` が署名なしの debug APK（aarch64・x86_64、251,627,503 B、artifact `globe-android`）を作り、API 34 のエミュレータで起動（`Displayed` まで 2.5 s）を確かめる（run 41409143035）。
@@ -511,6 +532,21 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **UI の測定ハーネス**（[ADR-0034](adr/0034-ui-bench-method.md)、Proposed。[解説書](sessions/S125-ui-bench-harness/解説書.md)）: S100 の `GM-SMOKE` の行の末尾に `ready_ms`・`decay_ms`・`msl_ms` を足した。ブラウザは `src/Svelte/tests/bench_ui.py browser`（Chromium を回ごとに起動し直す）、Desktop は `GLOBE_DESKTOP_BENCH=<ファイル>` で UI が同じ手順を回し command `bench` が行を書く（`desktop.yml` の Linux・Windows で 3 回ずつ、artifact `ui-bench-<os>`）。`bench_ui.py report` が [doc/bench/ui.md](bench/ui.md) を作る。中央値: 起動から操作可能まで ブラウザ（手元）1,232 / Tauri Linux 114 / Tauri Windows 178 ms、MSL と ChuaCircuit 2,800 / 1,045 / 1,927 ms、最大の RSS 346 / 152 / 129 MiB（run 41622934035）。
 - 見つけたこと: Linux の Desktop は `LANG=C` のとき WebKitGTK の既定の言語が `C` になり、CodeMirror の `Intl.Segmenter` が `RangeError` を投げて画面が空になる（CI の xvfb で確かめた。測定の手順は `LANG=en_US.UTF-8`）。
 - 持ち越し: Leptos 版・Dioxus 版、`LANG=C` の直し、ブラウザの Windows 列、macOS（matrix に足すかはユーザー）、Android の列、CPU・フレーム時間・PSS。
+
+### S131（P7、2026-11-03）で済んだこと
+
+- **進捗と中断の C・NIF の段**（[ADR-0033](adr/0033-progress-and-cancel.md) の実装の順の 4。[解説書](sessions/S131-progress-cancel-lang/解説書.md)）: C ABI に `gm_simulate_observed`・`gm_simulate_columns_observed`（`GmProgress` と `GmProgressCallback`、非 0 で中断）、Zig・Julia（`@cfunction`）の包み。NIF に `cancel_token`・`cancel`・`simulate_observed(ws, model, settings_json, pid, token)`（進捗は pid へ `{:globe_progress, map}`）、Elixir・Gleam の包み。どの言語も `der(x) = sin(100 * time)` を 1000 s 回して最初の t の進捗で止めると `cancelled` と `GM-I11004`。
+- 持ち越し: ADR-0033 の順の 2・5（wasm・Svelte、LSP・Desktop）。NIF の列の道（`simulate_columns`）に進捗は付けていない。
+
+### S129（P7、2026-11-03）で済んだこと
+
+- **進捗と中断の Python の段**（[ADR-0033](adr/0033-progress-and-cancel.md) の実装の順の 3。[解説書](sessions/S129-progress-cancel-python/解説書.md)）: `Workspace.simulate`・`simulate_columns` に `on_progress`（段と t の dict）。`Python::detach` で GIL を離して回し、進捗のたびに GIL を取り直して `check_signals` とコールバックを呼ぶ。`True` で `cancelled` と途中の列と `GM-I11004`、Ctrl-C で `KeyboardInterrupt`。
+- 持ち越し: ADR-0033 の順の 2・4・5（wasm・Svelte、C・NIF、LSP・Desktop）。ネイティブの型付きの道の積分の中では止まらない。
+
+### S123（P7、2026-11-03）で済んだこと
+
+- **進捗と中断の 1 段目**（[ADR-0033](adr/0033-progress-and-cancel.md) の実装の順の 1。[解説書](sessions/S123-progress-cancel-core/解説書.md)）: core に `GM-I11004`、IR に `Termination::Cancelled { time }`、exec に `Progress`・`CancelToken`・`Observer`・`run_observed`（`run_with_progress` はその包み）、facade に `SimulateHandle`・`Workspace::simulate_observed`。段の前・`auto` の回し直しの前・session の道の積分器の 1 歩の前で見る。session の道は `advance_to` で区切ると刻みの上限になって数値が変わる（`tests/integrators.rs` の 6 本が落ちた）ので、積分器を包む形にした（release の `Simulation.*` で +1.2%、止めないときの結果はビット単位で同じ）。
+- 持ち越し: ADR-0033 の順の 2〜5（wasm・Svelte、Python、C・NIF、LSP・Desktop）。状態の無いモデルは積分の中で止められない。
 
 ### S121（P7、2026-11-03）で済んだこと
 
@@ -536,6 +572,11 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 
 - **言語 API の機能表**（文書だけ。[調査](research/lang-api-matrix-2026-11-03.md)、[解説書](sessions/S110-lang-api-matrix/解説書.md)）: Rust facade・C・Zig・Julia・Elixir・Gleam・Python・wasm・LSP・CLI の公開 API を 13 の機能で並べた。穴は C・Zig・Elixir・Gleam 6、Julia 7、Python 5、facade 4、LSP 3、wasm・CLI 2。参照シナリオ（`Decay` を開く → check → simulate → `final.x` が e⁻¹ → format、MSL なし）は wasm・LSP・CLI で通り、6 言語は format が無いので通らない（Python は 1〜4 を手元で確かめた。C・Zig・Julia・Elixir・Gleam はソースで判定）。
 - 埋める順: facade に `format` / `lint` → C・NIF・py に足し Julia の包み（`format`・`load_dir`・`graph`）→ 参照シナリオを各言語の試験と CI の `lang` に → 列の道を C・NIF に → FMU export を facade に → 進捗と途中で止める口（ADR を先に）。
+
+### S128（P4、2026-11-03）で済んだこと
+
+- **プロットの系列の選択・2 軸・パラメトリック**（UI だけ。[解説書](sessions/S128-ui-plot-series/解説書.md)）: `Plot.svelte` が選んだ系列だけを uPlot に渡し（列が数百でも描くのは選んだ分だけ）、系列ごとに右の軸（`y2`）へ置け、x 軸に時刻以外の列を選べる（ChuaCircuit の `C1.v` 対 `C2.v`）。新しい結果で選択は既定（先頭 3 本・左・time）に戻る。`test_ui.py` に Decay と ChuaCircuit の操作を足した。
+- 持ち越し: パラメトリックのときの拡大（uPlot の拡大は x が昇順の前提なので止めた。要るなら mode 2）、凡例の装飾、MAT の読み込み、画像の保存、ダークモード。
 
 ### S122（P4、2026-11-03）で済んだこと
 
@@ -715,7 +756,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **全例題 356 本の CI**（run 41287267439、`msl-sim.yml -f 'solvers=["auto"]'` の `msl-sim` ジョブ）: 実行できた 309 → **310**（`Dimmer_RL`。管は `y_arg` の 2 信号が外れる）、管に収まった 301 / 308 → **301 / 309**、`GM-U0005` の止まり 1 → 0、減ったモデルは 0。esdirk34 で終えたのは 8 本、esdirk34 → dopri45 は 1 本（`TwoMass`）。S055 の見込み（`auto` が救えない 3 本を esdirk34 が終える）は 2 本だった（`ThyristorBridge2Pulse_DC_Drive` は esdirk34 が `GM-E11003`）。`ThyristorBridge2mPulse_DC_Drive` は esdirk34 で 94 s かかり、ランナーの速さで時間切れの境目を行き来する（run 41282411061 で終え、41287267439 で時間切れ）。
 - **採らなかった版**: 回し直しに「予算の残り」を渡す版（run 41282411061）は `LightningSegmentedTransmissionLine` が 1 本減った（msl-sim の最初の予算 30 s を BDF の組み立てと積分が使い切る）。元の予算を渡す版に戻した。時間切れの回し直しが 12 → 15 本になった（esdirk34 は 30 s を超えることがあり、180 s で回し直されて終える）。
 - 手元の前後 21 本（release）は ADR-0028 の「結果」。`doc/msl-sim.md` は run の artifact の報告（「前回との差」は S055 の結果に直した）。`msl-solvers.md` は全ソルバの run でないので触っていない。
-- **次の候補**: `ThyristorBridge2mPulse_DC_Drive` の時間切れの境目（予算の分け方、陰的ソルバの速さ）。`auto` の全体の予算（Rumoca の dopri45 が最初の予算 30 s を超えて走る件を調べてから、残りの時間を渡す規則を決める）。~~`Dimmer_RL` の `y_arg` の外れの原因。~~（S088 で済んだ。時間切れの境目と全体の予算は S088 で計測して持ち越し）
+- **次の候補**: `ThyristorBridge2mPulse_DC_Drive` の時間切れの境目（予算の分け方、陰的ソルバの速さ。S119 で事象の後の最初の刻みを軽くした）。`auto` の全体の予算（Rumoca の dopri45 が最初の予算 30 s を超えて走る件を調べてから、残りの時間を渡す規則を決める）。~~`Dimmer_RL` の `y_arg` の外れの原因。~~（S088 で済んだ。時間切れの境目と全体の予算は S088 で計測して持ち越し）
 
 ### S066（P3、2026-11-01）で済んだこと
 

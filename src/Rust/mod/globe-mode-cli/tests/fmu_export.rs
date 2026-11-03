@@ -84,6 +84,13 @@ fn exports_a_fmi3_source_fmu() {
     let md = globe_mode_fmi::parse_model_description(&xml).unwrap();
     assert_eq!(md.major(), Some(3));
     assert!(md.model_exchange.is_some() && md.co_simulation.is_some());
+    // S124: 3.0 の XML も 3.0 の書く側を通して読み直すと同じ表になる
+    let again = globe_mode_fmi::write_model_description_3(&md).unwrap();
+    assert_eq!(
+        globe_mode_fmi::parse_model_description(&again).unwrap(),
+        md,
+        "{again}"
+    );
     assert!(root.join("sources/buildDescription.xml").is_file());
     let license =
         std::fs::read_to_string(root.join("documentation/licenses/Rumoca-LICENSE.txt")).unwrap();

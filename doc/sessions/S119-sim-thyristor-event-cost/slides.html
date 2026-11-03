@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S119 サイリスタの事象の費用 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S119 サイリスタの事象の費用">
+
+<section class="slide" id="S01">
+  <span class="tag">S119 · 2026-11-03 · P3</span>
+  <h1>サイリスタの事象の費用</h1>
+  <p class="lead">S088 の持ち越し。ThyristorBridge2mPulse_DC_Drive が esdirk34 で時間切れになる理由を測る</p>
+  <div class="big">事象の後の最初の刻みは通常の <b>約 14 倍</b>。刻みを直前の値で抑えて <b>-29%</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>15 s で事象が約 3.75 万回（S088）。1 回ごとに esdirk34 が何をやり直しているかを測る</li>
+    <li>内訳: 事象の処理 / 事象の後の最初の刻み / 通常の刻み</li>
+    <li>最小の対策を 1 つ入れ、数値が変わらないこと（管・wasm:compare）を確かめる</li>
+    <li>全例題は GitHub Actions（msl-sim.yml）で回す</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">計測</span>
+  <h1>0〜2 s の内訳（直す前）</h1>
+  <table class="compact">
+    <tr><th>部分</th><th>時間</th><th>割合</th><th>1 回あたり</th></tr>
+    <tr><td>truncate_reset（ヤコビ行列と LU）</td><td>1.45 s</td><td>5%</td><td>0.60 ms</td></tr>
+    <tr><td>initialize（作り直し）</td><td>0.43 s</td><td>2%</td><td>0.14 ms</td></tr>
+    <tr><td class="warn">事象の後の最初の刻み（3,002 回）</td><td>7.74 s</td><td>28%</td><td>2.58 ms</td></tr>
+    <tr><td>通常の刻み（54,603 回）</td><td>10.20 s</td><td>37%</td><td>0.19 ms</td></tr>
+    <tr><td>Rumoca の host（根・Event Mode・出力）</td><td>約 7.8 s</td><td>28%</td><td>-</td></tr>
+  </table>
+  <p>原因: 作り直しの Hairer の見積もりが直前の刻みの約 3.8 倍。棄却が事象あたり 7.6 回（誤差）+ 2.0 回（Newton）</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由</span>
+  <h1>入れた対策: 最初の刻みの上限</h1>
+  <ul>
+    <li><code>rk.rs</code> の <code>initial_state</code> で、刻みを「直前に diffsol が次に試すつもりだった刻み」以下に抑える</li>
+    <li>reset と initialize の両方に効く。抑えるだけなので刻みが大きくなる向きの変化は無い</li>
+    <li>対象は session の道の SDIRK だけ。陽的 RK に当てると wasm:compare の DiodeSwitching/tsit45 が分かれた</li>
+    <li>選ばなかった案: ヤコビ行列の使い回し（7% しかない）、reset の省略（Rumoca の session の約束を読み替える）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">図</span>
+  <h1>事象 1 回の流れ</h1>
+  <svg viewBox="0 0 800 220" role="img" aria-label="事象の流れの図">
+    <rect class="svg-box" x="10" y="80" width="130" height="50" rx="6"/>
+    <text class="svg-text" x="75" y="110" text-anchor="middle">根を見つける</text>
+    <rect class="svg-box" x="170" y="80" width="140" height="50" rx="6"/>
+    <text class="svg-text" x="240" y="110" text-anchor="middle">truncate_reset</text>
+    <rect class="svg-box" x="340" y="80" width="130" height="50" rx="6"/>
+    <text class="svg-text" x="405" y="110" text-anchor="middle">initialize</text>
+    <rect class="svg-box-warn" x="500" y="80" width="140" height="50" rx="6"/>
+    <text class="svg-text" x="570" y="110" text-anchor="middle">最初の刻み</text>
+    <rect class="svg-box" x="670" y="80" width="120" height="50" rx="6"/>
+    <text class="svg-text" x="730" y="110" text-anchor="middle">通常の刻み</text>
+    <line class="svg-line" x1="140" y1="105" x2="170" y2="105"/>
+    <line class="svg-line" x1="310" y1="105" x2="340" y2="105"/>
+    <line class="svg-line" x1="470" y1="105" x2="500" y2="105"/>
+    <line class="svg-line" x1="640" y1="105" x2="670" y2="105"/>
+    <rect class="svg-box-accent" x="460" y="160" width="220" height="44" rx="6"/>
+    <text class="svg-text" x="570" y="187" text-anchor="middle">S119: 直前の刻みで抑える</text>
+    <line class="svg-line-accent" x1="570" y1="160" x2="570" y2="130"/>
+    <text class="svg-text" x="570" y="60" text-anchor="middle">棄却 7.6 → 3.2 回 / 事象</text>
+  </svg>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">結果</span>
+  <h1>前後（0〜2 s、同じバイナリで交互に）</h1>
+  <table class="compact">
+    <tr><th>量</th><th>前</th><th>後</th></tr>
+    <tr><td>誤差の検査の失敗</td><td>18,273</td><td class="ok">7,612（-58%）</td></tr>
+    <tr><td>Newton 法の失敗</td><td>4,824</td><td class="ok">2,662（-45%）</td></tr>
+    <tr><td>右辺の評価</td><td>439,753</td><td class="ok">379,957（-14%）</td></tr>
+    <tr><td>最初の刻みの時間（中央値）</td><td>7.74 s</td><td class="ok">5.48 s（-29%）</td></tr>
+    <tr><td>実行（中央値）</td><td>27.6 s</td><td class="ok">25.6 s（-7%）</td></tr>
+  </table>
+  <p>状態は 2 s まで格子の上で相対 4e-7 以内</p>
+  <p class="ok">CI run 41589277425: 2mPulse 177.1 s（予算 180 s）・2Pulse 63.4 s で終了時刻まで、管 OK。実行できた 310 → 312、管 301 → 303</p>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ol>
+    <li>reset の直後の initialize で捨てられるヤコビ行列と LU（5%）</li>
+    <li>Rumoca の host の部分（約 28%）は Rumoca の側</li>
+    <li><code>--stop-time 0.5</code>・<code>1</code> で t = 0.0617 s に GM-E11003（直す前から）</li>
+  </ol>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
