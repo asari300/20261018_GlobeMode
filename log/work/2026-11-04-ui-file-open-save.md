@@ -38,11 +38,12 @@ S140 の点検（`doc/research/app-flow-2026-11-04.md`）の順位 1。自分の
 - `pnpm check`: 0 エラー 0 警告。
 - `test_ui.py`（wasm を `mise run wasm:build` で作り直して、`pnpm build` 後）: 通過（`開く・保存: Mine.mo を開いて検査が通り、ダウンロードの内容が一致し、再読み込みで戻った`、MSL も ok、console の error と外への要求は 0）。
 - `cargo deny`（desktop の manifest と deny.toml）: advisories・bans・licenses・sources とも ok。
-- Desktop のビルド: 手元では回さない（webkit2gtk が無い）。`desktop.yml`: 下の欄。
+- `desktop.yml`（`gh workflow run --ref feature/s141-ui-file-open-save`）: 1 回目 run 41685296804 は失敗（Linux・Windows とも「UI の測定」。起動を 3 回繰り返し、2 回目から check=ng。localStorage に保存したモデル名を次の起動が拾った。上の「決めたこと」）。直した後の run 41690617336 は成功（ui・Linux の deb・Windows の msi、smoke と UI の測定とも）。cargo deny・fmt・clippy・sidecar 試験も同 run で成功。手元では Tauri をビルドしていない（webkit2gtk が無い）。
 - コードの検査（root の `mise run check`）: root の Rust は触っていないので回していない。
-- `check_docs.py`・`render_slides.py`・リンク・`--check`・漏洩検査: 下の欄。
-
-（仕上げで埋める）
+- `check_docs.py`: デッキ 144 件 OK / リンク 2904 件中の切れ 0 件。`render_slides.py`: デッキ 144 件 / 問題 0 件（手元で通った。約 10 分かかる）。
+- セッション記録の `--check`: 記録は親が写すので、ここでは回していない。
+- ステージした差分の漏洩検査（メールアドレス・ホームのパス・トークン）: 0 件。
+- 直した後の `test_ui.py` を再実行して通過（モデル名を保存しない版）。
 
 ## 残したこと
 
