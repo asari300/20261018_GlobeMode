@@ -7,7 +7,7 @@
 | worktree | `.git-worktree/s139-sim-sdirk-regression` |
 | Phase | P3（実行系） |
 | セッション文書 | `doc/sessions/S139-sim-sdirk-regression/` |
-| セッション記録 | （親が写す） |
+| セッション記録 | [2026-11-02-a2580a13-3889-4662-9db4-a45dc1ca6772.md](../sessions/2026-11-02-a2580a13-3889-4662-9db4-a45dc1ca6772.md) |
 
 ## 依頼
 
@@ -34,7 +34,7 @@ S126 の疑い。S119 の後、session の道の SDIRK で `HBridge_TrianglePWM_
 - `msl-sim.yml`: run 41666815770（`solvers=["esdirk34","sdirk34hw"]`、コミット `90d99ae`）、4 ジョブ success。`HBridge_TrianglePWM_RL` は esdirk34・sdirk34hw とも終了時刻まで（管 OK 7/7）、`HBridge_DC_Drive` は `GM-E11002` が消えて時間切れ（`GM-E11005`、180.85 s）、ThyristorBridge 2 本の esdirk34 は終了時刻まで（47.0 s、160.4 s）、`sdirk34hw` の 2Pulse は `GM-E11003`（t = 13.04）のまま・2mPulse は時間切れ（181.9 s）。`esdirk34` 295・管 286 / 294、`sdirk34hw` 293・283 / 292（S126 の表より各 1 本増）。
 - コードの検査（`mise run check`）: `then_some` への書き換え（clippy `unnecessary_lazy_evaluations`）のあとの `mise run check` が EXIT 0（試験 642 passed、失敗 0、ignored 11、deny・`uv sync --locked` も通った。load average 30〜44 の中で約 70 分）。最初の 1 回は clippy で落ちたので直した
 - `check_docs.py`: 文書の相対リンク 切れ 0 件（スライドは全件 OK）。`render_slides.py` は全デッキの実行が手元の負荷で途中で止まったので S139 のデッキだけを回し、7 枚 × 3 で問題 0 件
-- セッション記録の `--check`: （親が写す）
+- セッション記録の `--check`: 取りこぼし 0 件（親が写した）
 - ステージした差分の漏洩検査: 0 件（メールアドレス・ホームのパス・トークンのパターンで検索）
 
 ## 残したこと
