@@ -188,6 +188,9 @@ jobs:
         env:
           WEBKIT_DISABLE_DMABUF_RENDERER: "1"
           WEBKIT_DISABLE_COMPOSITING_MODE: "1"
+          # ランナーの既定（LANG=C）では WebKitGTK の既定の言語が "C" になり、CodeMirror の Intl.Segmenter が
+          # RangeError（invalid language tag: C）を投げて UI が描かれない（S125 の切り分け、run 41617814119）
+          LANG: en_US.UTF-8
         run: |
           DEB="$(find "$PWD/$DESKTOP/target/release/bundle/deb" -maxdepth 1 -type f -name '*.deb')"
           APP="$(dpkg -L "$(dpkg-deb -f "$DEB" Package)" | grep '^/usr/bin/' | grep -v '/globe$' | head -1)"
