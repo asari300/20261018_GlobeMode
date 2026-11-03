@@ -18,6 +18,7 @@
 //! | `globe/lint` | `{text}` | `[{rule, line, column, message}]`（S053） |
 //! | `globe/libraryTree` | `{prefix}`（空ならトップレベル） | `[{name, path, kind, description, file, hasChildren}]`（S127。直下の子だけ。wasm の `library_tree` と同じ形） |
 //! | `globe/definition` | `{file, line, character}`（開いている文書。行は 0 始まり、列は UTF-16） | `{file, text, range}` か null（S138。`textDocument/definition` と同じ解決で、定義のあるファイルの本文も返す。wasm の `definition` と同じ形） |
+//! | `globe/solvers` | なし | ソルバの登録表（`[{name, status, description, instead?}]`。S142。wasm の `solvers` と同じ） |
 //! | `globe/librarySource` | `{path}`（完全修飾名） | `{file, text}`（S127。そのクラスを定義するライブラリのファイル。無ければ -32000） |
 //!
 //! 設定ファイル（S130）: `initialize` の `rootUri`（無ければ `rootPath`）から上へたどって最初の `globe-mode.toml` を
@@ -393,6 +394,8 @@ impl Server {
                 }
                 None => error(id, -32602, "params.text が文字列でない"),
             },
+            // ソルバの登録表（S142。wasm の `solvers` と同じ JSON の配列）
+            "globe/solvers" => reply(id, json!(globe_mode::solvers())),
             "globe/lint" => match params["text"].as_str() {
                 Some(text) => reply(
                     id,
@@ -1078,6 +1081,31 @@ mod tests {
             s.handle(json!({"method": "globe/check", "params": {}}))
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn solvers_and_experiment() {
+        let mut s = Server::new(&[]).unwrap();
+        let r = s.handle(json!({"id": 1, "method": "globe/solvers"}));
+        let all = r[0]["result"].as_array().unwrap();
+        assert!(
+            all.iter()
+                .any(|e| e["name"] == "dopri45" && e["status"]["kind"] == "available")
+        );
+        let src = "model E\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -x;\n  annotation(experiment(StopTime = 3, Tolerance = 1e-5));\nend E;\n";
+        s.handle(
+            json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+            "uri": "E.mo", "languageId": "modelica", "version": 1, "text": src}}}),
+        );
+        let r = s.handle(json!({"id": 2, "method": "globe/check", "params": {"model": "E"}}));
+        let e = &r[0]["result"]["experiment"];
+        assert_eq!(
+            (e["stop_time"].as_f64(), e["tolerance"].as_f64()),
+            (Some(3.0), Some(1e-5)),
+            "{}",
+            r[0]
+        );
+        assert!(e["interval"].is_null());
     }
 
     #[test]

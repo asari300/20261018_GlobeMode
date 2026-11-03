@@ -1,5 +1,5 @@
 import type { Columns } from "./plot/csv";
-import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse } from "./protocol";
+import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse, SolverEntry } from "./protocol";
 
 /** UI が計算を頼む相手。WorkerBackend（ブラウザの wasm）と TauriBackend（sidecar の `globe lsp`）が実装する。 */
 export interface Backend {
@@ -14,6 +14,8 @@ export interface Backend {
   simulateColumns(req: SimulateRequest, onProgress?: (p: Progress) => void): Promise<{ response: SimulateResponse; columns: Columns }>;
   /** 実行中の simulateColumns を止める（S133、ADR-0033）。止めた呼び出しは cancelled: true の Error で reject する。無ければ止められない。 */
   cancel?(): void;
+  /** ソルバの登録表（S142）。 */
+  solvers(): Promise<SolverEntry[]>;
   /** 整形（S053、globe-mode-fmt）。文法が壊れていれば reject で、本文は変えない。 */
   format(text: string, indent: number, insertOrigin: boolean): Promise<string>;
   lint(text: string): Promise<LintMessage[]>;

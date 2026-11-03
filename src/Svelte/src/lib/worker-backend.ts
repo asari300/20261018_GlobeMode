@@ -1,7 +1,7 @@
 import { GlobeWorker } from "../../../Rust/mod/globe-mode-wasm/web/client.js";
 import type { Backend, Definition, LintMessage, Progress, TreeEntry } from "./backend";
 import { gapNonFinite, type Columns } from "./plot/csv";
-import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse } from "./protocol";
+import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse, SolverEntry } from "./protocol";
 
 /** Web Worker 上の wasm（ADR-0014、ADR-0023）。呼び出しは直列で、panic のあとは worker を作り直す。 */
 export class WorkerBackend implements Backend {
@@ -31,6 +31,9 @@ export class WorkerBackend implements Backend {
   }
   cancel(): void {
     this.#w.cancel();
+  }
+  solvers(): Promise<SolverEntry[]> {
+    return this.#w.solvers();
   }
   format(text: string, indent: number, insertOrigin: boolean): Promise<string> {
     return this.#w.format(text, indent, insertOrigin);

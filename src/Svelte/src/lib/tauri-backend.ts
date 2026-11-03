@@ -1,6 +1,6 @@
 import type { Backend, Definition, LintMessage, Progress, TreeEntry } from "./backend";
 import type { Columns } from "./plot/csv";
-import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse } from "./protocol";
+import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse, SolverEntry } from "./protocol";
 
 // Tauri が `withGlobalTauri` で注入する関数だけを使う（@tauri-apps/api は入れない。npm の依存を増やさないため）。
 type Invoke = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
@@ -94,6 +94,9 @@ export class TauriBackend implements Backend {
   cancel(): void {
     this.#cancelling = true;
     void invoke("cancel_run");
+  }
+  solvers(): Promise<SolverEntry[]> {
+    return invoke("rpc", { method: "globe/solvers", params: {} }); // S142
   }
   format(text: string, indent: number, insertOrigin: boolean): Promise<string> {
     return invoke("rpc", { method: "globe/format", params: { text, indent, insertOrigin } });
