@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S113 上流の下書きの再確認と日本語版 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S113 上流の下書きの再確認と日本語版">
+
+<section class="slide" id="S01">
+  <span class="tag">S113 · 2026-11-03 · P3</span>
+  <h1>上流の下書き 28〜32 の再確認と日本語版</h1>
+  <p class="lead">Rumoca の最新のリリース v0.10.4 で確かめ直し、読んで決めるための日本語版を作った</p>
+  <div class="big">28 は<b>一部が直り</b>、29〜32 は<b>そのまま再現</b>。AixLib の誤りは下書き <b>33</b> に分けた</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>下書き 28〜32（S091・S108）を Rumoca の最新で再現し、本文・一覧・提出の順を直す</li>
+    <li>28〜32 に日本語版 <code>_jp.md</code> とスライド 1 枚の <code>_jp.html</code> を足す（ユーザーが肉眼で確かめる）</li>
+    <li>AixLib の <code>specificEntropyOfpTX</code> の誤りを、同じ 4 点セットの下書き 33 にする</li>
+    <li>issue は出さない。Rust は触らない（P3 の上流への下書きの続き）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">結果</span>
+  <h1>v0.10.2 と v0.10.4 の比較</h1>
+  <table>
+    <tr><th>#</th><th>v0.10.2</th><th>v0.10.4</th><th>判定</th></tr>
+    <tr><td>28</td><td>失敗 5・対照 2</td><td><code>M</code>・<code>M2</code> が通る。失敗 3（<code>M1</code>・<code>M3</code>・<code>M5</code>）</td><td class="warn">一部直った</td></tr>
+    <tr><td>29</td><td>EF024 2・対照 2</td><td>同じ</td><td class="ng">再現</td></tr>
+    <tr><td>30</td><td>ET004 1・対照 1</td><td>同じ</td><td class="ng">再現</td></tr>
+    <tr><td>31</td><td>EF024 4・対照 3</td><td>同じ</td><td class="ng">再現</td></tr>
+    <tr><td>32</td><td>ER002 2・対照 2</td><td>同じ</td><td class="ng">再現</td></tr>
+    <tr><td>33（AixLib）</td><td colspan="2">omc も Rumoca も断る。AixLib main（<code>e5df9a8d</code> = v3.0.1）も同じ</td><td class="ng">直っていない</td></tr>
+  </table>
+  <p class="small muted">Rumoca main（<code>91d6e936</code>、v0.10.4 の 10 コミット後）はビルドしていない【未確認】</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table>
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>最新の取り方</td><td>リリース v0.10.4 の配布バイナリを <code>data/rumoca-latest/</code> に</td><td>main のビルドは RAM 3 GB では重い。<code>.gitignore</code> に足した</td></tr>
+    <tr><td>28 の扱い</td><td>件名を「replaceable な package を通す」に絞る</td><td>直った <code>M</code>・<code>M2</code> は対照として残す</td></tr>
+    <tr><td>33 の相手</td><td>AixLib（Rumoca でない）</td><td>宣言の無い関数の呼び出しは、どのツールでも誤り。omc も断る</td></tr>
+    <tr><td>1 枚の解説</td><td>下書きの隣に <code>_jp.html</code></td><td><code>render_slides.py</code> は 1 枚のデッキでは送りの検査を省く</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>gh release download v0.10.4 -R CogniPilot/rumoca -p rumoca-linux-x86_64 -D data/rumoca-latest
+cd doc/research/upstream
+../../../data/rumoca-latest/rumoca-linux-x86_64 compile 28-*.mo -m Rep36.M3   # ET004
+../../../data/rumoca-latest/rumoca-linux-x86_64 compile 33-*.mo -m Rep41.M    # ER002</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">24</span><span class="l">再現のモデル（28〜32、2 版で回した）</span></div>
+    <div class="kpi"><span class="n">2</span><span class="l">v0.10.4 で直った形</span></div>
+    <div class="kpi"><span class="n">12</span><span class="l">足したファイル（_jp 6 組）</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">出した issue</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>ユーザーが <code>_jp.md</code>・<code>_jp.html</code> を読み、出すかを決める（28 は残りの形に絞る、33 は AixLib へ）</li>
+    <li>17〜27 も v0.10.4 で確かめ直す（v0.10.2 から 221 コミット。次元や record の直しが入っている）</li>
+    <li>GlobeMode の Rumoca の rev を v0.10.4 に上げるかを決める（<code>msl:funnel</code>・<code>msl:sim</code> で本数を見る）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
