@@ -163,3 +163,21 @@ fn fmi2_round_trips_through_the_writer() {
     // Feedthrough-fmi2 は String と Enumeration を持つので書けない（持ち越し）
     assert!(globe_mode_fmi::write_model_description_2(&load("Feedthrough-fmi2.xml")).is_err());
 }
+
+/// S124: 3.0 の書く側も読み→書き→読みで同じ表になる（2.0 と 3.0 は互いに Err、String・Enumeration と
+/// EventIndicator も Err）。
+#[test]
+fn fmi3_round_trips_through_the_writer() {
+    let a = load("Dahlquist-fmi3.xml");
+    let xml = globe_mode_fmi::write_model_description_3(&a).unwrap();
+    assert_eq!(parse_model_description(&xml).unwrap(), a, "{xml}");
+    assert!(globe_mode_fmi::write_model_description_3(&load("Dahlquist-fmi2.xml")).is_err());
+    assert!(globe_mode_fmi::write_model_description_3(&load("Feedthrough-fmi3.xml")).is_err());
+    let events = xml.replace(
+        "  </ModelStructure>",
+        "    <EventIndicator valueReference=\"4\"/>\n  </ModelStructure>",
+    );
+    let b = parse_model_description(&events).unwrap();
+    assert_eq!(b.number_of_event_indicators, 1);
+    assert!(globe_mode_fmi::write_model_description_3(&b).is_err());
+}

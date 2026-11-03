@@ -41,3 +41,7 @@
 ## 追記（S117、2026-11-03）: `modelDescription.xml` の型と書く側の共有
 
 - **P5a は Rumoca のテンプレートが描く XML をそのまま FMU に入れる（置き換えない）**。`description`・`unit`・`SourceFiles`・`UnitDefinitions` などテンプレートだけが持つものを落とさないため。型 `ModelDescription` と読み（`parse_model_description`）・書き（`write_model_description_2`、FMI 2.0 のみ）は `globe-mode-fmi` の既定の feature が持ち、P5b（`globe-mode-fmu`）と共有する。Decay の 2.0 の XML は読み→書き→読みで同じ `ModelDescription` になる（`globe-mode-cli` の `tests/fmu_export.rs`）。3.0 の書く側は持ち越し。
+
+## 追記（S124、2026-11-03）: FMI 3.0 の書く側
+
+- **`write_model_description_3` を `globe-mode-fmi` に足した**。2.0 と同じ型・同じ範囲（Real・Integer・Boolean、3.0 の要素名は `Float64`・`Int32`・`Boolean`）で、変数は型の要素に属性をまとめ、`ModelStructure` は `Output`・`ContinuousStateDerivative`・`InitialUnknown` の `valueReference` で書く。3.0 には `numberOfEventIndicators` が無いので、読む側は `<EventIndicator>` の数を `number_of_event_indicators` に入れ、書く側は 1 つ以上なら `Err`（valueReference の欄を足すのは P5b が 3.0 を出すとき）。Reference-FMUs の Dahlquist 3.0 と P5a の Decay 3.0 で読み→書き→読みが同じ `ModelDescription` になる。P5a は引き続き Rumoca のテンプレートの XML を置き換えず、`globe-mode-fmu` は 2.0 のまま（[S124 の解説書](../sessions/S124-fmi3-writer/解説書.md)）。
