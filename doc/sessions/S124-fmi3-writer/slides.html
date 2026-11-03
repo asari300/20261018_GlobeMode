@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S124 FMI 3.0 の modelDescription.xml を書く — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S124 FMI 3.0 の modelDescription.xml を書く">
+
+<section class="slide" id="S01">
+  <span class="tag">S124 · 2026-11-03 · P5</span>
+  <h1>FMI 3.0 の modelDescription.xml を書く</h1>
+  <p class="lead"><code>globe-mode-fmi</code> に <code>write_model_description_3</code></p>
+  <div class="big">Dahlquist 3.0 と Decay 3.0 で読み、書き、読みが同じ表</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>S117 の持ち越し「FMI 3.0 の書く側」</li>
+    <li>型 <code>ModelDescription</code> と読む側（S057）はそのまま使う</li>
+    <li>範囲は 2.0 と同じ Real・Integer・Boolean。Enumeration・String は <code>Err</code></li>
+    <li><code>globe-mode-fmu</code>（P5b）は 2.0 のまま触らない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>2.0 と 3.0 で変わるところ</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>2.0</th><th>3.0</th></tr>
+    <tr><td>トークン</td><td><code>guid</code></td><td><code>instantiationToken</code></td></tr>
+    <tr><td>変数</td><td><code>ScalarVariable</code> の中に <code>Real</code></td><td><code>Float64</code> などに属性をまとめる</td></tr>
+    <tr><td>ModelStructure</td><td><code>Unknown index</code></td><td><code>Output</code> などの <code>valueReference</code></td></tr>
+    <tr><td>イベント指標</td><td>属性 <code>numberOfEventIndicators</code></td><td><code>EventIndicator</code> の数（書くと Err）</td></tr>
+    <tr><td>関数</td><td colspan="2">private な <code>write_model_description(md, major)</code> を共有</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>round-trip の形</h1>
+  <svg class="fig" viewBox="0 0 800 220" role="img" aria-label="Dahlquist 3.0 と Decay 3.0 の XML を parse で ModelDescription にし、write_model_description_3 で書き、もう一度 parse して同じ表になる">
+    <rect class="svg-box" x="20" y="30" width="200" height="60" rx="10"/>
+    <text class="svg-text-b" x="120" y="58" text-anchor="middle">Dahlquist 3.0</text>
+    <text class="svg-text" x="120" y="78" text-anchor="middle">Reference-FMUs</text>
+    <rect class="svg-box" x="20" y="130" width="200" height="60" rx="10"/>
+    <text class="svg-text-b" x="120" y="158" text-anchor="middle">Decay 3.0</text>
+    <text class="svg-text" x="120" y="178" text-anchor="middle">globe fmu export（P5a）</text>
+    <rect class="svg-box-accent" x="300" y="80" width="200" height="60" rx="10"/>
+    <text class="svg-text-b" x="400" y="108" text-anchor="middle">ModelDescription</text>
+    <text class="svg-text" x="400" y="128" text-anchor="middle">parse_model_description</text>
+    <rect class="svg-box" x="580" y="80" width="200" height="60" rx="10"/>
+    <text class="svg-text-b" x="680" y="108" text-anchor="middle">XML（FMI 3.0）</text>
+    <text class="svg-text" x="680" y="128" text-anchor="middle">write_model_description_3</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>試験</h1>
+  <table class="compact">
+    <tr><th>試験</th><th>確かめること</th></tr>
+    <tr><td><code>parse</code> の <code>fmi3_round_trips_through_the_writer</code></td><td>Dahlquist 3.0 の round-trip。2.0・Feedthrough 3.0・EventIndicator は Err</td></tr>
+    <tr><td><code>fmu_export</code> の <code>exports_a_fmi3_source_fmu</code></td><td>Decay（P5a、3.0）の round-trip</td></tr>
+    <tr><td><code>parse</code> の <code>fmi2_round_trips_through_the_writer</code></td><td>2.0 の試験は変えずに通る</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>P5b の 3.0 のランタイム（そのとき <code>ModelStructure</code> に EventIndicator の valueReference を足す）</li>
+    <li>CS、<code>dependencies</code></li>
+    <li>Enumeration（declaredType）・String</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
