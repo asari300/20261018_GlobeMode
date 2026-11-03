@@ -15,6 +15,19 @@ export interface Backend {
   /** 整形（S053、globe-mode-fmt）。文法が壊れていれば reject で、本文は変えない。 */
   format(text: string, indent: number, insertOrigin: boolean): Promise<string>;
   lint(text: string): Promise<LintMessage[]>;
+  /** ライブラリの木の prefix（空ならトップレベル）の直下の子（S127）。ライブラリが無ければ空。 */
+  libraryTree(prefix: string): Promise<TreeEntry[]>;
+  /** ライブラリのクラス path を定義するファイルの名前と本文（S127）。その名前で setFile するとライブラリのファイルを差し替える。 */
+  librarySource(path: string): Promise<{ file: string; text: string }>;
+}
+
+export interface TreeEntry {
+  name: string;
+  path: string;
+  kind: string;
+  description: string;
+  file: string;
+  hasChildren: boolean;
 }
 
 export interface LintMessage {

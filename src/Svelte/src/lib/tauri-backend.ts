@@ -1,4 +1,4 @@
-import type { Backend, LintMessage } from "./backend";
+import type { Backend, LintMessage, TreeEntry } from "./backend";
 import type { Columns } from "./plot/csv";
 import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse } from "./protocol";
 
@@ -68,6 +68,12 @@ export class TauriBackend implements Backend {
   }
   lint(text: string): Promise<LintMessage[]> {
     return invoke("rpc", { method: "globe/lint", params: { text } });
+  }
+  libraryTree(prefix: string): Promise<TreeEntry[]> {
+    return invoke("rpc", { method: "globe/libraryTree", params: { prefix } });
+  }
+  librarySource(path: string): Promise<{ file: string; text: string }> {
+    return invoke("rpc", { method: "globe/librarySource", params: { path } });
   }
 }
 

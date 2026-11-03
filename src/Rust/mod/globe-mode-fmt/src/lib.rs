@@ -11,8 +11,10 @@ mod layout;
 mod lexer;
 mod lint;
 mod structure;
+mod tree;
 
 pub use lint::{LintMessage, LintOptions, lint};
+pub use tree::{LibraryTree, TreeEntry};
 
 /// Modelica の予約語と組み込み型。補完の候補に使う。
 pub const KEYWORDS: &[&str] = &[

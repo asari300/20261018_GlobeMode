@@ -33,7 +33,7 @@ OpenModelica（OMEdit）と Rumoca を参考に、GlobeMode に要る機能を�
 | --- | --- | --- | --- | --- | --- |
 | MSL の読み込み（4.1.0） | ○ | ○ | Must | P1（S003 で済） | `cargo xtask fetch-msl` で `data/msl/` に取得し、`globe check --library` で読む。S005 から、読んだ Session を `Checker` で使い回す。必要になったファイルだけ読む道は、wasm が S037（分割読み込み、全例題で全部読みと一致は S047）、ネイティブの CLI・`globe lsp`・Desktop が S054（閉包だけ。`ChuaCircuit` の最大 RSS 1,493 → 128 MiB、[ADR-0025](adr/0025-native-library-closure.md)） |
 | 検査に渡すファイルの絞り込み（依存の閉包） | — | × | Should | P2（S007） | `deps_closure` クエリ。ワークスペースのうちモデルが使うファイルだけを Rumoca に渡し、使わないファイルの編集では再検査しない。`globe deps <files> -m <model>` で閉包を表示する（例: `Connect.RealCircuit` は 5 / 23 ファイル） |
-| ライブラリツリー | ○ | × | Must | P4 | `class_index`（`package.order`）。UI は未（S048 の持ち越しのまま。ブラウザ UI は「MSL を読む」ボタンだけ） |
+| ライブラリツリー | ○ | × | Must | P4 | `class_index`（`package.order`）。**S127 で UI**: 「MSL を読む」の後に左の木（`LibraryTree.svelte`）。展開で直下の子だけを wasm の `library_tree`・LSP の `globe/libraryTree` から引き、モデルを押すとそのファイルをエディタに開いてモデル名を入れる（検査・実行・プロットへ続く）。並びは名前の順、単位はファイル。検索・アイコンは未 |
 | パッケージマネージャ（`uses` の版） | ○ | × | Could | P8 | 版の不一致は S1 の検査で警告する |
 | **connect のネットワークグラフ（Obsidian 風）** | × | × | **Must** | P2（データは S004 で最初の版）/ P4（描画は S046） | flatten 不要の `connect_graph(path, depth)`。sigma.js + ForceAtlas2。巨大なグラフには cosmos.gl。S046 で `Graph.svelte`（sigma 4 + graphology、深さ 1〜3、ノードのクリックでエディタへ）。合成 5k ノードはヘッドレス Chromium で約 10 fps（P4 の完了条件 30 fps は実 GPU で未測定）。S079 でライブラリのモデル（MSL の `ChuaCircuit` が 7 ノード）、S081 で文書のモデルが使うライブラリの部品、S089 で import の解決と索引の持ち越し。S101 で継承したクラスの入れ子のクラスも引く（MSL のモデル 2,002 本の未解決 321 → 320） |
 | incidence グラフ・BLT の可視化 | △（変換デバッガ） | × | Should | P8 | `dae_structure` を同じグラフ基盤で描く |
