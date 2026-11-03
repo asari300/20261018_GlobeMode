@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "desktop",
+  "description": "自動更新（S135）。Desktop だけ（Android には updater が無い）",
+  "platforms": ["linux", "windows", "macOS"],
+  "windows": ["main"],
+  "permissions": ["updater:default"]
+}

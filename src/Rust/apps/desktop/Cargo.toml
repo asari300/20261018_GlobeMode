@@ -28,6 +28,10 @@ serde_json = "1"
 sha2 = "0.10"
 zip = { version = "9", default-features = false, features = ["deflate"] }
 
+# 自動更新（S135、ADR-0023）。Desktop だけ（Android の lib には入れない）。鍵の公開鍵は tauri.conf.json の plugins.updater.pubkey
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-updater = "2"
+
 [profile.release]
 # 配布物を小さくする（ルートの workspace の release とは別。ここは UI のシェルだけ）
 lto = true
