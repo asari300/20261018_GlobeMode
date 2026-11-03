@@ -402,6 +402,11 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 
 - **ソルバ別の表**: `msl-sim.yml` にジョブ `solvers`（`msl-sim` の後。14 ソルバの matrix で `msl-sim --solver <名前> --tolerance-scale 0.1`。cvode・ida は xtask のビルドに `--features globe-mode-exec/sundials`）と `solvers-report`（`cargo xtask msl-solvers`）を足し、[msl-solvers.md](msl-solvers.md) を作った（run 41194959752、全ジョブ成功、ソルバのジョブは 63〜174 分）。対象 356 本のうち実行できたのは 283（dopri853）〜301（bdf）本、管に収まった割合は 95.2（trbdf2）〜98.3%（ida）。`auto` は 309・301/308。`bdf` 単独と `auto` の差 8 本は、`bdf` の内部エラー（`GM-U0005`）10 本を dopri45 の回し直しで救ったもの。入れなかったもの: `qss`、固定刻み、`esdirk23`、別名（理由は解説書）。これで P8「ソルバの表がそろう」の数字の土台ができた。更新は `gh workflow run msl-sim.yml`（手元では回さない）。
 
+### S120（P4、2026-11-03）で済んだこと
+
+- **features.md の P4 の行の追いつき**（S107 の持ち越し。文書だけ。[解説書](sessions/S120-features-p4-sync/解説書.md)）: [features.md](features.md) の 15 行に、roadmap の「済んだこと」と索引の「完了」から成果を書いた（LSP・アウトライン・整形・Text ビュー・MSL の読み込み・ライブラリツリー・graph・プロット・Desktop・ブラウザと、S105・S106・S108・S113・S115）。ライブラリツリーの UI は未、graph の 30 fps は実 GPU で未測定と書いた。言語の行は S118 に任せた。
+- 持ち越し: S104・S117 が main に入ったら marimo・FMI の行を直す。
+
 ### S104（P6、2026-11-03）で済んだこと
 
 - **marimo の WASM で MSL を Web Worker で回す**（S102 の持ち越し。[解説書](sessions/S104-marimo-wasm-msl-worker/解説書.md)、[調査](research/marimo-wasm-2026-11-02.md)）: `src/Python/marimo/wasm_app.py` の `_esm` が `globe-mode-wasm/web` の `GlobeWorker`（ブラウザ版の `WorkerBackend` と同じ `client.js`・`worker.js`）で Web Worker を起こし、`msl/MSL.json` を `fetch` して `library` に渡す（Pyodide を通さない）。ChuaCircuit は check passed、simulate ok（C1.v(T) = -0.9928894683235796）。simulate の間の 20 ms の timer は 26〜29 回走り、間隔の最大 20 ms（メインのスレッドが固まらない）。wasm の線形メモリ 112 MiB、ブラウザの RSS の合計 1152〜1154 MiB で 2 GB 未満。`wasm_check.py --offline` は CSP `default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' data:; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:` を付け、違反 0 件・外への要求 0 件（1 項目ずつ外して最小を確かめた）。
