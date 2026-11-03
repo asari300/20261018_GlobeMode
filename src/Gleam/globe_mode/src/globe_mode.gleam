@@ -37,3 +37,15 @@ pub fn simulate(
 
 @external(erlang, "globe_mode_nif", "solvers")
 pub fn solvers() -> Result(String, String)
+
+/// 本文を整形する（S111）。文法が壊れていれば `Error(理由)`。
+@external(erlang, "globe_mode_nif", "format")
+pub fn format(
+  text: String,
+  indent: Int,
+  insert_origin: Bool,
+) -> Result(String, String)
+
+/// lint の結果（`[{rule, line, column, message}]` の JSON。S111）。
+@external(erlang, "globe_mode_nif", "lint")
+pub fn lint(text: String) -> String

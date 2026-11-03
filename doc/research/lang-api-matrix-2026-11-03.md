@@ -7,17 +7,17 @@
 
 ## 1. 機能表
 
-「—」は穴（その言語から呼べない）。括弧の中は根拠の関数名。
+「—」は穴（その言語から呼べない）。括弧の中は根拠の関数名。「（S111）」は [S111](../sessions/S111-lang-format-lint/解説書.md) で埋めたもの（2026-11-03 に追記。下の 2・3 節は S110 のときの判定のまま）。
 
 | 機能 | Rust facade | C ABI | Zig | Julia | Elixir | Gleam | Python | wasm | LSP | CLI |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| ワークスペースとファイル | `Workspace::new` / `set_file` / `remove_file` / `load_dir` | `gm_workspace_new` / `gm_set_file` / `gm_load_dir` | C と同じ | `Workspace` / `set_file`（`load_dir` の包みは無い） | `new` / `set_file` / `load_dir` | `new` / `set_file` / `load_dir` | `Workspace` / `set_file` / `load_dir` | `Workspace` / `set_file` / `remove_file` / `files` | `didOpen` / `didChange` / `didClose` | 引数 `FILES` |
+| ワークスペースとファイル | `Workspace::new` / `set_file` / `remove_file` / `load_dir` | `gm_workspace_new` / `gm_set_file` / `gm_load_dir` | C と同じ | `Workspace` / `set_file` / `load_dir`（S111） | `new` / `set_file` / `load_dir` | `new` / `set_file` / `load_dir` | `Workspace` / `set_file` / `load_dir` | `Workspace` / `set_file` / `remove_file` / `files` | `didOpen` / `didChange` / `didClose` | 引数 `FILES` |
 | check | `check` | `gm_check` | C と同じ | `check` | `check` | `check` | `check` | `check` | `globe/check` | `globe check` |
 | simulate（JSON と CSV） | `simulate` / `simulate_with` | `gm_simulate` | C と同じ | `simulate` | `simulate` | `simulate` | `simulate` | `simulate` | `globe/simulate` | `globe simulate`（CSV・MAT v4） |
 | simulate_columns（列） | `simulate_with` の `run`（`Vec<f64>`） | — | — | — | — | — | `simulate_columns`（f64 の `bytes` → polars） | `simulate_columns`（`SimColumns.column`） | `globe/simulateColumns` | 対象外（ファイルに書く） |
-| format | —（別 crate `globe_mode_fmt::format`） | — | — | — | — | — | — | `format` | `textDocument/formatting` / `globe/format` | `globe fmt` |
-| lint | —（別 crate `globe_mode_fmt::lint`） | — | — | — | — | — | — | `lint` | `globe/lint` | `globe lint` |
-| graph | `graph` | `gm_graph` | C と同じ | — | `graph` | `graph` | `graph` | `graph` | `globe/graph` | `globe graph` |
+| format | `format`（S111） | `gm_format`（S111） | C と同じ（S111） | `format`（S111） | `format`（S111） | `format`（S111） | `format`（S111） | `format` | `textDocument/formatting` / `globe/format` | `globe fmt` |
+| lint | `lint`（S111） | `gm_lint`（S111） | C と同じ（S111） | `lint`（S111） | `lint`（S111） | `lint`（S111） | `lint`（S111） | `lint` | `globe/lint` | `globe lint` |
+| graph | `graph` | `gm_graph` | C と同じ | `graph`（S111） | `graph` | `graph` | `graph` | `graph` | `globe/graph` | `globe graph` |
 | MSL の全部読み | `with_libraries_full` / `with_library_sources` | — | — | — | — | — | — | `Workspace(json, name, true)` | — | — |
 | MSL の分割読み | `with_libraries`（既定）/ `with_library_sources_split` | `gm_workspace_new(libraries_json)` | C と同じ | `Workspace(libraries)` | `new(libraries)` | `new(libraries)` | `Workspace(libraries=…)` | `Workspace(json)`（既定） | `globe lsp -L` | `-L` |
 | 設定の override（`parameters` など） | `SimSettings` | `settings_json` | C と同じ | `settings` | `settings`（map） | `settings_json` | `**settings` | `request_json` の `settings` | `request.settings` | `--param` ほか |
@@ -50,13 +50,13 @@
 
 | 言語 | 穴 | 中身 |
 | --- | --- | --- |
-| Rust facade | 4 | format・lint・FMU export（いずれも別 crate にはある）、進捗（実行系にだけある） |
-| C ABI | 6 | 列・format・lint・全部読み・進捗・FMU export |
-| Zig | 6 | C と同じ |
-| Julia | 7 | C の 6 と graph（C にはあるが包みが無い） |
-| Elixir | 6 | 列・format・lint・全部読み・進捗・FMU export |
-| Gleam | 6 | Elixir と同じ |
-| Python | 5 | format・lint・全部読み・進捗・FMU export |
+| Rust facade | 2 | FMU export（別 crate にはある）、進捗（実行系にだけある）。format・lint は S111 で埋めた |
+| C ABI | 4 | 列・全部読み・進捗・FMU export（format・lint は S111） |
+| Zig | 4 | C と同じ |
+| Julia | 4 | C と同じ（graph・`load_dir` の包みは S111） |
+| Elixir | 4 | 列・全部読み・進捗・FMU export（format・lint は S111） |
+| Gleam | 4 | Elixir と同じ |
+| Python | 3 | 全部読み・進捗・FMU export（format・lint は S111） |
 | wasm | 2 | 進捗・FMU export |
 | LSP | 3 | 全部読み・進捗・FMU export |
 | CLI | 2 | 全部読み・進捗 |
@@ -89,6 +89,8 @@ graph は S039 のシナリオにあるが、Julia 以外では既に通るの�
 | CLI | **通った** | — | `globe check` / `simulate` / `fmt --check` を回した（下） |
 
 **P7 の 6 言語で今通るものは 0。** 6 言語とも、足りないのは format だけ（Julia は graph も無いがシナリオには要らない）。1〜4 は 6 言語とも API がある。
+
+**S111 の追記（2026-11-03）**: facade と 6 言語に format / lint を足し、参照シナリオを各言語の試験（`globe-mode-c` の単体試験、`mise run c:zig`・`c:julia`・`elixir:test`・`gleam:test`、`src/Python/tests/test_api.py`）に入れて、6 言語とも手元で通った（[S111](../sessions/S111-lang-format-lint/解説書.md)）。
 
 ### 手元で回した結果（2026-11-03、WSL）
 

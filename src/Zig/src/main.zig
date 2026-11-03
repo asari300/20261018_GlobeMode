@@ -1,5 +1,5 @@
-//! S075: C ABI（globe_mode.h）で GlobeModeValidation.Simulation.Decay を check → simulate し、
-//! 結果の JSON の長さと最後の時刻を表示する。引数: <ライブラリのディレクトリ> <モデル>
+//! S075: C ABI（globe_mode.h）で GlobeModeValidation.Simulation.Decay を check → simulate → format し（S111 で format）、
+//! 結果の JSON の長さと最後の時刻、x(1) を表示する。引数: <ライブラリのディレクトリ> <モデル>
 const std = @import("std");
 const gm = @import("gm");
 
@@ -37,5 +37,20 @@ pub fn main(init: std.process.Init) !void {
     const csv = std.mem.trimEnd(u8, res.object.get("csv").?.string, "\n");
     const last = csv[(std.mem.lastIndexOfScalar(u8, csv, '\n') orelse 0) + 1 ..];
     const t = try std.fmt.parseFloat(f64, last[0..std.mem.indexOfScalar(u8, last, ',').?]);
-    std.debug.print("simulate: json={d} bytes, last time={d}\n", .{ json.len, t });
+    const x = res.object.get("final").?.object.get("x").?.float;
+    std.debug.print("simulate: json={d} bytes, last time={d}, x={d}\n", .{ json.len, t, x });
+    if (@abs(x - @exp(-1.0)) > 1e-4) return error.WrongValue;
+
+    // S111: 参照シナリオの最後（format）
+    const path = try std.fmt.allocPrint(arena, "{s}/Simulation/Decay.mo", .{args[1]});
+    const src = try std.Io.Dir.cwd().readFileAllocOptions(init.io, path, arena, .unlimited, .of(u8), 0);
+    const fmt = gm.gm_format(src.ptr, 2, 1);
+    defer gm.gm_string_free(fmt);
+    const formatted = try std.json.parseFromSliceLeaky(std.json.Value, arena, text(fmt), .{});
+    const body = (formatted.object.get("text") orelse {
+        std.debug.print("{s}\n", .{text(fmt)});
+        return error.FormatFailed;
+    }).string;
+    if (std.mem.indexOf(u8, body, "der(x) = -k * x;") == null) return error.FormatFailed;
+    std.debug.print("format: {d} bytes\n", .{body.len});
 }

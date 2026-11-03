@@ -3,7 +3,9 @@
 import math
 from pathlib import Path
 
-from globe_mode import Workspace, table
+import pytest
+
+from globe_mode import Workspace, format, lint, table
 
 MODELICA = Path(__file__).parents[2] / "Modelica"
 
@@ -23,6 +25,13 @@ def test_reference_scenario():
     df = table(res)
     assert df["time"][-1] == 1.0
     assert math.isclose(df["x"][-1], math.exp(-1), rel_tol=1e-4)
+
+    # S111: 参照シナリオの最後（format）と lint
+    formatted = format((MODELICA / "GlobeModeValidation/Simulation/Decay.mo").read_text())
+    assert "der(x) = -k * x;" in formatted
+    with pytest.raises(ValueError):
+        format("model Decay")
+    assert isinstance(lint("model Decay Real x; end Decay;"), list)
 
 
 def test_library_is_readable():

@@ -31,6 +31,10 @@ char *gm_graph(GmWorkspace *ws, const char *model, uint32_t depth);
 char *gm_simulate(GmWorkspace *ws, const char *model, const char *settings_json);
 /* ソルバの登録表（JSON の配列）。 */
 char *gm_solvers(void);
+/* 整形（S111）。{"text": "..."}、文法の誤りは {"error": "..."}。insert_origin は 0 か 1。 */
+char *gm_format(const char *text, uint32_t indent, int insert_origin);
+/* lint（S111）。[{"rule", "line", "column", "message"}] の JSON。 */
+char *gm_lint(const char *text);
 void gm_string_free(char *s);
 
 #ifdef __cplusplus

@@ -15,6 +15,8 @@ defmodule :globe_mode_nif do
   def graph(_ws, _model, _depth), do: :erlang.nif_error(:not_loaded)
   def simulate(_ws, _model, _settings_json), do: :erlang.nif_error(:not_loaded)
   def solvers, do: :erlang.nif_error(:not_loaded)
+  def format(_text, _indent, _insert_origin), do: :erlang.nif_error(:not_loaded)
+  def lint(_text), do: :erlang.nif_error(:not_loaded)
 end
 
 defmodule GlobeMode do
@@ -41,6 +43,13 @@ defmodule GlobeMode do
     do: decode(:globe_mode_nif.simulate(ws, model, JSON.encode!(settings)))
 
   def solvers, do: decode(:globe_mode_nif.solvers())
+
+  @doc "本文を整形して `{:ok, 整形した本文}`。文法が壊れていれば `{:error, 理由}`（S111）。"
+  def format(text, opts \\ []),
+    do: :globe_mode_nif.format(text, Keyword.get(opts, :indent, 2), Keyword.get(opts, :insert_origin, true))
+
+  @doc "lint の結果（`%{\"rule\", \"line\", \"column\", \"message\"}` のリスト。S111）。"
+  def lint(text), do: JSON.decode!(:globe_mode_nif.lint(text))
 
   defp decode({:ok, json}), do: {:ok, JSON.decode!(json)}
   defp decode(error), do: error

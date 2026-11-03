@@ -56,5 +56,15 @@ def solvers() -> list[dict]:
     return json.loads(_native.solvers())
 
 
+def format(text: str, indent: int = 2, insert_origin: bool = True) -> str:
+    """本文を整形する（S111）。文法が壊れていれば ValueError。"""
+    return _native.format(text, indent, insert_origin)
+
+
+def lint(text: str) -> list[dict]:
+    """lint の結果（`rule`・`line`・`column`・`message` の dict のリスト。S111）。"""
+    return json.loads(_native.lint(text))
+
+
 def main() -> None:
     print(f"GlobeMode: ソルバ {len(solvers())} 種。CLI は `cargo run -p globe-mode-cli -- --help`。")
