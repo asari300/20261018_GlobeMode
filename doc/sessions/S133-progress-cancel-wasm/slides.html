@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S133 進捗と中断の wasm と UI の段 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S133 進捗と中断の wasm と UI の段">
+
+<section class="slide" id="S01">
+  <span class="tag">S133 · 2026-11-03 · P7</span>
+  <h1>進捗と中断の wasm と UI の段</h1>
+  <p class="lead">ADR-0033 の実装の順の 2: <code>globe-mode-wasm</code>、<code>GlobeWorker</code>、<code>App.svelte</code></p>
+  <div class="big">実行中に <b>t の割合</b> が見え、<b>「止める」</b> で止まる</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>S123 の facade の <code>simulate_observed</code> を wasm から呼ぶ</li>
+    <li>進捗は Worker の <code>postMessage</code>、止めるのは <code>terminate()</code> と作り直し</li>
+    <li>ブラウザ UI に進捗の 1 行と「止める」ボタン</li>
+    <li><code>performance.now()</code> の費用を Decay と ChuaCircuit で測る</li>
+    <li>exec・facade・LSP・Desktop・C/NIF は触らない。新しい依存は足さない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>wasm の口</td><td><code>simulate_columns(request, on_progress?)</code></td><td>ADR の表の形。省略すると前の道</td></tr>
+    <tr><td>関数の呼び方</td><td><code>extern</code> で <code>Function.prototype.call</code></td><td>js-sys を足さない</td></tr>
+    <tr><td>Worker</td><td><code>{id, type: "progress", …}</code> を親へ</td><td>呼び出しは直列。id で渡せる</td></tr>
+    <tr><td>止め方</td><td><code>cancel()</code> で作り直し、<code>cancelled: true</code> で reject</td><td>panic の作り直しと再生をそのまま使う</td></tr>
+    <tr><td>Desktop</td><td><code>cancel</code> なし。ボタンを出さない</td><td>LSP の段（順の 5）で入れる</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>流れ</h1>
+  <svg class="fig" viewBox="0 0 800 260" role="img" aria-label="UI から GlobeWorker、worker.js、wasm へ。進捗は postMessage で戻り、止めるときは Worker を作り直す">
+    <rect class="svg-box" x="10" y="100" width="150" height="60" rx="10"/>
+    <text class="svg-text-b" x="85" y="135" text-anchor="middle">App.svelte</text>
+    <line class="svg-line" x1="160" y1="130" x2="200" y2="130"/>
+    <rect class="svg-box-accent" x="200" y="100" width="170" height="60" rx="10"/>
+    <text class="svg-text-b" x="285" y="135" text-anchor="middle">GlobeWorker</text>
+    <line class="svg-line" x1="370" y1="130" x2="410" y2="130"/>
+    <rect class="svg-box" x="410" y="100" width="150" height="60" rx="10"/>
+    <text class="svg-text-b" x="485" y="135" text-anchor="middle">worker.js</text>
+    <line class="svg-line" x1="560" y1="130" x2="600" y2="130"/>
+    <rect class="svg-box" x="600" y="100" width="190" height="60" rx="10"/>
+    <text class="svg-text-b" x="695" y="135" text-anchor="middle">simulate_columns</text>
+    <rect class="svg-box-accent" x="200" y="10" width="590" height="50" rx="10"/>
+    <text class="svg-text" x="495" y="40" text-anchor="middle">進捗: notify から postMessage、onProgress へ（100 ms に 1 回まで）</text>
+    <rect class="svg-box" x="10" y="200" width="780" height="50" rx="10"/>
+    <text class="svg-text" x="400" y="230" text-anchor="middle">止める: terminate()、新しい Worker に init と MSL とファイルを再生、cancelled で reject</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">測定</span>
+  <h1>performance.now() の費用</h1>
+  <div class="kpis">
+    <div class="kpi"><span class="n">12,074</span><span class="l">ChuaCircuit の 1 回の実行で呼ぶ回数</span></div>
+    <div class="kpi"><span class="n">60〜160 ns</span><span class="l">1 回の費用</span></div>
+    <div class="kpi"><span class="n">0.5% 未満</span><span class="l">実行 363 ms に占める割合</span></div>
+  </div>
+  <p>実行系は積分器の 1 歩ごとに <code>now</code> を呼ぶ。定数の <code>now</code> との差は揺れの範囲で、区切りは変えない。</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <table class="compact">
+    <tr><th>試験</th><th>結果</th></tr>
+    <tr><td><code>decay.rs</code>: 進捗あり・なしで列が同じ</td><td class="ok">通る</td></tr>
+    <tr><td><code>wasm:node</code>: Decay の進捗 6 回、最後は t = 1</td><td class="ok">通る</td></tr>
+    <tr><td><code>worker-node.mjs</code>: Long を t = 25 で止めて作り直す</td><td class="ok">通る</td></tr>
+    <tr><td><code>wasm:compare</code></td><td class="ok">387 / 400 一致、不一致 0</td></tr>
+    <tr><td><code>test_ui.py</code>: 進捗の行、「止める」で cancelled</td><td class="ok">通る（押してから 41 ms）</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>順の 4（C・NIF。S131）と 5（LSP の <code>$/progress</code>・<code>$/cancelRequest</code>、Desktop の「止める」）</li>
+    <li>wasm で止めたときの途中の列は返らない（要るときに Worker の中で区切る）</li>
+    <li>MSL を読んだあとに止めると、作り直しで MSL を読み直す（数秒）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

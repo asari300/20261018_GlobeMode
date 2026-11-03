@@ -264,6 +264,37 @@ fn columns_match_the_csv() {
 }
 
 #[test]
+fn observed_columns_report_progress_and_match() {
+    // S133（ADR-0033 の 2 段目）: 進捗を受けても列は同じ。最後の進捗は積分の t = 1
+    let req = || {
+        request(serde_json::json!({
+            "files": package(),
+            "model": "GlobeModeValidation.Simulation.Decay",
+            "settings": {"solver": "esdirk34"},
+        }))
+    };
+    let plain = Workspace::new().run_columns(req());
+    let mut seen = Vec::new();
+    let mut notify = |p: &globe_mode::Progress| seen.push((p.stage, p.time));
+    let handle = globe_mode::SimulateHandle {
+        on_progress: Some(&mut notify),
+        cancel: None,
+    };
+    let observed = Workspace::new().run_columns_observed(req(), handle);
+    assert_eq!(
+        seen.first().map(|s| s.0),
+        Some(globe_mode::ExecStage::Lowering)
+    );
+    assert_eq!(
+        seen.last(),
+        Some(&(globe_mode::ExecStage::Integration, Some(1.0)))
+    );
+    for i in 0..2 {
+        assert_eq!(plain.column(i), observed.column(i));
+    }
+}
+
+#[test]
 fn library_tree_opens_a_model_file_as_the_document() {
     // S127: UI のライブラリツリー。木で選んだモデルのファイルを同じ名前の文書として開き、編集すると検査・実行に効く
     let mut ws = Workspace::with_library_split("GlobeModeValidation", &package())

@@ -6,6 +6,7 @@
 dist/ を localhost で配り（CSP は index.html の meta と同じものを応答の header にも付ける。meta は Web Worker に効かないので。S093）、Decay を検査して error の診断が 0 件であること、実行するとプロットが出て信号の選択・右の軸・x の切り替え（S128）が効くこと（ブラウザの実行は列ごとの道で、data-typed が true。S065）、
 10 万点（4 状態、出力間隔 0.01 s で 1000 s）の結果でも描けて時間を測ること、構造的に特異なモデルを検査して診断の行が出て、行を押すとエディタの選択が動くことを確かめる。1 ファイルの回路で「グラフ」を押して connect グラフが描かれることを確かめる（S046）。
 最後に「MSL を読む」で MSL 4.1.0 を読み（public/msl/MSL.json が無ければ飛ばす）、ChuaCircuit の検査（error 0）と実行（プロットの canvas と系列）を確かめて、秒数を出す（S048）。
+長いモデルの実行で進捗（段と t の割合）が出て、「止める」で止まり（data-run="cancelled"）、ボタンが戻ることを確かめる（S133）。
 ライブラリの木で Modelica → Electrical → Analog → Examples → ChuaCircuit と開き、そのファイルがエディタに開いて検査が通ることも確かめる（S127）。
 別のページで MSL.json を構文の誤りのファイルを含むライブラリに差し替え、読み飛ばしの警告 GM-W1001 の行と notes のファイル名が出ることを確かめる（S071）。
 `?smoke=1` で起動すると Decay の検査と実行の結果が console に `GM-SMOKE check=ok simulate=ok x1=… msl=… ready_ms=…` の 1 行で出ること（S100、android.yml の smoke。時刻は S125）。MSL.json があれば msl=ok（MSL を読んで ChuaCircuit の検査が error 0。S103）。
@@ -39,6 +40,8 @@ CIRCUIT = (
     "model G\n  connector P\n    Real v;\n    flow Real i;\n  end P;\n  model R\n    P p;\n    P n;\n  equation\n    p.i + n.i = 0;\n  end R;\n"
     "  R r1;\n  R r2;\nequation\n  connect(r1.n, r2.p);\nend G;\n"
 )
+# 進捗と止める（S133）: 1000 s の振動（wasm で数秒かかる）
+LONG = "model Long\n  Real x(start = 0, fixed = true);\nequation\n  der(x) = sin(100 * time);\n  annotation(experiment(StopTime = 1000));\nend Long;\n"
 CHUA = "Modelica.Electrical.Analog.Examples.ChuaCircuit"
 BAD = "model Bad\n  Real x;\nequation\n  der(x) = -x;\n  x = 1;\nend Bad;\n"
 
@@ -136,6 +139,26 @@ def main() -> int:
         assert typed == "true", "ブラウザの実行は列ごとの Float64Array の道（S065。CSV の解析は無い）"
         print(f"10 万点の描画: 点 {n}、系列 {page.locator('.plot .signals input[name=signal]:checked').count()} 本、列の道で最初の描画まで {ms} ms（目安 33 ms）、「実行」を押してから戻るまで {took * 1000:.0f} ms")
         assert int(n or 0) >= 100_000
+
+        # 進捗と「止める」（S133、ADR-0033）: 長い実行で段と t の割合が出て、「止める」で cancelled になり、ボタンが戻る
+        page.get_by_label("モデル名").fill("Long")
+        page.locator(".cm-content").focus()
+        page.keyboard.press("Control+A")
+        page.keyboard.insert_text(LONG)
+        run.click(force=True)
+        status = page.get_by_role("status")
+        expect(status).to_contain_text("integration", timeout=120_000)
+        expect(status).to_contain_text("%")
+        shown_progress = status.inner_text()
+        t = time.perf_counter()
+        page.get_by_role("button", name="止める").click(force=True)
+        expect(status).to_have_attribute("data-run", "cancelled", timeout=10_000)
+        expect(run).to_be_enabled(timeout=10_000)
+        assert page.get_by_role("button", name="止める").count() == 0
+        assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
+        print(f"止める: 進捗「{shown_progress}」から {1000 * (time.perf_counter() - t):.0f} ms で「{status.inner_text()}」、実行のボタンが戻った")
+        check()  # 作り直した worker で次の呼び出しが回る
+        assert page.locator("tr.error").count() == 0, rows.all_inner_texts()
 
         # 整形（S053）: 詰めた本文が doc/format-style.md の形になり、lint の波線（説明文字列が無い）が出る
         page.locator(".cm-content").focus()

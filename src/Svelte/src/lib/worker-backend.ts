@@ -1,5 +1,5 @@
 import { GlobeWorker } from "../../../Rust/mod/globe-mode-wasm/web/client.js";
-import type { Backend, LintMessage, TreeEntry } from "./backend";
+import type { Backend, LintMessage, Progress, TreeEntry } from "./backend";
 import { gapNonFinite, type Columns } from "./plot/csv";
 import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse } from "./protocol";
 
@@ -25,9 +25,12 @@ export class WorkerBackend implements Backend {
   simulate(req: SimulateRequest): Promise<SimulateResponse> {
     return this.#w.simulate(req);
   }
-  async simulateColumns(req: SimulateRequest): Promise<{ response: SimulateResponse; columns: Columns }> {
-    const r = await this.#w.simulateColumns(req); // layout.names は time を含む
+  async simulateColumns(req: SimulateRequest, onProgress?: (p: Progress) => void): Promise<{ response: SimulateResponse; columns: Columns }> {
+    const r = await this.#w.simulateColumns(req, { onProgress }); // layout.names は time を含む
     return { response: r.response, columns: { names: r.layout.names.slice(1), points: r.layout.points, data: r.columns.map(gapNonFinite) } };
+  }
+  cancel(): void {
+    this.#w.cancel();
   }
   format(text: string, indent: number, insertOrigin: boolean): Promise<string> {
     return this.#w.format(text, indent, insertOrigin);
