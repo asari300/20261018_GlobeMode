@@ -63,12 +63,14 @@ pub fn export_me_sources(model: &CompiledModel, fmi_version: u8) -> Result<MeSou
 
 /// `out_dir/<name>/`（展開した FMU）と `out_dir/<name>.fmu` を書き、`.fmu` のパスを返す。
 ///
-/// `fmi_headers` を渡すと、その中の `fmi2Functions.h`（3.0 は `fmi3Functions.h`）などで `cc` を呼び、
-/// `binaries/linux64/`（3.0 は `binaries/x86_64-linux/`）に `<modelIdentifier>.so` も入れる（x86_64 の Linux だけ）。
+/// `fmi_headers` を渡すと、その中の `fmi2Functions.h`（3.0 は `fmi3Functions.h`）などで共有ライブラリも作る。
+/// `targets` が空なら host（x86_64 の Linux だけ）を `cc` で `binaries/linux64/`（3.0 は `binaries/x86_64-linux/`）に、
+/// 空でなければ triple ごとに `zig cc -target <triple>` で `binaries/<platform>/` に作る（S105）。
 pub fn write_fmu(
     src: &MeSources,
     out_dir: &Path,
     fmi_headers: Option<&Path>,
+    targets: &[String],
 ) -> Result<PathBuf, String> {
     let root = out_dir.join(&src.name);
     let io = |e: std::io::Error| e.to_string();
@@ -88,32 +90,70 @@ pub fn write_fmu(
     std::fs::create_dir_all(&licenses).map_err(io)?;
     std::fs::write(licenses.join("Rumoca-LICENSE.txt"), RUMOCA_LICENSE).map_err(io)?;
     if let Some(headers) = fmi_headers {
-        build_linux64(src, &root, headers)?;
+        if targets.is_empty() {
+            build(src, &root, headers, None)?;
+        }
+        for t in targets {
+            build(src, &root, headers, Some(t))?;
+        }
     }
     let fmu = out_dir.join(format!("{}.fmu", src.name));
     zip_dir(&root, &fmu)?;
     Ok(fmu)
 }
 
-fn build_linux64(src: &MeSources, root: &Path, headers: &Path) -> Result<(), String> {
-    if !(cfg!(target_os = "linux") && cfg!(target_arch = "x86_64")) {
-        return Err("--build は x86_64 の Linux だけ".into());
+/// zig の target triple（例 `x86_64-windows-gnu`）から、`binaries/` の下の名前と共有ライブラリの拡張子を返す。
+/// FMI 2.0 は `linux64`・`win64`・`darwin64`、3.0 は `<arch>-<os>`（`x86_64-windows`・`aarch64-darwin` など）。
+fn platform(triple: &str, fmi_version: u8) -> Result<(String, &'static str), String> {
+    let mut parts = triple.split('-');
+    let arch = parts.next().unwrap_or_default();
+    let (os, ext) = match parts.next() {
+        Some("linux") => ("linux", "so"),
+        Some("windows") => ("windows", "dll"),
+        Some("macos") => ("darwin", "dylib"),
+        _ => {
+            return Err(format!(
+                "--target {triple}: OS は linux・windows・macos だけ"
+            ));
+        }
+    };
+    if !matches!(arch, "x86_64" | "aarch64") {
+        return Err(format!("--target {triple}: arch は x86_64・aarch64 だけ"));
+    }
+    if fmi_version == 3 {
+        return Ok((format!("{arch}-{os}"), ext));
+    }
+    // FMI 2.0 の darwin64 は arch を区別しない（FMPy も Apple silicon で darwin64 を引く）
+    match (arch, os) {
+        ("x86_64", "linux") => Ok(("linux64".into(), ext)),
+        ("x86_64", "windows") => Ok(("win64".into(), ext)),
+        (_, "darwin") => Ok(("darwin64".into(), ext)),
+        _ => Err(format!("--target {triple}: FMI 2.0 に置き場の名前が無い")),
+    }
+}
+
+/// `triple` が None なら host を `cc`（`CC` で上書き可）で、Some なら `zig cc -target <triple>` で作る。
+fn build(src: &MeSources, root: &Path, headers: &Path, triple: Option<&str>) -> Result<(), String> {
+    if triple.is_none() && !(cfg!(target_os = "linux") && cfg!(target_arch = "x86_64")) {
+        return Err("--target を付けない --build は x86_64 の Linux だけ".into());
     }
     let header = format!("fmi{}Functions.h", src.fmi_version);
     if !headers.join(&header).is_file() {
         return Err(format!("{} に {header} が無い", headers.display()));
     }
-    // FMI 2.0 と 3.0 でプラットフォームの名前が違う
-    let platform = if src.fmi_version == 3 {
-        "x86_64-linux"
-    } else {
-        "linux64"
-    };
+    let (platform, ext) = platform(triple.unwrap_or("x86_64-linux"), src.fmi_version)?;
     let bin = root.join("binaries").join(platform);
     std::fs::create_dir_all(&bin).map_err(|e| e.to_string())?;
-    let out = bin.join(format!("{}.so", src.model_identifier));
+    let out = bin.join(format!("{}.{ext}", src.model_identifier));
     let sources = root.join("sources");
-    let mut cc = Command::new(std::env::var_os("CC").unwrap_or("cc".into()));
+    let mut cc = match triple {
+        None => Command::new(std::env::var_os("CC").unwrap_or("cc".into())),
+        Some(t) => {
+            let mut c = Command::new(std::env::var_os("ZIG").unwrap_or("zig".into()));
+            c.args(["cc", "-target", t]);
+            c
+        }
+    };
     cc.args(["-shared", "-fPIC", "-O2", "-std=c99"])
         .arg("-I")
         .arg(headers)
@@ -149,6 +189,16 @@ fn build_linux64(src: &MeSources, root: &Path, headers: &Path) -> Result<(), Str
             String::from_utf8_lossy(&status.stderr)
         ));
     }
+    // zig cc の Windows 向けは .pdb と import library（.lib）も置くので、共有ライブラリだけを残す
+    for e in std::fs::read_dir(&bin).map_err(|e| e.to_string())? {
+        let path = e.map_err(|e| e.to_string())?.path();
+        if matches!(
+            path.extension().and_then(|x| x.to_str()),
+            Some("pdb" | "lib")
+        ) {
+            std::fs::remove_file(&path).map_err(|e| e.to_string())?;
+        }
+    }
     Ok(())
 }
 
@@ -178,4 +228,21 @@ fn zip_dir(root: &Path, fmu: &Path) -> Result<(), String> {
     }
     zip.finish().map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::platform;
+
+    #[test]
+    fn platform_names() {
+        let p = |t, v| platform(t, v).unwrap();
+        assert_eq!(p("x86_64-linux-gnu", 2), ("linux64".into(), "so"));
+        assert_eq!(p("x86_64-windows-gnu", 2), ("win64".into(), "dll"));
+        assert_eq!(p("aarch64-macos", 2), ("darwin64".into(), "dylib"));
+        assert_eq!(p("x86_64-windows-gnu", 3), ("x86_64-windows".into(), "dll"));
+        assert_eq!(p("aarch64-macos", 3), ("aarch64-darwin".into(), "dylib"));
+        assert!(platform("aarch64-linux-gnu", 2).is_err());
+        assert!(platform("wasm32-wasi", 3).is_err());
+    }
 }

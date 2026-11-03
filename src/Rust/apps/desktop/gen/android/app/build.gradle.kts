@@ -14,7 +14,27 @@ val tauriProperties = Properties().apply {
     }
 }
 
+// S106: keystore.properties（gen/android 直下、.gitignore 済み。CI が secret から書く）があるときだけ release に署名する。
+// 無ければ署名なしの app-*-release-unsigned.apk になる。書式は Tauri の手引き（v2.tauri.app/distribute/sign/android/）と同じで、
+// 鍵と keystore のパスワードを分けるため password の代わりに storePassword・keyPassword を使う。
+val keystoreProperties = Properties().apply {
+    val propFile = rootProject.file("keystore.properties")
+    if (propFile.exists()) {
+        propFile.inputStream().use { load(it) }
+    }
+}
+
 android {
+    if (!keystoreProperties.isEmpty) {
+        signingConfigs {
+            create("release") {
+                storeFile = file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
+    }
     compileSdk = 37
     namespace = "io.github.asari300.globemode"
     defaultConfig {
@@ -39,6 +59,9 @@ android {
             }
         }
         getByName("release") {
+            signingConfigs.findByName("release")?.let { signingConfig = it }
+            // S106: android.yml の smoke 用の写しだけ。wry の Logger は BuildConfig.DEBUG のときだけ console を logcat に出す
+            if (System.getenv("GM_SMOKE_DEBUGGABLE") == "1") isDebuggable = true
             optimization {
                enable = true
             }

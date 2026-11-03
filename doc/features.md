@@ -35,7 +35,7 @@ OpenModelica（OMEdit）と Rumoca を参考に、GlobeMode に要る機能を�
 | 検査に渡すファイルの絞り込み（依存の閉包） | — | × | Should | P2（S007） | `deps_closure` クエリ。ワークスペースのうちモデルが使うファイルだけを Rumoca に渡し、使わないファイルの編集では再検査しない。`globe deps <files> -m <model>` で閉包を表示する（例: `Connect.RealCircuit` は 5 / 23 ファイル） |
 | ライブラリツリー | ○ | × | Must | P4 | `class_index`（`package.order`） |
 | パッケージマネージャ（`uses` の版） | ○ | × | Could | P8 | 版の不一致は S1 の検査で警告する |
-| **connect のネットワークグラフ（Obsidian 風）** | × | × | **Must** | P2（データは S004 で最初の版）/ P4（描画） | flatten 不要の `connect_graph(path, depth)`。sigma.js + ForceAtlas2。巨大なグラフには cosmos.gl |
+| **connect のネットワークグラフ（Obsidian 風）** | × | × | **Must** | P2（データは S004 で最初の版）/ P4（描画） | flatten 不要の `connect_graph(path, depth)`。sigma.js + ForceAtlas2。巨大なグラフには cosmos.gl。S101 で継承したクラスの入れ子のクラスも引く（MSL のモデル 2,002 本の未解決 321 → 320） |
 | incidence グラフ・BLT の可視化 | △（変換デバッガ） | × | Should | P8 | `dae_structure` を同じグラフ基盤で描く |
 | フラットモデルの表示（Instantiate） | ○ | ○ | Should | P2（S005 で要約） | `globe flat`（S005）: 変数・方程式の数、部品ごとの方程式数（`flat_summary` クエリ）。フラットモデルの本文の表示は後回し |
 
@@ -62,8 +62,8 @@ OpenModelica（OMEdit）と Rumoca を参考に、GlobeMode に要る機能を�
 | --- | --- | --- | --- | --- | --- |
 | FMI 2.0 Import（ME / CS） | ○ | × | **Must** | P5 | `fmi` crate 0.8 の上に作る |
 | FMI 3.0 Import（ME / CS / SE） | △ | × | **Must** | P5 | SE はクロックスケジューラで動かす |
-| FMI 2.0 Export（ME / CS） | ○ | ○（テンプレート） | **Must** | P5 | P5a は Rumoca のテンプレート、P5b は自前のランタイム。**S094: P5a の FMI 2.0（ME・CS）を `globe fmu export` で出せる**（事象の無いモデル。[ADR-0031](adr/0031-fmi-export-p5a-first.md)） |
-| FMI 3.0 Export（ME / CS / SE） | △ | ○（テンプレート） | **Must** | P5 | 同上 |
+| FMI 2.0 Export（ME / CS） | ○ | ○（テンプレート） | **Must** | P5 | P5a は Rumoca のテンプレート、P5b は自前のランタイム。**S094: P5a の FMI 2.0（ME・CS）を `globe fmu export` で出せる**（事象の無いモデル。[ADR-0031](adr/0031-fmi-export-p5a-first.md)）。S095: P5b の crate `globe-mode-fmu`（依存 0）が FMI 2.0 ME の 35 関数を出す（モデルは Decay を固定、任意のモデルの載せ替えは未。[ADR-0032](adr/0032-p5b-own-runtime.md)） |
+| FMI 3.0 Export（ME / CS / SE） | △ | ○（テンプレート） | **Must** | P5 | 同上。**S098: P5a の FMI 3.0（ME・CS）を `globe fmu export --fmi-version 3` で出せる**（SE は未） |
 | コシミュレーションのマスター | ○（OMSimulator） | × | **Must** | P5 | Jacobi / Gauss–Seidel から始め、可変刻みとロールバックに進む |
 | SSP 2.0 | ○ | × | Should | P8 | 系の構成ファイル |
 | FMI-LS-DAE | × | × | Could | — | 規格が alpha の段階なので注視するだけ |
@@ -73,10 +73,10 @@ OpenModelica（OMEdit）と Rumoca を参考に、GlobeMode に要る機能を�
 | 機能 | OMEdit | Rumoca | 優先度 | Phase | GlobeMode での方針 |
 | --- | --- | --- | --- | --- | --- |
 | Desktop（Debian 系 Linux / Windows 11） | ○ | ×（VS Code） | Must | P4 | Tauri 2 + Svelte 5 |
-| Android | × | × | Must | P6 | Tauri 2。計算はネイティブ |
-| ブラウザ（閲覧者の端末で計算） | ×（OMWebbook はサーバー側） | ○（playground） | Must | P6（S012 で Node の wasm） | Web Worker で wasm を動かす。サーバーでは計算しない。S012 で `globe-mode-wasm`（wasm32-unknown-unknown + wasm-bindgen）の検査 → 実行を Node で確かめた（`mise run wasm:node`・`wasm:compare`、CI の `wasm-node`）。S036 で `--target web` の糊と Web Worker（`src/Rust/mod/globe-mode-wasm/web/`）で回し、Node の `worker_threads` と Playwright の Chromium で Decay を確かめた（`mise run wasm:web`。panic の後は Worker を作り直して再生する）。S037 で MSL の分割読み込み（使うファイルだけを検査のときに読む）を既定にし、読み込み後の線形メモリを 262 → 62 MiB にした |
+| Android | × | × | Must | P6（S092・S100・S103） | Tauri 2。sidecar を使えないので計算は `WorkerBackend`（wasm。[ADR-0023](adr/0023-desktop-and-web-process-layout.md)）。S092 で debug APK（`android.yml`）、S100 で API 34 のエミュレータで Decay の検査と実行、S103 で APK に MSL を同梱し ChuaCircuit の検査が通る。署名した release の APK は未 |
+| ブラウザ（閲覧者の端末で計算） | ×（OMWebbook はサーバー側） | ○（playground） | Must | P6（S012 で Node の wasm） | Web Worker で wasm を動かす。サーバーでは計算しない。S012 で `globe-mode-wasm`（wasm32-unknown-unknown + wasm-bindgen）の検査 → 実行を Node で確かめた（`mise run wasm:node`・`wasm:compare`、CI の `wasm-node`）。S036 で `--target web` の糊と Web Worker（`src/Rust/mod/globe-mode-wasm/web/`）で回し、Node の `worker_threads` と Playwright の Chromium で Decay を確かめた（`mise run wasm:web`。panic の後は Worker を作り直して再生する）。S037 で MSL の分割読み込み（使うファイルだけを検査のときに読む）を既定にし、読み込み後の線形メモリを 262 → 62 MiB にした。S093 で CSP `connect-src 'self'` のまま実行でき、外への要求 0 件を確かめた |
 | CLI | ○（omc） | ○ | Must | P1 | `globe` |
-| marimo | × | × | Must | P6 | anywidget に wasm を載せる。代替は PyO3 の wheel |
+| marimo | × | × | Must | P6（S078・S102） | anywidget に wasm を載せる。代替は PyO3 の wheel。anywidget は extra `widget`（S097）。S102 で marimo の WASM（Pyodide）から `globe-mode-wasm` で Decay を回した（ブラウザの RSS 2 GB 未満）。WASM で MSL を渡す道は未 |
 | Streamlit（結果ダッシュボード） | × | × | Should | P6 | PyO3 の wheel |
 | Rust API | — | ○ | Must | P1 | facade crate `globe-mode` |
 | Python API | ○（OMPython） | ○ | Must | P6 | PyO3（abi3-py312） |
@@ -91,7 +91,7 @@ OpenModelica（OMEdit）と Rumoca を参考に、GlobeMode に要る機能を�
 | --- | --- | --- | --- |
 | MSL コーパスのファネル計測（parse → flatten → DAE → balanced → init → simulate） | Must | P1〜（S005 で全例題） | Rumoca と同じ段階で数える。`cargo xtask msl-funnel` が、Rumoca と同じ名前の規則で選んだ 566 本を数える（S005） |
 | MSL の参照結果との照合（ファネル） | Must | P3（S011） | `cargo xtask msl-sim`（`mise run msl:sim`）が `msl:funnel` で OK の例題を別プロセスで実行し、MAP-LIB の参照結果（v4.1.0）と csv-compare の矩形の管（許容差 0.002）で比べる。報告は [msl-sim.md](msl-sim.md)（[ADR-0013](adr/0013-exec-backend.md)） |
-| Rumoca との差分照合 | Must | P1〜 | Track B に移ってからも続ける |
+| Rumoca との差分照合 | Must | P1〜 | Track B に移ってからも続ける。見つけた Rumoca の穴は [upstream.md](upstream.md) の 1 つの表にまとめる（S096） |
 | `omc` との照合（別プロセス） | Should | P2〜（S008 で実施） | 照合用に限る。リンクしない。`cargo xtask omc-compare`（`mise run msl:omc`、[ADR-0010](adr/0010-omc-comparison.md)）が `msl-funnel --json` の結果を omc の `checkModel` / `translateModel` と突き合わせ、報告を [omc-compare.md](omc-compare.md) に書く |
-| Reference-FMUs、FMPy、fmusim、fmuCheck | Must | P5 | FMI の Import と Export の両方 |
+| Reference-FMUs、FMPy、fmusim、fmuCheck | Must | P5 | FMI の Import と Export の両方。Export した Decay の FMU は FMPy（S094・S098）と fmusim（S098、`fmu-export.yml`）の validate と ME・CS の simulate を 2.0・3.0 とも通る。fmuCheck は未 |
 | ライセンス監査（cargo-deny、npm、SBOM） | Must | P1〜 | [licenses.md](licenses.md) |

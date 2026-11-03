@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S105 Windows・macOS 向けの FMU（P5a） — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S105 Windows・macOS 向けの FMU（P5a）">
+
+<section class="slide" id="S01">
+  <span class="tag">S105 · 2026-11-03 · P5</span>
+  <h1>Windows・macOS 向けの FMU</h1>
+  <p class="lead"><code>globe fmu export --build --target &lt;triple&gt;</code> で <code>zig cc</code> を呼ぶ</p>
+  <div class="big">1 つの FMU が <b>Ubuntu・Windows・macOS</b> の FMPy を通った</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること（S098 の持ち越し）</h1>
+  <ul>
+    <li><code>--build</code> は host（x86_64 の Linux）の <code>.so</code> だけだった</li>
+    <li><code>--target</code> を足し、<code>win64</code>・<code>darwin64</code> にも <code>.dll</code>・<code>.dylib</code> を置く</li>
+    <li>1 つの FMU に 3 つの <code>binaries/&lt;platform&gt;/</code> を同梱する</li>
+    <li>各 OS での実行は GitHub Actions（<code>fmu-export.yml</code>）で確かめる</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと（ADR-0031 の追記）</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>指定</td><td><code>--target</code> 何度でも、省略は host の <code>cc</code></td><td>既存の呼び出しが変わらない</td></tr>
+    <tr><td>コンパイラ</td><td><code>zig cc -target &lt;triple&gt;</code></td><td>zig は mise にある。新しい依存なし</td></tr>
+    <tr><td>置き場</td><td>2.0: linux64・win64・darwin64<br>3.0: x86_64-windows・aarch64-darwin など</td><td>FMI の規格の名前</td></tr>
+    <tr><td>副産物</td><td><code>.pdb</code>・<code>.lib</code> を消す</td><td>FMU に要らない（.pdb は 1.1 MB）</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>流れ</h1>
+  <svg class="fig" viewBox="0 0 900 240" role="img" aria-label="zig cc で 3 つの OS 向けに作り、各 OS の FMPy で確かめる流れ">
+    <rect class="svg-box" x="10" y="80" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="110" y="115" text-anchor="middle">globe fmu export</text>
+    <text class="svg-text" x="110" y="140" text-anchor="middle">--target × 3</text>
+    <line class="svg-line" x1="210" y1="120" x2="250" y2="120"/>
+    <rect class="svg-box-accent" x="250" y="80" width="190" height="80" rx="10"/>
+    <text class="svg-text-b" x="345" y="115" text-anchor="middle">zig cc</text>
+    <text class="svg-text" x="345" y="140" text-anchor="middle">.so・.dll・.dylib</text>
+    <line class="svg-line" x1="440" y1="120" x2="480" y2="120"/>
+    <rect class="svg-box" x="480" y="80" width="150" height="80" rx="10"/>
+    <text class="svg-text-b" x="555" y="115" text-anchor="middle">.fmu</text>
+    <text class="svg-text" x="555" y="140" text-anchor="middle">artifact</text>
+    <line class="svg-line" x1="630" y1="120" x2="680" y2="40"/>
+    <line class="svg-line" x1="630" y1="120" x2="680" y2="120"/>
+    <line class="svg-line" x1="630" y1="120" x2="680" y2="200"/>
+    <rect class="svg-box" x="680" y="15" width="210" height="50" rx="10"/>
+    <text class="svg-text" x="785" y="46" text-anchor="middle">Ubuntu の FMPy</text>
+    <rect class="svg-box" x="680" y="95" width="210" height="50" rx="10"/>
+    <text class="svg-text" x="785" y="126" text-anchor="middle">Windows の FMPy</text>
+    <rect class="svg-box" x="680" y="175" width="210" height="50" rx="10"/>
+    <text class="svg-text" x="785" y="206" text-anchor="middle">macOS arm64 の FMPy</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>x(1) − e⁻¹（Decay、2.0 と 3.0 で同じ、run 41531879481）</h1>
+  <table class="compact">
+    <tr><th>ランナー</th><th>validate</th><th>ME</th><th>CS</th></tr>
+    <tr><td>ubuntu-24.04</td><td class="ok">No problems found.</td><td>−2.608e-8</td><td class="ok">3.331e-16</td></tr>
+    <tr><td>windows-latest</td><td class="ok">No problems found.</td><td>−2.608e-8</td><td class="ok">3.331e-16</td></tr>
+    <tr><td>macos-latest（arm64）</td><td class="ok">No problems found.</td><td>−2.608e-8</td><td class="ok">3.331e-16</td></tr>
+  </table>
+  <p>FMPy 0.3.32、相対許容誤差 1e-8。手元の試験は 5 本（zig の <code>.dll</code> が PE で、<code>.pdb</code>・<code>.lib</code> が残らない）</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>Windows・macOS の fmusim は回していない（Linux だけ）</li>
+    <li><code>aarch64-linux</code>・<code>x86_64-macos</code> はランナーで未確認</li>
+    <li>入力・事象のあるモデルは P5b（S099）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
