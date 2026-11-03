@@ -85,7 +85,7 @@
         extensions: [
           lineNumbers(), history(), drawSelection(), highlightActiveLine(), bracketMatching(), keymap.of([...defaultKeymap, ...historyKeymap]),
           modelicaCompletion(), modelicaLinter(backend, file), // S053
-          modelicaDefinition(definition, goBack), // S138
+          modelicaDefinition(definition, goBack, { backend, file: () => file }), // S138（S149: ホバー）
           EditorView.updateListener.of((u) => { if (u.docChanged) persist(); }),
         ],
       }),

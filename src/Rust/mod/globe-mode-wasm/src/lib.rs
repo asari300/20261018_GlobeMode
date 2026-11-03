@@ -76,6 +76,45 @@ impl Workspace {
         }
     }
 
+    /// `definition`・`hover` の共通: ライブラリの木とファイル組で Resolver を作って `f` を回し、JSON にする。
+    fn resolve(
+        &self,
+        f: fn(
+            &mut globe_mode_lsp::definition::Resolver,
+            &str,
+            &str,
+            u32,
+            u32,
+        ) -> Option<serde_json::Value>,
+        file: &str,
+        text: &str,
+        line: u32,
+        character: u32,
+    ) -> String {
+        let empty;
+        let (tree, files) = match &self.tree {
+            Some((t, f)) => (t, Some(f)),
+            None => {
+                empty = globe_mode_fmt::LibraryTree::new(std::iter::empty());
+                (&empty, None)
+            }
+        };
+        let mut scratch = globe_mode::Workspace::new();
+        let found = f(
+            &mut globe_mode_lsp::definition::Resolver {
+                ws: &self.inner,
+                tree,
+                scratch: &mut scratch,
+                read: &|f| files?.get(f).cloned(),
+            },
+            file,
+            text,
+            line,
+            character,
+        );
+        serde_json::to_string(&found).unwrap_or_default()
+    }
+
     /// ライブラリ（名前 → 本文）を一度だけ全部読み込んだワークスペース。読めなければ S1 の診断（`GM-E1003`）。
     pub fn with_library(
         name: &str,
@@ -273,28 +312,24 @@ impl Workspace {
     /// 文書 `file`（本文 `text`。先に `set_file` で足しておく）の行・列（LSP と同じ UTF-16）にある名前の定義を
     /// `{file, text, range}` の JSON で返す（S138。LSP の `globe/definition` と同じ形。`text` は定義のあるファイルの本文）。無ければ `null`。
     pub fn definition(&self, file: &str, text: &str, line: u32, character: u32) -> String {
-        let empty;
-        let (tree, files) = match &self.tree {
-            Some((t, f)) => (t, Some(f)),
-            None => {
-                empty = globe_mode_fmt::LibraryTree::new(std::iter::empty());
-                (&empty, None)
-            }
-        };
-        let mut scratch = globe_mode::Workspace::new();
-        let found = globe_mode_lsp::definition::definition_at(
-            &mut globe_mode_lsp::definition::Resolver {
-                ws: &self.inner,
-                tree,
-                scratch: &mut scratch,
-                read: &|f| files?.get(f).cloned(),
-            },
+        self.resolve(
+            globe_mode_lsp::definition::definition_at,
             file,
             text,
             line,
             character,
-        );
-        serde_json::to_string(&found).unwrap_or_default()
+        )
+    }
+
+    /// `definition` と同じ解決で、名前の宣言の 1 行を `{contents, range}` の JSON で返す（S149。LSP の `globe/hover` と同じ形）。無ければ `null`。
+    pub fn hover(&self, file: &str, text: &str, line: u32, character: u32) -> String {
+        self.resolve(
+            globe_mode_lsp::definition::hover_at,
+            file,
+            text,
+            line,
+            character,
+        )
     }
 
     /// ファイルを足すか、本文を差し替える。

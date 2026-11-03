@@ -1,5 +1,5 @@
 import { GlobeWorker } from "../../../Rust/mod/globe-mode-wasm/web/client.js";
-import type { Backend, Definition, LintMessage, Progress, TreeEntry } from "./backend";
+import type { Backend, Definition, Hover, LintMessage, Progress, TreeEntry } from "./backend";
 import { browserOpen, browserSave } from "./browser-file";
 import { gapNonFinite, type Columns } from "./plot/csv";
 import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse, SolverEntry } from "./protocol";
@@ -50,6 +50,9 @@ export class WorkerBackend implements Backend {
   }
   definition(file: string, line: number, character: number): Promise<Definition | null> {
     return this.#w.definition(file, line, character);
+  }
+  hover(file: string, line: number, character: number): Promise<Hover | null> {
+    return this.#w.hover(file, line, character);
   }
   async exportFmu(model: string, fmiVersion: number): Promise<string | null> {
     return browserSave(`${model.replaceAll(".", "_")}.fmu`, await this.#w.exportFmu(model, fmiVersion)); // S144。名前は facade の FMU と同じ
