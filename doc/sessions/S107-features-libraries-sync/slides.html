@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S107 正典の文書の追いつき — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S107 正典の文書の追いつき">
+
+<section class="slide" id="S01">
+  <span class="tag">S107 · 2026-11-03 · P5・P6</span>
+  <h1>正典の文書の追いつき</h1>
+  <p class="lead">features.md・libraries.md・README を S094〜S103 に合わせた（文書だけ）</p>
+  <div class="big">features.md <b>8 行</b>・libraries.md の数の差 <b>0</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>features.md（最終更新 S094）に S095〜S103 の成果を書く</li>
+    <li>libraries.md を最新の定期実行 run 41365960542 の artifact で写し直す</li>
+    <li>README の状態に FMI の Export・FMU ランタイム・Android・marimo の WASM を 1 文ずつ</li>
+    <li>roadmap.md とコードは触らない。S099・S104〜S106 は未取り込みなので書かない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>features.md で直した行</h1>
+  <table class="compact">
+    <tr><th>行</th><th>足したこと</th></tr>
+    <tr><td>connect のネットワークグラフ</td><td>S101 継承した入れ子のクラス</td></tr>
+    <tr><td>FMI 2.0 Export</td><td>S095 自前のランタイム <code>globe-mode-fmu</code></td></tr>
+    <tr><td>FMI 3.0 Export</td><td>S098 <code>--fmi-version 3</code></td></tr>
+    <tr><td>Android</td><td>S092 APK・S100 エミュレータ・S103 MSL</td></tr>
+    <tr><td>ブラウザ</td><td>S093 CSP のまま実行</td></tr>
+    <tr><td>marimo</td><td>S097 extra・S102 WASM</td></tr>
+    <tr><td>FMPy・fmusim</td><td>S094・S098 で通る、fmuCheck は未</td></tr>
+    <tr><td>Rumoca との照合</td><td>S096 upstream.md</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>どこから何へ</h1>
+  <svg class="fig" viewBox="0 0 800 260" role="img" aria-label="入力と更新した文書">
+    <rect class="svg-box" x="30" y="40" width="250" height="70" rx="10"/>
+    <text class="svg-text-b" x="155" y="72" text-anchor="middle">S094〜S103</text>
+    <text class="svg-text" x="155" y="96" text-anchor="middle">解説書と roadmap</text>
+    <rect class="svg-box" x="30" y="160" width="250" height="70" rx="10"/>
+    <text class="svg-text-b" x="155" y="192" text-anchor="middle">run 41365960542</text>
+    <text class="svg-text" x="155" y="216" text-anchor="middle">artifact libraries</text>
+    <line class="svg-line" x1="280" y1="75" x2="500" y2="45"/>
+    <line class="svg-line" x1="280" y1="75" x2="500" y2="125"/>
+    <line class="svg-line" x1="280" y1="195" x2="500" y2="205"/>
+    <rect class="svg-box-accent" x="500" y="20" width="260" height="50" rx="10"/>
+    <text class="svg-text-b" x="630" y="51" text-anchor="middle">features.md</text>
+    <rect class="svg-box-accent" x="500" y="100" width="260" height="50" rx="10"/>
+    <text class="svg-text-b" x="630" y="131" text-anchor="middle">README.md</text>
+    <rect class="svg-box-accent" x="500" y="180" width="260" height="50" rx="10"/>
+    <text class="svg-text-b" x="630" y="211" text-anchor="middle">libraries.md</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">決定と理由</span>
+  <h1>libraries.md の前回との差</h1>
+  <table class="compact">
+    <tr><th>ライブラリ</th><th>OK</th><th>GM-U</th><th>panic</th><th>実行できた</th></tr>
+    <tr><td>AixLib</td><td>119</td><td>163</td><td>0</td><td>98</td></tr>
+    <tr><td>Buildings</td><td>119</td><td>193</td><td>4</td><td>88</td></tr>
+    <tr><td>Chemical</td><td>12</td><td>43</td><td>0</td><td>0</td></tr>
+    <tr><td>ClaRa</td><td>0</td><td>0</td><td>0</td><td>0</td></tr>
+    <tr><td>DeltaRobot</td><td>9</td><td>5</td><td>0</td><td>5</td></tr>
+    <tr><td>IBPSA</td><td>88</td><td>135</td><td>4</td><td>66</td></tr>
+    <tr><td>ThermofluidStream</td><td>4</td><td>115</td><td>0</td><td>2</td></tr>
+  </table>
+  <p class="ok">すべて前回（S058 の run）と同じ。違うのは時間の列だけ</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>gh run download 41365960542 -n libraries -D "$D"
+diff "$D/libraries.md" doc/libraries.md
+python3 -I .claude/skills/session-docs/check_docs.py</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">8</span><span class="l">features.md の行</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">libraries の数の差</span></div>
+    <div class="kpi"><span class="n">3</span><span class="l">README の変更行</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ul>
+    <li>S099・S104〜S106 が main に入ったら FMI・Android・marimo の行を直す</li>
+    <li>features.md の P4 の行（ライブラリツリー・プロットなど）の古い記述は範囲の外</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
