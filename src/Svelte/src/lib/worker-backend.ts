@@ -36,8 +36,8 @@ export class WorkerBackend implements Backend {
   solvers(): Promise<SolverEntry[]> {
     return this.#w.solvers();
   }
-  format(text: string, indent: number, insertOrigin: boolean): Promise<string> {
-    return this.#w.format(text, indent, insertOrigin);
+  format(text: string, indent = 2, insertOrigin = true): Promise<string> {
+    return this.#w.format(text, indent, insertOrigin); // wasm に設定ファイルは無い（S143）
   }
   lint(text: string): Promise<LintMessage[]> {
     return this.#w.lint(text);
