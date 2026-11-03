@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S117 modelDescription.xml を P5a と P5b で共有 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S117 modelDescription.xml を P5a と P5b で共有">
+
+<section class="slide" id="S01">
+  <span class="tag">S117 · 2026-11-03 · P5</span>
+  <h1>modelDescription.xml を P5a と P5b で共有</h1>
+  <p class="lead"><code>globe-mode-fmi</code> に書く側 <code>write_model_description_2</code></p>
+  <div class="big">P5b は文字列の連結をやめ、P5a の XML は読み→書き→読みで一致</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>S099〜S114 の持ち越し「<code>modelDescription.xml</code> の生成を P5a と共有」</li>
+    <li>型 <code>ModelDescription</code> は S057 の読む側にある。書く側を 1 つ足す</li>
+    <li>P5b（<code>globe-mode-fmu</code>）はその型を組み立てて書く側を呼ぶだけにする</li>
+    <li>P5a は Rumoca のテンプレートの XML のまま。round-trip の試験だけ</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>どちらが何を持つか</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th></tr>
+    <tr><td>型・読み・書き</td><td><code>globe-mode-fmi</code> の既定の feature</td></tr>
+    <tr><td>P5b</td><td><code>model_description</code> は型を組み立てて呼ぶだけ</td></tr>
+    <tr><td>P5a</td><td>テンプレートの XML を置き換えない（description・unit を落とさない）</td></tr>
+    <tr><td>依存</td><td>fmu → fmi（export は引き込まない）。外部 0</td></tr>
+    <tr><td>start</td><td>属性の文字列のまま（型によらず書き戻せる）</td></tr>
+    <tr><td>空の Derivatives</td><td>書かない（2.0 の XSD で Unknown が 1 つ以上要る）</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>共有の形</h1>
+  <svg class="fig" viewBox="0 0 800 220" role="img" aria-label="P5a の Rumoca の XML は parse で ModelDescription になり、P5b は ModelDescription を組み立て、write_model_description_2 が XML を書く">
+    <rect class="svg-box" x="20" y="30" width="200" height="60" rx="10"/>
+    <text class="svg-text-b" x="120" y="58" text-anchor="middle">P5a Rumoca の XML</text>
+    <text class="svg-text" x="120" y="78" text-anchor="middle">parse_model_description</text>
+    <rect class="svg-box" x="20" y="130" width="200" height="60" rx="10"/>
+    <text class="svg-text-b" x="120" y="158" text-anchor="middle">P5b ModelInstance</text>
+    <text class="svg-text" x="120" y="178" text-anchor="middle">型を組み立てる</text>
+    <rect class="svg-box-accent" x="300" y="80" width="200" height="60" rx="10"/>
+    <text class="svg-text-b" x="400" y="108" text-anchor="middle">ModelDescription</text>
+    <text class="svg-text" x="400" y="128" text-anchor="middle">globe-mode-fmi</text>
+    <rect class="svg-box" x="580" y="80" width="200" height="60" rx="10"/>
+    <text class="svg-text-b" x="680" y="108" text-anchor="middle">XML（FMI 2.0）</text>
+    <text class="svg-text" x="680" y="128" text-anchor="middle">write_model_description_2</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>試験</h1>
+  <table class="compact">
+    <tr><th>試験</th><th>確かめること</th></tr>
+    <tr><td><code>fmu_export</code> の <code>exports_a_source_fmu</code></td><td>Decay（P5a、2.0）の読み→書き→読みが同じ</td></tr>
+    <tr><td><code>parse</code> の <code>fmi2_round_trips_through_the_writer</code></td><td>Dahlquist 2.0 の round-trip、3.0 と String は Err</td></tr>
+    <tr><td><code>fmpy</code>（globe-mode-fmu）</td><td>FMPy の validate と simulate がそのまま通る</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>FMI 3.0 の書く側（P5b が 3.0 を出すとき）</li>
+    <li>CS、<code>Outputs</code> の <code>dependencies</code></li>
+    <li>Enumeration（declaredType）・String</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
