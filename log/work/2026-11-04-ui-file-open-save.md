@@ -21,7 +21,7 @@ S140 の点検（`doc/research/app-flow-2026-11-04.md`）の順位 1。自分の
 - File System Access API は使わない（最小は input でよいとの指示。Firefox・Safari に無く、分岐が増える）。ブラウザの「保存」は毎回ダウンロード。
 - Desktop は command を足さず、`window.__TAURI__.dialog` / `fs` を使う（S135 の流儀）。`generate_handler!` は触っていないので S136 の `cancel_run`・S135 の `updater_configured` の並びはそのまま。プラグインは `Builder::plugin` で 2 行。
 - fs のスコープは静的に置かない（dialog で選んだパスが許可に入る）。
-- 自動保存はライブラリのファイルを開いている間は止める（戻すと MSL のファイルが次回の起動で開いてしまう）。
+- 自動保存は本文とファイル名だけ（モデル名は保存しない）。最初の版はモデル名も保存して、desktop.yml の UI の測定（起動を 3 回繰り返す）で 2 回目から落ちた（smoke が `model` を ChuaCircuit にして、次の起動がそれを拾い、MSL を読む前に検査して check=ng。localStorage は起動をまたぐ）。本文から入れ直す形に直した。ライブラリのファイルを開いている間は止める（戻すと MSL のファイルが次回の起動で開いてしまう）。
 - 開くとき、名前が違えば前のファイルを `setFile(前の名前, "")` で空にする（Workspace に残る二重定義の予防）。
 - 開いた本文の先頭の宣言の名前をモデル名に入れる（既定の `Decay` のままだと検査が通らない）。
 

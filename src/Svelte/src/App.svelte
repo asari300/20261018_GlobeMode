@@ -42,7 +42,7 @@
   let runState = $state<"idle" | "running" | "cancelled">("idle");
   let graphModel = $state<string | null>(null); // 「グラフ」を押したときのモデル名（入力のたびに描き直さない）
 
-  // S141: 自分のファイルを開く・保存する。本文・ファイル名・モデル名は localStorage に自動保存して起動時に戻す（使えなくても動く。S102）
+  // S141: 自分のファイルを開く・保存する。本文とファイル名は localStorage に自動保存して起動時に戻す（使えなくても動く。S102）。モデル名は戻さず本文から入れ直す（smoke が書き換えたモデル名を次の起動で拾わないため）
   // own はエディタの文書が自分のファイルか（ライブラリのファイルを開いている間は保存も上書きもしない）
   const STORE = "globe-mode.doc";
   const DECAY = "model Decay\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -x;\nend Decay;\n";
@@ -50,15 +50,15 @@
   let saved = $state(""); // 保存した先（Desktop はパス、ブラウザは名前）
   const persist = () => {
     if (!own) return;
-    try { localStorage.setItem(STORE, JSON.stringify({ name: file, text: view.state.doc.toString(), model })); } catch { /* 保存できなくても使える */ }
+    try { localStorage.setItem(STORE, JSON.stringify({ name: file, text: view.state.doc.toString() })); } catch { /* 保存できなくても使える */ }
   };
-  $effect(() => { void [file, model]; if (view) persist(); });
+  const guessModel = (t: string) => /^\s*(?:(?:partial|encapsulated)\s+)*(?:model|block|class|package)\s+(\w+)/m.exec(t)?.[1];
 
   onMount(() => {
     let text = DECAY;
     try {
       const d = JSON.parse(localStorage.getItem(STORE) ?? "null");
-      if (typeof d?.text === "string" && typeof d.name === "string" && typeof d.model === "string") ({ text, name: file, model } = d);
+      if (typeof d?.text === "string" && typeof d.name === "string") { text = d.text; file = d.name; model = guessModel(text) ?? model; }
     } catch { /* 無ければ Decay から */ }
     // S069: 取得済みの MSL を sidecar が読んでいれば、最初から「読んだ」状態にする
     void tauri?.hasLibrary().then((has) => {
@@ -245,7 +245,6 @@
   }
 
   // S141: 開く。いまの自分のファイルと名前が違えば、バックエンドの Workspace に残らないよう空にする（同じクラスの二重定義を避ける）
-  const guessModel = (t: string) => /^\s*(?:(?:partial|encapsulated)\s+)*(?:model|block|class|package)\s+(\w+)/m.exec(t)?.[1];
   const openFromDisk = () => run(async () => {
     const f = await backend.openFile();
     if (!f) return;

@@ -404,7 +404,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 
 ### S141（P4、2026-11-04）で済んだこと
 
-- **自分のモデルを持ち込み、持ち帰る**（S140 の点検の順位 1。[解説書](sessions/S141-ui-file-open-save/解説書.md)）: `Backend.openFile()`・`saveFile(name, text, saveAs?)`。ブラウザ・Android は `<input type=file accept=".mo">` と Blob のダウンロード（`lib/browser-file.ts`）、Desktop は `tauri-plugin-dialog` / `tauri-plugin-fs`（`window.__TAURI__.dialog` / `fs`。npm は足さない）で「開く」「保存」（開いた・保存したパスへ上書き）「名前を付けて保存」。`capabilities/desktop.json` は `dialog:allow-open`・`dialog:allow-save`・`fs:allow-read-text-file`・`fs:allow-write-text-file` だけ（fs の許可は dialog で選んだパスだけ）。本文・ファイル名・モデル名は `localStorage` に自動保存して起動時に戻す（ライブラリのファイルを開いている間は保存しない）。開いたモデル名は本文の先頭の `model` などから入れる。
+- **自分のモデルを持ち込み、持ち帰る**（S140 の点検の順位 1。[解説書](sessions/S141-ui-file-open-save/解説書.md)）: `Backend.openFile()`・`saveFile(name, text, saveAs?)`。ブラウザ・Android は `<input type=file accept=".mo">` と Blob のダウンロード（`lib/browser-file.ts`）、Desktop は `tauri-plugin-dialog` / `tauri-plugin-fs`（`window.__TAURI__.dialog` / `fs`。npm は足さない）で「開く」「保存」（開いた・保存したパスへ上書き）「名前を付けて保存」。`capabilities/desktop.json` は `dialog:allow-open`・`dialog:allow-save`・`fs:allow-read-text-file`・`fs:allow-write-text-file` だけ（fs の許可は dialog で選んだパスだけ）。本文とファイル名は `localStorage` に自動保存して起動時に戻す（ライブラリのファイルを開いている間は保存しない）。モデル名は開くときも戻すときも本文の先頭の `model` などから入れる（保存しない。smoke が書き換えたモデル名を次の起動で拾って desktop.yml の UI の測定が落ちたため）。
 - 試験: `test_ui.py` に 1 本（ファイル選択で `Mine.mo` を開く、検査が通る、保存でダウンロードの内容が一致、再読み込みで戻る）。Desktop は `desktop.yml`（Linux の smoke）。
 - 持ち越し: File System Access API（同じファイルへの上書き）、複数の文書（タブ）、最近使ったファイル、Android の WebView でのダウンロードとファイル選択の実機確認、FMU export の UI、実行の設定の UI（S142）、ダークモード。
 
