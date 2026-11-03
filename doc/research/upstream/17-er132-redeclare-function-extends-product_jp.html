@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>上流の下書き 17 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode 上流の下書き 17">
+
+<section class="slide" id="S01">
+  <span class="tag">下書き 17 · Rumoca · 未提出 · 2026-11-03</span>
+  <h1>組み込みと同じ名前の redeclare function extends product で ER132</h1>
+  <p class="lead">継いだ関数 <code>product</code> を置き換えると、組み込みの <code>product</code> に解決されて落ちる。v0.10.4 でも同じ</p>
+  <div class="cols-2">
+    <div>
+      <pre><code>package One
+  extends Base;  // replaceable partial
+                 // function product
+  redeclare function extends product
+    // ここ → ER132 + ER002 z, x, y
+  algorithm
+    z := {x[1]*y[1] - x[2]*y[2],
+          x[1]*y[2] + x[2]*y[1]};
+  end product;
+end One;
+// 名前を prod にすると通る</code></pre>
+      <p class="small muted">本文: <a href="17-er132-redeclare-function-extends-product_jp.md">日本語</a> · <a href="17-er132-redeclare-function-extends-product.md">英語</a> · 再現 <a href="17-er132-redeclare-function-extends-product.mo">.mo</a> · 一覧 <a href="../../upstream.md">upstream.md</a></p>
+    </div>
+    <table class="small">
+      <tr><th>v0.10.4 の結果</th><td><span class="ng">再現</span>（ER132 と ER002 の連鎖。<code>DefId(78)</code> まで同じ）</td></tr>
+      <tr><th>Rumoca の穴の根拠</th><td><code>redeclare class extends B</code> の B は継いだ要素（MLS §7.3.1）。単純名は囲むクラスから探す（§5.3.1）。<code>product</code> は予約語でない。omc は通す</td></tr>
+      <tr><th>影響</th><td>ライブラリ 267 本（Buildings 97・AixLib 85・IBPSA 85）。<code>IBPSA.Electrical.PhaseSystems.OnePhase</code></td></tr>
+      <tr><th>GlobeMode 側の回避</th><td>なし（S1 の GM-E1001）</td></tr>
+      <tr><th>提出の判断材料</th><td>再現は 1 ファイル・1 コマンド。本数が最大で、提出の順は 1 位</td></tr>
+    </table>
+  </div>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

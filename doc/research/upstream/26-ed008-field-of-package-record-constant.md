@@ -4,6 +4,8 @@ Target: Rumoca (https://github.com/CogniPilot/rumoca)
 
 Verdict (GlobeMode, S072): **Rumoca internal error on valid Modelica.** omc accepts it.
 
+Status (S115, 2026-11-03): **fixed in Rumoca v0.10.4.** `Rep26.A`, `Rep26.B` and `Rep26.C` compile with the v0.10.4 release binary. Do not file; this draft is kept as a record. (The `i` group of ED008, 18 examples, was never reduced and is not covered by this check.)
+
 ## Summary
 
 A package declares `constant GasProperties dryair(MM = 0.029, cp = 1006);` (a record constant). Reading `dryair.cp` from a function of the package, from a model (`Air.dryair.cp`), or in a parameter binding stops the DAE construction with:
@@ -46,12 +48,17 @@ $ rumoca compile 26-ed008-field-of-package-record-constant.mo -m Rep26.B
 
 `Rep26.A` and `Rep26.C` give the same code; `Rep26.B0` and `Rep26.B1` compile in both. OpenModelica 1.27.2 (`loadFile`, `checkModel`): all five "completed successfully".
 
+## Re-check on Rumoca v0.10.4 (S115, 2026-11-03)
+
+Fixed: `Rep26.A`, `Rep26.B` and `Rep26.C` compile (`Compilation successful!`, exit 0); `Rep26.B0` and `Rep26.B1` still compile. With v0.10.2 the three still give `[ED008] unresolved Flat reference 'Rep26.Air.dryair.cp'`. The library examples were not re-run with v0.10.4. [not verified]
+
 ## Environment
 
 - Rumoca v0.10.2, git rev `276e82bd0fd48960ac201e782918d28bf19cf7ce`; also the prebuilt `rumoca-linux-x86_64` v0.10.2 binary.
 - Linux x86_64 (WSL2, Ubuntu).
 - Counts: GlobeMode S063 run (GitHub Actions run 41250636800), `doc/research/libraries-2026-11-01.md`: ED008 108 of 1,781 failures. Library: IBPSA 4.0.0 (master `2adc9194`), `IBPSA/Media/Air.mo` line 25 (declaration); reproduced with `IBPSA.Airflow.Multizone.Examples.Orifice`.
 - Not yet re-checked against Rumoca main. Re-check before filing.
+- Re-checked on 2026-11-03 (S115) with the latest release, Rumoca v0.10.4 (tag commit `9c8c56fcd9f5ab9beb871f09bf5d9eed82971c54`, released 2026-11-02, prebuilt `rumoca-linux-x86_64`, https://github.com/CogniPilot/rumoca/releases/tag/v0.10.4), next to the v0.10.2 binary. Rumoca main was not built. [not verified on main]
 
 ## Workaround in GlobeMode
 

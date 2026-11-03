@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>上流の下書き 27 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode 上流の下書き 27">
+
+<section class="slide" id="S01">
+  <span class="tag">下書き 27 · Rumoca · 未提出 · 2026-11-03</span>
+  <h1>継いだ入れ子のクラスを継いだ package の名前で引くと ER002</h1>
+  <p class="lead"><code>Q extends P</code> の <code>Q.B</code> が引けない。replaceable な別名なら通る。v0.10.4 でも同じ</p>
+  <div class="cols-2">
+    <div>
+      <pre><code>package P
+  model B  Real x = time;  end B;
+end P;
+package Q
+  extends P;
+end Q;
+model M
+  Q.B b;       // ER002 'Q.B'
+end M;
+model M2       // 対照: 通る
+  replaceable package A = Q;
+  A.B b;
+end M2;</code></pre>
+      <p class="small muted">本文: <a href="27-er002-inherited-class-through-extending-package_jp.md">日本語</a> · <a href="27-er002-inherited-class-through-extending-package.md">英語</a> · 再現 <a href="27-er002-inherited-class-through-extending-package.mo">.mo</a> · 一覧 <a href="../../upstream.md">upstream.md</a></p>
+    </div>
+    <table class="small">
+      <tr><th>v0.10.4 の結果</th><td><span class="ng">再現</span>（M・M1 が ER002。M0・M2 は通る）</td></tr>
+      <tr><th>Rumoca の穴の根拠</th><td>クラスの要素には継いだ要素が入る（MLS §7.1）。合成名の残りは Q の要素から探す（§5.3.2）。omc は通す</td></tr>
+      <tr><th>影響</th><td>ライブラリの例題では 0 本</td></tr>
+      <tr><th>GlobeMode 側の回避</th><td>なし（<code>replaceable package</code> と書けば避けられる）</td></tr>
+      <tr><th>提出の判断材料</th><td>明快だが例題で出ない。出すかはユーザーが決める</td></tr>
+    </table>
+  </div>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

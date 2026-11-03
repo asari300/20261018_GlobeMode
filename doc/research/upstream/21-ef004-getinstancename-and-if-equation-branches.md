@@ -49,12 +49,17 @@ $ rumoca compile ... -m Rep21B   ->  [EF004] unsupported equation form: dynamic 
 
 OpenModelica 1.27.2: `checkModel` on `Rep21A`, `Rep21B`, `Rep21B3` and `Rep21B4` all complete successfully (`Rep21B4`: 3 equations, 3 variables; `Rep21B`: 4 and 4).
 
+## Re-check on Rumoca v0.10.4 (S115, 2026-11-03)
+
+Unchanged for both parts: `Rep21A` gives `[EF004] ... getInstanceName() requires a model/block instance scope`; `Rep21B` and `Rep21B3` give `[EF004] ... dynamic if-equation branches have different scalar row counts`; `Rep21B4` gives `[ED001] unbalanced model: 4 equations, 3 unknowns`. `Rep21A2`, `Rep21A3` and `Rep21B1` compile (exit 0). The library examples were not re-run with v0.10.4. [not verified]
+
 ## Environment
 
 - Rumoca v0.10.2, git rev `276e82bd0fd48960ac201e782918d28bf19cf7ce`; also the prebuilt `rumoca-linux-x86_64` v0.10.2 binary.
 - Linux x86_64 (WSL2, Ubuntu).
 - Counts: GlobeMode S063 classification, `doc/research/libraries-2026-11-01.md`: EF004 217 of 1,781 failures (A: 119; B: Chemical 41, 41 of Chemical's 43 GM-U cases, the other 2 being ED020). Libraries: ThermofluidStream 1.4.1 (`final parameter String name = getInstanceName();` in `Idealized/...` and others; 17 uses in all), Chemical 2.0.0 (`Chemical.Examples.HydrogenCombustion` stops at `Processes.mo:1174`), IBPSA 4.0.0 (`Fluid/Sources/Boundary_pT.mo` uses it in asserts), Buildings 14.0.0, AixLib 3.0.1.
 - Not yet re-checked against Rumoca main (0.10.3 at the time of writing). Re-check before filing.
+- Re-checked on 2026-11-03 (S115) with the latest release, Rumoca v0.10.4 (tag commit `9c8c56fcd9f5ab9beb871f09bf5d9eed82971c54`, released 2026-11-02, prebuilt `rumoca-linux-x86_64`, https://github.com/CogniPilot/rumoca/releases/tag/v0.10.4), next to the v0.10.2 binary. Rumoca main was not built. [not verified on main]
 
 ## Workaround in GlobeMode
 

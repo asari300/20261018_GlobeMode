@@ -4,6 +4,8 @@ Target: Rumoca (https://github.com/CogniPilot/rumoca)
 
 Verdict (GlobeMode, S070): **Rumoca rejects valid Modelica, for the `loadResource` shape (reproduced with MSL only and with a self-contained model).** S080 reduced the replaceable-Medium shape too (a different message of the same code); see "Minimal reproduction: two Medium packages" below.
 
+Status (S115, 2026-11-03): **the `loadResource` shape is fixed in Rumoca v0.10.4** (`Rep20Load` and `Rep20TwoExtends.M` compile). **The two-Medium shape (`20b`, `Rep28.M`) still fails.** File only the two-Medium shape (2 library examples).
+
 ## Summary
 
 Calling `Modelica.Utilities.Files.loadResource("modelica://...")` in a parameter binding stops with `[EF025] missing exact function-selection identity for 'Modelica.Utilities.Files.loadResource': exposed function has no unique exact extends implementation`. In MSL, `loadResource` has no body of its own: it has two `extends` clauses, one for the interface (`...PartialModelicaServices.ExternalReferences.PartialLoadResource`) and one for the implementation (`ModelicaServices.ExternalReferences.loadResource`, which is the external function). The same pattern written by hand (`extends PartialF; extends Impl;`) fails the same way. omc accepts both.
@@ -41,6 +43,15 @@ $ rumoca compile 20-ef025-function-selection-identity.mo -m Rep20TwoExtends.M
 
 OpenModelica 1.27.2: `checkModel(Rep20Load)` and `checkModel(Rep20TwoExtends.M)` both "completed successfully" (1 equation, 1 variable).
 
+## Re-check on Rumoca v0.10.4 (S115, 2026-11-03)
+
+Partly fixed:
+
+- `Rep20Load` (MSL 4.1.0, `--source-root`) and `Rep20TwoExtends.M` compile (`Compilation successful!`, exit 0). With v0.10.2 both still give `[EF025] ... exposed function has no unique exact extends implementation`. `Rep20Load0` compiles in both.
+- `Rep28.M` (`20b`) gives the same `[EF025] missing exact function-selection identity for 'f': function source package has multiple exact override package selections`; `Rep28.M0`, `Rep28.M1` and `Rep28.M2` compile.
+
+The library examples (136 for `loadResource`, 2 for the Medium shape) were not re-run with v0.10.4. [not verified]
+
 ## Environment
 
 - Rumoca v0.10.2, git rev `276e82bd0fd48960ac201e782918d28bf19cf7ce`; also the prebuilt `rumoca-linux-x86_64` v0.10.2 binary.
@@ -48,6 +59,7 @@ OpenModelica 1.27.2: `checkModel(Rep20Load)` and `checkModel(Rep20TwoExtends.M)`
 - Linux x86_64 (WSL2, Ubuntu).
 - Counts: GlobeMode S063 classification, `doc/research/libraries-2026-11-01.md`: EF025 138 of 1,781 failures; 136 name `loadResource` (51) or a Medium function; the S067 rerun with MSL 4.0.0 gives the same counts.
 - Not yet re-checked against Rumoca main (0.10.3 at the time of writing). Re-check before filing.
+- Re-checked on 2026-11-03 (S115) with the latest release, Rumoca v0.10.4 (tag commit `9c8c56fcd9f5ab9beb871f09bf5d9eed82971c54`, released 2026-11-02, prebuilt `rumoca-linux-x86_64`, https://github.com/CogniPilot/rumoca/releases/tag/v0.10.4), next to the v0.10.2 binary. Rumoca main was not built. [not verified on main]
 
 ## Workaround in GlobeMode
 
