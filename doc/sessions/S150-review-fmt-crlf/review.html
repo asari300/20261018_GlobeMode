@@ -1,0 +1,8 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>S150 CRLF 調査</title><link rel="stylesheet" href="../../assets/slides.css"><script defer src="../../assets/slides.js"></script></head><body>
+<section class="slide" id="S01"><h1>S150: CRLF コメントと整形</h1>
+<p>基準 <code>e73af106c8b7b220a09e162d69798abfae0efcad</code>、確認日 2026-11-03。Issue #19。</p>
+<p>複数行ブロックコメント内の CRLF が CR CR LF に変化し、トークン保持検査で Err（byte 11）。LF 版と CRLF 行コメント版は Ok。入力ファイルの破損は観測していない。</p></section>
+<section class="slide" id="S02"><h2>根拠・制限</h2><p>lexer.rs:69–82 のコメント本文を layout.rs:259 が出力し、lib.rs:145–185 の改行置換と比較で拒否する。</p>
+<p><a href="repro.rs">再現コード</a>、<a href="review_jp.md">日本語詳細</a>、<a href="review_en.md">英語詳細・コマンド・実測</a>、<a href="../../../log/work/2026-11-03-s150-review-fmt-crlf.md">調査台帳</a>。直接 rustc・既定機能のみ。CLI、wasm、Cargo と CI は未検証。修正・次の枝の調査は行っていない。</p></section>
+</body></html>
