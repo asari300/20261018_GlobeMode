@@ -133,3 +133,37 @@ fn lint_reports_connect_with_different_types_across_files() {
     let o = globe(&d, &["lint", "--disable", "connect-type-mismatch", "."]);
     assert_eq!(o.status.code(), Some(0), "{}", stdout(&o));
 }
+
+/// S130: 対象から上へたどった `globe-mode.toml` の `[fmt]`・`[lint]` が効き、コマンドラインの引数が優先する
+#[test]
+fn config_file_changes_fmt_and_lint() {
+    let d = std::env::temp_dir().join(format!("globe-fmt-config-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&d);
+    fs::create_dir_all(d.join("sub")).unwrap();
+    fs::write(d.join("sub/b.mo"), TIDY).unwrap();
+    let check = |args: &[&str]| {
+        globe(&d, &[&["fmt", "--check"], args].concat())
+            .status
+            .code()
+    };
+    assert_eq!(check(&["sub"]), Some(0));
+    fs::write(d.join("globe-mode.toml"), "[fmt]\nindent = 4\n").unwrap();
+    assert_eq!(check(&["sub"]), Some(1)); // 2 字下げの TIDY は 4 では整形が要る
+    assert_eq!(check(&["--indent", "2", "sub"]), Some(0)); // 引数が優先
+
+    let lint = |d: &Path| globe(d, &["lint", "sub/b.mo"]);
+    assert!(stdout(&lint(&d)).contains("missing-description"));
+    fs::write(
+        d.join("globe-mode.toml"),
+        "[lint]\ndisable = [\"GM-L0003\"]\n",
+    )
+    .unwrap();
+    let o = lint(&d);
+    assert_eq!(o.status.code(), Some(0), "{}", stdout(&o));
+
+    fs::write(d.join("globe-mode.toml"), "[fmt]\nindnt = 4\n").unwrap();
+    let o = globe(&d, &["fmt", "--check", "sub"]);
+    assert_eq!(o.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&o.stderr).contains("知らないキー fmt.indnt"));
+    fs::remove_dir_all(&d).unwrap();
+}

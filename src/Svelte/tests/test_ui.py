@@ -6,6 +6,7 @@
 dist/ を localhost で配り（CSP は index.html の meta と同じものを応答の header にも付ける。meta は Web Worker に効かないので。S093）、Decay を検査して error の診断が 0 件であること、実行するとプロットが出て信号の選択・右の軸・x の切り替え（S128）が効くこと（ブラウザの実行は列ごとの道で、data-typed が true。S065）、
 10 万点（4 状態、出力間隔 0.01 s で 1000 s）の結果でも描けて時間を測ること、構造的に特異なモデルを検査して診断の行が出て、行を押すとエディタの選択が動くことを確かめる。1 ファイルの回路で「グラフ」を押して connect グラフが描かれることを確かめる（S046）。
 最後に「MSL を読む」で MSL 4.1.0 を読み（public/msl/MSL.json が無ければ飛ばす）、ChuaCircuit の検査（error 0）と実行（プロットの canvas と系列）を確かめて、秒数を出す（S048）。
+ライブラリの木で Modelica → Electrical → Analog → Examples → ChuaCircuit と開き、そのファイルがエディタに開いて検査が通ることも確かめる（S127）。
 別のページで MSL.json を構文の誤りのファイルを含むライブラリに差し替え、読み飛ばしの警告 GM-W1001 の行と notes のファイル名が出ることを確かめる（S071）。
 `?smoke=1` で起動すると Decay の検査と実行の結果が console に `GM-SMOKE check=ok simulate=ok x1=… msl=…` の 1 行で出ること（S100、android.yml の smoke）。MSL.json があれば msl=ok（MSL を読んで ChuaCircuit の検査が error 0。S103）。
 console の error（CSP の違反を含む）と、配った origin の外への要求は失敗（S093）。
@@ -206,6 +207,19 @@ def main() -> int:
             expect(canvas).not_to_have_attribute("data-nodes", "0", timeout=60_000)
             assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
             print(f"ChuaCircuit のグラフ: ノード {canvas.get_attribute('data-nodes')}、辺 {canvas.get_attribute('data-edges')}")
+
+            # ライブラリの木（S127）: Modelica → Electrical → Analog → Examples と開き、ChuaCircuit のファイルをエディタに開いて検査する
+            t = time.perf_counter()
+            for path in ["Modelica", "Modelica.Electrical", "Modelica.Electrical.Analog", "Modelica.Electrical.Analog.Examples"]:
+                page.locator(f'.library li[data-path="{path}"] > button').click(force=True)
+            page.locator(f'.library li[data-path="{CHUA}"] > button').click(force=True)
+            expect(page.get_by_label("モデル名")).to_have_value(CHUA, timeout=60_000)
+            expect(page.locator(".cm-content")).to_contain_text("model ChuaCircuit")
+            opened = time.perf_counter() - t
+            check()
+            assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
+            assert page.locator("tr.error").count() == 0, rows.all_inner_texts()
+            print(f"木から ChuaCircuit を開く: {opened:.1f} s、検査まで {time.perf_counter() - t:.1f} s、診断 {rows.count()} 行、error 0 行")
         else:
             print("public/msl/MSL.json が無いので MSL の試験は飛ばす")
         # ライブラリに構文の誤りのファイルがあっても読み、読み飛ばしを GM-W1001 の行（ファイル名は notes）で出す（S071）。

@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S127 ライブラリツリーの UI — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S127 ライブラリツリーの UI">
+
+<section class="slide" id="S01">
+  <span class="tag">S127 · 2026-11-03 · P4</span>
+  <h1>ライブラリツリーの UI</h1>
+  <p class="lead">MSL を読んだら、木でモデルを選んで開ける</p>
+  <div class="big">木で <b>ChuaCircuit</b> を開き、そのまま検査・実行・プロットへ</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>S048 の持ち越し: ライブラリツリーは Must だが UI が無かった</li>
+    <li>ブラウザ UI は「MSL を読む」ボタンとモデル名の欄だけで、名前を知らないと使えない</li>
+    <li>「使える流れ」の入口: 木で選ぶ、開く、検査、実行、プロット</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table>
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>木のデータ</td><td><code>globe-mode-fmt</code> の <code>LibraryTree</code>（ファイルの見出しだけ読む）</td><td>wasm と LSP の両方が直に依存する。facade と ir は触らない</td></tr>
+    <tr><td>取り方</td><td>展開のたびに直下の子だけ</td><td>全部を一度に返すと大きい</td></tr>
+    <tr><td>開き方</td><td>ライブラリのファイルと同じ名前でエディタに開く</td><td>同じ名前の <code>setFile</code> がライブラリのファイルを差し替える。編集が検査に効く</td></tr>
+    <tr><td>単位</td><td>ファイル。並びは名前の順</td><td>MSL.json は <code>.mo</code> だけで <code>package.order</code> が無い</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>UI から口まで</h1>
+  <svg class="fig" viewBox="0 0 800 240" role="img" aria-label="LibraryTree から wasm と LSP を通って LibraryTree の索引へ">
+    <rect class="svg-box-accent" x="20" y="90" width="190" height="60" rx="10"/>
+    <text class="svg-text-b" x="115" y="126" text-anchor="middle">LibraryTree.svelte</text>
+    <line class="svg-line" x1="210" y1="110" x2="300" y2="60"/>
+    <line class="svg-line" x1="210" y1="130" x2="300" y2="180"/>
+    <rect class="svg-box" x="300" y="30" width="220" height="60" rx="10"/>
+    <text class="svg-text" x="410" y="66" text-anchor="middle">wasm library_tree</text>
+    <rect class="svg-box" x="300" y="150" width="220" height="60" rx="10"/>
+    <text class="svg-text" x="410" y="186" text-anchor="middle">LSP globe/libraryTree</text>
+    <line class="svg-line" x1="520" y1="60" x2="590" y2="110"/>
+    <line class="svg-line" x1="520" y1="180" x2="590" y2="130"/>
+    <rect class="svg-box" x="590" y="90" width="190" height="60" rx="10"/>
+    <text class="svg-text" x="685" y="126" text-anchor="middle">fmt の LibraryTree</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>cargo test -p globe-mode-fmt -p globe-mode-wasm -p globe-mode-lsp
+mise run wasm:build
+uv run python src/Svelte/tests/test_ui.py</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">5 段</span><span class="l">Modelica から ChuaCircuit まで木で開く</span></div>
+    <div class="kpi"><span class="n">error 0</span><span class="l">開いたファイルで検査</span></div>
+    <div class="kpi"><span class="n">x = e^-2</span><span class="l">開いたライブラリのファイルの編集が実行に効く</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>検索ボックス、アイコン、<code>package.order</code> の順</li>
+    <li>1 ファイルのパッケージ（<code>Sources.mo</code> など）の中の入れ子のクラスを木に出す</li>
+    <li>wasm がライブラリの本文を 2 重に持つ（約 15 MiB）のをやめる</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

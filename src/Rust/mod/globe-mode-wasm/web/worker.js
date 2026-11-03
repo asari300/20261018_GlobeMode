@@ -7,6 +7,7 @@
 //   init {pkg, wasm?}  : `${pkg}/globe_mode_wasm.js`（wasm-bindgen --target web の糊）を読んで初期化。
 //                        wasm に ArrayBuffer を渡すと、それで初期化（Node は file: を fetch できないため）
 //   simulate_columns {request}（{response, layout, columns: Float64Array[]}。buffer は転送）、library {json, name}, set_file {name, text}, remove_file {name}, check {model}（CheckResponse の JSON）, graph {model, depth}（graphology の JSON）, simulate {request}（JSON 文字列）、
+//   library_tree {prefix}・library_source {path}（S127。JSON。ライブラリが無ければ [] と例外）,
 //   format {text, indent, insertOrigin}（整形後の本文）, lint {text}（JSON の配列）（S053）,
 //   version, solvers, memory, panic_for_test {message}
 // 失敗は `{id, ok:false, error, panic, poisoned}`。wasm32 は panic=abort なので、WebAssembly.RuntimeError のあとの
@@ -42,6 +43,12 @@ const ops = {
   },
   simulate({ request }) {
     return (ws ??= new gm.Workspace()).simulate(request);
+  },
+  library_tree({ prefix }) {
+    return (ws ??= new gm.Workspace()).library_tree(prefix);
+  },
+  library_source({ path }) {
+    return (ws ??= new gm.Workspace()).library_source(path);
   },
   format: ({ text, indent, insertOrigin }) => gm.format(text, indent, insertOrigin), // S053。壊れていれば投げる
   lint: ({ text }) => gm.lint(text),
