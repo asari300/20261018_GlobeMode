@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import { EditorState } from "@codemirror/state";
   import { EditorView, keymap, lineNumbers, drawSelection } from "@codemirror/view";
   import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
@@ -37,6 +37,9 @@
   let mslVersion = $state("4.1.0");
   let loadedVersion = $state<string | null>(null);
   let mslProgress = $state("");
+  // S133（ADR-0033）: 実行中の進捗の 1 行と、終わり方（cancelled なら「止めた」）
+  let runNote = $state("");
+  let runState = $state<"idle" | "running" | "cancelled">("idle");
   let graphModel = $state<string | null>(null); // 「グラフ」を押したときのモデル名（入力のたびに描き直さない）
 
   onMount(() => {
@@ -60,22 +63,33 @@
     });
     // S100: Android のエミュレータの smoke（android.yml が logcat で GM-SMOKE の行を待つ）。クエリを渡せない Tauri の Android はビルド時の VITE_GM_SMOKE=1
     if (import.meta.env.VITE_GM_SMOKE === "1" || new URLSearchParams(location.search).has("smoke")) void smoke();
+    else void tauri?.bench().then((on) => { if (on) void smoke(); }); // S125: Desktop の測定（GLOBE_DESKTOP_BENCH）
     return () => { view.destroy(); void unlisten?.then((f) => f()); };
   });
 
   // 起動時の Decay を検査・実行して、結果を console に 1 行出す。x1 は x(1)（e⁻¹ ≈ 0.3679）
+  // S125: 末尾に時刻（ms、ADR-0034）。ready は最初の往復（ページの読み込みの始まりから）、decay は検査・実行・プロットの反映まで、msl は MSL を読み ChuaCircuit を検査するまで
   async function smoke() {
+    await backend.setFile(file, view.state.doc.toString()).catch((e) => { failure = String(e); });
+    const ready = performance.now();
     await check();
     const checked = !failure && !diagnostics.some((d) => d.severity === "error");
     await simulate();
+    await tick();
+    const decay = performance.now() - ready;
     const i = columns ? columns.names.indexOf("x") : -1;
     const x1 = columns && i >= 0 ? Number(columns.data[i + 1][columns.points - 1]) : NaN;
     const simulated = !failure && Math.abs(x1 - Math.exp(-1)) < 1e-3;
     // S103: 同梱の MSL.json を読み、MSL の例題を 1 つ検査する（Android の APK は android.yml が MSL.json を入れる）
+    const t = performance.now();
     await loadMsl();
     if (msl === "loaded") { model = "Modelica.Electrical.Analog.Examples.ChuaCircuit"; await check(); }
     const mslOk = msl === "loaded" && !failure && !diagnostics.some((d) => d.severity === "error");
-    console.log(`GM-SMOKE check=${checked ? "ok" : "ng"} simulate=${simulated ? "ok" : "ng"} x1=${x1} msl=${mslOk ? "ok" : "ng"}${failure ? ` failure=${failure}` : ""}`);
+    const ms = (x: number) => x.toFixed(0);
+    const line = `GM-SMOKE check=${checked ? "ok" : "ng"} simulate=${simulated ? "ok" : "ng"} x1=${x1} msl=${mslOk ? "ok" : "ng"}`
+      + ` ready_ms=${ms(ready)} decay_ms=${ms(decay)} msl_ms=${mslOk ? ms(performance.now() - t) : "-"}${failure ? ` failure=${failure}` : ""}`;
+    console.log(line);
+    void tauri?.bench(line);
   }
 
   async function loadMsl() {
@@ -138,7 +152,23 @@
 
   const simulate = () =>
     run(async () => {
-      const { response: r, columns: c } = await backend.simulateColumns({ model });
+      runState = "running";
+      runNote = "実行中";
+      let out;
+      try {
+        out = await backend.simulateColumns({ model }, (p) => {
+          const pct = p.time === undefined ? "" : `、t = ${p.time.toPrecision(4)} / ${p.stop_time}（${Math.floor((100 * (p.time - p.start_time)) / (p.stop_time - p.start_time || 1))}%）`;
+          runNote = `実行中: ${p.stage}${pct}`;
+        });
+      } catch (e) {
+        if (!(e as { cancelled?: boolean }).cancelled) throw e;
+        runState = "cancelled";
+        runNote = "止めた（途中の結果は出ない）";
+        return;
+      } finally {
+        if (runState === "running") { runState = "idle"; runNote = ""; }
+      }
+      const { response: r, columns: c } = out;
       diagnostics = bySeverity(r.diagnostics);
       columns = c.points > 0 ? c : null;
       if (r.refused) failure = r.refused;
@@ -187,6 +217,7 @@
     <button onclick={simulate} disabled={busy}>実行</button>
     <button onclick={graph} disabled={busy}>グラフ</button>
     <button onclick={format} disabled={busy}>整形</button>
+    {#if runState === "running" && backend.cancel}<button onclick={() => backend.cancel?.()}>止める</button>{/if}
     {#if desktop}
       <select bind:value={mslVersion} disabled={msl === "loading"} aria-label="MSL の版">
         <option value="4.1.0">MSL 4.1.0</option>
@@ -206,6 +237,7 @@
     {#if msl === "loaded"}<aside class="library"><LibraryTree {backend} onOpen={openLibrary} /></aside>{/if}
     <div class="editor" bind:this={host}></div>
   </div>
+  {#if runNote}<p class="run" role="status" data-run={runState}>{runNote}</p>{/if}
   {#if failure}<p class="failure" role="alert">{failure}</p>{/if}
   <table class="diagnostics" aria-label="診断">
     <tbody>
@@ -223,7 +255,7 @@
 <style>
   main { font: 14px/1.4 system-ui, sans-serif; max-width: 60rem; margin: 0 auto; padding: 1rem; }
   .bar { display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: .5rem; }
-  .note { color: #555; margin: .25rem 0; }
+  .note, .run { color: #555; margin: .25rem 0; }
   .work { display: flex; gap: .5rem; }
   .library { flex: 0 0 16rem; height: 16rem; overflow: auto; border: 1px solid #888; font-size: .9em; }
   .editor { flex: 1; min-width: 0; border: 1px solid #888; }

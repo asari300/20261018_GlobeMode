@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S131 進捗と中断の C・NIF の段 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S131 進捗と中断の C・NIF の段">
+
+<section class="slide" id="S01">
+  <span class="tag">S131 · 2026-11-03 · P7</span>
+  <h1>進捗と中断の C・NIF の段</h1>
+  <p class="lead">ADR-0033 の実装の順の 4: C・Zig・Julia と NIF・Elixir・Gleam</p>
+  <div class="big">C はコールバックの戻り値、NIF は <code>cancel(token)</code> で止まる</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>S123 の facade の <code>simulate_observed</code> を C ABI と NIF から呼べるようにする</li>
+    <li>S129（Python）を型にし、進捗の 4 つの値（stage・time・start_time・stop_time）をそろえる</li>
+    <li>Zig・Julia・Elixir・Gleam の包みと試験を 1 本ずつ</li>
+    <li>wasm・LSP・Desktop は持ち越し。exec と facade は変えない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>C ABI の口</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>進捗</td><td>構造体 <code>GmProgress</code> を <code>callback(progress, user_data)</code> で渡す</td><td>位置引数 5 つより足しやすい。Python の dict と同じ値</td></tr>
+    <tr><td>time が無いとき</td><td>NaN と <code>has_time = 0</code></td><td>NaN だけだと比べ方を間違えやすい</td></tr>
+    <tr><td>口</td><td><code>gm_simulate_observed</code>・<code>gm_simulate_columns_observed</code></td><td>既存の <code>(model, settings_json)</code> のまま。列の版は前の関数の包み元</td></tr>
+    <tr><td>NULL のとき</td><td><code>SimulateHandle::default()</code></td><td>前と同じ道で結果が変わらない</td></tr>
+    <tr><td>Julia</td><td>固定の trampoline に関数を <code>Any</code> で渡す</td><td>閉包の <code>@cfunction</code> を使わない</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由</span>
+  <h1>NIF の口</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>トークン</td><td><code>cancel_token()</code> で先に作る（<code>ResourceArc</code>）</td><td>DirtyCpu の NIF は戻るまで値を返せない</td></tr>
+    <tr><td>実行</td><td><code>simulate_observed(ws, model, settings_json, pid, token)</code></td><td>結果は今の <code>simulate</code> と同じ JSON</td></tr>
+    <tr><td>進捗</td><td>pid へ <code>{:globe_progress, map}</code>（<code>NifMap</code>）</td><td>呼び出し元の env の <code>send</code> で送る</td></tr>
+    <tr><td>中断</td><td>別のプロセスから <code>cancel(token)</code></td><td>ADR の (3) の表と同じ</td></tr>
+    <tr><td>Gleam</td><td>不透明な <code>CancelToken</code>・<code>Pid</code></td><td><code>gleam_erlang</code> を足さない</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">図</span>
+  <h1>NIF の流れ</h1>
+  <svg class="fig" viewBox="0 0 800 260" role="img" aria-label="Elixir の呼び手が Task で simulate_observed を回し、進捗を受けて cancel を送る">
+    <rect class="svg-box" x="10" y="20" width="220" height="60" rx="10"/>
+    <text class="svg-text-b" x="120" y="55" text-anchor="middle">呼び手（pid）</text>
+    <rect class="svg-box-accent" x="290" y="20" width="220" height="60" rx="10"/>
+    <text class="svg-text-b" x="400" y="55" text-anchor="middle">Task（DirtyCpu）</text>
+    <rect class="svg-box" x="570" y="20" width="220" height="60" rx="10"/>
+    <text class="svg-text-b" x="680" y="55" text-anchor="middle">simulate_observed</text>
+    <line class="svg-line" x1="510" y1="50" x2="570" y2="50"/>
+    <line class="svg-line" x1="680" y1="80" x2="680" y2="130"/>
+    <line class="svg-line" x1="680" y1="130" x2="120" y2="130"/>
+    <line class="svg-line" x1="120" y1="130" x2="120" y2="80"/>
+    <text class="svg-text" x="400" y="120" text-anchor="middle">{:globe_progress, map}</text>
+    <rect class="svg-box-accent" x="10" y="180" width="780" height="60" rx="10"/>
+    <text class="svg-text" x="400" y="215" text-anchor="middle">cancel(token) で立てると次の区切りで止まり、cancelled と GM-I11004</text>
+  </svg>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>cargo test -p globe-mode-c
+mise run c:zig &amp;&amp; mise run c:julia
+mise run elixir:test &amp;&amp; mise run gleam:test</code></pre>
+  <table class="compact">
+    <tr><th>試験（sin(100 time) を 1000 s、最初の t で止める）</th><th>結果</th></tr>
+    <tr><td><code>globe-mode-c</code> の単体試験（JSON と列）と header.rs</td><td class="ok">4 本通る</td></tr>
+    <tr><td>Zig（呼ばれた回数 7）・Julia（5 つの段）</td><td class="ok">cancelled</td></tr>
+    <tr><td>Elixir（Task と assert_receive）・Gleam（Erlang の補助）</td><td class="ok">2 本ずつ通る</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>順の 2: wasm と Svelte の進捗の表示（S127 のあと）</li>
+    <li>順の 5: LSP の <code>$/progress</code> と <code>$/cancelRequest</code>、Desktop</li>
+    <li>NIF の列の道（<code>simulate_columns</code>）には進捗を付けていない</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

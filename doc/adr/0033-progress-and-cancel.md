@@ -117,6 +117,14 @@
 - `wasm:compare`: 400 件中 387 件が一致、既知の差 13、一致しない 0（減っていない）。`wasm:node` ok。
 - 状態の無いモデル（積分器が無い）は積分の中で止められない。積分器の 1 歩ごとに `now` を呼ぶので、wasm（`performance.now()`）での費用は 2 段目で測る。
 
+### 2 段目の結果（S133、wasm と Svelte、2026-11-03）
+
+- exec・facade は変えていない。`globe-mode-wasm` の `simulate_columns(request_json, on_progress?)` に省略できる 2 つ目の引数を足した（(3) の表の形。別の `simulate_observed` は作らなかった。UI が使うのは列の道だけで、省略すると前と同じ `run_columns` の道なので `run`・`wasm:compare` は変わらない）。JS の関数は js-sys を足さず、`#[wasm_bindgen] extern` で `Function.prototype.call` を宣言して呼ぶ（`on_progress(stage, time, start_time, stop_time)`。`stage` は Python と同じ小文字、`time` は無ければ `undefined`。関数の例外は無視する）。
+- `worker.js` は `{id, type: "progress", stage, time, start_time, stop_time}` を親に送り、`GlobeWorker.simulateColumns(req, {onProgress})` が受ける。`GlobeWorker.cancel()` は実行中の呼び出しがあるときだけ、Worker を `terminate()` して作り直し（ライブラリとファイルは既存の再生で送り直す）、止めた呼び出しを `cancelled: true` の Error で reject する。途中の列は返らない（決定のとおり）。
+- Svelte: `Backend` に `simulateColumns(req, onProgress?)` と省略できる `cancel?()`。`WorkerBackend` は両方を通し、`TauriBackend` は `cancel` を持たない（「止める」ボタンを出さない。LSP・Desktop は 5 段目）。`App.svelte` は実行中に「実行中: integration、t = … / stop（n%）」の 1 行（`role="status"`）と「止める」ボタンを出し、止めたら `data-run="cancelled"` と「止めた」を出して、ボタンを戻す。
+- **`performance.now()` の費用**（release の wasm、Node 24、load average 10〜20 の WSL）: 実行系は積分器の 1 歩ごとに `now` を呼ぶ（進捗を受けないときも。`simulate_with` も同じ `Hooks::tick` を通る）。呼んだ回数は Decay（esdirk34）で 1 回の実行あたり 55 回、`ChuaCircuit`（bdf）で 12,074 回。JS から `performance.now()` を 100 万回呼んだ 1 回あたりは 60〜160 ns なので、ChuaCircuit で約 0.7〜1.9 ms、実行の中央値 363 ms の 0.5% 未満。定数を返す `now` に差し替えた実行との中央値の差（Decay +2.1 ms、ChuaCircuit −40.7 ms）は揺れの範囲で、費用は見分けられなかった。区切りを変える必要は無い。
+- 試験: `globe-mode-wasm/tests/decay.rs` の `observed_columns_report_progress_and_match`（ネイティブで、Decay の esdirk34 の進捗が lowering で始まり integration の t = 1 で終わり、列が進捗なしと同じ）、`node/smoke.mjs`（`wasm:node`。wasm で同じことを確かめ、6 回の進捗。上の費用もここで出す）、`web/worker-node.mjs`（`wasm:web`。Worker 越しの進捗と、`der(x) = sin(100 * time)` を 1000 s の実行を最初の t の進捗で `cancel()` すると `cancelled` で reject し、作り直した Worker で Decay が回る）、`src/Svelte/tests/test_ui.py`（同じモデルで進捗の行が出て、「止める」で `data-run="cancelled"` になり「実行」が押せるに戻る）。
+
 ### 3 段目の結果（S129、Python、2026-11-03）
 
 - 2 段目（wasm）より先に入れた（wasm は S127 が `globe-mode-wasm` を触っているので独立に進めた）。exec・facade は変えていない。
@@ -124,6 +132,15 @@
 - GIL: pyo3 0.30.1 の `Python::detach`（旧名 `allow_threads`）で離して `Workspace::simulate_observed` を回し、進捗のたびに `Python::attach` で取り直して `py.check_signals()` とコールバックを呼ぶ（名前は crate のソース `pyo3-0.30.1/src/marker.rs` と <https://docs.rs/pyo3/0.30.1/pyo3/marker/struct.Python.html> で確かめた。確認日 2026-11-03）。`check_signals` かコールバックが例外を出したらトークンを立て、実行が戻ってから投げ直す（Ctrl-C は `KeyboardInterrupt`）。facade の `Workspace` は `Send` なので `unsafe` は要らなかった。
 - 試験（`src/Python/tests/test_api.py`）: (1) Decay（esdirk34）で段が `lowering` から `integration` まで届き、最後の t が 1、列・CSV が `on_progress` なしと同じ、(2) `der(x) = sin(100 * time)` を 1000 s（手元で約 0.9 s）で最初の t の進捗で `True` を返すと `ok`・`termination` が `cancelled`（0 < time < 1000、列の最後の時刻と同じ）・`GM-I11004`、(3) 別のスレッドの `threading.Timer(0.2, _thread.interrupt_main)` で `KeyboardInterrupt`。7 本通る（1 本は前からの skip）。
 - Ctrl-C も `True` も、知らせが来るのは段の変わり目と積分の t（100 ms に 1 回まで）だけなので、lowering・組み立て・ネイティブの型付きの道（bdf・dopri45・auto）の積分の中では次の段まで届かない（1 段目の持ち越しと同じ）。`on_progress` を渡さないときは前のまま GIL を持って回る。
+
+### 4 段目の結果（S131、C・Zig・Julia と NIF・Elixir・Gleam、2026-11-03）
+
+- exec・facade は変えていない。(3) の表の形から次のように変えた（呼び手の言語で読みやすい形にし、Python の dict と同じ 4 つの値をそろえた）。
+- C ABI（`globe-mode-c`）: 位置引数 5 つの `gm_progress_fn` でなく、構造体 `GmProgress { const char *stage; double time; int has_time; double start_time; double stop_time; }` を渡す `typedef int (*GmProgressCallback)(const GmProgress *progress, void *user_data)`。`stage` は Python と同じ小文字で、コールバックの間だけ有効。`time` が無いときは NaN と `has_time = 0`。依頼は `request_json` でなく既存の `gm_simulate` と同じ `(model, settings_json)`。口は `gm_simulate_observed(ws, model, settings_json, callback, user_data)` と、列の道の `gm_simulate_columns_observed(ws, model, settings_json, data, len, callback, user_data)`（`gm_simulate_columns` はその `callback = NULL` の包み）。`callback` が NULL なら `SimulateHandle::default()` で前と同じ道。
+- Zig は translate-c のヘッダの型をそのまま使い、`callconv(.c)` の関数を渡す。Julia は `simulate_observed(ws, model, on_progress, settings)` で、`@cfunction` の固定の trampoline に Julia の関数を `Any` の `user_data` として渡す（閉包の `@cfunction` を使わない）。`on_progress` は `(stage, time, start_time, stop_time)` の NamedTuple を受け、`true` で止める。
+- NIF（`globe-mode-nif`）: `simulate_async` が `{ref, token}` を返す形でなく、`cancel_token()` でトークン（`ResourceArc`）を先に作り、`simulate_observed(ws, model, settings_json, pid, token)`（DirtyCpu）が結果の JSON を返すまで待つ形にした。DirtyCpu の NIF は戻るまで値を返せないので、トークンを先に渡すのが最小。進捗は `pid` へ `{:globe_progress, %{stage, time, start_time, stop_time}}`（Rustler の `NifMap`、`time` は `nil` か float）を呼び出し元の env の `send` で送る。中断は別のプロセスから `cancel(token)`（`:ok`）。Elixir は `GlobeMode.simulate_observed(ws, model, settings, token, pid \\ self())`、Gleam は `@external` と不透明な型 `CancelToken`・`Pid`（`erlang:self/0`。`gleam_erlang` は足していない）。
+- 試験（どれも S129 と同じ `der(x) = sin(100 * time)` を esdirk34・1000 s・間隔 1 で回し、最初の t の進捗で止める）: `globe-mode-c` の単体試験（JSON と列の両方。`cancelled`、`GM-I11004`、列の最後の時刻が `termination.time`）と `tests/header.rs`（`typedef` の行を飛ばし、試験のモジュールの `extern "C" fn` を数えない）、`mise run c:zig`（呼ばれた回数 7）、`c:julia`（段は lowering・preflight・build・initialization・integration）、`elixir:test`（`Task` で回し、`assert_receive` で t の進捗を受けて `cancel`）、`gleam:test`（spawn と受信は `test/globe_mode_test_ffi.erl`）。
+- NIF の列の道（`simulate_columns`）には進捗を付けていない（要るときに同じ形で足す）。
 
 ### 持ち越し
 

@@ -14,6 +14,10 @@
 //! 取得して展開し、sidecar を新しい `--library` で作り直す（版を替えるときも同じ）。取得中はイベント `msl-progress`
 //! （`{received, total}`。total は Content-Length、無ければ null）を出し、command `cancel_msl` で取り消せる。
 //! `GLOBE_DESKTOP_SMOKE_FETCH=1` を足すと、smoke は検査の前にこの取得を 1 回行う（CI で取得の道を確かめる）。
+//!
+//! `GLOBE_DESKTOP_BENCH=<ファイル>`（S125、ADR-0034）なら、UI が起動時に `?smoke=1` と同じ手順を測り、
+//! command `bench { line }` で `GM-SMOKE … ready_ms=…` の行をそのファイルに書いて終わる。ブラウザと揃えるため、
+//! 取得済みの MSL を起動時には渡さない（MSL を読むのは UI の手順の中）。
 
 // Windows のリリースでコンソールを出さない
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -52,6 +56,20 @@ async fn notify(state: State<'_, Shared>, method: String, params: Value) -> Resu
     tauri::async_runtime::spawn_blocking(move || lock(&w).notify(&method, params))
         .await
         .map_err(|e| e.to_string())?
+}
+
+/// S125: `GLOBE_DESKTOP_BENCH` のとき、line なしは true（測る）、line ありはその行をファイルに書いてアプリを終える。
+/// async にして主スレッドの外で `exit` を呼ぶ（smoke と同じ）。
+#[tauri::command]
+async fn bench(app: tauri::AppHandle, line: Option<String>) -> Result<bool, String> {
+    let Some(path) = std::env::var_os("GLOBE_DESKTOP_BENCH") else {
+        return Ok(false);
+    };
+    if let Some(line) = line {
+        std::fs::write(path, line + "\n").map_err(|e| e.to_string())?;
+        app.exit(0);
+    }
+    Ok(true)
 }
 
 /// sidecar に渡しているライブラリのパス（UI の `TauriBackend.library` が「sidecar が既に読んでいるか」を知るため）。
@@ -219,7 +237,7 @@ fn smoke(w: &Shared, dir: &MslDir, libs: &Libraries) -> Result<(), String> {
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
-            rpc, notify, libraries, fetch_msl, cancel_msl
+            rpc, notify, libraries, fetch_msl, cancel_msl, bench
         ])
         .setup(|app| {
             let handle = app.handle().clone();
@@ -238,7 +256,7 @@ fn main() {
                 Arc::new(AtomicBool::new(false)),
             );
             // 渡されたライブラリが優先。無くて、取得済みの MSL があればそれを渡す（4.1.0 を先に）
-            if libs.is_empty() {
+            if libs.is_empty() && std::env::var_os("GLOBE_DESKTOP_BENCH").is_none() {
                 let found = msl::VERSIONS
                     .iter()
                     .map(|v| (msl::dest(&dir.0, v), *v))
