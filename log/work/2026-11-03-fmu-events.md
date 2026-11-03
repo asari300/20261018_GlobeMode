@@ -7,7 +7,7 @@
 | worktree | `.git-worktree/s109-fmu-events` |
 | Phase | P5（P5b の 3 回目） |
 | セッション文書 | `doc/sessions/S109-fmu-events/` |
-| セッション記録 | （親が写す） |
+| セッション記録 | [2026-11-02-a2580a13-3889-4662-9db4-a45dc1ca6772.md](../sessions/2026-11-02-a2580a13-3889-4662-9db4-a45dc1ca6772.md) |
 
 ## 依頼
 
