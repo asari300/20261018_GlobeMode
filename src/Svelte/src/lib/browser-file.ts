@@ -19,9 +19,9 @@ export function browserOpen(): Promise<{ name: string; text: string } | null> {
   });
 }
 
-/** 本文をダウンロードさせる。保存した名前を返す（保存先はブラウザが決めるので、名前だけ）。 */
-export async function browserSave(name: string, text: string): Promise<string> {
-  const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([text], { type: "text/plain" })), download: name });
+/** 本文（S144 から FMU のバイト列も）をダウンロードさせる。保存した名前を返す（保存先はブラウザが決めるので、名前だけ）。 */
+export async function browserSave(name: string, data: string | Uint8Array<ArrayBuffer>): Promise<string> {
+  const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([data], { type: typeof data === "string" ? "text/plain" : "application/octet-stream" })), download: name });
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
   return name;
