@@ -7,14 +7,14 @@
 
 ## 1. 機能表
 
-「—」は穴（その言語から呼べない）。括弧の中は根拠の関数名。「（S111）」は [S111](../sessions/S111-lang-format-lint/解説書.md) で埋めたもの（2026-11-03 に追記。下の 2・3 節は S110 のときの判定のまま）。
+「—」は穴（その言語から呼べない）。括弧の中は根拠の関数名。「（S111）」は [S111](../sessions/S111-lang-format-lint/解説書.md)、「（S116）」は [S116](../sessions/S116-lang-columns/解説書.md) で埋めたもの（2026-11-03 に追記。下の 2・3 節は S110 のときの判定のまま）。
 
 | 機能 | Rust facade | C ABI | Zig | Julia | Elixir | Gleam | Python | wasm | LSP | CLI |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | ワークスペースとファイル | `Workspace::new` / `set_file` / `remove_file` / `load_dir` | `gm_workspace_new` / `gm_set_file` / `gm_load_dir` | C と同じ | `Workspace` / `set_file` / `load_dir`（S111） | `new` / `set_file` / `load_dir` | `new` / `set_file` / `load_dir` | `Workspace` / `set_file` / `load_dir` | `Workspace` / `set_file` / `remove_file` / `files` | `didOpen` / `didChange` / `didClose` | 引数 `FILES` |
 | check | `check` | `gm_check` | C と同じ | `check` | `check` | `check` | `check` | `check` | `globe/check` | `globe check` |
 | simulate（JSON と CSV） | `simulate` / `simulate_with` | `gm_simulate` | C と同じ | `simulate` | `simulate` | `simulate` | `simulate` | `simulate` | `globe/simulate` | `globe simulate`（CSV・MAT v4） |
-| simulate_columns（列） | `simulate_with` の `run`（`Vec<f64>`） | — | — | — | — | — | `simulate_columns`（f64 の `bytes` → polars） | `simulate_columns`（`SimColumns.column`） | `globe/simulateColumns` | 対象外（ファイルに書く） |
+| simulate_columns（列） | `Simulated::columns`（S116） | `gm_simulate_columns` / `gm_doubles_free`（S116） | C と同じ（S116） | `simulate_columns`（S116） | `simulate_columns`（binary。S116） | `simulate_columns`（`BitArray`。S116） | `simulate_columns`（f64 の `bytes` → polars） | `simulate_columns`（`SimColumns.column`） | `globe/simulateColumns` | 対象外（ファイルに書く） |
 | format | `format`（S111） | `gm_format`（S111） | C と同じ（S111） | `format`（S111） | `format`（S111） | `format`（S111） | `format`（S111） | `format` | `textDocument/formatting` / `globe/format` | `globe fmt` |
 | lint | `lint`（S111） | `gm_lint`（S111） | C と同じ（S111） | `lint`（S111） | `lint`（S111） | `lint`（S111） | `lint`（S111） | `lint` | `globe/lint` | `globe lint` |
 | graph | `graph` | `gm_graph` | C と同じ | `graph`（S111） | `graph` | `graph` | `graph` | `graph` | `globe/graph` | `globe graph` |
@@ -51,11 +51,11 @@
 | 言語 | 穴 | 中身 |
 | --- | --- | --- |
 | Rust facade | 2 | FMU export（別 crate にはある）、進捗（実行系にだけある）。format・lint は S111 で埋めた |
-| C ABI | 4 | 列・全部読み・進捗・FMU export（format・lint は S111） |
-| Zig | 4 | C と同じ |
-| Julia | 4 | C と同じ（graph・`load_dir` の包みは S111） |
-| Elixir | 4 | 列・全部読み・進捗・FMU export（format・lint は S111） |
-| Gleam | 4 | Elixir と同じ |
+| C ABI | 3 | 全部読み・進捗・FMU export（format・lint は S111、列は S116） |
+| Zig | 3 | C と同じ |
+| Julia | 3 | C と同じ（graph・`load_dir` の包みは S111） |
+| Elixir | 3 | 全部読み・進捗・FMU export（format・lint は S111、列は S116） |
+| Gleam | 3 | Elixir と同じ |
 | Python | 3 | 全部読み・進捗・FMU export（format・lint は S111） |
 | wasm | 2 | 進捗・FMU export |
 | LSP | 3 | 全部読み・進捗・FMU export |
@@ -112,7 +112,7 @@ graph は S039 のシナリオにあるが、Julia 以外では既に通るの�
 | 1 | facade に `format(text, options_json)` と `lint(text)` を足す（`globe-mode-fmt` に依存。入出力は wasm の `fmt.rs` と同じ形） | 全部 | 束ねは facade だけに依存する方針（S039・S075・S082）を崩さずに済む。wasm・LSP の形をそのまま使える |
 | 2 | C ABI に `gm_format` / `gm_lint`、NIF に `format` / `lint`、py に `format` / `lint` を足し、Julia に `format`・`load_dir`・`graph` の包みを足す | 6 言語 | これで参照シナリオの 5 段が 6 言語でそろう。依存の追加は 0 |
 | 3 | 参照シナリオを各言語の試験にする（`test_api.py`、`main.zig`、`globe_mode.jl`、`globe_mode_test.exs`、`globe_mode_test.gleam` で x(1) と format を確かめる）。CI のジョブ `lang` で回す | 6 言語 | P7 の完了条件を CI で示す |
-| 4 | 列の道を C（`double *` と長さ）と NIF（binary）に | C・Zig・Julia・Elixir・Gleam | 大きな結果で効く（S085 で Python は 6 倍）。シナリオには要らない |
+| 4 | 列の道を C（`double *` と長さ）と NIF（binary）に（S116 で済） | C・Zig・Julia・Elixir・Gleam | 大きな結果で効く（S085 で Python は 6 倍）。シナリオには要らない |
 | 5 | FMU export を facade に（`globe-mode-fmi` の `write_fmu`） | 全部 | 呼ぶ人がいれば。S109 が `globe-mode-fmu` を触っている間は待つ |
 | 6 | 進捗と途中で止める口 | 全部 | 呼び手から止める形（コールバックか、フラグか）の設計が要る。ADR を書いてから |
 

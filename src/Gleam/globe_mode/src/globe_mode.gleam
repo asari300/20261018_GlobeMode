@@ -35,6 +35,15 @@ pub fn simulate(
   settings_json: String,
 ) -> Result(String, String)
 
+/// 列の道（S116）。`#(レイアウトの JSON, 列)`。レイアウトは `{"response", "names", "points"}`（`response` に `csv` は無い）、
+/// 列は `names` と同じ順の f64（little-endian）の BitArray。
+@external(erlang, "globe_mode_nif", "simulate_columns")
+pub fn simulate_columns(
+  ws: Workspace,
+  model: String,
+  settings_json: String,
+) -> Result(#(String, List(BitArray)), String)
+
 @external(erlang, "globe_mode_nif", "solvers")
 pub fn solvers() -> Result(String, String)
 
