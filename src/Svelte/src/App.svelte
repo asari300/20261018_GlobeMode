@@ -10,10 +10,11 @@
   import { TauriBackend, inTauri } from "./lib/tauri-backend";
   import type { Backend, TreeEntry } from "./lib/backend";
   import type { Columns } from "./lib/plot/csv";
-  import type { Diagnostic } from "./lib/protocol";
+  import type { CheckResponse, Diagnostic, ResolvedSettings, SimulateRequest } from "./lib/protocol";
   import Plot from "./lib/plot/Plot.svelte";
   import Graph from "./lib/graph/Graph.svelte";
   import LibraryTree from "./lib/LibraryTree.svelte";
+  import SimSettings from "./lib/SimSettings.svelte";
 
   // エディタの文書の名前。ライブラリの木で開くと、そのライブラリのファイルの名前（同じ名前で差し替える。S127）
   let file = $state("Model.mo");
@@ -40,6 +41,13 @@
   // S133（ADR-0033）: 実行中の進捗の 1 行と、終わり方（cancelled なら「止めた」）
   let runNote = $state("");
   let runState = $state<"idle" | "running" | "cancelled">("idle");
+  // S142: 実行の設定（SimSettings が作る）、検査で分かった experiment、直近の実行の設定と出どころ
+  let simSettings = $state<NonNullable<SimulateRequest["settings"]>>({});
+  let settingsProblem = $state("");
+  let experiment = $state<CheckResponse["experiment"]>();
+  let lastSettings = $state<ResolvedSettings | null>(null);
+  let lastFinal = $state<[string, number][]>([]); // 最後の時刻の値（先頭の 8 本）
+  $effect(() => { void model; experiment = undefined; }); // 別のモデルにしたら、次の検査まで experiment は分からない
   let graphModel = $state<string | null>(null); // 「グラフ」を押したときのモデル名（入力のたびに描き直さない）
 
   // S141: 自分のファイルを開く・保存する。本文とファイル名は localStorage に自動保存して起動時に戻す（使えなくても動く。S102）。モデル名は戻さず本文から入れ直す（smoke が書き換えたモデル名を次の起動で拾わないため）
@@ -158,7 +166,9 @@
   }
 
   const check = () => run(async () => {
-    diagnostics = bySeverity((await backend.check(model)).diagnostics);
+    const checked = await backend.check(model);
+    diagnostics = bySeverity(checked.diagnostics);
+    experiment = checked.experiment;
     view.dispatch(setDiagnostics(view.state, toCmDiagnostics(view.state.doc.toString(), diagnostics, file)));
   });
 
@@ -171,11 +181,12 @@
 
   const simulate = () =>
     run(async () => {
+      if (settingsProblem) { failure = `実行の設定: ${settingsProblem}`; return; }
       runState = "running";
       runNote = "実行中";
       let out;
       try {
-        out = await backend.simulateColumns({ model }, (p) => {
+        out = await backend.simulateColumns({ model, settings: simSettings }, (p) => {
           const pct = p.time === undefined ? "" : `、t = ${p.time.toPrecision(4)} / ${p.stop_time}（${Math.floor((100 * (p.time - p.start_time)) / (p.stop_time - p.start_time || 1))}%）`;
           runNote = `実行中: ${p.stage}${pct}`;
         });
@@ -189,6 +200,8 @@
       }
       const { response: r, columns: c } = out;
       diagnostics = bySeverity(r.diagnostics);
+      lastSettings = r.settings ?? null;
+      lastFinal = Object.entries(r.final ?? {}).slice(0, 8);
       columns = c.points > 0 ? c : null;
       if (r.refused) failure = r.refused;
       else if (!r.ok && !r.diagnostics.length) failure = "実行に失敗した（診断なし）";
@@ -315,6 +328,7 @@
       <button onclick={loadMsl} disabled={busy || msl !== "none"}>{msl === "loading" ? "MSL を読み込み中…" : "MSL を読む"}</button>
     {/if}
   </div>
+  <SimSettings {backend} {experiment} last={lastSettings} bind:settings={simSettings} bind:problem={settingsProblem} />
   <p class="note" data-msl={msl}>
     {#if msl === "loaded"}{mslNote}。左の木でモデルを選ぶか、モデル名にライブラリのモデル（例 Modelica.Electrical.Analog.Examples.ChuaCircuit）を入れて検査・実行できる。グラフも描ける。
     {:else if msl === "loading"}{desktop ? `MSL ${mslVersion} を取得して展開している（${mslProgress || "回線しだい"}）。もう一度押すと取り消す。` : "MSL.json を取得して読み込んでいる（十数秒）。"}
@@ -325,6 +339,7 @@
     <div class="editor" bind:this={host}></div>
   </div>
   {#if saved}<p class="note" role="status" data-saved>{saved}</p>{/if}
+  {#if lastFinal.length}<p class="final" data-final={JSON.stringify(Object.fromEntries(lastFinal))}>最後の時刻の値: {lastFinal.map(([k, v]) => `${k} = ${v.toPrecision(6)}`).join("、")}</p>{/if}
   {#if runNote}<p class="run" role="status" data-run={runState}>{runNote}</p>{/if}
   {#if failure}<p class="failure" role="alert">{failure}</p>{/if}
   <table class="diagnostics" aria-label="診断">
@@ -343,7 +358,7 @@
 <style>
   main { font: 14px/1.4 system-ui, sans-serif; max-width: 60rem; margin: 0 auto; padding: 1rem; }
   .bar { display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: .5rem; }
-  .note, .run { color: #555; margin: .25rem 0; }
+  .note, .run, .final { color: #555; margin: .25rem 0; }
   .work { display: flex; gap: .5rem; }
   .library { flex: 0 0 16rem; height: 16rem; overflow: auto; border: 1px solid #888; font-size: .9em; }
   .editor { flex: 1; min-width: 0; border: 1px solid #888; }
