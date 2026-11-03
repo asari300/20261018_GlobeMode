@@ -7,7 +7,7 @@
 | worktree | `.git-worktree/s135-desktop-updater` |
 | Phase | P4 |
 | セッション文書 | `doc/sessions/S135-desktop-updater/` |
-| セッション記録 | （親が写す） |
+| セッション記録 | [2026-11-02-a2580a13-3889-4662-9db4-a45dc1ca6772.md](../sessions/2026-11-02-a2580a13-3889-4662-9db4-a45dc1ca6772.md) |
 
 ## 依頼
 
@@ -43,7 +43,7 @@ features.md の Desktop の行の「署名と自動更新は未」。Tauri 2 の
 - `release.yml` の dry run: **回していない**。エージェントの `gh workflow run release.yml --ref feature/s135-desktop-updater` が権限の確認で止まった。feature は push 済み
 - `check_docs.py`: デッキ 137 件 OK / 文書 558 件・相対リンク 2804 件中の切れ 0 件
 - `render_slides.py`（S135 のデッキ）: 1 回目は 7 枚 × 4 の表示で問題 0 件。2 回目は Chromium の時間切れ（この環境の既知の問題）
-- セッション記録の `--check`: （親が写す）
+- セッション記録の `--check`: 取りこぼし 0 件（親が写した）
 - ステージした差分の漏洩検査: 0 件（メールアドレス・ホームのパス・トークン）
 
 ## 残したこと
