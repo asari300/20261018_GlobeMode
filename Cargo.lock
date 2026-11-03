@@ -1477,6 +1477,9 @@ dependencies = [
 [[package]]
 name = "globe-mode-fmt"
 version = "0.0.1"
+dependencies = [
+ "toml",
+]
 
 [[package]]
 name = "globe-mode-fmu"

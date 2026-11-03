@@ -1,4 +1,4 @@
-import type { Backend, LintMessage } from "./backend";
+import type { Backend, LintMessage, TreeEntry } from "./backend";
 import type { Columns } from "./plot/csv";
 import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse } from "./protocol";
 
@@ -32,6 +32,11 @@ export class TauriBackend implements Backend {
   }
   onMslProgress(cb: (p: MslProgress) => void): Promise<() => void> {
     return tauriGlobal().event.listen<MslProgress>("msl-progress", (e) => cb(e.payload));
+  }
+
+  /** S125: UI の測定（`GLOBE_DESKTOP_BENCH`）。line なしは測定中か、line ありはその行を書いてアプリを終える。 */
+  bench(line?: string): Promise<boolean> {
+    return invoke("bench", { line: line ?? null });
   }
 
   /** sidecar が既に何かライブラリを読んでいるか（起動時の MSL の表示用）。 */
@@ -68,6 +73,28 @@ export class TauriBackend implements Backend {
   }
   lint(text: string): Promise<LintMessage[]> {
     return invoke("rpc", { method: "globe/lint", params: { text } });
+  }
+  libraryTree(prefix: string): Promise<TreeEntry[]> {
+    return invoke("rpc", { method: "globe/libraryTree", params: { prefix } });
+  }
+  librarySource(path: string): Promise<{ file: string; text: string }> {
+    return invoke("rpc", { method: "globe/librarySource", params: { path } });
+  }
+
+  /** 更新を確かめ、あれば確かめてから入れる（S135、updater プラグインの `window.__TAURI__.updater`）。結果を短い文で返す。 */
+  async checkUpdate(): Promise<string> {
+    if (!(await invoke<boolean>("updater_configured"))) return "未設定"; // 公開鍵の無いビルド（release.yml の署名なし）
+    type Update = { version: string; downloadAndInstall(): Promise<void> };
+    const updater = (window as unknown as { __TAURI__: { updater: { check(): Promise<Update | null> } } }).__TAURI__.updater;
+    try {
+      const u = await updater.check();
+      if (!u) return "最新";
+      if (!confirm(`GlobeMode ${u.version} に更新しますか`)) return `${u.version} あり`;
+      await u.downloadAndInstall(); // Windows は passive の msi が入れてアプリを閉じる。Linux は pkexec dpkg -i
+      return `${u.version} を入れた。再起動で反映`;
+    } catch (e) {
+      return `失敗: ${e}`;
+    }
   }
 }
 

@@ -2,7 +2,7 @@
 //!
 //! 機能: 診断（`publishDiagnostics`、検査 S0〜S10 と lint）、`documentSymbol`（アウトライン）、
 //! `hover`（クラスの種類）、`formatting`（S053、`globe-mode-fmt`）、`completion`（S053、[`completion`]）。
-//! 定義へ移動は無い。同期は Full で、1 本のスレッドで順に処理する。
+//! `definition`・`references`（S132、[`definition`]）。同期は Full で、1 本のスレッドで順に処理する。
 //!
 //! 独自の要求（S049、ADR-0023。Desktop の UI が sidecar の `globe lsp` に同じ接続で頼む）:
 //!
@@ -14,11 +14,18 @@
 //! | `globe/graph` | `{model, depth}` | graphology の JSON（`ConnectGraph::to_graphology`） |
 //! | `globe/format` | `{text, indent?, insertOrigin?, blankAroundSections?, formatHtml?}` | 整形後の本文（S053。壊れていれば -32000） |
 //! | `globe/lint` | `{text}` | `[{rule, line, column, message}]`（S053） |
+//! | `globe/libraryTree` | `{prefix}`（空ならトップレベル） | `[{name, path, kind, description, file, hasChildren}]`（S127。直下の子だけ。wasm の `library_tree` と同じ形） |
+//! | `globe/librarySource` | `{path}`（完全修飾名） | `{file, text}`（S127。そのクラスを定義するライブラリのファイル。無ければ -32000） |
+//!
+//! 設定ファイル（S130）: `initialize` の `rootUri`（無ければ `rootPath`）から上へたどって最初の `globe-mode.toml` を
+//! 読み、lint の診断と `textDocument/formatting` に使う（`workspace/didChangeConfiguration` で読み直す）。
+//! `globe/format`・`globe/lint` は wasm と同じく params だけで決める。
 //!
 //! params が読めなければ -32602、モデルが無いなど計算の失敗は -32000（`message` に理由）。
 //! facade（`globe-mode`）の `Workspace` だけを呼び、新しい計算は入れない。
 
 mod completion;
+mod definition;
 
 use std::collections::HashMap;
 use std::io::{self, BufRead, Write};
@@ -40,6 +47,15 @@ pub struct Server {
     ws: Workspace,
     /// 開いているファイルの本文（キーは URI の文字列）。位置の換算に使う
     texts: HashMap<String, String>,
+    libraries: Vec<PathBuf>,
+    /// ライブラリの木（S127。最初の `globe/libraryTree` で全ファイルの見出しを読んで作る）
+    tree: Option<globe_mode_fmt::LibraryTree>,
+    /// ワークスペースの根（`initialize` の `rootUri`）
+    root: Option<PathBuf>,
+    /// 根の `globe-mode.toml`（S130）。無ければ None
+    config: Option<globe_mode_fmt::LintOptions>,
+    /// 定義ジャンプで読んだライブラリのファイルのアウトラインだけを持つ（S132。検査には使わない）
+    scratch: Workspace,
 }
 
 impl Server {
@@ -48,7 +64,48 @@ impl Server {
         Ok(Server {
             ws: Workspace::with_libraries(libraries)?,
             texts: HashMap::new(),
+            libraries: libraries.to_vec(),
+            tree: None,
+            root: None,
+            config: None,
+            scratch: Workspace::new(),
         })
+    }
+
+    fn tree(&mut self) -> &globe_mode_fmt::LibraryTree {
+        self.tree.get_or_insert_with(|| {
+            let mut files = Vec::new();
+            for lib in &self.libraries {
+                collect_mo(lib, &mut files);
+            }
+            // 名前は Workspace::with_libraries がライブラリのファイルに付けるのと同じ（display）。開くと同じ文書を差し替える
+            let texts: Vec<(String, String)> = files
+                .iter()
+                .filter_map(|p| Some((p.display().to_string(), std::fs::read_to_string(p).ok()?)))
+                .collect();
+            globe_mode_fmt::LibraryTree::new(texts.iter().map(|(f, t)| (f.as_str(), t.as_str())))
+        })
+    }
+
+    /// 根から上へたどって `globe-mode.toml` を読み直す（S130）。誤りは `window/showMessage` で知らせ、既定で続ける。
+    fn load_config(&mut self) -> Vec<Value> {
+        let found = self
+            .root
+            .as_deref()
+            .map(globe_mode_fmt::LintOptions::find)
+            .transpose()
+            .map(Option::flatten);
+        match found {
+            Ok(c) => {
+                self.config = c;
+                vec![]
+            }
+            Err(e) => {
+                self.config = None;
+                vec![json!({"jsonrpc": "2.0", "method": "window/showMessage",
+                    "params": {"type": 1, "message": format!("globe-mode.toml: {e}")}})]
+            }
+        }
     }
 
     /// 受けたメッセージ 1 つに対して、送り返すメッセージ（応答と通知）を返す。
@@ -60,15 +117,34 @@ impl Server {
             .unwrap_or("")
             .to_string();
         match msg["method"].as_str().unwrap_or("") {
-            "initialize" => reply(
-                id,
-                json!({
-                    // 1 = Full
-                    "capabilities": {"textDocumentSync": 1, "documentSymbolProvider": true, "hoverProvider": true,
-                        "documentFormattingProvider": true, "completionProvider": {"triggerCharacters": ["."]}},
-                    "serverInfo": {"name": "globe-mode", "version": env!("CARGO_PKG_VERSION")},
-                }),
-            ),
+            "initialize" => {
+                self.root = params["rootUri"]
+                    .as_str()
+                    .map(uri_path)
+                    .or_else(|| params["rootPath"].as_str().map(str::to_string))
+                    .map(PathBuf::from);
+                let mut out = reply(
+                    id,
+                    json!({
+                        // 1 = Full
+                        "capabilities": {"textDocumentSync": 1, "documentSymbolProvider": true, "hoverProvider": true,
+                            "documentFormattingProvider": true, "completionProvider": {"triggerCharacters": ["."]},
+                            "definitionProvider": true, "referencesProvider": true},
+                        "serverInfo": {"name": "globe-mode", "version": env!("CARGO_PKG_VERSION")},
+                    }),
+                );
+                out.extend(self.load_config());
+                out
+            }
+            // S130: 設定ファイルを読み直し、開いている文書の診断を出し直す
+            "workspace/didChangeConfiguration" => {
+                let mut out = self.load_config();
+                let open: Vec<_> = self.texts.clone().into_iter().collect();
+                for (uri, text) in open {
+                    out.extend(self.update(uri, text));
+                }
+                out
+            }
             "shutdown" => reply(id, Value::Null),
             "textDocument/didOpen" => {
                 let text = params["textDocument"]["text"].as_str().unwrap_or("");
@@ -117,13 +193,21 @@ impl Server {
             "textDocument/formatting" => {
                 // 文書全体を 1 つの TextEdit で置き換える。整形できない（文法が壊れている）ときは null
                 // FormattingOptions の追加のキー: insertOrigin・blankAroundSections（S061。VS Code の拡張が設定から渡す）
+                // S130: globe-mode.toml があればそれを土台にし、indent は tabSize より設定ファイルを採る（ruff と同じ）
                 let opts = &params["options"];
+                let base = self.config.clone().unwrap_or_default().format;
+                let indent = match (&self.config, opts["tabSize"].as_u64()) {
+                    (None, Some(n)) => n as usize,
+                    _ => base.indent,
+                };
                 let options = globe_mode_fmt::Options {
-                    indent: opts["tabSize"].as_u64().map_or(2, |n| n as usize),
-                    insert_origin: opts["insertOrigin"].as_bool().unwrap_or(true),
-                    blank_around_sections: opts["blankAroundSections"].as_bool().unwrap_or(true),
-                    format_html: opts["formatHtml"].as_bool().unwrap_or(true),
-                    ..globe_mode_fmt::Options::default()
+                    indent,
+                    insert_origin: opts["insertOrigin"].as_bool().unwrap_or(base.insert_origin),
+                    blank_around_sections: opts["blankAroundSections"]
+                        .as_bool()
+                        .unwrap_or(base.blank_around_sections),
+                    format_html: opts["formatHtml"].as_bool().unwrap_or(base.format_html),
+                    ..base
                 };
                 let edit = self.texts.get(&uri).and_then(|text| {
                     let out = globe_mode_fmt::format(text, &options).ok()?;
@@ -146,6 +230,44 @@ impl Server {
                     None => vec![],
                 };
                 reply(id, json!(items))
+            }
+            "textDocument/definition" => {
+                let Some(text) = self.texts.get(&uri).cloned() else {
+                    return reply(id, Value::Null);
+                };
+                let at = offset(&text, lsp_position(&params["position"]));
+                self.tree();
+                let tree = self.tree.as_ref().expect("tree() で作った");
+                let target = definition::Resolver {
+                    ws: &self.ws,
+                    tree,
+                    scratch: &mut self.scratch,
+                }
+                .definition(&uri_path(&uri), &text, at);
+                let location = target.and_then(|t| {
+                    // 開いている文書ならその本文と URI、無ければディスクから読む
+                    let open = self.texts.iter().find(|(u, _)| uri_path(u) == t.path);
+                    let (u, body) = match open {
+                        Some((u, body)) => (u.clone(), body.clone()),
+                        None => (file_uri(&t.path), std::fs::read_to_string(&t.path).ok()?),
+                    };
+                    Some(json!({"uri": u, "range": range(&body, t.range)}))
+                });
+                reply(id, location.unwrap_or(Value::Null))
+            }
+            "textDocument/references" => {
+                let refs: Vec<Value> = match self.texts.get(&uri) {
+                    Some(text) => {
+                        let at = offset(text, lsp_position(&params["position"]));
+                        let o = self.ws.outline(&uri_path(&uri)).and_then(|r| r.as_ref().ok());
+                        definition::references(o, text, at)
+                            .into_iter()
+                            .map(|r| json!({"uri": uri, "range": range(text, r)}))
+                            .collect()
+                    }
+                    None => vec![],
+                };
+                reply(id, json!(refs))
             }
             "globe/check" => match params["model"].as_str() {
                 Some(model) => reply(id, json!(self.ws.check(model))),
@@ -225,6 +347,25 @@ impl Server {
                 ),
                 None => error(id, -32602, "params.text が文字列でない"),
             },
+            "globe/libraryTree" => {
+                let prefix = params["prefix"].as_str().unwrap_or("");
+                let entries: Vec<Value> = self
+                    .tree()
+                    .children(prefix)
+                    .iter()
+                    .map(|e| json!({"name": e.name, "path": e.path, "kind": e.kind,
+                        "description": e.description, "file": e.file, "hasChildren": e.has_children}))
+                    .collect();
+                reply(id, json!(entries))
+            }
+            "globe/librarySource" => match params["path"].as_str() {
+                Some(path) => match self.tree().file(path).map(|f| (f.to_string(), std::fs::read_to_string(f))) {
+                    Some((file, Ok(text))) => reply(id, json!({"file": file, "text": text})),
+                    Some((file, Err(e))) => error(id, -32000, &format!("{file}: {e}")),
+                    None => error(id, -32000, &format!("ライブラリに {path} が無い")),
+                },
+                None => error(id, -32602, "params.path が文字列でない"),
+            },
             // 要求（id あり）は断る。知らない通知は無視する
             _ => match id {
                 Some(id) => vec![
@@ -266,9 +407,15 @@ impl Server {
             None => return vec![],
         };
         let key = normalize_path(path);
-        let mut out: Vec<lsp_types::Diagnostic> = lint_diagnostics(text);
+        let lint = self.config.clone().unwrap_or_default();
+        let mut out: Vec<lsp_types::Diagnostic> = lint_diagnostics(text, &lint);
         // S062: 型の食い違う connect は、ワークスペースの型で解決できたものだけ warning にする
-        for m in self.ws.connect_mismatches(path) {
+        let mismatches = if lint.disabled.iter().any(|d| d == "connect-type-mismatch") {
+            vec![]
+        } else {
+            self.ws.connect_mismatches(path)
+        };
+        for m in mismatches {
             out.push(lsp_types::Diagnostic {
                 range: range(text, m.connect.range),
                 severity: Some(DiagnosticSeverity::WARNING),
@@ -296,8 +443,11 @@ impl Server {
 }
 
 /// lint（S053）を LSP の診断（warning、GM-L0001〜）にする。
-fn lint_diagnostics(text: &str) -> Vec<lsp_types::Diagnostic> {
-    globe_mode_fmt::lint(text, &globe_mode_fmt::LintOptions::default())
+fn lint_diagnostics(
+    text: &str,
+    options: &globe_mode_fmt::LintOptions,
+) -> Vec<lsp_types::Diagnostic> {
+    globe_mode_fmt::lint(text, options)
         .into_iter()
         .map(|m| {
             let (code, severity) = match m.rule {
@@ -391,6 +541,43 @@ fn publish(uri: &str, diagnostics: &[lsp_types::Diagnostic]) -> Value {
 }
 
 /// URI をワークスペースのパスにする。`file:` はパーセントを戻した path、それ以外は URI の文字列のまま。
+/// `path` の下の `.mo`（`path` が `.mo` ならそれ自身）。読めないディレクトリは飛ばす。
+fn collect_mo(path: &std::path::Path, out: &mut Vec<PathBuf>) {
+    if path.is_dir() {
+        for entry in std::fs::read_dir(path).into_iter().flatten().flatten() {
+            collect_mo(&entry.path(), out);
+        }
+    } else if path.extension().is_some_and(|e| e == "mo") {
+        out.push(path.to_path_buf());
+    }
+}
+
+/// LSP の `Position` の JSON（読めない欄は 0）。
+fn lsp_position(p: &Value) -> Position {
+    Position::new(
+        p["line"].as_u64().unwrap_or(0) as u32,
+        p["character"].as_u64().unwrap_or(0) as u32,
+    )
+}
+
+/// パス → `file:` の URI（[`uri_path`] の逆。英数字と `/-._~:` 以外はパーセントにする）。
+fn file_uri(path: &str) -> String {
+    let path = path.replace('\\', "/");
+    let mut out = String::from(if path.starts_with('/') {
+        "file://"
+    } else {
+        "file:///"
+    });
+    for b in path.bytes() {
+        if b.is_ascii_alphanumeric() || b"/-._~:".contains(&b) {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
+}
+
 fn uri_path(uri: &str) -> String {
     match uri.parse::<Uri>() {
         Ok(u) if u.scheme().is_some_and(|s| s.as_str() == "file") => {
@@ -543,7 +730,7 @@ mod tests {
     #[test]
     fn annotation_order_is_information_and_blank_sections_can_be_turned_off() {
         let src = "model A \"d\"\n  Real x;\nequation\n  x = 1;\n  annotation(Documentation(info = \"i\"), experiment(StopTime = 1));\nend A;\n";
-        let d = lint_diagnostics(src);
+        let d = lint_diagnostics(src, &globe_mode_fmt::LintOptions::default());
         let order: Vec<_> = d
             .iter()
             .filter(|d| d.code == Some(NumberOrString::String("GM-L0004".into())))
@@ -730,6 +917,184 @@ mod tests {
             s.handle(json!({"method": "globe/check", "params": {}}))
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn library_tree_and_source() {
+        let lib =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../Modelica/GlobeModeValidation");
+        let mut s = Server::new(std::slice::from_ref(&lib)).unwrap();
+        let r = s.handle(json!({"id": 1, "method": "globe/libraryTree", "params": {"prefix": ""}}));
+        assert_eq!(r[0]["result"][0]["path"], "GlobeModeValidation", "{}", r[0]);
+        let r = s.handle(json!({"id": 2, "method": "globe/libraryTree", "params": {"prefix": "GlobeModeValidation.Simulation"}}));
+        assert!(
+            r[0]["result"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|e| e["name"] == "Decay" && e["kind"] == "model"),
+            "{}",
+            r[0]
+        );
+        let model = "GlobeModeValidation.Simulation.Decay";
+        let r =
+            s.handle(json!({"id": 3, "method": "globe/librarySource", "params": {"path": model}}));
+        let (file, text) = (
+            r[0]["result"]["file"].as_str().unwrap(),
+            r[0]["result"]["text"].as_str().unwrap(),
+        );
+        assert!(
+            file.ends_with("Decay.mo") && text.contains("model Decay"),
+            "{}",
+            r[0]
+        );
+        // 開くとライブラリの同じファイルを差し替える（検査が通る）
+        s.handle(
+            json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+            "uri": file, "languageId": "modelica", "version": 1, "text": text}}}),
+        );
+        let r = s.handle(json!({"id": 4, "method": "globe/check", "params": {"model": model}}));
+        assert_eq!(r[0]["result"]["passed"], true, "{}", r[0]);
+        let r =
+            s.handle(json!({"id": 5, "method": "globe/librarySource", "params": {"path": "Nope"}}));
+        assert_eq!(r[0]["error"]["code"], -32000);
+    }
+
+    #[test]
+    fn config_file_at_the_root_drives_lint_and_formatting() {
+        let dir = std::env::temp_dir().join(format!("globe-lsp-config-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let toml = dir.join("globe-mode.toml");
+        std::fs::write(
+            &toml,
+            "[fmt]\nindent = 4\n[lint]\ndisable = [\"GM-L0003\"]\n",
+        )
+        .unwrap();
+        let mut s = Server::new(&[]).unwrap();
+        let init = s.handle(json!({"id": 0, "method": "initialize", "params": {"rootPath": dir}}));
+        assert_eq!(init.len(), 1, "{init:?}");
+        let uri = "file:///tmp/C.mo";
+        let text = "model C\nReal x;\nend C;\n";
+        let out = s.handle(json!({"method": "textDocument/didOpen", "params": {"textDocument": {"uri": uri, "text": text}}}));
+        assert!(!out[0].to_string().contains("GM-L0003"), "{}", out[0]);
+        // エディタの tabSize 2 より設定ファイルの indent 4
+        let f = s.handle(json!({"id": 1, "method": "textDocument/formatting", "params": {"textDocument": {"uri": uri}, "options": {"tabSize": 2}}}));
+        assert!(
+            f[0]["result"][0]["newText"]
+                .as_str()
+                .unwrap()
+                .contains("\n    Real x;"),
+            "{}",
+            f[0]
+        );
+        // 誤りを書いて読み直すと showMessage で知らせ、既定に戻る
+        std::fs::write(&toml, "[fmt]\nindnt = 4\n").unwrap();
+        let out = s.handle(
+            json!({"method": "workspace/didChangeConfiguration", "params": {"settings": {}}}),
+        );
+        assert_eq!(out[0]["method"], "window/showMessage");
+        assert!(out[1].to_string().contains("GM-L0003"), "{}", out[1]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// 文書を開き、`needle` の `k` 文字目に置いたカーソルで `method` を頼む。
+    fn ask_at(
+        s: &mut Server,
+        uri: &str,
+        text: &str,
+        method: &str,
+        needle: &str,
+        k: usize,
+    ) -> Value {
+        s.handle(
+            json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+            "uri": uri, "languageId": "modelica", "version": 1, "text": text}}}),
+        );
+        let pos = position(text, (text.find(needle).unwrap() + k) as u32);
+        s.handle(
+            json!({"id": 1, "method": method, "params": {"textDocument": {"uri": uri},
+            "position": pos, "context": {"includeDeclaration": true}}}),
+        )
+        .remove(0)
+    }
+
+    #[test]
+    fn definition_of_a_type_and_a_component_in_the_same_document() {
+        let mut s = Server::new(&[]).unwrap();
+        let init = s.handle(json!({"id": 0, "method": "initialize", "params": {}}));
+        assert_eq!(
+            init[0]["result"]["capabilities"]["definitionProvider"],
+            true
+        );
+        assert_eq!(
+            init[0]["result"]["capabilities"]["referencesProvider"],
+            true
+        );
+        let uri = "file:///tmp/D.mo";
+        let text = "package D\n  connector Pin\n    Real v;\n    flow Real i;\n  end Pin;\n  model M\n    Pin p;\n  equation\n    p.v = 0;\n  end M;\nend D;\n";
+        // 型 Pin の上 → connector Pin の範囲
+        let r = ask_at(&mut s, uri, text, "textDocument/definition", "Pin p;", 1);
+        assert_eq!(r["result"]["uri"], uri, "{r}");
+        assert_eq!(
+            r["result"]["range"]["start"],
+            json!({"line": 1, "character": 12}),
+            "{r}"
+        );
+        // p.v の v → Pin の部品 v
+        let r = ask_at(&mut s, uri, text, "textDocument/definition", "p.v =", 2);
+        assert_eq!(
+            r["result"]["range"]["start"],
+            json!({"line": 2, "character": 9}),
+            "{r}"
+        );
+        // 予約語や数は null
+        let r = ask_at(&mut s, uri, text, "textDocument/definition", "= 0", 2);
+        assert_eq!(r["result"], Value::Null, "{r}");
+    }
+
+    #[test]
+    fn definition_into_another_file_of_the_library() {
+        let lib =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../Modelica/GlobeModeValidation");
+        let mut s = Server::new(std::slice::from_ref(&lib)).unwrap();
+        let uri = "file:///tmp/T.mo";
+        let text = "model T\n  import GlobeModeValidation.Components;\n  Components.Resistor r1;\nequation\n  r1.p.v = 0;\nend T;\n";
+        let r = ask_at(
+            &mut s,
+            uri,
+            text,
+            "textDocument/definition",
+            "Resistor r1",
+            1,
+        );
+        let u = r["result"]["uri"].as_str().unwrap_or_default();
+        assert!(
+            u.starts_with("file://") && u.ends_with("/Components.mo"),
+            "{r}"
+        );
+        assert_eq!(r["result"]["range"]["start"]["line"], 13, "{r}");
+        // r1.p の p は extends TwoPin の先の部品
+        let r = ask_at(&mut s, uri, text, "textDocument/definition", "r1.p.v", 3);
+        assert_eq!(
+            r["result"]["range"]["start"],
+            json!({"line": 3, "character": 19}),
+            "{r}"
+        );
+    }
+
+    #[test]
+    fn references_in_the_same_class() {
+        let mut s = Server::new(&[]).unwrap();
+        let uri = "file:///tmp/R.mo";
+        let text = "model R\n  Real x;\n  Real xx;\nequation\n  der(x) = -x + xx;\nend R;\n";
+        let r = ask_at(&mut s, uri, text, "textDocument/references", "x;", 0);
+        let lines: Vec<_> = r["result"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|l| l["range"]["start"]["line"].clone())
+            .collect();
+        assert_eq!(lines, [json!(1), json!(4), json!(4)], "{r}");
     }
 
     #[test]

@@ -3,11 +3,13 @@
 
   uv run python src/Svelte/tests/test_ui.py     # 先に pnpm build（mise run ui:check がやる）
 
-dist/ を localhost で配り（CSP は index.html の meta と同じものを応答の header にも付ける。meta は Web Worker に効かないので。S093）、Decay を検査して error の診断が 0 件であること、実行するとプロットが出て信号の選択が効くこと（ブラウザの実行は列ごとの道で、data-typed が true。S065）、
+dist/ を localhost で配り（CSP は index.html の meta と同じものを応答の header にも付ける。meta は Web Worker に効かないので。S093）、Decay を検査して error の診断が 0 件であること、実行するとプロットが出て信号の選択・右の軸・x の切り替え（S128）が効くこと（ブラウザの実行は列ごとの道で、data-typed が true。S065）、
 10 万点（4 状態、出力間隔 0.01 s で 1000 s）の結果でも描けて時間を測ること、構造的に特異なモデルを検査して診断の行が出て、行を押すとエディタの選択が動くことを確かめる。1 ファイルの回路で「グラフ」を押して connect グラフが描かれることを確かめる（S046）。
 最後に「MSL を読む」で MSL 4.1.0 を読み（public/msl/MSL.json が無ければ飛ばす）、ChuaCircuit の検査（error 0）と実行（プロットの canvas と系列）を確かめて、秒数を出す（S048）。
+長いモデルの実行で進捗（段と t の割合）が出て、「止める」で止まり（data-run="cancelled"）、ボタンが戻ることを確かめる（S133）。
+ライブラリの木で Modelica → Electrical → Analog → Examples → ChuaCircuit と開き、そのファイルがエディタに開いて検査が通ることも確かめる（S127）。
 別のページで MSL.json を構文の誤りのファイルを含むライブラリに差し替え、読み飛ばしの警告 GM-W1001 の行と notes のファイル名が出ることを確かめる（S071）。
-`?smoke=1` で起動すると Decay の検査と実行の結果が console に `GM-SMOKE check=ok simulate=ok x1=… msl=…` の 1 行で出ること（S100、android.yml の smoke）。MSL.json があれば msl=ok（MSL を読んで ChuaCircuit の検査が error 0。S103）。
+`?smoke=1` で起動すると Decay の検査と実行の結果が console に `GM-SMOKE check=ok simulate=ok x1=… msl=… ready_ms=…` の 1 行で出ること（S100、android.yml の smoke。時刻は S125）。MSL.json があれば msl=ok（MSL を読んで ChuaCircuit の検査が error 0。S103）。
 console の error（CSP の違反を含む）と、配った origin の外への要求は失敗（S093）。
 """
 
@@ -38,13 +40,14 @@ CIRCUIT = (
     "model G\n  connector P\n    Real v;\n    flow Real i;\n  end P;\n  model R\n    P p;\n    P n;\n  equation\n    p.i + n.i = 0;\n  end R;\n"
     "  R r1;\n  R r2;\nequation\n  connect(r1.n, r2.p);\nend G;\n"
 )
+# 進捗と止める（S133）: 1000 s の振動（wasm で数秒かかる）
+LONG = "model Long\n  Real x(start = 0, fixed = true);\nequation\n  der(x) = sin(100 * time);\n  annotation(experiment(StopTime = 1000));\nend Long;\n"
 CHUA = "Modelica.Electrical.Analog.Examples.ChuaCircuit"
 BAD = "model Bad\n  Real x;\nequation\n  der(x) = -x;\n  x = 1;\nend Bad;\n"
 
 
-def main() -> int:
-    # 列の道の NaN / Inf は null になる（uPlot の欠損。S065）
-    subprocess.run(["node", str(Path(__file__).with_name("test_columns.mjs"))], check=True)
+def serve() -> http.server.ThreadingHTTPServer:
+    """dist/ を 127.0.0.1 の空いた port で配る（bench_ui.py も使う。S125）。"""
     csp = re.search(r'http-equiv="Content-Security-Policy" content="([^"]+)"', (DIST / "index.html").read_text(encoding="utf-8"))
     assert csp, "index.html に CSP の meta が無い"
 
@@ -59,6 +62,13 @@ def main() -> int:
     handler = functools.partial(Handler, directory=str(DIST))
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
+def main() -> int:
+    # 列の道の NaN / Inf は null になる（uPlot の欠損。S065）
+    subprocess.run(["node", str(Path(__file__).with_name("test_columns.mjs"))], check=True)
+    server = serve()
     errors: list[str] = []
     origin = f"http://127.0.0.1:{server.server_port}/"
     outside: list[str] = []
@@ -92,8 +102,8 @@ def main() -> int:
         simulate()
         assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
         expect(page.locator(".plot canvas").first).to_be_visible()
-        boxes = page.locator(".plot .signals input[type=checkbox]")
-        shown = page.locator(".plot .signals input:checked").count()
+        boxes = page.locator(".plot .signals input[name=signal]")
+        shown = page.locator(".plot .signals input[name=signal]:checked").count()
         lines = page.locator(".plot .u-legend .u-series:not(.u-off)").count()  # time の行も含む
         print(f"Decay の実行: 信号 {boxes.count()} 本、選択 {shown} 本、凡例の表示中 {lines} 行、点 {page.locator('.plot').get_attribute('data-points')}")
         assert boxes.count() >= 1 and shown >= 1 and lines >= 2
@@ -101,6 +111,19 @@ def main() -> int:
         # 選択を外すと系列が消える
         boxes.first.uncheck(force=True)
         assert page.locator(".plot .u-legend .u-series:not(.u-off)").count() == lines - 1
+        # 系列の選択・右の軸・パラメトリックの x（S128）: 選んだ系列だけを uPlot に渡し、軸と x の選択が DOM に出る
+        plot = page.locator(".plot")
+        expect(plot).to_have_attribute("data-series", "0")
+        boxes.first.check(force=True)
+        expect(plot).to_have_attribute("data-series", "1")
+        page.get_by_label("x を右の軸に").check(force=True)
+        expect(plot).to_have_attribute("data-right", "1")
+        assert page.locator(".plot .u-axis").count() == 2  # x と右の y だけ（左の y は使う系列が無いので出さない）
+        page.get_by_label("x 軸").select_option(label="x")
+        expect(plot).to_have_attribute("data-x", "x")
+        expect(page.locator(".plot canvas").first).to_be_visible()
+        assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
+        print(f"Decay の系列の選択: data-series={plot.get_attribute('data-series')}、data-right={plot.get_attribute('data-right')}、data-x={plot.get_attribute('data-x')}")
 
         page.get_by_label("モデル名").fill("Big")
         page.locator(".cm-content").focus()
@@ -114,8 +137,28 @@ def main() -> int:
         n, ms = page.locator(".plot").get_attribute("data-points"), page.locator(".plot").get_attribute("data-ms")
         typed = page.locator(".plot").get_attribute("data-typed")
         assert typed == "true", "ブラウザの実行は列ごとの Float64Array の道（S065。CSV の解析は無い）"
-        print(f"10 万点の描画: 点 {n}、系列 {page.locator('.plot .signals input:checked').count()} 本、列の道で最初の描画まで {ms} ms（目安 33 ms）、「実行」を押してから戻るまで {took * 1000:.0f} ms")
+        print(f"10 万点の描画: 点 {n}、系列 {page.locator('.plot .signals input[name=signal]:checked').count()} 本、列の道で最初の描画まで {ms} ms（目安 33 ms）、「実行」を押してから戻るまで {took * 1000:.0f} ms")
         assert int(n or 0) >= 100_000
+
+        # 進捗と「止める」（S133、ADR-0033）: 長い実行で段と t の割合が出て、「止める」で cancelled になり、ボタンが戻る
+        page.get_by_label("モデル名").fill("Long")
+        page.locator(".cm-content").focus()
+        page.keyboard.press("Control+A")
+        page.keyboard.insert_text(LONG)
+        run.click(force=True)
+        status = page.get_by_role("status")
+        expect(status).to_contain_text("integration", timeout=120_000)
+        expect(status).to_contain_text("%")
+        shown_progress = status.inner_text()
+        t = time.perf_counter()
+        page.get_by_role("button", name="止める").click(force=True)
+        expect(status).to_have_attribute("data-run", "cancelled", timeout=10_000)
+        expect(run).to_be_enabled(timeout=10_000)
+        assert page.get_by_role("button", name="止める").count() == 0
+        assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
+        print(f"止める: 進捗「{shown_progress}」から {1000 * (time.perf_counter() - t):.0f} ms で「{status.inner_text()}」、実行のボタンが戻った")
+        check()  # 作り直した worker で次の呼び出しが回る
+        assert page.locator("tr.error").count() == 0, rows.all_inner_texts()
 
         # 整形（S053）: 詰めた本文が doc/format-style.md の形になり、lint の波線（説明文字列が無い）が出る
         page.locator(".cm-content").focus()
@@ -175,11 +218,17 @@ def main() -> int:
             assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
             assert page.locator("tr.error").count() == 0, rows.all_inner_texts()
             expect(page.locator(".plot canvas").first).to_be_visible()
-            boxes = page.locator(".plot .signals input[type=checkbox]")
+            boxes = page.locator(".plot .signals input[name=signal]")
             lines = page.locator(".plot .u-legend .u-series:not(.u-off)").count()
             print(f"ChuaCircuit の実行: {took:.1f} s、信号 {boxes.count()} 本、凡例の表示中 {lines} 行、点 {page.locator('.plot').get_attribute('data-points')}")
             assert boxes.count() >= 1 and lines >= 2
             assert "C1.v" in page.locator(".plot .signals").inner_text()
+            # パラメトリック（S128）: C1.v 対 C2.v
+            page.get_by_label("x 軸").select_option(label="C1.v")
+            page.get_by_role("checkbox", name="C2.v", exact=True).check(force=True)
+            expect(page.locator(".plot")).to_have_attribute("data-x", "C1.v")
+            assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
+            print(f"ChuaCircuit の C1.v 対 C2.v: 系列 {page.locator('.plot').get_attribute('data-series')} 本")
 
             # ライブラリのモデルのグラフも引ける（S079）
             page.get_by_role("button", name="グラフ").click(force=True)
@@ -187,6 +236,19 @@ def main() -> int:
             expect(canvas).not_to_have_attribute("data-nodes", "0", timeout=60_000)
             assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
             print(f"ChuaCircuit のグラフ: ノード {canvas.get_attribute('data-nodes')}、辺 {canvas.get_attribute('data-edges')}")
+
+            # ライブラリの木（S127）: Modelica → Electrical → Analog → Examples と開き、ChuaCircuit のファイルをエディタに開いて検査する
+            t = time.perf_counter()
+            for path in ["Modelica", "Modelica.Electrical", "Modelica.Electrical.Analog", "Modelica.Electrical.Analog.Examples"]:
+                page.locator(f'.library li[data-path="{path}"] > button').click(force=True)
+            page.locator(f'.library li[data-path="{CHUA}"] > button').click(force=True)
+            expect(page.get_by_label("モデル名")).to_have_value(CHUA, timeout=60_000)
+            expect(page.locator(".cm-content")).to_contain_text("model ChuaCircuit")
+            opened = time.perf_counter() - t
+            check()
+            assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
+            assert page.locator("tr.error").count() == 0, rows.all_inner_texts()
+            print(f"木から ChuaCircuit を開く: {opened:.1f} s、検査まで {time.perf_counter() - t:.1f} s、診断 {rows.count()} 行、error 0 行")
         else:
             print("public/msl/MSL.json が無いので MSL の試験は飛ばす")
         # ライブラリに構文の誤りのファイルがあっても読み、読み飛ばしを GM-W1001 の行（ファイル名は notes）で出す（S071）。
@@ -216,6 +278,7 @@ def main() -> int:
         line = message.value.text
         assert line.startswith("GM-SMOKE check=ok simulate=ok x1=0.36"), line
         assert ("msl=ok" in line) == (DIST / "msl/MSL.json").exists(), line  # S103
+        assert re.search(r" ready_ms=\d+ decay_ms=\d+ msl_ms=", line), line  # S125: bench_ui.py が読む時刻
         print(line)
         browser.close()
     server.shutdown()

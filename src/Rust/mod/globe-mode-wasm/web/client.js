@@ -40,16 +40,17 @@ export class GlobeWorker {
     });
   }
 
-  #raw(op, args = {}) {
+  #raw(op, args = {}, onProgress) {
     return new Promise((resolve, reject) => {
       const id = ++this.#id;
-      this.#pending.set(id, { resolve, reject });
+      this.#pending.set(id, { resolve, reject, onProgress });
       this.#w.postMessage({ id, op, ...args });
     });
   }
 
-  #reply({ id, ok, value, error, panic, poisoned }) {
+  #reply({ id, type, ok, value, error, panic, poisoned, ...progress }) {
     const p = this.#pending.get(id);
+    if (type === "progress") return p?.onProgress?.(progress);
     this.#pending.delete(id);
     if (ok) return p?.resolve(value);
     p?.reject(new Error(panic ? `${error}\n${panic}` : error));
@@ -78,8 +79,8 @@ export class GlobeWorker {
   }
 
   // 呼び出しは直列に（再生の前に次の呼び出しが割り込まない）
-  #call(op, args) {
-    const r = this.#tail.then(() => this.#ready).then(() => this.#raw(op, args));
+  #call(op, args, onProgress) {
+    const r = this.#tail.then(() => this.#ready).then(() => this.#raw(op, args, onProgress));
     this.#tail = r.catch(() => {});
     return r;
   }
@@ -96,14 +97,21 @@ export class GlobeWorker {
   async simulate(request) { return JSON.parse(await this.#call("simulate", { request: JSON.stringify(request) })); }
   format(text, indent = 2, insertOrigin = true) { return this.#call("format", { text, indent, insertOrigin }); }
   async lint(text) { return JSON.parse(await this.#call("lint", { text })); }
+  // ライブラリの木（S127）: prefix の直下の子 [{name, path, kind, description, file, hasChildren}] と、クラスのファイル {file, text}
+  async libraryTree(prefix) { return JSON.parse(await this.#call("library_tree", { prefix })); }
+  async librarySource(path) { return JSON.parse(await this.#call("library_source", { path })); }
   // 時系列を CSV でなく列ごとの Float64Array で返す（S051）。{response（csv 無し）, layout: {names, points}, columns}
-  async simulateColumns(request) {
-    const r = await this.#call("simulate_columns", { request: JSON.stringify(request) });
+  // onProgress を渡すと進捗 {stage, time, start_time, stop_time} を受ける（S133、ADR-0033。time は積分の t で無ければ undefined）
+  async simulateColumns(request, { onProgress } = {}) {
+    const r = await this.#call("simulate_columns", { request: JSON.stringify(request), progress: !!onProgress }, onProgress);
     return { ...r, response: JSON.parse(r.response) };
   }
   version() { return this.#call("version"); }
   async solvers() { return JSON.parse(await this.#call("solvers")); }
   memory() { return this.#call("memory"); }
   panicForTest(message) { return this.#call("panic_for_test", { message }); }
+  // 実行中の呼び出しを止める（S133、ADR-0033）。Worker は計算の間メッセージを受けないので terminate() して作り直し、
+  // ライブラリとファイルを再生する。止めた呼び出しは「止めた」の Error（cancelled: true）で reject する
+  cancel() { if (this.#w && this.#pending.size) this.#die(this.#w, Object.assign(new Error("止めた"), { cancelled: true })); }
   async terminate() { const w = this.#w; this.#w = null; await w?.terminate(); }
 }

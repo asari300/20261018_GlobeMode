@@ -22,6 +22,15 @@ pub struct LintOptions {
     pub disabled: Vec<String>,
 }
 
+/// 規則のコード（LSP の診断の code）と名前。`connect-type-mismatch` はワークスペースが要るので CLI と LSP が見る
+pub const RULES: &[(&str, &str)] = &[
+    ("GM-L0001", "line-too-long"),
+    ("GM-L0002", "class-name-pascal-case"),
+    ("GM-L0003", "missing-description"),
+    ("GM-L0004", "annotation-order"),
+    ("GM-L0005", "connect-type-mismatch"),
+];
+
 const CLASS_KEYWORD: &[&str] = &[
     "model",
     "package",

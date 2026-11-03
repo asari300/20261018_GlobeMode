@@ -11,6 +11,9 @@
 # maturin の --zig（zig cc で glibc 2.28 を狙う）と --compatibility manylinux_2_28 で manylinux_2_28 の tag を付ける
 # （maturin が glibc の記号を検査する。S077・S086）。
 # wheel の中の globe_mode/THIRD-PARTY.md は同じ about.toml・about.hbs で globe-mode-py から作る（cli との差は pyo3 の 5 crate）。
+# S135: Desktop（Tauri）の .deb・.msi も作って Release に付ける（ADR-0023）。secret TAURI_SIGNING_PRIVATE_KEY があるときだけ
+# updater の署名（.sig）を作り、release で latest.json（tauri.conf.json の plugins.updater.endpoints が読む）を足す。無ければ署名なしの bundle だけ。
+# 作り方は desktop.yml の build と同じ（smoke はそちら）。タグの push では tauri.conf.json の version をタグに合わせる（updater が版を比べるため）。
 name: release
 
 on:
@@ -161,8 +164,99 @@ jobs:
           path: wheel/*.whl
           if-no-files-found: error
 
+  desktop-ui:
+    # desktop.yml の ui と同じ（Desktop の UI に wasm は要らないので vite build だけ）
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+        with:
+          install_args: node pnpm
+      - working-directory: src/Svelte
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm exec vite build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ui-dist
+          path: src/Svelte/dist
+          if-no-files-found: error
+
+  desktop:
+    needs: desktop-ui
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            name: linux
+            exe: ""
+            bundle: deb
+          - os: windows-2025
+            name: windows
+            exe: .exe
+            bundle: msi
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      DESKTOP: src/Rust/apps/desktop
+      # secrets は if: に書けないので env に写して分岐する（S106 と同じ）。tauri-cli はこの 2 つを読んで .sig を作る
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+        if: runner.os == 'Linux'
+        with:
+          install_args: rust
+      - if: runner.os == 'Windows'
+        run: rustup toolchain install stable --profile minimal --no-self-update && rustup default stable
+      - name: Tauri 2 の依存（Linux）
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev \
+            libayatana-appindicator3-dev librsvg2-dev
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            . -> target
+            ${{ env.DESKTOP }} -> target
+          key: release-desktop-${{ matrix.name }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: ui-dist
+          path: src/Svelte/dist
+      - name: sidecar の globe を release で作り、target triple 付きの名前で置く
+        run: |
+          cargo build --release --locked -p globe-mode-cli
+          TRIPLE="$(rustc -vV | sed -n 's/^host: //p')"
+          cp "target/release/globe${{ matrix.exe }}" "$DESKTOP/binaries/globe-$TRIPLE${{ matrix.exe }}"
+      - run: cargo install tauri-cli --version "^2" --locked
+      - name: ${{ matrix.bundle }} を作る（鍵があれば updater の .sig も）
+        working-directory: ${{ env.DESKTOP }}
+        env:
+          IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        run: |
+          VERSION=""
+          if [ "$IS_TAG" = "true" ]; then VERSION="\"version\":\"${GITHUB_REF_NAME#v}\","; fi
+          SIGN=false
+          if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then SIGN=true; else echo "TAURI_SIGNING_PRIVATE_KEY が無いので署名しない（updater では入れられない bundle）"; fi
+          if [ "$SIGN" = true ] && grep -q '"pubkey": ""' tauri.conf.json; then echo "::warning::鍵はあるが tauri.conf.json の pubkey が空。アプリは更新を確かめない"; fi
+          cargo tauri build --bundles ${{ matrix.bundle }} --config "{${VERSION}\"bundle\":{\"createUpdaterArtifacts\":$SIGN}}"
+          ls -l target/release/bundle/${{ matrix.bundle }}/ | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: globe-desktop-${{ matrix.name }}
+          path: |
+            ${{ env.DESKTOP }}/target/release/bundle/${{ matrix.bundle }}/*.${{ matrix.bundle }}
+            ${{ env.DESKTOP }}/target/release/bundle/${{ matrix.bundle }}/*.${{ matrix.bundle }}.sig
+          if-no-files-found: error
+
   release:
-    needs: build
+    needs: [build, desktop]
     runs-on: ubuntu-24.04
     permissions:
       contents: write   # Release に付けるため。このジョブだけ
@@ -174,11 +268,35 @@ jobs:
           merge-multiple: true
       - name: SHA256SUMS
         working-directory: dist
-        run: sha256sum globe-* globe_mode-*.whl | tee SHA256SUMS
+        run: sha256sum globe-* globe_mode-*.whl GlobeMode_* | tee SHA256SUMS
+      # updater の endpoints（tauri.conf.json）が読む。キーは <os>-<arch>-<installer>（tauri-plugin-updater の get_urls）、
+      # signature は .sig の中身、url は Release の資産。.sig が無ければ（鍵なし）作らない
+      - name: latest.json（署名があるときだけ）
+        working-directory: dist
+        run: |
+          python3 - <<'PY'
+          import datetime, glob, json, os
+          tag, repo = os.environ["GITHUB_REF_NAME"], os.environ["GITHUB_REPOSITORY"]
+          platforms = {}
+          for key, ext in {"linux-x86_64-deb": "deb", "windows-x86_64-msi": "msi"}.items():
+              for f in glob.glob(f"GlobeMode_*.{ext}"):
+                  if os.path.exists(f + ".sig"):
+                      sig = open(f + ".sig").read().strip()
+                      platforms[key] = {"signature": sig, "url": f"https://github.com/{repo}/releases/download/{tag}/{f}"}
+          if not platforms:
+              print("署名（.sig）が無いので latest.json を作らない")
+          else:
+              now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+              doc = {"version": tag.removeprefix("v"), "pub_date": now, "platforms": platforms}
+              json.dump(doc, open("latest.json", "w"), indent=2)
+              print(open("latest.json").read())
+          PY
       - uses: actions/upload-artifact@v4
         with:
           name: SHA256SUMS
-          path: dist/SHA256SUMS
+          path: |
+            dist/SHA256SUMS
+            dist/latest.json
       - name: Release に付ける（タグの push のときだけ）
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2

@@ -55,6 +55,9 @@ pub fn now_ms() -> f64 {
 #[derive(Debug)]
 pub struct Workspace {
     inner: globe_mode::Workspace,
+    /// ライブラリの木と本文（S127。`library_tree`・`library_source`）。
+    /// shortcut: 本文を分割読み込みの写しと別に持つ（MSL で約 15 MiB）。facade が本文を返せるようになったらそちらを引く
+    tree: Option<(globe_mode_fmt::LibraryTree, BTreeMap<String, String>)>,
 }
 
 impl Default for Workspace {
@@ -69,6 +72,7 @@ impl Workspace {
     pub fn new() -> Self {
         Workspace {
             inner: globe_mode::Workspace::new(),
+            tree: None,
         }
     }
 
@@ -96,7 +100,36 @@ impl Workspace {
         let t = now_ms();
         let mut inner = load()?;
         inner.set_library_load_ms(now_ms() - t);
-        Ok(Workspace { inner })
+        Ok(Workspace { inner, tree: None })
+    }
+
+    /// ライブラリの木を引けるようにする（S127。`files` は読み込みに渡したのと同じ組）。
+    pub fn with_tree(mut self, files: BTreeMap<String, String>) -> Self {
+        let tree =
+            globe_mode_fmt::LibraryTree::new(files.iter().map(|(f, t)| (f.as_str(), t.as_str())));
+        self.tree = Some((tree, files));
+        self
+    }
+
+    /// `prefix`（空ならトップレベル）の直下の子（`[{name, path, kind, description, file, hasChildren}]` の JSON）。ライブラリが無ければ `[]`。
+    pub fn tree_children(&self, prefix: &str) -> String {
+        let entries: Vec<serde_json::Value> = self.tree.as_ref().map_or_else(Vec::new, |(t, _)| {
+            t.children(prefix)
+                .iter()
+                .map(|e| {
+                    serde_json::json!({"name": e.name, "path": e.path, "kind": e.kind,
+                "description": e.description, "file": e.file, "hasChildren": e.has_children})
+                })
+                .collect()
+        });
+        serde_json::to_string(&entries).unwrap_or_default()
+    }
+
+    /// `path`（完全修飾名）を定義するライブラリのファイルと本文。
+    pub fn tree_source(&self, path: &str) -> Option<(&str, &str)> {
+        let (t, files) = self.tree.as_ref()?;
+        let file = t.file(path)?;
+        Some((file, files.get(file)?.as_str()))
     }
 
     /// 検査 → コンパイル → 実行。`request.files` は先にワークスペースに足す（残る）。
@@ -107,9 +140,19 @@ impl Workspace {
     }
 
     /// [`Workspace::run`] と同じだが、時系列を CSV にせず列ごとに持つ（S051。`request.no_csv` は無視して CSV を作らない）。
-    pub fn run_columns(&mut self, mut request: Request) -> SimColumns {
+    pub fn run_columns(&mut self, request: Request) -> SimColumns {
+        self.run_columns_observed(request, globe_mode::SimulateHandle::default())
+    }
+
+    /// [`Workspace::run_columns`] と同じだが、進捗を `handle` に知らせる（ADR-0033、S133）。wasm の Worker は
+    /// 1 本のスレッドなので `handle.cancel` は立てられない（止めるのは Worker の `terminate()`）。
+    pub fn run_columns_observed(
+        &mut self,
+        mut request: Request,
+        handle: globe_mode::SimulateHandle<'_>,
+    ) -> SimColumns {
         request.no_csv = true;
-        let mut simulated = self.inner.simulate_with(&request, &now_ms);
+        let mut simulated = self.inner.simulate_observed(&request, &now_ms, handle);
         simulated.response.memory_bytes = memory_bytes();
         // 列だけを持つ（コンパイル済みのモデルは放す）
         simulated.compiled = None;
@@ -209,7 +252,22 @@ impl Workspace {
         } else {
             Workspace::with_library_split(name, &files)
         };
-        loaded.map_err(|ds| js_error(serde_json::to_string(&ds).unwrap_or_default()))
+        loaded
+            .map(|ws| ws.with_tree(files))
+            .map_err(|ds| js_error(serde_json::to_string(&ds).unwrap_or_default()))
+    }
+
+    /// ライブラリの木の `prefix` の直下の子（S127。[`Workspace::tree_children`]）。
+    pub fn library_tree(&self, prefix: &str) -> String {
+        self.tree_children(prefix)
+    }
+
+    /// ライブラリのクラス `path` を定義するファイルの `{file, text}` の JSON（S127）。無ければ例外（文字列）。
+    pub fn library_source(&self, path: &str) -> Result<String, JsValue> {
+        let (file, text) = self
+            .tree_source(path)
+            .ok_or_else(|| js_error(format!("ライブラリに {path} が無い")))?;
+        to_json(&serde_json::json!({"file": file, "text": text}))
     }
 
     /// ファイルを足すか、本文を差し替える。
@@ -247,8 +305,28 @@ impl Workspace {
     }
 
     /// [`Workspace::simulate`] と同じだが、時系列を CSV でなく列ごとに返す（S051。[`SimColumns`]）。
-    pub fn simulate_columns(&mut self, request_json: &str) -> Result<SimColumns, JsValue> {
-        Ok(self.run_columns(parse_request(request_json)?))
+    ///
+    /// `on_progress` を渡すと、進捗のたびに `on_progress(stage, time, start_time, stop_time)` を同期で呼ぶ
+    /// （ADR-0033、S133。`stage` は `"lowering"`・`"integration"` などの小文字、`time` は積分の t で、無ければ
+    /// `undefined`）。関数が投げた例外は無視する。
+    pub fn simulate_columns(
+        &mut self,
+        request_json: &str,
+        on_progress: Option<ProgressFn>,
+    ) -> Result<SimColumns, JsValue> {
+        let request = parse_request(request_json)?;
+        let Some(f) = on_progress else {
+            return Ok(self.run_columns(request));
+        };
+        let mut notify = |p: &globe_mode::Progress| {
+            let stage = format!("{:?}", p.stage).to_lowercase();
+            let _ = f.call4(&JsValue::NULL, &stage, p.time, p.start_time, p.stop_time);
+        };
+        let handle = globe_mode::SimulateHandle {
+            on_progress: Some(&mut notify),
+            cancel: None,
+        };
+        Ok(self.run_columns_observed(request, handle))
     }
 
     /// モデルの検査だけ（S0〜S10。実行しない）。`CheckResponse` の JSON を返す（S041。ブラウザ UI の診断パネル用）。
@@ -314,6 +392,22 @@ pub fn last_panic() -> Option<String> {
 #[wasm_bindgen]
 pub fn panic_for_test(message: &str) {
     panic!("{message}");
+}
+
+#[wasm_bindgen]
+extern "C" {
+    /// JS の関数（`simulate_columns` の進捗の受け手。js-sys を足さないための最小の宣言）
+    #[wasm_bindgen(js_name = Function)]
+    pub type ProgressFn;
+    #[wasm_bindgen(method, catch, js_name = call)]
+    fn call4(
+        this: &ProgressFn,
+        context: &JsValue,
+        stage: &str,
+        time: Option<f64>,
+        start_time: f64,
+        stop_time: f64,
+    ) -> Result<JsValue, JsValue>;
 }
 
 static LAST_PANIC: Mutex<Option<String>> = Mutex::new(None);

@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S132 LSP の定義ジャンプと参照 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S132 LSP の定義ジャンプと参照">
+
+<section class="slide" id="S01">
+  <span class="tag">S132 · 2026-11-03 · P4</span>
+  <h1>LSP の定義ジャンプと参照</h1>
+  <p class="lead">features.md の「定義ジャンプ・参照は未着手」を埋める</p>
+  <div class="big">型・部品名・<code>R1.p</code> から、文書の中でもライブラリの別ファイルでも定義へ飛べる</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li><code>textDocument/definition</code>: 部品の型、部品名、点つきの名前、extends の先、import を解決して <code>Location</code> を返す</li>
+    <li><code>textDocument/references</code>: 同じ文書・同じクラスの中で字句が同じ位置</li>
+    <li><code>initialize</code> で宣言するだけで VS Code 拡張（S059）が使える</li>
+    <li>ブラウザ UI（CodeMirror）との接続、リネームは持ち越し</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>引き方</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>土台</td><td>既存の <code>Outline</code> だけ</td><td>補完（S053）と同じ。新しい解析器は入れない</td></tr>
+    <tr><td>名前</td><td>点つきの名前の頭から、カーソルの区切りまで</td><td><code>Modelica.Electrical</code> の途中ならパッケージへ</td></tr>
+    <tr><td>部品名</td><td>内側のクラスから外へ。extends の先も（深さ 8 まで）</td><td><code>R1.p</code> の <code>p</code> は親クラスの部品</td></tr>
+    <tr><td>型名</td><td>入れ子、import、外側の順</td><td><code>ClassIndex::resolve</code> と同じ順（MLS 5.3.1）</td></tr>
+    <tr><td>ライブラリ</td><td><code>LibraryTree</code> でファイルを決め、要るファイルだけ読む</td><td>MSL 全部を先に解析しない</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>流れ</h1>
+  <svg class="fig" viewBox="0 0 800 240" role="img" aria-label="カーソルの名前を部品名か型名として引き、文書かライブラリの Outline から Location を返す">
+    <rect class="svg-box-accent" x="20" y="90" width="160" height="60" rx="10"/>
+    <text class="svg-text-b" x="100" y="125" text-anchor="middle">カーソルの名前</text>
+    <rect class="svg-box" x="240" y="30" width="200" height="60" rx="10"/>
+    <text class="svg-text" x="340" y="65" text-anchor="middle">部品名（extends も）</text>
+    <rect class="svg-box" x="240" y="150" width="200" height="60" rx="10"/>
+    <text class="svg-text" x="340" y="185" text-anchor="middle">型名（import も）</text>
+    <rect class="svg-box" x="500" y="90" width="280" height="60" rx="10"/>
+    <text class="svg-text" x="640" y="117" text-anchor="middle">開いた文書の Outline か</text>
+    <text class="svg-text" x="640" y="137" text-anchor="middle">LibraryTree のファイルの Outline</text>
+    <line class="svg-line" x1="180" y1="110" x2="240" y2="60"/>
+    <line class="svg-line" x1="180" y1="130" x2="240" y2="180"/>
+    <line class="svg-line" x1="440" y1="60" x2="500" y2="110"/>
+    <line class="svg-line" x1="440" y1="180" x2="500" y2="130"/>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>試験</h1>
+  <table class="compact">
+    <tr><th>試験</th><th>中身</th><th>結果</th></tr>
+    <tr><td>同じ文書</td><td><code>Pin p;</code> の型から <code>connector Pin</code>、<code>p.v</code> の <code>v</code> から部品 <code>v</code></td><td class="ok">通過</td></tr>
+    <tr><td>ライブラリの別ファイル</td><td><code>Components.Resistor</code> から <code>Components.mo</code> の <code>model Resistor</code>、<code>r1.p</code> から <code>TwoPin</code> の <code>p</code></td><td class="ok">通過</td></tr>
+    <tr><td>参照</td><td><code>x</code> で 3 箇所（<code>xx</code> は数えない）</td><td class="ok">通過</td></tr>
+  </table>
+  <pre><code>cargo test -p globe-mode-lsp</code></pre>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ul>
+    <li>ブラウザ UI（CodeMirror）からの定義ジャンプ</li>
+    <li>リネーム、全ライブラリ横断の参照</li>
+    <li>受け継いだ入れ子のクラス、コメントと文字列の中の名前の除外</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

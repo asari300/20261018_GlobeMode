@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S125 UI の測定ハーネス — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S125 UI の測定ハーネス">
+
+<section class="slide" id="S01">
+  <span class="tag">S125 · 2026-11-03 · P7</span>
+  <h1>UI の測定ハーネス</h1>
+  <p class="lead">P7 の UI 比較の 1 回目。Svelte 版をブラウザと Desktop で測った</p>
+  <div class="big">測る道は <b>GM-SMOKE の 1 行</b>に時刻を 3 つ足しただけ</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>P7 の完了条件「doc/bench/ui.md に 3 UI × 3 OS の比較」の前段</li>
+    <li>起動・Decay・MSL と ChuaCircuit・RSS・バンドルの 5 つを測る</li>
+    <li>Svelte のブラウザ（Linux）と Tauri の Desktop（Linux・Windows）</li>
+    <li>Leptos・Dioxus はまだ無いので「未」。同じ手順で測れる形にする</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと（ADR-0034、Proposed）</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th></tr>
+    <tr><td>測る道</td><td>GM-SMOKE の行の末尾に ready_ms・decay_ms・msl_ms</td></tr>
+    <tr><td>ブラウザ</td><td>bench_ui.py が Chromium を回ごとに起動し直す</td></tr>
+    <tr><td>Desktop</td><td>GLOBE_DESKTOP_BENCH で UI が回し、command bench が行をファイルへ</td></tr>
+    <tr><td>RSS</td><td>プロセスごとの最大の 1 つ（S056 の time -v と同じ意味）</td></tr>
+    <tr><td>表</td><td>3 回の中央値。しきい値は置かない</td></tr>
+    <tr><td>macOS</td><td>matrix に無いので「未」。足すかはユーザー</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>流れ</h1>
+  <svg class="fig" viewBox="0 0 800 260" role="img" aria-label="測定の流れ">
+    <rect class="svg-box" x="20" y="40" width="220" height="70" rx="10"/>
+    <text class="svg-text-b" x="130" y="82" text-anchor="middle">bench_ui.py（ブラウザ）</text>
+    <rect class="svg-box" x="20" y="150" width="220" height="70" rx="10"/>
+    <text class="svg-text-b" x="130" y="192" text-anchor="middle">desktop.yml（Tauri）</text>
+    <rect class="svg-box-accent" x="300" y="95" width="200" height="70" rx="10"/>
+    <text class="svg-text-b" x="400" y="137" text-anchor="middle">GM-SMOKE の 1 行</text>
+    <rect class="svg-box" x="560" y="95" width="220" height="70" rx="10"/>
+    <text class="svg-text-b" x="670" y="137" text-anchor="middle">doc/bench/ui.md</text>
+    <line class="svg-line" x1="240" y1="75" x2="300" y2="120"/>
+    <line class="svg-line" x1="240" y1="185" x2="300" y2="140"/>
+    <line class="svg-line" x1="500" y1="130" x2="560" y2="130"/>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">結果</span>
+  <h1>中央値（3 回）</h1>
+  <table class="compact">
+    <tr><th>測るもの</th><th>ブラウザ Linux（手元）</th><th>Tauri Linux</th><th>Tauri Windows</th></tr>
+    <tr><td>起動から操作可能まで（ms）</td><td>1,232</td><td>114</td><td>178</td></tr>
+    <tr><td>Decay（ms）</td><td>258</td><td>54</td><td>43</td></tr>
+    <tr><td>MSL と ChuaCircuit（ms）</td><td>2,800</td><td>1,045</td><td>1,927</td></tr>
+    <tr><td>最大の RSS（MiB）</td><td>345.5</td><td>151.6</td><td>128.7</td></tr>
+    <tr><td>バンドル（MiB）</td><td>15.6</td><td>22.7</td><td>20.6</td></tr>
+  </table>
+  <p class="lead">Desktop は run 41622934035。手元とランナーは比べられない</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">見つけたこと</span>
+  <h1>Linux の Desktop は LANG=C で画面が空</h1>
+  <ul>
+    <li>5 回の run で Linux だけ時間切れ。UI が command を 1 度も呼ばない</li>
+    <li>切り分け: __TAURI__ はある、module は読める、CSP の違反は無い</li>
+    <li>初めからの error を集めると <code>RangeError: invalid language tag: C</code></li>
+    <li class="warn">WebKitGTK の既定の言語が C になり、CodeMirror の Intl.Segmenter が投げる</li>
+    <li>測定の手順に LANG=en_US.UTF-8。製品の直しは持ち越し</li>
+  </ul>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>uv run python src/Svelte/tests/bench_ui.py browser --runs 3
+gh workflow run desktop.yml --ref &lt;branch&gt;
+gh run download &lt;run-id&gt; -n ui-bench-linux -D /tmp/l
+uv run python src/Svelte/tests/bench_ui.py add svelte-tauri/linux /tmp/l/bench.txt --source …
+uv run python src/Svelte/tests/bench_ui.py report</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">3 × 3</span><span class="l">ok の行（ブラウザ・Linux・Windows）</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">新しい依存</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S08">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>Leptos 版・Dioxus 版を作り、同じ行を出して表に載せる</li>
+    <li>LANG=C で画面が空になる件の製品側の直し</li>
+    <li>ブラウザの Windows 列、macOS（ユーザーの判断）、Android の列</li>
+    <li>CPU・フレーム時間・PSS</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
