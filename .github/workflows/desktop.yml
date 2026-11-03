@@ -8,6 +8,7 @@
 # アプリと sidecar の最大の常駐メモリの記録も行う（S056。MSL は msl-sim.yml・ci.yml と同じ key で cache する）。
 # S069: さらに MSL を渡さずに起動し直し、アプリが app data dir に MSL 4.1.0 を取得して（毎回、cache しない）検査・実行する smoke と、
 # 取得済みの置き場を 2 度目の起動が見つけて使う smoke も回す。
+# S143: 測定は globe-mode.toml のある作業ディレクトリから起動し、cfg=ok（整形が設定の indent を使う）を確かめる。
 # S125: UI の測定（ADR-0034）。GLOBE_DESKTOP_BENCH で UI が Decay と MSL・ChuaCircuit の手順を測り、GM-SMOKE の行を書く。
 # Linux と Windows で 3 回ずつ。行に最大の RSS（rss_kib）、末尾にインストーラの大きさ（GM-BUNDLE）を足し、artifact ui-bench-<os> に残す。Rust の fmt と clippy（-D warnings）もここで回す（手元に webkit2gtk が無いため）。
 # `cargo install tauri-cli`（^2、--locked）を使う理由: npm の依存（@tauri-apps/cli）を増やさず、Rust の道具だけで済むため。
@@ -193,15 +194,18 @@ jobs:
           echo "LANG=${LANG-} LC_ALL=${LC_ALL-} LC_CTYPE=${LC_CTYPE-}"
           DEB="$(find "$PWD/$DESKTOP/target/release/bundle/deb" -maxdepth 1 -type f -name '*.deb')"
           APP="$(dpkg -L "$(dpkg-deb -f "$DEB" Package)" | grep '^/usr/bin/' | grep -v '/globe$' | head -1)"
+          # S143: globe-mode.toml（indent = 4）を置いた作業ディレクトリから起動する。アプリは作業ディレクトリを sidecar の根にし、
+          # UI の整形が設定ファイルの indent を使えば GM-SMOKE の行に cfg=ok が付く
+          W="$PWD"; CFG="$(mktemp -d)"; printf '[fmt]\nindent = 4\n' > "$CFG/globe-mode.toml"
           for i in 1 2 3; do
             rm -f line.txt
-            GLOBE_DESKTOP_BENCH="$PWD/line.txt" /usr/bin/time -v -o time-bench.txt timeout 300 xvfb-run -a "$APP" || echo "終了コード $?"
+            (cd "$CFG" && GLOBE_DESKTOP_BENCH="$W/line.txt" /usr/bin/time -v -o "$W/time-bench.txt" timeout 300 xvfb-run -a "$APP") || echo "終了コード $?"
             test -s line.txt || { echo "GM-SMOKE の行が無い"; exit 1; }
             echo "$(cat line.txt) rss_kib=$(sed -n 's/.*Maximum resident set size (kbytes): //p' time-bench.txt)" >> bench.txt
           done
           echo "GM-BUNDLE kib=$(( $(stat -c %s "$DEB") / 1024 ))" >> bench.txt
           { echo '```'; cat bench.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-          test "$(grep -c 'GM-SMOKE check=ok simulate=ok .* msl=ok' bench.txt)" = 3
+          test "$(grep -c 'GM-SMOKE check=ok simulate=ok .* msl=ok cfg=ok' bench.txt)" = 3
 
       - name: UI の測定（Windows。S125。先に Rust の smoke で MSL を取得し、測る回にダウンロードを含めない。RSS はプロセスごとの PeakWorkingSet の最大）
         if: runner.os == 'Windows'

@@ -5,6 +5,8 @@
 //!
 //! 引数・環境変数: `--library <DIR>`（何度でも）と `GLOBE_LIBRARY`（パスの区切りで複数。MSL を渡す）、
 //! `GLOBE_SIDECAR`（`globe` のパス。既定は実行ファイルと同じ場所）。
+//! 設定ファイル（S143）: `--root <DIR>`、無ければ `GLOBE_ROOT`、無ければカレントディレクトリを sidecar の `initialize` に
+//! `rootPath` で渡す。sidecar は根から上へ `globe-mode.toml` を探し、整形と lint に使う。command `reload_config` で読み直す。
 //! `GLOBE_DESKTOP_SMOKE=1` なら、起動して sidecar に 1 モデルの検査を頼み、結果を表示して終わる（CI の smoke）。
 //! さらに `GLOBE_DESKTOP_SMOKE_MODEL=<ライブラリのモデル名>` なら、そのモデルを `globe/check`・`globe/simulate` させ、
 //! 各段の後にアプリと sidecar の最大の常駐メモリ（VmHWM）を表示する（S056。MSL を読んだ後の RSS の基準値）。
@@ -66,6 +68,17 @@ async fn notify(state: State<'_, Shared>, method: String, params: Value) -> Resu
     tauri::async_runtime::spawn_blocking(move || lock(&w).notify(&method, params))
         .await
         .map_err(|e| e.to_string())?
+}
+
+/// `globe-mode.toml` を読み直す（S143。LSP の `workspace/didChangeConfiguration`）。誤りは `window/showMessage` の通知で UI に届く。
+#[tauri::command]
+async fn reload_config(state: State<'_, Shared>) -> Result<(), String> {
+    let w = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        lock(&w).notify("workspace/didChangeConfiguration", json!({"settings": {}}))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// S125: `GLOBE_DESKTOP_BENCH` のとき、line なしは true（測る）、line ありはその行をファイルに書いてアプリを終える。
@@ -184,6 +197,19 @@ fn libraries_from_env() -> Vec<PathBuf> {
     libs
 }
 
+/// ワークスペースの根（S143）: `--root <DIR>`、無ければ `GLOBE_ROOT`、無ければカレントディレクトリ。
+/// sidecar はここから上へ `globe-mode.toml` を探す。
+fn root_from_env() -> Option<PathBuf> {
+    let args: Vec<String> = std::env::args().collect();
+    let arg = args
+        .windows(2)
+        .find(|p| p[0] == "--root")
+        .map(|p| p[1].clone());
+    arg.map(PathBuf::from)
+        .or_else(|| std::env::var_os("GLOBE_ROOT").map(PathBuf::from))
+        .or_else(|| std::env::current_dir().ok())
+}
+
 fn sidecar() -> PathBuf {
     if let Some(p) = std::env::var_os("GLOBE_SIDECAR") {
         return p.into();
@@ -280,6 +306,7 @@ fn main() {
             rpc,
             notify,
             cancel_run,
+            reload_config,
             libraries,
             fetch_msl,
             cancel_msl,
@@ -317,7 +344,10 @@ fn main() {
             let libs_state = Libraries(Arc::new(Mutex::new(libs.clone())));
             app.manage(libs_state.clone());
             app.manage(dir.clone());
-            let worker = Worker::new(sidecar(), libs, sink);
+            let mut worker = Worker::new(sidecar(), libs, sink);
+            if let Some(root) = root_from_env() {
+                worker = worker.with_root(root);
+            }
             app.manage(worker.canceller());
             let w: Shared = Arc::new(Mutex::new(worker));
             app.manage(w.clone());

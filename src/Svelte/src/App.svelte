@@ -48,6 +48,7 @@
   let lastSettings = $state<ResolvedSettings | null>(null);
   let lastFinal = $state<[string, number][]>([]); // 最後の時刻の値（先頭の 8 本）
   $effect(() => { void model; experiment = undefined; }); // 別のモデルにしたら、次の検査まで experiment は分からない
+  let configNote = $state(""); // S143: Desktop の globe-mode.toml を読み直した結果、または sidecar の showMessage（誤り）
   let graphModel = $state<string | null>(null); // 「グラフ」を押したときのモデル名（入力のたびに描き直さない）
 
   // S141: 自分のファイルを開く・保存する。本文とファイル名は localStorage に自動保存して起動時に戻す（使えなくても動く。S102）。モデル名は戻さず本文から入れ直す（smoke が書き換えたモデル名を次の起動で拾わないため）
@@ -72,6 +73,7 @@
     void tauri?.hasLibrary().then((has) => {
       if (has && msl === "none") { msl = "loaded"; mslNote = "MSL を読んだ（取得済み）"; }
     });
+    void tauri?.onMessage((m) => { configNote = m; });
     const unlisten = tauri?.onMslProgress(({ received, total }) => {
       const mib = (n: number) => (n / 2 ** 20).toFixed(1);
       mslProgress = total ? `${mib(received)} / ${mib(total)} MiB（${Math.floor((100 * received) / total)}%）` : `${mib(received)} MiB`;
@@ -112,8 +114,10 @@
     await loadMsl();
     if (msl === "loaded") { model = "Modelica.Electrical.Analog.Examples.ChuaCircuit"; await check(); }
     const mslOk = msl === "loaded" && !failure && !diagnostics.some((d) => d.severity === "error");
+    // S143: Desktop は globe-mode.toml（desktop.yml が indent = 4 を置いた作業ディレクトリ）が整形に効くか。無ければ none
+    const cfg = tauri ? ` cfg=${(await backend.format("model C\nReal x;\nend C;\n").catch(() => "")).includes("\n    Real x;") ? "ok" : "none"}` : "";
     const ms = (x: number) => x.toFixed(0);
-    const line = `GM-SMOKE check=${checked ? "ok" : "ng"} simulate=${simulated ? "ok" : "ng"} x1=${x1} msl=${mslOk ? "ok" : "ng"}`
+    const line = `GM-SMOKE check=${checked ? "ok" : "ng"} simulate=${simulated ? "ok" : "ng"} x1=${x1} msl=${mslOk ? "ok" : "ng"}${cfg}`
       + ` ready_ms=${ms(ready)} decay_ms=${ms(decay)} msl_ms=${mslOk ? ms(performance.now() - t) : "-"}${failure ? ` failure=${failure}` : ""}`;
     console.log(line);
     void tauri?.bench(line);
@@ -175,7 +179,7 @@
   // 整形（S053、doc/format-style.md）。文法が壊れていれば本文は変えず、理由を出す
   const format = () => run(async () => {
     const text = view.state.doc.toString();
-    const out = await backend.format(text, 2, true);
+    const out = await backend.format(text);
     if (out !== text) view.dispatch({ changes: { from: 0, to: text.length, insert: out } });
   });
 
@@ -329,6 +333,9 @@
     {/if}
   </div>
   <SimSettings {backend} {experiment} last={lastSettings} bind:settings={simSettings} bind:problem={settingsProblem} />
+  {#if tauri}<p class="note" data-config>
+    <button onclick={async () => { configNote = ""; try { await tauri.reloadConfig(); configNote ||= "globe-mode.toml を読み直した（無ければ既定）"; } catch (e) { configNote = String(e); } }}>設定を読み直す</button> {configNote}
+  </p>{/if}
   <p class="note" data-msl={msl}>
     {#if msl === "loaded"}{mslNote}。左の木でモデルを選ぶか、モデル名にライブラリのモデル（例 Modelica.Electrical.Analog.Examples.ChuaCircuit）を入れて検査・実行できる。グラフも描ける。
     {:else if msl === "loading"}{desktop ? `MSL ${mslVersion} を取得して展開している（${mslProgress || "回線しだい"}）。もう一度押すと取り消す。` : "MSL.json を取得して読み込んでいる（十数秒）。"}
