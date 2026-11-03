@@ -146,6 +146,7 @@ SourceFile ─┬─▶ outline ─▶ outline_shape ─┬─▶ class_index �
 | `outline_shape(file)` | outline | **Eq** | **防火壁 1**。位置を 0 にした写し。索引とグラフは、空白やコメントだけの編集では再計算しない | S004 |
 | `class_index(workspace)` | outline_shape | Eq | 完全修飾名の索引（`within` を反映）。字句的な名前解決と、extends を含むインターフェース（`interface`） | S004 |
 | `connect_graph(workspace, request)` | class_index | Eq | **flatten しなくても描ける**。`GraphRequest`（モデル、depth） | S004 |
+| `library_graph(workspace, library, request)` | class_index、入力 `Library` | Eq | ライブラリがあるときの `connect_graph`。ワークスペースの索引をライブラリの索引（入力 `Library`。`Checker::library_outlines` の世代が変わったときだけ差し替える）に重ねる（[ADR-0005](adr/0005-lazy-query-db.md)） | S122 |
 | `shape(file)` | SourceFile | Eq | 正規化した本文と位置の対応表（`globe_mode_core::normalize`） | S005 |
 | `source_shape(file)` | shape | **Eq** | **防火壁 0**。コメントを除き、空白を 1 個に畳んだ本文。空白やコメントだけの編集では、Rumoca のコンパイルが走らない | S005 |
 | `shape_map(file)` | shape | Eq | 正規化後の位置 → 元の本文の位置。診断の位置を戻すのに使い、`check` の依存には入れない | S005 |

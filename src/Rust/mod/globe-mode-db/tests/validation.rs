@@ -341,3 +341,45 @@ fn measure_requery_after_whitespace_edit() {
         times[10], times[19]
     );
 }
+
+// --------------------------------------------------------------------------- ライブラリがあるとき（S122）
+
+const LIB_DOC: &str = "model Doc\n  GlobeModeValidation.Components.Resistor r(R = 1);\n  GlobeModeValidation.Components.Ground g;\nequation\n  connect(r.n, g.p);\nend Doc;\n";
+
+#[test]
+fn library_graph_is_backdated() {
+    let modelica = package_dir().join("..");
+    let mut db = GlobeDb::with_libraries(&[modelica]).expect("GlobeModeValidation を読める");
+    db.set_file("Doc.mo", LIB_DOC);
+    let first = db.connect_graph("Doc", 1).unwrap();
+    assert!(first.unresolved.is_empty(), "{:?}", first.unresolved);
+    assert_eq!(count(&db.take_executed(), "library_graph"), 1);
+
+    // (1) 同じ文書で 2 回目
+    assert_eq!(db.connect_graph("Doc", 1).unwrap(), first);
+    let executed = db.take_executed();
+    assert_eq!(count(&executed, "library_graph"), 0, "{executed:?}");
+
+    // (2) コメントと空白だけ変える
+    db.set_file(
+        "Doc.mo",
+        LIB_DOC.replace("equation\n", "  // コメント\n\nequation\n"),
+    );
+    assert_eq!(db.connect_graph("Doc", 1).unwrap(), first);
+    let executed = db.take_executed();
+    assert_eq!(count(&executed, "outline"), 1, "{executed:?}");
+    assert_eq!(count(&executed, "library_graph"), 0, "{executed:?}");
+
+    // (3) 部品を足す
+    db.set_file(
+        "Doc.mo",
+        LIB_DOC.replace(
+            "equation\n",
+            "  GlobeModeValidation.Components.Capacitor c(C = 1);\nequation\n  connect(r.p, c.p);\n",
+        ),
+    );
+    let third = db.connect_graph("Doc", 1).unwrap();
+    let executed = db.take_executed();
+    assert_eq!(count(&executed, "library_graph"), 1, "{executed:?}");
+    assert_eq!(third.nodes.len(), first.nodes.len() + 1);
+}

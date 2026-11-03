@@ -516,6 +516,11 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **言語 API の機能表**（文書だけ。[調査](research/lang-api-matrix-2026-11-03.md)、[解説書](sessions/S110-lang-api-matrix/解説書.md)）: Rust facade・C・Zig・Julia・Elixir・Gleam・Python・wasm・LSP・CLI の公開 API を 13 の機能で並べた。穴は C・Zig・Elixir・Gleam 6、Julia 7、Python 5、facade 4、LSP 3、wasm・CLI 2。参照シナリオ（`Decay` を開く → check → simulate → `final.x` が e⁻¹ → format、MSL なし）は wasm・LSP・CLI で通り、6 言語は format が無いので通らない（Python は 1〜4 を手元で確かめた。C・Zig・Julia・Elixir・Gleam はソースで判定）。
 - 埋める順: facade に `format` / `lint` → C・NIF・py に足し Julia の包み（`format`・`load_dir`・`graph`）→ 参照シナリオを各言語の試験と CI の `lang` に → 列の道を C・NIF に → FMU export を facade に → 進捗と途中で止める口（ADR を先に）。
 
+### S122（P4、2026-11-03）で済んだこと
+
+- **ライブラリがあるときの graph の backdate**（S089 の持ち越し）: ライブラリの索引を salsa の入力 `Library` にし、文書のモデルの graph を tracked の `library_graph` にした（[ADR-0005](adr/0005-lazy-query-db.md) の「S122」）。同じ文書の 2 回目とコメントだけの編集では再実行されず、部品を足すと再実行される。MSL の `ChuaCircuit` の 2 回目は 4.6 → 0.069 ms（debug、7 ノード・9 辺のまま）。[解説書](sessions/S122-graph-salsa-backdate/解説書.md)
+- 持ち越し: 同じワークスペースの別のモデルの編集でも graph を作り直す（`class_index` が変わるため。ライブラリが無いときと同じ）。
+
 ### S101（P4、2026-11-03）で済んだこと
 
 - **graph の継承した入れ子のクラス**（S089 の持ち越し）: `ClassIndex::resolve` は、字句のスコープと import で引けない名前を、内側から外へ各スコープのクラスの extends 先（再帰、深さ 32 で打ち切り）の入れ子から引く。extends の名前は受け継いだものを見ずに引く（MLS §5.6.1）。MSL の `Modelica.Fluid.Pipes.StaticPipe` のノード 1 → 2、MSL のモデル 2,002 本の `unresolved` 321 → 320、`ChuaCircuit` は 7 ノード・9 辺のまま。[解説書](sessions/S101-graph-nested-inherited/解説書.md)
