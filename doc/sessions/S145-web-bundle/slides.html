@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S145 ブラウザ版を配れる形にする — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S145 ブラウザ版を配れる形にする">
+
+<section class="slide" id="S01">
+  <span class="tag">S145 · 2026-11-04 · P6</span>
+  <h1>ブラウザ版を配れる形にする</h1>
+  <p class="lead">S140 の点検の順位 7。Pages 向けの workflow が無く、CSP は試験のサーバにだけ付いていた</p>
+  <div class="big">静的な束を <b>artifact に出す</b>。公開はユーザーの判断</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>手動の <code>web.yml</code>: wasm・UI・<code>MSL.json</code>・CSP の header の断片を artifact <code>globe-web</code> に</li>
+    <li>サブパスで配っても動くこと（<code>base: "./"</code>）</li>
+    <li>幅 400 px で崩れないこと</li>
+    <li>配布の手順を解説書に。GitHub Pages の有効化と URL の配布はしない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>サブパス</td><td>vite の <code>base</code> を <code>./</code></td><td>コードは <code>BASE_URL</code> と <code>location.href</code> からの相対で引いていた</td></tr>
+    <tr><td>CSP</td><td><code>index.html</code> の meta が正。<code>_headers</code> と <code>nginx.csp.conf</code> に写す</td><td>meta は Worker に効かない。1 か所だけ直せばよい</td></tr>
+    <tr><td>COOP / COEP</td><td>付けない</td><td>SharedArrayBuffer を使っていない</td></tr>
+    <tr><td>小画面</td><td><code>@media (max-width: 600px)</code> で木を上に積む</td><td>400 px でエディタが 86 px に押されていた</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>流れ</h1>
+  <svg class="fig" viewBox="0 0 800 240" role="img" aria-label="wasm と UI をビルドして dist を作り、試験を通し、束ねて artifact に出す。公開はユーザーが手作業で行う">
+    <rect class="svg-box" x="20" y="90" width="140" height="60" rx="10"/>
+    <text class="svg-text" x="90" y="125" text-anchor="middle">wasm + UI</text>
+    <rect class="svg-box" x="210" y="90" width="140" height="60" rx="10"/>
+    <text class="svg-text" x="280" y="125" text-anchor="middle">test_ui.py</text>
+    <rect class="svg-box-accent" x="400" y="90" width="160" height="60" rx="10"/>
+    <text class="svg-text-b" x="480" y="125" text-anchor="middle">globe-web</text>
+    <rect class="svg-box" x="620" y="90" width="160" height="60" rx="10"/>
+    <text class="svg-text" x="700" y="125" text-anchor="middle">静的ホスト</text>
+    <line class="svg-line" x1="160" y1="120" x2="210" y2="120"/>
+    <line class="svg-line" x1="350" y1="120" x2="400" y2="120"/>
+    <line class="svg-line" x1="560" y1="120" x2="620" y2="120"/>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">結果</span>
+  <h1>大きさと試験</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>生</th><th>gzip -9</th></tr>
+    <tr><td>wasm</td><td>14.7 MiB</td><td>4.5 MiB（brotli 3.1）</td></tr>
+    <tr><td>MSL.json</td><td>15.2 MiB</td><td>2.5 MiB（brotli 1.7）</td></tr>
+    <tr><td>合計</td><td>30.9 MiB</td><td>7.3 MiB（brotli 5.0）</td></tr>
+  </table>
+  <ul>
+    <li>サブパス <code>/app/</code> で検査と MSL の読み込みが通る</li>
+    <li>幅 400 px でボタンが収まり、横スクロールなし</li>
+  </ul>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ul>
+    <li>公開するか（Pages か別のホストか）はユーザーの判断</li>
+    <li>PWA、ダークモード</li>
+    <li><code>MSL.json</code> の分割配信</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

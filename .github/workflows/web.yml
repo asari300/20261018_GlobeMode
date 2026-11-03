@@ -7,8 +7,6 @@ name: web
 
 on:
   workflow_dispatch:
-  push: # 一時（S145）: 新しい workflow は main に無いと dispatch できない。最後のコミットで消す
-    branches: [feature/s145-web-bundle]
 
 permissions:
   contents: read
