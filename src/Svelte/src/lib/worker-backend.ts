@@ -1,5 +1,5 @@
 import { GlobeWorker } from "../../../Rust/mod/globe-mode-wasm/web/client.js";
-import type { Backend, LintMessage, Progress, TreeEntry } from "./backend";
+import type { Backend, Definition, LintMessage, Progress, TreeEntry } from "./backend";
 import { gapNonFinite, type Columns } from "./plot/csv";
 import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse } from "./protocol";
 
@@ -43,5 +43,8 @@ export class WorkerBackend implements Backend {
   }
   librarySource(path: string): Promise<{ file: string; text: string }> {
     return this.#w.librarySource(path);
+  }
+  definition(file: string, line: number, character: number): Promise<Definition | null> {
+    return this.#w.definition(file, line, character);
   }
 }

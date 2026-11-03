@@ -21,6 +21,15 @@ export interface Backend {
   libraryTree(prefix: string): Promise<TreeEntry[]>;
   /** ライブラリのクラス path を定義するファイルの名前と本文（S127）。その名前で setFile するとライブラリのファイルを差し替える。 */
   librarySource(path: string): Promise<{ file: string; text: string }>;
+  /** setFile 済みの file の位置（行は 0 始まり、列は UTF-16）にある名前の定義（S138）。名前が引けなければ null。 */
+  definition(file: string, line: number, character: number): Promise<Definition | null>;
+}
+
+/** 定義の場所。text は定義のあるファイルの本文（ライブラリのファイルならエディタに開く）。range は LSP の Range。 */
+export interface Definition {
+  file: string;
+  text: string;
+  range: { start: { line: number; character: number }; end: { line: number; character: number } };
 }
 
 /** 実行系の進捗（ADR-0033）。stage は "lowering"・"integration" など、time は積分の t（無ければ undefined）。 */

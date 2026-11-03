@@ -15,6 +15,7 @@
 //! | `globe/format` | `{text, indent?, insertOrigin?, blankAroundSections?, formatHtml?}` | 整形後の本文（S053。壊れていれば -32000） |
 //! | `globe/lint` | `{text}` | `[{rule, line, column, message}]`（S053） |
 //! | `globe/libraryTree` | `{prefix}`（空ならトップレベル） | `[{name, path, kind, description, file, hasChildren}]`（S127。直下の子だけ。wasm の `library_tree` と同じ形） |
+//! | `globe/definition` | `{file, line, character}`（開いている文書。行は 0 始まり、列は UTF-16） | `{file, text, range}` か null（S138。`textDocument/definition` と同じ解決で、定義のあるファイルの本文も返す。wasm の `definition` と同じ形） |
 //! | `globe/librarySource` | `{path}`（完全修飾名） | `{file, text}`（S127。そのクラスを定義するライブラリのファイル。無ければ -32000） |
 //!
 //! 設定ファイル（S130）: `initialize` の `rootUri`（無ければ `rootPath`）から上へたどって最初の `globe-mode.toml` を
@@ -25,7 +26,7 @@
 //! facade（`globe-mode`）の `Workspace` だけを呼び、新しい計算は入れない。
 
 mod completion;
-mod definition;
+pub mod definition;
 
 use std::collections::HashMap;
 use std::io::{self, BufRead, Write};
@@ -242,6 +243,7 @@ impl Server {
                     ws: &self.ws,
                     tree,
                     scratch: &mut self.scratch,
+                    read: &|f| std::fs::read_to_string(f).ok(),
                 }
                 .definition(&uri_path(&uri), &text, at);
                 let location = target.and_then(|t| {
@@ -254,6 +256,36 @@ impl Server {
                     Some(json!({"uri": u, "range": range(&body, t.range)}))
                 });
                 reply(id, location.unwrap_or(Value::Null))
+            }
+            // UI 向け（S138）: 開いている文書 `file` の行・列の定義を `{file, text, range}` で返す（無ければ null）
+            "globe/definition" => {
+                let Some(file) = params["file"].as_str() else {
+                    return error(id, -32602, "params.file が文字列でない");
+                };
+                let Some(text) = self.texts.get(file).cloned() else {
+                    return reply(id, Value::Null);
+                };
+                self.tree();
+                let tree = self.tree.as_ref().expect("tree() で作った");
+                let open = &self.texts;
+                let found = definition::definition_at(
+                    &mut definition::Resolver {
+                        ws: &self.ws,
+                        tree,
+                        scratch: &mut self.scratch,
+                        read: &|f| {
+                            open.iter()
+                                .find(|(u, _)| uri_path(u) == f)
+                                .map(|(_, t)| t.clone())
+                                .or_else(|| std::fs::read_to_string(f).ok())
+                        },
+                    },
+                    &uri_path(file),
+                    &text,
+                    params["line"].as_u64().unwrap_or(0) as u32,
+                    params["character"].as_u64().unwrap_or(0) as u32,
+                );
+                reply(id, found.unwrap_or(Value::Null))
             }
             "textDocument/references" => {
                 let refs: Vec<Value> = match self.texts.get(&uri) {
@@ -1080,6 +1112,32 @@ mod tests {
             json!({"line": 3, "character": 19}),
             "{r}"
         );
+    }
+
+    #[test]
+    fn globe_definition_returns_the_target_file_text() {
+        let lib =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../Modelica/GlobeModeValidation");
+        let mut s = Server::new(std::slice::from_ref(&lib)).unwrap();
+        let text = "model T\n  import GlobeModeValidation.Components;\n  Components.Resistor r1;\nend T;\n";
+        s.handle(
+            json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+            "uri": "T.mo", "languageId": "modelica", "version": 1, "text": text}}}),
+        );
+        let ask = |s: &mut Server, line: u32, character: u32| {
+            s.handle(json!({"id": 1, "method": "globe/definition",
+                "params": {"file": "T.mo", "line": line, "character": character}}))
+                .remove(0)["result"]
+                .clone()
+        };
+        let r = ask(&mut s, 2, 15); // Resistor
+        assert!(
+            r["file"].as_str().unwrap().ends_with("Components.mo"),
+            "{r}"
+        );
+        assert!(r["text"].as_str().unwrap().contains("Resistor"), "{r}");
+        assert_eq!(r["range"]["start"]["line"], 13, "{r}");
+        assert_eq!(ask(&mut s, 0, 0), Value::Null); // 予約語 model
     }
 
     #[test]

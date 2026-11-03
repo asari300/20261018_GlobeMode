@@ -7,6 +7,7 @@ dist/ を localhost で配り（CSP は index.html の meta と同じものを�
 10 万点（4 状態、出力間隔 0.01 s で 1000 s）の結果でも描けて時間を測ること、構造的に特異なモデルを検査して診断の行が出て、行を押すとエディタの選択が動くことを確かめる。1 ファイルの回路で「グラフ」を押して connect グラフが描かれることを確かめる（S046）。
 最後に「MSL を読む」で MSL 4.1.0 を読み（public/msl/MSL.json が無ければ飛ばす）、ChuaCircuit の検査（error 0）と実行（プロットの canvas と系列）を確かめて、秒数を出す（S048）。
 長いモデルの実行で進捗（段と t の割合）が出て、「止める」で止まり（data-run="cancelled"）、ボタンが戻ることを確かめる（S133）。
+Decay の `der(x)` の x で F12 を押すと宣言の行（`Real x`）へ動く。ChuaCircuit のファイルで型 `Modelica.Electrical.Analog.Basic.Resistor` の上の F12 は、ライブラリの Resistor.mo をエディタに開き、Alt+← で ChuaCircuit に戻る（S138）。
 ライブラリの木で Modelica → Electrical → Analog → Examples → ChuaCircuit と開き、そのファイルがエディタに開いて検査が通ることも確かめる（S127）。
 別のページで MSL.json を構文の誤りのファイルを含むライブラリに差し替え、読み飛ばしの警告 GM-W1001 の行と notes のファイル名が出ることを確かめる（S071）。
 `?smoke=1` で起動すると Decay の検査と実行の結果が console に `GM-SMOKE check=ok simulate=ok x1=… msl=… ready_ms=…` の 1 行で出ること（S100、android.yml の smoke。時刻は S125）。MSL.json があれば msl=ok（MSL を読んで ChuaCircuit の検査が error 0。S103）。
@@ -92,6 +93,18 @@ def main() -> int:
         assert rows.count() > 0, "info の診断（GM-I10001）は出るはず"  # 描画の確認も兼ねる
         assert page.locator("tr.error").count() == 0, rows.all_inner_texts()
         print(f"Decay: 診断 {rows.count()} 行、error 0 行: {rows.all_inner_texts()}")
+
+        # 定義ジャンプ（S138）: 4 行目 `  der(x) = -x;` の末尾の x（`;` の手前）で F12 → 宣言の行へ
+        page.locator(".cm-content").focus()
+        page.keyboard.press("Control+Home")
+        for _ in range(3):
+            page.keyboard.press("ArrowDown")
+        page.keyboard.press("End")
+        page.keyboard.press("ArrowLeft")
+        page.keyboard.press("F12")
+        expect(page.locator(".cm-activeLine")).to_contain_text("Real x(start", timeout=30_000)
+        assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
+        print(f"Decay の F12: 動いた先の行 {page.locator('.cm-activeLine').inner_text()!r}")
 
         run = page.get_by_role("button", name="実行")
 
@@ -249,6 +262,20 @@ def main() -> int:
             assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
             assert page.locator("tr.error").count() == 0, rows.all_inner_texts()
             print(f"木から ChuaCircuit を開く: {opened:.1f} s、検査まで {time.perf_counter() - t:.1f} s、診断 {rows.count()} 行、error 0 行")
+            # 定義ジャンプ（S138）: 9 行目 `  Modelica.Electrical.Analog.Basic.Resistor Ro(…` の Resistor の中で F12 → ライブラリのファイルが開く
+            page.locator(".cm-content").focus()
+            page.keyboard.press("Control+Home")
+            for _ in range(8):
+                page.keyboard.press("ArrowDown")
+            for _ in range(38):
+                page.keyboard.press("ArrowRight")
+            page.keyboard.press("F12")
+            expect(page.locator(".cm-content")).to_contain_text("model Resistor", timeout=60_000)
+            expect(page.locator(".cm-activeLine")).to_contain_text("model Resistor")
+            assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
+            page.keyboard.press("Alt+ArrowLeft")
+            expect(page.locator(".cm-content")).to_contain_text("model ChuaCircuit")
+            print("ChuaCircuit の F12: Resistor.mo が開き、Alt+← で ChuaCircuit に戻った")
         else:
             print("public/msl/MSL.json が無いので MSL の試験は飛ばす")
         # ライブラリに構文の誤りのファイルがあっても読み、読み飛ばしを GM-W1001 の行（ファイル名は notes）で出す（S071）。
