@@ -53,3 +53,7 @@
 - 判定ロジックは [test_ci_plan.py](../../.github/scripts/test_ci_plan.py)（12 件）で守り、plan ジョブの最初に実行する。
 - 手元で計画を見るには `mise run ci:plan`（origin/main との差分）。
 - しきい値（40 ファイル）や判定の表を変えたら、この ADR と `ci_plan.py` とテストを同じコミットで直す。
+
+### S148: zig は ziglang.org から直接取る
+
+`jdx/mise-action` の zig の取得は、既定ではコミュニティのミラー（17 件、順不同）を先に試す。run 41702810070 の `lang` はミラーの 502・500 のあと、ziglang.org へのファイル名の取り違え（404）で落ちた。zig を入れるジョブ（`ci.yml` の `lang`、`fmu-export.yml`、`release.yml`）に `MISE_ZIG_USE_COMMUNITY_MIRRORS: "false"` を足し、ziglang.org から直接取る（署名の検証は同じ。出典: [mise の Zig](https://mise.jdx.dev/lang/zig.html)、確認 2026-11-04）。ziglang.org が落ちたら、この行を消せばミラーに戻る。詳細は [S148 の解説書](../sessions/S148-ci-zig-mirror/解説書.md)。

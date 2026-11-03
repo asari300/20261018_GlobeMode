@@ -402,6 +402,11 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 
 - **ソルバ別の表**: `msl-sim.yml` にジョブ `solvers`（`msl-sim` の後。14 ソルバの matrix で `msl-sim --solver <名前> --tolerance-scale 0.1`。cvode・ida は xtask のビルドに `--features globe-mode-exec/sundials`）と `solvers-report`（`cargo xtask msl-solvers`）を足し、[msl-solvers.md](msl-solvers.md) を作った（run 41194959752、全ジョブ成功、ソルバのジョブは 63〜174 分）。対象 356 本のうち実行できたのは 283（dopri853）〜301（bdf）本、管に収まった割合は 95.2（trbdf2）〜98.3%（ida）。`auto` は 309・301/308。`bdf` 単独と `auto` の差 8 本は、`bdf` の内部エラー（`GM-U0005`）10 本を dopri45 の回し直しで救ったもの。入れなかったもの: `qss`、固定刻み、`esdirk23`、別名（理由は解説書）。これで P8「ソルバの表がそろう」の数字の土台ができた。更新は `gh workflow run msl-sim.yml`（手元では回さない）。
 
+### S148（CI の基盤、2026-11-04）で済んだこと
+
+- **zig の取得を安定させた**（[解説書](sessions/S148-ci-zig-mirror/解説書.md)、[ADR-0006 の S148](adr/0006-incremental-ci.md)）: `ci.yml` の `lang` が、mise の zig のコミュニティのミラー（502・500）と、そのあとのファイル名の取り違え（404）で落ちた（run 41702810070）。zig を入れる 3 か所（`ci.yml` の `lang`、`fmu-export.yml`、`release.yml`）に `MISE_ZIG_USE_COMMUNITY_MIRRORS=false` を足し、ziglang.org から直接取る。
+- 持ち越し: ファイル名の取り違えの原因（mise 側、【未確認】）。ziglang.org が落ちたら zig の install 先の `actions/cache`。
+
 ### S146（P4、2026-11-04）で済んだこと
 
 - **プロットの書き出し**（S140 の点検の順位 8。[解説書](sessions/S146-ui-plot-export/解説書.md)）: `Plot.svelte` に「CSV」「PNG」。CSV は選んだ系列と x の列（`plot/csv.ts` の `toCsv`、null は空欄）、PNG は uPlot の canvas を白地に写した `toBlob`。`Backend.saveBinary?(name, bytes)` を optional で足し、ブラウザ・Android は Blob のダウンロード、Desktop は `dialog.save` と `fs.writeFile`（`capabilities/desktop.json` に `fs:allow-write-file` を 1 つ）。保存ダイアログの絞り込みは名前の拡張子から作る。`App.svelte` は触らず、Plot が保存の道を選ぶ。
