@@ -7,7 +7,7 @@
 | worktree | `.git-worktree/s136-progress-cancel-lsp` |
 | Phase | P7 |
 | セッション文書 | `doc/sessions/S136-progress-cancel-lsp/` |
-| セッション記録 | （親が写す） |
+| セッション記録 | [2026-11-02-a2580a13-3889-4662-9db4-a45dc1ca6772.md](../sessions/2026-11-02-a2580a13-3889-4662-9db4-a45dc1ca6772.md) |
 
 ## 依頼
 
@@ -36,7 +36,7 @@ ADR-0033 の順の 5: LSP の `$/progress` と `$/cancelRequest`（読みと計�
 - `desktop.yml`（feature で dispatch）: run 41654000916（1 回目のコミット）と run 41666485823（試験を直した後）とも success（ui・Linux の deb・Windows の msi）。Windows で `canceller_stops_a_long_simulate` と `talks_to_globe_lsp_and_recovers_from_a_kill` が ok、smoke の `GM-SMOKE check=ok simulate=ok`。
 - `check_docs.py`: デッキ OK / 文書 564 件・相対リンク 2834 件中の切れ 0 件。
 - `render_slides.py`: 手元では 2 回とも `Page.screenshot` の 30 s の時間切れで通らず、CI の docs で確認。
-- セッション記録の `--check`: （親が写す）。
+- セッション記録の `--check`: 取りこぼし 0 件（親が写した）。
 - 漏洩検査（`git diff main...HEAD` のメールアドレス・ホームのパス・トークン）: 0 件。
 
 ## 残したこと
