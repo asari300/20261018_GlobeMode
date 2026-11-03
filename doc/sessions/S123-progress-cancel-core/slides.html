@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S123 進捗と中断の 1 段目 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S123 進捗と中断の 1 段目">
+
+<section class="slide" id="S01">
+  <span class="tag">S123 · 2026-11-03 · P7</span>
+  <h1>進捗と中断の 1 段目</h1>
+  <p class="lead">ADR-0033 の実装の順の 1: core・IR・exec・facade</p>
+  <div class="big">止めないときの結果は<b>ビット単位で同じ</b>、速さは <b>+1.2%</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>実行の進捗（段と積分の時刻 t）を呼び手に知らせる</li>
+    <li>呼び手の持つ <code>CancelToken</code> で実行を途中で止める</li>
+    <li>置き場所は core（<code>GM-I11004</code>）、IR（<code>Termination::Cancelled</code>）、exec（<code>run_observed</code>）、facade（<code>simulate_observed</code>）</li>
+    <li>wasm・UI・Python・C/NIF・LSP は次の段へ持ち越す</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>見る場所</td><td>段に入る前、<code>auto</code> の回し直しの前、session の道の積分器の 1 歩の前</td><td>lowering と組み立ての中は Rumoca の中で見られない</td></tr>
+    <tr><td>session の道</td><td>積分器を包む <code>Observed</code> が <code>advance</code> の前に見る</td><td><code>advance_to</code> の区切りは刻みの上限になり、数値が変わる</td></tr>
+    <tr><td>積分の中で止めた</td><td><code>Cancelled { time }</code> とそこまでの列、<code>ok: true</code>、<code>GM-I11004</code></td><td>列は壊れていない。止めたのは失敗ではない</td></tr>
+    <tr><td>積分の前で止めた</td><td>列は無し、<code>ok: false</code>、<code>GM-I11004</code> だけ</td><td>Error にしない</td></tr>
+    <tr><td>t の間引き</td><td>前に知らせてから 100 ms 以上（facade の <code>now</code>）</td><td>ADR の (1)。実行系は <code>Instant</code> を呼ばない</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由</span>
+  <h1>区切り方の比較（release、Simulation の 20 本）</h1>
+  <table class="compact">
+    <tr><th>モデル</th><th>前（run_to_stop）</th><th>包む形（採用）</th><th>出力の点で advance_to</th></tr>
+    <tr><td>Decay</td><td>0.0161 s</td><td class="ok">+3.6%</td><td class="ng">+186%</td></tr>
+    <tr><td>HarmonicOscillator</td><td>0.0432 s</td><td class="ok">+4.3%</td><td class="ng">+72%</td></tr>
+    <tr><td>TinyStateRestart</td><td>0.0087 s</td><td class="ok">+1.9%</td><td class="ng">+366%</td></tr>
+    <tr><td>20 本の和</td><td>22.368 s</td><td class="ok">+1.2%</td><td>−1.2%</td></tr>
+    <tr><td>数値</td><td>基準</td><td class="ok">同じ</td><td class="ng">変わる（試験 6 本が落ちた）</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">図</span>
+  <h1>流れ</h1>
+  <svg class="fig" viewBox="0 0 800 260" role="img" aria-label="facade から exec の Hooks を経て二つの道へ">
+    <rect class="svg-box-accent" x="20" y="100" width="170" height="60" rx="10"/>
+    <text class="svg-text-b" x="105" y="135" text-anchor="middle">simulate_observed</text>
+    <line class="svg-line" x1="190" y1="130" x2="250" y2="130"/>
+    <rect class="svg-box" x="250" y="100" width="150" height="60" rx="10"/>
+    <text class="svg-text-b" x="325" y="135" text-anchor="middle">run_observed</text>
+    <line class="svg-line" x1="400" y1="130" x2="450" y2="130"/>
+    <rect class="svg-box" x="450" y="100" width="110" height="60" rx="10"/>
+    <text class="svg-text-b" x="505" y="135" text-anchor="middle">Hooks</text>
+    <line class="svg-line" x1="560" y1="120" x2="600" y2="60"/>
+    <line class="svg-line" x1="560" y1="140" x2="600" y2="200"/>
+    <rect class="svg-box" x="600" y="30" width="190" height="60" rx="10"/>
+    <text class="svg-text" x="695" y="65" text-anchor="middle">型付きの道: 段の前だけ</text>
+    <rect class="svg-box-accent" x="600" y="170" width="190" height="60" rx="10"/>
+    <text class="svg-text" x="695" y="205" text-anchor="middle">session の道: 1 歩ごと</text>
+  </svg>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>cargo test -p globe-mode-core -p globe-mode-ir -p globe-mode-exec -p globe-mode
+mise run wasm:node
+mise run wasm:compare</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">4/4</span><span class="l">ADR の試験 (a)〜(d)</span></div>
+    <div class="kpi"><span class="n">+1.2%</span><span class="l">session の道の和</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">wasm:compare の不一致</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>順の 2: wasm と Svelte の進捗の表示。1 歩ごとの <code>performance.now()</code> の費用を測る</li>
+    <li>順の 3〜5: Python、C と NIF、LSP と Desktop</li>
+    <li>状態の無いモデルは積分の中で止められない（積分器が無い）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

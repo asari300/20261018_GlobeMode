@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::PyBytes;
+use pyo3::types::{PyBytes, PyDict};
 use serde::Serialize;
 
 fn json<T: Serialize>(value: &T) -> Result<String, String> {
@@ -46,9 +46,20 @@ fn simulate_columns(
     model: &str,
     settings_json: Option<&str>,
 ) -> Result<Columns, String> {
+    let request = columns_request(model, settings_json)?;
+    columns_of(ws.simulate_with(&request, &globe_mode::now_ms))
+}
+
+fn columns_request(
+    model: &str,
+    settings_json: Option<&str>,
+) -> Result<globe_mode::SimulateRequest, String> {
     let mut request = request(model, settings_json)?;
     request.no_csv = true;
-    let simulated = ws.simulate_with(&request, &globe_mode::now_ms);
+    Ok(request)
+}
+
+fn columns_of(simulated: globe_mode::Simulated) -> Result<Columns, String> {
     let (layout, columns) = simulated.columns();
     let columns = columns
         .iter()
@@ -56,6 +67,64 @@ fn simulate_columns(
         .collect();
     let (response, names) = (simulated.response, layout.names);
     Ok((json(&response)?, names, columns))
+}
+
+/// `Progress` を Python の dict に（`stage` は `"integration"` などの小文字、`time` は積分の段だけ）。
+fn progress_dict<'py>(py: Python<'py>, p: &globe_mode::Progress) -> PyResult<Bound<'py, PyDict>> {
+    let d = PyDict::new(py);
+    d.set_item("stage", format!("{:?}", p.stage).to_lowercase())?;
+    d.set_item("time", p.time)?;
+    d.set_item("start_time", p.start_time)?;
+    d.set_item("stop_time", p.stop_time)?;
+    Ok(d)
+}
+
+/// ADR-0033 の Python の段（S129）。GIL を離して `simulate_observed` を回し、進捗のたびに GIL を取り直して
+/// `check_signals`（Ctrl-C）と `on_progress(dict)` を呼ぶ。`True`（真の値）が返るか例外が出たらトークンを立てて
+/// 次の区切りで止め、例外（`KeyboardInterrupt` など）は実行が戻ってから投げ直す。`finish` も GIL の外で回す。
+fn simulate_observed<T: Send>(
+    py: Python<'_>,
+    ws: &mut globe_mode::Workspace,
+    request: &globe_mode::SimulateRequest,
+    on_progress: Py<PyAny>,
+    finish: impl FnOnce(globe_mode::Simulated) -> Result<T, String> + Send,
+) -> PyResult<T> {
+    let token = globe_mode::CancelToken::new();
+    let mut raised: Option<PyErr> = None;
+    let mut notify = |p: &globe_mode::Progress| {
+        if raised.is_some() {
+            return;
+        }
+        let stop = Python::attach(|py| {
+            py.check_signals()?;
+            on_progress
+                .call1(py, (progress_dict(py, p)?,))?
+                .is_truthy(py)
+        });
+        match stop {
+            Ok(false) => {}
+            Ok(true) => token.cancel(),
+            Err(e) => {
+                raised = Some(e);
+                token.cancel();
+            }
+        }
+    };
+    let cancel = token.clone();
+    let out = py.detach(move || {
+        finish(ws.simulate_observed(
+            request,
+            &globe_mode::now_ms,
+            globe_mode::SimulateHandle {
+                on_progress: Some(&mut notify),
+                cancel: Some(cancel),
+            },
+        ))
+    });
+    if let Some(e) = raised {
+        return Err(e);
+    }
+    out.map_err(PyValueError::new_err)
 }
 
 fn graph_json(ws: &mut globe_mode::Workspace, model: &str, depth: u32) -> Result<String, String> {
@@ -106,21 +175,43 @@ impl Workspace {
     }
 
     /// 検査 → コンパイル → 実行（`SimulateResponse` の JSON）。モデルの誤りは例外にせず `ok` と `diagnostics` で返す。
-    #[pyo3(signature = (model, settings = None))]
-    fn simulate(&mut self, model: &str, settings: Option<&str>) -> PyResult<String> {
-        simulate_json(&mut self.0, model, settings).map_err(PyValueError::new_err)
+    /// `on_progress` を渡すと GIL を離して回し、進捗を dict で知らせる。`True` を返すか Ctrl-C で止まる（S129）。
+    #[pyo3(signature = (model, settings = None, on_progress = None))]
+    fn simulate(
+        &mut self,
+        py: Python<'_>,
+        model: &str,
+        settings: Option<&str>,
+        on_progress: Option<Py<PyAny>>,
+    ) -> PyResult<String> {
+        let Some(on_progress) = on_progress else {
+            return simulate_json(&mut self.0, model, settings).map_err(PyValueError::new_err);
+        };
+        let request = request(model, settings).map_err(PyValueError::new_err)?;
+        simulate_observed(py, &mut self.0, &request, on_progress, |s| {
+            json(&s.response)
+        })
     }
 
     /// [`Workspace::simulate`] と同じだが、時系列を `(結果の JSON, 列の名前, 列の bytes)` で返す（S085）。
-    #[pyo3(signature = (model, settings = None))]
+    /// `on_progress` は [`Workspace::simulate`] と同じ（S129）。
+    #[pyo3(signature = (model, settings = None, on_progress = None))]
     fn simulate_columns<'py>(
         &mut self,
         py: Python<'py>,
         model: &str,
         settings: Option<&str>,
+        on_progress: Option<Py<PyAny>>,
     ) -> PyResult<(String, Vec<String>, Vec<Bound<'py, PyBytes>>)> {
-        let (response, names, columns) =
-            simulate_columns(&mut self.0, model, settings).map_err(PyValueError::new_err)?;
+        let (response, names, columns) = match on_progress {
+            None => {
+                simulate_columns(&mut self.0, model, settings).map_err(PyValueError::new_err)?
+            }
+            Some(f) => {
+                let request = columns_request(model, settings).map_err(PyValueError::new_err)?;
+                simulate_observed(py, &mut self.0, &request, f, columns_of)?
+            }
+        };
         let columns = columns.iter().map(|c| PyBytes::new(py, c)).collect();
         Ok((response, names, columns))
     }

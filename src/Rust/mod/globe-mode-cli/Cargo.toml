@@ -26,7 +26,7 @@ sundials = ["globe-mode/sundials"]
 globe-mode = { workspace = true, features = ["fmu"] }
 globe-mode-core = { workspace = true }
 globe-mode-lsp = { workspace = true }
-globe-mode-fmt = { workspace = true }
+globe-mode-fmt = { workspace = true, features = ["config"] }
 globe-mode-ir = { workspace = true }
 clap = { workspace = true }
 serde_json = { workspace = true }

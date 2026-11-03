@@ -6,6 +6,8 @@
 //! 整形の出力は再び字句解析して、空白以外のトークン列が意図どおりであることを確かめる（意味を変えない保証）。
 
 mod annotation;
+#[cfg(feature = "config")]
+mod config;
 mod html;
 mod layout;
 mod lexer;
@@ -13,8 +15,10 @@ mod lint;
 mod structure;
 mod tree;
 
-pub use lint::{LintMessage, LintOptions, lint};
 pub use tree::{LibraryTree, TreeEntry};
+#[cfg(feature = "config")]
+pub use config::CONFIG_FILE;
+pub use lint::{LintMessage, LintOptions, RULES, lint};
 
 /// Modelica の予約語と組み込み型。補完の候補に使う。
 pub const KEYWORDS: &[&str] = &[

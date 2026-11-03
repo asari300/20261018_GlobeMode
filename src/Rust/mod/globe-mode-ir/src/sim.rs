@@ -229,6 +229,8 @@ pub enum Termination {
     StopTime,
     /// `terminate()` で終了時刻の前に終わった
     Terminated { time: f64, message: String },
+    /// 呼び手が積分の途中で止めた（列は `time` まで。S123、ADR-0033）
+    Cancelled { time: f64 },
 }
 
 /// 実行の統計。
