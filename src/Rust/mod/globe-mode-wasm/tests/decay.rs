@@ -323,3 +323,39 @@ fn library_tree_opens_a_model_file_as_the_document() {
     let x = response.final_values.unwrap()["x"];
     assert!((x - (-2.0f64).exp()).abs() < 1e-4, "{x}");
 }
+
+#[test]
+fn definition_jumps_into_the_library_file() {
+    // S138: UI の F12。ライブラリの木から読んだファイルを引く
+    let mut ws = Workspace::with_library_split("GlobeModeValidation", &package())
+        .unwrap()
+        .with_tree(package());
+    let text =
+        "model T\n  import GlobeModeValidation.Components;\n  Components.Resistor r1;\nend T;\n";
+    ws.put_file("T.mo", text);
+    let r: serde_json::Value = serde_json::from_str(&ws.definition("T.mo", text, 2, 15)).unwrap();
+    assert!(
+        r["file"].as_str().unwrap().ends_with("Components.mo"),
+        "{r}"
+    );
+    assert!(r["text"].as_str().unwrap().contains("Resistor"), "{r}");
+    assert_eq!(r["range"]["start"]["line"], 13, "{r}");
+    assert_eq!(ws.definition("T.mo", text, 0, 0), "null");
+}
+
+#[test]
+fn decay_exports_a_source_fmu_as_bytes() {
+    // S144: ブラウザの「FMU を書き出す」。ファイルに触らず zip のバイト列で返る
+    let mut ws = Workspace::new();
+    for (name, text) in package() {
+        ws.put_file(&name, text);
+    }
+    let fmu = ws
+        .export_fmu("GlobeModeValidation.Simulation.Decay", 2)
+        .ok()
+        .unwrap();
+    assert_eq!(&fmu[..2], b"PK");
+    let has = |name: &[u8]| fmu.windows(name.len()).any(|w| w == name);
+    assert!(has(b"modelDescription.xml") && has(b"sources/"));
+    assert!(ws.inner().export_fmu_bytes("Nope", 2).is_err()); // export_fmu の Err は JsValue で、ネイティブでは作れない
+}

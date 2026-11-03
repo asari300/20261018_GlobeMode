@@ -22,6 +22,8 @@ jobs:
       FMUSIM_URL: https://github.com/modelica/fmusim/releases/download/v0.15.0/fmusim-x86_64-linux.zip
       FMUSIM_SHA256: d92bd9054ac9693d263c4d68e75a6dd4d540cdd415c178dd75521571ed9e29a0
       MODEL: GlobeModeValidation.Simulation.Decay
+      # S148: zig は ziglang.org から直接取る（コミュニティのミラーが 502・500 で落ちた: run 41702810070）。署名は mise が検証する
+      MISE_ZIG_USE_COMMUNITY_MIRRORS: "false"
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v5

@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S144 FMU を UI から書き出す — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S144 FMU を UI から書き出す">
+
+<section class="slide" id="S01">
+  <span class="tag">S144 · 2026-11-04 · P4/P5</span>
+  <h1>FMU を UI から書き出す</h1>
+  <p class="lead">S140 の点検の順位 4。FMU export は CLI と各言語 API にだけあった</p>
+  <div class="big">ブラウザは wasm の zip をダウンロード、Desktop は LSP が書く</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>ボタン「FMU を書き出す」（<code>Backend.exportFmu(model, fmiVersion)</code>）</li>
+    <li>ブラウザで出来るかを先に <code>cargo check --target wasm32</code> で確かめる</li>
+    <li>結論を ADR-0031 に 1 段落。<code>--build</code>・FMU import は持ち越し</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>ブラウザでも出来た</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>wasm32</td><td><code>globe-mode-fmi/export</code> は check が通った</td><td>テンプレートは文字列を返すだけ。ファイルに触るのは <code>write_fmu</code> だけ</td></tr>
+    <tr><td>バイト列</td><td><code>fmu_bytes</code> → <code>export_fmu_bytes</code> → wasm の <code>export_fmu</code></td><td>zip をメモリ上で組む。中身は build 無しの <code>write_fmu</code> と同じ</td></tr>
+    <tr><td>Desktop</td><td>LSP の <code>globe/exportFmu {model, fmiVersion, outDir}</code></td><td>facade の <code>export_fmu</code> をそのまま呼ぶ</td></tr>
+    <tr><td>build</td><td>UI に持たない</td><td>ブラウザにはプロセスもファイルも無い。Desktop も持ち越し</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>流れ</h1>
+  <svg class="fig" viewBox="0 0 800 260" role="img" aria-label="ボタンから、ブラウザは wasm の zip を Blob でダウンロード、Desktop は LSP が outDir に書く">
+    <rect class="svg-box-accent" x="20" y="100" width="140" height="60" rx="10"/>
+    <text class="svg-text-b" x="90" y="135" text-anchor="middle">FMU を書き出す</text>
+    <rect class="svg-box" x="260" y="30" width="190" height="60" rx="10"/>
+    <text class="svg-text" x="355" y="65" text-anchor="middle">wasm export_fmu</text>
+    <rect class="svg-box" x="530" y="30" width="230" height="60" rx="10"/>
+    <text class="svg-text" x="645" y="65" text-anchor="middle">Uint8Array を Blob に</text>
+    <rect class="svg-box" x="260" y="170" width="190" height="60" rx="10"/>
+    <text class="svg-text" x="355" y="205" text-anchor="middle">globe/exportFmu</text>
+    <rect class="svg-box" x="530" y="170" width="230" height="60" rx="10"/>
+    <text class="svg-text" x="645" y="205" text-anchor="middle">outDir に .fmu と展開</text>
+    <line class="svg-line" x1="160" y1="115" x2="260" y2="60"/>
+    <line class="svg-line" x1="160" y1="145" x2="260" y2="200"/>
+    <line class="svg-line" x1="450" y1="60" x2="530" y2="60"/>
+    <line class="svg-line" x1="450" y1="200" x2="530" y2="200"/>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>試験</h1>
+  <table class="compact">
+    <tr><th>試験</th><th>中身</th><th>結果</th></tr>
+    <tr><td>lsp</td><td>Decay を <code>globe/exportFmu</code> で書き、<code>modelDescription.xml</code> がある</td><td class="ok">通過</td></tr>
+    <tr><td>wasm</td><td>バイト列が <code>PK</code> で始まり <code>modelDescription.xml</code> と <code>sources/</code> を含む</td><td class="ok">通過</td></tr>
+    <tr><td>test_ui</td><td><code>expect_download</code> で <code>Mine.fmu</code>、zip の中身を読む</td><td class="ok">通過</td></tr>
+  </table>
+  <pre><code>cargo test -p globe-mode-lsp -p globe-mode-wasm
+mise run ui:check</code></pre>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ul>
+    <li><code>--build</code> の UI、FMI 3.0 の選択、FMU import</li>
+    <li>Desktop で選んだファイル名の反映（今はフォルダだけ）</li>
+    <li>wasm のサイズの増え分の切り分け、Android の実機確認</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

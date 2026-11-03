@@ -1,11 +1,16 @@
-import type { Backend, LintMessage, Progress, TreeEntry } from "./backend";
+import type { Backend, Definition, LintMessage, Progress, TreeEntry } from "./backend";
 import type { Columns } from "./plot/csv";
-import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse } from "./protocol";
+import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse, SolverEntry } from "./protocol";
 
 // Tauri が `withGlobalTauri` で注入する関数だけを使う（@tauri-apps/api は入れない。npm の依存を増やさないため）。
 type Invoke = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
 type Listen = <T>(event: string, cb: (e: { payload: T }) => void) => Promise<() => void>;
-const tauriGlobal = () => (window as unknown as { __TAURI__: { core: { invoke: Invoke }; event: { listen: Listen } } }).__TAURI__;
+type Dialog = { open(o: object): Promise<string | null>; save(o: object): Promise<string | null> };
+type Fs = { readTextFile(p: string): Promise<string>; writeTextFile(p: string, t: string): Promise<void>; writeFile(p: string, b: Uint8Array): Promise<void> };
+const tauriGlobal = () => (window as unknown as { __TAURI__: { core: { invoke: Invoke }; event: { listen: Listen }; dialog: Dialog; fs: Fs } }).__TAURI__;
+const MO = [{ name: "Modelica", extensions: ["mo"] }];
+const extFilter = (name: string) => [{ name: "File", extensions: [name.split(".").pop() ?? ""] }]; // 保存ダイアログの拡張子の絞り込み
+const baseName = (p: string) => p.split(/[\\/]/).pop() ?? p;
 const invoke: Invoke = (cmd, args) => tauriGlobal().core.invoke(cmd, args);
 
 /** `$/progress` の token（S136。実行は 1 度に 1 つなので固定）。 */
@@ -40,6 +45,17 @@ export class TauriBackend implements Backend {
   /** S125: UI の測定（`GLOBE_DESKTOP_BENCH`）。line なしは測定中か、line ありはその行を書いてアプリを終える。 */
   bench(line?: string): Promise<boolean> {
     return invoke("bench", { line: line ?? null });
+  }
+
+  /** globe-mode.toml を読み直す（S143）。誤りは `window/showMessage` で届く（onMessage）。 */
+  reloadConfig(): Promise<void> {
+    return invoke("reload_config");
+  }
+  /** sidecar の `window/showMessage`（設定ファイルの誤りなど）を受ける。 */
+  onMessage(cb: (message: string) => void): Promise<() => void> {
+    return tauriGlobal().event.listen<{ method?: string; params?: { message?: string } }>("globe-notification", (e) => {
+      if (e.payload.method === "window/showMessage") cb(e.payload.params?.message ?? "");
+    });
   }
 
   /** sidecar が既に何かライブラリを読んでいるか（起動時の MSL の表示用）。 */
@@ -95,7 +111,11 @@ export class TauriBackend implements Backend {
     this.#cancelling = true;
     void invoke("cancel_run");
   }
-  format(text: string, indent: number, insertOrigin: boolean): Promise<string> {
+  solvers(): Promise<SolverEntry[]> {
+    return invoke("rpc", { method: "globe/solvers", params: {} }); // S142
+  }
+  // indent などを省くと params から落ち（JSON）、sidecar が globe-mode.toml（S143）の値を使う
+  format(text: string, indent?: number, insertOrigin?: boolean): Promise<string> {
     return invoke("rpc", { method: "globe/format", params: { text, indent, insertOrigin } });
   }
   lint(text: string): Promise<LintMessage[]> {
@@ -106,6 +126,43 @@ export class TauriBackend implements Backend {
   }
   librarySource(path: string): Promise<{ file: string; text: string }> {
     return invoke("rpc", { method: "globe/librarySource", params: { path } });
+  }
+  definition(file: string, line: number, character: number): Promise<Definition | null> {
+    return invoke("rpc", { method: "globe/definition", params: { file, line, character } }); // S138（textDocument/definition と同じ解決。本文付き）
+  }
+
+  // S141: 開く・保存は dialog / fs プラグイン（window.__TAURI__.dialog・fs。権限は capabilities/desktop.json）。dialog で選んだパスは fs の許可に自動で入る
+  #paths = new Map<string, string>(); // UI の文書の名前 → 開いた・保存したパス（「保存」は同じパスに上書きする）
+  async openFile(): Promise<{ name: string; text: string } | null> {
+    const t = tauriGlobal();
+    const path = await t.dialog.open({ multiple: false, filters: MO });
+    if (!path) return null;
+    const name = baseName(path);
+    this.#paths.set(name, path);
+    return { name, text: await t.fs.readTextFile(path) };
+  }
+  async saveFile(name: string, text: string, saveAs = false): Promise<string | null> {
+    const t = tauriGlobal();
+    const path = (!saveAs && this.#paths.get(name)) || (await t.dialog.save({ defaultPath: name, filters: extFilter(name) }));
+    if (!path) return null;
+    await t.fs.writeTextFile(path, text);
+    this.#paths.set(name, path);
+    return path;
+  }
+  async saveBinary(name: string, bytes: Uint8Array): Promise<string | null> {
+    const t = tauriGlobal();
+    const path = await t.dialog.save({ defaultPath: name, filters: extFilter(name) });
+    if (!path) return null;
+    await t.fs.writeFile(path, bytes);
+    return path;
+  }
+
+  /** S144: ソースの FMU。dialog.save で選んだ場所のフォルダを outDir にして sidecar に書かせる（`<outDir>/<モデル名の . を _ にしたもの>.fmu` と展開した同名のフォルダ。選んだファイル名は使わない）。 */
+  async exportFmu(model: string, fmiVersion: number): Promise<string | null> {
+    const path = await tauriGlobal().dialog.save({ defaultPath: `${model.replaceAll(".", "_")}.fmu`, filters: [{ name: "FMU", extensions: ["fmu"] }] });
+    if (!path) return null;
+    const r = await invoke<{ path: string }>("rpc", { method: "globe/exportFmu", params: { model, fmiVersion, outDir: path.replace(/[\\/][^\\/]*$/, "") || "/" } });
+    return r.path;
   }
 
   /** 更新を確かめ、あれば確かめてから入れる（S135、updater プラグインの `window.__TAURI__.updater`）。結果を短い文で返す。 */

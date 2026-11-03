@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S147 Desktop と Android の smoke に UI の操作 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S147 Desktop と Android の smoke に UI の操作">
+
+<section class="slide" id="S01">
+  <span class="tag">S147 · 2026-11-04 · P6</span>
+  <h1>smoke に UI の操作を足す</h1>
+  <p class="lead">S140 の点検の順位 6。ブラウザ版にだけあった試験を Desktop と Android でも回す</p>
+  <div class="big">7 項目すべて、3 つの場所で最初の run から ok</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li><code>smoke()</code> は Decay の検査・実行と ChuaCircuit の検査だけだった</li>
+    <li>ライブラリの木・整形・グラフ・止める・実行の設定・プロットの選択・定義ジャンプを足す</li>
+    <li>Playwright は WebView に届かないので、UI の中の関数を呼ぶ</li>
+    <li><code>desktop.yml</code> と <code>android.yml</code> の合格条件にする</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>7 項目</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>操作</th><th>確かめること</th></tr>
+    <tr><td>tree</td><td><code>openLibrary</code></td><td>ChuaCircuit のファイルが開く</td></tr>
+    <tr><td>graph</td><td><code>graph()</code></td><td><code>data-nodes</code> が 0 でなく、Graph の alert が無い</td></tr>
+    <tr><td>def</td><td><code>definition</code> と <code>goBack</code></td><td>Resistor.mo が開いて戻る。Decay の x で宣言の行</td></tr>
+    <tr><td>fmt</td><td><code>format()</code></td><td>字下げが入る</td></tr>
+    <tr><td>settings</td><td>終了時刻の欄に 2</td><td>出どころ <code>requested</code>、最後の時刻 2</td></tr>
+    <tr><td>plot</td><td>信号のチェック</td><td><code>data-series</code>・<code>data-right</code></td></tr>
+    <tr><td>cancel</td><td>「止める」</td><td>止まり、次の検査が回る</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>流れ</h1>
+  <svg class="fig" viewBox="0 0 800 200" role="img" aria-label="smoke が 7 項目を順に回し、GM-SMOKE の 1 行を出して、workflow が grep する">
+    <rect class="svg-box" x="20" y="70" width="140" height="60" rx="10"/>
+    <text class="svg-text" x="90" y="105" text-anchor="middle">smoke()</text>
+    <rect class="svg-box-accent" x="230" y="70" width="200" height="60" rx="10"/>
+    <text class="svg-text-b" x="330" y="105" text-anchor="middle">7 項目を順に</text>
+    <rect class="svg-box" x="500" y="70" width="140" height="60" rx="10"/>
+    <text class="svg-text" x="570" y="105" text-anchor="middle">GM-SMOKE</text>
+    <rect class="svg-box" x="690" y="70" width="90" height="60" rx="10"/>
+    <text class="svg-text" x="735" y="105" text-anchor="middle">grep</text>
+    <line class="svg-line" x1="160" y1="100" x2="230" y2="100"/>
+    <line class="svg-line" x1="430" y1="100" x2="500" y2="100"/>
+    <line class="svg-line" x1="640" y1="100" x2="690" y2="100"/>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>結果</h1>
+  <table class="compact">
+    <tr><th>場所</th><th>run</th><th>結果</th></tr>
+    <tr><td>ブラウザ <code>test_ui.py</code></td><td>手元</td><td class="ok">7 項目 ok</td></tr>
+    <tr><td>Desktop Linux</td><td>desktop.yml 41706643110</td><td class="ok">3 回とも ok</td></tr>
+    <tr><td>Desktop Windows</td><td>同上</td><td class="ok">3 回とも ok</td></tr>
+    <tr><td>Android emulator</td><td>android.yml 41706648182</td><td class="ok">debug・release とも ok</td></tr>
+  </table>
+  <p>見つかった不具合は 0 件。</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ul>
+    <li><code>cancel</code> が通った道（<code>cancelled</code> か <code>GM-I11004</code>）を行に出す</li>
+    <li>プロットとグラフの描画の中身は見ていない</li>
+    <li>実機の Android、署名つき APK（ユーザー）</li>
+    <li>ダークモード、PWA</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

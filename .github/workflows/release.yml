@@ -31,6 +31,8 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   MISE_AUTO_INSTALL: "false"
+  # S148: zig は ziglang.org から直接取る（コミュニティのミラーが落ちた: ci.yml の run 41702810070）
+  MISE_ZIG_USE_COMMUNITY_MIRRORS: "false"
 
 jobs:
   # 配布物に同梱する THIRD-PARTY.md。3 ターゲットの和集合（about.toml の targets）を 1 回だけ作る

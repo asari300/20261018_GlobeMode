@@ -95,11 +95,17 @@ export class GlobeWorker {
   async check(model) { return JSON.parse(await this.#call("check", { model })); }
   async graph(model, depth) { return JSON.parse(await this.#call("graph", { model, depth })); }
   async simulate(request) { return JSON.parse(await this.#call("simulate", { request: JSON.stringify(request) })); }
+  // ソースの FMU（FMI 2 か 3、build 無し）の zip を Uint8Array で（S144）。作れなければ reject
+  exportFmu(model, fmiVersion = 2) { return this.#call("export_fmu", { model, fmiVersion }); }
   format(text, indent = 2, insertOrigin = true) { return this.#call("format", { text, indent, insertOrigin }); }
   async lint(text) { return JSON.parse(await this.#call("lint", { text })); }
   // ライブラリの木（S127）: prefix の直下の子 [{name, path, kind, description, file, hasChildren}] と、クラスのファイル {file, text}
   async libraryTree(prefix) { return JSON.parse(await this.#call("library_tree", { prefix })); }
   async librarySource(path) { return JSON.parse(await this.#call("library_source", { path })); }
+  // 定義ジャンプ（S138）: setFile 済みの file の行・列（0 始まり、列は UTF-16）の定義 {file, text, range}。無ければ null
+  async definition(file, line, character) {
+    return JSON.parse(await this.#call("definition", { file, text: this.#files.get(file) ?? "", line, character }));
+  }
   // 時系列を CSV でなく列ごとの Float64Array で返す（S051）。{response（csv 無し）, layout: {names, points}, columns}
   // onProgress を渡すと進捗 {stage, time, start_time, stop_time} を受ける（S133、ADR-0033。time は積分の t で無ければ undefined）
   async simulateColumns(request, { onProgress } = {}) {
