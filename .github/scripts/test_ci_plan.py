@@ -169,7 +169,9 @@ class Plan(unittest.TestCase):
                 self.assertTrue(plan([path])["lang"])
         self.assertFalse(plan(["src/Rust/mod/globe-mode-wasm/src/lib.rs"])["lang"])
         # S111: facade が globe-mode-fmt に依存するので、facade と fmt の変更で C・NIF・py と lang・python を回す
-        for path in ["src/Rust/mod/globe-mode/src/lib.rs", "src/Rust/mod/globe-mode-fmt/src/lib.rs"]:
+        # S118: facade の feature `fmu` が globe-mode-fmi に依存するので、fmi の変更でも
+        for path in ["src/Rust/mod/globe-mode/src/lib.rs", "src/Rust/mod/globe-mode-fmt/src/lib.rs",
+                     "src/Rust/mod/globe-mode-fmi/src/export.rs"]:
             with self.subTest(path=path):
                 p = plan([path])
                 self.assertTrue(p["lang"])

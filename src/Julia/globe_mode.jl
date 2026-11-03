@@ -52,6 +52,10 @@ function simulate_columns(ws::Workspace, model, settings=C_NULL)
     layout, points == 0 ? Vector{Float64}[] : [flat[i:i+points-1] for i in 1:points:length(flat)]
 end
 
+# S118: FMU の書き出し。{"path": ...} か {"error": ...} の JSON。options は {"fmi_version": 2, "build": false, ...}（省略可）。
+export_fmu(ws::Workspace, model, out_dir, options=C_NULL) =
+    take(ccall((:gm_export_fmu, LIB), Ptr{UInt8}, (Ptr{Cvoid}, Cstring, Cstring, Cstring), ws.ptr, model, out_dir, options))
+
 graph(ws::Workspace, model, depth=1) =
     take(ccall((:gm_graph, LIB), Ptr{UInt8}, (Ptr{Cvoid}, Cstring, UInt32), ws.ptr, model, depth))
 

@@ -28,6 +28,12 @@ defmodule GlobeModeTest do
     {t_json, _} = :timer.tc(fn -> GlobeMode.simulate(ws, @model) end)
     {t_cols, _} = :timer.tc(fn -> GlobeMode.simulate_columns(ws, @model) end)
     IO.puts("columns: points=#{layout["points"]}, x(1)=#{x1}, json=#{t_json} us, columns=#{t_cols} us")
+    # S118: FMU（2.0、build なし）。展開したディレクトリに modelDescription.xml がある
+    out = Path.join(System.tmp_dir!(), "gm-elixir-fmu")
+    {:ok, fmu} = GlobeMode.export_fmu(ws, @model, out)
+    assert File.regular?(fmu)
+    assert File.regular?(Path.join(out, "GlobeModeValidation_Simulation_Decay/modelDescription.xml"))
+    assert {:error, _} = GlobeMode.export_fmu(ws, @model, out, %{fmi_version: 4})
     # モデル・設定の誤りは ok: false と diagnostics で返る
     assert {:ok, %{"ok" => false}} = GlobeMode.simulate(ws, @model, %{solver: "no-such-solver"})
   end

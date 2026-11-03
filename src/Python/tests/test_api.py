@@ -36,3 +36,13 @@ def test_reference_scenario():
 
 def test_library_is_readable():
     assert Workspace(libraries=[MODELICA]).check("GlobeModeValidation.Simulation.Decay")["passed"]
+
+
+def test_export_fmu(tmp_path):
+    """S118: Decay の FMU（2.0、build なし）。展開したディレクトリに modelDescription.xml がある。"""
+    ws = Workspace(libraries=[MODELICA])
+    fmu = ws.export_fmu("GlobeModeValidation.Simulation.Decay", tmp_path)
+    assert fmu == tmp_path / "GlobeModeValidation_Simulation_Decay.fmu" and fmu.is_file()
+    assert (tmp_path / "GlobeModeValidation_Simulation_Decay/modelDescription.xml").is_file()
+    with pytest.raises(ValueError):
+        ws.export_fmu("GlobeModeValidation.Simulation.Decay", tmp_path, fmi_version=4)

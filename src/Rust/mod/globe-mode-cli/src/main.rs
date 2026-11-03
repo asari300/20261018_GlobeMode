@@ -326,9 +326,12 @@ fn main() -> ExitCode {
             &library,
             &model,
             &out,
-            fmi_version,
-            fmi_headers.filter(|_| build),
-            &target,
+            &globe_mode::FmuOptions {
+                fmi_version,
+                build,
+                targets: target,
+                fmi_headers,
+            },
         ),
         Command::Simulate {
             files,
@@ -1083,9 +1086,7 @@ fn fmu_export(
     library: &[PathBuf],
     model: &str,
     out: &std::path::Path,
-    fmi_version: u8,
-    fmi_headers: Option<PathBuf>,
-    targets: &[String],
+    options: &globe_mode::FmuOptions,
 ) -> ExitCode {
     let Loaded { mut ws, texts } = match load_db(files, library) {
         Ok(Ok(v)) => v,
@@ -1100,11 +1101,7 @@ fn fmu_export(
             return ExitCode::from(1);
         }
     };
-    let written =
-        globe_mode_fmi::export::export_me_sources(&compiled, fmi_version).and_then(|src| {
-            globe_mode_fmi::export::write_fmu(&src, out, fmi_headers.as_deref(), targets)
-        });
-    match written {
+    match globe_mode::export_fmu(&compiled, out, options) {
         Ok(fmu) => {
             println!("{}", fmu.display());
             ExitCode::SUCCESS
