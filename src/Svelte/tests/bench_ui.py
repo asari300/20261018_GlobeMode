@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[3]
 JSON_PATH = ROOT / "target/ui-bench.json"
 DOC = ROOT / "doc/bench/ui.md"
 UIS = [("svelte-browser", "Svelte ブラウザ"), ("svelte-tauri", "Svelte Tauri"), ("leptos", "Leptos"), ("dioxus", "Dioxus")]
-OSES = ["linux", "windows", "macos"]
+OSES = {"linux": "Linux", "windows": "Windows", "macos": "macOS"}
 ROWS = [
     ("ready_ms", "起動から操作可能まで（ms）", 1),
     ("decay_ms", "Decay の検査・実行・プロット（ms）", 1),
@@ -114,7 +114,7 @@ def median(entry: dict, key: str) -> float | None:
 
 
 def report(data: dict) -> str:
-    cols = [(f"{ui}/{os_}", f"{name}<br>{os_}") for ui, name in UIS for os_ in OSES]
+    cols = [(f"{ui}/{os_}", f"{name} {OSES[os_]}") for ui, name in UIS for os_ in OSES]
     lines = [
         "# UI の比較（S125〜）",
         "",

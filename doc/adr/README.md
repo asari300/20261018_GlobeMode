@@ -34,5 +34,6 @@
 | [0031](0031-fmi-export-p5a-first.md) | FMI Export は P5a（Rumoca の組み込みターゲット `fmi2` のテンプレートを改変せずに使う。Rumoca は frontend の `fmi_export.rs` からだけ呼ぶ）を先行し、P5b（自前のランタイム、S095）を並行して進める。FMI 2.0 のソースの FMU（ME・CS）、`globe fmu export` | Accepted |
 | [0032](0032-p5b-own-runtime.md) | P5b の自前のランタイムは、FMI 2.0 ME の 35 関数を自前の cdylib `globe-mode-fmu` で出す（`fmi-export` 0.3.0 は FMI 3.0 のみで依存が増えるので採らない）。S095 はモデル（Decay）を crate に固定し、載せ替えの 3 つの道（FMU ごとにビルド・Rumoca で compile・Solve IR の解釈実行）は持ち越し | Proposed |
 | [0033](0033-progress-and-cancel.md) | 進捗は段と積分の時刻 t（100 ms に 1 回まで）。中断は呼び手の持つトークン（`Arc<AtomicBool>`）を実行系が段の境目と session の道の `advance_to` の区切りで見る。facade に `SimulateHandle`、C はコールバックの戻り値、NIF は `cancel(token)`、Python はコールバックと Ctrl-C、wasm は postMessage と `terminate()`、LSP は `$/progress` と `$/cancelRequest`。止めたら途中の列と `GM-I11004` | Proposed |
+| [0034](0034-ui-bench-method.md) | UI の比較は `GM-SMOKE` の行の末尾に `ready_ms`・`decay_ms`・`msl_ms` を足して測る（ブラウザは `bench_ui.py` の Playwright、Desktop は `GLOBE_DESKTOP_BENCH` と `desktop.yml` の Linux・Windows）。RSS はプロセスごとの最大の 1 つ、バンドルは配るもの。3 回の中央値を `doc/bench/ui.md` の 4 UI × 3 OS の表に。しきい値は置かない | Proposed |
 
 書式: `NNNN-<題名>.md`。章は「状態 / 背景 / 決定 / 結果」の4つ。決定を覆すときは古い ADR を消さず、状態を Superseded にして新しい番号で書く。
