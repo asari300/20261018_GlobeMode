@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S121 進捗と中断の ADR — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S121 進捗と中断の ADR">
+
+<section class="slide" id="S01">
+  <span class="tag">S121 · 2026-11-03 · P7</span>
+  <h1>進捗と中断の ADR</h1>
+  <p class="lead">S110 の埋める順の 6 の設計だけを書いた（文書だけ）</p>
+  <div class="big">進捗は <b>段と時刻 t</b>、中断は <b>呼び手のトークン</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>今ある進捗と中断の口を読み、表にする</li>
+    <li>進捗の単位、中断の仕組み、各口の形、止めたあとの結果を 1 つずつ決める</li>
+    <li>ADR-0033（Proposed）に書く。実装は次のセッションから</li>
+    <li>コードは触らない。cargo も回さない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">背景</span>
+  <h1>今あるもの</h1>
+  <table class="compact">
+    <tr><th>口</th><th>進捗</th><th>中断</th></tr>
+    <tr><td>exec</td><td><code>run_with_progress</code>（段だけ）</td><td><code>max_wall_seconds</code></td></tr>
+    <tr><td>session の道</td><td class="ng">無い</td><td><code>advance_to</code> が 1 歩ごとに予算を見る</td></tr>
+    <tr><td>facade・C・NIF・Python</td><td class="ng">無い</td><td>予算だけ（Python は GIL を持ったまま）</td></tr>
+    <tr><td>wasm</td><td class="ng">無い</td><td><code>terminate()</code> と作り直し</td></tr>
+    <tr><td>LSP</td><td class="ng">無い</td><td><code>$/cancelRequest</code> を扱わない</td></tr>
+    <tr><td>Desktop</td><td>MSL の取得だけ</td><td><code>cancel_msl</code>（<code>AtomicBool</code>）</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由</span>
+  <h1>決めた 4 点</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th></tr>
+    <tr><td>1 進捗の単位</td><td>段は毎回、積分の時刻 t は 100 ms に 1 回まで（t は session の道だけ）</td></tr>
+    <tr><td>2 中断</td><td><code>CancelToken</code>（<code>Arc&lt;AtomicBool&gt;</code>）を段の境目・回し直しの前・<code>advance_to</code> の区切りで見る</td></tr>
+    <tr><td>3 各口の形</td><td>facade に <code>SimulateHandle</code>。各口はそれを写す</td></tr>
+    <tr><td>4 止めたあと</td><td>積分の中なら途中の列と情報 <code>GM-I11004</code>。その前なら診断だけ</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">決定と理由</span>
+  <h1>却下した案</h1>
+  <ul>
+    <li>段だけ: 長い積分の動きが見えない</li>
+    <li>出力の点ごとに毎回: 10 万点で 10 万回の通知</li>
+    <li><code>max_wall_seconds</code> を拡げる: 期限を後から縮める口が Rumoca に無い</li>
+    <li>スレッドを落とす: Rust に手段が無い。プロセスを落とす道は既にある</li>
+    <li>wasm の SharedArrayBuffer: cross-origin isolated が要る</li>
+    <li>診断だけを返す・誤りにする: trace は壊れていない。止めたのは失敗ではない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">図</span>
+  <h1>各口の形</h1>
+  <table class="compact">
+    <tr><th>口</th><th>進捗</th><th>中断</th></tr>
+    <tr><td>facade</td><td><code>on_progress(&amp;Progress)</code></td><td><code>CancelToken</code></td></tr>
+    <tr><td>C・Zig・Julia</td><td>関数ポインタ + <code>void *user</code></td><td>戻り値が 0 以外</td></tr>
+    <tr><td>NIF・Elixir・Gleam</td><td>pid にメッセージ</td><td><code>cancel(token)</code></td></tr>
+    <tr><td>Python</td><td>コールバック（GIL を放して回す）</td><td>真を返す、Ctrl-C</td></tr>
+    <tr><td>wasm</td><td>postMessage</td><td><code>terminate()</code>（今のまま）</td></tr>
+    <tr><td>LSP・Desktop</td><td><code>$/progress</code></td><td><code>$/cancelRequest</code></td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">再現手順</span>
+  <h1>確かめたこと</h1>
+  <ul>
+    <li>main <code>d41e130</code> のソースを grep で読んだ（exec・facade・C・NIF・py・wasm・LSP・Desktop・CLI・xtask）</li>
+    <li>Rumoca rev <code>276e82bd</code> の <code>advance_to</code> は 1 歩ごとに予算を見て、区切りの時刻を呼び手が選べる</li>
+    <li>LSP 3.17: 取り消しでも応答を返し、途中の結果を返してよい</li>
+    <li>検査: <code>check_docs.py</code>、<code>render_slides.py</code></li>
+  </ul>
+</section>
+
+<section class="slide" id="S08">
+  <span class="tag">次回</span>
+  <h1>実装の順</h1>
+  <ol>
+    <li>facade と exec（session の道を <code>advance_to</code> の繰り返しに）</li>
+    <li>wasm と UI の進捗</li>
+    <li>Python</li>
+    <li>C・Zig・Julia、NIF・Elixir・Gleam</li>
+    <li>LSP と Desktop</li>
+  </ol>
+  <p>持ち越し: ネイティブの型付きの道の積分の中、lowering の中、CLI の Ctrl-C</p>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

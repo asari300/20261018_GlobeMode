@@ -21,8 +21,8 @@
 | MSL の全部読み | `with_libraries_full` / `with_library_sources` | — | — | — | — | — | — | `Workspace(json, name, true)` | — | — |
 | MSL の分割読み | `with_libraries`（既定）/ `with_library_sources_split` | `gm_workspace_new(libraries_json)` | C と同じ | `Workspace(libraries)` | `new(libraries)` | `new(libraries)` | `Workspace(libraries=…)` | `Workspace(json)`（既定） | `globe lsp -L` | `-L` |
 | 設定の override（`parameters` など） | `SimSettings` | `settings_json` | C と同じ | `settings` | `settings`（map） | `settings_json` | `**settings` | `request_json` の `settings` | `request.settings` | `--param` ほか |
-| 進捗 | `exec::run_with_progress`（実行系の段だけ。facade の `simulate` には無い） | — | — | — | — | — | — | — | — | — |
-| 中断 | `max_wall_seconds`（予算） | 予算 | 予算 | 予算 | 予算 | 予算 | 予算 | 予算と Worker の作り直し | 予算と sidecar の作り直し | `--timeout` |
+| 進捗（設計は [ADR-0033](../adr/0033-progress-and-cancel.md)） | `exec::run_with_progress`（実行系の段だけ。facade の `simulate` には無い） | — | — | — | — | — | — | — | — | — |
+| 中断（設計は [ADR-0033](../adr/0033-progress-and-cancel.md)） | `max_wall_seconds`（予算） | 予算 | 予算 | 予算 | 予算 | 予算 | 予算 | 予算と Worker の作り直し | 予算と sidecar の作り直し | `--timeout` |
 | FMU export | —（別 crate `globe_mode_fmi::write_fmu`） | — | — | — | — | — | — | — | — | `globe fmu export` |
 
 ### 根拠
@@ -115,5 +115,7 @@ graph は S039 のシナリオにあるが、Julia 以外では既に通るの�
 | 4 | 列の道を C（`double *` と長さ）と NIF（binary）に（S116 で済） | C・Zig・Julia・Elixir・Gleam | 大きな結果で効く（S085 で Python は 6 倍）。シナリオには要らない |
 | 5 | FMU export を facade に（`globe-mode-fmi` の `write_fmu`） | 全部 | 呼ぶ人がいれば。S109 が `globe-mode-fmu` を触っている間は待つ |
 | 6 | 進捗と途中で止める口 | 全部 | 呼び手から止める形（コールバックか、フラグか）の設計が要る。ADR を書いてから |
+
+- 順の 6 の設計は S121 の [ADR-0033](../adr/0033-progress-and-cancel.md)（Proposed）。進捗は段と積分の時刻、中断は呼び手の持つトークン。実装の順は facade → wasm → Python → C・NIF → LSP。
 
 1 と 2 は 1 セッションに収まる大きさ（facade に 2 関数、束ねごとに 2〜3 関数）。
