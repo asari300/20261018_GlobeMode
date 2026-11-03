@@ -29,6 +29,8 @@ export interface Backend {
   openFile(): Promise<{ name: string; text: string } | null>;
   /** 本文を手元に書く。保存先（Desktop はパス、ブラウザは名前）を返す。取り消しは null。saveAs は Desktop で保存先を選び直す（ブラウザは毎回ダウンロードなので同じ）。 */
   saveFile(name: string, text: string, saveAs?: boolean): Promise<string | null>;
+  /** バイナリ（PNG など）を手元に書く（S146）。保存先と取り消しは saveFile と同じ。 */
+  saveBinary?(name: string, bytes: Uint8Array): Promise<string | null>;
 }
 
 /** 定義の場所。text は定義のあるファイルの本文（ライブラリのファイルならエディタに開く）。range は LSP の Range。 */

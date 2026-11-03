@@ -20,9 +20,12 @@ export function browserOpen(): Promise<{ name: string; text: string } | null> {
 }
 
 /** 本文をダウンロードさせる。保存した名前を返す（保存先はブラウザが決めるので、名前だけ）。 */
-export async function browserSave(name: string, text: string): Promise<string> {
-  const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([text], { type: "text/plain" })), download: name });
+async function download(name: string, data: BlobPart, type: string): Promise<string> {
+  const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([data], { type })), download: name });
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
   return name;
 }
+export const browserSave = (name: string, text: string) => download(name, text, "text/plain");
+/** PNG をダウンロードさせる（S146）。 */
+export const browserSaveBinary = (name: string, bytes: Uint8Array) => download(name, bytes as BlobPart, "image/png");

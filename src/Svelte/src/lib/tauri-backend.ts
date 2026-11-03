@@ -6,9 +6,10 @@ import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse, Solve
 type Invoke = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
 type Listen = <T>(event: string, cb: (e: { payload: T }) => void) => Promise<() => void>;
 type Dialog = { open(o: object): Promise<string | null>; save(o: object): Promise<string | null> };
-type Fs = { readTextFile(p: string): Promise<string>; writeTextFile(p: string, t: string): Promise<void> };
+type Fs = { readTextFile(p: string): Promise<string>; writeTextFile(p: string, t: string): Promise<void>; writeFile(p: string, b: Uint8Array): Promise<void> };
 const tauriGlobal = () => (window as unknown as { __TAURI__: { core: { invoke: Invoke }; event: { listen: Listen }; dialog: Dialog; fs: Fs } }).__TAURI__;
 const MO = [{ name: "Modelica", extensions: ["mo"] }];
+const extFilter = (name: string) => [{ name: "File", extensions: [name.split(".").pop() ?? ""] }]; // 保存ダイアログの拡張子の絞り込み
 const baseName = (p: string) => p.split(/[\\/]/).pop() ?? p;
 const invoke: Invoke = (cmd, args) => tauriGlobal().core.invoke(cmd, args);
 
@@ -142,10 +143,17 @@ export class TauriBackend implements Backend {
   }
   async saveFile(name: string, text: string, saveAs = false): Promise<string | null> {
     const t = tauriGlobal();
-    const path = (!saveAs && this.#paths.get(name)) || (await t.dialog.save({ defaultPath: name, filters: MO }));
+    const path = (!saveAs && this.#paths.get(name)) || (await t.dialog.save({ defaultPath: name, filters: extFilter(name) }));
     if (!path) return null;
     await t.fs.writeTextFile(path, text);
     this.#paths.set(name, path);
+    return path;
+  }
+  async saveBinary(name: string, bytes: Uint8Array): Promise<string | null> {
+    const t = tauriGlobal();
+    const path = await t.dialog.save({ defaultPath: name, filters: extFilter(name) });
+    if (!path) return null;
+    await t.fs.writeFile(path, bytes);
     return path;
   }
 

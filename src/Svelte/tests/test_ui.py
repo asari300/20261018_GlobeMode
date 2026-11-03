@@ -129,6 +129,20 @@ def main() -> int:
         print(f"Decay の実行: 信号 {boxes.count()} 本、選択 {shown} 本、凡例の表示中 {lines} 行、点 {page.locator('.plot').get_attribute('data-points')}")
         assert boxes.count() >= 1 and shown >= 1 and lines >= 2
 
+        # 書き出し（S146）: CSV は選んだ系列と x の列（見出し time,x と数値の行）、PNG は canvas（image/png の本物で 0 バイトでない）
+        with page.expect_download() as csv_dl:
+            page.get_by_role("button", name="CSV").click(force=True)
+        assert csv_dl.value.suggested_filename == "result.csv"
+        csv_lines = Path(csv_dl.value.path()).read_text(encoding="utf-8").splitlines()
+        assert csv_lines[0].startswith("time,x"), csv_lines[:2]
+        assert len(csv_lines) == int(page.locator(".plot").get_attribute("data-points")) + 1, len(csv_lines)
+        assert all(math.isfinite(float(v)) for v in csv_lines[1].split(",")[:2]), csv_lines[1]
+        with page.expect_download() as png_dl:
+            page.get_by_role("button", name="PNG").click(force=True)
+        png = Path(png_dl.value.path()).read_bytes()
+        assert png_dl.value.suggested_filename == "result.png" and png.startswith(b"\x89PNG\r\n\x1a\n") and len(png) > 1000, len(png)
+        print(f"Decay の書き出し: CSV {len(csv_lines)} 行 {csv_lines[:2]}、PNG {len(png)} バイト")
+
         # 選択を外すと系列が消える
         boxes.first.uncheck(force=True)
         assert page.locator(".plot .u-legend .u-series:not(.u-off)").count() == lines - 1
