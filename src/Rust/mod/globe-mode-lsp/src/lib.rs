@@ -889,6 +889,9 @@ mod tests {
         let r =
             s.handle(json!({"id": 5, "method": "globe/librarySource", "params": {"path": "Nope"}}));
         assert_eq!(r[0]["error"]["code"], -32000);
+    }
+
+    #[test]
     fn config_file_at_the_root_drives_lint_and_formatting() {
         let dir = std::env::temp_dir().join(format!("globe-lsp-config-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
