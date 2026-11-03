@@ -37,3 +37,7 @@
 
 - **`--build --target <triple>`（何度でも）で `zig cc -target <triple>` を呼ぶ**。省略すると今までどおり host（x86_64 の Linux）を `cc` で作る。zig は mise の道具で、新しい依存は無い。置き場は FMI 2.0 が `linux64`・`win64`・`darwin64`（`darwin64` は arch を区別しない）、3.0 が `<arch>-linux`・`<arch>-windows`・`<arch>-darwin`。1 つの FMU に複数の置き場を同梱する。zig の Windows 向けが置く `.pdb` と import library は消す。
 - 検査は `fmu-export.yml` のジョブ `fmu-cross`。Ubuntu で `--target x86_64-linux-gnu --target x86_64-windows-gnu --target aarch64-macos` の FMU を作り、ubuntu-24.04・windows-latest・macos-latest（arm64）の FMPy 0.3.32 で validate と ME・CS を回す。run 41531879481 で 3 つとも 2.0・3.0 の validate が通り、x(1) − e⁻¹ は ME −2.608e-8、CS 3.331e-16（[S105 の解説書](../sessions/S105-fmu-export-cross/解説書.md)）。Windows・macOS の fmusim は回していない。
+
+## 追記（S117、2026-11-03）: `modelDescription.xml` の型と書く側の共有
+
+- **P5a は Rumoca のテンプレートが描く XML をそのまま FMU に入れる（置き換えない）**。`description`・`unit`・`SourceFiles`・`UnitDefinitions` などテンプレートだけが持つものを落とさないため。型 `ModelDescription` と読み（`parse_model_description`）・書き（`write_model_description_2`、FMI 2.0 のみ）は `globe-mode-fmi` の既定の feature が持ち、P5b（`globe-mode-fmu`）と共有する。Decay の 2.0 の XML は読み→書き→読みで同じ `ModelDescription` になる（`globe-mode-cli` の `tests/fmu_export.rs`）。3.0 の書く側は持ち越し。

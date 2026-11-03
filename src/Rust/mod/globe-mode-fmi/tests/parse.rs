@@ -37,8 +37,36 @@ fn dahlquist_fmi2_and_fmi3_give_the_same_table() {
         );
         assert!(m.scheduled_execution.is_none());
     }
-    // 2.0 と 3.0 で変数表（名前・値参照・causality・variability・型）が一致する
-    assert_eq!(a.variables, b.variables);
+    // 2.0 と 3.0 で変数表が一致する（derivative だけは 2.0 が索引、3.0 が valueReference で違う）
+    let strip = |m: &ModelDescription| -> Vec<_> {
+        m.variables
+            .iter()
+            .map(|v| globe_mode_fmi::ScalarVariable {
+                derivative: None,
+                ..v.clone()
+            })
+            .collect()
+    };
+    assert_eq!(strip(&a), strip(&b));
+    assert_eq!(var(&a, "der(x)").derivative, Some(2));
+    assert_eq!(var(&b, "der(x)").derivative, Some(1));
+    assert_eq!(var(&a, "x").start.as_deref(), Some("1"));
+    assert_eq!(var(&a, "x").initial, Some(globe_mode_fmi::Initial::Exact));
+    // ModelStructure: 2.0 は索引、3.0 は valueReference
+    assert_eq!(
+        (
+            a.model_structure.outputs.clone(),
+            a.model_structure.derivatives.clone()
+        ),
+        (vec![2], vec![3])
+    );
+    assert_eq!(
+        (
+            b.model_structure.outputs.clone(),
+            b.model_structure.derivatives.clone()
+        ),
+        (vec![1], vec![2])
+    );
     assert_eq!(a.variables.len(), 4);
     let x = var(&a, "x");
     assert_eq!(
@@ -123,4 +151,15 @@ fn bad_inputs_are_errors_not_panics() {
             "{xml}"
         );
     }
+}
+
+/// S117: 読み→書き→読みで同じ表になる（書く側は 2.0 のみ。3.0 と 2.0 に無い型は Err）。
+#[test]
+fn fmi2_round_trips_through_the_writer() {
+    let a = load("Dahlquist-fmi2.xml");
+    let xml = globe_mode_fmi::write_model_description_2(&a).unwrap();
+    assert_eq!(parse_model_description(&xml).unwrap(), a, "{xml}");
+    assert!(globe_mode_fmi::write_model_description_2(&load("Dahlquist-fmi3.xml")).is_err());
+    // Feedthrough-fmi2 は String と Enumeration を持つので書けない（持ち越し）
+    assert!(globe_mode_fmi::write_model_description_2(&load("Feedthrough-fmi2.xml")).is_err());
 }

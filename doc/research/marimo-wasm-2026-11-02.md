@@ -103,3 +103,45 @@ PYO3_CROSS_PYTHON_VERSION=3.13 cargo check -p globe-mode-py --target wasm32-unkn
 - marimo の anywidget（`mo.ui.anywidget`）: <https://docs.marimo.io/api/inputs/anywidget/>
 - anywidget の `_esm` と `model.get`・`model.set`・`save_changes`: <https://anywidget.dev/en/afm/>
 - `performance.memory`（Chromium の非標準。`--enable-precise-memory-info` で丸めない）: <https://developer.mozilla.org/en-US/docs/Web/API/Performance/memory>
+
+## MSL・Web Worker・CSP（2026-11-03、S104）
+
+- 確認日: 2026-11-03。手順は [S104 の解説書](../sessions/S104-marimo-wasm-msl-worker/解説書.md)。上の「試作で分かった制限」のうち、MSL・Web Worker・CSP の 3 つを埋めた。
+- **MSL**: `_esm` が `fetch("msl/MSL.json")`（`src/Svelte` の `pack-msl.mjs` の出力、15.2 MiB）で文面を取り、`GlobeWorker.library(json, "MSL")` に渡す（ブラウザ版の `App.svelte` と同じ道。Pyodide を通さない）。`Modelica.Electrical.Analog.Examples.ChuaCircuit` は check passed、simulate（bdf）ok、C1.v(T) = -0.9928894683235796。MSL の読み込み 0.7 s、simulate 0.5〜0.6 s（2 回。手元の WSL、load average 10 未満の時）。
+- **Web Worker**: `globe-mode-wasm` の `web/client.js`（`GlobeWorker`）と `worker.js`（S036、ブラウザ版の `WorkerBackend` と同じもの）を書き出し先の `wasm/` に写し、`_esm` から `import()` して `new Worker(…, { type: "module" })` で起こす。`_esm` は data: の URL で読まれる（下の CSP の違反の文言で分かった。S102 で「blob の URL」と書いたのは誤り）が、置き場は `document.baseURI` を基準にしているので影響しない。
+- **メインのスレッドが固まらないこと**: simulate の間、ページで 20 ms ごとの `setInterval` を回し、間隔の最大を測る。ChuaCircuit の simulate（0.5〜0.6 s）の間に 26〜29 回走り、最大の間隔 20 ms（同期で回せば simulate の長さだけ止まる）。
+
+### メモリ（MSL と ChuaCircuit を含む。手元の WSL、Chromium headless、`--offline`）
+
+| 量 | 値 |
+| --- | --- |
+| ページの JS heap | used 36 MiB / total 40 MiB |
+| `globe-mode-wasm` の線形メモリ | Decay の Worker 2 MiB、ChuaCircuit の Worker 112 MiB（MSL を読み、ChuaCircuit を回した後） |
+| ブラウザの RSS の合計 | 1152〜1154 MiB（2 回。Pyodide・2 つの Worker を含む。共有のページを重ねて数える上限の見積り） |
+| 開いてから結果まで | 14.9〜17.0 s |
+
+- 2 GB の条件: MSL を読んで ChuaCircuit を回しても RSS の合計 1152〜1154 MiB で、**2 GB 未満に収まる**。
+
+### `--offline` の書き出しに合う最小の CSP
+
+`default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' data:; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:`
+
+`wasm_check.py --offline` がこの header をすべての応答に付け、console の CSP の違反 0 件・origin の外への要求 0 件で Decay と ChuaCircuit が通る。1 つずつ外した結果（Chromium headless）:
+
+| 外したもの | 結果 | 何が止まるか |
+| --- | --- | --- |
+| `script-src` の `'unsafe-inline'` | 動かない（違反 4 件） | marimo の書き出しの `index.html` のインラインの script |
+| `script-src` の `data:` | 動かない（違反 2 件） | anywidget が `_esm` を `data:text/javascript;base64,…` の URL で `import()` する |
+| `script-src` の `'wasm-unsafe-eval'` | 動かない（違反 1 件） | Pyodide の Worker（`assets/worker-*.js`）の WebAssembly の compile |
+| `style-src` の `'unsafe-inline'` | 動くが違反 2 件 | marimo のインラインの style |
+| `img-src` の `data:` | 動くが違反 6 件 | data: の favicon など |
+| `font-src` の `data:` | 動くが違反 1 件 | data: の woff2 |
+| `script-src` の `blob:`・`worker-src` | 要らない（違反 0 件） | Worker は同じ origin の URL から起こすので、`worker-src` が無ければ `script-src 'self'` に落ちる |
+
+- `'unsafe-eval'` は要らない（`'wasm-unsafe-eval'` だけで WebAssembly が通る）。S093 のブラウザ版（`src/Svelte/index.html`）の CSP と比べると、marimo の書き出しの都合で `script-src` に `'unsafe-inline'` と `data:` が増える。`connect-src` は `default-src 'self'` に落ち、外への接続は無い。
+- `wasm_check.py` は CSP の違反を console の文言（`Content Security Policy` を含む）で数える。Worker の中の違反（`'wasm-unsafe-eval'` を外した時）もページの console に来た。
+
+### 出典（2026-11-03 確認）
+
+- `script-src` と `'wasm-unsafe-eval'`（`'unsafe-eval'` より狭く、WebAssembly の compile と instantiate だけを許す）: <https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/script-src>
+- `worker-src` が無いときは `child-src` → `script-src` → `default-src` の順に落ちる: <https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/worker-src>

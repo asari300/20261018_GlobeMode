@@ -21,7 +21,6 @@
 
 use std::collections::BTreeMap;
 use std::ffi::{CStr, c_char, c_int, c_uint, c_void};
-use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
 use globe_mode_exec::{CompiledModel, ModelInstance, ValueType, VariableRole};
@@ -58,105 +57,131 @@ pub fn compile(model: &str, source: &str) -> Result<CompiledModel, String> {
         .map_err(|d| format!("{d:?}"))
 }
 
-/// FMU の `modelDescription.xml`（FMI 2.0 ME）。変数表は [`ModelInstance`] の状態とパラメータから作る。
+/// FMU の `modelDescription.xml`（FMI 2.0 ME）。変数表は [`ModelInstance`] の状態とパラメータから作り、
+/// XML は `globe_mode_fmi::write_model_description_2` が書く（S117、P5a と型を共有）。
 pub fn model_description(model: &str, source: &str) -> Result<String, String> {
+    use globe_mode_fmi::{
+        Causality, DefaultExperiment, Initial, Interface, ModelDescription, ModelStructure,
+        ScalarVariable, VarType, Variability,
+    };
     let compiled = compile(model, source)?;
     let inst =
         ModelInstance::new(&compiled, &BTreeMap::new(), 0.0).map_err(|d| format!("{d:?}"))?;
     let e = compiled.experiment.clone().unwrap_or_default();
     let start = e.start_time.map_or(0.0, |b| b.get());
     let n = inst.n_states();
-    let esc = |s: &str| {
-        s.replace('&', "&amp;")
-            .replace('<', "&lt;")
-            .replace('"', "&quot;")
+    let var = |name: String, r: usize, causality, variability, initial, ty, start| ScalarVariable {
+        name,
+        value_reference: r as u32,
+        causality,
+        variability,
+        ty,
+        initial,
+        start,
+        derivative: None,
     };
-    let mut v = String::new();
+    let mut variables = Vec::new();
     for (i, (name, x)) in inst.state_names().iter().zip(inst.states()).enumerate() {
-        let _ = write!(
-            v,
-            "    <ScalarVariable name=\"{}\" valueReference=\"{i}\" causality=\"local\" variability=\"continuous\" initial=\"exact\">\n      <Real start=\"{x:?}\"/>\n    </ScalarVariable>\n",
-            esc(name)
-        );
+        variables.push(var(
+            name.clone(),
+            i,
+            Causality::Local,
+            Variability::Continuous,
+            Some(Initial::Exact),
+            VarType::Float64,
+            Some(format!("{x:?}")),
+        ));
     }
     for (i, name) in inst.state_names().iter().enumerate() {
-        let _ = write!(
-            v,
-            "    <ScalarVariable name=\"der({})\" valueReference=\"{}\" causality=\"local\" variability=\"continuous\" initial=\"calculated\">\n      <Real derivative=\"{}\"/>\n    </ScalarVariable>\n",
-            esc(name),
-            n + i,
-            i + 1
-        );
+        variables.push(ScalarVariable {
+            derivative: Some(i as u32 + 1),
+            ..var(
+                format!("der({name})"),
+                n + i,
+                Causality::Local,
+                Variability::Continuous,
+                Some(Initial::Calculated),
+                VarType::Float64,
+                None,
+            )
+        });
     }
     for (i, (name, p)) in inst.parameters().iter().enumerate() {
-        let _ = write!(
-            v,
-            "    <ScalarVariable name=\"{}\" valueReference=\"{}\" causality=\"parameter\" variability=\"fixed\" initial=\"exact\">\n      <Real start=\"{p:?}\"/>\n    </ScalarVariable>\n",
-            esc(name),
-            2 * n + i
-        );
+        variables.push(var(
+            name.clone(),
+            2 * n + i,
+            Causality::Parameter,
+            Variability::Fixed,
+            Some(Initial::Exact),
+            VarType::Float64,
+            Some(format!("{p:?}")),
+        ));
     }
     let first = 2 * n + inst.parameters().len();
     let values = inst.variable_values()?;
-    let mut outputs = String::new();
-    for (i, var) in inst.variables().enumerate() {
+    let mut outputs = Vec::new();
+    for (i, v) in inst.variables().enumerate() {
         let r = first + i;
-        let (ty, discrete) = match var.value_type {
-            ValueType::Real => ("Real", var.role == VariableRole::Discrete),
-            ValueType::Integer => ("Integer", true),
-            ValueType::Boolean => ("Boolean", true),
+        let (ty, discrete) = match v.value_type {
+            ValueType::Real => (VarType::Float64, v.role == VariableRole::Discrete),
+            ValueType::Integer => (VarType::Int32, true),
+            ValueType::Boolean => (VarType::Boolean, true),
         };
-        let (causality, initial, start) = match var.role {
+        let (causality, initial, start) = match v.role {
             VariableRole::Output => {
-                let _ = writeln!(outputs, "      <Unknown index=\"{}\"/>", r + 1);
-                ("output", " initial=\"calculated\"", String::new())
+                outputs.push(r as u32 + 1);
+                (Causality::Output, Some(Initial::Calculated), None)
             }
             // 入力は initial を書かず start を必須とする（FMI 2.0 の表）
-            VariableRole::Input => ("input", "", format!(" start=\"{:?}\"", values[i])),
-            _ => ("local", " initial=\"calculated\"", String::new()),
+            VariableRole::Input => (Causality::Input, None, Some(format!("{:?}", values[i]))),
+            _ => (Causality::Local, Some(Initial::Calculated), None),
         };
-        let variability = if discrete { "discrete" } else { "continuous" };
-        let _ = write!(
-            v,
-            "    <ScalarVariable name=\"{}\" valueReference=\"{r}\" causality=\"{causality}\" variability=\"{variability}\"{initial}>\n      <{ty}{start}/>\n    </ScalarVariable>\n",
-            esc(&var.name)
-        );
+        let variability = if discrete {
+            Variability::Discrete
+        } else {
+            Variability::Continuous
+        };
+        variables.push(var(
+            v.name.clone(),
+            r,
+            causality,
+            variability,
+            initial,
+            ty,
+            start,
+        ));
     }
-    let unknowns: String = (n + 1..=2 * n)
-        .map(|i| format!("      <Unknown index=\"{i}\"/>\n"))
-        .collect();
+    let derivatives: Vec<u32> = (n as u32 + 1..=2 * n as u32).collect();
     // 出力（initial="calculated"）は InitialUnknowns にも並べる（FMI 2.0。索引は微分より後なので昇順のまま）
-    let initial_unknowns = format!("{unknowns}{outputs}");
-    if !outputs.is_empty() {
-        outputs = format!("    <Outputs>\n{outputs}    </Outputs>\n");
-    }
-    Ok(format!(
-        r#"<?xml version="1.0" encoding="UTF-8"?>
-<fmiModelDescription
-  fmiVersion="2.0"
-  modelName="{name}"
-  guid="{guid}"
-  generationTool="GlobeMode globe-mode-fmu"
-  variableNamingConvention="structured"
-  numberOfEventIndicators="{ni}">
-  <ModelExchange modelIdentifier="globe_mode_fmu"/>
-  <DefaultExperiment startTime="{start:?}" stopTime="{stop:?}" tolerance="{tol:?}"/>
-  <ModelVariables>
-{v}  </ModelVariables>
-  <ModelStructure>
-{outputs}    <Derivatives>
-{unknowns}    </Derivatives>
-    <InitialUnknowns>
-{initial_unknowns}    </InitialUnknowns>
-  </ModelStructure>
-</fmiModelDescription>
-"#,
-        name = esc(model),
-        guid = guid(model, source),
-        ni = inst.n_event_indicators(),
-        stop = e.stop_time.map_or(start + 1.0, |b| b.get()),
-        tol = e.tolerance.map_or(1e-6, |b| b.get()),
-    ))
+    let initial_unknowns = [derivatives.clone(), outputs.clone()].concat();
+    let md = ModelDescription {
+        fmi_version: "2.0".into(),
+        model_name: model.into(),
+        instantiation_token: guid(model, source),
+        model_exchange: Some(Interface {
+            model_identifier: "globe_mode_fmu".into(),
+        }),
+        co_simulation: None,
+        scheduled_execution: None,
+        variables,
+        generation_tool: Some("GlobeMode globe-mode-fmu".into()),
+        variable_naming_convention: Some("structured".into()),
+        number_of_event_indicators: inst.n_event_indicators() as u32,
+        default_experiment: Some(DefaultExperiment {
+            start_time: Some(format!("{start:?}")),
+            stop_time: Some(format!(
+                "{:?}",
+                e.stop_time.map_or(start + 1.0, |b| b.get())
+            )),
+            tolerance: Some(format!("{:?}", e.tolerance.map_or(1e-6, |b| b.get()))),
+        }),
+        model_structure: ModelStructure {
+            outputs,
+            derivatives,
+            initial_unknowns,
+        },
+    };
+    globe_mode_fmi::write_model_description_2(&md).map_err(|e| e.to_string())
 }
 
 /// 1 つの FMU のインスタンス。
