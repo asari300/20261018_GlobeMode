@@ -109,7 +109,15 @@ fn workspace_model_with_msl_parts() {
     let mut ws = Workspace::with_libraries_full(&[msl]).unwrap();
     for i in 1..=2 {
         let start = std::time::Instant::now();
-        nodes(&mut ws, "Modelica.Electrical.Analog.Examples.ChuaCircuit");
-        eprintln!("ChuaCircuit の graph {i} 回目 {:?}", start.elapsed());
+        let g = ws
+            .graph("Modelica.Electrical.Analog.Examples.ChuaCircuit", 1)
+            .unwrap();
+        eprintln!(
+            "ChuaCircuit の graph {i} 回目 {:?}（{} ノード・{} 辺）",
+            start.elapsed(),
+            g.nodes.len(),
+            g.edges.len()
+        );
+        assert_eq!((g.nodes.len(), g.edges.len()), (7, 9));
     }
 }

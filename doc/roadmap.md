@@ -491,6 +491,12 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **CI**（`msl-sim.yml` run 41403194603）: 実行できた 310・管に収まった 301 / 309 で S064 と同じ。モデルごとの判定も同じ。
 - **持ち越し**: `ThyristorBridge2mPulse_DC_Drive` は BDF が 5〜7.5 s で落ち、esdirk34 は手元 159.8 s・ランナー 94〜180 s 以上。時間はイベント約 3.75 万回（15 s）ごとのやり直しに使われる。回し直しの各段に 180 s を渡しているので、予算の分け方の 1 行では収まらない。`auto` の全体の予算は計測だけ（最初の試行で 30 s を超えたのは 7 本、最大 53.3 s）。
 
+### S119（P3、2026-11-03）で済んだこと
+
+- **サイリスタの事象 1 回あたりの費用を測って軽くした**（S088 の持ち越し。[解説書](sessions/S119-sim-thyristor-event-cost/解説書.md)、[ADR-0013](adr/0013-exec-backend.md) の追記）: `ThyristorBridge2mPulse_DC_Drive` の esdirk34（0〜2 s）で、実行 27.6 s のうち事象の後の最初の刻みが 28%（1 回 2.58 ms、通常の刻みの約 14 倍）、通常の刻み 37%、Rumoca の host 28%、reset と作り直し 7%。session の道の SDIRK で、事象のあとの最初の刻みを直前に diffsol が選んでいた刻みで上から抑えた（誤差の検査の失敗 18,273 → 7,612、右辺の評価 -14%、最初の刻みの時間 -29%、実行 -7%）。
+- **CI**（`msl-sim.yml` run 41589277425）: `ThyristorBridge2mPulse_DC_Drive` が回し直しの esdirk34 で終了時刻まで（積分 177.1 s / 予算 180 s、管 OK 38/38。前は 187.5 s で時間切れ）、`ThyristorBridge2Pulse_DC_Drive` も（63.4 s、管 OK 19/19。前は 197.4 s で時間切れ）。実行できた 310 → 312、管に収まった 301 / 309 → 303 / 311。ほかの 353 本の判定と管は変わらない。2mPulse は予算 180 s に対して 177.1 s で余裕が小さい。
+- 持ち越し: reset の直後の `initialize` で捨てられるヤコビ行列と LU（5%）、Rumoca の host の部分、`--stop-time 0.5`・`1` で t = 0.0617 s に `GM-E11003` になる件（直す前から）。
+
 ### S092（P6、2026-11-02）で済んだこと
 
 - **Android の debug APK**（S038 の持ち越し「Android の sidecar」。[解説書](sessions/S092-android-apk-ci/解説書.md)）: Android では sidecar を使えないので、Tauri の mobile の入口（desktop の `src/lib.rs`）は UI を表示するだけで、UI は Android なら `WorkerBackend`（wasm）を使う（[ADR-0023](adr/0023-desktop-and-web-process-layout.md) の「S092」）。`gen/android` をコミットし、`android.yml` が署名なしの debug APK（aarch64・x86_64、251,627,503 B、artifact `globe-android`）を作り、API 34 のエミュレータで起動（`Displayed` まで 2.5 s）を確かめる（run 41409143035）。
@@ -535,6 +541,11 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 
 - **言語 API の機能表**（文書だけ。[調査](research/lang-api-matrix-2026-11-03.md)、[解説書](sessions/S110-lang-api-matrix/解説書.md)）: Rust facade・C・Zig・Julia・Elixir・Gleam・Python・wasm・LSP・CLI の公開 API を 13 の機能で並べた。穴は C・Zig・Elixir・Gleam 6、Julia 7、Python 5、facade 4、LSP 3、wasm・CLI 2。参照シナリオ（`Decay` を開く → check → simulate → `final.x` が e⁻¹ → format、MSL なし）は wasm・LSP・CLI で通り、6 言語は format が無いので通らない（Python は 1〜4 を手元で確かめた。C・Zig・Julia・Elixir・Gleam はソースで判定）。
 - 埋める順: facade に `format` / `lint` → C・NIF・py に足し Julia の包み（`format`・`load_dir`・`graph`）→ 参照シナリオを各言語の試験と CI の `lang` に → 列の道を C・NIF に → FMU export を facade に → 進捗と途中で止める口（ADR を先に）。
+
+### S122（P4、2026-11-03）で済んだこと
+
+- **ライブラリがあるときの graph の backdate**（S089 の持ち越し）: ライブラリの索引を salsa の入力 `Library` にし、文書のモデルの graph を tracked の `library_graph` にした（[ADR-0005](adr/0005-lazy-query-db.md) の「S122」）。同じ文書の 2 回目とコメントだけの編集では再実行されず、部品を足すと再実行される。MSL の `ChuaCircuit` の 2 回目は 4.6 → 0.069 ms（debug、7 ノード・9 辺のまま）。[解説書](sessions/S122-graph-salsa-backdate/解説書.md)
+- 持ち越し: 同じワークスペースの別のモデルの編集でも graph を作り直す（`class_index` が変わるため。ライブラリが無いときと同じ）。
 
 ### S101（P4、2026-11-03）で済んだこと
 
@@ -709,7 +720,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **全例題 356 本の CI**（run 41287267439、`msl-sim.yml -f 'solvers=["auto"]'` の `msl-sim` ジョブ）: 実行できた 309 → **310**（`Dimmer_RL`。管は `y_arg` の 2 信号が外れる）、管に収まった 301 / 308 → **301 / 309**、`GM-U0005` の止まり 1 → 0、減ったモデルは 0。esdirk34 で終えたのは 8 本、esdirk34 → dopri45 は 1 本（`TwoMass`）。S055 の見込み（`auto` が救えない 3 本を esdirk34 が終える）は 2 本だった（`ThyristorBridge2Pulse_DC_Drive` は esdirk34 が `GM-E11003`）。`ThyristorBridge2mPulse_DC_Drive` は esdirk34 で 94 s かかり、ランナーの速さで時間切れの境目を行き来する（run 41282411061 で終え、41287267439 で時間切れ）。
 - **採らなかった版**: 回し直しに「予算の残り」を渡す版（run 41282411061）は `LightningSegmentedTransmissionLine` が 1 本減った（msl-sim の最初の予算 30 s を BDF の組み立てと積分が使い切る）。元の予算を渡す版に戻した。時間切れの回し直しが 12 → 15 本になった（esdirk34 は 30 s を超えることがあり、180 s で回し直されて終える）。
 - 手元の前後 21 本（release）は ADR-0028 の「結果」。`doc/msl-sim.md` は run の artifact の報告（「前回との差」は S055 の結果に直した）。`msl-solvers.md` は全ソルバの run でないので触っていない。
-- **次の候補**: `ThyristorBridge2mPulse_DC_Drive` の時間切れの境目（予算の分け方、陰的ソルバの速さ）。`auto` の全体の予算（Rumoca の dopri45 が最初の予算 30 s を超えて走る件を調べてから、残りの時間を渡す規則を決める）。~~`Dimmer_RL` の `y_arg` の外れの原因。~~（S088 で済んだ。時間切れの境目と全体の予算は S088 で計測して持ち越し）
+- **次の候補**: `ThyristorBridge2mPulse_DC_Drive` の時間切れの境目（予算の分け方、陰的ソルバの速さ。S119 で事象の後の最初の刻みを軽くした）。`auto` の全体の予算（Rumoca の dopri45 が最初の予算 30 s を超えて走る件を調べてから、残りの時間を渡す規則を決める）。~~`Dimmer_RL` の `y_arg` の外れの原因。~~（S088 で済んだ。時間切れの境目と全体の予算は S088 で計測して持ち越し）
 
 ### S066（P3、2026-11-01）で済んだこと
 
