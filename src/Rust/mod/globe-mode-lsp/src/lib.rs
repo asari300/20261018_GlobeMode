@@ -377,16 +377,19 @@ impl Server {
                 None => error(id, -32602, "params.model が文字列でない"),
             },
             // 文書に依らない整形と lint（S053。Desktop の UI が wasm と同じ口で頼む）
+            // S143: 設定ファイル（globe-mode.toml）があればそれを土台にし、params のキーがあればそれを優先する
+            // （ブラウザ版の UI は設定ファイルが無いので indent などを渡す。Desktop は渡さず設定に任せる）
             "globe/format" => match params["text"].as_str() {
                 Some(text) => {
+                    let base = self.config.clone().unwrap_or_default().format;
                     let options = globe_mode_fmt::Options {
-                        indent: params["indent"].as_u64().map_or(2, |n| n as usize),
-                        insert_origin: params["insertOrigin"].as_bool().unwrap_or(true),
+                        indent: params["indent"].as_u64().map_or(base.indent, |n| n as usize),
+                        insert_origin: params["insertOrigin"].as_bool().unwrap_or(base.insert_origin),
                         blank_around_sections: params["blankAroundSections"]
                             .as_bool()
-                            .unwrap_or(true),
-                        format_html: params["formatHtml"].as_bool().unwrap_or(true),
-                        ..globe_mode_fmt::Options::default()
+                            .unwrap_or(base.blank_around_sections),
+                        format_html: params["formatHtml"].as_bool().unwrap_or(base.format_html),
+                        ..base
                     };
                     match globe_mode_fmt::format(text, &options) {
                         Ok(out) => reply(id, json!(out)),
@@ -414,7 +417,7 @@ impl Server {
             "globe/lint" => match params["text"].as_str() {
                 Some(text) => reply(
                     id,
-                    json!(globe_mode_fmt::lint(text, &globe_mode_fmt::LintOptions::default())
+                    json!(globe_mode_fmt::lint(text, &self.config.clone().unwrap_or_default())
                         .iter()
                         .map(|m| json!({"rule": m.rule, "line": m.line, "column": m.column, "message": m.message}))
                         .collect::<Vec<_>>()),
@@ -1197,7 +1200,7 @@ mod tests {
         let toml = dir.join("globe-mode.toml");
         std::fs::write(
             &toml,
-            "[fmt]\nindent = 4\n[lint]\ndisable = [\"GM-L0003\"]\n",
+            "[fmt]\nindent = 4\n[lint]\ndisable = [\"GM-L0003\", \"class-name-pascal-case\"]\n",
         )
         .unwrap();
         let mut s = Server::new(&[]).unwrap();
@@ -1217,6 +1220,25 @@ mod tests {
             "{}",
             f[0]
         );
+        // S143: UI 向けの globe/format・globe/lint も、params に indent が無ければ設定ファイル、あればそれを採る
+        let f = s.handle(json!({"id": 2, "method": "globe/format", "params": {"text": text}}));
+        assert!(
+            f[0]["result"].as_str().unwrap().contains("\n    Real x;"),
+            "{}",
+            f[0]
+        );
+        let f = s.handle(
+            json!({"id": 3, "method": "globe/format", "params": {"text": text, "indent": 2}}),
+        );
+        assert!(
+            f[0]["result"].as_str().unwrap().contains("\n  Real x;"),
+            "{}",
+            f[0]
+        );
+        let l = s.handle(
+            json!({"id": 4, "method": "globe/lint", "params": {"text": "model c\nend c;\n"}}),
+        );
+        assert_eq!(l[0]["result"], json!([]), "{}", l[0]);
         // 誤りを書いて読み直すと showMessage で知らせ、既定に戻る
         std::fs::write(&toml, "[fmt]\nindnt = 4\n").unwrap();
         let out = s.handle(

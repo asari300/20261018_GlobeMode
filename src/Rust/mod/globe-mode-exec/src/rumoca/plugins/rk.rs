@@ -393,8 +393,13 @@ impl MeIntegratorBackend for DiffsolRk {
         })?;
         let anchor = Rc::clone(&self.anchor);
         let last_step = Cell::new(self.last_step);
-        let candidate = with_method_mut!(solver, |_problem, method| {
+        let candidate = with_method_mut!(solver, |problem, method| {
             method.set_stop_time(latest).map_err(numerical)?;
+            // 刻みが停止時刻の手前・先の小さな隙間に着地すると落ちる（S139。`land_on_stop`）
+            let (t, h) = (method.state().t, method.state().h);
+            if let Some(h) = land_on_stop(t, h, latest, problem.ode_options.min_timestep) {
+                *method.state_mut().h = h;
+            }
             let stop = method.step().map_err(numerical)?;
             if matches!(stop, OdeSolverStopReason::RootFound(..)) {
                 return Err(MeIntegrationError::numerical(
@@ -586,6 +591,16 @@ fn scaled_step_floor(time: f64, initial_step: f64) -> f64 {
         .min(ABSOLUTE_STEP_FLOOR)
 }
 
+/// 刻み `h` が停止時刻 `latest` の手前か先の小さな隙間（丸めの 8 倍より大きく、刻みの下限 `floor` の 10 倍未満）に
+/// 着地するとき、ちょうど着地する刻みを返す。手前なら次の刻みが下限を下回って「Step size is too small」、先ならホストの
+/// 境界を越えて落ちる（diffsol は 100·eps·(|t|+|h|) 以内の超過を切り詰めない）。S119 の上限が直前の刻みを繰り返すので
+/// 起きやすい（HBridge_TrianglePWM_RL、S139）。丸めの 8 倍以下は触らない（触ると事象の反復が揺れる）
+fn land_on_stop(t: f64, h: f64, latest: f64, floor: f64) -> Option<f64> {
+    let gap = (latest - (t + h)).abs();
+    (h > 0.0 && gap > 8.0 * f64::EPSILON * (t.abs() + h) && gap < 10.0 * floor)
+        .then_some(latest - t)
+}
+
 /// `point` から始める RK の状態（最初の刻みは diffsol の見積もり）。
 fn initial_state(
     problem: &Problem,
@@ -628,4 +643,27 @@ pub(super) fn scaled_absolute_tolerances(setup: &MeNumericalSetup) -> Vec<f64> {
         .iter()
         .map(|nominal| (absolute_tolerance * nominal).clamp(f64::MIN_POSITIVE, f64::MAX))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::land_on_stop;
+
+    #[test]
+    fn lands_on_stop_only_for_a_small_gap() {
+        let (t, floor) = (0.2687, 1.2e-14);
+        // 手前 1.2e-14（HBridge_TrianglePWM_RL で落ちた隙間）と先 5e-15（ホストの境界を越えた隙間）は直す
+        assert_eq!(
+            land_on_stop(t, 3.0e-4 - 1.2e-14, 0.2690, floor),
+            Some(0.2690 - t)
+        );
+        assert_eq!(
+            land_on_stop(t, 3.0e-4 + 5.0e-15, 0.2690, floor),
+            Some(0.2690 - t)
+        );
+        // ちょうど着地・丸めの数 ulp・十分に手前（普通の刻み）は触らない
+        assert_eq!(land_on_stop(t, 0.2690 - t, 0.2690, floor), None);
+        assert_eq!(land_on_stop(t, 3.0e-4 + 1.0e-16, 0.2690, floor), None);
+        assert_eq!(land_on_stop(t, 1.0e-4, 0.2690, floor), None);
+    }
 }

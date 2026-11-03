@@ -46,6 +46,17 @@ export class TauriBackend implements Backend {
     return invoke("bench", { line: line ?? null });
   }
 
+  /** globe-mode.toml を読み直す（S143）。誤りは `window/showMessage` で届く（onMessage）。 */
+  reloadConfig(): Promise<void> {
+    return invoke("reload_config");
+  }
+  /** sidecar の `window/showMessage`（設定ファイルの誤りなど）を受ける。 */
+  onMessage(cb: (message: string) => void): Promise<() => void> {
+    return tauriGlobal().event.listen<{ method?: string; params?: { message?: string } }>("globe-notification", (e) => {
+      if (e.payload.method === "window/showMessage") cb(e.payload.params?.message ?? "");
+    });
+  }
+
   /** sidecar が既に何かライブラリを読んでいるか（起動時の MSL の表示用）。 */
   async hasLibrary(): Promise<boolean> {
     return (await invoke<string[]>("libraries")).length > 0;
@@ -102,7 +113,8 @@ export class TauriBackend implements Backend {
   solvers(): Promise<SolverEntry[]> {
     return invoke("rpc", { method: "globe/solvers", params: {} }); // S142
   }
-  format(text: string, indent: number, insertOrigin: boolean): Promise<string> {
+  // indent などを省くと params から落ち（JSON）、sidecar が globe-mode.toml（S143）の値を使う
+  format(text: string, indent?: number, insertOrigin?: boolean): Promise<string> {
     return invoke("rpc", { method: "globe/format", params: { text, indent, insertOrigin } });
   }
   lint(text: string): Promise<LintMessage[]> {

@@ -57,12 +57,17 @@ CHUA = "Modelica.Electrical.Analog.Examples.ChuaCircuit"
 BAD = "model Bad\n  Real x;\nequation\n  der(x) = -x;\n  x = 1;\nend Bad;\n"
 
 
-def serve() -> http.server.ThreadingHTTPServer:
-    """dist/ を 127.0.0.1 の空いた port で配る（bench_ui.py も使う。S125）。"""
+def serve(prefix: str = "") -> http.server.ThreadingHTTPServer:
+    """dist/ を 127.0.0.1 の空いた port で配る（bench_ui.py も使う。S125）。prefix（例 "/app"）を渡すとその下だけで配る（S145）。"""
     csp = re.search(r'http-equiv="Content-Security-Policy" content="([^"]+)"', (DIST / "index.html").read_text(encoding="utf-8"))
     assert csp, "index.html に CSP の meta が無い"
 
     class Handler(http.server.SimpleHTTPRequestHandler):
+        def translate_path(self, path: str) -> str:
+            if prefix and not (path == prefix or path.startswith(prefix + "/") or path.startswith(prefix + "?")):
+                return str(DIST / "__not_found__")
+            return super().translate_path(path[len(prefix) :] or "/")
+
         def end_headers(self) -> None:
             self.send_header("Content-Security-Policy", csp[1])  # worker.js にも同じ CSP を効かせる
             super().end_headers()
@@ -385,6 +390,39 @@ def main() -> int:
         assert ("msl=ok" in line) == (DIST / "msl/MSL.json").exists(), line  # S103
         assert re.search(r" ready_ms=\d+ decay_ms=\d+ msl_ms=", line), line  # S125: bench_ui.py が読む時刻
         print(line)
+        # サブパス配信（S145）: dist/ を /app/ の下だけで配っても、worker・wasm・MSL.json が相対パスで引けて、検査と MSL の読み込みができる
+        sub_server = serve("/app")
+        sub = browser.new_page()
+        sub.on("console", lambda m: m.type == "error" and errors.append(m.text))
+        sub.on("pageerror", lambda e: errors.append(str(e)))
+        sub.goto(f"http://127.0.0.1:{sub_server.server_port}/app/")
+        button = sub.get_by_role("button", name="検査")
+        button.wait_for()
+        button.click(force=True)
+        expect(button).to_be_enabled(timeout=120_000)
+        assert sub.get_by_role("alert").count() == 0 and sub.locator("tr.error").count() == 0
+        if (DIST / "msl/MSL.json").exists():
+            sub.get_by_role("button", name="MSL を読む").click()
+            expect(sub.locator("p[data-msl]")).to_have_attribute("data-msl", "loaded", timeout=120_000)
+        print("サブパス /app/: 検査が通り、MSL も読めた")
+        sub_server.shutdown()
+        # 小画面（S145）: 幅 400 px で横スクロールが出ず、主要なボタンが画面の幅に収まって見える（左の木が上に積まれる）
+        narrow = browser.new_page(viewport={"width": 400, "height": 800})
+        narrow.on("pageerror", lambda e: errors.append(str(e)))
+        narrow.goto(f"http://127.0.0.1:{server.server_port}/")
+        narrow.get_by_role("button", name="検査").wait_for()
+        if (DIST / "msl/MSL.json").exists():
+            narrow.get_by_role("button", name="MSL を読む").click()
+            expect(narrow.locator("p[data-msl]")).to_have_attribute("data-msl", "loaded", timeout=120_000)
+            expect(narrow.locator(".library")).to_be_visible()
+        for name in ["開く", "保存", "検査", "実行", "グラフ", "整形"]:
+            box = narrow.get_by_role("button", name=name, exact=True).bounding_box()
+            assert box and box["x"] >= 0 and box["x"] + box["width"] <= 400, (name, box)
+        width = narrow.evaluate("document.documentElement.scrollWidth")
+        assert width <= 400, f"小画面で横スクロールが出る: scrollWidth {width}"
+        editor = narrow.locator(".editor").bounding_box()
+        assert editor and editor["width"] >= 300, f"小画面でエディタが細い（左の木が横に並んでいる）: {editor}"
+        print(f"小画面 400 px: 主要なボタンが収まり、scrollWidth {width}、エディタの幅 {editor['width']:.0f} px")
         browser.close()
     server.shutdown()
     assert not errors, errors

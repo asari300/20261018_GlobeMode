@@ -121,6 +121,10 @@ UI（Svelte）のプロセスでは検査も実行もしない。計算は 1 つ
 - **鍵の作り方と secret の登録**（ユーザーがやる）: `keytool -genkey -v -keystore ~/globemode-upload.jks -keyalg RSA -keysize 2048 -validity 10000 -alias upload`、`base64 -w0 ~/globemode-upload.jks | gh secret set ANDROID_KEYSTORE_BASE64`、残り 3 つは `gh secret set <名前>`（対話で値を入れる）。出典: [Tauri: Android Code Signing](https://v2.tauri.app/distribute/sign/android/)・[GitHub: Using secrets in GitHub Actions](https://docs.github.com/en/actions/security-for-github-actions/security-guides/using-secrets-in-github-actions)・[Android Developers: Sign your app](https://developer.android.com/studio/publish/app-signing)（いずれも確認日 2026-11-03）。[解説書](../sessions/S106-android-release-apk/解説書.md)。
 - 持ち越し: secret を登録した run での署名つき APK の実機確認、配布用の UI を smoke なしで作るか、Rust を mobile の lib に直接 link する道、MSL 4.0.0 の切り替え。
 
+### S145 で決まったこと（ブラウザ版の配布物、2026-11-04）
+
+- **ブラウザ版は、サーバーで計算しない静的ファイルの束として配る。** 手動の `web.yml` が wasm と UI（vite の `base: "./"`。どのサブパスでも動く）、`MSL.json`、CSP の header の断片（`_headers`・`nginx.csp.conf`。正は `index.html` の meta で、Worker に効かせるため配布先の header に写す）を artifact `globe-web` に出す。`Cross-Origin-Opener-Policy` / `Cross-Origin-Embedder-Policy` は要らない（`SharedArrayBuffer` を使わない）。**公開（GitHub Pages の有効化、URL の配布）はユーザーの判断で、このセッションでは行わない。** 持ち越し: PWA、ダークモード、`MSL.json` の分割配信。
+
 ### S141 で決まったこと（ファイルを開く・保存する、2026-11-04）
 
 - **自分の `.mo` を持ち込み・持ち帰る道は、環境ごとに別の実装を `Backend.openFile` / `saveFile` の後ろに置く。** ブラウザと Android（sidecar が無く `WorkerBackend` を使う）は `<input type=file>` と Blob のダウンロード（保存先はブラウザが決める）。Desktop は公式プラグイン `tauri-plugin-dialog` と `tauri-plugin-fs`（Desktop だけの依存で、Android の lib には入れない）で、UI は npm の `@tauri-apps/plugin-*` を入れず `window.__TAURI__.dialog` / `fs` を使う（S135 と同じ）。権限は `capabilities/desktop.json` に `dialog:allow-open`・`dialog:allow-save`・`fs:allow-read-text-file`・`fs:allow-write-text-file` だけ。dialog で選んだパスだけが fs の許可に入るので、静的なスコープは置かない。command（`generate_handler!`）は足していない。
@@ -133,6 +137,10 @@ UI（Svelte）のプロセスでは検査も実行もしない。計算は 1 つ
 - **配布と署名は `release.yml`**（`desktop.yml` は smoke と試験のまま）: ジョブ `desktop-ui`（vite build）→ `desktop`（Linux の .deb・Windows の .msi。sidecar の `globe` を作って置き、`cargo tauri build --config` でタグの版と `createUpdaterArtifacts` を渡す）→ `release`（SHA256SUMS と `latest.json`）。**署名は secret があるときだけ**（S106 と同じく `env` に写して分岐）: `TAURI_SIGNING_PRIVATE_KEY` が空でなければ `createUpdaterArtifacts: true` で `.deb.sig`・`.msi.sig` を作り、`release` が `.sig` の中身を `signature` に、Release の資産の URL を `url` にした `latest.json`（`linux-x86_64-deb`・`windows-x86_64-msi`）を作る。無ければ署名なしの bundle だけで `latest.json` は作らない。手動実行（`workflow_dispatch`）は従来どおり dry-run で、Release には付けず artifact（`globe-desktop-linux`・`globe-desktop-windows`、`SHA256SUMS`）に残す。
 - **鍵の作り方と secret の登録**（ユーザーがやる。鍵はリポジトリに置かない）: `cargo tauri signer generate -w ~/.tauri/globemode.key`（パスワードを決める）、`gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/globemode.key`、`gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD`（対話で入れる）、公開鍵 `~/.tauri/globemode.key.pub` の中身を `tauri.conf.json` の `plugins.updater.pubkey` に書いてコミットする。秘密鍵を失うと、それまでに配ったアプリへ更新を届けられない（Tauri の手引き）。
 - 持ち越し: 署名つきの Release からの実機での更新の確認（Linux は pkexec の確認、Windows は passive の msi）、Desktop の THIRD-PARTY.md、macOS。
+
+### S143 で決まったこと（Desktop の設定ファイルの根、2026-11-04）
+
+- **Desktop は、起動時の作業ディレクトリ（`--root <DIR>`、無ければ `GLOBE_ROOT`、無ければカレントディレクトリ）を sidecar の `initialize` に `rootPath` で渡す。** sidecar（`globe lsp`）は根から上へ `globe-mode.toml` を探し（S130、[ADR-0024](0024-own-formatter-and-lint.md)）、整形と lint に使う。`rootUri` でなく `rootPath` にしたのは LSP が両方を読むためで、URI の組み立てを Desktop に持たせない。作り直した sidecar にも同じ根を渡す。UI は整形・lint の引数を渡さず設定に任せる（ブラウザ版の wasm は設定ファイルを持たないので、`WorkerBackend` が既定の 2・true を渡す）。設定の読み直しは command `reload_config`（`workspace/didChangeConfiguration`）。根を実行中に替える（フォルダを開く）ことは持ち越し。
 
 ### S134 で決まったこと（Linux の locale、2026-11-03）
 
