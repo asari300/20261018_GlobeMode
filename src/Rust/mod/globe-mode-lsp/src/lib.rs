@@ -2,7 +2,9 @@
 //!
 //! 機能: 診断（`publishDiagnostics`、検査 S0〜S10 と lint）、`documentSymbol`（アウトライン）、
 //! `hover`（クラスの種類）、`formatting`（S053、`globe-mode-fmt`）、`completion`（S053、[`completion`]）。
-//! `definition`・`references`（S132、[`definition`]）。同期は Full で、1 本のスレッドで順に処理する。
+//! `definition`・`references`（S132、[`definition`]）。同期は Full で、要求は 1 本のスレッドで順に処理する
+//! （S136: 入力の読みは別のスレッド。`$/cancelRequest` で `globe/simulate`・`globe/simulateColumns` を止め、
+//! params に `workDoneToken` があれば `$/progress` で進捗を出す。ADR-0033）。
 //!
 //! 独自の要求（S049、ADR-0023。Desktop の UI が sidecar の `globe lsp` に同じ接続で頼む）:
 //!
@@ -30,9 +32,14 @@ mod definition;
 use std::collections::HashMap;
 use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex, MutexGuard, mpsc};
+use std::thread;
 
 use globe_mode::db::normalize_path;
-use globe_mode::{ColumnsLayout, Diagnostic, SimulateRequest, Simulated, Workspace};
+use globe_mode::{
+    CancelToken, ColumnsLayout, Diagnostic, Progress, SimulateHandle, SimulateRequest, Simulated,
+    Workspace,
+};
 use globe_mode_core::Severity;
 use globe_mode_ir::{ClassKind, ClassOutline};
 use lsp_types::{
@@ -110,6 +117,20 @@ impl Server {
 
     /// 受けたメッセージ 1 つに対して、送り返すメッセージ（応答と通知）を返す。
     pub fn handle(&mut self, msg: Value) -> Vec<Value> {
+        let mut notes = Vec::new();
+        let replies = self.handle_with(msg, None, &mut |m| notes.push(m));
+        notes.extend(replies);
+        notes
+    }
+
+    /// [`Server::handle`] と同じだが、実行の要求は `cancel` で止められ、進捗（`$/progress`）は返り値を待たずに
+    /// `notify` へ渡す（S136、ADR-0033）。
+    pub fn handle_with(
+        &mut self,
+        msg: Value,
+        cancel: Option<CancelToken>,
+        notify: &mut dyn FnMut(Value),
+    ) -> Vec<Value> {
         let id = msg.get("id").cloned();
         let params = &msg["params"];
         let uri = params["textDocument"]["uri"]
@@ -275,7 +296,10 @@ impl Server {
             },
             "globe/simulate" => {
                 match serde_json::from_value::<SimulateRequest>(params["request"].clone()) {
-                    Ok(request) => reply(id, json!(self.ws.simulate(&request))),
+                    Ok(request) => {
+                        let s = self.simulate(&request, params.get("workDoneToken"), cancel, notify);
+                        reply(id, json!(s.response))
+                    }
                     Err(e) => error(id, -32602, &format!("params.request: {e}")),
                 }
             }
@@ -284,7 +308,7 @@ impl Server {
                     Ok(mut request) => {
                         request.no_csv = true;
                         let Simulated { response, run, .. } =
-                            self.ws.simulate_with(&request, &globe_mode::now_ms);
+                            self.simulate(&request, params.get("workDoneToken"), cancel, notify);
                         let (names, columns) = match run {
                             Some(run) => {
                                 let t = run.trajectory;
@@ -377,6 +401,48 @@ impl Server {
     }
 
     /// 本文を差し替えて、診断を出し直す。
+    /// 実行（ADR-0033）。`token`（params の `workDoneToken`）があれば `$/progress` の begin・report・end を出す。
+    /// report の value には LSP の `message`（段）と `percentage`（t のあるときだけ）に、facade の `Progress` の
+    /// `stage`・`time`・`start_time`・`stop_time` を添える（Desktop の UI がそのまま使う）。
+    fn simulate(
+        &mut self,
+        request: &SimulateRequest,
+        token: Option<&Value>,
+        cancel: Option<CancelToken>,
+        notify: &mut dyn FnMut(Value),
+    ) -> Simulated {
+        let mut progress = |value: Value| {
+            if let Some(token) = token {
+                notify(json!({"jsonrpc": "2.0", "method": "$/progress",
+                    "params": {"token": token, "value": value}}));
+            }
+        };
+        progress(
+            json!({"kind": "begin", "title": format!("simulate {}", request.model), "cancellable": true}),
+        );
+        let mut on_progress = |p: &Progress| {
+            let stage = format!("{:?}", p.stage).to_lowercase();
+            let mut v = json!({"kind": "report", "message": stage, "stage": stage,
+                "start_time": p.start_time, "stop_time": p.stop_time});
+            if let Some(t) = p.time {
+                let pct = (t - p.start_time) / (p.stop_time - p.start_time) * 100.0;
+                v["time"] = json!(t);
+                // 幅が 0 なら NaN で、`as` は 0 にする
+                v["percentage"] = json!(pct.clamp(0.0, 100.0) as u32);
+            }
+            progress(v);
+        };
+        let handle = SimulateHandle {
+            on_progress: Some(&mut on_progress),
+            cancel,
+        };
+        let s = self
+            .ws
+            .simulate_observed(request, &globe_mode::now_ms, handle);
+        progress(json!({"kind": "end"}));
+        s
+    }
+
     fn update(&mut self, uri: String, text: String) -> Vec<Value> {
         let path = uri_path(&uri);
         self.ws.set_file(&path, text.clone());
@@ -475,23 +541,86 @@ fn lint_diagnostics(
 
 /// 標準入出力で LSP を回す。`exit` か入力の終わりで返る。
 pub fn run_stdio(libraries: &[PathBuf]) -> io::Result<()> {
-    let mut server = Server::new(libraries).map_err(|ds| {
+    let server = Server::new(libraries).map_err(|ds| {
         let msgs: Vec<_> = ds.iter().map(|d| d.message.as_str()).collect();
         io::Error::other(msgs.join("; "))
     })?;
-    let mut input = io::stdin().lock();
-    let mut out = io::stdout().lock();
-    while let Some(msg) = read_message(&mut input)? {
-        if msg["method"] == "exit" {
-            break;
+    serve(server, io::BufReader::new(io::stdin()), io::stdout().lock())
+}
+
+/// 実行の要求（`$/cancelRequest` で止められるもの。ADR-0033）。
+fn cancellable(method: &str) -> bool {
+    matches!(method, "globe/simulate" | "globe/simulateColumns")
+}
+
+/// 読みと計算を分けて回す（S136、ADR-0033）。読みのスレッドは枠を読んでキューに積み、実行の要求には
+/// トークンを作って表に置く。`$/cancelRequest` はキューに積まず、表のトークンを立てる（待っている要求にも効く）。
+/// 計算はこのスレッドで 1 度に 1 つ。書くのもこのスレッドだけ。
+fn serve(
+    mut server: Server,
+    mut input: impl BufRead + Send + 'static,
+    mut out: impl Write,
+) -> io::Result<()> {
+    let tokens: Arc<Mutex<HashMap<String, CancelToken>>> = Arc::default();
+    let (tx, rx) = mpsc::channel::<io::Result<(Value, Option<CancelToken>)>>();
+    let table = tokens.clone();
+    let reader = thread::spawn(move || {
+        loop {
+            let msg = match read_message(&mut input) {
+                Ok(Some(m)) => m,
+                Ok(None) => break,
+                Err(e) => {
+                    let _ = tx.send(Err(e));
+                    break;
+                }
+            };
+            let method = msg["method"].as_str().unwrap_or("");
+            if method == "exit" {
+                break;
+            }
+            if method == "$/cancelRequest" {
+                if let Some(t) = lock(&table).get(&msg["params"]["id"].to_string()) {
+                    t.cancel();
+                }
+                continue;
+            }
+            let token = (cancellable(method) && msg.get("id").is_some()).then(|| {
+                let t = CancelToken::new();
+                lock(&table).insert(msg["id"].to_string(), t.clone());
+                t
+            });
+            if tx.send(Ok((msg, token))).is_err() {
+                break;
+            }
         }
-        for m in server.handle(msg) {
-            let body = m.to_string();
-            write!(out, "Content-Length: {}\r\n\r\n{body}", body.len())?;
-            out.flush()?;
+    });
+    let mut write = |m: Value| -> io::Result<()> {
+        let body = m.to_string();
+        write!(out, "Content-Length: {}\r\n\r\n{body}", body.len())?;
+        out.flush()
+    };
+    for got in rx {
+        let (msg, token) = got?;
+        let id = msg["id"].to_string();
+        let mut failed = Ok(());
+        let replies = server.handle_with(msg, token, &mut |m| {
+            if failed.is_ok() {
+                failed = write(m);
+            }
+        });
+        lock(&tokens).remove(&id);
+        failed?;
+        for m in replies {
+            write(m)?;
         }
     }
+    // 読みのスレッドは入力の終わりか `exit` で抜けている（キューが閉じたので）
+    let _ = reader.join();
     Ok(())
+}
+
+fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 /// `Content-Length` の枠 1 つを読む。入力が終わっていれば None。
@@ -1095,6 +1224,74 @@ mod tests {
             .map(|l| l["range"]["start"]["line"].clone())
             .collect();
         assert_eq!(lines, [json!(1), json!(4), json!(4)], "{r}");
+    }
+
+    /// S136（ADR-0033）: 読みを別のスレッドにした `serve` を pipe で回す。長い実行の進捗が `$/progress` で届き、
+    /// `$/cancelRequest` で止めると、普通の応答に GM-I11004 と途中までの列が載る。
+    #[test]
+    fn cancel_request_stops_a_long_run_with_partial_columns() {
+        const WIGGLE: &str = "model Wiggle Real x(start = 0, fixed = true); equation der(x) = sin(100 * time); end Wiggle;";
+        fn send(w: &mut impl Write, m: Value) {
+            let b = m.to_string();
+            write!(w, "Content-Length: {}\r\n\r\n{b}", b.len()).unwrap();
+        }
+        let (in_r, mut in_w) = io::pipe().unwrap();
+        let (out_r, out_w) = io::pipe().unwrap();
+        let server = Server::new(&[]).unwrap();
+        let t = thread::spawn(move || serve(server, io::BufReader::new(in_r), out_w));
+        let mut out = io::BufReader::new(out_r);
+        send(
+            &mut in_w,
+            json!({"jsonrpc": "2.0", "id": 7, "method": "globe/simulateColumns", "params": {
+                "workDoneToken": "run", "request": {"model": "Wiggle", "files": {"Wiggle.mo": WIGGLE},
+                "settings": {"solver": "esdirk34", "stop_time": 100000.0, "interval": 1.0}}}}),
+        );
+        let mut kinds = Vec::new();
+        loop {
+            let m = read_message(&mut out).unwrap().unwrap();
+            assert_eq!(m["method"], "$/progress", "{m}");
+            kinds.push(m["params"]["value"]["kind"].clone());
+            // 列は出力の点（間隔 1）までなので、t > 1 の report を待ってから止める（それより前だと列は t = 0 の 1 点だけ）
+            if m["params"]["value"]["time"]
+                .as_f64()
+                .is_some_and(|t| t > 1.0)
+            {
+                assert!(m["params"]["value"]["percentage"].is_number(), "{m}");
+                break;
+            }
+        }
+        assert_eq!(kinds[0], "begin");
+        send(
+            &mut in_w,
+            json!({"jsonrpc": "2.0", "method": "$/cancelRequest", "params": {"id": 7}}),
+        );
+        let r = loop {
+            let m = read_message(&mut out).unwrap().unwrap();
+            if m["id"] == 7 {
+                break m;
+            }
+            kinds.push(m["params"]["value"]["kind"].clone());
+        };
+        assert_eq!(kinds.last().unwrap(), "end");
+        let res = &r["result"];
+        assert_eq!(
+            res["response"]["termination"]["kind"], "cancelled",
+            "{}",
+            res["response"]
+        );
+        let codes: Vec<_> = res["response"]["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|d| d["code"].clone())
+            .collect();
+        assert!(codes.contains(&json!("GM-I11004")), "{codes:?}");
+        let time = res["columns"][0].as_array().unwrap();
+        let last = time.last().unwrap().as_f64().unwrap();
+        assert!((1.0..100000.0).contains(&last), "{last}");
+        // exit で読みのスレッドが抜け、serve が返る
+        send(&mut in_w, json!({"jsonrpc": "2.0", "method": "exit"}));
+        t.join().unwrap().unwrap();
     }
 
     #[test]
