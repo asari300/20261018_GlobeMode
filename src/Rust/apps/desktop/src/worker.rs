@@ -413,16 +413,15 @@ mod tests {
                 "globe/simulateColumns",
                 json!({"workDoneToken": "run", "request": {"model": "Wiggle", "files": {"Wiggle.mo":
                     "model Wiggle Real x(start = 0, fixed = true); equation der(x) = sin(100 * time); end Wiggle;"},
-                    "settings": {"solver": "esdirk34", "stop_time": 1000.0, "interval": 1.0}}}),
+                    "settings": {"solver": "esdirk34", "stop_time": 100000.0, "interval": 1.0}}}),
             )
         });
         // 積分の t が届いてから止める
-        while !got
-            .lock()
-            .unwrap()
-            .iter()
-            .any(|m| m["params"]["value"]["time"].is_number())
-        {
+        while !got.lock().unwrap().iter().any(|m| {
+            m["params"]["value"]["time"]
+                .as_f64()
+                .is_some_and(|t| t > 1.0)
+        }) {
             thread::sleep(Duration::from_millis(20));
         }
         c.cancel();

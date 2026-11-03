@@ -1244,14 +1244,18 @@ mod tests {
             &mut in_w,
             json!({"jsonrpc": "2.0", "id": 7, "method": "globe/simulateColumns", "params": {
                 "workDoneToken": "run", "request": {"model": "Wiggle", "files": {"Wiggle.mo": WIGGLE},
-                "settings": {"solver": "esdirk34", "stop_time": 1000.0, "interval": 1.0}}}}),
+                "settings": {"solver": "esdirk34", "stop_time": 100000.0, "interval": 1.0}}}}),
         );
         let mut kinds = Vec::new();
         loop {
             let m = read_message(&mut out).unwrap().unwrap();
             assert_eq!(m["method"], "$/progress", "{m}");
             kinds.push(m["params"]["value"]["kind"].clone());
-            if m["params"]["value"]["time"].is_number() {
+            // 列は出力の点（間隔 1）までなので、t > 1 の report を待ってから止める（それより前だと列は t = 0 の 1 点だけ）
+            if m["params"]["value"]["time"]
+                .as_f64()
+                .is_some_and(|t| t > 1.0)
+            {
                 assert!(m["params"]["value"]["percentage"].is_number(), "{m}");
                 break;
             }
@@ -1284,7 +1288,7 @@ mod tests {
         assert!(codes.contains(&json!("GM-I11004")), "{codes:?}");
         let time = res["columns"][0].as_array().unwrap();
         let last = time.last().unwrap().as_f64().unwrap();
-        assert!(last > 0.0 && last < 1000.0, "{last}");
+        assert!(last >= 1.0 && last < 100000.0, "{last}");
         // exit で読みのスレッドが抜け、serve が返る
         send(&mut in_w, json!({"jsonrpc": "2.0", "method": "exit"}));
         t.join().unwrap().unwrap();
