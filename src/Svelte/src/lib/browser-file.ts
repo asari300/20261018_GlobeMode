@@ -26,6 +26,8 @@ async function download(name: string, data: BlobPart, type: string): Promise<str
   setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
   return name;
 }
-export const browserSave = (name: string, text: string) => download(name, text, "text/plain");
+/** 本文（S144 から FMU のバイト列も）をダウンロードさせる。 */
+export const browserSave = (name: string, data: string | Uint8Array<ArrayBuffer>) =>
+  download(name, data, typeof data === "string" ? "text/plain" : "application/octet-stream");
 /** PNG をダウンロードさせる（S146）。 */
 export const browserSaveBinary = (name: string, bytes: Uint8Array) => download(name, bytes as BlobPart, "image/png");

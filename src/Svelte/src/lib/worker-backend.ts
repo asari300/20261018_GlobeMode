@@ -51,6 +51,9 @@ export class WorkerBackend implements Backend {
   definition(file: string, line: number, character: number): Promise<Definition | null> {
     return this.#w.definition(file, line, character);
   }
+  async exportFmu(model: string, fmiVersion: number): Promise<string | null> {
+    return browserSave(`${model.replaceAll(".", "_")}.fmu`, await this.#w.exportFmu(model, fmiVersion)); // S144。名前は facade の FMU と同じ
+  }
   openFile = browserOpen;
   saveFile = browserSave;
   saveBinary = browserSaveBinary;

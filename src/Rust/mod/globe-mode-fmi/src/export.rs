@@ -102,6 +102,23 @@ pub fn write_fmu(
     Ok(fmu)
 }
 
+/// ソースの FMU（`write_fmu` の `build` 無しと同じ中身）を zip のバイト列にする（S144。ファイルに触らないので wasm32 でも呼べる）。
+pub fn fmu_bytes(src: &MeSources) -> Result<Vec<u8>, String> {
+    let e = |e: zip::result::ZipError| e.to_string();
+    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    let options = zip::write::SimpleFileOptions::default();
+    let licenses = ("documentation/licenses/Rumoca-LICENSE.txt", RUMOCA_LICENSE);
+    let md = ("modelDescription.xml", src.model_description_xml.as_str());
+    for (path, text) in std::iter::once(md)
+        .chain(src.c_sources.iter().map(|(p, t)| (p.as_str(), t.as_str())))
+        .chain(std::iter::once(licenses))
+    {
+        zip.start_file(path, options).map_err(e)?;
+        zip.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
+    }
+    Ok(zip.finish().map_err(e)?.into_inner())
+}
+
 /// zig の target triple（例 `x86_64-windows-gnu`）から、`binaries/` の下の名前と共有ライブラリの拡張子を返す。
 /// FMI 2.0 は `linux64`・`win64`・`darwin64`、3.0 は `<arch>-<os>`（`x86_64-windows`・`aarch64-darwin` など）。
 fn platform(triple: &str, fmi_version: u8) -> Result<(String, &'static str), String> {

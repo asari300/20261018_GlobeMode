@@ -45,3 +45,7 @@
 ## 追記（S124、2026-11-03）: FMI 3.0 の書く側
 
 - **`write_model_description_3` を `globe-mode-fmi` に足した**。2.0 と同じ型・同じ範囲（Real・Integer・Boolean、3.0 の要素名は `Float64`・`Int32`・`Boolean`）で、変数は型の要素に属性をまとめ、`ModelStructure` は `Output`・`ContinuousStateDerivative`・`InitialUnknown` の `valueReference` で書く。3.0 には `numberOfEventIndicators` が無いので、読む側は `<EventIndicator>` の数を `number_of_event_indicators` に入れ、書く側は 1 つ以上なら `Err`（valueReference の欄を足すのは P5b が 3.0 を出すとき）。Reference-FMUs の Dahlquist 3.0 と P5a の Decay 3.0 で読み→書き→読みが同じ `ModelDescription` になる。P5a は引き続き Rumoca のテンプレートの XML を置き換えず、`globe-mode-fmu` は 2.0 のまま（[S124 の解説書](../sessions/S124-fmi3-writer/解説書.md)）。
+
+## 追記（S144、2026-11-04）: ブラウザで FMU を書き出す
+
+- **ブラウザ・Android でも出来る**（ソースの FMU だけ）。Rumoca のテンプレートを描く `export_me_sources` は文字列の組を返すだけで、`globe-mode-fmi` の `export` feature（frontend と `zip`）は `cargo check --target wasm32-unknown-unknown` が通った。ファイルに触る `write_fmu`・`cc` は使わず、zip をメモリ上で組む `fmu_bytes`（中身は `write_fmu` の `build` 無しと同じ）を足し、facade の `Workspace::export_fmu_bytes` と wasm の `Workspace.export_fmu`（`Uint8Array`）で返す。UI は Blob にしてダウンロードする。`--build`（`cc` / `zig cc`）はブラウザでは出来ない（プロセスもファイルも無い）ので UI に持たない。Desktop は LSP の `globe/exportFmu` が facade の `export_fmu` で `outDir` に書く。代償として lsp と wasm が facade の feature `fmu`（frontend のテンプレートと `zip`）を引き、wasm が大きくなる【増え分は未測定。release で 18.6 MB】。

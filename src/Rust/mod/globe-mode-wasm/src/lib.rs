@@ -356,6 +356,14 @@ impl Workspace {
         Ok(self.run_columns_observed(request, handle))
     }
 
+    /// ソースの FMU（FMI `fmi_version`、2 か 3。build 無し）を zip のバイト列（`Uint8Array`）で返す（S144。UI は Blob にしてダウンロードする）。
+    /// DAE まで変換できないなど、作れなければ例外（文字列）。
+    pub fn export_fmu(&mut self, model: &str, fmi_version: u8) -> Result<Vec<u8>, JsValue> {
+        self.inner
+            .export_fmu_bytes(model, fmi_version)
+            .map_err(js_error)
+    }
+
     /// モデルの検査だけ（S0〜S10。実行しない）。`CheckResponse` の JSON を返す（S041。ブラウザ UI の診断パネル用）。
     pub fn check(&mut self, model: &str) -> Result<String, JsValue> {
         to_json(&self.inner.check(model))

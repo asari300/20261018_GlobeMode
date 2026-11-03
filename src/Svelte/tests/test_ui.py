@@ -9,6 +9,7 @@ dist/ を localhost で配り（CSP は index.html の meta と同じものを�
 長いモデルの実行で進捗（段と t の割合）が出て、「止める」で止まり（data-run="cancelled"）、ボタンが戻ることを確かめる（S133）。
 Decay の `der(x)` の x で F12 を押すと宣言の行（`Real x`）へ動く。ChuaCircuit のファイルで型 `Modelica.Electrical.Analog.Basic.Resistor` の上の F12 は、ライブラリの Resistor.mo をエディタに開き、Alt+← で ChuaCircuit に戻る（S138）。
 `.mo` を開く（ファイル選択）とエディタに入りモデル名が本文から付いて検査が通り、「保存」でダウンロードされ、再読み込みで localStorage から戻る（S141）。
+FMU を書き出す（S144）: ブラウザの wasm が作ったソースの FMU がダウンロードされ、modelDescription.xml と sources/ がある。
 実行の設定（S142）: 終了時刻 2 とソルバ dopri45 で Decay を実行して x(2) が e⁻²、DecayK は experiment の Tolerance が初期値（出どころ experiment）に出て、k = 2 の上書きで x(1) が e⁻²。名前=値でない行は実行しない。
 ライブラリの木で Modelica → Electrical → Analog → Examples → ChuaCircuit と開き、そのファイルがエディタに開いて検査が通ることも確かめる（S127）。
 別のページで MSL.json を構文の誤りのファイルを含むライブラリに差し替え、読み飛ばしの警告 GM-W1001 の行と notes のファイル名が出ることを確かめる（S071）。
@@ -27,6 +28,7 @@ import subprocess
 import sys
 import threading
 import time
+import zipfile
 from pathlib import Path
 
 from playwright.sync_api import expect, sync_playwright
@@ -55,12 +57,17 @@ CHUA = "Modelica.Electrical.Analog.Examples.ChuaCircuit"
 BAD = "model Bad\n  Real x;\nequation\n  der(x) = -x;\n  x = 1;\nend Bad;\n"
 
 
-def serve() -> http.server.ThreadingHTTPServer:
-    """dist/ を 127.0.0.1 の空いた port で配る（bench_ui.py も使う。S125）。"""
+def serve(prefix: str = "") -> http.server.ThreadingHTTPServer:
+    """dist/ を 127.0.0.1 の空いた port で配る（bench_ui.py も使う。S125）。prefix（例 "/app"）を渡すとその下だけで配る（S145）。"""
     csp = re.search(r'http-equiv="Content-Security-Policy" content="([^"]+)"', (DIST / "index.html").read_text(encoding="utf-8"))
     assert csp, "index.html に CSP の meta が無い"
 
     class Handler(http.server.SimpleHTTPRequestHandler):
+        def translate_path(self, path: str) -> str:
+            if prefix and not (path == prefix or path.startswith(prefix + "/") or path.startswith(prefix + "?")):
+                return str(DIST / "__not_found__")
+            return super().translate_path(path[len(prefix) :] or "/")
+
         def end_headers(self) -> None:
             self.send_header("Content-Security-Policy", csp[1])  # worker.js にも同じ CSP を効かせる
             super().end_headers()
@@ -378,6 +385,15 @@ def main() -> int:
         expect(own.locator(".cm-content")).to_contain_text("model Mine", timeout=30_000)
         expect(own.get_by_label("モデル名")).to_have_value("Mine")
         print("開く・保存: Mine.mo を開いて検査が通り、ダウンロードの内容が一致し、再読み込みで戻った")
+        # FMU を書き出す（S144）: wasm が作ったソースの FMU（zip）がダウンロードされる
+        with own.expect_download() as fmu:
+            own.get_by_role("button", name="FMU を書き出す").click(force=True)
+        assert fmu.value.suggested_filename == "Mine.fmu"
+        with zipfile.ZipFile(fmu.value.path()) as z:
+            assert "modelDescription.xml" in z.namelist() and any(n.startswith("sources/") for n in z.namelist()), z.namelist()
+            assert b'modelName="Mine"' in z.read("modelDescription.xml")
+        expect(own.locator("p[data-saved]")).to_contain_text("Mine.fmu")
+        print("FMU: Mine.fmu がダウンロードされ、modelDescription.xml と sources/ がある")
         # ?smoke=1 で起動すると Decay を検査・実行して GM-SMOKE の 1 行を console に出す（S100。android.yml が logcat で待つ行）
         smoke = browser.new_page()
         smoke.on("pageerror", lambda e: errors.append(str(e)))
@@ -388,6 +404,39 @@ def main() -> int:
         assert ("msl=ok" in line) == (DIST / "msl/MSL.json").exists(), line  # S103
         assert re.search(r" ready_ms=\d+ decay_ms=\d+ msl_ms=", line), line  # S125: bench_ui.py が読む時刻
         print(line)
+        # サブパス配信（S145）: dist/ を /app/ の下だけで配っても、worker・wasm・MSL.json が相対パスで引けて、検査と MSL の読み込みができる
+        sub_server = serve("/app")
+        sub = browser.new_page()
+        sub.on("console", lambda m: m.type == "error" and errors.append(m.text))
+        sub.on("pageerror", lambda e: errors.append(str(e)))
+        sub.goto(f"http://127.0.0.1:{sub_server.server_port}/app/")
+        button = sub.get_by_role("button", name="検査")
+        button.wait_for()
+        button.click(force=True)
+        expect(button).to_be_enabled(timeout=120_000)
+        assert sub.get_by_role("alert").count() == 0 and sub.locator("tr.error").count() == 0
+        if (DIST / "msl/MSL.json").exists():
+            sub.get_by_role("button", name="MSL を読む").click()
+            expect(sub.locator("p[data-msl]")).to_have_attribute("data-msl", "loaded", timeout=120_000)
+        print("サブパス /app/: 検査が通り、MSL も読めた")
+        sub_server.shutdown()
+        # 小画面（S145）: 幅 400 px で横スクロールが出ず、主要なボタンが画面の幅に収まって見える（左の木が上に積まれる）
+        narrow = browser.new_page(viewport={"width": 400, "height": 800})
+        narrow.on("pageerror", lambda e: errors.append(str(e)))
+        narrow.goto(f"http://127.0.0.1:{server.server_port}/")
+        narrow.get_by_role("button", name="検査").wait_for()
+        if (DIST / "msl/MSL.json").exists():
+            narrow.get_by_role("button", name="MSL を読む").click()
+            expect(narrow.locator("p[data-msl]")).to_have_attribute("data-msl", "loaded", timeout=120_000)
+            expect(narrow.locator(".library")).to_be_visible()
+        for name in ["開く", "保存", "検査", "実行", "グラフ", "整形"]:
+            box = narrow.get_by_role("button", name=name, exact=True).bounding_box()
+            assert box and box["x"] >= 0 and box["x"] + box["width"] <= 400, (name, box)
+        width = narrow.evaluate("document.documentElement.scrollWidth")
+        assert width <= 400, f"小画面で横スクロールが出る: scrollWidth {width}"
+        editor = narrow.locator(".editor").bounding_box()
+        assert editor and editor["width"] >= 300, f"小画面でエディタが細い（左の木が横に並んでいる）: {editor}"
+        print(f"小画面 400 px: 主要なボタンが収まり、scrollWidth {width}、エディタの幅 {editor['width']:.0f} px")
         browser.close()
     server.shutdown()
     assert not errors, errors

@@ -157,6 +157,14 @@ export class TauriBackend implements Backend {
     return path;
   }
 
+  /** S144: ソースの FMU。dialog.save で選んだ場所のフォルダを outDir にして sidecar に書かせる（`<outDir>/<モデル名の . を _ にしたもの>.fmu` と展開した同名のフォルダ。選んだファイル名は使わない）。 */
+  async exportFmu(model: string, fmiVersion: number): Promise<string | null> {
+    const path = await tauriGlobal().dialog.save({ defaultPath: `${model.replaceAll(".", "_")}.fmu`, filters: [{ name: "FMU", extensions: ["fmu"] }] });
+    if (!path) return null;
+    const r = await invoke<{ path: string }>("rpc", { method: "globe/exportFmu", params: { model, fmiVersion, outDir: path.replace(/[\\/][^\\/]*$/, "") || "/" } });
+    return r.path;
+  }
+
   /** 更新を確かめ、あれば確かめてから入れる（S135、updater プラグインの `window.__TAURI__.updater`）。結果を短い文で返す。 */
   async checkUpdate(): Promise<string> {
     if (!(await invoke<boolean>("updater_configured"))) return "未設定"; // 公開鍵の無いビルド（release.yml の署名なし）

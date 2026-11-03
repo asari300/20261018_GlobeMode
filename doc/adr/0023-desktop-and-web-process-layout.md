@@ -121,6 +121,10 @@ UI（Svelte）のプロセスでは検査も実行もしない。計算は 1 つ
 - **鍵の作り方と secret の登録**（ユーザーがやる）: `keytool -genkey -v -keystore ~/globemode-upload.jks -keyalg RSA -keysize 2048 -validity 10000 -alias upload`、`base64 -w0 ~/globemode-upload.jks | gh secret set ANDROID_KEYSTORE_BASE64`、残り 3 つは `gh secret set <名前>`（対話で値を入れる）。出典: [Tauri: Android Code Signing](https://v2.tauri.app/distribute/sign/android/)・[GitHub: Using secrets in GitHub Actions](https://docs.github.com/en/actions/security-for-github-actions/security-guides/using-secrets-in-github-actions)・[Android Developers: Sign your app](https://developer.android.com/studio/publish/app-signing)（いずれも確認日 2026-11-03）。[解説書](../sessions/S106-android-release-apk/解説書.md)。
 - 持ち越し: secret を登録した run での署名つき APK の実機確認、配布用の UI を smoke なしで作るか、Rust を mobile の lib に直接 link する道、MSL 4.0.0 の切り替え。
 
+### S145 で決まったこと（ブラウザ版の配布物、2026-11-04）
+
+- **ブラウザ版は、サーバーで計算しない静的ファイルの束として配る。** 手動の `web.yml` が wasm と UI（vite の `base: "./"`。どのサブパスでも動く）、`MSL.json`、CSP の header の断片（`_headers`・`nginx.csp.conf`。正は `index.html` の meta で、Worker に効かせるため配布先の header に写す）を artifact `globe-web` に出す。`Cross-Origin-Opener-Policy` / `Cross-Origin-Embedder-Policy` は要らない（`SharedArrayBuffer` を使わない）。**公開（GitHub Pages の有効化、URL の配布）はユーザーの判断で、このセッションでは行わない。** 持ち越し: PWA、ダークモード、`MSL.json` の分割配信。
+
 ### S141 で決まったこと（ファイルを開く・保存する、2026-11-04）
 
 - **自分の `.mo` を持ち込み・持ち帰る道は、環境ごとに別の実装を `Backend.openFile` / `saveFile` の後ろに置く。** ブラウザと Android（sidecar が無く `WorkerBackend` を使う）は `<input type=file>` と Blob のダウンロード（保存先はブラウザが決める）。Desktop は公式プラグイン `tauri-plugin-dialog` と `tauri-plugin-fs`（Desktop だけの依存で、Android の lib には入れない）で、UI は npm の `@tauri-apps/plugin-*` を入れず `window.__TAURI__.dialog` / `fs` を使う（S135 と同じ）。権限は `capabilities/desktop.json` に `dialog:allow-open`・`dialog:allow-save`・`fs:allow-read-text-file`・`fs:allow-write-text-file` だけ。dialog で選んだパスだけが fs の許可に入るので、静的なスコープは置かない。command（`generate_handler!`）は足していない。
