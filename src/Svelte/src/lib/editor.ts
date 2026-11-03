@@ -1,7 +1,8 @@
 // CodeMirror の拡張（S053）: 予約語と本文の単語の補完、検査と lint の結果の波線。業務ロジックは置かない。
 import { autocompletion, completeAnyWord, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
 import { linter, type Diagnostic as CmDiagnostic } from "@codemirror/lint";
-import type { Extension } from "@codemirror/state";
+import { Prec, type Extension } from "@codemirror/state";
+import { EditorView, keymap } from "@codemirror/view";
 import type { Backend } from "./backend";
 import type { Diagnostic } from "./protocol";
 
@@ -22,6 +23,37 @@ function keywords(ctx: CompletionContext): CompletionResult | null {
 }
 
 export const modelicaCompletion = (): Extension => autocompletion({ override: [keywords, completeAnyWord] });
+
+/**
+ * 定義ジャンプ（S138）: F12 か Ctrl/Cmd+クリックで、その位置の名前の定義へ。引いて動かすのは App（別のファイルなら開く）。
+ * Alt+← で、ライブラリのファイルへ入る前の位置に戻る。
+ */
+export const modelicaDefinition = (
+  jump: (line: number, character: number) => Promise<void>,
+  back: () => void,
+): Extension => {
+  const at = (view: EditorView, pos: number) => {
+    const line = view.state.doc.lineAt(pos);
+    void jump(line.number - 1, pos - line.from); // CodeMirror の列は UTF-16 で LSP と同じ
+  };
+  return [
+    Prec.high(
+      keymap.of([
+        { key: "F12", run: (v) => (at(v, v.state.selection.main.head), true) },
+        { key: "Alt-ArrowLeft", run: () => (back(), true) }, // defaultKeymap の cursorSyntaxLeft より先に
+      ]),
+    ),
+    EditorView.domEventHandlers({
+      mousedown(e, v) {
+        const pos = e.ctrlKey || e.metaKey ? v.posAtCoords({ x: e.clientX, y: e.clientY }) : null;
+        if (pos === null) return false;
+        e.preventDefault();
+        at(v, pos);
+        return true;
+      },
+    }),
+  ];
+};
 
 /** UTF-8 のバイト位置（protocol の range）→ UTF-16 の位置（CodeMirror） */
 export function byteToChar(text: string): (n: number) => number {

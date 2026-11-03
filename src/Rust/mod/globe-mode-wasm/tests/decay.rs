@@ -323,3 +323,22 @@ fn library_tree_opens_a_model_file_as_the_document() {
     let x = response.final_values.unwrap()["x"];
     assert!((x - (-2.0f64).exp()).abs() < 1e-4, "{x}");
 }
+
+#[test]
+fn definition_jumps_into_the_library_file() {
+    // S138: UI の F12。ライブラリの木から読んだファイルを引く
+    let mut ws = Workspace::with_library_split("GlobeModeValidation", &package())
+        .unwrap()
+        .with_tree(package());
+    let text =
+        "model T\n  import GlobeModeValidation.Components;\n  Components.Resistor r1;\nend T;\n";
+    ws.put_file("T.mo", text);
+    let r: serde_json::Value = serde_json::from_str(&ws.definition("T.mo", text, 2, 15)).unwrap();
+    assert!(
+        r["file"].as_str().unwrap().ends_with("Components.mo"),
+        "{r}"
+    );
+    assert!(r["text"].as_str().unwrap().contains("Resistor"), "{r}");
+    assert_eq!(r["range"]["start"]["line"], 13, "{r}");
+    assert_eq!(ws.definition("T.mo", text, 0, 0), "null");
+}

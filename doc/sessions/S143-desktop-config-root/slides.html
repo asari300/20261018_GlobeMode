@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S143 Desktop が設定ファイルを読む — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S143 Desktop が設定ファイルを読む">
+
+<section class="slide" id="S01">
+  <span class="tag">S143 · 2026-11-04 · P4</span>
+  <h1>Desktop が <code>globe-mode.toml</code> を読む</h1>
+  <p class="lead">S140 の点検の順位 5。Desktop は <code>rootUri</code> を渡さず、整形は固定値だった</p>
+  <div class="big">sidecar に根を渡し、UI の整形と lint は設定に任せる</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>sidecar の <code>initialize</code> に根を渡す（<code>--root</code>、<code>GLOBE_ROOT</code>、カレントディレクトリ）</li>
+    <li>UI の <code>format()</code> から固定の indent を外す。ブラウザ版だけ 2 を補う</li>
+    <li>command <code>reload_config</code> と「設定を読み直す」ボタン</li>
+    <li>Linux の smoke で <code>cfg=ok</code> を確かめる</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>根</td><td><code>--root</code>、無ければ <code>GLOBE_ROOT</code>、無ければカレントディレクトリ</td><td>「フォルダを開く」は S141。起動時の最小の形</td></tr>
+    <tr><td>渡し方</td><td><code>rootPath</code></td><td>LSP は <code>rootUri</code> と <code>rootPath</code> の両方を読む。URI の組み立てを Desktop に足さない</td></tr>
+    <tr><td>LSP の直し</td><td><code>globe/format</code>・<code>globe/lint</code> が設定を土台にする</td><td>UI が呼ぶ独自の要求は S130 で設定を見ていなかった。params のキーがあれば優先</td></tr>
+    <tr><td>UI</td><td><code>format()</code> は引数なし。<code>WorkerBackend</code> が 2 と true を補う</td><td>wasm に設定ファイルは無い</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>流れ</h1>
+  <svg class="fig" viewBox="0 0 800 240" role="img" aria-label="作業ディレクトリが initialize の rootPath で sidecar に渡り、globe-mode.toml が整形と lint に効く。reload_config で読み直す">
+    <rect class="svg-box" x="20" y="90" width="150" height="60" rx="10"/>
+    <text class="svg-text" x="95" y="125" text-anchor="middle">起動時の根</text>
+    <rect class="svg-box-accent" x="230" y="90" width="170" height="60" rx="10"/>
+    <text class="svg-text-b" x="315" y="125" text-anchor="middle">initialize rootPath</text>
+    <rect class="svg-box" x="460" y="90" width="150" height="60" rx="10"/>
+    <text class="svg-text" x="535" y="125" text-anchor="middle">globe-mode.toml</text>
+    <rect class="svg-box" x="660" y="90" width="120" height="60" rx="10"/>
+    <text class="svg-text" x="720" y="125" text-anchor="middle">整形・lint</text>
+    <line class="svg-line" x1="170" y1="120" x2="230" y2="120"/>
+    <line class="svg-line" x1="400" y1="120" x2="460" y2="120"/>
+    <line class="svg-line" x1="610" y1="120" x2="660" y2="120"/>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>試験</h1>
+  <table class="compact">
+    <tr><th>試験</th><th>中身</th><th>結果</th></tr>
+    <tr><td>lsp</td><td>設定の indent 4 が <code>globe/format</code> に効き、params の indent 2 が勝つ。<code>globe/lint</code> も設定の disable に従う</td><td class="ok">通過</td></tr>
+    <tr><td>worker</td><td>実プロセスで根の toml が効き、書き換えて reload で 3 になる</td><td class="ok">通過（雛形で）</td></tr>
+    <tr><td>test_ui</td><td>ブラウザ版は壊れていない</td><td class="ok">通過</td></tr>
+    <tr><td>desktop.yml</td><td>toml のある作業ディレクトリから起動して <code>cfg=ok</code></td><td>CI</td></tr>
+  </table>
+  <pre><code>cargo test -p globe-mode-lsp config_file
+uv run python src/Svelte/tests/test_ui.py</code></pre>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ul>
+    <li>設定の値の編集 UI</li>
+    <li>「フォルダを開く」で根を替える（S141 の後）</li>
+    <li>起動時に設定を読んだという通知（今は誤りのときだけ）</li>
+    <li>VS Code 拡張</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>

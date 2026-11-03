@@ -270,6 +270,33 @@ impl Workspace {
         to_json(&serde_json::json!({"file": file, "text": text}))
     }
 
+    /// 文書 `file`（本文 `text`。先に `set_file` で足しておく）の行・列（LSP と同じ UTF-16）にある名前の定義を
+    /// `{file, text, range}` の JSON で返す（S138。LSP の `globe/definition` と同じ形。`text` は定義のあるファイルの本文）。無ければ `null`。
+    pub fn definition(&self, file: &str, text: &str, line: u32, character: u32) -> String {
+        let empty;
+        let (tree, files) = match &self.tree {
+            Some((t, f)) => (t, Some(f)),
+            None => {
+                empty = globe_mode_fmt::LibraryTree::new(std::iter::empty());
+                (&empty, None)
+            }
+        };
+        let mut scratch = globe_mode::Workspace::new();
+        let found = globe_mode_lsp::definition::definition_at(
+            &mut globe_mode_lsp::definition::Resolver {
+                ws: &self.inner,
+                tree,
+                scratch: &mut scratch,
+                read: &|f| files?.get(f).cloned(),
+            },
+            file,
+            text,
+            line,
+            character,
+        );
+        serde_json::to_string(&found).unwrap_or_default()
+    }
+
     /// ファイルを足すか、本文を差し替える。
     pub fn set_file(&mut self, name: &str, text: String) {
         self.put_file(name, text);

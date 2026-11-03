@@ -1,6 +1,6 @@
 # ADR-0033 進捗は段と積分の時刻を 100 ms に 1 回まで、中断は呼び手の持つトークンを実行系が区切りごとに見る
 
-- 状態: Proposed（2026-11-03、S121。実装は次のセッションから）
+- 状態: Accepted（2026-11-03、S136。全 5 段を実装した。Proposed は 2026-11-03 の S121）
 - 関係: [ADR-0014](0014-session-route-wasm.md)（session の道）、[ADR-0016](0016-preflight-on-build-lowering.md)（`run_with_progress` の段）、[ADR-0017](0017-lowering-limit-and-hard-timeout-retry.md)（lowering の上限と外から止めたものの回し直し）、[ADR-0023](0023-desktop-and-web-process-layout.md)（ワーカーを作り直して止める）。どれも覆さない。S110 の [言語 API の機能表](../research/lang-api-matrix-2026-11-03.md) の埋める順の 6
 
 ## 背景
@@ -141,6 +141,16 @@
 - NIF（`globe-mode-nif`）: `simulate_async` が `{ref, token}` を返す形でなく、`cancel_token()` でトークン（`ResourceArc`）を先に作り、`simulate_observed(ws, model, settings_json, pid, token)`（DirtyCpu）が結果の JSON を返すまで待つ形にした。DirtyCpu の NIF は戻るまで値を返せないので、トークンを先に渡すのが最小。進捗は `pid` へ `{:globe_progress, %{stage, time, start_time, stop_time}}`（Rustler の `NifMap`、`time` は `nil` か float）を呼び出し元の env の `send` で送る。中断は別のプロセスから `cancel(token)`（`:ok`）。Elixir は `GlobeMode.simulate_observed(ws, model, settings, token, pid \\ self())`、Gleam は `@external` と不透明な型 `CancelToken`・`Pid`（`erlang:self/0`。`gleam_erlang` は足していない）。
 - 試験（どれも S129 と同じ `der(x) = sin(100 * time)` を esdirk34・1000 s・間隔 1 で回し、最初の t の進捗で止める）: `globe-mode-c` の単体試験（JSON と列の両方。`cancelled`、`GM-I11004`、列の最後の時刻が `termination.time`）と `tests/header.rs`（`typedef` の行を飛ばし、試験のモジュールの `extern "C" fn` を数えない）、`mise run c:zig`（呼ばれた回数 7）、`c:julia`（段は lowering・preflight・build・initialization・integration）、`elixir:test`（`Task` で回し、`assert_receive` で t の進捗を受けて `cancel`）、`gleam:test`（spawn と受信は `test/globe_mode_test_ffi.erl`）。
 - NIF の列の道（`simulate_columns`）には進捗を付けていない（要るときに同じ形で足す）。
+
+### 5 段目の結果（S136、LSP と Desktop、2026-11-03）
+
+- 状態を Accepted にした（5 段がすべて入った）。exec・facade は変えていない。
+- LSP（`globe-mode-lsp`）: `run_stdio` は `serve(server, input, out)` を呼ぶだけにし、`serve` で入力の読みを別のスレッドにした。読みのスレッドは枠を読んで `mpsc` のキューに積み、`globe/simulate`・`globe/simulateColumns` の要求には `CancelToken` を作って id（JSON の文字列）をキーにした表（`Arc<Mutex<HashMap>>`）に置く。`$/cancelRequest` はキューに積まず、表のトークンを立てる（キューで待っている要求にも効く）。`exit` か入力の終わりで読みが抜け、キューが閉じる。計算と書き出しは元のスレッドだけで 1 度に 1 つ（ADR-0023 の直列のまま）。`Server::handle` は `handle_with(msg, cancel, notify)` の包みにし、同期の試験は変えていない。
+- 進捗は決定 (3) のとおり、要求の params に `workDoneToken` があるときだけ出す（クライアントが作るトークンなので `window/workDoneProgress/create` は要らない）。`begin`（`title` は `simulate <model>`、`cancellable: true`）→ facade の進捗ごとに `report`（`message` は段の小文字、t があれば `percentage` = (t − start) / (stop − start) × 100 の整数）→ `end`。`report` の value には Desktop の UI がそのまま使えるよう `stage`・`time`・`start_time`・`stop_time` も添えた。`initialize` の capability は足していない（独自の要求なので知らせる標準の欄が無い）。
+- 中断の応答は決定 (4) のとおり普通の応答（`termination` が `cancelled`、途中までの列、`GM-I11004`）。
+- Desktop: `Worker` の `Mutex` は実行中ずっと握られているので、UI からの `notify` では `$/cancelRequest` を送れない。`worker.rs` に `Canceller`（実行中の要求の id と sidecar の stdin の共有。`Mutex` の外）と command `cancel_run` を足した。sidecar が 2 s（`CANCEL_GRACE`）のうちに応えなければ（lowering・組み立て・ネイティブの型付きの道の積分の中）、決定 (3) の表のとおり kill して次の要求で作り直す。UI の `TauriBackend` は `workDoneToken` を付けて `globe-notification` の `$/progress` を `onProgress` に流し、`cancel()` で `cancel_run` を呼ぶ（作り直しで rpc が誤りになったら `cancelled: true` で reject。サーバが止めたときは途中の列の普通の応答）。`App.svelte` は変えていない。
+- 試験: `globe-mode-lsp` の `cancel_request_stops_a_long_run_with_partial_columns`（`std::io::pipe` で `serve` を回し、`der(x) = sin(100 * time)` を 1e5 s（esdirk34。1000 s では止める前に終わることがあった）の `globe/simulateColumns` のt > 1（出力の間隔）の最初の `report` を待って `$/cancelRequest`。`begin`…`end` の後に `cancelled`・`GM-I11004`・最後の時刻が 1 以上 1e5 未満の列）。Desktop の `worker.rs` の `canceller_stops_a_long_simulate`（本物の `globe`、`desktop.yml` の `GLOBE_BIN`）。
+- Desktop の既定のソルバ（`auto`、ネイティブの型付きの道）では積分の中で t が出ず、止めるのは段の境目か 2 s 後の作り直しになる（1 段目の持ち越しと同じ）。
 
 ### 持ち越し
 

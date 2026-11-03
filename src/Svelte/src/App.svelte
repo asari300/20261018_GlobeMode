@@ -1,19 +1,20 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
   import { EditorState } from "@codemirror/state";
-  import { EditorView, keymap, lineNumbers, drawSelection } from "@codemirror/view";
+  import { EditorView, keymap, lineNumbers, drawSelection, highlightActiveLine } from "@codemirror/view";
   import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
   import { bracketMatching } from "@codemirror/language";
   import { setDiagnostics } from "@codemirror/lint";
-  import { modelicaCompletion, modelicaLinter, toCmDiagnostics } from "./lib/editor";
+  import { modelicaCompletion, modelicaDefinition, modelicaLinter, toCmDiagnostics } from "./lib/editor";
   import { WorkerBackend } from "./lib/worker-backend";
   import { TauriBackend, inTauri } from "./lib/tauri-backend";
   import type { Backend, TreeEntry } from "./lib/backend";
   import type { Columns } from "./lib/plot/csv";
-  import type { Diagnostic } from "./lib/protocol";
+  import type { CheckResponse, Diagnostic, ResolvedSettings, SimulateRequest } from "./lib/protocol";
   import Plot from "./lib/plot/Plot.svelte";
   import Graph from "./lib/graph/Graph.svelte";
   import LibraryTree from "./lib/LibraryTree.svelte";
+  import SimSettings from "./lib/SimSettings.svelte";
 
   // エディタの文書の名前。ライブラリの木で開くと、そのライブラリのファイルの名前（同じ名前で差し替える。S127）
   let file = $state("Model.mo");
@@ -40,13 +41,39 @@
   // S133（ADR-0033）: 実行中の進捗の 1 行と、終わり方（cancelled なら「止めた」）
   let runNote = $state("");
   let runState = $state<"idle" | "running" | "cancelled">("idle");
+  // S142: 実行の設定（SimSettings が作る）、検査で分かった experiment、直近の実行の設定と出どころ
+  let simSettings = $state<NonNullable<SimulateRequest["settings"]>>({});
+  let settingsProblem = $state("");
+  let experiment = $state<CheckResponse["experiment"]>();
+  let lastSettings = $state<ResolvedSettings | null>(null);
+  let lastFinal = $state<[string, number][]>([]); // 最後の時刻の値（先頭の 8 本）
+  $effect(() => { void model; experiment = undefined; }); // 別のモデルにしたら、次の検査まで experiment は分からない
+  let configNote = $state(""); // S143: Desktop の globe-mode.toml を読み直した結果、または sidecar の showMessage（誤り）
   let graphModel = $state<string | null>(null); // 「グラフ」を押したときのモデル名（入力のたびに描き直さない）
 
+  // S141: 自分のファイルを開く・保存する。本文とファイル名は localStorage に自動保存して起動時に戻す（使えなくても動く。S102）。モデル名は戻さず本文から入れ直す（smoke が書き換えたモデル名を次の起動で拾わないため）
+  // own はエディタの文書が自分のファイルか（ライブラリのファイルを開いている間は保存も上書きもしない）
+  const STORE = "globe-mode.doc";
+  const DECAY = "model Decay\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -x;\nend Decay;\n";
+  let own = true;
+  let saved = $state(""); // 保存した先（Desktop はパス、ブラウザは名前）
+  const persist = () => {
+    if (!own) return;
+    try { localStorage.setItem(STORE, JSON.stringify({ name: file, text: view.state.doc.toString() })); } catch { /* 保存できなくても使える */ }
+  };
+  const guessModel = (t: string) => /^\s*(?:(?:partial|encapsulated)\s+)*(?:model|block|class|package)\s+(\w+)/m.exec(t)?.[1];
+
   onMount(() => {
+    let text = DECAY;
+    try {
+      const d = JSON.parse(localStorage.getItem(STORE) ?? "null");
+      if (typeof d?.text === "string" && typeof d.name === "string") { text = d.text; file = d.name; model = guessModel(text) ?? model; }
+    } catch { /* 無ければ Decay から */ }
     // S069: 取得済みの MSL を sidecar が読んでいれば、最初から「読んだ」状態にする
     void tauri?.hasLibrary().then((has) => {
       if (has && msl === "none") { msl = "loaded"; mslNote = "MSL を読んだ（取得済み）"; }
     });
+    void tauri?.onMessage((m) => { configNote = m; });
     const unlisten = tauri?.onMslProgress(({ received, total }) => {
       const mib = (n: number) => (n / 2 ** 20).toFixed(1);
       mslProgress = total ? `${mib(received)} / ${mib(total)} MiB（${Math.floor((100 * received) / total)}%）` : `${mib(received)} MiB`;
@@ -54,10 +81,12 @@
     view = new EditorView({
       parent: host,
       state: EditorState.create({
-        doc: "model Decay\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -x;\nend Decay;\n",
+        doc: text,
         extensions: [
-          lineNumbers(), history(), drawSelection(), bracketMatching(), keymap.of([...defaultKeymap, ...historyKeymap]),
+          lineNumbers(), history(), drawSelection(), highlightActiveLine(), bracketMatching(), keymap.of([...defaultKeymap, ...historyKeymap]),
           modelicaCompletion(), modelicaLinter(backend, file), // S053
+          modelicaDefinition(definition, goBack), // S138
+          EditorView.updateListener.of((u) => { if (u.docChanged) persist(); }),
         ],
       }),
     });
@@ -85,8 +114,10 @@
     await loadMsl();
     if (msl === "loaded") { model = "Modelica.Electrical.Analog.Examples.ChuaCircuit"; await check(); }
     const mslOk = msl === "loaded" && !failure && !diagnostics.some((d) => d.severity === "error");
+    // S143: Desktop は globe-mode.toml（desktop.yml が indent = 4 を置いた作業ディレクトリ）が整形に効くか。無ければ none
+    const cfg = tauri ? ` cfg=${(await backend.format("model C\nReal x;\nend C;\n").catch(() => "")).includes("\n    Real x;") ? "ok" : "none"}` : "";
     const ms = (x: number) => x.toFixed(0);
-    const line = `GM-SMOKE check=${checked ? "ok" : "ng"} simulate=${simulated ? "ok" : "ng"} x1=${x1} msl=${mslOk ? "ok" : "ng"}`
+    const line = `GM-SMOKE check=${checked ? "ok" : "ng"} simulate=${simulated ? "ok" : "ng"} x1=${x1} msl=${mslOk ? "ok" : "ng"}${cfg}`
       + ` ready_ms=${ms(ready)} decay_ms=${ms(decay)} msl_ms=${mslOk ? ms(performance.now() - t) : "-"}${failure ? ` failure=${failure}` : ""}`;
     console.log(line);
     void tauri?.bench(line);
@@ -139,24 +170,27 @@
   }
 
   const check = () => run(async () => {
-    diagnostics = bySeverity((await backend.check(model)).diagnostics);
+    const checked = await backend.check(model);
+    diagnostics = bySeverity(checked.diagnostics);
+    experiment = checked.experiment;
     view.dispatch(setDiagnostics(view.state, toCmDiagnostics(view.state.doc.toString(), diagnostics, file)));
   });
 
   // 整形（S053、doc/format-style.md）。文法が壊れていれば本文は変えず、理由を出す
   const format = () => run(async () => {
     const text = view.state.doc.toString();
-    const out = await backend.format(text, 2, true);
+    const out = await backend.format(text);
     if (out !== text) view.dispatch({ changes: { from: 0, to: text.length, insert: out } });
   });
 
   const simulate = () =>
     run(async () => {
+      if (settingsProblem) { failure = `実行の設定: ${settingsProblem}`; return; }
       runState = "running";
       runNote = "実行中";
       let out;
       try {
-        out = await backend.simulateColumns({ model }, (p) => {
+        out = await backend.simulateColumns({ model, settings: simSettings }, (p) => {
           const pct = p.time === undefined ? "" : `、t = ${p.time.toPrecision(4)} / ${p.stop_time}（${Math.floor((100 * (p.time - p.start_time)) / (p.stop_time - p.start_time || 1))}%）`;
           runNote = `実行中: ${p.stage}${pct}`;
         });
@@ -170,6 +204,8 @@
       }
       const { response: r, columns: c } = out;
       diagnostics = bySeverity(r.diagnostics);
+      lastSettings = r.settings ?? null;
+      lastFinal = Object.entries(r.final ?? {}).slice(0, 8);
       columns = c.points > 0 ? c : null;
       if (r.refused) failure = r.refused;
       else if (!r.ok && !r.diagnostics.length) failure = "実行に失敗した（診断なし）";
@@ -178,6 +214,7 @@
   // ライブラリの木で選んだクラスのファイルをエディタに開き、モデル名をそのクラスにする（S127）
   const openLibrary = (e: TreeEntry) => run(async () => {
     const src = await backend.librarySource(e.path);
+    own = false;
     file = src.file;
     model = e.path;
     view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: src.text } });
@@ -185,6 +222,69 @@
     columns = null;
     graphModel = null;
   });
+
+  // S138: 定義ジャンプ。別のファイル（ライブラリ）なら openLibrary と同じく同じ名前の文書として開く。入る前の文書と位置は back に積む（Alt+←）
+  const back: { file: string; text: string; anchor: number; own: boolean }[] = [];
+  // 範囲を選び、カーソル（head）は宣言の頭に置く（クラスは長いので、末尾だと宣言が画面の外に出る）
+  const moveTo = (from: number, to: number) => {
+    view.dispatch({ selection: { anchor: to, head: from }, scrollIntoView: true });
+    view.focus();
+  };
+  const replaceDoc = (text: string) => view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text } });
+  async function definition(line: number, character: number) {
+    failure = "";
+    try {
+      await backend.setFile(file, view.state.doc.toString());
+      const d = await backend.definition(file, line, character);
+      if (!d) return;
+      if (d.file !== file) {
+        back.push({ file, text: view.state.doc.toString(), anchor: view.state.selection.main.head, own });
+        own = false;
+        file = d.file;
+        replaceDoc(d.text);
+        diagnostics = [];
+        columns = null;
+        graphModel = null;
+      }
+      const at = ({ line, character }: { line: number; character: number }) => view.state.doc.line(line + 1).from + character;
+      moveTo(at(d.range.start), at(d.range.end));
+    } catch (e) {
+      failure = String((e as Error).message ?? e);
+    }
+  }
+  function goBack() {
+    const b = back.pop();
+    if (!b) return;
+    file = b.file;
+    own = b.own;
+    replaceDoc(b.text);
+    moveTo(b.anchor, b.anchor);
+  }
+
+  // S141: 開く。いまの自分のファイルと名前が違えば、バックエンドの Workspace に残らないよう空にする（同じクラスの二重定義を避ける）
+  const openFromDisk = () => run(async () => {
+    const f = await backend.openFile();
+    if (!f) return;
+    if (own && f.name !== file) await backend.setFile(file, "");
+    own = true;
+    file = f.name;
+    model = guessModel(f.text) ?? model;
+    back.length = 0;
+    replaceDoc(f.text);
+    diagnostics = [];
+    columns = null;
+    graphModel = null;
+    saved = "";
+  });
+  async function save(saveAs = false) {
+    failure = "";
+    try {
+      const to = await backend.saveFile(file.split("/").pop()!, view.state.doc.toString(), saveAs);
+      if (to) saved = `保存した: ${to}`;
+    } catch (e) {
+      failure = String((e as Error).message ?? e);
+    }
+  }
 
   const graph = () => run(async () => {
     graphModel = model;
@@ -212,6 +312,9 @@
 
 <main>
   <div class="bar">
+    <button onclick={openFromDisk} disabled={busy}>開く</button>
+    <button onclick={() => save()}>保存</button>
+    {#if desktop}<button onclick={() => save(true)}>名前を付けて保存</button>{/if}
     <label>モデル名 <input bind:value={model} aria-label="モデル名"></label>
     <button onclick={check} disabled={busy}>検査</button>
     <button onclick={simulate} disabled={busy}>実行</button>
@@ -229,6 +332,10 @@
       <button onclick={loadMsl} disabled={busy || msl !== "none"}>{msl === "loading" ? "MSL を読み込み中…" : "MSL を読む"}</button>
     {/if}
   </div>
+  <SimSettings {backend} {experiment} last={lastSettings} bind:settings={simSettings} bind:problem={settingsProblem} />
+  {#if tauri}<p class="note" data-config>
+    <button onclick={async () => { configNote = ""; try { await tauri.reloadConfig(); configNote ||= "globe-mode.toml を読み直した（無ければ既定）"; } catch (e) { configNote = String(e); } }}>設定を読み直す</button> {configNote}
+  </p>{/if}
   <p class="note" data-msl={msl}>
     {#if msl === "loaded"}{mslNote}。左の木でモデルを選ぶか、モデル名にライブラリのモデル（例 Modelica.Electrical.Analog.Examples.ChuaCircuit）を入れて検査・実行できる。グラフも描ける。
     {:else if msl === "loading"}{desktop ? `MSL ${mslVersion} を取得して展開している（${mslProgress || "回線しだい"}）。もう一度押すと取り消す。` : "MSL.json を取得して読み込んでいる（十数秒）。"}
@@ -238,6 +345,8 @@
     {#if msl === "loaded"}<aside class="library"><LibraryTree {backend} onOpen={openLibrary} /></aside>{/if}
     <div class="editor" bind:this={host}></div>
   </div>
+  {#if saved}<p class="note" role="status" data-saved>{saved}</p>{/if}
+  {#if lastFinal.length}<p class="final" data-final={JSON.stringify(Object.fromEntries(lastFinal))}>最後の時刻の値: {lastFinal.map(([k, v]) => `${k} = ${v.toPrecision(6)}`).join("、")}</p>{/if}
   {#if runNote}<p class="run" role="status" data-run={runState}>{runNote}</p>{/if}
   {#if failure}<p class="failure" role="alert">{failure}</p>{/if}
   <table class="diagnostics" aria-label="診断">
@@ -256,7 +365,7 @@
 <style>
   main { font: 14px/1.4 system-ui, sans-serif; max-width: 60rem; margin: 0 auto; padding: 1rem; }
   .bar { display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: .5rem; }
-  .note, .run { color: #555; margin: .25rem 0; }
+  .note, .run, .final { color: #555; margin: .25rem 0; }
   .work { display: flex; gap: .5rem; }
   .library { flex: 0 0 16rem; height: 16rem; overflow: auto; border: 1px solid #888; font-size: .9em; }
   .editor { flex: 1; min-width: 0; border: 1px solid #888; }

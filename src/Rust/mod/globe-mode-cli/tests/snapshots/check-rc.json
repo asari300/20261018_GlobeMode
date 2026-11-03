@@ -206,6 +206,12 @@
       "suspicious": []
     }
   },
+  "experiment": {
+    "start_time": null,
+    "stop_time": 1.0,
+    "tolerance": null,
+    "interval": null
+  },
   "init": {
     "states": [
       {

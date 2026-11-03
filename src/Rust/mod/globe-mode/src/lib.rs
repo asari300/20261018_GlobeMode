@@ -28,8 +28,8 @@ pub use globe_mode_frontend::CompiledModel;
 pub use globe_mode_graph::{ConnectGraph, ConnectMismatch, GraphError};
 pub use globe_mode_ir::{FlatSummary, Outline, SimRun};
 pub use globe_mode_protocol::{
-    CheckResponse, ColumnsLayout, ParametersResponse, SimulateRequest, SimulateResponse,
-    StructureCounts,
+    CheckResponse, ColumnsLayout, ExperimentValues, ParametersResponse, SimulateRequest,
+    SimulateResponse, StructureCounts,
 };
 pub use globe_mode_sim::solvers::{SOLVERS, SolverEntry};
 // facade に無いものを呼ぶとき（CLI の文字の表示が `FullReport` を読む、結果を CSV / MAT に書く）
@@ -357,6 +357,11 @@ impl Workspace {
             s8: report.init,
             s9: report.loops,
             s10: report.preflight,
+            experiment: check
+                .preflight
+                .as_ref()
+                .and_then(|p| p.experiment.as_ref())
+                .map(ExperimentValues::from),
             init: check.init.as_ref().map(|i| self.db.init_in_original(i)),
             flat: check.flat,
             diagnostics: report.diagnostics,
