@@ -34,3 +34,10 @@ S140 の点検の順位 5。Desktop が `globe-mode.toml`（S130）を読める�
 - worker の試験: Desktop の crate は手元で作れない（webkit2gtk なし）ので、`worker.rs` だけを入れた雛形の crate に `GLOBE_BIN` を付けて 1 本通過（根の toml で indent 4、書き換えて reload で 3）。
 - `pnpm check`: 262 ファイル 0 error 0 warning。`test_ui.py`: ok（ブラウザの GM-SMOKE の行に cfg は付かない）。
 - `desktop.yml`: （下に書く）
+- `desktop.yml`（`gh workflow run desktop.yml --ref feature/s143-desktop-config-root`、run 41696623389、headSha f50d469、全ジョブ成功）: Linux の UI の測定 3 回とも `GM-SMOKE check=ok simulate=ok x1=0.3678797 msl=ok cfg=ok`（ready 154〜159 ms、rss 150 MiB 前後）。Windows は toml を置かないので `cfg=none`（合格条件に入れていない）。cargo test の `root_config_drives_format_and_reloads` も CI で通過（`GLOBE_BIN` あり）。他に動いていた S141 の run が終わるのを待ってから回した。
+- `check_docs.py`: 全デッキ OK / 相対リンク 582 文書 2916 件中の切れ 0 件。`render_slides.py`: 手元では 2 回とも Page.screenshot が時間切れ。手元では通らず、CI の docs で確認。
+- ステージした差分の漏洩検査（メール・ホームのパス・トークン）は 0 件。セッション記録は親が写す。
+
+## 残したこと
+
+- 設定の値の編集 UI、「フォルダを開く」で根を替えること（今は起動時だけ。S141 の後）、起動時に設定を読んだ通知（S130 は誤りのときだけ `showMessage`）、VS Code 拡張。
