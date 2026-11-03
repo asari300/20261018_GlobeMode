@@ -18,6 +18,8 @@
 //! - `outline` はファイルの本文が変わるたびに作り直す（エディタの位置の情報に使う）。
 //! - `outline_shape` は位置を落とした写し。空白やコメントだけの編集では前と等しくなるので、
 //!   salsa がそれ以降（`class_index`・`connect_graph`）の再計算を省く（backdate）。
+//! - ライブラリがあるときは `connect_graph` の代わりに `library_graph`（S122）。ライブラリの索引は入力
+//!   [`Library`] で、世代が変わったときだけ差し替える。`class_index` と同じ防火壁が効く。
 //! - `source_shape` はコメントを除き空白を畳んだ本文（`globe_mode_core::normalize`）。`check` には
 //!   これだけを渡すので、空白やコメントだけの編集では Rumoca のコンパイルが走らない。
 //!   位置の対応表（`shape_map`）は別のクエリにして、`check` の依存に入れない。
@@ -80,6 +82,13 @@ pub struct Workspace {
     pub files: Vec<SourceFile>,
 }
 
+/// ライブラリのクラスの索引（入力。S122）。世代（[`Checker::library_outlines`]）が変わったときだけ差し替える。
+#[salsa::input]
+pub struct Library {
+    #[returns(ref)]
+    pub index: Arc<ClassIndex>,
+}
+
 /// connect グラフの求め（モデル名と深さ）。
 #[salsa::interned(debug)]
 pub struct GraphRequest<'db> {
@@ -134,6 +143,21 @@ pub fn connect_graph<'db>(
         request.model(db),
         request.depth(db),
     )
+}
+
+/// ライブラリがあるときの connect グラフ（S122）。ワークスペースの索引をライブラリの索引に重ねて引く。
+/// `class_index` が前と等しければ（空白・コメントだけの編集）再計算しない。
+#[salsa::tracked(returns(ref))]
+pub fn library_graph<'db>(
+    db: &'db dyn salsa::Database,
+    workspace: Workspace,
+    library: Library,
+    request: GraphRequest<'db>,
+) -> Result<ConnectGraph, GraphError> {
+    let index = class_index(db, workspace)
+        .clone()
+        .over(library.index(db).clone());
+    globe_mode_graph::build(&index, request.model(db), request.depth(db))
 }
 
 /// 正規化した本文と位置の対応表（`source_shape` と `shape_map` の元）。
@@ -474,8 +498,8 @@ pub struct GlobeDb {
     workspace: Option<Workspace>,
     /// salsa の外の検査器（中の Rumoca の Session は共有される）
     checker: Checker,
-    /// ライブラリの文書のクラスの索引と、その世代（[`Checker::library_outlines`]。S081・S089）
-    library_index: Option<(usize, Arc<ClassIndex>)>,
+    /// ライブラリの文書のクラスの索引（salsa の入力）と、その世代（[`Checker::library_outlines`]。S081・S089・S122）
+    library: Option<(usize, Library)>,
 }
 
 #[salsa::db]
@@ -560,7 +584,7 @@ impl GlobeDb {
             files: BTreeMap::new(),
             workspace: None,
             checker,
-            library_index: None,
+            library: None,
         }
     }
 
@@ -657,18 +681,23 @@ impl GlobeDb {
                 text: f.text(self),
             })
             .collect();
-        let cached = self.library_index.as_ref().map(|(g, _)| *g);
+        let cached = self.library.map(|(g, _)| g);
         if let Some((g, outlines)) = self.checker.library_outlines(&sources, model, cached) {
-            self.library_index = Some((g, Arc::new(ClassIndex::from_outlines(&outlines))));
+            // 入力を差し替えるのは世代が変わったときだけ。同じ世代なら salsa が graph を持ち越す（S122）
+            let index = Arc::new(ClassIndex::from_outlines(&outlines));
+            let library = match self.library {
+                Some((_, library)) => {
+                    library.set_index(self).to(index);
+                    library
+                }
+                None => Library::new(self, index),
+            };
+            self.library = Some((g, library));
         }
-        let library = self.library_index.as_ref().map(|(_, i)| i.clone());
-        let index = ClassIndex::from_outlines(
-            ws.files(self)
-                .iter()
-                .filter_map(|f| outline_shape(self, *f).as_ref()),
-        )
-        .over(library.unwrap_or_default());
-        globe_mode_graph::build(&index, model, depth)
+        // 初回は cached が None なので library_outlines は必ず Some を返す
+        let (_, library) = self.library.expect("ライブラリの索引は初回に作る");
+        let request = GraphRequest::new(self, model.to_string(), depth);
+        library_graph(self, ws, library, request).clone()
     }
 
     /// モデルの検査（S0〜S5）。位置は正規化した本文の中（元に戻すなら [`GlobeDb::check_model`]）。
