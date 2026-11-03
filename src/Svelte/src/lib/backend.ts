@@ -1,7 +1,7 @@
 import type { Columns } from "./plot/csv";
 import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse } from "./protocol";
 
-/** UI が計算を頼む相手。WorkerBackend（ブラウザの wasm）と、あとで TauriBackend（sidecar）が実装する。 */
+/** UI が計算を頼む相手。WorkerBackend（ブラウザの wasm）と TauriBackend（sidecar の `globe lsp`）が実装する。 */
 export interface Backend {
   /** ライブラリ（{ パス: 本文 } の JSON）を読む。今の Workspace は捨てて作り直す。 */
   library(name: string, json: string): Promise<void>;

@@ -21,8 +21,8 @@
 | MSL の全部読み | `with_libraries_full` / `with_library_sources` | — | — | — | — | — | — | `Workspace(json, name, true)` | — | — |
 | MSL の分割読み | `with_libraries`（既定）/ `with_library_sources_split` | `gm_workspace_new(libraries_json)` | C と同じ | `Workspace(libraries)` | `new(libraries)` | `new(libraries)` | `Workspace(libraries=…)` | `Workspace(json)`（既定） | `globe lsp -L` | `-L` |
 | 設定の override（`parameters` など） | `SimSettings` | `settings_json` | C と同じ | `settings` | `settings`（map） | `settings_json` | `**settings` | `request_json` の `settings` | `request.settings` | `--param` ほか |
-| 進捗（設計は [ADR-0033](../adr/0033-progress-and-cancel.md)） | `exec::run_with_progress`（実行系の段だけ。facade の `simulate` には無い） | あり: `gm_simulate_observed` / `gm_simulate_columns_observed`（`GmProgress` を `callback(progress, user_data)` で。S131） | あり: C と同じ（S131） | あり: `simulate_observed(ws, model, on_progress)`（`@cfunction`。S131） | あり: `simulate_observed(ws, model, settings, token, pid)` が pid へ `{:globe_progress, map}`（S131） | あり: `simulate_observed`（Elixir と同じ。S131） | あり: `simulate(..., on_progress=…)`・`simulate_columns(..., on_progress=…)`（S129。dict で段と t） | あり: `simulate_columns(request, onProgress)`、`GlobeWorker.simulateColumns(req, {onProgress})`（S133。Worker の `postMessage` で段と t） | — | — |
-| 中断（設計は [ADR-0033](../adr/0033-progress-and-cancel.md)） | `max_wall_seconds`（予算） | あり: コールバックが非 0 を返す（S131） | あり: C と同じ（S131） | あり: `on_progress` が `true` を返す（S131） | あり: 別のプロセスから `cancel(token)`（`cancel_token()` で先に作る。S131） | あり: Elixir と同じ（S131） | あり: `on_progress` が `True` を返す、または Ctrl-C（`KeyboardInterrupt`）（S129） | あり: `GlobeWorker.cancel()`（S133。Worker を `terminate()` して作り直す。途中の列は返らない）と予算 | 予算と sidecar の作り直し | `--timeout` |
+| 進捗（設計は [ADR-0033](../adr/0033-progress-and-cancel.md)） | `exec::run_with_progress`（実行系の段だけ。facade の `simulate` には無い） | あり: `gm_simulate_observed` / `gm_simulate_columns_observed`（`GmProgress` を `callback(progress, user_data)` で。S131） | あり: C と同じ（S131） | あり: `simulate_observed(ws, model, on_progress)`（`@cfunction`。S131） | あり: `simulate_observed(ws, model, settings, token, pid)` が pid へ `{:globe_progress, map}`（S131） | あり: `simulate_observed`（Elixir と同じ。S131） | あり: `simulate(..., on_progress=…)`・`simulate_columns(..., on_progress=…)`（S129。dict で段と t） | あり: `simulate_columns(request, onProgress)`、`GlobeWorker.simulateColumns(req, {onProgress})`（S133。Worker の `postMessage` で段と t） | あり: `globe/simulate`・`globe/simulateColumns` の params に `workDoneToken` があれば `$/progress`（`begin`・`report`（`percentage` は t / 終了時刻）・`end`。S136） | — |
+| 中断（設計は [ADR-0033](../adr/0033-progress-and-cancel.md)） | `max_wall_seconds`（予算） | あり: コールバックが非 0 を返す（S131） | あり: C と同じ（S131） | あり: `on_progress` が `true` を返す（S131） | あり: 別のプロセスから `cancel(token)`（`cancel_token()` で先に作る。S131） | あり: Elixir と同じ（S131） | あり: `on_progress` が `True` を返す、または Ctrl-C（`KeyboardInterrupt`）（S129） | あり: `GlobeWorker.cancel()`（S133。Worker を `terminate()` して作り直す。途中の列は返らない）と予算 | あり: `$/cancelRequest`（読みは別のスレッド。普通の応答に途中までの列と `GM-I11004`。S136）。Desktop は応えなければ 2 s で sidecar を作り直す | `--timeout` |
 | FMU export | —（別 crate `globe_mode_fmi::write_fmu`） | — | — | — | — | — | — | — | — | `globe fmu export` |
 
 | 進捗 | `exec::run_with_progress`（実行系の段だけ。facade の `simulate` には無い） | — | — | — | — | — | — | — | — | — |
@@ -62,7 +62,7 @@
 | Gleam | 2 | Elixir と同じ |
 | Python | 1 | 全部読み（format・lint は S111、FMU export は S118、進捗と中断は S129） |
 | wasm | 1 | FMU export（進捗と中断は S133） |
-| LSP | 3 | 全部読み・進捗・FMU export |
+| LSP | 2 | 全部読み・FMU export（進捗と中断は S136） |
 | CLI | 2 | 全部読み・進捗 |
 
 ## 2. 参照シナリオ

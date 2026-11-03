@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S126 ソルバの表の更新 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S126 ソルバの表の更新">
+
+<section class="slide" id="S01">
+  <span class="tag">S126 · 2026-11-03 · P3 / P8</span>
+  <h1>ソルバの表の更新</h1>
+  <p class="lead">S119 が main に入った後、msl-sim.yml を 14 ソルバすべてで回して msl-solvers.md と msl-sim.md を写した</p>
+  <div class="big">auto は <b>312 本</b>・管 <b>303 / 311</b>。2mPulse は今回 125.6 s で完走</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>ソルバの表は S050（run 41194959752）のままだった</li>
+    <li>S119 は esdirk34 だけの run で msl-sim.md を更新した</li>
+    <li>run 41616928442（main 97be9cc、入力は既定）の artifact を写す</li>
+    <li>Rust は触らない。手元で msl:sim を回さない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">結果</span>
+  <h1>ソルバごとの差（S050 から S126）</h1>
+  <table class="compact">
+    <tr><th>ソルバ</th><th>実行できた</th><th>管 / 比べた</th><th>時間切れ</th></tr>
+    <tr><td>auto</td><td>309 から 312</td><td>301/308 から 303/311</td><td>4 から 2</td></tr>
+    <tr><td>esdirk45</td><td>293 のまま</td><td>280 から 281</td><td>19 から 17</td></tr>
+    <tr><td>dopri45</td><td>292 から 293</td><td>280 から 281</td><td>18 のまま</td></tr>
+    <tr><td class="warn">sdirk34hw</td><td>294 から 292</td><td>285/293 から 282/291</td><td>19 から 18</td></tr>
+    <tr><td>tsit45</td><td>287 から 285</td><td>276 から 274</td><td>20 から 23</td></tr>
+    <tr><td>cerk23・cvode</td><td>1 本ずつ減</td><td>-</td><td>境目の揺れ</td></tr>
+    <tr><td>ほか 8 本</td><td>同じ</td><td>同じ</td><td>ほぼ同じ</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">ThyristorBridge</span>
+  <h1>2 本の auto の行</h1>
+  <table class="compact">
+    <tr><th>モデル</th><th>S119</th><th>S126</th></tr>
+    <tr><td>2mPulse_DC_Drive</td><td>積分 177.1 s（余裕 3 s）</td><td>積分 125.6 s・管 OK 38/38</td></tr>
+    <tr><td>2Pulse_DC_Drive</td><td>積分 63.4 s</td><td>積分 46.2 s・管 OK 19/19</td></tr>
+  </table>
+  <p>時間切れには戻らなかった。同じコードでランナーにより 125〜177 s。予算と既知の外れの一覧は変えていない</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">変わったモデル</span>
+  <h1>SDIRK の新しい失敗</h1>
+  <ul>
+    <li>esdirk34・esdirk45・sdirk34hw: HBridge_TrianglePWM_RL と HBridge_DC_Drive が GM-E11002</li>
+    <li>sdirk34hw: ThyristorBridge2Pulse_DC_Drive が GM-E11003</li>
+    <li>良くなった向き: esdirk34 の 2Pulse、esdirk45 の 2mPulse、ThyristorBehaviourTest</li>
+    <li>S119 の刻みの上限によると見ているが未確認（plugins を変えたのは S119 だけ）</li>
+    <li>auto の 356 本の判定は S119 の run と全部同じ</li>
+  </ul>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>S119 の前と後で SDIRK を回し、HBridge の GM-E11002 の原因を確かめる</li>
+    <li>2mPulse は予算 180 s の境目のまま（S088・S119 の持ち越し）</li>
+    <li>解説書: <a href="解説書.md">解説書.md</a></li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

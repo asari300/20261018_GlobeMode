@@ -344,7 +344,7 @@ Svelte の UI は `Backend` インターフェースだけに依存する。実�
 | Elixir | `globe-mode-nif`（Rustler）を `:erlang.load_nif` で読む（S082 は `GlobeMode` 1 本、JSON は Elixir 1.18 の標準 `JSON`）。今後 rustler_precompiled で配る | `src/Elixir` |
 | Gleam | Erlang target は `@external` で `globe_mode_nif` を呼ぶ（S087 の `src/Gleam/globe_mode`。`.so` は `src/globe_mode_nif.erl` が `GLOBE_MODE_NIF` から `erlang:load_nif`、結果は JSON の文字列のまま）。今後 JS target は `globe-mode-wasm` を呼ぶ | `src/Gleam` |
 
-**進捗と中断**: facade の `SimulateHandle`（進捗のコールバックと `CancelToken`）を各口に写す。進捗は段と積分の時刻 t（100 ms に 1 回まで）、止めたら途中の列と `GM-I11004`（[ADR-0033](adr/0033-progress-and-cancel.md)、Proposed。S121）。
+**進捗と中断**: facade の `SimulateHandle`（進捗のコールバックと `CancelToken`）を各口に写す。進捗は段と積分の時刻 t（100 ms に 1 回まで）、止めたら途中の列と `GM-I11004`（[ADR-0033](adr/0033-progress-and-cancel.md)、Accepted。S121 で設計、S123〜S136 で各口。LSP は `$/progress` と `$/cancelRequest`）。
 
 **共通の参照シナリオ**: 全言語で同じ手順を通す。open → check → graph → simulate（bdf）→ 結果を取得 → FMU を出力。P7 の完了条件はこれが6言語で通ること。
 

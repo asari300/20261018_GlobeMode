@@ -1,4 +1,4 @@
-import type { Backend, Definition, LintMessage, TreeEntry } from "./backend";
+import type { Backend, Definition, LintMessage, Progress, TreeEntry } from "./backend";
 import type { Columns } from "./plot/csv";
 import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse } from "./protocol";
 
@@ -7,6 +7,9 @@ type Invoke = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
 type Listen = <T>(event: string, cb: (e: { payload: T }) => void) => Promise<() => void>;
 const tauriGlobal = () => (window as unknown as { __TAURI__: { core: { invoke: Invoke }; event: { listen: Listen } } }).__TAURI__;
 const invoke: Invoke = (cmd, args) => tauriGlobal().core.invoke(cmd, args);
+
+/** `$/progress` の token（S136。実行は 1 度に 1 つなので固定）。 */
+const RUN_TOKEN = "globe-run";
 
 /** MSL の取得の進捗（イベント `msl-progress`）。total は Content-Length、分からなければ null。 */
 export type MslProgress = { received: number; total: number | null };
@@ -60,13 +63,37 @@ export class TauriBackend implements Backend {
   simulate(req: SimulateRequest): Promise<SimulateResponse> {
     return invoke("rpc", { method: "globe/simulate", params: { request: req } });
   }
-  // sidecar の `globe/simulateColumns`（S076）。列は JSON の数の配列で、有限でない値は既に null（uPlot の欠損）
-  async simulateColumns(req: SimulateRequest): Promise<{ response: SimulateResponse; columns: Columns }> {
-    const r = await invoke<{ response: SimulateResponse; layout: { names: string[]; points: number }; columns: (number | null)[][] }>(
-      "rpc",
-      { method: "globe/simulateColumns", params: { request: req } },
-    );
-    return { response: r.response, columns: { names: r.layout.names.slice(1), points: r.layout.points, data: r.columns } };
+  #onProgress?: (p: Progress) => void;
+  #listening?: Promise<unknown>;
+  #cancelling = false;
+  // sidecar の `globe/simulateColumns`（S076）。列は JSON の数の配列で、有限でない値は既に null（uPlot の欠損）。
+  // S136（ADR-0033）: workDoneToken を付け、サーバの `$/progress`（イベント `globe-notification`）の value を onProgress に渡す
+  async simulateColumns(req: SimulateRequest, onProgress?: (p: Progress) => void): Promise<{ response: SimulateResponse; columns: Columns }> {
+    this.#listening ??= tauriGlobal().event.listen<{ method?: string; params?: { token?: string; value?: Progress } }>("globe-notification", (e) => {
+      const p = e.payload;
+      if (p.method === "$/progress" && p.params?.token === RUN_TOKEN && p.params.value?.stage) this.#onProgress?.(p.params.value);
+    });
+    await this.#listening;
+    this.#onProgress = onProgress;
+    this.#cancelling = false;
+    try {
+      const r = await invoke<{ response: SimulateResponse; layout: { names: string[]; points: number }; columns: (number | null)[][] }>(
+        "rpc",
+        { method: "globe/simulateColumns", params: { request: req, workDoneToken: RUN_TOKEN } },
+      );
+      return { response: r.response, columns: { names: r.layout.names.slice(1), points: r.layout.points, data: r.columns } };
+    } catch (e) {
+      // 止めても応えない sidecar は作り直される（command `cancel_run`）。UI には止めたとして返す
+      if (this.#cancelling) throw Object.assign(new Error(String(e)), { cancelled: true });
+      throw e;
+    } finally {
+      this.#onProgress = undefined;
+    }
+  }
+  /** 実行中の simulateColumns を止める（S136）。サーバが止めれば途中までの列と GM-I11004 の普通の応答、止まらなければ sidecar を作り直して cancelled で reject。 */
+  cancel(): void {
+    this.#cancelling = true;
+    void invoke("cancel_run");
   }
   format(text: string, indent: number, insertOrigin: boolean): Promise<string> {
     return invoke("rpc", { method: "globe/format", params: { text, indent, insertOrigin } });
