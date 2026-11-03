@@ -100,6 +100,10 @@ export class GlobeWorker {
   // ライブラリの木（S127）: prefix の直下の子 [{name, path, kind, description, file, hasChildren}] と、クラスのファイル {file, text}
   async libraryTree(prefix) { return JSON.parse(await this.#call("library_tree", { prefix })); }
   async librarySource(path) { return JSON.parse(await this.#call("library_source", { path })); }
+  // 定義ジャンプ（S138）: setFile 済みの file の行・列（0 始まり、列は UTF-16）の定義 {file, text, range}。無ければ null
+  async definition(file, line, character) {
+    return JSON.parse(await this.#call("definition", { file, text: this.#files.get(file) ?? "", line, character }));
+  }
   // 時系列を CSV でなく列ごとの Float64Array で返す（S051）。{response（csv 無し）, layout: {names, points}, columns}
   // onProgress を渡すと進捗 {stage, time, start_time, stop_time} を受ける（S133、ADR-0033。time は積分の t で無ければ undefined）
   async simulateColumns(request, { onProgress } = {}) {

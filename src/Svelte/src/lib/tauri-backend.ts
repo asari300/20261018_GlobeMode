@@ -1,4 +1,4 @@
-import type { Backend, LintMessage, Progress, TreeEntry } from "./backend";
+import type { Backend, Definition, LintMessage, Progress, TreeEntry } from "./backend";
 import type { Columns } from "./plot/csv";
 import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse } from "./protocol";
 
@@ -106,6 +106,9 @@ export class TauriBackend implements Backend {
   }
   librarySource(path: string): Promise<{ file: string; text: string }> {
     return invoke("rpc", { method: "globe/librarySource", params: { path } });
+  }
+  definition(file: string, line: number, character: number): Promise<Definition | null> {
+    return invoke("rpc", { method: "globe/definition", params: { file, line, character } }); // S138（textDocument/definition と同じ解決。本文付き）
   }
 
   /** 更新を確かめ、あれば確かめてから入れる（S135、updater プラグインの `window.__TAURI__.updater`）。結果を短い文で返す。 */

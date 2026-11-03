@@ -1579,6 +1579,7 @@ version = "0.0.1"
 dependencies = [
  "globe-mode",
  "globe-mode-fmt",
+ "globe-mode-lsp",
  "serde",
  "serde_json",
  "wasm-bindgen",

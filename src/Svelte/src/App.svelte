@@ -1,11 +1,11 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
   import { EditorState } from "@codemirror/state";
-  import { EditorView, keymap, lineNumbers, drawSelection } from "@codemirror/view";
+  import { EditorView, keymap, lineNumbers, drawSelection, highlightActiveLine } from "@codemirror/view";
   import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
   import { bracketMatching } from "@codemirror/language";
   import { setDiagnostics } from "@codemirror/lint";
-  import { modelicaCompletion, modelicaLinter, toCmDiagnostics } from "./lib/editor";
+  import { modelicaCompletion, modelicaDefinition, modelicaLinter, toCmDiagnostics } from "./lib/editor";
   import { WorkerBackend } from "./lib/worker-backend";
   import { TauriBackend, inTauri } from "./lib/tauri-backend";
   import type { Backend, TreeEntry } from "./lib/backend";
@@ -56,8 +56,9 @@
       state: EditorState.create({
         doc: "model Decay\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -x;\nend Decay;\n",
         extensions: [
-          lineNumbers(), history(), drawSelection(), bracketMatching(), keymap.of([...defaultKeymap, ...historyKeymap]),
+          lineNumbers(), history(), drawSelection(), highlightActiveLine(), bracketMatching(), keymap.of([...defaultKeymap, ...historyKeymap]),
           modelicaCompletion(), modelicaLinter(backend, file), // S053
+          modelicaDefinition(definition, goBack), // S138
         ],
       }),
     });
@@ -185,6 +186,42 @@
     columns = null;
     graphModel = null;
   });
+
+  // S138: 定義ジャンプ。別のファイル（ライブラリ）なら openLibrary と同じく同じ名前の文書として開く。入る前の文書と位置は back に積む（Alt+←）
+  const back: { file: string; text: string; anchor: number }[] = [];
+  // 範囲を選び、カーソル（head）は宣言の頭に置く（クラスは長いので、末尾だと宣言が画面の外に出る）
+  const moveTo = (from: number, to: number) => {
+    view.dispatch({ selection: { anchor: to, head: from }, scrollIntoView: true });
+    view.focus();
+  };
+  const replaceDoc = (text: string) => view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text } });
+  async function definition(line: number, character: number) {
+    failure = "";
+    try {
+      await backend.setFile(file, view.state.doc.toString());
+      const d = await backend.definition(file, line, character);
+      if (!d) return;
+      if (d.file !== file) {
+        back.push({ file, text: view.state.doc.toString(), anchor: view.state.selection.main.head });
+        file = d.file;
+        replaceDoc(d.text);
+        diagnostics = [];
+        columns = null;
+        graphModel = null;
+      }
+      const at = ({ line, character }: { line: number; character: number }) => view.state.doc.line(line + 1).from + character;
+      moveTo(at(d.range.start), at(d.range.end));
+    } catch (e) {
+      failure = String((e as Error).message ?? e);
+    }
+  }
+  function goBack() {
+    const b = back.pop();
+    if (!b) return;
+    file = b.file;
+    replaceDoc(b.text);
+    moveTo(b.anchor, b.anchor);
+  }
 
   const graph = () => run(async () => {
     graphModel = model;
