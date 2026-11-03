@@ -1,12 +1,12 @@
-# S137 `review-fmt-panics`
+# S151 `review-fmt-panics`
 
 | | |
 | --- | --- |
 | 日付 | 2026-11-03 |
 | ブランチ | `feature/s137-review-fmt-panics` |
-| worktree | `.git-worktree/s137-review-fmt-panics` |
+| worktree | `.git-worktree/s151-review-fmt-panics` |
 | Phase | P4 |
-| セッション文書 | `doc/sessions/S137-review-fmt-panics/` |
+| セッション文書 | `doc/sessions/S151-review-fmt-panics/` |
 | セッション記録 | 未作成 |
 
 ## 依頼
@@ -22,11 +22,15 @@
 
 日英レビュー、共通資産を使う HTML、2 件を切り替えられる Rust 再現と索引を作成。既存の 3 ファイルの修正には触れない。
 
+## 最新 main 整合・番号整理
+
+- `origin/main` の `e73af106` に両修正は未収録。S137 の番号衝突を避け、この作業の成果物を S151 に改名。PR を維持するためブランチ名は据置。main を feature にマージした。
+
 ## 検証
 
-- 移設後、旧版 2 件とも panic・終了 101、修正後 2 件とも成功・終了 0。
+- 最新 main `e73af106` を基準に、移設・マージ後に旧版 2 件とも panic・終了 101、修正後 2 件とも成功・終了 0。
 - 直接 rustc: 単体 7 件、結合 11 件、計 18 件成功。親・独立レビューの 18 件成功報告もある。
-- `check_docs.py`: 新規デッキ OK、文書 572 件・相対リンク 2,866 件・切れ 0 件。
+- `check_docs.py`: 新規デッキ OK、文書 608 件・相対リンク 3,014 件・切れ 0 件。
 - Cargo、追加 feature、clippy、CI は未検証。
 - HTML のブラウザ表示、セッション記録の `--check` は未検証。
 

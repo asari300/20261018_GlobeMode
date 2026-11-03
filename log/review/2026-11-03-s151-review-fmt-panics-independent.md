@@ -1,4 +1,4 @@
-# S137 `review-fmt-panics` の独立レビュー記録
+# S151 `review-fmt-panics` の独立レビュー記録
 
 | | |
 | --- | --- |

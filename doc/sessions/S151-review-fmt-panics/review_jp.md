@@ -28,14 +28,14 @@ flowchart LR
 
 ## 再現手順
 
-リポジトリのルートで、修正を含む状態で実行する。Git、tar、edition 2024 対応の `rustc` と C リンカが必要。基準版は Git のオブジェクトから一時ディレクトリに展開し、worktree は上書きしない。旧版の 2 件は別プロセスで実行する。
+リポジトリのルートで、修正を含む状態で実行する。Git、tar、edition 2024 対応の `rustc` と C リンカが必要。最新 main の基準版は Git のオブジェクトから一時ディレクトリに展開し、worktree は上書きしない。旧版の 2 件は別プロセスで実行する。
 
 ```sh
 set -eu
 T=$(mktemp -d)
-BASE=5726edf62f6c
+BASE=e73af106c8b7b220a09e162d69798abfae0efcad
 CRATE=src/Rust/mod/globe-mode-fmt
-REPRO=doc/sessions/S137-review-fmt-panics/repro.rs
+REPRO=doc/sessions/S151-review-fmt-panics/repro.rs
 # Before: extract only the committed source, without changing the worktree.
 git archive "$BASE" "$CRATE/src" | tar -x -C "$T"
 rustc --edition=2024 --crate-name globe_mode_fmt --crate-type lib "$T/$CRATE/src/lib.rs" -o "$T/libglobe_mode_fmt.rlib"
@@ -57,7 +57,7 @@ CARGO_MANIFEST_DIR="$PWD/$CRATE" rustc --edition=2024 --test "$CRATE/tests/forma
 rm -rf "$T"
 ```
 
-移設後の実測（`rustc 1.99.1 (58cf8f9c3 2026-10-13)`）:
+最新 main `e73af106` を基準とした移設・マージ後の実測（`rustc 1.99.1 (58cf8f9c3 2026-10-13)`）:
 
 ```text
 before unicode exit=101  (lexer: end byte index 2 is not a char boundary)

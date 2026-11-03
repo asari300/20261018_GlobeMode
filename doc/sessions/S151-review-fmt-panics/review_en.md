@@ -18,9 +18,9 @@ Run from the repository root in this worktree with the fixes present. Requires G
 ```sh
 set -eu
 T=$(mktemp -d)
-BASE=5726edf62f6c
+BASE=e73af106c8b7b220a09e162d69798abfae0efcad
 CRATE=src/Rust/mod/globe-mode-fmt
-REPRO=doc/sessions/S137-review-fmt-panics/repro.rs
+REPRO=doc/sessions/S151-review-fmt-panics/repro.rs
 # Before: extract only the committed source, without changing the worktree.
 git archive "$BASE" "$CRATE/src" | tar -x -C "$T"
 rustc --edition=2024 --crate-name globe_mode_fmt --crate-type lib "$T/$CRATE/src/lib.rs" -o "$T/libglobe_mode_fmt.rlib"
@@ -42,7 +42,7 @@ CARGO_MANIFEST_DIR="$PWD/$CRATE" rustc --edition=2024 --test "$CRATE/tests/forma
 rm -rf "$T"
 ```
 
-Observed after the worktree move with `rustc 1.99.1 (58cf8f9c3 2026-10-13)`:
+Observed after the worktree move and merge, using main `e73af106` as baseline, with `rustc 1.99.1 (58cf8f9c3 2026-10-13)`:
 
 ```text
 before unicode exit=101  (lexer: end byte index 2 is not a char boundary)
