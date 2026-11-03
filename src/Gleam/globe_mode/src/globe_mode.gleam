@@ -2,6 +2,8 @@
 ////
 //// NIF の場所は環境変数 `GLOBE_MODE_NIF`（拡張子 `.so` を除いたパス）。結果は JSON の文字列で、解析は呼ぶ側に任せる。
 
+import gleam/dynamic.{type Dynamic}
+
 /// NIF の resource（Rust の `globe_mode::Workspace`）。
 pub type Workspace
 
@@ -43,6 +45,35 @@ pub fn simulate_columns(
   model: String,
   settings_json: String,
 ) -> Result(#(String, List(BitArray)), String)
+
+/// 中断の合図（S131、ADR-0033。Rust の `CancelToken`）。
+pub type CancelToken
+
+/// Erlang のプロセス（進捗の送り先）。gleam_erlang を足さないので不透明な型にする。
+pub type Pid
+
+/// 呼んだプロセス（`erlang:self/0`）。
+@external(erlang, "erlang", "self")
+pub fn self() -> Pid
+
+@external(erlang, "globe_mode_nif", "cancel_token")
+pub fn cancel_token() -> CancelToken
+
+/// 合図を立てる。実行は次の区切りで止まる。戻り値は Erlang の `ok`。
+@external(erlang, "globe_mode_nif", "cancel")
+pub fn cancel(token: CancelToken) -> Dynamic
+
+/// `simulate` と同じだが、進捗のたびに `pid` へ `{globe_progress, #{stage, time, start_time, stop_time}}` を送り、
+/// `token` が立てられたら止める（S131）。止めたら `termination` が `cancelled` で途中までの CSV と `GM-I11004`。
+/// 終わるまで戻らないので、別のプロセスで回す。
+@external(erlang, "globe_mode_nif", "simulate_observed")
+pub fn simulate_observed(
+  ws: Workspace,
+  model: String,
+  settings_json: String,
+  pid: Pid,
+  token: CancelToken,
+) -> Result(String, String)
 
 /// FMU を書き出して `.fmu` のパス（S118。`globe fmu export` と同じ）。`options_json` は
 /// `{"fmi_version": 2, "build": false, "targets": [], "fmi_headers": null}`（`"{}"` で既定）。

@@ -52,6 +52,28 @@ function simulate_columns(ws::Workspace, model, settings=C_NULL)
     layout, points == 0 ? Vector{Float64}[] : [flat[i:i+points-1] for i in 1:points:length(flat)]
 end
 
+# S131（ADR-0033）: 進捗と中断。C の GmProgress と同じ並び。
+struct Progress
+    stage::Cstring
+    time::Cdouble
+    has_time::Cint
+    start_time::Cdouble
+    stop_time::Cdouble
+end
+
+# C のコールバック。user_data に Julia の関数 f を Any で渡し、f が true を返したら 1（中断）。
+function progress_trampoline(p::Ptr{Progress}, f)::Cint
+    q = unsafe_load(p)
+    f((stage=unsafe_string(q.stage), time=q.has_time != 0 ? q.time : nothing,
+        start_time=q.start_time, stop_time=q.stop_time)) === true
+end
+
+# simulate と同じだが、進捗のたびに on_progress(NamedTuple{stage, time, start_time, stop_time}) を呼び、true が返ったら止める。
+# 止めたら termination が cancelled で途中までの CSV と GM-I11004。
+simulate_observed(ws::Workspace, model, on_progress, settings=C_NULL) =
+    take(ccall((:gm_simulate_observed, LIB), Ptr{UInt8}, (Ptr{Cvoid}, Cstring, Cstring, Ptr{Cvoid}, Any),
+        ws.ptr, model, settings, @cfunction(progress_trampoline, Cint, (Ptr{Progress}, Any)), on_progress))
+
 # S118: FMU の書き出し。{"path": ...} か {"error": ...} の JSON。options は {"fmi_version": 2, "build": false, ...}（省略可）。
 export_fmu(ws::Workspace, model, out_dir, options=C_NULL) =
     take(ccall((:gm_export_fmu, LIB), Ptr{UInt8}, (Ptr{Cvoid}, Cstring, Cstring, Cstring), ws.ptr, model, out_dir, options))

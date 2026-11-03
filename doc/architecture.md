@@ -355,6 +355,7 @@ Svelte の UI は `Backend` インターフェースだけに依存する。実�
 - 同じ測定ハーネスで比べ、結果を `doc/bench/ui.md` に書く。
   - 測定項目: 起動時間、RSS / PSS、CPU、フレーム時間、バンドルサイズ
   - 環境: Linux、Windows、Android
+  - 測り方は [ADR-0034](adr/0034-ui-bench-method.md)（Proposed。S125）。最初は起動から操作可能まで・Decay・MSL と ChuaCircuit・RSS・バンドルの 5 つを、`GM-SMOKE` の行の時刻で測る。CPU・フレーム時間・PSS は持ち越し
 
 ## 7. 検証の基盤
 

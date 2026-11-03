@@ -34,6 +34,11 @@ export class TauriBackend implements Backend {
     return tauriGlobal().event.listen<MslProgress>("msl-progress", (e) => cb(e.payload));
   }
 
+  /** S125: UI の測定（`GLOBE_DESKTOP_BENCH`）。line なしは測定中か、line ありはその行を書いてアプリを終える。 */
+  bench(line?: string): Promise<boolean> {
+    return invoke("bench", { line: line ?? null });
+  }
+
   /** sidecar が既に何かライブラリを読んでいるか（起動時の MSL の表示用）。 */
   async hasLibrary(): Promise<boolean> {
     return (await invoke<string[]>("libraries")).length > 0;

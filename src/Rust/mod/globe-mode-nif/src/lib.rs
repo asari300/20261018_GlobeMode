@@ -2,11 +2,12 @@
 //!
 //! 入出力は `globe-mode-py`・`globe-mode-c` と同じく JSON の文字列で、Elixir 側（`src/Elixir/globe_mode`）が
 //! 標準の `JSON` でデコードする。誤りは `{:error, 理由}`。Erlang のモジュール名は `globe_mode_nif`。
+//! 進捗と中断（S131、ADR-0033）は `simulate_observed`・`cancel_token`・`cancel`。
 
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use rustler::{Binary, Env, OwnedBinary, Resource, ResourceArc};
+use rustler::{Binary, Env, LocalPid, OwnedBinary, Resource, ResourceArc};
 
 /// ワークスペース（BEAM の resource）。salsa のデータベースは Sync でないので Mutex で 1 つずつ使う。
 #[derive(Debug)]
@@ -14,6 +15,24 @@ struct Ws(Mutex<globe_mode::Workspace>);
 
 #[rustler::resource_impl]
 impl Resource for Ws {}
+
+/// 中断の合図（ADR-0033）。`simulate_observed` を回している間に別のプロセスから `cancel` で立てる。
+#[derive(Debug)]
+struct Token(globe_mode::CancelToken);
+
+#[rustler::resource_impl]
+impl Resource for Token {}
+
+rustler::atoms! { globe_progress }
+
+/// 進捗のメッセージの本体（`%{stage: "integration", time: t | nil, start_time: ..., stop_time: ...}`）。
+#[derive(rustler::NifMap)]
+struct ProgressMsg {
+    stage: String,
+    time: Option<f64>,
+    start_time: f64,
+    stop_time: f64,
+}
 
 fn json<T: serde::Serialize + ?Sized>(value: &T) -> Result<String, String> {
     serde_json::to_string(value).map_err(|e| format!("JSON: {e}"))
@@ -75,6 +94,54 @@ fn request(model: String, settings_json: &str) -> Result<globe_mode::SimulateReq
 fn simulate(ws: ResourceArc<Ws>, model: String, settings_json: String) -> Result<String, String> {
     let request = request(model, &settings_json)?;
     with(&ws, |w| json(&w.simulate(&request)))?
+}
+
+/// 新しい中断の合図を作る（S131）。
+#[rustler::nif]
+fn cancel_token() -> ResourceArc<Token> {
+    ResourceArc::new(Token(globe_mode::CancelToken::new()))
+}
+
+/// 合図を立てる。`simulate_observed` は次の区切りで止まる（S131）。
+#[rustler::nif]
+fn cancel(token: ResourceArc<Token>) -> rustler::Atom {
+    token.0.cancel();
+    rustler::types::atom::ok()
+}
+
+/// [`simulate`] と同じだが、進捗のたびに `pid` へ `{:globe_progress, map}` を送り、`token` が立てられたら次の区切りで
+/// 止める（S131、ADR-0033）。積分の途中なら `termination` が `cancelled` で途中までの CSV、前なら `ok: false`。どちらも
+/// `GM-I11004`。トークンを先に作って渡すのは、DirtyCpu の中で回っている間に返せる値が無いため。
+#[rustler::nif(schedule = "DirtyCpu")]
+fn simulate_observed(
+    env: Env,
+    ws: ResourceArc<Ws>,
+    model: String,
+    settings_json: String,
+    pid: LocalPid,
+    token: ResourceArc<Token>,
+) -> Result<String, String> {
+    let request = request(model, &settings_json)?;
+    let mut notify = |p: &globe_mode::Progress| {
+        let msg = ProgressMsg {
+            stage: format!("{:?}", p.stage).to_lowercase(),
+            time: p.time,
+            start_time: p.start_time,
+            stop_time: p.stop_time,
+        };
+        // 受け手が死んでいても実行は続ける（止めるのはトークン）
+        let _ = env.send(&pid, (globe_progress(), msg));
+    };
+    let handle = globe_mode::SimulateHandle {
+        on_progress: Some(&mut notify),
+        cancel: Some(token.0.clone()),
+    };
+    with(&ws, |w| {
+        json(
+            &w.simulate_observed(&request, &globe_mode::now_ms, handle)
+                .response,
+        )
+    })?
 }
 
 /// 列の道（S116。Python の `simulate_columns` と同じ並び）。`{layout_json, [binary]}` で、layout は

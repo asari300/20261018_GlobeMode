@@ -133,6 +133,15 @@
 - 試験（`src/Python/tests/test_api.py`）: (1) Decay（esdirk34）で段が `lowering` から `integration` まで届き、最後の t が 1、列・CSV が `on_progress` なしと同じ、(2) `der(x) = sin(100 * time)` を 1000 s（手元で約 0.9 s）で最初の t の進捗で `True` を返すと `ok`・`termination` が `cancelled`（0 < time < 1000、列の最後の時刻と同じ）・`GM-I11004`、(3) 別のスレッドの `threading.Timer(0.2, _thread.interrupt_main)` で `KeyboardInterrupt`。7 本通る（1 本は前からの skip）。
 - Ctrl-C も `True` も、知らせが来るのは段の変わり目と積分の t（100 ms に 1 回まで）だけなので、lowering・組み立て・ネイティブの型付きの道（bdf・dopri45・auto）の積分の中では次の段まで届かない（1 段目の持ち越しと同じ）。`on_progress` を渡さないときは前のまま GIL を持って回る。
 
+### 4 段目の結果（S131、C・Zig・Julia と NIF・Elixir・Gleam、2026-11-03）
+
+- exec・facade は変えていない。(3) の表の形から次のように変えた（呼び手の言語で読みやすい形にし、Python の dict と同じ 4 つの値をそろえた）。
+- C ABI（`globe-mode-c`）: 位置引数 5 つの `gm_progress_fn` でなく、構造体 `GmProgress { const char *stage; double time; int has_time; double start_time; double stop_time; }` を渡す `typedef int (*GmProgressCallback)(const GmProgress *progress, void *user_data)`。`stage` は Python と同じ小文字で、コールバックの間だけ有効。`time` が無いときは NaN と `has_time = 0`。依頼は `request_json` でなく既存の `gm_simulate` と同じ `(model, settings_json)`。口は `gm_simulate_observed(ws, model, settings_json, callback, user_data)` と、列の道の `gm_simulate_columns_observed(ws, model, settings_json, data, len, callback, user_data)`（`gm_simulate_columns` はその `callback = NULL` の包み）。`callback` が NULL なら `SimulateHandle::default()` で前と同じ道。
+- Zig は translate-c のヘッダの型をそのまま使い、`callconv(.c)` の関数を渡す。Julia は `simulate_observed(ws, model, on_progress, settings)` で、`@cfunction` の固定の trampoline に Julia の関数を `Any` の `user_data` として渡す（閉包の `@cfunction` を使わない）。`on_progress` は `(stage, time, start_time, stop_time)` の NamedTuple を受け、`true` で止める。
+- NIF（`globe-mode-nif`）: `simulate_async` が `{ref, token}` を返す形でなく、`cancel_token()` でトークン（`ResourceArc`）を先に作り、`simulate_observed(ws, model, settings_json, pid, token)`（DirtyCpu）が結果の JSON を返すまで待つ形にした。DirtyCpu の NIF は戻るまで値を返せないので、トークンを先に渡すのが最小。進捗は `pid` へ `{:globe_progress, %{stage, time, start_time, stop_time}}`（Rustler の `NifMap`、`time` は `nil` か float）を呼び出し元の env の `send` で送る。中断は別のプロセスから `cancel(token)`（`:ok`）。Elixir は `GlobeMode.simulate_observed(ws, model, settings, token, pid \\ self())`、Gleam は `@external` と不透明な型 `CancelToken`・`Pid`（`erlang:self/0`。`gleam_erlang` は足していない）。
+- 試験（どれも S129 と同じ `der(x) = sin(100 * time)` を esdirk34・1000 s・間隔 1 で回し、最初の t の進捗で止める）: `globe-mode-c` の単体試験（JSON と列の両方。`cancelled`、`GM-I11004`、列の最後の時刻が `termination.time`）と `tests/header.rs`（`typedef` の行を飛ばし、試験のモジュールの `extern "C" fn` を数えない）、`mise run c:zig`（呼ばれた回数 7）、`c:julia`（段は lowering・preflight・build・initialization・integration）、`elixir:test`（`Task` で回し、`assert_receive` で t の進捗を受けて `cancel`）、`gleam:test`（spawn と受信は `test/globe_mode_test_ffi.erl`）。
+- NIF の列の道（`simulate_columns`）には進捗を付けていない（要るときに同じ形で足す）。
+
 ### 持ち越し
 
 - ネイティブの型付きの道（bdf・dopri45・auto）の積分の中では t も中断も出せない。session の道をネイティブの既定にする案は、JIT を使わない分の遅さを測ってから（ADR-0014 で数値は同じ。速さは【未確認】）。

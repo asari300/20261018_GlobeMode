@@ -9,7 +9,7 @@ dist/ を localhost で配り（CSP は index.html の meta と同じものを�
 長いモデルの実行で進捗（段と t の割合）が出て、「止める」で止まり（data-run="cancelled"）、ボタンが戻ることを確かめる（S133）。
 ライブラリの木で Modelica → Electrical → Analog → Examples → ChuaCircuit と開き、そのファイルがエディタに開いて検査が通ることも確かめる（S127）。
 別のページで MSL.json を構文の誤りのファイルを含むライブラリに差し替え、読み飛ばしの警告 GM-W1001 の行と notes のファイル名が出ることを確かめる（S071）。
-`?smoke=1` で起動すると Decay の検査と実行の結果が console に `GM-SMOKE check=ok simulate=ok x1=… msl=…` の 1 行で出ること（S100、android.yml の smoke）。MSL.json があれば msl=ok（MSL を読んで ChuaCircuit の検査が error 0。S103）。
+`?smoke=1` で起動すると Decay の検査と実行の結果が console に `GM-SMOKE check=ok simulate=ok x1=… msl=… ready_ms=…` の 1 行で出ること（S100、android.yml の smoke。時刻は S125）。MSL.json があれば msl=ok（MSL を読んで ChuaCircuit の検査が error 0。S103）。
 console の error（CSP の違反を含む）と、配った origin の外への要求は失敗（S093）。
 """
 
@@ -46,9 +46,8 @@ CHUA = "Modelica.Electrical.Analog.Examples.ChuaCircuit"
 BAD = "model Bad\n  Real x;\nequation\n  der(x) = -x;\n  x = 1;\nend Bad;\n"
 
 
-def main() -> int:
-    # 列の道の NaN / Inf は null になる（uPlot の欠損。S065）
-    subprocess.run(["node", str(Path(__file__).with_name("test_columns.mjs"))], check=True)
+def serve() -> http.server.ThreadingHTTPServer:
+    """dist/ を 127.0.0.1 の空いた port で配る（bench_ui.py も使う。S125）。"""
     csp = re.search(r'http-equiv="Content-Security-Policy" content="([^"]+)"', (DIST / "index.html").read_text(encoding="utf-8"))
     assert csp, "index.html に CSP の meta が無い"
 
@@ -63,6 +62,13 @@ def main() -> int:
     handler = functools.partial(Handler, directory=str(DIST))
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
+def main() -> int:
+    # 列の道の NaN / Inf は null になる（uPlot の欠損。S065）
+    subprocess.run(["node", str(Path(__file__).with_name("test_columns.mjs"))], check=True)
+    server = serve()
     errors: list[str] = []
     origin = f"http://127.0.0.1:{server.server_port}/"
     outside: list[str] = []
@@ -272,6 +278,7 @@ def main() -> int:
         line = message.value.text
         assert line.startswith("GM-SMOKE check=ok simulate=ok x1=0.36"), line
         assert ("msl=ok" in line) == (DIST / "msl/MSL.json").exists(), line  # S103
+        assert re.search(r" ready_ms=\d+ decay_ms=\d+ msl_ms=", line), line  # S125: bench_ui.py が読む時刻
         print(line)
         browser.close()
     server.shutdown()
