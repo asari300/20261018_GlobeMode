@@ -7,7 +7,7 @@
 | worktree | `.git-worktree/s133-progress-cancel-wasm` |
 | Phase | P7（[ADR-0033](../../doc/adr/0033-progress-and-cancel.md) の実装の順の 2） |
 | セッション文書 | `doc/sessions/S133-progress-cancel-wasm/` |
-| セッション記録 | （親が写す） |
+| セッション記録 | [2026-11-02-a2580a13-3889-4662-9db4-a45dc1ca6772.md](../sessions/2026-11-02-a2580a13-3889-4662-9db4-a45dc1ca6772.md) |
 
 ## 依頼
 
@@ -41,7 +41,7 @@ ADR-0033 の順の 2: wasm と Svelte の UI。wasm に進捗のコールバッ�
 - コードの検査（fmt / clippy / test / deny）: `mise run check` exit 0（共有 target の古いビルドで 1 回 E0599、touch して回し直して通った）
 - `check_docs.py`: デッキ全部 OK / リンク 2763 件中の切れ 0 件
 - `render_slides.py`: S133 のデッキ 1 件 / 問題 0 件（2 回は load の高い中で screenshot が時間切れ。Chromium を片付けて load 4.5 で通った）
-- セッション記録の `--check`: （親が写す）
+- セッション記録の `--check`: 取りこぼし 0 件（親が写した）
 - ステージした差分の漏洩検査: 0 件
 
 ## 残したこと
