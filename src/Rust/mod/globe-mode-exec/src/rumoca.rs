@@ -45,7 +45,10 @@ use rumoca_sim::{
 use rumoca_solver::fmi_me::{MeError, MeIntegrationError, MeSessionError, MeStage};
 use rumoca_solver::{SimDiagnostic, WARNING_ASSERTION_CODE};
 
-use crate::{CompiledModel, ExecStage, Simulated, time_text};
+use crate::{
+    CancelToken, CompiledModel, ExecStage, Observer, Progress, Simulated, cancelled_diagnostic,
+    time_text,
+};
 
 pub(crate) mod instance;
 mod plugins;
@@ -460,9 +463,19 @@ impl Outcome {
     }
 }
 
-/// 実行の途中で呼ぶもの: 段の知らせと、組み立ての lowering の結果で行うプリフライト（S014）。
+/// 実行の途中で呼ぶもの: 進捗の知らせと中断（ADR-0033）、組み立ての lowering の結果で行うプリフライト（S014）。
 pub(crate) struct Hooks<'a> {
-    on_stage: &'a mut dyn FnMut(ExecStage),
+    on_progress: &'a mut dyn FnMut(&Progress),
+    cancel: Option<CancelToken>,
+    now: &'a dyn Fn() -> f64,
+    start_time: f64,
+    stop_time: f64,
+    /// 最後に t を知らせた壁時計（ミリ秒）
+    last_tick: f64,
+    /// トークンが立っているのを見た
+    cancelled: bool,
+    /// 積分の途中で止めた時刻（session の道）
+    cancelled_at: Option<f64>,
     preflight: Preflight,
 }
 
@@ -479,9 +492,16 @@ enum Preflight {
 }
 
 impl<'a> Hooks<'a> {
-    fn new(on_stage: &'a mut dyn FnMut(ExecStage), preflight: bool) -> Self {
+    fn new(observer: &'a mut Observer<'_>, settings: &ResolvedSettings, preflight: bool) -> Self {
         Self {
-            on_stage,
+            on_progress: &mut *observer.on_progress,
+            cancel: observer.cancel.clone(),
+            now: observer.now,
+            start_time: settings.start_time,
+            stop_time: settings.stop_time,
+            last_tick: 0.0,
+            cancelled: false,
+            cancelled_at: None,
             preflight: if preflight {
                 Preflight::Wanted
             } else {
@@ -490,8 +510,43 @@ impl<'a> Hooks<'a> {
         }
     }
 
+    fn emit(&mut self, stage: ExecStage, time: Option<f64>) {
+        (self.on_progress)(&Progress {
+            stage,
+            time,
+            start_time: self.start_time,
+            stop_time: self.stop_time,
+        });
+    }
+
+    /// 段が変わったことを知らせる（止められない区切り。lowering の中から呼ぶ）。
     fn stage(&mut self, stage: ExecStage) {
-        (self.on_stage)(stage);
+        self.last_tick = (self.now)();
+        self.emit(stage, None);
+    }
+
+    /// 呼び手がトークンを立てたか（立っていたら覚える）。
+    fn is_cancelled(&mut self) -> bool {
+        self.cancelled |= self.cancel.as_ref().is_some_and(CancelToken::is_cancelled);
+        self.cancelled
+    }
+
+    /// 段に入る。止められていたら入らずに Err（[`simulate_with`] が GM-I11004 にする）。
+    fn enter(&mut self, stage: ExecStage) -> Result<(), SimError> {
+        if self.is_cancelled() {
+            return Err(SimError::SolverError("呼び手が止めた".to_string()));
+        }
+        self.stage(stage);
+        Ok(())
+    }
+
+    /// 積分の時刻 t。前に知らせてから 100 ms 以上たっていれば知らせる。
+    fn tick(&mut self, time: f64) {
+        let now = (self.now)();
+        if now - self.last_tick >= 100.0 {
+            self.last_tick = now;
+            self.emit(ExecStage::Integration, Some(time));
+        }
     }
 
     /// lowering が終わった。プリフライトを待っていれば、その結果で行う（auto の dopri45 は BDF の lowering の
@@ -542,7 +597,17 @@ pub(crate) fn simulate(
     settings: &ResolvedSettings,
     route: Route,
 ) -> Result<(SimRun, Vec<Diagnostic>), Vec<Diagnostic>> {
-    simulate_with(model, settings, route, &mut Hooks::new(&mut |_| {}, false))
+    let mut observer = Observer {
+        on_progress: &mut |_| {},
+        cancel: None,
+        now: &|| 0.0,
+    };
+    simulate_with(
+        model,
+        settings,
+        route,
+        &mut Hooks::new(&mut observer, settings, false),
+    )
 }
 
 /// プリフライトと実行（[`crate::run`]）。プリフライトは組み立ての lowering の結果で行う。lowering を自分で
@@ -550,11 +615,13 @@ pub(crate) fn simulate(
 pub(crate) fn checked_simulate(
     model: &CompiledModel,
     settings: &ResolvedSettings,
-    on_stage: &mut dyn FnMut(ExecStage),
+    observer: &mut Observer<'_>,
 ) -> (Vec<Diagnostic>, Simulated) {
-    let mut hooks = Hooks::new(on_stage, true);
-    if cfg!(not(target_arch = "wasm32")) && settings.solver == SolverId::Dopri45 {
-        hooks.stage(ExecStage::Preflight);
+    let mut hooks = Hooks::new(observer, settings, true);
+    if cfg!(not(target_arch = "wasm32"))
+        && settings.solver == SolverId::Dopri45
+        && hooks.enter(ExecStage::Preflight).is_ok()
+    {
         let (diagnostics, resettle) = preflight_alone(model, settings, true);
         hooks.preflight = Preflight::Done {
             diagnostics,
@@ -625,12 +692,13 @@ fn simulate_with(
     };
     match outcome.result {
         Ok(result) => {
-            let termination = match &result.termination {
-                Some(t) => Termination::Terminated {
+            let termination = match (&result.termination, hooks.cancelled_at) {
+                (Some(t), _) => Termination::Terminated {
                     time: t.time,
                     message: t.message.clone(),
                 },
-                None => Termination::StopTime,
+                (None, Some(time)) => Termination::Cancelled { time },
+                (None, None) => Termination::StopTime,
             };
             let states = result.n_states;
             let mut diagnostics = info;
@@ -651,6 +719,12 @@ fn simulate_with(
                 ),
                 info,
             )),
+            // 段の前か auto の回し直しの前で止めた。止めたあとの失敗は失敗として扱わない
+            _ if hooks.cancelled => {
+                let mut diagnostics = vec![cancelled_diagnostic(None)];
+                diagnostics.extend(info);
+                Err(diagnostics)
+            }
             _ => {
                 let failed = match override_diagnostic(&error) {
                     Some(d) => d,
@@ -749,7 +823,9 @@ fn run_bdf(
 ) -> Outcome {
     let started = Stopwatch::start();
     let mut parameters = Vec::new();
-    hooks.stage(ExecStage::Lowering);
+    if let Err(e) = hooks.enter(ExecStage::Lowering) {
+        return Outcome::new(Err((e, Phase::Build)), 0.0, 0.0);
+    }
     let prepared = rumoca_sim::build_simulation_with_stage_timing_and_lowered_model(
         dae,
         opts,
@@ -770,8 +846,10 @@ fn run_bdf(
         }
     };
     let started = Stopwatch::start();
-    hooks.stage(ExecStage::Initialization);
-    if let Err(e) = rumoca_sim::check_prepared_initialization(&prepared) {
+    let initialized = hooks
+        .enter(ExecStage::Initialization)
+        .and_then(|()| rumoca_sim::check_prepared_initialization(&prepared));
+    if let Err(e) = initialized {
         return Outcome {
             parameters,
             ..Outcome::new(
@@ -781,9 +859,10 @@ fn run_bdf(
             )
         };
     }
-    hooks.stage(ExecStage::Integration);
-    let result =
-        rumoca_sim::run_prepared_simulation(&prepared).map_err(|e| (e, Phase::Integration));
+    let result = hooks
+        .enter(ExecStage::Integration)
+        .and_then(|()| rumoca_sim::run_prepared_simulation(&prepared))
+        .map_err(|e| (e, Phase::Integration));
     Outcome {
         parameters,
         ..Outcome::new(result, build_seconds, started.seconds())
@@ -796,7 +875,9 @@ fn run_bdf(
 /// 積分の段だけを知らせる。
 fn run_rk(dae: &Dae, opts: &SimOptions, hooks: &mut Hooks<'_>) -> Outcome {
     let started = Stopwatch::start();
-    hooks.stage(ExecStage::Integration);
+    if let Err(e) = hooks.enter(ExecStage::Integration) {
+        return Outcome::new(Err((e, Phase::Integration)), 0.0, 0.0);
+    }
     let result = rumoca_sim::rk45::simulate(dae, opts).map_err(|e| {
         // lowering の失敗は段の無い SolveIr（"[EX…] …" の形。rk45 は段を付けない）で返る
         let phase = if lowering_tag(&e).is_some() {
@@ -830,6 +911,9 @@ fn run_auto(
         let Err((error, phase)) = &out.result else {
             break;
         };
+        if hooks.is_cancelled() {
+            break;
+        }
         // 最初の回し直しは規則に当たる失敗だけ。そのあとは、時間切れ以外の失敗なら次の方法を試す
         // （dopri45 が救える系を、esdirk34 の失敗で取りこぼさない）
         let reason = match (fallback(error, *phase), infos.is_empty()) {
@@ -1978,12 +2062,21 @@ mod tests {
         let describe = |e: &SimError, _: Phase| {
             Diagnostic::error(codes::RUN_INTEGRATION_FAILED, Stage::Run, e.to_string())
         };
-        let mut on_stage = |_: ExecStage| {};
+        let token = CancelToken::new();
+        let settings =
+            globe_mode_sim::settings::resolve(&globe_mode_ir::SimSettings::default(), None)
+                .unwrap()
+                .0;
         let seen = std::cell::RefCell::new(Vec::new());
-        let mut run =
+        let run =
             |bdf: Result<(), SimError>, esdirk: Result<(), SimError>, rk: Result<(), SimError>| {
                 seen.borrow_mut().clear();
-                let mut hooks = Hooks::new(&mut on_stage, false);
+                let mut observer = Observer {
+                    on_progress: &mut |_| {},
+                    cancel: Some(token.clone()),
+                    now: &|| 0.0,
+                };
+                let mut hooks = Hooks::new(&mut observer, &settings, false);
                 run_auto(
                     describe,
                     &mut hooks,
@@ -2027,6 +2120,10 @@ mod tests {
         // BDF の失敗が規則に当たらなければ（時間切れ）回し直さない
         let out = run(Err(timeout()), Ok(()), Ok(()));
         assert!(out.result.is_err() && seen.borrow().is_empty());
+        // 止められていたら回し直さない（ADR-0033）
+        token.cancel();
+        let out = run(Err(integration_failure()), Ok(()), Ok(()));
+        assert!(out.result.is_err() && out.info.is_empty() && seen.borrow().is_empty());
     }
 
     #[test]

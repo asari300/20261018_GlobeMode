@@ -440,6 +440,9 @@ fn summary_lines(run: &SimRun) -> Vec<String> {
             "{}: terminate() で t = {time} に終わった: {message}",
             run.model
         )),
+        Termination::Cancelled { time } => {
+            lines.push(format!("{}: t = {time} で止められた", run.model))
+        }
     }
     let finals = final_values(run);
     if !finals.is_empty() {

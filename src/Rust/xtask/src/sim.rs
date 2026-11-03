@@ -733,6 +733,8 @@ fn simulate_one(checker: &Checker, model: &str, opts: &WorkerOptions) -> Record 
             rec.message = message.clone();
             Outcome::Terminated
         }
+        // msl-sim は CancelToken を渡さないので来ない
+        Termination::Cancelled { .. } => Outcome::Terminated,
     };
     rec.settings = Some(run.settings.clone());
     rec.termination = Some(run.termination.clone());
