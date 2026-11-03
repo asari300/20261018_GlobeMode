@@ -370,4 +370,11 @@
   tr.error { color: #b00020; }
   tr.warning { color: #8a6100; }
   .failure { color: #b00020; white-space: pre-wrap; }
+  /* 小画面（S145）: 左の木を上に積み、診断の長い語を折り返し、横スクロールを出さない */
+  @media (max-width: 600px) {
+    main { padding: .5rem; }
+    .work { flex-direction: column; }
+    .library { flex: none; height: 10rem; }
+    td { overflow-wrap: anywhere; }
+  }
 </style>

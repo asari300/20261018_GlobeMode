@@ -1,0 +1,57 @@
+# ブラウザ版の配布物（S145、P6、ADR-0023 の「Web」）。手動実行（workflow_dispatch）だけ。静的ファイルの束を artifact `globe-web` に残す。
+# 公開（GitHub Pages の有効化・URL の配布）はしない。それはユーザーの判断で、手順は doc/sessions/S145-web-bundle/解説書.md。
+# 中身: wasm の UI（vite build。base は相対 ./ なのでどのサブパスに置いても動く）、MSL.json（pack-msl.mjs。android.yml の ui と同じ道）、
+# CSP の header の断片（_headers = Cloudflare Pages / Netlify、nginx.csp.conf = nginx）。CSP は index.html の meta が正（scripts/web-bundle.sh が取り出す）。
+# 大きさ（生・gzip・brotli）は Step Summary に出す。
+name: web
+
+on:
+  workflow_dispatch:
+  push: # 一時（S145）: 新しい workflow は main に無いと dispatch できない。最後のコミットで消す
+    branches: [feature/s145-web-bundle]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  MISE_AUTO_INSTALL: "false"
+
+jobs:
+  bundle:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+        with:
+          install_args: rust github:wasm-bindgen/wasm-bindgen node pnpm uv
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: web-wasm
+      - run: cargo xtask fetch-msl
+      - name: release の wasm と UI（pnpm build。MSL.json も作る）
+        run: |
+          mise run wasm:build
+          cd src/Svelte
+          pnpm install --frozen-lockfile
+          pnpm build
+          test -s dist/msl/MSL.json
+      - name: ブラウザで確かめる（dist をサブパス /app/ で配って検査と MSL の読み込み、幅 400 px）
+        run: |
+          uv sync --locked
+          uv run playwright install --with-deps chromium
+          uv run python src/Svelte/tests/test_ui.py
+      - name: 配布物にまとめて大きさを測る
+        run: |
+          command -v brotli > /dev/null || sudo apt-get install -y brotli
+          bash src/Svelte/scripts/web-bundle.sh src/Svelte/dist globe-web | tee size.md
+          { echo "### globe-web の大きさ"; echo; cat size.md; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: globe-web
+          path: globe-web
+          if-no-files-found: error
