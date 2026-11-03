@@ -15,6 +15,7 @@
 //! （4.1.0 を先に探す）。無ければ UI のボタンが command `fetch_msl { version }`（S084。"4.1.0" | "4.0.0"）を呼び、
 //! 取得して展開し、sidecar を新しい `--library` で作り直す（版を替えるときも同じ）。取得中はイベント `msl-progress`
 //! （`{received, total}`。total は Content-Length、無ければ null）を出し、command `cancel_msl` で取り消せる。
+//! ファイル（S141）: dialog / fs プラグインを入れる（UI の「開く」「保存」。権限は capabilities/desktop.json）。
 //! 自動更新（S135）: `plugins.updater.pubkey` が空でなければ updater プラグインを入れる（空なら UI の「更新を確認」は「未設定」）。
 //! `GLOBE_DESKTOP_SMOKE_FETCH=1` を足すと、smoke は検査の前にこの取得を 1 回行う（CI で取得の道を確かめる）。
 //!
@@ -299,6 +300,8 @@ fn main() {
     #[cfg(target_os = "linux")]
     fix_c_locale();
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init()) // S141: 開く・保存（権限は capabilities/desktop.json）
+        .plugin(tauri_plugin_fs::init())
         .invoke_handler(tauri::generate_handler![
             rpc,
             notify,

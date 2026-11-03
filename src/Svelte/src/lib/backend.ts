@@ -25,6 +25,10 @@ export interface Backend {
   librarySource(path: string): Promise<{ file: string; text: string }>;
   /** setFile 済みの file の位置（行は 0 始まり、列は UTF-16）にある名前の定義（S138）。名前が引けなければ null。 */
   definition(file: string, line: number, character: number): Promise<Definition | null>;
+  /** 手元のファイルを 1 つ選んで読む（S141）。ブラウザ・Android は `<input type=file>`、Desktop は dialog / fs プラグイン。選ばなければ null。 */
+  openFile(): Promise<{ name: string; text: string } | null>;
+  /** 本文を手元に書く。保存先（Desktop はパス、ブラウザは名前）を返す。取り消しは null。saveAs は Desktop で保存先を選び直す（ブラウザは毎回ダウンロードなので同じ）。 */
+  saveFile(name: string, text: string, saveAs?: boolean): Promise<string | null>;
 }
 
 /** 定義の場所。text は定義のあるファイルの本文（ライブラリのファイルならエディタに開く）。range は LSP の Range。 */

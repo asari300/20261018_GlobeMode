@@ -121,6 +121,11 @@ UI（Svelte）のプロセスでは検査も実行もしない。計算は 1 つ
 - **鍵の作り方と secret の登録**（ユーザーがやる）: `keytool -genkey -v -keystore ~/globemode-upload.jks -keyalg RSA -keysize 2048 -validity 10000 -alias upload`、`base64 -w0 ~/globemode-upload.jks | gh secret set ANDROID_KEYSTORE_BASE64`、残り 3 つは `gh secret set <名前>`（対話で値を入れる）。出典: [Tauri: Android Code Signing](https://v2.tauri.app/distribute/sign/android/)・[GitHub: Using secrets in GitHub Actions](https://docs.github.com/en/actions/security-for-github-actions/security-guides/using-secrets-in-github-actions)・[Android Developers: Sign your app](https://developer.android.com/studio/publish/app-signing)（いずれも確認日 2026-11-03）。[解説書](../sessions/S106-android-release-apk/解説書.md)。
 - 持ち越し: secret を登録した run での署名つき APK の実機確認、配布用の UI を smoke なしで作るか、Rust を mobile の lib に直接 link する道、MSL 4.0.0 の切り替え。
 
+### S141 で決まったこと（ファイルを開く・保存する、2026-11-04）
+
+- **自分の `.mo` を持ち込み・持ち帰る道は、環境ごとに別の実装を `Backend.openFile` / `saveFile` の後ろに置く。** ブラウザと Android（sidecar が無く `WorkerBackend` を使う）は `<input type=file>` と Blob のダウンロード（保存先はブラウザが決める）。Desktop は公式プラグイン `tauri-plugin-dialog` と `tauri-plugin-fs`（Desktop だけの依存で、Android の lib には入れない）で、UI は npm の `@tauri-apps/plugin-*` を入れず `window.__TAURI__.dialog` / `fs` を使う（S135 と同じ）。権限は `capabilities/desktop.json` に `dialog:allow-open`・`dialog:allow-save`・`fs:allow-read-text-file`・`fs:allow-write-text-file` だけ。dialog で選んだパスだけが fs の許可に入るので、静的なスコープは置かない。command（`generate_handler!`）は足していない。
+- 本文は sidecar にも渡さずに UI の中で読み書きする（`setFile` へ通すのは今まで通り検査・実行のとき）。
+
 ### S135 で決まったこと（Desktop の自動更新、2026-11-03）
 
 - **updater は Tauri 2 の公式プラグイン**（`tauri-plugin-updater` 2.14、Desktop だけ。`Cargo.toml` の `cfg(not(any(target_os = "android", target_os = "ios")))`、権限は `capabilities/desktop.json` の `updater:default`（`platforms` を Linux・Windows・macOS に限る））。2.10 から .deb・.rpm・AppImage・.msi・NSIS のどれでも入れ直せ、`latest.json` のキーは `<os>-<arch>-<installer>` を先に、無ければ `<os>-<arch>` を引く（.deb は `pkexec dpkg -i`）。出典: [Tauri: Updater](https://v2.tauri.app/plugin/updater/)・[plugins-workspace の updater の CHANGELOG](https://github.com/tauri-apps/plugins-workspace/blob/v2/plugins/updater/CHANGELOG.md)・[updater.rs](https://github.com/tauri-apps/plugins-workspace/blob/v2/plugins/updater/src/updater.rs)（いずれも確認日 2026-11-03）。
