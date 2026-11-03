@@ -23,6 +23,29 @@ fn mo_files(dir: &Path, out: &mut Vec<PathBuf>) {
 }
 
 #[test]
+fn invalid_ascii_before_unicode_returns_error() {
+    let error = format("!é", &Options::default()).unwrap_err();
+    assert_eq!(error.offset, 0);
+}
+
+#[test]
+fn wrapping_omitted_tuple_output_preserves_model() {
+    let src = "function f\n  output Real a;\n  output Real b;\nalgorithm\n  a := 1;\n  b := 2;\nend f;\nmodel M\n  Real x;\nalgorithm\n  (, x) := f();\nend M;\n";
+    let options = Options {
+        width: 5,
+        ..Options::default()
+    };
+    let out = format(src, &options).unwrap();
+    assert_eq!(format(&out, &options).unwrap(), out);
+    assert!(
+        out.chars()
+            .filter(|c| !c.is_whitespace())
+            .collect::<String>()
+            .contains("(,x):=f();")
+    );
+}
+
+#[test]
 fn user_before_after() {
     let before = include_str!("data/objects_before.mo");
     let after = include_str!("data/objects_after.mo");
