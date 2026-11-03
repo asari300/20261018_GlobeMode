@@ -1,18 +1,18 @@
-# S136 全体レビュー地図
+# S149 Review map — English
 
 [README](../../../README.md) · [architecture](../../architecture.md) · [Cargo workspace](../../../Cargo.toml) · [session index](../README.md)
 
-**過去のスナップショット:** revision `5726edf` 時点であり、現在の `main` や以降の変更を表さない。現在の main には別件の S136 もある。
+**Baseline:** `origin/main` at `e73af106c8b7b220a09e162d69798abfae0efcad`. This map is an inventory and plan, not a completed audit.
 
-## 範囲と根拠
+## Scope and evidence
 
-これは追跡ファイルの棚卸しと今後の監査計画であり、監査完了の報告ではない。根拠は 2026-11-03 時点の `git ls-files`、ルートと各 Cargo マニフェスト、各言語の package manifest、README と architecture。architecture にある将来計画を実装済みと断定しない。アプリの動作、Mermaid 専用パーサによる構文、および描画は未検証。
+This is an inventory and a future review plan, not an audit result. Sources: tracked paths (`git ls-files`), root and package Cargo manifests, language package manifests, README and architecture; baseline commit above. Architecture may describe plans; only containment and declared Cargo edges are asserted below. The application runtime was not verified. All three Mermaid graphs were parsed and rendered to SVG locally with Mermaid 11.12.2; the rendered diagrams were inspected.
 
-状態の定義: **未訪問**＝正確なファイル単位記録なし、**部分確認**＝対象領域の一部を過去に調べたが全体の検証ではない、**検証済**＝ファイル・revision・確認範囲・実証結果を記録し確認済。前調査は fmt・FastAPI・fmu の限定部分のみ。個別ファイルの正確な記録は提供されていないため、検証済ファイルはまだ指定しない。27/1130 ファイル（2.39%）は以前の対象領域の比較であり、**監査完了率ではない**。これからパス・revision・範囲・状態・根拠（実行コマンドと結果）をファイルごとに記録し、証拠を確認してから状態を更新する。マップ作成時のマニフェスト確認は監査ではない。
+Status key: **unvisited** = no file-level evidence recorded; **partially examined** = limited prior investigation, not the whole area; **verified** = an exact file, revision, scope and real evidence recorded and checked. Earlier investigations covered limited portions of fmt, FastAPI and fmu only; no exact prior file-level ledger was supplied, so no individual file is marked verified. A previously cited 27/1130 (2.39%) is an approximate area/file comparison, **not an audit completion rate**. Begin exact per-file ledger now; record path, revision, scope, status, evidence/command and outcome before changing status. At this baseline the ledger contains no verified file. Inventory/manifests were inspected for this map only, not audited for correctness.
 
-整形器の origin 追加はユーザー確認済み仕様であり Issue 対象外。作成時点では投稿・commit・push は許可されていなかった。これは当時の制約であり、将来の公開禁止ではない。
+Formatter origin insertion is a user-confirmed specification and is **not an Issue**. At initial drafting, posting, commit and push were not authorized; this was a historical constraint, not a continuing publication prohibition.
 
-番号規則: `S136` はセッション番号、`SNNN-topic` はセッション名。DFS 番号は予定の初訪問順であり恒久ファイル ID や Issue 番号ではない。証拠が得られた候補だけ `S136-C001` からローカルに採番し、外部 Issue 番号は承認後に発行元が付ける。現時点で候補はない。
+Numbering: S149 is the session identifier; `SNNN-topic` names sessions, not issues. DFS numbers are local planned preorder, not durable file IDs or issue numbers. Give candidate findings a local `S149-C001` sequence only after evidence; remote Issue numbers are assigned by the host after user approval, not guessed. No candidate is asserted here.
 
 ## Repository structure / リポジトリ構造
 
@@ -91,7 +91,7 @@ flowchart TD
   repo --> t22
 ```
 
-`git ls-files`: 1130 tracked files; src breakdown: src/Astro 13, src/Elixir 34, src/Gleam 18, src/Julia 4, src/Modelica 84, src/Python 30, src/Rust 260, src/Svelte 27, src/VSCode 12, src/Zig 5. Snapshot before creating these documents, not a review denominator.
+Baseline `git ls-tree -r`: 1170 tracked files; src breakdown: src/Astro 13, src/Elixir 34, src/Gleam 18, src/Julia 4, src/Modelica 84, src/Python 30, src/Rust 260, src/Svelte 30, src/VSCode 12, src/Zig 5. Baseline excludes these new map documents; not an audit denominator.
 
 ## Cargo internal dependencies / Cargo 内部依存
 
@@ -173,6 +173,7 @@ flowchart LR
   c18 -->|"normal"| c13
   c19 -->|"normal"| c0
   c19 -->|"normal"| c9
+  c19 -->|"normal"| c14
   c20 -->|"normal"| c9
   c21 -->|"normal"| c9
   c22 -->|"normal"| c9
