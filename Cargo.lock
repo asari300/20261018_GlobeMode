@@ -1483,6 +1483,7 @@ name = "globe-mode-fmu"
 version = "0.0.1"
 dependencies = [
  "globe-mode-exec",
+ "globe-mode-fmi",
  "globe-mode-frontend",
 ]
 
