@@ -21,7 +21,8 @@ use globe_mode_ir::{ResolvedSettings, ResultParameter, SolverId};
 use rumoca_ir_dae::Dae;
 use rumoca_sim::{SimError, SimFailureStage, SimOptions, SimResult, SimulationDiagnosticError};
 use rumoca_solver::fmi_me::{
-    MeInstanceConfig, MeIntegratorBackend, MeModelArtifact, MeNumericalSetup,
+    MeAdvanceRequest, MeContinuousPoint, MeDerivativeHandle, MeInstanceConfig, MeIntegrationError,
+    MeIntegratorBackend, MeModelArtifact, MeNumericalSetup, MeStepCandidate,
     driver::{batch_output_cursor, batch_session_options},
     session::MeRetainedComponent,
 };
@@ -79,7 +80,7 @@ fn build(
     parameters: &mut Vec<ResultParameter>,
     hooks: &mut Hooks<'_>,
 ) -> Result<(MeModelArtifact, MeRetainedComponent), SimError> {
-    hooks.stage(ExecStage::Lowering);
+    hooks.enter(ExecStage::Lowering)?;
     let lowered = rumoca_sim::lower_correlated_for_simulation_with_overrides(dae, opts)
         .map_err(|e| lowering_error(&e))?;
     *parameters = result_parameters(dae, &lowered);
@@ -119,7 +120,9 @@ fn integrate(
     .map_err(|e| (SimError::from(e), Phase::Build))?;
     let mut cursor =
         batch_output_cursor(&options).map_err(|e| (SimError::from(e), Phase::Build))?;
-    hooks.stage(ExecStage::Initialization);
+    hooks
+        .enter(ExecStage::Initialization)
+        .map_err(|e| (e, Phase::Initialization))?;
     let host = retained
         .into_lease(options)
         .map_err(|e| (SimError::from(e), Phase::Initialization))?;
@@ -134,14 +137,69 @@ fn integrate(
             .map_err(|e| (SimError::from(e), Phase::Initialization))?;
         Some(backend(integrator, setup, settings).map_err(|e| (e, Phase::Build))?)
     };
-    hooks.stage(ExecStage::Integration);
-    let mut session = host
-        .into_session(plugin)
-        .map_err(|e| (SimError::from(e), Phase::Integration))?;
-    session
-        .run_to_stop(&mut cursor)
-        .map_err(|e| (SimError::from(e), Phase::Integration))?;
-    Ok(session.finish())
+    hooks
+        .enter(ExecStage::Integration)
+        .map_err(|e| (e, Phase::Integration))?;
+    let (ran, trace) = {
+        let plugin = plugin.map(|inner| -> Box<dyn MeIntegratorBackend + '_> {
+            Box::new(Observed {
+                inner,
+                hooks: &mut *hooks,
+            })
+        });
+        let mut session = host
+            .into_session(plugin)
+            .map_err(|e| (SimError::from(e), Phase::Integration))?;
+        let ran = session.run_to_stop(&mut cursor);
+        (ran, session.finish())
+    };
+    let end = trace.times.last().copied().unwrap_or(opts.t_start);
+    match ran {
+        Ok(()) => {}
+        // 積分器の 1 歩の前で止めた。そこまでの列は壊れていない
+        Err(_) if hooks.cancelled => hooks.cancelled_at = Some(end),
+        Err(e) => return Err((SimError::from(e), Phase::Integration)),
+    }
+    hooks.emit(ExecStage::Integration, Some(end));
+    Ok(trace)
+}
+
+/// 積分器を包み、1 歩ごとに中断を見て t を知らせる（ADR-0033）。区切りの時刻を足さないので、刻みも数値も
+/// 包まないときと同じ（`advance_to` を出力の点で区切ると、区切りが刻みの上限になり数値が変わる。S123）。
+struct Observed<'h, 'a> {
+    inner: Box<dyn MeIntegratorBackend>,
+    hooks: &'h mut Hooks<'a>,
+}
+
+impl MeIntegratorBackend for Observed<'_, '_> {
+    fn initialize(
+        &mut self,
+        point: &MeContinuousPoint,
+        derivatives: MeDerivativeHandle,
+    ) -> Result<(), MeIntegrationError> {
+        self.inner.initialize(point, derivatives)
+    }
+
+    fn advance(
+        &mut self,
+        request: &MeAdvanceRequest,
+    ) -> Result<MeStepCandidate, MeIntegrationError> {
+        if self.hooks.is_cancelled() {
+            return Err(MeIntegrationError::Contract {
+                reason: "呼び手が止めた".to_string(),
+            });
+        }
+        self.hooks.tick(request.current().time());
+        self.inner.advance(request)
+    }
+
+    fn sample(&self, time: f64, states: &mut [f64]) -> Result<(), MeIntegrationError> {
+        self.inner.sample(time, states)
+    }
+
+    fn truncate_reset(&mut self, point: &MeContinuousPoint) -> Result<(), MeIntegrationError> {
+        self.inner.truncate_reset(point)
+    }
 }
 
 /// プラグインを作る。

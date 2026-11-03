@@ -108,6 +108,15 @@
 - 機能表の「進捗」「中断」の行は、各段が終わるたびに埋める。
 - 速さ: session の道を `advance_to` の繰り返しにすると、区切りごとの呼び出しが増える。1 の試験で Decay と MSL の `Electrical.Analog.Examples` の壁時計を前と比べ、5% を超えて遅くなるなら区切りを出力の点でなく 100 ms の進捗の間隔に揃える。
 
+### 1 段目の結果（S123、2026-11-03）
+
+- 状態は Proposed のまま（2 段目以降が残る）。core・IR・exec・facade は入った: `GM-I11004`（`RUN_CANCELLED`）、`Termination::Cancelled { time }`、exec の `Progress`・`CancelToken`・`Observer`・`run_observed`（`run_with_progress` は段だけを写す包み）、facade の `SimulateHandle`・`Workspace::simulate_observed`（`simulate_with` はその包み）。
+- **session の道の区切りは `advance_to` でなく、積分器（`MeIntegratorBackend`）を包んで 1 歩ごとに見る形にした。** `advance_to(t)` の t は刻みの上限（Rumoca の `reachable_bound` が `yield_time` で刻みを切る）なので、出力の点で区切ると刻みの列が変わり、数値が変わる。出力の点で区切った版で `globe-mode-exec` の `tests/integrators.rs` の 6 本が落ちた（euler の x(1) が 0.348678 から 0.367511 に、trbdf2 の HarmonicOscillator が積分に失敗）。100 ms の進捗の間隔で区切る案も、区切りが壁時計で決まるので同じ入力で数値が変わる。包む形は刻みの要求を変えないので、`the_session_route_matches_the_typed_route`（`Simulation.*` の bdf、全変数の最後の値がビット単位で同じ）を含む既存の試験がそのまま通る。止めるときは包みが次の 1 歩の前に誤りを返し、`finish()` でそれまでの列を取る（止めた時刻は列の最後の出力の点）。
+- 速さ（release、`Simulation.*` 20 本 × 実装のあるソルバすべて（sundials なしのビルド）を session の道で 3 回ずつ回し、モデルごとの最小の `run_seconds` の和、load average 18〜25 の WSL）: `run_to_stop` 22.368 s、包む形 22.630 s（**+1.2%**。モデルごとに −3.1%〜+4.6%）、出力の点ごとの `advance_to` 22.107 s（和は DiodeSwitching の 22 s が占める。小さなモデルでは Decay +186%、BouncingBall +182%、TinyStateRestart +366%）。包む形を採った（5% 未満）。
+- 試験（`globe-mode/tests/observed.rs` と exec の単体試験）: (a) 止めないときの最後の値が `simulate_with` とビット単位で同じ、(b) Decay（esdirk34、出力の間隔 0.01）で t ≥ 0.5 の進捗のときにトークンを立てると `Cancelled { time }`（0.5 ≤ time < 1、列の最後の時刻と同じ。包む形では「次の 1 歩の前」で止まるので、上限は「0.5 + 出力の間隔」でなく「0.5 + 1 歩」に替えた）と `GM-I11004`、(c) 先に立てたトークンなら bdf・dopri45・esdirk34 のどれも段を 1 つも知らせずに止まり、`ok: false` と `GM-I11004` だけ（Error 無し）、(d) t が単調に増え、最後は 1、回数は「段の数 + 壁時計 / 0.1 s + 1」以下。`auto` は立っていれば回し直さない（単体試験）。
+- `wasm:compare`: 400 件中 387 件が一致、既知の差 13、一致しない 0（減っていない）。`wasm:node` ok。
+- 状態の無いモデル（積分器が無い）は積分の中で止められない。積分器の 1 歩ごとに `now` を呼ぶので、wasm（`performance.now()`）での費用は 2 段目で測る。
+
 ### 持ち越し
 
 - ネイティブの型付きの道（bdf・dopri45・auto）の積分の中では t も中断も出せない。session の道をネイティブの既定にする案は、JIT を使わない分の遅さを測ってから（ADR-0014 で数値は同じ。速さは【未確認】）。
