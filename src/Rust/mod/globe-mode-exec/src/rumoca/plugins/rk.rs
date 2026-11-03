@@ -597,7 +597,8 @@ fn scaled_step_floor(time: f64, initial_step: f64) -> f64 {
 /// 起きやすい（HBridge_TrianglePWM_RL、S139）。丸めの 8 倍以下は触らない（触ると事象の反復が揺れる）
 fn land_on_stop(t: f64, h: f64, latest: f64, floor: f64) -> Option<f64> {
     let gap = (latest - (t + h)).abs();
-    (h > 0.0 && gap > 8.0 * f64::EPSILON * (t.abs() + h) && gap < 10.0 * floor).then(|| latest - t)
+    (h > 0.0 && gap > 8.0 * f64::EPSILON * (t.abs() + h) && gap < 10.0 * floor)
+        .then_some(latest - t)
 }
 
 /// `point` から始める RK の状態（最初の刻みは diffsol の見積もり）。
