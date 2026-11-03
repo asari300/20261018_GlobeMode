@@ -1,6 +1,6 @@
 import { GlobeWorker } from "../../../Rust/mod/globe-mode-wasm/web/client.js";
 import type { Backend, Definition, LintMessage, Progress, TreeEntry } from "./backend";
-import { browserOpen, browserSave } from "./browser-file";
+import { browserOpen, browserSave, browserSaveBinary } from "./browser-file";
 import { gapNonFinite, type Columns } from "./plot/csv";
 import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse, SolverEntry } from "./protocol";
 
@@ -56,4 +56,5 @@ export class WorkerBackend implements Backend {
   }
   openFile = browserOpen;
   saveFile = browserSave;
+  saveBinary = browserSaveBinary;
 }
