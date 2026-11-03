@@ -338,13 +338,29 @@ S080 の【未確認】（モデルの配列の次元を package の定数にす
 
 | コード | 本数 | 内訳（メッセージ） | 判定 |
 | --- | ---: | --- | --- |
-| EF024 | 27 | `temperature` 18（IBPSA・Buildings・AixLib の `Media.Examples` 各 6）、`nomVal` 7（Buildings）、`T` 1・`nXi` 1（AixLib） | `temperature` は Rumoca の穴（上流 [29](upstream/29-ef024-local-function-binding-calls-replaceable-package.md)）。残り 9 本は【未確認】 |
+| EF024 | 27 | `temperature` 18（IBPSA・Buildings・AixLib の `Media.Examples` 各 6）、`nomVal` 7（Buildings）、`T` 1・`nXi` 1（AixLib） | `temperature` は Rumoca の穴（上流 [29](upstream/29-ef024-local-function-binding-calls-replaceable-package.md)）。残り 9 本も Rumoca の穴（S108。`nomVal`・`T` は [31](upstream/31-ef024-binding-reads-field-of-replaceable-record.md)、`nXi` は [28](upstream/28-et004-ef024-dimension-from-package-constant.md) の追記） |
 | ET004 | 18 | `motorEfficiency_yMot_generic.eta` の `size(y, 1)` 15（3 ライブラリの `Fluid.Movers.Examples` 各 5）、`MediumA.nX` 2（IBPSA・Buildings の `WetCoilEffectivenessNTUMassFlow`）、`nSupPCM` 1（Buildings） | 15 本は Rumoca の穴（上流 [30](upstream/30-et004-record-size-dimension-bound-to-call.md)）、3 本は S080 で見えた形で Rumoca の穴（上流 [28](upstream/28-et004-ef024-dimension-from-package-constant.md)） |
-| ER002 | 68 | `specificEntropyOfpTX` の関数呼び出し 39、成分の参照 18、import 10、型の参照 1（いずれも AixLib。成分の参照の 1 本だけ Buildings） | 27 の形は 0 本。`Modelica_DeviceDrivers` は取得しない依存。`specificEntropyOfpTX` は追っていない【未確認】 |
+| ER002 | 68 | `specificEntropyOfpTX` の関数呼び出し 39、成分の参照 18、import 10、型の参照 1（いずれも AixLib。成分の参照の 1 本だけ Buildings） | 27 の形は 0 本。`Modelica_DeviceDrivers` は取得しない依存。`specificEntropyOfpTX` は Rumoca の穴で、呼ばれる関数そのものは AixLib の誤り（S108、上流 [32](upstream/32-er002-unused-function-of-other-subclass-medium.md)） |
 
 - ライブラリの写しで 1 か所だけ直して確かめた: IBPSA の `PartialProperties.checkState` の束縛を algorithm に移すと `IBPSA.Media.Examples.WaterProperties` は S0〜S10 を通る。`WetCoilEffectivenessNTU` の `UAFroRated` に `redeclare package MediumA = IBPSA.Media.Air` を足すと ET004 は消え、別の失敗（`for` の範囲が `Medium.nXi`、GM-U0001）で止まる。
 - 28 の形は、MSL の流体の部品（`Boundary_pT` の `X[Medium.nX]`）がいつも redeclare されて使われるので MSL の例題には出ない。モデルの直下の `Real X[Medium.nX]`（MSL の `ConstantPropertyLiquidWater`）は EF024 になった。
 - Rumoca の CLI に MSL のフォルダ全体（`--source-root data/msl`）を渡した `compile` は 6 分を超えても終わらなかったので止め、MSL を使う確認は `globe check -L data/msl` で行った。
+
+### EF024 の残りと `specificEntropyOfpTX`（S108）
+
+S091 の残りを、取得した Buildings 14.0.0・AixLib 3.0.1 と Rumoca v0.10.2 の CLI で最小にした（確認日 2026-11-03）。判定と再現の一覧は [upstream/README.md](upstream/README.md) の「EF024 の残りと ER002 の `specificEntropyOfpTX`」。
+
+| メッセージ | 本数 | 形 | 下書き |
+| --- | ---: | --- | --- |
+| EF024 `nomVal` | 7 | Buildings の `DXCoil.m_flow_small = 0.0001*sta[nSta].nomVal.m_flow_nominal`。`sta`・`nomVal` が replaceable な record の成分 | [31](upstream/31-ef024-binding-reads-field-of-replaceable-record.md) |
+| EF024 `T` | 1 | AixLib の R134a の媒質の関数の `sat = setSat_T(state.T)`。`ThermodynamicState` が replaceable な record | [31](upstream/31-ef024-binding-reads-field-of-replaceable-record.md) |
+| EF024 `nXi` | 1 | AixLib の `TwoPhaseSeparator` の中の record の `mXi[Medium.nXi]` | [28](upstream/28-et004-ef024-dimension-from-package-constant.md) の追記 |
+| ER002 `specificEntropyOfpTX` | 39 | 同じ基底（`PartialFourPortInterface`）を継ぐ `ExhaustHeatExchanger` の CHP の媒質の `T_psX` まで解決する | [32](upstream/32-er002-unused-function-of-other-subclass-medium.md) |
+
+- Buildings の写しで `m_flow_small` の束縛を定数にすると `SpeedSelect` は S0〜S10 を通り、`DryCoil`・`WetCoil` は別の EF004（`if-equation branches have mismatched equation counts`。[21](upstream/21-ef004-getinstancename-and-if-equation-branches.md) の B と同じかは確かめていない【未確認】）で止まる。
+- ER002 の 39 本は funnel（ライブラリを全部読む `Checker::new`）だけで出る。`globe check -L`（閉包だけ読む、[ADR-0025](../adr/0025-native-library-closure.md)）では、たとえば `ZonalFlow` は EI032 で止まる。
+- Rumoca の CLI は MSL と AixLib を別々の `--source-root` に渡すと、AixLib の `import Modelica...` が引けない（ER002）。1 つの根に `AixLib`・`Modelica`・`ModelicaServices` を並べて渡した。AixLib の取得物の `Radiators/BaseClasses/RadiatorTypes/`（`RadiatorTypes.mo` と重なる）と `Obsolete/DataBase/`（`package.mo` が無い）は、CLI が読み込みで断る（PKG-007・PKG-006）ので写しから外した。
+- Rumoca の CLI は、渡したファイルと同じディレクトリの `.mo` も読む（同じクラスの名前が 2 つあると EM001）。再現の `.mo` はパッケージの名前を分けてある（`Rep36`〜`Rep40`）。
 
 ## 読んだ範囲と限界
 
