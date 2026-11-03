@@ -7,7 +7,7 @@
 | worktree | `.git-worktree/s120-features-p4-sync` |
 | Phase | P4（文書だけ） |
 | セッション文書 | `doc/sessions/S120-features-p4-sync/` |
-| セッション記録 | （親が写す） |
+| セッション記録 | [2026-11-02-a2580a13-3889-4662-9db4-a45dc1ca6772.md](../sessions/2026-11-02-a2580a13-3889-4662-9db4-a45dc1ca6772.md) |
 
 ## 依頼
 
