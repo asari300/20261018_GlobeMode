@@ -2,7 +2,10 @@
 //!
 //! S099: モデルは FMU の `resources/<完全修飾名>.mo`（1 ファイル）から `fmi2Instantiate` で compile し、
 //! `globe_mode_exec::ModelInstance` で微分を求める。`modelDescription.xml` は [`model_description`] が同じ道で作る
-//! （手書きをやめた）。事象のあるモデルは `ModelInstance::new` が断るので、`fmi2Instantiate` が NULL を返す。
+//! （手書きをやめた）。
+//!
+//! S109: 事象。`fmi2GetEventIndicators` は root の条件の値（`numberOfEventIndicators` 本）、`fmi2EnterEventMode` →
+//! `fmi2NewDiscreteStates` で `when` と `reinit` を回し、次の時刻事象（`sample`）を `nextEventTime` で返す。
 //!
 //! - 値参照: `0..n` = 状態、`n..2n` = その微分（`der(…)`）、`2n..` = tunable なパラメータ。
 //! - パラメータの変更は `fmi2ExitInitializationMode` で lowering からやり直して反映する（依存するパラメータにも届く）。
@@ -99,7 +102,7 @@ pub fn model_description(model: &str, source: &str) -> Result<String, String> {
   guid="{guid}"
   generationTool="GlobeMode globe-mode-fmu"
   variableNamingConvention="structured"
-  numberOfEventIndicators="0">
+  numberOfEventIndicators="{ni}">
   <ModelExchange modelIdentifier="globe_mode_fmu"/>
   <DefaultExperiment startTime="{start:?}" stopTime="{stop:?}" tolerance="{tol:?}"/>
   <ModelVariables>
@@ -114,6 +117,7 @@ pub fn model_description(model: &str, source: &str) -> Result<String, String> {
 "#,
         name = esc(model),
         guid = guid(model, source),
+        ni = inst.n_event_indicators(),
         stop = e.stop_time.map_or(start + 1.0, |b| b.get()),
         tol = e.tolerance.map_or(1e-6, |b| b.get()),
     ))
@@ -534,27 +538,41 @@ pub unsafe extern "C" fn fmi2GetDirectionalDerivative(
     ERROR
 }
 
+/// 今の時刻と状態を `pre` の値として控える。
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fmi2EnterEventMode(c: Component) -> Status {
-    unsafe { fmi2EnterInitializationMode(c) }
+    unsafe { inst(c) }.map_or(ERROR, |m| match m.inst.enter_event_mode() {
+        Ok(()) => OK,
+        Err(e) => {
+            eprintln!("globe-mode-fmu: {e}");
+            ERROR
+        }
+    })
 }
 
-/// 事象のあるモデルは載せないので、すべて偽で返す。
+/// `when` と `reinit` を回す。Rumoca は 1 回の呼び出しで事象の反復を収束させるので、
+/// `newDiscreteStatesNeeded` はいつも偽。
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fmi2NewDiscreteStates(c: Component, info: *mut EventInfo) -> Status {
-    match (unsafe { inst(c) }, unsafe { info.as_mut() }) {
-        (Some(_), Some(info)) => {
+    let (Some(m), Some(info)) = (unsafe { inst(c) }, unsafe { info.as_mut() }) else {
+        return ERROR;
+    };
+    match m.inst.update_discrete_states() {
+        Ok(u) => {
             *info = EventInfo {
                 new_discrete_states_needed: 0,
-                terminate_simulation: 0,
+                terminate_simulation: c_int::from(u.terminate),
                 nominals_of_continuous_states_changed: 0,
-                values_of_continuous_states_changed: 0,
-                next_event_time_defined: 0,
-                next_event_time: 0.0,
+                values_of_continuous_states_changed: c_int::from(u.states_changed),
+                next_event_time_defined: c_int::from(u.next_event_time.is_some()),
+                next_event_time: u.next_event_time.unwrap_or(0.0),
             };
             OK
         }
-        _ => ERROR,
+        Err(e) => {
+            eprintln!("globe-mode-fmu: {e}");
+            ERROR
+        }
     }
 }
 
@@ -631,10 +649,25 @@ pub unsafe extern "C" fn fmi2GetNominalsOfContinuousStates(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn fmi2GetEventIndicators(c: Component, _z: *mut f64, ni: usize) -> Status {
-    if ni == 0 && unsafe { inst(c) }.is_some() {
-        OK
-    } else {
-        ERROR
+pub unsafe extern "C" fn fmi2GetEventIndicators(c: Component, z: *mut f64, ni: usize) -> Status {
+    let Some(m) = (unsafe { inst(c) }) else {
+        return ERROR;
+    };
+    if ni != m.inst.n_event_indicators() || (ni > 0 && z.is_null()) {
+        return ERROR;
+    }
+    if ni == 0 {
+        return OK;
+    }
+    match m.inst.event_indicators() {
+        Ok(v) => {
+            // SAFETY: 呼び手は ni 個の有効な配列を渡す
+            unsafe { std::slice::from_raw_parts_mut(z, ni) }.copy_from_slice(&v);
+            OK
+        }
+        Err(e) => {
+            eprintln!("globe-mode-fmu: {e}");
+            ERROR
+        }
     }
 }

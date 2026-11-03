@@ -1,8 +1,7 @@
-//! S095・S099: FMU を関数で直接呼ぶ検査と、FMPy で回す検査（FMPy が回せない環境では skip）。
+//! S095・S099・S109: FMU を関数で直接呼ぶ検査と、FMPy で回す検査（FMPy が回せない環境では skip）。
 //!
 //! モデルは `src/Modelica/GlobeModeValidation/Simulation/` の 1 ファイルを `resources/<完全修飾名>.mo` に置く。
 
-use std::collections::BTreeMap;
 use std::ffi::{CString, c_int};
 use std::path::PathBuf;
 use std::process::Command;
@@ -107,9 +106,10 @@ fn explicit_euler_through_the_c_abi() {
     let _ = std::fs::remove_dir_all(dir.parent().unwrap());
 }
 
-/// cdylib を作り、`model` を FMU に詰めて FMPy の ME で回す。終了時刻での `names` の値を返す。FMPy が使えなければ None。
+/// cdylib を作り、`model` を FMU に詰めて FMPy の ME で回す。終了時刻での `names` の値と事象の回数
+/// （`events`・`reinit`）を `名前=値` で並べた出力を返す。FMPy が使えなければ None。
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-fn fmpy(name: &str, names: &[&str]) -> Option<Vec<f64>> {
+fn fmpy(name: &str, names: &[&str]) -> Option<String> {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let tmp = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
     let uv = |args: &[&std::ffi::OsStr]| {
@@ -168,7 +168,21 @@ fn fmpy(name: &str, names: &[&str]) -> Option<Vec<f64>> {
         String::from_utf8_lossy(&out.stderr)
     );
     eprintln!("FMPy {name}: {}", stdout.trim());
-    Some(names.iter().map(|n| value(&stdout, n)).collect())
+    Some(stdout.into_owned())
+}
+
+/// `globe_mode_exec::run`（bdf の既定）で回し、終了時刻での `names` の値を返す。
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+fn exec_last(name: &str, names: &[&str]) -> Vec<f64> {
+    let (model, text) = source(name);
+    let report = globe_mode_exec::run(&compile(&model, &text).unwrap(), &Default::default());
+    let run = report.run.expect("exec で回る");
+    let last: Vec<f64> = names
+        .iter()
+        .map(|n| *run.trajectory.variable(n).unwrap().values.last().unwrap())
+        .collect();
+    eprintln!("exec {name}: {names:?} = {last:?}");
+    last
 }
 
 fn value(stdout: &str, name: &str) -> f64 {
@@ -184,48 +198,50 @@ fn value(stdout: &str, name: &str) -> f64 {
 #[test]
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 fn fmpy_simulates_decay() {
-    let Some(x) = fmpy("Decay", &["x"]) else {
+    let Some(out) = fmpy("Decay", &["x"]) else {
         return;
     };
-    assert!((x[0] - (-1.0f64).exp()).abs() < 1e-4, "x(1) = {}", x[0]);
+    let x = value(&out, "x");
+    assert!((x - (-1.0f64).exp()).abs() < 1e-4, "x(1) = {x}");
 }
 
 /// 状態 2 つ・事象なしの HarmonicOscillator を、FMPy と `globe_mode_exec::run`（bdf の既定）で回して x(1)・v(1) を突き合わせる。
 #[test]
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 fn fmpy_matches_exec_on_harmonic_oscillator() {
-    let Some(fmu) = fmpy("HarmonicOscillator", &["x", "v"]) else {
+    let Some(out) = fmpy("HarmonicOscillator", &["x", "v"]) else {
         return;
     };
-    let (model, text) = source("HarmonicOscillator");
-    let report = globe_mode_exec::run(&compile(&model, &text).unwrap(), &Default::default());
-    let run = report.run.expect("exec で回る");
-    let exec: Vec<f64> = ["x", "v"]
-        .iter()
-        .map(|n| {
-            let var = run
-                .trajectory
-                .variables
-                .iter()
-                .find(|v| v.name == *n)
-                .unwrap();
-            *var.values.last().unwrap()
-        })
-        .collect();
-    eprintln!("exec HarmonicOscillator: x={} v={}", exec[0], exec[1]);
-    for (f, e) in fmu.iter().zip(&exec) {
-        assert!((f - e).abs() < 1e-4, "FMPy {fmu:?} と exec {exec:?}");
+    let exec = exec_last("HarmonicOscillator", &["x", "v"]);
+    for (n, e) in ["x", "v"].iter().zip(&exec) {
+        let f = value(&out, n);
+        assert!((f - e).abs() < 1e-4, "{n}: FMPy {f} と exec {e}");
     }
 }
 
+/// S109: 状態事象と reinit。跳ねた回数（FMPy は reinit で状態が変わった事象の数、exec は n）と h(2)・v(2) を突き合わせる。
 #[test]
-fn events_are_refused() {
-    let (model, text) = source("BouncingBall");
-    let e = globe_mode_exec::ModelInstance::new(
-        &compile(&model, &text).unwrap(),
-        &BTreeMap::new(),
-        0.0,
-    )
-    .unwrap_err();
-    assert_eq!(e[0].code, "GM-U0004", "{e:?}");
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+fn fmpy_matches_exec_on_bouncing_ball() {
+    let Some(out) = fmpy("BouncingBall", &["h", "v"]) else {
+        return;
+    };
+    let exec = exec_last("BouncingBall", &["h", "v", "n"]);
+    assert_eq!(value(&out, "reinit"), exec[2], "跳ねた回数");
+    for (n, e) in ["h", "v"].iter().zip(&exec) {
+        let f = value(&out, n);
+        assert!((f - e).abs() < 1e-3, "{n}: FMPy {f} と exec {e}");
+    }
+}
+
+/// S109: 時刻事象（`sample`）。FMPy が Event Mode に入った回数と exec の n（どちらも 10）、x(1) を突き合わせる。
+#[test]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+fn fmpy_matches_exec_on_sample_counter() {
+    let Some(out) = fmpy("SampleCounter", &["x"]) else {
+        return;
+    };
+    let exec = exec_last("SampleCounter", &["x", "n"]);
+    assert_eq!(value(&out, "events"), exec[1], "時刻事象の回数");
+    assert!((value(&out, "x") - exec[0]).abs() < 1e-6);
 }
