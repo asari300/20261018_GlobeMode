@@ -219,6 +219,34 @@ pub extern "C" fn gm_solvers() -> *mut c_char {
     guard(|| json(globe_mode::solvers()))
 }
 
+/// 本文を整形する（S111）。`{"text": "..."}`、文法が壊れていれば `{"error": "..."}`。`insert_origin` は 0 か 1。
+///
+/// # Safety
+///
+/// `text` は NUL 終端の UTF-8 の文字列。
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn gm_format(
+    text: *const c_char,
+    indent: u32,
+    insert_origin: c_int,
+) -> *mut c_char {
+    guard(|| {
+        let text = str_arg(text, "text")?;
+        let formatted = globe_mode::format(text, indent as usize, insert_origin != 0)?;
+        Ok(serde_json::json!({ "text": formatted }).to_string())
+    })
+}
+
+/// lint の結果（`[{rule, line, column, message}]` の JSON。S111）。
+///
+/// # Safety
+///
+/// `text` は NUL 終端の UTF-8 の文字列。
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn gm_lint(text: *const c_char) -> *mut c_char {
+    guard(|| Ok(globe_mode::lint(str_arg(text, "text")?)))
+}
+
 /// このライブラリが返した文字列を放す。NULL なら何もしない。
 ///
 /// # Safety
@@ -271,6 +299,16 @@ mod tests {
             assert!(take(gm_check(std::ptr::null_mut(), c"Decay".as_ptr()))["error"].is_string());
             assert_eq!(gm_set_file(ws, std::ptr::null(), c"".as_ptr()), -1);
             assert!(take(gm_solvers()).is_array());
+            // S111: 参照シナリオの最後（format）と lint
+            let x = res["final"]["x"].as_f64().unwrap();
+            assert!((x - (-1f64).exp()).abs() < 1e-4, "{x}");
+            let f = take(gm_format(c"model Decay Real x; end Decay;".as_ptr(), 2, 0));
+            assert!(
+                f["text"].as_str().unwrap().starts_with("model Decay\n"),
+                "{f}"
+            );
+            assert!(take(gm_format(c"model Decay".as_ptr(), 2, 0))["error"].is_string());
+            assert!(take(gm_lint(c"model Decay Real x; end Decay;".as_ptr())).is_array());
             gm_workspace_free(ws);
             assert!(gm_workspace_new(c"{".as_ptr()).is_null());
         }

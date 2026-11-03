@@ -1382,6 +1382,7 @@ dependencies = [
  "globe-mode-core",
  "globe-mode-db",
  "globe-mode-exec",
+ "globe-mode-fmt",
  "globe-mode-frontend",
  "globe-mode-graph",
  "globe-mode-ir",

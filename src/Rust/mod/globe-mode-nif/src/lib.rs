@@ -80,4 +80,16 @@ fn solvers() -> Result<String, String> {
     json(globe_mode::solvers())
 }
 
+/// 本文を整形する（S111）。文法が壊れていれば `{:error, 理由}`。
+#[rustler::nif]
+fn format(text: String, indent: usize, insert_origin: bool) -> Result<String, String> {
+    globe_mode::format(&text, indent, insert_origin)
+}
+
+/// lint の結果（`[{rule, line, column, message}]` の JSON。S111）。
+#[rustler::nif]
+fn lint(text: String) -> String {
+    globe_mode::lint(&text)
+}
+
 rustler::init!("globe_mode_nif");

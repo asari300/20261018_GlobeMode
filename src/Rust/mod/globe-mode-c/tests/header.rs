@@ -75,6 +75,6 @@ fn header_matches_extern_c_signatures() {
     let rust = rust_sigs(&std::fs::read_to_string(format!("{dir}/src/lib.rs")).unwrap());
     let header =
         header_sigs(&std::fs::read_to_string(format!("{dir}/include/globe_mode.h")).unwrap());
-    assert!(rust.len() >= 9, "{rust:?}");
+    assert!(rust.len() >= 11, "{rust:?}");
     assert_eq!(rust, header);
 }
