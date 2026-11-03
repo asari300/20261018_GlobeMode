@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S118 FMU export を facade と各言語に — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S118 FMU export を facade と各言語に">
+
+<section class="slide" id="S01">
+  <span class="tag">S118 · 2026-11-03 · P7</span>
+  <h1>FMU export を facade と各言語に</h1>
+  <p class="lead">S110 の埋める順の 5。CLI にしか無かった FMU の書き出しを facade に置く</p>
+  <div class="big"><code>export_fmu</code> が <b>C・Zig・Julia・Elixir・Gleam・Python</b> から呼べる</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>FMU の書き出しは <code>globe-mode-fmi</code> の <code>export</code> と <code>globe fmu export</code> だけにあった</li>
+    <li>facade に <code>export_fmu</code> を足し、CLI もそれを呼ぶ（挙動は同じ）</li>
+    <li>C ABI・NIF・Python と各言語の包み、試験を 1 本ずつ（Decay、2.0、build なし）</li>
+    <li>wasm はファイルを書けないので対象外。<code>globe-mode-fmi</code> の中身は触らない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>口ごとの形</h1>
+  <table class="compact">
+    <tr><th>口</th><th>形</th></tr>
+    <tr><td>facade</td><td>feature <code>fmu</code>: <code>FmuOptions</code>・<code>export_fmu</code>・<code>Workspace::export_fmu</code>（wasm は引かない）</td></tr>
+    <tr><td>設定</td><td><code>{"fmi_version": 2, "build": false, "targets": [], "fmi_headers": null}</code>（省略可）</td></tr>
+    <tr><td>C ABI</td><td><code>gm_export_fmu(ws, model, out_dir, options_json)</code> → <code>{"path"}</code> か <code>{"error"}</code></td></tr>
+    <tr><td>NIF</td><td><code>export_fmu/4</code>（DirtyIo）。Elixir は <code>export_fmu/3</code>・<code>/4</code></td></tr>
+    <tr><td>Python</td><td><code>Workspace.export_fmu(model, out_dir, **options) -&gt; Path</code></td></tr>
+    <tr><td>CLI</td><td>コンパイルの診断はそのまま、書き出しだけ facade に</td></tr>
+  </table>
+  <p>外部の依存の追加は 0。CI の定義は変えていない</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>依存の向き</h1>
+  <svg viewBox="0 0 800 260" role="img" aria-label="依存の図">
+    <rect class="svg-box" x="20" y="10" width="170" height="40" rx="6"/>
+    <text class="svg-text" x="105" y="36" text-anchor="middle">globe (CLI)</text>
+    <rect class="svg-box" x="20" y="75" width="170" height="40" rx="6"/>
+    <text class="svg-text" x="105" y="101" text-anchor="middle">globe-mode-c</text>
+    <rect class="svg-box" x="20" y="140" width="170" height="40" rx="6"/>
+    <text class="svg-text" x="105" y="166" text-anchor="middle">globe-mode-nif</text>
+    <rect class="svg-box" x="20" y="205" width="170" height="40" rx="6"/>
+    <text class="svg-text" x="105" y="231" text-anchor="middle">globe-mode-py</text>
+    <rect class="svg-box-accent" x="300" y="105" width="220" height="44" rx="6"/>
+    <text class="svg-text" x="410" y="133" text-anchor="middle">globe-mode (fmu)</text>
+    <rect class="svg-box" x="600" y="105" width="180" height="44" rx="6"/>
+    <text class="svg-text" x="690" y="133" text-anchor="middle">globe-mode-fmi</text>
+    <line class="svg-line" x1="190" y1="30" x2="300" y2="120"/>
+    <line class="svg-line-accent" x1="190" y1="95" x2="300" y2="125"/>
+    <line class="svg-line-accent" x1="190" y1="160" x2="300" y2="130"/>
+    <line class="svg-line-accent" x1="190" y1="225" x2="300" y2="135"/>
+    <line class="svg-line-accent" x1="520" y1="127" x2="600" y2="127"/>
+  </svg>
+  <p>青い線が S118 で足した道。CLI は書き出しを facade に替えただけ</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>6 言語の FMU（Decay、2.0、build なし）</h1>
+  <table class="compact">
+    <tr><th>言語</th><th>試験</th><th>結果</th></tr>
+    <tr><td>C</td><td><code>cargo test -p globe-mode-c</code></td><td class="ok">通った（ヘッダの突き合わせも）</td></tr>
+    <tr><td>CLI</td><td><code>tests/fmu_export.rs</code></td><td class="ok">5 passed（挙動は同じ）</td></tr>
+    <tr><td>Zig</td><td><code>mise run c:zig</code></td><td class="ok">modelDescription.xml 2,214 バイト</td></tr>
+    <tr><td>Julia</td><td><code>mise run c:julia</code></td><td class="ok">通った</td></tr>
+    <tr><td>Elixir</td><td><code>mise run elixir:test</code></td><td class="ok">1 test, 0 failures</td></tr>
+    <tr><td>Gleam</td><td><code>mise run gleam:test</code></td><td class="ok">1 passed</td></tr>
+    <tr><td>Python</td><td><code>uv run pytest</code></td><td class="ok">4 passed</td></tr>
+  </table>
+  <p>どれも展開したディレクトリに <code>modelDescription.xml</code> があり、<code>fmi_version: 4</code> は誤りになる</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ol>
+    <li>進捗と途中で止める口（順の 6。ADR を先に）</li>
+    <li>LSP からの FMU export は呼ぶ人がいれば</li>
+  </ol>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

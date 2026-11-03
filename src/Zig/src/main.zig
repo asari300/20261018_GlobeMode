@@ -1,4 +1,4 @@
-//! S075: C ABI（globe_mode.h）で GlobeModeValidation.Simulation.Decay を check → simulate → format し（S111 で format、S116 で列の道）、
+//! S075: C ABI（globe_mode.h）で GlobeModeValidation.Simulation.Decay を check → simulate → format し（S111 で format、S116 で列の道、S118 で FMU）、
 //! 結果の JSON の長さと最後の時刻、x(1) を表示する。引数: <ライブラリのディレクトリ> <モデル>
 const std = @import("std");
 const gm = @import("gm");
@@ -68,4 +68,19 @@ pub fn main(init: std.process.Init) !void {
     }).string;
     if (std.mem.indexOf(u8, body, "der(x) = -k * x;") == null) return error.FormatFailed;
     std.debug.print("format: {d} bytes\n", .{body.len});
+
+    // S118: FMU（2.0、build なし）。展開したディレクトリに modelDescription.xml がある
+    const out = "zig-out/gm-zig-fmu";
+    const fmu = gm.gm_export_fmu(ws, model.ptr, out, null);
+    defer gm.gm_string_free(fmu);
+    const exported = try std.json.parseFromSliceLeaky(std.json.Value, arena, text(fmu), .{});
+    const fmu_path = (exported.object.get("path") orelse {
+        std.debug.print("{s}\n", .{text(fmu)});
+        return error.FmuFailed;
+    }).string;
+    const name = try std.mem.replaceOwned(u8, arena, model, ".", "_");
+    const md_path = try std.fmt.allocPrint(arena, "{s}/{s}/modelDescription.xml", .{ out, name });
+    const md = try std.Io.Dir.cwd().readFileAllocOptions(init.io, md_path, arena, .unlimited, .of(u8), 0);
+    if (std.mem.indexOf(u8, md, "fmiModelDescription") == null) return error.FmuFailed;
+    std.debug.print("fmu: {s}, modelDescription.xml={d} bytes\n", .{ fmu_path, md.len });
 }

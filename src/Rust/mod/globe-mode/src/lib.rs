@@ -64,6 +64,49 @@ pub fn lint(text: &str) -> String {
     serde_json::Value::from(msgs).to_string()
 }
 
+/// FMU の書き出しの設定（S118。`globe fmu export` の `--fmi-version`・`--build`・`--target`・`--fmi-headers`）。
+/// C ABI・NIF・Python は同じ形の JSON（`{"fmi_version": 2, "build": false, "targets": [], "fmi_headers": null}`。省略可）で渡す。
+#[cfg(feature = "fmu")]
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct FmuOptions {
+    /// FMI の版（2 か 3）
+    pub fmi_version: u8,
+    /// 共有ライブラリも作る（`targets` が空なら host を `cc` で、あれば `zig cc -target`）。`fmi_headers` が要る
+    pub build: bool,
+    pub targets: Vec<String>,
+    /// `fmi2Functions.h`（3.0 は `fmi3Functions.h`）などのあるディレクトリ
+    pub fmi_headers: Option<PathBuf>,
+}
+
+#[cfg(feature = "fmu")]
+impl Default for FmuOptions {
+    fn default() -> Self {
+        Self {
+            fmi_version: 2,
+            build: false,
+            targets: Vec::new(),
+            fmi_headers: None,
+        }
+    }
+}
+
+/// DAE まで変換したモデルを `out_dir/<名前>/`（展開した FMU）と `out_dir/<名前>.fmu` に書き、`.fmu` のパスを返す（S118）。
+#[cfg(feature = "fmu")]
+pub fn export_fmu(
+    model: &CompiledModel,
+    out_dir: &Path,
+    options: &FmuOptions,
+) -> Result<PathBuf, String> {
+    let headers = match (options.build, &options.fmi_headers) {
+        (false, _) => None,
+        (true, Some(h)) => Some(h.as_path()),
+        (true, None) => return Err("build には fmi_headers が要る".into()),
+    };
+    let src = globe_mode_fmi::export::export_me_sources(model, options.fmi_version)?;
+    globe_mode_fmi::export::write_fmu(&src, out_dir, headers, &options.targets)
+}
+
 /// 壁時計（ミリ秒、UNIX epoch から）。wasm32 では std の時計が無いので 0（wasm の束ねは JS の
 /// `performance.now()` を [`Workspace::simulate_with`] に渡す）。
 pub fn now_ms() -> f64 {
@@ -334,6 +377,24 @@ impl Workspace {
         overrides: &BTreeMap<String, f64>,
     ) -> Result<CompiledModel, Vec<Diagnostic>> {
         self.db.compiled_model_with_overrides(model, overrides)
+    }
+
+    /// コンパイルして [`export_fmu`]（S118）。DAE まで変換できなければ診断の文を並べた `Err`。
+    #[cfg(feature = "fmu")]
+    pub fn export_fmu(
+        &mut self,
+        model: &str,
+        out_dir: &Path,
+        options: &FmuOptions,
+    ) -> Result<PathBuf, String> {
+        let compiled = self.compile(model, &BTreeMap::new()).map_err(|ds| {
+            let msgs: Vec<String> = ds.iter().map(|d| d.message.clone()).collect();
+            format!(
+                "{model}: DAE まで変換できないので FMU を作れない: {}",
+                msgs.join("; ")
+            )
+        })?;
+        export_fmu(&compiled, out_dir, options)
     }
 
     /// 再コンパイル無しに変えられる（tunable な）パラメータの一覧（検査の Error では止めない）。
