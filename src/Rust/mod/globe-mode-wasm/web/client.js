@@ -106,6 +106,10 @@ export class GlobeWorker {
   async definition(file, line, character) {
     return JSON.parse(await this.#call("definition", { file, text: this.#files.get(file) ?? "", line, character }));
   }
+  // ホバー（S149）: definition と同じ引数で、宣言の 1 行 {contents, range}（range はカーソルの名前）。無ければ null
+  async hover(file, line, character) {
+    return JSON.parse(await this.#call("hover", { file, text: this.#files.get(file) ?? "", line, character }));
+  }
   // 時系列を CSV でなく列ごとの Float64Array で返す（S051）。{response（csv 無し）, layout: {names, points}, columns}
   // onProgress を渡すと進捗 {stage, time, start_time, stop_time} を受ける（S133、ADR-0033。time は積分の t で無ければ undefined）
   async simulateColumns(request, { onProgress } = {}) {
