@@ -67,6 +67,8 @@ fn write_frame(w: &mut impl Write, msg: &Value) -> io::Result<()> {
 pub struct Worker {
     program: PathBuf,
     libraries: Vec<PathBuf>,
+    /// ワークスペースの根。`initialize` の `rootPath` で渡し、サーバは根から上へ `globe-mode.toml` を探す（S143）
+    root: Option<PathBuf>,
     sink: Sink,
     live: Option<Live>,
     /// 開いているファイル（URI → 本文）。作り直したときに送り直す
@@ -96,6 +98,7 @@ impl Worker {
         Worker {
             program,
             libraries,
+            root: None,
             sink,
             live: None,
             docs: BTreeMap::new(),
@@ -104,6 +107,12 @@ impl Worker {
             simulate_budget: SIMULATE_BUDGET,
             start_budget: START_BUDGET,
         }
+    }
+
+    /// ワークスペースの根（起動する前に呼ぶ）。
+    pub fn with_root(mut self, root: PathBuf) -> Self {
+        self.root = Some(root);
+        self
     }
 
     /// 渡すライブラリを替え、動いている sidecar は止める（次の要求で新しい `--library` で作り直し、開いているファイルを送り直す）。
@@ -135,7 +144,8 @@ impl Worker {
                 .map_err(|e| format!("{}: {e}", self.program.display()))?,
         );
         let budget = Some(self.start_budget);
-        self.exchange("initialize", json!({"capabilities": {}}), budget)?;
+        let init = json!({"capabilities": {}, "rootPath": self.root.as_ref().map(|r| r.display().to_string())});
+        self.exchange("initialize", init, budget)?;
         self.send(&json!({"jsonrpc": "2.0", "method": "initialized", "params": {}}))?;
         for (uri, text) in self.docs.clone() {
             self.send(&did_open(&uri, &text))?;
@@ -396,6 +406,30 @@ mod tests {
         let r = w.request("globe/check", json!({"model": "D"})).unwrap();
         assert_eq!(r["passed"], true);
         assert_ne!(w.pid().unwrap(), old);
+    }
+
+    /// S143: `with_root` の根の `globe-mode.toml` が `globe/format` に効き、`workspace/didChangeConfiguration` で読み直せる。
+    #[test]
+    fn root_config_drives_format_and_reloads() {
+        let Some(bin) = std::env::var_os("GLOBE_BIN") else {
+            eprintln!("GLOBE_BIN が無いので省く");
+            return;
+        };
+        let dir = std::env::temp_dir().join(format!("globe-desktop-root-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let toml = dir.join("globe-mode.toml");
+        std::fs::write(&toml, "[fmt]\nindent = 4\n").unwrap();
+        let (sink, _) = collecting();
+        let mut w = Worker::new(bin.into(), vec![], sink).with_root(dir.clone());
+        let text = json!({"text": "model C\nReal x;\nend C;\n"});
+        let r = w.request("globe/format", text.clone()).unwrap();
+        assert!(r.as_str().unwrap().contains("\n    Real x;"), "{r}");
+        std::fs::write(&toml, "[fmt]\nindent = 3\n").unwrap();
+        w.notify("workspace/didChangeConfiguration", json!({"settings": {}}))
+            .unwrap();
+        let r = w.request("globe/format", text).unwrap();
+        assert!(r.as_str().unwrap().contains("\n   Real x;"), "{r}");
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     /// S136: 実行中に `Canceller` で止めると、途中までの列と GM-I11004 の普通の応答が返り、進捗が通知に届く。

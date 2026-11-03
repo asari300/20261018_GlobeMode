@@ -16,8 +16,8 @@ export interface Backend {
   cancel?(): void;
   /** ソルバの登録表（S142）。 */
   solvers(): Promise<SolverEntry[]>;
-  /** 整形（S053、globe-mode-fmt）。文法が壊れていれば reject で、本文は変えない。 */
-  format(text: string, indent: number, insertOrigin: boolean): Promise<string>;
+  /** 整形（S053、globe-mode-fmt）。文法が壊れていれば reject で、本文は変えない。indent などを省くと、Desktop は globe-mode.toml（S143）、ブラウザは 2 と true。 */
+  format(text: string, indent?: number, insertOrigin?: boolean): Promise<string>;
   lint(text: string): Promise<LintMessage[]>;
   /** ライブラリの木の prefix（空ならトップレベル）の直下の子（S127）。ライブラリが無ければ空。 */
   libraryTree(prefix: string): Promise<TreeEntry[]>;
