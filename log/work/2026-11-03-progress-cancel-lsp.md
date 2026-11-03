@@ -28,14 +28,19 @@ ADR-0033 の順の 5: LSP の `$/progress` と `$/cancelRequest`（読みと計�
 
 ## 検証
 
-- `cargo test -p globe-mode-lsp`: 17 本通過（新しい試験は 0.18 s で止まる）。`cargo clippy -p globe-mode-lsp --all-targets -D warnings`: 0。
-- `worker.rs`（使い捨ての crate に `#[path]` で読み、`GLOBE_BIN` は debug の `globe`）: 4 本通過、clippy 0。
+- `cargo test -p globe-mode-lsp`: 17 本通過。新しい試験は 20 回続けて通った（load average 22〜27）。`cargo test -p globe-mode-lsp -p globe-mode-cli`: 42 本通過、失敗 0。
+- 試験の直し: 最初の版（1000 s、最初の t の report で止める）は負荷の下で 2 通りに落ちた。(1) 実行が 0.14 s で終わり止める前に `stop_time` になる、(2) t < 1 で止めると列は出力の点 t = 0 の 1 点だけ。1e5 s にし、t > 1（出力の間隔）の report を待つようにした。
+- `worker.rs`（使い捨ての crate に `#[path]` で読み、`GLOBE_BIN` は debug の `globe`）: 4 本 × 3 回通過、clippy 0。
 - `pnpm check`: 0 errors / 0 warnings。
-- `mise run check`: （下で更新）
-- `desktop.yml`: （下で更新）
-- `check_docs.py`・`render_slides.py`: （下で更新）
+- `mise run check`: fmt・clippy（`--workspace --all-targets -D warnings`）は通った。`cargo test --workspace` は 2 回とも別の理由で最後まで回らなかった: 1 回目は S131 の `globe-mode-c` の `a_nonzero_callback_cancels_with_the_partial_trajectory` が負荷の下で t = 0 で止まって落ちた（単独で回し直すと 3 本通る。S136 は globe-mode-c を触っていない。同じ型の不安定さ）、2 回目は並行するセッション（S138）の `cargo test --workspace` と重なって SIGTERM で止まった。`cargo deny` は依存を変えていないので省いた。`uv sync --locked`: ok。
+- `desktop.yml`（feature で dispatch）: run 41654000916（1 回目のコミット）と run 41666485823（試験を直した後）とも success（ui・Linux の deb・Windows の msi）。Windows で `canceller_stops_a_long_simulate` と `talks_to_globe_lsp_and_recovers_from_a_kill` が ok、smoke の `GM-SMOKE check=ok simulate=ok`。
+- `check_docs.py`: デッキ OK / 文書 564 件・相対リンク 2834 件中の切れ 0 件。
+- `render_slides.py`: 手元では 2 回とも `Page.screenshot` の 30 s の時間切れで通らず、CI の docs で確認。
+- セッション記録の `--check`: （親が写す）。
+- 漏洩検査（`git diff main...HEAD` のメールアドレス・ホームのパス・トークン）: 0 件。
 
 ## 残したこと
 
 - Desktop の既定（`auto`、ネイティブの型付きの道）では積分の中で t も中断も出ない。
 - CodeMirror と LSP の直接の接続、wasm で止めたときの途中の列。
+- S131 の `globe-mode-c` の試験（最初の t の進捗で止めて `0 < time`）は負荷の下で t = 0 になって落ちることがある（S136 の試験と同じ型。直すなら t > 出力の間隔を待つ）。
