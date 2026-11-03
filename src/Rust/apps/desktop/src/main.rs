@@ -13,6 +13,7 @@
 //! （4.1.0 を先に探す）。無ければ UI のボタンが command `fetch_msl { version }`（S084。"4.1.0" | "4.0.0"）を呼び、
 //! 取得して展開し、sidecar を新しい `--library` で作り直す（版を替えるときも同じ）。取得中はイベント `msl-progress`
 //! （`{received, total}`。total は Content-Length、無ければ null）を出し、command `cancel_msl` で取り消せる。
+//! 自動更新（S135）: `plugins.updater.pubkey` が空でなければ updater プラグインを入れる（空なら UI の「更新を確認」は「未設定」）。
 //! `GLOBE_DESKTOP_SMOKE_FETCH=1` を足すと、smoke は検査の前にこの取得を 1 回行う（CI で取得の道を確かめる）。
 //!
 //! `GLOBE_DESKTOP_BENCH=<ファイル>`（S125、ADR-0034）なら、UI が起動時に `?smoke=1` と同じ手順を測り、
@@ -152,6 +153,15 @@ fn cancel_msl(dir: State<'_, MslDir>) {
     dir.1.store(true, Ordering::Relaxed);
 }
 
+/// updater の公開鍵（`plugins.updater.pubkey`）が入ったビルドか（S135）。UI はこれが偽なら「未設定」と出す。
+#[tauri::command]
+fn updater_configured(app: tauri::AppHandle) -> bool {
+    let updater = app.config().plugins.0.get("updater");
+    updater
+        .and_then(|u| u["pubkey"].as_str())
+        .is_some_and(|k| !k.is_empty())
+}
+
 fn libraries_from_env() -> Vec<PathBuf> {
     let mut libs: Vec<PathBuf> = std::env::var_os("GLOBE_LIBRARY")
         .map(|v| std::env::split_paths(&v).collect())
@@ -237,10 +247,20 @@ fn smoke(w: &Shared, dir: &MslDir, libs: &Libraries) -> Result<(), String> {
 fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
-            rpc, notify, libraries, fetch_msl, cancel_msl, bench
+            rpc,
+            notify,
+            libraries,
+            fetch_msl,
+            cancel_msl,
+            bench,
+            updater_configured
         ])
         .setup(|app| {
             let handle = app.handle().clone();
+            // 公開鍵は tauri.conf.json に書く（鍵を作ったユーザーが。ADR-0023 の S135）。空なら入れない
+            if updater_configured(handle.clone()) {
+                handle.plugin(tauri_plugin_updater::Builder::new().build())?;
+            }
             let sink: Sink = Arc::new({
                 let handle = handle.clone();
                 move |m: Value| {

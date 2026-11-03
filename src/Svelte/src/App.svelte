@@ -67,7 +67,7 @@
   // 起動時の Decay を検査・実行して、結果を console に 1 行出す。x1 は x(1)（e⁻¹ ≈ 0.3679）
   // S125: 末尾に時刻（ms、ADR-0034）。ready は最初の往復（ページの読み込みの始まりから）、decay は検査・実行・プロットの反映まで、msl は MSL を読み ChuaCircuit を検査するまで
   async function smoke() {
-    await backend.setFile(FILE, view.state.doc.toString()).catch((e) => { failure = String(e); });
+    await backend.setFile(file, view.state.doc.toString()).catch((e) => { failure = String(e); });
     const ready = performance.now();
     await check();
     const checked = !failure && !diagnostics.some((d) => d.severity === "error");
@@ -204,6 +204,7 @@
         <option value="4.0.0">MSL 4.0.0</option>
       </select>
       <button onclick={loadMsl} disabled={busy || (msl === "loaded" && loadedVersion === mslVersion)}>{msl === "loading" ? "取り消す" : msl === "loaded" ? `MSL ${mslVersion} に切り替える` : `MSL ${mslVersion} を取得する（約 29 MB、初回のみ）`}</button>
+      <button onclick={async (e) => { const b = e.currentTarget; b.textContent = `更新: ${await tauri!.checkUpdate()}`; }}>更新を確認</button>
     {:else}
       <button onclick={loadMsl} disabled={busy || msl !== "none"}>{msl === "loading" ? "MSL を読み込み中…" : "MSL を読む"}</button>
     {/if}

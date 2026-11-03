@@ -80,6 +80,22 @@ export class TauriBackend implements Backend {
   librarySource(path: string): Promise<{ file: string; text: string }> {
     return invoke("rpc", { method: "globe/librarySource", params: { path } });
   }
+
+  /** 更新を確かめ、あれば確かめてから入れる（S135、updater プラグインの `window.__TAURI__.updater`）。結果を短い文で返す。 */
+  async checkUpdate(): Promise<string> {
+    if (!(await invoke<boolean>("updater_configured"))) return "未設定"; // 公開鍵の無いビルド（release.yml の署名なし）
+    type Update = { version: string; downloadAndInstall(): Promise<void> };
+    const updater = (window as unknown as { __TAURI__: { updater: { check(): Promise<Update | null> } } }).__TAURI__.updater;
+    try {
+      const u = await updater.check();
+      if (!u) return "最新";
+      if (!confirm(`GlobeMode ${u.version} に更新しますか`)) return `${u.version} あり`;
+      await u.downloadAndInstall(); // Windows は passive の msi が入れてアプリを閉じる。Linux は pkexec dpkg -i
+      return `${u.version} を入れた。再起動で反映`;
+    } catch (e) {
+      return `失敗: ${e}`;
+    }
+  }
 }
 
 /** Tauri のウィンドウの中か。 */
