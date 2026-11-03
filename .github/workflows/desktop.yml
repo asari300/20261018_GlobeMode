@@ -10,6 +10,7 @@
 # 取得済みの置き場を 2 度目の起動が見つけて使う smoke も回す。
 # S143: 測定は globe-mode.toml のある作業ディレクトリから起動し、cfg=ok（整形が設定の indent を使う）を確かめる。
 # S125: UI の測定（ADR-0034）。GLOBE_DESKTOP_BENCH で UI が Decay と MSL・ChuaCircuit の手順を測り、GM-SMOKE の行を書く。
+# S147: 同じ行に UI の操作の項目（tree・fmt・graph・cancel・settings・plot・def）が付き、全部 ok を合格にする（Linux・Windows）。
 # Linux と Windows で 3 回ずつ。行に最大の RSS（rss_kib）、末尾にインストーラの大きさ（GM-BUNDLE）を足し、artifact ui-bench-<os> に残す。Rust の fmt と clippy（-D warnings）もここで回す（手元に webkit2gtk が無いため）。
 # `cargo install tauri-cli`（^2、--locked）を使う理由: npm の依存（@tauri-apps/cli）を増やさず、Rust の道具だけで済むため。
 name: desktop
@@ -205,7 +206,7 @@ jobs:
           done
           echo "GM-BUNDLE kib=$(( $(stat -c %s "$DEB") / 1024 ))" >> bench.txt
           { echo '```'; cat bench.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-          test "$(grep -c 'GM-SMOKE check=ok simulate=ok .* msl=ok cfg=ok' bench.txt)" = 3
+          test "$(grep -c 'GM-SMOKE check=ok simulate=ok .* msl=ok cfg=ok tree=ok fmt=ok graph=ok cancel=ok settings=ok plot=ok def=ok ' bench.txt)" = 3
 
       - name: UI の測定（Windows。S125。先に Rust の smoke で MSL を取得し、測る回にダウンロードを含めない。RSS はプロセスごとの PeakWorkingSet の最大）
         if: runner.os == 'Windows'
@@ -235,7 +236,7 @@ jobs:
           "GM-BUNDLE kib=$([math]::Round($msi.Length / 1024))" | Add-Content bench.txt
           Get-Content bench.txt
           "``````", (Get-Content bench.txt), "``````" | Add-Content $env:GITHUB_STEP_SUMMARY
-          if (@(Select-String 'GM-SMOKE check=ok simulate=ok .* msl=ok' bench.txt).Count -ne 3) { throw "ok でない回がある" }
+          if (@(Select-String 'GM-SMOKE check=ok simulate=ok .* msl=ok cfg=\w+ tree=ok fmt=ok graph=ok cancel=ok settings=ok plot=ok def=ok ' bench.txt).Count -ne 3) { throw "ok でない回がある" }
 
       - uses: actions/upload-artifact@v4
         with:

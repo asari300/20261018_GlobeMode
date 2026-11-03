@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S146 プロットの書き出し — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S146 プロットの書き出し">
+
+<section class="slide" id="S01">
+  <span class="tag">S146 · 2026-11-04 · P4</span>
+  <h1>プロットの書き出し</h1>
+  <p class="lead">S140 の点検の順位 8。結果を CSV と PNG で持ち帰る</p>
+  <div class="big">Plot の中で完結。App.svelte は触らない</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li><code>Plot.svelte</code> に「CSV」「PNG」のボタン</li>
+    <li>CSV は画面で選んだ系列と x の列。欠損は空欄</li>
+    <li>PNG は uPlot の canvas を白地に写したもの</li>
+    <li>MAT、凡例つきの PNG、SVG は持ち越し</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>保存の道</h1>
+  <table class="compact">
+    <tr><th>列</th><th>CSV</th><th>PNG</th></tr>
+    <tr><td>ブラウザ・Android</td><td>Blob のダウンロード</td><td>Blob のダウンロード（image/png）</td></tr>
+    <tr><td>Desktop</td><td><code>saveFile</code>（dialog と writeTextFile）</td><td><code>saveBinary</code>（dialog と writeFile）</td></tr>
+  </table>
+  <p>権限は <code>fs:allow-write-file</code> を 1 つ足しただけ。<code>Backend.saveBinary?</code> は optional。</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>流れ</h1>
+  <svg class="fig" viewBox="0 0 800 240" role="img" aria-label="Plot の CSV と PNG のボタンから、ブラウザはダウンロード、Desktop は dialog と fs へ">
+    <rect class="svg-box-accent" x="20" y="90" width="170" height="60" rx="10"/>
+    <text class="svg-text-b" x="105" y="125" text-anchor="middle">Plot: CSV / PNG</text>
+    <rect class="svg-box" x="270" y="30" width="200" height="60" rx="10"/>
+    <text class="svg-text" x="370" y="65" text-anchor="middle">browser-file.ts</text>
+    <rect class="svg-box" x="270" y="150" width="200" height="60" rx="10"/>
+    <text class="svg-text" x="370" y="185" text-anchor="middle">TauriBackend</text>
+    <rect class="svg-box" x="550" y="30" width="200" height="60" rx="10"/>
+    <text class="svg-text" x="650" y="65" text-anchor="middle">ダウンロード</text>
+    <rect class="svg-box" x="550" y="150" width="200" height="60" rx="10"/>
+    <text class="svg-text" x="650" y="185" text-anchor="middle">dialog と fs</text>
+    <line class="svg-line" x1="190" y1="110" x2="270" y2="60"/>
+    <line class="svg-line" x1="190" y1="130" x2="270" y2="180"/>
+    <line class="svg-line" x1="470" y1="60" x2="550" y2="60"/>
+    <line class="svg-line" x1="470" y1="180" x2="550" y2="180"/>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>試験</h1>
+  <table class="compact">
+    <tr><th>試験</th><th>中身</th><th>結果</th></tr>
+    <tr><td>svelte-check</td><td>型</td><td class="ok">0 エラー</td></tr>
+    <tr><td>test_columns</td><td><code>toCsv</code>: null は空欄、見出しの引用</td><td class="ok">通過</td></tr>
+    <tr><td>test_ui</td><td>Decay の CSV（見出し time,x と 502 行）と PNG（本物の PNG、16 KB）</td><td class="ok">通過</td></tr>
+    <tr><td>desktop.yml</td><td>capability を足しても smoke が通る</td><td class="ok">作業記録に記載</td></tr>
+  </table>
+  <pre><code>cd src/Svelte &amp;&amp; pnpm check &amp;&amp; pnpm build
+uv run python src/Svelte/tests/test_ui.py</code></pre>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ul>
+    <li>MAT の読み書き</li>
+    <li>凡例つきの PNG（uPlot の root を描く）、SVG</li>
+    <li>Android の WebView でのダウンロードの実機確認</li>
+    <li>ダークモード</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

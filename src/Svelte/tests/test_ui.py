@@ -15,6 +15,7 @@ FMU を書き出す（S144）: ブラウザの wasm が作ったソースの FMU
 ライブラリの木で Modelica → Electrical → Analog → Examples → ChuaCircuit と開き、そのファイルがエディタに開いて検査が通ることも確かめる（S127）。
 別のページで MSL.json を構文の誤りのファイルを含むライブラリに差し替え、読み飛ばしの警告 GM-W1001 の行と notes のファイル名が出ることを確かめる（S071）。
 `?smoke=1` で起動すると Decay の検査と実行の結果が console に `GM-SMOKE check=ok simulate=ok x1=… msl=… ready_ms=…` の 1 行で出ること（S100、android.yml の smoke。時刻は S125）。MSL.json があれば msl=ok（MSL を読んで ChuaCircuit の検査が error 0。S103）。
+UI の操作の項目 `tree= fmt= graph= cancel= settings= plot= def=`（S147。Desktop と Android の smoke と同じ。MSL.json が無ければ tree・graph は skip）も全部 ok で `failure=` が無いこと。
 console の error（CSP の違反を含む）と、配った origin の外への要求は失敗（S093）。
 """
 
@@ -163,6 +164,20 @@ def main() -> int:
         lines = page.locator(".plot .u-legend .u-series:not(.u-off)").count()  # time の行も含む
         print(f"Decay の実行: 信号 {boxes.count()} 本、選択 {shown} 本、凡例の表示中 {lines} 行、点 {page.locator('.plot').get_attribute('data-points')}")
         assert boxes.count() >= 1 and shown >= 1 and lines >= 2
+
+        # 書き出し（S146）: CSV は選んだ系列と x の列（見出し time,x と数値の行）、PNG は canvas（image/png の本物で 0 バイトでない）
+        with page.expect_download() as csv_dl:
+            page.get_by_role("button", name="CSV").click(force=True)
+        assert csv_dl.value.suggested_filename == "result.csv"
+        csv_lines = Path(csv_dl.value.path()).read_text(encoding="utf-8").splitlines()
+        assert csv_lines[0].startswith("time,x"), csv_lines[:2]
+        assert len(csv_lines) == int(page.locator(".plot").get_attribute("data-points")) + 1, len(csv_lines)
+        assert all(math.isfinite(float(v)) for v in csv_lines[1].split(",")[:2]), csv_lines[1]
+        with page.expect_download() as png_dl:
+            page.get_by_role("button", name="PNG").click(force=True)
+        png = Path(png_dl.value.path()).read_bytes()
+        assert png_dl.value.suggested_filename == "result.png" and png.startswith(b"\x89PNG\r\n\x1a\n") and len(png) > 1000, len(png)
+        print(f"Decay の書き出し: CSV {len(csv_lines)} 行 {csv_lines[:2]}、PNG {len(png)} バイト")
 
         # 選択を外すと系列が消える
         boxes.first.uncheck(force=True)
@@ -420,6 +435,9 @@ def main() -> int:
         line = message.value.text
         assert line.startswith("GM-SMOKE check=ok simulate=ok x1=0.36"), line
         assert ("msl=ok" in line) == (DIST / "msl/MSL.json").exists(), line  # S103
+        # S147: UI の操作の項目。MSL が無ければ木とグラフは skip
+        skipped = "skip" if not (DIST / "msl/MSL.json").exists() else "ok"
+        assert f" tree={skipped} fmt=ok graph={skipped} cancel=ok settings=ok plot=ok def=ok " in line and "failure=" not in line, line
         assert re.search(r" ready_ms=\d+ decay_ms=\d+ msl_ms=", line), line  # S125: bench_ui.py が読む時刻
         print(line)
         # サブパス配信（S145）: dist/ を /app/ の下だけで配っても、worker・wasm・MSL.json が相対パスで引けて、検査と MSL の読み込みができる
