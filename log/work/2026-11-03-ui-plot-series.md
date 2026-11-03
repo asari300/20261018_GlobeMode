@@ -7,7 +7,7 @@
 | worktree | `.git-worktree/s128-ui-plot-series` |
 | Phase | P4 |
 | セッション文書 | `doc/sessions/S128-ui-plot-series/` |
-| セッション記録 | （親が写す） |
+| セッション記録 | [2026-11-02-a2580a13-3889-4662-9db4-a45dc1ca6772.md](../sessions/2026-11-02-a2580a13-3889-4662-9db4-a45dc1ca6772.md) |
 
 ## 依頼
 
@@ -32,7 +32,7 @@ features.md のプロットの行の「未」: 系列の選択、2 軸、パラ�
 - `pnpm check`: 260 ファイル、error 0・warning 0
 - `test_ui.py`: ok（Decay: data-series=1、data-right=1、data-x=x。ChuaCircuit: 列 44 本、C1.v 対 C2.v で系列 4 本。10 万点の最初の描画 20.8 ms）
 - `check_docs.py`: S128 のデッキ OK / 文書 535 件・相対リンク 2,681 件中の切れ 0 件。`render_slides.py`: 6 枚、問題 0 件
-- セッション記録の `--check`: （親が写す）
+- セッション記録の `--check`: 取りこぼし 0 件（親が写した）
 - ステージした差分の漏洩検査: 0 件
 
 ## 残したこと
