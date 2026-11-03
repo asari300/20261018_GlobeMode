@@ -607,6 +607,13 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **graph の import と索引の持ち越し**（S081 の持ち越し）: `GlobeDb` はライブラリの `ClassIndex` を世代ごとに `Arc` で持ち、文書の小さな索引を `ClassIndex::over` でその上に重ねる（MSL 全部読みの `ChuaCircuit` の 2 回目 52 → 6.9 ms、debug）。`ClassIndex::resolve` は各スコープで「クラス → そのクラスの import」の順に引く（MLS §5.3.1・§13.2 の最小。qualified・renamed・unqualified・selective）。別名の import は `ClassOutline::imports` に `D=A.B.C` の形で入る。`tests/data/MslPartsImport.mo` の `unresolved` 0。[解説書](sessions/S089-graph-imports-index-cache/解説書.md)
 - 持ち越し: ~~継承したクラスの中の入れ子のクラスの解決~~（S101 で済）。
 
+### S140（P4・P6、2026-11-04）で済んだこと
+
+- **アプリの使える流れの点検**（文書だけ。[調査](research/app-flow-2026-11-04.md)、[解説書](sessions/S140-app-flow-audit/解説書.md)）: 起動から更新までの 23 段を、ブラウザ・Desktop・Android の 3 列で ○ / △ / × にした。「MSL を読む・モデルを選ぶ・検査・実行・プロット・止める・グラフ」の中核は 3 列とも通るが、**自分のモデルを持ち込み持ち帰る側が無い**: ファイルを開く・保存（UI にもダイアログにも無い。Desktop は command も dialog プラグインも無い）、FMU export の UI、`globe-mode.toml`（Desktop は rootUri を渡さない）、実行の設定（ソルバ・終了時刻・パラメータ）、定義ジャンプの接続（S138 が進行中）。× は 8（Android は 9）。
+- **埋める順**（調査の 4 章）: 1 ファイルを開く・保存、2 実行の設定の UI、3 エディタの LSP 接続（S138）、4 FMU export の UI、5 Desktop の設定ファイル、6 Desktop・Android の UI の試験、7 ブラウザ版の公開先と小画面、8 プロットの書き出し、9 Desktop の更新の鍵、10 ダークモード（ユーザーの指示で最後）。
+- 同期: features.md（Text ビューと FMU export の行、複数ソルバの S126）、README の状態の段落（S118〜S136）、索引を S 番号の降順に並べ直した。
+- 持ち越し: `test_ui.py` は main に `dist/` が無く cargo も使えなかったので回していない（CI の `ui` に任せる）。
+
 ### S136（P7、2026-11-03）で済んだこと
 
 - **進捗と中断の LSP と Desktop の段**（[ADR-0033](adr/0033-progress-and-cancel.md) の実装の順の 5。ADR を Accepted に。[解説書](sessions/S136-progress-cancel-lsp/解説書.md)）: `globe lsp` の読みを別スレッドにし（キューと `CancelToken` の表、計算は 1 度に 1 つ）、`globe/simulate`・`globe/simulateColumns` に `$/progress`（`workDoneToken` があるとき）と `$/cancelRequest`（途中の列と `GM-I11004`）。Desktop に `Canceller` と command `cancel_run`（応えなければ 2 s で sidecar を作り直す）、`TauriBackend` の `onProgress`・`cancel`。
