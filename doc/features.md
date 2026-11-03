@@ -79,11 +79,11 @@ OpenModelica（OMEdit）と Rumoca を参考に、GlobeMode に要る機能を�
 | marimo | × | × | Must | P6（S078・S102） | anywidget に wasm を載せる。代替は PyO3 の wheel。anywidget は extra `widget`（S097）。S102 で marimo の WASM（Pyodide）から `globe-mode-wasm` で Decay を回した（ブラウザの RSS 2 GB 未満）。WASM で MSL を渡す道は未 |
 | Streamlit（結果ダッシュボード） | × | × | Should | P6 | PyO3 の wheel |
 | Rust API | — | ○ | Must | P1 | facade crate `globe-mode` |
-| Python API | ○（OMPython） | ○ | Must | P6 | PyO3（abi3-py312） |
+| Python API | ○（OMPython） | ○ | Must | P6 | PyO3（abi3-py312）。S129 で `simulate`・`simulate_columns` に `on_progress`（進捗の dict、`True` か Ctrl-C で中断。実行中は GIL を離す。[ADR-0033](adr/0033-progress-and-cancel.md)） |
 | Julia API | ○（OMJulia） | △（S075: `ccall` だけの `src/Julia/globe_mode.jl`。パッケージ・JLL は未） | Must | P7 | C ABI（`globe-mode-c`）と ccall |
 | Elixir / Gleam API | × | △（S082: Elixir の `src/Elixir/globe_mode`、S087: Gleam の `src/Gleam/globe_mode`（Erlang target）。Hex での配布・Gleam の JS target は未） | Must | P7 | Rustler の NIF（`globe-mode-nif`、Erlang モジュール `globe_mode_nif`）。Gleam は `@external` |
 | Zig API | × | △（S075: `src/Zig` の例。手書きのヘッダを translate-c） | Must | P7 | C ABI（`globe-mode-c`）と手書きのヘッダ `globe_mode.h` |
-| 言語 API の機能表（参照シナリオ） | — | ○ | Must | P7（S110・S111・S116・S118） | [調査](research/lang-api-matrix-2026-11-03.md)。C・Zig・Julia・Elixir・Gleam・Python は open・check・simulate・graph・format・lint がある（format・lint と Julia の graph・`load_dir` は S111）。列の道（`simulate_columns`）は S116 で C・Zig・Julia・Elixir・Gleam にも入り、Python・wasm と同じ並び（facade の `Simulated::columns`）。FMU export は S118 で facade（feature `fmu`）の `export_fmu` に置き、C・Zig・Julia・Elixir・Gleam・Python から呼べる（wasm はファイルを書けないので対象外。CLI の `globe fmu export` も facade を呼ぶ）。進捗が無い（進捗と中断の設計は S121 の [ADR-0033](adr/0033-progress-and-cancel.md)）。参照シナリオ（Decay → check → simulate → x(1) → format）は S111 で 6 言語の試験に入り、6 言語・wasm・LSP・CLI で通る |
+| 言語 API の機能表（参照シナリオ） | — | ○ | Must | P7（S110・S111・S116・S118） | [調査](research/lang-api-matrix-2026-11-03.md)。C・Zig・Julia・Elixir・Gleam・Python は open・check・simulate・graph・format・lint がある（format・lint と Julia の graph・`load_dir` は S111）。列の道（`simulate_columns`）は S116 で C・Zig・Julia・Elixir・Gleam にも入り、Python・wasm と同じ並び（facade の `Simulated::columns`）。FMU export は S118 で facade（feature `fmu`）の `export_fmu` に置き、C・Zig・Julia・Elixir・Gleam・Python から呼べる（wasm はファイルを書けないので対象外。CLI の `globe fmu export` も facade を呼ぶ）。進捗と中断は S121 の [ADR-0033](adr/0033-progress-and-cancel.md) で設計し、S123 で facade に、S129 で Python に入れた（C・NIF・wasm・LSP は未）。参照シナリオ（Decay → check → simulate → x(1) → format）は S111 で 6 言語の試験に入り、6 言語・wasm・LSP・CLI で通る |
 | Leptos / Dioxus 版 UI（負荷の比較用） | — | — | Could | P7 | 試験 feature。`doc/bench/ui.md` に結果を書く |
 
 ## 6. 品質

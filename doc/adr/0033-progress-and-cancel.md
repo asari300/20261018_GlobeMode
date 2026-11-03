@@ -117,6 +117,14 @@
 - `wasm:compare`: 400 件中 387 件が一致、既知の差 13、一致しない 0（減っていない）。`wasm:node` ok。
 - 状態の無いモデル（積分器が無い）は積分の中で止められない。積分器の 1 歩ごとに `now` を呼ぶので、wasm（`performance.now()`）での費用は 2 段目で測る。
 
+### 3 段目の結果（S129、Python、2026-11-03）
+
+- 2 段目（wasm）より先に入れた（wasm は S127 が `globe-mode-wasm` を触っているので独立に進めた）。exec・facade は変えていない。
+- `globe-mode-py` の `Workspace.simulate`・`simulate_columns` に keyword 引数 `on_progress` を足した（`None` なら前と同じ道）。名前は (3) の表の `progress` でなく `on_progress` にし、引数は位置引数 4 つでなく `{"stage", "time", "start_time", "stop_time"}` の dict にした（`stage` は `"lowering"`・`"integration"` などの小文字）。真の値を返すとトークンを立てる。
+- GIL: pyo3 0.30.1 の `Python::detach`（旧名 `allow_threads`）で離して `Workspace::simulate_observed` を回し、進捗のたびに `Python::attach` で取り直して `py.check_signals()` とコールバックを呼ぶ（名前は crate のソース `pyo3-0.30.1/src/marker.rs` と <https://docs.rs/pyo3/0.30.1/pyo3/marker/struct.Python.html> で確かめた。確認日 2026-11-03）。`check_signals` かコールバックが例外を出したらトークンを立て、実行が戻ってから投げ直す（Ctrl-C は `KeyboardInterrupt`）。facade の `Workspace` は `Send` なので `unsafe` は要らなかった。
+- 試験（`src/Python/tests/test_api.py`）: (1) Decay（esdirk34）で段が `lowering` から `integration` まで届き、最後の t が 1、列・CSV が `on_progress` なしと同じ、(2) `der(x) = sin(100 * time)` を 1000 s（手元で約 0.9 s）で最初の t の進捗で `True` を返すと `ok`・`termination` が `cancelled`（0 < time < 1000、列の最後の時刻と同じ）・`GM-I11004`、(3) 別のスレッドの `threading.Timer(0.2, _thread.interrupt_main)` で `KeyboardInterrupt`。7 本通る（1 本は前からの skip）。
+- Ctrl-C も `True` も、知らせが来るのは段の変わり目と積分の t（100 ms に 1 回まで）だけなので、lowering・組み立て・ネイティブの型付きの道（bdf・dopri45・auto）の積分の中では次の段まで届かない（1 段目の持ち越しと同じ）。`on_progress` を渡さないときは前のまま GIL を持って回る。
+
 ### 持ち越し
 
 - ネイティブの型付きの道（bdf・dopri45・auto）の積分の中では t も中断も出せない。session の道をネイティブの既定にする案は、JIT を使わない分の遅さを測ってから（ADR-0014 で数値は同じ。速さは【未確認】）。
