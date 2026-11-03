@@ -7,7 +7,7 @@
 | worktree | `.git-worktree/s134-desktop-lang-c-fix` |
 | Phase | P4 |
 | セッション文書 | `doc/sessions/S134-desktop-lang-c-fix/` |
-| セッション記録 | （親が写す） |
+| セッション記録 | [2026-11-02-a2580a13-3889-4662-9db4-a45dc1ca6772.md](../sessions/2026-11-02-a2580a13-3889-4662-9db4-a45dc1ca6772.md) |
 
 ## 依頼
 
@@ -37,7 +37,7 @@ S125 で見つけた不具合（Linux の Desktop を `LANG=C` で起動する�
 - `desktop.yml`（run 41650539889）: Linux の build ジョブ成功。UI の測定は `LANG=C.UTF-8` のまま 3 回とも `GM-SMOKE check=ok simulate=ok x1=0.36787972790802487 msl=ok`（ready_ms 150 / 149 / 152、msl_ms 1,250 / 1,260 / 1,298、rss_kib 149,720 / 150,416 / 149,812、GM-BUNDLE 24,482 KiB）。Windows のジョブはこの報告の時点で実行中（S134 は Linux だけの変更）
 - `check_docs.py`: デッキ OK、リンク切れ 0 件
 - `render_slides.py`: 1 回目は 30 s の時間切れ（Chromium）、2 回目で デッキ 1 件 / 問題 0 件。図と表のスライドをライト・スマートフォンで目視
-- セッション記録の `--check`: （親が写す）
+- セッション記録の `--check`: 取りこぼし 0 件（親が写した）
 - ステージした差分の漏洩検査: 0 件（作業の差分 main..HEAD とこのコミット）
 
 ## 残したこと
