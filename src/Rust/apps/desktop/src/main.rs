@@ -237,6 +237,18 @@ fn smoke(w: &Shared, dir: &MslDir, libs: &Libraries) -> Result<(), String> {
 
 fn main() {
     tauri::Builder::default()
+        // shortcut: S125 の切り分け（Linux で UI が bench を呼ばない）。90 s 後のページの様子を stderr に出す。分かったら消す
+        .plugin(
+            tauri::plugin::Builder::<tauri::Wry>::new("bench-diag")
+                .on_navigation(|_, url| {
+                    if url.host_str() != Some("diag.invalid") {
+                        return true;
+                    }
+                    eprintln!("bench-diag: {url}");
+                    false
+                })
+                .build(),
+        )
         .invoke_handler(tauri::generate_handler![
             rpc, notify, libraries, fetch_msl, cancel_msl, bench
         ])
@@ -269,6 +281,15 @@ fn main() {
             app.manage(dir.clone());
             let w: Shared = Arc::new(Mutex::new(Worker::new(sidecar(), libs, sink)));
             app.manage(w.clone());
+            if std::env::var_os("GLOBE_DESKTOP_BENCH").is_some() {
+                let h = handle.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(90));
+                    if let Some(v) = h.get_webview_window("main") {
+                        let _ = v.eval("location.href='https://diag.invalid/?'+encodeURIComponent([location.href, typeof window.__TAURI__, typeof window.__TAURI_INTERNALS__, document.readyState, document.body && document.body.innerText.slice(0, 300)].join('|'))");
+                    }
+                });
+            }
             // 起動と同時にライブラリを読み始める（待たされた要求はこのロックの後に走る）
             std::thread::spawn(move || {
                 let smoke_run = std::env::var_os("GLOBE_DESKTOP_SMOKE").is_some();
