@@ -9,8 +9,10 @@
 //!
 //! S112: 代数・離散の変数（`ModelInstance::variables`）を `fmi2GetReal`・`fmi2GetInteger`・`fmi2GetBoolean` で読む。
 //!
+//! S114: 入力（`causality="input"`）を `fmi2SetReal` で書く（`ModelInstance::set_input`）。
+//!
 //! - 値参照: `0..n` = 状態、`n..2n` = その微分（`der(…)`）、`2n..2n+p` = tunable なパラメータ、
-//!   `2n+p..` = 代数・出力・離散の変数（S112。書けない）。
+//!   `2n+p..` = 代数・出力・離散・入力の変数（S112・S114。書けるのは Real の入力だけ）。
 //! - パラメータの変更は `fmi2ExitInitializationMode` で lowering からやり直して反映する（依存するパラメータにも届く）。
 //! - 状態の保存（FMUstate）・方向微分・String の値と、Integer/Boolean の書き込みは無いので `fmi2Error` を返す（`nvr = 0` は OK）。
 //! - ログの callback は呼ばない（失敗の理由は標準エラーに出す）。panic は `extern "C"` の境界で abort する（Rust 2024）。
@@ -95,6 +97,7 @@ pub fn model_description(model: &str, source: &str) -> Result<String, String> {
         );
     }
     let first = 2 * n + inst.parameters().len();
+    let values = inst.variable_values()?;
     let mut outputs = String::new();
     for (i, var) in inst.variables().enumerate() {
         let r = first + i;
@@ -103,25 +106,30 @@ pub fn model_description(model: &str, source: &str) -> Result<String, String> {
             ValueType::Integer => ("Integer", true),
             ValueType::Boolean => ("Boolean", true),
         };
-        let causality = if var.role == VariableRole::Output {
-            let _ = writeln!(outputs, "      <Unknown index=\"{}\"/>", r + 1);
-            "output"
-        } else {
-            "local"
+        let (causality, initial, start) = match var.role {
+            VariableRole::Output => {
+                let _ = writeln!(outputs, "      <Unknown index=\"{}\"/>", r + 1);
+                ("output", " initial=\"calculated\"", String::new())
+            }
+            // 入力は initial を書かず start を必須とする（FMI 2.0 の表）
+            VariableRole::Input => ("input", "", format!(" start=\"{:?}\"", values[i])),
+            _ => ("local", " initial=\"calculated\"", String::new()),
         };
         let variability = if discrete { "discrete" } else { "continuous" };
         let _ = write!(
             v,
-            "    <ScalarVariable name=\"{}\" valueReference=\"{r}\" causality=\"{causality}\" variability=\"{variability}\" initial=\"calculated\">\n      <{ty}/>\n    </ScalarVariable>\n",
+            "    <ScalarVariable name=\"{}\" valueReference=\"{r}\" causality=\"{causality}\" variability=\"{variability}\"{initial}>\n      <{ty}{start}/>\n    </ScalarVariable>\n",
             esc(&var.name)
         );
-    }
-    if !outputs.is_empty() {
-        outputs = format!("    <Outputs>\n{outputs}    </Outputs>\n");
     }
     let unknowns: String = (n + 1..=2 * n)
         .map(|i| format!("      <Unknown index=\"{i}\"/>\n"))
         .collect();
+    // 出力（initial="calculated"）は InitialUnknowns にも並べる（FMI 2.0。索引は微分より後なので昇順のまま）
+    let initial_unknowns = format!("{unknowns}{outputs}");
+    if !outputs.is_empty() {
+        outputs = format!("    <Outputs>\n{outputs}    </Outputs>\n");
+    }
     Ok(format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <fmiModelDescription
@@ -139,7 +147,7 @@ pub fn model_description(model: &str, source: &str) -> Result<String, String> {
 {outputs}    <Derivatives>
 {unknowns}    </Derivatives>
     <InitialUnknowns>
-{unknowns}    </InitialUnknowns>
+{initial_unknowns}    </InitialUnknowns>
   </ModelStructure>
 </fmiModelDescription>
 "#,
@@ -158,6 +166,8 @@ struct Instance {
     start: f64,
     /// `fmi2SetReal` で変えたパラメータ（`fmi2ExitInitializationMode` で lowering からやり直して反映する）
     overrides: BTreeMap<String, f64>,
+    /// `fmi2SetReal` で与えた入力（作り直したときに置き直す）
+    inputs: BTreeMap<String, f64>,
     dirty: bool,
 }
 
@@ -165,8 +175,15 @@ impl Instance {
     /// パラメータか開始時刻が変わっていれば、作り直す。
     fn rebuild(&mut self) -> bool {
         if self.dirty {
+            // shortcut: 初期化は入力の start で解き、作り直した後に与えた入力を置く。初期値が入力に依るモデルを載せるときに
+            // `ModelInstance::new` へ入力を渡す
             match ModelInstance::new(&self.model, &self.overrides, self.start) {
-                Ok(inst) => self.inst = inst,
+                Ok(mut inst) => {
+                    for (name, v) in &self.inputs {
+                        let _ = inst.set_input(name, *v);
+                    }
+                    self.inst = inst
+                }
                 Err(d) => {
                     eprintln!("globe-mode-fmu: {d:?}");
                     return false;
@@ -326,6 +343,7 @@ pub unsafe extern "C" fn fmi2Instantiate(
             inst,
             start: 0.0,
             overrides: BTreeMap::new(),
+            inputs: BTreeMap::new(),
             dirty: false,
         }))
         .cast(),
@@ -385,6 +403,7 @@ pub unsafe extern "C" fn fmi2Terminate(c: Component) -> Status {
 pub unsafe extern "C" fn fmi2Reset(c: Component) -> Status {
     unsafe { inst(c) }.map_or(ERROR, |m| {
         m.overrides.clear();
+        m.inputs.clear();
         (m.start, m.dirty) = (0.0, true);
         if m.rebuild() { OK } else { ERROR }
     })
@@ -428,6 +447,15 @@ pub unsafe extern "C" fn fmi2SetReal(
                 let mut x = m.inst.states().to_vec();
                 x[r] = *v;
                 return m.inst.set_states(&x).is_ok();
+            }
+            let p = m.inst.parameters().len();
+            if let Some(var) = (r.checked_sub(2 * n + p)).and_then(|i| m.inst.variables().nth(i)) {
+                let name = var.name.clone();
+                let ok = var.role == VariableRole::Input && m.inst.set_input(&name, *v).is_ok();
+                if ok {
+                    m.inputs.insert(name, *v);
+                }
+                return ok;
             }
             let Some((name, _)) = r
                 .checked_sub(2 * n)
