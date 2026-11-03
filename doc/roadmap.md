@@ -20,9 +20,9 @@ flowchart LR
 | **P0 運用基盤** | 調査、計画、CLAUDE.md、スキル、セッション記録のフック、スライドと解説書の型 | S001 の成果物がそろう。フックが伏せ字版を出力する。リンク切れが 0 件 | S001 |
 | **P1 骨格**（S003 で完了） | workspace 化、mise の rust の targets、cargo-deny、CI（Linux / Windows / wasm）。core / ir / frontend / cli。MSL の取得スクリプト。Python パッケージの改名 | `cargo deny check` が通る。MSL の例題 20 本で `globe check` の結果が Rumoca と一致する。frontend が wasm32 向けにビルドできる。[ADR-0003](adr/0003-toolchain.md) が Accepted になる | 3 回（workspace と CI / アダプタと CLI / wasm の確認） |
 | **P2 遅延クエリと検査**（S004〜S010。完了条件は S008 で 3 つとも満たした。S9・S10 は S010 で足した。S10 の数値の部分は P3） | db、outline、class_index、connect_graph、`assert_simulatable` の S0〜S10 | 空白だけの編集の再検査が 50 ms 未満で、`flat` が再実行されない（salsa のイベントで確かめる）。MSL の全例題に判定が出て、panic は 0 件。S5 が omc と 95% 以上一致する | 4 回 |
-| **P3 シミュレーション**（S011 で着手。完了条件の 1 つ目と 2 つ目は S011 で、3 つ目（wasm）は S012 で満たした。1 つ目と 2 つ目は S012 の既定（`auto`）で測り直した） | exec、driver、bdf / esdirk34 / tsit45 / dopri / 固定刻み、ResultStore | MSL の例題 153 本以上が実行できる。そのうち 90% 以上が参照結果のファネルに収まる。bdf が wasm で（Node 上で）動く | 5 回 |
+| **P3 シミュレーション**（S011 で着手。完了条件の 1 つ目と 2 つ目は S011 で、3 つ目（wasm）は S012 で満たした。1 つ目と 2 つ目は S012 の既定（`auto`）で測り直した。公開ライブラリの失敗の上流への下書きは [upstream.md](upstream.md)、S108 で 31・32 を足して 37 件。S113 で 28〜32 を Rumoca v0.10.4 で確かめ直し、日本語版と AixLib 向けの 33 を足して 38 件） | exec、driver、bdf / esdirk34 / tsit45 / dopri / 固定刻み、ResultStore | MSL の例題 153 本以上が実行できる。そのうち 90% 以上が参照結果のファネルに収まる。bdf が wasm で（Node 上で）動く | 5 回 |
 | **P4 Desktop MVP** | CodeMirror 6 と LSP（S053 で整形・補完・lint）、ライブラリツリー、検査パネル、プロット、sigma.js の connect グラフ | ChuaCircuit で開く・検査・実行・プロットが通る。5k ノードのグラフが 30 fps 以上で動く。RSS の基準値を記録する（**S056 で記録**: MSL を読んだ後、sidecar 1.52 GiB・アプリ 136 MiB）。CI が .deb と .msi を作る（**S049 で済**） | 6 回 |
-| **P5 FMI**（S094 で着手。Export は P5a を先行し P5b を並行する。[ADR-0031](adr/0031-fmi-export-p5a-first.md)） | Import（ME / CS / SE）とマスター。Export は P5a（Rumoca のテンプレート）と P5b（自前のランタイム、S095。S099 から resources の Modelica を compile して exec の `ModelInstance` で回す。事象なしのモデルだけ） | Reference-FMUs が linux64 と win64 で一致する。Export した FMU が FMPy・fmusim・fmuCheck を通る（**S094: Decay の FMI 2.0 の FMU が FMPy の validate と ME・CS の simulate を通った。S098: FMI 3.0 も同じく通り、2.0・3.0 とも fmusim の validate と ME・CS の simulate を GitHub Actions で通った。S105: `--target`（zig cc）で linux64・win64・darwin64 を 1 つの FMU に入れ、Ubuntu・Windows・macOS の FMPy で validate と ME・CS を通った**。fmuCheck は持ち越し）。Clocks（SE）が往復できる | 8 回 |
+| **P5 FMI**（S094 で着手。Export は P5a を先行し P5b を並行する。[ADR-0031](adr/0031-fmi-export-p5a-first.md)） | Import（ME / CS / SE）とマスター。Export は P5a（Rumoca のテンプレート）と P5b（自前のランタイム、S095。S099 から resources の Modelica を compile して exec の `ModelInstance` で回す。S109 から事象のあるモデルも。S112 から代数・離散の変数も読める） | Reference-FMUs が linux64 と win64 で一致する。Export した FMU が FMPy・fmusim・fmuCheck を通る（**S094: Decay の FMI 2.0 の FMU が FMPy の validate と ME・CS の simulate を通った。S098: FMI 3.0 も同じく通り、2.0・3.0 とも fmusim の validate と ME・CS の simulate を GitHub Actions で通った。S105: `--target`（zig cc）で linux64・win64・darwin64 を 1 つの FMU に入れ、Ubuntu・Windows・macOS の FMPy で validate と ME・CS を通った**。fmuCheck は持ち越し）。Clocks（SE）が往復できる | 8 回 |
 | **P6 Web / marimo / Streamlit / Android** | WorkerBackend、MSL のパッケージ単位の分割読み込み、anywidget、wheel、APK | ブラウザが CSP `connect-src 'self'` のまま実行できる（サーバーで計算しない。**S093 で確かめた**: Worker にも同じ CSP の header を付け、`ui:check` が error 0・外への要求 0）。marimo の WASM で 2 GB 未満に収まる（S093 は調査だけ。[調査](research/marimo-wasm-2026-11-02.md)。**S102 で Decay を確かめた**: anywidget の `_esm` から `globe-mode-wasm` を呼び、ブラウザの RSS の合計 857〜966 MiB。MSL を渡す道は未）。Android API 34 のエミュレータで検査と実行が通る（**S100 で確かめた**: UI から Decay の検査と実行、logcat の `GM-SMOKE` の行。**S103 で MSL も**: APK に MSL.json を同梱し、ChuaCircuit の検査で `msl=ok`。**S106 で release の APK も**: ABI ごとの release APK を作り、secret があるときだけ署名、release でも smoke が `msl=ok`） | 5 回 |
 | **P7 言語 API と UI 比較** | C / Zig / Julia、Elixir / Gleam、Python。Leptos 版と Dioxus 版、負荷の測定ハーネス | 参照シナリオが 6 言語で通る（**S110 で参照シナリオを決め、機能表を作った**: Decay を開く → check → simulate → x(1) → format。[調査](research/lang-api-matrix-2026-11-03.md)。**S111 で 6 言語に format / lint を足し、参照シナリオが 6 言語の試験で通った**）。`doc/bench/ui.md` に 3 UI × 3 OS の比較を書く | 6 回 |
 | **P8 拡充** | radau5、SUNDIALS、ESDIRK / CERK、SSP 2.0.1、Diagram ビュー、BLT デバッガ | ソルバの表がそろう。SSP が往復できる | 未定 |
@@ -402,6 +402,17 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 
 - **ソルバ別の表**: `msl-sim.yml` にジョブ `solvers`（`msl-sim` の後。14 ソルバの matrix で `msl-sim --solver <名前> --tolerance-scale 0.1`。cvode・ida は xtask のビルドに `--features globe-mode-exec/sundials`）と `solvers-report`（`cargo xtask msl-solvers`）を足し、[msl-solvers.md](msl-solvers.md) を作った（run 41194959752、全ジョブ成功、ソルバのジョブは 63〜174 分）。対象 356 本のうち実行できたのは 283（dopri853）〜301（bdf）本、管に収まった割合は 95.2（trbdf2）〜98.3%（ida）。`auto` は 309・301/308。`bdf` 単独と `auto` の差 8 本は、`bdf` の内部エラー（`GM-U0005`）10 本を dopri45 の回し直しで救ったもの。入れなかったもの: `qss`、固定刻み、`esdirk23`、別名（理由は解説書）。これで P8「ソルバの表がそろう」の数字の土台ができた。更新は `gh workflow run msl-sim.yml`（手元では回さない）。
 
+### S113（P3、2026-11-03）で済んだこと
+
+- **上流の下書き 28〜32 を Rumoca の最新のリリース v0.10.4 で確かめ直した**（[解説書](sessions/S113-upstream-recheck-jp/解説書.md)、[upstream.md](upstream.md)）: 28 は素直な形（`M`・`M2`）が直り、replaceable な package を通す形（`M1`・`M3`・`M5`）が残る。29〜32 は v0.10.2 と同じに再現する。Rumoca の main（v0.10.4 の 10 コミット後）はビルドしていない【未確認】。
+- **日本語版と 1 枚の解説**: 28〜33 に `_jp.md`（英語と同じ章立て）と `_jp.html`（スライド 1 枚）を足した。ユーザーが読んで出すかを決める。
+- **AixLib 向けの下書き 33**: `CHPCombustionMixtureGasNasa.T_psX` が宣言の無い `specificEntropyOfpTX` を呼ぶ。AixLib main（`e5df9a8d` = v3.0.1）でも同じで、omc も断る。issue は出していない。Rust のコードは変えていない。
+
+### S108（P3、2026-11-03）で済んだこと
+
+- **EF024 の残りと ER002 の `specificEntropyOfpTX` を上流の下書きにした**（S091 の持ち越し。[解説書](sessions/S108-upstream-ef024-er002/解説書.md)、[upstream.md](upstream.md)）: 取得した Buildings・AixLib と Rumoca v0.10.2 の CLI で最小にし、新しい下書き 31（EF024、束縛が replaceable な record を通して成分を読む。8 本）と 32（ER002、モデルが使わない別の派生クラスの Medium の関数まで解決する。39 本）、28 に `nXi` の形（1 本）を追記した。どれも Rumoca の穴で、omc は再現の 12 本とも通す。32 で呼ばれる関数は AixLib の誤り。Rust のコードは変えていない。
+- 持ち越し: 31 の AixLib の `T` の 1 本と 28 の `nXi` の 1 本をライブラリの写しで直して確かめる。32 の ER002 は `globe check` では出ない（閉包だけ読む）ので、funnel も閉包で読むかを決める。
+
 ### S106（P6、2026-11-03）で済んだこと
 
 - **Android の release APK**（S092・S103 の持ち越し。[解説書](sessions/S106-android-release-apk/解説書.md)、[ADR-0023 の S106](adr/0023-desktop-and-web-process-layout.md)）: `android.yml` の `apk` が release の APK を ABI ごとに作り（配布は aarch64、artifact `globe-android-release`）、secret `ANDROID_KEYSTORE_BASE64` ほか 3 つがあるときだけ `keystore.properties` を書いて署名する（無ければ `-release-unsigned`）。debug の universal 257,983,951 bytes（246.0 MiB）に対し release の aarch64 は 12,706,158 bytes（12.1 MiB）。`emulator` は matrix で debug と release の smoke を回す（release は x86_64 を debuggable で作り直し、使い捨ての鍵で署名。run 41544046811）。鍵の作り方と secret の登録は解説書に。
@@ -421,6 +432,16 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 
 - **Android のエミュレータで検査と実行**（S092 の持ち越し、P6 の Android の完了条件。[解説書](sessions/S100-android-emulator-smoke/解説書.md)）: `App.svelte` が `VITE_GM_SMOKE=1`（ビルド時）か `?smoke=1` のときだけ、起動時にエディタの Decay を検査・実行して `GM-SMOKE check=ok simulate=ok x1=…` を console に 1 行出す。`android.yml` のジョブ `ui` はこの設定でビルドし、`emulator` は logcat にこの行が出るまで最大 5 分待って `check=ok simulate=ok` を確かめる（run 41444392188、`Displayed` の 5.7 s 後に x1 = 0.3678797279080248）。`test_ui.py` も `?smoke=1` で同じ行を確かめる（x1 = 0.3678797279080248）。
 - 持ち越し: Android での MSL、Rust を mobile の lib に直接 link する道、release の署名つき APK（`VITE_GM_SMOKE` を付けない）。
+
+### S112（P5b の 4 回目、2026-11-03）で済んだこと
+
+- **代数・離散の変数を FMU の外から読む**（[解説書](sessions/S112-fmu-outputs/解説書.md)、[ADR-0032](adr/0032-p5b-own-runtime.md) の追記）: `ModelInstance` に `variables`・`variable_values`（Rumoca の公開の `SolveRuntime::visible_values` を `full_solver_y` の上で評価。exec の結果の列と同じ部品。Rumoca は改変していない）を足し、`globe-mode-fmu` が値参照 `2n+p..` に `local`／`output`・`continuous`／`discrete` の Real・Integer・Boolean として載せ、`fmi2GetReal`・`fmi2GetInteger`・`fmi2GetBoolean` で読めるようにした。FMPy 0.3.32 の ME で SampleCounter の n = 10・xs は exec と 4.4e-16、BouncingBall の n = 3、NonlinearLoop の代数変数 y・z は exec と 8.9e-16。
+- 持ち越し: 入力と書き込み、Enumeration・String、`initial()` の事象、MSL を使うモデル、CS・FMI 3.0・Windows。
+
+### S109（P5b の 3 回目、2026-11-03）で済んだこと
+
+- **事象のあるモデルを FMU で回す**（[解説書](sessions/S109-fmu-events/解説書.md)、[ADR-0032](adr/0032-p5b-own-runtime.md) の追記）: `ModelInstance` に `n_event_indicators`・`event_indicators`・`enter_event_mode`・`update_discrete_states`（Rumoca の公開の `SolveRuntime` の `eval_root_conditions`・`apply_projected_event_update`・`next_runtime_event_stop` ほか。Rumoca は改変していない）を足し、`GM-U0004` で断るのをやめた。`globe-mode-fmu` の `fmi2GetEventIndicators`・`fmi2EnterEventMode`・`fmi2NewDiscreteStates` がそれを呼び、`numberOfEventIndicators` を生成する。FMPy 0.3.32 の ME で BouncingBall は跳ねた回数 3（exec の n と同じ）、h(2)・v(2) は exec の `run` と 1.8e-6・1.6e-5 の差。SampleCounter は時刻事象 10 回（exec の n と同じ）、x(1) は 2.2e-16 の差。
+- 持ち越し: `initial()` の事象、離散・出力の変数の値参照（今は FMU の外から n を読めない）、MSL を使うモデル、CS・FMI 3.0・Windows。
 
 ### S099（P5b の 2 回目、2026-11-02）で済んだこと
 

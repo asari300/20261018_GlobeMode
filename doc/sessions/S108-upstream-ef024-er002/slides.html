@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S108 EF024 の残りと ER002 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S108 EF024 の残りと ER002">
+
+<section class="slide" id="S01">
+  <span class="tag">S108 · 2026-11-03 · P3</span>
+  <h1>EF024 の残りと ER002 の 39 本</h1>
+  <p class="lead">S091 の持ち越し。文書だけで、Rust のコードは変えない</p>
+  <div class="big"><b>3 つの形、どれも Rumoca の穴</b>。下書き 31・32 を新しく、28 に追記。48 本</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>何をしたか</h1>
+  <ul>
+    <li>run 41365960542 の JSON から EF024 の残り 9 本と ER002 の <code>specificEntropyOfpTX</code> 39 本を取り出す</li>
+    <li>Buildings・AixLib を取得し、Rumoca v0.10.2 の CLI で手で削って最小にする</li>
+    <li>既存の下書きと同じ原因なら追記、違えば新しい番号</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由 · 3 つの形</span>
+  <h1>下書き 31・32 と 28 の追記</h1>
+  <table>
+    <tr><th>#</th><th>形</th><th>コード</th><th>本数</th></tr>
+    <tr><td>31</td><td>束縛が replaceable な record（成分・クラス）を通して成分を読む</td><td>EF024</td><td>8</td></tr>
+    <tr><td>28</td><td>モデルの中の record の次元 <code>x[Medium.n]</code>（redeclare しても）</td><td>EF024</td><td>1</td></tr>
+    <tr><td>32</td><td>使わない別の派生クラスの Medium の関数まで解決する</td><td>ER002</td><td>39</td></tr>
+  </table>
+  <p class="small">omc 1.27.2 は再現の 12 本とも通す。32 で呼ばれる関数そのものは AixLib の誤り</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由 · ER002</span>
+  <h1>39 本の道筋</h1>
+  <div class="cols-2">
+    <div class="card"><b>呼んでいない媒質まで</b><br><code>PartialFourPortInterface</code> を継ぐ部品が <code>Medium1.setState_phX</code> を呼ぶと、同じ基底を継ぐ <code>ExhaustHeatExchanger</code> の CHP の媒質まで解決する</div>
+    <div class="card"><b>globe check では出ない</b><br><code>--library</code> は閉包だけ読む（ADR-0025）。funnel は全部読むので出る</div>
+  </div>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">図</span>
+  <h1>JSON から再現へ</h1>
+  <svg viewBox="0 0 900 220" role="img" aria-label="JSON から自己完結の再現まで">
+    <rect class="svg-box" x="10" y="70" width="190" height="70" rx="8"/>
+    <text class="svg-text" x="105" y="100" text-anchor="middle">funnel の JSON</text>
+    <text class="svg-text" x="105" y="122" text-anchor="middle">モデル名と位置</text>
+    <rect class="svg-box" x="240" y="70" width="190" height="70" rx="8"/>
+    <text class="svg-text" x="335" y="100" text-anchor="middle">ライブラリの写し</text>
+    <text class="svg-text" x="335" y="122" text-anchor="middle">ファイルを外す</text>
+    <rect class="svg-box" x="470" y="70" width="190" height="70" rx="8"/>
+    <text class="svg-text" x="565" y="100" text-anchor="middle">1 か所直す</text>
+    <text class="svg-text" x="565" y="122" text-anchor="middle">SpeedSelect が通る</text>
+    <rect class="svg-box-accent" x="700" y="70" width="190" height="70" rx="8"/>
+    <text class="svg-text" x="795" y="100" text-anchor="middle">Rep36・39・40</text>
+    <text class="svg-text" x="795" y="122" text-anchor="middle">自己完結</text>
+    <line class="svg-line" x1="200" y1="105" x2="240" y2="105"/>
+    <line class="svg-line" x1="430" y1="105" x2="470" y2="105"/>
+    <line class="svg-line" x1="660" y1="105" x2="700" y2="105"/>
+  </svg>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">再現手順</span>
+  <h1>検証</h1>
+  <pre><code>rumoca compile 31-*.mo -m Rep39.M2    # EF024 nomVal
+rumoca compile 28-*.mo -m Rep36.M5    # EF024 n
+rumoca compile 32-*.mo -m Rep40.M     # ER002
+omc: loadFile(...); checkModel(Rep40.M)</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">12/12</span><span class="l">globe と CLI が一致</span></div>
+    <div class="kpi"><span class="n">12/12</span><span class="l">omc が通す</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>下書き 28〜32 を Rumoca の main で確かめて出す（ユーザー）</li>
+    <li>AixLib の <code>T</code>・<code>nXi</code> の 2 本をライブラリの写しで直して確かめる</li>
+    <li>funnel も閉包で読むかを決める（ER002 39 本の扱い）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

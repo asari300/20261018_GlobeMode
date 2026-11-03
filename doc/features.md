@@ -62,7 +62,7 @@ OpenModelica（OMEdit）と Rumoca を参考に、GlobeMode に要る機能を�
 | --- | --- | --- | --- | --- | --- |
 | FMI 2.0 Import（ME / CS） | ○ | × | **Must** | P5 | `fmi` crate 0.8 の上に作る |
 | FMI 3.0 Import（ME / CS / SE） | △ | × | **Must** | P5 | SE はクロックスケジューラで動かす |
-| FMI 2.0 Export（ME / CS） | ○ | ○（テンプレート） | **Must** | P5 | P5a は Rumoca のテンプレート、P5b は自前のランタイム。**S094: P5a の FMI 2.0（ME・CS）を `globe fmu export` で出せる**（事象の無いモデル。[ADR-0031](adr/0031-fmi-export-p5a-first.md)）。S095: P5b の crate `globe-mode-fmu`（依存 0）が FMI 2.0 ME の 35 関数を出す（モデルは Decay を固定、任意のモデルの載せ替えは未。[ADR-0032](adr/0032-p5b-own-runtime.md)） |
+| FMI 2.0 Export（ME / CS） | ○ | ○（テンプレート） | **Must** | P5 | P5a は Rumoca のテンプレート、P5b は自前のランタイム。**S094: P5a の FMI 2.0（ME・CS）を `globe fmu export` で出せる**（事象の無いモデル。[ADR-0031](adr/0031-fmi-export-p5a-first.md)）。S095: P5b の crate `globe-mode-fmu`（依存 0）が FMI 2.0 ME の 35 関数を出す（モデルは Decay を固定、任意のモデルの載せ替えは未。[ADR-0032](adr/0032-p5b-own-runtime.md)）。S109: 事象（状態事象・`reinit`・`sample`）のあるモデルも FMPy の ME で回る。S112: 代数・離散の変数（Real・Integer・Boolean）も FMU の外から読める |
 | FMI 3.0 Export（ME / CS / SE） | △ | ○（テンプレート） | **Must** | P5 | 同上。**S098: P5a の FMI 3.0（ME・CS）を `globe fmu export --fmi-version 3` で出せる**（SE は未） |
 | コシミュレーションのマスター | ○（OMSimulator） | × | **Must** | P5 | Jacobi / Gauss–Seidel から始め、可変刻みとロールバックに進む |
 | SSP 2.0 | ○ | × | Should | P8 | 系の構成ファイル |

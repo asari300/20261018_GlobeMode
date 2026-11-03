@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S109 事象のあるモデルを FMU で回す — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S109 事象のあるモデルを FMU で回す">
+
+<section class="slide" id="S01">
+  <span class="tag">S109 · 2026-11-03 · P5b</span>
+  <h1>事象のあるモデルを FMU で回す（P5b の 3 回目）</h1>
+  <p class="lead"><code>ModelInstance</code> に事象指示関数と Event Mode を足し、<code>globe-mode-fmu</code> につないだ</p>
+  <div class="big">BouncingBall（状態事象と reinit）と SampleCounter（sample）が FMPy の ME で exec と一致した</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>S099 の持ち越しの 1 つ目: 根の条件や <code>sample</code> のあるモデルを <code>GM-U0004</code> で断らずに回す</li>
+    <li><code>fmi2GetEventIndicators</code> が本数ぶん返し、<code>fmi2NewDiscreteStates</code> が <code>when</code> と <code>reinit</code> を回す</li>
+    <li>Rumoca は改変しない。公開の API で足りないところは ADR-0032 に書いて持ち越す</li>
+    <li>出力の値参照・MSL・CS・FMI 3.0・Windows は範囲の外</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>host の部品の公開の関数を同じ順に呼ぶ</h1>
+  <table class="compact">
+    <tr><th>FMI 2.0</th><th>ModelInstance</th><th>Rumoca の公開 API</th></tr>
+    <tr><td><code>fmi2GetEventIndicators</code></td><td><code>event_indicators</code></td><td><code>eval_root_conditions</code>・<code>orient_typed_root_zeros</code></td></tr>
+    <tr><td><code>fmi2EnterEventMode</code></td><td><code>enter_event_mode</code></td><td><code>full_solver_y</code>（pre を控える）</td></tr>
+    <tr><td><code>fmi2NewDiscreteStates</code></td><td><code>update_discrete_states</code></td><td><code>apply_projected_event_update</code>・<code>commit_pre_params_after_event_at</code></td></tr>
+    <tr><td><code>nextEventTime</code></td><td>同上</td><td><code>next_runtime_event_stop</code></td></tr>
+  </table>
+  <ul>
+    <li>host（<code>SolveMeKernel</code>）の事象の関数は <code>pub(crate)</code> のまま</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>FMPy の ME と事象</h1>
+  <svg class="fig" viewBox="0 0 800 260" role="img" aria-label="積分、事象指示関数の符号の変化、Event Mode、離散の状態の更新の流れ">
+    <rect class="svg-box" x="20" y="95" width="160" height="70" rx="10"/>
+    <text class="svg-text-b" x="100" y="128" text-anchor="middle">CVode で積分</text>
+    <text class="svg-text" x="100" y="150" text-anchor="middle">z の符号を見る</text>
+    <line class="svg-line" x1="180" y1="130" x2="220" y2="130"/>
+    <rect class="svg-box-accent" x="220" y="95" width="170" height="70" rx="10"/>
+    <text class="svg-text-b" x="305" y="128" text-anchor="middle">EnterEventMode</text>
+    <text class="svg-text" x="305" y="150" text-anchor="middle">pre を控える</text>
+    <line class="svg-line" x1="390" y1="130" x2="430" y2="130"/>
+    <rect class="svg-box-accent" x="430" y="95" width="190" height="70" rx="10"/>
+    <text class="svg-text-b" x="525" y="128" text-anchor="middle">NewDiscreteStates</text>
+    <text class="svg-text" x="525" y="150" text-anchor="middle">when・reinit</text>
+    <line class="svg-line" x1="620" y1="130" x2="660" y2="130"/>
+    <rect class="svg-box" x="660" y="95" width="120" height="70" rx="10"/>
+    <text class="svg-text-b" x="720" y="128" text-anchor="middle">次の</text>
+    <text class="svg-text" x="720" y="150" text-anchor="middle">時刻事象</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>FMPy と exec の突き合わせ</h1>
+  <table class="compact">
+    <tr><th>モデル</th><th>FMPy の ME</th><th>exec の run</th><th>差</th></tr>
+    <tr><td>BouncingBall 跳ねた回数</td><td>reinit 3（Event Mode 6）</td><td>n = 3</td><td class="ok">0</td></tr>
+    <tr><td>BouncingBall h(2)</td><td>0.2607398425</td><td>0.2607416904</td><td>1.8e-6</td></tr>
+    <tr><td>BouncingBall v(2)</td><td>-0.1658858421</td><td>-0.1658694813</td><td>1.6e-5</td></tr>
+    <tr><td>SampleCounter 時刻事象</td><td>Event Mode 10</td><td>n = 10</td><td class="ok">0</td></tr>
+    <tr><td>SampleCounter x(1)</td><td>1.0</td><td>0.9999999999999998</td><td>2.2e-16</td></tr>
+  </table>
+  <p>Event Mode 6 は、床を下へ越えたとき 3 回と上へ越えたとき 3 回（上へは <code>when h &lt; 0</code> が発火しない）</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>離散・出力の変数の値参照（今は n を FMU の外から読めない）</li>
+    <li><code>initial()</code> の事象、多様体の射影、状態事象と時刻事象が同時のとき</li>
+    <li>MSL を使うモデル、CS・FMI 3.0・Windows</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

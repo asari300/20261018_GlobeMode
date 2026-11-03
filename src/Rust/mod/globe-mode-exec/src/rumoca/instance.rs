@@ -5,14 +5,26 @@
 //! 間だけ使える）。そこで host と同じ部品の `rumoca_solver::SolveRuntime`（公開）を直接持つ: lowering は
 //! [`crate::tunable_parameters`] と同じ `lower_for_simulation_with_overrides`、初期化は
 //! `settle_initialization_system`（[`super::resettle`] の 1 回目と同じ）、微分は `eval_state_derivatives`。
+//!
+//! S109: 事象（FMI 2.0 ME の事象指示関数と Event Mode）。事象指示関数は `eval_root_conditions`、事象の処理は
+//! host の `SolveMeKernel::apply_discrete_event_updates` と同じ部品（公開）: `apply_projected_event_update` →
+//! `commit_pre_params_after_event_at`。次の時刻事象（`sample`）は `next_runtime_event_stop`。
+//!
+//! S112: 代数・離散の変数の値。結果の列と同じ `visible_values`（host の `get_outputs`・`record_outputs` と同じ部品）を
+//! `full_solver_y` の上で評価し、役割は `variable_meta`（結果の `variable_meta` と同じ）から決める。
 
 use std::collections::BTreeMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use globe_mode_core::{Diagnostic, Stage, codes};
+use globe_mode_ir::VariableRole;
 use rumoca_ir_dae::Dae;
 use rumoca_sim::SimOptions;
-use rumoca_solver::SolveRuntime;
+use rumoca_solver::{
+    EventActionOutcome, EventUpdateRowFilter, ProjectedEventUpdateInput, SolveRuntime,
+    SolveStopSchedule, commit_pre_params_after_event_at, convert_variable_meta,
+    orient_typed_root_zeros, root_crossings_with_relation_memory,
+};
 
 use super::{Phase, SETTLE_MAX_ITERS, failure_diagnostic, panic_diagnostic, session};
 use crate::CompiledModel;
@@ -20,11 +32,17 @@ use crate::CompiledModel;
 /// 代数ループの Newton 法の許容誤差（[`super::probe_start`] と同じ）。
 const EVAL_TOL: f64 = 1.0e-10;
 
+/// 時刻事象を探す先の端。FMI の ME は終了時刻を知らせなくてよいので無限の代わりに置く
+/// （Rumoca の `next_periodic_event_time` は有限の端を要る）。
+const HORIZON: f64 = f64::MAX;
+
 /// 1 つのモデルのインスタンス。時刻と連続の状態を外から与え、微分を返す（FMI 2.0 ME の
 /// `fmi2SetTime`・`fmi2SetContinuousStates`・`fmi2GetDerivatives` に当たる）。
 ///
-/// shortcut: 事象（根の条件）のあるモデルは [`ModelInstance::new`] で断る。事象の表示関数と事象の処理は
-/// 載せていない（P5b の持ち越し）。
+/// 事象は [`Self::event_indicators`]・[`Self::enter_event_mode`]・[`Self::update_discrete_states`]（S109）。
+///
+/// shortcut: 初期化の事象（`initial()` で始まる `when`）は回さない。`initial()` を使うモデルを FMU に載せるときに
+/// `apply_projected_initial_event_boundary` を足す。
 pub struct ModelInstance {
     runtime: SolveRuntime,
     /// パラメータの枠（初期化が `fixed = false` のパラメータを書き込んだ後の値）
@@ -33,6 +51,42 @@ pub struct ModelInstance {
     time: f64,
     state_names: Vec<String>,
     parameters: Vec<(String, f64)>,
+    /// 静的な時刻事象と `sample` の予定
+    schedule: SolveStopSchedule,
+    /// 直前の事象の後（または初期化の後）の事象指示関数の値。根を越えたかをこれと比べる
+    roots: Vec<f64>,
+    /// Event Mode に入ったときの（solver の y、パラメータの枠）＝ `pre` の値
+    event_entry: Option<(Vec<f64>, Vec<f64>)>,
+    /// 代数・出力・離散の変数と、Rumoca の見える変数（`visible_names`）での位置
+    variables: Vec<(Variable, usize)>,
+}
+
+/// 状態とパラメータ以外の変数 1 つ（S112。値は [`ModelInstance::variable_values`]）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct Variable {
+    pub name: String,
+    /// [`VariableRole::Algebraic`]・[`VariableRole::Output`]・[`VariableRole::Discrete`] のどれか
+    pub role: VariableRole,
+    pub value_type: ValueType,
+}
+
+/// [`Variable`] の型（値はどれも f64 で返す。Integer は整数の値、Boolean は 0 か 1）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ValueType {
+    Real,
+    Integer,
+    Boolean,
+}
+
+/// [`ModelInstance::update_discrete_states`] の結果（FMI 2.0 の `fmi2EventInfo` に当たる）。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DiscreteUpdate {
+    /// `reinit` で連続の状態が変わった
+    pub states_changed: bool,
+    /// `terminate()` が呼ばれた
+    pub terminate: bool,
+    /// 次の時刻事象（無ければ None）
+    pub next_event_time: Option<f64>,
 }
 
 impl std::fmt::Debug for ModelInstance {
@@ -76,19 +130,6 @@ impl ModelInstance {
             Ok(Err(d)) => return Err(vec![d]),
             Err(payload) => return Err(vec![panic_diagnostic(payload.as_ref(), None)]),
         };
-        if runtime.root_condition_count() > 0
-            || !runtime
-                .model
-                .problem
-                .clocks
-                .periodic_event_schedules
-                .is_empty()
-        {
-            return Err(vec![run_error(
-                codes::RUN_UNSUPPORTED,
-                "事象（根の条件・sample）のあるモデルはまだ載せられない".to_string(),
-            )]);
-        }
         let n = runtime.state_count;
         let mut y = runtime.model.initial_y.clone();
         let mut params = runtime.model.parameters.clone();
@@ -106,7 +147,44 @@ impl ModelInstance {
                     format!("初期化に失敗: {e}"),
                 )]
             })?;
-        Ok(Self {
+        let meta: std::collections::HashMap<_, _> =
+            convert_variable_meta(&runtime.model.variable_meta)
+                .into_iter()
+                .map(|m| (m.name.clone(), m))
+                .collect();
+        // shortcut: Enumeration・String の変数は載せない。FMU で要るときに型の定義を足す
+        let variables = (runtime.model.visible_names.iter().enumerate())
+            .filter_map(|(i, name)| {
+                let m = meta.get(name);
+                let role = super::role(m);
+                let value_type = match m.and_then(|m| m.value_type.as_deref()) {
+                    Some("Integer") => ValueType::Integer,
+                    Some("Boolean") => ValueType::Boolean,
+                    Some("Real") | None => ValueType::Real,
+                    Some(_) => return None,
+                };
+                matches!(
+                    role,
+                    VariableRole::Algebraic | VariableRole::Output | VariableRole::Discrete
+                )
+                .then(|| {
+                    let name = name.clone();
+                    (
+                        Variable {
+                            name,
+                            role,
+                            value_type,
+                        },
+                        i,
+                    )
+                })
+            })
+            .collect();
+        let mut inst = Self {
+            variables,
+            schedule: SolveStopSchedule::new(&runtime.model.problem, start_time, HORIZON),
+            roots: Vec::new(),
+            event_entry: None,
             state_names: runtime.model.problem.solve_layout.solver_maps.names[..n].to_vec(),
             parameters: tunable
                 .into_iter()
@@ -116,7 +194,11 @@ impl ModelInstance {
             params,
             time: start_time,
             runtime,
-        })
+        };
+        inst.roots = inst
+            .event_indicators()
+            .map_err(|e| vec![run_error(codes::RUN_INIT_FAILED, e)])?;
+        Ok(inst)
     }
 
     /// 連続の状態の数。
@@ -171,6 +253,158 @@ impl ModelInstance {
                 SETTLE_MAX_ITERS,
             )
             .map_err(|e| e.to_string())
+    }
+
+    /// 状態とパラメータ以外の変数（代数・出力・離散。S112）。
+    pub fn variables(&self) -> impl ExactSizeIterator<Item = &Variable> {
+        self.variables.iter().map(|(v, _)| v)
+    }
+
+    /// 今の時刻と状態での [`Self::variables`] の値（同じ順）。離散の変数は直前の事象の後の値。
+    pub fn variable_values(&self) -> Result<Vec<f64>, String> {
+        let y = self
+            .runtime
+            .full_solver_y(
+                self.time,
+                &self.states,
+                &self.params,
+                EVAL_TOL,
+                SETTLE_MAX_ITERS,
+            )
+            .map_err(|e| e.to_string())?;
+        let all = self
+            .runtime
+            .visible_values(&y, &self.params, self.time)
+            .map_err(|e| e.to_string())?;
+        Ok(self.variables.iter().map(|&(_, i)| all[i]).collect())
+    }
+}
+
+impl ModelInstance {
+    /// 事象指示関数の数（root の条件の数）。
+    pub fn n_event_indicators(&self) -> usize {
+        self.runtime.root_condition_count()
+    }
+
+    /// 今の時刻と状態での事象指示関数（符号が変わったら状態事象）。ちょうど 0 は関係式の向きの側に寄せる。
+    pub fn event_indicators(&self) -> Result<Vec<f64>, String> {
+        let mut z = self
+            .runtime
+            .eval_root_conditions(
+                self.time,
+                &self.states,
+                &self.params,
+                EVAL_TOL,
+                SETTLE_MAX_ITERS,
+            )
+            .map_err(|e| e.to_string())?;
+        orient_typed_root_zeros(&mut z, &self.runtime.model.problem.events.root_zero_domains);
+        Ok(z)
+    }
+
+    /// Event Mode に入る（今の時刻と状態を `pre` の値として控える）。
+    pub fn enter_event_mode(&mut self) -> Result<(), String> {
+        let y = self
+            .runtime
+            .full_solver_y(
+                self.time,
+                &self.states,
+                &self.params,
+                EVAL_TOL,
+                SETTLE_MAX_ITERS,
+            )
+            .map_err(|e| e.to_string())?;
+        self.event_entry = Some((y, self.params.clone()));
+        Ok(())
+    }
+
+    /// 離散の状態を更新する（`when` の式と `reinit`）。Event Mode でなければ（初期化の直後）次の時刻事象を返すだけ。
+    pub fn update_discrete_states(&mut self) -> Result<DiscreteUpdate, String> {
+        let t = self.time;
+        let mut terminate = false;
+        let mut states_changed = false;
+        if let Some((pre_y, pre_p)) = self.event_entry.take() {
+            // 前の事象の後から符号の変わった根を、越えた後の側に固定する（host の pending_root_crossings と同じ）
+            let after = self.event_indicators()?;
+            let mut overrides: Vec<(usize, f64)> = root_crossings_with_relation_memory(
+                &self.roots,
+                &after,
+                EVAL_TOL,
+                &self
+                    .runtime
+                    .model
+                    .problem
+                    .events
+                    .root_relation_memory_targets,
+                &self.params,
+            )
+            .into_iter()
+            .map(|c| (c.index, c.post_relation_memory_value))
+            .collect();
+            let mut y = pre_y.clone();
+            let runtime = &self.runtime;
+            let outcome = runtime
+                .apply_projected_event_update(
+                    ProjectedEventUpdateInput {
+                        y: &mut y,
+                        p: &mut self.params,
+                        t,
+                        tol: EVAL_TOL,
+                        event_pre_y: &pre_y,
+                        event_pre_p: &pre_p,
+                        max_iters: SETTLE_MAX_ITERS,
+                        row_filter: EventUpdateRowFilter::All,
+                        root_relation_overrides: &mut overrides,
+                    },
+                    |y, p| {
+                        let before = y.to_vec();
+                        runtime.refresh_event_dependency_slots_certified(
+                            t,
+                            y,
+                            p,
+                            EVAL_TOL,
+                            SETTLE_MAX_ITERS,
+                        )?;
+                        Ok(before != y)
+                    },
+                )
+                .map_err(|e| e.to_string())?;
+            commit_pre_params_after_event_at(
+                &runtime.model,
+                &y,
+                &mut self.params,
+                Some(t),
+                EVAL_TOL,
+            );
+            self.schedule.advance_past(t);
+            let n = self.states.len();
+            states_changed = self.states[..] != y[..n];
+            self.states.copy_from_slice(&y[..n]);
+            match outcome {
+                EventActionOutcome::Continue => {}
+                EventActionOutcome::Terminated { .. } => terminate = true,
+                EventActionOutcome::AssertionFailed { time, message } => {
+                    return Err(format!("t = {time} で assert が偽: {message}"));
+                }
+            }
+        }
+        self.roots = self.event_indicators()?;
+        let y = if self.runtime.dynamic_time_event_stop_reads_solver_y() {
+            self.runtime
+                .full_solver_y(t, &self.states, &self.params, EVAL_TOL, SETTLE_MAX_ITERS)
+                .map_err(|e| e.to_string())?
+        } else {
+            Vec::new()
+        };
+        let (next, event) = self
+            .runtime
+            .next_runtime_event_stop(&y, &self.params, &mut self.schedule, t, HORIZON)
+            .map_err(|e| e.to_string())?;
+        Ok(DiscreteUpdate {
+            states_changed,
+            terminate,
+            next_event_time: event.map(|_| next),
+        })
     }
 }
 

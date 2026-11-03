@@ -20,9 +20,11 @@ use globe_mode_ir::{ResolvedSettings, SimRun, SimSettings, Termination, TunableP
 
 #[cfg(feature = "rumoca-exec")]
 mod rumoca;
+/// [`Variable::role`] の型
+pub use globe_mode_ir::VariableRole;
 /// 状態・パラメータ・時刻から微分を返す公開の API（S099。自前の FMU の `globe-mode-fmu` が使う）
 #[cfg(feature = "rumoca-exec")]
-pub use rumoca::instance::ModelInstance;
+pub use rumoca::instance::{DiscreteUpdate, ModelInstance, ValueType, Variable};
 
 /// 実行系の中の段（[`run_with_progress`] が知らせる。S014）。ソルバと道によって通らない段がある。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

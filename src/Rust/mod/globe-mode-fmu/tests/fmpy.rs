@@ -1,8 +1,7 @@
-//! S095・S099: FMU を関数で直接呼ぶ検査と、FMPy で回す検査（FMPy が回せない環境では skip）。
+//! S095・S099・S109・S112: FMU を関数で直接呼ぶ検査と、FMPy で回す検査（FMPy が回せない環境では skip）。
 //!
 //! モデルは `src/Modelica/GlobeModeValidation/Simulation/` の 1 ファイルを `resources/<完全修飾名>.mo` に置く。
 
-use std::collections::BTreeMap;
 use std::ffi::{CString, c_int};
 use std::path::PathBuf;
 use std::process::Command;
@@ -45,6 +44,22 @@ fn model_description_lists_states_derivatives_and_parameters() {
         r#"name="w" valueReference="4""#,
         r#"<Real start="2.0"/>"#,
         r#"stopTime="1.0" tolerance="1e-8""#,
+    ] {
+        assert!(md.contains(v), "{v} が無い:\n{md}");
+    }
+}
+
+/// S112: 離散の変数（Integer の n、discrete Real の xs）が値参照 `2n+p..` に載る。
+#[test]
+fn model_description_lists_discrete_variables() {
+    let (model, text) = source("SampleCounter");
+    let md = model_description(&model, &text).unwrap();
+    for v in [
+        r#"name="n" valueReference="#,
+        r#"causality="local" variability="discrete" initial="calculated">
+      <Integer/>"#,
+        r#"name="xs" valueReference="#,
+        r#"<Real/>"#,
     ] {
         assert!(md.contains(v), "{v} が無い:\n{md}");
     }
@@ -107,9 +122,10 @@ fn explicit_euler_through_the_c_abi() {
     let _ = std::fs::remove_dir_all(dir.parent().unwrap());
 }
 
-/// cdylib を作り、`model` を FMU に詰めて FMPy の ME で回す。終了時刻での `names` の値を返す。FMPy が使えなければ None。
+/// cdylib を作り、`model` を FMU に詰めて FMPy の ME で回す。終了時刻での `names` の値と事象の回数
+/// （`events`・`reinit`）を `名前=値` で並べた出力を返す。FMPy が使えなければ None。
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-fn fmpy(name: &str, names: &[&str]) -> Option<Vec<f64>> {
+fn fmpy(name: &str, names: &[&str]) -> Option<String> {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let tmp = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
     let uv = |args: &[&std::ffi::OsStr]| {
@@ -168,7 +184,21 @@ fn fmpy(name: &str, names: &[&str]) -> Option<Vec<f64>> {
         String::from_utf8_lossy(&out.stderr)
     );
     eprintln!("FMPy {name}: {}", stdout.trim());
-    Some(names.iter().map(|n| value(&stdout, n)).collect())
+    Some(stdout.into_owned())
+}
+
+/// `globe_mode_exec::run`（bdf の既定）で回し、終了時刻での `names` の値を返す。
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+fn exec_last(name: &str, names: &[&str]) -> Vec<f64> {
+    let (model, text) = source(name);
+    let report = globe_mode_exec::run(&compile(&model, &text).unwrap(), &Default::default());
+    let run = report.run.expect("exec で回る");
+    let last: Vec<f64> = names
+        .iter()
+        .map(|n| *run.trajectory.variable(n).unwrap().values.last().unwrap())
+        .collect();
+    eprintln!("exec {name}: {names:?} = {last:?}");
+    last
 }
 
 fn value(stdout: &str, name: &str) -> f64 {
@@ -184,48 +214,72 @@ fn value(stdout: &str, name: &str) -> f64 {
 #[test]
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 fn fmpy_simulates_decay() {
-    let Some(x) = fmpy("Decay", &["x"]) else {
+    let Some(out) = fmpy("Decay", &["x"]) else {
         return;
     };
-    assert!((x[0] - (-1.0f64).exp()).abs() < 1e-4, "x(1) = {}", x[0]);
+    let x = value(&out, "x");
+    assert!((x - (-1.0f64).exp()).abs() < 1e-4, "x(1) = {x}");
 }
 
 /// 状態 2 つ・事象なしの HarmonicOscillator を、FMPy と `globe_mode_exec::run`（bdf の既定）で回して x(1)・v(1) を突き合わせる。
 #[test]
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 fn fmpy_matches_exec_on_harmonic_oscillator() {
-    let Some(fmu) = fmpy("HarmonicOscillator", &["x", "v"]) else {
+    let Some(out) = fmpy("HarmonicOscillator", &["x", "v"]) else {
         return;
     };
-    let (model, text) = source("HarmonicOscillator");
-    let report = globe_mode_exec::run(&compile(&model, &text).unwrap(), &Default::default());
-    let run = report.run.expect("exec で回る");
-    let exec: Vec<f64> = ["x", "v"]
-        .iter()
-        .map(|n| {
-            let var = run
-                .trajectory
-                .variables
-                .iter()
-                .find(|v| v.name == *n)
-                .unwrap();
-            *var.values.last().unwrap()
-        })
-        .collect();
-    eprintln!("exec HarmonicOscillator: x={} v={}", exec[0], exec[1]);
-    for (f, e) in fmu.iter().zip(&exec) {
-        assert!((f - e).abs() < 1e-4, "FMPy {fmu:?} と exec {exec:?}");
+    let exec = exec_last("HarmonicOscillator", &["x", "v"]);
+    for (n, e) in ["x", "v"].iter().zip(&exec) {
+        let f = value(&out, n);
+        assert!((f - e).abs() < 1e-4, "{n}: FMPy {f} と exec {e}");
     }
 }
 
+/// S109・S112: 状態事象と reinit。跳ねた回数（FMU の中の n と reinit で状態が変わった事象の数、exec の n）と
+/// h(2)・v(2) を突き合わせる。
 #[test]
-fn events_are_refused() {
-    let (model, text) = source("BouncingBall");
-    let e = globe_mode_exec::ModelInstance::new(
-        &compile(&model, &text).unwrap(),
-        &BTreeMap::new(),
-        0.0,
-    )
-    .unwrap_err();
-    assert_eq!(e[0].code, "GM-U0004", "{e:?}");
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+fn fmpy_matches_exec_on_bouncing_ball() {
+    let Some(out) = fmpy("BouncingBall", &["h", "v", "n"]) else {
+        return;
+    };
+    let exec = exec_last("BouncingBall", &["h", "v", "n"]);
+    assert_eq!(value(&out, "n"), exec[2], "FMU の中の n");
+    assert_eq!(value(&out, "reinit"), exec[2], "跳ねた回数");
+    for (n, e) in ["h", "v"].iter().zip(&exec) {
+        let f = value(&out, n);
+        assert!((f - e).abs() < 1e-3, "{n}: FMPy {f} と exec {e}");
+    }
+}
+
+/// S109・S112: 時刻事象（`sample`）。FMU の中の Integer の n と discrete Real の xs（fmi2GetInteger・fmi2GetReal）、
+/// x(1) を exec と突き合わせる（n は 10、xs は最後の標本の時刻 0.95 の x）。
+#[test]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+fn fmpy_matches_exec_on_sample_counter() {
+    let Some(out) = fmpy("SampleCounter", &["x", "n", "xs"]) else {
+        return;
+    };
+    let exec = exec_last("SampleCounter", &["x", "n", "xs"]);
+    assert_eq!(value(&out, "n"), 10.0, "FMU の中の n");
+    assert_eq!(value(&out, "n"), exec[1], "n");
+    for (n, e) in ["x", "xs"].iter().zip([exec[0], exec[2]]) {
+        let f = value(&out, n);
+        assert!((f - e).abs() < 1e-6, "{n}: FMPy {f} と exec {e}");
+    }
+}
+
+/// S112: 代数変数（非線形のループの y・z）を fmi2GetReal で読み、exec の最後の値（解析解 y = 2、z = 4）と突き合わせる。
+/// HarmonicOscillator・BouncingBall には代数変数が無いので NonlinearLoop を使う。
+#[test]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+fn fmpy_matches_exec_on_algebraic_variables() {
+    let Some(out) = fmpy("NonlinearLoop", &["x", "y", "z"]) else {
+        return;
+    };
+    let exec = exec_last("NonlinearLoop", &["x", "y", "z"]);
+    for (n, e) in ["x", "y", "z"].iter().zip(&exec) {
+        let f = value(&out, n);
+        assert!((f - e).abs() < 1e-4, "{n}: FMPy {f} と exec {e}");
+    }
 }

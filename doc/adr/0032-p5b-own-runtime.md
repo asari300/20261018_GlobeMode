@@ -70,3 +70,49 @@
 - 事象のあるモデル（event indicator・`fmi2NewDiscreteStates`）、出力（代数変数）の値参照、MSL を使うモデル（resources へのライブラリの同梱）。
 - `modelDescription.xml` の生成を `globe-mode-fmi`（P5a）と共有する。CS、FMI 3.0、Windows・macOS の置き場。
 - `resourceLocation` の `%xx` を戻していない（`shortcut:` の注記）。
+
+## 追記（2026-11-03、S109）: 事象のあるモデルを `SolveRuntime` の公開 API で回す
+
+### 決定
+
+- `ModelInstance::new` は事象（根の条件・`sample`）のあるモデルを断らなくなった（`GM-U0004` をやめた）。足した API は `n_event_indicators`・`event_indicators`・`enter_event_mode`・`update_discrete_states`（結果は `DiscreteUpdate`: `states_changed`・`terminate`・`next_event_time`）。
+- Rumoca の FMI ME 風の host（`SolveMeKernel`）の `get_event_indicators`・`enter_event_mode`・`update_discrete_states` は rev 276e82bd でも `pub(crate)` のままなので、S099 と同じく host の部品の公開の関数を直接呼ぶ（Rumoca は改変していない）。
+  - 事象指示関数: `SolveRuntime::eval_root_conditions` に `orient_typed_root_zeros`（ちょうど 0 を関係式の側に寄せる）。
+  - Event Mode に入る: `full_solver_y` で今の y とパラメータの枠を `pre` として控える。
+  - 離散の状態の更新: host の `apply_discrete_event_updates` と同じ順で `apply_projected_event_update`（代数の射影は `refresh_event_dependency_slots_certified`、越えた根は `root_crossings_with_relation_memory` で直前の事象の後の値と比べて上書き）→ `commit_pre_params_after_event_at` → `SolveStopSchedule::advance_past`。`reinit` で状態が変われば `valuesOfContinuousStatesChanged`。
+  - 次の時刻事象: `next_runtime_event_stop`（端は `f64::MAX`。FMI の ME は終了時刻を知らせなくてよく、`next_periodic_event_time` は有限の端を要る）。
+- host が持つ多様体の射影（`MeAlgebraicProjectionPolicy` の manifold、非公開）と、状態事象と時刻事象が重なったときの扱い（`StateTimeCoincidence`）は真似ていない。
+- `globe-mode-fmu` は `numberOfEventIndicators` を `n_event_indicators` から作り、`fmi2GetEventIndicators`・`fmi2EnterEventMode`・`fmi2NewDiscreteStates` を上の API につなぐ。`newDiscreteStatesNeeded` はいつも偽（Rumoca は 1 回の呼び出しで事象の反復を収束させる。host の `MeDiscreteStates` と同じ）。
+
+### 結果
+
+- FMPy 0.3.32 の ME（CVode）で BouncingBall（状態事象と `reinit`）: `reinit` で状態が変わった事象 3 回（exec の `run` の n = 3 と同じ）。Event Mode に入った回数は 6（床を下へ越えたとき 3 回と、跳ね返って上へ越えたとき 3 回。上へ越えたときは `when h < 0` が発火しない）。h(2) = 0.26073984246749315、v(2) = -0.16588584207712853 で、exec の 0.26074169044319206・-0.1658694813220666 と 1.8e-6・1.6e-5 の差（試験は 1e-3 以内）。
+- SampleCounter（`sample(0.05, 0.1)` の時刻事象）: Event Mode に入った回数 10（exec の n = 10 と同じ）、x(1) = 1.0（exec と 2.2e-16 の差）。
+- 外部の依存の追加 0。
+
+### 持ち越し
+
+- `initial()` の事象（`apply_projected_initial_event_boundary`。`shortcut:` の注記）、多様体の射影、状態事象と時刻事象が同時のとき。
+- 離散・出力の変数の値参照（SampleCounter の n・xs、BouncingBall の n を FMU の外から読めない。今は FMPy で Event Mode の回数を数えて突き合わせる）。
+- MSL を使うモデル、CS・FMI 3.0・Windows（S099 の持ち越しのまま）。
+
+## 追記（2026-11-03、S112）: 代数・離散の変数を FMU の外から読む
+
+### 決定
+
+- `ModelInstance` に `variables()`（状態とパラメータ以外の変数。名前・役割 `VariableRole`（Algebraic・Output・Discrete）・型 `ValueType`（Real・Integer・Boolean））と `variable_values()`（今の時刻と状態での値、同じ順。f64）を足した。
+- 値は exec の `run` が結果の列を作るときと同じ部品を使う: Rumoca の host の `record_outputs`・`get_outputs` が呼ぶ `SolveRuntime::visible_values` を、`full_solver_y` で求めた y とパラメータの枠の上で評価する（どれも公開。Rumoca は改変していない）。変数の並びは `SolveModel::visible_names`、役割と型は `variable_meta`（`convert_variable_meta` で `SimVariableMeta` にし、exec の結果と同じ `role` で振り分ける）。離散の値はパラメータの枠にあり、直前の事象の後の値になる。
+- `globe-mode-fmu`: 値参照 `2n+p..` に載せる。`causality` は役割が Output なら `output`（`ModelStructure` の `Outputs` にも並べる）、ほかは `local`。`variability` は離散か Integer・Boolean なら `discrete`、ほかは `continuous`。`initial="calculated"` で start は書かない。`fmi2GetReal`・`fmi2GetInteger`・`fmi2GetBoolean` で読め、型の違う値参照と書き込みは `fmi2Error`。
+- Enumeration・String の変数は載せない（`shortcut:` の注記）。値参照ごとに解き直す（`shortcut:` の注記）。
+
+### 結果
+
+- FMPy 0.3.32 の ME で SampleCounter の n = 10（`fmi2GetInteger`。exec の n と同じ）、xs = 0.9500000000000001（exec は 0.9499999999999997、差 4.4e-16）。BouncingBall の n = 3（exec と同じ）。NonlinearLoop の代数変数 y(1) = 1.9999999999999991・z(1) = 4.000000000000001（exec は 2.0・4.0、差 8.9e-16・8.9e-16。x(1) は 9.4e-9 の差）。
+- HarmonicOscillator・BouncingBall には代数変数が無いので、代数変数の突き合わせは NonlinearLoop（大きさ 2 の非線形の代数ループ）で行った。
+- 外部の依存の追加 0。
+
+### 持ち越し
+
+- 入力（`causality="input"`）と、代数・離散の変数の書き込み。Enumeration・String の変数。
+- `ModelStructure` の `Outputs` の依存（`dependencies`）を書いていない（既定の「すべてに依存」）。
+- `initial()` の事象、MSL を使うモデル、`modelDescription.xml` の生成を P5a と共有、CS・FMI 3.0・Windows（S109 の持ち越しのまま）。
