@@ -4,6 +4,8 @@ Target: Rumoca (https://github.com/CogniPilot/rumoca)
 
 Verdict (GlobeMode, S072): **unsupported valid Modelica** (Rumoca reports it as unsupported, not as an error in the model). omc accepts it.
 
+Status (S115, 2026-11-03): **fixed in Rumoca v0.10.4.** `Rep25.M` compiles with the v0.10.4 release binary. Do not file; this draft is kept as a record.
+
 ## Summary
 
 A function with a `Boolean` output whose `if`/`else` has, in one branch, an assignment followed by a `for` loop is rejected when the DAE is built:
@@ -44,12 +46,17 @@ $ rumoca compile 25-ed019-function-conditional-boolean-loop.mo -m Rep25.M
 
 `Rep25.M0` and `Rep25.M1` compile in both. OpenModelica 1.27.2 (`loadFile`, `checkModel`): all three "completed successfully".
 
+## Re-check on Rumoca v0.10.4 (S115, 2026-11-03)
+
+Fixed: `Rep25.M` compiles (`Compilation successful!`, exit 0); `Rep25.M0` and `Rep25.M1` still compile. With v0.10.2 `Rep25.M` still gives ED019 `function conditional`. The library examples (`isMonotonic`, `splineDerivatives`) were not re-run with v0.10.4. [not verified]
+
 ## Environment
 
 - Rumoca v0.10.2, git rev `276e82bd0fd48960ac201e782918d28bf19cf7ce`; also the prebuilt `rumoca-linux-x86_64` v0.10.2 binary.
 - Linux x86_64 (WSL2, Ubuntu).
 - Counts: GlobeMode S063 run (GitHub Actions run 41250636800), `doc/research/libraries-2026-11-01.md`: ED019 125 of 1,781 failures. Library: IBPSA 4.0.0 (master `2adc9194`), `IBPSA/Utilities/Math/Functions/isMonotonic.mo`; reproduced with a model that calls `isMonotonic` and with `IBPSA.Airflow.Multizone.BaseClasses.Examples.WindPressureProfile`.
 - Not yet re-checked against Rumoca main. Re-check before filing.
+- Re-checked on 2026-11-03 (S115) with the latest release, Rumoca v0.10.4 (tag commit `9c8c56fcd9f5ab9beb871f09bf5d9eed82971c54`, released 2026-11-02, prebuilt `rumoca-linux-x86_64`, https://github.com/CogniPilot/rumoca/releases/tag/v0.10.4), next to the v0.10.2 binary. Rumoca main was not built. [not verified on main]
 
 ## Workaround in GlobeMode
 

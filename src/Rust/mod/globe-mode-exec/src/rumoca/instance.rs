@@ -12,6 +12,9 @@
 //!
 //! S112: 代数・離散の変数の値。結果の列と同じ `visible_values`（host の `get_outputs`・`record_outputs` と同じ部品）を
 //! `full_solver_y` の上で評価し、役割は `variable_meta`（結果の `variable_meta` と同じ）から決める。
+//!
+//! S114: 入力（`input`）。Rumoca は入力をパラメータの枠の `input_parameter_index` に置く（host の `set_float64` が
+//! 書く所と同じ）。lowering の前の値は FMI の export と同じく `start`（`SimOptions::initial_inputs` で渡す）。
 
 use std::collections::BTreeMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -57,7 +60,7 @@ pub struct ModelInstance {
     roots: Vec<f64>,
     /// Event Mode に入ったときの（solver の y、パラメータの枠）＝ `pre` の値
     event_entry: Option<(Vec<f64>, Vec<f64>)>,
-    /// 代数・出力・離散の変数と、Rumoca の見える変数（`visible_names`）での位置
+    /// 代数・出力・離散・入力の変数と、Rumoca の見える変数（`visible_names`）での位置
     variables: Vec<(Variable, usize)>,
 }
 
@@ -65,7 +68,8 @@ pub struct ModelInstance {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Variable {
     pub name: String,
-    /// [`VariableRole::Algebraic`]・[`VariableRole::Output`]・[`VariableRole::Discrete`] のどれか
+    /// [`VariableRole::Algebraic`]・[`VariableRole::Output`]・[`VariableRole::Discrete`]・
+    /// [`VariableRole::Input`]（S114。[`ModelInstance::set_input`] で書ける）のどれか
     pub role: VariableRole,
     pub value_type: ValueType,
 }
@@ -109,8 +113,11 @@ impl ModelInstance {
         start_time: f64,
     ) -> Result<Self, Vec<Diagnostic>> {
         let dae: &Dae = model.rumoca_dae();
+        let initial_inputs =
+            input_starts(dae).map_err(|e| vec![run_error(codes::RUN_INTERNAL, e)])?;
         let opts = SimOptions {
             param_overrides: parameters.iter().map(|(n, v)| (n.clone(), *v)).collect(),
+            initial_inputs,
             ..SimOptions::default()
         };
         let built = catch_unwind(AssertUnwindSafe(|| {
@@ -165,7 +172,10 @@ impl ModelInstance {
                 };
                 matches!(
                     role,
-                    VariableRole::Algebraic | VariableRole::Output | VariableRole::Discrete
+                    VariableRole::Algebraic
+                        | VariableRole::Output
+                        | VariableRole::Discrete
+                        | VariableRole::Input
                 )
                 .then(|| {
                     let name = name.clone();
@@ -255,7 +265,19 @@ impl ModelInstance {
             .map_err(|e| e.to_string())
     }
 
-    /// 状態とパラメータ以外の変数（代数・出力・離散。S112）。
+    /// 入力 `name` の値を置く（S114）。次の [`Self::derivatives`]・[`Self::variable_values`] から効く。
+    pub fn set_input(&mut self, name: &str, value: f64) -> Result<(), String> {
+        let layout = &self.runtime.model.problem.solve_layout;
+        let i =
+            (layout.input_parameter_index(name)).ok_or_else(|| format!("{name} は入力でない"))?;
+        if !value.is_finite() {
+            return Err(format!("入力 {name} の値 {value} が有限でない"));
+        }
+        self.params[i] = value;
+        Ok(())
+    }
+
+    /// 状態とパラメータ以外の変数（代数・出力・離散・入力。S112・S114）。
     pub fn variables(&self) -> impl ExactSizeIterator<Item = &Variable> {
         self.variables.iter().map(|(v, _)| v)
     }
@@ -406,6 +428,39 @@ impl ModelInstance {
             next_event_time: event.map(|_| next),
         })
     }
+}
+
+/// 束縛の無い入力の `start`（スカラーの名前ごと）。Rumoca の `host_driven_input_seeds`（crate の外から呼べない）と同じ:
+/// 束縛のある入力と `start` の無い入力は除く（後者は lowering が入力の名前を挙げて断る）。
+fn input_starts(dae: &Dae) -> Result<Vec<(String, f64)>, String> {
+    dae.inspect(|view| {
+        let mut out = Vec::new();
+        for (_, v) in view.variables() {
+            let start = match v.start() {
+                Some(s)
+                    if v.role() == rumoca_ir_dae::VariableRole::Input && v.binding().is_none() =>
+                {
+                    s
+                }
+                _ => continue,
+            };
+            let values = rumoca_phase_solve::fmi::numeric_attribute_values(view, v, Some(start))
+                .map_err(|e| e.to_string())?
+                .unwrap_or_default();
+            for k in 0..v.scalar_count() {
+                let name = v.scalar_name(k).ok_or("入力のスカラーに名前が無い")?;
+                // 1 つの start が配列の入力の全要素に効く（`input Real u[3](start = 0)`）
+                let value = match values.as_slice() {
+                    [one] => *one,
+                    many => *many
+                        .get(k)
+                        .ok_or(format!("入力 {name} の start の数が合わない"))?,
+                };
+                out.push((name, value));
+            }
+        }
+        Ok(out)
+    })
 }
 
 fn run_error(code: &'static str, message: String) -> Diagnostic {

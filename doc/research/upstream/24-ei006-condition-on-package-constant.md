@@ -40,12 +40,17 @@ $ rumoca compile 24-ei006-condition-on-package-constant.mo -m Rep24.C
 
 `Rep24.A` and `Rep24.B` give the same code; `Rep24.C0` and `Rep24.C1` compile in both. OpenModelica 1.27.2 (`loadFile`, `checkModel`): all five "completed successfully" (`Rep24.A` with a warning that the connector is unbalanced, which is a property of the repro, not of the condition).
 
+## Re-check on Rumoca v0.10.4 (S115, 2026-11-03)
+
+Unchanged: `Rep24.A`, `Rep24.B` and `Rep24.C` give the same `[EI006] conditional component ... requires parameter expression`; `Rep24.C0` and `Rep24.C1` compile (exit 0). The library examples were not re-run with v0.10.4. [not verified]
+
 ## Environment
 
 - Rumoca v0.10.2, git rev `276e82bd0fd48960ac201e782918d28bf19cf7ce`; also the prebuilt `rumoca-linux-x86_64` v0.10.2 binary.
 - Linux x86_64 (WSL2, Ubuntu).
 - Counts: GlobeMode S063 run (GitHub Actions run 41250636800), `doc/research/libraries-2026-11-01.md`: EI006 117 of 1,781 failures. Library: IBPSA 4.0.0 (master `2adc9194`), `IBPSA/Fluid/FMI/Interfaces/FluidProperties.mo` line 16; reproduced with `IBPSA.Fluid.FMI.ExportContainers.Examples.FMUs.Fan`.
 - Not yet re-checked against Rumoca main. Re-check before filing.
+- Re-checked on 2026-11-03 (S115) with the latest release, Rumoca v0.10.4 (tag commit `9c8c56fcd9f5ab9beb871f09bf5d9eed82971c54`, released 2026-11-02, prebuilt `rumoca-linux-x86_64`, https://github.com/CogniPilot/rumoca/releases/tag/v0.10.4), next to the v0.10.2 binary. Rumoca main was not built. [not verified on main]
 
 ## Workaround in GlobeMode
 
