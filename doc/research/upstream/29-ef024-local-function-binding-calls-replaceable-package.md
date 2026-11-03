@@ -42,11 +42,15 @@ The Rumoca CLI gives EF024 for `M` and `M1`; `M0` and `M2` compile (exit 0). Ope
 
 In GlobeMode's library run (GitHub Actions run 41365960542, 2026-11-02), 18 examples stop with `flat variable is missing structured identity: temperature`: the six `Media.Examples` (`AirProperties`, `SteamProperties`, `WaterProperties`, `PropyleneGlycolWaterProperties`, `Specialized.Water.Examples.TemperatureDependentDensityProperties`, `Specialized.Water.Examples.WaterProperties_pT`) in each of IBPSA, Buildings and AixLib. They extend `Media.Examples.BaseClasses.PartialProperties`, whose protected function `checkState` has `Real TErrAbs = abs(Medium.temperature(state1) - Medium.temperature(state2))`. In a copy of IBPSA with the two bindings moved into the algorithm of `checkState`, `IBPSA.Media.Examples.WaterProperties` passes all of GlobeMode's checks.
 
+## Re-check on Rumoca v0.10.4 (S113, 2026-11-03)
+
+Unchanged: `M` and `M1` give `[EF024] flat variable is missing structured identity: f`; `M0` and `M2` compile (exit 0). The library examples were not re-run with v0.10.4. [not verified]
+
 ## Environment
 
 - Rumoca v0.10.2, git rev `276e82bd0fd48960ac201e782918d28bf19cf7ce`; also the prebuilt `rumoca-linux-x86_64` v0.10.2 binary.
 - Linux x86_64 (WSL2, Ubuntu).
-- Not yet re-checked against Rumoca main. Re-check before filing.
+- Re-checked on 2026-11-03 (S113) with the latest release, Rumoca v0.10.4 (tag commit `9c8c56fcd9f5ab9beb871f09bf5d9eed82971c54`, released 2026-11-02, prebuilt `rumoca-linux-x86_64`, https://github.com/CogniPilot/rumoca/releases/tag/v0.10.4). Rumoca main (`91d6e936648387d04648ec9c52237479eaec46d2`, 10 commits after v0.10.4) was not built; none of those 10 commit titles mentions name lookup, dimensions or bindings. [not verified on main]
 
 ## Workaround in GlobeMode
 

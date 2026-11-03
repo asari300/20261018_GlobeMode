@@ -1,8 +1,8 @@
-# DRAFT (not filed) - An array dimension that is a constant of another package fails (ET004), or EF024 through a replaceable package that is not redeclared
+# DRAFT (not filed) - An array dimension that reads a constant through a replaceable package fails (ET004 / EF024)
 
 Target: Rumoca (https://github.com/CogniPilot/rumoca)
 
-Verdict (GlobeMode, S091; S108 added a shape): **bug** (valid Modelica rejected). omc accepts it.
+Verdict (GlobeMode, S091; S108 added a shape; S113 re-checked on v0.10.4): **bug** (valid Modelica rejected). omc accepts it. On Rumoca v0.10.4 the plain shapes (`M`, `M2`) compile; the shapes through a replaceable package (`M1`, `M3`, `M5`) still fail (see the re-check section).
 
 ## Summary
 
@@ -25,9 +25,9 @@ It fails the same way with the name qualified from the root (`Rep36.P.n`), with 
 Compile the attached `28-et004-ef024-dimension-from-package-constant.mo` (self-contained):
 
 ```bash
-rumoca compile 28-et004-ef024-dimension-from-package-constant.mo -m Rep36.M    # ET004: Real x[P.n]
+rumoca compile 28-et004-ef024-dimension-from-package-constant.mo -m Rep36.M    # ET004 on v0.10.2; compiles on v0.10.4: Real x[P.n]
 rumoca compile 28-et004-ef024-dimension-from-package-constant.mo -m Rep36.M1   # EF024: replaceable package Medium = P; Real x[Medium.n]
-rumoca compile 28-et004-ef024-dimension-from-package-constant.mo -m Rep36.M2   # ET004: parameter Integer m = P.n; Real x[m]
+rumoca compile 28-et004-ef024-dimension-from-package-constant.mo -m Rep36.M2   # ET004 on v0.10.2; compiles on v0.10.4: parameter Integer m = P.n; Real x[m]
 rumoca compile 28-et004-ef024-dimension-from-package-constant.mo -m Rep36.M3   # ET004: component using the default of its replaceable package
 rumoca compile 28-et004-ef024-dimension-from-package-constant.mo -m Rep36.M0   # control: constant of the model
 rumoca compile 28-et004-ef024-dimension-from-package-constant.mo -m Rep36.M4   # control: the same component with redeclare
@@ -65,11 +65,26 @@ In the same library run, 1 example stops on this shape: `AixLib.Fluid.Storage.Ex
 
 With this shape, draft 28 covers 4 examples (ET004 3, EF024 1).
 
+## Re-check on Rumoca v0.10.4 (S113, 2026-11-03)
+
+| Model | v0.10.2 | v0.10.4 |
+| --- | --- | --- |
+| `M` (`Real x[P.n]`) | ET004 | **compiles** (exit 0) |
+| `M1` (replaceable package, default) | EF024 `n` | EF024 `n` (same) |
+| `M2` (`parameter Integer m = P.n`) | ET004 | **compiles** (exit 0) |
+| `M3` (component using the default of its replaceable package) | ET004 `c.x` | ET004 `c.x` (same, `[Expression(Medium.n)]`) |
+| `M5` (record in the model, package redeclared) | EF024 `n` | EF024 `n` (same) |
+| `M0`, `M4` (controls) | compile | compile |
+
+The plain shape (a constant of another package used directly, or through a parameter) is fixed in v0.10.4; v0.10.4 includes the commit "Evaluate constant dimensions by declaration identity in typecheck and flatten". The shapes that go **through a replaceable package** (`M1`, `M3`, `M5`) still fail. If filed, this draft should be narrowed to `M1`, `M3` and `M5`, with `M` and `M2` as controls.
+
+Of the 4 library examples, `Buildings.HeatTransfer.Conduction.BaseClasses.Examples.Temperature_u` has the fixed shape (`M`); the other 3 (`WetCoilEffectivenessNTUMassFlow` in IBPSA and Buildings: `M3`; AixLib `TwoPhaseSeparator`: `M5`) have shapes that still fail. The library examples themselves were not re-run with v0.10.4. [not verified]
+
 ## Environment
 
 - Rumoca v0.10.2, git rev `276e82bd0fd48960ac201e782918d28bf19cf7ce`; also the prebuilt `rumoca-linux-x86_64` v0.10.2 binary.
 - Linux x86_64 (WSL2, Ubuntu).
-- Not yet re-checked against Rumoca main. Re-check before filing.
+- Re-checked on 2026-11-03 (S113) with the latest release, Rumoca v0.10.4 (tag commit `9c8c56fcd9f5ab9beb871f09bf5d9eed82971c54`, released 2026-11-02, prebuilt `rumoca-linux-x86_64`, https://github.com/CogniPilot/rumoca/releases/tag/v0.10.4). Rumoca main (`91d6e936648387d04648ec9c52237479eaec46d2`, 10 commits after v0.10.4) was not built; none of those 10 commit titles mentions name lookup, dimensions or bindings. [not verified on main]
 
 ## Workaround in GlobeMode
 
