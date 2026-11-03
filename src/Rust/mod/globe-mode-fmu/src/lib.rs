@@ -1,19 +1,31 @@
-//! GlobeMode の自前の FMI 2.0 Model Exchange のランタイム（P5b の 1 回目、S095、ADR-0032）。
+//! GlobeMode の自前の FMI 2.0 Model Exchange のランタイム（P5b、S095・S099、ADR-0032）。
 //!
-//! モデルは `GlobeModeValidation.Simulation.Decay`（`der(x) = -k*x`、`x(0) = 1`、`k = 1`）を手で
-//! この crate に固定する。`modelDescription.xml`（手書き）と組で FMU に詰める（`tests/fmpy.rs`）。
-//! 任意のモデルを載せ替える道は ADR-0032 に書いて持ち越す。
+//! S099: モデルは FMU の `resources/<完全修飾名>.mo`（1 ファイル）から `fmi2Instantiate` で compile し、
+//! `globe_mode_exec::ModelInstance` で微分を求める。`modelDescription.xml` は [`model_description`] が同じ道で作る
+//! （手書きをやめた）。
 //!
-//! - 値参照: 0 = `x`、1 = `der(x)`、2 = `k`。
-//! - 状態の保存（FMUstate）・方向微分・Integer/Boolean/String の値は無いので `fmi2Error` を返す（`nvr = 0` は OK）。
-//! - ログの callback は呼ばない。panic は起きない作りだが、起きても `extern "C"` の境界で abort する（Rust 2024）。
+//! S109: 事象。`fmi2GetEventIndicators` は root の条件の値（`numberOfEventIndicators` 本）、`fmi2EnterEventMode` →
+//! `fmi2NewDiscreteStates` で `when` と `reinit` を回し、次の時刻事象（`sample`）を `nextEventTime` で返す。
+//!
+//! S112: 代数・離散の変数（`ModelInstance::variables`）を `fmi2GetReal`・`fmi2GetInteger`・`fmi2GetBoolean` で読む。
+//!
+//! S114: 入力（`causality="input"`）を `fmi2SetReal` で書く（`ModelInstance::set_input`）。
+//!
+//! - 値参照: `0..n` = 状態、`n..2n` = その微分（`der(…)`）、`2n..2n+p` = tunable なパラメータ、
+//!   `2n+p..` = 代数・出力・離散・入力の変数（S112・S114。書けるのは Real の入力だけ）。
+//! - パラメータの変更は `fmi2ExitInitializationMode` で lowering からやり直して反映する（依存するパラメータにも届く）。
+//! - 状態の保存（FMUstate）・方向微分・String の値と、Integer/Boolean の書き込みは無いので `fmi2Error` を返す（`nvr = 0` は OK）。
+//! - ログの callback は呼ばない（失敗の理由は標準エラーに出す）。panic は `extern "C"` の境界で abort する（Rust 2024）。
 // 安全の約束は FMI 2.0 の規格（呼び手は fmi2Instantiate が返した c と、nvr 個の有効な配列を渡す）
 #![allow(clippy::missing_safety_doc)]
 
+use std::collections::BTreeMap;
 use std::ffi::{CStr, c_char, c_int, c_uint, c_void};
+use std::fmt::Write as _;
+use std::path::{Path, PathBuf};
 
-/// `modelDescription.xml` の `guid` と同じ。
-pub const GUID: &str = "{6f1d6a0e-95a1-4c1e-9b8e-5095f0d0decb}";
+use globe_mode_exec::{CompiledModel, ModelInstance, ValueType, VariableRole};
+use globe_mode_frontend::{Checker, Source};
 
 type Component = *mut c_void;
 type Status = c_int;
@@ -22,15 +34,178 @@ const ERROR: Status = 3;
 /// `fmi2ModelExchange`
 const MODEL_EXCHANGE: c_int = 0;
 
-/// 1 つの FMU のインスタンス（Decay の状態と係数。時間に陽に依らないので時刻は持たない）。
-#[derive(Debug)]
-struct Decay {
-    x: f64,
-    k: f64,
+/// `modelDescription.xml` の `guid`。モデルの名前と文面の FNV-1a（64 ビット）なので、`fmi2Instantiate` が
+/// resources の文面から同じ値を作って突き合わせられる。
+pub fn guid(model: &str, source: &str) -> String {
+    let hash = [model.as_bytes(), &[0], source.as_bytes()]
+        .concat()
+        .iter()
+        .fold(0xcbf2_9ce4_8422_2325_u64, |h, &b| {
+            (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+        });
+    format!("{{globe-mode-{hash:016x}}}")
 }
 
-impl Decay {
-    const START: Decay = Decay { x: 1.0, k: 1.0 };
+/// 1 ファイルの Modelica の文面から `model` を DAE まで変換する（MSL は読まない）。
+pub fn compile(model: &str, source: &str) -> Result<CompiledModel, String> {
+    let checker = Checker::new(&[]).map_err(|d| format!("{d:?}"))?;
+    let sources = [Source {
+        name: "model.mo",
+        text: source,
+    }];
+    checker
+        .compile_retaining(&sources, model)
+        .map_err(|d| format!("{d:?}"))
+}
+
+/// FMU の `modelDescription.xml`（FMI 2.0 ME）。変数表は [`ModelInstance`] の状態とパラメータから作る。
+pub fn model_description(model: &str, source: &str) -> Result<String, String> {
+    let compiled = compile(model, source)?;
+    let inst =
+        ModelInstance::new(&compiled, &BTreeMap::new(), 0.0).map_err(|d| format!("{d:?}"))?;
+    let e = compiled.experiment.clone().unwrap_or_default();
+    let start = e.start_time.map_or(0.0, |b| b.get());
+    let n = inst.n_states();
+    let esc = |s: &str| {
+        s.replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('"', "&quot;")
+    };
+    let mut v = String::new();
+    for (i, (name, x)) in inst.state_names().iter().zip(inst.states()).enumerate() {
+        let _ = write!(
+            v,
+            "    <ScalarVariable name=\"{}\" valueReference=\"{i}\" causality=\"local\" variability=\"continuous\" initial=\"exact\">\n      <Real start=\"{x:?}\"/>\n    </ScalarVariable>\n",
+            esc(name)
+        );
+    }
+    for (i, name) in inst.state_names().iter().enumerate() {
+        let _ = write!(
+            v,
+            "    <ScalarVariable name=\"der({})\" valueReference=\"{}\" causality=\"local\" variability=\"continuous\" initial=\"calculated\">\n      <Real derivative=\"{}\"/>\n    </ScalarVariable>\n",
+            esc(name),
+            n + i,
+            i + 1
+        );
+    }
+    for (i, (name, p)) in inst.parameters().iter().enumerate() {
+        let _ = write!(
+            v,
+            "    <ScalarVariable name=\"{}\" valueReference=\"{}\" causality=\"parameter\" variability=\"fixed\" initial=\"exact\">\n      <Real start=\"{p:?}\"/>\n    </ScalarVariable>\n",
+            esc(name),
+            2 * n + i
+        );
+    }
+    let first = 2 * n + inst.parameters().len();
+    let values = inst.variable_values()?;
+    let mut outputs = String::new();
+    for (i, var) in inst.variables().enumerate() {
+        let r = first + i;
+        let (ty, discrete) = match var.value_type {
+            ValueType::Real => ("Real", var.role == VariableRole::Discrete),
+            ValueType::Integer => ("Integer", true),
+            ValueType::Boolean => ("Boolean", true),
+        };
+        let (causality, initial, start) = match var.role {
+            VariableRole::Output => {
+                let _ = writeln!(outputs, "      <Unknown index=\"{}\"/>", r + 1);
+                ("output", " initial=\"calculated\"", String::new())
+            }
+            // 入力は initial を書かず start を必須とする（FMI 2.0 の表）
+            VariableRole::Input => ("input", "", format!(" start=\"{:?}\"", values[i])),
+            _ => ("local", " initial=\"calculated\"", String::new()),
+        };
+        let variability = if discrete { "discrete" } else { "continuous" };
+        let _ = write!(
+            v,
+            "    <ScalarVariable name=\"{}\" valueReference=\"{r}\" causality=\"{causality}\" variability=\"{variability}\"{initial}>\n      <{ty}{start}/>\n    </ScalarVariable>\n",
+            esc(&var.name)
+        );
+    }
+    let unknowns: String = (n + 1..=2 * n)
+        .map(|i| format!("      <Unknown index=\"{i}\"/>\n"))
+        .collect();
+    // 出力（initial="calculated"）は InitialUnknowns にも並べる（FMI 2.0。索引は微分より後なので昇順のまま）
+    let initial_unknowns = format!("{unknowns}{outputs}");
+    if !outputs.is_empty() {
+        outputs = format!("    <Outputs>\n{outputs}    </Outputs>\n");
+    }
+    Ok(format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<fmiModelDescription
+  fmiVersion="2.0"
+  modelName="{name}"
+  guid="{guid}"
+  generationTool="GlobeMode globe-mode-fmu"
+  variableNamingConvention="structured"
+  numberOfEventIndicators="{ni}">
+  <ModelExchange modelIdentifier="globe_mode_fmu"/>
+  <DefaultExperiment startTime="{start:?}" stopTime="{stop:?}" tolerance="{tol:?}"/>
+  <ModelVariables>
+{v}  </ModelVariables>
+  <ModelStructure>
+{outputs}    <Derivatives>
+{unknowns}    </Derivatives>
+    <InitialUnknowns>
+{initial_unknowns}    </InitialUnknowns>
+  </ModelStructure>
+</fmiModelDescription>
+"#,
+        name = esc(model),
+        guid = guid(model, source),
+        ni = inst.n_event_indicators(),
+        stop = e.stop_time.map_or(start + 1.0, |b| b.get()),
+        tol = e.tolerance.map_or(1e-6, |b| b.get()),
+    ))
+}
+
+/// 1 つの FMU のインスタンス。
+struct Instance {
+    model: CompiledModel,
+    inst: ModelInstance,
+    start: f64,
+    /// `fmi2SetReal` で変えたパラメータ（`fmi2ExitInitializationMode` で lowering からやり直して反映する）
+    overrides: BTreeMap<String, f64>,
+    /// `fmi2SetReal` で与えた入力（作り直したときに置き直す）
+    inputs: BTreeMap<String, f64>,
+    dirty: bool,
+}
+
+impl Instance {
+    /// パラメータか開始時刻が変わっていれば、作り直す。
+    fn rebuild(&mut self) -> bool {
+        if self.dirty {
+            // shortcut: 初期化は入力の start で解き、作り直した後に与えた入力を置く。初期値が入力に依るモデルを載せるときに
+            // `ModelInstance::new` へ入力を渡す
+            match ModelInstance::new(&self.model, &self.overrides, self.start) {
+                Ok(mut inst) => {
+                    for (name, v) in &self.inputs {
+                        let _ = inst.set_input(name, *v);
+                    }
+                    self.inst = inst
+                }
+                Err(d) => {
+                    eprintln!("globe-mode-fmu: {d:?}");
+                    return false;
+                }
+            }
+            self.dirty = false;
+        }
+        true
+    }
+}
+
+/// `resources` の場所（`file:///…` の URI）から、ただ 1 つの `.mo` の（完全修飾名、文面）を読む。
+// shortcut: %xx のエスケープを戻さない。空白などを含む置き場で使うときに戻す
+fn read_resource(location: &str) -> Option<(String, String)> {
+    let path = location.strip_prefix("file:")?;
+    let dir = PathBuf::from(path.strip_prefix("//").unwrap_or(path));
+    let mo = std::fs::read_dir(&dir)
+        .ok()?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .find(|p| p.extension().is_some_and(|x| x == "mo"))?;
+    let name = Path::new(mo.file_stem()?).to_str()?.to_string();
+    Some((name, std::fs::read_to_string(&mo).ok()?))
 }
 
 /// FMI 2.0 の `fmi2EventInfo`。
@@ -45,9 +220,9 @@ pub struct EventInfo {
     pub next_event_time: f64,
 }
 
-unsafe fn inst<'a>(c: Component) -> Option<&'a mut Decay> {
+unsafe fn inst<'a>(c: Component) -> Option<&'a mut Instance> {
     // SAFETY: c は fmi2Instantiate が返し、まだ放していないもの（規格の約束）
-    unsafe { c.cast::<Decay>().as_mut() }
+    unsafe { c.cast::<Instance>().as_mut() }
 }
 
 /// `nvr` 個の値参照と値の配列を組にして `f` に渡す。値参照が範囲外なら `fmi2Error`。
@@ -56,7 +231,7 @@ unsafe fn each<T>(
     vr: *const c_uint,
     nvr: usize,
     value: *mut T,
-    mut f: impl FnMut(&mut Decay, c_uint, &mut T) -> bool,
+    mut f: impl FnMut(&mut Instance, c_uint, &mut T) -> bool,
 ) -> Status {
     if nvr == 0 {
         return OK;
@@ -81,14 +256,31 @@ unsafe fn each<T>(
     }
 }
 
-/// 長さ `n` の配列の先頭に `f` で書く（Decay の状態は 1 つなので `n == 1` だけ）。
-unsafe fn one(c: Component, p: *mut f64, n: usize, f: impl FnOnce(&mut Decay, &mut f64)) -> Status {
-    match (unsafe { inst(c) }, unsafe { p.as_mut() }) {
-        (Some(m), Some(v)) if n == 1 => {
-            f(m, v);
-            OK
+/// 長さ `n`（状態の数）の配列を `f` に渡す。`f` が失敗したら `fmi2Error`。
+unsafe fn states(
+    c: Component,
+    p: *mut f64,
+    n: usize,
+    f: impl FnOnce(&mut Instance, &mut [f64]) -> Result<(), String>,
+) -> Status {
+    let Some(m) = (unsafe { inst(c) }) else {
+        return ERROR;
+    };
+    if n != m.inst.n_states() || (n > 0 && p.is_null()) {
+        return ERROR;
+    }
+    let v: &mut [f64] = if n == 0 {
+        &mut []
+    } else {
+        // SAFETY: 呼び手は n 個の有効な配列を渡す
+        unsafe { std::slice::from_raw_parts_mut(p, n) }
+    };
+    match f(m, v) {
+        Ok(()) => OK,
+        Err(e) => {
+            eprintln!("globe-mode-fmu: {e}");
+            ERROR
         }
-        _ => ERROR,
     }
 }
 
@@ -112,30 +304,61 @@ pub unsafe extern "C" fn fmi2SetDebugLogging(
     OK
 }
 
-/// ME だけを受け、`guid` が違えば NULL を返す。
+/// ME だけを受け、resources の `.mo` を compile する。`guid` が文面と合わないか、載せられないモデルなら NULL を返す。
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fmi2Instantiate(
     _instance_name: *const c_char,
     fmu_type: c_int,
     guid: *const c_char,
-    _resource_location: *const c_char,
+    resource_location: *const c_char,
     _functions: *const c_void,
     _visible: c_int,
     _logging_on: c_int,
 ) -> Component {
-    // SAFETY: guid は NUL 終端の文字列（規格の約束）
-    let ok = !guid.is_null() && unsafe { CStr::from_ptr(guid) }.to_bytes() == GUID.as_bytes();
-    if fmu_type != MODEL_EXCHANGE || !ok {
+    if fmu_type != MODEL_EXCHANGE || guid.is_null() || resource_location.is_null() {
         return std::ptr::null_mut();
     }
-    Box::into_raw(Box::new(Decay::START)).cast()
+    // SAFETY: guid と resource_location は NUL 終端の文字列（規格の約束）
+    let (guid_given, location) = unsafe {
+        (
+            CStr::from_ptr(guid).to_string_lossy(),
+            CStr::from_ptr(resource_location).to_string_lossy(),
+        )
+    };
+    let Some((name, source)) = read_resource(&location) else {
+        eprintln!("globe-mode-fmu: {location} に .mo が無い");
+        return std::ptr::null_mut();
+    };
+    if self::guid(&name, &source) != guid_given {
+        return std::ptr::null_mut();
+    }
+    let built = compile(&name, &source).and_then(|model| {
+        ModelInstance::new(&model, &BTreeMap::new(), 0.0)
+            .map(|inst| (model, inst))
+            .map_err(|d| format!("{d:?}"))
+    });
+    match built {
+        Ok((model, inst)) => Box::into_raw(Box::new(Instance {
+            model,
+            inst,
+            start: 0.0,
+            overrides: BTreeMap::new(),
+            inputs: BTreeMap::new(),
+            dirty: false,
+        }))
+        .cast(),
+        Err(e) => {
+            eprintln!("globe-mode-fmu: {e}");
+            std::ptr::null_mut()
+        }
+    }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fmi2FreeInstance(c: Component) {
     if !c.is_null() {
         // SAFETY: fmi2Instantiate の Box::into_raw を 1 度だけ戻す
-        drop(unsafe { Box::from_raw(c.cast::<Decay>()) });
+        drop(unsafe { Box::from_raw(c.cast::<Instance>()) });
     }
 }
 
@@ -144,11 +367,16 @@ pub unsafe extern "C" fn fmi2SetupExperiment(
     c: Component,
     _tol_defined: c_int,
     _tol: f64,
-    _start: f64,
+    start: f64,
     _stop_defined: c_int,
     _stop: f64,
 ) -> Status {
-    unsafe { fmi2EnterInitializationMode(c) }
+    unsafe { inst(c) }.map_or(ERROR, |m| {
+        if m.start != start {
+            (m.start, m.dirty) = (start, true);
+        }
+        OK
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -160,9 +388,10 @@ pub unsafe extern "C" fn fmi2EnterInitializationMode(c: Component) -> Status {
     }
 }
 
+/// パラメータか開始時刻が変わっていれば、lowering からやり直して初期化し直す。
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fmi2ExitInitializationMode(c: Component) -> Status {
-    unsafe { fmi2EnterInitializationMode(c) }
+    unsafe { inst(c) }.map_or(ERROR, |m| if m.rebuild() { OK } else { ERROR })
 }
 
 #[unsafe(no_mangle)]
@@ -173,8 +402,10 @@ pub unsafe extern "C" fn fmi2Terminate(c: Component) -> Status {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fmi2Reset(c: Component) -> Status {
     unsafe { inst(c) }.map_or(ERROR, |m| {
-        *m = Decay::START;
-        OK
+        m.overrides.clear();
+        m.inputs.clear();
+        (m.start, m.dirty) = (0.0, true);
+        if m.rebuild() { OK } else { ERROR }
     })
 }
 
@@ -187,13 +418,17 @@ pub unsafe extern "C" fn fmi2GetReal(
 ) -> Status {
     unsafe {
         each(c, vr, nvr, value, |m, r, v| {
-            *v = match r {
-                0 => m.x,
-                1 => -m.k * m.x,
-                2 => m.k,
-                _ => return false,
+            let (n, r) = (m.inst.n_states(), r as usize);
+            let got = if r < n {
+                Some(m.inst.states()[r])
+            } else if r < 2 * n {
+                m.inst.derivatives().ok().map(|d| d[r - n])
+            } else if let Some((name, p)) = m.inst.parameters().get(r - 2 * n) {
+                Some(*m.overrides.get(name).unwrap_or(p))
+            } else {
+                variable(m, r, ValueType::Real)
             };
-            true
+            got.map(|x| *v = x).is_some()
         })
     }
 }
@@ -207,39 +442,86 @@ pub unsafe extern "C" fn fmi2SetReal(
 ) -> Status {
     unsafe {
         each(c, vr, nvr, value.cast_mut(), |m, r, v| {
-            match r {
-                0 => m.x = *v,
-                2 => m.k = *v,
-                _ => return false,
+            let (n, r) = (m.inst.n_states(), r as usize);
+            if r < n {
+                let mut x = m.inst.states().to_vec();
+                x[r] = *v;
+                return m.inst.set_states(&x).is_ok();
             }
+            let p = m.inst.parameters().len();
+            if let Some(var) = (r.checked_sub(2 * n + p)).and_then(|i| m.inst.variables().nth(i)) {
+                let name = var.name.clone();
+                let ok = var.role == VariableRole::Input && m.inst.set_input(&name, *v).is_ok();
+                if ok {
+                    m.inputs.insert(name, *v);
+                }
+                return ok;
+            }
+            let Some((name, _)) = r
+                .checked_sub(2 * n)
+                .and_then(|i| m.inst.parameters().get(i))
+            else {
+                return false;
+            };
+            m.overrides.insert(name.clone(), *v);
+            m.dirty = true;
             true
         })
     }
 }
 
-/// Integer・Boolean・String の変数は無い（`nvr = 0` だけ OK）。
+/// 値参照 `r`（`2n+p..`）の代数・離散の変数の今の値。型が `ty` でなければ None。
+// shortcut: 値参照ごとに解き直す（nvr 個なら nvr 回）。変数の多いモデルで遅ければ 1 回の呼び出しの中で使い回す
+fn variable(m: &Instance, r: usize, ty: ValueType) -> Option<f64> {
+    let i = r.checked_sub(2 * m.inst.n_states() + m.inst.parameters().len())?;
+    if m.inst.variables().nth(i)?.value_type != ty {
+        return None;
+    }
+    match m.inst.variable_values() {
+        Ok(v) => Some(v[i]),
+        Err(e) => {
+            eprintln!("globe-mode-fmu: {e}");
+            None
+        }
+    }
+}
+
+/// String の変数と、Integer・Boolean の書き込みは無い（`nvr = 0` だけ OK）。
 fn no_variables(nvr: usize) -> Status {
     if nvr == 0 { OK } else { ERROR }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fmi2GetInteger(
-    _c: Component,
-    _vr: *const c_uint,
+    c: Component,
+    vr: *const c_uint,
     nvr: usize,
-    _v: *mut c_int,
+    value: *mut c_int,
 ) -> Status {
-    no_variables(nvr)
+    unsafe {
+        each(c, vr, nvr, value, |m, r, v| {
+            // 値は整数の f64（Rumoca は離散の値も f64 で持つ）
+            variable(m, r as usize, ValueType::Integer)
+                .map(|x| *v = x.round() as c_int)
+                .is_some()
+        })
+    }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fmi2GetBoolean(
-    _c: Component,
-    _vr: *const c_uint,
+    c: Component,
+    vr: *const c_uint,
     nvr: usize,
-    _v: *mut c_int,
+    value: *mut c_int,
 ) -> Status {
-    no_variables(nvr)
+    unsafe {
+        each(c, vr, nvr, value, |m, r, v| {
+            variable(m, r as usize, ValueType::Boolean)
+                .map(|x| *v = c_int::from(x != 0.0))
+                .is_some()
+        })
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -340,27 +622,41 @@ pub unsafe extern "C" fn fmi2GetDirectionalDerivative(
     ERROR
 }
 
+/// 今の時刻と状態を `pre` の値として控える。
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fmi2EnterEventMode(c: Component) -> Status {
-    unsafe { fmi2EnterInitializationMode(c) }
+    unsafe { inst(c) }.map_or(ERROR, |m| match m.inst.enter_event_mode() {
+        Ok(()) => OK,
+        Err(e) => {
+            eprintln!("globe-mode-fmu: {e}");
+            ERROR
+        }
+    })
 }
 
-/// Decay にイベントは無いので、すべて偽で返す。
+/// `when` と `reinit` を回す。Rumoca は 1 回の呼び出しで事象の反復を収束させるので、
+/// `newDiscreteStatesNeeded` はいつも偽。
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fmi2NewDiscreteStates(c: Component, info: *mut EventInfo) -> Status {
-    match (unsafe { inst(c) }, unsafe { info.as_mut() }) {
-        (Some(_), Some(info)) => {
+    let (Some(m), Some(info)) = (unsafe { inst(c) }, unsafe { info.as_mut() }) else {
+        return ERROR;
+    };
+    match m.inst.update_discrete_states() {
+        Ok(u) => {
             *info = EventInfo {
                 new_discrete_states_needed: 0,
-                terminate_simulation: 0,
+                terminate_simulation: c_int::from(u.terminate),
                 nominals_of_continuous_states_changed: 0,
-                values_of_continuous_states_changed: 0,
-                next_event_time_defined: 0,
-                next_event_time: 0.0,
+                values_of_continuous_states_changed: c_int::from(u.states_changed),
+                next_event_time_defined: c_int::from(u.next_event_time.is_some()),
+                next_event_time: u.next_event_time.unwrap_or(0.0),
             };
             OK
         }
-        _ => ERROR,
+        Err(e) => {
+            eprintln!("globe-mode-fmu: {e}");
+            ERROR
+        }
     }
 }
 
@@ -389,25 +685,37 @@ pub unsafe extern "C" fn fmi2CompletedIntegratorStep(
     }
 }
 
-/// Decay は時間に陽に依らないので時刻は持たない。
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn fmi2SetTime(c: Component, _time: f64) -> Status {
-    unsafe { fmi2EnterInitializationMode(c) }
+pub unsafe extern "C" fn fmi2SetTime(c: Component, time: f64) -> Status {
+    unsafe { inst(c) }.map_or(ERROR, |m| {
+        m.inst.set_time(time);
+        OK
+    })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fmi2SetContinuousStates(c: Component, x: *const f64, nx: usize) -> Status {
-    unsafe { one(c, x.cast_mut(), nx, |m, v| m.x = *v) }
+    unsafe { states(c, x.cast_mut(), nx, |m, v| m.inst.set_states(v)) }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fmi2GetContinuousStates(c: Component, x: *mut f64, nx: usize) -> Status {
-    unsafe { one(c, x, nx, |m, v| *v = m.x) }
+    unsafe {
+        states(c, x, nx, |m, v| {
+            v.copy_from_slice(m.inst.states());
+            Ok(())
+        })
+    }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fmi2GetDerivatives(c: Component, dx: *mut f64, nx: usize) -> Status {
-    unsafe { one(c, dx, nx, |m, v| *v = -m.k * m.x) }
+    unsafe {
+        states(c, dx, nx, |m, v| {
+            v.copy_from_slice(&m.inst.derivatives()?);
+            Ok(())
+        })
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -416,14 +724,34 @@ pub unsafe extern "C" fn fmi2GetNominalsOfContinuousStates(
     x: *mut f64,
     nx: usize,
 ) -> Status {
-    unsafe { one(c, x, nx, |_, v| *v = 1.0) }
+    unsafe {
+        states(c, x, nx, |_, v| {
+            v.fill(1.0);
+            Ok(())
+        })
+    }
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn fmi2GetEventIndicators(c: Component, _z: *mut f64, ni: usize) -> Status {
-    if ni == 0 && unsafe { inst(c) }.is_some() {
-        OK
-    } else {
-        ERROR
+pub unsafe extern "C" fn fmi2GetEventIndicators(c: Component, z: *mut f64, ni: usize) -> Status {
+    let Some(m) = (unsafe { inst(c) }) else {
+        return ERROR;
+    };
+    if ni != m.inst.n_event_indicators() || (ni > 0 && z.is_null()) {
+        return ERROR;
+    }
+    if ni == 0 {
+        return OK;
+    }
+    match m.inst.event_indicators() {
+        Ok(v) => {
+            // SAFETY: 呼び手は ni 個の有効な配列を渡す
+            unsafe { std::slice::from_raw_parts_mut(z, ni) }.copy_from_slice(&v);
+            OK
+        }
+        Err(e) => {
+            eprintln!("globe-mode-fmu: {e}");
+            ERROR
+        }
     }
 }

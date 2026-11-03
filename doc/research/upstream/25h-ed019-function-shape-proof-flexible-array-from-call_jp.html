@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>上流の下書き 25h — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode 上流の下書き 25h">
+
+<section class="slide" id="S01">
+  <span class="tag">下書き 25h · Rumoca · 未提出 · 2026-11-03</span>
+  <h1>Real[:] の局所変数を呼び出しの代入だけで決めると ED019</h1>
+  <p class="lead">代入があるのに「代入が大きさを決めない」と言う。v0.10.4 でも同じ</p>
+  <div class="cols-2">
+    <div>
+      <pre><code>function f
+  input Real x;
+  output Real y;
+protected
+  Real[:] X;      // ここ → ED019
+algorithm
+  X := g(x);      // g の出力は X[2]
+  y := X[1];
+end f;
+// Real[2] X なら通る。束縛 = g(x) も落ちる</code></pre>
+      <p class="small muted">本文: <a href="25h-ed019-function-shape-proof-flexible-array-from-call_jp.md">日本語</a> · <a href="25h-ed019-function-shape-proof-flexible-array-from-call.md">英語</a> · 再現 <a href="25h-ed019-function-shape-proof-flexible-array-from-call.mo">.mo</a> · 一覧 <a href="../../upstream.md">upstream.md</a></p>
+    </div>
+    <table class="small">
+      <tr><th>v0.10.4 の結果</th><td><span class="ng">再現</span>（M・M1 が ED019 <code>axis 1 is variable-size</code>）</td></tr>
+      <tr><th>Rumoca の穴の根拠</th><td>protected の <code>:</code> の配列は代入で大きさが決まる（MLS §12.4.5）。omc は通す</td></tr>
+      <tr><th>影響</th><td>ライブラリ 2 本・MSL 2 本（<code>ReferenceMoistAir.Xsaturation</code>）</td></tr>
+      <tr><th>GlobeMode 側の回避</th><td>なし（GM-U0001）</td></tr>
+      <tr><th>提出の判断材料</th><td>25d・25e・25f とまとめてよい</td></tr>
+    </table>
+  </div>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

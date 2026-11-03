@@ -1,4 +1,6 @@
-//! S095: Decay の FMU を関数で直接呼ぶ検査と、FMPy で回す検査（FMPy が回せない環境では skip）。
+//! S095・S099・S109・S112・S114: FMU を関数で直接呼ぶ検査と、FMPy で回す検査（FMPy が回せない環境では skip）。
+//!
+//! モデルは `src/Modelica/GlobeModeValidation/Simulation/` の 1 ファイルを `resources/<完全修飾名>.mo` に置く。
 
 use std::ffi::{CString, c_int};
 use std::path::PathBuf;
@@ -6,53 +8,149 @@ use std::process::Command;
 
 use globe_mode_fmu::*;
 
-#[test]
-fn guid_matches_model_description() {
-    let md = include_str!("../modelDescription.xml");
-    assert!(md.contains(&format!("guid=\"{GUID}\"")));
+fn source(name: &str) -> (String, String) {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!(
+        "../../../Modelica/GlobeModeValidation/Simulation/{name}.mo"
+    ));
+    (
+        format!("GlobeModeValidation.Simulation.{name}"),
+        std::fs::read_to_string(path).unwrap(),
+    )
+}
+
+/// `resources/<完全修飾名>.mo` を置いた一時の置き場（FMU を展開したときの `resources` に当たる）。
+/// 試験は並行に走るので、置き場は試験ごとの `tag` で分ける。debug の cdylib は 700 MB あり、tmpfs の /tmp に
+/// 置くと溢れるので、target の下（`CARGO_TARGET_TMPDIR`）に置く。
+fn resources(tag: &str, model: &str, text: &str) -> PathBuf {
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!(
+        "globe_mode_fmu_{}_{tag}/resources",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join(format!("{model}.mo")), text).unwrap();
+    dir
 }
 
 #[test]
-fn explicit_euler_through_the_c_abi() {
-    let guid = CString::new(GUID).unwrap();
+fn model_description_lists_states_derivatives_and_parameters() {
+    let (model, text) = source("HarmonicOscillator");
+    let md = model_description(&model, &text).unwrap();
+    assert!(md.contains(&format!("guid=\"{}\"", guid(&model, &text))));
+    for v in [
+        r#"name="x" valueReference="0""#,
+        r#"name="v" valueReference="1""#,
+        r#"name="der(x)" valueReference="2""#,
+        r#"name="der(v)" valueReference="3""#,
+        r#"name="w" valueReference="4""#,
+        r#"<Real start="2.0"/>"#,
+        r#"stopTime="1.0" tolerance="1e-8""#,
+    ] {
+        assert!(md.contains(v), "{v} が無い:\n{md}");
+    }
+}
+
+/// S112: 離散の変数（Integer の n、discrete Real の xs）が値参照 `2n+p..` に載る。
+#[test]
+fn model_description_lists_discrete_variables() {
+    let (model, text) = source("SampleCounter");
+    let md = model_description(&model, &text).unwrap();
+    for v in [
+        r#"name="n" valueReference="#,
+        r#"causality="local" variability="discrete" initial="calculated">
+      <Integer/>"#,
+        r#"name="xs" valueReference="#,
+        r#"<Real/>"#,
+    ] {
+        assert!(md.contains(v), "{v} が無い:\n{md}");
+    }
+}
+
+/// S114: 入力 u は `causality="input"`（start 必須）、出力 y は `ModelStructure` の `Outputs` に載り、
+/// `fmi2SetReal` で u を書くと微分と y に効く。
+#[test]
+fn inputs_and_outputs_through_the_c_abi() {
+    let (model, text) = source("InputDecay");
+    let md = model_description(&model, &text).unwrap();
+    let vr = |name: &str| -> u32 {
+        let key = format!("name=\"{name}\" valueReference=\"");
+        let at = md.find(&key).unwrap() + key.len();
+        md[at..at + md[at..].find('"').unwrap()].parse().unwrap()
+    };
+    let (u, y) = (vr("u"), vr("y"));
+    for v in [
+        format!(
+            "name=\"u\" valueReference=\"{u}\" causality=\"input\" variability=\"continuous\">\n      <Real start=\"0.0\"/>"
+        ),
+        format!("name=\"y\" valueReference=\"{y}\" causality=\"output\""),
+        format!("<Outputs>\n      <Unknown index=\"{}\"/>", y + 1),
+    ] {
+        assert!(md.contains(&v), "{v} が無い:\n{md}");
+    }
+    let dir = resources("inputs", &model, &text);
+    let location = CString::new(format!("file://{}", dir.display())).unwrap();
+    let guid = CString::new(guid(&model, &text)).unwrap();
     unsafe {
-        assert!(
-            fmi2Instantiate(
-                c"d".as_ptr(),
-                1,
-                guid.as_ptr(),
-                std::ptr::null(),
-                std::ptr::null(),
-                0,
-                0
-            )
-            .is_null(),
-            "CS は断る"
-        );
-        assert!(
-            fmi2Instantiate(
-                c"d".as_ptr(),
-                0,
-                c"{x}".as_ptr(),
-                std::ptr::null(),
-                std::ptr::null(),
-                0,
-                0
-            )
-            .is_null(),
-            "guid 違いは断る"
-        );
         let c = fmi2Instantiate(
-            c"d".as_ptr(),
+            c"i".as_ptr(),
             0,
             guid.as_ptr(),
-            std::ptr::null(),
+            location.as_ptr(),
             std::ptr::null(),
             0,
             0,
         );
         assert!(!c.is_null());
+        assert_eq!(fmi2EnterInitializationMode(c), 0);
+        assert_eq!(fmi2SetReal(c, [u].as_ptr(), 1, [3.0].as_ptr()), 0);
+        assert_eq!(
+            fmi2SetReal(c, [y].as_ptr(), 1, [3.0].as_ptr()),
+            3,
+            "出力は書けない"
+        );
+        assert_eq!(fmi2ExitInitializationMode(c), 0);
+        let mut dx = [0.0];
+        assert_eq!(fmi2GetDerivatives(c, dx.as_mut_ptr(), 1), 0);
+        assert_eq!(dx[0], 2.0, "der(x) = -x + u = -1 + 3");
+        assert_eq!(fmi2SetReal(c, [u].as_ptr(), 1, [-1.0].as_ptr()), 0);
+        assert_eq!(fmi2SetContinuousStates(c, [0.5].as_ptr(), 1), 0);
+        let mut v = [0.0; 2];
+        assert_eq!(fmi2GetReal(c, [u, y].as_ptr(), 2, v.as_mut_ptr()), 0);
+        assert_eq!(v, [-1.0, 1.0]);
+        assert_eq!(fmi2GetDerivatives(c, dx.as_mut_ptr(), 1), 0);
+        assert_eq!(dx[0], -1.5);
+        fmi2FreeInstance(c);
+    }
+    let _ = std::fs::remove_dir_all(dir.parent().unwrap());
+}
+
+#[test]
+fn explicit_euler_through_the_c_abi() {
+    let (model, text) = source("Decay");
+    let dir = resources("c_abi", &model, &text);
+    let location = CString::new(format!("file://{}", dir.display())).unwrap();
+    let guid = CString::new(guid(&model, &text)).unwrap();
+    let instantiate = |kind: c_int, g: &CString| unsafe {
+        fmi2Instantiate(
+            c"d".as_ptr(),
+            kind,
+            g.as_ptr(),
+            location.as_ptr(),
+            std::ptr::null(),
+            0,
+            0,
+        )
+    };
+    unsafe {
+        assert!(instantiate(1, &guid).is_null(), "CS は断る");
+        assert!(
+            instantiate(0, &CString::new("{x}").unwrap()).is_null(),
+            "guid 違いは断る"
+        );
+        let c = instantiate(0, &guid);
+        assert!(!c.is_null());
+        assert_eq!(fmi2EnterInitializationMode(c), 0);
         assert_eq!(fmi2SetReal(c, [2].as_ptr(), 1, [2.0].as_ptr()), 0);
+        assert_eq!(fmi2ExitInitializationMode(c), 0);
         let (mut x, mut dx) = ([0.0], [0.0]);
         let n = 100_000;
         for _ in 0..n {
@@ -70,36 +168,44 @@ fn explicit_euler_through_the_c_abi() {
             3,
             "無い値参照"
         );
+        assert_eq!(fmi2GetDerivatives(c, dx.as_mut_ptr(), 2), 3, "状態の数違い");
         let (mut e, mut t): (c_int, c_int) = (1, 1);
         assert_eq!(fmi2CompletedIntegratorStep(c, 1, &mut e, &mut t), 0);
         assert_eq!((e, t), (0, 0));
+        assert_eq!(fmi2Reset(c), 0);
+        assert_eq!(fmi2GetReal(c, [0, 2].as_ptr(), 2, v.as_mut_ptr()), 0);
+        assert_eq!(&v[..2], [1.0, 1.0], "Reset で既定に戻る");
         fmi2FreeInstance(c);
     }
+    let _ = std::fs::remove_dir_all(dir.parent().unwrap());
 }
 
-#[test]
+/// cdylib を作り、`model` を FMU に詰めて FMPy の ME で回す。終了時刻での `names` の値と事象の回数
+/// （`events`・`reinit`）を `名前=値` で並べた出力を返す。FMPy が使えなければ None。
+/// `input` は FMPy の `input=` に渡す入力（`{"u": [[時刻, 値], …]}` の JSON。無ければ空）。
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-fn fmpy_simulates_decay() {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let fmu = std::env::temp_dir().join(format!("globe_mode_fmu_{}.fmu", std::process::id()));
+fn fmpy(name: &str, names: &[&str], input: &str) -> Option<String> {
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let tmp = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
     let uv = |args: &[&std::ffi::OsStr]| {
         Command::new("uv")
+            // FMPy が FMU を展開する置き場も target の下にする
+            .env("TMPDIR", &tmp)
             .args(["run", "--no-project", "--with", "fmpy", "python", "-I"])
             .args(args)
             .output()
     };
-    // FMPy（と uv）が使えない環境では skip
     match uv(&["-c".as_ref(), "import fmpy".as_ref()]) {
         Ok(o) if o.status.success() => {}
         other => {
             eprintln!("skip: FMPy を使えない: {other:?}");
-            return;
+            return None;
         }
     }
     // 結合テストは rlib だけを作るので、cdylib を cargo で作らせて置き場を JSON の出力から取る
     let build = Command::new(env!("CARGO"))
         .args(["build", "--lib", "--message-format=json", "--manifest-path"])
-        .arg(dir.join("Cargo.toml"))
+        .arg(manifest.join("Cargo.toml"))
         .output()
         .unwrap();
     assert!(
@@ -113,27 +219,149 @@ fn fmpy_simulates_decay() {
         .expect("cdylib の置き場が出ない")
         + "libglobe_mode_fmu.so".len();
     let so = PathBuf::from(&json[json[..end].rfind('"').unwrap() + 1..end]);
+    let (model, text) = source(name);
+    let dir = resources(name, &model, &text);
+    let work = dir.parent().unwrap();
+    let md = work.join("modelDescription.xml");
+    std::fs::write(&md, model_description(&model, &text).unwrap()).unwrap();
+    let fmu = work.join("model.fmu");
     let out = uv(&[
-        dir.join("tests/fmpy_decay.py").as_os_str(),
+        manifest.join("tests/fmpy_run.py").as_os_str(),
         so.as_os_str(),
-        dir.join("modelDescription.xml").as_os_str(),
+        md.as_os_str(),
+        dir.join(format!("{model}.mo")).as_os_str(),
+        model.as_ref(),
         fmu.as_os_str(),
+        names.join(",").as_ref(),
+        input.as_ref(),
     ])
     .unwrap();
-    let _ = std::fs::remove_file(&fmu);
+    let _ = std::fs::remove_dir_all(work);
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(
         out.status.success(),
         "FMPy が失敗: {stdout}\n{}",
         String::from_utf8_lossy(&out.stderr)
     );
-    let x: f64 = stdout
-        .split("x(1)=")
+    eprintln!("FMPy {name}: {}", stdout.trim());
+    Some(stdout.into_owned())
+}
+
+/// `globe_mode_exec::run`（bdf の既定）で回し、終了時刻での `names` の値を返す。
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+fn exec_last(name: &str, names: &[&str]) -> Vec<f64> {
+    let (model, text) = source(name);
+    let report = globe_mode_exec::run(&compile(&model, &text).unwrap(), &Default::default());
+    let run = report.run.expect("exec で回る");
+    let last: Vec<f64> = names
+        .iter()
+        .map(|n| *run.trajectory.variable(n).unwrap().values.last().unwrap())
+        .collect();
+    eprintln!("exec {name}: {names:?} = {last:?}");
+    last
+}
+
+fn value(stdout: &str, name: &str) -> f64 {
+    stdout
+        .split(&format!("{name}="))
         .nth(1)
         .and_then(|s| s.split_whitespace().next())
         .unwrap()
         .parse()
-        .unwrap();
-    assert!((x - (-1.0f64).exp()).abs() < 1e-4, "x(1) = {x}（{stdout}）");
-    eprintln!("FMPy: {}", stdout.trim());
+        .unwrap()
+}
+
+#[test]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+fn fmpy_simulates_decay() {
+    let Some(out) = fmpy("Decay", &["x"], "") else {
+        return;
+    };
+    let x = value(&out, "x");
+    assert!((x - (-1.0f64).exp()).abs() < 1e-4, "x(1) = {x}");
+}
+
+/// 状態 2 つ・事象なしの HarmonicOscillator を、FMPy と `globe_mode_exec::run`（bdf の既定）で回して x(1)・v(1) を突き合わせる。
+#[test]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+fn fmpy_matches_exec_on_harmonic_oscillator() {
+    let Some(out) = fmpy("HarmonicOscillator", &["x", "v"], "") else {
+        return;
+    };
+    let exec = exec_last("HarmonicOscillator", &["x", "v"]);
+    for (n, e) in ["x", "v"].iter().zip(&exec) {
+        let f = value(&out, n);
+        assert!((f - e).abs() < 1e-4, "{n}: FMPy {f} と exec {e}");
+    }
+}
+
+/// S109・S112: 状態事象と reinit。跳ねた回数（FMU の中の n と reinit で状態が変わった事象の数、exec の n）と
+/// h(2)・v(2) を突き合わせる。
+#[test]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+fn fmpy_matches_exec_on_bouncing_ball() {
+    let Some(out) = fmpy("BouncingBall", &["h", "v", "n"], "") else {
+        return;
+    };
+    let exec = exec_last("BouncingBall", &["h", "v", "n"]);
+    assert_eq!(value(&out, "n"), exec[2], "FMU の中の n");
+    assert_eq!(value(&out, "reinit"), exec[2], "跳ねた回数");
+    for (n, e) in ["h", "v"].iter().zip(&exec) {
+        let f = value(&out, n);
+        assert!((f - e).abs() < 1e-3, "{n}: FMPy {f} と exec {e}");
+    }
+}
+
+/// S109・S112: 時刻事象（`sample`）。FMU の中の Integer の n と discrete Real の xs（fmi2GetInteger・fmi2GetReal）、
+/// x(1) を exec と突き合わせる（n は 10、xs は最後の標本の時刻 0.95 の x）。
+#[test]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+fn fmpy_matches_exec_on_sample_counter() {
+    let Some(out) = fmpy("SampleCounter", &["x", "n", "xs"], "") else {
+        return;
+    };
+    let exec = exec_last("SampleCounter", &["x", "n", "xs"]);
+    assert_eq!(value(&out, "n"), 10.0, "FMU の中の n");
+    assert_eq!(value(&out, "n"), exec[1], "n");
+    for (n, e) in ["x", "xs"].iter().zip([exec[0], exec[2]]) {
+        let f = value(&out, n);
+        assert!((f - e).abs() < 1e-6, "{n}: FMPy {f} と exec {e}");
+    }
+}
+
+/// S112: 代数変数（非線形のループの y・z）を fmi2GetReal で読み、exec の最後の値（解析解 y = 2、z = 4）と突き合わせる。
+/// HarmonicOscillator・BouncingBall には代数変数が無いので NonlinearLoop を使う。
+#[test]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+fn fmpy_matches_exec_on_algebraic_variables() {
+    let Some(out) = fmpy("NonlinearLoop", &["x", "y", "z"], "") else {
+        return;
+    };
+    let exec = exec_last("NonlinearLoop", &["x", "y", "z"]);
+    for (n, e) in ["x", "y", "z"].iter().zip(&exec) {
+        let f = value(&out, n);
+        assert!((f - e).abs() < 1e-4, "{n}: FMPy {f} と exec {e}");
+    }
+}
+
+/// S114: 入力 u（`causality="input"`）を FMPy の `input=` で t = 0.5 に 0 → 2 の階段で与え、x(1)・出力 y(1) = 2 x(1) を
+/// 解析解 x(1) = 2 + (e^-0.5 - 2) e^-0.5 と突き合わせる（exec の `run` は入力を与える道が無く、駆動されない入力を断る）。
+#[test]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+fn fmpy_drives_input_step() {
+    let Some(out) = fmpy(
+        "InputDecay",
+        &["x", "y", "u"],
+        r#"{"u": [[0, 0], [0.5, 0], [0.5, 2], [1, 2]]}"#,
+    ) else {
+        return;
+    };
+    let h = (-0.5f64).exp();
+    let x = 2.0 + (h - 2.0) * h;
+    assert_eq!(value(&out, "u"), 2.0, "u(1)");
+    for (n, e) in [("x", x), ("y", 2.0 * x)] {
+        let f = value(&out, n);
+        eprintln!("{n}(1): FMPy {f}、解析解 {e}、差 {:.1e}", (f - e).abs());
+        assert!((f - e).abs() < 1e-5, "{n}: FMPy {f} と解析解 {e}");
+    }
 }

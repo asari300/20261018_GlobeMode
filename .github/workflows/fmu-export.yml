@@ -3,6 +3,8 @@
 # 手元では外から取った fmusim のバイナリを実行できないので、ランナーで回す。手動だけ（`gh workflow run fmu-export.yml`）。
 # FMI 2.0 と 3.0 のそれぞれで `globe fmu export --build` → FMPy の validate・simulate（ME・CS）→ fmusim の validate・simulate（ME・CS）。
 # モデルは GlobeModeValidation.Simulation.Decay（der(x) = -x、x(0) = 1）。x(1) と e⁻¹ の差を出す。
+# S105: Ubuntu で `--target`（zig cc）を 3 つ付けて linux64・win64・darwin64（3.0 は x86_64-linux・x86_64-windows・aarch64-darwin）を
+# 1 つの FMU に入れ、artifact で Ubuntu・Windows・macOS（arm64）に渡して各 OS の FMPy で validate と ME・CS の simulate を回す。
 name: fmu-export
 
 on:
@@ -24,7 +26,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v5
         with:
-          install_args: rust uv
+          install_args: rust uv zig
       - uses: Swatinem/rust-cache@v2
       - run: cargo build -p globe-mode-cli --bin globe
       - name: fmusim を取得する
@@ -57,3 +59,55 @@ jobs:
             done
           done
           { echo '```text'; cat "$RUNNER_TEMP/summary.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: zig cc で 3 つの OS 向けの FMU を作る（S105）
+        run: |
+          headers=$(uv run --no-project --with fmpy==0.3.32 python -I -c "import fmpy, os; print(os.path.join(os.path.dirname(fmpy.__file__), 'c-code'))")
+          for v in 2 3; do
+            out="$RUNNER_TEMP/cross/fmi$v"
+            target/debug/globe fmu export src/Modelica/GlobeModeValidation -m "$MODEL" --out "$out" --fmi-version "$v" --build --fmi-headers "$headers" \
+              --target x86_64-linux-gnu --target x86_64-windows-gnu --target aarch64-macos
+            unzip -l "$out/${MODEL//./_}.fmu"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fmu-cross
+          path: ${{ runner.temp }}/cross/*/*.fmu
+
+  # S105: zig cc で作った FMU を各 OS の FMPy で回す
+  fmu-cross:
+    needs: fmu-export
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: jdx/mise-action@v5
+        with:
+          install_args: uv
+          # checkout しないので mise.toml が無い
+          mise_toml: |
+            [tools]
+            uv = "latest"
+      - uses: actions/download-artifact@v4
+        with:
+          name: fmu-cross
+          path: fmu
+      - name: FMPy で validate と ME・CS
+        run: |
+          py() { uv run --no-project --with fmpy==0.3.32 python -I "$@"; }
+          fmpy() { py -c "import sys; from fmpy.cli import main; sys.argv = ['fmpy'] + sys.argv[1:]; main()" "$@"; }
+          for v in 2 3; do
+            fmu="fmu/fmi$v/GlobeModeValidation_Simulation_Decay.fmu"
+            fmpy validate "$fmu"
+            for it in ModelExchange CoSimulation; do
+              fmpy simulate "$fmu" --interface-type "$it" --relative-tolerance 1e-8 --stop-time 1 --output-variables x --output-file "out-$v-$it.csv"
+              py -c "import csv, math, sys; r = list(csv.reader(open(sys.argv[1]))); x = float(r[-1][1]); d = x - math.exp(-1); print(f'{sys.argv[2]}: t = {r[-1][0]}, x(1) = {x!r}, x(1) - e^-1 = {d:.3e}'); sys.exit(abs(d) > 1e-6)" \
+                "out-$v-$it.csv" "${{ runner.os }} FMI $v FMPy $it" | tee -a summary.txt
+            done
+          done
+          { echo '```text'; cat summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"

@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use rustler::{Resource, ResourceArc};
+use rustler::{Binary, Env, OwnedBinary, Resource, ResourceArc};
 
 /// ワークスペース（BEAM の resource）。salsa のデータベースは Sync でないので Mutex で 1 つずつ使う。
 #[derive(Debug)]
@@ -63,21 +63,65 @@ fn graph(ws: ResourceArc<Ws>, model: String, depth: u32) -> Result<String, Strin
     })?
 }
 
+fn request(model: String, settings_json: &str) -> Result<globe_mode::SimulateRequest, String> {
+    let settings: serde_json::Value = serde_json::from_str(settings_json)
+        .map_err(|e| format!("settings の JSON が読めない: {e}"))?;
+    serde_json::from_value(serde_json::json!({ "model": model, "settings": settings }))
+        .map_err(|e| format!("settings が読めない: {e}"))
+}
+
 /// 検査 → コンパイル → 実行（`SimulateResponse` の JSON）。`settings_json` は `{"stop_time": 2}` など。
 #[rustler::nif(schedule = "DirtyCpu")]
 fn simulate(ws: ResourceArc<Ws>, model: String, settings_json: String) -> Result<String, String> {
-    let settings: serde_json::Value = serde_json::from_str(&settings_json)
-        .map_err(|e| format!("settings の JSON が読めない: {e}"))?;
-    let request =
-        serde_json::from_value(serde_json::json!({ "model": model, "settings": settings }))
-            .map_err(|e| format!("settings が読めない: {e}"))?;
+    let request = request(model, &settings_json)?;
     with(&ws, |w| json(&w.simulate(&request)))?
+}
+
+/// 列の道（S116。Python の `simulate_columns` と同じ並び）。`{layout_json, [binary]}` で、layout は
+/// `{"response": SimulateResponse（csv 無し）, "names": ["time", ...], "points": n}`、binary は列ごとの f64（little-endian）。
+#[rustler::nif(schedule = "DirtyCpu")]
+fn simulate_columns<'a>(
+    env: Env<'a>,
+    ws: ResourceArc<Ws>,
+    model: String,
+    settings_json: String,
+) -> Result<(String, Vec<Binary<'a>>), String> {
+    let mut request = request(model, &settings_json)?;
+    request.no_csv = true;
+    let simulated = with(&ws, |w| w.simulate_with(&request, &globe_mode::now_ms))?;
+    let (layout, columns) = simulated.columns();
+    let mut binaries = Vec::with_capacity(columns.len());
+    for c in columns {
+        let mut b = OwnedBinary::new(c.len() * 8);
+        for (dst, x) in b.as_mut_slice().as_chunks_mut::<8>().0.iter_mut().zip(c) {
+            *dst = x.to_le_bytes();
+        }
+        binaries.push(b.release(env));
+    }
+    let text = json(&serde_json::json!({
+        "response": simulated.response,
+        "names": layout.names,
+        "points": layout.points,
+    }))?;
+    Ok((text, binaries))
 }
 
 /// ソルバの登録表（JSON の配列）。
 #[rustler::nif]
 fn solvers() -> Result<String, String> {
     json(globe_mode::solvers())
+}
+
+/// 本文を整形する（S111）。文法が壊れていれば `{:error, 理由}`。
+#[rustler::nif]
+fn format(text: String, indent: usize, insert_origin: bool) -> Result<String, String> {
+    globe_mode::format(&text, indent, insert_origin)
+}
+
+/// lint の結果（`[{rule, line, column, message}]` の JSON。S111）。
+#[rustler::nif]
+fn lint(text: String) -> String {
+    globe_mode::lint(&text)
 }
 
 rustler::init!("globe_mode_nif");

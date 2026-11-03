@@ -8,6 +8,7 @@
 #ifndef GLOBE_MODE_H
 #define GLOBE_MODE_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -29,8 +30,17 @@ char *gm_check(GmWorkspace *ws, const char *model);
 char *gm_graph(GmWorkspace *ws, const char *model, uint32_t depth);
 /* SimulateResponse の JSON。settings_json は NULL 可（{"stop_time": 2, "solver": "bdf"} など）。 */
 char *gm_simulate(GmWorkspace *ws, const char *model, const char *settings_json);
+/* 列の道（S116）。{"response": SimulateResponse（csv 無し）, "names": ["time", ...], "points": n} の JSON。
+ * *data に列を順に並べた names の数 * points 個の double（列 i は data + i * points）、*len にその個数。
+ * *data は gm_doubles_free で放す。誤りや実行できなかったときは *data が NULL、*len が 0。 */
+char *gm_simulate_columns(GmWorkspace *ws, const char *model, const char *settings_json, double **data, size_t *len);
+void gm_doubles_free(double *data, size_t len);
 /* ソルバの登録表（JSON の配列）。 */
 char *gm_solvers(void);
+/* 整形（S111）。{"text": "..."}、文法の誤りは {"error": "..."}。insert_origin は 0 か 1。 */
+char *gm_format(const char *text, uint32_t indent, int insert_origin);
+/* lint（S111）。[{"rule", "line", "column", "message"}] の JSON。 */
+char *gm_lint(const char *text);
 void gm_string_free(char *s);
 
 #ifdef __cplusplus

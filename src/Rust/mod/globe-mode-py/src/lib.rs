@@ -40,7 +40,7 @@ fn simulate_json(
 /// 結果の JSON（`csv` は無い）と、列の名前（`time` が先頭）と値（f64 の little-endian を並べたもの）。
 type Columns = (String, Vec<String>, Vec<Vec<u8>>);
 
-/// [`simulate_json`] と同じだが、時系列を CSV にせず列ごとに返す（S085。wasm の `SimColumns` と同じ並び）。
+/// [`simulate_json`] と同じだが、時系列を CSV にせず列ごとに返す（S085。並びは facade の `Simulated::columns`）。
 fn simulate_columns(
     ws: &mut globe_mode::Workspace,
     model: &str,
@@ -48,20 +48,13 @@ fn simulate_columns(
 ) -> Result<Columns, String> {
     let mut request = request(model, settings_json)?;
     request.no_csv = true;
-    let globe_mode::Simulated { response, run, .. } =
-        ws.simulate_with(&request, &globe_mode::now_ms);
-    let bytes = |v: &[f64]| v.iter().flat_map(|x| x.to_le_bytes()).collect();
-    let (names, columns) = match &run {
-        Some(run) => std::iter::once(("time".to_string(), bytes(&run.trajectory.time)))
-            .chain(
-                run.trajectory
-                    .variables
-                    .iter()
-                    .map(|v| (v.name.clone(), bytes(&v.values))),
-            )
-            .unzip(),
-        None => (Vec::new(), Vec::new()),
-    };
+    let simulated = ws.simulate_with(&request, &globe_mode::now_ms);
+    let (layout, columns) = simulated.columns();
+    let columns = columns
+        .iter()
+        .map(|v| v.iter().flat_map(|x| x.to_le_bytes()).collect())
+        .collect();
+    let (response, names) = (simulated.response, layout.names);
     Ok((json(&response)?, names, columns))
 }
 
@@ -139,10 +132,25 @@ fn solvers() -> PyResult<String> {
     json(&globe_mode::solvers()).map_err(PyRuntimeError::new_err)
 }
 
+/// 本文を整形する（S111）。文法が壊れていれば `ValueError`。
+#[pyfunction]
+#[pyo3(signature = (text, indent = 2, insert_origin = true))]
+fn format(text: &str, indent: usize, insert_origin: bool) -> PyResult<String> {
+    globe_mode::format(text, indent, insert_origin).map_err(PyValueError::new_err)
+}
+
+/// lint の結果（`[{rule, line, column, message}]` の JSON。S111）。
+#[pyfunction]
+fn lint(text: &str) -> String {
+    globe_mode::lint(text)
+}
+
 #[pymodule]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Workspace>()?;
-    m.add_function(wrap_pyfunction!(solvers, m)?)
+    m.add_function(wrap_pyfunction!(solvers, m)?)?;
+    m.add_function(wrap_pyfunction!(format, m)?)?;
+    m.add_function(wrap_pyfunction!(lint, m)?)
 }
 
 #[cfg(test)]

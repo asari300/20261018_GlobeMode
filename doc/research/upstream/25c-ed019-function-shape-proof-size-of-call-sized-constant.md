@@ -4,6 +4,8 @@ Target: Rumoca (https://github.com/CogniPilot/rumoca)
 
 Verdict (GlobeMode, S083): **valid Modelica that Rumoca rejects** (ED019, reported as unsupported). omc accepts it. Split out of draft 25 in S096 (one shape per draft); the other ED019 shapes are drafts 25 and 25b to 25h.
 
+Status (S115, 2026-11-03): **fixed in Rumoca v0.10.4.** `Rep29.M` and `Rep29.M2` compile with the v0.10.4 release binary. Do not file; this draft is kept as a record.
+
 ## Summary
 
 A function declares `protected Integer n = size(c, 1) - 1`, where the package constant `c[:]` is bound to a call whose output size depends on an input (`output Real p[n + 1]`). Rumoca rejects it:
@@ -39,12 +41,17 @@ All of `M`, `M0` and `M1` compile. Array dimensions of function components may d
 
 `Rep29.M` fails in both `globe check` (`unsupported[GM-U0001]`, note `rumoca: ED019`) and the Rumoca v0.10.2 CLI with this message; `M0` and `M1` compile in both. OpenModelica 1.27.2 (`loadFile`, `checkModel`) accepts every model in the file (checked 2026-11-02).
 
+## Re-check on Rumoca v0.10.4 (S115, 2026-11-03)
+
+Fixed: `Rep29.M` and `Rep29.M2` compile (`Compilation successful!`, exit 0); `Rep29.M0` and `Rep29.M1` still compile. With v0.10.2 `Rep29.M` and `Rep29.M2` still give ED019 `function shape proof`. The library examples were not re-run with v0.10.4. [not verified]
+
 ## Environment
 
 - Rumoca v0.10.2, git rev `276e82bd0fd48960ac201e782918d28bf19cf7ce`; also the prebuilt `rumoca-linux-x86_64` v0.10.2 binary.
 - Linux x86_64 (WSL2, Ubuntu).
 - Counts: GlobeMode's libraries run of 2026-11-02 (GitHub Actions run 41365960542, MSL 4.1.0), `*-funnel.json`.
 - Not yet re-checked against Rumoca main. Re-check before filing.
+- Re-checked on 2026-11-03 (S115) with the latest release, Rumoca v0.10.4 (tag commit `9c8c56fcd9f5ab9beb871f09bf5d9eed82971c54`, released 2026-11-02, prebuilt `rumoca-linux-x86_64`, https://github.com/CogniPilot/rumoca/releases/tag/v0.10.4), next to the v0.10.2 binary. Rumoca main was not built. [not verified on main]
 
 ## Workaround in GlobeMode
 

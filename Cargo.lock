@@ -1382,6 +1382,7 @@ dependencies = [
  "globe-mode-core",
  "globe-mode-db",
  "globe-mode-exec",
+ "globe-mode-fmt",
  "globe-mode-frontend",
  "globe-mode-graph",
  "globe-mode-ir",
@@ -1478,6 +1479,10 @@ version = "0.0.1"
 [[package]]
 name = "globe-mode-fmu"
 version = "0.0.1"
+dependencies = [
+ "globe-mode-exec",
+ "globe-mode-frontend",
+]
 
 [[package]]
 name = "globe-mode-frontend"

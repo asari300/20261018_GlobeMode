@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>上流の下書き 30 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode 上流の下書き 30">
+
+<section class="slide" id="S01">
+  <span class="tag">下書き 30 · Rumoca · 未提出 · 2026-11-03</span>
+  <h1>record の eta[size(y, 1)] を関数の呼び出しで束縛すると ET004</h1>
+  <p class="lead">大きさが束縛から決まる record を、関数の出力で束縛すると次元を評価できない。v0.10.4 でも同じ</p>
+  <div class="cols-2">
+    <div>
+      <pre><code>record R
+  parameter Real y[:];
+  parameter Real eta[size(y, 1)];
+end R;
+function f
+  input Real k;
+  output R r(y = {0, 1}, eta = zeros(2));
+end f;
+model M parameter R p = f(2); end M; // ET004
+model M0  // 通る
+  parameter R p(y = {0, 1}, eta = {2, 2});
+end M0;</code></pre>
+      <p class="small muted">本文: <a href="30-et004-record-size-dimension-bound-to-call_jp.md">日本語</a> · <a href="30-et004-record-size-dimension-bound-to-call.md">英語</a> · 再現 <a href="30-et004-record-size-dimension-bound-to-call.mo">.mo</a> · 一覧 <a href="../../upstream.md">upstream.md</a></p>
+    </div>
+    <table class="small">
+      <tr><th>v0.10.4 の結果</th><td><span class="ng">再現</span>（M が ET004、M0 は通る）</td></tr>
+      <tr><th>Rumoca の穴の根拠</th><td><code>:</code> の次元は束縛から決まる（MLS §10.1）。関数の出力の大きさは出力の修正で決まる（§12.4.5）。omc は 2 本とも通す</td></tr>
+      <tr><th>影響</th><td>ライブラリ 15 本（IBPSA・Buildings・AixLib の <code>Fluid.Movers.Examples</code> 5 本ずつ）</td></tr>
+      <tr><th>GlobeMode 側の回避</th><td>なし</td></tr>
+      <tr><th>提出の判断材料</th><td>再現は最小。提出の順は 10 位（S115 で 13 位から）。ライブラリを直しての確認はしていない【未確認】</td></tr>
+    </table>
+  </div>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

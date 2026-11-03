@@ -35,5 +35,26 @@ pub fn simulate(
   settings_json: String,
 ) -> Result(String, String)
 
+/// 列の道（S116）。`#(レイアウトの JSON, 列)`。レイアウトは `{"response", "names", "points"}`（`response` に `csv` は無い）、
+/// 列は `names` と同じ順の f64（little-endian）の BitArray。
+@external(erlang, "globe_mode_nif", "simulate_columns")
+pub fn simulate_columns(
+  ws: Workspace,
+  model: String,
+  settings_json: String,
+) -> Result(#(String, List(BitArray)), String)
+
 @external(erlang, "globe_mode_nif", "solvers")
 pub fn solvers() -> Result(String, String)
+
+/// 本文を整形する（S111）。文法が壊れていれば `Error(理由)`。
+@external(erlang, "globe_mode_nif", "format")
+pub fn format(
+  text: String,
+  indent: Int,
+  insert_origin: Bool,
+) -> Result(String, String)
+
+/// lint の結果（`[{rule, line, column, message}]` の JSON。S111）。
+@external(erlang, "globe_mode_nif", "lint")
+pub fn lint(text: String) -> String

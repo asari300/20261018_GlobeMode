@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S114 入力のあるモデルを FMU で回す — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S114 入力のあるモデルを FMU で回す">
+
+<section class="slide" id="S01">
+  <span class="tag">S114 · 2026-11-03 · P5b</span>
+  <h1>入力のあるモデルを FMU で回す（P5b の 5 回目）</h1>
+  <p class="lead"><code>ModelInstance::set_input</code> と <code>causality="input"</code></p>
+  <div class="big">FMPy の階段の入力で x(1) が解析解と 5.6e-8</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>S112 の持ち越し: <code>input Real u</code> を持つモデルを FMU で回す</li>
+    <li><code>fmi2SetReal</code> で入力を書き、微分と出力に効かせる</li>
+    <li>S112 で未検証の <code>ModelStructure/Outputs</code> を FMPy の validate で通す</li>
+    <li>Rumoca は改変しない。新しい外部の依存は足さない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>入力は Rumoca の host と同じ所に書く</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th></tr>
+    <tr><td>置き場</td><td>パラメータの枠の <code>input_parameter_index</code>（host の <code>set_float64</code> と同じ）</td></tr>
+    <tr><td>lowering の前</td><td>入力の <code>start</code> を <code>SimOptions::initial_inputs</code> で渡す</td></tr>
+    <tr><td>API</td><td><code>set_input(name, value)</code>、<code>variables()</code> に Input</td></tr>
+    <tr><td>FMU</td><td><code>causality="input"</code>・continuous・<code>start</code> 必須</td></tr>
+    <tr><td>InitialUnknowns</td><td>出力も並べる（validate が落ちた）</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>入力の流れ</h1>
+  <svg class="fig" viewBox="0 0 800 200" role="img" aria-label="FMPy の fmi2SetReal から set_input を経てパラメータの枠の入力の位置に書き、微分と出力に効く">
+    <rect class="svg-box" x="20" y="60" width="170" height="70" rx="10"/>
+    <text class="svg-text-b" x="105" y="92" text-anchor="middle">FMPy</text>
+    <text class="svg-text" x="105" y="114" text-anchor="middle">fmi2SetReal(u)</text>
+    <rect class="svg-box" x="210" y="60" width="170" height="70" rx="10"/>
+    <text class="svg-text-b" x="295" y="92" text-anchor="middle">ModelInstance</text>
+    <text class="svg-text" x="295" y="114" text-anchor="middle">set_input</text>
+    <rect class="svg-box-accent" x="400" y="60" width="170" height="70" rx="10"/>
+    <text class="svg-text-b" x="485" y="92" text-anchor="middle">params[k]</text>
+    <text class="svg-text" x="485" y="114" text-anchor="middle">入力の位置</text>
+    <rect class="svg-box" x="590" y="60" width="190" height="70" rx="10"/>
+    <text class="svg-text-b" x="685" y="92" text-anchor="middle">der(x)・y</text>
+    <text class="svg-text" x="685" y="114" text-anchor="middle">微分と出力</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>InputDecay: u を t = 0.5 で 0 → 2</h1>
+  <table class="compact">
+    <tr><th>変数</th><th>FMPy の ME</th><th>解析解</th><th>差</th></tr>
+    <tr><td>x(1)</td><td>1.1548180654142353</td><td>1.1548181217461755</td><td class="ok">5.6e-8</td></tr>
+    <tr><td>y(1) = 2 x(1)</td><td>2.3096361308284705</td><td>2.309636243492351</td><td class="ok">1.1e-7</td></tr>
+    <tr><td>u(1)</td><td>2.0</td><td>2</td><td class="ok">0</td></tr>
+  </table>
+  <p>exec の <code>run</code> には入力を与える道が無いので、解析解 2 + (e<sup>-0.5</sup> − 2)e<sup>-0.5</sup> と比べた</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>初期化が入力に依るモデル、代数・離散の変数の書き込み</li>
+    <li>exec の <code>run</code> に入力を与える道、<code>Outputs</code> の依存</li>
+    <li><code>initial()</code> の事象、MSL、P5a との共有、CS・FMI 3.0・Windows</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

@@ -37,6 +37,10 @@ $ rumoca compile 18-er070-evaluate-on-non-parameter-component.mo -m Rep18 --sour
 
 `Rep18Plain` compiles in both. OpenModelica 1.27.2 (`loadModel(Modelica)`, `loadFile`, `checkModel`): both `Rep18` and `Rep18Plain` "completed successfully" (2 equations, 2 variables).
 
+## Re-check on Rumoca v0.10.4 (S115, 2026-11-03)
+
+Unchanged: `Rep18` gives the same `[ER070] annotation Evaluate is only allowed on parameter or constant components; 'Dzero' is not parameter or constant (MLS §18.6)` (with `--source-root` pointing at MSL 4.1.0); `Rep18Plain` compiles (exit 0). The library examples were not re-run with v0.10.4. [not verified]
+
 ## Environment
 
 - Rumoca v0.10.2, git rev `276e82bd0fd48960ac201e782918d28bf19cf7ce`; also the prebuilt `rumoca-linux-x86_64` v0.10.2 binary.
@@ -44,6 +48,7 @@ $ rumoca compile 18-er070-evaluate-on-non-parameter-component.mo -m Rep18 --sour
 - Linux x86_64 (WSL2, Ubuntu).
 - Counts: GlobeMode S063 classification, `doc/research/libraries-2026-11-01.md`: ER070 258 of 1,781 failures (Buildings 173, AixLib 58). Library: IBPSA 4.0.0 (master `2adc9194`), `IBPSA/Controls/Continuous/LimPID.mo` line 134; copies in Buildings 14.0.0 and AixLib 3.0.1.
 - Not yet re-checked against Rumoca main (0.10.3 at the time of writing). Re-check before filing.
+- Re-checked on 2026-11-03 (S115) with the latest release, Rumoca v0.10.4 (tag commit `9c8c56fcd9f5ab9beb871f09bf5d9eed82971c54`, released 2026-11-02, prebuilt `rumoca-linux-x86_64`, https://github.com/CogniPilot/rumoca/releases/tag/v0.10.4), next to the v0.10.2 binary. Rumoca main was not built. [not verified on main]
 
 ## Workaround in GlobeMode
 

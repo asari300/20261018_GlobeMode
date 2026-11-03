@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>上流の下書き 25d — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode 上流の下書き 25d">
+
+<section class="slide" id="S01">
+  <span class="tag">下書き 25d · Rumoca · 未提出 · 2026-11-03</span>
+  <h1>次元を後で宣言する Integer の入力で取ると ED019</h1>
+  <p class="lead"><code>input Real x[n]</code> が <code>input Integer n</code> より先だと形の証明に失敗する。v0.10.4 でも同じ</p>
+  <div class="cols-2">
+    <div>
+      <pre><code>function f
+  input Real x[n];   // ここ → ED019
+  input Integer n;
+  output Real y;
+algorithm
+  y := sum(x);
+end f;
+block B
+  parameter Real a[:] = {1, 2};
+  Real y = f(a, size(a, 1)) * time;
+end B;
+model M  B b;  end M;
+// n を先に、または x[:] なら通る</code></pre>
+      <p class="small muted">本文: <a href="25d-ed019-function-shape-proof-dimension-before-input_jp.md">日本語</a> · <a href="25d-ed019-function-shape-proof-dimension-before-input.md">英語</a> · 再現 <a href="25d-ed019-function-shape-proof-dimension-before-input.mo">.mo</a> · 一覧 <a href="../../upstream.md">upstream.md</a></p>
+    </div>
+    <table class="small">
+      <tr><th>v0.10.4 の結果</th><td><span class="ng">再現</span>（M・M2 が ED019 <code>function shape proof</code>）</td></tr>
+      <tr><th>Rumoca の穴の根拠</th><td>関数の束縛と既定値は依存の順に評価し、次元は入力に依ってよい（MLS §12.4.1・§12.4.4・§12.4.5）。omc は通す</td></tr>
+      <tr><th>影響</th><td>ライブラリ 3 本（<code>OccupancySchedule.getOutput</code>）</td></tr>
+      <tr><th>GlobeMode 側の回避</th><td>なし（GM-U0001）</td></tr>
+      <tr><th>提出の判断材料</th><td>25e・25f・25h と 1 つの issue にまとめてよい。提出の順は 12 位の組</td></tr>
+    </table>
+  </div>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

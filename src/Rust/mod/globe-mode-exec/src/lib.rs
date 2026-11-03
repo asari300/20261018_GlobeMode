@@ -8,6 +8,7 @@
 //! - [`simulate`] … 実行。失敗は段階ごとのコード（GM-E11001〜GM-E11006、GM-U0004 / GM-U0005）にする。
 //! - [`run`] … 設定を決め（`globe_mode_sim::settings::resolve`）、プリフライトを通してから実行する。
 //!   bdf・auto と session の道は、組み立ての lowering の結果でプリフライトを行う（lowering は 1 回。S014）。
+//! - [`ModelInstance`] … 時刻と状態を外から与えて微分を返す（FMI 2.0 ME の形。S099、ADR-0032）。
 //! - [`run_with_progress`] … [`run`] と同じで、実行系の中の段（[`ExecStage`]）に入るたびに知らせる（S014）。
 //!
 //! Rumoca の時間切れは協調型で、初期化と積分器の 1 歩の内側では止まらない。確実に止めたいときは
@@ -19,6 +20,11 @@ use globe_mode_ir::{ResolvedSettings, SimRun, SimSettings, Termination, TunableP
 
 #[cfg(feature = "rumoca-exec")]
 mod rumoca;
+/// [`Variable::role`] の型
+pub use globe_mode_ir::VariableRole;
+/// 状態・パラメータ・時刻から微分を返す公開の API（S099。自前の FMU の `globe-mode-fmu` が使う）
+#[cfg(feature = "rumoca-exec")]
+pub use rumoca::instance::{DiscreteUpdate, ModelInstance, ValueType, Variable};
 
 /// 実行系の中の段（[`run_with_progress`] が知らせる。S014）。ソルバと道によって通らない段がある。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

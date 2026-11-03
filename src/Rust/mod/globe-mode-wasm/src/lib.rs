@@ -33,7 +33,7 @@ use std::sync::Mutex;
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
-use globe_mode::{ColumnsLayout, Diagnostic, SimRun, Simulated};
+use globe_mode::{Diagnostic, Simulated};
 pub use globe_mode::{SimulateRequest as Request, SimulateResponse as Response};
 
 /// 壁時計（ミリ秒）。wasm32-unknown-unknown では std の `Instant::now` が panic するので JS の
@@ -109,13 +109,13 @@ impl Workspace {
     /// [`Workspace::run`] と同じだが、時系列を CSV にせず列ごとに持つ（S051。`request.no_csv` は無視して CSV を作らない）。
     pub fn run_columns(&mut self, mut request: Request) -> SimColumns {
         request.no_csv = true;
-        let Simulated {
-            mut response, run, ..
-        } = self.inner.simulate_with(&request, &now_ms);
-        response.memory_bytes = memory_bytes();
+        let mut simulated = self.inner.simulate_with(&request, &now_ms);
+        simulated.response.memory_bytes = memory_bytes();
+        // 列だけを持つ（コンパイル済みのモデルは放す）
+        simulated.compiled = None;
         SimColumns {
-            response: serde_json::to_string(&response).unwrap_or_default(),
-            run,
+            response: serde_json::to_string(&simulated.response).unwrap_or_default(),
+            simulated,
         }
     }
 
@@ -141,7 +141,7 @@ impl Workspace {
 #[derive(Debug)]
 pub struct SimColumns {
     response: String,
-    run: Option<SimRun>,
+    simulated: Simulated,
 }
 
 #[wasm_bindgen]
@@ -152,36 +152,18 @@ impl SimColumns {
         self.response.clone()
     }
 
-    /// [`ColumnsLayout`] の JSON。実行できなかったときは空の列と 0 点。
+    /// [`globe_mode::ColumnsLayout`] の JSON。実行できなかったときは空の列と 0 点。
     pub fn layout(&self) -> String {
-        let layout = match &self.run {
-            Some(run) => ColumnsLayout {
-                names: std::iter::once("time".to_string())
-                    .chain(run.trajectory.variables.iter().map(|v| v.name.clone()))
-                    .collect(),
-                points: run.trajectory.time.len(),
-            },
-            None => ColumnsLayout {
-                names: Vec::new(),
-                points: 0,
-            },
-        };
-        serde_json::to_string(&layout).unwrap_or_default()
+        serde_json::to_string(&self.simulated.columns().0).unwrap_or_default()
     }
 
     /// 列 `i`（0 が時刻、1 から変数）。範囲外は空。
     pub fn column(&self, i: usize) -> Vec<f64> {
-        let Some(run) = &self.run else {
-            return Vec::new();
-        };
-        match i {
-            0 => run.trajectory.time.clone(),
-            _ => run
-                .trajectory
-                .variables
-                .get(i - 1)
-                .map_or_else(Vec::new, |v| v.values.clone()),
-        }
+        self.simulated
+            .columns()
+            .1
+            .get(i)
+            .map_or_else(Vec::new, |c| c.to_vec())
     }
 }
 

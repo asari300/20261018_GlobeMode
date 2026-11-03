@@ -4,6 +4,8 @@ Target: Rumoca (https://github.com/CogniPilot/rumoca)
 
 Verdict (GlobeMode, S080): **valid Modelica that Rumoca rejects** (ED019, reported as unsupported). omc accepts it. Split out of draft 25 in S096 (one shape per draft); the other ED019 shapes are drafts 25 and 25b to 25h.
 
+Status (S115, 2026-11-03): **fixed in Rumoca v0.10.4.** `Rep27.M` compiles with the v0.10.4 release binary. Do not file; this draft is kept as a record.
+
 ## Summary
 
 A function whose input dimension is a package constant (`input Real x[n]`) fails when it is called from a model of a package that *extends* the defining package with a modifier of that constant (`extends P(n = 2)`):
@@ -46,12 +48,17 @@ $ rumoca compile 25b-ed019-function-shape-proof-modified-package-constant.mo -m 
 
 `Rep27.M0` and `Rep27.M1` compile in both. OpenModelica 1.27.2 (`loadFile`, `checkModel`): all three "completed successfully" (`Rep27.M`: 3 equations, 3 variables).
 
+## Re-check on Rumoca v0.10.4 (S115, 2026-11-03)
+
+Fixed: `Rep27.M` compiles (`Compilation successful!`, exit 0); `Rep27.M0` and `Rep27.M1` still compile. With v0.10.2 `Rep27.M` still gives ED019 `function shape proof`. The library example was not re-run with v0.10.4. [not verified]
+
 ## Environment
 
 - Rumoca v0.10.2, git rev `276e82bd0fd48960ac201e782918d28bf19cf7ce`; also the prebuilt `rumoca-linux-x86_64` v0.10.2 binary.
 - Linux x86_64 (WSL2, Ubuntu).
 - Counts: GlobeMode's libraries run of 2026-11-02 (GitHub Actions run 41365960542, MSL 4.1.0), `*-funnel.json`.
 - Not yet re-checked against Rumoca main. Re-check before filing.
+- Re-checked on 2026-11-03 (S115) with the latest release, Rumoca v0.10.4 (tag commit `9c8c56fcd9f5ab9beb871f09bf5d9eed82971c54`, released 2026-11-02, prebuilt `rumoca-linux-x86_64`, https://github.com/CogniPilot/rumoca/releases/tag/v0.10.4), next to the v0.10.2 binary. Rumoca main was not built. [not verified on main]
 
 ## Workaround in GlobeMode
 

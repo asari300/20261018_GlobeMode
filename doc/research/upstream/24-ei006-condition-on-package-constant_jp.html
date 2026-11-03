@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>上流の下書き 24 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode 上流の下書き 24">
+
+<section class="slide" id="S01">
+  <span class="tag">下書き 24 · Rumoca · 未提出 · 2026-11-03</span>
+  <h1>条件付き成分の条件が別の package の定数を読むと EI006</h1>
+  <p class="lead">package の定数からできた条件を parameter 式と認めない。v0.10.4 でも同じ</p>
+  <div class="cols-2">
+    <div>
+      <pre><code>package Medium
+  constant Integer nX = 2;
+  constant Integer nXi = nX - 1;
+end Medium;
+
+model C
+  Real x = time if Medium.nX &gt; 1; // EI006
+end C;
+
+model C0  // 対照: モデルの定数なら通る
+  constant Integer nX = 2;
+  Real x = time if nX &gt; 1;
+end C0;</code></pre>
+      <p class="small muted">本文: <a href="24-ei006-condition-on-package-constant_jp.md">日本語</a> · <a href="24-ei006-condition-on-package-constant.md">英語</a> · 再現 <a href="24-ei006-condition-on-package-constant.mo">.mo</a> · 一覧 <a href="../../upstream.md">upstream.md</a></p>
+    </div>
+    <table class="small">
+      <tr><th>v0.10.4 の結果</th><td><span class="ng">再現</span>（A・B・C が EI006。C0・C1 は通る）</td></tr>
+      <tr><th>Rumoca の穴の根拠</th><td>条件は parameter 式（MLS §4.4.5）。package の定数との比較は定数式（§3.8.2・§3.8.3）。omc は通す</td></tr>
+      <tr><th>影響</th><td>ライブラリ 117 本（Buildings 54・IBPSA 30・AixLib）。<code>X_w</code> 40・<code>x_pTphi</code> 27</td></tr>
+      <tr><th>GlobeMode 側の回避</th><td>なし（S3 の GM-E3001）</td></tr>
+      <tr><th>提出の判断材料</th><td>自己完結・5 コマンド。提出の順は 5 位（20 が下がったので 6 位から上がった）</td></tr>
+    </table>
+  </div>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

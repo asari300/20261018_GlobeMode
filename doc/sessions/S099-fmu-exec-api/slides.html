@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S099 exec の微分の API と FMU — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S099 exec の微分の API と FMU">
+
+<section class="slide" id="S01">
+  <span class="tag">S099 · 2026-11-02 · P5b</span>
+  <h1>exec の微分の API と FMU（P5b の 2 回目）</h1>
+  <p class="lead"><code>globe-mode-exec</code> に <code>ModelInstance</code> を足し、<code>globe-mode-fmu</code> の手書きの Decay を置き換えた</p>
+  <div class="big">FMU は resources の <code>.mo</code> を compile して回す。Decay と HarmonicOscillator が FMPy を通った</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>S095 の持ち越しの 1 つ目: exec に「状態・パラメータ・時刻 → 微分」の公開 API</li>
+    <li>それで <code>globe-mode-fmu</code> の <code>der(x) = -k*x</code> の手書きを置き換える</li>
+    <li>既存の <code>simulate</code> / <code>run</code> / session の道は変えない（追加だけ）</li>
+    <li><code>globe-mode-fmi</code>・CLI・P5a の export は触らない（S098 が並行）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>host でなく SolveRuntime を包んだ</h1>
+  <table class="compact">
+    <tr><th>候補</th><th>判定</th><th>理由</th></tr>
+    <tr><td>FMI ME 風の host（<code>SolveMeKernel</code>）</td><td class="warn">使えない</td><td>set time / states / derivatives は <code>pub(crate)</code></td></tr>
+    <tr><td>積分器の <code>MeDerivativeHandle</code></td><td class="warn">使えない</td><td>host の呼び出しの間しか評価できない</td></tr>
+    <tr><td><code>SolveRuntime</code>（公開）</td><td class="ok">採用</td><td>host と同じ部品。<code>eval_state_derivatives</code> と <code>settle_initialization_system</code> がある</td></tr>
+  </table>
+  <ul>
+    <li>事象（根の条件・sample）のあるモデルは <code>GM-U0004</code> で断る</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由</span>
+  <h1>載せ替えは道 2（実行時に compile）</h1>
+  <table class="compact">
+    <tr><th>道（ADR-0032 の (b)）</th><th>判定</th><th>理由</th></tr>
+    <tr><td>1. FMU ごとにビルド</td><td class="warn">持ち越し</td><td>利用者にツールチェーンが要る</td></tr>
+    <tr><td>2. resources の Modelica を compile</td><td class="ok">採用</td><td>exec の API がそのまま使え、最小で確かめられる</td></tr>
+    <tr><td>3. Solve IR の解釈実行</td><td class="warn">持ち越し</td><td>直列化の形を決める仕事が大きい</td></tr>
+  </table>
+  <ul>
+    <li>パラメータは <code>fmi2ExitInitializationMode</code> で lowering からやり直して反映</li>
+    <li><code>modelDescription.xml</code> は手書きをやめて生成。guid はモデル名と文面の FNV-1a</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">図</span>
+  <h1>FMU の中の流れ</h1>
+  <svg class="fig" viewBox="0 0 800 260" role="img" aria-label="resources の .mo を compile し ModelInstance で微分を返す流れ">
+    <rect class="svg-box" x="20" y="95" width="170" height="70" rx="10"/>
+    <text class="svg-text-b" x="105" y="128" text-anchor="middle">resources/</text>
+    <text class="svg-text" x="105" y="150" text-anchor="middle">&lt;名前&gt;.mo</text>
+    <line class="svg-line" x1="190" y1="130" x2="230" y2="130"/>
+    <rect class="svg-box-accent" x="230" y="95" width="160" height="70" rx="10"/>
+    <text class="svg-text-b" x="310" y="128" text-anchor="middle">frontend</text>
+    <text class="svg-text" x="310" y="150" text-anchor="middle">compile</text>
+    <line class="svg-line" x1="390" y1="130" x2="430" y2="130"/>
+    <rect class="svg-box-accent" x="430" y="95" width="170" height="70" rx="10"/>
+    <text class="svg-text-b" x="515" y="128" text-anchor="middle">ModelInstance</text>
+    <text class="svg-text" x="515" y="150" text-anchor="middle">exec</text>
+    <line class="svg-line" x1="600" y1="130" x2="640" y2="130"/>
+    <rect class="svg-box" x="640" y="95" width="140" height="70" rx="10"/>
+    <text class="svg-text-b" x="710" y="128" text-anchor="middle">fmi2Get</text>
+    <text class="svg-text" x="710" y="150" text-anchor="middle">Derivatives</text>
+  </svg>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">再現手順</span>
+  <h1>FMPy の数字</h1>
+  <table class="compact">
+    <tr><th>モデル</th><th>FMPy の ME</th><th>比べた相手</th><th>差</th></tr>
+    <tr><td>Decay</td><td>x(1) = 0.3678794151</td><td>e⁻¹</td><td>2.6e-8</td></tr>
+    <tr><td>HarmonicOscillator</td><td>x(1) = -0.4161468396</td><td>exec の run（bdf）</td><td>2.7e-8</td></tr>
+    <tr><td>HarmonicOscillator</td><td>v(1) = -1.8185948566</td><td>exec の run（bdf）</td><td>1.5e-7</td></tr>
+  </table>
+  <div class="kpis">
+    <div class="kpi"><span class="n">5</span><span class="l">fmu の試験</span></div>
+    <div class="kpi"><span class="n">32.8 MB</span><span class="l">strip 後の cdylib</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">足した外部の依存</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>事象のあるモデル（event indicator、<code>fmi2NewDiscreteStates</code>）と出力の値参照</li>
+    <li>MSL を使うモデル（resources へのライブラリの同梱）</li>
+    <li><code>modelDescription.xml</code> の生成を P5a（<code>globe-mode-fmi</code>）と共有。CS・FMI 3.0・Windows</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

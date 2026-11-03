@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>上流の下書き 28 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode 上流の下書き 28">
+
+<section class="slide" id="S01">
+  <span class="tag">下書き 28 · Rumoca · 未提出 · 2026-11-03</span>
+  <h1>replaceable な package を通した次元が ET004 / EF024</h1>
+  <p class="lead">v0.10.4 で素直な形（<code>Real x[P.n]</code>）は直った。replaceable な package を通す 3 形が残る</p>
+  <div class="cols-2">
+    <div>
+      <pre><code>package P constant Integer n = 2; end P;
+model C
+  replaceable package Medium = P;
+  Real x[Medium.n];          // 次元が package の定数
+  ...
+end C;
+model M3 C c; end M3;        // 既定のまま → ET004
+model M4 C c(redeclare package Medium = P); end M4;
+// ↑ M4 は通る
+// M1: モデルで直接 Medium.n → EF024
+// M5: モデルの中の record の x[Medium.n] → EF024</code></pre>
+      <p class="small muted">本文: <a href="28-et004-ef024-dimension-from-package-constant_jp.md">日本語</a> · <a href="28-et004-ef024-dimension-from-package-constant.md">英語</a> · 再現 <a href="28-et004-ef024-dimension-from-package-constant.mo">.mo</a> · 一覧 <a href="../../upstream.md">upstream.md</a></p>
+    </div>
+    <table class="small">
+      <tr><th>v0.10.4 の結果</th><td><span class="ok">M・M2 は直った</span>／<span class="ng">M1・M3・M5 は再現</span></td></tr>
+      <tr><th>Rumoca の穴の根拠</th><td>package の定数は定数式で次元に使える（MLS §3.8.1・§10.1）。replaceable は redeclare しなければ既定を使う（§7.3）。omc は 7 本とも通す</td></tr>
+      <tr><th>影響</th><td>ライブラリ 4 本（v0.10.2）。v0.10.4 で直る見込みは Buildings の <code>Temperature_u</code> 1 本で、残り 3 本【未確認】</td></tr>
+      <tr><th>GlobeMode 側の回避</th><td>なし（モデルで redeclare するかモデルの定数を使う）</td></tr>
+      <tr><th>提出の判断材料</th><td>出すなら件名を M1・M3・M5 に絞る。提出の順は 12 位（ED019 の群と同じ。S115 で 15 位から）</td></tr>
+    </table>
+  </div>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

@@ -21,8 +21,8 @@ globe-mode-db = { workspace = true }
 globe-mode-exec = { workspace = true }
 globe-mode-sim = { workspace = true }
 globe-mode-protocol = { workspace = true }
-
-[dev-dependencies]
+# S111: format / lint（各言語の束ねが facade だけで呼べるように）
+globe-mode-fmt = { workspace = true }
 serde_json = { workspace = true }
 
 [lints]

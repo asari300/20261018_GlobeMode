@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>上流の下書き 31 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode 上流の下書き 31">
+
+<section class="slide" id="S01">
+  <span class="tag">下書き 31 · Rumoca · 未提出 · 2026-11-03</span>
+  <h1>replaceable な record を通して成分を読む束縛が EF024</h1>
+  <p class="lead">record の成分・record のクラスのどちらでも、replaceable を通すと束縛が落ちる。v0.10.4 でも同じ</p>
+  <div class="cols-2">
+    <div>
+      <pre><code>record NV parameter Real m = 1; end NV;
+record Stage replaceable parameter NV nomVal; end Stage;
+record Coil
+  parameter Stage sta;
+  parameter Real mSmall = sta.nomVal.m;
+  // ↑ 形 1 → EF024: m
+end Coil;
+// 形 2: replaceable record ST Real a = 2.5; end ST;
+//   関数の protected の ST st; Real da = st.a;
+//   → EF024: a
+// replaceable を外すとどちらも通る</code></pre>
+      <p class="small muted">本文: <a href="31-ef024-binding-reads-field-of-replaceable-record_jp.md">日本語</a> · <a href="31-ef024-binding-reads-field-of-replaceable-record.md">英語</a> · 再現 <a href="31-ef024-binding-reads-field-of-replaceable-record.mo">.mo</a> · 一覧 <a href="../../upstream.md">upstream.md</a></p>
+    </div>
+    <table class="small">
+      <tr><th>v0.10.4 の結果</th><td><span class="ng">再現</span>（M・M2・F・F1 が EF024、対照 3 本は通る）</td></tr>
+      <tr><th>Rumoca の穴の根拠</th><td>replaceable は後の redeclare を許すだけ（MLS §7.3）。成分の参照は通常の参照（§5.3）、関数の protected は束縛を持てる（§12.4.4）。omc は 7 本とも通す</td></tr>
+      <tr><th>影響</th><td>ライブラリ 8 本（Buildings の DX コイル 7、AixLib の R134a 1）</td></tr>
+      <tr><th>GlobeMode 側の回避</th><td>なし（Buildings の写しで束縛を定数にすると <code>SpeedSelect</code> は全段を通る）</td></tr>
+      <tr><th>提出の判断材料</th><td>提出の順は 11 位（S115 で 14 位から）。29 と原因が同じかは【未確認】</td></tr>
+    </table>
+  </div>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
