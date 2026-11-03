@@ -44,11 +44,16 @@ $ rumoca compile 27-er002-inherited-class-through-extending-package.mo -m Rep35.
 
 `Rep35.M0` and `Rep35.M2` compile in both. OpenModelica 1.27.2 (`loadFile`, `checkModel`): all four "completed successfully".
 
+## Re-check on Rumoca v0.10.4 (S115, 2026-11-03)
+
+Unchanged: `Rep35.M` gives `[ER002] unresolved type reference: 'Q.B'` and `Rep35.M1` gives `[ER002] unresolved type reference: 'A.B'`; `Rep35.M0` and `Rep35.M2` compile (exit 0).
+
 ## Environment
 
 - Rumoca v0.10.2, git rev `276e82bd0fd48960ac201e782918d28bf19cf7ce`; also the prebuilt `rumoca-linux-x86_64` v0.10.2 binary.
 - Linux x86_64 (WSL2, Ubuntu).
 - Not yet re-checked against Rumoca main. Re-check before filing.
+- Re-checked on 2026-11-03 (S115) with the latest release, Rumoca v0.10.4 (tag commit `9c8c56fcd9f5ab9beb871f09bf5d9eed82971c54`, released 2026-11-02, prebuilt `rumoca-linux-x86_64`, https://github.com/CogniPilot/rumoca/releases/tag/v0.10.4), next to the v0.10.2 binary. Rumoca main was not built. [not verified on main]
 
 ## Workaround in GlobeMode
 

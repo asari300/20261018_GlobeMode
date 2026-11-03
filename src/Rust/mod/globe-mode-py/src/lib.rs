@@ -139,10 +139,25 @@ fn solvers() -> PyResult<String> {
     json(&globe_mode::solvers()).map_err(PyRuntimeError::new_err)
 }
 
+/// 本文を整形する（S111）。文法が壊れていれば `ValueError`。
+#[pyfunction]
+#[pyo3(signature = (text, indent = 2, insert_origin = true))]
+fn format(text: &str, indent: usize, insert_origin: bool) -> PyResult<String> {
+    globe_mode::format(text, indent, insert_origin).map_err(PyValueError::new_err)
+}
+
+/// lint の結果（`[{rule, line, column, message}]` の JSON。S111）。
+#[pyfunction]
+fn lint(text: &str) -> String {
+    globe_mode::lint(text)
+}
+
 #[pymodule]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Workspace>()?;
-    m.add_function(wrap_pyfunction!(solvers, m)?)
+    m.add_function(wrap_pyfunction!(solvers, m)?)?;
+    m.add_function(wrap_pyfunction!(format, m)?)?;
+    m.add_function(wrap_pyfunction!(lint, m)?)
 }
 
 #[cfg(test)]

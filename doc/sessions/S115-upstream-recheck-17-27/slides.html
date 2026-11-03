@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S115 上流の下書き 17〜27 の再確認 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S115 上流の下書き 17〜27 の再確認">
+
+<section class="slide" id="S01">
+  <span class="tag">S115 · 2026-11-03 · P3</span>
+  <h1>上流の下書き 17〜27 の再確認と日本語版</h1>
+  <p class="lead">Rumoca の最新のリリース v0.10.4 で確かめ直し、残る件に読んで決めるための日本語版を作った</p>
+  <div class="big"><b>5 件は直り</b>、<b>2 件は一部が直り</b>、<b>9 件はそのまま再現</b>。issue は出していない</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>下書き 17〜27（20b・25b〜25h を含む）を v0.10.2 と v0.10.4 の CLI で回し、本文に再確認の節を足す</li>
+    <li>まだ再現する件に <code>_jp.md</code> とスライド 1 枚の <code>_jp.html</code> を足す（ユーザーが肉眼で確かめる）</li>
+    <li>直った件は一覧の状態を「v0.10.4 で修正」にし、提出の順から外す</li>
+    <li>01〜16（実行系）は対象外。Rust は触らない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">結果</span>
+  <h1>v0.10.4 での結果</h1>
+  <table>
+    <tr><th>結果</th><th>#</th><th>本数（ライブラリ）</th></tr>
+    <tr><td class="ng">再現</td><td>17・18・19・21・24・25d・25f・25h・27</td><td>267・258・235・217・117・3・3・2・0</td></tr>
+    <tr><td class="warn">一部直った</td><td>20（<code>loadResource</code> は直り、20b が残る）、25e（<code>constant</code> は直り、<code>parameter</code> が残る）</td><td>20 は 138 → 2、25e は 6</td></tr>
+    <tr><td class="ok">直った</td><td>25・25b・25c・25g・26</td><td>44・1・2・25・47</td></tr>
+  </table>
+  <p class="small muted">62 モデル: v0.10.4 で通るようになった 11、両方で落ちる 20、対照 31。新たに落ちたもの 0。例題そのものは v0.10.4 で回していない【未確認】</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table>
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>直った 5 件</td><td>本文に Status と再確認の節。<code>_jp</code> は作らない</td><td>出さない記録として残す</td></tr>
+    <tr><td>20・25e</td><td>残る形（20b、<code>parameter</code>）だけを出す</td><td>直った形は対照として本文に残す</td></tr>
+    <tr><td>提出の順</td><td>24 が 5 位へ、20 は 13 位へ</td><td>20 の本数が 138 → 2</td></tr>
+    <tr><td>28〜32 の 1 枚</td><td>順の数字だけ直す</td><td>繰り上がりで古くなるため</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>cd doc/research/upstream
+R=../../../data/rumoca-latest/rumoca-linux-x86_64
+$R compile 17-*.mo -m Rep17.M     # ER132（残る）
+$R compile 25-*.mo -m Rep25.M     # 通る（直った）
+$R compile 20b-*.mo -m Rep28.M    # EF025（残る）</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">62</span><span class="l">再現のモデル（2 版で回した）</span></div>
+    <div class="kpi"><span class="n">11</span><span class="l">v0.10.4 で通るようになった</span></div>
+    <div class="kpi"><span class="n">22</span><span class="l">足したファイル（_jp 11 組）</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">出した issue</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>ユーザーが 17〜27 の <code>_jp.md</code>・<code>_jp.html</code> を読み、出すかを決める</li>
+    <li>01〜16（実行系・ソルバ・diffsol）を v0.10.4 で確かめ直す（MSL の例題の実行が要る）</li>
+    <li>GlobeMode の Rumoca の rev を v0.10.4 に上げるかを決め、直った件の本数が消えるかを確かめる</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

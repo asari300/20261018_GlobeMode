@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>上流の下書き 18 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode 上流の下書き 18">
+
+<section class="slide" id="S01">
+  <span class="tag">下書き 18 · Rumoca · 未提出 · 2026-11-03</span>
+  <h1>parameter でない成分への Evaluate = true を ER070 で断る</h1>
+  <p class="lead">仕様は「parameter にだけ効果がある」と言うだけで誤りにしない。v0.10.4 でも同じ</p>
+  <div class="cols-2">
+    <div>
+      <pre><code>model Rep18
+  parameter Boolean with_D = false;
+  Modelica.Blocks.Sources.Constant
+    Dzero(final k = 0) if not with_D
+    annotation (Evaluate = true);
+    // ここ → ER070（MLS §18.6）
+  Real y(start = 0);
+equation
+  der(y) = -y + 1;
+end Rep18;
+// 注釈を外した Rep18Plain は通る</code></pre>
+      <p class="small muted">本文: <a href="18-er070-evaluate-on-non-parameter-component_jp.md">日本語</a> · <a href="18-er070-evaluate-on-non-parameter-component.md">英語</a> · 再現 <a href="18-er070-evaluate-on-non-parameter-component.mo">.mo</a> · 一覧 <a href="../../upstream.md">upstream.md</a></p>
+    </div>
+    <table class="small">
+      <tr><th>v0.10.4 の結果</th><td><span class="ng">再現</span>（ER070 <code>Dzero</code>。Rep18Plain は通る）</td></tr>
+      <tr><th>Rumoca の穴の根拠</th><td>MLS §18.3 の Evaluate は成分の宣言に書け、parameter でなければ効果が無いだけ。メッセージの §18.6 は Graphical Objects で誤り。omc は通す</td></tr>
+      <tr><th>影響</th><td>ライブラリ 258 本（Buildings 173・AixLib 58・IBPSA 27）。<code>LimPID</code> の <code>Dzero</code></td></tr>
+      <tr><th>GlobeMode 側の回避</th><td>なし（ソースを書き換えない）</td></tr>
+      <tr><th>提出の判断材料</th><td>MSL が要るが 1 コマンド。関数の局所変数では既に警告 WR006 なので、揃える直しで済む見込み。提出の順は 2 位</td></tr>
+    </table>
+  </div>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

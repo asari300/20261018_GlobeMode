@@ -45,12 +45,17 @@ $ rumoca compile ... -m Rep19B     ->  [EI032] invalid value for type attribute 
 
 OpenModelica 1.27.2: `checkModel(Rep19A)` and `checkModel(Rep19B)` both "completed successfully" (1 equation, 1 variable each).
 
+## Re-check on Rumoca v0.10.4 (S115, 2026-11-03)
+
+Unchanged: `Rep19A` and `Rep19B` give the same `[EI032] invalid value for type attribute 'stateSelect'` messages; `Rep19A0` and `Rep19B0` compile (exit 0). The library examples were not re-run with v0.10.4. [not verified]
+
 ## Environment
 
 - Rumoca v0.10.2, git rev `276e82bd0fd48960ac201e782918d28bf19cf7ce`; also the prebuilt `rumoca-linux-x86_64` v0.10.2 binary.
 - Linux x86_64 (WSL2, Ubuntu).
 - Counts: GlobeMode S063 classification, `doc/research/libraries-2026-11-01.md`: EI032 235 of 1,781 failures (228 are shape A, 7 DeltaRobot shape B). Libraries: IBPSA 4.0.0 (master `2adc9194`), Buildings 14.0.0, AixLib 3.0.1, DeltaRobot with MSL 4.0.0/4.1.0.
 - Not yet re-checked against Rumoca main (0.10.3 at the time of writing). Re-check before filing.
+- Re-checked on 2026-11-03 (S115) with the latest release, Rumoca v0.10.4 (tag commit `9c8c56fcd9f5ab9beb871f09bf5d9eed82971c54`, released 2026-11-02, prebuilt `rumoca-linux-x86_64`, https://github.com/CogniPilot/rumoca/releases/tag/v0.10.4), next to the v0.10.2 binary. Rumoca main was not built. [not verified on main]
 
 ## Workaround in GlobeMode
 

@@ -42,6 +42,28 @@ pub fn solvers() -> &'static [SolverEntry] {
     SOLVERS
 }
 
+/// 本文を整形する（S111。wasm の `format` と同じ形）。文法が壊れていれば `Err`（理由）で、本文は変えない。
+pub fn format(text: &str, indent: usize, insert_origin: bool) -> Result<String, String> {
+    let options = globe_mode_fmt::Options {
+        indent,
+        insert_origin,
+        ..globe_mode_fmt::Options::default()
+    };
+    globe_mode_fmt::format(text, &options).map_err(|e| e.to_string())
+}
+
+/// lint の結果（`[{rule, line, column, message}]` の JSON。S111。wasm の `lint` と同じ形）。
+pub fn lint(text: &str) -> String {
+    let msgs: Vec<serde_json::Value> =
+        globe_mode_fmt::lint(text, &globe_mode_fmt::LintOptions::default())
+            .into_iter()
+            .map(|m| {
+                serde_json::json!({"rule": m.rule, "line": m.line, "column": m.column, "message": m.message})
+            })
+            .collect();
+    serde_json::Value::from(msgs).to_string()
+}
+
 /// 壁時計（ミリ秒、UNIX epoch から）。wasm32 では std の時計が無いので 0（wasm の束ねは JS の
 /// `performance.now()` を [`Workspace::simulate_with`] に渡す）。
 pub fn now_ms() -> f64 {

@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>上流の下書き 25e — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode 上流の下書き 25e">
+
+<section class="slide" id="S01">
+  <span class="tag">下書き 25e · Rumoca · 未提出 · 2026-11-03</span>
+  <h1>record の parameter の次元を関数の局所変数にすると ED019</h1>
+  <p class="lead">v0.10.4 で constant の形は直った。MSL と同じ parameter の形が残る</p>
+  <div class="cols-2">
+    <div>
+      <pre><code>record Coeff
+  parameter Integer nc = 2;
+  parameter Real[nc] a = {1, 2};
+end Coeff;           // ↑ ここ → ED019
+function f
+  input Real x;
+  output Real y;
+protected
+  Coeff id;
+algorithm
+  y := id.a[1] * x;
+end f;
+// constant の CoeffC は v0.10.4 で通る</code></pre>
+      <p class="small muted">本文: <a href="25e-ed019-function-shape-proof-record-local-dimension_jp.md">日本語</a> · <a href="25e-ed019-function-shape-proof-record-local-dimension.md">英語</a> · 再現 <a href="25e-ed019-function-shape-proof-record-local-dimension.mo">.mo</a> · 一覧 <a href="../../upstream.md">upstream.md</a></p>
+    </div>
+    <table class="small">
+      <tr><th>v0.10.4 の結果</th><td><span class="ok">MC（constant）は直った</span>／<span class="ng">M（parameter）は再現</span></td></tr>
+      <tr><th>Rumoca の穴の根拠</th><td>関数の成分の次元は定数と parameter に依ってよい（MLS §12.4.5）。omc は通す</td></tr>
+      <tr><th>影響</th><td>ライブラリ 6 本・MSL 2 本（<code>Media.R134a</code> の <code>EOSIdealCoeff</code> は parameter の形）</td></tr>
+      <tr><th>GlobeMode 側の回避</th><td>なし（GM-U0001）</td></tr>
+      <tr><th>提出の判断材料</th><td>出すなら parameter の形だけ。25d・25f・25h とまとめてよい</td></tr>
+    </table>
+  </div>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
