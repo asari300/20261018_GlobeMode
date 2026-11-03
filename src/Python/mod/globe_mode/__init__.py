@@ -31,13 +31,17 @@ class Workspace:
     def graph(self, model: str, depth: int = 1) -> dict:
         return json.loads(self._ws.graph(model, depth))
 
-    def simulate(self, model: str, **settings) -> dict:
-        """settings は `start_time`・`stop_time`・`tolerance`・`interval`・`solver`・`parameters` など。"""
-        return json.loads(self._ws.simulate(model, json.dumps(settings)))
+    def simulate(self, model: str, on_progress=None, **settings) -> dict:
+        """settings は `start_time`・`stop_time`・`tolerance`・`interval`・`solver`・`parameters` など。
 
-    def simulate_columns(self, model: str, **settings) -> dict:
+        `on_progress` を渡すと GIL を離して回し、進捗を `{"stage", "time", "start_time", "stop_time"}` の dict で
+        呼ぶ（積分の t は 100 ms に 1 回まで）。`True` を返すと止まり、`termination` が `cancelled` で途中までの結果と
+        情報 GM-I11004 が返る。Ctrl-C は `KeyboardInterrupt` になる（S129、ADR-0033）。"""
+        return json.loads(self._ws.simulate(model, json.dumps(settings), on_progress))
+
+    def simulate_columns(self, model: str, on_progress=None, **settings) -> dict:
         """`simulate` と同じだが CSV を作らず、`columns` に列（名前 → polars.Series、`time` が先頭）を添える（S085）。"""
-        response, names, columns = self._ws.simulate_columns(model, json.dumps(settings))
+        response, names, columns = self._ws.simulate_columns(model, json.dumps(settings), on_progress)
         response = json.loads(response)
         # shortcut: memoryview の "d" は native-endian（Rust は little-endian で詰める）、big-endian の機械なら byteswap が要る
         response["columns"] = {n: pl.Series(n, memoryview(c).cast("d"), pl.Float64) for n, c in zip(names, columns)}
