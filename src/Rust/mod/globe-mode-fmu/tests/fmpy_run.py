@@ -1,0 +1,22 @@
+"""S095・S099: globe-mode-fmu の cdylib・modelDescription.xml・モデルの .mo を FMU に詰め、FMPy の ME で回す
+（tests/fmpy.rs が呼ぶ）。終了時刻での各変数の値を `名前=値` で出す。
+
+使い方: python fmpy_run.py <libglobe_mode_fmu.so> <modelDescription.xml> <model.mo> <完全修飾名> <出力の .fmu> <変数,...>
+"""
+
+import sys
+import zipfile
+
+from fmpy import simulate_fmu
+from fmpy.validation import validate_fmu
+
+so, md, mo, name, fmu, names = sys.argv[1:7]
+with zipfile.ZipFile(fmu, "w") as z:
+    z.write(md, "modelDescription.xml")
+    # FMI 2.0 の置き場（FMI 3.0 なら binaries/x86_64-linux/）
+    z.write(so, "binaries/linux64/globe_mode_fmu.so")
+    z.write(mo, f"resources/{name}.mo")
+problems = validate_fmu(fmu)
+assert not problems, problems
+result = simulate_fmu(fmu, fmi_type="ModelExchange", output=names.split(","))
+print(" ".join(f"{n}={float(result[n][-1])!r}" for n in names.split(",")), f"t={float(result['time'][-1])!r}")

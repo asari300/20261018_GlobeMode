@@ -22,9 +22,9 @@ flowchart LR
 | **P2 遅延クエリと検査**（S004〜S010。完了条件は S008 で 3 つとも満たした。S9・S10 は S010 で足した。S10 の数値の部分は P3） | db、outline、class_index、connect_graph、`assert_simulatable` の S0〜S10 | 空白だけの編集の再検査が 50 ms 未満で、`flat` が再実行されない（salsa のイベントで確かめる）。MSL の全例題に判定が出て、panic は 0 件。S5 が omc と 95% 以上一致する | 4 回 |
 | **P3 シミュレーション**（S011 で着手。完了条件の 1 つ目と 2 つ目は S011 で、3 つ目（wasm）は S012 で満たした。1 つ目と 2 つ目は S012 の既定（`auto`）で測り直した。公開ライブラリの失敗の上流への下書きは [upstream.md](upstream.md)、S108 で 31・32 を足して 37 件） | exec、driver、bdf / esdirk34 / tsit45 / dopri / 固定刻み、ResultStore | MSL の例題 153 本以上が実行できる。そのうち 90% 以上が参照結果のファネルに収まる。bdf が wasm で（Node 上で）動く | 5 回 |
 | **P4 Desktop MVP** | CodeMirror 6 と LSP（S053 で整形・補完・lint）、ライブラリツリー、検査パネル、プロット、sigma.js の connect グラフ | ChuaCircuit で開く・検査・実行・プロットが通る。5k ノードのグラフが 30 fps 以上で動く。RSS の基準値を記録する（**S056 で記録**: MSL を読んだ後、sidecar 1.52 GiB・アプリ 136 MiB）。CI が .deb と .msi を作る（**S049 で済**） | 6 回 |
-| **P5 FMI**（S094 で着手。Export は P5a を先行し P5b を並行する。[ADR-0031](adr/0031-fmi-export-p5a-first.md)） | Import（ME / CS / SE）とマスター。Export は P5a（Rumoca のテンプレート）と P5b（自前のランタイム、S095） | Reference-FMUs が linux64 と win64 で一致する。Export した FMU が FMPy・fmusim・fmuCheck を通る（**S094: Decay の FMI 2.0 の FMU が FMPy の validate と ME・CS の simulate を通った。S098: FMI 3.0 も同じく通り、2.0・3.0 とも fmusim の validate と ME・CS の simulate を GitHub Actions で通った。S105: `--target`（zig cc）で linux64・win64・darwin64 を 1 つの FMU に入れ、Ubuntu・Windows・macOS の FMPy で validate と ME・CS を通った**。fmuCheck は持ち越し）。Clocks（SE）が往復できる | 8 回 |
+| **P5 FMI**（S094 で着手。Export は P5a を先行し P5b を並行する。[ADR-0031](adr/0031-fmi-export-p5a-first.md)） | Import（ME / CS / SE）とマスター。Export は P5a（Rumoca のテンプレート）と P5b（自前のランタイム、S095。S099 から resources の Modelica を compile して exec の `ModelInstance` で回す。事象なしのモデルだけ） | Reference-FMUs が linux64 と win64 で一致する。Export した FMU が FMPy・fmusim・fmuCheck を通る（**S094: Decay の FMI 2.0 の FMU が FMPy の validate と ME・CS の simulate を通った。S098: FMI 3.0 も同じく通り、2.0・3.0 とも fmusim の validate と ME・CS の simulate を GitHub Actions で通った。S105: `--target`（zig cc）で linux64・win64・darwin64 を 1 つの FMU に入れ、Ubuntu・Windows・macOS の FMPy で validate と ME・CS を通った**。fmuCheck は持ち越し）。Clocks（SE）が往復できる | 8 回 |
 | **P6 Web / marimo / Streamlit / Android** | WorkerBackend、MSL のパッケージ単位の分割読み込み、anywidget、wheel、APK | ブラウザが CSP `connect-src 'self'` のまま実行できる（サーバーで計算しない。**S093 で確かめた**: Worker にも同じ CSP の header を付け、`ui:check` が error 0・外への要求 0）。marimo の WASM で 2 GB 未満に収まる（S093 は調査だけ。[調査](research/marimo-wasm-2026-11-02.md)。**S102 で Decay を確かめた**: anywidget の `_esm` から `globe-mode-wasm` を呼び、ブラウザの RSS の合計 857〜966 MiB。MSL を渡す道は未）。Android API 34 のエミュレータで検査と実行が通る（**S100 で確かめた**: UI から Decay の検査と実行、logcat の `GM-SMOKE` の行。**S103 で MSL も**: APK に MSL.json を同梱し、ChuaCircuit の検査で `msl=ok`。**S106 で release の APK も**: ABI ごとの release APK を作り、secret があるときだけ署名、release でも smoke が `msl=ok`） | 5 回 |
-| **P7 言語 API と UI 比較** | C / Zig / Julia、Elixir / Gleam、Python。Leptos 版と Dioxus 版、負荷の測定ハーネス | 参照シナリオが 6 言語で通る。`doc/bench/ui.md` に 3 UI × 3 OS の比較を書く | 6 回 |
+| **P7 言語 API と UI 比較** | C / Zig / Julia、Elixir / Gleam、Python。Leptos 版と Dioxus 版、負荷の測定ハーネス | 参照シナリオが 6 言語で通る（**S110 で参照シナリオを決め、機能表を作った**: Decay を開く → check → simulate → x(1) → format。6 言語とも足りないのは format だけ。[調査](research/lang-api-matrix-2026-11-03.md)）。`doc/bench/ui.md` に 3 UI × 3 OS の比較を書く | 6 回 |
 | **P8 拡充** | radau5、SUNDIALS、ESDIRK / CERK、SSP 2.0.1、Diagram ビュー、BLT デバッガ | ソルバの表がそろう。SSP が往復できる | 未定 |
 | **Track B 自前コア** | B1 rowan の CST と寛容なパーサ → B2 resolve → B3 flatten → B4 DAE。`Frontend` の feature `native` として作る | 段階ごとに Rumoca 以上の数字を出す（parse 566 / flatten 562 / balanced 464 / simulate 153）。`xtask diff-frontend` で回帰が 0 件になったら既定を切り替える | P4 以降、余裕ができてから |
 
@@ -427,6 +427,11 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **Android のエミュレータで検査と実行**（S092 の持ち越し、P6 の Android の完了条件。[解説書](sessions/S100-android-emulator-smoke/解説書.md)）: `App.svelte` が `VITE_GM_SMOKE=1`（ビルド時）か `?smoke=1` のときだけ、起動時にエディタの Decay を検査・実行して `GM-SMOKE check=ok simulate=ok x1=…` を console に 1 行出す。`android.yml` のジョブ `ui` はこの設定でビルドし、`emulator` は logcat にこの行が出るまで最大 5 分待って `check=ok simulate=ok` を確かめる（run 41444392188、`Displayed` の 5.7 s 後に x1 = 0.3678797279080248）。`test_ui.py` も `?smoke=1` で同じ行を確かめる（x1 = 0.3678797279080248）。
 - 持ち越し: Android での MSL、Rust を mobile の lib に直接 link する道、release の署名つき APK（`VITE_GM_SMOKE` を付けない）。
 
+### S099（P5b の 2 回目、2026-11-02）で済んだこと
+
+- **exec の微分の API と FMU の載せ替え**（[解説書](sessions/S099-fmu-exec-api/解説書.md)、[ADR-0032](adr/0032-p5b-own-runtime.md) の追記）: `globe-mode-exec` に公開の `ModelInstance`（`new(&CompiledModel, &上書き, 開始時刻)`・`set_time`・`set_states`・`derivatives` ほか。Rumoca の公開の `SolveRuntime` を包む。事象のあるモデルは `GM-U0004`）を足した。`globe-mode-fmu` は exec と frontend に依存し、`fmi2Instantiate` が `resources/<完全修飾名>.mo` を compile する（ADR-0032 の道 2）。`modelDescription.xml` は手書きをやめ `model_description` で生成。FMPy 0.3.32 の validate は問題 0、Decay の x(1) は e⁻¹ と 2.6e-8、HarmonicOscillator は exec の `run` と 2.7e-8（x）・1.5e-7（v）。cdylib は release 44.1 MB（strip 後 32.8 MB）。
+- 持ち越し: 事象のあるモデル、出力の値参照、MSL を使うモデル（ライブラリの同梱）、`modelDescription.xml` の生成を P5a と共有、CS・FMI 3.0・Windows。
+
 ### S095（P5b の 1 回目、2026-11-02）で済んだこと
 
 - **自前の FMU ランタイム**（[解説書](sessions/S095-fmu-runtime/解説書.md)、[ADR-0032](adr/0032-p5b-own-runtime.md)）: 新しい crate `globe-mode-fmu`（cdylib + rlib、依存 0）が FMI 2.0 ME の 35 関数を `extern "C"` で出す（FMUstate・方向微分・Integer/Boolean/String は `fmi2Error` の stub）。モデルは `GlobeModeValidation.Simulation.Decay` を Rust で固定、`modelDescription.xml` は手書き。`tests/fmpy.rs` が cdylib を `binaries/linux64/` に詰めて FMPy 0.3.32 の ME で回し、x(1) = 0.3678794150955906（e⁻¹ との差 2.6e-8）。`fmi-export` 0.3.0（FMI 3.0 のみ）は採らない。
@@ -458,6 +463,11 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 
 - **graph の import と索引の持ち越し**（S081 の持ち越し）: `GlobeDb` はライブラリの `ClassIndex` を世代ごとに `Arc` で持ち、文書の小さな索引を `ClassIndex::over` でその上に重ねる（MSL 全部読みの `ChuaCircuit` の 2 回目 52 → 6.9 ms、debug）。`ClassIndex::resolve` は各スコープで「クラス → そのクラスの import」の順に引く（MLS §5.3.1・§13.2 の最小。qualified・renamed・unqualified・selective）。別名の import は `ClassOutline::imports` に `D=A.B.C` の形で入る。`tests/data/MslPartsImport.mo` の `unresolved` 0。[解説書](sessions/S089-graph-imports-index-cache/解説書.md)
 - 持ち越し: ~~継承したクラスの中の入れ子のクラスの解決~~（S101 で済）。
+
+### S110（P7、2026-11-03）で済んだこと
+
+- **言語 API の機能表**（文書だけ。[調査](research/lang-api-matrix-2026-11-03.md)、[解説書](sessions/S110-lang-api-matrix/解説書.md)）: Rust facade・C・Zig・Julia・Elixir・Gleam・Python・wasm・LSP・CLI の公開 API を 13 の機能で並べた。穴は C・Zig・Elixir・Gleam 6、Julia 7、Python 5、facade 4、LSP 3、wasm・CLI 2。参照シナリオ（`Decay` を開く → check → simulate → `final.x` が e⁻¹ → format、MSL なし）は wasm・LSP・CLI で通り、6 言語は format が無いので通らない（Python は 1〜4 を手元で確かめた。C・Zig・Julia・Elixir・Gleam はソースで判定）。
+- 埋める順: facade に `format` / `lint` → C・NIF・py に足し Julia の包み（`format`・`load_dir`・`graph`）→ 参照シナリオを各言語の試験と CI の `lang` に → 列の道を C・NIF に → FMU export を facade に → 進捗と途中で止める口（ADR を先に）。
 
 ### S101（P4、2026-11-03）で済んだこと
 

@@ -1,6 +1,6 @@
 [package]
 name = "globe-mode-fmu"
-description = "GlobeMode: own FMI 2.0 Model Exchange runtime (P5b, S095: Decay fixed in the crate)"
+description = "GlobeMode: own FMI 2.0 Model Exchange runtime (P5b: compiles resources/<model>.mo through globe-mode-exec)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -14,7 +14,10 @@ name = "globe_mode_fmu"
 # rlib はテスト（tests/fmpy.rs）から関数を直接呼ぶため
 crate-type = ["cdylib", "rlib"]
 
-# S095: 依存は無い（ADR-0032。モデルは src/lib.rs に固定）
+# S099: モデルを resources の .mo から compile し、exec の ModelInstance で微分を求める（ADR-0032 の追記）
+[dependencies]
+globe-mode-frontend = { workspace = true }
+globe-mode-exec = { workspace = true }
 
 # FFI の境界なので workspace の unsafe_code = "forbid" を外す（残りは workspace と同じ。globe-mode-c と同じ）
 [lints.rust]

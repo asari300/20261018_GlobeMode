@@ -47,6 +47,7 @@ use rumoca_solver::{SimDiagnostic, WARNING_ASSERTION_CODE};
 
 use crate::{CompiledModel, ExecStage, Simulated, time_text};
 
+pub(crate) mod instance;
 mod plugins;
 mod session;
 
