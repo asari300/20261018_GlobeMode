@@ -65,6 +65,7 @@ async fn bench(app: tauri::AppHandle, line: Option<String>) -> Result<bool, Stri
     let Some(path) = std::env::var_os("GLOBE_DESKTOP_BENCH") else {
         return Ok(false);
     };
+    eprintln!("bench: {}", line.as_deref().unwrap_or("start"));
     if let Some(line) = line {
         std::fs::write(path, line + "\n").map_err(|e| e.to_string())?;
         app.exit(0);

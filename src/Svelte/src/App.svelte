@@ -65,7 +65,7 @@
   // 起動時の Decay を検査・実行して、結果を console に 1 行出す。x1 は x(1)（e⁻¹ ≈ 0.3679）
   // S125: 末尾に時刻（ms、ADR-0034）。ready は最初の往復（ページの読み込みの始まりから）、decay は検査・実行・プロットの反映まで、msl は MSL を読み ChuaCircuit を検査するまで
   async function smoke() {
-    await backend.setFile(FILE, view.state.doc.toString());
+    await backend.setFile(FILE, view.state.doc.toString()).catch((e) => { failure = String(e); });
     const ready = performance.now();
     await check();
     const checked = !failure && !diagnostics.some((d) => d.severity === "error");
