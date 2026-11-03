@@ -9,17 +9,21 @@
 //! S109: 事象（FMI 2.0 ME の事象指示関数と Event Mode）。事象指示関数は `eval_root_conditions`、事象の処理は
 //! host の `SolveMeKernel::apply_discrete_event_updates` と同じ部品（公開）: `apply_projected_event_update` →
 //! `commit_pre_params_after_event_at`。次の時刻事象（`sample`）は `next_runtime_event_stop`。
+//!
+//! S112: 代数・離散の変数の値。結果の列と同じ `visible_values`（host の `get_outputs`・`record_outputs` と同じ部品）を
+//! `full_solver_y` の上で評価し、役割は `variable_meta`（結果の `variable_meta` と同じ）から決める。
 
 use std::collections::BTreeMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use globe_mode_core::{Diagnostic, Stage, codes};
+use globe_mode_ir::VariableRole;
 use rumoca_ir_dae::Dae;
 use rumoca_sim::SimOptions;
 use rumoca_solver::{
     EventActionOutcome, EventUpdateRowFilter, ProjectedEventUpdateInput, SolveRuntime,
-    SolveStopSchedule, commit_pre_params_after_event_at, orient_typed_root_zeros,
-    root_crossings_with_relation_memory,
+    SolveStopSchedule, commit_pre_params_after_event_at, convert_variable_meta,
+    orient_typed_root_zeros, root_crossings_with_relation_memory,
 };
 
 use super::{Phase, SETTLE_MAX_ITERS, failure_diagnostic, panic_diagnostic, session};
@@ -53,6 +57,25 @@ pub struct ModelInstance {
     roots: Vec<f64>,
     /// Event Mode に入ったときの（solver の y、パラメータの枠）＝ `pre` の値
     event_entry: Option<(Vec<f64>, Vec<f64>)>,
+    /// 代数・出力・離散の変数と、Rumoca の見える変数（`visible_names`）での位置
+    variables: Vec<(Variable, usize)>,
+}
+
+/// 状態とパラメータ以外の変数 1 つ（S112。値は [`ModelInstance::variable_values`]）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct Variable {
+    pub name: String,
+    /// [`VariableRole::Algebraic`]・[`VariableRole::Output`]・[`VariableRole::Discrete`] のどれか
+    pub role: VariableRole,
+    pub value_type: ValueType,
+}
+
+/// [`Variable`] の型（値はどれも f64 で返す。Integer は整数の値、Boolean は 0 か 1）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ValueType {
+    Real,
+    Integer,
+    Boolean,
 }
 
 /// [`ModelInstance::update_discrete_states`] の結果（FMI 2.0 の `fmi2EventInfo` に当たる）。
@@ -124,7 +147,41 @@ impl ModelInstance {
                     format!("初期化に失敗: {e}"),
                 )]
             })?;
+        let meta: std::collections::HashMap<_, _> =
+            convert_variable_meta(&runtime.model.variable_meta)
+                .into_iter()
+                .map(|m| (m.name.clone(), m))
+                .collect();
+        // shortcut: Enumeration・String の変数は載せない。FMU で要るときに型の定義を足す
+        let variables = (runtime.model.visible_names.iter().enumerate())
+            .filter_map(|(i, name)| {
+                let m = meta.get(name);
+                let role = super::role(m);
+                let value_type = match m.and_then(|m| m.value_type.as_deref()) {
+                    Some("Integer") => ValueType::Integer,
+                    Some("Boolean") => ValueType::Boolean,
+                    Some("Real") | None => ValueType::Real,
+                    Some(_) => return None,
+                };
+                matches!(
+                    role,
+                    VariableRole::Algebraic | VariableRole::Output | VariableRole::Discrete
+                )
+                .then(|| {
+                    let name = name.clone();
+                    (
+                        Variable {
+                            name,
+                            role,
+                            value_type,
+                        },
+                        i,
+                    )
+                })
+            })
+            .collect();
         let mut inst = Self {
+            variables,
             schedule: SolveStopSchedule::new(&runtime.model.problem, start_time, HORIZON),
             roots: Vec::new(),
             event_entry: None,
@@ -196,6 +253,30 @@ impl ModelInstance {
                 SETTLE_MAX_ITERS,
             )
             .map_err(|e| e.to_string())
+    }
+
+    /// 状態とパラメータ以外の変数（代数・出力・離散。S112）。
+    pub fn variables(&self) -> impl ExactSizeIterator<Item = &Variable> {
+        self.variables.iter().map(|(v, _)| v)
+    }
+
+    /// 今の時刻と状態での [`Self::variables`] の値（同じ順）。離散の変数は直前の事象の後の値。
+    pub fn variable_values(&self) -> Result<Vec<f64>, String> {
+        let y = self
+            .runtime
+            .full_solver_y(
+                self.time,
+                &self.states,
+                &self.params,
+                EVAL_TOL,
+                SETTLE_MAX_ITERS,
+            )
+            .map_err(|e| e.to_string())?;
+        let all = self
+            .runtime
+            .visible_values(&y, &self.params, self.time)
+            .map_err(|e| e.to_string())?;
+        Ok(self.variables.iter().map(|&(_, i)| all[i]).collect())
     }
 }
 

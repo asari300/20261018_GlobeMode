@@ -7,9 +7,12 @@
 //! S109: 事象。`fmi2GetEventIndicators` は root の条件の値（`numberOfEventIndicators` 本）、`fmi2EnterEventMode` →
 //! `fmi2NewDiscreteStates` で `when` と `reinit` を回し、次の時刻事象（`sample`）を `nextEventTime` で返す。
 //!
-//! - 値参照: `0..n` = 状態、`n..2n` = その微分（`der(…)`）、`2n..` = tunable なパラメータ。
+//! S112: 代数・離散の変数（`ModelInstance::variables`）を `fmi2GetReal`・`fmi2GetInteger`・`fmi2GetBoolean` で読む。
+//!
+//! - 値参照: `0..n` = 状態、`n..2n` = その微分（`der(…)`）、`2n..2n+p` = tunable なパラメータ、
+//!   `2n+p..` = 代数・出力・離散の変数（S112。書けない）。
 //! - パラメータの変更は `fmi2ExitInitializationMode` で lowering からやり直して反映する（依存するパラメータにも届く）。
-//! - 状態の保存（FMUstate）・方向微分・Integer/Boolean/String の値は無いので `fmi2Error` を返す（`nvr = 0` は OK）。
+//! - 状態の保存（FMUstate）・方向微分・String の値と、Integer/Boolean の書き込みは無いので `fmi2Error` を返す（`nvr = 0` は OK）。
 //! - ログの callback は呼ばない（失敗の理由は標準エラーに出す）。panic は `extern "C"` の境界で abort する（Rust 2024）。
 // 安全の約束は FMI 2.0 の規格（呼び手は fmi2Instantiate が返した c と、nvr 個の有効な配列を渡す）
 #![allow(clippy::missing_safety_doc)]
@@ -19,7 +22,7 @@ use std::ffi::{CStr, c_char, c_int, c_uint, c_void};
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-use globe_mode_exec::{CompiledModel, ModelInstance};
+use globe_mode_exec::{CompiledModel, ModelInstance, ValueType, VariableRole};
 use globe_mode_frontend::{Checker, Source};
 
 type Component = *mut c_void;
@@ -91,6 +94,31 @@ pub fn model_description(model: &str, source: &str) -> Result<String, String> {
             2 * n + i
         );
     }
+    let first = 2 * n + inst.parameters().len();
+    let mut outputs = String::new();
+    for (i, var) in inst.variables().enumerate() {
+        let r = first + i;
+        let (ty, discrete) = match var.value_type {
+            ValueType::Real => ("Real", var.role == VariableRole::Discrete),
+            ValueType::Integer => ("Integer", true),
+            ValueType::Boolean => ("Boolean", true),
+        };
+        let causality = if var.role == VariableRole::Output {
+            let _ = writeln!(outputs, "      <Unknown index=\"{}\"/>", r + 1);
+            "output"
+        } else {
+            "local"
+        };
+        let variability = if discrete { "discrete" } else { "continuous" };
+        let _ = write!(
+            v,
+            "    <ScalarVariable name=\"{}\" valueReference=\"{r}\" causality=\"{causality}\" variability=\"{variability}\" initial=\"calculated\">\n      <{ty}/>\n    </ScalarVariable>\n",
+            esc(&var.name)
+        );
+    }
+    if !outputs.is_empty() {
+        outputs = format!("    <Outputs>\n{outputs}    </Outputs>\n");
+    }
     let unknowns: String = (n + 1..=2 * n)
         .map(|i| format!("      <Unknown index=\"{i}\"/>\n"))
         .collect();
@@ -108,7 +136,7 @@ pub fn model_description(model: &str, source: &str) -> Result<String, String> {
   <ModelVariables>
 {v}  </ModelVariables>
   <ModelStructure>
-    <Derivatives>
+{outputs}    <Derivatives>
 {unknowns}    </Derivatives>
     <InitialUnknowns>
 {unknowns}    </InitialUnknowns>
@@ -376,11 +404,10 @@ pub unsafe extern "C" fn fmi2GetReal(
                 Some(m.inst.states()[r])
             } else if r < 2 * n {
                 m.inst.derivatives().ok().map(|d| d[r - n])
+            } else if let Some((name, p)) = m.inst.parameters().get(r - 2 * n) {
+                Some(*m.overrides.get(name).unwrap_or(p))
             } else {
-                m.inst
-                    .parameters()
-                    .get(r - 2 * n)
-                    .map(|(name, p)| *m.overrides.get(name).unwrap_or(p))
+                variable(m, r, ValueType::Real)
             };
             got.map(|x| *v = x).is_some()
         })
@@ -415,29 +442,58 @@ pub unsafe extern "C" fn fmi2SetReal(
     }
 }
 
-/// Integer・Boolean・String の変数は無い（`nvr = 0` だけ OK）。
+/// 値参照 `r`（`2n+p..`）の代数・離散の変数の今の値。型が `ty` でなければ None。
+// shortcut: 値参照ごとに解き直す（nvr 個なら nvr 回）。変数の多いモデルで遅ければ 1 回の呼び出しの中で使い回す
+fn variable(m: &Instance, r: usize, ty: ValueType) -> Option<f64> {
+    let i = r.checked_sub(2 * m.inst.n_states() + m.inst.parameters().len())?;
+    if m.inst.variables().nth(i)?.value_type != ty {
+        return None;
+    }
+    match m.inst.variable_values() {
+        Ok(v) => Some(v[i]),
+        Err(e) => {
+            eprintln!("globe-mode-fmu: {e}");
+            None
+        }
+    }
+}
+
+/// String の変数と、Integer・Boolean の書き込みは無い（`nvr = 0` だけ OK）。
 fn no_variables(nvr: usize) -> Status {
     if nvr == 0 { OK } else { ERROR }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fmi2GetInteger(
-    _c: Component,
-    _vr: *const c_uint,
+    c: Component,
+    vr: *const c_uint,
     nvr: usize,
-    _v: *mut c_int,
+    value: *mut c_int,
 ) -> Status {
-    no_variables(nvr)
+    unsafe {
+        each(c, vr, nvr, value, |m, r, v| {
+            // 値は整数の f64（Rumoca は離散の値も f64 で持つ）
+            variable(m, r as usize, ValueType::Integer)
+                .map(|x| *v = x.round() as c_int)
+                .is_some()
+        })
+    }
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fmi2GetBoolean(
-    _c: Component,
-    _vr: *const c_uint,
+    c: Component,
+    vr: *const c_uint,
     nvr: usize,
-    _v: *mut c_int,
+    value: *mut c_int,
 ) -> Status {
-    no_variables(nvr)
+    unsafe {
+        each(c, vr, nvr, value, |m, r, v| {
+            variable(m, r as usize, ValueType::Boolean)
+                .map(|x| *v = c_int::from(x != 0.0))
+                .is_some()
+        })
+    }
 }
 
 #[unsafe(no_mangle)]

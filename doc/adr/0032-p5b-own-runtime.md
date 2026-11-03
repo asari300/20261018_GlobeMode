@@ -95,3 +95,24 @@
 - `initial()` の事象（`apply_projected_initial_event_boundary`。`shortcut:` の注記）、多様体の射影、状態事象と時刻事象が同時のとき。
 - 離散・出力の変数の値参照（SampleCounter の n・xs、BouncingBall の n を FMU の外から読めない。今は FMPy で Event Mode の回数を数えて突き合わせる）。
 - MSL を使うモデル、CS・FMI 3.0・Windows（S099 の持ち越しのまま）。
+
+## 追記（2026-11-03、S112）: 代数・離散の変数を FMU の外から読む
+
+### 決定
+
+- `ModelInstance` に `variables()`（状態とパラメータ以外の変数。名前・役割 `VariableRole`（Algebraic・Output・Discrete）・型 `ValueType`（Real・Integer・Boolean））と `variable_values()`（今の時刻と状態での値、同じ順。f64）を足した。
+- 値は exec の `run` が結果の列を作るときと同じ部品を使う: Rumoca の host の `record_outputs`・`get_outputs` が呼ぶ `SolveRuntime::visible_values` を、`full_solver_y` で求めた y とパラメータの枠の上で評価する（どれも公開。Rumoca は改変していない）。変数の並びは `SolveModel::visible_names`、役割と型は `variable_meta`（`convert_variable_meta` で `SimVariableMeta` にし、exec の結果と同じ `role` で振り分ける）。離散の値はパラメータの枠にあり、直前の事象の後の値になる。
+- `globe-mode-fmu`: 値参照 `2n+p..` に載せる。`causality` は役割が Output なら `output`（`ModelStructure` の `Outputs` にも並べる）、ほかは `local`。`variability` は離散か Integer・Boolean なら `discrete`、ほかは `continuous`。`initial="calculated"` で start は書かない。`fmi2GetReal`・`fmi2GetInteger`・`fmi2GetBoolean` で読め、型の違う値参照と書き込みは `fmi2Error`。
+- Enumeration・String の変数は載せない（`shortcut:` の注記）。値参照ごとに解き直す（`shortcut:` の注記）。
+
+### 結果
+
+- FMPy 0.3.32 の ME で SampleCounter の n = 10（`fmi2GetInteger`。exec の n と同じ）、xs = 0.9500000000000001（exec は 0.9499999999999997、差 4.4e-16）。BouncingBall の n = 3（exec と同じ）。NonlinearLoop の代数変数 y(1) = 1.9999999999999991・z(1) = 4.000000000000001（exec は 2.0・4.0、差 8.9e-16・8.9e-16。x(1) は 9.4e-9 の差）。
+- HarmonicOscillator・BouncingBall には代数変数が無いので、代数変数の突き合わせは NonlinearLoop（大きさ 2 の非線形の代数ループ）で行った。
+- 外部の依存の追加 0。
+
+### 持ち越し
+
+- 入力（`causality="input"`）と、代数・離散の変数の書き込み。Enumeration・String の変数。
+- `ModelStructure` の `Outputs` の依存（`dependencies`）を書いていない（既定の「すべてに依存」）。
+- `initial()` の事象、MSL を使うモデル、`modelDescription.xml` の生成を P5a と共有、CS・FMI 3.0・Windows（S109 の持ち越しのまま）。
