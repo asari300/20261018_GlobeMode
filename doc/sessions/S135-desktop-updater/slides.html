@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S135 Desktop の自動更新 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S135 Desktop の自動更新">
+
+<section class="slide" id="S01">
+  <span class="tag">S135 · 2026-11-03 · P4</span>
+  <h1>Desktop の自動更新</h1>
+  <p class="lead">Tauri 2 の updater。署名は secret があるときだけ</p>
+  <div class="big">latest.json</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>features.md の Desktop の「署名と自動更新は未」</li>
+    <li>Release に付けた .deb・.msi から自動で入れ直せる仕組み</li>
+    <li>鍵は作らない・コミットしない。作り方は解説書と ADR-0023 に</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>どこに何を置いたか</h1>
+  <table>
+    <tr><th>項目</th><th>決定</th></tr>
+    <tr><td>プラグイン</td><td>tauri-plugin-updater 2.14。Desktop だけ（Android には入れない）</td></tr>
+    <tr><td>公開鍵</td><td>tauri.conf.json の pubkey。空ならプラグインを入れず UI は「未設定」</td></tr>
+    <tr><td>配布</td><td>release.yml に desktop-ui と desktop（.deb・.msi）</td></tr>
+    <tr><td>署名</td><td>secret を env に写し、あれば createUpdaterArtifacts で .sig</td></tr>
+    <tr><td>latest.json</td><td>.sig があるときだけ。キーは linux-x86_64-deb・windows-x86_64-msi</td></tr>
+    <tr><td>JS</td><td>npm を足さず window.__TAURI__.updater</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>release.yml の流れ</h1>
+  <svg class="fig" viewBox="0 0 800 220" role="img" aria-label="desktop-ui の後に desktop が bundle を作り、secret があれば署名し、release が latest.json を作って Release に付ける">
+    <rect class="svg-box" x="20" y="70" width="180" height="80" rx="10"/>
+    <text class="svg-text-b" x="110" y="106" text-anchor="middle">desktop-ui</text>
+    <text class="svg-text" x="110" y="130" text-anchor="middle">vite build</text>
+    <line class="svg-line" x1="200" y1="110" x2="290" y2="110"/>
+    <rect class="svg-box" x="290" y="70" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="390" y="106" text-anchor="middle">desktop</text>
+    <text class="svg-text" x="390" y="130" text-anchor="middle">.deb・.msi（鍵があれば .sig）</text>
+    <line class="svg-line" x1="490" y1="110" x2="580" y2="110"/>
+    <rect class="svg-box-accent" x="580" y="70" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="680" y="106" text-anchor="middle">release</text>
+    <text class="svg-text" x="680" y="130" text-anchor="middle">latest.json と Release</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>dry run で確かめる</h1>
+  <pre><code>gh workflow run release.yml --ref feature/s135-desktop-updater
+gh run download &lt;run-id&gt; -n globe-desktop-linux
+gh run download &lt;run-id&gt; -n globe-desktop-windows</code></pre>
+  <p>手動実行は従来どおり Release を作らない（タグの push のときだけ付ける）</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">ユーザーがやること</span>
+  <h1>鍵と secret</h1>
+  <pre><code>cargo tauri signer generate -w ~/.tauri/globemode.key
+gh secret set TAURI_SIGNING_PRIVATE_KEY &lt; ~/.tauri/globemode.key
+gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+# ~/.tauri/globemode.key.pub を tauri.conf.json の pubkey に書く</code></pre>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>署名つきの Release から実機で更新する（Linux は pkexec、Windows は passive の msi）</li>
+    <li>Desktop の THIRD-PARTY.md</li>
+    <li>macOS</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

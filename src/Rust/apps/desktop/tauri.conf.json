@@ -24,5 +24,12 @@
     "category": "DeveloperTool",
     "shortDescription": "Modelica IDE",
     "longDescription": "GlobeMode: an open-source Modelica IDE. Checking and simulation run in the bundled `globe` sidecar process."
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "",
+      "endpoints": ["https://github.com/asari300/20261018_GlobeMode/releases/latest/download/latest.json"],
+      "windows": { "installMode": "passive" }
+    }
   }
 }

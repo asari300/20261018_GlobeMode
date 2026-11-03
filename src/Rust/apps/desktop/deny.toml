@@ -24,6 +24,7 @@ allow = [
   "Unicode-3.0",
   "CC0-1.0",
   "BSL-1.0",
+  "CDLA-Permissive-2.0",  # S135: updater の reqwest 経由の webpki-root-certs（ルートの licenses.md で許可済み）
 ]
 confidence-threshold = 0.9
 # 条件付き（MPL-2.0）。改変せずに使う。理由は doc/licenses.md の Tauri の行
