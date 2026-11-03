@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>上流の下書き 21 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode 上流の下書き 21">
+
+<section class="slide" id="S01">
+  <span class="tag">下書き 21 · Rumoca · 未提出 · 2026-11-03</span>
+  <h1>getInstanceName() の束縛と、成分配列の if 方程式で EF004</h1>
+  <p class="lead">原因は 2 つで、コードが同じ。v0.10.4 でも両方とも再現する</p>
+  <div class="cols-2">
+    <div>
+      <pre><code>// A: parameter の束縛
+model Rep21A
+  final parameter String name =
+    getInstanceName();          // EF004
+end Rep21A;
+
+// B: 成分配列 × ベクトル（スカラ 1 行）
+model Rep21B
+  parameter Integer n = 2;
+  Rep21Rec s[n];
+equation
+  if noEvent(q &gt; 0.5) then
+    hMix*(s.n_flow*ones(n)) = 0; // EF004
+  else
+    hMix = 0;
+  end if;
+end Rep21B;</code></pre>
+      <p class="small muted">本文: <a href="21-ef004-getinstancename-and-if-equation-branches_jp.md">日本語</a> · <a href="21-ef004-getinstancename-and-if-equation-branches.md">英語</a> · 再現 <a href="21-ef004-getinstancename-and-if-equation-branches.mo">.mo</a> · 一覧 <a href="../../upstream.md">upstream.md</a></p>
+    </div>
+    <table class="small">
+      <tr><th>v0.10.4 の結果</th><td><span class="ng">再現</span>（A・B とも EF004。if の外の B4 は ED001 4/3）</td></tr>
+      <tr><th>Rumoca の穴の根拠</th><td>A: モデルの中で呼べばインスタンス名（MLS §3.7.4.6）。B: ベクトル同士の積はスカラ（§10.6.4）。omc は通す</td></tr>
+      <tr><th>影響</th><td>ライブラリ 217 本（A 119：ThermofluidStream 93 ほか、B 41：Chemical）</td></tr>
+      <tr><th>GlobeMode 側の回避</th><td>なし（S4 の GM-U0001）</td></tr>
+      <tr><th>提出の判断材料</th><td>2 件に分けて出すか、1 件に 2 部。提出の順は 4 位</td></tr>
+    </table>
+  </div>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

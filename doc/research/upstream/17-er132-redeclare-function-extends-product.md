@@ -44,12 +44,17 @@ $ rumoca compile 17-er132-redeclare-function-extends-product.mo -m Rep17.M
 
 OpenModelica 1.27.2 (`omc`, `loadFile` then `checkModel(Rep17.M)`): `Check of Rep17.M completed successfully. Class Rep17.M has 6 equation(s) and 6 variable(s).`
 
+## Re-check on Rumoca v0.10.4 (S115, 2026-11-03)
+
+Unchanged: `Rep17.M` gives the same `[ER132] cannot verify ExternalObject lifecycle for 'product': resolved base DefId(78) is missing`, followed by the same `ER002` cascade (`z`, `x`, `y`). The library examples were not re-run with v0.10.4. [not verified]
+
 ## Environment
 
 - Rumoca v0.10.2, git rev `276e82bd0fd48960ac201e782918d28bf19cf7ce` (https://github.com/CogniPilot/rumoca), as pinned by GlobeMode; also the prebuilt `rumoca-linux-x86_64` v0.10.2 release binary.
 - Linux x86_64 (WSL2, Ubuntu).
 - Counts: GlobeMode S063 failure classification, `doc/research/libraries-2026-11-01.md` ("failures by cause"): ER132 267 of 1,781 failures; all 267 name `product`. Library: IBPSA 4.0.0 (master `2adc9194`, 2026-10-29), file `IBPSA/Electrical/PhaseSystems/OnePhase.mo`; Buildings 14.0.0 and AixLib 3.0.1 carry copies of the same package.
 - Not yet re-checked against Rumoca main (0.10.3 at the time of writing). Re-check before filing.
+- Re-checked on 2026-11-03 (S115) with the latest release, Rumoca v0.10.4 (tag commit `9c8c56fcd9f5ab9beb871f09bf5d9eed82971c54`, released 2026-11-02, prebuilt `rumoca-linux-x86_64`, https://github.com/CogniPilot/rumoca/releases/tag/v0.10.4), next to the v0.10.2 binary. Rumoca main was not built. [not verified on main]
 
 ## Workaround in GlobeMode
 
