@@ -117,6 +117,14 @@
 - `wasm:compare`: 400 件中 387 件が一致、既知の差 13、一致しない 0（減っていない）。`wasm:node` ok。
 - 状態の無いモデル（積分器が無い）は積分の中で止められない。積分器の 1 歩ごとに `now` を呼ぶので、wasm（`performance.now()`）での費用は 2 段目で測る。
 
+### 2 段目の結果（S133、wasm と Svelte、2026-11-03）
+
+- exec・facade は変えていない。`globe-mode-wasm` の `simulate_columns(request_json, on_progress?)` に省略できる 2 つ目の引数を足した（(3) の表の形。別の `simulate_observed` は作らなかった。UI が使うのは列の道だけで、省略すると前と同じ `run_columns` の道なので `run`・`wasm:compare` は変わらない）。JS の関数は js-sys を足さず、`#[wasm_bindgen] extern` で `Function.prototype.call` を宣言して呼ぶ（`on_progress(stage, time, start_time, stop_time)`。`stage` は Python と同じ小文字、`time` は無ければ `undefined`。関数の例外は無視する）。
+- `worker.js` は `{id, type: "progress", stage, time, start_time, stop_time}` を親に送り、`GlobeWorker.simulateColumns(req, {onProgress})` が受ける。`GlobeWorker.cancel()` は実行中の呼び出しがあるときだけ、Worker を `terminate()` して作り直し（ライブラリとファイルは既存の再生で送り直す）、止めた呼び出しを `cancelled: true` の Error で reject する。途中の列は返らない（決定のとおり）。
+- Svelte: `Backend` に `simulateColumns(req, onProgress?)` と省略できる `cancel?()`。`WorkerBackend` は両方を通し、`TauriBackend` は `cancel` を持たない（「止める」ボタンを出さない。LSP・Desktop は 5 段目）。`App.svelte` は実行中に「実行中: integration、t = … / stop（n%）」の 1 行（`role="status"`）と「止める」ボタンを出し、止めたら `data-run="cancelled"` と「止めた」を出して、ボタンを戻す。
+- **`performance.now()` の費用**（release の wasm、Node 24、load average 10〜20 の WSL）: 実行系は積分器の 1 歩ごとに `now` を呼ぶ（進捗を受けないときも。`simulate_with` も同じ `Hooks::tick` を通る）。呼んだ回数は Decay（esdirk34）で 1 回の実行あたり 55 回、`ChuaCircuit`（bdf）で 12,074 回。JS から `performance.now()` を 100 万回呼んだ 1 回あたりは 60〜160 ns なので、ChuaCircuit で約 0.7〜1.9 ms、実行の中央値 363 ms の 0.5% 未満。定数を返す `now` に差し替えた実行との中央値の差（Decay +2.1 ms、ChuaCircuit −40.7 ms）は揺れの範囲で、費用は見分けられなかった。区切りを変える必要は無い。
+- 試験: `globe-mode-wasm/tests/decay.rs` の `observed_columns_report_progress_and_match`（ネイティブで、Decay の esdirk34 の進捗が lowering で始まり integration の t = 1 で終わり、列が進捗なしと同じ）、`node/smoke.mjs`（`wasm:node`。wasm で同じことを確かめ、6 回の進捗。上の費用もここで出す）、`web/worker-node.mjs`（`wasm:web`。Worker 越しの進捗と、`der(x) = sin(100 * time)` を 1000 s の実行を最初の t の進捗で `cancel()` すると `cancelled` で reject し、作り直した Worker で Decay が回る）、`src/Svelte/tests/test_ui.py`（同じモデルで進捗の行が出て、「止める」で `data-run="cancelled"` になり「実行」が押せるに戻る）。
+
 ### 3 段目の結果（S129、Python、2026-11-03）
 
 - 2 段目（wasm）より先に入れた（wasm は S127 が `globe-mode-wasm` を触っているので独立に進めた）。exec・facade は変えていない。
