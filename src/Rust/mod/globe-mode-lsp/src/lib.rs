@@ -1118,7 +1118,8 @@ mod tests {
         let r = s.handle(json!({"id": 2, "method": "globe/exportFmu",
             "params": {"model": "Nope", "outDir": out}}));
         assert_eq!(r[0]["error"]["code"], -32000);
-        let r = s.handle(json!({"id": 3, "method": "globe/exportFmu", "params": {"model": "Decay"}}));
+        let r =
+            s.handle(json!({"id": 3, "method": "globe/exportFmu", "params": {"model": "Decay"}}));
         assert_eq!(r[0]["error"]["code"], -32602);
         std::fs::remove_dir_all(&dir).unwrap();
     }

@@ -350,7 +350,10 @@ fn decay_exports_a_source_fmu_as_bytes() {
     for (name, text) in package() {
         ws.put_file(&name, text);
     }
-    let fmu = ws.export_fmu("GlobeModeValidation.Simulation.Decay", 2).ok().unwrap();
+    let fmu = ws
+        .export_fmu("GlobeModeValidation.Simulation.Decay", 2)
+        .ok()
+        .unwrap();
     assert_eq!(&fmu[..2], b"PK");
     let has = |name: &[u8]| fmu.windows(name.len()).any(|w| w == name);
     assert!(has(b"modelDescription.xml") && has(b"sources/"));
