@@ -37,4 +37,22 @@ defmodule GlobeModeTest do
     # モデル・設定の誤りは ok: false と diagnostics で返る
     assert {:ok, %{"ok" => false}} = GlobeMode.simulate(ws, @model, %{solver: "no-such-solver"})
   end
+
+  # S131（ADR-0033）: 積分に 100 ms より長くかかる（t が途中で知らされる）ように、細かく振れる入力を長く積む（S129 と同じ）
+  @wiggle "model Wiggle Real x(start = 0, fixed = true); equation der(x) = sin(100 * time); end Wiggle;"
+
+  test "Task で回し、最初の t の進捗で別のプロセスから cancel すると cancelled（S131）" do
+    {:ok, ws} = GlobeMode.new()
+    GlobeMode.set_file(ws, "Wiggle.mo", @wiggle)
+    token = GlobeMode.cancel_token()
+    me = self()
+    settings = %{solver: "esdirk34", stop_time: 1000, interval: 1}
+    task = Task.async(fn -> GlobeMode.simulate_observed(ws, "Wiggle", settings, token, me) end)
+    assert_receive {:globe_progress, %{stage: "integration", time: t}} when is_float(t), 30_000
+    assert GlobeMode.cancel(token) == :ok
+    {:ok, res} = Task.await(task, 30_000)
+    assert res["ok"] and res["termination"]["kind"] == "cancelled", inspect(res["termination"])
+    assert res["termination"]["time"] > 0 and res["termination"]["time"] < 1000
+    assert "GM-I11004" in Enum.map(res["diagnostics"], & &1["code"])
+  end
 end

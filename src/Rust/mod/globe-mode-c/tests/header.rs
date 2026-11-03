@@ -23,6 +23,8 @@ fn c_type(rust: &str) -> String {
         "*mut f64" => "double *",
         "*mut *mut f64" => "double **",
         "*mut usize" => "size_t *",
+        "*mut c_void" => "void *",
+        "GmProgressCallback" => "GmProgressCallback",
         other => panic!("表に無い型: {other}"),
     }
     .to_string()
@@ -30,6 +32,8 @@ fn c_type(rust: &str) -> String {
 
 fn rust_sigs(src: &str) -> Sigs {
     let mut out = Sigs::new();
+    // 試験のモジュールのコールバック（`extern "C" fn`）は C の口ではない
+    let src = src.split("#[cfg(test)]").next().unwrap();
     for chunk in src.split("extern \"C\" fn ").skip(1) {
         let name = &chunk[..chunk.find('(').unwrap()];
         let close = chunk.find(')').unwrap();
@@ -48,7 +52,11 @@ fn rust_sigs(src: &str) -> Sigs {
 fn header_sigs(h: &str) -> Sigs {
     let mut out = Sigs::new();
     for line in h.lines().map(str::trim) {
-        if line.starts_with("/*") || line.starts_with('*') || !line.ends_with(");") {
+        if line.starts_with("/*")
+            || line.starts_with('*')
+            || line.starts_with("typedef")
+            || !line.ends_with(");")
+        {
             continue;
         }
         let open = line.find('(').unwrap();
@@ -79,6 +87,6 @@ fn header_matches_extern_c_signatures() {
     let rust = rust_sigs(&std::fs::read_to_string(format!("{dir}/src/lib.rs")).unwrap());
     let header =
         header_sigs(&std::fs::read_to_string(format!("{dir}/include/globe_mode.h")).unwrap());
-    assert!(rust.len() >= 13, "{rust:?}");
+    assert!(rust.len() >= 15, "{rust:?}");
     assert_eq!(rust, header);
 }

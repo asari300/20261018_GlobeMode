@@ -15,6 +15,9 @@ defmodule :globe_mode_nif do
   def graph(_ws, _model, _depth), do: :erlang.nif_error(:not_loaded)
   def simulate(_ws, _model, _settings_json), do: :erlang.nif_error(:not_loaded)
   def simulate_columns(_ws, _model, _settings_json), do: :erlang.nif_error(:not_loaded)
+  def cancel_token, do: :erlang.nif_error(:not_loaded)
+  def cancel(_token), do: :erlang.nif_error(:not_loaded)
+  def simulate_observed(_ws, _model, _settings_json, _pid, _token), do: :erlang.nif_error(:not_loaded)
   def export_fmu(_ws, _model, _out_dir, _options_json), do: :erlang.nif_error(:not_loaded)
   def solvers, do: :erlang.nif_error(:not_loaded)
   def format(_text, _indent, _insert_origin), do: :erlang.nif_error(:not_loaded)
@@ -43,6 +46,20 @@ defmodule GlobeMode do
   @doc "`settings` は `%{stop_time: 2, solver: \"bdf\"}` など。"
   def simulate(ws, model, settings \\ %{}),
     do: decode(:globe_mode_nif.simulate(ws, model, JSON.encode!(settings)))
+
+  @doc "中断の合図を作る（S131）。`simulate_observed/5` に渡し、別のプロセスから `cancel/1` で立てる。"
+  def cancel_token, do: :globe_mode_nif.cancel_token()
+
+  @doc "合図を立てる。実行は次の区切りで止まる（S131）。"
+  def cancel(token), do: :globe_mode_nif.cancel(token)
+
+  @doc """
+  `simulate/3` と同じだが、進捗のたびに `pid` へ `{:globe_progress, %{stage: "integration", time: t | nil, start_time:, stop_time:}}`
+  を送り、`token` が `cancel/1` されたら止める（S131、ADR-0033）。止めたら `termination` が `cancelled` で途中までの CSV と `GM-I11004`。
+  呼んだプロセスは終わるまで待つので、`Task` などで回す。
+  """
+  def simulate_observed(ws, model, settings, token, pid \\ self()),
+    do: decode(:globe_mode_nif.simulate_observed(ws, model, JSON.encode!(settings), pid, token))
 
   @doc """
   列の道（S116）。`{:ok, layout, columns}` で、`layout` は `%{"response", "names", "points"}`（`response` に `csv` は無い）、
