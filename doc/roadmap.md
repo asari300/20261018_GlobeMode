@@ -551,7 +551,14 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 ### S126（P3・P8、2026-11-03）で済んだこと
 
 - **ソルバの表を S119 の後の版で更新した**（文書だけ。[解説書](sessions/S126-msl-solvers-refresh/解説書.md)）: `msl-sim.yml` run 41616928442（main `97be9cc`、14 ソルバすべて、全ジョブ success）の artifact で [msl-solvers.md](msl-solvers.md) と [msl-sim.md](msl-sim.md) を置き換えた。S050 から: `auto` 309 → 312・管 301 / 308 → 303 / 311、`dopri45` 292 → 293、`sdirk34hw` 294 → 292（管 285 → 282）、`tsit45` 287 → 285、`cerk23`・`cvode` 1 本ずつ減、ほかは同じ。`auto` の 356 本の判定は S119 の run と同じ。`ThyristorBridge2mPulse_DC_Drive` は積分 125.6 s で完走（S119 の run は 177.1 s。ランナーで揺れ、予算 180 s の境目のまま）。
-- 持ち越し: session の道の SDIRK（`esdirk34`・`esdirk45`・`sdirk34hw`）で `HBridge_TrianglePWM_RL`・`HBridge_DC_Drive` が `GM-E11002`、`sdirk34hw` で `ThyristorBridge2Pulse_DC_Drive` が `GM-E11003` に変わった。plugins を変えたのは S119 だけなので S119 の刻みの上限が疑わしいが【未確認】。
+- 持ち越し: session の道の SDIRK（`esdirk34`・`esdirk45`・`sdirk34hw`）で `HBridge_TrianglePWM_RL`・`HBridge_DC_Drive` が `GM-E11002`、`sdirk34hw` で `ThyristorBridge2Pulse_DC_Drive` が `GM-E11003` に変わった。plugins を変えたのは S119 だけなので S119 の刻みの上限が疑わしいが【未確認】。**S139 で確かめて直した**（下）。
+
+### S139（P3、2026-11-03）で済んだこと
+
+- **S126 の SDIRK の新しい失敗の原因は S119 の刻みの上限だった。着地の側を直した**（[解説書](sessions/S139-sim-sdirk-regression/解説書.md)、[ADR-0013](adr/0013-exec-backend.md) の追記）: 上限を切ると `HBridge_TrianglePWM_RL`（esdirk34・sdirk34hw・esdirk45、0〜1 s）と `HBridge_DC_Drive`（esdirk34、0〜24 s の t = 3.714）の失敗が消える。上限が直前の刻み（出力の格子に切り詰められた値の繰り返し）を使うので、停止時刻の手前 1e-14 に着地すると残りが `min_timestep` を下回って `Step size is too small`、先 5e-15 に着地すると diffsol が切り詰めずホストの境界を越えた。`DiffsolRk::advance` で隙間が丸めの 8 倍より大きく `min_timestep` の 10 倍未満のときだけ刻みを `latest - t` にする（`land_on_stop`）。ThyristorBridge 2 本の esdirk34（0〜2 s）の受理・誤差の失敗・Newton の失敗は S119 と同じ。`wasm:compare` は 387 / 400・既知の差 13・不一致 0。
+- `sdirk34hw` の `ThyristorBridge2Pulse_DC_Drive` の `GM-E11003` は、上限なしでも `ThyristorBridge2mPulse_DC_Drive`（0〜2 s）で起きる事象の反復の揺れ（刻みの 1 ulp の違いで収束したりしなかったりする）で、S119 だけが原因ではない。
+- **CI**（`msl-sim.yml` run 41666815770、`solvers=["esdirk34","sdirk34hw"]`）: `HBridge_TrianglePWM_RL` は esdirk34・sdirk34hw とも終了時刻まで（管 OK 7/7）、`HBridge_DC_Drive` は `GM-E11002` が消えて時間切れ（`GM-E11005`、180.85 s）、ThyristorBridge 2 本の esdirk34 は終了時刻まで（2Pulse 47.0 s・2mPulse 160.4 s）。`sdirk34hw` の 2Pulse は `GM-E11003`（t = 13.04）のまま。`esdirk34` 295・管 286 / 294、`sdirk34hw` 293・283 / 292（どちらも S126 の表より 1 本増）。
+- 持ち越し: 事象の反復の揺れ（Rumoca の host の側）、`HBridge_TrianglePWM_RL` は上限で歩数が約 2 倍（4,014 から 9,109）。
 
 ### S092（P6、2026-11-02）で済んだこと
 
