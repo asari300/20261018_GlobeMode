@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S106 Android の release APK — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S106 Android の release APK">
+
+<section class="slide" id="S01">
+  <span class="tag">S106 · 2026-11-03 · P6</span>
+  <h1>Android の release APK</h1>
+  <p class="lead">鍵は secret があるときだけ。release でもエミュレータの smoke を通す</p>
+  <div class="big">12.1 MiB</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>S092・S103 の持ち越し「release の署名つき APK」</li>
+    <li>debug と release の大きさを Step Summary に並べる</li>
+    <li>鍵は作らない・コミットしない。作り方は解説書と ADR-0023 に</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>署名と smoke の分け方</h1>
+  <table>
+    <tr><th>項目</th><th>決定</th></tr>
+    <tr><td>ABI</td><td>release は ABI ごと。配るのは aarch64、x86_64 は smoke 用</td></tr>
+    <tr><td>署名</td><td>secret を env に写し、あれば keystore.properties を書く</td></tr>
+    <tr><td>鍵が無いとき</td><td>release-unsigned。smoke 用は使い捨ての鍵で署名</td></tr>
+    <tr><td>smoke 用</td><td>x86_64 を debuggable で作り直す（Tauri は debug でしか console を logcat に出さない）</td></tr>
+    <tr><td>emulator</td><td>matrix で debug と release の 2 本</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>apk ジョブの流れ</h1>
+  <svg class="fig" viewBox="0 0 800 220" role="img" aria-label="secret があれば署名、無ければ署名なし。smoke 用は debuggable で作り直し使い捨ての鍵で署名">
+    <rect class="svg-box" x="20" y="70" width="180" height="80" rx="10"/>
+    <text class="svg-text-b" x="110" y="106" text-anchor="middle">secret?</text>
+    <text class="svg-text" x="110" y="130" text-anchor="middle">env に写す</text>
+    <line class="svg-line" x1="200" y1="110" x2="290" y2="110"/>
+    <rect class="svg-box" x="290" y="70" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="390" y="106" text-anchor="middle">release APK</text>
+    <text class="svg-text" x="390" y="130" text-anchor="middle">署名つき か unsigned</text>
+    <line class="svg-line" x1="490" y1="110" x2="580" y2="110"/>
+    <rect class="svg-box-accent" x="580" y="70" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="680" y="106" text-anchor="middle">emulator</text>
+    <text class="svg-text" x="680" y="130" text-anchor="middle">msl=ok</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>gh workflow run android.yml --ref &lt;branch&gt;
+gh run download &lt;run-id&gt; -n android-logcat-release</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">246.0 MiB</span><span class="l">debug universal</span></div>
+    <div class="kpi"><span class="n">12.1 MiB</span><span class="l">release aarch64</span></div>
+    <div class="kpi"><span class="n">msl=ok</span><span class="l">run run 41544046811</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">ユーザーがやること</span>
+  <h1>鍵と secret</h1>
+  <pre><code>keytool -genkey -v -keystore ~/globemode-upload.jks \
+  -keyalg RSA -keysize 2048 -validity 10000 -alias upload
+base64 -w0 ~/globemode-upload.jks | gh secret set ANDROID_KEYSTORE_BASE64
+gh secret set ANDROID_KEYSTORE_PASSWORD
+gh secret set ANDROID_KEY_ALIAS
+gh secret set ANDROID_KEY_PASSWORD</code></pre>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>secret を登録した run で署名つき APK を実機に入れる</li>
+    <li>配布用の UI を smoke なしで作るか</li>
+    <li>Rust を mobile の lib に直接 link する道</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
