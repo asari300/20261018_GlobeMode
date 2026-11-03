@@ -35,9 +35,10 @@ S095 の持ち越しの 1 つ目。`globe-mode-exec` に「状態・パラメー
 - FMPy 0.3.32: `validate_fmu` 問題 0。Decay x(1) = 0.3678794150955906（e⁻¹ と 2.6e-8）。HarmonicOscillator x(1) = -0.41614683955697307、v(1) = -1.818594856574809（exec の run の -0.4161468121809279・-1.8185947093271577 と 2.7e-8・1.5e-7、解析解と 3.0e-9・2.9e-9）。
 - `cargo test -p globe-mode-fmu`: 5 件成功。`cargo clippy -p globe-mode-exec -p globe-mode-fmu --all-targets -D warnings`: 0 件。`test_ci_plan.py`: 25 件 OK。
 - cdylib: debug 702 MB、release 44,128,856 B（44.1 MB）、strip 後 32,796,024 B、gzip 12,407,167 B。
-- `mise run check`: MISE_CHECK
-- `check_docs.py`: CHECK_DOCS
-- ステージした差分の漏洩検査: LEAK 件
+- `mise run check`（main を merge した後）: 成功。fmt・clippy 0 件、`cargo test --workspace` 615 件成功・失敗 0、deny・`uv sync --locked` 成功。1 回目は `globe-mode-fmt` の 2 件が共有 target の古いビルド（別の worktree の `CARGO_MANIFEST_DIR`）で NotFound になり、fmt・core・fmi を touch して回し直した
+- `check_docs.py`: 全デッキ OK、相対リンク 2,113 件で切れ 0。`render_slides.py`（S099 のデッキ）: 7 枚 × 3 の表示で問題 0
+- ステージした差分の漏洩検査: 0 件
+- 前任のエージェントが 機械の load 100 超えで落ち、未コミットの作業を引き継いで試験・merge・検査を仕上げた（`main` の S098・S100〜S103 を merge。roadmap と索引の衝突は両方を残した）
 
 ## 残したこと
 
