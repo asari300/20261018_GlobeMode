@@ -240,6 +240,7 @@ fn main() {
         // shortcut: S125 の切り分け（Linux で UI が bench を呼ばない）。90 s 後のページの様子を stderr に出す。分かったら消す
         .plugin(
             tauri::plugin::Builder::<tauri::Wry>::new("bench-diag")
+                .js_init_script(r#"window.__gmErr=[];addEventListener('error',e=>__gmErr.push(e.message+' '+e.filename+':'+e.lineno));addEventListener('unhandledrejection',e=>__gmErr.push('rej '+(e.reason&&e.reason.stack||e.reason)));"#.to_string())
                 .on_navigation(|_, url| {
                     if url.host_str() != Some("diag.invalid") {
                         return true;
@@ -286,7 +287,7 @@ fn main() {
                 std::thread::spawn(move || {
                     std::thread::sleep(std::time::Duration::from_secs(90));
                     if let Some(v) = h.get_webview_window("main") {
-                        let _ = v.eval(r#"let v_=[];addEventListener('securitypolicyviolation',e=>v_.push(e.violatedDirective+' '+e.blockedURI));const s=document.querySelector('script[type=module]');import(s?s.src:'/x.js').then(()=>'ok',e=>'err '+e).then(r=>setTimeout(()=>{location.href='https://diag.invalid/?'+encodeURIComponent([location.href,document.body.innerText.slice(0,100),s&&s.src,r,v_.join(';')].join('|'))},500))"#);
+                        let _ = v.eval(r#"location.href='https://diag.invalid/?'+encodeURIComponent([navigator.userAgent,document.getElementById('app').childElementCount,document.body.textContent.length,JSON.stringify(window.__gmErr)].join('|'))"#);
                     }
                 });
             }
