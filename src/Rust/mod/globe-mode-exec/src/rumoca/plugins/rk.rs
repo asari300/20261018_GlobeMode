@@ -148,6 +148,8 @@ pub(super) struct DiffsolRk {
     anchor: Rc<RefCell<Vec<f64>>>,
     solver: Option<Solver>,
     accepted_interval: Option<(f64, f64)>,
+    /// 最後に受理した刻みのあとに diffsol が次に試すつもりだった刻み幅。事象のあとの最初の刻みの上限にする（S119）
+    last_step: Option<f64>,
 }
 
 impl DiffsolRk {
@@ -159,6 +161,7 @@ impl DiffsolRk {
             anchor: Rc::new(RefCell::new(Vec::new())),
             solver: None,
             accepted_interval: None,
+            last_step: None,
         }
     }
 
@@ -184,6 +187,7 @@ impl DiffsolRk {
             .derivatives(point.time(), point.states())
             .map_err(MeIntegrationError::from)?;
         let method = self.method;
+        let last_step = self.last_step;
         self.anchor.replace(point.states().to_vec());
         let numerical =
             |e: DiffsolError| MeIntegrationError::numerical(method.name(), failure, e.to_string());
@@ -199,8 +203,14 @@ impl DiffsolRk {
                 )
                 .map_err(numerical)?;
                 Solver::Explicit(ExplicitCell::try_new(problem, |problem| {
-                    let state = initial_state(problem, point, &initial_derivatives, method.order())
-                        .map_err(numerical)?;
+                    let state = initial_state(
+                        problem,
+                        point,
+                        &initial_derivatives,
+                        method.order(),
+                        last_step,
+                    )
+                    .map_err(numerical)?;
                     let Method::CustomExplicit(id) = method else {
                         return problem.tsit45_solver(state).map_err(numerical);
                     };
@@ -232,8 +242,14 @@ impl DiffsolRk {
                 // 50 回をすぐ使い切るので上限を外す。刻みの下限（`min_timestep`）が暴走を止める
                 problem.ode_options.max_nonlinear_solver_failures = usize::MAX;
                 Solver::Sdirk(SdirkCell::try_new(problem, |problem| {
-                    let state = initial_state(problem, point, &initial_derivatives, method.order())
-                        .map_err(numerical)?;
+                    let state = initial_state(
+                        problem,
+                        point,
+                        &initial_derivatives,
+                        method.order(),
+                        last_step,
+                    )
+                    .map_err(numerical)?;
                     match method {
                         Method::Esdirk34 => problem.esdirk34_solver::<LinearSolver>(state),
                         Method::Custom(id) => {
@@ -312,6 +328,7 @@ impl DiffsolRk {
             .derivatives(point.time(), point.states())
             .map_err(MeIntegrationError::from)?;
         let method_id = self.method;
+        let last_step = self.last_step;
         self.anchor.replace(point.states().to_vec());
         let solver = self.solver.as_mut().ok_or_else(|| {
             MeIntegrationError::numerical(
@@ -324,8 +341,8 @@ impl DiffsolRk {
             MeIntegrationError::numerical(method_id.name(), failure, e.to_string())
         };
         with_method_mut!(solver, |problem, method| {
-            let fresh =
-                initial_state(problem, point, &values, method_id.order()).map_err(numerical)?;
+            let fresh = initial_state(problem, point, &values, method_id.order(), last_step)
+                .map_err(numerical)?;
             method.set_state(fresh);
             match method.set_stop_time(point.time()) {
                 Ok(())
@@ -375,6 +392,7 @@ impl MeIntegratorBackend for DiffsolRk {
             )
         })?;
         let anchor = Rc::clone(&self.anchor);
+        let last_step = Cell::new(self.last_step);
         let candidate = with_method_mut!(solver, |_problem, method| {
             method.set_stop_time(latest).map_err(numerical)?;
             let stop = method.step().map_err(numerical)?;
@@ -395,6 +413,7 @@ impl MeIntegratorBackend for DiffsolRk {
                 ));
             }
             anchor.replace(states.clone());
+            last_step.set(Some(state.h));
             let order = u32::try_from(method.order()).unwrap_or(u32::MAX).max(1);
             Ok(MeStepCandidate::new(state.t, states, order))
         })?;
@@ -406,6 +425,7 @@ impl MeIntegratorBackend for DiffsolRk {
             // 受理した刻みは有限の値で収まったので、断られたことはここで受け取る（元の BDF と同じ）
             derivatives.take_discard();
         }
+        self.last_step = last_step.get();
         self.accepted_interval = Some((request.current().time(), candidate.accepted_time()));
         Ok(candidate)
     }
@@ -568,6 +588,7 @@ fn initial_state(
     point: &MeContinuousPoint,
     derivatives: &[f64],
     order: usize,
+    last_step: Option<f64>,
 ) -> Result<RkState<Vector>, DiffsolError> {
     let mut state = RkState::<Vector>::new_without_initialise(problem)?;
     {
@@ -582,6 +603,13 @@ fn initial_state(
     // を下回り、最初の `step()` が 1 歩も試さずに「Step size is too small」で終わる。下限の 10 倍に持ち上げる。
     // 刻みは 1 歩ごとに 2 倍に伸びるので、必要な刻みまで十数歩で届く
     let values = state.as_mut();
+    // 事象のあと（切り替えの多い回路）は Hairer の見積もりが直前の刻みの数倍になり、最初の刻みが誤差の検査と
+    // Newton 法で何度も棄てられる（その度に LU を作り直す）。直前に diffsol が選んでいた刻みで抑える（S119）
+    if let Some(last) = last_step.filter(|h| h.is_finite() && *h != 0.0)
+        && last.abs() < values.h.abs()
+    {
+        *values.h = last.abs().copysign(*values.h);
+    }
     let floor = 10.0 * problem.ode_options.min_timestep;
     if values.h.abs() < floor {
         *values.h = floor.copysign(*values.h);
