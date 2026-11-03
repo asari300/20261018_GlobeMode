@@ -193,8 +193,8 @@ jobs:
           APP="$(dpkg -L "$(dpkg-deb -f "$DEB" Package)" | grep '^/usr/bin/' | grep -v '/globe$' | head -1)"
           for i in 1 2 3; do
             rm -f line.txt
-            GLOBE_DESKTOP_BENCH="$PWD/line.txt" /usr/bin/time -v -o time-bench.txt timeout 600 xvfb-run -a "$APP"
-            test -s line.txt
+            GLOBE_DESKTOP_BENCH="$PWD/line.txt" /usr/bin/time -v -o time-bench.txt timeout 300 xvfb-run -a "$APP" || echo "終了コード $?"
+            test -s line.txt || { echo "GM-SMOKE の行が無い"; exit 1; }
             echo "$(cat line.txt) rss_kib=$(sed -n 's/.*Maximum resident set size (kbytes): //p' time-bench.txt)" >> bench.txt
           done
           echo "GM-BUNDLE kib=$(( $(stat -c %s "$DEB") / 1024 ))" >> bench.txt

@@ -59,8 +59,9 @@ async fn notify(state: State<'_, Shared>, method: String, params: Value) -> Resu
 }
 
 /// S125: `GLOBE_DESKTOP_BENCH` のとき、line なしは true（測る）、line ありはその行をファイルに書いてアプリを終える。
+/// async にして主スレッドの外で `exit` を呼ぶ（smoke と同じ。Linux の同期の command では終わらなかった）。
 #[tauri::command]
-fn bench(app: tauri::AppHandle, line: Option<String>) -> Result<bool, String> {
+async fn bench(app: tauri::AppHandle, line: Option<String>) -> Result<bool, String> {
     let Some(path) = std::env::var_os("GLOBE_DESKTOP_BENCH") else {
         return Ok(false);
     };
