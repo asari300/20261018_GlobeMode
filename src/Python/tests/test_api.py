@@ -46,3 +46,52 @@ def test_export_fmu(tmp_path):
     assert (tmp_path / "GlobeModeValidation_Simulation_Decay/modelDescription.xml").is_file()
     with pytest.raises(ValueError):
         ws.export_fmu("GlobeModeValidation.Simulation.Decay", tmp_path, fmi_version=4)
+
+
+# S129（ADR-0033）: 積分に 100 ms より長くかかる（t が途中で知らされる）ように、細かく振れる入力を長く積む
+WIGGLE = "model Wiggle Real x(start = 0, fixed = true); equation der(x) = sin(100 * time); end Wiggle;"
+WIGGLE_SETTINGS = dict(solver="esdirk34", stop_time=1000, interval=1)
+
+
+def wiggle() -> Workspace:
+    ws = Workspace()
+    ws.set_file("Wiggle.mo", WIGGLE)
+    return ws
+
+
+def test_on_progress_reports_stages_and_time_without_changing_the_result():
+    ws = Workspace(libraries=[MODELICA])
+    seen = []
+    model = "GlobeModeValidation.Simulation.Decay"
+    res = ws.simulate_columns(model, on_progress=seen.append, solver="esdirk34")
+    assert res["ok"] and res["termination"] == {"kind": "stop_time"}, res["termination"]
+    stages = [p["stage"] for p in seen]
+    assert stages[0] == "lowering" and stages[-1] == "integration", stages
+    times = [p["time"] for p in seen if p["time"] is not None]
+    assert times and times[-1] == res["columns"]["time"][-1] == 1.0
+    plain = ws.simulate_columns(model, solver="esdirk34")
+    assert table(res).equals(table(plain))
+    assert ws.simulate(model, on_progress=lambda p: None, solver="esdirk34")["csv"] == ws.simulate(model, solver="esdirk34")["csv"]
+
+
+def test_returning_true_cancels_with_the_partial_trajectory():
+    res = wiggle().simulate_columns("Wiggle", on_progress=lambda p: p["time"] is not None, **WIGGLE_SETTINGS)
+    assert res["ok"], res["diagnostics"]
+    assert res["termination"]["kind"] == "cancelled", res["termination"]
+    time = res["termination"]["time"]
+    assert 0 < time < 1000 and res["columns"]["time"][-1] == time
+    assert "GM-I11004" in [d["code"] for d in res["diagnostics"]]
+
+
+def test_ctrl_c_raises_keyboard_interrupt():
+    """別のスレッドから `_thread.interrupt_main()`（Ctrl-C と同じ）。次の進捗の `check_signals` で止まる。"""
+    import _thread
+    import threading
+
+    timer = threading.Timer(0.2, _thread.interrupt_main)
+    timer.start()
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            wiggle().simulate("Wiggle", on_progress=lambda p: None, **WIGGLE_SETTINGS)
+    finally:
+        timer.cancel()

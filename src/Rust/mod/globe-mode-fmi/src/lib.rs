@@ -136,7 +136,7 @@ pub struct ModelDescription {
     /// S117 から下は書く側（[`write_model_description_2`]）のために読む。
     pub generation_tool: Option<String>,
     pub variable_naming_convention: Option<String>,
-    /// 省略されていれば 0。
+    /// 2.0 は属性（省略されていれば 0）、3.0 は `ModelStructure` の `EventIndicator` の数（S124）。
     pub number_of_event_indicators: u32,
     pub default_experiment: Option<DefaultExperiment>,
     pub model_structure: ModelStructure,
@@ -301,6 +301,12 @@ pub fn parse_model_description(xml: &str) -> Result<ModelDescription, Error> {
     }
     let mut model_structure = ModelStructure::default();
     let structure = child("ModelStructure");
+    // 3.0 には numberOfEventIndicators が無く、ModelStructure の <EventIndicator> の数がそれに当たる（S124）
+    let event_indicators = structure.map_or(0, |s| {
+        s.children()
+            .filter(|c| c.has_tag_name("EventIndicator"))
+            .count() as u32
+    });
     let elements = structure.iter().flat_map(|s| s.children());
     if v3 {
         for n in elements {
@@ -330,7 +336,11 @@ pub fn parse_model_description(xml: &str) -> Result<ModelDescription, Error> {
     Ok(ModelDescription {
         generation_tool: text(root, "generationTool"),
         variable_naming_convention: text(root, "variableNamingConvention"),
-        number_of_event_indicators: u32_attr(root, "numberOfEventIndicators")?.unwrap_or(0),
+        number_of_event_indicators: if v3 {
+            event_indicators
+        } else {
+            u32_attr(root, "numberOfEventIndicators")?.unwrap_or(0)
+        },
         default_experiment: child("DefaultExperiment").map(|n| DefaultExperiment {
             start_time: text(n, "startTime"),
             stop_time: text(n, "stopTime"),
@@ -352,11 +362,28 @@ pub fn parse_model_description(xml: &str) -> Result<ModelDescription, Error> {
 ///
 /// [`ModelDescription`] に持つものだけを書く（`description`・`unit`・`SourceFiles`・`dependencies` などは落ちる）。
 /// 書ける型は Real・Integer・Boolean だけで、それ以外と 2.0 にない causality は `Err`。
-// shortcut: 3.0 の書く側・String・Enumeration（declaredType が要る）は無い。P5b が 3.0 を出すときに足す
+// shortcut: String・Enumeration（declaredType が要る）は無い。P5b が出すときに足す
 pub fn write_model_description_2(md: &ModelDescription) -> Result<String, Error> {
-    if md.major() != Some(2) {
+    write_model_description(md, 2)
+}
+
+/// FMI 3.0 の `modelDescription.xml` を書く（S124。[`write_model_description_2`] と同じ範囲）。
+///
+/// 型の要素は `Float64`・`Int32`・`Boolean`、`ModelStructure` は `valueReference` で書く。
+// shortcut: EventIndicator の valueReference を持たないので、イベント指標がある（`number_of_event_indicators` > 0）と
+// Err。3.0 のランタイム（P5b）がイベントを持つモデルを出すときに ModelStructure に足す
+pub fn write_model_description_3(md: &ModelDescription) -> Result<String, Error> {
+    if md.number_of_event_indicators > 0 {
+        return schema("3.0 の EventIndicator は書けない（valueReference を持たない）");
+    }
+    write_model_description(md, 3)
+}
+
+fn write_model_description(md: &ModelDescription, major: u8) -> Result<String, Error> {
+    let v3 = major == 3;
+    if md.major() != Some(major) {
         return schema(format!(
-            "fmiVersion {:?} は書けない（2.0 のみ）",
+            "fmiVersion {:?} は書けない（{major}.0 のみ）",
             md.fmi_version
         ));
     }
@@ -369,7 +396,10 @@ pub fn write_model_description_2(md: &ModelDescription) -> Result<String, Error>
     let root = [
         ("fmiVersion", Some(&md.fmi_version)),
         ("modelName", Some(&md.model_name)),
-        ("guid", Some(&md.instantiation_token)),
+        (
+            if v3 { "instantiationToken" } else { "guid" },
+            Some(&md.instantiation_token),
+        ),
         ("generationTool", md.generation_tool.as_ref()),
         (
             "variableNamingConvention",
@@ -381,14 +411,19 @@ pub fn write_model_description_2(md: &ModelDescription) -> Result<String, Error>
             let _ = writeln!(x, "  {k}=\"{}\"", esc(v));
         }
     }
-    let _ = writeln!(
-        x,
-        "  numberOfEventIndicators=\"{}\">",
-        md.number_of_event_indicators
-    );
+    if v3 {
+        x.push_str(">\n");
+    } else {
+        let _ = writeln!(
+            x,
+            "  numberOfEventIndicators=\"{}\">",
+            md.number_of_event_indicators
+        );
+    }
     for (tag, i) in [
         ("ModelExchange", &md.model_exchange),
         ("CoSimulation", &md.co_simulation),
+        ("ScheduledExecution", &md.scheduled_execution),
     ] {
         if let Some(i) = i {
             let _ = writeln!(
@@ -420,6 +455,7 @@ pub fn write_model_description_2(md: &ModelDescription) -> Result<String, Error>
             Causality::Output => "output",
             Causality::Local => "local",
             Causality::Independent => "independent",
+            Causality::StructuralParameter if v3 => "structuralParameter",
             Causality::StructuralParameter => return schema("structuralParameter は 2.0 に無い"),
         };
         let variability = match v.variability {
@@ -429,15 +465,23 @@ pub fn write_model_description_2(md: &ModelDescription) -> Result<String, Error>
             Variability::Discrete => "discrete",
             Variability::Continuous => "continuous",
         };
-        let ty = match v.ty {
-            VarType::Float64 => "Real",
-            VarType::Int32 => "Integer",
-            VarType::Boolean => "Boolean",
-            other => return schema(format!("型 {other:?} は書けない")),
+        let ty = match (v.ty, v3) {
+            (VarType::Float64, false) => "Real",
+            (VarType::Int32, false) => "Integer",
+            (VarType::Float64, true) => "Float64",
+            (VarType::Int32, true) => "Int32",
+            (VarType::Boolean, _) => "Boolean",
+            (other, _) => return schema(format!("型 {other:?} は書けない")),
         };
+        // 3.0 は型の要素に属性をまとめて書く（ScalarVariable の入れ子が無い）
         let _ = write!(
             x,
-            "    <ScalarVariable name=\"{}\" valueReference=\"{}\" causality=\"{causality}\" variability=\"{variability}\"",
+            "    <{}name=\"{}\" valueReference=\"{}\" causality=\"{causality}\" variability=\"{variability}\"",
+            if v3 {
+                format!("{ty} ")
+            } else {
+                "ScalarVariable ".into()
+            },
             esc(&v.name),
             v.value_reference
         );
@@ -449,17 +493,36 @@ pub fn write_model_description_2(md: &ModelDescription) -> Result<String, Error>
             };
             let _ = write!(x, " initial=\"{i}\"");
         }
-        let _ = write!(x, ">\n      <{ty}");
+        if !v3 {
+            let _ = write!(x, ">\n      <{ty}");
+        }
         if let Some(s) = &v.start {
             let _ = write!(x, " start=\"{}\"", esc(s));
         }
         if let Some(d) = v.derivative {
             let _ = write!(x, " derivative=\"{d}\"");
         }
-        x.push_str("/>\n    </ScalarVariable>\n");
+        x.push_str(if v3 {
+            "/>\n"
+        } else {
+            "/>\n    </ScalarVariable>\n"
+        });
     }
     x.push_str("  </ModelVariables>\n  <ModelStructure>\n");
     let s = &md.model_structure;
+    if v3 {
+        for (tag, list) in [
+            ("Output", &s.outputs),
+            ("ContinuousStateDerivative", &s.derivatives),
+            ("InitialUnknown", &s.initial_unknowns),
+        ] {
+            for r in list {
+                let _ = writeln!(x, "    <{tag} valueReference=\"{r}\"/>");
+            }
+        }
+        x.push_str("  </ModelStructure>\n</fmiModelDescription>\n");
+        return Ok(x);
+    }
     for (tag, list) in [
         ("Outputs", &s.outputs),
         ("Derivatives", &s.derivatives),
