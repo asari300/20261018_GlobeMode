@@ -148,7 +148,7 @@ pub(super) struct DiffsolRk {
     anchor: Rc<RefCell<Vec<f64>>>,
     solver: Option<Solver>,
     accepted_interval: Option<(f64, f64)>,
-    /// 最後に受理した刻みのあとに diffsol が次に試すつもりだった刻み幅。事象のあとの最初の刻みの上限にする（S119）
+    /// 最後に受理した刻みのあとに diffsol が次に試すつもりだった刻み幅。事象のあとの最初の刻みの上限にする（S119。SDIRK だけ）
     last_step: Option<f64>,
 }
 
@@ -425,7 +425,11 @@ impl MeIntegratorBackend for DiffsolRk {
             // 受理した刻みは有限の値で収まったので、断られたことはここで受け取る（元の BDF と同じ）
             derivatives.take_discard();
         }
-        self.last_step = last_step.get();
+        // 陽的 RK は引き継がない（安定の限界の刻みを刻む DiodeSwitching の tsit45 で、wasm とネイティブの丸めの差が
+        // 事象を越えて残り、刻みの列が分かれた。見積もりから始め直せば事象ごとに揃う）
+        if !matches!(self.method, Method::Tsit45 | Method::CustomExplicit(_)) {
+            self.last_step = last_step.get();
+        }
         self.accepted_interval = Some((request.current().time(), candidate.accepted_time()));
         Ok(candidate)
     }
