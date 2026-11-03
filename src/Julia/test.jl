@@ -38,3 +38,13 @@ fmu = GlobeMode.export_fmu(ws, model, out)
 @test isfile(joinpath(out, replace(model, "." => "_"), "modelDescription.xml"))
 @test occursin("\"error\"", GlobeMode.export_fmu(ws, model, out, "{\"fmi_version\": 4}"))
 println("fmu: $fmu")
+# S131（ADR-0033）: 進捗と中断。S129 と同じ、積分に 100 ms より長くかかるモデルを最初の t の進捗で止める
+GlobeMode.set_file(ws, "Wiggle.mo",
+    "model Wiggle Real x(start = 0, fixed = true); equation der(x) = sin(100 * time); end Wiggle;")
+seen = []
+res = GlobeMode.simulate_observed(ws, "Wiggle", p -> (push!(seen, p); p.time !== nothing),
+    "{\"solver\": \"esdirk34\", \"stop_time\": 1000, \"interval\": 1}")
+@test occursin("\"kind\":\"cancelled\"", res)
+@test occursin("GM-I11004", res)
+@test seen[1].stage == "lowering" && seen[end].time !== nothing
+println("cancel: progress=$(length(seen)), stages=$(unique(p.stage for p in seen))")
