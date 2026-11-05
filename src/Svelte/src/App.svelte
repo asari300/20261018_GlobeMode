@@ -5,7 +5,8 @@
   import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
   import { bracketMatching } from "@codemirror/language";
   import { setDiagnostics } from "@codemirror/lint";
-  import { darkSlot, modelicaCompletion, modelicaHighlight, modelicaDefinition, modelicaLinter, modelicaRefactor, modelicaTheme, themeSlot, toCmDiagnostics } from "./lib/editor";
+  import { closeCompletion } from "@codemirror/autocomplete";
+  import { EDITOR_HELP, darkSlot, modelFollow, modelRenamed, modelicaCompletion, modelicaHighlight, modelicaDefinition, modelicaLinter, modelicaRefactor, modelicaTab, modelicaTheme, themeSlot, toCmDiagnostics } from "./lib/editor";
   import { setPref, theme, type Pref } from "./theme.svelte";
   import { WorkerBackend } from "./lib/worker-backend";
   import { TauriBackend, inTauri } from "./lib/tauri-backend";
@@ -131,6 +132,8 @@
         modelicaHighlight, modelicaCompletion(), modelicaLinter(backend, file), // S053（S163: 色付け）
         modelicaDefinition(definition, goBack, { backend, file: () => file }), // S138（S149: ホバー）
         modelicaRefactor(references, askRename), // S161: Shift+F12 と F2
+        modelicaTab, // S188: Tab は字下げ。出る手は Esc のあと Tab
+        modelFollow((from, to) => { if (model === from) model = to; }), // S186: クラス名のリネーム（と元に戻す）でモデル名も追う
         EditorView.updateListener.of((u) => { if (u.docChanged) { persist(); rev++; } }),
         modelicaTheme, darkSlot(theme.dark), // S152
       ],
@@ -332,6 +335,8 @@
   async function loadMsl() {
     if (tauri && msl === "loading") { void tauri.cancelMsl(); return; } // 取得中にもう一度押すと取り消す
     const prev = msl;
+    const a = document.activeElement; // S186: キーボードで押したなら、読み終えたあとフォーカスを次の操作（ライブラリの検索欄）へ移す（ボタンは無効になりフォーカスが body に落ちる）
+    const byKeyboard = a instanceof HTMLButtonElement && a.matches(":focus-visible");
     msl = "loading";
     mslProgress = "";
     failure = "";
@@ -352,6 +357,10 @@
       diagnostics = [];
       columns = null;
       graphModel = null;
+      if (byKeyboard) {
+        await tick();
+        if (!document.activeElement || document.activeElement === document.body) document.querySelector<HTMLElement>(".library input")?.focus();
+      }
     } catch (e) {
       msl = prev; // 取り消し・失敗のときは前の MSL のまま
       failure = String((e as Error).message ?? e);
@@ -456,6 +465,7 @@
   const openLibrary = (e: Pick<TreeEntry, "path">) => run(async () => {
     const src = await backend.librarySource(e.path);
     openDoc(src.file, src.text, e.path, false);
+    if (src.range) view.dispatch({ selection: { anchor: offsetOf(src.range.start) }, scrollIntoView: true }); // S186: 入れ子のクラスはファイルの途中にある。宣言の行にカーソルを置いて画面に入れる
   });
 
   // S138: 定義ジャンプ。別のファイル（ライブラリ）なら openLibrary と同じく同じ名前の文書として開く。入る前の文書と位置は back に積む（Alt+←）
@@ -525,7 +535,16 @@
     try {
       await backend.setFile(file, view.state.doc.toString());
       const edits = await backend.rename(file, at.line, at.character, newName);
-      view.dispatch({ changes: edits.map((e) => ({ from: offsetOf(e.range.start), to: offsetOf(e.range.end), insert: e.newText })) });
+      const spec = { changes: edits.map((e) => ({ from: offsetOf(e.range.start), to: offsetOf(e.range.end), insert: e.newText })) };
+      // S186: リネームしたクラスがいまのモデル（かその途中の成分）なら、モデル名も同じ編集で追う（元に戻す Ctrl+Z も）。新しい名前は Rust の models が決める（順序はリネームで変わらないので、同じ番号の名前）
+      const m = model, before = await backend.models(file), i = before.indexOf(m);
+      let effects: ReturnType<typeof modelRenamed.of>[] = [];
+      if (i >= 0) {
+        await backend.setFile(file, view.state.update(spec).state.doc.toString());
+        const to = (await backend.models(file))[i];
+        if (to && to !== m) effects = [modelRenamed.of({ from: m, to })];
+      }
+      view.dispatch({ ...spec, effects });
       refs = [];
     } catch (e) {
       failure = String((e as Error).message ?? e);
@@ -672,6 +691,7 @@
     if (!act) return;
     e.preventDefault();
     e.stopPropagation();
+    closeCompletion(view); // S186: 候補の一覧が開いたまま実行しても、終わったあとに残らない
     act();
   }
 </script>
@@ -683,7 +703,7 @@
   <!-- S179: スキップリンク（Tab 1〜2 回でエディタか結果へ。フォーカスで見える） -->
   <nav class="skip" aria-label="ページ内の移動">
     <a href="#editor" onclick={(e) => { e.preventDefault(); view.focus(); }}>エディタへ</a>
-    <a href="#results" onclick={(e) => { e.preventDefault(); document.getElementById("results")?.focus(); }}>結果へ</a>
+    <a href="#results" onclick={(e) => { e.preventDefault(); const h = document.getElementById("results"); h?.focus({ preventScroll: true }); h?.scrollIntoView({ block: "start" }); }}>結果へ</a>
   </nav>
   <h1 class="sr-only">GlobeMode</h1>
   <div class="bar">
@@ -770,6 +790,7 @@
     {#if msl === "loaded"}<aside class="library"><LibraryTree {backend} onOpen={openLibrary} /></aside>{/if}
     <div class="editor" id="editor" bind:this={host}></div>
   </div>
+  <p class="hint" id="editor-help">{EDITOR_HELP}</p>
   {#if saved}<p class="note" role="status" data-saved>{saved}</p>{/if}
   {#if lastFinal.length}<p class="final" data-final={JSON.stringify(Object.fromEntries(lastFinal))}>最後の時刻の値: {lastFinal.map(([k, v]) => `${k} = ${v.toPrecision(6)}`).join("、")}</p>{/if}
   {#if renaming}
@@ -808,7 +829,7 @@
 <style>
   main { font: 14px/1.4 system-ui, sans-serif; max-width: 60rem; margin: 0 auto; padding: 1rem; }
   .bar { display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: .5rem; }
-  .note, .run, .final { color: var(--muted); margin: .25rem 0; }
+  .note, .run, .final, .hint { color: var(--muted); margin: .25rem 0; }
   .tabs { display: flex; flex-wrap: wrap; gap: .25rem; margin-bottom: .25rem; }
   .skip a { position: absolute; left: -999px; top: .5rem; z-index: 10; padding: .25rem .5rem; background: var(--bg); color: var(--fg); border: 1px solid var(--accent); }
   .skip a:focus { left: .5rem; }

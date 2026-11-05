@@ -27,7 +27,7 @@
 //! | `globe/tunableParameters` | `{model}` | `ParametersResponse` の JSON（S150。上書きできるパラメータの一覧。wasm の `tunable_parameters` と同じ。DAE まで変換できなければ -32000） |
 //! | `globe/completion` | `{file, line, character}`（`globe/definition` と同じ） | LSP の `CompletionItem` の配列（S171。`textDocument/completion` と同じ計算。予約語、文書の名前、点つきの名前の途中はクラスの子か部品の型の部品名。最大 200 件。文字列・コメントの中は空。wasm の `completion` と同じ形） |
 //! | `globe/librarySearch` | `{query}`（名前の部分一致。大文字小文字を区別しない。`.` を含めると完全修飾名） | 同じ形の項目の配列（S167。最大 50 件、近い順。ファイルの中の入れ子のクラスも出る） |
-//! | `globe/librarySource` | `{path}`（完全修飾名） | `{file, text}`（S127。そのクラスを定義するライブラリのファイル。無ければ -32000） |
+//! | `globe/librarySource` | `{path}`（完全修飾名） | `{file, text, range}`（S127。そのクラスを定義するライブラリのファイル。S186 から `range` はそのクラスの宣言の範囲（LSP の Range。引けなければ無い）。無ければ -32000） |
 //!
 //! 設定ファイル（S130）: `initialize` の `rootUri`（無ければ `rootPath`）から上へたどって最初の `globe-mode.toml` を
 //! 読み、lint の診断と `textDocument/formatting` に使う（`workspace/didChangeConfiguration` で読み直す）。
@@ -551,7 +551,10 @@ impl Server {
             },
             "globe/librarySource" => match params["path"].as_str() {
                 Some(path) => match self.tree().file(path).map(|f| (f.to_string(), std::fs::read_to_string(f))) {
-                    Some((file, Ok(text))) => reply(id, json!({"file": file, "text": text})),
+                    Some((file, Ok(text))) => {
+                        let v = self.with_resolver(|r| definition::library_source(r, path, &file, &text));
+                        reply(id, v)
+                    }
                     Some((file, Err(e))) => error(id, -32000, &format!("{file}: {e}")),
                     None => error(id, -32000, &format!("ライブラリに {path} が無い")),
                 },
@@ -1420,6 +1423,14 @@ mod tests {
                 .as_str()
                 .unwrap()
                 .contains("model Resistor"),
+            "{}",
+            r[0]
+        );
+        // S186: 入れ子のクラスを開くとき、宣言の行（0 始まり）が range で分かる。1 行目ではない
+        let text = r[0]["result"]["text"].as_str().unwrap();
+        let line = r[0]["result"]["range"]["start"]["line"].as_u64().unwrap() as usize;
+        assert!(
+            line > 0 && text.lines().nth(line).unwrap().contains("model Resistor"),
             "{}",
             r[0]
         );

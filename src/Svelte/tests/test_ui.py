@@ -5,6 +5,7 @@
 
 dist/ を localhost で配り（CSP は index.html の meta と同じものを応答の header にも付ける。meta は Web Worker に効かないので。S093）、Decay を検査して error の診断が 0 件であること、実行するとプロットが出て信号の選択・右の軸・x の切り替え（S128）が効くこと（ブラウザの実行は列ごとの道で、data-typed が true。S065）、
 10 万点（4 状態、出力間隔 0.01 s で 1000 s）の結果でも描けて時間を測ること、構造的に特異なモデルを検査して診断の行が出て、行を押すとエディタの選択が動くことを確かめる。1 ファイルの回路で「グラフ」を押して connect グラフが描かれることを確かめる（S046）。
+クラス名のリネーム（S186）: モデル名のクラス（入れ子の途中も）を F2 で変えると欄も追って検査が通り、Ctrl+Z で戻る。ライブラリの木・検索で入れ子のクラスを開くと宣言の行にカーソルがあって画面に入る。候補が開いたままの Ctrl+Enter は候補を閉じる。「MSL を読む」を Enter で押すとフォーカスは検索欄へ、「結果へ」は結果を画面へ入れる。
 最後に「MSL を読む」で MSL 4.1.0 を読み（public/msl/MSL.json が無ければ飛ばす）、ChuaCircuit の検査（error 0）と実行（プロットの canvas と系列）を確かめて、秒数を出す（S048）。
 長いモデルの実行で進捗（段と t の割合）が出て、「止める」で止まり（data-run="cancelled"）、ボタンが戻ることを確かめる（S133）。止めたあとプロットに途中までの列が残る（S157。dist を cross-origin isolated で配る）。
 Decay の `der(x)` の x で F12 を押すと宣言の行（`Real x`）へ動く。ChuaCircuit のファイルで型 `Modelica.Electrical.Analog.Basic.Resistor` の上の F12 は、ライブラリの Resistor.mo をエディタに開き、Alt+← で ChuaCircuit に戻る（S138）。
@@ -16,6 +17,7 @@ Decay の x で Shift+F12 を押すと参照の一覧（3 行）が出て行を�
 結果の位置（S170）: 1280x800 と 390 px 幅で、実行の進捗・止める・失敗の理由が最初の画面の中に出て、終わるとプロットの上端が画面の中に入り、利用者が戻したスクロールは引き戻さない。
 開く・モデル名（S170）: 2 モデルのファイルは select で選び直せて再読み込みで残り、未保存の編集があるタブと同じ名前を開き直しても編集が残る。ライブラリのモデル名を打ったときは食い違いの案内。
 キーボードだけ（S175）: マウスを使わず Tab・Enter・Space とショートカットで、検査、診断と参照の行からエディタへ、実行（プロットの canvas の `aria-label` に信号名と時間の範囲）、止める（Ctrl+.）、保存（Ctrl+S）まで通る。フォーカスの輪郭が見える。
+エディタの Tab（S188）: Tab は空白 2 つの字下げ（選んだ行も）・Shift+Tab で戻る。補完の一覧が開いていても字下げ。出る手は Esc のあと Tab / Shift+Tab と Ctrl+M。説明は aria-describedby と画面。
 初回の案内（S179）: 保存したタブが無い初回だけ「はじめに」の 3 手順（検査・実行のショートカットつき）が出て、閉じると再読み込みでも出ない（smoke では出ない）。スキップリンクは Tab 1 回でエディタへ・2 回で結果へ。タブは矢印・Home・End で移り（roving tabindex）、未保存の印（●）は編集で付いて再読み込みをまたぎ保存で消え、未保存のとき beforeunload が出る。
 ダークモード（S152）: `color_scheme="dark"` で開くと背景が暗く文字が明るい（body・エディタ・診断・プロット・graph。プロットの軸の文字は canvas に描くので明るい画素を数える）。テーマの select で「明」にすると戻り、再読み込みで選択が残り、「OS に合わせる」で暗に戻る。
 FMU を書き出す（S144）: ブラウザの wasm が作ったソースの FMU がダウンロードされ、modelDescription.xml と sources/ がある。S154 から FMI の版（2.0 / 3.0）を select で選ぶ。
@@ -295,6 +297,39 @@ def main() -> int:
                 page.wait_for_timeout(50)
             assert page.locator(".cm-content").inner_text() == want, "undo で戻らない"
 
+        # クラス名のリネームでモデル名の欄も追う（S186）: モデル T を Net に変えると欄が Net になって検査が通り、Ctrl+Z で本文も欄も戻る。入れ子（P.M の P を Q に）も
+        content, name_box = page.locator(".cm-content"), page.get_by_label("モデル名")
+        for text, qualified, old, new in [
+            ("model T\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -x;\nend T;\n", "T", "T", "Net"),
+            ("package P\n  model M\n    Real x(start = 1, fixed = true);\n  equation\n    der(x) = -x;\n  end M;\nend P;\n", "P.M", "P", "Q"),
+        ]:
+            content.focus()
+            page.keyboard.press("Control+A")
+            page.keyboard.insert_text(text)
+            name_box.fill(qualified)
+            content.focus()
+            page.keyboard.press("Control+Home")
+            page.keyboard.press("End")
+            page.keyboard.press("ArrowLeft")  # 1 行目の末尾のクラス名の前
+            page.keyboard.press("F2")
+            renamer = page.get_by_label("新しい名前")
+            renamer.fill(new)
+            renamer.press("Enter")
+            expect(content).to_contain_text(f"end {new};", timeout=30_000)
+            followed = qualified.replace(old, new, 1)
+            expect(name_box).to_have_value(followed)
+            check()
+            assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
+            assert page.locator("tr.error").count() == 0, rows.all_inner_texts()
+            content.focus()
+            page.keyboard.press("Control+z")
+            expect(content).to_contain_text(f"end {old};")
+            expect(name_box).to_have_value(qualified)
+        undo_to(base)
+        name_box.fill("Decay")
+        content.focus()
+        print("クラス名のリネーム（S186）: モデル T を Net に、P.M の P を Q に変えるとモデル名の欄も追って検査が通り、Ctrl+Z で本文もモデル名も戻った")
+
         popup = page.locator(".cm-tooltip-autocomplete")
         page.keyboard.press("Control+A")
         page.keyboard.insert_text("connector Pin\n  Real v;\n  flow Real i;\nend Pin;\n\nmodel Probe\n  Pin pin;\n  Real level;\nequation\n  \nend Probe;\n")
@@ -312,6 +347,14 @@ def main() -> int:
         page.keyboard.type("pin.")
         expect(popup.locator(".cm-completionLabel", has_text="v")).to_be_visible(timeout=30_000)
         expect(popup.locator(".cm-completionLabel", has_text="i")).to_be_visible()
+        # 候補が開いたまま Ctrl+Enter（実行）を押すと、候補は閉じ、実行が終わっても残らない（S186）
+        page.keyboard.press("Control+Enter")
+        expect(popup).to_have_count(0)
+        expect(page.get_by_role("button", name="実行")).to_be_enabled(timeout=120_000)
+        expect(popup).to_have_count(0)
+        page.keyboard.press("Backspace")
+        page.keyboard.type(".")
+        expect(popup.locator(".cm-completionLabel", has_text="v")).to_be_visible(timeout=30_000)
         page.keyboard.type("v")
         expect(popup.locator("li[aria-selected] .cm-completionLabel")).to_have_text("v")
         page.keyboard.press("Enter")
@@ -644,6 +687,7 @@ def main() -> int:
             box.press("Enter")
             expect(page.get_by_label("モデル名")).to_have_value(pid, timeout=60_000)
             expect(page.locator(".cm-content")).to_contain_text("model PID_Controller")
+            expect(page.locator(".cm-activeLine")).to_contain_text("model PID_Controller")  # S186: 開いた入れ子のクラスの宣言の行にカーソルがある
             check()
             assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
             assert page.locator("tr.error").count() == 0, rows.all_inner_texts()
@@ -659,8 +703,24 @@ def main() -> int:
             expect(page.locator("#library-hits [role=option]").first).to_contain_text(sine, timeout=30_000)
             page.get_by_label("ライブラリを検索").press("Enter")
             expect(page.get_by_label("モデル名")).to_have_value(sine, timeout=60_000)
-            expect(page.locator(".cm-content")).to_contain_text("package Sources")  # 開くのは定義するファイル全体（CodeMirror は見える範囲だけを描くので Sine の行はまだ無い）
-            print("木と検索: Blocks.Examples.PID_Controller と Blocks.Sources.Sine（入れ子のクラス）が開いた")
+            # S186: ファイルの途中（Sources.mo の 291 行目、Blocks/package.mo の 991 行目）にある入れ子のクラスは、宣言の行にカーソルが置かれて画面（エディタの窓）に入る
+            def on_screen(want: str) -> None:
+                expect(page.locator(".cm-activeLine")).to_contain_text(want, timeout=30_000)
+                for _ in range(40):  # スクロールは描画の後に決まる
+                    inside = page.evaluate("""() => { const l = document.querySelector('.cm-activeLine').getBoundingClientRect(), s = document.querySelector('.cm-scroller').getBoundingClientRect();
+                      return l.top >= s.top - 1 && l.bottom <= s.bottom + 1 && l.bottom <= innerHeight; }""")
+                    if inside:
+                        return
+                    page.wait_for_timeout(100)
+                raise AssertionError(f"{want} の行が画面に入らない")
+
+            on_screen("block Sine")
+            assert page.get_by_role("tab").nth(page.get_by_role("tab").count() - 1).get_attribute("title").endswith("Blocks/Sources.mo"), "タブの title にパスが出る"
+            page.get_by_label("ライブラリを検索").fill("Examples.BusUsage")  # Blocks/package.mo の 991 行目
+            page.get_by_label("ライブラリを検索").press("Enter")
+            expect(page.get_by_label("モデル名")).to_have_value("Modelica.Blocks.Examples.BusUsage", timeout=60_000)
+            on_screen("model BusUsage")
+            print("木と検索: Blocks.Examples.PID_Controller と Blocks.Sources.Sine・Examples.BusUsage（入れ子のクラス）が開き、宣言の行にカーソルがあって画面に入った")
             # 未対応の例題（S173）: Friction は Rumoca の既知の制約（GM-U0003）。要約が出て、error の行は無く、強行の button も無い
             page.get_by_label("モデル名").fill("Modelica.Mechanics.Rotational.Examples.Friction")
             check()
@@ -668,6 +728,23 @@ def main() -> int:
             assert page.locator("tr.error").count() == 0 and page.locator("tr.unsup").count() >= 1 and page.locator("[data-can-force]").count() == 0
             assert "unbalanced model" in page.locator("tr.unsup details").first.text_content()  # Rumoca の英語の原文は詳細に残る
             print(f"Friction: 未対応の要約と tr.unsup {page.locator('tr.unsup').count()} 行（error 0 行）、原文は詳細に残る")
+            # 「MSL を読む」をキーボードで押すと、読み終えたあとフォーカスはライブラリの検索欄へ移る（ボタンが無効になって body に落ちない。S186）
+            mk = browser.new_page(viewport={"width": 1280, "height": 800})
+            mk.on("console", lambda m: m.type == "error" and errors.append(m.text))
+            mk.on("pageerror", lambda e: errors.append(str(e)))
+            mk.goto(origin)
+            mk.get_by_role("button", name="検査").wait_for()
+            for _ in range(60):
+                mk.keyboard.press("Tab")
+                if mk.evaluate("document.activeElement.textContent") == "MSL を読む":
+                    break
+            else:
+                raise AssertionError("Tab で「MSL を読む」に届かない")
+            mk.keyboard.press("Enter")
+            expect(mk.locator("p.note[data-msl]")).to_have_attribute("data-msl", "loaded", timeout=300_000)
+            expect(mk.get_by_label("ライブラリを検索")).to_be_focused(timeout=10_000)
+            mk.close()
+            print("MSL を読む: Enter で押すと、読み終えたあとフォーカスがライブラリの検索欄へ移った")
         else:
             print("public/msl/MSL.json が無いので MSL の試験は飛ばす")
         # ライブラリに構文の誤りのファイルがあっても読み、読み飛ばしを GM-W1001 の行（ファイル名は notes）で出す（S071）。
@@ -1000,6 +1077,8 @@ def main() -> int:
         def tab_to(js: str, limit: int = 80) -> int:
             """js（document.activeElement を e として評価する式）が真になるまで Tab を押し、押した回数を返す。届かなければ落ちる"""
             for n in range(1, limit + 1):
+                if kb.evaluate("!!document.activeElement.closest('.cm-editor')"):
+                    kb.keyboard.press("Escape")  # S188: エディタの Tab は字下げ。出るときは Esc のあと Tab
                 kb.keyboard.press("Tab")
                 if kb.evaluate(f"(() => {{ const e = document.activeElement; return !!e && ({js}); }})()"):
                     return n
@@ -1059,6 +1138,82 @@ def main() -> int:
         for name, keys in {"検査": "Control+Shift+Enter", "実行": "Control+Enter", "保存": "Control+S", "開く": "Control+O"}.items():  # ボタンに示してある
             assert kb.get_by_role("button", name=name, exact=True).get_attribute("aria-keyshortcuts").startswith(keys), name
         kb.close()
+        # エディタの Tab は字下げ（S188）。出る手は Esc のあと Tab（Shift+Tab で前へ）、Ctrl+M で切り替え。説明は aria-describedby と画面の両方に
+        ti = browser.new_page(viewport={"width": 1280, "height": 800})
+        ti.on("console", lambda m: m.type == "error" and errors.append(m.text))
+        ti.on("pageerror", lambda e: errors.append(str(e)))
+        ti.goto(origin)
+        ti.get_by_role("button", name="検査").wait_for()
+        lines = lambda: ti.eval_on_selector_all(".cm-line", "els => els.map(e => e.textContent)")  # noqa: E731
+        in_cm = "!!document.activeElement.closest('.cm-editor')"
+        help_id = ti.locator(".cm-content").get_attribute("aria-describedby")
+        assert help_id == "editor-help", help_id
+        help_text = ti.locator("#editor-help").inner_text()
+        assert all(k in help_text for k in ["Tab", "Shift+Tab", "Esc", "Ctrl+M"]), help_text
+        assert inside(ti, "#editor-help")
+        ti.locator(".cm-content").press("Control+a")
+        ti.keyboard.insert_text("x\ny\n")
+        ti.keyboard.press("Control+Home")
+        ti.keyboard.press("Tab")
+        assert lines()[:2] == ["  x", "y"], lines()  # 空白 2 つ（タブ文字ではない）
+        assert ti.evaluate(in_cm), "Tab でフォーカスが出た"
+        ti.keyboard.press("Shift+Tab")
+        assert lines()[:2] == ["x", "y"], lines()
+        ti.keyboard.press("Shift+ArrowDown")  # 2 行を選んで字下げし、Shift+Tab で戻す
+        ti.keyboard.press("Shift+End")
+        ti.keyboard.press("Tab")
+        assert lines()[:3] == ["  x", "  y", ""], lines()
+        ti.keyboard.press("Shift+Tab")
+        assert lines()[:3] == ["x", "y", ""], lines()
+        assert "\t" not in "".join(lines())
+        # 補完の一覧が開いていても Tab は字下げでフォーカスは出ない。Enter で確定は従来どおり
+        opt = ti.locator(".cm-tooltip-autocomplete li[aria-selected]")
+        ti.keyboard.press("Control+End")
+        ti.keyboard.type("mod")
+        expect(opt).to_be_visible(timeout=10_000)
+        ti.keyboard.press("Enter")
+        assert lines()[2].startswith("mod") and lines()[2] != "mod" and len(lines()) == 3, lines()
+        ti.keyboard.press("Control+z")
+        assert lines()[2] == "mod", lines()
+        ti.keyboard.press("Backspace")
+        ti.keyboard.type("d")  # 打ち直して一覧を開く
+        expect(opt).to_be_visible(timeout=10_000)
+        ti.keyboard.press("Tab")
+        assert ti.evaluate(in_cm) and lines()[2] == "  mod", lines()
+        # Esc のあと Tab / Shift+Tab でエディタの外へ。Esc を押さずに 2 秒たったあとの Tab は字下げ
+        ti.keyboard.press("Escape")
+        ti.keyboard.press("Shift+Tab")
+        assert not ti.evaluate(in_cm), "Esc のあとの Shift+Tab でエディタの外の前の要素へ移らない"
+        before = ti.evaluate("document.activeElement.tagName + ':' + (document.activeElement.getAttribute('aria-label') || document.activeElement.textContent)")
+        assert not before.startswith("BODY"), before
+        ti.locator(".cm-content").focus()
+        ti.keyboard.press("Escape")
+        ti.keyboard.press("Tab")
+        assert not ti.evaluate(in_cm), "Esc のあとの Tab でエディタの外の次の要素へ移らない"
+        ti.locator(".cm-content").focus()
+        ti.keyboard.press("Control+Home")  # 以降は 1 行目の字下げを数える
+        n = len(lines()[0]) - len(lines()[0].lstrip())
+        ti.keyboard.press("Escape")
+        ti.wait_for_timeout(2300)  # 2 秒の窓が閉じる
+        ti.keyboard.press("Tab")
+        assert ti.evaluate(in_cm) and len(lines()[0]) - len(lines()[0].lstrip()) == n + 2, "窓の外の Tab は字下げ"
+        # Ctrl+M で「Tab でフォーカス移動」に切り替わり、もう一度で字下げに戻る
+        ti.keyboard.press("Control+m")
+        ti.keyboard.press("Tab")
+        assert not ti.evaluate(in_cm), "Ctrl+M のあとの Tab でエディタの外へ移らない"
+        ti.locator(".cm-content").focus()
+        ti.keyboard.press("Control+m")
+        ti.keyboard.press("Tab")
+        assert ti.evaluate(in_cm) and len(lines()[0]) - len(lines()[0].lstrip()) == n + 4
+        # Esc は従来どおり補完の一覧を閉じる（1 回で閉じ、フォーカスはエディタに残る）
+        ti.keyboard.press("Control+End")
+        ti.keyboard.type(" mod")
+        expect(ti.locator(".cm-tooltip-autocomplete")).to_be_visible(timeout=10_000)
+        ti.keyboard.press("Escape")
+        expect(ti.locator(".cm-tooltip-autocomplete")).to_have_count(0)
+        assert ti.evaluate(in_cm)
+        ti.close()
+        print("エディタの Tab: 空白 2 つの字下げ（選択した 2 行も）と Shift+Tab、補完の一覧が開いていても字下げ、Esc のあと Tab・Shift+Tab と Ctrl+M で外へ、説明は aria-describedby と画面に")
         print("キーボードだけ: モデル名・エディタへ Tab、Ctrl+Shift+Enter で検査、診断と参照の行を Tab・Enter・Space でエディタへ、Ctrl+Enter で実行（プロットの aria-label に信号名と時間の範囲）、Ctrl+. で止め、Ctrl+S で保存")
         # 初回の案内・スキップリンク・タブの矢印キー・未保存の印（S179）
         fr = browser.new_page(viewport={"width": 1280, "height": 800})
@@ -1084,6 +1239,16 @@ def main() -> int:
         assert fr.evaluate("document.activeElement.textContent") == "結果へ"
         fr.keyboard.press("Enter")
         assert fr.evaluate("document.activeElement.id") == "results", "結果へ飛ばない"
+        # 結果があってページの先頭にいても、「結果へ」はフォーカスと一緒に結果を画面へ入れる（S186）
+        fr.keyboard.press("Control+Enter")
+        expect(fr.locator(".plot canvas").first).to_be_visible(timeout=120_000)
+        fr.get_by_role("link", name="結果へ").focus()  # Tab の起点はエディタに残るので、リンクへ直接（押すのは本物の Enter）
+        fr.evaluate("window.scrollTo(0, 0)")
+        assert fr.evaluate("document.querySelector('.plot').getBoundingClientRect().top") > 600, "試験の前提: ページの先頭ではプロットが画面の下"
+        fr.keyboard.press("Enter")
+        fr.wait_for_timeout(300)
+        top = fr.evaluate("document.querySelector('.plot').getBoundingClientRect().top")
+        assert 0 <= top < 600, f"結果へ飛んでもプロットが画面の下に残る: top = {top}"
         fr.reload()
         fr.get_by_role("button", name="検査").wait_for()
         fr.keyboard.press("Tab")

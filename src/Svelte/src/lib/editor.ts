@@ -1,8 +1,10 @@
 // CodeMirror の拡張（S053）: 予約語と本文の単語の補完、検査と lint の結果の波線。業務ロジックは置かない。
 import { autocompletion, completeAnyWord, type CompletionContext, type CompletionResult, type CompletionSource } from "@codemirror/autocomplete";
 import { linter, type Diagnostic as CmDiagnostic } from "@codemirror/lint";
-import { HighlightStyle, StreamLanguage, syntaxHighlighting, type StringStream } from "@codemirror/language";
-import { Compartment, EditorState, Prec, type Extension } from "@codemirror/state";
+import { indentWithTab } from "@codemirror/commands";
+import { HighlightStyle, indentUnit, StreamLanguage, syntaxHighlighting, type StringStream } from "@codemirror/language";
+import { invertedEffects } from "@codemirror/commands";
+import { Compartment, EditorState, Prec, StateEffect, type Extension } from "@codemirror/state";
 import { EditorView, hoverTooltip, keymap } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
 import type { Backend } from "./backend";
@@ -68,6 +70,18 @@ const modelicaStyle = HighlightStyle.define([
   { tag: tags.operator, class: "cm-mo-op" },
 ]);
 export const modelicaHighlight: Extension = [modelicaLanguage, syntaxHighlighting(modelicaStyle)];
+
+/**
+ * Tab は字下げ、Shift+Tab は戻す（S188）。幅は整形器の既定と同じ空白 2 つ（タブ文字は入れない）。
+ * フォーカスを出す手は CodeMirror の組み込み（Esc のあと 2 秒以内の Tab / Shift+Tab、Ctrl+M か Mac の Shift+Alt+M で切り替え。defaultKeymap の toggleTabFocusMode）。
+ * 使い方は EDITOR_HELP を、エディタの aria-describedby と画面の両方に出す（キーボードトラップを作らない。WCAG 2.1.2）。
+ */
+export const EDITOR_HELP = "Tab は字下げ、Shift+Tab は字下げを戻す。フォーカスを移すには Esc を押してから Tab（戻るなら Shift+Tab）、または Ctrl+M（Mac は Shift+Alt+M）で Tab での移動を切り替える。";
+export const modelicaTab: Extension = [
+  indentUnit.of("  "),
+  keymap.of([indentWithTab]),
+  EditorView.contentAttributes.of({ "aria-describedby": "editor-help" }),
+];
 
 function keywords(ctx: CompletionContext): CompletionResult | null {
   const word = ctx.matchBefore(/\w+/);
@@ -153,6 +167,16 @@ export const modelicaRefactor = (
   };
   return Prec.high(keymap.of([{ key: "Shift-F12", run: (v) => at(v, references) }, { key: "F2", run: (v) => at(v, rename) }]));
 };
+
+/**
+ * クラス名のリネーム（S166）が、いまのモデル名のクラスも変えたとき（S186）。リネームの編集と同じ transaction に載せ、元に戻す（Ctrl+Z）と from / to を入れ替えた effect で戻る。
+ * 新旧の名前は Rust の models が決める（App.svelte）。set は effect が届いたときにモデル名を直す（from でなければ利用者が直した名前なので触らない）。
+ */
+export const modelRenamed = StateEffect.define<{ from: string; to: string }>();
+export const modelFollow = (set: (from: string, to: string) => void): Extension => [
+  invertedEffects.of((tr) => tr.effects.filter((e) => e.is(modelRenamed)).map((e) => modelRenamed.of({ from: e.value.to, to: e.value.from }))),
+  EditorView.updateListener.of((u) => { for (const tr of u.transactions) for (const e of tr.effects) if (e.is(modelRenamed)) set(e.value.from, e.value.to); }),
+];
 
 /** ホバー（S149）: 300 ms 置くと、その名前の宣言（部品は `Real x "説明"`、クラスは見出し）を素のテキストで出す。 */
 const modelicaHover = (backend: Backend, file: () => string): Extension => [

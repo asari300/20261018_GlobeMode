@@ -131,7 +131,7 @@ export class TauriBackend implements Backend {
   librarySearch(query: string): Promise<TreeEntry[]> {
     return invoke("rpc", { method: "globe/librarySearch", params: { query } });
   }
-  librarySource(path: string): Promise<{ file: string; text: string }> {
+  librarySource(path: string): ReturnType<Backend["librarySource"]> {
     return invoke("rpc", { method: "globe/librarySource", params: { path } });
   }
   completion(file: string, line: number, character: number): Promise<CompletionEntry[]> {

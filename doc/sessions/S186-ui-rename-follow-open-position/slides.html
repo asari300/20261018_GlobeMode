@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S186 リネームの追従と開いた位置 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S186 リネームの追従と開いた位置">
+
+<section class="slide" id="S01">
+  <span class="tag">S186 · 2026-11-06 · P4</span>
+  <h1>UI の細部 5 件を直す</h1>
+  <p class="lead">S185 の監査の R2・R3・R7・R8・R9</p>
+  <div class="big">リネームでモデル名が古くならず、開いたクラスの行へ動く</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">R2</span>
+  <h1>クラス名を F2 で変えるとモデル名の欄も追う</h1>
+  <table class="compact">
+    <tr><th>操作</th><th>前</th><th>後</th></tr>
+    <tr><td><code>model T</code> を <code>Net</code> に</td><td class="ng">欄は <code>T</code> のまま。検査は <code>GM-E1002</code></td><td class="ok">欄が <code>Net</code>。検査が通る</td></tr>
+    <tr><td><code>P.M</code> の <code>P</code> を <code>Q</code> に</td><td class="ng">欄は <code>P.M</code> のまま</td><td class="ok">欄が <code>Q.M</code></td></tr>
+    <tr><td>Ctrl+Z</td><td>本文だけ戻る</td><td class="ok">本文も欄も戻る</td></tr>
+    <tr><td>部品のリネーム</td><td>変えない</td><td class="ok">変えない</td></tr>
+  </table>
+  <div class="card">新しい名前は Rust の <code>models</code>（同じ番号の名前）。Svelte に名前解決の規則を置かない</div>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">R2 の仕組み</span>
+  <h1>編集と同じ transaction に effect を載せる</h1>
+  <ul>
+    <li>リネームの前後で <code>models(file)</code> を引き、いまのモデルの番号の名前が変わったときだけ <code>modelRenamed</code> を編集に添える</li>
+    <li><code>invertedEffects</code> で from と to を入れ替えた effect が履歴に入る。Ctrl+Z も Ctrl+Y も欄が追う</li>
+    <li>欄が from のときだけ書き換える。利用者が直した名前は触らない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">R3</span>
+  <h1>入れ子のクラスは宣言の行へ</h1>
+  <table class="compact">
+    <tr><th>開いたクラス</th><th>前</th><th>後</th></tr>
+    <tr><td><code>Examples.BusUsage</code>（<code>package.mo</code> の 991 行目）</td><td class="ng">1 行目の <code>within Modelica;</code></td><td class="ok">991 行目にカーソル、画面に入る</td></tr>
+    <tr><td><code>Sources.Sine</code>（<code>Sources.mo</code> の 291 行目）</td><td class="ng">1 行目</td><td class="ok">291 行目</td></tr>
+  </table>
+  <div class="card"><code>librarySource</code> の応答に追加の <code>range</code>（LSP の Range）。位置は Rust の outline から。タブの <code>title</code> にはパスが出る（既存）</div>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">R7 · R8 · R9</span>
+  <h1>キーボードの引っかかり 3 件</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>前</th><th>後</th></tr>
+    <tr><td>R7 候補が開いたまま Ctrl+Enter</td><td class="ng">実行後も一覧が残る</td><td class="ok">押した時点で閉じる</td></tr>
+    <tr><td>R8 「MSL を読む」を Enter</td><td class="ng">フォーカスが body に落ちる</td><td class="ok">読み終えて検索欄へ（キーボードで押したときだけ）</td></tr>
+    <tr><td>R9 スキップ「結果へ」</td><td class="ng">ページの先頭だとスクロールしない</td><td class="ok">結果を画面の上へ入れる</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">結果</span>
+  <h1>試験と持ち越し</h1>
+  <ul>
+    <li>Rust: LSP の <code>library_tree_and_source</code> に range、wasm:node に BusUsage の行（<code>mise run check</code> と合わせて通した）</li>
+    <li><code>test_ui.py</code>: 5 点すべて。<code>GM-SMOKE</code> の行は変えていない</li>
+    <li>持ち越し: 候補の順位（R6）、<code>-L</code> の案内（R5）、README（R1）、FMU（R4）は別のセッション</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

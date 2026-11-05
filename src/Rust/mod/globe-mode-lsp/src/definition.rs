@@ -101,6 +101,23 @@ pub struct Resolver<'a> {
 }
 
 impl Resolver<'_> {
+    /// ライブラリのクラス `qualified` を定義するファイル `file`（本文 `text`）の中の、そのクラスの範囲（S186。`librarySource` が添える）。
+    /// ワークスペースの文書は見ない（`locate` と違い、同じ名前の自分のファイルがあっても `text` の位置を返す）。
+    fn library_class_range(
+        &mut self,
+        qualified: &str,
+        file: &str,
+        text: &str,
+    ) -> Option<TextRange> {
+        if self.scratch.outline(file).is_none() {
+            self.scratch.set_file(file, text.to_string());
+        }
+        let Some(Ok(o)) = self.scratch.outline(file) else {
+            return None;
+        };
+        walk(o, qualified).map(|c| c.range)
+    }
+
     /// 完全修飾名のクラスを探す（ファイルのパスと、クラスの写し）。
     fn locate(&mut self, qualified: &str) -> Option<(String, ClassOutline)> {
         if let Some((p, o)) = self.overlay
@@ -237,6 +254,16 @@ impl Resolver<'_> {
             class: true,
         })
     }
+}
+
+/// UI 向けの `librarySource`（wasm と `globe/librarySource` が使う）: `{file, text}` に、クラス `qualified` の宣言の範囲 `range`（LSP の Range。S186）を添える。
+/// 範囲が引けなければ `range` は付けない（UI は先頭のまま）。
+pub fn library_source(r: &mut Resolver, qualified: &str, file: &str, text: &str) -> Value {
+    let mut v = json!({"file": file, "text": text});
+    if let Some(x) = r.library_class_range(qualified, file, text) {
+        v["range"] = json!(crate::range(text, x));
+    }
+    v
 }
 
 /// UI 向けの定義ジャンプ（S138。wasm と `globe/definition` が使う）。文書 `path`（本文 `text`）の行・列（LSP と同じ UTF-16）にある

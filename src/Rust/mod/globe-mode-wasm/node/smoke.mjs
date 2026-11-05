@@ -138,6 +138,9 @@ if (msl && existsSync(msl)) {
   const many = JSON.parse(lib.library_search("s", 50));
   assert.equal(hits[0].path, "Modelica.Blocks.Examples.PID_Controller");
   assert.equal(JSON.parse(lib.library_search("modelica.blocks.sources.sine", 5))[0].path, "Modelica.Blocks.Sources.Sine");
+  // S186: 入れ子のクラスを開くとき、宣言の行（0 始まり）が range で分かる（Blocks/package.mo の BusUsage は 990 行目）
+  const src = JSON.parse(lib.library_source("Modelica.Blocks.Examples.BusUsage"));
+  assert.ok(src.range.start.line > 900 && src.text.split("\n")[src.range.start.line].includes("model BusUsage"), JSON.stringify(src.range));
   console.log(`MSL の木と検索: Blocks の子 ${kids.length} 件、検索 PID_Con ${q1} ms、s（${many.length} 件）${ms(t)} ms`);
   // S171: 補完。型の位置の `Modelica.Blocks.Sources.` で Sine が出る・`.` の後ろで部品名が出る・文字列の中は空。応答時間も測る。
   // どれも打ちかけで文書は壊れている（カーソルの行を除いて読む）
