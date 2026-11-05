@@ -49,3 +49,4 @@ Svelte・Leptos・Dioxus のブラウザ版を Linux・Windows・macOS で測る
 - **取り込み**: 結果の JSON を artifact `ui-bench-<os>` に残す。`bench_ui.py merge` で `target/ui-bench.json` に重ね、`report` で表にする。Actions 上の Linux は手元の WSL2 の列（`<UI>/linux`）と分けて `<UI>/linux-actions`（表では「Linux（Actions）」）に入れる。
 - **RSS**: Linux は従来どおり Chromium の子孫の `VmHWM`。Windows・macOS は psutil で子孫の RSS を見る（Windows は `peak_wset`＝ピーク、macOS はピークが取れないので測定の終わりの値で、過小になりうる）。
 - **値の読み方**: ランナーは共有で、同じ仕様でも揺れる。OS 間の差は目安にとどめ、しきい値は置かない（決定 5 のまま）。Linux（Actions）と手元の WSL2 の差も同様。
+- **結果**: run 41984237319 で 3 OS とも成功（約 12〜41 分。macOS が最も遅い）。試走の run 41979389483 は macOS の bash の引数の全角文字で `bench_ui.py` が落ちた（`PYTHONUTF8=1` と ASCII の `--source` で直した）。新しい workflow は default ブランチに無いと dispatch できないので、試走は feature ブランチの一時的な `push` トリガで回し、回し終えて消した。main に入れたあとは `gh workflow run ui-bench.yml` で回せる。

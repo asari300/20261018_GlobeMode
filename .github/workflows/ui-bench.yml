@@ -11,8 +11,6 @@ name: ui-bench
 
 on:
   workflow_dispatch:
-  push:
-    branches: [feature/s156-ui-bench-3os]   # TEMP: 新しい workflow は default ブランチに無いと dispatch できない。回し終えたら消す
 
 permissions:
   contents: read

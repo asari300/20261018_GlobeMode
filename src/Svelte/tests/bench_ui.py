@@ -132,6 +132,25 @@ def median(entry: dict, key: str) -> float | None:
     return statistics.median(xs) if xs else None
 
 
+# ランナーの仕様（S156）。report が表の下に書く。変わったら確認日と一緒に直す
+RUNNERS = """
+## ランナー（ui-bench.yml）
+
+GitHub-hosted runner の標準（公開リポジトリ）。出典: <https://docs.github.com/en/actions/reference/runners/github-hosted-runners>（確認日 2026-11-05）。イメージは run 41984237319 のログの `Image:`。
+
+| ラベル | 実際のイメージ | CPU | RAM | ディスク | アーキテクチャ |
+| --- | --- | ---: | ---: | ---: | --- |
+| `ubuntu-latest` | ubuntu-24.04（20261025.353） | 4 | 16 GB | 14 GB | x64 |
+| `windows-latest` | windows-2025-vs2026（20261030.294） | 4 | 16 GB | 14 GB | x64 |
+| `macos-latest` | macos-26-arm64（20261026.0455） | 3（M1） | 7 GB | 14 GB | arm64 |
+
+- **ランナーは共有で、値は目安。** 同じ仕様でも回ごとに揺れ、しきい値は置かない。OS 間の差には、CPU の種類（macOS は arm64、他は x64）と OS ごとの Chromium の違いが混ざる。
+- 手元の WSL2 の列と Actions の Linux の列は、条件が違う（手元は load と RAM 3 GB の WSL2、Actions は 4 vCPU・16 GB）。
+- RSS: Linux は Chromium の子孫の `VmHWM`、Windows は `peak_wset`（ピーク）、macOS は終了時点の rss（ピークが取れず、過小になりうる）。Svelte Tauri の列は Desktop の webview の木で、ブラウザ版とは測るものが違う。
+- 「Svelte ブラウザ」は CodeMirror・プロット・graph・Worker を持ち、Leptos・Dioxus（textarea と表だけ）と同じ仕事ではない。
+""".strip("\n").splitlines()
+
+
 def report(data: dict) -> str:
     # Svelte Tauri の Linux は desktop.yml の 1 列だけ（手元と Actions を分けない）
     cols = [(f"{ui}/{os_}", f"{name} {OSES[os_]}") for ui, name in UIS for os_ in OSES if (ui, os_) != ("svelte-tauri", "linux-actions")]
@@ -140,7 +159,7 @@ def report(data: dict) -> str:
         "",
         "<!-- src/Svelte/tests/bench_ui.py report が target/ui-bench.json から作る。手で直さない -->",
         "",
-        "測り方は [ADR-0034](../adr/0034-ui-bench-method.md)。数は回の中央値（バンドルは 1 回）。「未」はまだ測っていない（UI が無い・OS が matrix に無い）。",
+        "測り方は [ADR-0034](../adr/0034-ui-bench-method.md)。数は回の中央値（バンドルは 1 回）。「未」はまだ測っていない（Svelte Tauri の macOS。`desktop.yml` の matrix に無い）。Linux は手元の WSL2 と、GitHub Actions（`ui-bench.yml`、S156）の 2 列。",
         "",
         "| 測るもの | " + " | ".join(h for _, h in cols) + " |",
         "| --- | " + " | ".join("---:" for _ in cols) + " |",
@@ -153,6 +172,7 @@ def report(data: dict) -> str:
         lines.append(f"| {label} | " + " | ".join(cells) + " |")
     lines += ["", "## 出典", ""]
     lines += [f"- {k}: {data[k]['source']}（{len(data[k]['runs'])} 回）" for k, _ in cols if k in data]
+    lines += ["", *RUNNERS]
     return "\n".join(lines) + "\n"
 
 
