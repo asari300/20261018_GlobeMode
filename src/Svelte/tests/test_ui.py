@@ -17,6 +17,7 @@ Decay の x で Shift+F12 を押すと参照の一覧（3 行）が出て行を�
 結果の位置（S170）: 1280x800 と 390 px 幅で、実行の進捗・止める・失敗の理由が最初の画面の中に出て、終わるとプロットの上端が画面の中に入り、利用者が戻したスクロールは引き戻さない。
 開く・モデル名（S170）: 2 モデルのファイルは select で選び直せて再読み込みで残り、未保存の編集があるタブと同じ名前を開き直しても編集が残る。ライブラリのモデル名を打ったときは食い違いの案内。
 キーボードだけ（S175）: マウスを使わず Tab・Enter・Space とショートカットで、検査、診断と参照の行からエディタへ、実行（プロットの canvas の `aria-label` に信号名と時間の範囲）、止める（Ctrl+.）、保存（Ctrl+S）まで通る。フォーカスの輪郭が見える。
+エディタの Tab（S188）: Tab は空白 2 つの字下げ（選んだ行も）・Shift+Tab で戻る。補完の一覧が開いていても字下げ。出る手は Esc のあと Tab / Shift+Tab と Ctrl+M。説明は aria-describedby と画面。
 初回の案内（S179）: 保存したタブが無い初回だけ「はじめに」の 3 手順（検査・実行のショートカットつき）が出て、閉じると再読み込みでも出ない（smoke では出ない）。スキップリンクは Tab 1 回でエディタへ・2 回で結果へ。タブは矢印・Home・End で移り（roving tabindex）、未保存の印（●）は編集で付いて再読み込みをまたぎ保存で消え、未保存のとき beforeunload が出る。
 ダークモード（S152）: `color_scheme="dark"` で開くと背景が暗く文字が明るい（body・エディタ・診断・プロット・graph。プロットの軸の文字は canvas に描くので明るい画素を数える）。テーマの select で「明」にすると戻り、再読み込みで選択が残り、「OS に合わせる」で暗に戻る。
 FMU を書き出す（S144）: ブラウザの wasm が作ったソースの FMU がダウンロードされ、modelDescription.xml と sources/ がある。S154 から FMI の版（2.0 / 3.0）を select で選ぶ。
@@ -1098,6 +1099,8 @@ def main() -> int:
         def tab_to(js: str, limit: int = 80) -> int:
             """js（document.activeElement を e として評価する式）が真になるまで Tab を押し、押した回数を返す。届かなければ落ちる"""
             for n in range(1, limit + 1):
+                if kb.evaluate("!!document.activeElement.closest('.cm-editor')"):
+                    kb.keyboard.press("Escape")  # S188: エディタの Tab は字下げ。出るときは Esc のあと Tab
                 kb.keyboard.press("Tab")
                 if kb.evaluate(f"(() => {{ const e = document.activeElement; return !!e && ({js}); }})()"):
                     return n
@@ -1157,6 +1160,82 @@ def main() -> int:
         for name, keys in {"検査": "Control+Shift+Enter", "実行": "Control+Enter", "保存": "Control+S", "開く": "Control+O"}.items():  # ボタンに示してある
             assert kb.get_by_role("button", name=name, exact=True).get_attribute("aria-keyshortcuts").startswith(keys), name
         kb.close()
+        # エディタの Tab は字下げ（S188）。出る手は Esc のあと Tab（Shift+Tab で前へ）、Ctrl+M で切り替え。説明は aria-describedby と画面の両方に
+        ti = browser.new_page(viewport={"width": 1280, "height": 800})
+        ti.on("console", lambda m: m.type == "error" and errors.append(m.text))
+        ti.on("pageerror", lambda e: errors.append(str(e)))
+        ti.goto(origin)
+        ti.get_by_role("button", name="検査").wait_for()
+        lines = lambda: ti.eval_on_selector_all(".cm-line", "els => els.map(e => e.textContent)")  # noqa: E731
+        in_cm = "!!document.activeElement.closest('.cm-editor')"
+        help_id = ti.locator(".cm-content").get_attribute("aria-describedby")
+        assert help_id == "editor-help", help_id
+        help_text = ti.locator("#editor-help").inner_text()
+        assert all(k in help_text for k in ["Tab", "Shift+Tab", "Esc", "Ctrl+M"]), help_text
+        assert inside(ti, "#editor-help")
+        ti.locator(".cm-content").press("Control+a")
+        ti.keyboard.insert_text("x\ny\n")
+        ti.keyboard.press("Control+Home")
+        ti.keyboard.press("Tab")
+        assert lines()[:2] == ["  x", "y"], lines()  # 空白 2 つ（タブ文字ではない）
+        assert ti.evaluate(in_cm), "Tab でフォーカスが出た"
+        ti.keyboard.press("Shift+Tab")
+        assert lines()[:2] == ["x", "y"], lines()
+        ti.keyboard.press("Shift+ArrowDown")  # 2 行を選んで字下げし、Shift+Tab で戻す
+        ti.keyboard.press("Shift+End")
+        ti.keyboard.press("Tab")
+        assert lines()[:3] == ["  x", "  y", ""], lines()
+        ti.keyboard.press("Shift+Tab")
+        assert lines()[:3] == ["x", "y", ""], lines()
+        assert "\t" not in "".join(lines())
+        # 補完の一覧が開いていても Tab は字下げでフォーカスは出ない。Enter で確定は従来どおり
+        opt = ti.locator(".cm-tooltip-autocomplete li[aria-selected]")
+        ti.keyboard.press("Control+End")
+        ti.keyboard.type("mod")
+        expect(opt).to_be_visible(timeout=10_000)
+        ti.keyboard.press("Enter")
+        assert lines()[2].startswith("mod") and lines()[2] != "mod" and len(lines()) == 3, lines()
+        ti.keyboard.press("Control+z")
+        assert lines()[2] == "mod", lines()
+        ti.keyboard.press("Backspace")
+        ti.keyboard.type("d")  # 打ち直して一覧を開く
+        expect(opt).to_be_visible(timeout=10_000)
+        ti.keyboard.press("Tab")
+        assert ti.evaluate(in_cm) and lines()[2] == "  mod", lines()
+        # Esc のあと Tab / Shift+Tab でエディタの外へ。Esc を押さずに 2 秒たったあとの Tab は字下げ
+        ti.keyboard.press("Escape")
+        ti.keyboard.press("Shift+Tab")
+        assert not ti.evaluate(in_cm), "Esc のあとの Shift+Tab でエディタの外の前の要素へ移らない"
+        before = ti.evaluate("document.activeElement.tagName + ':' + (document.activeElement.getAttribute('aria-label') || document.activeElement.textContent)")
+        assert not before.startswith("BODY"), before
+        ti.locator(".cm-content").focus()
+        ti.keyboard.press("Escape")
+        ti.keyboard.press("Tab")
+        assert not ti.evaluate(in_cm), "Esc のあとの Tab でエディタの外の次の要素へ移らない"
+        ti.locator(".cm-content").focus()
+        ti.keyboard.press("Control+Home")  # 以降は 1 行目の字下げを数える
+        n = len(lines()[0]) - len(lines()[0].lstrip())
+        ti.keyboard.press("Escape")
+        ti.wait_for_timeout(2300)  # 2 秒の窓が閉じる
+        ti.keyboard.press("Tab")
+        assert ti.evaluate(in_cm) and len(lines()[0]) - len(lines()[0].lstrip()) == n + 2, "窓の外の Tab は字下げ"
+        # Ctrl+M で「Tab でフォーカス移動」に切り替わり、もう一度で字下げに戻る
+        ti.keyboard.press("Control+m")
+        ti.keyboard.press("Tab")
+        assert not ti.evaluate(in_cm), "Ctrl+M のあとの Tab でエディタの外へ移らない"
+        ti.locator(".cm-content").focus()
+        ti.keyboard.press("Control+m")
+        ti.keyboard.press("Tab")
+        assert ti.evaluate(in_cm) and len(lines()[0]) - len(lines()[0].lstrip()) == n + 4
+        # Esc は従来どおり補完の一覧を閉じる（1 回で閉じ、フォーカスはエディタに残る）
+        ti.keyboard.press("Control+End")
+        ti.keyboard.type(" mod")
+        expect(ti.locator(".cm-tooltip-autocomplete")).to_be_visible(timeout=10_000)
+        ti.keyboard.press("Escape")
+        expect(ti.locator(".cm-tooltip-autocomplete")).to_have_count(0)
+        assert ti.evaluate(in_cm)
+        ti.close()
+        print("エディタの Tab: 空白 2 つの字下げ（選択した 2 行も）と Shift+Tab、補完の一覧が開いていても字下げ、Esc のあと Tab・Shift+Tab と Ctrl+M で外へ、説明は aria-describedby と画面に")
         print("キーボードだけ: モデル名・エディタへ Tab、Ctrl+Shift+Enter で検査、診断と参照の行を Tab・Enter・Space でエディタへ、Ctrl+Enter で実行（プロットの aria-label に信号名と時間の範囲）、Ctrl+. で止め、Ctrl+S で保存")
         # 初回の案内・スキップリンク・タブの矢印キー・未保存の印（S179）
         fr = browser.new_page(viewport={"width": 1280, "height": 800})

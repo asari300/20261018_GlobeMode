@@ -134,6 +134,21 @@ fn unknown_model_has_an_empty_closure_and_stops_at_s1_with_candidates() {
     );
 }
 
+/// S187: ワークスペースに無いパッケージ名から始まる名前は、ライブラリを渡し忘れていると言う。ワークスペースにあるなら言わない。
+#[test]
+fn a_package_not_in_the_workspace_says_the_library_is_missing() {
+    let mut db = loaded();
+    let hint = |db: &mut GlobeDb, model: &str| {
+        let r = db.check_model(model);
+        r.diagnostics[0]
+            .notes
+            .iter()
+            .any(|n| n.contains("というパッケージは読み込んでいない"))
+    };
+    assert!(hint(&mut db, "Modelica.Blocks.Examples.PID_Controller"));
+    assert!(!hint(&mut db, "GlobeModeValidation.Connect.Nope"));
+}
+
 #[test]
 fn a_file_with_a_syntax_error_is_always_in_the_closure() {
     let mut db = loaded();

@@ -90,3 +90,12 @@ fn check_json_library_model_not_found_has_candidates() {
         ]),
     );
 }
+
+/// S187: 短い名前には候補を出さず、完全修飾名で渡すよう言う。JSON にも同じ。
+#[test]
+fn check_json_short_library_model_name_has_no_candidates() {
+    assert_snapshot(
+        "check-library-short-name",
+        &globe_json(&["check", "-L", "src/Modelica", "-m", "Nope", "--json"]),
+    );
+}

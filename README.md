@@ -26,6 +26,8 @@ UI keyboard shortcuts (browser, Desktop, Android with a keyboard; Cmd instead of
 | Ctrl+S / Ctrl+Shift+S | Save / Save as (Desktop) |
 | Ctrl+O | Open |
 | F12, Shift+F12, F2, Alt+Left | Go to definition, references, rename, back (editor) |
+| Tab / Shift+Tab | In the editor: indent / outdent by two spaces (selected lines too) |
+| Esc then Tab (Shift+Tab), or Ctrl+M (Shift+Alt+M on macOS) | Move focus out of the editor to the next (previous) element; Ctrl+M toggles "Tab moves focus" |
 
 ## Getting started
 
@@ -90,7 +92,7 @@ CLI・言語サーバには `-L data/msl` で渡す（サブフォルダでは�
 ```bash
 cargo build --release -p globe-mode-cli    # target/release/globe（PATH に置く）
 
-# 検査（S0〜S10）と実行。MSL の ChuaCircuit で検査に約 3 秒、実行に約 4 秒
+# 検査（S0〜S10）と実行。MSL の ChuaCircuit で検査に約 2 秒、実行に約 2 秒（静かな WSL2 での実測 1.6 s・2.1 s）
 globe check    -L data/msl -m Modelica.Electrical.Analog.Examples.ChuaCircuit
 globe simulate -L data/msl -m Modelica.Electrical.Analog.Examples.ChuaCircuit -o chua.csv   # .mat なら MAT v4
 globe simulate --list-solvers
@@ -99,7 +101,7 @@ globe simulate --list-solvers
 # 自分のファイルやフォルダ（モデルの完全修飾名を -m に）
 globe check src/Modelica/GlobeModeValidation -m GlobeModeValidation.Simulation.Decay
 
-globe fmt --check .       # 整形が要るファイルを列挙して終了コード 1。--check を外すと書き換える
+globe fmt --check model.mo   # 自分のファイルかフォルダを指す。整形が要るファイルを列挙して終了コード 1。--check を外すと書き換える（リポジトリの根の `.` は検証用の入力も含むので通らない）
 globe lint .              # line-too-long など。--disable <規則> で止める
 globe fmu export src/Modelica/GlobeModeValidation -m GlobeModeValidation.Simulation.Decay --out out/ [--fmi-version 3]
 globe lsp -L data/msl     # 標準入出力の LSP サーバ
@@ -196,8 +198,8 @@ MSL 4.1.0 の例題 566 本のうち、S0〜S10 の検査を通るのは 369 本
 
 - `globe` を crates.io には出せない。Rumoca を git 依存で固定しているため（[ADR-0002](doc/adr/0002-rumoca-adapter.md)）。
 - 参照・リネームの範囲は、開いている文書の中の部品とクラス名（S166）。別ファイル・ライブラリ全体の参照は未。
-- 補完は予約語と本文の単語だけ（UI。言語サーバの補完は UI につないでいない）。
-- ライブラリツリーに検索は無い。
+- 補完は予約語と本文の名前に加え、型の位置・点つきの名前でライブラリのクラス、`.` の後ろで部品の名前（S171。エディタ（ブラウザ・Desktop）と言語サーバ）。
+- ライブラリツリーの検索は名前の部分一致（`.` を含めると完全修飾名。S167）。
 - Desktop の自動更新は、鍵を登録するまで「未設定」。
 - Desktop（Windows・macOS・Linux）と Android は、署名と、実機での長い操作の確認が未（CI の自動の操作は通っている）。
 

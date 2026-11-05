@@ -65,6 +65,16 @@ def test_library_model_name_hint_reaches_python_check():
     assert any(n.startswith("候補") and DECAY in n for n in d["notes"]), d
 
 
+def test_package_name_and_short_names_get_their_own_hints():
+    """S187: パッケージ名は「パッケージで、モデルではない」と直下のモデル、短い名前には的外れな候補を出さない。"""
+    ws = Workspace([MODELICA])
+    d = ws.check("GlobeModeValidation.Simulation")["diagnostics"][0]
+    assert d["code"] == "GM-E1002" and "パッケージ" in d["message"], d
+    assert any(n.startswith("直下のモデル") for n in d["notes"]), d
+    d = ws.check("Nope")["diagnostics"][0]
+    assert not any(n.startswith("候補") for n in d["notes"]), d
+
+
 def test_check_and_simulate_carry_a_one_line_summary():
     """S184: CLI の最後の行と同じ 1 行が、応答の `summary` で Python にも出る。"""
     ws = workspace()
