@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S158 sdirk34hw のサイリスタ — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S158 sdirk34hw のサイリスタ">
+
+<section class="slide" id="S01">
+  <span class="tag">S158 · 2026-11-05 · P3</span>
+  <h1>sdirk34hw の GM-E11003 の原因</h1>
+  <p class="lead">ThyristorBridge2Pulse_DC_Drive が t = 13.04 で事象の反復が収束しない。S139 の持ち越し</p>
+  <div class="big">原因は <b>Rumoca の host</b>。GlobeMode 側では直せず、<b>上流の下書き 34</b> に記録</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">再現</span>
+  <h1>終了時刻で変わる偶然</h1>
+  <table class="compact">
+    <tr><th>実行（release、Tolerance 1e-7）</th><th>結果</th></tr>
+    <tr><td>sdirk34hw、0〜15 s</td><td class="warn">57 s で GM-E11003（t = 13.040017098）</td></tr>
+    <tr><td>sdirk34hw、0〜13.2 s</td><td class="ok">通る（刻みの列が変わる）</td></tr>
+    <tr><td>esdirk34、0〜15 s</td><td class="ok">通る（CI の run 41666815770）</td></tr>
+  </table>
+  <p>失敗は 10 ms ごとの事象 1,500 回のうちの 1 回</p>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">追跡</span>
+  <h1>根が丸めの雑音になる</h1>
+  <ul>
+    <li>事象の時刻で <code>dcpm.la.i = 19.95342803660142</code> と <code>lMains.i = -19.95342803660142</code>。和が <b>ちょうど 0.0</b></li>
+    <li>2 つの根は <code>(+4.1e-30, -4.1e-35)</code>。固定した方式のあとの射影で <code>(-3.3e-34, +3.3e-29)</code> と両方反転</li>
+    <li>host は <code>value == 0.0</code> の厳密な比べ方なので、上書きが外れて別の方式を固定。周期 2 で 32 回</li>
+    <li><code>y</code> は回ごとに 1e-29 しか動かない。検出された繰り返しは毎回 <code>Found</code> で、関係式の面の出口に行かない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>方式が毎回反転する</h1>
+  <svg viewBox="0 0 800 220" role="img" aria-label="方式の固定と反転の図">
+    <rect class="svg-box" x="40" y="30" width="200" height="50" rx="6"/>
+    <text class="svg-text" x="140" y="60" text-anchor="middle">方式 [0,1] を固定</text>
+    <rect class="svg-box-warn" x="300" y="30" width="200" height="50" rx="6"/>
+    <text class="svg-text" x="400" y="60" text-anchor="middle">射影で符号が反転</text>
+    <rect class="svg-box" x="560" y="30" width="200" height="50" rx="6"/>
+    <text class="svg-text" x="660" y="60" text-anchor="middle">方式 [1,0] を固定</text>
+    <line class="svg-line-accent" x1="240" y1="55" x2="300" y2="55"/>
+    <line class="svg-line-accent" x1="500" y1="55" x2="560" y2="55"/>
+    <rect class="svg-box-accent" x="260" y="140" width="280" height="50" rx="6"/>
+    <text class="svg-text" x="400" y="170" text-anchor="middle">32 回で GM-E11003</text>
+    <line class="svg-line" x1="400" y1="80" x2="400" y2="140"/>
+  </svg>
+  <p>比べ方が <code>value == 0.0</code> でなく雑音の範囲なら、上書きが残って収まる</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">決定</span>
+  <h1>直さずに記録する</h1>
+  <ul>
+    <li>host の 2 行を <code>abs() &lt;= 1e-24</code> にすると 15 s まで通る（手元だけ。87,498 行、64.7 s）</li>
+    <li>Rumoca は変えない。プラグインで雑音を整えると全例題の数値が動く</li>
+    <li>v0.10.4 と main（<code>590ac739</code>）も同じ行（確認日 2026-11-05）</li>
+    <li>記録: 上流の下書き 34 の 4 点、<code>msl-solvers.md</code> の注記、既知の限界の試験 1 本（<code>#[ignore]</code>、116 s）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">結果と次回</span>
+  <h1>実行系は変えていない</h1>
+  <ul>
+    <li>数値は S139 の run 41666815770 のまま（<code>sdirk34hw</code> 293・管 283 / 292）。<code>wasm:node</code>・<code>wasm:compare</code>・<code>msl-sim.yml</code> は回していない</li>
+    <li>次回: 下書き 34 を最新の Rumoca で確かめて出す（ユーザー）。直ったら試験を「15 s まで進む」に書き換える</li>
+    <li>同じ雑音が当たるほかのサイリスタ・ダイオードの回路の数は未調査</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
