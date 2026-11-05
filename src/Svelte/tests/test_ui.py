@@ -8,6 +8,7 @@ dist/ を localhost で配り（CSP は index.html の meta と同じものを�
 最後に「MSL を読む」で MSL 4.1.0 を読み（public/msl/MSL.json が無ければ飛ばす）、ChuaCircuit の検査（error 0）と実行（プロットの canvas と系列）を確かめて、秒数を出す（S048）。
 長いモデルの実行で進捗（段と t の割合）が出て、「止める」で止まり（data-run="cancelled"）、ボタンが戻ることを確かめる（S133）。止めたあとプロットに途中までの列が残る（S157。dist を cross-origin isolated で配る）。
 Decay の `der(x)` の x で F12 を押すと宣言の行（`Real x`）へ動く。ChuaCircuit のファイルで型 `Modelica.Electrical.Analog.Basic.Resistor` の上の F12 は、ライブラリの Resistor.mo をエディタに開き、Alt+← で ChuaCircuit に戻る（S138）。
+Decay の x で Shift+F12 を押すと参照の一覧（3 行）が出て行を押すと飛べ、F2 で pos に変えると全出現が変わって検査が通り（予約語は断られ、Ctrl+Z 1 回で戻る。S161）。
 `.mo` を開く（ファイル選択）とエディタに入りモデル名が本文から付いて検査が通り、「保存」でダウンロードされ、再読み込みで localStorage から戻る（S141）。
 名前の上にマウスを置くと宣言の 1 行が出る（Decay の x は `Real x`、ChuaCircuit の Resistor は見出しと説明文字列。S149）。
 タブ（S151）: 開くたびにタブが増え、切り替えで本文・モデル名・診断が戻り、再読み込みでタブが戻り、閉じるボタンで減り（未保存なら confirm 1 つ。最後の 1 つは閉じられない）、「最近使ったファイル」から開き直せる。
@@ -157,6 +158,49 @@ def main() -> int:
         print(f"Decay のホバー: {tip.inner_text()!r}")
         page.mouse.move(5, 5)
         expect(tip).to_have_count(0)
+
+        # 参照とリネーム（S161）: Decay の `der(x)` の x で Shift+F12 → 一覧 3 行（宣言・der(x)・-x のどれか）から押して飛べる。
+        # F2 で名前を変えると全出現が変わり、検査が通る。予約語は断られ、1 回の undo で戻る
+        base = page.locator(".cm-content").inner_text()
+        page.locator(".cm-content").focus()
+        page.keyboard.press("Control+End")
+        page.keyboard.type("\n// x と \"x\" は変えない")  # コメントと文字列の中の x は参照にもリネームにも入らない
+        page.wait_for_timeout(700)  # 入力と次の操作を履歴の別の塊にする
+        original = page.locator(".cm-content").inner_text()
+        page.keyboard.press("Control+Home")
+        for _ in range(3):
+            page.keyboard.press("ArrowDown")
+        page.keyboard.press("End")
+        page.keyboard.press("ArrowLeft")
+        page.keyboard.press("Shift+F12")
+        refs = page.locator("table.refs tr")
+        expect(refs).to_have_count(3, timeout=30_000)
+        refs.first.click()
+        expect(page.locator(".cm-activeLine")).to_contain_text("Real x(start")
+        print(f"Decay の Shift+F12: 参照 {refs.all_inner_texts()}")
+        page.get_by_role("button", name="参照を閉じる").click()
+        page.locator(".cm-content").focus()
+        page.keyboard.press("F2")
+        name = page.get_by_label("新しい名前")
+        name.fill("model")
+        name.press("Enter")
+        expect(page.get_by_role("alert")).to_contain_text("予約語", timeout=30_000)
+        assert page.locator(".cm-content").inner_text() == original
+        page.locator(".cm-content").focus()
+        page.keyboard.press("F2")
+        name.fill("pos")
+        name.press("Enter")
+        expect(page.locator(".cm-content")).to_contain_text("der(pos) = -pos;", timeout=30_000)
+        assert "// x と \"x\" は変えない" in page.locator(".cm-content").inner_text()
+        assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
+        check()
+        assert page.locator("tr.error").count() == 0, rows.all_inner_texts()
+        page.locator(".cm-content").focus()  # 検査のボタンからフォーカスを戻す
+        page.keyboard.press("Control+z")
+        assert page.locator(".cm-content").inner_text() == original, "リネームは 1 回の undo で戻る"
+        page.keyboard.press("Control+z")  # 足したコメントも消す
+        assert page.locator(".cm-content").inner_text() == base
+        print("Decay の F2: x を pos に変えて検査が通り、予約語は断られ、Ctrl+Z 1 回で戻った")
 
         run = page.get_by_role("button", name="実行")
 

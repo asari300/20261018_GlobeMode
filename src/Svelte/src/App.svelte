@@ -5,7 +5,7 @@
   import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
   import { bracketMatching } from "@codemirror/language";
   import { setDiagnostics } from "@codemirror/lint";
-  import { darkSlot, modelicaCompletion, modelicaDefinition, modelicaLinter, modelicaTheme, themeSlot, toCmDiagnostics } from "./lib/editor";
+  import { darkSlot, modelicaCompletion, modelicaDefinition, modelicaLinter, modelicaRefactor, modelicaTheme, themeSlot, toCmDiagnostics } from "./lib/editor";
   import { setPref, theme, type Pref } from "./theme.svelte";
   import { WorkerBackend } from "./lib/worker-backend";
   import { TauriBackend, inTauri } from "./lib/tauri-backend";
@@ -105,6 +105,7 @@
         lineNumbers(), history(), drawSelection(), highlightActiveLine(), bracketMatching(), keymap.of([...defaultKeymap, ...historyKeymap]),
         modelicaCompletion(), modelicaLinter(backend, file), // S053
         modelicaDefinition(definition, goBack, { backend, file: () => file }), // S138（S149: ホバー）
+        modelicaRefactor(references, askRename), // S161: Shift+F12 と F2
         EditorView.updateListener.of((u) => { if (u.docChanged) persist(); }),
         modelicaTheme, darkSlot(theme.dark), // S152
       ],
@@ -419,6 +420,47 @@
       failure = String((e as Error).message ?? e);
     }
   }
+  // S161: 参照の一覧（Shift+F12）。行を押すとその範囲へ。範囲の計算は Rust（backend.references）
+  let refs = $state<{ n: number; text: string; from: number; to: number }[]>([]);
+  const offsetOf = ({ line, character }: { line: number; character: number }) => view.state.doc.line(line + 1).from + character;
+  async function references(line: number, character: number) {
+    failure = "";
+    try {
+      await backend.setFile(file, view.state.doc.toString());
+      refs = (await backend.references(file, line, character)).map((r) => {
+        const from = offsetOf(r.start), l = view.state.doc.lineAt(from);
+        return { n: l.number, text: l.text.trim(), from, to: offsetOf(r.end) };
+      });
+    } catch (e) {
+      failure = String((e as Error).message ?? e);
+    }
+  }
+  // S161: リネーム（F2）。入力欄を出し、確定すると backend.rename の編集を 1 回の dispatch（undo 1 回）で入れる。断られたら理由を failure に出す
+  let renaming = $state<{ line: number; character: number } | null>(null);
+  let newName = $state("");
+  let nameInput = $state<HTMLInputElement>();
+  async function askRename(line: number, character: number) {
+    const w = view.state.wordAt(view.state.selection.main.head);
+    newName = w ? view.state.sliceDoc(w.from, w.to) : "";
+    renaming = { line, character };
+    await tick();
+    nameInput?.select();
+  }
+  async function rename() {
+    const at = renaming;
+    renaming = null;
+    if (!at) return;
+    failure = "";
+    try {
+      await backend.setFile(file, view.state.doc.toString());
+      const edits = await backend.rename(file, at.line, at.character, newName);
+      view.dispatch({ changes: edits.map((e) => ({ from: offsetOf(e.range.start), to: offsetOf(e.range.end), insert: e.newText })) });
+      refs = [];
+    } catch (e) {
+      failure = String((e as Error).message ?? e);
+    }
+    view.focus();
+  }
   function goBack() {
     let i = -1;
     while (i < 0 && back.length) { const f = back.pop(); i = tabs.findIndex((t, j) => j !== cur && t.file === f); } // 閉じたタブは飛ばす
@@ -587,6 +629,22 @@
   {#if lastFinal.length}<p class="final" data-final={JSON.stringify(Object.fromEntries(lastFinal))}>最後の時刻の値: {lastFinal.map(([k, v]) => `${k} = ${v.toPrecision(6)}`).join("、")}</p>{/if}
   {#if runNote}<p class="run" role="status" data-run={runState}>{runNote}</p>{/if}
   {#if failure}<p class="failure" role="alert">{failure}</p>{/if}
+  {#if renaming}
+    <form class="rename" onsubmit={(e) => { e.preventDefault(); void rename(); }}>
+      <label>新しい名前 <input bind:this={nameInput} bind:value={newName} onkeydown={(e) => { if (e.key === "Escape") { renaming = null; view.focus(); } }} /></label>
+      <button type="submit">リネーム</button>
+    </form>
+  {/if}
+  {#if refs.length}
+    <table class="refs" aria-label="参照">
+      <tbody>
+        {#each refs as r}
+          <tr onclick={() => moveTo(r.from, r.to)}><td>{r.n}</td><td>{r.text}</td></tr>
+        {/each}
+      </tbody>
+    </table>
+    <button type="button" onclick={() => (refs = [])}>参照を閉じる</button>
+  {/if}
   <table class="diagnostics" aria-label="診断">
     <tbody>
       {#each diagnostics as d}
@@ -610,8 +668,9 @@
   .library { flex: 0 0 16rem; height: 16rem; overflow: auto; border: 1px solid var(--border); font-size: .9em; }
   .editor { flex: 1; min-width: 0; border: 1px solid var(--border); }
   .editor :global(.cm-editor) { height: 16rem; }
-  .diagnostics { width: 100%; border-collapse: collapse; margin-top: .5rem; }
+  .diagnostics, .refs { width: 100%; border-collapse: collapse; margin-top: .5rem; }
   td { border-bottom: 1px solid var(--line); padding: .2rem .5rem; vertical-align: top; }
+  .rename { margin: .5rem 0; }
   .dnote { color: var(--muted); font-size: .9em; }
   tr { cursor: pointer; }
   tr.error { color: var(--err); }

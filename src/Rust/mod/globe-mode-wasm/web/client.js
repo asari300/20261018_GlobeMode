@@ -126,6 +126,14 @@ export class GlobeWorker {
   async hover(file, line, character) {
     return JSON.parse(await this.#call("hover", { file, text: this.#files.get(file) ?? "", line, character }));
   }
+  // 参照（S161）: definition と同じ引数で、同じ名前の範囲 [LSP の Range]。同じ文書の、カーソルのあるいちばん内側のクラスの中だけ
+  async references(file, line, character) {
+    return JSON.parse(await this.#call("references", { file, text: this.#files.get(file) ?? "", line, character }));
+  }
+  // リネーム（S161）: [{range, newText}]。部品でない・識別子でない・予約語・既にある名前は、理由つきで reject
+  async rename(file, line, character, newName) {
+    return JSON.parse(await this.#call("rename", { file, text: this.#files.get(file) ?? "", line, character, newName }));
+  }
   // 時系列を CSV でなく列ごとの Float64Array で返す（S051）。{response（csv 無し）, layout: {names, points}, columns}
   // onProgress を渡すと進捗 {stage, time, start_time, stop_time} を受ける（S133、ADR-0033。time は積分の t で無ければ undefined）
   async simulateColumns(request, { onProgress } = {}) {
