@@ -51,11 +51,14 @@ GLOBE_BIN=$PWD/../../../target/debug/globe mise exec -- pnpm test
 
 `globe lsp` を VS Code と同じ形（`file://` の URI、拡張の既定の tabSize）で起こし、整形・lint の診断・補完を 1 往復ずつ確かめる。VS Code の本体は起動しない。
 
+本物の VS Code の中での確かめ（S165）は Actions の `vscode.yml`（手動と、main への `src/VSCode/**` の push）で回す: `gh workflow run vscode.yml`。手元では `pnpm build && PATH=$PWD/../../../target/release:$PATH xvfb-run -a pnpm test:vscode`（VS Code を約 150 MB 取得して起動する）。
+
 ## 依存
 
 | 名前 | 版 | ライセンス | 用途 | 確認日 |
 | --- | --- | --- | --- | --- |
 | vscode-languageclient（と vscode-jsonrpc ほか推移的に 5 つ） | 9.0.1 | MIT（minimatch・semver は ISC） | LSP のクライアント。`dist/extension.js` に束ねて同梱 | 2026-11-01 |
 | esbuild | 0.25.12 | MIT | 束ねるだけ（開発依存） | 2026-11-01 |
+| @vscode/test-electron、vscode-textmate、vscode-oniguruma | 3.1.0、9.3.2、2.0.1 | MIT | VS Code の起動試験と Oniguruma での文法の試験（開発依存。VSIX には入らない） | 2026-11-05 |
 
 `@vscode/vsce` は使わない。ライセンスを確かめられない署名用のバイナリ `@vscode/vsce-sign` を引き込むため。VSIX は `pack_vsix.py`（Python の標準ライブラリだけ）で作る。
