@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>上流の下書き 06 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode 上流の下書き 06">
+
+<section class="slide" id="S01">
+  <span class="tag">下書き 06 · Rumoca · 未提出 · 2026-11-05</span>
+  <h1>set_structural_overrides: compile 後の ED020、名前の誤りの黙殺、スカラだけ</h1>
+  <p class="lead">3 つの制限。v0.10.4 のコードは v0.10.2 と同じで、残ると読める（実行はしていない）</p>
+  <div class="cols-2">
+    <div>
+      <pre><code>// 1. compile した session で呼ぶ
+session.compile(model);
+session.set_structural_overrides(&amp;[...]);
+session.compile(model);   // ED020
+// 2. 綴りの誤りは黙って無視
+// 3. Bool / Int / Real のスカラだけ
+//    a = 5 (配列全体) は ED020
+//    src.k[1] = 0.2 は内側に届かない</code></pre>
+      <p class="small muted">本文: <a href="06-structural-overrides-ed020-and-scalar-only_jp.md">日本語</a> · <a href="06-structural-overrides-ed020-and-scalar-only.md">英語</a> · 再現 <a href="06-structural-overrides-ed020-and-scalar-only.mo">.mo</a> · 一覧 <a href="../../upstream.md">upstream.md</a></p>
+    </div>
+    <table class="small">
+      <tr><th>v0.10.4 の結果</th><td><span class="warn">ソースを読んだだけ</span>（<code>structural_overrides.rs</code> は v0.10.2・main とバイト単位で同一）</td></tr>
+      <tr><th>実行しなかった理由</th><td>Rust の API だけ。CLI に無く、Python の <code>with_params(recompile=True)</code> は「まだ使えない」と答える</td></tr>
+      <tr><th>Rumoca の穴の根拠</th><td>上流の単体試験は最初の compile の前に上書きを置くので通る</td></tr>
+      <tr><th>GlobeMode 側の回避</th><td>あり（session を複製して最初の compile の前に置く。名前の形で自分で断る <code>GM-E10006</code>）</td></tr>
+      <tr><th>提出の判断材料</th><td>3 点は 1 つでも 3 つでもよい。05 が直れば使う理由が薄れる</td></tr>
+    </table>
+  </div>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

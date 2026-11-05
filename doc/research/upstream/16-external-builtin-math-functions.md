@@ -24,12 +24,26 @@ The model runs, with `mySin(u)` equal to `sin(u)` (MLS section 12.9.1: a functio
 
 The message comes from `rumoca-eval-dae/src/numeric.rs` (`external_function_failure`), `rumoca-eval-dae/src/projection.rs` (`ProjectionError::ExternalFunction`) and the solve-IR lowering. Language `builtin` is classified in `rumoca-ir-dae/src/model/external_functions.rs` (`ExternalLanguage::from_declared`) but never executed.
 
+## Re-check on Rumoca v0.10.4 (S162, 2026-11-05)
+
+Still reproduces; the message changed. `rumoca sim` on `16-external-builtin-math-functions.mo` (`-m ExternalBuiltin`):
+
+| Rumoca | message |
+| --- | --- |
+| v0.10.2 | `[EL005] DAE structural proof failed: checked DAE scalar projection failed: external builtin function 'mySin' calls 'sin', which this runtime cannot execute` |
+| v0.10.4 | `[EL001] unsupported checked DAE semantics: external builtin function 'mySin' calls 'sin', which the Solve runtime cannot execute` |
+
+MSL 4.0.0 `Modelica.Mechanics.MultiBody.Examples.Elementary.Pendulum`: v0.10.4 `[EL001] unsupported checked DAE semantics: external builtin function 'Modelica.Math.cos' calls 'cos', which the Solve runtime cannot execute` (v0.10.2: the `[EL005]` form).
+
+The addendum (S073) is partly addressed: for a parameter binding (`final parameter Real c = mycos(til)`), v0.10.4 now names the cause, `[EL001] unsupported checked DAE semantics: parameter 'c' depends on other parameters, so its binding must be re-applied after parameter changes, and its expression has no checked initialization-update lowering: external builtin function 'mycos' calls 'cos', which the Solve runtime cannot execute`, where v0.10.2 gave the generic `[EL005] invalid Solve IR contract: pure-call argument or slot interface is invalid`. The root cause (`external "builtin"` is not executed) is unchanged. The Buildings examples named in the addendum were not re-run. [not verified]
+
 ## Environment
 
 - Rumoca v0.10.2, git rev `276e82bd0fd48960ac201e782918d28bf19cf7ce`, as pinned by GlobeMode.
 - Modelica Standard Library 4.0.0 (Math/package.mo), 13 `external "builtin"` functions.
 - Linux x86_64 (WSL2, Ubuntu).
 - Not yet re-checked against Rumoca main. Re-check before filing.
+- Re-checked on 2026-11-05 (S162) with the latest release, Rumoca v0.10.4 (tag commit `9c8c56fcd9f5ab9beb871f09bf5d9eed82971c54`, released 2026-11-02, prebuilt `rumoca-linux-x86_64`, https://github.com/CogniPilot/rumoca/releases/tag/v0.10.4; still the latest release on 2026-11-05), next to the v0.10.2 binary. Rumoca main (`590ac739`, 2026-11-05) was not built. [not verified on main]
 
 ## Workaround in GlobeMode
 

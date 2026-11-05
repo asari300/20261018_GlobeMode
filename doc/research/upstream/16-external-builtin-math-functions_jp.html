@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>上流の下書き 16 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode 上流の下書き 16">
+
+<section class="slide" id="S01">
+  <span class="tag">下書き 16 · Rumoca · 未提出 · 2026-11-05</span>
+  <h1>external "builtin" の組み込み関数を実行できない</h1>
+  <p class="lead">MSL 4.0.0 の <code>Modelica.Math</code>（<code>sin</code>・<code>exp</code> など 13 個）が実行できない。v0.10.4 でも同じで、コードが EL005 から EL001 に変わった</p>
+  <div class="cols-2">
+    <div>
+      <pre><code>function mySin
+  input Real u;
+  output Real y;
+  external "builtin" y = sin(u);
+end mySin;
+der(x) = mySin(time);
+
+// v0.10.4
+[EL001] unsupported checked DAE semantics:
+  external builtin function `mySin` calls `sin`,
+  which the Solve runtime cannot execute</code></pre>
+      <p class="small muted">本文: <a href="16-external-builtin-math-functions_jp.md">日本語</a> · <a href="16-external-builtin-math-functions.md">英語</a> · 再現 <a href="16-external-builtin-math-functions.mo">.mo</a> · 一覧 <a href="../../upstream.md">upstream.md</a></p>
+    </div>
+    <table class="small">
+      <tr><th>v0.10.4 の結果</th><td><span class="ng">再現</span>（文面は変わった。パラメータの束縛の形は原因を名指しするようになった）</td></tr>
+      <tr><th>Rumoca の穴の根拠</th><td>MLS §12.9.1 の組み込み関数。DAE に翻訳先の <code>PureBuiltin</code> が既にある</td></tr>
+      <tr><th>影響</th><td>MSL 4.0.0 で Buildings・AixLib・IBPSA・DeltaRobot の 70 本（4.1.0 は影響なし）</td></tr>
+      <tr><th>GlobeMode 側の回避</th><td>あり（検査済み <code>Dae</code> を直列化の形で書き換える。ADR-0029）</td></tr>
+      <tr><th>提出の判断材料</th><td>再現は 1 ファイル・1 コマンド。提出の順は 6 位</td></tr>
+    </table>
+  </div>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

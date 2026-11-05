@@ -26,12 +26,17 @@ The model simulates (it is a regular MSL example; Rumoca's own baseline does not
 
 (message form: `crates/rumoca-phase-structural/src/types.rs:145-147`, `crates/rumoca-phase-solve/src/error.rs:102` at the rev below.) Other models with the same error in GlobeMode S011: transformers, induction machines, FluxTubes, Media (17 more).
 
+## Re-check on Rumoca v0.10.4 (S162, 2026-11-05)
+
+Unchanged, and now confirmed with the CLI on both binaries: `rumoca sim "Modelica 4.1.0/package.mo" -m Modelica.Blocks.Examples.FilterWithDifferentiation --source-root <MSL root>` ends with `[EL005] DAE structural proof failed: structurally singular system: 14 matched out of 15 equations and 15 unknowns` on v0.10.2 and on v0.10.4 (about 7 s). The CLI prints the message without the `[StructuralAnalysis] solve-IR evaluation failed:` prefix quoted under "Actual" (that prefix comes from the library-API path GlobeMode uses). The other 17 models were not re-run with v0.10.4. [not verified]
+
 ## Environment
 
 - Rumoca v0.10.2, git rev `276e82bd0fd48960ac201e782918d28bf19cf7ce` (https://github.com/CogniPilot/rumoca), as pinned by GlobeMode.
 - Modelica Standard Library 4.1.0.
 - Linux x86_64 (WSL2, Ubuntu).
 - Not yet re-checked against Rumoca main (0.10.3 at the time of writing). Re-check before filing.
+- Re-checked on 2026-11-05 (S162) with the latest release, Rumoca v0.10.4 (tag commit `9c8c56fcd9f5ab9beb871f09bf5d9eed82971c54`, released 2026-11-02, prebuilt `rumoca-linux-x86_64`, https://github.com/CogniPilot/rumoca/releases/tag/v0.10.4; still the latest release on 2026-11-05), next to the v0.10.2 binary. Rumoca main (`590ac739`, 2026-11-05) was not built. [not verified on main]
 
 ## Workaround in GlobeMode
 

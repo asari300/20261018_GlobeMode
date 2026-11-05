@@ -402,6 +402,12 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 
 - **ソルバ別の表**: `msl-sim.yml` にジョブ `solvers`（`msl-sim` の後。14 ソルバの matrix で `msl-sim --solver <名前> --tolerance-scale 0.1`。cvode・ida は xtask のビルドに `--features globe-mode-exec/sundials`）と `solvers-report`（`cargo xtask msl-solvers`）を足し、[msl-solvers.md](msl-solvers.md) を作った（run 41194959752、全ジョブ成功、ソルバのジョブは 63〜174 分）。対象 356 本のうち実行できたのは 283（dopri853）〜301（bdf）本、管に収まった割合は 95.2（trbdf2）〜98.3%（ida）。`auto` は 309・301/308。`bdf` 単独と `auto` の差 8 本は、`bdf` の内部エラー（`GM-U0005`）10 本を dopri45 の回し直しで救ったもの。入れなかったもの: `qss`、固定刻み、`esdirk23`、別名（理由は解説書）。これで P8「ソルバの表がそろう」の数字の土台ができた。更新は `gh workflow run msl-sim.yml`（手元では回さない）。
 
+### S162（P3、2026-11-05）で済んだこと
+
+- **上流の下書き 01〜16 を Rumoca の最新のリリース v0.10.4（2026-11-05 でも最新）で確かめ直した**（[解説書](sessions/S162-upstream-recheck-01-16/解説書.md)、[upstream.md](upstream.md)）: CLI で回せる件は v0.10.2 と v0.10.4 で回し、API だけの件は Python 束縛かソースの比較で確かめた。03（終わらない症状）と 04（初期値）は v0.10.4 で直り、02（`ChopperBuckBoost_DutyCycle`）と 15（契約の誤りの 9 本）は diffsol の BDF の修正で直った。10・11 は diffsol の main で直っている（未リリース）。01・05〜09・12〜14・16 は再現する（06・12・14 はソースを読んだだけ）。
+- 再現する 12 件に `_jp.md` と `_jp.html` を足した。issue は出していない。Rust のコードも GlobeMode 側の回避も変えていない。
+- 持ち越し: GlobeMode の Rumoca の rev を v0.10.4 に上げるかの判断（`msl:funnel`・`msl:sim`）。上げれば 04 の GM-W10004、02・15 の auto の切り替えが外せるかを見る。
+
 ### S160（P7、2026-11-05）で済んだこと
 
 - **Desktop（Tauri）の macOS**（[ADR-0023](adr/0023-desktop-and-web-process-layout.md)・[ADR-0034](adr/0034-ui-bench-method.md) の付記。[解説書](sessions/S160-desktop-macos/解説書.md)）: `desktop.yml` の matrix に `macos-latest`（arm64）を足した。`cargo tauri build --bundles app,dmg`（署名なし。dmg だけだと .app が片付けられる）で .dmg 20.9 MiB と .app を作り、MSL を取得して ChuaCircuit を検査・実行する smoke と、UI の測定（`GM-SMOKE` の 12 項目 ok を 3 回）が通った。Rust のコードは変えていない（`fix_c_locale` は Linux だけ、sidecar の探し方は実行ファイルと同じ場所のまま動いた）。
@@ -429,13 +435,27 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - 記録: 上流の下書き 34（[upstream.md](upstream.md)）、[msl-solvers.md](msl-solvers.md) の注記、既知の限界の試験 `msl_sdirk34hw_thyristor_bridge_event_iteration_is_a_known_limit`（`#[ignore]`）。実行系は変えていないので `wasm:node`・`wasm:compare`・`msl-sim.yml` は回していない（数値は S139 のまま）。
 - 持ち越し: 下書き 34 の提出（ユーザー）と、同じ雑音がほかのサイリスタ・ダイオードの回路で当たる数の調査。
 
+### S168（文書、2026-11-05）で済んだこと
+
+- **README と CHANGELOG を S164 までの main に合わせた**（[解説書](sessions/S168-readme-changelog-sync/解説書.md)）: S164 の監査の穴 4（N11）。README は S012 の状態の 1 段落をやめ、できること（features.md の ○ だけ）、使い始め方（MSL・CLI・ブラウザ・Desktop・Android・VS Code・Python・他の言語を面ごとに。書いたコマンドは手元で動かした）、既知の限界（MSL の 369 / 312 / 303 / 311 本）、開発の入口にした。公開物（Release・タグ・Pages・PyPI・Marketplace）は 0 件と書いた。CHANGELOG は S048〜S165 を足し、P5・P6 の節を新設した。版の番号は変えていない。
+- features.md の重なっていた古い行（Text ビュー・整形・lint・Desktop・Android）をまとめ、marimo の「MSL は未」と Leptos / Dioxus 行の「macOS は未」を直した。
+- 持ち越し: 版の番号の決定と公開（ユーザー）、起動直後の案内（S164 の別の穴）。
+
+### S165（P4、2026-11-05）で済んだこと
+
+- **VS Code の拡張を本物の VS Code の中で確かめる**（[解説書](sessions/S165-vscode-test-electron/解説書.md)）: S059・S163 の持ち越し。新しい workflow `vscode.yml`（手動と main への `src/VSCode/**` の push。ci.yml には入れない）が、`globe` を release でビルドして PATH に置き、拡張を束ね、`@vscode/test-electron` で VS Code stable（1.145.0）を `xvfb-run` の中で起動して `e2e/suite.cjs` を拡張ホストで回す。確かめる 4 項目は、言語 ID が `modelica` になり拡張が activate する、構文の誤りの `.mo` に診断が出る、正しい `.mo` で documentSymbol が返る、`textDocument/rename` が WorkspaceEdit（3 箇所）を返す。run 42005761115 で 4 項目とも 1 回目で通った。拡張や LSP の不具合は見つからなかった。
+- **TextMate 文法を Oniguruma で当てた**: VS Code の API には TextMate の scope を取るものが無い（semantic tokens は別物）ので、`vscode-textmate` と `vscode-oniguruma` を試験の中（`test/grammar-onig.test.mjs`）だけで使い、同じ文法ファイルを VS Code と同じ正規表現エンジンで当てた。S163 の JS 正規表現の検査と同じ分類が当たる。
+- 同じ workflow で、これまで CI で回していなかった拡張の `pnpm test`（`lsp.test.mjs`・`save.test.mjs`・文法）も `GLOBE_BIN` を release の `globe` にして回す。
+- 依存: 開発依存に `@vscode/test-electron` 3.1.0・`vscode-textmate` 9.3.2・`vscode-oniguruma` 2.0.1（すべて MIT。[licenses.md](licenses.md)）。VSIX には入らない。
+- 持ち越し: Windows・macOS での試験、semantic tokens、折りたたみ、インデントの規則、Marketplace。
+
 ### S163（P4、2026-11-05）で済んだこと
 
 - **構文の色付け**（[解説書](sessions/S163-syntax-highlight/解説書.md)）: 調べると、Svelte のエディタは `defaultHighlightStyle` も言語も入れておらず本文は無地で、VS Code の拡張は文法を持たず（`contributes.grammars` が無い）、どちらも無かった。Svelte は `editor.ts` に `StreamLanguage` の小さなトークナイザ（予約語・組み込みの型 Real / Integer / Boolean / String・文字列・数値・`//` と `/* */`・演算子。引用符つきの識別子は予約語に見ない）と `HighlightStyle`（クラス `cm-mo-*`）を足し、色は `theme.css` の `--syn-kw` などの変数（明・暗とも。エディタの地に対してコントラスト 4.5 以上）。VS Code は自前の TextMate 文法 `syntaxes/modelica.tmLanguage.json`（他のプロジェクトの文法は写さない）を `contributes.grammars` と VSIX（`pack_vsix.py`）に載せ、`/*` の自動で閉じる対を足した（拡張 0.0.5）。
 - **予約語の一覧は「一致を試験で確かめる」形で持つ**: 補完（S053）が既に TS の `KEYWORDS` を手で写していて、wasm に予約語を返す口は無い。口を足すと起動時の非同期が要るので、TS の一覧を補完と色付けの共通にし、Rust の `globe-mode-fmt::KEYWORDS` と同じ並びであることを `test_ui.py` が、TextMate 文法の予約語の集合が同じであることを `test/grammar.test.mjs` が確かめる。
 - 依存: npm の `@lezer/highlight` 1.2.5（MIT）を `src/Svelte` の直接の依存にした（`@codemirror/language` の依存として既に入っていたが、pnpm では直接 import できない）。
 - 試験: `test_ui.py` に明と暗（予約語・型・数値・文字列・コメントに別々の色、地に対して 4.5 以上、予約語の色は KEYWORDS の語だけ）と KEYWORDS の一致。S149 のホバーの補助が行の最初のテキストノードだけを見ていたので、色付けで行が分かれても動くようにした。`node --test`（拡張）に文法の 4 本。
-- 持ち越し: semantic tokens、折りたたみ、インデントの規則、Marketplace、`@vscode/test-electron`。
+- 持ち越し: semantic tokens、折りたたみ、インデントの規則、Marketplace、~~`@vscode/test-electron`~~（S165 で済んだ）。
 
 ### S161（P4、2026-11-05）で済んだこと
 
@@ -580,7 +600,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 
 - **上流の下書き 17〜27（20b・25b〜25h を含む）を Rumoca v0.10.4 で確かめ直した**（[解説書](sessions/S115-upstream-recheck-17-27/解説書.md)、[upstream.md](upstream.md)）: 再現の 62 モデルを v0.10.2 と v0.10.4 で回し、v0.10.4 で通るようになったのが 11、両方で落ちるのが 20。25・25b・25c・25g・26 は直った（出さない）。20 は `loadResource` の形（136 本）が直り 20b（2 本）が残る、25e は `constant` の形が直り `parameter` の形が残る。17・18・19・21・24・25d・25f・25h・27 は v0.10.2 と同じに再現する。
 - **日本語版と 1 枚の解説**: 再現する 11 件（17・18・19・20・21・24・25d・25e・25f・25h・27）に `_jp.md` と `_jp.html` を足した。提出の順は 24 が 5 位に上がり、20 は 13 位に下がった。issue は出していない。Rust のコードは変えていない。
-- 持ち越し: 01〜16（実行系・ソルバの件。MSL の実行が要る）の v0.10.4 での再確認。直った件がライブラリの例題で消えるかは、GlobeMode の Rumoca の rev を上げて確かめる。
+- 持ち越し: 01〜16 の再確認は S162 で済んだ。直った件がライブラリの例題で消えるかは、GlobeMode の Rumoca の rev を上げて確かめる。
 
 ### S113（P3、2026-11-03）で済んだこと
 
@@ -957,7 +977,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 
 - **VS Code 拡張** `src/VSCode/globe-mode`（[README](../src/VSCode/globe-mode/README.md)）: `.mo` を開くと `globe lsp` を起動してつなぐだけの拡張（vscode-languageclient、本体は約 20 行）。標準の整形キー・lint と検査の波線・補完・アウトライン・ホバーが使える。`.mo` の既定を tabSize 2・80 桁のルーラーにする。
 - VSIX は `@vscode/vsce` を使わず `pack_vsix.py`（標準ライブラリだけ）で作る（licenses.md）。VS Code Server の CLI で使い捨ての拡張フォルダに入れて受け付けられることを確かめた。
-- 持ち越し: VS Code の本体を起動しての試験（`@vscode/test-electron`）、Marketplace への公開、設定を変えたときの自動の作り直し、~~構文の色付け（TextMate 文法）~~（S163 で済んだ）。
+- 持ち越し: ~~VS Code の本体を起動しての試験（`@vscode/test-electron`）~~（S165 で済んだ）、Marketplace への公開、設定を変えたときの自動の作り直し、~~構文の色付け（TextMate 文法）~~（S163 で済んだ）。
 
 ### S060（P4、2026-11-01）で済んだこと
 

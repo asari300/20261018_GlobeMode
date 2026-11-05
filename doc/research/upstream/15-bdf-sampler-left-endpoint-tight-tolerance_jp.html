@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>上流の下書き 15 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode 上流の下書き 15">
+
+<section class="slide" id="S01">
+  <span class="tag">下書き 15 · Rumoca · 未提出 · 2026-11-05</span>
+  <h1>BDF の補間が左端の検査に通らない（rtol 1e-7）</h1>
+  <p class="lead">9 本は v0.10.4 で直った（diffsol の BDF の修正）。<code>Dimmer_RL</code> の丸めの幅の停止だけが残る</p>
+  <div class="cols-2">
+    <div>
+      <pre><code>rumoca sim "Modelica 4.1.0/package.mo" \
+  -m ...ACAC.Dimmer_RL --source-root &lt;MSL のルート&gt; \
+  --solver bdf --rtol 1e-7 --atol 1e-7
+
+[EX001] accepted step from
+  t=5.041640891166859 to t=5.041640891166959
+  made no progress beyond roundoff
+// 他の 9 本: v0.10.2 は契約の誤り
+//   (accepted-interval left endpoint sampler)
+//   v0.10.4 は完了</code></pre>
+      <p class="small muted">本文: <a href="15-bdf-sampler-left-endpoint-tight-tolerance_jp.md">日本語</a> · <a href="15-bdf-sampler-left-endpoint-tight-tolerance.md">英語</a> · 一覧 <a href="../../upstream.md">upstream.md</a></p>
+    </div>
+    <table class="small">
+      <tr><th>v0.10.4 の結果</th><td><span class="ok">契約の誤りの 9 本は直った</span>／<span class="ng">Dimmer_RL は再現</span></td></tr>
+      <tr><th>直った理由</th><td>受理した歩の連続拡張を、次の小さい刻みに再スケールした表でなく、受理の直後に写した表で評価する（<code>RUMOCA_PATCH.md</code>）</td></tr>
+      <tr><th>残る件</th><td>BDF の刻みの下限がホストの丸めの幅より小さい可能性。この修正では変わらない</td></tr>
+      <tr><th>GlobeMode 側の回避</th><td>auto の切り替え（ADR-0028）。9 本は rev を上げれば不要になる見込み</td></tr>
+      <tr><th>提出の判断材料</th><td>出すなら <code>Dimmer_RL</code> の 1 本。陽的ソルバはどれも時間切れ</td></tr>
+    </table>
+  </div>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
