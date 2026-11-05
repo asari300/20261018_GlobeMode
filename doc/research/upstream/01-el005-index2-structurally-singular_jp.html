@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>上流の下書き 01 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode 上流の下書き 01">
+
+<section class="slide" id="S01">
+  <span class="tag">下書き 01 · Rumoca · 未提出 · 2026-11-05</span>
+  <h1>インデックス 2 以上の DAE を EL005 で断る</h1>
+  <p class="lead">指数の低減が無く、MSL の 18 本が <code>structurally singular</code> で止まる。v0.10.4 でも同じ文</p>
+  <div class="cols-2">
+    <div>
+      <pre><code>rumoca sim "Modelica 4.1.0/package.mo" \
+  -m Modelica.Blocks.Examples.FilterWithDifferentiation \
+  --source-root &lt;MSL のルート&gt;
+
+// 出力 (v0.10.2 も v0.10.4 も同じ)
+[EL005] DAE structural proof failed:
+  structurally singular system:
+  14 matched out of 15 equations and 15 unknowns</code></pre>
+      <p class="small muted">本文: <a href="01-el005-index2-structurally-singular_jp.md">日本語</a> · <a href="01-el005-index2-structurally-singular.md">英語</a> · 一覧 <a href="../../upstream.md">upstream.md</a></p>
+    </div>
+    <table class="small">
+      <tr><th>v0.10.4 の結果</th><td><span class="ng">再現</span>（約 7 秒、文も数も v0.10.2 と同じ）</td></tr>
+      <tr><th>聞きたいこと</th><td>指数の低減（ダミー導関数など）の予定。または対応しなかった変数・方程式を示すメッセージ</td></tr>
+      <tr><th>影響</th><td>MSL 18 本（変圧器・誘導機・FluxTubes・Media ほか）。Rumoca の基準の <code>sim_ok</code> にも無い</td></tr>
+      <tr><th>GlobeMode 側の回避</th><td>なし（<code>GM-U0004</code> で実行できないと報告）</td></tr>
+      <tr><th>提出の判断材料</th><td>再現は 1 コマンド。穴の確認で、不具合の報告ではない。提出の順は 8 位</td></tr>
+    </table>
+  </div>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

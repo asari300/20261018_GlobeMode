@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>上流の下書き 02 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode 上流の下書き 02">
+
+<section class="slide" id="S01">
+  <span class="tag">下書き 02 · Rumoca · 未提出 · 2026-11-05</span>
+  <h1>サンプラの左端の検査に丸めの床が無い</h1>
+  <p class="lead"><code>Tolerance = 1e-12</code> では食い違い 1.0e-12 が上限 1e-12 をわずかに超える。BDF の別の形は v0.10.4 で直った</p>
+  <div class="cols-2">
+    <div>
+      <pre><code>rumoca sim "Modelica 4.1.0/package.mo" \
+  -m Modelica.Electrical.Analog.Examples.SimpleTriacCircuit \
+  --source-root &lt;MSL のルート&gt; \
+  --solver bdf --rtol 1e-12 --atol 1e-12
+
+[EX001] accepted-interval left endpoint
+  sampler state 1 is 0.36992945018586,
+  but the checked point carries 0.36992945018473;
+  the disagreement exceeds 0.000000000001</code></pre>
+      <p class="small muted">本文: <a href="02-sampler-endpoint-roundoff_jp.md">日本語</a> · <a href="02-sampler-endpoint-roundoff.md">英語</a> · 一覧 <a href="../../upstream.md">upstream.md</a></p>
+    </div>
+    <table class="small">
+      <tr><th>v0.10.4 の結果</th><td><span class="ok">ChopperBuckBoost_DutyCycle は直った</span>／<span class="ng">SimpleTriacCircuit（1e-12）は再現</span></td></tr>
+      <tr><th>直った理由</th><td>diffsol の BDF の修正（受理した歩の連続拡張を保つ）。下書き 15 と同じ</td></tr>
+      <tr><th>Rumoca の穴の根拠</th><td>上限が許容誤差そのままで、機械イプシロンと値の大きさの積の床が無い</td></tr>
+      <tr><th>GlobeMode 側の回避</th><td>許容誤差を 1e-10 に上げる（<code>GM-W10003</code>）、auto が dopri45 に切り替える</td></tr>
+      <tr><th>提出の判断材料</th><td>出すなら <code>SimpleTriacCircuit</code> の 1 点に絞る。CLI の既定では通るので <code>--rtol</code>・<code>--atol</code> を明示</td></tr>
+    </table>
+  </div>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

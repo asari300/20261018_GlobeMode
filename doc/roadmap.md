@@ -402,6 +402,12 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 
 - **ソルバ別の表**: `msl-sim.yml` にジョブ `solvers`（`msl-sim` の後。14 ソルバの matrix で `msl-sim --solver <名前> --tolerance-scale 0.1`。cvode・ida は xtask のビルドに `--features globe-mode-exec/sundials`）と `solvers-report`（`cargo xtask msl-solvers`）を足し、[msl-solvers.md](msl-solvers.md) を作った（run 41194959752、全ジョブ成功、ソルバのジョブは 63〜174 分）。対象 356 本のうち実行できたのは 283（dopri853）〜301（bdf）本、管に収まった割合は 95.2（trbdf2）〜98.3%（ida）。`auto` は 309・301/308。`bdf` 単独と `auto` の差 8 本は、`bdf` の内部エラー（`GM-U0005`）10 本を dopri45 の回し直しで救ったもの。入れなかったもの: `qss`、固定刻み、`esdirk23`、別名（理由は解説書）。これで P8「ソルバの表がそろう」の数字の土台ができた。更新は `gh workflow run msl-sim.yml`（手元では回さない）。
 
+### S162（P3、2026-11-05）で済んだこと
+
+- **上流の下書き 01〜16 を Rumoca の最新のリリース v0.10.4（2026-11-05 でも最新）で確かめ直した**（[解説書](sessions/S162-upstream-recheck-01-16/解説書.md)、[upstream.md](upstream.md)）: CLI で回せる件は v0.10.2 と v0.10.4 で回し、API だけの件は Python 束縛かソースの比較で確かめた。03（終わらない症状）と 04（初期値）は v0.10.4 で直り、02（`ChopperBuckBoost_DutyCycle`）と 15（契約の誤りの 9 本）は diffsol の BDF の修正で直った。10・11 は diffsol の main で直っている（未リリース）。01・05〜09・12〜14・16 は再現する（06・12・14 はソースを読んだだけ）。
+- 再現する 12 件に `_jp.md` と `_jp.html` を足した。issue は出していない。Rust のコードも GlobeMode 側の回避も変えていない。
+- 持ち越し: GlobeMode の Rumoca の rev を v0.10.4 に上げるかの判断（`msl:funnel`・`msl:sim`）。上げれば 04 の GM-W10004、02・15 の auto の切り替えが外せるかを見る。
+
 ### S160（P7、2026-11-05）で済んだこと
 
 - **Desktop（Tauri）の macOS**（[ADR-0023](adr/0023-desktop-and-web-process-layout.md)・[ADR-0034](adr/0034-ui-bench-method.md) の付記。[解説書](sessions/S160-desktop-macos/解説書.md)）: `desktop.yml` の matrix に `macos-latest`（arm64）を足した。`cargo tauri build --bundles app,dmg`（署名なし。dmg だけだと .app が片付けられる）で .dmg 20.9 MiB と .app を作り、MSL を取得して ChuaCircuit を検査・実行する smoke と、UI の測定（`GM-SMOKE` の 12 項目 ok を 3 回）が通った。Rust のコードは変えていない（`fix_c_locale` は Linux だけ、sidecar の探し方は実行ファイルと同じ場所のまま動いた）。
@@ -593,7 +599,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 
 - **上流の下書き 17〜27（20b・25b〜25h を含む）を Rumoca v0.10.4 で確かめ直した**（[解説書](sessions/S115-upstream-recheck-17-27/解説書.md)、[upstream.md](upstream.md)）: 再現の 62 モデルを v0.10.2 と v0.10.4 で回し、v0.10.4 で通るようになったのが 11、両方で落ちるのが 20。25・25b・25c・25g・26 は直った（出さない）。20 は `loadResource` の形（136 本）が直り 20b（2 本）が残る、25e は `constant` の形が直り `parameter` の形が残る。17・18・19・21・24・25d・25f・25h・27 は v0.10.2 と同じに再現する。
 - **日本語版と 1 枚の解説**: 再現する 11 件（17・18・19・20・21・24・25d・25e・25f・25h・27）に `_jp.md` と `_jp.html` を足した。提出の順は 24 が 5 位に上がり、20 は 13 位に下がった。issue は出していない。Rust のコードは変えていない。
-- 持ち越し: 01〜16（実行系・ソルバの件。MSL の実行が要る）の v0.10.4 での再確認。直った件がライブラリの例題で消えるかは、GlobeMode の Rumoca の rev を上げて確かめる。
+- 持ち越し: 01〜16 の再確認は S162 で済んだ。直った件がライブラリの例題で消えるかは、GlobeMode の Rumoca の rev を上げて確かめる。
 
 ### S113（P3、2026-11-03）で済んだこと
 

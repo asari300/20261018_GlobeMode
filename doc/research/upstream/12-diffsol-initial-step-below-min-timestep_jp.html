@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>上流の下書き 12 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode 上流の下書き 12">
+
+<section class="slide" id="S01">
+  <span class="tag">下書き 12 · diffsol · 未提出 · 2026-11-05</span>
+  <h1>最初の刻みの見積もりが min_timestep を下回る</h1>
+  <p class="lead">ほぼ 0 の状態で導関数が大きい再開で、最初の <code>step()</code> が一度も試さずに失敗する。diffsol の main にも下限の処理が無い</p>
+  <div class="cols-2">
+    <div>
+      <pre><code>// TinyStateRestart
+Real x(start = 3e-11);
+equation
+  der(x) = if time &lt; 1 then 0 else 1e5;
+// t = 1 の事象で x ~ 3e-11、der(x) = 1e5 から再開
+// Hairer の見積もりで h ~ 2e-16
+// min_timestep (t ~ 1) は 1e-13
+// Step size is too small at time = 1.05</code></pre>
+      <p class="small muted">本文: <a href="12-diffsol-initial-step-below-min-timestep_jp.md">日本語</a> · <a href="12-diffsol-initial-step-below-min-timestep.md">英語</a> · 再現 <a href="12-diffsol-initial-step-below-min-timestep.mo">.mo</a> · 一覧 <a href="../../upstream.md">upstream.md</a></p>
+    </div>
+    <table class="small">
+      <tr><th>v0.10.4 の結果</th><td><span class="warn">ソースを読んだだけ</span>（同梱の diffsol 0.13.2 は v0.10.2 と同一）</td></tr>
+      <tr><th>diffsol の main</th><td><code>883d9a09</code>（2026-11-02）の <code>set_step_size</code> も <code>min_timestep</code> と比べない。10・11 と違い直っていない</td></tr>
+      <tr><th>影響</th><td>MSL 1 本以上（<code>CauerLowPassSC</code>、esdirk34）</td></tr>
+      <tr><th>GlobeMode 側の回避</th><td>あり（見積もりを <code>min_timestep</code> の 10 倍に持ち上げる。S023）</td></tr>
+      <tr><th>提出の判断材料</th><td>出すなら diffsol 単体のプログラムを添えて diffsol に。実行は【未確認】</td></tr>
+    </table>
+  </div>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

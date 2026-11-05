@@ -2,6 +2,8 @@
 
 Target: diffsol (https://github.com/martinjrobins/diffsol)
 
+Status (S162, 2026-11-05): **apparently fixed on diffsol main (not yet released); still present in the copy that Rumoca v0.10.4 vendors.** Check with a standalone program before deciding to file.
+
 ## Summary
 
 The stage equation of the SDIRK solver is `F(x) = M x - h f(phi + c x)` (`op/sdirk.rs`). When the Jacobian is refreshed, `ode_solver/runge_kutta.rs:637` and `ode_solver/sdirk.rs:261,277` (`jacobian_updates`) call `reset_jacobian(op, &state.y, t)`, i.e. they pass the *state* `y` where the stage unknown `x` is expected (a code comment says "x can be anything"). `jacobian_inplace` then evaluates `f'` at `phi + c y`, which is about 1.4 times y_n. For a right-hand side with an exponential (a Zener diode) the Jacobian at that point is 1e15 instead of 5e5. The Newton update `r / (1 - h gamma J)` and the embedded error estimate (which uses the same matrix) both collapse by about 1e12, so unconverged stages and too-large steps are accepted without any error.
@@ -20,12 +22,20 @@ No `.mo` reduction is attached: the minimal reduction (a stiff exponential) is n
 
 `CL.v(0.4) = -1.64` V from the Zener breakdown at t = 0.0184. At the accepted point t = 0.0184, `CL.v = 5.41`, the derivative is -2.8e5, and after the stage evaluation Newton moves to `CL.v = -3839` and then "converges" (GlobeMode S022).
 
+## Re-check on Rumoca v0.10.4 (S162, 2026-11-05)
+
+Code reading only:
+
+- Vendored diffsol 0.13.2 in Rumoca v0.10.4: `ode_solver/runge_kutta.rs` (line 637, `reset_jacobian(op, &self.state.y, t)`) and `ode_solver/sdirk.rs` (lines 261 and 277) are byte-identical to v0.10.2's and to Rumoca main's; the defect described above is still in the vendored copy.
+- diffsol main (`883d9a09`): the SDIRK path now has `refresh_jacobian_at`, whose comment says "a state, not a stage increment: the rhs Jacobian is evaluated there directly, and the Newton matrix combined from it, whatever stage the op is set up for", and `runge_kutta.rs` evaluates the right-hand-side Jacobian first with `op.refresh_rhs_jacobian(&self.state.y, self.state.t)` ("at the state at the start of the step, as a Jacobian update would"). That is the change GlobeMode's workaround (`anchor`) makes. The pull request that did it was not identified, and `OvervoltageProtection` was not run with it. [not verified]
+
 ## Environment
 
 - diffsol 0.13.2 as vendored in Rumoca v0.10.2 (`vendor/diffsol/`, rev `276e82bd0fd48960ac201e782918d28bf19cf7ce`), driven through a custom SDIRK/RK plugin in GlobeMode (`globe-mode-exec`, `esdirk34` / `trbdf2`).
 - Modelica Standard Library 4.1.0.
 - Linux x86_64 (WSL2, Ubuntu).
 - **Not verified against upstream diffsol main** (https://github.com/martinjrobins/diffsol). The vendored copy may differ from upstream. Reduce to a standalone diffsol program before filing.
+- diffsol 0.13.2 as vendored in Rumoca v0.10.4 (`vendor/diffsol/`, unchanged version; the tag commit above). Re-checked on 2026-11-05 (S162) by reading the vendored source and diffsol's own main (`crates/diffsol`, commit `883d9a09238c2e0b465f0f1549c462b8c38ea1b2`, 2026-11-02; diffsol-v0.18.0, 2026-10-20, is the latest diffsol release). Nothing was run against diffsol main. [not verified by running]
 
 ## Workaround in GlobeMode
 

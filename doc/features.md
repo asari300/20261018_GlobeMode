@@ -92,7 +92,7 @@ OpenModelica（OMEdit）と Rumoca を参考に、GlobeMode に要る機能を�
 | --- | --- | --- | --- |
 | MSL コーパスのファネル計測（parse → flatten → DAE → balanced → init → simulate） | Must | P1〜（S005 で全例題） | Rumoca と同じ段階で数える。`cargo xtask msl-funnel` が、Rumoca と同じ名前の規則で選んだ 566 本を数える（S005） |
 | MSL の参照結果との照合（ファネル） | Must | P3（S011） | `cargo xtask msl-sim`（`mise run msl:sim`）が `msl:funnel` で OK の例題を別プロセスで実行し、MAP-LIB の参照結果（v4.1.0）と csv-compare の矩形の管（許容差 0.002）で比べる。報告は [msl-sim.md](msl-sim.md)（[ADR-0013](adr/0013-exec-backend.md)） |
-| Rumoca との差分照合 | Must | P1〜 | Track B に移ってからも続ける。見つけた Rumoca の穴は [upstream.md](upstream.md) の 1 つの表にまとめる（S096）。S108 で下書き 31・32、S113・S115 で 17〜32 を Rumoca v0.10.4 で確かめ直した（直った件は提出の順から外す）。01〜16 の再確認は未 |
+| Rumoca との差分照合 | Must | P1〜 | Track B に移ってからも続ける。見つけた Rumoca の穴は [upstream.md](upstream.md) の 1 つの表にまとめる（S096）。S108 で下書き 31・32、S113・S115・S162 で 01〜32 を Rumoca v0.10.4 で確かめ直した（直った件は提出の順から外す）。S162 で 03・04 は直り、02・15 は大半が直り、10・11 は diffsol の main で直った（未リリース） |
 | `omc` との照合（別プロセス） | Should | P2〜（S008 で実施） | 照合用に限る。リンクしない。`cargo xtask omc-compare`（`mise run msl:omc`、[ADR-0010](adr/0010-omc-comparison.md)）が `msl-funnel --json` の結果を omc の `checkModel` / `translateModel` と突き合わせ、報告を [omc-compare.md](omc-compare.md) に書く |
 | Reference-FMUs、FMPy、fmusim、fmuCheck | Must | P5 | FMI の Import と Export の両方。Export した Decay の FMU は FMPy（S094・S098）と fmusim（S098、`fmu-export.yml`）の validate と ME・CS の simulate を 2.0・3.0 とも通る。S105 で Windows・macOS（arm64）の FMPy も validate を通す（Windows・macOS の fmusim は未）。fmuCheck は未 |
 | ライセンス監査（cargo-deny、npm、SBOM） | Must | P1〜 | [licenses.md](licenses.md) |
