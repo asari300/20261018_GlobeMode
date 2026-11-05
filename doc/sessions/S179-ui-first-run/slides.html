@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S179 最初の 1 分 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S179 最初の 1 分">
+
+<section class="slide" id="S01">
+  <span class="tag">S179 · 2026-11-05 · P4</span>
+  <h1>最初の 1 分で、何をすればよいか分かる</h1>
+  <p class="lead">起動直後の案内、スキップリンク、タブの矢印キー、未保存の印</p>
+  <div class="big">Svelte の UI だけ。Rust は触らない</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">現状</span>
+  <h1>S164 と S175 が残した所</h1>
+  <ul>
+    <li>初めて開くと、見出しも説明も無く、ボタンの行と Decay の本文だけ</li>
+    <li>Tab でエディタまで 22 回（ボタンの行と実行の設定を過ぎる）</li>
+    <li>タブは Tab でしか移れない。矢印が効かない</li>
+    <li>未保存の印が無く、再読み込みをまたぐと未保存かどうかも分からない。ブラウザを閉じる前の確認も無い</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">案内</span>
+  <h1>「はじめに」の 3 手順</h1>
+  <div class="card">1. モデルを書く（いまは例の Decay）か「開く」（Ctrl/Cmd+O）。MSL を使うなら「MSL を読む」<br>2. 「検査」（Ctrl/Cmd+Shift+Enter）で診断を見る<br>3. 「実行」（Ctrl/Cmd+Enter）で結果のプロットを見る</div>
+  <ul>
+    <li>保存したタブが無い初回だけ。閉じると localStorage に残す（S152 のテーマと同じ流儀）</li>
+    <li><code>?smoke=1</code> では出さない。<code>ready_ms</code> は 382 から 339 ms（3 回の中央値。雑音の範囲）</li>
+    <li>モーダルもツアーも使わない。MSL を読むと 1 行が消える</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">スキップリンクとタブ</span>
+  <h1>Tab 1 回でエディタ、矢印でタブ</h1>
+  <table class="compact">
+    <tr><th>操作</th><th>動作</th></tr>
+    <tr><td>Tab 1 回 + Enter</td><td>エディタへ（フォーカスで左上に出る）</td></tr>
+    <tr><td>Tab 2 回 + Enter</td><td>結果の見出し <code>h2#results</code> へ</td></tr>
+    <tr><td>左右の矢印</td><td>隣のタブを開く（端で回る）</td></tr>
+    <tr><td>Home / End</td><td>最初 / 最後のタブ</td></tr>
+  </table>
+  <ul>
+    <li>roving tabindex: 選んだタブだけ <code>tabindex=0</code>。Delete と Ctrl+W は足さない（ブラウザが握る）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">未保存の印</span>
+  <h1>● と、再読み込みをまたぐ判定</h1>
+  <table class="compact">
+    <tr><th>案</th><th>判断</th></tr>
+    <tr><td>戻した本文を保存済みとみなす（S151）</td><td class="ng">再読み込みで印が消え、未保存を数え損ねる</td></tr>
+    <tr><td>保存済みの本文を、編集中のタブだけ localStorage に持つ</td><td class="ok">採る。本文と同じなら書かない。上限の字数に数える</td></tr>
+  </table>
+  <ul>
+    <li>印は <code>role="img" aria-label="未保存"</code>。<code>view</code> は <code>$state</code> でないので <code>rev</code> を進めて再計算</li>
+    <li>保存済みの本文が無い古い保存は、これまでどおり戻した本文を保存済みとみなす</li>
+    <li><code>beforeunload</code> は無かった。未保存があるときだけ、ブラウザのみ（Tauri と smoke は除く）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">検証</span>
+  <h1>test_ui に 1 本</h1>
+  <ul>
+    <li>保存の無い初回に案内が出て、閉じると再読み込みでも出ない。smoke では出ない</li>
+    <li>Tab 1 回で「エディタへ」、2 回で「結果へ」。Enter でフォーカスが移る</li>
+    <li>矢印・Home・End でタブが移り、<code>tabindex</code> が付いてくる</li>
+    <li>編集で ●、再読み込みで残り（<code>beforeunload</code>）、保存で消える</li>
+    <li><code>pnpm check</code> 0 警告。<code>GM-SMOKE</code> の行は変わらない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ul>
+    <li>タブの並べ替え、ツリーのアイコン</li>
+    <li>案内を出し直す操作と多言語化</li>
+    <li>Esc で止める</li>
+    <li><b>【未確認】</b>スクリーンリーダー、Mac の Cmd、Android・Desktop の実機での確認</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
