@@ -198,6 +198,8 @@ jobs:
           # S143: globe-mode.toml（indent = 4）を置いた作業ディレクトリから起動する。アプリは作業ディレクトリを sidecar の根にし、
           # UI の整形が設定ファイルの indent を使えば GM-SMOKE の行に cfg=ok が付く
           W="$PWD"; CFG="$(mktemp -d)"; printf '[fmt]\nindent = 4\n' > "$CFG/globe-mode.toml"
+          # S154: 作業ディレクトリの Recent.mo を、UI が最近使ったファイルとして開く（dialog を通さない path。GM-SMOKE の recent=ok）
+          printf 'model Recent\nend Recent;\n' > "$CFG/Recent.mo"
           for i in 1 2 3; do
             rm -f line.txt
             (cd "$CFG" && GLOBE_DESKTOP_BENCH="$W/line.txt" /usr/bin/time -v -o "$W/time-bench.txt" timeout 300 xvfb-run -a "$APP") || echo "終了コード $?"
@@ -206,7 +208,7 @@ jobs:
           done
           echo "GM-BUNDLE kib=$(( $(stat -c %s "$DEB") / 1024 ))" >> bench.txt
           { echo '```'; cat bench.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-          test "$(grep -c 'GM-SMOKE check=ok simulate=ok .* msl=ok cfg=ok tree=ok fmt=ok graph=ok cancel=ok settings=ok plot=ok def=ok ' bench.txt)" = 3
+          test "$(grep -c 'GM-SMOKE check=ok simulate=ok .* msl=ok cfg=ok tree=ok fmt=ok graph=ok cancel=ok settings=ok plot=ok def=ok recent=ok ' bench.txt)" = 3
 
       - name: UI の測定（Windows。S125。先に Rust の smoke で MSL を取得し、測る回にダウンロードを含めない。RSS はプロセスごとの PeakWorkingSet の最大）
         if: runner.os == 'Windows'
@@ -220,6 +222,7 @@ jobs:
           if ($p.ExitCode -ne 0) { throw "取得の smoke が失敗（$($p.ExitCode)）" }
           Remove-Item Env:GLOBE_DESKTOP_SMOKE, Env:GLOBE_DESKTOP_SMOKE_FETCH
           $env:GLOBE_DESKTOP_BENCH = "$PWD\line.txt"
+          Set-Content Recent.mo "model Recent`nend Recent;" # S154: 作業ディレクトリの Recent.mo を最近使ったファイルとして開く
           foreach ($i in 1..3) {
             Remove-Item line.txt -ErrorAction SilentlyContinue
             $p = Start-Process $app -PassThru; $peak = 0; $deadline = (Get-Date).AddMinutes(10)
@@ -236,7 +239,7 @@ jobs:
           "GM-BUNDLE kib=$([math]::Round($msi.Length / 1024))" | Add-Content bench.txt
           Get-Content bench.txt
           "``````", (Get-Content bench.txt), "``````" | Add-Content $env:GITHUB_STEP_SUMMARY
-          if (@(Select-String 'GM-SMOKE check=ok simulate=ok .* msl=ok cfg=\w+ tree=ok fmt=ok graph=ok cancel=ok settings=ok plot=ok def=ok ' bench.txt).Count -ne 3) { throw "ok でない回がある" }
+          if (@(Select-String 'GM-SMOKE check=ok simulate=ok .* msl=ok cfg=\w+ tree=ok fmt=ok graph=ok cancel=ok settings=ok plot=ok def=ok recent=ok ' bench.txt).Count -ne 3) { throw "ok でない回がある" }
 
       - uses: actions/upload-artifact@v4
         with:

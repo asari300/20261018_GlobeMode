@@ -125,6 +125,13 @@ UI（Svelte）のプロセスでは検査も実行もしない。計算は 1 つ
 
 - **ブラウザ版は、サーバーで計算しない静的ファイルの束として配る。** 手動の `web.yml` が wasm と UI（vite の `base: "./"`。どのサブパスでも動く）、`MSL.json`、CSP の header の断片（`_headers`・`nginx.csp.conf`。正は `index.html` の meta で、Worker に効かせるため配布先の header に写す）を artifact `globe-web` に出す。`Cross-Origin-Opener-Policy` / `Cross-Origin-Embedder-Policy` は要らない（`SharedArrayBuffer` を使わない）。**公開（GitHub Pages の有効化、URL の配布）はユーザーの判断で、このセッションでは行わない。** 持ち越し: PWA、ダークモード、`MSL.json` の分割配信。
 
+### S154 で決まったこと（最近使ったファイルの読み込み、2026-11-05）
+
+- **dialog を通さないパス（S151 の「最近使ったファイル」）は、Tauri の command `read_recent { path }` で Rust が読む。** fs プラグインは dialog で選んだパスだけを許可に入れるので（S141）、保存しておいたパスを起動後に開くには別の道が要る。選択肢のうち、`tauri-plugin-persisted-scope` は新しい依存になるので採らず、fs の scope を起動時に一覧で広げる道は一覧（UI の `localStorage`）を信用して許可を広げることになるので採らず、command を 1 つ足した（`generate_handler!` に `read_recent`、依存 0）。
+- **任意のパスを読ませないための検証**: パスは UI（WebView の JS）から来るので、`read_mo` が(1) 拡張子が `.mo`、(2) `std::fs::metadata` で存在する通常のファイル（ディレクトリ・無いパスは Err）の 2 つを満たすものだけを `read_to_string` する。`/etc/passwd` のような拡張子の違うものは読まない。相対パスは作業ディレクトリから（CI の smoke はこれで `Recent.mo` を開く）。「開く」の dialog は従来どおり fs の許可（`TauriBackend.openFile`）。
+- shortcut: 検査は拡張子と種類だけで、`.mo` という名前なら任意の場所のものを読める（シンボリックリンクも辿る）。UI の JS が任意のコードに乗っ取られた場合の防御ではなく、誤ったパスと意図しない種類のファイルを渡さないための検査。サイズの上限は無い。
+- 確かめ方: `main.rs` の単体試験（`.mo` の通常のファイルを読み、`.txt`・ディレクトリ・無いパスは Err）と、`desktop.yml` の測定の `GM-SMOKE … recent=ok`（作業ディレクトリの `Recent.mo` を最近使ったファイルとして開き、本文が入る）。
+
 ### S141 で決まったこと（ファイルを開く・保存する、2026-11-04）
 
 - **自分の `.mo` を持ち込み・持ち帰る道は、環境ごとに別の実装を `Backend.openFile` / `saveFile` の後ろに置く。** ブラウザと Android（sidecar が無く `WorkerBackend` を使う）は `<input type=file>` と Blob のダウンロード（保存先はブラウザが決める）。Desktop は公式プラグイン `tauri-plugin-dialog` と `tauri-plugin-fs`（Desktop だけの依存で、Android の lib には入れない）で、UI は npm の `@tauri-apps/plugin-*` を入れず `window.__TAURI__.dialog` / `fs` を使う（S135 と同じ）。権限は `capabilities/desktop.json` に `dialog:allow-open`・`dialog:allow-save`・`fs:allow-read-text-file`・`fs:allow-write-text-file` だけ。dialog で選んだパスだけが fs の許可に入るので、静的なスコープは置かない。command（`generate_handler!`）は足していない。
