@@ -52,8 +52,7 @@ def test_library_error_is_readable_and_keeps_the_diagnostics(tmp_path):
 def test_readme_example_runs():
     """src/Python/README.md の ```python の例（MSL と ChuaCircuit を、この検証用ライブラリと Decay に替えて実行する。落ちなければよい）。"""
     readme = (Path(__file__).parents[1] / "README.md").read_text(encoding="utf-8")
-    code = readme.split("```python\n")[1].split("```")[0].replace("data/msl", str(MODELICA)).replace(
-        "Modelica.Electrical.Analog.Examples.ChuaCircuit", DECAY
-    )
+    code = readme.split("```python\n")[1].split("```")[0]
+    code = code.replace('"data/msl"', repr(str(MODELICA)))  # repr: Windows のパスの \\ を壊さない
+    code = code.replace("Modelica.Electrical.Analog.Examples.ChuaCircuit", DECAY)
     exec(code, {})  # noqa: S102
-

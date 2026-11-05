@@ -33,7 +33,7 @@ S178 の監査の Python の穴（P2・P7・P10・P11、WP 案 C1）のうち、
 - `pytest src/Python/tests`: 14 passed、1 skipped（widget の extra が無い分）。`mypy`（既定）0 件。README の例を `data/msl` の ChuaCircuit で実行: `True`、`(3, 45)`。
 - `on_progress`: Decay で bdf は段 5 回で `time` が全部 `None`、esdirk34 は積分の t が付く。lowering で `True` を返すと build の後で止まり `ok: False`。
 - コードの検査（`mise run check`）: fmt・clippy（-D warnings）・test（64 個の結果が全部 ok）・deny（advisories・bans・licenses・sources ok）・`uv sync --locked` が通った
-- `check_docs.py`・`render_slides.py`: （仕上げで書く）
+- `check_docs.py`: デッキ OK / リンク 3685 件中の切れ 0 件。`render_slides.py`: S181 のデッキ 6 枚 × 3 構成（desktop-light・dark・mobile）、問題 0 件
 - dry run（`release.yml` の wheel を入れて pytest）: （仕上げで書く）
 
 ## 残したこと
