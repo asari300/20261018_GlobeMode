@@ -31,6 +31,7 @@
   let model = $state("Decay");
   let busy = $state(false);
   let failure = $state("");
+  let live = $state(""); // S175: 検査・実行の完了を読み上げる 1 行（aria-live="polite"）。失敗は role="alert"、未対応の要約・止めたは role="status" が読むので、ここには入れない
   let diagnostics = $state<Diagnostic[]>([]);
   let columns = $state.raw<Columns | null>(null); // $state だと配列を丸ごと Proxy にする。10 万点では遅い
   // MSL（public/msl/MSL.json。pack-msl.mjs が data/msl から作る）。起動時には読まず、ボタンで読む
@@ -355,6 +356,7 @@
   async function run(job: () => Promise<void>) {
     busy = true;
     failure = "";
+    live = ""; // 同じ文が続いても、消してから入れ直すと読まれる
     try {
       await backend.setFile(file, view.state.doc.toString());
       await refreshModels(false);
@@ -382,7 +384,10 @@
     canForce = checked.can_force ? model : null;
     checkedModel = { model };
     view.dispatch(setDiagnostics(view.state, toCmDiagnostics(view.state.doc.toString(), diagnostics, file)));
-  }).then(() => reveal(failure ? ".failure" : diagnostics.length ? ".diagnostics" : ""));
+  }).then(() => {
+    if (!failure && !unsupported) live = `検査が完了した: error ${diagnostics.filter((d) => d.severity === "error").length} 件、warning ${diagnostics.filter((d) => d.severity === "warning").length} 件、診断は全部で ${diagnostics.length} 件`;
+    return reveal(failure ? ".failure" : diagnostics.length ? ".diagnostics" : "");
+  });
 
   // 整形（S053、doc/format-style.md）。文法が壊れていれば本文は変えず、理由を出す
   const format = () => run(async () => {
@@ -433,7 +438,10 @@
       if (stopped) { runState = "cancelled"; runNote = `止めた（${c.points > 0 ? `${stopped.message}、そこまでの ${c.points} 点を表示` : "結果は出ない"}）`; }
       if (r.refused) failure = firstError(r.refused, r.diagnostics, r.unsupported);
       else if (!r.ok && !r.diagnostics.length) failure = "実行に失敗した（診断なし）";
-    }).then(() => reveal(settingsProblem ? ".settings .problem" : failure ? ".failure" : columns ? ".plot" : diagnostics.length ? ".diagnostics" : ""));
+    }).then(() => {
+      if (!failure && !settingsProblem && !unsupported && runState !== "cancelled") live = `実行が完了した: 信号 ${columns ? columns.names.filter((n) => !isInternal(n)).length : 0} 本、${columns?.points ?? 0} 点`;
+      return reveal(settingsProblem ? ".settings .problem" : failure ? ".failure" : columns ? ".plot" : diagnostics.length ? ".diagnostics" : "");
+    });
 
   // ライブラリの木で選んだクラスのファイルをタブに開き、モデル名をそのクラスにする（S127）
   const openLibrary = (e: Pick<TreeEntry, "path">) => run(async () => {
@@ -627,19 +635,41 @@
     view.dispatch({ selection: { anchor: at(d.range.start), head: at(d.range.end) }, scrollIntoView: true });
     view.focus();
   }
+
+  // S175: ショートカット。Ctrl（macOS は Cmd）+ Enter 実行、+ Shift+Enter 検査、+ . 止める、+ S 保存（Desktop は + Shift+S 名前を付けて保存）、+ O 開く。
+  // ブラウザが握る Ctrl+R・W・F5 などは使わない。修飾キーつきなので入力欄で文字を打っていても誤爆しない。エディタの中でも効くよう capture で受け、CodeMirror の Mod-Enter（空行を挿入）は覆う
+  function shortcut(e: KeyboardEvent) {
+    if (e.isComposing || e.repeat || e.altKey || !(e.ctrlKey || e.metaKey)) return;
+    const idle = (f: () => unknown) => () => { if (!busy) void f(); };
+    const act = {
+      "Enter": idle(() => simulate()),
+      "Shift+Enter": idle(check),
+      ".": () => { if (runState === "running") backend.cancel?.(); },
+      "s": () => void save(),
+      "Shift+s": desktop ? () => void save(true) : undefined,
+      "o": idle(openFromDisk),
+    }[(e.shiftKey ? "Shift+" : "") + (e.key.length === 1 ? e.key.toLowerCase() : e.key)];
+    if (!act) return;
+    e.preventDefault();
+    e.stopPropagation();
+    act();
+  }
 </script>
 
+<svelte:window onkeydowncapture={shortcut} />
+
 <main>
+  <h1 class="sr-only">GlobeMode</h1>
   <div class="bar">
-    <button onclick={openFromDisk} disabled={busy}>開く</button>
+    <button onclick={openFromDisk} disabled={busy} title="開く（Ctrl/Cmd+O）" aria-keyshortcuts="Control+O Meta+O">開く</button>
     {#if recent.length}
       <select aria-label="最近使ったファイル" disabled={busy} onchange={(e) => { const p = e.currentTarget.value; e.currentTarget.value = ""; if (p) void openRecent(p); }}>
         <option value="">最近使ったファイル</option>
         {#each [...recent].reverse() as r}<option value={r.path} title={r.path}>{baseName(r.path)}</option>{/each}
       </select>
     {/if}
-    <button onclick={() => save()}>保存</button>
-    {#if desktop}<button onclick={() => save(true)}>名前を付けて保存</button>{/if}
+    <button onclick={() => save()} title="保存（Ctrl/Cmd+S）" aria-keyshortcuts="Control+S Meta+S">保存</button>
+    {#if desktop}<button onclick={() => save(true)} title="名前を付けて保存（Ctrl/Cmd+Shift+S）" aria-keyshortcuts="Control+Shift+S Meta+Shift+S">名前を付けて保存</button>{/if}
     <button onclick={exportFmu} disabled={busy} aria-describedby="fmu-note">FMU を書き出す</button>
     <select aria-label="FMI の版" bind:value={fmiVersion}><option value={2}>FMI 2.0</option><option value={3}>FMI 3.0</option></select>
     <small id="fmu-note" data-fmu-note>FMU はソースだけ（バイナリ無し）。他のツールで読むには CLI の <code>{FMU_BUILD}</code></small>
@@ -655,11 +685,11 @@
       <option value="light">明</option>
       <option value="dark">暗</option>
     </select>
-    <button onclick={check} disabled={busy}>検査</button>
-    <button onclick={() => simulate()} disabled={busy}>実行</button>
+    <button onclick={check} disabled={busy} title="検査（Ctrl/Cmd+Shift+Enter）" aria-keyshortcuts="Control+Shift+Enter Meta+Shift+Enter">検査</button>
+    <button onclick={() => simulate()} disabled={busy} title="実行（Ctrl/Cmd+Enter）" aria-keyshortcuts="Control+Enter Meta+Enter">実行</button>
     <button onclick={graph} disabled={busy}>グラフ</button>
     <button onclick={format} disabled={busy}>整形</button>
-    {#if runState === "running" && backend.cancel}<button onclick={() => backend.cancel?.()}>止める</button>{/if}
+    {#if runState === "running" && backend.cancel}<button onclick={() => backend.cancel?.()} title="止める（Ctrl/Cmd+.）" aria-keyshortcuts="Control+. Meta+.">止める</button>{/if}
     {#if desktop}
       <select bind:value={mslVersion} disabled={msl === "loading"} aria-label="MSL の版">
         <option value="4.1.0">MSL 4.1.0</option>
@@ -672,6 +702,7 @@
     {/if}
   </div>
   <!-- S170: 進捗・失敗の理由・モデル名の食い違いは、押したボタンのすぐ下（画面の上）に出す。下に置くとスクロールしないと見えない -->
+  <p class="sr-only" aria-live="polite" aria-atomic="true">{live}</p>
   {#if runNote}<p class="run" role="status" data-run={runState}>{runNote}</p>{/if}
   {#if failure}<p class="failure" class:unsup={!!unsupported} role="alert">{failure}</p>{/if}
   {#if canForce === model}<p class="note" data-can-force><button onclick={() => simulate(true)} disabled={busy}>それでも実行する</button> 検査の Error を無視して実行する（強行）。結果は信頼できないことがある。</p>{/if}
@@ -711,7 +742,7 @@
     <table class="refs" aria-label="参照">
       <tbody>
         {#each refs as r}
-          <tr onclick={() => moveTo(r.from, r.to)}><td>{r.n}</td><td>{r.text}</td></tr>
+          <tr onclick={() => moveTo(r.from, r.to)}><td><button type="button" class="jump" aria-label="{r.n} 行目の参照へ移る">{r.n}</button></td><td>{r.text}</td></tr>
         {/each}
       </tbody>
     </table>
@@ -723,7 +754,7 @@
       {#each diagnostics as d}
         {@const unsup = !!unsupported && d.severity === "error"}
         <tr class={unsup ? "unsup" : d.severity} onclick={() => jump(d)}>
-          <td>{d.code}</td><td>{d.stage}</td><td>{unsup ? "未対応" : d.severity}</td>
+          <td>{#if d.range && (!d.file || d.file === file)}<button type="button" class="jump" title="エディタの該当位置へ移る（Enter）">{d.code}</button>{:else}{d.code}{/if}</td><td>{d.stage}</td><td>{unsup ? "未対応" : d.severity}</td>
           <td>{#if unsup}<details><summary>Rumoca の原文</summary>{d.message}</details>{:else}{d.message}{/if}{#each d.notes ?? [] as n}<div class="dnote">{n}</div>{/each}</td>
         </tr>
       {/each}
@@ -748,6 +779,7 @@
   .rename { margin: .5rem 0; }
   .dnote { color: var(--muted); font-size: .9em; }
   tr { cursor: pointer; }
+  .jump { border: 0; background: none; color: inherit; font: inherit; padding: 0; cursor: pointer; } /* S175: 行の中の本物の button（Tab・Enter・Space で押せる）。見た目は文字のまま */
   tr.error { color: var(--err); }
   tr.warning { color: var(--warn); }
   tr.unsup, .unsup-summary, .failure.unsup { color: var(--unsup); }
