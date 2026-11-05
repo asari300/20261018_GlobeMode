@@ -658,6 +658,7 @@ def main() -> int:
         # S147: UI の操作の項目。MSL が無ければ木とグラフは skip
         skipped = "skip" if not (DIST / "msl/MSL.json").exists() else "ok"
         assert f" tree={skipped} fmt=ok graph={skipped} cancel=ok settings=ok plot=ok def=ok " in line and "failure=" not in line, line
+        assert " isolated=1 cancel_path=flag ready_ms=" in line, line  # S159: serve() が COOP / COEP を付けるので、止めるのは SharedArrayBuffer のフラグの道
         assert re.search(r" ready_ms=\d+ decay_ms=\d+ msl_ms=", line), line  # S125: bench_ui.py が読む時刻
         print(line)
         # サブパス配信（S145）: dist/ を /app/ の下だけで配っても、worker・wasm・MSL.json が相対パスで引けて、検査と MSL の読み込みができる

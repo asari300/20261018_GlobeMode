@@ -429,11 +429,16 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - 記録: 上流の下書き 34（[upstream.md](upstream.md)）、[msl-solvers.md](msl-solvers.md) の注記、既知の限界の試験 `msl_sdirk34hw_thyristor_bridge_event_iteration_is_a_known_limit`（`#[ignore]`）。実行系は変えていないので `wasm:node`・`wasm:compare`・`msl-sim.yml` は回していない（数値は S139 のまま）。
 - 持ち越し: 下書き 34 の提出（ユーザー）と、同じ雑音がほかのサイリスタ・ダイオードの回路で当たる数の調査。
 
+### S159（P4/P7、2026-11-05）で済んだこと
+
+- **Android の WebView では、COOP / COEP を付けても cross-origin isolated にならず、止めると作り直しのまま**と確かめた（[ADR-0033](adr/0033-progress-and-cancel.md) の 7 段目。[解説書](sessions/S159-android-cancel-isolation/解説書.md)）: `GM-SMOKE` の行に `isolated=` と `cancel_path=` を足し（ブラウザ `isolated=1 cancel_path=flag`、Android `isolated=0 cancel_path=restart`、Desktop `isolated=0 cancel_path=sidecar`）、Tauri 2.12.5 の `app.security.headers` で付けたヘッダが応答に届いても `SharedArrayBuffer` が `undefined` だった。ヘッダは外し、`android.yml` の条件に `isolated=0 cancel_path=restart` を足した。
+- 持ち越し: Android で isolated にする別の道（WebView の設定など。【未確認】）、Desktop の既定 `auto` の積分の中の中断。
+
 ### S157（P4、2026-11-05）で済んだこと
 
 - **止めても、そこまでの列がプロットに残る**（[ADR-0033](adr/0033-progress-and-cancel.md) の 6 段目。[解説書](sessions/S157-cancel-partial-result/解説書.md)）: ネイティブ（exec・facade・LSP・Desktop）には途中の列を返す口が既にあり、足りなかったのは wasm の Worker に止める合図を届けることと、UI の表示だけだった。wasm の進捗の関数が厳密に `true` を返すと `CancelToken` を立て、`GlobeWorker.cancel()` は SharedArrayBuffer(4) のフラグを立てて、Worker が進捗のたびに読む。止まった実行は列と `GM-I11004` を普通の結果として返し、`App.svelte` は「止めた（t = … で止めた、そこまでの n 点を表示）」を出して列を残す（Desktop も同じ分岐）。SharedArrayBuffer が無い配信（cross-origin isolated でない）と、2 s 応えない実行（lowering など）は前のとおり `terminate()` して作り直す。COOP / COEP は `vite.config.ts`・`web-bundle.sh`・`test_ui.py` の配信に付けた。
 - 試験: `wasm:node`（`smoke.mjs` に中断の項目）、`worker-node.mjs`（フラグで restarts 0 と途中の列、`shared: false` で reject と restarts 1）、`test_ui.py`（止めたあとプロットに線）。
-- 持ち越し: Android の WebView に COOP / COEP を付けられるか【未確認】、Desktop の既定 `auto` の積分の中の中断、py・c・nif への展開、再開。
+- 持ち越し: ~~Android の WebView に COOP / COEP を付けられるか~~（S159 で済: 付けても isolated にならず作り直しのまま）、Desktop の既定 `auto` の積分の中の中断、py・c・nif への展開、再開。
 
 ### S155（P7、2026-11-05）で済んだこと
 

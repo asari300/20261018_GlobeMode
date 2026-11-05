@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S159 android-cancel-isolation — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S159 android-cancel-isolation">
+
+<section class="slide" id="S01">
+  <span class="tag">S159 · 2026-11-05 · P4/P7</span>
+  <h1>Android でも、止めた列は残るか</h1>
+  <p class="lead">S157 の持ち越し。Tauri の WebView に COOP と COEP を付けて確かめた</p>
+  <div class="big">答え: <b>付けても isolated にならない</b>。Android は作り直しのまま</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">確かめ方</span>
+  <h1>smoke の行に 2 項目</h1>
+  <ul>
+    <li><code>isolated=1|0</code>: WebView の <code>crossOriginIsolated</code></li>
+    <li><code>cancel_path=flag|restart|sidecar</code>: 止めたのが SharedArrayBuffer のフラグか、Worker の作り直しか、Desktop の sidecar か</li>
+    <li>行の <code>def=ok</code> の後、<code>ready_ms</code> の前に足したので、既存の grep と <code>bench_ui.py</code> は変えていない</li>
+    <li>ブラウザ（<code>test_ui.py</code>）は <code>isolated=1 cancel_path=flag</code> を assert</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">結果</span>
+  <h1>emulator の GM-SMOKE の行</h1>
+  <table class="compact">
+    <tr><th>設定</th><th>isolated</th><th>cancel_path</th><th>ほか</th></tr>
+    <tr><td>ヘッダなし（S147 まで）</td><td class="warn">未計測</td><td class="warn">未計測</td><td>止める cancel=ok</td></tr>
+    <tr><td>COOP same-origin と COEP require-corp</td><td class="ng">0</td><td class="ng">restart</td><td>全項目 ok（msl・fetch・アセットは壊れない）</td></tr>
+  </table>
+  <p>追加の診断: 応答のヘッダは <code>coop=same-origin coep=require-corp</code> で届いているが、<code>typeof SharedArrayBuffer</code> は <code>undefined</code></p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由</span>
+  <h1>ヘッダは外す</h1>
+  <ul>
+    <li>Tauri 2.12.5 の <code>app.security.headers</code> は使えて、応答に付いた（Android の wry も応答のヘッダを WebView に渡す）</li>
+    <li>それでも WebView は cross-origin isolated にならない。ヘッダは効かず、リスクだけ増える</li>
+    <li>よって <code>tauri.android.conf.json</code> は元のまま。Desktop の設定も触らない</li>
+    <li><code>android.yml</code> の合格条件に <code>isolated=0 cancel_path=restart</code> を足し、事実を固定した</li>
+    <li>WebView 側が対応したら <code>isolated=1</code> になるので、条件を <code>flag</code> に直す</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>回し方と結果</h1>
+  <pre><code>mise run ui:check         # test_ui.py: isolated=1 cancel_path=flag
+gh workflow run android.yml --ref feature/s159-android-cancel-isolation
+gh workflow run desktop.yml --ref feature/s159-android-cancel-isolation</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">0</span><span class="l">Android の isolated</span></div>
+    <div class="kpi"><span class="n">restart</span><span class="l">Android の止める道</span></div>
+    <div class="kpi"><span class="n">3</span><span class="l">回した android.yml</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ul>
+    <li>Android で途中の列を残すなら、WebView を isolated にする別の道（androidx.webkit の設定など。公式の文書で未確認）か、Android だけ sidecar 相当を持つ設計</li>
+    <li>Desktop の既定 auto の積分の中の中断（Rumoca に口が無い）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
