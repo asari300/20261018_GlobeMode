@@ -457,6 +457,11 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - 試験: `test_ui.py` に明と暗（予約語・型・数値・文字列・コメントに別々の色、地に対して 4.5 以上、予約語の色は KEYWORDS の語だけ）と KEYWORDS の一致。S149 のホバーの補助が行の最初のテキストノードだけを見ていたので、色付けで行が分かれても動くようにした。`node --test`（拡張）に文法の 4 本。
 - 持ち越し: semantic tokens、折りたたみ、インデントの規則、Marketplace、~~`@vscode/test-electron`~~（S165 で済んだ）。
 
+### S170（P4、2026-11-05）で済んだこと
+
+- **結果と進捗を見える所へ、開く・モデル名の扱い**（S164 の穴 2 と穴 5。[解説書](sessions/S170-ui-result-visibility-open/解説書.md)）: 実行中の表示と失敗の理由をボタンの行の下へ移し、実行・検査が終わったとき 1 回だけ（失敗、無ければプロット、無ければ診断を）`scrollIntoView({ block: "nearest" })` で画面に入れる（即時。1280 x 800 でプロットの上端が 1019 px から画面の中へ、390 幅でも）。パラメータの一覧は閉じて始める。2 モデルのファイルは Rust の outline の候補（`Backend.models`、wasm `models`、LSP `globe/models`）を select に出して選び直せ、モデル名はタブごとに保存して再読み込みで戻す。未保存の編集があるタブと同じ名前の自分のファイルを開くときは、本文を差し替えずそのタブへ切り替えて理由を出す。ライブラリにあるモデル名を打ったときは食い違いの案内と「ライブラリのファイルを開く」。
+- 持ち越し: 未対応の例題と force、キーボード全般、`.txt` を黙って開く件、候補を打つたびに更新すること、ディスクの内容で読み直す操作。
+
 ### S171（P4、2026-11-05）で済んだこと
 
 - **エディタの補完を Rust 側につないだ**（S164 の穴 9。[解説書](sessions/S171-ui-completion-backend/解説書.md)）: `Backend.completion(file, line, character)`（ブラウザは wasm の `completion`、Desktop は rpc の `globe/completion`。`textDocument/completion` と同じ計算で LSP の `CompletionItem` を返す）。CodeMirror は予約語と本文の単語を即時に出し、Rust の候補を非同期に足す（`validFor` と `aborted` で古い応答を捨てる）。Rust 側は `Resolver`（S132・S166）と `LibraryTree`（S167）で引き、`Modelica.Blocks.` のようにクラスが先なら直下の子（種類と説明つき）、`pin.` のように部品が先ならその型の部品名（継承した分も）、語の頭では予約語と文書の名前とライブラリの最上位。文字列・コメントの中は空、最大 200 件。打ちかけで文書が壊れていれば、カーソルの行を除いて読み直す（`Resolver` の `overlay`）。

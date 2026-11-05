@@ -177,6 +177,9 @@ export class TauriBackend implements Backend {
   references(file: string, line: number, character: number) {
     return invoke<Definition["range"][]>("rpc", { method: "globe/references", params: { file, line, character } }); // S161
   }
+  models(file: string) {
+    return invoke<string[]>("rpc", { method: "globe/models", params: { file } }); // S170
+  }
   rename(file: string, line: number, character: number, newName: string) {
     return invoke<{ range: Definition["range"]; newText: string }[]>("rpc", { method: "globe/rename", params: { file, line, character, newName } });
   }

@@ -8,7 +8,7 @@
 use globe_mode::{Outline, Workspace};
 use globe_mode_core::TextRange;
 use globe_mode_fmt::{Kind, LibraryTree, lex};
-use globe_mode_ir::{ClassOutline, ComponentOutline};
+use globe_mode_ir::{ClassKind, ClassOutline, ComponentOutline};
 use lsp_types::Position;
 use serde_json::{Value, json};
 
@@ -460,6 +460,36 @@ pub fn references_at(r: &mut Resolver, path: &str, text: &str, line: u32, charac
             .map(|x| crate::range(text, x))
             .collect::<Vec<_>>()
     )
+}
+
+/// UI 向けのモデルの候補（S170。wasm と `globe/models` が使う）。実行できるクラス（model・block・class。partial は除く）の修飾名の配列。
+/// package の中まで入り、`within` があれば頭に付ける。構文が壊れていて outline が無ければ空。
+pub fn models(o: Option<&Outline>) -> Value {
+    fn walk(prefix: &str, classes: &[ClassOutline], out: &mut Vec<String>) {
+        for c in classes {
+            let q = if prefix.is_empty() {
+                c.name.clone()
+            } else {
+                format!("{prefix}.{}", c.name)
+            };
+            if !c.partial
+                && matches!(
+                    c.kind,
+                    ClassKind::Model | ClassKind::Block | ClassKind::Class
+                )
+            {
+                out.push(q.clone());
+            }
+            if c.kind == ClassKind::Package {
+                walk(&q, &c.classes, out);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    if let Some(o) = o {
+        walk(o.within.as_deref().unwrap_or(""), &o.classes, &mut out);
+    }
+    json!(out)
 }
 
 /// 新しい名前の検査: 識別子・予約語・`taken`（同じ階層に既にある名前）。

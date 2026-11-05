@@ -63,6 +63,7 @@ const ops = {
     return (ws ??= new gm.Workspace()).hover(file, text, line, character); // S149。{contents, range} の JSON か "null"
   },
   references: ({ file, text, line, character }) => (ws ??= new gm.Workspace()).references(file, text, line, character), // S161。[Range] の JSON
+  models: ({ file }) => (ws ??= new gm.Workspace()).models(file), // S170。実行できるクラスの修飾名の JSON 配列（先に set_file）
   rename: ({ file, text, line, character, newName }) => (ws ??= new gm.Workspace()).rename(file, text, line, character, newName), // S161。[{range, newText}] の JSON。断れば投げる
   tunable_parameters: ({ model }) => (ws ??= new gm.Workspace()).tunable_parameters(model), // S150。ParametersResponse の JSON
   export_fmu: ({ model, fmiVersion }) => (ws ??= new gm.Workspace()).export_fmu(model, fmiVersion),

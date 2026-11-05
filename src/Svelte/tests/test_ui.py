@@ -13,6 +13,8 @@ Decay の x で Shift+F12 を押すと参照の一覧（3 行）が出て行を�
 `.mo` を開く（ファイル選択）とエディタに入りモデル名が本文から付いて検査が通り、「保存」でダウンロードされ、再読み込みで localStorage から戻る（S141）。
 名前の上にマウスを置くと宣言の 1 行が出る（Decay の x は `Real x`、ChuaCircuit の Resistor は見出しと説明文字列。S149）。
 タブ（S151）: 開くたびにタブが増え、切り替えで本文・モデル名・診断が戻り、再読み込みでタブが戻り、閉じるボタンで減り（未保存なら confirm 1 つ。最後の 1 つは閉じられない）、「最近使ったファイル」から開き直せる。
+結果の位置（S170）: 1280x800 と 390 px 幅で、実行の進捗・止める・失敗の理由が最初の画面の中に出て、終わるとプロットの上端が画面の中に入り、利用者が戻したスクロールは引き戻さない。
+開く・モデル名（S170）: 2 モデルのファイルは select で選び直せて再読み込みで残り、未保存の編集があるタブと同じ名前を開き直しても編集が残る。ライブラリのモデル名を打ったときは食い違いの案内。
 ダークモード（S152）: `color_scheme="dark"` で開くと背景が暗く文字が明るい（body・エディタ・診断・プロット・graph。プロットの軸の文字は canvas に描くので明るい画素を数える）。テーマの select で「明」にすると戻り、再読み込みで選択が残り、「OS に合わせる」で暗に戻る。
 FMU を書き出す（S144）: ブラウザの wasm が作ったソースの FMU がダウンロードされ、modelDescription.xml と sources/ がある。S154 から FMI の版（2.0 / 3.0）を select で選ぶ。
 実行の設定（S142）: 終了時刻 2 とソルバ dopri45 で Decay を実行して x(2) が e⁻²、DecayK は experiment の Tolerance が初期値（出どころ experiment）に出て、k = 2 の上書きで x(1) が e⁻²。名前=値でない行は実行しない。
@@ -391,6 +393,7 @@ def main() -> int:
         page.keyboard.insert_text(DECAY_K)
         check()
         expect(tolerance).to_have_value("1e-8")
+        page.locator("[data-params]").evaluate("e => (e.open = true)")  # 一覧は閉じて始まる（S170）
         k_row = page.locator("[data-param=k]")  # DecayK の k（モデルの値 1、説明つき）が一覧に出る
         expect(k_row).to_be_visible(timeout=60_000)
         assert "減衰の速さ" in k_row.inner_text() and page.get_by_label("k の値", exact=True).get_attribute("placeholder") == "1", k_row.inner_text()
@@ -530,6 +533,7 @@ def main() -> int:
             assert page.locator("tr.error").count() == 0, rows.all_inner_texts()  # 診断は 0 行でよい（experiment がある）
             print(f"ChuaCircuit の検査: {took:.1f} s、診断 {rows.count()} 行、error 0 行")
             # 上書きできるパラメータの一覧（S150）: 絞り込みで本数が減る
+            page.locator("[data-params]").evaluate("e => (e.open = true)")
             all_params = page.locator("[data-param]")
             expect(all_params.first).to_be_visible(timeout=120_000)
             n_all = all_params.count()
@@ -774,6 +778,127 @@ def main() -> int:
         expect(tabs).to_have_count(1)
         assert tab.get_by_role("button", name="を閉じる").count() == 0, "最後の 1 つは閉じられない"
         print("タブ: 開く 2→3、切り替えで本文・モデル名・診断が戻り、再読み込みで 3 つ戻り、閉じて、最近使ったファイルから開き直せた")
+        # 結果が見える位置（S170）: 1280x800 で実行すると進捗・止める・失敗の理由が最初の画面の中に出て、終わるとプロットの上端が画面の中に入る。
+        # 390 px 幅でも同じ。利用者が自分で戻したスクロールは、次の完了まで引き戻さない
+        many = "model Many\n" + "".join(f'  parameter Real p{i} = {i} "説明 {i}";\n' for i in range(20)) + "  Real x(start = 1, fixed = true);\nequation\n  der(x) = -p1 * x;\n  annotation(experiment(StopTime = 3));\nend Many;\n"
+
+        def open_in(pg, name: str, body: str) -> None:
+            with pg.expect_file_chooser() as ch:
+                pg.get_by_role("button", name="開く").click(force=True)
+            ch.value.set_files(files=[{"name": name, "mimeType": "text/plain", "buffer": body.encode()}])
+
+        def settle(f, what: str) -> None:
+            for _ in range(60):
+                if f():
+                    return
+                time.sleep(0.1)
+            raise AssertionError(what)
+
+        def inside(pg, selector: str) -> bool:
+            b = pg.locator(selector).first.bounding_box()
+            vh = pg.viewport_size["height"]
+            return b is not None and 0 <= b["y"] < vh
+
+        for width, height in [(1280, 800), (390, 844)]:
+            vis = browser.new_page(viewport={"width": width, "height": height})
+            vis.on("console", lambda m: m.type == "error" and errors.append(m.text))
+            vis.on("pageerror", lambda e: errors.append(str(e)))
+            vis.goto(origin)
+            vis.get_by_role("button", name="検査").wait_for()
+            open_in(vis, "Many.mo", many)
+            expect(vis.locator(".cm-content")).to_contain_text("model Many", timeout=30_000)
+            run_button = vis.get_by_role("button", name="実行")
+            run_button.click(force=True)
+            expect(run_button).to_be_enabled(timeout=120_000)
+            expect(vis.locator(".plot")).to_be_visible(timeout=30_000)
+            settle(lambda: inside(vis, ".plot"), f"{width} px: 実行の後にプロットの上端が画面の外 {vis.locator('.plot').bounding_box()}")
+            # 利用者が上へ戻したら、勝手に引き戻さない
+            plot_y = vis.locator(".plot").bounding_box()["y"]
+            vis.evaluate("scrollTo(0, 0)")
+            time.sleep(0.8)
+            assert vis.evaluate("scrollY") == 0, "完了の後に引き戻された"
+            # 進捗と止める: 長い実行を始めた時点で、実行中の表示と「止める」が画面の中
+            open_in(vis, "Long.mo", LONG)
+            expect(vis.locator(".cm-content")).to_contain_text("model Long", timeout=30_000)
+            vis.evaluate("scrollTo(0, 0)")
+            run_button.click(force=True)
+            expect(vis.locator("p.run")).to_contain_text("integration", timeout=120_000)
+            assert inside(vis, "p.run") and inside(vis, "button:has-text('止める')"), (width, vis.locator("p.run").bounding_box())
+            vis.get_by_role("button", name="止める").click(force=True)
+            expect(vis.locator("p.run")).to_have_attribute("data-run", "cancelled", timeout=60_000)
+            # 失敗の理由（実行の設定が数でない）も実行のボタンの近く
+            vis.get_by_label("終了時刻").fill("abc")
+            run_button.click(force=True)
+            expect(vis.locator("p.failure")).to_contain_text("実行の設定", timeout=30_000)
+            settle(lambda: inside(vis, "p.failure"), f"{width} px: 失敗の理由が画面の外 {vis.locator('p.failure').bounding_box()}")
+            print(f"結果の位置 {width}x{height}: 実行の後のプロットの上端 y={plot_y:.0f}、進捗・止める・失敗の理由は画面の中")
+            vis.close()
+        # 開く・モデル名（S170）: 2 つのモデルを持つファイルは select で選び直せて、再読み込みで残る。未保存の編集があるタブと同じ名前を開き直しても編集は消えない
+        two = "model Helper\n  Real h(start = 1, fixed = true);\nequation\n  der(h) = -h;\nend Helper;\nmodel Main\n  Real m(start = 2, fixed = true);\nequation\n  der(m) = -m;\nend Main;\n"
+        op = browser.new_page()
+        op.on("console", lambda m: m.type == "error" and errors.append(m.text))
+        op.on("pageerror", lambda e: errors.append(str(e)))
+        op.goto(origin)
+        op.get_by_role("button", name="検査").wait_for()
+        open_in(op, "Two.mo", two)
+        content, name_box, pick = op.locator(".cm-content"), op.get_by_label("モデル名"), op.get_by_label("ファイルのモデル")
+        expect(content).to_contain_text("model Helper", timeout=30_000)
+        expect(name_box).to_have_value("Helper")  # 選ばれるのは最初のモデル
+        expect(pick).to_have_value("Helper", timeout=30_000)  # それが select に出ている
+        assert pick.locator("option").all_inner_texts() == ["Helper", "Main"], pick.locator("option").all_inner_texts()
+        pick.select_option("Main")
+        expect(name_box).to_have_value("Main")
+        run_button = op.get_by_role("button", name="実行")
+        run_button.click(force=True)
+        expect(run_button).to_be_enabled(timeout=120_000)
+        expect(op.locator("p.final")).to_contain_text("m = ", timeout=30_000)  # Main を回した（Helper なら h）
+        op.reload()
+        expect(op.locator(".cm-content")).to_contain_text("model Helper", timeout=30_000)
+        expect(op.get_by_label("モデル名")).to_have_value("Main")  # 再読み込みでタブごとのモデル名が戻る
+        expect(op.get_by_label("ファイルのモデル")).to_have_value("Main", timeout=30_000)
+        # 未保存の編集があるタブと同じ名前を開き直す（開く・最近使ったファイル）
+        op.locator(".cm-content").click()
+        op.keyboard.press("Control+End")
+        op.keyboard.type("// mine")
+        open_in(op, "Two.mo", two)
+        expect(op.locator("p[data-saved]")).to_contain_text("未保存の編集", timeout=30_000)
+        expect(op.get_by_role("tab")).to_have_count(2)
+        expect(op.locator(".cm-content")).to_contain_text("// mine")
+        op.get_by_role("tab").nth(0).click()  # 別のタブにいても、開き直すと編集のあるタブへ切り替わるだけ
+        expect(op.locator(".cm-content")).to_contain_text("model Decay")
+        open_in(op, "Two.mo", two)
+        expect(op.get_by_role("tab").nth(1)).to_have_attribute("aria-selected", "true")
+        expect(op.locator(".cm-content")).to_contain_text("// mine")
+        expect(op.get_by_role("tab")).to_have_count(2)
+        # 編集を戻して（保存した本文と同じ）開き直すと、ディスクの内容に差し替わる
+        op.locator(".cm-content").click()
+        op.keyboard.press("Control+z")
+        open_in(op, "Two.mo", two + "// disk\n")
+        expect(op.locator(".cm-content")).to_contain_text("// disk")
+        print("開く・モデル名: 2 モデルは select で選び直せて再読み込みで残り、未保存の編集があるタブを開き直しても編集は残る")
+        if (DIST / "msl/MSL.json").exists():
+            # モデル名を打ち替えたのに、エディタは前のファイルのまま（S164 の N8）: ライブラリにある名前なら、食い違いを出して「開く」を促す
+            op.get_by_role("button", name="MSL を読む").click(force=True)
+            expect(op.locator("p.note[data-msl]")).to_have_attribute("data-msl", "loaded", timeout=120_000)
+            pid = "Modelica.Blocks.Examples.PID_Controller"
+            op.get_by_label("モデル名").fill(pid)
+            check_button = op.get_by_role("button", name="検査")
+            check_button.click(force=True)
+            expect(check_button).to_be_enabled(timeout=120_000)
+            stray = op.locator("[data-stray]")
+            expect(stray).to_contain_text("ライブラリのもの", timeout=30_000)
+            assert inside(op, "[data-stray]")
+            stray.get_by_role("button", name="ライブラリのファイルを開く").click(force=True)
+            expect(op.locator(".cm-content")).to_contain_text("package Examples", timeout=60_000)
+            expect(op.get_by_label("モデル名")).to_have_value(pid)
+            expect(stray).to_have_count(0)
+            op.get_by_label("モデル名").fill("Nope.Missing")  # ライブラリにも無い名前は食い違いの案内でなく、検査の診断（error）に出る
+            check_button.click(force=True)
+            expect(check_button).to_be_enabled(timeout=120_000)
+            assert op.locator("[data-stray]").count() == 0
+            assert op.locator("tr.error").count() > 0 or op.get_by_role("alert").count() > 0, "存在しないモデル名の理由が出ない"
+            print("モデル名の食い違い: ライブラリのモデル名は「開く」を促し、開くと食い違いが消える。存在しない名前は診断に出る")
+        op.close()
         # ダークモード（S152）: OS が暗いと背景が暗く文字が明るい。エディタ・プロット・graph も暗い。手動で「明」にすると戻り、再読み込みで選択が残る
         dark = browser.new_page(color_scheme="dark")
         dark.on("console", lambda m: m.type == "error" and errors.append(m.text))

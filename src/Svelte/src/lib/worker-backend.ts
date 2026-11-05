@@ -63,6 +63,9 @@ export class WorkerBackend implements Backend {
   references(file: string, line: number, character: number) {
     return this.#w.references(file, line, character); // S161
   }
+  models(file: string): Promise<string[]> {
+    return this.#w.models(file); // S170
+  }
   rename(file: string, line: number, character: number, newName: string) {
     return this.#w.rename(file, line, character, newName);
   }
