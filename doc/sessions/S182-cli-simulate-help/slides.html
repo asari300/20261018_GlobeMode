@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S182 simulate・出力先・ヘルプ — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S182 simulate・出力先・ヘルプ">
+
+<section class="slide" id="S01">
+  <span class="tag">S182 · 2026-11-06 · P4</span>
+  <h1>simulate が黙らない、出力先は先に確かめる</h1>
+  <p class="lead">S178 の監査の穴 4〜8（CLI の入出力、負の数、ヘルプ、診断の見え方）</p>
+  <div class="big">CLI だけの変更。--json は変えない</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">現状</span>
+  <h1>S178 が見つけた行き止まり</h1>
+  <table class="compact">
+    <tr><th>打ったもの</th><th>出たもの</th></tr>
+    <tr><td><code>simulate</code>（-o なし）</td><td class="ng">結果を黙って捨てる</td></tr>
+    <tr><td><code>-o /nonexistent/x.csv</code></td><td class="ng">計算のあとで失敗。<code>os error 2</code></td></tr>
+    <tr><td><code>… -o - | head -1</code></td><td class="ng">Broken pipe、終了コード 2</td></tr>
+    <tr><td><code>--stop-time -1</code></td><td class="ng">clap の誤った tip</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">-o</span>
+  <h1>捨てるのをやめず、黙らない</h1>
+  <ul>
+    <li>-o なし: stderr に 1 行「結果は書いていない（t = 1 まで、501 行、変数 1）。-o で書き出す」</li>
+    <li>-o あり: 「書いた: パス（CSV、501 行）」</li>
+    <li>--json には何も足さない（wasm:compare と snapshot が読む）</li>
+  </ul>
+  <div class="card">既定でファイルを作らない。要約だけ見たい使い方は正当</div>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">出力先</span>
+  <h1>計算の前に確かめ、パスと理由を言う</h1>
+  <table class="compact">
+    <tr><th>打ったもの</th><th>文面</th></tr>
+    <tr><td><code>-o /nonexistent/x.csv</code></td><td class="ok">… に書けない: 親のフォルダ /nonexistent が無い</td></tr>
+    <tr><td><code>check nofile.mo</code></td><td class="ok">nofile.mo を読めない: 見つからない</td></tr>
+    <tr><td><code>fmu export --out ファイル</code></td><td class="ok">--out … に書けない: ディレクトリではない</td></tr>
+  </table>
+  <ul>
+    <li>既にあるファイルは触らない（追記で開くだけ）。共通の関数は <code>io_error</code> と <code>io_reason</code> の 2 つ</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">| head</span>
+  <h1>標準出力が閉じたら、黙って終了コード 0</h1>
+  <ul>
+    <li>unsafe は禁止、libc は足さない。Rust は SIGPIPE を無視するので <code>println!</code> が panic する</li>
+    <li><code>main.rs</code> の <code>println!</code>・<code>print!</code> を同名のマクロで置き換え、BrokenPipe なら <code>exit(0)</code></li>
+    <li>-o - の書き込みの BrokenPipe も成功。試験は Unix だけ</li>
+  </ul>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">負の数・ヘルプ</span>
+  <h1>allow_negative_numbers と例</h1>
+  <ul>
+    <li>simulate に 1 行。<code>--start-time -2</code> が通り、<code>--stop-time -1</code> は GM-E10004（意味の誤り）</li>
+    <li>各副命令に「例:」。check は S0〜S10。S053 のようなセッション番号は消し、S0〜S10（検査の段階）は残す</li>
+    <li>言語は日本語のまま（clap の定型は英語。方針はユーザーの判断）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">診断</span>
+  <h1>重複を除き、理由を最後の行に</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>変更</th></tr>
+    <tr><td>--force の重複</td><td>コード・位置・文面が同じなら 1 つ</td></tr>
+    <tr><td>最後の行</td><td>「。最初の error: GM-E10004 …」（JSON の refused は変えない）</td></tr>
+    <tr><td>info</td><td>既定は件数とコード。<code>-v</code> で全部。--json は全部</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S08">
+  <span class="tag">検証・持ち越し</span>
+  <h1>試験 7 本と、既定の出力を読む所は 0 件</h1>
+  <ul>
+    <li><code>tests/cli_flow.rs</code> に 7 本（穴ごとに 1 本）。<code>graph</code> に <code>-L</code>（<code>deps</code> は Workspace の持ち方が違うので足さない）</li>
+    <li>持ち越し: facade の診断の重複、fmt のパス省略、GM-U の終了コード、msl fetch、ヘルプの言語</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

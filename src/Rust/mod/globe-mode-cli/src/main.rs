@@ -4,7 +4,7 @@
 //! globe outline <FILE> [--json]
 //! globe check [<FILE|DIR>...] [--library <DIR>]... --model <NAME> [--json]
 //! globe flat  [<FILE|DIR>...] [--library <DIR>]... --model <NAME> [--json]
-//! globe graph <FILE|DIR>... --model <NAME> [--depth N] [--json]
+//! globe graph [<FILE|DIR>...] [--library <DIR>]... --model <NAME> [--depth N] [--json]
 //! globe deps  <FILE|DIR>... --model <NAME> [--json]
 //! globe simulate [<FILE|DIR>...] [--library <DIR>]... --model <NAME> [--stop-time T] [--solver NAME] [--step H]
 //!                [--tolerance X] [--interval X] [--start-time T] [--timeout S] [--param NAME=VALUE]...
@@ -19,17 +19,41 @@
 //!
 //! `simulate` は検査（S0〜S10）を通してから実行する（Error があれば `--force` が無い限り実行しない）。
 //!
-//! 終了コード: 0 = 成功 / 1 = Error の診断がある / 2 = 入力の読み込みに失敗。
+//! 終了コード: 0 = 成功 / 1 = Error の診断がある / 2 = 入力の読み込みに失敗・書き出しに失敗。
+//! 標準出力が閉じられたとき（`| head`）は、Unix の慣習どおり黙って 0 で終わる（S182）。
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use clap::{Parser, Subcommand};
 use globe_mode::db::{ExperimentVerdict, FullReport, normalize_path};
 use globe_mode::{CheckResponse, Workspace};
-use globe_mode_core::{Diagnostic, line_col};
+use globe_mode_core::{Diagnostic, Severity, line_col};
 use globe_mode_ir::{ClassOutline, FlatSummary, Outline, SimSettings};
+
+/// 標準出力へ書く。閉じられていたら（`globe … | head`）黙って終了コード 0 で終わる。
+/// Rust は SIGPIPE を無視するので標準の `println!` は panic し、`unsafe` は禁止なのでシグナルは戻せない。
+macro_rules! println {
+    ($($arg:tt)*) => { $crate::stdout_ok(::std::io::Write::write_fmt(
+        &mut ::std::io::stdout(), format_args!("{}\n", format_args!($($arg)*)))) };
+}
+macro_rules! print {
+    ($($arg:tt)*) => { $crate::stdout_ok(::std::io::Write::write_fmt(
+        &mut ::std::io::stdout(), format_args!($($arg)*))) };
+}
+
+fn stdout_ok(result: std::io::Result<()>) {
+    match result {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => std::process::exit(0),
+        Err(e) => panic!("failed printing to stdout: {e}"),
+    }
+}
+
+/// `-v`: info の診断も全部出す（既定は件数だけ）。
+static VERBOSE: AtomicBool = AtomicBool::new(false);
 
 mod simulate;
 
@@ -40,6 +64,9 @@ mod simulate;
     about = "GlobeMode — an open-source Modelica IDE (CLI)"
 )]
 struct Cli {
+    /// info の診断も全部表示する（既定は件数だけ）
+    #[arg(long, short, global = true)]
+    verbose: bool,
     #[command(subcommand)]
     command: Command,
 }
@@ -47,6 +74,7 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 enum Command {
     /// ファイルのアウトライン（クラス・コンポーネント・connect）を表示する
+    #[command(after_help = "例:\n  globe outline model.mo\n  globe outline model.mo --json")]
     Outline {
         file: PathBuf,
         /// JSON で出力する
@@ -54,10 +82,16 @@ enum Command {
         json: bool,
     },
     /// connect グラフ（flatten しない）を表示する。--json は graphology の形式
+    #[command(
+        after_help = "例:\n  globe graph model.mo -m RC\n  globe graph src/Modelica/GlobeModeExamples -m GlobeModeExamples.RC --depth 2 --json\n  globe graph -L data/msl -m Modelica.Electrical.Analog.Examples.ChuaCircuit"
+    )]
     Graph {
-        /// ファイルまたはディレクトリ（ディレクトリは下の .mo をすべて読む）
-        #[arg(required = true)]
+        /// ファイルまたはディレクトリ（ディレクトリは下の .mo をすべて読む）。モデルがライブラリの中にあるなら省略できる
+        #[arg(required_unless_present = "library")]
         inputs: Vec<PathBuf>,
+        /// ライブラリのディレクトリ（例: data/msl）。何度でも指定できる
+        #[arg(long, short = 'L')]
+        library: Vec<PathBuf>,
         /// モデルの完全修飾名
         #[arg(long, short)]
         model: String,
@@ -68,7 +102,10 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// モデルを DAE まで変換して検査する（S0〜S8）
+    /// モデルを DAE まで変換して検査する（S0〜S10）
+    #[command(
+        after_help = "例:\n  globe check model.mo -m RC\n  globe check -L data/msl -m Modelica.Blocks.Examples.PID_Controller\n  globe check model.mo -m RC --json\n\ninfo の診断は件数だけ出す。-v で全部表示する。--json は info も含む"
+    )]
     Check {
         /// 検査するファイルまたはディレクトリ（ディレクトリは下の .mo をすべて読む）。
         /// モデルがライブラリの中にあるなら省略できる
@@ -84,8 +121,11 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Modelica のファイルを整形する（S053、`doc/format-style.md`）。ruff のように、パスを省くとカレントディレクトリ（S060）。
-    /// 設定は対象から上へたどって最初の `globe-mode.toml`（S130）。コマンドラインの引数が優先
+    /// Modelica のファイルを整形する（`doc/format-style.md`）。ruff のように、パスを省くとカレントディレクトリ。
+    /// 設定は対象から上へたどって最初の `globe-mode.toml`。コマンドラインの引数が優先
+    #[command(
+        after_help = "例:\n  globe fmt                 カレントディレクトリの下の .mo を整形する\n  globe fmt --check src     書き換えず、整形が要るファイルを列挙する（要整形なら終了コード 1）\n  globe fmt model.mo --indent 4"
+    )]
     Fmt {
         /// ファイルまたはディレクトリ（下の .mo を .gitignore と隠しディレクトリを除いてすべて）。
         /// 省くとカレントディレクトリ。`-`、または `--json` か入力がパイプのときは標準入力 → 標準出力
@@ -93,7 +133,7 @@ enum Command {
         /// 書き換えず、整形が要るファイルを列挙して終了コード 1
         #[arg(long)]
         check: bool,
-        /// 1 段のインデントの空白の数（既定 2。`globe-mode.toml` の `[fmt]` より優先、S130）
+        /// 1 段のインデントの空白の数（既定 2。`globe-mode.toml` の `[fmt]` より優先）
         #[arg(long)]
         indent: Option<usize>,
         /// 行幅（既定 80）
@@ -102,10 +142,10 @@ enum Command {
         /// 図形プリミティブに `origin = {0, 0}` を足さない
         #[arg(long)]
         no_insert_origin: bool,
-        /// `equation` / `algorithm` の前後に空行を足さない（S061）
+        /// `equation` / `algorithm` の前後に空行を足さない
         #[arg(long)]
         no_blank_around_sections: bool,
-        /// `Documentation(…)` の HTML の文字列を整えない（S062）
+        /// `Documentation(…)` の HTML の文字列を整えない
         #[arg(long)]
         no_format_html: bool,
         /// 標準入力のとき、結果を JSON（{"ok":bool,"text":…,"error":…}）で返す
@@ -113,25 +153,32 @@ enum Command {
         json: bool,
     },
     /// Modelica のファイルを lint する（line-too-long / class-name-pascal-case / missing-description）
+    #[command(
+        after_help = "例:\n  globe lint\n  globe lint model.mo --disable line-too-long\n  globe lint src --json"
+    )]
     Lint {
         /// ファイルまたはディレクトリ。省くとカレントディレクトリ（`fmt` と同じ規則）
         files: Vec<PathBuf>,
-        /// 止める規則（何度でも。`globe-mode.toml` の `[lint] disable` に足す、S130）
+        /// 止める規則（何度でも。`globe-mode.toml` の `[lint] disable` に足す）
         #[arg(long)]
         disable: Vec<String>,
         /// JSON（{"messages":[{file,rule,line,column,message}]}）で出力する
         #[arg(long)]
         json: bool,
     },
-    /// LSP サーバ（標準入出力。診断・documentSymbol・hover・整形・補完。S038、S053）
+    /// LSP サーバ（標準入出力。診断・documentSymbol・hover・整形・補完）
+    #[command(after_help = "例:\n  globe lsp -L data/msl")]
     Lsp {
         /// ライブラリのディレクトリ（例: data/msl）。何度でも指定できる
         #[arg(long, short = 'L')]
         library: Vec<PathBuf>,
     },
     /// 検査に渡すファイル（モデルが使うファイルの閉包）を表示する
+    #[command(
+        after_help = "例:\n  globe deps src/Modelica/GlobeModeExamples -m GlobeModeExamples.RC\n  globe deps data/msl -m Modelica.Electrical.Analog.Examples.ChuaCircuit"
+    )]
     Deps {
-        /// ファイルまたはディレクトリ（ディレクトリは下の .mo をすべて読む）
+        /// ファイルまたはディレクトリ（ディレクトリは下の .mo をすべて読む）。ライブラリも渡してよい（`data/msl`）
         #[arg(required = true)]
         inputs: Vec<PathBuf>,
         /// モデルの完全修飾名
@@ -141,7 +188,11 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// 検査（S0〜S10）を通してから実行し、結果を CSV か MAT v4 に書く（S011、S012）
+    /// 検査（S0〜S10）を通してから実行し、結果を CSV か MAT v4 に書く
+    #[command(
+        allow_negative_numbers = true,
+        after_help = "例:\n  globe simulate model.mo -m RC -o rc.csv          結果を CSV に書く（.mat なら MAT v4、`-` は標準出力）\n  globe simulate -L data/msl -m Modelica.Electrical.Analog.Examples.ChuaCircuit --stop-time 5 -o chua.csv\n  globe simulate model.mo -m RC --solver rk4 --step 0.01 --param R=200 -o rc.csv\n  globe simulate --list-solvers\n\n-o を省くと結果は書かず、要約だけを出す。info の診断は件数だけ出す（-v で全部）"
+    )]
     Simulate {
         /// ファイルまたはディレクトリ。モデルがライブラリの中にあるなら省略できる
         #[arg(required_unless_present_any = ["library", "list_solvers"])]
@@ -196,12 +247,15 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// FMU（S094。今は `export` だけ）
+    /// FMU（今は `export` だけ）
     Fmu {
         #[command(subcommand)]
         command: FmuCommand,
     },
     /// flat モデルの要約（変数・方程式の数、部品ごとの方程式数）を表示する
+    #[command(
+        after_help = "例:\n  globe flat model.mo -m RC\n  globe flat -L data/msl -m Modelica.Blocks.Examples.PID_Controller --json"
+    )]
     Flat {
         /// ファイルまたはディレクトリ。モデルがライブラリの中にあるなら省略できる
         #[arg(required_unless_present = "library")]
@@ -220,7 +274,10 @@ enum Command {
 
 #[derive(Debug, Subcommand)]
 enum FmuCommand {
-    /// FMI 2.0 / 3.0 のソースの FMU（ME と CS）を書き出す。中身は Rumoca の `fmi2` / `fmi3` のテンプレート（ADR-0031）
+    /// FMI 2.0 / 3.0 のソースの FMU（ME と CS）を書き出す。中身は Rumoca の `fmi2` / `fmi3` のテンプレート
+    #[command(
+        after_help = "例:\n  globe fmu export model.mo -m RC --out build\n  globe fmu export model.mo -m RC --out build --fmi-version 3\n  globe fmu export model.mo -m RC --out build --build --fmi-headers <fmi2Functions.h のあるディレクトリ>"
+    )]
     Export {
         /// ファイルまたはディレクトリ。モデルがライブラリの中にあるなら省略できる
         #[arg(required_unless_present = "library")]
@@ -265,14 +322,16 @@ fn main() -> ExitCode {
         }
         e.exit()
     });
+    VERBOSE.store(cli.verbose, Ordering::Relaxed);
     match cli.command {
         Command::Outline { file, json } => outline(&file, json),
         Command::Graph {
             inputs,
+            library,
             model,
             depth,
             json,
-        } => graph(&inputs, &model, depth, json),
+        } => graph(&inputs, &library, &model, depth, json),
         Command::Check {
             files,
             library,
@@ -422,7 +481,7 @@ fn expand_inputs(inputs: &[PathBuf]) -> Result<Vec<PathBuf>, ExitCode> {
         if input.is_dir() {
             let mut found = Vec::new();
             if let Err(e) = walk(input, &mut found) {
-                eprintln!("error: {} を読めない: {e}", input.display());
+                eprintln!("error: {}", io_error(input, false, &e));
                 return Err(ExitCode::from(2));
             }
             found.sort();
@@ -437,10 +496,73 @@ fn expand_inputs(inputs: &[PathBuf]) -> Result<Vec<PathBuf>, ExitCode> {
 fn read_stdin() -> Result<String, ExitCode> {
     let mut text = String::new();
     std::io::Read::read_to_string(&mut std::io::stdin(), &mut text).map_err(|e| {
-        eprintln!("error: 標準入力を読めない: {e}");
+        eprintln!("error: 標準入力を読めない: {}", io_reason(&e));
         ExitCode::from(2)
     })?;
     Ok(text)
+}
+
+/// 入出力の誤りの理由（`os error 2` のような素の表示は出さない）。
+fn io_reason(e: &std::io::Error) -> String {
+    use std::io::ErrorKind::*;
+    match e.kind() {
+        NotFound => "見つからない".to_string(),
+        PermissionDenied => "権限がない".to_string(),
+        IsADirectory => "ディレクトリである".to_string(),
+        NotADirectory => "途中のパスがディレクトリではない".to_string(),
+        InvalidData => "UTF-8 の文字列として読めない".to_string(),
+        _ => {
+            let text = e.to_string();
+            text.split(" (os error").next().unwrap_or(&text).to_string()
+        }
+    }
+}
+
+/// 「<パス> を読めない: 見つからない」「<パス> に書けない: …」の形にそろえる。
+fn io_error(path: &Path, writing: bool, e: &std::io::Error) -> String {
+    let op = if writing {
+        "に書けない"
+    } else {
+        "を読めない"
+    };
+    format!("{} {op}: {}", path.display(), io_reason(e))
+}
+
+/// 結果の書き出し先（ファイル）を、計算の前に確かめる。無ければ作って消す。既にあるものは変えない（追記で開くだけ）。
+fn check_writable_file(path: &Path) -> Result<(), String> {
+    if path.is_dir() {
+        return Err(format!("{} に書けない: ディレクトリである", path.display()));
+    }
+    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty())
+        && !parent.is_dir()
+    {
+        return Err(format!(
+            "{} に書けない: 親のフォルダ {} が無い",
+            path.display(),
+            parent.display()
+        ));
+    }
+    let existed = path.exists();
+    std::fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(path)
+        .map_err(|e| io_error(path, true, &e))?;
+    if !existed {
+        let _ = std::fs::remove_file(path);
+    }
+    Ok(())
+}
+
+/// 書き出し先のディレクトリを、計算の前に作る（無ければ親ごと。ファイルを指していたら誤り）。
+fn prepare_out_dir(dir: &Path) -> Result<(), String> {
+    if dir.exists() && !dir.is_dir() {
+        return Err(format!(
+            "{} に書けない: ディレクトリではない",
+            dir.display()
+        ));
+    }
+    std::fs::create_dir_all(dir).map_err(|e| io_error(dir, true, &e))
 }
 
 /// S130: `path` から上へたどって最初の `globe-mode.toml`（無ければ既定）。読めない・誤りがあれば終了コード 2。
@@ -526,7 +648,7 @@ fn fmt(
             Ok(out) => match std::fs::write(path, out) {
                 Ok(()) => changed += 1,
                 Err(e) => {
-                    eprintln!("error: {name} に書けない: {e}");
+                    eprintln!("error: {}", io_error(path, true, &e));
                     failed += 1;
                 }
             },
@@ -679,7 +801,7 @@ fn read(path: &PathBuf) -> Result<(String, String), ExitCode> {
     match std::fs::read_to_string(path) {
         Ok(text) => Ok((path.display().to_string(), text)),
         Err(e) => {
-            eprintln!("error: {} を読めない: {e}", path.display());
+            eprintln!("error: {}", io_error(path, false, &e));
             Err(ExitCode::from(2))
         }
     }
@@ -1137,6 +1259,10 @@ fn fmu_export(
     out: &std::path::Path,
     options: &globe_mode::FmuOptions,
 ) -> ExitCode {
+    if let Err(message) = prepare_out_dir(out) {
+        eprintln!("error: --out {message}");
+        return ExitCode::from(2);
+    }
     let Loaded { mut ws, texts } = match load_db(files, library) {
         Ok(Ok(v)) => v,
         Ok(Err(diags)) => return report_early_failure(model, &diags, false),
@@ -1201,18 +1327,12 @@ fn report_early_failure(model: &str, diags: &[Diagnostic], json: bool) -> ExitCo
     ExitCode::from(1)
 }
 
-fn graph(inputs: &[PathBuf], model: &str, depth: u32, json: bool) -> ExitCode {
-    let files = match expand_inputs(inputs) {
-        Ok(f) => f,
+fn graph(inputs: &[PathBuf], library: &[PathBuf], model: &str, depth: u32, json: bool) -> ExitCode {
+    let Loaded { mut ws, .. } = match load_db(inputs, library) {
+        Ok(Ok(v)) => v,
+        Ok(Err(diags)) => return report_early_failure(model, &diags, json),
         Err(code) => return code,
     };
-    let mut ws = Workspace::new();
-    for f in &files {
-        match read(f) {
-            Ok((name, text)) => ws.set_file(&name, text),
-            Err(code) => return code,
-        }
-    }
     match ws.graph(model, depth) {
         Ok(g) if json => {
             println!(
@@ -1287,6 +1407,7 @@ fn print_diagnostics(diags: &[Diagnostic], texts: &HashMap<String, String>, json
         );
         return;
     }
+    let (diags, hidden) = shown(diags);
     for d in diags {
         let place = match (&d.file, d.range) {
             (Some(f), Some(r)) => {
@@ -1322,4 +1443,30 @@ fn print_diagnostics(diags: &[Diagnostic], texts: &HashMap<String, String>, json
             println!("    note: {n}");
         }
     }
+    if let Some(line) = hidden_text(&hidden) {
+        println!("{line}");
+    }
+}
+
+/// info を除いた診断と、省いた info（`-v` なら省かない）。
+fn shown(diags: &[Diagnostic]) -> (Vec<&Diagnostic>, Vec<&Diagnostic>) {
+    if VERBOSE.load(Ordering::Relaxed) {
+        return (diags.iter().collect(), Vec::new());
+    }
+    diags.iter().partition(|d| d.severity != Severity::Info)
+}
+
+/// 省いた info の 1 行（件数とコード）。
+fn hidden_text(hidden: &[&Diagnostic]) -> Option<String> {
+    if hidden.is_empty() {
+        return None;
+    }
+    let mut codes: Vec<&str> = hidden.iter().map(|d| d.code).collect();
+    codes.sort_unstable();
+    codes.dedup();
+    Some(format!(
+        "info {} 件を省いた（{}。-v で全部表示）",
+        hidden.len(),
+        codes.join(", ")
+    ))
 }
