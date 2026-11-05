@@ -4,7 +4,8 @@
 
 この文書は上流への報告の正典。下書きの本文（英語、issue にそのまま貼れる形）と、作った経緯は [research/upstream/README.md](research/upstream/README.md) にある。表の数字は下書きから写した（確認日 2026-11-02。31・32 と 28 の追記は 2026-11-03）。28〜32 は 2026-11-03（S113）に、17〜27 は同じ日（S115）に Rumoca の最新のリリース v0.10.4 で確かめ直し、再現する件に日本語版（`_jp.md`）と 1 枚の解説（`_jp.html`）を足した。33 は AixLib 向け（S113）。01〜16 も 2026-11-05（S162）に v0.10.4 で確かめ直した（CLI で回せる件は回し、API だけの件は Python 束縛かソースの比較で確かめた。各件の本文の「Re-check」の節に方法を書いた）。
 
-- **出すのはユーザー。エージェントは出さない**（`gh issue create` を使わない）。
+- **出すのはユーザー。エージェントは出さない**（`gh issue create` を使わない）。当面は提出せず貯める（2026-11-05）。
+- **Rumoca の rev は GlobeMode の版ごとに固定する**。版の途中では上げず、上げるのは次の版の作業の最初（0.2.0 は v0.10.2 のまま。[ADR-0002](adr/0002-rumoca-adapter.md) の付記）。上流の更新は毎日 1 回、読むだけの定期実行で確かめる。
 - 下書きの環境は Rumoca v0.10.2（rev `276e82bd`）、MSL 4.1.0。01〜33 は v0.10.4（タグのコミット `9c8c56fc`、2026-11-02 公開、2026-11-05 でも最新、<https://github.com/CogniPilot/rumoca/releases/tag/v0.10.4>）でも確かめた。Rumoca の main（`91d6e936`、v0.10.4 の 10 コミット後、確認日 2026-11-03。S162 は `590ac739`、2026-11-05）はビルドしていない【未確認】（S162 は 05・06・10〜12・14 で main のソースを v0.10.4 と比べた）。diffsol の main は `883d9a09`（2026-11-02）。Rumoca: <https://github.com/CogniPilot/rumoca>、diffsol: <https://github.com/martinjrobins/diffsol>（確認日 2026-11-02）。
 - 影響の本数の出典:
   - 「MSL」は GlobeMode の MSL 4.1.0 の検査（S011 以降、[msl-sim.md](msl-sim.md)・[research/msl-sim-failures.md](research/msl-sim-failures.md)）。

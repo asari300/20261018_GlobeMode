@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S172 版を 0.2.0 に揃える — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S172 版を 0.2.0 に揃える">
+
+<section class="slide" id="S01">
+  <span class="tag">S172 · 2026-11-05 · 運用</span>
+  <h1>版を 0.2.0 に揃える</h1>
+  <p class="lead">0.0.1・0.1.0・0.0.5 と混在していた版を、公開せずに 1 つにした</p>
+  <div class="big">次の版は <b>0.2.0</b>。タグも Release も作らない</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>版を書いている場所を洗い出し、すべて 0.2.0 にする</li>
+    <li>lock は自分の版の行だけが変わるようにする</li>
+    <li>Rumoca の rev は版ごとに固定する、と正典に書く</li>
+    <li>公開はしない。上流の issue は提出せず貯める</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">前の値</span>
+  <h1>混在していた版</h1>
+  <table>
+    <tr><th>前の値</th><th>場所</th></tr>
+    <tr><td>0.0.1</td><td>Cargo（ルート・desktop・leptos・dioxus・web-*）、Tauri、Svelte、Elixir の本体</td></tr>
+    <tr><td>0.1.0</td><td>wheel の pyproject、fastapi_fmt、streamlit、Astro、phoenix_fmt、Gleam の本体</td></tr>
+    <tr><td>0.0.5</td><td>VS Code の拡張</td></tr>
+    <tr><td>1.0.0</td><td>Gleam の wisp_fmt</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table>
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>版の配り方</td><td>仕組みを作らず、表で残す</td><td>年に数回の作業。表があれば grep をやり直さない</td></tr>
+    <tr><td>Rumoca の rev</td><td>版ごとに固定</td><td>版の途中で差が混ざらない。v0.10.2 のまま</td></tr>
+    <tr><td>Modelica の package.mo</td><td>上げない</td><td>ライブラリ自身の版で、製品の版ではない</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">結果</span>
+  <h1>lock の差分</h1>
+  <div class="kpis">
+    <div class="kpi"><span class="n">0</span><span class="l">動いた他人の依存</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">タグ・Release</span></div>
+    <div class="kpi"><span class="n">0.2.0</span><span class="l">全パッケージの版</span></div>
+  </div>
+  <p>Cargo.lock は <code>cargo update -w</code>、uv.lock は <code>uv lock</code>。差分は自分のパッケージの <code>version</code> の行だけ。</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>公開の前に残る、ユーザーの判断</h1>
+  <ul>
+    <li>公開の時期（タグ・Release・Pages・PyPI・Marketplace）</li>
+    <li>署名と更新の鍵</li>
+    <li><code>release.yml</code> の dry run（Desktop の bundle を含む形では未実行）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

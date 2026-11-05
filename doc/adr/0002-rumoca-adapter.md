@@ -83,3 +83,9 @@
 
   - 自前の der の形の最大マッチングは、MSL の全例題の最初の実行で、Rumoca の `analyze` と 381 本中 381 本が一致した（[msl-funnel.md](../sessions/S005-check-queries/msl-funnel.md)）。
   - MSL の例題 20 本での Rumoca の CLI との突き合わせ（`cargo xtask msl-compare`）: 20 本中 20 本が一致（両方とも成功 17 本。CoupledClutches と Friction の ED001 は GM-U0003 として表示されるが、成否の判定は同じ）。
+
+## 付記（S172、2026-11-05）: rev は GlobeMode の版ごとに固定する
+
+- GlobeMode の版ごとに Rumoca の rev を固定する。版の途中では上げない。0.2.0 が固定する rev は、いまの v0.10.2（`276e82bd`）のまま。
+- 上げるのは次の版の作業の最初で、`mise run msl:funnel`・`msl:sim`・`msl:compare` の差を記録してから。
+- 上流の更新は毎日 1 回、読むだけの定期実行で確かめ、影響がありそうなときだけ知らせる（2026-11-05 から）。上流の issue は提出せず貯める（[upstream.md](../upstream.md)）。

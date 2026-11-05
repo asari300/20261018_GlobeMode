@@ -97,6 +97,30 @@ doc/  log/                      文書と記録
 - wasm と Android の target は mise の rust の `targets` で宣言する。Python 本体は uv が `.python-version` から取得する。手順は [mise-setup.html](mise-setup.html)。
 - wasm の糊を作る `wasm-bindgen` の CLI も mise で入れる（`"github:wasm-bindgen/wasm-bindgen" = "0.2.129"`、S012）。Cargo.toml の `wasm-bindgen = "=0.2.129"` と同じ版でないと糊が作れないので、上げるときは両方を同じにする。getrandom 0.3 の wasm の backend は `.cargo/config.toml` の `[target.wasm32-unknown-unknown]` の rustflags（`getrandom_backend="wasm_js"`）と getrandom の feature `wasm_js`（`globe-mode-exec` が wasm32 のときだけ直接の依存にして有効にする）で与える（[ADR-0014](adr/0014-session-route-wasm.md)）。
 
+### 2.4 版を書いている場所（S172）
+
+GlobeMode の版は 0.2.0（前は Cargo と Tauri が 0.0.1、Python が 0.1.0、VS Code の拡張が 0.0.5 とばらばらだった）。上げるときは次の表を全部直す。lock は自分のパッケージの行だけが変わる（Rust は `cargo update -w`、Python は `uv lock`。依存の版を上げない）。版は 1 か所から配らない（スクリプトを作らない）。
+
+| 場所 | 書き方 | 前の値 |
+| --- | --- | --- |
+| `Cargo.toml`（ルート） | `[workspace.package] version` と、`[workspace.dependencies]` の `globe-mode-*` の path 依存の `version`（14 行）。`src/Rust/mod/*` と `xtask` は `version.workspace = true` | 0.0.1 |
+| `src/Rust/apps/desktop/Cargo.toml`、`tauri.conf.json` | Tauri の bundle と updater の版（`release.yml` はタグの push のとき `tauri.conf.json` をタグに合わせる）。`tauri.android.conf.json` と `gen/android` は版を持たない | 0.0.1 |
+| `src/Rust/apps/experimental/{leptos,dioxus}/Cargo.toml` | `version` と `globe-mode` の path 依存の `version` | 0.0.1 |
+| `src/Rust/apps/web-{actix,axum,loco,rocket}/Cargo.toml`（と各 README の `globe-mode-fmt` の版） | `version` | 0.0.1 |
+| `Cargo.lock`（ルート、desktop、leptos、dioxus、web-*） | 自分の crate の `version` の行だけ | 0.0.1 |
+| `pyproject.toml`、`uv.lock` | wheel の版（`release.yml` はタグの push のときタグに合わせ、dry-run は `pyproject.toml` のまま） | 0.1.0 |
+| `src/Python/{fastapi_fmt,streamlit}/pyproject.toml`、各 `uv.lock` | 試験アプリの版 | 0.1.0 |
+| `src/Svelte/package.json` | UI の版（`private`） | 0.0.1 |
+| `src/VSCode/globe-mode/package.json` | 拡張の版。`pack_vsix.py` が VSIX の名前と manifest に使う | 0.0.5 |
+| `src/Astro/fmt/package.json` | 試験アプリの版 | 0.1.0 |
+| `src/Elixir/globe_mode/mix.exs`、`src/Elixir/phoenix_fmt/mix.exs` | `version:` | 0.0.1、0.1.0 |
+| `src/Gleam/globe_mode/gleam.toml`、`src/Gleam/wisp_fmt/gleam.toml` | `version =` | 0.1.0、1.0.0 |
+| 版を持たないもの | `src/Julia`・`src/Zig`（`Project.toml`・`build.zig.zon` が無い）、`pnpm-lock.yaml`・`mix.lock`・Gleam の `manifest.toml`（自分の版を書かない） | — |
+| 実行時に Cargo の版を読むもの | CLI の `--version`（clap の `version`）、LSP の `serverInfo.version` と wasm の版は `CARGO_PKG_VERSION` から取る（書き写していない）。C ABI と FMU の `generationTool`（`GlobeMode globe-mode-fmu`）は版を返さない | — |
+| 版でない 0.0.1 | `src/Modelica/GlobeModeValidation/package.mo` の `version="0.0.1"`（Modelica ライブラリ自身の版。試験 `globe-mode-db/tests/switching.rs` が使う）。上げない | 0.0.1 |
+
+Rumoca の rev は GlobeMode の版ごとに固定する（[ADR-0002](adr/0002-rumoca-adapter.md) の付記）。
+
 ## 3. 中核の設計
 
 ### 3.1 フロントエンドと Rumoca アダプタ

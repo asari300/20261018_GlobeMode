@@ -55,7 +55,7 @@ cargo fmt --check
 | serde | 1.0.229 | MIT OR Apache-2.0 | <https://crates.io/crates/serde> | 2026-10-31 |
 | serde_json | 1.0.154 | MIT OR Apache-2.0 | <https://crates.io/crates/serde_json> | 2026-10-31 |
 
-- `globe-mode-fmt` 0.0.1（この repo の `src/Rust/mod/globe-mode-fmt`、path 依存、MIT OR Apache-2.0）も使います。
+- `globe-mode-fmt` 0.2.0（この repo の `src/Rust/mod/globe-mode-fmt`、path 依存、MIT OR Apache-2.0）も使います。
 - ライセンスは各 crate の `Cargo.toml` の `license` 欄を `cargo metadata` で読んだ値です。
 - actix-web は既定の機能を止めて（`default-features = false`）、`macros` だけを使います。
 

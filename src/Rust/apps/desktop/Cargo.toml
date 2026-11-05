@@ -3,7 +3,7 @@
 # 手元と差分 CI の `cargo build --workspace` に巻き込まないため。ビルドは .github/workflows/desktop.yml が行う。
 [package]
 name = "globe-mode-desktop"
-version = "0.0.1"
+version = "0.2.0"
 description = "GlobeMode Desktop: a Tauri shell that talks to the `globe lsp` sidecar"
 edition = "2024"
 license = "MIT OR Apache-2.0"

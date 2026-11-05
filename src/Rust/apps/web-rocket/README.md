@@ -60,7 +60,7 @@ cargo deny --manifest-path Cargo.toml --config ../../../../deny.toml check licen
 | --- | --- | --- | --- | --- |
 | rocket | 0.5.2（features: `json`） | MIT OR Apache-2.0 | <https://crates.io/crates/rocket> | 2026-10-31 |
 | serde | 1.0.229（features: `derive`） | MIT OR Apache-2.0 | <https://crates.io/crates/serde> | 2026-10-31 |
-| globe-mode-fmt | 0.0.1（この repo の `src/Rust/mod/globe-mode-fmt`、path 依存） | MIT OR Apache-2.0 | <https://github.com/asari300/20261018_GlobeMode> | 2026-10-31 |
+| globe-mode-fmt | 0.2.0（この repo の `src/Rust/mod/globe-mode-fmt`、path 依存） | MIT OR Apache-2.0 | <https://github.com/asari300/20261018_GlobeMode> | 2026-10-31 |
 
 - ライセンスは `cargo metadata` の license 欄の値です（2026-10-31）。
 - 推移的な依存に、`r-efi`（`MIT OR Apache-2.0 OR LGPL-2.1-or-later`）が 1 つあります。MIT を選べるので許可の範囲です（`getrandom` が引く UEFI 向けの小さな crate で、Linux のビルドには入りません）。
