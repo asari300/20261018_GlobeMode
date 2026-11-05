@@ -63,3 +63,14 @@ def test_library_model_name_hint_reaches_python_check():
     d = res["diagnostics"][0]
     assert d["code"] == "GM-E1002"
     assert any(n.startswith("候補") and DECAY in n for n in d["notes"]), d
+
+
+def test_check_and_simulate_carry_a_one_line_summary():
+    """S184: CLI の最後の行と同じ 1 行が、応答の `summary` で Python にも出る。"""
+    ws = workspace()
+    assert ws.check("A")["summary"] == "A: OK（S0〜S10 を通過）"
+    assert "summary" not in ws.simulate("A")  # 成功には付けない
+    ws.set_file("Bad.mo", "model Bad Real x(start = 1); Real y; equation der(x) = -x; end Bad;")
+    assert ws.check("Bad")["summary"].startswith("Bad: NG（S5 ")
+    res = ws.simulate("Bad")
+    assert "最初の error: GM-E5002" in res["summary"]

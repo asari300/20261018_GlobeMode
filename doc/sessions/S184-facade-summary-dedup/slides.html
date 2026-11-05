@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S184 診断の重複と結果の 1 行 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S184 診断の重複と結果の 1 行">
+
+<section class="slide" id="S01">
+  <span class="tag">S184 · 2026-11-06 · P4</span>
+  <h1>重複と 1 行の要約を facade に寄せる</h1>
+  <p class="lead">S182・S183 が「CLI の中だけ」「置き場が無い」とした 2 点</p>
+  <div class="big">全部の面が同じ応答を見る 1 か所で直す</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">原因</span>
+  <h1>重複は CLI だけの問題ではなかった</h1>
+  <table class="compact">
+    <tr><th>見た所</th><th>結果</th></tr>
+    <tr><td>facade の <code>simulate</code>（除く処理を外して確認）</td><td class="ng"><code>GM-E5002</code> が 2 つ。注だけ違う</td></tr>
+    <tr><td>wasm・LSP・UI</td><td class="ng">同じ応答なので同じ重複</td></tr>
+    <tr><td>Python</td><td class="ok"><code>simulate</code> に <code>force</code> が無く出ない</td></tr>
+    <tr><td><code>Over</code>（<code>GM-E8001</code>）</td><td class="ok">強行でコンパイルが通るので重複しない</td></tr>
+  </table>
+  <div class="card">強行してもコンパイルに失敗すると、検査の診断とコンパイルの診断が両方積まれる</div>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">直し方</span>
+  <h1>facade の最後で 1 回だけ除く</h1>
+  <ul>
+    <li><code>simulate_observed</code> の最後で、コード・位置・文面が同じ診断は最初の 1 つだけ残す</li>
+    <li>最初を残すので、注の多い検査側が残る</li>
+    <li>CLI の同じ処理は消した（二重管理をやめる）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">要約</span>
+  <h1>結果の 1 行は protocol に 1 つ</h1>
+  <table class="compact">
+    <tr><th>場合</th><th><code>summary</code></th></tr>
+    <tr><td>検査を通った</td><td><code>RC: OK（S0〜S10 を通過）</code></td></tr>
+    <tr><td>検査で止まった</td><td><code>Unbalanced: NG（S5 方程式数と変数数 で停止）</code></td></tr>
+    <tr><td>実行しない</td><td><code>…。最初の error: GM-E5002 …</code> か <code>最初の未対応: GM-U…</code></td></tr>
+    <tr><td>強行しても実行できない</td><td><code>DAE まで変換できないので実行できない。最初の error: …</code></td></tr>
+  </table>
+  <div class="card">文面は今の CLI のまま。CLI の出力は 1 文字も変わらない</div>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">図</span>
+  <h1>同じ関数を全部の面が見る</h1>
+  <svg class="fig" viewBox="0 0 800 260" role="img" aria-label="protocol の要約の関数を facade が応答に入れ、CLI と各面が使う図">
+    <rect class="svg-box-accent" x="40" y="90" width="260" height="80" rx="10"/>
+    <text class="svg-text-b" x="170" y="136" text-anchor="middle">protocol summary_line</text>
+    <line class="svg-line" x1="300" y1="130" x2="440" y2="130"/>
+    <rect class="svg-box" x="440" y="90" width="140" height="80" rx="10"/>
+    <text class="svg-text-b" x="510" y="136" text-anchor="middle">facade</text>
+    <line class="svg-line" x1="580" y1="115" x2="660" y2="60"/>
+    <line class="svg-line" x1="580" y1="130" x2="660" y2="130"/>
+    <line class="svg-line" x1="580" y1="145" x2="660" y2="200"/>
+    <text class="svg-text" x="665" y="64">Python の dict</text>
+    <text class="svg-text" x="665" y="134">LSP・wasm・UI</text>
+    <text class="svg-text" x="665" y="204">C ABI・NIF</text>
+  </svg>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">結果</span>
+  <h1>試験と持ち越し</h1>
+  <ul>
+    <li>facade 3 本（重複・check 2 文面・simulate 3 文面）、LSP・wasm・Python に 1 本ずつ</li>
+    <li>CLI の <code>--json</code> の snapshot は <code>summary</code> の 1 キーだけ変わった</li>
+    <li>応答を厳密に読む所は無かった（読み戻さず、既知のキーを引くだけ）</li>
+    <li>持ち越し: UI の表示を <code>summary</code> に置き換える</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

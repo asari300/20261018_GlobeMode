@@ -109,7 +109,8 @@ class Workspace:
         """モデル（完全修飾名）を検査する（S0〜S10。`globe check --json` と同じ形）。
 
         戻り値: `passed`（bool）・`failed_stage`・`diagnostics`（`code`・`severity`・`stage`・`message` の
-        dict のリスト）・`balance`・`dae`・`structure`・`s6`〜`s10`・`init`・`flat`。
+        dict のリスト）・`balance`・`dae`・`structure`・`s6`〜`s10`・`init`・`flat`・`summary`（結果の 1 行。
+        `globe check` の最後の行と同じ。例 `RC: OK（S0〜S10 を通過）`）。
         **モデルの誤りは例外にならない**: 未知のモデルも `passed: False` と `diagnostics`（`GM-E1001` など）で返る。
 
             res = ws.check("RC")
@@ -159,7 +160,8 @@ class Workspace:
         **未知のキー（`stoptime` など）は `TypeError`**（使えるキーを添える）、値の型の誤りは `ValueError`（どの設定かを言う）。
 
         戻り値: `ok`（結果があり Error が無い）・`refused`（実行しなかった理由）・`diagnostics`・`settings`・`termination`・
-        `stats`・`final`（最後の時刻の値）・`csv`・`timings_ms`。**モデルの誤り（未知のソルバ名、実行できないモデル）は例外にせず**
+        `stats`・`final`（最後の時刻の値）・`csv`・`timings_ms`・`summary`（実行しなかった・失敗したときだけ。理由と最初の error の 1 行で、
+        `globe simulate` の最後の行と同じ）。**モデルの誤り（未知のソルバ名、実行できないモデル）は例外にせず**
         `ok: False` と `diagnostics` で返る。
 
             res = ws.simulate("RC", stop_time=5, solver="auto", parameters={"R": 2.0})

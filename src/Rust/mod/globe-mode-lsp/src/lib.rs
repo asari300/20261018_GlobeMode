@@ -1175,6 +1175,15 @@ mod tests {
         );
         let r = s.handle(json!({"id": 1, "method": "globe/check", "params": {"model": "Over"}}));
         assert_eq!(r[0]["result"]["can_force"], true, "{}", r[0]);
+        // S184: 結果の 1 行は応答の `summary`
+        assert!(
+            r[0]["result"]["summary"]
+                .as_str()
+                .unwrap()
+                .starts_with("Over: NG（S8 "),
+            "{}",
+            r[0]
+        );
         let mut run = |force: bool| {
             s.handle(
                 json!({"id": 2, "method": "globe/simulate", "params": {"request": {
@@ -1190,6 +1199,14 @@ mod tests {
             forced[0]
         );
         assert!(forced[0]["result"].get("can_force").is_none());
+        assert!(
+            refused[0]["result"]["summary"]
+                .as_str()
+                .unwrap()
+                .contains("force で強行できる）。最初の error: GM-E8001 "),
+            "{}",
+            refused[0]
+        );
     }
 
     #[test]

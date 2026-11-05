@@ -19,6 +19,7 @@
 | lint | `lint`（S111） | `gm_lint`（S111） | C と同じ（S111） | `lint`（S111） | `lint`（S111） | `lint`（S111） | `lint`（S111） | `lint` | `globe/lint` | `globe lint` |
 | graph | `graph` | `gm_graph` | C と同じ | `graph`（S111） | `graph` | `graph` | `graph` | `graph` | `globe/graph` | `globe graph` |
 | outline・deps・flat（読み取り。S183 で追記） | `outline` / `deps` / `flat` | — | — | — | — | — | `Workspace.outline` / `deps` / `flat`（S183。Python だけ） | — | `textDocument/documentSymbol`（outline だけ） | `globe outline` / `deps` / `flat` |
+| 結果の 1 行 `summary`（S184 で追記） | `CheckResponse.summary`・`SimulateResponse.summary`（protocol の `summary_line`・`refused_summary`） | `check`・`simulate` の JSON に出る | 同じ（JSON） | 同じ（JSON） | 同じ（JSON） | 同じ（JSON） | 同じ（dict のキー `summary`） | 同じ（JSON） | `globe/check`・`globe/simulate` の応答 | 最後の行（`--json` の `check` にも出る） |
 | MSL の全部読み | `with_libraries_full` / `with_library_sources` | — | — | — | — | — | — | `Workspace(json, name, true)` | — | — |
 | MSL の分割読み | `with_libraries`（既定）/ `with_library_sources_split` | `gm_workspace_new(libraries_json)` | C と同じ | `Workspace(libraries)` | `new(libraries)` | `new(libraries)` | `Workspace(libraries=…)` | `Workspace(json)`（既定） | `globe lsp -L` | `-L` |
 | 設定の override（`parameters` など） | `SimSettings` | `settings_json` | C と同じ | `settings` | `settings`（map） | `settings_json` | `**settings` | `request_json` の `settings` | `request.settings` | `--param` ほか |

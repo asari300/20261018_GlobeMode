@@ -51,6 +51,8 @@ pub struct CheckResponse {
     /// 強行（`force`）で実行に進める（S173。[`force_helps`]）。出るのは true のときだけ
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub can_force: bool,
+    /// 結果を人が読む 1 行（`globe check` の最後の行と同じ。S184。[`CheckResponse::summary_line`]）
+    pub summary: String,
 }
 
 /// Error がすべて `GM-U…`（コンパイラが未対応）のとき、モデルの誤りと分けて見せる要約（S173）。
@@ -70,7 +72,50 @@ pub fn force_helps(diagnostics: &[Diagnostic]) -> bool {
     errors.peek().is_some() && errors.all(|d| d.code == globe_mode_core::codes::INIT_OVERDETERMINED)
 }
 
+/// 実行しなかった理由の後ろに足す、最初の error の診断のコードと 1 文（Error が無ければ空）。
+fn first_error(diagnostics: &[Diagnostic]) -> String {
+    let Some(d) = diagnostics.iter().find(|d| d.is_error()) else {
+        return String::new();
+    };
+    let line = d.message.lines().next().unwrap_or_default();
+    let line = match line.char_indices().nth(100) {
+        Some((i, _)) => format!("{}…", &line[..i]),
+        None => line.to_string(),
+    };
+    let kind = if d.is_unsupported() {
+        "最初の未対応"
+    } else {
+        "最初の error"
+    };
+    format!("。{kind}: {} {line}", d.code)
+}
+
+/// 実行しなかった・失敗したときの 1 行（`globe simulate` の最後の行と同じ。S184。成功なら無い）。
+pub fn refused_summary(model: &str, reason: &str, diagnostics: &[Diagnostic]) -> String {
+    format!("{model}: {reason}{}", first_error(diagnostics))
+}
+
 impl CheckResponse {
+    /// 検査の結果の 1 行（`globe check` の最後の行。通った段階か、止まった段階。S184）。
+    pub fn summary_line(&self) -> String {
+        let model = &self.model;
+        if let Some(stage) = self.failed_stage {
+            return format!("{model}: NG（{stage:?} {} で停止）", stage.title());
+        }
+        let through = if self.s10.is_some() && self.s9.is_some() {
+            "S0〜S10 を通過"
+        } else if self.s8.is_some() {
+            "S0〜S8 を通過"
+        } else if self.s7.is_some() {
+            "S0〜S7 を通過。S8 は判定できなかった"
+        } else if self.s6.is_some() {
+            "S0〜S6 を通過。S7 以降は判定できなかった"
+        } else {
+            "S0〜S5 を通過。S6 以降は判定できなかった"
+        };
+        format!("{model}: OK（{through}）")
+    }
+
     /// 検査に入る前に失敗した（ライブラリを読めないなど）ときの結果。段階は Error の最初の段階（無ければ S1）。
     pub fn failed(model: impl Into<String>, diagnostics: Vec<Diagnostic>) -> Self {
         let failed_stage = diagnostics
@@ -79,7 +124,7 @@ impl CheckResponse {
             .map(|d| d.stage)
             .min()
             .unwrap_or(Stage::S1);
-        CheckResponse {
+        let mut response = CheckResponse {
             model: model.into(),
             passed: false,
             failed_stage: Some(failed_stage),
@@ -98,7 +143,10 @@ impl CheckResponse {
             can_force: force_helps(&diagnostics),
             diagnostics,
             notes: Vec::new(),
-        }
+            summary: String::new(),
+        };
+        response.summary = response.summary_line();
+        response
     }
 }
 
@@ -178,6 +226,9 @@ pub struct SimulateResponse {
     /// 検査の Error で実行しなかった（`refused`）が、強行なら進める見込み（[`force_helps`]）。出るのは true のときだけ
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub can_force: bool,
+    /// 実行しなかった・失敗した理由の 1 行（`globe simulate` の最後の行と同じ。S184。成功なら出ない。[`refused_summary`]）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
 }
 
 /// 列ごとの結果の並び（wasm の `simulate_columns`。S051）。時系列を CSV の文字列でなく、列ごとの `Float64Array` で渡すときの
@@ -222,7 +273,8 @@ mod tests {
                 "init",
                 "flat",
                 "diagnostics",
-                "notes"
+                "notes",
+                "summary"
             ]
         );
         assert_eq!(v["failed_stage"], serde_json::to_value(Stage::S1).unwrap());
