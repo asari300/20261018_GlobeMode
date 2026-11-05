@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S178 CLI・Python・他言語の使える流れの点検 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S178 CLI・Python・他言語の使える流れの点検">
+
+<section class="slide" id="S01">
+  <span class="tag">S178 · 2026-11-06 · 点検</span>
+  <h1>CLI・Python・他言語の使える流れの点検</h1>
+  <p class="lead">ブラウザ版の 2 回の点検と同じ方法で、UI 以外の面を利用者の目で通した</p>
+  <div class="big">通る流れは<b>全部通った</b>。穴は<b>誤った使い方のときの手がかり</b>にある</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">方法</span>
+  <h1>何をどう触ったか</h1>
+  <ul>
+    <li>CLI は main の先頭で release をビルドし直した（共有 target にあった globe は 0.0.1 で古かった）</li>
+    <li>自作の RC・日本語と空白のパス・MSL の例題 5 本と未対応の 1 本を、全副命令で</li>
+    <li>誤った使い方を 21 通り。終了コード・stdout と stderr・文面を表にした</li>
+    <li>Python は scratch の新しい venv。README の 5 行から、進捗と中断、marimo の書き出しまで</li>
+    <li>他言語は mise のタスクを 1 本ずつ回した。コードは変えていない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">通った流れ</span>
+  <h1>書いてあるとおりに動いた</h1>
+  <table class="compact">
+    <tr><th>面</th><th>結果</th></tr>
+    <tr><td>CLI</td><td>MSL 5 本の検査と実行が 1.2〜1.9 s。FMU（2.0・3.0・--build）、lsp も通った</td></tr>
+    <tr><td>Python</td><td>README の 5 行がそのまま通った（check 1.06 s、列 0.22 s）</td></tr>
+    <tr><td>marimo</td><td>sim_app・fmt_app の書き出しと marimo check がエラー無し</td></tr>
+    <tr><td>C・Zig・Julia・Elixir・Gleam</td><td>4 タスクとも成功（3〜12 s。ビルドは温まった状態）</td></tr>
+    <tr><td>panic</td><td>誤った使い方のどれでも 0 件</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">誤った使い方 1/2</span>
+  <h1>直し方に届かないもの</h1>
+  <table class="compact">
+    <tr><th>打ったもの</th><th>出たもの</th></tr>
+    <tr><td>-m PID_Controller（短い名前）</td><td>英語の原文 could not be compiled。候補なし</td></tr>
+    <tr><td>-L を忘れる</td><td>FILES が要ると言う。-L に触れない</td></tr>
+    <tr><td>-L に MSL のサブフォルダ</td><td>ModelicaServices.Machine.eps が解決できない</td></tr>
+    <tr><td>--start-time -2</td><td>unexpected argument。tip の「-- -2」は誤り</td></tr>
+    <tr><td>fmu export --out が書けない</td><td>No such file or directory。パスを言わない</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">誤った使い方 2/2</span>
+  <h1>黙って通るもの</h1>
+  <ul>
+    <li>fmt --check をパス無しで CI に書くと、標準入力を読んで何も検査せず終了コード 0</li>
+    <li>simulate を -o なしで回すと、結果を捨てる。案内も「書いた」の行も無い</li>
+    <li>書けない出力先は、計算の後で分かる（Chua で 1.6 s）</li>
+    <li>Python の simulate(stoptime=3) の打ち間違いは、そのまま実行される</li>
+    <li>Workspace("data/msl")（文字列）は 1 文字ずつ別のライブラリ</li>
+  </ul>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">機能の穴</span>
+  <h1>CLI と Python に足りないもの</h1>
+  <ul>
+    <li>未対応（GM-U）が誤りと同じ終了コード 1・NG。UI は S173 で分けた</li>
+    <li>Python の on_progress は既定のソルバ（bdf・auto・dopri45）では積分の中に届かず、True でも止まらない（8.7 s で完走）。ADR-0033 の既知の制約だが docstring に無い</li>
+    <li>Python は型・docstring・例外がばらばら。outline・flat・deps が無い</li>
+    <li>graph・deps・outline に -L が無い。MSL を取る道が CLI に無い</li>
+    <li>FMU --build のヘッダがどこにも無く、.so の名前が Rumoca_uuid</li>
+  </ul>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">順位</span>
+  <h1>上位 13</h1>
+  <table class="compact">
+    <tr><th>順</th><th>穴</th><th>見込み</th></tr>
+    <tr><td>1</td><td>ライブラリのモデル名の誤りに候補つきの日本語</td><td>S</td></tr>
+    <tr><td>2</td><td>-L の手がかり</td><td>S</td></tr>
+    <tr><td>3</td><td>fmt --check が CI で黙って通る</td><td>S（判断の後）</td></tr>
+    <tr><td>4</td><td>simulate の -o と書き出し先の事前検査</td><td>S</td></tr>
+    <tr><td>5〜8</td><td>負の数、ヘルプ、診断を畳む、内部の表示の漏れ</td><td>S</td></tr>
+    <tr><td>9〜13</td><td>未対応の終了コード、Python の型と例外、進捗の説明、CLI の面、FMU の入口</td><td>S〜M</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S08">
+  <span class="tag">WP の組</span>
+  <h1>ぶつからない組</h1>
+  <table class="compact">
+    <tr><th>組</th><th>触る所</th></tr>
+    <tr><td>A モデル名・-L</td><td>frontend の診断、main.rs の -L の検査、py の lib.rs</td></tr>
+    <tr><td>B CLI の入出力</td><td>main.rs・simulate.rs（B1 から B3 を順に。A1 が先）</td></tr>
+    <tr><td>C Python</td><td>__init__.py、globe-mode-py、test_api.py</td></tr>
+    <tr><td>D 文書・他言語</td><td>各 README、sim_app.py、.gitignore</td></tr>
+    <tr><td>E FMU</td><td>globe-mode-fmi の export.rs、xtask</td></tr>
+  </table>
+  <p class="foot">main.rs を触る WP は並行できない</p>
+</section>
+
+<section class="slide" id="S09">
+  <span class="tag">ユーザーの判断</span>
+  <h1>WP にしないもの</h1>
+  <ul>
+    <li>fmt のパス省略 + 非 TTY を「- のときだけ標準入力」に変えるか</li>
+    <li>未対応だけのとき終了コード 3 にするか</li>
+    <li>FMI のヘッダを同梱するか。Python の例外の階層。CLI に msl fetch を足すか</li>
+    <li>CLI・PyPI の公開、ヘルプと誤りの言語</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
