@@ -96,7 +96,6 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ### P8 リリース・運用
 
-- S176: `release.yml` に macOS（arm64）の `globe`・wheel・Desktop の .dmg を足した（署名・公証なし。【S176 のブランチの記述。main へのマージ後に確かめる】）。
 - S044: `globe` を linux x86_64・linux aarch64・windows x86_64 で配るワークフロー `release.yml`（タグ `v*` で Release、手動は dry-run、`SHA256SUMS` つき）、この `CHANGELOG.md`、Cargo の metadata、README の Install。
 - S045: 上流（Rumoca 11 件・diffsol 3 件）への issue の下書きを `doc/research/upstream/` に 14 件。ci.yml に毎週と手動の全体の検査のときだけ走る `rust-sundials`。
 - S052: 配布物に cargo-about で作ったサードパーティのライセンス表 `THIRD-PARTY.md` を同梱（`about.toml`・`about.hbs`、`release.yml` のジョブ `third-party`）。
