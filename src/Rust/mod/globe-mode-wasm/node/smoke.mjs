@@ -77,6 +77,12 @@ for (const solver of ["bdf", "dopri45", "auto"]) {
   const plain = cols(ws.simulate_columns(req));
   const observed = cols(ws.simulate_columns(req, (stage, time, start, stop) => seen.push({ stage, time, start, stop })));
   assert.deepEqual(observed, plain);
+  // S190: layout.defaults は既定で描く信号（状態）。names（time が先頭）の部分集合
+  const dc = ws.simulate_columns(req);
+  const lay = JSON.parse(dc.layout());
+  dc.free();
+  assert.deepEqual(lay.defaults, ["x"]);
+  assert.ok(lay.defaults.every((n) => lay.names.includes(n)));
   assert.equal(seen[0].stage, "lowering");
   assert.deepEqual(seen.at(-1), { stage: "integration", time: 1, start: 0, stop: 1 });
   // 関数が true を返すと止まり、そこまでの列と GM-I11004 を返す（S157）。push の戻り値（数）のような真の値では止まらない

@@ -12,7 +12,7 @@
 //! | --- | --- | --- |
 //! | `globe/check` | `{model}` | `CheckResponse` の JSON |
 //! | `globe/simulate` | `{request}`（`SimulateRequest` の JSON） | `SimulateResponse` の JSON |
-//! | `globe/simulateColumns` | `{request}` | `{response, layout, columns}`（S076。wasm の `simulate_columns` と同じ形。`response` に CSV は無く、`layout` は `ColumnsLayout`、`columns[i]` は列 `i` の数の配列で、有限でない値は null） |
+//! | `globe/simulateColumns` | `{request}` | `{response, layout, columns}`（S076。wasm の `simulate_columns` と同じ形。`response` に CSV は無く、`layout` は `ColumnsLayout`（`names`・`points`・既定で描く `defaults`。S190）、`columns[i]` は列 `i` の数の配列で、有限でない値は null） |
 //! | `globe/graph` | `{model, depth}` | graphology の JSON（`ConnectGraph::to_graphology`） |
 //! | `globe/format` | `{text, indent?, insertOrigin?, blankAroundSections?, formatHtml?}` | 整形後の本文（S053。壊れていれば -32000） |
 //! | `globe/lint` | `{text}` | `[{rule, line, column, message}]`（S053） |
@@ -458,7 +458,7 @@ impl Server {
                 match serde_json::from_value::<SimulateRequest>(params["request"].clone()) {
                     Ok(mut request) => {
                         request.no_csv = true;
-                        let Simulated { response, run, .. } =
+                        let Simulated { response, run, default_plot: defaults, .. } =
                             self.simulate(&request, params.get("workDoneToken"), cancel, notify);
                         let (names, columns) = match run {
                             Some(run) => {
@@ -477,7 +477,7 @@ impl Server {
                         // serde_json は NaN / Inf を null にする（UI の欠損と同じ）
                         reply(
                             id,
-                            json!({"response": response, "layout": ColumnsLayout { names, points }, "columns": columns}),
+                            json!({"response": response, "layout": ColumnsLayout { names, points, defaults }, "columns": columns}),
                         )
                     }
                     Err(e) => error(id, -32602, &format!("params.request: {e}")),
@@ -1241,6 +1241,7 @@ mod tests {
         assert_eq!(res["response"]["ok"], true, "{}", r[0]);
         assert!(res["response"]["csv"].is_null());
         assert_eq!(res["layout"]["names"], json!(["time", "x"]));
+        assert_eq!(res["layout"]["defaults"], json!(["x"])); // S190
         let cols = res["columns"].as_array().unwrap();
         let n = res["layout"]["points"].as_u64().unwrap() as usize;
         assert!(n > 1 && cols.iter().all(|c| c.as_array().unwrap().len() == n));

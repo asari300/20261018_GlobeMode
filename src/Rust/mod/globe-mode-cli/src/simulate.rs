@@ -260,6 +260,7 @@ pub(crate) fn simulate(args: SimulateArgs) -> ExitCode {
         response,
         run,
         compiled,
+        ..
     } = ws.simulate_with(&request, &globe_mode::now_ms);
 
     if let (Some(run), Some(path), Some(compiled)) = (&run, &args.output, &compiled)

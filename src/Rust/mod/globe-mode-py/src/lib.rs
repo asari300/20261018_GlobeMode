@@ -65,8 +65,11 @@ fn columns_of(simulated: globe_mode::Simulated) -> Result<Columns, String> {
         .iter()
         .map(|v| v.iter().flat_map(|x| x.to_le_bytes()).collect())
         .collect();
-    let (response, names) = (simulated.response, layout.names);
-    Ok((json(&response)?, names, columns))
+    // 既定で描く信号（S190）は結果の dict の `defaults` に添える
+    let mut response =
+        serde_json::to_value(&simulated.response).map_err(|e| format!("JSON: {e}"))?;
+    response["defaults"] = serde_json::json!(layout.defaults);
+    Ok((json(&response)?, layout.names, columns))
 }
 
 /// `Progress` を Python の dict に（`stage` は `"integration"` などの小文字、`time` は積分の段だけ）。

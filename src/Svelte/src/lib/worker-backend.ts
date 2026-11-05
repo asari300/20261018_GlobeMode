@@ -28,7 +28,7 @@ export class WorkerBackend implements Backend {
   }
   async simulateColumns(req: SimulateRequest, onProgress?: (p: Progress) => void): Promise<{ response: SimulateResponse; columns: Columns }> {
     const r = await this.#w.simulateColumns(req, { onProgress }); // layout.names は time を含む
-    return { response: r.response, columns: { names: r.layout.names.slice(1), points: r.layout.points, data: r.columns.map(gapNonFinite) } };
+    return { response: r.response, columns: { names: r.layout.names.slice(1), points: r.layout.points, defaults: r.layout.defaults, data: r.columns.map(gapNonFinite) } };
   }
   cancel(): void {
     this.#w.cancel();
