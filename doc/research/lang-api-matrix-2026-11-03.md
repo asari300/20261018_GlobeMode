@@ -60,7 +60,7 @@
 | Julia | 2 | C と同じ（graph・`load_dir` の包みは S111） |
 | Elixir | 2 | 全部読み・FMU export（format・lint は S111、列は S116、進捗と中断は S131） |
 | Gleam | 2 | Elixir と同じ |
-| Python | 1 | 全部読み（format・lint は S111、FMU export は S118、進捗と中断は S129） |
+| Python | 1 | 全部読み（format・lint は S111、FMU export は S118、進捗と中断は S129。S181 で未知の設定のキーを `TypeError`・docstring・型） |
 | wasm | 1 | FMU export（進捗と中断は S133） |
 | LSP | 2 | 全部読み・FMU export（進捗と中断は S136） |
 | CLI | 2 | 全部読み・進捗 |

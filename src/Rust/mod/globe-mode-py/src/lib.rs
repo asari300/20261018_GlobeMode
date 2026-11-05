@@ -236,6 +236,23 @@ impl Workspace {
     }
 }
 
+/// 設定のキーと値の型の見本（`SimSettings` を全部埋めた JSON）。Python が未知のキーと型の誤りを弾く元で、
+/// `SimSettings` に項目を足すとここがコンパイルできなくなる（Python 側の一覧と食い違わない）。
+#[pyfunction]
+fn settings_sample() -> String {
+    json(&globe_mode::SimSettings {
+        start_time: Some(0.0),
+        stop_time: Some(0.0),
+        tolerance: Some(0.0),
+        interval: Some(0.0),
+        solver: Some(String::new()),
+        max_wall_seconds: Some(0.0),
+        step: Some(0.0),
+        parameters: [(String::new(), 0.0)].into(),
+    })
+    .unwrap_or_default()
+}
+
 /// ソルバの登録表（JSON の配列）。
 #[pyfunction]
 fn solvers() -> PyResult<String> {
@@ -259,6 +276,7 @@ fn lint(text: &str) -> String {
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Workspace>()?;
     m.add_function(wrap_pyfunction!(solvers, m)?)?;
+    m.add_function(wrap_pyfunction!(settings_sample, m)?)?;
     m.add_function(wrap_pyfunction!(format, m)?)?;
     m.add_function(wrap_pyfunction!(lint, m)?)
 }
