@@ -82,7 +82,29 @@ impl Workspace {
         }
     }
 
-    /// `definition`・`hover` の共通: ライブラリの木とファイル組で Resolver を作って `f` を回し、JSON にする。
+    /// `definition`・`hover`・`references`・`rename` の共通: ライブラリの木とファイル組で Resolver を作って `f` を回す。
+    fn with_resolver<T>(
+        &self,
+        f: impl FnOnce(&mut globe_mode_lsp::definition::Resolver) -> T,
+    ) -> T {
+        let empty;
+        let (tree, files) = match &self.tree {
+            Some((t, f)) => (t, Some(f)),
+            None => {
+                empty = globe_mode_fmt::LibraryTree::new(std::iter::empty());
+                (&empty, None)
+            }
+        };
+        let mut scratch = globe_mode::Workspace::new();
+        f(&mut globe_mode_lsp::definition::Resolver {
+            ws: &self.inner,
+            tree,
+            scratch: &mut scratch,
+            read: &|f| files?.get(f).cloned(),
+        })
+    }
+
+    /// `definition`・`hover` の共通: `f` の結果を JSON にする。
     fn resolve(
         &self,
         f: fn(
@@ -97,27 +119,7 @@ impl Workspace {
         line: u32,
         character: u32,
     ) -> String {
-        let empty;
-        let (tree, files) = match &self.tree {
-            Some((t, f)) => (t, Some(f)),
-            None => {
-                empty = globe_mode_fmt::LibraryTree::new(std::iter::empty());
-                (&empty, None)
-            }
-        };
-        let mut scratch = globe_mode::Workspace::new();
-        let found = f(
-            &mut globe_mode_lsp::definition::Resolver {
-                ws: &self.inner,
-                tree,
-                scratch: &mut scratch,
-                read: &|f| files?.get(f).cloned(),
-            },
-            file,
-            text,
-            line,
-            character,
-        );
+        let found = self.with_resolver(|r| f(r, file, text, line, character));
         serde_json::to_string(&found).unwrap_or_default()
     }
 
@@ -341,12 +343,14 @@ impl Workspace {
 
     /// 文書 `file`（先に `set_file` で足しておく）の行・列にある名前の参照を LSP の Range の配列の JSON で返す（S161。LSP の `globe/references` と同じ形）。
     pub fn references(&self, file: &str, text: &str, line: u32, character: u32) -> String {
-        let o = self.inner.outline(file).and_then(|r| r.as_ref().ok());
-        globe_mode_lsp::definition::references_at(o, text, line, character).to_string()
+        self.with_resolver(|r| {
+            globe_mode_lsp::definition::references_at(r, file, text, line, character)
+        })
+        .to_string()
     }
 
     /// 名前を `new_name` に変える TextEdit（`{range, newText}`）の配列の JSON（S161。LSP の `globe/rename` と同じ形）。
-    /// 断る場合（部品でない・識別子でない・予約語・同じクラスに既にある）は理由を例外（文字列）で返す。
+    /// 断る場合（部品でもクラスでもない・別のファイルのクラス・識別子でない・予約語・同じ階層に既にある）は理由を例外（文字列）で返す。
     pub fn rename(
         &self,
         file: &str,
@@ -355,10 +359,11 @@ impl Workspace {
         character: u32,
         new_name: &str,
     ) -> Result<String, JsValue> {
-        let o = self.inner.outline(file).and_then(|r| r.as_ref().ok());
-        globe_mode_lsp::definition::rename_at(o, text, line, character, new_name)
-            .map(|v| v.to_string())
-            .map_err(js_error)
+        self.with_resolver(|r| {
+            globe_mode_lsp::definition::rename_at(r, file, text, line, character, new_name)
+        })
+        .map(|v| v.to_string())
+        .map_err(js_error)
     }
 
     /// ファイルを足すか、本文を差し替える。

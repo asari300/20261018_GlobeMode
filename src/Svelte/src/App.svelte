@@ -435,13 +435,22 @@
       failure = String((e as Error).message ?? e);
     }
   }
-  // S161: リネーム（F2）。入力欄を出し、確定すると backend.rename の編集を 1 回の dispatch（undo 1 回）で入れる。断られたら理由を failure に出す
+  // S161: リネーム（F2）。部品とクラス名（S166）。入力欄を出し、確定すると backend.rename の編集を 1 回の dispatch（undo 1 回）で入れる。断られたら理由を failure に出す
   let renaming = $state<{ line: number; character: number } | null>(null);
   let newName = $state("");
   let nameInput = $state<HTMLInputElement>();
   async function askRename(line: number, character: number) {
     const w = view.state.wordAt(view.state.selection.main.head);
     newName = w ? view.state.sliceDoc(w.from, w.to) : "";
+    failure = "";
+    try {
+      // S166: リネームできない所は入力欄を出さずに理由を出す（今の名前のまま rename を試し、断られたら理由が返る。編集は入れない）
+      await backend.setFile(file, view.state.doc.toString());
+      await backend.rename(file, line, character, newName);
+    } catch (e) {
+      failure = String((e as Error).message ?? e);
+      return;
+    }
     renaming = { line, character };
     await tick();
     nameInput?.select();

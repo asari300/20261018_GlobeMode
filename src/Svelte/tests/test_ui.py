@@ -9,7 +9,7 @@ dist/ を localhost で配り（CSP は index.html の meta と同じものを�
 長いモデルの実行で進捗（段と t の割合）が出て、「止める」で止まり（data-run="cancelled"）、ボタンが戻ることを確かめる（S133）。止めたあとプロットに途中までの列が残る（S157。dist を cross-origin isolated で配る）。
 Decay の `der(x)` の x で F12 を押すと宣言の行（`Real x`）へ動く。ChuaCircuit のファイルで型 `Modelica.Electrical.Analog.Basic.Resistor` の上の F12 は、ライブラリの Resistor.mo をエディタに開き、Alt+← で ChuaCircuit に戻る（S138）。
 構文の色付け（S163）: 予約語・型・数値・文字列・コメントに別々の色のクラス（cm-mo-*）が付き、エディタの地に対してコントラスト 4.5 以上。暗でも同じ。editor.ts の KEYWORDS は Rust の KEYWORDS と同じ並び。
-Decay の x で Shift+F12 を押すと参照の一覧（3 行）が出て行を押すと飛べ、F2 で pos に変えると全出現が変わって検査が通り（予約語は断られ、Ctrl+Z 1 回で戻る。S161）。
+Decay の x で Shift+F12 を押すと参照の一覧（3 行）が出て行を押すと飛べ、F2 で pos に変えると全出現が変わって検査が通り（予約語は断られ、Ctrl+Z 1 回で戻る。S161）。クラス名も同じ（`extends Base` の Base を Core に変えると宣言・end・extends が変わる。S166）。
 `.mo` を開く（ファイル選択）とエディタに入りモデル名が本文から付いて検査が通り、「保存」でダウンロードされ、再読み込みで localStorage から戻る（S141）。
 名前の上にマウスを置くと宣言の 1 行が出る（Decay の x は `Real x`、ChuaCircuit の Resistor は見出しと説明文字列。S149）。
 タブ（S151）: 開くたびにタブが増え、切り替えで本文・モデル名・診断が戻り、再読み込みでタブが戻り、閉じるボタンで減り（未保存なら confirm 1 つ。最後の 1 つは閉じられない）、「最近使ったファイル」から開き直せる。
@@ -238,6 +238,44 @@ def main() -> int:
         page.keyboard.press("Control+z")  # 足したコメントも消す
         assert page.locator(".cm-content").inner_text() == base
         print("Decay の F2: x を pos に変えて検査が通り、予約語は断られ、Ctrl+Z 1 回で戻った")
+        # クラス名の参照とリネーム（S166）: Base を extends する Decay に差し替え、`extends Base` の Base で Shift+F12 3 行（宣言・end・extends）
+        # F2 で Core に変えると宣言・`end`・extends が変わり（コメントの Base は変えない）、検査が通る。予約語の上の F2 は入力欄を出さずに理由を出す
+        page.keyboard.press("Control+A")
+        page.keyboard.insert_text(
+            "model Base\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -x;\nend Base;\n\n"
+            "model Decay\n  extends Base;\nend Decay; // Base は変えない\n"
+        )
+        page.wait_for_timeout(700)
+        classes = page.locator(".cm-content").inner_text()
+        page.keyboard.press("Control+Home")
+        page.keyboard.press("F2")  # 1 行目の `model` の上
+        expect(page.get_by_role("alert")).to_contain_text("宣言した部品・クラスでない", timeout=30_000)
+        expect(page.get_by_label("新しい名前")).to_have_count(0)
+        for _ in range(7):
+            page.keyboard.press("ArrowDown")
+        page.keyboard.press("End")
+        page.keyboard.press("ArrowLeft")
+        page.keyboard.press("Shift+F12")
+        refs = page.locator("table.refs tr")
+        expect(refs).to_have_count(3, timeout=30_000)  # model Base・end Base・extends Base
+        page.get_by_role("button", name="参照を閉じる").click()
+        page.locator(".cm-content").focus()
+        page.keyboard.press("F2")
+        name = page.get_by_label("新しい名前")
+        name.fill("Core")
+        name.press("Enter")
+        expect(page.locator(".cm-content")).to_contain_text("extends Core;", timeout=30_000)
+        text = page.locator(".cm-content").inner_text()
+        assert "model Core" in text and "end Core;" in text and "// Base は変えない" in text and "Base;" not in text, text
+        assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
+        check()
+        assert page.locator("tr.error").count() == 0, rows.all_inner_texts()
+        page.locator(".cm-content").focus()
+        page.keyboard.press("Control+z")
+        assert page.locator(".cm-content").inner_text() == classes, "クラス名のリネームも 1 回の undo で戻る"
+        page.keyboard.press("Control+z")
+        assert page.locator(".cm-content").inner_text() == base
+        print("Decay のクラス名: Shift+F12 で 3 行、F2 で Base を Core に変えて検査が通り、予約語の上は入力欄を出さず、Ctrl+Z で戻った")
         # 構文の色付け（S163）: 別の本文を入れて色を見て、Ctrl+Z で Decay に戻す
         page.keyboard.press("Control+A")
         page.keyboard.insert_text(SYN)
