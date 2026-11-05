@@ -38,8 +38,12 @@
 - `mise run wasm:node`: ok。`mise run wasm:compare`: 387 / 400 一致、既知の差 13、一致しない 0。`mise run msl:compare`: 20 / 20。
 - `mise run ui:check`（`pnpm check`、`pnpm build`、`test_ui.py`、`test_graph.py`）: 通った（FMU のダウンロード名 `Mine-fmi2.fmu`・`Mine-fmi3.fmu` を含む）。
 - `mise run c:zig`・`c:julia`・`elixir:test`・`gleam:test`: 通った。Python の `uv run pytest -q`: 21 passed, 1 skipped（ネイティブを `uv sync --reinstall-package globe-mode` で作り直してから。古いネイティブだと `test_export_fmu` が旧い名前で落ちる）。
-- push した feature ブランチでの CI: RUNS
-- `check_docs.py`・`render_slides.py`・セッション記録の `--check`・漏洩検査: CHECKS
+- push した feature ブランチ（`ae59727` の上の FMU のコミット）での CI:
+  - `gh workflow run ci.yml --ref feature/s189-fmt-validation-fmu-name -f full=true`: run 42128794178、全体検査（Windows を含む）で 11 ジョブ success。
+  - `gh workflow run fmu-export.yml --ref …`: run 42128798590、success（FMI 2.0・3.0 を `-fmi2.fmu`・`-fmi3.fmu` で書いて FMPy・fmusim で回し、zig cc の 3 OS 向けも）。
+  - `gh workflow run release.yml --ref …`（dry run。4 つの wheel の pytest を含む）: run 42128803414、全ジョブ success。タグ 0 件、Release 0 件のまま。
+- `check_docs.py`: デッキ OK、リンク切れ 0 件（文書 765 件・相対リンク 3836 件）。`render_slides.py`（S189 のデッキだけ）: 問題 0 件、S03・S05 を目で確認。
+- セッション記録の `--check` は記録を写す親が行う。ステージした差分の漏洩検査（メール・ホームのパス・トークン）: 0 件。
 
 ## 残したこと
 
