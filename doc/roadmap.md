@@ -503,6 +503,11 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **診断の重複と結果の 1 行を facade・protocol に寄せた**（S182・S183 の持ち越し。[解説書](sessions/S184-facade-summary-dedup/解説書.md)）: `--force` でコンパイルに失敗すると、facade の `simulate` が検査とコンパイルの同じ診断を両方返していた（CLI だけの問題ではなく wasm・LSP・UI も同じ。Python の `simulate` に `force` は無い）。`simulate_observed` の最後でコード・位置・文面が同じものを最初の 1 つに除き、CLI の除去は消した。応答に追加の `summary`（`CheckResponse` は常に、`SimulateResponse` は実行しなかったときだけ。文面は CLI のまま。`summary_line`・`refused_summary` は protocol に 1 つ）。
 - 持ち越し: UI（Svelte）の `unsupported` の要約と失敗の行を `summary` に置き換える。
 
+### S186（P4、2026-11-06）で済んだこと
+
+- **UI の細部 5 件**（S185 の監査の R2・R3・R7〜R9。[解説書](sessions/S186-ui-rename-follow-open-position/解説書.md)）: クラス名の F2 がいまのモデル名のクラス（かその途中の成分）なら、欄も同じ編集で追い、Ctrl+Z で戻る（新しい名前は Rust の `models` が決める）。ライブラリの木・検索から入れ子のクラスを開くと宣言の行へカーソルと画面が動く（`librarySource` に追加の `range`）。補完の一覧が開いたままの Ctrl+Enter、「MSL を読む」の後のフォーカス、スキップリンク「結果へ」。
+- 持ち越し: 候補の順位（R6）、`-L` の案内（R5）、README（R1）、FMU（R4）。
+
 ### S183（P7、2026-11-06）で済んだこと
 
 - **Python の読み取りの口と他言語の README**（S178 の監査の穴 10 の残り、WP の C2・D。[解説書](sessions/S183-python-outline-lang-readme/解説書.md)）: Python に `Workspace.outline`（ファイルのクラスの一覧）・`deps`（`check` が読むファイル）・`flat`（変数と方程式の数）を足した（CLI の `globe outline` / `deps` / `flat --json` と同じ。facade の既存の口を `globe-mode-py` から呼ぶだけで、計算は Python に書かない）。S180 のモデル名の候補（`GM-E1002`）が Python の `check` にも出ることを試験で確かめた。C・Zig・Julia・Elixir・Gleam の README に、書いてあるとおりに動く最初の例を置き（5 本とも実際に動かした）、Julia の README を実物（`load_dir`・`simulate_columns`・`simulate_observed`・`export_fmu`・`graph`・`format`・`lint`）に合わせた。marimo の `sim_app.py` にライブラリとモデルの入力欄、`__marimo__/` を `.gitignore` へ。

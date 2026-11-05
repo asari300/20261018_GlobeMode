@@ -318,12 +318,15 @@ impl Workspace {
         self.tree_search(query, limit)
     }
 
-    /// ライブラリのクラス `path` を定義するファイルの `{file, text}` の JSON（S127）。無ければ例外（文字列）。
+    /// ライブラリのクラス `path` を定義するファイルの `{file, text, range}` の JSON（S127。S186 から、`range` はそのクラスの宣言の範囲で LSP の Range。引けなければ無い）。無ければ例外（文字列）。
     pub fn library_source(&self, path: &str) -> Result<String, JsValue> {
         let (file, text) = self
             .tree_source(path)
             .ok_or_else(|| js_error(format!("ライブラリに {path} が無い")))?;
-        to_json(&serde_json::json!({"file": file, "text": text}))
+        to_json(
+            &self
+                .with_resolver(|r| globe_mode_lsp::definition::library_source(r, path, file, text)),
+        )
     }
 
     /// 文書 `file`（本文 `text`。先に `set_file` で足しておく）の行・列（LSP と同じ UTF-16）にある名前の定義を
