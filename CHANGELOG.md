@@ -60,7 +60,7 @@ v0.1.0 に向けた S001〜S164 の要点（S048 以降は S168 で足した。�
 - S048・S127: ブラウザ UI で MSL を読み、左のライブラリツリーからモデルを開いて検査・実行・プロットまで通る（ChuaCircuit の検査 error 0、44 信号）。
 - S049・S056・S069・S084・S143: Desktop（Tauri 2）。`globe lsp` を sidecar にしたシェル、`desktop.yml` の .deb と .msi。MSL は初回に取得し（[ADR-0030](doc/adr/0030-desktop-msl-placement.md)）、4.1.0 / 4.0.0 を切り替えられ、作業ディレクトリの `globe-mode.toml` を読む。
 - S053・S060・S061・S062: 自前の整形器と lint `globe-mode-fmt`（依存 0、インデント 2・80 桁、annotation の並べ替え、節の前後の空行、`Documentation` の HTML）、`globe fmt` / `globe lint`（ruff のようにパスを省くとカレントディレクトリ）、LSP の整形と補完、lint `GM-L0001`〜`GM-L0005`（connect の型の食い違い）。規則は [doc/format-style.md](doc/format-style.md)。
-- S059・S163: VS Code の拡張 `src/VSCode/globe-mode`（`globe lsp` につなぐ。整形・lint・検査・補完・構文の色付け。VSIX は `pack_vsix.py` で作る。Marketplace には出していない）。
+- S059・S163・S165: VS Code の拡張 `src/VSCode/globe-mode`（`globe lsp` につなぐ。整形・lint・検査・補完・構文の色付け。VSIX は `pack_vsix.py` で作る。Marketplace には出していない。S165 で本物の VS Code の中での試験 `vscode.yml`）。
 - S065・S076: 実行結果を CSV でなく列ごとに受ける（ブラウザ・Desktop。10 万点で「実行」から戻るまで 810 → 約 220 ms）。
 - S079・S081・S089・S101・S122: connect グラフがライブラリのモデル（MSL の部品）も引ける。
 - S128・S146: プロットの系列の選択・右の軸・パラメトリック、CSV と PNG の書き出し。
