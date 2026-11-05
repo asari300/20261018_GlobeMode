@@ -156,14 +156,22 @@
 
 - 調べた結果、**ネイティブの層にはもう途中の列を返す口があった**（`SimulateHandle.cancel` → `Termination::Cancelled` と、止めた時刻までの列、`GM-I11004`。LSP の `$/cancelRequest` と Desktop の `cancel_run` はこれを通すので、session の道のソルバでは Desktop も途中の列を普通の応答で受ける）。足りなかったのは、wasm の Worker に止める合図を届けることと、UI が途中の列を「止めた」として見せることだけ。exec・facade は変えていない。
 - wasm: `simulate_columns(request, on_progress)` の関数が**厳密に `true`** を返すと、`CancelToken` を立てる（Python の「真を返す」と違い、`seen.push(...)` のような真の値では止まらない）。1 本のスレッドの Worker はメッセージを受けないので、外から立てる合図は **SharedArrayBuffer(4) の Int32 のフラグ**: `GlobeWorker` が持ち、実行を送る前に 0 に戻して Worker に渡し、`cancel()` が 1 を立てる。`worker.js` は進捗のたびに `Atomics.load` で読んで `true` を返す。止まると、そこまでの列と `GM-I11004` が普通の結果として返る（作り直さない）。
-- **SharedArrayBuffer は cross-origin isolated の配信でだけある**（ブラウザは COOP `same-origin` と COEP `require-corp` を付けたときだけ。Node の worker_threads は常にある）。付いていない配信（`typeof SharedArrayBuffer !== "function"`）、実行中でない呼び出し、flag を立てても 2 s（`GRACE_MS`。lowering・組み立てなど、進捗が来ない間）応えない実行は、今までどおり `terminate()` して作り直し、`cancelled: true` で reject する（途中の列は出ない）。Desktop の `CANCEL_GRACE` と同じ形。ヘッダは `vite.config.ts`（dev・preview）、`web-bundle.sh` の `_headers`・`nginx.csp.conf`、`test_ui.py` の `serve()` に付けた。**Android（Tauri の WebView）にヘッダを付けるかは【未確認】で、付いていなければ作り直しのまま**。ADR の初めに却下した理由（ヘッダを付けられるかが未確認）は、ここでは「付けられる配信でだけ効く、無ければ前のまま」にして避けた。
+- **SharedArrayBuffer は cross-origin isolated の配信でだけある**（ブラウザは COOP `same-origin` と COEP `require-corp` を付けたときだけ。Node の worker_threads は常にある）。付いていない配信（`typeof SharedArrayBuffer !== "function"`）、実行中でない呼び出し、flag を立てても 2 s（`GRACE_MS`。lowering・組み立てなど、進捗が来ない間）応えない実行は、今までどおり `terminate()` して作り直し、`cancelled: true` で reject する（途中の列は出ない）。Desktop の `CANCEL_GRACE` と同じ形。ヘッダは `vite.config.ts`（dev・preview）、`web-bundle.sh` の `_headers`・`nginx.csp.conf`、`test_ui.py` の `serve()` に付けた。**Android（Tauri の WebView）は S159 で確かめた: ヘッダを付けても isolated にならず、作り直しのまま**（7 段目）。ADR の初めに却下した理由（ヘッダを付けられるかが未確認）は、ここでは「付けられる配信でだけ効く、無ければ前のまま」にして避けた。
 - UI: `App.svelte` は応答に `GM-I11004` があれば `runState` を `cancelled` にし、「止めた（呼び手が t = … で止めた、そこまでの n 点を表示）」を出し、列をプロットに残す。作り直して reject した経路の「止めた（途中の結果は出ない）」は残す。Desktop は同じ応答の形なので、`App.svelte` の同じ分岐で見える。
 - 試験: `node/smoke.mjs`（`wasm:node`。`true` を返す関数で `Long` が `cancelled`・`GM-I11004`・列の最後の時刻 = `termination.time`。`push` の戻り値では止まらない）、`web/worker-node.mjs`（フラグで止めると restarts 0 で途中の列、`shared: false` では reject と restarts 1）、`test_ui.py`（cross-origin isolated で配り、「止める」のあとプロットに 2 点以上 10 万点未満の列が残る）。
+
+### 7 段目の結果（S159、Android の WebView、2026-11-05）
+
+- 目的は S157 の【未確認】を確かめること。Tauri 2.12.5 の `app.security.headers`（`Cross-Origin-Opener-Policy`・`Cross-Origin-Embedder-Policy`。<https://v2.tauri.app/reference/config/>、2026-11-05 確認。導入した版は文書に無く【未確認】）は使え、`tauri` のカスタムプロトコルの全応答に付く。Android の wry（0.57.1）は応答のヘッダを WebView に渡す。
+- 確かめるため、`App.svelte` の `GM-SMOKE` の行（`def=ok`／Desktop は `recent=ok` の後、`ready_ms` の前）に `isolated=1|0`（`crossOriginIsolated`）と `cancel_path=flag|restart|sidecar` を足した。ブラウザは `isolated=1 cancel_path=flag`（`test_ui.py` が assert）、Desktop は `isolated=0 cancel_path=sidecar`（`desktop.yml` の条件）。
+- **結果: `tauri.android.conf.json` に COOP `same-origin` と COEP `require-corp` を付けても、Android の WebView は cross-origin isolated にならない**（API 34 の emulator、`android.yml` の run 41988941532〔debug・release とも〕）。一時の診断で、ヘッダは応答に付いて届いている（`coop=same-origin coep=require-corp`）のに `typeof SharedArrayBuffer` は `undefined`（run 41990456155）。他の項目（MSL の読み込み・検査・実行・UI の操作 7 項目）はヘッダがあっても全部 ok。
+- 決定: 効かないヘッダは付けない（`tauri.android.conf.json` は元のまま。Desktop の `tauri.conf.json` も触っていない）。**Android は止めると Worker を作り直し、途中の列は出ない**（「止めた（途中の結果は出ない）」）。`android.yml` は `isolated=0 cancel_path=restart` を合格の条件に足し、事実を固定した。WebView が対応して `isolated=1` になったら `flag` に直す。
+- Android で isolated にする別の道（Kotlin 側の WebView の設定など）は、公式の文書で確かめられず【未確認】。生成物 `gen/android` を触る大きな変更になるので、今回はしない。
 
 ### 持ち越し
 
 - ネイティブの型付きの道（bdf・dopri45・auto）の積分の中では t も中断も出せない。session の道をネイティブの既定にする案は、JIT を使わない分の遅さを測ってから（ADR-0014 で数値は同じ。速さは【未確認】）。
 - lowering と組み立ての中で止めること（上流の Rumoca に口が要る。ADR-0017 の外から止める道のまま）。
 - CLI の Ctrl-C で途中の結果を書き出すこと。
-- ~~wasm で途中の列を返すこと~~（S157 で済: SharedArrayBuffer のフラグ。cross-origin isolated でない配信と Android の WebView は作り直しのまま【Android は未確認】）。
+- ~~wasm で途中の列を返すこと~~（S157 で済: SharedArrayBuffer のフラグ。cross-origin isolated でない配信と Android の WebView は作り直しのまま。Android は S159 で確認済み）。
 - Desktop の既定（`auto`）の積分の中の中断（ネイティブの型付きの道。上の 1 つめと同じ）。他言語のバインディングへの途中の列の広げ方は変えていない。
