@@ -36,5 +36,6 @@
 | [0033](0033-progress-and-cancel.md) | 進捗は段と積分の時刻 t（100 ms に 1 回まで）。中断は呼び手の持つトークン（`Arc<AtomicBool>`）を実行系が段の境目と session の道の `advance_to` の区切りで見る。facade に `SimulateHandle`、C はコールバックの戻り値、NIF は `cancel(token)`、Python はコールバックと Ctrl-C、wasm は postMessage と `terminate()`、LSP は `$/progress` と `$/cancelRequest`。止めたら途中の列と `GM-I11004` | Accepted |
 | [0034](0034-ui-bench-method.md) | UI の比較は `GM-SMOKE` の行の末尾に `ready_ms`・`decay_ms`・`msl_ms` を足して測る（ブラウザは `bench_ui.py` の Playwright、Desktop は `GLOBE_DESKTOP_BENCH` と `desktop.yml` の Linux・Windows）。RSS はプロセスごとの最大の 1 つ、バンドルは配るもの。3 回の中央値を `doc/bench/ui.md` の 4 UI × 3 OS の表に。しきい値は置かない | Proposed |
 | [0035](0035-experimental-ui-leptos.md) | Leptos 版 UI は UI と計算（facade `globe-mode`）を 1 つの wasm に入れる（メインスレッドが止まるのは試験版だけの例外）。別の workspace、`trunk` を使わず `cargo build` → `wasm-bindgen --target web`（`mise run leptos:build`）。機能は textarea・検査・実行・MSL・ダークモード。測定は `bench_ui.py browser --ui leptos`、CI には入れない | Proposed |
+| [0036](0036-experimental-ui-dioxus.md) | Dioxus 版 UI は Leptos 版（ADR-0035）と同じ作り（UI と計算を 1 つの wasm、別の workspace、CI に入れない）。違いは、Dioxus 0.7.10（`minimal` + `web`）、`dx` を使わず `cargo build` → `wasm-bindgen --target web`（`mise run dioxus:build`）、状態は `Signal`。測定は `bench_ui.py browser --ui dioxus` | Proposed |
 
 書式: `NNNN-<題名>.md`。章は「状態 / 背景 / 決定 / 結果」の4つ。決定を覆すときは古い ADR を消さず、状態を Superseded にして新しい番号で書く。

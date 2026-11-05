@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- ブラウザの Svelte 版と同じ方針。wasm を読むので 'wasm-unsafe-eval' だけ許す -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:">
+  <title>GlobeMode (Dioxus)</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="main"></div>
+  <script type="module" src="main.js"></script>
+</body>
+</html>
