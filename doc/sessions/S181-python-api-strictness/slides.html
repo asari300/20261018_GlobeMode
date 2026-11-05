@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S181 Python API を厳しくする — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S181 Python API を厳しくする">
+
+<section class="slide" id="S01">
+  <span class="tag">S181 · 2026-11-06 · P7</span>
+  <h1>打ち間違いが黙って通らない Python API</h1>
+  <p class="lead">S178 の監査の Python の穴（P2・P7・P10・P11）のうち、黙って誤る入力と読めない誤り</p>
+  <div class="big">例外の階層と「未知のモデルを例外に」はユーザーの判断。今回は文面だけ</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">現状</span>
+  <h1>再現した 4 つ</h1>
+  <table class="compact">
+    <tr><th>呼び方</th><th>前</th></tr>
+    <tr><td><code>Workspace("data/msl")</code></td><td class="ng">1 文字ずつ別のライブラリ。<code>ライブラリ d を読み込めない</code></td></tr>
+    <tr><td><code>simulate(model, stoptime=3)</code></td><td class="ng"><code>ok: True</code>、stop_time は既定のまま</td></tr>
+    <tr><td><code>simulate(model, stop_time="abc")</code></td><td class="ng"><code>invalid type: string "abc", expected f64</code>（どの設定か不明）</td></tr>
+    <tr><td>読めないライブラリ</td><td class="ng"><code>RuntimeError</code> の本文が JSON の文字列</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">後</span>
+  <h1>弾く・言う・読める</h1>
+  <table class="compact">
+    <tr><th>呼び方</th><th>後</th></tr>
+    <tr><td><code>Workspace("data/msl")</code></td><td class="ok">1 つのライブラリ（<code>Path</code> も。前は <code>TypeError</code>）</td></tr>
+    <tr><td><code>stoptime=3</code></td><td class="ok"><code>TypeError: 未知の設定 ['stoptime']。使えるのは start_time, stop_time, …</code></td></tr>
+    <tr><td><code>stop_time="abc"</code></td><td class="ok"><code>ValueError: 設定 stop_time は数値 のはずが 'abc'（str）</code></td></tr>
+    <tr><td>読めないライブラリ</td><td class="ok"><code>GM-E1003: ライブラリ … を読み込めない（… No such file …）</code>。元の診断は <code>.diagnostics</code></td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定</span>
+  <h1>キーの一覧は Rust から取る</h1>
+  <ul>
+    <li><code>SimSettings</code> に <code>deny_unknown_fields</code> は付けない（wasm・C ABI・NIF・CLI も使う型。挙動を変えない）</li>
+    <li>py の crate が <code>SimSettings</code> を全部埋めた見本 JSON を返す。項目を足すとコンパイルが落ち、Python の一覧は見本から作る</li>
+    <li><code>Settings</code>（TypedDict、IDE の補完）との一致は試験が見る</li>
+    <li><code>export_fmu</code> の options は明示のキーワード引数にして、未知は Python 自身の <code>TypeError</code></li>
+    <li>facade は <code>SimSettings</code> を再公開しただけ（1 語）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">docstring と型</span>
+  <h1>help() で読め、IDE が補う</h1>
+  <ul>
+    <li>公開の関数・メソッドすべてに、引数・戻り値・例・誤りの docstring</li>
+    <li><code>py.typed</code> と <code>_native.pyi</code>（wheel に入る。maturin は python-source の全ファイルを入れる）。結果は <code>dict[str, Any]</code>、TypedDict は設定と進捗だけ</li>
+    <li><b>on_progress は既定のソルバ（bdf・auto・dopri45）では積分の中に届かない</b>と明記。積分より前の段で <code>True</code> なら次の段に入る前に止まる（<code>ok: False</code>）</li>
+    <li>README と <code>main()</code> の古い文面（uv_build・<code>cargo run -p globe-mode-cli</code>）を直し、README の例は試験で実行</li>
+  </ul>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">ユーザーの判断</span>
+  <h1>やらなかったこと</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>状態</th></tr>
+    <tr><td><code>GlobeModeError</code> の階層</td><td class="warn">判断待ち。案と影響は解説書 2.5</td></tr>
+    <tr><td>未知のモデルを例外に</td><td class="warn">判断待ち（いまは <code>passed: False</code>）</td></tr>
+    <tr><td><code>outline</code>・<code>flat</code>・<code>deps</code></td><td>次の WP（C2）</td></tr>
+    <tr><td>結果の TypedDict</td><td>後。<code>check</code> の 13 キーなど</td></tr>
+  </table>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

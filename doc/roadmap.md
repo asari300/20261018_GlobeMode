@@ -487,6 +487,11 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - 試験: `test_ui.py` に 1 本（初回の案内と閉じる・smoke で出ない、スキップリンク、矢印・Home・End と tabindex、編集で印・再読み込み・beforeunload・保存で消える）。`pnpm check` 0 警告。
 - 持ち越し: タブの並べ替え（ドラッグ）、ツリーのアイコン、案内の多言語化、案内を出し直す操作、Esc で止める、スクリーンリーダーの実機（【未確認】）。
 
+### S181（P7、2026-11-06）で済んだこと
+
+- **Python API を厳しくした**（S178 の監査の Python の穴 P2・P7・P10・P11、WP 案 C1。[解説書](sessions/S181-python-api-strictness/解説書.md)）: `Workspace("data/msl")`（文字列・`Path` の単体）を 1 つのライブラリとして扱う（前は 1 文字ずつ）。**未知の設定のキーは `TypeError`**（前は黙って無視され `ok: True`。使えるキーを添える。キーと型の一覧は Rust の `SimSettings` から `settings_sample()` で取る）、型の誤りは「設定 stop_time は数値のはず」と言う `ValueError`、`export_fmu` は明示のキーワード引数。ライブラリが読めない `RuntimeError` の本文は `GM-E1003: …`（元の診断は `.diagnostics`）。公開の関数すべての docstring、`py.typed`・`_native.pyi`、`on_progress` は既定のソルバ（bdf・auto・dopri45）では積分の中に届かないと明記、`src/Python/README.md`・`main()` の古い文面を直した。`SimSettings` の読み方・C ABI・NIF は変えていない（facade が `SimSettings` を再公開しただけ）。
+- 持ち越し: `outline`・`flat`・`deps` と `check` の要約（C2）、結果の TypedDict、**例外の階層（`GlobeModeError`）と「未知のモデルを例外にするか」はユーザーの判断**（解説書 2.5）。
+
 ### S166（P4、2026-11-05）で済んだこと
 
 - **クラス名の参照とリネーム**（[解説書](sessions/S166-references-classes/解説書.md)）: S161 の口（`globe/references`・`globe/rename`・`Backend.references`・`rename`）のまま、カーソルがクラス名の上なら、その文書で定義ジャンプと同じ解決（`Resolver::definition`）で同じクラスに行き着く識別子のトークンを一覧にし、リネームで置き換える（宣言の名前・`end 名前`・部品の型・`extends`・`import`・点つきの名前の途中）。別の入れ子の同名のクラスは混ざらない（S161 の持ち越し「同名の入れ子のクラスの区別」はクラス名について片付いた）。リネームはこの文書で定義したクラスだけで、別ファイル（ライブラリ）のクラスと import の別名は断る。`textDocument/prepareRename` を足し、UI の F2 は今の名前のまま `rename` を試して、断られたら入力欄を出さずに理由を出す。LSP の `textDocument/references` はほかの開いた文書の参照も返し、リネームはほかの文書に参照があれば断る。UI の Workspace は今の文書しか持たない（離れたタブは外す）ので、UI の一覧は今の文書だけ。

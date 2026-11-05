@@ -79,7 +79,7 @@ OpenModelica（OMEdit）と Rumoca を参考に、GlobeMode に要る機能を�
 | marimo | × | × | Must | P6（S078・S102） | anywidget に wasm を載せる。代替は PyO3 の wheel。anywidget は extra `widget`（S097）。S102 で marimo の WASM（Pyodide）から `globe-mode-wasm` で Decay を回した（ブラウザの RSS 2 GB 未満）。S104 で MSL も渡せる（Web Worker で `MSL.json` を読み ChuaCircuit を check → simulate、RSS の合計 1152〜1154 MiB。[S104](sessions/S104-marimo-wasm-msl-worker/解説書.md)） |
 | Streamlit（結果ダッシュボード） | × | × | Should | P6 | PyO3 の wheel |
 | Rust API | — | ○ | Must | P1 | facade crate `globe-mode` |
-| Python API | ○（OMPython） | ○ | Must | P6 | PyO3（abi3-py312）。S129 で `simulate`・`simulate_columns` に `on_progress`（進捗の dict、`True` か Ctrl-C で中断。実行中は GIL を離す。[ADR-0033](adr/0033-progress-and-cancel.md)） |
+| Python API | ○（OMPython） | ○ | Must | P6 | PyO3（abi3-py312）。S129 で `simulate`・`simulate_columns` に `on_progress`（進捗の dict、`True` か Ctrl-C で中断。実行中は GIL を離す。[ADR-0033](adr/0033-progress-and-cancel.md)。既定のソルバでは積分の中に届かない）。S181 で未知の設定のキーを `TypeError`・文字列のライブラリを 1 つとして扱う・読める例外の文面・docstring と型（`py.typed`） |
 | Julia API | ○（OMJulia） | △（S075: `ccall` だけの `src/Julia/globe_mode.jl`。パッケージ・JLL は未） | Must | P7 | C ABI（`globe-mode-c`）と ccall |
 | Elixir / Gleam API | × | △（S082: Elixir の `src/Elixir/globe_mode`、S087: Gleam の `src/Gleam/globe_mode`（Erlang target）。Hex での配布・Gleam の JS target は未） | Must | P7 | Rustler の NIF（`globe-mode-nif`、Erlang モジュール `globe_mode_nif`）。Gleam は `@external` |
 | Zig API | × | △（S075: `src/Zig` の例。手書きのヘッダを translate-c） | Must | P7 | C ABI（`globe-mode-c`）と手書きのヘッダ `globe_mode.h` |
