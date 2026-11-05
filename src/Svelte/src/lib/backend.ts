@@ -1,5 +1,5 @@
 import type { Columns } from "./plot/csv";
-import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse, SolverEntry } from "./protocol";
+import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse, SolverEntry, TunableParameter } from "./protocol";
 
 /** UI が計算を頼む相手。WorkerBackend（ブラウザの wasm）と TauriBackend（sidecar の `globe lsp`）が実装する。 */
 export interface Backend {
@@ -16,6 +16,8 @@ export interface Backend {
   cancel?(): void;
   /** ソルバの登録表（S142）。 */
   solvers(): Promise<SolverEntry[]>;
+  /** 上書きできるパラメータの一覧（S150）。モデルを DAE まで変換できなければ reject、lowering に失敗したら空。 */
+  tunableParameters(model: string): Promise<TunableParameter[]>;
   /** 整形（S053、globe-mode-fmt）。文法が壊れていれば reject で、本文は変えない。indent などを省くと、Desktop は globe-mode.toml（S143）、ブラウザは 2 と true。 */
   format(text: string, indent?: number, insertOrigin?: boolean): Promise<string>;
   lint(text: string): Promise<LintMessage[]>;
@@ -25,6 +27,8 @@ export interface Backend {
   librarySource(path: string): Promise<{ file: string; text: string }>;
   /** setFile 済みの file の位置（行は 0 始まり、列は UTF-16）にある名前の定義（S138）。名前が引けなければ null。 */
   definition(file: string, line: number, character: number): Promise<Definition | null>;
+  /** setFile 済みの file の位置にある名前の宣言（S149）。contents は `Real x(start = 1) "説明"` のような 1 行、range はカーソルの名前。引けなければ null。 */
+  hover(file: string, line: number, character: number): Promise<Hover | null>;
   /** 手元のファイルを 1 つ選んで読む（S141）。ブラウザ・Android は `<input type=file>`、Desktop は dialog / fs プラグイン。選ばなければ null。 */
   openFile(): Promise<{ name: string; text: string; path?: string } | null>;
   /** 最近使ったファイルを path から開く（S151。Desktop だけ。ブラウザは本文を localStorage に持つので無い）。 */
@@ -42,6 +46,12 @@ export interface Definition {
   file: string;
   text: string;
   range: { start: { line: number; character: number }; end: { line: number; character: number } };
+}
+
+/** ホバーの内容（S149）。range は LSP の Range（カーソルの名前）。 */
+export interface Hover {
+  contents: string;
+  range: Definition["range"];
 }
 
 /** 実行系の進捗（ADR-0033）。stage は "lowering"・"integration" など、time は積分の t（無ければ undefined）。 */

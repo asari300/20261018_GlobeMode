@@ -1,6 +1,6 @@
-import type { Backend, Definition, LintMessage, Progress, TreeEntry } from "./backend";
+import type { Backend, Definition, Hover, LintMessage, Progress, TreeEntry } from "./backend";
 import type { Columns } from "./plot/csv";
-import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse, SolverEntry } from "./protocol";
+import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse, SolverEntry, TunableParameter } from "./protocol";
 
 // Tauri が `withGlobalTauri` で注入する関数だけを使う（@tauri-apps/api は入れない。npm の依存を増やさないため）。
 type Invoke = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
@@ -114,6 +114,10 @@ export class TauriBackend implements Backend {
   solvers(): Promise<SolverEntry[]> {
     return invoke("rpc", { method: "globe/solvers", params: {} }); // S142
   }
+  async tunableParameters(model: string): Promise<TunableParameter[]> {
+    const r = await invoke<{ parameters: TunableParameter[] | null }>("rpc", { method: "globe/tunableParameters", params: { model } }); // S150
+    return r.parameters ?? [];
+  }
   // indent などを省くと params から落ち（JSON）、sidecar が globe-mode.toml（S143）の値を使う
   format(text: string, indent?: number, insertOrigin?: boolean): Promise<string> {
     return invoke("rpc", { method: "globe/format", params: { text, indent, insertOrigin } });
@@ -161,6 +165,9 @@ export class TauriBackend implements Backend {
   }
 
   /** S144: ソースの FMU。dialog.save で選んだ場所のフォルダを outDir にして sidecar に書かせる（`<outDir>/<モデル名の . を _ にしたもの>.fmu` と展開した同名のフォルダ。選んだファイル名は使わない）。 */
+  hover(file: string, line: number, character: number): Promise<Hover | null> {
+    return invoke("rpc", { method: "globe/hover", params: { file, line, character } }); // S149（globe/definition と同じ解決で宣言の 1 行）
+  }
   async exportFmu(model: string, fmiVersion: number): Promise<string | null> {
     const path = await tauriGlobal().dialog.save({ defaultPath: `${model.replaceAll(".", "_")}.fmu`, filters: [{ name: "FMU", extensions: ["fmu"] }] });
     if (!path) return null;

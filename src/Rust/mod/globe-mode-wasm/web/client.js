@@ -95,6 +95,8 @@ export class GlobeWorker {
   async check(model) { return JSON.parse(await this.#call("check", { model })); }
   async graph(model, depth) { return JSON.parse(await this.#call("graph", { model, depth })); }
   async simulate(request) { return JSON.parse(await this.#call("simulate", { request: JSON.stringify(request) })); }
+  // 上書きできるパラメータの一覧 {model, parameters: [{name, default, unit?, min?, max?, description?}] | null, diagnostics}（S150）。変換できなければ reject
+  async tunableParameters(model) { return JSON.parse(await this.#call("tunable_parameters", { model })); }
   // ソースの FMU（FMI 2 か 3、build 無し）の zip を Uint8Array で（S144）。作れなければ reject
   exportFmu(model, fmiVersion = 2) { return this.#call("export_fmu", { model, fmiVersion }); }
   format(text, indent = 2, insertOrigin = true) { return this.#call("format", { text, indent, insertOrigin }); }
@@ -105,6 +107,10 @@ export class GlobeWorker {
   // 定義ジャンプ（S138）: setFile 済みの file の行・列（0 始まり、列は UTF-16）の定義 {file, text, range}。無ければ null
   async definition(file, line, character) {
     return JSON.parse(await this.#call("definition", { file, text: this.#files.get(file) ?? "", line, character }));
+  }
+  // ホバー（S149）: definition と同じ引数で、宣言の 1 行 {contents, range}（range はカーソルの名前）。無ければ null
+  async hover(file, line, character) {
+    return JSON.parse(await this.#call("hover", { file, text: this.#files.get(file) ?? "", line, character }));
   }
   // 時系列を CSV でなく列ごとの Float64Array で返す（S051）。{response（csv 無し）, layout: {names, points}, columns}
   // onProgress を渡すと進捗 {stage, time, start_time, stop_time} を受ける（S133、ADR-0033。time は積分の t で無ければ undefined）

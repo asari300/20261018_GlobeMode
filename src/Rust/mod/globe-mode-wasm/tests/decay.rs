@@ -341,6 +341,17 @@ fn definition_jumps_into_the_library_file() {
     assert!(r["text"].as_str().unwrap().contains("Resistor"), "{r}");
     assert_eq!(r["range"]["start"]["line"], 13, "{r}");
     assert_eq!(ws.definition("T.mo", text, 0, 0), "null");
+    // S149: ホバーは同じ解決で宣言の 1 行（クラスの説明文字列つき）
+    let h: serde_json::Value = serde_json::from_str(&ws.hover("T.mo", text, 2, 15)).unwrap();
+    assert!(
+        h["contents"]
+            .as_str()
+            .unwrap()
+            .starts_with("model Resistor"),
+        "{h}"
+    );
+    assert_eq!(h["range"]["start"]["line"], 2, "{h}");
+    assert_eq!(ws.hover("T.mo", text, 0, 0), "null");
 }
 
 #[test]
@@ -358,4 +369,25 @@ fn decay_exports_a_source_fmu_as_bytes() {
     let has = |name: &[u8]| fmu.windows(name.len()).any(|w| w == name);
     assert!(has(b"modelDescription.xml") && has(b"sources/"));
     assert!(ws.inner().export_fmu_bytes("Nope", 2).is_err()); // export_fmu の Err は JsValue で、ネイティブでは作れない
+}
+
+#[test]
+fn decay_lists_tunable_parameters() {
+    // S150: UI の実行の設定の一覧。Decay の k が既定値 1 で出る
+    let mut ws = Workspace::new();
+    for (name, text) in package() {
+        ws.put_file(&name, text);
+    }
+    let r = ws
+        .inner()
+        .tunable_parameters("GlobeModeValidation.Simulation.Decay");
+    let r = r.ok().unwrap();
+    let k = r
+        .parameters
+        .unwrap()
+        .into_iter()
+        .find(|p| p.name == "k")
+        .unwrap();
+    assert_eq!(k.default, 1.0);
+    assert!(ws.inner().tunable_parameters("Nope").is_err());
 }

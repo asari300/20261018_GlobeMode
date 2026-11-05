@@ -2,7 +2,7 @@
 import { autocompletion, completeAnyWord, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
 import { linter, type Diagnostic as CmDiagnostic } from "@codemirror/lint";
 import { Prec, type Extension } from "@codemirror/state";
-import { EditorView, keymap } from "@codemirror/view";
+import { EditorView, hoverTooltip, keymap } from "@codemirror/view";
 import type { Backend } from "./backend";
 import type { Diagnostic } from "./protocol";
 
@@ -31,12 +31,14 @@ export const modelicaCompletion = (): Extension => autocompletion({ override: [k
 export const modelicaDefinition = (
   jump: (line: number, character: number) => Promise<void>,
   back: () => void,
+  hover?: { backend: Backend; file: () => string }, // S149: あれば、名前の上にマウスを置くと宣言の 1 行を出す
 ): Extension => {
   const at = (view: EditorView, pos: number) => {
     const line = view.state.doc.lineAt(pos);
     void jump(line.number - 1, pos - line.from); // CodeMirror の列は UTF-16 で LSP と同じ
   };
   return [
+    hover ? modelicaHover(hover.backend, hover.file) : [],
     Prec.high(
       keymap.of([
         { key: "F12", run: (v) => (at(v, v.state.selection.main.head), true) },
@@ -54,6 +56,37 @@ export const modelicaDefinition = (
     }),
   ];
 };
+
+/** ホバー（S149）: 300 ms 置くと、その名前の宣言（部品は `Real x "説明"`、クラスは見出し）を素のテキストで出す。 */
+const modelicaHover = (backend: Backend, file: () => string): Extension => [
+  EditorView.baseTheme({ ".cm-hover": { padding: "2px 6px", maxWidth: "40em", whiteSpace: "pre-wrap", fontFamily: "monospace" } }),
+  hoverTooltip(
+    async (view, pos) => {
+      const line = view.state.doc.lineAt(pos);
+      try {
+        await backend.setFile(file(), view.state.doc.toString());
+        const h = await backend.hover(file(), line.number - 1, pos - line.from);
+        if (!h) return null;
+        const from = view.state.doc.line(h.range.start.line + 1).from + h.range.start.character;
+        const to = view.state.doc.line(h.range.end.line + 1).from + h.range.end.character;
+        return {
+          pos: from,
+          end: to,
+          above: true,
+          create: () => {
+            const dom = document.createElement("div");
+            dom.className = "cm-hover";
+            dom.textContent = h.contents;
+            return { dom };
+          },
+        };
+      } catch {
+        return null; // 文書が壊れている・名前が引けないときは何も出さない
+      }
+    },
+    { hoverTime: 300 },
+  ),
+];
 
 /** UTF-8 のバイト位置（protocol の range）→ UTF-16 の位置（CodeMirror） */
 export function byteToChar(text: string): (n: number) => number {

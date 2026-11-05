@@ -45,6 +45,7 @@
   let simSettings = $state<NonNullable<SimulateRequest["settings"]>>({});
   let settingsProblem = $state("");
   let experiment = $state<CheckResponse["experiment"]>();
+  let checkedModel = $state<{ model: string } | null>(null); // S150: 検査したモデル（SimSettings が上書きできるパラメータの一覧を取る合図。検査のたびに新しい値）
   let lastSettings = $state<ResolvedSettings | null>(null);
   let lastFinal = $state<[string, number][]>([]); // 最後の時刻の値（先頭の 8 本）
   $effect(() => { void model; experiment = undefined; }); // 別のモデルにしたら、次の検査まで experiment は分からない
@@ -74,7 +75,7 @@
   }
 
   // S151: タブ。いまの文書の file / model / own / diagnostics / saved はこれまでどおり大域の変数で、離れるときに tab へ写す（state は EditorState。元に戻す履歴も文書ごと）
-  type Tab = { file: string; model: string; own: boolean; state: EditorState; diagnostics: Diagnostic[]; saved: string };
+  type Tab = { file: string; model: string; own: boolean; state: EditorState; diagnostics: Diagnostic[]; saved: string; clean: string }; // clean: 開いた・保存した本文（閉じるとき、違えば確かめる。ライブラリは見ない）
   let tabs = $state.raw<Tab[]>([]);
   let cur = $state(0);
   // 最近使ったファイル（古い順。上限 10）。Desktop は path だけ、ブラウザは名前と本文
@@ -102,7 +103,7 @@
       extensions: [
         lineNumbers(), history(), drawSelection(), highlightActiveLine(), bracketMatching(), keymap.of([...defaultKeymap, ...historyKeymap]),
         modelicaCompletion(), modelicaLinter(backend, file), // S053
-        modelicaDefinition(definition, goBack), // S138
+        modelicaDefinition(definition, goBack, { backend, file: () => file }), // S138（S149: ホバー）
         EditorView.updateListener.of((u) => { if (u.docChanged) persist(); }),
       ],
     });
@@ -120,7 +121,7 @@
       if (Array.isArray(r)) recent = r.filter((x) => typeof x?.path === "string");
     } catch { /* 無ければ Decay から */ }
     if (!docs.length) docs = [{ file, text: DECAY }];
-    tabs = docs.map((t) => ({ file: t.file, model: guessModel(t.text) ?? model, own: true, state: mkState(t.text), diagnostics: [], saved: "" }));
+    tabs = docs.map((t) => ({ file: t.file, model: guessModel(t.text) ?? model, own: true, state: mkState(t.text), diagnostics: [], saved: "", clean: t.text })); // 戻した本文は保存済みとみなす（shortcut: 再読み込みをまたぐ未保存は数えない）
     cur = Math.min(Math.max(0, active), tabs.length - 1);
     file = tabs[cur].file;
     model = tabs[cur].model;
@@ -182,7 +183,7 @@
       while (!f() && performance.now() - t0 < limit) await new Promise((r) => setTimeout(r, 50));
       return !!f();
     };
-    const restore = (text = DECAY) => { own = true; file = file0; model = "Decay"; back.length = 0; replaceDoc(text); diagnostics = []; columns = null; graphModel = null; };
+    const restore = (text = DECAY) => { const i = tabs.findIndex((t, j) => j !== cur && t.file === file0); if (file !== file0 && i >= 0) activate(i); own = true; file = file0; model = "Decay"; back.length = 0; replaceDoc(text); diagnostics = []; columns = null; graphModel = null; };
     const setField = async (label: string, v: string) => {
       const el = document.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)!;
       el.value = v;
@@ -323,6 +324,7 @@
     const checked = await backend.check(model);
     diagnostics = bySeverity(checked.diagnostics);
     experiment = checked.experiment;
+    checkedModel = { model };
     view.dispatch(setDiagnostics(view.state, toCmDiagnostics(view.state.doc.toString(), diagnostics, file)));
   });
 
@@ -417,22 +419,24 @@
   // 文書 f を開く。いまの文書なら本文を差し替え、同じ名前のタブがあればそこへ、無ければ新しいタブにする。自分のファイル（isOwn）は渡された本文が正、ライブラリのファイルは開いているタブのまま
   function openDoc(f: string, text: string, m: string | undefined, isOwn: boolean) {
     if (f === file) {
-      if (isOwn) { own = true; replaceDoc(text); diagnostics = []; columns = null; graphModel = null; saved = ""; }
+      if (isOwn) { own = true; replaceDoc(text); diagnostics = []; columns = null; graphModel = null; saved = ""; tabs[cur].clean = text; }
       if (m) model = m;
       return;
     }
     let i = tabs.findIndex((t, j) => j !== cur && t.file === f);
     if (i < 0) {
-      tabs = [...tabs, { file: f, model: m ?? model, own: isOwn, state: mkState(text), diagnostics: [], saved: "" }];
+      tabs = [...tabs, { file: f, model: m ?? model, own: isOwn, state: mkState(text), diagnostics: [], saved: "", clean: text }];
       i = tabs.length - 1;
     } else {
-      if (isOwn) Object.assign(tabs[i], { own: true, state: mkState(text), diagnostics: [], saved: "" });
+      if (isOwn) Object.assign(tabs[i], { own: true, state: mkState(text), diagnostics: [], saved: "", clean: text });
       if (m) tabs[i].model = m;
     }
     activate(i);
   }
   function closeTab(i: number) {
     if (tabs.length < 2) return;
+    const t = tabs[i], text = i === cur ? view.state.doc.toString() : t.state.doc.toString();
+    if ((i === cur ? own : t.own) && text !== t.clean && !confirm(`${baseName(i === cur ? file : t.file)} は保存していない。閉じる？`)) return;
     if (i === cur) activate(i ? i - 1 : 1);
     const here = tabs[cur];
     tabs = tabs.filter((_, j) => j !== i);
@@ -464,7 +468,7 @@
       const to = await backend.saveFile(file.split("/").pop()!, view.state.doc.toString(), saveAs);
       if (to) {
         saved = `保存した: ${to}`;
-        if (own) remember(to, view.state.doc.toString());
+        if (own) { remember(to, view.state.doc.toString()); tabs[cur].clean = view.state.doc.toString(); }
       }
     } catch (e) {
       failure = String((e as Error).message ?? e);
@@ -524,7 +528,7 @@
       <button onclick={loadMsl} disabled={busy || msl !== "none"}>{msl === "loading" ? "MSL を読み込み中…" : "MSL を読む"}</button>
     {/if}
   </div>
-  <SimSettings {backend} {experiment} last={lastSettings} bind:settings={simSettings} bind:problem={settingsProblem} />
+  <SimSettings {backend} {experiment} checked={checkedModel} last={lastSettings} bind:settings={simSettings} bind:problem={settingsProblem} />
   {#if tauri}<p class="note" data-config>
     <button onclick={async () => { configNote = ""; try { await tauri.reloadConfig(); configNote ||= "globe-mode.toml を読み直した（無ければ既定）"; } catch (e) { configNote = String(e); } }}>設定を読み直す</button> {configNote}
   </p>{/if}

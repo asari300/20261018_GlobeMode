@@ -18,8 +18,10 @@
 //! | `globe/lint` | `{text}` | `[{rule, line, column, message}]`（S053） |
 //! | `globe/libraryTree` | `{prefix}`（空ならトップレベル） | `[{name, path, kind, description, file, hasChildren}]`（S127。直下の子だけ。wasm の `library_tree` と同じ形） |
 //! | `globe/definition` | `{file, line, character}`（開いている文書。行は 0 始まり、列は UTF-16） | `{file, text, range}` か null（S138。`textDocument/definition` と同じ解決で、定義のあるファイルの本文も返す。wasm の `definition` と同じ形） |
+//! | `globe/hover` | `{file, line, character}`（`globe/definition` と同じ） | `{contents, range}` か null（S149。名前の宣言の 1 行（クラスは見出し、部品は `;` まで。説明文字列を含む）と、カーソルの名前の Range。wasm の `hover` と同じ形） |
 //! | `globe/solvers` | なし | ソルバの登録表（`[{name, status, description, instead?}]`。S142。wasm の `solvers` と同じ） |
 //! | `globe/exportFmu` | `{model, fmiVersion?, outDir}`（既定は FMI 2。`build` はしない） | `{path}`（S144。`outDir/<名前>.fmu` と展開した `outDir/<名前>/` を書く。DAE まで変換できなければ -32000） |
+//! | `globe/tunableParameters` | `{model}` | `ParametersResponse` の JSON（S150。上書きできるパラメータの一覧。wasm の `tunable_parameters` と同じ。DAE まで変換できなければ -32000） |
 //! | `globe/librarySource` | `{path}`（完全修飾名） | `{file, text}`（S127。そのクラスを定義するライブラリのファイル。無ければ -32000） |
 //!
 //! 設定ファイル（S130）: `initialize` の `rootUri`（無ければ `rootPath`）から上へたどって最初の `globe-mode.toml` を
@@ -281,7 +283,7 @@ impl Server {
                 reply(id, location.unwrap_or(Value::Null))
             }
             // UI 向け（S138）: 開いている文書 `file` の行・列の定義を `{file, text, range}` で返す（無ければ null）
-            "globe/definition" => {
+            "globe/definition" | "globe/hover" => {
                 let Some(file) = params["file"].as_str() else {
                     return error(id, -32602, "params.file が文字列でない");
                 };
@@ -291,7 +293,13 @@ impl Server {
                 self.tree();
                 let tree = self.tree.as_ref().expect("tree() で作った");
                 let open = &self.texts;
-                let found = definition::definition_at(
+                // globe/hover（S149）は同じ解決で、宣言の 1 行を `{contents, range}` で返す
+                let resolve = if msg["method"] == "globe/hover" {
+                    definition::hover_at
+                } else {
+                    definition::definition_at
+                };
+                let found = resolve(
                     &mut definition::Resolver {
                         ws: &self.ws,
                         tree,
@@ -326,6 +334,16 @@ impl Server {
             }
             "globe/check" => match params["model"].as_str() {
                 Some(model) => reply(id, json!(self.ws.check(model))),
+                None => error(id, -32602, "params.model が文字列でない"),
+            },
+            "globe/tunableParameters" => match params["model"].as_str() {
+                Some(model) => match self.ws.tunable_parameters(model) {
+                    Ok(r) => reply(id, json!(r)),
+                    Err(ds) => {
+                        let m: Vec<&str> = ds.iter().map(|d| d.message.as_str()).collect();
+                        error(id, -32000, &m.join("; "))
+                    }
+                },
                 None => error(id, -32602, "params.model が文字列でない"),
             },
             "globe/simulate" => {
@@ -1128,6 +1146,32 @@ mod tests {
     }
 
     #[test]
+    fn tunable_parameters_are_listed() {
+        let mut s = Server::new(&[]).unwrap();
+        let src = "model D\n  parameter Real k(unit = \"1/s\") = 1 \"rate\";\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -k * x;\nend D;\n";
+        s.handle(
+            json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+            "uri": "D.mo", "languageId": "modelica", "version": 1, "text": src}}}),
+        );
+        let r = s.handle(
+            json!({"id": 1, "method": "globe/tunableParameters", "params": {"model": "D"}}),
+        );
+        let p = &r[0]["result"]["parameters"][0];
+        assert_eq!(
+            (p["name"].as_str(), p["default"].as_f64()),
+            (Some("k"), Some(1.0)),
+            "{}",
+            r[0]
+        );
+        assert_eq!(p["unit"], "1/s");
+        assert_eq!(p["description"], "rate");
+        let r = s.handle(
+            json!({"id": 2, "method": "globe/tunableParameters", "params": {"model": "Nope"}}),
+        );
+        assert_eq!(r[0]["error"]["code"], -32000);
+    }
+
+    #[test]
     fn solvers_and_experiment() {
         let mut s = Server::new(&[]).unwrap();
         let r = s.handle(json!({"id": 1, "method": "globe/solvers"}));
@@ -1358,6 +1402,25 @@ mod tests {
         assert!(r["text"].as_str().unwrap().contains("Resistor"), "{r}");
         assert_eq!(r["range"]["start"]["line"], 13, "{r}");
         assert_eq!(ask(&mut s, 0, 0), Value::Null); // 予約語 model
+    }
+
+    #[test]
+    fn globe_hover_returns_the_declaration_and_description() {
+        let lib =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../Modelica/GlobeModeValidation");
+        let mut s = Server::new(std::slice::from_ref(&lib)).unwrap();
+        let text = "model T\n  import GlobeModeValidation.Components;\n  Components.Resistor r1;\nend T;\n";
+        s.handle(
+            json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+            "uri": "T.mo", "languageId": "modelica", "version": 1, "text": text}}}),
+        );
+        let r = s
+            .handle(json!({"id": 1, "method": "globe/hover",
+                "params": {"file": "T.mo", "line": 2, "character": 15}}))
+            .remove(0)["result"]
+            .clone();
+        assert!(r["contents"].as_str().unwrap().contains("Resistor"), "{r}");
+        assert_eq!(r["range"]["start"]["line"], 2, "{r}");
     }
 
     #[test]

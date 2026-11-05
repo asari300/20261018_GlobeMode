@@ -9,7 +9,8 @@ dist/ を localhost で配り（CSP は index.html の meta と同じものを�
 長いモデルの実行で進捗（段と t の割合）が出て、「止める」で止まり（data-run="cancelled"）、ボタンが戻ることを確かめる（S133）。
 Decay の `der(x)` の x で F12 を押すと宣言の行（`Real x`）へ動く。ChuaCircuit のファイルで型 `Modelica.Electrical.Analog.Basic.Resistor` の上の F12 は、ライブラリの Resistor.mo をエディタに開き、Alt+← で ChuaCircuit に戻る（S138）。
 `.mo` を開く（ファイル選択）とエディタに入りモデル名が本文から付いて検査が通り、「保存」でダウンロードされ、再読み込みで localStorage から戻る（S141）。
-タブ（S151）: 開くたびにタブが増え、切り替えで本文・モデル名・診断が戻り、再読み込みでタブが戻り、閉じるボタンで減り（最後の 1 つは閉じられない）、「最近使ったファイル」から開き直せる。
+名前の上にマウスを置くと宣言の 1 行が出る（Decay の x は `Real x`、ChuaCircuit の Resistor は見出しと説明文字列。S149）。
+タブ（S151）: 開くたびにタブが増え、切り替えで本文・モデル名・診断が戻り、再読み込みでタブが戻り、閉じるボタンで減り（未保存なら confirm 1 つ。最後の 1 つは閉じられない）、「最近使ったファイル」から開き直せる。
 FMU を書き出す（S144）: ブラウザの wasm が作ったソースの FMU がダウンロードされ、modelDescription.xml と sources/ がある。
 実行の設定（S142）: 終了時刻 2 とソルバ dopri45 で Decay を実行して x(2) が e⁻²、DecayK は experiment の Tolerance が初期値（出どころ experiment）に出て、k = 2 の上書きで x(1) が e⁻²。名前=値でない行は実行しない。
 ライブラリの木で Modelica → Electrical → Analog → Examples → ChuaCircuit と開き、そのファイルがエディタに開いて検査が通ることも確かめる（S127）。
@@ -52,7 +53,7 @@ CIRCUIT = (
 LONG = "model Long\n  Real x(start = 0, fixed = true);\nequation\n  der(x) = sin(100 * time);\n  annotation(experiment(StopTime = 1000));\nend Long;\n"
 # 実行の設定（S142）: パラメータ k を上書きできる。experiment の Tolerance が初期値に出る
 DECAY_K = (
-    "model DecayK\n  parameter Real k = 1;\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -k * x;\n"
+    "model DecayK\n  parameter Real k = 1 \"減衰の速さ\";\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -k * x;\n"
     "  annotation(experiment(StopTime = 3, Tolerance = 1e-8));\nend DecayK;\n"
 )
 CHUA = "Modelica.Electrical.Analog.Examples.ChuaCircuit"
@@ -110,6 +111,8 @@ def main() -> int:
         assert rows.count() > 0, "info の診断（GM-I10001）は出るはず"  # 描画の確認も兼ねる
         assert page.locator("tr.error").count() == 0, rows.all_inner_texts()
         print(f"Decay: 診断 {rows.count()} 行、error 0 行: {rows.all_inner_texts()}")
+        # 上書きできるパラメータの一覧（S150）: 検査のあとに取る。この Decay は parameter が無いので「無い」と出る
+        expect(page.locator("[data-params]")).to_contain_text("上書きできるパラメータは無い", timeout=60_000)
 
         # 定義ジャンプ（S138）: 4 行目 `  der(x) = -x;` の末尾の x（`;` の手前）で F12 → 宣言の行へ
         page.locator(".cm-content").focus()
@@ -122,6 +125,33 @@ def main() -> int:
         expect(page.locator(".cm-activeLine")).to_contain_text("Real x(start", timeout=30_000)
         assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
         print(f"Decay の F12: 動いた先の行 {page.locator('.cm-activeLine').inner_text()!r}")
+
+        def hover_over(line: str, name: str, nth: int = 0) -> None:
+            """行（部分一致）の中の name の文字（nth 番目の出現）の真ん中へマウスを動かす（S149）。"""
+            box = page.evaluate(
+                """([line, name, nth]) => {
+                  const el = [...document.querySelectorAll('.cm-line')].find((e) => e.textContent.includes(line));
+                  const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+                  const t = w.nextNode();
+                  let i = -1;
+                  for (let k = 0; k <= nth; k++) i = t.textContent.indexOf(name, i + 1);
+                  const r = document.createRange();
+                  r.setStart(t, i); r.setEnd(t, i + 1);
+                  const b = r.getBoundingClientRect();
+                  return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+                }""",
+                [line, name, nth],
+            )
+            page.mouse.move(box["x"] - 30, box["y"])  # 一度ずらしてから置く（mousemove を確実に起こす）
+            page.mouse.move(box["x"], box["y"])
+
+        # ホバー（S149）: `der(x)` の x にマウスを置くと、宣言の `Real x` を含む tooltip が出る
+        hover_over("der(x)", "x")
+        tip = page.locator(".cm-tooltip .cm-hover")
+        expect(tip).to_contain_text("Real x", timeout=30_000)
+        print(f"Decay のホバー: {tip.inner_text()!r}")
+        page.mouse.move(5, 5)
+        expect(tip).to_have_count(0)
 
         run = page.get_by_role("button", name="実行")
 
@@ -186,6 +216,9 @@ def main() -> int:
         page.keyboard.insert_text(DECAY_K)
         check()
         expect(tolerance).to_have_value("1e-8")
+        k_row = page.locator("[data-param=k]")  # DecayK の k（モデルの値 1、説明つき）が一覧に出る
+        expect(k_row).to_be_visible(timeout=60_000)
+        assert "減衰の速さ" in k_row.inner_text() and page.get_by_label("k の値", exact=True).get_attribute("placeholder") == "1", k_row.inner_text()
         expect(page.locator("[data-origin=tolerance]")).to_have_text("experiment")
         stop.fill("1")
         page.get_by_label("パラメータの上書き").fill("k = 2")
@@ -195,6 +228,15 @@ def main() -> int:
         assert "許容誤差 1e-8（experiment）" in last, last
         x1 = json.loads(page.locator("[data-final]").get_attribute("data-final"))["x"]
         assert abs(x1 - math.exp(-2)) < 1e-4, x1
+        # 一覧の行に打った値も同じ道で送られる（S150）: textarea を空にして一覧の k に 2
+        page.get_by_label("パラメータの上書き").fill("")
+        page.get_by_label("k の値", exact=True).fill("2")
+        simulate()
+        assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
+        xk = json.loads(page.locator("[data-final]").get_attribute("data-final"))["x"]
+        assert abs(xk - math.exp(-2)) < 1e-4, xk
+        print(f"一覧の k = 2: x(1) = {xk:.6f}")
+        page.get_by_label("k の値", exact=True).fill("")
         page.get_by_label("パラメータの上書き").fill("k 2")  # 名前=値でない行は実行しないで理由を出す
         expect(page.get_by_role("alert")).to_contain_text("名前=値")
         print(f"実行の設定: x(2) = {x2:.6f}（e⁻² = {math.exp(-2):.6f}）、k = 2 で x(1) = {x1:.6f}、{last!r}")
@@ -290,6 +332,15 @@ def main() -> int:
             assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
             assert page.locator("tr.error").count() == 0, rows.all_inner_texts()  # 診断は 0 行でよい（experiment がある）
             print(f"ChuaCircuit の検査: {took:.1f} s、診断 {rows.count()} 行、error 0 行")
+            # 上書きできるパラメータの一覧（S150）: 絞り込みで本数が減る
+            all_params = page.locator("[data-param]")
+            expect(all_params.first).to_be_visible(timeout=120_000)
+            n_all = all_params.count()
+            page.get_by_label("パラメータの絞り込み").fill("Ro.")
+            n_some = all_params.count()
+            assert n_all > 12 and 0 < n_some < n_all, (n_all, n_some)
+            print(f"ChuaCircuit の上書きできるパラメータ: {n_all} 本、「Ro.」で {n_some} 本")
+            page.get_by_label("パラメータの絞り込み").fill("")
 
             t = time.perf_counter()
             simulate()
@@ -342,6 +393,10 @@ def main() -> int:
             page.keyboard.press("Alt+ArrowLeft")
             expect(page.locator(".cm-content")).to_contain_text("model ChuaCircuit")
             print("ChuaCircuit の F12: Resistor.mo が開き、Alt+← で ChuaCircuit に戻った")
+            # ホバー（S149）: ライブラリのクラス Resistor の上で、見出しと説明文字列が出る
+            hover_over("Basic.Resistor Ro", "Resistor")
+            expect(tip).to_contain_text("Ideal linear electrical resistor", timeout=30_000)
+            print(f"ChuaCircuit のホバー: {tip.inner_text()!r}")
         else:
             print("public/msl/MSL.json が無いので MSL の試験は飛ばす")
         # ライブラリに構文の誤りのファイルがあっても読み、読み飛ばしを GM-W1001 の行（ファイル名は notes）で出す（S071）。
@@ -437,6 +492,16 @@ def main() -> int:
         expect(content).to_contain_text("model Other")
         tabs.nth(1).click()
         expect(content).to_contain_text("model Mine")
+        # 未保存のタブを閉じるときは confirm 1 つ（取り消せば残る）
+        content.click()
+        tab.keyboard.type("x")
+        dialogs: list[str] = []
+        tab.once("dialog", lambda d: (dialogs.append(d.message), d.dismiss()))
+        tab.get_by_role("button", name="Mine.mo を閉じる").click(force=True)
+        assert len(dialogs) == 1 and "保存していない" in dialogs[0], dialogs
+        expect(tabs).to_have_count(3)
+        content.click()
+        tab.keyboard.press("Control+z")  # 元に戻して開いたときと同じ本文なら確かめない（別のタブを閉じる）
         tab.get_by_role("button", name="Other.mo を閉じる").click(force=True)
         expect(tabs).to_have_count(2)
         tab.get_by_label("最近使ったファイル").select_option(label="Other.mo")

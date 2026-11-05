@@ -1,8 +1,8 @@
 import { GlobeWorker } from "../../../Rust/mod/globe-mode-wasm/web/client.js";
-import type { Backend, Definition, LintMessage, Progress, TreeEntry } from "./backend";
+import type { Backend, Definition, Hover, LintMessage, Progress, TreeEntry } from "./backend";
 import { browserOpen, browserSave, browserSaveBinary } from "./browser-file";
 import { gapNonFinite, type Columns } from "./plot/csv";
-import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse, SolverEntry } from "./protocol";
+import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse, SolverEntry, TunableParameter } from "./protocol";
 
 /** Web Worker 上の wasm（ADR-0014、ADR-0023）。呼び出しは直列で、panic のあとは worker を作り直す。 */
 export class WorkerBackend implements Backend {
@@ -36,6 +36,9 @@ export class WorkerBackend implements Backend {
   solvers(): Promise<SolverEntry[]> {
     return this.#w.solvers();
   }
+  async tunableParameters(model: string): Promise<TunableParameter[]> {
+    return (await this.#w.tunableParameters(model)).parameters ?? [];
+  }
   format(text: string, indent = 2, insertOrigin = true): Promise<string> {
     return this.#w.format(text, indent, insertOrigin); // wasm に設定ファイルは無い（S143）
   }
@@ -50,6 +53,9 @@ export class WorkerBackend implements Backend {
   }
   definition(file: string, line: number, character: number): Promise<Definition | null> {
     return this.#w.definition(file, line, character);
+  }
+  hover(file: string, line: number, character: number): Promise<Hover | null> {
+    return this.#w.hover(file, line, character);
   }
   async exportFmu(model: string, fmiVersion: number): Promise<string | null> {
     return browserSave(`${model.replaceAll(".", "_")}.fmu`, await this.#w.exportFmu(model, fmiVersion)); // S144。名前は facade の FMU と同じ
