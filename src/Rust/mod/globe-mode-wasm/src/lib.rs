@@ -332,6 +332,28 @@ impl Workspace {
         )
     }
 
+    /// 文書 `file`（先に `set_file` で足しておく）の行・列にある名前の参照を LSP の Range の配列の JSON で返す（S161。LSP の `globe/references` と同じ形）。
+    pub fn references(&self, file: &str, text: &str, line: u32, character: u32) -> String {
+        let o = self.inner.outline(file).and_then(|r| r.as_ref().ok());
+        globe_mode_lsp::definition::references_at(o, text, line, character).to_string()
+    }
+
+    /// 名前を `new_name` に変える TextEdit（`{range, newText}`）の配列の JSON（S161。LSP の `globe/rename` と同じ形）。
+    /// 断る場合（部品でない・識別子でない・予約語・同じクラスに既にある）は理由を例外（文字列）で返す。
+    pub fn rename(
+        &self,
+        file: &str,
+        text: &str,
+        line: u32,
+        character: u32,
+        new_name: &str,
+    ) -> Result<String, JsValue> {
+        let o = self.inner.outline(file).and_then(|r| r.as_ref().ok());
+        globe_mode_lsp::definition::rename_at(o, text, line, character, new_name)
+            .map(|v| v.to_string())
+            .map_err(js_error)
+    }
+
     /// ファイルを足すか、本文を差し替える。
     pub fn set_file(&mut self, name: &str, text: String) {
         self.put_file(name, text);

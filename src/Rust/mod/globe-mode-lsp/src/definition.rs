@@ -7,7 +7,7 @@
 
 use globe_mode::{Outline, Workspace};
 use globe_mode_core::TextRange;
-use globe_mode_fmt::LibraryTree;
+use globe_mode_fmt::{Kind, LibraryTree, lex};
 use globe_mode_ir::{ClassOutline, ComponentOutline};
 use lsp_types::Position;
 use serde_json::{Value, json};
@@ -275,27 +275,122 @@ pub fn hover_at(
     Some(json!({"contents": contents, "range": crate::range(text, name_range)}))
 }
 
-/// 同じ文書で、カーソルの名前と字句が同じ位置（カーソルを含む一番内側のクラスの中、無ければ文書全体）。
+/// 同じ文書で、カーソルの名前と同じ識別子のトークンの位置（カーソルを含む一番内側のクラスの中、無ければ文書全体）。
+/// 文字列・コメントの中は対象にしない（`globe-mode-fmt` の字句解析。S161）。点つきの名前（`R1.p`）は `R1 . p` と並ぶトークン列、
+/// 前が `.` のもの（別の部品のメンバ）は除く。字句に分けられない本文（閉じていない文字列など）は空。カーソルが識別子の上でなければ空。
 pub fn references(outline: Option<&Outline>, text: &str, at: usize) -> Vec<TextRange> {
     let Some((_, name)) = name_at(text, at) else {
         return vec![];
     };
+    let Ok(tokens) = lex(text) else {
+        return vec![];
+    };
+    let on_ident = tokens
+        .iter()
+        .any(|t| t.kind == Kind::Ident && t.start <= at && at <= t.start + t.text.len());
+    if !on_ident {
+        return vec![];
+    }
     let (lo, hi) = outline
         .and_then(|o| enclosing(&o.classes, at as u32).last().map(|c| c.range))
         .map_or((0, text.len()), |r| (r.start as usize, r.end as usize));
-    let scope = &text[lo..hi.min(text.len())];
-    scope
-        .match_indices(name)
-        .filter(|&(i, _)| {
-            let before = scope[..i].chars().next_back();
-            let after = scope[i + name.len()..].chars().next();
-            !before.is_some_and(|c| is_ident(c) || c == '.') && !after.is_some_and(is_ident)
+    let segs: Vec<&str> = name.split('.').collect();
+    let width = segs.len() * 2 - 1; // 識別子と `.` が交互に並ぶ
+    (0..tokens.len().saturating_sub(width - 1))
+        .filter(|&i| {
+            let run = &tokens[i..i + width];
+            run[0].start >= lo
+                && run[width - 1].start + run[width - 1].text.len() <= hi
+                && !(i > 0 && tokens[i - 1].text == "." && tokens[i - 1].kind == Kind::Punct)
+                && run.iter().enumerate().all(|(k, t)| {
+                    if k % 2 == 0 {
+                        t.kind == Kind::Ident && t.text == segs[k / 2]
+                    } else {
+                        t.kind == Kind::Punct && t.text == "."
+                    }
+                })
         })
-        .map(|(i, _)| TextRange {
-            start: (lo + i) as u32,
-            end: (lo + i + name.len()) as u32,
+        .map(|i| TextRange {
+            start: tokens[i].start as u32,
+            end: (tokens[i + width - 1].start + tokens[i + width - 1].text.len()) as u32,
         })
         .collect()
+}
+
+/// UI 向けの参照（S161。wasm と `globe/references` が使う）。`references` の範囲を LSP の Range の配列にする。
+pub fn references_at(outline: Option<&Outline>, text: &str, line: u32, character: u32) -> Value {
+    let at = crate::offset(text, Position::new(line, character));
+    json!(
+        references(outline, text, at)
+            .into_iter()
+            .map(|r| crate::range(text, r))
+            .collect::<Vec<_>>()
+    )
+}
+
+/// リネームで置き換える範囲（S161）。カーソルの名前が、いちばん内側のクラスで宣言した部品のときだけ受け、`references` と同じ出現を返す。
+/// 断る理由は文字列で返す: 部品でない（型・クラス・継承した部品・`a.b` の `b`・予約語の上）、新しい名前が識別子でない・予約語・同じクラスに既にある。
+/// shortcut: 同名の入れ子のクラスの中は区別しない。要るなら宣言の位置を持つ解析にする。
+pub fn rename(
+    outline: Option<&Outline>,
+    text: &str,
+    at: usize,
+    new_name: &str,
+) -> Result<Vec<TextRange>, String> {
+    let (_, old) = name_at(text, at).ok_or("名前の上でない")?;
+    let class = outline
+        .and_then(|o| enclosing(&o.classes, at as u32).last().copied())
+        .filter(|c| c.components.iter().any(|m| m.name == old))
+        .ok_or_else(|| {
+            format!(
+                "{old} はこのクラスで宣言した部品でない（型・クラス・継承した部品・別の部品のメンバのリネームは未対応）"
+            )
+        })?;
+    let mut chars = new_name.chars();
+    if !chars
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        || !chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+    {
+        return Err(format!(
+            "{new_name:?} は Modelica の識別子でない（英字か _ で始まる英数字と _）"
+        ));
+    }
+    if globe_mode_fmt::KEYWORDS.contains(&new_name) {
+        return Err(format!("{new_name} は予約語"));
+    }
+    if new_name != old
+        && (class.components.iter().any(|m| m.name == new_name)
+            || class.classes.iter().any(|c| c.name == new_name))
+    {
+        return Err(format!("{new_name} は同じクラスに既にある"));
+    }
+    let hits = references(outline, text, at);
+    if hits.is_empty() {
+        return Err(
+            "カーソルが識別子の上にない（コメント・文字列の中、または字句に分けられない本文）"
+                .into(),
+        );
+    }
+    Ok(hits)
+}
+
+/// UI 向けのリネーム（S161。wasm と `globe/rename` が使う）。LSP の TextEdit（`{range, newText}`）の配列。
+pub fn rename_at(
+    outline: Option<&Outline>,
+    text: &str,
+    line: u32,
+    character: u32,
+    new_name: &str,
+) -> Result<Value, String> {
+    let at = crate::offset(text, Position::new(line, character));
+    let edits = rename(outline, text, at, new_name)?;
+    Ok(json!(
+        edits
+            .into_iter()
+            .map(|r| json!({"range": crate::range(text, r), "newText": new_name}))
+            .collect::<Vec<_>>()
+    ))
 }
 
 #[cfg(test)]
@@ -330,5 +425,40 @@ mod tests {
         let h = hover_at(&mut r, "A.mo", text, 3, 2).unwrap(); // `A y;` の型 A
         assert_eq!(h["contents"], "model A \"the model\"", "{h}");
         assert_eq!(hover_at(&mut r, "A.mo", text, 0, 0), None); // 予約語
+    }
+
+    #[test]
+    fn rename_replaces_every_occurrence_and_refuses_three_ways() {
+        // 説明文字列・`//`・`/* */` の x は対象外
+        let text = "model A\n  Real x \"x position\"; // x\n  Real xx;\n  A.B y;\nequation\n  /* x */ der(x) = -x + xx + y.x;\nend A;\n";
+        let mut ws = Workspace::new();
+        ws.set_file("A.mo", text.to_string());
+        let o = ws.outline("A.mo").and_then(|r| r.as_ref().ok());
+        let at = text.find("x \"").unwrap();
+        let hits = |new: &str| rename(o, text, at, new);
+        // `xx` と `y.x` は含めない。宣言と der(x) と -x の 3 箇所（文字列・コメントの x は含めない）
+        assert_eq!(hits("z").unwrap().len(), 3);
+        let comment = text.find("// x").unwrap() + 3; // コメントの中のカーソルは断る
+        assert!(
+            rename(o, text, comment, "z")
+                .unwrap_err()
+                .contains("識別子の上にない")
+        );
+        for r in hits("z").unwrap() {
+            assert_eq!(&text[r.start as usize..r.end as usize], "x");
+            assert!(
+                !text[..r.start as usize].ends_with("\"")
+                    && !text[..r.start as usize].ends_with("// ")
+            );
+        }
+        assert!(hits("1z").unwrap_err().contains("識別子"));
+        assert!(hits("x y").unwrap_err().contains("識別子"));
+        assert!(hits("model").unwrap_err().contains("予約語"));
+        assert!(hits("xx").unwrap_err().contains("既に"));
+        // 部品でない名前（型 Real の上）は未対応
+        assert!(rename(o, text, text.find("Real").unwrap() + 1, "z").is_err());
+        let r = rename_at(o, text, 1, 7, "z").unwrap();
+        assert_eq!(r[0]["newText"], "z");
+        assert_eq!(r[0]["range"]["start"]["line"], 1);
     }
 }

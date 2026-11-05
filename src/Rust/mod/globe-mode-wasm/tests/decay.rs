@@ -355,6 +355,20 @@ fn definition_jumps_into_the_library_file() {
 }
 
 #[test]
+fn references_and_rename_in_the_same_class() {
+    // S161: UI の Shift+F12 と F2。rename は断ると理由つきの例外（ネイティブ以外では JsValue なので、成功側だけ確かめる）
+    let mut ws = Workspace::new();
+    let text = "model T\n  Real x;\nequation\n  der(x) = -x;\nend T;\n";
+    ws.put_file("T.mo", text);
+    let refs: serde_json::Value = serde_json::from_str(&ws.references("T.mo", text, 3, 6)).unwrap();
+    assert_eq!(refs.as_array().unwrap().len(), 3, "{refs}");
+    let edits: serde_json::Value =
+        serde_json::from_str(&ws.rename("T.mo", text, 1, 7, "pos").unwrap()).unwrap();
+    assert_eq!(edits.as_array().unwrap().len(), 3, "{edits}");
+    assert_eq!(edits[0]["newText"], "pos");
+}
+
+#[test]
 fn decay_exports_a_source_fmu_as_bytes() {
     // S144: ブラウザの「FMU を書き出す」。ファイルに触らず zip のバイト列で返る
     let mut ws = Workspace::new();

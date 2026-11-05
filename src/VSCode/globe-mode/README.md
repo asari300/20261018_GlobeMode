@@ -12,6 +12,7 @@ S059 で作った。`.mo` を開くと `globe lsp` を起動してつなぐだ�
 | HTML の整形 | 設定 `globeMode.formatHtml`（既定はオン）。`Documentation` の `info` / `revisions` などの HTML を改行とインデントで整える。変えるのは空白だけで、lint はしない（S062） |
 | annotation の並び | `experiment` → `Diagram` → `Icon` → `Documentation`（中は header → info → revisions）でなければ、通知（`GM-L0004`）が出る。整形で直る |
 | lint と検査の診断 | 開いて編集すると波線が出る（`GM-L0001`〜`0003` と検査の `GM-E…`）。一覧は Ctrl+Shift+M |
+| 構文の色付け | 予約語・組み込みの型・文字列・数値・コメントを TextMate 文法で色付ける（S163。意味に基づく色付けは未）。`/*` を打つと `*/` を補う |
 | 補完 | Ctrl+Space、または `.` のあと |
 | アウトライン・ホバー | エクスプローラーのアウトライン、クラス名にマウスを載せる |
 
@@ -50,11 +51,14 @@ GLOBE_BIN=$PWD/../../../target/debug/globe mise exec -- pnpm test
 
 `globe lsp` を VS Code と同じ形（`file://` の URI、拡張の既定の tabSize）で起こし、整形・lint の診断・補完を 1 往復ずつ確かめる。VS Code の本体は起動しない。
 
+本物の VS Code の中での確かめ（S165）は Actions の `vscode.yml`（手動と、main への `src/VSCode/**` の push）で回す: `gh workflow run vscode.yml`。手元では `pnpm build && PATH=$PWD/../../../target/release:$PATH xvfb-run -a pnpm test:vscode`（VS Code を約 150 MB 取得して起動する）。
+
 ## 依存
 
 | 名前 | 版 | ライセンス | 用途 | 確認日 |
 | --- | --- | --- | --- | --- |
 | vscode-languageclient（と vscode-jsonrpc ほか推移的に 5 つ） | 9.0.1 | MIT（minimatch・semver は ISC） | LSP のクライアント。`dist/extension.js` に束ねて同梱 | 2026-11-01 |
 | esbuild | 0.25.12 | MIT | 束ねるだけ（開発依存） | 2026-11-01 |
+| @vscode/test-electron、vscode-textmate、vscode-oniguruma | 3.1.0、9.3.2、2.0.1 | MIT | VS Code の起動試験と Oniguruma での文法の試験（開発依存。VSIX には入らない） | 2026-11-05 |
 
 `@vscode/vsce` は使わない。ライセンスを確かめられない署名用のバイナリ `@vscode/vsce-sign` を引き込むため。VSIX は `pack_vsix.py`（Python の標準ライブラリだけ）で作る。

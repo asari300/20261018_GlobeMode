@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S163 構文の色付け — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S163 構文の色付け">
+
+<section class="slide" id="S01">
+  <span class="tag">S163 · 2026-11-05 · P4</span>
+  <h1>構文の色付け</h1>
+  <p class="lead">S059 の持ち越し。ブラウザのエディタと VS Code で、予約語・型・文字列・数値・コメントに色が付く</p>
+  <div class="big">明でも暗でも読める色。予約語の一覧は Rust の <code>KEYWORDS</code> と一致</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">現状</span>
+  <h1>調べたこと</h1>
+  <table class="compact">
+    <tr><th>場所</th><th>色付けの有無</th></tr>
+    <tr><td>Svelte のエディタ（CodeMirror 6）</td><td>無し。言語も <code>HighlightStyle</code> も入っておらず、本文は無地</td></tr>
+    <tr><td>VS Code の拡張</td><td>無し。<code>contributes.grammars</code> が無く、<code>language-configuration.json</code> だけ</td></tr>
+    <tr><td>ダークモード（S152）</td><td><code>theme.css</code> の変数が明・暗・OS の 3 か所にある。色はここに足す</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>CodeMirror</td><td><code>StreamLanguage</code> の小さなトークナイザ</td><td>新しい文法の依存を足さない。<code>tree-sitter-modelica</code> は AGPL なので使わない</td></tr>
+    <tr><td>色</td><td><code>theme.css</code> の <code>--syn-*</code>、クラス <code>cm-mo-*</code></td><td>明暗の切り替えは変数だけで済む。コントラスト 4.5 以上</td></tr>
+    <tr><td>予約語</td><td>TS の <code>KEYWORDS</code> を補完と共通にし、一致を試験で確かめる</td><td>wasm から取る口は無く、足すと起動時の非同期が増える</td></tr>
+    <tr><td>VS Code</td><td>自前の TextMate 文法</td><td>他の文法は写さない（ライセンス）</td></tr>
+    <tr><td>依存</td><td><code>@lezer/highlight</code>（MIT）を直接の依存に</td><td>既に推移的に入っているが、pnpm では直接 import できない</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">分類</span>
+  <h1>色を付けるもの</h1>
+  <table class="compact">
+    <tr><th>分類</th><th>Svelte のクラス</th><th>TextMate のスコープ</th></tr>
+    <tr><td>予約語</td><td><code>cm-mo-kw</code></td><td><code>keyword.*</code>、<code>storage.*</code></td></tr>
+    <tr><td>組み込みの型</td><td><code>cm-mo-type</code></td><td><code>support.type</code></td></tr>
+    <tr><td>文字列</td><td><code>cm-mo-str</code></td><td><code>string.quoted.double</code></td></tr>
+    <tr><td>数値</td><td><code>cm-mo-num</code></td><td><code>constant.numeric</code></td></tr>
+    <tr><td>コメント</td><td><code>cm-mo-cmt</code></td><td><code>comment.line</code>、<code>comment.block</code></td></tr>
+    <tr><td>演算子</td><td><code>cm-mo-op</code></td><td><code>keyword.operator</code></td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">図</span>
+  <h1>一覧の持ち方</h1>
+  <svg class="fig" viewBox="0 0 800 240" role="img" aria-label="Rust の KEYWORDS を正とし、TS の KEYWORDS と TextMate 文法の予約語を、それぞれ試験が突き合わせる">
+    <rect class="svg-box-accent" x="20" y="90" width="200" height="60" rx="10"/>
+    <text class="svg-text-b" x="120" y="125" text-anchor="middle">Rust KEYWORDS</text>
+    <rect class="svg-box" x="420" y="30" width="220" height="60" rx="10"/>
+    <text class="svg-text" x="530" y="65" text-anchor="middle">editor.ts KEYWORDS</text>
+    <rect class="svg-box" x="420" y="150" width="220" height="60" rx="10"/>
+    <text class="svg-text" x="530" y="185" text-anchor="middle">tmLanguage.json</text>
+    <line class="svg-line" x1="220" y1="105" x2="420" y2="60"/>
+    <line class="svg-line" x1="220" y1="135" x2="420" y2="180"/>
+    <text class="svg-text" x="660" y="65">test_ui.py</text>
+    <text class="svg-text" x="660" y="185">grammar.test.mjs</text>
+  </svg>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">結果</span>
+  <h1>試験</h1>
+  <ul>
+    <li><code>test_ui.py</code>: 明と暗で 5 分類が別々の色、地に対して 4.5 以上、予約語の色は <code>KEYWORDS</code> の語だけ。ok</li>
+    <li><code>node --test</code>: 文法が JSON で読め、正規表現がコンパイルでき、予約語が一致し、例文で当たる（4 本 ok）</li>
+    <li><code>pnpm check</code> 0 errors / 0 warnings</li>
+  </ul>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ul>
+    <li>semantic tokens、折りたたみ、インデントの規則</li>
+    <li>Marketplace への公開、<code>@vscode/test-electron</code></li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

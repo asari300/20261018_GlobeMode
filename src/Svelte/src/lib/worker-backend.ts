@@ -54,6 +54,12 @@ export class WorkerBackend implements Backend {
   definition(file: string, line: number, character: number): Promise<Definition | null> {
     return this.#w.definition(file, line, character);
   }
+  references(file: string, line: number, character: number) {
+    return this.#w.references(file, line, character); // S161
+  }
+  rename(file: string, line: number, character: number, newName: string) {
+    return this.#w.rename(file, line, character, newName);
+  }
   hover(file: string, line: number, character: number): Promise<Hover | null> {
     return this.#w.hover(file, line, character);
   }

@@ -1,8 +1,10 @@
 // CodeMirror の拡張（S053）: 予約語と本文の単語の補完、検査と lint の結果の波線。業務ロジックは置かない。
 import { autocompletion, completeAnyWord, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
 import { linter, type Diagnostic as CmDiagnostic } from "@codemirror/lint";
+import { HighlightStyle, StreamLanguage, syntaxHighlighting, type StringStream } from "@codemirror/language";
 import { Compartment, Prec, type Extension } from "@codemirror/state";
 import { EditorView, hoverTooltip, keymap } from "@codemirror/view";
+import { tags } from "@lezer/highlight";
 import type { Backend } from "./backend";
 import type { Diagnostic } from "./protocol";
 
@@ -15,6 +17,57 @@ export const KEYWORDS = [
   "parameter", "partial", "protected", "public", "pure", "record", "redeclare", "replaceable", "return", "stream",
   "then", "true", "type", "when", "while", "within", "Real", "Integer", "Boolean", "String",
 ];
+
+/**
+ * 構文の色付け（S163）。StreamLanguage の小さなトークナイザ（予約語・組み込みの型・文字列・数値・コメント・演算子）。
+ * 意味は見ない（semantic tokens は別）。予約語は上の KEYWORDS（Rust の KEYWORDS と同じことを test_ui が確かめる）。
+ */
+const TYPES = new Set(["Real", "Integer", "Boolean", "String"]);
+const WORDS = new Set(KEYWORDS);
+type Mode = { in: "" | "str" | "cmt" };
+function token(stream: StringStream, st: Mode): string | null {
+  if (st.in === "str") { // 文字列は複数行にまたがれる
+    while (!stream.eol()) {
+      const c = stream.next();
+      if (c === "\\") stream.next();
+      else if (c === '"') { st.in = ""; break; }
+    }
+    return "string";
+  }
+  if (st.in === "cmt") {
+    if (stream.match(/^.*?\*\//)) st.in = ""; else stream.skipToEnd();
+    return "blockComment";
+  }
+  if (stream.eatSpace()) return null;
+  if (stream.match("//")) { stream.skipToEnd(); return "lineComment"; }
+  if (stream.match("/*")) { st.in = "cmt"; return token(stream, st); }
+  if (stream.next() === '"') { st.in = "str"; return token(stream, st); }
+  stream.backUp(1);
+  if (stream.match(/^'(?:\\.|[^'\\])*'/)) return "variableName"; // 引用符つきの識別子は予約語に見ない
+  if (stream.match(/^[A-Za-z_]\w*/)) { // shortcut: ASCII の識別子だけ（Modelica の識別子は ASCII）。広げるなら Unicode のクラスに
+    const w = stream.current();
+    return TYPES.has(w) ? "typeName" : WORDS.has(w) ? "keyword" : null;
+  }
+  if (stream.match(/^(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?/)) return "number";
+  if (stream.match(/^(?::=|==|<>|<=|>=|\.[-+*\/^]|[-+*\/^<>=])/)) return "operator";
+  stream.next();
+  return null;
+}
+const modelicaLanguage = StreamLanguage.define<Mode>({
+  startState: () => ({ in: "" }),
+  token,
+  languageData: { commentTokens: { line: "//", block: { open: "/*", close: "*/" } } },
+});
+// 色は modelicaTheme の .cm-mo-* が theme.css の --syn-* で付ける（明暗でここは変えない）
+const modelicaStyle = HighlightStyle.define([
+  { tag: tags.keyword, class: "cm-mo-kw" },
+  { tag: tags.typeName, class: "cm-mo-type" },
+  { tag: tags.string, class: "cm-mo-str" },
+  { tag: tags.number, class: "cm-mo-num" },
+  { tag: tags.comment, class: "cm-mo-cmt" },
+  { tag: tags.operator, class: "cm-mo-op" },
+]);
+export const modelicaHighlight: Extension = [modelicaLanguage, syntaxHighlighting(modelicaStyle)];
 
 function keywords(ctx: CompletionContext): CompletionResult | null {
   const word = ctx.matchBefore(/\w+/);
@@ -55,6 +108,20 @@ export const modelicaDefinition = (
       },
     }),
   ];
+};
+
+/** 参照の一覧（Shift+F12）とリネーム（F2）（S161）。キーを受けて、カーソルの位置を渡すだけ。計算は Backend（Rust）。 */
+export const modelicaRefactor = (
+  references: (line: number, character: number) => Promise<void>,
+  rename: (line: number, character: number) => void,
+): Extension => {
+  const at = (view: EditorView, f: (line: number, character: number) => unknown) => {
+    const pos = view.state.selection.main.head;
+    const line = view.state.doc.lineAt(pos);
+    f(line.number - 1, pos - line.from);
+    return true;
+  };
+  return Prec.high(keymap.of([{ key: "Shift-F12", run: (v) => at(v, references) }, { key: "F2", run: (v) => at(v, rename) }]));
 };
 
 /** ホバー（S149）: 300 ms 置くと、その名前の宣言（部品は `Real x "説明"`、クラスは見出し）を素のテキストで出す。 */
@@ -134,6 +201,12 @@ export const modelicaTheme: Extension = EditorView.theme({
   ".cm-activeLine, .cm-activeLineGutter": { backgroundColor: "var(--hover)" },
   ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--fg)" },
   "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground": { backgroundColor: "var(--sel)" },
+  ".cm-mo-kw": { color: "var(--syn-kw)" },
+  ".cm-mo-type": { color: "var(--syn-type)" },
+  ".cm-mo-str": { color: "var(--syn-str)" },
+  ".cm-mo-num": { color: "var(--syn-num)" },
+  ".cm-mo-cmt": { color: "var(--syn-cmt)", fontStyle: "italic" },
+  ".cm-mo-op": { color: "var(--muted)" },
   ".cm-tooltip": { backgroundColor: "var(--bg)", color: "var(--fg)", border: "1px solid var(--border)" },
   ".cm-tooltip-autocomplete ul li[aria-selected]": { backgroundColor: "var(--sel)", color: "var(--fg)" },
 });

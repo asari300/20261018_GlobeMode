@@ -8,6 +8,8 @@ dist/ を localhost で配り（CSP は index.html の meta と同じものを�
 最後に「MSL を読む」で MSL 4.1.0 を読み（public/msl/MSL.json が無ければ飛ばす）、ChuaCircuit の検査（error 0）と実行（プロットの canvas と系列）を確かめて、秒数を出す（S048）。
 長いモデルの実行で進捗（段と t の割合）が出て、「止める」で止まり（data-run="cancelled"）、ボタンが戻ることを確かめる（S133）。止めたあとプロットに途中までの列が残る（S157。dist を cross-origin isolated で配る）。
 Decay の `der(x)` の x で F12 を押すと宣言の行（`Real x`）へ動く。ChuaCircuit のファイルで型 `Modelica.Electrical.Analog.Basic.Resistor` の上の F12 は、ライブラリの Resistor.mo をエディタに開き、Alt+← で ChuaCircuit に戻る（S138）。
+構文の色付け（S163）: 予約語・型・数値・文字列・コメントに別々の色のクラス（cm-mo-*）が付き、エディタの地に対してコントラスト 4.5 以上。暗でも同じ。editor.ts の KEYWORDS は Rust の KEYWORDS と同じ並び。
+Decay の x で Shift+F12 を押すと参照の一覧（3 行）が出て行を押すと飛べ、F2 で pos に変えると全出現が変わって検査が通り（予約語は断られ、Ctrl+Z 1 回で戻る。S161）。
 `.mo` を開く（ファイル選択）とエディタに入りモデル名が本文から付いて検査が通り、「保存」でダウンロードされ、再読み込みで localStorage から戻る（S141）。
 名前の上にマウスを置くと宣言の 1 行が出る（Decay の x は `Real x`、ChuaCircuit の Resistor は見出しと説明文字列。S149）。
 タブ（S151）: 開くたびにタブが増え、切り替えで本文・モデル名・診断が戻り、再読み込みでタブが戻り、閉じるボタンで減り（未保存なら confirm 1 つ。最後の 1 つは閉じられない）、「最近使ったファイル」から開き直せる。
@@ -40,6 +42,9 @@ from playwright.sync_api import expect, sync_playwright
 
 DIST = Path(__file__).resolve().parents[1] / "dist"
 TOLERANT = Path(__file__).resolve().parents[2] / "Rust/mod/globe-mode-frontend/tests/data/tolerant/a/A"
+SRC = Path(__file__).resolve().parents[2]
+RUST_KW = re.findall(r'"(\w+)"', re.search(r"pub const KEYWORDS.*?\];", (SRC / "Rust/mod/globe-mode-fmt/src/lib.rs").read_text(), re.S).group(0))
+SYN = 'model S\n  Real x = 1.5; // c\n  String s = "t";\nend S;\n'  # 色付けの試験（S163）
 # 10 万点: 出力間隔 0.01 s で 1000 s
 BIG = (
     "model Big\n  Real a(start = 1, fixed = true);\n  Real b(start = 1, fixed = true);\n  Real c(start = 1, fixed = true);\n"
@@ -89,7 +94,37 @@ def serve(prefix: str = "") -> http.server.ThreadingHTTPServer:
     return server
 
 
+def contrast(a: str, b: str) -> float:
+    """WCAG のコントラスト比（CSS の rgb(...) 2 つ）"""
+
+    def lum(css: str) -> float:
+        c = [int(float(v)) / 255 for v in re.findall(r"[\d.]+", css)[:3]]
+        c = [x / 12.92 if x <= 0.03928 else ((x + 0.055) / 1.055) ** 2.4 for x in c]
+        return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+
+    hi, lo = sorted((lum(a), lum(b)), reverse=True)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def check_syntax(pg) -> None:
+    """構文の色付け（S163）: 予約語・型・数値・文字列・コメントに別々の色のクラスが付き、エディタの地に対して読める（4.5 以上）。pg のエディタに model / Real / 数値 / "文字列" / // コメント がある前提"""
+    want = {"kw": "model", "type": "Real", "num": "", "str": '"', "cmt": "//"}
+    look = "(e) => [getComputedStyle(e).color, getComputedStyle(document.querySelector('.cm-editor')).backgroundColor]"
+    colors = {}
+    for cls, head in want.items():
+        el = pg.locator(f".cm-content .cm-mo-{cls}").first
+        expect(el).to_be_visible()
+        assert el.inner_text().startswith(head), (cls, el.inner_text())
+        colors[cls], bg = el.evaluate(look)
+        assert contrast(colors[cls], bg) >= 4.5, (cls, colors[cls], bg)
+    assert len(set(colors.values())) == len(want), colors
+    assert all(t in RUST_KW for t in pg.locator(".cm-content .cm-mo-kw").all_inner_texts()), "予約語でない語に予約語の色が付いている"
+
+
 def main() -> int:
+    # 色付けの予約語は Rust の KEYWORDS と同じ並び（S163。editor.ts の KEYWORDS は補完と色付けの共通の一覧）
+    ts_kw = re.findall(r'"(\w+)"', re.search(r"export const KEYWORDS = \[(.*?)\];", (SRC / "Svelte/src/lib/editor.ts").read_text(), re.S).group(1))
+    assert ts_kw == RUST_KW, set(ts_kw) ^ set(RUST_KW)
     # 列の道の NaN / Inf は null になる（uPlot の欠損。S065）
     subprocess.run(["node", str(Path(__file__).with_name("test_columns.mjs"))], check=True)
     server = serve()
@@ -116,6 +151,7 @@ def main() -> int:
         assert rows.count() > 0, "info の診断（GM-I10001）は出るはず"  # 描画の確認も兼ねる
         assert page.locator("tr.error").count() == 0, rows.all_inner_texts()
         print(f"Decay: 診断 {rows.count()} 行、error 0 行: {rows.all_inner_texts()}")
+        expect(page.locator(".cm-content .cm-mo-kw").first).to_have_text("model")  # 色付け（S163）: 開いた Decay の予約語に色のクラスが付く
         # 上書きできるパラメータの一覧（S150）: 検査のあとに取る。この Decay は parameter が無いので「無い」と出る
         expect(page.locator("[data-params]")).to_contain_text("上書きできるパラメータは無い", timeout=60_000)
 
@@ -136,12 +172,14 @@ def main() -> int:
             box = page.evaluate(
                 """([line, name, nth]) => {
                   const el = [...document.querySelectorAll('.cm-line')].find((e) => e.textContent.includes(line));
-                  const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-                  const t = w.nextNode();
                   let i = -1;
-                  for (let k = 0; k <= nth; k++) i = t.textContent.indexOf(name, i + 1);
+                  for (let k = 0; k <= nth; k++) i = el.textContent.indexOf(name, i + 1);
+                  // 色付け（S163）で行が複数の span に分かれるので、i 文字目を含むテキストノードを探す
+                  const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+                  let t, off = 0;
+                  while ((t = w.nextNode()) && i >= off + t.textContent.length) off += t.textContent.length;
                   const r = document.createRange();
-                  r.setStart(t, i); r.setEnd(t, i + 1);
+                  r.setStart(t, i - off); r.setEnd(t, i - off + 1);
                   const b = r.getBoundingClientRect();
                   return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
                 }""",
@@ -157,6 +195,56 @@ def main() -> int:
         print(f"Decay のホバー: {tip.inner_text()!r}")
         page.mouse.move(5, 5)
         expect(tip).to_have_count(0)
+
+        # 参照とリネーム（S161）: Decay の `der(x)` の x で Shift+F12 → 一覧 3 行（宣言・der(x)・-x のどれか）から押して飛べる。
+        # F2 で名前を変えると全出現が変わり、検査が通る。予約語は断られ、1 回の undo で戻る
+        base = page.locator(".cm-content").inner_text()
+        page.locator(".cm-content").focus()
+        page.keyboard.press("Control+End")
+        page.keyboard.type("\n// x と \"x\" は変えない")  # コメントと文字列の中の x は参照にもリネームにも入らない
+        page.wait_for_timeout(700)  # 入力と次の操作を履歴の別の塊にする
+        original = page.locator(".cm-content").inner_text()
+        page.keyboard.press("Control+Home")
+        for _ in range(3):
+            page.keyboard.press("ArrowDown")
+        page.keyboard.press("End")
+        page.keyboard.press("ArrowLeft")
+        page.keyboard.press("Shift+F12")
+        refs = page.locator("table.refs tr")
+        expect(refs).to_have_count(3, timeout=30_000)
+        refs.first.click()
+        expect(page.locator(".cm-activeLine")).to_contain_text("Real x(start")
+        print(f"Decay の Shift+F12: 参照 {refs.all_inner_texts()}")
+        page.get_by_role("button", name="参照を閉じる").click()
+        page.locator(".cm-content").focus()
+        page.keyboard.press("F2")
+        name = page.get_by_label("新しい名前")
+        name.fill("model")
+        name.press("Enter")
+        expect(page.get_by_role("alert")).to_contain_text("予約語", timeout=30_000)
+        assert page.locator(".cm-content").inner_text() == original
+        page.locator(".cm-content").focus()
+        page.keyboard.press("F2")
+        name.fill("pos")
+        name.press("Enter")
+        expect(page.locator(".cm-content")).to_contain_text("der(pos) = -pos;", timeout=30_000)
+        assert "// x と \"x\" は変えない" in page.locator(".cm-content").inner_text()
+        assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
+        check()
+        assert page.locator("tr.error").count() == 0, rows.all_inner_texts()
+        page.locator(".cm-content").focus()  # 検査のボタンからフォーカスを戻す
+        page.keyboard.press("Control+z")
+        assert page.locator(".cm-content").inner_text() == original, "リネームは 1 回の undo で戻る"
+        page.keyboard.press("Control+z")  # 足したコメントも消す
+        assert page.locator(".cm-content").inner_text() == base
+        print("Decay の F2: x を pos に変えて検査が通り、予約語は断られ、Ctrl+Z 1 回で戻った")
+        # 構文の色付け（S163）: 別の本文を入れて色を見て、Ctrl+Z で Decay に戻す
+        page.keyboard.press("Control+A")
+        page.keyboard.insert_text(SYN)
+        check_syntax(page)
+        page.keyboard.press("Control+z")
+        assert page.locator(".cm-content").inner_text() == base
+        print("色付け（明）: 予約語・型・数値・文字列・コメントに別々の色のクラスが付き、地に対して 4.5 以上")
 
         run = page.get_by_role("button", name="実行")
 
@@ -612,6 +700,11 @@ def main() -> int:
         assert dark.evaluate(ink_px) > 30, "暗いのに軸の文字が文字色になっていない"
         series = [0x1F, 0x77, 0xB4]  # Plot.svelte の COLORS[0]。x の線
         wait_near(".plot canvas", series, 50, "暗のプロットの系列の線")
+        dark.locator(".cm-content").focus()
+        dark.keyboard.press("Control+A")
+        dark.keyboard.insert_text(SYN)
+        check_syntax(dark)  # S163: 暗でも別々の色で、暗い地に対して読める
+        print("色付け（暗）: 同じ 5 種が別々の色で、暗い地に対して 4.5 以上")
         dark.get_by_label("モデル名").fill("G")
         dark.locator(".cm-content").focus()
         dark.keyboard.press("Control+A")

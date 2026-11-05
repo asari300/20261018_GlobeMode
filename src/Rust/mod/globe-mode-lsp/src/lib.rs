@@ -19,6 +19,8 @@
 //! | `globe/libraryTree` | `{prefix}`（空ならトップレベル） | `[{name, path, kind, description, file, hasChildren}]`（S127。直下の子だけ。wasm の `library_tree` と同じ形） |
 //! | `globe/definition` | `{file, line, character}`（開いている文書。行は 0 始まり、列は UTF-16） | `{file, text, range}` か null（S138。`textDocument/definition` と同じ解決で、定義のあるファイルの本文も返す。wasm の `definition` と同じ形） |
 //! | `globe/hover` | `{file, line, character}`（`globe/definition` と同じ） | `{contents, range}` か null（S149。名前の宣言の 1 行（クラスは見出し、部品は `;` まで。説明文字列を含む）と、カーソルの名前の Range。wasm の `hover` と同じ形） |
+//! | `globe/references` | `{file, line, character}`（`globe/definition` と同じ） | LSP の Range の配列（S161。カーソルの名前と字句が同じ位置。同じ文書の、カーソルのあるいちばん内側のクラスの中だけ。wasm の `references` と同じ形） |
+//! | `globe/rename` | `{file, line, character, newName}` | LSP の TextEdit（`{range, newText}`）の配列（S161。いちばん内側のクラスで宣言した部品だけ。部品でない・識別子でない・予約語・同じクラスに既にある名前は -32803 に理由。`textDocument/rename` は同じ計算の WorkspaceEdit） |
 //! | `globe/solvers` | なし | ソルバの登録表（`[{name, status, description, instead?}]`。S142。wasm の `solvers` と同じ） |
 //! | `globe/exportFmu` | `{model, fmiVersion?, outDir}`（既定は FMI 2。`build` はしない） | `{path}`（S144。`outDir/<名前>.fmu` と展開した `outDir/<名前>/` を書く。DAE まで変換できなければ -32000） |
 //! | `globe/tunableParameters` | `{model}` | `ParametersResponse` の JSON（S150。上書きできるパラメータの一覧。wasm の `tunable_parameters` と同じ。DAE まで変換できなければ -32000） |
@@ -155,7 +157,7 @@ impl Server {
                         // 1 = Full
                         "capabilities": {"textDocumentSync": 1, "documentSymbolProvider": true, "hoverProvider": true,
                             "documentFormattingProvider": true, "completionProvider": {"triggerCharacters": ["."]},
-                            "definitionProvider": true, "referencesProvider": true},
+                            "definitionProvider": true, "referencesProvider": true, "renameProvider": true},
                         "serverInfo": {"name": "globe-mode", "version": env!("CARGO_PKG_VERSION")},
                     }),
                 );
@@ -331,6 +333,32 @@ impl Server {
                     None => vec![],
                 };
                 reply(id, json!(refs))
+            }
+            // S161: 参照の一覧とリネーム。UI 向けの `globe/*` は `file`・`line`・`character`（rename は `newName` も）、
+            // `textDocument/rename` は VS Code 向け。計算は `definition::references_at` / `rename_at`（wasm と同じ）
+            "textDocument/rename" | "globe/references" | "globe/rename" => {
+                let (key, pos) = if msg["method"] == "textDocument/rename" {
+                    (uri.clone(), lsp_position(&params["position"]))
+                } else {
+                    let (l, c) = (&params["line"], &params["character"]);
+                    (
+                        params["file"].as_str().unwrap_or("").to_string(),
+                        Position::new(l.as_u64().unwrap_or(0) as u32, c.as_u64().unwrap_or(0) as u32),
+                    )
+                };
+                let Some(text) = self.texts.get(&key).cloned() else {
+                    return reply(id, Value::Null);
+                };
+                let o = self.ws.outline(&uri_path(&key)).and_then(|r| r.as_ref().ok());
+                if msg["method"] == "globe/references" {
+                    return reply(id, definition::references_at(o, &text, pos.line, pos.character));
+                }
+                let new_name = params["newName"].as_str().unwrap_or("");
+                match definition::rename_at(o, &text, pos.line, pos.character, new_name) {
+                    Ok(edits) if msg["method"] == "globe/rename" => reply(id, edits),
+                    Ok(edits) => reply(id, json!({"changes": {key: edits}})),
+                    Err(why) => error(id, -32803, &why), // RequestFailed
+                }
             }
             "globe/check" => match params["model"].as_str() {
                 Some(model) => reply(id, json!(self.ws.check(model))),
@@ -1436,6 +1464,44 @@ mod tests {
             .map(|l| l["range"]["start"]["line"].clone())
             .collect();
         assert_eq!(lines, [json!(1), json!(4), json!(4)], "{r}");
+    }
+
+    #[test]
+    fn rename_edits_and_refusals_over_rpc() {
+        let mut s = Server::new(&[]).unwrap();
+        let uri = "file:///tmp/R.mo";
+        let text = "model R\n  Real x;\n  Real xx;\nequation\n  der(x) = -x + xx;\nend R;\n";
+        let init = s.handle(json!({"id": 0, "method": "initialize", "params": {}}));
+        assert_eq!(
+            init[0]["result"]["capabilities"]["renameProvider"],
+            json!(true)
+        );
+        let r = ask_at(&mut s, uri, text, "textDocument/rename", "x;", 0);
+        assert!(
+            r["error"].is_object(),
+            "newName が無いので識別子でない: {r}"
+        );
+        let mut ask = |method: &str, new: &str| {
+            s.handle(json!({"id": 9, "method": method, "params": {"file": uri, "textDocument": {"uri": uri},
+                "position": {"line": 1, "character": 7}, "line": 1, "character": 7, "newName": new}}))
+                .remove(0)
+        };
+        assert_eq!(
+            ask("globe/references", "")["result"]
+                .as_array()
+                .unwrap()
+                .len(),
+            3
+        );
+        let edits = ask("globe/rename", "pos")["result"].clone();
+        assert_eq!(edits.as_array().unwrap().len(), 3, "{edits}");
+        let w = ask("textDocument/rename", "pos")["result"].clone();
+        assert_eq!(w["changes"][uri], edits, "{w}");
+        for (new, why) in [("1a", "識別子"), ("end", "予約語"), ("xx", "既に")] {
+            let e = ask("globe/rename", new);
+            assert_eq!(e["error"]["code"], -32803, "{e}");
+            assert!(e["error"]["message"].as_str().unwrap().contains(why), "{e}");
+        }
     }
 
     /// S136（ADR-0033）: 読みを別のスレッドにした `serve` を pipe で回す。長い実行の進捗が `$/progress` で届き、

@@ -168,6 +168,12 @@ export class TauriBackend implements Backend {
   }
 
   /** S144: ソースの FMU。dialog.save で選んだ場所のフォルダを outDir にして sidecar に書かせる（`<outDir>/<モデル名の . を _ にしたもの>.fmu` と展開した同名のフォルダ。選んだファイル名は使わない）。 */
+  references(file: string, line: number, character: number) {
+    return invoke<Definition["range"][]>("rpc", { method: "globe/references", params: { file, line, character } }); // S161
+  }
+  rename(file: string, line: number, character: number, newName: string) {
+    return invoke<{ range: Definition["range"]; newText: string }[]>("rpc", { method: "globe/rename", params: { file, line, character, newName } });
+  }
   hover(file: string, line: number, character: number): Promise<Hover | null> {
     return invoke("rpc", { method: "globe/hover", params: { file, line, character } }); // S149（globe/definition と同じ解決で宣言の 1 行）
   }
