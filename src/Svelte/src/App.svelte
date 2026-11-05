@@ -55,6 +55,7 @@
   // S141: 自分のファイルを開く・保存する。本文とファイル名は localStorage に自動保存して起動時に戻す（使えなくても動く。S102）。モデル名は戻さず本文から入れ直す（smoke が書き換えたモデル名を次の起動で拾わないため）
   // own はエディタの文書が自分のファイルか（ライブラリのファイルを開いている間は保存も上書きもしない）
   const STORE = "globe-mode.doc";
+  const LONG = "model Long\n  Real x(start = 0, fixed = true);\nequation\n  der(x) = sin(100 * time);\n  annotation(experiment(StopTime = 1e6));\nend Long;\n"; // S147: smoke の「止める」用。止めるまで終わらない長さ
   const DECAY = "model Decay\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -x;\nend Decay;\n";
   let own = true;
   let saved = $state(""); // 保存した先（Desktop はパス、ブラウザは名前）
@@ -86,7 +87,7 @@
         extensions: [
           lineNumbers(), history(), drawSelection(), highlightActiveLine(), bracketMatching(), keymap.of([...defaultKeymap, ...historyKeymap]),
           modelicaCompletion(), modelicaLinter(backend, file), // S053
-          modelicaDefinition(definition, goBack), // S138
+          modelicaDefinition(definition, goBack, { backend, file: () => file }), // S138（S149: ホバー）
           EditorView.updateListener.of((u) => { if (u.docChanged) persist(); }),
         ],
       }),
@@ -117,9 +118,115 @@
     const mslOk = msl === "loaded" && !failure && !diagnostics.some((d) => d.severity === "error");
     // S143: Desktop は globe-mode.toml（desktop.yml が indent = 4 を置いた作業ディレクトリ）が整形に効くか。無ければ none
     const cfg = tauri ? ` cfg=${(await backend.format("model C\nReal x;\nend C;\n").catch(() => "")).includes("\n    Real x;") ? "ok" : "none"}` : "";
+    const mslMs = performance.now() - t;
+    const fail0 = failure;
+    // S147: UI の操作（ライブラリの木・整形・グラフ・実行の設定・プロットの選択・定義ジャンプ・止める）を UI のコードの関数と DOM で回す。落ちた項目は =ng と理由（failure=）
+    // MSL が無い（ブラウザで MSL.json が無い）ときは木・グラフ・ライブラリへの定義ジャンプを飛ばす（=skip）
+    const mslUp = msl === "loaded";
+    const file0 = file;
+    const ng: string[] = [];
+    const step = async (name: string, f: () => Promise<unknown>) => {
+      failure = "";
+      try {
+        if (await f()) return `${name}=ok`;
+        ng.push(`${name}: ${failure || "条件に合わない"}`);
+      } catch (e) {
+        ng.push(`${name}: ${e}`);
+      }
+      return `${name}=ng`;
+    };
+    const wait = async (f: () => unknown, limit = 60_000) => {
+      const t0 = performance.now();
+      while (!f() && performance.now() - t0 < limit) await new Promise((r) => setTimeout(r, 50));
+      return !!f();
+    };
+    const restore = (text = DECAY) => { own = true; file = file0; model = "Decay"; back.length = 0; replaceDoc(text); diagnostics = []; columns = null; graphModel = null; };
+    const setField = async (label: string, v: string) => {
+      const el = document.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)!;
+      el.value = v;
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+      await tick();
+    };
+    const doc = () => view.state.doc.toString();
+    const tree = !mslUp ? "tree=skip" : await step("tree", async () => {
+      const e = (await backend.libraryTree("Modelica.Electrical.Analog.Examples")).find((x) => x.name === "ChuaCircuit");
+      if (!e) return false;
+      await openLibrary(e);
+      return !failure && !own && model === e.path && doc().includes("model ChuaCircuit");
+    });
+    const graphed = !mslUp ? "graph=skip" : await step("graph", async () => {
+      await graph();
+      const drawn = await wait(() => { const n = document.querySelector<HTMLElement>(".canvas[data-nodes]")?.dataset.nodes; return n && n !== "0"; });
+      const alert = document.querySelector(".wrap [role=alert]")?.textContent; // Graph 自身の失敗（WebGL など）
+      graphModel = null;
+      await tick();
+      if (alert) failure = alert;
+      return drawn && !alert;
+    });
+    const def = await step("def", async () => {
+      if (mslUp) { // ライブラリのファイルが開き、Alt+← 相当で戻る
+        const f = file, i = doc().indexOf("Modelica.Electrical.Analog.Basic.Resistor") + 36; // Resistor の 3 文字目
+        const l = view.state.doc.lineAt(i);
+        await definition(l.number - 1, i - l.from);
+        const opened = !failure && file !== f && doc().includes("model Resistor");
+        goBack();
+        if (!opened || file !== f || !doc().includes("model ChuaCircuit")) return false;
+      }
+      restore();
+      await definition(3, 13); // Decay の `  der(x) = -x;` の x のすぐ後ろ
+      return !failure && view.state.doc.lineAt(view.state.selection.main.head).text.includes("Real x");
+    });
+    const fmt = await step("fmt", async () => {
+      restore("model C\nReal x;\nend C;\n");
+      model = "C";
+      await format();
+      return !failure && /\n {2,4}Real x;/.test(doc());
+    });
+    restore();
+    const settings = await step("settings", async () => {
+      await setField("終了時刻", "abc");
+      const refused = settingsProblem !== ""; // 数でない欄は問題として出る
+      await setField("終了時刻", "2");
+      await simulate();
+      await tick();
+      const t2 = columns ? Number(columns.data[0][columns.points - 1]) : NaN;
+      await setField("終了時刻", "");
+      return refused && !failure && lastSettings?.stop_time === 2 && lastSettings.origins.stop_time === "requested" && Math.abs(t2 - 2) < 1e-3;
+    });
+    const plot = await step("plot", async () => { // 直前の実行の列。系列を外す・戻す・右の軸へ
+      const p = document.querySelector<HTMLElement>(".plot");
+      const box = p?.querySelector<HTMLInputElement>("input[name=signal]");
+      if (!p || !box) return false;
+      const n = Number(p.dataset.series);
+      box.click();
+      await tick();
+      const off = Number(p.dataset.series);
+      box.click();
+      await tick();
+      p.querySelector<HTMLInputElement>('input[aria-label$="を右の軸に"]')?.click();
+      await tick();
+      return n >= 1 && off === n - 1 && Number(p.dataset.series) === n && p.dataset.right === "1";
+    });
+    const cancel = await step("cancel", async () => { // Desktop は TauriBackend.cancel、Android・ブラウザは Worker の terminate
+      replaceDoc(LONG);
+      model = "Long";
+      const done = simulate();
+      const running = await wait(() => runNote.includes("integration"), 120_000);
+      const button = [...document.querySelectorAll("button")].find((b) => b.textContent === "止める");
+      if (button) button.click();
+      else backend.cancel?.();
+      await done;
+      const stopped = runState === "cancelled" || diagnostics.some((d) => d.code === "GM-I11004"); // sidecar が止めれば途中までの結果と GM-I11004
+      await check(); // 止めたあとも次の呼び出しが回る
+      return running && !!button && stopped && !failure && !diagnostics.some((d) => d.severity === "error");
+    });
+    restore();
     const ms = (x: number) => x.toFixed(0);
     const line = `GM-SMOKE check=${checked ? "ok" : "ng"} simulate=${simulated ? "ok" : "ng"} x1=${x1} msl=${mslOk ? "ok" : "ng"}${cfg}`
-      + ` ready_ms=${ms(ready)} decay_ms=${ms(decay)} msl_ms=${mslOk ? ms(performance.now() - t) : "-"}${failure ? ` failure=${failure}` : ""}`;
+      + ` ${tree} ${fmt} ${graphed} ${cancel} ${settings} ${plot} ${def}`
+      + ` ready_ms=${ms(ready)} decay_ms=${ms(decay)} msl_ms=${mslOk ? ms(mslMs) : "-"}`
+      + (fail0 || ng.length ? ` failure=${[fail0, ...ng].filter(Boolean).join(" / ").replace(/\s+/g, " ")}` : "");
     console.log(line);
     void tauri?.bench(line);
   }

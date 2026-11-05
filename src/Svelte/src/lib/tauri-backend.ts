@@ -1,4 +1,4 @@
-import type { Backend, Definition, LintMessage, Progress, TreeEntry } from "./backend";
+import type { Backend, Definition, Hover, LintMessage, Progress, TreeEntry } from "./backend";
 import type { Columns } from "./plot/csv";
 import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse, SolverEntry, TunableParameter } from "./protocol";
 
@@ -162,6 +162,9 @@ export class TauriBackend implements Backend {
   }
 
   /** S144: ソースの FMU。dialog.save で選んだ場所のフォルダを outDir にして sidecar に書かせる（`<outDir>/<モデル名の . を _ にしたもの>.fmu` と展開した同名のフォルダ。選んだファイル名は使わない）。 */
+  hover(file: string, line: number, character: number): Promise<Hover | null> {
+    return invoke("rpc", { method: "globe/hover", params: { file, line, character } }); // S149（globe/definition と同じ解決で宣言の 1 行）
+  }
   async exportFmu(model: string, fmiVersion: number): Promise<string | null> {
     const path = await tauriGlobal().dialog.save({ defaultPath: `${model.replaceAll(".", "_")}.fmu`, filters: [{ name: "FMU", extensions: ["fmu"] }] });
     if (!path) return null;

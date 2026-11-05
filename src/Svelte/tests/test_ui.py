@@ -9,11 +9,13 @@ dist/ を localhost で配り（CSP は index.html の meta と同じものを�
 長いモデルの実行で進捗（段と t の割合）が出て、「止める」で止まり（data-run="cancelled"）、ボタンが戻ることを確かめる（S133）。
 Decay の `der(x)` の x で F12 を押すと宣言の行（`Real x`）へ動く。ChuaCircuit のファイルで型 `Modelica.Electrical.Analog.Basic.Resistor` の上の F12 は、ライブラリの Resistor.mo をエディタに開き、Alt+← で ChuaCircuit に戻る（S138）。
 `.mo` を開く（ファイル選択）とエディタに入りモデル名が本文から付いて検査が通り、「保存」でダウンロードされ、再読み込みで localStorage から戻る（S141）。
+名前の上にマウスを置くと宣言の 1 行が出る（Decay の x は `Real x`、ChuaCircuit の Resistor は見出しと説明文字列。S149）。
 FMU を書き出す（S144）: ブラウザの wasm が作ったソースの FMU がダウンロードされ、modelDescription.xml と sources/ がある。
 実行の設定（S142）: 終了時刻 2 とソルバ dopri45 で Decay を実行して x(2) が e⁻²、DecayK は experiment の Tolerance が初期値（出どころ experiment）に出て、k = 2 の上書きで x(1) が e⁻²。名前=値でない行は実行しない。
 ライブラリの木で Modelica → Electrical → Analog → Examples → ChuaCircuit と開き、そのファイルがエディタに開いて検査が通ることも確かめる（S127）。
 別のページで MSL.json を構文の誤りのファイルを含むライブラリに差し替え、読み飛ばしの警告 GM-W1001 の行と notes のファイル名が出ることを確かめる（S071）。
 `?smoke=1` で起動すると Decay の検査と実行の結果が console に `GM-SMOKE check=ok simulate=ok x1=… msl=… ready_ms=…` の 1 行で出ること（S100、android.yml の smoke。時刻は S125）。MSL.json があれば msl=ok（MSL を読んで ChuaCircuit の検査が error 0。S103）。
+UI の操作の項目 `tree= fmt= graph= cancel= settings= plot= def=`（S147。Desktop と Android の smoke と同じ。MSL.json が無ければ tree・graph は skip）も全部 ok で `failure=` が無いこと。
 console の error（CSP の違反を含む）と、配った origin の外への要求は失敗（S093）。
 """
 
@@ -122,6 +124,33 @@ def main() -> int:
         expect(page.locator(".cm-activeLine")).to_contain_text("Real x(start", timeout=30_000)
         assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
         print(f"Decay の F12: 動いた先の行 {page.locator('.cm-activeLine').inner_text()!r}")
+
+        def hover_over(line: str, name: str, nth: int = 0) -> None:
+            """行（部分一致）の中の name の文字（nth 番目の出現）の真ん中へマウスを動かす（S149）。"""
+            box = page.evaluate(
+                """([line, name, nth]) => {
+                  const el = [...document.querySelectorAll('.cm-line')].find((e) => e.textContent.includes(line));
+                  const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+                  const t = w.nextNode();
+                  let i = -1;
+                  for (let k = 0; k <= nth; k++) i = t.textContent.indexOf(name, i + 1);
+                  const r = document.createRange();
+                  r.setStart(t, i); r.setEnd(t, i + 1);
+                  const b = r.getBoundingClientRect();
+                  return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+                }""",
+                [line, name, nth],
+            )
+            page.mouse.move(box["x"] - 30, box["y"])  # 一度ずらしてから置く（mousemove を確実に起こす）
+            page.mouse.move(box["x"], box["y"])
+
+        # ホバー（S149）: `der(x)` の x にマウスを置くと、宣言の `Real x` を含む tooltip が出る
+        hover_over("der(x)", "x")
+        tip = page.locator(".cm-tooltip .cm-hover")
+        expect(tip).to_contain_text("Real x", timeout=30_000)
+        print(f"Decay のホバー: {tip.inner_text()!r}")
+        page.mouse.move(5, 5)
+        expect(tip).to_have_count(0)
 
         run = page.get_by_role("button", name="実行")
 
@@ -363,6 +392,10 @@ def main() -> int:
             page.keyboard.press("Alt+ArrowLeft")
             expect(page.locator(".cm-content")).to_contain_text("model ChuaCircuit")
             print("ChuaCircuit の F12: Resistor.mo が開き、Alt+← で ChuaCircuit に戻った")
+            # ホバー（S149）: ライブラリのクラス Resistor の上で、見出しと説明文字列が出る
+            hover_over("Basic.Resistor Ro", "Resistor")
+            expect(tip).to_contain_text("Ideal linear electrical resistor", timeout=30_000)
+            print(f"ChuaCircuit のホバー: {tip.inner_text()!r}")
         else:
             print("public/msl/MSL.json が無いので MSL の試験は飛ばす")
         # ライブラリに構文の誤りのファイルがあっても読み、読み飛ばしを GM-W1001 の行（ファイル名は notes）で出す（S071）。
@@ -425,6 +458,9 @@ def main() -> int:
         line = message.value.text
         assert line.startswith("GM-SMOKE check=ok simulate=ok x1=0.36"), line
         assert ("msl=ok" in line) == (DIST / "msl/MSL.json").exists(), line  # S103
+        # S147: UI の操作の項目。MSL が無ければ木とグラフは skip
+        skipped = "skip" if not (DIST / "msl/MSL.json").exists() else "ok"
+        assert f" tree={skipped} fmt=ok graph={skipped} cancel=ok settings=ok plot=ok def=ok " in line and "failure=" not in line, line
         assert re.search(r" ready_ms=\d+ decay_ms=\d+ msl_ms=", line), line  # S125: bench_ui.py が読む時刻
         print(line)
         # サブパス配信（S145）: dist/ を /app/ の下だけで配っても、worker・wasm・MSL.json が相対パスで引けて、検査と MSL の読み込みができる
