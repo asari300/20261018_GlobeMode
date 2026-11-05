@@ -179,6 +179,39 @@ cargo deny --manifest-path "$M/Cargo.toml" --config "$M/deny.toml" check
 uv run python "$M/tests/test_leptos.py"
 """
 
+[tasks."dioxus:build"]
+description = "Dioxus 版（src/Rust/apps/experimental/dioxus、別の workspace）を release の wasm32 でビルドし、wasm-bindgen --target web で dist/ に糊と index.html、data/msl があれば msl/MSL.json を置く（S155、ADR-0036。dx は使わない）"
+env = { CARGO_PROFILE_RELEASE_LTO = "fat", CARGO_PROFILE_RELEASE_CODEGEN_UNITS = "1", CARGO_PROFILE_RELEASE_OPT_LEVEL = "s", CARGO_PROFILE_RELEASE_STRIP = "true" }
+run = """
+set -eu
+M=src/Rust/apps/experimental/dioxus
+# 別の workspace の target はルートのものと混ぜない（CARGO_TARGET_DIR があればその下の dioxus/）
+export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-target}/dioxus"
+cargo build --release --manifest-path "$M/Cargo.toml" --target wasm32-unknown-unknown
+rm -rf "$M/dist"
+mkdir -p "$M/dist/msl"
+wasm-bindgen --target web --out-dir "$M/dist/pkg" "$CARGO_TARGET_DIR/wasm32-unknown-unknown/release/globe-mode-dioxus.wasm"
+cp "$M/index.html" "$M/main.js" "$M/style.css" "$M/dist/"
+if [ -d data/msl ]; then
+  node src/Svelte/scripts/pack-msl.mjs
+  cp src/Svelte/public/msl/MSL.json "$M/dist/msl/"
+fi
+ls -l "$M/dist/pkg/globe-mode-dioxus_bg.wasm"
+"""
+
+[tasks."dioxus:check"]
+description = "Dioxus 版の検査（S155。fmt・clippy・cargo deny と、Playwright の Chromium で GM-SMOKE・検査・実行・ダークモード）"
+depends = ["dioxus:build"]
+run = """
+set -eu
+M=src/Rust/apps/experimental/dioxus
+export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-target}/dioxus"
+cargo fmt --manifest-path "$M/Cargo.toml" --check
+cargo clippy --manifest-path "$M/Cargo.toml" --target wasm32-unknown-unknown -- -D warnings
+cargo deny --manifest-path "$M/Cargo.toml" --config "$M/deny.toml" check
+uv run python "$M/tests/test_dioxus.py"
+"""
+
 [tasks."ui:build"]
 description = "ブラウザ UI（src/Svelte）をビルドする（S041。wasm:build の出力を public/wasm/ にコピーして vite build。先に wasm:build が要る）"
 run = """
