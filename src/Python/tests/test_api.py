@@ -27,7 +27,7 @@ def test_reference_scenario():
     assert math.isclose(df["x"][-1], math.exp(-1), rel_tol=1e-4)
 
     # S111: 参照シナリオの最後（format）と lint
-    formatted = format((MODELICA / "GlobeModeValidation/Simulation/Decay.mo").read_text())
+    formatted = format((MODELICA / "GlobeModeValidation/Simulation/Decay.mo").read_text(encoding="utf-8"))
     assert "der(x) = -k * x;" in formatted
     with pytest.raises(ValueError):
         format("model Decay")
