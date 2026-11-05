@@ -12,6 +12,9 @@
 # S125: UI の測定（ADR-0034）。GLOBE_DESKTOP_BENCH で UI が Decay と MSL・ChuaCircuit の手順を測り、GM-SMOKE の行を書く。
 # S147: 同じ行に UI の操作の項目（tree・fmt・graph・cancel・settings・plot・def）が付き、全部 ok を合格にする（Linux・Windows）。
 # Linux と Windows で 3 回ずつ。行に最大の RSS（rss_kib）、末尾にインストーラの大きさ（GM-BUNDLE）を足し、artifact ui-bench-<os> に残す。Rust の fmt と clippy（-D warnings）もここで回す（手元に webkit2gtk が無いため）。
+# S160: macOS（macos-latest＝arm64。署名・公証なし）。.dmg を作り（artifact desktop-macos）、.app を tar にして（desktop-macos-app）、
+# 取得 smoke（app data dir に MSL を取得して ChuaCircuit を検査・実行）と UI の測定を回す。.app の実行ファイルを直に起動する（open は使わない）。
+# RSS は ps を 0.2 s ごとに見て、アプリ・sidecar・WebKit のプロセスのうち最大の 1 つ（macOS の time -l は木に入らない WebContent を含まない）。
 # `cargo install tauri-cli`（^2、--locked）を使う理由: npm の依存（@tauri-apps/cli）を増やさず、Rust の道具だけで済むため。
 name: desktop
 
@@ -63,6 +66,10 @@ jobs:
             name: windows
             exe: .exe
             bundle: msi
+          - os: macos-latest
+            name: macos
+            exe: ""
+            bundle: dmg
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -75,8 +82,8 @@ jobs:
         if: runner.os == 'Linux'
         with:
           install_args: rust cargo-deny
-      # Windows では mise の shim 経由の cargo が失敗したので、ランナーの rustup を直接使う（release.yml と同じ）
-      - if: runner.os == 'Windows'
+      # Windows では mise の shim 経由の cargo が失敗したので、ランナーの rustup を直接使う（release.yml と同じ。macOS も同じ）
+      - if: runner.os != 'Linux'
         run: rustup toolchain install stable --profile minimal --no-self-update && rustup default stable
       - name: Tauri 2 の依存（Linux）
         if: runner.os == 'Linux'
@@ -241,6 +248,59 @@ jobs:
           "``````", (Get-Content bench.txt), "``````" | Add-Content $env:GITHUB_STEP_SUMMARY
           if (@(Select-String 'GM-SMOKE check=ok simulate=ok .* msl=ok cfg=\w+ tree=ok fmt=ok graph=ok cancel=ok settings=ok plot=ok def=ok recent=ok ' bench.txt).Count -ne 3) { throw "ok でない回がある" }
 
+      - name: UI の測定（macOS。S160。先に取得の smoke で MSL を取得して ChuaCircuit を検査・実行し、測る回にダウンロードを含めない）
+        if: runner.os == 'macOS'
+        env:
+          GLOBE_DESKTOP_SMOKE_MODEL: Modelica.Electrical.Analog.Examples.ChuaCircuit
+        run: |
+          APPDIR="$PWD/$DESKTOP/target/release/bundle/macos/GlobeMode.app"
+          ls -l "$APPDIR/Contents/MacOS" | tee -a "$GITHUB_STEP_SUMMARY"
+          APP="$APPDIR/Contents/MacOS/$(ls "$APPDIR/Contents/MacOS" | grep -v '^globe$' | head -1)"
+          echo "app=$APP"
+          codesign -dv "$APPDIR" 2>&1 | tee -a "$GITHUB_STEP_SUMMARY" || true
+          # アプリ・sidecar・WebKit のプロセスの rss の最大（KiB）を 0.2 s ごとに見る。timeout は macOS に無いので $SECONDS で切る
+          run_peak() { # $1=上限の秒数。標準出力は $OUT へ。最大の rss を $PEAK に入れる
+            "$APP" > "$OUT" 2>&1 & local pid=$! end=$((SECONDS + $1)) m
+            PEAK=0
+            while kill -0 $pid 2> /dev/null; do
+              m="$(ps -axo rss=,comm= | awk '$2 ~ /GlobeMode\.app|com\.apple\.WebKit/ { if ($1 > m) m = $1 } END { print m + 0 }')"
+              if [ "$m" -gt "$PEAK" ]; then PEAK=$m; fi
+              if [ $SECONDS -gt $end ]; then kill $pid; echo "時間切れ"; return 1; fi
+              sleep 0.2
+            done
+            wait $pid || echo "終了コード $?"
+          }
+          W="$PWD"
+          STORE="$HOME/Library/Application Support/io.github.asari300.globemode/msl/4.1.0"
+          rm -rf "$HOME/Library/Application Support/io.github.asari300.globemode"
+          OUT="$W/smoke-fetch.txt"
+          GLOBE_DESKTOP_SMOKE=1 GLOBE_DESKTOP_SMOKE_FETCH=1 run_peak 900
+          echo "smoke rss_kib=$PEAK" >> smoke-fetch.txt
+          cat smoke-fetch.txt
+          grep -q "smoke: fetched msl" smoke-fetch.txt
+          grep -q "smoke: ok passed=true" smoke-fetch.txt
+          grep -q "smoke: simulate ok=true" smoke-fetch.txt
+          test -f "$STORE/.globe-mode-msl"
+          { echo '取得して使う smoke:'; echo '```'; cat smoke-fetch.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          # S143・S154 と同じ作業ディレクトリ（globe-mode.toml と Recent.mo）から、GLOBE_DESKTOP_BENCH で測る
+          CFG="$(mktemp -d)"; printf '[fmt]\nindent = 4\n' > "$CFG/globe-mode.toml"
+          printf 'model Recent\nend Recent;\n' > "$CFG/Recent.mo"
+          cd "$CFG"
+          for i in 1 2 3; do
+            rm -f "$W/line.txt"
+            OUT="$W/bench-out.txt"
+            GLOBE_DESKTOP_BENCH="$W/line.txt" run_peak 600 || true
+            test -s "$W/line.txt" || { cat "$OUT"; echo "GM-SMOKE の行が無い"; exit 1; }
+            echo "$(cat "$W/line.txt") rss_kib=$PEAK" >> "$W/bench.txt"
+          done
+          echo "GM-BUNDLE kib=$(( $(wc -c < "$W"/$DESKTOP/target/release/bundle/dmg/*.dmg) / 1024 ))" >> "$W/bench.txt"
+          cd "$W"
+          { echo '```'; cat bench.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          cat bench.txt
+          test "$(grep -c 'GM-SMOKE check=ok simulate=ok .* msl=ok cfg=ok tree=ok fmt=ok graph=ok cancel=ok settings=ok plot=ok def=ok recent=ok ' bench.txt)" = 3
+          # .app は実行ビット・symlink を保つため tar にして残す（artifact の zip は権限を落とす）
+          tar -C "$APPDIR/.." -czf GlobeMode-macos-arm64.app.tar.gz GlobeMode.app
+
       - uses: actions/upload-artifact@v4
         with:
           name: ui-bench-${{ matrix.name }}
@@ -257,6 +317,15 @@ jobs:
             time-fetch.txt
             smoke-fetch.txt
             smoke-reuse.txt
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'macOS'
+        with:
+          name: desktop-macos-app
+          path: |
+            GlobeMode-macos-arm64.app.tar.gz
+            smoke-fetch.txt
           if-no-files-found: error
 
       - uses: actions/upload-artifact@v4
