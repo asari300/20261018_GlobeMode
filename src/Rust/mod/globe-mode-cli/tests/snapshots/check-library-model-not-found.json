@@ -1,0 +1,27 @@
+{
+  "model": "GlobeModeValidation.Simulation.Decya",
+  "passed": false,
+  "failed_stage": "S1",
+  "balance": null,
+  "dae": null,
+  "structure": null,
+  "s6": null,
+  "s7": null,
+  "s8": null,
+  "s9": null,
+  "s10": null,
+  "init": null,
+  "flat": null,
+  "diagnostics": [
+    {
+      "code": "GM-E1002",
+      "severity": "error",
+      "stage": "S1",
+      "message": "モデル `GlobeModeValidation.Simulation.Decya` が見つからない",
+      "notes": [
+        "候補: GlobeModeValidation.Simulation.Decay"
+      ]
+    }
+  ],
+  "notes": []
+}

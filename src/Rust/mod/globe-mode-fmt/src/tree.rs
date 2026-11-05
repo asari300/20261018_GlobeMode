@@ -126,6 +126,11 @@ impl LibraryTree {
         }
     }
 
+    /// すべてのクラスの (完全修飾名, 種類)（名前の順）。
+    pub fn classes(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.classes.iter().map(|(k, v)| (k.as_str(), v.0.as_str()))
+    }
+
     /// `path` を定義するファイル。
     pub fn file(&self, path: &str) -> Option<&str> {
         self.classes.get(path).map(|(_, _, f)| f.as_str())

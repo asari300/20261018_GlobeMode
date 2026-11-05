@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S180 モデル名の候補と -L の案内 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S180 モデル名の候補と -L の案内">
+
+<section class="slide" id="S01">
+  <span class="tag">S180 · 2026-11-06 · P4</span>
+  <h1>モデル名を誤ったら、候補を出す</h1>
+  <p class="lead">ライブラリを使うときの「見つからない」と、-L の案内（S178 の監査の穴 1・2）</p>
+  <div class="big">判定は Rust の検査の入口 1 か所</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">現状</span>
+  <h1>S178 が見つけた 3 つの行き止まり</h1>
+  <table class="compact">
+    <tr><th>打ったもの</th><th>出たもの</th></tr>
+    <tr><td><code>check -L data/msl -m PID_Controller</code></td><td class="ng">英語の原文だけ。候補なし（ファイルなら「候補: RC」）</td></tr>
+    <tr><td><code>check -m Modelica.Blocks…</code>（-L を忘れる）</td><td class="ng">FILES が要ると出るだけ</td></tr>
+    <tr><td><code>-L "data/msl/Modelica 4.1.0"</code></td><td class="ng">ModelicaServices.Machine.eps が解決できない</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">候補</span>
+  <h1>「見つからない」と言う条件</h1>
+  <ul>
+    <li>Rumoca が要求したモデルの結果も失敗の記録も持たない（名前を引けなかった形）</li>
+    <li>かつ、ライブラリの字句の索引（<code>LibraryTree</code>）と Session のどのクラスにも無い</li>
+    <li>名前が正しいのに別の理由で失敗したとき、パッケージ名のときは今のまま</li>
+  </ul>
+  <div class="card">GM-E1002 + 候補: Modelica.Blocks.Examples.PID_Controller</div>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">なぜ索引を足したか</span>
+  <h1>Session の文書だけでは足りなかった</h1>
+  <ul>
+    <li>Rumoca の文書は、入れ子のクラスを読み込みの途中までしか持たない</li>
+    <li>MSL の <code>PID_Controller</code>（<code>Blocks/package.mo</code> の入れ子）は、短い名前の 1 回目で 2,556 件しか見えず、無かった</li>
+    <li>失敗のときだけ、ライブラリのファイルを読み直して S167 の <code>LibraryTree</code> に通す。新しい解析は無い</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">順位</span>
+  <h1>候補の並べ方（上位 5 件）</h1>
+  <table class="compact">
+    <tr><th>段</th><th>条件</th></tr>
+    <tr><td>0</td><td>完全修飾名の末尾が一致（<code>Examples.PID_Controller</code>）</td></tr>
+    <tr><td>1</td><td>末尾の名前が、大文字小文字を除いて同じ</td></tr>
+    <tr><td>2</td><td>綴りが近い（編集距離が長さの 1/4、最低 2）か前方一致</td></tr>
+  </table>
+  <ul>
+    <li>同じ段では、前からの名前の一致が長いものを先に。<code>.mo</code> つきの名前も <code>.mo</code> を除いて引く</li>
+  </ul>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">-L の案内</span>
+  <h1>黙って挙動を変えない</h1>
+  <ul>
+    <li>CLI: -L も FILES も無いとき、<code>-L data/msl -m &lt;完全修飾名&gt;</code> の例を足す</li>
+    <li>-L が <code>package.mo</code> のあるフォルダで、同じ親に <code>ModelicaServices</code> か <code>Complex</code> があるとき、失敗した診断に「親のフォルダを -L に渡す」の補足</li>
+    <li>親を自動で足さない。補足は Rust の 1 か所なので、Python・LSP・UI の Desktop にも同じ文面が出る</li>
+  </ul>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">検証</span>
+  <h1>試験と持ち越し</h1>
+  <ul>
+    <li>小さなライブラリの単体 3 本（候補、別の理由の失敗は言わない、サブフォルダ）と MSL の <code>#[ignore]</code> 1 本</li>
+    <li>CLI の snapshot 1 本と、FILES の案内 1 本</li>
+    <li>持ち越し: 短い名前を補う提案、パッケージ名を渡したときの案内、Python の <code>Workspace("data/msl")</code>（S181）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
