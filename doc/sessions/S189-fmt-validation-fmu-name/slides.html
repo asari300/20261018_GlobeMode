@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S189 検証用ライブラリの整形と FMU の版つきの名前 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S189 検証用ライブラリの整形と FMU の版つきの名前">
+
+<section class="slide" id="S01">
+  <span class="tag">S189 · 2026-11-06 · P4・P5</span>
+  <h1>src/Modelica を整形し、FMU の名前に版を付ける</h1>
+  <p class="lead">S185 の監査の R10 と R4。ユーザーの決定 2 点</p>
+  <div class="big">globe fmt --check src/Modelica が通る。FMU は Decay-fmi2.fmu と Decay-fmi3.fmu</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">整形</span>
+  <h1>71 ファイルを自分の整形器に通した</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>結果</th></tr>
+    <tr><td>整形したファイル</td><td class="ok">71 本（検証用 70、Examples 1）。誤りになったファイルは 0</td></tr>
+    <tr><td>2 回目の fmt</td><td class="ok">差分 0（冪等）</td></tr>
+    <tr><td>改行</td><td class="ok">LF のまま（.gitattributes の *.mo は eol=lf）</td></tr>
+    <tr><td>CI</td><td class="ok">サンプルの検査と mise run check に fmt --check を 1 行</td></tr>
+  </table>
+  <div class="card">整形器の規則は変えていない。変わったのは節の前後の空行、annotation の段、y ^ 2 が y^2 になる、など既存の規則の適用だけ</div>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">意味が変わらない</span>
+  <h1>整形の前後で同じ</h1>
+  <table class="compact">
+    <tr><th>確かめたこと</th><th>結果</th></tr>
+    <tr><td>85 モデルの check（診断のコードと重大度、収支、止まった段）</td><td class="ok">完全に一致</td></tr>
+    <tr><td>Simulation と Examples の実行（最後の値、終わり方）</td><td class="ok">完全に一致</td></tr>
+    <tr><td>wasm:compare</td><td class="ok">387 / 400 一致、既知の差 13、一致しない 0</td></tr>
+    <tr><td>msl:compare</td><td class="ok">20 本中 20 本一致</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">試験の更新</span>
+  <h1>位置と整形された本文だけが動いた</h1>
+  <ul>
+    <li>CLI の --json の snapshot 3 枚: 位置の数字だけ（中身を見て確かめた）</li>
+    <li>行番号: frontend の SignalTypeMismatch（6 行目が 10 行目）、LSP と wasm の定義ジャンプ（13 行目が 19 行目、p の宣言が 3 行目が 6 行目）</li>
+    <li>本文を前提にした所: db の version の書き方、loops の方程式ラベル（y ^ 2 が y^2）</li>
+    <li>診断の種類・数は変わらなかった</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">FMU の名前</span>
+  <h1>版を名前に入れた</h1>
+  <table class="compact">
+    <tr><th>面</th><th>前</th><th>後</th></tr>
+    <tr><td>CLI・facade・Python・LSP・C・NIF 各言語</td><td class="ng">Decay.fmu（2.0 と 3.0 が上書き）</td><td class="ok">Decay-fmi2.fmu / Decay-fmi3.fmu</td></tr>
+    <tr><td>ブラウザのダウンロード名</td><td class="ng">Mine.fmu</td><td class="ok">Mine-fmi2.fmu / Mine-fmi3.fmu</td></tr>
+    <tr><td>Desktop の保存ダイアログの既定名</td><td class="ng">Mine.fmu</td><td class="ok">Mine-fmi2.fmu など</td></tr>
+  </table>
+  <div class="card">名前を作るのは globe-mode-fmi の MeSources::file_name の 1 か所。FMU の中身（modelName、modelIdentifier、binaries）は変えない</div>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">失敗の文面</span>
+  <h1>書き出せないモデルは日本語の 1 文が前に付く</h1>
+  <ul>
+    <li>前: FMI C profile: only unscheduled assertions without relation memory are supported</li>
+    <li>後: このモデルは FMU に書き出せない（理由: FMI C profile: only …）</li>
+    <li>判定や対応範囲は広げていない。Rumoca の限界の原文は理由として残す</li>
+  </ul>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">持ち越し</span>
+  <h1>やらなかったこと</h1>
+  <ul>
+    <li>展開したフォルダ（Decay/）の名前には版を付けていない（FMU を作るための置き場。後から書いた版が残る）</li>
+    <li>Desktop の保存ダイアログで選んだファイル名を使うこと（いまもフォルダだけ使う）</li>
+    <li>CLAUDE.md への一文（親が足す）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

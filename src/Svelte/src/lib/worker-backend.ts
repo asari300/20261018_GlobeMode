@@ -73,7 +73,7 @@ export class WorkerBackend implements Backend {
     return this.#w.hover(file, line, character);
   }
   async exportFmu(model: string, fmiVersion: number): Promise<string | null> {
-    return browserSave(`${model.replaceAll(".", "_")}.fmu`, await this.#w.exportFmu(model, fmiVersion)); // S144。名前は facade の FMU と同じ
+    return browserSave(`${model.replaceAll(".", "_")}-fmi${fmiVersion}.fmu`, await this.#w.exportFmu(model, fmiVersion)); // S144。名前は facade の `MeSources::file_name` と同じ（S189。版つき）
   }
   openFile = browserOpen;
   saveFile = browserSave;

@@ -517,7 +517,7 @@ impl Server {
             },
             // ソルバの登録表（S142。wasm の `solvers` と同じ JSON の配列）
             "globe/solvers" => reply(id, json!(globe_mode::solvers())),
-            // ソースの FMU の書き出し（S144。build 無し。`outDir/<名前>.fmu` と展開した `outDir/<名前>/` を書く）
+            // ソースの FMU の書き出し（S144。build 無し。`outDir/<名前>-fmi<版>.fmu` と展開した `outDir/<名前>/` を書く）
             "globe/exportFmu" => match (params["model"].as_str(), params["outDir"].as_str()) {
                 (Some(model), Some(out_dir)) => {
                     let options = globe_mode::FmuOptions {
@@ -1289,7 +1289,7 @@ mod tests {
         let r = s.handle(json!({"id": 1, "method": "globe/exportFmu",
             "params": {"model": "Decay", "outDir": out}}));
         let path = PathBuf::from(r[0]["result"]["path"].as_str().unwrap());
-        assert_eq!(path, dir.join("Decay.fmu"));
+        assert_eq!(path, dir.join("Decay-fmi2.fmu"));
         assert!(path.is_file());
         assert!(dir.join("Decay/modelDescription.xml").is_file());
         let r = s.handle(json!({"id": 2, "method": "globe/exportFmu",
@@ -1570,12 +1570,12 @@ mod tests {
             u.starts_with("file://") && u.ends_with("/Components.mo"),
             "{r}"
         );
-        assert_eq!(r["result"]["range"]["start"]["line"], 13, "{r}");
+        assert_eq!(r["result"]["range"]["start"]["line"], 19, "{r}");
         // r1.p の p は extends TwoPin の先の部品
         let r = ask_at(&mut s, uri, text, "textDocument/definition", "r1.p.v", 3);
         assert_eq!(
             r["result"]["range"]["start"],
-            json!({"line": 3, "character": 19}),
+            json!({"line": 6, "character": 19}),
             "{r}"
         );
     }
@@ -1602,7 +1602,7 @@ mod tests {
             "{r}"
         );
         assert!(r["text"].as_str().unwrap().contains("Resistor"), "{r}");
-        assert_eq!(r["range"]["start"]["line"], 13, "{r}");
+        assert_eq!(r["range"]["start"]["line"], 19, "{r}");
         assert_eq!(ask(&mut s, 0, 0), Value::Null); // 予約語 model
     }
 

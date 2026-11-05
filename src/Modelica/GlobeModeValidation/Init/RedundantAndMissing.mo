@@ -1,5 +1,7 @@
 within GlobeModeValidation.Init;
+
 model RedundantAndMissing "初期条件の数は合うが、fixed = true が拘束と重なり、別の状態には初期条件が無い（S8 のマッチングの検証。警告だけで通る）"
+
   // 状態 x と y、代数変数 u を部品を使わずに式で書いたもの（MSL の Fluid.Examples.NonCircularPipes の形。
   // 配管の最初の体積の圧力 x が、境界の圧力 pb と拘束 x = pb で等しい）。
   //
@@ -18,8 +20,11 @@ model RedundantAndMissing "初期条件の数は合うが、fixed = true が拘�
   Real x(start = 1, fixed = true) "拘束で決まる状態（fixed = true は冗長）";
   Real y "初期条件の無い状態";
   Real u "x の微分を釣り合わせる代数変数";
+
 equation
+
   der(x) = u - y;
   x = pb;
   der(y) = y - x;
+
 end RedundantAndMissing;

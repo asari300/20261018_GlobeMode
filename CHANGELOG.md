@@ -84,6 +84,8 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - S187: CLI の案内の取りこぼし。`-L` に MSL のサブフォルダを渡したときの「親のフォルダを渡す」案内が実際の CLI では出ていなかったのを直した。`-L` を忘れて FILES だけ渡したとき、パッケージ名（`-m Modelica.Blocks`）は `GM-E1002`「パッケージで、モデルではない」と直下のモデル。**挙動が変わる点**: 短い名前（3 文字以下）や半分以上が違う綴り（`Nope`・`T`）に候補を出さなくなった（的外れな 5 件の代わりに完全修飾名の案内）、開いている文書のモデルが候補の先頭、パッケージ名の診断が Rumoca の原文（`GM-E1001`）から `GM-E1002` に、`globe deps` が `-L` を受けて（ライブラリのファイルも閉包に）入力が省ける。README の既知の限界と `fmt --check` の例を直した。
 
 - S186: UI の細部（S185 の監査）。クラス名のリネーム（F2）がいまのモデル名のクラスなら欄も追い（Ctrl+Z で戻る）、ライブラリの木・検索から入れ子のクラスを開くと宣言の行へカーソルと画面が動く（`librarySource` に追加の `range`）。補完の一覧は Ctrl+Enter で閉じ、「MSL を読む」の後はフォーカスが検索欄へ、「結果へ」は結果を画面へ入れる。
+- S189: **挙動が変わる**: FMU の既定のファイル名に FMI の版が付く（`Decay.fmu` から `Decay-fmi2.fmu` / `Decay-fmi3.fmu`。CLI `globe fmu export`・facade・Python `export_fmu`・LSP `globe/exportFmu`・C ABI・NIF・各言語・UI のダウンロード名。FMU の中身は不変）。書き出せないモデルの失敗は「このモデルは FMU に書き出せない（理由: …）」から始まる。
+- S189: `src/Modelica` の 71 ファイルを `globe fmt` で整形した（意味は不変。`globe fmt --check src/Modelica` を CI と `mise run check` に追加）。
 - S188: **挙動が変わる**: ブラウザ・Desktop の UI のエディタで Tab は字下げ（空白 2 つ、選んだ行すべて）、Shift+Tab は戻す。フォーカスをエディタの外へ出すには Esc のあと Tab（Shift+Tab）か Ctrl+M（Mac は Shift+Alt+M）。説明はエディタの下とスクリーンリーダー向けの `aria-describedby`。
 - S134・S135: Desktop が `C.UTF-8` の locale で白画面になる不具合の修正と、自動更新（`tauri-plugin-updater`。鍵を登録するまで「未設定」）。
 - S140・S164: アプリの使える流れの点検（調査だけ。[2026-11-04](doc/research/app-flow-2026-11-04.md)、[2026-11-05](doc/research/app-flow-2026-11-05.md)）。

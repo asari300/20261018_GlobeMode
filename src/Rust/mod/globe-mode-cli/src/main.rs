@@ -292,7 +292,7 @@ enum FmuCommand {
         /// モデルの完全修飾名
         #[arg(long, short)]
         model: String,
-        /// 書き先のディレクトリ（`<名前>/` と `<名前>.fmu` を置く）
+        /// 書き先のディレクトリ（`<名前>/` と `<名前>-fmi2.fmu`（3.0 は `-fmi3`）を置く）
         #[arg(long)]
         out: PathBuf,
         /// FMI の版（2 か 3）

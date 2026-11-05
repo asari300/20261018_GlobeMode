@@ -491,7 +491,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 ### S187（P4、2026-11-06）で済んだこと
 
 - **CLI の案内の取りこぼし**（S185 の再点検の R1・R5・R6・R10、E4・E5・E10b、穴 6・12。[解説書](sessions/S187-cli-hints-followup/解説書.md)）: `-L` が MSL のサブフォルダのときの S180 の補足が CLI で出なかったのは、組で読む道のライブラリの名前（`library:<パス>`）から `package.mo` を探していたため。名前をパスに戻して直した。`-L` を忘れて FILES だけ渡したときは「`Modelica` を読み込んでいない」の 1 行、パッケージ名（`-m Modelica.Blocks`）は `GM-E1002`「パッケージで、モデルではない」と直下のモデル、短い名前・遠い綴り（`Nope`・`T`）には候補を出さず、開いている文書のモデルをライブラリより先に。`globe deps -L`（ライブラリのファイルも閉包に）、`outline` の `<FILE>` の説明。README の既知の限界・秒数・`fmt --check` の例を事実に。
-- 持ち越し: `src/Modelica/` の整形（119 ファイルの内訳は解説書 3.2）、終了コードの体系・`fmt --check` の標準入力・`msl fetch`・ヘルプの言語（ユーザーの判断）。UI のモデル名の追従（R2）・位置へ移る（R3）・FMU（R4）は別の WP。
+- 持ち越し: ~~`src/Modelica/` の整形（119 ファイルの内訳は解説書 3.2）~~（S189 で済）、終了コードの体系・`fmt --check` の標準入力・`msl fetch`・ヘルプの言語（ユーザーの判断）。UI のモデル名の追従（R2）・位置へ移る（R3）は S186 で、~~FMU（R4）~~は S189 で済み。
 
 ### S182（P4、2026-11-06）で済んだこと
 
@@ -507,6 +507,11 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 
 - **診断の重複と結果の 1 行を facade・protocol に寄せた**（S182・S183 の持ち越し。[解説書](sessions/S184-facade-summary-dedup/解説書.md)）: `--force` でコンパイルに失敗すると、facade の `simulate` が検査とコンパイルの同じ診断を両方返していた（CLI だけの問題ではなく wasm・LSP・UI も同じ。Python の `simulate` に `force` は無い）。`simulate_observed` の最後でコード・位置・文面が同じものを最初の 1 つに除き、CLI の除去は消した。応答に追加の `summary`（`CheckResponse` は常に、`SimulateResponse` は実行しなかったときだけ。文面は CLI のまま。`summary_line`・`refused_summary` は protocol に 1 つ）。
 - 持ち越し: UI（Svelte）の `unsupported` の要約と失敗の行を `summary` に置き換える。
+
+### S189（P4・P5、2026-11-06）で済んだこと
+
+- **`src/Modelica` を `globe fmt` で整形し、FMU のファイル名に版を付けた**（S185 の監査の R10・R4、ユーザーの決定。[解説書](sessions/S189-fmt-validation-fmu-name/解説書.md)）: `src/Modelica/` の 71 ファイルを整形（誤りになったファイル 0、2 回目は差分 0）。85 モデルの `check` の診断（コード・重大度）と `Simulation`・`Examples` の実行の最後の値は整形の前後で同じ、`wasm:compare` 387 / 400（既知の差 13）、`msl:compare` 20 / 20。位置に依存する試験（CLI の snapshot 3 枚、行番号 4 件、本文の文字列 2 件）を更新。`globe fmt --check src/Modelica` を CI のサンプルの検査と `mise run check` に足した。FMU の既定のファイル名は `<名前>-fmi2.fmu` / `<名前>-fmi3.fmu`（`MeSources::file_name` の 1 か所。CLI・facade・Python・LSP・C・NIF・各言語・UI のダウンロード名と Desktop の既定名。中身は不変）。書き出せないモデルの失敗は「このモデルは FMU に書き出せない（理由: …）」を原文の前に付ける。
+- 持ち越し: 展開したフォルダ `<名前>/` の版つきの名前、Desktop の保存ダイアログで選んだファイル名を使うこと。
 
 ### S188（P4、2026-11-06）で済んだこと
 
@@ -1124,7 +1129,7 @@ S177（2026-11-05、S175 までが main にある状態）で、各節の「持�
 | 機能の穴（P7） | 試験版 UI | Leptos・Dioxus の CI（push で回す検査）、プロット・graph・ツリー・タブ・Tauri への組み込み、CPU・フレーム時間・PSS | S153・S155・S156 |
 | 機能の穴（P8） | 拡充 | Diagram / Icon ビュー、Documentation ビュー、パラメータダイアログ、SSP 2.0.1、BLT の可視化と変換デバッガ、線形化、パッケージマネージャ（`uses` の版） | features.md |
 | 機能の穴（CLI・Python） | 使える流れの点検（S178） | 通る流れは通る。穴は誤った使い方の手がかり（ライブラリのモデル名の候補、`-L`、負の数、`fmt --check` が CI で黙って通る、`-o` なしで結果を捨てる）、未対応（GM-U）の終了コード、Python の型・例外・既定ソルバでの進捗と中断、CLI の面（`graph` などに `-L`、MSL を取る道）、FMU `--build` の入口。順位付き 13 件と WP の案は [調査](research/cli-python-flow-2026-11-06.md) | S178 |
-| 機能の穴（UI・CLI・Python） | 並行で入れた 16 本の再点検（S185） | S164・S178 の穴は大半が直った（ブラウザ版の例題 10 本中 9 本が通り、CLI の誤った使い方は 21 通り中 9 が直った）。残りと新しい食い違い 10 件: README の「既知の限界」が補完と検索を「無い」と書いたまま、クラス名のリネームでモデル名の欄が古いまま、入れ子のクラスを開いても位置へ動かない、FMU のファイル名（2.0 と 3.0 が同じ）と MSL の例題での英語の失敗、`-L` を忘れた・サブフォルダの案内、候補の質、キーボードの細部。上位 10 と WP の組（A 文書、B App、C CLI・frontend、D FMU）は [調査](research/app-flow-2026-11-06.md) | S185 |
+| 機能の穴（UI・CLI・Python） | 並行で入れた 16 本の再点検（S185） | S164・S178 の穴は大半が直った（ブラウザ版の例題 10 本中 9 本が通り、CLI の誤った使い方は 21 通り中 9 が直った）。残りと新しい食い違い 10 件: README の「既知の限界」が補完と検索を「無い」と書いたまま、クラス名のリネームでモデル名の欄が古いまま、入れ子のクラスを開いても位置へ動かない、~~FMU のファイル名（2.0 と 3.0 が同じ）と MSL の例題での英語の失敗~~（S189 で済）、`-L` を忘れた・サブフォルダの案内、候補の質、キーボードの細部。上位 10 と WP の組（A 文書、B App、C CLI・frontend、~~D FMU~~）は [調査](research/app-flow-2026-11-06.md) | S185 |
 | 機能の穴（Track B） | 自前コア | 未着手（`Frontend` の feature `native` はまだ無い）。IDE の機能を先に自前にする | P4 以降 |
 
 ## 運用上の決まり

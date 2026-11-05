@@ -1,5 +1,7 @@
 within GlobeModeValidation.Invalid;
+
 model HighIndexDuplicate "電圧則を 2 回書き、オームの法則を書き忘れた RC 回路（S6 は通り、S7 の情報 GM-I7001。構造的には動的な状態が 0 なので、S8 は fixed が余る見込みの警告 GM-W8004）"
+
   // RC 回路を部品を使わずに式で書いたもの。
   // キルヒホッフの電圧則を 2 回（別の形で）書き、オームの法則 vR = R * i を書き忘れている。
   // 方程式 3 本 = 未知数 3 個（vR、i、der(vC)）なので S5 は通る。
@@ -16,9 +18,12 @@ model HighIndexDuplicate "電圧則を 2 回書き、オームの法則を書き
   Real vR "抵抗の電圧";
   Real vC(start = 0, fixed = true) "コンデンサの電圧";
   Real i "回路を流れる電流";
+
 equation
+
   C * der(vC) = i;
   V = vR + vC;
   vR = V - vC;
-  annotation (experiment(StopTime = 1));
+annotation(experiment(StopTime = 1));
+
 end HighIndexDuplicate;

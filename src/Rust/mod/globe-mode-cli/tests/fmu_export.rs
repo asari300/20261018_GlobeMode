@@ -55,7 +55,7 @@ fn exports_a_source_fmu() {
             .is_file()
     );
     assert!(
-        out.join("GlobeModeValidation_Simulation_Decay.fmu")
+        out.join("GlobeModeValidation_Simulation_Decay-fmi2.fmu")
             .is_file()
     );
     // 対象外のモデルを渡す前に失敗を返すこと（モデルが無い）
@@ -77,6 +77,7 @@ fn exports_a_source_fmu() {
 #[test]
 fn exports_a_fmi3_source_fmu() {
     let out = out_dir("source3");
+    let _ = std::fs::remove_dir_all(&out); // 前の実行（S189 より前は版なしの名前）が残らないように
     let o = export(&out, &["--fmi-version", "3"]);
     assert!(o.status.success(), "{o:?}");
     let root = out.join("GlobeModeValidation_Simulation_Decay");
@@ -95,6 +96,36 @@ fn exports_a_fmi3_source_fmu() {
     let license =
         std::fs::read_to_string(root.join("documentation/licenses/Rumoca-LICENSE.txt")).unwrap();
     assert!(license.contains("Apache License"), "{license}");
+    // S189: 2.0 と 3.0 を同じ出力先に続けて書いても、版つきの名前で上書きし合わない
+    let o = export(&out, &[]);
+    assert!(o.status.success(), "{o:?}");
+    for v in [2, 3] {
+        let fmu = out.join(format!("GlobeModeValidation_Simulation_Decay-fmi{v}.fmu"));
+        assert!(fmu.is_file(), "{fmu:?}");
+    }
+    assert!(
+        !out.join("GlobeModeValidation_Simulation_Decay.fmu")
+            .exists()
+    );
+}
+
+/// S189: Rumoca の限界（イベントのあるモデル）は、英語の原文の前に日本語の 1 文が付く。
+#[test]
+fn unsupported_model_says_it_cannot_be_exported() {
+    let dir = package_dir();
+    let o = Command::new(env!("CARGO_BIN_EXE_globe"))
+        .args(["fmu", "export", dir.to_str().unwrap(), "-m"])
+        .arg("GlobeModeValidation.Simulation.BouncingBall")
+        .arg("--out")
+        .arg(out_dir("unsupported"))
+        .output()
+        .expect("run globe");
+    assert_eq!(o.status.code(), Some(1), "{o:?}");
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(
+        err.contains("このモデルは FMU に書き出せない（理由: "),
+        "{err}"
+    );
 }
 
 /// FMPy の入った Python を `uv` で動かす（無ければ None）。
@@ -136,7 +167,9 @@ fn fmpy_x1(name: &str, fmi_version: &str, interfaces: &[&str]) -> Option<Vec<f64
         ],
     );
     assert!(o.status.success(), "{o:?}");
-    let fmu = out.join("GlobeModeValidation_Simulation_Decay.fmu");
+    let fmu = out.join(format!(
+        "GlobeModeValidation_Simulation_Decay-fmi{fmi_version}.fmu"
+    ));
     let o = fmpy(&["-c", FMPY_MAIN, "validate", fmu.to_str().unwrap()]);
     assert!(o.is_some(), "fmpy validate が通らない");
     let x1 = interfaces.iter().map(|interface| {

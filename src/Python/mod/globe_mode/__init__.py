@@ -211,7 +211,7 @@ class Workspace:
         targets: Iterable[str] = (),
         fmi_headers: str | os.PathLike[str] | None = None,
     ) -> Path:
-        """FMU を `out_dir/<名前>.fmu`（と展開したディレクトリ）に書き、`.fmu` のパスを返す（S118。`globe fmu export` と同じ）。
+        """FMU を `out_dir/<名前>-fmi2.fmu`（3.0 は `-fmi3`。と展開したディレクトリ）に書き、`.fmu` のパスを返す（S118。`globe fmu export` と同じ）。
 
         `fmi_version` は 2 か 3。`build=True` で共有ライブラリも作る（`fmi_headers`＝`fmi2Functions.h` などのある
         ディレクトリが要る。`targets` が空なら host を `cc` で、あれば `zig cc -target`）。

@@ -32,8 +32,8 @@
       "message": "unbalanced model: 1 equations, 2 unknowns (balance = -1); unknowns[state=1 algebraic=1 output=0 discrete_real=0 discrete_value=0] equations[continuous=1 discrete_real=0 b1c_definition=0]",
       "file": "src/Modelica/GlobeModeExamples/package.mo",
       "range": {
-        "start": 1160,
-        "end": 1170
+        "start": 1185,
+        "end": 1195
       },
       "notes": [
         "rumoca: ED001",

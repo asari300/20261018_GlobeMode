@@ -815,17 +815,18 @@ def main() -> int:
         # FMU を書き出す（S144）: wasm が作ったソースの FMU（zip）がダウンロードされる
         with own.expect_download() as fmu:
             own.get_by_role("button", name="FMU を書き出す").click(force=True)
-        assert fmu.value.suggested_filename == "Mine.fmu"
+        assert fmu.value.suggested_filename == "Mine-fmi2.fmu"
         with zipfile.ZipFile(fmu.value.path()) as z:
             assert "modelDescription.xml" in z.namelist() and any(n.startswith("sources/") for n in z.namelist()), z.namelist()
             assert b'modelName="Mine"' in z.read("modelDescription.xml")
-        expect(own.locator("p[data-saved]")).to_contain_text("Mine.fmu")
-        print("FMU: Mine.fmu がダウンロードされ、modelDescription.xml と sources/ がある")
+        expect(own.locator("p[data-saved]")).to_contain_text("Mine-fmi2.fmu")
+        print("FMU: Mine-fmi2.fmu がダウンロードされ、modelDescription.xml と sources/ がある")
         # FMI の版を選ぶ（S154）: 既定は 2.0、3.0 を選ぶと fmiVersion="3.0" の modelDescription.xml
         assert b'fmiVersion="2.0"' in zipfile.ZipFile(fmu.value.path()).read("modelDescription.xml")
         own.get_by_label("FMI の版").select_option("3")
         with own.expect_download() as fmu3:
             own.get_by_role("button", name="FMU を書き出す").click(force=True)
+        assert fmu3.value.suggested_filename == "Mine-fmi3.fmu"  # S189: 版つき（2.0 と 3.0 が上書きし合わない）
         with zipfile.ZipFile(fmu3.value.path()) as z:
             assert b'fmiVersion="3.0"' in z.read("modelDescription.xml") and any(n.startswith("sources/") for n in z.namelist()), z.namelist()
         print("FMU: FMI の版に 3.0 を選ぶと modelDescription.xml が fmiVersion=3.0")

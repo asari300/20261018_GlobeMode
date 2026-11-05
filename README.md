@@ -101,9 +101,9 @@ globe simulate --list-solvers
 # 自分のファイルやフォルダ（モデルの完全修飾名を -m に）
 globe check src/Modelica/GlobeModeValidation -m GlobeModeValidation.Simulation.Decay
 
-globe fmt --check model.mo   # 自分のファイルかフォルダを指す。整形が要るファイルを列挙して終了コード 1。--check を外すと書き換える（リポジトリの根の `.` は検証用の入力も含むので通らない）
+globe fmt --check src/Modelica   # ファイルかフォルダを指す。整形が要るファイルを列挙して終了コード 1。--check を外すと書き換える（リポジトリの根の `.` は検証用の入力も含むので通らない）
 globe lint .              # line-too-long など。--disable <規則> で止める
-globe fmu export src/Modelica/GlobeModeValidation -m GlobeModeValidation.Simulation.Decay --out out/ [--fmi-version 3]
+globe fmu export src/Modelica/GlobeModeValidation -m GlobeModeValidation.Simulation.Decay --out out/ [--fmi-version 3]   # out/ に展開したフォルダと GlobeModeValidation_Simulation_Decay-fmi2.fmu（3.0 は -fmi3）。版つきなので 2.0 と 3.0 を同じ out/ に書ける
 globe lsp -L data/msl     # 標準入出力の LSP サーバ
 ```
 

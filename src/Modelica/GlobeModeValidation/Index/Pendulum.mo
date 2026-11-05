@@ -1,5 +1,7 @@
 within GlobeModeValidation.Index;
+
 model Pendulum "直交座標の平面の振り子（インデックス 3。S7 の Pantelides 法の検証）"
+
   // 質量 1 のおもりを、長さ L の糸で原点に吊るした振り子。部品を使わずに式で書いたもの。
   // 状態は x, y, vx, vy の 4 つ、代数変数は lambda（糸の張力を質量と長さで割ったもの）の 1 つ。
   //
@@ -20,11 +22,14 @@ model Pendulum "直交座標の平面の振り子（インデックス 3。S7 �
   Real vx(start = 0, fixed = true) "x 方向の速度";
   Real vy(start = 0) "y 方向の速度（拘束の微分から決める）";
   Real lambda "糸の張力 / (質量 × 長さ)";
+
 equation
+
   der(x) = vx;
   der(y) = vy;
   der(vx) = lambda * x;
   der(vy) = lambda * y - g;
-  x ^ 2 + y ^ 2 = L ^ 2;
-  annotation (experiment(StopTime = 5));
+  x^2 + y^2 = L^2;
+annotation(experiment(StopTime = 5));
+
 end Pendulum;
