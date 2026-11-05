@@ -49,6 +49,12 @@ pub fn now_ms() -> f64 {
     }
 }
 
+/// 木の項目の JSON（ライブラリが無ければ `[]`）。
+fn entries_json(entries: Option<Vec<globe_mode_fmt::TreeEntry<'_>>>) -> String {
+    let json = globe_mode_lsp::tree_entries_json(&entries.unwrap_or_default());
+    serde_json::to_string(&json).unwrap_or_default()
+}
+
 /// ライブラリを 1 回だけ読み、作業中のファイルを出し入れしながら何度も実行する（facade の
 /// [`globe_mode::Workspace`] に JS の時計とメモリの大きさを足したもの）。
 #[wasm_bindgen]
@@ -76,7 +82,29 @@ impl Workspace {
         }
     }
 
-    /// `definition`・`hover` の共通: ライブラリの木とファイル組で Resolver を作って `f` を回し、JSON にする。
+    /// `definition`・`hover`・`references`・`rename` の共通: ライブラリの木とファイル組で Resolver を作って `f` を回す。
+    fn with_resolver<T>(
+        &self,
+        f: impl FnOnce(&mut globe_mode_lsp::definition::Resolver) -> T,
+    ) -> T {
+        let empty;
+        let (tree, files) = match &self.tree {
+            Some((t, f)) => (t, Some(f)),
+            None => {
+                empty = globe_mode_fmt::LibraryTree::new(std::iter::empty());
+                (&empty, None)
+            }
+        };
+        let mut scratch = globe_mode::Workspace::new();
+        f(&mut globe_mode_lsp::definition::Resolver {
+            ws: &self.inner,
+            tree,
+            scratch: &mut scratch,
+            read: &|f| files?.get(f).cloned(),
+        })
+    }
+
+    /// `definition`・`hover` の共通: `f` の結果を JSON にする。
     fn resolve(
         &self,
         f: fn(
@@ -91,27 +119,7 @@ impl Workspace {
         line: u32,
         character: u32,
     ) -> String {
-        let empty;
-        let (tree, files) = match &self.tree {
-            Some((t, f)) => (t, Some(f)),
-            None => {
-                empty = globe_mode_fmt::LibraryTree::new(std::iter::empty());
-                (&empty, None)
-            }
-        };
-        let mut scratch = globe_mode::Workspace::new();
-        let found = f(
-            &mut globe_mode_lsp::definition::Resolver {
-                ws: &self.inner,
-                tree,
-                scratch: &mut scratch,
-                read: &|f| files?.get(f).cloned(),
-            },
-            file,
-            text,
-            line,
-            character,
-        );
+        let found = self.with_resolver(|r| f(r, file, text, line, character));
         serde_json::to_string(&found).unwrap_or_default()
     }
 
@@ -152,16 +160,12 @@ impl Workspace {
 
     /// `prefix`（空ならトップレベル）の直下の子（`[{name, path, kind, description, file, hasChildren}]` の JSON）。ライブラリが無ければ `[]`。
     pub fn tree_children(&self, prefix: &str) -> String {
-        let entries: Vec<serde_json::Value> = self.tree.as_ref().map_or_else(Vec::new, |(t, _)| {
-            t.children(prefix)
-                .iter()
-                .map(|e| {
-                    serde_json::json!({"name": e.name, "path": e.path, "kind": e.kind,
-                "description": e.description, "file": e.file, "hasChildren": e.has_children})
-                })
-                .collect()
-        });
-        serde_json::to_string(&entries).unwrap_or_default()
+        entries_json(self.tree.as_ref().map(|(t, _)| t.children(prefix)))
+    }
+
+    /// 名前の部分一致で最大 `limit` 件（S167。[`globe_mode_fmt::LibraryTree::search`]。形は [`Workspace::tree_children`] と同じ）。
+    pub fn tree_search(&self, query: &str, limit: usize) -> String {
+        entries_json(self.tree.as_ref().map(|(t, _)| t.search(query, limit)))
     }
 
     /// `path`（完全修飾名）を定義するライブラリのファイルと本文。
@@ -301,6 +305,11 @@ impl Workspace {
         self.tree_children(prefix)
     }
 
+    /// ライブラリのクラスを名前の部分一致で探す（S167。木の項目と同じ形の JSON、最大 `limit` 件、近い順）。
+    pub fn library_search(&self, query: &str, limit: usize) -> String {
+        self.tree_search(query, limit)
+    }
+
     /// ライブラリのクラス `path` を定義するファイルの `{file, text}` の JSON（S127）。無ければ例外（文字列）。
     pub fn library_source(&self, path: &str) -> Result<String, JsValue> {
         let (file, text) = self
@@ -334,12 +343,14 @@ impl Workspace {
 
     /// 文書 `file`（先に `set_file` で足しておく）の行・列にある名前の参照を LSP の Range の配列の JSON で返す（S161。LSP の `globe/references` と同じ形）。
     pub fn references(&self, file: &str, text: &str, line: u32, character: u32) -> String {
-        let o = self.inner.outline(file).and_then(|r| r.as_ref().ok());
-        globe_mode_lsp::definition::references_at(o, text, line, character).to_string()
+        self.with_resolver(|r| {
+            globe_mode_lsp::definition::references_at(r, file, text, line, character)
+        })
+        .to_string()
     }
 
     /// 名前を `new_name` に変える TextEdit（`{range, newText}`）の配列の JSON（S161。LSP の `globe/rename` と同じ形）。
-    /// 断る場合（部品でない・識別子でない・予約語・同じクラスに既にある）は理由を例外（文字列）で返す。
+    /// 断る場合（部品でもクラスでもない・別のファイルのクラス・識別子でない・予約語・同じ階層に既にある）は理由を例外（文字列）で返す。
     pub fn rename(
         &self,
         file: &str,
@@ -348,10 +359,11 @@ impl Workspace {
         character: u32,
         new_name: &str,
     ) -> Result<String, JsValue> {
-        let o = self.inner.outline(file).and_then(|r| r.as_ref().ok());
-        globe_mode_lsp::definition::rename_at(o, text, line, character, new_name)
-            .map(|v| v.to_string())
-            .map_err(js_error)
+        self.with_resolver(|r| {
+            globe_mode_lsp::definition::rename_at(r, file, text, line, character, new_name)
+        })
+        .map(|v| v.to_string())
+        .map_err(js_error)
     }
 
     /// ファイルを足すか、本文を差し替える。

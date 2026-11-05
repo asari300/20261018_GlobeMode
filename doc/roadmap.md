@@ -457,11 +457,16 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - 試験: `test_ui.py` に明と暗（予約語・型・数値・文字列・コメントに別々の色、地に対して 4.5 以上、予約語の色は KEYWORDS の語だけ）と KEYWORDS の一致。S149 のホバーの補助が行の最初のテキストノードだけを見ていたので、色付けで行が分かれても動くようにした。`node --test`（拡張）に文法の 4 本。
 - 持ち越し: semantic tokens、折りたたみ、インデントの規則、Marketplace、~~`@vscode/test-electron`~~（S165 で済んだ）。
 
+### S166（P4、2026-11-05）で済んだこと
+
+- **クラス名の参照とリネーム**（[解説書](sessions/S166-references-classes/解説書.md)）: S161 の口（`globe/references`・`globe/rename`・`Backend.references`・`rename`）のまま、カーソルがクラス名の上なら、その文書で定義ジャンプと同じ解決（`Resolver::definition`）で同じクラスに行き着く識別子のトークンを一覧にし、リネームで置き換える（宣言の名前・`end 名前`・部品の型・`extends`・`import`・点つきの名前の途中）。別の入れ子の同名のクラスは混ざらない（S161 の持ち越し「同名の入れ子のクラスの区別」はクラス名について片付いた）。リネームはこの文書で定義したクラスだけで、別ファイル（ライブラリ）のクラスと import の別名は断る。`textDocument/prepareRename` を足し、UI の F2 は今の名前のまま `rename` を試して、断られたら入力欄を出さずに理由を出す。LSP の `textDocument/references` はほかの開いた文書の参照も返し、リネームはほかの文書に参照があれば断る。UI の Workspace は今の文書しか持たない（離れたタブは外す）ので、UI の一覧は今の文書だけ。
+- 持ち越し: ライブラリ全体・未開封のファイルの参照、継承した部品のリネーム、複数ファイルの一括リネーム、import の別名の参照、UI の一覧にほかのタブを含めること。
+
 ### S161（P4、2026-11-05）で済んだこと
 
 - **エディタで参照の一覧（Shift+F12）とリネーム（F2）が使える**（[解説書](sessions/S161-editor-references-rename/解説書.md)）: `globe-mode-lsp` の `definition::references_at`・`rename_at` が範囲と編集（LSP の Range と TextEdit）を計算し、wasm の `Workspace.references`・`rename`、sidecar の `globe/references`・`globe/rename`、VS Code 向けの `textDocument/rename`（capability `renameProvider`）が同じ計算を呼ぶ。範囲は開いている文書の、いちばん内側のクラスの中だけ（一致は字句解析の識別子のトークンだけ。コメント・文字列の中は対象外）。リネームはそのクラスで宣言した部品に限り、部品でない名前・識別子でない名前・予約語・同じクラスに既にある名前は理由つきで断る。UI は参照を診断の表と同じ作りの一覧にし、F2 は入力欄を出して 1 回の `dispatch` で入れる（Ctrl+Z 1 回で戻る）。新しい依存は無し。
 - 試験: `globe-mode-lsp` 2 本（rename の編集と断る場合、RPC）、wasm の decay 1 本、`test_ui.py`（Shift+F12 で 3 行・押して飛ぶ、F2 で pos に変えて検査が通る、予約語は断られる、undo 1 回で戻る）。
-- 持ち越し: 別ファイル・ライブラリ全体の参照、継承した部品・型・クラスのリネーム、`prepareRename`。
+- 持ち越し: 別ファイル・ライブラリ全体の参照、継承した部品・型・クラスのリネーム、`prepareRename`（クラス名と `prepareRename` は S166 で済）。
 
 ### S159（P4/P7、2026-11-05）で済んだこと
 
@@ -573,6 +578,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 ### S127（P4、2026-11-03）で済んだこと
 
 - **ライブラリツリーの UI**（S048 の持ち越し。[解説書](sessions/S127-ui-library-tree/解説書.md)）: 「MSL を読む」の後に左の木（`src/Svelte/src/lib/LibraryTree.svelte`）を出し、展開のたびに直下の子だけを引く。モデルを押すとそのファイルをライブラリと同じ名前でエディタに開き、モデル名を入れる（同じ名前の `setFile` がライブラリのファイルを差し替えるので、編集が検査・実行に効く）。口は `globe-mode-fmt` の `LibraryTree`（ファイルの見出しだけを読む）と、wasm の `library_tree` / `library_source`、LSP の `globe/libraryTree` / `globe/librarySource`。`test_ui.py` で Modelica → Electrical → Analog → Examples → ChuaCircuit を開いて検査が通る。
+- **ライブラリの木に入れ子のクラスと検索**（S164 の穴 1。[解説書](sessions/S167-library-tree-nested-search/解説書.md)）: `LibraryTree` が各ファイルを字句解析して文を切り出し（`globe-mode-fmt` の整形器と同じ道）、ファイルの中の入れ子のクラス（短いクラスも）を木の項目にした。MSL 4.1.0 の 6,487 件がアウトライン（Rumoca）の一覧と過不足なく一致し、例題 553 本（partial を除く）のうち木に出ない本数は 123 本から 0 本になった。木の上の検索欄（名前の部分一致、`Backend.librarySearch`、wasm `library_search`、LSP `globe/librarySearch`）。整形器の `extends` つきクラスの修飾が入れ子の括弧で読めない誤りも直した（MSL の Media の 1,071 クラスが木に出なかった原因）。
 - 持ち越し: 検索、アイコン、`package.order` の順、1 ファイルのパッケージの中の入れ子のクラス、wasm でライブラリの本文を 2 重に持つ（約 15 MiB）こと。
 
 ### S135（P4、2026-11-03）で済んだこと

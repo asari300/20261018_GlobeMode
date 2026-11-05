@@ -128,6 +128,9 @@ export class TauriBackend implements Backend {
   libraryTree(prefix: string): Promise<TreeEntry[]> {
     return invoke("rpc", { method: "globe/libraryTree", params: { prefix } });
   }
+  librarySearch(query: string): Promise<TreeEntry[]> {
+    return invoke("rpc", { method: "globe/librarySearch", params: { query } });
+  }
   librarySource(path: string): Promise<{ file: string; text: string }> {
     return invoke("rpc", { method: "globe/librarySource", params: { path } });
   }

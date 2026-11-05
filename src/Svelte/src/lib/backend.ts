@@ -23,15 +23,17 @@ export interface Backend {
   lint(text: string): Promise<LintMessage[]>;
   /** ライブラリの木の prefix（空ならトップレベル）の直下の子（S127）。ライブラリが無ければ空。 */
   libraryTree(prefix: string): Promise<TreeEntry[]>;
+  /** ライブラリのクラス（ファイルの中の入れ子を含む）を名前の部分一致で探す（S167。大文字小文字を区別せず、`.` を含めると完全修飾名に当てる。最大 50 件、近い順）。 */
+  librarySearch(query: string): Promise<TreeEntry[]>;
   /** ライブラリのクラス path を定義するファイルの名前と本文（S127）。その名前で setFile するとライブラリのファイルを差し替える。 */
   librarySource(path: string): Promise<{ file: string; text: string }>;
   /** setFile 済みの file の位置（行は 0 始まり、列は UTF-16）にある名前の定義（S138）。名前が引けなければ null。 */
   definition(file: string, line: number, character: number): Promise<Definition | null>;
   /** setFile 済みの file の位置にある名前の宣言（S149）。contents は `Real x(start = 1) "説明"` のような 1 行、range はカーソルの名前。引けなければ null。 */
   hover(file: string, line: number, character: number): Promise<Hover | null>;
-  /** setFile 済みの file の位置にある名前の参照（S161）。同じ文書の、そのいちばん内側のクラスの中の同じ名前の範囲（LSP の Range）。 */
+  /** setFile 済みの file の位置にある名前の参照（S161）。同じ文書の同じ名前の範囲（LSP の Range）。部品はそのいちばん内側のクラスの中、クラス名（S166）は同じクラスに行き着く全部。 */
   references(file: string, line: number, character: number): Promise<Definition["range"][]>;
-  /** 位置の名前を newName に変える編集（S161。LSP の TextEdit）。いちばん内側のクラスで宣言した部品だけ。部品でない・識別子でない・予約語・同じクラスに既にある名前は、理由つきで reject。 */
+  /** 位置の名前を newName に変える編集（S161。LSP の TextEdit）。いちばん内側のクラスで宣言した部品と、この文書で定義したクラス（S166。宣言・`end`・使っている所）。部品でもクラスでもない・別のファイル（ライブラリ）のクラス・識別子でない・予約語・同じクラスに既にある名前は、理由つきで reject。 */
   rename(file: string, line: number, character: number, newName: string): Promise<{ range: Definition["range"]; newText: string }[]>;
   /** 手元のファイルを 1 つ選んで読む（S141）。ブラウザ・Android は `<input type=file>`、Desktop は dialog / fs プラグイン。選ばなければ null。 */
   openFile(): Promise<{ name: string; text: string; path?: string } | null>;

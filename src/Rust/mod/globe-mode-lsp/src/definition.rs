@@ -275,10 +275,10 @@ pub fn hover_at(
     Some(json!({"contents": contents, "range": crate::range(text, name_range)}))
 }
 
-/// 同じ文書で、カーソルの名前と同じ識別子のトークンの位置（カーソルを含む一番内側のクラスの中、無ければ文書全体）。
+/// 部品の参照: 同じ文書で、カーソルの名前と同じ識別子のトークンの位置（カーソルを含む一番内側のクラスの中、無ければ文書全体）。
 /// 文字列・コメントの中は対象にしない（`globe-mode-fmt` の字句解析。S161）。点つきの名前（`R1.p`）は `R1 . p` と並ぶトークン列、
 /// 前が `.` のもの（別の部品のメンバ）は除く。字句に分けられない本文（閉じていない文字列など）は空。カーソルが識別子の上でなければ空。
-pub fn references(outline: Option<&Outline>, text: &str, at: usize) -> Vec<TextRange> {
+fn component_refs(outline: Option<&Outline>, text: &str, at: usize) -> Vec<TextRange> {
     let Some((_, name)) = name_at(text, at) else {
         return vec![];
     };
@@ -317,35 +317,137 @@ pub fn references(outline: Option<&Outline>, text: &str, at: usize) -> Vec<TextR
         .collect()
 }
 
-/// UI 向けの参照（S161。wasm と `globe/references` が使う）。`references` の範囲を LSP の Range の配列にする。
-pub fn references_at(outline: Option<&Outline>, text: &str, line: u32, character: u32) -> Value {
+/// クラスの見出しの語（この直後の識別子がクラスの宣言の名前）。
+const CLASS_KEYWORDS: &[&str] = &[
+    "model",
+    "class",
+    "block",
+    "connector",
+    "record",
+    "type",
+    "package",
+    "function",
+    "operator",
+];
+
+fn tok_range(t: &globe_mode_fmt::Token) -> TextRange {
+    TextRange {
+        start: t.start as u32,
+        end: (t.start + t.text.len()) as u32,
+    }
+}
+
+/// 識別子のトークン `toks[i]` が指すクラス（S166）。クラスの宣言の名前と `end 名前` は中身のクラスそのもの、
+/// それ以外（部品の型・`extends`・`import`・点つきの名前の途中）は `Resolver::definition` と同じ解決で引く。
+/// 部品の宣言・使い方、修飾子の名前（`R(R = 1)`）、`f(x).y` の `y` は対象外。
+fn class_of(
+    r: &mut Resolver,
+    path: &str,
+    text: &str,
+    toks: &[globe_mode_fmt::Token],
+    i: usize,
+) -> Option<Target> {
+    let t = &toks[i];
+    if t.kind != Kind::Ident || globe_mode_fmt::KEYWORDS.contains(&t.text) {
+        return None;
+    }
+    let ws = r.ws;
+    let prev = i.checked_sub(1).map(|j| &toks[j]);
+    let is = |x: Option<&globe_mode_fmt::Token>, s: &str| {
+        x.is_some_and(|x| x.text == s && x.kind != Kind::Str)
+    };
+    if prev.is_some_and(|p| {
+        p.kind == Kind::Ident && (p.text == "end" || CLASS_KEYWORDS.contains(&p.text))
+    }) {
+        let Some(Ok(o)) = ws.outline(path) else {
+            return None;
+        };
+        return enclosing(&o.classes, t.start as u32)
+            .last()
+            .filter(|c| c.name == t.text)
+            .map(|c| Target {
+                path: path.to_string(),
+                range: c.range,
+                class: true,
+            });
+    }
+    if is(prev, ".") && !(i >= 2 && toks[i - 2].kind == Kind::Ident) {
+        return None;
+    }
+    if (is(prev, "(") || is(prev, ",")) && is(toks.get(i + 1), "=") {
+        return None;
+    }
+    r.definition(path, text, t.start).filter(|d| d.class)
+}
+
+/// カーソルの識別子のトークンの番号と、それが指すクラス。
+fn class_target(
+    r: &mut Resolver,
+    path: &str,
+    text: &str,
+    toks: &[globe_mode_fmt::Token],
+    at: usize,
+) -> Option<(usize, Target)> {
+    let i = toks
+        .iter()
+        .position(|t| t.kind == Kind::Ident && t.start <= at && at <= t.start + t.text.len())?;
+    class_of(r, path, text, toks, i).map(|t| (i, t))
+}
+
+/// 文書 `path`（本文 `text`）で、`name` と書いてあって `target` のクラスに行き着く識別子のトークン（S166）。別の入れ子の同名のクラスは含めない。
+/// `name` の字面が違うトークン（import の別名 `D = A.B.C` の `D`）は含めない。
+pub fn class_hits(
+    r: &mut Resolver,
+    path: &str,
+    text: &str,
+    name: &str,
+    target: &Target,
+) -> Vec<TextRange> {
+    let Ok(toks) = lex(text) else {
+        return vec![];
+    };
+    (0..toks.len())
+        .filter(|&i| {
+            toks[i].text == name && class_of(r, path, text, &toks, i).as_ref() == Some(target)
+        })
+        .map(|i| tok_range(&toks[i]))
+        .collect()
+}
+
+/// カーソルがクラス名の上なら、その名前の字面と定義（S166）。部品・組み込みの型・予約語の上は `None`。
+pub fn class_name_at(
+    r: &mut Resolver,
+    path: &str,
+    text: &str,
+    at: usize,
+) -> Option<(String, Target)> {
+    let toks = lex(text).ok()?;
+    let (i, t) = class_target(r, path, text, &toks, at)?;
+    Some((toks[i].text.to_string(), t))
+}
+
+/// 参照の範囲。カーソルがクラス名の上ならその文書の中で同じクラスに行き着く全部（S166）、そうでなければ部品の参照。
+pub fn references(r: &mut Resolver, path: &str, text: &str, at: usize) -> Vec<TextRange> {
+    if let Some((name, t)) = class_name_at(r, path, text, at) {
+        return class_hits(r, path, text, &name, &t);
+    }
+    let ws = r.ws;
+    component_refs(ws.outline(path).and_then(|o| o.as_ref().ok()), text, at)
+}
+
+/// UI 向けの参照（S161・S166。wasm と `globe/references` が使う）。`references` の範囲を LSP の Range の配列にする。
+pub fn references_at(r: &mut Resolver, path: &str, text: &str, line: u32, character: u32) -> Value {
     let at = crate::offset(text, Position::new(line, character));
     json!(
-        references(outline, text, at)
+        references(r, path, text, at)
             .into_iter()
-            .map(|r| crate::range(text, r))
+            .map(|x| crate::range(text, x))
             .collect::<Vec<_>>()
     )
 }
 
-/// リネームで置き換える範囲（S161）。カーソルの名前が、いちばん内側のクラスで宣言した部品のときだけ受け、`references` と同じ出現を返す。
-/// 断る理由は文字列で返す: 部品でない（型・クラス・継承した部品・`a.b` の `b`・予約語の上）、新しい名前が識別子でない・予約語・同じクラスに既にある。
-/// shortcut: 同名の入れ子のクラスの中は区別しない。要るなら宣言の位置を持つ解析にする。
-pub fn rename(
-    outline: Option<&Outline>,
-    text: &str,
-    at: usize,
-    new_name: &str,
-) -> Result<Vec<TextRange>, String> {
-    let (_, old) = name_at(text, at).ok_or("名前の上でない")?;
-    let class = outline
-        .and_then(|o| enclosing(&o.classes, at as u32).last().copied())
-        .filter(|c| c.components.iter().any(|m| m.name == old))
-        .ok_or_else(|| {
-            format!(
-                "{old} はこのクラスで宣言した部品でない（型・クラス・継承した部品・別の部品のメンバのリネームは未対応）"
-            )
-        })?;
+/// 新しい名前の検査: 識別子・予約語・`taken`（同じ階層に既にある名前）。
+fn check_name(old: &str, new_name: &str, taken: impl Fn(&str) -> bool) -> Result<(), String> {
     let mut chars = new_name.chars();
     if !chars
         .next()
@@ -359,13 +461,78 @@ pub fn rename(
     if globe_mode_fmt::KEYWORDS.contains(&new_name) {
         return Err(format!("{new_name} は予約語"));
     }
-    if new_name != old
-        && (class.components.iter().any(|m| m.name == new_name)
-            || class.classes.iter().any(|c| c.name == new_name))
-    {
+    if new_name != old && taken(new_name) {
         return Err(format!("{new_name} は同じクラスに既にある"));
     }
-    let hits = references(outline, text, at);
+    Ok(())
+}
+
+/// `range` のクラスと、それを入れているクラス（トップレベルなら `None`）。
+fn find_class<'a>(
+    classes: &'a [ClassOutline],
+    parent: Option<&'a ClassOutline>,
+    range: TextRange,
+) -> Option<(&'a ClassOutline, Option<&'a ClassOutline>)> {
+    classes.iter().find_map(|c| {
+        if c.range == range {
+            Some((c, parent))
+        } else {
+            find_class(&c.classes, Some(c), range)
+        }
+    })
+}
+
+/// リネームで置き換える範囲（S161・S166）。
+/// 受けるのは、いちばん内側のクラスで宣言した部品か、この文書で定義したクラスの名前（宣言・`end`・使っている所。同じクラスに行き着くものだけ）。
+/// 断る理由は文字列で返す: 部品でもクラスでもない（継承した部品・`a.b` の `b`・予約語・組み込みの型の上）、別のファイル（ライブラリなど）で定義したクラス、
+/// import の別名の上、新しい名前が識別子でない・予約語・同じ階層に既にある。
+/// shortcut: 新しい名前が使う側の見える範囲の別の名前（外側のクラスのもの）を隠すかは見ない。要るなら名前解決をやり直して前後を比べる。
+pub fn rename(
+    r: &mut Resolver,
+    path: &str,
+    text: &str,
+    at: usize,
+    new_name: &str,
+) -> Result<Vec<TextRange>, String> {
+    let ws = r.ws;
+    let outline = ws.outline(path).and_then(|o| o.as_ref().ok());
+    if let Some((old, t)) = class_name_at(r, path, text, at) {
+        if t.path != path {
+            return Err(format!(
+                "{old} は別のファイル（{}）で定義されたクラスで、リネームできない",
+                t.path
+            ));
+        }
+        let o = outline.ok_or("この文書を解析できない")?;
+        let (class, parent) =
+            find_class(&o.classes, None, t.range).ok_or("クラスの定義が見つからない")?;
+        if class.name != old {
+            return Err(format!(
+                "{old} は {} の import の別名で、リネームできない",
+                class.name
+            ));
+        }
+        check_name(&old, new_name, |n| match parent {
+            Some(p) => {
+                p.components.iter().any(|m| m.name == n) || p.classes.iter().any(|c| c.name == n)
+            }
+            None => o.classes.iter().any(|c| c.name == n),
+        })?;
+        return Ok(class_hits(r, path, text, &old, &t));
+    }
+    let (_, old) = name_at(text, at).ok_or("名前の上でない")?;
+    let class = outline
+        .and_then(|o| enclosing(&o.classes, at as u32).last().copied())
+        .filter(|c| c.components.iter().any(|m| m.name == old))
+        .ok_or_else(|| {
+            format!(
+                "{old} はこの文書で宣言した部品・クラスでない（継承した部品・別の部品のメンバ・組み込みの型のリネームは未対応）"
+            )
+        })?;
+    check_name(old, new_name, |n| {
+        class.components.iter().any(|m| m.name == n) || class.classes.iter().any(|c| c.name == n)
+    })?;
+    let hits = component_refs(outline, text, at);
     if hits.is_empty() {
         return Err(
             "カーソルが識別子の上にない（コメント・文字列の中、または字句に分けられない本文）"
@@ -375,22 +542,39 @@ pub fn rename(
     Ok(hits)
 }
 
-/// UI 向けのリネーム（S161。wasm と `globe/rename` が使う）。LSP の TextEdit（`{range, newText}`）の配列。
+/// UI 向けのリネーム（S161・S166。wasm と `globe/rename` が使う）。LSP の TextEdit（`{range, newText}`）の配列。
 pub fn rename_at(
-    outline: Option<&Outline>,
+    r: &mut Resolver,
+    path: &str,
     text: &str,
     line: u32,
     character: u32,
     new_name: &str,
 ) -> Result<Value, String> {
     let at = crate::offset(text, Position::new(line, character));
-    let edits = rename(outline, text, at, new_name)?;
+    let edits = rename(r, path, text, at, new_name)?;
     Ok(json!(
         edits
             .into_iter()
-            .map(|r| json!({"range": crate::range(text, r), "newText": new_name}))
+            .map(|x| json!({"range": crate::range(text, x), "newText": new_name}))
             .collect::<Vec<_>>()
     ))
+}
+
+/// `textDocument/prepareRename`（S166）: カーソルの識別子の範囲。リネームできない所は `rename` と同じ理由（自分と同じ名前に変える試しで調べる）。
+pub fn prepare_rename(
+    r: &mut Resolver,
+    path: &str,
+    text: &str,
+    at: usize,
+) -> Result<TextRange, String> {
+    let toks = lex(text).map_err(|_| "字句に分けられない本文")?;
+    let t = toks
+        .iter()
+        .find(|t| t.kind == Kind::Ident && t.start <= at && at <= t.start + t.text.len())
+        .ok_or("識別子の上でない")?;
+    rename(r, path, text, at, t.text)?;
+    Ok(tok_range(t))
 }
 
 #[cfg(test)]
@@ -427,38 +611,116 @@ mod tests {
         assert_eq!(hover_at(&mut r, "A.mo", text, 0, 0), None); // 予約語
     }
 
+    /// 文書 `A.mo`（と、あれば別のファイル）を足したワークスペースで `f` を回す（ライブラリの木は空）。
+    fn with_docs<T>(docs: &[(&str, &str)], f: impl FnOnce(&mut Resolver) -> T) -> T {
+        let (tree, mut scratch) = (LibraryTree::new(std::iter::empty()), Workspace::new());
+        let mut ws = Workspace::new();
+        for (n, t) in docs {
+            ws.set_file(n, t.to_string());
+        }
+        f(&mut Resolver {
+            ws: &ws,
+            tree: &tree,
+            scratch: &mut scratch,
+            read: &|_| None,
+        })
+    }
+
     #[test]
     fn rename_replaces_every_occurrence_and_refuses_three_ways() {
         // 説明文字列・`//`・`/* */` の x は対象外
         let text = "model A\n  Real x \"x position\"; // x\n  Real xx;\n  A.B y;\nequation\n  /* x */ der(x) = -x + xx + y.x;\nend A;\n";
-        let mut ws = Workspace::new();
-        ws.set_file("A.mo", text.to_string());
-        let o = ws.outline("A.mo").and_then(|r| r.as_ref().ok());
-        let at = text.find("x \"").unwrap();
-        let hits = |new: &str| rename(o, text, at, new);
-        // `xx` と `y.x` は含めない。宣言と der(x) と -x の 3 箇所（文字列・コメントの x は含めない）
-        assert_eq!(hits("z").unwrap().len(), 3);
-        let comment = text.find("// x").unwrap() + 3; // コメントの中のカーソルは断る
-        assert!(
-            rename(o, text, comment, "z")
-                .unwrap_err()
-                .contains("識別子の上にない")
-        );
-        for r in hits("z").unwrap() {
-            assert_eq!(&text[r.start as usize..r.end as usize], "x");
+        with_docs(&[("A.mo", text)], |r| {
+            let at = text.find("x \"").unwrap();
+            let mut hits = |new: &str| rename(r, "A.mo", text, at, new);
+            // `xx` と `y.x` は含めない。宣言と der(x) と -x の 3 箇所（文字列・コメントの x は含めない）
+            let ok = hits("z").unwrap();
+            assert_eq!(ok.len(), 3);
+            for h in ok {
+                assert_eq!(&text[h.start as usize..h.end as usize], "x");
+                assert!(
+                    !text[..h.start as usize].ends_with("\"")
+                        && !text[..h.start as usize].ends_with("// ")
+                );
+            }
+            assert!(hits("1z").unwrap_err().contains("識別子"));
+            assert!(hits("x y").unwrap_err().contains("識別子"));
+            assert!(hits("model").unwrap_err().contains("予約語"));
+            assert!(hits("xx").unwrap_err().contains("既に"));
+            let comment = text.find("// x").unwrap() + 3; // コメントの中のカーソルは断る
             assert!(
-                !text[..r.start as usize].ends_with("\"")
-                    && !text[..r.start as usize].ends_with("// ")
+                rename(r, "A.mo", text, comment, "z")
+                    .unwrap_err()
+                    .contains("識別子の上にない")
             );
-        }
-        assert!(hits("1z").unwrap_err().contains("識別子"));
-        assert!(hits("x y").unwrap_err().contains("識別子"));
-        assert!(hits("model").unwrap_err().contains("予約語"));
-        assert!(hits("xx").unwrap_err().contains("既に"));
-        // 部品でない名前（型 Real の上）は未対応
-        assert!(rename(o, text, text.find("Real").unwrap() + 1, "z").is_err());
-        let r = rename_at(o, text, 1, 7, "z").unwrap();
-        assert_eq!(r[0]["newText"], "z");
-        assert_eq!(r[0]["range"]["start"]["line"], 1);
+            // 部品でもクラスでもない名前（組み込みの型 Real の上）は未対応
+            assert!(rename(r, "A.mo", text, text.find("Real").unwrap() + 1, "z").is_err());
+            let e = rename_at(r, "A.mo", text, 1, 7, "z").unwrap();
+            assert_eq!(e[0]["newText"], "z");
+            assert_eq!(e[0]["range"]["start"]["line"], 1);
+        });
+    }
+
+    #[test]
+    fn class_rename_follows_resolution_not_spelling() {
+        // P.M と P.Q.M は同名。説明文字列・コメントの M は対象外
+        let text = "model P\n  model M \"M\"\n    Real x;\n  end M;\n  model Q\n    model M\n      Real y;\n    end M;\n    M m; // M\n  end Q;\n  M a;\n  Q.M b;\nend P;\n";
+        with_docs(&[("A.mo", text)], |r| {
+            // k 番目の needle の頭から off バイト目
+            let nth = |needle: &str, k: usize, off: usize| {
+                text.match_indices(needle).nth(k).unwrap().0 + off
+            };
+            let mut lines = |at: usize| {
+                let mut v: Vec<usize> = references(r, "A.mo", text, at)
+                    .iter()
+                    .map(|x| text[..x.start as usize].matches('\n').count())
+                    .collect();
+                v.sort();
+                v
+            };
+            // P.M: 宣言（1）・end（3）・`M a;`（10）だけ。Q.M は混ざらない
+            assert_eq!(lines(nth("model M", 0, 6)), [1, 3, 10]);
+            assert_eq!(lines(nth("M a;", 0, 0)), [1, 3, 10]);
+            assert_eq!(lines(nth("end M", 0, 4)), [1, 3, 10]);
+            // P.Q.M: 宣言（5）・end（7）・`M m;`（8）・`Q.M b;` の M（11）。`Q` の上からは Q が引ける
+            assert_eq!(lines(nth("M m;", 0, 0)), [5, 7, 8, 11]);
+            assert_eq!(lines(nth("Q.M b", 0, 2)), [5, 7, 8, 11]);
+            assert_eq!(lines(nth("model Q", 0, 6)), [4, 9, 11]);
+            // リネーム: 同じ集合を変える（`end M` も）。同じ階層の名前・予約語は断る
+            let at = nth("model M", 1, 6);
+            let hits = rename(r, "A.mo", text, at, "N").unwrap();
+            assert_eq!(hits.len(), 4);
+            assert!(
+                hits.iter()
+                    .all(|h| &text[h.start as usize..h.end as usize] == "M")
+            );
+            assert!(
+                rename(r, "A.mo", text, nth("model M", 0, 6), "Q")
+                    .unwrap_err()
+                    .contains("既に")
+            );
+            assert!(
+                rename(r, "A.mo", text, at, "end")
+                    .unwrap_err()
+                    .contains("予約語")
+            );
+            assert!(rename(r, "A.mo", text, nth("Real x", 0, 5), "x").is_ok()); // 部品は S161 のまま
+            // prepareRename: クラス名は識別子の範囲、予約語は理由
+            let p = prepare_rename(r, "A.mo", text, at).unwrap();
+            assert_eq!(&text[p.start as usize..p.end as usize], "M");
+            assert!(prepare_rename(r, "A.mo", text, 2).is_err());
+        });
+    }
+
+    #[test]
+    fn class_in_another_file_lists_but_refuses_rename() {
+        let lib = "package Lib\n  model R\n  end R;\nend Lib;\n";
+        let text = "model A\n  Lib.R r;\n  Real R;\n  Lib.R s(R = 1);\nend A;\n";
+        with_docs(&[("Lib.mo", lib), ("A.mo", text)], |r| {
+            let at = text.find("R r").unwrap();
+            assert_eq!(references(r, "A.mo", text, at).len(), 2); // 部品 R と修飾子の `R = 1` は含めない
+            let e = rename(r, "A.mo", text, at, "S").unwrap_err();
+            assert!(e.contains("別のファイル"), "{e}");
+        });
     }
 }

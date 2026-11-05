@@ -117,6 +117,7 @@ export class GlobeWorker {
   async lint(text) { return JSON.parse(await this.#call("lint", { text })); }
   // ライブラリの木（S127）: prefix の直下の子 [{name, path, kind, description, file, hasChildren}] と、クラスのファイル {file, text}
   async libraryTree(prefix) { return JSON.parse(await this.#call("library_tree", { prefix })); }
+  async librarySearch(query, limit = 50) { return JSON.parse(await this.#call("library_search", { query, limit })); } // S167
   async librarySource(path) { return JSON.parse(await this.#call("library_source", { path })); }
   // 定義ジャンプ（S138）: setFile 済みの file の行・列（0 始まり、列は UTF-16）の定義 {file, text, range}。無ければ null
   async definition(file, line, character) {

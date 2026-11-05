@@ -136,7 +136,7 @@ pub fn split<'t, 'a>(
                     .is_some_and(|s| s.is("(") || s.kind == crate::lexer::Kind::Str || s.is("+"))
                 {
                     i = if tokens[i].is("(") {
-                        scan_to(tokens, i + 1, |s| s.is(")"))?
+                        skip_group(tokens, i)?
                     } else {
                         i + 1
                     };
@@ -183,6 +183,54 @@ pub fn split<'t, 'a>(
             Ctx::Block => "end if / for / while / when が無い".to_string(),
         };
         return Err(err(what, tokens.last().map_or(0, |t| t.start)));
+    }
+    Ok(out)
+}
+
+/// ファイルの中の全クラス定義（入れ子を含む。短いクラス `type X = Real;` も）。S167: ライブラリの木が入れ子を出すのに使う。
+/// `path` はファイルの中の入れ子の名前（`Sources.Sine`）、`kind` は `model`・`operator record` など、`description` は説明文字列（無ければ空）。
+pub fn class_defs<'a>(tokens: &[Token<'a>]) -> Result<Vec<(String, String, &'a str)>, FormatError> {
+    let mut stack: Vec<&str> = Vec::new();
+    let mut out = Vec::new();
+    for e in split(tokens, false)? {
+        let t = e.tokens;
+        if t[0].is("end") {
+            // `end if;` などのブロックは split が対応を確かめている。クラスの end だけ閉じる
+            if !t
+                .get(1)
+                .is_some_and(|n| BLOCK_END.contains(&n.text) && n.is_keyword())
+            {
+                stack.pop();
+            }
+        } else if let Some((_, name)) = class_header(t, 0) {
+            let short = t.get(name + 1).is_some_and(|s| s.is("="));
+            let kind = t[..name]
+                .iter()
+                .map(|k| k.text)
+                .filter(|k| crate::tree::KINDS.contains(k))
+                .collect::<Vec<_>>()
+                .join(" ");
+            // 括弧の外で最初の文字列（`enumeration(A "a")` の中は説明でない）。annotation より前
+            let mut depth = 0;
+            let description = t[name + 1..]
+                .iter()
+                .take_while(|s| !s.is("annotation"))
+                .find(|s| {
+                    depth += i32::from(s.is("(")) - i32::from(s.is(")"));
+                    depth == 0 && s.kind == crate::lexer::Kind::Str
+                })
+                .map_or("", |s| {
+                    s.text
+                        .strip_prefix('"')
+                        .and_then(|d| d.strip_suffix('"'))
+                        .unwrap_or(s.text)
+                });
+            stack.push(t[name].text);
+            out.push((stack.join("."), kind, description));
+            if short {
+                stack.pop();
+            }
+        }
     }
     Ok(out)
 }
@@ -234,6 +282,19 @@ fn class_header(tokens: &[Token<'_>], mut i: usize) -> Option<(usize, usize)> {
     (name.kind == crate::lexer::Kind::Ident && !name.is_keyword()).then_some((kw_i, name_i))
 }
 
+/// `tokens[open]`（`(`）に対応する閉じ括弧の次の位置（S167: `redeclare model extends X(p(a = 1))` の修飾を読み飛ばす）。
+fn skip_group(tokens: &[Token<'_>], open: usize) -> Result<usize, FormatError> {
+    let mut depth = 0i32;
+    for (i, t) in tokens.iter().enumerate().skip(open) {
+        depth += i32::from(t.is("(") || t.is("[") || t.is("{"));
+        depth -= i32::from(t.is(")") || t.is("]") || t.is("}"));
+        if depth == 0 {
+            return Ok(i + 1);
+        }
+    }
+    Err(err("括弧が閉じない", tokens[open].start))
+}
+
 /// 括弧の深さ 0 で `stop` を満たすトークンまで進み、その次の位置を返す。
 fn scan_to(
     tokens: &[Token<'_>],
@@ -255,11 +316,11 @@ fn scan_to(
             return Ok(i + 1);
         } else if depth == 0
             && i > from
-            && t.is_keyword()
             && matches!(
                 t.text,
                 "equation" | "algorithm" | "public" | "protected" | "end"
             )
+            && t.is_keyword()
         {
             return Err(err(
                 format!("文の途中に {}（; が抜けている）", t.text),
