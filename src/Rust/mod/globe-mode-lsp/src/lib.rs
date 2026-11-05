@@ -1153,12 +1153,21 @@ mod tests {
             json!({"method": "textDocument/didOpen", "params": {"textDocument": {
             "uri": "D.mo", "languageId": "modelica", "version": 1, "text": src}}}),
         );
-        let r = s.handle(json!({"id": 1, "method": "globe/tunableParameters", "params": {"model": "D"}}));
+        let r = s.handle(
+            json!({"id": 1, "method": "globe/tunableParameters", "params": {"model": "D"}}),
+        );
         let p = &r[0]["result"]["parameters"][0];
-        assert_eq!((p["name"].as_str(), p["default"].as_f64()), (Some("k"), Some(1.0)), "{}", r[0]);
+        assert_eq!(
+            (p["name"].as_str(), p["default"].as_f64()),
+            (Some("k"), Some(1.0)),
+            "{}",
+            r[0]
+        );
         assert_eq!(p["unit"], "1/s");
         assert_eq!(p["description"], "rate");
-        let r = s.handle(json!({"id": 2, "method": "globe/tunableParameters", "params": {"model": "Nope"}}));
+        let r = s.handle(
+            json!({"id": 2, "method": "globe/tunableParameters", "params": {"model": "Nope"}}),
+        );
         assert_eq!(r[0]["error"]["code"], -32000);
     }
 

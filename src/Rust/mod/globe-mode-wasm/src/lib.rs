@@ -402,7 +402,12 @@ impl Workspace {
     /// 上書きできるパラメータの一覧（S150）。`ParametersResponse` の JSON。DAE まで変換できなければ例外（診断の文）。
     pub fn tunable_parameters(&mut self, model: &str) -> Result<String, JsValue> {
         let r = self.inner.tunable_parameters(model).map_err(|ds| {
-            js_error(ds.iter().map(|d| d.message.as_str()).collect::<Vec<_>>().join("; "))
+            js_error(
+                ds.iter()
+                    .map(|d| d.message.as_str())
+                    .collect::<Vec<_>>()
+                    .join("; "),
+            )
         })?;
         to_json(&r)
     }

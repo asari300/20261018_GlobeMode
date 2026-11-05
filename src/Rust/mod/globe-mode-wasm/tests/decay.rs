@@ -378,9 +378,16 @@ fn decay_lists_tunable_parameters() {
     for (name, text) in package() {
         ws.put_file(&name, text);
     }
-    let r = ws.inner().tunable_parameters("GlobeModeValidation.Simulation.Decay");
+    let r = ws
+        .inner()
+        .tunable_parameters("GlobeModeValidation.Simulation.Decay");
     let r = r.ok().unwrap();
-    let k = r.parameters.unwrap().into_iter().find(|p| p.name == "k").unwrap();
+    let k = r
+        .parameters
+        .unwrap()
+        .into_iter()
+        .find(|p| p.name == "k")
+        .unwrap();
     assert_eq!(k.default, 1.0);
     assert!(ws.inner().tunable_parameters("Nope").is_err());
 }
