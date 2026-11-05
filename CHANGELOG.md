@@ -4,7 +4,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
-v0.1.0 に向けた S001〜S047 と S052 の要点。version はまだ 0.0.1 で、crates.io には出していない（Rumoca の git 依存。[ADR-0002](doc/adr/0002-rumoca-adapter.md)）。
+v0.1.0 に向けた S001〜S164 の要点（S048 以降は S168 で足した。内部の整理は束ねた）。Cargo の version はまだ 0.0.1 で、GitHub の Release・タグ・PyPI・crates.io・VS Code の Marketplace のどれにも出していない（crates.io に出せないのは Rumoca の git 依存のため。[ADR-0002](doc/adr/0002-rumoca-adapter.md)）。
 
 ### 運用・計画（P0）
 
@@ -41,6 +41,13 @@ v0.1.0 に向けた S001〜S047 と S052 の要点。version はまだ 0.0.1 で
 - S037: wasm の MSL の分割読み込み。読み込み後の線形メモリ 262 → 62 MiB、`ChuaCircuit` の後 513 → 113 MiB。`msl:funnel`・`msl:sim` を GitHub Actions で手動で回すワークフロー。
 - S043: 分割読み込みを MSL の全例題で全部読みと突き合わせる道（`tests/split.rs` の `GM_SPLIT_MODELS`・`GM_SPLIT_FRESH`、`msl-sim.yml` のジョブ `split-all`）。
 - S047: GitHub Actions の `msl-sim.yml` の結果で `doc/msl-funnel.md`・`doc/msl-sim.md` を更新（OK 369、実行できた 309、管に収まった 301/308、前回との差 0）。分割読み込みは MSL の 566 本すべてで全部読みと一致。
+- S050・S126: `msl-sim.yml` にソルバごとの matrix（ジョブ `solvers`）と、実行できた本数・管に収まった本数の表 `doc/msl-solvers.md`。S126 で 14 ソルバすべてを回し直した。`auto` は 312 本が実行でき、311 本のうち 303 本（97.4%）が管に収まる（S119 と同じ）。
+- S051: wasm の `simulate_columns`（結果を列ごとの `Float64Array` で。10 万点 × 7 列で 548 → 159 ms）と、メモリを測る `resources.yml`。
+- S054: ネイティブの CLI・`globe lsp`・Desktop も MSL は閉包のファイルだけを読む（`ChuaCircuit` の `globe check` の最大 RSS 1,493 → 128 MiB。[ADR-0025](doc/adr/0025-native-library-closure.md)）。
+- S058・S063・S066・S067・S068・S071・S073: MSL 以外の公開ライブラリ 7 つ（Buildings・AixLib・IBPSA・ClaRa・ThermofluidStream・DeltaRobot・Chemical）を Actions で検査・実行する `libraries.yml` と表 `doc/libraries.md`。構文の誤りのファイルは読み飛ばして `GM-W1001` で知らせ、MSL 4.0.0 も選べ（`cargo xtask fetch-msl --version 4.0.0`）、`Modelica.Math` の `external "builtin"` も実行できる（[ADR-0029](doc/adr/0029-external-builtin-rewrite.md)）。
+- S064: `auto` の回し直しを BDF → esdirk34 → dopri45 にした（[ADR-0028](doc/adr/0028-auto-esdirk34-fallback.md)）。
+- S055・S088・S119・S139・S158: 実行できない例題の原因調べ（cerk23 の時間切れ、BDF の `GM-U0005`、サイリスタの事象の費用、SDIRK の退行の修正、sdirk34hw の `GM-E11003`）。
+- S070・S072・S080・S083・S091・S096・S108・S113・S115: 公開ライブラリの失敗を最小の再現にし、上流（Rumoca・diffsol）への issue の下書きを `doc/research/upstream/` に、一覧を正典の [doc/upstream.md](doc/upstream.md) にまとめた。Rumoca v0.10.4 で確かめ直した件は提出の順から外した。提出はしていない。
 
 ### P4 UI・LSP
 
@@ -50,6 +57,34 @@ v0.1.0 に向けた S001〜S047 と S052 の要点。version はまだ 0.0.1 で
 - S041: `src/Svelte` にブラウザ UI の骨格（Svelte 5 + CodeMirror 6 + `WorkerBackend` + 診断パネル）。wasm に `check` を足した。
 - S042: 実行とプロットの UI（「実行」ボタン、uPlot の `Plot.svelte`、CSV の列分け）。npm は uPlot（MIT）を足して 58 パッケージ、GPL・NC は 0。
 - S046: connect グラフの表示（wasm の `graph`、sigma 4 + graphology + ForceAtlas2 の `Graph.svelte`、ノードのクリックで `onSelect`）。合成 5k ノード・約 1 万辺はヘッドレスで約 10 fps（参考値）。
+- S048・S127: ブラウザ UI で MSL を読み、左のライブラリツリーからモデルを開いて検査・実行・プロットまで通る（ChuaCircuit の検査 error 0、44 信号）。
+- S049・S056・S069・S084・S143: Desktop（Tauri 2）。`globe lsp` を sidecar にしたシェル、`desktop.yml` の .deb と .msi。MSL は初回に取得し（[ADR-0030](doc/adr/0030-desktop-msl-placement.md)）、4.1.0 / 4.0.0 を切り替えられ、作業ディレクトリの `globe-mode.toml` を読む。
+- S053・S060・S061・S062: 自前の整形器と lint `globe-mode-fmt`（依存 0、インデント 2・80 桁、annotation の並べ替え、節の前後の空行、`Documentation` の HTML）、`globe fmt` / `globe lint`（ruff のようにパスを省くとカレントディレクトリ）、LSP の整形と補完、lint `GM-L0001`〜`GM-L0005`（connect の型の食い違い）。規則は [doc/format-style.md](doc/format-style.md)。
+- S059・S163: VS Code の拡張 `src/VSCode/globe-mode`（`globe lsp` につなぐ。整形・lint・検査・補完・構文の色付け。VSIX は `pack_vsix.py` で作る。Marketplace には出していない）。
+- S065・S076: 実行結果を CSV でなく列ごとに受ける（ブラウザ・Desktop。10 万点で「実行」から戻るまで 810 → 約 220 ms）。
+- S079・S081・S089・S101・S122: connect グラフがライブラリのモデル（MSL の部品）も引ける。
+- S128・S146: プロットの系列の選択・右の軸・パラメトリック、CSV と PNG の書き出し。
+- S130・S132・S138・S149・S161: プロジェクトの設定 `globe-mode.toml`（整形・lint の規則）、LSP と UI のエディタの定義ジャンプ・ホバー・参照の一覧（Shift+F12）・リネーム（F2）。参照とリネームは同じクラスの中だけ。
+- S141・S142・S150・S151・S154: ファイルを開く・保存、実行の設定（ソルバ・終了時刻・許容誤差・間隔・パラメータの上書きと一覧）、タブと最近使ったファイル。
+- S152: ダークモード（OS に追従、明 / 暗の手動の選択）。
+- S157: 実行を止めたとき、そこまでの列をプロットに残す（[ADR-0033](doc/adr/0033-progress-and-cancel.md)）。
+- S134・S135: Desktop が `C.UTF-8` の locale で白画面になる不具合の修正と、自動更新（`tauri-plugin-updater`。鍵を登録するまで「未設定」）。
+- S140・S164: アプリの使える流れの点検（調査だけ。[2026-11-04](doc/research/app-flow-2026-11-04.md)、[2026-11-05](doc/research/app-flow-2026-11-05.md)）。
+
+### P5 FMI
+
+- S057: FMI の調査と `globe-mode-fmi`（`modelDescription.xml`）の準備。
+- S094・S098・S105: `globe fmu export` が FMI 2.0・3.0 のソースの FMU（ME・CS）を出す（Rumoca の `fmi2` / `fmi3` のテンプレート。FMPy と fmusim で検証）。`--build --target <triple>` で Linux・Windows・macOS の共有ライブラリも同梱。
+- S095・S099・S109・S112・S114・S137: 自前のランタイム `globe-mode-fmu`（依存 0）。FMI 2.0 ME の関数、モデルの compile、事象、代数・離散の変数、入力、FMI 3.0 ME。S117・S124 で `modelDescription.xml` の書き手を P5a と共有。
+- S144・S154: UI の「FMU を書き出す」（ブラウザ・Desktop・Android。FMI 2.0 / 3.0 を選べる）。
+
+### P6 Web・Android・ノートブック
+
+- S078・S085・S097・S102・S104: marimo の anywidget の折れ線（extra `widget`）、Python の `simulate_columns`（列を polars で）、marimo の WASM（Pyodide）から `globe-mode-wasm` を回す（MSL も）。
+- S092・S100・S103・S106・S147・S159: Android の APK（`android.yml`）。sidecar は使わず Worker 上の wasm で、MSL を同梱し、API 34 のエミュレータで検査・実行・UI の操作を確かめる。release の APK は ABI ごと。
+- S093: ブラウザ版が CSP `connect-src 'self'` のまま実行でき、外への要求が 0 件であることを試験で確かめた。
+- S145: ブラウザ版の配布物（`web.yml` が artifact `globe-web` に wasm・UI・`MSL.json`・CSP の header の断片を出す。サブパスで動く）。公開先はまだ無い。
+- S160: Desktop の macOS（`desktop.yml` に `macos-latest`。署名・公証なしの .dmg）。
 
 ### P8 リリース・運用
 
@@ -61,13 +96,20 @@ v0.1.0 に向けた S001〜S047 と S052 の要点。version はまだ 0.0.1 で
 - S086: Linux の wheel を maturin の `--zig` で `manylinux_2_28` にした（glibc 2.28 以上。Debian 12・RHEL 9 にも pip で入る）。
 - S090: Linux の `globe`（tarball）を `cargo-zigbuild` で glibc 2.28 に link した（前はランナーの 2.39。Debian 10・RHEL 8 以降でも動く）。
 - S097: anywidget を extra `widget` に移した（`pip install "globe-mode[widget]"`。extra なしの wheel の依存が減る）。
+- S135・S148: `release.yml` が Desktop の .deb・.msi も Release に付ける（鍵の secret があるときだけ署名して `latest.json`）。CI の zig の取得をミラー経由でなく ziglang.org から直接にした。
 
 ### P7 言語 API
 
 - S039: Python の wheel `globe_mode`（`globe-mode-py`、PyO3・abi3-py312・maturin）。load_dir → check → graph → simulate → polars の表の参照シナリオを `pytest` で通した。
+- S075・S082・S087: C ABI の `globe-mode-c`（9 関数、手書きのヘッダ）と Zig・Julia、Elixir の NIF（`globe-mode-nif`）、Gleam の `@external`。参照シナリオ（Decay を開く → check → simulate → x(1) → format）は `mise run c:zig`・`c:julia`・`elixir:test`・`gleam:test`。
+- S110・S111・S116・S118: 公開 API の機能表を作り、6 言語に format / lint、列の道（`simulate_columns`）、FMU の書き出しを足した。
+- S121・S123・S129・S131・S133・S136: 実行の進捗と中断をコア・Python・C と他の言語・wasm とブラウザの UI・`globe lsp` と Desktop に入れた（[ADR-0033](doc/adr/0033-progress-and-cancel.md)）。
+- S125・S153・S155・S156・S160: UI の負荷の比較。測定ハーネス（[ADR-0034](doc/adr/0034-ui-bench-method.md)）と、Leptos 版・Dioxus 版の試験版（`src/Rust/apps/experimental/`、配布物には入らない）、Linux・Windows・macOS の結果 `doc/bench/ui.md`。
 
 ### 既知の限界
 
-- Rumoca は git 依存の固定 rev（v0.10.2）で、crates.io には出せない。
+- Rumoca は git 依存の固定 rev（v0.10.2）で、crates.io には出せない。MSL 4.1.0 の例題 566 本のうち検査を通るのは 369 本、コンパイラの限界（`GM-U`）が 184 本（[doc/msl-funnel.md](doc/msl-funnel.md)）。
 - 配布するバイナリに `sundials` のソルバ（`cvode`・`ida`）は入れない（cmake と C コンパイラが要る）。
-- S041 の時点で、Desktop（Tauri）、プロット、connect グラフの UI、FMI は入っていない（[doc/roadmap.md](doc/roadmap.md)）。
+- FMI の読み込み、SSP、Diagram / Icon / Documentation ビューは未実装。
+- Desktop と Android は署名していない。Desktop の自動更新は鍵を登録するまで「未設定」。実機での長い操作は【未確認】。
+- GitHub の Release・タグ・Pages・PyPI・Marketplace への公開はまだ無い（[doc/research/app-flow-2026-11-05.md](doc/research/app-flow-2026-11-05.md)）。
