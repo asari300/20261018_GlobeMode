@@ -7,7 +7,7 @@
 | worktree | `.git-worktree/s164-app-flow-audit-2` |
 | Phase | P4・P6 |
 | セッション文書 | `doc/sessions/S164-app-flow-audit-2/` |
-| セッション記録 | （親が写す） |
+| セッション記録 | [2026-11-02-a2580a13-3889-4662-9db4-a45dc1ca6772.md](../sessions/2026-11-02-a2580a13-3889-4662-9db4-a45dc1ca6772.md) |
 
 ## 依頼
 
