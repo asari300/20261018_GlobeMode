@@ -57,6 +57,20 @@ export const modelicaDefinition = (
   ];
 };
 
+/** 参照の一覧（Shift+F12）とリネーム（F2）（S161）。キーを受けて、カーソルの位置を渡すだけ。計算は Backend（Rust）。 */
+export const modelicaRefactor = (
+  references: (line: number, character: number) => Promise<void>,
+  rename: (line: number, character: number) => void,
+): Extension => {
+  const at = (view: EditorView, f: (line: number, character: number) => unknown) => {
+    const pos = view.state.selection.main.head;
+    const line = view.state.doc.lineAt(pos);
+    f(line.number - 1, pos - line.from);
+    return true;
+  };
+  return Prec.high(keymap.of([{ key: "Shift-F12", run: (v) => at(v, references) }, { key: "F2", run: (v) => at(v, rename) }]));
+};
+
 /** ホバー（S149）: 300 ms 置くと、その名前の宣言（部品は `Real x "説明"`、クラスは見出し）を素のテキストで出す。 */
 const modelicaHover = (backend: Backend, file: () => string): Extension => [
   EditorView.baseTheme({ ".cm-hover": { padding: "2px 6px", maxWidth: "40em", whiteSpace: "pre-wrap", fontFamily: "monospace" } }),
