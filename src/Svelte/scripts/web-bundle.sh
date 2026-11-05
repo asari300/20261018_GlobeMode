@@ -3,7 +3,7 @@
 #   bash src/Svelte/scripts/web-bundle.sh src/Svelte/dist /tmp/globe-web
 # CSP は index.html の meta から取り出す（正は index.html の 1 か所。test_ui.py の header もそこから取る）。
 # meta は Web Worker に効かないので、配布先は同じ CSP を応答の header に付ける: _headers（Cloudflare Pages / Netlify）と nginx.csp.conf（nginx の include）。
-# Cross-Origin-Opener/Embedder-Policy は要らない（SharedArrayBuffer を使わない。S145 で確かめた）。
+# Cross-Origin-Opener/Embedder-Policy は、実行を止めたときに途中の列を残すための SharedArrayBuffer に要る（S157）。付けない配信でも動く（止めると Worker を作り直し、途中の列は出ない）。
 # 最後に大きさ（生・gzip -9・brotli -q 11）を Markdown の表にして標準出力へ出す。brotli が無ければその列は「未測定」。
 set -euo pipefail
 dist=$1
@@ -19,8 +19,14 @@ cat > "$out/_headers" <<EOF
   Content-Security-Policy: $csp
   X-Content-Type-Options: nosniff
   Referrer-Policy: no-referrer
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: require-corp
 EOF
-echo "add_header Content-Security-Policy \"$csp\" always;" > "$out/nginx.csp.conf"
+{
+  echo "add_header Content-Security-Policy \"$csp\" always;"
+  echo 'add_header Cross-Origin-Opener-Policy "same-origin" always;'
+  echo 'add_header Cross-Origin-Embedder-Policy "require-corp" always;'
+} > "$out/nginx.csp.conf"
 
 size() { stat -c %s "$1"; }
 mib() { awk -v n="$1" 'BEGIN { printf "%.1f", n / 1048576 }'; }

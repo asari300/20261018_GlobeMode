@@ -409,6 +409,12 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - 試験: `test_ui.py` に 3.0 の書き出しを足した（既定は `fmiVersion="2.0"`、3.0 を選ぶと `fmiVersion="3.0"` の `modelDescription.xml` と `sources/`）。`main.rs` に `read_mo` の単体試験。`GM-SMOKE` に `recent=ok`（desktop.yml。Linux と Windows が作業ディレクトリの `Recent.mo` を開く。ブラウザ・Android は出さない）。
 - 持ち越し: 再読み込みをまたぐ未保存の印、タブの並べ替え、`--build` の UI、FMU import。
 
+### S157（P4、2026-11-05）で済んだこと
+
+- **止めても、そこまでの列がプロットに残る**（[ADR-0033](adr/0033-progress-and-cancel.md) の 6 段目。[解説書](sessions/S157-cancel-partial-result/解説書.md)）: ネイティブ（exec・facade・LSP・Desktop）には途中の列を返す口が既にあり、足りなかったのは wasm の Worker に止める合図を届けることと、UI の表示だけだった。wasm の進捗の関数が厳密に `true` を返すと `CancelToken` を立て、`GlobeWorker.cancel()` は SharedArrayBuffer(4) のフラグを立てて、Worker が進捗のたびに読む。止まった実行は列と `GM-I11004` を普通の結果として返し、`App.svelte` は「止めた（t = … で止めた、そこまでの n 点を表示）」を出して列を残す（Desktop も同じ分岐）。SharedArrayBuffer が無い配信（cross-origin isolated でない）と、2 s 応えない実行（lowering など）は前のとおり `terminate()` して作り直す。COOP / COEP は `vite.config.ts`・`web-bundle.sh`・`test_ui.py` の配信に付けた。
+- 試験: `wasm:node`（`smoke.mjs` に中断の項目）、`worker-node.mjs`（フラグで restarts 0 と途中の列、`shared: false` で reject と restarts 1）、`test_ui.py`（止めたあとプロットに線）。
+- 持ち越し: Android の WebView に COOP / COEP を付けられるか【未確認】、Desktop の既定 `auto` の積分の中の中断、py・c・nif への展開、再開。
+
 ### S155（P7、2026-11-05）で済んだこと
 
 - **Dioxus 版 UI**（[ADR-0036](adr/0036-experimental-ui-dioxus.md)、Proposed。[解説書](sessions/S155-ui-dioxus/解説書.md)）: `src/Rust/apps/experimental/dioxus/`（別の workspace）。Dioxus 0.7.10（MIT OR Apache-2.0、`minimal` + `web`）で、Leptos 版と同じ機能（`<textarea>`・検査と診断・実行と最後の値の表・MSL を読む・ダークモード）。facade `globe-mode` を同じ wasm にリンクする。ビルドは `mise run dioxus:build`（`dx` なし。cargo build → `wasm-bindgen --target web`。初回 7 分）、`?smoke=1` で `GM-SMOKE` の行。

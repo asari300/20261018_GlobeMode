@@ -379,6 +379,9 @@
       lastSettings = r.settings ?? null;
       lastFinal = Object.entries(r.final ?? {}).slice(0, 8);
       columns = c.points > 0 ? c : null;
+      // S157: 止めた実行はそこまでの列を出し、止めた旨を残す（wasm は SharedArrayBuffer のフラグ、Desktop は $/cancelRequest。どちらも GM-I11004 の普通の応答）
+      const stopped = r.diagnostics.find((d) => d.code === "GM-I11004");
+      if (stopped) { runState = "cancelled"; runNote = `止めた（${c.points > 0 ? `${stopped.message}、そこまでの ${c.points} 点を表示` : "結果は出ない"}）`; }
       if (r.refused) failure = r.refused;
       else if (!r.ok && !r.diagnostics.length) failure = "実行に失敗した（診断なし）";
     });

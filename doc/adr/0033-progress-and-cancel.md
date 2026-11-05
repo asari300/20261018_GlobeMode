@@ -55,7 +55,7 @@
   - session の道の積分の中: `run_to_stop` を、出力の点を区切りにした `advance_to` の繰り返しに替え、区切りごとに見る。Rumoca は変えない（公開の `advance_to` だけ）。
 - 見られないところ: lowering と組み立て（Rumoca の中）、ネイティブの型付きの道の積分の中。ここは今まで通り `max_wall_seconds` と、外からプロセスやワーカーを止める道（ADR-0017・ADR-0023）が受け持つ。外から止める道は消さない。
 - 各口で同じ形になるか:
-  - wasm: Worker の中は 1 本のスレッドで、計算の間は `onmessage` が回らないので、外からトークンを立てられない。止めるのは今の `terminate()` と作り直しのまま（途中の列は返らない）。トークンは使わない。
+  - wasm: Worker の中は 1 本のスレッドで、計算の間は `onmessage` が回らないので、外からトークンを立てられない。止めるのは今の `terminate()` と作り直しのまま（途中の列は返らない）。トークンは使わない。（S157 で変えた: cross-origin isolated なら SharedArrayBuffer のフラグでトークンを立て、途中の列を返す。下の 6 段目）
   - NIF: `DirtyCpu` のスケジューラで回し、トークンを resource（`ResourceArc`）に包んで返す。別の Erlang プロセスから NIF `cancel(ref)` で立てる。同じ形。
   - C: コールバックの戻り値が 0 以外なら、glue がトークンを立てる。別のスレッドから止めたい呼び手は、`void *user` の先のフラグをコールバックで読んで返す。同じ形（呼ばれる頻度は進捗と同じ 100 ms に 1 回）。
   - Python: GIL を放して回し（pyo3 0.30 の `Python::detach`。旧名 `allow_threads`【名前は実装のときに確かめる】）、進捗のたびに GIL を取り直してコールバックと `py.check_signals()` を呼ぶ。コールバックが真を返せばトークンを立てる。Ctrl-C ならトークンを立て、戻ったあと `KeyboardInterrupt` を上げ直す。同じ形。
@@ -152,9 +152,18 @@
 - 試験: `globe-mode-lsp` の `cancel_request_stops_a_long_run_with_partial_columns`（`std::io::pipe` で `serve` を回し、`der(x) = sin(100 * time)` を 1e5 s（esdirk34。1000 s では止める前に終わることがあった）の `globe/simulateColumns` のt > 1（出力の間隔）の最初の `report` を待って `$/cancelRequest`。`begin`…`end` の後に `cancelled`・`GM-I11004`・最後の時刻が 1 以上 1e5 未満の列）。Desktop の `worker.rs` の `canceller_stops_a_long_simulate`（本物の `globe`、`desktop.yml` の `GLOBE_BIN`）。
 - Desktop の既定のソルバ（`auto`、ネイティブの型付きの道）では積分の中で t が出ず、止めるのは段の境目か 2 s 後の作り直しになる（1 段目の持ち越しと同じ）。
 
+### 6 段目の結果（S157、wasm の途中の列と UI の表示、2026-11-05）
+
+- 調べた結果、**ネイティブの層にはもう途中の列を返す口があった**（`SimulateHandle.cancel` → `Termination::Cancelled` と、止めた時刻までの列、`GM-I11004`。LSP の `$/cancelRequest` と Desktop の `cancel_run` はこれを通すので、session の道のソルバでは Desktop も途中の列を普通の応答で受ける）。足りなかったのは、wasm の Worker に止める合図を届けることと、UI が途中の列を「止めた」として見せることだけ。exec・facade は変えていない。
+- wasm: `simulate_columns(request, on_progress)` の関数が**厳密に `true`** を返すと、`CancelToken` を立てる（Python の「真を返す」と違い、`seen.push(...)` のような真の値では止まらない）。1 本のスレッドの Worker はメッセージを受けないので、外から立てる合図は **SharedArrayBuffer(4) の Int32 のフラグ**: `GlobeWorker` が持ち、実行を送る前に 0 に戻して Worker に渡し、`cancel()` が 1 を立てる。`worker.js` は進捗のたびに `Atomics.load` で読んで `true` を返す。止まると、そこまでの列と `GM-I11004` が普通の結果として返る（作り直さない）。
+- **SharedArrayBuffer は cross-origin isolated の配信でだけある**（ブラウザは COOP `same-origin` と COEP `require-corp` を付けたときだけ。Node の worker_threads は常にある）。付いていない配信（`typeof SharedArrayBuffer !== "function"`）、実行中でない呼び出し、flag を立てても 2 s（`GRACE_MS`。lowering・組み立てなど、進捗が来ない間）応えない実行は、今までどおり `terminate()` して作り直し、`cancelled: true` で reject する（途中の列は出ない）。Desktop の `CANCEL_GRACE` と同じ形。ヘッダは `vite.config.ts`（dev・preview）、`web-bundle.sh` の `_headers`・`nginx.csp.conf`、`test_ui.py` の `serve()` に付けた。**Android（Tauri の WebView）にヘッダを付けるかは【未確認】で、付いていなければ作り直しのまま**。ADR の初めに却下した理由（ヘッダを付けられるかが未確認）は、ここでは「付けられる配信でだけ効く、無ければ前のまま」にして避けた。
+- UI: `App.svelte` は応答に `GM-I11004` があれば `runState` を `cancelled` にし、「止めた（呼び手が t = … で止めた、そこまでの n 点を表示）」を出し、列をプロットに残す。作り直して reject した経路の「止めた（途中の結果は出ない）」は残す。Desktop は同じ応答の形なので、`App.svelte` の同じ分岐で見える。
+- 試験: `node/smoke.mjs`（`wasm:node`。`true` を返す関数で `Long` が `cancelled`・`GM-I11004`・列の最後の時刻 = `termination.time`。`push` の戻り値では止まらない）、`web/worker-node.mjs`（フラグで止めると restarts 0 で途中の列、`shared: false` では reject と restarts 1）、`test_ui.py`（cross-origin isolated で配り、「止める」のあとプロットに 2 点以上 10 万点未満の列が残る）。
+
 ### 持ち越し
 
 - ネイティブの型付きの道（bdf・dopri45・auto）の積分の中では t も中断も出せない。session の道をネイティブの既定にする案は、JIT を使わない分の遅さを測ってから（ADR-0014 で数値は同じ。速さは【未確認】）。
 - lowering と組み立ての中で止めること（上流の Rumoca に口が要る。ADR-0017 の外から止める道のまま）。
 - CLI の Ctrl-C で途中の結果を書き出すこと。
-- wasm で途中の列を返すこと（SharedArrayBuffer か、Worker の中で計算を区切って返す形。要るときに）。
+- ~~wasm で途中の列を返すこと~~（S157 で済: SharedArrayBuffer のフラグ。cross-origin isolated でない配信と Android の WebView は作り直しのまま【Android は未確認】）。
+- Desktop の既定（`auto`）の積分の中の中断（ネイティブの型付きの道。上の 1 つめと同じ）。他言語のバインディングへの途中の列の広げ方は変えていない。

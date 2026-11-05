@@ -184,7 +184,7 @@ impl Workspace {
     }
 
     /// [`Workspace::run_columns`] と同じだが、進捗を `handle` に知らせる（ADR-0033、S133）。wasm の Worker は
-    /// 1 本のスレッドなので `handle.cancel` は立てられない（止めるのは Worker の `terminate()`）。
+    /// 1 本のスレッドなので `handle.cancel` は外から立てられない（`simulate_columns` は進捗の関数の戻り値で立てる。S157）。
     pub fn run_columns_observed(
         &mut self,
         mut request: Request,
@@ -370,7 +370,9 @@ impl Workspace {
     ///
     /// `on_progress` を渡すと、進捗のたびに `on_progress(stage, time, start_time, stop_time)` を同期で呼ぶ
     /// （ADR-0033、S133。`stage` は `"lowering"`・`"integration"` などの小文字、`time` は積分の t で、無ければ
-    /// `undefined`）。関数が投げた例外は無視する。
+    /// `undefined`）。関数が投げた例外は無視する。**関数が `true`（厳密に）を返すと、次の 1 歩の前に止めて、
+    /// そこまでの列と `GM-I11004` を返す**（S157。1 本のスレッドの Worker は外から立てられないので、
+    /// 呼び手が SharedArrayBuffer のフラグを読んで返す）。`push` の戻り値のような真の値では止まらない。
     pub fn simulate_columns(
         &mut self,
         request_json: &str,
@@ -380,13 +382,17 @@ impl Workspace {
         let Some(f) = on_progress else {
             return Ok(self.run_columns(request));
         };
+        let token = globe_mode::CancelToken::default();
         let mut notify = |p: &globe_mode::Progress| {
             let stage = format!("{:?}", p.stage).to_lowercase();
-            let _ = f.call4(&JsValue::NULL, &stage, p.time, p.start_time, p.stop_time);
+            let stop = f.call4(&JsValue::NULL, &stage, p.time, p.start_time, p.stop_time);
+            if stop.is_ok_and(|v| v.as_bool() == Some(true)) {
+                token.cancel();
+            }
         };
         let handle = globe_mode::SimulateHandle {
             on_progress: Some(&mut notify),
-            cancel: None,
+            cancel: Some(token.clone()),
         };
         Ok(self.run_columns_observed(request, handle))
     }
