@@ -16,6 +16,7 @@
 //! 取得して展開し、sidecar を新しい `--library` で作り直す（版を替えるときも同じ）。取得中はイベント `msl-progress`
 //! （`{received, total}`。total は Content-Length、無ければ null）を出し、command `cancel_msl` で取り消せる。
 //! ファイル（S141）: dialog / fs プラグインを入れる（UI の「開く」「保存」。権限は capabilities/desktop.json）。
+//! 最近使ったファイル（S154）: dialog を通さないパスは fs の許可の外なので、command `read_recent { path }` が読む（`.mo` の通常のファイルだけ）。
 //! 自動更新（S135）: `plugins.updater.pubkey` が空でなければ updater プラグインを入れる（空なら UI の「更新を確認」は「未設定」）。
 //! `GLOBE_DESKTOP_SMOKE_FETCH=1` を足すと、smoke は検査の前にこの取得を 1 回行う（CI で取得の道を確かめる）。
 //!
@@ -79,6 +80,25 @@ async fn reload_config(state: State<'_, Shared>) -> Result<(), String> {
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// 最近使ったファイルを開く（S154、ADR-0023）。dialog を通していないパスは fs プラグインの許可の外なので、Rust が読む。
+/// パスは UI から来るので、拡張子が `.mo` の存在する通常のファイル（ディレクトリ・デバイス・無いパスは Err）だけを読み、
+/// 任意のファイルを UI の JS に渡さない。相対パスは作業ディレクトリから。
+fn read_mo(path: &str) -> Result<String, String> {
+    let p = std::path::Path::new(path);
+    if p.extension().is_none_or(|e| e != "mo") {
+        return Err(format!("{path}: 拡張子が .mo でない"));
+    }
+    if !std::fs::metadata(p).is_ok_and(|m| m.is_file()) {
+        return Err(format!("{path}: 通常のファイルでない（または無い）"));
+    }
+    std::fs::read_to_string(p).map_err(|e| format!("{path}: {e}"))
+}
+
+#[tauri::command]
+fn read_recent(path: String) -> Result<String, String> {
+    read_mo(&path)
 }
 
 /// S125: `GLOBE_DESKTOP_BENCH` のとき、line なしは true（測る）、line ありはその行をファイルに書いてアプリを終える。
@@ -311,7 +331,8 @@ fn main() {
             fetch_msl,
             cancel_msl,
             bench,
-            updater_configured
+            updater_configured,
+            read_recent
         ])
         .setup(|app| {
             let handle = app.handle().clone();
@@ -370,4 +391,25 @@ fn main() {
         })
         .run(tauri::generate_context!())
         .expect("tauri の起動に失敗");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::read_mo;
+
+    #[test]
+    fn read_mo_reads_only_existing_mo_files() {
+        let d = std::env::temp_dir().join(format!("globe-read-mo-{}", std::process::id()));
+        std::fs::create_dir_all(d.join("dir.mo")).unwrap();
+        std::fs::write(d.join("A.mo"), "model A end A;").unwrap();
+        std::fs::write(d.join("secret.txt"), "x").unwrap();
+        assert_eq!(
+            read_mo(d.join("A.mo").to_str().unwrap()).unwrap(),
+            "model A end A;"
+        );
+        assert!(read_mo(d.join("secret.txt").to_str().unwrap()).is_err()); // 拡張子
+        assert!(read_mo(d.join("dir.mo").to_str().unwrap()).is_err()); // ディレクトリ
+        assert!(read_mo(d.join("none.mo").to_str().unwrap()).is_err()); // 無い
+        std::fs::remove_dir_all(d).ok();
+    }
 }

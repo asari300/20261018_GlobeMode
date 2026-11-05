@@ -12,7 +12,7 @@ Decay の `der(x)` の x で F12 を押すと宣言の行（`Real x`）へ動く
 名前の上にマウスを置くと宣言の 1 行が出る（Decay の x は `Real x`、ChuaCircuit の Resistor は見出しと説明文字列。S149）。
 タブ（S151）: 開くたびにタブが増え、切り替えで本文・モデル名・診断が戻り、再読み込みでタブが戻り、閉じるボタンで減り（未保存なら confirm 1 つ。最後の 1 つは閉じられない）、「最近使ったファイル」から開き直せる。
 ダークモード（S152）: `color_scheme="dark"` で開くと背景が暗く文字が明るい（body・エディタ・診断・プロット・graph。プロットの軸の文字は canvas に描くので明るい画素を数える）。テーマの select で「明」にすると戻り、再読み込みで選択が残り、「OS に合わせる」で暗に戻る。
-FMU を書き出す（S144）: ブラウザの wasm が作ったソースの FMU がダウンロードされ、modelDescription.xml と sources/ がある。
+FMU を書き出す（S144）: ブラウザの wasm が作ったソースの FMU がダウンロードされ、modelDescription.xml と sources/ がある。S154 から FMI の版（2.0 / 3.0）を select で選ぶ。
 実行の設定（S142）: 終了時刻 2 とソルバ dopri45 で Decay を実行して x(2) が e⁻²、DecayK は experiment の Tolerance が初期値（出どころ experiment）に出て、k = 2 の上書きで x(1) が e⁻²。名前=値でない行は実行しない。
 ライブラリの木で Modelica → Electrical → Analog → Examples → ChuaCircuit と開き、そのファイルがエディタに開いて検査が通ることも確かめる（S127）。
 別のページで MSL.json を構文の誤りのファイルを含むライブラリに差し替え、読み飛ばしの警告 GM-W1001 の行と notes のファイル名が出ることを確かめる（S071）。
@@ -453,6 +453,14 @@ def main() -> int:
             assert b'modelName="Mine"' in z.read("modelDescription.xml")
         expect(own.locator("p[data-saved]")).to_contain_text("Mine.fmu")
         print("FMU: Mine.fmu がダウンロードされ、modelDescription.xml と sources/ がある")
+        # FMI の版を選ぶ（S154）: 既定は 2.0、3.0 を選ぶと fmiVersion="3.0" の modelDescription.xml
+        assert b'fmiVersion="2.0"' in zipfile.ZipFile(fmu.value.path()).read("modelDescription.xml")
+        own.get_by_label("FMI の版").select_option("3")
+        with own.expect_download() as fmu3:
+            own.get_by_role("button", name="FMU を書き出す").click(force=True)
+        with zipfile.ZipFile(fmu3.value.path()) as z:
+            assert b'fmiVersion="3.0"' in z.read("modelDescription.xml") and any(n.startswith("sources/") for n in z.namelist()), z.namelist()
+        print("FMU: FMI の版に 3.0 を選ぶと modelDescription.xml が fmiVersion=3.0")
         # タブと最近使ったファイル（S151）: 開くとタブが増え、切り替えで本文・モデル名・診断が戻り、再読み込みでタブが戻り、閉じて、最近使ったファイルから開き直せる
         tab = browser.new_page()
         tab.on("console", lambda m: m.type == "error" and errors.append(m.text))

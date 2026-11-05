@@ -139,12 +139,15 @@ export class TauriBackend implements Backend {
   #paths = new Map<string, string>(); // UI の文書の名前 → 開いた・保存したパス（「保存」は同じパスに上書きする）
   async openFile(): Promise<{ name: string; text: string; path: string } | null> {
     const path = await tauriGlobal().dialog.open({ multiple: false, filters: MO });
-    return path ? { ...(await this.openPath(path)), path } : null;
+    if (!path) return null;
+    const name = baseName(path), text = await tauriGlobal().fs.readTextFile(path); // dialog で選んだパスは fs の許可に入っている
+    this.#paths.set(name, path);
+    return { name, text, path };
   }
-  /** S151: 最近使ったファイルを path から開く。dialog を通していない path は fs の許可が無く、失敗しうる（capabilities の scope が要る。持ち越し）。 */
+  /** S151: 最近使ったファイルを path から開く。dialog を通していない path は fs の許可の外なので、Rust の command `read_recent` が読む（S154。`.mo` の通常のファイルだけ）。 */
   async openPath(path: string): Promise<{ name: string; text: string }> {
     const name = baseName(path);
-    const text = await tauriGlobal().fs.readTextFile(path);
+    const text = await invoke<string>("read_recent", { path });
     this.#paths.set(name, path);
     return { name, text };
   }
