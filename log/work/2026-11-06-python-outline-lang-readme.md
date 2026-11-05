@@ -39,8 +39,8 @@ S178 の監査の穴 10 の残り（WP の C2 と D）。Python に CLI と同�
 - `mise run check`: 通った（fmt・clippy・test 678 passed 0 failed・deny・`uv sync --locked`）。load は 0.5 から始めた
 - `check_docs.py`: デッキ OK / リンク切れ 0 件（文書 739 件・相対リンク 3736 件）。`render_slides.py`（S183 のデッキだけ）: 問題 0 件
 - セッション記録の `--check`: （親が写す）
-- ステージした差分の漏洩検査: （下に追記）
-- Windows の wheel（release.yml の dry run）: （下に追記）
+- ステージした差分の漏洩検査: 0 件
+- release.yml の dry run（`gh workflow run release.yml --ref feature/s183-python-outline-lang-readme`、run 42074315197）: 全 10 ジョブ success。「wheel を入れて pytest」は linux x86_64・linux aarch64・macOS arm64・windows x86_64 の 4 つとも 21 passed。Release 0 件・タグ 0 件のまま
 
 ## 残したこと
 
