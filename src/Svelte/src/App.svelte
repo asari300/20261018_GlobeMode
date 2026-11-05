@@ -16,6 +16,7 @@
   import Graph from "./lib/graph/Graph.svelte";
   import LibraryTree from "./lib/LibraryTree.svelte";
   import SimSettings from "./lib/SimSettings.svelte";
+  import { isInternal } from "./lib/plot/signals";
 
   // エディタの文書の名前。ライブラリの木で開くと、そのライブラリのファイルの名前（同じ名前で差し替える。S127）
   let file = $state("Model.mo");
@@ -48,7 +49,11 @@
   let experiment = $state<CheckResponse["experiment"]>();
   let checkedModel = $state<{ model: string } | null>(null); // S150: 検査したモデル（SimSettings が上書きできるパラメータの一覧を取る合図。検査のたびに新しい値）
   let lastSettings = $state<ResolvedSettings | null>(null);
-  let lastFinal = $state<[string, number][]>([]); // 最後の時刻の値（先頭の 8 本）
+  let lastFinal = $state<[string, number][]>([]); // 最後の時刻の値（先頭の 8 本。$ で始まる内部名は除く）
+  // S173: コンパイラが未対応で止まった要約（Rust が決める。空なら無い）、強行で進める見込みのモデル（Rust の can_force）、直近の実行が強行か
+  let unsupported = $state("");
+  let canForce = $state<string | null>(null);
+  let forced = $state(false);
   $effect(() => { void model; experiment = undefined; }); // 別のモデルにしたら、次の検査まで experiment は分からない
   let configNote = $state(""); // S143: Desktop の globe-mode.toml を読み直した結果、または sidecar の showMessage（誤り）
   // S170: 開いている文書のモデルの候補（Rust の outline。2 つ以上のときだけ select を出す）。strayLib は、候補に無いモデル名がライブラリにあるとき（その名前）
@@ -373,6 +378,8 @@
     const checked = await backend.check(model);
     diagnostics = bySeverity(checked.diagnostics);
     experiment = checked.experiment;
+    unsupported = checked.unsupported ?? "";
+    canForce = checked.can_force ? model : null;
     checkedModel = { model };
     view.dispatch(setDiagnostics(view.state, toCmDiagnostics(view.state.doc.toString(), diagnostics, file)));
   }).then(() => reveal(failure ? ".failure" : diagnostics.length ? ".diagnostics" : ""));
@@ -384,14 +391,24 @@
     if (out !== text) view.dispatch({ changes: { from: 0, to: text.length, insert: out } });
   });
 
-  const simulate = () =>
+  // S173: 失敗の 1 行目（実行しなかった理由）の下に、最初の error の診断の文面を 1 行足す（同じ文なら足さない。未対応の要約があるときは原文を詳細に畳むので足さない）
+  const firstError = (head: string, ds: Diagnostic[], summary?: string) => {
+    const e = summary ? undefined : ds.find((d) => d.severity === "error");
+    const line = e?.message.split("\n")[0].slice(0, 200);
+    return e && line && !head.includes(line) ? `${head}\n${e.code} ${line}` : head;
+  };
+
+  const simulate = (force = false) =>
     run(async () => {
-      if (settingsProblem) { failure = `実行の設定: ${settingsProblem}`; return; }
+      // S173: 数でない欄は SimSettings が欄の近くに理由を出している（aria-invalid）。ここでは二重に出さず、その欄へ移る
+      if (settingsProblem) { document.querySelector<HTMLElement>(".settings [aria-invalid=true]")?.focus(); return; }
+      unsupported = "";
+      canForce = null;
       runState = "running";
       runNote = "実行中";
       let out;
       try {
-        out = await backend.simulateColumns({ model, settings: simSettings }, (p) => {
+        out = await backend.simulateColumns({ model, settings: simSettings, force }, (p) => {
           const pct = p.time === undefined ? "" : `、t = ${p.time.toPrecision(4)} / ${p.stop_time}（${Math.floor((100 * (p.time - p.start_time)) / (p.stop_time - p.start_time || 1))}%）`;
           runNote = `実行中: ${p.stage}${pct}`;
         });
@@ -406,14 +423,17 @@
       const { response: r, columns: c } = out;
       diagnostics = bySeverity(r.diagnostics);
       lastSettings = r.settings ?? null;
-      lastFinal = Object.entries(r.final ?? {}).slice(0, 8);
+      lastFinal = Object.entries(r.final ?? {}).filter(([k]) => !isInternal(k)).slice(0, 8);
+      unsupported = r.unsupported ?? "";
+      canForce = r.can_force ? model : null;
+      forced = force;
       columns = c.points > 0 ? c : null;
       // S157: 止めた実行はそこまでの列を出し、止めた旨を残す（wasm は SharedArrayBuffer のフラグ、Desktop は $/cancelRequest。どちらも GM-I11004 の普通の応答）
       const stopped = r.diagnostics.find((d) => d.code === "GM-I11004");
       if (stopped) { runState = "cancelled"; runNote = `止めた（${c.points > 0 ? `${stopped.message}、そこまでの ${c.points} 点を表示` : "結果は出ない"}）`; }
-      if (r.refused) failure = r.refused;
+      if (r.refused) failure = firstError(r.refused, r.diagnostics, r.unsupported);
       else if (!r.ok && !r.diagnostics.length) failure = "実行に失敗した（診断なし）";
-    }).then(() => reveal(failure ? ".failure" : columns ? ".plot" : diagnostics.length ? ".diagnostics" : ""));
+    }).then(() => reveal(settingsProblem ? ".settings .problem" : failure ? ".failure" : columns ? ".plot" : diagnostics.length ? ".diagnostics" : ""));
 
   // ライブラリの木で選んだクラスのファイルをタブに開き、モデル名をそのクラスにする（S127）
   const openLibrary = (e: Pick<TreeEntry, "path">) => run(async () => {
@@ -567,9 +587,10 @@
   });
   // S144: ソースの FMU。ブラウザはダウンロード、Desktop は保存先のフォルダへ sidecar が書く。S154: FMI の版（2.0 / 3.0）を選べる
   let fmiVersion = $state(2);
+  const FMU_BUILD = "globe fmu export --build"; // S173: バイナリ入りは CLI だけ（cc か zig cc が要る。S144 の書き出しは build 無し）
   const exportFmu = () => run(async () => {
     const to = await backend.exportFmu(model, fmiVersion);
-    if (to) saved = `FMU を書き出した: ${to}`;
+    if (to) saved = `FMU を書き出した: ${to}。ソースだけでバイナリは入っていない（Desktop も同じ）。他のツールで読むには CLI の ${FMU_BUILD} で作る`;
   });
   async function save(saveAs = false) {
     failure = "";
@@ -619,8 +640,9 @@
     {/if}
     <button onclick={() => save()}>保存</button>
     {#if desktop}<button onclick={() => save(true)}>名前を付けて保存</button>{/if}
-    <button onclick={exportFmu} disabled={busy}>FMU を書き出す</button>
+    <button onclick={exportFmu} disabled={busy} aria-describedby="fmu-note">FMU を書き出す</button>
     <select aria-label="FMI の版" bind:value={fmiVersion}><option value={2}>FMI 2.0</option><option value={3}>FMI 3.0</option></select>
+    <small id="fmu-note" data-fmu-note>FMU はソースだけ（バイナリ無し）。他のツールで読むには CLI の <code>{FMU_BUILD}</code></small>
     <label>モデル名 <input bind:value={model} aria-label="モデル名"></label>
     {#if models.length > 1}
       <select aria-label="ファイルのモデル" value={models.includes(model) ? model : ""} onchange={(e) => { if (e.currentTarget.value) model = e.currentTarget.value; }}>
@@ -634,7 +656,7 @@
       <option value="dark">暗</option>
     </select>
     <button onclick={check} disabled={busy}>検査</button>
-    <button onclick={simulate} disabled={busy}>実行</button>
+    <button onclick={() => simulate()} disabled={busy}>実行</button>
     <button onclick={graph} disabled={busy}>グラフ</button>
     <button onclick={format} disabled={busy}>整形</button>
     {#if runState === "running" && backend.cancel}<button onclick={() => backend.cancel?.()}>止める</button>{/if}
@@ -651,7 +673,9 @@
   </div>
   <!-- S170: 進捗・失敗の理由・モデル名の食い違いは、押したボタンのすぐ下（画面の上）に出す。下に置くとスクロールしないと見えない -->
   {#if runNote}<p class="run" role="status" data-run={runState}>{runNote}</p>{/if}
-  {#if failure}<p class="failure" role="alert">{failure}</p>{/if}
+  {#if failure}<p class="failure" class:unsup={!!unsupported} role="alert">{failure}</p>{/if}
+  {#if canForce === model}<p class="note" data-can-force><button onclick={() => simulate(true)} disabled={busy}>それでも実行する</button> 検査の Error を無視して実行する（強行）。結果は信頼できないことがある。</p>{/if}
+  {#if forced}<p class="note forced" role="status" data-forced>強行した実行: 検査の Error を無視して実行した結果。信頼できないことがある。</p>{/if}
   {#if strayLib === model && own && !models.includes(model)}<p class="note" role="status" data-stray>モデル「{model}」はライブラリのもので、エディタの {baseName(file)} には無い。<button onclick={() => openLibrary({ path: model })} disabled={busy}>ライブラリのファイルを開く</button></p>{/if}
   <SimSettings {backend} {experiment} checked={checkedModel} last={lastSettings} bind:settings={simSettings} bind:problem={settingsProblem} />
   {#if tauri}<p class="note" data-config>
@@ -693,11 +717,14 @@
     </table>
     <button type="button" onclick={() => (refs = [])}>参照を閉じる</button>
   {/if}
+  {#if unsupported}<p class="unsup-summary" role="status" data-unsupported><strong>未対応</strong> {unsupported}</p>{/if}
   <table class="diagnostics" aria-label="診断">
     <tbody>
       {#each diagnostics as d}
-        <tr class={d.severity} onclick={() => jump(d)}>
-          <td>{d.code}</td><td>{d.stage}</td><td>{d.severity}</td><td>{d.message}{#each d.notes ?? [] as n}<div class="dnote">{n}</div>{/each}</td>
+        {@const unsup = !!unsupported && d.severity === "error"}
+        <tr class={unsup ? "unsup" : d.severity} onclick={() => jump(d)}>
+          <td>{d.code}</td><td>{d.stage}</td><td>{unsup ? "未対応" : d.severity}</td>
+          <td>{#if unsup}<details><summary>Rumoca の原文</summary>{d.message}</details>{:else}{d.message}{/if}{#each d.notes ?? [] as n}<div class="dnote">{n}</div>{/each}</td>
         </tr>
       {/each}
     </tbody>
@@ -723,6 +750,8 @@
   tr { cursor: pointer; }
   tr.error { color: var(--err); }
   tr.warning { color: var(--warn); }
+  tr.unsup, .unsup-summary, .failure.unsup { color: var(--unsup); }
+  .unsup-summary { margin: .5rem 0 0; }
   .failure { color: var(--err); white-space: pre-wrap; }
   /* 小画面（S145）: 左の木を上に積み、診断の長い語を折り返し、横スクロールを出さない */
   @media (max-width: 600px) {

@@ -43,6 +43,7 @@
   // 触っていない欄は experiment の値を見せる（送らない）
   const shown = (k: Key) => text[k] ?? (experiment?.[k] != null ? String(experiment[k]) : "");
   const origin = (k: Key) => (text[k] !== undefined ? "指定" : experiment?.[k] != null ? "experiment" : "既定");
+  const isBad = (t: string | undefined) => !!t?.trim() && !Number.isFinite(Number(t.trim())); // S173: 数に読めない欄に aria-invalid（理由は下の .problem）
   const names = { requested: "指定", experiment: "experiment", default: "既定" };
 
   $effect(() => {
@@ -81,7 +82,7 @@
   {#each numbers as [k, label]}
     <label>{label}
       <input
-        value={shown(k)} aria-label={label} inputmode="decimal" size="8"
+        value={shown(k)} aria-label={label} inputmode="decimal" size="8" aria-invalid={isBad(text[k])} aria-describedby={isBad(text[k]) ? "sim-problem" : undefined}
         oninput={(e) => (text[k] = e.currentTarget.value)}
         onchange={(e) => { if (!e.currentTarget.value.trim()) text[k] = undefined; }}
       >
@@ -98,7 +99,7 @@
             {#each rows as p (p.name)}
               <tr data-param={p.name}>
                 <th scope="row">{p.name}</th>
-                <td><input value={picked[p.name] ?? ""} placeholder={String(p.default)} aria-label={`${p.name} の値`} inputmode="decimal" size="8" oninput={(e) => (picked[p.name] = e.currentTarget.value)}></td>
+                <td><input value={picked[p.name] ?? ""} placeholder={String(p.default)} aria-label={`${p.name} の値`} inputmode="decimal" size="8" aria-invalid={isBad(picked[p.name])} oninput={(e) => (picked[p.name] = e.currentTarget.value)}></td>
                 <td>{p.unit ?? ""}</td>
                 <td><small>{p.description ?? ""}</small></td>
               </tr>
@@ -111,7 +112,7 @@
   <label>パラメータの上書き（1 行に 名前=値）
     <textarea bind:value={parameters} rows="2" cols="16" aria-label="パラメータの上書き"></textarea>
   </label>
-  {#if problem}<p class="problem" role="alert">{problem}</p>{/if}
+  {#if problem}<p class="problem" id="sim-problem" role="alert">{problem}</p>{/if}
   {#if last}
     <p class="last" data-last>
       直近の実行: 開始 {last.start_time}、終了 {last.stop_time}（{names[last.origins.stop_time]}）、許容誤差 {last.tolerance}（{names[last.origins.tolerance]}）、出力の間隔 {last.interval}（{names[last.origins.interval]}）、ソルバ {last.solver}（{names[last.origins.solver]}）

@@ -11,6 +11,7 @@
   --accent: #2563eb;
   --warn: #8a6100;
   --err: #b00020;
+  --unsup: #5b3fa0; /* コンパイラが未対応（GM-U。S173）。誤り（--err）と分ける */
   --syn-kw: #7b1fa2;
   --syn-type: #00695c;
   --syn-str: #a31515;
@@ -30,6 +31,7 @@
     --accent: #58a6ff;
     --warn: #e3a34a;
     --err: #ff7b8a;
+    --unsup: #b9a2ff;
     --syn-kw: #d2a8ff;
     --syn-type: #7ee787;
     --syn-str: #ffa198;
@@ -49,6 +51,7 @@
   --accent: #58a6ff;
   --warn: #e3a34a;
   --err: #ff7b8a;
+  --unsup: #b9a2ff;
   --syn-kw: #d2a8ff;
   --syn-type: #7ee787;
   --syn-str: #ffa198;
