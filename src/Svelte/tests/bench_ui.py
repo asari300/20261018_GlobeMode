@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """UI の負荷を測り、doc/bench/ui.md の表を作る（S125、ADR-0034）。
 
-  uv run python src/Svelte/tests/bench_ui.py browser [--runs 3]          # 先に pnpm build（dist/ と msl/MSL.json）
+  uv run python src/Svelte/tests/bench_ui.py browser [--runs 3] [--ui leptos|dioxus]   # 先に pnpm build（dist/ と msl/MSL.json）。leptos・dioxus は mise run leptos:build・dioxus:build
   uv run python src/Svelte/tests/bench_ui.py add svelte-tauri/windows bench.txt --source "desktop run 123"
   uv run python src/Svelte/tests/bench_ui.py report                       # target/ui-bench.json から doc/bench/ui.md
 
@@ -72,10 +72,15 @@ def peak_rss_kib() -> float | None:
     return peak
 
 
-def browser(runs: int) -> dict:
+def browser(runs: int, ui: str) -> dict:
     from playwright.sync_api import sync_playwright
 
-    from test_ui import DIST, serve
+    import test_ui
+    from test_ui import serve
+
+    if ui != "svelte":  # S153・S155: 試験版（leptos・dioxus）の dist/ を配る（serve は test_ui.DIST を見る）
+        test_ui.DIST = ROOT / f"src/Rust/apps/experimental/{ui}/dist"
+    DIST = test_ui.DIST
 
     assert (DIST / "msl/MSL.json").exists(), "dist/msl/MSL.json が無い（data/msl を取得して pnpm build）"
     server = serve()
@@ -141,6 +146,7 @@ def main() -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     b = sub.add_parser("browser")
     b.add_argument("--runs", type=int, default=3)
+    b.add_argument("--ui", choices=["svelte", "leptos", "dioxus"], default="svelte")  # leptos・dioxus は mise run <名前>:build の dist/
     b.add_argument("--source", default="手元")
     a = sub.add_parser("add")
     a.add_argument("key")
@@ -156,7 +162,8 @@ def main() -> int:
         return 0
     if args.cmd == "browser":
         os_ = {"linux": "linux", "win32": "windows", "darwin": "macos"}[sys.platform]
-        key, entry = f"svelte-browser/{os_}", browser(args.runs)
+        key = f"{'svelte-browser' if args.ui == 'svelte' else args.ui}/{os_}"
+        entry = browser(args.runs, args.ui)
     else:
         key, entry = args.key, parse_bench(args.file.read_text(encoding="utf-8"))
     assert key in {f"{ui}/{o}" for ui, _ in UIS for o in OSES}, key

@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S155 ui-dioxus — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S155 ui-dioxus">
+
+<section class="slide" id="S01">
+  <span class="tag">S155 · 2026-11-05 · P7</span>
+  <h1>Dioxus 版 UI を作って 3 つ並べた</h1>
+  <p class="lead">Leptos 版と同じ機能・同じ測り方。ブラウザ（Linux）の 3 UI が ui.md にそろった</p>
+  <div class="big">起動 <b>141 ms</b>（Leptos 128、Svelte 289）、バンドル <b>12.7 MiB</b>（同 12.5、18.7）</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>P7 の完了条件「3 UI × 3 OS の比較」の 3 つ目の UI を作る</li>
+    <li>S153 の Leptos 版を型にする: textarea、検査、実行、MSL、ダークモード</li>
+    <li>S125 の測定ハーネスに <code>--ui dioxus</code> を足す</li>
+    <li>持ち越し: CI、Tauri、プロット・graph、Windows・macOS</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと（ADR-0036）</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>依存</td><td>Dioxus 0.7.10（MIT OR Apache-2.0）、minimal + web</td><td>最新の安定版。0.8.0-alpha は採らない</td></tr>
+    <tr><td>ビルド</td><td>dx を使わず cargo build と wasm-bindgen</td><td>Leptos 版と同じ。道具が増えない</td></tr>
+    <tr><td>置き場</td><td>experimental/dioxus、別の workspace</td><td>差分 CI に巻き込まない</td></tr>
+    <tr><td>計算</td><td>facade を同じ wasm に直接リンク</td><td>共通の決定は ADR-0035</td></tr>
+    <tr><td>状態</td><td>Signal を Ui 構造体にまとめる</td><td>Leptos 版の RwSignal と同じ形</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">測定</span>
+  <h1>ブラウザ（Linux）の 3 UI</h1>
+  <table class="compact">
+    <tr><th>測るもの</th><th>Dioxus</th><th>Leptos</th><th>Svelte</th></tr>
+    <tr><td>起動から操作可能まで（ms）</td><td>141</td><td>128</td><td>289</td></tr>
+    <tr><td>Decay の検査・実行（ms）</td><td>172</td><td>142</td><td>176</td></tr>
+    <tr><td>MSL を読み ChuaCircuit を検査（ms）</td><td>1,457</td><td>1,500</td><td>1,868</td></tr>
+    <tr><td>最大の RSS（MiB）</td><td>324.2</td><td>323.3</td><td>582.2</td></tr>
+    <tr><td>バンドル（MiB）</td><td>12.7</td><td>12.5</td><td>18.7</td></tr>
+  </table>
+  <p>手元の WSL2、load 約 0.7、3 回の中央値。Svelte 版は CodeMirror・プロット・graph・Worker を持ち、同じ仕事ではない。</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>mise run dioxus:build
+uv run python src/Rust/apps/experimental/dioxus/tests/test_dioxus.py
+uv run python src/Svelte/tests/bench_ui.py browser --ui dioxus
+uv run python src/Svelte/tests/bench_ui.py report</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">ok</span><span class="l">GM-SMOKE 3 項目</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">console の error</span></div>
+    <div class="kpi"><span class="n">7分</span><span class="l">release の初回ビルド</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>Leptos 版・Dioxus 版を ci.yml に入れるか（ビルド 7〜9 分と RAM を見て決める）</li>
+    <li>持ち越した機能（プロット、graph、ツリー、タブ）を足して比較をやり直す</li>
+    <li>Windows・macOS の列、Tauri への組み込み、テーマの保存</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
