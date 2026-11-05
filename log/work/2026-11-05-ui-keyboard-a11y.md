@@ -7,7 +7,7 @@
 | worktree | `.git-worktree/s175-ui-keyboard-a11y` |
 | Phase | P4 |
 | セッション文書 | `doc/sessions/S175-ui-keyboard-a11y/` |
-| セッション記録 | （親が写す） |
+| セッション記録 | [2026-11-02-a2580a13-3889-4662-9db4-a45dc1ca6772.md](../sessions/2026-11-02-a2580a13-3889-4662-9db4-a45dc1ca6772.md) |
 
 ## 依頼
 
