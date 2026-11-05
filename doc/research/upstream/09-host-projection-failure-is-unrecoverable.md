@@ -22,12 +22,17 @@ A diverging projection at a trial point lets the integrator reject the trial and
 
 Rumoca's own `dopri45` fails for the first output interval (`--stop-time 2e-5`) and runs out of a 60 s budget at the default stop time. In GlobeMode's plugin the state diverges 0 -> 2.6e4 -> 2.9e5 -> 1.0e6 -> -1.5e8 in the first step (h = 2e-5) and the projection diverges at the halved trial.
 
+## Re-check on Rumoca v0.10.4 (S162, 2026-11-05)
+
+Still reproduces, and the CLI flags that the draft marked [not verified] are now checked: `rumoca sim "Modelica 4.1.0/package.mo" -m Modelica.Electrical.Analog.Examples.SimpleTriacCircuit --source-root <MSL root> --solver rk-like --t-end 2e-5` fails on v0.10.2 and v0.10.4 with the same text: `[EX001] algebraic projection did not establish coordinate convergence: worst scaled residual row=36 target=simpleTriac.thyristor1.Anode.i value=7.154881e-1 ratio=7.154881e9 ...`. The CLI has no `dopri45`; `rk-like` is its explicit Runge-Kutta solver. In the source, `fail` in `crates/rumoca-solver/src/fmi_me/integrator/derivative.rs` still latches every failure unless `discards_failed_trials` is true (the file changed only by moving the flag into the struct; same behaviour). The ESDIRK34 case (`ThyristorBehaviourTest`) was not re-run: it needs GlobeMode's plugin.
+
 ## Environment
 
 - Rumoca v0.10.2, git rev `276e82bd0fd48960ac201e782918d28bf19cf7ce` (https://github.com/CogniPilot/rumoca), as pinned by GlobeMode.
 - Modelica Standard Library 4.1.0.
 - Linux x86_64 (WSL2, Ubuntu).
 - Not yet re-checked against Rumoca main (0.10.3 at the time of writing). Re-check before filing.
+- Re-checked on 2026-11-05 (S162) with the latest release, Rumoca v0.10.4 (tag commit `9c8c56fcd9f5ab9beb871f09bf5d9eed82971c54`, released 2026-11-02, prebuilt `rumoca-linux-x86_64`, https://github.com/CogniPilot/rumoca/releases/tag/v0.10.4; still the latest release on 2026-11-05), next to the v0.10.2 binary. Rumoca main (`590ac739`, 2026-11-05) was not built. [not verified on main]
 
 ## Workaround in GlobeMode
 

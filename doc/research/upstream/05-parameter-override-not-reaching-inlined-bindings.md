@@ -23,12 +23,24 @@ The reproduction goes through the library API; we are not sure whether the `rumo
 
 `y(1) = 0` (the override has no effect on `r.startTime`). MSL form: `V.v(0.05) = 0.309`, which is the `f = 1` value (GlobeMode S024, 2026-10-28).
 
+## Re-check on Rumoca v0.10.4 (S162, 2026-11-05)
+
+Still reproduces, and now confirmed through a public surface: the Python binding of the same release (`pip` wheel `rumoca` 0.10.4, built from `crates/rumoca-bind-python`, which sets `opts.param_overrides` for `Model.simulate(params=...)`). The `rumoca` CLI has no runtime-override option (`rumoca sim --help` lists none).
+
+```python
+m = rumoca.Session().load("05-parameter-override-not-reaching-inlined-bindings.mo", model="InlinedParameters")
+m.simulate(1.0, params={"src.startTime": 0.5})   # src.y at t = 1
+```
+
+`src.y(1)` is `0.0` for `{}` and for `{"src.startTime": 0.5}` and for `{"src.startTime": 0.25}`, with the v0.10.2 wheel and the v0.10.4 wheel alike; no error or warning. Expected for 0.5 is `0.5`. In the source, `resolve_single_part_ref_expr` in `crates/rumoca-phase-instantiate/src/mod_env.rs` (now line 787) is identical to v0.10.2 and to main.
+
 ## Environment
 
 - Rumoca v0.10.2, git rev `276e82bd0fd48960ac201e782918d28bf19cf7ce` (https://github.com/CogniPilot/rumoca), as pinned by GlobeMode.
 - Modelica Standard Library 4.1.0.
 - Linux x86_64 (WSL2, Ubuntu).
 - Not yet re-checked against Rumoca main (0.10.3 at the time of writing). Re-check before filing.
+- Re-checked on 2026-11-05 (S162) with the latest release, Rumoca v0.10.4 (tag commit `9c8c56fcd9f5ab9beb871f09bf5d9eed82971c54`, released 2026-11-02, prebuilt `rumoca-linux-x86_64`, https://github.com/CogniPilot/rumoca/releases/tag/v0.10.4; still the latest release on 2026-11-05), next to the v0.10.2 binary. Rumoca main (`590ac739`, 2026-11-05) was not built. [not verified on main]
 
 ## Workaround in GlobeMode
 

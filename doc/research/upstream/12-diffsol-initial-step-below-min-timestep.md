@@ -20,12 +20,20 @@ The estimate is clamped at `min_timestep` (or the first step is tried and fails 
 
 `Step size is too small at time = 1.05` without any attempted step. In the same model the restart at t = 1 has an exactly zero state; the estimate takes the `h0 = 1e-6` branch and works, which hid the problem.
 
+## Re-check on Rumoca v0.10.4 (S162, 2026-11-05)
+
+Code reading only:
+
+- Vendored diffsol 0.13.2 in Rumoca v0.10.4: `ode_solver/state.rs` (`set_step_size`, lines 1039-1100) is byte-identical to v0.10.2's and to Rumoca main's: no comparison with `min_timestep`.
+- diffsol main (`883d9a09`, `crates/diffsol/src/ode_solver/state.rs`, `set_step_size`): the same Hairer estimate (`h = min(100 h0, h1)`, `h0 = 1e-6` when `d0` or `d1` is below 1e-5) with no clamp at `min_timestep`; the `min_timestep` default became the scalar's epsilon (PR #402, 2026-10-23), which changes the threshold but not the missing clamp. Whether the `TinyStateRestart` reduction still stops there on main was not run. [not verified]
+
 ## Environment
 
 - diffsol 0.13.2 as vendored in Rumoca v0.10.2 (`vendor/diffsol/`, rev `276e82bd0fd48960ac201e782918d28bf19cf7ce`), driven through a custom SDIRK/RK plugin in GlobeMode (`globe-mode-exec`, `esdirk34` / `trbdf2`).
 - Modelica Standard Library 4.1.0.
 - Linux x86_64 (WSL2, Ubuntu).
 - **Not verified against upstream diffsol main** (https://github.com/martinjrobins/diffsol). The vendored copy may differ from upstream. Reduce to a standalone diffsol program before filing.
+- diffsol 0.13.2 as vendored in Rumoca v0.10.4 (`vendor/diffsol/`, unchanged version; the tag commit above). Re-checked on 2026-11-05 (S162) by reading the vendored source and diffsol's own main (`crates/diffsol`, commit `883d9a09238c2e0b465f0f1549c462b8c38ea1b2`, 2026-11-02; diffsol-v0.18.0, 2026-10-20, is the latest diffsol release). Nothing was run against diffsol main. [not verified by running]
 
 ## Workaround in GlobeMode
 
