@@ -6,7 +6,7 @@
   import { bracketMatching } from "@codemirror/language";
   import { setDiagnostics } from "@codemirror/lint";
   import { closeCompletion } from "@codemirror/autocomplete";
-  import { darkSlot, modelFollow, modelRenamed, modelicaCompletion, modelicaHighlight, modelicaDefinition, modelicaLinter, modelicaRefactor, modelicaTheme, themeSlot, toCmDiagnostics } from "./lib/editor";
+  import { EDITOR_HELP, darkSlot, modelFollow, modelRenamed, modelicaCompletion, modelicaHighlight, modelicaDefinition, modelicaLinter, modelicaRefactor, modelicaTab, modelicaTheme, themeSlot, toCmDiagnostics } from "./lib/editor";
   import { setPref, theme, type Pref } from "./theme.svelte";
   import { WorkerBackend } from "./lib/worker-backend";
   import { TauriBackend, inTauri } from "./lib/tauri-backend";
@@ -132,6 +132,7 @@
         modelicaHighlight, modelicaCompletion(), modelicaLinter(backend, file), // S053（S163: 色付け）
         modelicaDefinition(definition, goBack, { backend, file: () => file }), // S138（S149: ホバー）
         modelicaRefactor(references, askRename), // S161: Shift+F12 と F2
+        modelicaTab, // S188: Tab は字下げ。出る手は Esc のあと Tab
         modelFollow((from, to) => { if (model === from) model = to; }), // S186: クラス名のリネーム（と元に戻す）でモデル名も追う
         EditorView.updateListener.of((u) => { if (u.docChanged) { persist(); rev++; } }),
         modelicaTheme, darkSlot(theme.dark), // S152
@@ -789,6 +790,7 @@
     {#if msl === "loaded"}<aside class="library"><LibraryTree {backend} onOpen={openLibrary} /></aside>{/if}
     <div class="editor" id="editor" bind:this={host}></div>
   </div>
+  <p class="hint" id="editor-help">{EDITOR_HELP}</p>
   {#if saved}<p class="note" role="status" data-saved>{saved}</p>{/if}
   {#if lastFinal.length}<p class="final" data-final={JSON.stringify(Object.fromEntries(lastFinal))}>最後の時刻の値: {lastFinal.map(([k, v]) => `${k} = ${v.toPrecision(6)}`).join("、")}</p>{/if}
   {#if renaming}
@@ -827,7 +829,7 @@
 <style>
   main { font: 14px/1.4 system-ui, sans-serif; max-width: 60rem; margin: 0 auto; padding: 1rem; }
   .bar { display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: .5rem; }
-  .note, .run, .final { color: var(--muted); margin: .25rem 0; }
+  .note, .run, .final, .hint { color: var(--muted); margin: .25rem 0; }
   .tabs { display: flex; flex-wrap: wrap; gap: .25rem; margin-bottom: .25rem; }
   .skip a { position: absolute; left: -999px; top: .5rem; z-index: 10; padding: .25rem .5rem; background: var(--bg); color: var(--fg); border: 1px solid var(--accent); }
   .skip a:focus { left: .5rem; }

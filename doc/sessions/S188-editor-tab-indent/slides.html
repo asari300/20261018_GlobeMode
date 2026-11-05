@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S188 エディタの Tab は字下げ — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S188 エディタの Tab は字下げ">
+
+<section class="slide" id="S01">
+  <span class="tag">S188 · 2026-11-06 · P4</span>
+  <h1>エディタの Tab は字下げ</h1>
+  <p class="lead">S175・S185 の持ち越し「Tab での字下げ」</p>
+  <div class="big">Tab で字下げ。フォーカスを出す手は別に用意する</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">挙動</span>
+  <h1>前と後</h1>
+  <table class="compact">
+    <tr><th>操作</th><th>前</th><th>後</th></tr>
+    <tr><td>Tab</td><td class="ng">フォーカスがエディタの外へ移る</td><td class="ok">行頭に空白 2 つ（選んだ行はすべて）</td></tr>
+    <tr><td>Shift+Tab</td><td class="ng">前の要素へ移る</td><td class="ok">字下げを 1 段戻す</td></tr>
+    <tr><td>Esc のあと Tab</td><td class="ng">（Esc は選択を畳むだけ）</td><td class="ok">次の要素へ移る。Shift+Tab は前へ</td></tr>
+    <tr><td>Ctrl+M（Mac は Shift+Alt+M）</td><td class="ng">効いても Tab は外へ出ていた</td><td class="ok">Tab で移る・字下げの切り替え</td></tr>
+  </table>
+  <div class="card">タブ文字は入れない。幅は整形器の既定と同じ 2</div>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">仕組み</span>
+  <h1>CodeMirror の組み込みを使う</h1>
+  <ul>
+    <li><code>indentWithTab</code>（Tab は <code>indentMore</code>、Shift+Tab は <code>indentLess</code>）と <code>indentUnit</code> を足しただけ</li>
+    <li>出る手は <code>@codemirror/view</code> 6.43.15 と <code>@codemirror/commands</code> 6.11.1 の組み込み。<code>defaultKeymap</code> が Ctrl+M を持つ。自前のキー処理は無い</li>
+    <li>Esc は補完の一覧を閉じ、選択を畳む。同時に 2 秒の窓が開くだけで、Esc 自体は奪わない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">使い方の案内</span>
+  <h1>画面とスクリーンリーダーの両方に</h1>
+  <ul>
+    <li>エディタの下に 1 行（<code>#editor-help</code>）。エディタ本体の <code>aria-describedby</code> が同じ要素を指す</li>
+    <li>README のショートカットの表に 2 行</li>
+    <li>WCAG 2.1.2（キーボードトラップなし）を満たす: 出る手を文書化してある</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">試験</span>
+  <h1>test_ui.py</h1>
+  <ul>
+    <li>Tab で空白 2 つ、選んだ 2 行の字下げと Shift+Tab、補完の一覧が開いていても字下げで Enter は確定</li>
+    <li>Esc のあと Tab（次）・Shift+Tab（前）、2 秒の窓の外の Tab は字下げ、Ctrl+M で往復</li>
+    <li>S175 の「キーボードだけ」の <code>tab_to</code> は、エディタからは Esc のあと Tab に直した（弱めていない）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">持ち越し</span>
+  <h1>やらなかったこと</h1>
+  <ul>
+    <li>Enter の後の自動字下げ、<code>globe-mode.toml</code> の <code>fmt.indent</code> に字下げの幅を合わせること</li>
+    <li>Tab で補完を確定する（CodeMirror の既定は Enter だけ）</li>
+    <li>Leptos・Dioxus の試験版（<code>&lt;textarea&gt;</code>）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
