@@ -27,6 +27,7 @@ S182・S183 が CLI の中だけで直した・置き場が無くて足さなか
 - 応答を厳密に読む所: 無かった（`CheckResponse`・`SimulateResponse` は `Serialize` だけ。protocol.ts・C ABI・NIF・Zig・Julia・Elixir・Gleam・xtask は既知のキーを引くだけ）。
 - `mise run c:zig`・`c:julia`・`elixir:test`・`gleam:test`（1 本ずつ）: 通った。`mise run check`（load 5 前後で開始）: 通った（fmt・clippy・test・deny・`uv sync --locked`）。
 - `check_docs.py`: 切れ 0 件（文書 749 件・相対リンク 3767 件）。`render_slides.py`（S184 のデッキだけ）: 問題 0 件。
+- 全体検査（`gh workflow run ci.yml --ref feature/s184-facade-summary-dedup -f full=true`、run 42092788479）: 全 11 ジョブ success（rust-windows・rust-sundials・lang・wasm-node・python・docs を含む）。
 - `wasm:compare` は実行系を変えていないので回していない。
 
 ## 残したこと
