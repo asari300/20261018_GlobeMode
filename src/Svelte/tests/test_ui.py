@@ -335,10 +335,10 @@ def main() -> int:
             all_params = page.locator("[data-param]")
             expect(all_params.first).to_be_visible(timeout=120_000)
             n_all = all_params.count()
-            page.get_by_label("パラメータの絞り込み").fill("R0")
+            page.get_by_label("パラメータの絞り込み").fill("Ro.")
             n_some = all_params.count()
             assert n_all > 12 and 0 < n_some < n_all, (n_all, n_some)
-            print(f"ChuaCircuit の上書きできるパラメータ: {n_all} 本、「R0」で {n_some} 本")
+            print(f"ChuaCircuit の上書きできるパラメータ: {n_all} 本、「Ro.」で {n_some} 本")
             page.get_by_label("パラメータの絞り込み").fill("")
 
             t = time.perf_counter()
