@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S183 Python の読み取りと他言語の README — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S183 Python の読み取りと他言語の README">
+
+<section class="slide" id="S01">
+  <span class="tag">S183 · 2026-11-06 · P7</span>
+  <h1>Python でも outline・deps・flat</h1>
+  <p class="lead">他言語の README に、書いてあるとおりに動く最初の例（S178 の監査の穴 10 の残り）</p>
+  <div class="big">facade の口を呼ぶだけ。計算は Python に書かない</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">現状</span>
+  <h1>S178 が見つけた穴</h1>
+  <table class="compact">
+    <tr><th>場所</th><th>穴</th></tr>
+    <tr><td>Python</td><td class="ng">CLI の <code>outline</code>・<code>flat</code>・<code>deps</code> が無い</td></tr>
+    <tr><td>C・Zig・Julia・Elixir・Gleam の README</td><td class="ng">最初の例が <code>mise run</code> だけ。Julia は実物より少ない</td></tr>
+    <tr><td>marimo</td><td class="ng"><code>__marimo__/</code> が git status に出る。モデル名の入力欄が無い</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>足した口と戻り値</h1>
+  <table class="compact">
+    <tr><th>呼び方</th><th>戻り値</th><th>誤り</th></tr>
+    <tr><td><code>ws.outline("A.mo")</code></td><td>dict（<code>globe outline --json</code> と同じ）</td><td><code>ValueError</code>（ファイルが無い・構文の誤り）</td></tr>
+    <tr><td><code>ws.deps("A")</code></td><td>list[str]（<code>check</code> が読むファイル）</td><td>無いモデルは空</td></tr>
+    <tr><td><code>ws.flat("A")</code></td><td>dict、通らなければ <code>None</code></td><td>理由は <code>check</code> の診断</td></tr>
+  </table>
+  <div class="card">check の 1 行の要約は facade に無いので足さない（持ち越し）</div>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>同じ口を呼ぶ</h1>
+  <svg class="fig" viewBox="0 0 800 260" role="img" aria-label="Python と CLI が同じ facade の口を呼ぶ図">
+    <rect class="svg-box" x="40" y="40" width="240" height="70" rx="10"/>
+    <text class="svg-text-b" x="160" y="82" text-anchor="middle">Python Workspace</text>
+    <rect class="svg-box" x="40" y="150" width="240" height="70" rx="10"/>
+    <text class="svg-text-b" x="160" y="192" text-anchor="middle">globe CLI</text>
+    <line class="svg-line" x1="280" y1="75" x2="520" y2="130"/>
+    <line class="svg-line" x1="280" y1="185" x2="520" y2="150"/>
+    <rect class="svg-box-accent" x="520" y="100" width="240" height="80" rx="10"/>
+    <text class="svg-text-b" x="640" y="146" text-anchor="middle">facade outline / deps / flat</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">S180 の診断</span>
+  <h1>Python の check にも候補が出る</h1>
+  <ul>
+    <li>判定は Rust の検査の入口 1 か所。Python 側で何も作らない</li>
+    <li>試験: <code>Workspace([ライブラリ]).check("Decay")</code> の最初の診断が <code>GM-E1002</code></li>
+    <li>note に「候補: GlobeModeValidation.Simulation.Decay」</li>
+  </ul>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">README</span>
+  <h1>最初の例を 5 言語に置いて実行した</h1>
+  <table class="compact">
+    <tr><th>言語</th><th>実行</th><th>結果</th></tr>
+    <tr><td>C（README を新設）</td><td><code>cc</code> で作って実行</td><td>x(1) = 0.3678794681</td></tr>
+    <tr><td>Zig</td><td><code>zig build run</code></td><td>x(1)=0.367879468116207</td></tr>
+    <tr><td>Julia（実物に合わせた）</td><td><code>GLOBE_MODE_LIB</code> つきで評価</td><td>0.367879468116207</td></tr>
+    <tr><td>Elixir</td><td><code>mix run</code></td><td>0.367879468116207</td></tr>
+    <tr><td>Gleam</td><td><code>gleam run -m first</code></td><td>x(1) = 0.367879468116207</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>uv sync --reinstall-package globe-mode
+uv run pytest src/Python/tests -q
+mise run c:zig &amp;&amp; mise run c:julia
+mise run elixir:test &amp;&amp; mise run gleam:test
+uv run --extra widget marimo check src/Python/marimo/sim_app.py</code></pre>
+</section>
+
+<section class="slide" id="S08">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ul>
+    <li>C ABI・NIF・wasm に outline・deps・flat を広げる</li>
+    <li>check の 1 行の要約を facade か protocol に置く</li>
+    <li>結果の dict の TypedDict 化、例外の階層（ユーザーの判断）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

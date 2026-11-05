@@ -174,6 +174,31 @@ impl Workspace {
         graph_json(&mut self.0, model, depth).map_err(PyValueError::new_err)
     }
 
+    /// ファイル（`set_file` に渡したパス）のアウトライン（`globe outline --json` と同じ `Outline` の JSON）。
+    /// ファイルが無いか、構文の誤りがあれば `ValueError`（誤りは最初の診断の `コード: 文`）。
+    fn outline(&self, path: &str) -> PyResult<String> {
+        match self.0.outline(path) {
+            None => Err(PyValueError::new_err(format!(
+                "ファイル {path} がワークスペースに無い"
+            ))),
+            Some(Ok(o)) => json(o).map_err(PyRuntimeError::new_err),
+            Some(Err(ds)) => Err(PyValueError::new_err(
+                ds.first()
+                    .map_or_else(String::new, |d| format!("{}: {}", d.code, d.message)),
+            )),
+        }
+    }
+
+    /// `check` に渡すファイル（モデルが使うものの閉包。パスの昇順）の JSON の配列。モデルが無ければ `[]`。
+    fn deps(&mut self, model: &str) -> PyResult<String> {
+        json(&self.0.deps(model)).map_err(PyRuntimeError::new_err)
+    }
+
+    /// flat モデルの要約（`FlatSummary` の JSON）。flatten まで通らなければ `null`。
+    fn flat(&mut self, model: &str) -> PyResult<String> {
+        json(&self.0.flat(model)).map_err(PyRuntimeError::new_err)
+    }
+
     /// 検査 → コンパイル → 実行（`SimulateResponse` の JSON）。モデルの誤りは例外にせず `ok` と `diagnostics` で返す。
     /// `on_progress` を渡すと GIL を離して回し、進捗を dict で知らせる。`True` を返すか Ctrl-C で止まる（S129）。
     #[pyo3(signature = (model, settings = None, on_progress = None))]

@@ -9,7 +9,7 @@
     res = ws.simulate_columns("Modelica.Electrical.Analog.Examples.ChuaCircuit", stop_time=2)
     table(res)  # polars.DataFrame（time 列と変数の列）
 
-- 使い方: `Workspace`（開く・`check`・`graph`・`simulate`・`simulate_columns`・`export_fmu`）、`table`、`format`、
+- 使い方: `Workspace`（開く・`check`・`outline`・`deps`・`flat`・`graph`・`simulate`・`simulate_columns`・`export_fmu`）、`table`、`format`、
   `lint`、`solvers`。それぞれ `help()` に引数・戻り値・誤りがある。
 - 誤りの扱い: **モデルの誤りは例外にせず、結果の `diagnostics`（`ok`・`passed`）で返す**（未知のモデルも `check` は
   `passed: False`）。呼び方の誤りは例外: 未知の設定のキーは `TypeError`、設定の値の型の誤りは `ValueError`、
@@ -123,6 +123,28 @@ class Workspace:
 
         モデルが索引に無ければ `ValueError`。"""
         return json.loads(self._ws.graph(model, depth))
+
+    def outline(self, path: str) -> dict[str, Any]:
+        """`set_file` に渡した `path` のファイルのアウトライン（`globe outline --json` と同じ。`within`・`classes`）。
+
+        `classes` の各要素は `name`・`kind`（model・package など）・`range`（バイトの位置）・`extends`・入れ子の `classes` など。
+        ファイルが無いか、構文の誤りがあれば `ValueError`（誤りは最初の診断の `コード: 文`）。
+
+            ws.set_file("A.mo", "model A Real x; end A;")
+            [c["name"] for c in ws.outline("A.mo")["classes"]]   # ["A"]
+        """
+        return json.loads(self._ws.outline(path))
+
+    def deps(self, model: str) -> list[str]:
+        """`check(model)` が読むファイル（モデルが使うものの閉包。`set_file` したパスの昇順。`globe deps --json` と同じ）。
+
+        ワークスペースに無いモデル（ライブラリの中のモデルや存在しない名前）は空のリスト。"""
+        return json.loads(self._ws.deps(model))
+
+    def flat(self, model: str) -> dict[str, Any] | None:
+        """flat モデルの要約（`globe flat --json` と同じ。`variables`・`equations`・`initial_equations`・`partial`・
+        `top_level_connectors`・`equations_by_component`）。flatten まで通らなければ `None`（理由は `check` の `diagnostics`）。"""
+        return json.loads(self._ws.flat(model))
 
     def simulate(
         self,

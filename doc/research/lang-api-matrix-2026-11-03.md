@@ -18,6 +18,7 @@
 | format | `format`（S111） | `gm_format`（S111） | C と同じ（S111） | `format`（S111） | `format`（S111） | `format`（S111） | `format`（S111） | `format` | `textDocument/formatting` / `globe/format` | `globe fmt` |
 | lint | `lint`（S111） | `gm_lint`（S111） | C と同じ（S111） | `lint`（S111） | `lint`（S111） | `lint`（S111） | `lint`（S111） | `lint` | `globe/lint` | `globe lint` |
 | graph | `graph` | `gm_graph` | C と同じ | `graph`（S111） | `graph` | `graph` | `graph` | `graph` | `globe/graph` | `globe graph` |
+| outline・deps・flat（読み取り。S183 で追記） | `outline` / `deps` / `flat` | — | — | — | — | — | `Workspace.outline` / `deps` / `flat`（S183。Python だけ） | — | `textDocument/documentSymbol`（outline だけ） | `globe outline` / `deps` / `flat` |
 | MSL の全部読み | `with_libraries_full` / `with_library_sources` | — | — | — | — | — | — | `Workspace(json, name, true)` | — | — |
 | MSL の分割読み | `with_libraries`（既定）/ `with_library_sources_split` | `gm_workspace_new(libraries_json)` | C と同じ | `Workspace(libraries)` | `new(libraries)` | `new(libraries)` | `Workspace(libraries=…)` | `Workspace(json)`（既定） | `globe lsp -L` | `-L` |
 | 設定の override（`parameters` など） | `SimSettings` | `settings_json` | C と同じ | `settings` | `settings`（map） | `settings_json` | `**settings` | `request_json` の `settings` | `request.settings` | `--param` ほか |
@@ -46,7 +47,7 @@
 
 - 中断はどの言語も `SimSettings.max_wall_seconds`（壁時計の予算。初期化と積分器の 1 歩の内側では止まらない）だけで、呼び手が途中で止める口は無い。wasm と Desktop は UI の側でワーカーを作り直して止める（[ADR-0023](../adr/0023-desktop-and-web-process-layout.md)）。表では「予算」を穴に数えない。
 - 「MSL の全部読み」は facade の `with_libraries` が、ディレクトリでないパスが混じるときだけ全部読みに戻る。全部読みは比べるために残した道（S054）なので、束ねに無くても困らない。
-- outline・deps・flat・`tunable_parameters`・solvers の一覧は表に入れていない（参照シナリオに要らない）。solvers の一覧は C・Julia 以外の束ねにある（C は `gm_solvers`、Julia は包みが無い）。
+- `tunable_parameters`・solvers の一覧は表に入れていない（参照シナリオに要らない）。outline・deps・flat は S183 で行を足した（Python だけ。C ABI・NIF・wasm に広げるのは持ち越し）。solvers の一覧は C・Julia 以外の束ねにある（C は `gm_solvers`、Julia は包みが無い）。
 
 ### 言語ごとの穴の数
 
