@@ -553,6 +553,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 ### S127（P4、2026-11-03）で済んだこと
 
 - **ライブラリツリーの UI**（S048 の持ち越し。[解説書](sessions/S127-ui-library-tree/解説書.md)）: 「MSL を読む」の後に左の木（`src/Svelte/src/lib/LibraryTree.svelte`）を出し、展開のたびに直下の子だけを引く。モデルを押すとそのファイルをライブラリと同じ名前でエディタに開き、モデル名を入れる（同じ名前の `setFile` がライブラリのファイルを差し替えるので、編集が検査・実行に効く）。口は `globe-mode-fmt` の `LibraryTree`（ファイルの見出しだけを読む）と、wasm の `library_tree` / `library_source`、LSP の `globe/libraryTree` / `globe/librarySource`。`test_ui.py` で Modelica → Electrical → Analog → Examples → ChuaCircuit を開いて検査が通る。
+- **ライブラリの木に入れ子のクラスと検索**（S164 の穴 1。[解説書](sessions/S167-library-tree-nested-search/解説書.md)）: `LibraryTree` が各ファイルを字句解析して文を切り出し（`globe-mode-fmt` の整形器と同じ道）、ファイルの中の入れ子のクラス（短いクラスも）を木の項目にした。MSL 4.1.0 の 6,487 件がアウトライン（Rumoca）の一覧と過不足なく一致し、例題 553 本（partial を除く）のうち木に出ない本数は 123 本から 0 本になった。木の上の検索欄（名前の部分一致、`Backend.librarySearch`、wasm `library_search`、LSP `globe/librarySearch`）。整形器の `extends` つきクラスの修飾が入れ子の括弧で読めない誤りも直した（MSL の Media の 1,071 クラスが木に出なかった原因）。
 - 持ち越し: 検索、アイコン、`package.order` の順、1 ファイルのパッケージの中の入れ子のクラス、wasm でライブラリの本文を 2 重に持つ（約 15 MiB）こと。
 
 ### S135（P4、2026-11-03）で済んだこと

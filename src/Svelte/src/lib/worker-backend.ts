@@ -48,6 +48,9 @@ export class WorkerBackend implements Backend {
   libraryTree(prefix: string): Promise<TreeEntry[]> {
     return this.#w.libraryTree(prefix);
   }
+  librarySearch(query: string): Promise<TreeEntry[]> {
+    return this.#w.librarySearch(query);
+  }
   librarySource(path: string): Promise<{ file: string; text: string }> {
     return this.#w.librarySource(path);
   }
