@@ -89,11 +89,13 @@ jobs:
           done
 
       - name: 測る（3 UI × 3 回。Chromium は回ごとに起動し直す）
+        env:
+          PYTHONUTF8: "1"   # macOS の bash は引数の全角文字を surrogate で渡し、JSON の書き込みで落ちた（run 41979389483）。ASCII にもする
         run: |
           { echo '```'; echo "runner: $RUNNER_OS $RUNNER_ARCH, $(uname -m), cpus: $(uv run --no-project python -c 'import os; print(os.cpu_count())')"; } >> "$GITHUB_STEP_SUMMARY"
           for ui in svelte leptos dioxus; do
             uv run --no-project --with "$PLAYWRIGHT" --with psutil python src/Svelte/tests/bench_ui.py browser --ui "$ui" \
-              --source "ui-bench.yml run $GITHUB_RUN_ID（${{ matrix.os }}）" | tee -a "$GITHUB_STEP_SUMMARY"
+              --source "ui-bench.yml run $GITHUB_RUN_ID (${{ matrix.os }})" | tee -a "$GITHUB_STEP_SUMMARY"
           done
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
