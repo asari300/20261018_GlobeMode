@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S176 release-macos — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S176 release-macos">
+
+<section class="slide" id="S01">
+  <span class="tag">S176 · 2026-11-05 · P7</span>
+  <h1>release.yml に macOS（arm64）を足した</h1>
+  <p class="lead">globe の tar.gz、Python の wheel、Desktop の .dmg。署名・公証はしない</p>
+  <div class="big">dry run（run <b>42048206686</b>）で全ジョブ success。タグも Release も 0 件のまま</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>S160 の持ち越し。release.yml には Linux 2 つと Windows しか無かった</li>
+    <li>build と desktop の matrix に macos-latest を 1 行ずつ足す</li>
+    <li>やらない: 署名・公証・鍵、x86_64 の macOS、タグ、Release、desktop.yml</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>Rust と uv</td><td>rustup、uv は mise</td><td>macOS の python3 は pip install できない</td></tr>
+    <tr><td>wheel</td><td>maturin の既定の tag</td><td>macosx_11_0_arm64 が付いた</td></tr>
+    <tr><td>版の置換</td><td>sed を perl に</td><td>BSD sed は 0,/re/ が使えない</td></tr>
+    <tr><td>ライセンス表</td><td>about.toml に darwin を足す</td><td>macOS だけの crate の漏れを防ぐ</td></tr>
+    <tr><td>dmg</td><td>--bundles app,dmg</td><td>S160 と同じ。署名なし</td></tr>
+    <tr><td>updater</td><td>.app.tar.gz を dmg/ に移す</td><td>latest.json に darwin-aarch64。鍵があるときだけ</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">結果</span>
+  <h1>macOS の成果物（dry run）</h1>
+  <table class="compact">
+    <tr><th>成果物</th><th>大きさ</th></tr>
+    <tr><td>globe-0.2.0-dryrun-aarch64-apple-darwin.tar.gz</td><td>18.2 MB</td></tr>
+    <tr><td>globe_mode-0.2.0-cp312-abi3-macosx_11_0_arm64.whl</td><td>17.6 MB</td></tr>
+    <tr><td>GlobeMode_0.2.0_aarch64.dmg</td><td>21.9 MB</td></tr>
+  </table>
+  <p>wheel を入れた pytest も success。既存の 3 ターゲットは変わらず success。</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">試走で見つけたこと</span>
+  <h1>2 回の失敗と直し</h1>
+  <ul>
+    <li>1 回目: コミット前に dispatch し、main と同じ workflow が動いた。cancel して出し直した</li>
+    <li>2 回目: success だったが、desktop の artifact に dmg/ などの階層が付き、SHA256SUMS から GlobeMode_* が漏れた</li>
+    <li>原因は upload の path に bundle/macos を足したこと。.app.tar.gz を dmg/ に移して直した</li>
+    <li>sha256sum のエラーは tee に隠れて step が success になる。中身を見て気づいた</li>
+  </ul>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">再現手順</span>
+  <h1>再現</h1>
+  <pre><code>gh workflow run release.yml --ref feature/s176-release-macos
+gh run download RUN_ID -n SHA256SUMS -n globe-wheel-aarch64-apple-darwin
+gh release list            # 0 件
+git ls-remote --tags origin   # 0 件</code></pre>
+  <ul>
+    <li>Release に付ける step は refs/tags/v のときだけ。ブランチの dispatch では skipped</li>
+  </ul>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ul>
+    <li>署名・公証の鍵（ユーザーの判断）。登録後に .sig と latest.json の darwin-aarch64 を確かめる</li>
+    <li>タグの経路（版の置換とリネーム）は dry run で通っていない【未確認】</li>
+    <li>x86_64 の macOS（ランナーと費用）、Finder から開く経路</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
