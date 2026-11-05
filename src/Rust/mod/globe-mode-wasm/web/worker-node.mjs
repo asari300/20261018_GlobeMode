@@ -3,7 +3,7 @@
 //   node worker-node.mjs [--pkg DIR]      DIR は wasm-bindgen --target web の出力（既定 target/wasm-pkg/web）
 //
 // worker_threads 上の worker.js を GlobeWorker で包み、GlobeModeValidation の Decay を bdf で回して x(1) ≈ exp(-1) を確かめる。
-// 進捗を受け、長い実行を cancel() で止める（S133）。そのあと panic させ、worker が作り直され（restarts === 2）、ファイルが再生されて、もう一度 Decay が回ることを確かめる。
+// 進捗を受け、長い実行を cancel() で止める（S133。S157 から途中の列が返る）。そのあと panic させ、worker が作り直され（restarts === 1）、ファイルが再生されて、もう一度 Decay が回ることを確かめる。
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -55,21 +55,42 @@ try {
   assert.ok(c.columns.every((col) => col instanceof Float64Array && col.length === c.layout.points));
   assert.equal(c.columns[1].at(-1), c.response.final.x);
   console.log(`simulateColumns: ${c.layout.points} 点 × ${c.columns.length} 列、x(1) = ${c.columns[1].at(-1)}`);
-  // 進捗と中断（S133、ADR-0033）: onProgress が段と t を受ける。長い実行を cancel() すると「止めた」で reject し、
-  // worker を作り直してファイルを再生する（restarts が 1 増える）
+  // 進捗と中断（S133、ADR-0033）: onProgress が段と t を受ける。長い実行を cancel() する（下）
   const seen = [];
   await w.simulateColumns({ model: decay, settings: { solver: "esdirk34" } }, { onProgress: (p) => seen.push(p) });
   assert.deepEqual(seen.at(-1), { stage: "integration", time: 1, start_time: 0, stop_time: 1 });
   await w.setFile("Long.mo", "model Long\n  Real x(start = 0, fixed = true);\nequation\n  der(x) = sin(100 * time);\n  annotation (experiment(StopTime = 1000));\nend Long;\n");
+  // SharedArrayBuffer のフラグがあれば、cancel() は作り直さず、そこまでの列と GM-I11004 を普通の結果として返す（S157）
   let first;
   const started = new Promise((r) => (first = r));
   const long = w.simulateColumns({ model: "Long" }, { onProgress: (p) => p.time !== undefined && first(p) });
   const at = await started;
   w.cancel();
-  await assert.rejects(long, (e) => e.cancelled === true);
-  assert.equal(w.restarts, 1);
+  const part = await long;
+  assert.equal(w.restarts, 0);
+  assert.ok(part.response.ok && part.response.diagnostics.some((d) => d.code === "GM-I11004"));
+  assert.equal(part.response.termination.kind, "cancelled");
+  assert.ok(part.layout.points > 1 && part.columns[0].at(-1) === part.response.termination.time && part.response.termination.time < 1000);
   await runDecay("止めた後の Decay bdf");
-  console.log(`進捗 ${seen.length} 回（最後の t = ${seen.at(-1).time}）。Long を t = ${at.time.toFixed(1)} で止め、作り直した`);
+  console.log(`進捗 ${seen.length} 回（最後の t = ${seen.at(-1).time}）。Long を t = ${at.time.toFixed(1)} で止め、t = ${part.response.termination.time} までの ${part.layout.points} 点を受けた`);
+  // SharedArrayBuffer を使わない配信（shared: false）では、terminate() して作り直し、止めた呼び出しは reject する（途中の列は返らない）
+  const plain = new GlobeWorker(() => new Worker(new URL("./worker.js", import.meta.url)), {
+    pkg: pathToFileURL(pkg).href,
+    wasm: readFileSync(join(pkg, "globe_mode_wasm_bg.wasm")),
+  }, { shared: false });
+  try {
+    await plain.setFile("Long.mo", "model Long\n  Real x(start = 0, fixed = true);\nequation\n  der(x) = sin(100 * time);\n  annotation (experiment(StopTime = 1000));\nend Long;\n");
+    let seen1;
+    const go = new Promise((r) => (seen1 = r));
+    const run = plain.simulateColumns({ model: "Long" }, { onProgress: (p) => p.time !== undefined && seen1(p) });
+    await go;
+    plain.cancel();
+    await assert.rejects(run, (e) => e.cancelled === true);
+    assert.equal(plain.restarts, 1);
+    console.log("shared: false: terminate() して作り直し、reject した（restarts = 1）");
+  } finally {
+    await plain.terminate();
+  }
   const g = await w.graph("GlobeModeValidation.Connect.RealCircuit", 1);
   assert.ok(g.nodes.length > 0 && g.edges.length > 0, "graph: ノードと辺がある");
   await assert.rejects(w.graph("No.Such.Model", 1), /索引に無い/);
@@ -77,10 +98,10 @@ try {
   console.log(`wasm の線形メモリ ${(await w.memory()) / 2 ** 20 | 0} MiB`);
 
   await assert.rejects(w.panicForTest("試験の panic"), /試験の panic/);
-  assert.equal(w.restarts, 2);
-  console.log("panic: reject され、worker を作り直した（restarts = 2）");
+  assert.equal(w.restarts, 1);
+  console.log("panic: reject され、worker を作り直した（restarts = 1）");
   await runDecay("作り直し後の Decay bdf");
-  assert.equal(w.restarts, 2);
+  assert.equal(w.restarts, 1);
 
   // 起動で落ちる worker（存在しないファイル）は作り直さず、呼び出しを reject する（S041）
   const dead = new GlobeWorker(() => new Worker(new URL("./no-such-worker.js", import.meta.url)), {});

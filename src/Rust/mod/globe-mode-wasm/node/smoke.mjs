@@ -79,6 +79,18 @@ for (const solver of ["bdf", "dopri45", "auto"]) {
   assert.deepEqual(observed, plain);
   assert.equal(seen[0].stage, "lowering");
   assert.deepEqual(seen.at(-1), { stage: "integration", time: 1, start: 0, stop: 1 });
+  // 関数が true を返すと止まり、そこまでの列と GM-I11004 を返す（S157）。push の戻り値（数）のような真の値では止まらない
+  ws.set_file("Long.mo", "model Long\n  Real x(start = 0, fixed = true);\nequation\n  der(x) = sin(100 * time);\n  annotation (experiment(StopTime = 1000));\nend Long;\n");
+  const cut = ws.simulate_columns(JSON.stringify({ model: "Long", settings: { solver: "esdirk34" } }), (stage, time) => time !== undefined);
+  try {
+    const r = JSON.parse(cut.response);
+    const t = cut.column(0).at(-1);
+    assert.ok(r.ok && r.diagnostics.some((d) => d.code === "GM-I11004") && r.termination.kind === "cancelled");
+    assert.ok(t > 0 && t < 1000 && t === r.termination.time, `止めた時刻 ${t}`);
+    console.log(`中断: 進捗の関数が true を返して t = ${t} で止まり、${cut.column(0).length} 点と GM-I11004 を受けた`);
+  } finally {
+    cut.free();
+  }
   console.log(`進捗: ${seen.length} 回（${[...new Set(seen.map((p) => p.stage))].join(" → ")}、最後の t = ${seen.at(-1).time}）、列は渡さないときと同じ`);
 }
 

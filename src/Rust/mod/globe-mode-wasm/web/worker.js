@@ -6,7 +6,7 @@
 // 呼び方は client.js の GlobeWorker が受け持つ。ここは `{id, op, …}` を受けて `{id, ok, value}` を返すだけ。
 //   init {pkg, wasm?}  : `${pkg}/globe_mode_wasm.js`（wasm-bindgen --target web の糊）を読んで初期化。
 //                        wasm に ArrayBuffer を渡すと、それで初期化（Node は file: を fetch できないため）
-//   simulate_columns {request, progress?}（{response, layout, columns: Float64Array[]}。buffer は転送。progress で進捗も送る。S133）、library {json, name}, set_file {name, text}, remove_file {name}, check {model}（CheckResponse の JSON）, graph {model, depth}（graphology の JSON）, simulate {request}（JSON 文字列）、
+//   simulate_columns {request, progress?, cancel?}（{response, layout, columns: Float64Array[]}。buffer は転送。progress で進捗も送る。S133）、library {json, name}, set_file {name, text}, remove_file {name}, check {model}（CheckResponse の JSON）, graph {model, depth}（graphology の JSON）, simulate {request}（JSON 文字列）、
 //   library_tree {prefix}・library_source {path}（S127。JSON。ライブラリが無ければ [] と例外）, definition {file, text, line, character}（S138。{file, text, range} の JSON か null）, hover {同じ}（S149。{contents, range} の JSON か null）, tunable_parameters {model}（S150。ParametersResponse の JSON。変換できなければ例外）, export_fmu {model, fmiVersion}（S144。ソースの FMU の zip の Uint8Array。失敗は例外）,
 //   format {text, indent, insertOrigin}（整形後の本文）, lint {text}（JSON の配列）（S053）,
 //   version, solvers, memory, panic_for_test {message}
@@ -62,9 +62,15 @@ const ops = {
   lint: ({ text }) => gm.lint(text),
   // 時系列を列ごとの Float64Array で返す（S051。CSV の文字列を作らず、解析もしない。buffer は転送する）
   // progress が真なら、進捗を {id, type: "progress", stage, time, start_time, stop_time} で親に送る（S133、ADR-0033）
-  simulate_columns({ request, progress }, id) {
-    const notify = (stage, time, start_time, stop_time) => send({ id, type: "progress", stage, time, start_time, stop_time });
-    const c = (ws ??= new gm.Workspace()).simulate_columns(request, progress ? notify : undefined);
+  // cancel（SharedArrayBuffer(4)）があれば、進捗のたびにその Int32 を読み、1 なら true を返して止める（S157。親が cancel() で立てる。
+  // 止めると、そこまでの列と GM-I11004 を普通の結果として返す）
+  simulate_columns({ request, progress, cancel }, id) {
+    const flag = cancel && new Int32Array(cancel);
+    const notify = (stage, time, start_time, stop_time) => {
+      if (progress) send({ id, type: "progress", stage, time, start_time, stop_time });
+      return flag ? Atomics.load(flag, 0) === 1 : undefined;
+    };
+    const c = (ws ??= new gm.Workspace()).simulate_columns(request, progress || flag ? notify : undefined);
     try {
       const layout = JSON.parse(c.layout());
       return { response: c.response, layout, columns: layout.names.map((_, i) => c.column(i)) };

@@ -6,7 +6,7 @@
 dist/ を localhost で配り（CSP は index.html の meta と同じものを応答の header にも付ける。meta は Web Worker に効かないので。S093）、Decay を検査して error の診断が 0 件であること、実行するとプロットが出て信号の選択・右の軸・x の切り替え（S128）が効くこと（ブラウザの実行は列ごとの道で、data-typed が true。S065）、
 10 万点（4 状態、出力間隔 0.01 s で 1000 s）の結果でも描けて時間を測ること、構造的に特異なモデルを検査して診断の行が出て、行を押すとエディタの選択が動くことを確かめる。1 ファイルの回路で「グラフ」を押して connect グラフが描かれることを確かめる（S046）。
 最後に「MSL を読む」で MSL 4.1.0 を読み（public/msl/MSL.json が無ければ飛ばす）、ChuaCircuit の検査（error 0）と実行（プロットの canvas と系列）を確かめて、秒数を出す（S048）。
-長いモデルの実行で進捗（段と t の割合）が出て、「止める」で止まり（data-run="cancelled"）、ボタンが戻ることを確かめる（S133）。
+長いモデルの実行で進捗（段と t の割合）が出て、「止める」で止まり（data-run="cancelled"）、ボタンが戻ることを確かめる（S133）。止めたあとプロットに途中までの列が残る（S157。dist を cross-origin isolated で配る）。
 Decay の `der(x)` の x で F12 を押すと宣言の行（`Real x`）へ動く。ChuaCircuit のファイルで型 `Modelica.Electrical.Analog.Basic.Resistor` の上の F12 は、ライブラリの Resistor.mo をエディタに開き、Alt+← で ChuaCircuit に戻る（S138）。
 `.mo` を開く（ファイル選択）とエディタに入りモデル名が本文から付いて検査が通り、「保存」でダウンロードされ、再読み込みで localStorage から戻る（S141）。
 名前の上にマウスを置くと宣言の 1 行が出る（Decay の x は `Real x`、ChuaCircuit の Resistor は見出しと説明文字列。S149）。
@@ -75,6 +75,9 @@ def serve(prefix: str = "") -> http.server.ThreadingHTTPServer:
 
         def end_headers(self) -> None:
             self.send_header("Content-Security-Policy", csp[1])  # worker.js にも同じ CSP を効かせる
+            # S157: 止めたときに途中の列を返す SharedArrayBuffer は cross-origin isolated が要る
+            self.send_header("Cross-Origin-Opener-Policy", "same-origin")
+            self.send_header("Cross-Origin-Embedder-Policy", "require-corp")
             super().end_headers()
 
         def log_message(self, *a: object) -> None:
@@ -279,7 +282,11 @@ def main() -> int:
         expect(run).to_be_enabled(timeout=10_000)
         assert page.get_by_role("button", name="止める").count() == 0
         assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
-        print(f"止める: 進捗「{shown_progress}」から {1000 * (time.perf_counter() - t):.0f} ms で「{status.inner_text()}」、実行のボタンが戻った")
+        # S157: 止めたあとも、そこまでの時系列がプロットに残る（前の 10 万点でなく、Long の途中までの列）。SharedArrayBuffer が使えない配信では出ない
+        kept = int(page.locator(".plot").get_attribute("data-points") or 0)
+        assert 2 <= kept < 100_000 and int(page.locator(".plot").get_attribute("data-series") or 0) >= 1, f"止めたあとのプロットの点 {kept}"
+        expect(status).to_contain_text("そこまでの")
+        print(f"止める: 進捗「{shown_progress}」から {1000 * (time.perf_counter() - t):.0f} ms で「{status.inner_text()}」、プロットに {kept} 点が残り、実行のボタンが戻った")
         check()  # 作り直した worker で次の呼び出しが回る
         assert page.locator("tr.error").count() == 0, rows.all_inner_texts()
 
