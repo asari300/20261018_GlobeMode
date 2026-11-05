@@ -457,11 +457,22 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - 試験: `test_ui.py` に明と暗（予約語・型・数値・文字列・コメントに別々の色、地に対して 4.5 以上、予約語の色は KEYWORDS の語だけ）と KEYWORDS の一致。S149 のホバーの補助が行の最初のテキストノードだけを見ていたので、色付けで行が分かれても動くようにした。`node --test`（拡張）に文法の 4 本。
 - 持ち越し: semantic tokens、折りたたみ、インデントの規則、Marketplace、~~`@vscode/test-electron`~~（S165 で済んだ）。
 
+### S171（P4、2026-11-05）で済んだこと
+
+- **エディタの補完を Rust 側につないだ**（S164 の穴 9。[解説書](sessions/S171-ui-completion-backend/解説書.md)）: `Backend.completion(file, line, character)`（ブラウザは wasm の `completion`、Desktop は rpc の `globe/completion`。`textDocument/completion` と同じ計算で LSP の `CompletionItem` を返す）。CodeMirror は予約語と本文の単語を即時に出し、Rust の候補を非同期に足す（`validFor` と `aborted` で古い応答を捨てる）。Rust 側は `Resolver`（S132・S166）と `LibraryTree`（S167）で引き、`Modelica.Blocks.` のようにクラスが先なら直下の子（種類と説明つき）、`pin.` のように部品が先ならその型の部品名（継承した分も）、語の頭では予約語と文書の名前とライブラリの最上位。文字列・コメントの中は空、最大 200 件。打ちかけで文書が壊れていれば、カーソルの行を除いて読み直す（`Resolver` の `overlay`）。
+- 測定（MSL 4.1.0、wasm を Node で）: 木の子 1.5〜3.9 ms、最上位 1.2〜2.0 ms、継承した部品は初回 255〜340 ms（ライブラリのファイルの解析）、2 回目 1.1〜1.4 ms（wasm の `scratch` を持ち続けるようにして）。
+- 持ち越し: 初回の約 0.3 s の先読み、本文の単語と Rust の候補の重複、カーソルの行以外にも誤りがあるときの補完、引数・シグネチャ・スニペット・修飾子名・import の自動挿入。
+
+### S166（P4、2026-11-05）で済んだこと
+
+- **クラス名の参照とリネーム**（[解説書](sessions/S166-references-classes/解説書.md)）: S161 の口（`globe/references`・`globe/rename`・`Backend.references`・`rename`）のまま、カーソルがクラス名の上なら、その文書で定義ジャンプと同じ解決（`Resolver::definition`）で同じクラスに行き着く識別子のトークンを一覧にし、リネームで置き換える（宣言の名前・`end 名前`・部品の型・`extends`・`import`・点つきの名前の途中）。別の入れ子の同名のクラスは混ざらない（S161 の持ち越し「同名の入れ子のクラスの区別」はクラス名について片付いた）。リネームはこの文書で定義したクラスだけで、別ファイル（ライブラリ）のクラスと import の別名は断る。`textDocument/prepareRename` を足し、UI の F2 は今の名前のまま `rename` を試して、断られたら入力欄を出さずに理由を出す。LSP の `textDocument/references` はほかの開いた文書の参照も返し、リネームはほかの文書に参照があれば断る。UI の Workspace は今の文書しか持たない（離れたタブは外す）ので、UI の一覧は今の文書だけ。
+- 持ち越し: ライブラリ全体・未開封のファイルの参照、継承した部品のリネーム、複数ファイルの一括リネーム、import の別名の参照、UI の一覧にほかのタブを含めること。
+
 ### S161（P4、2026-11-05）で済んだこと
 
 - **エディタで参照の一覧（Shift+F12）とリネーム（F2）が使える**（[解説書](sessions/S161-editor-references-rename/解説書.md)）: `globe-mode-lsp` の `definition::references_at`・`rename_at` が範囲と編集（LSP の Range と TextEdit）を計算し、wasm の `Workspace.references`・`rename`、sidecar の `globe/references`・`globe/rename`、VS Code 向けの `textDocument/rename`（capability `renameProvider`）が同じ計算を呼ぶ。範囲は開いている文書の、いちばん内側のクラスの中だけ（一致は字句解析の識別子のトークンだけ。コメント・文字列の中は対象外）。リネームはそのクラスで宣言した部品に限り、部品でない名前・識別子でない名前・予約語・同じクラスに既にある名前は理由つきで断る。UI は参照を診断の表と同じ作りの一覧にし、F2 は入力欄を出して 1 回の `dispatch` で入れる（Ctrl+Z 1 回で戻る）。新しい依存は無し。
 - 試験: `globe-mode-lsp` 2 本（rename の編集と断る場合、RPC）、wasm の decay 1 本、`test_ui.py`（Shift+F12 で 3 行・押して飛ぶ、F2 で pos に変えて検査が通る、予約語は断られる、undo 1 回で戻る）。
-- 持ち越し: 別ファイル・ライブラリ全体の参照、継承した部品・型・クラスのリネーム、`prepareRename`。
+- 持ち越し: 別ファイル・ライブラリ全体の参照、継承した部品・型・クラスのリネーム、`prepareRename`（クラス名と `prepareRename` は S166 で済）。
 
 ### S159（P4/P7、2026-11-05）で済んだこと
 
@@ -1000,6 +1011,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 ### S164（P4・P6、2026-11-05）の再点検と、次の候補
 
 - **アプリの使える流れの再点検**（文書だけ。[調査](research/app-flow-2026-11-05.md)、[解説書](sessions/S164-app-flow-audit-2/解説書.md)）: S140 の穴 1〜10 が埋まった後の main（`e4dd5d7`）を、ブラウザ版を Playwright で操作して通した（MSL の例題 7 本、待ちは検査 0.9〜3.4 s・実行 0.5〜3.8 s。CLI と Python も）。穴は機能より見つけやすさと見せ方に移った。
+- **信号の絞り込み・内部名・ファイル名**（S169、穴 7。[解説書](sessions/S169-plot-signal-filter/解説書.md)）: `Plot.svelte` の信号の一覧に絞り込み（部分一致・大文字小文字なし・空白で AND。先頭 200 本 + 「ほか n 件」。表示中をまとめて選ぶ・外す。選択は絞り込みで消えない）、`$` で始まる内部名を既定で隠す（判定は `plot/signals.ts` の `isInternal` 1 か所。Rust 側に判定は無く、MSL の例題で `$derivative`・`$formal_derivative`・`$state_coordinates` だけだった）、CSV・PNG のファイル名を `<モデル名の末尾>-<YYYYMMDD-HHMMSS>` に。DoublePendulum の 1,302 本で入力から更新まで 64〜132 ms。`App.svelte` は Plot の 1 引数のみ。持ち越し: x 軸の選択の絞り込み、「最後の時刻の値」の内部名。
 - **次の候補（順位）**: 1 木に入れ子のクラスと検索（例題の 22% が木から選べない）、2 結果と進捗を見える所へ、3 未対応の例題（検査が通らない 35%）の見せ方と force、4 README・CHANGELOG・版の同期、5 開く・モデル名の扱い、6 FMU の説明（ソースのみ）、7 信号の絞り込み、8 キーボードとアクセシビリティ、9 補完の LSP 接続、10 `release.yml` の dry-run の回し直し。WP の案とぶつからない組は調査の 7.2 章。
 - **ユーザーの判断**（WP にしない。調査の 7.3 章）: v0.1 に含める面と版、ブラウザ版の公開先、Desktop の更新の鍵、署名と公証、VS Code・PyPI の公開、Rumoca の rev、上流 issue の提出。
 

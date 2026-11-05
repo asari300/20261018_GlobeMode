@@ -31,9 +31,11 @@ export interface Backend {
   definition(file: string, line: number, character: number): Promise<Definition | null>;
   /** setFile 済みの file の位置にある名前の宣言（S149）。contents は `Real x(start = 1) "説明"` のような 1 行、range はカーソルの名前。引けなければ null。 */
   hover(file: string, line: number, character: number): Promise<Hover | null>;
-  /** setFile 済みの file の位置にある名前の参照（S161）。同じ文書の、そのいちばん内側のクラスの中の同じ名前の範囲（LSP の Range）。 */
+  /** setFile 済みの file の位置（行は 0 始まり、列は UTF-16）の補完候補（S171。LSP の CompletionItem。最大 200 件、打ちかけの語で絞り済み。文字列・コメントの中は空）。 */
+  completion(file: string, line: number, character: number): Promise<CompletionEntry[]>;
+  /** setFile 済みの file の位置にある名前の参照（S161）。同じ文書の同じ名前の範囲（LSP の Range）。部品はそのいちばん内側のクラスの中、クラス名（S166）は同じクラスに行き着く全部。 */
   references(file: string, line: number, character: number): Promise<Definition["range"][]>;
-  /** 位置の名前を newName に変える編集（S161。LSP の TextEdit）。いちばん内側のクラスで宣言した部品だけ。部品でない・識別子でない・予約語・同じクラスに既にある名前は、理由つきで reject。 */
+  /** 位置の名前を newName に変える編集（S161。LSP の TextEdit）。いちばん内側のクラスで宣言した部品と、この文書で定義したクラス（S166。宣言・`end`・使っている所）。部品でもクラスでもない・別のファイル（ライブラリ）のクラス・識別子でない・予約語・同じクラスに既にある名前は、理由つきで reject。 */
   rename(file: string, line: number, character: number, newName: string): Promise<{ range: Definition["range"]; newText: string }[]>;
   /** 手元のファイルを 1 つ選んで読む（S141）。ブラウザ・Android は `<input type=file>`、Desktop は dialog / fs プラグイン。選ばなければ null。 */
   openFile(): Promise<{ name: string; text: string; path?: string } | null>;
@@ -52,6 +54,14 @@ export interface Definition {
   file: string;
   text: string;
   range: { start: { line: number; character: number }; end: { line: number; character: number } };
+}
+
+/** 補完の候補（S171。LSP の CompletionItem のうち使う分）。kind は LSP の CompletionItemKind の番号。 */
+export interface CompletionEntry {
+  label: string;
+  kind?: number;
+  detail?: string;
+  documentation?: string;
 }
 
 /** ホバーの内容（S149）。range は LSP の Range（カーソルの名前）。 */

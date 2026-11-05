@@ -9,7 +9,7 @@ dist/ を localhost で配り（CSP は index.html の meta と同じものを�
 長いモデルの実行で進捗（段と t の割合）が出て、「止める」で止まり（data-run="cancelled"）、ボタンが戻ることを確かめる（S133）。止めたあとプロットに途中までの列が残る（S157。dist を cross-origin isolated で配る）。
 Decay の `der(x)` の x で F12 を押すと宣言の行（`Real x`）へ動く。ChuaCircuit のファイルで型 `Modelica.Electrical.Analog.Basic.Resistor` の上の F12 は、ライブラリの Resistor.mo をエディタに開き、Alt+← で ChuaCircuit に戻る（S138）。
 構文の色付け（S163）: 予約語・型・数値・文字列・コメントに別々の色のクラス（cm-mo-*）が付き、エディタの地に対してコントラスト 4.5 以上。暗でも同じ。editor.ts の KEYWORDS は Rust の KEYWORDS と同じ並び。
-Decay の x で Shift+F12 を押すと参照の一覧（3 行）が出て行を押すと飛べ、F2 で pos に変えると全出現が変わって検査が通り（予約語は断られ、Ctrl+Z 1 回で戻る。S161）。
+Decay の x で Shift+F12 を押すと参照の一覧（3 行）が出て行を押すと飛べ、F2 で pos に変えると全出現が変わって検査が通り（予約語は断られ、Ctrl+Z 1 回で戻る。S161）。クラス名も同じ（`extends Base` の Base を Core に変えると宣言・end・extends が変わる。S166）。
 `.mo` を開く（ファイル選択）とエディタに入りモデル名が本文から付いて検査が通り、「保存」でダウンロードされ、再読み込みで localStorage から戻る（S141）。
 名前の上にマウスを置くと宣言の 1 行が出る（Decay の x は `Real x`、ChuaCircuit の Resistor は見出しと説明文字列。S149）。
 タブ（S151）: 開くたびにタブが増え、切り替えで本文・モデル名・診断が戻り、再読み込みでタブが戻り、閉じるボタンで減り（未保存なら confirm 1 つ。最後の 1 つは閉じられない）、「最近使ったファイル」から開き直せる。
@@ -64,6 +64,7 @@ DECAY_K = (
     "  annotation(experiment(StopTime = 3, Tolerance = 1e-8));\nend DecayK;\n"
 )
 CHUA = "Modelica.Electrical.Analog.Examples.ChuaCircuit"
+FIRST = "Modelica.Mechanics.Rotational.Examples.First"  # 信号に `$formal_derivative.*` と `$state_coordinates[*]` が混じる（S169）
 BAD = "model Bad\n  Real x;\nequation\n  der(x) = -x;\n  x = 1;\nend Bad;\n"
 
 
@@ -238,6 +239,78 @@ def main() -> int:
         page.keyboard.press("Control+z")  # 足したコメントも消す
         assert page.locator(".cm-content").inner_text() == base
         print("Decay の F2: x を pos に変えて検査が通り、予約語は断られ、Ctrl+Z 1 回で戻った")
+        # クラス名の参照とリネーム（S166）: Base を extends する Decay に差し替え、`extends Base` の Base で Shift+F12 3 行（宣言・end・extends）
+        # F2 で Core に変えると宣言・`end`・extends が変わり（コメントの Base は変えない）、検査が通る。予約語の上の F2 は入力欄を出さずに理由を出す
+        page.keyboard.press("Control+A")
+        page.keyboard.insert_text(
+            "model Base\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -x;\nend Base;\n\n"
+            "model Decay\n  extends Base;\nend Decay; // Base は変えない\n"
+        )
+        page.wait_for_timeout(700)
+        classes = page.locator(".cm-content").inner_text()
+        page.keyboard.press("Control+Home")
+        page.keyboard.press("F2")  # 1 行目の `model` の上
+        expect(page.get_by_role("alert")).to_contain_text("宣言した部品・クラスでない", timeout=30_000)
+        expect(page.get_by_label("新しい名前")).to_have_count(0)
+        for _ in range(7):
+            page.keyboard.press("ArrowDown")
+        page.keyboard.press("End")
+        page.keyboard.press("ArrowLeft")
+        page.keyboard.press("Shift+F12")
+        refs = page.locator("table.refs tr")
+        expect(refs).to_have_count(3, timeout=30_000)  # model Base・end Base・extends Base
+        page.get_by_role("button", name="参照を閉じる").click()
+        page.locator(".cm-content").focus()
+        page.keyboard.press("F2")
+        name = page.get_by_label("新しい名前")
+        name.fill("Core")
+        name.press("Enter")
+        expect(page.locator(".cm-content")).to_contain_text("extends Core;", timeout=30_000)
+        text = page.locator(".cm-content").inner_text()
+        assert "model Core" in text and "end Core;" in text and "// Base は変えない" in text and "Base;" not in text, text
+        assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
+        check()
+        assert page.locator("tr.error").count() == 0, rows.all_inner_texts()
+        page.locator(".cm-content").focus()
+        page.keyboard.press("Control+z")
+        assert page.locator(".cm-content").inner_text() == classes, "クラス名のリネームも 1 回の undo で戻る"
+        page.keyboard.press("Control+z")
+        assert page.locator(".cm-content").inner_text() == base
+        print("Decay のクラス名: Shift+F12 で 3 行、F2 で Base を Core に変えて検査が通り、予約語の上は入力欄を出さず、Ctrl+Z で戻った")
+        # 補完（S171）: 予約語と本文の単語に、Rust 側の候補が足される。MSL なしでも、文書のクラス名・部品名（`pin.` の後ろは型 Pin の部品名）が出る
+
+        def undo_to(want: str) -> None:
+            page.locator(".cm-content").focus()
+            for _ in range(60):
+                if page.locator(".cm-content").inner_text() == want:
+                    return
+                page.keyboard.press("Control+z")
+                page.wait_for_timeout(50)
+            assert page.locator(".cm-content").inner_text() == want, "undo で戻らない"
+
+        popup = page.locator(".cm-tooltip-autocomplete")
+        page.keyboard.press("Control+A")
+        page.keyboard.insert_text("connector Pin\n  Real v;\n  flow Real i;\nend Pin;\n\nmodel Probe\n  Pin pin;\n  Real level;\nequation\n  \nend Probe;\n")
+        page.locator(".cm-content").focus()
+        page.keyboard.press("Control+Home")
+        for _ in range(9):
+            page.keyboard.press("ArrowDown")
+        page.keyboard.press("End")
+        page.keyboard.type("lev")
+        expect(popup.locator(".cm-completionDetail", has_text="Real")).to_be_visible(timeout=30_000)  # Rust 側の候補 level（型 Real つき）
+        page.keyboard.press("Escape")
+        page.keyboard.press("Backspace")
+        page.keyboard.press("Backspace")
+        page.keyboard.press("Backspace")
+        page.keyboard.type("pin.")
+        expect(popup.locator(".cm-completionLabel", has_text="v")).to_be_visible(timeout=30_000)
+        expect(popup.locator(".cm-completionLabel", has_text="i")).to_be_visible()
+        page.keyboard.type("v")
+        expect(popup.locator("li[aria-selected] .cm-completionLabel")).to_have_text("v")
+        page.keyboard.press("Enter")
+        expect(page.locator(".cm-activeLine")).to_have_text("  pin.v")
+        undo_to(base)
+        print("Decay の補完: 部品名 level（型 Real つき）と、pin. の後ろの型 Pin の部品名 v・i が候補に出て、選ぶと入った")
         # 構文の色付け（S163）: 別の本文を入れて色を見て、Ctrl+Z で Decay に戻す
         page.keyboard.press("Control+A")
         page.keyboard.insert_text(SYN)
@@ -264,7 +337,7 @@ def main() -> int:
         # 書き出し（S146）: CSV は選んだ系列と x の列（見出し time,x と数値の行）、PNG は canvas（image/png の本物で 0 バイトでない）
         with page.expect_download() as csv_dl:
             page.get_by_role("button", name="CSV").click(force=True)
-        assert csv_dl.value.suggested_filename == "result.csv"
+        assert re.fullmatch(r"Decay-\d{8}-\d{6}\.csv", csv_dl.value.suggested_filename), csv_dl.value.suggested_filename  # モデル名と時刻（S169）
         csv_lines = Path(csv_dl.value.path()).read_text(encoding="utf-8").splitlines()
         assert csv_lines[0].startswith("time,x"), csv_lines[:2]
         assert len(csv_lines) == int(page.locator(".plot").get_attribute("data-points")) + 1, len(csv_lines)
@@ -272,7 +345,7 @@ def main() -> int:
         with page.expect_download() as png_dl:
             page.get_by_role("button", name="PNG").click(force=True)
         png = Path(png_dl.value.path()).read_bytes()
-        assert png_dl.value.suggested_filename == "result.png" and png.startswith(b"\x89PNG\r\n\x1a\n") and len(png) > 1000, len(png)
+        assert re.fullmatch(r"Decay-\d{8}-\d{6}\.png", png_dl.value.suggested_filename) and png.startswith(b"\x89PNG\r\n\x1a\n") and len(png) > 1000, len(png)
         print(f"Decay の書き出し: CSV {len(csv_lines)} 行 {csv_lines[:2]}、PNG {len(png)} バイト")
 
         # 選択を外すと系列が消える
@@ -291,6 +364,15 @@ def main() -> int:
         expect(page.locator(".plot canvas").first).to_be_visible()
         assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
         print(f"Decay の系列の選択: data-series={plot.get_attribute('data-series')}、data-right={plot.get_attribute('data-right')}、data-x={plot.get_attribute('data-x')}")
+
+        # 信号の絞り込み（S169）: 一致しない語で一覧が空になっても選択は残り、消すと戻る。「内部の変数も表示」の入力はキーボードで届く
+        box = page.get_by_label("信号を絞り込む")
+        box.fill("zzz")
+        expect(plot).to_have_attribute("data-listed", "0")
+        expect(plot).to_have_attribute("data-series", "1")
+        box.fill("")
+        expect(plot).to_have_attribute("data-listed", str(boxes.count()))
+        print("Decay の絞り込み: 一致なしで一覧 0 本・選択 1 本のまま、空に戻すと一覧が戻った")
 
         # 実行の設定（S142）: 終了時刻 2・dopri45 で Decay を実行すると x(2) = e⁻²。DecayK は experiment の Tolerance が初期値に出て、k = 2 の上書きで x(1) = e⁻²
         tolerance, stop = page.get_by_label("許容誤差"), page.get_by_label("終了時刻")
@@ -422,6 +504,24 @@ def main() -> int:
             print(f"MSL を読む: {time.perf_counter() - t:.1f} s（{note.inner_text()[:60]}）")
             assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
 
+            # 補完（S171）: 型の位置で `Modelica.Blocks.Sources.` と打つと、ライブラリの子（Sine）が候補に出て、選ぶと入る
+            circuit = page.locator(".cm-content").inner_text()
+            page.locator(".cm-content").focus()
+            page.keyboard.press("Control+A")
+            page.keyboard.insert_text("model T\n  Modelica.Blocks.Sources.\n  Real x;\nend T;\n")
+            page.keyboard.press("Control+Home")
+            page.keyboard.press("ArrowDown")
+            page.keyboard.press("End")
+            t = time.perf_counter()
+            page.keyboard.type("Si")
+            sine_option = popup.locator(".cm-completionLabel", has_text=re.compile(r"^Sine$"))
+            expect(sine_option).to_be_visible(timeout=30_000)
+            first = time.perf_counter() - t
+            sine_option.click()
+            expect(page.locator(".cm-activeLine")).to_have_text("  Modelica.Blocks.Sources.Sine")
+            undo_to(circuit)
+            print(f"MSL の補完: Modelica.Blocks.Sources.Si で Sine が候補に出るまで {first:.2f} s、選ぶと入った")
+
             page.get_by_label("モデル名").fill(CHUA)
             t = time.perf_counter()
             check()
@@ -456,6 +556,35 @@ def main() -> int:
             expect(page.locator(".plot")).to_have_attribute("data-x", "C1.v")
             assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
             print(f"ChuaCircuit の C1.v 対 C2.v: 系列 {page.locator('.plot').get_attribute('data-series')} 本")
+
+            # 信号の絞り込みと内部名（S169）: `$` で始まる名前を持つ例題。既定で隠れ、チェックで出て、CSV はチェックに合わせる
+            page.get_by_label("モデル名").fill(FIRST)
+            simulate()
+            assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
+            plot = page.locator(".plot")
+            box = page.get_by_label("信号を絞り込む")
+            hidden = page.locator(".plot .signals input[name=signal]")
+            assert hidden.count() > 20 and not any(n.startswith("$") for n in page.locator(".plot .signals label").all_inner_texts())
+            total = int(plot.get_attribute("data-matched"))
+            page.get_by_label("内部の変数も表示").check(force=True)
+            with_internal = int(plot.get_attribute("data-matched"))
+            assert with_internal > total, (total, with_internal)
+            box.fill("FORMAL_derivative inertia1")  # 大文字小文字を区別せず、空白区切りは AND
+            n_some = int(plot.get_attribute("data-matched"))
+            assert 0 < n_some < with_internal and all("$formal_derivative" in t and "inertia1" in t for t in page.locator(".plot .signals label").all_inner_texts() if "右" not in t)
+            page.get_by_role("button", name="表示中をすべて選ぶ").click(force=True)
+            assert page.locator(".plot .signals input[name=signal]:not(:checked)").count() == 0 and int(plot.get_attribute("data-series")) >= n_some
+            with page.expect_download() as dl:
+                page.get_by_role("button", name="CSV").click(force=True)
+            assert re.fullmatch(r"First-\d{8}-\d{6}\.csv", dl.value.suggested_filename), dl.value.suggested_filename
+            assert "$formal_derivative" in Path(dl.value.path()).read_text(encoding="utf-8").splitlines()[0]
+            page.get_by_label("内部の変数も表示").uncheck(force=True)  # 選択は残っているが、隠せばプロットにも CSV にも出ない
+            with page.expect_download() as dl:
+                page.get_by_role("button", name="CSV").click(force=True)
+            assert "$" not in Path(dl.value.path()).read_text(encoding="utf-8").splitlines()[0]
+            box.fill("")
+            print(f"First の内部名: 既定で一覧 {total} 本（隠れた内部名 {with_internal - total} 本）、絞り込みで {n_some} 本、チェックを外すと CSV から消えた")
+            page.get_by_label("モデル名").fill(CHUA)
 
             # ライブラリのモデルのグラフも引ける（S079）
             page.get_by_role("button", name="グラフ").click(force=True)

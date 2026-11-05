@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S169 プロットの信号の絞り込み — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S169 プロットの信号の絞り込み">
+
+<section class="slide" id="S01">
+  <span class="tag">S169 · 2026-11-05 · P4</span>
+  <h1>プロットの信号の絞り込み</h1>
+  <p class="lead">S164 の監査の穴 7。1,302 本の一覧、内部の名前、固定のファイル名</p>
+  <div class="big">Plot に 1 引数。判定は 1 か所</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>一覧の上に入力欄。部分一致、大文字小文字なし、空白は AND</li>
+    <li>先頭が <code>$</code> の内部名を既定で隠し、チェックで出す</li>
+    <li>CSV・PNG のファイル名を <code>モデル名-日付-時刻</code> に</li>
+    <li>選択は絞り込みで消えない。表示中をまとめて選ぶ・外す</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>内部名の判定</h1>
+  <table class="compact">
+    <tr><th>例題</th><th>内部名</th></tr>
+    <tr><td>CauerLowPassAnalog</td><td><code>$derivative.*</code> 3 本</td></tr>
+    <tr><td>PID_Controller</td><td><code>$formal_derivative.*</code> 13 本、<code>$state_coordinates[*]</code> 6 本</td></tr>
+    <tr><td>Rotational.First</td><td><code>$formal_derivative.*</code> 15 本、<code>$state_coordinates[*]</code> 4 本</td></tr>
+  </table>
+  <p>Rust 側に判定は無かった。Modelica の識別子は <code>$</code> で始められないので、TS の 1 行 <code>startsWith("$")</code> にした。</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>一覧になるまで</h1>
+  <svg class="fig" viewBox="0 0 800 220" role="img" aria-label="全部の名前から、内部名の判定、絞り込み、先頭 200 本の一覧に絞る流れ">
+    <rect class="svg-box" x="20" y="80" width="150" height="60" rx="10"/>
+    <text class="svg-text" x="95" y="115" text-anchor="middle">全部の名前</text>
+    <rect class="svg-box-accent" x="230" y="80" width="150" height="60" rx="10"/>
+    <text class="svg-text-b" x="305" y="115" text-anchor="middle">isInternal</text>
+    <rect class="svg-box" x="440" y="80" width="150" height="60" rx="10"/>
+    <text class="svg-text" x="515" y="115" text-anchor="middle">matches</text>
+    <rect class="svg-box" x="640" y="80" width="140" height="60" rx="10"/>
+    <text class="svg-text" x="710" y="115" text-anchor="middle">先頭 200 本</text>
+    <line class="svg-line" x1="170" y1="110" x2="230" y2="110"/>
+    <line class="svg-line" x1="380" y1="110" x2="440" y2="110"/>
+    <line class="svg-line" x1="590" y1="110" x2="640" y2="110"/>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>試験</h1>
+  <table class="compact">
+    <tr><th>試験</th><th>中身</th><th>結果</th></tr>
+    <tr><td>svelte-check</td><td>型</td><td class="ok">0 エラー</td></tr>
+    <tr><td>test_columns</td><td>一致、内部名、ファイル名</td><td class="ok">通過</td></tr>
+    <tr><td>test_ui</td><td>絞り込みで選択が残る、内部名の隠れと CSV、ファイル名</td><td class="ok">通過</td></tr>
+    <tr><td>1,302 本</td><td>入力から一覧の更新まで</td><td class="ok">64〜132 ms</td></tr>
+  </table>
+  <pre><code>cd src/Svelte &amp;&amp; pnpm check &amp;&amp; node tests/test_columns.mjs
+uv run python src/Svelte/tests/test_ui.py</code></pre>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ul>
+    <li>x 軸の選択の絞り込み</li>
+    <li>「最後の時刻の値」の内部名</li>
+    <li>既定の選択を出力の信号に</li>
+    <li>プロットの代替テキスト</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

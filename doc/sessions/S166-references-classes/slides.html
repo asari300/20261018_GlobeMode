@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S166 クラス名の参照とリネーム — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S166 クラス名の参照とリネーム">
+
+<section class="slide" id="S01">
+  <span class="tag">S166 · 2026-11-05 · P4</span>
+  <h1>クラス名の参照とリネーム</h1>
+  <p class="lead">S161 の持ち越し。部品に加えて、型（クラス名）でも Shift+F12 と F2 が働く</p>
+  <div class="big"><code>extends Base</code> の <code>Base</code> を <code>Core</code> に変えると、宣言も <code>end Base;</code> も 1 回で変わる</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>カーソルがクラス名の上なら、その文書の中で<strong>定義ジャンプと同じ解決で同じクラスに行き着く</strong>識別子を一覧にし、リネームで置き換える</li>
+    <li>字面の一致ではない。別の入れ子の同名のクラス（<code>P.M</code> と <code>P.Q.M</code>）は混ざらない</li>
+    <li>口の形は変えない（<code>globe/references</code>・<code>globe/rename</code>・<code>Backend.references</code>・<code>rename</code>）</li>
+    <li>足したもの: <code>textDocument/prepareRename</code>、ほかの開いた文書の参照の扱い</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>一致</td><td>識別子のトークンごとに <code>Resolver::definition</code> で引き、同じ定義のものだけ</td><td>解決は 1 つ（定義ジャンプと同じ）。同名の入れ子を混ぜない</td></tr>
+    <tr><td>宣言と end</td><td>見出しの語の次と <code>end</code> の次は、中身のクラスそのもの</td><td>解決すると自分の中の同名のクラスに行ってしまう</td></tr>
+    <tr><td>断る</td><td>別のファイルのクラス、import の別名、同じ階層に既にある名前</td><td>書き換えても使う側が置き去りになる</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">ほかの文書</span>
+  <h1>開いているほかのタブ</h1>
+  <ul>
+    <li>LSP は開いた文書を複数持つ。<code>textDocument/references</code> はクラス名ならほかの文書の参照も返す</li>
+    <li>リネームは 1 文書だけ。ほかの文書に参照があれば「ほかの文書に n 箇所の参照がある」と断る</li>
+    <li>UI の Workspace は今の文書しか持たない（離れたタブは <code>setFile(…, "")</code>）ので、UI の一覧は今の文書だけ</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">prepareRename</span>
+  <h1>リネームできない所では入力欄を出さない</h1>
+  <ul>
+    <li>LSP: <code>textDocument/prepareRename</code> は識別子の範囲か、<code>rename</code> と同じ理由（-32803）</li>
+    <li>UI: F2 でまず今の名前のまま <code>rename</code> を試す（編集は入れない）。断られたら理由を <code>role="alert"</code> に出す</li>
+    <li>新しい Backend の口は足していない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">結果</span>
+  <h1>試験</h1>
+  <ul>
+    <li>Rust の単体: 同名の入れ子を混ぜない、<code>end</code> も変わる、別ファイルのクラスは断る、文字列・コメントは変えない</li>
+    <li>LSP の RPC 1 本: 参照・リネーム・prepareRename、ほかの文書の参照で断る</li>
+    <li><code>test_ui.py</code>: <code>Base</code> を <code>Core</code> に変えて検査が通り、Ctrl+Z で戻る</li>
+  </ul>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ul>
+    <li>ライブラリ全体・未開封のファイルにまたがる参照、複数ファイルの一括リネーム</li>
+    <li>継承した部品のリネーム、import の別名の参照</li>
+    <li>UI でほかのタブの参照を一覧に含める（Workspace が複数の文書を持つ必要がある）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

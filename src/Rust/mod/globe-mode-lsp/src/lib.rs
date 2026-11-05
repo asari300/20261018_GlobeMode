@@ -19,11 +19,12 @@
 //! | `globe/libraryTree` | `{prefix}`（空ならトップレベル） | `[{name, path, kind, description, file, hasChildren}]`（S127。直下の子だけ。wasm の `library_tree` と同じ形） |
 //! | `globe/definition` | `{file, line, character}`（開いている文書。行は 0 始まり、列は UTF-16） | `{file, text, range}` か null（S138。`textDocument/definition` と同じ解決で、定義のあるファイルの本文も返す。wasm の `definition` と同じ形） |
 //! | `globe/hover` | `{file, line, character}`（`globe/definition` と同じ） | `{contents, range}` か null（S149。名前の宣言の 1 行（クラスは見出し、部品は `;` まで。説明文字列を含む）と、カーソルの名前の Range。wasm の `hover` と同じ形） |
-//! | `globe/references` | `{file, line, character}`（`globe/definition` と同じ） | LSP の Range の配列（S161。カーソルの名前と字句が同じ位置。同じ文書の、カーソルのあるいちばん内側のクラスの中だけ。wasm の `references` と同じ形） |
-//! | `globe/rename` | `{file, line, character, newName}` | LSP の TextEdit（`{range, newText}`）の配列（S161。いちばん内側のクラスで宣言した部品だけ。部品でない・識別子でない・予約語・同じクラスに既にある名前は -32803 に理由。`textDocument/rename` は同じ計算の WorkspaceEdit） |
+//! | `globe/references` | `{file, line, character}`（`globe/definition` と同じ） | LSP の Range の配列（S161。カーソルの名前と字句が同じ位置。部品はカーソルのあるいちばん内側のクラスの中だけ。S166: クラス名の上なら、同じ文書の中で定義ジャンプと同じ解決で同じクラスに行き着く識別子（宣言・`end`・型・`extends`・`import`）。wasm の `references` と同じ形） |
+//! | `globe/rename` | `{file, line, character, newName}` | LSP の TextEdit（`{range, newText}`）の配列（S161。いちばん内側のクラスで宣言した部品と、S166 からこの文書で定義したクラス。部品でもクラスでもない・別のファイルのクラス・識別子でない・予約語・同じ階層に既にある名前・ほかの開いた文書に参照があるときは -32803 に理由。`textDocument/rename` は同じ計算の WorkspaceEdit、`textDocument/prepareRename` はカーソルの識別子の Range か同じ理由） |
 //! | `globe/solvers` | なし | ソルバの登録表（`[{name, status, description, instead?}]`。S142。wasm の `solvers` と同じ） |
 //! | `globe/exportFmu` | `{model, fmiVersion?, outDir}`（既定は FMI 2。`build` はしない） | `{path}`（S144。`outDir/<名前>.fmu` と展開した `outDir/<名前>/` を書く。DAE まで変換できなければ -32000） |
 //! | `globe/tunableParameters` | `{model}` | `ParametersResponse` の JSON（S150。上書きできるパラメータの一覧。wasm の `tunable_parameters` と同じ。DAE まで変換できなければ -32000） |
+//! | `globe/completion` | `{file, line, character}`（`globe/definition` と同じ） | LSP の `CompletionItem` の配列（S171。`textDocument/completion` と同じ計算。予約語、文書の名前、点つきの名前の途中はクラスの子か部品の型の部品名。最大 200 件。文字列・コメントの中は空。wasm の `completion` と同じ形） |
 //! | `globe/librarySearch` | `{query}`（名前の部分一致。大文字小文字を区別しない。`.` を含めると完全修飾名） | 同じ形の項目の配列（S167。最大 50 件、近い順。ファイルの中の入れ子のクラスも出る） |
 //! | `globe/librarySource` | `{path}`（完全修飾名） | `{file, text}`（S127。そのクラスを定義するライブラリのファイル。無ければ -32000） |
 //!
@@ -34,7 +35,7 @@
 //! params が読めなければ -32602、モデルが無いなど計算の失敗は -32000（`message` に理由）。
 //! facade（`globe-mode`）の `Workspace` だけを呼び、新しい計算は入れない。
 
-mod completion;
+pub mod completion;
 pub mod definition;
 
 use std::collections::HashMap;
@@ -102,6 +103,34 @@ impl Server {
         })
     }
 
+    /// `uri` 以外の開いている文書（S166。クラス名の参照を、ほかの文書にも探す）。
+    fn others(&self, uri: &str) -> Vec<(String, String)> {
+        self.texts
+            .iter()
+            .filter(|(u, _)| u.as_str() != uri)
+            .map(|(u, t)| (u.clone(), t.clone()))
+            .collect()
+    }
+
+    /// ライブラリの木と開いている文書で名前を引く道具を作って `f` を回す（S166。参照・リネームが使う）。
+    fn with_resolver<T>(&mut self, f: impl FnOnce(&mut definition::Resolver) -> T) -> T {
+        self.tree();
+        let tree = self.tree.as_ref().expect("tree() で作った");
+        let open = &self.texts;
+        f(&mut definition::Resolver {
+            ws: &self.ws,
+            tree,
+            scratch: &mut self.scratch,
+            overlay: None,
+            read: &|p| {
+                open.iter()
+                    .find(|(u, _)| uri_path(u) == p)
+                    .map(|(_, t)| t.clone())
+                    .or_else(|| std::fs::read_to_string(p).ok())
+            },
+        })
+    }
+
     /// 根から上へたどって `globe-mode.toml` を読み直す（S130）。誤りは `window/showMessage` で知らせ、既定で続ける。
     fn load_config(&mut self) -> Vec<Value> {
         let found = self
@@ -158,7 +187,8 @@ impl Server {
                         // 1 = Full
                         "capabilities": {"textDocumentSync": 1, "documentSymbolProvider": true, "hoverProvider": true,
                             "documentFormattingProvider": true, "completionProvider": {"triggerCharacters": ["."]},
-                            "definitionProvider": true, "referencesProvider": true, "renameProvider": true},
+                            "definitionProvider": true, "referencesProvider": true,
+                            "renameProvider": {"prepareProvider": true}},
                         "serverInfo": {"name": "globe-mode", "version": env!("CARGO_PKG_VERSION")},
                     }),
                 );
@@ -246,15 +276,17 @@ impl Server {
                 });
                 reply(id, edit.unwrap_or(Value::Null))
             }
-            "textDocument/completion" => {
-                let pos = &params["position"];
-                let pos = Position::new(
-                    pos["line"].as_u64().unwrap_or(0) as u32,
-                    pos["character"].as_u64().unwrap_or(0) as u32,
-                );
-                let items = match self.texts.get(&uri) {
+            // S171: UI 向けの `globe/completion` は `file`・`line`・`character`（`globe/definition` と同じ）。計算は同じ
+            "textDocument/completion" | "globe/completion" => {
+                let (key, pos) = if msg["method"] == "globe/completion" {
+                    (params["file"].as_str().unwrap_or("").to_string(), lsp_position(params))
+                } else {
+                    (uri.clone(), lsp_position(&params["position"]))
+                };
+                let items = match self.texts.get(&key).cloned() {
                     Some(text) => {
-                        completion::complete(&self.ws, &uri_path(&uri), text, offset(text, pos))
+                        let (path, at) = (uri_path(&key), offset(&text, pos));
+                        self.with_resolver(|r| completion::complete(r, &path, &text, at))
                     }
                     None => vec![],
                 };
@@ -271,6 +303,7 @@ impl Server {
                     ws: &self.ws,
                     tree,
                     scratch: &mut self.scratch,
+                    overlay: None,
                     read: &|f| std::fs::read_to_string(f).ok(),
                 }
                 .definition(&uri_path(&uri), &text, at);
@@ -307,6 +340,7 @@ impl Server {
                         ws: &self.ws,
                         tree,
                         scratch: &mut self.scratch,
+                        overlay: None,
                         read: &|f| {
                             open.iter()
                                 .find(|(u, _)| uri_path(u) == f)
@@ -321,24 +355,37 @@ impl Server {
                 );
                 reply(id, found.unwrap_or(Value::Null))
             }
+            // S166: クラス名の上なら、開いているほかの文書の同じクラスへの参照も含める（部品の参照は同じ文書の中だけ）
             "textDocument/references" => {
-                let refs: Vec<Value> = match self.texts.get(&uri) {
-                    Some(text) => {
-                        let at = offset(text, lsp_position(&params["position"]));
-                        let o = self.ws.outline(&uri_path(&uri)).and_then(|r| r.as_ref().ok());
-                        definition::references(o, text, at)
-                            .into_iter()
-                            .map(|r| json!({"uri": uri, "range": range(text, r)}))
-                            .collect()
-                    }
-                    None => vec![],
+                let Some(text) = self.texts.get(&uri).cloned() else {
+                    return reply(id, json!([]));
                 };
+                let at = offset(&text, lsp_position(&params["position"]));
+                let others = self.others(&uri);
+                let path = uri_path(&uri);
+                let refs = self.with_resolver(|r| {
+                    let mut refs: Vec<Value> = definition::references(r, &path, &text, at)
+                        .into_iter()
+                        .map(|x| json!({"uri": uri, "range": range(&text, x)}))
+                        .collect();
+                    if let Some((name, t)) = definition::class_name_at(r, &path, &text, at) {
+                        for (u, body) in &others {
+                            for x in definition::class_hits(r, &uri_path(u), body, &name, &t) {
+                                refs.push(json!({"uri": u, "range": range(body, x)}));
+                            }
+                        }
+                    }
+                    refs
+                });
                 reply(id, json!(refs))
             }
             // S161: 参照の一覧とリネーム。UI 向けの `globe/*` は `file`・`line`・`character`（rename は `newName` も）、
-            // `textDocument/rename` は VS Code 向け。計算は `definition::references_at` / `rename_at`（wasm と同じ）
-            "textDocument/rename" | "globe/references" | "globe/rename" => {
-                let (key, pos) = if msg["method"] == "textDocument/rename" {
+            // `textDocument/rename` は VS Code 向け。計算は `definition::references_at` / `rename_at`（wasm と同じ）。
+            // S166: クラス名も同じ口。リネームは 1 文書の中だけ、開いているほかの文書に同じクラスへの参照があれば断る。
+            // `textDocument/prepareRename` は断る理由（`rename` と同じ）かカーソルの識別子の範囲
+            "textDocument/rename" | "textDocument/prepareRename" | "globe/references" | "globe/rename" => {
+                let method = msg["method"].as_str().unwrap_or("");
+                let (key, pos) = if method.starts_with("textDocument/") {
                     (uri.clone(), lsp_position(&params["position"]))
                 } else {
                     let (l, c) = (&params["line"], &params["character"]);
@@ -350,14 +397,30 @@ impl Server {
                 let Some(text) = self.texts.get(&key).cloned() else {
                     return reply(id, Value::Null);
                 };
-                let o = self.ws.outline(&uri_path(&key)).and_then(|r| r.as_ref().ok());
-                if msg["method"] == "globe/references" {
-                    return reply(id, definition::references_at(o, &text, pos.line, pos.character));
-                }
+                let (path, others) = (uri_path(&key), self.others(&key));
                 let new_name = params["newName"].as_str().unwrap_or("");
-                match definition::rename_at(o, &text, pos.line, pos.character, new_name) {
-                    Ok(edits) if msg["method"] == "globe/rename" => reply(id, edits),
-                    Ok(edits) => reply(id, json!({"changes": {key: edits}})),
+                let result: Result<Value, String> = self.with_resolver(|r| match method {
+                    "globe/references" => Ok(definition::references_at(r, &path, &text, pos.line, pos.character)),
+                    "textDocument/prepareRename" => {
+                        definition::prepare_rename(r, &path, &text, offset(&text, pos)).map(|x| json!(range(&text, x)))
+                    }
+                    _ => {
+                        let edits = definition::rename_at(r, &path, &text, pos.line, pos.character, new_name)?;
+                        let at = offset(&text, pos);
+                        if let Some((name, t)) = definition::class_name_at(r, &path, &text, at) {
+                            let n: usize = others
+                                .iter()
+                                .map(|(u, body)| definition::class_hits(r, &uri_path(u), body, &name, &t).len())
+                                .sum();
+                            if n > 0 {
+                                return Err(format!("ほかの文書に {n} 箇所の参照がある（リネームは 1 文書の中だけ）"));
+                            }
+                        }
+                        Ok(if method == "globe/rename" { edits } else { json!({"changes": {key.clone(): edits}}) })
+                    }
+                });
+                match result {
+                    Ok(v) => reply(id, v),
                     Err(why) => error(id, -32803, &why), // RequestFailed
                 }
             }
@@ -1499,6 +1562,33 @@ mod tests {
     }
 
     #[test]
+    fn completion_lists_library_children_over_rpc() {
+        let lib =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../Modelica/GlobeModeValidation");
+        let mut s = Server::new(std::slice::from_ref(&lib)).unwrap();
+        let text = "model T\n  GlobeModeValidation.Components.\nend T;\n";
+        s.handle(
+            json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+            "uri": "T.mo", "languageId": "modelica", "version": 1, "text": text}}}),
+        );
+        let labels = |r: Value| -> Vec<String> {
+            r["result"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|i| i["label"].as_str().unwrap().to_string())
+                .collect()
+        };
+        let ui = s.handle(json!({"id": 1, "method": "globe/completion",
+            "params": {"file": "T.mo", "line": 1, "character": 33}}));
+        let ui = labels(ui[0].clone());
+        assert!(ui.contains(&"Resistor".to_string()), "{ui:?}");
+        let lsp = s.handle(json!({"id": 2, "method": "textDocument/completion",
+            "params": {"textDocument": {"uri": "T.mo"}, "position": {"line": 1, "character": 33}}}));
+        assert_eq!(labels(lsp[0].clone()), ui);
+    }
+
+    #[test]
     fn references_in_the_same_class() {
         let mut s = Server::new(&[]).unwrap();
         let uri = "file:///tmp/R.mo";
@@ -1521,7 +1611,7 @@ mod tests {
         let init = s.handle(json!({"id": 0, "method": "initialize", "params": {}}));
         assert_eq!(
             init[0]["result"]["capabilities"]["renameProvider"],
-            json!(true)
+            json!({"prepareProvider": true})
         );
         let r = ask_at(&mut s, uri, text, "textDocument/rename", "x;", 0);
         assert!(
@@ -1549,6 +1639,89 @@ mod tests {
             assert_eq!(e["error"]["code"], -32803, "{e}");
             assert!(e["error"]["message"].as_str().unwrap().contains(why), "{e}");
         }
+    }
+
+    /// S166: クラス名の参照・リネーム・prepareRename。ほかの開いた文書に参照があるとリネームは断り、参照の一覧には含める。
+    #[test]
+    fn class_references_rename_and_prepare_over_rpc() {
+        let mut s = Server::new(&[]).unwrap();
+        let (a, b) = ("file:///tmp/A.mo", "file:///tmp/B.mo");
+        let ta = "model Base
+  Real x;
+end Base;
+model A
+  extends Base;
+  Base b;
+end A;
+";
+        let tb = "model B
+  Base c;
+end B;
+";
+        for (u, t) in [(a, ta), (b, tb)] {
+            s.handle(
+                json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+                "uri": u, "languageId": "modelica", "version": 1, "text": t}}}),
+            );
+        }
+        let mut ask = |m: &str, line: u32, ch: u32, new: &str| {
+            s.handle(json!({"id": 3, "method": m, "params": {"file": a, "textDocument": {"uri": a},
+                "position": {"line": line, "character": ch}, "line": line, "character": ch, "newName": new}}))
+                .remove(0)
+        };
+        // Base の宣言の上: textDocument/references は A の 3 箇所 + B の 1 箇所
+        let r = ask("textDocument/references", 4, 11, "");
+        let uris: Vec<_> = r["result"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|l| l["uri"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(uris.iter().filter(|u| *u == a).count(), 4, "{r}"); // 宣言・end・extends・型
+        assert_eq!(uris.iter().filter(|u| *u == b).count(), 1, "{r}");
+        assert_eq!(
+            ask("globe/references", 4, 11, "")["result"]
+                .as_array()
+                .unwrap()
+                .len(),
+            4
+        );
+        let p = ask("textDocument/prepareRename", 4, 11, "");
+        assert_eq!(
+            p["result"]["start"],
+            json!({"line": 4, "character": 10}),
+            "{p}"
+        );
+        // B が Base を使っているので断る
+        let e = ask("globe/rename", 4, 11, "Root");
+        assert_eq!(e["error"]["code"], -32803, "{e}");
+        assert!(
+            e["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("ほかの文書に 1 箇所"),
+            "{e}"
+        );
+        // B を閉じる代わりに本文を差し替える（Base を使わない）と通る
+        s.handle(
+            json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+            "uri": b, "languageId": "modelica", "version": 2, "text": "model B\nend B;\n"}}}),
+        );
+        let mut ask = |m: &str, line: u32, ch: u32, new: &str| {
+            s.handle(json!({"id": 3, "method": m, "params": {"file": a, "textDocument": {"uri": a},
+                "position": {"line": line, "character": ch}, "line": line, "character": ch, "newName": new}}))
+                .remove(0)
+        };
+        assert_eq!(
+            ask("globe/rename", 4, 11, "Root")["result"]
+                .as_array()
+                .unwrap()
+                .len(),
+            4
+        );
+        // 部品でもクラスでもない所（予約語 model）は prepareRename が断る
+        let e = ask("textDocument/prepareRename", 3, 2, "");
+        assert_eq!(e["error"]["code"], -32803, "{e}");
     }
 
     /// S136（ADR-0033）: 読みを別のスレッドにした `serve` を pipe で回す。長い実行の進捗が `$/progress` で届き、
