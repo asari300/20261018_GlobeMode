@@ -109,7 +109,7 @@ fn render(rows: &[Row]) -> String {
             r.seconds
         );
     }
-    out.push_str("\n止まった理由の列は、最初の Error のコードで分ける: 初期化は `GM-E11001`、積分は `GM-E11002`、イベントは `GM-E11003`、時間切れは `GM-E11005`（協調型。予算 30 s、回し直しは 180 s）、外から停止は親がワーカーを止めたもの。その他はコンパイル・S10・panic・`GM-U0005` など。`GM-U0004` はそのソルバが扱えない系（未対応）。`auto` の行は BDF が失敗したら esdirk34、それも止まれば dopri45 で回し直す（S064 から。S050 の run は dopri45 だけ）。\n");
+    out.push_str("\n止まった理由の列は、最初の Error のコードで分ける: 初期化は `GM-E11001`、積分は `GM-E11002`、イベントは `GM-E11003`、時間切れは `GM-E11005`（協調型。予算 30 s、回し直しは 180 s）、外から停止は親がワーカーを止めたもの。その他はコンパイル・S10・panic・`GM-U0005` など。`GM-U0004` はそのソルバが扱えない系（未対応）。`auto` の行は BDF が失敗したら esdirk34、それも止まれば dopri45 で回し直す（S064 から。S050 の run は dopri45 だけ）。`sdirk34hw` の `ThyristorBridge2Pulse_DC_Drive`（t = 13.04）の `GM-E11003` は、事象の時刻の状態がちょうど釣り合い、2 つの関係式の根が丸めの雑音（1e-29）になって Rumoca の host の `value == 0.0` の比べ方で方式が毎回反転するもの。GlobeMode 側では直せず、上流の下書き 34 に記録した（S158。[upstream.md](upstream.md)）。\n");
     out
 }
 

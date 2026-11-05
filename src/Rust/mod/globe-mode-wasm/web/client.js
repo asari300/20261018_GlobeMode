@@ -8,16 +8,22 @@
 //
 // panic（wasm32 は abort）や worker の異常終了のとき、その呼び出しを panic の文言つきの Error で reject し、
 // worker を捨てて作り直し、ライブラリとファイルを再生する。次の呼び出しは再生のあとに始まる。restarts が回数。
+const GRACE_MS = 2000;
+
 export class GlobeWorker {
   restarts = 0;
   #make; #init; #w; #pending = new Map(); #id = 0;
   #lib = null; #files = new Map(); // 再生用の記憶
   #ready; #tail = Promise.resolve();
   #alive = false; // init が終わった worker か（終わる前に落ちたら作り直さない）
+  #flag; // 中断のフラグ（Int32Array(SharedArrayBuffer)）。使えなければ null（S157）
+  #running = 0; #grace; // 実行中の simulate_columns の id と、cancel() のあとの猶予のタイマー
 
-  constructor(make, init) {
+  // shared: SharedArrayBuffer を使うか。既定は使えるか（ブラウザは cross-origin isolated のときだけ SharedArrayBuffer がある）
+  constructor(make, init, { shared = typeof SharedArrayBuffer === "function" } = {}) {
     this.#make = make;
     this.#init = init;
+    this.#flag = shared ? new Int32Array(new SharedArrayBuffer(4)) : null;
     this.#ready = this.#start();
   }
 
@@ -44,6 +50,11 @@ export class GlobeWorker {
     return new Promise((resolve, reject) => {
       const id = ++this.#id;
       this.#pending.set(id, { resolve, reject, onProgress });
+      if (op === "simulate_columns" && this.#flag) {
+        Atomics.store(this.#flag, 0, 0);
+        this.#running = id;
+        args = { ...args, cancel: this.#flag.buffer };
+      }
       this.#w.postMessage({ id, op, ...args });
     });
   }
@@ -52,6 +63,7 @@ export class GlobeWorker {
     const p = this.#pending.get(id);
     if (type === "progress") return p?.onProgress?.(progress);
     this.#pending.delete(id);
+    if (id === this.#running) { this.#running = 0; clearTimeout(this.#grace); }
     if (ok) return p?.resolve(value);
     p?.reject(new Error(panic ? `${error}\n${panic}` : error));
     if (poisoned) this.#die(this.#w, null);
@@ -63,6 +75,8 @@ export class GlobeWorker {
   #die(w, err) {
     if (w !== this.#w) return;
     this.#w = null;
+    this.#running = 0;
+    clearTimeout(this.#grace);
     err ??= new Error("worker を作り直した");
     for (const p of this.#pending.values()) p.reject(err);
     this.#pending.clear();
@@ -122,8 +136,18 @@ export class GlobeWorker {
   async solvers() { return JSON.parse(await this.#call("solvers")); }
   memory() { return this.#call("memory"); }
   panicForTest(message) { return this.#call("panic_for_test", { message }); }
-  // 実行中の呼び出しを止める（S133、ADR-0033）。Worker は計算の間メッセージを受けないので terminate() して作り直し、
-  // ライブラリとファイルを再生する。止めた呼び出しは「止めた」の Error（cancelled: true）で reject する
-  cancel() { if (this.#w && this.#pending.size) this.#die(this.#w, Object.assign(new Error("止めた"), { cancelled: true })); }
+  // 実行中の呼び出しを止める（S133、ADR-0033）。Worker は計算の間メッセージを受けないので、
+  // 実行中の simulateColumns で SharedArrayBuffer が使えるなら、フラグを立てて待つ（S157）: Worker が次の進捗でフラグを読んで止め、
+  // そこまでの列と GM-I11004 を普通の結果として返す。lowering の中などで 2 s（GRACE）たっても応えなければ、
+  // 使えないとき（cross-origin isolated でない配信）と同じく terminate() して作り直し、ライブラリとファイルを再生する。
+  // 作り直したときは、止めた呼び出しを「止めた」の Error（cancelled: true）で reject する（途中の列は返らない）
+  cancel() {
+    const w = this.#w;
+    if (!w || !this.#pending.size) return;
+    const kill = () => this.#die(w, Object.assign(new Error("止めた"), { cancelled: true }));
+    if (!this.#running) return kill();
+    Atomics.store(this.#flag, 0, 1);
+    this.#grace = setTimeout(kill, GRACE_MS);
+  }
   async terminate() { const w = this.#w; this.#w = null; await w?.terminate(); }
 }

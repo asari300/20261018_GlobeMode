@@ -276,10 +276,18 @@
       await check(); // 止めたあとも次の呼び出しが回る
       return running && !!button && stopped && !failure && !diagnostics.some((d) => d.severity === "error");
     });
+    // S154: Desktop は作業ディレクトリの Recent.mo（desktop.yml が置く）を最近使ったファイルとして開く（dialog を通さない path。Rust の read_recent）
+    const recentStep = !tauri ? "" : " " + await step("recent", async () => {
+      const saved = recent;
+      recent = [{ path: "Recent.mo" }];
+      await openRecent("Recent.mo");
+      recent = saved;
+      return !failure && file === "Recent.mo" && doc().includes("model Recent");
+    });
     restore();
     const ms = (x: number) => x.toFixed(0);
     const line = `GM-SMOKE check=${checked ? "ok" : "ng"} simulate=${simulated ? "ok" : "ng"} x1=${x1} msl=${mslOk ? "ok" : "ng"}${cfg}`
-      + ` ${tree} ${fmt} ${graphed} ${cancel} ${settings} ${plot} ${def}`
+      + ` ${tree} ${fmt} ${graphed} ${cancel} ${settings} ${plot} ${def}${recentStep}`
       + ` ready_ms=${ms(ready)} decay_ms=${ms(decay)} msl_ms=${mslOk ? ms(mslMs) : "-"}`
       + (fail0 || ng.length ? ` failure=${[fail0, ...ng].filter(Boolean).join(" / ").replace(/\s+/g, " ")}` : "");
     console.log(line);
@@ -371,6 +379,9 @@
       lastSettings = r.settings ?? null;
       lastFinal = Object.entries(r.final ?? {}).slice(0, 8);
       columns = c.points > 0 ? c : null;
+      // S157: 止めた実行はそこまでの列を出し、止めた旨を残す（wasm は SharedArrayBuffer のフラグ、Desktop は $/cancelRequest。どちらも GM-I11004 の普通の応答）
+      const stopped = r.diagnostics.find((d) => d.code === "GM-I11004");
+      if (stopped) { runState = "cancelled"; runNote = `止めた（${c.points > 0 ? `${stopped.message}、そこまでの ${c.points} 点を表示` : "結果は出ない"}）`; }
       if (r.refused) failure = r.refused;
       else if (!r.ok && !r.diagnostics.length) failure = "実行に失敗した（診断なし）";
     });
@@ -469,9 +480,10 @@
     const f = r?.text !== undefined ? { name: path, text: r.text } : await backend.openPath?.(path);
     if (f) openOwn(f.name, f.text);
   });
-  // S144: ソースの FMU（FMI 2.0）。ブラウザはダウンロード、Desktop は保存先のフォルダへ sidecar が書く
+  // S144: ソースの FMU。ブラウザはダウンロード、Desktop は保存先のフォルダへ sidecar が書く。S154: FMI の版（2.0 / 3.0）を選べる
+  let fmiVersion = $state(2);
   const exportFmu = () => run(async () => {
-    const to = await backend.exportFmu(model, 2);
+    const to = await backend.exportFmu(model, fmiVersion);
     if (to) saved = `FMU を書き出した: ${to}`;
   });
   async function save(saveAs = false) {
@@ -523,6 +535,7 @@
     <button onclick={() => save()}>保存</button>
     {#if desktop}<button onclick={() => save(true)}>名前を付けて保存</button>{/if}
     <button onclick={exportFmu} disabled={busy}>FMU を書き出す</button>
+    <select aria-label="FMI の版" bind:value={fmiVersion}><option value={2}>FMI 2.0</option><option value={3}>FMI 3.0</option></select>
     <label>モデル名 <input bind:value={model} aria-label="モデル名"></label>
     <select aria-label="テーマ" value={theme.pref} onchange={(e) => setPref(e.currentTarget.value as Pref)}>
       <option value="auto">OS に合わせる</option>
