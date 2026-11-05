@@ -535,7 +535,7 @@ mod tests {
                 std::ptr::null(),
             ));
             assert!(
-                fmu["path"].as_str().unwrap().ends_with("Decay.fmu"),
+                fmu["path"].as_str().unwrap().ends_with("Decay-fmi2.fmu"),
                 "{fmu}"
             );
             assert!(out.join("Decay/modelDescription.xml").is_file());

@@ -92,7 +92,7 @@ impl Default for FmuOptions {
     }
 }
 
-/// DAE まで変換したモデルを `out_dir/<名前>/`（展開した FMU）と `out_dir/<名前>.fmu` に書き、`.fmu` のパスを返す（S118）。
+/// DAE まで変換したモデルを `out_dir/<名前>/`（展開した FMU）と `out_dir/<名前>-fmi<版>.fmu`（S189。版は 2 か 3）に書き、`.fmu` のパスを返す（S118）。
 #[cfg(feature = "fmu")]
 pub fn export_fmu(
     model: &CompiledModel,

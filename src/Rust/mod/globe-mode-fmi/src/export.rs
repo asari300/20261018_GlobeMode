@@ -25,7 +25,7 @@ const RUMOCA_LICENSE: &str = concat!(
 pub struct MeSources {
     /// FMI の主版（2 か 3）。
     pub fmi_version: u8,
-    /// FMU のファイル名の元（モデルの完全修飾名の `.` を `_` にしたもの）。
+    /// FMU のファイル名の元（モデルの完全修飾名の `.` を `_` にしたもの。版は [`MeSources::file_name`] が付ける）。
     pub name: String,
     /// `ModelExchange` の `modelIdentifier`（共有ライブラリの名前）。
     pub model_identifier: String,
@@ -34,13 +34,23 @@ pub struct MeSources {
     pub c_sources: Vec<(String, String)>,
 }
 
+impl MeSources {
+    /// 既定の `.fmu` のファイル名 `<名前>-fmi2.fmu`（S189。FMI 2.0 と 3.0 を同じ出力先に書いても上書きし合わない。
+    /// CLI・facade・Python・LSP・C ABI・NIF・UI のダウンロード名はこの形。中身の `modelName` と `modelIdentifier` は変えない）。
+    pub fn file_name(&self) -> String {
+        format!("{}-fmi{}.fmu", self.name, self.fmi_version)
+    }
+}
+
 /// モデルを FMI `fmi_version`（2 か 3）のソースの FMU にする。Rumoca の対象外（イベント・外部関数など）は `Err`。
 pub fn export_me_sources(model: &CompiledModel, fmi_version: u8) -> Result<MeSources, String> {
     if !matches!(fmi_version, 2 | 3) {
         return Err(format!("FMI {fmi_version} は未対応（2 か 3）"));
     }
     let target = format!("fmi{fmi_version}");
-    let mut files = globe_mode_frontend::fmi_export::render_rumoca_fmi(model, &target)?;
+    // S189: Rumoca の限界は英語の 1 行で返る（例 `FMI C profile: …`）ので、FMU にできないことを日本語で前に付ける
+    let mut files = globe_mode_frontend::fmi_export::render_rumoca_fmi(model, &target)
+        .map_err(|e| format!("このモデルは FMU に書き出せない（理由: {e}）"))?;
     let at = files
         .iter()
         .position(|(p, _)| p == "modelDescription.xml")
@@ -61,7 +71,7 @@ pub fn export_me_sources(model: &CompiledModel, fmi_version: u8) -> Result<MeSou
     })
 }
 
-/// `out_dir/<name>/`（展開した FMU）と `out_dir/<name>.fmu` を書き、`.fmu` のパスを返す。
+/// `out_dir/<name>/`（展開した FMU）と `out_dir/<name>-fmi<版>.fmu`（[`MeSources::file_name`]）を書き、`.fmu` のパスを返す。
 ///
 /// `fmi_headers` を渡すと、その中の `fmi2Functions.h`（3.0 は `fmi3Functions.h`）などで共有ライブラリも作る。
 /// `targets` が空なら host（x86_64 の Linux だけ）を `cc` で `binaries/linux64/`（3.0 は `binaries/x86_64-linux/`）に、
@@ -97,7 +107,7 @@ pub fn write_fmu(
             build(src, &root, headers, Some(t))?;
         }
     }
-    let fmu = out_dir.join(format!("{}.fmu", src.name));
+    let fmu = out_dir.join(src.file_name());
     zip_dir(&root, &fmu)?;
     Ok(fmu)
 }

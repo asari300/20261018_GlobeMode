@@ -517,7 +517,7 @@ impl Server {
             },
             // ソルバの登録表（S142。wasm の `solvers` と同じ JSON の配列）
             "globe/solvers" => reply(id, json!(globe_mode::solvers())),
-            // ソースの FMU の書き出し（S144。build 無し。`outDir/<名前>.fmu` と展開した `outDir/<名前>/` を書く）
+            // ソースの FMU の書き出し（S144。build 無し。`outDir/<名前>-fmi<版>.fmu` と展開した `outDir/<名前>/` を書く）
             "globe/exportFmu" => match (params["model"].as_str(), params["outDir"].as_str()) {
                 (Some(model), Some(out_dir)) => {
                     let options = globe_mode::FmuOptions {
@@ -1288,7 +1288,7 @@ mod tests {
         let r = s.handle(json!({"id": 1, "method": "globe/exportFmu",
             "params": {"model": "Decay", "outDir": out}}));
         let path = PathBuf::from(r[0]["result"]["path"].as_str().unwrap());
-        assert_eq!(path, dir.join("Decay.fmu"));
+        assert_eq!(path, dir.join("Decay-fmi2.fmu"));
         assert!(path.is_file());
         assert!(dir.join("Decay/modelDescription.xml").is_file());
         let r = s.handle(json!({"id": 2, "method": "globe/exportFmu",

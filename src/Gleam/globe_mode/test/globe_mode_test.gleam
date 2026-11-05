@@ -46,7 +46,7 @@ pub fn decay_check_simulate_test() {
   // S118: FMU（2.0、build なし）。展開したディレクトリに modelDescription.xml がある
   let assert Ok(fmu) =
     globe_mode.export_fmu(ws, model, "build/gm-gleam-fmu", "{}")
-  assert string.ends_with(fmu, "GlobeModeValidation_Simulation_Decay.fmu")
+  assert string.ends_with(fmu, "GlobeModeValidation_Simulation_Decay-fmi2.fmu")
   let assert Ok(xml) =
     read_file(
       "build/gm-gleam-fmu/GlobeModeValidation_Simulation_Decay/modelDescription.xml",

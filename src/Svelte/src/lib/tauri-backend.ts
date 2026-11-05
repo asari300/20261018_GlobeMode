@@ -173,7 +173,7 @@ export class TauriBackend implements Backend {
     return path;
   }
 
-  /** S144: ソースの FMU。dialog.save で選んだ場所のフォルダを outDir にして sidecar に書かせる（`<outDir>/<モデル名の . を _ にしたもの>.fmu` と展開した同名のフォルダ。選んだファイル名は使わない）。 */
+  /** S144: ソースの FMU。dialog.save で選んだ場所のフォルダを outDir にして sidecar に書かせる（`<outDir>/<モデル名の . を _ にしたもの>-fmi<版>.fmu` と展開した同名のフォルダ。選んだファイル名は使わない）。 */
   references(file: string, line: number, character: number) {
     return invoke<Definition["range"][]>("rpc", { method: "globe/references", params: { file, line, character } }); // S161
   }
@@ -187,7 +187,7 @@ export class TauriBackend implements Backend {
     return invoke("rpc", { method: "globe/hover", params: { file, line, character } }); // S149（globe/definition と同じ解決で宣言の 1 行）
   }
   async exportFmu(model: string, fmiVersion: number): Promise<string | null> {
-    const path = await tauriGlobal().dialog.save({ defaultPath: `${model.replaceAll(".", "_")}.fmu`, filters: [{ name: "FMU", extensions: ["fmu"] }] });
+    const path = await tauriGlobal().dialog.save({ defaultPath: `${model.replaceAll(".", "_")}-fmi${fmiVersion}.fmu`, filters: [{ name: "FMU", extensions: ["fmu"] }] });
     if (!path) return null;
     const r = await invoke<{ path: string }>("rpc", { method: "globe/exportFmu", params: { model, fmiVersion, outDir: path.replace(/[\\/][^\\/]*$/, "") || "/" } });
     return r.path;
