@@ -16,6 +16,7 @@ Decay の x で Shift+F12 を押すと参照の一覧（3 行）が出て行を�
 結果の位置（S170）: 1280x800 と 390 px 幅で、実行の進捗・止める・失敗の理由が最初の画面の中に出て、終わるとプロットの上端が画面の中に入り、利用者が戻したスクロールは引き戻さない。
 開く・モデル名（S170）: 2 モデルのファイルは select で選び直せて再読み込みで残り、未保存の編集があるタブと同じ名前を開き直しても編集が残る。ライブラリのモデル名を打ったときは食い違いの案内。
 キーボードだけ（S175）: マウスを使わず Tab・Enter・Space とショートカットで、検査、診断と参照の行からエディタへ、実行（プロットの canvas の `aria-label` に信号名と時間の範囲）、止める（Ctrl+.）、保存（Ctrl+S）まで通る。フォーカスの輪郭が見える。
+初回の案内（S179）: 保存したタブが無い初回だけ「はじめに」の 3 手順（検査・実行のショートカットつき）が出て、閉じると再読み込みでも出ない（smoke では出ない）。スキップリンクは Tab 1 回でエディタへ・2 回で結果へ。タブは矢印・Home・End で移り（roving tabindex）、未保存の印（●）は編集で付いて再読み込みをまたぎ保存で消え、未保存のとき beforeunload が出る。
 ダークモード（S152）: `color_scheme="dark"` で開くと背景が暗く文字が明るい（body・エディタ・診断・プロット・graph。プロットの軸の文字は canvas に描くので明るい画素を数える）。テーマの select で「明」にすると戻り、再読み込みで選択が残り、「OS に合わせる」で暗に戻る。
 FMU を書き出す（S144）: ブラウザの wasm が作ったソースの FMU がダウンロードされ、modelDescription.xml と sources/ がある。S154 から FMI の版（2.0 / 3.0）を select で選ぶ。
 実行の設定（S142）: 終了時刻 2 とソルバ dopri45 で Decay を実行して x(2) が e⁻²、DecayK は experiment の Tolerance が初期値（出どころ experiment）に出て、k = 2 の上書きで x(1) が e⁻²。名前=値でない行は実行しない。
@@ -1059,6 +1060,82 @@ def main() -> int:
             assert kb.get_by_role("button", name=name, exact=True).get_attribute("aria-keyshortcuts").startswith(keys), name
         kb.close()
         print("キーボードだけ: モデル名・エディタへ Tab、Ctrl+Shift+Enter で検査、診断と参照の行を Tab・Enter・Space でエディタへ、Ctrl+Enter で実行（プロットの aria-label に信号名と時間の範囲）、Ctrl+. で止め、Ctrl+S で保存")
+        # 初回の案内・スキップリンク・タブの矢印キー・未保存の印（S179）
+        fr = browser.new_page(viewport={"width": 1280, "height": 800})
+        fr.on("console", lambda m: m.type == "error" and errors.append(m.text))
+        fr.on("pageerror", lambda e: errors.append(str(e)))
+        unloads: list[str] = []
+        fr.on("dialog", lambda d: (unloads.append(d.type), d.accept()))  # 未保存のまま再読み込みすると beforeunload の確認が出る
+        fr.goto(origin)
+        fr.get_by_role("button", name="検査").wait_for()
+        welcome = fr.locator("section.welcome")
+        expect(welcome).to_be_visible()
+        guide = welcome.inner_text()
+        assert all(k in guide for k in ["検査", "実行", "Ctrl/Cmd+Enter", "Ctrl/Cmd+Shift+Enter", "MSL を読む"]), guide
+        assert inside(fr, "section.welcome")
+        fr.reload()  # 何も書かず・閉じずに開き直しても、まだ初回
+        expect(fr.locator("section.welcome")).to_be_visible()
+        # スキップリンク: Tab 1 回で「エディタへ」が見え、Enter でエディタ、Tab 2 回で「結果へ」
+        fr.get_by_role("button", name="検査").wait_for()
+        fr.keyboard.press("Tab")
+        assert fr.evaluate("document.activeElement.textContent") == "エディタへ"
+        assert fr.evaluate("document.activeElement.getBoundingClientRect().left") >= 0, "スキップリンクがフォーカスで見えない"
+        fr.keyboard.press("Tab")
+        assert fr.evaluate("document.activeElement.textContent") == "結果へ"
+        fr.keyboard.press("Enter")
+        assert fr.evaluate("document.activeElement.id") == "results", "結果へ飛ばない"
+        fr.reload()
+        fr.get_by_role("button", name="検査").wait_for()
+        fr.keyboard.press("Tab")
+        fr.keyboard.press("Enter")
+        assert fr.evaluate("!!document.activeElement.closest('.cm-editor')"), "エディタへ飛ばない"
+        # 案内を閉じると、再読み込みでも出ない（localStorage）。smoke（?smoke=1）では最初から出ない
+        fr.get_by_role("button", name="閉じる").click()
+        expect(fr.locator("section.welcome")).to_have_count(0)
+        assert fr.evaluate("!!document.activeElement.closest('.cm-editor')")
+        fr.reload()
+        fr.get_by_role("button", name="検査").wait_for()
+        expect(fr.locator("section.welcome")).to_have_count(0)
+        sm = browser.new_page()  # 別の（保存の無い）ブラウザの文脈で ?smoke=1
+        sm.goto(origin + "?smoke=1")
+        sm.get_by_role("button", name="検査").wait_for()
+        expect(sm.locator("section.welcome")).to_have_count(0)
+        sm.close()
+        # タブ: 左右の矢印・Home・End で移り（選ぶと開く）、フォーカスと tabindex（roving）が付いてくる
+        open_in(fr, "A.mo", "model A\n  Real a(start = 1, fixed = true);\nequation\n  der(a) = -a;\nend A;\n")
+        open_in(fr, "B.mo", "model B\n  Real b(start = 1, fixed = true);\nequation\n  der(b) = -b;\nend B;\n")
+        ftabs = fr.get_by_role("tab")
+        expect(ftabs).to_have_count(3, timeout=30_000)
+        expect(ftabs.nth(2)).to_have_attribute("aria-selected", "true")
+        assert [ftabs.nth(i).get_attribute("tabindex") for i in range(3)] == ["-1", "-1", "0"]
+        ftabs.nth(2).focus()
+        for key, want in [("ArrowLeft", 1), ("Home", 0), ("ArrowLeft", 2), ("ArrowRight", 0), ("End", 2)]:  # ArrowLeft は先頭から末尾へ、ArrowRight は末尾から先頭へ回る
+            fr.keyboard.press(key)
+            expect(ftabs.nth(want)).to_have_attribute("aria-selected", "true")
+            assert fr.evaluate(f"document.activeElement === document.querySelectorAll('[role=tab]')[{want}]"), (key, want)
+        expect(fr.locator(".cm-content")).to_contain_text("model B")
+        # 未保存の印: 編集で付き、再読み込みをまたいでも残り（保存済みの本文との差）、保存で消える
+        expect(fr.locator(".dirty")).to_have_count(0)
+        fr.locator(".cm-content").click()
+        fr.keyboard.type("x")
+        expect(fr.locator(".dirty")).to_have_count(1)
+        assert fr.locator("[role=tab][aria-selected=true] .dirty").get_attribute("aria-label") == "未保存"
+        fr.reload()
+        expect(fr.get_by_role("tab")).to_have_count(3, timeout=30_000)
+        assert "beforeunload" in unloads, unloads  # 未保存があると再読み込みの前に確かめる
+        expect(fr.locator("[role=tab][aria-selected=true] .dirty")).to_have_count(1)
+        fr.locator(".cm-content").click()
+        with fr.expect_download(timeout=10_000):
+            fr.keyboard.press("Control+s")
+        expect(fr.locator(".dirty")).to_have_count(0)
+        fr.reload()
+        expect(fr.get_by_role("tab")).to_have_count(3, timeout=30_000)
+        expect(fr.locator(".dirty")).to_have_count(0)
+        n = len(unloads)
+        fr.reload()
+        assert len(unloads) == n, "未保存が無いのに確かめた"
+        fr.close()
+        print("初回の案内: 初回だけ出て閉じると残り、smoke では出ない。スキップリンクは Tab 1 回でエディタ・2 回で結果、タブは矢印・Home・End で移り、未保存の印は編集で付いて再読み込みをまたぎ保存で消える（未保存のとき beforeunload）")
         # ダークモード（S152）: OS が暗いと背景が暗く文字が明るい。エディタ・プロット・graph も暗い。手動で「明」にすると戻り、再読み込みで選択が残る
         dark = browser.new_page(color_scheme="dark")
         dark.on("console", lambda m: m.type == "error" and errors.append(m.text))
