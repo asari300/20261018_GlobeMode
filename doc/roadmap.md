@@ -409,6 +409,12 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - 試験: `test_ui.py` に 3.0 の書き出しを足した（既定は `fmiVersion="2.0"`、3.0 を選ぶと `fmiVersion="3.0"` の `modelDescription.xml` と `sources/`）。`main.rs` に `read_mo` の単体試験。`GM-SMOKE` に `recent=ok`（desktop.yml。Linux と Windows が作業ディレクトリの `Recent.mo` を開く。ブラウザ・Android は出さない）。
 - 持ち越し: 再読み込みをまたぐ未保存の印、タブの並べ替え、`--build` の UI、FMU import。
 
+### S158（P3、2026-11-05）で済んだこと
+
+- **`sdirk34hw` の `ThyristorBridge2Pulse_DC_Drive`（t = 13.04）の `GM-E11003` の原因を特定した。GlobeMode 側では直せず、記録した**（[解説書](sessions/S158-sim-sdirk34hw-thyristor/解説書.md)）: Rumoca の host（`relation_memory.rs`）が関係式の根の側を `value == 0.0` の厳密な比べ方で決める。事象の時刻の状態がちょうど釣り合う（`dcpm.la.i + lMains.i == 0.0`）と根が 1e-29 の雑音になり、固定した方式のあとの射影で符号が両方反転して上書きが外れ、周期 2 の繰り返しが `fixed_point_cap`（32）まで続く。host の 2 行を `abs() <= 1e-24` にした手元の版は 15 s まで通る（Rumoca は変えない）。v0.10.4 と main（`590ac739`）も同じ行。S139 の「刻みの 1 ulp で揺れる」は、補間した状態が釣り合いにビットまで一致するかが刻みで変わる、ということ。
+- 記録: 上流の下書き 34（[upstream.md](upstream.md)）、[msl-solvers.md](msl-solvers.md) の注記、既知の限界の試験 `msl_sdirk34hw_thyristor_bridge_event_iteration_is_a_known_limit`（`#[ignore]`）。実行系は変えていないので `wasm:node`・`wasm:compare`・`msl-sim.yml` は回していない（数値は S139 のまま）。
+- 持ち越し: 下書き 34 の提出（ユーザー）と、同じ雑音がほかのサイリスタ・ダイオードの回路で当たる数の調査。
+
 ### S157（P4、2026-11-05）で済んだこと
 
 - **止めても、そこまでの列がプロットに残る**（[ADR-0033](adr/0033-progress-and-cancel.md) の 6 段目。[解説書](sessions/S157-cancel-partial-result/解説書.md)）: ネイティブ（exec・facade・LSP・Desktop）には途中の列を返す口が既にあり、足りなかったのは wasm の Worker に止める合図を届けることと、UI の表示だけだった。wasm の進捗の関数が厳密に `true` を返すと `CancelToken` を立て、`GlobeWorker.cancel()` は SharedArrayBuffer(4) のフラグを立てて、Worker が進捗のたびに読む。止まった実行は列と `GM-I11004` を普通の結果として返し、`App.svelte` は「止めた（t = … で止めた、そこまでの n 点を表示）」を出して列を残す（Desktop も同じ分岐）。SharedArrayBuffer が無い配信（cross-origin isolated でない）と、2 s 応えない実行（lowering など）は前のとおり `terminate()` して作り直す。COOP / COEP は `vite.config.ts`・`web-bundle.sh`・`test_ui.py` の配信に付けた。
@@ -634,7 +640,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 ### S126（P3・P8、2026-11-03）で済んだこと
 
 - **ソルバの表を S119 の後の版で更新した**（文書だけ。[解説書](sessions/S126-msl-solvers-refresh/解説書.md)）: `msl-sim.yml` run 41616928442（main `97be9cc`、14 ソルバすべて、全ジョブ success）の artifact で [msl-solvers.md](msl-solvers.md) と [msl-sim.md](msl-sim.md) を置き換えた。S050 から: `auto` 309 → 312・管 301 / 308 → 303 / 311、`dopri45` 292 → 293、`sdirk34hw` 294 → 292（管 285 → 282）、`tsit45` 287 → 285、`cerk23`・`cvode` 1 本ずつ減、ほかは同じ。`auto` の 356 本の判定は S119 の run と同じ。`ThyristorBridge2mPulse_DC_Drive` は積分 125.6 s で完走（S119 の run は 177.1 s。ランナーで揺れ、予算 180 s の境目のまま）。
-- 持ち越し: session の道の SDIRK（`esdirk34`・`esdirk45`・`sdirk34hw`）で `HBridge_TrianglePWM_RL`・`HBridge_DC_Drive` が `GM-E11002`、`sdirk34hw` で `ThyristorBridge2Pulse_DC_Drive` が `GM-E11003` に変わった。plugins を変えたのは S119 だけなので S119 の刻みの上限が疑わしいが【未確認】。**S139 で確かめて直した**（下）。
+- 持ち越し: session の道の SDIRK（`esdirk34`・`esdirk45`・`sdirk34hw`）で `HBridge_TrianglePWM_RL`・`HBridge_DC_Drive` が `GM-E11002`、`sdirk34hw` で `ThyristorBridge2Pulse_DC_Drive` が `GM-E11003` に変わった。plugins を変えたのは S119 だけなので S119 の刻みの上限が疑わしいが【未確認】。**S139 で確かめて直した**（下）。`sdirk34hw` の `GM-E11003` は S158 で原因を特定した（Rumoca の host の側。下書き 34）。
 
 ### S139（P3、2026-11-03）で済んだこと
 

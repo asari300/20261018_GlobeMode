@@ -1059,6 +1059,37 @@ fn msl_auto_falls_back_to_dopri45_when_bdf_fails_to_integrate() {
     });
 }
 
+/// 既知の限界（S158）: `sdirk34hw` は ThyristorBridge2Pulse_DC_Drive の t = 13.04 で GM-E11003。事象の時刻の状態が
+/// ちょうど釣り合い（la.i + lMains.i = 0.0）、2 つのサイリスタの根が 1e-29 の丸め雑音になって符号が毎回反転し、
+/// Rumoca の host の `value == 0.0` の比べ方では一貫した側が決まらない（上流の下書き 34）。直ると落ちる。
+/// 落ちたら試験を「終了時刻まで進む」に書き換え、doc/upstream.md の 34 を直す。
+#[test]
+#[ignore = "MSL を読む（遅い、release で約 2 分）。cargo test --release -p globe-mode-exec --test simulate -- --ignored"]
+fn msl_sdirk34hw_thyristor_bridge_event_iteration_is_a_known_limit() {
+    with_msl(|checker| {
+        let name = "Modelica.Electrical.PowerConverters.Examples.ACDC.RectifierBridge2Pulse.ThyristorBridge2Pulse_DC_Drive";
+        let model = checker
+            .compile_retaining(&[], name)
+            .unwrap_or_else(|d| panic!("{d:#?}"));
+        let report = run(
+            &model,
+            &SimSettings {
+                solver: Some("sdirk34hw".to_string()),
+                tolerance: Some(1e-7),
+                max_wall_seconds: Some(300.0),
+                ..SimSettings::default()
+            },
+        );
+        let d = report
+            .diagnostics
+            .iter()
+            .find(|d| d.severity == Severity::Error)
+            .unwrap_or_else(|| panic!("直った: {:#?}", report.diagnostics));
+        assert_eq!(d.code, codes::RUN_EVENT_FAILED, "{d:#?}");
+        assert!(d.message.contains("t = 13.04"), "{d:#?}");
+    });
+}
+
 /// 単独のプリフライト（lowering をもう 1 回する。S013 までの `run` はこの分を毎回払っていた）と、`run`（S014 から
 /// プリフライトを組み立ての lowering の結果で行う）の時間を比べる（doc/research/msl-sim-failures.md の
 /// 「GlobeMode で直すもの」の 4）。数を出すだけで、合否は見ない。

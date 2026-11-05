@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>上流の下書き 34 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode 上流の下書き 34">
+
+<section class="slide" id="S01">
+  <span class="tag">下書き 34 · Rumoca · 未提出 · 2026-11-05</span>
+  <h1>根が丸めの雑音のとき、事象の反復が終わらない</h1>
+  <p class="lead">関係式の根の側を <code>value == 0.0</code> の厳密な比べ方で決めるので、1e-29 の雑音の符号で方式が毎回反転する</p>
+  <div class="cols-2">
+    <div>
+      <pre><code>relation_memory.rs (v0.10.4, main も同じ)
+708: value == 0.0
+       || memory_of(value) == *side
+949: || roots[*index] == 0.0
+
+t = 13.0400170981568
+la.i =  19.95342803660142
+lMains.i = -19.95342803660142   // 和は 0.0
+pass 1: roots (+4.1e-30, -4.1e-35)  固定 [0,1]
+pass 2: roots (-3.3e-34, +3.3e-29)  外れる
+pass 3: [1,0] を固定 ... 周期 2 で 32 回
+=&gt; EventIteration did not converge</code></pre>
+      <p class="small muted">本文: <a href="34-event-iteration-exact-zero-test-on-rounding-noise_jp.md">日本語</a> · <a href="34-event-iteration-exact-zero-test-on-rounding-noise.md">英語</a> · 再現 <a href="34-event-iteration-exact-zero-test-on-rounding-noise.mo">.mo</a> · 一覧 <a href="../../upstream.md">upstream.md</a></p>
+    </div>
+    <table class="small">
+      <tr><th>見つけた所</th><td>MSL <code>ThyristorBridge2Pulse_DC_Drive</code> を GlobeMode の <code>sdirk34hw</code> で。<code>esdirk34</code> は通る</td></tr>
+      <tr><th>最新の状態</th><td><span class="ng">同じ書き方</span>（v0.10.4、main <code>590ac739</code>。確認日 2026-11-05）</td></tr>
+      <tr><th>確かめたこと</th><td>2 つの比べ方を <code>abs() &lt;= 1e-24</code> にすると 15 s まで通る（手元だけ）</td></tr>
+      <tr><th>影響</th><td>MSL で 1 本（<code>sdirk34hw</code> だけ）。ほかの例題で当たるかは未調査</td></tr>
+      <tr><th>提出の判断材料</th><td>雑音の大きさに合わせた許容誤差が要る。他の例題への副作用は未確認</td></tr>
+    </table>
+  </div>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
