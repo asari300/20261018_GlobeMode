@@ -2,25 +2,38 @@
   import uPlot from "uplot";
   import "uplot/dist/uPlot.min.css";
   import { toCsv, type Columns } from "./csv";
+  import { exportName, isInternal, matches } from "./signals";
   import type { Backend } from "../backend";
   import { TauriBackend, inTauri } from "../tauri-backend";
   import { cssVar, theme } from "../../theme.svelte";
   import { browserSave, browserSaveBinary } from "../browser-file";
 
-  let { columns }: { columns: Columns } = $props();
+  let { columns, model = "" }: { columns: Columns; model?: string } = $props();
 
   const COLORS = ["#1f77b4", "#d62728", "#2ca02c", "#9467bd", "#ff7f0e", "#17becf", "#8c564b", "#e377c2"];
   const DEFAULT_SHOWN = 3;
+  const LIST_MAX = 200; // 一覧に並べる最大（信号が千本あっても入力が引っかからない。残りは絞り込みで出す。仮想スクロールは入れない）
 
   let host: HTMLDivElement;
   let plot: uPlot | undefined;
   // 新しい結果が来たら選択・軸・x を既定に戻す（書き換えは次の結果まで残る）
-  let shown = $derived(columns.names.map((_, i) => i < DEFAULT_SHOWN));
+  let shown = $derived.by(() => {
+    let n = 0; // 既定は内部名を除いた先頭の 3 本
+    return columns.names.map((name) => !isInternal(name) && n++ < DEFAULT_SHOWN);
+  });
   let right = $derived(columns.names.map(() => false));
   let xi = $derived.by(() => (void columns, -1)); // -1 は time、それ以外は names の添字（パラメトリック）
+  let query = $state("");
+  let internal = $state(false); // 内部の名前（$ で始まるもの）も一覧と書き出しに含める
   let lastMs = $state(0);
   let error = $state("");
   let saved = $state("");
+  // 一覧に出す信号の添字（絞り込みと内部名）。選択（shown）はこれと独立で、絞り込みで一覧から消えても残る
+  let matched = $derived(columns.names.flatMap((n, i) => ((internal || !isInternal(n)) && matches(n, query) ? [i] : [])));
+  let listed = $derived(matched.slice(0, LIST_MAX));
+  // プロットと CSV に使う系列。内部名は、チェックを外していれば選択されていても出さない
+  let ys = $derived(columns.names.flatMap((n, i) => (shown[i] && (internal || !isInternal(n)) ? [i] : [])));
+  const setListed = (on: boolean) => (shown = shown.map((v, i) => (listed.includes(i) ? on : v)));
   // Plot の中で完結させる（App から backend を受けない）。Desktop は dialog / fs、ブラウザ・Android はダウンロード
   const out: Pick<Backend, "saveFile" | "saveBinary"> = inTauri() ? new TauriBackend() : { saveFile: browserSave, saveBinary: browserSaveBinary };
 
@@ -28,9 +41,8 @@
   const fail = (e: unknown) => (error = String((e as Error).message ?? e));
   // 選んだ系列と x の列（画面と同じ）。欠損は空欄
   function exportCsv() {
-    const ys = columns.names.flatMap((_, i) => (shown[i] ? [i] : []));
     const head = [xi < 0 ? "time" : columns.names[xi], ...ys.map((i) => columns.names[i])];
-    out.saveFile("result.csv", toCsv(head, [columns.data[xi + 1], ...ys.map((i) => columns.data[i + 1])]), true).then(done, fail);
+    out.saveFile(exportName(model, "csv"), toCsv(head, [columns.data[xi + 1], ...ys.map((i) => columns.data[i + 1])]), true).then(done, fail);
   }
   // shortcut: canvas だけ（凡例と DOM の軸ラベルは入らない）。背景色で塗るのは、透明のままだと線が見えないため（明は白のまま。暗は暗い地に明るい軸の文字で書き出す）
   function exportPng() {
@@ -42,7 +54,7 @@
     g.fillRect(0, 0, c.width, c.height);
     g.drawImage(src, 0, 0);
     c.toBlob(async (b) => {
-      try { done(await out.saveBinary!("result.png", new Uint8Array(await b!.arrayBuffer()))); } catch (e) { fail(e); }
+      try { done(await out.saveBinary!(exportName(model, "png"), new Uint8Array(await b!.arrayBuffer()))); } catch (e) { fail(e); }
     }, "image/png");
   }
 
@@ -54,7 +66,6 @@
       const ax = { stroke: cssVar("--fg"), grid: { stroke: cssVar("--line"), width: 1 }, ticks: { stroke: cssVar("--border"), width: 1 } };
       const t0 = performance.now();
       const cols = columns;
-      const ys = cols.names.flatMap((_, i) => (shown[i] ? [i] : []));
       const scale = (i: number) => (right[i] ? "y2" : "y");
       const used = new Set(ys.map(scale));
       const xs = cols.data[xi + 1];
@@ -97,21 +108,30 @@
 </script>
 
 <div class="plot" data-points={columns.points} data-ms={lastMs.toFixed(1)} data-typed={columns.data[0] instanceof Float64Array}
-  data-x={xi < 0 ? "time" : columns.names[xi]} data-series={shown.filter(Boolean).length} data-right={shown.filter((s, i) => s && right[i]).length}>
+  data-x={xi < 0 ? "time" : columns.names[xi]} data-series={ys.length} data-right={ys.filter((i) => right[i]).length} data-listed={listed.length} data-matched={matched.length}>
   {#if error}<p class="failure" role="alert">{error}</p>{/if}
   <label>x 軸
     <select value={xi} onchange={(e) => (xi = Number(e.currentTarget.value))}>
       <option value={-1}>time</option>
-      {#each columns.names as n, i}<option value={i}>{n}</option>{/each}
+      {#each columns.names as n, i}{#if internal || !isInternal(n) || i === xi}<option value={i}>{n}</option>{/if}{/each}
     </select>
   </label>
+  <div class="filter">
+    <input type="search" aria-label="信号を絞り込む" placeholder="信号を絞り込む（空白区切りで AND）" bind:value={query}>
+    <label><input type="checkbox" name="internal" bind:checked={internal}>内部の変数も表示</label>
+    <button onclick={() => setListed(true)}>表示中をすべて選ぶ</button>
+    <button onclick={() => setListed(false)}>表示中をすべて外す</button>
+    <span class="count">選択 {ys.length} 本 / 一致 {matched.length} 本</span>
+  </div>
   <div class="signals" aria-label="信号">
-    {#each columns.names as n, i}
+    {#each listed as i (i)}
+      {@const n = columns.names[i]}
       <span>
         <label><input type="checkbox" name="signal" checked={shown[i]} onchange={(e) => (shown = shown.map((v, k) => (k === i ? e.currentTarget.checked : v)))}>{n}</label>
         {#if shown[i]}<label class="side"><input type="checkbox" aria-label="{n} を右の軸に" checked={right[i]} onchange={(e) => (right = right.map((v, k) => (k === i ? e.currentTarget.checked : v)))}>右</label>{/if}
       </span>
     {/each}
+    {#if matched.length > listed.length}<span class="more">ほか {matched.length - listed.length} 件（絞り込むと出る）</span>{/if}
   </div>
   <div class="export">
     <button onclick={exportCsv}>CSV</button>
@@ -123,6 +143,9 @@
 
 <style>
   .signals { display: flex; flex-wrap: wrap; gap: .25rem 1rem; margin: .5rem 0; max-height: 6rem; overflow: auto; }
+  .filter { display: flex; flex-wrap: wrap; gap: .25rem .75rem; align-items: center; margin-top: .5rem; }
+  .filter input[type=search] { flex: 1 1 14rem; }
+  .count, .more { color: var(--muted); font-size: .85em; }
   .export { display: flex; gap: .5rem; align-items: center; margin-bottom: .5rem; }
   .side { font-size: .85em; opacity: .8; }
   .failure { color: var(--err); white-space: pre-wrap; }
