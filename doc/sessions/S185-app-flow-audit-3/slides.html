@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S185 並行で入れた 16 本の再点検 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S185 並行で入れた 16 本の再点検">
+
+<section class="slide" id="S01">
+  <span class="tag">S185 · 2026-11-06 · 点検</span>
+  <h1>並行で入れた 16 本の再点検</h1>
+  <p class="lead">S164・S178 の穴を同じ操作で打ち直し、取り込みの組み合わせの退行を探した</p>
+  <div class="big">穴は<b>ほぼ塞がっていた</b>。残りは<b>文書の古さ</b>と<b>開いた先の位置</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">方法</span>
+  <h1>何をどう触ったか</h1>
+  <ul>
+    <li>main の 2ec6105 で wasm（release）と UI と CLI をビルドし直した。コードは変えていない</li>
+    <li>ブラウザは毎回、localStorage が空の新しい context から。1280 px と 390 px、明と暗、キーボードだけの通しも</li>
+    <li>MSL の例題 10 本（S164 の 7 本と新しい 3 本）を、検索で開いて検査と実行</li>
+    <li>CLI は誤った使い方 21 通りと README の例を打ち直し、Python は新しい venv で</li>
+    <li>他言語の README の最初の例を書いてあるとおりに 1 回ずつ</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">S164 の穴</span>
+  <h1>ブラウザ版: ほぼ直った</h1>
+  <table class="compact">
+    <tr><th>穴</th><th>結果</th></tr>
+    <tr><td>木と検索（N1）</td><td>直った。Examples に 24 項目。検索は 0.01 s。開いた先の位置だけ残る</td></tr>
+    <tr><td>結果の位置（N3）</td><td>直った。プロットの上端が 258〜333 px</td></tr>
+    <tr><td>未対応と強行（N2・N9）</td><td>直った。強行で診断の重複 0</td></tr>
+    <tr><td>プロットの絞り込み（N5）</td><td>直った。既定の選択は先頭 3 本のまま</td></tr>
+    <tr><td>補完・キーボード（N13・N10）</td><td>直った。Tab で字下げしないのは設計のまま</td></tr>
+    <tr><td>FMU（N4）</td><td>一部。版つきの名前と、MSL の失敗の文面が残る</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">待ち時間</span>
+  <h1>例題 10 本中 9 本が通った</h1>
+  <table class="compact">
+    <tr><th>例題</th><th>検査</th><th>実行</th></tr>
+    <tr><td>CauerLowPassAnalog</td><td>1.86 s</td><td>0.25 s</td></tr>
+    <tr><td>PID_Controller</td><td>1.36 s</td><td>0.86 s</td></tr>
+    <tr><td>DoublePendulum（1302 本）</td><td>2.36 s</td><td>2.38 s</td></tr>
+    <tr><td>Rectifier</td><td>1.86 s</td><td>1.37 s</td></tr>
+    <tr><td>Friction</td><td>1.87 s</td><td>未対応（強行も不可）</td></tr>
+  </table>
+  <p class="foot">検索から開くまで 0.01〜0.04 s。390 px の ChuaCircuit も通った</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">S178 の穴</span>
+  <h1>CLI と Python: 21 通りのうち 9 が直り、3 が直っていない</h1>
+  <table class="compact">
+    <tr><th>直った</th><th>直っていない</th></tr>
+    <tr><td>モデル名の候補（E10a・E10c）</td><td>-L を忘れた（E4）</td></tr>
+    <tr><td>負の数・書き出し先の事前検査</td><td>-L がサブフォルダ（E5）</td></tr>
+    <tr><td>os error と Broken pipe</td><td>パッケージ名は英語の原文（E10b）</td></tr>
+    <tr><td>強行の重複・最後の行の理由</td><td>fmt --check の黙った 0、未対応の終了コード（判断待ち）</td></tr>
+    <tr><td>Python の未知のキー・読み取り・要約</td><td>FMU の版つきの名前、outline の -L</td></tr>
+  </table>
+  <p class="foot">他言語の README の最初の例は 5 本とも動いた</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">退行・食い違い</span>
+  <h1>見つけたもの（重さの順）</h1>
+  <ul>
+    <li>R1 中: README の「既知の限界」が補完と検索を「無い」と書いたまま</li>
+    <li>R2 中: クラス名をリネームしてもモデル名の欄が古く、次の検査の候補が的外れ（PI・MO・Not）</li>
+    <li>R3 低: 入れ子のクラスを開いても位置へ動かず、タブは package.mo</li>
+    <li>R4 低: MSL の例題の FMU は英語の 1 行で失敗。2.0 と 3.0 が同じ名前</li>
+    <li>R5 低: -L がサブフォルダのときの補足が、実際の失敗の経路に出ない</li>
+    <li>R7〜R10 低: 補完が開いたままの Ctrl+Enter、フォーカス、スキップ、整形の例</li>
+  </ul>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">組み合わせ</span>
+  <h1>特に見た組み合わせは壊れていない</h1>
+  <ul>
+    <li>初回の案内が開いたままの実行でも、プロットは画面の中（上端 332 px）</li>
+    <li>未保存の印、同名の開き直し、再読み込みは、編集とモデル名が残る</li>
+    <li>強行の要約と重複は 1 回。診断の行からエディタへ飛べる（1280 px・390 px）</li>
+    <li>モデルを選び直した 2 モデルのファイルは、木から別のファイルを開いて戻っても残る</li>
+  </ul>
+</section>
+
+<section class="slide" id="S08">
+  <span class="tag">次</span>
+  <h1>上位 10 と WP の組</h1>
+  <table class="compact">
+    <tr><th>組</th><th>内容</th></tr>
+    <tr><td>A 文書</td><td>README の 2 行と秒数、solvers の docstring</td></tr>
+    <tr><td>B App（順に）</td><td>B1 リネームの追従とキーボード、B2 情報を畳む・既定の信号、B3 入れ子の位置へ</td></tr>
+    <tr><td>C CLI・frontend</td><td>-L の案内、候補の閾値、パッケージ名、outline の -L</td></tr>
+    <tr><td>D FMU</td><td>版つきの名前と失敗の日本語</td></tr>
+  </table>
+  <p class="foot">ユーザーの判断: Tab キー、検証用ライブラリの整形、FMU の名前、既定の信号</p>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
