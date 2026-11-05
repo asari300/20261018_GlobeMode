@@ -157,3 +157,8 @@ UI（Svelte）のプロセスでは検査も実行もしない。計算は 1 つ
 
 - **Desktop と Android の UI の操作は、WebView の外から叩かず、UI の中の `smoke()` が回す。** Tauri の WebView（WebKitGTK・WebView2・Android の WebView）には Playwright をつなげないので、`smoke()` が `openLibrary`・`format`・`graph`・`simulate`・`definition` を呼び、実行の設定の欄、「止める」のボタン、プロットの信号のチェックは要素を操作する。結果は `GM-SMOKE` の行に `tree= fmt= graph= cancel= settings= plot= def=`（`=ok` / `=ng` / MSL が無いブラウザで `=skip`）で出し、`desktop.yml`（Linux・Windows）と `android.yml` が全部 ok を合格にする。ブラウザの `test_ui.py` も同じ行を確かめる。
 - 結果: sidecar（`TauriBackend`）、Worker（`WorkerBackend`、Android）のどちらでも 7 項目が最初の run から ok だった（desktop.yml run 41706643110、android.yml run 41706648182）。バックエンドの違い（sidecar の「止める」は `$/cancelRequest` か sidecar の作り直し、Worker は `terminate()`）は `cancel` 1 項目で両方を通っている。どちらの道かは行に出していない（持ち越し）。
+
+### S160 で決まったこと（macOS、2026-11-05）
+
+- **Desktop は macOS（arm64）でも `desktop.yml` でビルドし、smoke と測定が通る。** Rust のコードの変更は要らなかった（`fix_c_locale` は Linux だけ。sidecar は `.app` の `Contents/MacOS/globe` に実行ファイルと並んで入り、`sidecar()` の既定の場所で見つかった）。署名・公証はしていない。測り方と結果は [ADR-0034](0034-ui-bench-method.md) の付記と [bench/ui.md](../bench/ui.md)。
+- 持ち越し: `release.yml` への macOS（署名・公証の鍵はユーザーの判断）、.dmg を Finder から開く経路と自動更新の確認【未確認】、x64 の macOS。

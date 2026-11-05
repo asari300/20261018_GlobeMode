@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S160 desktop-macos — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S160 desktop-macos">
+
+<section class="slide" id="S01">
+  <span class="tag">S160 · 2026-11-05 · P7</span>
+  <h1>Desktop を macOS でも測った</h1>
+  <p class="lead">desktop.yml に macOS（arm64、署名なし）を足し、smoke と測定が通った</p>
+  <div class="big">run <b>41994245407</b> で 3 OS のジョブとも成功。3 UI × 3 OS の欄がすべて埋まった</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>P7 の完了条件「3 UI × 3 OS」で最後に残った「Svelte Tauri の macOS」</li>
+    <li>desktop.yml の matrix に macos-latest を 1 行足す。.app と .dmg、取得 smoke、UI の測定</li>
+    <li>やらない: 署名・公証・鍵、release.yml、UI のコード</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>置き場</td><td>既存の build の matrix に 1 行</td><td>既存の step を再利用。作り替えない</td></tr>
+    <tr><td>bundle</td><td>--bundles app,dmg</td><td>dmg だけだと .app が片付けられる</td></tr>
+    <tr><td>起動</td><td>.app の実行ファイルを直に起動</td><td>環境変数と標準出力を渡せる</td></tr>
+    <tr><td>RSS</td><td>ps を 0.2 s ごとに見て最大</td><td>time -l は WebKit のプロセスを含まないと考えた</td></tr>
+    <tr><td>Rust</td><td>変えない</td><td>sidecar は Contents/MacOS に並び、そのまま見つかった</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">測定</span>
+  <h1>Svelte Tauri の 3 OS（3 回の中央値）</h1>
+  <table class="compact">
+    <tr><th>測るもの</th><th>Linux</th><th>Windows</th><th>macOS</th></tr>
+    <tr><td>起動（ms）</td><td>114</td><td>178</td><td>190</td></tr>
+    <tr><td>Decay（ms）</td><td>54</td><td>43</td><td>256</td></tr>
+    <tr><td>MSL と ChuaCircuit（ms）</td><td>1,045</td><td>1,927</td><td>2,200</td></tr>
+    <tr><td>最大の RSS（MiB）</td><td>151.6</td><td>128.7</td><td>164.4</td></tr>
+    <tr><td>バンドル（MiB）</td><td>22.7</td><td>20.6</td><td>20.9</td></tr>
+  </table>
+  <p>GM-SMOKE の 12 項目は 3 回とも ok。ランナーは共有で値は目安。</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">署名</span>
+  <h1>署名・公証はしていない</h1>
+  <ul>
+    <li>実行ファイルは linker の ad-hoc 署名だけ（TeamIdentifier は not set）</li>
+    <li>Apple の案内: 開こうとしたあと、プライバシーとセキュリティの「このまま開く」を押す（確認日 2026-11-05）</li>
+    <li>Finder から開く経路と updater は CI で確かめていない【未確認】</li>
+  </ul>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">再現手順</span>
+  <h1>再現と、試走で見つけたこと</h1>
+  <pre><code>gh workflow run desktop.yml --ref feature/s160-desktop-macos
+gh run download RUN_ID -n ui-bench-macos -n desktop-macos
+uv run python src/Svelte/tests/bench_ui.py add svelte-tauri/macos ui-bench-macos/bench.txt --source "..."
+uv run python src/Svelte/tests/bench_ui.py report</code></pre>
+  <ul>
+    <li>1 回目は --bundles dmg で .app が無く、測定の手前で落ちた</li>
+    <li>macOS のジョブは約 27 分（tauri-cli のビルドが約 7.5 分）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>release.yml に macOS の Desktop（署名の鍵はユーザーの判断）</li>
+    <li>.dmg を Finder から開く経路の実機での確認、x64 の macOS</li>
+    <li>desktop.yml を main から dispatch する</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

@@ -38,15 +38,25 @@
 - 良い: Leptos 版・Dioxus 版は「`GM-SMOKE … ready_ms=…` の 1 行を出す」ことだけを満たせば比べられる。
 - 悪い: `ready_ms` はページの読み込みの始まりからで、プロセスの起動から webview を作るまでは含まない（Desktop はその分を `time -v` の Elapsed で見るしかない）。ブラウザと Desktop で 0 の意味が少し違う。
 - 悪い: 手元の数は WSL の負荷（load average）で揺れる。手元の回は load が 10 未満のときに回し、そのときの load を作業記録に書く。
-- 悪い: macOS は `desktop.yml` の matrix に無いので「未」。足すか（.dmg のビルドと測定のジョブ。ランナーの時間が増える）はユーザーが決める。
+- 悪い: macOS は `desktop.yml` の matrix に無いので「未」。足すか（.dmg のビルドと測定のジョブ。ランナーの時間が増える）はユーザーが決める。（S160 で足した。下の付記）
 
 ## 付記（S156、2026-11-05）: 3 OS のブラウザ版の測り方
 
 Svelte・Leptos・Dioxus のブラウザ版を Linux・Windows・macOS で測るため、手動だけのワークフロー `ui-bench.yml` を足した（状態は変えない）。
 
-- **何を測るか**: 上の 5 項目のうち、ブラウザ版の 3 UI。Desktop（Tauri）は `desktop.yml` のまま（macOS は引き続き「未」）。CPU・フレーム時間・PSS は持ち越し。
+- **何を測るか**: 上の 5 項目のうち、ブラウザ版の 3 UI。Desktop（Tauri）は `desktop.yml` のまま（macOS は S160 で足した）。CPU・フレーム時間・PSS は持ち越し。
 - **どこで測るか**: `ubuntu-latest`・`windows-latest`・`macos-latest` の GitHub-hosted runner（公開リポジトリの標準ランナー。仕様は [bench/ui.md](../bench/ui.md) の下）。OS ごとに 3 UI の release の wasm をビルドし（`wasm:build`・`leptos:build`・`dioxus:build` と同じ手順を bash で書いた。Windows で mise の task の shell に頼らないため）、Playwright の Chromium で `bench_ui.py browser --ui <UI>` を 3 回ずつ回す。Python は `uv run --no-project --with playwright==<uv.lock の版>`（`uv sync` は maturin で `globe-mode-py` をビルドするため使わない）。
 - **取り込み**: 結果の JSON を artifact `ui-bench-<os>` に残す。`bench_ui.py merge` で `target/ui-bench.json` に重ね、`report` で表にする。Actions 上の Linux は手元の WSL2 の列（`<UI>/linux`）と分けて `<UI>/linux-actions`（表では「Linux（Actions）」）に入れる。
 - **RSS**: Linux は従来どおり Chromium の子孫の `VmHWM`。Windows・macOS は psutil で子孫の RSS を見る（Windows は `peak_wset`＝ピーク、macOS はピークが取れないので測定の終わりの値で、過小になりうる）。
 - **値の読み方**: ランナーは共有で、同じ仕様でも揺れる。OS 間の差は目安にとどめ、しきい値は置かない（決定 5 のまま）。Linux（Actions）と手元の WSL2 の差も同様。
 - **結果**: run 41984237319 で 3 OS とも成功（約 12〜41 分。macOS が最も遅い）。試走の run 41979389483 は macOS の bash の引数の全角文字で `bench_ui.py` が落ちた（`PYTHONUTF8=1` と ASCII の `--source` で直した）。新しい workflow は default ブランチに無いと dispatch できないので、試走は feature ブランチの一時的な `push` トリガで回し、回し終えて消した。main に入れたあとは `gh workflow run ui-bench.yml` で回せる。
+
+## 付記（S160、2026-11-05）: Desktop の macOS の測り方
+
+`desktop.yml` の matrix に `macos-latest`（macos-26-arm64、M1 3 vCPU・7 GB）を足した（状態は変えない）。
+
+- **ビルド**: `cargo tauri build --bundles app,dmg`。署名なし・公証なし（実行ファイルは linker の ad-hoc 署名）。`dmg` だけを指定すると .app が片付けられて測れない（run 41990732519）。
+- **測り方**: .app の実行ファイル（`Contents/MacOS/`）を直に起動する（`open` は使わない。環境変数と標準出力を渡すため）。Windows と同じく、先に取得の smoke（アプリが app data dir に MSL を取得して ChuaCircuit を検査・実行）を回し、測る 3 回にダウンロードを含めない。`GM-SMOKE` の 12 項目が全部 ok の 3 回を合格にする。
+- **RSS**: macOS の `time -l` は木に入らない WebKit のプロセス（XPC）を含まない【含まないと考えて避けた。試していない】ので、`ps` を 0.2 s ごとに見て、アプリ・sidecar・WebKit のプロセスの rss の最大の 1 つを取る。Linux の `time -v` の木の中の最大に合わせた「最大の 1 プロセス」だが、サンプリングの間のピークは落ちうる。
+- **artifact**: `desktop-macos`（.dmg）、`desktop-macos-app`（.app の tar.gz と取得 smoke の出力。zip は実行ビットを落とすので tar）、`ui-bench-macos`（bench.txt）。
+- **結果**: run 41994245407 で 3 OS のジョブとも成功（macOS は約 27 分）。1 回目の run 41990732519 は `--bundles dmg` で .app が無く、macOS の測定の手前で落ちた。
