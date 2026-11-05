@@ -263,7 +263,8 @@
       await tick();
       return n >= 1 && off === n - 1 && Number(p.dataset.series) === n && p.dataset.right === "1";
     });
-    const cancel = await step("cancel", async () => { // Desktop は TauriBackend.cancel、Android・ブラウザは Worker の terminate
+    let cancelPath = "sidecar"; // S159: 止めた道。flag は SharedArrayBuffer のフラグ（途中の列が残る）、restart は Worker の作り直し（残らない）、sidecar は Desktop
+    const cancel = await step("cancel", async () => { // Desktop は TauriBackend.cancel、Android・ブラウザは Worker のフラグ（cross-origin isolated のとき）か terminate
       replaceDoc(LONG);
       model = "Long";
       const done = simulate();
@@ -272,6 +273,7 @@
       if (button) button.click();
       else backend.cancel?.();
       await done;
+      if (!tauri) cancelPath = runNote.includes("途中の結果は出ない") ? "restart" : "flag";
       const stopped = runState === "cancelled" || diagnostics.some((d) => d.code === "GM-I11004"); // sidecar が止めれば途中までの結果と GM-I11004
       await check(); // 止めたあとも次の呼び出しが回る
       return running && !!button && stopped && !failure && !diagnostics.some((d) => d.severity === "error");
@@ -288,6 +290,7 @@
     const ms = (x: number) => x.toFixed(0);
     const line = `GM-SMOKE check=${checked ? "ok" : "ng"} simulate=${simulated ? "ok" : "ng"} x1=${x1} msl=${mslOk ? "ok" : "ng"}${cfg}`
       + ` ${tree} ${fmt} ${graphed} ${cancel} ${settings} ${plot} ${def}${recentStep}`
+      + ` isolated=${crossOriginIsolated ? 1 : 0} cancel_path=${cancelPath}`
       + ` ready_ms=${ms(ready)} decay_ms=${ms(decay)} msl_ms=${mslOk ? ms(mslMs) : "-"}`
       + (fail0 || ng.length ? ` failure=${[fail0, ...ng].filter(Boolean).join(" / ").replace(/\s+/g, " ")}` : "");
     console.log(line);

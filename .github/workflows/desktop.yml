@@ -208,7 +208,7 @@ jobs:
           done
           echo "GM-BUNDLE kib=$(( $(stat -c %s "$DEB") / 1024 ))" >> bench.txt
           { echo '```'; cat bench.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-          test "$(grep -c 'GM-SMOKE check=ok simulate=ok .* msl=ok cfg=ok tree=ok fmt=ok graph=ok cancel=ok settings=ok plot=ok def=ok recent=ok ' bench.txt)" = 3
+          test "$(grep -c 'GM-SMOKE check=ok simulate=ok .* msl=ok cfg=ok tree=ok fmt=ok graph=ok cancel=ok settings=ok plot=ok def=ok recent=ok isolated=0 cancel_path=sidecar ' bench.txt)" = 3
 
       - name: UI の測定（Windows。S125。先に Rust の smoke で MSL を取得し、測る回にダウンロードを含めない。RSS はプロセスごとの PeakWorkingSet の最大）
         if: runner.os == 'Windows'
@@ -239,7 +239,7 @@ jobs:
           "GM-BUNDLE kib=$([math]::Round($msi.Length / 1024))" | Add-Content bench.txt
           Get-Content bench.txt
           "``````", (Get-Content bench.txt), "``````" | Add-Content $env:GITHUB_STEP_SUMMARY
-          if (@(Select-String 'GM-SMOKE check=ok simulate=ok .* msl=ok cfg=\w+ tree=ok fmt=ok graph=ok cancel=ok settings=ok plot=ok def=ok recent=ok ' bench.txt).Count -ne 3) { throw "ok でない回がある" }
+          if (@(Select-String 'GM-SMOKE check=ok simulate=ok .* msl=ok cfg=\w+ tree=ok fmt=ok graph=ok cancel=ok settings=ok plot=ok def=ok recent=ok isolated=0 cancel_path=sidecar ' bench.txt).Count -ne 3) { throw "ok でない回がある" }
 
       - uses: actions/upload-artifact@v4
         with:
