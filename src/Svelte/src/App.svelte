@@ -1,11 +1,12 @@
 <script lang="ts">
-  import { onMount, tick } from "svelte";
+  import { onMount, tick, untrack } from "svelte";
   import { EditorState } from "@codemirror/state";
   import { EditorView, keymap, lineNumbers, drawSelection, highlightActiveLine } from "@codemirror/view";
   import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
   import { bracketMatching } from "@codemirror/language";
   import { setDiagnostics } from "@codemirror/lint";
-  import { modelicaCompletion, modelicaDefinition, modelicaLinter, toCmDiagnostics } from "./lib/editor";
+  import { darkSlot, modelicaCompletion, modelicaDefinition, modelicaLinter, modelicaTheme, themeSlot, toCmDiagnostics } from "./lib/editor";
+  import { setPref, theme, type Pref } from "./theme.svelte";
   import { WorkerBackend } from "./lib/worker-backend";
   import { TauriBackend, inTauri } from "./lib/tauri-backend";
   import type { Backend, TreeEntry } from "./lib/backend";
@@ -105,8 +106,19 @@
         modelicaCompletion(), modelicaLinter(backend, file), // S053
         modelicaDefinition(definition, goBack, { backend, file: () => file }), // S138（S149: ホバー）
         EditorView.updateListener.of((u) => { if (u.docChanged) persist(); }),
+        modelicaTheme, darkSlot(theme.dark), // S152
       ],
     });
+
+  // S152: 明暗が変わったら、開いている EditorView と、他のタブの state の darkTheme を差し替える
+  $effect(() => {
+    const effects = themeSlot.reconfigure(EditorView.darkTheme.of(theme.dark));
+    untrack(() => {
+      if (!view) return;
+      view.dispatch({ effects });
+      for (const t of tabs) if (t.state !== view.state) t.state = t.state.update({ effects }).state;
+    });
+  });
 
   onMount(() => {
     let docs: { file: string; text: string }[] = [];
@@ -512,6 +524,11 @@
     {#if desktop}<button onclick={() => save(true)}>名前を付けて保存</button>{/if}
     <button onclick={exportFmu} disabled={busy}>FMU を書き出す</button>
     <label>モデル名 <input bind:value={model} aria-label="モデル名"></label>
+    <select aria-label="テーマ" value={theme.pref} onchange={(e) => setPref(e.currentTarget.value as Pref)}>
+      <option value="auto">OS に合わせる</option>
+      <option value="light">明</option>
+      <option value="dark">暗</option>
+    </select>
     <button onclick={check} disabled={busy}>検査</button>
     <button onclick={simulate} disabled={busy}>実行</button>
     <button onclick={graph} disabled={busy}>グラフ</button>
@@ -570,20 +587,20 @@
 <style>
   main { font: 14px/1.4 system-ui, sans-serif; max-width: 60rem; margin: 0 auto; padding: 1rem; }
   .bar { display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: .5rem; }
-  .note, .run, .final { color: #555; margin: .25rem 0; }
+  .note, .run, .final { color: var(--muted); margin: .25rem 0; }
   .tabs { display: flex; flex-wrap: wrap; gap: .25rem; margin-bottom: .25rem; }
   .tab.active button[role=tab] { font-weight: bold; }
   .work { display: flex; gap: .5rem; }
-  .library { flex: 0 0 16rem; height: 16rem; overflow: auto; border: 1px solid #888; font-size: .9em; }
-  .editor { flex: 1; min-width: 0; border: 1px solid #888; }
+  .library { flex: 0 0 16rem; height: 16rem; overflow: auto; border: 1px solid var(--border); font-size: .9em; }
+  .editor { flex: 1; min-width: 0; border: 1px solid var(--border); }
   .editor :global(.cm-editor) { height: 16rem; }
   .diagnostics { width: 100%; border-collapse: collapse; margin-top: .5rem; }
-  td { border-bottom: 1px solid #ddd; padding: .2rem .5rem; vertical-align: top; }
-  .dnote { color: #555; font-size: .9em; }
+  td { border-bottom: 1px solid var(--line); padding: .2rem .5rem; vertical-align: top; }
+  .dnote { color: var(--muted); font-size: .9em; }
   tr { cursor: pointer; }
-  tr.error { color: #b00020; }
-  tr.warning { color: #8a6100; }
-  .failure { color: #b00020; white-space: pre-wrap; }
+  tr.error { color: var(--err); }
+  tr.warning { color: var(--warn); }
+  .failure { color: var(--err); white-space: pre-wrap; }
   /* 小画面（S145）: 左の木を上に積み、診断の長い語を折り返し、横スクロールを出さない */
   @media (max-width: 600px) {
     main { padding: .5rem; }

@@ -1,8 +1,9 @@
 <script lang="ts">
   import Graph from "graphology";
   import forceAtlas2 from "graphology-layout-forceatlas2";
-  import Sigma from "sigma";
+  import Sigma, { DEFAULT_STYLES } from "sigma";
   import type { Backend } from "../backend";
+  import { cssVar, theme } from "../../theme.svelte";
 
   let { backend, model, onSelect }: { backend: Backend; model: string; onSelect: (nodeId: string) => void } = $props();
 
@@ -20,6 +21,7 @@
   $effect(() => {
     const m = model;
     const d = depth;
+    void theme.dark; // 明暗が変わったら色を取り直して作り直す（S152）
     let cancelled = false;
     let s: Sigma | undefined;
     failure = "";
@@ -36,14 +38,16 @@
             x: Math.cos((2 * Math.PI * i) / n),
             y: Math.sin((2 * Math.PI * i++) / n),
             size: a.kind === "connector" ? 5 : 9,
-            color: a.kind === "connector" ? "#c77d00" : "#2563eb",
+            color: a.kind === "connector" ? cssVar("--warn") : cssVar("--accent"),
           });
         });
-        g.forEachEdge((key) => g.setEdgeAttribute(key, "color", "#999"));
+        g.forEachEdge((key) => g.setEdgeAttribute(key, "color", cssVar("--border")));
         if (n > 1) forceAtlas2.assign(g, { iterations: 100, settings: forceAtlas2.inferSettings(g) });
         counts = { nodes: n, edges: g.size };
         // 動かしている間は辺とラベルを描かない（大きなグラフで fps を保つ）
-        s = sigma = new Sigma(g, host, { settings: { hideEdgesOnMove: true, hideLabelsOnMove: true } });
+        s = sigma = new Sigma(g, host, { settings: { hideEdgesOnMove: true, hideLabelsOnMove: true },
+          // ラベルの字と、ホバーしたときの吹き出しの地（既定は黒字・白地）
+          styles: { ...DEFAULT_STYLES, nodes: { ...DEFAULT_STYLES.nodes, labelColor: cssVar("--fg"), backdropColor: cssVar("--bg") } } });
         s.on("clickNode", ({ node }) => onSelect(node));
       })
       .catch((e) => {
@@ -73,6 +77,6 @@
 <style>
   .wrap { display: flex; flex-direction: column; height: 100%; min-height: 20rem; font: 14px/1.4 system-ui, sans-serif; }
   .bar { display: flex; gap: 1rem; margin-bottom: .5rem; }
-  .canvas { flex: 1; border: 1px solid #888; min-height: 16rem; }
-  .failure { color: #b00020; white-space: pre-wrap; }
+  .canvas { flex: 1; border: 1px solid var(--border); min-height: 16rem; background: var(--bg); }
+  .failure { color: var(--err); white-space: pre-wrap; }
 </style>

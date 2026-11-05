@@ -11,6 +11,7 @@ Decay の `der(x)` の x で F12 を押すと宣言の行（`Real x`）へ動く
 `.mo` を開く（ファイル選択）とエディタに入りモデル名が本文から付いて検査が通り、「保存」でダウンロードされ、再読み込みで localStorage から戻る（S141）。
 名前の上にマウスを置くと宣言の 1 行が出る（Decay の x は `Real x`、ChuaCircuit の Resistor は見出しと説明文字列。S149）。
 タブ（S151）: 開くたびにタブが増え、切り替えで本文・モデル名・診断が戻り、再読み込みでタブが戻り、閉じるボタンで減り（未保存なら confirm 1 つ。最後の 1 つは閉じられない）、「最近使ったファイル」から開き直せる。
+ダークモード（S152）: `color_scheme="dark"` で開くと背景が暗く文字が明るい（body・エディタ・診断・プロット・graph。プロットの軸の文字は canvas に描くので明るい画素を数える）。テーマの select で「明」にすると戻り、再読み込みで選択が残り、「OS に合わせる」で暗に戻る。
 FMU を書き出す（S144）: ブラウザの wasm が作ったソースの FMU がダウンロードされ、modelDescription.xml と sources/ がある。
 実行の設定（S142）: 終了時刻 2 とソルバ dopri45 で Decay を実行して x(2) が e⁻²、DecayK は experiment の Tolerance が初期値（出どころ experiment）に出て、k = 2 の上書きで x(1) が e⁻²。名前=値でない行は実行しない。
 ライブラリの木で Modelica → Electrical → Analog → Examples → ChuaCircuit と開き、そのファイルがエディタに開いて検査が通ることも確かめる（S127）。
@@ -513,6 +514,89 @@ def main() -> int:
         expect(tabs).to_have_count(1)
         assert tab.get_by_role("button", name="を閉じる").count() == 0, "最後の 1 つは閉じられない"
         print("タブ: 開く 2→3、切り替えで本文・モデル名・診断が戻り、再読み込みで 3 つ戻り、閉じて、最近使ったファイルから開き直せた")
+        # ダークモード（S152）: OS が暗いと背景が暗く文字が明るい。エディタ・プロット・graph も暗い。手動で「明」にすると戻り、再読み込みで選択が残る
+        dark = browser.new_page(color_scheme="dark")
+        dark.on("console", lambda m: m.type == "error" and errors.append(m.text))
+        dark.on("pageerror", lambda e: errors.append(str(e)))
+        dark.goto(origin)
+        dark.get_by_role("button", name="検査").wait_for()
+
+        def lum(css: str) -> float:
+            r, g, b = (int(float(v)) for v in re.findall(r"[\d.]+", css)[:3])
+            return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
+
+        # 要素の実効の背景（透明なら親をたどる）と文字の色
+        look = """(sel) => {
+          const e = document.querySelector(sel);
+          let b = e;
+          while (b && /rgba\\(.*, 0\\)|transparent/.test(getComputedStyle(b).backgroundColor)) b = b.parentElement;
+          return [getComputedStyle(b ?? document.body).backgroundColor, getComputedStyle(e).color];
+        }"""
+
+        def tone(sel: str) -> tuple[float, float]:
+            bg, fg = dark.evaluate(look, sel)
+            return lum(bg), lum(fg)
+
+        def check_dark(sel: str) -> None:
+            bg, fg = tone(sel)
+            assert bg < 0.2 and fg > 0.6, (sel, bg, fg)
+
+        def check_light(sel: str) -> None:
+            bg, fg = tone(sel)
+            assert bg > 0.8 and fg < 0.3, (sel, bg, fg)
+
+        for sel in ["body", ".cm-editor", ".cm-content", ".cm-gutters", "select[aria-label=テーマ]"]:
+            check_dark(sel)
+        button = dark.get_by_role("button", name="検査")
+        button.click(force=True)
+        expect(button).to_be_enabled(timeout=120_000)
+        expect(dark.locator("table.diagnostics td").first).to_be_visible()
+        check_dark("table.diagnostics td")
+        run_dark = dark.get_by_role("button", name="実行")
+        run_dark.click(force=True)
+        expect(run_dark).to_be_enabled(timeout=300_000)
+        expect(dark.locator(".plot canvas").first).to_be_visible()
+        check_dark(".plot")
+        # uPlot の軸の文字は canvas に描くので、いまの文字色（--fg）に近い画素があること（明のときの黒い軸のままなら、暗い地で見えない）
+        ink_px = """() => {
+          const [r, g, b] = getComputedStyle(document.body).color.match(/[\\d.]+/g).map(Number);
+          const c = document.querySelector('.plot canvas'), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+          let n = 0;
+          for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 200 && Math.abs(d[i] - r) < 12 && Math.abs(d[i + 1] - g) < 12 && Math.abs(d[i + 2] - b) < 12) n++;
+          return n;
+        }"""
+        assert dark.evaluate(ink_px) > 30, "暗いのに軸の文字が文字色になっていない"
+        dark.get_by_label("モデル名").fill("G")
+        dark.locator(".cm-content").focus()
+        dark.keyboard.press("Control+A")
+        dark.keyboard.insert_text(CIRCUIT)
+        dark.get_by_role("button", name="グラフ").click(force=True)
+        expect(dark.locator(".canvas[data-nodes]")).not_to_have_attribute("data-nodes", "0", timeout=120_000)
+        check_dark(".canvas")
+        # 手動で明に: 背景が明るく文字が暗くなり、プロットは作り直されて軸が暗い字になる。再読み込みで選択が残る
+        dark.get_by_label("テーマ").select_option("light")
+        for sel in ["body", ".cm-editor", ".cm-content", ".plot", ".canvas"]:
+            check_light(sel)
+        time.sleep(1)  # プロットの作り直しを待つ
+        assert dark.evaluate(ink_px) > 30, "明にしても軸の文字が文字色になっていない（暗いままの色を渡している）"
+        assert dark.evaluate("document.documentElement.dataset.theme") == "light"
+        dark.reload()
+        dark.get_by_role("button", name="検査").wait_for()
+        expect(dark.get_by_label("テーマ")).to_have_value("light")
+        check_light("body")
+        dark.get_by_label("テーマ").select_option("dark")
+        check_dark(".cm-editor")
+        dark.get_by_label("テーマ").select_option("auto")  # OS（暗）に合わせる
+        assert dark.evaluate("document.documentElement.dataset.theme") is None
+        check_dark("body")
+        light_os = browser.new_page(color_scheme="light")  # OS が明なら明
+        light_os.goto(origin)
+        light_os.get_by_role("button", name="検査").wait_for()
+        bg, fg = light_os.evaluate(look, "body")
+        assert lum(bg) > 0.8 and lum(fg) < 0.3, (bg, fg)
+        light_os.close()
+        dark.close()
+        print("ダークモード: OS が暗いと body・エディタ・診断・プロット・graph が暗く、軸の文字が明るい。明に切り替えると戻り、再読み込みで残り、「OS に合わせる」で暗に戻る")
         # ?smoke=1 で起動すると Decay を検査・実行して GM-SMOKE の 1 行を console に出す（S100。android.yml が logcat で待つ行）
         smoke = browser.new_page()
         smoke.on("pageerror", lambda e: errors.append(str(e)))
