@@ -45,6 +45,29 @@ pub struct CheckResponse {
     /// 位置は元の本文の中
     pub diagnostics: Vec<Diagnostic>,
     pub notes: Vec<String>,
+    /// Error がすべて「コンパイラが未対応」（`GM-U…`）のときの要約（S173。UI が誤りと分けて見せる。[`unsupported_summary`]）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unsupported: Option<String>,
+    /// 強行（`force`）で実行に進める（S173。[`force_helps`]）。出るのは true のときだけ
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub can_force: bool,
+}
+
+/// Error がすべて `GM-U…`（コンパイラが未対応）のとき、モデルの誤りと分けて見せる要約（S173）。
+pub fn unsupported_summary(diagnostics: &[Diagnostic]) -> Option<String> {
+    let mut errors = diagnostics.iter().filter(|d| d.is_error()).peekable();
+    (errors.peek().is_some() && errors.all(Diagnostic::is_unsupported)).then(|| {
+        "モデルの誤りではなく、コンパイラ（Rumoca）が未対応の機能か既知の制約で止まった。モデルを直しても通らず、強行しても実行できない。原文は下の診断の詳細にある".to_string()
+    })
+}
+
+/// 検査の Error を無視して実行（`force`）に進めると結果が出る見込みか（S173）。
+/// 確かめたのは初期条件が余る `GM-E8001` だけ（`Over` は強行で解ける）。S1〜S5 の Error は DAE にできず、
+/// `GM-U` と S6 の構造特異は実行系が止まり、S10 の `GM-E10001`〜`GM-E10006` は実行の設定でも断られる。
+/// shortcut: 確かめた 1 種だけ。ほかの Error も強行で通ると分かったら足す。
+pub fn force_helps(diagnostics: &[Diagnostic]) -> bool {
+    let mut errors = diagnostics.iter().filter(|d| d.is_error()).peekable();
+    errors.peek().is_some() && errors.all(|d| d.code == globe_mode_core::codes::INIT_OVERDETERMINED)
 }
 
 impl CheckResponse {
@@ -71,6 +94,8 @@ impl CheckResponse {
             experiment: None,
             init: None,
             flat: None,
+            unsupported: unsupported_summary(&diagnostics),
+            can_force: force_helps(&diagnostics),
             diagnostics,
             notes: Vec::new(),
         }
@@ -147,6 +172,12 @@ pub struct SimulateResponse {
     pub timings_ms: BTreeMap<String, f64>,
     /// 返す時点の wasm の線形メモリ（バイト。ネイティブでは 0）
     pub memory_bytes: f64,
+    /// [`CheckResponse::unsupported`] と同じ（この実行の診断について）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unsupported: Option<String>,
+    /// 検査の Error で実行しなかった（`refused`）が、強行なら進める見込み（[`force_helps`]）。出るのは true のときだけ
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub can_force: bool,
 }
 
 /// 列ごとの結果の並び（wasm の `simulate_columns`。S051）。時系列を CSV の文字列でなく、列ごとの `Float64Array` で渡すときの

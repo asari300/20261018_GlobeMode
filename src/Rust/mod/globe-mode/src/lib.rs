@@ -29,7 +29,7 @@ pub use globe_mode_graph::{ConnectGraph, ConnectMismatch, GraphError};
 pub use globe_mode_ir::{FlatSummary, Outline, SimRun};
 pub use globe_mode_protocol::{
     CheckResponse, ColumnsLayout, ExperimentValues, ParametersResponse, SimulateRequest,
-    SimulateResponse, StructureCounts,
+    SimulateResponse, StructureCounts, force_helps, unsupported_summary,
 };
 pub use globe_mode_sim::solvers::{SOLVERS, SolverEntry};
 // facade に無いものを呼ぶとき（CLI の文字の表示が `FullReport` を読む、結果を CSV / MAT に書く）
@@ -364,6 +364,8 @@ impl Workspace {
                 .map(ExperimentValues::from),
             init: check.init.as_ref().map(|i| self.db.init_in_original(i)),
             flat: check.flat,
+            unsupported: unsupported_summary(&report.diagnostics),
+            can_force: force_helps(&report.diagnostics),
             diagnostics: report.diagnostics,
             notes: check.notes,
         }
@@ -470,6 +472,20 @@ impl Workspace {
         now: &dyn Fn() -> f64,
         handle: SimulateHandle<'_>,
     ) -> Simulated {
+        let mut s = self.simulate_unmarked(request, now, handle);
+        s.response.unsupported = unsupported_summary(&s.response.diagnostics);
+        // 検査で断った（強行していない）ときだけ「強行すれば進める」。強行した結果には付けない
+        s.response.can_force =
+            !request.force && s.response.refused.is_some() && force_helps(&s.response.diagnostics);
+        s
+    }
+
+    fn simulate_unmarked(
+        &mut self,
+        request: &SimulateRequest,
+        now: &dyn Fn() -> f64,
+        handle: SimulateHandle<'_>,
+    ) -> Simulated {
         let model = request.model.as_str();
         let mut response = SimulateResponse {
             model: model.to_string(),
@@ -483,6 +499,8 @@ impl Workspace {
             csv: None,
             timings_ms: BTreeMap::new(),
             memory_bytes: 0.0,
+            unsupported: None,
+            can_force: false,
         };
         let mut t = now();
         let mut lap = |name: &str, timings: &mut BTreeMap<String, f64>| {
@@ -500,8 +518,13 @@ impl Workspace {
         if let Some(stage) = checked_failed_stage(&response.diagnostics)
             && !request.force
         {
+            let hint = if force_helps(&response.diagnostics) {
+                "force で強行できる"
+            } else {
+                "強行しても実行できない"
+            };
             response.refused = Some(format!(
-                "実行しない（{stage:?} {} で Error。force で強行できる）",
+                "実行しない（{stage:?} {} で Error。{hint}）",
                 stage.title()
             ));
             return Simulated {
