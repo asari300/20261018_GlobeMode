@@ -8,6 +8,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use globe_mode_core::{Diagnostic, Stage, TextRange, codes};
+use globe_mode_fmt::LibraryTree;
 use globe_mode_ir::{
     BalanceCount, Causality, ClassKind, ClassOutline, ComponentOutline, Connect, ConnectPrefix,
     DaeCounts, Experiment, FlatSummary, Outline,
@@ -856,7 +857,7 @@ impl Checker {
             report.diagnostics.push(d);
             return report;
         }
-        let session = &mut state.session;
+        let CheckerState { session, split, .. } = &mut *state;
 
         // 候補を出すための事前確認。ユーザーのファイルだけのときに限る。
         // 名前は渡した文書の構文木から集める（S010。Session の model_names() は残した文書のモデルも
@@ -927,6 +928,16 @@ impl Checker {
                 }
             }
             Err(strict) => {
+                // ライブラリを使うとき、モデルの名前の誤りは Rumoca が名前を出さずに失敗する（英語の原文だけ）。
+                // クラスの索引にも無いときだけ「見つからない」と言い、候補を出す（S180）
+                if strict.requested_result.is_none()
+                    && strict.failures.is_empty()
+                    && let Some(d) =
+                        library_model_not_found(session, split.as_ref(), &self.libraries, model)
+                {
+                    report.diagnostics.push(d);
+                    return report;
+                }
                 let (d, rumoca_code) = strict_failure_diagnostic(&strict);
                 let mut d = match rumoca_code
                     .as_deref()
@@ -952,11 +963,176 @@ impl Checker {
                     }
                     report.flat = Some(flat);
                 }
+                if d.code == codes::RESOLVE
+                    && let Some(hint) = library_root_hint(&self.libraries)
+                {
+                    d = d.note(hint);
+                }
                 report.diagnostics.push(d);
             }
         }
         report
     }
+}
+
+/// ライブラリを使うときに、モデル `model` が Session のどのクラスとも違えば「見つからない」の診断（`GM-E1002`）。
+/// 完全修飾名の末尾が一致するもの、綴りの近いものを上位 5 件、候補にする。索引にあれば None（別の理由の失敗）。
+///
+/// 名前は、ライブラリのファイルの字句の索引（[`LibraryTree`]。入れ子のクラスも持つ。MSL で約 0.1 s）と Session の文書から集める。
+/// Rumoca の文書は入れ子のクラスを読み込みの途中までしか持たない（MSL の `PID_Controller` は 1 つ目の検査では無い）ため、
+/// Session の文書だけでは足りない。失敗のときだけ呼ぶので、ライブラリのファイルをここで読み直す。
+/// shortcut: 索引を作れない（ファイルを持たない組のライブラリ）ときは Session の文書だけで判定する。
+fn library_model_not_found(
+    session: &Session,
+    split: Option<&SplitState>,
+    libraries: &[PathBuf],
+    model: &str,
+) -> Option<Diagnostic> {
+    let mut owned: Vec<(String, String)> = Vec::new();
+    if split.is_none() {
+        for lib in libraries {
+            let mut files = Vec::new();
+            if collect_mo_files(lib, &mut files).is_ok() {
+                owned.extend(files.into_iter().filter_map(|f| {
+                    Some((f.display().to_string(), std::fs::read_to_string(&f).ok()?))
+                }));
+            }
+        }
+    }
+    let mut pairs: Vec<(&str, &str)> = owned
+        .iter()
+        .map(|(a, b)| (a.as_str(), b.as_str()))
+        .collect();
+    if let Some(s) = split {
+        pairs.extend((0..s.library.len()).map(|n| s.library.file(n)));
+    }
+    let tree = LibraryTree::new(pairs);
+    let mut all: HashSet<String> = HashSet::new();
+    let mut models: Vec<String> = Vec::new();
+    for (path, kind) in tree.classes() {
+        all.insert(path.to_string());
+        if matches!(kind, "model" | "block" | "class") {
+            models.push(path.to_string());
+        }
+    }
+    for uri in session.document_uris() {
+        let Some(def) = session.get_document(uri).and_then(|d| d.parsed()) else {
+            continue;
+        };
+        let prefix = def
+            .within
+            .as_ref()
+            .map(ToString::to_string)
+            .unwrap_or_default();
+        let outline = Outline {
+            within: None,
+            classes: def.classes.values().map(class_outline).collect(),
+        };
+        for (name, c) in outline.qualified_classes() {
+            let name = if prefix.is_empty() {
+                name
+            } else {
+                format!("{prefix}.{name}")
+            };
+            let is_model = matches!(
+                c.kind,
+                ClassKind::Model | ClassKind::Block | ClassKind::Class
+            );
+            if all.insert(name.clone()) && is_model {
+                models.push(name);
+            }
+        }
+    }
+    // 名前を 1 つも集められなかったときは、見つからないとは言えない
+    if all.is_empty() || all.contains(model) {
+        return None;
+    }
+    // `-m Foo.mo` のようにファイル名を渡したときも、`Foo` の候補を出す
+    let query = model.strip_suffix(".mo").unwrap_or(model);
+    let last = query.rsplit('.').next().unwrap_or(query).to_lowercase();
+    let limit = (last.chars().count() / 4).max(2);
+    let mut scored: Vec<(usize, usize, usize, &String)> = models
+        .iter()
+        .filter_map(|n| {
+            let nl = n.rsplit('.').next().unwrap_or(n).to_lowercase();
+            // 0: 完全修飾名の末尾が一致（`Examples.PID_Controller`）、1: 末尾の名前が（大文字小文字を除いて）同じ、
+            // 2: 綴りが近い（編集距離が長さの 1/4 まで。最低 2）か、前方一致
+            let (tier, dist) = if n.ends_with(&format!(".{query}")) {
+                (0, 0)
+            } else if nl == last {
+                (1, 0)
+            } else {
+                let d = edit_distance(&nl, &last);
+                if d <= limit || (last.len() >= 3 && nl.starts_with(&last)) {
+                    (2, d)
+                } else {
+                    return None;
+                }
+            };
+            // 前からの名前の一致が長いものを先に（`Modelica.Blocks.…` を `Modelica.Electrical.…` より）
+            let shared = n
+                .split('.')
+                .zip(query.split('.'))
+                .take_while(|(a, b)| a == b)
+                .count();
+            Some((tier, dist, usize::MAX - shared, n))
+        })
+        .collect();
+    scored.sort();
+    let mut d = Diagnostic::error(
+        codes::MODEL_NOT_FOUND,
+        Stage::S1,
+        format!("モデル `{model}` が見つからない"),
+    );
+    if scored.is_empty() {
+        d = d.note("ライブラリのモデルは、パッケージ名から始まる完全修飾名で渡す（例: Modelica.Blocks.Examples.PID_Controller）");
+    } else {
+        let names: Vec<&str> = scored.iter().take(5).map(|s| s.3.as_str()).collect();
+        d = d.note(format!("候補: {}", names.join(", ")));
+    }
+    Some(d)
+}
+
+/// 文字単位の編集距離（挿入・削除・置換）。クラス名のような短い文字列用。
+fn edit_distance(a: &str, b: &str) -> usize {
+    let b: Vec<char> = b.chars().collect();
+    let mut row: Vec<usize> = (0..=b.len()).collect();
+    for (i, ca) in a.chars().enumerate() {
+        let mut diag = row[0];
+        row[0] = i + 1;
+        for (j, cb) in b.iter().enumerate() {
+            let up = row[j + 1];
+            row[j + 1] = (diag + usize::from(ca != *cb)).min(up + 1).min(row[j] + 1);
+            diag = up;
+        }
+    }
+    row[b.len()]
+}
+
+/// `-L` に渡したフォルダが、MSL のルートの中の 1 つのパッケージ（`package.mo` があり、同じ親に
+/// `ModelicaServices` か `Complex` が並ぶ）なら、親を渡すよう案内する文（S180）。親を黙って足すことはしない。
+fn library_root_hint(libraries: &[PathBuf]) -> Option<String> {
+    libraries.iter().find_map(|lib| {
+        if !lib.join("package.mo").is_file() {
+            return None;
+        }
+        let abs = std::path::absolute(lib).ok()?;
+        let parent = abs.parent()?;
+        let siblings = std::fs::read_dir(parent).ok()?;
+        let has_services = siblings.flatten().any(|e| {
+            let n = e.file_name();
+            let n = n.to_string_lossy();
+            n.starts_with("ModelicaServices") || n.starts_with("Complex")
+        });
+        has_services.then(|| {
+            format!(
+                "ライブラリ {} は 1 つのパッケージで、同じ親のフォルダに ModelicaServices などが並んでいる。\
+                 親のフォルダ（{}）を -L に渡す（自動では足さない）",
+                lib.display(),
+                parent.display()
+            )
+        })
+    })
 }
 
 /// S0: ファイルごとの構文の誤り。

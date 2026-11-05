@@ -140,3 +140,16 @@ fn bad_params_are_rejected() {
         .collect();
     assert!(codes.contains(&"GM-E10006"), "{codes:?}");
 }
+
+/// S180: `-L` も FILES も無いときは、ライブラリのモデルの書き方を案内する。
+#[test]
+fn missing_files_and_library_suggests_the_library_form() {
+    let o = globe(&["check", "-m", "Modelica.Blocks.Examples.PID_Controller"]);
+    assert_eq!(o.status.code(), Some(2), "{o:?}");
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(err.contains("<FILES>"), "{err}");
+    assert!(
+        err.contains("globe check -L data/msl -m Modelica.Blocks.Examples.PID_Controller"),
+        "{err}"
+    );
+}

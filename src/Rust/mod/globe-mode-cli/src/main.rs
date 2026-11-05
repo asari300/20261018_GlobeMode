@@ -251,7 +251,20 @@ enum FmuCommand {
 }
 
 fn main() -> ExitCode {
-    let cli = Cli::parse();
+    let cli = Cli::try_parse().unwrap_or_else(|e| {
+        let missing_files = e.kind() == clap::error::ErrorKind::MissingRequiredArgument
+            && e.to_string().contains("<FILES>");
+        if missing_files {
+            // S180: ライブラリのモデルなら FILES の代わりに -L と -m で足りる
+            let _ = e.print();
+            eprintln!(
+                "\nライブラリのモデルなら FILES は要らない。-L にライブラリのルートを、-m に完全修飾名を渡す:\n  \
+                 globe check -L data/msl -m Modelica.Blocks.Examples.PID_Controller"
+            );
+            std::process::exit(2);
+        }
+        e.exit()
+    });
     match cli.command {
         Command::Outline { file, json } => outline(&file, json),
         Command::Graph {

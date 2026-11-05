@@ -162,3 +162,8 @@ UI（Svelte）のプロセスでは検査も実行もしない。計算は 1 つ
 
 - **Desktop は macOS（arm64）でも `desktop.yml` でビルドし、smoke と測定が通る。** Rust のコードの変更は要らなかった（`fix_c_locale` は Linux だけ。sidecar は `.app` の `Contents/MacOS/globe` に実行ファイルと並んで入り、`sidecar()` の既定の場所で見つかった）。署名・公証はしていない。測り方と結果は [ADR-0034](0034-ui-bench-method.md) の付記と [bench/ui.md](../bench/ui.md)。
 - 持ち越し: `release.yml` への macOS（署名・公証の鍵はユーザーの判断）、.dmg を Finder から開く経路と自動更新の確認【未確認】、x64 の macOS。
+
+### S176 で決まったこと（release.yml の macOS、2026-11-05）
+
+- **`release.yml` が macOS（arm64、`macos-latest`）の Desktop の .dmg も作る**（`--bundles app,dmg`。署名・公証なし）。鍵（`TAURI_SIGNING_PRIVATE_KEY`）があるときだけ updater 用の `GlobeMode_<版>_aarch64.app.tar.gz` と `.sig` も付け、`latest.json` に `darwin-aarch64` を足す。鍵が無い今は署名なしの bundle だけ。あわせて `globe` の tar.gz と wheel も macOS で作る。経緯と dry run の結果は [S176 の解説書](../sessions/S176-release-macos/解説書.md)。
+- 持ち越し: x86_64 の macOS、署名・公証の鍵（ユーザーの判断）、鍵を登録したあとの macOS の更新の確認【未確認】。
