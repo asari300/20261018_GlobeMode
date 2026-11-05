@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S187 CLI の案内の取りこぼし — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S187 CLI の案内の取りこぼし">
+
+<section class="slide" id="S01">
+  <span class="tag">S187 · 2026-11-06 · P4</span>
+  <h1>効いていなかった案内を効かせる</h1>
+  <p class="lead">S185 の再点検が見つけた、S180・S182 の手当ての取りこぼし 7 つ</p>
+  <div class="big">記述どおりに再現してから直した</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">E5</span>
+  <h1>MSL のサブフォルダの補足が出なかった理由</h1>
+  <ul>
+    <li>補足の条件は正しかった。S180 の試験は <code>Checker::new</code> を直に呼んでいた</li>
+    <li>CLI は分割読み込みで読むので、Checker の持つライブラリの名前は <code>library:&lt;パス&gt;</code> だった</li>
+    <li>名前をパスに戻して探す。判定の関数は 1 つのまま</li>
+  </ul>
+  <div class="card">親のフォルダ（data/msl）を -L に渡す（自動では足さない）</div>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">E4</span>
+  <h1>-L を忘れた 2 通りの違い</h1>
+  <table class="compact">
+    <tr><th>打ったもの</th><th>前</th><th>後</th></tr>
+    <tr><td>FILES も -L も無い</td><td class="ok">案内が出る（S180）</td><td class="ok">同じ。<code>deps</code>・<code>graph</code> にも</td></tr>
+    <tr><td>FILES だけ渡して -L を忘れる</td><td class="ng">「候補: A」だけ</td><td class="ok">「Modelica は読み込んでいない」＋3 つの面の渡し方</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">E10b</span>
+  <h1>パッケージ名を渡したとき</h1>
+  <ul>
+    <li>前: Rumoca の英語の原文（resolve/parse failed）</li>
+    <li>後: <code>GM-E1002</code>「パッケージで、モデルではないので検査も実行もできない」</li>
+    <li>補足: 直下のモデル 3 つ（ほか n 件）。無ければ直下のパッケージ</li>
+    <li>新しいコードは足さない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">R6</span>
+  <h1>候補の閾値</h1>
+  <table class="compact">
+    <tr><th>条件</th><th>出る長さ</th></tr>
+    <tr><td>末尾の一致・同じ名前</td><td>どれでも</td></tr>
+    <tr><td>編集距離 ≤ max(長さ÷4, 2) かつ 距離×2 &lt; 長さ</td><td>4 文字以上</td></tr>
+    <tr><td>前方一致</td><td>3 文字以上</td></tr>
+    <tr><td>開いている文書のモデル（3 つ以下）</td><td>距離は問わない。先頭に</td></tr>
+  </table>
+  <p><code>Nope</code>・<code>T</code> は候補なしで「完全修飾名で渡す」の 1 行。<code>Decya</code> は残る。</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">穴 6・12</span>
+  <h1>deps に -L、outline の説明</h1>
+  <ul>
+    <li><code>globe deps -L data/msl -m …ChuaCircuit</code> は 1075 / 2556 ファイル</li>
+    <li>CLI だけで足りた。facade は変えず、Python と wasm の挙動は同じ</li>
+    <li><code>outline</code> は 1 ファイルの字句の構造なので <code>-L</code> は足さず、説明だけ</li>
+  </ul>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">R1・R10</span>
+  <h1>README と 119 ファイル</h1>
+  <ul>
+    <li>既知の限界の古い 2 行（補完・検索）と秒数の見積りを実測に</li>
+    <li><code>fmt --check .</code> は根で 119 ファイルが要整形（検証用 70、上流向けの再現 34、試験の入力 14ほか）</li>
+    <li>README の例は <code>fmt --check model.mo</code> に。整形し直すかはユーザーの判断</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

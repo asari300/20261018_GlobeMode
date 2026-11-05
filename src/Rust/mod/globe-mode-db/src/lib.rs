@@ -294,14 +294,25 @@ pub fn check<'db>(
         .collect();
     let mut report = db.checker().check_retaining(&sources, request.model(db));
     if files.is_empty() {
-        add_workspace_candidates(&mut report, class_index(db, workspace));
+        let no_library = db.checker().libraries().is_empty();
+        add_workspace_candidates(
+            &mut report,
+            class_index(db, workspace),
+            request.model(db),
+            no_library,
+        );
     }
     report
 }
 
 /// 文書を 1 つも渡さなかった（モデルがワークスペースに無い）ときの「見つからない」に、
 /// ワークスペースのモデルを候補として足す（Rumoca は渡した文書の中からしか候補を出さないため）。
-fn add_workspace_candidates(report: &mut CheckReport, index: &ClassIndex) {
+fn add_workspace_candidates(
+    report: &mut CheckReport,
+    index: &ClassIndex,
+    model: &str,
+    no_library: bool,
+) {
     let Some(d) = report
         .diagnostics
         .iter_mut()
@@ -309,9 +320,6 @@ fn add_workspace_candidates(report: &mut CheckReport, index: &ClassIndex) {
     else {
         return;
     };
-    if d.notes.iter().any(|n| n.starts_with("候補")) {
-        return;
-    }
     // Rumoca の候補（collect_model_names）と同じく、model / block / class
     let names: Vec<&str> = index
         .names()
@@ -324,8 +332,19 @@ fn add_workspace_candidates(report: &mut CheckReport, index: &ClassIndex) {
             })
         })
         .collect();
-    if !names.is_empty() {
+    if !names.is_empty() && !d.notes.iter().any(|n| n.starts_with("候補")) {
         d.notes.push(format!("候補: {}", names.join(", ")));
+    }
+    // `Modelica.Blocks.…` のように、ワークスペースのどのクラスの最初の部分でもない名前を、ライブラリ無しで渡したときは、
+    // ライブラリを渡し忘れている（S187）
+    if no_library
+        && let Some((top, _)) = model.split_once('.')
+        && !index.names().any(|n| n.split('.').next() == Some(top))
+    {
+        d.notes.push(format!(
+            "`{top}` というパッケージは読み込んでいない。ライブラリのモデルなら、ライブラリのルートも渡す\
+             （CLI: -L data/msl、Python: Workspace(\"data/msl\")、UI: 「MSL を読む」）"
+        ));
     }
 }
 

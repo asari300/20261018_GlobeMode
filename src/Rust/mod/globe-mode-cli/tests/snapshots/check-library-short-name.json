@@ -1,0 +1,28 @@
+{
+  "model": "Nope",
+  "passed": false,
+  "failed_stage": "S1",
+  "balance": null,
+  "dae": null,
+  "structure": null,
+  "s6": null,
+  "s7": null,
+  "s8": null,
+  "s9": null,
+  "s10": null,
+  "init": null,
+  "flat": null,
+  "diagnostics": [
+    {
+      "code": "GM-E1002",
+      "severity": "error",
+      "stage": "S1",
+      "message": "モデル `Nope` が見つからない",
+      "notes": [
+        "ライブラリのモデルは、パッケージ名から始まる完全修飾名で渡す（例: Modelica.Blocks.Examples.PID_Controller）"
+      ]
+    }
+  ],
+  "notes": [],
+  "summary": "Nope: NG（S1 名前解決 で停止）"
+}

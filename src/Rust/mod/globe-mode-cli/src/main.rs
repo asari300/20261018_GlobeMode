@@ -76,6 +76,7 @@ enum Command {
     /// ファイルのアウトライン（クラス・コンポーネント・connect）を表示する
     #[command(after_help = "例:\n  globe outline model.mo\n  globe outline model.mo --json")]
     Outline {
+        /// アウトラインを出す .mo ファイル 1 つ（ライブラリのファイルも、そのパスを渡せば出せる。ディレクトリは受けない）
         file: PathBuf,
         /// JSON で出力する
         #[arg(long)]
@@ -175,12 +176,15 @@ enum Command {
     },
     /// 検査に渡すファイル（モデルが使うファイルの閉包）を表示する
     #[command(
-        after_help = "例:\n  globe deps src/Modelica/GlobeModeExamples -m GlobeModeExamples.RC\n  globe deps data/msl -m Modelica.Electrical.Analog.Examples.ChuaCircuit"
+        after_help = "例:\n  globe deps src/Modelica/GlobeModeExamples -m GlobeModeExamples.RC\n  globe deps -L data/msl -m Modelica.Electrical.Analog.Examples.ChuaCircuit\n  globe deps model.mo -L data/msl -m RC"
     )]
     Deps {
-        /// ファイルまたはディレクトリ（ディレクトリは下の .mo をすべて読む）。ライブラリも渡してよい（`data/msl`）
-        #[arg(required = true)]
+        /// ファイルまたはディレクトリ（ディレクトリは下の .mo をすべて読む）。モデルがライブラリの中にあるなら省略できる
+        #[arg(required_unless_present = "library")]
         inputs: Vec<PathBuf>,
+        /// ライブラリのディレクトリ（例: data/msl）。何度でも指定できる。ライブラリのファイルも閉包に含める
+        #[arg(long, short = 'L')]
+        library: Vec<PathBuf>,
         /// モデルの完全修飾名
         #[arg(long, short)]
         model: String,
@@ -310,7 +314,7 @@ enum FmuCommand {
 fn main() -> ExitCode {
     let cli = Cli::try_parse().unwrap_or_else(|e| {
         let missing_files = e.kind() == clap::error::ErrorKind::MissingRequiredArgument
-            && e.to_string().contains("<FILES>");
+            && (e.to_string().contains("<FILES>") || e.to_string().contains("<INPUTS>"));
         if missing_files {
             // S180: ライブラリのモデルなら FILES の代わりに -L と -m で足りる
             let _ = e.print();
@@ -373,9 +377,10 @@ fn main() -> ExitCode {
         },
         Command::Deps {
             inputs,
+            library,
             model,
             json,
-        } => deps(&inputs, &model, json),
+        } => deps(&inputs, &library, &model, json),
         Command::Flat {
             files,
             library,
@@ -1166,8 +1171,10 @@ fn print_s10(report: &FullReport) {
 }
 
 /// `globe deps`: 検査に渡すファイル（閉包）と、ワークスペースの全ファイル数。
-fn deps(inputs: &[PathBuf], model: &str, json: bool) -> ExitCode {
-    let files = match expand_inputs(inputs) {
+fn deps(inputs: &[PathBuf], library: &[PathBuf], model: &str, json: bool) -> ExitCode {
+    // 閉包にライブラリのファイルも入れるので、ライブラリは Rumoca に読ませず、ワークスペースのファイルとして読む
+    let all: Vec<PathBuf> = inputs.iter().chain(library).cloned().collect();
+    let files = match expand_inputs(&all) {
         Ok(f) => f,
         Err(code) => return code,
     };
@@ -1192,7 +1199,7 @@ fn deps(inputs: &[PathBuf], model: &str, json: bool) -> ExitCode {
     let total = ws.files().count();
     if closure.is_empty() {
         println!(
-            "{model}: 0 / {total} ファイル（モデルがワークスペースに無い。ライブラリの中のモデルか、存在しないモデル）"
+            "{model}: 0 / {total} ファイル（モデルが読んだファイルの中に無い。ライブラリの中のモデルなら -L でライブラリを渡す）"
         );
     } else {
         println!("{model}: {} / {total} ファイル", closure.len());
