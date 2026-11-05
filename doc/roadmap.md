@@ -1049,7 +1049,7 @@ S177（2026-11-05、S175 までが main にある状態）で、各節の「持�
 | --- | --- | --- | --- |
 | ユーザーの判断 | 公開の時期と範囲 | 0.2.0 のタグ、GitHub の Release、Pages（artifact `globe-web` は S145 で用意済み）、PyPI、Marketplace のどれをいつ出すか。v0.1 に含める面（macOS の Desktop・Android・VS Code の拡張・wheel）もここで決める。crates.io は Rumoca の git 依存のため出せない。公開物は 0 件 | S145・S164・S172 |
 | ユーザーの判断 | 署名と更新の鍵 | Desktop の updater の鍵（secret `TAURI_SIGNING_PRIVATE_KEY`。登録するまで更新は「未設定」）、Windows の署名、macOS の署名と公証、Android の keystore（secret `ANDROID_KEYSTORE_BASE64` ほか 3 つ）。鍵はユーザーが作る。`release.yml` への macOS の Desktop の追加もこの判断に付く | S106・S135・S160・S172 |
-| ユーザーの判断 | `release.yml` の dry run | Desktop の bundle を含む現在の形では回していない（最後は 2026-11-02）。ユーザーの指示で回す | S164・S172 |
+| 決まり（済） | `release.yml` の dry run | 2026-11-05 に 0.2.0 で回した。1 回目（run 42029009320）は Windows の wheel の pytest が 1 本落ち（試験が `.mo` を cp1252 で読んでいた。S173 で修正）、2 回目（run 42039306227）は Desktop の .deb・.msi を含む全ジョブが成功。Release とタグは 0 件のまま。マイナーバージョンを変えるときは必ず dry run を回す（2026-11-05 にユーザーが決めた） | S164・S172・S173 |
 | ユーザーの判断 | FMI Import の置き方 | [ADR-0026](adr/0026-fmi-import-placement.md) は Proposed。C ABI を自前（案 A、推奨）か `fmi` 0.8（案 B）か。決めると architecture.md §3.4 を直し、P5 の Import に入れる | S057 |
 | ユーザーの判断 | Rumoca の rev | 0.2.0 は v0.10.2 で固定。v0.10.4 に上げるのは次の版の作業の最初で、`msl:funnel`・`msl:sim` を回して差を記録してから（[ADR-0002](adr/0002-rumoca-adapter.md) の付記）。上げると 04 の `GM-W10004` と 02・15 の `auto` の切り替えが外せるか見る | S162・S172 |
 | ユーザーの判断 | 上流 issue の提出 | 下書き 39 件（01〜34、[upstream.md](upstream.md)）。出すのはユーザー。当面は貯める。出す前に最新の Rumoca で確かめ直す | S070・S113・S115・S162 |
