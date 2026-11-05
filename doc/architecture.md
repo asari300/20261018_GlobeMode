@@ -351,7 +351,7 @@ Svelte の UI は `Backend` インターフェースだけに依存する。実�
 ## 6. UI の比較実験（P7）
 
 - 本線は Tauri 2 と Svelte 5。
-- Leptos 版と Dioxus 版は `src/Rust/apps/experimental/` に、機能を絞って作る（エディタ、検査パネル、グラフ）。
+- Leptos 版と Dioxus 版は `src/Rust/apps/experimental/` に、機能を絞って作る（エディタ、検査パネル、グラフ）。Leptos 版（S153）は別の workspace で、facade `globe-mode` を同じ wasm にリンクする（UI と計算が 1 つの wasm。メインスレッドが止まるのは試験版だけの例外。[ADR-0035](adr/0035-experimental-ui-leptos.md)）。
 - 同じ測定ハーネスで比べ、結果を `doc/bench/ui.md` に書く。
   - 測定項目: 起動時間、RSS / PSS、CPU、フレーム時間、バンドルサイズ
   - 環境: Linux、Windows、Android

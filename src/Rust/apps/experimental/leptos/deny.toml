@@ -1,0 +1,56 @@
+# Leptos 版（別の workspace）の cargo-deny の設定（S153）。ルートの deny.toml と同じ方針で、Leptos に要る分だけ足す。
+# 実行: cargo deny --manifest-path src/Rust/apps/experimental/leptos/Cargo.toml --config src/Rust/apps/experimental/leptos/deny.toml check
+
+[graph]
+all-features = false
+
+[advisories]
+version = 2
+# 例外は「脆弱性ではなく保守終了の勧告で、Rumoca 経由でしか入らない」ものに限る。
+# Rumoca の rev を上げるたびに、まだ要るかを確かめる（xtask bump-rumoca）。
+ignore = [
+  { id = "RUSTSEC-2025-0141", reason = "bincode 1.x の保守終了。rumoca-compile 経由（2026-10-18、Rumoca v0.10.2）" },
+  { id = "RUSTSEC-2024-0436", reason = "paste の保守終了。faer → gemm 経由の proc-macro（2026-10-18）" },
+  { id = "RUSTSEC-2024-0384", reason = "instant の保守終了。rumoca-solver が wasm32 のときだけ使う（S011、2026-10-19、Rumoca v0.10.2）" },
+]
+
+[licenses]
+version = 2
+# doc/licenses.md の「許可」。条件付き（MPL-2.0 / EPL-2.0）は exceptions に crate ごとに足す。
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Zlib",
+  "Unicode-3.0",
+  "CC0-1.0",
+  "BSL-1.0",
+]
+confidence-threshold = 0.9
+exceptions = []
+
+[bans]
+multiple-versions = "allow"
+wildcards = "deny"
+allow-wildcard-paths = true
+deny = [
+  # umbrella crate は zenoh・gamepad・UDP を引き込む。rumoca-compile などの個別の crate を使う（ADR-0002）
+  { crate = "rumoca", reason = "umbrella crate を使わない（ADR-0002）" },
+  # Rumoca を使ってよいのはアダプタだけ
+  { crate = "rumoca-compile", wrappers = ["globe-mode-frontend", "globe-mode-exec"], reason = "Rumoca はアダプタからだけ使う（ADR-0002）" },
+  # S011: 実行系は globe-mode-exec からだけ（ADR-0013）
+  { crate = "rumoca-sim", wrappers = ["globe-mode-exec"], reason = "Rumoca の実行系は globe-mode-exec からだけ使う（ADR-0013）" },
+  # S005 で足した rumoca-ir-dae / rumoca-eval-dae / rumoca-core は Rumoca の内部の crate からも使われるので、
+  # wrappers には書けない（書くと Rumoca の内部の依存まで違反になる）。GlobeMode 側の直接依存が frontend だけであることは、
+  # 各 crate の Cargo.toml のレビューで守る
+  { crate = "zenoh", reason = "EPL-2.0 OR Apache-2.0。IDE のコアに要らない" },
+  { crate = "russell_sparse", reason = "GPL の UMFPACK をリンクする" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-git = ["https://github.com/CogniPilot/rumoca"]

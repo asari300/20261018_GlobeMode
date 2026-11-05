@@ -1,0 +1,24 @@
+/* 配色は変数に集める。auto（data-theme なし）は OS の設定に従い、data-theme="light" / "dark" は手動で固定する */
+:root { color-scheme: light dark; --bg: #fff; --fg: #1b1f24; --muted: #57606a; --line: #d0d7de; --panel: #f6f8fa; --err: #cf222e; --accent: #0969da; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --bg: #0d1117; --fg: #e6edf3; --muted: #9198a1; --line: #30363d; --panel: #161b22; --err: #ff7b72; --accent: #58a6ff; }
+}
+:root[data-theme="dark"] { color-scheme: dark; --bg: #0d1117; --fg: #e6edf3; --muted: #9198a1; --line: #30363d; --panel: #161b22; --err: #ff7b72; --accent: #58a6ff; }
+:root[data-theme="light"] { color-scheme: light; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 system-ui, sans-serif; }
+header { display: flex; justify-content: space-between; align-items: center; padding: 8px 16px; border-bottom: 1px solid var(--line); }
+h1 { font-size: 16px; margin: 0; }
+main { display: grid; gap: 12px; padding: 16px; max-width: 900px; }
+textarea { min-height: 220px; font: 13px/1.5 ui-monospace, monospace; background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; }
+input { background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 2px 6px; }
+button { background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 12px; cursor: pointer; }
+button:disabled { color: var(--muted); cursor: default; }
+button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+#status { color: var(--muted); }
+#diagnostics { margin: 0; padding-left: 20px; }
+#diagnostics .error { color: var(--err); }
+table { border-collapse: collapse; }
+th, td { border: 1px solid var(--line); padding: 2px 10px; text-align: right; }
+th:first-child, td:first-child { text-align: left; }
+@media (max-width: 600px) { main { padding: 12px; } }
