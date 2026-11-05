@@ -7,7 +7,7 @@
 | worktree | `.git-worktree/s183-python-outline-lang-readme` |
 | Phase | P7 |
 | セッション文書 | `doc/sessions/S183-python-outline-lang-readme/` |
-| セッション記録 | （親が写す） |
+| セッション記録 | [2026-11-02-a2580a13-3889-4662-9db4-a45dc1ca6772.md](../sessions/2026-11-02-a2580a13-3889-4662-9db4-a45dc1ca6772.md) |
 
 ## 依頼
 
@@ -38,7 +38,7 @@ S178 の監査の穴 10 の残り（WP の C2 と D）。Python に CLI と同�
 - `marimo check`・`python sim_app.py`・`marimo export html`: エラー 0。
 - `mise run check`: 通った（fmt・clippy・test 678 passed 0 failed・deny・`uv sync --locked`）。load は 0.5 から始めた
 - `check_docs.py`: デッキ OK / リンク切れ 0 件（文書 739 件・相対リンク 3736 件）。`render_slides.py`（S183 のデッキだけ）: 問題 0 件
-- セッション記録の `--check`: （親が写す）
+- セッション記録の `--check`: 取りこぼし 0 件（親が写した）
 - ステージした差分の漏洩検査: 0 件
 - release.yml の dry run（`gh workflow run release.yml --ref feature/s183-python-outline-lang-readme`、run 42074315197）: 全 10 ジョブ success。「wheel を入れて pytest」は linux x86_64・linux aarch64・macOS arm64・windows x86_64 の 4 つとも 21 passed。Release 0 件・タグ 0 件のまま
 
