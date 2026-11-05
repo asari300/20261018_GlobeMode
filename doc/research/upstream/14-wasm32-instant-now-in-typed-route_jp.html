@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>上流の下書き 14 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode 上流の下書き 14">
+
+<section class="slide" id="S01">
+  <span class="tag">下書き 14 · Rumoca · 未提出 · 2026-11-05</span>
+  <h1>型付きの道が wasm32 で Instant::now() を呼び panic する</h1>
+  <p class="lead"><code>rumoca-sim</code> の <code>diffsol.rs</code>・<code>rk45.rs</code> が <code>std::time::Instant</code> のまま。v0.10.4 と main でも同じ</p>
+  <div class="cols-2">
+    <div>
+      <pre><code>// crates/rumoca-sim/src/diffsol.rs
+use std::time::Instant;            // 2 行目
+let override_apply_start = Instant::now();  // 202
+let backend_build_start  = Instant::now();  // 208
+// rk45.rs も 134・139 行目
+
+// rumoca-solver の timeout.rs は wasm32 で
+// instant crate に切り替え済み</code></pre>
+      <p class="small muted">本文: <a href="14-wasm32-instant-now-in-typed-route_jp.md">日本語</a> · <a href="14-wasm32-instant-now-in-typed-route.md">英語</a> · 一覧 <a href="../../upstream.md">upstream.md</a></p>
+    </div>
+    <table class="small">
+      <tr><th>v0.10.4 の結果</th><td><span class="warn">ソースを読んだだけ</span>（v0.10.4 と main で同じ呼び出し。wasm32 のビルドはしていない）</td></tr>
+      <tr><th>Rumoca の穴の根拠</th><td><code>wasm32-unknown-unknown</code> には時計が無く <code>RuntimeError: unreachable</code></td></tr>
+      <tr><th>直し方</th><td><code>rumoca-sim</code> でも <code>instant</code> / <code>web-time</code> を使う、または時計を任意にする</td></tr>
+      <tr><th>GlobeMode 側の回避</th><td>あり（<code>Instant::now()</code> を呼ばない FMI-ME 風のホスト。ADR-0014）</td></tr>
+      <tr><th>提出の判断材料</th><td>小さな wasm の再現プログラムが【未作成】。出す前に作る</td></tr>
+    </table>
+  </div>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

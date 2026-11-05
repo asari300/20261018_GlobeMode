@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S162 上流の下書き 01〜16 の再確認 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S162 上流の下書き 01〜16 の再確認">
+
+<section class="slide" id="S01">
+  <span class="tag">S162 · 2026-11-05 · P3</span>
+  <h1>上流の下書き 01〜16 の再確認と日本語版</h1>
+  <p class="lead">実行系・ソルバの 16 件を Rumoca の最新のリリース v0.10.4 で確かめ直した</p>
+  <div class="big"><b>直った 4 件</b>、<b>diffsol の main で直った 2 件</b>、<b>再現 10 件</b>。issue は出していない</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>下書き 01〜16 を v0.10.4（2026-11-05 でも最新）で確かめ直し、各本文に「Re-check」の節を足す</li>
+    <li>CLI で回せない件は Python 束縛かソースの比較で確かめる（回していない件は【未確認】と書く）</li>
+    <li>再現する 12 件に <code>_jp.md</code> とスライド 1 枚の <code>_jp.html</code> を足す</li>
+    <li>直った件は <a href="../../upstream.md">upstream.md</a> の提出の順から外す。Rust も GlobeMode の回避も触らない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">結果</span>
+  <h1>v0.10.4 での結果</h1>
+  <table>
+    <tr><th>結果</th><th>#</th><th>要点</th></tr>
+    <tr><td class="ng">再現</td><td>01・05・07・08・09・13・16</td><td>実行して確認。16 は文面が EL001 に変わった</td></tr>
+    <tr><td class="warn">ソースを読んだだけ</td><td>06・12・14</td><td>API だけ、diffsol、wasm32。コードは v0.10.2 と同じ</td></tr>
+    <tr><td class="ok">直った</td><td>03・04</td><td>03 は終わらない症状が消えた（33 s・11 s で別の誤りで止まる）。04 は <code>x(0) = 1</code></td></tr>
+    <tr><td class="ok">ほとんど直った</td><td>02・15</td><td>BDF の修正で契約の誤り 9 本が通る。<code>SimpleTriacCircuit</code> の 1e-12 と <code>Dimmer_RL</code> が残る</td></tr>
+    <tr><td class="ok">diffsol main で直った</td><td>10・11</td><td>未リリース。Rumoca の同梱は 0.13.2 のまま</td></tr>
+  </table>
+  <p class="small muted">main（Rumoca <code>590ac739</code>）はビルドしていない【未確認】</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table>
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>直った件</td><td>Status と Re-check の節だけ。<code>_jp</code> は作らない</td><td>S115 と同じ。出さない記録</td></tr>
+    <tr><td>02・15</td><td>残る形だけを出す（<code>SimpleTriacCircuit</code>、<code>Dimmer_RL</code>）。<code>_jp</code> は作る</td><td>残る形があるため</td></tr>
+    <tr><td>10・11</td><td>diffsol には出さず、更新を待つ。<code>_jp</code> なし</td><td>diffsol の main で直っている</td></tr>
+    <tr><td>05</td><td>Python 束縛の <code>simulate(params=)</code> で確認</td><td>CLI に上書きの指定が無い</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>R=data/rumoca-latest/rumoca-linux-x86_64
+$R sim 04-*.mo -m InitRelationBranch -o o.csv   # x(0) = 1 (v0.10.2 は 2)
+$R sim "Modelica 4.1.0/package.mo" --source-root data/msl \
+  -m ...ChopperBuckBoost_DutyCycle --solver bdf  # v0.10.4 で通る
+$R compile 08-*.mo -m ModifierScope --emit flat-mo   # fixed = true（残る）</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">16</span><span class="l">再確認した下書き</span></div>
+    <div class="kpi"><span class="n">36</span><span class="l">15 の CLI の回し数（9 モデル × 2 版 × 2 許容誤差）</span></div>
+    <div class="kpi"><span class="n">12</span><span class="l">足した _jp 組</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">出した issue</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>ユーザーが 12 件の <code>_jp.md</code>・<code>_jp.html</code> を読み、出すかを決める</li>
+    <li>GlobeMode の Rumoca の rev を v0.10.4 に上げるかを決め、<code>msl:funnel</code>・<code>msl:sim</code> で 04 の GM-W10004、02・15 の auto の切り替えが外せるかを見る</li>
+    <li>03 の後に出た 2 つの停止（<code>DrumBoiler</code> の射影、<code>MomentumBalanceFittings</code> の ER002）は未調査</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

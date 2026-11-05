@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>上流の下書き 08 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode 上流の下書き 08">
+
+<section class="slide" id="S01">
+  <span class="tag">下書き 08 · Rumoca · 未提出 · 2026-11-05</span>
+  <h1>部品への修正が中の同名の変数に漏れる</h1>
+  <p class="lead"><code>Part part(theta1(fixed = true))</code> が <code>part.joint.theta1</code> も fixed にする</p>
+  <div class="cols-2">
+    <div>
+      <pre><code>model Part
+  Real theta1(fixed = true);
+  Joint joint(theta1(fixed = false), ...);
+end Part;
+Part part(theta1(fixed = true), ...);
+
+// flat-mo の出力 (v0.10.2 も v0.10.4 も)
+Real part.joint.theta1(start = 0, fixed = true);
+Real part.joint.der_theta1(start = 0, fixed = true);
+// 期待は fixed = false</code></pre>
+      <p class="small muted">本文: <a href="08-modifier-leaks-into-subcomponent_jp.md">日本語</a> · <a href="08-modifier-leaks-into-subcomponent.md">英語</a> · 再現 <a href="08-modifier-leaks-into-subcomponent.mo">.mo</a> · 一覧 <a href="../../upstream.md">upstream.md</a></p>
+    </div>
+    <table class="small">
+      <tr><th>v0.10.4 の結果</th><td><span class="ng">再現</span>（<code>--emit flat-mo</code> で属性を直接確認。下書きは【未確認】だった）</td></tr>
+      <tr><th>Rumoca のバグの根拠</th><td>修正は宣言した部品の変数にだけ効く。外側の修正を外すと正しい</td></tr>
+      <tr><th>影響</th><td>MSL の <code>RollingWheelSet</code> の形。初期化に冗長な条件 7 個（omc は出さない）</td></tr>
+      <tr><th>GlobeMode 側の回避</th><td>なし（既知の限界。直ると落ちる db の試験）</td></tr>
+      <tr><th>提出の判断材料</th><td>07 と同じ族（修正の範囲）。再現は 1 ファイル・1 コマンド</td></tr>
+    </table>
+  </div>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
