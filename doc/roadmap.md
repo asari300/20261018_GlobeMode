@@ -21,10 +21,10 @@ flowchart LR
 | **P1 骨格**（S003 で完了） | workspace 化、mise の rust の targets、cargo-deny、CI（Linux / Windows / wasm）。core / ir / frontend / cli。MSL の取得スクリプト。Python パッケージの改名 | `cargo deny check` が通る。MSL の例題 20 本で `globe check` の結果が Rumoca と一致する。frontend が wasm32 向けにビルドできる。[ADR-0003](adr/0003-toolchain.md) が Accepted になる | 3 回（workspace と CI / アダプタと CLI / wasm の確認） |
 | **P2 遅延クエリと検査**（S004〜S010。完了条件は S008 で 3 つとも満たした。S9・S10 は S010 で足した。S10 の数値の部分は P3） | db、outline、class_index、connect_graph、`assert_simulatable` の S0〜S10 | 空白だけの編集の再検査が 50 ms 未満で、`flat` が再実行されない（salsa のイベントで確かめる）。MSL の全例題に判定が出て、panic は 0 件。S5 が omc と 95% 以上一致する | 4 回 |
 | **P3 シミュレーション**（S011 で着手。完了条件の 1 つ目と 2 つ目は S011 で、3 つ目（wasm）は S012 で満たした。1 つ目と 2 つ目は S012 の既定（`auto`）で測り直した。公開ライブラリの失敗の上流への下書きは [upstream.md](upstream.md)、S108 で 31・32 を足して 37 件。S113 で 28〜32 を Rumoca v0.10.4 で確かめ直し、日本語版と AixLib 向けの 33 を足して 38 件。S115 で 17〜27 を v0.10.4 で確かめ直し、25・25b・25c・25g・26 は直っていたので提出の順から外した） | exec、driver、bdf / esdirk34 / tsit45 / dopri / 固定刻み、ResultStore | MSL の例題 153 本以上が実行できる。そのうち 90% 以上が参照結果のファネルに収まる。bdf が wasm で（Node 上で）動く | 5 回 |
-| **P4 Desktop MVP** | CodeMirror 6 と LSP（S053 で整形・補完・lint、S130 で設定ファイル `globe-mode.toml`、**S132 で定義ジャンプ・参照**）、ライブラリツリー（**S127 で UI**）、検査パネル、プロット（S128 で系列の選択・2 軸・パラメトリック）、sigma.js の connect グラフ | ChuaCircuit で開く・検査・実行・プロットが通る。5k ノードのグラフが 30 fps 以上で動く。RSS の基準値を記録する（**S056 で記録**: MSL を読んだ後、sidecar 1.52 GiB・アプリ 136 MiB）。CI が .deb と .msi を作る（**S049 で済**）。Release に付けて自動更新（**S135 で仕組み**、鍵の登録は未） | 6 回 |
-| **P5 FMI**（S094 で着手。Export は P5a を先行し P5b を並行する。[ADR-0031](adr/0031-fmi-export-p5a-first.md)） | Import（ME / CS / SE）とマスター。Export は P5a（Rumoca のテンプレート）と P5b（自前のランタイム、S095。S099 から resources の Modelica を compile して exec の `ModelInstance` で回す。S109 から事象のあるモデルも。S112 から代数・離散の変数も読める。S114 から入力も与えられる。S117 から `modelDescription.xml` の型と書く側を `globe-mode-fmi` で P5a と共有。S124 から書く側は FMI 3.0 も。S137 から P5b も FMI 3.0 の ME を出す） | Reference-FMUs が linux64 と win64 で一致する。Export した FMU が FMPy・fmusim・fmuCheck を通る（**S094: Decay の FMI 2.0 の FMU が FMPy の validate と ME・CS の simulate を通った。S098: FMI 3.0 も同じく通り、2.0・3.0 とも fmusim の validate と ME・CS の simulate を GitHub Actions で通った。S105: `--target`（zig cc）で linux64・win64・darwin64 を 1 つの FMU に入れ、Ubuntu・Windows・macOS の FMPy で validate と ME・CS を通った**。fmuCheck は持ち越し）。Clocks（SE）が往復できる | 8 回 |
-| **P6 Web / marimo / Streamlit / Android** | WorkerBackend、MSL のパッケージ単位の分割読み込み、anywidget、wheel、APK | ブラウザが CSP `connect-src 'self'` のまま実行できる（サーバーで計算しない。**S093 で確かめた**: Worker にも同じ CSP の header を付け、`ui:check` が error 0・外への要求 0）。marimo の WASM で 2 GB 未満に収まる（S093 は調査だけ。[調査](research/marimo-wasm-2026-11-02.md)。**S102 で Decay を確かめた**: anywidget の `_esm` から `globe-mode-wasm` を呼び、ブラウザの RSS の合計 857〜966 MiB。**S104 で MSL も**: Web Worker で ChuaCircuit を渡す道は未回し、RSS の合計 1152〜1154 MiB、`--offline` の書き出しに CSP を付けて違反 0 件）。Android API 34 のエミュレータで検査と実行が通る（**S100 で確かめた**: UI から Decay の検査と実行、logcat の `GM-SMOKE` の行。**S103 で MSL も**: APK に MSL.json を同梱し、ChuaCircuit の検査で `msl=ok`。**S106 で release の APK も**: ABI ごとの release APK を作り、secret があるときだけ署名、release でも smoke が `msl=ok`） | 5 回 |
-| **P7 言語 API と UI 比較** | C / Zig / Julia、Elixir / Gleam、Python。Leptos 版と Dioxus 版、負荷の測定ハーネス | 参照シナリオが 6 言語で通る（**S110 で参照シナリオを決め、機能表を作った**: Decay を開く → check → simulate → x(1) → format。[調査](research/lang-api-matrix-2026-11-03.md)。**S111 で 6 言語に format / lint を足し、参照シナリオが 6 言語の試験で通った**。**S116 で列の道（`simulate_columns`）を C・Zig・Julia・Elixir・Gleam に足した**。**S118 で FMU export を facade に置き、C・Zig・Julia・Elixir・Gleam・Python から呼べるようにした**。**S121 で進捗と中断の設計を [ADR-0033](adr/0033-progress-and-cancel.md) に書いた**。**S123 で core・IR・exec・facade に進捗と中断を入れた（ADR-0033 の順の 1）**。**S129 で Python に `on_progress` と中断を入れた（順の 3）**。**S131 で C・Zig・Julia と NIF・Elixir・Gleam に進捗と中断を入れた（順の 4）**。**S133 で wasm とブラウザ UI に進捗と「止める」を入れた（順の 2）**）。`doc/bench/ui.md` に 3 UI × 3 OS の比較を書く（**S125 で測定ハーネス（[ADR-0034](adr/0034-ui-bench-method.md)）を作り、Svelte のブラウザ（Linux）と Desktop（Linux・Windows）を [doc/bench/ui.md](bench/ui.md) に載せた**。Leptos・Dioxus・macOS は未） | 6 回 |
+| **P4 Desktop MVP** | CodeMirror 6 と LSP（S053 で整形・補完・lint、S130 で設定ファイル `globe-mode.toml`、**S132 で定義ジャンプ・参照**、**S138 でエディタから定義ジャンプ**、**S149 でホバー**）、**S141 でファイルを開く・保存**。**S142 で実行の設定の UI**（ソルバ・終了時刻・許容誤差・間隔・パラメータの上書き）、**S143 で Desktop が `globe-mode.toml` を読む**、**S144 で FMU を書き出す UI**、**S146 で CSV / PNG の書き出し**、**S150 で上書きできるパラメータの一覧**、ライブラリツリー（**S127 で UI**）、検査パネル、プロット（S128 で系列の選択・2 軸・パラメトリック）、sigma.js の connect グラフ | ChuaCircuit で開く・検査・実行・プロットが通る。5k ノードのグラフが 30 fps 以上で動く。RSS の基準値を記録する（**S056 で記録**: MSL を読んだ後、sidecar 1.52 GiB・アプリ 136 MiB）。CI が .deb と .msi を作る（**S049 で済**。Linux の locale が `C.UTF-8` でも起動する: **S134**）。Release に付けて自動更新（**S135 で仕組み**、鍵の登録は未） | 6 回 |
+| **P5 FMI**（S094 で着手。Export は P5a を先行し P5b を並行する。[ADR-0031](adr/0031-fmi-export-p5a-first.md)） | Import（ME / CS / SE）とマスター。Export は P5a（Rumoca のテンプレート）と P5b（自前のランタイム、S095。S099 から resources の Modelica を compile して exec の `ModelInstance` で回す。S109 から事象のあるモデルも。S112 から代数・離散の変数も読める。S114 から入力も与えられる。S117 から `modelDescription.xml` の型と書く側を `globe-mode-fmi` で P5a と共有。S124 から書く側は FMI 3.0 も。S144 で UI の「FMU を書き出す」: ブラウザは wasm の zip、Desktop は LSP の `globe/exportFmu`） | Reference-FMUs が linux64 と win64 で一致する。Export した FMU が FMPy・fmusim・fmuCheck を通る（**S094: Decay の FMI 2.0 の FMU が FMPy の validate と ME・CS の simulate を通った。S098: FMI 3.0 も同じく通り、2.0・3.0 とも fmusim の validate と ME・CS の simulate を GitHub Actions で通った。S105: `--target`（zig cc）で linux64・win64・darwin64 を 1 つの FMU に入れ、Ubuntu・Windows・macOS の FMPy で validate と ME・CS を通った**。fmuCheck は持ち越し）。Clocks（SE）が往復できる | 8 回 |
+| **P6 Web / marimo / Streamlit / Android** | WorkerBackend、MSL のパッケージ単位の分割読み込み、anywidget、wheel、APK | ブラウザが CSP `connect-src 'self'` のまま実行できる（サーバーで計算しない。**S093 で確かめた**: Worker にも同じ CSP の header を付け、`ui:check` が error 0・外への要求 0）。marimo の WASM で 2 GB 未満に収まる（S093 は調査だけ。[調査](research/marimo-wasm-2026-11-02.md)。**S102 で Decay を確かめた**: anywidget の `_esm` から `globe-mode-wasm` を呼び、ブラウザの RSS の合計 857〜966 MiB。**S104 で MSL も**: Web Worker で ChuaCircuit を渡す道は未回し、RSS の合計 1152〜1154 MiB、`--offline` の書き出しに CSP を付けて違反 0 件）。Android API 34 のエミュレータで検査と実行が通る（**S100 で確かめた**: UI から Decay の検査と実行、logcat の `GM-SMOKE` の行。**S103 で MSL も**: APK に MSL.json を同梱し、ChuaCircuit の検査で `msl=ok`。**S106 で release の APK も**: ABI ごとの release APK を作り、secret があるときだけ署名、release でも smoke が `msl=ok`）。**S145 でブラウザ版の配布物**: 手動の `web.yml` が artifact `globe-web`（wasm・UI・MSL.json・`_headers`・`nginx.csp.conf`）を出し、サブパスと幅 400 px の試験を足した。公開は未実施（ユーザーの判断）。**S147 で Desktop と Android の smoke に UI の操作**（木・整形・グラフ・止める・実行の設定・プロットの選択・定義ジャンプ）の 7 項目を足し、`desktop.yml`・`android.yml` の合格条件にした（全部 ok） | 6 回 |
+| **P7 言語 API と UI 比較** | C / Zig / Julia、Elixir / Gleam、Python。Leptos 版と Dioxus 版、負荷の測定ハーネス | 参照シナリオが 6 言語で通る（**S110 で参照シナリオを決め、機能表を作った**: Decay を開く → check → simulate → x(1) → format。[調査](research/lang-api-matrix-2026-11-03.md)。**S111 で 6 言語に format / lint を足し、参照シナリオが 6 言語の試験で通った**。**S116 で列の道（`simulate_columns`）を C・Zig・Julia・Elixir・Gleam に足した**。**S118 で FMU export を facade に置き、C・Zig・Julia・Elixir・Gleam・Python から呼べるようにした**。**S121 で進捗と中断の設計を [ADR-0033](adr/0033-progress-and-cancel.md) に書いた**。**S123 で core・IR・exec・facade に進捗と中断を入れた（ADR-0033 の順の 1）**。**S129 で Python に `on_progress` と中断を入れた（順の 3）**。**S131 で C・Zig・Julia と NIF・Elixir・Gleam に進捗と中断を入れた（順の 4）**。**S133 で wasm とブラウザ UI に進捗と「止める」を入れた（順の 2）**。**S136 で LSP と Desktop に進捗と「止める」を入れ、ADR-0033 を Accepted にした（順の 5）**）。`doc/bench/ui.md` に 3 UI × 3 OS の比較を書く（**S125 で測定ハーネス（[ADR-0034](adr/0034-ui-bench-method.md)）を作り、Svelte のブラウザ（Linux）と Desktop（Linux・Windows）を [doc/bench/ui.md](bench/ui.md) に載せた**。Leptos・Dioxus・macOS は未） | 6 回 |
 | **P8 拡充** | radau5、SUNDIALS、ESDIRK / CERK、SSP 2.0.1、Diagram ビュー、BLT デバッガ | ソルバの表がそろう。SSP が往復できる | 未定 |
 | **Track B 自前コア** | B1 rowan の CST と寛容なパーサ → B2 resolve → B3 flatten → B4 DAE。`Frontend` の feature `native` として作る | 段階ごとに Rumoca 以上の数字を出す（parse 566 / flatten 562 / balanced 464 / simulate 153）。`xtask diff-frontend` で回帰が 0 件になったら既定を切り替える | P4 以降、余裕ができてから |
 
@@ -402,6 +402,70 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 
 - **ソルバ別の表**: `msl-sim.yml` にジョブ `solvers`（`msl-sim` の後。14 ソルバの matrix で `msl-sim --solver <名前> --tolerance-scale 0.1`。cvode・ida は xtask のビルドに `--features globe-mode-exec/sundials`）と `solvers-report`（`cargo xtask msl-solvers`）を足し、[msl-solvers.md](msl-solvers.md) を作った（run 41194959752、全ジョブ成功、ソルバのジョブは 63〜174 分）。対象 356 本のうち実行できたのは 283（dopri853）〜301（bdf）本、管に収まった割合は 95.2（trbdf2）〜98.3%（ida）。`auto` は 309・301/308。`bdf` 単独と `auto` の差 8 本は、`bdf` の内部エラー（`GM-U0005`）10 本を dopri45 の回し直しで救ったもの。入れなかったもの: `qss`、固定刻み、`esdirk23`、別名（理由は解説書）。これで P8「ソルバの表がそろう」の数字の土台ができた。更新は `gh workflow run msl-sim.yml`（手元では回さない）。
 
+### S150（P4、2026-11-04）で済んだこと
+
+- **上書きできるパラメータの一覧**（S142 の持ち越し。[解説書](sessions/S150-ui-tunable-params/解説書.md)）: `Backend.tunableParameters(model)`（wasm の `Workspace.tunable_parameters`、LSP の `globe/tunableParameters`。どちらも facade の既存の `Workspace::tunable_parameters` を呼ぶだけで `ParametersResponse` の JSON）。`SimSettings.svelte` が「検査」のあとに一覧を取り、各行に名前・単位・説明と、モデルの値を placeholder にした値の欄を出す。打った行だけ `parameters` に入れて S142 の道で送り、13 本以上なら絞り込みの欄を 1 つ出す。textarea は残した（同じ名前なら textarea が優先）。`App.svelte` には検査のたびに新しい値を作る `checkedModel` の 2 行と属性渡し 1 つだけ。
+- 試験: `cargo test` に wasm の `decay_lists_tunable_parameters`、LSP の `tunable_parameters_are_listed`。`test_ui.py` に Decay の `k`・2 を打って x(1) = e⁻²・ChuaCircuit の絞り込み。
+- 持ち越し: 設定のモデルごとの保存、開始時刻・固定刻み・予算の欄、min / max の表示と検査、本文を直したあとの一覧の自動更新、ダークモード。
+
+### S147（P6、2026-11-04）で済んだこと
+
+- **Desktop と Android の smoke に UI の操作を足した**（S140 の点検の順位 6。[解説書](sessions/S147-ui-smoke-ops/解説書.md)、[ADR-0023 の S147](adr/0023-desktop-and-web-process-layout.md)）: `App.svelte` の `smoke()` が、ライブラリの木（`tree`）、整形（`fmt`）、グラフ（`graph`）、止める（`cancel`）、実行の設定（`settings`）、プロットの系列の選択（`plot`）、定義ジャンプ（`def`）を UI のコードの関数と要素で回し、`GM-SMOKE` の行に `=ok` / `=ng`（理由は `failure=`）で足す。`desktop.yml`（Linux・Windows）と `android.yml` の合格条件は 7 項目すべて ok、`test_ui.py` の smoke も同じ。desktop.yml run 41706643110（Linux・Windows とも 3 回 ok）、android.yml run 41706648182（debug・release の emulator とも ok）。見つかった不具合は 0 件。
+- 持ち越し: `cancel` の通った道（`cancelled` か `GM-I11004`）を行に出す、プロットとグラフの描画の中身の確認、実機の Android。
+
+### S148（CI の基盤、2026-11-04）で済んだこと
+
+- **zig の取得を安定させた**（[解説書](sessions/S148-ci-zig-mirror/解説書.md)、[ADR-0006 の S148](adr/0006-incremental-ci.md)）: `ci.yml` の `lang` が、mise の zig のコミュニティのミラー（502・500）と、そのあとのファイル名の取り違え（404）で落ちた（run 41702810070）。zig を入れる 3 か所（`ci.yml` の `lang`、`fmu-export.yml`、`release.yml`）に `MISE_ZIG_USE_COMMUNITY_MIRRORS=false` を足し、ziglang.org から直接取る。
+- 持ち越し: ファイル名の取り違えの原因（mise 側、【未確認】）。ziglang.org が落ちたら zig の install 先の `actions/cache`。
+
+### S146（P4、2026-11-04）で済んだこと
+
+- **プロットの書き出し**（S140 の点検の順位 8。[解説書](sessions/S146-ui-plot-export/解説書.md)）: `Plot.svelte` に「CSV」「PNG」。CSV は選んだ系列と x の列（`plot/csv.ts` の `toCsv`、null は空欄）、PNG は uPlot の canvas を白地に写した `toBlob`。`Backend.saveBinary?(name, bytes)` を optional で足し、ブラウザ・Android は Blob のダウンロード、Desktop は `dialog.save` と `fs.writeFile`（`capabilities/desktop.json` に `fs:allow-write-file` を 1 つ）。保存ダイアログの絞り込みは名前の拡張子から作る。`App.svelte` は触らず、Plot が保存の道を選ぶ。
+- 試験: `test_ui.py` に 1 本（Decay の CSV の見出し `time,x`・行数・数値、PNG の署名と大きさ）、`test_columns.mjs` に `toCsv`。Desktop は `desktop.yml` の smoke。
+- 持ち越し: MAT の読み書き、凡例つきの PNG、SVG、Android の WebView でのダウンロードの実機確認、ダークモード。
+
+### S149（P4、2026-11-04）で済んだこと
+
+- **エディタのホバー**（S138 の持ち越し。[解説書](sessions/S149-ui-hover/解説書.md)）: 名前の上にマウスを 300 ms 置くと、宣言の 1 行と説明文字列が素のテキストで出る（部品は `Real x(start = 1) "説明"`、クラスは `model Resistor "Ideal linear electrical resistor"`）。`Backend.hover(file, line, character)` が `{contents, range}`（`range` はカーソルの名前）か null を返す。`globe-mode-lsp` の `definition::hover_at` が `definition_at` と同じ `Resolver` で定義を引き、定義のファイルの宣言の行頭から取る。ブラウザは wasm の `Workspace.hover`（ライブラリのクラスの説明文字列も出る）、Tauri は sidecar の `globe/hover`。既存の `textDocument/hover`（囲むクラスの種類）は変えていない。新しい依存は無し
+- 持ち越し: 参照・リネームの UI、Markdown の描画、ダークモード、`textDocument/hover` を新しい解決に替えること（VS Code）、行をまたぐ宣言の正確な範囲（今は行頭から `;`）、組み込み型（`Real` など）のホバー。
+
+### S145（P6、2026-11-04）で済んだこと
+
+- **ブラウザ版を配れる形にした**（S140 の点検の順位 7。[解説書](sessions/S145-web-bundle/解説書.md)、[ADR-0023 の S145](adr/0023-desktop-and-web-process-layout.md)）: 手動の `web.yml`（wasm:build、`pnpm build`＝`MSL.json` 込み、`test_ui.py`、`scripts/web-bundle.sh`）が artifact `globe-web` を出し、大きさ（生・gzip・brotli）を Step Summary に書く。vite の `base` を `./` にして、サブパスに置いても動く。CSP は `index.html` の meta が正で、`_headers`（Cloudflare Pages / Netlify）と `nginx.csp.conf` に写す。`SharedArrayBuffer` を使わないので COOP / COEP は不要。`App.svelte` に `@media (max-width: 600px)` を足し、`test_ui.py` に `/app/` での検査と MSL の読み込み、幅 400 px の試験を足した。
+- 持ち越し: **公開（GitHub Pages の有効化・URL の配布）はユーザーの判断**、PWA、ダークモード、`MSL.json` の分割配信。
+
+### S143（P4、2026-11-04）で済んだこと
+
+- **Desktop が `globe-mode.toml` を読む**（S140 の点検の順位 5。[解説書](sessions/S143-desktop-config-root/解説書.md)）: `Worker` が sidecar の `initialize` に `rootPath` を渡す。根は `--root <DIR>`、無ければ環境変数 `GLOBE_ROOT`、無ければカレントディレクトリ（`main.rs` の `root_from_env`）。`rootUri` でなく `rootPath` にしたのは、LSP が両方を読み（`rootUri` が先）、URI の組み立て（パーセント符号化と Windows のドライブ）を Desktop に足さずに済むため。command `reload_config` が `workspace/didChangeConfiguration` を送り、UI の「設定を読み直す」ボタン（`SimSettings` の下）と、sidecar の `window/showMessage`（設定の誤り）の表示をつなぐ。S130 の LSP は、独自の要求 `globe/format`・`globe/lint` が設定を見ていなかったので、設定ファイルを土台にし params のキーがあればそれを優先するよう直した（`textDocument/formatting` と同じ）。UI の `format()` は引数を渡さず（`Backend.format` の indent などを optional に）、ブラウザの `WorkerBackend` だけが 2・true を補う。試験は `globe-mode-lsp` の既存の試験に `globe/format`・`globe/lint` を足し、`worker.rs` に `GLOBE_BIN` の実プロセスの試験（根の toml で indent 4、書き換えて reload で 3）、`desktop.yml` の UI の測定を `globe-mode.toml`（indent = 4）のある作業ディレクトリから起動して GM-SMOKE の行の `cfg=ok` を確かめる。
+- 持ち越し: 設定の値の編集 UI、「フォルダを開く」で根を替えること（今は起動時だけ）、起動時に設定を読んだことの通知（S130 は誤りのときだけ `showMessage`）、VS Code 拡張。
+
+### S141（P4、2026-11-04）で済んだこと
+
+- **自分のモデルを持ち込み、持ち帰る**（S140 の点検の順位 1。[解説書](sessions/S141-ui-file-open-save/解説書.md)）: `Backend.openFile()`・`saveFile(name, text, saveAs?)`。ブラウザ・Android は `<input type=file accept=".mo">` と Blob のダウンロード（`lib/browser-file.ts`）、Desktop は `tauri-plugin-dialog` / `tauri-plugin-fs`（`window.__TAURI__.dialog` / `fs`。npm は足さない）で「開く」「保存」（開いた・保存したパスへ上書き）「名前を付けて保存」。`capabilities/desktop.json` は `dialog:allow-open`・`dialog:allow-save`・`fs:allow-read-text-file`・`fs:allow-write-text-file` だけ（fs の許可は dialog で選んだパスだけ）。本文とファイル名は `localStorage` に自動保存して起動時に戻す（ライブラリのファイルを開いている間は保存しない）。モデル名は開くときも戻すときも本文の先頭の `model` などから入れる（保存しない。smoke が書き換えたモデル名を次の起動で拾って desktop.yml の UI の測定が落ちたため）。
+- 試験: `test_ui.py` に 1 本（ファイル選択で `Mine.mo` を開く、検査が通る、保存でダウンロードの内容が一致、再読み込みで戻る）。Desktop は `desktop.yml`（Linux の smoke）。
+- 持ち越し: File System Access API（同じファイルへの上書き）、複数の文書（タブ）、最近使ったファイル、Android の WebView でのダウンロードとファイル選択の実機確認、FMU export の UI、実行の設定の UI（S142）、ダークモード。
+
+### S142（P4、2026-11-04）で済んだこと
+
+- **実行の設定の UI**（S140 の点検の順位 2。[解説書](sessions/S142-ui-sim-settings/解説書.md)）: 新しい部品 `SimSettings.svelte` が、ソルバ（登録表の「実装のある」ものだけ）・終了時刻・許容誤差・出力の間隔・パラメータの上書き（1 行に `名前=値`）を持ち、`simulate()` の `settings` に渡す。触った欄だけを送る（出どころ「指定」）ので、空の欄は experiment annotation か既定値のまま。experiment の値は検査の結果 `CheckResponse.experiment`（新しい項目。annotation が無ければ出ない。`globe check --json` の snapshot は experiment のあるモデルの 1 枚だけ変わる）から初期値と出どころ「experiment」で出る。実行のあとは使われた値と出どころ（`SimulateResponse.settings`）と最後の時刻の値も出す。LSP は `globe/solvers` を 1 つ足した（wasm は既存の `solvers`）。`test_ui.py` に 1 本（Decay を終了時刻 2・dopri45 で x(2) = e⁻²、DecayK で k = 2 の上書きと experiment の Tolerance、数でない行は実行しない）。
+- 持ち越し: 開始時刻・固定刻みの幅・壁時計の予算の欄、`TunableParameter` の一覧からの選択（今は名前を手で打つ。tunable でない名前は実行の診断 GM-E10006）、設定の保存（モデルごと）、ファイルの開く/保存（S141）。
+
+### S144（P4/P5、2026-11-04）で済んだこと
+
+- **FMU を UI から書き出す**（S140 の点検の順位 4。[解説書](sessions/S144-ui-fmu-export/解説書.md)、[ADR-0031](adr/0031-fmi-export-p5a-first.md) の追記）: ボタン「FMU を書き出す」（`Backend.exportFmu(model, fmiVersion)` → 保存先か null。UI は FMI 2.0）。**ブラウザ・Android でも出来た**: `globe-mode-fmi/export` は `wasm32-unknown-unknown` で `cargo check` が通り、ファイルに触らない経路だけを足した（`fmi::export::fmu_bytes`、facade の `Workspace::export_fmu_bytes`、wasm の `Workspace.export_fmu` が `Uint8Array`）。UI は Blob にしてダウンロード（`lib/browser-file.ts` の `browserSave` がバイト列も受ける）。Desktop は LSP の `globe/exportFmu {model, fmiVersion?, outDir}`（facade の `export_fmu`、build 無し）。`dialog.save` で選んだ場所のフォルダを `outDir` にし、`<名前>.fmu` と展開した `<名前>/` が出来る。lsp と wasm は facade の feature `fmu` を有効にした。試験は lsp に 1 本、wasm に 1 本、`test_ui.py` に 1 本（`expect_download` で `Mine.fmu`、zip に `modelDescription.xml` と `sources/`）。
+- 持ち越し: `--build`（cc / zig）の UI、FMI 3.0 の選択（API は `fmiVersion` を取る）、FMU import、Desktop で選んだファイル名の反映（今はフォルダだけ使う）、Android の WebView でのダウンロードの実機確認、wasm のサイズの増え分の切り分け。
+
+
+### S138（P4、2026-11-03）で済んだこと
+
+- **エディタから定義ジャンプ**（S132 の持ち越し。[解説書](sessions/S138-ui-editor-lsp/解説書.md)）: `Backend.definition(file, line, character)` が `{file, text, range}` を返す。ブラウザは wasm の `Workspace.definition`（`globe-mode-lsp` の `definition::definition_at` を呼ぶ。`Resolver` に本文の読み手 `read` を足し、LSP はディスク、wasm は読み込んだ組）、Tauri は sidecar の `globe/definition`。CodeMirror は F12 と Ctrl/Cmd+クリックで、同じファイルなら範囲へ、ライブラリのファイルなら S127 と同じく同じ名前の文書として開き、Alt+← で入る前の文書へ戻る。`test_ui.py` で Decay の x と、ChuaCircuit の `Modelica.Electrical.Analog.Basic.Resistor` が通る。
+- 持ち越し: ホバー・参照・リネーム・inlay hint の UI、ライブラリのファイルへ入ったときのモデル名、複数の文書、ダークモード。
+
+### S134（P4、2026-11-03）で済んだこと
+
+- **Linux の Desktop の白画面**（S125 で見つけた不具合。[解説書](sessions/S134-desktop-lang-c-fix/解説書.md)）: locale が `C.UTF-8` などだと WebKitGTK の既定の言語が `C` になり、CodeMirror の `Intl.Segmenter` が `RangeError` を投げて UI が描かれなかった。`main.rs` の `fix_c_locale` が起動時に `en_US.UTF-8` に替える（[ADR-0023](adr/0023-desktop-and-web-process-layout.md) の S134）。`desktop.yml` の UI の測定から `LANG: en_US.UTF-8` を外して通る。
+- 持ち越し: 実機（Debian・Ubuntu の `C.UTF-8` の環境）での確認。
+
 ### S132（P4、2026-11-03）で済んだこと
 
 - **LSP の定義ジャンプと参照**（features.md の「定義ジャンプ・参照は未着手」。[解説書](sessions/S132-lsp-definition/解説書.md)）: `globe lsp` に `textDocument/definition`（部品の型・部品名・`R1.p` のような点つきの名前・extends の先・import を、内側のクラスから外へ部品名、無ければ入れ子 → import → 外側の順に型名として引く。開いた文書の `Outline` を先に、無ければ `LibraryTree` でファイルを決めて読む）と `textDocument/references`（同じクラスの中の字句の一致）を足し、`initialize` で宣言した（VS Code 拡張はそのまま使える）。
@@ -527,6 +591,18 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **CI**（`msl-sim.yml` run 41589277425）: `ThyristorBridge2mPulse_DC_Drive` が回し直しの esdirk34 で終了時刻まで（積分 177.1 s / 予算 180 s、管 OK 38/38。前は 187.5 s で時間切れ）、`ThyristorBridge2Pulse_DC_Drive` も（63.4 s、管 OK 19/19。前は 197.4 s で時間切れ）。実行できた 310 → 312、管に収まった 301 / 309 → 303 / 311。ほかの 353 本の判定と管は変わらない。2mPulse は予算 180 s に対して 177.1 s で余裕が小さい。
 - 持ち越し: reset の直後の `initialize` で捨てられるヤコビ行列と LU（5%）、Rumoca の host の部分、`--stop-time 0.5`・`1` で t = 0.0617 s に `GM-E11003` になる件（直す前から）。
 
+### S126（P3・P8、2026-11-03）で済んだこと
+
+- **ソルバの表を S119 の後の版で更新した**（文書だけ。[解説書](sessions/S126-msl-solvers-refresh/解説書.md)）: `msl-sim.yml` run 41616928442（main `97be9cc`、14 ソルバすべて、全ジョブ success）の artifact で [msl-solvers.md](msl-solvers.md) と [msl-sim.md](msl-sim.md) を置き換えた。S050 から: `auto` 309 → 312・管 301 / 308 → 303 / 311、`dopri45` 292 → 293、`sdirk34hw` 294 → 292（管 285 → 282）、`tsit45` 287 → 285、`cerk23`・`cvode` 1 本ずつ減、ほかは同じ。`auto` の 356 本の判定は S119 の run と同じ。`ThyristorBridge2mPulse_DC_Drive` は積分 125.6 s で完走（S119 の run は 177.1 s。ランナーで揺れ、予算 180 s の境目のまま）。
+- 持ち越し: session の道の SDIRK（`esdirk34`・`esdirk45`・`sdirk34hw`）で `HBridge_TrianglePWM_RL`・`HBridge_DC_Drive` が `GM-E11002`、`sdirk34hw` で `ThyristorBridge2Pulse_DC_Drive` が `GM-E11003` に変わった。plugins を変えたのは S119 だけなので S119 の刻みの上限が疑わしいが【未確認】。**S139 で確かめて直した**（下）。
+
+### S139（P3、2026-11-03）で済んだこと
+
+- **S126 の SDIRK の新しい失敗の原因は S119 の刻みの上限だった。着地の側を直した**（[解説書](sessions/S139-sim-sdirk-regression/解説書.md)、[ADR-0013](adr/0013-exec-backend.md) の追記）: 上限を切ると `HBridge_TrianglePWM_RL`（esdirk34・sdirk34hw・esdirk45、0〜1 s）と `HBridge_DC_Drive`（esdirk34、0〜24 s の t = 3.714）の失敗が消える。上限が直前の刻み（出力の格子に切り詰められた値の繰り返し）を使うので、停止時刻の手前 1e-14 に着地すると残りが `min_timestep` を下回って `Step size is too small`、先 5e-15 に着地すると diffsol が切り詰めずホストの境界を越えた。`DiffsolRk::advance` で隙間が丸めの 8 倍より大きく `min_timestep` の 10 倍未満のときだけ刻みを `latest - t` にする（`land_on_stop`）。ThyristorBridge 2 本の esdirk34（0〜2 s）の受理・誤差の失敗・Newton の失敗は S119 と同じ。`wasm:compare` は 387 / 400・既知の差 13・不一致 0。
+- `sdirk34hw` の `ThyristorBridge2Pulse_DC_Drive` の `GM-E11003` は、上限なしでも `ThyristorBridge2mPulse_DC_Drive`（0〜2 s）で起きる事象の反復の揺れ（刻みの 1 ulp の違いで収束したりしなかったりする）で、S119 だけが原因ではない。
+- **CI**（`msl-sim.yml` run 41666815770、`solvers=["esdirk34","sdirk34hw"]`）: `HBridge_TrianglePWM_RL` は esdirk34・sdirk34hw とも終了時刻まで（管 OK 7/7）、`HBridge_DC_Drive` は `GM-E11002` が消えて時間切れ（`GM-E11005`、180.85 s）、ThyristorBridge 2 本の esdirk34 は終了時刻まで（2Pulse 47.0 s・2mPulse 160.4 s）。`sdirk34hw` の 2Pulse は `GM-E11003`（t = 13.04）のまま。`esdirk34` 295・管 286 / 294、`sdirk34hw` 293・283 / 292（どちらも S126 の表より 1 本増）。
+- 持ち越し: 事象の反復の揺れ（Rumoca の host の側）、`HBridge_TrianglePWM_RL` は上限で歩数が約 2 倍（4,014 から 9,109）。
+
 ### S092（P6、2026-11-02）で済んだこと
 
 - **Android の debug APK**（S038 の持ち越し「Android の sidecar」。[解説書](sessions/S092-android-apk-ci/解説書.md)）: Android では sidecar を使えないので、Tauri の mobile の入口（desktop の `src/lib.rs`）は UI を表示するだけで、UI は Android なら `WorkerBackend`（wasm）を使う（[ADR-0023](adr/0023-desktop-and-web-process-layout.md) の「S092」）。`gen/android` をコミットし、`android.yml` が署名なしの debug APK（aarch64・x86_64、251,627,503 B、artifact `globe-android`）を作り、API 34 のエミュレータで起動（`Displayed` まで 2.5 s）を確かめる（run 41409143035）。
@@ -541,6 +617,18 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 
 - **graph の import と索引の持ち越し**（S081 の持ち越し）: `GlobeDb` はライブラリの `ClassIndex` を世代ごとに `Arc` で持ち、文書の小さな索引を `ClassIndex::over` でその上に重ねる（MSL 全部読みの `ChuaCircuit` の 2 回目 52 → 6.9 ms、debug）。`ClassIndex::resolve` は各スコープで「クラス → そのクラスの import」の順に引く（MLS §5.3.1・§13.2 の最小。qualified・renamed・unqualified・selective）。別名の import は `ClassOutline::imports` に `D=A.B.C` の形で入る。`tests/data/MslPartsImport.mo` の `unresolved` 0。[解説書](sessions/S089-graph-imports-index-cache/解説書.md)
 - 持ち越し: ~~継承したクラスの中の入れ子のクラスの解決~~（S101 で済）。
+
+### S140（P4・P6、2026-11-04）で済んだこと
+
+- **アプリの使える流れの点検**（文書だけ。[調査](research/app-flow-2026-11-04.md)、[解説書](sessions/S140-app-flow-audit/解説書.md)）: 起動から更新までの 23 段を、ブラウザ・Desktop・Android の 3 列で ○ / △ / × にした。「MSL を読む・モデルを選ぶ・検査・実行・プロット・止める・グラフ」の中核は 3 列とも通るが、**自分のモデルを持ち込み持ち帰る側が無い**: ファイルを開く・保存（UI にもダイアログにも無い。Desktop は command も dialog プラグインも無い）、FMU export の UI、`globe-mode.toml`（Desktop は rootUri を渡さない）、実行の設定（ソルバ・終了時刻・パラメータ）、定義ジャンプの接続（S138 が進行中）。× は 8（Android は 9）。
+- **埋める順**（調査の 4 章）: 1 ファイルを開く・保存、2 実行の設定の UI、3 エディタの LSP 接続（S138）、4 FMU export の UI、5 Desktop の設定ファイル、6 Desktop・Android の UI の試験、7 ブラウザ版の公開先と小画面、8 プロットの書き出し、9 Desktop の更新の鍵、10 ダークモード（ユーザーの指示で最後）。
+- 同期: features.md（Text ビューと FMU export の行、複数ソルバの S126）、README の状態の段落（S118〜S136）、索引を S 番号の降順に並べ直した。
+- 持ち越し: `test_ui.py` は main に `dist/` が無く cargo も使えなかったので回していない（CI の `ui` に任せる）。
+
+### S136（P7、2026-11-03）で済んだこと
+
+- **進捗と中断の LSP と Desktop の段**（[ADR-0033](adr/0033-progress-and-cancel.md) の実装の順の 5。ADR を Accepted に。[解説書](sessions/S136-progress-cancel-lsp/解説書.md)）: `globe lsp` の読みを別スレッドにし（キューと `CancelToken` の表、計算は 1 度に 1 つ）、`globe/simulate`・`globe/simulateColumns` に `$/progress`（`workDoneToken` があるとき）と `$/cancelRequest`（途中の列と `GM-I11004`）。Desktop に `Canceller` と command `cancel_run`（応えなければ 2 s で sidecar を作り直す）、`TauriBackend` の `onProgress`・`cancel`。
+- 持ち越し: Desktop の既定（`auto`）の積分の中では t も中断も出ない。CodeMirror と LSP の直接の接続。
 
 ### S133（P7、2026-11-03）で済んだこと
 

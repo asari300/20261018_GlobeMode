@@ -7,9 +7,15 @@ dist/ を localhost で配り（CSP は index.html の meta と同じものを�
 10 万点（4 状態、出力間隔 0.01 s で 1000 s）の結果でも描けて時間を測ること、構造的に特異なモデルを検査して診断の行が出て、行を押すとエディタの選択が動くことを確かめる。1 ファイルの回路で「グラフ」を押して connect グラフが描かれることを確かめる（S046）。
 最後に「MSL を読む」で MSL 4.1.0 を読み（public/msl/MSL.json が無ければ飛ばす）、ChuaCircuit の検査（error 0）と実行（プロットの canvas と系列）を確かめて、秒数を出す（S048）。
 長いモデルの実行で進捗（段と t の割合）が出て、「止める」で止まり（data-run="cancelled"）、ボタンが戻ることを確かめる（S133）。
+Decay の `der(x)` の x で F12 を押すと宣言の行（`Real x`）へ動く。ChuaCircuit のファイルで型 `Modelica.Electrical.Analog.Basic.Resistor` の上の F12 は、ライブラリの Resistor.mo をエディタに開き、Alt+← で ChuaCircuit に戻る（S138）。
+`.mo` を開く（ファイル選択）とエディタに入りモデル名が本文から付いて検査が通り、「保存」でダウンロードされ、再読み込みで localStorage から戻る（S141）。
+名前の上にマウスを置くと宣言の 1 行が出る（Decay の x は `Real x`、ChuaCircuit の Resistor は見出しと説明文字列。S149）。
+FMU を書き出す（S144）: ブラウザの wasm が作ったソースの FMU がダウンロードされ、modelDescription.xml と sources/ がある。
+実行の設定（S142）: 終了時刻 2 とソルバ dopri45 で Decay を実行して x(2) が e⁻²、DecayK は experiment の Tolerance が初期値（出どころ experiment）に出て、k = 2 の上書きで x(1) が e⁻²。名前=値でない行は実行しない。
 ライブラリの木で Modelica → Electrical → Analog → Examples → ChuaCircuit と開き、そのファイルがエディタに開いて検査が通ることも確かめる（S127）。
 別のページで MSL.json を構文の誤りのファイルを含むライブラリに差し替え、読み飛ばしの警告 GM-W1001 の行と notes のファイル名が出ることを確かめる（S071）。
 `?smoke=1` で起動すると Decay の検査と実行の結果が console に `GM-SMOKE check=ok simulate=ok x1=… msl=… ready_ms=…` の 1 行で出ること（S100、android.yml の smoke。時刻は S125）。MSL.json があれば msl=ok（MSL を読んで ChuaCircuit の検査が error 0。S103）。
+UI の操作の項目 `tree= fmt= graph= cancel= settings= plot= def=`（S147。Desktop と Android の smoke と同じ。MSL.json が無ければ tree・graph は skip）も全部 ok で `failure=` が無いこと。
 console の error（CSP の違反を含む）と、配った origin の外への要求は失敗（S093）。
 """
 
@@ -18,11 +24,13 @@ from __future__ import annotations
 import functools
 import http.server
 import json
+import math
 import re
 import subprocess
 import sys
 import threading
 import time
+import zipfile
 from pathlib import Path
 
 from playwright.sync_api import expect, sync_playwright
@@ -42,16 +50,26 @@ CIRCUIT = (
 )
 # 進捗と止める（S133）: 1000 s の振動（wasm で数秒かかる）
 LONG = "model Long\n  Real x(start = 0, fixed = true);\nequation\n  der(x) = sin(100 * time);\n  annotation(experiment(StopTime = 1000));\nend Long;\n"
+# 実行の設定（S142）: パラメータ k を上書きできる。experiment の Tolerance が初期値に出る
+DECAY_K = (
+    "model DecayK\n  parameter Real k = 1 \"減衰の速さ\";\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -k * x;\n"
+    "  annotation(experiment(StopTime = 3, Tolerance = 1e-8));\nend DecayK;\n"
+)
 CHUA = "Modelica.Electrical.Analog.Examples.ChuaCircuit"
 BAD = "model Bad\n  Real x;\nequation\n  der(x) = -x;\n  x = 1;\nend Bad;\n"
 
 
-def serve() -> http.server.ThreadingHTTPServer:
-    """dist/ を 127.0.0.1 の空いた port で配る（bench_ui.py も使う。S125）。"""
+def serve(prefix: str = "") -> http.server.ThreadingHTTPServer:
+    """dist/ を 127.0.0.1 の空いた port で配る（bench_ui.py も使う。S125）。prefix（例 "/app"）を渡すとその下だけで配る（S145）。"""
     csp = re.search(r'http-equiv="Content-Security-Policy" content="([^"]+)"', (DIST / "index.html").read_text(encoding="utf-8"))
     assert csp, "index.html に CSP の meta が無い"
 
     class Handler(http.server.SimpleHTTPRequestHandler):
+        def translate_path(self, path: str) -> str:
+            if prefix and not (path == prefix or path.startswith(prefix + "/") or path.startswith(prefix + "?")):
+                return str(DIST / "__not_found__")
+            return super().translate_path(path[len(prefix) :] or "/")
+
         def end_headers(self) -> None:
             self.send_header("Content-Security-Policy", csp[1])  # worker.js にも同じ CSP を効かせる
             super().end_headers()
@@ -92,6 +110,47 @@ def main() -> int:
         assert rows.count() > 0, "info の診断（GM-I10001）は出るはず"  # 描画の確認も兼ねる
         assert page.locator("tr.error").count() == 0, rows.all_inner_texts()
         print(f"Decay: 診断 {rows.count()} 行、error 0 行: {rows.all_inner_texts()}")
+        # 上書きできるパラメータの一覧（S150）: 検査のあとに取る。この Decay は parameter が無いので「無い」と出る
+        expect(page.locator("[data-params]")).to_contain_text("上書きできるパラメータは無い", timeout=60_000)
+
+        # 定義ジャンプ（S138）: 4 行目 `  der(x) = -x;` の末尾の x（`;` の手前）で F12 → 宣言の行へ
+        page.locator(".cm-content").focus()
+        page.keyboard.press("Control+Home")
+        for _ in range(3):
+            page.keyboard.press("ArrowDown")
+        page.keyboard.press("End")
+        page.keyboard.press("ArrowLeft")
+        page.keyboard.press("F12")
+        expect(page.locator(".cm-activeLine")).to_contain_text("Real x(start", timeout=30_000)
+        assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
+        print(f"Decay の F12: 動いた先の行 {page.locator('.cm-activeLine').inner_text()!r}")
+
+        def hover_over(line: str, name: str, nth: int = 0) -> None:
+            """行（部分一致）の中の name の文字（nth 番目の出現）の真ん中へマウスを動かす（S149）。"""
+            box = page.evaluate(
+                """([line, name, nth]) => {
+                  const el = [...document.querySelectorAll('.cm-line')].find((e) => e.textContent.includes(line));
+                  const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+                  const t = w.nextNode();
+                  let i = -1;
+                  for (let k = 0; k <= nth; k++) i = t.textContent.indexOf(name, i + 1);
+                  const r = document.createRange();
+                  r.setStart(t, i); r.setEnd(t, i + 1);
+                  const b = r.getBoundingClientRect();
+                  return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+                }""",
+                [line, name, nth],
+            )
+            page.mouse.move(box["x"] - 30, box["y"])  # 一度ずらしてから置く（mousemove を確実に起こす）
+            page.mouse.move(box["x"], box["y"])
+
+        # ホバー（S149）: `der(x)` の x にマウスを置くと、宣言の `Real x` を含む tooltip が出る
+        hover_over("der(x)", "x")
+        tip = page.locator(".cm-tooltip .cm-hover")
+        expect(tip).to_contain_text("Real x", timeout=30_000)
+        print(f"Decay のホバー: {tip.inner_text()!r}")
+        page.mouse.move(5, 5)
+        expect(tip).to_have_count(0)
 
         run = page.get_by_role("button", name="実行")
 
@@ -107,6 +166,20 @@ def main() -> int:
         lines = page.locator(".plot .u-legend .u-series:not(.u-off)").count()  # time の行も含む
         print(f"Decay の実行: 信号 {boxes.count()} 本、選択 {shown} 本、凡例の表示中 {lines} 行、点 {page.locator('.plot').get_attribute('data-points')}")
         assert boxes.count() >= 1 and shown >= 1 and lines >= 2
+
+        # 書き出し（S146）: CSV は選んだ系列と x の列（見出し time,x と数値の行）、PNG は canvas（image/png の本物で 0 バイトでない）
+        with page.expect_download() as csv_dl:
+            page.get_by_role("button", name="CSV").click(force=True)
+        assert csv_dl.value.suggested_filename == "result.csv"
+        csv_lines = Path(csv_dl.value.path()).read_text(encoding="utf-8").splitlines()
+        assert csv_lines[0].startswith("time,x"), csv_lines[:2]
+        assert len(csv_lines) == int(page.locator(".plot").get_attribute("data-points")) + 1, len(csv_lines)
+        assert all(math.isfinite(float(v)) for v in csv_lines[1].split(",")[:2]), csv_lines[1]
+        with page.expect_download() as png_dl:
+            page.get_by_role("button", name="PNG").click(force=True)
+        png = Path(png_dl.value.path()).read_bytes()
+        assert png_dl.value.suggested_filename == "result.png" and png.startswith(b"\x89PNG\r\n\x1a\n") and len(png) > 1000, len(png)
+        print(f"Decay の書き出し: CSV {len(csv_lines)} 行 {csv_lines[:2]}、PNG {len(png)} バイト")
 
         # 選択を外すと系列が消える
         boxes.first.uncheck(force=True)
@@ -124,6 +197,53 @@ def main() -> int:
         expect(page.locator(".plot canvas").first).to_be_visible()
         assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
         print(f"Decay の系列の選択: data-series={plot.get_attribute('data-series')}、data-right={plot.get_attribute('data-right')}、data-x={plot.get_attribute('data-x')}")
+
+        # 実行の設定（S142）: 終了時刻 2・dopri45 で Decay を実行すると x(2) = e⁻²。DecayK は experiment の Tolerance が初期値に出て、k = 2 の上書きで x(1) = e⁻²
+        tolerance, stop = page.get_by_label("許容誤差"), page.get_by_label("終了時刻")
+        expect(page.locator("[data-origin=tolerance]")).to_have_text("既定")
+        stop.fill("2")
+        page.get_by_label("ソルバ").select_option("dopri45")
+        simulate()
+        assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
+        last = page.locator("[data-last]").inner_text()
+        assert "終了 2（指定）" in last and "ソルバ dopri45（指定）" in last, last
+        x2 = json.loads(page.locator("[data-final]").get_attribute("data-final"))["x"]
+        assert abs(x2 - math.exp(-2)) < 1e-4, x2
+        page.get_by_label("モデル名").fill("DecayK")
+        page.locator(".cm-content").focus()
+        page.keyboard.press("Control+A")
+        page.keyboard.insert_text(DECAY_K)
+        check()
+        expect(tolerance).to_have_value("1e-8")
+        k_row = page.locator("[data-param=k]")  # DecayK の k（モデルの値 1、説明つき）が一覧に出る
+        expect(k_row).to_be_visible(timeout=60_000)
+        assert "減衰の速さ" in k_row.inner_text() and page.get_by_label("k の値", exact=True).get_attribute("placeholder") == "1", k_row.inner_text()
+        expect(page.locator("[data-origin=tolerance]")).to_have_text("experiment")
+        stop.fill("1")
+        page.get_by_label("パラメータの上書き").fill("k = 2")
+        simulate()
+        assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
+        last = page.locator("[data-last]").inner_text()
+        assert "許容誤差 1e-8（experiment）" in last, last
+        x1 = json.loads(page.locator("[data-final]").get_attribute("data-final"))["x"]
+        assert abs(x1 - math.exp(-2)) < 1e-4, x1
+        # 一覧の行に打った値も同じ道で送られる（S150）: textarea を空にして一覧の k に 2
+        page.get_by_label("パラメータの上書き").fill("")
+        page.get_by_label("k の値", exact=True).fill("2")
+        simulate()
+        assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
+        xk = json.loads(page.locator("[data-final]").get_attribute("data-final"))["x"]
+        assert abs(xk - math.exp(-2)) < 1e-4, xk
+        print(f"一覧の k = 2: x(1) = {xk:.6f}")
+        page.get_by_label("k の値", exact=True).fill("")
+        page.get_by_label("パラメータの上書き").fill("k 2")  # 名前=値でない行は実行しないで理由を出す
+        expect(page.get_by_role("alert")).to_contain_text("名前=値")
+        print(f"実行の設定: x(2) = {x2:.6f}（e⁻² = {math.exp(-2):.6f}）、k = 2 で x(1) = {x1:.6f}、{last!r}")
+        # 後の試験に残さない
+        page.get_by_label("パラメータの上書き").fill("")
+        stop.fill("")
+        stop.dispatch_event("change")
+        page.get_by_label("ソルバ").select_option("")
 
         page.get_by_label("モデル名").fill("Big")
         page.locator(".cm-content").focus()
@@ -211,6 +331,15 @@ def main() -> int:
             assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
             assert page.locator("tr.error").count() == 0, rows.all_inner_texts()  # 診断は 0 行でよい（experiment がある）
             print(f"ChuaCircuit の検査: {took:.1f} s、診断 {rows.count()} 行、error 0 行")
+            # 上書きできるパラメータの一覧（S150）: 絞り込みで本数が減る
+            all_params = page.locator("[data-param]")
+            expect(all_params.first).to_be_visible(timeout=120_000)
+            n_all = all_params.count()
+            page.get_by_label("パラメータの絞り込み").fill("Ro.")
+            n_some = all_params.count()
+            assert n_all > 12 and 0 < n_some < n_all, (n_all, n_some)
+            print(f"ChuaCircuit の上書きできるパラメータ: {n_all} 本、「Ro.」で {n_some} 本")
+            page.get_by_label("パラメータの絞り込み").fill("")
 
             t = time.perf_counter()
             simulate()
@@ -249,6 +378,24 @@ def main() -> int:
             assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
             assert page.locator("tr.error").count() == 0, rows.all_inner_texts()
             print(f"木から ChuaCircuit を開く: {opened:.1f} s、検査まで {time.perf_counter() - t:.1f} s、診断 {rows.count()} 行、error 0 行")
+            # 定義ジャンプ（S138）: 9 行目 `  Modelica.Electrical.Analog.Basic.Resistor Ro(…` の Resistor の中で F12 → ライブラリのファイルが開く
+            page.locator(".cm-content").focus()
+            page.keyboard.press("Control+Home")
+            for _ in range(8):
+                page.keyboard.press("ArrowDown")
+            for _ in range(38):
+                page.keyboard.press("ArrowRight")
+            page.keyboard.press("F12")
+            expect(page.locator(".cm-content")).to_contain_text("model Resistor", timeout=60_000)
+            expect(page.locator(".cm-activeLine")).to_contain_text("model Resistor")
+            assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
+            page.keyboard.press("Alt+ArrowLeft")
+            expect(page.locator(".cm-content")).to_contain_text("model ChuaCircuit")
+            print("ChuaCircuit の F12: Resistor.mo が開き、Alt+← で ChuaCircuit に戻った")
+            # ホバー（S149）: ライブラリのクラス Resistor の上で、見出しと説明文字列が出る
+            hover_over("Basic.Resistor Ro", "Resistor")
+            expect(tip).to_contain_text("Ideal linear electrical resistor", timeout=30_000)
+            print(f"ChuaCircuit のホバー: {tip.inner_text()!r}")
         else:
             print("public/msl/MSL.json が無いので MSL の試験は飛ばす")
         # ライブラリに構文の誤りのファイルがあっても読み、読み飛ばしを GM-W1001 の行（ファイル名は notes）で出す（S071）。
@@ -270,6 +417,39 @@ def main() -> int:
         expect(warned).to_have_count(1, timeout=30_000)
         assert "Broken.mo" in warned.inner_text(), warned.inner_text()
         print(f"構文の誤りのライブラリ: {warned.inner_text().replace(chr(9), ' ')[:120]!r}")
+        # 開く・保存（S141）: .mo を選ぶとエディタに入り（モデル名は本文から）、検査が通る。「保存」でダウンロードが起き、再読み込みでも本文が戻る
+        own = browser.new_page()
+        own.on("console", lambda m: m.type == "error" and errors.append(m.text))
+        own.on("pageerror", lambda e: errors.append(str(e)))
+        own.goto(f"http://127.0.0.1:{server.server_port}/")
+        mine = "model Mine\n  Real y(start = 2, fixed = true);\nequation\n  der(y) = -y;\nend Mine;\n"
+        with own.expect_file_chooser() as chooser:
+            own.get_by_role("button", name="開く").click(force=True)
+        chooser.value.set_files(files=[{"name": "Mine.mo", "mimeType": "text/plain", "buffer": mine.encode()}])
+        expect(own.locator(".cm-content")).to_contain_text("model Mine", timeout=30_000)
+        expect(own.get_by_label("モデル名")).to_have_value("Mine")
+        button = own.get_by_role("button", name="検査")
+        button.click(force=True)
+        expect(button).to_be_enabled(timeout=120_000)
+        assert own.get_by_role("alert").count() == 0 and own.locator("tr.error").count() == 0, own.locator("table.diagnostics").inner_text()
+        with own.expect_download() as download:
+            own.get_by_role("button", name="保存").click(force=True)
+        assert download.value.suggested_filename == "Mine.mo"
+        assert Path(download.value.path()).read_text(encoding="utf-8") == mine
+        expect(own.locator("p[data-saved]")).to_contain_text("Mine.mo")
+        own.reload()
+        expect(own.locator(".cm-content")).to_contain_text("model Mine", timeout=30_000)
+        expect(own.get_by_label("モデル名")).to_have_value("Mine")
+        print("開く・保存: Mine.mo を開いて検査が通り、ダウンロードの内容が一致し、再読み込みで戻った")
+        # FMU を書き出す（S144）: wasm が作ったソースの FMU（zip）がダウンロードされる
+        with own.expect_download() as fmu:
+            own.get_by_role("button", name="FMU を書き出す").click(force=True)
+        assert fmu.value.suggested_filename == "Mine.fmu"
+        with zipfile.ZipFile(fmu.value.path()) as z:
+            assert "modelDescription.xml" in z.namelist() and any(n.startswith("sources/") for n in z.namelist()), z.namelist()
+            assert b'modelName="Mine"' in z.read("modelDescription.xml")
+        expect(own.locator("p[data-saved]")).to_contain_text("Mine.fmu")
+        print("FMU: Mine.fmu がダウンロードされ、modelDescription.xml と sources/ がある")
         # ?smoke=1 で起動すると Decay を検査・実行して GM-SMOKE の 1 行を console に出す（S100。android.yml が logcat で待つ行）
         smoke = browser.new_page()
         smoke.on("pageerror", lambda e: errors.append(str(e)))
@@ -278,8 +458,44 @@ def main() -> int:
         line = message.value.text
         assert line.startswith("GM-SMOKE check=ok simulate=ok x1=0.36"), line
         assert ("msl=ok" in line) == (DIST / "msl/MSL.json").exists(), line  # S103
+        # S147: UI の操作の項目。MSL が無ければ木とグラフは skip
+        skipped = "skip" if not (DIST / "msl/MSL.json").exists() else "ok"
+        assert f" tree={skipped} fmt=ok graph={skipped} cancel=ok settings=ok plot=ok def=ok " in line and "failure=" not in line, line
         assert re.search(r" ready_ms=\d+ decay_ms=\d+ msl_ms=", line), line  # S125: bench_ui.py が読む時刻
         print(line)
+        # サブパス配信（S145）: dist/ を /app/ の下だけで配っても、worker・wasm・MSL.json が相対パスで引けて、検査と MSL の読み込みができる
+        sub_server = serve("/app")
+        sub = browser.new_page()
+        sub.on("console", lambda m: m.type == "error" and errors.append(m.text))
+        sub.on("pageerror", lambda e: errors.append(str(e)))
+        sub.goto(f"http://127.0.0.1:{sub_server.server_port}/app/")
+        button = sub.get_by_role("button", name="検査")
+        button.wait_for()
+        button.click(force=True)
+        expect(button).to_be_enabled(timeout=120_000)
+        assert sub.get_by_role("alert").count() == 0 and sub.locator("tr.error").count() == 0
+        if (DIST / "msl/MSL.json").exists():
+            sub.get_by_role("button", name="MSL を読む").click()
+            expect(sub.locator("p[data-msl]")).to_have_attribute("data-msl", "loaded", timeout=120_000)
+        print("サブパス /app/: 検査が通り、MSL も読めた")
+        sub_server.shutdown()
+        # 小画面（S145）: 幅 400 px で横スクロールが出ず、主要なボタンが画面の幅に収まって見える（左の木が上に積まれる）
+        narrow = browser.new_page(viewport={"width": 400, "height": 800})
+        narrow.on("pageerror", lambda e: errors.append(str(e)))
+        narrow.goto(f"http://127.0.0.1:{server.server_port}/")
+        narrow.get_by_role("button", name="検査").wait_for()
+        if (DIST / "msl/MSL.json").exists():
+            narrow.get_by_role("button", name="MSL を読む").click()
+            expect(narrow.locator("p[data-msl]")).to_have_attribute("data-msl", "loaded", timeout=120_000)
+            expect(narrow.locator(".library")).to_be_visible()
+        for name in ["開く", "保存", "検査", "実行", "グラフ", "整形"]:
+            box = narrow.get_by_role("button", name=name, exact=True).bounding_box()
+            assert box and box["x"] >= 0 and box["x"] + box["width"] <= 400, (name, box)
+        width = narrow.evaluate("document.documentElement.scrollWidth")
+        assert width <= 400, f"小画面で横スクロールが出る: scrollWidth {width}"
+        editor = narrow.locator(".editor").bounding_box()
+        assert editor and editor["width"] >= 300, f"小画面でエディタが細い（左の木が横に並んでいる）: {editor}"
+        print(f"小画面 400 px: 主要なボタンが収まり、scrollWidth {width}、エディタの幅 {editor['width']:.0f} px")
         browser.close()
     server.shutdown()
     assert not errors, errors

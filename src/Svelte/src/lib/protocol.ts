@@ -17,6 +17,8 @@ export interface CheckResponse {
   model: string;
   passed: boolean;
   failed_stage: Stage | null;
+  /** モデルの experiment annotation の数の字面（S142。annotation が無ければ無い。書かれていない項目は null） */
+  experiment?: Partial<Record<"start_time" | "stop_time" | "tolerance" | "interval", number | null>>;
   diagnostics: Diagnostic[];
   notes: string[];
 }
@@ -24,7 +26,7 @@ export interface CheckResponse {
 export interface SimulateRequest {
   files?: Record<string, string>;
   model: string;
-  settings?: { start_time?: number; stop_time?: number; tolerance?: number; interval?: number; solver?: string };
+  settings?: { start_time?: number; stop_time?: number; tolerance?: number; interval?: number; solver?: string; parameters?: Record<string, number> };
   force?: boolean;
   no_csv?: boolean;
 }
@@ -34,8 +36,37 @@ export interface SimulateResponse {
   ok: boolean;
   refused: string | null;
   diagnostics: Diagnostic[];
+  /** 実行に使った設定と各項目の出どころ（S142。実行まで進まなければ null） */
+  settings?: ResolvedSettings | null;
   final: Record<string, number> | null;
   csv: string | null;
+}
+
+export type SettingOrigin = "requested" | "experiment" | "default";
+export interface ResolvedSettings {
+  start_time: number;
+  stop_time: number;
+  tolerance: number;
+  interval: number;
+  solver: string;
+  origins: Record<"start_time" | "stop_time" | "tolerance" | "interval" | "solver", SettingOrigin>;
+}
+
+/** 再コンパイル無しに上書きできるパラメータの 1 行（`TunableParameter`。S150。default はモデルの値） */
+export interface TunableParameter {
+  name: string;
+  default: number;
+  unit?: string;
+  min?: number;
+  max?: number;
+  description?: string;
+}
+
+/** ソルバの登録表の 1 行（`globe_mode_sim::solvers::SolverEntry`）。使えるのは status.kind が available のもの。 */
+export interface SolverEntry {
+  name: string;
+  status: { kind: "available" | "alias" | "planned" };
+  description: string;
 }
 
 /** `ConnectGraph::to_graphology()` の JSON（graphology の `Graph.from` で読める形）。 */

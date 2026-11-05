@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S139 SDIRK の退行 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S139 SDIRK の退行">
+
+<section class="slide" id="S01">
+  <span class="tag">S139 · 2026-11-03 · P3</span>
+  <h1>SDIRK で新しく落ちた 3 件</h1>
+  <p class="lead">S126 の疑い: S119 の刻みの上限が原因か。切り替えて前後を回して決める</p>
+  <div class="big">原因は <b>S119 の上限</b>。停止時刻の近くへ着地する刻みを直して <b>3 件とも完走</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">確かめる</span>
+  <h1>上限を切ると完走する</h1>
+  <table class="compact">
+    <tr><th>モデル・ソルバ</th><th>上限なし</th><th>上限あり（S119）</th></tr>
+    <tr><td>HBridge_TrianglePWM_RL esdirk34</td><td class="ok">完走</td><td class="warn">GM-E11002（t = 0.269）</td></tr>
+    <tr><td>同 sdirk34hw・esdirk45</td><td class="ok">完走</td><td class="warn">ホストの境界を越えて失敗</td></tr>
+    <tr><td>HBridge_DC_Drive esdirk34（24 s）</td><td class="ok">完走</td><td class="warn">GM-E11002（t = 3.714）</td></tr>
+  </table>
+  <p>同じバイナリで環境変数で上限を切って比べた（手元、release、許容誤差 1e-7）</p>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">仕組み</span>
+  <h1>上限が作る小さな隙間</h1>
+  <ul>
+    <li>上限は事象のあとの最初の刻みを「直前の刻み」に揃える。直前の刻みは出力の格子に切り詰められた値で、誤差を含んだまま繰り返される</li>
+    <li>停止時刻の手前 1.15e-14 に着地: 残りが <code>min_timestep</code>（1.2e-14）未満で <code>Step size is too small</code></li>
+    <li>先 5.3e-15 に着地: diffsol は <code>100·eps·(|t|+|h|)</code> 以内を切り詰めず、ホストの境界を越える</li>
+    <li>上限なしでは刻みが大きく、diffsol が停止時刻にちょうど着地するよう切り詰めるので起きなかった</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由</span>
+  <h1>直し: 着地の側を直す</h1>
+  <ul>
+    <li><code>advance</code> で <code>set_stop_time</code> の直後に <code>land_on_stop</code>。隙間が丸めの 8 倍より大きく <code>min_timestep</code> の 10 倍未満のときだけ、刻みを <code>latest - t</code> にする</li>
+    <li>最初の版は隙間 0 でも書き込み、ThyristorBridge2mPulse が t = 0.0383 で <code>GM-E11003</code> に変わった（1 ulp の違いで事象の反復が揺れる）。丸めの数 ulp 以下は触らない条件を足した</li>
+    <li>上限の側（数倍にする、など）は隙間の原因を残すので選ばなかった</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">図</span>
+  <h1>停止時刻の近くの着地</h1>
+  <svg viewBox="0 0 800 220" role="img" aria-label="停止時刻の近くの着地の図">
+    <line class="svg-line" x1="40" y1="110" x2="760" y2="110"/>
+    <rect class="svg-box" x="60" y="90" width="120" height="40" rx="6"/>
+    <text class="svg-text" x="120" y="115" text-anchor="middle">t（受理）</text>
+    <rect class="svg-box-accent" x="600" y="90" width="150" height="40" rx="6"/>
+    <text class="svg-text" x="675" y="115" text-anchor="middle">停止時刻 latest</text>
+    <rect class="svg-box-warn" x="330" y="30" width="190" height="40" rx="6"/>
+    <text class="svg-text" x="425" y="55" text-anchor="middle">手前 1e-14: 下限未満</text>
+    <rect class="svg-box-warn" x="330" y="150" width="190" height="40" rx="6"/>
+    <text class="svg-text" x="425" y="175" text-anchor="middle">先 5e-15: 境界を越える</text>
+    <line class="svg-line-accent" x1="520" y1="50" x2="600" y2="95"/>
+    <line class="svg-line-accent" x1="520" y1="170" x2="600" y2="125"/>
+  </svg>
+  <p>隙間をちょうど着地に直す（<code>land_on_stop</code>）。S119 の上限の効き方は変わらない</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">結果</span>
+  <h1>ThyristorBridge の改善は残った</h1>
+  <table class="compact">
+    <tr><th>0〜2 s、esdirk34</th><th>上限なし</th><th>S119</th><th>S139</th></tr>
+    <tr><td>2mPulse 誤差の失敗</td><td>19,946</td><td>11,221</td><td class="ok">11,221</td></tr>
+    <tr><td>2mPulse Newton の失敗</td><td>7,532</td><td>4,865</td><td class="ok">4,865</td></tr>
+    <tr><td>2Pulse 誤差の失敗</td><td>5,699</td><td>4,032</td><td class="ok">4,032</td></tr>
+    <tr><td>2Pulse Newton の失敗</td><td>3,428</td><td>2,513</td><td class="ok">2,513</td></tr>
+  </table>
+  <p>sdirk34hw の <code>GM-E11003</code> は上限なしでも 2mPulse で起きる。S119 だけが原因ではない</p>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">CI と次回</span>
+  <h1>msl-sim.yml と持ち越し</h1>
+  <ul>
+    <li>CI run 41666815770: HBridge_TrianglePWM_RL は esdirk34・sdirk34hw とも完走（管 OK 7/7）。HBridge_DC_Drive の <code>GM-E11002</code> は消え、時間切れ（<code>GM-E11005</code>、180.85 s）に変わった。ThyristorBridge 2 本の esdirk34 は完走（47.0 s、160.4 s）</li>
+    <li>sdirk34hw の 2Pulse は <code>GM-E11003</code>（t = 13.04）のまま。上限なしでも 2mPulse で起きる事象の反復の揺れ</li>
+    <li>持ち越し: 事象の反復（<code>EventIteration</code>）が刻みの 1 ulp で揺れる件は Rumoca の host の側</li>
+    <li>持ち越し: <code>HBridge_TrianglePWM_RL</code> は上限で歩数が約 2 倍（4,014 から 9,109）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

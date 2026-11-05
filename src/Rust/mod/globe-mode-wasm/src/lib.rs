@@ -76,6 +76,45 @@ impl Workspace {
         }
     }
 
+    /// `definition`・`hover` の共通: ライブラリの木とファイル組で Resolver を作って `f` を回し、JSON にする。
+    fn resolve(
+        &self,
+        f: fn(
+            &mut globe_mode_lsp::definition::Resolver,
+            &str,
+            &str,
+            u32,
+            u32,
+        ) -> Option<serde_json::Value>,
+        file: &str,
+        text: &str,
+        line: u32,
+        character: u32,
+    ) -> String {
+        let empty;
+        let (tree, files) = match &self.tree {
+            Some((t, f)) => (t, Some(f)),
+            None => {
+                empty = globe_mode_fmt::LibraryTree::new(std::iter::empty());
+                (&empty, None)
+            }
+        };
+        let mut scratch = globe_mode::Workspace::new();
+        let found = f(
+            &mut globe_mode_lsp::definition::Resolver {
+                ws: &self.inner,
+                tree,
+                scratch: &mut scratch,
+                read: &|f| files?.get(f).cloned(),
+            },
+            file,
+            text,
+            line,
+            character,
+        );
+        serde_json::to_string(&found).unwrap_or_default()
+    }
+
     /// ライブラリ（名前 → 本文）を一度だけ全部読み込んだワークスペース。読めなければ S1 の診断（`GM-E1003`）。
     pub fn with_library(
         name: &str,
@@ -270,6 +309,29 @@ impl Workspace {
         to_json(&serde_json::json!({"file": file, "text": text}))
     }
 
+    /// 文書 `file`（本文 `text`。先に `set_file` で足しておく）の行・列（LSP と同じ UTF-16）にある名前の定義を
+    /// `{file, text, range}` の JSON で返す（S138。LSP の `globe/definition` と同じ形。`text` は定義のあるファイルの本文）。無ければ `null`。
+    pub fn definition(&self, file: &str, text: &str, line: u32, character: u32) -> String {
+        self.resolve(
+            globe_mode_lsp::definition::definition_at,
+            file,
+            text,
+            line,
+            character,
+        )
+    }
+
+    /// `definition` と同じ解決で、名前の宣言の 1 行を `{contents, range}` の JSON で返す（S149。LSP の `globe/hover` と同じ形）。無ければ `null`。
+    pub fn hover(&self, file: &str, text: &str, line: u32, character: u32) -> String {
+        self.resolve(
+            globe_mode_lsp::definition::hover_at,
+            file,
+            text,
+            line,
+            character,
+        )
+    }
+
     /// ファイルを足すか、本文を差し替える。
     pub fn set_file(&mut self, name: &str, text: String) {
         self.put_file(name, text);
@@ -327,6 +389,27 @@ impl Workspace {
             cancel: None,
         };
         Ok(self.run_columns_observed(request, handle))
+    }
+
+    /// ソースの FMU（FMI `fmi_version`、2 か 3。build 無し）を zip のバイト列（`Uint8Array`）で返す（S144。UI は Blob にしてダウンロードする）。
+    /// DAE まで変換できないなど、作れなければ例外（文字列）。
+    pub fn export_fmu(&mut self, model: &str, fmi_version: u8) -> Result<Vec<u8>, JsValue> {
+        self.inner
+            .export_fmu_bytes(model, fmi_version)
+            .map_err(js_error)
+    }
+
+    /// 上書きできるパラメータの一覧（S150）。`ParametersResponse` の JSON。DAE まで変換できなければ例外（診断の文）。
+    pub fn tunable_parameters(&mut self, model: &str) -> Result<String, JsValue> {
+        let r = self.inner.tunable_parameters(model).map_err(|ds| {
+            js_error(
+                ds.iter()
+                    .map(|d| d.message.as_str())
+                    .collect::<Vec<_>>()
+                    .join("; "),
+            )
+        })?;
+        to_json(&r)
     }
 
     /// モデルの検査だけ（S0〜S10。実行しない）。`CheckResponse` の JSON を返す（S041。ブラウザ UI の診断パネル用）。

@@ -15,3 +15,11 @@ export function gapNonFinite(col: Float64Array): Float64Array | (number | null)[
   }
   return col;
 }
+
+/** 見出し行と列を CSV にする（S146）。null（欠損）は空欄。見出しにコンマ・引用符・改行があれば "..." で囲む。 */
+export function toCsv(head: string[], cols: ArrayLike<number | null>[]): string {
+  const q = (s: string) => (/[",\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s);
+  const rows = [head.map(q).join(",")];
+  for (let r = 0; r < (cols[0]?.length ?? 0); r++) rows.push(cols.map((c) => c[r] ?? "").join(","));
+  return rows.join("\n") + "\n";
+}

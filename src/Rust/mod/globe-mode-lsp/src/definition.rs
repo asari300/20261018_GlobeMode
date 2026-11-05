@@ -9,6 +9,8 @@ use globe_mode::{Outline, Workspace};
 use globe_mode_core::TextRange;
 use globe_mode_fmt::LibraryTree;
 use globe_mode_ir::{ClassOutline, ComponentOutline};
+use lsp_types::Position;
+use serde_json::{Value, json};
 
 fn is_ident(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
@@ -62,13 +64,18 @@ fn walk<'o>(o: &'o Outline, qualified: &str) -> Option<&'o ClassOutline> {
 pub struct Target {
     pub path: String,
     pub range: TextRange,
+    /// クラスの定義か（false なら部品の宣言。範囲は名前だけ）
+    pub class: bool,
 }
 
 /// 名前を引く道具。`scratch` はライブラリのファイルを読んでアウトラインにするだけの別のワークスペース。
+#[allow(missing_debug_implementations)] // dyn Fn を持つ
 pub struct Resolver<'a> {
     pub ws: &'a Workspace,
     pub tree: &'a LibraryTree,
     pub scratch: &'a mut Workspace,
+    /// ライブラリのファイル名 → 本文（LSP はディスク、wasm は読み込んだ組。S138）
+    pub read: &'a dyn Fn(&str) -> Option<String>,
 }
 
 impl Resolver<'_> {
@@ -90,7 +97,7 @@ impl Resolver<'_> {
             head = &head[..head.rfind('.')?];
         };
         if self.scratch.outline(&file).is_none() {
-            let text = std::fs::read_to_string(&file).ok()?;
+            let text = (self.read)(&file)?;
             self.scratch.set_file(&file, text);
         }
         let Some(Ok(o)) = self.scratch.outline(&file) else {
@@ -202,6 +209,7 @@ impl Resolver<'_> {
             return Some(Target {
                 path: file,
                 range: comp.range,
+                class: false,
             });
         }
         // 型名
@@ -210,8 +218,61 @@ impl Resolver<'_> {
         Some(Target {
             path: file,
             range: c.range,
+            class: true,
         })
     }
+}
+
+/// UI 向けの定義ジャンプ（S138。wasm と `globe/definition` が使う）。文書 `path`（本文 `text`）の行・列（LSP と同じ UTF-16）にある
+/// 名前の定義を `{file, text, range}`（`text` は定義のあるファイルの本文）で返す。
+pub fn definition_at(
+    r: &mut Resolver,
+    path: &str,
+    text: &str,
+    line: u32,
+    character: u32,
+) -> Option<Value> {
+    let at = crate::offset(text, Position::new(line, character));
+    let t = r.definition(path, text, at)?;
+    let body = if t.path == path {
+        text.to_string()
+    } else {
+        (r.read)(&t.path)?
+    };
+    Some(json!({"file": t.path, "range": crate::range(&body, t.range), "text": body}))
+}
+
+/// UI 向けのホバー（S149）。`definition_at` と同じ解決で、定義の宣言を 1 つの文字列 `contents` にして
+/// `{contents, range}`（`range` はカーソルの名前、LSP の Range）で返す。クラスは見出しの 1 行（`model Resistor "説明"`）、
+/// 部品は宣言の行頭から `;` まで（`Real x(start = 1)`。説明文字列があれば入る）で、空白は 1 つにまとめる。
+/// shortcut: 宣言が行の途中から始まるときは行頭から取る・文字列の中の `;` で切れる。要るなら宣言の範囲を持つ解析にする。
+pub fn hover_at(
+    r: &mut Resolver,
+    path: &str,
+    text: &str,
+    line: u32,
+    character: u32,
+) -> Option<Value> {
+    let at = crate::offset(text, Position::new(line, character));
+    let (start, name) = name_at(text, at)?;
+    let t = r.definition(path, text, at)?;
+    let body = if t.path == path {
+        text.to_string()
+    } else {
+        (r.read)(&t.path)?
+    };
+    let from = body[..t.range.start as usize]
+        .rfind('\n')
+        .map_or(0, |i| i + 1);
+    let decl = body[from..]
+        .split(if t.class { '\n' } else { ';' })
+        .next()?;
+    let contents = decl.split_whitespace().collect::<Vec<_>>().join(" ");
+    let name_range = TextRange {
+        start: start as u32,
+        end: (start + name.len()) as u32,
+    };
+    Some(json!({"contents": contents, "range": crate::range(text, name_range)}))
 }
 
 /// 同じ文書で、カーソルの名前と字句が同じ位置（カーソルを含む一番内側のクラスの中、無ければ文書全体）。
@@ -249,5 +310,25 @@ mod tests {
         assert_eq!(name_at(t, 7), Some((2, "R1.p.v")));
         assert_eq!(name_at(t, 10), None);
         assert_eq!(name_at("x = 12;", 5), None);
+    }
+
+    #[test]
+    fn hover_shows_the_declaration_and_description() {
+        let text = "model A \"the model\"\n  Real x(start = 1)\n    \"state\";\n  A y;\nequation\n  der(x) = -x;\nend A;\n";
+        let (tree, mut scratch) = (LibraryTree::new(std::iter::empty()), Workspace::new());
+        let mut ws = Workspace::new();
+        ws.set_file("A.mo", text.to_string());
+        let mut r = Resolver {
+            ws: &ws,
+            tree: &tree,
+            scratch: &mut scratch,
+            read: &|_| None,
+        };
+        let h = hover_at(&mut r, "A.mo", text, 5, 12).unwrap(); // -x の x
+        assert_eq!(h["contents"], "Real x(start = 1) \"state\"", "{h}");
+        assert_eq!(h["range"]["start"]["character"], 12, "{h}");
+        let h = hover_at(&mut r, "A.mo", text, 3, 2).unwrap(); // `A y;` の型 A
+        assert_eq!(h["contents"], "model A \"the model\"", "{h}");
+        assert_eq!(hover_at(&mut r, "A.mo", text, 0, 0), None); // 予約語
     }
 }

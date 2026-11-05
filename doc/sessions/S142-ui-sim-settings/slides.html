@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S142 実行の設定の UI — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S142 実行の設定の UI">
+
+<section class="slide" id="S01">
+  <span class="tag">S142 · 2026-11-04 · P4</span>
+  <h1>実行の設定の UI</h1>
+  <p class="lead">S140 の点検の順位 2。実行は <code>{model}</code> だけを渡していた</p>
+  <div class="big">ソルバ・終了時刻・許容誤差・間隔・パラメータを、出どころつきで UI から決める</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>新しい部品 <code>SimSettings.svelte</code> と、<code>simulate()</code> が <code>settings</code> を渡す最小限</li>
+    <li>experiment annotation の値を、初期値と出どころつきで出す</li>
+    <li>LSP と wasm の実行は変えない。足した口は 2 つだけ</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>足した口</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>ソルバの一覧</td><td><code>Backend.solvers()</code>。wasm は既存の <code>solvers</code>、sidecar は <code>globe/solvers</code></td><td>登録表を UI に写さない。実装のあるものだけ選べる</td></tr>
+    <tr><td>experiment の値</td><td><code>CheckResponse.experiment</code>（無ければ出ない）</td><td>S10 の判定は値を持たない。facade の check が前処理の結果から写す</td></tr>
+    <tr><td>送る欄</td><td>触った欄だけ</td><td>空は experiment か既定のまま。出どころが「指定」に化けない</td></tr>
+    <tr><td>悪い入力</td><td>数や <code>名前=値</code> でなければ実行しない</td><td>黙って捨てると別の設定で走る</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>流れ</h1>
+  <svg class="fig" viewBox="0 0 800 240" role="img" aria-label="検査の experiment が初期値になり、触った欄だけが settings として実行に渡り、使われた値と出どころが戻る">
+    <rect class="svg-box" x="20" y="90" width="150" height="60" rx="10"/>
+    <text class="svg-text" x="95" y="125" text-anchor="middle">検査 experiment</text>
+    <rect class="svg-box-accent" x="230" y="90" width="170" height="60" rx="10"/>
+    <text class="svg-text-b" x="315" y="125" text-anchor="middle">SimSettings</text>
+    <rect class="svg-box" x="460" y="90" width="150" height="60" rx="10"/>
+    <text class="svg-text" x="535" y="125" text-anchor="middle">simulate settings</text>
+    <rect class="svg-box" x="660" y="90" width="120" height="60" rx="10"/>
+    <text class="svg-text" x="720" y="125" text-anchor="middle">値と出どころ</text>
+    <line class="svg-line" x1="170" y1="120" x2="230" y2="120"/>
+    <line class="svg-line" x1="400" y1="120" x2="460" y2="120"/>
+    <line class="svg-line" x1="610" y1="120" x2="660" y2="120"/>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>試験</h1>
+  <table class="compact">
+    <tr><th>試験</th><th>中身</th><th>結果</th></tr>
+    <tr><td>lsp</td><td><code>globe/solvers</code> と check の <code>experiment</code></td><td class="ok">通過</td></tr>
+    <tr><td>test_ui</td><td>Decay を終了時刻 2・dopri45 で x(2) が e⁻²。DecayK は k=2 で x(1) が e⁻²、Tolerance は experiment</td><td class="ok">通過</td></tr>
+  </table>
+  <pre><code>cargo test -p globe-mode-lsp -p globe-mode-protocol
+uv run python src/Svelte/tests/test_ui.py</code></pre>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ul>
+    <li>開始時刻・固定刻みの幅・壁時計の予算の欄</li>
+    <li>tunable なパラメータの一覧から選ぶ</li>
+    <li>ファイルの開く/保存（S141）、ダークモード</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

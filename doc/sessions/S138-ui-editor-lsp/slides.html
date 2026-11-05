@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S138 エディタから定義ジャンプ — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S138 エディタから定義ジャンプ">
+
+<section class="slide" id="S01">
+  <span class="tag">S138 · 2026-11-03 · P4</span>
+  <h1>エディタから定義ジャンプ</h1>
+  <p class="lead">「CodeMirror と LSP の直接の接続は未」を埋める</p>
+  <div class="big">F12 か Ctrl/Cmd+クリックで、同じファイルの宣言にも MSL のファイルにも飛べる</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>S132 の定義ジャンプを、ブラウザと Tauri の CodeMirror から使う</li>
+    <li>口は <code>Backend.definition(file, line, character)</code> の 1 つだけ</li>
+    <li>汎用の LSP クライアントは足さない。補完は S053 のまま</li>
+    <li>ライブラリのファイルは S127 と同じく同じ名前の文書として開く</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>接続の形</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>返す形</td><td><code>{file, text, range}</code></td><td>Tauri の UI はディスクを読めない。開くには本文が要る</td></tr>
+    <tr><td>Tauri</td><td>sidecar の <code>globe/definition</code></td><td><code>globe/librarySource</code> などと同じ流儀</td></tr>
+    <tr><td>wasm</td><td><code>definition_at</code> を lsp から呼ぶ</td><td>lsp は wasm32 でビルドできた。読み手の関数を 1 つ足すだけ</td></tr>
+    <tr><td>戻る</td><td>入る前の文書を積み、Alt+← で戻る</td><td>エディタが 1 文書でも、自分の文書を失わない</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>流れ</h1>
+  <svg class="fig" viewBox="0 0 800 240" role="img" aria-label="エディタのキーから Backend を通り、wasm か sidecar が lsp の definition_at を呼ぶ">
+    <rect class="svg-box-accent" x="20" y="90" width="150" height="60" rx="10"/>
+    <text class="svg-text-b" x="95" y="125" text-anchor="middle">F12 / Ctrl+クリック</text>
+    <rect class="svg-box" x="230" y="30" width="180" height="60" rx="10"/>
+    <text class="svg-text" x="320" y="65" text-anchor="middle">WorkerBackend (wasm)</text>
+    <rect class="svg-box" x="230" y="150" width="180" height="60" rx="10"/>
+    <text class="svg-text" x="320" y="185" text-anchor="middle">TauriBackend (sidecar)</text>
+    <rect class="svg-box" x="470" y="90" width="160" height="60" rx="10"/>
+    <text class="svg-text" x="550" y="125" text-anchor="middle">definition_at</text>
+    <rect class="svg-box" x="670" y="90" width="110" height="60" rx="10"/>
+    <text class="svg-text" x="725" y="125" text-anchor="middle">範囲へ移動</text>
+    <line class="svg-line" x1="170" y1="110" x2="230" y2="60"/>
+    <line class="svg-line" x1="170" y1="130" x2="230" y2="180"/>
+    <line class="svg-line" x1="410" y1="60" x2="470" y2="110"/>
+    <line class="svg-line" x1="410" y1="180" x2="470" y2="130"/>
+    <line class="svg-line" x1="630" y1="120" x2="670" y2="120"/>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>試験</h1>
+  <table class="compact">
+    <tr><th>試験</th><th>中身</th><th>結果</th></tr>
+    <tr><td>lsp</td><td><code>globe/definition</code> が <code>Components.mo</code> の本文と範囲を返す</td><td class="ok">通過</td></tr>
+    <tr><td>wasm</td><td><code>definition</code> が同じ形を返す</td><td class="ok">通過</td></tr>
+    <tr><td>test_ui</td><td>Decay の x で F12、ChuaCircuit の Resistor で F12 と Alt+←</td><td class="ok">通過</td></tr>
+  </table>
+  <pre><code>uv run python src/Svelte/tests/test_ui.py</code></pre>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ul>
+    <li>ホバー、参照、リネーム、inlay hint</li>
+    <li>ライブラリのファイルへ入ったときのモデル名、複数の文書</li>
+    <li>ダークモード</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

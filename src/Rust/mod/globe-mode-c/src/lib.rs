@@ -553,10 +553,12 @@ mod tests {
     }
 
     /// 最初の t の進捗で 1 を返す（S131）。`user_data` は呼ばれた回数。
+    /// 最初の「t が 1 つの出力の間隔を越えた」進捗で止める。t = 0 の進捗で止めると途中の列が空になり、
+    /// 負荷の高いランナーで落ちる（S148 の全体検査）。S136 の LSP の試験と同じ待ち方
     unsafe extern "C" fn stop_at_first_time(p: *const GmProgress, user: *mut c_void) -> c_int {
         unsafe {
             *user.cast::<u32>() += 1;
-            c_int::from((*p).has_time != 0)
+            c_int::from((*p).has_time != 0 && (*p).time > 1.0)
         }
     }
 

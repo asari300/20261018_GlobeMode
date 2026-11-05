@@ -28,8 +28,8 @@ pub use globe_mode_frontend::CompiledModel;
 pub use globe_mode_graph::{ConnectGraph, ConnectMismatch, GraphError};
 pub use globe_mode_ir::{FlatSummary, Outline, SimRun};
 pub use globe_mode_protocol::{
-    CheckResponse, ColumnsLayout, ParametersResponse, SimulateRequest, SimulateResponse,
-    StructureCounts,
+    CheckResponse, ColumnsLayout, ExperimentValues, ParametersResponse, SimulateRequest,
+    SimulateResponse, StructureCounts,
 };
 pub use globe_mode_sim::solvers::{SOLVERS, SolverEntry};
 // facade に無いものを呼ぶとき（CLI の文字の表示が `FullReport` を読む、結果を CSV / MAT に書く）
@@ -357,6 +357,11 @@ impl Workspace {
             s8: report.init,
             s9: report.loops,
             s10: report.preflight,
+            experiment: check
+                .preflight
+                .as_ref()
+                .and_then(|p| p.experiment.as_ref())
+                .map(ExperimentValues::from),
             init: check.init.as_ref().map(|i| self.db.init_in_original(i)),
             flat: check.flat,
             diagnostics: report.diagnostics,
@@ -404,14 +409,27 @@ impl Workspace {
         out_dir: &Path,
         options: &FmuOptions,
     ) -> Result<PathBuf, String> {
-        let compiled = self.compile(model, &BTreeMap::new()).map_err(|ds| {
+        let compiled = self.compile_for_fmu(model)?;
+        export_fmu(&compiled, out_dir, options)
+    }
+
+    /// [`Workspace::export_fmu`] の `build` 無しを、ファイルに書かず zip のバイト列で返す（S144。wasm32 でも呼べる。ブラウザの UI のダウンロード用）。
+    #[cfg(feature = "fmu")]
+    pub fn export_fmu_bytes(&mut self, model: &str, fmi_version: u8) -> Result<Vec<u8>, String> {
+        let compiled = self.compile_for_fmu(model)?;
+        let src = globe_mode_fmi::export::export_me_sources(&compiled, fmi_version)?;
+        globe_mode_fmi::export::fmu_bytes(&src)
+    }
+
+    #[cfg(feature = "fmu")]
+    fn compile_for_fmu(&mut self, model: &str) -> Result<CompiledModel, String> {
+        self.compile(model, &BTreeMap::new()).map_err(|ds| {
             let msgs: Vec<String> = ds.iter().map(|d| d.message.clone()).collect();
             format!(
                 "{model}: DAE まで変換できないので FMU を作れない: {}",
                 msgs.join("; ")
             )
-        })?;
-        export_fmu(&compiled, out_dir, options)
+        })
     }
 
     /// 再コンパイル無しに変えられる（tunable な）パラメータの一覧（検査の Error では止めない）。
