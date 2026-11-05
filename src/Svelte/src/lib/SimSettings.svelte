@@ -121,9 +121,9 @@
 <style>
   .settings { margin: .25rem 0; }
   .settings label { margin-right: 1rem; }
-  small { color: #555; }
+  small { color: var(--muted); }
   .rows { max-height: 12rem; overflow-y: auto; }
   th { text-align: left; font-weight: normal; padding-right: .5rem; }
-  .problem { color: #b00020; margin: .25rem 0; }
-  .last { color: #555; margin: .25rem 0; }
+  .problem { color: var(--err); margin: .25rem 0; }
+  .last { color: var(--muted); margin: .25rem 0; }
 </style>

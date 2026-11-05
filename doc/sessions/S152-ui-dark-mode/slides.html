@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S152 ダークモード — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S152 ダークモード">
+
+<section class="slide" id="S01">
+  <span class="tag">S152 · 2026-11-05 · P4 / P7</span>
+  <h1>Svelte 版 UI のダークモード</h1>
+  <p class="lead">ブラウザ・Desktop・Android で共用の UI が、OS の設定に追従する</p>
+  <div class="big">色は CSS の変数 9 本。部品は変数を読むだけ</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>OS の <code>prefers-color-scheme</code> に追従する</li>
+    <li>手動で 明 / 暗 / OS に合わせる を選べる。選択は <code>localStorage</code></li>
+    <li>CodeMirror・uPlot・sigma の色も追従する</li>
+    <li>新しい依存は足さない。Leptos 版・Dioxus 版は対象外（S153）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>配色は変数、JS の色は取り直して作り直す</h1>
+  <table class="compact">
+    <tr><th>部品</th><th>やり方</th></tr>
+    <tr><td>全体</td><td><code>theme.css</code> の変数。暗は <code>prefers-color-scheme</code> と <code>data-theme</code> の 2 か所（スライドの CSS と同じ）</td></tr>
+    <tr><td>CodeMirror</td><td><code>EditorView.theme</code> を変数で書く。<code>darkTheme</code> だけ Compartment で全タブに反映</td></tr>
+    <tr><td>uPlot</td><td>軸・格子の色を渡すので、切り替えで作り直す</td></tr>
+    <tr><td>sigma</td><td>ノード・辺・ラベル・吹き出しの色を変数から取り、作り直す</td></tr>
+    <tr><td>PNG</td><td>いまの背景色で塗る（明は白のまま）</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>選択から描画まで</h1>
+  <svg class="fig" viewBox="0 0 800 200" role="img" aria-label="select の選択が data-theme と theme.dark に反映され、CSS と各部品が追従する">
+    <rect class="svg-box" x="20" y="70" width="150" height="60" rx="10"/>
+    <text class="svg-text" x="95" y="105" text-anchor="middle">テーマの select</text>
+    <rect class="svg-box" x="230" y="70" width="170" height="60" rx="10"/>
+    <text class="svg-text" x="315" y="105" text-anchor="middle">data-theme と保存</text>
+    <rect class="svg-box-accent" x="460" y="70" width="150" height="60" rx="10"/>
+    <text class="svg-text-b" x="535" y="105" text-anchor="middle">theme.dark</text>
+    <rect class="svg-box" x="670" y="70" width="110" height="60" rx="10"/>
+    <text class="svg-text" x="725" y="105" text-anchor="middle">作り直す</text>
+    <line class="svg-line" x1="170" y1="100" x2="230" y2="100"/>
+    <line class="svg-line" x1="400" y1="100" x2="460" y2="100"/>
+    <line class="svg-line" x1="610" y1="100" x2="670" y2="100"/>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>試験</h1>
+  <table class="compact">
+    <tr><th>試験</th><th>中身</th><th>結果</th></tr>
+    <tr><td>pnpm check</td><td>svelte-check</td><td class="ok">0 エラー</td></tr>
+    <tr><td>test_ui</td><td>暗で開く、明に切り替え、再読み込みで残る、OS に合わせる。GM-SMOKE の全項目</td><td class="ok">通過</td></tr>
+    <tr><td>test_graph</td><td>sigma の単体</td><td class="ok">通過</td></tr>
+  </table>
+  <pre><code>cd src/Svelte &amp;&amp; pnpm check &amp;&amp; pnpm build
+uv run python src/Svelte/tests/test_ui.py</code></pre>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ul>
+    <li>S153 の Leptos 版は最初からダークモードを含める</li>
+    <li>色のカスタマイズ UI</li>
+    <li>プロットの系列の色を暗用に調整する</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

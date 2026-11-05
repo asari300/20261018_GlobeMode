@@ -1,6 +1,6 @@
 [package]
 name = "globe-mode-fmu"
-description = "GlobeMode: own FMI 2.0 Model Exchange runtime (P5b: compiles resources/<model>.mo through globe-mode-exec)"
+description = "GlobeMode: own FMI 2.0 / 3.0 Model Exchange runtime (P5b: compiles resources/<model>.mo through globe-mode-exec)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

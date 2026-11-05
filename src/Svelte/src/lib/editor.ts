@@ -1,7 +1,7 @@
 // CodeMirror の拡張（S053）: 予約語と本文の単語の補完、検査と lint の結果の波線。業務ロジックは置かない。
 import { autocompletion, completeAnyWord, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
 import { linter, type Diagnostic as CmDiagnostic } from "@codemirror/lint";
-import { Prec, type Extension } from "@codemirror/state";
+import { Compartment, Prec, type Extension } from "@codemirror/state";
 import { EditorView, hoverTooltip, keymap } from "@codemirror/view";
 import type { Backend } from "./backend";
 import type { Diagnostic } from "./protocol";
@@ -124,3 +124,16 @@ export function toCmDiagnostics(text: string, ds: Diagnostic[], file: string): C
       message: d.message,
     }));
 }
+
+/** 配色（S152）。色は theme.css の変数なので、明暗で書き換えない。`dark` だけ CodeMirror の既定の暗い部品（補完・lint の吹き出し）のために差し替える。 */
+export const themeSlot = new Compartment();
+export const darkSlot = (dark: boolean): Extension => themeSlot.of(EditorView.darkTheme.of(dark));
+export const modelicaTheme: Extension = EditorView.theme({
+  "&": { backgroundColor: "var(--bg)", color: "var(--fg)" },
+  ".cm-gutters": { backgroundColor: "var(--bg)", color: "var(--muted)", borderRight: "1px solid var(--line)" },
+  ".cm-activeLine, .cm-activeLineGutter": { backgroundColor: "var(--hover)" },
+  ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--fg)" },
+  "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground": { backgroundColor: "var(--sel)" },
+  ".cm-tooltip": { backgroundColor: "var(--bg)", color: "var(--fg)", border: "1px solid var(--border)" },
+  ".cm-tooltip-autocomplete ul li[aria-selected]": { backgroundColor: "var(--sel)", color: "var(--fg)" },
+});

@@ -119,6 +119,8 @@ pub struct ModelStructure {
     pub outputs: Vec<u32>,
     pub derivatives: Vec<u32>,
     pub initial_unknowns: Vec<u32>,
+    /// S137: 3.0 の `EventIndicator` の `valueReference`（2.0 は持たず、読み書きでは空のまま）。
+    pub event_indicators: Vec<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -314,6 +316,7 @@ pub fn parse_model_description(xml: &str) -> Result<ModelDescription, Error> {
                 "Output" => &mut model_structure.outputs,
                 "ContinuousStateDerivative" => &mut model_structure.derivatives,
                 "InitialUnknown" => &mut model_structure.initial_unknowns,
+                "EventIndicator" => &mut model_structure.event_indicators,
                 _ => continue,
             };
             list.push(u32_attr(n, "valueReference")?.unwrap_or_default());
@@ -370,11 +373,10 @@ pub fn write_model_description_2(md: &ModelDescription) -> Result<String, Error>
 /// FMI 3.0 の `modelDescription.xml` を書く（S124。[`write_model_description_2`] と同じ範囲）。
 ///
 /// 型の要素は `Float64`・`Int32`・`Boolean`、`ModelStructure` は `valueReference` で書く。
-// shortcut: EventIndicator の valueReference を持たないので、イベント指標がある（`number_of_event_indicators` > 0）と
-// Err。3.0 のランタイム（P5b）がイベントを持つモデルを出すときに ModelStructure に足す
+/// `EventIndicator` は `model_structure.event_indicators` から書く（S137。数が `number_of_event_indicators` と違えば Err）。
 pub fn write_model_description_3(md: &ModelDescription) -> Result<String, Error> {
-    if md.number_of_event_indicators > 0 {
-        return schema("3.0 の EventIndicator は書けない（valueReference を持たない）");
+    if md.model_structure.event_indicators.len() != md.number_of_event_indicators as usize {
+        return schema("EventIndicator の valueReference の数が number_of_event_indicators と違う");
     }
     write_model_description(md, 3)
 }
@@ -515,6 +517,7 @@ fn write_model_description(md: &ModelDescription, major: u8) -> Result<String, E
             ("Output", &s.outputs),
             ("ContinuousStateDerivative", &s.derivatives),
             ("InitialUnknown", &s.initial_unknowns),
+            ("EventIndicator", &s.event_indicators),
         ] {
             for r in list {
                 let _ = writeln!(x, "    <{tag} valueReference=\"{r}\"/>");

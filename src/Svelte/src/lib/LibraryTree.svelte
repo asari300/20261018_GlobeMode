@@ -29,8 +29,8 @@
 
 <style>
   .tree { list-style: none; margin: 0; padding-left: .8rem; }
-  button { border: 0; background: none; padding: .05rem .2rem; cursor: pointer; text-align: left; font: inherit; }
-  button:hover { background: #eef; }
-  .kind { color: #777; font-size: .85em; }
-  .failure { color: #b00020; }
+  button { border: 0; background: none; color: inherit; padding: .05rem .2rem; cursor: pointer; text-align: left; font: inherit; }
+  button:hover { background: var(--hover); }
+  .kind { color: var(--muted); font-size: .85em; }
+  .failure { color: var(--err); }
 </style>
