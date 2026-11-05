@@ -127,6 +127,10 @@ export class GlobeWorker {
   async hover(file, line, character) {
     return JSON.parse(await this.#call("hover", { file, text: this.#files.get(file) ?? "", line, character }));
   }
+  // 補完（S171）: definition と同じ引数で、LSP の CompletionItem の配列（最大 200 件。label・kind・detail・documentation）
+  async completion(file, line, character) {
+    return JSON.parse(await this.#call("completion", { file, text: this.#files.get(file) ?? "", line, character }));
+  }
   // 参照（S161）: definition と同じ引数で、同じ名前の範囲 [LSP の Range]。同じ文書の、カーソルのあるいちばん内側のクラスの中だけ
   async references(file, line, character) {
     return JSON.parse(await this.#call("references", { file, text: this.#files.get(file) ?? "", line, character }));

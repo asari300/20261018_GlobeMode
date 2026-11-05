@@ -276,6 +276,40 @@ def main() -> int:
         page.keyboard.press("Control+z")
         assert page.locator(".cm-content").inner_text() == base
         print("Decay のクラス名: Shift+F12 で 3 行、F2 で Base を Core に変えて検査が通り、予約語の上は入力欄を出さず、Ctrl+Z で戻った")
+        # 補完（S171）: 予約語と本文の単語に、Rust 側の候補が足される。MSL なしでも、文書のクラス名・部品名（`pin.` の後ろは型 Pin の部品名）が出る
+
+        def undo_to(want: str) -> None:
+            page.locator(".cm-content").focus()
+            for _ in range(60):
+                if page.locator(".cm-content").inner_text() == want:
+                    return
+                page.keyboard.press("Control+z")
+                page.wait_for_timeout(50)
+            assert page.locator(".cm-content").inner_text() == want, "undo で戻らない"
+
+        popup = page.locator(".cm-tooltip-autocomplete")
+        page.keyboard.press("Control+A")
+        page.keyboard.insert_text("connector Pin\n  Real v;\n  flow Real i;\nend Pin;\n\nmodel Probe\n  Pin pin;\n  Real level;\nequation\n  \nend Probe;\n")
+        page.locator(".cm-content").focus()
+        page.keyboard.press("Control+Home")
+        for _ in range(9):
+            page.keyboard.press("ArrowDown")
+        page.keyboard.press("End")
+        page.keyboard.type("lev")
+        expect(popup.locator(".cm-completionDetail", has_text="Real")).to_be_visible(timeout=30_000)  # Rust 側の候補 level（型 Real つき）
+        page.keyboard.press("Escape")
+        page.keyboard.press("Backspace")
+        page.keyboard.press("Backspace")
+        page.keyboard.press("Backspace")
+        page.keyboard.type("pin.")
+        expect(popup.locator(".cm-completionLabel", has_text="v")).to_be_visible(timeout=30_000)
+        expect(popup.locator(".cm-completionLabel", has_text="i")).to_be_visible()
+        page.keyboard.type("v")
+        expect(popup.locator("li[aria-selected] .cm-completionLabel")).to_have_text("v")
+        page.keyboard.press("Enter")
+        expect(page.locator(".cm-activeLine")).to_have_text("  pin.v")
+        undo_to(base)
+        print("Decay の補完: 部品名 level（型 Real つき）と、pin. の後ろの型 Pin の部品名 v・i が候補に出て、選ぶと入った")
         # 構文の色付け（S163）: 別の本文を入れて色を見て、Ctrl+Z で Decay に戻す
         page.keyboard.press("Control+A")
         page.keyboard.insert_text(SYN)
@@ -459,6 +493,24 @@ def main() -> int:
             expect(note).to_have_attribute("data-msl", "loaded", timeout=600_000)
             print(f"MSL を読む: {time.perf_counter() - t:.1f} s（{note.inner_text()[:60]}）")
             assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
+
+            # 補完（S171）: 型の位置で `Modelica.Blocks.Sources.` と打つと、ライブラリの子（Sine）が候補に出て、選ぶと入る
+            circuit = page.locator(".cm-content").inner_text()
+            page.locator(".cm-content").focus()
+            page.keyboard.press("Control+A")
+            page.keyboard.insert_text("model T\n  Modelica.Blocks.Sources.\n  Real x;\nend T;\n")
+            page.keyboard.press("Control+Home")
+            page.keyboard.press("ArrowDown")
+            page.keyboard.press("End")
+            t = time.perf_counter()
+            page.keyboard.type("Si")
+            sine_option = popup.locator(".cm-completionLabel", has_text=re.compile(r"^Sine$"))
+            expect(sine_option).to_be_visible(timeout=30_000)
+            first = time.perf_counter() - t
+            sine_option.click()
+            expect(page.locator(".cm-activeLine")).to_have_text("  Modelica.Blocks.Sources.Sine")
+            undo_to(circuit)
+            print(f"MSL の補完: Modelica.Blocks.Sources.Si で Sine が候補に出るまで {first:.2f} s、選ぶと入った")
 
             page.get_by_label("モデル名").fill(CHUA)
             t = time.perf_counter()

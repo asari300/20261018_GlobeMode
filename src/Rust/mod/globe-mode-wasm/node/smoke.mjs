@@ -139,6 +139,23 @@ if (msl && existsSync(msl)) {
   assert.equal(hits[0].path, "Modelica.Blocks.Examples.PID_Controller");
   assert.equal(JSON.parse(lib.library_search("modelica.blocks.sources.sine", 5))[0].path, "Modelica.Blocks.Sources.Sine");
   console.log(`MSL の木と検索: Blocks の子 ${kids.length} 件、検索 PID_Con ${q1} ms、s（${many.length} 件）${ms(t)} ms`);
+  // S171: 補完。型の位置の `Modelica.Blocks.Sources.` で Sine が出る・`.` の後ろで部品名が出る・文字列の中は空。応答時間も測る。
+  // どれも打ちかけで文書は壊れている（カーソルの行を除いて読む）
+  const complete = (doc, line, ch) => {
+    lib.set_file("C.mo", doc);
+    const t0 = performance.now();
+    const items = JSON.parse(lib.completion("C.mo", doc, line, ch));
+    return [items.map((i) => i.label), performance.now() - t0];
+  };
+  const [sources, c1] = complete("model C\n  Modelica.Blocks.Sources.\n  Real x;\nend C;\n", 1, 26);
+  assert.ok(sources.includes("Sine") && sources.includes("Step"), sources.join());
+  const [members, c2] = complete("model C\n  Modelica.Blocks.Sources.Sine s;\nequation\n  s.\nend C;\n", 3, 4);
+  assert.ok(members.includes("y"), members.join()); // Sine が継承した出力 y
+  const c2b = complete("model C\n  Modelica.Blocks.Sources.Sine s;\nequation\n  s.\nend C;\n", 3, 4)[1]; // 読んだファイルのアウトラインは持つので 2 回目は速い
+  assert.deepEqual(complete("model C // Sin\nend C;\n", 0, 13)[0], []);
+  const [top, c3] = complete("model C\n  Real x;\n  \nend C;\n", 2, 2);
+  assert.ok(top.includes("Modelica") && top.includes("model") && top.includes("x") && top.length <= 200, top.length);
+  console.log(`MSL の補完: Sources. ${sources.length} 件 ${c1.toFixed(1)} ms、s. ${members.length} 件 ${c2.toFixed(1)} ms（2 回目 ${c2b.toFixed(1)} ms）、最上位 ${top.length} 件 ${c3.toFixed(1)} ms`);
   for (const [model, check, shown] of [
     ["Modelica.Electrical.Analog.Examples.ChuaCircuit", (f) => Number.isFinite(f["C1.v"]), "C1.v"],
     ["Modelica.Mechanics.Rotational.Examples.First", (f) => Number.isFinite(f["inertia1.w"]), "inertia1.w"],
