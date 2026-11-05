@@ -7,7 +7,7 @@
 | worktree | `.git-worktree/s158-sim-sdirk34hw-thyristor` |
 | Phase | P3（実行系） |
 | セッション文書 | `doc/sessions/S158-sim-sdirk34hw-thyristor/` |
-| セッション記録 | （親が写す） |
+| セッション記録 | [2026-11-02-a2580a13-3889-4662-9db4-a45dc1ca6772.md](../sessions/2026-11-02-a2580a13-3889-4662-9db4-a45dc1ca6772.md) |
 
 ## 依頼
 
@@ -34,7 +34,7 @@
 - 既知の限界の試験: `cargo test --release -p globe-mode-exec --test simulate msl_sdirk34hw -- --ignored` が成功（116.17 s）。
 - コードの検査（`mise run check`、load average 0.4 で 1 回）: fmt・clippy `-D warnings`・deny（advisories / bans / licenses / sources ok）・`uv sync --locked` が通り、試験は 653 passed・失敗 0・ignored 12（新しい `#[ignore]` を含む）
 - `check_docs.py`: 文書の相対リンク 切れ 0 件（スライドは全件 OK）。`render_slides.py` は S158 のデッキと下書き 34 の 1 枚で 問題 0 件（1 回目で通った）
-- セッション記録の `--check`: （親が写す）
+- セッション記録の `--check`: 取りこぼし 0 件（親が写した）
 - ステージした差分の漏洩検査: 0 件（メールアドレス・ホームのパス・トークンのパターンで検索）
 
 ## 残したこと
