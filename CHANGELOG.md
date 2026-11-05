@@ -77,6 +77,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - S175: キーボードだけで開く・書く・検査・診断へ飛ぶ・実行・止める・保存まで通る（診断と参照の行の button、Ctrl/Cmd+Enter などのショートカット、プロットの `aria-label`、フォーカスの輪郭）。
 - S179: 起動直後の案内（保存したタブが無い初回だけの 3 手順。閉じられる）、スキップリンク（エディタへ・結果へ）、タブの矢印キー・Home・End、未保存の印（●）と再読み込み前の確認。
 - S180: ライブラリを使うときのモデル名の誤り（`-m PID_Controller` など）に、英語の原文でなく「モデルが見つからない」（`GM-E1002`）と候補を出す。`-L` も FILES も無いときの案内と、`-L` に MSL のサブフォルダを渡したときの「親のフォルダを渡す」案内。
+- S182: CLI の使える流れ。`simulate` を `-o` なしで回すと「結果は書いていない」と 1 行（あれば「書いた: パス（n 行）」）。`-o`・`fmu export --out` の書けない出力先は計算の前に分かり、パスと理由を言う（`os error` を出さない）。**挙動が変わる点**: `globe … | head` は終了コード 0 で黙って終わる（今まで 2 や panic）、`check`・`simulate` の人間向けの出力は info の診断を件数だけにする（`-v` で全部。`--json` は変えない）。`--start-time -2` が通る。ヘルプに例（S0〜S10 に直し、内部のセッション番号を消した）。`--force` の診断の重複と、失敗の最後の行に最初の error。`graph` に `-L`。
 - S183: Python に CLI と同じ読み取り（`Workspace.outline`・`deps`・`flat`）。C・Zig・Julia・Elixir・Gleam の README に、書いてあるとおりに動く最初の例（検査して実行して最後の値を読む）を置き、Julia の README を実物に合わせた。marimo の `sim_app.py` にライブラリとモデルの入力欄。
 - S134・S135: Desktop が `C.UTF-8` の locale で白画面になる不具合の修正と、自動更新（`tauri-plugin-updater`。鍵を登録するまで「未設定」）。
 - S140・S164: アプリの使える流れの点検（調査だけ。[2026-11-04](doc/research/app-flow-2026-11-04.md)、[2026-11-05](doc/research/app-flow-2026-11-05.md)）。
@@ -114,6 +115,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - S039: Python の wheel `globe_mode`（`globe-mode-py`、PyO3・abi3-py312・maturin）。load_dir → check → graph → simulate → polars の表の参照シナリオを `pytest` で通した。
 - S075・S082・S087: C ABI の `globe-mode-c`（9 関数、手書きのヘッダ）と Zig・Julia、Elixir の NIF（`globe-mode-nif`）、Gleam の `@external`。参照シナリオ（Decay を開く → check → simulate → x(1) → format）は `mise run c:zig`・`c:julia`・`elixir:test`・`gleam:test`。
 - S110・S111・S116・S118: 公開 API の機能表を作り、6 言語に format / lint、列の道（`simulate_columns`）、FMU の書き出しを足した。
+- S181: Python API を厳しくした。**未知の設定のキー（`stoptime` など）は黙って無視されず `TypeError` になる**（前は `ok: True` で既定の値のまま走った。使えるキーを添える）。設定の型の誤りはどの設定かを言う `ValueError`、`Workspace("data/msl")` は 1 つのライブラリ（前は 1 文字ずつ）、ライブラリが読めない `RuntimeError` の本文は `コード: 文`（元の診断は `.diagnostics`）。`export_fmu` の未知の options は `TypeError`。docstring・`py.typed`・`_native.pyi`、`on_progress` は既定のソルバでは積分の中に届かないと明記。
 - S121・S123・S129・S131・S133・S136: 実行の進捗と中断をコア・Python・C と他の言語・wasm とブラウザの UI・`globe lsp` と Desktop に入れた（[ADR-0033](doc/adr/0033-progress-and-cancel.md)）。
 - S125・S153・S155・S156・S160: UI の負荷の比較。測定ハーネス（[ADR-0034](doc/adr/0034-ui-bench-method.md)）と、Leptos 版・Dioxus 版の試験版（`src/Rust/apps/experimental/`、配布物には入らない）、Linux・Windows・macOS の結果 `doc/bench/ui.md`。
 

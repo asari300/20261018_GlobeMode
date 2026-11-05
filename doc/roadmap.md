@@ -488,6 +488,11 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **キーボードとアクセシビリティ**（S164 の穴 8。[解説書](sessions/S175-ui-keyboard-a11y/解説書.md)）: キーだけで開く・書く・検査・診断へ飛ぶ・実行・止める・結果を見る・保存まで通せる。診断と参照の行は行の中の本物の `<button>`（Tab・Enter・Space でエディタの該当位置へ、フォーカスもエディタへ）。ショートカットは Ctrl/Cmd+Enter 実行、+Shift+Enter 検査、+. 止める、+S 保存（Desktop は +Shift+S 名前を付けて保存）、+O 開く（capture で受け、エディタの中でも効く。CodeMirror の Mod-Enter「空行を挿入」は覆う）。ボタンに `title` と `aria-keyshortcuts`。プロットの canvas に `role="img"` と信号名・時間の範囲・最後の値・最小・最大の `aria-label`（純粋な関数 `plotLabel`）。`:focus-visible` の輪郭を `--accent` に（エディタの 1px の点線は暗で見えなかった）。検査・実行の完了を `aria-live="polite"`、`h1` を読み上げ専用に。`test_ui.py` にキーだけの 1 本。
 - 持ち越し: ~~エディタへ飛ぶスキップリンク~~（S179 で済）、~~タブの矢印キー~~（S179 で済）、Mac の実機、スクリーンリーダー（NVDA・VoiceOver）の実機、Esc で止める、Tab での字下げ（エディタの Tab はフォーカスを離れる設計のまま）。
 
+### S182（P4、2026-11-06）で済んだこと
+
+- **CLI の simulate・出力先・ヘルプ**（S178 の監査の穴 4〜8、WP の B1・B2。[解説書](sessions/S182-cli-simulate-help/解説書.md)）: `-o` なしは結果を捨てたと stderr に 1 行、`-o` は「書いた: パス（n 行）」。`-o`・`fmu export --out` は計算の前に確かめ、パスと理由を言う（共通の `io_error`・`io_reason`）。`| head` は終了コード 0（`println!` を同名のマクロで置き換え。unsafe 禁止のため）。`allow_negative_numbers`。ヘルプに例、S0〜S10、内部のセッション番号を消した。`--force` の重複を除き、最後の行に最初の error（JSON の `refused` は変えない）。info は既定で件数だけ（`-v`。`--json` は変えない）。`graph` に `-L`（`deps` は Workspace の持ち方が違うので足さない）。試験 `tests/cli_flow.rs` 7 本。
+- 持ち越し: facade `simulate_unmarked` の診断の重複（wasm・UI は【未確認】）、`fmt` のパス省略と非 TTY・GM-U の終了コード・`msl fetch`・ヘルプの言語（ユーザーの判断）。
+
 ### S180（P4、2026-11-06）で済んだこと
 
 - **CLI のモデル名と `-L` の案内**（S178 の監査の穴 1・2、WP の A1。[解説書](sessions/S180-cli-model-name-library-hints/解説書.md)）: ライブラリを使うとき、`-m PID_Controller` や `…PID_Contoller` は Rumoca の英語の原文だけが返っていた。Rust の `check_synced_inner`（CLI・Python・LSP・wasm・UI の検査の入口 1 か所）で、Rumoca が要求したモデルの結果も失敗の記録も持たず、字句の索引（`LibraryTree`）と Session のどのクラスにも無いときだけ `GM-E1002` と候補（完全修飾名の末尾が一致、末尾の名前が同じ、綴りが近い。上位 5 件）を出す。名前が正しい失敗は今のまま。`-L` が `package.mo` のあるフォルダで同じ親に `ModelicaServices` か `Complex` が並ぶときは、失敗の診断（`GM-E1001`）に「親のフォルダを `-L` に渡す」の補足（自動では足さない）。CLI は `-L` も FILES も無いときに `-L <根> -m <完全修飾名>` の例を足す。Python の `Workspace("data/msl")` は S181。
@@ -503,6 +508,11 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **最初の 1 分: 起動直後の案内・スキップリンク・タブの矢印キー・未保存の印**（S164 の穴の残り。[解説書](sessions/S179-ui-first-run/解説書.md)）: Svelte の UI だけで、Rust は触っていない。案内は保存したタブが無い初回だけ「はじめに」の 3 手順（モデルを書く・開く、検査、実行。ショートカットは S175 と同じキー。MSL が未読み込みなら「MSL を読む」を促す 1 行）を出し、閉じると localStorage（`globe-mode.welcome`）に残す。smoke では出さない。スキップリンクは Tab 1 回で「エディタへ」、2 回で「結果へ」（Tab は十数回から 1〜2 回）。タブは `role="tablist"` の作法で左右の矢印・Home・End、roving tabindex、選ぶと開く。未保存の印は ● と `aria-label` の「未保存」。保存済みの本文は、編集中のタブだけ localStorage に持ち、再読み込みをまたいでも印が正しい（S151 までの保存は戻した本文を保存済みとみなす）。未保存があるときだけ `beforeunload`（ブラウザのみ。Tauri は付けない）。`ready_ms` は 3 回の中央値で 382 から 339 ms（差は雑音の範囲）。
 - 試験: `test_ui.py` に 1 本（初回の案内と閉じる・smoke で出ない、スキップリンク、矢印・Home・End と tabindex、編集で印・再読み込み・beforeunload・保存で消える）。`pnpm check` 0 警告。
 - 持ち越し: タブの並べ替え（ドラッグ）、ツリーのアイコン、案内の多言語化、案内を出し直す操作、Esc で止める、スクリーンリーダーの実機（【未確認】）。
+
+### S181（P7、2026-11-06）で済んだこと
+
+- **Python API を厳しくした**（S178 の監査の Python の穴 P2・P7・P10・P11、WP 案 C1。[解説書](sessions/S181-python-api-strictness/解説書.md)）: `Workspace("data/msl")`（文字列・`Path` の単体）を 1 つのライブラリとして扱う（前は 1 文字ずつ）。**未知の設定のキーは `TypeError`**（前は黙って無視され `ok: True`。使えるキーを添える。キーと型の一覧は Rust の `SimSettings` から `settings_sample()` で取る）、型の誤りは「設定 stop_time は数値のはず」と言う `ValueError`、`export_fmu` は明示のキーワード引数。ライブラリが読めない `RuntimeError` の本文は `GM-E1003: …`（元の診断は `.diagnostics`）。公開の関数すべての docstring、`py.typed`・`_native.pyi`、`on_progress` は既定のソルバ（bdf・auto・dopri45）では積分の中に届かないと明記、`src/Python/README.md`・`main()` の古い文面を直した。`SimSettings` の読み方・C ABI・NIF は変えていない（facade が `SimSettings` を再公開しただけ）。
+- 持ち越し: `outline`・`flat`・`deps` と `check` の要約（C2）、結果の TypedDict、**例外の階層（`GlobeModeError`）と「未知のモデルを例外にするか」はユーザーの判断**（解説書 2.5）。
 
 ### S166（P4、2026-11-05）で済んだこと
 
