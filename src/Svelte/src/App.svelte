@@ -5,7 +5,7 @@
   import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
   import { bracketMatching } from "@codemirror/language";
   import { setDiagnostics } from "@codemirror/lint";
-  import { darkSlot, modelicaCompletion, modelicaDefinition, modelicaLinter, modelicaRefactor, modelicaTheme, themeSlot, toCmDiagnostics } from "./lib/editor";
+  import { darkSlot, modelicaCompletion, modelicaHighlight, modelicaDefinition, modelicaLinter, modelicaRefactor, modelicaTheme, themeSlot, toCmDiagnostics } from "./lib/editor";
   import { setPref, theme, type Pref } from "./theme.svelte";
   import { WorkerBackend } from "./lib/worker-backend";
   import { TauriBackend, inTauri } from "./lib/tauri-backend";
@@ -103,7 +103,7 @@
       doc,
       extensions: [
         lineNumbers(), history(), drawSelection(), highlightActiveLine(), bracketMatching(), keymap.of([...defaultKeymap, ...historyKeymap]),
-        modelicaCompletion(), modelicaLinter(backend, file), // S053
+        modelicaHighlight, modelicaCompletion(), modelicaLinter(backend, file), // S053（S163: 色付け）
         modelicaDefinition(definition, goBack, { backend, file: () => file }), // S138（S149: ホバー）
         modelicaRefactor(references, askRename), // S161: Shift+F12 と F2
         EditorView.updateListener.of((u) => { if (u.docChanged) persist(); }),

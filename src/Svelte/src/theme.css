@@ -11,6 +11,11 @@
   --accent: #2563eb;
   --warn: #8a6100;
   --err: #b00020;
+  --syn-kw: #7b1fa2;
+  --syn-type: #00695c;
+  --syn-str: #a31515;
+  --syn-num: #0b5cad;
+  --syn-cmt: #5a6b5a;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
@@ -25,6 +30,11 @@
     --accent: #58a6ff;
     --warn: #e3a34a;
     --err: #ff7b8a;
+    --syn-kw: #d2a8ff;
+    --syn-type: #7ee787;
+    --syn-str: #ffa198;
+    --syn-num: #79c0ff;
+    --syn-cmt: #8b949e;
   }
 }
 :root[data-theme="dark"] {
@@ -39,6 +49,11 @@
   --accent: #58a6ff;
   --warn: #e3a34a;
   --err: #ff7b8a;
+  --syn-kw: #d2a8ff;
+  --syn-type: #7ee787;
+  --syn-str: #ffa198;
+  --syn-num: #79c0ff;
+  --syn-cmt: #8b949e;
 }
 body { background: var(--bg); color: var(--fg); }
 select, input, textarea { background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 3px; }

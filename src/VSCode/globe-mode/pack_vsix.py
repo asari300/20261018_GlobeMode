@@ -17,6 +17,7 @@ FILES = {
     "package.json": "package.json",
     "dist/extension.js": "dist/extension.js",
     "language-configuration.json": "language-configuration.json",
+    "syntaxes/modelica.tmLanguage.json": "syntaxes/modelica.tmLanguage.json",
     "README.md": "README.md",
     "LICENSE-MIT": "LICENSE-MIT.txt",
     "LICENSE-APACHE": "LICENSE-APACHE.txt",

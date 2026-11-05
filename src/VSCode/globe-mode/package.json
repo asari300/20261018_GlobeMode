@@ -2,7 +2,7 @@
   "name": "globe-mode",
   "displayName": "GlobeMode Modelica",
   "description": "Modelica の整形・lint・補完・検査を GlobeMode の `globe lsp` で行う",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "publisher": "globe-mode",
   "license": "MIT OR Apache-2.0",
   "repository": {
@@ -29,6 +29,13 @@
           ".mo"
         ],
         "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "modelica",
+        "scopeName": "source.modelica",
+        "path": "./syntaxes/modelica.tmLanguage.json"
       }
     ],
     "configuration": {
