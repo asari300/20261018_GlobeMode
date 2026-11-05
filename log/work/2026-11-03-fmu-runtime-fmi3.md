@@ -43,10 +43,10 @@
   - InputDecay x(1) = 1.1548180654142353、y(1) = 2.3096361308284705（解析解と 5.6e-8・1.1e-7）
 - `validate_fmu`: 3.0 の 6 本とも問題なし（`time` を足す前は 6 本とも上の 1 件）。2.0 も問題なし。
 - `cargo test -p globe-mode-fmu --test fmpy`: 11 件成功・失敗 0（738.6 s、`--test-threads 3`）。`cargo test -p globe-mode-fmi`: 6 件成功。1 回目の `cargo test -p globe-mode-fmi -p globe-mode-fmu` は自分で付けた `timeout 590` で FMPy の途中で切れた（失敗ではない）。
-- `mise run check`: CHECK
-- `check_docs.py`: DOCS
-- `render_slides.py`: RENDER
-- ステージした差分の漏洩検査: LEAK
+- main（S150 まで）を取り込んだ後、`cargo test -p globe-mode-fmi` 6 件、`cargo test -p globe-mode-fmu -- --test-threads 3` 11 件（29.4 s、ビルド済み）が成功。`mise run check` 通過（テスト 653 件成功・失敗 0、cargo deny ok、`uv sync --locked`）
+- `check_docs.py`: 切れ 0 件、スライド OK
+- `render_slides.py`（S137 のデッキだけ）: 7 枚、問題 0 件
+- ステージした差分の漏洩検査: 0 件
 - セッション記録の `--check`: 親が写す。
 
 ## 残したこと
