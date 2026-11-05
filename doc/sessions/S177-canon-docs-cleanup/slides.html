@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S177 正典の文書の整理 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S177 正典の文書の整理">
+
+<section class="slide" id="S01">
+  <span class="tag">S177 · 2026-11-05 · 文書</span>
+  <h1>正典の文書の重複と食い違いを片付けた</h1>
+  <p class="lead">2026-11-02〜05 の 80 本近い並行取り込みで溜まった、マージの合成のあとを直す。事実は変えない</p>
+  <div class="big">文書だけ。<b>行を足さず、重なった行をまとめ、済んだ持ち越しに打ち消し線</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>何が溜まっていたか</h1>
+  <ul>
+    <li>features.md に「補完・定義ジャンプ…」と「アウトライン…」の行が 2 組ずつ</li>
+    <li>roadmap.md の持ち越しは、後のセッションで済んだのに残ったまま</li>
+    <li>S039 の持ち越しの行が 2 本。索引の並びは降順と昇順が混在</li>
+    <li>architecture.md に NIF の行が 2 つ、workflow の一覧が無い</li>
+    <li>licenses.md の表が空行で切れ、polars・plotly の行が無い</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>書き換えず、残す行を直して重なりを消す</h1>
+  <table class="compact">
+    <tr><th>方針</th><th>理由</th></tr>
+    <tr><td>重なった行は新しい方を残し、古い方にしかない文を足す</td><td>並行の WP との衝突を最小の差分にする</td></tr>
+    <tr><td>済んだ持ち越しは消さず <code>~~…~~（S◯◯ で済）</code></td><td>履歴の節を残す既存の流儀</td></tr>
+    <tr><td>根拠が同じ文書内の別の節にあるものだけ打ち消す</td><td>確かめられないものは触らない</td></tr>
+    <tr><td>4 文書の表は 1 つにまとめる</td><td>S164・S172 の表を末尾の 1 つへ</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">結果</span>
+  <h1>文書ごとの直した数</h1>
+  <table class="compact">
+    <tr><th>文書</th><th>直したこと</th></tr>
+    <tr><td>features.md</td><td>重なった 2 行を統合、文の切れ目 3 か所、Phase の欄 2 か所</td></tr>
+    <tr><td>roadmap.md</td><td>約 100 項目に打ち消し線、重複 1 本、Phase の行 4 つ、末尾に「いま残っているもの」</td></tr>
+    <tr><td>sessions/README.md</td><td>95 行を降順に並べ直し、表の崩れ 2 行、状態の文 1 つ</td></tr>
+    <tr><td>architecture.md</td><td>重複の行 1、古い行 4、workflow の一覧 11 本</td></tr>
+    <tr><td>licenses.md</td><td>表の切れ目、重複の行 4、polars・plotly の行</td></tr>
+    <tr><td>adr/README.md</td><td>欠番 0027 の注記、0034 の欄</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">残り</span>
+  <h1>「いま残っているもの」は 1 つの表</h1>
+  <div class="cols-3">
+    <div class="card"><b>ユーザーの判断</b><br>公開、署名と鍵、dry run、ADR-0026、Rumoca の rev、上流 issue、ADR の状態</div>
+    <div class="card"><b>上流待ち</b><br>Rumoca の穴、diffsol の main、S10 の階数</div>
+    <div class="card"><b>機能の穴</b><br>P4 の 30 fps、P5 の Import、P6〜P8 と Track B</div>
+  </div>
+  <p>roadmap.md の末尾。S172 の 3 行の表と S164 の箇条書きはここへ統合した</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">再現手順</span>
+  <h1>検証</h1>
+  <pre><code>python3 -I .claude/skills/session-docs/check_docs.py</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">0</span><span class="l">リンク切れ</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">src / .github / CLAUDE.md の変更</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>触らなかったもの</h1>
+  <ul>
+    <li>CLAUDE.md の 2 章の表（<code>src/VSCode/</code>、<code>apps/experimental/</code> の行が無い）</li>
+    <li>CHANGELOG の S166・S167・S169〜S175 の欠け（S176 などで扱う）</li>
+    <li>別の remote ブランチが使う S136・S137・S150・S152（索引は触らず報告だけ）</li>
+    <li>ADR-0032・0034〜0036 の状態の行（ユーザーの判断）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

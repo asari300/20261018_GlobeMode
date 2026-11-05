@@ -41,12 +41,14 @@ mise.toml / mise.lock           ツールの版（rust / uv / zig / julia / erla
 pyproject.toml / uv.lock        Python の依存（uv）
 src/Rust/mod/<crate>/           workspace の library crate（2.2 の表）
 src/Rust/apps/desktop/          Tauri 2 のシェル（Linux, Windows, Android）
-src/Rust/apps/experimental/     leptos/ と dioxus/（default-members から外す）
+src/Rust/apps/experimental/     leptos/ と dioxus/（別の Cargo workspace。S153・S155）
+src/Rust/apps/web-*/            整形・lint のウェブアプリ群 actix・axum・loco・rocket（別の Cargo workspace。[web-apps.md](web-apps.md)）
 src/Rust/xtask/                 build、bump-rumoca、licenses、wasm --threads
-src/Svelte/                     Svelte 5 + TypeScript の UI。Tauri とブラウザで共用する（S041: Backend、WorkerBackend、CodeMirror 6、診断パネルまで。Tauri と図は未実装）
+src/Svelte/                     Svelte 5 + TypeScript の UI。Tauri・ブラウザ・Android で共用する（Backend・WorkerBackend・TauriBackend、CodeMirror 6、診断・プロット・graph・ライブラリツリー・実行の設定。Diagram ビューは未実装）
 src/Python/mod/                 Python パッケージ globe_mode（PyO3 と maturin）
 src/Python/marimo/              marimo のノートブックと anywidget
 src/Python/streamlit/           結果ダッシュボードとパラメータスイープ
+src/Python/fastapi_fmt/  src/Astro/fmt/  src/Elixir/phoenix_fmt/  src/Gleam/wisp_fmt/   整形・lint のウェブアプリ群の残り（web-apps.md）
 src/Elixir/  src/Gleam/         Rustler の NIF を呼ぶ薄いラッパ
 src/VSCode/globe-mode/          VS Code 拡張（S059）。`globe lsp` を起動してつなぐだけ（vscode-languageclient）。VSIX は pack_vsix.py で作る
 src/Julia/   src/Zig/           C ABI を呼ぶ薄いラッパ
@@ -74,13 +76,12 @@ doc/  log/                      文書と記録
 | `globe-mode-fmu` **（S095）** | 自前の FMI 2.0 Model Exchange のランタイム（P5b の 1 回目、cdylib + rlib）。`fmi2Instantiate`〜`fmi2GetDerivatives` の 35 関数を `extern "C"` で出す（FMUstate・方向微分・String は `fmi2Error` の stub）。S099 から、`fmi2Instantiate` が `resources/<完全修飾名>.mo` を compile して exec の `ModelInstance` で微分を求め、`modelDescription.xml` は `model_description` が同じ道で作る（[ADR-0032](adr/0032-p5b-own-runtime.md)）。S109 から事象（状態事象・`reinit`・`sample` の時刻事象）も回す（`fmi2GetEventIndicators`・`fmi2NewDiscreteStates`）。S112 から代数・離散の変数も値参照 `2n+p..` で読める（`fmi2GetReal`・`fmi2GetInteger`・`fmi2GetBoolean`）。S114 から入力（`causality="input"`）を `fmi2SetReal` で書ける（`ModelInstance::set_input`）。S137 から同じ cdylib で FMI 3.0 の ME（`fmi3*`、`model_description_3`）も出す。`tests/fmpy.rs` が FMU に詰めて FMPy で回す（Decay・HarmonicOscillator・BouncingBall・SampleCounter・NonlinearLoop・InputDecay）。FFI なので workspace の `unsafe_code = "forbid"` を外す | frontend、exec |
 | `globe-mode-protocol` **（S035）** | facade の入出力の serde 型: `CheckResponse`（`globe check --json` の形）、`SimulateRequest` / `SimulateResponse`（wasm の `Request` / `Response` の形）、`ParametersResponse`、`StructureCounts`。core・ir・analysis の型を再公開する。応答は Serialize だけ。今後: JSON Schema（schemars。core・analysis の型に derive が要る）、TypeScript と Python の型の生成 | core, ir, analysis, serde |
 | `globe-mode` **（S035）** | 公開する Rust API（facade）: `Workspace{new, with_libraries, with_library_sources, set_file, remove_file, load_dir, files, outline, check, deps, flat, graph, compile, tunable_parameters, simulate, simulate_with, db}` と `solvers()`。中身は db の `check_model` / `compiled_model_with_overrides` と exec の `run` を呼ぶだけ。`simulate_with` が「検査 → コンパイル → 実行」を 1 本にまとめ（S034 まで CLI と wasm が別々に持っていた）、時系列とコンパイル済みのモデルも返す（CLI が MAT を書くため）。db・exec・sim を `db` / `exec` / `sim` として再公開する（CLI の文字の表示と結果の書き出し用）。今後: `export_fmu` | core, ir, frontend, graph, db, exec, sim, protocol |
-| `globe-mode-lsp` **（S038）** | `lsp-types` の型と自前の JSON-RPC（`Content-Length` の枠、1 本のスレッド）。`Server::handle` が facade の `Workspace` を呼ぶ: `didOpen` / `didChange`（Full）→ 最上位の model / block / class を `check` → `publishDiagnostics`、`documentSymbol`（アウトライン。入れ子のクラスとコンポーネントが子）、`hover`（クラスの種類と extends）。S053 で `formatting`（`globe-mode-fmt`、文書全体を 1 つの TextEdit）、`completion`（予約語・`Outline` の名前・ライブラリの最上位クラス名、`.` の後ろは部品の型の部品名。`completion.rs`）、lint の診断（`GM-L0001`〜`GM-L0003`、warning）。S132 で `definition`・`references`、S161 で `rename`（`definition.rs` の `references_at` / `rename_at`。UI 向けの `globe/references`・`globe/rename` も同じ計算。wasm からも呼ぶ）。Transport は stdio（`globe lsp --library DIR`）。今後: Tauri のチャネル / Web Worker、パッケージの中のモデルの検査 | globe-mode, globe-mode-fmt, lsp-types |
+| `globe-mode-lsp` **（S038）** | `lsp-types` の型と自前の JSON-RPC（`Content-Length` の枠、1 本のスレッド）。`Server::handle` が facade の `Workspace` を呼ぶ: `didOpen` / `didChange`（Full）→ 最上位の model / block / class を `check` → `publishDiagnostics`、`documentSymbol`（アウトライン。入れ子のクラスとコンポーネントが子）、`hover`（クラスの種類と extends）。S053 で `formatting`（`globe-mode-fmt`、文書全体を 1 つの TextEdit）、`completion`（予約語・`Outline` の名前・ライブラリの最上位クラス名、`.` の後ろは部品の型の部品名。`completion.rs`）、lint の診断（`GM-L0001`〜`GM-L0003`、warning）。S132 で `definition`・`references`、S161 で `rename`（`definition.rs` の `references_at` / `rename_at`。UI 向けの `globe/references`・`globe/rename` も同じ計算。wasm からも呼ぶ）。Transport は stdio（`globe lsp --library DIR`）。S049 から Desktop の sidecar が話す独自の要求 `globe/*`（S177 時点の一覧は `lib.rs` の `match`）: `check`・`tunableParameters`・`simulate`・`simulateColumns`・`graph`・`format`・`lint`・`solvers`・`exportFmu`・`models`・`definition`・`hover`・`completion`・`references`・`rename`・`libraryTree`・`librarySearch`・`librarySource`。ほかに `textDocument/prepareRename`（S166）、`workspace/didChangeConfiguration`（S143）、`$/progress`・`$/cancelRequest`（S136）。今後: パッケージの中のモデルの検査 | globe-mode, globe-mode-fmt, lsp-types |
 | `globe-mode-fmt` **（S053）** | Modelica の整形器と lint（[format-style.md](format-style.md)、[ADR-0024](adr/0024-own-formatter-and-lint.md)）。`lexer`（コメントもトークン、直前の改行数）→ `structure`（クラス・節・ブロックの段付けと空行）→ `layout`（括弧の木を 80 桁に配置。収まらなければ開きで改行、グループの境目で改行）→ `annotation`（図形プリミティブの引数の並べ替えと `origin` の補完）。`lint` は 3 規則。`tree`（S127）はファイルの見出し（`within` と最初のクラスの種類・名前・説明）だけを読む `LibraryTree`（直下の子とクラスのファイル。wasm の `library_tree` / `library_source`、LSP の `globe/libraryTree` / `globe/librarySource`、Svelte の `LibraryTree.svelte` が使う）。出力を字句解析し直してトークン列を照合する。依存 0、wasm32 可。CLI `globe fmt` / `globe lint`（標準入力の `--json` がウェブアプリ群の契約、[web-apps.md](web-apps.md)）、LSP、wasm の `format` / `lint`、Svelte の「整形」から使う | —（依存なし） |
 | `globe-mode-cli` **（S002）** | バイナリ `globe`（S035 から facade `globe-mode` 経由。S038 で `lsp` サブコマンド。S053 で `fmt`（`--check` / `--indent` / `--width` / `--no-insert-origin`、標準入力は `--json`）と `lint`（`--disable`、`--json`）。`--json` は protocol の型で、形は `tests/snapshots/` で守る）（`outline` / `check` / `graph` / `flat`、`--json`、S003 で `--library`、S004 で `graph` とディレクトリの入力、S005 で `check` を db 経由にして S6・GM-U を表示し、`flat` を足した。S007 で `check` に S7・S8 の行と `--json` の `s7` / `s8` / `init`、`deps`（`check` に渡すファイルの閉包）を足した。S011 で `simulate`。S012 で `simulate` に `--param NAME=VALUE`・`--step`・`--list-parameters`・`--list-solvers`・`--format csv\|mat`。S024 で `--param` があれば、ライブラリだけの session を複製して上書きを組み込んでからコンパイルし直す（`Checker::compile_retaining_with_overrides`。wasm も同じ。[ADR-0022](adr/0022-structural-parameter-overrides.md)）。終了コード 0 / 1 / 2） | clap |
 | `globe-mode-c` **（S075）** | C ABI（cdylib + staticlib）。facade の `Workspace` を不透明な `GmWorkspace *` で包む: `gm_workspace_new(libraries_json)` / `gm_workspace_free` / `gm_set_file` / `gm_load_dir` / `gm_check` / `gm_graph` / `gm_simulate(ws, model, settings_json)` / `gm_solvers` / `gm_string_free`。結果は JSON の `char *`（誤りは `{"error": …}`、panic は `catch_unwind` で止める）。ヘッダ `include/globe_mode.h` は手書きで、`tests/header.rs` が `extern "C"` の署名と突き合わせる（cbindgen は入れない）。Zig・Julia から使う。FFI なので workspace の `unsafe_code = "forbid"` を外す | globe-mode |
 | `globe-mode-nif` **（S082）** | Erlang の NIF（Rustler、cdylib）。Erlang モジュール `globe_mode_nif` に `new(libraries)` / `set_file` / `load_dir` / `check` / `graph` / `simulate(ws, model, settings_json)` / `solvers` を出す。ワークスペースは `ResourceArc<Mutex<Workspace>>`、結果は JSON の文字列（`{:ok, json}` / `{:error, 理由}`）。`check`・`graph`・`simulate` は DirtyCpu、`new`・`load_dir` は DirtyIo の scheduler。Elixir（`src/Elixir/globe_mode`）から使う。`rustler::init!` が unsafe を作るので workspace の `unsafe_code = "forbid"` を外す | globe-mode、rustler |
-| `globe-mode-py` **（S039）** | PyO3（abi3-py312）で facade の `Workspace` を包む `globe_mode._native`（`Workspace{new(libraries), set_file, load_dir, check, graph, simulate}` と `solvers()`。入出力は JSON の文字列）。maturin が Python パッケージ `globe_mode` に入れ、`__init__.py` が `dict` への変換と、結果の CSV を polars の表にする `table()` を受け持つ。`unsendable`（salsa のデータベースは Sync でない）。今後: 結果の Arrow での受け渡し（numpy は入れない）、`export_fmu` | globe-mode, pyo3 |
-| `globe-mode-nif` | Rustler。Erlang モジュール名は `globe_mode_nif` | rustler |
+| `globe-mode-py` **（S039）** | PyO3（abi3-py312）で facade の `Workspace` を包む `globe_mode._native`（`Workspace{new(libraries), set_file, load_dir, check, graph, simulate}` と `solvers()`。入出力は JSON の文字列）。maturin が Python パッケージ `globe_mode` に入れ、`__init__.py` が `dict` への変換と、結果の CSV を polars の表にする `table()` を受け持つ。`unsendable`（salsa のデータベースは Sync でない）。S085 で `simulate_columns`（列ごとの f64 の `bytes`。Arrow・numpy は入れない）、S111 で `format` / `lint`、S118 で `export_fmu`、S129 で `simulate` / `simulate_columns` の `on_progress`（進捗と中断） | globe-mode, pyo3 |
 | `globe-mode-wasm` **（S012）** | wasm-bindgen（wasm32-unknown-unknown）。S035 から facade `globe-mode` の `Workspace::simulate_with` に JS の時計（`performance.now()`）と線形メモリの大きさを足すだけ（`Request` / `Response` は protocol の型）。`Workspace`（ライブラリを 1 回だけ読む、`set_file`・`remove_file`・`files`・`simulate`）と `simulate`・`solvers`・`version`・`memory_bytes`・`last_panic`。入出力は JSON の文字列。ネイティブの `globe simulate` と同じ道（db の `check_model` → `compiled_model` → exec の `run`）。S012 は Node で確かめた（[ADR-0014](adr/0014-session-route-wasm.md)）。S036 で `--target web` の糊と Web Worker（`web/worker.js`・`web/client.js` の `GlobeWorker`。panic の後は Worker を作り直し、ライブラリとファイルを再生する）。S037 からライブラリは分割読み込み（frontend の `Checker::with_library_sources_split`。MSL で読み込み後 62 MiB）。今後: Gleam の JS target、marimo の anywidget S138 から `Workspace.definition`（定義ジャンプ。`globe-mode-lsp` の `definition::definition_at` を呼ぶ。wasm が lsp に依存するのはこれだけ）。 | wasm-bindgen 0.2.129（`=` で固定）、db、exec、sim、lsp（S138。定義ジャンプだけ） |
 | `globe-mode-testkit` | MSL コーパス、ファネル比較、omc との照合、Reference-FMUs（S003 の突き合わせと S005 のファネルは、ひとまず xtask に置いた） | — |
 | `xtask` **（S003）** | `cargo xtask fetch-msl` / `fetch-rumoca` / `msl-compare` / `msl-funnel`（S005。S007 で S7・S8 の列）/ `omc-compare`（S008。omc を別プロセスで呼ぶ）/ `bump-rumoca`。場所は `src/Rust/xtask` | sha2, zip, db, analysis |
@@ -120,6 +121,24 @@ GlobeMode の版は 0.2.0（前は Cargo と Tauri が 0.0.1、Python が 0.1.0�
 | 版でない 0.0.1 | `src/Modelica/GlobeModeValidation/package.mo` の `version="0.0.1"`（Modelica ライブラリ自身の版。試験 `globe-mode-db/tests/switching.rs` が使う）。上げない | 0.0.1 |
 
 Rumoca の rev は GlobeMode の版ごとに固定する（[ADR-0002](adr/0002-rumoca-adapter.md) の付記）。
+
+### 2.5 GitHub Actions の workflow（S177）
+
+`.github/workflows/` の 11 本。push で回るのは `ci.yml` と、変更した場所だけで回る `android.yml`・`vscode.yml`。ほかは手動（`gh workflow run <名前>.yml`）か定期。
+
+| workflow | きっかけ | 中身 |
+| --- | --- | --- |
+| `ci.yml` | main への push、毎週月曜 03:00 JST の全体、手動（`full`） | 差分だけを検査する（[ADR-0006](adr/0006-incremental-ci.md)）。ジョブ `plan`・`rust-linux`・`rust-windows`・`rust-sundials`・`deny`・`wasm-node`・`ui`・`msl`・`python`・`lang`（Zig・Julia・Elixir・Gleam）・`docs` |
+| `msl-sim.yml` | 手動 | MSL の全例題の `msl:funnel` と `msl:sim`、分割読み込みの全例題の一致（`split-all`）、14 ソルバの表（`solvers`・`solvers-report`、[msl-solvers.md](msl-solvers.md)） |
+| `libraries.yml` | 手動、毎週月曜 06:00 JST | MSL 以外の公開ライブラリ 7 つの検査と表（[libraries.md](libraries.md) の元。S058） |
+| `resources.yml` | 手動 | 最大 RSS と wasm の線形メモリの測定（S051・S054） |
+| `fmu-export.yml` | 手動 | Export した FMU を FMPy と fmusim で確かめる（FMI 2.0・3.0、複数の OS の同梱。S098・S105） |
+| `desktop.yml` | 手動 | Tauri の Desktop の .deb・.msi・.dmg と smoke、UI の測定（S049・S160） |
+| `android.yml` | 手動、main の `src/Rust/apps/desktop/**`・`src/Svelte/**` の変更 | debug・release の APK と API 34 のエミュレータの smoke（S092・S100・S106） |
+| `web.yml` | 手動 | ブラウザ版の配布物 `globe-web`（S145） |
+| `ui-bench.yml` | 手動 | 3 UI のブラウザ版の測定（S156、[bench/ui.md](bench/ui.md)） |
+| `vscode.yml` | 手動、main の `src/VSCode/**` の変更 | 本物の VS Code で拡張を確かめる（S165） |
+| `release.yml` | タグ `v*` の push、手動（dry-run） | `globe`・Python の wheel・Desktop の bundle・サードパーティの表を作り Release に付ける（S044・S074・S135） |
 
 ## 3. 中核の設計
 
@@ -348,7 +367,7 @@ S004 で最初の版を作った（`globe-mode-graph`、`globe graph`）。辺�
 
 | ターゲット | 計算 | UI | 配布物 |
 | --- | --- | --- | --- |
-| Desktop（Debian 系 / Windows 11） | `globe` の CLI を Tauri の sidecar にし、stdio の JSON-RPC（`globe lsp` の枠）で話す。UI のプロセスでは計算しない（[ADR-0023](adr/0023-desktop-and-web-process-layout.md)）。MSL は同梱せず、初回に app data dir へ取得して `--library` で渡す（[ADR-0030](adr/0030-desktop-msl-placement.md)） | Svelte 5（TauriBackend） | .deb、.AppImage、.msi |
+| Desktop（Debian 系 / Windows 11 / macOS） | `globe` の CLI を Tauri の sidecar にし、stdio の JSON-RPC（`globe lsp` の枠）で話す。UI のプロセスでは計算しない（[ADR-0023](adr/0023-desktop-and-web-process-layout.md)）。MSL は同梱せず、初回に app data dir へ取得して `--library` で渡す（[ADR-0030](adr/0030-desktop-msl-placement.md)） | Svelte 5（TauriBackend） | .deb、.msi、.dmg（macOS は署名・公証なし、S160）。.AppImage は作っていない |
 | Android（7 以降。検証は API 34） | sidecar は使えないので、ブラウザと同じく Web Worker の wasm で計算する（S092、[ADR-0023](adr/0023-desktop-and-web-process-layout.md) の「S092」。Rust を mobile の lib に直接 link するのは P6 の持ち越し）。cranelift は無効 | Svelte 5（WorkerBackend） | .apk（`android.yml`、署名なしの debug） |
 | ブラウザ | **閲覧者の端末の Web Worker で wasm を実行**。サーバーでは計算しない。既定はシングルスレッドの stable ビルド | Svelte 5（WorkerBackend） | 静的サイト（CSP は `connect-src 'self'`） |
 | CLI | ネイティブ | — | `globe` |
@@ -379,7 +398,7 @@ Svelte の UI は `Backend` インターフェースだけに依存する。実�
 - 同じ測定ハーネスで比べ、結果を `doc/bench/ui.md` に書く。
   - 測定項目: 起動時間、RSS / PSS、CPU、フレーム時間、バンドルサイズ
   - 環境: Linux、Windows、macOS、Android。ブラウザ版の 3 UI は Linux・Windows・macOS を手動の `ui-bench.yml` で、Desktop は `desktop.yml`（Linux・Windows・macOS。macOS は署名なし、S160）で測る
-  - 測り方は [ADR-0034](adr/0034-ui-bench-method.md)（Proposed。S125）。最初は起動から操作可能まで・Decay・MSL と ChuaCircuit・RSS・バンドルの 5 つを、`GM-SMOKE` の行の時刻で測る。CPU・フレーム時間・PSS は持ち越し
+  - 測り方は [ADR-0034](adr/0034-ui-bench-method.md)（Proposed。S125。S156・S160 で 3 OS に広げた）。最初は起動から操作可能まで・Decay・MSL と ChuaCircuit・RSS・バンドルの 5 つを、`GM-SMOKE` の行の時刻で測る。CPU・フレーム時間・PSS は持ち越し
 
 ## 7. 検証の基盤
 
