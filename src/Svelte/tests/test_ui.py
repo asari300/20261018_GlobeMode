@@ -23,6 +23,7 @@ console の error（CSP の違反を含む）と、配った origin の外への
 
 from __future__ import annotations
 
+import base64
 import functools
 import http.server
 import json
@@ -545,6 +546,34 @@ def main() -> int:
             bg, fg = tone(sel)
             assert bg > 0.8 and fg < 0.3, (sel, bg, fg)
 
+        # 要素を撮って、色 rgb に近い画素を数える（作り直した直後に空になっていないか。sigma は WebGL なので canvas を直接は読めない）
+        near_js = """async ([b64, rgb, tol]) => {
+          const img = new Image();
+          img.src = 'data:image/png;base64,' + b64;
+          await img.decode();
+          const c = document.createElement('canvas');
+          c.width = img.width; c.height = img.height;
+          const g = c.getContext('2d');
+          g.drawImage(img, 0, 0);
+          const d = g.getImageData(0, 0, c.width, c.height).data;
+          let n = 0;
+          for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 200 && Math.abs(d[i] - rgb[0]) < tol && Math.abs(d[i + 1] - rgb[1]) < tol && Math.abs(d[i + 2] - rgb[2]) < tol) n++;
+          return n;
+        }"""
+
+        def css_rgb(name: str) -> list[int]:
+            h = dark.evaluate("(n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim()", name).lstrip("#")
+            return [int(h[i : i + 2], 16) for i in (0, 2, 4)]
+
+        def wait_near(sel: str, rgb: list[int], minimum: int, what: str) -> None:
+            n = 0
+            for _ in range(40):  # 作り直しの直後は待つ（最大 12 秒）
+                n = dark.evaluate(near_js, [base64.b64encode(dark.locator(sel).first.screenshot()).decode(), rgb, 40])
+                if n >= minimum:
+                    return
+                time.sleep(0.3)
+            raise AssertionError(f"{what}: 色 {rgb} に近い画素が {n} 個（{minimum} 個以上のはず。空のまま？）")
+
         for sel in ["body", ".cm-editor", ".cm-content", ".cm-gutters", "select[aria-label=テーマ]"]:
             check_dark(sel)
         button = dark.get_by_role("button", name="検査")
@@ -566,6 +595,8 @@ def main() -> int:
           return n;
         }"""
         assert dark.evaluate(ink_px) > 30, "暗いのに軸の文字が文字色になっていない"
+        series = [0x1F, 0x77, 0xB4]  # Plot.svelte の COLORS[0]。x の線
+        wait_near(".plot canvas", series, 50, "暗のプロットの系列の線")
         dark.get_by_label("モデル名").fill("G")
         dark.locator(".cm-content").focus()
         dark.keyboard.press("Control+A")
@@ -573,12 +604,16 @@ def main() -> int:
         dark.get_by_role("button", name="グラフ").click(force=True)
         expect(dark.locator(".canvas[data-nodes]")).not_to_have_attribute("data-nodes", "0", timeout=120_000)
         check_dark(".canvas")
+        wait_near(".canvas", css_rgb("--accent"), 20, "暗の graph のノード")
         # 手動で明に: 背景が明るく文字が暗くなり、プロットは作り直されて軸が暗い字になる。再読み込みで選択が残る
         dark.get_by_label("テーマ").select_option("light")
         for sel in ["body", ".cm-editor", ".cm-content", ".plot", ".canvas"]:
             check_light(sel)
         time.sleep(1)  # プロットの作り直しを待つ
         assert dark.evaluate(ink_px) > 30, "明にしても軸の文字が文字色になっていない（暗いままの色を渡している）"
+        wait_near(".plot canvas", series, 50, "明のプロットの系列の線（作り直したあと）")
+        expect(dark.locator(".canvas[data-nodes]")).not_to_have_attribute("data-nodes", "0")
+        wait_near(".canvas", css_rgb("--accent"), 20, "明の graph のノード（作り直したあと）")
         assert dark.evaluate("document.documentElement.dataset.theme") == "light"
         dark.reload()
         dark.get_by_role("button", name="検査").wait_for()
@@ -596,7 +631,7 @@ def main() -> int:
         assert lum(bg) > 0.8 and lum(fg) < 0.3, (bg, fg)
         light_os.close()
         dark.close()
-        print("ダークモード: OS が暗いと body・エディタ・診断・プロット・graph が暗く、軸の文字が明るい。明に切り替えると戻り、再読み込みで残り、「OS に合わせる」で暗に戻る")
+        print("ダークモード: OS が暗いと body・エディタ・診断・プロット・graph が暗く、軸の文字が明るく、系列の線とノードが描かれている。明に切り替え（作り直し）ても線とノードが残り、戻り、再読み込みで残り、「OS に合わせる」で暗に戻る")
         # ?smoke=1 で起動すると Decay を検査・実行して GM-SMOKE の 1 行を console に出す（S100。android.yml が logcat で待つ行）
         smoke = browser.new_page()
         smoke.on("pageerror", lambda e: errors.append(str(e)))
