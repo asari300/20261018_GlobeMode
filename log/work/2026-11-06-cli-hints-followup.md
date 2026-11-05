@@ -92,7 +92,7 @@ For more information, try '--help'.
 - `check_docs.py`: デッキ OK、リンク切れ 0 件（文書 755 件・相対リンク 3807 件）。`render_slides.py`（S187 のデッキだけ）: 問題 0 件
 - セッション記録の `--check`: 取りこぼし 0 件（親が写してから）
 - ステージした差分の漏洩検査: 0 件
-- 全体検査（`gh workflow run ci.yml --ref feature/s187-cli-hints-followup -f full=true`）: CIRUN
+- 全体検査（`gh workflow run ci.yml --ref feature/s187-cli-hints-followup -f full=true`）: run 42116936490 が 11 ジョブ success（rust-linux・rust-windows・rust-sundials・wasm-node・python・lang・msl・ui・docs・deny・plan）。1 回目で通った
 
 ## 残したこと
 
