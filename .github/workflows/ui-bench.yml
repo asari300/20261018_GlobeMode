@@ -1,0 +1,104 @@
+# 3 UI × 3 OS のブラウザ版の負荷測定（S156、P7、ADR-0034 の付記）。手動実行（workflow_dispatch）だけ。
+#
+# Linux・Windows・macOS のランナーごとに、Svelte（src/Svelte）・Leptos・Dioxus（src/Rust/apps/experimental/）の 3 UI を
+# release の wasm でビルドし（中身は mise の wasm:build / leptos:build / dioxus:build と同じ。Windows で mise の task の shell に頼らないよう bash で書き写した）、
+# Playwright の Chromium で `bench_ui.py browser --ui <UI>` を 3 回ずつ回す（GM-SMOKE の行の ready_ms・decay_ms・msl_ms、Chromium の最大の RSS、dist の大きさ）。
+# 結果の JSON（target/ui-bench.json）を artifact `ui-bench-<os>` に残す。表にするのは手元で:
+#   gh run download <run-id> -D ui-bench && uv run python src/Svelte/tests/bench_ui.py merge ui-bench/*/ui-bench.json && uv run python src/Svelte/tests/bench_ui.py report
+# ランナーは共有で、値は目安。しきい値は置かない（行が 3 回 ok で出ることだけを確かめる）。
+# Python は `uv run --no-project --with playwright`（版は uv.lock と同じ）で足りる。`uv sync` は maturin で globe-mode-py をビルドしてしまうので使わない。
+name: ui-bench
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ui-bench-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  MISE_AUTO_INSTALL: "false"
+  PLAYWRIGHT: playwright==1.64.0
+
+jobs:
+  bench:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, name: linux }
+          - { os: windows-latest, name: windows }
+          - { os: macos-latest, name: macos }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # ci.yml の rust-linux と同じ片付け（3 つの wasm の LTO ビルドの成果物でランナーの空きが尽きないように）
+      - name: ディスクを空ける
+        if: runner.os == 'Linux'
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL && df -h / | tail -1
+      - uses: actions/checkout@v7
+      # Rust は全 OS でランナーの rustup を使う（Windows では mise の shim 経由の cargo が失敗した。desktop.yml と同じ）。
+      # node・pnpm・uv・wasm-bindgen は mise.toml / mise.lock の版
+      - run: rustup toolchain install stable --profile minimal --no-self-update && rustup default stable && rustup target add wasm32-unknown-unknown
+      - uses: jdx/mise-action@v5
+        with:
+          install_args: github:wasm-bindgen/wasm-bindgen node pnpm uv
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ui-bench-${{ matrix.name }}
+      - uses: actions/cache@v6
+        with:
+          path: data/msl
+          key: msl-${{ hashFiles('src/Rust/xtask/src/main.rs') }}
+      - run: cargo xtask fetch-msl
+      - run: uv run --no-project --with "$PLAYWRIGHT" playwright install ${{ runner.os == 'Linux' && '--with-deps' || '' }} chromium
+
+      - name: 3 UI をビルドする（Svelte は wasm:build と pnpm build＝ci.yml の ui ジョブと同じ道。Leptos・Dioxus は leptos:build・dioxus:build と同じで別の workspace）
+        env:
+          CARGO_PROFILE_RELEASE_LTO: fat
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "1"
+          CARGO_PROFILE_RELEASE_OPT_LEVEL: s
+          CARGO_PROFILE_RELEASE_STRIP: "true"
+        run: |
+          cargo build --release --target wasm32-unknown-unknown -p globe-mode-wasm
+          wasm-bindgen --target web --out-dir target/wasm-pkg/web target/wasm32-unknown-unknown/release/globe_mode_wasm.wasm
+          cd src/Svelte
+          pnpm install --frozen-lockfile
+          pnpm build
+          test -s dist/msl/MSL.json
+          cd ../..
+          for ui in leptos dioxus; do
+            M=src/Rust/apps/experimental/$ui
+            T="target/$ui"
+            CARGO_TARGET_DIR="$T" cargo build --release --manifest-path "$M/Cargo.toml" --target wasm32-unknown-unknown
+            rm -rf "$M/dist"
+            mkdir -p "$M/dist/msl"
+            wasm-bindgen --target web --out-dir "$M/dist/pkg" "$T/wasm32-unknown-unknown/release/globe-mode-$ui.wasm"
+            cp "$M/index.html" "$M/main.js" "$M/style.css" "$M/dist/"
+            cp src/Svelte/public/msl/MSL.json "$M/dist/msl/"
+            ls -l "$M/dist/pkg/globe-mode-${ui}_bg.wasm"
+          done
+
+      - name: 測る（3 UI × 3 回。Chromium は回ごとに起動し直す）
+        env:
+          PYTHONUTF8: "1"   # macOS の bash は引数の全角文字を surrogate で渡し、JSON の書き込みで落ちた（run 41979389483）。ASCII にもする
+        run: |
+          { echo '```'; echo "runner: $RUNNER_OS $RUNNER_ARCH, $(uname -m), cpus: $(uv run --no-project python -c 'import os; print(os.cpu_count())')"; } >> "$GITHUB_STEP_SUMMARY"
+          for ui in svelte leptos dioxus; do
+            uv run --no-project --with "$PLAYWRIGHT" --with psutil python src/Svelte/tests/bench_ui.py browser --ui "$ui" \
+              --source "ui-bench.yml run $GITHUB_RUN_ID (${{ matrix.os }})" | tee -a "$GITHUB_STEP_SUMMARY"
+          done
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ui-bench-${{ matrix.name }}
+          path: target/ui-bench.json
+          if-no-files-found: error
