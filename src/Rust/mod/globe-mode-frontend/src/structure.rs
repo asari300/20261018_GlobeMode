@@ -28,7 +28,7 @@ use rumoca_eval_dae::{ScalarCoordinateProjectionCache, for_each_scalar_coordinat
 use rumoca_ir_dae::{
     BinaryOperator, DaeGeneration, DaeLiteral, DaeProvenanceOrigin, ExprId, ExpressionOperands,
     ExpressionOperation, ExpressionVariability, PureBuiltin, SubscriptView, SubscriptsView,
-    UnaryOperator,
+    UnaryOperator, VariableId,
 };
 
 /// 表示用のラベルの長さの上限（文字数）。
@@ -189,7 +189,7 @@ fn extract_view<'dae>(dae: &Dae, view: DaeView<'dae>) -> Result<DaeStructure, St
         let index = equations.len();
         let (file, range) = locate(provenance);
         equations.push(EquationRow {
-            label: label(view, provenance, index, suffix),
+            label: label(view, provenance, Some(expression), index, suffix),
             origin: origin(provenance),
             file,
             range,
@@ -655,16 +655,30 @@ pub(crate) fn span_location(
 
 /// 表示用の短いラベル: ソースの一部（1 行、60 文字まで）。取れなければ `f[i]`（1 始まり）。
 /// 族の行には定義域の点を `[i,j]` で添える。
-pub(crate) fn label(
-    view: DaeView<'_>,
+///
+/// 接続・流れの釣り合い・束縛から生まれた方程式の来歴の span は、ソースの方程式ではなく
+/// 宣言（`Real v`）か右辺だけを指す。そのため `expression`（残差）があるときは、残差を式の形
+/// （`a.p.v = b.n.v`）に直して名前にする。直せない式は `f[i]`。
+pub(crate) fn label<'dae>(
+    view: DaeView<'dae>,
     provenance: DaeProvenance,
+    expression: Option<ExprId<'dae>>,
     index: usize,
     point: Option<&[i64]>,
 ) -> String {
-    let excerpt = view
-        .source_text(provenance)
-        .map(|t| t.split_whitespace().collect::<Vec<_>>().join(" "))
-        .filter(|t| !t.is_empty());
+    let derived = expression.filter(|_| {
+        matches!(
+            origin(provenance),
+            EquationOrigin::Connection | EquationOrigin::FlowBalance | EquationOrigin::Binding
+        )
+    });
+    let excerpt = match derived {
+        Some(expression) => residual_text(view, expression),
+        None => view
+            .source_text(provenance)
+            .map(|t| t.split_whitespace().collect::<Vec<_>>().join(" ")),
+    }
+    .filter(|t| !t.is_empty());
     let mut label = match excerpt {
         Some(t) if t.chars().count() > LABEL_CHARS => {
             let cut: String = t.chars().take(LABEL_CHARS - 1).collect();
@@ -678,6 +692,86 @@ pub(crate) fn label(
         label = format!("{label} [{}]", point.join(","));
     }
     label
+}
+
+/// 残差 `l - r` を `l = r`、それ以外を `式 = 0` に直す。扱えない式（添字・関数など）は `None`。
+fn residual_text<'dae>(view: DaeView<'dae>, expression: ExprId<'dae>) -> Option<String> {
+    let node = view.expression(expression)?;
+    if let ExpressionOperation::Binary {
+        operator: BinaryOperator::Subtract | BinaryOperator::ElementwiseSubtract,
+        lhs,
+        rhs,
+    } = node.operation()
+    {
+        return Some(format!(
+            "{} = {}",
+            expression_text(view, lhs, 0)?,
+            expression_text(view, rhs, 0)?
+        ));
+    }
+    Some(format!("{} = 0", expression_text(view, expression, 0)?))
+}
+
+/// 式の文字列。`outer` は外側の演算子の強さ（括弧が要るかの判定）。
+fn expression_text<'dae>(
+    view: DaeView<'dae>,
+    expression: ExprId<'dae>,
+    outer: u8,
+) -> Option<String> {
+    let node = view.expression(expression)?;
+    let name = |id: VariableId<'dae>| view.variable(id).map(|v| v.name().to_string());
+    match node.operation() {
+        ExpressionOperation::Literal(literal) => Some(match literal {
+            DaeLiteral::Real(x) => x.to_string(),
+            DaeLiteral::Integer(n) | DaeLiteral::Enumeration(n) => n.to_string(),
+            DaeLiteral::Boolean(b) => b.to_string(),
+            DaeLiteral::String(t) => format!("{t:?}"),
+        }),
+        ExpressionOperation::Coordinate(coordinate) => match coordinate {
+            CoordinateView::Parameter(v) => name(v.into()),
+            CoordinateView::Input(v) => name(v.into()),
+            CoordinateView::State(v) => name(v.into()),
+            CoordinateView::Algebraic(v) => name(v.into()),
+            CoordinateView::DiscreteReal(v) => name(v.into()),
+            CoordinateView::DiscreteValue(v) => name(v.into()),
+            CoordinateView::Derivative(v) => name(v.into()).map(|n| format!("der({n})")),
+            _ => None,
+        },
+        ExpressionOperation::Unary { operator, operand } => {
+            let sign = match operator {
+                UnaryOperator::Plus => "+",
+                UnaryOperator::Negate => "-",
+                UnaryOperator::Not => "not ",
+            };
+            let text = format!("{sign}{}", expression_text(view, operand, 3)?);
+            Some(if outer > 2 { format!("({text})") } else { text })
+        }
+        ExpressionOperation::Binary { operator, lhs, rhs } => {
+            let (symbol, strength) = match operator {
+                BinaryOperator::Add | BinaryOperator::ElementwiseAdd => ("+", 1),
+                BinaryOperator::Subtract | BinaryOperator::ElementwiseSubtract => ("-", 1),
+                BinaryOperator::Multiply => ("*", 2),
+                BinaryOperator::ElementwiseMultiply => (".*", 2),
+                BinaryOperator::Divide => ("/", 2),
+                BinaryOperator::ElementwiseDivide => ("./", 2),
+                BinaryOperator::Power => ("^", 3),
+                BinaryOperator::ElementwisePower => (".^", 3),
+                _ => return None,
+            };
+            // 左結合なので、右の項は同じ強さでも括弧で包む（`a - (b + c)`）
+            let text = format!(
+                "{} {symbol} {}",
+                expression_text(view, lhs, strength)?,
+                expression_text(view, rhs, strength + 1)?
+            );
+            Some(if outer > strength {
+                format!("({text})")
+            } else {
+                text
+            })
+        }
+        _ => None,
+    }
 }
 
 pub(crate) fn origin(provenance: DaeProvenance) -> EquationOrigin {
@@ -802,6 +896,40 @@ mod tests {
         assert_eq!(s.state_refs.len(), s.equations.len());
         assert!(s.state_refs.iter().any(|r| r == &[der]));
         assert!(s.state_refs.iter().flatten().all(|&u| u == der));
+    }
+
+    /// 接続・流れの釣り合い・束縛から生まれた方程式の名前は、宣言（`Real v`）ではなく式の形になる。
+    #[test]
+    fn generated_equations_are_named_by_their_expression() {
+        let text = "connector Pin\n  Real v;\n  flow Real i;\nend Pin;\nmodel R\n  Pin p;\n  Pin n;\n  Real v;\n  parameter Real k = 2;\n  Real w = 3 * k;\nequation\n  v = p.v - n.v;\n  0 = p.i + n.i;\n  v = k * p.i;\nend R;\nmodel Top\n  R a;\n  R b;\n  Pin g;\nequation\n  connect(a.p, b.n);\n  connect(a.n, g);\n  connect(b.p, g);\nend Top;\n";
+        let s = structure_of("Top", text);
+        let named = |origin| -> Vec<&str> {
+            s.equations
+                .iter()
+                .filter(|e| e.origin == origin)
+                .map(|e| e.label.as_str())
+                .collect()
+        };
+        let connections = named(EquationOrigin::Connection);
+        assert_eq!(connections.len(), 3, "{connections:?}");
+        assert!(connections.contains(&"a.p.v = b.n.v"), "{connections:?}");
+        let flows = named(EquationOrigin::FlowBalance);
+        assert_eq!(flows.len(), 3, "{flows:?}");
+        assert!(flows.contains(&"a.p.i + b.n.i = 0"), "{flows:?}");
+        assert_eq!(
+            named(EquationOrigin::Binding),
+            ["a.w = 3 * a.k", "b.w = 3 * b.k"]
+        );
+        // ソースの方程式は今までどおり、書かれた文字
+        assert_eq!(
+            named(EquationOrigin::Source)[..3],
+            ["v = p.v - n.v", "0 = p.i + n.i", "v = k * p.i"]
+        );
+        assert!(
+            s.equations
+                .iter()
+                .all(|e| !e.label.contains("Real ") && !e.label.starts_with("f["))
+        );
     }
 
     #[test]

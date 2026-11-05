@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S174 方程式の名前 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S174 方程式の名前">
+
+<section class="slide" id="S01">
+  <span class="tag">S174 · 2026-11-05 · P2</span>
+  <h1>診断の方程式の名前に、変数の宣言が並ばない</h1>
+  <p class="lead">S164 の監査と S173 が見つけた不具合。GM-I7001 と GM-E6001 の方程式の名前を直した</p>
+  <div class="big">接続・流れ・束縛の方程式は <b>式の形</b> で名指す</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">現状</span>
+  <h1>何が困っていたか</h1>
+  <ul>
+    <li>Cauer の検査で GM-I7001 の「微分した方程式」に <code>SI.ElectricPotential v</code> が並ぶ</li>
+    <li>SimpleSolenoid の GM-E6001「過剰な方程式」に <code>SI.Current i</code> や <code>Real i</code></li>
+    <li>原因は <code>structure.rs</code> の <code>label()</code>。来歴の span が指すソース片をそのまま名前にしていた</li>
+    <li>接続・流れの和・束縛から生まれた方程式の span は、書かれた方程式でなく宣言か右辺だけを指す</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定</span>
+  <h1>由来が Source でないものは残差を式にする</h1>
+  <table class="compact">
+    <tr><th>由来</th><th>前</th><th>後</th></tr>
+    <tr><td>接続</td><td><code>Real v</code></td><td><code>a.p.v = b.n.v</code></td></tr>
+    <tr><td>流れの和</td><td><code>Real i</code></td><td><code>a.p.i + b.n.i = 0</code></td></tr>
+    <tr><td>束縛</td><td><code>3 * k</code>（右辺だけ）</td><td><code>a.w = 3 * a.k</code></td></tr>
+    <tr><td>書かれた方程式</td><td><code>v = p.v - n.v</code></td><td>同じ</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">取れた情報</span>
+  <h1>Rumoca から取れたもの、取れなかったもの</h1>
+  <table class="compact">
+    <tr><th>情報</th><th>公開 API</th></tr>
+    <tr><td>由来（接続・流れ・束縛・ソース）</td><td class="ok">取れる（<code>origin()</code>）</td></tr>
+    <tr><td>残差の式木と変数名</td><td class="ok">取れる（<code>DaeView</code>）。名前にはこれを使う</td></tr>
+    <tr><td>元の <code>connect(a.p, b.n)</code> の文の位置</td><td>取れない（span は宣言を指す）</td></tr>
+  </table>
+  <p>connect 文そのものは出せないので式の形にした。上流の下書きは作らない（診断の範囲は変えず、アダプタの中で足りた）</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">診断の前後</span>
+  <h1>CauerLowPassAnalog と SimpleSolenoid</h1>
+  <table class="compact">
+    <tr><th>診断</th><th>前</th><th>後</th></tr>
+    <tr><td>GM-I7001 の微分した方程式</td><td><code>SI.ElectricPotential v</code>（1 回）が 4 件</td><td><code>C1.p.v = L1.p.v</code>（1 回）ほか</td></tr>
+    <tr><td>GM-E6001 の過剰な方程式</td><td><code>SI.Current i</code></td><td><code>r.p.i + -p.i = 0</code>、<code>p.i = 0</code></td></tr>
+  </table>
+  <p>診断の範囲（波線の位置）は変えていない。名前だけ</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">検査</span>
+  <h1>確かめたこと</h1>
+  <ul>
+    <li>単体: 接続・流れ・束縛の名前に <code>Real </code> が入らない、書かれた方程式は今までどおり</li>
+    <li><code>mise run check</code>、<code>msl:compare</code>、<code>wasm:node</code></li>
+    <li>検査の判定（OK・GM-U・panic）は変わらない変更なので <code>msl:funnel</code> は回さない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ul>
+    <li>部品が違うだけの同じ式（<code>v = p.v - n.v</code> が 5 回）は、書かれた方程式なので名前が同じ。部品の名前を添えるかは別 WP</li>
+    <li><code>+ -p.i</code> は <code>- p.i</code> と読ませてもよい</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
