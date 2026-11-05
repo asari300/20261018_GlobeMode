@@ -49,6 +49,12 @@ pub fn now_ms() -> f64 {
     }
 }
 
+/// 木の項目の JSON（ライブラリが無ければ `[]`）。
+fn entries_json(entries: Option<Vec<globe_mode_fmt::TreeEntry<'_>>>) -> String {
+    let json = globe_mode_lsp::tree_entries_json(&entries.unwrap_or_default());
+    serde_json::to_string(&json).unwrap_or_default()
+}
+
 /// ライブラリを 1 回だけ読み、作業中のファイルを出し入れしながら何度も実行する（facade の
 /// [`globe_mode::Workspace`] に JS の時計とメモリの大きさを足したもの）。
 #[wasm_bindgen]
@@ -154,16 +160,12 @@ impl Workspace {
 
     /// `prefix`（空ならトップレベル）の直下の子（`[{name, path, kind, description, file, hasChildren}]` の JSON）。ライブラリが無ければ `[]`。
     pub fn tree_children(&self, prefix: &str) -> String {
-        let entries: Vec<serde_json::Value> = self.tree.as_ref().map_or_else(Vec::new, |(t, _)| {
-            t.children(prefix)
-                .iter()
-                .map(|e| {
-                    serde_json::json!({"name": e.name, "path": e.path, "kind": e.kind,
-                "description": e.description, "file": e.file, "hasChildren": e.has_children})
-                })
-                .collect()
-        });
-        serde_json::to_string(&entries).unwrap_or_default()
+        entries_json(self.tree.as_ref().map(|(t, _)| t.children(prefix)))
+    }
+
+    /// 名前の部分一致で最大 `limit` 件（S167。[`globe_mode_fmt::LibraryTree::search`]。形は [`Workspace::tree_children`] と同じ）。
+    pub fn tree_search(&self, query: &str, limit: usize) -> String {
+        entries_json(self.tree.as_ref().map(|(t, _)| t.search(query, limit)))
     }
 
     /// `path`（完全修飾名）を定義するライブラリのファイルと本文。
@@ -301,6 +303,11 @@ impl Workspace {
     /// ライブラリの木の `prefix` の直下の子（S127。[`Workspace::tree_children`]）。
     pub fn library_tree(&self, prefix: &str) -> String {
         self.tree_children(prefix)
+    }
+
+    /// ライブラリのクラスを名前の部分一致で探す（S167。木の項目と同じ形の JSON、最大 `limit` 件、近い順）。
+    pub fn library_search(&self, query: &str, limit: usize) -> String {
+        self.tree_search(query, limit)
     }
 
     /// ライブラリのクラス `path` を定義するファイルの `{file, text}` の JSON（S127）。無ければ例外（文字列）。

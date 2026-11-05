@@ -1,10 +1,15 @@
 //! ライブラリの木（S127）。ファイルの見出し（`within` と最初のクラスの種類・名前・説明文字列）だけを読み、
 //! 完全修飾名 → (種類, 説明, ファイル) の索引を作る。UI のライブラリツリーが展開のたびに直下の子を引く。
 //!
-//! 単位はファイル: 1 ファイルに入れ子のクラスを持つパッケージ（`Sources.mo` など）は葉で、開くとそのファイル全体。
+//! S167: ファイルの中の入れ子のクラス（`Sources.mo` の `Sine` など）も木の項目にする（字句解析と文の切り出しだけ。
+//! Rumoca の構文解析はしない）。入れ子の項目の `file` は、それを定義するファイル（開くとそのファイル全体）。
+//! 構文の誤りで文を切り出せないファイルは、見出しの 1 クラスだけ。
 //! shortcut: 並びは名前の順（`package.order` は見ない。ブラウザの MSL.json は `.mo` だけを持つ）。順が要るなら order も渡す。
 
 use std::collections::BTreeMap;
+
+use crate::lexer::lex;
+use crate::structure::class_defs;
 
 /// 木の 1 項目。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -18,13 +23,16 @@ pub struct TreeEntry<'a> {
     pub description: &'a str,
     /// このクラスを定義するファイル
     pub file: &'a str,
-    /// 木の下にファイル単位の子があるか
+    /// 木の下に子（別のファイルのクラス、またはファイルの中の入れ子のクラス）があるか
     pub has_children: bool,
 }
 
+/// (種類, 説明, ファイル)
+type Class = (String, String, String);
+
 #[derive(Debug, Clone, Default)]
 pub struct LibraryTree {
-    classes: BTreeMap<String, (String, String, String)>,
+    classes: BTreeMap<String, Class>,
 }
 
 impl LibraryTree {
@@ -32,12 +40,21 @@ impl LibraryTree {
     pub fn new<'a>(files: impl IntoIterator<Item = (&'a str, &'a str)>) -> Self {
         let mut classes = BTreeMap::new();
         for (file, text) in files {
-            if let Some(h) = header(text) {
-                let path = match h.within {
-                    Some(w) if !w.is_empty() => format!("{w}.{}", h.name),
-                    _ => h.name.to_string(),
-                };
-                classes.insert(path, (h.kind, h.description.to_string(), file.to_string()));
+            let h = header(text);
+            let within = h.as_ref().and_then(|h| h.within).filter(|w| !w.is_empty());
+            let join = |name: &str| within.map_or(name.to_string(), |w| format!("{w}.{name}"));
+            if let Some(h) = &h {
+                classes.insert(
+                    join(h.name),
+                    (h.kind.clone(), h.description.to_string(), file.to_string()),
+                );
+            }
+            for (rel, kind, description) in
+                lex(text).and_then(|t| class_defs(&t)).unwrap_or_default()
+            {
+                classes
+                    .entry(join(&rel))
+                    .or_insert_with(|| (kind, description.to_string(), file.to_string()));
             }
         }
         LibraryTree { classes }
@@ -52,15 +69,61 @@ impl LibraryTree {
         };
         self.under(start.clone())
             .filter(|(k, _)| !k[start.len()..].contains('.'))
-            .map(|(k, (kind, description, file))| TreeEntry {
-                name: &k[start.len()..],
-                path: k,
-                kind,
-                description,
-                file,
-                has_children: self.under(format!("{k}.")).next().is_some(),
-            })
+            .map(|(k, v)| self.entry(k, v, start.len()))
             .collect()
+    }
+
+    /// 名前の部分一致（大文字小文字を区別しない。ASCII だけ）で最大 `limit` 件。`.` を含む検索語は完全修飾名に当てる。
+    /// 並びは、名前が完全一致、前方一致、部分一致の順で、同じ中では短い順（浅い順）、同じ長さなら名前の順。
+    pub fn search(&self, query: &str, limit: usize) -> Vec<TreeEntry<'_>> {
+        let q = query.trim().as_bytes();
+        let has = |s: &str| {
+            s.len() >= q.len()
+                && s.as_bytes()
+                    .windows(q.len())
+                    .any(|w| w.eq_ignore_ascii_case(q))
+        };
+        if q.is_empty() {
+            return Vec::new();
+        }
+        let by_path = q.contains(&b'.');
+        let mut hit: Vec<(u8, &String, &Class, usize)> = self
+            .classes
+            .iter()
+            .filter_map(|(k, v)| {
+                let at = k.rfind('.').map_or(0, |i| i + 1);
+                let name = &k[at..];
+                if !has(if by_path { k } else { name }) {
+                    return None;
+                }
+                let rank = if name.as_bytes().eq_ignore_ascii_case(q) {
+                    0
+                } else if name.len() >= q.len()
+                    && name.as_bytes()[..q.len()].eq_ignore_ascii_case(q)
+                {
+                    1
+                } else {
+                    2
+                };
+                Some((rank, k, v, at))
+            })
+            .collect();
+        hit.sort_by_key(|(rank, k, ..)| (*rank, k.len(), *k));
+        hit.truncate(limit);
+        hit.into_iter()
+            .map(|(_, k, v, at)| self.entry(k, v, at))
+            .collect()
+    }
+
+    fn entry<'s>(&'s self, k: &'s String, v: &'s Class, name_at: usize) -> TreeEntry<'s> {
+        TreeEntry {
+            name: &k[name_at..],
+            path: k,
+            kind: &v.0,
+            description: &v.1,
+            file: &v.2,
+            has_children: self.under(format!("{k}.")).next().is_some(),
+        }
     }
 
     /// `path` を定義するファイル。
@@ -68,7 +131,7 @@ impl LibraryTree {
         self.classes.get(path).map(|(_, _, f)| f.as_str())
     }
 
-    fn under(&self, start: String) -> impl Iterator<Item = (&String, &(String, String, String))> {
+    fn under(&self, start: String) -> impl Iterator<Item = (&String, &Class)> {
         self.classes
             .range(start.clone()..)
             .take_while(move |(k, _)| k.starts_with(&start))
@@ -124,7 +187,7 @@ fn next<'a>(s: &'a str, i: &mut usize) -> Option<Tok<'a>> {
     Some(Tok::Punct)
 }
 
-const KINDS: &[&str] = &[
+pub(crate) const KINDS: &[&str] = &[
     "model",
     "package",
     "block",
@@ -218,5 +281,70 @@ mod tests {
         assert_eq!(tree.children("M.A")[0].kind, "model");
         assert_eq!(tree.file("M.A.B"), Some("M/A/B.mo"));
         assert_eq!(tree.file("M.Z"), None);
+    }
+
+    const SOURCES: &str = "within M;\npackage Sources \"Src\"\n  \
+        block Sine \"Sine wave\"\n    parameter Real f = 1;\n    function g\n    end g;\n  equation\n    if f > 0 then\n    end if;\n  end Sine;\n  \
+        type Level = Real;\n  model Step\n  end Step;\nend Sources;\n";
+
+    #[test]
+    fn classes_nested_in_a_file_are_children() {
+        let tree = LibraryTree::new([
+            ("M/Sources.mo", SOURCES),
+            ("M/package.mo", "package M\nend M;\n"),
+        ]);
+        let kids: Vec<_> = tree
+            .children("M.Sources")
+            .iter()
+            .map(|e| (e.name, e.kind, e.description, e.file, e.has_children))
+            .collect();
+        // 短いクラス `type Level = Real;` も出す。`Sine` の中の function は 1 段下
+        assert_eq!(
+            kids,
+            [
+                ("Level", "type", "", "M/Sources.mo", false),
+                ("Sine", "block", "Sine wave", "M/Sources.mo", true),
+                ("Step", "model", "", "M/Sources.mo", false)
+            ]
+        );
+        assert_eq!(tree.children("M.Sources.Sine")[0].path, "M.Sources.Sine.g");
+        assert_eq!(tree.file("M.Sources.Sine"), Some("M/Sources.mo"));
+    }
+
+    #[test]
+    fn search_is_case_insensitive_and_ranked() {
+        let tree = LibraryTree::new([
+            ("M/Sources.mo", SOURCES),
+            ("M/package.mo", "package M\nend M;\n"),
+        ]);
+        let names = |q| {
+            tree.search(q, 10)
+                .iter()
+                .map(|e| e.path)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(names("sine"), ["M.Sources.Sine"]);
+        assert_eq!(
+            names("S"),
+            ["M.Sources", "M.Sources.Sine", "M.Sources.Step"]
+        );
+        assert_eq!(
+            names("m.sources.s"),
+            ["M.Sources.Sine", "M.Sources.Step", "M.Sources.Sine.g"]
+        );
+        assert!(names("").is_empty() && names("zzz").is_empty());
+        assert_eq!(tree.search("s", 2).len(), 2);
+    }
+
+    #[test]
+    fn extends_class_with_nested_parentheses_is_read() {
+        let src = "package P\n  redeclare model extends B(p(a = 1), q(each x = if true then 1 else 2)) \"d\"\n  end B;\n  type E = enumeration(A \"a\") \"enum\";\nend P;\n";
+        let tree = LibraryTree::new([("P.mo", src)]);
+        let kids: Vec<_> = tree
+            .children("P")
+            .iter()
+            .map(|e| (e.name, e.kind, e.description))
+            .collect();
+        assert_eq!(kids, [("B", "model", "d"), ("E", "type", "enum")]);
     }
 }

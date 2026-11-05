@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>上流の下書き 07 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode 上流の下書き 07">
+
+<section class="slide" id="S01">
+  <span class="tag">下書き 07 · Rumoca · 未提出 · 2026-11-05</span>
+  <h1>outer の参照が inner の修正でなく型の既定を読む</h1>
+  <p class="lead"><code>inner System system(energyDynamics = FixedInitial)</code> を無視して <code>Free</code> で評価し、初期方程式が消える</p>
+  <div class="cols-2">
+    <div>
+      <pre><code>model System
+  parameter Dynamics energyDynamics = Free;
+end System;
+model Volume
+  outer System system;
+initial equation
+  if massDynamics == FixedInitial then
+    p = ps_start;    // この方程式が消える
+  end if;
+end Volume;
+inner System system(energyDynamics = FixedInitial);</code></pre>
+      <p class="small muted">本文: <a href="07-outer-reference-ignores-inner-modification_jp.md">日本語</a> · <a href="07-outer-reference-ignores-inner-modification.md">英語</a> · 再現 <a href="07-outer-reference-ignores-inner-modification.mo">.mo</a> · 一覧 <a href="../../upstream.md">upstream.md</a></p>
+    </div>
+    <table class="small">
+      <tr><th>v0.10.4 の結果</th><td><span class="ng">再現</span>（初期方程式 0 個。対照は 1 個。v0.10.2 も同じ）</td></tr>
+      <tr><th>Rumoca のバグの根拠</th><td>型の既定を <code>FixedInitial</code> に変えると 1 個になる。既定が使われている</td></tr>
+      <tr><th>影響</th><td>MSL Fluid の例題 11 本が同じ形。初期化の釣り合いが足りなくなる【本数未確認】</td></tr>
+      <tr><th>GlobeMode 側の回避</th><td>なし（既知の限界。直ると落ちる db の試験、<code>GM-W8001</code>）</td></tr>
+      <tr><th>提出の判断材料</th><td>再現は 1 ファイル・1 コマンド。08 と同じ族で、続けて出してもよい</td></tr>
+    </table>
+  </div>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

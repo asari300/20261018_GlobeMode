@@ -92,13 +92,17 @@
   "scripts": {
     "build": "esbuild extension.js --bundle --platform=node --format=cjs --external:vscode --outfile=dist/extension.js",
     "package": "pnpm build && python3 -I pack_vsix.py",
-    "test": "node --test"
+    "test": "node --test",
+    "test:vscode": "node e2e/run.mjs"
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.1"
   },
   "devDependencies": {
-    "esbuild": "^0.25.0"
+    "@vscode/test-electron": "3.1.0",
+    "esbuild": "^0.25.0",
+    "vscode-oniguruma": "2.0.1",
+    "vscode-textmate": "9.3.2"
   },
   "extensionKind": [
     "workspace"

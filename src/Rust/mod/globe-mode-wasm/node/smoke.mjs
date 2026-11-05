@@ -128,6 +128,17 @@ if (msl && existsSync(msl)) {
   const lib = new gm.Workspace(JSON.stringify(files), "MSL");
   const load = ms(t);
   console.log(`MSL: ${Object.keys(files).length} ファイル（読み ${read} ms、in-memory のライブラリ ${load} ms、メモリ ${mb()} MiB）`);
+  // S167: ファイルの中の入れ子のクラス（Blocks の package.mo の Examples）が木の子になり、名前の部分一致で見つかる
+  const kids = JSON.parse(lib.library_tree("Modelica.Blocks")).map((e) => e.name);
+  assert.ok(kids.includes("Examples") && kids.includes("Sources"), kids.join());
+  t = performance.now();
+  const hits = JSON.parse(lib.library_search("PID_Con", 50));
+  const q1 = ms(t);
+  t = performance.now();
+  const many = JSON.parse(lib.library_search("s", 50));
+  assert.equal(hits[0].path, "Modelica.Blocks.Examples.PID_Controller");
+  assert.equal(JSON.parse(lib.library_search("modelica.blocks.sources.sine", 5))[0].path, "Modelica.Blocks.Sources.Sine");
+  console.log(`MSL の木と検索: Blocks の子 ${kids.length} 件、検索 PID_Con ${q1} ms、s（${many.length} 件）${ms(t)} ms`);
   for (const [model, check, shown] of [
     ["Modelica.Electrical.Analog.Examples.ChuaCircuit", (f) => Number.isFinite(f["C1.v"]), "C1.v"],
     ["Modelica.Mechanics.Rotational.Examples.First", (f) => Number.isFinite(f["inertia1.w"]), "inertia1.w"],

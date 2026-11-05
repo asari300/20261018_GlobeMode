@@ -21,12 +21,17 @@ The route builds and runs (time limits would need a clock, but they can be optio
 
 `RuntimeError: unreachable ... <std::time::Instant>::now ... build_simulation` (GlobeMode S012, Node v24.22.0).
 
+## Re-check on Rumoca v0.10.4 (S162, 2026-11-05)
+
+Still present in the source (the wasm32 target was not built here): in Rumoca v0.10.4 and in main (`590ac739`), `crates/rumoca-sim/src/diffsol.rs` (lines 202 and 208) and `crates/rumoca-sim/src/rk45.rs` (lines 134 and 139) still `use std::time::Instant;` and call `Instant::now()` on the typed route. `crates/rumoca-solver/src/runtime/timeout.rs` already switches to the `instant` crate for `wasm32` (`cfg(all(target_arch = "wasm32", target_os = "unknown"))` in `Cargo.toml`), so only `rumoca-sim` is left. [not verified by building for wasm32]
+
 ## Environment
 
 - Rumoca v0.10.2, git rev `276e82bd0fd48960ac201e782918d28bf19cf7ce` (https://github.com/CogniPilot/rumoca), as pinned by GlobeMode.
 - Modelica Standard Library 4.1.0.
 - Linux x86_64 (WSL2, Ubuntu).
 - Not yet re-checked against Rumoca main (0.10.3 at the time of writing). Re-check before filing.
+- Re-checked on 2026-11-05 (S162) by reading the source of the latest release, Rumoca v0.10.4 (tag commit `9c8c56fcd9f5ab9beb871f09bf5d9eed82971c54`, released 2026-11-02, https://github.com/CogniPilot/rumoca/releases/tag/v0.10.4; still the latest release on 2026-11-05) against v0.10.2 and Rumoca main (`590ac739`, 2026-11-05). Nothing was built or run for this draft. [not verified by running]
 - Target: wasm32-unknown-unknown with wasm-bindgen, Node v24.22.0.
 
 ## Workaround in GlobeMode

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>上流の下書き 13 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode 上流の下書き 13">
+
+<section class="slide" id="S01">
+  <span class="tag">下書き 13 · Rumoca · 未提出 · 2026-11-05</span>
+  <h1>RK が黙って誤った結果を返す（BDF は誤りで止まる）</h1>
+  <p class="lead"><code>--solver rk-like</code> は終わるが、<code>heatCapacitor.T</code> が全期間 293.15 K のまま</p>
+  <div class="cols-2">
+    <div>
+      <pre><code>rumoca sim "Modelica 4.1.0/package.mo" \
+  -m Modelica.Thermal.HeatTransfer.Examples.GenerationOfFMUs \
+  --source-root &lt;MSL のルート&gt; --solver rk-like -o out.csv
+
+directCapacity.heatCapacitor.T  293.15 .. 293.15
+directCapacity.T                293.15 .. 365.49
+// 同じ容量の 2 つの信号が食い違う
+// --solver bdf: [EX001] directional derivative
+//   is unavailable</code></pre>
+      <p class="small muted">本文: <a href="13-rk-silently-wrong-result-generationoffmus_jp.md">日本語</a> · <a href="13-rk-silently-wrong-result-generationoffmus.md">英語</a> · 一覧 <a href="../../upstream.md">upstream.md</a></p>
+    </div>
+    <table class="small">
+      <tr><th>v0.10.4 の結果</th><td><span class="ng">再現</span>（RK は 501 点で完了、値も v0.10.2 と同じ。BDF は同じ文で失敗）</td></tr>
+      <tr><th>Rumoca のバグの根拠</th><td>誤りも警告も無く誤った値を返す。RK も BDF と同じ理由で失敗するか、導関数を作るべき</td></tr>
+      <tr><th>影響</th><td>MSL 1 本</td></tr>
+      <tr><th>GlobeMode 側の回避</th><td>あり（auto は RK に切り替えない。<code>GM-U0004</code>。ADR-0015）</td></tr>
+      <tr><th>提出の判断材料</th><td>旗の綴りを CLI で確認済み。回避があるので急がない</td></tr>
+    </table>
+  </div>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

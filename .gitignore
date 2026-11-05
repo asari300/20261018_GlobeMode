@@ -50,3 +50,4 @@ mise.local.lock
 .claude/shell-snapshots/
 .claude/backups/
 .claude/ide/
+.vscode-test/

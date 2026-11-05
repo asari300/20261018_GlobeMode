@@ -25,12 +25,20 @@ Overrides apply after a compile (or the API says that it is not supported); unkn
 
 ED020 for item 1. Item 3: in GlobeMode S025 (2026-10-28) `src.k[1] = 0.2` left `src.i.s` switching at the old time (0.8) and `src.k[2] = 7` left `src.y` at 20, without any diagnostic.
 
+## Re-check on Rumoca v0.10.4 (S162, 2026-11-05)
+
+Not run: `Session::set_structural_overrides` is a Rust API of `rumoca-compile`; the CLI has no such option, and the Python `Model.with_params(recompile=True)` answers that structural re-instantiation "is the compile-API path and not yet available" (v0.10.4). Code reading only:
+
+- `crates/rumoca-compile/src/session/structural_overrides.rs` is byte-identical in v0.10.2, v0.10.4 and main (`590ac739`); so are `session_snapshot.rs` and `session_impl_queries.rs`. `set_structural_overrides` still bumps the revision and clears only `query_state.flat` and `query_state.dae`; `from_dotted` and the three scalar variants are unchanged (items 2 and 3 stand).
+- `session_impl.rs` changed (88 lines): v0.10.4 keeps the standard resolution together with its diagnostics (`resolved.builds.standard`) and reuses it for strict compiles. `set_structural_overrides` does not clear that cache, so the ED020 case of item 1 is plausibly unchanged. [not verified]
+
 ## Environment
 
 - Rumoca v0.10.2, git rev `276e82bd0fd48960ac201e782918d28bf19cf7ce` (https://github.com/CogniPilot/rumoca), as pinned by GlobeMode.
 - Modelica Standard Library 4.1.0.
 - Linux x86_64 (WSL2, Ubuntu).
 - Not yet re-checked against Rumoca main (0.10.3 at the time of writing). Re-check before filing.
+- Re-checked on 2026-11-05 (S162) by reading the source of the latest release, Rumoca v0.10.4 (tag commit `9c8c56fcd9f5ab9beb871f09bf5d9eed82971c54`, released 2026-11-02, https://github.com/CogniPilot/rumoca/releases/tag/v0.10.4; still the latest release on 2026-11-05) against v0.10.2 and Rumoca main (`590ac739`, 2026-11-05). Nothing was built or run for this draft. [not verified by running]
 
 ## Workaround in GlobeMode
 

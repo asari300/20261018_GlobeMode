@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>上流の下書き 05 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode 上流の下書き 05">
+
+<section class="slide" id="S01">
+  <span class="tag">下書き 05 · Rumoca · 未提出 · 2026-11-05</span>
+  <h1>実行時のパラメータ上書きが、同名の修飾の束縛に届かない</h1>
+  <p class="lead"><code>src.startTime</code> を上書きしても、内側の <code>r.startTime</code> は元の 1 のまま。誤りも警告も出ない</p>
+  <div class="cols-2">
+    <div>
+      <pre><code>block Source
+  parameter Real startTime = 1;
+  Ramp r(final startTime = startTime);
+  Real y = r.y;
+end Source;
+Source src(startTime = 1);
+
+# Python 束縛 (CLI に上書きは無い)
+m.simulate(1.0, params={"src.startTime": 0.5})
+# src.y(1): 期待 0.5、実際 0.0</code></pre>
+      <p class="small muted">本文: <a href="05-parameter-override-not-reaching-inlined-bindings_jp.md">日本語</a> · <a href="05-parameter-override-not-reaching-inlined-bindings.md">英語</a> · 再現 <a href="05-parameter-override-not-reaching-inlined-bindings.mo">.mo</a> · 一覧 <a href="../../upstream.md">upstream.md</a></p>
+    </div>
+    <table class="small">
+      <tr><th>v0.10.4 の結果</th><td><span class="ng">再現</span>（wheel 0.10.2 も 0.10.4 も <code>y(1) = 0.0</code>）</td></tr>
+      <tr><th>Rumoca のバグの根拠</th><td>外側の修正の値が内側の束縛に書き込まれ、DAE で外側に繋がらない。時間事象も既定の時刻で畳まれる</td></tr>
+      <tr><th>影響</th><td>MSL の <code>SineVoltage</code>・<code>StepVoltage</code> を使う例題【本数未確認】</td></tr>
+      <tr><th>GlobeMode 側の回避</th><td>あり（複製した session に構造的な上書きを埋めて compile し直す。ADR-0022）</td></tr>
+      <tr><th>提出の判断材料</th><td>誤りが黙って出る点が重い。回避があるので急がない</td></tr>
+    </table>
+  </div>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

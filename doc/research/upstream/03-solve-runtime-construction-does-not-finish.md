@@ -2,6 +2,8 @@
 
 Target: Rumoca (https://github.com/CogniPilot/rumoca)
 
+Status (S162, 2026-11-05): **the symptom (does not finish) is gone in Rumoca v0.10.4**: both examples now stop with an error within 33 s and 11 s. Neither example simulates yet, for other reasons (below). Do not file this draft; it is kept as a record.
+
 ## Summary
 
 `Modelica.Fluid.Examples.DrumBoiler.DrumBoiler` and `Modelica.Fluid.Examples.Explanatory.MomentumBalanceFittings` do not finish in `rumoca sim` within 240 s. In GlobeMode's profile of DrumBoiler (S016) the time goes to two places:
@@ -25,12 +27,24 @@ Construction time roughly linear in the number of operations; the model runs.
 
 No result in 240 s (CLI) and no completion in 900 s for the first root-condition shape in GlobeMode.
 
+## Re-check on Rumoca v0.10.4 (S162, 2026-11-05)
+
+CLI, `rumoca sim "Modelica 4.1.0/package.mo" -m <model> --source-root <MSL root>`, wall time on this machine (RSS about 1.5 GB):
+
+| Model | v0.10.2 | v0.10.4 |
+| --- | --- | --- |
+| `Modelica.Fluid.Examples.DrumBoiler.DrumBoiler` | no result in 270 s (timeout) | stops after 33 s with `[EX001] solve-IR evaluation failed: algebraic projection did not converge at event boundary: worst scaled residual row=1 target=evaporator.h_l value=3.029227e1 ratio=3.029227e1 norm=8.208480e5 ...` (after a NaN-tracing re-run) |
+| `Modelica.Fluid.Examples.Explanatory.MomentumBalanceFittings` | no result in 270 s (timeout) | stops after 11 s with `[ER002] unresolved type reference: 'Medium.ThermodynamicState'` at `Fluid/Fittings.mo:1762` (`BaseModelNonconstantCrossSectionArea`, a protected `parameter Medium.ThermodynamicState state_nominal = Medium.setState_pTX(...)`) |
+
+So the lowering and runtime-construction time reported in the Summary no longer occurs on these two models. The two new stops are different problems and are not drafted: the `DrumBoiler` one is a numerical failure at an event (the first model of its kind in GlobeMode's list), and the `MomentumBalanceFittings` one is a name-resolution failure that v0.10.2 did not report (v0.10.2 reached the simulation and then timed out), so it may be a change in v0.10.4 [not investigated]. The other Fluid examples were not re-run. [not verified]
+
 ## Environment
 
 - Rumoca v0.10.2, git rev `276e82bd0fd48960ac201e782918d28bf19cf7ce` (https://github.com/CogniPilot/rumoca), as pinned by GlobeMode.
 - Modelica Standard Library 4.1.0.
 - Linux x86_64 (WSL2, Ubuntu).
 - Not yet re-checked against Rumoca main (0.10.3 at the time of writing). Re-check before filing.
+- Re-checked on 2026-11-05 (S162) with the latest release, Rumoca v0.10.4 (tag commit `9c8c56fcd9f5ab9beb871f09bf5d9eed82971c54`, released 2026-11-02, prebuilt `rumoca-linux-x86_64`, https://github.com/CogniPilot/rumoca/releases/tag/v0.10.4; still the latest release on 2026-11-05), next to the v0.10.2 binary. Rumoca main (`590ac739`, 2026-11-05) was not built. [not verified on main]
 
 ## Workaround in GlobeMode
 
