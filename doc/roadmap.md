@@ -429,6 +429,14 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - 記録: 上流の下書き 34（[upstream.md](upstream.md)）、[msl-solvers.md](msl-solvers.md) の注記、既知の限界の試験 `msl_sdirk34hw_thyristor_bridge_event_iteration_is_a_known_limit`（`#[ignore]`）。実行系は変えていないので `wasm:node`・`wasm:compare`・`msl-sim.yml` は回していない（数値は S139 のまま）。
 - 持ち越し: 下書き 34 の提出（ユーザー）と、同じ雑音がほかのサイリスタ・ダイオードの回路で当たる数の調査。
 
+### S163（P4、2026-11-05）で済んだこと
+
+- **構文の色付け**（[解説書](sessions/S163-syntax-highlight/解説書.md)）: 調べると、Svelte のエディタは `defaultHighlightStyle` も言語も入れておらず本文は無地で、VS Code の拡張は文法を持たず（`contributes.grammars` が無い）、どちらも無かった。Svelte は `editor.ts` に `StreamLanguage` の小さなトークナイザ（予約語・組み込みの型 Real / Integer / Boolean / String・文字列・数値・`//` と `/* */`・演算子。引用符つきの識別子は予約語に見ない）と `HighlightStyle`（クラス `cm-mo-*`）を足し、色は `theme.css` の `--syn-kw` などの変数（明・暗とも。エディタの地に対してコントラスト 4.5 以上）。VS Code は自前の TextMate 文法 `syntaxes/modelica.tmLanguage.json`（他のプロジェクトの文法は写さない）を `contributes.grammars` と VSIX（`pack_vsix.py`）に載せ、`/*` の自動で閉じる対を足した（拡張 0.0.5）。
+- **予約語の一覧は「一致を試験で確かめる」形で持つ**: 補完（S053）が既に TS の `KEYWORDS` を手で写していて、wasm に予約語を返す口は無い。口を足すと起動時の非同期が要るので、TS の一覧を補完と色付けの共通にし、Rust の `globe-mode-fmt::KEYWORDS` と同じ並びであることを `test_ui.py` が、TextMate 文法の予約語の集合が同じであることを `test/grammar.test.mjs` が確かめる。
+- 依存: npm の `@lezer/highlight` 1.2.5（MIT）を `src/Svelte` の直接の依存にした（`@codemirror/language` の依存として既に入っていたが、pnpm では直接 import できない）。
+- 試験: `test_ui.py` に明と暗（予約語・型・数値・文字列・コメントに別々の色、地に対して 4.5 以上、予約語の色は KEYWORDS の語だけ）と KEYWORDS の一致。S149 のホバーの補助が行の最初のテキストノードだけを見ていたので、色付けで行が分かれても動くようにした。`node --test`（拡張）に文法の 4 本。
+- 持ち越し: semantic tokens、折りたたみ、インデントの規則、Marketplace、`@vscode/test-electron`。
+
 ### S161（P4、2026-11-05）で済んだこと
 
 - **エディタで参照の一覧（Shift+F12）とリネーム（F2）が使える**（[解説書](sessions/S161-editor-references-rename/解説書.md)）: `globe-mode-lsp` の `definition::references_at`・`rename_at` が範囲と編集（LSP の Range と TextEdit）を計算し、wasm の `Workspace.references`・`rename`、sidecar の `globe/references`・`globe/rename`、VS Code 向けの `textDocument/rename`（capability `renameProvider`）が同じ計算を呼ぶ。範囲は開いている文書の、いちばん内側のクラスの中だけ（一致は字句解析の識別子のトークンだけ。コメント・文字列の中は対象外）。リネームはそのクラスで宣言した部品に限り、部品でない名前・識別子でない名前・予約語・同じクラスに既にある名前は理由つきで断る。UI は参照を診断の表と同じ作りの一覧にし、F2 は入力欄を出して 1 回の `dispatch` で入れる（Ctrl+Z 1 回で戻る）。新しい依存は無し。
@@ -948,7 +956,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 
 - **VS Code 拡張** `src/VSCode/globe-mode`（[README](../src/VSCode/globe-mode/README.md)）: `.mo` を開くと `globe lsp` を起動してつなぐだけの拡張（vscode-languageclient、本体は約 20 行）。標準の整形キー・lint と検査の波線・補完・アウトライン・ホバーが使える。`.mo` の既定を tabSize 2・80 桁のルーラーにする。
 - VSIX は `@vscode/vsce` を使わず `pack_vsix.py`（標準ライブラリだけ）で作る（licenses.md）。VS Code Server の CLI で使い捨ての拡張フォルダに入れて受け付けられることを確かめた。
-- 持ち越し: VS Code の本体を起動しての試験（`@vscode/test-electron`）、Marketplace への公開、設定を変えたときの自動の作り直し、構文の色付け（TextMate 文法）。
+- 持ち越し: VS Code の本体を起動しての試験（`@vscode/test-electron`）、Marketplace への公開、設定を変えたときの自動の作り直し、~~構文の色付け（TextMate 文法）~~（S163 で済んだ）。
 
 ### S060（P4、2026-11-01）で済んだこと
 

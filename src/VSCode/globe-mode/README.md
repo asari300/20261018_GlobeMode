@@ -12,6 +12,7 @@ S059 で作った。`.mo` を開くと `globe lsp` を起動してつなぐだ�
 | HTML の整形 | 設定 `globeMode.formatHtml`（既定はオン）。`Documentation` の `info` / `revisions` などの HTML を改行とインデントで整える。変えるのは空白だけで、lint はしない（S062） |
 | annotation の並び | `experiment` → `Diagram` → `Icon` → `Documentation`（中は header → info → revisions）でなければ、通知（`GM-L0004`）が出る。整形で直る |
 | lint と検査の診断 | 開いて編集すると波線が出る（`GM-L0001`〜`0003` と検査の `GM-E…`）。一覧は Ctrl+Shift+M |
+| 構文の色付け | 予約語・組み込みの型・文字列・数値・コメントを TextMate 文法で色付ける（S163。意味に基づく色付けは未）。`/*` を打つと `*/` を補う |
 | 補完 | Ctrl+Space、または `.` のあと |
 | アウトライン・ホバー | エクスプローラーのアウトライン、クラス名にマウスを載せる |
 

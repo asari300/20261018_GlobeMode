@@ -1,0 +1,57 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Modelica",
+  "scopeName": "source.modelica",
+  "patterns": [
+    { "include": "#comment" },
+    { "include": "#string" },
+    { "include": "#qident" },
+    { "include": "#number" },
+    { "include": "#keyword" },
+    { "include": "#operator" }
+  ],
+  "repository": {
+    "comment": {
+      "patterns": [
+        { "name": "comment.line.double-slash.modelica", "match": "//.*$" },
+        { "name": "comment.block.modelica", "begin": "/\\*", "end": "\\*/" }
+      ]
+    },
+    "string": {
+      "name": "string.quoted.double.modelica",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [{ "name": "constant.character.escape.modelica", "match": "\\\\." }]
+    },
+    "qident": {
+      "name": "variable.other.quoted.modelica",
+      "match": "'(?:\\\\.|[^'\\\\])*'"
+    },
+    "number": {
+      "name": "constant.numeric.modelica",
+      "match": "(?<![\\w.])(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][+-]?\\d+)?"
+    },
+    "keyword": {
+      "patterns": [
+        { "name": "support.type.modelica", "match": "\\b(?:Real|Integer|Boolean|String)\\b" },
+        { "name": "constant.language.modelica", "match": "\\b(?:true|false)\\b" },
+        { "name": "storage.type.class.modelica", "match": "\\b(?:block|class|connector|function|model|operator|package|record|type)\\b" },
+        {
+          "name": "storage.modifier.modelica",
+          "match": "\\b(?:constant|discrete|each|encapsulated|expandable|final|flow|impure|inner|input|outer|output|parameter|partial|protected|public|pure|redeclare|replaceable|stream)\\b"
+        },
+        { "name": "keyword.control.modelica", "match": "\\b(?:break|else|elseif|elsewhen|for|if|loop|return|then|when|while)\\b" },
+        { "name": "keyword.operator.word.modelica", "match": "\\b(?:and|in|not|or)\\b" },
+        { "name": "support.function.builtin.modelica", "match": "\\b(?:assert|der)\\b" },
+        {
+          "name": "keyword.other.modelica",
+          "match": "\\b(?:algorithm|annotation|connect|constrainedby|end|enumeration|equation|extends|external|import|initial|within)\\b"
+        }
+      ]
+    },
+    "operator": {
+      "name": "keyword.operator.modelica",
+      "match": ":=|==|<>|<=|>=|\\.[-+*/^]|[-+*/^<>=]"
+    }
+  }
+}

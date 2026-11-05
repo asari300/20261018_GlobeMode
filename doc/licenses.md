@@ -79,6 +79,7 @@
 | fdg-sim 0.4 系、fdg-img、fdg-macroquad | GPL-3.0 | 禁止 | 0.6 / 0.9 以降の fdg-sim は MIT |
 | Dyad | PolyForm Strict を改変したもの | 禁止 | — |
 
+| npm（src/Svelte、S163）: @lezer/highlight 1.2.5 | MIT | 許可 | 構文の色付けのタグ。`@codemirror/language` の依存として既に入っていたものを、直接 import するために `package.json` へ足した（`pnpm licenses list`、2026-11-05） |
 | npm（src/Svelte、S053）: @codemirror/autocomplete 6.20、@codemirror/lint 6.9 | MIT | 許可 | 補完と波線。CodeMirror の他のパッケージと同じ作者・同じライセンス（`pnpm licenses list`、2026-10-31） |
 | npm（src/VSCode/globe-mode、S059）: vscode-languageclient 9.0.1 と推移的に vscode-jsonrpc・vscode-languageserver-protocol・vscode-languageserver-types・minimatch・semver・brace-expansion・balanced-match | MIT（minimatch・semver は ISC） | 許可 | VS Code 拡張の LSP クライアント。`dist/extension.js` に束ねて VSIX に同梱する（`pnpm licenses list`、2026-11-01） |
 | npm（src/VSCode/globe-mode、S059、開発依存）: esbuild 0.25.12 | MIT | 許可 | 束ねるだけ。配布物には入らない |
