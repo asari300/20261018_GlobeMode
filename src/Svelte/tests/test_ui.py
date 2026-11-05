@@ -161,8 +161,12 @@ def main() -> int:
 
         # 参照とリネーム（S161）: Decay の `der(x)` の x で Shift+F12 → 一覧 3 行（宣言・der(x)・-x のどれか）から押して飛べる。
         # F2 で名前を変えると全出現が変わり、検査が通る。予約語は断られ、1 回の undo で戻る
-        original = page.locator(".cm-content").inner_text()
+        base = page.locator(".cm-content").inner_text()
         page.locator(".cm-content").focus()
+        page.keyboard.press("Control+End")
+        page.keyboard.type("\n// x と \"x\" は変えない")  # コメントと文字列の中の x は参照にもリネームにも入らない
+        page.wait_for_timeout(700)  # 入力と次の操作を履歴の別の塊にする
+        original = page.locator(".cm-content").inner_text()
         page.keyboard.press("Control+Home")
         for _ in range(3):
             page.keyboard.press("ArrowDown")
@@ -187,12 +191,15 @@ def main() -> int:
         name.fill("pos")
         name.press("Enter")
         expect(page.locator(".cm-content")).to_contain_text("der(pos) = -pos;", timeout=30_000)
+        assert "// x と \"x\" は変えない" in page.locator(".cm-content").inner_text()
         assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
         check()
         assert page.locator("tr.error").count() == 0, rows.all_inner_texts()
         page.locator(".cm-content").focus()  # 検査のボタンからフォーカスを戻す
         page.keyboard.press("Control+z")
         assert page.locator(".cm-content").inner_text() == original, "リネームは 1 回の undo で戻る"
+        page.keyboard.press("Control+z")  # 足したコメントも消す
+        assert page.locator(".cm-content").inner_text() == base
         print("Decay の F2: x を pos に変えて検査が通り、予約語は断られ、Ctrl+Z 1 回で戻った")
 
         run = page.get_by_role("button", name="実行")

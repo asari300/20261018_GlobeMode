@@ -424,9 +424,9 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 
 ### S161（P4、2026-11-05）で済んだこと
 
-- **エディタで参照の一覧（Shift+F12）とリネーム（F2）が使える**（[解説書](sessions/S161-editor-references-rename/解説書.md)）: `globe-mode-lsp` の `definition::references_at`・`rename_at` が範囲と編集（LSP の Range と TextEdit）を計算し、wasm の `Workspace.references`・`rename`、sidecar の `globe/references`・`globe/rename`、VS Code 向けの `textDocument/rename`（capability `renameProvider`）が同じ計算を呼ぶ。範囲は開いている文書の、いちばん内側のクラスの中だけ。リネームはそのクラスで宣言した部品に限り、部品でない名前・識別子でない名前・予約語・同じクラスに既にある名前は理由つきで断る。UI は参照を診断の表と同じ作りの一覧にし、F2 は入力欄を出して 1 回の `dispatch` で入れる（Ctrl+Z 1 回で戻る）。新しい依存は無し。
+- **エディタで参照の一覧（Shift+F12）とリネーム（F2）が使える**（[解説書](sessions/S161-editor-references-rename/解説書.md)）: `globe-mode-lsp` の `definition::references_at`・`rename_at` が範囲と編集（LSP の Range と TextEdit）を計算し、wasm の `Workspace.references`・`rename`、sidecar の `globe/references`・`globe/rename`、VS Code 向けの `textDocument/rename`（capability `renameProvider`）が同じ計算を呼ぶ。範囲は開いている文書の、いちばん内側のクラスの中だけ（一致は字句解析の識別子のトークンだけ。コメント・文字列の中は対象外）。リネームはそのクラスで宣言した部品に限り、部品でない名前・識別子でない名前・予約語・同じクラスに既にある名前は理由つきで断る。UI は参照を診断の表と同じ作りの一覧にし、F2 は入力欄を出して 1 回の `dispatch` で入れる（Ctrl+Z 1 回で戻る）。新しい依存は無し。
 - 試験: `globe-mode-lsp` 2 本（rename の編集と断る場合、RPC）、wasm の decay 1 本、`test_ui.py`（Shift+F12 で 3 行・押して飛ぶ、F2 で pos に変えて検査が通る、予約語は断られる、undo 1 回で戻る）。
-- 持ち越し: 別ファイル・ライブラリ全体の参照、継承した部品・型・クラスのリネーム、コメントと文字列の除外、`prepareRename`。
+- 持ち越し: 別ファイル・ライブラリ全体の参照、継承した部品・型・クラスのリネーム、`prepareRename`。
 
 ### S159（P4/P7、2026-11-05）で済んだこと
 
