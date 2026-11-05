@@ -16,6 +16,8 @@ rumoca = ["dep:serde_json", "dep:rumoca-compile", "dep:rumoca-ir-dae", "dep:rumo
 [dependencies]
 globe-mode-core = { workspace = true }
 globe-mode-ir = { workspace = true }
+# S180: ライブラリの字句の索引（`LibraryTree`）で、モデル名の候補を出す。依存 0 の crate
+globe-mode-fmt = { workspace = true }
 rumoca-compile = { workspace = true, optional = true }
 rumoca-ir-dae = { workspace = true, optional = true }
 rumoca-eval-dae = { workspace = true, optional = true }

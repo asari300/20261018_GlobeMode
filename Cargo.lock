@@ -1495,6 +1495,7 @@ name = "globe-mode-frontend"
 version = "0.2.0"
 dependencies = [
  "globe-mode-core",
+ "globe-mode-fmt",
  "globe-mode-ir",
  "rumoca-compile",
  "rumoca-core",

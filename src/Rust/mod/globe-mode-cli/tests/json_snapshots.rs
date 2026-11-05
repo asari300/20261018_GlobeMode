@@ -74,3 +74,19 @@ fn simulate_json_keeps_its_shape() {
         ]),
     );
 }
+
+/// S180: ライブラリのモデル名の誤り。`GM-E1002` と候補が JSON にも出る（MSL は要らない小さなライブラリ）。
+#[test]
+fn check_json_library_model_not_found_has_candidates() {
+    assert_snapshot(
+        "check-library-model-not-found",
+        &globe_json(&[
+            "check",
+            "-L",
+            "src/Modelica",
+            "-m",
+            "GlobeModeValidation.Simulation.Decya",
+            "--json",
+        ]),
+    );
+}
