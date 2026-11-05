@@ -164,8 +164,8 @@ fn fmi2_round_trips_through_the_writer() {
     assert!(globe_mode_fmi::write_model_description_2(&load("Feedthrough-fmi2.xml")).is_err());
 }
 
-/// S124: 3.0 の書く側も読み→書き→読みで同じ表になる（2.0 と 3.0 は互いに Err、String・Enumeration と
-/// EventIndicator も Err）。
+/// S124: 3.0 の書く側も読み→書き→読みで同じ表になる（2.0 と 3.0 は互いに Err、String・Enumeration も Err）。
+/// S137: EventIndicator の valueReference も読み→書き→読みで残り、数が合わなければ Err。
 #[test]
 fn fmi3_round_trips_through_the_writer() {
     let a = load("Dahlquist-fmi3.xml");
@@ -177,7 +177,11 @@ fn fmi3_round_trips_through_the_writer() {
         "  </ModelStructure>",
         "    <EventIndicator valueReference=\"4\"/>\n  </ModelStructure>",
     );
-    let b = parse_model_description(&events).unwrap();
+    let mut b = parse_model_description(&events).unwrap();
     assert_eq!(b.number_of_event_indicators, 1);
+    assert_eq!(b.model_structure.event_indicators, [4]);
+    let again = globe_mode_fmi::write_model_description_3(&b).unwrap();
+    assert_eq!(parse_model_description(&again).unwrap(), b, "{again}");
+    b.number_of_event_indicators = 2;
     assert!(globe_mode_fmi::write_model_description_3(&b).is_err());
 }
