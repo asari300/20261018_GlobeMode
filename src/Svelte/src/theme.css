@@ -1,0 +1,45 @@
+/* 配色の変数（S152）。明は :root、暗は OS の設定（手動で明にしていないとき）か data-theme="dark"。doc/assets/slides.css と同じ考え方 */
+:root {
+  color-scheme: light;
+  --bg: #fff;
+  --fg: #1b1b1b;
+  --muted: #555;
+  --border: #888;
+  --line: #ddd;
+  --hover: #eef;
+  --sel: #cfe0ff;
+  --accent: #2563eb;
+  --warn: #8a6100;
+  --err: #b00020;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0d1117;
+    --fg: #e6edf3;
+    --muted: #9aa7b4;
+    --border: #5a626d;
+    --line: #30363d;
+    --hover: #1f2937;
+    --sel: #264f78;
+    --accent: #58a6ff;
+    --warn: #e3a34a;
+    --err: #ff7b8a;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0d1117;
+  --fg: #e6edf3;
+  --muted: #9aa7b4;
+  --border: #5a626d;
+  --line: #30363d;
+  --hover: #1f2937;
+  --sel: #264f78;
+  --accent: #58a6ff;
+  --warn: #e3a34a;
+  --err: #ff7b8a;
+}
+body { background: var(--bg); color: var(--fg); }
+select, input, textarea { background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 3px; }
+input[type="checkbox"] { border: 0; }

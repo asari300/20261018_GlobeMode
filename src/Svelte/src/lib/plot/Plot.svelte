@@ -4,6 +4,7 @@
   import { toCsv, type Columns } from "./csv";
   import type { Backend } from "../backend";
   import { TauriBackend, inTauri } from "../tauri-backend";
+  import { cssVar, theme } from "../../theme.svelte";
   import { browserSave, browserSaveBinary } from "../browser-file";
 
   let { columns }: { columns: Columns } = $props();
@@ -31,13 +32,13 @@
     const head = [xi < 0 ? "time" : columns.names[xi], ...ys.map((i) => columns.names[i])];
     out.saveFile("result.csv", toCsv(head, [columns.data[xi + 1], ...ys.map((i) => columns.data[i + 1])]), true).then(done, fail);
   }
-  // shortcut: canvas だけ（凡例と DOM の軸ラベルは入らない）。白地に写すのは、透明のままだと暗い背景で線が見えないため
+  // shortcut: canvas だけ（凡例と DOM の軸ラベルは入らない）。背景色で塗るのは、透明のままだと線が見えないため（明は白のまま。暗は暗い地に明るい軸の文字で書き出す）
   function exportPng() {
     if (!plot) return;
     const src = plot.ctx.canvas;
     const c = Object.assign(document.createElement("canvas"), { width: src.width, height: src.height });
     const g = c.getContext("2d")!;
-    g.fillStyle = "#fff";
+    g.fillStyle = cssVar("--bg");
     g.fillRect(0, 0, c.width, c.height);
     g.drawImage(src, 0, 0);
     c.toBlob(async (b) => {
@@ -48,7 +49,9 @@
   // 選んだ系列だけを uPlot に渡す（列が数百あっても重くしない）。選択が変わるたびに作り直す
   $effect(() => {
     error = "";
+    void theme.dark; // 明暗が変わったら軸の色を渡して作り直す（S152）
     try {
+      const ax = { stroke: cssVar("--fg"), grid: { stroke: cssVar("--line"), width: 1 }, ticks: { stroke: cssVar("--border"), width: 1 } };
       const t0 = performance.now();
       const cols = columns;
       const ys = cols.names.flatMap((_, i) => (shown[i] ? [i] : []));
@@ -73,9 +76,9 @@
           // shortcut: パラメトリックでは拡大を止める（uPlot の拡大は x が昇順の前提）。要るなら mode 2 に移す
           cursor: xr ? { drag: { x: false, y: false } } : {},
           axes: [
-            { label: xi < 0 ? "time" : cols.names[xi] },
-            ...(used.has("y") ? [{ scale: "y" }] : []),
-            ...(used.has("y2") ? [{ scale: "y2", side: 1, grid: { show: false } }] : []),
+            { ...ax, label: xi < 0 ? "time" : cols.names[xi] },
+            ...(used.has("y") ? [{ ...ax, scale: "y" }] : []),
+            ...(used.has("y2") ? [{ ...ax, scale: "y2", side: 1, grid: { show: false } }] : []),
           ],
           series: [
             { label: xi < 0 ? "time" : cols.names[xi] },
@@ -122,5 +125,5 @@
   .signals { display: flex; flex-wrap: wrap; gap: .25rem 1rem; margin: .5rem 0; max-height: 6rem; overflow: auto; }
   .export { display: flex; gap: .5rem; align-items: center; margin-bottom: .5rem; }
   .side { font-size: .85em; opacity: .8; }
-  .failure { color: #b00020; white-space: pre-wrap; }
+  .failure { color: var(--err); white-space: pre-wrap; }
 </style>
