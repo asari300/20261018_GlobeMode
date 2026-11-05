@@ -106,6 +106,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - S090: Linux の `globe`（tarball）を `cargo-zigbuild` で glibc 2.28 に link した（前はランナーの 2.39。Debian 10・RHEL 8 以降でも動く）。
 - S097: anywidget を extra `widget` に移した（`pip install "globe-mode[widget]"`。extra なしの wheel の依存が減る）。
 - S135・S148: `release.yml` が Desktop の .deb・.msi も Release に付ける（鍵の secret があるときだけ署名して `latest.json`）。CI の zig の取得をミラー経由でなく ziglang.org から直接にした。
+- S176: `release.yml` に macOS（arm64）を足した（`globe` の tar.gz、wheel、Desktop の署名なしの .dmg。鍵があれば `latest.json` に `darwin-aarch64`）。
 
 ### P7 言語 API
 
