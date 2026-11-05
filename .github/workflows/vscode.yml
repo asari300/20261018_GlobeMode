@@ -1,0 +1,55 @@
+# VS Code の拡張を本物の VS Code（stable）の中で確かめる（S165、P4）。手動（workflow_dispatch）と、main への src/VSCode/** の push だけ。ci.yml には入れない（重いので）。
+#
+# 中身: `globe` を release でビルドして PATH に置き、拡張を束ね（pnpm build）、@vscode/test-electron が取得した VS Code を xvfb の中で起動して
+# src/VSCode/globe-mode/e2e/suite.cjs を拡張ホストで回す（言語 ID と activate、構文の誤りの診断、アウトライン、rename）。
+# その前に pnpm test（lsp.test.mjs ほか。ci.yml は拡張の node --test を回さない）と、Oniguruma での文法の試験（grammar-onig.test.mjs）も回す。
+name: vscode
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, feature/s165-vscode-test-electron] # TEMP
+    paths:
+      - "src/VSCode/**"
+      - ".github/workflows/vscode.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vscode-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  MISE_AUTO_INSTALL: "false"
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+        with:
+          install_args: rust node pnpm
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: vscode
+      - run: cargo build --release -p globe-mode-cli
+      - name: 拡張を束ねて、VS Code を起動しない試験を回す
+        working-directory: src/VSCode/globe-mode
+        env:
+          GLOBE_BIN: ${{ github.workspace }}/target/release/globe
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+          pnpm test
+      - name: VS Code に要る共有ライブラリ（ランナーに無いものだけ入る）
+        run: sudo apt-get update && sudo apt-get install -y xvfb libgbm1 libnss3 libasound2t64 libgtk-3-0t64 libxss1
+      - name: VS Code を起動して拡張を試す
+        working-directory: src/VSCode/globe-mode
+        run: |
+          export PATH="$GITHUB_WORKSPACE/target/release:$PATH"
+          command -v globe
+          xvfb-run -a pnpm test:vscode
