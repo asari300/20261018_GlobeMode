@@ -435,6 +435,12 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - 記録: 上流の下書き 34（[upstream.md](upstream.md)）、[msl-solvers.md](msl-solvers.md) の注記、既知の限界の試験 `msl_sdirk34hw_thyristor_bridge_event_iteration_is_a_known_limit`（`#[ignore]`）。実行系は変えていないので `wasm:node`・`wasm:compare`・`msl-sim.yml` は回していない（数値は S139 のまま）。
 - 持ち越し: 下書き 34 の提出（ユーザー）と、同じ雑音がほかのサイリスタ・ダイオードの回路で当たる数の調査。
 
+### S168（文書、2026-11-05）で済んだこと
+
+- **README と CHANGELOG を S164 までの main に合わせた**（[解説書](sessions/S168-readme-changelog-sync/解説書.md)）: S164 の監査の穴 4（N11）。README は S012 の状態の 1 段落をやめ、できること（features.md の ○ だけ）、使い始め方（MSL・CLI・ブラウザ・Desktop・Android・VS Code・Python・他の言語を面ごとに。書いたコマンドは手元で動かした）、既知の限界（MSL の 369 / 312 / 303 / 311 本）、開発の入口にした。公開物（Release・タグ・Pages・PyPI・Marketplace）は 0 件と書いた。CHANGELOG は S048〜S165 を足し、P5・P6 の節を新設した。版の番号は変えていない。
+- features.md の重なっていた古い行（Text ビュー・整形・lint・Desktop・Android）をまとめ、marimo の「MSL は未」と Leptos / Dioxus 行の「macOS は未」を直した。
+- 持ち越し: 版の番号の決定と公開（ユーザー）、起動直後の案内（S164 の別の穴）。
+
 ### S165（P4、2026-11-05）で済んだこと
 
 - **VS Code の拡張を本物の VS Code の中で確かめる**（[解説書](sessions/S165-vscode-test-electron/解説書.md)）: S059・S163 の持ち越し。新しい workflow `vscode.yml`（手動と main への `src/VSCode/**` の push。ci.yml には入れない）が、`globe` を release でビルドして PATH に置き、拡張を束ね、`@vscode/test-electron` で VS Code stable（1.145.0）を `xvfb-run` の中で起動して `e2e/suite.cjs` を拡張ホストで回す。確かめる 4 項目は、言語 ID が `modelica` になり拡張が activate する、構文の誤りの `.mo` に診断が出る、正しい `.mo` で documentSymbol が返る、`textDocument/rename` が WorkspaceEdit（3 箇所）を返す。run 42005761115 で 4 項目とも 1 回目で通った。拡張や LSP の不具合は見つからなかった。
