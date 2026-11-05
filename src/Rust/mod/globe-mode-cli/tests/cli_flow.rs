@@ -272,3 +272,98 @@ fn info_diagnostics_are_summarised_unless_verbose() {
     json.push("--json");
     assert!(out(&decay(&json)).contains("\"GM-I10004\""));
 }
+
+/// 8（S187）: パッケージ名は検査も実行もできないと言い、直下のモデルを案内する。`-L` を忘れたとき（渡したファイルに
+/// 無いパッケージ名）は、ライブラリを渡すよう言う。
+#[test]
+fn package_names_and_forgotten_libraries_are_explained() {
+    let dir = modelica("GlobeModeValidation");
+    let o = globe(&["check", "-L", &dir, "-m", "GlobeModeValidation.Simulation"]);
+    assert_eq!(o.status.code(), Some(1), "{o:?}");
+    let text = out(&o);
+    assert!(text.contains("はパッケージで、モデルではない"), "{text}");
+    assert!(
+        text.contains("直下のモデル: GlobeModeValidation.Simulation."),
+        "{text}"
+    );
+
+    let o = globe(&[
+        "check",
+        &dir,
+        "-m",
+        "Modelica.Blocks.Examples.PID_Controller",
+    ]);
+    assert_eq!(o.status.code(), Some(1), "{o:?}");
+    let text = out(&o);
+    assert!(
+        text.contains("`Modelica` というパッケージは読み込んでいない"),
+        "{text}"
+    );
+    assert!(text.contains("-L data/msl"), "{text}");
+}
+
+/// 9（S187）: `-L` に MSL のサブフォルダのように「1 つのパッケージ」を渡すと、親のフォルダを案内する。
+#[test]
+fn a_package_folder_as_the_library_points_to_its_parent() {
+    let base = tmp("subfolder-lib");
+    let _ = std::fs::remove_dir_all(&base);
+    let write = |rel: &str, text: &str| {
+        let p = base.join(rel);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, text).unwrap();
+    };
+    write(
+        "ModelicaServices/package.mo",
+        "package ModelicaServices\n  package Machine\n    constant Real eps = 1e-15;\n  end Machine;\nend ModelicaServices;\n",
+    );
+    write("Modelica/package.mo", "package Modelica\nend Modelica;\n");
+    write(
+        "Modelica/M.mo",
+        "within Modelica;\nmodel M\n  parameter Real e = ModelicaServices.Machine.eps;\n  Real x(start = e, fixed = true);\nequation\n  der(x) = -x;\nend M;\n",
+    );
+    let sub = base.join("Modelica");
+    let o = globe(&["check", "-L", sub.to_str().unwrap(), "-m", "Modelica.M"]);
+    assert_eq!(o.status.code(), Some(1), "{o:?}");
+    let text = out(&o);
+    assert!(text.contains("は 1 つのパッケージで"), "{text}");
+    assert!(text.contains("親のフォルダ"), "{text}");
+    // 親を渡せば通る
+    let o = globe(&["check", "-L", base.to_str().unwrap(), "-m", "Modelica.M"]);
+    assert!(o.status.success(), "{}", out(&o));
+}
+
+/// 10（S187）: `deps` は `-L` のライブラリのファイルも閉包に入れる。
+#[test]
+fn deps_takes_a_library_and_includes_its_files() {
+    let dir = modelica("GlobeModeValidation");
+    let o = globe(&["deps", "-L", &dir, "-m", DECAY]);
+    assert!(o.status.success(), "{o:?}");
+    let text = out(&o);
+    assert!(text.contains("Decay.mo"), "{text}");
+    assert!(!text.contains(": 0 / "), "{text}");
+    // `-L` も入力も無いときは、check と同じ案内
+    let o = globe(&["deps", "-m", DECAY]);
+    assert_eq!(o.status.code(), Some(2), "{o:?}");
+    assert!(err(&o).contains("-L にライブラリのルートを"), "{}", err(&o));
+}
+
+/// 11（S187）: MSL のサブフォルダを `-L` に渡したときの実出力に、親のフォルダの案内が出る。`data/msl` が要る。
+#[test]
+#[ignore]
+fn msl_subfolder_as_the_library_points_to_its_parent() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../..");
+    let sub = root.join("data/msl/Modelica 4.1.0");
+    if !sub.is_dir() {
+        return;
+    }
+    let o = globe(&[
+        "check",
+        "-L",
+        sub.to_str().unwrap(),
+        "-m",
+        "Modelica.Blocks.Examples.PID_Controller",
+    ]);
+    let text = out(&o);
+    assert!(text.contains("ModelicaServices.Machine.eps"), "{text}");
+    assert!(text.contains("親のフォルダ"), "{text}");
+}

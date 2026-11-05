@@ -6,7 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use globe_mode_core::{Diagnostic, codes};
-use globe_mode_frontend::Checker;
+use globe_mode_frontend::{Checker, Source};
 
 fn write(dir: &Path, rel: &str, text: &str) {
     let path = dir.join(rel);
@@ -71,44 +71,63 @@ fn an_existing_class_failing_for_another_reason_is_not_reported_as_missing() {
     // 名前は正しいが、中の型が解決できない
     let d = first_error(&checker, "A.Sub.Broken");
     assert_ne!(d.code, codes::MODEL_NOT_FOUND, "{d:?}");
-    // パッケージはクラスの索引にある（モデルではないが「見つからない」ではない）
-    let d = first_error(&checker, "A.Sub");
-    assert_ne!(d.code, codes::MODEL_NOT_FOUND, "{d:?}");
 }
 
 #[test]
-fn a_subfolder_passed_as_the_library_points_to_its_parent() {
-    let base = Path::new(env!("CARGO_TARGET_TMPDIR")).join("hints_subfolder");
-    let _ = fs::remove_dir_all(&base);
-    write(
-        &base,
-        "ModelicaServices/package.mo",
-        "package ModelicaServices\n  package Machine\n    constant Real eps = 1e-15;\n  end Machine;\nend ModelicaServices;\n",
-    );
-    write(
-        &base,
-        "Modelica/package.mo",
-        "package Modelica\nend Modelica;\n",
-    );
-    write(
-        &base,
-        "Modelica/M.mo",
-        "within Modelica;\nmodel M\n  parameter Real e = ModelicaServices.Machine.eps;\n  Real x(start = e, fixed = true);\nequation\n  der(x) = -x;\nend M;\n",
-    );
-    let hint = |roots: &[&Path], model: &str| {
-        let d = first_error(&Checker::new(roots).unwrap(), model);
-        d.notes.iter().find(|n| n.contains("親のフォルダ")).cloned()
-    };
-    let sub = base.join("Modelica");
-    let note = hint(&[sub.as_path()], "Modelica.M").expect("案内が出る");
-    assert!(note.contains(base.to_str().unwrap()), "{note}");
-    // 親を渡せば、通る（案内も要らない）
+fn a_package_name_says_it_is_a_package_and_lists_what_is_inside() {
+    let base = small_library("hints_package");
+    let checker = Checker::new(&[base.as_path()]).unwrap();
+    let d = first_error(&checker, "A.Sub");
+    assert_eq!(d.code, codes::MODEL_NOT_FOUND, "{d:?}");
+    assert!(d.message.contains("パッケージ"), "{d:?}");
     assert!(
-        Checker::new(&[base.as_path()])
-            .unwrap()
-            .check(&[], "Modelica.M")
-            .passed()
+        d.notes
+            .iter()
+            .any(|n| n.starts_with("直下のモデル") && n.contains("A.Sub.Decay")),
+        "{d:?}"
     );
+    // モデルが直下に無ければ、パッケージを案内する
+    let d = first_error(&checker, "A");
+    assert!(
+        d.notes
+            .iter()
+            .any(|n| n.starts_with("直下のパッケージ") && n.contains("A.Sub")),
+        "{d:?}"
+    );
+}
+
+#[test]
+fn short_or_distant_names_get_no_candidates_and_open_documents_come_first() {
+    let base = small_library("hints_threshold");
+    let checker = Checker::new(&[base.as_path()]).unwrap();
+    // 4 文字で半分以上違う、3 文字以下は、距離では候補にしない
+    for model in ["Dkay", "Dc", "T"] {
+        let d = first_error(&checker, model);
+        assert_eq!(d.code, codes::MODEL_NOT_FOUND, "{model}");
+        assert!(
+            d.notes.iter().all(|n| !n.starts_with("候補")),
+            "{model}: {d:?}"
+        );
+        assert!(
+            d.notes.iter().any(|n| n.contains("完全修飾名")),
+            "{model}: {d:?}"
+        );
+    }
+    // 開いている文書のモデルは、名前が遠くても、ライブラリのモデルより先に候補に出る
+    let text =
+        "model Net\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -x;\nend Net;\n";
+    let sources = [Source {
+        name: "net.mo",
+        text,
+    }];
+    let d = checker
+        .check(&sources, "T")
+        .diagnostics
+        .into_iter()
+        .next()
+        .unwrap();
+    assert_eq!(d.code, codes::MODEL_NOT_FOUND, "{d:?}");
+    assert!(d.notes.contains(&"候補: Net".to_string()), "{d:?}");
 }
 
 /// MSL 4.1.0 の `PID_Controller`（`Blocks/package.mo` の入れ子）。`data/msl` が無ければ何もしない。
@@ -128,5 +147,53 @@ fn msl_short_and_misspelled_names_get_candidates() {
             ["候補: Modelica.Blocks.Examples.PID_Controller"],
             "{model}"
         );
+    }
+}
+
+/// MSL 4.1.0 を `-L` に渡したときの 4 つの案内（S187）。`data/msl` が無ければ何もしない。
+#[test]
+#[ignore]
+fn msl_hints_for_subfolder_package_and_unrelated_names() {
+    let msl = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../../data/msl");
+    if !msl.is_dir() {
+        return;
+    }
+    let sub = msl.join("Modelica 4.1.0");
+    // 親のフォルダを案内する。CLI と同じ組で読む道で確かめる
+    let mut texts = Vec::new();
+    collect(&sub, &mut texts);
+    let files: Vec<Source<'_>> = texts
+        .iter()
+        .map(|(n, t)| Source { name: n, text: t })
+        .collect();
+    let split = Checker::with_library_sources_split(sub.to_str().unwrap(), &files).unwrap();
+    let d = first_error(&split, "Modelica.Blocks.Examples.PID_Controller");
+    assert_eq!(d.code, codes::RESOLVE, "{d:?}");
+    assert!(d.notes.iter().any(|n| n.contains("親のフォルダ")), "{d:?}");
+    // パッケージ名と、遠い名前
+    let checker = Checker::new(&[msl.as_path()]).unwrap();
+    let d = first_error(&checker, "Modelica.Blocks.Examples");
+    assert_eq!(d.code, codes::MODEL_NOT_FOUND, "{d:?}");
+    assert!(
+        d.notes.iter().any(|n| n.starts_with("直下のモデル")),
+        "{d:?}"
+    );
+    for model in ["Nope", "T"] {
+        let d = first_error(&checker, model);
+        assert!(
+            d.notes.iter().all(|n| !n.starts_with("候補")),
+            "{model}: {d:?}"
+        );
+    }
+}
+
+fn collect(dir: &Path, out: &mut Vec<(String, String)>) {
+    for e in fs::read_dir(dir).unwrap().flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            collect(&p, out);
+        } else if p.extension().is_some_and(|x| x == "mo") {
+            out.push((p.display().to_string(), fs::read_to_string(&p).unwrap()));
+        }
     }
 }

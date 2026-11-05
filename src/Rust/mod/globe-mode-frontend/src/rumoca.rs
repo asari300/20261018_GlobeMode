@@ -1009,10 +1009,15 @@ fn library_model_not_found(
     let tree = LibraryTree::new(pairs);
     let mut all: HashSet<String> = HashSet::new();
     let mut models: Vec<String> = Vec::new();
+    let mut packages: HashSet<String> = HashSet::new();
+    // ライブラリの索引に無い、開いている文書（ワークスペース）のモデル。候補で先に出す
+    let mut local: HashSet<String> = HashSet::new();
     for (path, kind) in tree.classes() {
         all.insert(path.to_string());
         if matches!(kind, "model" | "block" | "class") {
             models.push(path.to_string());
+        } else if kind == "package" {
+            packages.insert(path.to_string());
         }
     }
     for uri in session.document_uris() {
@@ -1038,10 +1043,58 @@ fn library_model_not_found(
                 c.kind,
                 ClassKind::Model | ClassKind::Block | ClassKind::Class
             );
-            if all.insert(name.clone()) && is_model {
-                models.push(name);
+            if all.insert(name.clone()) {
+                if is_model {
+                    local.insert(name.clone());
+                    models.push(name);
+                } else if c.kind == ClassKind::Package {
+                    packages.insert(name);
+                }
             }
         }
+    }
+    // パッケージ名は検査も実行もできない。Rumoca は理由を言わず失敗するので、直下のモデルを案内する（S187）
+    if packages.contains(model) {
+        let prefix = format!("{model}.");
+        let direct = |names: &mut dyn Iterator<Item = &String>| -> Vec<String> {
+            let mut v: Vec<String> = names
+                .filter(|n| n.strip_prefix(&prefix).is_some_and(|r| !r.contains('.')))
+                .cloned()
+                .collect();
+            v.sort_unstable();
+            v
+        };
+        let mut inside = direct(&mut models.iter());
+        let what = if inside.is_empty() {
+            // モデルが無ければ、直下のパッケージを案内する
+            inside = direct(&mut packages.iter());
+            "パッケージ"
+        } else {
+            "モデル"
+        };
+        let mut d = Diagnostic::error(
+            codes::MODEL_NOT_FOUND,
+            Stage::S1,
+            format!("`{model}` はパッケージで、モデルではないので検査も実行もできない"),
+        );
+        if inside.is_empty() {
+            d = d.note("パッケージの中のモデルを、完全修飾名で渡す");
+        } else {
+            let more = match inside.len().saturating_sub(3) {
+                0 => String::new(),
+                n => format!("（ほか {n} 件）"),
+            };
+            let shown = inside
+                .iter()
+                .take(3)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", ");
+            d = d.note(format!(
+                "直下の{what}: {shown}{more}。中のモデルを完全修飾名で渡す"
+            ));
+        }
+        return Some(d);
     }
     // 名前を 1 つも集められなかったときは、見つからないとは言えない
     if all.is_empty() || all.contains(model) {
@@ -1050,21 +1103,27 @@ fn library_model_not_found(
     // `-m Foo.mo` のようにファイル名を渡したときも、`Foo` の候補を出す
     let query = model.strip_suffix(".mo").unwrap_or(model);
     let last = query.rsplit('.').next().unwrap_or(query).to_lowercase();
-    let limit = (last.chars().count() / 4).max(2);
-    let mut scored: Vec<(usize, usize, usize, &String)> = models
+    let len = last.chars().count();
+    let limit = (len / 4).max(2);
+    // 開いている文書のモデルが少ないとき（3 つ以下）は、名前が遠くても候補にする（リネームの直後など）
+    let few_local = local.len() <= 3;
+    let mut scored: Vec<(bool, usize, usize, usize, &String)> = models
         .iter()
         .filter_map(|n| {
             let nl = n.rsplit('.').next().unwrap_or(n).to_lowercase();
             // 0: 完全修飾名の末尾が一致（`Examples.PID_Controller`）、1: 末尾の名前が（大文字小文字を除いて）同じ、
-            // 2: 綴りが近い（編集距離が長さの 1/4 まで。最低 2）か、前方一致
+            // 2: 綴りが近い（編集距離が長さの 1/4 まで・最低 2、かつ半分より少ない。4 文字以上）か、前方一致（3 文字以上）、
+            // 3: 開いている文書のモデル（遠くても）
             let (tier, dist) = if n.ends_with(&format!(".{query}")) {
                 (0, 0)
             } else if nl == last {
                 (1, 0)
             } else {
                 let d = edit_distance(&nl, &last);
-                if d <= limit || (last.len() >= 3 && nl.starts_with(&last)) {
+                if (len >= 4 && d <= limit && d * 2 < len) || (len >= 3 && nl.starts_with(&last)) {
                     (2, d)
+                } else if few_local && local.contains(n) {
+                    (3, d)
                 } else {
                     return None;
                 }
@@ -1075,7 +1134,8 @@ fn library_model_not_found(
                 .zip(query.split('.'))
                 .take_while(|(a, b)| a == b)
                 .count();
-            Some((tier, dist, usize::MAX - shared, n))
+            // 開いている文書のモデルを、ライブラリのモデルより先に
+            Some((!local.contains(n), tier, dist, usize::MAX - shared, n))
         })
         .collect();
     scored.sort();
@@ -1087,7 +1147,7 @@ fn library_model_not_found(
     if scored.is_empty() {
         d = d.note("ライブラリのモデルは、パッケージ名から始まる完全修飾名で渡す（例: Modelica.Blocks.Examples.PID_Controller）");
     } else {
-        let names: Vec<&str> = scored.iter().take(5).map(|s| s.3.as_str()).collect();
+        let names: Vec<&str> = scored.iter().take(5).map(|s| s.4.as_str()).collect();
         d = d.note(format!("候補: {}", names.join(", ")));
     }
     Some(d)
@@ -1112,7 +1172,18 @@ fn edit_distance(a: &str, b: &str) -> usize {
 /// `-L` に渡したフォルダが、MSL のルートの中の 1 つのパッケージ（`package.mo` があり、同じ親に
 /// `ModelicaServices` か `Complex` が並ぶ）なら、親を渡すよう案内する文（S180）。親を黙って足すことはしない。
 fn library_root_hint(libraries: &[PathBuf]) -> Option<String> {
-    libraries.iter().find_map(|lib| {
+    // 組で読んだライブラリ（CLI の既定の道）は `library:<パス>[,<パス>…]` という名前で持つ。パスに戻す
+    // shortcut: パスに `,` を含むと戻せず、案内が出ない
+    let paths: Vec<PathBuf> = libraries
+        .iter()
+        .flat_map(
+            |lib| match lib.to_str().and_then(|s| s.strip_prefix("library:")) {
+                Some(names) => names.split(',').map(PathBuf::from).collect(),
+                None => vec![lib.clone()],
+            },
+        )
+        .collect();
+    paths.iter().find_map(|lib| {
         if !lib.join("package.mo").is_file() {
             return None;
         }
@@ -1129,7 +1200,11 @@ fn library_root_hint(libraries: &[PathBuf]) -> Option<String> {
                 "ライブラリ {} は 1 つのパッケージで、同じ親のフォルダに ModelicaServices などが並んでいる。\
                  親のフォルダ（{}）を -L に渡す（自動では足さない）",
                 lib.display(),
-                parent.display()
+                // 相対パスで渡されたなら相対のまま案内する
+                lib.parent()
+                    .filter(|p| !p.as_os_str().is_empty())
+                    .unwrap_or(parent)
+                    .display()
             )
         })
     })
