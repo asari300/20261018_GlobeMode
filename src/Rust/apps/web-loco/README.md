@@ -65,7 +65,7 @@ cargo deny --config ../../../../deny.toml --manifest-path Cargo.toml check licen
 | serde | 1.0.229 | MIT OR Apache-2.0 | <https://crates.io/crates/serde/1.0.229> | 2026-10-31 |
 | serde_json | 1.0.154 | MIT OR Apache-2.0 | <https://crates.io/crates/serde_json/1.0.154> | 2026-10-31 |
 | loco-rs（dev-dependencies。機能 `testing`） | 1.2.0 | Apache-2.0 | <https://crates.io/crates/loco-rs/1.2.0> | 2026-10-31 |
-| globe-mode-fmt | 0.0.1 | MIT OR Apache-2.0 | この repo の `src/Rust/mod/globe-mode-fmt`（path 依存） | 2026-10-31 |
+| globe-mode-fmt | 0.2.0 | MIT OR Apache-2.0 | この repo の `src/Rust/mod/globe-mode-fmt`（path 依存） | 2026-10-31 |
 
 - loco-rs は `default-features = false` で使います。DB（`with-db`）・認証・キャッシュ・ワーカー・CLI は入れません。
 - `testing` 機能は開発時だけ（`[dev-dependencies]`）に入れます。

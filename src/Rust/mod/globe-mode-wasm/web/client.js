@@ -135,6 +135,10 @@ export class GlobeWorker {
   async references(file, line, character) {
     return JSON.parse(await this.#call("references", { file, text: this.#files.get(file) ?? "", line, character }));
   }
+  // モデル名の候補（S170）: setFile 済みの file の実行できるクラス（model・block・class。partial は除く）の修飾名。構文が壊れていれば []
+  async models(file) {
+    return JSON.parse(await this.#call("models", { file }));
+  }
   // リネーム（S161）: [{range, newText}]。部品でない・識別子でない・予約語・既にある名前は、理由つきで reject
   async rename(file, line, character, newName) {
     return JSON.parse(await this.#call("rename", { file, text: this.#files.get(file) ?? "", line, character, newName }));

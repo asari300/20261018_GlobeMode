@@ -1,10 +1,10 @@
 # Changelog
 
-All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/); versions will follow [Semantic Versioning](https://semver.org/lang/ja/) from v0.1.0. 日本語で書く（英語の要約は [README.md](README.md)）。各行の S 番号は [doc/sessions/README.md](doc/sessions/README.md) の索引と `log/work/` の作業記録に対応する。
+All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/); versions will follow [Semantic Versioning](https://semver.org/lang/ja/) from v0.2.0. 日本語で書く（英語の要約は [README.md](README.md)）。各行の S 番号は [doc/sessions/README.md](doc/sessions/README.md) の索引と `log/work/` の作業記録に対応する。
 
 ## [Unreleased]
 
-v0.1.0 に向けた S001〜S164 の要点（S048 以降は S168 で足した。内部の整理は束ねた）。Cargo の version はまだ 0.0.1 で、GitHub の Release・タグ・PyPI・crates.io・VS Code の Marketplace のどれにも出していない（crates.io に出せないのは Rumoca の git 依存のため。[ADR-0002](doc/adr/0002-rumoca-adapter.md)）。
+**次の版は 0.2.0**（S172 で Cargo・Tauri・Python・npm・VS Code の拡張・Elixir・Gleam の版を 0.2.0 に揃えた。一覧は [architecture.md](doc/architecture.md) の「版を書いている場所」）。S001〜S164 の要点（S048 以降は S168 で足した。内部の整理は束ねた）。日付と比較リンクは公開のときに入れる。GitHub の Release・タグ・PyPI・crates.io・VS Code の Marketplace のどれにも出していない（crates.io に出せないのは Rumoca の git 依存のため。[ADR-0002](doc/adr/0002-rumoca-adapter.md)）。
 
 ### 運用・計画（P0）
 

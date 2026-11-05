@@ -1,7 +1,7 @@
 [package]
 name = "web-axum"
 description = "GlobeMode: Modelica の整形と lint の Web アプリ（axum。エンジンは globe-mode-fmt）"
-version = "0.0.1"
+version = "0.2.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 publish = false

@@ -2249,7 +2249,7 @@ checksum = "f70749695b063ecbf6b62949ccccde2e733ec3ecbbd71d467dca4e5c6c97cca0"
 
 [[package]]
 name = "globe-mode"
-version = "0.0.1"
+version = "0.2.0"
 dependencies = [
  "globe-mode-core",
  "globe-mode-db",
@@ -2265,7 +2265,7 @@ dependencies = [
 
 [[package]]
 name = "globe-mode-analysis"
-version = "0.0.1"
+version = "0.2.0"
 dependencies = [
  "globe-mode-core",
  "globe-mode-ir",
@@ -2274,14 +2274,14 @@ dependencies = [
 
 [[package]]
 name = "globe-mode-core"
-version = "0.0.1"
+version = "0.2.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "globe-mode-db"
-version = "0.0.1"
+version = "0.2.0"
 dependencies = [
  "globe-mode-analysis",
  "globe-mode-core",
@@ -2293,7 +2293,7 @@ dependencies = [
 
 [[package]]
 name = "globe-mode-dioxus"
-version = "0.0.1"
+version = "0.2.0"
 dependencies = [
  "dioxus",
  "globe-mode",
@@ -2306,7 +2306,7 @@ dependencies = [
 
 [[package]]
 name = "globe-mode-exec"
-version = "0.0.1"
+version = "0.2.0"
 dependencies = [
  "diffsol",
  "getrandom 0.3.4",
@@ -2325,11 +2325,11 @@ dependencies = [
 
 [[package]]
 name = "globe-mode-fmt"
-version = "0.0.1"
+version = "0.2.0"
 
 [[package]]
 name = "globe-mode-frontend"
-version = "0.0.1"
+version = "0.2.0"
 dependencies = [
  "globe-mode-core",
  "globe-mode-ir",
@@ -2343,7 +2343,7 @@ dependencies = [
 
 [[package]]
 name = "globe-mode-graph"
-version = "0.0.1"
+version = "0.2.0"
 dependencies = [
  "globe-mode-ir",
  "serde",
@@ -2352,7 +2352,7 @@ dependencies = [
 
 [[package]]
 name = "globe-mode-ir"
-version = "0.0.1"
+version = "0.2.0"
 dependencies = [
  "globe-mode-core",
  "serde",
@@ -2360,7 +2360,7 @@ dependencies = [
 
 [[package]]
 name = "globe-mode-protocol"
-version = "0.0.1"
+version = "0.2.0"
 dependencies = [
  "globe-mode-analysis",
  "globe-mode-core",
@@ -2370,7 +2370,7 @@ dependencies = [
 
 [[package]]
 name = "globe-mode-sim"
-version = "0.0.1"
+version = "0.2.0"
 dependencies = [
  "globe-mode-core",
  "globe-mode-ir",

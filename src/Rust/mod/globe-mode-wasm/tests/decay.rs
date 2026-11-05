@@ -485,3 +485,15 @@ fn decay_lists_tunable_parameters() {
     assert_eq!(k.default, 1.0);
     assert!(ws.inner().tunable_parameters("Nope").is_err());
 }
+
+#[test]
+fn models_lists_the_runnable_classes_of_a_file() {
+    // S170: UI のモデル名の候補。model・block・class の修飾名（partial は除く。package の中まで入る）、壊れた構文は空
+    let mut ws = Workspace::new();
+    let text = "model Helper\n  Real x;\nend Helper;\npartial model P\nend P;\nmodel Main\n  Helper h;\nend Main;\npackage Pk\n  block B\n  end B;\n  function f\n  end f;\nend Pk;\n";
+    ws.put_file("T.mo", text);
+    assert_eq!(ws.models("T.mo"), r#"["Helper","Main","Pk.B"]"#);
+    ws.put_file("Bad.mo", "model Bad\n  Real x\nend Bad;\n");
+    assert_eq!(ws.models("Bad.mo"), "[]");
+    assert_eq!(ws.models("Nope.mo"), "[]");
+}
