@@ -15,6 +15,7 @@ Decay の x で Shift+F12 を押すと参照の一覧（3 行）が出て行を�
 タブ（S151）: 開くたびにタブが増え、切り替えで本文・モデル名・診断が戻り、再読み込みでタブが戻り、閉じるボタンで減り（未保存なら confirm 1 つ。最後の 1 つは閉じられない）、「最近使ったファイル」から開き直せる。
 結果の位置（S170）: 1280x800 と 390 px 幅で、実行の進捗・止める・失敗の理由が最初の画面の中に出て、終わるとプロットの上端が画面の中に入り、利用者が戻したスクロールは引き戻さない。
 開く・モデル名（S170）: 2 モデルのファイルは select で選び直せて再読み込みで残り、未保存の編集があるタブと同じ名前を開き直しても編集が残る。ライブラリのモデル名を打ったときは食い違いの案内。
+キーボードだけ（S175）: マウスを使わず Tab・Enter・Space とショートカットで、検査、診断と参照の行からエディタへ、実行（プロットの canvas の `aria-label` に信号名と時間の範囲）、止める（Ctrl+.）、保存（Ctrl+S）まで通る。フォーカスの輪郭が見える。
 ダークモード（S152）: `color_scheme="dark"` で開くと背景が暗く文字が明るい（body・エディタ・診断・プロット・graph。プロットの軸の文字は canvas に描くので明るい画素を数える）。テーマの select で「明」にすると戻り、再読み込みで選択が残り、「OS に合わせる」で暗に戻る。
 FMU を書き出す（S144）: ブラウザの wasm が作ったソースの FMU がダウンロードされ、modelDescription.xml と sources/ がある。S154 から FMI の版（2.0 / 3.0）を select で選ぶ。
 実行の設定（S142）: 終了時刻 2 とソルバ dopri45 で Decay を実行して x(2) が e⁻²、DecayK は experiment の Tolerance が初期値（出どころ experiment）に出て、k = 2 の上書きで x(1) が e⁻²。名前=値でない行は実行しない。
@@ -988,6 +989,76 @@ def main() -> int:
             assert op.locator("tr.error").count() > 0 or op.get_by_role("alert").count() > 0, "存在しないモデル名の理由が出ない"
             print("モデル名の食い違い: ライブラリのモデル名は「開く」を促し、開くと食い違いが消える。存在しない名前は診断に出る")
         op.close()
+        # キーボードだけ（S175）: マウスを使わず Tab・Enter・ショートカットで、検査 → 診断の行からエディタへ → 実行 → プロットの代替テキスト → 止める → 保存まで通す
+        kb = browser.new_page(viewport={"width": 1280, "height": 800})
+        kb.on("console", lambda m: m.type == "error" and errors.append(m.text))
+        kb.on("pageerror", lambda e: errors.append(str(e)))
+        kb.goto(origin)
+        kb.get_by_role("button", name="検査").wait_for()
+
+        def tab_to(js: str, limit: int = 80) -> int:
+            """js（document.activeElement を e として評価する式）が真になるまで Tab を押し、押した回数を返す。届かなければ落ちる"""
+            for n in range(1, limit + 1):
+                kb.keyboard.press("Tab")
+                if kb.evaluate(f"(() => {{ const e = document.activeElement; return !!e && ({js}); }})()"):
+                    return n
+            raise AssertionError(f"Tab {limit} 回で届かない: {js}")
+
+        in_editor = "!!e.closest('.cm-editor')"
+        tab_to("e.getAttribute('aria-label') === 'モデル名'")
+        kb.keyboard.press("Control+a")
+        kb.keyboard.type("Bad")
+        ring = kb.evaluate("(() => { const s = getComputedStyle(document.activeElement); return [s.outlineStyle, s.outlineWidth]; })()")
+        assert ring == ["solid", "2px"], f"フォーカスの輪郭が見えない: {ring}"  # 明（theme.css の :focus-visible）
+        tab_to(in_editor)
+        expect(kb.locator(".cm-editor")).to_have_css("outline-style", "solid")  # エディタの輪郭も（暗で見えない 1px の点線にしない）
+        kb.keyboard.press("Control+a")
+        kb.keyboard.insert_text(BAD)
+        kb.keyboard.press("Control+Shift+Enter")  # エディタの中から検査
+        expect(kb.locator("tr.error").first).to_be_visible(timeout=120_000)
+        live = kb.locator("p.sr-only[aria-live=polite]")
+        expect(live).to_have_text(re.compile("検査が完了した"))
+        assert kb.locator("table.diagnostics button.jump").count() > 0, "診断の行に押せる button が無い"
+        tab_to("!!e.closest('table.diagnostics')")
+        kb.keyboard.press("Enter")  # 診断の行 → エディタの該当位置
+        assert kb.evaluate("!!document.activeElement.closest('.cm-editor')"), "診断の行から Enter してもエディタにフォーカスが移らない"
+        assert kb.locator(".cm-selectionBackground").count() > 0 or kb.locator(".cm-activeLine").count() > 0
+        kb.keyboard.press("Control+Home")
+        kb.keyboard.press("ArrowDown")
+        kb.keyboard.press("End")
+        kb.keyboard.press("ArrowLeft")
+        kb.keyboard.press("Shift+F12")  # 参照の一覧の行も Tab で選べる（Bad の x）
+        expect(kb.locator("table.refs tr").first).to_be_visible(timeout=30_000)
+        tab_to("!!e.closest('table.refs')")
+        kb.keyboard.press("Space")
+        assert kb.evaluate("!!document.activeElement.closest('.cm-editor')"), "参照の行から Space してもエディタに移らない"
+        # 実行（Ctrl+Enter）: Decay に戻してプロットの代替テキストに信号名と時間の範囲が入る
+        kb.keyboard.press("Control+a")
+        kb.keyboard.insert_text("model Decay\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -x;\nend Decay;\n")
+        kb.get_by_label("モデル名").press("Control+a")
+        kb.get_by_label("モデル名").press_sequentially("Decay")
+        kb.get_by_label("モデル名").press("Control+Enter")
+        alt = kb.locator(".plot canvas")
+        expect(alt).to_have_attribute("aria-label", re.compile("Decay.*信号 1 本: x.*time の範囲は 0 から 1"), timeout=120_000)
+        assert alt.get_attribute("role") == "img"
+        expect(live).to_have_text(re.compile("実行が完了した"))
+        print(f"キーボード: {alt.get_attribute('aria-label')!r}")
+        # 止める（Ctrl+.）と保存（Ctrl+S）
+        kb.locator(".cm-content").press("Control+a")  # フォーカスを戻す（プログラムからの focus。マウスは使わない）
+        kb.keyboard.insert_text("model Long\n  Real x(start = 0, fixed = true);\nequation\n  der(x) = sin(100 * time);\n  annotation(experiment(StopTime = 1e6));\nend Long;\n")
+        kb.get_by_label("モデル名").press("Control+a")
+        kb.get_by_label("モデル名").press_sequentially("Long")
+        kb.get_by_label("モデル名").press("Control+Enter")
+        expect(kb.locator("p.run")).to_contain_text("integration", timeout=120_000)
+        kb.keyboard.press("Control+.")
+        expect(kb.locator("p.run")).to_have_attribute("data-run", "cancelled", timeout=30_000)
+        with kb.expect_download(timeout=10_000) as dl:
+            kb.keyboard.press("Control+s")
+        assert dl.value.suggested_filename.endswith(".mo")
+        for name, keys in {"検査": "Control+Shift+Enter", "実行": "Control+Enter", "保存": "Control+S", "開く": "Control+O"}.items():  # ボタンに示してある
+            assert kb.get_by_role("button", name=name, exact=True).get_attribute("aria-keyshortcuts").startswith(keys), name
+        kb.close()
+        print("キーボードだけ: モデル名・エディタへ Tab、Ctrl+Shift+Enter で検査、診断と参照の行を Tab・Enter・Space でエディタへ、Ctrl+Enter で実行（プロットの aria-label に信号名と時間の範囲）、Ctrl+. で止め、Ctrl+S で保存")
         # ダークモード（S152）: OS が暗いと背景が暗く文字が明るい。エディタ・プロット・graph も暗い。手動で「明」にすると戻り、再読み込みで選択が残る
         dark = browser.new_page(color_scheme="dark")
         dark.on("console", lambda m: m.type == "error" and errors.append(m.text))

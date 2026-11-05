@@ -16,6 +16,17 @@ GlobeMode checks, simulates and edits [Modelica](https://modelica.org/) models. 
 
 Not done: FMI import, SSP, Diagram/Icon/Documentation views, an own compiler frontend (Track B), signed installers and automatic updates (the updater is off until a key is registered), a public web deployment. The full list with priorities is [doc/features.md](doc/features.md); the plan is [doc/roadmap.md](doc/roadmap.md).
 
+UI keyboard shortcuts (browser, Desktop, Android with a keyboard; Cmd instead of Ctrl on macOS; they work inside the editor and in the input fields). Diagnostic and reference rows are real buttons: Tab to one and press Enter or Space to jump to the editor.
+
+| Keys | Action |
+| --- | --- |
+| Ctrl+Enter | Run (this replaces CodeMirror's "insert blank line") |
+| Ctrl+Shift+Enter | Check |
+| Ctrl+. | Stop a running simulation |
+| Ctrl+S / Ctrl+Shift+S | Save / Save as (Desktop) |
+| Ctrl+O | Open |
+| F12, Shift+F12, F2, Alt+Left | Go to definition, references, rename, back (editor) |
+
 ## Getting started
 
 All of these start from a checkout (`git clone https://github.com/asari300/20261018_GlobeMode`) and the tools pinned by [mise](https://mise.jdx.dev/) (`mise trust && mise install --locked`).
@@ -57,6 +68,8 @@ GlobeMode は Rust で作る OSS の Modelica IDE。同じ Rust のコアを、C
 - **API**: Rust（facade `globe-mode`）、Python（PyO3）、C ABI、Zig、Julia、Elixir、Gleam、WebAssembly。
 
 できていないもの: FMI の読み込み、SSP、Diagram / Icon / Documentation ビュー、自前のコンパイラ（Track B）、署名したインストーラと自動更新（鍵を登録するまで更新は未設定）、ブラウザ版の公開。順位つきの一覧は [doc/features.md](doc/features.md)、順序は [doc/roadmap.md](doc/roadmap.md)。
+
+UI のキーボード（ブラウザ・Desktop・Android。macOS は Ctrl の代わりに Cmd。エディタの中でも入力欄でも効く）: Ctrl+Enter 実行（CodeMirror の「空行を挿入」は覆う）、Ctrl+Shift+Enter 検査、Ctrl+. 止める、Ctrl+S 保存（Desktop は Ctrl+Shift+S で名前を付けて保存）、Ctrl+O 開く。診断と参照の行は本物の button で、Tab で選んで Enter か Space を押すとエディタの該当位置へ移る。プロットの canvas には信号名と時間の範囲の代替テキストが付く。
 
 ### 使い始め方
 

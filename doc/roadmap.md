@@ -473,6 +473,11 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **未対応の見せ方、force、エラー文面、FMU の説明**（S164 の穴 3・穴 6。[解説書](sessions/S173-ui-unsupported-force-errors/解説書.md)）: Error がすべて `GM-U` のとき、Rust の `unsupported_summary` が要約を作り（応答の `unsupported`）、UI は診断の上に「未対応（モデルの誤りではない）」を出す。行は重大度が「未対応」で error と別の色（`--unsup`）、Rumoca の英語の原文は「Rumoca の原文」に畳んで残す。強行（`force`）はコードと実例で確かめ、**効くのは `GM-E8001`（初期条件が余る）だけ**（GM-U の 15 種のコードの例題・S1〜S6・`GM-E10003` / `GM-E10004` は強行しても DAE にできない・実行系が止める・設定が断る）。Rust の `force_helps` が `can_force` を立てたときだけ「それでも実行する」を出し、結果に「強行した実行」の印。意味の無いときは文面を「強行しても実行できない」に（CLI も同じ）。失敗の表示に最初の error の診断を 1 行（`GM-E10004`・`GM-E10006`）、数でない終了時刻は欄の `aria-invalid` と文面 1 回。FMU はソースだけだと、ボタンの横と書き出した後に `globe fmu export --build` つきで示す。「最後の時刻の値」から内部名を除く。
 - 持ち越し: 強行が通るほかの Error（`GM-E7001` など）、GM-I7001 / `GM-E6001` の方程式の名前に宣言が出る件（`structure.rs` の `label`。Rust の出力の誤りで UI は無関係）、未対応の理由の日本語化、診断の折りたたみ、キーボード、UI から `--build`。
 
+### S175（P4、2026-11-05）で済んだこと
+
+- **キーボードとアクセシビリティ**（S164 の穴 8。[解説書](sessions/S175-ui-keyboard-a11y/解説書.md)）: キーだけで開く・書く・検査・診断へ飛ぶ・実行・止める・結果を見る・保存まで通せる。診断と参照の行は行の中の本物の `<button>`（Tab・Enter・Space でエディタの該当位置へ、フォーカスもエディタへ）。ショートカットは Ctrl/Cmd+Enter 実行、+Shift+Enter 検査、+. 止める、+S 保存（Desktop は +Shift+S 名前を付けて保存）、+O 開く（capture で受け、エディタの中でも効く。CodeMirror の Mod-Enter「空行を挿入」は覆う）。ボタンに `title` と `aria-keyshortcuts`。プロットの canvas に `role="img"` と信号名・時間の範囲・最後の値・最小・最大の `aria-label`（純粋な関数 `plotLabel`）。`:focus-visible` の輪郭を `--accent` に（エディタの 1px の点線は暗で見えなかった）。検査・実行の完了を `aria-live="polite"`、`h1` を読み上げ専用に。`test_ui.py` にキーだけの 1 本。
+- 持ち越し: エディタへ飛ぶスキップリンク（ツールバーと設定を過ぎる Tab が十数回、木を開くと増える）、タブの矢印キー（roving tabindex）、Mac の実機、スクリーンリーダー（NVDA・VoiceOver）の実機、Esc で止める、Tab での字下げ（エディタの Tab はフォーカスを離れる設計のまま）。
+
 ### S166（P4、2026-11-05）で済んだこと
 
 - **クラス名の参照とリネーム**（[解説書](sessions/S166-references-classes/解説書.md)）: S161 の口（`globe/references`・`globe/rename`・`Backend.references`・`rename`）のまま、カーソルがクラス名の上なら、その文書で定義ジャンプと同じ解決（`Resolver::definition`）で同じクラスに行き着く識別子のトークンを一覧にし、リネームで置き換える（宣言の名前・`end 名前`・部品の型・`extends`・`import`・点つきの名前の途中）。別の入れ子の同名のクラスは混ざらない（S161 の持ち越し「同名の入れ子のクラスの区別」はクラス名について片付いた）。リネームはこの文書で定義したクラスだけで、別ファイル（ライブラリ）のクラスと import の別名は断る。`textDocument/prepareRename` を足し、UI の F2 は今の名前のまま `rename` を試して、断られたら入力欄を出さずに理由を出す。LSP の `textDocument/references` はほかの開いた文書の参照も返し、リネームはほかの文書に参照があれば断る。UI の Workspace は今の文書しか持たない（離れたタブは外す）ので、UI の一覧は今の文書だけ。
