@@ -66,7 +66,7 @@ OpenModelica（OMEdit）と Rumoca を参考に、GlobeMode に要る機能を�
 | FMI 2.0 Import（ME / CS） | ○ | × | **Must** | P5 | `fmi` crate 0.8 の上に作る |
 | FMI 3.0 Import（ME / CS / SE） | △ | × | **Must** | P5 | SE はクロックスケジューラで動かす |
 | FMI 2.0 Export（ME / CS） | ○ | ○（テンプレート） | **Must** | P5 | P5a は Rumoca のテンプレート、P5b は自前のランタイム。**S094: P5a の FMI 2.0（ME・CS）を `globe fmu export` で出せる**（事象の無いモデル。[ADR-0031](adr/0031-fmi-export-p5a-first.md)）。S095: P5b の crate `globe-mode-fmu`（依存 0）が FMI 2.0 ME の 35 関数を出す（モデルは Decay を固定、任意のモデルの載せ替えは未。[ADR-0032](adr/0032-p5b-own-runtime.md)）。S109: 事象（状態事象・`reinit`・`sample`）のあるモデルも FMPy の ME で回る。S112: 代数・離散の変数（Real・Integer・Boolean）も FMU の外から読める。S114: Real の入力を `fmi2SetReal` で与えられる（FMPy の `input=`）。S105: `--build --target` で `zig cc` を呼び、1 つの FMU に Linux・Windows・macOS の置き場を同梱（P5a）。**S144: UI の「FMU を書き出す」**（ソースの FMU、FMI 2.0）。ブラウザ・Android は wasm が zip を `Uint8Array` で返してダウンロード、Desktop は LSP の `globe/exportFmu` が `outDir` に書く（`--build` は UI に無い） |
-| FMI 3.0 Export（ME / CS / SE） | △ | ○（テンプレート） | **Must** | P5 | 同上。**S098: P5a の FMI 3.0（ME・CS）を `globe fmu export --fmi-version 3` で出せる**（SE は未）。S105 で 3.0 も複数の OS の置き場を同梱 |
+| FMI 3.0 Export（ME / CS / SE） | △ | ○（テンプレート） | **Must** | P5 | 同上。**S098: P5a の FMI 3.0（ME・CS）を `globe fmu export --fmi-version 3` で出せる**（SE は未）。S105 で 3.0 も複数の OS の置き場を同梱。**S137: P5b の `globe-mode-fmu` も同じ cdylib で FMI 3.0 ME を出す**（`fmi3*`、事象・代数・離散・入力のあるモデルも FMPy の validate と ME で 2.0 と同じ値。CS・SE は未） |
 | コシミュレーションのマスター | ○（OMSimulator） | × | **Must** | P5 | Jacobi / Gauss–Seidel から始め、可変刻みとロールバックに進む |
 | SSP 2.0 | ○ | × | Should | P8 | 系の構成ファイル |
 | FMI-LS-DAE | × | × | Could | — | 規格が alpha の段階なので注視するだけ |

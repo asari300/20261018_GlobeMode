@@ -142,3 +142,12 @@
 
 - **`globe-mode-fmu` の `model_description` は `globe_mode_fmi::ModelDescription` を組み立て、`write_model_description_2` を呼ぶだけにした**（文字列の連結をやめた）。`globe-mode-fmu` は `globe-mode-fmi` の既定の feature だけに依存し、feature `export`（Rumoca のテンプレート・zip）は引き込まない。外部の依存の追加 0。`ModelDescription` に `initial`・`start`（文字列のまま）・`derivative`、`ModelStructure`（Outputs・Derivatives・InitialUnknowns の索引）、`numberOfEventIndicators`、`DefaultExperiment`、`generationTool`・`variableNamingConvention` を足した。出力の XML は前と同じで、違いは状態の無いモデルで空の `<Derivatives>`・`<InitialUnknowns>` を書かなくなったことだけ（2.0 の XSD では `Unknown` が 1 つ以上要る）。`tests/fmpy.rs` の FMPy の validate はそのまま通る。
 - 持ち越し: FMI 3.0 の書く側、CS、`Outputs` の `dependencies`、Enumeration・String。
+
+## 追記（S137、2026-11-03）: 同じ cdylib で FMI 3.0 の ME も出す
+
+- **`globe-mode-fmu` は `fmi2*` と `fmi3*` を同じ cdylib から出す**（名前が衝突しないため）。3.0 の関数は 2.0 の関数を形だけ変えて呼ぶ: `fmi3InstantiateModelExchange` は `fmi2Instantiate` と中身を共有し（`resourcePath` は URI でなくそのままのパスなので、`file:` があれば外す）、`fmi3EnterInitializationMode` は `fmi2SetupExperiment`、`fmi3GetFloat64`・`SetFloat64`・`GetInt32` は `fmi2GetReal`・`SetReal`・`GetInteger`（`nValues` が `nvr` と違えば `fmi3Error`。スカラーだけ）、`fmi3UpdateDiscreteStates` は `fmi2NewDiscreteStates` の `EventInfo` を `bool` の出力に移す。`fmi3Boolean` は C の `bool` なので Rust の `bool` で受ける。
+- `fmi3FunctionTypes.h` の 75 関数をすべて出す。ME に要らない 49 関数（ほかの型の値・FMUstate・方向微分・Clock・CS・SE）は引数を宣言しない `fmi3Error`（Instantiate の CS・SE は NULL）の stub をマクロで並べる（呼び手が引数を片付ける C の呼び出し規約なので、引数を読まない関数は宣言しなくてよい）。
+- `FMI3_OVERRIDE_FUNCTION_PREFIX`（S098）は C のヘッダで関数名に `<modelIdentifier>_` を付けるかどうかの切り替えで、Rust の `#[unsafe(no_mangle)]` は接頭辞の無い `fmi3*` をそのまま出すので関係しない（FMPy は接頭辞の無い名前を引く）。
+- `modelDescription.xml` は `model_description_3` が `write_model_description_3` で書く。変数表は 2.0 と同じで、`derivative` と `ModelStructure` は valueReference で書く。3.0 の `EventIndicator` は変数を指すので、値参照 `2n+p+q..`（q は代数・離散・入力の変数の数）に Float64 の変数 `_eventIndicator1..` を足し、その次に independent の `time` を置いた（FMPy の validate が `Exactly one independent variable must be defined.` で落ちたため）。どちらも `fmi3GetFloat64`（と `fmi2GetReal`）で読める。FMU の共有ライブラリの置き場は `binaries/x86_64-linux/`。
+- `globe-mode-fmi` の `ModelStructure` に `event_indicators`（3.0 の `EventIndicator` の valueReference）を足し、`write_model_description_3` の「イベント指標があれば `Err`」を外した（数が `number_of_event_indicators` と違えば `Err`）。2.0 の読み書きは変えていない。
+- 持ち越し: CS、Windows・macOS の FMU、MSL を使うモデル、Enumeration・String、`dependencies`、Integer・Boolean の書き込み。

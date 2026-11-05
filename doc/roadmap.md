@@ -539,6 +539,11 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **Android のエミュレータで検査と実行**（S092 の持ち越し、P6 の Android の完了条件。[解説書](sessions/S100-android-emulator-smoke/解説書.md)）: `App.svelte` が `VITE_GM_SMOKE=1`（ビルド時）か `?smoke=1` のときだけ、起動時にエディタの Decay を検査・実行して `GM-SMOKE check=ok simulate=ok x1=…` を console に 1 行出す。`android.yml` のジョブ `ui` はこの設定でビルドし、`emulator` は logcat にこの行が出るまで最大 5 分待って `check=ok simulate=ok` を確かめる（run 41444392188、`Displayed` の 5.7 s 後に x1 = 0.3678797279080248）。`test_ui.py` も `?smoke=1` で同じ行を確かめる（x1 = 0.3678797279080248）。
 - 持ち越し: Android での MSL、Rust を mobile の lib に直接 link する道、release の署名つき APK（`VITE_GM_SMOKE` を付けない）。
 
+### S137（P5b の 6 回目、2026-11-03）で済んだこと
+
+- **P5b の `globe-mode-fmu` が同じ cdylib で FMI 3.0 の ME も出す**（S114・S124 の持ち越し。[解説書](sessions/S137-fmu-runtime-fmi3/解説書.md)、[ADR-0032](adr/0032-p5b-own-runtime.md)・[ADR-0031](adr/0031-fmi-export-p5a-first.md) の追記）: `fmi3FunctionTypes.h` の 75 関数（ME の 24 関数は 2.0 の関数の包み、CS・SE の Instantiate は NULL、残り 49 は `fmi3Error` の stub）と `model_description_3`（EventIndicator の変数と independent の `time` を足す）。`globe-mode-fmi` の `ModelStructure` に `event_indicators` を足し、`write_model_description_3` の EventIndicator の `Err` を外した。Decay・HarmonicOscillator・BouncingBall・SampleCounter・NonlinearLoop・InputDecay が 3.0 でも FMPy 0.3.32 の validate と ME を通り、終了時刻の値は 2.0 と全桁で同じ。
+- 持ち越し: CS、Windows・macOS の FMU、MSL を使うモデル、Enumeration・String、`dependencies`。
+
 ### S124（P5a・P5b の共通、2026-11-03）で済んだこと
 
 - **FMI 3.0 の `modelDescription.xml` の書く側**（S117 の持ち越し。[解説書](sessions/S124-fmi3-writer/解説書.md)、[ADR-0031](adr/0031-fmi-export-p5a-first.md) の追記）: `globe-mode-fmi` の `write_model_description_3`（`instantiationToken`、`Float64`・`Int32`・`Boolean` の要素、`ModelStructure` の `Output`・`ContinuousStateDerivative`・`InitialUnknown` の `valueReference`）。2.0 と private な関数を共有し、2.0 の出力と試験は変えていない。読む側は 3.0 で `<EventIndicator>` の数を `number_of_event_indicators` に入れ、書く側はそれが 1 つ以上なら `Err`。Reference-FMUs の Dahlquist 3.0 と P5a の Decay 3.0 で読み→書き→読みが同じ `ModelDescription` になる。`globe-mode-fmu` は 2.0 のまま。

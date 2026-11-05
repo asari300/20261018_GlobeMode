@@ -1,4 +1,5 @@
 //! S095・S099・S109・S112・S114: FMU を関数で直接呼ぶ検査と、FMPy で回す検査（FMPy が回せない環境では skip）。
+//! S137: FMPy の検査は FMI 2.0 と 3.0 の両方で回す。
 //!
 //! モデルは `src/Modelica/GlobeModeValidation/Simulation/` の 1 ファイルを `resources/<完全修飾名>.mo` に置く。
 
@@ -46,6 +47,25 @@ fn model_description_lists_states_derivatives_and_parameters() {
         r#"stopTime="1.0" tolerance="1e-8""#,
     ] {
         assert!(md.contains(v), "{v} が無い:\n{md}");
+    }
+}
+
+/// S137: 3.0 の modelDescription.xml。derivative と ModelStructure は valueReference で、EventIndicator は
+/// Float64 の変数 `_eventIndicator1` を指す。
+#[test]
+fn model_description_3_lists_event_indicators() {
+    let (model, text) = source("BouncingBall");
+    let md = model_description_3(&model, &text).unwrap();
+    let key = "<Float64 name=\"_eventIndicator1\" valueReference=\"";
+    let at = md.find(key).expect(&md) + key.len();
+    let r = &md[at..at + md[at..].find('"').unwrap()];
+    for v in [
+        format!("instantiationToken=\"{}\"", guid(&model, &text)),
+        r#"<Float64 name="der(h)" valueReference="2" causality="local" variability="continuous" initial="calculated" derivative="0"/>"#.into(),
+        r#"<ContinuousStateDerivative valueReference="2"/>"#.into(),
+        format!("<EventIndicator valueReference=\"{r}\"/>"),
+    ] {
+        assert!(md.contains(&v), "{v} が無い:\n{md}");
     }
 }
 
@@ -183,8 +203,9 @@ fn explicit_euler_through_the_c_abi() {
 /// cdylib を作り、`model` を FMU に詰めて FMPy の ME で回す。終了時刻での `names` の値と事象の回数
 /// （`events`・`reinit`）を `名前=値` で並べた出力を返す。FMPy が使えなければ None。
 /// `input` は FMPy の `input=` に渡す入力（`{"u": [[時刻, 値], …]}` の JSON。無ければ空）。
+/// `v3` なら FMI 3.0 の FMU にする（S137）。
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-fn fmpy(name: &str, names: &[&str], input: &str) -> Option<String> {
+fn fmpy(name: &str, names: &[&str], input: &str, v3: bool) -> Option<String> {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let tmp = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
     let uv = |args: &[&std::ffi::OsStr]| {
@@ -223,7 +244,12 @@ fn fmpy(name: &str, names: &[&str], input: &str) -> Option<String> {
     let dir = resources(name, &model, &text);
     let work = dir.parent().unwrap();
     let md = work.join("modelDescription.xml");
-    std::fs::write(&md, model_description(&model, &text).unwrap()).unwrap();
+    let describe = if v3 {
+        model_description_3
+    } else {
+        model_description
+    };
+    std::fs::write(&md, describe(&model, &text).unwrap()).unwrap();
     let fmu = work.join("model.fmu");
     let out = uv(&[
         manifest.join("tests/fmpy_run.py").as_os_str(),
@@ -233,6 +259,7 @@ fn fmpy(name: &str, names: &[&str], input: &str) -> Option<String> {
         model.as_ref(),
         fmu.as_os_str(),
         names.join(",").as_ref(),
+        if v3 { "3" } else { "2" }.as_ref(),
         input.as_ref(),
     ])
     .unwrap();
@@ -243,7 +270,11 @@ fn fmpy(name: &str, names: &[&str], input: &str) -> Option<String> {
         "FMPy が失敗: {stdout}\n{}",
         String::from_utf8_lossy(&out.stderr)
     );
-    eprintln!("FMPy {name}: {}", stdout.trim());
+    eprintln!(
+        "FMPy {name}（FMI {}）: {}",
+        if v3 { 3 } else { 2 },
+        stdout.trim()
+    );
     Some(stdout.into_owned())
 }
 
@@ -274,24 +305,28 @@ fn value(stdout: &str, name: &str) -> f64 {
 #[test]
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 fn fmpy_simulates_decay() {
-    let Some(out) = fmpy("Decay", &["x"], "") else {
-        return;
-    };
-    let x = value(&out, "x");
-    assert!((x - (-1.0f64).exp()).abs() < 1e-4, "x(1) = {x}");
+    for v3 in [false, true] {
+        let Some(out) = fmpy("Decay", &["x"], "", v3) else {
+            return;
+        };
+        let x = value(&out, "x");
+        assert!((x - (-1.0f64).exp()).abs() < 1e-4, "x(1) = {x}");
+    }
 }
 
 /// 状態 2 つ・事象なしの HarmonicOscillator を、FMPy と `globe_mode_exec::run`（bdf の既定）で回して x(1)・v(1) を突き合わせる。
 #[test]
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 fn fmpy_matches_exec_on_harmonic_oscillator() {
-    let Some(out) = fmpy("HarmonicOscillator", &["x", "v"], "") else {
-        return;
-    };
-    let exec = exec_last("HarmonicOscillator", &["x", "v"]);
-    for (n, e) in ["x", "v"].iter().zip(&exec) {
-        let f = value(&out, n);
-        assert!((f - e).abs() < 1e-4, "{n}: FMPy {f} と exec {e}");
+    for v3 in [false, true] {
+        let Some(out) = fmpy("HarmonicOscillator", &["x", "v"], "", v3) else {
+            return;
+        };
+        let exec = exec_last("HarmonicOscillator", &["x", "v"]);
+        for (n, e) in ["x", "v"].iter().zip(&exec) {
+            let f = value(&out, n);
+            assert!((f - e).abs() < 1e-4, "{n}: FMPy {f} と exec {e}");
+        }
     }
 }
 
@@ -300,15 +335,17 @@ fn fmpy_matches_exec_on_harmonic_oscillator() {
 #[test]
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 fn fmpy_matches_exec_on_bouncing_ball() {
-    let Some(out) = fmpy("BouncingBall", &["h", "v", "n"], "") else {
-        return;
-    };
-    let exec = exec_last("BouncingBall", &["h", "v", "n"]);
-    assert_eq!(value(&out, "n"), exec[2], "FMU の中の n");
-    assert_eq!(value(&out, "reinit"), exec[2], "跳ねた回数");
-    for (n, e) in ["h", "v"].iter().zip(&exec) {
-        let f = value(&out, n);
-        assert!((f - e).abs() < 1e-3, "{n}: FMPy {f} と exec {e}");
+    for v3 in [false, true] {
+        let Some(out) = fmpy("BouncingBall", &["h", "v", "n"], "", v3) else {
+            return;
+        };
+        let exec = exec_last("BouncingBall", &["h", "v", "n"]);
+        assert_eq!(value(&out, "n"), exec[2], "FMU の中の n");
+        assert_eq!(value(&out, "reinit"), exec[2], "跳ねた回数");
+        for (n, e) in ["h", "v"].iter().zip(&exec) {
+            let f = value(&out, n);
+            assert!((f - e).abs() < 1e-3, "{n}: FMPy {f} と exec {e}");
+        }
     }
 }
 
@@ -317,15 +354,17 @@ fn fmpy_matches_exec_on_bouncing_ball() {
 #[test]
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 fn fmpy_matches_exec_on_sample_counter() {
-    let Some(out) = fmpy("SampleCounter", &["x", "n", "xs"], "") else {
-        return;
-    };
-    let exec = exec_last("SampleCounter", &["x", "n", "xs"]);
-    assert_eq!(value(&out, "n"), 10.0, "FMU の中の n");
-    assert_eq!(value(&out, "n"), exec[1], "n");
-    for (n, e) in ["x", "xs"].iter().zip([exec[0], exec[2]]) {
-        let f = value(&out, n);
-        assert!((f - e).abs() < 1e-6, "{n}: FMPy {f} と exec {e}");
+    for v3 in [false, true] {
+        let Some(out) = fmpy("SampleCounter", &["x", "n", "xs"], "", v3) else {
+            return;
+        };
+        let exec = exec_last("SampleCounter", &["x", "n", "xs"]);
+        assert_eq!(value(&out, "n"), 10.0, "FMU の中の n");
+        assert_eq!(value(&out, "n"), exec[1], "n");
+        for (n, e) in ["x", "xs"].iter().zip([exec[0], exec[2]]) {
+            let f = value(&out, n);
+            assert!((f - e).abs() < 1e-6, "{n}: FMPy {f} と exec {e}");
+        }
     }
 }
 
@@ -334,13 +373,15 @@ fn fmpy_matches_exec_on_sample_counter() {
 #[test]
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 fn fmpy_matches_exec_on_algebraic_variables() {
-    let Some(out) = fmpy("NonlinearLoop", &["x", "y", "z"], "") else {
-        return;
-    };
-    let exec = exec_last("NonlinearLoop", &["x", "y", "z"]);
-    for (n, e) in ["x", "y", "z"].iter().zip(&exec) {
-        let f = value(&out, n);
-        assert!((f - e).abs() < 1e-4, "{n}: FMPy {f} と exec {e}");
+    for v3 in [false, true] {
+        let Some(out) = fmpy("NonlinearLoop", &["x", "y", "z"], "", v3) else {
+            return;
+        };
+        let exec = exec_last("NonlinearLoop", &["x", "y", "z"]);
+        for (n, e) in ["x", "y", "z"].iter().zip(&exec) {
+            let f = value(&out, n);
+            assert!((f - e).abs() < 1e-4, "{n}: FMPy {f} と exec {e}");
+        }
     }
 }
 
@@ -349,19 +390,22 @@ fn fmpy_matches_exec_on_algebraic_variables() {
 #[test]
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 fn fmpy_drives_input_step() {
-    let Some(out) = fmpy(
-        "InputDecay",
-        &["x", "y", "u"],
-        r#"{"u": [[0, 0], [0.5, 0], [0.5, 2], [1, 2]]}"#,
-    ) else {
-        return;
-    };
-    let h = (-0.5f64).exp();
-    let x = 2.0 + (h - 2.0) * h;
-    assert_eq!(value(&out, "u"), 2.0, "u(1)");
-    for (n, e) in [("x", x), ("y", 2.0 * x)] {
-        let f = value(&out, n);
-        eprintln!("{n}(1): FMPy {f}、解析解 {e}、差 {:.1e}", (f - e).abs());
-        assert!((f - e).abs() < 1e-5, "{n}: FMPy {f} と解析解 {e}");
+    for v3 in [false, true] {
+        let Some(out) = fmpy(
+            "InputDecay",
+            &["x", "y", "u"],
+            r#"{"u": [[0, 0], [0.5, 0], [0.5, 2], [1, 2]]}"#,
+            v3,
+        ) else {
+            return;
+        };
+        let h = (-0.5f64).exp();
+        let x = 2.0 + (h - 2.0) * h;
+        assert_eq!(value(&out, "u"), 2.0, "u(1)");
+        for (n, e) in [("x", x), ("y", 2.0 * x)] {
+            let f = value(&out, n);
+            eprintln!("{n}(1): FMPy {f}、解析解 {e}、差 {:.1e}", (f - e).abs());
+            assert!((f - e).abs() < 1e-5, "{n}: FMPy {f} と解析解 {e}");
+        }
     }
 }
