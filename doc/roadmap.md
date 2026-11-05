@@ -462,6 +462,12 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **結果と進捗を見える所へ、開く・モデル名の扱い**（S164 の穴 2 と穴 5。[解説書](sessions/S170-ui-result-visibility-open/解説書.md)）: 実行中の表示と失敗の理由をボタンの行の下へ移し、実行・検査が終わったとき 1 回だけ（失敗、無ければプロット、無ければ診断を）`scrollIntoView({ block: "nearest" })` で画面に入れる（即時。1280 x 800 でプロットの上端が 1019 px から画面の中へ、390 幅でも）。パラメータの一覧は閉じて始める。2 モデルのファイルは Rust の outline の候補（`Backend.models`、wasm `models`、LSP `globe/models`）を select に出して選び直せ、モデル名はタブごとに保存して再読み込みで戻す。未保存の編集があるタブと同じ名前の自分のファイルを開くときは、本文を差し替えずそのタブへ切り替えて理由を出す。ライブラリにあるモデル名を打ったときは食い違いの案内と「ライブラリのファイルを開く」。
 - 持ち越し: 未対応の例題と force、キーボード全般、`.txt` を黙って開く件、候補を打つたびに更新すること、ディスクの内容で読み直す操作。
 
+### S171（P4、2026-11-05）で済んだこと
+
+- **エディタの補完を Rust 側につないだ**（S164 の穴 9。[解説書](sessions/S171-ui-completion-backend/解説書.md)）: `Backend.completion(file, line, character)`（ブラウザは wasm の `completion`、Desktop は rpc の `globe/completion`。`textDocument/completion` と同じ計算で LSP の `CompletionItem` を返す）。CodeMirror は予約語と本文の単語を即時に出し、Rust の候補を非同期に足す（`validFor` と `aborted` で古い応答を捨てる）。Rust 側は `Resolver`（S132・S166）と `LibraryTree`（S167）で引き、`Modelica.Blocks.` のようにクラスが先なら直下の子（種類と説明つき）、`pin.` のように部品が先ならその型の部品名（継承した分も）、語の頭では予約語と文書の名前とライブラリの最上位。文字列・コメントの中は空、最大 200 件。打ちかけで文書が壊れていれば、カーソルの行を除いて読み直す（`Resolver` の `overlay`）。
+- 測定（MSL 4.1.0、wasm を Node で）: 木の子 1.5〜3.9 ms、最上位 1.2〜2.0 ms、継承した部品は初回 255〜340 ms（ライブラリのファイルの解析）、2 回目 1.1〜1.4 ms（wasm の `scratch` を持ち続けるようにして）。
+- 持ち越し: 初回の約 0.3 s の先読み、本文の単語と Rust の候補の重複、カーソルの行以外にも誤りがあるときの補完、引数・シグネチャ・スニペット・修飾子名・import の自動挿入。
+
 ### S166（P4、2026-11-05）で済んだこと
 
 - **クラス名の参照とリネーム**（[解説書](sessions/S166-references-classes/解説書.md)）: S161 の口（`globe/references`・`globe/rename`・`Backend.references`・`rename`）のまま、カーソルがクラス名の上なら、その文書で定義ジャンプと同じ解決（`Resolver::definition`）で同じクラスに行き着く識別子のトークンを一覧にし、リネームで置き換える（宣言の名前・`end 名前`・部品の型・`extends`・`import`・点つきの名前の途中）。別の入れ子の同名のクラスは混ざらない（S161 の持ち越し「同名の入れ子のクラスの区別」はクラス名について片付いた）。リネームはこの文書で定義したクラスだけで、別ファイル（ライブラリ）のクラスと import の別名は断る。`textDocument/prepareRename` を足し、UI の F2 は今の名前のまま `rename` を試して、断られたら入力欄を出さずに理由を出す。LSP の `textDocument/references` はほかの開いた文書の参照も返し、リネームはほかの文書に参照があれば断る。UI の Workspace は今の文書しか持たない（離れたタブは外す）ので、UI の一覧は今の文書だけ。
@@ -1010,8 +1016,23 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 ### S164（P4・P6、2026-11-05）の再点検と、次の候補
 
 - **アプリの使える流れの再点検**（文書だけ。[調査](research/app-flow-2026-11-05.md)、[解説書](sessions/S164-app-flow-audit-2/解説書.md)）: S140 の穴 1〜10 が埋まった後の main（`e4dd5d7`）を、ブラウザ版を Playwright で操作して通した（MSL の例題 7 本、待ちは検査 0.9〜3.4 s・実行 0.5〜3.8 s。CLI と Python も）。穴は機能より見つけやすさと見せ方に移った。
+- **信号の絞り込み・内部名・ファイル名**（S169、穴 7。[解説書](sessions/S169-plot-signal-filter/解説書.md)）: `Plot.svelte` の信号の一覧に絞り込み（部分一致・大文字小文字なし・空白で AND。先頭 200 本 + 「ほか n 件」。表示中をまとめて選ぶ・外す。選択は絞り込みで消えない）、`$` で始まる内部名を既定で隠す（判定は `plot/signals.ts` の `isInternal` 1 か所。Rust 側に判定は無く、MSL の例題で `$derivative`・`$formal_derivative`・`$state_coordinates` だけだった）、CSV・PNG のファイル名を `<モデル名の末尾>-<YYYYMMDD-HHMMSS>` に。DoublePendulum の 1,302 本で入力から更新まで 64〜132 ms。`App.svelte` は Plot の 1 引数のみ。持ち越し: x 軸の選択の絞り込み、「最後の時刻の値」の内部名。
 - **次の候補（順位）**: 1 木に入れ子のクラスと検索（例題の 22% が木から選べない）、2 結果と進捗を見える所へ、3 未対応の例題（検査が通らない 35%）の見せ方と force、4 README・CHANGELOG・版の同期、5 開く・モデル名の扱い、6 FMU の説明（ソースのみ）、7 信号の絞り込み、8 キーボードとアクセシビリティ、9 補完の LSP 接続、10 `release.yml` の dry-run の回し直し。WP の案とぶつからない組は調査の 7.2 章。
 - **ユーザーの判断**（WP にしない。調査の 7.3 章）: v0.1 に含める面と版、ブラウザ版の公開先、Desktop の更新の鍵、署名と公証、VS Code・PyPI の公開、Rumoca の rev、上流 issue の提出。
+
+### S172（運用、2026-11-05）で済んだこと
+
+- **版を 0.2.0 に揃えた**（[解説書](sessions/S172-version-0-2-0/解説書.md)）: Cargo（ルートと desktop・leptos・dioxus・web-*）、Tauri、`pyproject.toml`（と fastapi_fmt・streamlit）、Svelte・VS Code の拡張・Astro の `package.json`、Elixir・Gleam の各パッケージ。lock は自分の版の行だけが変わった。書いている場所の一覧は [architecture.md](architecture.md) の 2.4。
+- **Rumoca の rev は GlobeMode の版ごとに固定する**（[ADR-0002](adr/0002-rumoca-adapter.md) の付記）。0.2.0 は v0.10.2 のまま。上流の issue は提出せず貯める。
+- タグ・Release・公開はしていない。
+
+公開の前に残る、ユーザーの判断:
+
+| 判断 | 中身 |
+| --- | --- |
+| 公開の時期 | 0.2.0 のタグ、GitHub の Release、Pages、PyPI、Marketplace のどれをいつ出すか（crates.io は Rumoca の git 依存のため出せない） |
+| 署名と更新の鍵 | Desktop の updater の鍵、署名と公証。鍵はユーザーが作る |
+| `release.yml` の dry run | Desktop の bundle を含む現在の形では回していない（最後は 2026-11-02）。ユーザーの指示で回す |
 
 ## 運用上の決まり
 

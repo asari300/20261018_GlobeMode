@@ -25,6 +25,7 @@
 //! | `globe/solvers` | なし | ソルバの登録表（`[{name, status, description, instead?}]`。S142。wasm の `solvers` と同じ） |
 //! | `globe/exportFmu` | `{model, fmiVersion?, outDir}`（既定は FMI 2。`build` はしない） | `{path}`（S144。`outDir/<名前>.fmu` と展開した `outDir/<名前>/` を書く。DAE まで変換できなければ -32000） |
 //! | `globe/tunableParameters` | `{model}` | `ParametersResponse` の JSON（S150。上書きできるパラメータの一覧。wasm の `tunable_parameters` と同じ。DAE まで変換できなければ -32000） |
+//! | `globe/completion` | `{file, line, character}`（`globe/definition` と同じ） | LSP の `CompletionItem` の配列（S171。`textDocument/completion` と同じ計算。予約語、文書の名前、点つきの名前の途中はクラスの子か部品の型の部品名。最大 200 件。文字列・コメントの中は空。wasm の `completion` と同じ形） |
 //! | `globe/librarySearch` | `{query}`（名前の部分一致。大文字小文字を区別しない。`.` を含めると完全修飾名） | 同じ形の項目の配列（S167。最大 50 件、近い順。ファイルの中の入れ子のクラスも出る） |
 //! | `globe/librarySource` | `{path}`（完全修飾名） | `{file, text}`（S127。そのクラスを定義するライブラリのファイル。無ければ -32000） |
 //!
@@ -35,7 +36,7 @@
 //! params が読めなければ -32602、モデルが無いなど計算の失敗は -32000（`message` に理由）。
 //! facade（`globe-mode`）の `Workspace` だけを呼び、新しい計算は入れない。
 
-mod completion;
+pub mod completion;
 pub mod definition;
 
 use std::collections::HashMap;
@@ -121,6 +122,7 @@ impl Server {
             ws: &self.ws,
             tree,
             scratch: &mut self.scratch,
+            overlay: None,
             read: &|p| {
                 open.iter()
                     .find(|(u, _)| uri_path(u) == p)
@@ -275,15 +277,17 @@ impl Server {
                 });
                 reply(id, edit.unwrap_or(Value::Null))
             }
-            "textDocument/completion" => {
-                let pos = &params["position"];
-                let pos = Position::new(
-                    pos["line"].as_u64().unwrap_or(0) as u32,
-                    pos["character"].as_u64().unwrap_or(0) as u32,
-                );
-                let items = match self.texts.get(&uri) {
+            // S171: UI 向けの `globe/completion` は `file`・`line`・`character`（`globe/definition` と同じ）。計算は同じ
+            "textDocument/completion" | "globe/completion" => {
+                let (key, pos) = if msg["method"] == "globe/completion" {
+                    (params["file"].as_str().unwrap_or("").to_string(), lsp_position(params))
+                } else {
+                    (uri.clone(), lsp_position(&params["position"]))
+                };
+                let items = match self.texts.get(&key).cloned() {
                     Some(text) => {
-                        completion::complete(&self.ws, &uri_path(&uri), text, offset(text, pos))
+                        let (path, at) = (uri_path(&key), offset(&text, pos));
+                        self.with_resolver(|r| completion::complete(r, &path, &text, at))
                     }
                     None => vec![],
                 };
@@ -300,6 +304,7 @@ impl Server {
                     ws: &self.ws,
                     tree,
                     scratch: &mut self.scratch,
+                    overlay: None,
                     read: &|f| std::fs::read_to_string(f).ok(),
                 }
                 .definition(&uri_path(&uri), &text, at);
@@ -336,6 +341,7 @@ impl Server {
                         ws: &self.ws,
                         tree,
                         scratch: &mut self.scratch,
+                        overlay: None,
                         read: &|f| {
                             open.iter()
                                 .find(|(u, _)| uri_path(u) == f)
@@ -1560,6 +1566,33 @@ mod tests {
             .clone();
         assert!(r["contents"].as_str().unwrap().contains("Resistor"), "{r}");
         assert_eq!(r["range"]["start"]["line"], 2, "{r}");
+    }
+
+    #[test]
+    fn completion_lists_library_children_over_rpc() {
+        let lib =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../Modelica/GlobeModeValidation");
+        let mut s = Server::new(std::slice::from_ref(&lib)).unwrap();
+        let text = "model T\n  GlobeModeValidation.Components.\nend T;\n";
+        s.handle(
+            json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+            "uri": "T.mo", "languageId": "modelica", "version": 1, "text": text}}}),
+        );
+        let labels = |r: Value| -> Vec<String> {
+            r["result"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|i| i["label"].as_str().unwrap().to_string())
+                .collect()
+        };
+        let ui = s.handle(json!({"id": 1, "method": "globe/completion",
+            "params": {"file": "T.mo", "line": 1, "character": 33}}));
+        let ui = labels(ui[0].clone());
+        assert!(ui.contains(&"Resistor".to_string()), "{ui:?}");
+        let lsp = s.handle(json!({"id": 2, "method": "textDocument/completion",
+            "params": {"textDocument": {"uri": "T.mo"}, "position": {"line": 1, "character": 33}}}));
+        assert_eq!(labels(lsp[0].clone()), ui);
     }
 
     #[test]

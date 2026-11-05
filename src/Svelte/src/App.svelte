@@ -702,7 +702,7 @@
       {/each}
     </tbody>
   </table>
-  {#if columns}<Plot {columns} />{/if}
+  {#if columns}<Plot {columns} {model} />{/if}
   {#if graphModel}<Graph {backend} model={graphModel} onSelect={select} />{/if}
 </main>
 

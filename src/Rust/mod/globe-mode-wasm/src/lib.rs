@@ -64,6 +64,8 @@ pub struct Workspace {
     /// ライブラリの木と本文（S127。`library_tree`・`library_source`）。
     /// shortcut: 本文を分割読み込みの写しと別に持つ（MSL で約 15 MiB）。facade が本文を返せるようになったらそちらを引く
     tree: Option<(globe_mode_fmt::LibraryTree, BTreeMap<String, String>)>,
+    /// 定義・補完が読んだライブラリのファイルのアウトライン（S171。呼び出しをまたいで持つ。MSL の補完で毎回 260 ms かかっていた）
+    scratch: std::cell::RefCell<globe_mode::Workspace>,
 }
 
 impl Default for Workspace {
@@ -79,6 +81,7 @@ impl Workspace {
         Workspace {
             inner: globe_mode::Workspace::new(),
             tree: None,
+            scratch: Default::default(),
         }
     }
 
@@ -95,11 +98,12 @@ impl Workspace {
                 (&empty, None)
             }
         };
-        let mut scratch = globe_mode::Workspace::new();
+        let mut scratch = self.scratch.borrow_mut();
         f(&mut globe_mode_lsp::definition::Resolver {
             ws: &self.inner,
             tree,
             scratch: &mut scratch,
+            overlay: None,
             read: &|f| files?.get(f).cloned(),
         })
     }
@@ -147,7 +151,11 @@ impl Workspace {
         let t = now_ms();
         let mut inner = load()?;
         inner.set_library_load_ms(now_ms() - t);
-        Ok(Workspace { inner, tree: None })
+        Ok(Workspace {
+            inner,
+            tree: None,
+            scratch: Default::default(),
+        })
     }
 
     /// ライブラリの木を引けるようにする（S127。`files` は読み込みに渡したのと同じ組）。
@@ -339,6 +347,14 @@ impl Workspace {
             line,
             character,
         )
+    }
+
+    /// 文書 `file`（本文 `text`。先に `set_file` で足しておく）の行・列（UTF-16）の補完候補を LSP の `CompletionItem` の配列の JSON で返す（S171。LSP の `globe/completion` と同じ形）。
+    pub fn completion(&self, file: &str, text: &str, line: u32, character: u32) -> String {
+        self.with_resolver(|r| {
+            globe_mode_lsp::completion::complete_at(r, file, text, line, character)
+        })
+        .to_string()
     }
 
     /// 文書 `file`（先に `set_file` で足しておく）の行・列にある名前の参照を LSP の Range の配列の JSON で返す（S161。LSP の `globe/references` と同じ形）。

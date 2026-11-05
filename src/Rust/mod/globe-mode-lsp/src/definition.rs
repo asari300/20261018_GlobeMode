@@ -44,6 +44,26 @@ fn enclosing(classes: &[ClassOutline], at: u32) -> Vec<&ClassOutline> {
     out
 }
 
+/// 位置を含むクラスの列（外から内へ）、その完全修飾名、`within`（S171: 補完も使う）。
+pub(crate) fn scopes_at(o: &Outline, at: usize) -> (Vec<ClassOutline>, Vec<String>, String) {
+    let chain: Vec<ClassOutline> = enclosing(&o.classes, at as u32)
+        .into_iter()
+        .cloned()
+        .collect();
+    let within = o.within.clone().unwrap_or_default();
+    let mut scopes = Vec::new();
+    let mut q = within.clone();
+    for c in &chain {
+        q = if q.is_empty() {
+            c.name.clone()
+        } else {
+            format!("{q}.{}", c.name)
+        };
+        scopes.push(q.clone());
+    }
+    (chain, scopes, within)
+}
+
 /// `within` の下の `rest`（`A.B`）を、アウトラインの入れ子のクラスからたどる。
 fn walk<'o>(o: &'o Outline, qualified: &str) -> Option<&'o ClassOutline> {
     let rest = match o.within.as_deref().filter(|w| !w.is_empty()) {
@@ -76,11 +96,18 @@ pub struct Resolver<'a> {
     pub scratch: &'a mut Workspace,
     /// ライブラリのファイル名 → 本文（LSP はディスク、wasm は読み込んだ組。S138）
     pub read: &'a dyn Fn(&str) -> Option<String>,
+    /// 文書 `path` を `ws` の代わりにこのアウトラインで引く（S171。入力の途中で文書が壊れている間の補完が、同じファイルの型を引く）
+    pub overlay: Option<(&'a str, &'a Outline)>,
 }
 
 impl Resolver<'_> {
     /// 完全修飾名のクラスを探す（ファイルのパスと、クラスの写し）。
     fn locate(&mut self, qualified: &str) -> Option<(String, ClassOutline)> {
+        if let Some((p, o)) = self.overlay
+            && let Some(c) = walk(o, qualified)
+        {
+            return Some((p.to_string(), c.clone()));
+        }
         for f in self.ws.files() {
             if let Some(Ok(o)) = self.ws.outline(f)
                 && let Some(c) = walk(o, qualified)
@@ -107,7 +134,11 @@ impl Resolver<'_> {
     }
 
     /// `scope`（完全修飾名）の中から見た型名 `name` を完全修飾名にして探す。
-    fn resolve(&mut self, scope: &str, name: &str) -> Option<(String, String, ClassOutline)> {
+    pub(crate) fn resolve(
+        &mut self,
+        scope: &str,
+        name: &str,
+    ) -> Option<(String, String, ClassOutline)> {
         let first = name.split('.').next().unwrap_or(name);
         let rest = &name[first.len()..];
         let mut parts: Vec<&str> = scope.split('.').filter(|p| !p.is_empty()).collect();
@@ -148,7 +179,7 @@ impl Resolver<'_> {
 
     /// クラス `q`（ファイル `file`）の部品 `name`。無ければ extends の先を探す（深さ 8 まで）。
     /// 返すのは (部品を宣言したクラスの完全修飾名, ファイル, 部品)。
-    fn component(
+    pub(crate) fn component(
         &mut self,
         q: &str,
         file: &str,
@@ -178,22 +209,7 @@ impl Resolver<'_> {
         let Some(Ok(o)) = self.ws.outline(path) else {
             return None;
         };
-        let chain: Vec<ClassOutline> = enclosing(&o.classes, at as u32)
-            .into_iter()
-            .cloned()
-            .collect();
-        let within = o.within.clone().unwrap_or_default();
-        // 内側のクラスの完全修飾名（外から順に）
-        let mut scopes = Vec::new();
-        let mut q = within.clone();
-        for c in &chain {
-            q = if q.is_empty() {
-                c.name.clone()
-            } else {
-                format!("{q}.{}", c.name)
-            };
-            scopes.push(q.clone());
-        }
+        let (chain, scopes, within) = scopes_at(o, at);
         let mut segs = name.split('.');
         let head = segs.next()?;
         // 部品名（内側のクラスから外へ、extends の先も）
@@ -631,6 +647,7 @@ mod tests {
             ws: &ws,
             tree: &tree,
             scratch: &mut scratch,
+            overlay: None,
             read: &|_| None,
         };
         let h = hover_at(&mut r, "A.mo", text, 5, 12).unwrap(); // -x の x
@@ -652,6 +669,7 @@ mod tests {
             ws: &ws,
             tree: &tree,
             scratch: &mut scratch,
+            overlay: None,
             read: &|_| None,
         })
     }

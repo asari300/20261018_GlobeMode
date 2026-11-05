@@ -319,7 +319,7 @@ checksum = "e4eba85ea1d0a966a983acd07deee566e67395d2d96b6fb39e62b5a833f1eb0b"
 
 [[package]]
 name = "globe-mode-fmt"
-version = "0.0.1"
+version = "0.2.0"
 
 [[package]]
 name = "h2"
@@ -1326,7 +1326,7 @@ checksum = "ccf3ec651a847eb01de73ccad15eb7d99f80485de043efb2f370cd654f4ea44b"
 
 [[package]]
 name = "web-rocket"
-version = "0.0.1"
+version = "0.2.0"
 dependencies = [
  "globe-mode-fmt",
  "rocket",

@@ -7,7 +7,7 @@
 //   init {pkg, wasm?}  : `${pkg}/globe_mode_wasm.js`（wasm-bindgen --target web の糊）を読んで初期化。
 //                        wasm に ArrayBuffer を渡すと、それで初期化（Node は file: を fetch できないため）
 //   simulate_columns {request, progress?, cancel?}（{response, layout, columns: Float64Array[]}。buffer は転送。progress で進捗も送る。S133）、library {json, name}, set_file {name, text}, remove_file {name}, check {model}（CheckResponse の JSON）, graph {model, depth}（graphology の JSON）, simulate {request}（JSON 文字列）、
-//   library_tree {prefix}・library_search {query, limit}（S167。名前の部分一致。木と同じ形の JSON）・library_source {path}（S127。JSON。ライブラリが無ければ [] と例外）, definition {file, text, line, character}（S138。{file, text, range} の JSON か null）, hover {同じ}（S149。{contents, range} の JSON か null）, references {同じ}・rename {同じ, newName}（S161。[Range]・[{range, newText}] の JSON。rename は断れば例外）, tunable_parameters {model}（S150。ParametersResponse の JSON。変換できなければ例外）, export_fmu {model, fmiVersion}（S144。ソースの FMU の zip の Uint8Array。失敗は例外）,
+//   library_tree {prefix}・library_search {query, limit}（S167。名前の部分一致。木と同じ形の JSON）・library_source {path}（S127。JSON。ライブラリが無ければ [] と例外）, definition {file, text, line, character}（S138。{file, text, range} の JSON か null）, hover {同じ}（S149。{contents, range} の JSON か null）, completion {同じ}（S171。LSP の CompletionItem の配列の JSON）, references {同じ}・rename {同じ, newName}（S161。[Range]・[{range, newText}] の JSON。rename は断れば例外）, tunable_parameters {model}（S150。ParametersResponse の JSON。変換できなければ例外）, export_fmu {model, fmiVersion}（S144。ソースの FMU の zip の Uint8Array。失敗は例外）,
 //   format {text, indent, insertOrigin}（整形後の本文）, lint {text}（JSON の配列）（S053）,
 //   version, solvers, memory, panic_for_test {message}
 // 失敗は `{id, ok:false, error, panic, poisoned}`。wasm32 は panic=abort なので、WebAssembly.RuntimeError のあとの
@@ -55,6 +55,9 @@ const ops = {
   },
   definition({ file, text, line, character }) {
     return (ws ??= new gm.Workspace()).definition(file, text, line, character); // S138。{file, text, range} の JSON か "null"
+  },
+  completion({ file, text, line, character }) {
+    return (ws ??= new gm.Workspace()).completion(file, text, line, character); // S171。CompletionItem の配列の JSON
   },
   hover({ file, text, line, character }) {
     return (ws ??= new gm.Workspace()).hover(file, text, line, character); // S149。{contents, range} の JSON か "null"
