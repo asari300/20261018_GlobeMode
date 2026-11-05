@@ -411,7 +411,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 ### S176（P7、2026-11-05）で済んだこと
 
 - **`release.yml` に macOS（arm64）を足した**（[ADR-0023](adr/0023-desktop-and-web-process-layout.md) の付記。[解説書](sessions/S176-release-macos/解説書.md)）: ジョブ `build` の matrix に `aarch64-apple-darwin`（`macos-latest`）を 1 行足し、`globe` の tar.gz（THIRD-PARTY.md 入り）と wheel（`macosx_*_arm64`）を作って wheel を入れた pytest を回す。ジョブ `desktop` の matrix にも macOS を足し、`--bundles app,dmg` で署名なしの .dmg を作る。鍵（`TAURI_SIGNING_PRIVATE_KEY`）があるときだけ updater 用の `GlobeMode_<版>_aarch64.app.tar.gz` と `.sig` も付け、`latest.json` に `darwin-aarch64` を足す。鍵が無い今は署名なしの bundle だけ。`about.toml` の targets に `aarch64-apple-darwin` を足した（macOS にだけ入る crate の表示のため）。タグの push の wheel の版の置換は BSD sed で動かないので perl にした。
-- dry run の結果は [解説書](sessions/S176-release-macos/解説書.md) の 4。タグは打たず、Release も作っていない。
+- dry run（`gh workflow run release.yml --ref feature/s176-release-macos`、run 42048206686）は全 10 ジョブ success。macOS の成果物は `globe` の tar.gz 18.2 MB、wheel `macosx_11_0_arm64` 17.6 MB、.dmg 21.9 MB。試走で、upload の path に別のディレクトリを足すと artifact に階層が付き SHA256SUMS から漏れることを見つけて直した（[解説書](sessions/S176-release-macos/解説書.md) の 4）。タグは打たず、Release も作っていない。
 - 署名・公証はしていない。Gatekeeper の案内は [features.md](features.md) の Desktop の行。
 - 持ち越し: x86_64 の macOS（ランナーと費用）、署名・公証の鍵（ユーザーの判断）、鍵を登録したあとの `latest.json` の `darwin-aarch64` と実機での更新の確認【未確認】、macOS の wheel を PyPI に出すこと（PyPI は非公開のまま）。
 
