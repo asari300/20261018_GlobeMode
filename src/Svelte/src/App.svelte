@@ -54,23 +54,77 @@
 
   // S141: 自分のファイルを開く・保存する。本文とファイル名は localStorage に自動保存して起動時に戻す（使えなくても動く。S102）。モデル名は戻さず本文から入れ直す（smoke が書き換えたモデル名を次の起動で拾わないため）
   // own はエディタの文書が自分のファイルか（ライブラリのファイルを開いている間は保存も上書きもしない）
-  const STORE = "globe-mode.doc";
+  const STORE = "globe-mode.doc"; // S141 の 1 文書（S151 からは TABS。読むだけ）
+  const TABS = "globe-mode.tabs", RECENT = "globe-mode.recent", CAP = 2 * 2 ** 20; // 本文の合計の上限（字数。UTF-16 の長さで数える近似）
   const LONG = "model Long\n  Real x(start = 0, fixed = true);\nequation\n  der(x) = sin(100 * time);\n  annotation(experiment(StopTime = 1e6));\nend Long;\n"; // S147: smoke の「止める」用。止めるまで終わらない長さ
   const DECAY = "model Decay\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -x;\nend Decay;\n";
   let own = true;
   let saved = $state(""); // 保存した先（Desktop はパス、ブラウザは名前）
+  const store = (key: string, v: unknown) => {
+    try { localStorage.setItem(key, JSON.stringify(v)); } catch { /* 保存できなくても使える */ }
+  };
+  // 合計が CAP を超えたら、keep 以外を古い（先頭）ものから落とす
+  function cap<T extends { text?: string }>(xs: T[], keep: T): T[] {
+    const out = [...xs];
+    let n = out.reduce((a, x) => a + (x.text?.length ?? 0), 0);
+    for (let i = 0; n > CAP && i < out.length; ) {
+      if (out[i] === keep) i++;
+      else n -= out.splice(i, 1)[0].text?.length ?? 0;
+    }
+    return out;
+  }
+
+  // S151: タブ。いまの文書の file / model / own / diagnostics / saved はこれまでどおり大域の変数で、離れるときに tab へ写す（state は EditorState。元に戻す履歴も文書ごと）
+  type Tab = { file: string; model: string; own: boolean; state: EditorState; diagnostics: Diagnostic[]; saved: string; clean: string }; // clean: 開いた・保存した本文（閉じるとき、違えば確かめる。ライブラリは見ない）
+  let tabs = $state.raw<Tab[]>([]);
+  let cur = $state(0);
+  // 最近使ったファイル（古い順。上限 10）。Desktop は path だけ、ブラウザは名前と本文
+  type Recent = { path: string; text?: string };
+  let recent = $state.raw<Recent[]>([]);
+  const baseName = (p: string) => p.split(/[\\/]/).pop() ?? p;
+  const remember = (path: string, text: string) => {
+    const r = { path, text: desktop ? undefined : text };
+    recent = cap([...recent.filter((x) => x.path !== path), r].slice(-10), r);
+    store(RECENT, recent);
+  };
+  // 自分のファイルのタブだけを本文ごと保存する（localStorage が使えなくても動く。S102）
   const persist = () => {
-    if (!own) return;
-    try { localStorage.setItem(STORE, JSON.stringify({ name: file, text: view.state.doc.toString() })); } catch { /* 保存できなくても使える */ }
+    const docs = tabs
+      .map((t, i) => (i === cur ? { file, own, text: view.state.doc.toString(), a: true } : { file: t.file, own: t.own, text: t.state.doc.toString(), a: false }))
+      .filter((t) => t.own);
+    const kept = cap(docs, docs.find((t) => t.a) ?? docs[0]);
+    store(TABS, { active: Math.max(0, kept.findIndex((t) => t.a)), tabs: kept.map(({ file, text }) => ({ file, text })) });
   };
   const guessModel = (t: string) => /^\s*(?:(?:partial|encapsulated)\s+)*(?:model|block|class|package)\s+(\w+)/m.exec(t)?.[1];
 
+  const mkState = (doc: string) =>
+    EditorState.create({
+      doc,
+      extensions: [
+        lineNumbers(), history(), drawSelection(), highlightActiveLine(), bracketMatching(), keymap.of([...defaultKeymap, ...historyKeymap]),
+        modelicaCompletion(), modelicaLinter(backend, file), // S053
+        modelicaDefinition(definition, goBack, { backend, file: () => file }), // S138（S149: ホバー）
+        EditorView.updateListener.of((u) => { if (u.docChanged) persist(); }),
+      ],
+    });
+
   onMount(() => {
-    let text = DECAY;
+    let docs: { file: string; text: string }[] = [];
+    let active = 0;
     try {
-      const d = JSON.parse(localStorage.getItem(STORE) ?? "null");
-      if (typeof d?.text === "string" && typeof d.name === "string") { text = d.text; file = d.name; model = guessModel(text) ?? model; }
+      const d = JSON.parse(localStorage.getItem(TABS) ?? "null");
+      const old = JSON.parse(localStorage.getItem(STORE) ?? "null"); // S141 の保存
+      docs = d?.tabs ?? (old ? [{ file: old.name, text: old.text }] : []);
+      docs = docs.filter((t) => typeof t?.text === "string" && typeof t.file === "string");
+      active = Number(d?.active) || 0;
+      const r = JSON.parse(localStorage.getItem(RECENT) ?? "[]");
+      if (Array.isArray(r)) recent = r.filter((x) => typeof x?.path === "string");
     } catch { /* 無ければ Decay から */ }
+    if (!docs.length) docs = [{ file, text: DECAY }];
+    tabs = docs.map((t) => ({ file: t.file, model: guessModel(t.text) ?? model, own: true, state: mkState(t.text), diagnostics: [], saved: "", clean: t.text })); // 戻した本文は保存済みとみなす（shortcut: 再読み込みをまたぐ未保存は数えない）
+    cur = Math.min(Math.max(0, active), tabs.length - 1);
+    file = tabs[cur].file;
+    model = tabs[cur].model;
     // S069: 取得済みの MSL を sidecar が読んでいれば、最初から「読んだ」状態にする
     void tauri?.hasLibrary().then((has) => {
       if (has && msl === "none") { msl = "loaded"; mslNote = "MSL を読んだ（取得済み）"; }
@@ -80,18 +134,7 @@
       const mib = (n: number) => (n / 2 ** 20).toFixed(1);
       mslProgress = total ? `${mib(received)} / ${mib(total)} MiB（${Math.floor((100 * received) / total)}%）` : `${mib(received)} MiB`;
     });
-    view = new EditorView({
-      parent: host,
-      state: EditorState.create({
-        doc: text,
-        extensions: [
-          lineNumbers(), history(), drawSelection(), highlightActiveLine(), bracketMatching(), keymap.of([...defaultKeymap, ...historyKeymap]),
-          modelicaCompletion(), modelicaLinter(backend, file), // S053
-          modelicaDefinition(definition, goBack, { backend, file: () => file }), // S138（S149: ホバー）
-          EditorView.updateListener.of((u) => { if (u.docChanged) persist(); }),
-        ],
-      }),
-    });
+    view = new EditorView({ parent: host, state: tabs[cur].state });
     // S100: Android のエミュレータの smoke（android.yml が logcat で GM-SMOKE の行を待つ）。クエリを渡せない Tauri の Android はビルド時の VITE_GM_SMOKE=1
     if (import.meta.env.VITE_GM_SMOKE === "1" || new URLSearchParams(location.search).has("smoke")) void smoke();
     else void tauri?.bench().then((on) => { if (on) void smoke(); }); // S125: Desktop の測定（GLOBE_DESKTOP_BENCH）
@@ -140,7 +183,7 @@
       while (!f() && performance.now() - t0 < limit) await new Promise((r) => setTimeout(r, 50));
       return !!f();
     };
-    const restore = (text = DECAY) => { own = true; file = file0; model = "Decay"; back.length = 0; replaceDoc(text); diagnostics = []; columns = null; graphModel = null; };
+    const restore = (text = DECAY) => { const i = tabs.findIndex((t, j) => j !== cur && t.file === file0); if (file !== file0 && i >= 0) activate(i); own = true; file = file0; model = "Decay"; back.length = 0; replaceDoc(text); diagnostics = []; columns = null; graphModel = null; };
     const setField = async (label: string, v: string) => {
       const el = document.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)!;
       el.value = v;
@@ -320,20 +363,14 @@
       else if (!r.ok && !r.diagnostics.length) failure = "実行に失敗した（診断なし）";
     });
 
-  // ライブラリの木で選んだクラスのファイルをエディタに開き、モデル名をそのクラスにする（S127）
+  // ライブラリの木で選んだクラスのファイルをタブに開き、モデル名をそのクラスにする（S127）
   const openLibrary = (e: TreeEntry) => run(async () => {
     const src = await backend.librarySource(e.path);
-    own = false;
-    file = src.file;
-    model = e.path;
-    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: src.text } });
-    diagnostics = [];
-    columns = null;
-    graphModel = null;
+    openDoc(src.file, src.text, e.path, false);
   });
 
   // S138: 定義ジャンプ。別のファイル（ライブラリ）なら openLibrary と同じく同じ名前の文書として開く。入る前の文書と位置は back に積む（Alt+←）
-  const back: { file: string; text: string; anchor: number; own: boolean }[] = [];
+  const back: string[] = []; // 入る前のタブの file（S151 からは文書そのものはタブが持つ）
   // 範囲を選び、カーソル（head）は宣言の頭に置く（クラスは長いので、末尾だと宣言が画面の外に出る）
   const moveTo = (from: number, to: number) => {
     view.dispatch({ selection: { anchor: to, head: from }, scrollIntoView: true });
@@ -347,13 +384,8 @@
       const d = await backend.definition(file, line, character);
       if (!d) return;
       if (d.file !== file) {
-        back.push({ file, text: view.state.doc.toString(), anchor: view.state.selection.main.head, own });
-        own = false;
-        file = d.file;
-        replaceDoc(d.text);
-        diagnostics = [];
-        columns = null;
-        graphModel = null;
+        back.push(file);
+        openDoc(d.file, d.text, undefined, false);
       }
       const at = ({ line, character }: { line: number; character: number }) => view.state.doc.line(line + 1).from + character;
       moveTo(at(d.range.start), at(d.range.end));
@@ -362,28 +394,68 @@
     }
   }
   function goBack() {
-    const b = back.pop();
-    if (!b) return;
-    file = b.file;
-    own = b.own;
-    replaceDoc(b.text);
-    moveTo(b.anchor, b.anchor);
+    let i = -1;
+    while (i < 0 && back.length) { const f = back.pop(); i = tabs.findIndex((t, j) => j !== cur && t.file === f); } // 閉じたタブは飛ばす
+    if (i < 0) return;
+    activate(i);
+    view.focus();
   }
 
-  // S141: 開く。いまの自分のファイルと名前が違えば、バックエンドの Workspace に残らないよう空にする（同じクラスの二重定義を避ける）
+  // S151: タブの切り替え。離れる文書を tab に写し、次の tab を読む。Workspace へは送らない（検査・実行・定義ジャンプが、開いている文書を setFile する）
+  function activate(i: number) {
+    if (i === cur || !tabs[i]) return;
+    const prev = tabs[cur];
+    Object.assign(prev, { file, model, own, state: view.state, diagnostics, saved });
+    const t = tabs[i];
+    if (prev.own && prev.file !== t.file) void backend.setFile(prev.file, "").catch(() => {}); // 離れた自分のファイルは Workspace から外す（同じクラスの二重定義を避ける。S141）
+    cur = i;
+    ({ file, model, own, diagnostics, saved } = t);
+    columns = null;
+    graphModel = null;
+    tabs = [...tabs];
+    view.setState(t.state);
+    persist();
+  }
+  // 文書 f を開く。いまの文書なら本文を差し替え、同じ名前のタブがあればそこへ、無ければ新しいタブにする。自分のファイル（isOwn）は渡された本文が正、ライブラリのファイルは開いているタブのまま
+  function openDoc(f: string, text: string, m: string | undefined, isOwn: boolean) {
+    if (f === file) {
+      if (isOwn) { own = true; replaceDoc(text); diagnostics = []; columns = null; graphModel = null; saved = ""; tabs[cur].clean = text; }
+      if (m) model = m;
+      return;
+    }
+    let i = tabs.findIndex((t, j) => j !== cur && t.file === f);
+    if (i < 0) {
+      tabs = [...tabs, { file: f, model: m ?? model, own: isOwn, state: mkState(text), diagnostics: [], saved: "", clean: text }];
+      i = tabs.length - 1;
+    } else {
+      if (isOwn) Object.assign(tabs[i], { own: true, state: mkState(text), diagnostics: [], saved: "", clean: text });
+      if (m) tabs[i].model = m;
+    }
+    activate(i);
+  }
+  function closeTab(i: number) {
+    if (tabs.length < 2) return;
+    const t = tabs[i], text = i === cur ? view.state.doc.toString() : t.state.doc.toString();
+    if ((i === cur ? own : t.own) && text !== t.clean && !confirm(`${baseName(i === cur ? file : t.file)} は保存していない。閉じる？`)) return;
+    if (i === cur) activate(i ? i - 1 : 1);
+    const here = tabs[cur];
+    tabs = tabs.filter((_, j) => j !== i);
+    cur = tabs.indexOf(here);
+    persist();
+  }
+
+  // S141: 開く。S151 から新しいタブに開く（同じ名前のタブがあればその本文を差し替える）。Workspace の二重定義は activate が避ける
+  const openOwn = (name: string, text: string) => openDoc(name, text, guessModel(text), true);
   const openFromDisk = () => run(async () => {
     const f = await backend.openFile();
     if (!f) return;
-    if (own && f.name !== file) await backend.setFile(file, "");
-    own = true;
-    file = f.name;
-    model = guessModel(f.text) ?? model;
-    back.length = 0;
-    replaceDoc(f.text);
-    diagnostics = [];
-    columns = null;
-    graphModel = null;
-    saved = "";
+    openOwn(f.name, f.text);
+    remember(f.path ?? f.name, f.text);
+  });
+  const openRecent = (path: string) => run(async () => {
+    const r = recent.find((x) => x.path === path);
+    const f = r?.text !== undefined ? { name: path, text: r.text } : await backend.openPath?.(path);
+    if (f) openOwn(f.name, f.text);
   });
   // S144: ソースの FMU（FMI 2.0）。ブラウザはダウンロード、Desktop は保存先のフォルダへ sidecar が書く
   const exportFmu = () => run(async () => {
@@ -394,7 +466,10 @@
     failure = "";
     try {
       const to = await backend.saveFile(file.split("/").pop()!, view.state.doc.toString(), saveAs);
-      if (to) saved = `保存した: ${to}`;
+      if (to) {
+        saved = `保存した: ${to}`;
+        if (own) { remember(to, view.state.doc.toString()); tabs[cur].clean = view.state.doc.toString(); }
+      }
     } catch (e) {
       failure = String((e as Error).message ?? e);
     }
@@ -427,6 +502,12 @@
 <main>
   <div class="bar">
     <button onclick={openFromDisk} disabled={busy}>開く</button>
+    {#if recent.length}
+      <select aria-label="最近使ったファイル" disabled={busy} onchange={(e) => { const p = e.currentTarget.value; e.currentTarget.value = ""; if (p) void openRecent(p); }}>
+        <option value="">最近使ったファイル</option>
+        {#each [...recent].reverse() as r}<option value={r.path} title={r.path}>{baseName(r.path)}</option>{/each}
+      </select>
+    {/if}
     <button onclick={() => save()}>保存</button>
     {#if desktop}<button onclick={() => save(true)}>名前を付けて保存</button>{/if}
     <button onclick={exportFmu} disabled={busy}>FMU を書き出す</button>
@@ -456,6 +537,15 @@
     {:else if msl === "loading"}{desktop ? `MSL ${mslVersion} を取得して展開している（${mslProgress || "回線しだい"}）。もう一度押すと取り消す。` : "MSL.json を取得して読み込んでいる（十数秒）。"}
     {:else}MSL は未読み込み。{/if}
   </p>
+  <div class="tabs" role="tablist">
+    {#each tabs as t, i}
+      {@const f = i === cur ? file : t.file}
+      <span class="tab" class:active={i === cur}>
+        <button role="tab" aria-selected={i === cur} title={f} disabled={busy} onclick={() => activate(i)}>{baseName(f)}</button>
+        {#if tabs.length > 1}<button aria-label="{baseName(f)} を閉じる" disabled={busy} onclick={() => closeTab(i)}>×</button>{/if}
+      </span>
+    {/each}
+  </div>
   <div class="work">
     {#if msl === "loaded"}<aside class="library"><LibraryTree {backend} onOpen={openLibrary} /></aside>{/if}
     <div class="editor" bind:this={host}></div>
@@ -481,6 +571,8 @@
   main { font: 14px/1.4 system-ui, sans-serif; max-width: 60rem; margin: 0 auto; padding: 1rem; }
   .bar { display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: .5rem; }
   .note, .run, .final { color: #555; margin: .25rem 0; }
+  .tabs { display: flex; flex-wrap: wrap; gap: .25rem; margin-bottom: .25rem; }
+  .tab.active button[role=tab] { font-weight: bold; }
   .work { display: flex; gap: .5rem; }
   .library { flex: 0 0 16rem; height: 16rem; overflow: auto; border: 1px solid #888; font-size: .9em; }
   .editor { flex: 1; min-width: 0; border: 1px solid #888; }

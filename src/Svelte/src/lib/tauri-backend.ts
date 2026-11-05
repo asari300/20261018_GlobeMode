@@ -137,13 +137,16 @@ export class TauriBackend implements Backend {
 
   // S141: 開く・保存は dialog / fs プラグイン（window.__TAURI__.dialog・fs。権限は capabilities/desktop.json）。dialog で選んだパスは fs の許可に自動で入る
   #paths = new Map<string, string>(); // UI の文書の名前 → 開いた・保存したパス（「保存」は同じパスに上書きする）
-  async openFile(): Promise<{ name: string; text: string } | null> {
-    const t = tauriGlobal();
-    const path = await t.dialog.open({ multiple: false, filters: MO });
-    if (!path) return null;
+  async openFile(): Promise<{ name: string; text: string; path: string } | null> {
+    const path = await tauriGlobal().dialog.open({ multiple: false, filters: MO });
+    return path ? { ...(await this.openPath(path)), path } : null;
+  }
+  /** S151: 最近使ったファイルを path から開く。dialog を通していない path は fs の許可が無く、失敗しうる（capabilities の scope が要る。持ち越し）。 */
+  async openPath(path: string): Promise<{ name: string; text: string }> {
     const name = baseName(path);
+    const text = await tauriGlobal().fs.readTextFile(path);
     this.#paths.set(name, path);
-    return { name, text: await t.fs.readTextFile(path) };
+    return { name, text };
   }
   async saveFile(name: string, text: string, saveAs = false): Promise<string | null> {
     const t = tauriGlobal();
