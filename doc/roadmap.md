@@ -493,6 +493,11 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **CLI のモデル名と `-L` の案内**（S178 の監査の穴 1・2、WP の A1。[解説書](sessions/S180-cli-model-name-library-hints/解説書.md)）: ライブラリを使うとき、`-m PID_Controller` や `…PID_Contoller` は Rumoca の英語の原文だけが返っていた。Rust の `check_synced_inner`（CLI・Python・LSP・wasm・UI の検査の入口 1 か所）で、Rumoca が要求したモデルの結果も失敗の記録も持たず、字句の索引（`LibraryTree`）と Session のどのクラスにも無いときだけ `GM-E1002` と候補（完全修飾名の末尾が一致、末尾の名前が同じ、綴りが近い。上位 5 件）を出す。名前が正しい失敗は今のまま。`-L` が `package.mo` のあるフォルダで同じ親に `ModelicaServices` か `Complex` が並ぶときは、失敗の診断（`GM-E1001`）に「親のフォルダを `-L` に渡す」の補足（自動では足さない）。CLI は `-L` も FILES も無いときに `-L <根> -m <完全修飾名>` の例を足す。Python の `Workspace("data/msl")` は S181。
 - 持ち越し: 短い名前を完全修飾名に補う提案、パッケージ名を渡したときの案内（今は Rumoca の原文のまま）、終了コードの体系・`-o` なしの simulate・負の時刻（S182 以降）。
 
+### S183（P7、2026-11-06）で済んだこと
+
+- **Python の読み取りの口と他言語の README**（S178 の監査の穴 10 の残り、WP の C2・D。[解説書](sessions/S183-python-outline-lang-readme/解説書.md)）: Python に `Workspace.outline`（ファイルのクラスの一覧）・`deps`（`check` が読むファイル）・`flat`（変数と方程式の数）を足した（CLI の `globe outline` / `deps` / `flat --json` と同じ。facade の既存の口を `globe-mode-py` から呼ぶだけで、計算は Python に書かない）。S180 のモデル名の候補（`GM-E1002`）が Python の `check` にも出ることを試験で確かめた。C・Zig・Julia・Elixir・Gleam の README に、書いてあるとおりに動く最初の例を置き（5 本とも実際に動かした）、Julia の README を実物（`load_dir`・`simulate_columns`・`simulate_observed`・`export_fmu`・`graph`・`format`・`lint`）に合わせた。marimo の `sim_app.py` にライブラリとモデルの入力欄、`__marimo__/` を `.gitignore` へ。
+- 持ち越し: C ABI・NIF・wasm に `outline`・`deps`・`flat` を広げる、`check` の人が読む 1 行の要約（CLI の最後の行は CLI の中だけにあり、facade・protocol に無いので足していない）、結果の dict の TypedDict 化、例外の階層。
+
 ### S179（P4、2026-11-05）で済んだこと
 
 - **最初の 1 分: 起動直後の案内・スキップリンク・タブの矢印キー・未保存の印**（S164 の穴の残り。[解説書](sessions/S179-ui-first-run/解説書.md)）: Svelte の UI だけで、Rust は触っていない。案内は保存したタブが無い初回だけ「はじめに」の 3 手順（モデルを書く・開く、検査、実行。ショートカットは S175 と同じキー。MSL が未読み込みなら「MSL を読む」を促す 1 行）を出し、閉じると localStorage（`globe-mode.welcome`）に残す。smoke では出さない。スキップリンクは Tab 1 回で「エディタへ」、2 回で「結果へ」（Tab は十数回から 1〜2 回）。タブは `role="tablist"` の作法で左右の矢印・Home・End、roving tabindex、選ぶと開く。未保存の印は ● と `aria-label` の「未保存」。保存済みの本文は、編集中のタブだけ localStorage に持ち、再読み込みをまたいでも印が正しい（S151 までの保存は戻した本文を保存済みとみなす）。未保存があるときだけ `beforeunload`（ブラウザのみ。Tauri は付けない）。`ready_ms` は 3 回の中央値で 382 から 339 ms（差は雑音の範囲）。

@@ -174,6 +174,31 @@ impl Workspace {
         graph_json(&mut self.0, model, depth).map_err(PyValueError::new_err)
     }
 
+    /// ファイル（`set_file` に渡したパス）のアウトライン（`globe outline --json` と同じ `Outline` の JSON）。
+    /// ファイルが無いか、構文の誤りがあれば `ValueError`（誤りは最初の診断の `コード: 文`）。
+    fn outline(&self, path: &str) -> PyResult<String> {
+        match self.0.outline(path) {
+            None => Err(PyValueError::new_err(format!(
+                "ファイル {path} がワークスペースに無い"
+            ))),
+            Some(Ok(o)) => json(o).map_err(PyRuntimeError::new_err),
+            Some(Err(ds)) => Err(PyValueError::new_err(
+                ds.first()
+                    .map_or_else(String::new, |d| format!("{}: {}", d.code, d.message)),
+            )),
+        }
+    }
+
+    /// `check` に渡すファイル（モデルが使うものの閉包。パスの昇順）の JSON の配列。モデルが無ければ `[]`。
+    fn deps(&mut self, model: &str) -> PyResult<String> {
+        json(&self.0.deps(model)).map_err(PyRuntimeError::new_err)
+    }
+
+    /// flat モデルの要約（`FlatSummary` の JSON）。flatten まで通らなければ `null`。
+    fn flat(&mut self, model: &str) -> PyResult<String> {
+        json(&self.0.flat(model)).map_err(PyRuntimeError::new_err)
+    }
+
     /// 検査 → コンパイル → 実行（`SimulateResponse` の JSON）。モデルの誤りは例外にせず `ok` と `diagnostics` で返す。
     /// `on_progress` を渡すと GIL を離して回し、進捗を dict で知らせる。`True` を返すか Ctrl-C で止まる（S129）。
     #[pyo3(signature = (model, settings = None, on_progress = None))]
@@ -236,6 +261,23 @@ impl Workspace {
     }
 }
 
+/// 設定のキーと値の型の見本（`SimSettings` を全部埋めた JSON）。Python が未知のキーと型の誤りを弾く元で、
+/// `SimSettings` に項目を足すとここがコンパイルできなくなる（Python 側の一覧と食い違わない）。
+#[pyfunction]
+fn settings_sample() -> String {
+    json(&globe_mode::SimSettings {
+        start_time: Some(0.0),
+        stop_time: Some(0.0),
+        tolerance: Some(0.0),
+        interval: Some(0.0),
+        solver: Some(String::new()),
+        max_wall_seconds: Some(0.0),
+        step: Some(0.0),
+        parameters: [(String::new(), 0.0)].into(),
+    })
+    .unwrap_or_default()
+}
+
 /// ソルバの登録表（JSON の配列）。
 #[pyfunction]
 fn solvers() -> PyResult<String> {
@@ -259,6 +301,7 @@ fn lint(text: &str) -> String {
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Workspace>()?;
     m.add_function(wrap_pyfunction!(solvers, m)?)?;
+    m.add_function(wrap_pyfunction!(settings_sample, m)?)?;
     m.add_function(wrap_pyfunction!(format, m)?)?;
     m.add_function(wrap_pyfunction!(lint, m)?)
 }
