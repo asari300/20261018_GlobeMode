@@ -437,11 +437,16 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - 試験: `test_ui.py` に明と暗（予約語・型・数値・文字列・コメントに別々の色、地に対して 4.5 以上、予約語の色は KEYWORDS の語だけ）と KEYWORDS の一致。S149 のホバーの補助が行の最初のテキストノードだけを見ていたので、色付けで行が分かれても動くようにした。`node --test`（拡張）に文法の 4 本。
 - 持ち越し: semantic tokens、折りたたみ、インデントの規則、Marketplace、`@vscode/test-electron`。
 
+### S166（P4、2026-11-05）で済んだこと
+
+- **クラス名の参照とリネーム**（[解説書](sessions/S166-references-classes/解説書.md)）: S161 の口（`globe/references`・`globe/rename`・`Backend.references`・`rename`）のまま、カーソルがクラス名の上なら、その文書で定義ジャンプと同じ解決（`Resolver::definition`）で同じクラスに行き着く識別子のトークンを一覧にし、リネームで置き換える（宣言の名前・`end 名前`・部品の型・`extends`・`import`・点つきの名前の途中）。別の入れ子の同名のクラスは混ざらない（S161 の持ち越し「同名の入れ子のクラスの区別」はクラス名について片付いた）。リネームはこの文書で定義したクラスだけで、別ファイル（ライブラリ）のクラスと import の別名は断る。`textDocument/prepareRename` を足し、UI の F2 は今の名前のまま `rename` を試して、断られたら入力欄を出さずに理由を出す。LSP の `textDocument/references` はほかの開いた文書の参照も返し、リネームはほかの文書に参照があれば断る。UI の Workspace は今の文書しか持たない（離れたタブは外す）ので、UI の一覧は今の文書だけ。
+- 持ち越し: ライブラリ全体・未開封のファイルの参照、継承した部品のリネーム、複数ファイルの一括リネーム、import の別名の参照、UI の一覧にほかのタブを含めること。
+
 ### S161（P4、2026-11-05）で済んだこと
 
 - **エディタで参照の一覧（Shift+F12）とリネーム（F2）が使える**（[解説書](sessions/S161-editor-references-rename/解説書.md)）: `globe-mode-lsp` の `definition::references_at`・`rename_at` が範囲と編集（LSP の Range と TextEdit）を計算し、wasm の `Workspace.references`・`rename`、sidecar の `globe/references`・`globe/rename`、VS Code 向けの `textDocument/rename`（capability `renameProvider`）が同じ計算を呼ぶ。範囲は開いている文書の、いちばん内側のクラスの中だけ（一致は字句解析の識別子のトークンだけ。コメント・文字列の中は対象外）。リネームはそのクラスで宣言した部品に限り、部品でない名前・識別子でない名前・予約語・同じクラスに既にある名前は理由つきで断る。UI は参照を診断の表と同じ作りの一覧にし、F2 は入力欄を出して 1 回の `dispatch` で入れる（Ctrl+Z 1 回で戻る）。新しい依存は無し。
 - 試験: `globe-mode-lsp` 2 本（rename の編集と断る場合、RPC）、wasm の decay 1 本、`test_ui.py`（Shift+F12 で 3 行・押して飛ぶ、F2 で pos に変えて検査が通る、予約語は断られる、undo 1 回で戻る）。
-- 持ち越し: 別ファイル・ライブラリ全体の参照、継承した部品・型・クラスのリネーム、`prepareRename`。
+- 持ち越し: 別ファイル・ライブラリ全体の参照、継承した部品・型・クラスのリネーム、`prepareRename`（クラス名と `prepareRename` は S166 で済）。
 
 ### S159（P4/P7、2026-11-05）で済んだこと
 
