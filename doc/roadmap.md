@@ -1075,6 +1075,7 @@ S177（2026-11-05、S175 までが main にある状態）で、各節の「持�
 | 機能の穴（P7） | 言語 API の配布 | Julia のパッケージ化と JLL、Hex での配布（rustler_precompiled）、Gleam の JS target | S075・S082・S087 |
 | 機能の穴（P7） | 試験版 UI | Leptos・Dioxus の CI（push で回す検査）、プロット・graph・ツリー・タブ・Tauri への組み込み、CPU・フレーム時間・PSS | S153・S155・S156 |
 | 機能の穴（P8） | 拡充 | Diagram / Icon ビュー、Documentation ビュー、パラメータダイアログ、SSP 2.0.1、BLT の可視化と変換デバッガ、線形化、パッケージマネージャ（`uses` の版） | features.md |
+| 機能の穴（CLI・Python） | 使える流れの点検（S178） | 通る流れは通る。穴は誤った使い方の手がかり（ライブラリのモデル名の候補、`-L`、負の数、`fmt --check` が CI で黙って通る、`-o` なしで結果を捨てる）、未対応（GM-U）の終了コード、Python の型・例外・既定ソルバでの進捗と中断、CLI の面（`graph` などに `-L`、MSL を取る道）、FMU `--build` の入口。順位付き 13 件と WP の案は [調査](research/cli-python-flow-2026-11-06.md) | S178 |
 | 機能の穴（Track B） | 自前コア | 未着手（`Frontend` の feature `native` はまだ無い）。IDE の機能を先に自前にする | P4 以降 |
 
 ## 運用上の決まり
