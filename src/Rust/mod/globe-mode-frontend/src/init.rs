@@ -261,7 +261,7 @@ fn extract_view<'dae>(dae: &Dae, view: DaeView<'dae>) -> Result<InitStructure, S
         let index = equations.len();
         let (file, range) = location(dae, provenance);
         equations.push(EquationRow {
-            label: label(view, provenance, index, suffix),
+            label: label(view, provenance, None, index, suffix),
             origin: origin(provenance),
             file,
             range,
