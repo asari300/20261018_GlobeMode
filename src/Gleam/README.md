@@ -10,3 +10,22 @@ Gleam のラッパ（P7）。Erlang target では `@external` で `globe_mode_ni
 ```bash
 mise run gleam:test   # cargo build --release -p globe-mode-nif → gleam test（Decay を check → simulate）
 ```
+
+最初の例（`src/Gleam/globe_mode/src/first.gleam` に置き、`src/Gleam/globe_mode` で `GLOBE_MODE_NIF=<target/release/libglobe_mode_nif> gleam run -m first`）。JSON の解析は呼ぶ側の仕事で、標準ライブラリだけなので文字列で切り出している:
+
+```gleam
+import gleam/io
+import gleam/string
+import globe_mode
+
+pub fn main() {
+  let assert Ok(ws) = globe_mode.new(["../../Modelica/GlobeModeValidation"])
+  let model = "GlobeModeValidation.Simulation.Decay"
+  let assert Ok(report) = globe_mode.check(ws, model)
+  assert string.contains(report, "\"passed\":true")
+  let assert Ok(res) = globe_mode.simulate(ws, model, "{}")
+  let assert Ok(#(_, rest)) = string.split_once(res, "\"final\":{\"x\":")
+  let assert Ok(#(x, _)) = string.split_once(rest, "}")
+  io.println("x(1) = " <> x)   // 0.367879468116207（e⁻¹）
+}
+```

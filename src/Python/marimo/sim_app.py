@@ -20,10 +20,20 @@ def _():
 
 
 @app.cell
-def _(Path, Workspace):
-    ws = Workspace()
-    ws.load_dir(Path(__file__).parents[2] / "Modelica")
-    result = ws.simulate_columns("GlobeModeValidation.Simulation.Decay")
+def _(Path, mo):
+    # 既定はリポジトリの src/Modelica の Decay。MSL なら data/msl と Modelica.Electrical.Analog.Examples.ChuaCircuit（S183）
+    libs = mo.ui.text(value=str(Path(__file__).parents[2] / "Modelica"), label="ライブラリのディレクトリ（-L）", full_width=True)
+    model = mo.ui.text(value="GlobeModeValidation.Simulation.Decay", label="モデル（完全修飾名）", full_width=True)
+    mo.vstack([libs, model])
+    return libs, model
+
+
+@app.cell
+def _(Workspace, libs, mo, model):
+    ws = Workspace([libs.value])
+    result = ws.simulate_columns(model.value)
+    why = result["refused"] or "; ".join(d["message"] for d in result["diagnostics"][:1])
+    mo.stop(not result["ok"], mo.md(f"実行できない: {why}"))
     return (result,)
 
 

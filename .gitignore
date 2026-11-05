@@ -51,3 +51,6 @@ mise.local.lock
 .claude/backups/
 .claude/ide/
 .vscode-test/
+
+# marimo export が作るセッションの保存（S183）
+__marimo__/

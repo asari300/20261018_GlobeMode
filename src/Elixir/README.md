@@ -11,5 +11,15 @@ Rustler の NIF（`globe-mode-nif`、Erlang モジュール名 `globe_mode_nif`�
 mise run elixir:test   # cargo build --release -p globe-mode-nif → mix test（Decay を check → simulate）
 ```
 
+最初の例（`src/Elixir/globe_mode` で `mix deps.get` のあと `GLOBE_MODE_NIF=<target/release/libglobe_mode_nif> iex -S mix`）:
+
+```elixir
+{:ok, ws} = GlobeMode.new(["../../Modelica/GlobeModeValidation"])
+model = "GlobeModeValidation.Simulation.Decay"
+{:ok, %{"passed" => true}} = GlobeMode.check(ws, model)
+{:ok, res} = GlobeMode.simulate(ws, model)   # 設定は第 3 引数の map（%{stop_time: 2} など）
+res["final"]["x"]                            # 0.367879468116207（e⁻¹）
+```
+
 - NIF の場所は環境変数 `GLOBE_MODE_NIF`（拡張子 `.so` を除いたパス。例 `target/release/libglobe_mode_nif`）。
 - 配布（rustler_precompiled と Hex）は未（P7）。
