@@ -3,10 +3,13 @@
 
   uv run python src/Svelte/tests/bench_ui.py browser [--runs 3] [--ui leptos|dioxus]   # 先に pnpm build（dist/ と msl/MSL.json）。leptos・dioxus は mise run leptos:build・dioxus:build
   uv run python src/Svelte/tests/bench_ui.py add svelte-tauri/windows bench.txt --source "desktop run 123"
+  uv run python src/Svelte/tests/bench_ui.py merge ui-bench-*/ui-bench.json   # ui-bench.yml の artifact（S156）を target/ui-bench.json に取り込む
   uv run python src/Svelte/tests/bench_ui.py report                       # target/ui-bench.json から doc/bench/ui.md
 
 browser: dist/ を配り、Chromium を毎回起動し直して `?smoke=1` を開き、GM-SMOKE の行（ready_ms・decay_ms・msl_ms）と、
 Chromium のプロセスのうち最大の VmHWM（Linux だけ。S056 の time -v と同じく木の中の最大の 1 つ）を記録する。
+GitHub Actions 上の Linux は「<UI>/linux-actions」の項に入れる（手元の WSL2 の「<UI>/linux」と分ける。S156、ui-bench.yml）。
+Windows・macOS は psutil（`uv run --with psutil`）で Chromium の子孫の RSS を見る（Windows は peak_wset、macOS はピークが無いので終了時点の rss）。
 add: desktop.yml の artifact `ui-bench-<os>` の bench.txt（GM-SMOKE の行に rss_kib= を足したものと GM-BUNDLE kib= の行）を取り込む。
 結果は target/ui-bench.json の「<UI>/<OS>」の項にまとめる（同じ項は上書き）。
 """
@@ -25,7 +28,7 @@ ROOT = Path(__file__).resolve().parents[3]
 JSON_PATH = ROOT / "target/ui-bench.json"
 DOC = ROOT / "doc/bench/ui.md"
 UIS = [("svelte-browser", "Svelte ブラウザ"), ("svelte-tauri", "Svelte Tauri"), ("leptos", "Leptos"), ("dioxus", "Dioxus")]
-OSES = {"linux": "Linux", "windows": "Windows", "macos": "macOS"}
+OSES = {"linux": "Linux", "linux-actions": "Linux（Actions）", "windows": "Windows", "macos": "macOS"}
 ROWS = [
     ("ready_ms", "起動から操作可能まで（ms）", 1),
     ("decay_ms", "Decay の検査・実行・プロット（ms）", 1),
@@ -47,9 +50,20 @@ def run_fields(line: str) -> dict[str, float]:
 
 
 def peak_rss_kib() -> float | None:
-    """このプロセスの子孫（Playwright の driver と Chromium）のうち、最大の VmHWM（KiB）。Linux 以外は None。"""
+    """このプロセスの子孫（Playwright の driver と Chromium）のうち、最大の VmHWM（KiB）。Linux 以外は psutil（無ければ None）。"""
     if not Path("/proc/self/status").exists():
-        return None
+        try:
+            import psutil
+        except ImportError:
+            return None
+        rss = []
+        for c in psutil.Process().children(recursive=True):
+            try:
+                m = c.memory_info()
+                rss.append(getattr(m, "peak_wset", m.rss))  # Windows はピーク、macOS は現在値
+            except psutil.Error:
+                continue
+        return max(rss, default=0) / 1024
     parent: dict[int, int] = {}
     for d in Path("/proc").iterdir():
         if d.name.isdigit():
@@ -119,7 +133,8 @@ def median(entry: dict, key: str) -> float | None:
 
 
 def report(data: dict) -> str:
-    cols = [(f"{ui}/{os_}", f"{name} {OSES[os_]}") for ui, name in UIS for os_ in OSES]
+    # Svelte Tauri の Linux は desktop.yml の 1 列だけ（手元と Actions を分けない）
+    cols = [(f"{ui}/{os_}", f"{name} {OSES[os_]}") for ui, name in UIS for os_ in OSES if (ui, os_) != ("svelte-tauri", "linux-actions")]
     lines = [
         "# UI の比較（S125〜）",
         "",
@@ -148,6 +163,8 @@ def main() -> int:
     b.add_argument("--runs", type=int, default=3)
     b.add_argument("--ui", choices=["svelte", "leptos", "dioxus"], default="svelte")  # leptos・dioxus は mise run <名前>:build の dist/
     b.add_argument("--source", default="手元")
+    m = sub.add_parser("merge")
+    m.add_argument("files", type=Path, nargs="+")
     a = sub.add_parser("add")
     a.add_argument("key")
     a.add_argument("file", type=Path)
@@ -160,8 +177,17 @@ def main() -> int:
         DOC.write_text(report(data), encoding="utf-8")
         print(DOC)
         return 0
+    if args.cmd == "merge":
+        for f in args.files:
+            data.update(json.loads(f.read_text(encoding="utf-8")))
+        JSON_PATH.parent.mkdir(parents=True, exist_ok=True)
+        JSON_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+        print(", ".join(sorted(data)))
+        return 0
     if args.cmd == "browser":
         os_ = {"linux": "linux", "win32": "windows", "darwin": "macos"}[sys.platform]
+        if os_ == "linux" and os.environ.get("GITHUB_ACTIONS"):
+            os_ = "linux-actions"
         key = f"{'svelte-browser' if args.ui == 'svelte' else args.ui}/{os_}"
         entry = browser(args.runs, args.ui)
     else:
