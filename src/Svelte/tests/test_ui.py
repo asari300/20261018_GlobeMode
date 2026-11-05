@@ -9,6 +9,7 @@ dist/ を localhost で配り（CSP は index.html の meta と同じものを�
 長いモデルの実行で進捗（段と t の割合）が出て、「止める」で止まり（data-run="cancelled"）、ボタンが戻ることを確かめる（S133）。
 Decay の `der(x)` の x で F12 を押すと宣言の行（`Real x`）へ動く。ChuaCircuit のファイルで型 `Modelica.Electrical.Analog.Basic.Resistor` の上の F12 は、ライブラリの Resistor.mo をエディタに開き、Alt+← で ChuaCircuit に戻る（S138）。
 `.mo` を開く（ファイル選択）とエディタに入りモデル名が本文から付いて検査が通り、「保存」でダウンロードされ、再読み込みで localStorage から戻る（S141）。
+タブ（S151）: 開くたびにタブが増え、切り替えで本文・モデル名・診断が戻り、再読み込みでタブが戻り、閉じるボタンで減り（最後の 1 つは閉じられない）、「最近使ったファイル」から開き直せる。
 FMU を書き出す（S144）: ブラウザの wasm が作ったソースの FMU がダウンロードされ、modelDescription.xml と sources/ がある。
 実行の設定（S142）: 終了時刻 2 とソルバ dopri45 で Decay を実行して x(2) が e⁻²、DecayK は experiment の Tolerance が初期値（出どころ experiment）に出て、k = 2 の上書きで x(1) が e⁻²。名前=値でない行は実行しない。
 ライブラリの木で Modelica → Electrical → Analog → Examples → ChuaCircuit と開き、そのファイルがエディタに開いて検査が通ることも確かめる（S127）。
@@ -395,6 +396,58 @@ def main() -> int:
             assert b'modelName="Mine"' in z.read("modelDescription.xml")
         expect(own.locator("p[data-saved]")).to_contain_text("Mine.fmu")
         print("FMU: Mine.fmu がダウンロードされ、modelDescription.xml と sources/ がある")
+        # タブと最近使ったファイル（S151）: 開くとタブが増え、切り替えで本文・モデル名・診断が戻り、再読み込みでタブが戻り、閉じて、最近使ったファイルから開き直せる
+        tab = browser.new_page()
+        tab.on("console", lambda m: m.type == "error" and errors.append(m.text))
+        tab.on("pageerror", lambda e: errors.append(str(e)))
+        tab.goto(f"http://127.0.0.1:{server.server_port}/")
+        other = "model Other\n  Real z(start = 3, fixed = true);\nequation\n  der(z) = -z;\nend Other;\n"
+
+        def open_mo(name: str, body: str) -> None:
+            with tab.expect_file_chooser() as ch:
+                tab.get_by_role("button", name="開く").click(force=True)
+            ch.value.set_files(files=[{"name": name, "mimeType": "text/plain", "buffer": body.encode()}])
+
+        tabs = tab.get_by_role("tab")
+        content, name_box = tab.locator(".cm-content"), tab.get_by_label("モデル名")
+        tab.get_by_role("button", name="検査").wait_for()
+        open_mo("Mine.mo", mine)
+        expect(content).to_contain_text("model Mine", timeout=30_000)
+        expect(tabs).to_have_count(2)  # 初めの Model.mo と Mine.mo
+        tabs.nth(0).click()
+        expect(content).to_contain_text("model Decay")
+        expect(name_box).to_have_value("Decay")
+        button = tab.get_by_role("button", name="検査")
+        button.click(force=True)
+        expect(button).to_be_enabled(timeout=120_000)
+        decay_rows = tab.locator("table.diagnostics tr").count()
+        assert decay_rows > 0
+        tabs.nth(1).click()  # 診断は文書ごと
+        expect(content).to_contain_text("model Mine")
+        expect(name_box).to_have_value("Mine")
+        expect(tab.locator("table.diagnostics tr")).to_have_count(0)
+        tabs.nth(0).click()
+        expect(tab.locator("table.diagnostics tr")).to_have_count(decay_rows)
+        open_mo("Other.mo", other)
+        expect(content).to_contain_text("model Other", timeout=30_000)
+        expect(tabs).to_have_count(3)
+        tab.reload()
+        expect(tabs).to_have_count(3, timeout=30_000)
+        expect(tabs.nth(2)).to_have_attribute("aria-selected", "true")
+        expect(content).to_contain_text("model Other")
+        tabs.nth(1).click()
+        expect(content).to_contain_text("model Mine")
+        tab.get_by_role("button", name="Other.mo を閉じる").click(force=True)
+        expect(tabs).to_have_count(2)
+        tab.get_by_label("最近使ったファイル").select_option(label="Other.mo")
+        expect(tabs).to_have_count(3)
+        expect(content).to_contain_text("model Other")
+        expect(name_box).to_have_value("Other")
+        tab.get_by_role("button", name="Model.mo を閉じる").click(force=True)
+        tab.get_by_role("button", name="Mine.mo を閉じる").click(force=True)
+        expect(tabs).to_have_count(1)
+        assert tab.get_by_role("button", name="を閉じる").count() == 0, "最後の 1 つは閉じられない"
+        print("タブ: 開く 2→3、切り替えで本文・モデル名・診断が戻り、再読み込みで 3 つ戻り、閉じて、最近使ったファイルから開き直せた")
         # ?smoke=1 で起動すると Decay を検査・実行して GM-SMOKE の 1 行を console に出す（S100。android.yml が logcat で待つ行）
         smoke = browser.new_page()
         smoke.on("pageerror", lambda e: errors.append(str(e)))

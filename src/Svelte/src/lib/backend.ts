@@ -26,7 +26,9 @@ export interface Backend {
   /** setFile 済みの file の位置（行は 0 始まり、列は UTF-16）にある名前の定義（S138）。名前が引けなければ null。 */
   definition(file: string, line: number, character: number): Promise<Definition | null>;
   /** 手元のファイルを 1 つ選んで読む（S141）。ブラウザ・Android は `<input type=file>`、Desktop は dialog / fs プラグイン。選ばなければ null。 */
-  openFile(): Promise<{ name: string; text: string } | null>;
+  openFile(): Promise<{ name: string; text: string; path?: string } | null>;
+  /** 最近使ったファイルを path から開く（S151。Desktop だけ。ブラウザは本文を localStorage に持つので無い）。 */
+  openPath?(path: string): Promise<{ name: string; text: string }>;
   /** 本文を手元に書く。保存先（Desktop はパス、ブラウザは名前）を返す。取り消しは null。saveAs は Desktop で保存先を選び直す（ブラウザは毎回ダウンロードなので同じ）。 */
   saveFile(name: string, text: string, saveAs?: boolean): Promise<string | null>;
   /** ソースの FMU（FMI 2 か 3、build 無し）を書き出す（S144）。保存先（Desktop はパス、ブラウザは名前）を返す。取り消しは null。作れなければ reject。 */
