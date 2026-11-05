@@ -976,6 +976,12 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **`Documentation` の HTML の整形**（既定オン。CLI `--no-format-html`、VS Code `globeMode.formatHtml`）。空白だけを変え、lint はしない。VS Code 拡張 0.0.4。
 - README に、今の規則・今後必要になりそうな機能の表と、処理の流れの Mermaid 図。
 
+### S164（P4・P6、2026-11-05）の再点検と、次の候補
+
+- **アプリの使える流れの再点検**（文書だけ。[調査](research/app-flow-2026-11-05.md)、[解説書](sessions/S164-app-flow-audit-2/解説書.md)）: S140 の穴 1〜10 が埋まった後の main（`e4dd5d7`）を、ブラウザ版を Playwright で操作して通した（MSL の例題 7 本、待ちは検査 0.9〜3.4 s・実行 0.5〜3.8 s。CLI と Python も）。穴は機能より見つけやすさと見せ方に移った。
+- **次の候補（順位）**: 1 木に入れ子のクラスと検索（例題の 22% が木から選べない）、2 結果と進捗を見える所へ、3 未対応の例題（検査が通らない 35%）の見せ方と force、4 README・CHANGELOG・版の同期、5 開く・モデル名の扱い、6 FMU の説明（ソースのみ）、7 信号の絞り込み、8 キーボードとアクセシビリティ、9 補完の LSP 接続、10 `release.yml` の dry-run の回し直し。WP の案とぶつからない組は調査の 7.2 章。
+- **ユーザーの判断**（WP にしない。調査の 7.3 章）: v0.1 に含める面と版、ブラウザ版の公開先、Desktop の更新の鍵、署名と公証、VS Code・PyPI の公開、Rumoca の rev、上流 issue の提出。
+
 ## 運用上の決まり
 
 - リリースまでの見積もりと、他のエージェントに渡す並行作業の指示書は [plan/2026-10-30-release-estimate-and-parallel-plan.md](plan/2026-10-30-release-estimate-and-parallel-plan.md)（S033）。
