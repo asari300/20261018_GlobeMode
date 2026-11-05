@@ -29,7 +29,7 @@ pub use globe_mode_graph::{ConnectGraph, ConnectMismatch, GraphError};
 pub use globe_mode_ir::{FlatSummary, Outline, SimRun, SimSettings};
 pub use globe_mode_protocol::{
     CheckResponse, ColumnsLayout, ExperimentValues, ParametersResponse, SimulateRequest,
-    SimulateResponse, StructureCounts, force_helps, unsupported_summary,
+    SimulateResponse, StructureCounts, force_helps, refused_summary, unsupported_summary,
 };
 pub use globe_mode_sim::solvers::{SOLVERS, SolverEntry};
 // facade に無いものを呼ぶとき（CLI の文字の表示が `FullReport` を読む、結果を CSV / MAT に書く）
@@ -332,7 +332,7 @@ impl Workspace {
     pub fn check(&mut self, model: &str) -> CheckResponse {
         let report = self.db.check_model(model);
         let check = report.check;
-        CheckResponse {
+        let mut response = CheckResponse {
             model: report.model,
             passed: !report.diagnostics.iter().any(Diagnostic::is_error),
             failed_stage: report
@@ -368,7 +368,10 @@ impl Workspace {
             can_force: force_helps(&report.diagnostics),
             diagnostics: report.diagnostics,
             notes: check.notes,
-        }
+            summary: String::new(),
+        };
+        response.summary = response.summary_line();
+        response
     }
 
     /// `check` に渡すファイル（モデルが使うものの閉包。パスの昇順）。モデルが無ければ空。
@@ -473,6 +476,21 @@ impl Workspace {
         handle: SimulateHandle<'_>,
     ) -> Simulated {
         let mut s = self.simulate_unmarked(request, now, handle);
+        // 強行のコンパイルの失敗は、検査と同じ診断を（注が少し違う形で）もう一度返す。コード・位置・文面が同じものは最初の 1 つだけ残す
+        let mut unique: Vec<Diagnostic> = Vec::new();
+        for d in std::mem::take(&mut s.response.diagnostics) {
+            if !unique.iter().any(|x| {
+                (x.code, &x.file, x.range, &x.message) == (d.code, &d.file, d.range, &d.message)
+            }) {
+                unique.push(d);
+            }
+        }
+        s.response.diagnostics = unique;
+        s.response.summary = s
+            .response
+            .refused
+            .as_ref()
+            .map(|r| refused_summary(&s.response.model, r, &s.response.diagnostics));
         s.response.unsupported = unsupported_summary(&s.response.diagnostics);
         // 検査で断った（強行していない）ときだけ「強行すれば進める」。強行した結果には付けない
         s.response.can_force =
@@ -501,6 +519,7 @@ impl Workspace {
             memory_bytes: 0.0,
             unsupported: None,
             can_force: false,
+            summary: None,
         };
         let mut t = now();
         let mut lap = |name: &str, timings: &mut BTreeMap<String, f64>| {

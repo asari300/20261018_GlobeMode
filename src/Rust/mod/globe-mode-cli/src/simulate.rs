@@ -277,35 +277,7 @@ pub(crate) fn simulate(args: SimulateArgs) -> ExitCode {
         (None, Some(s)) => Some(format!("実行に失敗した（{}）", settings_text(s))),
         _ => response.refused,
     };
-    // 強行（--force）のコンパイルの失敗は、検査と同じ診断を（注が少し違う形で）もう一度返すので、
-    // コード・位置・文面が同じものは最初の 1 つだけ残す
-    let mut diagnostics: Vec<Diagnostic> = Vec::new();
-    for d in response.diagnostics {
-        if !diagnostics.iter().any(|x| {
-            (x.code, &x.file, x.range, &x.message) == (d.code, &d.file, d.range, &d.message)
-        }) {
-            diagnostics.push(d);
-        }
-    }
-    finish(&args, &texts, &diagnostics, run.as_ref(), refused)
-}
-
-/// 実行しなかった理由の後ろに足す、最初の error の診断のコードと 1 文。
-fn first_error(diagnostics: &[Diagnostic]) -> String {
-    let Some(d) = diagnostics.iter().find(|d| d.is_error()) else {
-        return String::new();
-    };
-    let line = d.message.lines().next().unwrap_or_default();
-    let line = match line.char_indices().nth(100) {
-        Some((i, _)) => format!("{}…", &line[..i]),
-        None => line.to_string(),
-    };
-    let kind = if d.is_unsupported() {
-        "最初の未対応"
-    } else {
-        "最初の error"
-    };
-    format!("。{kind}: {} {line}", d.code)
+    finish(&args, &texts, &response.diagnostics, run.as_ref(), refused)
 }
 
 fn write_result(
@@ -403,7 +375,7 @@ fn finish(
             }
         }
         if let Some(reason) = &refused {
-            lines.push(format!("{model}: {reason}{}", first_error(diagnostics)));
+            lines.push(globe_mode::refused_summary(model, reason, diagnostics));
         }
         if to_stdout {
             print_diagnostics(diagnostics, texts, false);

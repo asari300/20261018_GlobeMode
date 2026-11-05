@@ -17,6 +17,7 @@ print(res["ok"], table(res).shape)
 ```
 
 - 読み取り（CLI の `globe outline` / `deps` / `flat --json` と同じ。`set_file` したファイルとモデルについて）: `ws.outline("A.mo")`（クラスの一覧。無いファイルと構文の誤りは `ValueError`）、`ws.deps("A")`（`check` が読むファイルのリスト）、`ws.flat("A")`（変数・方程式の数。通らなければ `None`）。
+- 結果の 1 行: `ws.check(m)["summary"]`（`RC: OK（S0〜S10 を通過）`、止まれば `NG（S5 … で停止）`）。`simulate` の `summary` は実行しなかった・失敗したときだけ（理由と最初の error）。CLI の最後の行と同じ文。
 - 誤りの型: 未知の設定のキーは `TypeError`、設定の値の型の誤りは `ValueError`（どの設定かを言う）、ライブラリが読めなければ `RuntimeError`（本文は最初の error の `コード: 文`、元の診断は `.diagnostics`）。
 - `on_progress` は既定のソルバ（`bdf`・`auto`・`dopri45`）では積分の中に届かない（段の変わり目だけ。積分を止めたいなら `max_wall_seconds`）。`esdirk34` などなら積分の時刻が付き、`True` を返して止められる。
 

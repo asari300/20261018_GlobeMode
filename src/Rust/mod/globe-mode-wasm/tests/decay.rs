@@ -158,6 +158,26 @@ fn over_determined_initialization_can_be_forced() {
     );
 }
 
+/// S184: 強行でコンパイルに失敗しても、同じ診断は 1 つだけ（facade で除く。CLI・LSP・Python・UI が同じものを見る）
+#[test]
+fn forced_failure_does_not_repeat_diagnostics() {
+    let src = "model Unbalanced\n  Real x(start = 1);\n  Real y;\nequation\n  der(x) = -x;\nend Unbalanced;\n";
+    let files = BTreeMap::from([("U.mo".to_string(), src.to_string())]);
+    let r = run(&request(
+        serde_json::json!({ "files": files, "model": "Unbalanced", "force": true }),
+    ));
+    assert_eq!(
+        r.diagnostics
+            .iter()
+            .filter(|d| d.code == "GM-E5002")
+            .count(),
+        1,
+        "{:?}",
+        r.diagnostics
+    );
+    assert!(r.summary.unwrap().contains("。最初の error: GM-E5002 "));
+}
+
 /// S173: Error がすべて GM-U なら `unsupported` に要約が付く（誤りとは分ける）。強行しても進めない
 #[test]
 fn unsupported_errors_are_summarised() {

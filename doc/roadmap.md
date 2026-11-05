@@ -498,6 +498,11 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **CLI のモデル名と `-L` の案内**（S178 の監査の穴 1・2、WP の A1。[解説書](sessions/S180-cli-model-name-library-hints/解説書.md)）: ライブラリを使うとき、`-m PID_Controller` や `…PID_Contoller` は Rumoca の英語の原文だけが返っていた。Rust の `check_synced_inner`（CLI・Python・LSP・wasm・UI の検査の入口 1 か所）で、Rumoca が要求したモデルの結果も失敗の記録も持たず、字句の索引（`LibraryTree`）と Session のどのクラスにも無いときだけ `GM-E1002` と候補（完全修飾名の末尾が一致、末尾の名前が同じ、綴りが近い。上位 5 件）を出す。名前が正しい失敗は今のまま。`-L` が `package.mo` のあるフォルダで同じ親に `ModelicaServices` か `Complex` が並ぶときは、失敗の診断（`GM-E1001`）に「親のフォルダを `-L` に渡す」の補足（自動では足さない）。CLI は `-L` も FILES も無いときに `-L <根> -m <完全修飾名>` の例を足す。Python の `Workspace("data/msl")` は S181。
 - 持ち越し: 短い名前を完全修飾名に補う提案、パッケージ名を渡したときの案内（今は Rumoca の原文のまま）、終了コードの体系・`-o` なしの simulate・負の時刻（S182 以降）。
 
+### S184（P4、2026-11-06）で済んだこと
+
+- **診断の重複と結果の 1 行を facade・protocol に寄せた**（S182・S183 の持ち越し。[解説書](sessions/S184-facade-summary-dedup/解説書.md)）: `--force` でコンパイルに失敗すると、facade の `simulate` が検査とコンパイルの同じ診断を両方返していた（CLI だけの問題ではなく wasm・LSP・UI も同じ。Python の `simulate` に `force` は無い）。`simulate_observed` の最後でコード・位置・文面が同じものを最初の 1 つに除き、CLI の除去は消した。応答に追加の `summary`（`CheckResponse` は常に、`SimulateResponse` は実行しなかったときだけ。文面は CLI のまま。`summary_line`・`refused_summary` は protocol に 1 つ）。
+- 持ち越し: UI（Svelte）の `unsupported` の要約と失敗の行を `summary` に置き換える。
+
 ### S183（P7、2026-11-06）で済んだこと
 
 - **Python の読み取りの口と他言語の README**（S178 の監査の穴 10 の残り、WP の C2・D。[解説書](sessions/S183-python-outline-lang-readme/解説書.md)）: Python に `Workspace.outline`（ファイルのクラスの一覧）・`deps`（`check` が読むファイル）・`flat`（変数と方程式の数）を足した（CLI の `globe outline` / `deps` / `flat --json` と同じ。facade の既存の口を `globe-mode-py` から呼ぶだけで、計算は Python に書かない）。S180 のモデル名の候補（`GM-E1002`）が Python の `check` にも出ることを試験で確かめた。C・Zig・Julia・Elixir・Gleam の README に、書いてあるとおりに動く最初の例を置き（5 本とも実際に動かした）、Julia の README を実物（`load_dir`・`simulate_columns`・`simulate_observed`・`export_fmu`・`graph`・`format`・`lint`）に合わせた。marimo の `sim_app.py` にライブラリとモデルの入力欄、`__marimo__/` を `.gitignore` へ。

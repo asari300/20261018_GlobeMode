@@ -936,32 +936,8 @@ fn check(files: &[PathBuf], library: &[PathBuf], model: &str, json: bool) -> Exi
         print_s8(&report);
         print_s9(&report);
         print_s10(&report);
-        match report.failed_stage() {
-            None if report.preflight.is_some() && report.loops.is_some() => {
-                println!("{}: OK（S0〜S10 を通過）", report.model)
-            }
-            None if report.init.is_some() => {
-                println!("{}: OK（S0〜S8 を通過）", report.model)
-            }
-            None if report.index.is_some() => println!(
-                "{}: OK（S0〜S7 を通過。S8 は判定できなかった）",
-                report.model
-            ),
-            None if report.structural.is_some() => println!(
-                "{}: OK（S0〜S6 を通過。S7 以降は判定できなかった）",
-                report.model
-            ),
-            None => println!(
-                "{}: OK（S0〜S5 を通過。S6 以降は判定できなかった）",
-                report.model
-            ),
-            Some(stage) => println!(
-                "{}: NG（{:?} {} で停止）",
-                report.model,
-                stage,
-                stage.title()
-            ),
-        }
+        // 最後の 1 行は facade の応答の `summary`（Python・LSP・wasm と同じ。検査は salsa が覚えている）
+        println!("{}", ws.check(model).summary);
         report.passed()
     };
     if passed {
@@ -1321,8 +1297,7 @@ fn report_early_failure(model: &str, diags: &[Diagnostic], json: bool) -> ExitCo
         );
     } else {
         print_diagnostics(diags, &HashMap::new(), false);
-        let stage = response.failed_stage.expect("failed には段階がある");
-        println!("{model}: NG（{stage:?} {} で停止）", stage.title());
+        println!("{}", response.summary);
     }
     ExitCode::from(1)
 }
