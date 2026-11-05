@@ -113,6 +113,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - S039: Python の wheel `globe_mode`（`globe-mode-py`、PyO3・abi3-py312・maturin）。load_dir → check → graph → simulate → polars の表の参照シナリオを `pytest` で通した。
 - S075・S082・S087: C ABI の `globe-mode-c`（9 関数、手書きのヘッダ）と Zig・Julia、Elixir の NIF（`globe-mode-nif`）、Gleam の `@external`。参照シナリオ（Decay を開く → check → simulate → x(1) → format）は `mise run c:zig`・`c:julia`・`elixir:test`・`gleam:test`。
 - S110・S111・S116・S118: 公開 API の機能表を作り、6 言語に format / lint、列の道（`simulate_columns`）、FMU の書き出しを足した。
+- S181: Python API を厳しくした。**未知の設定のキー（`stoptime` など）は黙って無視されず `TypeError` になる**（前は `ok: True` で既定の値のまま走った。使えるキーを添える）。設定の型の誤りはどの設定かを言う `ValueError`、`Workspace("data/msl")` は 1 つのライブラリ（前は 1 文字ずつ）、ライブラリが読めない `RuntimeError` の本文は `コード: 文`（元の診断は `.diagnostics`）。`export_fmu` の未知の options は `TypeError`。docstring・`py.typed`・`_native.pyi`、`on_progress` は既定のソルバでは積分の中に届かないと明記。
 - S121・S123・S129・S131・S133・S136: 実行の進捗と中断をコア・Python・C と他の言語・wasm とブラウザの UI・`globe lsp` と Desktop に入れた（[ADR-0033](doc/adr/0033-progress-and-cancel.md)）。
 - S125・S153・S155・S156・S160: UI の負荷の比較。測定ハーネス（[ADR-0034](doc/adr/0034-ui-bench-method.md)）と、Leptos 版・Dioxus 版の試験版（`src/Rust/apps/experimental/`、配布物には入らない）、Linux・Windows・macOS の結果 `doc/bench/ui.md`。
 

@@ -26,7 +26,7 @@ use globe_mode_ir::UnknownKind;
 pub use globe_mode_core::{Diagnostic, Stage};
 pub use globe_mode_frontend::CompiledModel;
 pub use globe_mode_graph::{ConnectGraph, ConnectMismatch, GraphError};
-pub use globe_mode_ir::{FlatSummary, Outline, SimRun};
+pub use globe_mode_ir::{FlatSummary, Outline, SimRun, SimSettings};
 pub use globe_mode_protocol::{
     CheckResponse, ColumnsLayout, ExperimentValues, ParametersResponse, SimulateRequest,
     SimulateResponse, StructureCounts, force_helps, unsupported_summary,
