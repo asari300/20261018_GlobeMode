@@ -7,7 +7,7 @@
 | worktree | `.git-worktree/s152-ui-dark-mode` |
 | Phase | P4 / P7 |
 | セッション文書 | `doc/sessions/S152-ui-dark-mode/` |
-| セッション記録 | （親が写す） |
+| セッション記録 | [2026-11-02-a2580a13-3889-4662-9db4-a45dc1ca6772.md](../sessions/2026-11-02-a2580a13-3889-4662-9db4-a45dc1ca6772.md) |
 
 ## 依頼
 
@@ -32,7 +32,7 @@ Svelte 版 UI（ブラウザ・Desktop・Android 共用）のダークモード�
 - コードの検査: Rust は触っていない（cargo は回していない）。`pnpm check` 0 エラー 0 警告
 - `test_ui.py`: 通過（GM-SMOKE は全項目 ok。追加の 1 本を含む）。`test_graph.py`: 通過
 - `check_docs.py`: 全デッキ OK（S152 を含む）/ 相対リンク 3063 件中の切れ 0 件。`render_slides.py` は S152 のデッキだけで 1 回目に通った（問題 0 件）
-- セッション記録の `--check`: （親が写す）
+- セッション記録の `--check`: 取りこぼし 0 件（親が写した）
 - ステージした差分の漏洩検査: 0 件（メール・ホームのパス・トークン）
 
 ## 追記（確認: スクリーンショットで plot と graph が見えなかった件）
