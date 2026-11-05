@@ -64,6 +64,7 @@ DECAY_K = (
     "  annotation(experiment(StopTime = 3, Tolerance = 1e-8));\nend DecayK;\n"
 )
 CHUA = "Modelica.Electrical.Analog.Examples.ChuaCircuit"
+FIRST = "Modelica.Mechanics.Rotational.Examples.First"  # 信号に `$formal_derivative.*` と `$state_coordinates[*]` が混じる（S169）
 BAD = "model Bad\n  Real x;\nequation\n  der(x) = -x;\n  x = 1;\nend Bad;\n"
 
 
@@ -264,7 +265,7 @@ def main() -> int:
         # 書き出し（S146）: CSV は選んだ系列と x の列（見出し time,x と数値の行）、PNG は canvas（image/png の本物で 0 バイトでない）
         with page.expect_download() as csv_dl:
             page.get_by_role("button", name="CSV").click(force=True)
-        assert csv_dl.value.suggested_filename == "result.csv"
+        assert re.fullmatch(r"Decay-\d{8}-\d{6}\.csv", csv_dl.value.suggested_filename), csv_dl.value.suggested_filename  # モデル名と時刻（S169）
         csv_lines = Path(csv_dl.value.path()).read_text(encoding="utf-8").splitlines()
         assert csv_lines[0].startswith("time,x"), csv_lines[:2]
         assert len(csv_lines) == int(page.locator(".plot").get_attribute("data-points")) + 1, len(csv_lines)
@@ -272,7 +273,7 @@ def main() -> int:
         with page.expect_download() as png_dl:
             page.get_by_role("button", name="PNG").click(force=True)
         png = Path(png_dl.value.path()).read_bytes()
-        assert png_dl.value.suggested_filename == "result.png" and png.startswith(b"\x89PNG\r\n\x1a\n") and len(png) > 1000, len(png)
+        assert re.fullmatch(r"Decay-\d{8}-\d{6}\.png", png_dl.value.suggested_filename) and png.startswith(b"\x89PNG\r\n\x1a\n") and len(png) > 1000, len(png)
         print(f"Decay の書き出し: CSV {len(csv_lines)} 行 {csv_lines[:2]}、PNG {len(png)} バイト")
 
         # 選択を外すと系列が消える
@@ -291,6 +292,15 @@ def main() -> int:
         expect(page.locator(".plot canvas").first).to_be_visible()
         assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
         print(f"Decay の系列の選択: data-series={plot.get_attribute('data-series')}、data-right={plot.get_attribute('data-right')}、data-x={plot.get_attribute('data-x')}")
+
+        # 信号の絞り込み（S169）: 一致しない語で一覧が空になっても選択は残り、消すと戻る。「内部の変数も表示」の入力はキーボードで届く
+        box = page.get_by_label("信号を絞り込む")
+        box.fill("zzz")
+        expect(plot).to_have_attribute("data-listed", "0")
+        expect(plot).to_have_attribute("data-series", "1")
+        box.fill("")
+        expect(plot).to_have_attribute("data-listed", str(boxes.count()))
+        print("Decay の絞り込み: 一致なしで一覧 0 本・選択 1 本のまま、空に戻すと一覧が戻った")
 
         # 実行の設定（S142）: 終了時刻 2・dopri45 で Decay を実行すると x(2) = e⁻²。DecayK は experiment の Tolerance が初期値に出て、k = 2 の上書きで x(1) = e⁻²
         tolerance, stop = page.get_by_label("許容誤差"), page.get_by_label("終了時刻")
@@ -456,6 +466,35 @@ def main() -> int:
             expect(page.locator(".plot")).to_have_attribute("data-x", "C1.v")
             assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
             print(f"ChuaCircuit の C1.v 対 C2.v: 系列 {page.locator('.plot').get_attribute('data-series')} 本")
+
+            # 信号の絞り込みと内部名（S169）: `$` で始まる名前を持つ例題。既定で隠れ、チェックで出て、CSV はチェックに合わせる
+            page.get_by_label("モデル名").fill(FIRST)
+            simulate()
+            assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
+            plot = page.locator(".plot")
+            box = page.get_by_label("信号を絞り込む")
+            hidden = page.locator(".plot .signals input[name=signal]")
+            assert hidden.count() > 20 and not any(n.startswith("$") for n in page.locator(".plot .signals label").all_inner_texts())
+            total = int(plot.get_attribute("data-matched"))
+            page.get_by_label("内部の変数も表示").check(force=True)
+            with_internal = int(plot.get_attribute("data-matched"))
+            assert with_internal > total, (total, with_internal)
+            box.fill("FORMAL_derivative inertia1")  # 大文字小文字を区別せず、空白区切りは AND
+            n_some = int(plot.get_attribute("data-matched"))
+            assert 0 < n_some < with_internal and all("$formal_derivative" in t and "inertia1" in t for t in page.locator(".plot .signals label").all_inner_texts() if "右" not in t)
+            page.get_by_role("button", name="表示中をすべて選ぶ").click(force=True)
+            assert page.locator(".plot .signals input[name=signal]:not(:checked)").count() == 0 and int(plot.get_attribute("data-series")) >= n_some
+            with page.expect_download() as dl:
+                page.get_by_role("button", name="CSV").click(force=True)
+            assert re.fullmatch(r"First-\d{8}-\d{6}\.csv", dl.value.suggested_filename), dl.value.suggested_filename
+            assert "$formal_derivative" in Path(dl.value.path()).read_text(encoding="utf-8").splitlines()[0]
+            page.get_by_label("内部の変数も表示").uncheck(force=True)  # 選択は残っているが、隠せばプロットにも CSV にも出ない
+            with page.expect_download() as dl:
+                page.get_by_role("button", name="CSV").click(force=True)
+            assert "$" not in Path(dl.value.path()).read_text(encoding="utf-8").splitlines()[0]
+            box.fill("")
+            print(f"First の内部名: 既定で一覧 {total} 本（隠れた内部名 {with_internal - total} 本）、絞り込みで {n_some} 本、チェックを外すと CSV から消えた")
+            page.get_by_label("モデル名").fill(CHUA)
 
             # ライブラリのモデルのグラフも引ける（S079）
             page.get_by_role("button", name="グラフ").click(force=True)
