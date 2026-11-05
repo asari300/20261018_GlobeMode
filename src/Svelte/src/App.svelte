@@ -45,6 +45,7 @@
   let simSettings = $state<NonNullable<SimulateRequest["settings"]>>({});
   let settingsProblem = $state("");
   let experiment = $state<CheckResponse["experiment"]>();
+  let checkedModel = $state<{ model: string } | null>(null); // S150: 検査したモデル（SimSettings が上書きできるパラメータの一覧を取る合図。検査のたびに新しい値）
   let lastSettings = $state<ResolvedSettings | null>(null);
   let lastFinal = $state<[string, number][]>([]); // 最後の時刻の値（先頭の 8 本）
   $effect(() => { void model; experiment = undefined; }); // 別のモデルにしたら、次の検査まで experiment は分からない
@@ -173,6 +174,7 @@
     const checked = await backend.check(model);
     diagnostics = bySeverity(checked.diagnostics);
     experiment = checked.experiment;
+    checkedModel = { model };
     view.dispatch(setDiagnostics(view.state, toCmDiagnostics(view.state.doc.toString(), diagnostics, file)));
   });
 
@@ -338,7 +340,7 @@
       <button onclick={loadMsl} disabled={busy || msl !== "none"}>{msl === "loading" ? "MSL を読み込み中…" : "MSL を読む"}</button>
     {/if}
   </div>
-  <SimSettings {backend} {experiment} last={lastSettings} bind:settings={simSettings} bind:problem={settingsProblem} />
+  <SimSettings {backend} {experiment} checked={checkedModel} last={lastSettings} bind:settings={simSettings} bind:problem={settingsProblem} />
   {#if tauri}<p class="note" data-config>
     <button onclick={async () => { configNote = ""; try { await tauri.reloadConfig(); configNote ||= "globe-mode.toml を読み直した（無ければ既定）"; } catch (e) { configNote = String(e); } }}>設定を読み直す</button> {configNote}
   </p>{/if}

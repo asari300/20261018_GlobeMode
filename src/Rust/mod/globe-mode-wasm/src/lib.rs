@@ -364,6 +364,14 @@ impl Workspace {
             .map_err(js_error)
     }
 
+    /// 上書きできるパラメータの一覧（S150）。`ParametersResponse` の JSON。DAE まで変換できなければ例外（診断の文）。
+    pub fn tunable_parameters(&mut self, model: &str) -> Result<String, JsValue> {
+        let r = self.inner.tunable_parameters(model).map_err(|ds| {
+            js_error(ds.iter().map(|d| d.message.as_str()).collect::<Vec<_>>().join("; "))
+        })?;
+        to_json(&r)
+    }
+
     /// モデルの検査だけ（S0〜S10。実行しない）。`CheckResponse` の JSON を返す（S041。ブラウザ UI の診断パネル用）。
     pub fn check(&mut self, model: &str) -> Result<String, JsValue> {
         to_json(&self.inner.check(model))

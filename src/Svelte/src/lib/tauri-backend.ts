@@ -1,6 +1,6 @@
 import type { Backend, Definition, LintMessage, Progress, TreeEntry } from "./backend";
 import type { Columns } from "./plot/csv";
-import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse, SolverEntry } from "./protocol";
+import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse, SolverEntry, TunableParameter } from "./protocol";
 
 // Tauri が `withGlobalTauri` で注入する関数だけを使う（@tauri-apps/api は入れない。npm の依存を増やさないため）。
 type Invoke = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
@@ -113,6 +113,10 @@ export class TauriBackend implements Backend {
   }
   solvers(): Promise<SolverEntry[]> {
     return invoke("rpc", { method: "globe/solvers", params: {} }); // S142
+  }
+  async tunableParameters(model: string): Promise<TunableParameter[]> {
+    const r = await invoke<{ parameters: TunableParameter[] | null }>("rpc", { method: "globe/tunableParameters", params: { model } }); // S150
+    return r.parameters ?? [];
   }
   // indent などを省くと params から落ち（JSON）、sidecar が globe-mode.toml（S143）の値を使う
   format(text: string, indent?: number, insertOrigin?: boolean): Promise<string> {
