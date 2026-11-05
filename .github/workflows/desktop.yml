@@ -70,6 +70,7 @@ jobs:
             name: macos
             exe: ""
             bundle: dmg
+            bundles: app,dmg # dmg だけだと .app が片付けられる（run 41990732519）
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -137,7 +138,7 @@ jobs:
 
       - name: ${{ matrix.bundle }} を作る
         working-directory: ${{ env.DESKTOP }}
-        run: cargo tauri build --bundles ${{ matrix.bundle }}
+        run: cargo tauri build --bundles ${{ matrix.bundles || matrix.bundle }}
 
       - name: 成果物の大きさ
         run: |
