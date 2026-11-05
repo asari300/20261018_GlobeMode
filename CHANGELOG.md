@@ -4,7 +4,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
-**次の版は 0.2.0**（S172 で Cargo・Tauri・Python・npm・VS Code の拡張・Elixir・Gleam の版を 0.2.0 に揃えた。一覧は [architecture.md](doc/architecture.md) の「版を書いている場所」）。S001〜S164 の要点（S048 以降は S168 で足した。内部の整理は束ねた）。日付と比較リンクは公開のときに入れる。GitHub の Release・タグ・PyPI・crates.io・VS Code の Marketplace のどれにも出していない（crates.io に出せないのは Rumoca の git 依存のため。[ADR-0002](doc/adr/0002-rumoca-adapter.md)）。
+**次の版は 0.2.0**（S172 で Cargo・Tauri・Python・npm・VS Code の拡張・Elixir・Gleam の版を 0.2.0 に揃えた。一覧は [architecture.md](doc/architecture.md) の「版を書いている場所」）。S001〜S179 の要点（S048 以降は S168 で、S166〜S179 は S179 で足した。内部の整理は束ねた）。日付と比較リンクは公開のときに入れる。GitHub の Release・タグ・PyPI・crates.io・VS Code の Marketplace のどれにも出していない（crates.io に出せないのは Rumoca の git 依存のため。[ADR-0002](doc/adr/0002-rumoca-adapter.md)）。
 
 ### 運用・計画（P0）
 
@@ -25,6 +25,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - S008: omc 1.27.1 との照合。S5 は判定のある 382 本すべてで一致（P2 完了。[ADR-0010](doc/adr/0010-omc-comparison.md)）。
 - S009: 初期化系のマッチングで冗長な初期条件と初期条件の無い未知数を名指し（[ADR-0011](doc/adr/0011-init-system-matching.md)）。
 - S010: S9（BLT と tearing による代数ループ、非線形の反復変数の start 値）、S10（プリフライトの静的な部分）。
+- S174: 診断が方程式を名指しする所（GM-I7001・GM-E6001 など）で、接続・流れの和・束縛から生まれた方程式の名前に変数の宣言が出ていたのを、残差の式の形（`a.p.v = b.n.v`）に直した。書かれた方程式と診断の範囲は変えていない。
 
 ### P3 シミュレーション
 
@@ -64,10 +65,17 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - S065・S076: 実行結果を CSV でなく列ごとに受ける（ブラウザ・Desktop。10 万点で「実行」から戻るまで 810 → 約 220 ms）。
 - S079・S081・S089・S101・S122: connect グラフがライブラリのモデル（MSL の部品）も引ける。
 - S128・S146: プロットの系列の選択・右の軸・パラメトリック、CSV と PNG の書き出し。
-- S130・S132・S138・S149・S161: プロジェクトの設定 `globe-mode.toml`（整形・lint の規則）、LSP と UI のエディタの定義ジャンプ・ホバー・参照の一覧（Shift+F12）・リネーム（F2）。参照とリネームは同じクラスの中だけ。
+- S130・S132・S138・S149・S161・S166: プロジェクトの設定 `globe-mode.toml`（整形・lint の規則）、LSP と UI のエディタの定義ジャンプ・ホバー・参照の一覧（Shift+F12）・リネーム（F2）。参照とリネームは同じクラスの中の部品と、S166 からクラス名（開いている文書の中。別ファイルのクラス・import の別名は断る）。
 - S141・S142・S150・S151・S154: ファイルを開く・保存、実行の設定（ソルバ・終了時刻・許容誤差・間隔・パラメータの上書きと一覧）、タブと最近使ったファイル。
 - S152: ダークモード（OS に追従、明 / 暗の手動の選択）。
 - S157: 実行を止めたとき、そこまでの列をプロットに残す（[ADR-0033](doc/adr/0033-progress-and-cancel.md)）。
+- S167: ライブラリの木にファイルの中の入れ子のクラスを出し、木の上に検索欄（部分一致、Enter と上下）。MSL 4.1.0 の 6,487 件がアウトラインと過不足なく一致、木に出ない例題は 123 本から 0 本。整形器の `extends` つきクラスの括弧の誤りも直した。
+- S169: プロットの信号の一覧に絞り込み（部分一致・空白で AND・先頭 200 本）、`$` で始まる内部名を既定で隠し、CSV・PNG のファイル名を `モデル名-日付-時刻` に。
+- S170: 進捗・失敗・結果が画面の中に出る（終わったとき 1 回だけスクロール）、2 モデルのファイルを select で選び直せる、モデル名がタブごとに残る、未保存の編集があるタブと同名のファイルを開き直しても編集は消えない。
+- S171: エディタの補完を Rust 側につないだ（型の位置・`Modelica.Blocks.` の後ろ・`pin.` の後ろ。打ちかけでも出る。wasm で 1〜4 ms）。
+- S173: コンパイラの限界（GM-U）で止まったとき「未対応（モデルの誤りではない）」の要約と色、強行（`GM-E8001` だけ効く）は効くときだけ「それでも実行する」、失敗の文面に最初の error を 1 行。
+- S175: キーボードだけで開く・書く・検査・診断へ飛ぶ・実行・止める・保存まで通る（診断と参照の行の button、Ctrl/Cmd+Enter などのショートカット、プロットの `aria-label`、フォーカスの輪郭）。
+- S179: 起動直後の案内（保存したタブが無い初回だけの 3 手順。閉じられる）、スキップリンク（エディタへ・結果へ）、タブの矢印キー・Home・End、未保存の印（●）と再読み込み前の確認。
 - S134・S135: Desktop が `C.UTF-8` の locale で白画面になる不具合の修正と、自動更新（`tauri-plugin-updater`。鍵を登録するまで「未設定」）。
 - S140・S164: アプリの使える流れの点検（調査だけ。[2026-11-04](doc/research/app-flow-2026-11-04.md)、[2026-11-05](doc/research/app-flow-2026-11-05.md)）。
 
