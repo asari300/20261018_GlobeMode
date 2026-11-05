@@ -3,7 +3,7 @@ resolver = "3"
 members = ["src/Rust/mod/globe-mode", "src/Rust/mod/globe-mode-*", "src/Rust/xtask"]
 
 [workspace.package]
-version = "0.0.1"
+version = "0.2.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/asari300/20261018_GlobeMode"
@@ -17,20 +17,20 @@ rust-version = "1.99"
 publish = false
 
 [workspace.dependencies]
-globe-mode-core = { path = "src/Rust/mod/globe-mode-core", version = "0.0.1" }
-globe-mode-ir = { path = "src/Rust/mod/globe-mode-ir", version = "0.0.1" }
-globe-mode-frontend = { path = "src/Rust/mod/globe-mode-frontend", version = "0.0.1" }
-globe-mode-graph = { path = "src/Rust/mod/globe-mode-graph", version = "0.0.1" }
-globe-mode-db = { path = "src/Rust/mod/globe-mode-db", version = "0.0.1" }
-globe-mode-analysis = { path = "src/Rust/mod/globe-mode-analysis", version = "0.0.1" }
-globe-mode-exec = { path = "src/Rust/mod/globe-mode-exec", version = "0.0.1" }
-globe-mode-sim = { path = "src/Rust/mod/globe-mode-sim", version = "0.0.1" }
-globe-mode-protocol = { path = "src/Rust/mod/globe-mode-protocol", version = "0.0.1" }
-globe-mode = { path = "src/Rust/mod/globe-mode", version = "0.0.1" }
-globe-mode-lsp = { path = "src/Rust/mod/globe-mode-lsp", version = "0.0.1" }
-globe-mode-fmt = { path = "src/Rust/mod/globe-mode-fmt", version = "0.0.1" }
-globe-mode-fmi = { path = "src/Rust/mod/globe-mode-fmi", version = "0.0.1" }
-globe-mode-py = { path = "src/Rust/mod/globe-mode-py", version = "0.0.1" }
+globe-mode-core = { path = "src/Rust/mod/globe-mode-core", version = "0.2.0" }
+globe-mode-ir = { path = "src/Rust/mod/globe-mode-ir", version = "0.2.0" }
+globe-mode-frontend = { path = "src/Rust/mod/globe-mode-frontend", version = "0.2.0" }
+globe-mode-graph = { path = "src/Rust/mod/globe-mode-graph", version = "0.2.0" }
+globe-mode-db = { path = "src/Rust/mod/globe-mode-db", version = "0.2.0" }
+globe-mode-analysis = { path = "src/Rust/mod/globe-mode-analysis", version = "0.2.0" }
+globe-mode-exec = { path = "src/Rust/mod/globe-mode-exec", version = "0.2.0" }
+globe-mode-sim = { path = "src/Rust/mod/globe-mode-sim", version = "0.2.0" }
+globe-mode-protocol = { path = "src/Rust/mod/globe-mode-protocol", version = "0.2.0" }
+globe-mode = { path = "src/Rust/mod/globe-mode", version = "0.2.0" }
+globe-mode-lsp = { path = "src/Rust/mod/globe-mode-lsp", version = "0.2.0" }
+globe-mode-fmt = { path = "src/Rust/mod/globe-mode-fmt", version = "0.2.0" }
+globe-mode-fmi = { path = "src/Rust/mod/globe-mode-fmi", version = "0.2.0" }
+globe-mode-py = { path = "src/Rust/mod/globe-mode-py", version = "0.2.0" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -48,6 +48,7 @@ wasm-bindgen = "=0.2.129"
 
 # Rumoca はアダプタ（globe-mode-frontend / globe-mode-exec）からだけ使う。umbrella crate `rumoca` は使わない。
 # rev は v0.10.2（2026-10-04）。更新は MSL のファネルの差分を記録してから行う（doc/adr/0002-rumoca-adapter.md）。
+# rev は GlobeMode の版ごとに固定し、版の途中では上げない（0.2.0 は v0.10.2。上げるのは次の版の作業の最初）。
 rumoca-compile = { git = "https://github.com/CogniPilot/rumoca", rev = "276e82bd0fd48960ac201e782918d28bf19cf7ce", default-features = false }
 # S005: DAE の incidence（方程式 × 未知数）を自前で作るために、DAE の IR と式の射影も同じ rev で使う（rumoca-compile の推移的依存。新しい外部依存は増えない）
 rumoca-ir-dae = { git = "https://github.com/CogniPilot/rumoca", rev = "276e82bd0fd48960ac201e782918d28bf19cf7ce", default-features = false }

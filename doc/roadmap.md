@@ -1015,6 +1015,20 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **次の候補（順位）**: 1 木に入れ子のクラスと検索（例題の 22% が木から選べない）、2 結果と進捗を見える所へ、3 未対応の例題（検査が通らない 35%）の見せ方と force、4 README・CHANGELOG・版の同期、5 開く・モデル名の扱い、6 FMU の説明（ソースのみ）、7 信号の絞り込み、8 キーボードとアクセシビリティ、9 補完の LSP 接続、10 `release.yml` の dry-run の回し直し。WP の案とぶつからない組は調査の 7.2 章。
 - **ユーザーの判断**（WP にしない。調査の 7.3 章）: v0.1 に含める面と版、ブラウザ版の公開先、Desktop の更新の鍵、署名と公証、VS Code・PyPI の公開、Rumoca の rev、上流 issue の提出。
 
+### S172（運用、2026-11-05）で済んだこと
+
+- **版を 0.2.0 に揃えた**（[解説書](sessions/S172-version-0-2-0/解説書.md)）: Cargo（ルートと desktop・leptos・dioxus・web-*）、Tauri、`pyproject.toml`（と fastapi_fmt・streamlit）、Svelte・VS Code の拡張・Astro の `package.json`、Elixir・Gleam の各パッケージ。lock は自分の版の行だけが変わった。書いている場所の一覧は [architecture.md](architecture.md) の 2.4。
+- **Rumoca の rev は GlobeMode の版ごとに固定する**（[ADR-0002](adr/0002-rumoca-adapter.md) の付記）。0.2.0 は v0.10.2 のまま。上流の issue は提出せず貯める。
+- タグ・Release・公開はしていない。
+
+公開の前に残る、ユーザーの判断:
+
+| 判断 | 中身 |
+| --- | --- |
+| 公開の時期 | 0.2.0 のタグ、GitHub の Release、Pages、PyPI、Marketplace のどれをいつ出すか（crates.io は Rumoca の git 依存のため出せない） |
+| 署名と更新の鍵 | Desktop の updater の鍵、署名と公証。鍵はユーザーが作る |
+| `release.yml` の dry run | Desktop の bundle を含む現在の形では回していない（最後は 2026-11-02）。ユーザーの指示で回す |
+
 ## 運用上の決まり
 
 - リリースまでの見積もりと、他のエージェントに渡す並行作業の指示書は [plan/2026-10-30-release-estimate-and-parallel-plan.md](plan/2026-10-30-release-estimate-and-parallel-plan.md)（S033）。
