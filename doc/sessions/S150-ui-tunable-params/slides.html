@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S150 上書きできるパラメータの一覧 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S150 上書きできるパラメータの一覧">
+
+<section class="slide" id="S01">
+  <span class="tag">S150 · 2026-11-04 · P4</span>
+  <h1>上書きできるパラメータの一覧</h1>
+  <p class="lead">S142 の持ち越し。名前を手で打つ代わりに、一覧から選ぶ</p>
+  <div class="big">検査のあとに一覧、値を打った行だけ送る</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li><code>Backend.tunableParameters(model)</code> を 1 つ足す（wasm と LSP）</li>
+    <li>各行に名前・モデルの値・単位・説明と、値を打つ欄</li>
+    <li>打った行だけ <code>名前=値</code> と同じ形で <code>settings</code> へ</li>
+    <li>多いときは絞り込みの欄が 1 つ</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>口は既存の関数を通すだけ</h1>
+  <table class="compact">
+    <tr><th>層</th><th>追加</th></tr>
+    <tr><td>facade</td><td>既にある <code>Workspace::tunable_parameters</code>（変更なし）</td></tr>
+    <tr><td>wasm</td><td><code>Workspace.tunable_parameters</code>、worker と client に <code>tunable_parameters</code></td></tr>
+    <tr><td>LSP</td><td><code>globe/tunableParameters</code>（<code>ParametersResponse</code> の JSON）</td></tr>
+    <tr><td>UI</td><td><code>SimSettings.svelte</code> の中。App は検査のたびに合図の値を 1 つ渡す</td></tr>
+  </table>
+  <p>値の名前は Rust の <code>TunableParameter</code> のまま <code>default</code>（モデルの値）。</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>流れ</h1>
+  <svg class="fig" viewBox="0 0 800 200" role="img" aria-label="検査のあと、SimSettings が一覧を取り、打った行が settings に入って実行に渡る">
+    <rect class="svg-box" x="20" y="70" width="140" height="60" rx="10"/>
+    <text class="svg-text" x="90" y="105" text-anchor="middle">検査</text>
+    <rect class="svg-box" x="220" y="70" width="180" height="60" rx="10"/>
+    <text class="svg-text" x="310" y="105" text-anchor="middle">一覧を取る</text>
+    <rect class="svg-box-accent" x="460" y="70" width="140" height="60" rx="10"/>
+    <text class="svg-text-b" x="530" y="105" text-anchor="middle">値を打つ</text>
+    <rect class="svg-box" x="650" y="70" width="130" height="60" rx="10"/>
+    <text class="svg-text" x="715" y="105" text-anchor="middle">実行</text>
+    <line class="svg-line" x1="160" y1="100" x2="220" y2="100"/>
+    <line class="svg-line" x1="400" y1="100" x2="460" y2="100"/>
+    <line class="svg-line" x1="600" y1="100" x2="650" y2="100"/>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>試験</h1>
+  <table class="compact">
+    <tr><th>試験</th><th>中身</th><th>結果</th></tr>
+    <tr><td>cargo test</td><td>wasm と LSP に Decay の <code>k</code>、存在しないモデルはエラー</td><td class="ok">通過</td></tr>
+    <tr><td>test_ui</td><td>Decay の一覧に <code>k</code>、2 を打って x(1) = e⁻²、ChuaCircuit で絞り込み</td><td class="ok">作業記録に記載</td></tr>
+  </table>
+  <pre><code>cargo test -p globe-mode-wasm -p globe-mode-lsp -p globe-mode
+mise run wasm:build
+cd src/Svelte &amp;&amp; pnpm check
+uv run python src/Svelte/tests/test_ui.py</code></pre>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ul>
+    <li>設定のモデルごとの保存</li>
+    <li>開始時刻・固定刻み・予算の欄</li>
+    <li>min / max の検査（今は表示しない）</li>
+    <li>ダークモード</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

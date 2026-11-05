@@ -21,6 +21,7 @@
 //! | `globe/hover` | `{file, line, character}`（`globe/definition` と同じ） | `{contents, range}` か null（S149。名前の宣言の 1 行（クラスは見出し、部品は `;` まで。説明文字列を含む）と、カーソルの名前の Range。wasm の `hover` と同じ形） |
 //! | `globe/solvers` | なし | ソルバの登録表（`[{name, status, description, instead?}]`。S142。wasm の `solvers` と同じ） |
 //! | `globe/exportFmu` | `{model, fmiVersion?, outDir}`（既定は FMI 2。`build` はしない） | `{path}`（S144。`outDir/<名前>.fmu` と展開した `outDir/<名前>/` を書く。DAE まで変換できなければ -32000） |
+//! | `globe/tunableParameters` | `{model}` | `ParametersResponse` の JSON（S150。上書きできるパラメータの一覧。wasm の `tunable_parameters` と同じ。DAE まで変換できなければ -32000） |
 //! | `globe/librarySource` | `{path}`（完全修飾名） | `{file, text}`（S127。そのクラスを定義するライブラリのファイル。無ければ -32000） |
 //!
 //! 設定ファイル（S130）: `initialize` の `rootUri`（無ければ `rootPath`）から上へたどって最初の `globe-mode.toml` を
@@ -333,6 +334,16 @@ impl Server {
             }
             "globe/check" => match params["model"].as_str() {
                 Some(model) => reply(id, json!(self.ws.check(model))),
+                None => error(id, -32602, "params.model が文字列でない"),
+            },
+            "globe/tunableParameters" => match params["model"].as_str() {
+                Some(model) => match self.ws.tunable_parameters(model) {
+                    Ok(r) => reply(id, json!(r)),
+                    Err(ds) => {
+                        let m: Vec<&str> = ds.iter().map(|d| d.message.as_str()).collect();
+                        error(id, -32000, &m.join("; "))
+                    }
+                },
                 None => error(id, -32602, "params.model が文字列でない"),
             },
             "globe/simulate" => {
@@ -1132,6 +1143,32 @@ mod tests {
             s.handle(json!({"id": 3, "method": "globe/exportFmu", "params": {"model": "Decay"}}));
         assert_eq!(r[0]["error"]["code"], -32602);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn tunable_parameters_are_listed() {
+        let mut s = Server::new(&[]).unwrap();
+        let src = "model D\n  parameter Real k(unit = \"1/s\") = 1 \"rate\";\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -k * x;\nend D;\n";
+        s.handle(
+            json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+            "uri": "D.mo", "languageId": "modelica", "version": 1, "text": src}}}),
+        );
+        let r = s.handle(
+            json!({"id": 1, "method": "globe/tunableParameters", "params": {"model": "D"}}),
+        );
+        let p = &r[0]["result"]["parameters"][0];
+        assert_eq!(
+            (p["name"].as_str(), p["default"].as_f64()),
+            (Some("k"), Some(1.0)),
+            "{}",
+            r[0]
+        );
+        assert_eq!(p["unit"], "1/s");
+        assert_eq!(p["description"], "rate");
+        let r = s.handle(
+            json!({"id": 2, "method": "globe/tunableParameters", "params": {"model": "Nope"}}),
+        );
+        assert_eq!(r[0]["error"]["code"], -32000);
     }
 
     #[test]

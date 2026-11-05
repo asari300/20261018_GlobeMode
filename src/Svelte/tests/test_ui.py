@@ -52,7 +52,7 @@ CIRCUIT = (
 LONG = "model Long\n  Real x(start = 0, fixed = true);\nequation\n  der(x) = sin(100 * time);\n  annotation(experiment(StopTime = 1000));\nend Long;\n"
 # 実行の設定（S142）: パラメータ k を上書きできる。experiment の Tolerance が初期値に出る
 DECAY_K = (
-    "model DecayK\n  parameter Real k = 1;\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -k * x;\n"
+    "model DecayK\n  parameter Real k = 1 \"減衰の速さ\";\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -k * x;\n"
     "  annotation(experiment(StopTime = 3, Tolerance = 1e-8));\nend DecayK;\n"
 )
 CHUA = "Modelica.Electrical.Analog.Examples.ChuaCircuit"
@@ -110,6 +110,8 @@ def main() -> int:
         assert rows.count() > 0, "info の診断（GM-I10001）は出るはず"  # 描画の確認も兼ねる
         assert page.locator("tr.error").count() == 0, rows.all_inner_texts()
         print(f"Decay: 診断 {rows.count()} 行、error 0 行: {rows.all_inner_texts()}")
+        # 上書きできるパラメータの一覧（S150）: 検査のあとに取る。この Decay は parameter が無いので「無い」と出る
+        expect(page.locator("[data-params]")).to_contain_text("上書きできるパラメータは無い", timeout=60_000)
 
         # 定義ジャンプ（S138）: 4 行目 `  der(x) = -x;` の末尾の x（`;` の手前）で F12 → 宣言の行へ
         page.locator(".cm-content").focus()
@@ -213,6 +215,9 @@ def main() -> int:
         page.keyboard.insert_text(DECAY_K)
         check()
         expect(tolerance).to_have_value("1e-8")
+        k_row = page.locator("[data-param=k]")  # DecayK の k（モデルの値 1、説明つき）が一覧に出る
+        expect(k_row).to_be_visible(timeout=60_000)
+        assert "減衰の速さ" in k_row.inner_text() and page.get_by_label("k の値", exact=True).get_attribute("placeholder") == "1", k_row.inner_text()
         expect(page.locator("[data-origin=tolerance]")).to_have_text("experiment")
         stop.fill("1")
         page.get_by_label("パラメータの上書き").fill("k = 2")
@@ -222,6 +227,15 @@ def main() -> int:
         assert "許容誤差 1e-8（experiment）" in last, last
         x1 = json.loads(page.locator("[data-final]").get_attribute("data-final"))["x"]
         assert abs(x1 - math.exp(-2)) < 1e-4, x1
+        # 一覧の行に打った値も同じ道で送られる（S150）: textarea を空にして一覧の k に 2
+        page.get_by_label("パラメータの上書き").fill("")
+        page.get_by_label("k の値", exact=True).fill("2")
+        simulate()
+        assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
+        xk = json.loads(page.locator("[data-final]").get_attribute("data-final"))["x"]
+        assert abs(xk - math.exp(-2)) < 1e-4, xk
+        print(f"一覧の k = 2: x(1) = {xk:.6f}")
+        page.get_by_label("k の値", exact=True).fill("")
         page.get_by_label("パラメータの上書き").fill("k 2")  # 名前=値でない行は実行しないで理由を出す
         expect(page.get_by_role("alert")).to_contain_text("名前=値")
         print(f"実行の設定: x(2) = {x2:.6f}（e⁻² = {math.exp(-2):.6f}）、k = 2 で x(1) = {x1:.6f}、{last!r}")
@@ -317,6 +331,15 @@ def main() -> int:
             assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
             assert page.locator("tr.error").count() == 0, rows.all_inner_texts()  # 診断は 0 行でよい（experiment がある）
             print(f"ChuaCircuit の検査: {took:.1f} s、診断 {rows.count()} 行、error 0 行")
+            # 上書きできるパラメータの一覧（S150）: 絞り込みで本数が減る
+            all_params = page.locator("[data-param]")
+            expect(all_params.first).to_be_visible(timeout=120_000)
+            n_all = all_params.count()
+            page.get_by_label("パラメータの絞り込み").fill("Ro.")
+            n_some = all_params.count()
+            assert n_all > 12 and 0 < n_some < n_all, (n_all, n_some)
+            print(f"ChuaCircuit の上書きできるパラメータ: {n_all} 本、「Ro.」で {n_some} 本")
+            page.get_by_label("パラメータの絞り込み").fill("")
 
             t = time.perf_counter()
             simulate()

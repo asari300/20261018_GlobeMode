@@ -95,6 +95,8 @@ export class GlobeWorker {
   async check(model) { return JSON.parse(await this.#call("check", { model })); }
   async graph(model, depth) { return JSON.parse(await this.#call("graph", { model, depth })); }
   async simulate(request) { return JSON.parse(await this.#call("simulate", { request: JSON.stringify(request) })); }
+  // 上書きできるパラメータの一覧 {model, parameters: [{name, default, unit?, min?, max?, description?}] | null, diagnostics}（S150）。変換できなければ reject
+  async tunableParameters(model) { return JSON.parse(await this.#call("tunable_parameters", { model })); }
   // ソースの FMU（FMI 2 か 3、build 無し）の zip を Uint8Array で（S144）。作れなければ reject
   exportFmu(model, fmiVersion = 2) { return this.#call("export_fmu", { model, fmiVersion }); }
   format(text, indent = 2, insertOrigin = true) { return this.#call("format", { text, indent, insertOrigin }); }

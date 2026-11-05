@@ -52,6 +52,16 @@ export interface ResolvedSettings {
   origins: Record<"start_time" | "stop_time" | "tolerance" | "interval" | "solver", SettingOrigin>;
 }
 
+/** 再コンパイル無しに上書きできるパラメータの 1 行（`TunableParameter`。S150。default はモデルの値） */
+export interface TunableParameter {
+  name: string;
+  default: number;
+  unit?: string;
+  min?: number;
+  max?: number;
+  description?: string;
+}
+
 /** ソルバの登録表の 1 行（`globe_mode_sim::solvers::SolverEntry`）。使えるのは status.kind が available のもの。 */
 export interface SolverEntry {
   name: string;

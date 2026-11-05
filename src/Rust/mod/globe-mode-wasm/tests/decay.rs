@@ -370,3 +370,24 @@ fn decay_exports_a_source_fmu_as_bytes() {
     assert!(has(b"modelDescription.xml") && has(b"sources/"));
     assert!(ws.inner().export_fmu_bytes("Nope", 2).is_err()); // export_fmu の Err は JsValue で、ネイティブでは作れない
 }
+
+#[test]
+fn decay_lists_tunable_parameters() {
+    // S150: UI の実行の設定の一覧。Decay の k が既定値 1 で出る
+    let mut ws = Workspace::new();
+    for (name, text) in package() {
+        ws.put_file(&name, text);
+    }
+    let r = ws
+        .inner()
+        .tunable_parameters("GlobeModeValidation.Simulation.Decay");
+    let r = r.ok().unwrap();
+    let k = r
+        .parameters
+        .unwrap()
+        .into_iter()
+        .find(|p| p.name == "k")
+        .unwrap();
+    assert_eq!(k.default, 1.0);
+    assert!(ws.inner().tunable_parameters("Nope").is_err());
+}
