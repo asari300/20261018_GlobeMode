@@ -294,7 +294,6 @@
       + ` ready_ms=${ms(ready)} decay_ms=${ms(decay)} msl_ms=${mslOk ? ms(mslMs) : "-"}`
       + (fail0 || ng.length ? ` failure=${[fail0, ...ng].filter(Boolean).join(" / ").replace(/\s+/g, " ")}` : "");
     console.log(line);
-    void fetch(location.href).then((r) => console.log(`GM-ISO coop=${r.headers.get("cross-origin-opener-policy")} coep=${r.headers.get("cross-origin-embedder-policy")} sab=${typeof SharedArrayBuffer}`)); // S159 一時
     void tauri?.bench(line);
   }
 

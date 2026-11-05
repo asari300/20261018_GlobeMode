@@ -1,10 +1,5 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "app": {
-    "security": {
-      "headers": { "Cross-Origin-Opener-Policy": "same-origin", "Cross-Origin-Embedder-Policy": "require-corp" }
-    }
-  },
   "bundle": {
     "externalBin": []
   }
