@@ -354,7 +354,7 @@ Svelte の UI は `Backend` インターフェースだけに依存する。実�
 - Leptos 版と Dioxus 版は `src/Rust/apps/experimental/` に、機能を絞って作る（エディタ、検査パネル、グラフ）。Leptos 版（S153）は別の workspace で、facade `globe-mode` を同じ wasm にリンクする（UI と計算が 1 つの wasm。メインスレッドが止まるのは試験版だけの例外。[ADR-0035](adr/0035-experimental-ui-leptos.md)）。Dioxus 版（S155）は同じ作りで、`dx` を使わず `cargo build` → `wasm-bindgen`（[ADR-0036](adr/0036-experimental-ui-dioxus.md)）。
 - 同じ測定ハーネスで比べ、結果を `doc/bench/ui.md` に書く。
   - 測定項目: 起動時間、RSS / PSS、CPU、フレーム時間、バンドルサイズ
-  - 環境: Linux、Windows、Android
+  - 環境: Linux、Windows、Android。ブラウザ版の 3 UI は Linux・Windows・macOS を手動の `ui-bench.yml` で測る（S156）
   - 測り方は [ADR-0034](adr/0034-ui-bench-method.md)（Proposed。S125）。最初は起動から操作可能まで・Decay・MSL と ChuaCircuit・RSS・バンドルの 5 つを、`GM-SMOKE` の行の時刻で測る。CPU・フレーム時間・PSS は持ち越し
 
 ## 7. 検証の基盤

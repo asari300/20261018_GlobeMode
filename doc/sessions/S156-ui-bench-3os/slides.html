@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S156 ui-bench-3os — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S156 ui-bench-3os">
+
+<section class="slide" id="S01">
+  <span class="tag">S156 · 2026-11-05 · P7</span>
+  <h1>3 UI を 3 OS で測った</h1>
+  <p class="lead">Svelte・Leptos・Dioxus のブラウザ版を、Actions の Linux・Windows・macOS で測った</p>
+  <div class="big">run <b>41984237319</b> で 3 OS とも成功。ブラウザ版の 3 UI × 3 OS の欄がそろった</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>P7 の完了条件「3 UI × 3 OS の比較」の残り、Windows と macOS の列</li>
+    <li>手動だけのワークフロー <code>ui-bench.yml</code> を足す。OS ごとに 3 UI をビルドして測る</li>
+    <li>結果を <code>doc/bench/ui.md</code> に足し、手元の WSL2 の列は残す</li>
+    <li>やらない: Tauri の測定、CPU・フレーム時間、UI のコードの変更、ci.yml への追加</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと（ADR-0034 の付記）</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>ランナー</td><td>ubuntu-latest、windows-latest、macos-latest</td><td>公開リポジトリの標準ランナー</td></tr>
+    <tr><td>Rust</td><td>全 OS でランナーの rustup</td><td>Windows で mise の shim の cargo が失敗した前例</td></tr>
+    <tr><td>Python</td><td>uv run の no-project と playwright の版指定</td><td>uv sync は maturin で Rust をビルドしてしまう</td></tr>
+    <tr><td>列の分け方</td><td>Actions の Linux は別の列 linux-actions</td><td>手元の WSL2 と条件が違う</td></tr>
+    <tr><td>RSS</td><td>Windows と macOS は psutil</td><td>/proc が無い。macOS はピークが取れない</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">測定</span>
+  <h1>起動と MSL（ms、3 回の中央値）</h1>
+  <table class="compact">
+    <tr><th>UI</th><th>起動 Linux</th><th>Windows</th><th>macOS</th><th>MSL Linux</th><th>Windows</th><th>macOS</th></tr>
+    <tr><td>Svelte</td><td>304</td><td>192</td><td>450</td><td>2,061</td><td>1,352</td><td>2,106</td></tr>
+    <tr><td>Leptos</td><td>150</td><td>70</td><td>234</td><td>1,632</td><td>980</td><td>2,007</td></tr>
+    <tr><td>Dioxus</td><td>146</td><td>94</td><td>251</td><td>1,565</td><td>934</td><td>1,650</td></tr>
+  </table>
+  <p>ランナーは共有で、値は目安。macOS は M1 の 3 vCPU・7 GB で、他の 4 vCPU・16 GB より遅い。</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">測定</span>
+  <h1>RSS とバンドル（MiB）</h1>
+  <table class="compact">
+    <tr><th>UI</th><th>RSS Linux</th><th>Windows</th><th>macOS</th><th>バンドル</th></tr>
+    <tr><td>Svelte</td><td>583.4</td><td>576.4</td><td>611.6</td><td>18.7</td></tr>
+    <tr><td>Leptos</td><td>320.0</td><td>294.6</td><td>305.8</td><td>12.5</td></tr>
+    <tr><td>Dioxus</td><td>325.6</td><td>297.4</td><td>305.5</td><td>12.7</td></tr>
+  </table>
+  <p>Svelte だけ大きいのは CodeMirror・プロット・graph・Worker を持つため。同じ仕事ではない。</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">再現手順</span>
+  <h1>再現と、試走で見つけたこと</h1>
+  <pre><code>gh workflow run ui-bench.yml
+gh run download RUN_ID -D ui-bench
+uv run python src/Svelte/tests/bench_ui.py merge ui-bench/*/ui-bench.json
+uv run python src/Svelte/tests/bench_ui.py report</code></pre>
+  <ul>
+    <li>1 回目は macOS で失敗。bash が全角文字の引数を壊し、JSON の書き込みで落ちた</li>
+    <li>PYTHONUTF8 と ASCII の source で直し、2 回目で 3 OS とも成功</li>
+  </ul>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>Svelte Tauri の macOS（desktop.yml に dmg を足す）</li>
+    <li>CPU・フレーム時間・PSS、macOS の RSS のピーク</li>
+    <li>ランナーの揺れを見るための繰り返し、ui-bench.yml を main から dispatch</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
