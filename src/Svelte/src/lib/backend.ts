@@ -23,6 +23,8 @@ export interface Backend {
   lint(text: string): Promise<LintMessage[]>;
   /** ライブラリの木の prefix（空ならトップレベル）の直下の子（S127）。ライブラリが無ければ空。 */
   libraryTree(prefix: string): Promise<TreeEntry[]>;
+  /** ライブラリのクラス（ファイルの中の入れ子を含む）を名前の部分一致で探す（S167。大文字小文字を区別せず、`.` を含めると完全修飾名に当てる。最大 50 件、近い順）。 */
+  librarySearch(query: string): Promise<TreeEntry[]>;
   /** ライブラリのクラス path を定義するファイルの名前と本文（S127）。その名前で setFile するとライブラリのファイルを差し替える。 */
   librarySource(path: string): Promise<{ file: string; text: string }>;
   /** setFile 済みの file の位置（行は 0 始まり、列は UTF-16）にある名前の定義（S138）。名前が引けなければ null。 */

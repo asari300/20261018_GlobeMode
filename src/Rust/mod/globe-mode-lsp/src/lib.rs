@@ -24,6 +24,7 @@
 //! | `globe/solvers` | なし | ソルバの登録表（`[{name, status, description, instead?}]`。S142。wasm の `solvers` と同じ） |
 //! | `globe/exportFmu` | `{model, fmiVersion?, outDir}`（既定は FMI 2。`build` はしない） | `{path}`（S144。`outDir/<名前>.fmu` と展開した `outDir/<名前>/` を書く。DAE まで変換できなければ -32000） |
 //! | `globe/tunableParameters` | `{model}` | `ParametersResponse` の JSON（S150。上書きできるパラメータの一覧。wasm の `tunable_parameters` と同じ。DAE まで変換できなければ -32000） |
+//! | `globe/librarySearch` | `{query}`（名前の部分一致。大文字小文字を区別しない。`.` を含めると完全修飾名） | 同じ形の項目の配列（S167。最大 50 件、近い順。ファイルの中の入れ子のクラスも出る） |
 //! | `globe/librarySource` | `{path}`（完全修飾名） | `{file, text}`（S127。そのクラスを定義するライブラリのファイル。無ければ -32000） |
 //!
 //! 設定ファイル（S130）: `initialize` の `rootUri`（無ければ `rootPath`）から上へたどって最初の `globe-mode.toml` を
@@ -472,15 +473,12 @@ impl Server {
             },
             "globe/libraryTree" => {
                 let prefix = params["prefix"].as_str().unwrap_or("");
-                let entries: Vec<Value> = self
-                    .tree()
-                    .children(prefix)
-                    .iter()
-                    .map(|e| json!({"name": e.name, "path": e.path, "kind": e.kind,
-                        "description": e.description, "file": e.file, "hasChildren": e.has_children}))
-                    .collect();
-                reply(id, json!(entries))
+                reply(id, json!(tree_entries_json(&self.tree().children(prefix))))
             }
+            "globe/librarySearch" => match params["query"].as_str() {
+                Some(q) => reply(id, json!(tree_entries_json(&self.tree().search(q, 50)))),
+                None => error(id, -32602, "params.query が文字列でない"),
+            },
             "globe/librarySource" => match params["path"].as_str() {
                 Some(path) => match self.tree().file(path).map(|f| (f.to_string(), std::fs::read_to_string(f))) {
                     Some((file, Ok(text))) => reply(id, json!({"file": file, "text": text})),
@@ -766,6 +764,17 @@ fn error(id: Option<Value>, code: i32, message: &str) -> Vec<Value> {
 fn publish(uri: &str, diagnostics: &[lsp_types::Diagnostic]) -> Value {
     json!({"jsonrpc": "2.0", "method": "textDocument/publishDiagnostics",
            "params": {"uri": uri, "diagnostics": diagnostics}})
+}
+
+/// ライブラリの木の項目の JSON（`globe/libraryTree`・`globe/librarySearch`。wasm の `library_tree`・`library_search` も使う）。
+pub fn tree_entries_json(entries: &[globe_mode_fmt::TreeEntry<'_>]) -> Vec<Value> {
+    entries
+        .iter()
+        .map(|e| {
+            json!({"name": e.name, "path": e.path, "kind": e.kind,
+                "description": e.description, "file": e.file, "hasChildren": e.has_children})
+        })
+        .collect()
 }
 
 /// URI をワークスペースのパスにする。`file:` はパーセントを戻した path、それ以外は URI の文字列のまま。
@@ -1263,6 +1272,44 @@ mod tests {
         let r =
             s.handle(json!({"id": 5, "method": "globe/librarySource", "params": {"path": "Nope"}}));
         assert_eq!(r[0]["error"]["code"], -32000);
+        // S167: ファイルの中の入れ子のクラスも木の子になり、検索で見つかる。開くのは定義するファイル
+        let r = s.handle(json!({"id": 6, "method": "globe/libraryTree", "params": {"prefix": "GlobeModeValidation.Components"}}));
+        let names: Vec<_> = r[0]["result"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["name"].as_str().unwrap())
+            .collect();
+        assert!(
+            names.contains(&"Resistor") && names.contains(&"Switch"),
+            "{names:?}"
+        );
+        let r = s.handle(
+            json!({"id": 7, "method": "globe/librarySearch", "params": {"query": "resis"}}),
+        );
+        let hit = &r[0]["result"][0];
+        assert_eq!(
+            hit["path"], "GlobeModeValidation.Components.Resistor",
+            "{}",
+            r[0]
+        );
+        assert!(
+            hit["file"].as_str().unwrap().ends_with("Components.mo"),
+            "{hit}"
+        );
+        let r = s.handle(
+            json!({"id": 8, "method": "globe/librarySource", "params": {"path": hit["path"]}}),
+        );
+        assert!(
+            r[0]["result"]["text"]
+                .as_str()
+                .unwrap()
+                .contains("model Resistor"),
+            "{}",
+            r[0]
+        );
+        let r = s.handle(json!({"id": 9, "method": "globe/librarySearch", "params": {"query": 1}}));
+        assert_eq!(r[0]["error"]["code"], -32602);
     }
 
     #[test]

@@ -310,6 +310,28 @@ fn library_tree_opens_a_model_file_as_the_document() {
             .any(|e| e["name"] == "Simulation" && e["hasChildren"] == true),
         "{sim:?}"
     );
+    // S167: 入れ子のクラスも木の子で、検索で見つかり、開くのは定義するファイル
+    let nested: serde_json::Value =
+        serde_json::from_str(&ws.tree_children("GlobeModeValidation.Components")).unwrap();
+    assert!(
+        nested
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["name"] == "Resistor"),
+        "{nested}"
+    );
+    let found: serde_json::Value = serde_json::from_str(&ws.tree_search("RESIS", 5)).unwrap();
+    assert_eq!(
+        found[0]["path"], "GlobeModeValidation.Components.Resistor",
+        "{found}"
+    );
+    assert!(
+        ws.tree_source("GlobeModeValidation.Components.Resistor")
+            .unwrap()
+            .1
+            .contains("model Resistor")
+    );
     let model = "GlobeModeValidation.Simulation.Decay";
     let (file, text) = ws.tree_source(model).unwrap();
     let (file, text) = (file.to_string(), text.replace("k = 1", "k = 2"));

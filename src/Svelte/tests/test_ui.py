@@ -494,6 +494,33 @@ def main() -> int:
             hover_over("Basic.Resistor Ro", "Resistor")
             expect(tip).to_contain_text("Ideal linear electrical resistor", timeout=30_000)
             print(f"ChuaCircuit のホバー: {tip.inner_text()!r}")
+            # 入れ子のクラスと検索（S167）: 検索欄に PID_Con と打って Enter（キーボードだけ）で、Blocks/package.mo の中の入れ子のクラスが開く
+            pid = "Modelica.Blocks.Examples.PID_Controller"
+            box = page.get_by_label("ライブラリを検索")
+            t = time.perf_counter()
+            box.fill("PID_Con")
+            expect(page.locator("#library-hits [role=option]").first).to_contain_text(pid, timeout=30_000)
+            found = time.perf_counter() - t
+            box.press("Enter")
+            expect(page.get_by_label("モデル名")).to_have_value(pid, timeout=60_000)
+            expect(page.locator(".cm-content")).to_contain_text("model PID_Controller")
+            check()
+            assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
+            assert page.locator("tr.error").count() == 0, rows.all_inner_texts()
+            print(f"検索 PID_Con: 候補まで {found:.2f} s、Enter で PID_Controller を開いて検査 error 0 行")
+            # 木からも同じクラスへ行ける: Blocks（ファイルの package.mo）の入れ子の Examples を開き、Sources.Sine は別のファイルの中の入れ子
+            page.get_by_label("モデル名").fill("")
+            for path in ["Modelica.Blocks", "Modelica.Blocks.Examples"]:
+                page.locator(f'.library li[data-path="{path}"] > button').click(force=True)
+            page.locator(f'.library li[data-path="{pid}"] > button').click(force=True)
+            expect(page.get_by_label("モデル名")).to_have_value(pid, timeout=60_000)
+            sine = "Modelica.Blocks.Sources.Sine"
+            page.get_by_label("ライブラリを検索").fill("sources.sine")
+            expect(page.locator("#library-hits [role=option]").first).to_contain_text(sine, timeout=30_000)
+            page.get_by_label("ライブラリを検索").press("Enter")
+            expect(page.get_by_label("モデル名")).to_have_value(sine, timeout=60_000)
+            expect(page.locator(".cm-content")).to_contain_text("package Sources")  # 開くのは定義するファイル全体（CodeMirror は見える範囲だけを描くので Sine の行はまだ無い）
+            print("木と検索: Blocks.Examples.PID_Controller と Blocks.Sources.Sine（入れ子のクラス）が開いた")
         else:
             print("public/msl/MSL.json が無いので MSL の試験は飛ばす")
         # ライブラリに構文の誤りのファイルがあっても読み、読み飛ばしを GM-W1001 の行（ファイル名は notes）で出す（S071）。
