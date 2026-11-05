@@ -10,7 +10,7 @@ GlobeMode checks, simulates and edits [Modelica](https://modelica.org/) models. 
 
 - **Checks before simulation** (S0 to S10): syntax, names, types, connections, equation/variable balance, structural singularity, index, initialization, algebraic loops, parameter and start-value evaluation. Errors name the reason a model cannot be simulated. The balance check agrees with OpenModelica's `omc checkModel()` on all 382 MSL examples that have a verdict ([doc/omc-compare.md](doc/omc-compare.md)).
 - **Simulation** with 20+ solvers (`bdf`, `dopri45`, `auto`, `esdirk34`, `radau5`, `rk4`, ...; `cvode` and `ida` only in a build with the `sundials` feature), parameter overrides, CSV and MAT v4 output, progress and cancel.
-- **Editing**: formatter, lint, completion, hover, go-to-definition, references and rename (inside one class) in the language server, the VS Code extension and the browser/desktop/Android UI; library tree, plot, connect graph, tabs, open/save, dark mode.
+- **Editing**: formatter, lint, completion, hover, go-to-definition, references and rename (components and class names, within the open document) in the language server, the VS Code extension and the browser/desktop/Android UI; library tree, plot, connect graph, tabs, open/save, dark mode.
 - **FMU export** (FMI 2.0 and 3.0, Model Exchange and Co-Simulation) from the CLI, the UI and every language API. FMI import is not implemented.
 - **APIs**: Rust, Python (PyO3), C ABI, Zig, Julia, Elixir, Gleam, WebAssembly.
 
@@ -63,13 +63,13 @@ GlobeMode は Rust で作る OSS の Modelica IDE。同じ Rust のコアを、C
 
 - **実行前の検査**（S0〜S10）: 構文、名前、型、接続、方程式数と変数数、構造特異、インデックスと状態選択、初期化、代数ループ、パラメータと start 値の評価。実行できない理由を名指しする。方程式数と変数数（S5）は OpenModelica の `omc checkModel()` と、判定のある MSL の例題 382 本すべてで一致した（omc は照合のために別プロセスで呼ぶだけ。[doc/omc-compare.md](doc/omc-compare.md)）。
 - **シミュレーション**: 20 以上のソルバ（`bdf`・`dopri45`・`auto`・`esdirk34`・`radau5`・`rk4` など。`cvode`・`ida` は feature `sundials` のビルドだけ。一覧は [doc/msl-solvers.md](doc/msl-solvers.md)）、パラメータの上書き、CSV と MAT v4 の出力、進捗と中断。
-- **編集**: 整形・lint・補完・ホバー・定義ジャンプ・参照・リネーム（同じクラスの中）を、言語サーバ、VS Code の拡張、ブラウザ・Desktop・Android の UI から。UI にはライブラリツリー、プロット（系列の選択・右の軸・CSV / PNG の書き出し）、connect グラフ、タブ、ファイルを開く・保存、実行の設定、FMU の書き出し、ダークモードがある。
+- **編集**: 整形・lint・補完・ホバー・定義ジャンプ・参照・リネーム（部品とクラス名。開いている文書の中）を、言語サーバ、VS Code の拡張、ブラウザ・Desktop・Android の UI から。UI にはライブラリツリー、プロット（系列の選択・右の軸・CSV / PNG の書き出し）、connect グラフ、タブ、ファイルを開く・保存、実行の設定、FMU の書き出し、ダークモードがある。
 - **FMU の書き出し**: FMI 2.0・3.0 の Model Exchange・Co-Simulation を、CLI・UI・各言語の API から。FMI の読み込みは未実装。
 - **API**: Rust（facade `globe-mode`）、Python（PyO3）、C ABI、Zig、Julia、Elixir、Gleam、WebAssembly。
 
 できていないもの: FMI の読み込み、SSP、Diagram / Icon / Documentation ビュー、自前のコンパイラ（Track B）、署名したインストーラと自動更新（鍵を登録するまで更新は未設定）、ブラウザ版の公開。順位つきの一覧は [doc/features.md](doc/features.md)、順序は [doc/roadmap.md](doc/roadmap.md)。
 
-UI のキーボード（ブラウザ・Desktop・Android。macOS は Ctrl の代わりに Cmd。エディタの中でも入力欄でも効く）: Ctrl+Enter 実行（CodeMirror の「空行を挿入」は覆う）、Ctrl+Shift+Enter 検査、Ctrl+. 止める、Ctrl+S 保存（Desktop は Ctrl+Shift+S で名前を付けて保存）、Ctrl+O 開く。診断と参照の行は本物の button で、Tab で選んで Enter か Space を押すとエディタの該当位置へ移る。プロットの canvas には信号名と時間の範囲の代替テキストが付く。
+UI のキーボード（ブラウザ・Desktop・Android。macOS は Ctrl の代わりに Cmd。エディタの中でも入力欄でも効く）: Ctrl+Enter 実行（CodeMirror の「空行を挿入」は覆う）、Ctrl+Shift+Enter 検査、Ctrl+. 止める、Ctrl+S 保存（Desktop は Ctrl+Shift+S で名前を付けて保存）、Ctrl+O 開く。診断と参照の行は本物の button で、Tab で選んで Enter か Space を押すとエディタの該当位置へ移る。プロットの canvas には信号名と時間の範囲の代替テキストが付く。ページの先頭にスキップリンク（エディタへ・結果へ）があり、タブは左右の矢印・Home・End で移れ、未保存のタブには ● が付く。初めて開いたとき（保存したタブが無いとき）だけ、はじめの 3 手順の案内が出る（閉じられる）。
 
 ### 使い始め方
 
@@ -194,7 +194,7 @@ MSL 4.1.0 の例題 566 本のうち、S0〜S10 の検査を通るのは 369 本
 そのほかの限界:
 
 - `globe` を crates.io には出せない。Rumoca を git 依存で固定しているため（[ADR-0002](doc/adr/0002-rumoca-adapter.md)）。
-- 参照・リネームの範囲は、開いている文書の、カーソルのあるクラスの中だけ。別ファイル・ライブラリ全体の参照は未。
+- 参照・リネームの範囲は、開いている文書の中の部品とクラス名（S166）。別ファイル・ライブラリ全体の参照は未。
 - 補完は予約語と本文の単語だけ（UI。言語サーバの補完は UI につないでいない）。
 - ライブラリツリーに検索は無い。
 - Desktop の自動更新は、鍵を登録するまで「未設定」。
@@ -259,7 +259,7 @@ flowchart LR
 | MSL などライブラリの型での connect の型の突き合わせ | ワークスペースの型だけ | `--library` で読んだ型は索引に無く、突き合わせを省いている |
 | connect の向きの検査（input 同士、output 同士） | 無い | 型が合っていてもつなげない組み合わせがある |
 | 配列の大きさ・単位の食い違いの検査 | 無い | 型の検査の次の段 |
-| 参照・リネームの範囲の拡張 | 定義ジャンプ・参照・リネーム・ホバーは LSP と UI（ブラウザ・Desktop・Android の F12・Shift+F12・F2）にある（S132・S138・S149・S161）。範囲は開いている文書の、カーソルのあるクラスの中だけで、リネームはそのクラスで宣言した部品に限る | 別ファイル・ライブラリ全体の参照と、継承した部品・型・クラスのリネームは未 |
+| 参照・リネームの範囲の拡張 | 定義ジャンプ・参照・リネーム・ホバーは LSP と UI（ブラウザ・Desktop・Android の F12・Shift+F12・F2）にある（S132・S138・S149・S161）。範囲は開いている文書の中で、リネームはその文書で定義した部品とクラスに限る（S166） | 別ファイル・ライブラリ全体の参照と、継承した部品・型・クラスのリネームは未 |
 | `globe fmt --diff` と `--exclude` | 無い | ruff と同じ操作性にするため |
 | 整形の設定ファイル | `globe-mode.toml`（S130）。CLI・LSP・VS Code・Desktop（S143）が読む。ブラウザの UI は読まず、既定（インデント 2 ほか）を使う | プロジェクトごとに規則を揃えるため |
 | ブラウザの UI と Web アプリで空行・HTML の規則を切る口 | 既定のオンだけ | VS Code・CLI と揃えるため |
