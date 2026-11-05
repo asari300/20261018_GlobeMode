@@ -34,7 +34,7 @@ S178 の監査の Python の穴（P2・P7・P10・P11、WP 案 C1）のうち、
 - `on_progress`: Decay で bdf は段 5 回で `time` が全部 `None`、esdirk34 は積分の t が付く。lowering で `True` を返すと build の後で止まり `ok: False`。
 - コードの検査（`mise run check`）: fmt・clippy（-D warnings）・test（64 個の結果が全部 ok）・deny（advisories・bans・licenses・sources ok）・`uv sync --locked` が通った
 - `check_docs.py`: デッキ OK / リンク 3685 件中の切れ 0 件。`render_slides.py`: S181 のデッキ 6 枚 × 3 構成（desktop-light・dark・mobile）、問題 0 件
-- dry run（`release.yml` の wheel を入れて pytest）: （仕上げで書く）
+- dry run（`release.yml`、`--ref feature/s181-python-api-strictness`）: 1 回目 42057547958 は Windows の wheel の pytest が 1 本落ちた（README の例の試験が Windows のパスの `\` をコードの文字列に混ぜた。`repr` に直した。ほか 15 本は通った）。2 回目 42059942761 は全ジョブ success（3 OS の「wheel を入れて pytest」が通った）。Windows の wheel に `py.typed`・`_native.pyi` が入っていることを確かめた。Release 0 件・タグ 0 件のまま
 
 ## 残したこと
 
