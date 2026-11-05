@@ -221,8 +221,8 @@
         "has_binding": false,
         "file": "src/Modelica/GlobeModeExamples/package.mo",
         "range": {
-          "start": 254,
-          "end": 260
+          "start": 258,
+          "end": 264
         }
       }
     ],
@@ -234,8 +234,8 @@
         "has_binding": true,
         "file": "src/Modelica/GlobeModeExamples/package.mo",
         "range": {
-          "start": 455,
-          "end": 461
+          "start": 463,
+          "end": 469
         }
       },
       {
@@ -245,8 +245,8 @@
         "has_binding": true,
         "file": "src/Modelica/GlobeModeExamples/package.mo",
         "range": {
-          "start": 571,
-          "end": 577
+          "start": 583,
+          "end": 589
         }
       },
       {
@@ -256,8 +256,8 @@
         "has_binding": true,
         "file": "src/Modelica/GlobeModeExamples/package.mo",
         "range": {
-          "start": 705,
-          "end": 711
+          "start": 721,
+          "end": 727
         }
       }
     ],
@@ -270,8 +270,8 @@
         "has_binding": false,
         "file": "src/Modelica/GlobeModeExamples/package.mo",
         "range": {
-          "start": 126,
-          "end": 132
+          "start": 128,
+          "end": 134
         }
       },
       {
@@ -281,8 +281,8 @@
         "has_binding": false,
         "file": "src/Modelica/GlobeModeExamples/package.mo",
         "range": {
-          "start": 152,
-          "end": 158
+          "start": 154,
+          "end": 160
         }
       },
       {
@@ -292,8 +292,8 @@
         "has_binding": false,
         "file": "src/Modelica/GlobeModeExamples/package.mo",
         "range": {
-          "start": 126,
-          "end": 132
+          "start": 128,
+          "end": 134
         }
       },
       {
@@ -303,8 +303,8 @@
         "has_binding": false,
         "file": "src/Modelica/GlobeModeExamples/package.mo",
         "range": {
-          "start": 152,
-          "end": 158
+          "start": 154,
+          "end": 160
         }
       },
       {
@@ -314,8 +314,8 @@
         "has_binding": false,
         "file": "src/Modelica/GlobeModeExamples/package.mo",
         "range": {
-          "start": 254,
-          "end": 260
+          "start": 258,
+          "end": 264
         }
       },
       {
@@ -325,8 +325,8 @@
         "has_binding": false,
         "file": "src/Modelica/GlobeModeExamples/package.mo",
         "range": {
-          "start": 287,
-          "end": 293
+          "start": 291,
+          "end": 297
         }
       },
       {
@@ -336,8 +336,8 @@
         "has_binding": false,
         "file": "src/Modelica/GlobeModeExamples/package.mo",
         "range": {
-          "start": 126,
-          "end": 132
+          "start": 128,
+          "end": 134
         }
       },
       {
@@ -347,8 +347,8 @@
         "has_binding": false,
         "file": "src/Modelica/GlobeModeExamples/package.mo",
         "range": {
-          "start": 152,
-          "end": 158
+          "start": 154,
+          "end": 160
         }
       },
       {
@@ -358,8 +358,8 @@
         "has_binding": false,
         "file": "src/Modelica/GlobeModeExamples/package.mo",
         "range": {
-          "start": 126,
-          "end": 132
+          "start": 128,
+          "end": 134
         }
       },
       {
@@ -369,8 +369,8 @@
         "has_binding": false,
         "file": "src/Modelica/GlobeModeExamples/package.mo",
         "range": {
-          "start": 152,
-          "end": 158
+          "start": 154,
+          "end": 160
         }
       },
       {
@@ -380,8 +380,8 @@
         "has_binding": false,
         "file": "src/Modelica/GlobeModeExamples/package.mo",
         "range": {
-          "start": 287,
-          "end": 293
+          "start": 291,
+          "end": 297
         }
       },
       {
@@ -391,8 +391,8 @@
         "has_binding": false,
         "file": "src/Modelica/GlobeModeExamples/package.mo",
         "range": {
-          "start": 126,
-          "end": 132
+          "start": 128,
+          "end": 134
         }
       },
       {
@@ -402,8 +402,8 @@
         "has_binding": false,
         "file": "src/Modelica/GlobeModeExamples/package.mo",
         "range": {
-          "start": 152,
-          "end": 158
+          "start": 154,
+          "end": 160
         }
       },
       {
@@ -413,8 +413,8 @@
         "has_binding": false,
         "file": "src/Modelica/GlobeModeExamples/package.mo",
         "range": {
-          "start": 126,
-          "end": 132
+          "start": 128,
+          "end": 134
         }
       },
       {
@@ -424,8 +424,8 @@
         "has_binding": false,
         "file": "src/Modelica/GlobeModeExamples/package.mo",
         "range": {
-          "start": 152,
-          "end": 158
+          "start": 154,
+          "end": 160
         }
       },
       {
@@ -435,8 +435,8 @@
         "has_binding": false,
         "file": "src/Modelica/GlobeModeExamples/package.mo",
         "range": {
-          "start": 254,
-          "end": 260
+          "start": 258,
+          "end": 264
         }
       },
       {
@@ -446,8 +446,8 @@
         "has_binding": false,
         "file": "src/Modelica/GlobeModeExamples/package.mo",
         "range": {
-          "start": 287,
-          "end": 293
+          "start": 291,
+          "end": 297
         }
       },
       {
@@ -457,8 +457,8 @@
         "has_binding": false,
         "file": "src/Modelica/GlobeModeExamples/package.mo",
         "range": {
-          "start": 126,
-          "end": 132
+          "start": 128,
+          "end": 134
         }
       },
       {
@@ -468,8 +468,8 @@
         "has_binding": false,
         "file": "src/Modelica/GlobeModeExamples/package.mo",
         "range": {
-          "start": 152,
-          "end": 158
+          "start": 154,
+          "end": 160
         }
       }
     ],
@@ -532,8 +532,8 @@
       "message": "状態 `c.v` に start 値が無い（初期条件が無いので、既定の値から推定する見込み）",
       "file": "src/Modelica/GlobeModeExamples/package.mo",
       "range": {
-        "start": 254,
-        "end": 260
+        "start": 258,
+        "end": 264
       },
       "notes": [
         "start = … を書くか、fixed = true にして初期値を決める"

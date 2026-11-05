@@ -105,6 +105,7 @@ jobs:
           ! cargo run -q -p globe-mode-cli -- check src/Modelica/GlobeModeExamples/package.mo -m GlobeModeExamples.Unbalanced
           cargo run -q -p globe-mode-cli -- check src/Modelica/GlobeModeValidation -m GlobeModeValidation.Connect.BooleanSignals
           cargo run -q -p globe-mode-cli -- graph src/Modelica/GlobeModeValidation -m GlobeModeValidation.Connect.Hierarchical -d 2
+          cargo run -q -p globe-mode-cli -- fmt --check src/Modelica   # S189: 検証用ライブラリは globe fmt で整形してある
 
   wasm-node:
     # S012: P3 の完了条件「bdf が wasm で（Node 上で）動く」。release の wasm をビルドし、wasm-bindgen（mise で

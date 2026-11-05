@@ -146,7 +146,7 @@ fn models(db: &mut GlobeDb) -> Vec<String> {
 /// すべての閉包に入る package.mo の注釈（`version`）を変える。salsa の `check` の結果を捨てさせるのに使う
 /// （正規化した本文が変わるので、Session の package.mo も差し替わる）。
 fn touch_package(ws: &mut Ws) {
-    ws.edit(&file("package.mo"), "version=\"0.0.", "version=\"0.0.1");
+    ws.edit(&file("package.mo"), "version = \"0.0.", "version = \"0.0.1");
 }
 
 // --------------------------------------------------------------------------- 和集合

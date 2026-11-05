@@ -145,7 +145,7 @@ fn model_without_loops_keeps_nonlinear_rows_outside_loops() {
     let s = p.structure("NoLoop");
     assert_well_formed(&s);
     let y = unknown(&s, "y");
-    assert_eq!(nonlinear_of(&s, "z = y ^ 2"), [y]);
+    assert_eq!(nonlinear_of(&s, "z = y^2"), [y]);
     assert!(nonlinear_of(&s, "y = 2 * x").is_empty());
     assert!(nonlinear_of(&s, "der(x) = -x").is_empty());
     assert!(p.reference("NoLoop").loops.is_empty());

@@ -1,5 +1,7 @@
 within GlobeModeValidation.Init;
+
 model OuterModification "inner の修正が outer に伝わらない（Rumoca v0.10.2 の制約の記録。S8 は初期方程式 0 / 2 になる）"
+
   // MSL の Fluid の例題の形: inner の System で energyDynamics を FixedInitial に修正し、部品（outer System system）が
   // それを読んで、initial equation の if で初期条件を与える。
   //
@@ -10,21 +12,30 @@ model OuterModification "inner の修正が outer に伝わらない（Rumoca v0
   // （db のテスト `outer_modification_is_lost_by_the_compiler` が落ちたら、この記録を直す）。
   type Dynamics = enumeration(FixedInitial, Free);
   model System
+
     parameter Dynamics energyDynamics = Dynamics.Free;
     parameter Dynamics massDynamics = energyDynamics;
+
   end System;
   model Volume
+
     outer System system;
     parameter Dynamics massDynamics = system.massDynamics;
     parameter Real ps_start[2] = {1, 2};
     Real p[2](start = ps_start);
+
   initial equation
+
     if massDynamics == Dynamics.FixedInitial then
       p = ps_start;
     end if;
+
   equation
+
     der(p) = -p;
+
   end Volume;
   inner System system(energyDynamics = Dynamics.FixedInitial);
   Volume volume;
+
 end OuterModification;

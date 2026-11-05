@@ -472,10 +472,10 @@ fn compile_failures_point_into_the_source() {
     assert!(file.ends_with("SignalTypeMismatch.mo"), "{file}");
     let range = d.range.expect("range");
     let text = std::fs::read_to_string(file).unwrap();
-    // connect 文の行（6 行目）
+    // connect 文の行（10 行目）
     assert_eq!(
         globe_mode_core::line_col(&text, range.start).line,
-        6,
+        10,
         "{d:?}"
     );
 }

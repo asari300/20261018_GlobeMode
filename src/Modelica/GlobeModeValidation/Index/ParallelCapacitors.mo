@@ -1,5 +1,7 @@
 within GlobeModeValidation.Index;
+
 model ParallelCapacitors "2 つのコンデンサを理想的に並列にした回路（インデックス 2。S7 の Pantelides 法の検証）"
+
   // 電流源 I から、2 つのコンデンサ C1, C2 を抵抗なしで並列につないだ回路。部品を使わずに式で書いたもの。
   // 状態は v1, v2 の 2 つ、代数変数は i1, i2, i の 3 つ。
   //
@@ -17,11 +19,14 @@ model ParallelCapacitors "2 つのコンデンサを理想的に並列にした�
   Real i1 "コンデンサ 1 に流れる電流";
   Real i2 "コンデンサ 2 に流れる電流";
   Real i "電流源の電流";
+
 equation
+
   C1 * der(v1) = i1;
   C2 * der(v2) = i2;
   v1 = v2;
   i1 + i2 = i;
   i = I;
-  annotation (experiment(StopTime = 1));
+annotation(experiment(StopTime = 1));
+
 end ParallelCapacitors;

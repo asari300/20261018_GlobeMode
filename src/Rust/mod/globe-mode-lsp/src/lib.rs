@@ -1569,12 +1569,12 @@ mod tests {
             u.starts_with("file://") && u.ends_with("/Components.mo"),
             "{r}"
         );
-        assert_eq!(r["result"]["range"]["start"]["line"], 13, "{r}");
+        assert_eq!(r["result"]["range"]["start"]["line"], 19, "{r}");
         // r1.p の p は extends TwoPin の先の部品
         let r = ask_at(&mut s, uri, text, "textDocument/definition", "r1.p.v", 3);
         assert_eq!(
             r["result"]["range"]["start"],
-            json!({"line": 3, "character": 19}),
+            json!({"line": 6, "character": 19}),
             "{r}"
         );
     }
@@ -1601,7 +1601,7 @@ mod tests {
             "{r}"
         );
         assert!(r["text"].as_str().unwrap().contains("Resistor"), "{r}");
-        assert_eq!(r["range"]["start"]["line"], 13, "{r}");
+        assert_eq!(r["range"]["start"]["line"], 19, "{r}");
         assert_eq!(ask(&mut s, 0, 0), Value::Null); // 予約語 model
     }
 

@@ -4,6 +4,7 @@ GlobeMode の検証用の Modelica ライブラリ。**このディレクトリ�
 
 - わざと構文を誤ったファイルは置かない。ほかの IDE がライブラリを開けなくなるため。
   - 構文の誤りのテストに使うファイルは `src/Rust/mod/globe-mode-frontend/tests/data/` に置く。
+- このフォルダの `.mo` は `globe fmt` で整形してある（`globe fmt --check src/Modelica` が通る。CI と `mise run check` が確かめる。S189）。
 - MSL 4.1.0 は同梱せず、`cargo xtask fetch-msl` で `data/msl/` に取得する。
 
 ## パッケージ

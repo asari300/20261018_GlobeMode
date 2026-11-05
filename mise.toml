@@ -26,6 +26,7 @@ run = [
   "cargo clippy --workspace --all-targets -- -D warnings",
   "cargo test --workspace",
   "cargo deny check",
+  "cargo run -q -p globe-mode-cli -- fmt --check src/Modelica",   # S189: 検証用ライブラリは globe fmt で整形してある
   "uv sync --locked",
 ]
 

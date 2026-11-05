@@ -439,7 +439,7 @@ fn definition_jumps_into_the_library_file() {
         "{r}"
     );
     assert!(r["text"].as_str().unwrap().contains("Resistor"), "{r}");
-    assert_eq!(r["range"]["start"]["line"], 13, "{r}");
+    assert_eq!(r["range"]["start"]["line"], 19, "{r}");
     assert_eq!(ws.definition("T.mo", text, 0, 0), "null");
     // S149: ホバーは同じ解決で宣言の 1 行（クラスの説明文字列つき）
     let h: serde_json::Value = serde_json::from_str(&ws.hover("T.mo", text, 2, 15)).unwrap();

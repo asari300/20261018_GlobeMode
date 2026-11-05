@@ -1,5 +1,7 @@
 within GlobeModeValidation.Invalid;
+
 model UngroundedLoop "接地の無い回路の部品を単体で検査する（数値的には特異だが、構造では見えない。S6 は通る）"
+
   // 2 本の抵抗を並列にして、外に出したピン p と n につないだ部品。接地（Ground）は無い。
   // 単体で検査すると、未接続のピンの flow は 0（p.i = 0、n.i = 0）になる。
   //
@@ -17,9 +19,12 @@ model UngroundedLoop "接地の無い回路の部品を単体で検査する（�
   Connectors.Pin n "外に出したピン";
   Components.Resistor r1(R = 1);
   Components.Resistor r2(R = 2);
+
 equation
+
   connect(p, r1.p);
   connect(p, r2.p);
   connect(r1.n, n);
   connect(r2.n, n);
+
 end UngroundedLoop;
