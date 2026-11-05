@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S151 タブと最近使ったファイル — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S151 タブと最近使ったファイル">
+
+<section class="slide" id="S01">
+  <span class="tag">S151 · 2026-11-05 · P4</span>
+  <h1>タブと最近使ったファイル</h1>
+  <p class="lead">S138・S141 の持ち越し。複数の文書を開いて切り替える</p>
+  <div class="big">文書ごとに EditorState を持ち、離れるときに写す</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>開いた文書（自分の <code>.mo</code>、ライブラリのファイル）をタブに積む</li>
+    <li>切り替えで本文・モデル名・診断が戻る。元に戻す履歴も文書ごと</li>
+    <li>閉じるボタン。未保存なら確認が 1 つ</li>
+    <li>「開く」の隣に最近使ったファイル（上限 10）</li>
+    <li>自動保存はタブ全体に（本文の合計 2 MB まで）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>大域の変数はそのまま、タブへ写す</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th></tr>
+    <tr><td>いまの文書</td><td><code>file</code>・<code>model</code>・<code>diagnostics</code> は従来どおり大域。離れるときだけタブへ写す</td></tr>
+    <tr><td>定義ジャンプ</td><td>別の文書に飛ぶときタブを開く。Alt+左は戻り先のタブへ切り替え</td></tr>
+    <tr><td>Workspace</td><td>離れた自分のファイルは空にする。<code>setFile</code> は検査・実行・定義ジャンプが開いている文書へ</td></tr>
+    <tr><td>最近使った</td><td>Desktop はパス、ブラウザは名前と本文。「開く」「保存」で記録</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>切り替えの流れ</h1>
+  <svg class="fig" viewBox="0 0 800 200" role="img" aria-label="タブを押すと、いまの文書をタブへ写し、次のタブの状態をエディタに読む">
+    <rect class="svg-box" x="20" y="70" width="150" height="60" rx="10"/>
+    <text class="svg-text" x="95" y="105" text-anchor="middle">タブを押す</text>
+    <rect class="svg-box" x="230" y="70" width="170" height="60" rx="10"/>
+    <text class="svg-text" x="315" y="105" text-anchor="middle">いまの文書を写す</text>
+    <rect class="svg-box-accent" x="460" y="70" width="150" height="60" rx="10"/>
+    <text class="svg-text-b" x="535" y="105" text-anchor="middle">setState</text>
+    <rect class="svg-box" x="670" y="70" width="110" height="60" rx="10"/>
+    <text class="svg-text" x="725" y="105" text-anchor="middle">保存</text>
+    <line class="svg-line" x1="170" y1="100" x2="230" y2="100"/>
+    <line class="svg-line" x1="400" y1="100" x2="460" y2="100"/>
+    <line class="svg-line" x1="610" y1="100" x2="670" y2="100"/>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>試験</h1>
+  <table class="compact">
+    <tr><th>試験</th><th>中身</th><th>結果</th></tr>
+    <tr><td>pnpm check</td><td>svelte-check</td><td class="ok">0 エラー</td></tr>
+    <tr><td>test_ui</td><td>2 つ開いてタブ 3、切り替えで本文・モデル名・診断、再読み込みで戻る、未保存は確認、最近使ったファイルから開き直す</td><td class="ok">通過</td></tr>
+  </table>
+  <pre><code>cd src/Svelte &amp;&amp; pnpm check &amp;&amp; pnpm build
+uv run python src/Svelte/tests/test_ui.py</code></pre>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ul>
+    <li>Desktop は最近使ったパスの読み込みに fs の許可範囲が要る</li>
+    <li>再読み込みをまたぐ未保存は数えない</li>
+    <li>タブの並べ替え</li>
+    <li>ダークモード</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
