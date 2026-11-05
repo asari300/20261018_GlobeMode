@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S170 結果の見える位置と開く・モデル名 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S170 結果の見える位置と開く・モデル名">
+
+<section class="slide" id="S01">
+  <span class="tag">S170 · 2026-11-05 · P4</span>
+  <h1>結果と進捗を見える所へ、開く・モデル名の扱い</h1>
+  <p class="lead">S164 の監査の穴 2 と穴 5。実行を押したら画面の中に出る。編集は黙って失わない</p>
+  <div class="big">プロットの上端 <b>1019 px から画面の中へ</b>（1280 x 800）</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">現状</span>
+  <h1>何が困っていたか</h1>
+  <ul>
+    <li>穴 2: 実行中の表示が y = 809 px、プロットが y = 1019 px。800 px の画面の外で、押しても何も起きないように見える</li>
+    <li>穴 5: 2 モデルのファイルで最初のモデルが回る。再読み込みでモデル名が戻る</li>
+    <li>穴 5: 同名のファイルを開き直すと、未保存の編集が確認なしで消える</li>
+    <li>穴 5: モデル名を打ち替えると、エディタは前のファイルのまま</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>穴 2: 見える所へ</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>進捗・失敗</td><td>ボタンの行のすぐ下へ移した</td><td>最初の画面に出る</td></tr>
+    <tr><td>終わったとき</td><td>1 回だけ nearest でスクロール（失敗、無ければプロット、無ければ診断）</td><td>見えていれば動かさず、作り替えより小さい</td></tr>
+    <tr><td>スクロールの動き</td><td>即時。滑らかにしない</td><td>reduced-motion を満たし、動く間の操作とずれない。戻したスクロールは引き戻さない</td></tr>
+    <tr><td>パラメータの一覧</td><td>閉じて始める</td><td>約 250 px の押し下げと、検査の後に届いて位置がずれるのを避ける</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">数字</span>
+  <h1>位置の変化（ページ座標）</h1>
+  <table class="compact">
+    <tr><th>画面</th><th>変更前</th><th>変更後</th><th>自動スクロール後の画面内</th></tr>
+    <tr><td>1280 x 800 のプロットの上端</td><td>1019 px</td><td>855 px</td><td class="ok">290 px</td></tr>
+    <tr><td>390 x 844 のプロットの上端</td><td>1805 px</td><td>1680 px</td><td class="ok">304 px</td></tr>
+    <tr><td>実行中の表示（1280 x 800）</td><td>723 px（S164 では 809 px）</td><td class="ok">96 px</td><td>-</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">決定と理由</span>
+  <h1>穴 5: 開く・モデル名</h1>
+  <table class="compact">
+    <tr><th>点</th><th>直し方</th></tr>
+    <tr><td>2 モデルのファイル</td><td>候補は Rust の outline（<code>Backend.models</code>、wasm・LSP）。2 つ以上で select「ファイルのモデル」。いまの選択が見え、選び直せる</td></tr>
+    <tr><td>再読み込み</td><td>タブの保存（S151）にタブごとの <code>model</code> を足した。本文に無い名前は拾わない</td></tr>
+    <tr><td>同名を開き直す</td><td>未保存の編集があるタブへは差し替えず切り替えて理由を出す。編集が無ければ従来どおり差し替え</td></tr>
+    <tr><td>打ち替えの食い違い</td><td>候補に無くライブラリにある名前は、案内と「ライブラリのファイルを開く」。ライブラリにも無い名前は診断の error</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">図</span>
+  <h1>開き直しの分かれ道</h1>
+  <svg class="fig" viewBox="0 0 800 240" role="img" aria-label="開くと、同名のタブに未保存の編集があれば切り替えだけ、無ければ差し替える">
+    <rect class="svg-box" x="20" y="90" width="150" height="60" rx="10"/>
+    <text class="svg-text" x="95" y="125" text-anchor="middle">開く</text>
+    <rect class="svg-box-accent" x="260" y="90" width="200" height="60" rx="10"/>
+    <text class="svg-text-b" x="360" y="125" text-anchor="middle">未保存の編集は?</text>
+    <rect class="svg-box" x="560" y="20" width="220" height="60" rx="10"/>
+    <text class="svg-text" x="670" y="55" text-anchor="middle">切り替えだけ + 理由</text>
+    <rect class="svg-box" x="560" y="160" width="220" height="60" rx="10"/>
+    <text class="svg-text" x="670" y="195" text-anchor="middle">本文を差し替え</text>
+    <line class="svg-line" x1="170" y1="120" x2="260" y2="120"/>
+    <line class="svg-line" x1="460" y1="105" x2="560" y2="55"/>
+    <line class="svg-line" x1="460" y1="135" x2="560" y2="190"/>
+  </svg>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">再現手順</span>
+  <h1>試験と検証</h1>
+  <ul>
+    <li>Rust: <code>models_lists_the_runnable_classes_of_a_file</code>（wasm）、<code>models_over_rpc</code>（LSP）</li>
+    <li><code>test_ui.py</code> に 2 本: 結果が見える位置（1280 x 800 と 390 幅）、開く・モデル名（編集は残る、再読み込みでモデル名が残る）</li>
+    <li>GM-SMOKE の行は項目を足さない。<code>ready_ms</code> は変わらず、<code>decay_ms</code> はノイズの内</li>
+  </ul>
+</section>
+
+<section class="slide" id="S08">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ul>
+    <li>未対応の例題の見せ方と force（穴 3）、キーボードとアクセシビリティ（穴 8）</li>
+    <li><code>.txt</code> を黙って開く件、候補を打つたびに更新すること</li>
+    <li>ディスクの内容で読み直す操作（今はタブを閉じてから開く）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

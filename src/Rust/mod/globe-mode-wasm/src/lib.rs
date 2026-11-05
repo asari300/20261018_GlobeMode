@@ -349,6 +349,12 @@ impl Workspace {
         .to_string()
     }
 
+    /// 文書 `file`（先に `set_file` で足しておく）の実行できるクラスの修飾名を文字列の配列の JSON で返す（S170。LSP の `globe/models` と同じ形）。
+    pub fn models(&self, file: &str) -> String {
+        let o = self.inner.outline(file).and_then(|r| r.as_ref().ok());
+        globe_mode_lsp::definition::models(o).to_string()
+    }
+
     /// 名前を `new_name` に変える TextEdit（`{range, newText}`）の配列の JSON（S161。LSP の `globe/rename` と同じ形）。
     /// 断る場合（部品でもクラスでもない・別のファイルのクラス・識別子でない・予約語・同じ階層に既にある）は理由を例外（文字列）で返す。
     pub fn rename(

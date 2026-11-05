@@ -20,6 +20,7 @@
 //! | `globe/definition` | `{file, line, character}`（開いている文書。行は 0 始まり、列は UTF-16） | `{file, text, range}` か null（S138。`textDocument/definition` と同じ解決で、定義のあるファイルの本文も返す。wasm の `definition` と同じ形） |
 //! | `globe/hover` | `{file, line, character}`（`globe/definition` と同じ） | `{contents, range}` か null（S149。名前の宣言の 1 行（クラスは見出し、部品は `;` まで。説明文字列を含む）と、カーソルの名前の Range。wasm の `hover` と同じ形） |
 //! | `globe/references` | `{file, line, character}`（`globe/definition` と同じ） | LSP の Range の配列（S161。カーソルの名前と字句が同じ位置。部品はカーソルのあるいちばん内側のクラスの中だけ。S166: クラス名の上なら、同じ文書の中で定義ジャンプと同じ解決で同じクラスに行き着く識別子（宣言・`end`・型・`extends`・`import`）。wasm の `references` と同じ形） |
+//! | `globe/models` | `{file}` | 文字列の配列（S170。文書の model・block・class の修飾名。partial は除く。package の中まで入り、`within` は頭に付く。構文が壊れていれば空。wasm の `models` と同じ形） |
 //! | `globe/rename` | `{file, line, character, newName}` | LSP の TextEdit（`{range, newText}`）の配列（S161。いちばん内側のクラスで宣言した部品と、S166 からこの文書で定義したクラス。部品でもクラスでもない・別のファイルのクラス・識別子でない・予約語・同じ階層に既にある名前・ほかの開いた文書に参照があるときは -32803 に理由。`textDocument/rename` は同じ計算の WorkspaceEdit、`textDocument/prepareRename` はカーソルの識別子の Range か同じ理由） |
 //! | `globe/solvers` | なし | ソルバの登録表（`[{name, status, description, instead?}]`。S142。wasm の `solvers` と同じ） |
 //! | `globe/exportFmu` | `{model, fmiVersion?, outDir}`（既定は FMI 2。`build` はしない） | `{path}`（S144。`outDir/<名前>.fmu` と展開した `outDir/<名前>/` を書く。DAE まで変換できなければ -32000） |
@@ -417,6 +418,12 @@ impl Server {
                     Ok(v) => reply(id, v),
                     Err(why) => error(id, -32803, &why), // RequestFailed
                 }
+            }
+            // S170: 文書の中の実行できるクラスの修飾名（UI のモデル名の候補。wasm の `models` と同じ形）
+            "globe/models" => {
+                let file = params["file"].as_str().unwrap_or("");
+                let o = self.ws.outline(&uri_path(file)).and_then(|r| r.as_ref().ok());
+                reply(id, definition::models(o))
             }
             "globe/check" => match params["model"].as_str() {
                 Some(model) => reply(id, json!(self.ws.check(model))),
@@ -1606,6 +1613,22 @@ mod tests {
             assert_eq!(e["error"]["code"], -32803, "{e}");
             assert!(e["error"]["message"].as_str().unwrap().contains(why), "{e}");
         }
+    }
+
+    /// S170: UI のモデル名の候補。開いた文書の model・block（partial は除く）の修飾名
+    #[test]
+    fn models_over_rpc() {
+        let mut s = Server::new(&[]).unwrap();
+        let uri = "file:///tmp/M.mo";
+        let text = "model A\nend A;\npartial model P\nend P;\nblock B\nend B;\n";
+        s.handle(
+            json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+            "uri": uri, "languageId": "modelica", "version": 1, "text": text}}}),
+        );
+        let r = s
+            .handle(json!({"id": 3, "method": "globe/models", "params": {"file": uri}}))
+            .remove(0);
+        assert_eq!(r["result"], json!(["A", "B"]), "{r}");
     }
 
     /// S166: クラス名の参照・リネーム・prepareRename。ほかの開いた文書に参照があるとリネームは断り、参照の一覧には含める。

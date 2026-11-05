@@ -5,6 +5,7 @@
 
   // 実行の設定（S142）。空の欄は、検査で分かった experiment annotation の値か既定値に任せる（欄の横に出どころ）。
   // 触った欄だけ settings に入れる（出どころは「指定」）。数に読めない欄は problem に理由を入れ、settings には入れない。
+  // S170: パラメータの一覧は閉じて始める（開いていると結果を画面の下へ押し下げ、検査のあとに一覧が届くと結果の位置がずれる）。
   // S150: 検査のあと（checked が新しくなるたび）に上書きできるパラメータの一覧を取り、値を打った行だけ 名前=値 と同じ形で入れる（下の欄と同じ名前なら下の欄が優先）。
   let { backend, experiment, checked = null, last, settings = $bindable({}), problem = $bindable("") }: {
     backend: Backend;
@@ -88,7 +89,7 @@
     </label>
   {/each}
   {#if listedModel}
-    <details class="params" data-params open>
+    <details class="params" data-params>
       <summary>パラメータ（{listedModel}。{listed.length} 本。値を打った行だけ上書き）{listNote ? ` ${listNote}` : ""}</summary>
       {#if listed.length > 12}<input bind:value={filter} aria-label="パラメータの絞り込み" placeholder="名前・説明で絞り込む" size="24">（{rows.length} 本）{/if}
       <div class="rows">
