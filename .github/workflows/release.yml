@@ -1,18 +1,21 @@
 # `globe`（globe-mode-cli）のリリース用バイナリを作る（S044、計画書の WP-I）。
 #
-# タグ `v*` の push で、3 つの成果物（linux x86_64 / linux aarch64 / windows x86_64）と SHA256SUMS を作り、
+# タグ `v*` の push で、4 つの成果物（linux x86_64 / linux aarch64 / windows x86_64 / macOS arm64）と SHA256SUMS を作り、
 # GitHub Releases に付ける。手動実行（workflow_dispatch）は dry-run で、同じ成果物を artifact に残すだけ（Release は作らない）。
-# cargo-dist は使わない（依存を増やさない。3 つのターゲットは matrix で足りる）。`--features sundials` は付けない
+# cargo-dist は使わない（依存を増やさない。ターゲットは matrix で足りる）。`--features sundials` は付けない
 # （cmake と C コンパイラが要るため。ビルドの既定・wasm・CI と同じ構成）。ci.yml とは別の concurrency グループ。
 # Linux の globe は cargo-zigbuild（zig cc）で glibc 2.28 に link する（S090）。
 # 各アーカイブには、cargo-about（about.toml・about.hbs）で作ったサードパーティのライセンス表 THIRD-PARTY.md も入れる（S052）。
-# 同じ 3 ターゲットで Python の wheel（globe-mode-py、abi3-py312）も `uv build --wheel` で作り、その wheel を入れて pytest を回す（S074）。
+# 同じ 4 ターゲットで Python の wheel（globe-mode-py、abi3-py312）も `uv build --wheel` で作り、その wheel を入れて pytest を回す（S074）。
 # wheel の版はタグの push ではタグ（v を除く）、dry-run では pyproject.toml の version。Linux の wheel は
 # maturin の --zig（zig cc で glibc 2.28 を狙う）と --compatibility manylinux_2_28 で manylinux_2_28 の tag を付ける
 # （maturin が glibc の記号を検査する。S077・S086）。
 # wheel の中の globe_mode/THIRD-PARTY.md は同じ about.toml・about.hbs で globe-mode-py から作る（cli との差は pyo3 の 5 crate）。
 # S135: Desktop（Tauri）の .deb・.msi も作って Release に付ける（ADR-0023）。secret TAURI_SIGNING_PRIVATE_KEY があるときだけ
 # updater の署名（.sig）を作り、release で latest.json（tauri.conf.json の plugins.updater.endpoints が読む）を足す。無ければ署名なしの bundle だけ。
+# S176: macOS（macos-latest＝arm64。署名・公証なし）も足した。globe は zig を使わずランナーの rustup で release ビルド、wheel は maturin の
+# 既定の tag（macosx_11_0_arm64）。Desktop は .dmg を作り（--bundles app,dmg。dmg だけだと .app が片付けられる: desktop.yml の S160）、
+# 鍵があるときは updater 用の GlobeMode_<版>_aarch64.app.tar.gz と .sig も付けて latest.json に darwin-aarch64 を足す。x86_64 の macOS は作らない。
 # 作り方は desktop.yml の build と同じ（smoke はそちら）。タグの push では tauri.conf.json の version をタグに合わせる（updater が版を比べるため）。
 name: release
 
@@ -35,7 +38,7 @@ env:
   MISE_ZIG_USE_COMMUNITY_MIRRORS: "false"
 
 jobs:
-  # 配布物に同梱する THIRD-PARTY.md。3 ターゲットの和集合（about.toml の targets）を 1 回だけ作る
+  # 配布物に同梱する THIRD-PARTY.md。4 ターゲットの和集合（about.toml の targets）を 1 回だけ作る
   third-party:
     runs-on: ubuntu-24.04
     steps:
@@ -80,6 +83,10 @@ jobs:
             os: windows-2025
             exe: .exe
             archive: zip
+          - target: aarch64-apple-darwin
+            os: macos-latest   # arm64。署名・公証はしない（Gatekeeper の注意は doc/features.md の Desktop の行）
+            exe: ""
+            archive: tar.gz
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -87,9 +94,16 @@ jobs:
         if: runner.os == 'Linux'
         with:
           install_args: rust uv zig
-      # Windows では mise の shim 経由の cargo が失敗したので、ランナーの rustup を直接使う（ci.yml の rust-windows と同じ）
+      # Windows では mise の shim 経由の cargo が失敗したので、ランナーの rustup を直接使う（ci.yml の rust-windows と同じ。macOS も同じ）
+      - if: runner.os != 'Linux'
+        run: rustup toolchain install stable --profile minimal --no-self-update && rustup default stable
       - if: runner.os == 'Windows'
-        run: rustup toolchain install stable --profile minimal --no-self-update && rustup default stable && python -m pip install uv
+        run: python -m pip install uv
+      # macOS の python3 は brew の管理下で pip install できないので、uv は mise の版（mise.lock に macos-arm64 がある）
+      - uses: jdx/mise-action@v5
+        if: runner.os == 'macOS'
+        with:
+          install_args: uv
       - uses: Swatinem/rust-cache@v2
         with:
           key: release-${{ matrix.target }}
@@ -147,7 +161,8 @@ jobs:
         env:
           IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
         run: |
-          if [ "$IS_TAG" = "true" ]; then sed -i "0,/^version = /s/^version = .*/version = \"${GITHUB_REF_NAME#v}\"/" pyproject.toml; fi
+          # 先頭の 1 つだけ置く（BSD sed の macOS では 0,/re/ が使えないので perl）
+          if [ "$IS_TAG" = "true" ]; then V="${GITHUB_REF_NAME#v}" perl -0pi -e 's/^version = .*$/version = "$ENV{V}"/m' pyproject.toml; fi
           grep -m1 '^version' pyproject.toml
           # PEP 517 の既定は linux_* の tag で PyPI に出せない。ランナーの glibc 2.39 のままだと 2_34 も落ちた（run 41376053596）ので、
           # --zig で古い glibc に link する（S086。Debian 12・RHEL 9 にも入る）
@@ -198,6 +213,11 @@ jobs:
             name: windows
             exe: .exe
             bundle: msi
+          - os: macos-latest   # arm64。署名・公証なし（S176）
+            name: macos
+            exe: ""
+            bundle: dmg
+            bundles: app,dmg   # dmg だけだと .app が片付けられる（desktop.yml の S160）
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -213,7 +233,7 @@ jobs:
         if: runner.os == 'Linux'
         with:
           install_args: rust
-      - if: runner.os == 'Windows'
+      - if: runner.os != 'Linux'
         run: rustup toolchain install stable --profile minimal --no-self-update && rustup default stable
       - name: Tauri 2 の依存（Linux）
         if: runner.os == 'Linux'
@@ -247,14 +267,24 @@ jobs:
           SIGN=false
           if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then SIGN=true; else echo "TAURI_SIGNING_PRIVATE_KEY が無いので署名しない（updater では入れられない bundle）"; fi
           if [ "$SIGN" = true ] && grep -q '"pubkey": ""' tauri.conf.json; then echo "::warning::鍵はあるが tauri.conf.json の pubkey が空。アプリは更新を確かめない"; fi
-          cargo tauri build --bundles ${{ matrix.bundle }} --config "{${VERSION}\"bundle\":{\"createUpdaterArtifacts\":$SIGN}}"
+          cargo tauri build --bundles ${{ matrix.bundles || matrix.bundle }} --config "{${VERSION}\"bundle\":{\"createUpdaterArtifacts\":$SIGN}}"
           ls -l target/release/bundle/${{ matrix.bundle }}/ | tee -a "$GITHUB_STEP_SUMMARY"
+          # macOS の updater は .dmg でなく .app.tar.gz（と .sig）を読む。名前に版と arch が無いので .dmg に合わせる（鍵がなければ無い）
+          if [ "$RUNNER_OS" = macOS ]; then
+            ls -l target/release/bundle/macos/ | tee -a "$GITHUB_STEP_SUMMARY"
+            N="$(basename target/release/bundle/dmg/*.dmg .dmg)"
+            for e in "" .sig; do
+              if [ -e "target/release/bundle/macos/GlobeMode.app.tar.gz$e" ]; then mv "target/release/bundle/macos/GlobeMode.app.tar.gz$e" "target/release/bundle/macos/$N.app.tar.gz$e"; fi
+            done
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: globe-desktop-${{ matrix.name }}
           path: |
             ${{ env.DESKTOP }}/target/release/bundle/${{ matrix.bundle }}/*.${{ matrix.bundle }}
             ${{ env.DESKTOP }}/target/release/bundle/${{ matrix.bundle }}/*.${{ matrix.bundle }}.sig
+            ${{ env.DESKTOP }}/target/release/bundle/macos/*.app.tar.gz
+            ${{ env.DESKTOP }}/target/release/bundle/macos/*.app.tar.gz.sig
           if-no-files-found: error
 
   release:
@@ -280,7 +310,7 @@ jobs:
           import datetime, glob, json, os
           tag, repo = os.environ["GITHUB_REF_NAME"], os.environ["GITHUB_REPOSITORY"]
           platforms = {}
-          for key, ext in {"linux-x86_64-deb": "deb", "windows-x86_64-msi": "msi"}.items():
+          for key, ext in {"linux-x86_64-deb": "deb", "windows-x86_64-msi": "msi", "darwin-aarch64": "app.tar.gz"}.items():
               for f in glob.glob(f"GlobeMode_*.{ext}"):
                   if os.path.exists(f + ".sig"):
                       sig = open(f + ".sig").read().strip()
