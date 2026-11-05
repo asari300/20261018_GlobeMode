@@ -17,7 +17,10 @@ use globe_mode_ir::{
     TunableParameter, VariableRole,
 };
 
-use super::{Loaded, load_db, print_diagnostics, report_early_failure};
+use super::{
+    Loaded, check_writable_file, hidden_text, io_error, load_db, print_diagnostics,
+    report_early_failure, shown,
+};
 
 /// `globe simulate` の引数（clap の外で受け渡す形）。
 #[derive(Debug)]
@@ -218,6 +221,14 @@ fn list_parameters(
 
 pub(crate) fn simulate(args: SimulateArgs) -> ExitCode {
     let model = args.model.as_str();
+    // 書けない出力先は、長い計算の後ではなく前に分かるようにする
+    if !args.list_parameters
+        && let Some(path) = args.output.as_deref().filter(|p| *p != Path::new("-"))
+        && let Err(message) = check_writable_file(path)
+    {
+        eprintln!("error: 結果を {message}");
+        return ExitCode::from(2);
+    }
     let Loaded { mut ws, texts } = match load_db(&args.files, &args.library) {
         Ok(Ok(v)) => v,
         Ok(Err(diags)) => return report_early_failure(model, &diags, args.json),
@@ -254,7 +265,11 @@ pub(crate) fn simulate(args: SimulateArgs) -> ExitCode {
     if let (Some(run), Some(path), Some(compiled)) = (&run, &args.output, &compiled)
         && let Err(e) = write_result(run, path, args.format, compiled)
     {
-        eprintln!("error: 結果を {} に書けない: {e}", path.display());
+        // `-o - | head` で読み手が閉じたのは誤りではない
+        if e.kind() == std::io::ErrorKind::BrokenPipe {
+            return ExitCode::SUCCESS;
+        }
+        eprintln!("error: 結果を {}", io_error(path, true, &e));
         return ExitCode::from(2);
     }
     let refused = match (&run, &response.settings) {
@@ -262,7 +277,35 @@ pub(crate) fn simulate(args: SimulateArgs) -> ExitCode {
         (None, Some(s)) => Some(format!("実行に失敗した（{}）", settings_text(s))),
         _ => response.refused,
     };
-    finish(&args, &texts, &response.diagnostics, run.as_ref(), refused)
+    // 強行（--force）のコンパイルの失敗は、検査と同じ診断を（注が少し違う形で）もう一度返すので、
+    // コード・位置・文面が同じものは最初の 1 つだけ残す
+    let mut diagnostics: Vec<Diagnostic> = Vec::new();
+    for d in response.diagnostics {
+        if !diagnostics.iter().any(|x| {
+            (x.code, &x.file, x.range, &x.message) == (d.code, &d.file, d.range, &d.message)
+        }) {
+            diagnostics.push(d);
+        }
+    }
+    finish(&args, &texts, &diagnostics, run.as_ref(), refused)
+}
+
+/// 実行しなかった理由の後ろに足す、最初の error の診断のコードと 1 文。
+fn first_error(diagnostics: &[Diagnostic]) -> String {
+    let Some(d) = diagnostics.iter().find(|d| d.is_error()) else {
+        return String::new();
+    };
+    let line = d.message.lines().next().unwrap_or_default();
+    let line = match line.char_indices().nth(100) {
+        Some((i, _)) => format!("{}…", &line[..i]),
+        None => line.to_string(),
+    };
+    let kind = if d.is_unsupported() {
+        "最初の未対応"
+    } else {
+        "最初の error"
+    };
+    format!("。{kind}: {} {line}", d.code)
 }
 
 fn write_result(
@@ -336,11 +379,31 @@ fn finish(
         }
     } else {
         let mut lines = Vec::new();
-        if let Some(reason) = &refused {
-            lines.push(format!("{model}: {reason}"));
-        }
+        let mut notes = Vec::new();
         if let Some(run) = run {
             lines.extend(summary_lines(run));
+            match args.output.as_deref() {
+                Some(path) if path != Path::new("-") => {
+                    let n = run.trajectory.time.len();
+                    let unit = if args.format == OutputFormat::Mat {
+                        format!("MAT v4、{n} 点")
+                    } else {
+                        format!("CSV、{n} 行")
+                    };
+                    lines.push(format!("書いた: {}（{unit}）", path.display()));
+                }
+                Some(_) => {}
+                // 結果を捨てたことを黙らない（stderr。最後の時刻・点数・変数の数は上の要約と同じ）
+                None => notes.push(format!(
+                    "結果は書いていない（t = {} まで、{n} 行、変数 {}）。-o <file.csv> で書き出す（`-` は標準出力、.mat は MAT v4）",
+                    run.settings.stop_time,
+                    run.trajectory.variables.len(),
+                    n = run.trajectory.time.len()
+                )),
+            }
+        }
+        if let Some(reason) = &refused {
+            lines.push(format!("{model}: {reason}{}", first_error(diagnostics)));
         }
         if to_stdout {
             print_diagnostics(diagnostics, texts, false);
@@ -348,6 +411,7 @@ fn finish(
                 println!("{l}");
             }
         } else {
+            let (diagnostics, hidden) = shown(diagnostics);
             for d in diagnostics {
                 eprintln!(
                     "{}[{}] {:?} {}: {}",
@@ -358,9 +422,15 @@ fn finish(
                     d.message
                 );
             }
+            if let Some(line) = hidden_text(&hidden) {
+                eprintln!("{line}");
+            }
             for l in &lines {
                 eprintln!("{l}");
             }
+        }
+        for l in &notes {
+            eprintln!("{l}");
         }
     }
     if failed {

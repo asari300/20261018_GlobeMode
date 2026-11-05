@@ -94,6 +94,7 @@ cargo build --release -p globe-mode-cli    # target/release/globe（PATH に置�
 globe check    -L data/msl -m Modelica.Electrical.Analog.Examples.ChuaCircuit
 globe simulate -L data/msl -m Modelica.Electrical.Analog.Examples.ChuaCircuit -o chua.csv   # .mat なら MAT v4
 globe simulate --list-solvers
+# -o を省くと結果は書かず、要約だけ（stderr に「結果は書いていない」）。-o - は標準出力。info の診断は件数だけ（-v で全部）
 
 # 自分のファイルやフォルダ（モデルの完全修飾名を -m に）
 globe check src/Modelica/GlobeModeValidation -m GlobeModeValidation.Simulation.Decay

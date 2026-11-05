@@ -488,6 +488,11 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **キーボードとアクセシビリティ**（S164 の穴 8。[解説書](sessions/S175-ui-keyboard-a11y/解説書.md)）: キーだけで開く・書く・検査・診断へ飛ぶ・実行・止める・結果を見る・保存まで通せる。診断と参照の行は行の中の本物の `<button>`（Tab・Enter・Space でエディタの該当位置へ、フォーカスもエディタへ）。ショートカットは Ctrl/Cmd+Enter 実行、+Shift+Enter 検査、+. 止める、+S 保存（Desktop は +Shift+S 名前を付けて保存）、+O 開く（capture で受け、エディタの中でも効く。CodeMirror の Mod-Enter「空行を挿入」は覆う）。ボタンに `title` と `aria-keyshortcuts`。プロットの canvas に `role="img"` と信号名・時間の範囲・最後の値・最小・最大の `aria-label`（純粋な関数 `plotLabel`）。`:focus-visible` の輪郭を `--accent` に（エディタの 1px の点線は暗で見えなかった）。検査・実行の完了を `aria-live="polite"`、`h1` を読み上げ専用に。`test_ui.py` にキーだけの 1 本。
 - 持ち越し: ~~エディタへ飛ぶスキップリンク~~（S179 で済）、~~タブの矢印キー~~（S179 で済）、Mac の実機、スクリーンリーダー（NVDA・VoiceOver）の実機、Esc で止める、Tab での字下げ（エディタの Tab はフォーカスを離れる設計のまま）。
 
+### S182（P4、2026-11-06）で済んだこと
+
+- **CLI の simulate・出力先・ヘルプ**（S178 の監査の穴 4〜8、WP の B1・B2。[解説書](sessions/S182-cli-simulate-help/解説書.md)）: `-o` なしは結果を捨てたと stderr に 1 行、`-o` は「書いた: パス（n 行）」。`-o`・`fmu export --out` は計算の前に確かめ、パスと理由を言う（共通の `io_error`・`io_reason`）。`| head` は終了コード 0（`println!` を同名のマクロで置き換え。unsafe 禁止のため）。`allow_negative_numbers`。ヘルプに例、S0〜S10、内部のセッション番号を消した。`--force` の重複を除き、最後の行に最初の error（JSON の `refused` は変えない）。info は既定で件数だけ（`-v`。`--json` は変えない）。`graph` に `-L`（`deps` は Workspace の持ち方が違うので足さない）。試験 `tests/cli_flow.rs` 7 本。
+- 持ち越し: facade `simulate_unmarked` の診断の重複（wasm・UI は【未確認】）、`fmt` のパス省略と非 TTY・GM-U の終了コード・`msl fetch`・ヘルプの言語（ユーザーの判断）。
+
 ### S180（P4、2026-11-06）で済んだこと
 
 - **CLI のモデル名と `-L` の案内**（S178 の監査の穴 1・2、WP の A1。[解説書](sessions/S180-cli-model-name-library-hints/解説書.md)）: ライブラリを使うとき、`-m PID_Controller` や `…PID_Contoller` は Rumoca の英語の原文だけが返っていた。Rust の `check_synced_inner`（CLI・Python・LSP・wasm・UI の検査の入口 1 か所）で、Rumoca が要求したモデルの結果も失敗の記録も持たず、字句の索引（`LibraryTree`）と Session のどのクラスにも無いときだけ `GM-E1002` と候補（完全修飾名の末尾が一致、末尾の名前が同じ、綴りが近い。上位 5 件）を出す。名前が正しい失敗は今のまま。`-L` が `package.mo` のあるフォルダで同じ親に `ModelicaServices` か `Complex` が並ぶときは、失敗の診断（`GM-E1001`）に「親のフォルダを `-L` に渡す」の補足（自動では足さない）。CLI は `-L` も FILES も無いときに `-L <根> -m <完全修飾名>` の例を足す。Python の `Workspace("data/msl")` は S181。
