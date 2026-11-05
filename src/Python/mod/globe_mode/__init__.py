@@ -190,6 +190,7 @@ class Workspace:
         """`simulate` と同じ（設定・誤り・`on_progress` も同じ）だが、CSV を作らず `columns` に列を添える（S085）。
 
         `columns` は名前 → `polars.Series`（`time` が先頭）。`csv` は `None`。10 万点級の結果は `simulate` + `table` より速い。
+        `defaults` は既定で描く信号の名前（最大 3 本。状態、足りなければ出力。UI のプロットと同じ。S190）。
 
             res = ws.simulate_columns("RC", stop_time=5)
             table(res)["time"]

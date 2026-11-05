@@ -5,6 +5,7 @@
 export interface Columns {
   names: string[]; // time を除く
   points: number;
+  defaults?: string[]; // 既定で描く信号（Rust が決める。状態、足りなければ出力。S190）。無ければ内部名を除く先頭の 3 本
   data: ArrayLike<number | null>[]; // [time, ...系列]
 }
 

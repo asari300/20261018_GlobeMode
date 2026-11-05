@@ -237,6 +237,10 @@ pub struct SimulateResponse {
 pub struct ColumnsLayout {
     pub names: Vec<String>,
     pub points: usize,
+    /// プロットに既定で描く信号の名前（`time` を除く。最大 3 本。状態、足りなければ出力。規則は
+    /// `Trajectory::default_plot`。S190）。無ければ（古い応答）UI は先頭の 3 本を使う。
+    #[serde(default)]
+    pub defaults: Vec<String>,
 }
 
 /// tunable なパラメータの一覧（`globe simulate --list-parameters --json` と同じ形）。

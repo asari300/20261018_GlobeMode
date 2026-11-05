@@ -19,8 +19,9 @@
   let plot: uPlot | undefined;
   // 新しい結果が来たら選択・軸・x を既定に戻す（書き換えは次の結果まで残る）
   let shown = $derived.by(() => {
-    let n = 0; // 既定は内部名を除いた先頭の 3 本
-    return columns.names.map((name) => !isInternal(name) && n++ < DEFAULT_SHOWN);
+    const d = columns.defaults; // 既定は Rust の選ぶ信号（状態、足りなければ出力）。応答に無ければ内部名を除く先頭の 3 本
+    let n = 0;
+    return columns.names.map((name) => (d ? d.includes(name) : !isInternal(name) && n++ < DEFAULT_SHOWN));
   });
   let right = $derived(columns.names.map(() => false));
   let xi = $derived.by(() => (void columns, -1)); // -1 は time、それ以外は names の添字（パラメトリック）

@@ -69,6 +69,8 @@ DECAY_K = (
     "model DecayK\n  parameter Real k = 1 \"減衰の速さ\";\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -k * x;\n"
     "  annotation(experiment(StopTime = 3, Tolerance = 1e-8));\nend DecayK;\n"
 )
+# 既定で描く信号（S190）: 状態 x・v と代数変数 e。既定は状態の 2 本
+SPRING = "model Spring\n  Real x(start = 1, fixed = true);\n  Real v(start = 0, fixed = true);\n  Real e;\nequation\n  der(x) = v;\n  der(v) = -x;\n  e = 0.5 * (x * x + v * v);\nend Spring;\n"
 CHUA = "Modelica.Electrical.Analog.Examples.ChuaCircuit"
 # 未対応と強行（S173）: OVER は初期条件が余る（GM-E8001。強行で解ける）、DIV は 1 / 0 のパラメータで Rumoca が止まる（GM-U0001。強行しても進まない）
 OVER = "model Over\n  Real x(start = 1, fixed = true);\ninitial equation\n  x = 1;\nequation\n  der(x) = -x;\nend Over;\n"
@@ -471,6 +473,26 @@ def main() -> int:
         stop.fill("")
         stop.dispatch_event("change")
         page.get_by_label("ソルバ").select_option("")
+
+        # 既定で描く信号は状態（S190）: 2 状態 + 代数変数のモデルで、先頭の 3 本でなく状態の 2 本が選ばれる。選び直しは絞り込み・内部名の切り替えで上書きされない
+        page.get_by_label("モデル名").fill("Spring")
+        page.locator(".cm-content").focus()
+        page.keyboard.press("Control+A")
+        page.keyboard.insert_text(SPRING)
+        simulate()
+        assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
+        plot, signals = page.locator(".plot"), page.locator(".plot .signals input[name=signal]")
+        picked = lambda: sorted(n for n in ("x", "v", "e") if page.get_by_role("checkbox", name=n, exact=True).is_checked())
+        expect(plot).to_have_attribute("data-series", "2")
+        assert signals.count() == 3 and picked() == ["v", "x"], (signals.count(), picked())
+        page.get_by_role("checkbox", name="e", exact=True).check(force=True)
+        page.get_by_label("信号を絞り込む").fill("zzz")
+        page.get_by_label("信号を絞り込む").fill("")
+        page.get_by_label("内部の変数も表示").check(force=True)
+        page.get_by_label("内部の変数も表示").uncheck(force=True)
+        expect(plot).to_have_attribute("data-series", "3")
+        assert picked() == ["e", "v", "x"], picked()
+        print("Spring の既定: 状態の x・v の 2 本（代数変数 e は選ばれない）。e を足した選択は絞り込みと内部名の切り替えで保たれた")
 
         page.get_by_label("モデル名").fill("Big")
         page.locator(".cm-content").focus()

@@ -211,6 +211,29 @@ impl Trajectory {
         self.variables.iter().find(|v| v.name == name)
     }
 
+    /// プロットに既定で描く信号の名前（最大 3 本。S190）。内部名（`$` で始まる）を除き、状態を列の順に、足りなければ
+    /// 出力を足す。状態も出力も無いモデルは先頭から 3 本。UI・Python・他の面が同じ既定を使う 1 か所の規則。
+    /// `dae_states` は状態選択の前の DAE の状態（`CompiledModel::state_names`）。状態選択で `$state_coordinates` に
+    /// 替わったモデルでも、元の変数（代数に見える）を状態として選ぶ。
+    pub fn default_plot(&self, dae_states: &[String]) -> Vec<String> {
+        const MAX: usize = 3;
+        let user = || self.variables.iter().filter(|v| !v.name.starts_with('$'));
+        let is_state =
+            |v: &&TrajectoryVariable| v.role == VariableRole::State || dae_states.contains(&v.name);
+        let is_output = |v: &&TrajectoryVariable| v.role == VariableRole::Output;
+        let mut picked: Vec<&TrajectoryVariable> = Vec::new();
+        picked.extend(user().filter(is_state).take(MAX));
+        picked.extend(
+            user()
+                .filter(|v| !is_state(v) && is_output(v))
+                .take(MAX - picked.len()),
+        );
+        if picked.is_empty() {
+            picked.extend(user().take(MAX));
+        }
+        picked.into_iter().map(|v| v.name.clone()).collect()
+    }
+
     /// 値に NaN / inf を含む変数の名前。
     pub fn non_finite(&self) -> Vec<&str> {
         self.variables
@@ -285,4 +308,75 @@ pub struct SimRun {
     /// 実行に使ったパラメータの値（実行系が分かる範囲。無ければ空。S012）
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub parameters: Vec<ResultParameter>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn traj(vars: &[(&str, VariableRole)]) -> Trajectory {
+        Trajectory {
+            time: vec![0.0],
+            variables: vars
+                .iter()
+                .map(|(name, role)| TrajectoryVariable {
+                    name: (*name).into(),
+                    role: *role,
+                    unit: None,
+                    description: None,
+                    values: vec![0.0],
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn default_plot_prefers_states_then_outputs_up_to_three() {
+        use VariableRole::*;
+        // 状態が 3 本以上: 列の順に 3 本（内部名と、間の代数変数・出力は飛ばす）
+        let t = traj(&[
+            ("$d", State),
+            ("a", Algebraic),
+            ("y", Output),
+            ("p", State),
+            ("q", State),
+            ("r", State),
+            ("s", State),
+        ]);
+        assert_eq!(t.default_plot(&[]), ["p", "q", "r"]);
+        // 状態が 1 本: 足りない分は出力から
+        let t = traj(&[
+            ("a", Algebraic),
+            ("y1", Output),
+            ("x", State),
+            ("y2", Output),
+            ("y3", Output),
+        ]);
+        assert_eq!(t.default_plot(&[]), ["x", "y1", "y2"]);
+        // 状態が無ければ出力
+        let t = traj(&[("a", Algebraic), ("y", Output)]);
+        assert_eq!(t.default_plot(&[]), ["y"]);
+        // 状態も出力も無ければ（内部名を除いた）先頭の 3 本
+        let t = traj(&[
+            ("$z", Algebraic),
+            ("a", Algebraic),
+            ("b", Discrete),
+            ("c", Algebraic),
+            ("d", Algebraic),
+        ]);
+        assert_eq!(t.default_plot(&[]), ["a", "b", "c"]);
+        // 内部名しか無ければ空
+        assert!(traj(&[("$z", State)]).default_plot(&[]).is_empty());
+        // 状態選択で状態が `$state_coordinates` に替わっても、DAE の状態の名前なら元の変数を選ぶ
+        let t = traj(&[
+            ("y", Output),
+            ("phi", Algebraic),
+            ("$state_coordinates[1]", State),
+            ("w", Algebraic),
+        ]);
+        assert_eq!(
+            t.default_plot(&["w".into(), "phi".into()]),
+            ["phi", "w", "y"]
+        );
+    }
 }

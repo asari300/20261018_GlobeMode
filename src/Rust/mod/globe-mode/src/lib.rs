@@ -149,6 +149,8 @@ pub struct Simulated {
     pub run: Option<SimRun>,
     /// DAE まで変換したモデル（コンパイルまで進んだときだけ）
     pub compiled: Option<CompiledModel>,
+    /// プロットに既定で描く信号（`time` を除く。S190。[`globe_mode_ir::Trajectory::default_plot`]。`compiled` を放しても残る）
+    pub default_plot: Vec<String>,
 }
 
 impl Simulated {
@@ -160,6 +162,7 @@ impl Simulated {
                 ColumnsLayout {
                     names: Vec::new(),
                     points: 0,
+                    defaults: Vec::new(),
                 },
                 Vec::new(),
             );
@@ -175,6 +178,7 @@ impl Simulated {
             ColumnsLayout {
                 names,
                 points: traj.time.len(),
+                defaults: self.default_plot.clone(),
             },
             columns,
         )
@@ -550,6 +554,7 @@ impl Workspace {
                 response,
                 run: None,
                 compiled: None,
+                default_plot: Vec::new(),
             };
         }
         let compiled = match self
@@ -564,6 +569,7 @@ impl Workspace {
                     response,
                     run: None,
                     compiled: None,
+                    default_plot: Vec::new(),
                 };
             }
         };
@@ -601,10 +607,14 @@ impl Workspace {
         } else {
             response.refused = Some("実行に失敗した".to_string());
         }
+        let default_plot = report.run.as_ref().map_or_else(Vec::new, |r| {
+            r.trajectory.default_plot(&compiled.state_names())
+        });
         Simulated {
             response,
             run: report.run,
             compiled: Some(compiled),
+            default_plot,
         }
     }
 
