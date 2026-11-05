@@ -269,12 +269,13 @@ jobs:
           if [ "$SIGN" = true ] && grep -q '"pubkey": ""' tauri.conf.json; then echo "::warning::鍵はあるが tauri.conf.json の pubkey が空。アプリは更新を確かめない"; fi
           cargo tauri build --bundles ${{ matrix.bundles || matrix.bundle }} --config "{${VERSION}\"bundle\":{\"createUpdaterArtifacts\":$SIGN}}"
           ls -l target/release/bundle/${{ matrix.bundle }}/ | tee -a "$GITHUB_STEP_SUMMARY"
-          # macOS の updater は .dmg でなく .app.tar.gz（と .sig）を読む。名前に版と arch が無いので .dmg に合わせる（鍵がなければ無い）
+          # macOS の updater は .dmg でなく .app.tar.gz（と .sig）を読む。名前に版と arch が無いので .dmg に合わせて dmg/ に移す（鍵がなければ無い）。
+          # upload の path に別のディレクトリ（bundle/macos）を足すと artifact に dmg/ などの階層が付き、release の SHA256SUMS の GlobeMode_* に合わなくなる
           if [ "$RUNNER_OS" = macOS ]; then
             ls -l target/release/bundle/macos/ | tee -a "$GITHUB_STEP_SUMMARY"
             N="$(basename target/release/bundle/dmg/*.dmg .dmg)"
             for e in "" .sig; do
-              if [ -e "target/release/bundle/macos/GlobeMode.app.tar.gz$e" ]; then mv "target/release/bundle/macos/GlobeMode.app.tar.gz$e" "target/release/bundle/macos/$N.app.tar.gz$e"; fi
+              if [ -e "target/release/bundle/macos/GlobeMode.app.tar.gz$e" ]; then mv "target/release/bundle/macos/GlobeMode.app.tar.gz$e" "target/release/bundle/dmg/$N.app.tar.gz$e"; fi
             done
           fi
       - uses: actions/upload-artifact@v4
@@ -283,8 +284,8 @@ jobs:
           path: |
             ${{ env.DESKTOP }}/target/release/bundle/${{ matrix.bundle }}/*.${{ matrix.bundle }}
             ${{ env.DESKTOP }}/target/release/bundle/${{ matrix.bundle }}/*.${{ matrix.bundle }}.sig
-            ${{ env.DESKTOP }}/target/release/bundle/macos/*.app.tar.gz
-            ${{ env.DESKTOP }}/target/release/bundle/macos/*.app.tar.gz.sig
+            ${{ env.DESKTOP }}/target/release/bundle/${{ matrix.bundle }}/*.app.tar.gz
+            ${{ env.DESKTOP }}/target/release/bundle/${{ matrix.bundle }}/*.app.tar.gz.sig
           if-no-files-found: error
 
   release:
