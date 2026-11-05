@@ -174,6 +174,28 @@ impl CompiledModel {
     pub fn rumoca_dae(&self) -> &Arc<Dae> {
         &self.dae
     }
+
+    /// DAE の状態（`der()` の付く変数。状態選択の前の名前で、配列はスカラーごと）の名前。実行の結果では状態選択で
+    /// `$state_coordinates[i]` に替わり、元の変数が代数に見えることがある。プロットの既定の選び方に使う（S190）。
+    pub fn state_names(&self) -> Vec<String> {
+        let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.dae.inspect(|view| {
+                let mut names = Vec::new();
+                for (_, v) in view.variables() {
+                    if v.role() != VariableRole::State {
+                        continue;
+                    }
+                    let count = v.value_type().scalar_count().unwrap_or(1);
+                    names.extend(
+                        (0..count)
+                            .map(|i| v.scalar_name(i).unwrap_or_else(|| v.name().to_string())),
+                    );
+                }
+                names
+            })
+        }));
+        caught.unwrap_or_default()
+    }
 }
 
 impl std::fmt::Debug for CompiledModel {

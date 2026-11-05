@@ -93,11 +93,11 @@ export class TauriBackend implements Backend {
     this.#onProgress = onProgress;
     this.#cancelling = false;
     try {
-      const r = await invoke<{ response: SimulateResponse; layout: { names: string[]; points: number }; columns: (number | null)[][] }>(
+      const r = await invoke<{ response: SimulateResponse; layout: { names: string[]; points: number; defaults?: string[] }; columns: (number | null)[][] }>(
         "rpc",
         { method: "globe/simulateColumns", params: { request: req, workDoneToken: RUN_TOKEN } },
       );
-      return { response: r.response, columns: { names: r.layout.names.slice(1), points: r.layout.points, data: r.columns } };
+      return { response: r.response, columns: { names: r.layout.names.slice(1), points: r.layout.points, defaults: r.layout.defaults, data: r.columns } };
     } catch (e) {
       // 止めても応えない sidecar は作り直される（command `cancel_run`）。UI には止めたとして返す
       if (this.#cancelling) throw Object.assign(new Error(String(e)), { cancelled: true });

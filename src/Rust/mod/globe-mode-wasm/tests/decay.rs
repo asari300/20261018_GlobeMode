@@ -330,6 +330,7 @@ fn columns_match_the_csv() {
     let layout: globe_mode::ColumnsLayout = serde_json::from_str(&columns.layout()).unwrap();
     assert_eq!(layout.names, ["time", "x"]);
     assert_eq!(layout.points, csv.lines().count() - 1);
+    assert_eq!(layout.defaults, ["x"]); // S190: 既定で描く信号（状態）
     for (i, _) in layout.names.iter().enumerate() {
         let col = columns.column(i);
         assert_eq!(col.len(), layout.points);
