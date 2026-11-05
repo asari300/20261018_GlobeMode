@@ -1,7 +1,8 @@
 // CodeMirror の拡張（S053）: 予約語と本文の単語の補完、検査と lint の結果の波線。業務ロジックは置かない。
 import { autocompletion, completeAnyWord, type CompletionContext, type CompletionResult, type CompletionSource } from "@codemirror/autocomplete";
 import { linter, type Diagnostic as CmDiagnostic } from "@codemirror/lint";
-import { HighlightStyle, StreamLanguage, syntaxHighlighting, type StringStream } from "@codemirror/language";
+import { indentWithTab } from "@codemirror/commands";
+import { HighlightStyle, indentUnit, StreamLanguage, syntaxHighlighting, type StringStream } from "@codemirror/language";
 import { invertedEffects } from "@codemirror/commands";
 import { Compartment, EditorState, Prec, StateEffect, type Extension } from "@codemirror/state";
 import { EditorView, hoverTooltip, keymap } from "@codemirror/view";
@@ -69,6 +70,18 @@ const modelicaStyle = HighlightStyle.define([
   { tag: tags.operator, class: "cm-mo-op" },
 ]);
 export const modelicaHighlight: Extension = [modelicaLanguage, syntaxHighlighting(modelicaStyle)];
+
+/**
+ * Tab は字下げ、Shift+Tab は戻す（S188）。幅は整形器の既定と同じ空白 2 つ（タブ文字は入れない）。
+ * フォーカスを出す手は CodeMirror の組み込み（Esc のあと 2 秒以内の Tab / Shift+Tab、Ctrl+M か Mac の Shift+Alt+M で切り替え。defaultKeymap の toggleTabFocusMode）。
+ * 使い方は EDITOR_HELP を、エディタの aria-describedby と画面の両方に出す（キーボードトラップを作らない。WCAG 2.1.2）。
+ */
+export const EDITOR_HELP = "Tab は字下げ、Shift+Tab は字下げを戻す。フォーカスを移すには Esc を押してから Tab（戻るなら Shift+Tab）、または Ctrl+M（Mac は Shift+Alt+M）で Tab での移動を切り替える。";
+export const modelicaTab: Extension = [
+  indentUnit.of("  "),
+  keymap.of([indentWithTab]),
+  EditorView.contentAttributes.of({ "aria-describedby": "editor-help" }),
+];
 
 function keywords(ctx: CompletionContext): CompletionResult | null {
   const word = ctx.matchBefore(/\w+/);

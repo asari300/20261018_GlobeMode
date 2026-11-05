@@ -486,7 +486,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 ### S175（P4、2026-11-05）で済んだこと
 
 - **キーボードとアクセシビリティ**（S164 の穴 8。[解説書](sessions/S175-ui-keyboard-a11y/解説書.md)）: キーだけで開く・書く・検査・診断へ飛ぶ・実行・止める・結果を見る・保存まで通せる。診断と参照の行は行の中の本物の `<button>`（Tab・Enter・Space でエディタの該当位置へ、フォーカスもエディタへ）。ショートカットは Ctrl/Cmd+Enter 実行、+Shift+Enter 検査、+. 止める、+S 保存（Desktop は +Shift+S 名前を付けて保存）、+O 開く（capture で受け、エディタの中でも効く。CodeMirror の Mod-Enter「空行を挿入」は覆う）。ボタンに `title` と `aria-keyshortcuts`。プロットの canvas に `role="img"` と信号名・時間の範囲・最後の値・最小・最大の `aria-label`（純粋な関数 `plotLabel`）。`:focus-visible` の輪郭を `--accent` に（エディタの 1px の点線は暗で見えなかった）。検査・実行の完了を `aria-live="polite"`、`h1` を読み上げ専用に。`test_ui.py` にキーだけの 1 本。
-- 持ち越し: ~~エディタへ飛ぶスキップリンク~~（S179 で済）、~~タブの矢印キー~~（S179 で済）、Mac の実機、スクリーンリーダー（NVDA・VoiceOver）の実機、Esc で止める、Tab での字下げ（エディタの Tab はフォーカスを離れる設計のまま）。
+- 持ち越し: ~~エディタへ飛ぶスキップリンク~~（S179 で済）、~~タブの矢印キー~~（S179 で済）、Mac の実機、スクリーンリーダー（NVDA・VoiceOver）の実機、Esc で止める、~~Tab での字下げ~~（S188 で済）。
 
 ### S182（P4、2026-11-06）で済んだこと
 
@@ -502,6 +502,11 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 
 - **診断の重複と結果の 1 行を facade・protocol に寄せた**（S182・S183 の持ち越し。[解説書](sessions/S184-facade-summary-dedup/解説書.md)）: `--force` でコンパイルに失敗すると、facade の `simulate` が検査とコンパイルの同じ診断を両方返していた（CLI だけの問題ではなく wasm・LSP・UI も同じ。Python の `simulate` に `force` は無い）。`simulate_observed` の最後でコード・位置・文面が同じものを最初の 1 つに除き、CLI の除去は消した。応答に追加の `summary`（`CheckResponse` は常に、`SimulateResponse` は実行しなかったときだけ。文面は CLI のまま。`summary_line`・`refused_summary` は protocol に 1 つ）。
 - 持ち越し: UI（Svelte）の `unsupported` の要約と失敗の行を `summary` に置き換える。
+
+### S188（P4、2026-11-06）で済んだこと
+
+- **エディタの Tab は字下げ**（S175・S185 の持ち越し。[解説書](sessions/S188-editor-tab-indent/解説書.md)）: Svelte 版のエディタで Tab は空白 2 つの字下げ（選んだ行すべて）、Shift+Tab は戻す（`indentWithTab`）。フォーカスを出す手は CodeMirror の組み込みで、Esc のあと Tab / Shift+Tab、または Ctrl+M（Mac は Shift+Alt+M）で「Tab で移動」の切り替え。Esc は補完・リネームの取り消しと当たらない。案内はエディタの下の 1 行と `aria-describedby`、README の表。挙動が変わる点（前は Tab でフォーカスが出た）。
+- 持ち越し: `fmt.indent` への追従、Enter のあとの自動字下げ、Tab での補完の確定、Leptos・Dioxus の試験版。
 
 ### S186（P4、2026-11-06）で済んだこと
 

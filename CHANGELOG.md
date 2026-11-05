@@ -81,6 +81,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - S183: Python に CLI と同じ読み取り（`Workspace.outline`・`deps`・`flat`）。C・Zig・Julia・Elixir・Gleam の README に、書いてあるとおりに動く最初の例（検査して実行して最後の値を読む）を置き、Julia の README を実物に合わせた。marimo の `sim_app.py` にライブラリとモデルの入力欄。
 - S184: `--force` でコンパイルに失敗したとき同じ診断が 2 回返っていたのを facade の 1 か所で除いた（CLI・LSP・wasm・UI が同じ応答を見る。CLI だけで除いていたのをやめた）。応答に追加の `summary`（検査の最後の 1 行。`simulate` は実行しなかったときだけ）。文面は CLI のまま。
 - S186: UI の細部（S185 の監査）。クラス名のリネーム（F2）がいまのモデル名のクラスなら欄も追い（Ctrl+Z で戻る）、ライブラリの木・検索から入れ子のクラスを開くと宣言の行へカーソルと画面が動く（`librarySource` に追加の `range`）。補完の一覧は Ctrl+Enter で閉じ、「MSL を読む」の後はフォーカスが検索欄へ、「結果へ」は結果を画面へ入れる。
+- S188: **挙動が変わる**: ブラウザ・Desktop の UI のエディタで Tab は字下げ（空白 2 つ、選んだ行すべて）、Shift+Tab は戻す。フォーカスをエディタの外へ出すには Esc のあと Tab（Shift+Tab）か Ctrl+M（Mac は Shift+Alt+M）。説明はエディタの下とスクリーンリーダー向けの `aria-describedby`。
 - S134・S135: Desktop が `C.UTF-8` の locale で白画面になる不具合の修正と、自動更新（`tauri-plugin-updater`。鍵を登録するまで「未設定」）。
 - S140・S164: アプリの使える流れの点検（調査だけ。[2026-11-04](doc/research/app-flow-2026-11-04.md)、[2026-11-05](doc/research/app-flow-2026-11-05.md)）。
 
