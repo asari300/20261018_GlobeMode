@@ -1,4 +1,4 @@
-import type { Backend, Definition, Hover, LintMessage, Progress, TreeEntry } from "./backend";
+import type { Backend, CompletionEntry, Definition, Hover, LintMessage, Progress, TreeEntry } from "./backend";
 import type { Columns } from "./plot/csv";
 import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse, SolverEntry, TunableParameter } from "./protocol";
 
@@ -133,6 +133,9 @@ export class TauriBackend implements Backend {
   }
   librarySource(path: string): Promise<{ file: string; text: string }> {
     return invoke("rpc", { method: "globe/librarySource", params: { path } });
+  }
+  completion(file: string, line: number, character: number): Promise<CompletionEntry[]> {
+    return invoke("rpc", { method: "globe/completion", params: { file, line, character } }); // S171（textDocument/completion と同じ計算）
   }
   definition(file: string, line: number, character: number): Promise<Definition | null> {
     return invoke("rpc", { method: "globe/definition", params: { file, line, character } }); // S138（textDocument/definition と同じ解決。本文付き）

@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S171 エディタの補完を Rust につなぐ — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S171 エディタの補完を Rust につなぐ">
+
+<section class="slide" id="S01">
+  <span class="tag">S171 · 2026-11-05 · P4</span>
+  <h1>エディタの補完を Rust につなぐ</h1>
+  <p class="lead">S164 の穴 9。Svelte のエディタは予約語と本文の単語だけだった。ブラウザ（wasm）も Desktop（sidecar）も、Rust 側の候補が出る</p>
+  <div class="big"><code>Modelica.Blocks.Sources.Si</code> と打つと <b>Sine</b> が出て、選ぶと入る</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">現状</span>
+  <h1>何が困っていたか</h1>
+  <ul>
+    <li>LSP の補完（S053）は VS Code にだけつながっていた。UI は <code>autocompletion({ override: [keywords, completeAnyWord] })</code></li>
+    <li>型の位置で <code>Modelica.</code> と打っても、ライブラリのクラスは出ない</li>
+    <li><code>pin.</code> の後ろは、同じファイルの <code>Outline</code> から探すだけ。<code>extends</code> した部品と、打ちかけで壊れた文書に弱い</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>口</td><td><code>Backend.completion(file, line, character)</code>。wasm は <code>completion</code>、Desktop は rpc <code>globe/completion</code>。LSP の <code>textDocument/completion</code> と同じ計算</td><td>S138 の定義ジャンプと同じ通し方。VS Code も広がった分がそのまま効く</td></tr>
+    <tr><td>引き方</td><td><code>Resolver</code>（定義ジャンプの解決）と <code>LibraryTree</code> をそのまま使う。新しい解析は入れない</td><td>継承した部品も、<code>import</code> の別名も、定義ジャンプと同じ場所に行き着く</td></tr>
+    <tr><td>打ちかけ</td><td>文書が壊れていたら、カーソルの行を空白にして読み直し、そのアウトラインで引く</td><td><code>pin.</code> を打った瞬間は必ず構文エラー。ここで引けないと使えない</td></tr>
+    <tr><td>CodeMirror</td><td>予約語と本文の単語は即時。Rust の候補は非同期に足す。<code>validFor</code> と <code>aborted</code> で古い応答を捨てる</td><td>Rust が遅れても入力は止まらない</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>候補が出る位置</h1>
+  <table class="compact">
+    <tr><th>打っている所</th><th>出る候補</th></tr>
+    <tr><td>語の頭（型の位置、式の中）</td><td>予約語、そのクラスの部品（継承した分も）、文書のクラス、ライブラリの最上位</td></tr>
+    <tr><td><code>Modelica.Blocks.</code> のようにクラスが先</td><td>ライブラリの木の直下の子（種類と説明つき）。文書の入れ子のクラス、<code>import</code> の別名も</td></tr>
+    <tr><td><code>pin.</code> のように部品が先</td><td>その型の部品名（継承した分も）</td></tr>
+    <tr class="warn"><td>文字列・コメントの中</td><td>Rust 側は空</td></tr>
+  </table>
+  <p class="small">多くても 200 件。打ちかけの語に字が順に当たるものだけを返す</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">測定</span>
+  <h1>応答時間（MSL 4.1.0 を読んだ状態）</h1>
+  <div class="kpis">
+    <div class="kpi"><span class="n">1〜4 ms</span><span class="l">wasm（Node）の応答。木の子・最上位・読み済みの型</span></div>
+    <div class="kpi"><span class="n">約 0.3 s</span><span class="l">ライブラリの型を初めて引くとき 1 回（ファイルの解析）</span></div>
+    <div class="kpi"><span class="n">0.3 ms</span><span class="l">Desktop（ネイティブ release）の 2 回目以降</span></div>
+  </div>
+  <p class="small">wasm は呼び出しごとに作っていた「読んだライブラリのアウトライン」を持ち続けるようにした（毎回 260 ms だったのが 2 回目は 1 ms）。最初の 1 回の 0.3 s は 50 ms の目安を超える。持ち越し</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">結果</span>
+  <h1>試験</h1>
+  <ul>
+    <li>Rust の単体 4 本: 型の位置でライブラリの子と絞り込み、継承した部品と壊れた文書、文字列・コメントの中は空、予約語と部品名</li>
+    <li>LSP の RPC 1 本: <code>globe/completion</code> と <code>textDocument/completion</code> が同じ候補</li>
+    <li><code>smoke.mjs</code>（<code>wasm:node</code>）: MSL で <code>Sources.</code> の Sine、<code>s.</code> の y、文字列の中は空、応答時間</li>
+    <li><code>test_ui.py</code>: MSL なしで部品 <code>level</code>（型 Real）と <code>pin.</code> の後ろの v・i。MSL ありで <code>Sources.Si</code> から Sine を選ぶと入る。<code>GM-SMOKE</code> の行は変えていない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ul>
+    <li>最初の 1 回の 0.3 s（ライブラリのファイルの解析）を、読み込みの空き時間に先に回す</li>
+    <li>本文の単語（<code>completeAnyWord</code>）と Rust の候補が同じ名前で 2 行出る</li>
+    <li>同じファイルの型は、文書の別の行も壊れているときは引けない</li>
+    <li>引数・シグネチャ・スニペット・修飾子名・import の自動挿入</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

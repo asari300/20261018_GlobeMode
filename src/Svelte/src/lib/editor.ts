@@ -1,8 +1,8 @@
 // CodeMirror の拡張（S053）: 予約語と本文の単語の補完、検査と lint の結果の波線。業務ロジックは置かない。
-import { autocompletion, completeAnyWord, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
+import { autocompletion, completeAnyWord, type CompletionContext, type CompletionResult, type CompletionSource } from "@codemirror/autocomplete";
 import { linter, type Diagnostic as CmDiagnostic } from "@codemirror/lint";
 import { HighlightStyle, StreamLanguage, syntaxHighlighting, type StringStream } from "@codemirror/language";
-import { Compartment, Prec, type Extension } from "@codemirror/state";
+import { Compartment, EditorState, Prec, type Extension } from "@codemirror/state";
 import { EditorView, hoverTooltip, keymap } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
 import type { Backend } from "./backend";
@@ -75,7 +75,36 @@ function keywords(ctx: CompletionContext): CompletionResult | null {
   return { from: word.from, options: KEYWORDS.map((label) => ({ label, type: "keyword" })) };
 }
 
-export const modelicaCompletion = (): Extension => autocompletion({ override: [keywords, completeAnyWord] });
+// 予約語と本文の単語は即時。Rust 側の候補は modelicaDefinition に渡す backend から languageData で足される（S171）
+const completionFrom = (source: CompletionSource): Extension => EditorState.languageData.of(() => [{ autocomplete: source }]); // source は同じ関数を渡し続ける（CodeMirror は関数で区別する）
+export const modelicaCompletion = (): Extension => [autocompletion(), completionFrom(keywords), completionFrom(completeAnyWord)];
+
+// LSP の CompletionItemKind → CodeMirror の type
+const KIND: Record<number, string> = { 3: "function", 5: "property", 6: "variable", 7: "class", 9: "namespace", 14: "keyword" };
+
+/**
+ * Rust 側の補完（S171）。本文を送ってから位置を渡すだけで、候補の計算（型の位置のライブラリのクラス、`.` の後ろの部品、文字列・コメントの中は空）は Backend。
+ * 語の頭が変わるまでは引き直さず（validFor）、古い応答は `ctx.aborted` で捨てる。予約語はこちらでは足さない（上の keywords が即時に出す）。
+ */
+const rustCompletion = (backend: Backend, file: () => string): CompletionSource => async (ctx) => {
+  const word = ctx.matchBefore(/\w*/)!;
+  const dotted = word.from > 0 && ctx.state.sliceDoc(word.from - 1, word.from) === ".";
+  if (word.from === word.to && !ctx.explicit && !dotted) return null;
+  const line = ctx.state.doc.lineAt(ctx.pos);
+  ctx.addEventListener("abort", () => {}, { onDocChange: true }); // 打鍵で aborted が立つようにする（遅れて届いた古い応答を捨てる）
+  try {
+    await backend.setFile(file(), ctx.state.doc.toString());
+    if (ctx.aborted) return null;
+    const items = await backend.completion(file(), line.number - 1, ctx.pos - line.from);
+    if (ctx.aborted) return null;
+    const options = items
+      .filter((i) => i.kind !== 14)
+      .map((i) => ({ label: i.label, type: KIND[i.kind ?? 0], detail: i.detail, info: i.documentation }));
+    return options.length ? { from: word.from, options, validFor: /^\w*$/ } : null; // 語を打ち足す間は CodeMirror が絞る（候補は打ちかけの語で絞り済みの上位 200 件）
+  } catch {
+    return null; // 候補が引けなくても、予約語と本文の単語は出ている
+  }
+};
 
 /**
  * 定義ジャンプ（S138）: F12 か Ctrl/Cmd+クリックで、その位置の名前の定義へ。引いて動かすのは App（別のファイルなら開く）。
@@ -84,7 +113,7 @@ export const modelicaCompletion = (): Extension => autocompletion({ override: [k
 export const modelicaDefinition = (
   jump: (line: number, character: number) => Promise<void>,
   back: () => void,
-  hover?: { backend: Backend; file: () => string }, // S149: あれば、名前の上にマウスを置くと宣言の 1 行を出す
+  hover?: { backend: Backend; file: () => string }, // S149: あれば、名前の上にマウスを置くと宣言の 1 行を出す（S171: Rust 側の補完もこれで足す）
 ): Extension => {
   const at = (view: EditorView, pos: number) => {
     const line = view.state.doc.lineAt(pos);
@@ -92,6 +121,7 @@ export const modelicaDefinition = (
   };
   return [
     hover ? modelicaHover(hover.backend, hover.file) : [],
+    hover ? completionFrom(rustCompletion(hover.backend, hover.file)) : [], // S171: 補完も同じ backend と file
     Prec.high(
       keymap.of([
         { key: "F12", run: (v) => (at(v, v.state.selection.main.head), true) },
