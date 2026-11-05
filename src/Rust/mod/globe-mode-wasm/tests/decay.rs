@@ -132,8 +132,47 @@ fn refuses_when_the_check_fails() {
         serde_json::json!({ "files": files, "model": "Unbalanced" }),
     ));
     assert!(!response.ok);
-    assert!(response.refused.unwrap().contains("force"));
+    // DAE にできない Error は強行しても進めない（S173）
+    assert!(response.refused.unwrap().contains("強行しても実行できない"));
+    assert!(!response.can_force && response.unsupported.is_none());
     assert!(response.diagnostics.iter().any(|d| d.is_error()));
+}
+
+/// S173: 初期条件が余る（GM-E8001）は強行で実行に進める。`can_force` が立ち、強行した結果には立たない
+#[test]
+fn over_determined_initialization_can_be_forced() {
+    let over = "model Over\n  Real x(start = 1, fixed = true);\ninitial equation\n  x = 1;\nequation\n  der(x) = -x;\nend Over;\n";
+    let files = BTreeMap::from([("Over.mo".to_string(), over.to_string())]);
+    let refused = run(&request(
+        serde_json::json!({ "files": files, "model": "Over" }),
+    ));
+    assert!(!refused.ok && refused.can_force && refused.unsupported.is_none());
+    assert!(refused.refused.unwrap().contains("force で強行できる"));
+    let forced = run(&request(
+        serde_json::json!({ "files": files, "model": "Over", "force": true }),
+    ));
+    assert!(
+        forced.final_values.is_some() && !forced.can_force,
+        "{:?}",
+        forced.diagnostics
+    );
+}
+
+/// S173: Error がすべて GM-U なら `unsupported` に要約が付く（誤りとは分ける）。強行しても進めない
+#[test]
+fn unsupported_errors_are_summarised() {
+    let src = "model Div\n  parameter Real p = 1 / 0;\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -x;\nend Div;\n";
+    let files = BTreeMap::from([("Div.mo".to_string(), src.to_string())]);
+    let r = run(&request(
+        serde_json::json!({ "files": files, "model": "Div" }),
+    ));
+    assert!(
+        r.diagnostics.iter().any(|d| d.is_unsupported()),
+        "{:?}",
+        r.diagnostics
+    );
+    assert!(r.unsupported.is_some() && !r.can_force);
+    assert!(r.refused.unwrap().contains("強行しても実行できない"));
 }
 
 #[test]
@@ -218,6 +257,25 @@ fn check_returns_diagnostics_without_running() {
     let v: serde_json::Value = serde_json::from_str(&ws.check("Bad").unwrap()).unwrap();
     assert_eq!(v["passed"], false);
     assert!(!v["diagnostics"].as_array().unwrap().is_empty(), "{v}");
+    assert!(
+        v.get("can_force").is_none() && v.get("unsupported").is_none(),
+        "{v}"
+    ); // S173: 無いときは出ない
+}
+
+/// S173: 検査の応答にも `can_force`（GM-E8001）と `unsupported`（GM-U）が付く
+#[test]
+fn check_marks_forceable_and_unsupported() {
+    let mut ws = Workspace::new();
+    ws.put_file("Over.mo", "model Over Real x(start=1, fixed=true); initial equation x = 1; equation der(x) = -x; end Over;");
+    ws.put_file("Div.mo", "model Div parameter Real p = 1 / 0; Real x(start=1, fixed=true); equation der(x) = -x; end Div;");
+    let over: serde_json::Value = serde_json::from_str(&ws.check("Over").unwrap()).unwrap();
+    assert_eq!(over["can_force"], true, "{over}");
+    let div: serde_json::Value = serde_json::from_str(&ws.check("Div").unwrap()).unwrap();
+    assert!(
+        div["unsupported"].is_string() && div.get("can_force").is_none(),
+        "{div}"
+    );
 }
 
 #[test]

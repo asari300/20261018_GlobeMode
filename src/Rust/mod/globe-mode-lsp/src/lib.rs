@@ -1164,6 +1164,34 @@ mod tests {
         assert!(d[0]["message"].as_str().unwrap().contains("Port"));
     }
 
+    /// S173: 検査の応答の `can_force`、`force: true` の実行（RPC で通る）
+    #[test]
+    fn force_runs_an_over_determined_initialization() {
+        let mut s = Server::new(&[]).unwrap();
+        let src = "model Over\n  Real x(start = 1, fixed = true);\ninitial equation\n  x = 1;\nequation\n  der(x) = -x;\nend Over;\n";
+        s.handle(
+            json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+            "uri": "A.mo", "languageId": "modelica", "version": 1, "text": src}}}),
+        );
+        let r = s.handle(json!({"id": 1, "method": "globe/check", "params": {"model": "Over"}}));
+        assert_eq!(r[0]["result"]["can_force"], true, "{}", r[0]);
+        let mut run = |force: bool| {
+            s.handle(
+                json!({"id": 2, "method": "globe/simulate", "params": {"request": {
+            "model": "Over", "force": force, "no_csv": true}}}),
+            )
+        };
+        let refused = run(false);
+        assert_eq!(refused[0]["result"]["can_force"], true, "{}", refused[0]);
+        let forced = run(true);
+        assert!(
+            forced[0]["result"]["final"]["x"].is_number(),
+            "{}",
+            forced[0]
+        );
+        assert!(forced[0]["result"].get("can_force").is_none());
+    }
+
     #[test]
     fn custom_requests_check_simulate_and_graph() {
         let mut s = Server::new(&[]).unwrap();

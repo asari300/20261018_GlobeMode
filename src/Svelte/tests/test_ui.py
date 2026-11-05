@@ -66,6 +66,9 @@ DECAY_K = (
     "  annotation(experiment(StopTime = 3, Tolerance = 1e-8));\nend DecayK;\n"
 )
 CHUA = "Modelica.Electrical.Analog.Examples.ChuaCircuit"
+# 未対応と強行（S173）: OVER は初期条件が余る（GM-E8001。強行で解ける）、DIV は 1 / 0 のパラメータで Rumoca が止まる（GM-U0001。強行しても進まない）
+OVER = "model Over\n  Real x(start = 1, fixed = true);\ninitial equation\n  x = 1;\nequation\n  der(x) = -x;\nend Over;\n"
+DIV = "model Div\n  parameter Real p = 1 / 0;\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -x;\nend Div;\n"
 FIRST = "Modelica.Mechanics.Rotational.Examples.First"  # 信号に `$formal_derivative.*` と `$state_coordinates[*]` が混じる（S169）
 BAD = "model Bad\n  Real x;\nequation\n  der(x) = -x;\n  x = 1;\nend Bad;\n"
 
@@ -587,6 +590,8 @@ def main() -> int:
                 page.get_by_role("button", name="CSV").click(force=True)
             assert "$" not in Path(dl.value.path()).read_text(encoding="utf-8").splitlines()[0]
             box.fill("")
+            final = json.loads(page.locator("p.final").get_attribute("data-final"))  # 最後の時刻の値にも内部名を出さない（S173）
+            assert final and not [k for k in final if k.startswith("$")], list(final)
             print(f"First の内部名: 既定で一覧 {total} 本（隠れた内部名 {with_internal - total} 本）、絞り込みで {n_some} 本、チェックを外すと CSV から消えた")
             page.get_by_label("モデル名").fill(CHUA)
 
@@ -654,6 +659,13 @@ def main() -> int:
             expect(page.get_by_label("モデル名")).to_have_value(sine, timeout=60_000)
             expect(page.locator(".cm-content")).to_contain_text("package Sources")  # 開くのは定義するファイル全体（CodeMirror は見える範囲だけを描くので Sine の行はまだ無い）
             print("木と検索: Blocks.Examples.PID_Controller と Blocks.Sources.Sine（入れ子のクラス）が開いた")
+            # 未対応の例題（S173）: Friction は Rumoca の既知の制約（GM-U0003）。要約が出て、error の行は無く、強行の button も無い
+            page.get_by_label("モデル名").fill("Modelica.Mechanics.Rotational.Examples.Friction")
+            check()
+            expect(page.locator("[data-unsupported]")).to_contain_text("モデルの誤りではなく", timeout=60_000)
+            assert page.locator("tr.error").count() == 0 and page.locator("tr.unsup").count() >= 1 and page.locator("[data-can-force]").count() == 0
+            assert "unbalanced model" in page.locator("tr.unsup details").first.text_content()  # Rumoca の英語の原文は詳細に残る
+            print(f"Friction: 未対応の要約と tr.unsup {page.locator('tr.unsup').count()} 行（error 0 行）、原文は詳細に残る")
         else:
             print("public/msl/MSL.json が無いので MSL の試験は飛ばす")
         # ライブラリに構文の誤りのファイルがあっても読み、読み飛ばしを GM-W1001 の行（ファイル名は notes）で出す（S071）。
@@ -716,6 +728,83 @@ def main() -> int:
         with zipfile.ZipFile(fmu3.value.path()) as z:
             assert b'fmiVersion="3.0"' in z.read("modelDescription.xml") and any(n.startswith("sources/") for n in z.namelist()), z.namelist()
         print("FMU: FMI の版に 3.0 を選ぶと modelDescription.xml が fmiVersion=3.0")
+        # FMU はソースだけ（S173）: ボタンの近くと書き出したあとの文に、バイナリが無いことと作り方（CLI の --build）が出る
+        expect(own.locator("[data-fmu-note]")).to_contain_text("バイナリ無し")
+        expect(own.locator("[data-fmu-note]")).to_contain_text("globe fmu export --build")
+        expect(own.locator("p[data-saved]")).to_contain_text("バイナリは入っていない")
+        expect(own.locator("p[data-saved]")).to_contain_text("globe fmu export --build")
+        print("FMU: ボタンの近くと書き出したあとに、ソースだけであることと globe fmu export --build が出る")
+        # 未対応・強行・エラー文面（S173）
+        ux = browser.new_page()
+        ux.on("console", lambda m: m.type == "error" and errors.append(m.text))
+        ux.on("pageerror", lambda e: errors.append(str(e)))
+        ux.goto(f"http://127.0.0.1:{server.server_port}/")
+
+        def press(name: str) -> None:
+            b = ux.get_by_role("button", name=name, exact=True)
+            b.wait_for(timeout=120_000)
+            b.click(force=True)
+            expect(b).to_be_enabled(timeout=180_000)
+
+        def put(model: str, text: str) -> None:
+            ux.get_by_label("モデル名").fill(model)
+            ux.locator(".cm-content").focus()
+            ux.keyboard.press("Control+A")
+            ux.keyboard.insert_text(text)
+
+        # 強行が意味を持つ Error（GM-E8001）: 実行は断られ、「それでも実行する」で進み、結果に強行の印が出る
+        put("Over", OVER)
+        press("実行")
+        expect(ux.locator(".failure")).to_contain_text("force で強行できる")
+        expect(ux.locator("[data-can-force]")).to_be_visible()
+        assert ux.locator("[data-unsupported]").count() == 0 and ux.locator("[data-forced]").count() == 0
+        assert ux.locator(".failure").inner_text().count("\n") == 1, ux.locator(".failure").inner_text()  # 1 行目の理由 + 最初の error の 1 行
+        ux.get_by_role("button", name="それでも実行する").click(force=True)  # 押すと消える button なので press は使わない
+        expect(ux.locator("[data-forced]")).to_be_visible(timeout=60_000)
+        expect(ux.locator(".plot")).to_be_visible(timeout=60_000)
+        assert ux.locator(".failure").count() == 0 and ux.locator("[data-can-force]").count() == 0
+        expect(ux.locator("p.final")).to_contain_text("x = ")
+        press("実行")  # 普通の実行に戻ると、強行の印は消える（断られるので failure と button が戻る）
+        assert ux.locator("[data-forced]").count() == 0 and ux.locator("[data-can-force]").count() == 1
+        print("強行: GM-E8001 は「それでも実行する」で進み、結果に強行の印が出て、普通の実行に戻ると消える")
+        # 未対応（GM-U）: 要約が出て（error とは別のクラス・色）、原文は畳まれ、強行の button は出ず、文面に force を出さない
+        put("Div", DIV)
+        press("検査")
+        summary = ux.locator("[data-unsupported]")
+        expect(summary).to_contain_text("モデルの誤りではなく")
+        assert ux.locator("tr.error").count() == 0 and ux.locator("tr.unsup").count() > 0, ux.locator("table.diagnostics").inner_text()
+        assert ux.locator("[data-can-force]").count() == 0
+        original = ux.locator("tr.unsup details").first
+        assert original.get_attribute("open") is None and "Rumoca" in original.inner_text(), original.inner_text()
+        col = lambda sel: ux.evaluate("(sel) => getComputedStyle(document.querySelector(sel)).color", sel)
+        err = ux.evaluate("() => { const e = document.createElement('span'); e.style.color = 'var(--err)'; document.body.append(e); return getComputedStyle(e).color; }")
+        assert col("[data-unsupported]") == col("tr.unsup") != err, (col("[data-unsupported]"), col("tr.unsup"), err)  # 誤り（--err）とは別の色
+        press("実行")
+        failure = ux.locator(".failure")
+        expect(failure).to_contain_text("強行しても実行できない")
+        assert "force で強行できる" not in failure.inner_text() and ux.locator("[data-can-force]").count() == 0
+        assert col(".failure") == col("[data-unsupported]"), (col(".failure"), col("[data-unsupported]"))
+        print(f"未対応: 要約 {summary.inner_text()[:40]!r}、tr.unsup {ux.locator('tr.unsup').count()} 行、原文は畳まれ、強行の button なし")
+        # 数でない終了時刻: 実行する前に欄の近くで 1 回だけ示す（aria-invalid と文面）
+        put("Decay", "model Decay\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -x;\nend Decay;\n")
+        stop = ux.get_by_label("終了時刻")
+        stop.fill("abc")
+        expect(stop).to_have_attribute("aria-invalid", "true")
+        press("実行")
+        expect(ux.locator(".settings .problem")).to_contain_text("終了時刻「abc」は数でない")
+        assert ux.locator(".failure").count() == 0 and ux.locator("main").inner_text().count("は数でない") == 1, ux.locator("main").inner_text()
+        # 終了時刻 -1・存在しないパラメータ: 失敗の表示に最初の error の診断を 1 行（理由）。同じ文は 2 回出さない
+        stop.fill("-1")
+        expect(stop).to_have_attribute("aria-invalid", "false")
+        press("実行")
+        lines = ux.locator(".failure").inner_text().split("\n")
+        assert len(lines) == 2 and "GM-E10004" in lines[1] and lines[0] not in lines[1], lines
+        stop.fill("")
+        ux.get_by_label("パラメータの上書き").fill("zz=1")
+        press("実行")
+        lines = ux.locator(".failure").inner_text().split("\n")
+        assert len(lines) == 2 and "GM-E10006" in lines[1] and "zz" in lines[1], lines
+        print(f"エラー文面: abc は欄で 1 回、-1 は {lines[0][:12]!r} + GM-E10004、zz=1 は GM-E10006 の理由が 1 行")
         # タブと最近使ったファイル（S151）: 開くとタブが増え、切り替えで本文・モデル名・診断が戻り、再読み込みでタブが戻り、閉じて、最近使ったファイルから開き直せる
         tab = browser.new_page()
         tab.on("console", lambda m: m.type == "error" and errors.append(m.text))
@@ -829,8 +918,8 @@ def main() -> int:
             # 失敗の理由（実行の設定が数でない）も実行のボタンの近く
             vis.get_by_label("終了時刻").fill("abc")
             run_button.click(force=True)
-            expect(vis.locator("p.failure")).to_contain_text("実行の設定", timeout=30_000)
-            settle(lambda: inside(vis, "p.failure"), f"{width} px: 失敗の理由が画面の外 {vis.locator('p.failure').bounding_box()}")
+            expect(vis.locator(".settings .problem")).to_contain_text("終了時刻", timeout=30_000)  # S173: 実行の設定の問題は欄の近くに 1 回だけ（failure には二重に出さない）
+            settle(lambda: inside(vis, ".settings .problem"), f"{width} px: 失敗の理由が画面の外 {vis.locator('.settings .problem').bounding_box()}")
             print(f"結果の位置 {width}x{height}: 実行の後のプロットの上端 y={plot_y:.0f}、進捗・止める・失敗の理由は画面の中")
             vis.close()
         # 開く・モデル名（S170）: 2 つのモデルを持つファイルは select で選び直せて、再読み込みで残る。未保存の編集があるタブと同じ名前を開き直しても編集は消えない

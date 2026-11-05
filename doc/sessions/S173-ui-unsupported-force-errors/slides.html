@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S173 未対応の見せ方と force とエラー文面 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S173 未対応の見せ方と force とエラー文面">
+
+<section class="slide" id="S01">
+  <span class="tag">S173 · 2026-11-05 · P4</span>
+  <h1>未対応の見せ方、force、エラー文面、FMU の説明</h1>
+  <p class="lead">S164 の監査の穴 3 と穴 6。「モデルの誤りではない」が一目で分かり、強行は意味のあるときだけ</p>
+  <div class="big">強行が意味を持つのは <b>GM-E8001 だけ</b>（確かめた範囲）</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">現状</span>
+  <h1>何が困っていたか</h1>
+  <ul>
+    <li>MSL の例題 566 本のうち 197 本（35%）が検査で止まる。Rumoca の英語が赤い error で並ぶ</li>
+    <li>「force で強行できる」と出るのに、UI に force が無い</li>
+    <li>終了時刻 <code>abc</code> で同じ文が 2 行。-1 と <code>zz=1</code> は「実行に失敗した」だけ</li>
+    <li>FMU の書き出しはソースだけだが、どこにも書いていない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">確かめた</span>
+  <h1>force が効くのはどの診断か</h1>
+  <table class="compact">
+    <tr><th>止まった診断</th><th>例</th><th>強行すると</th></tr>
+    <tr><td>GM-U（15 種の Rumoca のコード）</td><td>Friction ほか 15 本</td><td>DAE にできず実行できない</td></tr>
+    <tr><td>S1〜S5 の Error</td><td>GM-E5002</td><td>同じく DAE にできない</td></tr>
+    <tr><td>GM-E6001（構造特異）</td><td>OpAmpCircuits.Buffer</td><td>実行系が GM-U0004 で止める</td></tr>
+    <tr><td>GM-E10003 / GM-E10004</td><td>start が 1/0、StopTime &lt; StartTime</td><td>実行系 / 実行の設定が断る</td></tr>
+    <tr><td>GM-E8001（初期条件が余る）</td><td>fixed と initial equation の重複</td><td class="ok">実行できる</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由</span>
+  <h1>見せ方は Rust が決め、UI は従う</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th></tr>
+    <tr><td>分類</td><td>Rust の <code>unsupported_summary</code>（Error がすべて GM-U）と <code>force_helps</code>。応答の <code>unsupported</code> と <code>can_force</code> に載る。Svelte に規則を置かない</td></tr>
+    <tr><td>見せ方</td><td>診断の上に要約 1 行。行の重大度は「未対応」で、色は error の赤と別の <code>--unsup</code>（明・暗とも 4.5 以上）。英語の原文は「Rumoca の原文」に畳んで残す</td></tr>
+    <tr><td>強行</td><td><code>can_force</code> のときだけ「それでも実行する」。結果に「強行した実行」の印。意味の無いときは文面を「強行しても実行できない」に</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">図</span>
+  <h1>診断から見せ方へ</h1>
+  <svg class="fig" viewBox="0 0 800 240" role="img" aria-label="Error がすべて GM-U なら未対応の要約、すべて GM-E8001 なら強行のボタン、それ以外は error のまま">
+    <rect class="svg-box" x="20" y="90" width="150" height="60" rx="10"/>
+    <text class="svg-text" x="95" y="125" text-anchor="middle">Error の診断</text>
+    <rect class="svg-box-accent" x="260" y="90" width="200" height="60" rx="10"/>
+    <text class="svg-text-b" x="360" y="125" text-anchor="middle">Rust が分類</text>
+    <rect class="svg-box" x="560" y="10" width="220" height="60" rx="10"/>
+    <text class="svg-text" x="670" y="45" text-anchor="middle">GM-U: 未対応の要約</text>
+    <rect class="svg-box" x="560" y="90" width="220" height="60" rx="10"/>
+    <text class="svg-text" x="670" y="125" text-anchor="middle">GM-E8001: 強行の button</text>
+    <rect class="svg-box" x="560" y="170" width="220" height="60" rx="10"/>
+    <text class="svg-text" x="670" y="205" text-anchor="middle">それ以外: error のまま</text>
+    <line class="svg-line" x1="170" y1="120" x2="260" y2="120"/>
+    <line class="svg-line" x1="460" y1="105" x2="560" y2="45"/>
+    <line class="svg-line" x1="460" y1="120" x2="560" y2="120"/>
+    <line class="svg-line" x1="460" y1="135" x2="560" y2="200"/>
+  </svg>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">エラー文面</span>
+  <h1>理由を失敗の行の下に 1 行</h1>
+  <table class="compact">
+    <tr><th>場合</th><th>前</th><th>後</th></tr>
+    <tr><td>終了時刻 abc</td><td>同じ文が 2 行</td><td>欄に aria-invalid、文面は 1 回、フォーカスは欄へ</td></tr>
+    <tr><td>終了時刻 -1</td><td>実行に失敗した</td><td>＋ GM-E10004 の文面</td></tr>
+    <tr><td>zz=1</td><td>実行に失敗した</td><td>＋ GM-E10006 の文面</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">FMU とついで</span>
+  <h1>FMU はソースだけ、内部名は隠す</h1>
+  <ul>
+    <li>ボタンの横と書き出した後に「ソースだけ（バイナリ無し）。他のツールで読むには CLI の <code>globe fmu export --build</code>」。Desktop も同じ</li>
+    <li>「最後の時刻の値」から <code>$</code> で始まる内部名を除いた（<code>isInternal</code>）</li>
+    <li>GM-I7001 の「変数の宣言が方程式として並ぶ」は UI の誤りでなく Rust の方程式名（<code>structure.rs</code> の <code>label</code>）。直さず別 WP</li>
+  </ul>
+</section>
+
+<section class="slide" id="S08">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ul>
+    <li>強行が通る Error をほかにも探す。<code>force_helps</code> に足す</li>
+    <li>方程式の名前を Rust で直す。未対応の理由の日本語化</li>
+    <li>診断の折りたたみ、キーボード（診断の行はまだ Tab で選べない）、UI から <code>--build</code></li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

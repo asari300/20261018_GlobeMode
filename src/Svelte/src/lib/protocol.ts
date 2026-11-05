@@ -21,6 +21,10 @@ export interface CheckResponse {
   experiment?: Partial<Record<"start_time" | "stop_time" | "tolerance" | "interval", number | null>>;
   diagnostics: Diagnostic[];
   notes: string[];
+  /** Error がすべて GM-U（コンパイラが未対応）のときの要約（S173。Rust が決める。無ければ無い） */
+  unsupported?: string;
+  /** 強行（force）で実行に進める見込み（S173。true のときだけ出る） */
+  can_force?: boolean;
 }
 
 export interface SimulateRequest {
@@ -40,6 +44,9 @@ export interface SimulateResponse {
   settings?: ResolvedSettings | null;
   final: Record<string, number> | null;
   csv: string | null;
+  /** CheckResponse と同じ（この実行の診断について）。can_force は検査で断った（強行していない）ときだけ */
+  unsupported?: string;
+  can_force?: boolean;
 }
 
 export type SettingOrigin = "requested" | "experiment" | "default";

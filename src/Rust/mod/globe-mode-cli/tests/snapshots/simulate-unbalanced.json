@@ -1,7 +1,7 @@
 {
   "model": "GlobeModeExamples.Unbalanced",
   "succeeded": false,
-  "refused": "実行しない（S5 方程式数と変数数 で Error。force で強行できる）",
+  "refused": "実行しない（S5 方程式数と変数数 で Error。強行しても実行できない）",
   "settings": null,
   "termination": null,
   "stats": null,
