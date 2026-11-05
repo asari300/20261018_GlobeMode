@@ -1,8 +1,9 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import uPlot from "uplot";
   import "uplot/dist/uPlot.min.css";
   import { toCsv, type Columns } from "./csv";
-  import { exportName, isInternal, matches } from "./signals";
+  import { exportName, isInternal, matches, plotLabel } from "./signals";
   import type { Backend } from "../backend";
   import { TauriBackend, inTauri } from "../tauri-backend";
   import { cssVar, theme } from "../../theme.svelte";
@@ -99,6 +100,10 @@
         [xs, ...ys.map((i) => cols.data[i + 1])] as uPlot.AlignedData,
         host,
       );
+      // S175: 読み上げ用の代替テキスト。model は読むだけ（入力のたびに作り直さない）
+      const alt = plot.ctx.canvas;
+      alt.setAttribute("role", "img");
+      alt.setAttribute("aria-label", plotLabel(untrack(() => model), xi < 0 ? "time" : cols.names[xi], xs, ys.map((i) => ({ name: cols.names[i], data: cols.data[i + 1] }))));
       queueMicrotask(() => (lastMs = performance.now() - t0)); // uPlot の最初の描画は microtask なので、その後で測る
     } catch (e) {
       error = String((e as Error).message ?? e);

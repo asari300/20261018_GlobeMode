@@ -19,3 +19,27 @@ export function exportName(model: string, ext: string, now = new Date()): string
   const base = (model.split(".").pop() ?? "").replace(/[^\p{L}\p{N}_-]/gu, "_") || "result";
   return `${base}-${stamp}.${ext}`;
 }
+
+/**
+ * プロットの代替テキスト（S175。canvas の aria-label）。表示の整形だけで、計算ではない。
+ * モデル名、選んだ信号（先頭 5 本の名前、残りは「ほか n 本」）、x 軸の範囲、先頭 5 本の最後の値・最小・最大。
+ */
+export function plotLabel(model: string, x: string, xs: ArrayLike<number | null>, ys: { name: string; data: ArrayLike<number | null> }[], max = 5): string {
+  const stat = (d: ArrayLike<number | null>) => {
+    let lo = Infinity, hi = -Infinity, last: number | null = null;
+    for (let k = 0; k < d.length; k++) {
+      const v = d[k];
+      if (v == null || !Number.isFinite(v)) continue;
+      lo = Math.min(lo, v), hi = Math.max(hi, v), last = v;
+    }
+    return { lo, hi, last };
+  };
+  const f = (v: number | null) => (v == null || !Number.isFinite(v) ? "なし" : String(Number(v.toPrecision(4))));
+  const shown = ys.slice(0, max);
+  const more = ys.length > max ? `（ほか ${ys.length - max} 本）` : "";
+  const sx = stat(xs);
+  const head = `${model || "結果"} のプロット。` + (ys.length ? `信号 ${ys.length} 本: ${shown.map((y) => y.name).join("、")}${more}。` : "信号は選ばれていない。");
+  const range = sx.last == null ? "" : `${x} の範囲は ${f(sx.lo)} から ${f(sx.hi)}。`;
+  const vals = shown.map((y) => { const s = stat(y.data); return `${y.name} は最後 ${f(s.last)}、最小 ${f(s.lo)}、最大 ${f(s.hi)}`; });
+  return head + range + (vals.length ? vals.join("。") + "。" : "");
+}

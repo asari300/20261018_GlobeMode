@@ -227,6 +227,7 @@ export const themeSlot = new Compartment();
 export const darkSlot = (dark: boolean): Extension => themeSlot.of(EditorView.darkTheme.of(dark));
 export const modelicaTheme: Extension = EditorView.theme({
   "&": { backgroundColor: "var(--bg)", color: "var(--fg)" },
+  "&.cm-focused": { outline: "2px solid var(--accent)" }, // S175: 既定の 1px の点線（#212121）は暗で見えない
   ".cm-gutters": { backgroundColor: "var(--bg)", color: "var(--muted)", borderRight: "1px solid var(--line)" },
   ".cm-activeLine, .cm-activeLineGutter": { backgroundColor: "var(--hover)" },
   ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--fg)" },
