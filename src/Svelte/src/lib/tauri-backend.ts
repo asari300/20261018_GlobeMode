@@ -11,6 +11,22 @@ const tauriGlobal = () => (window as unknown as { __TAURI__: { core: { invoke: I
 const MO = [{ name: "Modelica", extensions: ["mo"] }];
 const extFilter = (name: string) => [{ name: "File", extensions: [name.split(".").pop() ?? ""] }]; // 保存ダイアログの拡張子の絞り込み
 const baseName = (p: string) => p.split(/[\\/]/).pop() ?? p;
+/** 保存ダイアログで選んだファイルのフォルダ（Windows のドライブの根は `C:\`。`C:` だとドライブ相対になる。S196）。 */
+export const dirOf = (p: string) => p.replace(/[\\/][^\\/]*$/, "").replace(/^[A-Za-z]:$/, "$&\\") || "/";
+/**
+ * 開いたファイルのタブの key（Workspace の名前でもある）。ふつうはファイル名。同じ名前で別のパスのタブがあれば `フォルダ名/ファイル名`、それも使われていれば `名前 (n)`。
+ * 同じパスのタブがあればその key。パスの無い（保存前の）タブとは同じ名前で重ねる。保存先はタブが持つパスで決め、名前では決めない（S196）。
+ */
+export function tabKey(name: string, path: string | undefined, tabs: { file: string; path?: string }[]): string {
+  if (!path) return name;
+  const same = tabs.find((t) => t.path === path);
+  if (same) return same.file;
+  const dir = path.split(/[\\/]/).slice(-2, -1)[0];
+  const free = (k: string) => { const t = tabs.find((t) => t.file === k); return !t || !t.path; };
+  let key = [name, dir && `${dir}/${name}`].find((k) => k && free(k));
+  for (let n = 2; !key; n++) if (free(`${name} (${n})`)) key = `${name} (${n})`;
+  return key;
+}
 const invoke: Invoke = (cmd, args) => tauriGlobal().core.invoke(cmd, args);
 
 /** `$/progress` の token（S136。実行は 1 度に 1 つなので固定）。 */
@@ -134,7 +150,7 @@ export class TauriBackend implements Backend {
   librarySource(path: string): ReturnType<Backend["librarySource"]> {
     return invoke("rpc", { method: "globe/librarySource", params: { path } });
   }
-  completion(file: string, line: number, character: number): Promise<CompletionEntry[]> {
+  completion(file: string, line: number, character: number): ReturnType<Backend["completion"]> {
     return invoke("rpc", { method: "globe/completion", params: { file, line, character } }); // S171（textDocument/completion と同じ計算）
   }
   definition(file: string, line: number, character: number): Promise<Definition | null> {
@@ -142,28 +158,24 @@ export class TauriBackend implements Backend {
   }
 
   // S141: 開く・保存は dialog / fs プラグイン（window.__TAURI__.dialog・fs。権限は capabilities/desktop.json）。dialog で選んだパスは fs の許可に自動で入る
-  #paths = new Map<string, string>(); // UI の文書の名前 → 開いた・保存したパス（「保存」は同じパスに上書きする）
+  // S196: パスは持たない。UI のタブが本文を受け取ったときのパスを覚え、saveFile に渡す（名前で覚えると、同じ名前の別のファイルを上書きした）
   async openFile(): Promise<{ name: string; text: string; path: string } | null> {
     const path = await tauriGlobal().dialog.open({ multiple: false, filters: MO });
     if (!path) return null;
     const name = baseName(path), text = await tauriGlobal().fs.readTextFile(path); // dialog で選んだパスは fs の許可に入っている
-    this.#paths.set(name, path);
     return { name, text, path };
   }
   /** S151: 最近使ったファイルを path から開く。dialog を通していない path は fs の許可の外なので、Rust の command `read_recent` が読む（S154。`.mo` の通常のファイルだけ）。 */
   async openPath(path: string): Promise<{ name: string; text: string }> {
-    const name = baseName(path);
-    const text = await invoke<string>("read_recent", { path });
-    this.#paths.set(name, path);
-    return { name, text };
+    return { name: baseName(path), text: await invoke<string>("read_recent", { path }) };
   }
-  async saveFile(name: string, text: string, saveAs = false): Promise<string | null> {
+  /** path があって saveAs でなければそこへ上書きする。無ければ（か saveAs なら）保存ダイアログで選ぶ。書いたパスを返す。 */
+  async saveFile(name: string, text: string, saveAs = false, path?: string): Promise<string | null> {
     const t = tauriGlobal();
-    const path = (!saveAs && this.#paths.get(name)) || (await t.dialog.save({ defaultPath: name, filters: extFilter(name) }));
-    if (!path) return null;
-    await t.fs.writeTextFile(path, text);
-    this.#paths.set(name, path);
-    return path;
+    const to = (!saveAs && path) || (await t.dialog.save({ defaultPath: name, filters: extFilter(name) }));
+    if (!to) return null;
+    await t.fs.writeTextFile(to, text);
+    return to;
   }
   async saveBinary(name: string, bytes: Uint8Array): Promise<string | null> {
     const t = tauriGlobal();
@@ -189,7 +201,7 @@ export class TauriBackend implements Backend {
   async exportFmu(model: string, fmiVersion: number): Promise<string | null> {
     const path = await tauriGlobal().dialog.save({ defaultPath: `${model.replaceAll(".", "_")}-fmi${fmiVersion}.fmu`, filters: [{ name: "FMU", extensions: ["fmu"] }] });
     if (!path) return null;
-    const r = await invoke<{ path: string }>("rpc", { method: "globe/exportFmu", params: { model, fmiVersion, outDir: path.replace(/[\\/][^\\/]*$/, "") || "/" } });
+    const r = await invoke<{ path: string }>("rpc", { method: "globe/exportFmu", params: { model, fmiVersion, outDir: dirOf(path) } });
     return r.path;
   }
 

@@ -1059,6 +1059,26 @@ fn msl_auto_falls_back_to_dopri45_when_bdf_fails_to_integrate() {
     });
 }
 
+/// auto は方向微分が作れない失敗（GM-U0004）では dopri45 に切り替えず、ネイティブの型付きの道と session の道
+/// （wasm）で同じ診断になる（ADR-0015。#5）。`GenerationOfFMUs` は RK で温度が動かない誤った結果になるモデル。
+#[test]
+#[ignore = "MSL を読む（遅い）。cargo test --release -p globe-mode-exec --test simulate -- --ignored"]
+fn msl_auto_stops_alike_on_both_routes_when_the_directional_derivative_is_unavailable() {
+    with_msl(|checker| {
+        let name = "Modelica.Thermal.HeatTransfer.Examples.GenerationOfFMUs";
+        let model = checker
+            .compile_retaining(&[], name)
+            .unwrap_or_else(|d| panic!("{d:#?}"));
+        let s = settings(&model, SolverId::Auto);
+        let typed = simulate(&model, &s).expect_err("型付きの道は止まる");
+        let session = simulate_via_session(&model, &s).expect_err("session の道は止まる");
+        let codes_of = |d: &[Diagnostic]| d.iter().map(|d| d.code).collect::<Vec<_>>();
+        assert_eq!(codes_of(&typed), [codes::RUN_UNSUPPORTED], "{typed:#?}");
+        assert_eq!(codes_of(&typed), codes_of(&session), "{session:#?}");
+        assert_eq!(typed[0].message, session[0].message);
+    });
+}
+
 /// 既知の限界（S158）: `sdirk34hw` は ThyristorBridge2Pulse_DC_Drive の t = 13.04 で GM-E11003。事象の時刻の状態が
 /// ちょうど釣り合い（la.i + lMains.i = 0.0）、2 つのサイリスタの根が 1e-29 の丸め雑音になって符号が毎回反転し、
 /// Rumoca の host の `value == 0.0` の比べ方では一貫した側が決まらない（上流の下書き 34）。直ると落ちる。

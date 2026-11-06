@@ -334,8 +334,11 @@ pub fn read_mat4(input: &mut dyn Read) -> io::Result<MatContents> {
             .checked_mul(columns)
             .and_then(|n| n.checked_mul(size))
             .ok_or_else(|| invalid("行列が大きすぎる"))?;
+        let end = off
+            .checked_add(len)
+            .ok_or_else(|| invalid("行列が大きすぎる"))?;
         let data = bytes
-            .get(off..off + len)
+            .get(off..end)
             .ok_or_else(|| invalid(format!("行列 {name} のデータが途中で切れている")))?
             .to_vec();
         off += len;
@@ -759,5 +762,17 @@ mod tests {
             io::ErrorKind::InvalidData
         );
         assert!(read_mat4(&mut &[][..]).is_err());
+    }
+
+    /// `rows * columns * 8` が `2^64 - 16` になる頭でも、足し算があふれて panic せず `InvalidData`（debug のとき。S193、#14）。
+    #[test]
+    fn a_header_whose_size_overflows_the_offset_is_invalid_data() {
+        let mut b = Vec::new();
+        for v in [0i32, 2_147_483_646, 1_073_741_825, 0, 1] {
+            b.extend_from_slice(&v.to_le_bytes());
+        }
+        b.push(b'A');
+        let e = read_mat4(&mut b.as_slice()).unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::InvalidData);
     }
 }

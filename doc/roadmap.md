@@ -406,6 +406,10 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - 再現する 12 件に `_jp.md` と `_jp.html` を足した。issue は出していない。Rust のコードも GlobeMode 側の回避も変えていない。
 - 持ち越し: GlobeMode の Rumoca の rev を v0.10.4 に上げるかの判断（`msl:funnel`・`msl:sim`）。上げれば 04 の GM-W10004、02・15 の auto の切り替えが外せるかを見る（S172 で 0.2.0 は v0.10.2 のまま固定。判断は次の版のとき）。
 
+### S195（P8、2026-11-06）で済んだこと
+
+- **`release.yml` のタグの経路を、タグを打たずに確かめられるようにした**（[解説書](sessions/S195-release-tag-path/解説書.md)、手順は [release.md](release.md)）: 手動実行の入力 `tag` を env `TAG` に置き、push のタグと同じ道を通す。Release の step は push のときだけ。レビューの指摘 9 件のうち、rc タグ（`v0.2.0-rc1`）が MSI の「pre-release は数字だけ」で落ちるのを run で再現して直した。版の書き換え（perl、`--config`）を消し、最初のジョブがタグの版を 4 か所と突き合わせて止める。鍵の env は bundle の step だけ、softprops は v2.6.2 のコミット、tauri-cli 2.12.4・cargo-zigbuild 0.24.1 に固定。タグ・Release は 0 件のまま。
+
 ### S176（P7、2026-11-05）で済んだこと
 
 - **`release.yml` に macOS（arm64）を足した**（[ADR-0023](adr/0023-desktop-and-web-process-layout.md) の付記。[解説書](sessions/S176-release-macos/解説書.md)）: ジョブ `build` の matrix に `aarch64-apple-darwin`（`macos-latest`）を 1 行足し、`globe` の tar.gz（THIRD-PARTY.md 入り）と wheel（`macosx_*_arm64`）を作って wheel を入れた pytest を回す。ジョブ `desktop` の matrix にも macOS を足し、`--bundles app,dmg` で署名なしの .dmg を作る。鍵（`TAURI_SIGNING_PRIVATE_KEY`）があるときだけ updater 用の `GlobeMode_<版>_aarch64.app.tar.gz` と `.sig` も付け、`latest.json` に `darwin-aarch64` を足す。鍵が無い今は署名なしの bundle だけ。`about.toml` の targets に `aarch64-apple-darwin` を足した（macOS にだけ入る crate の表示のため）。タグの push の wheel の版の置換は BSD sed で動かないので perl にした。
@@ -542,6 +546,10 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **最初の 1 分: 起動直後の案内・スキップリンク・タブの矢印キー・未保存の印**（S164 の穴の残り。[解説書](sessions/S179-ui-first-run/解説書.md)）: Svelte の UI だけで、Rust は触っていない。案内は保存したタブが無い初回だけ「はじめに」の 3 手順（モデルを書く・開く、検査、実行。ショートカットは S175 と同じキー。MSL が未読み込みなら「MSL を読む」を促す 1 行）を出し、閉じると localStorage（`globe-mode.welcome`）に残す。smoke では出さない。スキップリンクは Tab 1 回で「エディタへ」、2 回で「結果へ」（Tab は十数回から 1〜2 回）。タブは `role="tablist"` の作法で左右の矢印・Home・End、roving tabindex、選ぶと開く。未保存の印は ● と `aria-label` の「未保存」。保存済みの本文は、編集中のタブだけ localStorage に持ち、再読み込みをまたいでも印が正しい（S151 までの保存は戻した本文を保存済みとみなす）。未保存があるときだけ `beforeunload`（ブラウザのみ。Tauri は付けない）。`ready_ms` は 3 回の中央値で 382 から 339 ms（差は雑音の範囲）。
 - 試験: `test_ui.py` に 1 本（初回の案内と閉じる・smoke で出ない、スキップリンク、矢印・Home・End と tabindex、編集で印・再読み込み・beforeunload・保存で消える）。`pnpm check` 0 警告。
 - 持ち越し: タブの並べ替え（ドラッグ）、ツリーのアイコン、案内の多言語化、案内を出し直す操作、Esc で止める、スクリーンリーダーの実機（【未確認】）。
+
+### S200（P7、2026-11-06）で済んだこと
+
+- **Python の例外の階層とレビューの指摘**（[解説書](sessions/S200-python-exceptions-review-fixes/解説書.md)）: `GlobeModeError`（`.diagnostics`・`.code`）の子 6 つ（`LibraryError`＝`RuntimeError`、`SettingsError`・`ModelNotFoundError`・`SourceError`・`ExportError`・`ResultError`＝`ValueError`）。`on_progress` をキーワード専用に（挙動が変わる）、`on_progress` が無くても GIL を離す、設定の numpy の数・NaN・`None`、bytes のライブラリ、`export_fmu` の `targets` の文字列、列の道の写しを 1 回減らした。「未知のモデルを例外にするか」は変えていない（`check` は `passed: False`）。
 
 ### S181（P7、2026-11-06）で済んだこと
 
@@ -1099,6 +1107,12 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **信号の絞り込み・内部名・ファイル名**（S169、穴 7。[解説書](sessions/S169-plot-signal-filter/解説書.md)）: `Plot.svelte` の信号の一覧に絞り込み（部分一致・大文字小文字なし・空白で AND。先頭 200 本 + 「ほか n 件」。表示中をまとめて選ぶ・外す。選択は絞り込みで消えない）、`$` で始まる内部名を既定で隠す（判定は `plot/signals.ts` の `isInternal` 1 か所。Rust 側に判定は無く、MSL の例題で `$derivative`・`$formal_derivative`・`$state_coordinates` だけだった）、CSV・PNG のファイル名を `<モデル名の末尾>-<YYYYMMDD-HHMMSS>` に。DoublePendulum の 1,302 本で入力から更新まで 64〜132 ms。`App.svelte` は Plot の 1 引数のみ。持ち越し: x 軸の選択の絞り込み、「最後の時刻の値」の内部名。
 - **プロットの既定の信号は状態**（S190、S185 の P4。[解説書](sessions/S190-plot-default-states/解説書.md)）: 実行の後に既定で描く信号を、列の先頭の 3 本から「状態（`der()` の付く変数）を先に、足りなければ出力、最大 3 本」に変えた。選ぶ規則は Rust の 1 つの関数 `Trajectory::default_plot`（`$` の内部名を除き、状態選択で `$state_coordinates` に替わったモデルは `CompiledModel::state_names` の DAE の状態で補う）で、wasm・LSP の列の応答の `layout.defaults` と Python の結果の `defaults` に載る。`Plot.svelte` は `defaults` を使い、無ければ今までの先頭 3 本。`DoublePendulum`（信号 1,302 本）は `revolute1.phi`・`revolute1.w` が出る。持ち越し: 一覧の並び（状態を上へ）。C ABI・NIF の `defaults` は S191 で済。
 - **言語 API の読み取りと `defaults`**（S191、S183・S184・S190 の持ち越し。[解説書](sessions/S191-lang-parity-read-defaults/解説書.md)）: Python にだけあった `outline`・`deps`・`flat` を C ABI（`gm_outline`・`gm_deps`・`gm_flat`）・Zig・Julia・Elixir・Gleam・wasm（`Workspace`・`GlobeWorker`）に揃えた（facade の口を呼ぶだけ。戻り値は Python・CLI の `--json` と同じ）。C ABI と NIF の列の応答の layout JSON に `defaults` を足した。`summary` は各言語の試験で出ることを確かめた。対応表の「Python だけ」を更新した。持ち越し: UI が wasm の読み取りを使うか。
+- **LSP の参照・リネーム・補完のレビューの修正**（S198、Opus のレビュー 10 件。[解説書](sessions/S198-lsp-review-fixes/解説書.md)）: 部品のリネームが修飾子・名前つきの引数の名前と、同名の部品を宣言した入れ子のクラスの中を書き換えていたのを直し、継承した部品との衝突を断り、引用符つきの識別子を丸ごと一致に。補完は LSP で `CompletionList`（200 件で `isIncomplete`）、wasm は配列のまま。ライブラリのファイルの読み直し、ホバーの panic、1 要求の panic でプロセスを落とさない。`textDocument/rename` はファイル名に対応する最上位のクラスと根の下の開いていない `.mo` に同じ名前のあるクラスを断る。
+
+- **UI のレビューの指摘を直した**（S196、Opus のレビュー。[解説書](sessions/S196-ui-review-fixes/解説書.md)）: 失敗する試験で再現してから直した。Desktop の保存先を名前でなくタブのパスで持つ（同じ名前の別のファイルが上書きされない）、ライブラリのタブを読み取り専用に、自動保存の失敗を言う・打鍵の保存を 300 ms まとめて離れる前に必ず書く、タブの切り替え・実行中の入り口、補完の一覧が開いているときの Tab は候補の確定（ユーザーの決定）、補完が 200 件で切れたときの問い直し、`outDir` の `C:`。持ち越し: Desktop の閉じる確認、`App.svelte` の分割。
+
+- **Desktop のシェルのレビューの指摘**（S197、P4。[解説書](sessions/S197-desktop-review-fixes/解説書.md)）: 応えない検査でも中断が効く、MSL の切り替えの失敗で戻す、`fetch_msl` の排他、UI が使う method だけ中継、CSP を入れた（[ADR-0023](adr/0023-desktop-and-web-process-layout.md) の S197）。持ち越し: `reload_config` の削除、`exportFmu` の `outDir` を dialog のパスに限る。
+- **実行系の open の issue 8 件の点検**（S193、2026-10-19 に S012 のレビューで立った #1・#3・#4・#5・#6・#9・#14・#15。[解説書](sessions/S193-exec-issues-triage/解説書.md)）: 直っていたもの 3 件（#1 は S024 の再コンパイル、#3 は S021 の上限外し、#5 は S013 の ADR-0015。#1 の MAT の試験と #5 の両方の道の試験〈MSL、`#[ignore]`〉を足した）、直したもの 2 件（#14 の `checked_add`、#15 の知らないソルバ名の警告）、試験の追加 1 件（#9 の最後の短い刻み）、直さず残したもの 2 件（#4・#6。下の「いま残っているもの」）。ソルバの挙動は変えていないので `msl:sim` は回していない。
 - **次の候補（順位）**: ~~1 木に入れ子のクラスと検索（例題の 22% が木から選べない）~~（S167 で済）、~~2 結果と進捗を見える所へ~~（S170 で済）、~~3 未対応の例題（検査が通らない 35%）の見せ方と force~~（S173 で済）、~~4 README・CHANGELOG・版の同期~~（S168・S172 で済）、~~5 開く・モデル名の扱い~~（S170 で済）、~~6 FMU の説明（ソースのみ）~~（S173 で済）、~~7 信号の絞り込み~~（S169 で済）、~~8 キーボードとアクセシビリティ~~（S175 で済）、~~9 補完の LSP 接続~~（S171 で済）、10 `release.yml` の dry-run の回し直し（未。ユーザーの指示で回す）。WP の案とぶつからない組は調査の 7.2 章。
 - **ユーザーの判断**（WP にしない。調査の 7.3 章）: v0.1 に含める面と版、ブラウザ版の公開先、Desktop の更新の鍵、署名と公証、VS Code・PyPI の公開、Rumoca の rev、上流 issue の提出。一覧は末尾の「いま残っているもの」の表（S177）。
 
@@ -1126,6 +1140,7 @@ S177（2026-11-05、S175 までが main にある状態）で、各節の「持�
 | 上流待ち | diffsol | 10・11 は diffsol の main で直っている（未リリース。同梱は 0.13.2 のまま）。リリースされ、Rumoca が取り込んだら patch を外せるか見る | S162 |
 | 上流待ち | S10 の初期化のヤコビ行列の階数 | Rumoca に公開の API が無い。`Invalid.UngroundedLoop` は実行しても誤りにならない | S010・S063 |
 | 機能の穴（検査・実行） | MSL の例題の通らない分 | 566 本のうち検査を通るのは 369、`GM-U`（コンパイラの限界）184、NG 13。実行できるのは 312（`auto`）、管に収まるのは 303 / 311。ほとんどは Rumoca 側の限界で、上流待ちの行に入る | S126・S168 |
+| 機能の穴（実行系） | 陽的 RK の chart の折り目と `auto` の予算（S193） | **#4**: tsit45・dopri853・cerk45 は、拘束で chart を切り替えるモデル（Rumoca の fixture `CircleChart`、`--tolerance 1e-3 --stop-time 20`）で、受理した点が chart の折り目を越えて評価できず `GM-E11002` で止まる（dopri45 は通る）。issue の案（断られたら刻みを 1/4 ずつ縮めて出し直す）は 48 組のうち失敗した 30 組で 0 組も救えなかったので入れていない。上流の候補 13 と同じ機構。**#6**: `auto` は回し直しにも `max_wall_seconds` をそのまま渡し、全体で最大 2〜3 倍走る（[ADR-0028](adr/0028-auto-esdirk34-fallback.md) (c)。残りの時間を渡す版は `Lightning…` を 1 本減らした）。**#5 の残り**: `into_session` の失敗の段が session の道は Integration、ネイティブは Initialization（段のない失敗だけが差になる。再現する例なし） | S193 |
 | 機能の穴（P4） | 5k ノードのグラフの 30 fps | 実 GPU で未測定（S046 のヘッドレス Chromium で約 10 fps）。P4 の完了条件の 1 つが残っている | S046 |
 | 機能の穴（P4） | エディタの言語サービス | 参照・リネームはライブラリ全体・未開封のファイル・継承した部品・複数ファイルの一括・import の別名に届かない。inlay hint、call hierarchy、semantic tokens、折りたたみ、インデントの規則。補完の引数・シグネチャ・スニペット・import の自動挿入 | S161・S166・S171 |
 | 機能の穴（P4） | UI の使い心地 | ~~起動直後の案内、エディタへ飛ぶスキップリンク、タブの矢印キー、再読み込みをまたぐ未保存の印~~（S179 で済）、Esc で止める、タブの並べ替え、ライブラリツリーのアイコン、設定のモデルごとの保存、開始時刻・固定刻み・予算の欄。スクリーンリーダー（NVDA・VoiceOver）と Mac・Android の実機は【未確認】 | S164・S175・S179・S150・S151 |

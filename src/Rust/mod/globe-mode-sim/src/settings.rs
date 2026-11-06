@@ -168,12 +168,17 @@ pub fn resolve(
         );
     }
 
-    let (solver, solver_origin) = match requested.solver.as_deref() {
-        None => (DEFAULT_SOLVER, SettingOrigin::Default),
-        Some(name) => (
-            out.solver(name).unwrap_or(DEFAULT_SOLVER),
-            SettingOrigin::Requested,
-        ),
+    // 知らない・まだ無いソルバは Error を出して既定に置き換える。置き換えた先についての警告は出さない（S193）
+    let (solver, solver_origin, solver_known) = match requested.solver.as_deref() {
+        None => (DEFAULT_SOLVER, SettingOrigin::Default, true),
+        Some(name) => {
+            let found = out.solver(name);
+            (
+                found.unwrap_or(DEFAULT_SOLVER),
+                SettingOrigin::Requested,
+                found.is_some(),
+            )
+        }
     };
 
     let fixed = solver.is_fixed_step();
@@ -196,7 +201,7 @@ pub fn resolve(
         );
     }
     if tolerance.value.is_finite() && tolerance.value > 0.0 && tolerance.value < MIN_TOLERANCE {
-        if !fixed {
+        if !fixed && solver_known {
             out.push(
                 tolerance.origin,
                 Diagnostic::warning(
@@ -249,7 +254,7 @@ pub fn resolve(
             None => (Some(interval.value), Some(SettingOrigin::Default)),
         }
     } else {
-        if let Some(h) = requested.step {
+        if let Some(h) = requested.step.filter(|_| solver_known) {
             out.push(
                 SettingOrigin::Requested,
                 Diagnostic::warning(
@@ -864,6 +869,21 @@ mod tests {
         };
         let d = err(&requested, None);
         assert_eq!(d[0].notes, [format!("{LISTED}{SUNDIALS_SUFFIX}")]);
+    }
+
+    /// 知らない・まだ無いソルバの名前では、置き換えた既定の bdf についての警告（刻み・許容誤差）を出さない（#15）。
+    #[test]
+    fn an_unknown_solver_does_not_warn_about_the_replacement() {
+        for name in ["rk5", "xyzzy-solver"] {
+            let requested = SimSettings {
+                solver: Some(name.into()),
+                step: Some(0.01),
+                tolerance: Some(1e-12),
+                ..SimSettings::default()
+            };
+            let d = err(&requested, None);
+            assert_eq!(codes_of(&d), [(codes::SOLVER_UNAVAILABLE, Severity::Error)]);
+        }
     }
 
     #[test]
