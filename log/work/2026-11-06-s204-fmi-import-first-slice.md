@@ -34,7 +34,11 @@ ADR-0026（FMI Import の置き方）について、ユーザーが 2026-11-06 �
 - Reference-FMUs（Linux x86_64）の BouncingBall・Dahlquist・VanDerPol を 2.0・3.0 で、参照の CSV と同じ刻みで回して全行・全列の相対差 0（BouncingBall 301 行、Dahlquist 101 行、VanDerPol 2001 行）。
 - 往復（Export した Decay を `globe fmu run` で読む）: x(1) − e⁻¹ = 7.8e-16（2.0・3.0）。
 - 展開の試験: `..` のエントリ、シンボリックリンク、`modelIdentifier` の `../`、この OS 向けのライブラリが無い、がどれもエラー。
-- コードの検査・`check_docs.py`・CI・`fmu-import.yml` の run: 最後の節に書く。
+- `mise run check`（test_ci_plan.py〔新しい crate を期待値に足した〕・fmt・clippy `-D warnings`・`cargo test --workspace`〔72 の test result がすべて ok〕・`cargo deny check`・`globe fmt --check src/Modelica`・`uv sync --locked`）: 通った。`cargo deny --all-features check` は案 B を入れたときだけ落ち、入れていない状態では通る。
+- `check_docs.py`: デッキ OK（S204 を含む）/ 文書 809 件・相対リンク 4011 件中の切れ 0 件。`render_slides.py` は走らせていない（cargo の長い検査の裏で回すと時間切れになるため。スライドは 7 枚、`<style>`・外部参照なし）。
+- `fmu-import.yml`（run 42178862896）: Linux・Windows・macOS（arm64）とも success。参照の CSV との最大の相対差は Linux・Windows が 0、macOS が 2.2e-14 以下（arm64 の浮動小数点の違い）。
+- `ci.yml`（`full=true`、run 42178817122）: plan・rust-linux・rust-windows・rust-sundials・deny・wasm-node・lang・msl・python・docs が success。**`ui` だけ failure**: `src/Svelte/tests/test_ui.py:263`（S196 の `review_fixes`）の Playwright の `Locator.click` が 30 秒で時間切れ。S204 は UI にも wasm にも触れていないので無関係と判断した（S196 の試験の不安定さか。親が見て）。
+- ステージした差分の漏洩検査: メールアドレス・ホームのパス・トークンは 0 件。
 
 ## 残したこと
 

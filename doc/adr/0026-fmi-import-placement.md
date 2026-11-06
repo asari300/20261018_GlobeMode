@@ -102,7 +102,7 @@
 
 - 参照の相手は FMU が同梱する `extra/org.fmi-standard.fmi-ls-ref/<名前>_out.csv`（Reference-FMUs が自分の Co-Simulation を刻み 0.01 などで回した結果）。2.0 と 3.0 の BouncingBall・Dahlquist・VanDerPol を `run_cs` で同じ刻みで回し、**全行・全列で相対差 0（ビット単位で一致）**した（Linux x86_64、BouncingBall 301 行、Dahlquist 101 行、VanDerPol 2001 行）。2.0 の Dahlquist・VanDerPol は CSV を持たないので、同じモデルの 3.0 の CSV を使う。
 - **往復**: `globe fmu export --build`（P5a、Rumoca のテンプレート）で作った Decay の FMU を `globe fmu run` で読み込み、x(1) − e⁻¹ = 7.8e-16（2.0・3.0 とも、刻み 0.001）。FMPy の c-code のヘッダと `cc` を使うので Linux の x86_64 だけ、無ければ飛ばす。
-- OS ごと: 手元は Linux だけ。Windows・macOS は手動の `fmu-import.yml`（matrix: ubuntu-24.04・windows-2025・macos-latest）で回す。結果は作業記録に書く。
+- OS ごと（`fmu-import.yml`。matrix: ubuntu-24.04・windows-2025・macos-latest〔arm64〕。run 42178862896、feature ブランチの push で回した）: 3 OS とも 9 本すべて通った。参照の CSV との最大の相対差は Linux・Windows が 0（ビット単位）、macOS（arm64）が BouncingBall 1.4e-16、Dahlquist 5.6e-17、VanDerPol 2.2e-14（CSV は x86_64 で作られたもので、arm64 の浮動小数点の演算の違い）。往復の試験は Linux だけ（Windows・macOS では飛ばす）。なお、新しい workflow は main に入るまで `gh workflow run --ref` で出せないので、この run は一時的に feature の push のトリガーを付けて回し、あとで外した。
 
 ### (k) 持ち越し（次の WP の順番）
 
