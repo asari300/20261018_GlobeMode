@@ -36,6 +36,16 @@ load_dir(ws::Workspace, dir) =
 check(ws::Workspace, model) =
     take(ccall((:gm_check, LIB), Ptr{UInt8}, (Ptr{Cvoid}, Cstring), ws.ptr, model))
 
+# S191: 読み取り（JSON の文字列のまま。outline はファイルが無い・構文の誤りで {"error": ...}、flat は通らなければ null）。
+outline(ws::Workspace, path) =
+    take(ccall((:gm_outline, LIB), Ptr{UInt8}, (Ptr{Cvoid}, Cstring), ws.ptr, path))
+
+deps(ws::Workspace, model) =
+    take(ccall((:gm_deps, LIB), Ptr{UInt8}, (Ptr{Cvoid}, Cstring), ws.ptr, model))
+
+flat(ws::Workspace, model) =
+    take(ccall((:gm_flat, LIB), Ptr{UInt8}, (Ptr{Cvoid}, Cstring), ws.ptr, model))
+
 simulate(ws::Workspace, model, settings=C_NULL) =
     take(ccall((:gm_simulate, LIB), Ptr{UInt8}, (Ptr{Cvoid}, Cstring, Cstring), ws.ptr, model, settings))
 

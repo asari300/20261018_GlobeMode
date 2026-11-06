@@ -15,6 +15,9 @@ defmodule :globe_mode_nif do
   def graph(_ws, _model, _depth), do: :erlang.nif_error(:not_loaded)
   def simulate(_ws, _model, _settings_json), do: :erlang.nif_error(:not_loaded)
   def simulate_columns(_ws, _model, _settings_json), do: :erlang.nif_error(:not_loaded)
+  def outline(_ws, _path), do: :erlang.nif_error(:not_loaded)
+  def deps(_ws, _model), do: :erlang.nif_error(:not_loaded)
+  def flat(_ws, _model), do: :erlang.nif_error(:not_loaded)
   def cancel_token, do: :erlang.nif_error(:not_loaded)
   def cancel(_token), do: :erlang.nif_error(:not_loaded)
   def simulate_observed(_ws, _model, _settings_json, _pid, _token), do: :erlang.nif_error(:not_loaded)
@@ -43,6 +46,15 @@ defmodule GlobeMode do
 
   def graph(ws, model, depth \\ 1), do: decode(:globe_mode_nif.graph(ws, model, depth))
 
+  @doc "ファイル（`set_file` に渡したパス）のアウトライン。ファイルが無いか構文の誤りがあれば `{:error, 理由}`（S191）。"
+  def outline(ws, path), do: decode(:globe_mode_nif.outline(ws, path))
+
+  @doc "`check` が読むファイル（モデルが使うものの閉包。パスの昇順）のリスト。モデルが無ければ `[]`（S191）。"
+  def deps(ws, model), do: decode(:globe_mode_nif.deps(ws, model))
+
+  @doc "flat モデルの要約。flatten まで通らなければ `{:ok, nil}`（S191）。"
+  def flat(ws, model), do: decode(:globe_mode_nif.flat(ws, model))
+
   @doc "`settings` は `%{stop_time: 2, solver: \"bdf\"}` など。"
   def simulate(ws, model, settings \\ %{}),
     do: decode(:globe_mode_nif.simulate(ws, model, JSON.encode!(settings)))
@@ -62,7 +74,7 @@ defmodule GlobeMode do
     do: decode(:globe_mode_nif.simulate_observed(ws, model, JSON.encode!(settings), pid, token))
 
   @doc """
-  列の道（S116）。`{:ok, layout, columns}` で、`layout` は `%{"response", "names", "points"}`（`response` に `csv` は無い）、
+  列の道（S116）。`{:ok, layout, columns}` で、`layout` は `%{"response", "names", "points", "defaults"}`（`response` に `csv` は無い。`defaults` は既定で描く信号の名前で、S190）、
   `columns` は `names` と同じ順の列ごとの f64（little-endian）の binary。値は `for <<x::float-little <- col>>, do: x` で読める。
   """
   def simulate_columns(ws, model, settings \\ %{}) do

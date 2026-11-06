@@ -315,6 +315,38 @@ fn graph_of_the_rc_circuit_is_graphology_json() {
     assert!(ws.inner().graph("No.Such.Model", 1).is_err());
 }
 
+/// S191: 読み取りの口（Python の `outline` / `deps` / `flat` と同じ形）。JsValue の誤りは wasm32 でしか作れないので成功だけ
+#[test]
+fn read_outline_deps_flat_and_check_summary() {
+    let mut ws = Workspace::new();
+    ws.put_file(
+        "A.mo",
+        "model A Real x(start = 1, fixed = true); equation der(x) = -x; end A;",
+    );
+    ws.put_file("Uses.mo", "model Uses A a; end Uses;");
+    ws.put_file("Other.mo", "model Other Real y; end Other;");
+    let json = |s: String| serde_json::from_str::<serde_json::Value>(&s).unwrap();
+    let o = json(ws.outline("A.mo").unwrap());
+    assert_eq!(o["classes"][0]["name"], "A");
+    assert_eq!(
+        json(ws.deps("Uses").unwrap()),
+        serde_json::json!(["A.mo", "Uses.mo"])
+    );
+    assert_eq!(json(ws.deps("NoSuch").unwrap()), serde_json::json!([]));
+    let f = json(ws.flat("A").unwrap());
+    assert_eq!(
+        (f["variables"].as_u64(), f["equations"].as_u64()),
+        (Some(1), Some(1)),
+        "{f}"
+    );
+    ws.put_file("Bad.mo", "model Bad Real x; equation y = 1; end Bad;");
+    assert!(json(ws.flat("Bad").unwrap()).is_null());
+    assert_eq!(
+        json(ws.check("A").unwrap())["summary"],
+        "A: OK（S0〜S10 を通過）"
+    );
+}
+
 #[test]
 fn columns_match_the_csv() {
     let req = || {

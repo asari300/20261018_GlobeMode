@@ -23,6 +23,6 @@ parse(Float64, match(r"\"final\":\{[^}]*\"x\":([^,}]+)", res)[1])   # 0.36787946
   - `Workspace(libraries)`（finalizer で `gm_workspace_free`）、`set_file`、`load_dir`（読んだ `.mo` の数）、`check`、`graph`。
   - `simulate`、`simulate_columns`（列の道。`(レイアウトの JSON, 列ごとの Vector{Float64})`）、`simulate_observed`（進捗と中断。`on_progress` が `true` を返すと止まる）、`export_fmu`。
   - `format`・`lint`（`Workspace` は要らない）。
-  - `outline`・`flat`・`deps` は C ABI に無いので無い（Python だけ。[対応表](../../doc/research/lang-api-matrix-2026-11-03.md)）。
+  - `outline(ws, path)`・`deps(ws, model)`・`flat(ws, model)`（読み取り。S191。JSON の文字列。`globe outline` / `deps` / `flat --json` と同じ形。[対応表](../../doc/research/lang-api-matrix-2026-11-03.md)）。`simulate_columns` のレイアウトの `defaults` は既定で描く信号の名前（S190）。
 - 共有ライブラリは環境変数 `GLOBE_MODE_LIB`（既定 `../../target/release/libglobe_mode_c.so`）。
 - 今後: パッケージ化と JLL（BinaryBuilder）での配布。

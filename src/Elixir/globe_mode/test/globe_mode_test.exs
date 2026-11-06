@@ -6,7 +6,8 @@ defmodule GlobeModeTest do
 
   test "Decay を check → simulate して最後の時刻が 1" do
     {:ok, ws} = GlobeMode.new([@lib])
-    assert {:ok, %{"passed" => true}} = GlobeMode.check(ws, @model)
+    assert {:ok, %{"passed" => true, "summary" => "GlobeModeValidation.Simulation.Decay: OK" <> _}} =
+             GlobeMode.check(ws, @model)  # S184
     {:ok, res} = GlobeMode.simulate(ws, @model)
     assert res["ok"], inspect(res["diagnostics"])
     [last | _] = res["csv"] |> String.split("\n", trim: true) |> Enum.reverse()
@@ -22,6 +23,7 @@ defmodule GlobeModeTest do
     # S116: 列の道。x(1) が e⁻¹、点の数が CSV の行数 - 1 と同じ
     {:ok, layout, [_time, xs]} = GlobeMode.simulate_columns(ws, @model)
     assert layout["names"] == ["time", "x"] and layout["response"]["csv"] == nil
+    assert layout["defaults"] == ["x"]  # S190
     assert layout["points"] == length(String.split(res["csv"], "\n", trim: true)) - 1
     <<_::binary-size(byte_size(xs) - 8), x1::float-little>> = xs
     assert x1 == res["final"]["x"]
@@ -36,6 +38,19 @@ defmodule GlobeModeTest do
     assert {:error, _} = GlobeMode.export_fmu(ws, @model, out, %{fmi_version: 4})
     # モデル・設定の誤りは ok: false と diagnostics で返る
     assert {:ok, %{"ok" => false}} = GlobeMode.simulate(ws, @model, %{solver: "no-such-solver"})
+  end
+
+  test "読み取りの口 outline・deps・flat（S191）" do
+    {:ok, ws} = GlobeMode.new()
+    GlobeMode.set_file(ws, "A.mo", "model A Real x(start = 1, fixed = true); equation der(x) = -x; end A;")
+    GlobeMode.set_file(ws, "Uses.mo", "model Uses A a; end Uses;")
+    GlobeMode.set_file(ws, "Bad.mo", "model Bad Real x; equation y = 1; end Bad;")
+    assert {:ok, %{"classes" => [%{"name" => "A", "kind" => "model"}]}} = GlobeMode.outline(ws, "A.mo")
+    assert {:error, _} = GlobeMode.outline(ws, "Nope.mo")
+    assert GlobeMode.deps(ws, "Uses") == {:ok, ["A.mo", "Uses.mo"]}
+    assert GlobeMode.deps(ws, "NoSuchModel") == {:ok, []}
+    assert {:ok, %{"variables" => 1, "equations" => 1}} = GlobeMode.flat(ws, "A")
+    assert GlobeMode.flat(ws, "Bad") == {:ok, nil}
   end
 
   # S131（ADR-0033）: 積分に 100 ms より長くかかる（t が途中で知らされる）ように、細かく振れる入力を長く積む（S129 と同じ）

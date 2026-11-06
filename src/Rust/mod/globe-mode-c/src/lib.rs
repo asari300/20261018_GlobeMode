@@ -241,6 +241,52 @@ pub unsafe extern "C" fn gm_graph(
     })
 }
 
+/// ファイル（`gm_set_file` に渡したパス）のアウトライン（`globe outline --json` と同じ `Outline` の JSON。S191）。
+/// ファイルが無いか構文の誤りがあれば `{"error": ...}`（誤りは最初の診断の `コード: 文`）。
+///
+/// # Safety
+///
+/// `ws` は生きているワークスペース、`path` は NUL 終端の UTF-8 の文字列。
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn gm_outline(ws: *mut GmWorkspace, path: *const c_char) -> *mut c_char {
+    guard(|| {
+        let path = str_arg(path, "path")?;
+        match ws_arg(ws)?.outline(path) {
+            None => Err(format!("ファイル {path} がワークスペースに無い")),
+            Some(Ok(o)) => json(o),
+            Some(Err(ds)) => Err(ds
+                .first()
+                .map_or_else(String::new, |d| format!("{}: {}", d.code, d.message))),
+        }
+    })
+}
+
+/// `gm_check` が読むファイル（モデルが使うものの閉包。パスの昇順）の JSON の配列。モデルが無ければ `[]`（S191）。
+///
+/// # Safety
+///
+/// `ws` は生きているワークスペース、`model` は NUL 終端の UTF-8 の文字列。
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn gm_deps(ws: *mut GmWorkspace, model: *const c_char) -> *mut c_char {
+    guard(|| {
+        let model = str_arg(model, "model")?;
+        json(&ws_arg(ws)?.deps(model))
+    })
+}
+
+/// flat モデルの要約（`FlatSummary` の JSON）。flatten まで通らなければ `null`（S191）。
+///
+/// # Safety
+///
+/// `ws` は生きているワークスペース、`model` は NUL 終端の UTF-8 の文字列。
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn gm_flat(ws: *mut GmWorkspace, model: *const c_char) -> *mut c_char {
+    guard(|| {
+        let model = str_arg(model, "model")?;
+        json(&ws_arg(ws)?.flat(model))
+    })
+}
+
 /// 検査 → コンパイル → 実行（`SimulateResponse` の JSON）。モデルの誤りは `ok` と `diagnostics` で返す。
 /// `settings_json` は NULL 可（`{"stop_time": 2, "solver": "bdf"}` など）。
 ///
@@ -287,7 +333,8 @@ pub unsafe extern "C" fn gm_simulate_observed(
 }
 
 /// 列の道（S116。Python の `simulate_columns`・wasm の `SimColumns` と同じ並び）。戻り値は
-/// `{"response": SimulateResponse（csv 無し）, "names": ["time", ...], "points": n}` の JSON。
+/// `{"response": SimulateResponse（csv 無し）, "names": ["time", ...], "points": n, "defaults": ["x", ...]}` の JSON
+/// （`defaults` は既定で描く信号の名前。最大 3 本。S190・S191）。
 /// `*data` には列を順に並べた `names.len() * points` 個の f64（列 i は `data[i * points ..]`）を、`*len` にその個数を入れる。
 /// `*data` は [`gm_doubles_free`] で放す。誤りや実行できなかったときは `*data` が NULL で `*len` が 0。
 ///
@@ -354,6 +401,7 @@ pub unsafe extern "C" fn gm_simulate_columns_observed(
             "response": simulated.response,
             "names": layout.names,
             "points": layout.points,
+            "defaults": layout.defaults,
         }))?;
         if !flat.is_empty() {
             // SAFETY: 上と同じ
@@ -500,6 +548,23 @@ mod tests {
             );
             assert!(take(gm_format(c"model Decay".as_ptr(), 2, 0))["error"].is_string());
             assert!(take(gm_lint(c"model Decay Real x; end Decay;".as_ptr())).is_array());
+            // S191: 読み取りの口と summary
+            assert_eq!(
+                take(gm_outline(ws, c"Decay.mo".as_ptr()))["classes"][0]["name"],
+                "Decay"
+            );
+            assert!(take(gm_outline(ws, c"Nope.mo".as_ptr()))["error"].is_string());
+            assert_eq!(
+                take(gm_deps(ws, c"Decay".as_ptr())),
+                serde_json::json!(["Decay.mo"])
+            );
+            assert_eq!(take(gm_deps(ws, c"NoSuch".as_ptr())), serde_json::json!([]));
+            assert_eq!(take(gm_flat(ws, c"Decay".as_ptr()))["variables"], 1);
+            assert!(take(gm_flat(ws, c"NoSuch".as_ptr())).is_null());
+            assert_eq!(
+                take(gm_check(ws, c"Decay".as_ptr()))["summary"],
+                "Decay: OK（S0〜S10 を通過）"
+            );
             // S116: 列の道。x(1) が e⁻¹、点の数が CSV の行数 - 1 と同じ
             let (mut data, mut len) = (std::ptr::null_mut(), 0usize);
             let lay = take(gm_simulate_columns(
@@ -511,6 +576,7 @@ mod tests {
             ));
             assert!(lay["response"]["csv"].is_null(), "{lay}");
             assert_eq!(lay["names"], serde_json::json!(["time", "x"]));
+            assert_eq!(lay["defaults"], serde_json::json!(["x"]), "{lay}"); // S191
             let points = lay["points"].as_u64().unwrap() as usize;
             assert_eq!(points, res["csv"].as_str().unwrap().lines().count() - 1);
             assert_eq!(len, 2 * points);

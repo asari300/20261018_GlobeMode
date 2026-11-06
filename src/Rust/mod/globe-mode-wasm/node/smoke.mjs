@@ -69,6 +69,17 @@ for (const solver of ["bdf", "dopri45", "auto"]) {
   const p = Object.entries(r.timings_ms).map(([k, v]) => `${k} ${v.toFixed(1)}`).join(" / ");
   console.log(`${decay} ${solver}: x(1) = ${x}（誤差 ${err.toExponential(1)}、${wall} ms: ${p} ms、${r.stats.points} 行）`);
 }
+// 2a. 読み取りの口と summary（S191。Python の outline・deps・flat、S184 の summary と同じ形）
+{
+  const o = JSON.parse(ws.outline("src/Modelica/GlobeModeValidation/Simulation/Decay.mo"));
+  assert.equal(o.within, "GlobeModeValidation.Simulation");
+  assert.throws(() => ws.outline("No/Such.mo"), /ワークスペースに無い/);
+  assert.ok(JSON.parse(ws.deps(decay)).some((p) => p.endsWith("Decay.mo")));
+  assert.ok(JSON.parse(ws.flat(decay)).variables >= 1);
+  assert.equal(JSON.parse(ws.flat("No.Such.Model")), null);
+  assert.equal(JSON.parse(ws.check(decay)).summary, `${decay}: OK（S0〜S10 を通過）`);
+  console.log("outline・deps・flat・summary: 読めた");
+}
 // 2b. 進捗（S133、ADR-0033）: simulate_columns に関数を渡すと段と t を受け、列は渡さないときと同じ
 {
   const req = JSON.stringify({ model: decay, settings: { solver: "esdirk34" } });

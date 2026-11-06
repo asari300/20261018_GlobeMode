@@ -41,6 +41,15 @@ const ops = {
   graph({ model, depth }) {
     return (ws ??= new gm.Workspace()).graph(model, depth);
   },
+  outline({ path }) {
+    return (ws ??= new gm.Workspace()).outline(path);
+  },
+  deps({ model }) {
+    return (ws ??= new gm.Workspace()).deps(model);
+  },
+  flat({ model }) {
+    return (ws ??= new gm.Workspace()).flat(model);
+  },
   simulate({ request }) {
     return (ws ??= new gm.Workspace()).simulate(request);
   },

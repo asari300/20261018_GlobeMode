@@ -7,6 +7,7 @@ lib, model = ARGS
 ws = GlobeMode.Workspace([lib])
 checked = GlobeMode.check(ws, model)
 @test occursin("\"passed\":true", checked)
+@test occursin("\"summary\":\"", checked)  # S184
 json = GlobeMode.simulate(ws, model)
 @test occursin("\"ok\":true", json)
 # shortcut: JSON の標準ライブラリが無いので、CSV の最後の行（後ろが \n" の行）を正規表現で拾う。JSON.jl を入れるなら置き換える
@@ -28,6 +29,7 @@ layout, cols = GlobeMode.simulate_columns(ws, model)
 @test occursin("\"names\":[\"time\",\"x\"]", layout)
 @test length(cols[1]) == count("\\n", json) - 1
 @test cols[2][end] == x
+@test occursin("\"defaults\":[\"x\"]", layout)  # S190
 t_json = @elapsed GlobeMode.simulate(ws, model)
 t_cols = @elapsed GlobeMode.simulate_columns(ws, model)
 println("columns: points=$(length(cols[1])), x(1)=$(cols[2][end]), json=$(round(t_json * 1e3; digits=2)) ms, columns=$(round(t_cols * 1e3; digits=2)) ms")
@@ -41,6 +43,12 @@ println("fmu: $fmu")
 # S131（ADR-0033）: 進捗と中断。S129 と同じ、積分に 100 ms より長くかかるモデルを最初の t の進捗で止める
 GlobeMode.set_file(ws, "Wiggle.mo",
     "model Wiggle Real x(start = 0, fixed = true); equation der(x) = sin(100 * time); end Wiggle;")
+# S191: 読み取り
+@test occursin("\"name\":\"Wiggle\"", GlobeMode.outline(ws, "Wiggle.mo"))
+@test occursin("\"error\"", GlobeMode.outline(ws, "Nope.mo"))
+@test GlobeMode.deps(ws, "Wiggle") == "[\"Wiggle.mo\"]"
+@test occursin("\"variables\":1", GlobeMode.flat(ws, "Wiggle"))
+@test GlobeMode.flat(ws, "NoSuch") == "null"
 seen = []
 res = GlobeMode.simulate_observed(ws, "Wiggle", p -> (push!(seen, p); p.time !== nothing),
     "{\"solver\": \"esdirk34\", \"stop_time\": 1000, \"interval\": 1}")

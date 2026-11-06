@@ -490,6 +490,30 @@ impl Workspace {
             .map_err(|e| js_error(e.to_string()))?;
         to_json(&g.to_graphology())
     }
+
+    /// ファイル（`set_file` に渡した名前）のアウトライン（`globe outline --json` と同じ `Outline` の JSON。S191）。
+    /// ファイルが無いか、構文の誤りがあれば例外（文字列。誤りは最初の診断の `コード: 文`）。
+    pub fn outline(&self, path: &str) -> Result<String, JsValue> {
+        match self.inner.outline(path) {
+            None => Err(js_error(format!("ファイル {path} がワークスペースに無い"))),
+            Some(Ok(o)) => to_json(o),
+            Some(Err(ds)) => {
+                Err(js_error(ds.first().map_or_else(String::new, |d| {
+                    format!("{}: {}", d.code, d.message)
+                })))
+            }
+        }
+    }
+
+    /// `check` に渡すファイルの閉包（パスの昇順）の JSON の配列。モデルが無ければ `[]`（S191）。
+    pub fn deps(&mut self, model: &str) -> Result<String, JsValue> {
+        to_json(&self.inner.deps(model))
+    }
+
+    /// flat モデルの要約（`FlatSummary` の JSON）。flatten まで通らなければ `null`（S191）。
+    pub fn flat(&mut self, model: &str) -> Result<String, JsValue> {
+        to_json(&self.inner.flat(model))
+    }
 }
 
 /// 一度きりの実行（JS から呼ぶ形）。ライブラリ無しで、`files` にすべてを入れる。
