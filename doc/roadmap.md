@@ -488,6 +488,10 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **キーボードとアクセシビリティ**（S164 の穴 8。[解説書](sessions/S175-ui-keyboard-a11y/解説書.md)）: キーだけで開く・書く・検査・診断へ飛ぶ・実行・止める・結果を見る・保存まで通せる。診断と参照の行は行の中の本物の `<button>`（Tab・Enter・Space でエディタの該当位置へ、フォーカスもエディタへ）。ショートカットは Ctrl/Cmd+Enter 実行、+Shift+Enter 検査、+. 止める、+S 保存（Desktop は +Shift+S 名前を付けて保存）、+O 開く（capture で受け、エディタの中でも効く。CodeMirror の Mod-Enter「空行を挿入」は覆う）。ボタンに `title` と `aria-keyshortcuts`。プロットの canvas に `role="img"` と信号名・時間の範囲・最後の値・最小・最大の `aria-label`（純粋な関数 `plotLabel`）。`:focus-visible` の輪郭を `--accent` に（エディタの 1px の点線は暗で見えなかった）。検査・実行の完了を `aria-live="polite"`、`h1` を読み上げ専用に。`test_ui.py` にキーだけの 1 本。
 - 持ち越し: ~~エディタへ飛ぶスキップリンク~~（S179 で済）、~~タブの矢印キー~~（S179 で済）、Mac の実機、スクリーンリーダー（NVDA・VoiceOver）の実機、Esc で止める、~~Tab での字下げ~~（S188 で済）。
 
+### S192（P4、2026-11-06）で済んだこと
+
+- **整形器（`globe-mode-fmt`）の issue・PR を片付けた**（[解説書](sessions/S192-fmt-issues-prs/解説書.md)）: PR #17 の panic 2 件（UTF-8 の途中でのスライス、省略した tuple の出力）、issue #19（CRLF の複数行コメント・文字列）、issue #21（`end` の種類の不一致を断る）を直した。issue #20 は S167 で修正済み。MSL 4.1.0 の `.mo` 2,556 本ほか 2,661 本で、断るファイルは前後とも 0 本・整形結果の差は 0。別セッションのレビュー文書は `log/review/2026-11-03-*/` へ移した。
+
 ### S187（P4、2026-11-06）で済んだこと
 
 - **CLI の案内の取りこぼし**（S185 の再点検の R1・R5・R6・R10、E4・E5・E10b、穴 6・12。[解説書](sessions/S187-cli-hints-followup/解説書.md)）: `-L` が MSL のサブフォルダのときの S180 の補足が CLI で出なかったのは、組で読む道のライブラリの名前（`library:<パス>`）から `package.mo` を探していたため。名前をパスに戻して直した。`-L` を忘れて FILES だけ渡したときは「`Modelica` を読み込んでいない」の 1 行、パッケージ名（`-m Modelica.Blocks`）は `GM-E1002`「パッケージで、モデルではない」と直下のモデル、短い名前・遠い綴り（`Nope`・`T`）には候補を出さず、開いている文書のモデルをライブラリより先に。`globe deps -L`（ライブラリのファイルも閉包に）、`outline` の `<FILE>` の説明。README の既知の限界・秒数・`fmt --check` の例を事実に。
