@@ -40,7 +40,8 @@ Python にだけ入った口を C ABI・NIF・Zig・Julia・Elixir・Gleam・was
 - `mise run wasm:node`: 通った（`outline・deps・flat・summary: 読めた`）。`node web/worker-node.mjs`: 通った（同じ行）。
 - `mise run check`: 通った（fmt・clippy -D warnings・test 698 passed 0 failed・deny・`globe fmt --check src/Modelica`・`uv sync --locked`）。load は 1 未満から始めた。
 - `check_docs.py`: デッキ OK / リンク 3860 件中 切れ 0 件。`render_slides.py`（S191 のデッキだけ）: 問題 0 件。
-- 全体検査（`ci.yml -f full=true`）と `release.yml` の dry run: （下に記入）
+- 全体検査（`gh workflow run ci.yml --ref feature/s191-lang-parity-read-defaults -f full=true`、run 42140012073）: success（rust-linux・rust-windows・rust-sundials・deny・msl・docs・wasm-node・ui・lang・python）。
+- `release.yml` の dry run（run 42140025145、feature ブランチ、タグなし）: success（4 環境の build・desktop・third-party）。Release とタグは作っていない。
 
 ## 残したこと
 
