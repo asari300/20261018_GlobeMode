@@ -27,7 +27,7 @@ Both compile. MLS 3.6 section 18.3 "Symbolic Processing", Annotation 18.1 `Evalu
 
 ```text
 $ globe check 18-er070-evaluate-on-non-parameter-component.mo --library data/msl --model Rep18
-18-er070-...mo:7:17: error[GM-E1001] S1 名前解決: annotation Evaluate is only allowed on parameter or constant components; 'Dzero' is not parameter or constant (MLS §18.6)
+18-er070-...mo:7:5: error[GM-E1001] S1 名前解決: annotation Evaluate is only allowed on parameter or constant components; 'Dzero' is not parameter or constant (MLS §18.6)
     note: rumoca: ER070
 Rep18: NG（S1 名前解決 で停止）
 

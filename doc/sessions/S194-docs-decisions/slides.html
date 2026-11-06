@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S194 2026-11-06 の決定を文書に — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S194 2026-11-06 の決定を文書に">
+
+<section class="slide" id="S01">
+  <span class="tag">S194 · 2026-11-06 · 文書</span>
+  <h1>2026-11-06 の決定を文書に反映する</h1>
+  <p class="lead">文書と再現用の .mo の整形だけ。src/ と .github/ は触っていない</p>
+  <div class="big">CLAUDE.md の 2 章を現状に合わせ、ADR 4 本を <b>Accepted</b> に、上流の .mo 34 本を整形した</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">CLAUDE.md の 2 章</span>
+  <h1>表と説明を、いまのツリーに合わせた</h1>
+  <table class="compact">
+    <tr><th>直した所</th><th>内容</th></tr>
+    <tr><td>src/Rust/apps/</td><td>desktop、experimental/{leptos,dioxus}、web-{actix,axum,loco,rocket}</td></tr>
+    <tr><td>足した行</td><td>src/VSCode、src/Astro、fastapi_fmt、phoenix_fmt と wisp_fmt</td></tr>
+    <tr><td>doc の行</td><td>format-style と web-apps、報告 5 本、bench と plan</td></tr>
+    <tr><td>src/Modelica</td><td class="ok">globe fmt で整形済み。fmt --check が CI と mise run check で通ること</td></tr>
+    <tr><td>workflow の項目</td><td>desktop、web、fmu-export、resources、release を 1 項目ずつ</td></tr>
+    <tr><td>mise の表と共有 target</td><td>node・pnpm・cargo-deny・wasm-bindgen を足し、worktree の環境変数を 1 項目</td></tr>
+  </table>
+  <div class="card">1 章と 3〜7 章は 1 文字も変えていない。release は手動なら dry run、マイナー版を変えるときは必ず回す</div>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">ADR</span>
+  <h1>4 本を Accepted にした</h1>
+  <table class="compact">
+    <tr><th>ADR</th><th>状態</th></tr>
+    <tr><td>0032 P5b の自前のランタイム</td><td class="ok">Accepted（2026-11-06）</td></tr>
+    <tr><td>0034 UI の測り方</td><td class="ok">Accepted。3 UI × 3 OS まで測った（付記）</td></tr>
+    <tr><td>0035 Leptos 版 UI</td><td class="ok">Accepted</td></tr>
+    <tr><td>0036 Dioxus 版 UI</td><td class="ok">Accepted</td></tr>
+  </table>
+  <div class="card">ADR 索引、roadmap と architecture の本文の Proposed、末尾の表の「ADR の状態」の行を合わせた</div>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">再現用 .mo</span>
+  <h1>34 本すべてを整形し、再現は変わらない</h1>
+  <div class="kpis">
+    <div class="kpi"><span class="n">34</span><span class="l">整形した .mo</span></div>
+    <div class="kpi"><span class="n">270</span><span class="l">比べたクラス</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">診断の違い</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">整形しなかった本</span></div>
+  </div>
+  <ul>
+    <li>整形の前後で、全クラスの globe check の診断（コード、重大度）と通ったか止まった段が同じ</li>
+    <li>空白が要点になる本は無かった（CRLF も無く、診断が変わった本も無い）。整形を断られた本も無い</li>
+    <li>本文に貼った診断の 行:列 は、整形後の位置に直した（13 か所）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">roadmap と次回</span>
+  <h1>末尾の表を動かし、実装は別の WP へ</h1>
+  <table class="compact">
+    <tr><th>決定</th><th>状態</th></tr>
+    <tr><td>Tab は字下げ、プロットは状態を先に、src/Modelica の整形と FMU の名前</td><td class="ok">S188・S190・S189 で済</td></tr>
+    <tr><td>FMI Import は案 A と案 B の両方</td><td class="warn">別の WP</td></tr>
+    <tr><td>Python の例外の階層、補完中の Tab、CLI の終了コードなど</td><td class="warn">別の WP</td></tr>
+    <tr><td>公開、鍵、Rumoca の rev、上流 issue の提出</td><td>変わらず（ユーザーの判断）</td></tr>
+  </table>
+  <div class="card">ADR-0026 の本文は FMI Import の WP が書く。いまも Proposed</div>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

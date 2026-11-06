@@ -23,6 +23,65 @@ fn mo_files(dir: &Path, out: &mut Vec<PathBuf>) {
 }
 
 #[test]
+fn invalid_ascii_before_unicode_returns_error() {
+    let error = format("!é", &Options::default()).unwrap_err();
+    assert_eq!(error.offset, 0);
+}
+
+#[test]
+fn wrapping_omitted_tuple_output_preserves_model() {
+    let src = "function f\n  output Real a;\n  output Real b;\nalgorithm\n  a := 1;\n  b := 2;\nend f;\nmodel M\n  Real x;\nalgorithm\n  (, x) := f();\nend M;\n";
+    let options = Options {
+        width: 5,
+        ..Options::default()
+    };
+    let out = format(src, &options).unwrap();
+    assert_eq!(format(&out, &options).unwrap(), out);
+    assert!(
+        out.chars()
+            .filter(|c| !c.is_whitespace())
+            .collect::<String>()
+            .contains("(,x):=f();")
+    );
+}
+
+#[test]
+fn crlf_multiline_block_comment_and_string_format() {
+    // S192 (issue #19): 内部の CRLF が \r\r\n にならない
+    let o = Options {
+        insert_origin: false,
+        format_html: false,
+        ..Options::default()
+    };
+    let src = "model M\r\n  /* first\r\n  second */\r\n  Real x \"a\r\nb\";\r\nend M;\r\n";
+    let out = format(src, &o).unwrap();
+    assert!(out.contains("/* first\r\n  second */") && out.contains("\"a\r\nb\""));
+    assert!(!out.contains("\r\r"));
+    assert_eq!(format(&out, &o).unwrap(), out);
+}
+
+#[test]
+fn redeclare_model_extends_with_modification_formats() {
+    // S192 (issue #20、S167 で修正済み): `redeclare model extends M(x = 2)`
+    let src = "package Base\n  replaceable model M\n    parameter Real x = 1;\n  end M;\nend Base;\n\npackage Derived\n  extends Base;\n\n  redeclare model extends M(x = 2)\n  end M;\nend Derived;\n";
+    let out = format(src, &Options::default()).unwrap();
+    assert!(out.contains("redeclare model extends M(x = 2)"));
+    assert_eq!(format(&out, &Options::default()).unwrap(), out);
+}
+
+#[test]
+fn mismatched_block_end_is_rejected() {
+    // S192 (issue #21): 開いた if を end for で閉じる入力は断る。end if なら通る
+    let bad = "model M\n  Real x;\nequation\n  if true then\n    x = 1;\n  end for;\nend M;\n";
+    let e = format(bad, &Options::default()).unwrap_err();
+    assert!(e.message.contains("合わない"), "{e}");
+    assert!(format(&bad.replace("end for;", "end if;"), &Options::default()).is_ok());
+    let bad =
+        "model M\n  Real x;\nequation\n  for i in 1:2 loop\n    x = 1;\n  end while;\nend M;\n";
+    assert!(format(bad, &Options::default()).is_err());
+}
+
+#[test]
 fn user_before_after() {
     let before = include_str!("data/objects_before.mo");
     let after = include_str!("data/objects_after.mo");

@@ -1,6 +1,6 @@
 # ADR-0036 Dioxus 版 UI は Leptos 版（ADR-0035）と同じ作りで、`dx` を使わず wasm-bindgen の流儀でビルドする
 
-- 状態: Proposed（2026-11-05、S155。ブラウザ（Linux）の 1 列だけ測った）
+- 状態: Accepted（2026-11-06。ユーザーの判断。Proposed は 2026-11-05、S155。そのときはブラウザ（Linux）の 1 列だけ測った。3 OS までは [ADR-0034](0034-ui-bench-method.md) の付記）
 - 関係: [ADR-0035](0035-experimental-ui-leptos.md)（共通の決定: 機能の絞り方、facade 直結、別の workspace、測り方、CI に入れない）、[ADR-0034](0034-ui-bench-method.md)（測り方）、[ADR-0023](0023-desktop-and-web-process-layout.md)（本線の構成。ここでは試験版だけの例外）
 
 ## 背景

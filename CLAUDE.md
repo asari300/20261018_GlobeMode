@@ -41,15 +41,20 @@ uv sync                      # worktree ごとに必須
 | 場所 | 意味 | 編集してよいか |
 | --- | --- | --- |
 | `src/Rust/mod/<crate>/` | Rust のコア（workspace の library crate） | ○ |
-| `src/Rust/apps/` | Tauri のシェル、Leptos / Dioxus の試験版 | ○ |
-| `src/Svelte/` | UI（Tauri とブラウザで共用）。**業務ロジックを置かない** | ○ |
-| `src/Python/mod/` `marimo/` `streamlit/` | Python パッケージ、ノートブック、ダッシュボード | ○ |
-| `src/{Elixir,Gleam,Julia,Zig}/` | 各言語の薄いラッパ。ロジックは Rust 側に置く | ○ |
-| `src/Modelica/` | 検証用の Modelica ライブラリ。**MODELICAPATH として開けるパッケージだけを置く**（わざと構文を誤ったファイルは `globe-mode-frontend/tests/data/` へ）。説明は [src/Modelica/README.md](src/Modelica/README.md) | ○ |
+| `src/Rust/apps/` | `desktop/`（Tauri のシェル。別の Cargo workspace）、`experimental/{leptos,dioxus}`（UI の試験版）、`web-{actix,axum,loco,rocket}`（整形・lint のウェブアプリ。[doc/web-apps.md](doc/web-apps.md)） | ○ |
+| `src/Svelte/` | UI（Tauri〔Desktop・Android〕とブラウザで共用）。**業務ロジックを置かない** | ○ |
+| `src/VSCode/globe-mode/` | VS Code の拡張（`globe lsp` を使う。業務ロジックを置かない） | ○ |
+| `src/Astro/fmt/` | 整形・lint のウェブアプリ（Astro 版。[doc/web-apps.md](doc/web-apps.md)） | ○ |
+| `src/Python/mod/` `marimo/` `streamlit/` `fastapi_fmt/` | Python パッケージ、ノートブック、ダッシュボード、整形・lint のウェブアプリ（FastAPI 版） | ○ |
+| `src/{Elixir,Gleam,Julia,Zig}/` | 各言語の薄いラッパ。ロジックは Rust 側に置く。Elixir と Gleam には整形・lint のウェブアプリ（`phoenix_fmt`・`wisp_fmt`）もある | ○ |
+| `src/Modelica/` | 検証用の Modelica ライブラリ。**MODELICAPATH として開けるパッケージだけを置く**（わざと構文を誤ったファイルは `globe-mode-frontend/tests/data/` へ）。説明は [src/Modelica/README.md](src/Modelica/README.md)。**このフォルダの `.mo` は `globe fmt` で整形してある。`globe fmt --check src/Modelica` が CI と `mise run check` で通ること。新しい `.mo` は `globe fmt src/Modelica` で整形してからコミットする（位置に依存する試験と snapshot が動く）。** | ○ |
 | `data/msl/` `data/rumoca/` `data/reference-fmus/` | MSL 4.1.0、Rumoca の CLI、Reference-FMUs（FMI 2.0 / 3.0）の取得物（`cargo xtask fetch-msl [--version 4.0.0]`＝既定 4.1.0、4.0.0 は別の `--dest` へ。S067 / `fetch-rumoca` / `fetch-reference-fmus`） | ×（コミットしない） |
 | `data/libs/` | MSL 以外の公開ライブラリ（Buildings・AixLib・IBPSA・ClaRa・ThermofluidStream・DeltaRobot・Chemical）の取得物（`cargo xtask fetch-library <名前>`。S058） | ×（コミットしない） |
 | `src/Rust/xtask/` | 開発用のタスク（取得、MSL での突き合わせ、Rumoca の更新） | ○ |
 | `doc/architecture.md` `roadmap.md` `features.md` `licenses.md` `upstream.md` | **正典**。計画を変えたら同じコミットで直す | ○ |
+| `doc/format-style.md` `web-apps.md` | 準正典。整形の規則（`globe-mode-fmt`）と、整形・lint のウェブアプリ群の共通設計 | ○ |
+| `doc/msl-funnel.md` `msl-sim.md` `msl-solvers.md` `omc-compare.md` `libraries.md` | 検査・実行の報告。`mise run msl:*` と workflow が書く | ×（手で編集しない） |
+| `doc/bench/` `doc/plan/` | UI の比較の表（`bench_ui.py report` が書く）、リリースまでの見積もりと並行作業のプラン（計画は変えない） | ○ |
 | `doc/adr/` | 設計判断の記録。覆すときは消さずに Superseded にする | ○（追記） |
 | `doc/research/` | 調査の記録。事実ごとに URL と確認日を付ける | ○ |
 | `doc/sessions/SNNN-<topic>/` | セッションごとのスライドと解説書 | ○（そのセッションの間だけ） |
@@ -70,13 +75,19 @@ uv sync                      # worktree ごとに必須
 - Android の APK `android.yml`（S092、手動と main の `src/Rust/apps/desktop/**`・`src/Svelte/**` の変更時）: wasm の UI を作り、`cargo tauri android build --apk --debug`（署名なし、aarch64・x86_64）で artifact `globe-android` を出し、API 34 のエミュレータで起動を確かめる。Android は sidecar を使わず `WorkerBackend`（[ADR-0023](doc/adr/0023-desktop-and-web-process-layout.md)）。取得は `gh run download <run-id> -n globe-android`。
 - VS Code の拡張の起動試験 `vscode.yml`（S165、手動と main の `src/VSCode/**` の変更時）: `globe` を release でビルドして PATH に置き、拡張を束ね、`pnpm test`（Oniguruma での文法の試験を含む）のあと `xvfb-run` で本物の VS Code（stable）を `@vscode/test-electron` で起動し、言語 ID と activate・構文の誤りの診断・アウトライン・rename を確かめる（`src/VSCode/globe-mode/e2e/`）。手元では VS Code を起動しない。回すのは `gh workflow run vscode.yml`。
 - UI の 3 OS 測定 `ui-bench.yml`（S156、手動だけ）: Linux・Windows・macOS のランナーで Svelte・Leptos・Dioxus のブラウザ版（wasm）をビルドし、`bench_ui.py browser --ui <UI>` を 3 回ずつ回して、JSON を artifact `ui-bench-<os>` に出す。取得は `gh run download <run-id> -D ui-bench`、表にするのは `bench_ui.py merge ui-bench/*/ui-bench.json` のあと `report`（`doc/bench/ui.md`。[ADR-0034](doc/adr/0034-ui-bench-method.md) の付記）。ランナーは共有で、値は目安。
+- Desktop の bundle `desktop.yml`（S049、手動だけ）: Tauri の .deb・.msi・.dmg を作り、起動の smoke と UI の測定を回して artifact に残す（署名なし）。
+- ブラウザ版の配布物 `web.yml`（S145、手動だけ）: 静的ファイルの束を artifact `globe-web` に残す。公開（Pages の有効化・URL の配布）はユーザーの判断。
+- FMU の確認 `fmu-export.yml`（S098、手動だけ）: Export した FMU を FMPy と fmusim で確かめる（FMI 2.0・3.0。[ADR-0031](doc/adr/0031-fmi-export-p5a-first.md)）。
+- リソースの計測 `resources.yml`（S051、手動だけ）: release の `globe` の最大 RSS と、wasm の線形メモリの伸びを測る。
+- リリース `release.yml`（S044）: タグ `v*` の push で `globe`・Python の wheel・Desktop の bundle を作って Release を作る。**手動実行は dry run**（artifact に残すだけで、タグも Release も作らない）。**マイナーバージョンを変えるときは必ず dry run を回す**（2026-11-05 にユーザーが決めた）。公開（タグを push する）はユーザーの判断。
+- 各 workflow の一覧は [doc/architecture.md](doc/architecture.md) の 2.5 章。
 - 実行系・`globe-mode-sim`・`globe-mode-wasm`（とその依存の frontend・db）を変えたら、`mise run wasm:node`（release の wasm を Node で回す）と `mise run wasm:compare`（`GlobeModeValidation.Simulation` を実装のあるソルバすべてで wasm とネイティブの両方で回して突き合わせる）も通す（[ADR-0014](doc/adr/0014-session-route-wasm.md)）。CI はジョブ `wasm-node` で Decay だけを回す。
 - C ABI（`globe-mode-c`）とその依存、`src/Zig`・`src/Julia` を変えたら、`mise run c:zig`・`mise run c:julia` も通す（S075）。Elixir の NIF（`globe-mode-nif`）とその依存、`src/Elixir`・`src/Gleam` を変えたら `mise run elixir:test` と `mise run gleam:test` も通す（S082・S087）。CI はジョブ `lang`（S077、`ci_plan.py` の出力 `lang`）で同じものを回す。
 - **言語の管理は mise・uv・cargo で分担する**（[ADR-0003](doc/adr/0003-toolchain.md)、手順は [doc/mise-setup.html](doc/mise-setup.html)）。
 
   | 道具 | 受け持つもの | ロックファイル |
   | --- | --- | --- |
-  | mise | ツールの版（rust / uv / zig / julia / erlang / elixir / gleam）とタスク | `mise.lock` |
+  | mise | ツールの版（rust / uv / cargo-deny / wasm-bindgen / node / pnpm / zig / julia / erlang / elixir / gleam）とタスク | `mise.lock` |
   | uv | Python 本体（`.python-version`）と Python の依存 | `uv.lock` |
   | cargo | Rust の依存と workspace | `Cargo.lock` |
 
@@ -84,6 +95,7 @@ uv sync                      # worktree ごとに必須
   - Python を mise に入れない。ツールは `mise.toml` を、依存は各言語の道具を使って足す。
   - **RPi（aarch64、S017 から）では elixir が入らない**（erlang の arm64 ビルドが glibc 2.38 を要求する。[ADR-0019](doc/adr/0019-rpi-aarch64-environment.md)）。`MISE_DISABLE_TOOLS=elixir` を付けて mise を使う。
   - ロックファイルはすべてコミットする。
+  - **worktree のビルドは共有の target を使う。** `CARGO_TARGET_DIR=<main>/.git-worktree/target-shared` と `CARGO_BUILD_JOBS=2` を付ける（`uv sync` も。付けないと worktree かリポジトリの根に `target/` ができる）。共有 target の `debug` は消してよい。
 
 ---
 

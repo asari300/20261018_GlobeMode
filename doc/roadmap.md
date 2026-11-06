@@ -488,6 +488,10 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **キーボードとアクセシビリティ**（S164 の穴 8。[解説書](sessions/S175-ui-keyboard-a11y/解説書.md)）: キーだけで開く・書く・検査・診断へ飛ぶ・実行・止める・結果を見る・保存まで通せる。診断と参照の行は行の中の本物の `<button>`（Tab・Enter・Space でエディタの該当位置へ、フォーカスもエディタへ）。ショートカットは Ctrl/Cmd+Enter 実行、+Shift+Enter 検査、+. 止める、+S 保存（Desktop は +Shift+S 名前を付けて保存）、+O 開く（capture で受け、エディタの中でも効く。CodeMirror の Mod-Enter「空行を挿入」は覆う）。ボタンに `title` と `aria-keyshortcuts`。プロットの canvas に `role="img"` と信号名・時間の範囲・最後の値・最小・最大の `aria-label`（純粋な関数 `plotLabel`）。`:focus-visible` の輪郭を `--accent` に（エディタの 1px の点線は暗で見えなかった）。検査・実行の完了を `aria-live="polite"`、`h1` を読み上げ専用に。`test_ui.py` にキーだけの 1 本。
 - 持ち越し: ~~エディタへ飛ぶスキップリンク~~（S179 で済）、~~タブの矢印キー~~（S179 で済）、Mac の実機、スクリーンリーダー（NVDA・VoiceOver）の実機、Esc で止める、~~Tab での字下げ~~（S188 で済）。
 
+### S192（P4、2026-11-06）で済んだこと
+
+- **整形器（`globe-mode-fmt`）の issue・PR を片付けた**（[解説書](sessions/S192-fmt-issues-prs/解説書.md)）: PR #17 の panic 2 件（UTF-8 の途中でのスライス、省略した tuple の出力）、issue #19（CRLF の複数行コメント・文字列）、issue #21（`end` の種類の不一致を断る）を直した。issue #20 は S167 で修正済み。MSL 4.1.0 の `.mo` 2,556 本ほか 2,661 本で、断るファイルは前後とも 0 本・整形結果の差は 0。別セッションのレビュー文書は `log/review/2026-11-03-*/` へ移した。
+
 ### S187（P4、2026-11-06）で済んだこと
 
 - **CLI の案内の取りこぼし**（S185 の再点検の R1・R5・R6・R10、E4・E5・E10b、穴 6・12。[解説書](sessions/S187-cli-hints-followup/解説書.md)）: `-L` が MSL のサブフォルダのときの S180 の補足が CLI で出なかったのは、組で読む道のライブラリの名前（`library:<パス>`）から `package.mo` を探していたため。名前をパスに戻して直した。`-L` を忘れて FILES だけ渡したときは「`Modelica` を読み込んでいない」の 1 行、パッケージ名（`-m Modelica.Blocks`）は `GM-E1002`「パッケージで、モデルではない」と直下のモデル、短い名前・遠い綴り（`Nope`・`T`）には候補を出さず、開いている文書のモデルをライブラリより先に。`globe deps -L`（ライブラリのファイルも閉包に）、`outline` の `<FILE>` の説明。README の既知の限界・秒数・`fmt --check` の例を事実に。
@@ -563,14 +567,14 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 
 ### S155（P7、2026-11-05）で済んだこと
 
-- **Dioxus 版 UI**（[ADR-0036](adr/0036-experimental-ui-dioxus.md)、Proposed。[解説書](sessions/S155-ui-dioxus/解説書.md)）: `src/Rust/apps/experimental/dioxus/`（別の workspace）。Dioxus 0.7.10（MIT OR Apache-2.0、`minimal` + `web`）で、Leptos 版と同じ機能（`<textarea>`・検査と診断・実行と最後の値の表・MSL を読む・ダークモード）。facade `globe-mode` を同じ wasm にリンクする。ビルドは `mise run dioxus:build`（`dx` なし。cargo build → `wasm-bindgen --target web`。初回 7 分）、`?smoke=1` で `GM-SMOKE` の行。
+- **Dioxus 版 UI**（[ADR-0036](adr/0036-experimental-ui-dioxus.md)、Accepted。[解説書](sessions/S155-ui-dioxus/解説書.md)）: `src/Rust/apps/experimental/dioxus/`（別の workspace）。Dioxus 0.7.10（MIT OR Apache-2.0、`minimal` + `web`）で、Leptos 版と同じ機能（`<textarea>`・検査と診断・実行と最後の値の表・MSL を読む・ダークモード）。facade `globe-mode` を同じ wasm にリンクする。ビルドは `mise run dioxus:build`（`dx` なし。cargo build → `wasm-bindgen --target web`。初回 7 分）、`?smoke=1` で `GM-SMOKE` の行。
 - 測定: `bench_ui.py browser --ui dioxus`。ブラウザ（Linux、手元、load 約 0.7）で起動 141 ms、Decay 172 ms、MSL 1,457 ms、RSS 324.2 MiB、バンドル 12.7 MiB。同じ条件の Leptos は 128 / 142 / 1,500 ms、323.3 MiB、12.5 MiB、Svelte は 289 / 176 / 1,868 ms、582.2 MiB、18.7 MiB。[bench/ui.md](bench/ui.md) に列を足した。
 - 試験: `dioxus/tests/test_dioxus.py`。`mise run dioxus:check`。CI には入れていない。
 - 持ち越し: CI、プロット・graph・ツリー・タブ、~~Windows・macOS の列~~（S156 で済）、Tauri への組み込み、テーマの保存。
 
 ### S153（P7、2026-11-05）で済んだこと
 
-- **Leptos 版 UI**（[ADR-0035](adr/0035-experimental-ui-leptos.md)、Proposed。[解説書](sessions/S153-ui-leptos/解説書.md)）: `src/Rust/apps/experimental/leptos/`（別の workspace）。Leptos 0.8.23（MIT、`csr`）で、`<textarea>`・検査と診断の一覧・実行と最後の値の表・MSL を読む・ダークモード（OS に追従 + 手動）。facade `globe-mode` を同じ wasm にリンクする（UI と計算が 1 つの wasm。メインスレッドは止まる）。ビルドは `mise run leptos:build`（`trunk` なし。cargo build → `wasm-bindgen --target web`）、`?smoke=1` で `GM-SMOKE` の行。
+- **Leptos 版 UI**（[ADR-0035](adr/0035-experimental-ui-leptos.md)、Accepted。[解説書](sessions/S153-ui-leptos/解説書.md)）: `src/Rust/apps/experimental/leptos/`（別の workspace）。Leptos 0.8.23（MIT、`csr`）で、`<textarea>`・検査と診断の一覧・実行と最後の値の表・MSL を読む・ダークモード（OS に追従 + 手動）。facade `globe-mode` を同じ wasm にリンクする（UI と計算が 1 つの wasm。メインスレッドは止まる）。ビルドは `mise run leptos:build`（`trunk` なし。cargo build → `wasm-bindgen --target web`）、`?smoke=1` で `GM-SMOKE` の行。
 - 測定: `bench_ui.py browser --ui leptos`。ブラウザ（Linux、手元、load 約 2）で起動 154 ms、Decay 195 ms、MSL 1,924 ms、RSS 323 MiB、バンドル 12.5 MiB（同じ条件の Svelte は 324 / 196 / 2,064 ms、584 MiB、18.7 MiB。機能が違う）。[bench/ui.md](bench/ui.md) に列を足した。
 - 試験: `leptos/tests/test_leptos.py`（`GM-SMOKE`、検査・実行、ダークモード）。`mise run leptos:check`。CI には入れていない。
 - 持ち越し: ~~Dioxus 版~~（S155 で済）、CI、プロット・graph・ツリー・タブ、~~Windows・macOS の列~~（S156 で済）、Tauri への組み込み、テーマの保存。
@@ -824,7 +828,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 
 ### S125（P7、2026-11-03）で済んだこと
 
-- **UI の測定ハーネス**（[ADR-0034](adr/0034-ui-bench-method.md)、Proposed。[解説書](sessions/S125-ui-bench-harness/解説書.md)）: S100 の `GM-SMOKE` の行の末尾に `ready_ms`・`decay_ms`・`msl_ms` を足した。ブラウザは `src/Svelte/tests/bench_ui.py browser`（Chromium を回ごとに起動し直す）、Desktop は `GLOBE_DESKTOP_BENCH=<ファイル>` で UI が同じ手順を回し command `bench` が行を書く（`desktop.yml` の Linux・Windows で 3 回ずつ、artifact `ui-bench-<os>`）。`bench_ui.py report` が [doc/bench/ui.md](bench/ui.md) を作る。中央値: 起動から操作可能まで ブラウザ（手元）1,232 / Tauri Linux 114 / Tauri Windows 178 ms、MSL と ChuaCircuit 2,800 / 1,045 / 1,927 ms、最大の RSS 346 / 152 / 129 MiB（run 41622934035）。
+- **UI の測定ハーネス**（[ADR-0034](adr/0034-ui-bench-method.md)、Accepted。[解説書](sessions/S125-ui-bench-harness/解説書.md)）: S100 の `GM-SMOKE` の行の末尾に `ready_ms`・`decay_ms`・`msl_ms` を足した。ブラウザは `src/Svelte/tests/bench_ui.py browser`（Chromium を回ごとに起動し直す）、Desktop は `GLOBE_DESKTOP_BENCH=<ファイル>` で UI が同じ手順を回し command `bench` が行を書く（`desktop.yml` の Linux・Windows で 3 回ずつ、artifact `ui-bench-<os>`）。`bench_ui.py report` が [doc/bench/ui.md](bench/ui.md) を作る。中央値: 起動から操作可能まで ブラウザ（手元）1,232 / Tauri Linux 114 / Tauri Windows 178 ms、MSL と ChuaCircuit 2,800 / 1,045 / 1,927 ms、最大の RSS 346 / 152 / 129 MiB（run 41622934035）。
 - 見つけたこと: Linux の Desktop は `LANG=C` のとき WebKitGTK の既定の言語が `C` になり、CodeMirror の `Intl.Segmenter` が `RangeError` を投げて画面が空になる（CI の xvfb で確かめた。測定の手順は `LANG=en_US.UTF-8`）。
 - 持ち越し: ~~Leptos 版・Dioxus 版~~（S153・S155 で済）、`LANG=C` の直し、~~ブラウザの Windows 列、macOS（matrix に足すかはユーザー）~~（S156・S160 で済）、Android の列、CPU・フレーム時間・PSS。
 
@@ -1111,10 +1115,9 @@ S177（2026-11-05、S175 までが main にある状態）で、各節の「持�
 | ユーザーの判断 | 公開の時期と範囲 | 0.2.0 のタグ、GitHub の Release、Pages（artifact `globe-web` は S145 で用意済み）、PyPI、Marketplace のどれをいつ出すか。v0.1 に含める面（macOS の Desktop・Android・VS Code の拡張・wheel）もここで決める。crates.io は Rumoca の git 依存のため出せない。公開物は 0 件 | S145・S164・S172 |
 | ユーザーの判断 | 署名と更新の鍵 | Desktop の updater の鍵（secret `TAURI_SIGNING_PRIVATE_KEY`。登録するまで更新は「未設定」）、Windows の署名、macOS の署名と公証、Android の keystore（secret `ANDROID_KEYSTORE_BASE64` ほか 3 つ）。鍵はユーザーが作る。`release.yml` への macOS の Desktop の追加もこの判断に付く | S106・S135・S160・S172 |
 | 決まり（済） | `release.yml` の dry run | 2026-11-05 に 0.2.0 で回した。1 回目（run 42029009320）は Windows の wheel の pytest が 1 本落ち（試験が `.mo` を cp1252 で読んでいた。S173 で修正）、2 回目（run 42039306227）は Desktop の .deb・.msi を含む全ジョブが成功。Release とタグは 0 件のまま。マイナーバージョンを変えるときは必ず dry run を回す（2026-11-05 にユーザーが決めた） | S164・S172・S173 |
-| ユーザーの判断 | FMI Import の置き方 | [ADR-0026](adr/0026-fmi-import-placement.md) は Proposed。C ABI を自前（案 A、推奨）か `fmi` 0.8（案 B）か。決めると architecture.md §3.4 を直し、P5 の Import に入れる | S057 |
+| 決まり（実装は別の WP） | FMI Import の置き方 | 2026-11-06 にユーザーが**案 A（C ABI を自前）と案 B（`fmi` 0.8）の両方を採る**と決めた。実装は別の WP で、[ADR-0026](adr/0026-fmi-import-placement.md) の本文はその WP が書く（いまは Proposed）。決めたら architecture.md §3.4 を直す | S057 |
 | ユーザーの判断 | Rumoca の rev | 0.2.0 は v0.10.2 で固定。v0.10.4 に上げるのは次の版の作業の最初で、`msl:funnel`・`msl:sim` を回して差を記録してから（[ADR-0002](adr/0002-rumoca-adapter.md) の付記）。上げると 04 の `GM-W10004` と 02・15 の `auto` の切り替えが外せるか見る | S162・S172 |
 | ユーザーの判断 | 上流 issue の提出 | 下書き 39 件（01〜34、[upstream.md](upstream.md)）。出すのはユーザー。当面は貯める。出す前に最新の Rumoca で確かめ直す | S070・S113・S115・S162 |
-| ユーザーの判断 | ADR の状態 | [ADR-0032](adr/0032-p5b-own-runtime.md)・[0034](adr/0034-ui-bench-method.md)・[0035](adr/0035-experimental-ui-leptos.md)・[0036](adr/0036-experimental-ui-dioxus.md) は Proposed のまま。実装と測定は済んだので、Accepted にするかを決める（本文の状態の行も古い） | S125・S153・S155 |
 | 上流待ち | Rumoca の穴 | 下書き 39 件のうち、03・04・25・25b・25c・25g・26 は v0.10.4 で直り、02・15 は大半が直った（提出の順から外してある）。残りは GlobeMode 側の回避を持ち続ける（外す条件は upstream.md の末尾）。34（事象の反復の厳密なゼロ判定）は回避が無く、既知の限界の試験だけ | upstream.md |
 | 上流待ち | diffsol | 10・11 は diffsol の main で直っている（未リリース。同梱は 0.13.2 のまま）。リリースされ、Rumoca が取り込んだら patch を外せるか見る | S162 |
 | 上流待ち | S10 の初期化のヤコビ行列の階数 | Rumoca に公開の API が無い。`Invalid.UngroundedLoop` は実行しても誤りにならない | S010・S063 |
@@ -1124,7 +1127,7 @@ S177（2026-11-05、S175 までが main にある状態）で、各節の「持�
 | 機能の穴（P4） | UI の使い心地 | ~~起動直後の案内、エディタへ飛ぶスキップリンク、タブの矢印キー、再読み込みをまたぐ未保存の印~~（S179 で済）、Esc で止める、タブの並べ替え、ライブラリツリーのアイコン、設定のモデルごとの保存、開始時刻・固定刻み・予算の欄。スクリーンリーダー（NVDA・VoiceOver）と Mac・Android の実機は【未確認】 | S164・S175・S179・S150・S151 |
 | 機能の穴（P4） | 結果の入出力 | MAT v4 の読み込み、凡例つきの画像と SVG、Arrow IPC（列ごとの f64 で足りているので急がない） | S012・S128・S146 |
 | 機能の穴（P4） | VS Code の拡張 | Windows・macOS での試験、Marketplace（ユーザーの判断に付く） | S165 |
-| 機能の穴（P5） | FMI Import・マスター・SE | 未着手（ADR-0026 の決定待ち）。Reference-FMUs が linux64 と win64 で一致する、Clocks（SE）が往復できる、の 2 つが P5 の完了条件に残る | S057・S094 |
+| 機能の穴（P5） | FMI Import・マスター・SE | 未着手（置き方は 2026-11-06 に決まった。実装は別の WP）。Reference-FMUs が linux64 と win64 で一致する、Clocks（SE）が往復できる、の 2 つが P5 の完了条件に残る | S057・S094 |
 | 機能の穴（P5） | FMU の Export の残り | FMI 3.0 の SE、P5b の CS と Windows・macOS 向けの FMU・MSL を使うモデル・Enumeration・String・`dependencies`、fmuCheck、Windows・macOS の fmusim、UI から `--build`、生成物のライセンス表示【未確認】 | S094・S098・S105・S137・S154 |
 | 機能の穴（P6） | Android・ブラウザ | 署名つき APK の実機確認（secret の登録後）、WebView で isolated にする別の道【未確認】、ブラウザ版の公開、marimo の emscripten wheel、PWA、`MSL.json` の分割配信 | S104・S106・S145・S159 |
 | 機能の穴（P7） | 言語 API の配布 | Julia のパッケージ化と JLL、Hex での配布（rustler_precompiled）、Gleam の JS target | S075・S082・S087 |
@@ -1132,6 +1135,7 @@ S177（2026-11-05、S175 までが main にある状態）で、各節の「持�
 | 機能の穴（P8） | 拡充 | Diagram / Icon ビュー、Documentation ビュー、パラメータダイアログ、SSP 2.0.1、BLT の可視化と変換デバッガ、線形化、パッケージマネージャ（`uses` の版） | features.md |
 | 機能の穴（CLI・Python） | 使える流れの点検（S178） | 通る流れは通る。穴は誤った使い方の手がかり（ライブラリのモデル名の候補、`-L`、負の数、`fmt --check` が CI で黙って通る、`-o` なしで結果を捨てる）、未対応（GM-U）の終了コード、Python の型・例外・既定ソルバでの進捗と中断、CLI の面（`graph` などに `-L`、MSL を取る道）、FMU `--build` の入口。順位付き 13 件と WP の案は [調査](research/cli-python-flow-2026-11-06.md) | S178 |
 | 機能の穴（UI・CLI・Python） | 並行で入れた 16 本の再点検（S185） | S164・S178 の穴は大半が直った（ブラウザ版の例題 10 本中 9 本が通り、CLI の誤った使い方は 21 通り中 9 が直った）。残りと新しい食い違い 10 件: README の「既知の限界」が補完と検索を「無い」と書いたまま、クラス名のリネームでモデル名の欄が古いまま、入れ子のクラスを開いても位置へ動かない、~~FMU のファイル名（2.0 と 3.0 が同じ）と MSL の例題での英語の失敗~~（S189 で済）、`-L` を忘れた・サブフォルダの案内、候補の質、キーボードの細部。上位 10 と WP の組（A 文書、B App、C CLI・frontend、~~D FMU~~）は [調査](research/app-flow-2026-11-06.md) | S185 |
+| 決まり（2026-11-06） | S185 の再点検に対するユーザーの決定 | 済: エディタの Tab は字下げ（S188）、プロットの既定は状態を先に（S190）、`src/Modelica` を `globe fmt` で整形し FMU の既定のファイル名を `<名前>-fmi2.fmu` / `-fmi3.fmu` に（S189）、ADR-0032・0034・0035・0036 を Accepted に（S194）、上流の再現用 `.mo` を `globe fmt` で整形（S194）。別の WP で実装: **FMI Import は案 A と案 B の両方**、**Python に例外の階層を入れる**、**補完中の Tab は候補の確定、再実行時は選択を保つ**、CLI の終了コードなど（未対応だけのときは終了コード 3、`fmt` の標準入力は `-` を明示したときだけ、MSL の取得コマンドは足さず README で案内。親が決めて別の WP） | S185・S188・S189・S190・S194 |
 | 機能の穴（Track B） | 自前コア | 未着手（`Frontend` の feature `native` はまだ無い）。IDE の機能を先に自前にする | P4 以降 |
 
 ## 運用上の決まり

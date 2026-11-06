@@ -30,10 +30,10 @@ Compiles. The call is a plain function call to a function declared in MSL 4.1.0 
 
 ```text
 $ globe check 20-ef025-function-selection-identity.mo --library data/msl --model Rep20Load
-...mo:5:31: unsupported[GM-U0002] S4 接続: missing exact function-selection identity for `Modelica.Utilities.Files.loadResource`: exposed function has no unique exact extends implementation
+...mo:6:31: unsupported[GM-U0002] S4 接続: missing exact function-selection identity for `Modelica.Utilities.Files.loadResource`: exposed function has no unique exact extends implementation
     note: rumoca: EF025
 $ globe check 20-ef025-function-selection-identity.mo --model Rep20TwoExtends.M
-...mo:37:26: unsupported[GM-U0002] S4 接続: missing exact function-selection identity for `f`: exposed function has no unique exact extends implementation
+...mo:52:26: unsupported[GM-U0002] S4 接続: missing exact function-selection identity for `f`: exposed function has no unique exact extends implementation
     note: rumoca: EF025
 $ rumoca compile 20-ef025-function-selection-identity.mo -m Rep20Load --source-root data/msl
   [EF025] missing exact function-selection identity for `Modelica.Utilities.Files.loadResource`: exposed function has no unique exact extends implementation
@@ -106,7 +106,7 @@ All four compile. Inside `M1.BaseProperties` the name `f` is looked up in the en
 
 ```text
 $ globe check 20b-ef025-two-medium-aliases-modified-extends.mo --model Rep28.M
-20b-...mo:17:16: unsupported[GM-U0002] S4 接続: missing exact function-selection identity for `f`: function source package has multiple exact override package selections
+20b-...mo:24:16: unsupported[GM-U0002] S4 接続: missing exact function-selection identity for `f`: function source package has multiple exact override package selections
     note: rumoca: EF025
 Rep28.M: NG（S4 接続 で停止）
 
