@@ -117,6 +117,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - S097: anywidget を extra `widget` に移した（`pip install "globe-mode[widget]"`。extra なしの wheel の依存が減る）。
 - S135・S148: `release.yml` が Desktop の .deb・.msi も Release に付ける（鍵の secret があるときだけ署名して `latest.json`）。CI の zig の取得をミラー経由でなく ziglang.org から直接にした。
 - S176: `release.yml` に macOS（arm64）を足した（`globe` の tar.gz、wheel、Desktop の署名なしの .dmg。鍵があれば `latest.json` に `darwin-aarch64`）。
+- S195: `release.yml` のタグの経路を、タグを打たずに確かめられるようにした（手動実行の入力 `tag`。手動は Release を作らない）。版はファイルが決め、タグの版と違えば最初のジョブで止める（書き換えをやめた。pre-release のタグ `v0.2.0-rc1` の接尾辞は版に入らない）。鍵は bundle の step だけに渡し、softprops/action-gh-release をコミットで固定。手順は `doc/release.md`。
 
 ### P7 言語 API
 

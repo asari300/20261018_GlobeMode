@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S195 release のタグの経路 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S195 release のタグの経路">
+
+<section class="slide" id="S01">
+  <span class="tag">S195 · 2026-11-06 · P8</span>
+  <h1>タグを打たずに、タグの経路を確かめる</h1>
+  <p class="lead">release.yml の「タグの push のときだけ通る道」を、手動実行の入力 tag で通せるようにした</p>
+  <div class="big">最初の本番のタグで、<b>初めて動く</b>コードを無くす</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>やったこと</h1>
+  <ul>
+    <li>workflow_dispatch に入力 <code>tag</code>。env <code>TAG</code> が空でなければタグの経路</li>
+    <li>Release を作る step は <code>push</code> のときだけ。手動はどの ref・入力でも作らない</li>
+    <li>レビューの指摘 9 件を 1 件ずつ確かめて直した（run で再現）</li>
+    <li>手順の文書 <code>doc/release.md</code></li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>版はファイルが決める</h1>
+  <table>
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>版の書き換え</td><td>消した（perl と <code>--config</code> の version）</td><td>試験の無いコードが減る。表（2.4）を揃えてから打つ運用</td></tr>
+    <tr><td>食い違い</td><td>最初のジョブで止める</td><td>タグ <code>v0.2.1</code> で版を上げ忘れても出ない</td></tr>
+    <tr><td>rc のタグ</td><td>接尾辞は名前だけ。版は 0.2.0</td><td>MSI は pre-release に数字しか許さない</td></tr>
+    <tr><td>鍵の env</td><td>bundle の step だけ</td><td>サードパーティの action に見せない</td></tr>
+    <tr><td>softprops</td><td>v2.6.2 のコミットで固定</td><td>contents: write の action をタグで指さない</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>TAG の流れ</h1>
+  <svg class="fig" viewBox="0 0 800 220" role="img" aria-label="TAG の流れ">
+    <rect class="svg-box" x="20" y="30" width="200" height="60" rx="10"/>
+    <text class="svg-text-b" x="120" y="66" text-anchor="middle">push v0.2.0</text>
+    <rect class="svg-box" x="20" y="130" width="200" height="60" rx="10"/>
+    <text class="svg-text-b" x="120" y="166" text-anchor="middle">dispatch tag=...</text>
+    <line class="svg-line" x1="220" y1="60" x2="320" y2="110"/>
+    <line class="svg-line" x1="220" y1="160" x2="320" y2="110"/>
+    <rect class="svg-box-accent" x="320" y="80" width="200" height="60" rx="10"/>
+    <text class="svg-text-b" x="420" y="116" text-anchor="middle">env TAG</text>
+    <line class="svg-line" x1="520" y1="110" x2="580" y2="60"/>
+    <line class="svg-line" x1="520" y1="110" x2="580" y2="160"/>
+    <rect class="svg-box" x="580" y="30" width="200" height="60" rx="10"/>
+    <text class="svg-text-b" x="680" y="66" text-anchor="middle">版の突き合わせ・名前</text>
+    <rect class="svg-box" x="580" y="130" width="200" height="60" rx="10"/>
+    <text class="svg-text-b" x="680" y="166" text-anchor="middle">Release（push のみ）</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>gh workflow run release.yml --ref &lt;ブランチ&gt; -f tag=v0.2.0
+gh workflow run release.yml --ref &lt;ブランチ&gt; -f tag=v0.2.0-rc1
+python3 .github/scripts/check_release_tag.py --test</code></pre>
+  <p>run の結果は解説書の 4 章。タグ・Release は 0 件のまま。</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>タグを打つか、公開するかはユーザーの判断</li>
+    <li>鍵（TAURI_SIGNING_PRIVATE_KEY）を作ったら、署名の道と latest.json を dry run で確かめる</li>
+    <li>打ち直しの softprops の動き【未確認】</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

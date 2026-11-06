@@ -7,7 +7,7 @@
 # Linux の globe は cargo-zigbuild（zig cc）で glibc 2.28 に link する（S090）。
 # 各アーカイブには、cargo-about（about.toml・about.hbs）で作ったサードパーティのライセンス表 THIRD-PARTY.md も入れる（S052）。
 # 同じ 4 ターゲットで Python の wheel（globe-mode-py、abi3-py312）も `uv build --wheel` で作り、その wheel を入れて pytest を回す（S074）。
-# wheel の版はタグの push ではタグ（v を除く）、dry-run では pyproject.toml の version。Linux の wheel は
+# wheel の版は pyproject.toml の version（タグの版とは最初のジョブが突き合わせる。S195）。Linux の wheel は
 # maturin の --zig（zig cc で glibc 2.28 を狙う）と --compatibility manylinux_2_28 で manylinux_2_28 の tag を付ける
 # （maturin が glibc の記号を検査する。S077・S086）。
 # wheel の中の globe_mode/THIRD-PARTY.md は同じ about.toml・about.hbs で globe-mode-py から作る（cli との差は pyo3 の 5 crate）。
@@ -16,7 +16,12 @@
 # S176: macOS（macos-latest＝arm64。署名・公証なし）も足した。globe は zig を使わずランナーの rustup で release ビルド、wheel は maturin の
 # 既定の tag（macosx_11_0_arm64）。Desktop は .dmg を作り（--bundles app,dmg。dmg だけだと .app が片付けられる: desktop.yml の S160）、
 # 鍵があるときは updater 用の GlobeMode_<版>_aarch64.app.tar.gz と .sig も付けて latest.json に darwin-aarch64 を足す。x86_64 の macOS は作らない。
-# 作り方は desktop.yml の build と同じ（smoke はそちら）。タグの push では tauri.conf.json の version をタグに合わせる（updater が版を比べるため）。
+# 作り方は desktop.yml の build と同じ（smoke はそちら）。
+# S195: タグの経路は dry run でも確かめられる。workflow_dispatch の入力 tag（例 v0.2.0、v0.2.0-rc1）を env の TAG に置く（push ならタグ名）。
+# TAG が空でなければ「タグの経路」（最初のジョブで版の突き合わせ、アーカイブ名にタグの版）。Release を作る step は push のときだけ。
+# 版はファイル（Cargo・pyproject・tauri.conf.json）が決める。書き換えはしない。タグの版（接尾辞を除く）と違えば最初のジョブで止める。
+# pre-release のタグ（v0.2.0-rc1）の接尾辞はアーカイブ名と Release の名前だけに出て、wheel・Desktop の版は 0.2.0 のまま（MSI は pre-release に数字しか許さない）。
+# 手順は doc/release.md。
 name: release
 
 on:
@@ -50,6 +55,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
+      - name: タグの版がファイルの版と合っているか（タグの経路のときだけ）
+        if: env.TAG != ''
+        run: python3 .github/scripts/check_release_tag.py "$TAG"
       - uses: jdx/mise-action@v5
         with:
           install_args: rust
@@ -120,7 +128,7 @@ jobs:
       # Linux は zig を cc/linker にして glibc 2.28 に link する（S090。ランナーの glibc 2.39 のままだと古い Linux で動かない）。
       # aarch64 もネイティブのランナーで同じ（クロスはしない）
       - if: runner.os == 'Linux'
-        run: cargo install --locked cargo-zigbuild
+        run: cargo install --locked --version 0.24.1 cargo-zigbuild
       - name: globe を作る
         shell: bash
         env:
@@ -165,8 +173,6 @@ jobs:
       - name: wheel を作る
         shell: bash
         run: |
-          # 先頭の 1 つだけ置く（BSD sed の macOS では 0,/re/ が使えないので perl）
-          if [ -n "$TAG" ]; then V="${TAG#v}" perl -0pi -e 's/^version = .*$/version = "$ENV{V}"/m' pyproject.toml; fi
           grep -m1 '^version' pyproject.toml
           # PEP 517 の既定は linux_* の tag で PyPI に出せない。ランナーの glibc 2.39 のままだと 2_34 も落ちた（run 41376053596）ので、
           # --zig で古い glibc に link する（S086。Debian 12・RHEL 9 にも入る）
@@ -228,9 +234,6 @@ jobs:
         shell: bash
     env:
       DESKTOP: src/Rust/apps/desktop
-      # secrets は if: に書けないので env に写して分岐する（S106 と同じ）。tauri-cli はこの 2 つを読んで .sig を作る
-      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v5
@@ -260,16 +263,19 @@ jobs:
           cargo build --release --locked -p globe-mode-cli
           TRIPLE="$(rustc -vV | sed -n 's/^host: //p')"
           cp "target/release/globe${{ matrix.exe }}" "$DESKTOP/binaries/globe-$TRIPLE${{ matrix.exe }}"
-      - run: cargo install tauri-cli --version "^2" --locked
+      - run: cargo install tauri-cli --version 2.12.4 --locked
       - name: ${{ matrix.bundle }} を作る（鍵があれば updater の .sig も）
         working-directory: ${{ env.DESKTOP }}
+        env:
+          # secrets は if: に書けないので env に写して分岐する（S106 と同じ）。tauri-cli はこの 2 つを読んで .sig を作る。
+          # この step だけに置く（ほかの step のサードパーティの action・build.rs に見せない。S195）
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          VERSION=""
-          if [ -n "$TAG" ]; then VERSION="\"version\":\"${TAG#v}\","; fi
           SIGN=false
           if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then SIGN=true; else echo "TAURI_SIGNING_PRIVATE_KEY が無いので署名しない（updater では入れられない bundle）"; fi
           if [ "$SIGN" = true ] && grep -q '"pubkey": ""' tauri.conf.json; then echo "::warning::鍵はあるが tauri.conf.json の pubkey が空。アプリは更新を確かめない"; fi
-          cargo tauri build --bundles ${{ matrix.bundles || matrix.bundle }} --config "{${VERSION}\"bundle\":{\"createUpdaterArtifacts\":$SIGN}}"
+          cargo tauri build --bundles ${{ matrix.bundles || matrix.bundle }} --config "{\"bundle\":{\"createUpdaterArtifacts\":$SIGN}}"
           ls -l target/release/bundle/${{ matrix.bundle }}/ | tee -a "$GITHUB_STEP_SUMMARY"
           # macOS の updater は .dmg でなく .app.tar.gz（と .sig）を読む。名前に版と arch が無いので .dmg に合わせて dmg/ に移す（鍵がなければ無い）。
           # upload の path に別のディレクトリ（bundle/macos）を足すと artifact に dmg/ などの階層が付き、release の SHA256SUMS の GlobeMode_* に合わなくなる
@@ -303,6 +309,7 @@ jobs:
           merge-multiple: true
       - name: SHA256SUMS
         working-directory: dist
+        shell: bash   # 既定は bash -e だけ（pipefail なし）。bash だと -e -o pipefail
         run: sha256sum globe-* globe_mode-*.whl GlobeMode_* | tee SHA256SUMS
       # updater の endpoints（tauri.conf.json）が読む。キーは <os>-<arch>-<installer>（tauri-plugin-updater の get_urls）、
       # signature は .sig の中身、url は Release の資産。.sig が無ければ（鍵なし）作らない
@@ -334,7 +341,8 @@ jobs:
             dist/latest.json
       - name: Release に付ける（タグの push のときだけ）
         if: github.event_name == 'push'   # 手動はどの ref・入力でも Release を作らない
-        uses: softprops/action-gh-release@v2
+        # v2（＝v2.6.2、2026-04-12）のコミットで固定。https://github.com/softprops/action-gh-release/releases/tag/v2.6.2（確認日 2026-11-06）
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
         with:
           files: dist/*
           generate_release_notes: true
