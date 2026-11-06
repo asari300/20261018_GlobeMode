@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S205 FMI Import の Model Exchange — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S205 FMI Import の Model Exchange">
+
+<section class="slide" id="S01">
+  <span class="tag">S205 · 2026-11-06 · P5</span>
+  <h1>FMI Import の Model Exchange</h1>
+  <p class="lead">FMU が出す微分を GlobeMode の側で積分し、事象を扱う。FMI 2.0・3.0 の Reference-FMUs で確かめた</p>
+  <div class="big">BouncingBall の衝突 11 回の時刻が解析解と<b>3.2e-11</b>で一致。依存は<b>増えていない</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>ADR-0026 (k) の 1 番目: <code>FmuMe</code>（2.0・3.0）</li>
+    <li>連続状態の取得と設定、微分、時刻、event indicator、事象モードの出入り</li>
+    <li>積分器は crate の中に閉じる。Rumoca を引く <code>globe-mode-sim</code> には依存しない</li>
+    <li>CLI: <code>globe fmu run --kind me|cs</code>、<code>info</code> に連続状態と event indicator の数</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>積分器</td><td>RK4（固定）と Dormand–Prince 5(4)（誤差制御、既定）を <code>ode.rs</code> に</td><td>依存を増やさず、Rumoca を背負わせない</td></tr>
+    <tr><td>state event</td><td>領域（<code>z &gt; 0</code> か <code>≤ 0</code>）の変化を二分法で詰める</td><td>3.0.2 §3.1.1 の定義。補間の誤差を入れない</td></tr>
+    <tr><td>確かめる相手</td><td>解析解と、独立な積分どうしの一致</td><td>参照の CSV は CS の前進 Euler</td></tr>
+    <tr><td>硬い系</td><td>持ち越し（陰的な積分は無い）</td><td>事実として ADR (l) に</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">2.0 と 3.0</span>
+  <h1>呼び出しの違い</h1>
+  <table class="compact">
+    <tr><th></th><th>FMI 2.0.5</th><th>FMI 3.0.2</th></tr>
+    <tr><td>作る</td><td><code>fmi2Instantiate</code>（型 ME、URI）</td><td><code>fmi3InstantiateModelExchange</code>（絶対パス）</td></tr>
+    <tr><td>事象の反復</td><td><code>fmi2NewDiscreteStates</code></td><td><code>fmi3UpdateDiscreteStates</code></td></tr>
+    <tr><td>微分</td><td><code>fmi2GetDerivatives</code></td><td><code>fmi3GetContinuousStateDerivatives</code></td></tr>
+    <tr><td>状態の数</td><td>XML から</td><td><code>fmi3GetNumberOf…</code></td></tr>
+    <tr><td>値</td><td><code>fmi2GetReal</code></td><td><code>fmi3GetFloat64</code></td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">図</span>
+  <h1>1 歩と事象</h1>
+  <svg class="fig" viewBox="0 0 800 220" role="img" aria-label="積分、領域の判定、事象の処理の流れ">
+    <rect class="svg-box-accent" x="10" y="70" width="170" height="80" rx="10"/>
+    <text class="svg-text-b" x="95" y="106" text-anchor="middle">1 歩 積分</text>
+    <text class="svg-text" x="95" y="128" text-anchor="middle">微分は FMU から</text>
+    <line class="svg-line" x1="180" y1="110" x2="230" y2="110"/>
+    <rect class="svg-box" x="230" y="70" width="170" height="80" rx="10"/>
+    <text class="svg-text-b" x="315" y="106" text-anchor="middle">領域が変わった?</text>
+    <text class="svg-text" x="315" y="128" text-anchor="middle">二分法で時刻を詰める</text>
+    <line class="svg-line" x1="400" y1="110" x2="450" y2="110"/>
+    <rect class="svg-box" x="450" y="70" width="150" height="80" rx="10"/>
+    <text class="svg-text-b" x="525" y="106" text-anchor="middle">歩の完了</text>
+    <text class="svg-text" x="525" y="128" text-anchor="middle">completed step</text>
+    <line class="svg-line" x1="600" y1="110" x2="640" y2="110"/>
+    <rect class="svg-box-accent" x="640" y="70" width="150" height="80" rx="10"/>
+    <text class="svg-text-b" x="715" y="106" text-anchor="middle">Event Mode</text>
+    <text class="svg-text" x="715" y="128" text-anchor="middle">反復して戻る</text>
+  </svg>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">検証</span>
+  <h1>突き合わせの結果（Linux、2.0・3.0 とも）</h1>
+  <table class="compact">
+    <tr><th>FMU</th><th>相手</th><th>最大の絶対差</th><th>許容差</th></tr>
+    <tr><td>Dahlquist</td><td>解析解（許容誤差 1e-9）</td><td>1.9e-10</td><td>5e-9</td></tr>
+    <tr><td>BouncingBall</td><td>解析解（衝突の時刻 11 回）</td><td>3.2e-11</td><td>1e-9</td></tr>
+    <tr><td>BouncingBall</td><td>解析解（高さ）</td><td>7.2e-12</td><td>1e-8</td></tr>
+    <tr><td>VanDerPol</td><td>RK4 と Dormand–Prince 1e-10</td><td>2.2e-11</td><td>1e-7</td></tr>
+    <tr><td>Stair</td><td>time event 1〜9 秒</td><td>完全一致</td><td>-</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">再現手順</span>
+  <h1>再現と数字</h1>
+  <pre><code>cargo xtask fetch-reference-fmus
+cargo test -p globe-mode-fmi-import -p globe-mode-cli
+globe fmu run data/reference-fmus/3.0/BouncingBall.fmu --kind me</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">11</span><span class="l">衝突の回数（解析解と同じ）</span></div>
+    <div class="kpi"><span class="n">1.2e-9</span><span class="l">往復 ME の x(1) − e⁻¹</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">増えた依存</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S08">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ol>
+    <li>ワーカーのプロセスの中で読み込む</li>
+    <li>facade と UI の「FMU を開く」（確認つき）、マスター、SE、案 B</li>
+    <li>ME 固有: 陰的な積分（硬い系）、<code>Discard</code> での再試行、連続時間の入力、<code>HybridSystem</code> へのアダプタ</li>
+  </ol>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

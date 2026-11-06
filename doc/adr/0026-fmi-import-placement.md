@@ -104,9 +104,17 @@
 - **往復**: `globe fmu export --build`（P5a、Rumoca のテンプレート）で作った Decay の FMU を `globe fmu run` で読み込み、x(1) − e⁻¹ = 7.8e-16（2.0・3.0 とも、刻み 0.001）。FMPy の c-code のヘッダと `cc` を使うので Linux の x86_64 だけ、無ければ飛ばす。
 - OS ごと（`fmu-import.yml`。matrix: ubuntu-24.04・windows-2025・macos-latest〔arm64〕。run 42178862896、feature ブランチの push で回した）: 3 OS とも 9 本すべて通った。参照の CSV との最大の相対差は Linux・Windows が 0（ビット単位）、macOS（arm64）が BouncingBall 1.4e-16、Dahlquist 5.6e-17、VanDerPol 2.2e-14（CSV は x86_64 で作られたもので、arm64 の浮動小数点の演算の違い）。往復の試験は Linux だけ（Windows・macOS では飛ばす）。なお、新しい workflow は main に入るまで `gh workflow run --ref` で出せないので、この run は一時的に feature の push のトリガーを付けて回し、あとで外した。
 
+### (l) S205 の決定（2026-11-06）: ME の積分器は crate の中に閉じ、依存を増やさない
+
+- **Model Exchange を実装した**（`FmuMe`、`Fmu::instantiate_me`、`run_me`）。FMI 2.0・3.0 とも、Float64 のスカラ。呼び出しの順は 2.0.5 の疑似コードと 3.0.2 の状態機械に従う（呼び出しの表は [S205 の解説書](../sessions/S205-fmi-import-me/解説書.md)）。事象は state event（event indicator の領域 `> 0` と `≤ 0` の変化。3.0.2 §3.1.1 の定義）、time event（`nextEventTime`）、step event（`completedIntegratorStep` の `enterEventMode`）の 3 つ。事象モードの出入りと `newDiscreteStates` / `updateDiscreteStates` の反復、`valuesOfContinuousStatesChanged` / `nominalsOfContinuousStatesChanged` の旗、`terminateSimulation` を扱う。
+- **積分器は `globe-mode-fmi-import` の中に自前で持つ**（`ode.rs`、試験を含めて約 240 行）: 固定刻みの古典 RK4 と、誤差制御つきの Dormand–Prince 5(4)（既定。許容誤差は `DefaultExperiment` の `tolerance`、無ければ 1e-6。絶対許容誤差は `rtol` × FMU の `nominal`）。state event の位置は、event indicator の領域が変わった歩の `[t, t1]` を二分法で詰める（試す時刻ごとに歩の頭から積分し直すので補間の誤差が入らない。幅が `1e-12 × max(1, t)` になるまで）。出力の刻み（`step`）は `DefaultExperiment` の `stepSize`、無ければ (終了 − 開始)/500。
+- **依存の向き**: `globe-mode-fmi-import` は `globe-mode-sim`・`globe-mode-exec`（Rumoca を引く）に**依存しない**。Import の利用者に Rumoca を背負わせないため。(d) の「`HybridSystem` を実装して全ソルバを使う」は、ここでは**やっていない**（既存の crate に同じ Dormand–Prince の係数はあるが Rumoca / diffsol の中で、使えば依存が逆向きに太る）。`HybridSystem` へのアダプタは、両方に依存する別の薄い crate か facade の側で後から足せる（`FmuMe` は `HybridSystem` の RHS・事象に対応する関数を持つ）。依存は 1 つも増えていない。
+- **限界（事実）**: (1) 陰的な積分は無い。硬い系は刻みが小さくなりすぎて `Error::Fmu` で止まる（`Roberts`〔3.0〕は未確認、試していない）。(2) `fmi2Discard` / `fmi3Discard`（FMU が値を受け付けない）は失敗として止める。刻みを縮めて再試行しない。(3) 入力（`causality = input`）の設定は初期化の前のパラメータだけ。連続時間の入力の関数は渡せない。(4) `Integer`・`Boolean`・`String`・配列の変数は読み書きできない（Stair の `counter` は出力に出ない）。(5) 同時刻の事象は 100 回、全体では 10 万回で止める（Zeno の防止）。(6) FMU の状態の保存・復元（`GetFMUstate`）は使わない。(7) SE・Clocks は未。
+- **確かめ方と許容差**: [解説書](../sessions/S205-fmi-import-me/解説書.md)の表。FMU が同梱する参照の CSV は FMU の **CS が前進 Euler で作った**ものなので、積分器が違う ME とはビット一致しない（特に BouncingBall は衝突の前後で `v` の符号が逆になるので点ごとの比較は意味がない）。そこで Dahlquist と BouncingBall は**解析解**と、VanDerPol は**独立な 2 つの積分（RK4 の刻み 1e-3 と、許容誤差 1e-10 の Dormand–Prince）の一致**と比べ、CSV は目安（BouncingBall は衝突の回数と時刻の格子への収まり、VanDerPol は最初の 2 秒）にした。
+
 ### (k) 持ち越し（次の WP の順番）
 
-1. ME（`FmuMe`）。Reference-FMUs の BouncingBall・Dahlquist・VanDerPol を GlobeMode のソルバで積分して CSV と突き合わせる（誤差は積分器の差で、CSV の Euler とは一致しない。解析解か高精度の参照と比べる）。
+1. ~~ME（`FmuMe`）~~ **S205 で済み**（(l)）。残り: 陰的な積分（硬い系）、`HybridSystem` へのアダプタ、`Discard` での刻みの再試行、連続時間の入力。
 2. ワーカーのプロセスの中で読み込む（FMU が落ちても CLI・UI が落ちない）。
 3. facade（`import_fmu`）と UI の「FMU を開く」（確認のダイアログつき）、Python・C ABI からの呼び出し。
 4. コシミュレーションのマスター（Jacobi / Gauss–Seidel、系の構成は SSP か `.gmsys`）、SE（Clocks）、Integer・Boolean・String・配列の変数。
@@ -114,6 +122,7 @@
 
 ## 結果
 
+- **S205 の結果**: 上の (l)。`FmuMe` が FMI 2.0・3.0 で動き、BouncingBall の衝突 11 回の時刻が解析解と 3.2e-11 で一致する。`globe fmu run --kind me`。
 - **S204 の結果**: 上の (f)〜(k)。`globe-mode-fmi-import` が workspace に入り、`globe fmu info` / `run` がある。FMI 2.0・3.0 の Co-Simulation が Reference-FMUs の参照の CSV と全桁で一致する。案 B は入れていない（ユーザーの判断待ち）。
 - （以下は S057 の結果）`globe-mode-fmi` が workspace に入り、`modelDescription.xml` の変数表が 2.0 と 3.0 で同じ形で読める（試験 4 本、Reference-FMUs の Dahlquist と Feedthrough で 2.0 と 3.0 の変数表が一致）。
 - 依存は `roxmltree` が 1 つ増えただけ（Cargo.lock は `roxmltree` と `globe-mode-fmi` の 2 行）。

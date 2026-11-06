@@ -5,6 +5,8 @@
 //! - [`Fmu::instantiate_cs`] は、その OS の `binaries/` の共有ライブラリを**読み込み**（ここで FMU の中のネイティブコードが走りうる）、
 //!   [`FmuCs`] を返す。実装は FMI の C ABI を自前で読む案 A（`abi2`・`abi3`。ADR-0026 の決定）。
 //! - [`run_cs`] は、固定刻みで終了時刻まで進めて出力を集める。
+//! - [`Fmu::instantiate_me`] は Model Exchange のインスタンス（[`FmuMe`]）を作る。[`run_me`] は FMU の微分をこの crate の
+//!   陽的な積分器（RK4・Dormand–Prince 5(4)）で積分し、事象（state・time・step）を扱う（S205）。
 //!
 //! FMU は任意のネイティブコードを実行する。信頼できない FMU は開かないこと（[`TRUST_WARNING`]）。
 //! 共有ライブラリを読めないので wasm32・Android では使えない（利用側が feature・cfg で外す）。
@@ -13,6 +15,12 @@
 
 mod abi2;
 mod abi3;
+mod me;
+mod ode;
+
+pub use me::{
+    EventInfo, EventKind, FmuMe, MeEvent, MeIntegrator, MeOptions, MeRun, StepInfo, run_me,
+};
 
 use std::fmt;
 use std::io::Read;
@@ -79,6 +87,19 @@ pub fn read_model_description(path: &Path) -> Result<ModelDescription> {
 pub struct Fmu {
     dir: tempfile::TempDir,
     pub description: ModelDescription,
+    /// `DefaultExperiment` の `stepSize`（`globe-mode-fmi` はこの属性を読まないので、ここで XML から拾う）。
+    pub default_step_size: Option<f64>,
+}
+
+/// `<DefaultExperiment ... stepSize="...">` の値。
+// shortcut: 文字列の走査。XML として読まない（属性の値に `>` を含む壊れた XML は見ない）。globe-mode-fmi に `step_size` を足せば要らなくなる
+fn default_step_size(xml: &str) -> Option<f64> {
+    let tag = &xml[xml.find("<DefaultExperiment")?..];
+    let tag = &tag[..tag.find('>')?];
+    let rest = &tag[tag.find("stepSize=")? + "stepSize=".len()..];
+    let quote = rest.chars().next().filter(|c| *c == '"' || *c == '\'')?;
+    let rest = &rest[1..];
+    rest[..rest.find(quote)?].trim().parse().ok()
 }
 
 /// zip のエントリを `root` の下に展開する。名前が `root` の外へ出るもの（zip slip）、シンボリックリンク、
@@ -124,7 +145,11 @@ impl Fmu {
         unpack(std::fs::File::open(path).map_err(io)?, dir.path())?;
         let xml = std::fs::read_to_string(dir.path().join("modelDescription.xml")).map_err(io)?;
         let description = parse_model_description(&xml).map_err(Error::Description)?;
-        Ok(Fmu { dir, description })
+        Ok(Fmu {
+            dir,
+            default_step_size: default_step_size(&xml),
+            description,
+        })
     }
 
     pub fn root(&self) -> &Path {
@@ -172,6 +197,21 @@ impl Fmu {
             .map(|d| self.root().join("binaries").join(d).join(&file))
             .find(|p| p.is_file())
             .ok_or_else(|| Error::Library(format!("binaries/{{{}}}/{file} が無い（この OS・CPU 向けの共有ライブラリが入っていない）", dirs.join(","))))
+    }
+
+    /// 共有ライブラリを**読み込み**、Model Exchange のインスタンスを作る。FMU のネイティブコードが走る。
+    pub fn instantiate_me(&self, instance_name: &str) -> Result<Box<dyn FmuMe + '_>> {
+        let me = self
+            .description
+            .model_exchange
+            .as_ref()
+            .ok_or_else(|| Error::Fmu("この FMU は Model Exchange を持たない".into()))?;
+        let lib = self.library_path(&me.model_identifier)?;
+        match self.description.major() {
+            Some(2) => Ok(Box::new(abi2::Me2::new(self, &lib, instance_name)?)),
+            Some(3) => Ok(Box::new(abi3::Me3::new(self, &lib, instance_name)?)),
+            _ => Err(Error::Library("fmiVersion が 2 でも 3 でもない".into())),
+        }
     }
 
     /// 共有ライブラリを**読み込み**、Co-Simulation のインスタンスを作る。FMU のネイティブコードが走る。
@@ -254,7 +294,7 @@ pub struct CsRun {
     pub rows: Vec<(f64, Vec<f64>)>,
 }
 
-fn find_float(md: &ModelDescription, name: &str) -> Result<u32> {
+pub(crate) fn find_float(md: &ModelDescription, name: &str) -> Result<u32> {
     let v = md
         .variables
         .iter()
@@ -268,8 +308,21 @@ fn find_float(md: &ModelDescription, name: &str) -> Result<u32> {
     Ok(v.value_reference)
 }
 
-fn num(s: &Option<String>) -> Option<f64> {
+pub(crate) fn num(s: &Option<String>) -> Option<f64> {
     s.as_deref().and_then(|s| s.trim().parse().ok())
+}
+
+/// 集める変数の名前。指定が空なら causality が output の Float64 すべて。
+pub(crate) fn output_names(md: &ModelDescription, wanted: &[String]) -> Vec<String> {
+    if wanted.is_empty() {
+        md.variables
+            .iter()
+            .filter(|v| v.causality == Causality::Output && v.ty == VarType::Float64)
+            .map(|v| v.name.clone())
+            .collect()
+    } else {
+        wanted.to_vec()
+    }
 }
 
 /// 固定刻みの Co-Simulation を終了時刻まで回す。
@@ -288,15 +341,7 @@ pub fn run_cs(fmu: &Fmu, opts: &CsOptions) -> Result<CsRun> {
     if step.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
         return Err(Error::Fmu("刻みが正でない".into()));
     }
-    let names: Vec<String> = if opts.outputs.is_empty() {
-        md.variables
-            .iter()
-            .filter(|v| v.causality == Causality::Output && v.ty == VarType::Float64)
-            .map(|v| v.name.clone())
-            .collect()
-    } else {
-        opts.outputs.clone()
-    };
+    let names = output_names(md, &opts.outputs);
     let vrs = names
         .iter()
         .map(|n| find_float(md, n))
