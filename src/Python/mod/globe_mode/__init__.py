@@ -12,13 +12,27 @@
 - 使い方: `Workspace`（開く・`check`・`outline`・`deps`・`flat`・`graph`・`simulate`・`simulate_columns`・`export_fmu`）、`table`、`format`、
   `lint`、`solvers`。それぞれ `help()` に引数・戻り値・誤りがある。
 - 誤りの扱い: **モデルの誤りは例外にせず、結果の `diagnostics`（`ok`・`passed`）で返す**（未知のモデルも `check` は
-  `passed: False`）。呼び方の誤りは例外: 未知の設定のキーは `TypeError`、設定の値の型の誤りは `ValueError`、
-  ライブラリが読めなければ `RuntimeError`（元の診断は `.diagnostics`）。
+  `passed: False`）。ライブラリが出す例外はすべて `GlobeModeError` の子（`.diagnostics` と最初の診断の `.code` を持つ）で、
+  これまでの組み込みの型も継ぐので `except ValueError` などでも受けられる:
+
+  | 例外 | 継ぐ型 | 出る場合 |
+  | --- | --- | --- |
+  | `LibraryError` | `RuntimeError` | `Workspace(libraries)`・`load_dir` がライブラリを読めない（`.diagnostics`） |
+  | `SettingsError` | `ValueError` | `simulate` の設定の値や型の誤り（NaN・inf を含む。どの設定かを言う） |
+  | `ModelNotFoundError` | `ValueError` | `graph` のモデルが索引に無い |
+  | `SourceError` | `ValueError` | `outline` のファイルが無い・構文の誤り、`format` の構文の誤り |
+  | `ExportError` | `ValueError` | `export_fmu` が書き出せない |
+  | `ResultError` | `ValueError` | `table` に時系列の無い結果を渡した |
+
+  **呼び方の誤りは素の `TypeError`**（未知の設定のキー、`on_progress` が呼べない、`libraries` が bytes）で、
+  コールバックが出した例外と Rust の panic（`pyo3_runtime.PanicException`）はそのまま通る。
 - 型: `py.typed` つき。結果は `dict[str, Any]` で、キーは CLI の `--json` と同じ形（`simulate` の成否は `ok`）。
 """
 
 import io
 import json
+import math
+import numbers
 import os
 from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
@@ -27,6 +41,33 @@ from typing import Any, TypedDict, Unpack
 import polars as pl
 
 from . import _native
+from ._errors import (
+    ExportError,
+    GlobeModeError,
+    LibraryError,
+    ModelNotFoundError,
+    ResultError,
+    SettingsError,
+    SourceError,
+)
+
+__all__ = [
+    "ExportError",
+    "GlobeModeError",
+    "LibraryError",
+    "ModelNotFoundError",
+    "Progress",
+    "ResultError",
+    "Settings",
+    "SettingsError",
+    "SourceError",
+    "Workspace",
+    "format",
+    "lint",
+    "main",
+    "solvers",
+    "table",
+]
 
 
 class Progress(TypedDict):
@@ -56,23 +97,50 @@ class Settings(TypedDict, total=False):
 _SAMPLE: dict[str, Any] = json.loads(_native.settings_sample())
 
 
-def _is(value: Any, sample: Any) -> bool:
+_BAD = object()
+
+
+def _number(value: Any) -> Any:
+    """`bool` でない実数（numpy の数も）を有限の `float` に。それ以外は `_BAD`。"""
+    if isinstance(value, bool) or not isinstance(value, numbers.Real):
+        return _BAD
+    try:
+        x = float(value)
+    except OverflowError:
+        return _BAD
+    return x if math.isfinite(x) else _BAD
+
+
+def _coerce(value: Any, sample: Any) -> Any:
     if isinstance(sample, dict):
-        return isinstance(value, dict) and all(isinstance(k, str) and _is(v, 0.0) for k, v in value.items())
+        if not (isinstance(value, dict) and all(isinstance(k, str) for k in value)):
+            return _BAD
+        nums = {k: _number(v) for k, v in value.items()}
+        return _BAD if _BAD in nums.values() else nums
     if isinstance(sample, float):
-        return isinstance(value, int | float) and not isinstance(value, bool)
-    return isinstance(value, type(sample))
+        return _number(value)
+    return value if isinstance(value, type(sample)) else _BAD
 
 
 def _settings_json(settings: Mapping[str, Any]) -> str:
-    """未知のキーは `TypeError`、型の誤りは（どの設定かを言う）`ValueError`。"""
+    """未知のキーは `TypeError`、型の誤りは（どの設定かを言う）`SettingsError`。`None` は「省略」で送らない。"""
     if unknown := settings.keys() - _SAMPLE.keys():
         raise TypeError(f"未知の設定 {sorted(unknown)}。使えるのは {', '.join(_SAMPLE)}")
+    out = {}
     for key, value in settings.items():
-        if value is not None and not _is(value, _SAMPLE[key]):
-            want = {float: "数値", str: "文字列", dict: "名前（文字列）から数値への dict"}[type(_SAMPLE[key])]
-            raise ValueError(f"設定 {key} は{want} のはずが {value!r}（{type(value).__name__}）")
-    return json.dumps(settings)
+        if value is None:
+            continue
+        out[key] = _coerce(value, _SAMPLE[key])
+        if out[key] is _BAD:
+            want = {float: "数値（有限）", str: "文字列", dict: "名前（文字列）から数値（有限）への dict"}[type(_SAMPLE[key])]
+            raise SettingsError(f"設定 {key} は{want} のはずが {value!r}（{type(value).__name__}）")
+    return json.dumps(out)
+
+
+def _callback(on_progress: Any) -> Any:
+    if on_progress is not None and not callable(on_progress):
+        raise TypeError(f"on_progress は dict を 1 つ受ける呼べるもののはずが {on_progress!r}（設定は stop_time=2 のようにキーワードで渡す）")
+    return on_progress
 
 
 class Workspace:
@@ -80,7 +148,7 @@ class Workspace:
 
     `libraries` はライブラリのディレクトリ（例: MSL の `data/msl`。`package.mo` のある 1 つ上＝MSL ごと）のリスト。
     1 つだけなら文字列か `Path` を直接渡してもよい（1 つのライブラリとして読む。1 文字ずつには分けない）。
-    読めなければ `RuntimeError`（本文は最初の error の `コード: 文`、元の診断のリストは `.diagnostics`）。
+    読めなければ `LibraryError`（`RuntimeError` でもある。本文は最初の error の `コード: 文`、元の診断のリストは `.diagnostics`）。
 
         ws = Workspace(["data/msl"])
         ws.set_file("RC.mo", "model RC ... end RC;")   # ファイルを足す・差し替える
@@ -92,18 +160,17 @@ class Workspace:
     def __init__(self, libraries: str | os.PathLike[str] | Iterable[str | os.PathLike[str]] = ()):
         if isinstance(libraries, str | os.PathLike):
             libraries = [libraries]
-        try:
-            self._ws = _native.Workspace([str(p) for p in libraries])
-        except RuntimeError as e:
-            raise _readable(e) from None
+        elif isinstance(libraries, bytes | bytearray):
+            raise TypeError("libraries は文字列か Path（かそのリスト）のはずが bytes")
+        self._ws = _native.Workspace(list(libraries))
 
     def set_file(self, path: str, text: str) -> None:
         """ファイルを 1 つ足す（同じ `path` なら本文を差し替える）。`path` は名前でよく、実在しなくてもよい。"""
         self._ws.set_file(path, text)
 
     def load_dir(self, dir: str | os.PathLike[str]) -> int:
-        """ディレクトリの下の `.mo` をすべて読み、読んだ数を返す。読めなければ `RuntimeError`。"""
-        return self._ws.load_dir(str(dir))
+        """ディレクトリの下の `.mo` をすべて読み、読んだ数を返す。読めなければ `LibraryError`。"""
+        return self._ws.load_dir(dir)
 
     def check(self, model: str) -> dict[str, Any]:
         """モデル（完全修飾名）を検査する（S0〜S10。`globe check --json` と同じ形）。
@@ -122,14 +189,14 @@ class Workspace:
     def graph(self, model: str, depth: int = 1) -> dict[str, Any]:
         """connect のグラフ（`nodes`・`edges`）。`depth` は部品の入れ子を何段まで開くか。
 
-        モデルが索引に無ければ `ValueError`。"""
+        モデルが索引に無ければ `ModelNotFoundError`（`ValueError` でもある）。"""
         return json.loads(self._ws.graph(model, depth))
 
     def outline(self, path: str) -> dict[str, Any]:
         """`set_file` に渡した `path` のファイルのアウトライン（`globe outline --json` と同じ。`within`・`classes`）。
 
         `classes` の各要素は `name`・`kind`（model・package など）・`range`（バイトの位置）・`extends`・入れ子の `classes` など。
-        ファイルが無いか、構文の誤りがあれば `ValueError`（誤りは最初の診断の `コード: 文`）。
+        ファイルが無いか、構文の誤りがあれば `SourceError`（`ValueError` でもある。誤りは最初の診断の `コード: 文`、診断は `.diagnostics`）。
 
             ws.set_file("A.mo", "model A Real x; end A;")
             [c["name"] for c in ws.outline("A.mo")["classes"]]   # ["A"]
@@ -150,6 +217,7 @@ class Workspace:
     def simulate(
         self,
         model: str,
+        *,
         on_progress: Callable[[Progress], Any] | None = None,
         **settings: Unpack[Settings],
     ) -> dict[str, Any]:
@@ -157,7 +225,8 @@ class Workspace:
 
         `settings` は `Settings`（`start_time`・`stop_time`・`tolerance`・`interval`・`solver`・`max_wall_seconds`・
         `step`・`parameters`）。省略した項目はモデルの experiment か既定値で決まり、決めた値は結果の `settings` に出る。
-        **未知のキー（`stoptime` など）は `TypeError`**（使えるキーを添える）、値の型の誤りは `ValueError`（どの設定かを言う）。
+        **未知のキー（`stoptime` など）は `TypeError`**（使えるキーを添える）、値の型の誤り・NaN・inf は `SettingsError`
+        （`ValueError` でもある。どの設定かを言う）。`None` は省略と同じ。numpy の数も使える。設定は必ずキーワードで渡す（`on_progress` もキーワード専用）。
 
         戻り値: `ok`（結果があり Error が無い）・`refused`（実行しなかった理由）・`diagnostics`・`settings`・`termination`・
         `stats`・`final`（最後の時刻の値）・`csv`・`timings_ms`・`summary`（実行しなかった・失敗したときだけ。理由と最初の error の 1 行で、
@@ -168,9 +237,11 @@ class Workspace:
             if res["ok"]:
                 df = table(res)
 
-        `on_progress(p)` を渡すと GIL を離して回し、進捗を `Progress` の dict で呼ぶ。`True`（真の値）を返すと止まり、
-        `termination` が `cancelled` で途中までの結果と情報 `GM-I11004` が返る。コールバックが例外を出したらそれを投げ直す。
-        Ctrl-C は `KeyboardInterrupt`（S129、ADR-0033）。
+        実行の間は GIL を離す（ほかの Python のスレッドは動き、Ctrl-C が効く）。
+        `on_progress(p)` を渡すと、進捗を `Progress` の dict で呼ぶ。`True`（真の値）を返すと止まり、
+        `termination` が `cancelled` で途中までの結果と情報 `GM-I11004` が返る。コールバックが例外を出したらそれを
+        そのまま投げ直す。Ctrl-C は `KeyboardInterrupt`（S129、ADR-0033）。**コールバックの中から同じ `Workspace` は呼べない**
+        （`RuntimeError: Already borrowed`）。止めたあとも同じ `Workspace` を使える。
 
         **既定のソルバ（`bdf`・`auto`・`dopri45`）では `on_progress` は積分の中に届かない**（ADR-0033 の既知の制約。
         Rumoca に口が無い）。呼ばれるのは段（lowering・preflight・build・initialization・integration）の変わり目の
@@ -179,11 +250,12 @@ class Workspace:
         積分の時刻が付き、途中で止められるのは session の道のソルバ（`esdirk34` など。`solvers()` で確かめる）で、
         t は 100 ms に 1 回まで。長い実行を止めたいなら `max_wall_seconds` を使う。
         """
-        return json.loads(self._ws.simulate(model, _settings_json(settings), on_progress))
+        return json.loads(self._ws.simulate(model, _settings_json(settings), _callback(on_progress)))
 
     def simulate_columns(
         self,
         model: str,
+        *,
         on_progress: Callable[[Progress], Any] | None = None,
         **settings: Unpack[Settings],
     ) -> dict[str, Any]:
@@ -195,7 +267,7 @@ class Workspace:
             res = ws.simulate_columns("RC", stop_time=5)
             table(res)["time"]
         """
-        response, names, columns = self._ws.simulate_columns(model, _settings_json(settings), on_progress)
+        response, names, columns = self._ws.simulate_columns(model, _settings_json(settings), _callback(on_progress))
         response = json.loads(response)
         # shortcut: memoryview の "d" は native-endian（Rust は little-endian で詰める）、big-endian の機械なら byteswap が要る
         response["columns"] = {n: pl.Series(n, memoryview(c).cast("d"), pl.Float64) for n, c in zip(names, columns)}
@@ -215,38 +287,24 @@ class Workspace:
 
         `fmi_version` は 2 か 3。`build=True` で共有ライブラリも作る（`fmi_headers`＝`fmi2Functions.h` などのある
         ディレクトリが要る。`targets` が空なら host を `cc` で、あれば `zig cc -target`）。
-        未知のキーは `TypeError`、書き出せなければ（版が 2・3 でない、モデルの誤りなど）`ValueError`。
+        未知のキーは `TypeError`、書き出せなければ（版が 2・3 でない、モデルの誤りなど）`ExportError`（`ValueError` でもある）。
+        `targets` は 1 つなら文字列でもよい。
 
             ws.export_fmu("RC", "out", fmi_version=3)
         """
-        options = dict(fmi_version=fmi_version, build=build, targets=list(targets), fmi_headers=None if fmi_headers is None else str(fmi_headers))
-        return Path(self._ws.export_fmu(model, str(out_dir), json.dumps(options)))
-
-
-def _readable(e: RuntimeError) -> RuntimeError:
-    """診断の JSON を本文にした `RuntimeError` を、最初の error の `コード: 文（位置・補足）` に直す。元は `.diagnostics`。"""
-    try:
-        ds = json.loads(e.args[0])
-        d = next((d for d in ds if d["severity"] == "error"), ds[0])
-    except (json.JSONDecodeError, IndexError, KeyError, TypeError):
-        return e  # 診断の JSON でなければそのまま
-    where = [d["file"]] if d.get("file") else []
-    if r := d.get("range"):
-        where.append(f"バイト {r['start']}〜{r['end']}")
-    text = f"{d['code']}: {d['message']}" + (f"（{'、'.join(where + d.get('notes', []))}）" if where or d.get("notes") else "")
-    err = RuntimeError(text + (f" ほか {len(ds) - 1} 件" if len(ds) > 1 else ""))
-    err.diagnostics = ds  # type: ignore[attr-defined]
-    return err
+        targets = [targets] if isinstance(targets, str) else list(targets)
+        options = dict(fmi_version=fmi_version, build=build, targets=targets, fmi_headers=None if fmi_headers is None else os.fspath(fmi_headers))
+        return Path(self._ws.export_fmu(model, out_dir, json.dumps(options)))
 
 
 def table(response: dict[str, Any]) -> pl.DataFrame:
     """`Workspace.simulate_columns`（列）か `simulate`（CSV）の結果を表（`time` 列と変数の列）にする。
 
-    実行できなかった結果（`ok: False` で時系列が無い）なら `ValueError`（本文は `refused` の理由）。"""
+    実行できなかった結果（`ok: False` で時系列が無い）なら `ResultError`（`ValueError` でもある。本文は `refused` の理由）。"""
     if response.get("columns"):
         return pl.DataFrame(list(response["columns"].values()))
     if response.get("csv") is None:
-        raise ValueError(response["refused"] or "結果が無い")
+        raise ResultError(response.get("refused") or "結果に時系列が無い（ok を確かめてから table に渡す）")
     return pl.read_csv(io.StringIO(response["csv"]))
 
 
@@ -256,7 +314,7 @@ def solvers() -> list[dict[str, Any]]:
 
 
 def format(text: str, indent: int = 2, insert_origin: bool = True) -> str:
-    """Modelica の本文を整形して返す（S111。`globe fmt` と同じ規則）。文法が壊れていれば `ValueError`。
+    """Modelica の本文を整形して返す（S111。`globe fmt` と同じ規則）。文法が壊れていれば `SourceError`（`ValueError` でもある）。
 
     `indent` はインデントの幅、`insert_origin` は annotation の `origin` の補完。
 

@@ -538,6 +538,10 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - 試験: `test_ui.py` に 1 本（初回の案内と閉じる・smoke で出ない、スキップリンク、矢印・Home・End と tabindex、編集で印・再読み込み・beforeunload・保存で消える）。`pnpm check` 0 警告。
 - 持ち越し: タブの並べ替え（ドラッグ）、ツリーのアイコン、案内の多言語化、案内を出し直す操作、Esc で止める、スクリーンリーダーの実機（【未確認】）。
 
+### S200（P7、2026-11-06）で済んだこと
+
+- **Python の例外の階層とレビューの指摘**（[解説書](sessions/S200-python-exceptions-review-fixes/解説書.md)）: `GlobeModeError`（`.diagnostics`・`.code`）の子 6 つ（`LibraryError`＝`RuntimeError`、`SettingsError`・`ModelNotFoundError`・`SourceError`・`ExportError`・`ResultError`＝`ValueError`）。`on_progress` をキーワード専用に（挙動が変わる）、`on_progress` が無くても GIL を離す、設定の numpy の数・NaN・`None`、bytes のライブラリ、`export_fmu` の `targets` の文字列、列の道の写しを 1 回減らした。「未知のモデルを例外にするか」は変えていない（`check` は `passed: False`）。
+
 ### S181（P7、2026-11-06）で済んだこと
 
 - **Python API を厳しくした**（S178 の監査の Python の穴 P2・P7・P10・P11、WP 案 C1。[解説書](sessions/S181-python-api-strictness/解説書.md)）: `Workspace("data/msl")`（文字列・`Path` の単体）を 1 つのライブラリとして扱う（前は 1 文字ずつ）。**未知の設定のキーは `TypeError`**（前は黙って無視され `ok: True`。使えるキーを添える。キーと型の一覧は Rust の `SimSettings` から `settings_sample()` で取る）、型の誤りは「設定 stop_time は数値のはず」と言う `ValueError`、`export_fmu` は明示のキーワード引数。ライブラリが読めない `RuntimeError` の本文は `GM-E1003: …`（元の診断は `.diagnostics`）。公開の関数すべての docstring、`py.typed`・`_native.pyi`、`on_progress` は既定のソルバ（bdf・auto・dopri45）では積分の中に届かないと明記、`src/Python/README.md`・`main()` の古い文面を直した。`SimSettings` の読み方・C ABI・NIF は変えていない（facade が `SimSettings` を再公開しただけ）。
