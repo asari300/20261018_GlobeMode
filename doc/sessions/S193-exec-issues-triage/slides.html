@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S193 実行系の issue の点検 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S193 実行系の issue の点検">
+
+<section class="slide" id="S01">
+  <span class="tag">S193 · 2026-11-06 · P3</span>
+  <h1>実行系の open の issue 8 件を点検した</h1>
+  <p class="lead">S012 のレビューで立った #1・#3・#4・#5・#6・#9・#14・#15 を、いまの main で再現し直した</p>
+  <div class="big">3 件は既に直っていた。3 件を直し、2 件は効く直し方が無いので残した</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">結果</span>
+  <h1>issue ごとの振り分け</h1>
+  <table class="compact">
+    <tr><th>issue</th><th>振り分け</th><th>状態</th></tr>
+    <tr><td>#1 dopri45 と <code>--param</code> の MAT</td><td class="ok">(a) 直っていた</td><td>S024 の再コンパイルで既定値が上書きの値になる。試験を足した</td></tr>
+    <tr><td>#3 Newton 法の失敗の累積</td><td class="ok">(a) 直っていた</td><td>S021 で上限を外した。試験は既にある</td></tr>
+    <tr><td>#5 session の道の auto</td><td class="ok">(a) 症状は直っていた</td><td>S013 で GM-U0004 は切り替えない。両方の道で同じ診断</td></tr>
+    <tr><td>#9 最後の刻みの試験</td><td class="ok">(b) 試験を足した</td><td>rk4・impeuler で step 0.3、終了 1</td></tr>
+    <tr><td>#14 壊れた MAT で panic</td><td class="ok">(b) 直した</td><td><code>checked_add</code> 1 行</td></tr>
+    <tr><td>#15 知らないソルバの警告</td><td class="ok">(b) 直した</td><td>名前が引けなければ bdf の警告を出さない</td></tr>
+    <tr><td>#4 tsit45 の断られた試しの点</td><td class="warn">(c) 残す</td><td>案を試したが 0 組も救えない</td></tr>
+    <tr><td>#6 auto の予算</td><td class="warn">(c) 残す</td><td>ADR-0028 (c) で採らなかった設計</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>#1 と #3 が直っていた理由</h1>
+  <div class="cols-2">
+    <div class="card">
+      <h2>#1 は別の直しで消えた</h2>
+      <p>S024 が <code>--param</code> を「上書きを組み込んでコンパイルし直す」に変えた。dopri45 が値を返さなくても、CLI が補う既定値がもう上書きの値で、<code>c = 2*k</code> も 4 になる。</p>
+      <p>MAT を読み戻して <code>k = 2, c = 4</code> を確かめる試験を CLI に足した。</p>
+    </div>
+    <div class="card">
+      <h2>#3 は別の案で消えた</h2>
+      <p>S021 が diffsol の SDIRK の上限を外した。issue の案（刻みごとに数え直す）と違うが、98 回切り替える <code>DiodeSwitching</code> で通る試験が既にある。</p>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由</span>
+  <h1>#4 の案を試して、直さなかった</h1>
+  <ul>
+    <li>断られた試しの点は実際に起きる。<code>CircleChart</code> を tsit45・許容誤差 1e-3 で回すと t = 2.488 で失敗し、dopri45 は通る。</li>
+    <li>issue の案（刻みを 1/4 ずつ、10 回縮めて出し直す）を実装した。h を 0.74 から 2.8e-6 まで縮めても、毎回同じ所で失敗した。</li>
+    <li>状態は有限。受理した点そのものがこの chart で評価できない（束縛から約 0.003 ずれている）。</li>
+    <li>失敗する 30 組すべてで 10 回を使い切り、救えたのは 0 組。効かない修正は入れない。</li>
+  </ul>
+  <div class="kpis">
+    <div class="kpi"><span class="n">0 / 30</span><span class="l">救えた組</span></div>
+    <div class="kpi"><span class="n">候補 13</span><span class="l">上流の同じ機構</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">図</span>
+  <h1>振り分けの流れ</h1>
+  <svg class="fig" viewBox="0 0 800 260" role="img" aria-label="再現するかで振り分ける図">
+    <rect class="svg-box-accent" x="20" y="95" width="170" height="70" rx="10"/>
+    <text class="svg-text-b" x="105" y="136" text-anchor="middle">いまの main で再現</text>
+    <line class="svg-line" x1="190" y1="130" x2="300" y2="50"/>
+    <line class="svg-line" x1="190" y1="130" x2="300" y2="130"/>
+    <line class="svg-line" x1="190" y1="130" x2="300" y2="210"/>
+    <rect class="svg-box" x="300" y="20" width="220" height="60" rx="10"/>
+    <text class="svg-text-b" x="410" y="55" text-anchor="middle">(a) しない: #1 #3 #5</text>
+    <rect class="svg-box" x="300" y="100" width="220" height="60" rx="10"/>
+    <text class="svg-text-b" x="410" y="135" text-anchor="middle">(b) 小さい: #9 #14 #15</text>
+    <rect class="svg-box" x="300" y="180" width="220" height="60" rx="10"/>
+    <text class="svg-text-b" x="410" y="215" text-anchor="middle">(c) 大きい: #4 #6</text>
+    <text class="svg-text" x="540" y="55">直ったコミットと試験</text>
+    <text class="svg-text" x="540" y="135">直して試験を足す</text>
+    <text class="svg-text" x="540" y="215">再現の手順を残す</text>
+  </svg>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>cargo test -p globe-mode-sim                       # #14 #15
+cargo test -p globe-mode-exec --test integrators   # #9
+cargo test -p globe-mode-cli --test simulate       # #1
+cargo test --release -p globe-mode-exec --test simulate \
+  -- --ignored msl_auto_stops_alike               # #5（data/msl）</code></pre>
+  <p>ソルバの挙動は変えていないので、msl:sim の回し直しは行っていない。</p>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>残したもの</h1>
+  <ul>
+    <li>#4: 陽的 RK が chart の折り目を越える刻みを受理する問題。上流の候補 13 と同じ機構。</li>
+    <li>#5: <code>into_session</code> の失敗の段（session は Integration、ネイティブは Initialization）。例が見つかってから揃える。</li>
+    <li>#6: <code>auto</code> の全体の予算。予算の測り方を揃えてから決める。</li>
+    <li>#9: 断られた試しの点と有限でない端の点の分岐の試験。</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
