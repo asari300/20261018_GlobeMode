@@ -36,7 +36,7 @@ All three compile. `n` is a constant, so `x[n]` is a valid dimension (MLS 3.6 se
 
 ```text
 $ globe check 25b-ed019-function-shape-proof-modified-package-constant.mo --model Rep27.M
-25b-...mo:10:20: unsupported[GM-U0001] S5 方程式数と変数数: unsupported Flat semantic owner `function shape proof`: dependent extent is not an exact Integer expression over proven shape axes
+25b-...mo:13:20: unsupported[GM-U0001] S5 方程式数と変数数: unsupported Flat semantic owner `function shape proof`: dependent extent is not an exact Integer expression over proven shape axes
     note: rumoca: ED019
 Rep27.M: NG（S5 方程式数と変数数 で停止）
 

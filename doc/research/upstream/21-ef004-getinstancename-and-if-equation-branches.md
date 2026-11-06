@@ -38,7 +38,7 @@ $ globe check 21-ef004-getinstancename-and-if-equation-branches.mo --model Rep21
 ...mo:8:33: unsupported[GM-U0001] S4 接続: unsupported equation form: getInstanceName() requires a model/block instance scope
     note: rumoca: EF004
 $ globe check ... --model Rep21B
-...mo:39:6: unsupported[GM-U0001] S4 接続: unsupported equation form: dynamic if-equation branches have different scalar row counts
+...mo:62:6: unsupported[GM-U0001] S4 接続: unsupported equation form: dynamic if-equation branches have different scalar row counts
     note: rumoca: EF004
 $ globe check ... --model Rep21B4
 ...: error[GM-E5002] S5 方程式数と変数数: unbalanced model: 4 equations, 3 unknowns (balance = 1)

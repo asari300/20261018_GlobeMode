@@ -5,19 +5,31 @@
 // AixLib (Modelica.Media.Examples.Tests.Components.PartialTestModel2; the class
 // is Modelica.Media.Examples.Utilities.PartialTestModel2 in MSL 4.0.0 and 4.1.0).
 package Rep23
+
   package Present
+
     partial model Base
+
       Real x(start = 1);
+
     equation
+
       der(x) = -x;
+
     end Base;
+
   end Present;
 
   model M "extends a class that is not loaded"
+
     extends Missing.Base;
+
   end M;
 
   model M0 "control: the same with the class present"
+
     extends Present.Base;
+
   end M0;
+
 end Rep23;
