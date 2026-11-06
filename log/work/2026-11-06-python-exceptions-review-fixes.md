@@ -38,7 +38,7 @@
 - marimo: `marimo check`（sim_app・fmt_app）0 件、`marimo export html` は sim_app（anywidget を入れて）・fmt_app とも成功。
 - `check_docs.py`: リンク 794 文書・切れ 0 件、スライド OK。`render_slides.py`: デッキ 1 件 / 問題 0 件。
 - 列の道の測定（release）: 10⁶ 点でピーク 145 から 121 MiB、4×10⁶ 点で 350 から 259 MiB、時間は同じ。
-- run: （push のあと追記）
+- run（feature を push して）: `release.yml` の dry run 42169948299 は success（4 つの環境の「wheel を入れて pytest」を含む全ジョブ）。`ci.yml -f full=true` 42169960483 は success（11 ジョブ）。
 
 ## 残したこと
 
