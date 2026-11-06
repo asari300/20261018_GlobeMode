@@ -1,8 +1,9 @@
-# FMI Import の最初の一切れ（S204、ADR-0026）を Linux・Windows・macOS で確かめる。手動だけ（`gh workflow run fmu-import.yml`）。
+# FMI Import（S204 の Co-Simulation、S205 の Model Exchange。ADR-0026）を Linux・Windows・macOS で確かめる。手動だけ（`gh workflow run fmu-import.yml`）。
 #
 # Reference-FMUs（v0.0.42、`cargo xtask fetch-reference-fmus`）の BouncingBall・Dahlquist・VanDerPol（FMI 2.0・3.0）を
 # `globe-mode-fmi-import` で読み込んで Co-Simulation を回し、FMU が同梱する参照の CSV と突き合わせる
-# （`src/Rust/mod/globe-mode-fmi-import/tests/reference.rs`）。続けて `globe fmu info` / `run` の試験。
+# （`tests/reference.rs`）。S205 の Model Exchange は同じ FMU を `run_me` で積分し、解析解・独立な積分と許容差内で突き合わせる
+# （`tests/model_exchange.rs`。積分器が違うのでビット一致ではない）。続けて `globe fmu info` / `run` の試験。
 # Export した FMU を自分で Import する往復の試験は Linux の x86_64 だけで走る（cc と FMPy のヘッダを使う）。
 name: fmu-import
 
