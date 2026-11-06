@@ -164,7 +164,6 @@ jobs:
       # wheel の名前は maturin が付ける（globe_mode-<version>-cp312-abi3-<platform>.whl）
       - name: wheel を作る
         shell: bash
-        env:
         run: |
           # 先頭の 1 つだけ置く（BSD sed の macOS では 0,/re/ が使えないので perl）
           if [ -n "$TAG" ]; then V="${TAG#v}" perl -0pi -e 's/^version = .*$/version = "$ENV{V}"/m' pyproject.toml; fi
@@ -264,7 +263,6 @@ jobs:
       - run: cargo install tauri-cli --version "^2" --locked
       - name: ${{ matrix.bundle }} を作る（鍵があれば updater の .sig も）
         working-directory: ${{ env.DESKTOP }}
-        env:
         run: |
           VERSION=""
           if [ -n "$TAG" ]; then VERSION="\"version\":\"${TAG#v}\","; fi
