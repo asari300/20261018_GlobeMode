@@ -45,7 +45,7 @@
 - `msl:compare`: 回していない（`globe-mode-frontend` は触っていない。`globe-mode-exec` の差は `fixed.rs` の通らない検査の削除だけ）。`msl:funnel`・`msl:sim`: 回していない（ソルバの挙動は変えていない）。
 - `check_docs.py`: 通った。`render_slides.py`（S203 のデッキだけ）: 7 枚 × 3、問題 0 件。
 - セッション記録の `--check`: 親が写す。
-- 全体検査（`ci.yml -f full=true`、feature ブランチ）: 下に書く。
+- 全体検査（`ci.yml -f full=true`、feature ブランチ）: run 42176173992 success（全ジョブ）。
 
 ## 残したこと
 
