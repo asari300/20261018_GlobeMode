@@ -35,6 +35,7 @@ C ABI（`globe-mode-c`）と NIF（`globe-mode-nif`）のレビュー（Opus、�
 - `mise run check`: success（fmt・clippy・`cargo test --workspace`・deny・`uv sync --locked`。`globe-mode-c` の単体 6 本と `tests/header.rs` 2 本を含む）。
 - `mise run c:zig`・`c:julia`・`elixir:test`（5 本）・`gleam:test`（3 本）: 通った。Zig・Julia は `reentry:` の行（誤りの JSON）を出す。
 - `check_docs.py`: 切れ 0 件。`render_slides.py` S202 のデッキ 1 件 / 問題 0 件。
+- feature を push して `ci.yml -f full=true`（run 42174737496）: plan・rust-linux・rust-windows・deny・wasm-node・msl・rust-sundials・ui・python・docs・lang の全ジョブ success。`release.yml` の dry run（run 42174761104、C ABI のライブラリを含む 4 環境と Desktop）: 全ジョブ success。タグ・Release は作っていない。
 - Miri: 環境に `cargo miri` が無く回していない。
 
 ## 残したこと
