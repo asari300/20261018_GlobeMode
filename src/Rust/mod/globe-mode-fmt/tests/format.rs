@@ -214,6 +214,36 @@ fn lint_rules() {
     assert_eq!(only.len(), 1);
 }
 
+/// S207: lint が本文の長さの 2 乗で遅くなっていた（診断ごとの行・桁の数え直し、長い行ごとの全行の探索）。
+/// 絶対時間ではなく、本文を 2 倍にしたときの時間の比（3 回の最小値）が 3 未満であることを緩く確かめる（2 乗なら 4）。
+#[test]
+fn lint_time_grows_linearly() {
+    let body = |n: usize| {
+        let mut s = String::from("package P \"p\"\n");
+        for i in 0..n {
+            s += &format!(
+                "  model m{i}\n    Real x; // {}\n  end m{i};\n",
+                "c".repeat(90)
+            );
+        }
+        s + "end P;\n"
+    };
+    let time = |src: &str| {
+        (0..3)
+            .map(|_| {
+                let t = std::time::Instant::now();
+                std::hint::black_box(lint(src, &LintOptions::default()));
+                t.elapsed().as_secs_f64()
+            })
+            .fold(f64::MAX, f64::min)
+    };
+    let (small, large) = (body(4000), body(8000));
+    let n = lint(&large, &LintOptions::default()).len();
+    assert_eq!(n, 3 * 8000, "診断の数（クラス名・説明・行の長さ）");
+    let ratio = time(&large) / time(&small);
+    assert!(ratio < 3.0, "本文を 2 倍にして時間が {ratio:.2} 倍");
+}
+
 #[test]
 fn documentation_html_is_indented_and_can_be_turned_off() {
     let src = "model M \"m\"\n  annotation(Documentation(info = \"<html><head></head><body><h1>The Infomation</h1><ul>List<li>One</li><li>Two</li><li>Tree.js</li></ul></body></html>\"));\nend M;\n";
