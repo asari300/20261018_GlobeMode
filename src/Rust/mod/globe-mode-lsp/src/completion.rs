@@ -290,7 +290,13 @@ fn candidates(
     out
 }
 
-/// UI 向け（S171。wasm と `globe/completion` が使う）。行・列は LSP と同じ UTF-16。LSP の `CompletionItem` の配列。
+/// LSP の `CompletionList`（S198）: 上限 `LIMIT` に達したときは `isIncomplete`（打ち足すと別の候補が出うるので、クライアントは打つたびに問い直す）。
+pub fn complete_list(r: &mut Resolver, path: &str, text: &str, at: usize) -> Value {
+    let items = complete(r, path, text, at);
+    json!({"isIncomplete": items.len() >= LIMIT, "items": items})
+}
+
+/// UI 向け（S171。wasm が使う）。行・列は LSP と同じ UTF-16。LSP の `CompletionItem` の**配列**（`isIncomplete` は付けない。LSP の `globe/completion` は `complete_list`）。
 pub fn complete_at(r: &mut Resolver, path: &str, text: &str, line: u32, character: u32) -> Value {
     let at = crate::offset(text, lsp_types::Position::new(line, character));
     json!(complete(r, path, text, at))
@@ -378,6 +384,36 @@ mod tests {
         assert_eq!(
             labels(&[("M.mo", aliased)], &lib, "M.mo", at),
             ["Sine", "Step"]
+        );
+    }
+
+    #[test]
+    fn typed_word_narrows_before_the_limit_cuts() {
+        // S198: `Lib.SI.` の直下が 300 件あっても、`Lib.SI.Vol` では Voltage が出る（絞ってから 200 件に切る）
+        let mut lib = vec![(
+            "Lib/package.mo".to_string(),
+            "package Lib\nend Lib;\n".to_string(),
+        )];
+        for n in (0..300)
+            .map(|i| format!("T{i:03}"))
+            .chain(["Voltage".to_string()])
+        {
+            lib.push((
+                format!("Lib/{n}.mo"),
+                format!("within Lib;\ntype {n} = Real;\n"),
+            ));
+        }
+        let lib: Vec<(&str, &str)> = lib.iter().map(|(a, b)| (a.as_str(), b.as_str())).collect();
+        let at_end = |t: &str| t.find("\nend").unwrap();
+        let all = "model M\n  Lib.\nend M;\n";
+        assert_eq!(
+            labels(&[("M.mo", all)], &lib, "M.mo", at_end(all)).len(),
+            LIMIT
+        );
+        let typed = "model M\n  Lib.Vol\nend M;\n";
+        assert_eq!(
+            labels(&[("M.mo", typed)], &lib, "M.mo", at_end(typed)),
+            ["Voltage"]
         );
     }
 

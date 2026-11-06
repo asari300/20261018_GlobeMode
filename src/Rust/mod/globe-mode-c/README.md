@@ -33,3 +33,12 @@ int main(void) {
     return 0;
 }
 ```
+
+## スレッドとコールバックの決まり（S202）
+
+- `GmWorkspace` は作ったスレッドからだけ使う。同時に 2 つのスレッドから使わない（salsa のデータベースが Sync でない）。
+- 進捗のコールバックは、実行を回しているスレッドで、実行の途中に呼ばれる。その間 `GmWorkspace` は「使用中」で、**コールバックの中から同じ `ws` を使う `gm_*` を呼ぶと `{"error": "ワークスペースは使用中…"}` が返る**（`gm_set_file`・`gm_load_dir` は -1）。`gm_workspace_free(ws)` は何もせず stderr に 1 行出す（放すのは実行が返ったあと）。別の `ws` は使える。
+- 仕組み: `GmWorkspace` が使用中の印（`AtomicBool`）を持ち、`ws_arg` が生のポインタから印だけを読んでから `&mut Workspace` を貸す。印を見る前に `&mut GmWorkspace` も `&mut Workspace` も作らないので、実行中の `&mut` と別名にならない。
+- コールバックから `longjmp`・C++ の例外で抜けない（Rust のフレームを越える）。止めたいときは非 0 を返す。
+- `GmProgress` の並び（64 ビットで 40 バイト）は `tests/header.rs` がヘッダの `typedef` と Rust の `repr(C)` で突き合わせる。
+- 【Miri】この環境に `cargo miri` が無いので回していない（`rustup` に nightly を入れていない）。

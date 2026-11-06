@@ -85,6 +85,14 @@ UI のキーボード（ブラウザ・Desktop・Android。macOS は Ctrl の代
 cargo xtask fetch-msl            # data/msl/ に取得（sha256 を確かめて展開。コミットしない）
 ```
 
+チェックアウトが無いときは、MSL の公式の release の zip を展開して、その場所を `-L` に渡せばよい（版 4.1.0。URL と sha256 は `cargo xtask fetch-msl` が持つ値と同じ。出典は [MSL の release](https://github.com/modelica/ModelicaStandardLibrary/releases/tag/v4.1.0)、値は `src/Rust/xtask/src/main.rs` の `MSL_URL`・`MSL_SHA256` から写した。2026-11-06）。
+
+```bash
+curl -fLO https://github.com/modelica/ModelicaStandardLibrary/releases/download/v4.1.0/ModelicaStandardLibrary_v4.1.0.zip
+echo "5409cfa17797c52d866dc9d2675badc1378b4bbf88066e60899a489cb1cb8a2d  ModelicaStandardLibrary_v4.1.0.zip" | sha256sum -c -
+unzip -q ModelicaStandardLibrary_v4.1.0.zip -d msl   # globe check -L msl -m Modelica.Blocks.Examples.PID_Controller
+```
+
 CLI・言語サーバには `-L data/msl` で渡す（サブフォルダではなく `data/msl` ごと）。ブラウザ・Desktop・Android の UI は「MSL を読む」ボタンから読む（Desktop は初回に取得する。[ADR-0030](doc/adr/0030-desktop-msl-placement.md)）。
 
 #### CLI `globe`
@@ -102,10 +110,20 @@ globe simulate --list-solvers
 globe check src/Modelica/GlobeModeValidation -m GlobeModeValidation.Simulation.Decay
 
 globe fmt --check src/Modelica   # ファイルかフォルダを指す。整形が要るファイルを列挙して終了コード 1。--check を外すと書き換える（リポジトリの根の `.` は検証用の入力も含むので通らない）
-globe lint .              # line-too-long など。--disable <規則> で止める
+globe fmt -               # `-` は標準入力 → 標準出力。パスも `-` も無ければ使い方を出して終了コード 2（`--json` だけは標準入力。ウェブアプリ用）
+globe lint .              # line-too-long など。--disable <規則> で止める。`-` は標準入力
 globe fmu export src/Modelica/GlobeModeValidation -m GlobeModeValidation.Simulation.Decay --out out/ [--fmi-version 3]   # out/ に展開したフォルダと GlobeModeValidation_Simulation_Decay-fmi2.fmu（3.0 は -fmi3）。版つきなので 2.0 と 3.0 を同じ out/ に書ける
 globe lsp -L data/msl     # 標準入出力の LSP サーバ
 ```
+
+終了コード（`globe --help` の末尾にも出る。`| head` で読み手が先に閉じても変わらない）:
+
+| コード | 意味 |
+| --- | --- |
+| 0 | 成功 |
+| 1 | モデルの誤り（Error の診断）・整形が要る（`fmt --check`）・lint の指摘がある |
+| 2 | 使い方の誤り・入力を読めない・結果を書けない（ディスク満杯を含む） |
+| 3 | 未対応（GM-U）だけで止まった（`check`・`simulate`。モデルの誤りではなくコンパイラが未対応。Error と混ざっていれば 1） |
 
 ほかに `globe outline`・`graph`・`flat`・`deps`。`globe <コマンド> --help` で全部の引数が出る。設定はカレントディレクトリから上へたどって最初の `globe-mode.toml`（[doc/format-style.md](doc/format-style.md)）。`cvode`・`ida` が要るときは cmake と C コンパイラを入れて `--features sundials` を付ける。
 

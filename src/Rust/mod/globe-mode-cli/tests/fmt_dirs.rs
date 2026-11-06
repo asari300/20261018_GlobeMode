@@ -90,9 +90,10 @@ fn lint_walks_and_summarizes() {
 }
 
 #[test]
-fn piped_stdin_still_formats_stdin() {
+fn piped_stdin_formats_stdin_with_a_dash() {
+    // S199: 標準入力は `-` を明示したときだけ（パスなしで標準入力は読まない。`--json` は契約として今までどおり）
     let mut c = Command::new(env!("CARGO_BIN_EXE_globe"))
-        .args(["fmt"])
+        .args(["fmt", "-"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()

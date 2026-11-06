@@ -3,7 +3,17 @@
  * 署名は src/lib.rs と tests/header.rs で突き合わせる。SPDX-License-Identifier: MIT OR Apache-2.0
  *
  * - char* を返す関数の結果は JSON の文字列。必ず gm_string_free で放す。誤りは {"error": "..."}。
- * - GmWorkspace は作ったスレッドからだけ使う。
+ *
+ * スレッドとコールバックの決まり（S202）
+ * - GmWorkspace は作ったスレッドからだけ使う（同時に 2 つのスレッドから使わない）。
+ * - 進捗のコールバック（gm_simulate_observed・gm_simulate_columns_observed）は、実行を回しているスレッドで、
+ *   実行の途中（その GmWorkspace を使っている間）に呼ばれる。
+ * - コールバックの中で、同じ GmWorkspace を使う gm_* を呼ぶと、{"error": "ワークスペースは使用中..."} が返る
+ *   （gm_set_file は -1、gm_load_dir は -1）。何も壊れない。ほかの GmWorkspace は使える。
+ * - コールバックの中の gm_workspace_free(同じ ws) は何もしない（stderr に 1 行）。放すのは実行が返ったあと。
+ * - コールバックから longjmp・例外・C++ の throw で抜けない（Rust のフレームを越える）。止めたいときは非 0 を返す。
+ * - コールバックに渡す GmProgress と stage はコールバックの間だけ有効。
+ * - gm_solvers・gm_format・gm_lint・gm_string_free・gm_doubles_free は GmWorkspace を使わず、どのスレッドからも呼べる。
  */
 #ifndef GLOBE_MODE_H
 #define GLOBE_MODE_H
@@ -19,6 +29,7 @@ typedef struct GmWorkspace GmWorkspace;
 
 /* 実行の進捗（S131、ADR-0033）。stage は "lowering"・"integration" などの小文字で、コールバックの間だけ有効。
  * time は積分の段だけ（has_time が 0 なら NaN）。 */
+/* 並びと大きさは tests/header.rs が Rust の repr(C) と突き合わせる（64 ビットで 40 バイト）。 */
 typedef struct GmProgress {
     const char *stage;
     double time;
@@ -31,6 +42,7 @@ typedef int (*GmProgressCallback)(const GmProgress *progress, void *user_data);
 
 /* libraries_json: ライブラリのディレクトリの JSON の配列（NULL か "[]" で無し）。失敗で NULL。 */
 GmWorkspace *gm_workspace_new(const char *libraries_json);
+/* NULL なら何もしない。使用中（進捗のコールバックの中など）なら放さず stderr に 1 行出す。 */
 void gm_workspace_free(GmWorkspace *ws);
 /* 0 で成功、-1 で失敗。 */
 int gm_set_file(GmWorkspace *ws, const char *path, const char *text);

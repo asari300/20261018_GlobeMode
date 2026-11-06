@@ -3,6 +3,24 @@
 //! 入出力は `globe-mode-py`・`globe-mode-c` と同じく JSON の文字列で、Elixir 側（`src/Elixir/globe_mode`）が
 //! 標準の `JSON` でデコードする。誤りは `{:error, 理由}`。Erlang のモジュール名は `globe_mode_nif`。
 //! 進捗と中断（S131、ADR-0033）は `simulate_observed`・`cancel_token`・`cancel`。
+//!
+//! # スケジューラの決まり（S202）
+//!
+//! `Ws` の Mutex を取る NIF と、本文の長さやモデルの大きさに比例して回る NIF は、すべて dirty スケジューラで回す。
+//! 通常のスケジューラ（BEAM 全体で `+S` 本）で Mutex を待つと、別のプロセスの長い実行（最大 150〜180 秒）が終わるまで
+//! その 1 本が止まり、無関係なプロセスも止まる。通常のままにしてよいのは、Mutex を取らず定数時間のものだけ。
+//!
+//! | NIF | スケジューラ | 理由 |
+//! | --- | --- | --- |
+//! | `new` | DirtyIo | ライブラリのファイルを読む |
+//! | `set_file` | DirtyIo | Mutex を待つ（実行が持っている間は最大 150〜180 秒）。CPU を使わないので IO 側 |
+//! | `load_dir` | DirtyIo | ファイルを読む。Mutex を待つ |
+//! | `check` `graph` `outline` `deps` `flat` | DirtyCpu | Mutex を取り、モデルの大きさに比例する |
+//! | `simulate` `simulate_observed` `simulate_columns` | DirtyCpu | Mutex を持ったまま長く回す |
+//! | `export_fmu` | DirtyIo | Mutex を取り、ファイルを書く |
+//! | `format` `lint` | DirtyCpu | 本文の長さに比例する（Mutex は取らない） |
+//! | `cancel_token` `cancel` | 通常 | 資源を 1 つ作る・原子的な旗を立てるだけ（Mutex を取らない。実行中でも即座に返る必要がある） |
+//! | `solvers` | 通常 | 静的な表の JSON（定数時間。Mutex を取らない） |
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -57,7 +75,8 @@ fn new(libraries: Vec<String>) -> Result<ResourceArc<Ws>, String> {
     Ok(ResourceArc::new(Ws(Mutex::new(inner))))
 }
 
-#[rustler::nif]
+/// `Ws` の Mutex を待つので dirty（実行が持っている間は長く待つ。S202）。
+#[rustler::nif(schedule = "DirtyIo")]
 fn set_file(ws: ResourceArc<Ws>, path: String, text: String) -> Result<(), String> {
     with(&ws, |w| w.set_file(&path, text))
 }
@@ -86,13 +105,7 @@ fn graph(ws: ResourceArc<Ws>, model: String, depth: u32) -> Result<String, Strin
 /// ファイルが無いか構文の誤りがあれば `{:error, 理由}`（誤りは最初の診断の `コード: 文`）。
 #[rustler::nif(schedule = "DirtyCpu")]
 fn outline(ws: ResourceArc<Ws>, path: String) -> Result<String, String> {
-    with(&ws, |w| match w.outline(&path) {
-        None => Err(format!("ファイル {path} がワークスペースに無い")),
-        Some(Ok(o)) => json(o),
-        Some(Err(ds)) => Err(ds
-            .first()
-            .map_or_else(String::new, |d| format!("{}: {}", d.code, d.message))),
-    })?
+    with(&ws, |w| w.outline_json(&path))?
 }
 
 /// `check` が読むファイル（モデルが使うものの閉包。パスの昇順）の JSON の配列。モデルが無ければ `[]`（S191）。
@@ -107,17 +120,10 @@ fn flat(ws: ResourceArc<Ws>, model: String) -> Result<String, String> {
     with(&ws, |w| json(&w.flat(&model)))?
 }
 
-fn request(model: String, settings_json: &str) -> Result<globe_mode::SimulateRequest, String> {
-    let settings: serde_json::Value = serde_json::from_str(settings_json)
-        .map_err(|e| format!("settings の JSON が読めない: {e}"))?;
-    serde_json::from_value(serde_json::json!({ "model": model, "settings": settings }))
-        .map_err(|e| format!("settings が読めない: {e}"))
-}
-
 /// 検査 → コンパイル → 実行（`SimulateResponse` の JSON）。`settings_json` は `{"stop_time": 2}` など。
 #[rustler::nif(schedule = "DirtyCpu")]
 fn simulate(ws: ResourceArc<Ws>, model: String, settings_json: String) -> Result<String, String> {
-    let request = request(model, &settings_json)?;
+    let request = globe_mode::simulate_request(&model, Some(&settings_json))?;
     with(&ws, |w| json(&w.simulate(&request)))?
 }
 
@@ -146,10 +152,10 @@ fn simulate_observed(
     pid: LocalPid,
     token: ResourceArc<Token>,
 ) -> Result<String, String> {
-    let request = request(model, &settings_json)?;
+    let request = globe_mode::simulate_request(&model, Some(&settings_json))?;
     let mut notify = |p: &globe_mode::Progress| {
         let msg = ProgressMsg {
-            stage: format!("{:?}", p.stage).to_lowercase(),
+            stage: p.stage.as_str().to_string(),
             time: p.time,
             start_time: p.start_time,
             stop_time: p.stop_time,
@@ -178,7 +184,7 @@ fn simulate_columns<'a>(
     model: String,
     settings_json: String,
 ) -> Result<(String, Vec<Binary<'a>>), String> {
-    let mut request = request(model, &settings_json)?;
+    let mut request = globe_mode::simulate_request(&model, Some(&settings_json))?;
     request.no_csv = true;
     let simulated = with(&ws, |w| w.simulate_with(&request, &globe_mode::now_ms))?;
     let (layout, columns) = simulated.columns();
@@ -190,12 +196,7 @@ fn simulate_columns<'a>(
         }
         binaries.push(b.release(env));
     }
-    let text = json(&serde_json::json!({
-        "response": simulated.response,
-        "names": layout.names,
-        "points": layout.points,
-        "defaults": layout.defaults,
-    }))?;
+    let text = simulated.layout_json(&layout)?;
     Ok((text, binaries))
 }
 
@@ -223,13 +224,13 @@ fn solvers() -> Result<String, String> {
 }
 
 /// 本文を整形する（S111）。文法が壊れていれば `{:error, 理由}`。
-#[rustler::nif]
+#[rustler::nif(schedule = "DirtyCpu")]
 fn format(text: String, indent: usize, insert_origin: bool) -> Result<String, String> {
     globe_mode::format(&text, indent, insert_origin)
 }
 
 /// lint の結果（`[{rule, line, column, message}]` の JSON。S111）。
-#[rustler::nif]
+#[rustler::nif(schedule = "DirtyCpu")]
 fn lint(text: String) -> String {
     globe_mode::lint(&text)
 }

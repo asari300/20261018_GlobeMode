@@ -23,3 +23,15 @@ res["final"]["x"]                            # 0.367879468116207（e⁻¹）
 
 - NIF の場所は環境変数 `GLOBE_MODE_NIF`（拡張子 `.so` を除いたパス。例 `target/release/libglobe_mode_nif`）。
 - 配布（rustler_precompiled と Hex）は未（P7）。
+
+## NIF のスケジューラ（S202）
+
+`Ws` の Mutex を取る NIF と、本文の長さやモデルの大きさに比例する NIF は dirty スケジューラで回す（通常のスケジューラで Mutex を待つと、別のプロセスの長い実行が終わるまで BEAM の通常のスケジューラが 1 本止まる）。`set_file` は S202 までは通常のスケジューラだった。表は `globe-mode-nif/src/lib.rs` の先頭。
+
+| NIF | スケジューラ |
+| --- | --- |
+| `new` `load_dir` `set_file` `export_fmu` | DirtyIo |
+| `check` `graph` `outline` `deps` `flat` `simulate` `simulate_observed` `simulate_columns` `format` `lint` | DirtyCpu |
+| `cancel_token` `cancel` `solvers` | 通常（Mutex を取らない定数時間） |
+
+試験 `test/scheduler_test.exs` は通常のスケジューラを 1 本に絞り、実行が Mutex を持つ間に別のプロセスが `set_file` を呼んでも、ただのタイマーのループが止まらないことを確かめる。
