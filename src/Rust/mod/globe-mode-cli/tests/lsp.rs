@@ -149,7 +149,7 @@ fn lsp_serves_diagnostics_symbols_and_hover() {
         "params": {"textDocument": doc, "position": {"line": 6, "character": 2}}}),
     );
     let comp = response(&mut out, 5);
-    let labels: Vec<&str> = comp["result"]
+    let labels: Vec<&str> = comp["result"]["items"]
         .as_array()
         .unwrap()
         .iter()

@@ -90,6 +90,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - S189: `src/Modelica` の 71 ファイルを `globe fmt` で整形した（意味は不変。`globe fmt --check src/Modelica` を CI と `mise run check` に追加）。
 - S192: 整形器を直した。UTF-8 の文字の途中や省略した tuple の出力での panic（PR #17）、CRLF の複数行コメント・文字列で整形が拒否されること（issue #19）を直し、**`if` を `end for;` で閉じるような種類の違う `end` は `Err` になる**（issue #21。MSL 4.1.0 ほか 2,661 本の整形結果は前後で同じ）。issue #20 は S167 で修正済み。
 - S188: **挙動が変わる**: ブラウザ・Desktop の UI のエディタで Tab は字下げ（空白 2 つ、選んだ行すべて）、Shift+Tab は戻す。フォーカスをエディタの外へ出すには Esc のあと Tab（Shift+Tab）か Ctrl+M（Mac は Shift+Alt+M）。説明はエディタの下とスクリーンリーダー向けの `aria-describedby`。
+- S198: LSP の参照・リネーム・補完のレビュー（9 件）の修正。**挙動が変わる点**: 部品のリネームが、ほかの部品の修飾子の名前・名前つきの引数の名前（`Sine s(amplitude = amplitude)` の左）と、同名の部品を宣言した入れ子のクラスの中を書き換えない（前は利用者の本文を壊した）。継承した部品と同じ名前への変更は断る。引用符つきの識別子（`'a b'`）は丸ごと一致するときだけ。LSP の `textDocument/completion`・`globe/completion` は配列でなく `CompletionList` `{isIncomplete, items}`（200 件に達したら `isIncomplete: true`。wasm の `completion` は配列のまま）。`textDocument/rename`・`prepareRename` は、ファイル名に対応する最上位のクラス（`M.mo` の `model M`、`package.mo`）と、根の下の開いていない `.mo` に同じ名前があるクラスのリネームを断る。開いていない文書への `globe/rename`・`textDocument/rename` は -32803、`globe/references` は空の配列。ライブラリのファイルがディスクで変わったら読み直し、ホバーが古い範囲で panic しない。LSP は 1 要求の panic で落ちずに -32603 を返す。
 - S134・S135: Desktop が `C.UTF-8` の locale で白画面になる不具合の修正と、自動更新（`tauri-plugin-updater`。鍵を登録するまで「未設定」）。
 - S140・S164: アプリの使える流れの点検（調査だけ。[2026-11-04](doc/research/app-flow-2026-11-04.md)、[2026-11-05](doc/research/app-flow-2026-11-05.md)）。
 
