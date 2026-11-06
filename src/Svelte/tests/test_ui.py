@@ -248,7 +248,7 @@ def review_fixes(browser, origin: str, errors: list[str]) -> None:
     bz.get_by_label("モデル名").fill("Long")
     bz.locator(".cm-content").click()
     bz.keyboard.press("Control+A")
-    bz.keyboard.insert_text(LONG)
+    bz.keyboard.insert_text(LONG.replace("StopTime = 1000", "StopTime = 1000000"))  # CI の速い機械では 1000 s の実行が F12 の待ちの間に終わる（S201）
     bz.get_by_role("button", name="実行", exact=True).click(force=True)
     expect(bz.locator("p.run")).to_contain_text("integration", timeout=120_000)
     assert bz.locator("p.run").get_attribute("role") is None, "実行中の進捗の行は role を持たない"

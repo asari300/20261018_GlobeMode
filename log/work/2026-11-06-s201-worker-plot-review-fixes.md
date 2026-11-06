@@ -38,7 +38,8 @@ main `cc846ba` の wasm の Worker（`web/client.js`・`worker.js`）とプロ�
 - `test_ui.py`（全部。MSL あり）: 通った（最後の行 `ok`）。`GM-SMOKE` の行は変えていない（`tree=ok fmt=ok graph=ok cancel=ok settings=ok plot=ok def=ok isolated=1 cancel_path=flag`）。
 - wasm は main の先頭 `688a3ca` を release（`mise run wasm:build`）でビルドして `~/.cache/globe-mode-s201/wasm-pkg` に置いて使った。
 - `check_docs.py`: 切れ 0 件。
-- CI の run: （下に追記）
+- android.yml 42176048464: success。
+- ci.yml（full）1 回目 42176061490: ui ジョブだけ失敗。S196 の `review_fixes` の 1 つ（実行中の F12。`Long` の 1000 s が CI の速い機械では 1.5 s の待ちの間に終わり、「止める」が無い）で、S201 の変更とは無関係。S196 は ui ジョブを回していなかった。`StopTime` を 1000000 にして直した（手元で `review_fixes` と `plot_fixes` が通る）。2 回目の run は下に追記。
 
 ## 残したこと
 
