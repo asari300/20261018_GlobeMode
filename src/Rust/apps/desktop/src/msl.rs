@@ -211,8 +211,6 @@ mod tests {
     use super::*;
     use std::io::Write;
 
-    const NO: AtomicBool = AtomicBool::new(false);
-
     /// 1 ファイルだけの zip を作る（名前は `name`）。
     fn make_zip(path: &Path, name: &str) {
         let mut z = zip::ZipWriter::new(fs::File::create(path).unwrap());
@@ -237,12 +235,18 @@ mod tests {
         let sha = sha256_file(&zip).unwrap();
         let dest = d.join("msl");
         // 違う sha256 なら目印も展開も無い
-        let bad = install(&zip, "9.9.9", &"0".repeat(64), &dest, &NO);
+        let bad = install(
+            &zip,
+            "9.9.9",
+            &"0".repeat(64),
+            &dest,
+            &AtomicBool::new(false),
+        );
         assert!(bad.unwrap_err().contains("sha256"));
         assert!(!dest.join(MARKER).exists() && !dest.join("Modelica 4.1.0").exists());
         // 消されたので作り直す
         make_zip(&zip, "Modelica 4.1.0/package.mo");
-        install(&zip, "9.9.9", &sha, &dest, &NO).unwrap();
+        install(&zip, "9.9.9", &sha, &dest, &AtomicBool::new(false)).unwrap();
         assert!(dest.join("Modelica 4.1.0/package.mo").is_file());
         assert!(marker_is(&dest, "9.9.9", &sha));
         assert!(!marker_is(&dest, "9.9.8", &sha));
@@ -285,7 +289,7 @@ mod tests {
         make_zip(&zip, "../evil.mo");
         let sha = sha256_file(&zip).unwrap();
         let dest = d.join("msl");
-        assert!(install(&zip, "9.9.9", &sha, &dest, &NO).is_err());
+        assert!(install(&zip, "9.9.9", &sha, &dest, &AtomicBool::new(false)).is_err());
         assert!(!d.join("evil.mo").exists() && !marker_is(&dest, "9.9.9", &sha));
         let _ = fs::remove_dir_all(d);
     }
