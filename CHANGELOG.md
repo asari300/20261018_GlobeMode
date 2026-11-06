@@ -97,6 +97,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 - S057: FMI の調査と `globe-mode-fmi`（`modelDescription.xml`）の準備。
 - S094・S098・S105: `globe fmu export` が FMI 2.0・3.0 のソースの FMU（ME・CS）を出す（Rumoca の `fmi2` / `fmi3` のテンプレート。FMPy と fmusim で検証）。`--build --target <triple>` で Linux・Windows・macOS の共有ライブラリも同梱。
+- S204: **FMI Import の最初の一切れ**。新 crate `globe-mode-fmi-import` が FMU（zip）を安全に展開し（zip slip・シンボリックリンク・2 GiB 超を拒む）、共有ライブラリを読み込んで FMI 2.0・3.0 の Co-Simulation を回す（自前の C ABI。Reference-FMUs の BouncingBall・Dahlquist・VanDerPol の参照の CSV と全桁で一致、Export した Decay の往復も通る）。CLI に `globe fmu info <file.fmu>`（`modelDescription.xml` の要約。ネイティブコードは実行しない）と `globe fmu run <file.fmu> [--stop-time …] [--step …] [--set 名前=値]`（CSV を出す。**実行の前に「FMU の中のネイティブコードを実行する」と標準エラーに 1 行出す**）。ADR-0026 を Accepted に。`fmi` crate 0.8 は zip 8.6.0 の脆弱性（4 件）などで入れていない。ME・マスター・SE は未。
 - S095・S099・S109・S112・S114・S137: 自前のランタイム `globe-mode-fmu`（依存 0）。FMI 2.0 ME の関数、モデルの compile、事象、代数・離散の変数、入力、FMI 3.0 ME。S117・S124 で `modelDescription.xml` の書き手を P5a と共有。
 - S144・S154: UI の「FMU を書き出す」（ブラウザ・Desktop・Android。FMI 2.0 / 3.0 を選べる）。
 

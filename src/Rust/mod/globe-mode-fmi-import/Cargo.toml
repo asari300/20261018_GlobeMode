@@ -1,0 +1,33 @@
+[package]
+name = "globe-mode-fmi-import"
+description = "GlobeMode: FMI 2.0 / 3.0 Import (loads an FMU's shared library; native only, never built for wasm)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+# S204（P5、ADR-0026）: FMU の共有ライブラリを読んで Co-Simulation を回す最初の一切れ。
+# Export の利用者（globe-mode-fmi）に動的ライブラリの読み込みを背負わせないため、別の crate にした。
+[dependencies]
+globe-mode-fmi = { workspace = true }
+# 共有ライブラリの読み込み（ISC。Cargo.lock に 0.9.0 が既にある）
+libloading = "0.9"
+# FMU（zip）の展開。xtask・globe-mode-fmi の export と同じ 9 系
+zip = { version = "9", default-features = false, features = ["deflate"] }
+# 展開先（drop で消える）
+tempfile = "3"
+
+
+[dev-dependencies]
+zip = { version = "9", default-features = false, features = ["deflate"] }
+
+# FFI の境界（abi2.rs・abi3.rs の unsafe）。それ以外では unsafe を禁じる
+[lints.rust]
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+dbg_macro = "warn"
+undocumented_unsafe_blocks = "warn"

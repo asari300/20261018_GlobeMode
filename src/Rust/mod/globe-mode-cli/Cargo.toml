@@ -25,6 +25,9 @@ sundials = ["globe-mode/sundials"]
 # S118: fmu で `globe fmu export` を facade の export_fmu から
 globe-mode = { workspace = true, features = ["fmu"] }
 globe-mode-core = { workspace = true }
+# S204: `globe fmu info` / `run`（FMU の読み込み。ネイティブのみ。ADR-0026）
+globe-mode-fmi = { workspace = true }
+globe-mode-fmi-import = { workspace = true }
 globe-mode-lsp = { workspace = true }
 globe-mode-fmt = { workspace = true, features = ["config"] }
 globe-mode-ir = { workspace = true }
@@ -32,10 +35,6 @@ clap = { workspace = true }
 serde_json = { workspace = true }
 # S060: fmt / lint のディレクトリの走査で .gitignore を守る（ruff と同じ crate。MIT OR Unlicense）
 ignore = "0.4"
-
-[dev-dependencies]
-# tests/fmu_export.rs が書いた modelDescription.xml を読む
-globe-mode-fmi = { workspace = true }
 
 [lints]
 workspace = true

@@ -1,0 +1,40 @@
+# FMI Import の最初の一切れ（S204、ADR-0026）を Linux・Windows・macOS で確かめる。手動だけ（`gh workflow run fmu-import.yml`）。
+#
+# Reference-FMUs（v0.0.42、`cargo xtask fetch-reference-fmus`）の BouncingBall・Dahlquist・VanDerPol（FMI 2.0・3.0）を
+# `globe-mode-fmi-import` で読み込んで Co-Simulation を回し、FMU が同梱する参照の CSV と突き合わせる
+# （`src/Rust/mod/globe-mode-fmi-import/tests/reference.rs`）。続けて `globe fmu info` / `run` の試験。
+# Export した FMU を自分で Import する往復の試験は Linux の x86_64 だけで走る（cc と FMPy のヘッダを使う）。
+name: fmu-import
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fmu-import:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      # 取得物が無いときに試験が黙って飛ばさず落ちるように
+      GLOBE_REQUIRE_REFERENCE_FMUS: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+        if: runner.os != 'Windows'
+        with:
+          install_args: rust uv
+      # Windows では mise の shim 経由の cargo が失敗した（ci.yml の rust-windows と同じ）
+      - run: rustup toolchain install stable --profile minimal --no-self-update && rustup default stable
+        if: runner.os == 'Windows'
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo xtask fetch-reference-fmus
+      - name: 読み込みと参照の CSV との突き合わせ
+        run: cargo test -p globe-mode-fmi-import -- --nocapture
+      - name: globe fmu info / run と、Export した FMU の往復（Linux だけ）
+        run: cargo test -p globe-mode-cli --test fmu_import -- --nocapture
