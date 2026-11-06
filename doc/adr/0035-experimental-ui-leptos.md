@@ -1,6 +1,6 @@
 # ADR-0035 Leptos 版 UI は UI と計算を 1 つの wasm に入れ、別の workspace で、wasm-bindgen の流儀（trunk なし）でビルドする
 
-- 状態: Proposed（2026-11-05、S153。ブラウザ（Linux）の 1 列だけ測った）
+- 状態: Accepted（2026-11-06。ユーザーの判断。Proposed は 2026-11-05、S153。そのときはブラウザ（Linux）の 1 列だけ測った。3 OS までは [ADR-0034](0034-ui-bench-method.md) の付記）
 - 関係: [ADR-0023](0023-desktop-and-web-process-layout.md)（本線の UI は計算を別のプロセスか Worker に置く。ここでは**試験版だけの例外**にし、覆さない）、[ADR-0034](0034-ui-bench-method.md)（測り方）、[ADR-0014](0014-session-route-wasm.md)（wasm の道）
 
 ## 背景

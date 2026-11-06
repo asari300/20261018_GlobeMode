@@ -22,7 +22,7 @@ use serde_json::{Value, json};
 /// サーバからの通知の渡し先。
 pub type Sink = Arc<dyn Fn(Value) + Send + Sync>;
 
-/// 実行の予算（ADR-0017・ADR-0023）。検査には予算を付けない（ADR-0018）
+/// 実行の予算（ADR-0017・ADR-0023）。検査には予算を付けない（ADR-0018）が、中断（`Canceller`）は検査にも効く（S197）
 const SIMULATE_BUDGET: Duration = Duration::from_secs(180);
 /// `initialize` の応答まで（ライブラリを読む。MSL で約 3 s、遅い機械の余裕を見る）
 const START_BUDGET: Duration = Duration::from_secs(300);
@@ -119,6 +119,12 @@ impl Worker {
     pub fn set_libraries(&mut self, libraries: Vec<PathBuf>) {
         self.libraries = libraries;
         self.live = None;
+    }
+
+    /// 渡しているライブラリ（試験用）。
+    #[cfg(test)]
+    pub fn libraries(&self) -> &[PathBuf] {
+        &self.libraries
     }
 
     /// 実行中の要求を外から止める口（[`Canceller`]）。
@@ -250,19 +256,18 @@ impl Worker {
         let id = self.next_id;
         self.send(&json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}))?;
         let deadline = budget.map(|b| Instant::now() + b);
-        if budget.is_some() {
-            let stdin = self
-                .live
-                .as_ref()
-                .ok_or("sidecar が動いていない")?
-                .stdin
-                .clone();
-            *lock(&self.running.0) = Some(Running {
-                stdin,
-                id,
-                asked: None,
-            });
-        }
+        // 予算の無い要求（検査）も登録する。応えない sidecar を中断で止められるように
+        let stdin = self
+            .live
+            .as_ref()
+            .ok_or("sidecar が動いていない")?
+            .stdin
+            .clone();
+        *lock(&self.running.0) = Some(Running {
+            stdin,
+            id,
+            asked: None,
+        });
         let r = self.wait(id, method, budget, deadline);
         *lock(&self.running.0) = None;
         r
@@ -278,24 +283,19 @@ impl Worker {
     ) -> Result<Value, String> {
         loop {
             let rx = &self.live.as_ref().ok_or("sidecar が動いていない")?.rx;
-            let got = match deadline {
-                Some(d) => {
-                    let left = d.saturating_duration_since(Instant::now());
-                    match rx.recv_timeout(left.min(POLL)) {
-                        Err(RecvTimeoutError::Timeout) if !left.is_zero() => {
-                            let asked = lock(&self.running.0).as_ref().and_then(|r| r.asked);
-                            if asked.is_some_and(|a| a.elapsed() >= CANCEL_GRACE) {
-                                self.live = None;
-                                return Err(format!(
-                                    "{method}: 止めても応えないので sidecar を止めた（次の要求で作り直す）"
-                                ));
-                            }
-                            continue;
-                        }
-                        got => got,
+            let left = deadline.map(|d| d.saturating_duration_since(Instant::now()));
+            let got = match rx.recv_timeout(left.map_or(POLL, |l| l.min(POLL))) {
+                Err(RecvTimeoutError::Timeout) if left.is_none_or(|l| !l.is_zero()) => {
+                    let asked = lock(&self.running.0).as_ref().and_then(|r| r.asked);
+                    if asked.is_some_and(|a| a.elapsed() >= CANCEL_GRACE) {
+                        self.live = None;
+                        return Err(format!(
+                            "{method}: 止めても応えないので sidecar を止めた（次の要求で作り直す）"
+                        ));
                     }
+                    continue;
                 }
-                None => rx.recv().map_err(|_| RecvTimeoutError::Disconnected),
+                got => got,
             };
             match got {
                 Ok(m) if m["id"] == id => {
@@ -492,6 +492,66 @@ mod tests {
         assert!(w.pid().is_none());
         // 2 回目も立ち上げ直して、また予算で止まる
         assert!(w.request("globe/check", json!({"model": "D"})).is_err());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// S197: initialize だけ答えて、あとは黙る sidecar。予算の無い `globe/check` でも、止める合図から CANCEL_GRACE で kill して誤りを返す。
+    #[cfg(unix)]
+    #[test]
+    fn cancel_kills_a_silent_check_without_budget() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("globe-desktop-cancel-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (script, pidfile) = (dir.join("half"), dir.join("pid"));
+        let init = r#"{"jsonrpc":"2.0","id":1,"result":{}}"#;
+        let body = format!(
+            "#!/bin/sh\necho $$ > '{}'\nprintf 'Content-Length: {}\\r\\n\\r\\n%s' '{init}'\nexec sleep 600\n",
+            pidfile.display(),
+            init.len()
+        );
+        std::fs::write(&script, body).unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let (sink, _) = collecting();
+        let mut w = Worker::new(script, vec![], sink);
+        // 並行する別の試験が fork した子が書き込みの fd を持つ間は ETXTBSY になる。待って再試行する
+        while let Err(e) = w.ensure_live() {
+            assert!(e.contains("Text file busy"), "{e}");
+            thread::sleep(Duration::from_millis(50));
+        }
+        let c = w.canceller();
+        let (tx, done) = mpsc::channel();
+        thread::spawn(move || {
+            let r = w.request("globe/check", json!({"model": "D"}));
+            let _ = tx.send((w, r));
+        });
+        let t0 = Instant::now();
+        while lock(&c.0).is_none() {
+            assert!(
+                t0.elapsed() < Duration::from_secs(5),
+                "要求が Running に登録されない"
+            );
+            if let Ok((_, r)) = done.try_recv() {
+                panic!("要求が中断の前に終わった: {r:?}");
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+        let t = Instant::now();
+        c.cancel();
+        let (w, r) = done
+            .recv_timeout(Duration::from_secs(10))
+            .expect("中断が効かず、要求が返らない");
+        assert!(t.elapsed() < Duration::from_secs(5), "{:?}", t.elapsed());
+        let e = r.unwrap_err();
+        assert!(e.contains("止めても応えない"), "{e}");
+        assert!(w.pid().is_none());
+        let pid = std::fs::read_to_string(&pidfile).unwrap();
+        let alive = std::process::Command::new("kill")
+            .args(["-0", pid.trim()])
+            .stderr(Stdio::null())
+            .status()
+            .unwrap()
+            .success();
+        assert!(!alive, "sidecar (pid {}) が残っている", pid.trim());
         let _ = std::fs::remove_dir_all(dir);
     }
 

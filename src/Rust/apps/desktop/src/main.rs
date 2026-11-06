@@ -30,26 +30,25 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod msl;
+mod shell;
 mod worker;
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use serde_json::{Value, json};
+use shell::{
+    Libraries, MslDir, NOTIFY_METHODS, RPC_METHODS, Shared, allow, install_msl, lock, names,
+};
 use tauri::{Emitter, Manager, State};
 use worker::{Sink, Worker};
-
-type Shared = Arc<Mutex<Worker>>;
-
-fn lock(w: &Shared) -> MutexGuard<'_, Worker> {
-    w.lock().unwrap_or_else(|e| e.into_inner())
-}
 
 /// 要求を 1 つ頼み、`result` を返す（JSON-RPC のエラーは Err の文字列）。
 #[tauri::command]
 async fn rpc(state: State<'_, Shared>, method: String, params: Value) -> Result<Value, String> {
+    allow(&method, &RPC_METHODS)?;
     let w = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || lock(&w).request(&method, params))
         .await
@@ -65,6 +64,7 @@ fn cancel_run(c: State<'_, worker::Canceller>) {
 /// 通知を 1 つ送る（`textDocument/didOpen` など）。
 #[tauri::command]
 async fn notify(state: State<'_, Shared>, method: String, params: Value) -> Result<(), String> {
+    allow(&method, &NOTIFY_METHODS)?;
     let w = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || lock(&w).notify(&method, params))
         .await
@@ -115,52 +115,9 @@ async fn bench(app: tauri::AppHandle, line: Option<String>) -> Result<bool, Stri
     Ok(true)
 }
 
-/// sidecar に渡しているライブラリのパス（UI の `TauriBackend.library` が「sidecar が既に読んでいるか」を知るため）。
-/// 取得した MSL で増える。
-#[derive(Clone)]
-struct Libraries(Arc<Mutex<Vec<PathBuf>>>);
-
-/// MSL の置き場の根（app data dir の `msl`。版ごとに `msl/<version>`）と、取得の取り消しの旗。
-#[derive(Clone)]
-struct MslDir(PathBuf, Arc<AtomicBool>);
-
-fn names(libs: &Libraries) -> Vec<String> {
-    let libs = libs.0.lock().unwrap_or_else(|e| e.into_inner());
-    libs.iter().map(|p| p.display().to_string()).collect()
-}
-
 #[tauri::command]
 fn libraries(state: State<'_, Libraries>) -> Vec<String> {
     names(&state)
-}
-
-/// その版の MSL を取得して展開し、sidecar をそれだけで作り直す。読んだパスを返す。
-/// 外から渡されたライブラリ（`--library`・`GLOBE_LIBRARY`）があれば何もしない。その版を読んでいても何もしない。
-fn install_msl(
-    dir: &MslDir,
-    libs: &Libraries,
-    w: &Shared,
-    version: &str,
-    progress: impl FnMut(u64, Option<u64>),
-) -> Result<Vec<String>, String> {
-    let target = msl::dest(&dir.0, version);
-    let current = libs.0.lock().unwrap_or_else(|e| e.into_inner()).clone();
-    if matches!(current.as_slice(), [p] if *p == target) {
-        return Ok(names(libs));
-    }
-    if current.iter().any(|p| !p.starts_with(&dir.0)) {
-        return Err(
-            "外から渡したライブラリ（--library・GLOBE_LIBRARY）を使っているので MSL を切り替えない"
-                .into(),
-        );
-    }
-    dir.1.store(false, Ordering::Relaxed);
-    msl::fetch(&target, version, progress, &dir.1)?;
-    *libs.0.lock().unwrap_or_else(|e| e.into_inner()) = vec![target.clone()];
-    let mut w = lock(w);
-    w.set_libraries(vec![target]);
-    w.ensure_live()?; // 読めない MSL はここで UI に返す
-    Ok(names(libs))
 }
 
 /// MSL を取得して使えるようにする（UI の「MSL を取得する」と版の選択）。進捗はイベント `msl-progress`。
@@ -347,12 +304,11 @@ fn main() {
                 }
             });
             let mut libs = libraries_from_env();
-            let dir = MslDir(
+            let dir = MslDir::new(
                 app.path()
                     .app_data_dir()
                     .map_err(|e| e.to_string())?
                     .join("msl"),
-                Arc::new(AtomicBool::new(false)),
             );
             // 渡されたライブラリが優先。無くて、取得済みの MSL があればそれを渡す（4.1.0 を先に）
             if libs.is_empty() && std::env::var_os("GLOBE_DESKTOP_BENCH").is_none() {

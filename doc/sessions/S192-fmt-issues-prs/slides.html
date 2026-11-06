@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S192 整形器の issue と PR — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S192 整形器の issue と PR">
+
+<section class="slide" id="S01">
+  <span class="tag">S192 · 2026-11-06 · P4</span>
+  <h1>整形器の issue と PR を片付けた</h1>
+  <p class="lead">PR 17 の panic 2 件、issue 19 の CRLF、issue 21 の end の不一致を直した。issue 20 は S167 で直っていた</p>
+  <div class="big">正しいファイルを<b>断る数は前後とも 0</b>。2,661 本の整形結果も同じ</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>やること</h1>
+  <ul>
+    <li>未解決の issue 3 件（19・20・21）と PR 2 件（17・18）を、いまの main で 1 つずつ再現する</li>
+    <li>再現したものは直して試験を足す。直っていたものは、そう記録する</li>
+    <li>別セッションが書いたレビュー文書は、S 番号の衝突を避けて log/review の下へ移す</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">結果</span>
+  <h1>1 件ずつの結果</h1>
+  <table>
+    <tr><th>番号</th><th>main で再現</th><th>対応</th></tr>
+    <tr><td>PR 17</td><td class="ng">panic 2 件とも再現</td><td class="ok">レイアウトと字句解析の 2 か所を取り込み、試験 2 本</td></tr>
+    <tr><td>issue 19</td><td class="ng">同じ Err（byte 11）</td><td class="ok">出力の改行の置き換えを 1 行直す</td></tr>
+    <tr><td>issue 20</td><td class="ok">再現せず（Ok）</td><td class="ok">S167 で修正済み。回帰の試験だけ足す</td></tr>
+    <tr><td>issue 21</td><td class="ng">Ok のまま通る</td><td class="ok">ブロックの種類を覚えて end と突き合わせる</td></tr>
+    <tr><td>PR 18 ほか</td><td>文書だけ</td><td class="ok">log/review の下へ移した</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由</span>
+  <h1>直し方</h1>
+  <table>
+    <tr><th>件</th><th>直し</th><th>理由</th></tr>
+    <tr><td>UTF-8</td><td>2 文字の演算子をバイト列で比べる</td><td>文字の途中で文字列をスライスしていた</td></tr>
+    <tr><td>tuple</td><td>引数が空のときは 1 行に収めず展開の道へ</td><td>先頭のトークンを取る expect が空で落ちた</td></tr>
+    <tr><td>CRLF</td><td>行の中の \r\n を先に \n に戻してから改行を置き換える</td><td>コメントと文字列は行の中に元の \r\n を持つ。\r\r\n になってトークンの照合で断られた</td></tr>
+    <tr><td>end</td><td>Ctx::Block に if / for / while / when を持たせる</td><td>どの end でも閉じていた。断る条件は括弧と end の不一致と文書にある</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">検証</span>
+  <h1>正しいファイルを誤って断らないこと</h1>
+  <div class="kpis">
+    <div class="kpi"><span class="n">2,556</span><span class="l">MSL 4.1.0 の .mo</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">断る本数（前後とも）</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">整形結果の差</span></div>
+  </div>
+  <p>src/Modelica 71 本と doc/research/upstream 34 本を合わせた 2,661 本も前後で同じ。Buildings と AixLib を含む 10,644 本でも断る 4 本は前後で同じ</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">文書の移動</span>
+  <h1>レビュー文書の置き場</h1>
+  <ul>
+    <li>元の S136・S149〜S152 は main の索引で別のセッションが使っている</li>
+    <li>log/review/2026-11-03-review-map など 4 フォルダへ移した。本文は変えず、リンクとコマンドのパスだけ直した</li>
+    <li>索引 doc/sessions/README.md には足さない。log/review/README.md に表を足した</li>
+    <li>レビュー地図は 2026-11-03 の main の snapshot だと README に 1 行書いた</li>
+  </ul>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ul>
+    <li>CRLF と LF が混ざった入力で、コメントの中の改行が合わないときは、これまでどおり断る</li>
+    <li>issue と PR を閉じるのは親が行う（19・21 は main への取り込みで自動、20・17・18 は手動）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

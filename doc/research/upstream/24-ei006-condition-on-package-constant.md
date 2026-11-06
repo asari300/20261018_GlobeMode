@@ -30,7 +30,7 @@ All five compile. MLS 3.6 section 4.4.5 "Conditional Component Declaration" (htt
 
 ```text
 $ globe check 24-ei006-condition-on-package-constant.mo --model Rep24.C
-24-ei006-condition-on-package-constant.mo:30:22: error[GM-E3001] S3 instantiate: conditional component `x` requires parameter expression
+24-ei006-condition-on-package-constant.mo:42:22: error[GM-E3001] S3 instantiate: conditional component `x` requires parameter expression
     note: rumoca: EI006
 Rep24.C: NG（S3 instantiate で停止）
 

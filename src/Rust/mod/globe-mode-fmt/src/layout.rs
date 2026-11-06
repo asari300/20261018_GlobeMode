@@ -358,8 +358,9 @@ impl Renderer<'_> {
             let before = self.lines.len();
             match flat {
                 Some(f)
-                    if self.width() + f.trim_start().chars().count() + sep_len
-                        <= self.opt.width =>
+                    if !a.nodes.is_empty()
+                        && self.width() + f.trim_start().chars().count() + sep_len
+                            <= self.opt.width =>
                 {
                     self.push_flat(&f, first_token(&a.nodes), last_token(&a.nodes));
                 }

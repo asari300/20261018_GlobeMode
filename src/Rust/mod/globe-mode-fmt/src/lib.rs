@@ -158,8 +158,8 @@ pub fn format(src: &str, options: &Options) -> Result<String, FormatError> {
             out.push_str(newline);
         }
         for line in layout::render(&tree, e.indent, options) {
-            // HTML の文字列は行の中に改行を持つ
-            out.push_str(&line.replace('\n', newline));
+            // コメントや文字列は行の中に改行を持つ。CRLF の入力では元の \r\n が \r\r\n にならないよう先に戻す
+            out.push_str(&line.replace("\r\n", "\n").replace('\n', newline));
             out.push_str(newline);
         }
         first = false;

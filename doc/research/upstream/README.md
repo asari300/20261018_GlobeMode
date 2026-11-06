@@ -8,6 +8,7 @@ S045（計画書の WP-H）で書いた（15 は S055、16 は S068、17〜21 �
 - **出すときは、再現を Rumoca の最新（main）で確かめてから出す。** 下書きの環境は Rumoca v0.10.2（rev `276e82bd`）、MSL 4.1.0。01〜34 は最新のリリース v0.10.4（2026-11-05 でも最新）でも確かめてある（01〜16 は S162）。Rumoca の CLI がこの環境に無いまま書いた件は、本文に「[not verified]」と書いてある。
 - 本文は英語で、issue にそのまま貼れる形（Summary / Steps to reproduce / Expected / Actual / Environment / Workaround in GlobeMode / Notes）。
 - 再現ファイル（`.mo`）は、MSL の例題で再現する件では置かない（モデル名とコマンドを本文に書く）。`src/Modelica/` には置かない（MODELICAPATH として開けるパッケージだけを置く規則）。
+- 再現用の `.mo` は `globe fmt` で整形する（空白が要点のものを除く。S194 で 34 本すべてを整形した。整形の前後で全クラスの診断のコードと重大度が同じことを確かめてある）。新しく足すときも整形し、本文に貼る診断の `行:列` は整形後のファイルのものにする。
 - diffsol の件（10〜12）は Rumoca が同梱する 0.13.2 での観測。diffsol 本家で同じかは確かめていない（本文に "not verified against upstream diffsol main"）。単体の diffsol のプログラムに縮めてから出す。
 - 状態は「下書き」のまま。出したら issue の URL と日付をこの表に足す。
 - v0.10.4 で再現する 01・02・05〜09・12〜33 には日本語版（`NN-<slug>_jp.md`、英語と同じ章立て）とスライド 1 枚の解説（`NN-<slug>_jp.html`、`doc/assets/slides.css`・`slides.js` だけを使う）がある（28〜33 は S113、17〜27 は S115、01〜16 は S162）。v0.10.4 で直った 03・04・15（一部）・25・25b・25c・25g・26 と、diffsol の main で直った 10・11 には作っていない（15 は残る `Dimmer_RL` の分だけ作った）。ユーザーが読んで出すかを決めるためのもの。
