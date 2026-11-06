@@ -193,6 +193,7 @@ jobs:
 
   desktop-ui:
     # desktop.yml の ui と同じ（Desktop の UI に wasm は要らないので vite build だけ）
+    needs: third-party   # 版の突き合わせが落ちたら desktop も回さない（S195）
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
