@@ -134,6 +134,28 @@ fn unknown_model_has_an_empty_closure_and_stops_at_s1_with_candidates() {
     );
 }
 
+/// S199: 候補は最大 5 件（前からの一致が長いものが先）。パッケージ名の診断に足さないことは CLI の試験（`review_fixes.rs`）。
+#[test]
+fn workspace_candidates_are_five_at_most_and_skip_package_names() {
+    let mut db = loaded();
+    let r = db.check_model("GlobeModeValidation.Connect.Typo");
+    let note = r.diagnostics[0]
+        .notes
+        .iter()
+        .find(|n| n.starts_with("候補"))
+        .expect("候補");
+    let listed = note.trim_start_matches("候補: ");
+    let listed = listed.split("（ほか").next().unwrap();
+    assert!(listed.split(", ").count() <= 5, "{note}");
+    assert!(note.contains("（ほか "), "{note}");
+    assert!(
+        listed
+            .split(", ")
+            .all(|n| n.starts_with("GlobeModeValidation.Connect.")),
+        "{note}"
+    );
+}
+
 /// S187: ワークスペースに無いパッケージ名から始まる名前は、ライブラリを渡し忘れていると言う。ワークスペースにあるなら言わない。
 #[test]
 fn a_package_not_in_the_workspace_says_the_library_is_missing() {

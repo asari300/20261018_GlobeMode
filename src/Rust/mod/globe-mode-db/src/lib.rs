@@ -321,7 +321,7 @@ fn add_workspace_candidates(
         return;
     };
     // Rumoca の候補（collect_model_names）と同じく、model / block / class
-    let names: Vec<&str> = index
+    let mut names: Vec<&str> = index
         .names()
         .filter(|n| {
             index.get(n).is_some_and(|c| {
@@ -332,8 +332,24 @@ fn add_workspace_candidates(
             })
         })
         .collect();
-    if !names.is_empty() && !d.notes.iter().any(|n| n.starts_with("候補")) {
-        d.notes.push(format!("候補: {}", names.join(", ")));
+    // 名前の前からの一致が長いものを先に（`A.B.Typo` なら `A.B.…` を `A.C.…` より）
+    let shared = |n: &str| {
+        n.split('.')
+            .zip(model.split('.'))
+            .take_while(|(a, b)| a == b)
+            .count()
+    };
+    names.sort_by_key(|n| (std::cmp::Reverse(shared(n)), *n));
+    // 補足がもう付いているとき（パッケージ名の「直下のモデル」など）は足さない。最大 5 件（S199。全モデルを 1 行に並べない）
+    if d.notes.is_empty() && !names.is_empty() {
+        let more = match names.len().saturating_sub(5) {
+            0 => String::new(),
+            n => format!("（ほか {n} 件）"),
+        };
+        d.notes.push(format!(
+            "候補: {}{more}",
+            names.iter().take(5).copied().collect::<Vec<_>>().join(", ")
+        ));
     }
     // `Modelica.Blocks.…` のように、ワークスペースのどのクラスの最初の部分でもない名前を、ライブラリ無しで渡したときは、
     // ライブラリを渡し忘れている（S187）
