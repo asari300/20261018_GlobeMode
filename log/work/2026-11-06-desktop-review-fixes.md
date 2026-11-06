@@ -30,3 +30,11 @@ Desktop のレビュー（Opus/medium）の指摘 2〜6 を直す。1・7 は S1
 - 手元: `cargo fmt --check` 通過。別クレート経由の試験 13 件通過（中断 1・MSL の失敗と排他 1・取り消し 1・method の一致 1・CSP の一致 1 を足した）。中断の試験は `Running` の登録を外すと落ちることを確かめた（指摘 2 の再現）。
 - clippy と Desktop のクレートの試験、bundle、smoke は GitHub Actions: 下の run。
 - `check_docs.py`: 切れ 0 件。
+- desktop.yml run 42160131300（`ui`・Linux・Windows・macOS の 4 ジョブすべて success。fmt・clippy・Desktop の試験・smoke を含む）。smoke の行は Linux・macOS・Windows とも `GM-SMOKE check=ok simulate=ok … msl=ok cfg=… tree=ok fmt=ok graph=ok cancel=ok settings=ok plot=ok def=ok recent=ok isolated=0 cancel_path=sidecar`（各 3 回、workflow の判定が通った）。最初の run 42158846610 は Linux の clippy が `const NO: AtomicBool`（interior mutability）で落ちたので取り消し、試験の書き方を直して回し直した。
+- android.yml run 42158850733（`ui`・`apk`・emulator の release と debug がすべて success）。smoke の行は `check=ok simulate=ok … msl=ok tree=ok fmt=ok graph=ok cancel=ok settings=ok plot=ok def=ok isolated=0 cancel_path=restart`（今までどおり）。CSP を入れても WebView で wasm の Worker と UI が動いた。
+
+## 残したこと
+
+- 指摘 8（`reload_config` の削除。TS も触る）。
+- `globe/exportFmu` の `outDir` を dialog で選んだパスに限る（ADR-0023 に限界を記録）。
+- HEAD の `--max-time 10` は試験なし（curl の引数）。
