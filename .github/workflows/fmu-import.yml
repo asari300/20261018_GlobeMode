@@ -8,6 +8,9 @@ name: fmu-import
 
 on:
   workflow_dispatch:
+  # TEMP(S204): main に入るまで gh workflow run で出せないので、この feature ブランチの push で回す。main に入れる前に消す
+  push:
+    branches: [feature/s204-fmi-import-first-slice]
 
 permissions:
   contents: read
