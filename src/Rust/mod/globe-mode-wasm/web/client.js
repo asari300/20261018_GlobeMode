@@ -10,6 +10,8 @@
 // worker を捨てて作り直し、ライブラリとファイルを再生する。次の呼び出しは再生のあとに始まる。restarts が回数。
 const GRACE_MS = 2000;
 
+const cancelledError = () => Object.assign(new Error("止めた"), { cancelled: true });
+
 export class GlobeWorker {
   restarts = 0;
   #make; #init; #w; #pending = new Map(); #id = 0;
@@ -17,10 +19,13 @@ export class GlobeWorker {
   #ready; #tail = Promise.resolve();
   #alive = false; // init が終わった worker か（終わる前に落ちたら作り直さない）
   #flag; // 中断のフラグ（Int32Array(SharedArrayBuffer)）。使えなければ null（S157）
-  #running = 0; #grace; // 実行中の simulate_columns の id と、cancel() のあとの猶予のタイマー
+  #graceMs; #running = 0; #grace; // 猶予（ms）、実行中の simulate_columns の id と、cancel() のあとの猶予のタイマー
+  #queued = 0; #cancelQueued = false; // 順番待ちか実行中の simulate_columns の数と、待っているものを止める印（S201）
 
   // shared: SharedArrayBuffer を使うか。既定は使えるか（ブラウザは cross-origin isolated のときだけ SharedArrayBuffer がある）
-  constructor(make, init, { shared = typeof SharedArrayBuffer === "function" } = {}) {
+  // graceMs: cancel() のあと Worker が応えるまで待つ時間（試験が短くする）
+  constructor(make, init, { shared = typeof SharedArrayBuffer === "function", graceMs = GRACE_MS } = {}) {
+    this.#graceMs = graceMs;
     this.#make = make;
     this.#init = init;
     this.#flag = shared ? new Int32Array(new SharedArrayBuffer(4)) : null;
@@ -32,11 +37,11 @@ export class GlobeWorker {
     const w = (this.#w = this.#make());
     const fail = (e) => this.#die(w, new Error(`worker が異常終了: ${e?.message ?? e}`));
     if (w.on) {
-      w.on("message", (m) => this.#reply(m));
+      w.on("message", (m) => w === this.#w && this.#reply(m)); // 捨てた worker の遅れた応答は読まない
       w.on("error", fail);
       w.on("exit", (c) => fail(`exit ${c}`));
     } else {
-      w.addEventListener("message", (e) => this.#reply(e.data));
+      w.addEventListener("message", (e) => w === this.#w && this.#reply(e.data));
       w.addEventListener("error", (e) => fail(e.error ?? e.message));
     }
     return this.#raw("init", this.#init).then(async () => {
@@ -50,10 +55,12 @@ export class GlobeWorker {
     return new Promise((resolve, reject) => {
       const id = ++this.#id;
       this.#pending.set(id, { resolve, reject, onProgress });
-      if (op === "simulate_columns" && this.#flag) {
-        Atomics.store(this.#flag, 0, 0);
+      if (op === "simulate_columns") {
         this.#running = id;
-        args = { ...args, cancel: this.#flag.buffer };
+        if (this.#flag) {
+          Atomics.store(this.#flag, 0, 0);
+          args = { ...args, cancel: this.#flag.buffer };
+        }
       }
       this.#w.postMessage({ id, op, ...args });
     });
@@ -94,7 +101,16 @@ export class GlobeWorker {
 
   // 呼び出しは直列に（再生の前に次の呼び出しが割り込まない）
   #call(op, args, onProgress) {
-    const r = this.#tail.then(() => this.#ready).then(() => this.#raw(op, args, onProgress));
+    const sim = op === "simulate_columns";
+    const r = this.#tail.then(() => this.#ready).then(() => {
+      if (sim && this.#cancelQueued) { this.#cancelQueued = false; throw cancelledError(); } // 待つ間に止められた
+      return this.#raw(op, args, onProgress);
+    });
+    if (sim) {
+      this.#queued++;
+      const done = () => { if (!--this.#queued) this.#cancelQueued = false; };
+      r.then(done, done);
+    }
     this.#tail = r.catch(() => {});
     return r;
   }
@@ -162,13 +178,29 @@ export class GlobeWorker {
   // そこまでの列と GM-I11004 を普通の結果として返す。lowering の中などで 2 s（GRACE）たっても応えなければ、
   // 使えないとき（cross-origin isolated でない配信）と同じく terminate() して作り直し、ライブラリとファイルを再生する。
   // 作り直したときは、止めた呼び出しを「止めた」の Error（cancelled: true）で reject する（途中の列は返らない）
+  // 止めるのは実行（simulate_columns）だけ。起動中や、実行が始まる前の呼び出し（hover・lint など）は殺さない（S201）。
+  // 実行がキューで待っているときは、順番が来たところで cancelled で reject する
   cancel() {
     const w = this.#w;
-    if (!w || !this.#pending.size) return;
-    const kill = () => this.#die(w, Object.assign(new Error("止めた"), { cancelled: true }));
-    if (!this.#running) return kill();
+    if (!w) return;
+    if (!this.#running) { if (this.#queued) this.#cancelQueued = true; return; }
+    const kill = () => this.#die(w, cancelledError());
+    if (!this.#flag) return kill();
     Atomics.store(this.#flag, 0, 1);
-    this.#grace = setTimeout(kill, GRACE_MS);
+    clearTimeout(this.#grace);
+    this.#grace = setTimeout(kill, this.#graceMs);
   }
-  async terminate() { const w = this.#w; this.#w = null; await w?.terminate(); }
+  // 待っている呼び出しは reject し、以後の呼び出しも reject する（S201）
+  async terminate() {
+    const w = this.#w;
+    this.#w = null;
+    this.#running = 0;
+    clearTimeout(this.#grace);
+    const err = new Error("terminate された");
+    for (const p of this.#pending.values()) p.reject(err);
+    this.#pending.clear();
+    this.#ready = Promise.reject(err);
+    this.#ready.catch(() => {});
+    await w?.terminate();
+  }
 }
