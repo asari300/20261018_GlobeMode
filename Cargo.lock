@@ -1419,6 +1419,7 @@ dependencies = [
  "globe-mode",
  "globe-mode-core",
  "globe-mode-fmi",
+ "globe-mode-fmi-import",
  "globe-mode-fmt",
  "globe-mode-ir",
  "globe-mode-lsp",
@@ -1471,6 +1472,16 @@ version = "0.2.0"
 dependencies = [
  "globe-mode-frontend",
  "roxmltree",
+ "zip",
+]
+
+[[package]]
+name = "globe-mode-fmi-import"
+version = "0.2.0"
+dependencies = [
+ "globe-mode-fmi",
+ "libloading 0.9.0",
+ "tempfile",
  "zip",
 ]
 

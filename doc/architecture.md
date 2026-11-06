@@ -72,7 +72,8 @@ doc/  log/                      文書と記録
 | `globe-mode-exec` **（S011）** | 実行系。Phase A は Rumoca の実行系（feature `rumoca-exec`、`rumoca-sim` の diffsol の BDF と Dormand–Prince 5(4)）で `CompiledModel` を実行し、中立の `SimRun` と診断（S10 の数値の部分 `GM-W10002`、実行の `GM-E11001`〜`GM-E11006`・`GM-I11001`・`GM-W11001`・`GM-U0004` / `GM-U0005`）を返す（[ADR-0013](adr/0013-exec-backend.md)）。S012 で session の道（`rumoca/session.rs`。Rumoca の FMI ME 風の host に数値積分のプラグインを差す。wasm32 のすべてのソルバと自前の積分器が通る。ネイティブの bdf・dopri45・auto は型付きの道のまま）、自前の積分器 6 つ（`rumoca/plugins.rs`、`plugins/rk.rs`（diffsol の esdirk34・trbdf2・tsit45）、`plugins/fixed.rs`（euler・heun・rk4））、`auto` の dopri45 への切り替え（`GM-I11002`）、パラメータの上書き（`param_overrides`、`GM-E10006`）と `tunable_parameters`。wasm32 でビルドできる（[ADR-0014](adr/0014-session-route-wasm.md)）。S014 でプリフライトを組み立ての lowering の結果で行うようにし（lowering は 1 回。ネイティブの dopri45 を除く）、実行系の中の段（`ExecStage`）を知らせる `run_with_progress` を足した（[ADR-0016](adr/0016-preflight-on-build-lowering.md)）。S018 でプリフライトに初期化の解き直し（初期化系を 2 回解いて動けば `GM-W10004`。[ADR-0020](adr/0020-init-resettle-check.md)）を足した。S123 で進捗と中断の `run_observed`（`Progress`・`CancelToken`。段の前と `auto` の回し直しの前、session の道は積分器を包んで 1 歩ごとに見る。止めたら `GM-I11004` と `Termination::Cancelled`。[ADR-0033](adr/0033-progress-and-cancel.md)）を足し、facade に `SimulateHandle`・`Workspace::simulate_observed` を置いた。今後: FMU-ME アダプタ（P5） | rumoca-sim、rumoca-solver（失敗の型）、rumoca-phase-solve、rumoca-solver-diffsol、rumoca-solver-rk45、diffsol、self_cell、frontend、sim |
 | `globe-mode-solver` | `trait Integrator`（自前の driver 用。P5 と Track B）。S012 の自前の積分器は、Rumoca の数値積分のプラグイン `MeIntegratorBackend` に結びつくので exec に置き、Rumoca に依存しない係数と補間は sim の `integrators` に置いた（[ADR-0014](adr/0014-session-route-wasm.md)）。この crate はまだ作っていない | diffsol, sundials（feature） |
 | `globe-mode-sim` **（S011）** | ソルバの名前の登録表（§3.3）、実行の設定の決定（指定 > experiment > 既定）、`ResultStore`（S011 は CSV。S012 で MAT v4 の `mat`（`write_mat4` / `read_mat4`、dsres の形）。Arrow IPC は持ち越し）、参照結果との比較（csv-compare の矩形の管を書き直したもの。S012 で比べる前のイベントの行の正規化 `normalize_events`）。S012 で固定刻みの係数と 3 次の Hermite 補間（`integrators`）、許容誤差の下限 1e-10（`GM-W10003`）、固定刻みの検査（`GM-I10004`・`GM-E10004`）。Rumoca にも実行系にも依存しない（wasm32 でビルドできる）。今後: ハイブリッドループの driver（FMU と Track B 用） | core、ir |
-| `globe-mode-fmi` | FMU の Import、マスターアルゴリズム、パッケージング。S057 で `parse_model_description`。S094 で feature `export`（`export_me_sources`・`write_fmu`。FMI 2.0 のソースの FMU、zip、`cc` で linux64 の `.so`） | roxmltree（S057）、zip・frontend（S094、feature `export`） |
+| `globe-mode-fmi-import` | FMU の Import（S204。共有ライブラリの読み込みと Co-Simulation。ネイティブのみで wasm32 には入れない）。ME・マスターは未 | globe-mode-fmi、libloading、zip、tempfile |
+| `globe-mode-fmi` | FMU の `modelDescription.xml`、マスターアルゴリズム、パッケージング。S057 で `parse_model_description`。S094 で feature `export`（`export_me_sources`・`write_fmu`。FMI 2.0 のソースの FMU、zip、`cc` で linux64 の `.so`） | roxmltree（S057）、zip・frontend（S094、feature `export`） |
 | `globe-mode-fmu` **（S095）** | 自前の FMI 2.0 Model Exchange のランタイム（P5b の 1 回目、cdylib + rlib）。`fmi2Instantiate`〜`fmi2GetDerivatives` の 35 関数を `extern "C"` で出す（FMUstate・方向微分・String は `fmi2Error` の stub）。S099 から、`fmi2Instantiate` が `resources/<完全修飾名>.mo` を compile して exec の `ModelInstance` で微分を求め、`modelDescription.xml` は `model_description` が同じ道で作る（[ADR-0032](adr/0032-p5b-own-runtime.md)）。S109 から事象（状態事象・`reinit`・`sample` の時刻事象）も回す（`fmi2GetEventIndicators`・`fmi2NewDiscreteStates`）。S112 から代数・離散の変数も値参照 `2n+p..` で読める（`fmi2GetReal`・`fmi2GetInteger`・`fmi2GetBoolean`）。S114 から入力（`causality="input"`）を `fmi2SetReal` で書ける（`ModelInstance::set_input`）。S137 から同じ cdylib で FMI 3.0 の ME（`fmi3*`、`model_description_3`）も出す。`tests/fmpy.rs` が FMU に詰めて FMPy で回す（Decay・HarmonicOscillator・BouncingBall・SampleCounter・NonlinearLoop・InputDecay）。FFI なので workspace の `unsafe_code = "forbid"` を外す | frontend、exec |
 | `globe-mode-protocol` **（S035）** | facade の入出力の serde 型: `CheckResponse`（`globe check --json` の形）、`SimulateRequest` / `SimulateResponse`（wasm の `Request` / `Response` の形）、`ParametersResponse`、`StructureCounts`。core・ir・analysis の型を再公開する。応答は Serialize だけ。今後: JSON Schema（schemars。core・analysis の型に derive が要る）、TypeScript と Python の型の生成 | core, ir, analysis, serde |
 | `globe-mode` **（S035）** | 公開する Rust API（facade）: `Workspace{new, with_libraries, with_library_sources, set_file, remove_file, load_dir, files, outline, check, deps, flat, graph, compile, tunable_parameters, simulate, simulate_with, db}` と `solvers()`。中身は db の `check_model` / `compiled_model_with_overrides` と exec の `run` を呼ぶだけ。`simulate_with` が「検査 → コンパイル → 実行」を 1 本にまとめ（S034 まで CLI と wasm が別々に持っていた）、時系列とコンパイル済みのモデルも返す（CLI が MAT を書くため）。db・exec・sim を `db` / `exec` / `sim` として再公開する（CLI の文字の表示と結果の書き出し用）。今後: `export_fmu` | core, ir, frontend, graph, db, exec, sim, protocol |
@@ -126,7 +127,7 @@ Rumoca の rev は GlobeMode の版ごとに固定する（[ADR-0002](adr/0002-r
 
 ### 2.5 GitHub Actions の workflow（S177）
 
-`.github/workflows/` の 11 本。push で回るのは `ci.yml` と、変更した場所だけで回る `android.yml`・`vscode.yml`。ほかは手動（`gh workflow run <名前>.yml`）か定期。
+`.github/workflows/` の 12 本。push で回るのは `ci.yml` と、変更した場所だけで回る `android.yml`・`vscode.yml`。ほかは手動（`gh workflow run <名前>.yml`）か定期。
 
 | workflow | きっかけ | 中身 |
 | --- | --- | --- |
@@ -135,6 +136,7 @@ Rumoca の rev は GlobeMode の版ごとに固定する（[ADR-0002](adr/0002-r
 | `libraries.yml` | 手動、毎週月曜 06:00 JST | MSL 以外の公開ライブラリ 7 つの検査と表（[libraries.md](libraries.md) の元。S058） |
 | `resources.yml` | 手動 | 最大 RSS と wasm の線形メモリの測定（S051・S054） |
 | `fmu-export.yml` | 手動 | Export した FMU を FMPy と fmusim で確かめる（FMI 2.0・3.0、複数の OS の同梱。S098・S105） |
+| `fmu-import.yml` | 手動 | Import の試験を Linux・Windows・macOS で回す（Reference-FMUs の参照の CSV との突き合わせ、`globe fmu info` / `run`。S204） |
 | `desktop.yml` | 手動 | Tauri の Desktop の .deb・.msi・.dmg と smoke、UI の測定（S049・S160） |
 | `android.yml` | 手動、main の `src/Rust/apps/desktop/**`・`src/Svelte/**` の変更 | debug・release の APK と API 34 のエミュレータの smoke（S092・S100・S106） |
 | `web.yml` | 手動 | ブラウザ版の配布物 `globe-web`（S145） |
@@ -308,7 +310,7 @@ KLU（LGPL）は同梱しない。
 
 ### 3.4 FMI 2.0 / 3.0
 
-#### Import（`fmi` 0.8 と `fmi-schema` の上に作る）
+#### Import（S204: 自前の C ABI（`libloading`）と `roxmltree` の上に作る。`fmi` 0.8 は zip の脆弱性で見送り。[ADR-0026](adr/0026-fmi-import-placement.md)）
 
 | 種類 | 実装 |
 | --- | --- |

@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S204 FMI Import の最初の一切れ — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S204 FMI Import の最初の一切れ">
+
+<section class="slide" id="S01">
+  <span class="tag">S204 · 2026-11-06 · P5</span>
+  <h1>FMI Import の最初の一切れ</h1>
+  <p class="lead">FMU の共有ライブラリを自前の C ABI で読み込み、Co-Simulation を回して参照の CSV と全桁で一致した</p>
+  <div class="big">Reference-FMUs 2.0・3.0 の 3 モデルが<b>相対差 0</b>。案 B（<code>fmi</code> crate）は<b>入れられなかった</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>ADR-0026 を Accepted にする。ユーザーの決定は「A、B 両方選択」</li>
+    <li>案 A（自前の C ABI）で FMI 2.0・3.0 の Co-Simulation を 1 本通す</li>
+    <li>案 B（crate <code>fmi</code> 0.8）を同じ trait の 2 つ目の実装として試す</li>
+    <li>CLI に <code>globe fmu info</code> と <code>globe fmu run</code>、Linux・Windows・macOS の手動 workflow</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>A と B</td><td>A を既定にして実装。B は同じ trait の実装として並べる設計。B は入れていない</td><td>解釈は親のもの。B は zip 8.6.0 の脆弱性 4 件、FMI 3.0 の不具合</td></tr>
+    <tr><td>置き場</td><td>新しい crate <code>globe-mode-fmi-import</code></td><td>Export と XML の利用者に <code>libloading</code> を背負わせない</td></tr>
+    <tr><td>信頼の境界</td><td>展開だけ、読み込み、の 2 段。<code>info</code> は何も実行しない。<code>run</code> は 1 行警告</td><td>FMU は任意のネイティブコード</td></tr>
+    <tr><td>展開</td><td>zip slip・シンボリックリンク・2 GiB 超は失敗にする</td><td>黙って飛ばさない</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>構成</h1>
+  <svg class="fig" viewBox="0 0 800 260" role="img" aria-label="FMU を開いて回す流れ">
+    <rect class="svg-box" x="20" y="90" width="150" height="80" rx="10"/>
+    <text class="svg-text-b" x="95" y="136" text-anchor="middle">.fmu (zip)</text>
+    <line class="svg-line" x1="170" y1="130" x2="230" y2="130"/>
+    <rect class="svg-box-accent" x="230" y="90" width="170" height="80" rx="10"/>
+    <text class="svg-text-b" x="315" y="126" text-anchor="middle">Fmu::open</text>
+    <text class="svg-text" x="315" y="148" text-anchor="middle">安全に展開</text>
+    <line class="svg-line" x1="400" y1="130" x2="450" y2="130"/>
+    <rect class="svg-box-accent" x="450" y="90" width="170" height="80" rx="10"/>
+    <text class="svg-text-b" x="535" y="126" text-anchor="middle">instantiate_cs</text>
+    <text class="svg-text" x="535" y="148" text-anchor="middle">dlopen（実行）</text>
+    <line class="svg-line" x1="620" y1="130" x2="660" y2="130"/>
+    <rect class="svg-box" x="660" y="90" width="120" height="80" rx="10"/>
+    <text class="svg-text-b" x="720" y="126" text-anchor="middle">FmuCs</text>
+    <text class="svg-text" x="720" y="148" text-anchor="middle">do_step</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">案 B</span>
+  <h1><code>fmi</code> 0.8 を入れなかった理由</h1>
+  <ul>
+    <li>推移的に <b>zip 8.6.0</b> を引く。勧告が 4 件（RUSTSEC-2026-0367・0368・0369・0429）。FMU の展開にこの zip が使われる</li>
+    <li>Cargo.lock が 67 パッケージ増える。<code>bzip2-1.0.6</code> が許可に無い。bindgen と libclang が要る</li>
+    <li>FMI 3.0 は Reference-FMUs で <code>Instantiate</code> が NULL（resourcePath の末尾に区切りが無い）</li>
+    <li>FMI 2.0 は動いた。参照の CSV と全桁で一致。戻す条件は ADR-0026 の (g)</li>
+  </ul>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>cargo xtask fetch-reference-fmus
+cargo test -p globe-mode-fmi-import
+cargo test -p globe-mode-cli --test fmu_import
+globe fmu run data/reference-fmus/3.0/Dahlquist.fmu --stop-time 1</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">0</span><span class="l">参照との相対差（9 本）</span></div>
+    <div class="kpi"><span class="n">7.8e-16</span><span class="l">往復 x(1) − e⁻¹</span></div>
+    <div class="kpi"><span class="n">4</span><span class="l">fmi が引く zip の勧告</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>次の WP の順番</h1>
+  <ol>
+    <li>ME（<code>FmuMe</code>）。GlobeMode のソルバで積分</li>
+    <li>ワーカーのプロセスの中で読み込む（FMU が落ちても落ちない）</li>
+    <li>facade の <code>import_fmu</code> と UI の「FMU を開く」（確認ダイアログ）</li>
+    <li>マスター、SE（Clocks）、案 B（zip 9 以上を待つ）</li>
+  </ol>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

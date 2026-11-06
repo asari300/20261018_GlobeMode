@@ -70,6 +70,7 @@ fn stdout_failed(e: &std::io::Error) {
 /// `-v`: info の診断も全部出す（既定は件数だけ）。
 static VERBOSE: AtomicBool = AtomicBool::new(false);
 
+mod fmu;
 mod report;
 mod simulate;
 
@@ -268,7 +269,7 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// FMU（今は `export` だけ）
+    /// FMU（`export` で書き出し、`info` と `run` で読む）
     Fmu {
         #[command(subcommand)]
         command: FmuCommand,
@@ -295,6 +296,9 @@ enum Command {
 
 #[derive(Debug, Subcommand)]
 enum FmuCommand {
+    /// S204: FMU を読む（`info`・`run`）
+    #[command(flatten)]
+    Import(fmu::FmuImportCommand),
     /// FMI 2.0 / 3.0 のソースの FMU（ME と CS）を書き出す。中身は Rumoca の `fmi2` / `fmi3` のテンプレート
     #[command(
         after_help = "例:\n  globe fmu export model.mo -m RC --out build\n  globe fmu export model.mo -m RC --out build --fmi-version 3\n  globe fmu export model.mo -m RC --out build --build --fmi-headers <fmi2Functions.h のあるディレクトリ>"
@@ -428,6 +432,9 @@ fn main() -> ExitCode {
                 fmi_headers,
             },
         ),
+        Command::Fmu {
+            command: FmuCommand::Import(command),
+        } => fmu::run(command),
         Command::Simulate {
             files,
             library,
