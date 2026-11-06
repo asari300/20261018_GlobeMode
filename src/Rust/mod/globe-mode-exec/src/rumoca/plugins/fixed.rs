@@ -135,12 +135,7 @@ impl MeIntegratorBackend for FixedStep {
         point: &MeContinuousPoint,
         derivatives: MeDerivativeHandle,
     ) -> Result<(), MeIntegrationError> {
-        if !(self.h.is_finite() && self.h > 0.0) {
-            return Err(self.fail(
-                MeNumericalFailure::Construction,
-                format!("the fixed step {} must be finite and positive", self.h),
-            ));
-        }
+        // 刻み幅 h は plugins.rs の plugin() が検査済み（有限で正。new の後で変わらない）
         self.derivatives = Some(derivatives);
         self.restart(point.width());
         Ok(())

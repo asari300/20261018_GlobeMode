@@ -156,6 +156,12 @@ fn over_determined_initialization_can_be_forced() {
         "{:?}",
         forced.diagnostics
     );
+    // 強行して走っても、検査の Error が残るので ok ではない（`ok` は「結果があり、Error の診断が無い」。CLI の --force と同じ）
+    assert!(
+        forced.diagnostics.iter().any(|d| d.is_error()) && !forced.ok,
+        "{:?}",
+        forced.diagnostics
+    );
 }
 
 /// S184: 強行でコンパイルに失敗しても、同じ診断は 1 つだけ（facade で除く。CLI・LSP・Python・UI が同じものを見る）

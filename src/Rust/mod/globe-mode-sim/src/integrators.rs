@@ -243,10 +243,6 @@ impl ExplicitStepper {
         }
     }
 
-    pub fn tableau(&self) -> &'static Tableau {
-        self.tableau
-    }
-
     /// `(t, y)` から刻み `h` で 1 歩進め、`out` に書く。`f0` は f(t, y)（前の歩の終点の導関数を使い回せる）。
     /// `f(t, y, dy)` は導関数を `dy` に書く。導関数を呼ぶのは段の数 − 1 回。
     pub fn step(

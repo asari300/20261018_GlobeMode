@@ -514,11 +514,6 @@ impl Record {
             .collect();
     }
 
-    /// 管から外れたか（比べて、すべての信号が収まったのではない）
-    fn tube_failed(&self) -> bool {
-        self.comparison().is_some_and(|c| !c.passed_all())
-    }
-
     fn add_codes(&mut self, diagnostics: &[Diagnostic]) {
         for d in diagnostics {
             if !self.codes.iter().any(|c| c == d.code) {
@@ -1172,7 +1167,6 @@ impl Summary {
                     .entry(stage.to_string())
                     .or_default() += 1;
             }
-            s.ref_failed_known += usize::from(r.tube_failed() && known.contains_key(&r.model));
             match r.outcome {
                 Outcome::StopTime => s.stop_time += 1,
                 Outcome::Terminated => s.terminated += 1,
@@ -1219,6 +1213,7 @@ impl Summary {
                     } else if c.failed > 0 || c.missing + c.missing_in_reference == 0 {
                         // 信号が 1 つも無いものも外れに数える（合格にしない）
                         s.ref_failed += 1;
+                        s.ref_failed_known += usize::from(known.contains_key(&r.model));
                     } else {
                         s.ref_missing_only += 1;
                     }
@@ -2312,7 +2307,7 @@ fn render_report(records: &[Record], s: &Summary, run: &RunInfo<'_>) -> String {
         ("うち既知の外れ（一覧にある）", s.ref_failed_known),
         (
             "うち既知の外れを除いたもの",
-            s.ref_failed - s.ref_failed_known.min(s.ref_failed),
+            s.ref_failed - s.ref_failed_known,
         ),
         ("外れは無いが、どちらかに無い信号がある", s.ref_missing_only),
         (
@@ -3010,10 +3005,17 @@ mod tests {
         records[7].notes = vec!["rumoca: [EL005] structurally | singular".into()];
         records[9].worker_stage = Some(WorkerStage::Lowering);
         records[9].stage_seconds = Some(115.0);
-        let known: BTreeMap<String, String> = [(
-            "Modelica.A.Examples.Off".to_string(),
-            "解析解が 0 の信号（Rumoca の除外の一覧）".to_string(),
-        )]
+        // 欠けているだけのモデル（Missing）が一覧にあっても、外れ（ref_failed）の内数に入れない（#10）
+        let known: BTreeMap<String, String> = [
+            (
+                "Modelica.A.Examples.Off".to_string(),
+                "解析解が 0 の信号（Rumoca の除外の一覧）".to_string(),
+            ),
+            (
+                "Modelica.A.Examples.Missing".to_string(),
+                "信号が欠けているだけ".to_string(),
+            ),
+        ]
         .into();
         let s = Summary::from_records(&records, &known);
         assert_eq!(

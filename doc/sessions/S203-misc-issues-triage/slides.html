@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S203 wasm・突き合わせ・CI の issue の点検 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S203 wasm・突き合わせ・CI の issue の点検">
+
+<section class="slide" id="S01">
+  <span class="tag">S203 · 2026-11-06 · P3 · P6 · P8</span>
+  <h1>残りの open の issue 8 件を点検した</h1>
+  <p class="lead">S012 のレビューで立った #2・#7・#8・#10・#11・#12・#13・#16 を、いまの main で再現し直した</p>
+  <div class="big">7 件は再現して直した。#16 は消せるものだけ消した</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">結果</span>
+  <h1>issue ごとの振り分け</h1>
+  <table class="compact">
+    <tr><th>issue</th><th>振り分け</th><th>直した内容</th></tr>
+    <tr><td>#2 force で <code>ok: true</code></td><td class="ok">(b) 直した</td><td>facade の <code>ok</code> に検査の Error を含める</td></tr>
+    <tr><td>#12 <code>last_panic()</code></td><td class="ok">(b) 直した</td><td>各入口で消す</td></tr>
+    <tr><td>#13 CSV の失敗を捨てる</td><td class="ok">(b) 直した</td><td>失敗を <code>refused</code> で返す</td></tr>
+    <tr><td>#8 既知の差が無制限</td><td class="ok">(b) 直した</td><td>既知の差ごとに上限</td></tr>
+    <tr><td>#11 Inf と NaN が同じ</td><td class="ok">(b) 直した</td><td>セルの文字列で比べる</td></tr>
+    <tr><td>#7 <code>.cargo</code> で CI が走らない</td><td class="ok">(b) 直した</td><td>全体の検査の対象に</td></tr>
+    <tr><td>#10 既知の外れの数</td><td class="ok">(b) 直した</td><td>外れの分岐の中だけで数える</td></tr>
+    <tr><td>#16 整理</td><td class="warn">一部</td><td>消せるものを消し、写しを統合</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>wasm の 3 件は facade と入口で直す</h1>
+  <div class="cols-2">
+    <div class="card">
+      <h2>#2 と #13 は facade</h2>
+      <p>実行の応答は S035 から facade が作る。<code>ok</code> は「結果があり、Error の診断が無い」。強行して検査の Error が残れば <code>false</code>。</p>
+      <p>CSV を書けないときは <code>ok: false</code> と理由を返す。</p>
+    </div>
+    <div class="card">
+      <h2>#12 は入口で消す</h2>
+      <p><code>js_new</code> と 3 つの実行の入口で前の panic の文言を消す。<code>take_last_panic()</code> は JS の変更が要るので採らない。</p>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由</span>
+  <h1>既知の差に上限を持たせた</h1>
+  <ul>
+    <li>行数の差は 1 以下、同じ行数なら相対の差が上限以下のときだけ許す。</li>
+    <li>issue の案の一律 1e-3 は、観測した 3.1e-3 や 1.8 を超えるので使えない。</li>
+    <li>上限は観測の 3 倍以上（BouncingBall は 1e-2、DiodeSwitching の cerk は 1e-4）。</li>
+    <li>直す前も後も <code>wasm:compare</code> は 387 / 400 件が一致、既知の差 13 件。</li>
+  </ul>
+  <div class="kpis">
+    <div class="kpi"><span class="n">387 / 400</span><span class="l">一致</span></div>
+    <div class="kpi"><span class="n">13</span><span class="l">既知の差</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">CI</span>
+  <h1>どのジョブも選ばれないパス</h1>
+  <table class="compact">
+    <tr><th>パス</th><th>本数</th><th>判断</th></tr>
+    <tr><td><code>.cargo/config.toml</code>・<code>.gitattributes</code></td><td>2</td><td class="warn">漏れ。全体の検査に追加</td></tr>
+    <tr><td><code>src/Rust/apps/**</code></td><td>106</td><td class="ok">別 workspace。手動と android.yml</td></tr>
+    <tr><td><code>src/VSCode/**</code></td><td>18</td><td class="ok">vscode.yml が動く</td></tr>
+    <tr><td><code>src/Astro/fmt/**</code></td><td>12</td><td class="warn">CI が無い。残す</td></tr>
+    <tr><td>その他（about・.claude・LICENSE など）</td><td>9</td><td class="ok">意図どおり</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>cargo test -p globe-mode-wasm            # #2 #12
+cargo test -p globe-mode --lib           # #13
+cargo test -p xtask sim::                # #10
+python3 .github/scripts/test_ci_plan.py  # #7
+mise run wasm:compare                    # #8 #11
+cargo test -p globe-mode-sim --test omc_mat   # #16</code></pre>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>残したもの</h1>
+  <ul>
+    <li>Astro の fmt を CI で回すワークフローが無い。</li>
+    <li>xtask の <code>solver</code>・<code>known_deviations</code> の <code>None</code> の分岐。</li>
+    <li><code>memory.mjs</code> の写し。S201 の後に寄せる。</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
