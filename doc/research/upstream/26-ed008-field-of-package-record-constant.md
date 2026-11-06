@@ -38,7 +38,7 @@ All five compile. A constant in a package may be referenced by its dotted name (
 
 ```text
 $ globe check 26-ed008-field-of-package-record-constant.mo --model Rep26.B
-26-ed008-field-of-package-record-constant.mo:26:36: unsupported[GM-U0002] S5 方程式数と変数数: unresolved Flat reference `Rep26.Air.dryair.cp`
+26-ed008-field-of-package-record-constant.mo:38:38: unsupported[GM-U0002] S5 方程式数と変数数: unresolved Flat reference `Rep26.Air.dryair.cp`
     note: rumoca: ED008
 Rep26.B: NG（S5 方程式数と変数数 で停止）
 

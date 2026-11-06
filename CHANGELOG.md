@@ -11,6 +11,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - S001: 調査と計画、運用基盤（worktree、mise・uv・cargo の分担、ライセンス規則、セッション記録）。
 - S006: WSL2 から Windows の LM Studio（Bonsai-27B）を副レビュアーに呼ぶスキル `/local-review`。
 - S033: リリースの見積もりと、エージェントに渡す並行作業の指示書 WP-0〜WP-J（`doc/plan/`）、Codex の監査のための `log/review/`。
+- S194: 文書だけ。CLAUDE.md の 2 章をいまのツリーに合わせ、ADR-0032・0034・0035・0036 を Accepted にし、上流の再現用 `.mo` 34 本を `globe fmt` で整形した（診断は前後で同じ）。
 
 ### P1 骨格
 

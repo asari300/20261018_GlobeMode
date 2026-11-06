@@ -1,6 +1,6 @@
 # ADR-0034 UI の比較は GM-SMOKE の行に時刻を足して測り、3 回の中央値を doc/bench/ui.md の表にする
 
-- 状態: Proposed（2026-11-03、S125。Svelte 版だけを測った。Leptos 版・Dioxus 版を作るときに同じ手順で測る）
+- 状態: Accepted（2026-11-06。ユーザーの判断。Proposed は 2026-11-03、S125。そのときは Svelte 版だけを測った。3 UI × 3 OS まで測った。下の付記）
 - 関係: [ADR-0023](0023-desktop-and-web-process-layout.md)（ブラウザは Worker の wasm、Desktop は sidecar）、[ADR-0030](0030-desktop-msl-placement.md)（Desktop の MSL の置き場）。どれも覆さない
 
 ## 背景
