@@ -35,7 +35,9 @@ ADR-0026 (k) の 1 番目: FMI 2.0・3.0 の Model Exchange の Import（`FmuMe`
 - 突き合わせの結果（Linux）は解説書の表。BouncingBall の衝突 11 回の時刻の最大の誤差 3.2e-11、高さ 7.2e-12。
 - `fmu-import.yml`（feature へ dispatch、run 42193986375）: ubuntu-24.04・windows-2025・macos-latest 3 OS とも success。突き合わせの数字は 3 OS で同じ（macOS の VanDerPol だけ 1e-15 ほどの相対差）。
 - `check_docs.py`: スライド OK、リンク 切れ 0 件（S205 の追加後）。
-- 全体の検査（`mise run check`）・`ci.yml` full の結果は下に追記する。
+- `mise run check`（fmt・clippy・test 全体・deny・`globe fmt --check src/Modelica`・`uv sync --locked`）: 通った（test result 75 件すべて ok、deny は advisories・bans・licenses・sources ok、依存は増えていない）。
+- `render_slides.py`（S205 のデッキ、desktop の明暗と mobile）: 8 枚、問題 0 件。
+- `ci.yml` を `-f full=true` で feature に dispatch（run 42194295867）: success。
 
 ## 残したこと
 
