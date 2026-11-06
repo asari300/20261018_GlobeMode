@@ -32,7 +32,7 @@ main `cc846ba` の UI のレビュー（Opus、読むだけ）の指摘を、1 �
 - `check_docs.py`: 相対リンク 3870 件中の切れ 0 件。`render_slides.py`: S196 のデッキ 8 枚、問題 0 件。
 - ステージした差分の漏洩検査（メール・ホームのパス・トークン）: 0 件。
 - 失敗した最初の全体の試験: 初回の案内（S179）が、「何も編集していない初回の状態を `beforeunload` で保存した」ために出なくなった。flush は遅らせた書き込みがあるときだけにして直した（試験が見つけた）。
-- Desktop・Android の run: 下に書く。
+- Desktop の run `42161336121`（`desktop.yml`、feature/s196-ui-review-fixes の `3482ad4`）: success（ui、Linux・Windows・macOS のビルドと GM-SMOKE）。Android の run `42161340281`（`android.yml`）: success（ui、apk、エミュレータ release・debug の GM-SMOKE）。
 
 ## 残したこと
 
