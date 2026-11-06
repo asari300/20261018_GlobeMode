@@ -26,7 +26,7 @@ UI keyboard shortcuts (browser, Desktop, Android with a keyboard; Cmd instead of
 | Ctrl+S / Ctrl+Shift+S | Save / Save as (Desktop) |
 | Ctrl+O | Open |
 | F12, Shift+F12, F2, Alt+Left | Go to definition, references, rename, back (editor) |
-| Tab / Shift+Tab | In the editor: indent / outdent by two spaces (selected lines too) |
+| Tab / Shift+Tab | In the editor: indent / outdent by two spaces (selected lines too); while the completion list is open, Tab accepts the selected candidate (Enter does too) |
 | Esc then Tab (Shift+Tab), or Ctrl+M (Shift+Alt+M on macOS) | Move focus out of the editor to the next (previous) element; Ctrl+M toggles "Tab moves focus" |
 
 ## Getting started

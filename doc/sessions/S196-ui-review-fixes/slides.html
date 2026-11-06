@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S196 UI のレビューの指摘を直す — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S196 UI のレビューの指摘を直す">
+
+<section class="slide" id="S01">
+  <span class="tag">S196 · 2026-11-06 · P4</span>
+  <h1>UI のレビューの指摘を直す</h1>
+  <p class="lead">App.svelte・editor.ts・tauri-backend.ts。まず再現、それから直した</p>
+  <div class="big">利用者の編集とファイルを失う 3 件を先に</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">失う 3 件</span>
+  <h1>何が起きていて、どう直したか</h1>
+  <table class="compact">
+    <tr><th>指摘</th><th>前</th><th>後</th></tr>
+    <tr><td>Desktop の保存先</td><td class="ng">名前で覚える。同じ名前の別のファイルを上書き</td><td class="ok">タブがパスを持つ。別のパスは別のタブ</td></tr>
+    <tr><td>ライブラリのタブ</td><td class="ng">打てるのに未保存にならない</td><td class="ok">読み取り専用。打つと案内</td></tr>
+    <tr><td>自動保存の失敗</td><td class="ng">黙って落ちる</td><td class="ok">1 文出す</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">保存先の持ち方</span>
+  <h1>名前からタブへ</h1>
+  <svg class="fig" viewBox="0 0 800 220" role="img" aria-label="保存先を名前の表で持つ前と、タブが持つ後の図">
+    <rect class="svg-box" x="20" y="20" width="350" height="80" rx="10"/>
+    <text class="svg-text-b" x="195" y="55" text-anchor="middle">前: TauriBackend の表</text>
+    <text class="svg-text" x="195" y="80" text-anchor="middle">package.mo は最後に開いた d2 を指す</text>
+    <rect class="svg-box-accent" x="430" y="20" width="350" height="80" rx="10"/>
+    <text class="svg-text-b" x="605" y="55" text-anchor="middle">後: タブ</text>
+    <text class="svg-text" x="605" y="80" text-anchor="middle">package.mo は d1、d2/package.mo は d2</text>
+    <text class="svg-text" x="400" y="170" text-anchor="middle">保存は saveFile(名前, 本文, 別名, そのタブのパス)</text>
+  </svg>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">読み取り専用</span>
+  <h1>ライブラリのタブの操作の流れ</h1>
+  <ul>
+    <li>木か F12 で開くと、タブの上に「読み取り専用」の 1 行が出る</li>
+    <li>キーを打つと入らず、その 1 行が強調され、読み上げの文も出る</li>
+    <li>整形・F2 は理由を出して断る。未保存の印は付かない</li>
+    <li>手元に写すには「保存」（名前を付けて書き出す）。同じ名前のファイルを開くと自分のファイルに置き換わる既存の道は編集できる</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">そのほか</span>
+  <h1>切り替え・実行中・保存の遅延</h1>
+  <ul>
+    <li>タブの切り替えで、参照の一覧・リネームの欄・最後の値を空にする</li>
+    <li>実行中は F12・Alt+←・二重の実行に入らない。検査・実行は押した時点のモデル名を使う</li>
+    <li>打鍵の保存は 300 ms まとめ、閉じる前・隠れたとき・保存では必ずすぐ書く</li>
+    <li>別のウィンドウの保存は storage イベントで知らせる。進捗の行は実行中だけ読み上げない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">ユーザーの決定</span>
+  <h1>Tab は補完の確定にもなる</h1>
+  <table class="compact">
+    <tr><th>状態</th><th>Tab</th></tr>
+    <tr><td>補完の一覧が開いている</td><td class="ok">候補の確定（Enter と同じ）</td></tr>
+    <tr><td>閉じている</td><td>空白 2 つの字下げ（S188 のまま）</td></tr>
+  </table>
+  <p>候補が 200 件で切れているときは打ち足すと問い直す。<code>Modelica.Units.SI.Vol</code> で <code>Voltage</code> が出る</p>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>cd src/Svelte &amp;&amp; pnpm install --frozen-lockfile
+pnpm check &amp;&amp; pnpm build
+node tests/test_tauri.mjs
+uv run python src/Svelte/tests/test_ui.py
+gh workflow run desktop.yml --ref feature/s196-ui-review-fixes
+gh workflow run android.yml --ref feature/s196-ui-review-fixes</code></pre>
+</section>
+
+<section class="slide" id="S08">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ul>
+    <li>Desktop の未保存のままウィンドウを閉じる確認（権限の変更が要る。手元で起動できない）</li>
+    <li>LSP が <code>isIncomplete</code> を返すようになる別の WP（UI は配列でも受けられる）</li>
+    <li>App.svelte の分割（862 行。smoke を別のファイルへ）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
