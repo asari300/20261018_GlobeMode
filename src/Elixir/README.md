@@ -4,7 +4,7 @@ Rustler の NIF（`globe-mode-nif`、Erlang モジュール名 `globe_mode_nif`�
 
 | 場所 | 内容 |
 | --- | --- |
-| `globe_mode/` | mix プロジェクト。`GlobeMode.new(libraries)` / `set_file` / `load_dir` / `check` / `graph` / `simulate` / `solvers`（S082）。結果は `{:ok, map}` か `{:error, 理由}`。Hex の依存は無い（JSON は Elixir 1.18 の標準 `JSON`） |
+| `globe_mode/` | mix プロジェクト。`GlobeMode.new(libraries)` / `set_file` / `load_dir` / `check` / `graph` / `outline` / `deps` / `flat`（読み取り。S191）/ `simulate` / `solvers`（S082）。`simulate_columns` の layout の `defaults` は既定で描く信号の名前（S190）。結果は `{:ok, map}` か `{:error, 理由}`。Hex の依存は無い（JSON は Elixir 1.18 の標準 `JSON`） |
 | `phoenix_fmt/` | `globe fmt` の CLI を呼ぶウェブアプリ |
 
 ```bash

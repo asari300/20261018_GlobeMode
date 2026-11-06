@@ -14,11 +14,11 @@
 | ワークスペースとファイル | `Workspace::new` / `set_file` / `remove_file` / `load_dir` | `gm_workspace_new` / `gm_set_file` / `gm_load_dir` | C と同じ | `Workspace` / `set_file` / `load_dir`（S111） | `new` / `set_file` / `load_dir` | `new` / `set_file` / `load_dir` | `Workspace` / `set_file` / `load_dir` | `Workspace` / `set_file` / `remove_file` / `files` | `didOpen` / `didChange` / `didClose` | 引数 `FILES` |
 | check | `check` | `gm_check` | C と同じ | `check` | `check` | `check` | `check` | `check` | `globe/check` | `globe check` |
 | simulate（JSON と CSV） | `simulate` / `simulate_with` | `gm_simulate` | C と同じ | `simulate` | `simulate` | `simulate` | `simulate` | `simulate` | `globe/simulate` | `globe simulate`（CSV・MAT v4） |
-| simulate_columns（列） | `Simulated::columns`（S116） | `gm_simulate_columns` / `gm_doubles_free`（S116） | C と同じ（S116） | `simulate_columns`（S116） | `simulate_columns`（binary。S116） | `simulate_columns`（`BitArray`。S116） | `simulate_columns`（f64 の `bytes` → polars） | `simulate_columns`（`SimColumns.column`） | `globe/simulateColumns`（S190: 既定で描く信号 `layout.defaults`。wasm・Python〔`defaults`〕も。C・NIF の layout JSON と Julia・Zig・Gleam・Elixir には未、持ち越し） | 対象外（ファイルに書く） |
+| simulate_columns（列） | `Simulated::columns`（S116） | `gm_simulate_columns` / `gm_doubles_free`（S116） | C と同じ（S116） | `simulate_columns`（S116） | `simulate_columns`（binary。S116） | `simulate_columns`（`BitArray`。S116） | `simulate_columns`（f64 の `bytes` → polars） | `simulate_columns`（`SimColumns.column`） | `globe/simulateColumns`（S190: 既定で描く信号 `layout.defaults`。wasm・Python〔`defaults`〕も。S191 で C ABI・NIF の layout JSON の `defaults` と Julia・Zig・Gleam・Elixir の試験を足した） | 対象外（ファイルに書く） |
 | format | `format`（S111） | `gm_format`（S111） | C と同じ（S111） | `format`（S111） | `format`（S111） | `format`（S111） | `format`（S111） | `format` | `textDocument/formatting` / `globe/format` | `globe fmt` |
 | lint | `lint`（S111） | `gm_lint`（S111） | C と同じ（S111） | `lint`（S111） | `lint`（S111） | `lint`（S111） | `lint`（S111） | `lint` | `globe/lint` | `globe lint` |
 | graph | `graph` | `gm_graph` | C と同じ | `graph`（S111） | `graph` | `graph` | `graph` | `graph` | `globe/graph` | `globe graph` |
-| outline・deps・flat（読み取り。S183 で追記） | `outline` / `deps` / `flat` | — | — | — | — | — | `Workspace.outline` / `deps` / `flat`（S183。Python だけ） | — | `textDocument/documentSymbol`（outline だけ） | `globe outline` / `deps` / `flat` |
+| outline・deps・flat（読み取り。S183 で追記、S191 で揃えた） | `outline` / `deps` / `flat` | `gm_outline` / `gm_deps` / `gm_flat`（S191） | C と同じ（S191） | `outline` / `deps` / `flat`（S191） | `outline` / `deps` / `flat`（S191） | `outline` / `deps` / `flat`（S191） | `Workspace.outline` / `deps` / `flat`（S183） | `Workspace.outline` / `deps` / `flat`、`GlobeWorker` の同名（S191） | `textDocument/documentSymbol`（outline だけ） | `globe outline` / `deps` / `flat` |
 | 結果の 1 行 `summary`（S184 で追記） | `CheckResponse.summary`・`SimulateResponse.summary`（protocol の `summary_line`・`refused_summary`） | `check`・`simulate` の JSON に出る | 同じ（JSON） | 同じ（JSON） | 同じ（JSON） | 同じ（JSON） | 同じ（dict のキー `summary`） | 同じ（JSON） | `globe/check`・`globe/simulate` の応答 | 最後の行（`--json` の `check` にも出る） |
 | MSL の全部読み | `with_libraries_full` / `with_library_sources` | — | — | — | — | — | — | `Workspace(json, name, true)` | — | — |
 | MSL の分割読み | `with_libraries`（既定）/ `with_library_sources_split` | `gm_workspace_new(libraries_json)` | C と同じ | `Workspace(libraries)` | `new(libraries)` | `new(libraries)` | `Workspace(libraries=…)` | `Workspace(json)`（既定） | `globe lsp -L` | `-L` |
@@ -48,7 +48,7 @@
 
 - 中断はどの言語も `SimSettings.max_wall_seconds`（壁時計の予算。初期化と積分器の 1 歩の内側では止まらない）だけで、呼び手が途中で止める口は無い。wasm と Desktop は UI の側でワーカーを作り直して止める（[ADR-0023](../adr/0023-desktop-and-web-process-layout.md)）。表では「予算」を穴に数えない。
 - 「MSL の全部読み」は facade の `with_libraries` が、ディレクトリでないパスが混じるときだけ全部読みに戻る。全部読みは比べるために残した道（S054）なので、束ねに無くても困らない。
-- `tunable_parameters`・solvers の一覧は表に入れていない（参照シナリオに要らない）。outline・deps・flat は S183 で行を足した（Python だけ。C ABI・NIF・wasm に広げるのは持ち越し）。solvers の一覧は C・Julia 以外の束ねにある（C は `gm_solvers`、Julia は包みが無い）。
+- `tunable_parameters`・solvers の一覧は表に入れていない（参照シナリオに要らない）。outline・deps・flat は S183 で行を足し（Python だけ）、S191 で C ABI・NIF・Zig・Julia・Elixir・Gleam・wasm に揃えた。solvers の一覧は C・Julia 以外の束ねにある（C は `gm_solvers`、Julia は包みが無い）。
 
 ### 言語ごとの穴の数
 

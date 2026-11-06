@@ -108,6 +108,10 @@ export class GlobeWorker {
   async removeFile(name) { const r = await this.#call("remove_file", { name }); this.#files.delete(name); return r; }
   async check(model) { return JSON.parse(await this.#call("check", { model })); }
   async graph(model, depth) { return JSON.parse(await this.#call("graph", { model, depth })); }
+  // 読み取り（S191。CLI の `globe outline` / `deps` / `flat --json` と同じ形）: ファイルのアウトライン（無い・構文の誤りは reject）、check が読むファイルの閉包、flat の要約（通らなければ null）
+  async outline(path) { return JSON.parse(await this.#call("outline", { path })); }
+  async deps(model) { return JSON.parse(await this.#call("deps", { model })); }
+  async flat(model) { return JSON.parse(await this.#call("flat", { model })); }
   async simulate(request) { return JSON.parse(await this.#call("simulate", { request: JSON.stringify(request) })); }
   // 上書きできるパラメータの一覧 {model, parameters: [{name, default, unit?, min?, max?, description?}] | null, diagnostics}（S150）。変換できなければ reject
   async tunableParameters(model) { return JSON.parse(await this.#call("tunable_parameters", { model })); }

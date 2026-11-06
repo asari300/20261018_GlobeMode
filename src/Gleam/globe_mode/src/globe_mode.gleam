@@ -29,6 +29,18 @@ pub fn check(ws: Workspace, model: String) -> Result(String, String)
 @external(erlang, "globe_mode_nif", "graph")
 pub fn graph(ws: Workspace, model: String, depth: Int) -> Result(String, String)
 
+/// ファイル（`set_file` に渡したパス）のアウトライン（`Outline` の JSON。S191）。ファイルが無いか構文の誤りがあれば `Error(理由)`。
+@external(erlang, "globe_mode_nif", "outline")
+pub fn outline(ws: Workspace, path: String) -> Result(String, String)
+
+/// `check` が読むファイル（モデルが使うものの閉包。パスの昇順）の JSON の配列。モデルが無ければ `[]`（S191）。
+@external(erlang, "globe_mode_nif", "deps")
+pub fn deps(ws: Workspace, model: String) -> Result(String, String)
+
+/// flat モデルの要約（`FlatSummary` の JSON）。flatten まで通らなければ `null`（S191）。
+@external(erlang, "globe_mode_nif", "flat")
+pub fn flat(ws: Workspace, model: String) -> Result(String, String)
+
 /// `settings_json` は `{"stop_time": 2, "solver": "bdf"}` など。
 @external(erlang, "globe_mode_nif", "simulate")
 pub fn simulate(
@@ -37,7 +49,7 @@ pub fn simulate(
   settings_json: String,
 ) -> Result(String, String)
 
-/// 列の道（S116）。`#(レイアウトの JSON, 列)`。レイアウトは `{"response", "names", "points"}`（`response` に `csv` は無い）、
+/// 列の道（S116）。`#(レイアウトの JSON, 列)`。レイアウトは `{"response", "names", "points", "defaults"}`（`response` に `csv` は無い。`defaults` は既定で描く信号の名前で、S190）、
 /// 列は `names` と同じ順の f64（little-endian）の BitArray。
 @external(erlang, "globe_mode_nif", "simulate_columns")
 pub fn simulate_columns(

@@ -82,6 +82,31 @@ fn graph(ws: ResourceArc<Ws>, model: String, depth: u32) -> Result<String, Strin
     })?
 }
 
+/// ファイル（`set_file` に渡したパス）のアウトライン（`globe outline --json` と同じ `Outline` の JSON。S191）。
+/// ファイルが無いか構文の誤りがあれば `{:error, 理由}`（誤りは最初の診断の `コード: 文`）。
+#[rustler::nif(schedule = "DirtyCpu")]
+fn outline(ws: ResourceArc<Ws>, path: String) -> Result<String, String> {
+    with(&ws, |w| match w.outline(&path) {
+        None => Err(format!("ファイル {path} がワークスペースに無い")),
+        Some(Ok(o)) => json(o),
+        Some(Err(ds)) => Err(ds
+            .first()
+            .map_or_else(String::new, |d| format!("{}: {}", d.code, d.message))),
+    })?
+}
+
+/// `check` が読むファイル（モデルが使うものの閉包。パスの昇順）の JSON の配列。モデルが無ければ `[]`（S191）。
+#[rustler::nif(schedule = "DirtyCpu")]
+fn deps(ws: ResourceArc<Ws>, model: String) -> Result<String, String> {
+    with(&ws, |w| json(&w.deps(&model)))?
+}
+
+/// flat モデルの要約（`FlatSummary` の JSON）。flatten まで通らなければ `null`（S191）。
+#[rustler::nif(schedule = "DirtyCpu")]
+fn flat(ws: ResourceArc<Ws>, model: String) -> Result<String, String> {
+    with(&ws, |w| json(&w.flat(&model)))?
+}
+
 fn request(model: String, settings_json: &str) -> Result<globe_mode::SimulateRequest, String> {
     let settings: serde_json::Value = serde_json::from_str(settings_json)
         .map_err(|e| format!("settings の JSON が読めない: {e}"))?;
@@ -145,7 +170,7 @@ fn simulate_observed(
 }
 
 /// 列の道（S116。Python の `simulate_columns` と同じ並び）。`{layout_json, [binary]}` で、layout は
-/// `{"response": SimulateResponse（csv 無し）, "names": ["time", ...], "points": n}`、binary は列ごとの f64（little-endian）。
+/// `{"response": SimulateResponse（csv 無し）, "names": ["time", ...], "points": n, "defaults": [...]}`（`defaults` は既定で描く信号の名前。S190・S191）、binary は列ごとの f64（little-endian）。
 #[rustler::nif(schedule = "DirtyCpu")]
 fn simulate_columns<'a>(
     env: Env<'a>,
@@ -169,6 +194,7 @@ fn simulate_columns<'a>(
         "response": simulated.response,
         "names": layout.names,
         "points": layout.points,
+        "defaults": layout.defaults,
     }))?;
     Ok((text, binaries))
 }

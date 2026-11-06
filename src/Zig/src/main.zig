@@ -1,4 +1,4 @@
-//! S075: C ABI（globe_mode.h）で GlobeModeValidation.Simulation.Decay を check → simulate → format し（S111 で format、S116 で列の道、S118 で FMU、S131 で進捗と中断）、
+//! S075: C ABI（globe_mode.h）で GlobeModeValidation.Simulation.Decay を check → simulate → format し（S111 で format、S116 で列の道、S118 で FMU、S131 で進捗と中断、S191 で outline・deps・flat・summary・defaults）、
 //! 結果の JSON の長さと最後の時刻、x(1) を表示する。引数: <ライブラリのディレクトリ> <モデル>
 const std = @import("std");
 const gm = @import("gm");
@@ -29,7 +29,7 @@ pub fn main(init: std.process.Init) !void {
     defer gm.gm_string_free(check);
     const checked = try std.json.parseFromSliceLeaky(std.json.Value, arena, text(check), .{});
     const passed = checked.object.get("passed").?.bool;
-    std.debug.print("check: passed={}\n", .{passed});
+    std.debug.print("check: passed={}, summary={s}\n", .{ passed, checked.object.get("summary").?.string }); // S184
     if (!passed) return error.CheckFailed;
 
     const sim = gm.gm_simulate(ws, model.ptr, null);
@@ -62,10 +62,26 @@ pub fn main(init: std.process.Init) !void {
     if (points != std.mem.count(u8, csv, "\n") or len != 2 * points) return error.ColumnsFailed;
     std.debug.print("columns: points={d}, x={d}\n", .{ points, data[len - 1] });
     if (data[len - 1] != x) return error.WrongValue;
+    // S190: 既定で描く信号は names の部分集合（Decay は状態 x の 1 本）
+    const defaults = layout.object.get("defaults").?.array.items;
+    if (defaults.len != 1 or !std.mem.eql(u8, defaults[0].string, "x")) return error.ColumnsFailed;
 
     // S131（ADR-0033）: 進捗と中断。S129 と同じ、積分に 100 ms より長くかかるモデルを最初の t の進捗で止める
     const wiggle = "model Wiggle Real x(start = 0, fixed = true); equation der(x) = sin(100 * time); end Wiggle;";
     if (gm.gm_set_file(ws, "Wiggle.mo", wiggle) != 0) return error.SetFile;
+    // S191: 読み取り（outline・deps・flat）。返した文字列は読んでから放す
+    const outline = gm.gm_outline(ws, "Wiggle.mo");
+    defer gm.gm_string_free(outline);
+    const classes = (try std.json.parseFromSliceLeaky(std.json.Value, arena, text(outline), .{})).object.get("classes").?.array.items;
+    if (classes.len != 1 or !std.mem.eql(u8, classes[0].object.get("name").?.string, "Wiggle")) return error.ReadFailed;
+    const deps = gm.gm_deps(ws, "Wiggle");
+    defer gm.gm_string_free(deps);
+    const files = (try std.json.parseFromSliceLeaky(std.json.Value, arena, text(deps), .{})).array.items;
+    if (files.len != 1 or !std.mem.eql(u8, files[0].string, "Wiggle.mo")) return error.ReadFailed;
+    const flat = gm.gm_flat(ws, "Wiggle");
+    defer gm.gm_string_free(flat);
+    if ((try std.json.parseFromSliceLeaky(std.json.Value, arena, text(flat), .{})).object.get("variables").?.integer != 1) return error.ReadFailed;
+    std.debug.print("read: outline={d} bytes, deps={s}, flat={s}\n", .{ text(outline).len, text(deps), text(flat) });
     var calls: u32 = 0;
     const obs = gm.gm_simulate_observed(ws, "Wiggle", "{\"solver\": \"esdirk34\", \"stop_time\": 1000, \"interval\": 1}", stopAtFirstTime, &calls);
     defer gm.gm_string_free(obs);

@@ -95,6 +95,14 @@ try {
   assert.ok(g.nodes.length > 0 && g.edges.length > 0, "graph: ノードと辺がある");
   await assert.rejects(w.graph("No.Such.Model", 1), /索引に無い/);
   console.log(`graph: ノード ${g.nodes.length}、辺 ${g.edges.length}`);
+  // 読み取りの口と summary（S191）
+  const ol = await w.outline("src/Modelica/GlobeModeValidation/Simulation/Decay.mo");
+  assert.equal(ol.within, "GlobeModeValidation.Simulation");
+  await assert.rejects(w.outline("No/Such.mo"), /ワークスペースに無い/);
+  assert.ok((await w.deps(decay)).some((p) => p.endsWith("Decay.mo")));
+  assert.ok((await w.flat(decay)).variables >= 1);
+  assert.match((await w.check(decay)).summary, /OK/);
+  console.log("outline・deps・flat・summary: 読めた");
   console.log(`wasm の線形メモリ ${(await w.memory()) / 2 ** 20 | 0} MiB`);
 
   await assert.rejects(w.panicForTest("試験の panic"), /試験の panic/);

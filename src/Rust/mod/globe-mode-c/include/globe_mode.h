@@ -40,9 +40,16 @@ int64_t gm_load_dir(GmWorkspace *ws, const char *dir);
 char *gm_check(GmWorkspace *ws, const char *model);
 /* ConnectGraph の JSON。 */
 char *gm_graph(GmWorkspace *ws, const char *model, uint32_t depth);
+/* 読み取り（S191、globe outline・deps・flat --json と同じ形）。gm_outline はファイルのアウトライン（Outline の JSON。
+ * ファイルが無い・構文の誤りは {"error": "..."}）、gm_deps は gm_check が読むファイルの閉包（JSON の配列。モデルが無ければ []）、
+ * gm_flat は FlatSummary の JSON（flatten まで通らなければ null）。 */
+char *gm_outline(GmWorkspace *ws, const char *path);
+char *gm_deps(GmWorkspace *ws, const char *model);
+char *gm_flat(GmWorkspace *ws, const char *model);
 /* SimulateResponse の JSON。settings_json は NULL 可（{"stop_time": 2, "solver": "bdf"} など）。 */
 char *gm_simulate(GmWorkspace *ws, const char *model, const char *settings_json);
-/* 列の道（S116）。{"response": SimulateResponse（csv 無し）, "names": ["time", ...], "points": n} の JSON。
+/* 列の道（S116）。{"response": SimulateResponse（csv 無し）, "names": ["time", ...], "points": n,
+ * "defaults": ["x", ...]（既定で描く信号の名前。最大 3 本。S190）} の JSON。
  * *data に列を順に並べた names の数 * points 個の double（列 i は data + i * points）、*len にその個数。
  * *data は gm_doubles_free で放す。誤りや実行できなかったときは *data が NULL、*len が 0。 */
 char *gm_simulate_columns(GmWorkspace *ws, const char *model, const char *settings_json, double **data, size_t *len);

@@ -19,6 +19,7 @@ pub fn decay_check_simulate_test() {
   let assert Ok(ws) = globe_mode.new(["../../Modelica/GlobeModeValidation"])
   let assert Ok(report) = globe_mode.check(ws, model)
   assert string.contains(report, "\"passed\":true")
+  assert string.contains(report, "\"summary\":\"")
   let assert Ok(res) = globe_mode.simulate(ws, model, "{}")
   assert string.contains(res, "\"ok\":true")
   // JSON は解析しない。CSV の最後の行が時刻 1 で始まる
@@ -40,6 +41,7 @@ pub fn decay_check_simulate_test() {
     globe_mode.simulate_columns(ws, model, "{}")
   let points = list.length(string.split(res, "\\n")) - 2
   assert string.contains(layout, "\"points\":" <> int.to_string(points))
+  assert string.contains(layout, "\"defaults\":[\"x\"]")
   assert bit_array.byte_size(xs) == 8 * points
   let assert Ok(<<x1:float-little>>) = bit_array.slice(xs, 8 * points - 8, 8)
   assert x1 >. 0.367879 && x1 <. 0.36788
@@ -90,4 +92,25 @@ pub fn cancel_from_another_process_test() {
     )
   assert string.contains(res, "\"kind\":\"cancelled\"")
   assert string.contains(res, "GM-I11004")
+}
+
+/// S191: 読み取りの口（outline・deps・flat）
+pub fn read_outline_deps_flat_test() {
+  let assert Ok(ws) = globe_mode.new([])
+  let assert Ok(_) =
+    globe_mode.set_file(
+      ws,
+      "A.mo",
+      "model A Real x(start = 1, fixed = true); equation der(x) = -x; end A;",
+    )
+  let assert Ok(_) =
+    globe_mode.set_file(ws, "Uses.mo", "model Uses A a; end Uses;")
+  let assert Ok(outline) = globe_mode.outline(ws, "A.mo")
+  assert string.contains(outline, "\"name\":\"A\"")
+  let assert Error(_) = globe_mode.outline(ws, "Nope.mo")
+  assert globe_mode.deps(ws, "Uses") == Ok("[\"A.mo\",\"Uses.mo\"]")
+  assert globe_mode.deps(ws, "NoSuchModel") == Ok("[]")
+  let assert Ok(flat) = globe_mode.flat(ws, "A")
+  assert string.contains(flat, "\"variables\":1")
+  assert globe_mode.flat(ws, "NoSuchModel") == Ok("null")
 }
