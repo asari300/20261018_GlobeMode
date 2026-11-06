@@ -105,11 +105,11 @@ GlobeMode の版は 0.2.0（前は Cargo と Tauri が 0.0.1、Python が 0.1.0�
 | 場所 | 書き方 | 前の値 |
 | --- | --- | --- |
 | `Cargo.toml`（ルート） | `[workspace.package] version` と、`[workspace.dependencies]` の `globe-mode-*` の path 依存の `version`（14 行）。`src/Rust/mod/*` と `xtask` は `version.workspace = true` | 0.0.1 |
-| `src/Rust/apps/desktop/Cargo.toml`、`tauri.conf.json` | Tauri の bundle と updater の版（`release.yml` はタグの push のとき `tauri.conf.json` をタグに合わせる）。`tauri.android.conf.json` と `gen/android` は版を持たない | 0.0.1 |
+| `src/Rust/apps/desktop/Cargo.toml`、`tauri.conf.json` | Tauri の bundle と updater の版（`release.yml` は書き換えず、タグの版と違えば最初のジョブで止める。S195）。`tauri.android.conf.json` と `gen/android` は版を持たない | 0.0.1 |
 | `src/Rust/apps/experimental/{leptos,dioxus}/Cargo.toml` | `version` と `globe-mode` の path 依存の `version` | 0.0.1 |
 | `src/Rust/apps/web-{actix,axum,loco,rocket}/Cargo.toml`（と各 README の `globe-mode-fmt` の版） | `version` | 0.0.1 |
 | `Cargo.lock`（ルート、desktop、leptos、dioxus、web-*） | 自分の crate の `version` の行だけ | 0.0.1 |
-| `pyproject.toml`、`uv.lock` | wheel の版（`release.yml` はタグの push のときタグに合わせ、dry-run は `pyproject.toml` のまま） | 0.1.0 |
+| `pyproject.toml`、`uv.lock` | wheel の版（`release.yml` は書き換えず、タグの版と違えば最初のジョブで止める。S195） | 0.1.0 |
 | `src/Python/{fastapi_fmt,streamlit}/pyproject.toml`、各 `uv.lock` | 試験アプリの版 | 0.1.0 |
 | `src/Svelte/package.json` | UI の版（`private`） | 0.0.1 |
 | `src/VSCode/globe-mode/package.json` | 拡張の版。`pack_vsix.py` が VSIX の名前と manifest に使う | 0.0.5 |
@@ -119,6 +119,8 @@ GlobeMode の版は 0.2.0（前は Cargo と Tauri が 0.0.1、Python が 0.1.0�
 | 版を持たないもの | `src/Julia`・`src/Zig`（`Project.toml`・`build.zig.zon` が無い）、`pnpm-lock.yaml`・`mix.lock`・Gleam の `manifest.toml`（自分の版を書かない） | — |
 | 実行時に Cargo の版を読むもの | CLI の `--version`（clap の `version`）、LSP の `serverInfo.version` と wasm の版は `CARGO_PKG_VERSION` から取る（書き写していない）。C ABI と FMU の `generationTool`（`GlobeMode globe-mode-fmu`）は版を返さない | — |
 | 版でない 0.0.1 | `src/Modelica/GlobeModeValidation/package.mo` の `version="0.0.1"`（Modelica ライブラリ自身の版。試験 `globe-mode-db/tests/switching.rs` が使う）。上げない | 0.0.1 |
+
+タグを打つ前の手順（dry run、鍵、打ち直し）は [release.md](release.md)。
 
 Rumoca の rev は GlobeMode の版ごとに固定する（[ADR-0002](adr/0002-rumoca-adapter.md) の付記）。
 
@@ -138,7 +140,7 @@ Rumoca の rev は GlobeMode の版ごとに固定する（[ADR-0002](adr/0002-r
 | `web.yml` | 手動 | ブラウザ版の配布物 `globe-web`（S145） |
 | `ui-bench.yml` | 手動 | 3 UI のブラウザ版の測定（S156、[bench/ui.md](bench/ui.md)） |
 | `vscode.yml` | 手動、main の `src/VSCode/**` の変更 | 本物の VS Code で拡張を確かめる（S165） |
-| `release.yml` | タグ `v*` の push、手動（dry-run） | `globe`・Python の wheel・Desktop の bundle・サードパーティの表を作り Release に付ける（S044・S074・S135） |
+| `release.yml` | タグ `v*` の push、手動（dry-run。入力 `tag` でタグの経路も、Release は作らない） | `globe`・Python の wheel・Desktop の bundle・サードパーティの表を作り Release に付ける（S044・S074・S135・S195）。手順は [release.md](release.md) |
 
 ## 3. 中核の設計
 
