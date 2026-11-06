@@ -909,9 +909,12 @@ fn class_rename_blocked(
     }
     let mut files = Vec::new();
     collect_mo(root?, &mut files);
+    // Windows: URI 由来のパスは `/`、走査したパスは `\` が混ざるので、比べる前にそろえる
+    let path = normalize_path(path);
+    let open: Vec<String> = open.iter().map(|p| normalize_path(p)).collect();
     files
         .into_iter()
-        .map(|f| f.display().to_string())
+        .map(|f| normalize_path(&f.display().to_string()))
         .find_map(|f| {
             if f == path || open.contains(&f) {
                 return None;

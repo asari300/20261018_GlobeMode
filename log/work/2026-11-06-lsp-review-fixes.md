@@ -35,6 +35,7 @@ LSP の参照・リネーム・補完のレビュー（Opus、10 件、`log/revi
 
 - `cargo test -p globe-mode-lsp -p globe-mode-wasm`: lsp 43 本通過（新規 10 本のうち MSL の 1 本は `#[ignore]`、別に実行して通過）、wasm 21 本通過。
 - `mise run check`（fmt・clippy -D warnings・test・deny・`fmt --check src/Modelica`・`uv sync --locked`）: 通過。`globe-mode-cli` の `tests/lsp.rs` は補完の結果を `items` で読むよう直した。
+- `ci.yml`（full=true）1 回目 run 42167209295: Windows だけ失敗。`class_rename_refuses_what_the_disk_would_contradict` が、URI 由来の `C:/…/Foo.mo` と走査した `C:/…\Foo.mo` を比べて開いている文書を飛ばせなかった。`normalize_path` でそろえて直した（2 回目の結果は報告）。
 - 直す前に落ちることを確かめた試験: 1・2・4・7 と 6 の 2 本。
 - `check_docs.py`: 切れ 0 件。
 
