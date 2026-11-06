@@ -182,9 +182,13 @@ class Plan(unittest.TestCase):
         self.assertFalse(plan(["doc/roadmap.md"])["lang"])
 
     def test_full_triggers(self):
-        for path in ["Cargo.lock", "Cargo.toml", "mise.toml", "mise.lock", "deny.toml", ".github/workflows/ci.yml"]:
+        for path in ["Cargo.lock", "Cargo.toml", "mise.toml", "mise.lock", "deny.toml", ".github/workflows/ci.yml",
+                     # #7: ビルドの設定（wasm32 の rustflags・xtask の alias）と、checkout の改行の規則（S004 の Windows）
+                     ".cargo/config.toml", ".gitattributes"]:
             with self.subTest(path=path):
                 self.assertTrue(plan([path])["full"])
+        # 別の workspace（web-*）の .cargo は ci.yml の対象でない
+        self.assertFalse(plan(["src/Rust/apps/web-axum/.cargo/config.toml"])["full"])
 
     def test_large_change_is_full(self):
         many = [f"doc/x{i}.md" for i in range(LARGE_CHANGE + 1)]

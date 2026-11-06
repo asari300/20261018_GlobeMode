@@ -10,7 +10,7 @@
   - 依存の集合（Cargo.lock / Cargo.toml / deny.toml）を変えていなければ、cargo deny は省く。
     依存は前回の CI で検証済みのため。
   - 次のときは全体を検査する（full）:
-      * 依存・ツール・CI の定義を変えた（Cargo.toml / Cargo.lock / mise.toml / mise.lock / deny.toml / .github/）
+      * 依存・ツール・CI の定義を変えた（Cargo.toml / Cargo.lock / mise.toml / mise.lock / deny.toml / .github/ / .cargo/ / .gitattributes）
       * 変更したファイルが LARGE_CHANGE 件を超えた（大規模な変更）
       * コミットメッセージに [full-ci] がある
       * 定期実行（schedule）、手動実行で full を指定、比較元が無い（新しいブランチ・履歴の書き換え）
@@ -35,7 +35,8 @@ LARGE_CHANGE = 40
 ZERO_SHA = "0" * 40
 
 # これを変えたら全体を検査する
-FULL_TRIGGERS = ["Cargo.toml", "Cargo.lock", "mise.toml", "mise.lock", "deny.toml", ".github/*"]
+# .cargo/（wasm32 の rustflags、xtask の alias）と .gitattributes（checkout の改行）も、全ジョブのビルドと試験に効く
+FULL_TRIGGERS = ["Cargo.toml", "Cargo.lock", "mise.toml", "mise.lock", "deny.toml", ".github/*", ".cargo/*", ".gitattributes"]
 # 依存の集合が変わる（cargo deny が要る）
 DEPENDENCY_FILES = ["Cargo.toml", "Cargo.lock", "deny.toml", "src/Rust/mod/*/Cargo.toml"]
 # wasm でビルドできることを守る crate（S012 から実行系と wasm の束ねも）

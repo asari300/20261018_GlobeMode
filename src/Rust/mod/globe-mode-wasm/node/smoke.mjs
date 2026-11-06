@@ -10,20 +10,18 @@
 //    読み込み後と各モデルの後のメモリ（MiB）と時間を出す
 //    （S133）Decay の進捗と、performance.now() の費用（Decay と ChuaCircuit）
 // 4. panic の文言が last_panic() で読める（最後に回す。panic の後のモジュールは使えない）
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { existsSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { createRequire } from "node:module";
-import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
+import { defaultPkg, readMo, repo } from "./common.mjs";
 
-const here = dirname(fileURLToPath(import.meta.url));
-const repo = resolve(here, "../../../../..");
 const args = process.argv.slice(2);
 const arg = (name) => {
   const i = args.indexOf(name);
   return i >= 0 ? args[i + 1] : undefined;
 };
-const pkg = resolve(arg("--pkg") ?? join(process.env.CARGO_TARGET_DIR ?? join(repo, "target"), "wasm-pkg/node"));
+const pkg = resolve(arg("--pkg") ?? defaultPkg("node"));
 const msl = arg("--msl");
 
 const t0 = performance.now();
@@ -31,15 +29,6 @@ const gm = createRequire(import.meta.url)(join(pkg, "globe_mode_wasm.js"));
 const ms = (t) => +(performance.now() - t).toFixed(1);
 const mb = () => +(gm.memory_bytes() / 2 ** 20).toFixed(0);
 console.log(`globe-mode-wasm ${gm.version()}（読み込み ${ms(t0)} ms、Node ${process.version}）`);
-
-function readMo(dir, out = {}) {
-  for (const e of readdirSync(dir).sort()) {
-    const p = join(dir, e);
-    if (statSync(p).isDirectory()) readMo(p, out);
-    else if (p.endsWith(".mo")) out[relative(repo, p).replaceAll("\\", "/")] = readFileSync(p, "utf8");
-  }
-  return out;
-}
 
 // 1. ソルバの登録表
 const solvers = JSON.parse(gm.solvers());
@@ -49,7 +38,7 @@ console.log(`ソルバ: ${solvers.length} 件（実装あり ${available.join(",
 
 // 2. Decay
 const ws = new gm.Workspace();
-for (const [name, text] of Object.entries(readMo(join(repo, "src/Modelica/GlobeModeValidation")))) {
+for (const [name, text] of Object.entries(readMo(join(repo, "src/Modelica/GlobeModeValidation"), repo))) {
   ws.set_file(name, text);
 }
 const decay = "GlobeModeValidation.Simulation.Decay";
@@ -139,7 +128,7 @@ console.log(`wasm の線形メモリ ${mb()} MiB`);
 // 3. MSL
 if (msl && existsSync(msl)) {
   let t = performance.now();
-  const files = readMo(resolve(msl));
+  const files = readMo(resolve(msl), repo);
   const read = ms(t);
   t = performance.now();
   const lib = new gm.Workspace(JSON.stringify(files), "MSL");

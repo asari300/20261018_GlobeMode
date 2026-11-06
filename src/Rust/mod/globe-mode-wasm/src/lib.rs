@@ -270,7 +270,10 @@ fn js_error(message: String) -> JsValue {
     JsValue::from_str(&message)
 }
 
+/// 実行の入口（`simulate`・`simulate_columns`・自由関数 `simulate`）が最初に呼ぶ。前の panic の文言を消す（#12。消さないと、
+/// 後の panic でない例外を `last_panic()` を見るホストが panic と誤る）。
 fn parse_request(request_json: &str) -> Result<Request, JsValue> {
+    clear_last_panic();
     serde_json::from_str(request_json).map_err(|e| js_error(format!("入力の JSON が読めない: {e}")))
 }
 
@@ -292,6 +295,7 @@ impl Workspace {
         name: Option<String>,
         eager: Option<bool>,
     ) -> Result<Workspace, JsValue> {
+        clear_last_panic();
         let Some(json) = library_json else {
             return Ok(Workspace::new());
         };
@@ -559,6 +563,12 @@ pub fn last_panic() -> Option<String> {
     LAST_PANIC.lock().ok().and_then(|g| g.clone())
 }
 
+fn clear_last_panic() {
+    if let Ok(mut g) = LAST_PANIC.lock() {
+        *g = None;
+    }
+}
+
 /// panic の hook を試すために、わざと panic する（試験用）。
 #[doc(hidden)]
 #[wasm_bindgen]
@@ -605,4 +615,29 @@ pub fn install_panic_hook() {
         }
         console_error(&message);
     }));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// #12: 読んだあとも残る panic の文言が、次の実行・作り直しで別の失敗の原因と誤られない
+    #[test]
+    fn a_new_call_clears_the_last_panic() {
+        let stale = || *LAST_PANIC.lock().unwrap() = Some("古い panic".to_string());
+        stale();
+        assert_eq!(last_panic().as_deref(), Some("古い panic"));
+        Workspace::js_new(None, None, None).unwrap();
+        assert_eq!(last_panic(), None, "js_new");
+        stale();
+        simulate(r#"{"model":"X"}"#).unwrap();
+        assert_eq!(last_panic(), None, "simulate");
+        let mut ws = Workspace::new();
+        stale();
+        ws.simulate(r#"{"model":"X"}"#).unwrap();
+        assert_eq!(last_panic(), None, "Workspace::simulate");
+        stale();
+        ws.simulate_columns(r#"{"model":"X"}"#, None).unwrap();
+        assert_eq!(last_panic(), None, "simulate_columns");
+    }
 }
