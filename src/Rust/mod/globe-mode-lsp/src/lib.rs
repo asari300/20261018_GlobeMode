@@ -21,11 +21,11 @@
 //! | `globe/hover` | `{file, line, character}`（`globe/definition` と同じ） | `{contents, range}` か null（S149。名前の宣言の 1 行（クラスは見出し、部品は `;` まで。説明文字列を含む）と、カーソルの名前の Range。wasm の `hover` と同じ形） |
 //! | `globe/references` | `{file, line, character}`（`globe/definition` と同じ） | LSP の Range の配列（S161。カーソルの名前と字句が同じ位置。部品はカーソルのあるいちばん内側のクラスの中だけ。S166: クラス名の上なら、同じ文書の中で定義ジャンプと同じ解決で同じクラスに行き着く識別子（宣言・`end`・型・`extends`・`import`）。wasm の `references` と同じ形） |
 //! | `globe/models` | `{file}` | 文字列の配列（S170。文書の model・block・class の修飾名。partial は除く。package の中まで入り、`within` は頭に付く。構文が壊れていれば空。wasm の `models` と同じ形） |
-//! | `globe/rename` | `{file, line, character, newName}` | LSP の TextEdit（`{range, newText}`）の配列（S161。いちばん内側のクラスで宣言した部品と、S166 からこの文書で定義したクラス。部品でもクラスでもない・別のファイルのクラス・識別子でない・予約語・同じ階層に既にある名前・ほかの開いた文書に参照があるときは -32803 に理由。`textDocument/rename` は同じ計算の WorkspaceEdit、`textDocument/prepareRename` はカーソルの識別子の Range か同じ理由） |
+//! | `globe/rename` | `{file, line, character, newName}` | LSP の TextEdit（`{range, newText}`）の配列（S161。いちばん内側のクラスで宣言した部品と、S166 からこの文書で定義したクラス。部品でもクラスでもない・別のファイルのクラス・識別子でない・予約語・同じ階層に既にある名前・ほかの開いた文書に参照があるときは -32803 に理由。`textDocument/rename` は同じ計算の WorkspaceEdit（S198: クラスのリネームは、最上位のクラスがファイル名 `M.mo`・`package.mo` に対応しているとき、ワークスペースの根の下の開いていない `.mo` に同じ名前の識別子があるときも断る。`prepareRename` も同じ。開いていない文書への `globe/rename`・`textDocument/rename` は -32803、`globe/references` は空の配列）、`textDocument/prepareRename` はカーソルの識別子の Range か同じ理由） |
 //! | `globe/solvers` | なし | ソルバの登録表（`[{name, status, description, instead?}]`。S142。wasm の `solvers` と同じ） |
 //! | `globe/exportFmu` | `{model, fmiVersion?, outDir}`（既定は FMI 2。`build` はしない） | `{path}`（S144。`outDir/<名前>.fmu` と展開した `outDir/<名前>/` を書く。DAE まで変換できなければ -32000） |
 //! | `globe/tunableParameters` | `{model}` | `ParametersResponse` の JSON（S150。上書きできるパラメータの一覧。wasm の `tunable_parameters` と同じ。DAE まで変換できなければ -32000） |
-//! | `globe/completion` | `{file, line, character}`（`globe/definition` と同じ） | LSP の `CompletionItem` の配列（S171。`textDocument/completion` と同じ計算。予約語、文書の名前、点つきの名前の途中はクラスの子か部品の型の部品名。最大 200 件。文字列・コメントの中は空。wasm の `completion` と同じ形） |
+//! | `globe/completion` | `{file, line, character}`（`globe/definition` と同じ） | LSP の `CompletionList` `{isIncomplete, items}`（S171。`textDocument/completion` と同じ計算。予約語、文書の名前、点つきの名前の途中はクラスの子か部品の型の部品名。最大 200 件で、200 件に達したら `isIncomplete: true`（S198。打ちかけの語で絞ってから切る）。文字列・コメントの中は空。wasm の `completion` は `items` と同じ配列だけを返す） |
 //! | `globe/librarySearch` | `{query}`（名前の部分一致。大文字小文字を区別しない。`.` を含めると完全修飾名） | 同じ形の項目の配列（S167。最大 50 件、近い順。ファイルの中の入れ子のクラスも出る） |
 //! | `globe/librarySource` | `{path}`（完全修飾名） | `{file, text, range}`（S127。そのクラスを定義するライブラリのファイル。S186 から `range` はそのクラスの宣言の範囲（LSP の Range。引けなければ無い）。無ければ -32000） |
 //!
@@ -73,6 +73,8 @@ pub struct Server {
     config: Option<globe_mode_fmt::LintOptions>,
     /// 定義ジャンプで読んだライブラリのファイルのアウトラインだけを持つ（S132。検査には使わない）
     scratch: Workspace,
+    /// `scratch` に読んだライブラリのファイルの更新時刻（S198。ディスクで変わったら次の要求で読み直す）
+    scratch_mtime: HashMap<String, Option<std::time::SystemTime>>,
 }
 
 impl Server {
@@ -86,6 +88,7 @@ impl Server {
             root: None,
             config: None,
             scratch: Workspace::new(),
+            scratch_mtime: HashMap::new(),
         })
     }
 
@@ -115,10 +118,22 @@ impl Server {
 
     /// ライブラリの木と開いている文書で名前を引く道具を作って `f` を回す（S166。参照・リネームが使う）。
     fn with_resolver<T>(&mut self, f: impl FnOnce(&mut definition::Resolver) -> T) -> T {
+        let mtime = |p: &str| std::fs::metadata(p).and_then(|m| m.modified()).ok();
+        // ディスクで更新時刻が変わったライブラリのファイルは scratch から除く（読み直される）
+        let stale: Vec<String> = self
+            .scratch
+            .files()
+            .filter(|p| self.scratch_mtime.get(*p).is_some_and(|t| *t != mtime(p)))
+            .map(str::to_string)
+            .collect();
+        for p in &stale {
+            self.scratch.remove_file(p);
+            self.scratch_mtime.remove(p);
+        }
         self.tree();
         let tree = self.tree.as_ref().expect("tree() で作った");
         let open = &self.texts;
-        f(&mut definition::Resolver {
+        let out = f(&mut definition::Resolver {
             ws: &self.ws,
             tree,
             scratch: &mut self.scratch,
@@ -129,7 +144,13 @@ impl Server {
                     .map(|(_, t)| t.clone())
                     .or_else(|| std::fs::read_to_string(p).ok())
             },
-        })
+        });
+        for p in self.scratch.files() {
+            self.scratch_mtime
+                .entry(p.to_string())
+                .or_insert_with(|| mtime(p));
+        }
+        out
     }
 
     /// 根から上へたどって `globe-mode.toml` を読み直す（S130）。誤りは `window/showMessage` で知らせ、既定で続ける。
@@ -284,30 +305,22 @@ impl Server {
                 } else {
                     (uri.clone(), lsp_position(&params["position"]))
                 };
-                let items = match self.texts.get(&key).cloned() {
+                let list = match self.texts.get(&key).cloned() {
                     Some(text) => {
                         let (path, at) = (uri_path(&key), offset(&text, pos));
-                        self.with_resolver(|r| completion::complete(r, &path, &text, at))
+                        self.with_resolver(|r| completion::complete_list(r, &path, &text, at))
                     }
-                    None => vec![],
+                    None => json!({"isIncomplete": false, "items": []}),
                 };
-                reply(id, json!(items))
+                reply(id, list)
             }
             "textDocument/definition" => {
                 let Some(text) = self.texts.get(&uri).cloned() else {
                     return reply(id, Value::Null);
                 };
                 let at = offset(&text, lsp_position(&params["position"]));
-                self.tree();
-                let tree = self.tree.as_ref().expect("tree() で作った");
-                let target = definition::Resolver {
-                    ws: &self.ws,
-                    tree,
-                    scratch: &mut self.scratch,
-                    overlay: None,
-                    read: &|f| std::fs::read_to_string(f).ok(),
-                }
-                .definition(&uri_path(&uri), &text, at);
+                let path = uri_path(&uri);
+                let target = self.with_resolver(|r| r.definition(&path, &text, at));
                 let location = target.and_then(|t| {
                     // 開いている文書ならその本文と URI、無ければディスクから読む
                     let open = self.texts.iter().find(|(u, _)| uri_path(u) == t.path);
@@ -327,33 +340,17 @@ impl Server {
                 let Some(text) = self.texts.get(file).cloned() else {
                     return reply(id, Value::Null);
                 };
-                self.tree();
-                let tree = self.tree.as_ref().expect("tree() で作った");
-                let open = &self.texts;
                 // globe/hover（S149）は同じ解決で、宣言の 1 行を `{contents, range}` で返す
-                let resolve = if msg["method"] == "globe/hover" {
-                    definition::hover_at
-                } else {
-                    definition::definition_at
-                };
-                let found = resolve(
-                    &mut definition::Resolver {
-                        ws: &self.ws,
-                        tree,
-                        scratch: &mut self.scratch,
-                        overlay: None,
-                        read: &|f| {
-                            open.iter()
-                                .find(|(u, _)| uri_path(u) == f)
-                                .map(|(_, t)| t.clone())
-                                .or_else(|| std::fs::read_to_string(f).ok())
-                        },
-                    },
-                    &uri_path(file),
-                    &text,
+                let hover = msg["method"] == "globe/hover";
+                let (line, character) = (
                     params["line"].as_u64().unwrap_or(0) as u32,
                     params["character"].as_u64().unwrap_or(0) as u32,
                 );
+                let path = uri_path(file);
+                let found = self.with_resolver(|r| {
+                    let f = if hover { definition::hover_at } else { definition::definition_at };
+                    f(r, &path, &text, line, character)
+                });
                 reply(id, found.unwrap_or(Value::Null))
             }
             // S166: クラス名の上なら、開いているほかの文書の同じクラスへの参照も含める（部品の参照は同じ文書の中だけ）
@@ -395,29 +392,48 @@ impl Server {
                         Position::new(l.as_u64().unwrap_or(0) as u32, c.as_u64().unwrap_or(0) as u32),
                     )
                 };
+                // 開いていない文書: references は空の配列、リネームは断る（S198。`textDocument/references` と同じ形）
                 let Some(text) = self.texts.get(&key).cloned() else {
-                    return reply(id, Value::Null);
+                    return match method {
+                        "globe/references" => reply(id, json!([])),
+                        _ => error(id, -32803, "文書が開かれていない"),
+                    };
                 };
                 let (path, others) = (uri_path(&key), self.others(&key));
                 let new_name = params["newName"].as_str().unwrap_or("");
-                let result: Result<Value, String> = self.with_resolver(|r| match method {
-                    "globe/references" => Ok(definition::references_at(r, &path, &text, pos.line, pos.character)),
-                    "textDocument/prepareRename" => {
-                        definition::prepare_rename(r, &path, &text, offset(&text, pos)).map(|x| json!(range(&text, x)))
-                    }
-                    _ => {
-                        let edits = definition::rename_at(r, &path, &text, pos.line, pos.character, new_name)?;
-                        let at = offset(&text, pos);
-                        if let Some((name, t)) = definition::class_name_at(r, &path, &text, at) {
-                            let n: usize = others
-                                .iter()
-                                .map(|(u, body)| definition::class_hits(r, &uri_path(u), body, &name, &t).len())
-                                .sum();
-                            if n > 0 {
-                                return Err(format!("ほかの文書に {n} 箇所の参照がある（リネームは 1 文書の中だけ）"));
-                            }
+                // ディスクの上のほかのファイルの検査は VS Code など `textDocument/*` だけ（UI の `globe/*` はメモリ上の文書）
+                let disk = method.starts_with("textDocument/").then(|| {
+                    (self.root.clone(), self.texts.keys().map(|u| uri_path(u)).collect::<Vec<_>>())
+                });
+                let result: Result<Value, String> = self.with_resolver(|r| {
+                    let blocked = |r: &mut definition::Resolver| {
+                        let (root, open) = disk.as_ref()?;
+                        class_rename_blocked(r, root.as_deref(), open, &path, &text, offset(&text, pos))
+                    };
+                    match method {
+                        "globe/references" => Ok(definition::references_at(r, &path, &text, pos.line, pos.character)),
+                        "textDocument/prepareRename" => {
+                            let x = definition::prepare_rename(r, &path, &text, offset(&text, pos))?;
+                            blocked(r).map_or_else(|| Ok(json!(range(&text, x))), Err)
                         }
-                        Ok(if method == "globe/rename" { edits } else { json!({"changes": {key.clone(): edits}}) })
+                        _ => {
+                            let edits = definition::rename_at(r, &path, &text, pos.line, pos.character, new_name)?;
+                            if !others.is_empty()
+                                && let Some((name, t)) = definition::class_name_at(r, &path, &text, offset(&text, pos))
+                            {
+                                let n: usize = others
+                                    .iter()
+                                    .map(|(u, body)| definition::class_hits(r, &uri_path(u), body, &name, &t).len())
+                                    .sum();
+                                if n > 0 {
+                                    return Err(format!("ほかの文書に {n} 箇所の参照がある（リネームは 1 文書の中だけ）"));
+                                }
+                            }
+                            if let Some(why) = blocked(r) {
+                                return Err(why);
+                            }
+                            Ok(if method == "globe/rename" { edits } else { json!({"changes": {key.clone(): edits}}) })
+                        }
                     }
                 });
                 match result {
@@ -772,12 +788,16 @@ fn serve(
     for got in rx {
         let (msg, token) = got?;
         let id = msg["id"].to_string();
-        let mut failed = Ok(());
-        let replies = server.handle_with(msg, token, &mut |m| {
-            if failed.is_ok() {
-                failed = write(m);
-            }
-        });
+        let (mut failed, rid) = (Ok(()), msg.get("id").cloned());
+        // 1 つの要求の panic（解析の想定外）でプロセスごと落とさない（S198）。panic の内容は標準エラーに出る（既定のフック）。
+        let replies = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            server.handle_with(msg, token, &mut |m| {
+                if failed.is_ok() {
+                    failed = write(m);
+                }
+            })
+        }))
+        .unwrap_or_else(|_| error(rid, -32603, "内部エラー（panic）。標準エラーを見る"));
         lock(&tokens).remove(&id);
         failed?;
         for m in replies {
@@ -860,6 +880,55 @@ fn collect_mo(path: &std::path::Path, out: &mut Vec<PathBuf>) {
     } else if path.extension().is_some_and(|e| e == "mo") {
         out.push(path.to_path_buf());
     }
+}
+
+/// クラスのリネームが、ディスクの上のほかのファイルと食い違うか（S198。`textDocument/rename` と `prepareRename` だけ）。理由を返す。
+/// ファイルの最上位のクラスがファイル名（`M.mo` の `model M`、`package.mo`）に対応しているときと、
+/// ワークスペースの根の下の開いていない `.mo` に同じ名前の識別子があるとき（字句の一致だけ。部品の同名でも断る）。
+/// shortcut: 根の下の `.mo` を毎回すべて読む（文字列に `old` を含むものだけ字句に分ける。MSL 全体で数百 ms）。大きな根で遅いなら索引を持つ。
+fn class_rename_blocked(
+    r: &mut definition::Resolver,
+    root: Option<&std::path::Path>,
+    open: &[String],
+    path: &str,
+    text: &str,
+    at: usize,
+) -> Option<String> {
+    let (old, t) = definition::class_name_at(r, path, text, at)?;
+    if t.path != path {
+        return None; // 別のファイルのクラスは `rename` が断る
+    }
+    let o = r.ws.outline(path)?.as_ref().ok()?;
+    let name = std::path::Path::new(path).file_name()?.to_string_lossy();
+    if o.classes.iter().any(|c| c.range == t.range)
+        && (name == "package.mo" || name.strip_suffix(".mo") == Some(old.as_str()))
+    {
+        return Some(format!(
+            "{old} はファイル {name} に対応する最上位のクラスで、リネームするとファイル名とほかのファイルの参照が食い違う"
+        ));
+    }
+    let mut files = Vec::new();
+    collect_mo(root?, &mut files);
+    files
+        .into_iter()
+        .map(|f| f.display().to_string())
+        .find_map(|f| {
+            if f == path || open.contains(&f) {
+                return None;
+            }
+            let body = std::fs::read_to_string(&f)
+                .ok()
+                .filter(|b| b.contains(old.as_str()))?;
+            let hit = globe_mode_fmt::lex(&body)
+                .ok()?
+                .iter()
+                .any(|k| k.text == old);
+            hit.then(|| {
+                format!(
+                    "開いていないファイル {f} にも {old} がある（リネームは開いている文書の中だけ）"
+                )
+            })
+        })
 }
 
 /// LSP の `Position` の JSON（読めない欄は 0）。
@@ -1636,7 +1705,7 @@ mod tests {
             "uri": "T.mo", "languageId": "modelica", "version": 1, "text": text}}}),
         );
         let labels = |r: Value| -> Vec<String> {
-            r["result"]
+            r["result"]["items"]
                 .as_array()
                 .unwrap()
                 .iter()
@@ -1650,6 +1719,137 @@ mod tests {
         let lsp = s.handle(json!({"id": 2, "method": "textDocument/completion",
             "params": {"textDocument": {"uri": "T.mo"}, "position": {"line": 1, "character": 33}}}));
         assert_eq!(labels(lsp[0].clone()), ui);
+    }
+
+    #[test]
+    fn completion_is_incomplete_only_when_the_limit_cuts() {
+        // S198: 200 件で切ったら `isIncomplete: true`、打ち足して絞れば false（配列ではなく CompletionList）
+        let mut s = Server::new(&[]).unwrap();
+        let comps: String = (0..250).map(|i| format!("  Real x{i:03};\n")).collect();
+        let text = format!("model T\n{comps}  Real \nend T;\n");
+        s.handle(
+            json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+            "uri": "T.mo", "languageId": "modelica", "version": 1, "text": text}}}),
+        );
+        let ask = |s: &mut Server, method: &str, word: &str| {
+            let line = 251; // `  Real ` の行
+            let mut text = text.clone();
+            text.insert_str(text.find("  Real \n").unwrap() + 7, word);
+            s.handle(json!({"method": "textDocument/didChange", "params": {"textDocument": {"uri": "T.mo"},
+                "contentChanges": [{"text": text}]}}));
+            s.handle(json!({"id": 1, "method": method, "params": {"file": "T.mo", "textDocument": {"uri": "T.mo"},
+                "line": line, "character": 7 + word.len(), "position": {"line": line, "character": 7 + word.len()}}}))
+                .remove(0)["result"]
+                .clone()
+        };
+        for m in ["globe/completion", "textDocument/completion"] {
+            let r = ask(&mut s, m, "");
+            assert_eq!(r["isIncomplete"], true, "{m}");
+            assert_eq!(r["items"].as_array().unwrap().len(), 200);
+            let r = ask(&mut s, m, "x24");
+            assert_eq!(r["isIncomplete"], false, "{m}");
+            assert!(
+                r["items"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|i| i["label"] == "x249")
+            );
+        }
+        // 開いていない文書も同じ形
+        let r = s.handle(json!({"id": 2, "method": "textDocument/completion", "params": {"textDocument": {"uri": "none.mo"}, "position": {"line": 0, "character": 0}}}));
+        assert_eq!(r[0]["result"], json!({"isIncomplete": false, "items": []}));
+    }
+
+    /// 一時ディレクトリ（テストごとに別の名前）。
+    fn scratch_dir(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("globe-lsp-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn library_file_changed_on_disk_is_reread() {
+        // S198: scratch に読んだライブラリのファイルがディスクで変わったら、次の要求で読み直す（古い範囲で本文を切らない）
+        let dir = scratch_dir("stale");
+        let lib = dir.join("Lib");
+        std::fs::create_dir_all(&lib).unwrap();
+        let file = lib.join("package.mo");
+        std::fs::write(&file, "package Lib\n  model R\n  end R;\nend Lib;\n").unwrap();
+        let mut s = Server::new(std::slice::from_ref(&dir)).unwrap();
+        let text = "model T\n  Lib.R r;\nend T;\n";
+        s.handle(
+            json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+            "uri": "T.mo", "languageId": "modelica", "version": 1, "text": text}}}),
+        );
+        let hover = |s: &mut Server| {
+            s.handle(json!({"id": 1, "method": "globe/hover", "params": {"file": "T.mo", "line": 1, "character": 7}}))
+                .remove(0)["result"]["contents"]
+                .clone()
+        };
+        assert_eq!(hover(&mut s), "model R");
+        let more = format!(
+            "{}package Lib\n  model R\n  end R;\nend Lib;\n",
+            "// padding\n".repeat(5)
+        );
+        std::fs::write(&file, more).unwrap();
+        let t = std::time::SystemTime::now() + std::time::Duration::from_secs(5);
+        std::fs::File::options()
+            .write(true)
+            .open(&file)
+            .unwrap()
+            .set_modified(t)
+            .unwrap();
+        assert_eq!(hover(&mut s), "model R");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn class_rename_refuses_what_the_disk_would_contradict() {
+        // S198: M.mo の model M はファイル名に対応する。ほかのファイルが参照していれば別名のファイルでも断る
+        let dir = scratch_dir("rename");
+        let (m, foo, other) = (dir.join("M.mo"), dir.join("Foo.mo"), dir.join("Other.mo"));
+        std::fs::write(&m, "model M\nend M;\n").unwrap();
+        std::fs::write(&foo, "model Q\nend Q;\n").unwrap();
+        std::fs::write(&other, "model Other\n  Q q;\nend Other;\n").unwrap();
+        let mut s = Server::new(&[]).unwrap();
+        s.handle(json!({"id": 0, "method": "initialize", "params": {"rootUri": file_uri(&dir.display().to_string())}}));
+        let open = |s: &mut Server, p: &PathBuf, text: &str| {
+            s.handle(json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+                "uri": file_uri(&p.display().to_string()), "languageId": "modelica", "version": 1, "text": text}}}))
+        };
+        open(&mut s, &m, "model M\nend M;\n");
+        open(&mut s, &foo, "model Q\nend Q;\n");
+        let ask = |s: &mut Server, method: &str, p: &PathBuf| {
+            let uri = file_uri(&p.display().to_string());
+            s.handle(json!({"id": 1, "method": method, "params": {"textDocument": {"uri": uri}, "file": uri,
+                "position": {"line": 0, "character": 7}, "line": 0, "character": 7, "newName": "N"}}))
+                .remove(0)
+        };
+        for method in ["textDocument/rename", "textDocument/prepareRename"] {
+            let r = ask(&mut s, method, &m);
+            assert_eq!(r["error"]["code"], -32803, "{method}: {r}");
+            assert!(
+                r["error"]["message"].as_str().unwrap().contains("M.mo"),
+                "{r}"
+            );
+            let r = ask(&mut s, method, &foo);
+            assert!(
+                r["error"]["message"].as_str().unwrap().contains("Other.mo"),
+                "{method}: {r}"
+            );
+        }
+        // 参照するファイルが無ければ通る。UI の `globe/rename` はメモリ上の文書なので、ディスクを見ない
+        std::fs::remove_file(&other).unwrap();
+        assert!(ask(&mut s, "textDocument/rename", &foo)["result"].is_object());
+        assert!(ask(&mut s, "globe/rename", &m)["result"].is_array());
+        // 開いていない文書: references は空、リネームは断る
+        let r = s.handle(json!({"id": 5, "method": "globe/references", "params": {"file": "none.mo", "line": 0, "character": 0}}));
+        assert_eq!(r[0]["result"], json!([]));
+        let r = s.handle(json!({"id": 6, "method": "globe/rename", "params": {"file": "none.mo", "line": 0, "character": 0, "newName": "x"}}));
+        assert_eq!(r[0]["error"]["code"], -32803);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
