@@ -95,6 +95,29 @@ fn mat_output_carries_parameters_and_overrides() {
     assert_eq!(m.trajectory.time.last(), Some(&1.0));
 }
 
+/// dopri45 は実行系がパラメータの値を返さないが、MAT の従属するパラメータ（`c = 2*k`）は上書きに従う（#1）。
+/// 上書きを組み込んでコンパイルし直す（ADR-0022）ので、補うときの既定値がもう上書きの値になっている。
+#[test]
+fn mat_dependent_parameters_follow_an_override_with_dopri45() {
+    let path = out_path("parameters-dopri45.mat");
+    let o = simulate(
+        "Parameters",
+        &[
+            "--solver",
+            "dopri45",
+            "--param",
+            "k=2",
+            "-o",
+            path.to_str().unwrap(),
+        ],
+    );
+    assert!(o.status.success(), "{o:?}");
+    let mut file = std::fs::File::open(&path).unwrap();
+    let m = globe_mode::sim::mat::read_mat4(&mut file).unwrap();
+    let value = |n: &str| m.parameters.iter().find(|p| p.name == n).expect(n).value;
+    assert_eq!((value("k"), value("c")), (2.0, 4.0));
+}
+
 #[test]
 fn format_overrides_the_extension_and_step_is_shown() {
     let path = out_path("decay-as-csv.mat");
