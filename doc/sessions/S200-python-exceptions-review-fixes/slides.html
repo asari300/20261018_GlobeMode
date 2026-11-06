@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S200 Python の例外の階層とレビューの修正 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S200 Python の例外の階層とレビューの修正">
+
+<section class="slide" id="S01">
+  <span class="tag">S200 · 2026-11-06 · P7</span>
+  <h1>GlobeModeError と、束縛のレビューの修正</h1>
+  <p class="lead">ユーザーの決定「例外を入れる」と、Opus のレビューの指摘 1〜10 を 1 件ずつ再現してから直した</p>
+  <div class="big">モデルの誤りは今までどおり例外にせず、結果の dict で返す</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">階層</span>
+  <h1>GlobeModeError の子は 6 つ</h1>
+  <table class="compact">
+    <tr><th>型</th><th>継ぐ型</th><th>出る場合</th></tr>
+    <tr><td><code>LibraryError</code></td><td><code>RuntimeError</code></td><td>ライブラリを読めない（<code>.diagnostics</code>）</td></tr>
+    <tr><td><code>SettingsError</code></td><td><code>ValueError</code></td><td>設定の値・型・NaN</td></tr>
+    <tr><td><code>ModelNotFoundError</code></td><td><code>ValueError</code></td><td><code>graph</code> のモデルが無い</td></tr>
+    <tr><td><code>SourceError</code></td><td><code>ValueError</code></td><td><code>outline</code>・<code>format</code> の構文の誤り</td></tr>
+    <tr><td><code>ExportError</code></td><td><code>ValueError</code></td><td>FMU に書き出せない</td></tr>
+    <tr><td><code>ResultError</code></td><td><code>ValueError</code></td><td><code>table</code> に時系列の無い結果</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">方針</span>
+  <h1>入れないものを決めた</h1>
+  <ul>
+    <li>既存の <code>except ValueError</code> / <code>RuntimeError</code> は壊れない（多重継承）</li>
+    <li class="ok">基底に <code>.diagnostics</code>（無ければ空）と <code>.code</code>（最初の診断、無ければ <code>None</code>）</li>
+    <li>呼び方の誤り（未知のキー、呼べない <code>on_progress</code>）は素の <code>TypeError</code>。打ち間違いまで握りつぶさせない</li>
+    <li>コールバックの例外と Rust の panic はそのまま通す</li>
+    <li>「未知のモデルを例外に」は変えない（<code>check</code> は <code>passed: False</code>）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">指摘と再現</span>
+  <h1>動作の指摘は再現してから直した</h1>
+  <table class="compact">
+    <tr><th>#</th><th>指摘</th><th>状態</th></tr>
+    <tr><td>1</td><td><code>targets</code> に文字列</td><td class="ok">再現して直した</td></tr>
+    <tr><td>2</td><td>GIL を離すのは <code>on_progress</code> のときだけ</td><td class="ok">再現して直した</td></tr>
+    <tr><td>3・7</td><td>numpy の数・NaN・<code>None</code> の設定</td><td class="ok">再現して直した</td></tr>
+    <tr><td>4</td><td><code>on_progress</code> が位置引数</td><td class="warn">キーワード専用に（挙動が変わる）</td></tr>
+    <tr><td>6</td><td>bytes のライブラリ</td><td class="ok">再現して直した</td></tr>
+    <tr><td>8</td><td>コールバックの枝の試験</td><td>3 つとも元から通った。試験だけ足した</td></tr>
+    <tr><td>5・9・10</td><td>写す回数、<code>.pyi</code>、不要な <code>str()</code></td><td class="ok">直した</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">GIL</span>
+  <h1>実行の間は必ず GIL を離す</h1>
+  <ul>
+    <li><code>simulate</code> と <code>simulate_columns</code> を 1 本の道に。<code>on_progress</code> が無くても進捗のたびに Ctrl-C を見る</li>
+    <li><code>check</code>・<code>graph</code>・<code>deps</code>・<code>flat</code>・<code>export_fmu</code> も <code>py.detach</code> で包む</li>
+    <li class="ok">PyO3 0.30.1 のソースで確認: <code>detach</code> はスレッドを移さず、unsendable の検査は同じスレッドなら通る</li>
+    <li>前は別スレッドが実行中に 4 回しか動けず、Ctrl-C は約 1.1 s の実行が終わるまで効かなかった</li>
+    <li class="warn">既定のソルバは積分の中に通知が無いので、Ctrl-C は段の変わり目まで</li>
+  </ul>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">列の道</span>
+  <h1>写しを 1 回減らし、ピークを約 3 割下げた</h1>
+  <table class="compact">
+    <tr><th>点数</th><th>前のピーク</th><th>後のピーク</th><th>時間</th></tr>
+    <tr><td>10⁵</td><td>84 MiB</td><td>80 MiB</td><td>同じ</td></tr>
+    <tr><td>10⁶</td><td>145 MiB</td><td>121 MiB</td><td>同じ</td></tr>
+    <tr><td>4×10⁶</td><td>350 MiB</td><td>259 MiB</td><td>同じ</td></tr>
+  </table>
+  <p>基準の 78 MiB を引くと増分は約 33〜36% 減。コードは短くなった</p>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
