@@ -33,4 +33,4 @@
 - `mise run check`: 通った（fmt・clippy・test・deny・`globe fmt --check src/Modelica`（0 ファイルが要整形）・`uv sync --locked`）。最初の 1 回は新しい試験の rustfmt で落ち、整形して回し直した。
 - `mise run wasm:node`: 通った（EXIT=0）。
 - `check_docs.py`: デッキ OK / リンク 4102 件中の切れ 0 件。`render_slides.py`（自分のデッキ）: 問題 0 件。
-- CI: （push 後に記入）
+- CI: `gh workflow run ci.yml --ref feature/s207-lint-performance -f full=true`（Windows を含む）run 42312995721 は success（全 11 ジョブ: plan・lang・docs・rust-windows・python・deny・wasm-node・ui・rust-sundials・msl・rust-linux）。
