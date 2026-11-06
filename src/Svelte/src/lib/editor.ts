@@ -1,5 +1,5 @@
 // CodeMirror の拡張（S053）: 予約語と本文の単語の補完、検査と lint の結果の波線。業務ロジックは置かない。
-import { autocompletion, completeAnyWord, type CompletionContext, type CompletionResult, type CompletionSource } from "@codemirror/autocomplete";
+import { acceptCompletion, autocompletion, completeAnyWord, type CompletionContext, type CompletionResult, type CompletionSource } from "@codemirror/autocomplete";
 import { linter, type Diagnostic as CmDiagnostic } from "@codemirror/lint";
 import { indentWithTab } from "@codemirror/commands";
 import { HighlightStyle, indentUnit, StreamLanguage, syntaxHighlighting, type StringStream } from "@codemirror/language";
@@ -72,14 +72,14 @@ const modelicaStyle = HighlightStyle.define([
 export const modelicaHighlight: Extension = [modelicaLanguage, syntaxHighlighting(modelicaStyle)];
 
 /**
- * Tab は字下げ、Shift+Tab は戻す（S188）。幅は整形器の既定と同じ空白 2 つ（タブ文字は入れない）。
+ * Tab は字下げ（補完の一覧が開いているときは候補の確定。S196）、Shift+Tab は戻す（S188）。幅は整形器の既定と同じ空白 2 つ（タブ文字は入れない）。
  * フォーカスを出す手は CodeMirror の組み込み（Esc のあと 2 秒以内の Tab / Shift+Tab、Ctrl+M か Mac の Shift+Alt+M で切り替え。defaultKeymap の toggleTabFocusMode）。
  * 使い方は EDITOR_HELP を、エディタの aria-describedby と画面の両方に出す（キーボードトラップを作らない。WCAG 2.1.2）。
  */
-export const EDITOR_HELP = "Tab は字下げ、Shift+Tab は字下げを戻す。フォーカスを移すには Esc を押してから Tab（戻るなら Shift+Tab）、または Ctrl+M（Mac は Shift+Alt+M）で Tab での移動を切り替える。";
+export const EDITOR_HELP = "Tab は字下げ（補完の一覧が開いているときは候補の確定）、Shift+Tab は字下げを戻す。フォーカスを移すには Esc を押してから Tab（戻るなら Shift+Tab）、または Ctrl+M（Mac は Shift+Alt+M）で Tab での移動を切り替える。";
 export const modelicaTab: Extension = [
   indentUnit.of("  "),
-  keymap.of([indentWithTab]),
+  keymap.of([{ key: "Tab", run: acceptCompletion }, indentWithTab]), // S196: 一覧が開いているときだけ確定（開いていなければ false で字下げへ）
   EditorView.contentAttributes.of({ "aria-describedby": "editor-help" }),
 ];
 
@@ -93,12 +93,14 @@ function keywords(ctx: CompletionContext): CompletionResult | null {
 const completionFrom = (source: CompletionSource): Extension => EditorState.languageData.of(() => [{ autocomplete: source }]); // source は同じ関数を渡し続ける（CodeMirror は関数で区別する）
 export const modelicaCompletion = (): Extension => [autocompletion(), completionFrom(keywords), completionFrom(completeAnyWord)];
 
+const LIMIT = 200; // Rust の補完の上限（globe-mode-lsp の completion.rs）
+
 // LSP の CompletionItemKind → CodeMirror の type
 const KIND: Record<number, string> = { 3: "function", 5: "property", 6: "variable", 7: "class", 9: "namespace", 14: "keyword" };
 
 /**
  * Rust 側の補完（S171）。本文を送ってから位置を渡すだけで、候補の計算（型の位置のライブラリのクラス、`.` の後ろの部品、文字列・コメントの中は空）は Backend。
- * 語の頭が変わるまでは引き直さず（validFor）、古い応答は `ctx.aborted` で捨てる。予約語はこちらでは足さない（上の keywords が即時に出す）。
+ * 語の頭が変わるまでは引き直さず（validFor。ただし候補が上限で切れているときは打ち足すたびに問い直す。S196）、古い応答は `ctx.aborted` で捨てる。予約語はこちらでは足さない（上の keywords が即時に出す）。
  */
 const rustCompletion = (backend: Backend, file: () => string): CompletionSource => async (ctx) => {
   const word = ctx.matchBefore(/\w*/)!;
@@ -109,12 +111,14 @@ const rustCompletion = (backend: Backend, file: () => string): CompletionSource 
   try {
     await backend.setFile(file(), ctx.state.doc.toString());
     if (ctx.aborted) return null;
-    const items = await backend.completion(file(), line.number - 1, ctx.pos - line.from);
+    const r = await backend.completion(file(), line.number - 1, ctx.pos - line.from);
     if (ctx.aborted) return null;
+    const items = Array.isArray(r) ? r : r.items;
+    const more = (Array.isArray(r) ? undefined : r.isIncomplete) ?? items.length >= LIMIT; // S196: 上限の 200 件で切れていれば、打ち足したら問い直す（LSP が isIncomplete を返さないうちは件数で見る）
     const options = items
       .filter((i) => i.kind !== 14)
       .map((i) => ({ label: i.label, type: KIND[i.kind ?? 0], detail: i.detail, info: i.documentation }));
-    return options.length ? { from: word.from, options, validFor: /^\w*$/ } : null; // 語を打ち足す間は CodeMirror が絞る（候補は打ちかけの語で絞り済みの上位 200 件）
+    return options.length ? { from: word.from, options, ...(more ? {} : { validFor: /^\w*$/ }) } : null; // 切れていなければ語を打ち足す間は CodeMirror が絞る
   } catch {
     return null; // 候補が引けなくても、予約語と本文の単語は出ている
   }
@@ -215,8 +219,16 @@ export function byteToChar(text: string): (n: number) => number {
   return (n) => new TextDecoder().decode(bytes.slice(0, n)).length;
 }
 
+/** 読み取り専用（ライブラリのファイルのタブ。S196）。Compartment なので、自分のファイルに切り替えるときは makeEditable。 */
+const editSlot = new Compartment();
+export const readOnlySlot = (readOnly: boolean, onTry: () => void): Extension => [
+  editSlot.of(EditorState.readOnly.of(readOnly)),
+  EditorView.domEventHandlers({ beforeinput: (_e, v) => { if (v.state.readOnly) onTry(); return false; } }), // 打っても何も起きないままにせず、案内を出す
+];
+export const makeEditable = (view: EditorView) => view.dispatch({ effects: editSlot.reconfigure(EditorState.readOnly.of(false)) });
+
 /** 入力が止まったら lint（globe-mode-fmt）を回し、warning の波線を出す。検査（S0〜S10）はボタンのままで、結果は setDiagnostics で載せる。 */
-export const modelicaLinter = (backend: Backend, file: string): Extension =>
+export const modelicaLinter = (backend: Backend): Extension =>
   linter(
     async (view) => {
       const text = view.state.doc.toString();
@@ -226,7 +238,6 @@ export const modelicaLinter = (backend: Backend, file: string): Extension =>
         const from = Math.min(line.from + Math.max(m.column - 1, 0), line.to);
         out.push({ from, to: line.to, severity: "warning", source: m.rule, message: m.message });
       }
-      void file;
       return out;
     },
     { delay: 500 },

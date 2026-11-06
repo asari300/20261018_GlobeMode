@@ -5,9 +5,9 @@
 
 use std::path::{Path, PathBuf};
 
-use pyo3::exceptions::{PyRuntimeError, PyValueError};
+use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
-use pyo3::types::{PyBytes, PyDict};
+use pyo3::types::{PyBytes, PyDict, PyList};
 use serde::Serialize;
 
 fn json<T: Serialize>(value: &T) -> Result<String, String> {
@@ -29,27 +29,6 @@ fn request(
         .map_err(|e| format!("settings が読めない: {e}"))
 }
 
-fn simulate_json(
-    ws: &mut globe_mode::Workspace,
-    model: &str,
-    settings_json: Option<&str>,
-) -> Result<String, String> {
-    json(&ws.simulate(&request(model, settings_json)?))
-}
-
-/// 結果の JSON（`csv` は無い）と、列の名前（`time` が先頭）と値（f64 の little-endian を並べたもの）。
-type Columns = (String, Vec<String>, Vec<Vec<u8>>);
-
-/// [`simulate_json`] と同じだが、時系列を CSV にせず列ごとに返す（S085。並びは facade の `Simulated::columns`）。
-fn simulate_columns(
-    ws: &mut globe_mode::Workspace,
-    model: &str,
-    settings_json: Option<&str>,
-) -> Result<Columns, String> {
-    let request = columns_request(model, settings_json)?;
-    columns_of(ws.simulate_with(&request, &globe_mode::now_ms))
-}
-
 fn columns_request(
     model: &str,
     settings_json: Option<&str>,
@@ -59,17 +38,18 @@ fn columns_request(
     Ok(request)
 }
 
-fn columns_of(simulated: globe_mode::Simulated) -> Result<Columns, String> {
-    let (layout, columns) = simulated.columns();
-    let columns = columns
-        .iter()
-        .map(|v| v.iter().flat_map(|x| x.to_le_bytes()).collect())
-        .collect();
-    // 既定で描く信号（S190）は結果の dict の `defaults` に添える
-    let mut response =
-        serde_json::to_value(&simulated.response).map_err(|e| format!("JSON: {e}"))?;
-    response["defaults"] = serde_json::json!(layout.defaults);
-    Ok((json(&response)?, layout.names, columns))
+/// Python 側の例外（`globe_mode/_errors.py`）を名前で引いて作る。`message` が `None` なら診断から読める本文を作る。
+/// コールバックの例外や `PanicException` はここを通らず、そのまま Python に出る。
+fn error(py: Python<'_>, class: &str, message: Option<String>, diagnostics: Option<&str>) -> PyErr {
+    let build = || -> PyResult<PyErr> {
+        let class = py.import("globe_mode._errors")?.getattr(class)?;
+        let ds = match diagnostics {
+            Some(j) => py.import("json")?.call_method1("loads", (j,))?,
+            None => PyList::empty(py).into_any(),
+        };
+        Ok(PyErr::from_value(class.call1((message, ds))?))
+    };
+    build().unwrap_or_else(|e| e)
 }
 
 /// `Progress` を Python の dict に（`stage` は `"integration"` などの小文字、`time` は積分の段だけ）。
@@ -82,14 +62,16 @@ fn progress_dict<'py>(py: Python<'py>, p: &globe_mode::Progress) -> PyResult<Bou
     Ok(d)
 }
 
-/// ADR-0033 の Python の段（S129）。GIL を離して `simulate_observed` を回し、進捗のたびに GIL を取り直して
-/// `check_signals`（Ctrl-C）と `on_progress(dict)` を呼ぶ。`True`（真の値）が返るか例外が出たらトークンを立てて
-/// 次の区切りで止め、例外（`KeyboardInterrupt` など）は実行が戻ってから投げ直す。`finish` も GIL の外で回す。
+/// ADR-0033 の Python の段（S129。S200 から `on_progress` が無くても通る 1 本の道）。GIL を離して
+/// `simulate_observed` を回し、進捗のたびに GIL を取り直して `check_signals`（Ctrl-C）と、あれば
+/// `on_progress(dict)` を呼ぶ。`True`（真の値）が返るか例外が出たらトークンを立てて次の区切りで止め、
+/// 例外（`KeyboardInterrupt` など）は実行が戻ってから投げ直す。`finish` も GIL の外で回す。
+/// `#[pyclass(unsendable)]` の `&mut self` は、GIL を離しても同じスレッドで使う（`detach` はスレッドを移さない）。
 fn simulate_observed<T: Send>(
     py: Python<'_>,
     ws: &mut globe_mode::Workspace,
     request: &globe_mode::SimulateRequest,
-    on_progress: Py<PyAny>,
+    on_progress: Option<Py<PyAny>>,
     finish: impl FnOnce(globe_mode::Simulated) -> Result<T, String> + Send,
 ) -> PyResult<T> {
     let token = globe_mode::CancelToken::new();
@@ -100,9 +82,10 @@ fn simulate_observed<T: Send>(
         }
         let stop = Python::attach(|py| {
             py.check_signals()?;
-            on_progress
-                .call1(py, (progress_dict(py, p)?,))?
-                .is_truthy(py)
+            match &on_progress {
+                Some(f) => f.call1(py, (progress_dict(py, p)?,))?.is_truthy(py),
+                None => Ok(false),
+            }
         });
         match stop {
             Ok(false) => {}
@@ -127,11 +110,7 @@ fn simulate_observed<T: Send>(
     if let Some(e) = raised {
         return Err(e);
     }
-    out.map_err(PyValueError::new_err)
-}
-
-fn graph_json(ws: &mut globe_mode::Workspace, model: &str, depth: u32) -> Result<String, String> {
-    json(&ws.graph(model, depth).map_err(|e| e.to_string())?)
+    out.map_err(PyRuntimeError::new_err)
 }
 
 /// ライブラリを 1 回だけ読み、ファイルを足しながら、検査・グラフ・実行を繰り返す。
@@ -141,15 +120,21 @@ struct Workspace(globe_mode::Workspace);
 
 #[pymethods]
 impl Workspace {
-    /// `libraries` はライブラリのディレクトリ（MSL など）。読めなければ診断の JSON を添えた `RuntimeError`。
+    /// `libraries` はライブラリのディレクトリ（MSL など）。読めなければ `LibraryError`（`.diagnostics` つき）。
     #[new]
     #[pyo3(signature = (libraries = Vec::new()))]
-    fn new(libraries: Vec<PathBuf>) -> PyResult<Self> {
+    fn new(py: Python<'_>, libraries: Vec<PathBuf>) -> PyResult<Self> {
         let inner = if libraries.is_empty() {
             globe_mode::Workspace::new()
         } else {
-            globe_mode::Workspace::with_libraries(&libraries)
-                .map_err(|ds| PyRuntimeError::new_err(json(&ds).unwrap_or_default()))?
+            globe_mode::Workspace::with_libraries(&libraries).map_err(|ds| {
+                error(
+                    py,
+                    "LibraryError",
+                    None,
+                    Some(&json(&ds).unwrap_or_default()),
+                )
+            })?
         };
         Ok(Workspace(inner))
     }
@@ -158,52 +143,70 @@ impl Workspace {
         self.0.set_file(path, text);
     }
 
-    /// ディレクトリの下の `.mo` をすべて読み、読んだ数を返す。
-    fn load_dir(&mut self, dir: PathBuf) -> PyResult<usize> {
+    /// ディレクトリの下の `.mo` をすべて読み、読んだ数を返す。読めなければ `LibraryError`。
+    fn load_dir(&mut self, py: Python<'_>, dir: PathBuf) -> PyResult<usize> {
         let dir: &Path = &dir;
-        self.0
-            .load_dir(dir)
-            .map_err(|e| PyRuntimeError::new_err(format!("{}: {e}", dir.display())))
+        self.0.load_dir(dir).map_err(|e| {
+            error(
+                py,
+                "LibraryError",
+                Some(format!("{}: {e}", dir.display())),
+                None,
+            )
+        })
     }
 
-    /// 検査（S0〜S10）の結果（`CheckResponse` の JSON）。
-    fn check(&mut self, model: &str) -> PyResult<String> {
-        json(&self.0.check(model)).map_err(PyRuntimeError::new_err)
+    /// 検査（S0〜S10）の結果（`CheckResponse` の JSON）。GIL を離して回す（S200）。
+    fn check(&mut self, py: Python<'_>, model: &str) -> PyResult<String> {
+        py.detach(|| json(&self.0.check(model)))
+            .map_err(PyRuntimeError::new_err)
     }
 
-    /// connect グラフ（`ConnectGraph` の JSON）。モデルが索引に無ければ `ValueError`。
+    /// connect グラフ（`ConnectGraph` の JSON）。モデルが索引に無ければ `ModelNotFoundError`。
     #[pyo3(signature = (model, depth = 1))]
-    fn graph(&mut self, model: &str, depth: u32) -> PyResult<String> {
-        graph_json(&mut self.0, model, depth).map_err(PyValueError::new_err)
+    fn graph(&mut self, py: Python<'_>, model: &str, depth: u32) -> PyResult<String> {
+        let graph = py.detach(|| self.0.graph(model, depth).map_err(|e| e.to_string()));
+        let graph = graph.map_err(|e| error(py, "ModelNotFoundError", Some(e), None))?;
+        json(&graph).map_err(PyRuntimeError::new_err)
     }
 
     /// ファイル（`set_file` に渡したパス）のアウトライン（`globe outline --json` と同じ `Outline` の JSON）。
-    /// ファイルが無いか、構文の誤りがあれば `ValueError`（誤りは最初の診断の `コード: 文`）。
-    fn outline(&self, path: &str) -> PyResult<String> {
+    /// ファイルが無いか、構文の誤りがあれば `SourceError`（誤りは最初の診断の `コード: 文`、`.diagnostics` つき）。
+    fn outline(&self, py: Python<'_>, path: &str) -> PyResult<String> {
         match self.0.outline(path) {
-            None => Err(PyValueError::new_err(format!(
-                "ファイル {path} がワークスペースに無い"
-            ))),
+            None => Err(error(
+                py,
+                "SourceError",
+                Some(format!("ファイル {path} がワークスペースに無い")),
+                None,
+            )),
             Some(Ok(o)) => json(o).map_err(PyRuntimeError::new_err),
-            Some(Err(ds)) => Err(PyValueError::new_err(
-                ds.first()
-                    .map_or_else(String::new, |d| format!("{}: {}", d.code, d.message)),
+            Some(Err(ds)) => Err(error(
+                py,
+                "SourceError",
+                Some(
+                    ds.first()
+                        .map_or_else(String::new, |d| format!("{}: {}", d.code, d.message)),
+                ),
+                Some(&json(ds).unwrap_or_default()),
             )),
         }
     }
 
     /// `check` に渡すファイル（モデルが使うものの閉包。パスの昇順）の JSON の配列。モデルが無ければ `[]`。
-    fn deps(&mut self, model: &str) -> PyResult<String> {
-        json(&self.0.deps(model)).map_err(PyRuntimeError::new_err)
+    fn deps(&mut self, py: Python<'_>, model: &str) -> PyResult<String> {
+        py.detach(|| json(&self.0.deps(model)))
+            .map_err(PyRuntimeError::new_err)
     }
 
     /// flat モデルの要約（`FlatSummary` の JSON）。flatten まで通らなければ `null`。
-    fn flat(&mut self, model: &str) -> PyResult<String> {
-        json(&self.0.flat(model)).map_err(PyRuntimeError::new_err)
+    fn flat(&mut self, py: Python<'_>, model: &str) -> PyResult<String> {
+        py.detach(|| json(&self.0.flat(model)))
+            .map_err(PyRuntimeError::new_err)
     }
 
     /// 検査 → コンパイル → 実行（`SimulateResponse` の JSON）。モデルの誤りは例外にせず `ok` と `diagnostics` で返す。
-    /// `on_progress` を渡すと GIL を離して回し、進捗を dict で知らせる。`True` を返すか Ctrl-C で止まる（S129）。
+    /// GIL を離して回し（S200 から `on_progress` が無くても）、進捗を dict で知らせる。`True` を返すか Ctrl-C で止まる（S129）。
     #[pyo3(signature = (model, settings = None, on_progress = None))]
     fn simulate(
         &mut self,
@@ -212,17 +215,15 @@ impl Workspace {
         settings: Option<&str>,
         on_progress: Option<Py<PyAny>>,
     ) -> PyResult<String> {
-        let Some(on_progress) = on_progress else {
-            return simulate_json(&mut self.0, model, settings).map_err(PyValueError::new_err);
-        };
-        let request = request(model, settings).map_err(PyValueError::new_err)?;
+        let request =
+            request(model, settings).map_err(|e| error(py, "SettingsError", Some(e), None))?;
         simulate_observed(py, &mut self.0, &request, on_progress, |s| {
             json(&s.response)
         })
     }
 
     /// [`Workspace::simulate`] と同じだが、時系列を `(結果の JSON, 列の名前, 列の bytes)` で返す（S085）。
-    /// `on_progress` は [`Workspace::simulate`] と同じ（S129）。
+    /// 列の bytes は GIL を取り直してから Rust の列から直接詰める（中間の `Vec<u8>` は作らない。S200）。
     #[pyo3(signature = (model, settings = None, on_progress = None))]
     fn simulate_columns<'py>(
         &mut self,
@@ -231,36 +232,54 @@ impl Workspace {
         settings: Option<&str>,
         on_progress: Option<Py<PyAny>>,
     ) -> PyResult<(String, Vec<String>, Vec<Bound<'py, PyBytes>>)> {
-        let (response, names, columns) = match on_progress {
-            None => {
-                simulate_columns(&mut self.0, model, settings).map_err(PyValueError::new_err)?
-            }
-            Some(f) => {
-                let request = columns_request(model, settings).map_err(PyValueError::new_err)?;
-                simulate_observed(py, &mut self.0, &request, f, columns_of)?
-            }
-        };
-        let columns = columns.iter().map(|c| PyBytes::new(py, c)).collect();
-        Ok((response, names, columns))
+        let request = columns_request(model, settings)
+            .map_err(|e| error(py, "SettingsError", Some(e), None))?;
+        let (response, simulated) =
+            simulate_observed(py, &mut self.0, &request, on_progress, |s| {
+                // 既定で描く信号（S190）は結果の dict の `defaults` に添える
+                let mut response =
+                    serde_json::to_value(&s.response).map_err(|e| format!("JSON: {e}"))?;
+                response["defaults"] = serde_json::json!(s.columns().0.defaults);
+                Ok((json(&response)?, s))
+            })?;
+        let (layout, columns) = simulated.columns();
+        let columns = columns
+            .iter()
+            .map(|c| {
+                PyBytes::new_with(py, c.len() * 8, |buf| {
+                    for (b, x) in buf.as_chunks_mut::<8>().0.iter_mut().zip(c.iter()) {
+                        b.copy_from_slice(&x.to_le_bytes());
+                    }
+                    Ok(())
+                })
+            })
+            .collect::<PyResult<Vec<_>>>()?;
+        Ok((response, layout.names, columns))
     }
 
     /// FMU を書き出し（S118。`globe fmu export` と同じ）、`.fmu` のパスを返す。`options` は
-    /// `{"fmi_version": 2, "build": false, "targets": [], "fmi_headers": null}` の JSON（省略可）。失敗は `ValueError`。
+    /// `{"fmi_version": 2, "build": false, "targets": [], "fmi_headers": null}` の JSON（省略可）。失敗は `ExportError`。
     #[pyo3(signature = (model, out_dir, options = None))]
     fn export_fmu(
         &mut self,
+        py: Python<'_>,
         model: &str,
         out_dir: PathBuf,
         options: Option<&str>,
     ) -> PyResult<PathBuf> {
         let options: globe_mode::FmuOptions = match options {
-            Some(s) => serde_json::from_str(s)
-                .map_err(|e| PyValueError::new_err(format!("options が読めない: {e}")))?,
+            Some(s) => serde_json::from_str(s).map_err(|e| {
+                error(
+                    py,
+                    "ExportError",
+                    Some(format!("options が読めない: {e}")),
+                    None,
+                )
+            })?,
             None => Default::default(),
         };
-        self.0
-            .export_fmu(model, &out_dir, &options)
-            .map_err(PyValueError::new_err)
+        py.detach(|| self.0.export_fmu(model, &out_dir, &options))
+            .map_err(|e| error(py, "ExportError", Some(e), None))
     }
 }
 
@@ -287,11 +306,12 @@ fn solvers() -> PyResult<String> {
     json(&globe_mode::solvers()).map_err(PyRuntimeError::new_err)
 }
 
-/// 本文を整形する（S111）。文法が壊れていれば `ValueError`。
+/// 本文を整形する（S111）。文法が壊れていれば `SourceError`。
 #[pyfunction]
 #[pyo3(signature = (text, indent = 2, insert_origin = true))]
-fn format(text: &str, indent: usize, insert_origin: bool) -> PyResult<String> {
-    globe_mode::format(text, indent, insert_origin).map_err(PyValueError::new_err)
+fn format(py: Python<'_>, text: &str, indent: usize, insert_origin: bool) -> PyResult<String> {
+    globe_mode::format(text, indent, insert_origin)
+        .map_err(|e| error(py, "SourceError", Some(e), None))
 }
 
 /// lint の結果（`[{rule, line, column, message}]` の JSON。S111）。
@@ -317,31 +337,16 @@ mod tests {
         "model Decay Real x(start = 1, fixed = true); equation der(x) = -x; end Decay;";
 
     #[test]
-    fn simulate_and_graph_round_trip_as_json() {
+    fn requests_parse_settings_and_columns_drop_the_csv() {
+        assert!(request("Decay", Some("{")).is_err());
+        assert!(columns_request("Decay", Some(r#"{"stop_time": "a"}"#)).is_err());
+        let r = columns_request("Decay", Some(r#"{"stop_time": 1}"#)).unwrap();
+        assert!(r.no_csv);
         let mut ws = globe_mode::Workspace::new();
         ws.set_file("Decay.mo", DECAY);
-        let res: serde_json::Value = serde_json::from_str(
-            &simulate_json(&mut ws, "Decay", Some(r#"{"stop_time": 1}"#)).unwrap(),
-        )
-        .unwrap();
-        assert_eq!(res["ok"], true);
-        assert!(
-            res["csv"]
-                .as_str()
-                .unwrap()
-                .lines()
-                .next()
-                .unwrap()
-                .contains("time"),
-            "{res}"
-        );
-        assert!(simulate_json(&mut ws, "Decay", Some("{")).is_err());
-        let (res, names, columns) =
-            simulate_columns(&mut ws, "Decay", Some(r#"{"stop_time": 1}"#)).unwrap();
-        assert!(!res.contains("\"csv\":\""), "{res}");
-        assert_eq!(names, ["time", "x"]);
-        let last = f64::from_le_bytes(columns[1][columns[1].len() - 8..].try_into().unwrap());
-        assert!((last - (-1f64).exp()).abs() < 1e-4, "{last}");
-        assert!(graph_json(&mut ws, "NoSuchModel", 1).is_err());
+        let simulated = ws.simulate_with(&r, &globe_mode::now_ms);
+        let (layout, columns) = simulated.columns();
+        assert_eq!(layout.names, ["time", "x"]);
+        assert!((columns[1][columns[1].len() - 1] - (-1f64).exp()).abs() < 1e-4);
     }
 }

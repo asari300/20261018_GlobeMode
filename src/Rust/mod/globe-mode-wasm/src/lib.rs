@@ -356,7 +356,7 @@ impl Workspace {
         )
     }
 
-    /// 文書 `file`（本文 `text`。先に `set_file` で足しておく）の行・列（UTF-16）の補完候補を LSP の `CompletionItem` の配列の JSON で返す（S171。LSP の `globe/completion` と同じ形）。
+    /// 文書 `file`（本文 `text`。先に `set_file` で足しておく）の行・列（UTF-16）の補完候補を LSP の `CompletionItem` の**配列**の JSON で返す（S171。LSP の `globe/completion` は S198 から `{isIncomplete, items}` で、`items` が同じ形。ここは配列のまま）。
     pub fn completion(&self, file: &str, text: &str, line: u32, character: u32) -> String {
         self.with_resolver(|r| {
             globe_mode_lsp::completion::complete_at(r, file, text, line, character)

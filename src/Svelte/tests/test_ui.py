@@ -17,7 +17,7 @@ Decay の x で Shift+F12 を押すと参照の一覧（3 行）が出て行を�
 結果の位置（S170）: 1280x800 と 390 px 幅で、実行の進捗・止める・失敗の理由が最初の画面の中に出て、終わるとプロットの上端が画面の中に入り、利用者が戻したスクロールは引き戻さない。
 開く・モデル名（S170）: 2 モデルのファイルは select で選び直せて再読み込みで残り、未保存の編集があるタブと同じ名前を開き直しても編集が残る。ライブラリのモデル名を打ったときは食い違いの案内。
 キーボードだけ（S175）: マウスを使わず Tab・Enter・Space とショートカットで、検査、診断と参照の行からエディタへ、実行（プロットの canvas の `aria-label` に信号名と時間の範囲）、止める（Ctrl+.）、保存（Ctrl+S）まで通る。フォーカスの輪郭が見える。
-エディタの Tab（S188）: Tab は空白 2 つの字下げ（選んだ行も）・Shift+Tab で戻る。補完の一覧が開いていても字下げ。出る手は Esc のあと Tab / Shift+Tab と Ctrl+M。説明は aria-describedby と画面。
+エディタの Tab（S188）: Tab は空白 2 つの字下げ（選んだ行も）・Shift+Tab で戻る。補完の一覧が開いているときだけ Tab は候補の確定（S196）。出る手は Esc のあと Tab / Shift+Tab と Ctrl+M。説明は aria-describedby と画面。
 初回の案内（S179）: 保存したタブが無い初回だけ「はじめに」の 3 手順（検査・実行のショートカットつき）が出て、閉じると再読み込みでも出ない（smoke では出ない）。スキップリンクは Tab 1 回でエディタへ・2 回で結果へ。タブは矢印・Home・End で移り（roving tabindex）、未保存の印（●）は編集で付いて再読み込みをまたぎ保存で消え、未保存のとき beforeunload が出る。
 ダークモード（S152）: `color_scheme="dark"` で開くと背景が暗く文字が明るい（body・エディタ・診断・プロット・graph。プロットの軸の文字は canvas に描くので明るい画素を数える）。テーマの select で「明」にすると戻り、再読み込みで選択が残り、「OS に合わせる」で暗に戻る。
 FMU を書き出す（S144）: ブラウザの wasm が作ったソースの FMU がダウンロードされ、modelDescription.xml と sources/ がある。S154 から FMI の版（2.0 / 3.0）を select で選ぶ。
@@ -27,6 +27,7 @@ FMU を書き出す（S144）: ブラウザの wasm が作ったソースの FMU
 `?smoke=1` で起動すると Decay の検査と実行の結果が console に `GM-SMOKE check=ok simulate=ok x1=… msl=… ready_ms=…` の 1 行で出ること（S100、android.yml の smoke。時刻は S125）。MSL.json があれば msl=ok（MSL を読んで ChuaCircuit の検査が error 0。S103）。
 UI の操作の項目 `tree= fmt= graph= cancel= settings= plot= def=`（S147。Desktop と Android の smoke と同じ。MSL.json が無ければ tree・graph は skip）も全部 ok で `failure=` が無いこと。
 console の error（CSP の違反を含む）と、配った origin の外への要求は失敗（S093）。
+S196（レビューの指摘）: Desktop（偽の window.__TAURI__）で同じ名前の別のファイルが別のタブになり保存が取り違えない。ライブラリのタブは読み取り専用（打てず案内が出る。整形・リネームは断る）。タブを切り替えるとリネームの入力欄・参照の一覧・最後の値が残らない。実行中は F12 に入らず進捗の行は role を持たない。自動保存は遅らせても離れる前に書き、書けなければ 1 文出す。別のウィンドウの保存を知らせる。Tab は補完の一覧が開いていれば確定。Modelica.Units.SI.Vol で Voltage が出る（一覧が 200 件で切れていても問い直す）。
 """
 
 from __future__ import annotations
@@ -71,6 +72,10 @@ DECAY_K = (
 )
 # 既定で描く信号（S190）: 状態 x・v と代数変数 e。既定は状態の 2 本
 SPRING = "model Spring\n  Real x(start = 1, fixed = true);\n  Real v(start = 0, fixed = true);\n  Real e;\nequation\n  der(x) = v;\n  der(v) = -x;\n  e = 0.5 * (x * x + v * v);\nend Spring;\n"
+# 再実行で選び直しを保つ（S201）: Spring にパラメータ k と、信号が無くなった版（e を消す）、全部変わった版
+SPRING_K = SPRING.replace("Real e;", "parameter Real k = 1;\n  Real e;").replace("der(v) = -x", "der(v) = -k * x")
+SPRING_NO_E = "model Spring\n  Real x(start = 1, fixed = true);\n  Real v(start = 0, fixed = true);\nequation\n  der(x) = v;\n  der(v) = -x;\nend Spring;\n"
+SPRING_RENAMED = "model Spring\n  Real p(start = 1, fixed = true);\n  Real q(start = 0, fixed = true);\nequation\n  der(p) = q;\n  der(q) = -p;\nend Spring;\n"
 CHUA = "Modelica.Electrical.Analog.Examples.ChuaCircuit"
 # 未対応と強行（S173）: OVER は初期条件が余る（GM-E8001。強行で解ける）、DIV は 1 / 0 のパラメータで Rumoca が止まる（GM-U0001。強行しても進まない）
 OVER = "model Over\n  Real x(start = 1, fixed = true);\ninitial equation\n  x = 1;\nequation\n  der(x) = -x;\nend Over;\n"
@@ -133,12 +138,351 @@ def check_syntax(pg) -> None:
     assert all(t in RUST_KW for t in pg.locator(".cm-content .cm-mo-kw").all_inner_texts()), "予約語でない語に予約語の色が付いている"
 
 
+# Desktop の dialog / fs / invoke の偽物（S196）。TauriBackend を通した App の保存先の持ち方を、実機なしで確かめる
+FAKE_TAURI = """
+(() => {
+  const fake = (window.__fake = { files: {}, opens: [], saves: [], writes: [] });
+  const listen = async () => () => {};
+  const rpc = { "globe/models": [], "globe/lint": [], "globe/completion": [], "globe/solvers": [], "globe/tunableParameters": { parameters: [] } };
+  window.__TAURI__ = {
+    core: { invoke: async (cmd, args) => (cmd === "libraries" ? [] : cmd === "bench" ? false : cmd === "read_recent" ? fake.files[args.path] : cmd === "rpc" ? (rpc[args.method] ?? null) : null) },
+    event: { listen },
+    dialog: { open: async () => fake.opens.shift() ?? null, save: async () => fake.saves.shift() ?? null },
+    fs: { readTextFile: async (p) => fake.files[p], writeTextFile: async (p, t) => { fake.writes.push([p, t]); }, writeFile: async () => {} },
+  };
+})();
+"""
+
+
+def review_fixes(browser, origin: str, errors: list[str]) -> None:
+    """S196: UI のレビューの指摘（Desktop の保存先の取り違え、ライブラリのタブの読み取り専用、タブを切り替えたときの残り、保存の遅延と失敗、Tab での補完の確定ほか）。"""
+    has_msl = (DIST / "msl/MSL.json").exists()
+
+    def new_page(ctx=None, **kw):
+        pg = (ctx or browser).new_page(**kw)
+        pg.on("console", lambda m: m.type == "error" and errors.append(m.text))
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.on("dialog", lambda d: d.accept())
+        return pg
+
+    def ready(pg) -> None:
+        pg.goto(origin)
+        pg.get_by_role("button", name="検査").wait_for()
+
+    def open_in(pg, name: str, body: str) -> None:
+        with pg.expect_file_chooser() as ch:
+            pg.get_by_role("button", name="開く").click(force=True)
+        ch.value.set_files(files=[{"name": name, "mimeType": "text/plain", "buffer": body.encode()}])
+
+    def stored(pg) -> dict:
+        return json.loads(pg.evaluate("localStorage.getItem('globe-mode.tabs')"))
+
+    # 1. Desktop: 同じ名前の別のファイルを開いても、保存はそのタブが本文を受け取ったパスに書く
+    dt = new_page()
+    dt.add_init_script(FAKE_TAURI)
+    ready(dt)
+    P1, P2 = "model P1\nend P1;\n", "model P2\nend P2;\n"
+
+    def desktop_open(path: str, text: str) -> None:
+        dt.evaluate("([p, t]) => { __fake.files[p] = t; __fake.opens.push(p); }", [path, text])
+        dt.get_by_role("button", name="開く", exact=True).click(force=True)
+
+    desktop_open("/d1/package.mo", P1)
+    expect(dt.locator(".cm-content")).to_contain_text("model P1", timeout=30_000)
+    dt.locator(".cm-content").click()
+    dt.keyboard.press("Control+End")
+    dt.keyboard.type("// e1")
+    desktop_open("/d2/package.mo", P2)  # d1 のタブは未保存。別のファイルなので、別のタブに開く
+    expect(dt.locator(".cm-content")).to_contain_text("model P2", timeout=30_000)
+    dt.locator(".cm-content").click()
+    dt.keyboard.press("Control+s")
+    expect(dt.locator("[data-saved]")).to_contain_text("/d2/package.mo")
+    assert dt.evaluate("__fake.writes") == [["/d2/package.mo", P2]], dt.evaluate("__fake.writes")
+    dt.locator("[role=tab][title=\"package.mo\"]").click()  # d1（key は package.mo）
+    expect(dt.locator(".cm-content")).to_contain_text("// e1")
+    dt.locator(".cm-content").click()
+    dt.keyboard.press("Control+s")
+    expect(dt.locator("[data-saved]")).to_contain_text("/d1/package.mo")
+    assert dt.evaluate("__fake.writes")[1] == ["/d1/package.mo", P1 + "// e1"], dt.evaluate("__fake.writes")
+    assert dt.get_by_role("tab").count() == 3
+    # 同じパスをもう一度開いても、タブは増えず、未保存の編集は残る
+    desktop_open("/d1/package.mo", P1)
+    dt.wait_for_timeout(300)
+    assert dt.get_by_role("tab").count() == 3
+    # 別名で保存（ダイアログで選び直す）と、その先に書く
+    dt.evaluate("__fake.saves.push('/d3/other.mo')")
+    dt.get_by_role("button", name="名前を付けて保存").click(force=True)
+    expect(dt.locator("[data-saved]")).to_contain_text("/d3/other.mo")
+    dt.keyboard.press("Control+s")
+    dt.wait_for_timeout(300)
+    assert dt.evaluate("__fake.writes")[-1][0] == "/d3/other.mo", dt.evaluate("__fake.writes")
+    dt.close()
+    print("Desktop の保存先: 同じ名前の別のファイル（/d1/package.mo と /d2/package.mo）は別のタブで、それぞれのパスに保存される")
+
+    # 2. タブを切り替えたとき、リネームの入力欄・参照の一覧・最後の値が前のタブに残らない
+    tb = new_page()
+    ready(tb)
+    open_in(tb, "A.mo", "model A\n  Real a(start = 1, fixed = true);\nequation\n  der(a) = -a;\nend A;\n")
+    expect(tb.get_by_role("tab")).to_have_count(2, timeout=30_000)
+    tb.locator(".cm-content").click()
+    tb.keyboard.press("Control+Home")
+    for _ in range(3):
+        tb.keyboard.press("ArrowDown")
+    tb.keyboard.press("End")
+    tb.keyboard.press("ArrowLeft")
+    tb.keyboard.press("Shift+F12")
+    expect(tb.locator("table.refs")).to_be_visible(timeout=30_000)
+    tb.keyboard.press("F2")
+    expect(tb.locator("form.rename")).to_be_visible(timeout=30_000)
+    tb.get_by_role("button", name="実行", exact=True).click(force=True)
+    expect(tb.locator("p.final")).to_be_visible(timeout=120_000)
+    tb.get_by_role("tab").nth(0).click()
+    for sel in ["table.refs", "form.rename", "p.final"]:
+        assert tb.locator(sel).count() == 0, f"前のタブの {sel} が残っている"
+    tb.close()
+    print("タブの切り替え: 参照の一覧・リネームの入力欄・最後の値が前のタブから残らない")
+
+    # 3. 実行中は定義ジャンプ（F12）に入らない。進捗の行は実行中は role=status にしない（更新のたびに読み上げない）
+    bz = new_page()
+    ready(bz)
+    bz.get_by_label("モデル名").fill("Long")
+    bz.locator(".cm-content").click()
+    bz.keyboard.press("Control+A")
+    bz.keyboard.insert_text(LONG.replace("StopTime = 1000", "StopTime = 1000000"))  # CI の速い機械では 1000 s の実行が F12 の待ちの間に終わる（S201）
+    bz.get_by_role("button", name="実行", exact=True).click(force=True)
+    expect(bz.locator("p.run")).to_contain_text("integration", timeout=120_000)
+    assert bz.locator("p.run").get_attribute("role") is None, "実行中の進捗の行は role を持たない"
+    bz.locator(".cm-content").click()
+    bz.keyboard.press("Control+Home")
+    for _ in range(3):
+        bz.keyboard.press("ArrowDown")
+    bz.keyboard.press("End")
+    for _ in range(14):
+        bz.keyboard.press("ArrowLeft")  # `  der(x) = sin(100 * time);` の x のすぐ後ろ
+    head = bz.evaluate("document.querySelector('.cm-activeLine').textContent")
+    assert "der(x)" in head, head
+    bz.keyboard.press("F12")
+    bz.wait_for_timeout(1500)
+    assert "der(x)" in bz.evaluate("document.querySelector('.cm-activeLine').textContent"), "実行中に定義ジャンプが動いた"
+    bz.get_by_role("button", name="止める").click(force=True)
+    expect(bz.locator("p.run")).to_have_attribute("data-run", "cancelled", timeout=10_000)
+    assert bz.locator("p.run").get_attribute("role") == "status"
+    bz.close()
+    print("実行中: F12 は動かず、進捗の行は role を持たず、止めたあとは role=status")
+
+    # 4. 保存の遅延: 打鍵ごとには書かず、再読み込み・閉じる直前には必ず書く。書けないときは黙らない
+    pr = new_page()
+    ready(pr)
+    pr.locator(".cm-content").click()
+    pr.keyboard.press("Control+End")
+    pr.keyboard.type("// late")
+    pr.reload()
+    pr.get_by_role("button", name="検査").wait_for()
+    expect(pr.locator(".cm-content")).to_contain_text("// late")  # 遅らせた書き込みを、離れる前に flush した
+    pr.locator(".cm-content").click()
+    pr.keyboard.press("Control+End")
+    pr.keyboard.type("// bye")
+    pr.evaluate("window.dispatchEvent(new Event('pagehide'))")
+    assert "// bye" in stored(pr)["tabs"][0]["text"], "pagehide で書いていない"
+    pr.evaluate("Object.defineProperty(Storage.prototype, 'setItem', { value() { throw new DOMException('full', 'QuotaExceededError'); } })")
+    pr.keyboard.type("x")
+    expect(pr.locator("[data-store-note]")).to_contain_text("保存できない", timeout=5_000)
+    pr.close()
+    print("保存の遅延: 再読み込み・pagehide の前に書き、localStorage に書けなければ 1 文出す")
+
+    # 5. 2 つのウィンドウ: 一方で編集すると、もう一方に注意が出る
+    ctx = browser.new_context()
+    w1, w2 = new_page(ctx), new_page(ctx)
+    ready(w1)
+    ready(w2)
+    assert w1.locator("[data-other-window]").count() == 0
+    w2.locator(".cm-content").click()
+    w2.keyboard.type("// w2")
+    expect(w1.locator("[data-other-window]")).to_be_visible(timeout=5_000)
+    ctx.close()
+    print("2 つのウィンドウ: 他方の保存を storage イベントで知らせる")
+
+    # 6. Tab: 補完の一覧が開いていれば候補の確定（Enter と同じ）、閉じていれば字下げ
+    tc = new_page()
+    ready(tc)
+    tc.locator(".cm-content").press("Control+a")
+    tc.keyboard.insert_text("mod")
+    opt = tc.locator(".cm-tooltip-autocomplete li[aria-selected]")
+    expect(opt).to_be_visible(timeout=10_000)
+    tc.wait_for_timeout(300)  # CodeMirror は一覧が出て 75 ms 以内の確定を無視する（誤爆よけ）
+    tc.keyboard.press("Tab")
+    line = tc.eval_on_selector_all(".cm-line", "els => els[0].textContent")
+    assert line.startswith("mod") and line != "mod" and not line.startswith(" "), line
+    tc.close()
+
+    if not has_msl:
+        print("public/msl/MSL.json が無いので、ライブラリのタブと補完の再問い合わせの試験は飛ばす")
+        return
+    # 7. ライブラリのタブは読み取り専用: 打てず、案内が出て、整形・リネームは断られ、未保存にならない
+    lb = new_page()
+    ready(lb)
+    lb.get_by_role("button", name="MSL を読む").click(force=True)
+    expect(lb.locator("p.note[data-msl]")).to_have_attribute("data-msl", "loaded", timeout=120_000)
+    pid = "Modelica.Blocks.Examples.PID_Controller"
+    lb.get_by_label("モデル名").fill(pid)
+    lb.get_by_role("button", name="検査").click(force=True)
+    expect(lb.get_by_role("button", name="検査")).to_be_enabled(timeout=120_000)
+    expect(lb.locator("[data-stray]")).to_contain_text("ライブラリのもの", timeout=120_000)
+    lb.locator("[data-stray]").get_by_role("button", name="ライブラリのファイルを開く").click(force=True)
+    expect(lb.locator(".cm-content")).to_contain_text("package Examples", timeout=60_000)
+    expect(lb.locator("[data-readonly]")).to_contain_text("読み取り専用")
+    before = lb.eval_on_selector(".cm-content", "e => e.textContent")
+    lb.locator(".cm-content").click()
+    lb.keyboard.type("zzz")
+    lb.keyboard.press("Backspace")
+    assert lb.eval_on_selector(".cm-content", "e => e.textContent") == before, "読み取り専用のタブに入力できた"
+    expect(lb.locator("[data-readonly]")).to_have_class(re.compile(r"\bhit\b"))
+    lb.get_by_role("button", name="整形").click(force=True)
+    expect(lb.get_by_role("alert")).to_contain_text("読み取り専用")
+    assert lb.eval_on_selector(".cm-content", "e => e.textContent") == before
+    assert lb.locator(".dirty").count() == 0
+    assert all(t["file"] == "Model.mo" for t in stored(lb)["tabs"]), stored(lb)["tabs"]
+    lb.get_by_role("tab").nth(0).click()
+    expect(lb.locator("[data-readonly]")).to_have_count(0)
+    # 8. 補完の一覧が 200 件で切れていても、打ち足すと問い直して Voltage が出る
+    lb.locator(".cm-content").click()
+    lb.keyboard.press("Control+a")
+    lb.keyboard.insert_text("model T\n  Modelica.Units.SI")
+    lb.keyboard.type(".")  # 型が 516 個あるので、ドットの直後の一覧は上位 200 件で切れている
+    expect(lb.locator(".cm-tooltip-autocomplete li").first).to_be_visible(timeout=30_000)
+    lb.wait_for_timeout(1000)
+    lb.keyboard.type("Vol")
+    expect(lb.locator(".cm-tooltip-autocomplete li", has_text=re.compile(r"^Voltage")).first).to_be_visible(timeout=30_000)
+    lb.close()
+    print("ライブラリのタブ: 読み取り専用（入力できず、案内、整形は断る、未保存にならない）。Modelica.Units.SI.Vol で Voltage が出る")
+
+
+def plot_fixes(browser, origin: str, errors: list[str]) -> None:
+    """S201: プロットの選択を保つ（同じモデルの再実行・パラメータを変えた再実行・別のモデル・タブの切り替え・信号が無くなった場合）、既定に戻す、uPlot の作り直しが投げたときに古い図を出さない。"""
+    pg = browser.new_page(accept_downloads=True)
+    pg.on("console", lambda m: m.type == "error" and errors.append(m.text))
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.on("dialog", lambda d: d.accept())
+    pg.goto(origin)
+    pg.get_by_role("button", name="検査").wait_for()
+    run = pg.get_by_role("button", name="実行", exact=True)
+    plot = pg.locator(".plot")
+    box = lambda n: pg.get_by_role("checkbox", name=n, exact=True)
+    state = lambda: (plot.get_attribute("data-series"), plot.get_attribute("data-right"), plot.get_attribute("data-x"))
+    picked = lambda: sorted(n for n in ("x", "v", "e", "p", "q") if box(n).count() and box(n).is_checked())
+
+    def put(model: str, body: str) -> None:
+        pg.get_by_label("モデル名").fill(model)
+        pg.locator(".cm-content").focus()
+        pg.keyboard.press("Control+A")
+        pg.keyboard.insert_text(body)
+
+    def go() -> None:
+        run.click(force=True)
+        expect(run).to_be_enabled(timeout=300_000)
+        assert pg.get_by_role("alert").count() == 0, pg.get_by_role("alert").all_inner_texts()
+
+    put("Spring", SPRING_K)
+    go()
+    assert picked() == ["v", "x"], picked()  # 既定は状態の 2 本
+    # 選び直す: e を足し、v を外し、e を右の軸へ、x 軸を v に、絞り込みの文字と「内部の変数も表示」
+    box("e").check(force=True)
+    box("v").uncheck(force=True)
+    pg.get_by_label("e を右の軸に").check(force=True)
+    pg.get_by_label("x 軸").select_option(label="v")
+    pg.get_by_label("信号を絞り込む").fill("e")
+    pg.get_by_label("内部の変数も表示").check(force=True)
+    expect(plot).to_have_attribute("data-series", "2")
+    want = ("2", "1", "v")
+    assert state() == want, state()
+
+    def kept(what: str) -> None:
+        expect(plot).to_have_attribute("data-x", want[2])
+        assert state() == want and pg.get_by_label("信号を絞り込む").input_value() == "e" and pg.get_by_label("内部の変数も表示").is_checked(), (what, state())
+        pg.get_by_label("信号を絞り込む").fill("")
+        assert picked() == ["e", "x"], (what, picked())
+        pg.get_by_label("信号を絞り込む").fill("e")
+        label = pg.locator(".plot canvas").first.get_attribute("aria-label")
+        assert "信号 2 本: x、e" in label and "v の範囲" in label, (what, label)  # 代替テキストは保たれた選択と一致する
+
+    # 1. 同じモデルの再実行
+    go()
+    kept("同じモデルの再実行")
+    # CSV は保たれた選択（x 軸の v、そのあと x と e）
+    with pg.expect_download() as dl:
+        pg.get_by_role("button", name="CSV").click(force=True)
+    assert Path(dl.value.path()).read_text(encoding="utf-8").splitlines()[0] == "v,x,e", Path(dl.value.path()).read_text(encoding="utf-8")[:40]
+    # 2. パラメータを変えて再実行（k = 2。同じモデルなので選択は保たれ、値は変わる）
+    pg.get_by_label("パラメータの上書き").fill("k = 2")
+    go()
+    kept("パラメータを変えた再実行")
+    pg.get_by_label("パラメータの上書き").fill("")
+    # 3. 信号が無くなった: e が消えたモデルでは e を外し（右の軸も消える）、残った x を選ぶ。全部無くなったら既定に戻す
+    put("Spring", SPRING_NO_E)
+    go()
+    expect(plot).to_have_attribute("data-series", "1")
+    pg.get_by_label("信号を絞り込む").fill("")
+    assert picked() == ["x"] and state() == ("1", "0", "v"), (picked(), state())
+    put("Spring", SPRING_RENAMED)
+    go()
+    assert pg.get_by_label("信号を絞り込む").input_value() == "" and not pg.get_by_label("内部の変数も表示").is_checked()  # 保てるものが無ければ全部既定
+    assert picked() == ["p", "q"] and state() == ("2", "0", "time"), (picked(), state())
+    # 4. 別のモデルは既定から（絞り込みの文字と内部名の表示も戻る）。先に選び直す
+    box("p").uncheck(force=True)
+    pg.get_by_label("信号を絞り込む").fill("q")
+    put("Decay", "model Decay\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -x;\nend Decay;\n")
+    go()
+    assert state()[0] == "1" and pg.get_by_label("信号を絞り込む").input_value() == "" and not pg.get_by_label("内部の変数も表示").is_checked(), state()
+    # 5. 選び直していなければ、再実行でも既定（今の挙動）。Decay の x を外して選び直し、既定に戻すボタンをキーボードで押す
+    box("x").uncheck(force=True)
+    expect(plot).to_have_attribute("data-series", "0")
+    go()
+    expect(plot).to_have_attribute("data-series", "0")  # 選び直し（全部外した）は保たれる
+    pg.get_by_label("信号を絞り込む").fill("zzz")
+    reset = pg.get_by_role("button", name="既定に戻す")
+    reset.focus()
+    pg.keyboard.press("Enter")
+    expect(plot).to_have_attribute("data-series", "1")
+    assert pg.get_by_label("信号を絞り込む").input_value() == "" and box("x").is_checked()
+    go()
+    expect(plot).to_have_attribute("data-series", "1")
+    # 6. タブの切り替え: Decay の結果は消え、戻って実行すると既定（保たない）
+    box("x").uncheck(force=True)
+    with pg.expect_file_chooser() as ch:
+        pg.get_by_role("button", name="開く").click(force=True)
+    ch.value.set_files(files=[{"name": "Other.mo", "mimeType": "text/plain", "buffer": b"model Other\nend Other;\n"}])
+    expect(pg.get_by_role("tab")).to_have_count(2)
+    pg.get_by_role("tab").nth(0).click()
+    expect(plot).to_have_count(0)
+    go()
+    expect(plot).to_have_attribute("data-series", "1")
+    print("プロットの選択を保つ: 同じモデルの再実行・パラメータを変えた再実行で信号・右の軸・x 軸・絞り込み・内部名が残り、書き出しと代替テキストが合う。信号が無くなれば外し、全部無くなれば既定。別のモデル・タブの切り替えは既定。「既定に戻す」はキーボードで押せる")
+    # 7. uPlot の作り直しが投げたら、古い図を PNG に出さない（canvas の 2d context を一度だけ投げさせる）
+    pg.evaluate("""() => { const g = HTMLCanvasElement.prototype.getContext; window.__ctx = g;
+      HTMLCanvasElement.prototype.getContext = function (...a) { if (window.__throw) throw new Error("試験: context を作れない"); return g.apply(this, a); }; }""")
+    pg.evaluate("window.__throw = true")
+    box("x").uncheck(force=True)  # 選択が変わって uPlot を作り直す
+    expect(pg.get_by_role("alert")).to_contain_text("context", timeout=10_000)
+    pg.evaluate("window.__throw = false")
+    got = []
+    pg.on("download", lambda d: got.append(d.suggested_filename))
+    pg.get_by_role("button", name="PNG").click(force=True)
+    pg.wait_for_timeout(1500)
+    assert got == [], f"作り直しが失敗したあとの PNG に古い図が出た {got}"
+    # 戻れば描ける
+    box("x").check(force=True)
+    expect(pg.get_by_role("alert")).to_have_count(0)
+    pg.close()
+    print("uPlot の作り直しが投げたあと: PNG は古い図を書き出さず、選択を戻すと描ける")
+
+
 def main() -> int:
     # 色付けの予約語は Rust の KEYWORDS と同じ並び（S163。editor.ts の KEYWORDS は補完と色付けの共通の一覧）
     ts_kw = re.findall(r'"(\w+)"', re.search(r"export const KEYWORDS = \[(.*?)\];", (SRC / "Svelte/src/lib/editor.ts").read_text(), re.S).group(1))
     assert ts_kw == RUST_KW, set(ts_kw) ^ set(RUST_KW)
     # 列の道の NaN / Inf は null になる（uPlot の欠損。S065）
     subprocess.run(["node", str(Path(__file__).with_name("test_columns.mjs"))], check=True)
+    subprocess.run(["node", str(Path(__file__).with_name("test_tauri.mjs"))], check=True)  # S196: Desktop の保存先・outDir・タブの key
     server = serve()
     errors: list[str] = []
     origin = f"http://127.0.0.1:{server.server_port}/"
@@ -515,7 +859,7 @@ def main() -> int:
         page.keyboard.press("Control+A")
         page.keyboard.insert_text(LONG)
         run.click(force=True)
-        status = page.get_by_role("status")
+        status = page.locator("p.run")  # 実行中は role を持たない（更新のたびに読み上げない。S196）
         expect(status).to_contain_text("integration", timeout=120_000)
         expect(status).to_contain_text("%")
         shown_progress = status.inner_text()
@@ -1189,7 +1533,7 @@ def main() -> int:
         ti.keyboard.press("Shift+Tab")
         assert lines()[:3] == ["x", "y", ""], lines()
         assert "\t" not in "".join(lines())
-        # 補完の一覧が開いていても Tab は字下げでフォーカスは出ない。Enter で確定は従来どおり
+        # 補完の一覧が開いているときの Tab は候補の確定（S196。Enter と同じ）。一覧が開いていなければ字下げ。Enter で確定は従来どおり
         opt = ti.locator(".cm-tooltip-autocomplete li[aria-selected]")
         ti.keyboard.press("Control+End")
         ti.keyboard.type("mod")
@@ -1201,8 +1545,15 @@ def main() -> int:
         ti.keyboard.press("Backspace")
         ti.keyboard.type("d")  # 打ち直して一覧を開く
         expect(opt).to_be_visible(timeout=10_000)
+        ti.wait_for_timeout(300)  # CodeMirror は一覧が出て 75 ms 以内の確定を無視する
         ti.keyboard.press("Tab")
-        assert ti.evaluate(in_cm) and lines()[2] == "  mod", lines()
+        assert ti.evaluate(in_cm) and lines()[2].startswith("mod") and lines()[2] != "mod" and len(lines()) == 3, lines()
+        ti.keyboard.press("Control+z")
+        assert lines()[2] == "mod", lines()
+        ti.keyboard.press("ArrowLeft")  # カーソルを動かすと一覧は閉じる（Esc は 2 秒の Tab 移動の窓を開くので使わない）
+        expect(opt).to_have_count(0)
+        ti.keyboard.press("Tab")
+        assert ti.evaluate(in_cm) and lines()[2] == "  mod", lines()  # 一覧が閉じていれば字下げ
         # Esc のあと Tab / Shift+Tab でエディタの外へ。Esc を押さずに 2 秒たったあとの Tab は字下げ
         ti.keyboard.press("Escape")
         ti.keyboard.press("Shift+Tab")
@@ -1236,7 +1587,9 @@ def main() -> int:
         expect(ti.locator(".cm-tooltip-autocomplete")).to_have_count(0)
         assert ti.evaluate(in_cm)
         ti.close()
-        print("エディタの Tab: 空白 2 つの字下げ（選択した 2 行も）と Shift+Tab、補完の一覧が開いていても字下げ、Esc のあと Tab・Shift+Tab と Ctrl+M で外へ、説明は aria-describedby と画面に")
+        review_fixes(browser, origin, errors)  # S196
+        plot_fixes(browser, origin, errors)  # S201
+        print("エディタの Tab: 空白 2 つの字下げ（選択した 2 行も）と Shift+Tab、補完の一覧が開いていれば確定・閉じていれば字下げ、Esc のあと Tab・Shift+Tab と Ctrl+M で外へ、説明は aria-describedby と画面に")
         print("キーボードだけ: モデル名・エディタへ Tab、Ctrl+Shift+Enter で検査、診断と参照の行を Tab・Enter・Space でエディタへ、Ctrl+Enter で実行（プロットの aria-label に信号名と時間の範囲）、Ctrl+. で止め、Ctrl+S で保存")
         # 初回の案内・スキップリンク・タブの矢印キー・未保存の印（S179）
         fr = browser.new_page(viewport={"width": 1280, "height": 800})

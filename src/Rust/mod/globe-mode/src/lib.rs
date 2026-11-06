@@ -108,6 +108,21 @@ pub fn export_fmu(
     globe_mode_fmi::export::write_fmu(&src, out_dir, headers, &options.targets)
 }
 
+/// `settings_json`（`{"stop_time": 2, "solver": "bdf"}` など。`None` は設定なし）から実行の依頼を作る（S202。C の ABI・NIF が共有する）。
+pub fn simulate_request(
+    model: &str,
+    settings_json: Option<&str>,
+) -> Result<SimulateRequest, String> {
+    let settings: serde_json::Value = match settings_json {
+        Some(s) => {
+            serde_json::from_str(s).map_err(|e| format!("settings の JSON が読めない: {e}"))?
+        }
+        None => serde_json::json!({}),
+    };
+    serde_json::from_value(serde_json::json!({ "model": model, "settings": settings }))
+        .map_err(|e| format!("settings が読めない: {e}"))
+}
+
 /// 壁時計（ミリ秒、UNIX epoch から）。wasm32 では std の時計が無いので 0（wasm の束ねは JS の
 /// `performance.now()` を [`Workspace::simulate_with`] に渡す）。
 pub fn now_ms() -> f64 {
@@ -154,6 +169,18 @@ pub struct Simulated {
 }
 
 impl Simulated {
+    /// 列の道の見出しの JSON（S202。C の ABI・NIF が共有する）。
+    /// `{"response": SimulateResponse（csv 無し）, "names": [...], "points": n, "defaults": [...]}`。
+    pub fn layout_json(&self, layout: &ColumnsLayout) -> Result<String, String> {
+        serde_json::to_string(&serde_json::json!({
+            "response": self.response,
+            "names": layout.names,
+            "points": layout.points,
+            "defaults": layout.defaults,
+        }))
+        .map_err(|e| format!("JSON: {e}"))
+    }
+
     /// 列の道（S116。wasm の `SimColumns`・Python の `simulate_columns`・C の `gm_simulate_columns`・NIF と共通）。
     /// 列の並び（`names[0]` は `time`）と、列ごとの値（`points` 個ずつ）。実行できなかったときは空の列と 0 点。
     pub fn columns(&self) -> (ColumnsLayout, Vec<&[f64]>) {
@@ -330,6 +357,18 @@ impl Workspace {
     /// ファイルのアウトライン（位置を含む）。ワークスペースに無ければ None、構文の誤りは S0 の診断。
     pub fn outline(&self, path: &str) -> Option<&Result<Outline, Vec<Diagnostic>>> {
         self.db.outline(path)
+    }
+
+    /// [`Workspace::outline`] の JSON（`globe outline --json` と同じ。S202。C の ABI・NIF が共有する）。
+    /// ファイルが無いか構文の誤りがあれば誤りの文（誤りは最初の診断の `コード: 文`）。
+    pub fn outline_json(&self, path: &str) -> Result<String, String> {
+        match self.outline(path) {
+            None => Err(format!("ファイル {path} がワークスペースに無い")),
+            Some(Ok(o)) => serde_json::to_string(o).map_err(|e| format!("JSON: {e}")),
+            Some(Err(ds)) => Err(ds
+                .first()
+                .map_or_else(String::new, |d| format!("{}: {}", d.code, d.message))),
+        }
     }
 
     /// モデルの検査（S0〜S10）。診断の位置は元の本文の中。
