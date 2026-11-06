@@ -33,7 +33,9 @@ ADR-0026 (k) の 1 番目: FMI 2.0・3.0 の Model Exchange の Import（`FmuMe`
 
 - `cargo test -p globe-mode-fmi-import`: 単体 6、model_exchange 7、reference 3、unpack 5 すべて OK。`cargo test -p globe-mode-cli --test fmu_import`: 6 OK（往復の ME: x(1) − e⁻¹ = 1.2e-9、2.0・3.0）。
 - 突き合わせの結果（Linux）は解説書の表。BouncingBall の衝突 11 回の時刻の最大の誤差 3.2e-11、高さ 7.2e-12。
-- 全体の検査・CI・`check_docs.py` の結果は下に追記する。
+- `fmu-import.yml`（feature へ dispatch、run 42193986375）: ubuntu-24.04・windows-2025・macos-latest 3 OS とも success。突き合わせの数字は 3 OS で同じ（macOS の VanDerPol だけ 1e-15 ほどの相対差）。
+- `check_docs.py`: スライド OK、リンク 切れ 0 件（S205 の追加後）。
+- 全体の検査（`mise run check`）・`ci.yml` full の結果は下に追記する。
 
 ## 残したこと
 
