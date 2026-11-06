@@ -31,7 +31,10 @@
 - 再現（main のまま）: PR 17 の 2 件 panic、issue 19 の `Err`（byte 11）、issue 21 の `Ok` を確認。issue 20 は `Ok`。
 - 整形の前後（使い捨ての example）: `data/msl` 2,556 本・`src/Modelica` 71 本・`doc/research/upstream` 34 本は断る 0 本のまま、結果の差 0。`src/Rust`＋`data/libs` 10,644 本は断る 4 本が前後で同じ、差 0。
 - `cargo test -p globe-mode-fmt`: 通った。
-- ほかの検査の結果は下に追記する。
+- `mise run check`: 通った（fmt・clippy・test・deny・`globe fmt --check src/Modelica` 71 ファイル整形済み・`uv sync --locked`。失敗 0）。`mise run wasm:node`: ok。
+- `check_docs.py`: 相対リンク 3,919 件中の切れ 0 件。`render_slides.py`（S192 のデッキ）: 7 枚、問題 0 件。
+- セッション記録の `--check`（`log/review`・移した `log/work`）: 取りこぼし 0 件。
+- CI（`ci.yml` を `-f full=true`、Windows を含む）: 結果は報告に書く。
 
 ## 残したこと
 
