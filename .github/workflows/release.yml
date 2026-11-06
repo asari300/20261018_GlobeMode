@@ -23,15 +23,22 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "タグの経路を確かめる（例 v0.2.0、v0.2.0-rc1）。空なら今までの dry run。どちらも Release は作らない"
+        required: false
+        default: ""
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.ref }}-${{ inputs.tag }}
   cancel-in-progress: false
 
 env:
+  # push ならタグ名、手動なら入力（空なら dry run）。「タグの経路」の判定はこれが空かどうかだけ（S195）
+  TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
   CARGO_TERM_COLOR: always
   MISE_AUTO_INSTALL: "false"
   # S148: zig は ziglang.org から直接取る（コミュニティのミラーが落ちた: ci.yml の run 41702810070）
@@ -137,10 +144,9 @@ jobs:
         env:
           TARGET: ${{ matrix.target }}
           ARCHIVE: ${{ matrix.archive }}
-          IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
         run: |
-          if [ "$IS_TAG" = "true" ]; then
-            VERSION="${GITHUB_REF_NAME#v}"
+          if [ -n "$TAG" ]; then
+            VERSION="${TAG#v}"
           else
             VERSION="$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)-dryrun"
           fi
@@ -159,10 +165,9 @@ jobs:
       - name: wheel を作る
         shell: bash
         env:
-          IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
         run: |
           # 先頭の 1 つだけ置く（BSD sed の macOS では 0,/re/ が使えないので perl）
-          if [ "$IS_TAG" = "true" ]; then V="${GITHUB_REF_NAME#v}" perl -0pi -e 's/^version = .*$/version = "$ENV{V}"/m' pyproject.toml; fi
+          if [ -n "$TAG" ]; then V="${TAG#v}" perl -0pi -e 's/^version = .*$/version = "$ENV{V}"/m' pyproject.toml; fi
           grep -m1 '^version' pyproject.toml
           # PEP 517 の既定は linux_* の tag で PyPI に出せない。ランナーの glibc 2.39 のままだと 2_34 も落ちた（run 41376053596）ので、
           # --zig で古い glibc に link する（S086。Debian 12・RHEL 9 にも入る）
@@ -260,10 +265,9 @@ jobs:
       - name: ${{ matrix.bundle }} を作る（鍵があれば updater の .sig も）
         working-directory: ${{ env.DESKTOP }}
         env:
-          IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
         run: |
           VERSION=""
-          if [ "$IS_TAG" = "true" ]; then VERSION="\"version\":\"${GITHUB_REF_NAME#v}\","; fi
+          if [ -n "$TAG" ]; then VERSION="\"version\":\"${TAG#v}\","; fi
           SIGN=false
           if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then SIGN=true; else echo "TAURI_SIGNING_PRIVATE_KEY が無いので署名しない（updater では入れられない bundle）"; fi
           if [ "$SIGN" = true ] && grep -q '"pubkey": ""' tauri.conf.json; then echo "::warning::鍵はあるが tauri.conf.json の pubkey が空。アプリは更新を確かめない"; fi
@@ -309,7 +313,7 @@ jobs:
         run: |
           python3 - <<'PY'
           import datetime, glob, json, os
-          tag, repo = os.environ["GITHUB_REF_NAME"], os.environ["GITHUB_REPOSITORY"]
+          tag, repo = os.environ["TAG"] or os.environ["GITHUB_REF_NAME"], os.environ["GITHUB_REPOSITORY"]
           platforms = {}
           for key, ext in {"linux-x86_64-deb": "deb", "windows-x86_64-msi": "msi", "darwin-aarch64": "app.tar.gz"}.items():
               for f in glob.glob(f"GlobeMode_*.{ext}"):
@@ -331,9 +335,9 @@ jobs:
             dist/SHA256SUMS
             dist/latest.json
       - name: Release に付ける（タグの push のときだけ）
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: github.event_name == 'push'   # 手動はどの ref・入力でも Release を作らない
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*
           generate_release_notes: true
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          prerelease: ${{ contains(env.TAG, '-') }}
