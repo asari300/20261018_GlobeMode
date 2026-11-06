@@ -28,7 +28,7 @@ Compiles. MLS 3.6 section 7.3.1 (https://specification.modelica.org/maint/3.6/in
 
 ```text
 $ globe check 17-er132-redeclare-function-extends-product.mo --model Rep17.M
-17-er132-redeclare-function-extends-product.mo:19:32: error[GM-E1001] S1 名前解決: cannot verify ExternalObject lifecycle for 'product': resolved base DefId(78) is missing
+17-er132-redeclare-function-extends-product.mo:27:32: error[GM-E1001] S1 名前解決: cannot verify ExternalObject lifecycle for 'product': resolved base DefId(78) is missing
     note: rumoca: ER132
 Rep17.M: NG（S1 名前解決 で停止）
 

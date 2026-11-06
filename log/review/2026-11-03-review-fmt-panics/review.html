@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S151 整形器の panic 修正 — GlobeMode</title>
+<link rel="stylesheet" href="../../../doc/assets/slides.css">
+</head>
+<body data-deck="GlobeMode S151 整形器の panic 修正">
+<section class="slide" id="S01">
+<span class="tag">S151 · 目的</span>
+<h1>整形器の panic 修正</h1>
+<p class="lead">既存の 2 件の修正と検証を記録する</p>
+<div class="big">修正前 2 件 panic → 修正後 2 件成功</div>
+</section>
+<section class="slide" id="S02">
+<span class="tag">決定と理由</span>
+<h1>2 つの境界</h1>
+<ul><li><code>!é</code>: UTF-8 途中の切り出しを避け、エラーを返す。</li><li>幅 5 の <code>(, x) := f();</code>: 空の先頭要素を折り返し経路で扱う。</li></ul>
+</section>
+<section class="slide" id="S03">
+<span class="tag">図</span>
+<h1>検証の流れ</h1>
+<div class="cols-3"><div class="card">旧版<br>2 件 panic</div><div class="card">修正後<br>2 件成功</div><div class="card">直接 rustc<br>7 + 11 テスト成功</div></div>
+</section>
+<section class="slide" id="S04">
+<span class="tag">再現手順</span>
+<h1>同じ Rust ファイルで再現</h1>
+<p><a href="review_jp.md">日本語レポート</a>のコマンドで基準版と worktree を別々にビルドする。</p>
+<p><a href="repro.rs">repro.rs</a> は引数 <code>unicode</code> と <code>tuple</code> で個別に実行。</p>
+</section>
+<section class="slide" id="S05">
+<span class="tag">次回</span>
+<h1>検証範囲と残り</h1>
+<ul><li>Cargo・追加 feature・CI・HTML のブラウザ表示は未検証。</li><li>全体 Mermaid は S136 で別途作成済み。</li></ul>
+</section>
+<script src="../../../doc/assets/slides.js"></script>
+</body>
+</html>

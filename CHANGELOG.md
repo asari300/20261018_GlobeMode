@@ -11,6 +11,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - S001: 調査と計画、運用基盤（worktree、mise・uv・cargo の分担、ライセンス規則、セッション記録）。
 - S006: WSL2 から Windows の LM Studio（Bonsai-27B）を副レビュアーに呼ぶスキル `/local-review`。
 - S033: リリースの見積もりと、エージェントに渡す並行作業の指示書 WP-0〜WP-J（`doc/plan/`）、Codex の監査のための `log/review/`。
+- S194: 文書だけ。CLAUDE.md の 2 章をいまのツリーに合わせ、ADR-0032・0034・0035・0036 を Accepted にし、上流の再現用 `.mo` 34 本を `globe fmt` で整形した（診断は前後で同じ）。
 
 ### P1 骨格
 
@@ -86,6 +87,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - S186: UI の細部（S185 の監査）。クラス名のリネーム（F2）がいまのモデル名のクラスなら欄も追い（Ctrl+Z で戻る）、ライブラリの木・検索から入れ子のクラスを開くと宣言の行へカーソルと画面が動く（`librarySource` に追加の `range`）。補完の一覧は Ctrl+Enter で閉じ、「MSL を読む」の後はフォーカスが検索欄へ、「結果へ」は結果を画面へ入れる。
 - S189: **挙動が変わる**: FMU の既定のファイル名に FMI の版が付く（`Decay.fmu` から `Decay-fmi2.fmu` / `Decay-fmi3.fmu`。CLI `globe fmu export`・facade・Python `export_fmu`・LSP `globe/exportFmu`・C ABI・NIF・各言語・UI のダウンロード名。FMU の中身は不変）。書き出せないモデルの失敗は「このモデルは FMU に書き出せない（理由: …）」から始まる。
 - S189: `src/Modelica` の 71 ファイルを `globe fmt` で整形した（意味は不変。`globe fmt --check src/Modelica` を CI と `mise run check` に追加）。
+- S192: 整形器を直した。UTF-8 の文字の途中や省略した tuple の出力での panic（PR #17）、CRLF の複数行コメント・文字列で整形が拒否されること（issue #19）を直し、**`if` を `end for;` で閉じるような種類の違う `end` は `Err` になる**（issue #21。MSL 4.1.0 ほか 2,661 本の整形結果は前後で同じ）。issue #20 は S167 で修正済み。
 - S188: **挙動が変わる**: ブラウザ・Desktop の UI のエディタで Tab は字下げ（空白 2 つ、選んだ行すべて）、Shift+Tab は戻す。フォーカスをエディタの外へ出すには Esc のあと Tab（Shift+Tab）か Ctrl+M（Mac は Shift+Alt+M）。説明はエディタの下とスクリーンリーダー向けの `aria-describedby`。
 - S134・S135: Desktop が `C.UTF-8` の locale で白画面になる不具合の修正と、自動更新（`tauri-plugin-updater`。鍵を登録するまで「未設定」）。
 - S140・S164: アプリの使える流れの点検（調査だけ。[2026-11-04](doc/research/app-flow-2026-11-04.md)、[2026-11-05](doc/research/app-flow-2026-11-05.md)）。
@@ -126,6 +128,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - S110・S111・S116・S118: 公開 API の機能表を作り、6 言語に format / lint、列の道（`simulate_columns`）、FMU の書き出しを足した。
 - S181: Python API を厳しくした。**未知の設定のキー（`stoptime` など）は黙って無視されず `TypeError` になる**（前は `ok: True` で既定の値のまま走った。使えるキーを添える）。設定の型の誤りはどの設定かを言う `ValueError`、`Workspace("data/msl")` は 1 つのライブラリ（前は 1 文字ずつ）、ライブラリが読めない `RuntimeError` の本文は `コード: 文`（元の診断は `.diagnostics`）。`export_fmu` の未知の options は `TypeError`。docstring・`py.typed`・`_native.pyi`、`on_progress` は既定のソルバでは積分の中に届かないと明記。
 - S191: Python だけにあった読み取り（`outline`・`deps`・`flat`）を C ABI（`gm_outline`・`gm_deps`・`gm_flat`）・Zig・Julia・Elixir・Gleam・wasm（`Workspace`・`GlobeWorker`）にも揃えた。列の応答に `defaults`（既定で描く信号。S190）を C ABI・NIF にも足し、`summary`（S184）が各言語で出ることを試験で確かめた。
+- S197: Desktop のシェルのレビューの指摘を直した。**挙動が変わる**: 応えない検査（`globe/check` など）でも「止める」が効き、2 秒で sidecar を作り直す。UI から sidecar へ中継する method は UI が使うものだけ（それ以外は誤り）。Tauri の CSP を入れた（ブラウザ版と同じ＋IPC）。MSL の切り替えの失敗でライブラリを元に戻し、`fetch_msl` は同時に 1 つだけ（HEAD は 10 秒、展開中も取り消せる）。
 - S121・S123・S129・S131・S133・S136: 実行の進捗と中断をコア・Python・C と他の言語・wasm とブラウザの UI・`globe lsp` と Desktop に入れた（[ADR-0033](doc/adr/0033-progress-and-cancel.md)）。
 - S125・S153・S155・S156・S160: UI の負荷の比較。測定ハーネス（[ADR-0034](doc/adr/0034-ui-bench-method.md)）と、Leptos 版・Dioxus 版の試験版（`src/Rust/apps/experimental/`、配布物には入らない）、Linux・Windows・macOS の結果 `doc/bench/ui.md`。
 

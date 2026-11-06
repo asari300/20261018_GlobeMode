@@ -125,7 +125,7 @@ pub fn lex(src: &str) -> Result<Vec<Token<'_>>, FormatError> {
                 i += 1;
             }
             Kind::Ident
-        } else if i + 1 < n && TWO_CHAR.contains(&&src[i..i + 2]) {
+        } else if TWO_CHAR.iter().any(|op| b[i..].starts_with(op.as_bytes())) {
             i += 2;
             Kind::Punct
         } else if ONE_CHAR.as_bytes().contains(&c) {

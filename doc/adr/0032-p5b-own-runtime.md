@@ -1,6 +1,6 @@
 # ADR-0032 P5b の自前のランタイムは、FMI 2.0 ME の C ABI を自前の cdylib で出す。S095 はモデルを crate に固定する
 
-- 状態: Proposed（2026-11-02、S095。載せ替えの道は S099 で道 2 を選んだ。下の追記）
+- 状態: Accepted（2026-11-06。ユーザーの判断。Proposed は 2026-11-02、S095。載せ替えの道は S099 で道 2 を選んだ。下の追記）
 - 関係: [ADR-0026](0026-fmi-import-placement.md)（Import の置き方。C ABI を自前で持つ案）、[architecture.md](../architecture.md) の「Export」（P5a と P5b）。P5a（Rumoca のテンプレート、S094）の ADR-0031 とは別の番号にした
 
 ## 背景

@@ -34,10 +34,10 @@ All four compile. MLS 3.6 section 4.8.1 "Real Type" (https://specification.model
 
 ```text
 $ globe check 19-ei032-statselect-parameter-expression.mo --model Rep19A
-...mo:15:40: error[GM-E3001] S3 instantiate: invalid value for type attribute `stateSelect`: if medium.preferredMediumStates then StateSelect.prefer else StateSelect.default
+...mo:22:24: error[GM-E3001] S3 instantiate: invalid value for type attribute `stateSelect`: if medium.preferredMediumStates then StateSelect.prefer else StateSelect.default
     note: rumoca: EI032
 $ globe check 19-ei032-statselect-parameter-expression.mo --model Rep19B
-...mo:26:37: error[GM-E3001] S3 instantiate: invalid value for type attribute `stateSelect`: stateSelect
+...mo:38:37: error[GM-E3001] S3 instantiate: invalid value for type attribute `stateSelect`: stateSelect
     note: rumoca: EI032
 $ rumoca compile ... -m Rep19A     ->  [EI032] invalid value for type attribute `stateSelect`: if medium.preferredMediumStates then ...
 $ rumoca compile ... -m Rep19B     ->  [EI032] invalid value for type attribute `stateSelect`: stateSelect
