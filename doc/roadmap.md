@@ -406,6 +406,10 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - 再現する 12 件に `_jp.md` と `_jp.html` を足した。issue は出していない。Rust のコードも GlobeMode 側の回避も変えていない。
 - 持ち越し: GlobeMode の Rumoca の rev を v0.10.4 に上げるかの判断（`msl:funnel`・`msl:sim`）。上げれば 04 の GM-W10004、02・15 の auto の切り替えが外せるかを見る（S172 で 0.2.0 は v0.10.2 のまま固定。判断は次の版のとき）。
 
+### S195（P8、2026-11-06）で済んだこと
+
+- **`release.yml` のタグの経路を、タグを打たずに確かめられるようにした**（[解説書](sessions/S195-release-tag-path/解説書.md)、手順は [release.md](release.md)）: 手動実行の入力 `tag` を env `TAG` に置き、push のタグと同じ道を通す。Release の step は push のときだけ。レビューの指摘 9 件のうち、rc タグ（`v0.2.0-rc1`）が MSI の「pre-release は数字だけ」で落ちるのを run で再現して直した。版の書き換え（perl、`--config`）を消し、最初のジョブがタグの版を 4 か所と突き合わせて止める。鍵の env は bundle の step だけ、softprops は v2.6.2 のコミット、tauri-cli 2.12.4・cargo-zigbuild 0.24.1 に固定。タグ・Release は 0 件のまま。
+
 ### S176（P7、2026-11-05）で済んだこと
 
 - **`release.yml` に macOS（arm64）を足した**（[ADR-0023](adr/0023-desktop-and-web-process-layout.md) の付記。[解説書](sessions/S176-release-macos/解説書.md)）: ジョブ `build` の matrix に `aarch64-apple-darwin`（`macos-latest`）を 1 行足し、`globe` の tar.gz（THIRD-PARTY.md 入り）と wheel（`macosx_*_arm64`）を作って wheel を入れた pytest を回す。ジョブ `desktop` の matrix にも macOS を足し、`--bundles app,dmg` で署名なしの .dmg を作る。鍵（`TAURI_SIGNING_PRIVATE_KEY`）があるときだけ updater 用の `GlobeMode_<版>_aarch64.app.tar.gz` と `.sig` も付け、`latest.json` に `darwin-aarch64` を足す。鍵が無い今は署名なしの bundle だけ。`about.toml` の targets に `aarch64-apple-darwin` を足した（macOS にだけ入る crate の表示のため）。タグの push の wheel の版の置換は BSD sed で動かないので perl にした。
