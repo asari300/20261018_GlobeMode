@@ -1,4 +1,4 @@
-//! `globe fmu info` / `globe fmu run`（S204、P5 の FMI Import の最初の一切れ）を実際に起動して確かめる。
+//! `globe fmu info` / `globe fmu run`（S204、P5 の FMI Import の最初の一切れ。S205 で Model Exchange の `--kind me`）を実際に起動して確かめる。
 //!
 //! - Reference-FMUs（`cargo xtask fetch-reference-fmus`。無ければ飛ばす）の要約と実行
 //! - **往復**: `globe fmu export --build` で作った Decay の FMU（P5a、Rumoca のテンプレート）を、自分の `globe fmu run` で
@@ -54,6 +54,69 @@ fn info_summarises_without_running_anything() {
     assert!(out.contains("CoSimulation: Dahlquist"), "{out}");
     assert!(out.contains("k (Parameter, Float64)"), "{out}");
     assert!(!String::from_utf8_lossy(&o.stderr).contains("ネイティブコード"));
+}
+
+#[test]
+fn info_shows_model_exchange_states_and_event_indicators() {
+    for (version, name, text) in [
+        (
+            "2.0",
+            "BouncingBall",
+            "ModelExchange: BouncingBall（連続状態 2、event indicator 1）",
+        ),
+        (
+            "3.0",
+            "BouncingBall",
+            "ModelExchange: BouncingBall（連続状態 2、event indicator 1）",
+        ),
+        (
+            "3.0",
+            "Stair",
+            "ModelExchange: Stair（連続状態 0、event indicator 0）",
+        ),
+    ] {
+        let Some(fmu) = reference_fmu(version, name) else {
+            return;
+        };
+        let o = globe(&["fmu", "info", fmu.to_str().unwrap()]);
+        assert!(o.status.success(), "{o:?}");
+        let out = String::from_utf8_lossy(&o.stdout);
+        assert!(out.contains(text), "{version} {name}: {out}");
+        assert!(out.contains("CoSimulation: "), "{out}");
+    }
+}
+
+#[test]
+fn run_model_exchange_reports_events_and_matches_the_analytic_solution() {
+    for version in ["2.0", "3.0"] {
+        let Some(fmu) = reference_fmu(version, "BouncingBall") else {
+            return;
+        };
+        let o = globe(&["fmu", "run", fmu.to_str().unwrap(), "--kind", "me"]);
+        assert!(o.status.success(), "{o:?}");
+        let err = String::from_utf8_lossy(&o.stderr);
+        assert!(err.contains("ネイティブコード"), "{err}");
+        assert!(err.contains("事象 11（state 11、time 0、step 0）"), "{err}");
+        let out = String::from_utf8_lossy(&o.stdout);
+        assert!(out.starts_with("time,h,v\n"), "{out}");
+        assert_eq!(out.lines().count(), 302, "301 行 + ヘッダ");
+        let row = last_row(&out);
+        assert!((row[0] - 3.0).abs() < 1e-9 && row[2] == 0.0, "{row:?}");
+        // 既定（CS を持つので CS）は前進 Euler の CSV と同じ行数で、事象の報告は出ない
+        let o = globe(&["fmu", "run", fmu.to_str().unwrap()]);
+        assert!(
+            !String::from_utf8_lossy(&o.stderr).contains("Model Exchange"),
+            "{o:?}"
+        );
+    }
+    // ME の Dahlquist は解析解 exp(-t)
+    let Some(fmu) = reference_fmu("3.0", "Dahlquist") else {
+        return;
+    };
+    let o = globe(&["fmu", "run", fmu.to_str().unwrap(), "--kind", "me"]);
+    assert!(o.status.success(), "{o:?}");
+    let x = last_row(&String::from_utf8_lossy(&o.stdout))[1];
+    assert!((x - (-10.0f64).exp()).abs() < 1e-8, "{x}");
 }
 
 #[test]
@@ -174,5 +237,29 @@ fn round_trip_export_then_import() {
         let x1 = last_row(&String::from_utf8_lossy(&o.stdout))[1];
         eprintln!("FMI {v} 往復: x(1) - e⁻¹ = {:e}", x1 - (-1.0f64).exp());
         assert!((x1 - (-1.0f64).exp()).abs() < 1e-6, "FMI {v}: x(1) = {x1}");
+        // Model Exchange: 自分の積分器（Dormand–Prince 5(4)、許容誤差 1e-6 が既定）で積分する
+        let o = globe(&[
+            "fmu",
+            "run",
+            fmu.to_str().unwrap(),
+            "--kind",
+            "me",
+            "--stop-time",
+            "1",
+            "--step",
+            "0.1",
+            "--output",
+            "x",
+        ]);
+        assert!(o.status.success(), "FMI {v} ME: {o:?}");
+        let x1 = last_row(&String::from_utf8_lossy(&o.stdout))[1];
+        eprintln!(
+            "FMI {v} 往復（ME）: x(1) - e⁻¹ = {:e}",
+            x1 - (-1.0f64).exp()
+        );
+        assert!(
+            (x1 - (-1.0f64).exp()).abs() < 1e-5,
+            "FMI {v} ME: x(1) = {x1}"
+        );
     }
 }
