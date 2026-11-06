@@ -63,7 +63,9 @@ test("標準の整形・lint の診断・補完が file:// の文書で返る", 
   );
 
   s.send({ id: 3, method: "textDocument/completion", params: { textDocument: { uri }, position: { line: 3, character: 0 } } });
-  const labels = (await s.until((m) => m.id === 3)).result.map((i) => i.label);
+  const list = (await s.until((m) => m.id === 3)).result; // S198: CompletionList
+  assert.equal(list.isIncomplete, false);
+  const labels = list.items.map((i) => i.label);
   assert.ok(labels.includes("equation") && labels.includes("x"), labels.join(","));
 
   s.send({ id: 4, method: "shutdown" });

@@ -44,6 +44,19 @@ pub enum ExecStage {
     Integration,
 }
 
+impl ExecStage {
+    /// 進捗の JSON・C の ABI・NIF で使う小文字の名前（`"preflight"`・`"lowering"`・`"build"`・`"initialization"`・`"integration"`。S202）。
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Preflight => "preflight",
+            Self::Lowering => "lowering",
+            Self::Build => "build",
+            Self::Initialization => "initialization",
+            Self::Integration => "integration",
+        }
+    }
+}
+
 /// 進捗（[`run_observed`] が知らせる。ADR-0033）。段が変わるたびに `time: None` で 1 回、積分の段では
 /// session の道だけ t を 100 ms に 1 回まで、積分の終わり（止めた時刻）に 1 回。
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -354,6 +367,15 @@ mod tests {
         SettingOrigin, SettingOrigins, SimStats, SolverId, Trajectory, TrajectoryVariable,
         VariableRole,
     };
+
+    /// S202: 段の名前は、これまで各言語の束ねが使っていた `{:?}` の小文字と同じ（応答の形を変えない）
+    #[test]
+    fn stage_names_are_the_lowercased_debug_names() {
+        use ExecStage::*;
+        for s in [Preflight, Lowering, Build, Initialization, Integration] {
+            assert_eq!(s.as_str(), format!("{s:?}").to_lowercase());
+        }
+    }
 
     fn finished(termination: Termination, values: Vec<f64>) -> SimRun {
         let o = SettingOrigin::Default;

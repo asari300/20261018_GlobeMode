@@ -34,3 +34,4 @@ pub fn main(init: std.process.Init) !void {
 - `build.zig`: `-Dlib-dir=<target/release>`（既定 `../../target/release`）。rpath にも同じディレクトリを入れる。
 - `src/main.zig`: 引数は `<ライブラリのディレクトリ> <モデル>`。`check` の `passed` と、`simulate` の JSON の長さと CSV の最後の時刻を表示する。
 - Zig 0.17（mise の `zig = "latest"`）で確かめた。std の API は版ごとに変わる。
+- 進捗のコールバックの中から同じ `ws` の `gm_*` を呼ぶと `{"error": "ワークスペースは使用中…"}`、`gm_workspace_free` は何もしない（S202。`main.zig` の `reenter`）。

@@ -108,6 +108,21 @@ pub fn export_fmu(
     globe_mode_fmi::export::write_fmu(&src, out_dir, headers, &options.targets)
 }
 
+/// `settings_json`（`{"stop_time": 2, "solver": "bdf"}` など。`None` は設定なし）から実行の依頼を作る（S202。C の ABI・NIF が共有する）。
+pub fn simulate_request(
+    model: &str,
+    settings_json: Option<&str>,
+) -> Result<SimulateRequest, String> {
+    let settings: serde_json::Value = match settings_json {
+        Some(s) => {
+            serde_json::from_str(s).map_err(|e| format!("settings の JSON が読めない: {e}"))?
+        }
+        None => serde_json::json!({}),
+    };
+    serde_json::from_value(serde_json::json!({ "model": model, "settings": settings }))
+        .map_err(|e| format!("settings が読めない: {e}"))
+}
+
 /// 壁時計（ミリ秒、UNIX epoch から）。wasm32 では std の時計が無いので 0（wasm の束ねは JS の
 /// `performance.now()` を [`Workspace::simulate_with`] に渡す）。
 pub fn now_ms() -> f64 {
@@ -154,6 +169,18 @@ pub struct Simulated {
 }
 
 impl Simulated {
+    /// 列の道の見出しの JSON（S202。C の ABI・NIF が共有する）。
+    /// `{"response": SimulateResponse（csv 無し）, "names": [...], "points": n, "defaults": [...]}`。
+    pub fn layout_json(&self, layout: &ColumnsLayout) -> Result<String, String> {
+        serde_json::to_string(&serde_json::json!({
+            "response": self.response,
+            "names": layout.names,
+            "points": layout.points,
+            "defaults": layout.defaults,
+        }))
+        .map_err(|e| format!("JSON: {e}"))
+    }
+
     /// 列の道（S116。wasm の `SimColumns`・Python の `simulate_columns`・C の `gm_simulate_columns`・NIF と共通）。
     /// 列の並び（`names[0]` は `time`）と、列ごとの値（`points` 個ずつ）。実行できなかったときは空の列と 0 点。
     pub fn columns(&self) -> (ColumnsLayout, Vec<&[f64]>) {
@@ -330,6 +357,18 @@ impl Workspace {
     /// ファイルのアウトライン（位置を含む）。ワークスペースに無ければ None、構文の誤りは S0 の診断。
     pub fn outline(&self, path: &str) -> Option<&Result<Outline, Vec<Diagnostic>>> {
         self.db.outline(path)
+    }
+
+    /// [`Workspace::outline`] の JSON（`globe outline --json` と同じ。S202。C の ABI・NIF が共有する）。
+    /// ファイルが無いか構文の誤りがあれば誤りの文（誤りは最初の診断の `コード: 文`）。
+    pub fn outline_json(&self, path: &str) -> Result<String, String> {
+        match self.outline(path) {
+            None => Err(format!("ファイル {path} がワークスペースに無い")),
+            Some(Ok(o)) => serde_json::to_string(o).map_err(|e| format!("JSON: {e}")),
+            Some(Err(ds)) => Err(ds
+                .first()
+                .map_or_else(String::new, |d| format!("{}: {}", d.code, d.message))),
+        }
     }
 
     /// モデルの検査（S0〜S10）。診断の位置は元の本文の中。
@@ -585,8 +624,10 @@ impl Workspace {
             },
         );
         lap("run", &mut response.timings_ms);
-        response.ok = report.succeeded();
         response.diagnostics.extend(report.diagnostics);
+        // `ok` は「結果があり、Error の診断が無い」。強行（force）で走っても、検査の Error が残れば ok ではない（#2）
+        response.ok =
+            report.run.is_some() && !response.diagnostics.iter().any(Diagnostic::is_error);
         response.settings = report.settings;
         if let Some(run) = &report.run {
             let traj = &run.trajectory;
@@ -597,9 +638,13 @@ impl Workspace {
                     .collect(),
             );
             if !request.no_csv {
-                let mut buf = Vec::new();
-                if globe_mode_sim::store::write_csv(traj, &mut buf).is_ok() {
-                    response.csv = String::from_utf8(buf).ok();
+                match csv_text(traj) {
+                    Ok(csv) => response.csv = Some(csv),
+                    // 黙って捨てると、呼び手が結果も理由も受け取れない（#13）
+                    Err(e) => {
+                        response.ok = false;
+                        response.refused = Some(format!("結果を CSV にできない: {e}"));
+                    }
                 }
             }
             response.termination = Some(run.termination.clone());
@@ -622,6 +667,13 @@ impl Workspace {
     pub fn db(&mut self) -> &mut GlobeDb {
         &mut self.db
     }
+}
+
+/// 時系列を CSV の文字列にする。変数の長さが `time` と違うなどで書けなければ、その理由。
+fn csv_text(traj: &globe_mode_ir::Trajectory) -> Result<String, String> {
+    let mut buf = Vec::new();
+    globe_mode_sim::store::write_csv(traj, &mut buf).map_err(|e| e.to_string())?;
+    String::from_utf8(buf).map_err(|e| e.to_string())
 }
 
 /// Error が出た最初の段階。
@@ -653,4 +705,33 @@ fn library_error(path: &Path, why: &str) -> Diagnostic {
         format!("ライブラリ {} を読み込めない", path.display()),
     )
     .note(why)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use globe_mode_ir::{Trajectory, TrajectoryVariable, VariableRole};
+
+    /// #13: 変数の長さが時刻と違う時系列は、CSV にできない理由を返す（黙って捨てない）
+    #[test]
+    fn csv_text_reports_why_it_cannot_write() {
+        let variable = |values: Vec<f64>| TrajectoryVariable {
+            name: "x".to_string(),
+            role: VariableRole::State,
+            unit: None,
+            description: None,
+            values,
+        };
+        let mut traj = Trajectory {
+            time: vec![0.0, 1.0],
+            variables: vec![variable(vec![1.0, 2.0])],
+        };
+        assert_eq!(csv_text(&traj).unwrap().lines().count(), 3);
+        traj.variables = vec![variable(vec![1.0])];
+        let why = csv_text(&traj).unwrap_err();
+        assert!(
+            why.contains("変数 x の値の数（1）が時刻の数（2）と違う"),
+            "{why}"
+        );
+    }
 }

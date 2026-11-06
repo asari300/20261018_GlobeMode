@@ -19,8 +19,9 @@
 //!
 //! `simulate` は検査（S0〜S10）を通してから実行する（Error があれば `--force` が無い限り実行しない）。
 //!
-//! 終了コード: 0 = 成功 / 1 = Error の診断がある / 2 = 入力の読み込みに失敗・書き出しに失敗。
-//! 標準出力が閉じられたとき（`| head`）は、Unix の慣習どおり黙って 0 で終わる（S182）。
+//! 終了コード: 0 = 成功 / 1 = Error の診断がある・整形が要る・lint の指摘がある / 2 = 使い方の誤り・入力の読み込みに失敗・
+//! 書き出しに失敗 / 3 = 未対応（GM-U）だけで止まった（`check`・`simulate`。S199）。
+//! 標準出力が閉じられたとき（`| head`）は、以後の出力を黙って捨てて処理を最後まで進め、本来の終了コードで終わる（S182・S199）。
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -28,27 +29,41 @@ use std::process::ExitCode;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use clap::{Parser, Subcommand};
-use globe_mode::db::{ExperimentVerdict, FullReport, normalize_path};
+use globe_mode::db::normalize_path;
 use globe_mode::{CheckResponse, Workspace};
 use globe_mode_core::{Diagnostic, Severity, line_col};
 use globe_mode_ir::{ClassOutline, FlatSummary, Outline, SimSettings};
 
-/// 標準出力へ書く。閉じられていたら（`globe … | head`）黙って終了コード 0 で終わる。
+/// 標準出力へ書く。閉じられていたら（`globe … | head`）以後の出力を黙って捨て、処理は最後まで進めて本来の終了コードで終わる（S199）。
 /// Rust は SIGPIPE を無視するので標準の `println!` は panic し、`unsafe` は禁止なのでシグナルは戻せない。
 macro_rules! println {
-    ($($arg:tt)*) => { $crate::stdout_ok(::std::io::Write::write_fmt(
-        &mut ::std::io::stdout(), format_args!("{}\n", format_args!($($arg)*)))) };
+    ($($arg:tt)*) => { $crate::stdout_ok(|out| ::std::io::Write::write_fmt(
+        out, format_args!("{}\n", format_args!($($arg)*)))) };
 }
 macro_rules! print {
-    ($($arg:tt)*) => { $crate::stdout_ok(::std::io::Write::write_fmt(
-        &mut ::std::io::stdout(), format_args!($($arg)*))) };
+    ($($arg:tt)*) => { $crate::stdout_ok(|out| ::std::io::Write::write_fmt(
+        out, format_args!($($arg)*))) };
 }
 
-fn stdout_ok(result: std::io::Result<()>) {
-    match result {
-        Ok(()) => {}
-        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => std::process::exit(0),
-        Err(e) => panic!("failed printing to stdout: {e}"),
+/// 読み手が標準出力を閉じた（BrokenPipe）。以後の標準出力への書き込みは何もしない。
+static STDOUT_CLOSED: AtomicBool = AtomicBool::new(false);
+
+fn stdout_ok(write: impl FnOnce(&mut std::io::Stdout) -> std::io::Result<()>) {
+    if STDOUT_CLOSED.load(Ordering::Relaxed) {
+        return;
+    }
+    if let Err(e) = write(&mut std::io::stdout()) {
+        stdout_failed(&e);
+    }
+}
+
+/// 標準出力への書き込みの失敗。BrokenPipe は誤りではない。それ以外（ディスク満杯など）は 1 行出して終了コード 2。
+fn stdout_failed(e: &std::io::Error) {
+    if e.kind() == std::io::ErrorKind::BrokenPipe {
+        STDOUT_CLOSED.store(true, Ordering::Relaxed);
+    } else {
+        eprintln!("error: 標準出力に書けない: {}", io_reason(e));
+        std::process::exit(2);
     }
 }
 
@@ -56,13 +71,15 @@ fn stdout_ok(result: std::io::Result<()>) {
 static VERBOSE: AtomicBool = AtomicBool::new(false);
 
 mod fmu;
+mod report;
 mod simulate;
 
 #[derive(Debug, Parser)]
 #[command(
     name = "globe",
     version,
-    about = "GlobeMode — an open-source Modelica IDE (CLI)"
+    about = "GlobeMode — an open-source Modelica IDE (CLI)",
+    after_help = "終了コード:\n  0  成功\n  1  モデルの誤り（Error の診断）・整形が要る（fmt --check）・lint の指摘がある\n  2  使い方の誤り・入力を読めない・結果を書けない\n  3  未対応（GM-U）だけで止まった（check・simulate。モデルの誤りではなく、コンパイラが未対応）\n\n`| head` で読み手が先に閉じても、結果の終了コードは変わらない。"
 )]
 struct Cli {
     /// info の診断も全部表示する（既定は件数だけ）
@@ -123,14 +140,14 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Modelica のファイルを整形する（`doc/format-style.md`）。ruff のように、パスを省くとカレントディレクトリ。
+    /// Modelica のファイルを整形する（`doc/format-style.md`）。標準入力は `-` を明示したときだけ。
     /// 設定は対象から上へたどって最初の `globe-mode.toml`。コマンドラインの引数が優先
     #[command(
-        after_help = "例:\n  globe fmt                 カレントディレクトリの下の .mo を整形する\n  globe fmt --check src     書き換えず、整形が要るファイルを列挙する（要整形なら終了コード 1）\n  globe fmt model.mo --indent 4"
+        after_help = "例:\n  globe fmt .               カレントディレクトリの下の .mo を整形する\n  globe fmt -               標準入力を整形して標準出力へ\n  globe fmt --check src     書き換えず、整形が要るファイルを列挙する（要整形なら終了コード 1）\n  globe fmt model.mo --indent 4"
     )]
     Fmt {
         /// ファイルまたはディレクトリ（下の .mo を .gitignore と隠しディレクトリを除いてすべて）。
-        /// 省くとカレントディレクトリ。`-`、または `--json` か入力がパイプのときは標準入力 → 標準出力
+        /// `-`（パスなしの `--json` も）は標準入力 → 標準出力。パスも `-` も無ければ使い方を出して終了コード 2
         files: Vec<PathBuf>,
         /// 書き換えず、整形が要るファイルを列挙して終了コード 1
         #[arg(long)]
@@ -156,10 +173,10 @@ enum Command {
     },
     /// Modelica のファイルを lint する（line-too-long / class-name-pascal-case / missing-description）
     #[command(
-        after_help = "例:\n  globe lint\n  globe lint model.mo --disable line-too-long\n  globe lint src --json"
+        after_help = "例:\n  globe lint .\n  globe lint -               標準入力を lint する\n  globe lint model.mo --disable line-too-long\n  globe lint src --json"
     )]
     Lint {
-        /// ファイルまたはディレクトリ。省くとカレントディレクトリ（`fmt` と同じ規則）
+        /// ファイルまたはディレクトリ。`-` は標準入力（`fmt` と同じ規則）
         files: Vec<PathBuf>,
         /// 止める規則（何度でも。`globe-mode.toml` の `[lint] disable` に足す）
         #[arg(long)]
@@ -541,7 +558,8 @@ fn io_error(path: &Path, writing: bool, e: &std::io::Error) -> String {
 }
 
 /// 結果の書き出し先（ファイル）を、計算の前に確かめる。無ければ作って消す。既にあるものは変えない（追記で開くだけ）。
-fn check_writable_file(path: &Path) -> Result<(), String> {
+/// 入力のファイル・ライブラリの配下・拡張子 `.mo` は、ソースを結果で上書きしてしまうので断る（S199）。
+fn check_writable_file(path: &Path, files: &[PathBuf], library: &[PathBuf]) -> Result<(), String> {
     if path.is_dir() {
         return Err(format!("{} に書けない: ディレクトリである", path.display()));
     }
@@ -554,7 +572,30 @@ fn check_writable_file(path: &Path) -> Result<(), String> {
             parent.display()
         ));
     }
-    let existed = path.exists();
+    // リンクを辿らずに調べる（壊れた symlink は exists() が false になり、消してしまう）
+    let existed = path.symlink_metadata().is_ok();
+    if existed && path.metadata().is_err() {
+        return Err(format!(
+            "{} に書けない: リンク先が無い symlink である",
+            path.display()
+        ));
+    }
+    let is_mo = |p: &Path| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("mo"));
+    let resolved = resolve(path);
+    if is_mo(path) || is_mo(&resolved) {
+        return Err(format!(
+            "{} に書けない: Modelica のソース（.mo）を結果で上書きしてしまう",
+            path.display()
+        ));
+    }
+    if files.iter().any(|f| f.is_file() && resolve(f) == resolved)
+        || library.iter().any(|l| resolved.starts_with(resolve(l)))
+    {
+        return Err(format!(
+            "{} に書けない: 入力のファイルかライブラリの中のファイルを上書きしてしまう",
+            path.display()
+        ));
+    }
     std::fs::OpenOptions::new()
         .append(true)
         .create(true)
@@ -566,12 +607,62 @@ fn check_writable_file(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// `dir` の下に `.mo` があるか（見つけたらそこで止める）。
+fn contains_mo(dir: &Path) -> bool {
+    std::fs::read_dir(dir).is_ok_and(|entries| {
+        entries.flatten().any(|e| {
+            let p = e.path();
+            // symlink は辿らない（輪になっていても止まる）
+            if e.file_type().is_ok_and(|t| t.is_dir()) {
+                contains_mo(&p)
+            } else {
+                p.extension().is_some_and(|x| x.eq_ignore_ascii_case("mo"))
+            }
+        })
+    })
+}
+
+/// リンクを辿った絶対パス。まだ無いファイルは、親を辿ってファイル名を足す。
+fn resolve(path: &Path) -> PathBuf {
+    if let Ok(p) = path.canonicalize() {
+        return p;
+    }
+    let parent = path.parent().filter(|p| !p.as_os_str().is_empty());
+    match (parent.map(Path::canonicalize), path.file_name()) {
+        (Some(Ok(parent)), Some(name)) => parent.join(name),
+        (None, Some(name)) => std::env::current_dir()
+            .and_then(|d| d.canonicalize())
+            .map_or_else(|_| name.into(), |d| d.join(name)),
+        _ => path.to_path_buf(),
+    }
+}
+
 /// 書き出し先のディレクトリを、計算の前に作る（無ければ親ごと。ファイルを指していたら誤り）。
-fn prepare_out_dir(dir: &Path) -> Result<(), String> {
+/// FMU は `<out>/<名前>/` を作り直す（あれば消す）ので、そこに `.mo` か入力・ライブラリがあるなら断る（S199）。
+fn prepare_out_dir(
+    dir: &Path,
+    model: &str,
+    files: &[PathBuf],
+    library: &[PathBuf],
+) -> Result<(), String> {
     if dir.exists() && !dir.is_dir() {
         return Err(format!(
             "{} に書けない: ディレクトリではない",
             dir.display()
+        ));
+    }
+    let root = resolve(&dir.join(model.replace('.', "_")));
+    if root.exists()
+        && (contains_mo(&root)
+            || files
+                .iter()
+                .chain(library)
+                .any(|s| resolve(s).starts_with(&root)))
+    {
+        return Err(format!(
+            "{} に書けない: 作り直す {} に Modelica のソースか入力が入っている",
+            dir.display(),
+            root.display()
         ));
     }
     std::fs::create_dir_all(dir).map_err(|e| io_error(dir, true, &e))
@@ -601,7 +692,11 @@ fn fmt(
             o
         })
     };
-    let Some(files) = paths_or_stdin(files, json) else {
+    let files = match paths_or_stdin("fmt", files, json) {
+        Ok(f) => f,
+        Err(code) => return code,
+    };
+    let Some(files) = files else {
         let Ok(text) = read_stdin() else {
             return ExitCode::from(2);
         };
@@ -686,15 +781,24 @@ fn fmt(
     }
 }
 
-/// パスが無いときの決め方（S060、ruff に倣う）。`None` は標準入力。
-/// `-` だけ、または `--json` か入力がパイプ（ウェブアプリ・エディタの呼び方）なら標準入力、端末から打ったならカレントディレクトリ。
-fn paths_or_stdin(files: &[PathBuf], json: bool) -> Option<Vec<PathBuf>> {
-    use std::io::IsTerminal;
+/// 入力の決め方。`None` は標準入力。標準入力は `-` を明示したとき（と、標準入力の契約の `--json`）だけ。
+/// パスを 1 つも渡さず `-` も `--json` も無いときは、端末かパイプかに関係なく使い方を出して終了コード 2
+/// （S199。ウェブアプリ・エディタは `--json` で呼ぶ。`globe fmt --check` が何も検査せず 0 で終わるのを防ぐ）。
+fn paths_or_stdin(
+    command: &str,
+    files: &[PathBuf],
+    json: bool,
+) -> Result<Option<Vec<PathBuf>>, ExitCode> {
     match files {
-        [one] if one.as_os_str() == "-" => None,
-        [] if json || !std::io::stdin().is_terminal() => None,
-        [] => Some(vec![PathBuf::from(".")]),
-        _ => Some(files.to_vec()),
+        [one] if one.as_os_str() == "-" => Ok(None),
+        [] if json => Ok(None),
+        [] => {
+            eprintln!(
+                "error: 対象のパスが無い。使い方: globe {command} <FILES…>（ディレクトリも可。例: globe {command} .）か globe {command} -（標準入力）"
+            );
+            Err(ExitCode::from(2))
+        }
+        _ => Ok(Some(files.to_vec())),
     }
 }
 
@@ -739,25 +843,28 @@ fn lint(files: &[PathBuf], disable: &[String], json: bool) -> ExitCode {
             c
         })
     };
-    let inputs: Vec<(String, String, globe_mode_fmt::LintOptions)> =
-        if let Some(files) = paths_or_stdin(files, json) {
-            let Ok(paths) = collect_mo(&files) else {
-                return ExitCode::from(2);
-            };
-            let mut v = Vec::new();
-            for p in &paths {
-                let (Ok(options), Ok((name, text))) = (options_for(p), read(p)) else {
-                    return ExitCode::from(2);
-                };
-                v.push((name, text, options));
-            }
-            v
-        } else {
-            let (Ok(options), Ok(text)) = (options_for(Path::new(".")), read_stdin()) else {
-                return ExitCode::from(2);
-            };
-            vec![("<stdin>".to_string(), text, options)]
+    let files = match paths_or_stdin("lint", files, json) {
+        Ok(f) => f,
+        Err(code) => return code,
+    };
+    let inputs: Vec<(String, String, globe_mode_fmt::LintOptions)> = if let Some(files) = files {
+        let Ok(paths) = collect_mo(&files) else {
+            return ExitCode::from(2);
         };
+        let mut v = Vec::new();
+        for p in &paths {
+            let (Ok(options), Ok((name, text))) = (options_for(p), read(p)) else {
+                return ExitCode::from(2);
+            };
+            v.push((name, text, options));
+        }
+        v
+    } else {
+        let (Ok(options), Ok(text)) = (options_for(Path::new(".")), read_stdin()) else {
+            return ExitCode::from(2);
+        };
+        vec![("<stdin>".to_string(), text, options)]
+    };
     // S062: 渡したファイルをまとめて 1 つのワークスペースにし、connect の型を突き合わせる
     let check_types =
         |o: &globe_mode_fmt::LintOptions| !o.disabled.iter().any(|d| d == "connect-type-mismatch");
@@ -885,16 +992,16 @@ fn check(files: &[PathBuf], library: &[PathBuf], model: &str, json: bool) -> Exi
     let Loaded { mut ws, texts } = match load_db(files, library) {
         Ok(Ok(v)) => v,
         // ライブラリを読めない（S1）
-        Ok(Err(diags)) => return report_early_failure(model, &diags, json),
+        Ok(Err(diags)) => return report_early_failure(model, &diags, json, false),
         Err(code) => return code,
     };
-    let passed = if json {
+    let (passed, diagnostics) = if json {
         let response = ws.check(model);
         println!(
             "{}",
             serde_json::to_string_pretty(&response).expect("serialize report")
         );
-        response.passed
+        (response.passed, response.diagnostics)
     } else {
         // 文字の表示は DAE の未知数や初期化系の構造まで読むので、protocol の型でなく DB の報告を使う
         let report = ws.db().check_model(model);
@@ -944,237 +1051,19 @@ fn check(files: &[PathBuf], library: &[PathBuf], model: &str, json: bool) -> Exi
                 );
             }
         }
-        print_s7(&report);
-        print_s8(&report);
-        print_s9(&report);
-        print_s10(&report);
+        report::print_s7(&report);
+        report::print_s8(&report);
+        report::print_s9(&report);
+        report::print_s10(&report);
         // 最後の 1 行は facade の応答の `summary`（Python・LSP・wasm と同じ。検査は salsa が覚えている）
         println!("{}", ws.check(model).summary);
-        report.passed()
+        (report.passed(), report.diagnostics)
     };
     if passed {
         ExitCode::SUCCESS
     } else {
-        ExitCode::from(1)
+        failure_code(&diagnostics)
     }
-}
-
-/// S7 の行（構造インデックスの見込みと、状態選択の候補）。
-fn print_s7(report: &FullReport) {
-    let Some(s7) = &report.index else {
-        return;
-    };
-    if s7.failed {
-        println!(
-            "{}: S7: Pantelides 法を打ち切った（構造インデックスを決められない）",
-            report.model
-        );
-        return;
-    }
-    if s7.index <= 1 {
-        println!(
-            "{}: S7: 構造インデックス {}（微分なし）",
-            report.model, s7.index
-        );
-        return;
-    }
-    let max = s7.differentiations.iter().max().copied().unwrap_or(0);
-    // 状態選択の候補は、GM-I7002 と同じく「動的な状態 < 状態の数」のときだけ出す
-    let unknowns = report.check.structure.as_ref().map(|s| &s.unknowns);
-    let states = unknowns.map_or(0, |u| {
-        u.iter()
-            .filter(|u| u.kind == globe_mode_ir::UnknownKind::Derivative)
-            .count()
-    });
-    let selection = if s7.dynamic_states < states {
-        let names: Vec<String> = s7
-            .dummy_candidates
-            .iter()
-            .map(|&i| {
-                unknowns
-                    .and_then(|u| u.get(i))
-                    .map_or_else(|| format!("#{i}"), |u| state_name(&u.name).to_string())
-            })
-            .collect();
-        format!(
-            "。動的な状態 {} / {states}、状態選択の候補: {}",
-            s7.dynamic_states,
-            names.join(", ")
-        )
-    } else {
-        String::new()
-    };
-    println!(
-        "{}: S7: 構造インデックス {} の見込み（微分した方程式 {} 本、最大 {} 回）{selection}",
-        report.model, s7.index, s7.n_differentiated, max
-    );
-}
-
-/// `der(x[2])` → `x[2]`（状態選択の候補は状態の名前で出す）。
-fn state_name(unknown: &str) -> &str {
-    unknown
-        .strip_prefix("der(")
-        .and_then(|s| s.strip_suffix(')'))
-        .unwrap_or(unknown)
-}
-
-/// S8 の行（初期条件の数と、過剰・不足）。
-fn print_s8(report: &FullReport) {
-    let Some(s8) = &report.init else {
-        return;
-    };
-    let init = report.check.init.as_ref();
-    let initial_equations = init.map_or(0, |i| i.initial_equations.len());
-    let states = init.map_or(0, |i| i.states.len());
-    let discretes = init.map_or(0, |i| i.discretes.len());
-    // fixed でない離散変数の分の不足は確定しない（analysis::init の柔らかい警告と同じ条件）
-    let open_discretes = init.map_or(0, |i| i.discretes.iter().filter(|d| !d.fixed).count());
-    let fixed_discretes = discretes - open_discretes;
-    let fixed_algebraics = init.map_or(0, |i| i.algebraics.iter().filter(|a| a.fixed).count());
-    // 過剰が確定するのは、離散変数が無く、インデックスの低減で状態が減っていないときだけ（analysis::init と同じ条件）
-    let index_reduced = report
-        .index
-        .as_ref()
-        .is_some_and(|s7| !s7.failed && s7.dynamic_states < states);
-    let balance = match s8.provided.cmp(&s8.required) {
-        _ if s8.matching.is_some() => String::new(),
-        std::cmp::Ordering::Equal => String::new(),
-        std::cmp::Ordering::Greater if discretes > 0 || index_reduced => format!(
-            "。{} 個多い見込み（離散変数かインデックスの低減のため確定できない）",
-            s8.provided - s8.required
-        ),
-        std::cmp::Ordering::Greater => {
-            format!("。{} 個多い（過剰）", s8.provided - s8.required)
-        }
-        std::cmp::Ordering::Less if s8.required - s8.provided <= open_discretes => format!(
-            "。{} 個足りない見込み（離散変数の pre の初期値に start を使えば足りる）",
-            s8.required - s8.provided
-        ),
-        std::cmp::Ordering::Less => format!(
-            "。{} 個足りない（start 値を推定値として使う見込み）",
-            s8.required - s8.provided
-        ),
-    };
-    // 要る数は「動的な状態（S7）+ fixed = false のパラメータ」なので、S7 の数を添える
-    let dynamic = report
-        .index
-        .as_ref()
-        .filter(|s7| !s7.failed)
-        .map_or_else(String::new, |s7| {
-            format!("動的な状態 {} / ", s7.dynamic_states)
-        });
-    println!(
-        "{}: S8: 初期条件 {} / {}（{dynamic}状態 {states}・離散 {discretes}・初期方程式 {}・fixed = true の状態 {}・離散 {fixed_discretes}・代数 {fixed_algebraics}・fixed = false のパラメータ {}）{balance}",
-        report.model,
-        s8.provided,
-        s8.required,
-        initial_equations,
-        s8.fixed_states.len(),
-        s8.free_parameters.len()
-    );
-    // S009: 初期化系のマッチング（冗長な初期条件と、初期条件の無い未知数）
-    if let Some(m) = &s8.matching {
-        let verdict = match (m.extra, m.missing) {
-            (0, 0) => "合う".to_string(),
-            (e, 0) => format!("冗長 {e}"),
-            (0, u) => format!("決まらない {u}"),
-            (e, u) => format!("冗長 {e}・決まらない {u}"),
-        };
-        println!(
-            "{}: S8: 初期化系のマッチング: 方程式 {}（DAE とその微分、初期方程式、fixed = true）/ 未知数 {}、マッチング {}。{verdict}{}",
-            report.model,
-            m.n_equations,
-            m.n_unknowns,
-            m.matching,
-            if m.extra > 0 && m.over_with_dae {
-                "（冗長な初期条件は拘束と重なる。整合する値なら冗長なだけ）"
-            } else {
-                ""
-            }
-        );
-    } else if report.check.init.as_ref().is_some_and(|i| !i.has_incidence) {
-        println!(
-            "{}: S8: 初期方程式の参照を取り出せなかったので、数と属性だけで判定した",
-            report.model
-        );
-    }
-}
-
-/// S9 の行（代数ループの数と大きさ、非線形のループの反復変数）。
-fn print_s9(report: &FullReport) {
-    let Some(s9) = &report.loops else {
-        return;
-    };
-    if let Some(reason) = &s9.skipped {
-        println!("{}: S9: 代数ループを解析しなかった: {reason}", report.model);
-        return;
-    }
-    let reduced = if s9.reduced {
-        "。インデックス低減の最高階の系で数えた（状態選択の前の見込み）"
-    } else {
-        ""
-    };
-    if s9.n_loops() == 0 {
-        println!(
-            "{}: S9: 代数ループなし（BLT のブロック {}）{reduced}",
-            report.model, s9.blocks
-        );
-        return;
-    }
-    let start = if s9.start_checked {
-        format!("（start 値なし {}）", s9.n_iteration_without_start())
-    } else {
-        String::new()
-    };
-    println!(
-        "{}: S9: 代数ループ {}（線形 {}・非線形 {}、最大 {} 本の方程式）、BLT のブロック {}。非線形のループの反復変数 {}{start}{reduced}",
-        report.model,
-        s9.n_loops(),
-        s9.n_linear(),
-        s9.n_nonlinear(),
-        s9.max_loop_size(),
-        s9.blocks,
-        s9.n_iteration_variables()
-    );
-}
-
-/// S10 の行（評価したパラメータと start 値の数、失敗の数、experiment annotation）。
-fn print_s10(report: &FullReport) {
-    let Some(s10) = &report.preflight else {
-        return;
-    };
-    let failures = s10.not_finite_parameters.len()
-        + s10.assertion_parameters.len()
-        + s10.not_finite_starts.len();
-    let external = if s10.external_parameters.is_empty() {
-        String::new()
-    } else {
-        format!(
-            "、静的に評価できないもの {}（外部関数）",
-            s10.external_parameters.len()
-        )
-    };
-    let experiment = match &s10.experiment {
-        ExperimentVerdict::Missing => "experiment annotation なし".to_string(),
-        ExperimentVerdict::Checked {
-            invalid,
-            suspicious,
-        } if invalid.is_empty() && suspicious.is_empty() => {
-            "experiment annotation は妥当".to_string()
-        }
-        ExperimentVerdict::Checked {
-            invalid,
-            suspicious,
-        } => format!(
-            "experiment annotation の誤り {}・疑わしい値 {}",
-            invalid.len(),
-            suspicious.len()
-        ),
-    };
-    println!(
-        "{}: S10: パラメータ {}・start 値 {} を評価し、有限にならないか assert が失敗したもの {}{external}。{experiment}",
-        report.model, s10.parameters_evaluated, s10.starts_evaluated, failures
-    );
 }
 
 /// `globe deps`: 検査に渡すファイル（閉包）と、ワークスペースの全ファイル数。
@@ -1217,7 +1106,7 @@ fn deps(inputs: &[PathBuf], library: &[PathBuf], model: &str, json: bool) -> Exi
 fn flat(files: &[PathBuf], library: &[PathBuf], model: &str, json: bool) -> ExitCode {
     let Loaded { mut ws, texts } = match load_db(files, library) {
         Ok(Ok(v)) => v,
-        Ok(Err(diags)) => return report_early_failure(model, &diags, json),
+        Ok(Err(diags)) => return report_early_failure(model, &diags, json, false),
         Err(code) => return code,
     };
     let Some(summary) = ws.flat(model) else {
@@ -1249,13 +1138,13 @@ fn fmu_export(
     out: &std::path::Path,
     options: &globe_mode::FmuOptions,
 ) -> ExitCode {
-    if let Err(message) = prepare_out_dir(out) {
+    if let Err(message) = prepare_out_dir(out, model, files, library) {
         eprintln!("error: --out {message}");
         return ExitCode::from(2);
     }
     let Loaded { mut ws, texts } = match load_db(files, library) {
         Ok(Ok(v)) => v,
-        Ok(Err(diags)) => return report_early_failure(model, &diags, false),
+        Ok(Err(diags)) => return report_early_failure(model, &diags, false, false),
         Err(code) => return code,
     };
     let compiled = match ws.compile(model, &Default::default()) {
@@ -1301,25 +1190,39 @@ fn print_flat(model: &str, f: &FlatSummary) {
     }
 }
 
-/// ライブラリを読めないなど、検査の前に止まったときの出力（`check` と同じ形）。
-fn report_early_failure(model: &str, diags: &[Diagnostic], json: bool) -> ExitCode {
+/// ライブラリを読めないなど、検査の前に止まったときの出力（`check` と同じ形）。`to_stderr` は `simulate -o -` のとき。
+fn report_early_failure(
+    model: &str,
+    diags: &[Diagnostic],
+    json: bool,
+    to_stderr: bool,
+) -> ExitCode {
     let response = CheckResponse::failed(model, diags.to_vec());
     if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&response).expect("serialize report")
-        );
+        let text = serde_json::to_string_pretty(&response).expect("serialize report");
+        emit(to_stderr, &text);
     } else {
-        print_diagnostics(diags, &HashMap::new(), false);
-        println!("{}", response.summary);
+        for line in diagnostic_lines(diags, &HashMap::new()) {
+            emit(to_stderr, &line);
+        }
+        emit(to_stderr, &response.summary);
     }
-    ExitCode::from(1)
+    failure_code(diags)
+}
+
+/// 失敗の終了コード。Error がすべて未対応（GM-U）なら 3、そうでなければ 1（S199。分類は protocol の `unsupported_summary`）。
+fn failure_code(diagnostics: &[Diagnostic]) -> ExitCode {
+    if globe_mode::unsupported_summary(diagnostics).is_some() {
+        ExitCode::from(3)
+    } else {
+        ExitCode::from(1)
+    }
 }
 
 fn graph(inputs: &[PathBuf], library: &[PathBuf], model: &str, depth: u32, json: bool) -> ExitCode {
     let Loaded { mut ws, .. } = match load_db(inputs, library) {
         Ok(Ok(v)) => v,
-        Ok(Err(diags)) => return report_early_failure(model, &diags, json),
+        Ok(Err(diags)) => return report_early_failure(model, &diags, json, false),
         Err(code) => return code,
     };
     match ws.graph(model, depth) {
@@ -1388,15 +1291,10 @@ fn print_class(qualified: &str, c: &ClassOutline, text: &str) {
     }
 }
 
-fn print_diagnostics(diags: &[Diagnostic], texts: &HashMap<String, String>, json: bool) {
-    if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(diags).expect("serialize diagnostics")
-        );
-        return;
-    }
+/// 診断の表示行（`ファイル:行:列: severity[コード] …` と補足。info は件数だけ、`-v` で全部）。
+fn diagnostic_lines(diags: &[Diagnostic], texts: &HashMap<String, String>) -> Vec<String> {
     let (diags, hidden) = shown(diags);
+    let mut lines = Vec::new();
     for d in diags {
         let place = match (&d.file, d.range) {
             (Some(f), Some(r)) => {
@@ -1421,18 +1319,37 @@ fn print_diagnostics(diags: &[Diagnostic], texts: &HashMap<String, String>, json
                 .and_then(|v| v.as_str().map(str::to_owned))
                 .unwrap_or_default()
         };
-        println!(
+        lines.push(format!(
             "{place}{severity}[{}] {:?} {}: {}",
             d.code,
             d.stage,
             d.stage.title(),
             d.message
-        );
-        for n in &d.notes {
-            println!("    note: {n}");
-        }
+        ));
+        lines.extend(d.notes.iter().map(|n| format!("    note: {n}")));
     }
-    if let Some(line) = hidden_text(&hidden) {
+    lines.extend(hidden_text(&hidden));
+    lines
+}
+
+/// 1 行を標準出力か標準エラーに出す（`simulate -o -` は CSV が標準出力を使うので、ほかは標準エラー）。
+fn emit(to_stderr: bool, line: &str) {
+    if to_stderr {
+        eprintln!("{line}");
+    } else {
+        println!("{line}");
+    }
+}
+
+fn print_diagnostics(diags: &[Diagnostic], texts: &HashMap<String, String>, json: bool) {
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(diags).expect("serialize diagnostics")
+        );
+        return;
+    }
+    for line in diagnostic_lines(diags, texts) {
         println!("{line}");
     }
 }

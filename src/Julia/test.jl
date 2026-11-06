@@ -56,3 +56,15 @@ res = GlobeMode.simulate_observed(ws, "Wiggle", p -> (push!(seen, p); p.time !==
 @test occursin("GM-I11004", res)
 @test seen[1].stage == "lowering" && seen[end].time !== nothing
 println("cancel: progress=$(length(seen)), stages=$(unique(p.stage for p in seen))")
+# S202: コールバックの中から同じ ws を使うと誤り（使用中）が返り、gm_workspace_free は何もしない。プロセスは落ちず、ws はその後も使える
+errs = String[]
+GlobeMode.simulate_observed(ws, "Wiggle", p -> begin
+        if isempty(errs)
+            push!(errs, GlobeMode.check(ws, "Wiggle"), GlobeMode.simulate(ws, "Wiggle"))
+            ccall((:gm_workspace_free, GlobeMode.LIB), Cvoid, (Ptr{Cvoid},), ws.ptr)
+        end
+        true
+    end, "{\"solver\": \"esdirk34\", \"stop_time\": 1000, \"interval\": 1}")
+@test length(errs) == 2 && all(e -> occursin("\"error\"", e) && occursin("使用中", e), errs)
+@test occursin("\"passed\"", GlobeMode.check(ws, "Wiggle"))
+println("reentry: $(errs[1])")

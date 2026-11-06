@@ -15,6 +15,19 @@ fn stopAtFirstTime(p: [*c]const gm.GmProgress, user: ?*anyopaque) callconv(.c) c
     return @intFromBool(p.*.has_time != 0);
 }
 
+/// S202: コールバックの中から同じ ws の gm_check と gm_workspace_free を呼ぶ。check は誤り（使用中）を返し、free は何もしない。
+const Reenter = struct { ws: *gm.GmWorkspace, err: ?[*c]u8 = null };
+
+fn reenter(p: [*c]const gm.GmProgress, user: ?*anyopaque) callconv(.c) c_int {
+    _ = p;
+    const r: *Reenter = @ptrCast(@alignCast(user.?));
+    if (r.err == null) {
+        r.err = gm.gm_check(r.ws, "Wiggle");
+        gm.gm_workspace_free(r.ws);
+    }
+    return 1;
+}
+
 pub fn main(init: std.process.Init) !void {
     const arena = init.arena.allocator();
     const args = try init.minimal.args.toSlice(arena);
@@ -93,6 +106,17 @@ pub fn main(init: std.process.Init) !void {
     const kind = term.object.get("kind").?.string;
     std.debug.print("cancel: calls={d}, termination={s}\n", .{ calls, kind });
     if (!std.mem.eql(u8, kind, "cancelled") or std.mem.indexOf(u8, text(obs), "GM-I11004") == null) return error.CancelFailed;
+
+    // S202: コールバックの中の ws は使用中。誤りが返り、プロセスは落ちず、ws はその後も使える
+    var re = Reenter{ .ws = ws };
+    const again = gm.gm_simulate_observed(ws, "Wiggle", "{\"solver\": \"esdirk34\", \"stop_time\": 1000, \"interval\": 1}", reenter, &re);
+    defer gm.gm_string_free(again);
+    defer if (re.err) |e| gm.gm_string_free(e);
+    if (re.err == null or std.mem.indexOf(u8, text(re.err.?), "使用中") == null) return error.ReentryNotRefused;
+    const after = gm.gm_check(ws, "Wiggle");
+    defer gm.gm_string_free(after);
+    if (std.mem.indexOf(u8, text(after), "\"passed\"") == null) return error.ReentryNotRefused;
+    std.debug.print("reentry: {s}\n", .{text(re.err.?)});
 
     // S111: 参照シナリオの最後（format）
     const path = try std.fmt.allocPrint(arena, "{s}/Simulation/Decay.mo", .{args[1]});

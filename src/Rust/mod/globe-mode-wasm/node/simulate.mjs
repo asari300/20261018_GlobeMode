@@ -9,13 +9,10 @@
 // 同じ）。--library のディレクトリ（例: data/msl）は、in-memory のライブラリとして一度だけ読む。
 // 表示は要約の JSON（時間・wasm の線形メモリ・Node の RSS を含む）。--response で応答をすべて出す。
 // 終了コードは 0（成功）、1（モデルの誤りか実行の失敗）、2（使い方の誤り）、3（wasm の panic）。
-import { readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import { writeFileSync } from "node:fs";
+import { basename, join, resolve } from "node:path";
 import { createRequire } from "node:module";
-import { fileURLToPath } from "node:url";
-
-const here = dirname(fileURLToPath(import.meta.url));
-const repo = resolve(here, "../../../../..");
+import { defaultPkg, readMo } from "./common.mjs";
 
 const args = process.argv.slice(2);
 const opt = { files: [], libraries: [], settings: {} };
@@ -64,31 +61,22 @@ function usage(message) {
   process.exit(2);
 }
 
-/** `p` の下の .mo を（cwd からの相対の名前 → 本文で）`out` に足す。読んだバイト数を返す。 */
-function readMo(p, out) {
-  let bytes = 0;
-  if (statSync(p).isDirectory()) {
-    for (const e of readdirSync(p).sort()) bytes += readMo(join(p, e), out);
-  } else if (p.endsWith(".mo")) {
-    const text = readFileSync(p, "utf8");
-    out[relative(process.cwd(), resolve(p)).replaceAll("\\", "/")] = text;
-    bytes += Buffer.byteLength(text);
-  }
-  return bytes;
+/** `paths` の .mo を（cwd からの相対の名前 → 本文で。globe simulate と同じ）`out` に足す。読んだバイト数を返す。 */
+function read(paths, out) {
+  for (const p of paths) readMo(p, process.cwd(), out);
+  return Object.values(out).reduce((n, text) => n + Buffer.byteLength(text), 0);
 }
 
-const pkg = resolve(opt.pkg ?? join(process.env.CARGO_TARGET_DIR ?? join(repo, "target"), "wasm-pkg/node"));
+const pkg = resolve(opt.pkg ?? defaultPkg("node"));
 const t0 = performance.now();
 const require = createRequire(import.meta.url);
 const gm = require(join(pkg, "globe_mode_wasm.js"));
 const t1 = performance.now();
 
 const library = {};
-let libraryBytes = 0;
-for (const l of opt.libraries) libraryBytes += readMo(l, library);
+const libraryBytes = read(opt.libraries, library);
 const files = {};
-let bytes = 0;
-for (const f of opt.files) bytes += readMo(f, files);
+const bytes = read(opt.files, files);
 const t2 = performance.now();
 
 let response;

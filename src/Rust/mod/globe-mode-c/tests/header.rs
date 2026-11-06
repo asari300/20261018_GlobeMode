@@ -90,3 +90,44 @@ fn header_matches_extern_c_signatures() {
     assert!(rust.len() >= 15, "{rust:?}");
     assert_eq!(rust, header);
 }
+
+/// ヘッダの `typedef struct GmProgress { ... }` を C の規則（宣言順・自然な境界・全体は最大の境界の倍数）で並べ、
+/// Rust の `#[repr(C)] GmProgress` の位置と大きさに一致するかを確かめる（S202）。
+#[test]
+fn header_gm_progress_matches_repr_c() {
+    use globe_mode_c::GmProgress;
+    use std::mem::{offset_of, size_of};
+    let dir = env!("CARGO_MANIFEST_DIR");
+    let h = std::fs::read_to_string(format!("{dir}/include/globe_mode.h")).unwrap();
+    let body = h
+        .split("typedef struct GmProgress {")
+        .nth(1)
+        .and_then(|r| r.split("} GmProgress;").next())
+        .expect("ヘッダに GmProgress が無い");
+    let rust: BTreeMap<&str, usize> = [
+        ("stage", offset_of!(GmProgress, stage)),
+        ("time", offset_of!(GmProgress, time)),
+        ("has_time", offset_of!(GmProgress, has_time)),
+        ("start_time", offset_of!(GmProgress, start_time)),
+        ("stop_time", offset_of!(GmProgress, stop_time)),
+    ]
+    .into();
+    let (mut off, mut align_max, mut fields) = (0usize, 1usize, 0);
+    for decl in body.lines().map(str::trim).filter(|l| !l.is_empty()) {
+        let decl = decl.trim_end_matches(';');
+        let at = decl.rfind([' ', '*']).unwrap() + 1;
+        let size = match squash(&decl[..at]).as_str() {
+            "const char *" => size_of::<*const u8>(),
+            "double" => 8,
+            "int" => 4,
+            other => panic!("表に無い型: {other}"),
+        };
+        off = off.next_multiple_of(size);
+        assert_eq!(Some(&off), rust.get(&decl[at..]), "{decl}");
+        off += size;
+        align_max = align_max.max(size);
+        fields += 1;
+    }
+    assert_eq!(fields, rust.len());
+    assert_eq!(off.next_multiple_of(align_max), size_of::<GmProgress>());
+}

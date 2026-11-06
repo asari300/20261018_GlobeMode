@@ -6,11 +6,14 @@
 //! - 返す `char*` は必ず [`gm_string_free`] で放す。誤りは `{"error": "..."}` の JSON で返す（NULL は返さない）。
 //! - panic は境界で `catch_unwind` で止め、`{"error": "panic: ..."}` にする（unwind を C 側へ出さない）。
 //! - `GmWorkspace` は作ったスレッドからだけ使う（salsa のデータベースは Sync でない）。
+//! - 進捗のコールバックの中から、実行中の同じ `GmWorkspace` を使う `gm_*` を呼ぶと誤りを返す（使用中の印。S202）。
+//!   `gm_workspace_free` は使用中なら放さない（stderr に 1 行）。コールバックから抜けたあとに放し直す。
 //! - 進捗と中断（S131、ADR-0033）: `*_observed` は進捗のたびに `GmProgressCallback` を呼び、非 0 が返ったら次の区切りで止める。
 
 use std::ffi::{CStr, CString, c_char, c_int, c_void};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// 実行の進捗（ADR-0033。facade の `Progress` を写す）。`stage` は `"lowering"`・`"integration"` などの小文字で、
 /// コールバックの間だけ有効。`time` は積分の段だけ（`has_time` が 0 なら NaN）。
@@ -38,7 +41,7 @@ fn observed<T>(
     };
     let token = globe_mode::CancelToken::new();
     let mut notify = |p: &globe_mode::Progress| {
-        let stage = CString::new(format!("{:?}", p.stage).to_lowercase()).unwrap_or_default();
+        let stage = CString::new(p.stage.as_str()).unwrap_or_default();
         let progress = GmProgress {
             stage: stage.as_ptr(),
             time: p.time.unwrap_or(f64::NAN),
@@ -58,8 +61,41 @@ fn observed<T>(
 }
 
 /// 不透明なワークスペース（C からは `GmWorkspace *` だけを持つ）。
+///
+/// `busy` は「いま `&mut Workspace` が貸し出されている」印（S202）。進捗のコールバックの中から同じ `ws` で
+/// `gm_*` が呼ばれても、`ws_arg` が印を見て誤りを返す。印は **生のポインタから `busy` のフィールドだけ**を読む
+/// （`&mut GmWorkspace` も、印を見る前の `&mut Workspace` も作らない）ので、貸し出し中の `&mut Workspace` と
+/// 別名にならない（`busy` と `ws` は別のフィールド）。
 #[derive(Debug)]
-pub struct GmWorkspace(globe_mode::Workspace);
+pub struct GmWorkspace {
+    busy: AtomicBool,
+    ws: globe_mode::Workspace,
+}
+
+/// 印を立てて借りた `&mut Workspace`。落とすと（panic の unwind でも）印を戻す。
+struct Lent<'a> {
+    busy: &'a AtomicBool,
+    ws: &'a mut globe_mode::Workspace,
+}
+
+impl std::ops::Deref for Lent<'_> {
+    type Target = globe_mode::Workspace;
+    fn deref(&self) -> &Self::Target {
+        self.ws
+    }
+}
+
+impl std::ops::DerefMut for Lent<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.ws
+    }
+}
+
+impl Drop for Lent<'_> {
+    fn drop(&mut self) {
+        self.busy.store(false, Ordering::Release);
+    }
+}
 
 fn str_arg<'a>(p: *const c_char, name: &str) -> Result<&'a str, String> {
     if p.is_null() {
@@ -71,12 +107,22 @@ fn str_arg<'a>(p: *const c_char, name: &str) -> Result<&'a str, String> {
         .map_err(|e| format!("{name} が UTF-8 でない: {e}"))
 }
 
-fn ws_arg<'a>(ws: *mut GmWorkspace) -> Result<&'a mut globe_mode::Workspace, String> {
-    // SAFETY: 呼び手は gm_workspace_new が返して、まだ放していないポインタを渡す
-    unsafe { ws.as_mut() }
-        .map(|w| &mut w.0)
-        .ok_or_else(|| "ws が NULL".to_string())
+fn ws_arg<'a>(ws: *mut GmWorkspace) -> Result<Lent<'a>, String> {
+    if ws.is_null() {
+        return Err("ws が NULL".to_string());
+    }
+    // SAFETY: 呼び手は gm_workspace_new が返して、まだ放していないポインタを渡す。ここでは `&mut GmWorkspace` を
+    // 作らず、フィールド `busy` への共有参照だけを作る。`busy` は貸し出し中の `&mut Workspace`（別のフィールド）と重ならない
+    let busy = unsafe { &(*ws).busy };
+    if busy.swap(true, Ordering::Acquire) {
+        return Err(IN_USE.to_string());
+    }
+    // SAFETY: 上の swap が false → true にしたので、`ws` フィールドの `&mut` はこの 1 つだけ（落とすまで印は立ったまま）
+    let ws = unsafe { &mut (*ws).ws };
+    Ok(Lent { busy, ws })
 }
+
+const IN_USE: &str = "ワークスペースは使用中（進捗のコールバックの中から同じ ws は使えない）";
 
 fn json<T: serde::Serialize + ?Sized>(value: &T) -> Result<String, String> {
     serde_json::to_string(value).map_err(|e| format!("JSON: {e}"))
@@ -102,21 +148,6 @@ fn guard(f: impl FnOnce() -> Result<String, String>) -> *mut c_char {
     CString::new(text).map_or(std::ptr::null_mut(), CString::into_raw)
 }
 
-/// `settings_json`（`{"stop_time": 2, "solver": "bdf"}` など。NULL 可）から実行の依頼を作る。
-fn request(
-    model: &str,
-    settings_json: Option<&str>,
-) -> Result<globe_mode::SimulateRequest, String> {
-    let settings: serde_json::Value = match settings_json {
-        Some(s) => {
-            serde_json::from_str(s).map_err(|e| format!("settings の JSON が読めない: {e}"))?
-        }
-        None => serde_json::json!({}),
-    };
-    serde_json::from_value(serde_json::json!({ "model": model, "settings": settings }))
-        .map_err(|e| format!("settings が読めない: {e}"))
-}
-
 fn opt_str_arg<'a>(p: *const c_char, name: &str) -> Result<Option<&'a str>, String> {
     if p.is_null() {
         Ok(None)
@@ -140,12 +171,16 @@ pub unsafe extern "C" fn gm_workspace_new(libraries_json: *const c_char) -> *mut
             serde_json::from_str(str_arg(libraries_json, "libraries_json")?)
                 .map_err(|e| format!("libraries_json が読めない: {e}"))?
         };
-        if libs.is_empty() {
-            return Ok(GmWorkspace(globe_mode::Workspace::new()));
-        }
-        globe_mode::Workspace::with_libraries(&libs)
-            .map(GmWorkspace)
-            .map_err(|ds| json(&ds).unwrap_or_default())
+        let ws = if libs.is_empty() {
+            globe_mode::Workspace::new()
+        } else {
+            globe_mode::Workspace::with_libraries(&libs)
+                .map_err(|ds| json(&ds).unwrap_or_default())?
+        };
+        Ok(GmWorkspace {
+            busy: AtomicBool::new(false),
+            ws,
+        })
     });
     match made {
         Ok(Ok(ws)) => Box::into_raw(Box::new(ws)),
@@ -160,16 +195,27 @@ pub unsafe extern "C" fn gm_workspace_new(libraries_json: *const c_char) -> *mut
     }
 }
 
-/// ワークスペースを放す。NULL なら何もしない。
+/// ワークスペースを放す。NULL なら何もしない。使用中（進捗のコールバックの中など）なら放さずに stderr に 1 行
+/// 出して戻る（コールバックから抜けたあとに放し直す。S202）。
 ///
 /// # Safety
 ///
 /// `ws` は NULL か、`gm_workspace_new` が返してまだ放していないポインタ。
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn gm_workspace_free(ws: *mut GmWorkspace) {
-    if !ws.is_null() {
-        // SAFETY: 上の約束どおり Box::into_raw で作ったポインタ
-        drop(unsafe { Box::from_raw(ws) });
+    if ws.is_null() {
+        return;
+    }
+    // SAFETY: 約束どおり生きているポインタ。`&mut GmWorkspace` は作らず印だけを読む。
+    // 立てたまま Box を落とす（使用中なら swap が true を返し、何もしない）
+    if unsafe { &(*ws).busy }.swap(true, Ordering::Acquire) {
+        eprintln!("gm_workspace_free: 放さない（{IN_USE}）");
+        return;
+    }
+    // SAFETY: 上の約束どおり Box::into_raw で作ったポインタ。印を立てたので、貸し出し中の `&mut` は無い。
+    // Drop の panic は C へ出さない（unwind は abort になる）
+    if let Err(p) = catch_unwind(AssertUnwindSafe(|| drop(unsafe { Box::from_raw(ws) }))) {
+        eprintln!("gm_workspace_free: panic: {}", panic_message(&*p));
     }
 }
 
@@ -185,7 +231,7 @@ pub unsafe extern "C" fn gm_set_file(
     text: *const c_char,
 ) -> c_int {
     let done = catch_unwind(AssertUnwindSafe(|| -> Result<(), String> {
-        let ws = ws_arg(ws)?;
+        let mut ws = ws_arg(ws)?;
         ws.set_file(str_arg(path, "path")?, str_arg(text, "text")?);
         Ok(())
     }));
@@ -249,16 +295,7 @@ pub unsafe extern "C" fn gm_graph(
 /// `ws` は生きているワークスペース、`path` は NUL 終端の UTF-8 の文字列。
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn gm_outline(ws: *mut GmWorkspace, path: *const c_char) -> *mut c_char {
-    guard(|| {
-        let path = str_arg(path, "path")?;
-        match ws_arg(ws)?.outline(path) {
-            None => Err(format!("ファイル {path} がワークスペースに無い")),
-            Some(Ok(o)) => json(o),
-            Some(Err(ds)) => Err(ds
-                .first()
-                .map_or_else(String::new, |d| format!("{}: {}", d.code, d.message))),
-        }
-    })
+    guard(|| ws_arg(ws)?.outline_json(str_arg(path, "path")?))
 }
 
 /// `gm_check` が読むファイル（モデルが使うものの閉包。パスの昇順）の JSON の配列。モデルが無ければ `[]`（S191）。
@@ -302,7 +339,7 @@ pub unsafe extern "C" fn gm_simulate(
     guard(|| {
         let model = str_arg(model, "model")?;
         let settings = opt_str_arg(settings_json, "settings_json")?;
-        json(&ws_arg(ws)?.simulate(&request(model, settings)?))
+        json(&ws_arg(ws)?.simulate(&globe_mode::simulate_request(model, settings)?))
     })
 }
 
@@ -313,6 +350,10 @@ pub unsafe extern "C" fn gm_simulate(
 /// # Safety
 ///
 /// [`gm_simulate`] と同じ。`callback` は NULL か、`user_data` を受け付ける関数。
+///
+/// 実行の間 `ws` は「使用中」で、`callback` の中から同じ `ws` を使う `gm_*` は誤りを返し、`gm_workspace_free(ws)` は
+/// 何もしない（S202）。実行中の `&mut Workspace` と別名になる参照を作らないための守りで、`callback` から
+/// `longjmp` や例外で抜けないこと（Rust のフレームを越える）。
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn gm_simulate_observed(
     ws: *mut GmWorkspace,
@@ -323,8 +364,9 @@ pub unsafe extern "C" fn gm_simulate_observed(
 ) -> *mut c_char {
     guard(|| {
         let model = str_arg(model, "model")?;
-        let request = request(model, opt_str_arg(settings_json, "settings_json")?)?;
-        let ws = ws_arg(ws)?;
+        let request =
+            globe_mode::simulate_request(model, opt_str_arg(settings_json, "settings_json")?)?;
+        let mut ws = ws_arg(ws)?;
         let simulated = observed(callback, user_data, |h| {
             ws.simulate_observed(&request, &globe_mode::now_ms, h)
         });
@@ -389,20 +431,16 @@ pub unsafe extern "C" fn gm_simulate_columns_observed(
     }
     guard(|| {
         let model = str_arg(model, "model")?;
-        let mut request = request(model, opt_str_arg(settings_json, "settings_json")?)?;
+        let mut request =
+            globe_mode::simulate_request(model, opt_str_arg(settings_json, "settings_json")?)?;
         request.no_csv = true;
-        let ws = ws_arg(ws)?;
+        let mut ws = ws_arg(ws)?;
         let simulated = observed(callback, user_data, |h| {
             ws.simulate_observed(&request, &globe_mode::now_ms, h)
         });
         let (layout, columns) = simulated.columns();
         let flat: Box<[f64]> = columns.concat().into_boxed_slice();
-        let text = json(&serde_json::json!({
-            "response": simulated.response,
-            "names": layout.names,
-            "points": layout.points,
-            "defaults": layout.defaults,
-        }))?;
+        let text = simulated.layout_json(&layout)?;
         if !flat.is_empty() {
             // SAFETY: 上と同じ
             unsafe {
@@ -669,6 +707,124 @@ mod tests {
             gm_doubles_free(data, len);
             gm_workspace_free(ws);
         }
+    }
+
+    /// 進捗のコールバックの中から同じ `ws` を使う（S202）。結果を `Reenter` に溜める。
+    struct Reenter {
+        ws: *mut GmWorkspace,
+        calls: u32,
+        errors: Vec<serde_json::Value>,
+        set_file: c_int,
+        load_dir: i64,
+    }
+
+    unsafe extern "C" fn reenter(_p: *const GmProgress, user: *mut c_void) -> c_int {
+        unsafe {
+            let r = &mut *user.cast::<Reenter>();
+            r.calls += 1;
+            if r.calls == 1 {
+                let (mut data, mut len) = (std::ptr::null_mut(), 0usize);
+                r.errors.push(take(gm_check(r.ws, c"Decay".as_ptr())));
+                r.errors
+                    .push(take(gm_simulate(r.ws, c"Decay".as_ptr(), std::ptr::null())));
+                r.errors.push(take(gm_simulate_columns(
+                    r.ws,
+                    c"Decay".as_ptr(),
+                    std::ptr::null(),
+                    &mut data,
+                    &mut len,
+                )));
+                assert!(data.is_null() && len == 0);
+                r.set_file = gm_set_file(r.ws, c"B.mo".as_ptr(), c"model B end B;".as_ptr());
+                r.load_dir = gm_load_dir(r.ws, c".".as_ptr());
+                gm_workspace_free(r.ws); // 使用中なので放されない（放されたら、このあとの実行が use-after-free）
+            }
+            0
+        }
+    }
+
+    #[test]
+    fn a_callback_cannot_reuse_or_free_the_running_workspace() {
+        unsafe {
+            let ws = gm_workspace_new(std::ptr::null());
+            gm_set_file(
+                ws,
+                c"Decay.mo".as_ptr(),
+                c"model Decay Real x(start = 1, fixed = true); equation der(x) = -x; end Decay;"
+                    .as_ptr(),
+            );
+            let mut r = Reenter {
+                ws,
+                calls: 0,
+                errors: Vec::new(),
+                set_file: 0,
+                load_dir: 0,
+            };
+            let user = (&raw mut r).cast::<c_void>();
+            let res = take(gm_simulate_observed(
+                ws,
+                c"Decay".as_ptr(),
+                cr#"{"stop_time": 1}"#.as_ptr(),
+                Some(reenter),
+                user,
+            ));
+            assert_eq!(res["ok"], true, "{}", res["diagnostics"]);
+            assert_eq!(r.errors.len(), 3);
+            for e in &r.errors {
+                assert!(e["error"].as_str().unwrap().contains("使用中"), "{e}");
+            }
+            assert_eq!((r.set_file, r.load_dir), (-1, -1));
+            // 印は戻っていて、ws はまだ生きている
+            assert_eq!(take(gm_check(ws, c"Decay".as_ptr()))["passed"], true);
+            assert_eq!(
+                gm_set_file(ws, c"B.mo".as_ptr(), c"model B end B;".as_ptr()),
+                0
+            );
+            // 列の道も同じ
+            let (mut data, mut len) = (std::ptr::null_mut(), 0usize);
+            r.calls = 0;
+            r.errors.clear();
+            take(gm_simulate_columns_observed(
+                ws,
+                c"Decay".as_ptr(),
+                cr#"{"stop_time": 1}"#.as_ptr(),
+                &mut data,
+                &mut len,
+                Some(reenter),
+                user,
+            ));
+            assert_eq!(r.errors.len(), 3);
+            gm_doubles_free(data, len);
+            gm_workspace_free(ws);
+        }
+    }
+
+    /// 実行が panic しても印は戻る（`Lent` の Drop）
+    #[test]
+    fn the_busy_mark_is_cleared_after_a_panic() {
+        unsafe {
+            let ws = gm_workspace_new(std::ptr::null());
+            let v = take(guard(|| {
+                let _lent = ws_arg(ws)?;
+                panic!("boom")
+            }));
+            assert_eq!(v["error"], "panic: boom");
+            assert_eq!(take(gm_check(ws, c"X".as_ptr()))["passed"], false);
+            gm_workspace_free(ws);
+        }
+    }
+
+    #[cfg(target_pointer_width = "64")]
+    /// `GmProgress` の並びと大きさは `include/globe_mode.h` の typedef と同じ（`tests/header.rs` が C 側の規則で突き合わせる）
+    #[test]
+    fn gm_progress_layout() {
+        use std::mem::{offset_of, size_of};
+        assert_eq!(size_of::<GmProgress>(), 40);
+        assert_eq!(offset_of!(GmProgress, stage), 0);
+        assert_eq!(offset_of!(GmProgress, time), 8);
+        assert_eq!(offset_of!(GmProgress, has_time), 16);
+        assert_eq!(offset_of!(GmProgress, start_time), 24);
+        assert_eq!(offset_of!(GmProgress, stop_time), 32);
     }
 
     #[test]

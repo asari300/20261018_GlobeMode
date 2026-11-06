@@ -1127,21 +1127,28 @@ fn library_model_not_found(
     let last = query.rsplit('.').next().unwrap_or(query).to_lowercase();
     let len = last.chars().count();
     let limit = (len / 4).max(2);
+    let dotted = format!(".{query}");
+    // 編集距離は長さの積の時間がかかる。これを超える名前は綴りの誤りではない（100 KB の `-m` で数十秒かかりうる。S199）
+    let spell_check = len <= 64;
     // 開いている文書のモデルが少ないとき（3 つ以下）は、名前が遠くても候補にする（リネームの直後など）
     let few_local = local.len() <= 3;
-    let mut scored: Vec<(bool, usize, usize, usize, &String)> = models
+    let mut scored: Vec<(usize, bool, usize, usize, &String)> = models
         .iter()
         .filter_map(|n| {
             let nl = n.rsplit('.').next().unwrap_or(n).to_lowercase();
             // 0: 完全修飾名の末尾が一致（`Examples.PID_Controller`）、1: 末尾の名前が（大文字小文字を除いて）同じ、
             // 2: 綴りが近い（編集距離が長さの 1/4 まで・最低 2、かつ半分より少ない。4 文字以上）か、前方一致（3 文字以上）、
             // 3: 開いている文書のモデル（遠くても）
-            let (tier, dist) = if n.ends_with(&format!(".{query}")) {
+            let (tier, dist) = if n.ends_with(&dotted) {
                 (0, 0)
             } else if nl == last {
                 (1, 0)
             } else {
-                let d = edit_distance(&nl, &last);
+                let d = if spell_check {
+                    edit_distance(&nl, &last)
+                } else {
+                    usize::MAX
+                };
                 if (len >= 4 && d <= limit && d * 2 < len) || (len >= 3 && nl.starts_with(&last)) {
                     (2, d)
                 } else if few_local && local.contains(n) {
@@ -1156,8 +1163,8 @@ fn library_model_not_found(
                 .zip(query.split('.'))
                 .take_while(|(a, b)| a == b)
                 .count();
-            // 開いている文書のモデルを、ライブラリのモデルより先に
-            Some((!local.contains(n), tier, dist, usize::MAX - shared, n))
+            // 段が先（遠い開いている文書のモデルを、ライブラリの近い一致より先に出さない。S199）、同じ段では開いている文書が先
+            Some((tier, !local.contains(n), dist, usize::MAX - shared, n))
         })
         .collect();
     scored.sort();

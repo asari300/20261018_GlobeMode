@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S202 C ABI と NIF のレビューの指摘 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S202 C ABI と NIF のレビューの指摘">
+
+<section class="slide" id="S01">
+  <span class="tag">S202 · 2026-11-06 · P7</span>
+  <h1>C ABI と NIF の指摘 6 件</h1>
+  <p class="lead">BEAM のスケジューラを止めない。コールバックの中の再入を誤りにする</p>
+  <div class="big">安全と停止が最優先。1 件ずつ試験で確かめてから直した</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">指摘と対応</span>
+  <h1>何を直したか</h1>
+  <table class="compact">
+    <tr><th>指摘</th><th>再現</th><th>直し</th></tr>
+    <tr><td>1 set_file が Mutex を待って通常のスケジューラを止める</td><td class="ok">4.5 s 止まった</td><td>DirtyIo</td></tr>
+    <tr><td>3 format・lint が通常のスケジューラ</td><td class="ok">2.2 s 止まった</td><td>DirtyCpu</td></tr>
+    <tr><td>2 コールバックの中で同じ ws を使うと &amp;mut の別名</td><td class="warn">UB は試験にできない</td><td>使用中の印。誤りを返す</td></tr>
+    <tr><td>6 free の Drop が catch_unwind の外</td><td class="warn">読んで確認</td><td>catch_unwind の中へ</td></tr>
+    <tr><td>4 GmProgress の並び</td><td class="ok">試験を足した</td><td>ヘッダの typedef と突き合わせ</td></tr>
+    <tr><td>5 C と NIF の重複 4 か所</td><td class="ok">応答は同じ</td><td>facade に 4 関数</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">NIF のスケジューラ</span>
+  <h1>どれが dirty か</h1>
+  <table class="compact">
+    <tr><th>NIF</th><th>スケジューラ</th><th>理由</th></tr>
+    <tr><td>new・load_dir・set_file・export_fmu</td><td>DirtyIo</td><td>ファイル、または Mutex を待つ</td></tr>
+    <tr><td>check・graph・outline・deps・flat</td><td>DirtyCpu</td><td>Mutex。モデルの大きさに比例</td></tr>
+    <tr><td>simulate 系 3 つ</td><td>DirtyCpu</td><td>Mutex を持って長く回す</td></tr>
+    <tr><td>format・lint</td><td>DirtyCpu</td><td>本文の長さに比例</td></tr>
+    <tr><td>cancel_token・cancel・solvers</td><td>通常</td><td>Mutex なし、定数時間</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">C ABI の守り</span>
+  <h1>&amp;mut の別名を作らない</h1>
+  <ul>
+    <li>GmWorkspace が使用中の印（AtomicBool）を持つ</li>
+    <li>生のポインタから印のフィールドだけを読み、取れたら &amp;mut Workspace を貸す</li>
+    <li>コールバックの中の gm_* は誤り。gm_workspace_free は放さず stderr に 1 行</li>
+    <li>ヘッダの署名は変えない。Zig・Julia・Rust の試験で固定</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ul>
+    <li>Python・wasm・LSP も facade の 4 関数に寄せる（対応表の 4 章）</li>
+    <li>Miri は環境に無く、回していない</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

@@ -95,6 +95,7 @@ depends = ["wasm:build"]
 run = """
 set -eu
 T="${CARGO_TARGET_DIR:-target}"
+node --test src/Rust/mod/globe-mode-wasm/node/csv-compare.test.mjs
 cargo build --release -q -p globe-mode-cli
 node src/Rust/mod/globe-mode-wasm/node/compare.mjs --globe "$T/release/globe"
 """
