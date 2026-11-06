@@ -6,10 +6,10 @@
   import { bracketMatching } from "@codemirror/language";
   import { setDiagnostics } from "@codemirror/lint";
   import { closeCompletion } from "@codemirror/autocomplete";
-  import { EDITOR_HELP, darkSlot, modelFollow, modelRenamed, modelicaCompletion, modelicaHighlight, modelicaDefinition, modelicaLinter, modelicaRefactor, modelicaTab, modelicaTheme, themeSlot, toCmDiagnostics } from "./lib/editor";
+  import { EDITOR_HELP, byteToChar, darkSlot, makeEditable, readOnlySlot, modelFollow, modelRenamed, modelicaCompletion, modelicaHighlight, modelicaDefinition, modelicaLinter, modelicaRefactor, modelicaTab, modelicaTheme, themeSlot, toCmDiagnostics } from "./lib/editor";
   import { setPref, theme, type Pref } from "./theme.svelte";
   import { WorkerBackend } from "./lib/worker-backend";
-  import { TauriBackend, inTauri } from "./lib/tauri-backend";
+  import { TauriBackend, inTauri, tabKey } from "./lib/tauri-backend";
   import type { Backend, TreeEntry } from "./lib/backend";
   import type { Columns } from "./lib/plot/csv";
   import type { CheckResponse, Diagnostic, ResolvedSettings, SimulateRequest } from "./lib/protocol";
@@ -86,8 +86,12 @@
   let own = $state(true);
   let saved = $state(""); // 保存した先（Desktop はパス、ブラウザは名前）
   const store = (key: string, v: unknown) => {
-    try { localStorage.setItem(key, JSON.stringify(v)); } catch { /* 保存できなくても使える */ }
+    try { localStorage.setItem(key, JSON.stringify(v)); return true; } catch { return false; } // 保存できなくても使える。persist は失敗を利用者に言う
   };
+  let storeNote = $state(""); // S196: 自動保存（localStorage）が落ちたとき（書けない・上限で古いタブを落とした）の 1 文
+  let otherWindow = $state(false); // S196: 別のウィンドウが同じ保存を書いた（保存は最後に書いたほうだけが残る）
+  let roHit = $state(false); // S196: 読み取り専用のタブに打とうとした
+  const RO_MSG = "このタブはライブラリのファイルで読み取り専用。手元に写すには「保存」（名前を付けて書き出す）。";
   // 合計が CAP を超えたら、keep 以外を古い（先頭）ものから落とす
   function cap<T extends { text?: string; clean?: string }>(xs: T[], keep: T): T[] {
     const out = [...xs];
@@ -101,7 +105,7 @@
   }
 
   // S151: タブ。いまの文書の file / model / own / diagnostics / saved はこれまでどおり大域の変数で、離れるときに tab へ写す（state は EditorState。元に戻す履歴も文書ごと）
-  type Tab = { file: string; model: string; own: boolean; state: EditorState; diagnostics: Diagnostic[]; saved: string; clean: string }; // clean: 開いた・保存した本文（閉じるとき、違えば確かめる。ライブラリは見ない）
+  type Tab = { file: string; model: string; own: boolean; state: EditorState; diagnostics: Diagnostic[]; saved: string; clean: string; path?: string }; // path: Desktop でこのタブが本文を受け取った（開いた・保存した）ファイルのパス。保存はここに書く（S196）。 // clean: 開いた・保存した本文（閉じるとき、違えば確かめる。ライブラリは見ない）
   let tabs = $state.raw<Tab[]>([]);
   let cur = $state(0);
   // 最近使ったファイル（古い順。上限 10）。Desktop は path だけ、ブラウザは名前と本文
@@ -114,27 +118,38 @@
     store(RECENT, recent);
   };
   // 自分のファイルのタブだけを本文ごと保存する（localStorage が使えなくても動く。S102）
+  // S196: 打鍵ごとの書き込み（全タブの文字列化と同期の localStorage）は persistSoon で 300 ms まとめる。閉じる・保存・タブの切り替えと、ページを離れる前（pagehide・隠れたとき・beforeunload）は persist ですぐ書く
+  let persistTimer: ReturnType<typeof setTimeout> | undefined;
+  const persistSoon = () => { clearTimeout(persistTimer); persistTimer = setTimeout(persist, 300); };
+  const flush = () => { if (persistTimer) persist(); }; // 遅らせた書き込みがあるときだけ（何も編集していない初回の状態は保存しない。初回の案内が出続ける）
   const persist = () => {
-    const docs = tabs
-      .map((t, i) => (i === cur ? { file, own, model, text: view.state.doc.toString(), a: true, clean: t.clean } : { file: t.file, own: t.own, model: t.model, text: t.state.doc.toString(), a: false, clean: t.clean }))
-      .filter((t) => t.own)
-      .map((t) => ({ ...t, clean: t.clean === t.text ? undefined : t.clean })); // S179: 保存済みの本文は、編集中（本文と違う）のときだけ持つ。再読み込みのあとも未保存の印が正しい
+    clearTimeout(persistTimer);
+    persistTimer = undefined;
+    if (!view || !tabs.length) return;
+    const docs = tabs.flatMap((t, i) => { // ライブラリのタブは本文を文字列にしない
+      const a = i === cur;
+      if (!(a ? own : t.own)) return [];
+      const text = (a ? view.state : t.state).doc.toString();
+      return [{ file: a ? file : t.file, model: a ? model : t.model, text, a, clean: t.clean === text ? undefined : t.clean }]; // S179: 保存済みの本文は、編集中（本文と違う）のときだけ持つ。再読み込みのあとも未保存の印が正しい
+    });
     const kept = cap(docs, docs.find((t) => t.a) ?? docs[0]);
-    store(TABS, { active: Math.max(0, kept.findIndex((t) => t.a)), tabs: kept.map(({ file, text, model, clean }) => ({ file, text, model, clean })) }); // S170: モデル名もタブごとに残す
+    const ok = store(TABS, { active: Math.max(0, kept.findIndex((t) => t.a)), tabs: kept.map(({ file, text, model, clean }) => ({ file, text, model, clean })) }); // S170: モデル名もタブごとに残す
+    storeNote = !ok ? "自動保存できない（ブラウザの保存領域に書けない）。閉じる前に「保存」でファイルに書き出す" : kept.length < docs.length ? "自動保存の上限を超えたので、古いタブの本文は再読み込みで戻らない。「保存」でファイルに書き出す" : "";
   };
   const guessModel = (t: string) => /^\s*(?:(?:partial|encapsulated)\s+)*(?:model|block|class|package)\s+(\w+)/m.exec(t)?.[1];
 
-  const mkState = (doc: string) =>
+  const mkState = (doc: string, readOnly = false) =>
     EditorState.create({
       doc,
       extensions: [
         lineNumbers(), history(), drawSelection(), highlightActiveLine(), bracketMatching(), keymap.of([...defaultKeymap, ...historyKeymap]),
-        modelicaHighlight, modelicaCompletion(), modelicaLinter(backend, file), // S053（S163: 色付け）
+        modelicaHighlight, modelicaCompletion(), modelicaLinter(backend), // S053（S163: 色付け）
         modelicaDefinition(definition, goBack, { backend, file: () => file }), // S138（S149: ホバー）
         modelicaRefactor(references, askRename), // S161: Shift+F12 と F2
         modelicaTab, // S188: Tab は字下げ。出る手は Esc のあと Tab
         modelFollow((from, to) => { if (model === from) model = to; }), // S186: クラス名のリネーム（と元に戻す）でモデル名も追う
-        EditorView.updateListener.of((u) => { if (u.docChanged) { persist(); rev++; } }),
+        EditorView.updateListener.of((u) => { if (u.docChanged) { persistSoon(); rev++; } }),
+        readOnlySlot(readOnly, () => { roHit = true; live = RO_MSG; }), // S196: ライブラリのタブ
         modelicaTheme, darkSlot(theme.dark), // S152
       ],
     });
@@ -185,7 +200,7 @@
     // S100: Android のエミュレータの smoke（android.yml が logcat で GM-SMOKE の行を待つ）。クエリを渡せない Tauri の Android はビルド時の VITE_GM_SMOKE=1
     if (smokeMode) void smoke();
     else void tauri?.bench().then((on) => { if (on) { welcome = false; void smoke(); } }); // S125: Desktop の測定（GLOBE_DESKTOP_BENCH）
-    return () => { view.destroy(); void unlisten?.then((f) => f()); };
+    return () => { flush(); view.destroy(); void unlisten?.then((f) => f()); };
   });
 
   // 起動時の Decay を検査・実行して、結果を console に 1 行出す。x1 は x(1)（e⁻¹ ≈ 0.3679）
@@ -372,6 +387,7 @@
     [...ds].sort((a, b) => Number(a.stage.slice(1)) - Number(b.stage.slice(1)) || severityRank[a.severity] - severityRank[b.severity]);
 
   async function run(job: () => Promise<void>) {
+    if (busy) return; // S196: 実行中の検査・実行・木から開くは二重に動かさない（busy が早く戻り、結果が別のタブに書かれる）
     busy = true;
     failure = "";
     live = ""; // 同じ文が続いても、消してから入れ直すと読まれる
@@ -394,21 +410,22 @@
     if (sel) document.querySelector(sel)?.scrollIntoView({ block: "nearest" }); // 滑らかなスクロールにしない（prefers-reduced-motion も満たし、動いている間に押した操作とも重ならない）
   }
 
-  const check = () => run(async () => {
-    const checked = await backend.check(model);
+  const check = () => { const m = model; return run(async () => { // S196: 押した時点のモデル名（検査の途中で欄を打ち換えても、canForce・checkedModel は検査したモデル）
+    const checked = await backend.check(m);
     diagnostics = bySeverity(checked.diagnostics);
     experiment = checked.experiment;
     unsupported = checked.unsupported ?? "";
-    canForce = checked.can_force ? model : null;
-    checkedModel = { model };
+    canForce = checked.can_force ? m : null;
+    checkedModel = { model: m };
     view.dispatch(setDiagnostics(view.state, toCmDiagnostics(view.state.doc.toString(), diagnostics, file)));
   }).then(() => {
     if (!failure && !unsupported) live = `検査が完了した: error ${diagnostics.filter((d) => d.severity === "error").length} 件、warning ${diagnostics.filter((d) => d.severity === "warning").length} 件、診断は全部で ${diagnostics.length} 件`;
     return reveal(failure ? ".failure" : diagnostics.length ? ".diagnostics" : "");
-  });
+  }); };
 
   // 整形（S053、doc/format-style.md）。文法が壊れていれば本文は変えず、理由を出す
   const format = () => run(async () => {
+    if (!own) { failure = RO_MSG; return; } // S196: ライブラリのタブは読み取り専用（dispatch は readOnly を通り抜けるので、ここで断る）
     const text = view.state.doc.toString();
     const out = await backend.format(text);
     if (out !== text) view.dispatch({ changes: { from: 0, to: text.length, insert: out } });
@@ -421,8 +438,9 @@
     return e && line && !head.includes(line) ? `${head}\n${e.code} ${line}` : head;
   };
 
-  const simulate = (force = false) =>
-    run(async () => {
+  const simulate = (force = false) => {
+    const m = model; // S196: 押した時点のモデル名
+    return run(async () => {
       // S173: 数でない欄は SimSettings が欄の近くに理由を出している（aria-invalid）。ここでは二重に出さず、その欄へ移る
       if (settingsProblem) { document.querySelector<HTMLElement>(".settings [aria-invalid=true]")?.focus(); return; }
       unsupported = "";
@@ -431,7 +449,7 @@
       runNote = "実行中";
       let out;
       try {
-        out = await backend.simulateColumns({ model, settings: simSettings, force }, (p) => {
+        out = await backend.simulateColumns({ model: m, settings: simSettings, force }, (p) => {
           const pct = p.time === undefined ? "" : `、t = ${p.time.toPrecision(4)} / ${p.stop_time}（${Math.floor((100 * (p.time - p.start_time)) / (p.stop_time - p.start_time || 1))}%）`;
           runNote = `実行中: ${p.stage}${pct}`;
         });
@@ -448,7 +466,7 @@
       lastSettings = r.settings ?? null;
       lastFinal = Object.entries(r.final ?? {}).filter(([k]) => !isInternal(k)).slice(0, 8);
       unsupported = r.unsupported ?? "";
-      canForce = r.can_force ? model : null;
+      canForce = r.can_force ? m : null;
       forced = force;
       columns = c.points > 0 ? c : null;
       // S157: 止めた実行はそこまでの列を出し、止めた旨を残す（wasm は SharedArrayBuffer のフラグ、Desktop は $/cancelRequest。どちらも GM-I11004 の普通の応答）
@@ -460,6 +478,7 @@
       if (!failure && !settingsProblem && !unsupported && runState !== "cancelled") live = `実行が完了した: 信号 ${columns ? columns.names.filter((n) => !isInternal(n)).length : 0} 本、${columns?.points ?? 0} 点`;
       return reveal(settingsProblem ? ".settings .problem" : failure ? ".failure" : columns ? ".plot" : diagnostics.length ? ".diagnostics" : "");
     });
+  };
 
   // ライブラリの木で選んだクラスのファイルをタブに開き、モデル名をそのクラスにする（S127）
   const openLibrary = (e: Pick<TreeEntry, "path">) => run(async () => {
@@ -477,6 +496,7 @@
   };
   const replaceDoc = (text: string) => view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text } });
   async function definition(line: number, character: number) {
+    if (busy) return; // S196: 実行中にタブを切り替えない（結果が別のタブに書かれる）
     failure = "";
     try {
       await backend.setFile(file, view.state.doc.toString());
@@ -486,8 +506,7 @@
         back.push(file);
         openDoc(d.file, d.text, undefined, false);
       }
-      const at = ({ line, character }: { line: number; character: number }) => view.state.doc.line(line + 1).from + character;
-      moveTo(at(d.range.start), at(d.range.end));
+      moveTo(offsetOf(d.range.start), offsetOf(d.range.end));
     } catch (e) {
       failure = String((e as Error).message ?? e);
     }
@@ -512,6 +531,7 @@
   let newName = $state("");
   let nameInput = $state<HTMLInputElement>();
   async function askRename(line: number, character: number) {
+    if (!own) { failure = RO_MSG; return; } // S196
     const w = view.state.wordAt(view.state.selection.main.head);
     newName = w ? view.state.sliceDoc(w.from, w.to) : "";
     failure = "";
@@ -552,6 +572,7 @@
     view.focus();
   }
   function goBack() {
+    if (busy) return; // S196
     let i = -1;
     while (i < 0 && back.length) { const f = back.pop(); i = tabs.findIndex((t, j) => j !== cur && t.file === f); } // 閉じたタブは飛ばす
     if (i < 0) return;
@@ -564,6 +585,8 @@
     if (i === cur || !tabs[i]) return;
     const prev = tabs[cur];
     Object.assign(prev, { file, model, own, state: view.state, diagnostics, saved });
+    // S196: 前のタブのものは持ち越さない（リネームの入力欄は前のタブの位置、参照の一覧の行は前の本文の位置、未対応・強行・最後の値は前のタブの実行の結果）
+    refs = []; renaming = null; unsupported = ""; canForce = null; forced = false; lastFinal = []; strayLib = ""; roHit = false;
     const t = tabs[i];
     if (prev.own && prev.file !== t.file) void backend.setFile(prev.file, "").catch(() => {}); // 離れた自分のファイルは Workspace から外す（同じクラスの二重定義を避ける。S141）
     cur = i;
@@ -578,25 +601,26 @@
   // 文書 f を開く。いまの文書なら本文を差し替え、同じ名前のタブがあればそこへ、無ければ新しいタブにする。自分のファイル（isOwn）は渡された本文が正、ライブラリのファイルは開いているタブのまま
   // S170: 未保存の編集があるタブと同じ名前の自分のファイルを開くときは、本文を差し替えず（編集を黙って失わない）そのタブへ切り替えて理由を出す
   const kept = (f: string) => `${baseName(f)} は開いていて未保存の編集がある。ディスクの内容は読み込まず、そのタブのままにした（読み直すにはタブを閉じてから開く）`;
-  function openDoc(f: string, text: string, m: string | undefined, isOwn: boolean) {
+  function openDoc(f: string, text: string, m: string | undefined, isOwn: boolean, path?: string) {
     if (f === file) {
       if (isOwn && isDirty(cur)) { saved = kept(f); return; }
-      if (isOwn) { own = true; replaceDoc(text); diagnostics = []; columns = null; graphModel = null; saved = ""; tabs[cur].clean = text; persist(); void refreshModels(); }
+      if (isOwn) { if (!own) makeEditable(view); own = true; tabs[cur].path = path; replaceDoc(text); diagnostics = []; columns = null; graphModel = null; saved = ""; tabs[cur].clean = text; persist(); void refreshModels(); }
       if (m) model = m;
       return;
     }
     let i = tabs.findIndex((t, j) => j !== cur && t.file === f);
     if (i < 0) {
-      tabs = [...tabs, { file: f, model: m ?? model, own: isOwn, state: mkState(text), diagnostics: [], saved: "", clean: text }];
+      tabs = [...tabs, { file: f, model: m ?? model, own: isOwn, state: mkState(text, !isOwn), diagnostics: [], saved: "", clean: text, path }];
       i = tabs.length - 1;
     } else {
       if (isOwn && isDirty(i)) { activate(i); saved = kept(f); return; }
-      if (isOwn) Object.assign(tabs[i], { own: true, state: mkState(text), diagnostics: [], saved: "", clean: text });
+      if (isOwn) Object.assign(tabs[i], { own: true, state: mkState(text), diagnostics: [], saved: "", clean: text, path });
       if (m) tabs[i].model = m;
     }
     activate(i);
   }
   // S170: 自分のファイルのタブが、開いた・保存した本文から変わっているか（閉じる・開き直すときの確認に使う）
+  // ライブラリのタブは読み取り専用で変わらないので、未保存にならない
   const isDirty = (i: number) => (i === cur ? own : tabs[i].own) && (i === cur ? view.state.doc.toString() : tabs[i].state.doc.toString()) !== tabs[i].clean;
   function closeTab(i: number) {
     if (tabs.length < 2) return;
@@ -620,17 +644,18 @@
   }
 
   // S141: 開く。S151 から新しいタブに開く（同じ名前のタブがあればその本文を差し替える）。Workspace の二重定義は activate が避ける
-  const openOwn = (name: string, text: string) => openDoc(name, text, guessModel(text), true);
+  // S196: Desktop は path を受け取り、同じ名前の別のファイルは別の key のタブにして、保存先はタブの path で決める（tabKey）
+  const openOwn = (name: string, text: string, path?: string) => openDoc(tabKey(name, path, tabs), text, guessModel(text), true, path);
   const openFromDisk = () => run(async () => {
     const f = await backend.openFile();
     if (!f) return;
-    openOwn(f.name, f.text);
+    openOwn(f.name, f.text, f.path);
     remember(f.path ?? f.name, f.text);
   });
   const openRecent = (path: string) => run(async () => {
     const r = recent.find((x) => x.path === path);
     const f = r?.text !== undefined ? { name: path, text: r.text } : await backend.openPath?.(path);
-    if (f) openOwn(f.name, f.text);
+    if (f) openOwn(f.name, f.text, desktop ? path : undefined);
   });
   // S144: ソースの FMU。ブラウザはダウンロード、Desktop は保存先のフォルダへ sidecar が書く。S154: FMI の版（2.0 / 3.0）を選べる
   let fmiVersion = $state(2);
@@ -642,10 +667,10 @@
   async function save(saveAs = false) {
     failure = "";
     try {
-      const to = await backend.saveFile(file.split("/").pop()!, view.state.doc.toString(), saveAs);
+      const to = await backend.saveFile(baseName(file), view.state.doc.toString(), saveAs, own ? tabs[cur].path : undefined);
       if (to) {
         saved = `保存した: ${to}`;
-        if (own) { remember(to, view.state.doc.toString()); tabs[cur].clean = view.state.doc.toString(); rev++; persist(); }
+        if (own) { if (desktop) tabs[cur].path = to; remember(to, view.state.doc.toString()); tabs[cur].clean = view.state.doc.toString(); rev++; persist(); }
       }
     } catch (e) {
       failure = String((e as Error).message ?? e);
@@ -669,8 +694,7 @@
   // range は UTF-8 のバイト位置。CodeMirror は UTF-16 の位置なので変換する
   function jump(d: Diagnostic) {
     if (!d.range || (d.file && d.file !== file)) return;
-    const bytes = new TextEncoder().encode(view.state.doc.toString());
-    const at = (n: number) => new TextDecoder().decode(bytes.slice(0, n)).length;
+    const at = byteToChar(view.state.doc.toString());
     view.dispatch({ selection: { anchor: at(d.range.start), head: at(d.range.end) }, scrollIntoView: true });
     view.focus();
   }
@@ -697,7 +721,9 @@
 </script>
 
 <!-- S179: 保存していない編集があるときだけ、ブラウザのタブを閉じる・再読み込みの前に確かめる。Tauri（Desktop・Android）と試験の smoke では付けない -->
-<svelte:window onkeydowncapture={shortcut} onbeforeunload={(e) => { if (!tauri && !smokeMode && tabs.some((_, i) => isDirty(i))) e.preventDefault(); }} />
+<!-- S196: 離れる前に、遅らせた自動保存をすぐ書く（pagehide・隠れたとき・beforeunload）。別のウィンドウが同じ保存を書いたら知らせる -->
+<svelte:window onkeydowncapture={shortcut} onbeforeunload={(e) => { flush(); if (!tauri && !smokeMode && tabs.some((_, i) => isDirty(i))) e.preventDefault(); }} onpagehide={flush} onstorage={(e) => { if (e.key === TABS) otherWindow = true; }} />
+<svelte:document onvisibilitychange={() => { if (document.hidden) flush(); }} />
 
 <main>
   <!-- S179: スキップリンク（Tab 1〜2 回でエディタか結果へ。フォーカスで見える） -->
@@ -761,7 +787,7 @@
   {/if}
   <!-- S170: 進捗・失敗の理由・モデル名の食い違いは、押したボタンのすぐ下（画面の上）に出す。下に置くとスクロールしないと見えない -->
   <p class="sr-only" aria-live="polite" aria-atomic="true">{live}</p>
-  {#if runNote}<p class="run" role="status" data-run={runState}>{runNote}</p>{/if}
+  {#if runNote}<p class="run" role={runState === "running" ? undefined : "status"} data-run={runState}>{runNote}</p>{/if}
   {#if failure}<p class="failure" class:unsup={!!unsupported} role="alert">{failure}</p>{/if}
   {#if canForce === model}<p class="note" data-can-force><button onclick={() => simulate(true)} disabled={busy}>それでも実行する</button> 検査の Error を無視して実行する（強行）。結果は信頼できないことがある。</p>{/if}
   {#if forced}<p class="note forced" role="status" data-forced>強行した実行: 検査の Error を無視して実行した結果。信頼できないことがある。</p>{/if}
@@ -779,13 +805,17 @@
   <div class="tabs" role="tablist" aria-label="開いているファイル" tabindex="-1" onkeydown={tabKeys}>
     {#each tabs as t, i}
       {@const f = i === cur ? file : t.file}
+      {@const label = (i === cur ? own : t.own) ? f : baseName(f)} <!-- 自分のファイルは key（同じ名前の別のファイルは「フォルダ/名前」）、ライブラリは末尾 -->
       {@const dirty = rev >= 0 && isDirty(i)} <!-- rev は再計算の合図 -->
       <span class="tab" class:active={i === cur}>
-        <button role="tab" aria-selected={i === cur} tabindex={i === cur ? 0 : -1} title={f} disabled={busy} onclick={() => activate(i)}>{#if dirty}<span class="dirty" role="img" aria-label="未保存">●</span> {/if}{baseName(f)}</button>
-        {#if tabs.length > 1}<button aria-label="{baseName(f)} を閉じる" disabled={busy} onclick={() => closeTab(i)}>×</button>{/if}
+        <button role="tab" aria-selected={i === cur} tabindex={i === cur ? 0 : -1} title={f} disabled={busy} onclick={() => activate(i)}>{#if dirty}<span class="dirty" role="img" aria-label="未保存">●</span> {/if}{label}</button>
+        {#if tabs.length > 1}<button aria-label="{label} を閉じる" disabled={busy} onclick={() => closeTab(i)}>×</button>{/if}
       </span>
     {/each}
   </div>
+  {#if !own}<p class="note" class:hit={roHit} data-readonly>{RO_MSG}</p>{/if}
+  {#if otherWindow}<p class="note" role="status" data-other-window>別のウィンドウでも開いている。自動保存は最後に編集したほうだけが残る。</p>{/if}
+  {#if storeNote}<p class="failure" role="status" data-store-note>{storeNote}</p>{/if}
   <div class="work">
     {#if msl === "loaded"}<aside class="library"><LibraryTree {backend} onOpen={openLibrary} /></aside>{/if}
     <div class="editor" id="editor" bind:this={host}></div>
@@ -835,7 +865,7 @@
   .skip a:focus { left: .5rem; }
   .welcome { border: 1px solid var(--accent); padding: .25rem .75rem; margin: .5rem 0; }
   .welcome ol { margin: .25rem 0; padding-left: 1.5rem; }
-  .dirty { color: var(--warn); }
+  .dirty, .note.hit { color: var(--warn); }
   .tab.active button[role=tab] { font-weight: bold; }
   .work { display: flex; gap: .5rem; }
   .library { flex: 0 0 16rem; height: 16rem; overflow: auto; border: 1px solid var(--border); font-size: .9em; }

@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S199 CLI のレビュー指摘と終了コード — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S199 CLI のレビュー指摘と終了コード">
+
+<section class="slide" id="S01">
+  <span class="tag">S199 · 2026-11-06 · P4</span>
+  <h1>CLI のレビュー指摘と終了コード</h1>
+  <p class="lead">利用者のファイルを壊す 2 件を最優先で直し、終了コードの体系を決めた</p>
+  <div class="big">終了コードは <b>0 成功 / 1 モデルの誤り / 2 使い方・入出力 / 3 未対応だけ</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>やること</h1>
+  <ul>
+    <li>レビューの指摘 10 件を、1 件ずつ失敗する試験で再現してから直す</li>
+    <li>ユーザーが決めた終了コードの体系を実装する（読み手が先に閉じても保つ、GM-U は 3）</li>
+    <li>fmt の標準入力は、- を明示したときだけにする</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">結果</span>
+  <h1>ファイルを壊す 2 件</h1>
+  <table>
+    <tr><th>指摘</th><th>古い globe</th><th>いま</th></tr>
+    <tr><td>1 -o が入力を指す</td><td class="ng">simulate m.mo -o m.mo が 0 で終わり、m.mo が CSV になる</td><td class="ok">計算の前に終了コード 2。入力のファイル・-L の配下・拡張子 .mo を断る</td></tr>
+    <tr><td>2 壊れた symlink</td><td class="ng">リンクを消し、リンク先に空のファイルを残す</td><td class="ok">触らず終了コード 2</td></tr>
+    <tr><td>fmu export --out</td><td class="ng">作り直す out/名前/ を消す</td><td class="ok">そこに .mo か入力があれば 2</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由</span>
+  <h1>終了コードの表</h1>
+  <table>
+    <tr><th>コード</th><th>意味</th><th>前</th></tr>
+    <tr><td>0</td><td>成功</td><td>同じ</td></tr>
+    <tr><td>1</td><td>モデルの誤り・整形が要る・lint の指摘</td><td>未対応も 1 だった</td></tr>
+    <tr><td>2</td><td>使い方の誤り・入力を読めない・書けない（ディスク満杯を含む）</td><td>満杯は panic の 101</td></tr>
+    <tr><td>3</td><td>未対応（GM-U）だけで止まった。check と simulate</td><td>新しい</td></tr>
+  </table>
+  <p>| head で読み手が先に閉じても、本来の終了コードで終わる。前は何でも 0 だった</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">決定と理由</span>
+  <h1>なぜ 141 にしないか</h1>
+  <ul>
+    <li>成功した検査を | head しただけで非 0 になり、pipefail の CI を壊す</li>
+    <li>実装は、BrokenPipe になったら以後の標準出力を黙って捨て、処理は最後まで進める</li>
+    <li>-o - | head でも、--json の報告は標準エラーに出て、終了コードは本来のまま</li>
+  </ul>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">決定と理由</span>
+  <h1>fmt の標準入力は - を明示したときだけ</h1>
+  <ul>
+    <li>パスも - も無ければ使い方の 1 行を出して終了コード 2。lint も同じ</li>
+    <li>以前は入力がパイプなら標準入力を読み、fmt --check が何も検査せず 0 で終わった</li>
+    <li>呼び出し元を調べた: ウェブアプリ 10 種・marimo・streamlit は fmt --json、CI は fmt --check src/Modelica で、パスなしの標準入力は 0 件</li>
+    <li>パスなしの --json は標準入力のまま（ウェブアプリの契約）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">結果</span>
+  <h1>案内の整理</h1>
+  <table>
+    <tr><th>指摘</th><th>直し</th></tr>
+    <tr><td>3 -o - の診断</td><td>表示行を作る関数を 1 つに。位置と案内が stderr にも付く</td></tr>
+    <tr><td>6 ワークスペースの候補</td><td>補足が空のときだけ、前からの一致が長い順に最大 5 件</td></tr>
+    <tr><td>7 並べ替えの鍵</td><td>段が先、同じ段では開いている文書が先</td></tr>
+    <tr><td>8 長い -m</td><td>64 文字を超えたら編集距離を飛ばす</td></tr>
+    <tr><td>10 main.rs</td><td>check の S7〜S10 の表示を report.rs へ（行を移しただけ）</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S08">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ul>
+    <li>flat と fmu export の失敗は、未対応だけでも 1 のまま（check と simulate だけ 3）</li>
+    <li>MSL を取るコマンドは足さない。README に zip の 3 行を書いた</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

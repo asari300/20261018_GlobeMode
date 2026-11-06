@@ -304,10 +304,13 @@ pub fn hover_at(
     } else {
         (r.read)(&t.path)?
     };
-    let from = body[..t.range.start as usize]
+    // 本文がディスクで変わって範囲が合わなくなっていても落ちない（S198）
+    let from = body
+        .get(..t.range.start as usize)?
         .rfind('\n')
         .map_or(0, |i| i + 1);
-    let decl = body[from..]
+    let decl = body
+        .get(from..)?
         .split(if t.class { '\n' } else { ';' })
         .next()?;
     let contents = decl.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -318,9 +321,35 @@ pub fn hover_at(
     Some(json!({"contents": contents, "range": crate::range(text, name_range)}))
 }
 
+/// 入れ子のクラスのうち、部品 `name` を宣言しているもの（その中は別の部品。さらに内側は見ない）の範囲。
+fn shadowing_classes(c: &ClassOutline, name: &str, out: &mut Vec<TextRange>) {
+    for n in &c.classes {
+        if n.components.iter().any(|m| m.name == name) {
+            out.push(n.range);
+        } else {
+            shadowing_classes(n, name, out);
+        }
+    }
+}
+
+/// トークン `toks[i..i + width]` の名前が、修飾子・名前つきの引数の名前か（`R(R = 1)` の左。前が `(` か `,`、`each`・`final` は挟んでよい。後ろが `=`）。
+fn is_modifier_name(toks: &[globe_mode_fmt::Token], i: usize, width: usize) -> bool {
+    let is = |x: Option<&globe_mode_fmt::Token>, s: &str| {
+        x.is_some_and(|x| x.text == s && x.kind != Kind::Str)
+    };
+    let mut j = i;
+    while j > 0 && (is(toks.get(j - 1), "each") || is(toks.get(j - 1), "final")) {
+        j -= 1;
+    }
+    j.checked_sub(1)
+        .is_some_and(|k| is(toks.get(k), "(") || is(toks.get(k), ","))
+        && is(toks.get(i + width), "=")
+}
+
 /// 部品の参照: 同じ文書で、カーソルの名前と同じ識別子のトークンの位置（カーソルを含む一番内側のクラスの中、無ければ文書全体）。
 /// 文字列・コメントの中は対象にしない（`globe-mode-fmt` の字句解析。S161）。点つきの名前（`R1.p`）は `R1 . p` と並ぶトークン列、
-/// 前が `.` のもの（別の部品のメンバ）は除く。字句に分けられない本文（閉じていない文字列など）は空。カーソルが識別子の上でなければ空。
+/// 前が `.` のもの（別の部品のメンバ）と、修飾子・名前つきの引数の名前（`R(R = 1)` の左。S198）は除く。同じ名前の部品を宣言する入れ子のクラスの中は別の部品なので除く（S198）。
+/// 字句に分けられない本文（閉じていない文字列など）は空。カーソルが識別子（引用符つきの `'a b'` は丸ごと一致するときだけ）の上でなければ空。
 fn component_refs(outline: Option<&Outline>, text: &str, at: usize) -> Vec<TextRange> {
     let Some((_, name)) = name_at(text, at) else {
         return vec![];
@@ -328,23 +357,36 @@ fn component_refs(outline: Option<&Outline>, text: &str, at: usize) -> Vec<TextR
     let Ok(tokens) = lex(text) else {
         return vec![];
     };
-    let on_ident = tokens
-        .iter()
-        .any(|t| t.kind == Kind::Ident && t.start <= at && at <= t.start + t.text.len());
-    if !on_ident {
+    // `'a b'` のような引用符つきの識別子は、name_at が切り出した一部（`a`）と別物
+    let segs: Vec<&str> = name.split('.').collect();
+    if !tokens.iter().any(|t| {
+        t.kind == Kind::Ident
+            && t.start <= at
+            && at <= t.start + t.text.len()
+            && Some(&t.text) == segs.last()
+    }) {
         return vec![];
     }
-    let (lo, hi) = outline
-        .and_then(|o| enclosing(&o.classes, at as u32).last().map(|c| c.range))
-        .map_or((0, text.len()), |r| (r.start as usize, r.end as usize));
-    let segs: Vec<&str> = name.split('.').collect();
+    let inner = outline.and_then(|o| enclosing(&o.classes, at as u32).last().copied());
+    let (lo, hi) = inner.map_or((0, text.len()), |c| {
+        (c.range.start as usize, c.range.end as usize)
+    });
+    // 入れ子のクラスが同じ名前の部品を宣言していれば、その中は別の部品
+    let mut shadowed = Vec::new();
+    if let Some(c) = inner {
+        shadowing_classes(c, segs[0], &mut shadowed);
+    }
     let width = segs.len() * 2 - 1; // 識別子と `.` が交互に並ぶ
     (0..tokens.len().saturating_sub(width - 1))
         .filter(|&i| {
             let run = &tokens[i..i + width];
             run[0].start >= lo
                 && run[width - 1].start + run[width - 1].text.len() <= hi
+                && !shadowed
+                    .iter()
+                    .any(|r| r.start as usize <= run[0].start && run[0].start < r.end as usize)
                 && !(i > 0 && tokens[i - 1].text == "." && tokens[i - 1].kind == Kind::Punct)
+                && !is_modifier_name(&tokens, i, width)
                 && run.iter().enumerate().all(|(k, t)| {
                     if k % 2 == 0 {
                         t.kind == Kind::Ident && t.text == segs[k / 2]
@@ -417,7 +459,7 @@ fn class_of(
     if is(prev, ".") && !(i >= 2 && toks[i - 2].kind == Kind::Ident) {
         return None;
     }
-    if (is(prev, "(") || is(prev, ",")) && is(toks.get(i + 1), "=") {
+    if is_modifier_name(toks, i, 1) {
         return None;
     }
     r.definition(path, text, t.start).filter(|d| d.class)
@@ -520,7 +562,11 @@ pub fn models(o: Option<&Outline>) -> Value {
 }
 
 /// 新しい名前の検査: 識別子・予約語・`taken`（同じ階層に既にある名前）。
-fn check_name(old: &str, new_name: &str, taken: impl Fn(&str) -> bool) -> Result<(), String> {
+fn check_name(
+    old: &str,
+    new_name: &str,
+    mut taken: impl FnMut(&str) -> bool,
+) -> Result<(), String> {
     let mut chars = new_name.chars();
     if !chars
         .next()
@@ -558,7 +604,7 @@ fn find_class<'a>(
 /// リネームで置き換える範囲（S161・S166）。
 /// 受けるのは、いちばん内側のクラスで宣言した部品か、この文書で定義したクラスの名前（宣言・`end`・使っている所。同じクラスに行き着くものだけ）。
 /// 断る理由は文字列で返す: 部品でもクラスでもない（継承した部品・`a.b` の `b`・予約語・組み込みの型の上）、別のファイル（ライブラリなど）で定義したクラス、
-/// import の別名の上、新しい名前が識別子でない・予約語・同じ階層に既にある。
+/// import の別名の上、新しい名前が識別子でない・予約語・同じ階層に既にある（部品は extends で継承した部品も。S198）。
 /// shortcut: 新しい名前が使う側の見える範囲の別の名前（外側のクラスのもの）を隠すかは見ない。要るなら名前解決をやり直して前後を比べる。
 pub fn rename(
     r: &mut Resolver,
@@ -602,8 +648,12 @@ pub fn rename(
                 "{old} はこの文書で宣言した部品・クラスでない（継承した部品・別の部品のメンバ・組み込みの型のリネームは未対応）"
             )
         })?;
+    // 継承した部品（extends の先）とも衝突させない
+    let q = outline
+        .and_then(|o| scopes_at(o, at).1.pop())
+        .unwrap_or_default();
     check_name(old, new_name, |n| {
-        class.components.iter().any(|m| m.name == n) || class.classes.iter().any(|c| c.name == n)
+        r.component(&q, path, class, n, 0).is_some() || class.classes.iter().any(|c| c.name == n)
     })?;
     let hits = component_refs(outline, text, at);
     if hits.is_empty() {
@@ -662,6 +712,24 @@ mod tests {
         assert_eq!(name_at(t, 7), Some((2, "R1.p.v")));
         assert_eq!(name_at(t, 10), None);
         assert_eq!(name_at("x = 12;", 5), None);
+    }
+
+    #[test]
+    fn hover_on_a_file_that_changed_under_us_does_not_panic() {
+        // S198: 範囲を引いたあとでファイルが短くなっても落ちない（None）
+        let (tree, mut scratch) = (LibraryTree::new(std::iter::empty()), Workspace::new());
+        let mut ws = Workspace::new();
+        ws.set_file("B.mo", "// pad pad pad\nmodel B\nend B;\n".to_string());
+        let text = "model A\n  B b;\nend A;\n";
+        ws.set_file("A.mo", text.to_string());
+        let mut r = Resolver {
+            ws: &ws,
+            tree: &tree,
+            scratch: &mut scratch,
+            overlay: None,
+            read: &|_| Some(String::new()),
+        };
+        assert_eq!(hover_at(&mut r, "A.mo", text, 1, 2), None);
     }
 
     #[test]
@@ -785,6 +853,92 @@ mod tests {
             assert_eq!(&text[p.start as usize..p.end as usize], "M");
             assert!(prepare_rename(r, "A.mo", text, 2).is_err());
         });
+    }
+
+    /// 文書 `A.mo` の `at` の部品を `new` にリネームしたときの本文（拒否は Err）。
+    fn renamed(text: &str, at: usize, new: &str) -> Result<String, String> {
+        with_docs(&[("A.mo", text)], |r| {
+            let mut hits = rename(r, "A.mo", text, at, new)?;
+            hits.sort_by_key(|h| std::cmp::Reverse(h.start));
+            let mut out = text.to_string();
+            for h in hits {
+                out.replace_range(h.start as usize..h.end as usize, new);
+            }
+            Ok(out)
+        })
+    }
+
+    #[test]
+    fn component_rename_skips_modifier_and_named_argument_names() {
+        // S198: `Sine sine(amplitude = amplitude)` の左は修飾子の名前（Sine の部品）で、リネームしない
+        let text = "model A\n  parameter Real amplitude = 1;\n  Sine sine(freqHz = 2, amplitude = amplitude);\n  Sine s2(each final amplitude = amplitude);\nequation\n  y = f(amplitude = amplitude, z = amplitude);\nend A;\n";
+        let at = text.find("amplitude").unwrap();
+        let out = renamed(text, at, "amp").unwrap();
+        assert_eq!(
+            out,
+            "model A\n  parameter Real amp = 1;\n  Sine sine(freqHz = 2, amplitude = amp);\n  Sine s2(each final amplitude = amp);\nequation\n  y = f(amplitude = amp, z = amp);\nend A;\n"
+        );
+        with_docs(&[("A.mo", text)], |r| {
+            assert_eq!(references(r, "A.mo", text, at).len(), 5);
+        });
+    }
+
+    /// MSL の実例（`Pulse pulse(amplitude = amplitude, ...)`）。`cargo test -p globe-mode-lsp -- --ignored` （`data/msl` が要る）
+    #[test]
+    #[ignore = "MSL が要る（data/msl）"]
+    fn msl_pulse_modifier_keeps_its_name() {
+        let f = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../../data/msl/Modelica 4.1.0/Electrical/Analog/Examples/DemoPowerSupplyWithBuffer.mo");
+        let text = std::fs::read_to_string(&f).expect("data/msl（cargo xtask fetch-msl）");
+        let at = text.find("amplitude").unwrap();
+        let out = renamed(&text, at, "amp").unwrap();
+        assert!(out.contains("pulse(amplitude = amp,"), "{}", &out[..900]);
+        assert!(out.contains("parameter SI.Current amp = 50"));
+    }
+
+    #[test]
+    fn component_rename_stays_out_of_nested_classes_that_declare_it() {
+        let text = "model A\n  Real x;\n  model B\n    Real x;\n  equation\n    x = 2;\n  end B;\nequation\n  x = 1;\nend A;\n";
+        let out = renamed(text, text.find("Real x").unwrap() + 5, "y").unwrap();
+        assert_eq!(
+            out,
+            "model A\n  Real y;\n  model B\n    Real x;\n  equation\n    x = 2;\n  end B;\nequation\n  y = 1;\nend A;\n"
+        );
+        // 入れ子の側から。外側の x は触らない
+        let inner = renamed(text, text.find("Real x").unwrap() + 5 + 22, "y").unwrap();
+        assert!(inner.contains("Real x;\n  model B\n    Real y;"), "{inner}");
+        assert!(
+            inner.contains("y = 2;") && inner.contains("x = 1;"),
+            "{inner}"
+        );
+    }
+
+    #[test]
+    fn component_rename_sees_inherited_names() {
+        let text =
+            "model Base\n  Real y;\nend Base;\nmodel A\n  extends Base;\n  Real x;\nend A;\n";
+        let at = text.find("Real x").unwrap() + 5;
+        let e = renamed(text, at, "y").unwrap_err();
+        assert!(e.contains("既に"), "{e}");
+        assert!(renamed(text, at, "z").is_ok());
+    }
+
+    #[test]
+    fn quoted_identifier_is_not_cut_at_a_space() {
+        let text = "model A\n  Real a;\n  Real 'a b';\nequation\n  'a b' = a;\nend A;\n";
+        let at = text.find("'a b'").unwrap() + 1; // `'a b'` の a の上（name_at は a だけを切り出す）
+        assert!(renamed(text, at, "z").is_err());
+        with_docs(&[("A.mo", text)], |r| {
+            assert!(references(r, "A.mo", text, at).is_empty());
+        });
+        // 普通の識別子 a は今までどおり
+        assert_eq!(
+            renamed(text, text.find("Real a").unwrap() + 5, "z")
+                .unwrap()
+                .matches('z')
+                .count(),
+            2
+        );
     }
 
     #[test]
