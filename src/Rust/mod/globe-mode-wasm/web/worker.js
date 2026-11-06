@@ -18,6 +18,7 @@ const send = (m, transfer) => port.postMessage(m, transfer);
 
 let gm; // 糊のモジュール
 let ws = null; // 現在の Workspace（library か、最初の set_file で作る）
+const W = () => (ws ??= new gm.Workspace());
 
 const ops = {
   async init({ pkg, wasm }) {
@@ -30,52 +31,52 @@ const ops = {
     ws = next;
   },
   set_file({ name, text }) {
-    (ws ??= new gm.Workspace()).set_file(name, text);
+    W().set_file(name, text);
   },
   remove_file({ name }) {
-    return (ws ??= new gm.Workspace()).remove_file(name);
+    return W().remove_file(name);
   },
   check({ model }) {
-    return (ws ??= new gm.Workspace()).check(model);
+    return W().check(model);
   },
   graph({ model, depth }) {
-    return (ws ??= new gm.Workspace()).graph(model, depth);
+    return W().graph(model, depth);
   },
   outline({ path }) {
-    return (ws ??= new gm.Workspace()).outline(path);
+    return W().outline(path);
   },
   deps({ model }) {
-    return (ws ??= new gm.Workspace()).deps(model);
+    return W().deps(model);
   },
   flat({ model }) {
-    return (ws ??= new gm.Workspace()).flat(model);
+    return W().flat(model);
   },
   simulate({ request }) {
-    return (ws ??= new gm.Workspace()).simulate(request);
+    return W().simulate(request);
   },
   library_tree({ prefix }) {
-    return (ws ??= new gm.Workspace()).library_tree(prefix);
+    return W().library_tree(prefix);
   },
   library_search({ query, limit }) {
-    return (ws ??= new gm.Workspace()).library_search(query, limit);
+    return W().library_search(query, limit);
   },
   library_source({ path }) {
-    return (ws ??= new gm.Workspace()).library_source(path);
+    return W().library_source(path);
   },
   definition({ file, text, line, character }) {
-    return (ws ??= new gm.Workspace()).definition(file, text, line, character); // S138。{file, text, range} の JSON か "null"
+    return W().definition(file, text, line, character); // S138。{file, text, range} の JSON か "null"
   },
   completion({ file, text, line, character }) {
-    return (ws ??= new gm.Workspace()).completion(file, text, line, character); // S171。CompletionItem の配列の JSON
+    return W().completion(file, text, line, character); // S171。CompletionItem の配列の JSON
   },
   hover({ file, text, line, character }) {
-    return (ws ??= new gm.Workspace()).hover(file, text, line, character); // S149。{contents, range} の JSON か "null"
+    return W().hover(file, text, line, character); // S149。{contents, range} の JSON か "null"
   },
-  references: ({ file, text, line, character }) => (ws ??= new gm.Workspace()).references(file, text, line, character), // S161。[Range] の JSON
-  models: ({ file }) => (ws ??= new gm.Workspace()).models(file), // S170。実行できるクラスの修飾名の JSON 配列（先に set_file）
-  rename: ({ file, text, line, character, newName }) => (ws ??= new gm.Workspace()).rename(file, text, line, character, newName), // S161。[{range, newText}] の JSON。断れば投げる
-  tunable_parameters: ({ model }) => (ws ??= new gm.Workspace()).tunable_parameters(model), // S150。ParametersResponse の JSON
-  export_fmu: ({ model, fmiVersion }) => (ws ??= new gm.Workspace()).export_fmu(model, fmiVersion),
+  references: ({ file, text, line, character }) => W().references(file, text, line, character), // S161。[Range] の JSON
+  models: ({ file }) => W().models(file), // S170。実行できるクラスの修飾名の JSON 配列（先に set_file）
+  rename: ({ file, text, line, character, newName }) => W().rename(file, text, line, character, newName), // S161。[{range, newText}] の JSON。断れば投げる
+  tunable_parameters: ({ model }) => W().tunable_parameters(model), // S150。ParametersResponse の JSON
+  export_fmu: ({ model, fmiVersion }) => W().export_fmu(model, fmiVersion),
   format: ({ text, indent, insertOrigin }) => gm.format(text, indent, insertOrigin), // S053。壊れていれば投げる
   lint: ({ text }) => gm.lint(text),
   // 時系列を列ごとの Float64Array で返す（S051。CSV の文字列を作らず、解析もしない。buffer は転送する）
@@ -88,7 +89,7 @@ const ops = {
       if (progress) send({ id, type: "progress", stage, time, start_time, stop_time });
       return flag ? Atomics.load(flag, 0) === 1 : undefined;
     };
-    const c = (ws ??= new gm.Workspace()).simulate_columns(request, progress || flag ? notify : undefined);
+    const c = W().simulate_columns(request, progress || flag ? notify : undefined);
     try {
       const layout = JSON.parse(c.layout());
       return { response: c.response, layout, columns: layout.names.map((_, i) => c.column(i)) };

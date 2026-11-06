@@ -26,6 +26,7 @@ function readMo(dir, out = {}) {
   return out;
 }
 
+const LONG = "model Long\n  Real x(start = 0, fixed = true);\nequation\n  der(x) = sin(100 * time);\n  annotation (experiment(StopTime = 1000));\nend Long;\n";
 const ms = (t) => +(performance.now() - t).toFixed(1);
 const decay = "GlobeModeValidation.Simulation.Decay";
 const w = new GlobeWorker(() => new Worker(new URL("./worker.js", import.meta.url)), {
@@ -59,7 +60,7 @@ try {
   const seen = [];
   await w.simulateColumns({ model: decay, settings: { solver: "esdirk34" } }, { onProgress: (p) => seen.push(p) });
   assert.deepEqual(seen.at(-1), { stage: "integration", time: 1, start_time: 0, stop_time: 1 });
-  await w.setFile("Long.mo", "model Long\n  Real x(start = 0, fixed = true);\nequation\n  der(x) = sin(100 * time);\n  annotation (experiment(StopTime = 1000));\nend Long;\n");
+  await w.setFile("Long.mo", LONG);
   // SharedArrayBuffer のフラグがあれば、cancel() は作り直さず、そこまでの列と GM-I11004 を普通の結果として返す（S157）
   let first;
   const started = new Promise((r) => (first = r));
@@ -79,7 +80,7 @@ try {
     wasm: readFileSync(join(pkg, "globe_mode_wasm_bg.wasm")),
   }, { shared: false });
   try {
-    await plain.setFile("Long.mo", "model Long\n  Real x(start = 0, fixed = true);\nequation\n  der(x) = sin(100 * time);\n  annotation (experiment(StopTime = 1000));\nend Long;\n");
+    await plain.setFile("Long.mo", LONG);
     let seen1;
     const go = new Promise((r) => (seen1 = r));
     const run = plain.simulateColumns({ model: "Long" }, { onProgress: (p) => p.time !== undefined && seen1(p) });
@@ -90,6 +91,79 @@ try {
     console.log("shared: false: terminate() して作り直し、reject した（restarts = 1）");
   } finally {
     await plain.terminate();
+  }
+  // 中断の経路（S201。レビューの指摘 1〜6）。猶予（graceMs）は試験が短くする
+  const wasm = readFileSync(join(pkg, "globe_mode_wasm_bg.wasm"));
+  const sleep = (t) => new Promise((r) => setTimeout(r, t));
+  const mk = (opts, wrap = (x) => x) => new GlobeWorker(() => wrap(new Worker(new URL("./worker.js", import.meta.url))), { pkg: pathToFileURL(pkg).href, wasm }, opts);
+  const cancelled = (e) => e.cancelled === true;
+  async function longRun(g) {
+    await g.setFile("Long.mo", LONG);
+    let first;
+    const started = new Promise((r) => (first = r));
+    const run = g.simulateColumns({ model: "Long" }, { onProgress: (p) => p.time !== undefined && first(p) });
+    await started;
+    return { run }; // Promise のまま返すと async 関数が待ってしまう
+  }
+  const hang = (p, what) => Promise.race([p, sleep(5000).then(() => { throw new Error(`${what}: 5 秒たっても決まらない`); })]);
+  {
+    // 1: 止めるを 2 回押しても、応えたあとに残ったタイマーが今の worker を殺さない
+    const g = mk({ graceMs: 300 });
+    try {
+      const { run } = await longRun(g);
+      g.cancel(); g.cancel();
+      assert.equal((await run).response.termination.kind, "cancelled");
+      await sleep(700);
+      assert.equal(g.restarts, 0, "1: cancel() 2 回のあとに作り直した");
+      assert.match(await g.version(), /./);
+    } finally { await g.terminate(); }
+    // 2: 起動中に止めても、worker は使えるまま（以前は起動で落ちた扱いで二度と使えなかった）
+    const h = mk();
+    try {
+      h.cancel();
+      assert.match(await h.version(), /./, "2: 起動中に止めたあと使えない");
+      assert.equal(h.restarts, 0);
+    } finally { await h.terminate(); }
+    // 3: 実行がキューで待つ間に止めると、その実行だけが cancelled で reject され、前の呼び出しは殺されない
+    const q = mk();
+    try {
+      await q.version(); // 起動を終えておく
+      await q.setFile("Long.mo", LONG);
+      const before = q.simulate({ model: "Long", settings: { stop_time: 20 } }); // 前の呼び出し（simulate_columns ではない）
+      const run = q.simulateColumns({ model: "Long" });
+      q.cancel();
+      await assert.rejects(hang(run, "3"), cancelled);
+      assert.ok((await before).ok, "3: 前の呼び出しが殺された");
+      assert.equal(q.restarts, 0);
+    } finally { await q.terminate(); }
+    // 5a: 応えない実行（Worker にフラグを渡さない）は、猶予のあと terminate() して作り直し、reject する
+    const deaf = mk({ graceMs: 300 }, (wk) => { const post = wk.postMessage.bind(wk); wk.postMessage = (m, t) => post({ ...m, cancel: undefined }, t); return wk; });
+    try {
+      const { run } = await longRun(deaf);
+      deaf.cancel();
+      await assert.rejects(hang(run, "5a"), cancelled);
+      assert.equal(deaf.restarts, 1);
+      assert.match(await deaf.version(), /./);
+    } finally { await deaf.terminate(); }
+    // 4: 捨てた worker の遅れた応答は、新しい worker を殺さない
+    const made = [];
+    const late = mk({}, (wk) => { const on = wk.on.bind(wk); const rec = { wk, listeners: [] }; made.push(rec); wk.on = (ev, f) => { rec.listeners.push([ev, f]); return on(ev, f); }; return wk; });
+    try {
+      await assert.rejects(late.panicForTest("遅れ"), /遅れ/);
+      assert.equal(late.restarts, 1);
+      await late.version();
+      for (const [ev, f] of made[0].listeners) if (ev === "message") f({ id: 1, ok: false, error: "遅れた応答", poisoned: true });
+      await late.version();
+      assert.equal(late.restarts, 1, "4: 捨てた worker の応答で作り直した");
+    } finally { await late.terminate(); }
+    // 6: 公開の terminate() は待っている呼び出しを reject する
+    const t = mk();
+    const { run } = await longRun(t);
+    const rejected = assert.rejects(hang(run, "6"), /terminate/);
+    await t.terminate();
+    await rejected;
+    await assert.rejects(hang(t.version(), "6 の後"), /./);
+    console.log("中断の経路: cancel() 2 回・起動中・キューの中・応えない実行・捨てた worker の応答・terminate() を確かめた");
   }
   const g = await w.graph("GlobeModeValidation.Connect.RealCircuit", 1);
   assert.ok(g.nodes.length > 0 && g.edges.length > 0, "graph: ノードと辺がある");

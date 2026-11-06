@@ -72,6 +72,10 @@ DECAY_K = (
 )
 # 既定で描く信号（S190）: 状態 x・v と代数変数 e。既定は状態の 2 本
 SPRING = "model Spring\n  Real x(start = 1, fixed = true);\n  Real v(start = 0, fixed = true);\n  Real e;\nequation\n  der(x) = v;\n  der(v) = -x;\n  e = 0.5 * (x * x + v * v);\nend Spring;\n"
+# 再実行で選び直しを保つ（S201）: Spring にパラメータ k と、信号が無くなった版（e を消す）、全部変わった版
+SPRING_K = SPRING.replace("Real e;", "parameter Real k = 1;\n  Real e;").replace("der(v) = -x", "der(v) = -k * x")
+SPRING_NO_E = "model Spring\n  Real x(start = 1, fixed = true);\n  Real v(start = 0, fixed = true);\nequation\n  der(x) = v;\n  der(v) = -x;\nend Spring;\n"
+SPRING_RENAMED = "model Spring\n  Real p(start = 1, fixed = true);\n  Real q(start = 0, fixed = true);\nequation\n  der(p) = q;\n  der(q) = -p;\nend Spring;\n"
 CHUA = "Modelica.Electrical.Analog.Examples.ChuaCircuit"
 # 未対応と強行（S173）: OVER は初期条件が余る（GM-E8001。強行で解ける）、DIV は 1 / 0 のパラメータで Rumoca が止まる（GM-U0001。強行しても進まない）
 OVER = "model Over\n  Real x(start = 1, fixed = true);\ninitial equation\n  x = 1;\nequation\n  der(x) = -x;\nend Over;\n"
@@ -351,6 +355,125 @@ def review_fixes(browser, origin: str, errors: list[str]) -> None:
     expect(lb.locator(".cm-tooltip-autocomplete li", has_text=re.compile(r"^Voltage")).first).to_be_visible(timeout=30_000)
     lb.close()
     print("ライブラリのタブ: 読み取り専用（入力できず、案内、整形は断る、未保存にならない）。Modelica.Units.SI.Vol で Voltage が出る")
+
+
+def plot_fixes(browser, origin: str, errors: list[str]) -> None:
+    """S201: プロットの選択を保つ（同じモデルの再実行・パラメータを変えた再実行・別のモデル・タブの切り替え・信号が無くなった場合）、既定に戻す、uPlot の作り直しが投げたときに古い図を出さない。"""
+    pg = browser.new_page(accept_downloads=True)
+    pg.on("console", lambda m: m.type == "error" and errors.append(m.text))
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.on("dialog", lambda d: d.accept())
+    pg.goto(origin)
+    pg.get_by_role("button", name="検査").wait_for()
+    run = pg.get_by_role("button", name="実行", exact=True)
+    plot = pg.locator(".plot")
+    box = lambda n: pg.get_by_role("checkbox", name=n, exact=True)
+    state = lambda: (plot.get_attribute("data-series"), plot.get_attribute("data-right"), plot.get_attribute("data-x"))
+    picked = lambda: sorted(n for n in ("x", "v", "e", "p", "q") if box(n).count() and box(n).is_checked())
+
+    def put(model: str, body: str) -> None:
+        pg.get_by_label("モデル名").fill(model)
+        pg.locator(".cm-content").focus()
+        pg.keyboard.press("Control+A")
+        pg.keyboard.insert_text(body)
+
+    def go() -> None:
+        run.click(force=True)
+        expect(run).to_be_enabled(timeout=300_000)
+        assert pg.get_by_role("alert").count() == 0, pg.get_by_role("alert").all_inner_texts()
+
+    put("Spring", SPRING_K)
+    go()
+    assert picked() == ["v", "x"], picked()  # 既定は状態の 2 本
+    # 選び直す: e を足し、v を外し、e を右の軸へ、x 軸を v に、絞り込みの文字と「内部の変数も表示」
+    box("e").check(force=True)
+    box("v").uncheck(force=True)
+    pg.get_by_label("e を右の軸に").check(force=True)
+    pg.get_by_label("x 軸").select_option(label="v")
+    pg.get_by_label("信号を絞り込む").fill("e")
+    pg.get_by_label("内部の変数も表示").check(force=True)
+    expect(plot).to_have_attribute("data-series", "2")
+    want = ("2", "1", "v")
+    assert state() == want, state()
+
+    def kept(what: str) -> None:
+        expect(plot).to_have_attribute("data-x", want[2])
+        assert state() == want and pg.get_by_label("信号を絞り込む").input_value() == "e" and pg.get_by_label("内部の変数も表示").is_checked(), (what, state())
+        pg.get_by_label("信号を絞り込む").fill("")
+        assert picked() == ["e", "x"], (what, picked())
+        pg.get_by_label("信号を絞り込む").fill("e")
+        label = pg.locator(".plot canvas").first.get_attribute("aria-label")
+        assert "信号 2 本: x、e" in label and "v の範囲" in label, (what, label)  # 代替テキストは保たれた選択と一致する
+
+    # 1. 同じモデルの再実行
+    go()
+    kept("同じモデルの再実行")
+    # CSV は保たれた選択（x 軸の v、そのあと x と e）
+    with pg.expect_download() as dl:
+        pg.get_by_role("button", name="CSV").click(force=True)
+    assert Path(dl.value.path()).read_text(encoding="utf-8").splitlines()[0] == "v,x,e", Path(dl.value.path()).read_text(encoding="utf-8")[:40]
+    # 2. パラメータを変えて再実行（k = 2。同じモデルなので選択は保たれ、値は変わる）
+    pg.get_by_label("パラメータの上書き").fill("k = 2")
+    go()
+    kept("パラメータを変えた再実行")
+    pg.get_by_label("パラメータの上書き").fill("")
+    # 3. 信号が無くなった: e が消えたモデルでは e を外し（右の軸も消える）、残った x を選ぶ。全部無くなったら既定に戻す
+    put("Spring", SPRING_NO_E)
+    go()
+    expect(plot).to_have_attribute("data-series", "1")
+    pg.get_by_label("信号を絞り込む").fill("")
+    assert picked() == ["x"] and state() == ("1", "0", "v"), (picked(), state())
+    put("Spring", SPRING_RENAMED)
+    go()
+    assert pg.get_by_label("信号を絞り込む").input_value() == "" and not pg.get_by_label("内部の変数も表示").is_checked()  # 保てるものが無ければ全部既定
+    assert picked() == ["p", "q"] and state() == ("2", "0", "time"), (picked(), state())
+    # 4. 別のモデルは既定から（絞り込みの文字と内部名の表示も戻る）。先に選び直す
+    box("p").uncheck(force=True)
+    pg.get_by_label("信号を絞り込む").fill("q")
+    put("Decay", "model Decay\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -x;\nend Decay;\n")
+    go()
+    assert state()[0] == "1" and pg.get_by_label("信号を絞り込む").input_value() == "" and not pg.get_by_label("内部の変数も表示").is_checked(), state()
+    # 5. 選び直していなければ、再実行でも既定（今の挙動）。Decay の x を外して選び直し、既定に戻すボタンをキーボードで押す
+    box("x").uncheck(force=True)
+    expect(plot).to_have_attribute("data-series", "0")
+    go()
+    expect(plot).to_have_attribute("data-series", "0")  # 選び直し（全部外した）は保たれる
+    pg.get_by_label("信号を絞り込む").fill("zzz")
+    reset = pg.get_by_role("button", name="既定に戻す")
+    reset.focus()
+    pg.keyboard.press("Enter")
+    expect(plot).to_have_attribute("data-series", "1")
+    assert pg.get_by_label("信号を絞り込む").input_value() == "" and box("x").is_checked()
+    go()
+    expect(plot).to_have_attribute("data-series", "1")
+    # 6. タブの切り替え: Decay の結果は消え、戻って実行すると既定（保たない）
+    box("x").uncheck(force=True)
+    with pg.expect_file_chooser() as ch:
+        pg.get_by_role("button", name="開く").click(force=True)
+    ch.value.set_files(files=[{"name": "Other.mo", "mimeType": "text/plain", "buffer": b"model Other\nend Other;\n"}])
+    expect(pg.get_by_role("tab")).to_have_count(2)
+    pg.get_by_role("tab").nth(0).click()
+    expect(plot).to_have_count(0)
+    go()
+    expect(plot).to_have_attribute("data-series", "1")
+    print("プロットの選択を保つ: 同じモデルの再実行・パラメータを変えた再実行で信号・右の軸・x 軸・絞り込み・内部名が残り、書き出しと代替テキストが合う。信号が無くなれば外し、全部無くなれば既定。別のモデル・タブの切り替えは既定。「既定に戻す」はキーボードで押せる")
+    # 7. uPlot の作り直しが投げたら、古い図を PNG に出さない（canvas の 2d context を一度だけ投げさせる）
+    pg.evaluate("""() => { const g = HTMLCanvasElement.prototype.getContext; window.__ctx = g;
+      HTMLCanvasElement.prototype.getContext = function (...a) { if (window.__throw) throw new Error("試験: context を作れない"); return g.apply(this, a); }; }""")
+    pg.evaluate("window.__throw = true")
+    box("x").uncheck(force=True)  # 選択が変わって uPlot を作り直す
+    expect(pg.get_by_role("alert")).to_contain_text("context", timeout=10_000)
+    pg.evaluate("window.__throw = false")
+    got = []
+    pg.on("download", lambda d: got.append(d.suggested_filename))
+    pg.get_by_role("button", name="PNG").click(force=True)
+    pg.wait_for_timeout(1500)
+    assert got == [], f"作り直しが失敗したあとの PNG に古い図が出た {got}"
+    # 戻れば描ける
+    box("x").check(force=True)
+    expect(pg.get_by_role("alert")).to_have_count(0)
+    pg.close()
+    print("uPlot の作り直しが投げたあと: PNG は古い図を書き出さず、選択を戻すと描ける")
 
 
 def main() -> int:
@@ -1465,6 +1588,7 @@ def main() -> int:
         assert ti.evaluate(in_cm)
         ti.close()
         review_fixes(browser, origin, errors)  # S196
+        plot_fixes(browser, origin, errors)  # S201
         print("エディタの Tab: 空白 2 つの字下げ（選択した 2 行も）と Shift+Tab、補完の一覧が開いていれば確定・閉じていれば字下げ、Esc のあと Tab・Shift+Tab と Ctrl+M で外へ、説明は aria-describedby と画面に")
         print("キーボードだけ: モデル名・エディタへ Tab、Ctrl+Shift+Enter で検査、診断と参照の行を Tab・Enter・Space でエディタへ、Ctrl+Enter で実行（プロットの aria-label に信号名と時間の範囲）、Ctrl+. で止め、Ctrl+S で保存")
         # 初回の案内・スキップリンク・タブの矢印キー・未保存の印（S179）

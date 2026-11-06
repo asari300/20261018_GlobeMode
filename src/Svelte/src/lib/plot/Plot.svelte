@@ -17,14 +17,18 @@
 
   let host: HTMLDivElement;
   let plot: uPlot | undefined;
-  // 新しい結果が来たら選択・軸・x を既定に戻す（書き換えは次の結果まで残る）
-  let shown = $derived.by(() => {
-    const d = columns.defaults; // 既定は Rust の選ぶ信号（状態、足りなければ出力）。応答に無ければ内部名を除く先頭の 3 本
+  // 選択・右の軸・x は名前で持つ。新しい結果が来たら既定から決め直すが、同じモデルの再実行で利用者が選び直していたときは、その選択を保つ（S201。下の $effect.pre）
+  // shortcut: 保つのは Plot が載っている間だけ（タブの切り替え・読み込み・失敗で結果が消えると既定に戻る）。タブごとの記憶や再読み込みをまたぐ保存は持ち越し
+  const defaultShown = (c: Columns) => {
+    const d = c.defaults; // 既定は Rust の選ぶ信号（状態、足りなければ出力）。応答に無ければ内部名を除く先頭の 3 本
     let n = 0;
-    return columns.names.map((name) => (d ? d.includes(name) : !isInternal(name) && n++ < DEFAULT_SHOWN));
-  });
-  let right = $derived(columns.names.map(() => false));
-  let xi = $derived.by(() => (void columns, -1)); // -1 は time、それ以外は names の添字（パラメトリック）
+    return c.names.map((name) => (d ? d.includes(name) : !isInternal(name) && n++ < DEFAULT_SHOWN));
+  };
+  let shown = $state.raw<boolean[]>([]);
+  let right = $state.raw<boolean[]>([]);
+  let xi = $state(-1); // -1 は time、それ以外は names の添字（パラメトリック）
+  let touched = false; // 利用者が既定から選び直したか
+  let prev = { model: "", names: [] as string[] }; // 前の結果
   let query = $state("");
   let internal = $state(false); // 内部の名前（$ で始まるもの）も一覧と書き出しに含める
   let lastMs = $state(0);
@@ -35,7 +39,38 @@
   let listed = $derived(matched.slice(0, LIST_MAX));
   // プロットと CSV に使う系列。内部名は、チェックを外していれば選択されていても出さない
   let ys = $derived(columns.names.flatMap((n, i) => (shown[i] && (internal || !isInternal(n)) ? [i] : [])));
-  const setListed = (on: boolean) => (shown = shown.map((v, i) => (listed.includes(i) ? on : v)));
+  const setListed = (on: boolean) => ((touched = true), (shown = shown.map((v, i) => (listed.includes(i) ? on : v))));
+  const resetPicks = () => {
+    touched = false;
+    query = "";
+    internal = false;
+    shown = defaultShown(columns);
+    right = columns.names.map(() => false);
+    xi = -1;
+  };
+  $effect.pre(() => {
+    const cols = columns;
+    untrack(() => {
+      const names = (flags: boolean[]) => new Set(prev.names.filter((_, i) => flags[i]));
+      const [mine, side, x] = [names(shown), names(right), xi < 0 ? "" : prev.names[xi]];
+      const same = model === prev.model;
+      // 同じモデルで選び直していたら、同じ名前の信号を選ぶ。無くなった信号は外し、何も残らなければ既定に戻す（何も選んでいなかったなら、そのまま）
+      const hit = touched && same && cols.names.map((n) => mine.has(n));
+      if (hit && (mine.size === 0 || hit.some(Boolean))) {
+        shown = hit;
+        right = cols.names.map((n) => side.has(n));
+        xi = cols.names.indexOf(x);
+      } else {
+        if (!same || touched) (query = ""), (internal = false); // 別のモデル、または保てるものが何も残らなかった
+        touched = false;
+        shown = defaultShown(cols);
+        right = cols.names.map(() => false);
+        xi = -1;
+      }
+      prev = { model, names: cols.names };
+    });
+  });
+
   // Plot の中で完結させる（App から backend を受けない）。Desktop は dialog / fs、ブラウザ・Android はダウンロード
   const out: Pick<Backend, "saveFile" | "saveBinary"> = inTauri() ? new TauriBackend() : { saveFile: browserSave, saveBinary: browserSaveBinary };
 
@@ -109,7 +144,7 @@
     } catch (e) {
       error = String((e as Error).message ?? e);
     }
-    return () => plot?.destroy();
+    return () => (plot?.destroy(), (plot = undefined)); // 作り直しが投げても古い図を残さない（PNG・二重の destroy）
   });
 </script>
 
@@ -117,7 +152,7 @@
   data-x={xi < 0 ? "time" : columns.names[xi]} data-series={ys.length} data-right={ys.filter((i) => right[i]).length} data-listed={listed.length} data-matched={matched.length}>
   {#if error}<p class="failure" role="alert">{error}</p>{/if}
   <label>x 軸
-    <select value={xi} onchange={(e) => (xi = Number(e.currentTarget.value))}>
+    <select value={xi} onchange={(e) => ((touched = true), (xi = Number(e.currentTarget.value)))}>
       <option value={-1}>time</option>
       {#each columns.names as n, i}{#if internal || !isInternal(n) || i === xi}<option value={i}>{n}</option>{/if}{/each}
     </select>
@@ -127,14 +162,15 @@
     <label><input type="checkbox" name="internal" bind:checked={internal}>内部の変数も表示</label>
     <button onclick={() => setListed(true)}>表示中をすべて選ぶ</button>
     <button onclick={() => setListed(false)}>表示中をすべて外す</button>
+    <button onclick={resetPicks}>既定に戻す</button>
     <span class="count">選択 {ys.length} 本 / 一致 {matched.length} 本</span>
   </div>
   <div class="signals" aria-label="信号">
     {#each listed as i (i)}
       {@const n = columns.names[i]}
       <span>
-        <label><input type="checkbox" name="signal" checked={shown[i]} onchange={(e) => (shown = shown.map((v, k) => (k === i ? e.currentTarget.checked : v)))}>{n}</label>
-        {#if shown[i]}<label class="side"><input type="checkbox" aria-label="{n} を右の軸に" checked={right[i]} onchange={(e) => (right = right.map((v, k) => (k === i ? e.currentTarget.checked : v)))}>右</label>{/if}
+        <label><input type="checkbox" name="signal" checked={shown[i]} onchange={(e) => ((touched = true), (shown = shown.map((v, k) => (k === i ? e.currentTarget.checked : v))))}>{n}</label>
+        {#if shown[i]}<label class="side"><input type="checkbox" aria-label="{n} を右の軸に" checked={right[i]} onchange={(e) => ((touched = true), (right = right.map((v, k) => (k === i ? e.currentTarget.checked : v))))}>右</label>{/if}
       </span>
     {/each}
     {#if matched.length > listed.length}<span class="more">ほか {matched.length - listed.length} 件（絞り込むと出る）</span>{/if}
