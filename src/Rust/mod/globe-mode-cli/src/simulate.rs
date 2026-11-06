@@ -18,8 +18,8 @@ use globe_mode_ir::{
 };
 
 use super::{
-    Loaded, check_writable_file, hidden_text, io_error, load_db, print_diagnostics,
-    report_early_failure, shown,
+    Loaded, check_writable_file, diagnostic_lines, emit, failure_code, io_error, load_db,
+    print_diagnostics, report_early_failure,
 };
 
 /// `globe simulate` の引数（clap の外で受け渡す形）。
@@ -47,6 +47,13 @@ pub(crate) enum OutputFormat {
     Csv,
     /// MAT v4（OpenModelica・Dymola の dsres 形式、binTrans）
     Mat,
+}
+
+impl SimulateArgs {
+    /// 結果の CSV / MAT を標準出力に書く（`-o -`）。ほかの表示は標準エラーに回す。
+    fn output_is_stdout(&self) -> bool {
+        self.output.as_deref() == Some(Path::new("-"))
+    }
 }
 
 impl OutputFormat {
@@ -224,14 +231,17 @@ pub(crate) fn simulate(args: SimulateArgs) -> ExitCode {
     // 書けない出力先は、長い計算の後ではなく前に分かるようにする
     if !args.list_parameters
         && let Some(path) = args.output.as_deref().filter(|p| *p != Path::new("-"))
-        && let Err(message) = check_writable_file(path)
+        && let Err(message) = check_writable_file(path, &args.files, &args.library)
     {
         eprintln!("error: 結果を {message}");
         return ExitCode::from(2);
     }
     let Loaded { mut ws, texts } = match load_db(&args.files, &args.library) {
         Ok(Ok(v)) => v,
-        Ok(Err(diags)) => return report_early_failure(model, &diags, args.json),
+        // `-o -` は CSV が標準出力を使うので、報告は標準エラーに回す
+        Ok(Err(diags)) => {
+            return report_early_failure(model, &diags, args.json, args.output_is_stdout());
+        }
         Err(code) => return code,
     };
 
@@ -266,12 +276,13 @@ pub(crate) fn simulate(args: SimulateArgs) -> ExitCode {
     if let (Some(run), Some(path), Some(compiled)) = (&run, &args.output, &compiled)
         && let Err(e) = write_result(run, path, args.format, compiled)
     {
-        // `-o - | head` で読み手が閉じたのは誤りではない
+        // `-o - | head` で読み手が閉じたのは誤りではない。以後の標準出力を捨て、報告と終了コードは本来のまま
         if e.kind() == std::io::ErrorKind::BrokenPipe {
-            return ExitCode::SUCCESS;
+            super::STDOUT_CLOSED.store(true, std::sync::atomic::Ordering::Relaxed);
+        } else {
+            eprintln!("error: 結果を {}", io_error(path, true, &e));
+            return ExitCode::from(2);
         }
-        eprintln!("error: 結果を {}", io_error(path, true, &e));
-        return ExitCode::from(2);
     }
     let refused = match (&run, &response.settings) {
         // 実行に失敗しても、使った設定は表示する
@@ -331,7 +342,7 @@ fn finish(
     let failed = run.is_none() || diagnostics.iter().any(Diagnostic::is_error);
     let model = args.model.as_str();
     // CSV を標準出力に書いたときは、ほかの表示を標準エラーに回す
-    let to_stdout = args.output.as_deref() != Some(Path::new("-"));
+    let to_stderr = args.output_is_stdout();
     if args.json {
         let value = serde_json::json!({
             "model": model,
@@ -345,11 +356,7 @@ fn finish(
             "diagnostics": diagnostics,
         });
         let text = serde_json::to_string_pretty(&value).expect("serialize simulation report");
-        if to_stdout {
-            println!("{text}");
-        } else {
-            eprintln!("{text}");
-        }
+        emit(to_stderr, &text);
     } else {
         let mut lines = Vec::new();
         let mut notes = Vec::new();
@@ -378,49 +385,20 @@ fn finish(
         if let Some(reason) = &refused {
             lines.push(globe_mode::refused_summary(model, reason, diagnostics));
         }
-        if to_stdout {
-            print_diagnostics(diagnostics, texts, false);
-            for l in &lines {
-                println!("{l}");
-            }
-        } else {
-            let (diagnostics, hidden) = shown(diagnostics);
-            for d in diagnostics {
-                eprintln!(
-                    "{}[{}] {:?} {}: {}",
-                    severity(d),
-                    d.code,
-                    d.stage,
-                    d.stage.title(),
-                    d.message
-                );
-            }
-            if let Some(line) = hidden_text(&hidden) {
-                eprintln!("{line}");
-            }
-            for l in &lines {
-                eprintln!("{l}");
-            }
+        for l in diagnostic_lines(diagnostics, texts).iter().chain(&lines) {
+            emit(to_stderr, l);
         }
         for l in &notes {
             eprintln!("{l}");
         }
     }
-    if failed {
-        ExitCode::from(1)
-    } else {
+    if !failed {
         ExitCode::SUCCESS
-    }
-}
-
-fn severity(d: &Diagnostic) -> String {
-    if d.is_unsupported() {
-        "unsupported".to_string()
+    } else if run.is_none() {
+        // 実行しなかった。Error がすべて未対応（GM-U）なら 3（`--force` で実行できたときは従来どおり 1）
+        failure_code(diagnostics)
     } else {
-        serde_json::to_value(d.severity)
-            .ok()
-            .and_then(|v| v.as_str().map(str::to_owned))
-            .unwrap_or_default()
+        ExitCode::from(1)
     }
 }
 

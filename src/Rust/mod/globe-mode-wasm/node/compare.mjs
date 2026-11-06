@@ -66,7 +66,7 @@ function native(model, solver) {
       stdio: ["ignore", "pipe", "pipe"],
     });
   } catch (e) {
-    out = e.stdout; // 終了コード 1（モデルの誤り・実行の失敗）でも JSON は出る
+    out = e.stdout; // 終了コード 1（モデルの誤り・実行の失敗）か 3（未対応。S199）でも JSON は出る
   }
   const r = JSON.parse(out);
   let text = null;

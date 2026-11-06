@@ -130,6 +130,39 @@ fn short_or_distant_names_get_no_candidates_and_open_documents_come_first() {
     assert!(d.notes.contains(&"候補: Net".to_string()), "{d:?}");
 }
 
+/// S199: 遠い開いている文書のモデルを、ライブラリの近い一致より先に出さない（段が先、同じ段のなかで開いている文書が先）。
+#[test]
+fn a_distant_open_document_does_not_outrank_a_library_match() {
+    let base = small_library("hints_order");
+    let checker = Checker::new(&[base.as_path()]).unwrap();
+    let text =
+        "model Net\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -x;\nend Net;\n";
+    let sources = [Source {
+        name: "net.mo",
+        text,
+    }];
+    let d = checker
+        .check(&sources, "Decay")
+        .diagnostics
+        .into_iter()
+        .next()
+        .unwrap();
+    assert_eq!(d.code, codes::MODEL_NOT_FOUND, "{d:?}");
+    assert_eq!(d.notes, ["候補: A.Sub.Decay, Net"], "{d:?}");
+}
+
+/// S199: 長すぎる `-m` は編集距離を飛ばす（100 KB で数十秒かかりうる）。綴りの候補は出ず、完全修飾名の案内になる。
+#[test]
+fn a_very_long_model_name_skips_the_spelling_distance() {
+    let base = small_library("hints_long");
+    let checker = Checker::new(&[base.as_path()]).unwrap();
+    let started = std::time::Instant::now();
+    let d = first_error(&checker, &"D".repeat(100_000));
+    assert_eq!(d.code, codes::MODEL_NOT_FOUND);
+    assert!(d.notes.iter().any(|n| n.contains("完全修飾名")), "{d:?}");
+    assert!(started.elapsed().as_secs() < 5);
+}
+
 /// MSL 4.1.0 の `PID_Controller`（`Blocks/package.mo` の入れ子）。`data/msl` が無ければ何もしない。
 #[test]
 #[ignore]
