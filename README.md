@@ -26,7 +26,7 @@ UI keyboard shortcuts (browser, Desktop, Android with a keyboard; Cmd instead of
 | Ctrl+S / Ctrl+Shift+S | Save / Save as (Desktop) |
 | Ctrl+O | Open |
 | F12, Shift+F12, F2, Alt+Left | Go to definition, references, rename, back (editor) |
-| Tab / Shift+Tab | In the editor: indent / outdent by two spaces (selected lines too) |
+| Tab / Shift+Tab | In the editor: indent / outdent by two spaces (selected lines too); while the completion list is open, Tab accepts the selected candidate (Enter does too) |
 | Esc then Tab (Shift+Tab), or Ctrl+M (Shift+Alt+M on macOS) | Move focus out of the editor to the next (previous) element; Ctrl+M toggles "Tab moves focus" |
 
 ## Getting started
@@ -134,7 +134,7 @@ python3 -m http.server 8000 -d dist        # http://localhost:8000/ を開く
 | Windows 11 | `desktop-windows`（.msi） | ダブルクリック |
 | macOS（Apple silicon） | `desktop-macos`（.dmg）、`desktop-macos-app`（.app の tar） | .dmg を開いて `/Applications` へ |
 
-タグ `v*` を打つと `release.yml` が macOS（Apple silicon）の .dmg・`globe` の tar.gz・Python の wheel も作って Release に付ける（まだタグは打っていない。手動の実行は dry run で artifact に残すだけ）。取得は `gh run download <run-id> -n <artifact>`。**署名も公証もしていない**ので、OS が警告を出す（Windows の SmartScreen、macOS の Gatekeeper。macOS は「システム設定」の「プライバシーとセキュリティ」で「このまま開く」を押す。Apple の案内 <https://support.apple.com/en-us/102445>、確認日 2026-11-05）。起動して「MSL を読む」を押すと MSL 4.1.0 を取得する。Desktop は検査と実行を sidecar の `globe lsp` に任せる（[ADR-0023](doc/adr/0023-desktop-and-web-process-layout.md)）。作業ディレクトリの `globe-mode.toml` を整形と lint に使う。
+タグ `v*` を打つと `release.yml` が macOS（Apple silicon）の .dmg・`globe` の tar.gz・Python の wheel も作って Release に付ける（まだタグは打っていない。手動の実行は dry run で artifact に残すだけ。入力 `tag` を付けるとタグの経路も確かめられる。手順は [doc/release.md](doc/release.md)）。取得は `gh run download <run-id> -n <artifact>`。**署名も公証もしていない**ので、OS が警告を出す（Windows の SmartScreen、macOS の Gatekeeper。macOS は「システム設定」の「プライバシーとセキュリティ」で「このまま開く」を押す。Apple の案内 <https://support.apple.com/en-us/102445>、確認日 2026-11-05）。起動して「MSL を読む」を押すと MSL 4.1.0 を取得する。Desktop は検査と実行を sidecar の `globe lsp` に任せる（[ADR-0023](doc/adr/0023-desktop-and-web-process-layout.md)）。作業ディレクトリの `globe-mode.toml` を整形と lint に使う。
 
 #### Android
 

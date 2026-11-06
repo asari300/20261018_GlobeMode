@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S197 Desktop のレビューの指摘 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S197 Desktop のレビューの指摘">
+
+<section class="slide" id="S01">
+  <span class="tag">S197 · 2026-11-06 · P4</span>
+  <h1>Desktop のシェルの指摘 5 件</h1>
+  <p class="lead">中断・MSL の切り替え・取得の排他・method の許可・CSP</p>
+  <div class="big">1 件ずつ失敗する試験で再現してから直した</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">指摘と対応</span>
+  <h1>何を直したか</h1>
+  <table class="compact">
+    <tr><th>指摘</th><th>再現</th><th>直し</th></tr>
+    <tr><td>2・6 応えない検査で全体が止まり、中断も効かない</td><td class="ok">試験で再現</td><td>予算の無い要求も Running に登録。2 秒で sidecar を作り直す</td></tr>
+    <tr><td>4 切り替えの失敗でライブラリが残る</td><td class="ok">試験で再現</td><td>失敗したら元に戻す</td></tr>
+    <tr><td>5 取得の同時実行・HEAD・展開</td><td class="ok">試験で再現</td><td>排他の旗、10 秒、取り消し</td></tr>
+    <tr><td>3 method と CSP</td><td class="warn">多層防御</td><td>UI が使う 19 個だけ中継。CSP を入れた</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>CSP は meta と同じに</h1>
+  <ul>
+    <li>ブラウザ版の CSP（index.html の meta）に、IPC の connect-src を足しただけ</li>
+    <li>試験が 2 つの一致と、UI の method の一覧との一致を確かめる</li>
+    <li>限界: exportFmu の outDir は任意のまま（ADR-0023 に記録）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">再現手順</span>
+  <h1>確かめ方</h1>
+  <pre><code>gh workflow run desktop.yml --ref feature/s197-desktop-review-fixes
+gh workflow run android.yml --ref feature/s197-desktop-review-fixes</code></pre>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ul>
+    <li>reload_config の削除（TS も触る）</li>
+    <li>exportFmu の outDir を dialog のパスに限る</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

@@ -34,6 +34,13 @@ pub fn dest(root: &Path, version: &str) -> PathBuf {
     root.join(version)
 }
 
+/// 試験用: 取得を済ませたことにする（目印を書く）。
+#[cfg(test)]
+pub fn mark_ready(dest: &Path, version: &str) {
+    let (_, sha) = source(version).unwrap();
+    fs::write(dest.join(MARKER), format!("{version} {sha}\n")).unwrap();
+}
+
 /// `dest` にその版の MSL が展開済みか。
 pub fn ready(dest: &Path, version: &str) -> bool {
     source(version).is_some_and(|(_, sha)| marker_is(dest, version, sha))
@@ -95,7 +102,7 @@ pub fn fetch(
         let _ = fs::remove_file(&zip);
         return Err(format!("curl が失敗した（{status}）: {}", err.trim()));
     }
-    install(&zip, version, sha256, dest)
+    install(&zip, version, sha256, dest, cancel)
 }
 
 fn curl() -> Command {
@@ -112,7 +119,15 @@ fn curl() -> Command {
 /// HEAD で Content-Length を聞く（リダイレクトの最後の応答の値）。分からなければ None。
 fn content_length(url: &str) -> Option<u64> {
     let out = curl()
-        .args(["--fail", "--location", "--silent", "--head", url])
+        .args([
+            "--fail",
+            "--location",
+            "--silent",
+            "--max-time",
+            "10",
+            "--head",
+            url,
+        ])
         .output()
         .ok()?;
     String::from_utf8_lossy(&out.stdout)
@@ -124,14 +139,26 @@ fn content_length(url: &str) -> Option<u64> {
 }
 
 /// 取得した zip の sha256 を確かめて `dest` に展開し、最後に目印を書く。zip は成否にかかわらず消す。
-fn install(zip: &Path, version: &str, sha256: &str, dest: &Path) -> Result<(), String> {
-    let result = extract(zip, version, sha256, dest);
+fn install(
+    zip: &Path,
+    version: &str,
+    sha256: &str,
+    dest: &Path,
+    cancel: &AtomicBool,
+) -> Result<(), String> {
+    let result = extract(zip, version, sha256, dest, cancel);
     let _ = fs::remove_file(zip);
     let _ = fs::remove_dir(dest.join(".download"));
     result
 }
 
-fn extract(zip: &Path, version: &str, sha256: &str, dest: &Path) -> Result<(), String> {
+fn extract(
+    zip: &Path,
+    version: &str,
+    sha256: &str,
+    dest: &Path,
+    cancel: &AtomicBool,
+) -> Result<(), String> {
     let got = sha256_file(zip)?;
     if got != sha256 {
         return Err(format!("sha256 が一致しない: 期待 {sha256}、実際 {got}"));
@@ -139,6 +166,9 @@ fn extract(zip: &Path, version: &str, sha256: &str, dest: &Path) -> Result<(), S
     let file = fs::File::open(zip).map_err(|e| e.to_string())?;
     let mut archive = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
     for i in 0..archive.len() {
+        if cancel.load(Ordering::Relaxed) {
+            return Err("MSL の取得を取り消した".into()); // 目印が無いので、次回やり直す
+        }
         let mut entry = archive.by_index(i).map_err(|e| e.to_string())?;
         // enclosed_name は「..」や絶対パスで展開先の外に出る名前を拒む
         let Some(rel) = entry.enclosed_name() else {
@@ -205,16 +235,35 @@ mod tests {
         let sha = sha256_file(&zip).unwrap();
         let dest = d.join("msl");
         // 違う sha256 なら目印も展開も無い
-        let bad = install(&zip, "9.9.9", &"0".repeat(64), &dest);
+        let bad = install(
+            &zip,
+            "9.9.9",
+            &"0".repeat(64),
+            &dest,
+            &AtomicBool::new(false),
+        );
         assert!(bad.unwrap_err().contains("sha256"));
         assert!(!dest.join(MARKER).exists() && !dest.join("Modelica 4.1.0").exists());
         // 消されたので作り直す
         make_zip(&zip, "Modelica 4.1.0/package.mo");
-        install(&zip, "9.9.9", &sha, &dest).unwrap();
+        install(&zip, "9.9.9", &sha, &dest, &AtomicBool::new(false)).unwrap();
         assert!(dest.join("Modelica 4.1.0/package.mo").is_file());
         assert!(marker_is(&dest, "9.9.9", &sha));
         assert!(!marker_is(&dest, "9.9.8", &sha));
         assert!(!zip.exists());
+        let _ = fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn install_stops_when_cancelled_while_extracting() {
+        let d = scratch("cancel");
+        let zip = d.join("a.zip");
+        make_zip(&zip, "Modelica 4.1.0/package.mo");
+        let sha = sha256_file(&zip).unwrap();
+        let dest = d.join("msl");
+        let e = install(&zip, "9.9.9", &sha, &dest, &AtomicBool::new(true)).unwrap_err();
+        assert!(e.contains("取り消"), "{e}");
+        assert!(!marker_is(&dest, "9.9.9", &sha) && !zip.exists());
         let _ = fs::remove_dir_all(d);
     }
 
@@ -240,7 +289,7 @@ mod tests {
         make_zip(&zip, "../evil.mo");
         let sha = sha256_file(&zip).unwrap();
         let dest = d.join("msl");
-        assert!(install(&zip, "9.9.9", &sha, &dest).is_err());
+        assert!(install(&zip, "9.9.9", &sha, &dest, &AtomicBool::new(false)).is_err());
         assert!(!d.join("evil.mo").exists() && !marker_is(&dest, "9.9.9", &sha));
         let _ = fs::remove_dir_all(d);
     }

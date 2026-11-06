@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S198 LSP のレビューの修正 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S198 LSP のレビューの修正">
+
+<section class="slide" id="S01">
+  <span class="tag">S198 · 2026-11-06 · P4</span>
+  <h1>LSP のレビューの修正</h1>
+  <p class="lead">参照・リネーム・補完のレビュー 10 件を、再現してから直した</p>
+  <div class="big">利用者の本文を壊す 2 件から。10 件中 9 件を採り、1 件は一部</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">本文を壊す</span>
+  <h1>部品のリネームが書き換えすぎていた</h1>
+  <table class="compact">
+    <tr><th>入力</th><th>前</th><th>後</th></tr>
+    <tr><td><code>Sine sine(amplitude = amplitude)</code> で amplitude を amp に</td><td class="ng"><code>sine(amp = amp)</code></td><td class="ok"><code>sine(amplitude = amp)</code></td></tr>
+    <tr><td>入れ子の <code>model B</code> にも <code>Real x</code></td><td class="ng">B の x も y</td><td class="ok">B の中は触らない</td></tr>
+    <tr><td><code>extends Base</code> の <code>y</code> と衝突</td><td class="ng">通った</td><td class="ok">「既にある」と断る</td></tr>
+    <tr><td><code>'a b'</code> の上で <code>a</code> を</td><td class="ng">部品 a が変わる</td><td class="ok">丸ごと一致だけ</td></tr>
+  </table>
+  <div class="card">修飾子の名前の除外は、クラス名の参照（<code>class_of</code>）にあったものを共用した</div>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">補完</span>
+  <h1>200 件で切ったら isIncomplete</h1>
+  <ul>
+    <li>LSP の <code>textDocument/completion</code> と <code>globe/completion</code> は <code>{isIncomplete, items}</code></li>
+    <li>200 件に達したときだけ <code>isIncomplete: true</code>。クライアントは打ち足すたびに問い直す</li>
+    <li>wasm の <code>completion</code> は配列のまま（UI の受け側は S196 が両方の形を受ける）</li>
+    <li>絞ってから切る順は元からそうだった。<code>Lib.Vol</code> で <code>Voltage</code> が出る試験を足した</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">クラスのリネーム</span>
+  <h1>ディスクの上の矛盾は断る側に倒す</h1>
+  <table class="compact">
+    <tr><th>状況（<code>textDocument/rename</code>）</th><th>前</th><th>後</th></tr>
+    <tr><td><code>M.mo</code> の <code>model M</code>、<code>package.mo</code></td><td class="ng">通る（ファイル名と食い違う）</td><td class="ok">断る</td></tr>
+    <tr><td>根の下の開いていない <code>.mo</code> に同じ名前</td><td class="ng">通る（参照が残る）</td><td class="ok">断る</td></tr>
+    <tr><td>UI の <code>globe/rename</code></td><td>通る</td><td>変えない（メモリ上の文書。S186 の流れ）</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">落ちない</span>
+  <h1>古いライブラリと panic</h1>
+  <ul>
+    <li>scratch のライブラリのファイルは更新時刻が変わったら読み直す</li>
+    <li>ホバーは範囲外なら <code>None</code>（<code>get</code>）</li>
+    <li>LSP は 1 要求の panic を <code>catch_unwind</code> で受け、-32603 を返してプロセスは続ける</li>
+    <li>開いていない文書: <code>globe/references</code> は空の配列、リネームは -32803</li>
+  </ul>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">持ち越し</span>
+  <h1>やらなかったこと</h1>
+  <ul>
+    <li>クラスのリネームで開いていないファイルの参照まで書き換える（いまは断る）</li>
+    <li>根の下の <code>.mo</code> の索引（いまは毎回読む。MSL 全体で数百 ms の見込み）</li>
+    <li><code>rename</code> の中の <code>class_name_at</code> との重複（署名を変える）</li>
+    <li>同じ更新時刻の中で変わったファイルの検出</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
