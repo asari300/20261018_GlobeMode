@@ -125,3 +125,14 @@ graph は S039 のシナリオにあるが、Julia 以外では既に通るの�
 - 順の 6 の設計は S121 の [ADR-0033](../adr/0033-progress-and-cancel.md)（Proposed）。進捗は段と積分の時刻、中断は呼び手の持つトークン。実装の順は facade → wasm → Python → C・NIF → LSP。
 
 1 と 2 は 1 セッションに収まる大きさ（facade に 2 関数、束ねごとに 2〜3 関数）。
+
+## 4. 束ねの重複を facade に寄せた先（S202、2026-11-06）
+
+C ABI（`globe-mode-c`）と NIF（`globe-mode-nif`）に同じコードが 4 か所あったので、facade `globe-mode` と `globe-mode-exec` に置いた。応答の JSON の形・文面は変えていない。**Python（`globe-mode-py`）と wasm（`globe-mode-wasm`）にも同じ重複が残っている**。別の作業が触っていたので今回は寄せていない。次に触るときは下の関数を呼ぶだけでよい。
+
+| 重複していたもの | 置いた先 | C ABI・NIF | Python・wasm |
+| --- | --- | --- | --- |
+| 設定の JSON からの要求の組み立て（`{"model", "settings"}` を `SimulateRequest` に） | `globe_mode::simulate_request(model, Option<&str>)` | 使用済み | Python の `request()` が同じ（置き換え可）。wasm は `Request` を JSON で受けるので不要 |
+| 列の応答の見出しの JSON（`response`・`names`・`points`・`defaults`） | `Simulated::layout_json(&ColumnsLayout)` | 使用済み | Python の `simulate_columns`・wasm の `SimColumns` が同じ形を手で組み立てている（置き換え可） |
+| 進捗の段の名前（`format!("{:?}", stage).to_lowercase()`） | `ExecStage::as_str()` | 使用済み | Python・wasm・LSP（`globe-mode-lsp`）が `format!` のまま（置き換え可。結果は同じ文字列） |
+| outline の誤りの文面（ファイルが無い・最初の診断の `コード: 文`） | `Workspace::outline_json(path)` | 使用済み | Python は例外に直す別の形なので寄せられるか未確認。wasm は誤りを返さない別の形 |
