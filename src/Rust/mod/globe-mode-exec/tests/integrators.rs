@@ -378,6 +378,32 @@ fn fixed_step_returns_to_its_grid_after_events() {
     assert_eq!(t.len(), 501 + off_grid, "行の数");
 }
 
+/// 終了時刻が刻み幅の整数倍でないときは、最後の刻みを短くして終了時刻にちょうど着く（#9）。
+/// h = 0.3、終了時刻 1 なら、格子の点は 0.3・0.6・0.9 で、最後の刻みは 0.1。
+#[test]
+fn fixed_step_shortens_the_last_step_to_land_on_the_stop_time() {
+    let model = compile("Decay");
+    // RK4 の 1 歩の増幅率 R(z) を x' = -x の z = -h で
+    let r = |h: f64| 1.0 - h + h * h / 2.0 - h.powi(3) / 6.0 + h.powi(4) / 24.0;
+    let run = run_with(&model, SolverId::Rk4, Some(0.3));
+    assert_eq!(*run.trajectory.time.last().unwrap(), 1.0);
+    assert_close(
+        last(&run, "x"),
+        r(0.3).powi(3) * r(0.1),
+        1e-12,
+        "rk4 x(1)（0.3 刻み 3 歩と 0.1 の短い歩）",
+    );
+    // 陰的 Euler 法（θ 法）の最後の刻みも同じ: 1 歩の増幅率 1/(1+h)
+    let run = run_with(&model, SolverId::Impeuler, Some(0.3));
+    assert_eq!(*run.trajectory.time.last().unwrap(), 1.0);
+    assert_close(
+        last(&run, "x"),
+        1.0 / (1.3f64.powi(3) * 1.1),
+        1e-9,
+        "impeuler x(1)",
+    );
+}
+
 /// 固定刻みの幅が無ければ出力の間隔を使う。
 #[test]
 fn fixed_step_defaults_to_the_output_interval() {

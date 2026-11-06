@@ -36,7 +36,7 @@ All three compile. Assignments, `if` statements and `for` statements are ordinar
 
 ```text
 $ globe check 25-ed019-function-conditional-boolean-loop.mo --model Rep25.M
-25-ed019-function-conditional-boolean-loop.mo:13:16: unsupported[GM-U0001] S5 方程式数と変数数: unsupported Flat semantic owner `function conditional`: `isIncreasing` requires assignments or nested conditionals in every checked branch
+25-ed019-function-conditional-boolean-loop.mo:17:16: unsupported[GM-U0001] S5 方程式数と変数数: unsupported Flat semantic owner `function conditional`: `isIncreasing` requires assignments or nested conditionals in every checked branch
     note: rumoca: ED019
 Rep25.M: NG（S5 方程式数と変数数 で停止）
 

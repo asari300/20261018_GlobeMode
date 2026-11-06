@@ -17,7 +17,8 @@ pub struct Element<'t, 'a> {
 #[derive(Debug)]
 enum Ctx<'a> {
     Class(&'a str),
-    Block,
+    /// 開いた if / for / while / when（`end <種類>` との対応を確かめる）
+    Block(&'a str),
 }
 
 const CLASS_PREFIX: &[&str] = &[
@@ -92,7 +93,13 @@ pub fn split<'t, 'a>(
             }
             let is_block = BLOCK_END.contains(&name.text) && name.is_keyword();
             match (stack.pop(), is_block) {
-                (Some(Ctx::Block), true) => {}
+                (Some(Ctx::Block(k)), true) if k == name.text => {}
+                (Some(Ctx::Block(k)), true) => {
+                    return Err(err(
+                        format!("end {} が {} と合わない", name.text, k),
+                        name.start,
+                    ));
+                }
                 (Some(Ctx::Class(c)), false) if c == name.text => blank = true,
                 (Some(Ctx::Class(c)), false) => {
                     return Err(err(
@@ -113,9 +120,9 @@ pub fn split<'t, 'a>(
             indent = class_level(&stack);
         } else if t.is("if") || t.is("for") || t.is("while") || t.is("when") {
             i = scan_to(tokens, i, |s| s.is("then") || s.is("loop"))?;
-            stack.push(Ctx::Block);
+            stack.push(Ctx::Block(t.text));
         } else if t.is("else") || t.is("elseif") || t.is("elsewhen") {
-            if !matches!(stack.last(), Some(Ctx::Block)) {
+            if !matches!(stack.last(), Some(Ctx::Block(_))) {
                 return Err(err("ブロックの外の else", t.start));
             }
             indent = stack.len() - 1;
@@ -180,7 +187,7 @@ pub fn split<'t, 'a>(
     if let Some(ctx) = stack.last() {
         let what = match ctx {
             Ctx::Class(c) => format!("end {c}; が無い"),
-            Ctx::Block => "end if / for / while / when が無い".to_string(),
+            Ctx::Block(_) => "end if / for / while / when が無い".to_string(),
         };
         return Err(err(what, tokens.last().map_or(0, |t| t.start)));
     }
@@ -395,6 +402,9 @@ mod tests {
             "model M\nend N;",
             "model M\n  x = (1;\nend M;",
             "model M\n  Real x;",
+            // S192: 開いた if と end for の不一致、種類の違う end
+            "model M\n  Real x;\nequation\n  if true then\n    x = 1;\n  end for;\nend M;",
+            "model M\n  Real x;\nequation\n  for i in 1:2 loop\n    x = 1;\n  end if;\nend M;",
         ] {
             assert!(split(&lex(bad).unwrap(), true).is_err(), "{bad}");
         }
