@@ -583,7 +583,7 @@ mod tests {
                 ..Default::default()
             };
             mock.initialize(0.0, Some(0.9), None).unwrap();
-            let r = drive(&mut mock, &plan);
+            let r = drive(&mut mock, &plan, &mut |_| {});
             assert!(r.is_err(), "{integrator:?}: {:?}", r.map(|r| r.rows));
         }
     }
