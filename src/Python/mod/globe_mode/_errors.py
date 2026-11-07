@@ -40,7 +40,7 @@ class ExportError(GlobeModeError, ValueError):
 
 
 class ResultError(GlobeModeError, ValueError):
-    """結果に時系列が無い（`table`。実行できなかった結果を表にしようとした）。"""
+    """結果に時系列が無い（`table`。実行できなかった結果を表にしようとした）か、結果のファイルを読めない（`read_results`）。"""
 
 
 def _summary(ds: list[dict[str, Any]]) -> str:

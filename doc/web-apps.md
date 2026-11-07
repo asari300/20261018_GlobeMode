@@ -10,7 +10,7 @@ S053 で決めた。GlobeMode の整形器と lint（`globe-mode-fmt`、[format-
 | crate `globe-mode-fmt`（`src/Rust/mod/globe-mode-fmt`、依存 0） | Rust のアプリ（`path` 依存） |
 | CLI `globe fmt --json -` / `globe lint --json -`（標準入力 → 標準出力の JSON） | Rust 以外のアプリ（子プロセス） |
 
-CLI の契約（`globe-mode-cli`）:
+CLI の契約（`globe-mode-cli`）は次のとおり。
 
 ```text
 echo '<Modelica>' | globe fmt --json - [--indent 2] [--width 80] [--no-insert-origin]
@@ -81,7 +81,7 @@ Streamlit・marimo のようにサーバの API を持たないものは、画�
 
 すべて S053 で作った。各アプリの検査は README のとおりで、`GLOBE_BIN` に `target/debug/globe` を渡す。画面はブラウザで操作していない（HTML の配信と API を curl と各フレームワークのテストクライアントで確かめた）。
 
-提案（未着手）: Go `net/http`（標準ライブラリだけ）、Deno + Hono、Julia Oxygen.jl、Zig zap、Svelte は `src/Svelte` の IDE 本体に整形ボタンを足す（S053）。
+提案（未着手）: Go `net/http`（標準ライブラリだけ）、Deno + Hono、Julia Oxygen.jl、Zig zap。Svelte の IDE 本体の整形ボタンは作ってある（S053）。
 
 - **自分のディレクトリの外を変えない。** 共有ファイル（`Cargo.toml`、`pyproject.toml`、`uv.lock`、`mise.toml`、`doc/licenses.md`）は触らない。ライセンスの行は各アプリの README に書き、あとでまとめて `doc/licenses.md` に写す。
 - Rust のアプリは**独立した workspace**（`Cargo.toml` に空の `[workspace]`）にし、ルートの workspace には入れない（CI と cargo deny の対象を増やさない）。`.cargo/config.toml` で `target-dir = "../../../../target"` にしてビルド物を共有する。`globe-mode-fmt` は `path = "../../mod/globe-mode-fmt"`。

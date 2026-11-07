@@ -10,7 +10,7 @@
     table(res)  # polars.DataFrame（time 列と変数の列）
 
 - 使い方: `Workspace`（開く・`check`・`outline`・`deps`・`flat`・`graph`・`simulate`・`simulate_columns`・`export_fmu`）、`table`、`format`、
-  `lint`、`solvers`。それぞれ `help()` に引数・戻り値・誤りがある。
+  `lint`、`solvers`、`read_results`（結果の MAT v4・CSV を読む）。それぞれ `help()` に引数・戻り値・誤りがある。
 - 誤りの扱い: **モデルの誤りは例外にせず、結果の `diagnostics`（`ok`・`passed`）で返す**（未知のモデルも `check` は
   `passed: False`）。ライブラリが出す例外はすべて `GlobeModeError` の子（`.diagnostics` と最初の診断の `.code` を持つ）で、
   これまでの組み込みの型も継ぐので `except ValueError` などでも受けられる:
@@ -22,7 +22,7 @@
   | `ModelNotFoundError` | `ValueError` | `graph` のモデルが索引に無い |
   | `SourceError` | `ValueError` | `outline` のファイルが無い・構文の誤り、`format` の構文の誤り |
   | `ExportError` | `ValueError` | `export_fmu` が書き出せない |
-  | `ResultError` | `ValueError` | `table` に時系列の無い結果を渡した |
+  | `ResultError` | `ValueError` | `table` に時系列の無い結果を渡した、`read_results` が結果のファイルを読めない |
 
   **呼び方の誤りは素の `TypeError`**（未知の設定のキー、`on_progress` が呼べない、`libraries` が bytes）で、
   コールバックが出した例外と Rust の panic（`pyo3_runtime.PanicException`）はそのまま通る。
@@ -65,6 +65,7 @@ __all__ = [
     "format",
     "lint",
     "main",
+    "read_results",
     "solvers",
     "table",
 ]
@@ -306,6 +307,21 @@ def table(response: dict[str, Any]) -> pl.DataFrame:
     if response.get("csv") is None:
         raise ResultError(response.get("refused") or "結果に時系列が無い（ok を確かめてから table に渡す）")
     return pl.read_csv(io.StringIO(response["csv"]))
+
+
+def read_results(path: str | os.PathLike[str]) -> dict[str, Any]:
+    """結果のファイルを読む（S219。`.mat` は MAT v4＝OpenModelica・Dymola・`globe simulate -o x.mat` の結果、それ以外は CSV）。
+
+    `simulate_columns` と同じ形の dict を返す: `ok`（True）・`columns`（名前 → `polars.Series`、`time` が先頭）・`csv`（None）。
+    ほかに `parameters`（MAT の `data_1`。`name`・`value`・`unit`・`description` の dict のリスト。CSV では空）。
+    `table(res)` で表になる。読めなければ（無い・MAT でも CSV でもない・時刻が崩れている）`ResultError`。
+
+        table(read_results("res.mat"))
+    """
+    parameters, names, columns = _native.read_results(path)
+    # shortcut: memoryview の "d" は native-endian（Rust は little-endian で詰める）、big-endian の機械なら byteswap が要る
+    cols = {n: pl.Series(n, memoryview(c).cast("d"), pl.Float64) for n, c in zip(names, columns)}
+    return {"ok": True, "columns": cols, "csv": None, "parameters": json.loads(parameters)}
 
 
 def solvers() -> list[dict[str, Any]]:

@@ -10,7 +10,7 @@
 - **止まり方**: Rumoca の lowering・組み立てが終わらないモデルがある（`DrumBoiler`、[ADR-0018](0018-no-preflight-limit.md)）。`msl-sim` はワーカーを別プロセスにして、時間切れ（180 s、lowering は 150 s）で**外から止めて回し直す**（[ADR-0017](0017-lowering-limit-and-hard-timeout-retry.md)）。同じプロセスの中では、終わらない計算を安全に止められない。
 - **panic**: wasm は panic=abort で、S036 は panic の後に Worker を捨てて作り直し、ライブラリとファイルを再生する道を作った（[roadmap.md](../roadmap.md) の S036）。ネイティブでも Rumoca の内部の `unwrap` などで panic する道は残っている（`msl:funnel` の panic は 0 本だが、未知の入力に対しては保証できない）。
 - **入口はもうそろっている**: S035 の facade `globe-mode` と `globe-mode-protocol`（`CheckResponse`・`SimulateRequest`・`SimulateResponse` の JSON）、S038 の `globe lsp`（stdio の JSON-RPC、`Content-Length` の枠、1 スレッドで 1 要求ずつ）、S036 の `GlobeWorker`（呼び出しを直列にし、panic の後に作り直す）。Desktop の UI が同じ JSON を同じ枠で別プロセスへ送れば、新しい計算の道は要らない。
-- 測定（S040、x86_64 の WSL2、RAM 3 GB + swap 16 GB、release ビルド。手順は [sessions/S040-adr-process-layout/解説書.md](../sessions/S040-adr-process-layout/解説書.md)）:
+- 測定（S040、x86_64 の WSL2、RAM 3 GB + swap 16 GB、release ビルド。手順は [sessions/S040-adr-process-layout/解説書.md](../sessions/S040-adr-process-layout/解説書.md)）は次のとおり。
 
   | 項目 | 値 |
   | --- | --- |
@@ -61,7 +61,7 @@ UI（Svelte）のプロセスでは検査も実行もしない。計算は 1 つ
 ### S049 で決まったこと（WP-C、2026-10-31）
 
 - **Tauri のシェルは別の Cargo workspace**（`src/Rust/apps/desktop`）。自分の `[workspace]` と `Cargo.lock`（406 パッケージ）を持ち、ルートの workspace に入れない。webkit2gtk を要求するので、手元と差分 CI の `cargo build --workspace` に巻き込まないため。依存は `tauri` 2 と `serde_json` だけで、facade `globe-mode` はリンクしない（desktop の `deny.toml` の `bans` で守る）。ビルドは [desktop.yml](../../.github/workflows/desktop.yml)（手動だけ）。
-- **独自の要求の名前と形**（`globe lsp` の同じ接続。実装は `globe-mode-lsp`）:
+- **独自の要求の名前と形**（`globe lsp` の同じ接続。実装は `globe-mode-lsp`）は次のとおり。
 
   | 要求 | params | result |
   | --- | --- | --- |
@@ -105,7 +105,7 @@ UI（Svelte）のプロセスでは検査も実行もしない。計算は 1 つ
 
 ### S103 で決まったこと（Android の MSL、2026-11-03）
 
-- **Android の APK は MSL.json を同梱する**（S092 の持ち越しの「Android での MSL の置き場」）。比べた 2 つの道:
+- **Android の APK は MSL.json を同梱する**（S092 の持ち越しの「Android での MSL の置き場」）。比べた 2 つの道は次のとおり。
   - (a) Desktop と同じ `fetch_msl`（S069・S084）を mobile でも動かす: `#[cfg(mobile)]` の入口に command と `msl.rs`（取得・展開）を載せ、さらに app のデータディレクトリの `.mo` を WebView の `WorkerBackend` に渡す新しい道（command で JSON を返す等）が要る。Rust と TS の両方に新しいコード、初回は回線が要る。
   - (b) ビルド時に同梱する: `android.yml` のジョブ `ui` で `cargo xtask fetch-msl` してから `pnpm build` するだけで、既存の `pack-msl.mjs` が `MSL.json` を `dist`（Tauri が APK に埋める）に入れ、UI の「MSL を読む」はブラウザと同じ `fetch("msl/MSL.json")` の道でそのまま動く。アプリのコードは変えない。
   - → (b) を採った（変更は workflow の 1 段だけ。回線も要らない）。形はブラウザと同じ全部読みの `MSL.json`（15.2 MiB、2556 ファイル）。S054 の分割読み込みは UI がまだ使っていないので、使うときにブラウザと一緒に替える。

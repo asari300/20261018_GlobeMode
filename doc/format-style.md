@@ -28,7 +28,7 @@ S053 でユーザーと対話して決めた既定の形。実装は `src/Rust/m
 
 ## 2. 例
 
-Before（`src/Rust/mod/globe-mode-fmt/tests/data/objects_before.mo`）:
+Before（`src/Rust/mod/globe-mode-fmt/tests/data/objects_before.mo`）は次のとおり。
 
 ```modelica
 within Alfheim;
@@ -38,7 +38,7 @@ model Objects_Before
 end Objects_Before;
 ```
 
-After（抜粋。全文は `objects_after.mo`）:
+After は次のとおり（抜粋。全文は `objects_after.mo`）。
 
 ```modelica
 within Alfheim;
@@ -115,6 +115,6 @@ disable = ["missing-description", "GM-L0004"]  # 規則の名前でも LSP の�
 - 探し方: CLI は対象のファイル（標準入力ならカレントディレクトリ）から上へたどって最初の `globe-mode.toml`。ファイルごとに探すので、サブディレクトリに別の設定を置ける。LSP は `initialize` の `rootUri`（無ければ `rootPath`）から上へたどって最初のもの。無ければ既定。
 - 優先: CLI はコマンドラインの引数（`--indent`・`--width`・`--no-…`）が設定ファイルより優先し、`--disable` は `[lint] disable` に足す。LSP の `textDocument/formatting` は、設定ファイルがあれば `indent` に `tabSize` ではなく設定ファイルの値を使う（ruff と同じ。無ければ従来どおり `tabSize`）。拡張の追加のキー（`insertOrigin` など）は設定ファイルより優先する。
 - 誤り: 知らない表・キー・規則、型の違う値は誤り。CLI は終了コード 2、LSP は `window/showMessage` で知らせて既定で続ける。LSP は `workspace/didChangeConfiguration` で読み直し、開いている文書の診断を出し直す。
-- wasm・ブラウザ UI・`globe/format`・`globe/lint` は設定ファイルを読まない（引数で渡す）。読む処理は `globe-mode-fmt` の feature `config`（`LintOptions::from_toml`・`LintOptions::find`）で、CLI と LSP だけが立てる（[ADR-0024](adr/0024-own-formatter-and-lint.md)）。
+- wasm とブラウザ UI は設定ファイルを読まない（引数で渡す）。LSP の独自の要求 `globe/format`・`globe/lint` は、設定ファイルがあればそれを土台にする（S143）。`globe/format` の `indent` は設定ファイルが勝ち、設定ファイルが無いときだけ params の値を使う（S214）。読む処理は `globe-mode-fmt` の feature `config`（`LintOptions::from_toml`・`LintOptions::find`）で、CLI と LSP だけが立てる（[ADR-0024](adr/0024-own-formatter-and-lint.md)）。
 
-S053 の時点で `src/Modelica/` の 69 ファイルすべてが整形で変わる（空行の規則のため）。既存ファイルの書き換えはしていない。
+S053 の時点では `src/Modelica/` の 69 ファイルすべてが整形で変わる状態で（空行の規則のため）、既存ファイルの書き換えはしていなかった。S189 で `globe fmt src/Modelica` を通してあり、`globe fmt --check src/Modelica` を CI と `mise run check` で回す。

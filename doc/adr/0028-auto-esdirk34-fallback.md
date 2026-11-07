@@ -15,7 +15,7 @@
 ### (a) 回し直しの順序は BDF → esdirk34 → dopri45
 
 - BDF が規則に当たる失敗（下の (b)）をしたら、まず `esdirk34`（diffsol の SDIRK。陰的）で回し直す。`esdirk34` が時間切れ以外の理由で止まったら、`dopri45` で回し直す。時間切れなら回し直さない（予算が残っていない）。
-- **順序は 2 通りを比べて決めた**:
+- **順序は 2 通りを比べて決めた**。
   - 案 A（BDF → dopri45 → esdirk34）: 剛性の系は dopri45 が予算の最後まで使うので、`esdirk34` に時間が残らない。S055 の 3 本（`Dimmer_RL`・`ThyristorBridge2mPulse_DC_Drive` ほか）は、この順だと今と同じく終わらない。dopri45 に予算の一部だけ渡す案も考えたが、`esdirk34` は `ThyristorBridge2mPulse_DC_Drive` で 94 s（ランナー）かかるので、分け方で当たり外れが出る。
   - 案 B（BDF → esdirk34 → dopri45）を採る。`dopri45` だけが救える系（`TwoMass`。`esdirk34` は `GM-E11002` で 3 秒以内に落ちる）は、`esdirk34` が早く失敗するので、そのまま dopri45 に回る。`esdirk34` が長く走って予算を使い切るのは、`dopri45` も終わらない硬い系だけ。
 - `esdirk34` だけに置き換える案は採らない。`TwoMass` のように `dopri45` だけが終える系がある。
@@ -46,7 +46,7 @@
 
 ## 結果
 
-手元の測定（release、`globe simulate -L data/msl --solver auto`、許容誤差は S050 の設定、`--timeout 180`。機械は他のセッションのビルドで負荷が変わるので、秒数は目安）:
+手元の測定（release、`globe simulate -L data/msl --solver auto`、許容誤差は S050 の設定、`--timeout 180`。機械は他のセッションのビルドで負荷が変わるので、秒数は目安）は次のとおり。
 
 | モデル | 前 | 後 |
 | --- | --- | --- |

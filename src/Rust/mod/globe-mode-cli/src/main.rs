@@ -72,6 +72,7 @@ static VERBOSE: AtomicBool = AtomicBool::new(false);
 
 mod fmu;
 mod report;
+mod results;
 mod simulate;
 
 #[derive(Debug, Parser)]
@@ -269,6 +270,17 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// 結果の MAT v4 / CSV を読み、CSV か MAT v4 に書き直す（形は拡張子で決める）
+    #[command(
+        after_help = "例:\n  globe results omc_res.mat                  MAT v4 を CSV にして標準出力へ\n  globe results run.csv -o run.mat           CSV を MAT v4 に\n  globe results omc_res.mat -o omc.csv\n\n入力・出力とも拡張子 .mat は MAT v4（binTrans、リトルエンディアン）、それ以外は CSV。MAT のパラメータは CSV に移らない"
+    )]
+    Results {
+        /// 読む結果（.mat は MAT v4、それ以外は CSV）
+        input: PathBuf,
+        /// 書き先（省略か `-` は標準出力に CSV。拡張子 .mat なら MAT v4）
+        #[arg(long, short)]
+        output: Option<PathBuf>,
+    },
     /// FMU（`export` で書き出し、`info` と `run` で読む）
     Fmu {
         #[command(subcommand)]
@@ -435,6 +447,7 @@ fn main() -> ExitCode {
         Command::Fmu {
             command: FmuCommand::Import(command),
         } => fmu::run(command),
+        Command::Results { input, output } => results::results(&input, output.as_deref()),
         Command::Simulate {
             files,
             library,

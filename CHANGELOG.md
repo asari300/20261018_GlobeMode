@@ -90,6 +90,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - S189: **挙動が変わる**: FMU の既定のファイル名に FMI の版が付く（`Decay.fmu` から `Decay-fmi2.fmu` / `Decay-fmi3.fmu`。CLI `globe fmu export`・facade・Python `export_fmu`・LSP `globe/exportFmu`・C ABI・NIF・各言語・UI のダウンロード名。FMU の中身は不変）。書き出せないモデルの失敗は「このモデルは FMU に書き出せない（理由: …）」から始まる。
 - S189: `src/Modelica` の 71 ファイルを `globe fmt` で整形した（意味は不変。`globe fmt --check src/Modelica` を CI と `mise run check` に追加）。
 - S192: 整形器を直した。UTF-8 の文字の途中や省略した tuple の出力での panic（PR #17）、CRLF の複数行コメント・文字列で整形が拒否されること（issue #19）を直し、**`if` を `end for;` で閉じるような種類の違う `end` は `Err` になる**（issue #21。MSL 4.1.0 ほか 2,661 本の整形結果は前後で同じ）。issue #20 は S167 で修正済み。
+- S219: **結果の読み込み**。CLI に `globe results <in.mat|in.csv> [-o out.csv|out.mat]`（形は拡張子で決める。`-o` 無しは CSV を標準出力へ。入力と同じ書き先は断る）、Python に `globe_mode.read_results(path)`（`simulate_columns` と同じ形の dict。`table` で表になる。MAT のパラメータは `parameters`）。omc の実物の MAT で試した。UI の「結果を開く」は別の仕事。
 - S220: LSP に `textDocument/foldingRange`（クラス・節・複数行の annotation・連続コメント）、VS Code の拡張に `indentationRules`（`model`/`function`/`if … then`/`for … loop` などの次の行で字下げし、`end`・`else`・節の見出しで戻す）。UI（CodeMirror）の折りたたみは別 WP。
 - S215: **挙動が変わる**: CLI を子プロセスで呼ぶウェブアプリ 6 種は、本文が 1 MiB を超えると 413（Streamlit・marimo は画面にエラー）、`globe` が 10 秒（`GLOBE_TIMEOUT_MS`）で終わらなければ kill して 5xx（FastAPI は 60 秒から 10 秒に）。Astro の `indent` は 0〜16、Phoenix・Gleam は `indent: 0` を受け、`disable` は規則名の形だけ。Rust のウェブアプリ 4 種は `Options` のフィールド不足（S061 から）でビルドできなかったのを直し、CI にジョブ `web` を足した（#22・#36）。
 

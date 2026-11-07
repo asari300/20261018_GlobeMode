@@ -67,7 +67,7 @@
   - **S6 は `globe-mode-analysis`**（Rumoca に依存しない）。判定は `x` と `der(x)` を 1 つの列にまとめた二部グラフに完全マッチングがあるかどうか。Pantelides 法が失敗するのと同じ条件。
     - 最初は der の形（未知数は `der(x)`・代数・出力。Rumoca の構造解析と同じ）で判定していた。これだと MSL の正しい例題 166 本が構造特異になった。微分インデックスが 1 より大きい DAE では、der の形に完全マッチングが無いのが正常なため。
     - der の形の結果は、S7 の情報 `GM-I7001`（微分インデックスが 1 より大きい見込み）として出す。→ S007 で、S7 は Pantelides 法の `IndexReport` に一本化した（[ADR-0009](0009-structural-index-and-init.md)）。
-- **S005 のテストで確かめた**（salsa の `WillExecute` イベントで数えた。検証用パッケージ `GlobeModeValidation` を使った）:
+- **S005 のテストで確かめた**（salsa の `WillExecute` イベントで数えた。検証用パッケージ `GlobeModeValidation` を使った）は次のとおり。
 
   | 編集 | `check` | `dae_shape` | `structural` |
   | --- | ---: | ---: | ---: |
@@ -78,7 +78,7 @@
   | パラメータの値を長さの違う値に変える | 1 | 1 | **0** |
   | 部品と connect を足す | 1 | 1 | 1（方程式 5 → 7） |
 
-- **S005 の計測**（2026-10-18）:
+- **S005 の計測**（2026-10-18）は次のとおり。
   - 空白だけの編集のあとの再検査（`check_model`、S0〜S6）: 中央値 **0.01 ms**、最大 0.02 ms（リリースビルド、20 回、MSL を使わない `RealCircuit`）。最初の検査は 17.2 ms。P2 の目標（50 ms 未満で、`flat` が再実行されない）を、検査まで含めて満たした。
   - MSL の読み込みは 6〜16 s、1.24 GB。読んだあとの MSL の別のモデルの検査は 0.12 s、同じモデルの再検査は 0.08 s。
   - リリースビルドの `globe check -L data/msl -m Modelica.Electrical.Analog.Examples.ChuaCircuit`（S6 を含む 1 回限りの CLI）は 11.3 s、1.5 GB。S6 は完全マッチング 44 / 44。
@@ -112,18 +112,18 @@
     - トップレベルだけで足りる根拠: ほかのファイルから入れ子のクラス `T.N` に届く道（修飾名 `T.N`、`within …T…;` の字句的なスコープ、`import …T…`、`T` を継承したクラスを経由）には、どれも `T` か、`T` を名指すファイルが現れる。固定点で `T` のファイルが入る（`defined_classes` の doc コメント）。
   - **モデルがワークスペースに無い**（MSL などライブラリの中のモデル、存在しないモデル）ときは、閉包は空で、文書を 1 つも渡さない。「見つからない」の診断には、ワークスペースのモデルを候補として足す（Rumoca は渡した文書の中からしか候補を出さないため）。
   - IR の `ClassOutline` に `imports` を足した（`import A.B.C;`、`import D = A.B.C;`、`import A.B.*;`、`import A.B.{C,D};`）。今は保持するだけで、`deps_closure` は本文の識別子で import の名前も拾う。
-  - **S7・S8 のクエリ**（判定は [ADR-0009](0009-structural-index-and-init.md)）:
+  - **S7・S8 のクエリ**（判定は [ADR-0009](0009-structural-index-and-init.md)）は次のとおり。
     - `index_report(workspace, request)`: `dae_shape`（防火壁 2）→ `analyze_index`。
     - `init_shape(workspace, request)`: `check` の結果の初期化系の構造から位置を落とした写し（防火壁）。
     - `init_report(workspace, request)`: `init_shape` と `index_report` の `dynamic_states` → `analyze_init_with_index`。
     - `GlobeDb::check_model` は S0〜S8 をまとめる。S7 は S6 が regular のときだけ、S8 は S0〜S7 に Error が無いときだけ回す。結果の `FullReport` に `index` と `init` を足した。
-- **S007 のテストで確かめた**（salsa の `WillExecute` イベントで数えた。検証用パッケージ `GlobeModeValidation` の 23 ファイル）:
+- **S007 のテストで確かめた**（salsa の `WillExecute` イベントで数えた。検証用パッケージ `GlobeModeValidation` の 23 ファイル）は次のとおり。
   - `deps_closure(GlobeModeValidation.Connect.RealCircuit)` は 5 / 23 ファイル（`package.mo`、`Connectors.mo`、`Components.mo`、`Connect/package.mo`、`Connect/RealCircuit.mo`）。
   - **閉包だけを渡した検査と、全ファイルを渡した検査の結果が、索引のモデルとブロック 20 本以上のすべてで一致した**（足りないファイルが無いことの確かめ）。
   - 使わないファイル（`Invalid/StructurallySingular.mo`）の式を変えても、`source_shape`・`deps_closure`・`check`・`structural` は **0 回**。
   - 閉包の中のファイル（`Components.mo`）のパラメータの値を変えると、`check` は 1 回。識別子は変わらないので、閉包は前と等しい。
   - パラメータの値の編集では、`index_report` と `init_report` は再実行されない（`check` は 1 回）。
-- **S007 の計測**（2026-10-18、release、MSL 4.1.0、各 5 回。`cargo test --release -p globe-mode-db --test deps -- --ignored --nocapture`）:
+- **S007 の計測**（2026-10-18、release、MSL 4.1.0、各 5 回。`cargo test --release -p globe-mode-db --test deps -- --ignored --nocapture`）は次のとおり。
 
   | 場合 | 中央値 | 最大 |
   | --- | ---: | ---: |
@@ -149,7 +149,7 @@
   - 知らせの仕組みは要る。試しに止めると、改名したファイルの古い定義が残り、本来は解決できない参照が通ってしまった（テスト 4 本が落ちた）。
   - ライブラリ無しのときの「見つからない」の判定と候補は、Session の全文書を見る `Session::model_names()`（どれかの文書が解決できないと Err を返す）をやめ、渡した文書の構文木に Rumoca の `collect_model_names` をかけて作るようにした。
   - テスト（`globe-mode-db/tests/switching.rs`、11 本）: A → B → A と切り替えても閉包だけの検査と同じ結果、索引のモデルを全部順と逆順に検査しても同じ、使わないファイルの編集で `check` 0 回、ファイルの削除・改名・クラスの移動で古い定義が残らない、解決できない文書を残してもほかのモデルの結果は変わらない、検査器を共有する DB 同士が互いの文書を残さない。
-  - **計測**（2026-10-19、release、MSL 4.1.0、WSL2。ほかの作業と同時に動かしたので揺れがある。`cargo test --release -p globe-mode-db --test switching -- --ignored --nocapture` と deps の計測）:
+  - **計測**（2026-10-19、release、MSL 4.1.0、WSL2。ほかの作業と同時に動かしたので揺れがある。`cargo test --release -p globe-mode-db --test switching -- --ignored --nocapture` と deps の計測）は次のとおり。
 
     | 計測 | S007 の方式 | S010 |
     | --- | ---: | ---: |

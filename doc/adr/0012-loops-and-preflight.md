@@ -6,10 +6,10 @@
 
 - 検査の段階 S0〜S10（[architecture.md](../architecture.md) §3.2）のうち、S9「代数ループ: 非線形の反復変数に start 値が無い」と S10「プリフライト: パラメータの評価、t0 で残差が有限か、ソルバの能力が足りるか、experiment annotation が妥当か」が残っていた。P2 の完了条件は S008 で満たした（[roadmap.md](../roadmap.md)）。
 - S9 は、BLT（block lower triangular）に分けたときの大きさ 2 以上のブロック（代数ループ）のうち、非線形のものの反復変数（tearing 変数）に start 値が無いと、ソルバは既定の 0 から Newton 法を始める。omc 1.27.1 は `-d=initialization` のとき標準出力に「Nonlinear iteration variables with default zero start attribute in NLSJacN」を出す（S010 で確かめた。[research/openmodelica-dymola.md](../research/openmodelica-dymola.md)）。
-- Rumoca v0.10.2 について S010 で確かめた事実（[research/rumoca.md](../research/rumoca.md#s010-で調べた-apiv0102)）:
+- Rumoca v0.10.2 について S010 で確かめた事実（[research/rumoca.md](../research/rumoca.md#s010-で調べた-apiv0102)）は次のとおり。
   - `phase_structural::analyze` は `StructuralDiagnostics::algebraic_loops` を埋めず、ループを ES002 の警告（"algebraic loop detected: {n} equations must be solved simultaneously"）として積むだけ。BLT とループは `phase_structural::sort` の `BltBlock::AlgebraicLoop` からも取れる。
   - `rumoca_eval_dae::NumericEvaluator` は静的な値（パラメータ・定数の束縛と、変数の start）だけを評価する。状態・代数などの実行時の座標は拒む（「never invents a runtime value」）。値は式ごとに有限か確かめ、非有限は `InvalidValue` になる。
-  - `CompilationResult::experiment_*` は `sanitize_experiment_settings` を通した後の値で、非有限・StopTime < 0・Tolerance ≤ 0・Interval ≤ 0 を黙って捨て、StopTime < StartTime なら StopTime を捨てる。`CompilationResult` と flat のモデルには annotation が残らない。
+  - `CompilationResult::experiment_*` は `sanitize_experiment_settings` を通した後の値で、非有限・StopTime < 0・Tolerance ≤ 0・Interval ≤ 0 を気づかないうちに捨て、StopTime < StartTime なら StopTime を捨てる。`CompilationResult` と flat のモデルには annotation が残らない。
 
 ## 決定
 

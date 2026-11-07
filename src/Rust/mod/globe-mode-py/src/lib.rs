@@ -208,17 +208,7 @@ impl Workspace {
                 Ok((json(&response)?, s))
             })?;
         let (layout, columns) = simulated.columns();
-        let columns = columns
-            .iter()
-            .map(|c| {
-                PyBytes::new_with(py, c.len() * 8, |buf| {
-                    for (b, x) in buf.as_chunks_mut::<8>().0.iter_mut().zip(c.iter()) {
-                        b.copy_from_slice(&x.to_le_bytes());
-                    }
-                    Ok(())
-                })
-            })
-            .collect::<PyResult<Vec<_>>>()?;
+        let columns = pack(py, &columns)?;
         Ok((response, layout.names, columns))
     }
 
@@ -237,6 +227,47 @@ impl Workspace {
         py.detach(|| self.0.export_fmu(model, &out_dir, &options))
             .map_err(|e| error(py, "ExportError", Some(e), None))
     }
+}
+
+/// 列を little-endian の f64 の bytes に詰める。
+fn pack<'py>(py: Python<'py>, columns: &[&[f64]]) -> PyResult<Vec<Bound<'py, PyBytes>>> {
+    columns
+        .iter()
+        .map(|c| {
+            PyBytes::new_with(py, c.len() * 8, |buf| {
+                for (b, x) in buf.as_chunks_mut::<8>().0.iter_mut().zip(c.iter()) {
+                    b.copy_from_slice(&x.to_le_bytes());
+                }
+                Ok(())
+            })
+        })
+        .collect()
+}
+
+/// 結果のファイル（`.mat` は MAT v4、それ以外は CSV。S219）を読み、`(パラメータの JSON, 列の名前, 列の bytes)` で返す。
+/// 読めなければ `ResultError`。
+#[pyfunction]
+fn read_results<'py>(
+    py: Python<'py>,
+    path: PathBuf,
+) -> PyResult<(String, Vec<String>, Vec<Bound<'py, PyBytes>>)> {
+    let c = globe_mode::sim::mat::read_results(&path).map_err(|e| {
+        error(
+            py,
+            "ResultError",
+            Some(format!("{}: {e}", path.display())),
+            None,
+        )
+    })?;
+    let t = &c.trajectory;
+    let names = std::iter::once("time".to_string())
+        .chain(t.variables.iter().map(|v| v.name.clone()))
+        .collect();
+    let columns: Vec<&[f64]> = std::iter::once(t.time.as_slice())
+        .chain(t.variables.iter().map(|v| v.values.as_slice()))
+        .collect();
+    let parameters = json(&c.parameters).map_err(PyRuntimeError::new_err)?;
+    Ok((parameters, names, pack(py, &columns)?))
 }
 
 /// 設定のキーと値の型の見本（`SimSettings` を全部埋めた JSON）。Python が未知のキーと型の誤りを弾く元で、
@@ -280,6 +311,7 @@ fn lint(text: &str) -> String {
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Workspace>()?;
     m.add_function(wrap_pyfunction!(solvers, m)?)?;
+    m.add_function(wrap_pyfunction!(read_results, m)?)?;
     m.add_function(wrap_pyfunction!(settings_sample, m)?)?;
     m.add_function(wrap_pyfunction!(format, m)?)?;
     m.add_function(wrap_pyfunction!(lint, m)?)

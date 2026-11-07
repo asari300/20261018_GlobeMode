@@ -2,7 +2,7 @@
 
 GlobeMode の Rust のコア。
 
-S002 の時点で、次の 4 つの crate がある。
+次の表は S002 の時点のもの。いまの crate は [doc/architecture.md](../../doc/architecture.md#22-rust-cratesrcrustmod) の 2.2 章。
 
 | crate | 内容 |
 | --- | --- |
@@ -17,9 +17,10 @@ cargo run -p globe-mode-cli -- check src/Modelica/GlobeModeExamples/package.mo -
 mise run check
 ```
 
-予定の構成:
+構成は次のとおり。
 
 - `mod/<crate>/`: workspace の library crate（`globe-mode-*`）。一覧は [doc/architecture.md](../../doc/architecture.md#22-rust-cratesrcrustmod)
-- `apps/desktop/`: Tauri 2 のシェル（Linux、Windows、Android）
+- `apps/desktop/`: Tauri 2 のシェル（Linux、Windows、macOS、Android）
 - `apps/experimental/{leptos,dioxus}/`: 負荷を比べる試験版（P7）
+- `apps/web-{actix,axum,loco,rocket}/`: 整形・lint のウェブアプリ（[doc/web-apps.md](../../doc/web-apps.md)）
 - `xtask/`: build、bump-rumoca、licenses、wasm --threads

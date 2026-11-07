@@ -5,7 +5,7 @@
 ## 背景
 
 - P3（シミュレーション）の完了条件は「MSL の例題 153 本以上が実行できる。そのうち 90% 以上が参照結果のファネルに収まる。bdf が wasm で（Node 上で）動く」（[roadmap.md](../roadmap.md)）。設計（[architecture.md](../architecture.md) §3.3）は、自前の `trait HybridSystem` と `trait Integrator` とハイブリッドの driver を持ち、Modelica のモデルと FMI-ME の FMU が同じ driver を使う形を描いていた。
-- S011 で Rumoca v0.10.2（rev `276e82bd`）の実行系を読んで確かめた事実（[research/rumoca.md](../research/rumoca.md#s011-で調べた実行系v0102)）:
+- S011 で Rumoca v0.10.2（rev `276e82bd`）の実行系を読んで確かめた事実（[research/rumoca.md](../research/rumoca.md#s011-で調べた実行系v0102)）は次のとおり。
   - `rumoca-sim` の入口は `simulate_with_diagnostics(&Dae, &SimOptions)`（Auto / Bdf / RkLike）と、BDF だけの型付きの道（`build_simulation` → `check_prepared_initialization` → `run_prepared_simulation`。失敗の段階 `SimFailureStage` が分かる）。ソルバは diffsol 0.13 の BDF と、Rumoca の Dormand–Prince 5(4) の 2 つだけ（`DiffsolMethod` は `Bdf` だけ）。
   - Rumoca のモデルを外の積分器から回す FMI-ME 風の核（`SolveMeKernel`）の set_time・状態・導関数・イベント指標・イベント更新は `pub(crate)`。外から差し替えられるのは数値積分のプラグイン（`MeIntegratorBackend`）だけで、ハイブリッドの driver（初期化・イベント・出力）は Rumoca の `MeSimulationSession` が持つ。**公開の API では、Rumoca のモデルを自前の `HybridSystem` として包めない。**
   - 時間切れは協調型（`TimeoutBudget::check()` は積分の繰り返しと根探索でだけ見る）。初期化と積分器の 1 歩の内側では止まらない。Rumoca 自身の MSL のハーネスは、モデルごとに別プロセスのワーカーで回し、監視から止めている。
