@@ -18,6 +18,9 @@ libloading = "0.9"
 zip = { version = "9", default-features = false, features = ["deflate"] }
 # 展開先（drop で消える）
 tempfile = "3"
+# S210: ワーカー（別プロセス）との要求・結果のやり取り。どちらも workspace に既にある（新しい crate は増えない）
+serde = { workspace = true }
+serde_json = { workspace = true }
 
 
 [dev-dependencies]

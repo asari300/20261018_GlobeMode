@@ -47,8 +47,7 @@ use std::thread;
 
 use globe_mode::db::normalize_path;
 use globe_mode::{
-    CancelToken, ColumnsLayout, Diagnostic, Progress, SimulateHandle, SimulateRequest, Simulated,
-    Workspace,
+    CancelToken, Diagnostic, Progress, SimulateHandle, SimulateRequest, Simulated, Workspace,
 };
 use globe_mode_core::Severity;
 use globe_mode_ir::{ClassKind, ClassOutline};
@@ -474,27 +473,10 @@ impl Server {
                 match serde_json::from_value::<SimulateRequest>(params["request"].clone()) {
                     Ok(mut request) => {
                         request.no_csv = true;
-                        let Simulated { response, run, default_plot: defaults, .. } =
-                            self.simulate(&request, params.get("workDoneToken"), cancel, notify);
-                        let (names, columns) = match run {
-                            Some(run) => {
-                                let t = run.trajectory;
-                                let names = std::iter::once("time".to_string())
-                                    .chain(t.variables.iter().map(|v| v.name.clone()))
-                                    .collect();
-                                let columns: Vec<Vec<f64>> = std::iter::once(t.time)
-                                    .chain(t.variables.into_iter().map(|v| v.values))
-                                    .collect();
-                                (names, columns)
-                            }
-                            None => (Vec::new(), Vec::new()),
-                        };
-                        let points = columns.first().map_or(0, Vec::len);
+                        let s = self.simulate(&request, params.get("workDoneToken"), cancel, notify);
+                        let (layout, columns) = s.columns();
                         // serde_json は NaN / Inf を null にする（UI の欠損と同じ）
-                        reply(
-                            id,
-                            json!({"response": response, "layout": ColumnsLayout { names, points, defaults }, "columns": columns}),
-                        )
+                        reply(id, json!({"response": s.response, "layout": layout, "columns": columns}))
                     }
                     Err(e) => error(id, -32602, &format!("params.request: {e}")),
                 }
@@ -607,7 +589,7 @@ impl Server {
             json!({"kind": "begin", "title": format!("simulate {}", request.model), "cancellable": true}),
         );
         let mut on_progress = |p: &Progress| {
-            let stage = format!("{:?}", p.stage).to_lowercase();
+            let stage = p.stage.as_str();
             let mut v = json!({"kind": "report", "message": stage, "stage": stage,
                 "start_time": p.start_time, "stop_time": p.stop_time});
             if let Some(t) = p.time {

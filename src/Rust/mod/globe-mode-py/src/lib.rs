@@ -8,26 +8,8 @@ use std::path::{Path, PathBuf};
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict, PyList};
-use serde::Serialize;
 
-fn json<T: Serialize>(value: &T) -> Result<String, String> {
-    serde_json::to_string(value).map_err(|e| format!("JSON: {e}"))
-}
-
-/// `settings_json`（`{"stop_time": 2, "solver": "bdf"}` など。省略可）から実行の依頼を作る。
-fn request(
-    model: &str,
-    settings_json: Option<&str>,
-) -> Result<globe_mode::SimulateRequest, String> {
-    let settings: serde_json::Value = match settings_json {
-        Some(s) => {
-            serde_json::from_str(s).map_err(|e| format!("settings の JSON が読めない: {e}"))?
-        }
-        None => serde_json::json!({}),
-    };
-    serde_json::from_value(serde_json::json!({ "model": model, "settings": settings }))
-        .map_err(|e| format!("settings が読めない: {e}"))
-}
+use globe_mode::{simulate_request as request, to_json as json};
 
 fn columns_request(
     model: &str,
@@ -55,7 +37,7 @@ fn error(py: Python<'_>, class: &str, message: Option<String>, diagnostics: Opti
 /// `Progress` を Python の dict に（`stage` は `"integration"` などの小文字、`time` は積分の段だけ）。
 fn progress_dict<'py>(py: Python<'py>, p: &globe_mode::Progress) -> PyResult<Bound<'py, PyDict>> {
     let d = PyDict::new(py);
-    d.set_item("stage", format!("{:?}", p.stage).to_lowercase())?;
+    d.set_item("stage", p.stage.as_str())?;
     d.set_item("time", p.time)?;
     d.set_item("start_time", p.start_time)?;
     d.set_item("stop_time", p.stop_time)?;
@@ -124,18 +106,14 @@ impl Workspace {
     #[new]
     #[pyo3(signature = (libraries = Vec::new()))]
     fn new(py: Python<'_>, libraries: Vec<PathBuf>) -> PyResult<Self> {
-        let inner = if libraries.is_empty() {
-            globe_mode::Workspace::new()
-        } else {
-            globe_mode::Workspace::with_libraries(&libraries).map_err(|ds| {
-                error(
-                    py,
-                    "LibraryError",
-                    None,
-                    Some(&json(&ds).unwrap_or_default()),
-                )
-            })?
-        };
+        let inner = globe_mode::Workspace::open(&libraries).map_err(|ds| {
+            error(
+                py,
+                "LibraryError",
+                None,
+                Some(&json(&ds).unwrap_or_default()),
+            )
+        })?;
         Ok(Workspace(inner))
     }
 
@@ -173,24 +151,11 @@ impl Workspace {
     /// ファイル（`set_file` に渡したパス）のアウトライン（`globe outline --json` と同じ `Outline` の JSON）。
     /// ファイルが無いか、構文の誤りがあれば `SourceError`（誤りは最初の診断の `コード: 文`、`.diagnostics` つき）。
     fn outline(&self, py: Python<'_>, path: &str) -> PyResult<String> {
-        match self.0.outline(path) {
-            None => Err(error(
-                py,
-                "SourceError",
-                Some(format!("ファイル {path} がワークスペースに無い")),
-                None,
-            )),
-            Some(Ok(o)) => json(o).map_err(PyRuntimeError::new_err),
-            Some(Err(ds)) => Err(error(
-                py,
-                "SourceError",
-                Some(
-                    ds.first()
-                        .map_or_else(String::new, |d| format!("{}: {}", d.code, d.message)),
-                ),
-                Some(&json(ds).unwrap_or_default()),
-            )),
-        }
+        self.0.outline_json(path).map_err(|message| {
+            let ds = self.0.outline(path).and_then(|r| r.as_ref().err());
+            let ds = ds.map(|ds| json(ds).unwrap_or_default());
+            error(py, "SourceError", Some(message), ds.as_deref())
+        })
     }
 
     /// `check` に渡すファイル（モデルが使うものの閉包。パスの昇順）の JSON の配列。モデルが無ければ `[]`。
@@ -267,17 +232,8 @@ impl Workspace {
         out_dir: PathBuf,
         options: Option<&str>,
     ) -> PyResult<PathBuf> {
-        let options: globe_mode::FmuOptions = match options {
-            Some(s) => serde_json::from_str(s).map_err(|e| {
-                error(
-                    py,
-                    "ExportError",
-                    Some(format!("options が読めない: {e}")),
-                    None,
-                )
-            })?,
-            None => Default::default(),
-        };
+        let options = globe_mode::FmuOptions::from_json(options)
+            .map_err(|e| error(py, "ExportError", Some(e), None))?;
         py.detach(|| self.0.export_fmu(model, &out_dir, &options))
             .map_err(|e| error(py, "ExportError", Some(e), None))
     }

@@ -115,7 +115,7 @@
 ### (k) 持ち越し（次の WP の順番）
 
 1. ~~ME（`FmuMe`）~~ **S205 で済み**（(l)）。残り: 陰的な積分（硬い系）、`HybridSystem` へのアダプタ、連続時間の入力（`Discard` の再試行は S206 で済み）。
-2. ワーカーのプロセスの中で読み込む（FMU が落ちても CLI・UI が落ちない）。
+2. ~~ワーカーのプロセスの中で読み込む（FMU が落ちても CLI・UI が落ちない）~~ **S210 で済み**（(n)。CLI だけ。facade・UI・Python は 3 の中）。残り: sandbox（ディスク・ネットワーク）、macOS・Windows のメモリの上限。
 3. facade（`import_fmu`）と UI の「FMU を開く」（確認のダイアログつき）、Python・C ABI からの呼び出し。
 4. コシミュレーションのマスター（Jacobi / Gauss–Seidel、系の構成は SSP か `.gmsys`）、SE（Clocks）、Integer・Boolean・String・配列の変数。
 5. ~~案 B（(g) の条件がそろったら）~~（S206 で取り下げ。(m)）、Modelica のモデルから FMU の部品を使う。
@@ -145,8 +145,21 @@
   上の「足す」は、(k) の 2〜4 の WP の中で必要になった順に入れる。
 - **S206 のコードの直し**（レビュー [log/review/2026-11-07-s206-fmi-import-review-fixes-fable.md](../../log/review/2026-11-07-s206-fmi-import-review-fixes-fable.md) への対応）: (1) 有限でない誤差の却下と `Discard` の再試行（出典: FMI 2.0.5 §2.1.3「For "model exchange": It is recommended to perform a smaller step size and evaluate the model equations again」<https://github.com/modelica/fmi-standard/blob/v2.0.5/docs/2_1_common_api.adoc>、FMI 3.0 §2.2.4「Advanced importers may try alternative approaches to continue the simulation」<https://fmi-standard.org/docs/main/>、確認日 2026-11-07。`Error`・`Fatal` は止める）、(2) 出力の格子の上限 1000 万点、(3) `DefaultExperiment.step_size`、(4) 3.0 の真偽の出力引数を `u8` で受ける。
 
+### (n) S210 の決定（2026-11-07）: FMU の読み込みと実行は別プロセスのワーカーに隔離する
+
+(c)・(h) の「ワーカーの中で読み込む」を実装した。`globe fmu run` は FMU に一切触れず、**自分自身（`std::env::current_exe()`）を隠しの副命令 `globe fmu __worker` で子プロセスとして起動**し、FMU の展開・読み込み・実行は子の中だけで行う。
+
+- **API**（`globe-mode-fmi-import` の `worker` モジュール）: `run_in_worker(&WorkerSpec, &WorkerRequest, progress) -> Result<WorkerRun>`（親）、`worker_main() -> i32`（子。呼び出し側の副命令から呼ぶ）、`run_in_process`（子の中身。プロセス内で回したい人向け）。**どの実行ファイルをワーカーにするかは呼び出し側が渡す**（`WorkerSpec { exe, args, timeout, memory_limit }`）ので、将来の facade・Desktop の sidecar（ADR-0023 の `globe lsp` と同じ `globe` を別の副命令で）・Python が同じ API を使える。今回はそれらに口を足していない（(k) の 3）。`run_cs` / `run_me` に、格子点ごとに時刻を受ける `run_cs_with` / `run_me_with` を足した（進捗用。既存の関数は挙動が同じ）。
+- **要求と結果**: 要求は標準入力の 1 行の JSON（`WorkerRequest`: FMU のパス、kind、開始・終了時刻、刻み、出力、`set`）。結果は標準出力の行（`\u{1}GW ` で始まる行だけがメッセージ。印の無い行は FMU の `printf` として捨てて標準エラーの末尾と同じ所に溜める）: `P 時刻`（進捗。子が 0.25 秒以上あけて流す）、`H 変数名の JSON`、`M 要約の JSON`（ME だけ。歩数・事象の種類ごとの数・打ち切り）、`R 時刻 値…`（空白区切り、f64 は `{:?}` で書くので NaN・inf を含めビット単位で往復する。JSON にしないのは serde_json が NaN を `null` にするため）、`D`（正常終了の印。無いまま標準出力が閉じたら「落ちた」）、`E 文面`（子の中の実行の失敗）。protocol crate は使わない。依存は `serde`・`serde_json` を fmi-import に足しただけ（どちらも workspace に既にある。Cargo.lock の増減なし）。
+- **落ちたとき**: 親は `Error::Worker`（「FMU のワーカー（別プロセス）: 結果を返す前に終わった（signal: 6 (SIGABRT)）。FMU が落ちたとみられる」に、標準エラーと印の無い標準出力の末尾 4 KiB を添える）を返す。子の中の失敗（変数が無い、`Fmu` の失敗など）は `Error::Child`（中の文面そのまま）。親（呼び出し側）は落ちず、終了コード 1。
+- **上限**: 時間は `WorkerSpec::timeout`（`globe fmu run --timeout 秒`。既定は無し）で、超えたら kill して「N s で終わらないので止めた（最後の進捗は t = …）」。メモリは `memory_limit`（`--memory-limit MiB`）で、**Linux だけ**、子を `sh -c 'ulimit -v …; exec …'` で包んで仮想メモリを制限する（`unsafe` も `libc` も要らない。超えると FMU の `malloc` が失敗して FMU が落ち、上と同じ誤りになる）。Windows・macOS で指定すると `Error::Worker`（持ち越し: macOS は `RLIMIT_AS` が当てにならず、Windows は Job Object が要る）。**ワーカーが消えない**ことは `Reaper`（drop で kill して wait）で保証し、親が SIGKILL などで消えたときは、子が親の標準入力の EOF を見て自分で終わる（孤児を残さない）。
+- **隔離するもの／しないもの**: 隔離するのは **プロセスのクラッシュ・無限ループ（時間）・メモリ（Linux）** だけ。**ディスク（FMU は任意のファイルを読み書きできる）とネットワーク、環境変数、他のプロセスへの信号は隔離しない**。sandbox（seccomp・Landlock・ファイルシステム／ネットワークの名前空間・AppContainer）は持ち越し。したがって「信頼できない FMU を安全に開ける」ではなく「FMU のバグで呼び出し側が落ちない」までを保証する。実行前の警告は「ネイティブコードを別プロセス（ワーカー）で実行する。落ちても呼び出し側は落ちないが、ディスクとネットワークは隔離しない」に変えた。
+- **限界**: (1) FMU が自分で子プロセスを作って管を握ると、親の標準エラーの読み取りが戻らない（`shortcut` のコメント。Job Object / プロセスグループへ）。(2) 結果は全行を子の中のメモリに持ってから送る（格子点の上限 1000 万は (m) のまま）ので、メモリの上限は子の分を含めて見積もる。(3) 起動のたびに `globe` の起動（約 数十 ms）と FMU の展開が子で行われる。(4) 要求に ME の積分器と許容誤差は無い（CLI にも無い。要るようになったら足す）。
+- **試験**（`globe-mode-cli/tests/fmu_worker.rs`）: Reference-FMUs の Dahlquist（2.0・3.0 の CS）・BouncingBall（2.0・3.0 の ME）・VanDerPol（3.0 の ME）が、プロセス内の結果と**ビット単位で同じ**。`cc` で作った小さな共有ライブラリで、`abort`（Instantiate）・segfault（DoStep）・無限ループ（DoStep、`--timeout`）・メモリの食いつぶし（GetReal、`--memory-limit`）を起こし、親が落ちずに誤りを返し、`/proc/self/task/*/children` に zombie も孤児も残らないことを確かめる（結果は解説書の表）。
+
 ## 結果
 
+- **S210 の結果**: 上の (n)。`globe fmu run` は FMU を別プロセスで回し、落ちても `globe` は落ちない。
 - **S206 の結果**: 上の (m)。案 B は採らず自前で進める。レビューの指摘 4 件を直した。
 - **S205 の結果**: 上の (l)。`FmuMe` が FMI 2.0・3.0 で動き、BouncingBall の衝突 11 回の時刻が解析解と 3.2e-11 で一致する。`globe fmu run --kind me`。
 - **S204 の結果**: 上の (f)〜(k)。`globe-mode-fmi-import` が workspace に入り、`globe fmu info` / `run` がある。FMI 2.0・3.0 の Co-Simulation が Reference-FMUs の参照の CSV と全桁で一致する。案 B は入れていない（ユーザーの判断待ち）。
