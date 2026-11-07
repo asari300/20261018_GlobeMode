@@ -7,7 +7,7 @@
 | worktree | `.git-worktree/s213-fmu-runtime-issues` |
 | Phase | P5 |
 | セッション文書 | `doc/sessions/S213-fmu-runtime-issues/` |
-| セッション記録 | （親が写す） |
+| セッション記録 | [2026-11-02-a2580a13-3889-4662-9db4-a45dc1ca6772.md](../sessions/2026-11-02-a2580a13-3889-4662-9db4-a45dc1ca6772.md) |
 
 ## 依頼
 
@@ -32,7 +32,7 @@ issue #40（ponytail-audit、2026-11-07）＝ Export した FMU の実行時の 
 - 直す前の失敗: `state_start_values_survive_a_rebuild`（`[1.0, 2.0]` ≠ `[5.0, 2.0]`）、`resource_path_from_uri`（`/C:/Users/u/r`）、`cc_with_arguments_is_split_on_whitespace`（`"ccache  gcc -m64"` が 1 つのプログラム名）。
 - コードの検査（fmt / clippy / test / deny）: `mise run check` が通った（`cargo test -p globe-mode-fmu` は FMPy の 12 本を含めて 12 passed、`globe-mode-fmi` の export の単体 2 本）。負荷が高く（load 15〜26）FMPy の試験だけで約 25 分かかった
 - `check_docs.py`: 文書 849 件 / 相対リンク 4136 件 / 切れ 0 件。`render_slides.py`: デッキ 1 件 / 問題 0 件
-- セッション記録の `--check`: （親が写す）
+- セッション記録の `--check`: 取りこぼし 0 件（親が写した）
 - features.md・roadmap.md は変えていない（計画は変わらず、挙動の修正のため）。
 - CI: fmu-export・ci.yml full（記入）
 
