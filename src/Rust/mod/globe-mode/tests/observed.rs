@@ -141,3 +141,45 @@ fn progress_is_throttled_and_does_not_change_the_result() {
     let bound = stages.len() + (wall / 0.1) as usize + 1;
     assert!(seen.len() <= bound, "{} > {bound}", seen.len());
 }
+
+/// #43: トークンを外から（別スレッドから）立てると、既定のソルバ（bdf・auto・dopri45）の積分も途中で止まる。
+/// 以前は型付きの道が 1 歩ごとにトークンを見ず、最後まで走った（調和振動子 StopTime 2e4 で bdf は 10 s）。
+#[test]
+fn cancel_from_another_thread_stops_the_default_solvers() {
+    let osc = "model Osc Real x(start = 1, fixed = true); Real v(start = 0, fixed = true); \
+               equation der(x) = v; der(v) = -x; \
+               annotation(experiment(StopTime = 1e5, Interval = 100)); end Osc;";
+    for solver in ["bdf", "auto", "dopri45"] {
+        let mut ws = Workspace::new();
+        ws.set_file("Osc.mo", osc);
+        let token = CancelToken::new();
+        let canceller = token.clone();
+        let th = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            canceller.cancel();
+        });
+        let started = Instant::now();
+        let out = ws.simulate_observed(
+            &SimulateRequest {
+                model: "Osc".into(),
+                ..request(solver)
+            },
+            &|| started.elapsed().as_secs_f64() * 1e3,
+            SimulateHandle {
+                on_progress: None,
+                cancel: Some(token),
+            },
+        );
+        th.join().unwrap();
+        assert!(
+            started.elapsed().as_secs_f64() < 5.0,
+            "{solver}: 止まらない"
+        );
+        let r = &out.response;
+        assert!(
+            matches!(r.termination, Some(Termination::Cancelled { .. })),
+            "{solver}: {:?}",
+            r.termination
+        );
+    }
+}

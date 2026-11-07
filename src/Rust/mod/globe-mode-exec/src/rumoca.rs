@@ -618,7 +618,15 @@ pub(crate) fn checked_simulate(
     observer: &mut Observer<'_>,
 ) -> (Vec<Diagnostic>, Simulated) {
     let mut hooks = Hooks::new(observer, settings, true);
+    // #43: 型付きの道（ネイティブの bdf・dopri45・auto）は積分の途中でトークンを見ない。トークンがあるときは、
+    // 1 歩ごとに見る session の道で回す（ADR-0014: 結果は型付きの道とビット単位で同じ。JIT は使わない）
+    let route = if hooks.cancel.is_some() {
+        Route::Session
+    } else {
+        Route::Default
+    };
     if cfg!(not(target_arch = "wasm32"))
+        && route == Route::Default
         && settings.solver == SolverId::Dopri45
         && hooks.enter(ExecStage::Preflight).is_ok()
     {
@@ -628,7 +636,7 @@ pub(crate) fn checked_simulate(
             resettle,
         };
     }
-    let result = simulate_with(model, settings, Route::Default, &mut hooks);
+    let result = simulate_with(model, settings, route, &mut hooks);
     let (mut diagnostics, resettle) = hooks.take_preflight();
     // 初期化の解き直し（GM-W10004）は、実行が実際に始まった t0 の値と比べて決める。実行が失敗したら出さない
     if let Ok((run, _)) = &result {
