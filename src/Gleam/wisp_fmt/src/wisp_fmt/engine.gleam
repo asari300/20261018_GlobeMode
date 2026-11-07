@@ -66,7 +66,7 @@ pub fn lint(
 ) -> Result(List(Message), String) {
   let args =
     list.flatten([
-      ["lint", "--json", "-"],
+      ["lint", "--json", "-", "--disable", "connect-type-mismatch"],
       list.flat_map(disable, fn(rule) { ["--disable", rule] }),
     ])
   let decoder = {

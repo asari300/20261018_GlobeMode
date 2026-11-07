@@ -41,7 +41,7 @@ export function format(text: string, opts: FormatOptions = {}): FormatResult {
 
 // API の shape に合わせ、CLI の file 欄は落とす（入力は標準入力だけなので無意味）
 export function lint(text: string, disable: string[] = []): LintResult {
-  const args = ['lint', '--json', '-'];
+  const args = ['lint', '--json', '-', '--disable', 'connect-type-mismatch']; // #73: 型検査は 1 MiB で 2.6 GB になる
   for (const rule of disable) args.push('--disable', rule);
   const parsed = JSON.parse(run(args, text)) as { messages: (LintMessage & { file?: string })[] };
   return {
