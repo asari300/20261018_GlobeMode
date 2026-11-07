@@ -16,7 +16,7 @@
 //! 取得して展開し、sidecar を新しい `--library` で作り直す（版を替えるときも同じ）。取得中はイベント `msl-progress`
 //! （`{received, total}`。total は Content-Length、無ければ null）を出し、command `cancel_msl` で取り消せる。
 //! ファイル（S141）: dialog / fs プラグインを入れる（UI の「開く」「保存」。権限は capabilities/desktop.json）。
-//! 最近使ったファイル（S154）: dialog を通さないパスは fs の許可の外なので、command `read_recent { path }` が読む（`.mo` の通常のファイルだけ）。
+//! 最近使ったファイル（S154）: dialog を通さないパスは fs の許可の外なので、command `read_recent { path }` が読み、`write_recent { path, text }` が書く（`.mo` の通常のファイルだけ。#67）。
 //! 自動更新（S135）: `plugins.updater.pubkey` が空でなければ updater プラグインを入れる（空なら UI の「更新を確認」は「未設定」）。
 //! `GLOBE_DESKTOP_SMOKE_FETCH=1` を足すと、smoke は検査の前にこの取得を 1 回行う（CI で取得の道を確かめる）。
 //!
@@ -94,6 +94,27 @@ fn read_mo(path: &str) -> Result<String, String> {
         return Err(format!("{path}: 通常のファイルでない（または無い）"));
     }
     std::fs::read_to_string(p).map_err(|e| format!("{path}: {e}"))
+}
+
+/// 最近使ったファイルへの保存（#67）。dialog を通していない path は fs プラグインが書かせないので、Rust が書く。
+/// 拡張子が `.mo`、親のフォルダがある、ディレクトリでない path だけ（任意のファイルを UI の JS に書かせない）。
+fn write_mo(path: &str, text: &str) -> Result<(), String> {
+    let p = std::path::Path::new(path);
+    if p.extension().is_none_or(|e| e != "mo") {
+        return Err(format!("{path}: 拡張子が .mo でない"));
+    }
+    if p.is_dir() {
+        return Err(format!("{path}: ディレクトリである"));
+    }
+    if !p.parent().is_none_or(|d| d.as_os_str().is_empty() || d.is_dir()) {
+        return Err(format!("{path}: 親のフォルダが無い"));
+    }
+    std::fs::write(p, text).map_err(|e| format!("{path}: {e}"))
+}
+
+#[tauri::command]
+fn write_recent(path: String, text: String) -> Result<(), String> {
+    write_mo(&path, &text)
 }
 
 #[tauri::command]
@@ -289,7 +310,8 @@ fn main() {
             cancel_msl,
             bench,
             updater_configured,
-            read_recent
+            read_recent,
+            write_recent
         ])
         .setup(|app| {
             let handle = app.handle().clone();
@@ -351,7 +373,7 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::read_mo;
+    use super::{read_mo, write_mo};
 
     #[test]
     fn read_mo_reads_only_existing_mo_files() {
@@ -366,6 +388,21 @@ mod tests {
         assert!(read_mo(d.join("secret.txt").to_str().unwrap()).is_err()); // 拡張子
         assert!(read_mo(d.join("dir.mo").to_str().unwrap()).is_err()); // ディレクトリ
         assert!(read_mo(d.join("none.mo").to_str().unwrap()).is_err()); // 無い
+        std::fs::remove_dir_all(d).ok();
+    }
+
+    /// #67: 最近使ったファイルへの保存は、.mo の通常のファイルだけに書く
+    #[test]
+    fn write_mo_writes_only_mo_files_in_an_existing_folder() {
+        let d = std::env::temp_dir().join(format!("globe-write-mo-{}", std::process::id()));
+        std::fs::create_dir_all(d.join("dir.mo")).unwrap();
+        let a = d.join("A.mo");
+        write_mo(a.to_str().unwrap(), "model A end A;").unwrap();
+        assert_eq!(std::fs::read_to_string(&a).unwrap(), "model A end A;");
+        assert!(write_mo(d.join("a.txt").to_str().unwrap(), "x").is_err()); // 拡張子
+        assert!(write_mo(d.join("dir.mo").to_str().unwrap(), "x").is_err()); // ディレクトリ
+        assert!(write_mo(d.join("no/B.mo").to_str().unwrap(), "x").is_err()); // 親が無い
+        assert!(!d.join("a.txt").exists());
         std::fs::remove_dir_all(d).ok();
     }
 }

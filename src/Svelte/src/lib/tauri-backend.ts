@@ -171,10 +171,14 @@ export class TauriBackend implements Backend {
   }
   /** path があって saveAs でなければそこへ上書きする。無ければ（か saveAs なら）保存ダイアログで選ぶ。書いたパスを返す。 */
   async saveFile(name: string, text: string, saveAs = false, path?: string): Promise<string | null> {
-    const t = tauriGlobal();
-    const to = (!saveAs && path) || (await t.dialog.save({ defaultPath: name, filters: extFilter(name) }));
+    if (!saveAs && path) {
+      // #67: 最近使ったファイルなど dialog を通していない path は fs の許可の外なので、Rust の command `write_recent` が書く（.mo だけ）
+      await invoke("write_recent", { path, text });
+      return path;
+    }
+    const to = await tauriGlobal().dialog.save({ defaultPath: name, filters: extFilter(name) });
     if (!to) return null;
-    await t.fs.writeTextFile(to, text);
+    await tauriGlobal().fs.writeTextFile(to, text);
     return to;
   }
   async saveBinary(name: string, bytes: Uint8Array): Promise<string | null> {
