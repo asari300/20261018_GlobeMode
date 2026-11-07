@@ -8,7 +8,7 @@ OpenModelica（OMEdit）と Rumoca を参考に、GlobeMode に要る機能を�
 ## 表の記号
 
 - OMEdit・Rumoca 列: ○ ある / △ 部分的 / × 無い / — 対象外
-- 優先度:
+- 優先度は次の 3 つ。
   - **Must**: 最初の公開に必須
   - **Should**: 公開後すぐに要る
   - **Could**: 余裕があれば
