@@ -134,15 +134,28 @@ pub(crate) fn dopri5_accepted(
         if reaches_end {
             h = t_end - t;
         }
-        let (x5, e) = dopri5_step(f, t, x, h)?;
-        // 重み付きの最大ノルム
-        let err = (0..x.len())
-            .map(|i| e[i].abs() / (tol.atol[i] + tol.rtol * x[i].abs().max(x5[i].abs())))
-            .fold(0.0f64, f64::max);
-        if !err.is_finite() {
-            return Err(Error::Fmu(format!("t = {t} の積分が有限でない値になった")));
-        }
-        let factor = (0.9 * err.max(1e-10).powf(-0.2)).clamp(0.2, 5.0);
+        // 試しの点が定義域の外（NaN・無限大）、または FMU が `Discard` を返したときは、誤差を無限大として却下する
+        // （刻みを 0.2 倍にして続ける。FMI 2.0.5 §2.1.3・3.0 §2.2.4）。`f64::max` は NaN を捨てるので、有限かどうかは先に見る。
+        // `Error`・`Fatal` は却下せず、そのまま返す。
+        let trial = match dopri5_step(f, t, x, h) {
+            Ok(v) => Some(v),
+            Err(Error::Discard(_)) => None,
+            Err(e) => return Err(e),
+        };
+        let (err, x5) = match trial {
+            Some((x5, e)) if x5.iter().chain(&e).all(|v| v.is_finite()) => (
+                (0..x.len())
+                    .map(|i| e[i].abs() / (tol.atol[i] + tol.rtol * x[i].abs().max(x5[i].abs())))
+                    .fold(0.0f64, f64::max),
+                x5,
+            ),
+            _ => (f64::INFINITY, Vec::new()),
+        };
+        let factor = if err.is_finite() {
+            (0.9 * err.max(1e-10).powf(-0.2)).clamp(0.2, 5.0)
+        } else {
+            0.2
+        };
         if err <= 1.0 {
             return Ok(Accepted {
                 t: if reaches_end { t_end } else { t + h },
@@ -233,5 +246,52 @@ mod tests {
             r.to_string().contains("刻み") || r.to_string().contains("有限"),
             "{r}"
         );
+    }
+
+    /// x(0) = 0.01 から、最初の刻みの試しを `t_end` に置いて `t_end` まで積分した x。
+    fn integrate_to(f: &mut Rhs<'_>, t_end: f64, tol: &Tol<'_>) -> Result<f64> {
+        let (mut t, mut x, mut h) = (0.0, vec![0.01], t_end);
+        while t < t_end {
+            let a = dopri5_accepted(f, t, &x, h, t_end, tol)?;
+            (t, x, h) = (a.t, a.x, a.h_next);
+        }
+        Ok(x[0])
+    }
+
+    /// S206: 試しの点が定義域の外（x' = -sqrt(x) の x < 0 で NaN）に出ても、失敗にも NaN の受理にもせず、刻みを縮めてやり直す。
+    /// 解析解は x = (0.1 - t/2)^2（t = 0.2 で 0）。t = 0.15 で 0.000625。
+    #[test]
+    fn a_trial_point_outside_the_domain_shrinks_the_step() {
+        let tol = Tol {
+            rtol: 1e-8,
+            atol: &[1e-10],
+        };
+        let mut f = |_: f64, x: &[f64]| Ok(vec![-x[0].sqrt()]);
+        let x = integrate_to(&mut f, 0.15, &tol).unwrap();
+        assert!(x.is_finite() && (x - 0.000625).abs() < 1e-6, "{x}");
+    }
+
+    /// S206: FMU が `Discard` を返した試しの点も同じ扱い（FMI 2.0.5 の 2.1.3: ME は刻みを縮めて再計算することを勧める）。
+    /// `Error` は縮めずに止まる。
+    #[test]
+    fn discard_shrinks_the_step_and_error_stops() {
+        let tol = Tol {
+            rtol: 1e-8,
+            atol: &[1e-10],
+        };
+        let mut f = |_: f64, x: &[f64]| {
+            if x[0] < 0.0 {
+                Err(Error::Discard("x < 0".into()))
+            } else {
+                Ok(vec![-x[0].sqrt()])
+            }
+        };
+        let x = integrate_to(&mut f, 0.15, &tol).unwrap();
+        assert!((x - 0.000625).abs() < 1e-6, "{x}");
+        let mut g = |_: f64, _: &[f64]| Err::<Vec<f64>, _>(Error::Fmu("Error".into()));
+        assert!(matches!(
+            dopri5_accepted(&mut g, 0.0, &[0.01], 0.1, 0.1, &tol),
+            Err(Error::Fmu(_))
+        ));
     }
 }

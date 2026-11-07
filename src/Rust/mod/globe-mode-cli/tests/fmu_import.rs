@@ -165,6 +165,25 @@ fn run_reports_errors_with_exit_code_1() {
     ]);
     assert_eq!(o.status.code(), Some(1), "{o:?}");
     assert!(String::from_utf8_lossy(&o.stderr).contains("nope"));
+    // S206: 出力の格子が細かすぎるなら、実行の前に `--step` を勧めて終了コード 1
+    for kind in ["cs", "me"] {
+        let o = globe(&[
+            "fmu",
+            "run",
+            fmu.to_str().unwrap(),
+            "--kind",
+            kind,
+            "--stop-time",
+            "100",
+            "--step",
+            "1e-6",
+        ]);
+        assert_eq!(o.status.code(), Some(1), "{o:?}");
+        assert!(
+            String::from_utf8_lossy(&o.stderr).contains("--step"),
+            "{o:?}"
+        );
+    }
     let o = globe(&["fmu", "run", "/no/such.fmu"]);
     assert_eq!(o.status.code(), Some(1), "{o:?}");
 }
