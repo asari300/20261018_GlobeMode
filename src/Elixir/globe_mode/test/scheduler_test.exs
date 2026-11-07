@@ -72,4 +72,33 @@ defmodule GlobeModeSchedulerTest do
       :erlang.system_flag(:schedulers_online, online)
     end
   end
+
+  # S214: Mutex を待つ NIF（simulate・check など）は dirty IO で回す。dirty CPU を 1 本に絞っても、実行中に check が
+  # 待っていて、無関係の format（dirty CPU）が通る
+  test "実行が Mutex を持つ間、check の待ちが dirty CPU を塞がない" do
+    online = :erlang.system_info(:dirty_cpu_schedulers_online)
+    :erlang.system_flag(:dirty_cpu_schedulers_online, 1)
+
+    try do
+      {:ok, ws} = GlobeMode.new()
+      GlobeMode.set_file(ws, "Wiggle.mo", @wiggle)
+      token = GlobeMode.cancel_token()
+      me = self()
+      settings = %{solver: "esdirk34", stop_time: 5000, interval: 1}
+      run = Task.async(fn -> GlobeMode.simulate_observed(ws, "Wiggle", settings, token, me) end)
+      assert_receive {:globe_progress, %{stage: "integration", time: t}} when is_float(t), 30_000
+
+      waiting = Task.async(fn -> GlobeMode.check(ws, "Wiggle") end)
+      Process.sleep(200)
+      fmt = Task.async(fn -> GlobeMode.format("model A Real x; end A;\n") end)
+      assert {:ok, _} = Task.await(fmt, 5_000)
+      assert Task.yield(waiting, 0) == nil, "check が実行の終わりを待っていない（試験が成り立たない）"
+
+      GlobeMode.cancel(token)
+      assert {:ok, _} = Task.await(run, 30_000)
+      assert {:ok, _} = Task.await(waiting, 30_000)
+    after
+      :erlang.system_flag(:dirty_cpu_schedulers_online, online)
+    end
+  end
 end

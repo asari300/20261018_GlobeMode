@@ -70,4 +70,12 @@ defmodule GlobeModeTest do
     assert res["termination"]["time"] > 0 and res["termination"]["time"] < 1000
     assert "GM-I11004" in Enum.map(res["diagnostics"], & &1["code"])
   end
+
+  # S214: NIF が Mutex を持ったまま panic しても、長く生きる workspace は使い続けられる（poison から回復する）
+  test "panic の後も同じ workspace が使える" do
+    {:ok, ws} = GlobeMode.new()
+    assert catch_error(:globe_mode_nif.panic_for_test(ws))
+    assert {:ok, _} = GlobeMode.set_file(ws, "A.mo", "model A Real x; equation x = 1; end A;")
+    assert {:ok, %{"passed" => true}} = GlobeMode.check(ws, "A")
+  end
 end

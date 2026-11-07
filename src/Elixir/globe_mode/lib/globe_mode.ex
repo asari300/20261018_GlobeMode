@@ -18,6 +18,7 @@ defmodule :globe_mode_nif do
   def outline(_ws, _path), do: :erlang.nif_error(:not_loaded)
   def deps(_ws, _model), do: :erlang.nif_error(:not_loaded)
   def flat(_ws, _model), do: :erlang.nif_error(:not_loaded)
+  def panic_for_test(_ws), do: :erlang.nif_error(:not_loaded)
   def cancel_token, do: :erlang.nif_error(:not_loaded)
   def cancel(_token), do: :erlang.nif_error(:not_loaded)
   def simulate_observed(_ws, _model, _settings_json, _pid, _token), do: :erlang.nif_error(:not_loaded)
