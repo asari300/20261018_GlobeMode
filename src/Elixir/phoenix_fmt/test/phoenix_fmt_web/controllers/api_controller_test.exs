@@ -23,8 +23,8 @@ defmodule PhoenixFmtWeb.ApiControllerTest do
       assert is_binary(error)
     end
 
-    test "indent が正の整数でなければ 400", %{conn: conn} do
-      conn = post(conn, "/api/format", %{text: "model A end A;", indent: 0})
+    test "indent が 0〜16 の整数でなければ 400", %{conn: conn} do
+      conn = post(conn, "/api/format", %{text: "model A end A;", indent: 17})
 
       assert %{"error" => _} = json_response(conn, 400)
     end
@@ -33,6 +33,13 @@ defmodule PhoenixFmtWeb.ApiControllerTest do
       conn = post(conn, "/api/format", %{})
 
       assert %{"error" => _} = json_response(conn, 400)
+    end
+
+    test "本文が 1 MiB を超えれば 413", %{conn: conn} do
+      body = Jason.encode!(%{text: String.duplicate("x", 1_048_576)})
+      conn = put_req_header(conn, "content-type", "application/json")
+
+      assert_error_sent 413, fn -> post(conn, "/api/format", body) end
     end
   end
 
@@ -55,6 +62,12 @@ defmodule PhoenixFmtWeb.ApiControllerTest do
 
     test "disable が文字列の配列でなければ 400", %{conn: conn} do
       conn = post(conn, "/api/lint", %{text: "model A end A;", disable: "x"})
+
+      assert %{"error" => _} = json_response(conn, 400)
+    end
+
+    test "disable が規則名の形でなければ 400", %{conn: conn} do
+      conn = post(conn, "/api/lint", %{text: "model A end A;", disable: ["--json"]})
 
       assert %{"error" => _} = json_response(conn, 400)
     end

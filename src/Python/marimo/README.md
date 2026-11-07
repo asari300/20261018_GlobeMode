@@ -25,6 +25,10 @@ GLOBE_BIN=/path/to/globe uv run marimo run src/Python/marimo/fmt_app.py
 
 `GLOBE_BIN` を省くと PATH の `globe` を使う。編集しながら使うときは `marimo edit` に変える。
 
+## 入力の守り
+
+本文は 1 MiB まで（超えたら HTTP 413。Streamlit・marimo は画面にエラー）、`globe` は 10 秒で kill する（環境変数 `GLOBE_TIMEOUT_MS` で変える。試験が使う）。決めた値は [doc/web-apps.md の 3.1](../../../doc/web-apps.md)（S215）。
+
 ## 検査
 
 ```bash

@@ -78,6 +78,7 @@ async fn format(Json(req): Json<FormatRequest>) -> Json<FormatResponse> {
             indent,
             width: req.width.unwrap_or(defaults.width),
             insert_origin: req.insert_origin.unwrap_or(defaults.insert_origin),
+            ..defaults
         };
         globe_mode_fmt::format(&req.text, &options).map_err(|e| e.to_string())
     };

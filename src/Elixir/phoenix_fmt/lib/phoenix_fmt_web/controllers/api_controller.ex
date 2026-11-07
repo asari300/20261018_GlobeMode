@@ -12,7 +12,7 @@ defmodule PhoenixFmtWeb.ApiController do
         end
 
       :error ->
-        bad_request(conn, "indent と width は正の整数、insert_origin は真偽値")
+        bad_request(conn, "indent は 0〜16、width は 1〜1000 の整数、insert_origin は真偽値")
     end
   end
 
@@ -21,7 +21,7 @@ defmodule PhoenixFmtWeb.ApiController do
   def lint(conn, %{"text" => text} = params) when is_binary(text) do
     disable = Map.get(params, "disable", [])
 
-    if is_list(disable) and Enum.all?(disable, &is_binary/1) do
+    if is_list(disable) and Enum.all?(disable, &(is_binary(&1) and &1 =~ ~r/\A[a-z][a-z-]*\z/)) do
       case Globe.lint(text, disable) do
         {:ok, result} -> json(conn, result)
         {:error, msg} -> conn |> put_status(500) |> json(%{error: msg})
@@ -38,7 +38,7 @@ defmodule PhoenixFmtWeb.ApiController do
     width = Map.get(params, "width", 80)
     insert_origin = Map.get(params, "insert_origin", true)
 
-    if positive_int?(indent) and positive_int?(width) and is_boolean(insert_origin) do
+    if int_in?(indent, 0..16) and int_in?(width, 1..1000) and is_boolean(insert_origin) do
       origin = if insert_origin, do: [], else: ["--no-insert-origin"]
       {:ok, ["--indent", to_string(indent), "--width", to_string(width)] ++ origin}
     else
@@ -46,7 +46,7 @@ defmodule PhoenixFmtWeb.ApiController do
     end
   end
 
-  defp positive_int?(n), do: is_integer(n) and n > 0
+  defp int_in?(n, range), do: is_integer(n) and n in range
 
   defp bad_request(conn, msg), do: conn |> put_status(400) |> json(%{error: msg})
 end

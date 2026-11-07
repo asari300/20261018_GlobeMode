@@ -23,14 +23,43 @@ defmodule PhoenixFmt.Globe do
     try do
       bin = System.get_env("GLOBE_BIN", "globe")
       script = ~s(f=$1; shift; exec "$@" < "$f")
-      {out, _status} = System.cmd("sh", ["-c", script, "sh", tmp, bin | args])
 
-      case Jason.decode(out) do
-        {:ok, json} when is_map(json) -> {:ok, json}
-        _ -> {:error, "globe の出力を読めない: #{String.slice(out, 0, 200)}"}
+      port =
+        Port.open({:spawn_executable, System.find_executable("sh")}, [
+          :binary,
+          :exit_status,
+          args: ["-c", script, "sh", tmp, bin | args]
+        ])
+
+      timeout = String.to_integer(System.get_env("GLOBE_TIMEOUT_MS", "10000"))
+
+      case collect(port, "", System.monotonic_time(:millisecond) + timeout) do
+        :timeout ->
+          {:error, "globe が時間内に終わらなかった"}
+
+        {:ok, out} ->
+          case Jason.decode(out) do
+            {:ok, json} when is_map(json) -> {:ok, json}
+            _ -> {:error, "globe の出力を読めない: #{String.slice(out, 0, 200)}"}
+          end
       end
     after
       File.rm(tmp)
+    end
+  end
+
+  # 出力の塊ごとではなく全体で時間を数える。切るときは globe（sh が exec で置き換わっている）を kill する
+  defp collect(port, acc, deadline) do
+    receive do
+      {^port, {:data, data}} -> collect(port, acc <> data, deadline)
+      {^port, {:exit_status, _}} -> {:ok, acc}
+    after
+      max(deadline - System.monotonic_time(:millisecond), 0) ->
+        with {:os_pid, pid} <- Port.info(port, :os_pid),
+             do: System.cmd("kill", ["-KILL", to_string(pid)])
+
+        Port.close(port)
+        :timeout
     end
   end
 end

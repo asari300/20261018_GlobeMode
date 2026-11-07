@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S215 ウェブアプリの issue 2 件 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S215 ウェブアプリの issue 2 件">
+
+<section class="slide" id="S01">
+  <span class="tag">S215 · 2026-11-07 · P4</span>
+  <h1>ウェブアプリの issue 2 件</h1>
+  <p class="lead">ponytail の監査が立てた #22 と #36 を、1 件ずつ再現してから直した</p>
+  <div class="big">Rust の 4 種は<b>コンパイルできなかった</b>。ほかの 6 種には<b>上限と時間切れが無かった</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">#22</span>
+  <h1>4 種が S061 からビルドできなかった</h1>
+  <ul>
+    <li><code>Options</code> に <code>blank_around_sections</code>（S061）と <code>format_html</code>（S062）が増えた</li>
+    <li>4 つのアプリは 3 つのフィールドだけ名指ししていて、E0063</li>
+    <li>別の workspace で、CI が見ていなかった</li>
+    <li>直し方は <code>..defaults</code> を 1 行ずつ</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">#22 の CI</span>
+  <h1>ジョブ <code>web</code> を足した</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>中身</th></tr>
+    <tr><td>起動</td><td><code>src/Rust/apps/web-*</code> か <code>globe-mode-fmt</code> の変更、または full</td></tr>
+    <tr><td>中身</td><td>axum・actix・rocket・loco を matrix で <code>cargo build</code> と <code>cargo test</code></td></tr>
+    <tr><td>判定の試験</td><td><code>test_ci_plan.py</code> の <code>test_web_apps</code></td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">#36</span>
+  <h1>共通の値を 1 つ決めた</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>値</th></tr>
+    <tr><td>本文の上限</td><td>1 MiB、超えたら 413</td></tr>
+    <tr><td><code>globe</code> の時間切れ</td><td>10 秒、kill して 5xx（<code>GLOBE_TIMEOUT_MS</code>）</td></tr>
+    <tr><td>一時ファイル</td><td>使うなら排他で作り、必ず消す</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">#36 の前後</span>
+  <h1>アプリごとに足りなかったもの</h1>
+  <table class="compact">
+    <tr><th>アプリ</th><th>上限</th><th>時間切れ</th><th>一時ファイル</th></tr>
+    <tr><td>FastAPI</td><td>足した</td><td>60 秒を 10 秒に</td><td>使わない</td></tr>
+    <tr><td>Streamlit・marimo</td><td>足した</td><td>足した</td><td>使わない</td></tr>
+    <tr><td>Phoenix</td><td>8 MB を 1 MiB に</td><td>足した（Port で kill）</td><td>元から排他</td></tr>
+    <tr><td>Gleam</td><td>8 MB を 1 MiB に</td><td>全体で数え、kill</td><td>排他にした</td></tr>
+    <tr><td>Astro</td><td>足した</td><td>足した</td><td>使わない</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>cd src/Rust/apps/web-axum &amp;&amp; cargo build --locked   # 直す前は E0063
+GLOBE_BIN=… uv run pytest                          # FastAPI
+mise exec -- mix test                              # Phoenix
+mise exec -- gleam test                            # Gleam
+mise exec -- node --test test/api.test.mjs         # Astro</code></pre>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>CLI を呼ぶ 6 種の試験は、まだ CI に入っていない</li>
+    <li>Rust の 3 つのアプリを消す案（#41）はユーザーの判断</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

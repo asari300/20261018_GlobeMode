@@ -57,3 +57,7 @@
 ### S148: zig は ziglang.org から直接取る
 
 `jdx/mise-action` の zig の取得は、既定ではコミュニティのミラー（17 件、順不同）を先に試す。run 41702810070 の `lang` はミラーの 502・500 のあと、ziglang.org へのファイル名の取り違え（404）で落ちた。zig を入れるジョブ（`ci.yml` の `lang`、`fmu-export.yml`、`release.yml`）に `MISE_ZIG_USE_COMMUNITY_MIRRORS: "false"` を足し、ziglang.org から直接取る（署名の検証は同じ。出典: [mise の Zig](https://mise.jdx.dev/lang/zig.html)、確認 2026-11-04）。ziglang.org が落ちたら、この行を消せばミラーに戻る。詳細は [S148 の解説書](../sessions/S148-ci-zig-mirror/解説書.md)。
+
+### S215: Rust のウェブアプリ 4 種（`web`）
+
+`src/Rust/apps/web-{axum,actix,rocket,loco}` は別の workspace で、ルートの cargo は見ない。`globe_mode_fmt::Options` にフィールドが足されて（S061・S062）コンパイルできなくなっても気づけなかった（#22）。`ci_plan.py` に出力 `web`（`src/Rust/apps/web-*` か `globe-mode-fmt` の影響、または full）を足し、ジョブ `web` が 4 つを matrix で `cargo build --locked` と `cargo test --locked` する。

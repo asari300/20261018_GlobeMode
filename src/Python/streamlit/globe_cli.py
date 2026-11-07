@@ -5,13 +5,26 @@ import os
 import subprocess
 
 
+MAX_BODY = 1 << 20  # doc/web-apps.md §3.1
+
+
 class GlobeError(Exception):
     """globe を起動できない、または JSON を返さなかった。"""
 
 
 def _run(args: list[str], text: str) -> dict:
+    if len(text.encode()) > MAX_BODY:
+        raise GlobeError("入力が 1 MiB を超えている")
     try:
-        proc = subprocess.run(args, input=text, capture_output=True, text=True)
+        proc = subprocess.run(
+            args,
+            input=text,
+            capture_output=True,
+            text=True,
+            timeout=int(os.environ.get("GLOBE_TIMEOUT_MS", "10000")) / 1000,
+        )
+    except subprocess.TimeoutExpired as e:
+        raise GlobeError("globe が時間内に終わらなかった") from e
     except OSError as e:
         raise GlobeError(f"globe を起動できません（GLOBE_BIN={args[0]!r}）: {e}") from e
     try:

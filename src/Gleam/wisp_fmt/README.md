@@ -26,6 +26,10 @@ GLOBE_BIN=<worktree のルート>/target/debug/globe PORT=8080 mise exec -- glea
 - `PORT`: 待ち受けるポート。無ければ 8080。
 - 画面: http://localhost:8080/
 
+## 入力の守り
+
+本文は 1 MiB まで（超えたら HTTP 413。Streamlit・marimo は画面にエラー）、`globe` は 10 秒で kill する（環境変数 `GLOBE_TIMEOUT_MS` で変える。試験が使う）。決めた値は [doc/web-apps.md の 3.1](../../../doc/web-apps.md)（S215）。
+
 ## 検査
 
 ```sh

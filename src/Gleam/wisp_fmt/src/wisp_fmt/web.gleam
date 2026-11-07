@@ -4,6 +4,8 @@ import gleam/dynamic/decode
 import gleam/http.{Get, Post}
 import gleam/http/request
 import gleam/json
+import gleam/list
+import gleam/string
 import wisp.{type Request, type Response}
 import wisp_fmt/engine
 import wisp_fmt/page
@@ -17,6 +19,8 @@ pub fn handle(req: Request, ctx: Context) -> Response {
   use <- wisp.log_request(req)
   use <- wisp.rescue_crashes
   use req <- wisp.handle_head(req)
+  // 本文の上限 1 MiB（doc/web-apps.md §3.1）。超えると wisp が 413 を返す
+  let req = wisp.set_max_body_size(req, 1_048_576)
   case req.method, request.path_segments(req) {
     Get, [] -> wisp.html_response(page.html(), 200)
     Get, ["healthz"] -> json_out(json.object([#("ok", json.bool(True))]), 200)
@@ -37,7 +41,7 @@ fn format_api(req: Request, ctx: Context) -> Response {
     Error(_) -> Error("リクエストの JSON が不正")
     Ok(FormatRequest(text:, options:)) ->
       case valid_options(options) {
-        False -> Error("indent は 1〜16、width は 1〜1000 にする")
+        False -> Error("indent は 0〜16、width は 1〜1000 にする")
         True -> engine.format(ctx.globe_bin, text, options)
       }
   }
@@ -70,7 +74,7 @@ fn format_request_decoder() -> decode.Decoder(FormatRequest) {
 }
 
 fn valid_options(options: engine.Options) -> Bool {
-  options.indent >= 1
+  options.indent >= 0
   && options.indent <= 16
   && options.width >= 1
   && options.width <= 1000
@@ -105,7 +109,18 @@ fn lint_request_decoder() -> decode.Decoder(LintRequest) {
     [],
     decode.list(decode.string),
   )
-  decode.success(LintRequest(text:, disable:))
+  case list.all(disable, valid_rule) {
+    True -> decode.success(LintRequest(text:, disable:))
+    False -> decode.failure(LintRequest(text:, disable: []), "規則名")
+  }
+}
+
+// 規則名は小文字とハイフンだけ、先頭は小文字（CLI のオプションと取り違えない）
+fn valid_rule(rule: String) -> Bool {
+  let chars = string.to_graphemes(rule)
+  chars != []
+  && !string.starts_with(rule, "-")
+  && list.all(chars, fn(c) { string.contains("abcdefghijklmnopqrstuvwxyz-", c) })
 }
 
 fn message_json(m: engine.Message) -> json.Json {

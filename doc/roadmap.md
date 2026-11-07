@@ -547,6 +547,11 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - 試験: `test_ui.py` に 1 本（初回の案内と閉じる・smoke で出ない、スキップリンク、矢印・Home・End と tabindex、編集で印・再読み込み・beforeunload・保存で消える）。`pnpm check` 0 警告。
 - 持ち越し: タブの並べ替え（ドラッグ）、ツリーのアイコン、案内の多言語化、案内を出し直す操作、Esc で止める、スクリーンリーダーの実機（【未確認】）。
 
+### S215（P4、2026-11-07）で済んだこと
+
+- **ウェブアプリの issue 2 件**（[解説書](sessions/S215-web-apps-issues/解説書.md)）: #22 Rust のウェブアプリ 4 種が `Options` のフィールド不足（S061・S062）で S061 からビルドできなかった（E0063、4 種とも再現）。`..defaults` で直し、CI にジョブ `web`（`src/Rust/apps/web-*` か `globe-mode-fmt` の変更、または full のとき、4 種を matrix で `cargo build` と `cargo test`）を足した。#36 CLI を子プロセスで呼ぶ 6 種に、本文 1 MiB（413）・`globe` の時間切れ 10 秒（kill。`GLOBE_TIMEOUT_MS`）・Gleam の一時ファイルの排他を足し、`disable` の形と `indent` 0〜16 を揃えた（[web-apps.md の 3.1](web-apps.md)）。**挙動が変わる**: 1 MiB を超える本文は 413、FastAPI の時間切れは 60 秒から 10 秒。
+- 持ち越し: CLI を呼ぶ 6 種の試験はまだ CI に無い。
+
 ### S214（P7、2026-11-07）で済んだこと
 
 - **LSP と言語の束ねの issue 6 件を、いまの main で再現してから直した**（[解説書](sessions/S214-lsp-bindings-issues/解説書.md)）: #33 は積まれた `didChange` をまとめて古い版は検査せず、`globe/simulate` に既定の予算 180 s を置いた。#25 は本文を診断より先に保存。#39 は `globe/format` の indent も設定ファイルが勝つ（**挙動が変わる**）。#35 は NIF の Mutex を poison から回復し、Mutex を待つ NIF を DirtyIo に。#30 は Julia のコールバックの例外を Rust に通さない。#37 の LSP 側は facade の `Workspace` に乗っているので何もしない。
