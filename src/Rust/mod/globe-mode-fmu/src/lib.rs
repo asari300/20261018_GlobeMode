@@ -241,6 +241,8 @@ struct Instance {
     overrides: BTreeMap<String, f64>,
     /// `fmi2SetReal` で与えた入力（作り直したときに置き直す）
     inputs: BTreeMap<String, f64>,
+    /// `fmi2SetReal` で与えた状態の値（添字 → 値。作り直したときに置き直す。start 値と同じ）
+    states: BTreeMap<usize, f64>,
     dirty: bool,
 }
 
@@ -255,6 +257,14 @@ impl Instance {
                     for (name, v) in &self.inputs {
                         let _ = inst.set_input(name, *v);
                     }
+                    let mut x = inst.states().to_vec();
+                    for (&i, &v) in &self.states {
+                        x[i] = v;
+                    }
+                    if let Err(e) = inst.set_states(&x) {
+                        eprintln!("globe-mode-fmu: {e}");
+                        return false;
+                    }
                     self.inst = inst
                 }
                 Err(d) => {
@@ -268,14 +278,39 @@ impl Instance {
     }
 }
 
+/// `resources` の場所の URI（またはそのままのパス）をパスの文字列にする。
+fn resource_path(location: &str) -> &str {
+    let p = location
+        .strip_prefix("file:")
+        .map_or(location, |p| p.strip_prefix("//").unwrap_or(p));
+    // Windows の `/C:/x` は `C:/x`
+    match p.as_bytes() {
+        [b'/', d, b':', ..] if d.is_ascii_alphabetic() => &p[1..],
+        _ => p,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resource_path;
+
+    #[test]
+    fn resource_path_from_uri() {
+        assert_eq!(resource_path("file:///home/u/r"), "/home/u/r");
+        assert_eq!(resource_path("/home/u/r"), "/home/u/r");
+        // Windows: ドライブ文字の前の / を落とす（FMPy は file:///C:/… を渡す）
+        assert_eq!(resource_path("file:///C:/Users/u/r"), "C:/Users/u/r");
+        assert_eq!(resource_path("file:///c:/r"), "c:/r");
+        // 3.0 の resourcePath はそのままのパス
+        assert_eq!(resource_path(r"C:\Users\u\r"), r"C:\Users\u\r");
+    }
+}
+
 /// `resources` の場所（2.0 は `file:///…` の URI、3.0 はそのままのパス）から、ただ 1 つの `.mo` の
 /// （完全修飾名、文面）を読む。
 // shortcut: %xx のエスケープを戻さない。空白などを含む置き場で使うときに戻す
 fn read_resource(location: &str) -> Option<(String, String)> {
-    let path = location
-        .strip_prefix("file:")
-        .map_or(location, |p| p.strip_prefix("//").unwrap_or(p));
-    let dir = PathBuf::from(path);
+    let dir = PathBuf::from(resource_path(location));
     let mo = std::fs::read_dir(&dir)
         .ok()?
         .filter_map(|e| e.ok().map(|e| e.path()))
@@ -428,6 +463,7 @@ unsafe fn instantiate(guid: *const c_char, resource_location: *const c_char) -> 
             start: 0.0,
             overrides: BTreeMap::new(),
             inputs: BTreeMap::new(),
+            states: BTreeMap::new(),
             dirty: false,
         }))
         .cast(),
@@ -488,6 +524,7 @@ pub unsafe extern "C" fn fmi2Reset(c: Component) -> Status {
     unsafe { inst(c) }.map_or(ERROR, |m| {
         m.overrides.clear();
         m.inputs.clear();
+        m.states.clear();
         (m.start, m.dirty) = (0.0, true);
         if m.rebuild() { OK } else { ERROR }
     })
@@ -530,7 +567,11 @@ pub unsafe extern "C" fn fmi2SetReal(
             if r < n {
                 let mut x = m.inst.states().to_vec();
                 x[r] = *v;
-                return m.inst.set_states(&x).is_ok();
+                let ok = m.inst.set_states(&x).is_ok();
+                if ok {
+                    m.states.insert(r, *v);
+                }
+                return ok;
             }
             let p = m.inst.parameters().len();
             if let Some(var) = (r.checked_sub(2 * n + p)).and_then(|i| m.inst.variables().nth(i)) {

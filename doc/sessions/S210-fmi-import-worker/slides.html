@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S210 FMI Import のワーカー — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S210 FMI Import のワーカー">
+
+<section class="slide" id="S01">
+  <span class="tag">S210 · 2026-11-07 · P5</span>
+  <h1>FMU を別プロセスで回す</h1>
+  <p class="lead">FMU は任意のネイティブコード。落ちても <code>globe</code> が落ちないように、読み込みと実行をワーカーに隔離した</p>
+  <div class="big">abort・segfault・無限ループ・メモリの食いつぶしを、<b>誤りとして</b>受け取る</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">設計</span>
+  <h1>親と子</h1>
+  <ul>
+    <li>親: <code>globe fmu run</code> は FMU に触れず、自分自身を <code>fmu __worker</code> で子として起動する</li>
+    <li>要求: 標準入力に 1 行の JSON（FMU のパス、kind、時刻、刻み、出力、set）</li>
+    <li>結果: 標準出力の行だけ。印 <code>\u0001GW </code> の無い行は FMU の printf として捨てる</li>
+    <li>行の種類: P 進捗、H 名前、M ME の要約、R 値の行、D 終わりの印、E 失敗</li>
+    <li>D が来ないまま閉じたら「落ちた」。終了の状態と標準エラーの末尾を誤りに添える</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">API</span>
+  <h1>呼び出し側が実行ファイルを渡す</h1>
+  <table class="compact">
+    <tr><th>名前</th><th>役目</th></tr>
+    <tr><td><code>run_in_worker(spec, req, progress)</code></td><td>親。<code>WorkerSpec</code> に実行ファイル、引数、時間、メモリを持つ</td></tr>
+    <tr><td><code>worker_main()</code></td><td>子。呼び出し側の副命令から呼ぶ</td></tr>
+    <tr><td><code>run_in_process(req, progress)</code></td><td>子の中身。プロセス内で回したい人向け</td></tr>
+  </table>
+  <p>将来の facade・Desktop の sidecar・Python が同じ形を使える（今回は口を足していない）。</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">上限</span>
+  <h1>何を隔離し、何をしないか</h1>
+  <table class="compact">
+    <tr><th>対象</th><th>扱い</th></tr>
+    <tr><td>クラッシュ</td><td>隔離する。終了の状態（signal など）を誤りに</td></tr>
+    <tr><td>無限ループ</td><td><code>--timeout 秒</code> で kill</td></tr>
+    <tr><td>メモリ</td><td><code>--memory-limit MiB</code>。Linux だけ（<code>ulimit -v</code>）</td></tr>
+    <tr><td>zombie・孤児</td><td>drop で kill と wait。親が消えたら子は標準入力の EOF で終わる</td></tr>
+    <tr><td>ディスク・ネットワーク</td><td><b>隔離しない</b>（sandbox は持ち越し）</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">試験</span>
+  <h1>落ちる FMU を作って確かめる</h1>
+  <table class="compact">
+    <tr><th>FMU</th><th>親の誤り</th></tr>
+    <tr><td>Instantiate で abort</td><td>signal: 6 (SIGABRT)</td></tr>
+    <tr><td>DoStep で segfault</td><td>signal: 11 (SIGSEGV)</td></tr>
+    <tr><td>DoStep が戻らない</td><td>1.500 s で終わらないので止めた</td></tr>
+    <tr><td>GetReal が malloc を繰り返す（1 GiB）</td><td>signal: 6 (SIGABRT)</td></tr>
+  </table>
+  <p>どれも親は落ちず、子のプロセスが残らない。普通の FMU はプロセス内の結果とビット単位で同じ。</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">再現手順</span>
+  <h1>再現</h1>
+  <pre><code>cargo xtask fetch-reference-fmus
+cargo test -p globe-mode-cli --test fmu_worker -- --nocapture
+mise run check
+gh workflow run fmu-import.yml --ref feature/s210-fmi-import-worker</code></pre>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ol>
+    <li>sandbox（seccomp・Landlock・名前空間、AppContainer）</li>
+    <li>macOS・Windows のメモリの上限（Job Object）、FMU が作る孫プロセスの掃除</li>
+    <li>facade の <code>import_fmu</code> と UI の「FMU を開く」（確認つき）、Python・C ABI</li>
+  </ol>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

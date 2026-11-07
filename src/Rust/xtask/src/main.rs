@@ -271,7 +271,7 @@ enum Cmd {
         reset_every: usize,
         /// ソルバ（`bdf`、`dopri45`、`auto` など。既定の `auto` は、BDF が積分で失敗したら esdirk34、それも止まれば dopri45 で回し直す。S012・S064）
         #[arg(long, default_value = "auto")]
-        solver: Option<String>,
+        solver: String,
         /// experiment annotation の Tolerance をこの倍にする（注釈に無ければ既定 1e-6 のまま）。MAP-LIB の参照結果と同じ規則（S013）
         #[arg(long, default_value_t = 1.0)]
         tolerance_scale: f64,
@@ -444,10 +444,10 @@ fn main() -> ExitCode {
             lowering_kill_seconds,
             retry_wall_seconds,
             reset_every,
-            solver: solver.as_deref(),
+            solver: &solver,
             tolerance_scale,
             keep_results: keep_results.as_deref(),
-            known_deviations: Some(&known_deviations),
+            known_deviations: &known_deviations,
             baseline_json: baseline_json.as_deref(),
             report: report.as_deref(),
             json: json.as_deref(),
@@ -1053,7 +1053,7 @@ mod tests {
                 baseline_json,
                 ..
             } => {
-                assert_eq!(solver.as_deref(), Some("auto"));
+                assert_eq!(solver, "auto");
                 assert_eq!(retry_wall_seconds, 180.0);
                 assert_eq!(
                     known_deviations,
@@ -1077,7 +1077,7 @@ mod tests {
         assert!(matches!(
             cli.command,
             Cmd::MslSim { ref solver, retry_wall_seconds, baseline_json: Some(_), .. }
-                if solver.as_deref() == Some("bdf") && retry_wall_seconds == 0.0
+                if solver == "bdf" && retry_wall_seconds == 0.0
         ));
         let cli = Cli::try_parse_from([
             "xtask",

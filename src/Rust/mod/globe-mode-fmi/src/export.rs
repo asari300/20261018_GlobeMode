@@ -159,6 +159,14 @@ fn platform(triple: &str, fmi_version: u8) -> Result<(String, &'static str), Str
     }
 }
 
+/// `CC` の値から起動するコマンドを作る。`CC="ccache cc"` のように空白で区切った引数があってもよい。空なら `cc`。
+fn host_cc(cc: &str) -> Command {
+    let mut words = cc.split_whitespace();
+    let mut c = Command::new(words.next().unwrap_or("cc"));
+    c.args(words);
+    c
+}
+
 /// `triple` が None なら host を `cc`（`CC` で上書き可）で、Some なら `zig cc -target <triple>` で作る。
 fn build(src: &MeSources, root: &Path, headers: &Path, triple: Option<&str>) -> Result<(), String> {
     if triple.is_none() && !(cfg!(target_os = "linux") && cfg!(target_arch = "x86_64")) {
@@ -174,7 +182,7 @@ fn build(src: &MeSources, root: &Path, headers: &Path, triple: Option<&str>) -> 
     let out = bin.join(format!("{}.{ext}", src.model_identifier));
     let sources = root.join("sources");
     let mut cc = match triple {
-        None => Command::new(std::env::var_os("CC").unwrap_or("cc".into())),
+        None => host_cc(&std::env::var("CC").unwrap_or_default()),
         Some(t) => {
             let mut c = Command::new(std::env::var_os("ZIG").unwrap_or("zig".into()));
             c.args(["cc", "-target", t]);
@@ -259,7 +267,16 @@ fn zip_dir(root: &Path, fmu: &Path) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::platform;
+    use super::{host_cc, platform};
+
+    #[test]
+    fn cc_with_arguments_is_split_on_whitespace() {
+        let c = host_cc("ccache  gcc -m64");
+        assert_eq!(c.get_program(), "ccache");
+        assert_eq!(c.get_args().collect::<Vec<_>>(), ["gcc", "-m64"]);
+        assert_eq!(host_cc("").get_program(), "cc");
+        assert_eq!(host_cc("  ").get_program(), "cc");
+    }
 
     #[test]
     fn platform_names() {
