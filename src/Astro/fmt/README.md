@@ -1,7 +1,7 @@
 # GlobeMode 整形・lint（Astro）
 
 GlobeMode の整形器と lint を、ブラウザから使う Astro のアプリです（[doc/web-apps.md](../../../doc/web-apps.md)）。
-計算は Rust 側の `globe` CLI（`globe fmt --json` / `globe lint --json`）が行い、このアプリは子プロセスとして呼ぶだけです。
+計算は Rust 側の `globe` CLI（`globe fmt --json -` / `globe lint --json -`）が行い、このアプリは子プロセスとして呼ぶだけです。
 
 English summary: A small Astro (server output, `@astrojs/node` standalone) web app for the GlobeMode Modelica formatter and linter.
 The API routes (`/api/format`, `/api/lint`, `/healthz`) call the `globe` CLI through `GLOBE_BIN`. Run `pnpm dev`, or `pnpm build` and `node dist/server/entry.mjs`.

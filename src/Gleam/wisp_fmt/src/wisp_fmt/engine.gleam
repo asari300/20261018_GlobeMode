@@ -35,7 +35,7 @@ pub fn format(
   }
   let args =
     list.flatten([
-      ["fmt", "--json"],
+      ["fmt", "--json", "-"],
       ["--indent", int.to_string(options.indent)],
       ["--width", int.to_string(options.width)],
       origin,
@@ -66,7 +66,7 @@ pub fn lint(
 ) -> Result(List(Message), String) {
   let args =
     list.flatten([
-      ["lint", "--json"],
+      ["lint", "--json", "-"],
       list.flat_map(disable, fn(rule) { ["--disable", rule] }),
     ])
   let decoder = {

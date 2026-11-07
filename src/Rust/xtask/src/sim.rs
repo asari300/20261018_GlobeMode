@@ -153,10 +153,7 @@ pub(crate) fn parse_known_deviations(text: &str) -> Result<BTreeMap<String, Stri
 }
 
 /// 既知の外れの一覧のファイルを読む（無ければ空の一覧にして、注意を出す）。
-fn load_known_deviations(path: Option<&Path>) -> Result<BTreeMap<String, String>> {
-    let Some(path) = path else {
-        return Ok(BTreeMap::new());
-    };
+fn load_known_deviations(path: &Path) -> Result<BTreeMap<String, String>> {
     match fs::read_to_string(path) {
         Ok(text) => parse_known_deviations(&text).map_err(|e| format!("{}: {e}", path.display())),
         Err(e) => {
@@ -1334,12 +1331,12 @@ pub(crate) struct Options<'a> {
     /// （秒。`wall_seconds` 以下なら回し直さない）
     pub retry_wall_seconds: f64,
     pub reset_every: usize,
-    pub solver: Option<&'a str>,
+    pub solver: &'a str,
     /// 許容誤差の倍率（ワーカーの `--tolerance-scale`）
     pub tolerance_scale: f64,
     pub keep_results: Option<&'a Path>,
     /// 既知の外れの一覧（`src/Modelica/msl-sim-known-deviations.txt`）
-    pub known_deviations: Option<&'a Path>,
+    pub known_deviations: &'a Path,
     /// 比べる前回の `msl-sim --json`（S011 の結果など）
     pub baseline_json: Option<&'a Path>,
     pub report: Option<&'a Path>,
@@ -1382,9 +1379,7 @@ fn worker_args(opts: &Options<'_>, wall_seconds: f64) -> Vec<OsString> {
     for lib in opts.libraries {
         args.extend(["--library".into(), lib.into()]);
     }
-    if let Some(s) = opts.solver {
-        args.extend(["--solver".into(), s.into()]);
-    }
+    args.extend(["--solver".into(), opts.solver.into()]);
     if opts.tolerance_scale != 1.0 {
         args.extend([
             "--tolerance-scale".into(),
@@ -2112,7 +2107,7 @@ fn render_report(records: &[Record], s: &Summary, run: &RunInfo<'_>) -> String {
     };
     let _ = writeln!(
         md,
-        "| 実行の設定 | StartTime・StopTime・Interval・Tolerance は experiment annotation（無い項目は既定値: StartTime 0、StopTime は開始 + 1、Tolerance 1e-6、Interval は区間の 1/500）{}。ソルバは{}（実行できたもの: {solvers}）。壁時計の予算 {} s（協調型。超えると {}）。応答が {} s 無いか、lowering の段に入ってから {} s で終わらなければ、親がワーカーを止める |",
+        "| 実行の設定 | StartTime・StopTime・Interval・Tolerance は experiment annotation（無い項目は既定値: StartTime 0、StopTime は開始 + 1、Tolerance 1e-6、Interval は区間の 1/500）{}。ソルバは `--solver {}`（実行できたもの: {solvers}）。壁時計の予算 {} s（協調型。超えると {}）。応答が {} s 無いか、lowering の段に入ってから {} s で終わらなければ、親がワーカーを止める |",
         if opts.tolerance_scale == 1.0 {
             String::new()
         } else {
@@ -2121,10 +2116,7 @@ fn render_report(records: &[Record], s: &Summary, run: &RunInfo<'_>) -> String {
                 opts.tolerance_scale
             )
         },
-        opts.solver
-            .map_or("既定（実行系の既定）".to_string(), |x| format!(
-                " `--solver {x}`"
-            )),
+        opts.solver,
         opts.wall_seconds,
         codes::RUN_TIMEOUT,
         opts.kill_seconds,
@@ -2146,9 +2138,8 @@ fn render_report(records: &[Record], s: &Summary, run: &RunInfo<'_>) -> String {
     );
     let _ = writeln!(
         md,
-        "| 既知の外れの一覧 | {}（{} 本。管の外れのうち一覧にあるものを分けて数える。合否の数は変えない） |",
-        opts.known_deviations
-            .map_or("-".to_string(), |p| format!("`{}`", p.display())),
+        "| 既知の外れの一覧 | `{}`（{} 本。管の外れのうち一覧にあるものを分けて数える。合否の数は変えない） |",
+        opts.known_deviations.display(),
         run.known.len()
     );
     let _ = writeln!(
@@ -2703,7 +2694,7 @@ fn render_json(records: &[Record], s: &Summary, run: &RunInfo<'_>) -> Value {
             "kill_seconds": opts.kill_seconds,
             "retry_wall_seconds": opts.retries().then_some(opts.retry_wall_seconds),
             "retry_kill_seconds": opts.retries().then(|| opts.retry_kill_seconds()),
-            "known_deviations": opts.known_deviations.map(|p| p.display().to_string()),
+            "known_deviations": opts.known_deviations.display().to_string(),
             "reset_every": opts.reset_every,
             "solver": opts.solver,
             "tolerance_scale": opts.tolerance_scale,
@@ -3041,10 +3032,10 @@ mod tests {
             lowering_kill_seconds: 60,
             retry_wall_seconds: 180.0,
             reset_every: 50,
-            solver: Some("auto"),
+            solver: "auto",
             tolerance_scale: 1.0,
             keep_results: None,
-            known_deviations: Some(Path::new("src/Modelica/msl-sim-known-deviations.txt")),
+            known_deviations: Path::new("src/Modelica/msl-sim-known-deviations.txt"),
             baseline_json: None,
             report: None,
             json: None,
@@ -3464,10 +3455,10 @@ mod tests {
             lowering_kill_seconds: 60,
             retry_wall_seconds: 180.0,
             reset_every: 50,
-            solver: Some("dopri45"),
+            solver: "dopri45",
             tolerance_scale: 0.1,
             keep_results: Some(Path::new("out")),
-            known_deviations: None,
+            known_deviations: Path::new("src/Modelica/msl-sim-known-deviations.txt"),
             baseline_json: None,
             report: None,
             json: None,

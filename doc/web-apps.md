@@ -8,20 +8,21 @@ S053 で決めた。GlobeMode の整形器と lint（`globe-mode-fmt`、[format-
 | 呼び方 | 使う側 |
 | --- | --- |
 | crate `globe-mode-fmt`（`src/Rust/mod/globe-mode-fmt`、依存 0） | Rust のアプリ（`path` 依存） |
-| CLI `globe fmt --json` / `globe lint --json`（標準入力 → 標準出力の JSON） | Rust 以外のアプリ（子プロセス） |
+| CLI `globe fmt --json -` / `globe lint --json -`（標準入力 → 標準出力の JSON） | Rust 以外のアプリ（子プロセス） |
 
 CLI の契約（`globe-mode-cli`）:
 
 ```text
-echo '<Modelica>' | globe fmt --json [--indent 2] [--width 80] [--no-insert-origin]
+echo '<Modelica>' | globe fmt --json - [--indent 2] [--width 80] [--no-insert-origin]
 → {"ok": true, "text": "<整形後>", "error": null}            終了コード 0
 → {"ok": false, "text": null, "error": "<理由> (byte N)"}     終了コード 1（文法が壊れている。入力は触らない）
 
-echo '<Modelica>' | globe lint --json [--disable <rule>]...
+echo '<Modelica>' | globe lint --json - [--disable <rule>]...
 → {"messages": [{"file": "<stdin>", "rule": "line-too-long", "line": 5, "column": 81, "message": "…"}]}
    終了コード 0（0 件）/ 1（1 件以上）
 ```
 
+- 標準入力は `-` を明示する（`globe fmt --json -`）。`--json` だけでパスも `-` も無ければ、使い方を出して終了コード 2（S209。S199 までは `--json` のパスなしだけ標準入力だった）。
 - バイナリの場所は環境変数 `GLOBE_BIN`。無ければ PATH の `globe`。手元では `cargo build -p globe-mode-cli` の `target/debug/globe`。
 - 本文は UTF-8。行番号・桁は 1 始まり、桁は文字単位。
 

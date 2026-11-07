@@ -12,7 +12,10 @@ def test_format_inserts_origin():
     result = format_text(source)
     assert result["ok"], result["error"]
     assert "origin = {0, 0}" in result["text"]
-    assert "origin = {0, 0}" not in format_text(source, insert_origin=False)["text"]
+    # 例題は origin を既に持つので、origin の無い入力で --no-insert-origin を確かめる（S209。S062 から古かった）
+    bare = "model A\n  annotation(Icon(graphics={Rectangle(extent={{-100,100},{100,-100}})}));\nend A;\n"
+    assert "origin" in format_text(bare)["text"]
+    assert "origin" not in format_text(bare, insert_origin=False)["text"]
 
 
 def test_format_reports_syntax_error():

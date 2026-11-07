@@ -124,9 +124,7 @@ fn ws_arg<'a>(ws: *mut GmWorkspace) -> Result<Lent<'a>, String> {
 
 const IN_USE: &str = "ワークスペースは使用中（進捗のコールバックの中から同じ ws は使えない）";
 
-fn json<T: serde::Serialize + ?Sized>(value: &T) -> Result<String, String> {
-    serde_json::to_string(value).map_err(|e| format!("JSON: {e}"))
-}
+use globe_mode::to_json as json;
 
 fn panic_message(e: &(dyn std::any::Any + Send)) -> String {
     e.downcast_ref::<&str>()
@@ -171,12 +169,7 @@ pub unsafe extern "C" fn gm_workspace_new(libraries_json: *const c_char) -> *mut
             serde_json::from_str(str_arg(libraries_json, "libraries_json")?)
                 .map_err(|e| format!("libraries_json が読めない: {e}"))?
         };
-        let ws = if libs.is_empty() {
-            globe_mode::Workspace::new()
-        } else {
-            globe_mode::Workspace::with_libraries(&libs)
-                .map_err(|ds| json(&ds).unwrap_or_default())?
-        };
+        let ws = globe_mode::Workspace::open(&libs).map_err(|ds| json(&ds).unwrap_or_default())?;
         Ok(GmWorkspace {
             busy: AtomicBool::new(false),
             ws,
@@ -481,10 +474,8 @@ pub unsafe extern "C" fn gm_export_fmu(
     guard(|| {
         let model = str_arg(model, "model")?;
         let out_dir = str_arg(out_dir, "out_dir")?;
-        let options: globe_mode::FmuOptions = match opt_str_arg(options_json, "options_json")? {
-            Some(s) => serde_json::from_str(s).map_err(|e| format!("options が読めない: {e}"))?,
-            None => Default::default(),
-        };
+        let options =
+            globe_mode::FmuOptions::from_json(opt_str_arg(options_json, "options_json")?)?;
         let path = ws_arg(ws)?.export_fmu(model, Path::new(out_dir), &options)?;
         Ok(serde_json::json!({ "path": path }).to_string())
     })

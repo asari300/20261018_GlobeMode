@@ -278,7 +278,7 @@ fn parse_request(request_json: &str) -> Result<Request, JsValue> {
 }
 
 fn to_json<T: Serialize>(value: &T) -> Result<String, JsValue> {
-    serde_json::to_string(value).map_err(|e| js_error(format!("JSON: {e}")))
+    globe_mode::to_json(value).map_err(js_error)
 }
 
 /// JS から呼ぶ形（入出力は JSON の文字列）。
@@ -447,8 +447,8 @@ impl Workspace {
         };
         let token = globe_mode::CancelToken::default();
         let mut notify = |p: &globe_mode::Progress| {
-            let stage = format!("{:?}", p.stage).to_lowercase();
-            let stop = f.call4(&JsValue::NULL, &stage, p.time, p.start_time, p.stop_time);
+            let stage = p.stage.as_str();
+            let stop = f.call4(&JsValue::NULL, stage, p.time, p.start_time, p.stop_time);
             if stop.is_ok_and(|v| v.as_bool() == Some(true)) {
                 token.cancel();
             }
@@ -498,15 +498,7 @@ impl Workspace {
     /// ファイル（`set_file` に渡した名前）のアウトライン（`globe outline --json` と同じ `Outline` の JSON。S191）。
     /// ファイルが無いか、構文の誤りがあれば例外（文字列。誤りは最初の診断の `コード: 文`）。
     pub fn outline(&self, path: &str) -> Result<String, JsValue> {
-        match self.inner.outline(path) {
-            None => Err(js_error(format!("ファイル {path} がワークスペースに無い"))),
-            Some(Ok(o)) => to_json(o),
-            Some(Err(ds)) => {
-                Err(js_error(ds.first().map_or_else(String::new, |d| {
-                    format!("{}: {}", d.code, d.message)
-                })))
-            }
-        }
+        self.inner.outline_json(path).map_err(js_error)
     }
 
     /// `check` に渡すファイルの閉包（パスの昇順）の JSON の配列。モデルが無ければ `[]`（S191）。

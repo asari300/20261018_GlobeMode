@@ -547,6 +547,10 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - 試験: `test_ui.py` に 1 本（初回の案内と閉じる・smoke で出ない、スキップリンク、矢印・Home・End と tabindex、編集で印・再読み込み・beforeunload・保存で消える）。`pnpm check` 0 警告。
 - 持ち越し: タブの並べ替え（ドラッグ）、ツリーのアイコン、案内の多言語化、案内を出し直す操作、Esc で止める、スクリーンリーダーの実機（【未確認】）。
 
+### S209（P4、2026-11-07）で済んだこと
+
+- **`fmt` / `lint` の標準入力は `--json` でも `-` だけ**（[解説書](sessions/S209-fmt-stdin-dash/解説書.md)）: S199 が残した `--json` のパスなしの例外を、ユーザーの決定で無くした。**挙動が変わる**: `globe fmt --json` / `globe lint --json` のパスなしは使い方を出して終了コード 2。ウェブアプリ 6 種（FastAPI・Streamlit・marimo・Phoenix・Wisp・Astro）の呼び出しを `--json -` に直し、各アプリの試験を手元で回した（CI は無い）。Rust のウェブアプリ 4 種は crate を直接使うので影響なし。
+
 ### S200（P7、2026-11-06）で済んだこと
 
 - **Python の例外の階層とレビューの指摘**（[解説書](sessions/S200-python-exceptions-review-fixes/解説書.md)）: `GlobeModeError`（`.diagnostics`・`.code`）の子 6 つ（`LibraryError`＝`RuntimeError`、`SettingsError`・`ModelNotFoundError`・`SourceError`・`ExportError`・`ResultError`＝`ValueError`）。`on_progress` をキーワード専用に（挙動が変わる）、`on_progress` が無くても GIL を離す、設定の numpy の数・NaN・`None`、bytes のライブラリ、`export_fmu` の `targets` の文字列、列の道の写しを 1 回減らした。「未知のモデルを例外にするか」は変えていない（`check` は `passed: False`）。
@@ -1117,6 +1121,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **C ABI と NIF のレビューの指摘**（S202、P7。[解説書](sessions/S202-c-nif-review-fixes/解説書.md)）: NIF の `set_file`（Mutex を待つ）・`format`・`lint` が通常のスケジューラで回り、別のプロセスの実行が終わるまで BEAM のスケジューラを止めていた（`+S 1` で 4.5 s・2.2 s 止まるのを試験で再現）のを dirty に移し、全 NIF の表を作った。C ABI は進捗のコールバックの中から同じ `ws` を使うと `&mut` の別名（未定義動作）になるのを、`GmWorkspace` の使用中の印で誤りにした（`gm_workspace_free` は使用中なら放さない）。`gm_workspace_free` の Drop を `catch_unwind` の中へ、`GmProgress` の並びと大きさをヘッダと突き合わせる試験。C と NIF の重複 4 か所を facade に寄せた。持ち越し: Python・wasm・LSP も facade の `simulate_request`・`Simulated::layout_json`・`ExecStage::as_str`・`Workspace::outline_json` に寄せる（[対応表](research/lang-api-matrix-2026-11-03.md) の 4 章）、Miri（この環境に無い）。
 - **lint の 2 乗の遅さ**（S207、P4。[解説書](sessions/S207-lint-performance/解説書.md)）: `globe_mode_fmt::lint` が本文の長さの 2 乗で遅く（1 MB で 2.5 s、4 MB で 61〜89 s）、原因は `lint.rs` の行・桁を診断（とクラス宣言）ごとに先頭から数え直す処理と、長い行ごとの全行の探索の 2 か所。改行の位置の表と最初の行の `HashMap` に直し、4.4 MB で 0.57 s、wasm の MSL の大きなファイルは 0.5 s から 43 ms。`format` は最初から線形。結果は MSL ほか 2,661 本 × 8 通りで不一致 0。比の歯止めの試験 `lint_time_grows_linearly`。増分の lint は範囲外。
 - **残りの open の issue 8 件の点検**（S203、2026-10-19 に S012 のレビューで立った #2・#7・#8・#10・#11・#12・#13・#16。[解説書](sessions/S203-misc-issues-triage/解説書.md)）: 7 件を再現して直した（#2 は強行して検査の Error が残る結果の `ok` を false に、#12 は `last_panic()` を各入口で消す、#13 は CSV の失敗を `refused` で返す、#8・#11 は `wasm:compare` の既知の差に上限を持たせ有限でない値を文字列で比べる、#7 は `.cargo/*` と `.gitattributes` を全体の検査の対象に、#10 は既知の外れの数を外れの内数だけに）。#16 は使われていない 2 箇所を消し、`.mjs` の写しを `node/common.mjs` に寄せ、`read_mat4` を omc の実物の MAT で試した（xtask の `None` 分岐は残した）。
+- **言語の面の重複を facade に寄せた**（S208、P7。[解説書](sessions/S208-facade-dedup/解説書.md)）: S202 が持ち越した Python・wasm・LSP を含め、3 つ以上の面で同じだった処理（設定から要求、進捗の段の名前、outline の誤りの文面、列の layout、FMU options の JSON、ライブラリの有無、JSON 化）を facade の関数に寄せた。応答・例外・進捗の形は変えず、試験の期待値の変更は 0。issue #16 の残り（`memory.mjs` の写し、xtask の `None` の分岐）も片付けた。
 - **次の候補（順位）**: ~~1 木に入れ子のクラスと検索（例題の 22% が木から選べない）~~（S167 で済）、~~2 結果と進捗を見える所へ~~（S170 で済）、~~3 未対応の例題（検査が通らない 35%）の見せ方と force~~（S173 で済）、~~4 README・CHANGELOG・版の同期~~（S168・S172 で済）、~~5 開く・モデル名の扱い~~（S170 で済）、~~6 FMU の説明（ソースのみ）~~（S173 で済）、~~7 信号の絞り込み~~（S169 で済）、~~8 キーボードとアクセシビリティ~~（S175 で済）、~~9 補完の LSP 接続~~（S171 で済）、10 `release.yml` の dry-run の回し直し（未。ユーザーの指示で回す）。WP の案とぶつからない組は調査の 7.2 章。
 - **ユーザーの判断**（WP にしない。調査の 7.3 章）: v0.1 に含める面と版、ブラウザ版の公開先、Desktop の更新の鍵、署名と公証、VS Code・PyPI の公開、Rumoca の rev、上流 issue の提出。一覧は末尾の「いま残っているもの」の表（S177）。
 
@@ -1159,7 +1164,7 @@ S177（2026-11-05、S175 までが main にある状態）で、各節の「持�
 | 機能の穴（P8） | 拡充 | Diagram / Icon ビュー、Documentation ビュー、パラメータダイアログ、SSP 2.0.1、BLT の可視化と変換デバッガ、線形化、パッケージマネージャ（`uses` の版） | features.md |
 | 機能の穴（CLI・Python） | 使える流れの点検（S178） | 通る流れは通る。穴は誤った使い方の手がかり（ライブラリのモデル名の候補、`-L`、負の数、`fmt --check` が CI で黙って通る、`-o` なしで結果を捨てる）、未対応（GM-U）の終了コード、Python の型・例外・既定ソルバでの進捗と中断、CLI の面（`graph` などに `-L`、MSL を取る道）、FMU `--build` の入口。順位付き 13 件と WP の案は [調査](research/cli-python-flow-2026-11-06.md) | S178 |
 | 機能の穴（UI・CLI・Python） | 並行で入れた 16 本の再点検（S185） | S164・S178 の穴は大半が直った（ブラウザ版の例題 10 本中 9 本が通り、CLI の誤った使い方は 21 通り中 9 が直った）。残りと新しい食い違い 10 件: README の「既知の限界」が補完と検索を「無い」と書いたまま、クラス名のリネームでモデル名の欄が古いまま、入れ子のクラスを開いても位置へ動かない、~~FMU のファイル名（2.0 と 3.0 が同じ）と MSL の例題での英語の失敗~~（S189 で済）、`-L` を忘れた・サブフォルダの案内、候補の質、キーボードの細部。上位 10 と WP の組（A 文書、B App、C CLI・frontend、~~D FMU~~）は [調査](research/app-flow-2026-11-06.md) | S185 |
-| 決まり（2026-11-06） | S185 の再点検に対するユーザーの決定 | 済: エディタの Tab は字下げ（S188）、プロットの既定は状態を先に（S190）、`src/Modelica` を `globe fmt` で整形し FMU の既定のファイル名を `<名前>-fmi2.fmu` / `-fmi3.fmu` に（S189）、ADR-0032・0034・0035・0036 を Accepted に（S194）、上流の再現用 `.mo` を `globe fmt` で整形（S194）。別の WP で実装: **FMI Import は案 A と案 B の両方**、**Python に例外の階層を入れる**、**補完中の Tab は候補の確定、再実行時は選択を保つ**、CLI の終了コードなど（未対応だけのときは終了コード 3、`fmt` の標準入力は `-` を明示したときだけ、MSL の取得コマンドは足さず README で案内。親が決めて別の WP） | S185・S188・S189・S190・S194 |
+| 決まり（2026-11-06） | S185 の再点検に対するユーザーの決定 | 済: エディタの Tab は字下げ（S188）、プロットの既定は状態を先に（S190）、`src/Modelica` を `globe fmt` で整形し FMU の既定のファイル名を `<名前>-fmi2.fmu` / `-fmi3.fmu` に（S189）、ADR-0032・0034・0035・0036 を Accepted に（S194）、上流の再現用 `.mo` を `globe fmt` で整形（S194）。別の WP で実装: **FMI Import は案 A と案 B の両方**、**Python に例外の階層を入れる**、**補完中の Tab は候補の確定、再実行時は選択を保つ**、CLI の終了コードなど（未対応だけのときは終了コード 3、`fmt` の標準入力は `-` を明示したときだけ（`--json` も S209）、MSL の取得コマンドは足さず README で案内。親が決めて別の WP） | S185・S188・S189・S190・S194 |
 | 機能の穴（Track B） | 自前コア | 未着手（`Frontend` の feature `native` はまだ無い）。IDE の機能を先に自前にする | P4 以降 |
 
 ## 運用上の決まり

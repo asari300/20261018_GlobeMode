@@ -1,6 +1,6 @@
 # GlobeMode 整形・lint（Streamlit）
 
-GlobeMode の整形器と lint を、Streamlit の 1 ページの画面で使う。計算は `globe` の CLI（`globe fmt --json` / `globe lint --json`）を子プロセスで呼んで行い、この画面は表示と入出力だけを受け持つ（[doc/web-apps.md](../../../doc/web-apps.md)）。
+GlobeMode の整形器と lint を、Streamlit の 1 ページの画面で使う。計算は `globe` の CLI（`globe fmt --json -` / `globe lint --json -`）を子プロセスで呼んで行い、この画面は表示と入出力だけを受け持つ（[doc/web-apps.md](../../../doc/web-apps.md)）。
 
 English summary: a one-page Streamlit UI for the GlobeMode formatter and linter. It calls the `globe` CLI (`GLOBE_BIN`, default `globe`) as a subprocess; no formatting logic lives here.
 
