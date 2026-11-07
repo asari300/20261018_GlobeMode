@@ -7,12 +7,12 @@ defmodule PhoenixFmt.Globe do
   JSON が読めないときだけ `{:error, reason}`。
   """
 
-  @doc "`globe fmt --json` の標準出力の JSON（`%{\"ok\" => _, \"text\" => _, \"error\" => _}`）を返す。"
-  def fmt(text, args), do: run(text, ["fmt", "--json" | args])
+  @doc "`globe fmt --json -` の標準出力の JSON（`%{\"ok\" => _, \"text\" => _, \"error\" => _}`）を返す。"
+  def fmt(text, args), do: run(text, ["fmt", "--json", "-" | args])
 
-  @doc "`globe lint --json` の JSON（`%{\"messages\" => [...]}`）を返す。"
+  @doc "`globe lint --json -` の JSON（`%{\"messages\" => [...]}`）を返す。"
   def lint(text, disable) do
-    run(text, ["lint", "--json" | Enum.flat_map(disable, &["--disable", &1])])
+    run(text, ["lint", "--json", "-" | Enum.flat_map(disable, &["--disable", &1])])
   end
 
   defp run(text, args) do

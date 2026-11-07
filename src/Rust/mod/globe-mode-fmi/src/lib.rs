@@ -110,6 +110,8 @@ pub struct DefaultExperiment {
     pub start_time: Option<String>,
     pub stop_time: Option<String>,
     pub tolerance: Option<String>,
+    /// S206: 属性 `stepSize`（2.0・3.0 とも）。
+    pub step_size: Option<String>,
 }
 
 /// `ModelStructure`（S117）。2.0 は `Unknown` の `index`（変数の 1 始まりの索引）、3.0 は
@@ -348,6 +350,7 @@ pub fn parse_model_description(xml: &str) -> Result<ModelDescription, Error> {
             start_time: text(n, "startTime"),
             stop_time: text(n, "stopTime"),
             tolerance: text(n, "tolerance"),
+            step_size: text(n, "stepSize"),
         }),
         model_structure,
         model_name: required(root, "modelName")?.to_string(),
@@ -441,6 +444,7 @@ fn write_model_description(md: &ModelDescription, major: u8) -> Result<String, E
             ("startTime", &e.start_time),
             ("stopTime", &e.stop_time),
             ("tolerance", &e.tolerance),
+            ("stepSize", &e.step_size),
         ] {
             if let Some(v) = v {
                 let _ = write!(x, " {k}=\"{}\"", esc(v));

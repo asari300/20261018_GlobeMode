@@ -1,6 +1,6 @@
 # marimo: 整形・lint のアプリ
 
-GlobeMode の整形器と lint（`globe fmt --json` / `globe lint --json`）を marimo のアプリで使う。計算は Rust 側の `globe` に任せ、このアプリは子プロセスで呼ぶだけ（[doc/web-apps.md](../../../doc/web-apps.md)）。
+GlobeMode の整形器と lint（`globe fmt --json -` / `globe lint --json -`）を marimo のアプリで使う。計算は Rust 側の `globe` に任せ、このアプリは子プロセスで呼ぶだけ（[doc/web-apps.md](../../../doc/web-apps.md)）。
 
 English summary: a marimo notebook app (`fmt_app.py`) that formats Modelica source and lists lint messages by calling the `globe` CLI (`GLOBE_BIN`, default `globe` on PATH). Japanese UI.
 

@@ -56,15 +56,15 @@ struct MeApi {
     #[allow(clippy::type_complexity)]
     update_discrete_states: unsafe extern "C" fn(
         Instance,
-        *mut bool, // discreteStatesNeedUpdate
-        *mut bool, // terminateSimulation
-        *mut bool, // nominalsOfContinuousStatesChanged
-        *mut bool, // valuesOfContinuousStatesChanged
-        *mut bool, // nextEventTimeDefined
-        *mut f64,  // nextEventTime
+        *mut u8, // discreteStatesNeedUpdate（fmi3Boolean＝C の bool。FMU が 0/1 以外を書いても Rust の bool にしない）
+        *mut u8, // terminateSimulation
+        *mut u8, // nominalsOfContinuousStatesChanged
+        *mut u8, // valuesOfContinuousStatesChanged
+        *mut u8, // nextEventTimeDefined
+        *mut f64, // nextEventTime
     ) -> Status,
     enter_continuous_time_mode: unsafe extern "C" fn(Instance) -> Status,
-    completed_integrator_step: unsafe extern "C" fn(Instance, bool, *mut bool, *mut bool) -> Status,
+    completed_integrator_step: unsafe extern "C" fn(Instance, bool, *mut u8, *mut u8) -> Status,
 }
 
 /// # Safety
@@ -182,9 +182,9 @@ pub(crate) struct Cs3<'a> {
         f64,
         f64,
         bool,
-        *mut bool,
-        *mut bool,
-        *mut bool,
+        *mut u8,
+        *mut u8,
+        *mut u8,
         *mut f64,
     ) -> Status,
     _fmu: PhantomData<&'a Fmu>,
@@ -265,7 +265,7 @@ impl FmuCs for Cs3<'_> {
     }
 
     fn do_step(&mut self, time: f64, step: f64) -> Result<bool> {
-        let (mut event, mut terminate, mut early, mut last) = (false, false, false, 0.0);
+        let (mut event, mut terminate, mut early, mut last) = (0u8, 0u8, 0u8, 0.0);
         // SAFETY: 有効なインスタンスと、有効な 4 つの出力先（ローカル変数）
         check("fmi3DoStep", unsafe {
             (self.do_step)(
@@ -279,7 +279,7 @@ impl FmuCs for Cs3<'_> {
                 &mut last,
             )
         })?;
-        Ok(terminate)
+        Ok(terminate != 0)
     }
 }
 
@@ -462,7 +462,7 @@ impl FmuMe for Me3<'_> {
 
     fn update_discrete_states(&mut self) -> Result<EventInfo> {
         let (mut need, mut terminate, mut nominals, mut values, mut defined) =
-            (false, false, false, false, false);
+            (0u8, 0u8, 0u8, 0u8, 0u8);
         let mut next = 0.0;
         // SAFETY: 有効なインスタンスと、有効な 6 つの出力先（ローカル変数）
         check("fmi3UpdateDiscreteStates", unsafe {
@@ -477,11 +477,11 @@ impl FmuMe for Me3<'_> {
             )
         })?;
         Ok(EventInfo {
-            discrete_states_need_update: need,
-            terminate,
-            nominals_changed: nominals,
-            values_changed: values,
-            next_event_time: defined.then_some(next),
+            discrete_states_need_update: need != 0,
+            terminate: terminate != 0,
+            nominals_changed: nominals != 0,
+            values_changed: values != 0,
+            next_event_time: (defined != 0).then_some(next),
         })
     }
 
@@ -493,14 +493,14 @@ impl FmuMe for Me3<'_> {
     }
 
     fn completed_integrator_step(&mut self) -> Result<StepInfo> {
-        let (mut enter, mut terminate) = (false, false);
+        let (mut enter, mut terminate) = (0u8, 0u8);
         // SAFETY: 有効なインスタンスと 2 つの有効な出力先。noSetFMUStatePriorToCurrentPoint = true（FMU の状態を巻き戻さない）
         check("fmi3CompletedIntegratorStep", unsafe {
             (self.me.completed_integrator_step)(self.inner.c, true, &mut enter, &mut terminate)
         })?;
         Ok(StepInfo {
-            enter_event_mode: enter,
-            terminate,
+            enter_event_mode: enter != 0,
+            terminate: terminate != 0,
         })
     }
 }

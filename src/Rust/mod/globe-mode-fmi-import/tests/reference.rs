@@ -159,4 +159,15 @@ fn errors_are_reported_not_panics() {
     )
     .unwrap_err();
     assert!(e.to_string().contains("終了時刻"), "{e}");
+    // S206: 出力の格子が細かすぎる（1 億点）なら、FMU を動かす前に断る
+    let e = run_cs(
+        &fmu,
+        &CsOptions {
+            stop_time: Some(100.0),
+            step: Some(1e-6),
+            ..Default::default()
+        },
+    )
+    .unwrap_err();
+    assert!(e.to_string().contains("--step"), "{e}");
 }

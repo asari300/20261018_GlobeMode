@@ -2,6 +2,8 @@
 //! `class-name-pascal-case`（クラス名が大文字で始まらない）、`missing-description`（長いクラスに説明文字列が無い）、
 //! `annotation-order`（S061。annotation と Documentation の引数の順。整形で直る。LSP では通知の重さ）。
 
+use std::collections::HashMap;
+
 use crate::lexer::{Kind, lex};
 use crate::{Options, annotation, format, layout, structure};
 
@@ -46,11 +48,12 @@ pub fn lint(src: &str, options: &LintOptions) -> Vec<LintMessage> {
     let on = |rule: &str| !options.disabled.iter().any(|d| d == rule);
     let mut out = Vec::new();
     let Ok(tokens) = lex(src) else { return out };
+    // S207: 診断ごとに先頭から数え直すと本文の長さの 2 乗になる。改行の位置の表を 1 度だけ作り、二分探索で引く
+    let newlines: Vec<usize> = src.match_indices('\n').map(|(i, _)| i).collect();
     let line_col = |start: usize| {
-        let before = &src[..start];
-        let line = before.matches('\n').count() + 1;
-        let column = before.rsplit('\n').next().unwrap_or("").chars().count() + 1;
-        (line, column)
+        let line = newlines.partition_point(|&p| p < start);
+        let line_start = if line == 0 { 0 } else { newlines[line - 1] + 1 };
+        (line + 1, src[line_start..start].chars().count() + 1)
     };
     for (i, t) in tokens.iter().enumerate() {
         if t.kind != Kind::Ident || !CLASS_KEYWORD.contains(&t.text) {
@@ -120,13 +123,13 @@ pub fn lint(src: &str, options: &LintOptions) -> Vec<LintMessage> {
     if on("line-too-long") {
         let width = options.format.width;
         let formatted = format(src, &options.format).unwrap_or_else(|_| src.to_string());
-        let src_lines: Vec<&str> = src.lines().collect();
+        // 最初に現れる行（trim して比べる）。長い行ごとに全行を探すと 2 乗になる
+        let mut first_line: HashMap<&str, usize> = HashMap::new();
+        for (i, l) in src.lines().enumerate() {
+            first_line.entry(l.trim()).or_insert(i + 1);
+        }
         for long in formatted.lines().filter(|l| l.chars().count() > width) {
-            let trimmed = long.trim();
-            let line = src_lines
-                .iter()
-                .position(|l| l.trim() == trimmed)
-                .map_or(1, |p| p + 1);
+            let line = first_line.get(long.trim()).copied().unwrap_or(1);
             out.push(LintMessage {
                 rule: "line-too-long",
                 line,
