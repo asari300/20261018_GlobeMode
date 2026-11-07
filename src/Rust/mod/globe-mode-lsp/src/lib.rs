@@ -77,6 +77,8 @@ pub struct Server {
     scratch: Workspace,
     /// `scratch` に読んだライブラリのファイルの更新時刻（S198。ディスクで変わったら次の要求で読み直す）
     scratch_mtime: HashMap<String, Option<std::time::SystemTime>>,
+    /// 最後に出した診断（URI → 診断）。ほかの文書の編集で診断が変わったものだけを出し直すための比べる相手（#64）
+    published: HashMap<String, Vec<lsp_types::Diagnostic>>,
 }
 
 impl Server {
@@ -91,6 +93,7 @@ impl Server {
             config: None,
             scratch: Workspace::new(),
             scratch_mtime: HashMap::new(),
+            published: HashMap::new(),
         })
     }
 
@@ -239,7 +242,9 @@ impl Server {
             "shutdown" => reply(id, Value::Null),
             "textDocument/didOpen" => {
                 let text = params["textDocument"]["text"].as_str().unwrap_or("");
-                self.update(uri, text.to_string())
+                let mut out = self.update(uri.clone(), text.to_string());
+                out.extend(self.republish_others(&uri));
+                out
             }
             "textDocument/didChange" => {
                 // Full 同期: 最後の変更が本文全体
@@ -248,12 +253,17 @@ impl Server {
                     .and_then(|a| a.last())
                     .and_then(|c| c["text"].as_str())
                     .unwrap_or("");
-                self.update(uri, text.to_string())
+                let mut out = self.update(uri.clone(), text.to_string());
+                out.extend(self.republish_others(&uri));
+                out
             }
             "textDocument/didClose" => {
                 self.texts.remove(&uri);
+                self.published.remove(&uri);
                 self.ws.remove_file(&uri_path(&uri));
-                vec![publish(&uri, &[])]
+                let mut out = vec![publish(&uri, &[])];
+                out.extend(self.republish_others(&uri));
+                out
             }
             "textDocument/documentSymbol" => {
                 let symbols = match (self.ws.outline(&uri_path(&uri)), self.texts.get(&uri)) {
@@ -628,7 +638,30 @@ impl Server {
         // 検査が panic しても本文は最新にしておく（S214。古い本文から整形やリネームの編集を作らない）
         self.texts.insert(uri.clone(), text.clone());
         let diags = self.diagnostics(&path, &text);
-        vec![publish(&uri, &diags)]
+        let out = vec![publish(&uri, &diags)];
+        self.published.insert(uri, diags);
+        out
+    }
+
+    /// 文書 `except` の編集・閉じ・開きのあと、ほかの開いている文書の診断を取り直し、変わったものだけ出し直す（#64。
+    /// 依存先の変更で、波線が出ない・消えないのを避ける）。
+    /// shortcut: 開いている全文書を検査し直す（salsa が変わっていない分は使い回す）。多すぎて重いなら `ws.deps` で絞る。
+    fn republish_others(&mut self, except: &str) -> Vec<Value> {
+        let others: Vec<(String, String)> = self
+            .texts
+            .iter()
+            .filter(|(u, _)| u.as_str() != except)
+            .map(|(u, t)| (u.clone(), t.clone()))
+            .collect();
+        let mut out = Vec::new();
+        for (uri, text) in others {
+            let diags = self.diagnostics(&uri_path(&uri), &text);
+            if self.published.get(&uri) != Some(&diags) {
+                out.push(publish(&uri, &diags));
+                self.published.insert(uri, diags);
+            }
+        }
+        out
     }
 
     /// 構文の誤り（S0）はそのまま、通れば最上位の model / block / class を 1 つずつ検査する。
@@ -1134,6 +1167,57 @@ fn hover(c: &ClassOutline) -> Hover {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #64: 別の文書を直す・閉じると、それに依存する開いている文書の診断も出し直される（変わらない文書には出さない）
+    #[test]
+    fn editing_or_closing_a_document_republishes_the_ones_that_depend_on_it() {
+        let mut s = Server::new(&[]).unwrap();
+        let open = |s: &mut Server, uri: &str, text: &str| {
+            s.handle(
+                json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+                "uri": uri, "languageId": "modelica", "version": 1, "text": text}}}),
+            )
+        };
+        // 出し直されたかと、その誤り（severity 1）の数。lint の warning は文書に依らず付くので数えない
+        let diags_of = |out: &[Value], uri: &str| -> Option<usize> {
+            out.iter().find(|m| m["params"]["uri"] == uri).map(|m| {
+                let d = m["params"]["diagnostics"].as_array().unwrap();
+                d.iter().filter(|d| d["severity"] == 1).count()
+            })
+        };
+        open(&mut s, "file:///P.mo", "model P\n  Real R;\nend P;\n");
+        let out = open(
+            &mut s,
+            "file:///T.mo",
+            "model T\n  extends P;\nequation\n  R = 1;\nend T;\n",
+        );
+        assert_eq!(diags_of(&out, "file:///T.mo"), Some(0), "{out:?}");
+        // R を Q に変える。T.mo は変えていないが、T の R が未定義になる
+        let out = s.handle(json!({"method": "textDocument/didChange", "params": {
+            "textDocument": {"uri": "file:///P.mo"},
+            "contentChanges": [{"text": "model P\n  Real Q;\nend P;\n"}]}}));
+        assert!(
+            diags_of(&out, "file:///T.mo").is_some_and(|n| n > 0),
+            "{out:?}"
+        );
+        // もう一度同じ内容を送っても、T.mo の診断は変わらないので出し直さない
+        let out = s.handle(json!({"method": "textDocument/didChange", "params": {
+            "textDocument": {"uri": "file:///P.mo"},
+            "contentChanges": [{"text": "model P\n  Real Q;\nend P;\n"}]}}));
+        assert_eq!(diags_of(&out, "file:///T.mo"), None, "{out:?}");
+        // P を直すと消える
+        let out = s.handle(json!({"method": "textDocument/didChange", "params": {
+            "textDocument": {"uri": "file:///P.mo"},
+            "contentChanges": [{"text": "model P\n  Real R;\nend P;\n"}]}}));
+        assert_eq!(diags_of(&out, "file:///T.mo"), Some(0), "{out:?}");
+        // P を閉じると、T の extends P が解決できなくなる
+        let out = s.handle(json!({"method": "textDocument/didClose", "params": {
+            "textDocument": {"uri": "file:///P.mo"}}}));
+        assert!(
+            diags_of(&out, "file:///T.mo").is_some_and(|n| n > 0),
+            "{out:?}"
+        );
+    }
 
     #[test]
     fn annotation_order_is_information_and_blank_sections_can_be_turned_off() {
