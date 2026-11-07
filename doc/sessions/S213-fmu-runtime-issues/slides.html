@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S213 FMU のランタイムの issue #40 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S213 FMU のランタイムの issue 40">
+
+<section class="slide" id="S01">
+  <span class="tag">S213 · 2026-11-07 · P5</span>
+  <h1>Export した FMU のランタイムの issue #40</h1>
+  <p class="lead">ponytail-audit の 4 点を、いまの main で 1 つずつ再現してから直した</p>
+  <div class="big">3 点は再現して直し、1 点は再現せず残した</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">結果</span>
+  <h1>4 点の振り分け</h1>
+  <table class="compact">
+    <tr><th>#</th><th>指摘</th><th>再現</th><th>対応</th></tr>
+    <tr><td>1</td><td>入口の panic が境界を越える</td><td class="warn">しない</td><td>直さない。入力が見つからない</td></tr>
+    <tr><td>2</td><td>状態の start 値が作り直しで消える</td><td class="ok">する</td><td>状態の表 <code>states</code> を置き直す</td></tr>
+    <tr><td>3</td><td><code>CC="ccache cc"</code> で失敗</td><td class="ok">する</td><td>空白で分ける</td></tr>
+    <tr><td>4</td><td>Windows の <code>file:///C:/x</code></td><td class="ok">する</td><td>ドライブ文字の前の <code>/</code> を落とす</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>2: x の start 値が消える</h1>
+  <ul>
+    <li><code>fmi2SetReal</code> は状態を直接書くが、パラメータが変わると <code>ExitInitializationMode</code> が作り直す。</li>
+    <li>FMPy の <code>start_values={'x': 5, 'k': 2}</code> と同じ順で、x は 5 でなく 1 に戻っていた。</li>
+    <li><code>inputs</code> と同じ表（添字 → 値）を持ち、作り直した後に置き直す。</li>
+    <li><code>fmi2Reset</code> が既定に戻るのは規格どおりなので、変えない。</li>
+  </ul>
+  <div class="kpis">
+    <div class="kpi"><span class="n">[1, 2]</span><span class="l">直す前</span></div>
+    <div class="kpi"><span class="n">[5, 2]</span><span class="l">直した後</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由</span>
+  <h1>1 を直さなかった理由</h1>
+  <ul>
+    <li>Rust 2024 の <code>extern "C"</code> は unwind を abort にする。UB ではない。</li>
+    <li>落ちる入力が無い。範囲外の値参照、NaN、空のモデル、<code>1/0</code>、代数ループ、<code>when</code> はどれも Error か NULL で返った。</li>
+    <li>MSL の全例題で panic は 0 本。</li>
+    <li>見つかったら <code>each</code>・<code>states</code>・<code>instantiate</code>・<code>rebuild</code> の 4 か所を包む。</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">決定と理由</span>
+  <h1>3 と 4</h1>
+  <div class="cols-2">
+    <div class="card">
+      <h2>3 CC を分ける</h2>
+      <p><code>export.rs</code> の <code>build</code> の 1 か所。<code>split_whitespace</code> で最初を実行ファイル、残りを引数にした。<code>write_fmu</code> には触れていない。</p>
+    </div>
+    <div class="card">
+      <h2>4 ドライブ文字</h2>
+      <p><code>resource_path</code> に切り出し、<code>/C:/…</code> の先頭の <code>/</code> を落とす。単体は文字列で試す。実機は CI の Windows。</p>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>cargo test -p globe-mode-fmu --lib                        # 4
+cargo test -p globe-mode-fmu --test fmpy state_start      # 2
+cargo test -p globe-mode-fmi --features export --lib cc_  # 3</code></pre>
+  <p>FMPy・fmusim は fmu-export.yml、Windows は ci.yml の full で確かめる。</p>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
