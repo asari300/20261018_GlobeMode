@@ -2,13 +2,16 @@
 //!
 //! `info` は `.fmu`（zip）の `modelDescription.xml` だけを読む（ネイティブコードは実行しない）。
 //! `run` は FMU の共有ライブラリを読み込んで Co-Simulation か Model Exchange（S205）を回す。**FMU のネイティブコードを実行する**。
+//! S210 から、読み込みと実行は**自分自身を子プロセス（隠しの副命令 `fmu __worker`）として起動した中**で行う。
+//! FMU が落ちても `globe` は落ちず、終了の状態を添えた誤りで終わる（ADR-0026 の (n)）。
 
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Subcommand, ValueEnum};
 use globe_mode_fmi_import::{
-    CsOptions, EventKind, Fmu, MeOptions, TRUST_WARNING, read_model_description, run_cs, run_me,
+    Kind, TRUST_WARNING, WorkerRequest, WorkerSpec, read_model_description, run_in_worker,
+    worker_main,
 };
 
 /// `globe fmu run --kind`
@@ -28,9 +31,9 @@ pub enum FmuImportCommand {
         /// `.fmu`
         file: PathBuf,
     },
-    /// FMU の Co-Simulation（固定刻み）か Model Exchange（誤差制御つきの積分と事象）を回し、時刻と出力を CSV で出す。**FMU の中のネイティブコードを実行する**
+    /// FMU の Co-Simulation（固定刻み）か Model Exchange（誤差制御つきの積分と事象）を回し、時刻と出力を CSV で出す。**FMU の中のネイティブコードを別プロセス（ワーカー）で実行する**（落ちても globe は落ちない。ディスク・ネットワークは隔離しない）
     #[command(
-        after_help = "例:\n  globe fmu run BouncingBall.fmu --stop-time 3 --step 0.01\n  globe fmu run BouncingBall.fmu --kind me --stop-time 3\n  globe fmu run Dahlquist.fmu --set k=2 --output x --out x.csv"
+        after_help = "例:\n  globe fmu run BouncingBall.fmu --stop-time 3 --step 0.01\n  globe fmu run BouncingBall.fmu --kind me --stop-time 3\n  globe fmu run Dahlquist.fmu --set k=2 --output x --out x.csv\n  globe fmu run Untrusted.fmu --timeout 60 --memory-limit 1024 --progress"
     )]
     Run {
         /// `.fmu`
@@ -56,7 +59,19 @@ pub enum FmuImportCommand {
         /// CSV の書き先（省略時は標準出力）
         #[arg(long)]
         out: Option<PathBuf>,
+        /// 実行の時間の上限（秒）。超えたらワーカーを kill して失敗にする（省略時は無し）
+        #[arg(long)]
+        timeout: Option<f64>,
+        /// ワーカーの仮想メモリの上限（MiB。Linux だけ）。超えると FMU の確保が失敗して落ちる
+        #[arg(long)]
+        memory_limit: Option<u64>,
+        /// ワーカーが報告する時刻を標準エラーに出す
+        #[arg(long)]
+        progress: bool,
     },
+    /// 内部用: FMU を回すワーカー（`fmu run` が自分自身を子プロセスとして起動する。標準入力の 1 行目が要求）
+    #[command(name = "__worker", hide = true)]
+    Worker,
 }
 
 fn parse_set(s: &str) -> Result<(String, f64), String> {
@@ -71,6 +86,7 @@ fn parse_set(s: &str) -> Result<(String, f64), String> {
 pub fn run(command: FmuImportCommand) -> ExitCode {
     let result = match command {
         FmuImportCommand::Info { file } => info(&file),
+        FmuImportCommand::Worker => return ExitCode::from(worker_main() as u8),
         FmuImportCommand::Run {
             file,
             kind,
@@ -80,6 +96,9 @@ pub fn run(command: FmuImportCommand) -> ExitCode {
             output,
             set,
             out,
+            timeout,
+            memory_limit,
+            progress,
         } => run_fmu(
             &file,
             kind,
@@ -91,6 +110,11 @@ pub fn run(command: FmuImportCommand) -> ExitCode {
                 set,
             },
             out.as_deref(),
+            Limits {
+                timeout,
+                memory_limit,
+                progress,
+            },
         ),
     };
     match result {
@@ -153,64 +177,70 @@ struct Common {
     set: Vec<(String, f64)>,
 }
 
+struct Limits {
+    timeout: Option<f64>,
+    memory_limit: Option<u64>,
+    progress: bool,
+}
+
 fn run_fmu(
     file: &std::path::Path,
     kind: Option<FmuKind>,
     c: Common,
     out: Option<&std::path::Path>,
+    limits: Limits,
 ) -> Result<(), globe_mode_fmi_import::Error> {
+    use globe_mode_fmi_import::Error;
     eprintln!("{TRUST_WARNING}");
-    let fmu = Fmu::open(file)?;
-    let kind = kind.unwrap_or(if fmu.description.co_simulation.is_some() {
-        FmuKind::Cs
-    } else {
-        FmuKind::Me
-    });
-    let (names, rows) = match kind {
-        FmuKind::Cs => {
-            let run = run_cs(
-                &fmu,
-                &CsOptions {
-                    start_time: c.start_time,
-                    stop_time: c.stop_time,
-                    step: c.step,
-                    outputs: c.outputs,
-                    set: c.set,
-                },
-            )?;
-            (run.names, run.rows)
-        }
-        FmuKind::Me => {
-            let run = run_me(
-                &fmu,
-                &MeOptions {
-                    start_time: c.start_time,
-                    stop_time: c.stop_time,
-                    step: c.step,
-                    outputs: c.outputs,
-                    set: c.set,
-                    ..Default::default()
-                },
-            )?;
-            let n = |k| run.events.iter().filter(|e| e.kind == k).count();
-            eprintln!(
-                "Model Exchange: 歩数 {}、事象 {}（state {}、time {}、step {}）{}",
-                run.steps,
-                run.events.len(),
-                n(EventKind::State),
-                n(EventKind::Time),
-                n(EventKind::Step),
-                if run.terminated_by_fmu {
-                    "、FMU が打ち切りを求めた"
-                } else {
-                    ""
-                }
-            );
-            (run.names, run.rows)
-        }
-    };
-    let mut text = format!("time,{}\n", names.join(","));
-    for (t, values) in &rows {
+    let mut spec = WorkerSpec::new(
+        std::env::current_exe().map_err(|e| Error::Worker(e.to_string()))?,
+        &["fmu", "__worker"],
+    );
+    spec.timeout = limits
+        .timeout
+        .map(|s| {
+            std::time::Duration::try_from_secs_f64(s)
+                .map_err(|_| Error::Worker(format!("--timeout {s} が不正（0 以上の秒数）")))
+        })
+        .transpose()?;
+    spec.memory_limit = limits.memory_limit.map(|m| m.saturating_mul(1 << 20));
+    let run = run_in_worker(
+        &spec,
+        &WorkerRequest {
+            file: file.to_owned(),
+            kind: kind.map(|k| match k {
+                FmuKind::Cs => Kind::Cs,
+                FmuKind::Me => Kind::Me,
+            }),
+            start_time: c.start_time,
+            stop_time: c.stop_time,
+            step: c.step,
+            outputs: c.outputs,
+            set: c.set,
+        },
+        &mut |t| {
+            if limits.progress {
+                eprintln!("進捗: t = {t}");
+            }
+        },
+    )?;
+    if let Some(me) = &run.me {
+        eprintln!(
+            "Model Exchange: 歩数 {}、事象 {}（state {}、time {}、step {}）{}",
+            me.steps,
+            me.state_events + me.time_events + me.step_events,
+            me.state_events,
+            me.time_events,
+            me.step_events,
+            if me.terminated_by_fmu {
+                "、FMU が打ち切りを求めた"
+            } else {
+                ""
+            }
+        );
+    }
+    let mut text = format!("time,{}\n", run.names.join(","));
+    for (t, values) in &run.rows {
         text.push_str(&t.to_string());
         for v in values {
             text.push_str(&format!(",{v}"));
@@ -218,9 +248,7 @@ fn run_fmu(
         text.push('\n');
     }
     match out {
-        Some(p) => {
-            std::fs::write(p, text).map_err(|e| globe_mode_fmi_import::Error::Io(e.to_string()))?
-        }
+        Some(p) => std::fs::write(p, text).map_err(|e| Error::Io(e.to_string()))?,
         None => print!("{text}"),
     }
     Ok(())

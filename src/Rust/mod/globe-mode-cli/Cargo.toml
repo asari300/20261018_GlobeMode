@@ -38,3 +38,7 @@ ignore = "0.4"
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+# S210: 落ちる FMU（zip）を試験の中で組み立てる。fmi-import の試験と同じ 9 系
+zip = { version = "9", default-features = false, features = ["deflate"] }
