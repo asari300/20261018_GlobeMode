@@ -274,3 +274,66 @@ fn documentation_html_is_indented_and_can_be_turned_off() {
     };
     assert_eq!(rules(src), rules(want));
 }
+
+// S211（#24）: 図形プリミティブの名前でも、annotation の外の呼び出しは並べ替えず origin も足さない
+#[test]
+fn primitive_names_outside_annotation_are_left_alone() {
+    let src = "model M\n  extends Pkg.Line(R = 1, L = 2);\n  model N = Lines.Line(R = 1, L = 2);\n  Real x = Text(b = 2, a = 1);\n  Real y = Documentation(revisions = 1, info = 2);\nend M;\n";
+    let out = format(src, &Options::default()).unwrap();
+    assert!(!out.contains("origin"), "{out}");
+    assert!(out.contains("Line(R = 1, L = 2)"), "{out}");
+    assert!(out.contains("Text(b = 2, a = 1)"), "{out}");
+    assert!(
+        out.contains("Documentation(revisions = 1, info = 2)"),
+        "{out}"
+    );
+    // annotation の中は今までどおり
+    let out = format(
+        "model M\n  annotation(Icon(graphics = {Line(color = {0, 0, 0}, points = {{0, 0}, {1, 1}})}));\nend M;\n",
+        &Options::default(),
+    )
+    .unwrap();
+    assert!(
+        out.contains("origin = {0, 0}") && out.contains("points"),
+        "{out}"
+    );
+}
+
+// S211（#28）: 深い入れ子はスタックを溢れさせず誤りを返す（100,000 段は 8 MB のスタックでも落ちる）
+#[test]
+fn deep_nesting_is_an_error_not_a_stack_overflow() {
+    for n in [100_000, 257] {
+        let src = format!(
+            "model A Real x={}1{}; end A;\n",
+            "(".repeat(n),
+            ")".repeat(n)
+        );
+        let e = format(&src, &Options::default()).unwrap_err();
+        assert!(e.message.contains("深すぎる"), "{e}");
+        assert!(lint(&src, &LintOptions::default()).len() < 100);
+    }
+    let src = format!(
+        "model A Real x={}1{}; end A;\n",
+        "(".repeat(256),
+        ")".repeat(256)
+    );
+    assert!(format(&src, &Options::default()).is_ok());
+}
+
+// S211（#32）: UTF-8 の BOM は読み飛ばし、出力には残す
+#[test]
+fn bom_is_accepted_and_kept() {
+    let src = "\u{feff}model M\n  Real x(start=1);\nend M;\n";
+    let out = format(src, &Options::default()).unwrap();
+    assert_eq!(out, "\u{feff}model M\n\n  Real x(start = 1);\n\nend M;\n");
+    assert_eq!(format(&out, &Options::default()).unwrap(), out);
+    let l = lint(
+        "\u{feff}model m\n  Real x;\nend m;\n",
+        &LintOptions::default(),
+    );
+    assert!(
+        l.iter()
+            .any(|m| m.rule == "class-name-pascal-case" && m.line == 1 && m.column == 7),
+        "{l:?}"
+    );
+}

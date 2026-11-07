@@ -552,6 +552,13 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **ウェブアプリの issue 2 件**（[解説書](sessions/S215-web-apps-issues/解説書.md)）: #22 Rust のウェブアプリ 4 種が `Options` のフィールド不足（S061・S062）で S061 からビルドできなかった（E0063、4 種とも再現）。`..defaults` で直し、CI にジョブ `web`（`src/Rust/apps/web-*` か `globe-mode-fmt` の変更、または full のとき、4 種を matrix で `cargo build` と `cargo test`）を足した。#36 CLI を子プロセスで呼ぶ 6 種に、本文 1 MiB（413）・`globe` の時間切れ 10 秒（kill。`GLOBE_TIMEOUT_MS`）・Gleam の一時ファイルの排他を足し、`disable` の形と `indent` 0〜16 を揃えた（[web-apps.md の 3.1](web-apps.md)）。**挙動が変わる**: 1 MiB を超える本文は 413、FastAPI の時間切れは 60 秒から 10 秒。
 - 持ち越し: CLI を呼ぶ 6 種の試験はまだ CI に無い。
 
+### S214（P7、2026-11-07）で済んだこと
+
+- **LSP と言語の束ねの issue 6 件を、いまの main で再現してから直した**（[解説書](sessions/S214-lsp-bindings-issues/解説書.md)）: #33 は積まれた `didChange` をまとめて古い版は検査せず、`globe/simulate` に既定の予算 180 s を置いた。#25 は本文を診断より先に保存。#39 は `globe/format` の indent も設定ファイルが勝つ（**挙動が変わる**）。#35 は NIF の Mutex を poison から回復し、Mutex を待つ NIF を DirtyIo に。#30 は Julia のコールバックの例外を Rust に通さない。#37 の LSP 側は facade の `Workspace` に乗っているので何もしない。
+### S211（P4、2026-11-07）で済んだこと
+
+- **整形器と `globe fmt` の issue 5 件**（[解説書](sessions/S211-fmt-issues-2/解説書.md)）: ponytail の監査の #24（annotation の外の `Line(…)` などを並べ替えて `origin` を足す。annotation の中だけに）・#26（`fmt --check -` が必ず 0）・#27（書き戻しを一時ファイル + rename に）・#28（入れ子 256 段の上限）・#32（BOM 付きを検査・整形・lint。整形は BOM を残し、`GlobeDb::set_file` は空白 3 個に置き換えて位置を保つ）を、5 件とも main で再現してから直した。2,661 本の lint・format の出力は前後で差 0。持ち越し: Rumoca の検査側の深い入れ子（20,000 段で 8 MB のスレッドが溢れる）。
+
 ### S209（P4、2026-11-07）で済んだこと
 
 - **`fmt` / `lint` の標準入力は `--json` でも `-` だけ**（[解説書](sessions/S209-fmt-stdin-dash/解説書.md)）: S199 が残した `--json` のパスなしの例外を、ユーザーの決定で無くした。**挙動が変わる**: `globe fmt --json` / `globe lint --json` のパスなしは使い方を出して終了コード 2。ウェブアプリ 6 種（FastAPI・Streamlit・marimo・Phoenix・Wisp・Astro）の呼び出しを `--json -` に直し、各アプリの試験を手元で回した（CI は無い）。Rust のウェブアプリ 4 種は crate を直接使うので影響なし。

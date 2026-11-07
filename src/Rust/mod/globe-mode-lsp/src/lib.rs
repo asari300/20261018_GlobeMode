@@ -11,10 +11,10 @@
 //! | 要求 | params | result |
 //! | --- | --- | --- |
 //! | `globe/check` | `{model}` | `CheckResponse` の JSON |
-//! | `globe/simulate` | `{request}`（`SimulateRequest` の JSON） | `SimulateResponse` の JSON |
+//! | `globe/simulate` | `{request}`（`SimulateRequest` の JSON。S214: `max_wall_seconds` が無ければ 180 s の予算を置く） | `SimulateResponse` の JSON |
 //! | `globe/simulateColumns` | `{request}` | `{response, layout, columns}`（S076。wasm の `simulate_columns` と同じ形。`response` に CSV は無く、`layout` は `ColumnsLayout`（`names`・`points`・既定で描く `defaults`。S190）、`columns[i]` は列 `i` の数の配列で、有限でない値は null） |
 //! | `globe/graph` | `{model, depth}` | graphology の JSON（`ConnectGraph::to_graphology`） |
-//! | `globe/format` | `{text, indent?, insertOrigin?, blankAroundSections?, formatHtml?}` | 整形後の本文（S053。壊れていれば -32000） |
+//! | `globe/format` | `{text, indent?, insertOrigin?, blankAroundSections?, formatHtml?}` | 整形後の本文（S053。壊れていれば -32000。S214: `globe-mode.toml` があれば indent は設定が勝つ。無いときだけ params の indent） |
 //! | `globe/lint` | `{text}` | `[{rule, line, column, message}]`（S053） |
 //! | `globe/libraryTree` | `{prefix}`（空ならトップレベル） | `[{name, path, kind, description, file, hasChildren}]`（S127。直下の子だけ。wasm の `library_tree` と同じ形） |
 //! | `globe/definition` | `{file, line, character}`（開いている文書。行は 0 始まり、列は UTF-16） | `{file, text, range}` か null（S138。`textDocument/definition` と同じ解決で、定義のあるファイルの本文も返す。wasm の `definition` と同じ形） |
@@ -39,7 +39,7 @@
 pub mod completion;
 pub mod definition;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, mpsc};
@@ -56,6 +56,9 @@ use lsp_types::{
     NumberOrString, Position, Range, SymbolKind, Uri,
 };
 use serde_json::{Value, json};
+
+/// `globe/simulate` の既定の時間の予算（秒。S214）。`msl-sim` の予算と同じ。要求の `max_wall_seconds` が優先する。
+const DEFAULT_MAX_WALL_SECONDS: f64 = 180.0;
 
 /// 1 つのクライアントとの会話の状態。
 #[derive(Debug)]
@@ -89,6 +92,14 @@ impl Server {
             scratch: Workspace::new(),
             scratch_mtime: HashMap::new(),
         })
+    }
+
+    /// 整形の indent。設定ファイルがあればその値（`base`）、無いときだけ要求の値（S214）。
+    fn indent(&self, requested: Option<u64>, base: usize) -> usize {
+        match (&self.config, requested) {
+            (None, Some(n)) => n as usize,
+            _ => base,
+        }
     }
 
     fn tree(&mut self) -> &globe_mode_fmt::LibraryTree {
@@ -276,10 +287,7 @@ impl Server {
                 // S130: globe-mode.toml があればそれを土台にし、indent は tabSize より設定ファイルを採る（ruff と同じ）
                 let opts = &params["options"];
                 let base = self.config.clone().unwrap_or_default().format;
-                let indent = match (&self.config, opts["tabSize"].as_u64()) {
-                    (None, Some(n)) => n as usize,
-                    _ => base.indent,
-                };
+                let indent = self.indent(opts["tabSize"].as_u64(), base.indent);
                 let options = globe_mode_fmt::Options {
                     indent,
                     insert_origin: opts["insertOrigin"].as_bool().unwrap_or(base.insert_origin),
@@ -462,8 +470,8 @@ impl Server {
             },
             "globe/simulate" => {
                 match serde_json::from_value::<SimulateRequest>(params["request"].clone()) {
-                    Ok(request) => {
-                        let s = self.simulate(&request, params.get("workDoneToken"), cancel, notify);
+                    Ok(mut request) => {
+                        let s = self.simulate(&mut request, params.get("workDoneToken"), cancel, notify);
                         reply(id, json!(s.response))
                     }
                     Err(e) => error(id, -32602, &format!("params.request: {e}")),
@@ -473,7 +481,7 @@ impl Server {
                 match serde_json::from_value::<SimulateRequest>(params["request"].clone()) {
                     Ok(mut request) => {
                         request.no_csv = true;
-                        let s = self.simulate(&request, params.get("workDoneToken"), cancel, notify);
+                        let s = self.simulate(&mut request, params.get("workDoneToken"), cancel, notify);
                         let (layout, columns) = s.columns();
                         // serde_json は NaN / Inf を null にする（UI の欠損と同じ）
                         reply(id, json!({"response": s.response, "layout": layout, "columns": columns}))
@@ -492,13 +500,14 @@ impl Server {
                 None => error(id, -32602, "params.model が文字列でない"),
             },
             // 文書に依らない整形と lint（S053。Desktop の UI が wasm と同じ口で頼む）
-            // S143: 設定ファイル（globe-mode.toml）があればそれを土台にし、params のキーがあればそれを優先する
-            // （ブラウザ版の UI は設定ファイルが無いので indent などを渡す。Desktop は渡さず設定に任せる）
+            // S143: 設定ファイル（globe-mode.toml）があればそれを土台にする。S214: indent は textDocument/formatting と同じく
+            // 設定ファイルが勝つ（VS Code は常に tabSize を送るので、勝たせると保存時の整形が CI の `fmt --check` と食い違う）。
+            // 設定ファイルが無いとき（ブラウザ版の UI）だけ params の indent を採る
             "globe/format" => match params["text"].as_str() {
                 Some(text) => {
                     let base = self.config.clone().unwrap_or_default().format;
                     let options = globe_mode_fmt::Options {
-                        indent: params["indent"].as_u64().map_or(base.indent, |n| n as usize),
+                        indent: self.indent(params["indent"].as_u64(), base.indent),
                         insert_origin: params["insertOrigin"].as_bool().unwrap_or(base.insert_origin),
                         blank_around_sections: params["blankAroundSections"]
                             .as_bool()
@@ -574,11 +583,13 @@ impl Server {
     /// `stage`・`time`・`start_time`・`stop_time` を添える（Desktop の UI がそのまま使う）。
     fn simulate(
         &mut self,
-        request: &SimulateRequest,
+        request: &mut SimulateRequest,
         token: Option<&Value>,
         cancel: Option<CancelToken>,
         notify: &mut dyn FnMut(Value),
     ) -> Simulated {
+        // 要求に無ければ既定の予算を置く（S214。既定のネイティブの道は段の間でしか中断を見ないので、硬いモデルが他の要求を塞ぐ）
+        with_default_budget(request);
         let mut progress = |value: Value| {
             if let Some(token) = token {
                 notify(json!({"jsonrpc": "2.0", "method": "$/progress",
@@ -614,8 +625,9 @@ impl Server {
     fn update(&mut self, uri: String, text: String) -> Vec<Value> {
         let path = uri_path(&uri);
         self.ws.set_file(&path, text.clone());
+        // 検査が panic しても本文は最新にしておく（S214。古い本文から整形やリネームの編集を作らない）
+        self.texts.insert(uri.clone(), text.clone());
         let diags = self.diagnostics(&path, &text);
-        self.texts.insert(uri.clone(), text);
         vec![publish(&uri, &diags)]
     }
 
@@ -767,8 +779,25 @@ fn serve(
         write!(out, "Content-Length: {}\r\n\r\n{body}", body.len())?;
         out.flush()
     };
-    for got in rx {
+    // S214: 積まれた編集をまとめる。読み切ったあと、次も同じ文書の didChange なら今のは古い版なので検査せずに捨てる（全文の同期）
+    let mut queue = VecDeque::new();
+    loop {
+        if queue.is_empty() {
+            match rx.recv() {
+                Ok(got) => queue.push_back(got),
+                Err(_) => break,
+            }
+        }
+        queue.extend(rx.try_iter());
+        let Some(got) = queue.pop_front() else {
+            continue;
+        };
         let (msg, token) = got?;
+        if let (Some(uri), Some(Ok((next, _)))) = (change_uri(&msg), queue.front())
+            && change_uri(next) == Some(uri)
+        {
+            continue;
+        }
         let id = msg["id"].to_string();
         let (mut failed, rid) = (Ok(()), msg.get("id").cloned());
         // 1 つの要求の panic（解析の想定外）でプロセスごと落とさない（S198）。panic の内容は標準エラーに出る（既定のフック）。
@@ -789,6 +818,21 @@ fn serve(
     // 読みのスレッドは入力の終わりか `exit` で抜けている（キューが閉じたので）
     let _ = reader.join();
     Ok(())
+}
+
+/// 要求に `max_wall_seconds` が無ければ既定の予算を置く（S214）。
+fn with_default_budget(request: &mut SimulateRequest) {
+    request
+        .settings
+        .max_wall_seconds
+        .get_or_insert(DEFAULT_MAX_WALL_SECONDS);
+}
+
+/// didChange の文書の URI。
+fn change_uri(msg: &Value) -> Option<&str> {
+    (msg["method"] == "textDocument/didChange")
+        .then(|| msg["params"]["textDocument"]["uri"].as_str())
+        .flatten()
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -1527,11 +1571,22 @@ mod tests {
             "{}",
             f[0]
         );
+        // S214: 設定ファイルがあれば params の indent（VS Code は常に tabSize を送る）より設定が勝つ
         let f = s.handle(
             json!({"id": 3, "method": "globe/format", "params": {"text": text, "indent": 2}}),
         );
         assert!(
-            f[0]["result"].as_str().unwrap().contains("\n  Real x;"),
+            f[0]["result"].as_str().unwrap().contains("\n    Real x;"),
+            "{}",
+            f[0]
+        );
+        // 設定ファイルが無ければ params の indent（ブラウザ版の UI）
+        let mut bare = Server::new(&[]).unwrap();
+        let f = bare.handle(
+            json!({"id": 3, "method": "globe/format", "params": {"text": text, "indent": 3}}),
+        );
+        assert!(
+            f[0]["result"].as_str().unwrap().contains("\n   Real x;"),
             "{}",
             f[0]
         );
@@ -1987,6 +2042,59 @@ end B;
         // 部品でもクラスでもない所（予約語 model）は prepareRename が断る
         let e = ask("textDocument/prepareRename", 3, 2, "");
         assert_eq!(e["error"]["code"], -32803, "{e}");
+    }
+
+    /// S214: 打鍵ごとの didChange が積まれたら、古い版は検査せずに捨て、最後の診断は最新の版のものになる。
+    #[test]
+    fn queued_did_changes_are_coalesced() {
+        fn frame(m: Value) -> Vec<u8> {
+            let b = m.to_string();
+            format!("Content-Length: {}\r\n\r\n{b}", b.len()).into_bytes()
+        }
+        let uri = "file:///tmp/Typing.mo";
+        let mut input =
+            frame(json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}));
+        input.extend(frame(
+            json!({"jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {"uri": uri, "text": "model Typing\nend Typing;\n"}}}),
+        ));
+        // n 回目の版は n 行目に構文の誤り（診断の行で版が分かる）
+        const N: usize = 50;
+        for n in 1..=N {
+            let text = format!("model Typing\n{}x y z\nend Typing;\n", "\n".repeat(n));
+            input.extend(frame(
+                json!({"jsonrpc": "2.0", "method": "textDocument/didChange",
+                "params": {"textDocument": {"uri": uri}, "contentChanges": [{"text": text}]}}),
+            ));
+        }
+        input.extend(frame(json!({"jsonrpc": "2.0", "method": "exit"})));
+        let mut out = Vec::new();
+        serve(Server::new(&[]).unwrap(), io::Cursor::new(input), &mut out).unwrap();
+        let mut rd = io::Cursor::new(out);
+        let mut published = Vec::new();
+        while let Some(m) = read_message(&mut rd).unwrap() {
+            if m["method"] == "textDocument/publishDiagnostics" {
+                published.push(m);
+            }
+        }
+        let last = published.last().unwrap();
+        assert_eq!(
+            last["params"]["diagnostics"][0]["range"]["start"]["line"],
+            N + 1,
+            "{last}"
+        );
+        // didOpen の 1 回 + まとめた分。まとめなければ 1 + 50
+        assert!(published.len() < N / 2, "{} 回検査した", published.len());
+    }
+
+    #[test]
+    fn simulate_gets_a_default_wall_budget() {
+        let mut r = SimulateRequest::default();
+        with_default_budget(&mut r);
+        assert_eq!(r.settings.max_wall_seconds, Some(DEFAULT_MAX_WALL_SECONDS));
+        r.settings.max_wall_seconds = Some(5.0);
+        with_default_budget(&mut r);
+        assert_eq!(r.settings.max_wall_seconds, Some(5.0));
     }
 
     /// S136（ADR-0033）: 読みを別のスレッドにした `serve` を pipe で回す。長い実行の進捗が `$/progress` で届き、

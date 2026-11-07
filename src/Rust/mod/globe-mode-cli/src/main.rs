@@ -705,6 +705,15 @@ fn fmt(
             Err(code) => return code,
         };
         return match globe_mode_fmt::format(&text, &options) {
+            // S211: `--check` は整形が要るかだけを終了コードで返す（標準出力には何も出さない）
+            Ok(out) if check && !json => {
+                if out == text {
+                    ExitCode::SUCCESS
+                } else {
+                    eprintln!("整形が要る: -");
+                    ExitCode::from(1)
+                }
+            }
             Ok(out) if json => {
                 println!(
                     "{}",
@@ -752,7 +761,7 @@ fn fmt(
                 changed += 1;
                 println!("整形が要る: {name}");
             }
-            Ok(out) => match std::fs::write(path, out) {
+            Ok(out) => match write_atomically(path, &out) {
                 Ok(()) => changed += 1,
                 Err(e) => {
                     eprintln!("error: {}", io_error(path, true, &e));
@@ -909,6 +918,33 @@ fn lint(files: &[PathBuf], disable: &[String], json: bool) -> ExitCode {
     } else {
         ExitCode::from(1)
     }
+}
+
+/// S211: 同じフォルダの一時ファイルに書いてから rename で差し替える。途中で落ちても元のファイルは切り詰められない。
+/// リンクは指す先を書き換え、権限は元のまま。読み取り専用なら今までどおり書かない。
+/// Windows の `rename` は既存のファイルを置き換える（`MoveFileExW` の `MOVEFILE_REPLACE_EXISTING`）。
+/// shortcut: ハードリンクと所有者は引き継がない（rename で新しい inode になる）。必要になったら一時ファイルをやめて `File::create` に戻す。
+fn write_atomically(path: &Path, text: &str) -> std::io::Result<()> {
+    let target = std::fs::canonicalize(path)?;
+    let meta = std::fs::metadata(&target)?;
+    if meta.permissions().readonly() {
+        return Err(std::io::ErrorKind::PermissionDenied.into());
+    }
+    let mut tmp_name = target.file_name().unwrap_or_default().to_os_string();
+    tmp_name.push(format!(".globe-tmp-{}", std::process::id()));
+    let tmp = target.with_file_name(tmp_name);
+    let result = (|| {
+        let mut f = std::fs::File::create(&tmp)?;
+        std::io::Write::write_all(&mut f, text.as_bytes())?;
+        f.set_permissions(meta.permissions())?;
+        f.sync_all()?;
+        drop(f);
+        std::fs::rename(&tmp, &target)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    result
 }
 
 fn read(path: &PathBuf) -> Result<(String, String), ExitCode> {

@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S214 LSP と言語バインディングの issue — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S214 LSP と言語バインディングの issue">
+
+<section class="slide" id="S01">
+  <span class="tag">S214 · 2026-11-07 · P7</span>
+  <h1>LSP と言語バインディングの issue を点検</h1>
+  <p class="lead">ponytail-audit の 6 件（#25 #30 #33 #35 #37 #39）を、1 件ずつ再現してから直した</p>
+  <div class="big">再現 5 件・直した 5 件。#37 は LSP が facade に乗っているので何もしない</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">決定と理由</span>
+  <h1>issue ごとの結果</h1>
+  <table class="compact">
+    <tr><th>issue</th><th>再現</th><th>直し</th></tr>
+    <tr><td>#33 打鍵ごとの全検査</td><td>50 回の編集で 51 回検査</td><td>積まれた編集をまとめ 2 回に。実行に 180 s の既定の予算</td></tr>
+    <tr><td>#25 古い本文</td><td>panic の入力が無く再現できない</td><td>本文を診断より先に保存（1 行）</td></tr>
+    <tr><td>#39 整形の indent</td><td>設定 4 でも VS Code の 2 が勝つ</td><td>設定ファイルが勝つ</td></tr>
+    <tr><td>#35 NIF</td><td>panic 後は永久に失敗</td><td>poison から回復、DirtyIo</td></tr>
+    <tr><td>#30 Julia</td><td>例外で ws が使用中のまま</td><td>退避して中断、投げ直す</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>#33 のまとめ方</h1>
+  <ul>
+    <li>キューを読み切り、次が同じ文書の <code>didChange</code> なら今のを捨てる</li>
+    <li>間に hover などがあれば捨てない（途中の版を見るべき）</li>
+    <li>全文の同期なので、最後の版が本文のすべて</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">挙動が変わる</span>
+  <h1>利用者から見て変わること</h1>
+  <ul>
+    <li><code>globe/format</code> の indent は <code>globe-mode.toml</code> が勝つ</li>
+    <li>LSP は古い版の検査を省く</li>
+    <li>Julia の <code>simulate_observed</code> は例外を投げ直す</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>cargo test -p globe-mode-lsp --lib -- queued_did_changes
+mise run elixir:test
+mise run c:julia</code></pre>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>#25: <code>compile_model_strict</code> の <code>catch_unwind</code>（フロントエンド）</li>
+    <li>積分中の <code>$/cancelRequest</code>（実行系）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

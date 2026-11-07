@@ -35,7 +35,7 @@ mise exec -- pnpm package                        # globe-mode-<版>.vsix
 
 入ったかどうかは、拡張機能ビューの検索欄に `@installed GlobeMode` と打つと見える。Remote - WSL の窓では「WSL: …」の欄に出る。
 
-整形は独自の要求 `globe/format` で頼む（S061）。vscode-languageclient が `textDocument/formatting` の追加の設定を捨てるため。
+整形は独自の要求 `globe/format` で頼む（S061）。vscode-languageclient が `textDocument/formatting` の追加の設定を捨てるため。indent はプロジェクトの `globe-mode.toml` の `[fmt] indent` が勝つ（S214。無ければエディタのタブ幅）。
 
 `globe` が PATH に無いときは、設定 `globeMode.path` に絶対パスを書く。MSL などのライブラリは `globeMode.libraries` に並べる（`globe lsp --library` に渡る）。どちらも変えたら「ウィンドウの再読み込み」。
 
