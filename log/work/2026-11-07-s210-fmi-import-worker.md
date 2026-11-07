@@ -35,7 +35,7 @@ ADR-0026 (k) の 2。FMU の読み込みと実行を別プロセスのワーカ�
 - `clippy -D warnings`: 通った。
 - `mise run check`: 通った（1 回目は共有 target の古い `globe` で `fmu_import` の 1 本が落ち、`touch` で再ビルドして通過。コードの誤りではない）。
 - `Cargo.lock`: 新しい package の追加なし（serde・serde_json・zip は元から lock にある）。
-- 3 OS（`fmu-import.yml`・`ci.yml -f full=true`）の結果は下に追記する。
+- `fmu-import.yml`（3 OS、`fmu_worker` を含む）42326945957: success。`ci.yml -f full=true` 42326949071: success。
 
 ## 残したこと
 
