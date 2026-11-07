@@ -185,3 +185,45 @@ fn fmi3_round_trips_through_the_writer() {
     b.number_of_event_indicators = 2;
     assert!(globe_mode_fmi::write_model_description_3(&b).is_err());
 }
+
+/// S206: `stepSize` は 2.0・3.0 とも読み、書き、往復する。XML として読むので、コメントの中の `<DefaultExperiment` や
+/// `stepSize = "0.01"` の空白で外れない。無ければ書かない。
+#[test]
+fn step_size_is_read_written_and_round_trips() {
+    for (name, write) in [
+        (
+            "Dahlquist-fmi2.xml",
+            globe_mode_fmi::write_model_description_2 as fn(&ModelDescription) -> _,
+        ),
+        (
+            "Dahlquist-fmi3.xml",
+            globe_mode_fmi::write_model_description_3,
+        ),
+    ] {
+        let a = load(name);
+        assert_eq!(
+            a.default_experiment.as_ref().unwrap().step_size.as_deref(),
+            Some("0.1"),
+            "{name}"
+        );
+        let xml = write(&a).unwrap();
+        assert!(xml.contains("stepSize=\"0.1\""), "{xml}");
+        let mut b = a.clone();
+        b.default_experiment.as_mut().unwrap().step_size = None;
+        assert!(!write(&b).unwrap().contains("stepSize"));
+    }
+    let raw = std::fs::read_to_string(format!(
+        "{}/tests/data/Dahlquist-fmi2.xml",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .unwrap();
+    let tricky = raw.replace(
+        "<DefaultExperiment startTime=\"0\" stopTime=\"10\" stepSize=\"0.1\"/>",
+        "<!-- <DefaultExperiment stepSize=\"9\"/> -->\n  <DefaultExperiment startTime=\"0\" stopTime=\"10\" stepSize = \"0.01\"/>",
+    );
+    let m = parse_model_description(&tricky).unwrap();
+    assert_eq!(
+        m.default_experiment.unwrap().step_size.as_deref(),
+        Some("0.01")
+    );
+}

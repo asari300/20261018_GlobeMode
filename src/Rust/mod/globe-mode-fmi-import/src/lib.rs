@@ -45,6 +45,8 @@ pub enum Error {
     Library(String),
     /// FMU の関数が `OK` / `Warning` 以外を返した、または引数が合わない。
     Fmu(String),
+    /// FMU の関数が `Discard` を返した（S206）。ME の積分は刻みを縮めて再試行する。それ以外では [`Error::Fmu`] と同じ失敗。
+    Discard(String),
 }
 
 impl fmt::Display for Error {
@@ -54,7 +56,7 @@ impl fmt::Display for Error {
             Error::Zip(m) => write!(f, "FMU（zip）を開けない: {m}"),
             Error::Description(e) => write!(f, "{e}"),
             Error::Library(m) => write!(f, "共有ライブラリを読めない: {m}"),
-            Error::Fmu(m) => write!(f, "FMU が失敗を返した: {m}"),
+            Error::Fmu(m) | Error::Discard(m) => write!(f, "FMU が失敗を返した: {m}"),
         }
     }
 }
@@ -87,19 +89,6 @@ pub fn read_model_description(path: &Path) -> Result<ModelDescription> {
 pub struct Fmu {
     dir: tempfile::TempDir,
     pub description: ModelDescription,
-    /// `DefaultExperiment` の `stepSize`（`globe-mode-fmi` はこの属性を読まないので、ここで XML から拾う）。
-    pub default_step_size: Option<f64>,
-}
-
-/// `<DefaultExperiment ... stepSize="...">` の値。
-// shortcut: 文字列の走査。XML として読まない（属性の値に `>` を含む壊れた XML は見ない）。globe-mode-fmi に `step_size` を足せば要らなくなる
-fn default_step_size(xml: &str) -> Option<f64> {
-    let tag = &xml[xml.find("<DefaultExperiment")?..];
-    let tag = &tag[..tag.find('>')?];
-    let rest = &tag[tag.find("stepSize=")? + "stepSize=".len()..];
-    let quote = rest.chars().next().filter(|c| *c == '"' || *c == '\'')?;
-    let rest = &rest[1..];
-    rest[..rest.find(quote)?].trim().parse().ok()
 }
 
 /// zip のエントリを `root` の下に展開する。名前が `root` の外へ出るもの（zip slip）、シンボリックリンク、
@@ -145,11 +134,7 @@ impl Fmu {
         unpack(std::fs::File::open(path).map_err(io)?, dir.path())?;
         let xml = std::fs::read_to_string(dir.path().join("modelDescription.xml")).map_err(io)?;
         let description = parse_model_description(&xml).map_err(Error::Description)?;
-        Ok(Fmu {
-            dir,
-            default_step_size: default_step_size(&xml),
-            description,
-        })
+        Ok(Fmu { dir, description })
     }
 
     pub fn root(&self) -> &Path {
@@ -252,7 +237,12 @@ pub(crate) fn check(what: &str, status: std::ffi::c_int) -> Result<()> {
         5 => "Pending",
         _ => "不明",
     };
-    Err(Error::Fmu(format!("{what} が {name}（{status}）を返した")))
+    let m = format!("{what} が {name}（{status}）を返した");
+    Err(if status == 2 {
+        Error::Discard(m)
+    } else {
+        Error::Fmu(m)
+    })
 }
 
 /// 空白なしの `file://` URI（FMI 2.0 の `fmuResourceLocation`）。
@@ -312,6 +302,22 @@ pub(crate) fn num(s: &Option<String>) -> Option<f64> {
     s.as_deref().and_then(|s| s.trim().parse().ok())
 }
 
+/// 出力の格子点の数の上限。1 行は `(f64, Vec<f64>)` で、タプル 32 B + 配列 8 B × 出力の数 + 確保の管理 16 B 前後。
+/// 出力 1 個で約 0.6 GB、10 個で約 1.3 GB（RAM 3 GB の環境でも収まる）。実行の前に断るための値で、
+/// これを超える刻みは `--step` を大きくしてもらう。
+pub(crate) const MAX_GRID_POINTS: u64 = 10_000_000;
+
+/// `(stop - start) / step` を切り上げた格子の区間数。上限を超えたら**実行の前に**断る。
+pub(crate) fn grid_points(start: f64, stop: f64, step: f64) -> Result<u64> {
+    let n = ((stop - start) / step - 1e-9).ceil().max(1.0);
+    if n > MAX_GRID_POINTS as f64 {
+        return Err(Error::Fmu(format!(
+            "出力の刻みが細かすぎる（{n:e} 点。上限 {MAX_GRID_POINTS}）。`--step` を大きくする"
+        )));
+    }
+    Ok(n as u64)
+}
+
 /// 集める変数の名前。指定が空なら causality が output の Float64 すべて。
 pub(crate) fn output_names(md: &ModelDescription, wanted: &[String]) -> Vec<String> {
     if wanted.is_empty() {
@@ -341,6 +347,7 @@ pub fn run_cs(fmu: &Fmu, opts: &CsOptions) -> Result<CsRun> {
     if step.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
         return Err(Error::Fmu("刻みが正でない".into()));
     }
+    let n = grid_points(start, stop, step)?;
     let names = output_names(md, &opts.outputs);
     let vrs = names
         .iter()
@@ -352,7 +359,6 @@ pub fn run_cs(fmu: &Fmu, opts: &CsOptions) -> Result<CsRun> {
     }
     inst.initialize(start, Some(stop))?;
     let mut rows = vec![(start, inst.get_real(&vrs)?)];
-    let n = ((stop - start) / step - 1e-9).ceil() as u64;
     for i in 0..n {
         let t = start + i as f64 * step;
         let h = step.min(stop - t);
