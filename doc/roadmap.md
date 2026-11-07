@@ -547,6 +547,10 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - 試験: `test_ui.py` に 1 本（初回の案内と閉じる・smoke で出ない、スキップリンク、矢印・Home・End と tabindex、編集で印・再読み込み・beforeunload・保存で消える）。`pnpm check` 0 警告。
 - 持ち越し: タブの並べ替え（ドラッグ）、ツリーのアイコン、案内の多言語化、案内を出し直す操作、Esc で止める、スクリーンリーダーの実機（【未確認】）。
 
+### S214（P7、2026-11-07）で済んだこと
+
+- **LSP と言語の束ねの issue 6 件を、いまの main で再現してから直した**（[解説書](sessions/S214-lsp-bindings-issues/解説書.md)）: #33 は積まれた `didChange` をまとめて古い版は検査せず、`globe/simulate` に既定の予算 180 s を置いた。#25 は本文を診断より先に保存。#39 は `globe/format` の indent も設定ファイルが勝つ（**挙動が変わる**）。#35 は NIF の Mutex を poison から回復し、Mutex を待つ NIF を DirtyIo に。#30 は Julia のコールバックの例外を Rust に通さない。#37 の LSP 側は facade の `Workspace` に乗っているので何もしない。
+
 ### S209（P4、2026-11-07）で済んだこと
 
 - **`fmt` / `lint` の標準入力は `--json` でも `-` だけ**（[解説書](sessions/S209-fmt-stdin-dash/解説書.md)）: S199 が残した `--json` のパスなしの例外を、ユーザーの決定で無くした。**挙動が変わる**: `globe fmt --json` / `globe lint --json` のパスなしは使い方を出して終了コード 2。ウェブアプリ 6 種（FastAPI・Streamlit・marimo・Phoenix・Wisp・Astro）の呼び出しを `--json -` に直し、各アプリの試験を手元で回した（CI は無い）。Rust のウェブアプリ 4 種は crate を直接使うので影響なし。

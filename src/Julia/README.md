@@ -24,6 +24,7 @@ parse(Float64, match(r"\"final\":\{[^}]*\"x\":([^,}]+)", res)[1])   # 0.36787946
   - `simulate`、`simulate_columns`（列の道。`(レイアウトの JSON, 列ごとの Vector{Float64})`）、`simulate_observed`（進捗と中断。`on_progress` が `true` を返すと止まる）、`export_fmu`。
   - `format`・`lint`（`Workspace` は要らない）。
   - `outline(ws, path)`・`deps(ws, model)`・`flat(ws, model)`（読み取り。S191。JSON の文字列。`globe outline` / `deps` / `flat --json` と同じ形。[対応表](../../doc/research/lang-api-matrix-2026-11-03.md)）。`simulate_columns` のレイアウトの `defaults` は既定で描く信号の名前（S190）。
+- `simulate_observed` の `on_progress` が例外を投げる（Ctrl-C の `InterruptException` を含む）と、Rust のフレームを越えず、中断（`true`）として扱われて、`ccall` が返ってから投げ直される。`ws` は使用中のまま固まらない（S214。`test.jl` が確かめる）。実行中は `GC.@preserve` で `ws` の finalizer を止める。
 - 共有ライブラリは環境変数 `GLOBE_MODE_LIB`（既定 `../../target/release/libglobe_mode_c.so`）。
 - 進捗のコールバックの中から同じ `ws` を使うと（`check` など）`{"error": "ワークスペースは使用中…"}` が返り、`gm_workspace_free` は何もしない（S202。`test.jl` が確かめる）。
 - 今後: パッケージ化と JLL（BinaryBuilder）での配布。

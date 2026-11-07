@@ -1,7 +1,7 @@
 %% S087: Rustler の NIF（globe-mode-nif の libglobe_mode_nif.so）を読む。
 %% rustler::init!("globe_mode_nif") なので、この名前のモジュールで load_nif する（Elixir 側の :globe_mode_nif と同じ形）。
 -module(globe_mode_nif).
--export([new/1, set_file/3, load_dir/2, check/2, graph/3, simulate/3, simulate_columns/3, outline/2, deps/2, flat/2, cancel_token/0, cancel/1, simulate_observed/5, export_fmu/4, solvers/0, format/3, lint/1]).
+-export([new/1, set_file/3, load_dir/2, check/2, graph/3, simulate/3, simulate_columns/3, outline/2, deps/2, flat/2, panic_for_test/1, cancel_token/0, cancel/1, simulate_observed/5, export_fmu/4, solvers/0, format/3, lint/1]).
 -on_load(load/0).
 
 load() ->
@@ -17,6 +17,7 @@ simulate_columns(_Ws, _Model, _SettingsJson) -> erlang:nif_error(not_loaded).
 outline(_Ws, _Path) -> erlang:nif_error(not_loaded).
 deps(_Ws, _Model) -> erlang:nif_error(not_loaded).
 flat(_Ws, _Model) -> erlang:nif_error(not_loaded).
+panic_for_test(_Ws) -> erlang:nif_error(not_loaded).
 cancel_token() -> erlang:nif_error(not_loaded).
 cancel(_Token) -> erlang:nif_error(not_loaded).
 simulate_observed(_Ws, _Model, _SettingsJson, _Pid, _Token) -> erlang:nif_error(not_loaded).

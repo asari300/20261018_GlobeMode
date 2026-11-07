@@ -30,8 +30,10 @@ res["final"]["x"]                            # 0.367879468116207（e⁻¹）
 
 | NIF | スケジューラ |
 | --- | --- |
-| `new` `load_dir` `set_file` `export_fmu` | DirtyIo |
-| `check` `graph` `outline` `deps` `flat` `simulate` `simulate_observed` `simulate_columns` `format` `lint` | DirtyCpu |
+| `new` `load_dir` `set_file` `export_fmu` `check` `graph` `outline` `deps` `flat` `simulate` `simulate_observed` `simulate_columns` | DirtyIo（Mutex を待つものは S214 からすべて。DirtyCpu だと、実行が Mutex を持つ間に待つ呼び出しがコアの数だけ溜まって、ほかの dirty CPU の NIF まで止める） |
+| `format` `lint` | DirtyCpu（Mutex を取らない。本文の長さに比例する） |
 | `cancel_token` `cancel` `solvers` | 通常（Mutex を取らない定数時間） |
 
-試験 `test/scheduler_test.exs` は通常のスケジューラを 1 本に絞り、実行が Mutex を持つ間に別のプロセスが `set_file` を呼んでも、ただのタイマーのループが止まらないことを確かめる。
+試験 `test/scheduler_test.exs` は通常のスケジューラを 1 本に絞り、実行が Mutex を持つ間に別のプロセスが `set_file` を呼んでも、ただのタイマーのループが止まらないことを確かめる。S214 からは dirty CPU も 1 本に絞り、`check` が Mutex を待っていても `format` が通ることを確かめる。
+
+`panic` で Mutex が poison されても、workspace は使い続けられる（S214。C ABI と同じ。試験用の NIF `panic_for_test(ws)` が Mutex を持ったまま panic する）。
