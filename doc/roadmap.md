@@ -102,7 +102,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
   - `Connect.RealCircuit` の閉包は 5 / 23 ファイル。閉包だけの検査と全ファイルの検査は、検証用パッケージのモデル 20 本以上のすべてで一致した。
   - 使わないファイルの式を変えた後の再検査は、`check` 0 回で中央値 0.19 ms（MSL を使う `MediumFlow`、release）。代わりに、閉包の違うモデルへ初めて切り替えると、Rumoca が MSL ごと解決し直すので約 1.7 s かかる（全ファイルを渡したままなら 67 ms）。
   - CLI: `globe deps <files> -m <model>` で閉包を見られる。
-- **S7（Pantelides 法と状態選択の候補）**と **S8（初期化系の検査）**を足した（[ADR-0009](adr/0009-structural-index-and-init.md)）。
+- **S7**（Pantelides 法と状態選択の候補）と**S8**（初期化系の検査）を足した（[ADR-0009](adr/0009-structural-index-and-init.md)）。
   - S7 は情報にとどめる（`GM-I7001` インデックス 2 以上、`GM-I7002` 状態選択が要る）。打ち切りだけ `GM-E7001`。
   - S8 は初期条件の数と属性で判定する。要る数には S7 の動的な状態の数を使う。過剰は `GM-E8001`（離散変数を含むか、インデックスの低減で状態が減るときは、確定できないので警告 `GM-W8004`）、不足は `GM-W8001`・`GM-W8002`、値の無いパラメータは `GM-W8003`。
   - 検証用のモデル `Index.Pendulum`（インデックス 3、動的な状態 2 / 4）、`Index.ParallelCapacitors`（インデックス 2、動的な状態 1 / 2）、`Init.*` の 5 本を足した。`Invalid.HighIndexDuplicate` は、動的な状態が 0 で `fixed = true` が 1 つ余るので、S8 の警告 `GM-W8004` を出して通る。
@@ -138,7 +138,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 
 - 範囲は S010 の候補のうち **S9・S10（3）**、**離散変数の when の区別（1）**、**閉包の切り替えの費用（2）**。5 つのサブエージェントが所有するファイルを分けて同時に作業した（S9 の BLT と tearing、S9 の線形・非線形の判定、S10、閉包、S8 の when）。`Checker` のメモリ（4）は P4 のプロセス構成が決まってから、上流への報告（5）はユーザーが出す。
 - **S9（代数ループ）**（[ADR-0012](adr/0012-loops-and-preflight.md)）: BLT（Hopcroft–Karp と再帰を使わない Tarjan 法）で大きさ 2 以上のブロックを見つけ、貪欲な tearing で反復変数を選び、非線形のループの反復変数に start 値が無ければ `GM-W9001`（警告）。ループがあれば `GM-I9001`（情報）。インデックス 2 以上のモデルは Pantelides 法の最高階の系で数える（状態選択の前の見込み）。線形・非線形は、フロントエンドが残差の式木を族の単位で広めに判定する（`DaeStructure::nonlinear`）。
-- **S10（プリフライトの静的な部分）**（[ADR-0012](adr/0012-loops-and-preflight.md)）: パラメータと start 値を Rumoca の評価器で評価し、非有限は `GM-E10001` / `GM-E10003`、関数の中の assert の失敗は `GM-E10002`。experiment annotation は Rumoca が不正な値を黙って捨てるので、根のクラスの本文を読み直して生の値で判定する（`GM-E10004` / `GM-W10001` / `GM-I10001`）。t0 の残差・初期化のヤコビ行列の階数・ソルバの能力は P3 の実行系ができてから。
+- **S10（プリフライトの静的な部分）**（[ADR-0012](adr/0012-loops-and-preflight.md)）: パラメータと start 値を Rumoca の評価器で評価し、非有限は `GM-E10001` / `GM-E10003`、関数の中の assert の失敗は `GM-E10002`。experiment annotation は Rumoca が不正な値を気づかないうちに捨てるので、根のクラスの本文を読み直して生の値で判定する（`GM-E10004` / `GM-W10001` / `GM-I10001`）。t0 の残差・初期化のヤコビ行列の階数・ソルバの能力は P3 の実行系ができてから。
 - **S8 の離散変数の when の区別**（[ADR-0011](adr/0011-init-system-matching.md) の S010 の追記）: when の中で決まる・when の外の式で決まる・`when initial()` で決まるを分け、初期化でも成り立つ離散の方程式を行に足した（MLS §8.6）。決まり方の分かる離散変数の不足と冗長は確定させた。
 - **閉包の切り替えの費用**（[ADR-0005](adr/0005-lazy-query-db.md) の結果）: `Checker` に文書の和集合を持たせた。一度検査したモデルへ編集なしで戻るときは約 2.1 s → **49 ms**。Rumoca の Session にはライブラリの解決だけを残す道が無いので、文書の組を変えないようにした。閉包の違うモデルを初めて検査するときは今も約 1.7〜2.0 s。
 - 検証用のモデル 20 本: `Loops.*` 4 本、`Preflight.*` 10 本、`Init.Discrete*` 6 本（[src/Modelica/README.md](../src/Modelica/README.md)）。
@@ -214,7 +214,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 
 ## 次のセッション
 
-**S017** の候補（P3 の完了条件は 3 つとも満たした。P3 の残りは、止まった例題、ソルバの範囲の残り、ブラウザの前提）:
+**S017** の候補は次のとおり（P3 の完了条件は 3 つとも満たした。P3 の残りは、止まった例題、ソルバの範囲の残り、ブラウザの前提）。
 
 ### S017（運用、2026-10-22）で済んだこと
 
@@ -569,7 +569,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 
 ### S181（P7、2026-11-06）で済んだこと
 
-- **Python API を厳しくした**（S178 の監査の Python の穴 P2・P7・P10・P11、WP 案 C1。[解説書](sessions/S181-python-api-strictness/解説書.md)）: `Workspace("data/msl")`（文字列・`Path` の単体）を 1 つのライブラリとして扱う（前は 1 文字ずつ）。**未知の設定のキーは `TypeError`**（前は黙って無視され `ok: True`。使えるキーを添える。キーと型の一覧は Rust の `SimSettings` から `settings_sample()` で取る）、型の誤りは「設定 stop_time は数値のはず」と言う `ValueError`、`export_fmu` は明示のキーワード引数。ライブラリが読めない `RuntimeError` の本文は `GM-E1003: …`（元の診断は `.diagnostics`）。公開の関数すべての docstring、`py.typed`・`_native.pyi`、`on_progress` は既定のソルバ（bdf・auto・dopri45）では積分の中に届かないと明記、`src/Python/README.md`・`main()` の古い文面を直した。`SimSettings` の読み方・C ABI・NIF は変えていない（facade が `SimSettings` を再公開しただけ）。
+- **Python API を厳しくした**（S178 の監査の Python の穴 P2・P7・P10・P11、WP 案 C1。[解説書](sessions/S181-python-api-strictness/解説書.md)）: `Workspace("data/msl")`（文字列・`Path` の単体）を 1 つのライブラリとして扱う（前は 1 文字ずつ）。**未知の設定のキーは `TypeError`**（前は気づかないうちに無視され `ok: True`。使えるキーを添える。キーと型の一覧は Rust の `SimSettings` から `settings_sample()` で取る）、型の誤りは「設定 stop_time は数値のはず」と言う `ValueError`、`export_fmu` は明示のキーワード引数。ライブラリが読めない `RuntimeError` の本文は `GM-E1003: …`（元の診断は `.diagnostics`）。公開の関数すべての docstring、`py.typed`・`_native.pyi`、`on_progress` は既定のソルバ（bdf・auto・dopri45）では積分の中に届かないと明記、`src/Python/README.md`・`main()` の古い文面を直した。`SimSettings` の読み方・C ABI・NIF は変えていない（facade が `SimSettings` を再公開しただけ）。
 - 持ち越し: `outline`・`flat`・`deps` と `check` の要約（C2）、結果の TypedDict、**例外の階層（`GlobeModeError`）と「未知のモデルを例外にするか」はユーザーの判断**（解説書 2.5）。
 
 ### S166（P4、2026-11-05）で済んだこと
@@ -1155,7 +1155,7 @@ S177（2026-11-05、S175 までが main にある状態）で、各節の「持�
 | ユーザーの判断 | 公開の時期と範囲 | 0.2.0 のタグ、GitHub の Release、Pages（artifact `globe-web` は S145 で用意済み）、PyPI、Marketplace のどれをいつ出すか。v0.1 に含める面（macOS の Desktop・Android・VS Code の拡張・wheel）もここで決める。crates.io は Rumoca の git 依存のため出せない。公開物は 0 件 | S145・S164・S172 |
 | ユーザーの判断 | 署名と更新の鍵 | Desktop の updater の鍵（secret `TAURI_SIGNING_PRIVATE_KEY`。登録するまで更新は「未設定」）、Windows の署名、macOS の署名と公証、Android の keystore（secret `ANDROID_KEYSTORE_BASE64` ほか 3 つ）。鍵はユーザーが作る。`release.yml` への macOS の Desktop の追加もこの判断に付く | S106・S135・S160・S172 |
 | 決まり（済） | `release.yml` の dry run | 2026-11-05 に 0.2.0 で回した。1 回目（run 42029009320）は Windows の wheel の pytest が 1 本落ち（試験が `.mo` を cp1252 で読んでいた。S173 で修正）、2 回目（run 42039306227）は Desktop の .deb・.msi を含む全ジョブが成功。Release とタグは 0 件のまま。マイナーバージョンを変えるときは必ず dry run を回す（2026-11-05 にユーザーが決めた） | S164・S172・S173 |
-| 決まり（実装は別の WP） | FMI Import の置き方 | 2026-11-06 にユーザーが**案 A（C ABI を自前）と案 B（`fmi` 0.8）の両方を採る**と決め、2026-11-07（S206）に「案 B は自前で作成」と決めた（`fmi` crate は入れない）。実装は別の WP で、[ADR-0026](adr/0026-fmi-import-placement.md) の本文はその WP が書く（いまは Proposed）。決めたら architecture.md §3.4 を直す | S057 |
+| 決まり（済） | FMI Import の置き方 | 2026-11-06 にユーザーが**案 A（C ABI を自前）と案 B（`fmi` 0.8）の両方を採る**と決め、2026-11-07（S206）に「案 B は自前で作成」と決めた（`fmi` crate は入れない）。実装は S204〜S206・S210 で済み、[ADR-0026](adr/0026-fmi-import-placement.md) は Accepted（architecture.md §3.4 も直した） | S057 |
 | ユーザーの判断 | Rumoca の rev | 0.2.0 は v0.10.2 で固定。v0.10.4 に上げるのは次の版の作業の最初で、`msl:funnel`・`msl:sim` を回して差を記録してから（[ADR-0002](adr/0002-rumoca-adapter.md) の付記）。上げると 04 の `GM-W10004` と 02・15 の `auto` の切り替えが外せるか見る | S162・S172 |
 | ユーザーの判断 | 上流 issue の提出 | 下書き 39 件（01〜34、[upstream.md](upstream.md)）。出すのはユーザー。当面は貯める。出す前に最新の Rumoca で確かめ直す | S070・S113・S115・S162 |
 | 上流待ち | Rumoca の穴 | 下書き 39 件のうち、03・04・25・25b・25c・25g・26 は v0.10.4 で直り、02・15 は大半が直った（提出の順から外してある）。残りは GlobeMode 側の回避を持ち続ける（外す条件は upstream.md の末尾）。34（事象の反復の厳密なゼロ判定）は回避が無く、既知の限界の試験だけ | upstream.md |
@@ -1176,7 +1176,7 @@ S177（2026-11-05、S175 までが main にある状態）で、各節の「持�
 | 機能の穴（P7） | 試験版 UI | Leptos・Dioxus の CI（push で回す検査）、プロット・graph・ツリー・タブ・Tauri への組み込み、CPU・フレーム時間・PSS | S153・S155・S156 |
 | 機能の穴（P8） | 拡充 | Diagram / Icon ビュー、Documentation ビュー、パラメータダイアログ、SSP 2.0.1、BLT の可視化と変換デバッガ、線形化、パッケージマネージャ（`uses` の版） | features.md |
 | 機能の穴（CLI・Python） | 使える流れの点検（S178） | 通る流れは通る。穴は誤った使い方の手がかり（ライブラリのモデル名の候補、`-L`、負の数、`fmt --check` が CI で黙って通る、`-o` なしで結果を捨てる）、未対応（GM-U）の終了コード、Python の型・例外・既定ソルバでの進捗と中断、CLI の面（`graph` などに `-L`、MSL を取る道）、FMU `--build` の入口。順位付き 13 件と WP の案は [調査](research/cli-python-flow-2026-11-06.md) | S178 |
-| 機能の穴（UI・CLI・Python） | 並行で入れた 16 本の再点検（S185） | S164・S178 の穴は大半が直った（ブラウザ版の例題 10 本中 9 本が通り、CLI の誤った使い方は 21 通り中 9 が直った）。残りと新しい食い違い 10 件: README の「既知の限界」が補完と検索を「無い」と書いたまま、クラス名のリネームでモデル名の欄が古いまま、入れ子のクラスを開いても位置へ動かない、~~FMU のファイル名（2.0 と 3.0 が同じ）と MSL の例題での英語の失敗~~（S189 で済）、`-L` を忘れた・サブフォルダの案内、候補の質、キーボードの細部。上位 10 と WP の組（A 文書、B App、C CLI・frontend、~~D FMU~~）は [調査](research/app-flow-2026-11-06.md) | S185 |
+| 機能の穴（UI・CLI・Python） | 並行で入れた 16 本の再点検（S185） | S164・S178 の穴は大半が直った（ブラウザ版の例題 10 本中 9 本が通り、CLI の誤った使い方は 21 通り中 9 が直った）。残りと新しい食い違い 10 件: ~~README の「既知の限界」が補完と検索を「無い」と書いたまま~~（README は S171・S167 の状態に直してある）、クラス名のリネームでモデル名の欄が古いまま、入れ子のクラスを開いても位置へ動かない、~~FMU のファイル名（2.0 と 3.0 が同じ）と MSL の例題での英語の失敗~~（S189 で済）、`-L` を忘れた・サブフォルダの案内、候補の質、キーボードの細部。上位 10 と WP の組（A 文書、B App、C CLI・frontend、~~D FMU~~）は [調査](research/app-flow-2026-11-06.md) | S185 |
 | 決まり（2026-11-06） | S185 の再点検に対するユーザーの決定 | 済: エディタの Tab は字下げ（S188）、プロットの既定は状態を先に（S190）、`src/Modelica` を `globe fmt` で整形し FMU の既定のファイル名を `<名前>-fmi2.fmu` / `-fmi3.fmu` に（S189）、ADR-0032・0034・0035・0036 を Accepted に（S194）、上流の再現用 `.mo` を `globe fmt` で整形（S194）。別の WP で実装: **FMI Import は案 A と案 B の両方**、**Python に例外の階層を入れる**、**補完中の Tab は候補の確定、再実行時は選択を保つ**、CLI の終了コードなど（未対応だけのときは終了コード 3、`fmt` の標準入力は `-` を明示したときだけ（`--json` も S209）、MSL の取得コマンドは足さず README で案内。親が決めて別の WP） | S185・S188・S189・S190・S194 |
 | 機能の穴（Track B） | 自前コア | 未着手（`Frontend` の feature `native` はまだ無い）。IDE の機能を先に自前にする | P4 以降 |
 

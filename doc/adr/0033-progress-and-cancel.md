@@ -40,7 +40,7 @@
 - 壁時計は facade の `simulate_with` に渡す `now`（ミリ秒。wasm は `performance.now()`）を使う。実行系は `Instant` を呼ばない（wasm32 で落ちるため、ADR-0014）。
 - t を出せるのは session の道（wasm と自前の積分器）だけ。ネイティブの型付きの道（bdf・dopri45・auto）は段だけ（Rumoca に口が無い）。
 
-却下した案:
+却下した案は次のとおり。
 
 - 段だけ: wasm と自前の積分器で積分が長いモデル（Lightning の類）の動きが見えない。区切りは session の道にもうあるので費用は小さい。
 - 出力の点ごとに毎回: 10 万点で 10 万回呼ぶ。NIF のメッセージや LSP の通知があふれる。
@@ -54,13 +54,13 @@
   - `auto` の回し直しの前（ADR-0028 の esdirk34・dopri45 に進む前）。
   - session の道の積分の中: `run_to_stop` を、出力の点を区切りにした `advance_to` の繰り返しに替え、区切りごとに見る。Rumoca は変えない（公開の `advance_to` だけ）。
 - 見られないところ: lowering と組み立て（Rumoca の中）、ネイティブの型付きの道の積分の中。ここは今まで通り `max_wall_seconds` と、外からプロセスやワーカーを止める道（ADR-0017・ADR-0023）が受け持つ。外から止める道は消さない。
-- 各口で同じ形になるか:
+- 各口で同じ形になるか。
   - wasm: Worker の中は 1 本のスレッドで、計算の間は `onmessage` が回らないので、外からトークンを立てられない。止めるのは今の `terminate()` と作り直しのまま（途中の列は返らない）。トークンは使わない。（S157 で変えた: cross-origin isolated なら SharedArrayBuffer のフラグでトークンを立て、途中の列を返す。下の 6 段目）
   - NIF: `DirtyCpu` のスケジューラで回し、トークンを resource（`ResourceArc`）に包んで返す。別の Erlang プロセスから NIF `cancel(ref)` で立てる。同じ形。
   - C: コールバックの戻り値が 0 以外なら、glue がトークンを立てる。別のスレッドから止めたい呼び手は、`void *user` の先のフラグをコールバックで読んで返す。同じ形（呼ばれる頻度は進捗と同じ 100 ms に 1 回）。
   - Python: GIL を放して回し（pyo3 0.30 の `Python::detach`。旧名 `allow_threads`【名前は実装のときに確かめる】）、進捗のたびに GIL を取り直してコールバックと `py.check_signals()` を呼ぶ。コールバックが真を返せばトークンを立てる。Ctrl-C ならトークンを立て、戻ったあと `KeyboardInterrupt` を上げ直す。同じ形。
 
-却下した案:
+却下した案は次のとおり。
 
 - `max_wall_seconds` を拡げる: Rumoca の `TimeoutBudget` は作ったときに期限を決め、後から縮める口が無い。「今止めて」を秒で表せない。
 - スレッドを落とす: Rust にスレッドを外から止める手段は無く、Rumoca の `PreparedSimulation`（`Rc`・`RefCell`）を壊れたまま残す。プロセスを落とす道は ADR-0023 で既に外側にある。
@@ -88,7 +88,7 @@
 - 積分の前（段の境目）で止めたら、列は無く、`ok: false` と `GM-I11004` だけを返す。
 - LSP は誤りでなく普通の応答で返す（LSP 3.17 は取り消しのときに途中の結果を返すのを認めている）。
 
-却下した案:
+却下した案は次のとおり。
 
 - 診断だけを返す: session の道は止めた時刻までの trace をそのまま持っているので、捨てる理由が無い。UI は途中まで描ける。
 - 誤り（`GM-E…`）にする: 呼び手が自分で止めたのは失敗ではない。`max_wall_seconds` の時間切れ（`GM-E11005`）とは分ける。

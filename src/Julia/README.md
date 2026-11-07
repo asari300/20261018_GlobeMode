@@ -8,7 +8,7 @@ English: a single-file `ccall` binding (`globe_mode.jl`) to the GlobeMode C ABI 
 mise run c:julia   # cargo build --release -p globe-mode-c → julia test.jl
 ```
 
-最初の例（リポジトリの根から。`mise run c:julia` が先に `libglobe_mode_c.so` を作る。`GLOBE_MODE_LIB` はそのパス）:
+最初の例（リポジトリの根から。`mise run c:julia` が先に `libglobe_mode_c.so` を作る。`GLOBE_MODE_LIB` はそのパス）は次のとおり。
 
 ```julia
 include("src/Julia/globe_mode.jl")

@@ -45,7 +45,7 @@ GLOBE_BIN=/path/to/target/debug/globe uv run pytest
 
 いずれも `uv.lock` で版を固定している。版と license は、インストールされた配布物のメタデータ（License-Expression、無ければ classifier と LICENSE 文面）で 2026-10-31 に確かめた。出典 URL は PyPI の版ごとのページ。ただし PyPI のページは開いて確かめておらず、【未確認】。
 
-直接の依存（`pyproject.toml`）:
+直接の依存（`pyproject.toml`）は次のとおり。
 
 | 名前 | 版 | ライセンス | 出典 URL | 確認日 |
 | --- | --- | --- | --- | --- |
@@ -54,7 +54,7 @@ GLOBE_BIN=/path/to/target/debug/globe uv run pytest
 | httpx | 0.28.1 | BSD-3-Clause（テストでも使う。METADATA は classifier のみ、LICENSE の文面で確認） | https://pypi.org/project/httpx/0.28.1/ | 2026-10-31 |
 | pytest | 9.2.0 | MIT（dev グループ） | https://pypi.org/project/pytest/9.2.0/ | 2026-10-31 |
 
-推移的依存（uv.lock に入る残り。dev のテストを含む）:
+推移的依存（uv.lock に入る残り。dev のテストを含む）は次のとおり。
 
 | 名前 | 版 | ライセンス | 出典 URL | 確認日 |
 | --- | --- | --- | --- | --- |
