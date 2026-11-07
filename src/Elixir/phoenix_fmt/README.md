@@ -3,7 +3,7 @@
 GlobeMode の整形（`globe fmt`）と lint（`globe lint`）を、Phoenix のウェブアプリとして使えるようにしたもの。
 計算は Rust 側の CLI（`globe`）だけで、このアプリは子プロセスで呼んで JSON を受け渡す。
 
-English summary: A small Phoenix (1.8, Bandit) web app that formats and lints Modelica code by calling the `globe` CLI (`globe fmt --json` / `globe lint --json`) as a child process. Routes: `GET /` (Japanese UI), `POST /api/format`, `POST /api/lint`, `GET /healthz`. Set `GLOBE_BIN` to the path of the `globe` binary.
+English summary: A small Phoenix (1.8, Bandit) web app that formats and lints Modelica code by calling the `globe` CLI (`globe fmt --json -` / `globe lint --json -`) as a child process. Routes: `GET /` (Japanese UI), `POST /api/format`, `POST /api/lint`, `GET /healthz`. Set `GLOBE_BIN` to the path of the `globe` binary.
 
 ## 起動
 

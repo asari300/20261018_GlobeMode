@@ -20,7 +20,7 @@ function run(args: string[], input: string): string {
 }
 
 export function format(text: string, opts: FormatOptions = {}): FormatResult {
-  const args = ['fmt', '--json'];
+  const args = ['fmt', '--json', '-'];
   if (opts.indent !== undefined) args.push('--indent', String(opts.indent));
   if (opts.width !== undefined) args.push('--width', String(opts.width));
   if (opts.insert_origin === false) args.push('--no-insert-origin');
@@ -29,7 +29,7 @@ export function format(text: string, opts: FormatOptions = {}): FormatResult {
 
 // API の shape に合わせ、CLI の file 欄は落とす（入力は標準入力だけなので無意味）
 export function lint(text: string, disable: string[] = []): LintResult {
-  const args = ['lint', '--json'];
+  const args = ['lint', '--json', '-'];
   for (const rule of disable) args.push('--disable', rule);
   const parsed = JSON.parse(run(args, text)) as { messages: (LintMessage & { file?: string })[] };
   return {

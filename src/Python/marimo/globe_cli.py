@@ -1,4 +1,4 @@
-"""globe CLI（`globe fmt --json` / `globe lint --json`）を子プロセスで呼ぶ。計算は Rust 側だけ。
+"""globe CLI（`globe fmt --json -` / `globe lint --json -`）を子プロセスで呼ぶ。計算は Rust 側だけ。
 
 バイナリは環境変数 `GLOBE_BIN`（既定は PATH の `globe`）。終了コード 1 は正常な結果（整形できない / 指摘がある）。
 """
@@ -27,7 +27,7 @@ def _parse(proc: subprocess.CompletedProcess[str], what: str) -> dict:
 
 def format_text(text: str, indent: int = 2, insert_origin: bool = True) -> dict:
     """{"ok": bool, "text": str | None, "error": str | None} を返す。"""
-    args = ["fmt", "--json", "--indent", str(indent)]
+    args = ["fmt", "--json", "-", "--indent", str(indent)]
     if not insert_origin:
         args.append("--no-insert-origin")
     return _parse(_run(args, text), "fmt")
@@ -35,4 +35,4 @@ def format_text(text: str, indent: int = 2, insert_origin: bool = True) -> dict:
 
 def lint_text(text: str) -> list[dict]:
     """指摘の一覧（rule / line / column / message など）を返す。0 件なら空のリスト。"""
-    return _parse(_run(["lint", "--json"], text), "lint")["messages"]
+    return _parse(_run(["lint", "--json", "-"], text), "lint")["messages"]

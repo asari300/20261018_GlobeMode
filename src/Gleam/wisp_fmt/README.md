@@ -1,7 +1,7 @@
 # wisp_fmt（Gleam + wisp + mist）
 
 English summary: a small web app written in Gleam (wisp + mist) that formats and lints Modelica code
-by calling the GlobeMode CLI `globe` as a child process (`globe fmt --json` / `globe lint --json`).
+by calling the GlobeMode CLI `globe` as a child process (`globe fmt --json -` / `globe lint --json -`).
 It serves one Japanese page at `/` and the JSON API `POST /api/format`, `POST /api/lint`, `GET /healthz`
 (see `doc/web-apps.md`). The computation lives in Rust; this app only moves text and JSON.
 Requires Linux or macOS (the FFI runs the child through `/bin/sh`).
@@ -63,7 +63,7 @@ indent は 1〜16、width は 1〜1000 の範囲。外れたら `ok: false`。
 | --- | --- |
 | `src/wisp_fmt.gleam` | 起動（mist で待ち受ける） |
 | `src/wisp_fmt/web.gleam` | ルーティングと API |
-| `src/wisp_fmt/engine.gleam` | `globe fmt --json` / `globe lint --json` を呼んで結果を読む |
+| `src/wisp_fmt/engine.gleam` | `globe fmt --json -` / `globe lint --json -` を呼んで結果を読む |
 | `src/wisp_fmt/page.gleam` | 画面（HTML。外部 CDN なし） |
 | `src/wisp_fmt_ffi.erl` | 子プロセスの起動。入力は一時ファイルに書き、`sh` の `<` で渡す（ポートは入力だけを閉じられないため） |
 | `test/wisp_fmt_test.gleam` | gleeunit のテスト 5 本 |
