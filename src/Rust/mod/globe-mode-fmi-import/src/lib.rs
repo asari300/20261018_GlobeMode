@@ -17,9 +17,15 @@ mod abi2;
 mod abi3;
 mod me;
 mod ode;
+mod worker;
 
 pub use me::{
     EventInfo, EventKind, FmuMe, MeEvent, MeIntegrator, MeOptions, MeRun, StepInfo, run_me,
+    run_me_with,
+};
+pub use worker::{
+    Kind, MeSummary, WorkerRequest, WorkerRun, WorkerSpec, run_in_process, run_in_worker,
+    worker_main,
 };
 
 use std::fmt;
@@ -29,8 +35,7 @@ use std::path::{Path, PathBuf};
 use globe_mode_fmi::{Causality, ModelDescription, VarType, parse_model_description};
 
 /// 実行の前に利用者に見せる 1 行。
-pub const TRUST_WARNING: &str =
-    "警告: FMU の中のネイティブコードを実行する。信頼できる FMU だけを開くこと";
+pub const TRUST_WARNING: &str = "警告: FMU の中のネイティブコードを別プロセス（ワーカー）で実行する。落ちても呼び出し側は落ちないが、ディスクとネットワークは隔離しない。信頼できる FMU だけを開くこと";
 
 /// 展開してよい大きさの上限（zip 爆弾への備え）。
 const MAX_UNPACKED: u64 = 2 << 30;
@@ -47,6 +52,10 @@ pub enum Error {
     Fmu(String),
     /// FMU の関数が `Discard` を返した（S206）。ME の積分は刻みを縮めて再試行する。それ以外では [`Error::Fmu`] と同じ失敗。
     Discard(String),
+    /// ワーカー（別プロセス。S210）が落ちた・時間切れになった・起動できなかった・約束と違う出力を返した。
+    Worker(String),
+    /// ワーカーの中の実行が失敗した。中の誤りの文面をそのまま持つ（二重に前置きを付けない）。
+    Child(String),
 }
 
 impl fmt::Display for Error {
@@ -57,6 +66,8 @@ impl fmt::Display for Error {
             Error::Description(e) => write!(f, "{e}"),
             Error::Library(m) => write!(f, "共有ライブラリを読めない: {m}"),
             Error::Fmu(m) | Error::Discard(m) => write!(f, "FMU が失敗を返した: {m}"),
+            Error::Worker(m) => write!(f, "FMU のワーカー（別プロセス）: {m}"),
+            Error::Child(m) => write!(f, "{m}"),
         }
     }
 }
@@ -333,6 +344,11 @@ pub(crate) fn output_names(md: &ModelDescription, wanted: &[String]) -> Vec<Stri
 
 /// 固定刻みの Co-Simulation を終了時刻まで回す。
 pub fn run_cs(fmu: &Fmu, opts: &CsOptions) -> Result<CsRun> {
+    run_cs_with(fmu, opts, &mut |_| {})
+}
+
+/// [`run_cs`] に、通信の刻みごとに現在の時刻を受け取る `progress` を足したもの（S210。ワーカーが親へ進捗を流す）。
+pub fn run_cs_with(fmu: &Fmu, opts: &CsOptions, progress: &mut dyn FnMut(f64)) -> Result<CsRun> {
     let md = &fmu.description;
     let exp = md.default_experiment.clone().unwrap_or_default();
     let start = opts.start_time.or(num(&exp.start_time)).unwrap_or(0.0);
@@ -361,6 +377,7 @@ pub fn run_cs(fmu: &Fmu, opts: &CsOptions) -> Result<CsRun> {
     let mut rows = vec![(start, inst.get_real(&vrs)?)];
     for i in 0..n {
         let t = start + i as f64 * step;
+        progress(t);
         let h = step.min(stop - t);
         let terminated = inst.do_step(t, h)?;
         rows.push((t + h, inst.get_real(&vrs)?));
