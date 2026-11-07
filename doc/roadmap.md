@@ -550,6 +550,9 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 ### S214（P7、2026-11-07）で済んだこと
 
 - **LSP と言語の束ねの issue 6 件を、いまの main で再現してから直した**（[解説書](sessions/S214-lsp-bindings-issues/解説書.md)）: #33 は積まれた `didChange` をまとめて古い版は検査せず、`globe/simulate` に既定の予算 180 s を置いた。#25 は本文を診断より先に保存。#39 は `globe/format` の indent も設定ファイルが勝つ（**挙動が変わる**）。#35 は NIF の Mutex を poison から回復し、Mutex を待つ NIF を DirtyIo に。#30 は Julia のコールバックの例外を Rust に通さない。#37 の LSP 側は facade の `Workspace` に乗っているので何もしない。
+### S211（P4、2026-11-07）で済んだこと
+
+- **整形器と `globe fmt` の issue 5 件**（[解説書](sessions/S211-fmt-issues-2/解説書.md)）: ponytail の監査の #24（annotation の外の `Line(…)` などを並べ替えて `origin` を足す。annotation の中だけに）・#26（`fmt --check -` が必ず 0）・#27（書き戻しを一時ファイル + rename に）・#28（入れ子 256 段の上限）・#32（BOM 付きを検査・整形・lint。整形は BOM を残し、`GlobeDb::set_file` は空白 3 個に置き換えて位置を保つ）を、5 件とも main で再現してから直した。2,661 本の lint・format の出力は前後で差 0。持ち越し: Rumoca の検査側の深い入れ子（20,000 段で 8 MB のスレッドが溢れる）。
 
 ### S209（P4、2026-11-07）で済んだこと
 

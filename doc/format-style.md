@@ -10,9 +10,9 @@ S053 でユーザーと対話して決めた既定の形。実装は `src/Rust/m
 | インデント | 空白 2（`--indent 4` で明示したときだけ 4） |
 | 行幅 | 80 桁（文字単位）。収まらない呼び出し `Name(` と配列 `{` は開き括弧で改行し、中身を 1 段下げ、閉じ括弧を元の段に単独で置く |
 | 引数の詰め方 | 収まる引数は同じ行に詰める。展開した引数の後と、並べ替えのグループの境目では必ず改行する |
-| 図形プリミティブの引数の並べ替え | `Rectangle` `Ellipse` `Polygon` `Line` `Text` `Bitmap` の中だけ。順は ① 位置・形状（`visible origin rotation extent radius smooth startAngle endAngle closure`）→ ② `points arrow arrowSize` → ③ `fillColor fillPattern` → ④ `lineColor pattern lineThickness borderPattern` → ⑤ その他（元の順）。位置引数が混ざっていれば並べ替えない |
+| 図形プリミティブの引数の並べ替え | `annotation(…)` の中の `Rectangle` `Ellipse` `Polygon` `Line` `Text` `Bitmap` だけ（S211。`extends Pkg.Line(R = 1)` や関数・record の呼び出しなど、annotation の外の同じ名前は触らない）。順は ① 位置・形状（`visible origin rotation extent radius smooth startAngle endAngle closure`）→ ② `points arrow arrowSize` → ③ `fillColor fillPattern` → ④ `lineColor pattern lineThickness borderPattern` → ⑤ その他（元の順）。位置引数が混ざっていれば並べ替えない |
 | `annotation` と `Documentation` の引数の並べ替え（S061） | `annotation(…)` は `experiment` → `Diagram` → `Icon` → `Documentation` → その他（`uses` など、元の順）。`Documentation(…)` は header（`__OpenModelica_infoHeader`）→ `info` → `revisions` → その他。ユーザーの指定は experiment → Diagram → Documentation で、`Icon` は `Diagram` の隣に置いた。整形が並べ替え、lint の `annotation-order` が通知する |
-| `origin` の補完 | 図形プリミティブに `origin` が無ければ `origin = {0, 0}` を足す。`--no-insert-origin`（`Options.insert_origin = false`）で止められる |
+| `origin` の補完 | annotation の中の図形プリミティブに `origin` が無ければ `origin = {0, 0}` を足す。`--no-insert-origin`（`Options.insert_origin = false`）で止められる |
 | 空行 | `within …;` の後、クラス頭（`model X "…"`）の後、`end X;` の前に 1 行。`equation` `algorithm`（`initial` 付きも）の前後に 1 行（S061。`--no-blank-around-sections`、`Options.blank_around_sections = false`、VS Code の `globeMode.blankAroundSections` で止められる）。連続する空行は 1 つに畳む。ほかは書いたとおり |
 | 節の段 | `equation` `algorithm` `initial …` `public` `protected` と、クラス直下の `annotation(` は**クラスと同じ段**。宣言・式・入れ子のクラスは 1 段下げる。`if` / `for` / `while` / `when` の中は 1 段下げ、`else` と `end if;` は開いた段に戻す |
 | 空白 | 二項演算子（`= := + - * / < > <= >= == <> .+ .- .* ./ .^`）の両側に 1 つ。カンマは後ろだけ。`^` `:` `.` は詰める。単項の `-` `+` は詰める。括弧の内側に空白なし。識別子と `(` `[` は詰める（`der(x)`、`x[1]`、`annotation(`）。`if (` `then (` など予約語の後ろの `(` は空ける |
@@ -21,6 +21,8 @@ S053 でユーザーと対話して決めた既定の形。実装は `src/Rust/m
 | `Documentation` の HTML（S062） | `Documentation(…)` の `name = "…"` の文字列がタグを含めば、開きの `"` の後で改行し、HTML を 1 段下げて書き、閉じの `"` を引数の段に置く。ブロックの要素は 1 行ずつで中身を 1 段下げ、中身が文字とインラインの要素（`b` `i` `a` `code` `span` など）だけなら 1 行（`<h1>The Infomation</h1>`）。先頭の文字は開きタグの行に続ける（`<ul>List`）。`<html><head>…</head><body>` と `</body></html>` は 1 行にまとめる。変えるのは空白だけ（文字の中の空白の並びは 1 つに畳む）。`<pre>` `<textarea>` `<script>` `<style>` を含むもの、`<` の閉じないものは触らない。lint はしない。`--no-format-html`、`Options.format_html = false`、LSP の `formatHtml`、VS Code の `globeMode.formatHtml` で止められる |
 | 触らないもの | 上の HTML のほかは、文字列とコメントの中身。行コメントは元の行に残す |
 | 壊れた入力 | 括弧や `end` が合わない（`if` を `end for;` で閉じるなど、種類の違う `end` も。S192）・`;` が抜けているときは、本文に触らず `Err`（CLI は終了コード 1） |
+
+括弧の入れ子は 256 段まで（越えると `Err`。S211）。先頭の UTF-8 の BOM は整形せず、出力の先頭に残す（lint は BOM を除いて読む）。
 
 安全装置: 整形の出力を字句解析し直し、空白以外のトークン列が意図した列（並べ替えと `origin` の補完を適用したもの）と一致しなければ `Err` にして本文を変えない。
 

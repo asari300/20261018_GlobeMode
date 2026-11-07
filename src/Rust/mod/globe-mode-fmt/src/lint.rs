@@ -47,6 +47,8 @@ const CLASS_KEYWORD: &[&str] = &[
 pub fn lint(src: &str, options: &LintOptions) -> Vec<LintMessage> {
     let on = |rule: &str| !options.disabled.iter().any(|d| d == rule);
     let mut out = Vec::new();
+    // S211: BOM は字句ではない。行・桁は BOM を除いた本文で数える（エディタの見え方）
+    let src = src.strip_prefix('\u{feff}').unwrap_or(src);
     let Ok(tokens) = lex(src) else { return out };
     // S207: 診断ごとに先頭から数え直すと本文の長さの 2 乗になる。改行の位置の表を 1 度だけ作り、二分探索で引く
     let newlines: Vec<usize> = src.match_indices('\n').map(|(i, _)| i).collect();
@@ -102,7 +104,7 @@ pub fn lint(src: &str, options: &LintOptions) -> Vec<LintMessage> {
         let mut found = Vec::new();
         for e in &elements {
             if let Ok(tree) = layout::build(e.tokens) {
-                annotation::misordered(&tree, &mut found);
+                annotation::misordered(&tree, false, &mut found);
             }
         }
         for (start, table) in found {
