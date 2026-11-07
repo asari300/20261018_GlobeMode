@@ -676,7 +676,7 @@ impl GlobeDb {
     /// ディレクトリの下の `.mo` をすべて読む（Modelica のパッケージのディレクトリなど）。
     pub fn load_dir(&mut self, dir: &std::path::Path) -> std::io::Result<usize> {
         let mut paths = Vec::new();
-        collect_mo(dir, &mut paths)?;
+        globe_mode_frontend::collect_mo_files(dir, &mut paths)?;
         paths.sort();
         for p in &paths {
             let text = std::fs::read_to_string(p)?;
@@ -982,18 +982,6 @@ impl GlobeDb {
 /// パスの区切りを `/` にそろえる（DB のファイルのキーと診断の `file` はこの形）。
 pub fn normalize_path(path: &str) -> String {
     path.replace('\\', "/")
-}
-
-fn collect_mo(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) -> std::io::Result<()> {
-    for entry in std::fs::read_dir(dir)? {
-        let path = entry?.path();
-        if path.is_dir() {
-            collect_mo(&path, out)?;
-        } else if path.extension().is_some_and(|e| e == "mo") {
-            out.push(path);
-        }
-    }
-    Ok(())
 }
 
 #[cfg(test)]

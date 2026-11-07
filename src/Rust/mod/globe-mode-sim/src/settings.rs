@@ -38,8 +38,18 @@ pub const DEFAULT_INTERVALS: f64 = 500.0;
 /// 許容誤差の下限。これより小さい値は下限にして GM-W10003（警告）を出す（S012。Rumoca の実行系は 1e-10 より
 /// 小さい許容誤差で、受け入れた歩の端の点とサンプラの照合が丸めの誤差に負ける。doc/research/msl-sim-failures.md）。
 pub const MIN_TOLERANCE: f64 = 1e-10;
+/// 出力の点数（区間 / Interval、固定刻みでは区間 / 刻み幅）の上限。超える設定は GM-E10004（#34）。
+/// `globe-mode-fmi-import` の格子点の上限（`MAX_GRID_POINTS`）と同じ値・同じ根拠（1 行 8 バイト × 変数の数でも収まる桁）。
+pub const MAX_OUTPUT_POINTS: f64 = 1e7;
 /// 既定のソルバ。
 pub const DEFAULT_SOLVER: SolverId = SolverId::Bdf;
+
+fn too_fine(points: f64) -> String {
+    format!(
+        "が細かすぎる（出力が {points:.3e} 点。上限 {}）",
+        format_number(MAX_OUTPUT_POINTS)
+    )
+}
 
 /// 設定を決める。成功なら設定と、止めない診断（GM-I10003 の別名など）を返す。
 /// 決められない（ソルバが無い、区間が空など）なら Error の診断を返す（止めない診断も、出た順に一緒に入れる）。
@@ -136,6 +146,8 @@ pub fn resolve(
                         ),
                     );
                     interval.value = span;
+                } else if span_ok && span / interval.value > MAX_OUTPUT_POINTS {
+                    out.invalid(&interval, &too_fine(span / interval.value));
                 }
             }
             interval
@@ -236,6 +248,8 @@ pub fn resolve(
                         format_number(start.value),
                         format_number(stop.value)
                     ))
+                } else if span_ok && span / h > MAX_OUTPUT_POINTS {
+                    Some(too_fine(span / h))
                 } else {
                     None
                 };
@@ -884,6 +898,30 @@ mod tests {
             let d = err(&requested, None);
             assert_eq!(codes_of(&d), [(codes::SOLVER_UNAVAILABLE, Severity::Error)]);
         }
+    }
+
+    /// #34: 出力の点数（区間 / Interval、区間 / 刻み幅）が上限を超える設定は、実行の前に GM-E10004 で断る。
+    #[test]
+    fn too_many_output_points_are_refused() {
+        for (solver, interval, step) in [(None, Some(1e-9), None), (Some("rk4"), None, Some(1e-15))]
+        {
+            let requested = SimSettings {
+                solver: solver.map(Into::into),
+                stop_time: Some(1000.0),
+                interval,
+                step,
+                ..SimSettings::default()
+            };
+            let d = err(&requested, None);
+            assert_eq!(codes_of(&d), [(codes::EXPERIMENT_INVALID, Severity::Error)]);
+        }
+        // 上限ちょうど（1e7 点）は通る
+        let requested = SimSettings {
+            stop_time: Some(1e7),
+            interval: Some(1.0),
+            ..SimSettings::default()
+        };
+        assert!(resolve(&requested, None).is_ok());
     }
 
     #[test]

@@ -275,7 +275,8 @@ impl Workspace {
         let t = now_ms();
         let mut files = Vec::new();
         for dir in paths {
-            collect_mo(dir, &mut files).map_err(|e| vec![library_error(dir, &e.to_string())])?;
+            globe_mode_frontend::collect_mo_files(dir, &mut files)
+                .map_err(|e| vec![library_error(dir, &e.to_string())])?;
         }
         files.sort();
         let mut texts = Vec::with_capacity(files.len());
@@ -707,19 +708,6 @@ fn checked_failed_stage(diagnostics: &[Diagnostic]) -> Option<Stage> {
         .filter(|d| d.is_error())
         .map(|d| d.stage)
         .min()
-}
-
-/// ディレクトリの下の `.mo` を集める。
-fn collect_mo(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
-    for entry in std::fs::read_dir(dir)? {
-        let path = entry?.path();
-        if path.is_dir() {
-            collect_mo(&path, out)?;
-        } else if path.extension().is_some_and(|e| e == "mo") {
-            out.push(path);
-        }
-    }
-    Ok(())
 }
 
 fn library_error(path: &Path, why: &str) -> Diagnostic {

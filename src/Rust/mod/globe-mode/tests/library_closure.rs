@@ -107,3 +107,26 @@ fn broken_library_file_is_skipped_in_memory() {
         assert!(warned[0].notes.iter().any(|n| n.contains("Broken.mo")));
     }
 }
+
+/// #31: `X.mo` と `package.mo` の無い `X/` が並ぶ配置（AixLib の `RadiatorTypes`）は `X.mo` だけを読み（S068）、
+/// ドットのフォルダは飛ばす。ディレクトリの分割読み込みも全部読みと同じ結果になる。
+#[test]
+fn sibling_file_wins_in_the_directory_split() {
+    let dir = std::env::temp_dir().join(format!("gm-s212-split-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    for (path, text) in [
+        ("P/package.mo", "package P end P;"),
+        ("P/X.mo", "within P; package X type T = Real; end X;"),
+        ("P/X/T.mo", "within P.X; type T = Integer;"),
+        ("P/.hidden/Y.mo", "within P; package Y end Y;"),
+        ("M.mo", "model M parameter P.X.T t = 1; end M;"),
+    ] {
+        let p = dir.join(path);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, text).unwrap();
+    }
+    let mut split = Workspace::with_libraries(std::slice::from_ref(&dir)).unwrap();
+    let r = split.check("M");
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(r.passed, "{:?}", r.diagnostics);
+}

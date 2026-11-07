@@ -607,21 +607,6 @@ fn check_writable_file(path: &Path, files: &[PathBuf], library: &[PathBuf]) -> R
     Ok(())
 }
 
-/// `dir` の下に `.mo` があるか（見つけたらそこで止める）。
-fn contains_mo(dir: &Path) -> bool {
-    std::fs::read_dir(dir).is_ok_and(|entries| {
-        entries.flatten().any(|e| {
-            let p = e.path();
-            // symlink は辿らない（輪になっていても止まる）
-            if e.file_type().is_ok_and(|t| t.is_dir()) {
-                contains_mo(&p)
-            } else {
-                p.extension().is_some_and(|x| x.eq_ignore_ascii_case("mo"))
-            }
-        })
-    })
-}
-
 /// リンクを辿った絶対パス。まだ無いファイルは、親を辿ってファイル名を足す。
 fn resolve(path: &Path) -> PathBuf {
     if let Ok(p) = path.canonicalize() {
@@ -638,7 +623,8 @@ fn resolve(path: &Path) -> PathBuf {
 }
 
 /// 書き出し先のディレクトリを、計算の前に作る（無ければ親ごと。ファイルを指していたら誤り）。
-/// FMU は `<out>/<名前>/` を作り直す（あれば消す）ので、そこに `.mo` か入力・ライブラリがあるなら断る（S199）。
+/// FMU は `<out>/<名前>/` を作り直す（あれば消す）ので、そこが FMU の展開先でないか、入力・ライブラリがあるなら断る（S199。
+/// 前者の規則は `write_fmu` と同じ [`globe_mode_fmi::export::check_out_root`]。#23）。
 fn prepare_out_dir(
     dir: &Path,
     model: &str,
@@ -653,18 +639,19 @@ fn prepare_out_dir(
     }
     let root = resolve(&dir.join(model.replace('.', "_")));
     if root.exists()
-        && (contains_mo(&root)
-            || files
-                .iter()
-                .chain(library)
-                .any(|s| resolve(s).starts_with(&root)))
+        && files
+            .iter()
+            .chain(library)
+            .any(|s| resolve(s).starts_with(&root))
     {
         return Err(format!(
-            "{} に書けない: 作り直す {} に Modelica のソースか入力が入っている",
+            "{} に書けない: 作り直す {} に入力が入っている",
             dir.display(),
             root.display()
         ));
     }
+    globe_mode_fmi::export::check_out_root(&root)
+        .map_err(|e| format!("{} に書けない: {e}", dir.display()))?;
     std::fs::create_dir_all(dir).map_err(|e| io_error(dir, true, &e))
 }
 

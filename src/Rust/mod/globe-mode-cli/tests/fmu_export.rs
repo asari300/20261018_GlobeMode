@@ -16,8 +16,12 @@ fn package_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../Modelica/GlobeModeValidation")
 }
 
+/// 試験ごとの書き出し先。CI で `modelDescription.xml` の無い展開先が残っていた（rust-cache が戻した【推測】）。それが
+/// あると、FMU の展開先でないフォルダは消さない守り（S212、#23）が断るので、先に消しておく。
 fn out_dir(name: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("globe-fmu-{name}"))
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("globe-fmu-{name}"));
+    let _ = std::fs::remove_dir_all(&dir);
+    dir
 }
 
 fn export(out: &Path, extra: &[&str]) -> std::process::Output {
@@ -77,7 +81,6 @@ fn exports_a_source_fmu() {
 #[test]
 fn exports_a_fmi3_source_fmu() {
     let out = out_dir("source3");
-    let _ = std::fs::remove_dir_all(&out); // 前の実行（S189 より前は版なしの名前）が残らないように
     let o = export(&out, &["--fmi-version", "3"]);
     assert!(o.status.success(), "{o:?}");
     let root = out.join("GlobeModeValidation_Simulation_Decay");

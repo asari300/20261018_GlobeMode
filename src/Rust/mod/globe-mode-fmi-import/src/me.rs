@@ -304,6 +304,12 @@ fn drive(inst: &mut dyn FmuMe, plan: &Plan, progress: &mut dyn FnMut(f64)) -> Re
                     }
                 }
             };
+            // 固定刻みの RK4 には誤差の検査が無いので、有限でない状態は成功として行に残さず止める（#29。Dopri5 は ode.rs で却下する）
+            if x1.iter().any(|v| !v.is_finite()) {
+                return Err(Error::Fmu(format!(
+                    "t = {t} からの 1 歩で状態が有限でなくなった（FMU が NaN か無限大を返した）"
+                )));
+            }
             if t1 > t {
                 run.steps += 1;
                 if run.steps > MAX_STEPS {
@@ -411,6 +417,8 @@ mod tests {
         in_event_mode: bool,
         /// 受理した最後の時刻から、これより遠い試しの点では `Discard` を返す
         discard_over: Option<f64>,
+        /// この時刻を過ぎたら、微分に NaN を返す
+        nan_after: Option<f64>,
         last_accepted: f64,
         discards: u32,
     }
@@ -447,6 +455,9 @@ mod tests {
             Ok(vec![1.0])
         }
         fn get_derivatives(&mut self) -> Result<Vec<f64>> {
+            if self.nan_after.is_some_and(|d| self.t > d) {
+                return Ok(vec![f64::NAN]);
+            }
             if self
                 .discard_over
                 .is_some_and(|d| self.t - self.last_accepted > d)
@@ -552,6 +563,29 @@ mod tests {
         mock.initialize(0.0, Some(0.9), None).unwrap();
         let e = drive(&mut mock, &plan(MeIntegrator::Rk4), &mut |_| {}).unwrap_err();
         assert!(matches!(e, Error::Discard(_)), "{e}");
+    }
+
+    /// #29: FMU が NaN の微分を返したら、どの積分器でも成功として終わらずエラーにする（RK4 には有限性の検査が無かった）。
+    #[test]
+    fn nan_derivatives_are_an_error_for_both_integrators() {
+        for integrator in [MeIntegrator::Dopri5, MeIntegrator::Rk4] {
+            let plan = Plan {
+                names: vec!["x".into()],
+                vrs: vec![0],
+                start: 0.0,
+                stop: 0.9,
+                step: 0.3,
+                integrator,
+                rtol: 1e-8,
+            };
+            let mut mock = Mock {
+                nan_after: Some(0.4),
+                ..Default::default()
+            };
+            mock.initialize(0.0, Some(0.9), None).unwrap();
+            let r = drive(&mut mock, &plan);
+            assert!(r.is_err(), "{integrator:?}: {:?}", r.map(|r| r.rows));
+        }
     }
 
     /// S206: 出力の格子が細かすぎる（上限を超える）なら、FMU を動かす前に断る。
