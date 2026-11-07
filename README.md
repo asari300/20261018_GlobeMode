@@ -9,7 +9,7 @@ GlobeMode checks, simulates and edits [Modelica](https://modelica.org/) models. 
 ## What works
 
 - **Checks before simulation** (S0 to S10): syntax, names, types, connections, equation/variable balance, structural singularity, index, initialization, algebraic loops, parameter and start-value evaluation. Errors name the reason a model cannot be simulated. The balance check agrees with OpenModelica's `omc checkModel()` on all 382 MSL examples that have a verdict ([doc/omc-compare.md](doc/omc-compare.md)).
-- **Simulation** with 20+ solvers (`bdf`, `dopri45`, `auto`, `esdirk34`, `radau5`, `rk4`, ...; `cvode` and `ida` only in a build with the `sundials` feature), parameter overrides, CSV and MAT v4 output, progress and cancel.
+- **Simulation** with 20+ solvers (`bdf`, `dopri45`, `auto`, `esdirk34`, `radau5`, `rk4`, ...; `cvode` and `ida` only in a build with the `sundials` feature), parameter overrides, CSV and MAT v4 output (and `globe results` / Python `read_results` to read them back), progress and cancel.
 - **Editing**: formatter, lint, completion, hover, go-to-definition, references and rename (components and class names, within the open document) in the language server, the VS Code extension and the browser/desktop/Android UI; library tree, plot, connect graph, tabs, open/save, dark mode.
 - **FMU export** (FMI 2.0 and 3.0, Model Exchange and Co-Simulation) from the CLI, the UI and every language API. FMI import (`globe fmu run`, Co-Simulation and Model Exchange) is CLI-only for now: the FMU's native code runs in a separate worker process, so a crashing FMU does not take the CLI down (`--timeout`, `--memory-limit` on Linux; the disk and network are not isolated).
 - **APIs**: Rust, Python (PyO3), C ABI, Zig, Julia, Elixir, Gleam, WebAssembly.
@@ -104,6 +104,7 @@ cargo build --release -p globe-mode-cli    # target/release/globe（PATH に置�
 globe check    -L data/msl -m Modelica.Electrical.Analog.Examples.ChuaCircuit
 globe simulate -L data/msl -m Modelica.Electrical.Analog.Examples.ChuaCircuit -o chua.csv   # .mat なら MAT v4
 globe simulate --list-solvers
+globe results omc_res.mat -o run.csv   # 結果の MAT v4 / CSV を読んで CSV か MAT v4（.mat）に直す。-o 無しは CSV を標準出力へ
 # -o を省くと結果は書かず、要約だけ（stderr に「結果は書いていない」）。-o - は標準出力。info の診断は件数だけ（-v で全部）
 
 # 自分のファイルやフォルダ（モデルの完全修飾名を -m に）
