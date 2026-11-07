@@ -11,7 +11,7 @@ Gleam のラッパ（P7）。Erlang target では `@external` で `globe_mode_ni
 mise run gleam:test   # cargo build --release -p globe-mode-nif → gleam test（Decay を check → simulate）
 ```
 
-最初の例（`src/Gleam/globe_mode/src/first.gleam` に置き、`src/Gleam/globe_mode` で `GLOBE_MODE_NIF=<target/release/libglobe_mode_nif> gleam run -m first`）。JSON の解析は呼ぶ側の仕事で、標準ライブラリだけなので文字列で切り出している:
+最初の例（`src/Gleam/globe_mode/src/first.gleam` に置き、`src/Gleam/globe_mode` で `GLOBE_MODE_NIF=<target/release/libglobe_mode_nif> gleam run -m first`）。JSON の解析は呼ぶ側の仕事で、標準ライブラリだけなので文字列で切り出している。
 
 ```gleam
 import gleam/io

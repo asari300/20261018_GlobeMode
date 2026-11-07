@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S217 doc-yomiyasu — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S217 doc-yomiyasu">
+
+<section class="slide" id="S01">
+  <span class="tag">S217 · 2026-11-08 · 文書</span>
+  <h1>正典の日本語を yomiyasu で推敲した</h1>
+  <p class="lead">lint の指摘は 348 件から 274 件に減り、文書と現状の食い違い 11 件を直した</p>
+  <div class="big">意味・条件・数値は変えず、<b>古くなった記述</b>を現状に合わせた</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>README、CLAUDE.md、doc の正典と準正典、ADR、src の README を yomiyasu の規則で推敲する</li>
+    <li>文書どうし、文書とコードの食い違いを見つけて直す</li>
+    <li>計画の中身、ADR の決定の文言、英語の要約は変えない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">結果</span>
+  <h1>lint の指摘の前後</h1>
+  <table>
+    <tr><th>対象</th><th>前</th><th>後</th></tr>
+    <tr><td>README.md</td><td>5</td><td>1</td></tr>
+    <tr><td>CLAUDE.md</td><td>4</td><td>3</td></tr>
+    <tr><td>doc の正典・準正典（8 本）</td><td>122</td><td>109</td></tr>
+    <tr><td>doc/adr（35 本）</td><td>180</td><td>137</td></tr>
+    <tr><td>src の README（15 本）</td><td>37</td><td>24</td></tr>
+  </table>
+  <p>残りは「版」の直訳語、技術用語の「閉包」、箇条書きの多さなど、この文書群の書き方に合うもの。</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">食い違い</span>
+  <h1>直した食い違い</h1>
+  <table>
+    <tr><th>場所</th><th>古かった記述</th></tr>
+    <tr><td>README</td><td>FMI の読み込みが「できていない」。src/Modelica の整形が「していない」</td></tr>
+    <tr><td>CLAUDE.md</td><td>workflow の一覧に fmu-import.yml が無い</td></tr>
+    <tr><td>architecture.md</td><td>Tauri の対象に macOS が無い。mise の道具の一覧。crate 表の注記</td></tr>
+    <tr><td>roadmap.md の末尾の表</td><td>ADR-0026 が Proposed。S185 の README の項</td></tr>
+    <tr><td>format-style.md</td><td>globe/format が設定ファイルを読まない。Modelica が未整形</td></tr>
+    <tr><td>web-apps.md・Svelte の README</td><td>整形ボタンが未着手。使う部品が package.json と違う</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>python3 .agents/skills/yomiyasu/scripts/yomiyasu_lint.py &lt;文書&gt;
+python3 -I .claude/skills/session-docs/check_docs.py</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">348→274</span><span class="l">lint の指摘</span></div>
+    <div class="kpi"><span class="n">11</span><span class="l">直した食い違い</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>mise-setup.html の例を、いまの mise.toml に書き直す</li>
+    <li>README の英語の要約の「Not done: FMI import」を、日本語の側と合わせる</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

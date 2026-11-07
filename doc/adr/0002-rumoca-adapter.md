@@ -27,7 +27,7 @@
 - **S002 で実装した**（2026-10-18）。
   - `rev` は v0.10.2（`276e82bd`）。依存するのは `rumoca-compile` だけ（`default-features = false`）。
   - アダプタは `globe-mode-frontend` の `rumoca.rs` 1 ファイルに閉じ込めた。外には中立 IR（`Outline`、`BalanceCount`）と GlobeMode の診断だけを出す。
-  - Rumoca の失敗段階と GM コードの対応:
+  - Rumoca の失敗段階と GM コードの対応は次のとおり。
 
     | Rumoca | GlobeMode |
     | --- | --- |
@@ -44,7 +44,7 @@
   - bincode 1.x（RUSTSEC-2025-0141）
   - paste（RUSTSEC-2024-0436、faer 経由）
 - git 依存を持つので、GlobeMode の crate は crates.io に公開できない（`publish = false`）。
-- **S003 で改めたこと**（2026-10-18）:
+- **S003 で改めたこと**（2026-10-18）は次のとおり。
   - コンパイルを `compile_model_phases` から `compile_model_strict` に替えた（Rumoca の CLI と同じ経路）。前者は、MSL を解決するときの警告（WR006 など）も失敗として返していた。
   - ライブラリ（MSL）は `load_source_root_tolerant`（`DurableExternal`）で読む。読めなければ S1 / GM-E1003。
   - 数え方を 2 つ返す。`BalanceCount` は配列をスカラーに展開した数（S5 の釣り合い）。`DaeCounts` は DAE の変数を配列ごとに 1 個と数えた数（Rumoca の CLI の `-v` と同じ粒度）。
@@ -58,7 +58,7 @@
   - コンパイルする文書そのものに書いた参照は解決できる。単一ファイルのパッケージでも、複数ファイルのパッケージでも同じだった。
   - **対応**: 作業中のパッケージは文書として渡し（`globe check <DIR>` はディレクトリの下の `.mo` を文書として読む）、`--library` には MSL などの外部ライブラリだけを渡す。IDE としても、作業中のファイルはワークスペース（文書）として扱うのが自然。
   - 上流への報告は P2 の中で行う。
-- **S005 で改めたこと**（2026-10-18）:
+- **S005 で改めたこと**（2026-10-18）は次のとおり。
   - 依存に `rumoca-ir-dae`・`rumoca-eval-dae`・`rumoca-core` を足した（同じ rev、Apache-2.0、`globe-mode-frontend` だけ）。
     - DAE の incidence（方程式 × 未知数）を自前で作るため。Rumoca の `build_incidence` は `pub(crate)` で、外から使えない。
     - いずれも `rumoca-compile` の推移的依存なので、外部の依存は増えない。

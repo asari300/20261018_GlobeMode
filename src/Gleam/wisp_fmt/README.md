@@ -42,7 +42,7 @@ GLOBE_BIN=<worktree のルート>/target/debug/globe mise exec -- gleam test
 `GLOBE_BIN` が無いときは `../../../target/debug/globe`（worktree のルートから見た既定の場所）を使う。
 `gleam test` は worktree のルートに `globe` が無いと失敗する（終了コード 127 のエラーが返る）。
 
-API を 1 往復だけ確かめる例:
+API を 1 往復だけ確かめる例は次のとおり。
 
 ```sh
 curl -s localhost:8080/healthz

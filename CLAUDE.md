@@ -78,6 +78,7 @@ uv sync                      # worktree ごとに必須
 - Desktop の bundle `desktop.yml`（S049、手動だけ）: Tauri の .deb・.msi・.dmg を作り、起動の smoke と UI の測定を回して artifact に残す（署名なし）。
 - ブラウザ版の配布物 `web.yml`（S145、手動だけ）: 静的ファイルの束を artifact `globe-web` に残す。公開（Pages の有効化・URL の配布）はユーザーの判断。
 - FMU の確認 `fmu-export.yml`（S098、手動だけ）: Export した FMU を FMPy と fmusim で確かめる（FMI 2.0・3.0。[ADR-0031](doc/adr/0031-fmi-export-p5a-first.md)）。
+- FMI Import の確認 `fmu-import.yml`（S204、手動だけ）: Reference-FMUs の参照の CSV・解析解との突き合わせと `globe fmu info` / `run` の試験を Linux・Windows・macOS で回す（[ADR-0026](doc/adr/0026-fmi-import-placement.md)）。
 - リソースの計測 `resources.yml`（S051、手動だけ）: release の `globe` の最大 RSS と、wasm の線形メモリの伸びを測る。
 - リリース `release.yml`（S044）: タグ `v*` の push で `globe`・Python の wheel・Desktop の bundle を作って Release を作る。**手動実行は dry run**（artifact に残すだけで、タグも Release も作らない）。**マイナーバージョンを変えるときは必ず dry run を回す**（2026-11-05 にユーザーが決めた）。公開（タグを push する）はユーザーの判断。
 - 各 workflow の一覧は [doc/architecture.md](doc/architecture.md) の 2.5 章。
@@ -92,7 +93,7 @@ uv sync                      # worktree ごとに必須
   | cargo | Rust の依存と workspace | `Cargo.lock` |
 
   - `rust-toolchain.toml` は作らない（mise の `RUSTUP_TOOLCHAIN` が優先され、無視されるため）。
-  - Python を mise に入れない。ツールは `mise.toml` を、依存は各言語の道具を使って足す。
+  - Python を mise に入れない。ツールは `mise.toml` に、依存は各言語の道具で追加する。
   - **RPi（aarch64、S017 から）では elixir が入らない**（erlang の arm64 ビルドが glibc 2.38 を要求する。[ADR-0019](doc/adr/0019-rpi-aarch64-environment.md)）。`MISE_DISABLE_TOOLS=elixir` を付けて mise を使う。
   - ロックファイルはすべてコミットする。
   - **worktree のビルドは共有の target を使う。** `CARGO_TARGET_DIR=<main>/.git-worktree/target-shared` と `CARGO_BUILD_JOBS=2` を付ける（`uv sync` も。付けないと worktree かリポジトリの根に `target/` ができる）。共有 target の `debug` は消してよい。

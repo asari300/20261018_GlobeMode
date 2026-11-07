@@ -36,7 +36,7 @@ mise exec -- mix compile --warnings-as-errors
 ```
 
 - 試験は `src/Rust/mod/globe-mode-fmt/tests/data/objects_before.mo`（整形後は `objects_after.mo`）を使う。
-- 起動後の確認（例）:
+- 起動後の確認（例）は次のとおり。
 
 ```bash
 curl -s http://localhost:4000/healthz

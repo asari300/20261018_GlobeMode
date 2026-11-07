@@ -63,13 +63,13 @@ GlobeMode は Rust で作る OSS の Modelica IDE。同じ Rust のコアを、C
 
 [doc/features.md](doc/features.md) の ○ のうち、いま main で動くもの。
 
-- **実行前の検査**（S0〜S10）: 構文、名前、型、接続、方程式数と変数数、構造特異、インデックスと状態選択、初期化、代数ループ、パラメータと start 値の評価。実行できない理由を名指しする。方程式数と変数数（S5）は OpenModelica の `omc checkModel()` と、判定のある MSL の例題 382 本すべてで一致した（omc は照合のために別プロセスで呼ぶだけ。[doc/omc-compare.md](doc/omc-compare.md)）。
-- **シミュレーション**: 20 以上のソルバ（`bdf`・`dopri45`・`auto`・`esdirk34`・`radau5`・`rk4` など。`cvode`・`ida` は feature `sundials` のビルドだけ。一覧は [doc/msl-solvers.md](doc/msl-solvers.md)）、パラメータの上書き、CSV と MAT v4 の出力、進捗と中断。
-- **編集**: 整形・lint・補完・ホバー・定義ジャンプ・参照・リネーム（部品とクラス名。開いている文書の中）を、言語サーバ、VS Code の拡張、ブラウザ・Desktop・Android の UI から。UI にはライブラリツリー、プロット（系列の選択・右の軸・CSV / PNG の書き出し）、connect グラフ、タブ、ファイルを開く・保存、実行の設定、FMU の書き出し、ダークモードがある。
-- **FMU の書き出し**: FMI 2.0・3.0 の Model Exchange・Co-Simulation を、CLI・UI・各言語の API から。FMI の読み込み（`globe fmu run`。Co-Simulation・Model Exchange）は CLI だけ。FMU の中のネイティブコードは別プロセス（ワーカー）で実行するので、FMU が落ちても CLI は落ちない（`--timeout`、Linux は `--memory-limit`。ディスクとネットワークは隔離しない）。
-- **API**: Rust（facade `globe-mode`）、Python（PyO3）、C ABI、Zig、Julia、Elixir、Gleam、WebAssembly。
+- 実行前の検査（S0〜S10）: 構文、名前、型、接続、方程式数と変数数、構造特異、インデックスと状態選択、初期化、代数ループ、パラメータと start 値の評価。実行できない理由を名指しする。方程式数と変数数（S5）は OpenModelica の `omc checkModel()` と、判定のある MSL の例題 382 本すべてで一致した（omc は照合のために別プロセスで呼ぶだけ。[doc/omc-compare.md](doc/omc-compare.md)）。
+- シミュレーション: 20 以上のソルバ（`bdf`・`dopri45`・`auto`・`esdirk34`・`radau5`・`rk4` など。`cvode`・`ida` は feature `sundials` のビルドだけ。一覧は [doc/msl-solvers.md](doc/msl-solvers.md)）、パラメータの上書き、CSV と MAT v4 の出力、進捗と中断。
+- 編集: 整形・lint・補完・ホバー・定義ジャンプ・参照・リネーム（部品とクラス名。開いている文書の中）を、言語サーバ、VS Code の拡張、ブラウザ・Desktop・Android の UI から。UI にはライブラリツリー、プロット（系列の選択・右の軸・CSV / PNG の書き出し）、connect グラフ、タブ、ファイルを開く・保存、実行の設定、FMU の書き出し、ダークモードがある。
+- FMU の書き出し: FMI 2.0・3.0 の Model Exchange・Co-Simulation を、CLI・UI・各言語の API から。FMI の読み込み（`globe fmu run`。Co-Simulation・Model Exchange）は CLI だけ。FMU の中のネイティブコードは別プロセス（ワーカー）で実行するので、FMU が落ちても CLI は落ちない（`--timeout`、Linux は `--memory-limit`。ディスクとネットワークは隔離しない）。
+- API: Rust（facade `globe-mode`）、Python（PyO3）、C ABI、Zig、Julia、Elixir、Gleam、WebAssembly。
 
-できていないもの: FMI の読み込み、SSP、Diagram / Icon / Documentation ビュー、自前のコンパイラ（Track B）、署名したインストーラと自動更新（鍵を登録するまで更新は未設定）、ブラウザ版の公開。順位つきの一覧は [doc/features.md](doc/features.md)、順序は [doc/roadmap.md](doc/roadmap.md)。
+できていないもの: FMI の読み込みの UI と各言語の API（いまは CLI だけ）、SSP、Diagram / Icon / Documentation ビュー、自前のコンパイラ（Track B）、署名したインストーラと自動更新（鍵を登録するまで更新は未設定）、ブラウザ版の公開。順位つきの一覧は [doc/features.md](doc/features.md)、順序は [doc/roadmap.md](doc/roadmap.md)。
 
 UI のキーボード（ブラウザ・Desktop・Android。macOS は Ctrl の代わりに Cmd。エディタの中でも入力欄でも効く）: Ctrl+Enter 実行（CodeMirror の「空行を挿入」は覆う）、Ctrl+Shift+Enter 検査、Ctrl+. 止める、Ctrl+S 保存（Desktop は Ctrl+Shift+S で名前を付けて保存）、Ctrl+O 開く。診断と参照の行は本物の button で、Tab で選んで Enter か Space を押すとエディタの該当位置へ移る。プロットの canvas には信号名と時間の範囲の代替テキストが付く。ページの先頭にスキップリンク（エディタへ・結果へ）があり、タブは左右の矢印・Home・End で移れ、未保存のタブには ● が付く。初めて開いたとき（保存したタブが無いとき）だけ、はじめの 3 手順の案内が出る（閉じられる）。
 
@@ -116,7 +116,7 @@ globe fmu export src/Modelica/GlobeModeValidation -m GlobeModeValidation.Simulat
 globe lsp -L data/msl     # 標準入出力の LSP サーバ
 ```
 
-終了コード（`globe --help` の末尾にも出る。`| head` で読み手が先に閉じても変わらない）:
+終了コードは次のとおり（`globe --help` の末尾にも出る。`| head` で読み手が先に閉じても変わらない）。
 
 | コード | 意味 |
 | --- | --- |
@@ -212,14 +212,14 @@ Hex・Julia のパッケージ登録はしていない。
 
 MSL 4.1.0 の例題 566 本のうち、S0〜S10 の検査を通るのは 369 本。通らないのは 13 本（モデルの誤りか構造特異）、コンパイラ側の限界で判定できないのは 184 本（`GM-U`。多くは Rumoca v0.10.2 の穴で、[doc/upstream.md](doc/upstream.md) に集めた）。検査を通った例題のうち実行の対象にした 356 本（partial などを除く）では、312 本が終了時刻まで実行でき、MAP-LIB の参照結果（MSL 4.1.0）と比べられた 311 本のうち 303 本（97.4%）が、参照結果の管（相対の幅 0.2%）に収まる。出典は [doc/msl-funnel.md](doc/msl-funnel.md) と [doc/msl-sim.md](doc/msl-sim.md)（2026-11-03 の実行）。MSL 以外の公開ライブラリ 7 つの結果は [doc/libraries.md](doc/libraries.md)。
 
-そのほかの限界:
+そのほかの限界は次のとおり。
 
 - `globe` を crates.io には出せない。Rumoca を git 依存で固定しているため（[ADR-0002](doc/adr/0002-rumoca-adapter.md)）。
 - 参照・リネームの範囲は、開いている文書の中の部品とクラス名（S166）。別ファイル・ライブラリ全体の参照は未。
 - 補完は予約語と本文の名前に加え、型の位置・点つきの名前でライブラリのクラス、`.` の後ろで部品の名前（S171。エディタ（ブラウザ・Desktop）と言語サーバ）。
 - ライブラリツリーの検索は名前の部分一致（`.` を含めると完全修飾名。S167）。
 - Desktop の自動更新は、鍵を登録するまで「未設定」。
-- Desktop（Windows・macOS・Linux）と Android は、署名と、実機での長い操作の確認が未（CI の自動の操作は通っている）。
+- Desktop（Windows・macOS・Linux）と Android は、署名と、実機での長い操作の確認が未（CI の自動の操作は成功している）。
 
 ### 開発に加わる
 
@@ -284,8 +284,8 @@ flowchart LR
 | `globe fmt --diff` と `--exclude` | 無い | ruff と同じ操作性にするため |
 | 整形の設定ファイル | `globe-mode.toml`（S130）。CLI・LSP・VS Code・Desktop（S143）が読む。ブラウザの UI は読まず、既定（インデント 2 ほか）を使う | プロジェクトごとに規則を揃えるため |
 | ブラウザの UI と Web アプリで空行・HTML の規則を切る口 | 既定のオンだけ | VS Code・CLI と揃えるため |
-| `src/Modelica` の既存ファイルを今の規則で整形 | していない | 差分が大きいので、ユーザーの判断を待つ |
-| FMI の読み込み・書き出し | 書き出しは FMI 2.0・3.0 の ME・CS（S094・S098、事象の無いモデル）。読み込みは未 | [doc/roadmap.md](doc/roadmap.md) |
+| `src/Modelica` の既存ファイルを今の規則で整形 | 済み（S189）。`globe fmt --check src/Modelica` を CI と `mise run check` で回す | 位置に依存する試験と snapshot を保つため |
+| FMI の読み込み・書き出し | 書き出しは FMI 2.0・3.0 の ME・CS（S094・S098、事象の無いモデル）。読み込みは CLI の `globe fmu run` だけ（S204・S205・S210） | [doc/roadmap.md](doc/roadmap.md) |
 
 | 文書 | 内容 |
 | --- | --- |
