@@ -29,7 +29,8 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # S218: push の run は止めない（止めた run の差分はどこでも検査されない）。ただし待ち行列で 2 本以上並ぶと古い待ちは GitHub が捨てるので、続けて push するときは full=true で回す
+  cancel-in-progress: ${{ github.event_name != 'push' }}
 
 env:
   CARGO_TERM_COLOR: always
