@@ -99,23 +99,33 @@ pub fn run(command: FmuImportCommand) -> ExitCode {
             timeout,
             memory_limit,
             progress,
-        } => run_fmu(
-            &file,
-            kind,
-            Common {
-                start_time,
-                stop_time,
-                step,
-                outputs: output,
-                set,
-            },
-            out.as_deref(),
-            Limits {
-                timeout,
-                memory_limit,
-                progress,
-            },
-        ),
+        } => {
+            // 書けない出力先と .mo は、実行の前に断る（simulate と同じ守り。S218）
+            if let Some(path) = out.as_deref()
+                && let Err(message) =
+                    crate::check_writable_file(path, std::slice::from_ref(&file), &[])
+            {
+                eprintln!("error: 結果を {message}");
+                return ExitCode::from(2);
+            }
+            run_fmu(
+                &file,
+                kind,
+                Common {
+                    start_time,
+                    stop_time,
+                    step,
+                    outputs: output,
+                    set,
+                },
+                out.as_deref(),
+                Limits {
+                    timeout,
+                    memory_limit,
+                    progress,
+                },
+            )
+        }
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

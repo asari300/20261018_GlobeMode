@@ -280,3 +280,26 @@ fn round_trip_export_then_import() {
         );
     }
 }
+
+/// S218: `--out` が .mo・存在しないフォルダのときは、FMU を開く前に exit 2 で断る（.mo のソースを CSV で上書きしていた）。
+#[test]
+fn run_refuses_an_unwritable_or_source_out_before_running() {
+    let dir = std::env::temp_dir().join(format!("globe-fmu-out-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let victim = dir.join("victim.mo");
+    std::fs::write(&victim, "model M end M;\n").unwrap();
+    let missing = dir.join("no-such-dir").join("out.csv");
+    for out in [&victim, &missing] {
+        let o = globe(&["fmu", "run", "no-such.fmu", "--out", out.to_str().unwrap()]);
+        assert_eq!(o.status.code(), Some(2), "{o:?}");
+        assert!(
+            String::from_utf8_lossy(&o.stderr).contains("に書けない"),
+            "{o:?}"
+        );
+    }
+    assert_eq!(
+        std::fs::read_to_string(&victim).unwrap(),
+        "model M end M;\n"
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}
