@@ -37,10 +37,10 @@ flowchart LR
 
 ```text
 Cargo.toml                      virtual workspace（resolver 3, edition 2024）
-mise.toml / mise.lock           ツールの版（rust / uv / zig / julia / erlang / elixir / gleam / node / pnpm）。rust-toolchain.toml は置かない
+mise.toml / mise.lock           ツールの版（rust / uv / cargo-deny / wasm-bindgen / node / pnpm / zig / julia / erlang / elixir / gleam）。rust-toolchain.toml は置かない
 pyproject.toml / uv.lock        Python の依存（uv）
 src/Rust/mod/<crate>/           workspace の library crate（2.2 の表）
-src/Rust/apps/desktop/          Tauri 2 のシェル（Linux, Windows, Android）
+src/Rust/apps/desktop/          Tauri 2 のシェル（Linux・Windows・macOS・Android）
 src/Rust/apps/experimental/     leptos/ と dioxus/（別の Cargo workspace。S153・S155）
 src/Rust/apps/web-*/            整形・lint のウェブアプリ群 actix・axum・loco・rocket（別の Cargo workspace。[web-apps.md](web-apps.md)）
 src/Rust/xtask/                 build、bump-rumoca、licenses、wasm --threads
@@ -59,7 +59,7 @@ doc/  log/                      文書と記録
 
 ### 2.2 Rust crate（`src/Rust/mod/`）
 
-**（S002）** と書いたものは実装済み。ほかは予定。
+`src/Rust/mod/` に crate があるものは実装済み。`globe-mode-solver` と `globe-mode-testkit` はまだ作っていない。「今後」と書いたものは予定。
 
 | crate | 責務 | 主な依存 |
 | --- | --- | --- |
@@ -170,7 +170,7 @@ Rumoca の rev は GlobeMode の版ごとに固定する（[ADR-0002](adr/0002-r
 
 [ADR-0005](adr/0005-lazy-query-db.md) にまとめた。
 
-**salsa のクエリ**（`globe-mode-db`。S004〜S010 で作ったものと、予定のもの）:
+**salsa のクエリ**は次のとおり（`globe-mode-db`。S004〜S010 で作ったものと、予定のもの）。
 
 ```text
 SourceFile ─┬─▶ outline ─▶ outline_shape ─┬─▶ class_index ─▶ connect_graph           （S004）
