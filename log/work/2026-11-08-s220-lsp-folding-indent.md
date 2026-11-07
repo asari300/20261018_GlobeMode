@@ -34,7 +34,7 @@ roadmap 末尾の表「機能の穴（P4）エディタの言語サービス」�
 ## 結果
 
 - `cargo test -p globe-mode-lsp --test folding`: 1 本通過（package 0〜12、model 3〜11、initial equation 5〜6、equation 7〜11、annotation 10〜11、コメント 1〜2。CRLF と全角の説明文字列を含む。壊れた構文ではコメントだけ出る）。
-- CI: （親が確かめる）
+- CI: ci.yml 42424304193 success、vscode.yml 42424307252 success
 
 ## 持ち越し
 
