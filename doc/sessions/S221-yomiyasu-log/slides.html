@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S221 yomiyasu の校正の記録 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S221 yomiyasu の校正の記録">
+
+<section class="slide" id="S01">
+  <span class="tag">S221 · 2026-11-08 · 運用</span>
+  <h1>yomiyasu の校正の記録 <code>doc/yomiyasu/</code></h1>
+  <p class="lead">S217 の推敲のビフォー/アフターを、専用のフォルダに残す</p>
+  <div class="big">86 箇所 · 35 文書</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">決定と理由</span>
+  <h1>記録の形（ユーザーの指示 2026-11-08）</h1>
+  <ul>
+    <li>置き場は <code>doc/yomiyasu/&lt;日付&gt;-&lt;SNNN&gt;.md</code>。索引は <code>doc/yomiyasu/README.md</code>。</li>
+    <li>冒頭に yomiyasu の版（2.5.0）、エージェントのモデル名（Claude Sonnet 5.5）と effort（high）を書く。</li>
+    <li>本文は文書ごとに「前」「後」を引用で並べる。<code>git diff -U0</code> の塊 1 つが 1 箇所。</li>
+    <li>S217 の分は親が差分から後追いで起こした。今後の yomiyasu の WP は最初から書く。</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">再現手順</span>
+  <h1>作り方と確かめ方</h1>
+  <pre><code>git diff -U0 c7125c4^1 c7125c4^2 -- README.md CLAUDE.md 'doc/*.md' 'doc/adr/*.md' 'src/*/README.md'
+uv run --no-project python .claude/skills/session-docs/check_docs.py   # リンク切れ 0</code></pre>
+  <p>意味を変えた疑いの箇所は S217 の解説書に 3 点。記録は読み比べの材料で、判断はユーザー。</p>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

@@ -56,6 +56,7 @@ uv sync                      # worktree ごとに必須
 | `doc/msl-funnel.md` `msl-sim.md` `msl-solvers.md` `omc-compare.md` `libraries.md` | 検査・実行の報告。`mise run msl:*` と workflow が書く | ×（手で編集しない） |
 | `doc/bench/` `doc/plan/` | UI の比較の表（`bench_ui.py report` が書く）、リリースまでの見積もりと並行作業のプラン（計画は変えない） | ○ |
 | `doc/adr/` | 設計判断の記録。覆すときは消さずに Superseded にする | ○（追記） |
+| `doc/yomiyasu/` | yomiyasu で文書を推敲したときのビフォー/アフター（記録ごとに冒頭へ yomiyasu の版・モデル名・effort。2026-11-08） | ○ |
 | `doc/research/` | 調査の記録。事実ごとに URL と確認日を付ける | ○ |
 | `doc/sessions/SNNN-<topic>/` | セッションごとのスライドと解説書 | ○（そのセッションの間だけ） |
 | `doc/assets/` | スライドの共通 CSS と JS | ○ |
