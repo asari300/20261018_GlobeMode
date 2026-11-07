@@ -8,10 +8,23 @@ import os
 import subprocess
 
 
+MAX_BODY = 1 << 20  # doc/web-apps.md §3.1
+
+
 def _run(args: list[str], text: str) -> subprocess.CompletedProcess[str]:
     binary = os.environ.get("GLOBE_BIN", "globe")
+    if len(text.encode()) > MAX_BODY:
+        raise RuntimeError("入力が 1 MiB を超えている")
     try:
-        return subprocess.run([binary, *args], input=text, capture_output=True, text=True)
+        return subprocess.run(
+            [binary, *args],
+            input=text,
+            capture_output=True,
+            text=True,
+            timeout=int(os.environ.get("GLOBE_TIMEOUT_MS", "10000")) / 1000,
+        )
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError("globe が時間内に終わらなかった") from e
     except OSError as e:  # 無い・実行できないときも RuntimeError にして画面に出す
         raise RuntimeError(f"globe を起動できない（GLOBE_BIN={binary}）: {e}") from e
 

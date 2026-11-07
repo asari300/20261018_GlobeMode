@@ -4,15 +4,30 @@ import json
 import os
 import subprocess
 from pathlib import Path
+from typing import Annotated
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel, Field, StringConstraints
 
 INDEX = Path(__file__).parent / "static" / "index.html"
-TIMEOUT_S = 60  # shortcut: 同期の呼び出しを 60 秒で切るだけ, 同時に多くの重い要求が来て詰まったら非同期化やキューを検討する
+MAX_BODY = 1 << 20  # doc/web-apps.md §3.1
+RULE = r"^[a-z][a-z-]*$"  # disable の値を CLI のオプションと取り違えない
 
 app = FastAPI(title="GlobeMode 整形・lint（FastAPI）")
+
+
+def timeout_s() -> float:
+    # shortcut: 同期の呼び出しを切るだけ, 同時に多くの重い要求が来て詰まったら非同期化やキューを検討する
+    return int(os.environ.get("GLOBE_TIMEOUT_MS", "10000")) / 1000
+
+
+@app.middleware("http")
+async def limit_body(request: Request, call_next):
+    # shortcut: Content-Length だけを見る。chunked の本文は run_globe が読み終えたあとで測る, 巨大な chunked を防ぐならサーバ（uvicorn の前段）で切る
+    if int(request.headers.get("content-length") or 0) > MAX_BODY:
+        return JSONResponse({"detail": "本文が 1 MiB を超えている"}, status_code=413)
+    return await call_next(request)
 
 
 class FormatRequest(BaseModel):
@@ -24,10 +39,12 @@ class FormatRequest(BaseModel):
 
 class LintRequest(BaseModel):
     text: str
-    disable: list[str] = []
+    disable: list[Annotated[str, StringConstraints(pattern=RULE)]] = []
 
 
 def run_globe(args: list[str], text: str) -> subprocess.CompletedProcess:
+    if len(text.encode()) > MAX_BODY:
+        raise HTTPException(413, "本文が 1 MiB を超えている")
     binary = os.environ.get("GLOBE_BIN", "globe")
     try:
         # 終了コード 1 は「文法が壊れている」「指摘がある」の正常な結果なので、ここでは失敗にしない
@@ -37,7 +54,7 @@ def run_globe(args: list[str], text: str) -> subprocess.CompletedProcess:
             capture_output=True,
             text=True,
             encoding="utf-8",
-            timeout=TIMEOUT_S,
+            timeout=timeout_s(),
         )
     except FileNotFoundError as e:
         raise HTTPException(503, f"globe を起動できない（GLOBE_BIN={binary}）: {e}") from e

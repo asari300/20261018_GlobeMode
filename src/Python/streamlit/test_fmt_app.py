@@ -2,6 +2,9 @@
 
 from pathlib import Path
 
+import pytest
+
+from globe_cli import GlobeError, fmt
 from streamlit.testing.v1 import AppTest
 
 SAMPLE = Path(__file__).resolve().parents[3] / "src/Rust/mod/globe-mode-fmt/tests/data/objects_before.mo"
@@ -27,3 +30,18 @@ def test_lint_sample_shows_table_and_broken_input_shows_error():
     at.text_area(key="source").input("model A\n  Real x\nend B;\n").run()
     next(b for b in at.button if b.label == "整形").click().run()
     assert any("整形できません" in e.value for e in at.error)
+
+
+def test_oversize_input_is_refused():
+    with pytest.raises(GlobeError, match="1 MiB"):
+        fmt("x" * ((1 << 20) + 1))
+
+
+def test_slow_globe_times_out(monkeypatch, tmp_path):
+    slow = tmp_path / "slow.sh"
+    slow.write_text("#!/bin/sh\nexec sleep 30\n")
+    slow.chmod(0o755)
+    monkeypatch.setenv("GLOBE_BIN", str(slow))
+    monkeypatch.setenv("GLOBE_TIMEOUT_MS", "200")
+    with pytest.raises(GlobeError, match="時間内"):
+        fmt("model A end A;")

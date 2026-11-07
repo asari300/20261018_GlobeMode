@@ -97,6 +97,7 @@ async fn format(Json(req): Json<FormatRequest>) -> Json<FormatReply> {
         indent,
         width: req.width.unwrap_or(defaults.width),
         insert_origin: req.insert_origin.unwrap_or(defaults.insert_origin),
+        ..defaults
     };
     Json(match globe_mode_fmt::format(&req.text, &options) {
         Ok(text) => FormatReply {

@@ -21,6 +21,10 @@ GLOBE_BIN=/絶対パス/target/debug/globe mise exec -- mix phx.server
 - 既定の待ち受けは http://localhost:4000 （環境変数 `PORT` で変える）。
 - `GLOBE_BIN` を省くと PATH の `globe` を使う。
 
+## 入力の守り
+
+本文は 1 MiB まで（超えたら HTTP 413。Streamlit・marimo は画面にエラー）、`globe` は 10 秒で kill する（環境変数 `GLOBE_TIMEOUT_MS` で変える。試験が使う）。決めた値は [doc/web-apps.md の 3.1](../../../doc/web-apps.md)（S215）。
+
 ## 検査
 
 ```bash

@@ -39,6 +39,7 @@ defmodule PhoenixFmtWeb.Endpoint do
   plug Plug.Parsers,
     parsers: [:urlencoded, :multipart, :json],
     pass: ["*/*"],
+    length: 1_048_576,
     json_decoder: Phoenix.json_library()
 
   plug Plug.MethodOverride
