@@ -52,9 +52,7 @@ struct ProgressMsg {
     stop_time: f64,
 }
 
-fn json<T: serde::Serialize + ?Sized>(value: &T) -> Result<String, String> {
-    serde_json::to_string(value).map_err(|e| format!("JSON: {e}"))
-}
+use globe_mode::to_json as json;
 
 fn with<T>(ws: &Ws, f: impl FnOnce(&mut globe_mode::Workspace) -> T) -> Result<T, String> {
     let mut guard =
@@ -67,11 +65,7 @@ fn with<T>(ws: &Ws, f: impl FnOnce(&mut globe_mode::Workspace) -> T) -> Result<T
 #[rustler::nif(schedule = "DirtyIo")]
 fn new(libraries: Vec<String>) -> Result<ResourceArc<Ws>, String> {
     let libs: Vec<PathBuf> = libraries.into_iter().map(PathBuf::from).collect();
-    let inner = if libs.is_empty() {
-        globe_mode::Workspace::new()
-    } else {
-        globe_mode::Workspace::with_libraries(&libs).map_err(|ds| json(&ds).unwrap_or_default())?
-    };
+    let inner = globe_mode::Workspace::open(&libs).map_err(|ds| json(&ds).unwrap_or_default())?;
     Ok(ResourceArc::new(Ws(Mutex::new(inner))))
 }
 
@@ -209,8 +203,7 @@ fn export_fmu(
     out_dir: String,
     options_json: String,
 ) -> Result<String, String> {
-    let options: globe_mode::FmuOptions =
-        serde_json::from_str(&options_json).map_err(|e| format!("options が読めない: {e}"))?;
+    let options = globe_mode::FmuOptions::from_json(Some(&options_json))?;
     let path = with(&ws, |w| {
         w.export_fmu(&model, std::path::Path::new(&out_dir), &options)
     })??;
