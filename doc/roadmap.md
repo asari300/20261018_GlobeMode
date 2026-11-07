@@ -547,6 +547,10 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - 試験: `test_ui.py` に 1 本（初回の案内と閉じる・smoke で出ない、スキップリンク、矢印・Home・End と tabindex、編集で印・再読み込み・beforeunload・保存で消える）。`pnpm check` 0 警告。
 - 持ち越し: タブの並べ替え（ドラッグ）、ツリーのアイコン、案内の多言語化、案内を出し直す操作、Esc で止める、スクリーンリーダーの実機（【未確認】）。
 
+### S211（P4、2026-11-07）で済んだこと
+
+- **整形器と `globe fmt` の issue 5 件**（[解説書](sessions/S211-fmt-issues-2/解説書.md)）: ponytail の監査の #24（annotation の外の `Line(…)` などを並べ替えて `origin` を足す。annotation の中だけに）・#26（`fmt --check -` が必ず 0）・#27（書き戻しを一時ファイル + rename に）・#28（入れ子 256 段の上限）・#32（BOM 付きを検査・整形・lint。整形は BOM を残し、`GlobeDb::set_file` は空白 3 個に置き換えて位置を保つ）を、5 件とも main で再現してから直した。2,661 本の lint・format の出力は前後で差 0。持ち越し: Rumoca の検査側の深い入れ子（20,000 段で 8 MB のスレッドが溢れる）。
+
 ### S209（P4、2026-11-07）で済んだこと
 
 - **`fmt` / `lint` の標準入力は `--json` でも `-` だけ**（[解説書](sessions/S209-fmt-stdin-dash/解説書.md)）: S199 が残した `--json` のパスなしの例外を、ユーザーの決定で無くした。**挙動が変わる**: `globe fmt --json` / `globe lint --json` のパスなしは使い方を出して終了コード 2。ウェブアプリ 6 種（FastAPI・Streamlit・marimo・Phoenix・Wisp・Astro）の呼び出しを `--json -` に直し、各アプリの試験を手元で回した（CI は無い）。Rust のウェブアプリ 4 種は crate を直接使うので影響なし。

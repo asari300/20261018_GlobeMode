@@ -27,9 +27,13 @@ pub struct Arg<'a> {
     pub rank: u16,
 }
 
+/// 括弧の入れ子の上限（S211）。木をたどる `flatten`・`render`・`annotation::apply` と木の drop は入れ子の深さだけ再帰するので、
+/// 外から来る本文が 200 KB の `(` で 2 MB のスタックを溢れさせ、プロセスごと落とすのを防ぐ。実際のモデルは 20 段にも届かない。
+const MAX_DEPTH: usize = 256;
+
 pub fn build<'a>(tokens: &[Token<'a>]) -> Result<Vec<Node<'a>>, FormatError> {
     let mut i = 0;
-    let nodes = seq(tokens, &mut i, None)?;
+    let nodes = seq(tokens, &mut i, None, 0)?;
     if i < tokens.len() {
         return Err(err("対応しない閉じ括弧", tokens[i].start));
     }
@@ -40,6 +44,7 @@ fn seq<'a>(
     tokens: &[Token<'a>],
     i: &mut usize,
     close: Option<&str>,
+    depth: usize,
 ) -> Result<Vec<Node<'a>>, FormatError> {
     let mut out = Vec::new();
     while *i < tokens.len() {
@@ -60,9 +65,15 @@ fn seq<'a>(
                 "[" => "]",
                 _ => "}",
             };
+            if depth >= MAX_DEPTH {
+                return Err(err(
+                    format!("括弧の入れ子が深すぎる（{MAX_DEPTH} 段まで）"),
+                    t.start,
+                ));
+            }
             let mut args = Vec::new();
             loop {
-                let nodes = seq(tokens, i, Some(want))?;
+                let nodes = seq(tokens, i, Some(want), depth + 1)?;
                 let Some(next) = tokens.get(*i) else {
                     return Err(err("括弧が閉じていない", t.start));
                 };

@@ -54,13 +54,14 @@ fn position_in(table: &[&str], a: &Arg<'_>) -> usize {
 
 /// 並べ替えが要る `annotation(…)` / `Documentation(…)` を探す（lint の `annotation-order`）。
 /// 見つけたら (順を外れた最初の引数の先頭のバイト位置, 表の名前) を足す。
-pub fn misordered(nodes: &[Node<'_>], out: &mut Vec<(usize, &'static str)>) {
+pub fn misordered(nodes: &[Node<'_>], in_annotation: bool, out: &mut Vec<(usize, &'static str)>) {
     let mut prev: Option<&str> = None;
     for n in nodes {
         match n {
             Node::Leaf(t) => prev = (t.kind == Kind::Ident).then_some(t.text),
             Node::Group { open, args, .. } => {
                 if let (Some(name), true) = (prev, open.is("("))
+                    && (in_annotation || name == "annotation")
                     && let Some(table) = order_table(name)
                 {
                     let pos: Vec<usize> = args.iter().map(|a| position_in(table, a)).collect();
@@ -75,22 +76,25 @@ pub fn misordered(nodes: &[Node<'_>], out: &mut Vec<(usize, &'static str)>) {
                         out.push((t.start, table));
                     }
                 }
+                let inside = in_annotation || (prev == Some("annotation") && open.is("("));
                 prev = None;
                 for a in args {
-                    misordered(&a.nodes, out);
+                    misordered(&a.nodes, inside, out);
                 }
             }
         }
     }
 }
 
-pub fn apply(nodes: &mut [Node<'_>], insert_origin: bool, format_html: bool) {
+/// `in_annotation` は `annotation(…)` の中か。外の同じ名前（`extends Pkg.Line(R = 1)` や関数呼び出し）は触らない（S211）。
+pub fn apply(nodes: &mut [Node<'_>], insert_origin: bool, format_html: bool, in_annotation: bool) {
     let mut prev: Option<&str> = None;
     for n in nodes.iter_mut() {
         match n {
             Node::Leaf(t) => prev = (t.kind == Kind::Ident).then_some(t.text),
             Node::Group { open, args, .. } => {
-                if let (Some(name), true) = (prev, open.is("(")) {
+                let inside = in_annotation || (prev == Some("annotation") && open.is("("));
+                if let (Some(name), true, true) = (prev, open.is("("), inside) {
                     if PRIMITIVES.contains(&name) {
                         sort_args(args, insert_origin);
                     } else if let Some(table) = order_table(name) {
@@ -107,7 +111,7 @@ pub fn apply(nodes: &mut [Node<'_>], insert_origin: bool, format_html: bool) {
                 }
                 prev = None;
                 for a in args.iter_mut() {
-                    apply(&mut a.nodes, insert_origin, format_html);
+                    apply(&mut a.nodes, insert_origin, format_html, inside);
                 }
             }
         }

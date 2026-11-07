@@ -168,3 +168,106 @@ fn config_file_changes_fmt_and_lint() {
     assert!(String::from_utf8_lossy(&o.stderr).contains("知らないキー fmt.indnt"));
     fs::remove_dir_all(&d).unwrap();
 }
+
+fn globe_stdin(args: &[&str], input: &str) -> Output {
+    let mut c = Command::new(env!("CARGO_BIN_EXE_globe"))
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    c.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
+    c.wait_with_output().unwrap()
+}
+
+#[test]
+fn check_with_stdin_exits_1_when_formatting_is_needed() {
+    // S211（#26）: `--check -` は書き換えを出さず、整形が要れば 1、要らなければ 0
+    let o = globe_stdin(&["fmt", "--check", "-"], MESSY);
+    assert_eq!(o.status.code(), Some(1), "{}", stdout(&o));
+    assert_eq!(stdout(&o), "");
+    let o = globe_stdin(&["fmt", "--check", "-"], TIDY);
+    assert_eq!(o.status.code(), Some(0));
+    assert_eq!(stdout(&o), "");
+    // 壊れた入力は今までどおり 1（--check が無くても同じ）
+    let o = globe_stdin(&["fmt", "--check", "-"], "model E\n  Real x(\nend E;\n");
+    assert_eq!(o.status.code(), Some(1));
+}
+
+#[test]
+fn bom_files_are_formatted_and_keep_their_bom() {
+    // S211（#32）: UTF-8 の BOM つきでも整形でき、書き戻しても BOM は残る
+    let d = tree("bom");
+    let p = d.join("bom.mo");
+    fs::write(&p, format!("\u{feff}{MESSY}")).unwrap();
+    assert_eq!(
+        globe(&d, &["fmt", "--check", "bom.mo"]).status.code(),
+        Some(1)
+    );
+    assert_eq!(globe(&d, &["fmt", "bom.mo"]).status.code(), Some(0));
+    let text = fs::read_to_string(&p).unwrap();
+    assert!(text.starts_with("\u{feff}model A\n"), "{text:?}");
+    assert_eq!(
+        globe(&d, &["fmt", "--check", "bom.mo"]).status.code(),
+        Some(0)
+    );
+    assert_eq!(globe(&d, &["lint", "bom.mo"]).status.code(), Some(1)); // missing-description だけ
+    let o = globe_stdin(&["fmt", "-"], &format!("\u{feff}{MESSY}"));
+    assert!(
+        stdout(&o).starts_with("\u{feff}model A\n"),
+        "{}",
+        stdout(&o)
+    );
+    fs::remove_dir_all(&d).unwrap();
+}
+
+#[test]
+fn fmt_writes_through_a_temp_file_and_keeps_mode_and_symlink() {
+    // S211（#27）: 書き戻しは同じフォルダの一時ファイルから rename。一時ファイルを残さず、権限とリンクを保つ
+    let d = tree("atomic");
+    let names = |dir: &Path| -> Vec<String> {
+        let mut v: Vec<String> = fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        v.sort();
+        v
+    };
+    let before = names(&d);
+    assert_eq!(globe(&d, &["fmt", "a.mo"]).status.code(), Some(0));
+    assert_eq!(names(&d), before, "一時ファイルが残った");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+        fs::write(d.join("m.mo"), MESSY).unwrap();
+        fs::set_permissions(d.join("m.mo"), fs::Permissions::from_mode(0o640)).unwrap();
+        assert_eq!(globe(&d, &["fmt", "m.mo"]).status.code(), Some(0));
+        let mode = fs::metadata(d.join("m.mo")).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o640);
+        // リンクは置き換えず、指す先を書き換える
+        fs::write(d.join("real.mo"), MESSY).unwrap();
+        symlink("real.mo", d.join("link.mo")).unwrap();
+        assert_eq!(globe(&d, &["fmt", "link.mo"]).status.code(), Some(0));
+        assert!(
+            fs::symlink_metadata(d.join("link.mo"))
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert_ne!(fs::read_to_string(d.join("real.mo")).unwrap(), MESSY);
+        // 読み取り専用のファイルは今までどおり書けない（rename で黙って上書きしない）
+        fs::write(d.join("ro.mo"), MESSY).unwrap();
+        fs::set_permissions(d.join("ro.mo"), fs::Permissions::from_mode(0o444)).unwrap();
+        if fs::OpenOptions::new()
+            .write(true)
+            .open(d.join("ro.mo"))
+            .is_err()
+        {
+            // root では 0o444 でも書けるので、書けないときだけ確かめる
+            assert_eq!(globe(&d, &["fmt", "ro.mo"]).status.code(), Some(2));
+            assert_eq!(fs::read_to_string(d.join("ro.mo")).unwrap(), MESSY);
+        }
+    }
+    fs::remove_dir_all(&d).unwrap();
+}

@@ -383,3 +383,29 @@ fn library_graph_is_backdated() {
     assert_eq!(count(&executed, "library_graph"), 1, "{executed:?}");
     assert_eq!(third.nodes.len(), first.nodes.len() + 1);
 }
+
+#[test]
+fn bom_file_is_checked_and_positions_keep_the_original_offsets() {
+    // S211（#32）: UTF-8 の BOM つきでも構文の誤りにならず、位置は BOM を含む渡した本文のバイト位置
+    const BODY: &str = "model M\n  Real x;\nequation\n  der(x) = -x;\nend M;\n";
+    let mut db = GlobeDb::new();
+    db.set_file("bom.mo", format!("\u{feff}{BODY}"));
+    db.set_file("plain.mo", BODY.to_string());
+    let with = db
+        .outline("bom.mo")
+        .unwrap()
+        .as_ref()
+        .expect("BOM つきでも構文は通る");
+    let without = db.outline("plain.mo").unwrap().as_ref().unwrap();
+    assert_eq!(
+        with.classes[0].range.start,
+        without.classes[0].range.start + 3
+    );
+    // 構文の誤りは今までどおり誤りで、位置は BOM の分だけ後ろ
+    const BAD: &str = "model M\n  Real x(\nend M;\n";
+    db.set_file("bad.mo", format!("\u{feff}{BAD}"));
+    db.set_file("bad2.mo", BAD.to_string());
+    let a = db.outline("bad.mo").unwrap().as_ref().unwrap_err();
+    let b = db.outline("bad2.mo").unwrap().as_ref().unwrap_err();
+    assert_eq!(a[0].range.unwrap().start, b[0].range.unwrap().start + 3);
+}
