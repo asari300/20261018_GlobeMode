@@ -310,7 +310,7 @@ KLU（LGPL）は同梱しない。
 
 ### 3.4 FMI 2.0 / 3.0
 
-#### Import（S204: 自前の C ABI（`libloading`）と `roxmltree` の上に作る。`fmi` 0.8 は zip の脆弱性で見送り。[ADR-0026](adr/0026-fmi-import-placement.md)）
+#### Import（S204: 自前の C ABI（`libloading`）と `roxmltree` の上に作る。`fmi` 0.8 は入れず自前で作る（S206 の決定）。[ADR-0026](adr/0026-fmi-import-placement.md)）
 
 | 種類 | 実装 |
 | --- | --- |

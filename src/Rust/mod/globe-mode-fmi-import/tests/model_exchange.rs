@@ -333,6 +333,15 @@ fn errors_are_reported_not_panics() {
             },
             "刻み",
         ),
+        // S206: 出力の格子が細かすぎる（1 億点）なら、実行の前に断る
+        (
+            MeOptions {
+                stop_time: Some(100.0),
+                step: Some(1e-6),
+                ..Default::default()
+            },
+            "--step",
+        ),
         (
             MeOptions {
                 tolerance: Some(0.0),

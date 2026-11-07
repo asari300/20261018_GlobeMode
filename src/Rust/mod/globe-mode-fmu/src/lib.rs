@@ -215,6 +215,7 @@ fn describe(model: &str, source: &str, v3: bool) -> Result<String, String> {
                 e.stop_time.map_or(start + 1.0, |b| b.get())
             )),
             tolerance: Some(format!("{:?}", e.tolerance.map_or(1e-6, |b| b.get()))),
+            step_size: None,
         }),
         model_structure: ModelStructure {
             outputs,

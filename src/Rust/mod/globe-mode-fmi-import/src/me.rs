@@ -177,7 +177,7 @@ pub fn run_me(fmu: &Fmu, opts: &MeOptions) -> Result<MeRun> {
     }
     let step = opts
         .step
-        .or(fmu.default_step_size)
+        .or(num(&exp.step_size))
         .unwrap_or((stop - start) / 500.0);
     if step.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
         return Err(Error::Fmu("刻みが正でない".into()));
@@ -188,6 +188,7 @@ pub fn run_me(fmu: &Fmu, opts: &MeOptions) -> Result<MeRun> {
     {
         return Err(Error::Fmu("許容誤差が正でない".into()));
     }
+    crate::grid_points(start, stop, step)?;
     let names = output_names(md, &opts.outputs);
     let vrs = names
         .iter()
@@ -253,7 +254,7 @@ fn drive(inst: &mut dyn FmuMe, plan: &Plan) -> Result<MeRun> {
     let mut z_prev = inst.get_event_indicators()?;
     run.rows.push((start, inst.get_real(vrs)?));
 
-    let n_grid = ((stop - start) / step - 1e-9).ceil().max(1.0) as u64;
+    let n_grid = crate::grid_points(start, stop, step)?;
     let mut t = start;
     let mut h = step;
     let mut events_here = 0usize;
@@ -401,6 +402,10 @@ mod tests {
         step_event_done: bool,
         state_events: u32,
         in_event_mode: bool,
+        /// 受理した最後の時刻から、これより遠い試しの点では `Discard` を返す
+        discard_over: Option<f64>,
+        last_accepted: f64,
+        discards: u32,
     }
 
     impl FmuMe for Mock {
@@ -435,6 +440,13 @@ mod tests {
             Ok(vec![1.0])
         }
         fn get_derivatives(&mut self) -> Result<Vec<f64>> {
+            if self
+                .discard_over
+                .is_some_and(|d| self.t - self.last_accepted > d)
+            {
+                self.discards += 1;
+                return Err(Error::Discard("遠すぎる".into()));
+            }
             Ok(vec![1.0])
         }
         fn get_event_indicators(&mut self) -> Result<Vec<f64>> {
@@ -463,6 +475,7 @@ mod tests {
             Ok(())
         }
         fn completed_integrator_step(&mut self) -> Result<StepInfo> {
+            self.last_accepted = self.t;
             let enter = self.t >= 0.5 && !self.step_event_done;
             self.step_event_done |= enter;
             Ok(StepInfo {
@@ -501,6 +514,50 @@ mod tests {
             assert!(r.terminated_by_fmu);
             assert!((r.rows.last().unwrap().0 - 2.0).abs() < 1e-11);
         }
+    }
+
+    /// S206: 試しの点で FMU が `Discard` を返したら、刻みを縮めて積分をやり直す（Dopri5）。固定刻みの RK4 は縮めないので失敗として止まる。
+    #[test]
+    fn discard_in_a_trial_point_retries_with_a_smaller_step() {
+        let plan = |integrator| Plan {
+            names: vec!["x".into()],
+            vrs: vec![0],
+            start: 0.0,
+            stop: 0.9,
+            step: 0.3,
+            integrator,
+            rtol: 1e-8,
+        };
+        let new = || Mock {
+            discard_over: Some(0.05),
+            ..Default::default()
+        };
+        let mut mock = new();
+        mock.initialize(0.0, Some(0.9), None).unwrap();
+        let r = drive(&mut mock, &plan(MeIntegrator::Dopri5)).unwrap();
+        assert!(mock.discards > 0);
+        assert!(
+            (r.rows.last().unwrap().1[0] - 0.9).abs() < 1e-9,
+            "{:?}",
+            r.rows.last()
+        );
+        let mut mock = new();
+        mock.initialize(0.0, Some(0.9), None).unwrap();
+        let e = drive(&mut mock, &plan(MeIntegrator::Rk4)).unwrap_err();
+        assert!(matches!(e, Error::Discard(_)), "{e}");
+    }
+
+    /// S206: 出力の格子が細かすぎる（上限を超える）なら、FMU を動かす前に断る。
+    #[test]
+    fn a_too_fine_output_grid_is_refused() {
+        let e = crate::grid_points(0.0, 100.0, 1e-6).unwrap_err();
+        assert!(e.to_string().contains("--step"), "{e}");
+        assert_eq!(crate::grid_points(0.0, 10.0, 0.1).unwrap(), 100);
+        assert_eq!(
+            crate::grid_points(0.0, crate::MAX_GRID_POINTS as f64, 1.0).unwrap(),
+            crate::MAX_GRID_POINTS
+        );
+        assert!(crate::grid_points(0.0, crate::MAX_GRID_POINTS as f64 + 2.0, 1.0).is_err());
     }
 
     #[test]

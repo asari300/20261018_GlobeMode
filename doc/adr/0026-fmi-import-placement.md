@@ -1,6 +1,6 @@
 # ADR-0026 FMI Import の置き方: `modelDescription.xml` は自前の読み取り、共有ライブラリの読み込みは Desktop・CLI の別プロセスに限り、ME は GlobeMode のソルバで積分する
 
-- 状態: **Accepted**（2026-11-06、S204）。S057（2026-11-01）では Proposed で、(b) は案が割れるのでユーザーが決める、とした。2026-11-06 にユーザーが「A、B 両方選択」と決め、下の「S204 の決定」で**案 A を既定にし、案 B を任意の feature として並べる**と解釈した。**この解釈はエージェント（親）のもので、ユーザーが違うと言えば直す**（A と B は同じ trait の 2 つの実装なので、組み替えは小さい）。ただし案 B は、2026-11-06 の時点で**入れられなかった**（理由は下の (g)。ユーザーの判断に回す）。(a)〜(e) と (b) の表は消さずに残す
+- 状態: **Accepted**（2026-11-06、S204）。S057（2026-11-01）では Proposed で、(b) は案が割れるのでユーザーが決める、とした。2026-11-06 にユーザーが「A、B 両方選択」と決め、下の「S204 の決定」で**案 A を既定にし、案 B を任意の feature として並べる**と解釈した。**この解釈はエージェント（親）のもので、ユーザーが違うと言えば直す**（A と B は同じ trait の 2 つの実装なので、組み替えは小さい）。ただし案 B は、2026-11-06 の時点で**入れられなかった**（理由は下の (g)。ユーザーの判断に回す）。(a)〜(e) と (b) の表は消さずに残す。**2026-11-07（S206）にユーザーが「案 B は自前で作成」と決めた**（下の (m)。`fmi` crate は入れない）
 - 関係: [ADR-0013](0013-exec-backend.md)（Rumoca の実行系は Modelica のモデル用。FMU の driver は P5 で自前）、[ADR-0014](0014-session-route-wasm.md)（Rumoca の FMI ME 風の host に積分器を差す道）、[ADR-0023](0023-desktop-and-web-process-layout.md)（検査と実行は別プロセスのワーカー）。[architecture.md §3.4](../architecture.md#34-fmi-20--30) の「`fmi` 0.8 と `fmi-schema` の上に作る」を、(b) の決定に応じて直す
 - 調査: [research/fmi-2026-11-01.md](../research/fmi-2026-11-01.md)
 
@@ -81,7 +81,7 @@
 - ライセンスは `libbz2-rs-sys`（`bzip2-1.0.6`。zip 8 の既定の feature `bzip2` 経由）が deny.toml の許可に無い。ほかは MIT・Apache-2.0・BSD-3-Clause（bindgen・zstd）・Unicode-3.0・CC0-1.0 で許可の範囲。GPL / LGPL の静的リンクは無い。
 - **Cargo.lock が 67 パッケージ増える**（chrono・hard-xml・bindgen・clang-sys・zstd・aes・icu 系など）。`fmi-sys` の build が bindgen と libclang を要する（この機械では通ったが、CI の全 OS で要るかは確かめていない）。
 - **FMI 3.0 が Reference-FMUs で動かない**: `fmi` 0.8.0 は `resourcePath` の末尾に区切りを付けず、Reference-FMUs（v0.0.42）が「resourceLocation must end with a file separator」と言って `Instantiate` が NULL を返す（`fmi3InstantiateCoSimulation`。BouncingBall・Dahlquist の 3.0 で再現）。FMI 2.0 の Co-Simulation は動き、BouncingBall・Dahlquist・VanDerPol の参照の CSV と全桁で一致した。
-- 戻す条件: `fmi` が zip 9 以上に上がる（または GlobeMode が `[patch]` で上げられる）、3.0 の resourcePath が直る、deny.toml に `bzip2-1.0.6` を許可する（BSD 系の許諾。licenses.md に理由を書く）、の 3 つ。**ユーザーの判断を仰ぐ点**: B を「zip の脆弱性を受け入れて」入れるか、上流の更新を待つか、`[patch]` で自前に直すか。
+- ~~戻す条件~~（**S206 で打ち消した。案 B は採らない。(m)**。以下は S204 の時点の記録）: `fmi` が zip 9 以上に上がる（または GlobeMode が `[patch]` で上げられる）、3.0 の resourcePath が直る、deny.toml に `bzip2-1.0.6` を許可する（BSD 系の許諾。licenses.md に理由を書く）、の 3 つ。**ユーザーの判断を仰ぐ点**: B を「zip の脆弱性を受け入れて」入れるか、上流の更新を待つか、`[patch]` で自前に直すか。→ S206 で「自前で作る」と決まった（(m)）。
 
 ### (h) 信頼の境界
 
@@ -109,19 +109,45 @@
 - **Model Exchange を実装した**（`FmuMe`、`Fmu::instantiate_me`、`run_me`）。FMI 2.0・3.0 とも、Float64 のスカラ。呼び出しの順は 2.0.5 の疑似コードと 3.0.2 の状態機械に従う（呼び出しの表は [S205 の解説書](../sessions/S205-fmi-import-me/解説書.md)）。事象は state event（event indicator の領域 `> 0` と `≤ 0` の変化。3.0.2 §3.1.1 の定義）、time event（`nextEventTime`）、step event（`completedIntegratorStep` の `enterEventMode`）の 3 つ。事象モードの出入りと `newDiscreteStates` / `updateDiscreteStates` の反復、`valuesOfContinuousStatesChanged` / `nominalsOfContinuousStatesChanged` の旗、`terminateSimulation` を扱う。
 - **積分器は `globe-mode-fmi-import` の中に自前で持つ**（`ode.rs`、試験を含めて約 240 行）: 固定刻みの古典 RK4 と、誤差制御つきの Dormand–Prince 5(4)（既定。許容誤差は `DefaultExperiment` の `tolerance`、無ければ 1e-6。絶対許容誤差は `rtol` × FMU の `nominal`）。state event の位置は、event indicator の領域が変わった歩の `[t, t1]` を二分法で詰める（試す時刻ごとに歩の頭から積分し直すので補間の誤差が入らない。幅が `1e-12 × max(1, t)` になるまで）。出力の刻み（`step`）は `DefaultExperiment` の `stepSize`、無ければ (終了 − 開始)/500。
 - **依存の向き**: `globe-mode-fmi-import` は `globe-mode-sim`・`globe-mode-exec`（Rumoca を引く）に**依存しない**。Import の利用者に Rumoca を背負わせないため。(d) の「`HybridSystem` を実装して全ソルバを使う」は、ここでは**やっていない**（既存の crate に同じ Dormand–Prince の係数はあるが Rumoca / diffsol の中で、使えば依存が逆向きに太る）。`HybridSystem` へのアダプタは、両方に依存する別の薄い crate か facade の側で後から足せる（`FmuMe` は `HybridSystem` の RHS・事象に対応する関数を持つ）。依存は 1 つも増えていない。
-- **限界（事実）**: (1) 陰的な積分は無い。硬い系は刻みが小さくなりすぎて `Error::Fmu` で止まる（`Roberts`〔3.0〕は未確認、試していない）。(2) `fmi2Discard` / `fmi3Discard`（FMU が値を受け付けない）は失敗として止める。刻みを縮めて再試行しない。(3) 入力（`causality = input`）の設定は初期化の前のパラメータだけ。連続時間の入力の関数は渡せない。(4) `Integer`・`Boolean`・`String`・配列の変数は読み書きできない（Stair の `counter` は出力に出ない）。(5) 同時刻の事象は 100 回、全体では 10 万回で止める（Zeno の防止）。(6) FMU の状態の保存・復元（`GetFMUstate`）は使わない。(7) SE・Clocks は未。
+- **限界（事実）**: (1) 陰的な積分は無い。硬い系は刻みが小さくなりすぎて `Error::Fmu` で止まる（`Roberts`〔3.0〕は未確認、試していない）。(2) ~~`fmi2Discard` / `fmi3Discard`（FMU が値を受け付けない）は失敗として止める。刻みを縮めて再試行しない。~~ → **S206 で直した（(m)）**: Dormand–Prince は `Discard` と有限でない誤差を却下して刻みを 0.2 倍にして再試行する。RK4（固定刻み）と二分法の中は縮めず `Error::Discard` で止まる。(3) 入力（`causality = input`）の設定は初期化の前のパラメータだけ。連続時間の入力の関数は渡せない。(4) `Integer`・`Boolean`・`String`・配列の変数は読み書きできない（Stair の `counter` は出力に出ない）。(5) 同時刻の事象は 100 回、全体では 10 万回で止める（Zeno の防止）。(6) FMU の状態の保存・復元（`GetFMUstate`）は使わない。(7) SE・Clocks は未。
 - **確かめ方と許容差**: [解説書](../sessions/S205-fmi-import-me/解説書.md)の表。FMU が同梱する参照の CSV は FMU の **CS が前進 Euler で作った**ものなので、積分器が違う ME とはビット一致しない（特に BouncingBall は衝突の前後で `v` の符号が逆になるので点ごとの比較は意味がない）。そこで Dahlquist と BouncingBall は**解析解**と、VanDerPol は**独立な 2 つの積分（RK4 の刻み 1e-3 と、許容誤差 1e-10 の Dormand–Prince）の一致**と比べ、CSV は目安（BouncingBall は衝突の回数と時刻の格子への収まり、VanDerPol は最初の 2 秒）にした。
 
 ### (k) 持ち越し（次の WP の順番）
 
-1. ~~ME（`FmuMe`）~~ **S205 で済み**（(l)）。残り: 陰的な積分（硬い系）、`HybridSystem` へのアダプタ、`Discard` での刻みの再試行、連続時間の入力。
+1. ~~ME（`FmuMe`）~~ **S205 で済み**（(l)）。残り: 陰的な積分（硬い系）、`HybridSystem` へのアダプタ、連続時間の入力（`Discard` の再試行は S206 で済み）。
 2. ワーカーのプロセスの中で読み込む（FMU が落ちても CLI・UI が落ちない）。
 3. facade（`import_fmu`）と UI の「FMU を開く」（確認のダイアログつき）、Python・C ABI からの呼び出し。
 4. コシミュレーションのマスター（Jacobi / Gauss–Seidel、系の構成は SSP か `.gmsys`）、SE（Clocks）、Integer・Boolean・String・配列の変数。
-5. 案 B（(g) の条件がそろったら）、Modelica のモデルから FMU の部品を使う。
+5. ~~案 B（(g) の条件がそろったら）~~（S206 で取り下げ。(m)）、Modelica のモデルから FMU の部品を使う。
+6. (m) の表の「自前に無いもの」のうち、上の順番に入っていない項目（FMU の状態の保存・復元、方向微分、`Reset`・ログの切り替え、CS の early return・Event Mode・出力の微分、3.0 の構造パラメータ）。
+
+### (m) S206 の決定（2026-11-07）: 案 B は「自前で作る」。FMI Import は全部、案 A の `globe-mode-fmi-import` で進める
+
+- **ユーザーの決定**（2026-11-07）: 「FMI Import の案 B: 自前で作成」。**この解釈はエージェント（親）のもので、ユーザーが違うと言えば直す**: crate `fmi`（jondo2010、0.8）は入れない。案 B で得るはずだったもの（版を問わない Import の機能一式）も、依存を増やさずに `globe-mode-fmi-import` へ自前で足していく。(g) の「戻す条件」は**採らない**（上で打ち消した）。`doc/licenses.md` の `fmi` の行は「入れない（自前で作る）」にした。
+- 理由: (g) の 3 点（zip 8 の勧告 4 件、Cargo.lock の 67 パッケージ増、3.0 の `resourcePath`）は上流の更新待ちで、S205 までに自前の ME・CS が 2.0・3.0 で Reference-FMUs と一致した（工数の見積りも外れて小さかった）。依存を増やす利点が薄い。
+- **案 B（crate `fmi` 0.8.0）にあって、自前にまだ無いもの**（出典: <https://docs.rs/crate/fmi/0.8.0/features>、<https://docs.rs/fmi/0.8.0/fmi/>、<https://github.com/jondo2010/rust-fmi> の README、tag v0.8.0 の `fmi/src/fmi2|fmi3/instance/*.rs` の関数名。確認日 2026-11-07。コードは写していない）:
+
+  | 案 B の機能 | 自前の現状 | 行き先 |
+  | --- | --- | --- |
+  | Integer・Boolean・String・Binary の get / set、配列 | Float64 のスカラだけ | (k) 4 に入っている |
+  | Scheduled Execution（3.0 の `instantiate_se`、`activate_model_partition`）と Clock（`get_clock` / `set_clock`） | 無い | (k) 4 に入っている（SE・Clocks） |
+  | 系の組み立て（`fmi-sim`「work-in-progress の FMU シミュレーションのマスター」） | 無い（`run_cs` は FMU 1 つ） | (k) 4 のマスターに入っている。案 B 側も未完成なので、持っていない |
+  | `import::from_path` / `peek_descr_path`（版を見てから展開） | `read_model_description`（XML だけ）と `Fmu::open`（展開）がある | 足りている |
+  | CS の `do_step_status` / `cancel_step` / `pending_status` / `last_successful_time` / `terminated`（2.0）、`enter_step_mode` / `get_output_derivatives` / early return / Event Mode（3.0 の CS） | `do_step` だけ。3.0 は `eventModeUsed = false`・`earlyReturnAllowed = false` で呼ぶ | **足す**: (k) 6。非同期の CS と、マスターの後ろ向きの修正に要る |
+  | FMU の状態の保存・復元（`get_fmu_state` / `set_fmu_state` と直列化） | 使わない（`noSetFMUStatePriorToCurrentPoint = true`） | **足す**: (k) 6。マスターのやり直し・ME の巻き戻しに要る |
+  | 方向微分（2.0 の `get_directional_derivative`）、3.0 の変数の依存（`get_variable_dependencies`） | 無い | **足す**: (k) 6。陰的な積分のヤコビアンに要る |
+  | `reset`、`set_debug_logging`、logger の整形（書式の展開） | `Terminate` + `FreeInstance` だけ。logger は Error / Fatal を標準エラーに出すだけ（2.0 は可変長引数を読まない） | **足す**: (k) 6。`globe fmu run --log` |
+  | 3.0 の構造パラメータ（`enter_configuration_mode` / `exit_configuration_mode`） | 無い | **足す**: (k) 6 |
+  | `fmi-schema` の完全なスキーマ（単位、型定義、依存の情報など） | `globe-mode-fmi` が変数表・`DefaultExperiment`・`ModelStructure` の一部を読む | 必要になった所だけ `globe-mode-fmi` に足す（S206 で `stepSize` を足した） |
+  | Export（`fmi-export`、`cargo-fmi`） | 自前の Export（P5a、`globe-mode-fmi` の `export`・`globe-mode-fmu`）がある | 足りている |
+  | FMI-LS-BUS（`ls-bus`）、Arrow の出力（`arrow`） | 無い | 採らない（要望が出たら別の ADR） |
+
+  上の「足す」は、(k) の 2〜4 の WP の中で必要になった順に入れる。
+- **S206 のコードの直し**（レビュー [log/review/2026-11-07-s206-fmi-import-review-fixes-fable.md](../../log/review/2026-11-07-s206-fmi-import-review-fixes-fable.md) への対応）: (1) 有限でない誤差の却下と `Discard` の再試行（出典: FMI 2.0.5 §2.1.3「For "model exchange": It is recommended to perform a smaller step size and evaluate the model equations again」<https://github.com/modelica/fmi-standard/blob/v2.0.5/docs/2_1_common_api.adoc>、FMI 3.0 §2.2.4「Advanced importers may try alternative approaches to continue the simulation」<https://fmi-standard.org/docs/main/>、確認日 2026-11-07。`Error`・`Fatal` は止める）、(2) 出力の格子の上限 1000 万点、(3) `DefaultExperiment.step_size`、(4) 3.0 の真偽の出力引数を `u8` で受ける。
 
 ## 結果
 
+- **S206 の結果**: 上の (m)。案 B は採らず自前で進める。レビューの指摘 4 件を直した。
 - **S205 の結果**: 上の (l)。`FmuMe` が FMI 2.0・3.0 で動き、BouncingBall の衝突 11 回の時刻が解析解と 3.2e-11 で一致する。`globe fmu run --kind me`。
 - **S204 の結果**: 上の (f)〜(k)。`globe-mode-fmi-import` が workspace に入り、`globe fmu info` / `run` がある。FMI 2.0・3.0 の Co-Simulation が Reference-FMUs の参照の CSV と全桁で一致する。案 B は入れていない（ユーザーの判断待ち）。
 - （以下は S057 の結果）`globe-mode-fmi` が workspace に入り、`modelDescription.xml` の変数表が 2.0 と 3.0 で同じ形で読める（試験 4 本、Reference-FMUs の Dahlquist と Feedthrough で 2.0 と 3.0 の変数表が一致）。
