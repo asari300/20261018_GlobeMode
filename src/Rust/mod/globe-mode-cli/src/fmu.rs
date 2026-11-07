@@ -227,6 +227,7 @@ fn run_fmu(
             step: c.step,
             outputs: c.outputs,
             set: c.set,
+            work_dir: None, // run_in_worker が親の側で作る
         },
         &mut |t| {
             if limits.progress {

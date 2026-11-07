@@ -119,7 +119,7 @@ int fmi2DoStep(C c, double t, double h, int nosetprior) {
 }
 "#;
 
-const XML: &str = r#"<fmiModelDescription fmiVersion="2.0" modelName="Crash" guid="{1}" numberOfEventIndicators="0">
+const XML: &str = r#"<fmiModelDescription fmiVersion="2.0" modelName="Crash" guid="{GUID}" numberOfEventIndicators="0">
 <CoSimulation modelIdentifier="crash"/>
 <DefaultExperiment startTime="0" stopTime="2" stepSize="0.01"/>
 <ModelVariables><ScalarVariable name="y" valueReference="0" causality="output" variability="continuous"><Real/></ScalarVariable></ModelVariables>
@@ -127,11 +127,17 @@ const XML: &str = r#"<fmiModelDescription fmiVersion="2.0" modelName="Crash" gui
 
 /// 落ちる FMU を組み立てる。`cc` が無い・Windows なら None。
 fn crash_fmu(mode: u32) -> Option<PathBuf> {
+    crash_fmu_tagged(mode, "1")
+}
+
+/// `tag` は modelDescription.xml の guid に入る（展開先が残っていないかを、ほかの試験と取り違えずに探すため）。
+fn crash_fmu_tagged(mode: u32, tag: &str) -> Option<PathBuf> {
     if cfg!(windows) || Command::new("cc").arg("--version").output().is_err() {
         eprintln!("skip: Windows か、cc が無い");
         return None;
     }
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("globe-fmu-worker-{mode}"));
+    let dir =
+        PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("globe-fmu-worker-{mode}-{tag}"));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("crash.c"), C).unwrap();
@@ -152,7 +158,8 @@ fn crash_fmu(mode: u32) -> Option<PathBuf> {
     let mut w = zip::ZipWriter::new(std::fs::File::create(&fmu).unwrap());
     let opts = zip::write::SimpleFileOptions::default();
     w.start_file("modelDescription.xml", opts).unwrap();
-    w.write_all(XML.as_bytes()).unwrap();
+    w.write_all(XML.replace("{GUID}", &format!("{{{tag}}}")).as_bytes())
+        .unwrap();
     // 2.0 は x86_64 だけ旧名（linux64 など）も試すが、新名（<arch>-<os>）で足りる
     w.start_file(
         format!(
@@ -185,6 +192,19 @@ fn children() -> Option<usize> {
     Some(n)
 }
 
+/// #49: 展開した FMU（guid が `tag` のもの）の一時ディレクトリが残っている数。
+fn leaked_unpacked(tag: &str) -> usize {
+    std::fs::read_dir(std::env::temp_dir())
+        .unwrap()
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().starts_with("globe-fmu-"))
+        .filter(|e| {
+            std::fs::read_to_string(e.path().join("modelDescription.xml"))
+                .is_ok_and(|x| x.contains(tag))
+        })
+        .count()
+}
+
 fn assert_no_children() {
     if let Some(n) = children() {
         assert_eq!(n, 0, "子のプロセスが残っている（zombie か孤児）");
@@ -207,10 +227,12 @@ fn crashing_fmus_are_reported_and_leave_no_process() {
 
     // abort（Instantiate）と segfault（DoStep）: 終了の状態が文面に入る
     // segfault は macOS では SIGBUS のこともある
+    // #49: kill・クラッシュで終わっても、展開した FMU の一時ディレクトリが残らない
+    let tag = format!("leak-{}", std::process::id());
     for (mode, signal) in [(1, "SIGABRT"), (4, "SIG")] {
         let e = run_in_worker(
             &globe_spec(),
-            &request(&crash_fmu(mode).unwrap()),
+            &request(&crash_fmu_tagged(mode, &tag).unwrap()),
             &mut |_| {},
         )
         .unwrap_err();
@@ -222,13 +244,23 @@ fn crashing_fmus_are_reported_and_leave_no_process() {
         }
         eprintln!("mode {mode}: {m}");
         assert_no_children();
+        assert_eq!(
+            leaked_unpacked(&tag),
+            0,
+            "mode {mode}: 展開した FMU が残っている"
+        );
     }
 
     // 無限ループ: 時間の上限で kill される
     let mut spec = globe_spec();
     spec.timeout = Some(Duration::from_millis(1500));
     let started = Instant::now();
-    let e = run_in_worker(&spec, &request(&crash_fmu(2).unwrap()), &mut |_| {}).unwrap_err();
+    let e = run_in_worker(
+        &spec,
+        &request(&crash_fmu_tagged(2, &tag).unwrap()),
+        &mut |_| {},
+    )
+    .unwrap_err();
     assert!(matches!(e, Error::Worker(_)), "{e}");
     assert!(e.to_string().contains("終わらないので止めた"), "{e}");
     assert!(
@@ -238,6 +270,7 @@ fn crashing_fmus_are_reported_and_leave_no_process() {
     );
     eprintln!("無限ループ: {e}");
     assert_no_children();
+    assert_eq!(leaked_unpacked(&tag), 0, "kill: 展開した FMU が残っている");
 
     // メモリの食いつぶし（Linux だけ。上限なしで回すとホストのメモリを食うので、上限つきでだけ回す）
     if cfg!(target_os = "linux") {
