@@ -136,3 +136,19 @@ C ABI（`globe-mode-c`）と NIF（`globe-mode-nif`）に同じコードが 4 �
 | 列の応答の見出しの JSON（`response`・`names`・`points`・`defaults`） | `Simulated::layout_json(&ColumnsLayout)` | 使用済み | Python の `simulate_columns`・wasm の `SimColumns` が同じ形を手で組み立てている（置き換え可） |
 | 進捗の段の名前（`format!("{:?}", stage).to_lowercase()`） | `ExecStage::as_str()` | 使用済み | Python・wasm・LSP（`globe-mode-lsp`）が `format!` のまま（置き換え可。結果は同じ文字列） |
 | outline の誤りの文面（ファイルが無い・最初の診断の `コード: 文`） | `Workspace::outline_json(path)` | 使用済み | Python は例外に直す別の形なので寄せられるか未確認。wasm は誤りを返さない別の形 |
+
+### S208（2026-11-07）で Python・wasm・LSP も寄せた
+
+上の表で「置き換え可」としたものを寄せ、同じ処理が 3 つ以上の面にあったものを facade に足した。応答の JSON・例外の型と文面・進捗の形は変えていない。
+
+| 処理 | facade の関数 | 使う面 |
+| --- | --- | --- |
+| 設定の JSON から要求 | `simulate_request` | C・NIF・Python |
+| 進捗の段の名前 | `ExecStage::as_str` | C・NIF・Python・wasm・LSP |
+| outline の誤りの文面 | `Workspace::outline_json` | C・NIF・Python・wasm |
+| 列の道の layout | `Simulated::columns` | C・NIF・Python・wasm・LSP（LSP は手で組み立てていた） |
+| `FmuOptions` の JSON | `FmuOptions::from_json` | C・NIF・Python |
+| ライブラリの有無で `new` / `with_libraries` | `Workspace::open` | C・NIF・Python |
+| 値を JSON の文字列に（`JSON: …`） | `to_json` | C・NIF・Python・wasm |
+
+`Simulated::layout_json` は C と NIF だけ（Python の応答は `response` に `defaults` を足した形、wasm は `ColumnsLayout` だけ、LSP は `{response, layout, columns}` と、面ごとに形が違う）。
