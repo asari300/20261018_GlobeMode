@@ -44,7 +44,7 @@
 - `mise run elixir:test`: 7 本通過（約 70 秒、release のビルドを含む）。`gleam:test`: 3 本通過。`c:zig`: 通過（110 s）。`c:julia`: 通過（`callback exception: ok`）。
 - `mise run check`: 通過（fmt・clippy・test・deny・`uv sync --locked`。clippy の `unit_arg` と fmt で 1 回ずつ落ちて直した）。
 - `check_docs.py`: スライド OK / 文書 852 件・リンク 4143 件中の切れ 0 件。`render_slides.py`: デッキ 1 件・問題 0 件。
-- CI の run: 下の「仕上げ」。
+- CI（feature ブランチ、2026-11-07）: `ci.yml` 全体検査（`full=true`）run 42331734738 success、`vscode.yml` run 42331737707 success。
 
 ## 残したこと
 
