@@ -547,6 +547,10 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - 試験: `test_ui.py` に 1 本（初回の案内と閉じる・smoke で出ない、スキップリンク、矢印・Home・End と tabindex、編集で印・再読み込み・beforeunload・保存で消える）。`pnpm check` 0 警告。
 - 持ち越し: タブの並べ替え（ドラッグ）、ツリーのアイコン、案内の多言語化、案内を出し直す操作、Esc で止める、スクリーンリーダーの実機（【未確認】）。
 
+### S209（P4、2026-11-07）で済んだこと
+
+- **`fmt` / `lint` の標準入力は `--json` でも `-` だけ**（[解説書](sessions/S209-fmt-stdin-dash/解説書.md)）: S199 が残した `--json` のパスなしの例外を、ユーザーの決定で無くした。**挙動が変わる**: `globe fmt --json` / `globe lint --json` のパスなしは使い方を出して終了コード 2。ウェブアプリ 6 種（FastAPI・Streamlit・marimo・Phoenix・Wisp・Astro）の呼び出しを `--json -` に直し、各アプリの試験を手元で回した（CI は無い）。Rust のウェブアプリ 4 種は crate を直接使うので影響なし。
+
 ### S200（P7、2026-11-06）で済んだこと
 
 - **Python の例外の階層とレビューの指摘**（[解説書](sessions/S200-python-exceptions-review-fixes/解説書.md)）: `GlobeModeError`（`.diagnostics`・`.code`）の子 6 つ（`LibraryError`＝`RuntimeError`、`SettingsError`・`ModelNotFoundError`・`SourceError`・`ExportError`・`ResultError`＝`ValueError`）。`on_progress` をキーワード専用に（挙動が変わる）、`on_progress` が無くても GIL を離す、設定の numpy の数・NaN・`None`、bytes のライブラリ、`export_fmu` の `targets` の文字列、列の道の写しを 1 回減らした。「未知のモデルを例外にするか」は変えていない（`check` は `passed: False`）。
@@ -1158,7 +1162,7 @@ S177（2026-11-05、S175 までが main にある状態）で、各節の「持�
 | 機能の穴（P8） | 拡充 | Diagram / Icon ビュー、Documentation ビュー、パラメータダイアログ、SSP 2.0.1、BLT の可視化と変換デバッガ、線形化、パッケージマネージャ（`uses` の版） | features.md |
 | 機能の穴（CLI・Python） | 使える流れの点検（S178） | 通る流れは通る。穴は誤った使い方の手がかり（ライブラリのモデル名の候補、`-L`、負の数、`fmt --check` が CI で黙って通る、`-o` なしで結果を捨てる）、未対応（GM-U）の終了コード、Python の型・例外・既定ソルバでの進捗と中断、CLI の面（`graph` などに `-L`、MSL を取る道）、FMU `--build` の入口。順位付き 13 件と WP の案は [調査](research/cli-python-flow-2026-11-06.md) | S178 |
 | 機能の穴（UI・CLI・Python） | 並行で入れた 16 本の再点検（S185） | S164・S178 の穴は大半が直った（ブラウザ版の例題 10 本中 9 本が通り、CLI の誤った使い方は 21 通り中 9 が直った）。残りと新しい食い違い 10 件: README の「既知の限界」が補完と検索を「無い」と書いたまま、クラス名のリネームでモデル名の欄が古いまま、入れ子のクラスを開いても位置へ動かない、~~FMU のファイル名（2.0 と 3.0 が同じ）と MSL の例題での英語の失敗~~（S189 で済）、`-L` を忘れた・サブフォルダの案内、候補の質、キーボードの細部。上位 10 と WP の組（A 文書、B App、C CLI・frontend、~~D FMU~~）は [調査](research/app-flow-2026-11-06.md) | S185 |
-| 決まり（2026-11-06） | S185 の再点検に対するユーザーの決定 | 済: エディタの Tab は字下げ（S188）、プロットの既定は状態を先に（S190）、`src/Modelica` を `globe fmt` で整形し FMU の既定のファイル名を `<名前>-fmi2.fmu` / `-fmi3.fmu` に（S189）、ADR-0032・0034・0035・0036 を Accepted に（S194）、上流の再現用 `.mo` を `globe fmt` で整形（S194）。別の WP で実装: **FMI Import は案 A と案 B の両方**、**Python に例外の階層を入れる**、**補完中の Tab は候補の確定、再実行時は選択を保つ**、CLI の終了コードなど（未対応だけのときは終了コード 3、`fmt` の標準入力は `-` を明示したときだけ、MSL の取得コマンドは足さず README で案内。親が決めて別の WP） | S185・S188・S189・S190・S194 |
+| 決まり（2026-11-06） | S185 の再点検に対するユーザーの決定 | 済: エディタの Tab は字下げ（S188）、プロットの既定は状態を先に（S190）、`src/Modelica` を `globe fmt` で整形し FMU の既定のファイル名を `<名前>-fmi2.fmu` / `-fmi3.fmu` に（S189）、ADR-0032・0034・0035・0036 を Accepted に（S194）、上流の再現用 `.mo` を `globe fmt` で整形（S194）。別の WP で実装: **FMI Import は案 A と案 B の両方**、**Python に例外の階層を入れる**、**補完中の Tab は候補の確定、再実行時は選択を保つ**、CLI の終了コードなど（未対応だけのときは終了コード 3、`fmt` の標準入力は `-` を明示したときだけ（`--json` も S209）、MSL の取得コマンドは足さず README で案内。親が決めて別の WP） | S185・S188・S189・S190・S194 |
 | 機能の穴（Track B） | 自前コア | 未着手（`Frontend` の feature `native` はまだ無い）。IDE の機能を先に自前にする | P4 以降 |
 
 ## 運用上の決まり

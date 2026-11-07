@@ -358,7 +358,7 @@ fn unsupported_only_is_exit_code_three() {
     assert_eq!(o.status.code(), Some(1), "{o:?}");
 }
 
-/// `fmt` / `lint` の標準入力は `-` を明示したときだけ（`--json` は標準入力の契約）。パスも `-` も無ければ使い方で終了コード 2。
+/// `fmt` / `lint` の標準入力は `-` を明示したときだけ（`--json` も同じ。S209）。パスも `-` も無ければ使い方で終了コード 2。
 #[test]
 fn stdin_needs_an_explicit_dash() {
     use std::io::Write;
@@ -373,7 +373,14 @@ fn stdin_needs_an_explicit_dash() {
         let _ = c.stdin.take().unwrap().write_all(input.as_bytes());
         c.wait_with_output().unwrap()
     };
-    for args in [&["fmt"][..], &["fmt", "--check"], &["lint"]] {
+    // S209: `--json` もパスか `-` が要る
+    for args in [
+        &["fmt"][..],
+        &["fmt", "--check"],
+        &["lint"],
+        &["fmt", "--json"],
+        &["lint", "--json"],
+    ] {
         let o = run(args, MESSY);
         assert_eq!(o.status.code(), Some(2), "{args:?}: {o:?}");
         assert!(
@@ -389,9 +396,9 @@ fn stdin_needs_an_explicit_dash() {
         "model A\n\n  Real x(start = 1);\n\nend A;\n",
         "{o:?}"
     );
-    let o = run(&["fmt", "--json"], MESSY);
+    let o = run(&["fmt", "--json", "-"], MESSY);
     assert!(out(&o).contains("\"ok\":true"), "{}", out(&o));
-    let o = run(&["lint", "--json"], MESSY);
+    let o = run(&["lint", "--json", "-"], MESSY);
     assert!(out(&o).contains("\"messages\""), "{}", out(&o));
 }
 

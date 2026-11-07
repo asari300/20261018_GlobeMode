@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S209 fmt と lint の標準入力は - だけ — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S209 fmt と lint の標準入力は - だけ">
+
+<section class="slide" id="S01">
+  <span class="tag">S209 · 2026-11-07 · P4</span>
+  <h1>fmt と lint の標準入力は <code>-</code> だけ</h1>
+  <p class="lead">S199 が残した <code>--json</code> のパスなしの例外を無くした。ユーザーの決定「<code>-</code> を必須にすべて揃える」</p>
+  <div class="big"><code>globe fmt --json</code> は<b>終了コード 2</b>。ウェブアプリ 6 種は <code>--json -</code> に直した</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>CLI: <code>--json</code> でもパスか <code>-</code> を必須に</li>
+    <li>呼び出し元を洗い、全部直し、各アプリの試験を実際に回す</li>
+    <li>文書と CHANGELOG に、利用者から見て挙動が変わると書く</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>CLI の前後</h1>
+  <table class="compact">
+    <tr><th>呼び方</th><th>前</th><th>後</th></tr>
+    <tr><td><code>fmt -</code> / <code>fmt --json -</code></td><td>標準入力</td><td>同じ</td></tr>
+    <tr><td><code>fmt --json</code>（パスなし）</td><td>標準入力</td><td>使い方、終了コード 2</td></tr>
+    <tr><td><code>fmt</code> / <code>lint</code>（パスなし）</td><td>終了コード 2</td><td>同じ</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由</span>
+  <h1>呼び出し元</h1>
+  <table class="compact">
+    <tr><th>場所</th><th>試験</th></tr>
+    <tr><td>FastAPI</td><td>直す前に 3 本落ち、直して 6 本通る</td></tr>
+    <tr><td>Streamlit・marimo</td><td>2 本・3 本通る</td></tr>
+    <tr><td>Phoenix・Wisp・Astro</td><td>9 本・5 本・3 本通る</td></tr>
+    <tr><td>Rust の 4 種</td><td>CLI を呼ばない（crate を直接使う）ので影響なし</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>echo 'model M end M;' | globe fmt --json -    # ok:true
+echo 'model M end M;' | globe fmt --json      # 終了コード 2</code></pre>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>ウェブアプリには CI が無い。手元で回した結果が唯一の確認</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

@@ -1,4 +1,4 @@
-"""globe CLI（`globe fmt --json` / `globe lint --json`）を子プロセスで呼ぶ。計算は Rust 側だけ。"""
+"""globe CLI（`globe fmt --json -` / `globe lint --json -`）を子プロセスで呼ぶ。計算は Rust 側だけ。"""
 
 import json
 import os
@@ -23,7 +23,7 @@ def _run(args: list[str], text: str) -> dict:
 
 def fmt(text: str, indent: int = 2, insert_origin: bool = True) -> dict:
     """{"ok", "text", "error"} を返す。文法が壊れていれば ok は False。"""
-    args = [os.environ.get("GLOBE_BIN", "globe"), "fmt", "--json", "--indent", str(indent)]
+    args = [os.environ.get("GLOBE_BIN", "globe"), "fmt", "--json", "-", "--indent", str(indent)]
     if not insert_origin:
         args.append("--no-insert-origin")
     return _run(args, text)
@@ -31,4 +31,4 @@ def fmt(text: str, indent: int = 2, insert_origin: bool = True) -> dict:
 
 def lint(text: str) -> list[dict]:
     """{"file", "rule", "line", "column", "message"} の並びを返す。"""
-    return _run([os.environ.get("GLOBE_BIN", "globe"), "lint", "--json"], text)["messages"]
+    return _run([os.environ.get("GLOBE_BIN", "globe"), "lint", "--json", "-"], text)["messages"]

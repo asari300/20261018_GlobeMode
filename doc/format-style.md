@@ -83,14 +83,14 @@ globe fmt src/Modelica a.mo         # ファイルとディレクトリを混ぜ
 globe fmt --check .                 # 書き換えず、整形が要るファイルを列挙して終了コード 1
 globe lint .                        # カレントディレクトリの下を lint
 globe fmt - < a.mo                  # `-` は標準入力 → 標準出力（lint も同じ）
-echo 'model M end M;' | globe fmt --json   # 標準入力（ウェブアプリの契約）。{"ok":true,"text":"…","error":null}
+echo 'model M end M;' | globe fmt --json -   # 標準入力（ウェブアプリの契約）。{"ok":true,"text":"…","error":null}
 ```
 
 ディレクトリの辿り方は ruff に倣う（S060）。
 
 - `.gitignore` に書いたものと、隠しディレクトリ（`.git` や `.venv` など）は辿らない。git の外でも `.gitignore` を読む。明示したファイルは除外しない。
 - 壊れたファイルがあっても残りを続け、最後に要約（「3 ファイルを整形した、66 ファイルは変更なし」）を出す。壊れたファイルがあれば終了コード 2。
-- 標準入力を読むのは、`-` を渡したときと、パスなしの `--json`（ウェブアプリとエディタの呼び方）だけ。パスも `-` も `--json` も無ければ、使い方の 1 行を出して終了コード 2（S199。以前は入力がパイプなら標準入力を読み、`--check` が何も検査せず 0 で終わった）。
+- 標準入力を読むのは `-` を渡したときだけ（`--json` でも同じ。ウェブアプリは `globe fmt --json -`）。パスも `-` も無ければ、使い方の 1 行を出して終了コード 2（S199。以前は入力がパイプなら標準入力を読み、`--check` が何も検査せず 0 で終わった。S209 で `--json` のパスなしの例外も無くした）。
 
 VS Code では拡張 [src/VSCode/globe-mode](../src/VSCode/globe-mode/README.md)（S059）を入れると、Shift+Alt+F（拡張が `.mo` に割り当てる。S060）で整形し、lint は編集中に波線で出る。保存時の整形は設定 `globeMode.formatOnSave`（既定はオフ）。拡張は `.mo` の既定を `editor.tabSize: 2` にする（LSP の整形は tabSize をインデントに使うため）。
 

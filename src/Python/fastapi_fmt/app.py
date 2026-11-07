@@ -64,7 +64,7 @@ def healthz() -> dict:
 
 @app.post("/api/format")
 def format_text(req: FormatRequest) -> dict:
-    args = ["fmt", "--json", "--indent", str(req.indent), "--width", str(req.width)]
+    args = ["fmt", "--json", "-", "--indent", str(req.indent), "--width", str(req.width)]
     if not req.insert_origin:
         args.append("--no-insert-origin")
     return parse_json(run_globe(args, req.text))
@@ -72,7 +72,7 @@ def format_text(req: FormatRequest) -> dict:
 
 @app.post("/api/lint")
 def lint_text(req: LintRequest) -> dict:
-    args = ["lint", "--json"]
+    args = ["lint", "--json", "-"]
     for rule in req.disable:
         args += ["--disable", rule]
     data = parse_json(run_globe(args, req.text))
