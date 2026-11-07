@@ -8,7 +8,7 @@ English: a Zig example that links the GlobeMode C ABI (`globe-mode-c`) and runs 
 mise run c:zig   # cargo build --release -p globe-mode-c → zig build run
 ```
 
-最初の例（自分の `main.zig` に置くと、`src/Zig` で `zig build run -Dlib-dir=<target/release>` で回る。`src/main.zig` を縮めたもの。`mise run c:zig` は元の `main.zig` を回す）:
+最初の例（自分の `main.zig` に置くと、`src/Zig` で `zig build run -Dlib-dir=<target/release>` で回る。`src/main.zig` を縮めたもの。`mise run c:zig` は元の `main.zig` を回す）は次のとおり。
 
 ```zig
 const std = @import("std");
