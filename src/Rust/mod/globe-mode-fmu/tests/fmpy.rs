@@ -200,6 +200,38 @@ fn explicit_euler_through_the_c_abi() {
     let _ = std::fs::remove_dir_all(dir.parent().unwrap());
 }
 
+/// #40: FMPy の `start_values={'x': 5, 'k': 2}` と同じ順（状態 x を書き、パラメータ k を書き、Exit）。
+/// パラメータの変更で作り直しても、x の開始値は戻らない。開始時刻を変えたときも同じ。
+#[test]
+fn state_start_values_survive_a_rebuild() {
+    let (model, text) = source("Decay");
+    let dir = resources("start_values", &model, &text);
+    let location = CString::new(format!("file://{}", dir.display())).unwrap();
+    let guid = CString::new(guid(&model, &text)).unwrap();
+    unsafe {
+        let c = fmi2Instantiate(
+            c"d".as_ptr(),
+            0,
+            guid.as_ptr(),
+            location.as_ptr(),
+            std::ptr::null(),
+            0,
+            0,
+        );
+        assert!(!c.is_null());
+        assert_eq!(fmi2SetupExperiment(c, 0, 0.0, 0.5, 0, 0.0), 0);
+        assert_eq!(fmi2EnterInitializationMode(c), 0);
+        assert_eq!(fmi2SetReal(c, [0].as_ptr(), 1, [5.0].as_ptr()), 0);
+        assert_eq!(fmi2SetReal(c, [2].as_ptr(), 1, [2.0].as_ptr()), 0);
+        assert_eq!(fmi2ExitInitializationMode(c), 0);
+        let mut v = [0.0; 2];
+        assert_eq!(fmi2GetReal(c, [0, 2].as_ptr(), 2, v.as_mut_ptr()), 0);
+        assert_eq!(v, [5.0, 2.0], "x の start 値と k の上書きが両方残る");
+        fmi2FreeInstance(c);
+    }
+    let _ = std::fs::remove_dir_all(dir.parent().unwrap());
+}
+
 /// cdylib を作り、`model` を FMU に詰めて FMPy の ME で回す。終了時刻での `names` の値と事象の回数
 /// （`events`・`reinit`）を `名前=値` で並べた出力を返す。FMPy が使えなければ None。
 /// `input` は FMPy の `input=` に渡す入力（`{"u": [[時刻, 値], …]}` の JSON。無ければ空）。
