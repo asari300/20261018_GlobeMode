@@ -33,7 +33,7 @@
 - `mise run c:zig`・`c:julia`・`elixir:test`（5 tests）・`gleam:test`（3 passed）: ok。
 - Python: `uv sync --reinstall-package globe-mode` のあと `pytest` 42 passed・1 skipped（`anywidget` が無い）。`mypy` は `uvx` で `anywidget`・`traitlets` が見つからない 3 件（optional の extra。この変更と無関係で、Python の側は変えていない）。
 - `check_docs.py`: スライド全部 OK、リンク 838 文書 / 相対リンク 4101 件 / 切れ 0 件。`render_slides.py`（S208 のデッキ）: 7 枚、問題 0 件。
-- CI の run: 下に追記。
+- CI（feature へ dispatch、コミット ddb1938）: `ci.yml -f full=true` run 42320394067 success、`release.yml` の dry run 42320397832 success（全ジョブ。Release とタグは無し）、`vscode.yml` 42320401027 success。
 - issue #16: 5 つの項目がすべて済んだ（`fixed.rs`・`tableau()`・`db()`・`.mjs` の写し・`read_mat4` は S203、`memory.mjs` と xtask の `None` 分岐はこのセッション）ので `Fixes #16`。
 
 ## 残したこと
