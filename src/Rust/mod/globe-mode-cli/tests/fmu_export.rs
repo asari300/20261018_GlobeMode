@@ -44,6 +44,11 @@ fn exports_a_source_fmu() {
     let xml = std::fs::read_to_string(root.join("modelDescription.xml")).unwrap();
     let md = globe_mode_fmi::parse_model_description(&xml).unwrap();
     assert_eq!(md.fmi_version, "2.0");
+    // #48: モデルの experiment(StopTime = 1, Tolerance = 1e-8) が <DefaultExperiment> に出る（FMPy・globe fmu run の既定になる）
+    let e = md.default_experiment.as_ref().expect(&xml);
+    assert_eq!(e.stop_time.as_deref(), Some("1.0"), "{xml}");
+    assert_eq!(e.tolerance.as_deref(), Some("1e-8"), "{xml}");
+    assert!(e.start_time.is_none(), "{xml}");
     assert!(md.model_exchange.is_some());
     assert!(md.variables.iter().any(|v| v.name == "x"), "{xml}");
     // S117: P5a の XML（Rumoca のテンプレート）も P5b の書く側を通して読み直すと同じ表になる
@@ -87,6 +92,11 @@ fn exports_a_fmi3_source_fmu() {
     let xml = std::fs::read_to_string(root.join("modelDescription.xml")).unwrap();
     let md = globe_mode_fmi::parse_model_description(&xml).unwrap();
     assert_eq!(md.major(), Some(3));
+    // #48: モデルの experiment(StopTime = 1, Tolerance = 1e-8) が <DefaultExperiment> に出る（FMPy・globe fmu run の既定になる）
+    let e = md.default_experiment.as_ref().expect(&xml);
+    assert_eq!(e.stop_time.as_deref(), Some("1.0"), "{xml}");
+    assert_eq!(e.tolerance.as_deref(), Some("1e-8"), "{xml}");
+    assert!(e.start_time.is_none(), "{xml}");
     assert!(md.model_exchange.is_some() && md.co_simulation.is_some());
     // S124: 3.0 の XML も 3.0 の書く側を通して読み直すと同じ表になる
     let again = globe_mode_fmi::write_model_description_3(&md).unwrap();

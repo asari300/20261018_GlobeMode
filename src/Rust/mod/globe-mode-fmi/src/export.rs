@@ -57,7 +57,26 @@ pub fn export_me_sources(model: &CompiledModel, fmi_version: u8) -> Result<MeSou
         .ok_or(format!(
             "Rumoca の {target} が modelDescription.xml を描かなかった"
         ))?;
-    let (_, xml) = files.remove(at);
+    let (_, mut xml) = files.remove(at);
+    // #48: Rumoca のテンプレートは <DefaultExperiment> を描かない。モデルの experiment があれば <ModelVariables の前に 1 回挿す
+    // （P5b の describe と同じ値の取り方: startTime・stopTime・tolerance）
+    if let Some(e) = &model.experiment
+        && !xml.contains("<DefaultExperiment")
+        && let Some(i) = xml.find("<ModelVariables")
+    {
+        let attrs: String = [
+            ("startTime", e.start_time),
+            ("stopTime", e.stop_time),
+            ("tolerance", e.tolerance),
+        ]
+        .into_iter()
+        .filter_map(|(k, v)| v.map(|b| format!(" {k}=\"{:?}\"", b.get())))
+        .collect();
+        if !attrs.is_empty() {
+            let at = xml[..i].rfind('\n').map_or(i, |n| n + 1);
+            xml.insert_str(at, &format!("  <DefaultExperiment{attrs}/>\n"));
+        }
+    }
     let md = crate::parse_model_description(&xml).map_err(|e| e.to_string())?;
     let me = md
         .model_exchange
