@@ -25,7 +25,7 @@
 | `python` | `pyproject.toml`、`uv.lock`、`src/Python/` の変更 |
 | `docs` | 文書の変更（リンクの検査）。スライドや共通 CSS / JS の変更なら Playwright も |
 
-**全体を検査する（full）条件**:
+**全体を検査する（full）条件**は次のとおり。
 
 - 依存・ツール・CI の定義を変えた: `Cargo.toml`、`Cargo.lock`、`mise.toml`、`mise.lock`、`deny.toml`、`.github/`
 - 変更したファイルが 40 件を超えた（大規模な変更）
@@ -34,7 +34,7 @@
 - Actions の画面からの手動実行（既定は full）
 - 比較元のコミットが無い（新しいブランチ、履歴の書き換え）
 
-**影響範囲の求め方**:
+**影響範囲の求め方**は次のとおり。
 
 - 変更したファイルが入っている crate を、直接の影響とする。
 - `src/Modelica/` はテストが読むので、frontend と cli に影響するとみなす。

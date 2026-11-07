@@ -30,7 +30,7 @@
 
 - 検証用モデル `GlobeModeValidation.Simulation.ExternalBuiltin`（`external "builtin"` の自前の関数 `sin`・`exp`）: 直す前は `GM-U0004`、直した後は解析解（`1 - cos 1`・`e`）と bdf・dopri45 で一致する。
 - 数の前後は [research/external-builtin-2026-11-01.md](../research/external-builtin-2026-11-01.md)。
-- **限界**:
+- **限界**は次のとおり。
   - serde の形は Rumoca の公開契約ではない。rev を上げたら `external_builtin.rs` の試験（`ExternalBuiltin`）で確かめる。形が変われば書き換えは何もせず（元の Dae を返す）、`GM-U0004` に戻るだけで、誤った結果にはならない。
   - 大きな Dae は、external builtin を含むときだけ直列化と再構築の費用がかかる（MSL 4.0.0 で `Modelica.Math` に触れるモデルだけ）。
   - `external_tables`（読み込み済みの CombiTable の表）は直列化の形に入っていて読み戻せない（`deny_unknown_fields`）ので、外してから読み戻し、読み戻した Dae に `with_external_tables` で付け直す。最初の版は表を持つ Dae を書き換えなかったため、AixLib の 6 本ほど（`HumansSenTDep` など）が直らなかった。

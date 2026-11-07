@@ -60,7 +60,7 @@
   | ED010 | 3 | 離散の方程式の形（Appendix B の解いた形）を受け付けない |
   | ER130 | 2 | 入れ子のクラスから定数でない変数への参照を、MLS §5.3.1 違反として拒む |
 
-- **MSL の全例題 566 本で GM-U に振り分けたもの**（[msl-funnel.md](../sessions/S005-check-queries/msl-funnel.md)）:
+- **MSL の全例題 566 本で GM-U に振り分けたもの**（[msl-funnel.md](../sessions/S005-check-queries/msl-funnel.md)）は次のとおり。
 
   | | 最初の実行（S6 を直す前） | 最終の実行 |
   | --- | ---: | ---: |
