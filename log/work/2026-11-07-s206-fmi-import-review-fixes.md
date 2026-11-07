@@ -32,7 +32,7 @@ S205（FMI Import の ME）への ponytail-review（Fable、親）の指摘 1〜
 - コードの検査: `cargo fmt`・`clippy -D warnings` は通った。`cargo test -p globe-mode-fmi -p globe-mode-fmi-import -p globe-mode-fmu -p globe-mode-cli` は全部通った（fmi-import の単体 10、model_exchange 7、reference 3、fmpy 11。fmpy は負荷 100 前後で 2786 s かかった）。`cargo test --workspace`（fmu 以外）755 本通過・失敗 0。`mise run check` の途中で `globe-mode-fmu` の fmpy が共有 target の古い `globe-mode-fmi` で E0560 になった（`touch` して回し直して通った）ので、残りの `cargo deny check`（ok）・`uv sync --locked`（ok）は別に回した。
 - `mise run wasm:node`: 通った（EXIT 0）。
 - `check_docs.py`: デッキ OK / リンク 4103 件中の切れ 0 件。`render_slides.py`: 問題 0 件。
-- push と workflow: （下に追記）
+- push と workflow（feature `cb098ce`）: `fmu-import.yml` 42317246915 success（ubuntu・macOS・windows の 3 OS）、`fmu-export.yml` 42317250797 success、`ci.yml -f full=true` 42317255030 success。
 
 ## 残したこと
 
