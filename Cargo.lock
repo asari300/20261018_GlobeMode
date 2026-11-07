@@ -1425,6 +1425,7 @@ dependencies = [
  "globe-mode-lsp",
  "ignore",
  "serde_json",
+ "zip",
 ]
 
 [[package]]
@@ -1481,6 +1482,8 @@ version = "0.2.0"
 dependencies = [
  "globe-mode-fmi",
  "libloading 0.9.0",
+ "serde",
+ "serde_json",
  "tempfile",
  "zip",
 ]
