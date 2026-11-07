@@ -349,6 +349,16 @@ pub(crate) fn cancelled_diagnostic(time: Option<f64>) -> Diagnostic {
     Diagnostic::info(codes::RUN_CANCELLED, Stage::Run, message)
 }
 
+/// 呼び手が止めたので、別のスレッドで回している型付きの道を放置して返した（GM-I11004。#43）。
+#[cfg(all(feature = "rumoca-exec", not(target_arch = "wasm32")))]
+pub(crate) fn abandoned_diagnostic() -> Diagnostic {
+    Diagnostic::info(
+        codes::RUN_CANCELLED,
+        Stage::Run,
+        "呼び手が止めた（計算は別のスレッドで終わるか予算が来るまで続くが、結果は捨てる）",
+    )
+}
+
 /// 時刻の表示（9 桁で丸め、末尾の 0 を除く。0.5000000000000001 → 0.5）。
 pub(crate) fn time_text(t: f64) -> String {
     let s = format!("{t:.9}");

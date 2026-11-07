@@ -142,7 +142,7 @@ fn progress_is_throttled_and_does_not_change_the_result() {
     assert!(seen.len() <= bound, "{} > {bound}", seen.len());
 }
 
-/// #43: トークンを外から（別スレッドから）立てると、既定のソルバ（bdf・auto・dopri45）の積分も途中で止まる。
+/// #43: トークンを外から（別スレッドから）立てると、既定のソルバ（bdf・auto・dopri45）の呼び出しもすぐ返る。
 /// 以前は型付きの道が 1 歩ごとにトークンを見ず、最後まで走った（調和振動子 StopTime 2e4 で bdf は 10 s）。
 #[test]
 fn cancel_from_another_thread_stops_the_default_solvers() {
@@ -175,11 +175,13 @@ fn cancel_from_another_thread_stops_the_default_solvers() {
             started.elapsed().as_secs_f64() < 5.0,
             "{solver}: 止まらない"
         );
+        // 型付きの道は別のスレッドで回すので、止めた時刻の途中経過は無く、GM-I11004 だけ（失敗ではない）
         let r = &out.response;
+        let codes: Vec<_> = r.diagnostics.iter().map(|d| d.code).collect();
+        assert!(codes.contains(&"GM-I11004"), "{solver}: {codes:?}");
         assert!(
-            matches!(r.termination, Some(Termination::Cancelled { .. })),
-            "{solver}: {:?}",
-            r.termination
+            !r.diagnostics.iter().any(|d| d.is_error()),
+            "{solver}: {codes:?}"
         );
     }
 }

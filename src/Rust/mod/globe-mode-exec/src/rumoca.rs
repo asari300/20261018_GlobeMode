@@ -45,6 +45,8 @@ use rumoca_sim::{
 use rumoca_solver::fmi_me::{MeError, MeIntegrationError, MeSessionError, MeStage};
 use rumoca_solver::{SimDiagnostic, WARNING_ASSERTION_CODE};
 
+#[cfg(not(target_arch = "wasm32"))]
+use crate::abandoned_diagnostic;
 use crate::{
     CancelToken, CompiledModel, ExecStage, Observer, Progress, Simulated, cancelled_diagnostic,
     time_text,
@@ -617,16 +619,120 @@ pub(crate) fn checked_simulate(
     settings: &ResolvedSettings,
     observer: &mut Observer<'_>,
 ) -> (Vec<Diagnostic>, Simulated) {
-    let mut hooks = Hooks::new(observer, settings, true);
-    // #43: 型付きの道（ネイティブの bdf・dopri45・auto）は積分の途中でトークンを見ない。トークンがあるときは、
-    // 1 歩ごとに見る session の道で回す（ADR-0014: 結果は型付きの道とビット単位で同じ。JIT は使わない）
-    let route = if hooks.cancel.is_some() {
-        Route::Session
-    } else {
-        Route::Default
+    // #43: 型付きの道（ネイティブの bdf・dopri45・auto）は積分の途中でトークンを見ない。トークンがあるときは
+    // 別のスレッドで回し、呼び手のスレッドは待ちながらトークンを見る（立ったらすぐ返す）
+    #[cfg(not(target_arch = "wasm32"))]
+    if observer.cancel.is_some()
+        && matches!(
+            settings.solver,
+            SolverId::Bdf | SolverId::Auto | SolverId::Dopri45
+        )
+    {
+        return checked_detached(model, settings, observer);
+    }
+    checked_in_place(model, settings, observer)
+}
+
+/// 型付きの道で、積分の途中のトークンを見る代わりに別のスレッドで回す（#43）。進捗は呼び手のスレッドで知らせる。
+/// トークンが立ったら**すぐ [`cancelled_diagnostic`] で返す**。回しているスレッドは止められないので放置し、
+/// 終わるか `max_wall_seconds` が来るまで CPU とメモリを使い、結果は捨てる。
+/// session の道（1 歩ごとにトークンを見る）に替える案は、重いモデルで JIT が無い分だけ遅く、時間切れになる例があった
+/// （EngineV6、bdf。ADR-0013 の付記）。
+#[cfg(not(target_arch = "wasm32"))]
+fn checked_detached(
+    model: &CompiledModel,
+    settings: &ResolvedSettings,
+    observer: &mut Observer<'_>,
+) -> (Vec<Diagnostic>, Simulated) {
+    use std::sync::mpsc::{RecvTimeoutError, channel};
+    use std::time::Duration;
+
+    enum Msg {
+        Progress(Progress),
+        Done(Box<(Vec<Diagnostic>, Simulated)>),
+    }
+    let Some(token) = observer.cancel.clone() else {
+        return checked_in_place(model, settings, observer);
     };
+    if token.is_cancelled() {
+        return (Vec::new(), Err(vec![cancelled_diagnostic(None)]));
+    }
+    let (tx, rx) = channel();
+    let (model, settings) = (model.clone(), settings.clone());
+    let spawned = std::thread::Builder::new()
+        .name("globe-exec".into())
+        // lowering と積分は深い再帰を使う。呼び手のスレッドより小さくならないようにする（仮想メモリを予約するだけ）
+        .stack_size(256 << 20)
+        .spawn(move || {
+            let progress_tx = tx.clone();
+            let mut on_progress = move |p: &Progress| {
+                let _ = progress_tx.send(Msg::Progress(*p));
+            };
+            let started = std::time::Instant::now();
+            let now = move || started.elapsed().as_secs_f64() * 1e3;
+            let mut observer = Observer {
+                on_progress: &mut on_progress,
+                cancel: None,
+                now: &now,
+            };
+            let out = checked_in_place(&model, &settings, &mut observer);
+            let _ = tx.send(Msg::Done(Box::new(out)));
+        });
+    let handle = match spawned {
+        Ok(h) => h,
+        Err(e) => {
+            return (
+                Vec::new(),
+                Err(vec![Diagnostic::error(
+                    codes::RUN_INTERNAL,
+                    Stage::Run,
+                    format!("実行のスレッドを作れない: {e}"),
+                )]),
+            );
+        }
+    };
+    loop {
+        match rx.recv_timeout(Duration::from_millis(20)) {
+            Ok(Msg::Progress(p)) => (observer.on_progress)(&p),
+            Ok(Msg::Done(out)) => {
+                let _ = handle.join();
+                return *out;
+            }
+            Err(RecvTimeoutError::Timeout) => {}
+            Err(RecvTimeoutError::Disconnected) => {
+                // 結果を送る前にスレッドが落ちた（catch_unwind の外の panic）
+                let message = handle
+                    .join()
+                    .err()
+                    .and_then(|p| {
+                        p.downcast_ref::<String>()
+                            .cloned()
+                            .or_else(|| p.downcast_ref::<&str>().map(|s| (*s).to_string()))
+                    })
+                    .unwrap_or_default();
+                return (
+                    Vec::new(),
+                    Err(vec![Diagnostic::error(
+                        codes::RUN_INTERNAL,
+                        Stage::Run,
+                        format!("実行のスレッドが落ちた: {message}"),
+                    )]),
+                );
+            }
+        }
+        if token.is_cancelled() {
+            return (Vec::new(), Err(vec![abandoned_diagnostic()]));
+        }
+    }
+}
+
+fn checked_in_place(
+    model: &CompiledModel,
+    settings: &ResolvedSettings,
+    observer: &mut Observer<'_>,
+) -> (Vec<Diagnostic>, Simulated) {
+    let mut hooks = Hooks::new(observer, settings, true);
     if cfg!(not(target_arch = "wasm32"))
-        && route == Route::Default
         && settings.solver == SolverId::Dopri45
         && hooks.enter(ExecStage::Preflight).is_ok()
     {
@@ -636,7 +742,7 @@ pub(crate) fn checked_simulate(
             resettle,
         };
     }
-    let result = simulate_with(model, settings, route, &mut hooks);
+    let result = simulate_with(model, settings, Route::Default, &mut hooks);
     let (mut diagnostics, resettle) = hooks.take_preflight();
     // 初期化の解き直し（GM-W10004）は、実行が実際に始まった t0 の値と比べて決める。実行が失敗したら出さない
     if let Ok((run, _)) = &result {
