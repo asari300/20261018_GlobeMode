@@ -34,7 +34,7 @@
 - Rust の 4 種（直した後）: `cargo build --locked` 成功、`cargo test --locked` は axum 1・actix 3・rocket 6・loco 4 本通る、`cargo fmt --check`・`cargo clippy -- -D warnings` 通る。
 - FastAPI `pytest` 9 本、Streamlit `pytest` 4 本、marimo `pytest` 5 本、Phoenix `mix test` 12 本、Gleam `gleam test` 9 本、Astro `node --test` 5 本が通る（`globe` は共有 target の debug をコピーして使った）。
 - `test_ci_plan.py` 26 本通る。`check_docs.py` 切れ 0 件、スライド OK。`cargo fmt --all --check` 通る（ルートの workspace は変えていない）。
-- CI（`ci.yml` を full で）: （run の ID は報告に書く）
+- CI: `gh workflow run ci.yml --ref feature/s215-web-apps-issues -f full=true` の run 42332243206 が success（新しいジョブ `web (axum)`・`web (actix)`・`web (rocket)`・`web (loco)` が全部 success）。
 - 手元の load が 13〜28 のままで、cargo の前に load 10 未満を待つ規則は守れなかった（待ちを 30 分で諦め、`nice` と `CARGO_BUILD_JOBS=2` で回した）。
 
 ## 残したこと
