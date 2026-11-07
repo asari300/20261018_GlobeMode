@@ -71,6 +71,19 @@ pub fn export_me_sources(model: &CompiledModel, fmi_version: u8) -> Result<MeSou
     })
 }
 
+/// 作り直す `root`（`out_dir/<name>/`）が、前の Export の展開先（`modelDescription.xml` がある）か、まだ無いときだけ `Ok`。
+/// 利用者の別のフォルダを `remove_dir_all` で消さないための、全呼び出し元（CLI・Desktop・Python・C・NIF）に共通の守り（#23）。
+/// CLI はこれを計算の前にも呼ぶ。
+pub fn check_out_root(root: &Path) -> Result<(), String> {
+    if root.exists() && !root.join("modelDescription.xml").is_file() {
+        return Err(format!(
+            "{} は FMU の展開先ではない（modelDescription.xml が無い）ので、消して作り直せない。別の --out を使うか、フォルダを移す",
+            root.display()
+        ));
+    }
+    Ok(())
+}
+
 /// `out_dir/<name>/`（展開した FMU）と `out_dir/<name>-fmi<版>.fmu`（[`MeSources::file_name`]）を書き、`.fmu` のパスを返す。
 ///
 /// `fmi_headers` を渡すと、その中の `fmi2Functions.h`（3.0 は `fmi3Functions.h`）などで共有ライブラリも作る。
@@ -84,6 +97,7 @@ pub fn write_fmu(
 ) -> Result<PathBuf, String> {
     let root = out_dir.join(&src.name);
     let io = |e: std::io::Error| e.to_string();
+    check_out_root(&root)?;
     if root.exists() {
         std::fs::remove_dir_all(&root).map_err(io)?;
     }
@@ -259,7 +273,37 @@ fn zip_dir(root: &Path, fmu: &Path) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::platform;
+    use super::{MeSources, platform, write_fmu};
+
+    fn sources() -> MeSources {
+        MeSources {
+            fmi_version: 2,
+            name: "Test".into(),
+            model_identifier: "Test".into(),
+            model_description_xml: "<fmiModelDescription/>".into(),
+            c_sources: vec![],
+        }
+    }
+
+    /// S212 (#23): `<out>/<名前>/` が FMU の展開先（`modelDescription.xml` がある）でなければ消さずに断る。
+    #[test]
+    fn write_fmu_refuses_to_remove_a_folder_that_is_not_an_fmu() {
+        let out = std::env::temp_dir().join(format!("gm-s212-{}", std::process::id()));
+        let root = out.join("Test");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("mine.mo"), "model Test end Test;").unwrap();
+        let e = write_fmu(&sources(), &out, None, &[]).unwrap_err();
+        assert!(e.contains("FMU の展開先ではない"), "{e}");
+        assert!(root.join("mine.mo").is_file(), "利用者のファイルが消えた");
+        // 前の Export（modelDescription.xml がある）なら作り直す
+        std::fs::remove_file(root.join("mine.mo")).unwrap();
+        std::fs::write(root.join("modelDescription.xml"), "old").unwrap();
+        std::fs::write(root.join("stale.txt"), "old").unwrap();
+        write_fmu(&sources(), &out, None, &[]).unwrap();
+        assert!(!root.join("stale.txt").exists());
+        assert!(out.join("Test-fmi2.fmu").is_file());
+        std::fs::remove_dir_all(&out).unwrap();
+    }
 
     #[test]
     fn platform_names() {

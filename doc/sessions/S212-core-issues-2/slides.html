@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S212 核の issue 6 件 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S212 核の issue 6 件">
+
+<section class="slide" id="S01">
+  <span class="tag">S212 · 2026-11-07 · P3・P4・P5・P7</span>
+  <h1>ponytail-audit の issue 6 件を、再現してから直した</h1>
+  <p class="lead">#23・#29・#31・#34・#37・#38。指摘は読んだだけなので、失敗する試験を先に書いた</p>
+  <div class="big">5 件を直し、#37 は測って直さなかった</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">結果</span>
+  <h1>issue ごとの結果</h1>
+  <table class="compact">
+    <tr><th>issue</th><th>再現</th><th>結果</th></tr>
+    <tr><td>#23 Export が既存のフォルダを消す</td><td class="ok">した</td><td>守りを <code>write_fmu</code> の 1 か所に</td></tr>
+    <tr><td>#34 出力の点数に上限が無い</td><td class="ok">した</td><td>1e7 点を超える設定は <code>GM-E10004</code></td></tr>
+    <tr><td>#38 Integer・Boolean の上書きの丸め</td><td class="ok">した</td><td>小数部・0/1 以外は <code>GM-E10006</code></td></tr>
+    <tr><td>#31 ライブラリの走査に S068 が無い</td><td class="ok">した（AixLib）</td><td>走査を 1 つに。写し 2 つを消した</td></tr>
+    <tr><td>#29 NaN がすり抜ける</td><td class="warn">RK4 だけ</td><td>Dormand–Prince は S206 で直っていた</td></tr>
+    <tr><td>#37 reset を呼ばない</td><td class="warn">増えるが…</td><td>reset しても RSS は下がらない。直さない</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>#23: 消してよいのは FMU の展開先だけ</h1>
+  <ul>
+    <li>直す前は <code>&lt;out&gt;/Test/</code> に <code>mine.mo</code> があっても、<code>write_fmu</code> がフォルダごと消して成功を返した。</li>
+    <li>守りの規則 <code>check_out_root</code> は <code>modelDescription.xml</code> があるフォルダだけを通す。Desktop・Python・C・NIF は全部 <code>write_fmu</code> を通るので 1 か所で足りる。</li>
+    <li>CLI は計算の前に断りたいので同じ関数を呼ぶ。独自の <code>.mo</code> の走査は消した。</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由</span>
+  <h1>#34・#38・#29: 黙って続けない</h1>
+  <div class="cols-3">
+    <div class="card">
+      <h2>#34 点数の上限</h2>
+      <p>区間 / Interval、固定刻みなら区間 / 刻み幅が 1e7 を超えたら実行の前に断る。FMI Import と同じ値。</p>
+    </div>
+    <div class="card">
+      <h2>#38 丸めない</h2>
+      <p><code>n=2.5</code> を 3 に、<code>b=0.3</code> を true にして実行していた。実行時の上書きには素の 2.5 が渡るので食い違っていた。</p>
+    </div>
+    <div class="card">
+      <h2>#29 RK4 の NaN</h2>
+      <p>RK4 は <code>Ok</code> で NaN の行を返した。<code>drive</code> で 1 歩ごとに有限かを見る。</p>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">決定と理由</span>
+  <h1>#31: AixLib の二重定義は、走査が違うせいだった</h1>
+  <ul>
+    <li>facade の <code>Workspace::with_libraries</code> の走査は、S068 の規則（ドットのフォルダを飛ばす、<code>package.mo</code> の無い <code>X/</code> の隣に <code>X.mo</code> があれば <code>X.mo</code> だけ）を持っていなかった。</li>
+    <li>AixLib の <code>Radiator</code> の検査が <code>GM-E1001: Duplicate class …RadiatorType</code> で落ちた。</li>
+    <li>frontend の <code>collect_mo_files</code> を公開し、facade と <code>globe-mode-db</code> の写しを消した。LSP の写しは S213 の範囲なので残した。</li>
+  </ul>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">測定</span>
+  <h1>#37: reset を呼んでも RSS は下がらなかった</h1>
+  <table class="compact">
+    <tr><th>異なるモデル（分割、release）</th><th>50</th><th>70</th><th>80</th><th>100</th></tr>
+    <tr><td>reset しない</td><td>272</td><td>297</td><td>730</td><td>808 MiB</td></tr>
+    <tr><td>50 本ごとに reset</td><td>273</td><td>296</td><td>729</td><td>812 MiB</td></tr>
+  </table>
+  <ul>
+    <li>全部読む道では reset のあとに再解決が走り、最大 RSS は 1955 から 2150 MiB に増えた。</li>
+    <li>打鍵 300 回では増えない（139 から 127 MiB）。効く測定が無いので足さなかった。</li>
+  </ul>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">図</span>
+  <h1>進め方</h1>
+  <svg class="fig" viewBox="0 0 800 220" role="img" aria-label="再現してから直す流れの図">
+    <rect class="svg-box-accent" x="20" y="75" width="170" height="70" rx="10"/>
+    <text class="svg-text-b" x="105" y="116" text-anchor="middle">失敗する試験</text>
+    <line class="svg-line" x1="190" y1="110" x2="300" y2="50"/>
+    <line class="svg-line" x1="190" y1="110" x2="300" y2="170"/>
+    <rect class="svg-box" x="300" y="20" width="240" height="60" rx="10"/>
+    <text class="svg-text-b" x="420" y="55" text-anchor="middle">失敗した: 直す</text>
+    <rect class="svg-box" x="300" y="140" width="240" height="60" rx="10"/>
+    <text class="svg-text-b" x="420" y="175" text-anchor="middle">通った: 理由を書く</text>
+    <text class="svg-text" x="560" y="55">#23 #31 #34 #38 #29（RK4）</text>
+    <text class="svg-text" x="560" y="175">#29（Dormand–Prince）</text>
+  </svg>
+</section>
+
+<section class="slide" id="S08">
+  <span class="tag">次回</span>
+  <h1>残したもの</h1>
+  <ul>
+    <li>#37: 何が増えているか（<code>loaded</code>・<code>pristine</code>・DB のモデルごとの結果）を測ってから、減らす場所を決める。</li>
+    <li>#34: CSV 全体を 1 つの <code>String</code> にする facade の出力は、点数 × 変数の数で断るか別に決める。</li>
+    <li>#31: LSP の <code>collect_mo</code> の写し（S213）。</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

@@ -809,6 +809,14 @@ fn structural_overrides_reach_bindings_inlined_by_same_name_modifications() {
         y_z(&with(&[("nosuch", 1.0), ("src.startTime", f64::NAN)])).0,
         0.0
     );
+    // #38: 小数部のある Integer と 0 / 1 でない Boolean は、丸めて黙って別の値にせず GM-E10006 で断る
+    for (name_, value) in [("n", 2.5), ("on", 0.3)] {
+        let overrides = [(name_.to_string(), value)].into_iter().collect();
+        let d = checker
+            .compile_retaining_with_overrides(&sources, name, &overrides)
+            .expect_err(name_);
+        assert_eq!(d[0].code, codes::PARAMETER_OVERRIDE_INVALID, "{d:#?}");
+    }
     // final の修飾（final startTime = startTime）は上書きできず、変換の診断になる（EI028）
     let overrides = [("src.r.startTime".to_string(), 2.0)].into_iter().collect();
     let d = checker

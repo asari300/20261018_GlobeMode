@@ -330,8 +330,8 @@ fn parse_sources_lenient<'a>(
     (documents, failures)
 }
 
-/// `dir` の下の `.mo`（`.` で始まる名前は飛ばす）。
-fn collect_mo_files(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
+/// `dir` の下の `.mo`（`.` で始まる名前は飛ばす）。ディレクトリの読み込み（全部読む・分割とも）、facade、db が共有する走査（#31）。
+pub fn collect_mo_files(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
     if dir.is_file() {
         out.push(dir.to_path_buf());
         return Ok(());
@@ -706,7 +706,7 @@ impl Checker {
         // 配列の要素は構造的な上書きに渡せない（Rumoca の上書きはスカラだけ）ので、実行時の上書きは同じ名前の修飾
         // （`Inner i(final k = k)`）で写された内側の配列に届かず、黙って誤る。その形のものは断る。
         // shortcut: 名前で見分けるだけで、違う名前の修飾（`final kk = k`）は見逃す。Rumoca が配列の構造的な上書きを持ったら外す
-        let rejected: Vec<Diagnostic> = overrides
+        let mut rejected: Vec<Diagnostic> = overrides
             .keys()
             .filter_map(|name| {
                 let array = name.split_once('[')?.0;
@@ -731,6 +731,21 @@ impl Checker {
                 ))
             })
             .collect();
+        // #38: 丸めて黙って別の値にしない（実行時の上書きには素の値が渡るので、埋め込みと食い違う）
+        rejected.extend(overrides.iter().filter_map(|(name, &value)| {
+            let what = match types.get(name)? {
+                ScalarType::Integer if value.is_finite() && value.fract() != 0.0 => "Integer",
+                ScalarType::Boolean if value.is_finite() && value != 0.0 && value != 1.0 => {
+                    "Boolean"
+                }
+                _ => return None,
+            };
+            Some(Diagnostic::error(
+                codes::PARAMETER_OVERRIDE_INVALID,
+                Stage::S10,
+                format!("{what} の {name} に {value} は使えない（{what} は整数 / 0 か 1 だけ）"),
+            ))
+        }));
         if !rejected.is_empty() {
             return Err(rejected);
         }
