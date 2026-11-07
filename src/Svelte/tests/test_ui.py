@@ -230,6 +230,18 @@ def review_fixes(browser, origin: str, errors: list[str]) -> None:
     dt.close()
     print("Desktop の保存先: 同じ名前の別のファイル（/d1/package.mo と /d2/package.mo）は別のタブで、それぞれのパスに保存される")
 
+    # #68: Android の Tauri（dialog / fs が無い）でも、プロットの CSV はブラウザと同じダウンロードで書き出せる（TypeError にならない）
+    an = new_page(user_agent="Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36")
+    an.add_init_script("window.__TAURI__ = { core: { invoke: async (c) => (c === 'libraries' ? [] : null) }, event: { listen: async () => () => {} } };")
+    ready(an)
+    an.get_by_role("button", name="実行", exact=True).click(force=True)
+    expect(an.locator(".plot canvas").first).to_be_visible(timeout=120_000)
+    with an.expect_download(timeout=10_000) as dl:
+        an.get_by_role("button", name="CSV").click(force=True)
+    assert dl.value.suggested_filename.endswith(".csv"), dl.value.suggested_filename
+    an.close()
+    print("Android: dialog / fs が無くても、プロットの CSV がダウンロードで書き出せる")
+
     # 2. タブを切り替えたとき、リネームの入力欄・参照の一覧・最後の値が前のタブに残らない
     tb = new_page()
     ready(tb)

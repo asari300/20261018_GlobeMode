@@ -228,3 +228,6 @@ export class TauriBackend implements Backend {
 
 /** Tauri のウィンドウの中か。 */
 export const inTauri = (): boolean => "__TAURI__" in window;
+
+/** Desktop（dialog / fs プラグインと sidecar がある Tauri）か。Android の Tauri はブラウザと同じ（ダウンロードと Worker）。 */
+export const inDesktop = (): boolean => inTauri() && !/Android/i.test(navigator.userAgent);
