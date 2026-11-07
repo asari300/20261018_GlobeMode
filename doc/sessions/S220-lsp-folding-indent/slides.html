@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S220 折りたたみと字下げの規則 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S220 折りたたみと字下げの規則">
+
+<section class="slide" id="S01">
+  <span class="tag">S220 · 2026-11-08 · P4</span>
+  <h1>折りたたみと字下げの規則</h1>
+  <p class="lead">エディタの言語サービスの穴のうち、VS Code の 2 つを埋めた</p>
+  <div class="big">折りたたみは <b>LSP</b>、字下げは <b>language-configuration.json</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">foldingRange</span>
+  <h1>畳める範囲</h1>
+  <table class="compact">
+    <tr><th>範囲</th><th>終わりの行</th></tr>
+    <tr><td>クラス</td><td><code>end</code> の手前（<code>end M;</code> は残す）</td></tr>
+    <tr><td>equation・algorithm・public・protected</td><td>次の節かクラスの <code>end</code> の手前。末尾の空行は含めない。<code>initial</code> は節に含む</td></tr>
+    <tr><td>複数行の annotation</td><td><code>)</code> だけの行は残す</td></tr>
+    <tr><td>コメント</td><td>連続する <code>//</code> の行、複数行の <code>/* */</code>（kind は comment）</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">作り</span>
+  <h1>新しいパーサは書かない</h1>
+  <ul>
+    <li>字句は <code>globe-mode-fmt</code> の <code>lex</code>、クラスの範囲は文書のアウトライン</li>
+    <li>行だけで決まるので、桁（UTF-16）は出さない。CRLF は <code>\n</code> で数える</li>
+    <li>構文が壊れている間は、クラスと節は出ない（コメントと annotation は出る）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">字下げ</span>
+  <h1>indentationRules</h1>
+  <table class="compact">
+    <tr><th>向き</th><th>行</th></tr>
+    <tr><td>次の行で増やす</td><td><code>model</code> などの宣言（<code>;</code> の無い行）、節の見出し、<code>public</code>・<code>protected</code>、<code>if … then</code>、<code>for … loop</code> など</td></tr>
+    <tr><td>この行で戻す</td><td><code>end</code>、<code>else</code>、<code>elseif</code>、<code>elsewhen</code>、節の見出し</td></tr>
+    <tr><td>Enter</td><td><code>//</code> の行のあとは字下げしない</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">試験</span>
+  <h1>試験と再現</h1>
+  <pre><code>cargo test -p globe-mode-lsp --test folding
+cd src/VSCode/globe-mode &amp;&amp; mise exec -- pnpm test</code></pre>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>Svelte の UI（CodeMirror）の折りたたみは別の WP</li>
+    <li>inlay hint、call hierarchy、semantic tokens は未</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
