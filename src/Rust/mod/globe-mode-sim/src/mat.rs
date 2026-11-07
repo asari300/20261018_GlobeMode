@@ -52,7 +52,17 @@ pub struct MatContents {
 /// 時系列のうち `run.parameters` と同じ名前の変数は書かない（`data_1` の値を使う）。名前が `time` の変数も
 /// 書かない。変数の値の数が時刻の数と違うときは、何も書かずに `InvalidInput` を返す。
 pub fn write_mat4(run: &SimRun, out: &mut dyn Write) -> io::Result<()> {
-    let trajectory = &run.trajectory;
+    let span = (run.settings.start_time, run.settings.stop_time);
+    write_mat4_parts(&run.trajectory, &run.parameters, span, out)
+}
+
+/// [`write_mat4`] の本体。`span` は時系列が空のときの time の [t0, t1]。[`read_results`] で読んだ結果の書き換えにも使う。
+pub fn write_mat4_parts(
+    trajectory: &Trajectory,
+    parameters: &[ResultParameter],
+    span: (f64, f64),
+    out: &mut dyn Write,
+) -> io::Result<()> {
     let n_time = trajectory.time.len();
     if let Some(v) = trajectory
         .variables
@@ -76,10 +86,10 @@ pub fn write_mat4(run: &SimRun, out: &mut dyn Write) -> io::Result<()> {
     // data_1: time の [t0, t1] とパラメータ
     let (t0, t1) = match (trajectory.time.first(), trajectory.time.last()) {
         (Some(&a), Some(&b)) => (a, b),
-        _ => (run.settings.start_time, run.settings.stop_time),
+        _ => span,
     };
     let mut data_1 = vec![t0];
-    for p in &run.parameters {
+    for p in parameters {
         names.push(&p.name);
         descriptions.push(described(p.description.as_deref(), p.unit.as_deref()));
         data_1.push(p.value);
@@ -88,7 +98,7 @@ pub fn write_mat4(run: &SimRun, out: &mut dyn Write) -> io::Result<()> {
 
     // data_2: 1 行目は time。同じ列・符号だけ反対の列は別名に畳む
     let skip: std::collections::HashSet<&str> =
-        run.parameters.iter().map(|p| p.name.as_str()).collect();
+        parameters.iter().map(|p| p.name.as_str()).collect();
     let mut columns: Vec<&[f64]> = vec![&trajectory.time];
     let mut seen: HashMap<u64, Vec<usize>> = HashMap::new();
     for v in &trajectory.variables {
@@ -279,6 +289,24 @@ fn trimmed(bytes: &[u8]) -> String {
         .map_or(0, |i| i + 1);
     let start = bytes[..end].iter().position(|&b| b != 0).unwrap_or(end);
     String::from_utf8_lossy(&bytes[start..end]).into_owned()
+}
+
+/// 結果のファイルを拡張子で読み分ける（`.mat` は [`read_mat4`]、それ以外は [`crate::store::read_csv`]。`globe simulate -o` の
+/// 書き分けと同じ規則）。CSV にパラメータは無いので `parameters` は空。
+pub fn read_results(path: &std::path::Path) -> io::Result<MatContents> {
+    let mut file = std::fs::File::open(path)?;
+    if path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("mat"))
+    {
+        read_mat4(&mut file)
+    } else {
+        let trajectory = crate::store::read_csv(&mut file).map_err(|e| invalid(e.to_string()))?;
+        Ok(MatContents {
+            trajectory,
+            parameters: Vec::new(),
+        })
+    }
 }
 
 fn invalid(message: impl Into<String>) -> io::Error {
@@ -774,5 +802,62 @@ mod tests {
         b.push(b'A');
         let e = read_mat4(&mut b.as_slice()).unwrap_err();
         assert_eq!(e.kind(), io::ErrorKind::InvalidData);
+    }
+
+    /// `write_mat4` → `read_mat4` → `write_mat4_parts` が 1 ビットも変えない（-0.0・極小・無限・NaN を含む）。
+    #[test]
+    fn write_read_write_is_bit_exact() {
+        let x = vec![1.0, -0.0, f64::MIN_POSITIVE, f64::INFINITY, f64::NAN];
+        let r = run(
+            vec![0.0, 0.25, 0.5, 0.5, 1.0],
+            vec![
+                variable("x", x),
+                variable("y", vec![0.1, 0.2, 0.3, 0.4, 1e300]),
+            ],
+            vec![parameter("k", 0.1 + 0.2)],
+        );
+        let b = bytes(&r);
+        let back = read_mat4(&mut b.as_slice()).unwrap();
+        let bits = |v: &[f64]| v.iter().map(|x| x.to_bits()).collect::<Vec<_>>();
+        assert_eq!(bits(&back.trajectory.time), bits(&r.trajectory.time));
+        for v in &r.trajectory.variables {
+            let got = back.trajectory.variable(&v.name).unwrap();
+            assert_eq!(bits(&got.values), bits(&v.values), "{}", v.name);
+        }
+        assert_eq!(back.parameters[0].value.to_bits(), (0.1f64 + 0.2).to_bits());
+        let mut again = Vec::new();
+        write_mat4_parts(&back.trajectory, &back.parameters, (0.0, 0.0), &mut again).unwrap();
+        assert_eq!(again, b);
+    }
+
+    #[test]
+    fn read_results_picks_the_reader_by_extension() {
+        let dir = std::env::temp_dir().join(format!("gm-read-results-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let r = run(
+            vec![0.0, 1.0],
+            vec![variable("x", vec![1.0, 0.5])],
+            vec![parameter("k", 2.0)],
+        );
+        std::fs::write(dir.join("a.MAT"), bytes(&r)).unwrap();
+        let mut csv = Vec::new();
+        crate::store::write_csv(&r.trajectory, &mut csv).unwrap();
+        std::fs::write(dir.join("a.csv"), csv).unwrap();
+        std::fs::write(dir.join("bad.csv"), "x,y\n1,2\n").unwrap();
+
+        let m = read_results(&dir.join("a.MAT")).unwrap();
+        assert_eq!(m.parameters[0].value, 2.0);
+        let c = read_results(&dir.join("a.csv")).unwrap();
+        assert!(c.parameters.is_empty());
+        assert_eq!(c.trajectory.variable("x").unwrap().values, [1.0, 0.5]);
+        assert_eq!(
+            read_results(&dir.join("bad.csv")).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
+        assert_eq!(
+            read_results(&dir.join("none.csv")).unwrap_err().kind(),
+            io::ErrorKind::NotFound
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
