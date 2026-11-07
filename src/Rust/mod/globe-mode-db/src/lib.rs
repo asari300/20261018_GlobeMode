@@ -626,8 +626,15 @@ impl GlobeDb {
     /// ファイルを足すか、本文を差し替える。
     ///
     /// パスは区切りを `/` にそろえてから使う（Windows の `\\` と混ざっても同じファイルになるように）。
+    ///
+    /// 先頭の UTF-8 の BOM は空白 3 個に置き換えて持つ（S211。Rumoca は BOM を構文の誤りにする）。バイト位置は
+    /// 渡した本文のままなので、診断の範囲を渡した本文で行・桁に直す呼び出し元（CLI・LSP）はずれない。
     pub fn set_file(&mut self, path: &str, text: impl Into<String>) {
-        let text = text.into();
+        let text: String = text.into();
+        let text = match text.strip_prefix('\u{feff}') {
+            Some(rest) => format!("   {rest}"),
+            None => text,
+        };
         let path = &normalize_path(path);
         if let Some(file) = self.files.get(path).copied() {
             // `check` が Session に残した文書なら、検査器に本文（渡すのと同じ正規化した形）を知らせる。

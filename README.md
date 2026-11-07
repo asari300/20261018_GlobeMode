@@ -11,7 +11,7 @@ GlobeMode checks, simulates and edits [Modelica](https://modelica.org/) models. 
 - **Checks before simulation** (S0 to S10): syntax, names, types, connections, equation/variable balance, structural singularity, index, initialization, algebraic loops, parameter and start-value evaluation. Errors name the reason a model cannot be simulated. The balance check agrees with OpenModelica's `omc checkModel()` on all 382 MSL examples that have a verdict ([doc/omc-compare.md](doc/omc-compare.md)).
 - **Simulation** with 20+ solvers (`bdf`, `dopri45`, `auto`, `esdirk34`, `radau5`, `rk4`, ...; `cvode` and `ida` only in a build with the `sundials` feature), parameter overrides, CSV and MAT v4 output, progress and cancel.
 - **Editing**: formatter, lint, completion, hover, go-to-definition, references and rename (components and class names, within the open document) in the language server, the VS Code extension and the browser/desktop/Android UI; library tree, plot, connect graph, tabs, open/save, dark mode.
-- **FMU export** (FMI 2.0 and 3.0, Model Exchange and Co-Simulation) from the CLI, the UI and every language API. FMI import is not implemented.
+- **FMU export** (FMI 2.0 and 3.0, Model Exchange and Co-Simulation) from the CLI, the UI and every language API. FMI import (`globe fmu run`, Co-Simulation and Model Exchange) is CLI-only for now: the FMU's native code runs in a separate worker process, so a crashing FMU does not take the CLI down (`--timeout`, `--memory-limit` on Linux; the disk and network are not isolated).
 - **APIs**: Rust, Python (PyO3), C ABI, Zig, Julia, Elixir, Gleam, WebAssembly.
 
 Not done: FMI import, SSP, Diagram/Icon/Documentation views, an own compiler frontend (Track B), signed installers and automatic updates (the updater is off until a key is registered), a public web deployment. The full list with priorities is [doc/features.md](doc/features.md); the plan is [doc/roadmap.md](doc/roadmap.md).
@@ -66,7 +66,7 @@ GlobeMode は Rust で作る OSS の Modelica IDE。同じ Rust のコアを、C
 - **実行前の検査**（S0〜S10）: 構文、名前、型、接続、方程式数と変数数、構造特異、インデックスと状態選択、初期化、代数ループ、パラメータと start 値の評価。実行できない理由を名指しする。方程式数と変数数（S5）は OpenModelica の `omc checkModel()` と、判定のある MSL の例題 382 本すべてで一致した（omc は照合のために別プロセスで呼ぶだけ。[doc/omc-compare.md](doc/omc-compare.md)）。
 - **シミュレーション**: 20 以上のソルバ（`bdf`・`dopri45`・`auto`・`esdirk34`・`radau5`・`rk4` など。`cvode`・`ida` は feature `sundials` のビルドだけ。一覧は [doc/msl-solvers.md](doc/msl-solvers.md)）、パラメータの上書き、CSV と MAT v4 の出力、進捗と中断。
 - **編集**: 整形・lint・補完・ホバー・定義ジャンプ・参照・リネーム（部品とクラス名。開いている文書の中）を、言語サーバ、VS Code の拡張、ブラウザ・Desktop・Android の UI から。UI にはライブラリツリー、プロット（系列の選択・右の軸・CSV / PNG の書き出し）、connect グラフ、タブ、ファイルを開く・保存、実行の設定、FMU の書き出し、ダークモードがある。
-- **FMU の書き出し**: FMI 2.0・3.0 の Model Exchange・Co-Simulation を、CLI・UI・各言語の API から。FMI の読み込みは未実装。
+- **FMU の書き出し**: FMI 2.0・3.0 の Model Exchange・Co-Simulation を、CLI・UI・各言語の API から。FMI の読み込み（`globe fmu run`。Co-Simulation・Model Exchange）は CLI だけ。FMU の中のネイティブコードは別プロセス（ワーカー）で実行するので、FMU が落ちても CLI は落ちない（`--timeout`、Linux は `--memory-limit`。ディスクとネットワークは隔離しない）。
 - **API**: Rust（facade `globe-mode`）、Python（PyO3）、C ABI、Zig、Julia、Elixir、Gleam、WebAssembly。
 
 できていないもの: FMI の読み込み、SSP、Diagram / Icon / Documentation ビュー、自前のコンパイラ（Track B）、署名したインストーラと自動更新（鍵を登録するまで更新は未設定）、ブラウザ版の公開。順位つきの一覧は [doc/features.md](doc/features.md)、順序は [doc/roadmap.md](doc/roadmap.md)。
@@ -110,7 +110,7 @@ globe simulate --list-solvers
 globe check src/Modelica/GlobeModeValidation -m GlobeModeValidation.Simulation.Decay
 
 globe fmt --check src/Modelica   # ファイルかフォルダを指す。整形が要るファイルを列挙して終了コード 1。--check を外すと書き換える（リポジトリの根の `.` は検証用の入力も含むので通らない）
-globe fmt -               # `-` は標準入力 → 標準出力。パスも `-` も無ければ使い方を出して終了コード 2（`--json` だけは標準入力。ウェブアプリ用）
+globe fmt -               # `-` は標準入力 → 標準出力。パスも `-` も無ければ使い方を出して終了コード 2。ウェブアプリは `globe fmt --json -`
 globe lint .              # line-too-long など。--disable <規則> で止める。`-` は標準入力
 globe fmu export src/Modelica/GlobeModeValidation -m GlobeModeValidation.Simulation.Decay --out out/ [--fmi-version 3]   # out/ に展開したフォルダと GlobeModeValidation_Simulation_Decay-fmi2.fmu（3.0 は -fmi3）。版つきなので 2.0 と 3.0 を同じ out/ に書ける
 globe lsp -L data/msl     # 標準入出力の LSP サーバ

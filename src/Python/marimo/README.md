@@ -1,6 +1,6 @@
 # marimo: 整形・lint のアプリ
 
-GlobeMode の整形器と lint（`globe fmt --json` / `globe lint --json`）を marimo のアプリで使う。計算は Rust 側の `globe` に任せ、このアプリは子プロセスで呼ぶだけ（[doc/web-apps.md](../../../doc/web-apps.md)）。
+GlobeMode の整形器と lint（`globe fmt --json -` / `globe lint --json -`）を marimo のアプリで使う。計算は Rust 側の `globe` に任せ、このアプリは子プロセスで呼ぶだけ（[doc/web-apps.md](../../../doc/web-apps.md)）。
 
 English summary: a marimo notebook app (`fmt_app.py`) that formats Modelica source and lists lint messages by calling the `globe` CLI (`GLOBE_BIN`, default `globe` on PATH). Japanese UI.
 
@@ -24,6 +24,10 @@ GLOBE_BIN=/path/to/globe uv run marimo run src/Python/marimo/fmt_app.py
 ```
 
 `GLOBE_BIN` を省くと PATH の `globe` を使う。編集しながら使うときは `marimo edit` に変える。
+
+## 入力の守り
+
+本文は 1 MiB まで（超えたら HTTP 413。Streamlit・marimo は画面にエラー）、`globe` は 10 秒で kill する（環境変数 `GLOBE_TIMEOUT_MS` で変える。試験が使う）。決めた値は [doc/web-apps.md の 3.1](../../../doc/web-apps.md)（S215）。
 
 ## 検査
 

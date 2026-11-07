@@ -1,6 +1,6 @@
 # globe-fmt-fastapi
 
-GlobeMode の Modelica 整形と lint を、FastAPI のウェブアプリとして使う。計算は `globe` CLI（`globe fmt --json` / `globe lint --json`）を子プロセスで呼んで行う。
+GlobeMode の Modelica 整形と lint を、FastAPI のウェブアプリとして使う。計算は `globe` CLI（`globe fmt --json -` / `globe lint --json -`）を子プロセスで呼んで行う。
 
 English summary: a small FastAPI web app that formats and lints Modelica by calling the `globe` CLI. Run `uv run uvicorn app:app --port 8080` and open http://localhost:8080.
 
@@ -27,6 +27,10 @@ GLOBE_BIN=/path/to/target/debug/globe uv run uvicorn app:app --port 8080
 | `GET /healthz` | `{"ok": true}` |
 
 `globe` が見つからない・時間切れのときは 503・504 を返す。
+
+## 入力の守り
+
+本文は 1 MiB まで（超えたら HTTP 413。Streamlit・marimo は画面にエラー）、`globe` は 10 秒で kill する（環境変数 `GLOBE_TIMEOUT_MS` で変える。試験が使う）。決めた値は [doc/web-apps.md の 3.1](../../../doc/web-apps.md)（S215）。
 
 ## 検査
 

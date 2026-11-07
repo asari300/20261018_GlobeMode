@@ -1,4 +1,4 @@
-"""globe CLI（`globe fmt --json` / `globe lint --json`）を子プロセスで呼ぶ。計算は Rust 側だけ。
+"""globe CLI（`globe fmt --json -` / `globe lint --json -`）を子プロセスで呼ぶ。計算は Rust 側だけ。
 
 バイナリは環境変数 `GLOBE_BIN`（既定は PATH の `globe`）。終了コード 1 は正常な結果（整形できない / 指摘がある）。
 """
@@ -8,10 +8,23 @@ import os
 import subprocess
 
 
+MAX_BODY = 1 << 20  # doc/web-apps.md §3.1
+
+
 def _run(args: list[str], text: str) -> subprocess.CompletedProcess[str]:
     binary = os.environ.get("GLOBE_BIN", "globe")
+    if len(text.encode()) > MAX_BODY:
+        raise RuntimeError("入力が 1 MiB を超えている")
     try:
-        return subprocess.run([binary, *args], input=text, capture_output=True, text=True)
+        return subprocess.run(
+            [binary, *args],
+            input=text,
+            capture_output=True,
+            text=True,
+            timeout=int(os.environ.get("GLOBE_TIMEOUT_MS", "10000")) / 1000,
+        )
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError("globe が時間内に終わらなかった") from e
     except OSError as e:  # 無い・実行できないときも RuntimeError にして画面に出す
         raise RuntimeError(f"globe を起動できない（GLOBE_BIN={binary}）: {e}") from e
 
@@ -27,7 +40,7 @@ def _parse(proc: subprocess.CompletedProcess[str], what: str) -> dict:
 
 def format_text(text: str, indent: int = 2, insert_origin: bool = True) -> dict:
     """{"ok": bool, "text": str | None, "error": str | None} を返す。"""
-    args = ["fmt", "--json", "--indent", str(indent)]
+    args = ["fmt", "--json", "-", "--indent", str(indent)]
     if not insert_origin:
         args.append("--no-insert-origin")
     return _parse(_run(args, text), "fmt")
@@ -35,4 +48,4 @@ def format_text(text: str, indent: int = 2, insert_origin: bool = True) -> dict:
 
 def lint_text(text: str) -> list[dict]:
     """指摘の一覧（rule / line / column / message など）を返す。0 件なら空のリスト。"""
-    return _parse(_run(["lint", "--json"], text), "lint")["messages"]
+    return _parse(_run(["lint", "--json", "-"], text), "lint")["messages"]

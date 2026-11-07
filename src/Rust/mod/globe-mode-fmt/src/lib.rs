@@ -142,8 +142,25 @@ fn err(message: impl Into<String>, offset: usize) -> FormatError {
     }
 }
 
+/// UTF-8 の BOM（Windows のメモ帳などが付ける）。字句ではないので読み飛ばし、整形の出力の先頭には残す（S211）。
+const BOM: &str = "\u{feff}";
+
 /// 本文を整形する。文法が壊れている（括弧や `end` が合わない）ときは `Err` を返し、本文には触らない。
+/// 先頭の BOM は整形せず、出力の先頭にそのまま付ける（`Err` の `offset` は BOM を含む位置）。
 pub fn format(src: &str, options: &Options) -> Result<String, FormatError> {
+    let Some(body) = src.strip_prefix(BOM) else {
+        return format_body(src, options);
+    };
+    match format_body(body, options) {
+        Ok(out) => Ok(format!("{BOM}{out}")),
+        Err(mut e) => {
+            e.offset += BOM.len();
+            Err(e)
+        }
+    }
+}
+
+fn format_body(src: &str, options: &Options) -> Result<String, FormatError> {
     let tokens = lexer::lex(src)?;
     let elements = structure::split(&tokens, options.blank_around_sections)?;
     let newline = if src.contains("\r\n") { "\r\n" } else { "\n" };
@@ -152,7 +169,7 @@ pub fn format(src: &str, options: &Options) -> Result<String, FormatError> {
     let mut first = true;
     for e in &elements {
         let mut tree = layout::build(e.tokens)?;
-        annotation::apply(&mut tree, options.insert_origin, options.format_html);
+        annotation::apply(&mut tree, options.insert_origin, options.format_html, false);
         layout::flatten(&tree, &mut expected);
         if e.blank_before && !first {
             out.push_str(newline);

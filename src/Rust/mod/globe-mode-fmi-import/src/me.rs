@@ -165,6 +165,11 @@ fn tolerance_of(md: &ModelDescription, opts: &MeOptions) -> f64 {
 
 /// Model Exchange を終了時刻まで回す。
 pub fn run_me(fmu: &Fmu, opts: &MeOptions) -> Result<MeRun> {
+    run_me_with(fmu, opts, &mut |_| {})
+}
+
+/// [`run_me`] に、出力の格子点ごとに現在の時刻を受け取る `progress` を足したもの（S210。ワーカーが親へ進捗を流す）。
+pub fn run_me_with(fmu: &Fmu, opts: &MeOptions, progress: &mut dyn FnMut(f64)) -> Result<MeRun> {
     let md = &fmu.description;
     let exp = md.default_experiment.clone().unwrap_or_default();
     let start = opts.start_time.or(num(&exp.start_time)).unwrap_or(0.0);
@@ -216,6 +221,7 @@ pub fn run_me(fmu: &Fmu, opts: &MeOptions) -> Result<MeRun> {
             integrator: opts.integrator,
             rtol,
         },
+        progress,
     )
 }
 
@@ -230,7 +236,7 @@ struct Plan {
 }
 
 /// 初期化を終えた（Event Mode にいる）インスタンスを終了時刻まで進める。
-fn drive(inst: &mut dyn FmuMe, plan: &Plan) -> Result<MeRun> {
+fn drive(inst: &mut dyn FmuMe, plan: &Plan, progress: &mut dyn FnMut(f64)) -> Result<MeRun> {
     let (start, stop, step, rtol) = (plan.start, plan.stop, plan.step, plan.rtol);
     let vrs = &plan.vrs[..];
     let nx = inst.n_states();
@@ -259,6 +265,7 @@ fn drive(inst: &mut dyn FmuMe, plan: &Plan) -> Result<MeRun> {
     let mut h = step;
     let mut events_here = 0usize;
     'grid: for k in 1..=n_grid {
+        progress(t);
         let t_grid = if k == n_grid {
             stop
         } else {
@@ -510,7 +517,7 @@ mod tests {
             };
             let mut mock = Mock::default();
             mock.initialize(0.0, Some(5.0), None).unwrap();
-            let r = drive(&mut mock, &plan).unwrap();
+            let r = drive(&mut mock, &plan, &mut |_| {}).unwrap();
             let got: Vec<(EventKind, f64)> = r.events.iter().map(|e| (e.kind, e.time)).collect();
             assert_eq!(got.len(), 4, "{integrator:?}: {got:?}");
             assert_eq!(got[0], (EventKind::Time, 0.25));
@@ -545,7 +552,7 @@ mod tests {
         };
         let mut mock = new();
         mock.initialize(0.0, Some(0.9), None).unwrap();
-        let r = drive(&mut mock, &plan(MeIntegrator::Dopri5)).unwrap();
+        let r = drive(&mut mock, &plan(MeIntegrator::Dopri5), &mut |_| {}).unwrap();
         assert!(mock.discards > 0);
         assert!(
             (r.rows.last().unwrap().1[0] - 0.9).abs() < 1e-9,
@@ -554,7 +561,7 @@ mod tests {
         );
         let mut mock = new();
         mock.initialize(0.0, Some(0.9), None).unwrap();
-        let e = drive(&mut mock, &plan(MeIntegrator::Rk4)).unwrap_err();
+        let e = drive(&mut mock, &plan(MeIntegrator::Rk4), &mut |_| {}).unwrap_err();
         assert!(matches!(e, Error::Discard(_)), "{e}");
     }
 
@@ -658,7 +665,7 @@ mod tests {
             integrator: MeIntegrator::Dopri5,
             rtol: 1e-6,
         };
-        let e = drive(&mut Stuck::default(), &plan).unwrap_err();
+        let e = drive(&mut Stuck::default(), &plan, &mut |_| {}).unwrap_err();
         assert!(e.to_string().contains("事象が止まらない"), "{e}");
     }
 }

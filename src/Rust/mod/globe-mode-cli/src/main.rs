@@ -143,11 +143,11 @@ enum Command {
     /// Modelica のファイルを整形する（`doc/format-style.md`）。標準入力は `-` を明示したときだけ。
     /// 設定は対象から上へたどって最初の `globe-mode.toml`。コマンドラインの引数が優先
     #[command(
-        after_help = "例:\n  globe fmt .               カレントディレクトリの下の .mo を整形する\n  globe fmt -               標準入力を整形して標準出力へ\n  globe fmt --check src     書き換えず、整形が要るファイルを列挙する（要整形なら終了コード 1）\n  globe fmt model.mo --indent 4"
+        after_help = "例:\n  globe fmt .               カレントディレクトリの下の .mo を整形する\n  globe fmt -               標準入力を整形して標準出力へ\n  globe fmt --json -        標準入力を整形して JSON で返す（ウェブアプリ用）\n  globe fmt --check src     書き換えず、整形が要るファイルを列挙する（要整形なら終了コード 1）\n  globe fmt model.mo --indent 4"
     )]
     Fmt {
         /// ファイルまたはディレクトリ（下の .mo を .gitignore と隠しディレクトリを除いてすべて）。
-        /// `-`（パスなしの `--json` も）は標準入力 → 標準出力。パスも `-` も無ければ使い方を出して終了コード 2
+        /// `-` は標準入力 → 標準出力（`--json` でも）。パスも `-` も無ければ使い方を出して終了コード 2
         files: Vec<PathBuf>,
         /// 書き換えず、整形が要るファイルを列挙して終了コード 1
         #[arg(long)]
@@ -167,13 +167,13 @@ enum Command {
         /// `Documentation(…)` の HTML の文字列を整えない
         #[arg(long)]
         no_format_html: bool,
-        /// 標準入力のとき、結果を JSON（{"ok":bool,"text":…,"error":…}）で返す
+        /// 標準入力（`-`）のとき、結果を JSON（{"ok":bool,"text":…,"error":…}）で返す
         #[arg(long)]
         json: bool,
     },
     /// Modelica のファイルを lint する（line-too-long / class-name-pascal-case / missing-description）
     #[command(
-        after_help = "例:\n  globe lint .\n  globe lint -               標準入力を lint する\n  globe lint model.mo --disable line-too-long\n  globe lint src --json"
+        after_help = "例:\n  globe lint .\n  globe lint -               標準入力を lint する\n  globe lint --json -       標準入力を lint して JSON で返す（ウェブアプリ用）\n  globe lint model.mo --disable line-too-long\n  globe lint src --json"
     )]
     Lint {
         /// ファイルまたはディレクトリ。`-` は標準入力（`fmt` と同じ規則）
@@ -679,7 +679,7 @@ fn fmt(
             o
         })
     };
-    let files = match paths_or_stdin("fmt", files, json) {
+    let files = match paths_or_stdin("fmt", files) {
         Ok(f) => f,
         Err(code) => return code,
     };
@@ -692,6 +692,15 @@ fn fmt(
             Err(code) => return code,
         };
         return match globe_mode_fmt::format(&text, &options) {
+            // S211: `--check` は整形が要るかだけを終了コードで返す（標準出力には何も出さない）
+            Ok(out) if check && !json => {
+                if out == text {
+                    ExitCode::SUCCESS
+                } else {
+                    eprintln!("整形が要る: -");
+                    ExitCode::from(1)
+                }
+            }
             Ok(out) if json => {
                 println!(
                     "{}",
@@ -739,7 +748,7 @@ fn fmt(
                 changed += 1;
                 println!("整形が要る: {name}");
             }
-            Ok(out) => match std::fs::write(path, out) {
+            Ok(out) => match write_atomically(path, &out) {
                 Ok(()) => changed += 1,
                 Err(e) => {
                     eprintln!("error: {}", io_error(path, true, &e));
@@ -768,20 +777,15 @@ fn fmt(
     }
 }
 
-/// 入力の決め方。`None` は標準入力。標準入力は `-` を明示したとき（と、標準入力の契約の `--json`）だけ。
-/// パスを 1 つも渡さず `-` も `--json` も無いときは、端末かパイプかに関係なく使い方を出して終了コード 2
-/// （S199。ウェブアプリ・エディタは `--json` で呼ぶ。`globe fmt --check` が何も検査せず 0 で終わるのを防ぐ）。
-fn paths_or_stdin(
-    command: &str,
-    files: &[PathBuf],
-    json: bool,
-) -> Result<Option<Vec<PathBuf>>, ExitCode> {
+/// 入力の決め方。`None` は標準入力。標準入力は `-` を明示したときだけ（`--json` でも同じ。S209）。
+/// パスを 1 つも渡さず `-` も無いときは、端末かパイプかに関係なく使い方を出して終了コード 2
+/// （S199。`globe fmt --check` が何も検査せず 0 で終わるのを防ぐ）。
+fn paths_or_stdin(command: &str, files: &[PathBuf]) -> Result<Option<Vec<PathBuf>>, ExitCode> {
     match files {
         [one] if one.as_os_str() == "-" => Ok(None),
-        [] if json => Ok(None),
         [] => {
             eprintln!(
-                "error: 対象のパスが無い。使い方: globe {command} <FILES…>（ディレクトリも可。例: globe {command} .）か globe {command} -（標準入力）"
+                "error: 対象のパスが無い。使い方: globe {command} <FILES…>（ディレクトリも可。例: globe {command} .）か globe {command} -（標準入力。--json でも - が要る）"
             );
             Err(ExitCode::from(2))
         }
@@ -830,7 +834,7 @@ fn lint(files: &[PathBuf], disable: &[String], json: bool) -> ExitCode {
             c
         })
     };
-    let files = match paths_or_stdin("lint", files, json) {
+    let files = match paths_or_stdin("lint", files) {
         Ok(f) => f,
         Err(code) => return code,
     };
@@ -901,6 +905,33 @@ fn lint(files: &[PathBuf], disable: &[String], json: bool) -> ExitCode {
     } else {
         ExitCode::from(1)
     }
+}
+
+/// S211: 同じフォルダの一時ファイルに書いてから rename で差し替える。途中で落ちても元のファイルは切り詰められない。
+/// リンクは指す先を書き換え、権限は元のまま。読み取り専用なら今までどおり書かない。
+/// Windows の `rename` は既存のファイルを置き換える（`MoveFileExW` の `MOVEFILE_REPLACE_EXISTING`）。
+/// shortcut: ハードリンクと所有者は引き継がない（rename で新しい inode になる）。必要になったら一時ファイルをやめて `File::create` に戻す。
+fn write_atomically(path: &Path, text: &str) -> std::io::Result<()> {
+    let target = std::fs::canonicalize(path)?;
+    let meta = std::fs::metadata(&target)?;
+    if meta.permissions().readonly() {
+        return Err(std::io::ErrorKind::PermissionDenied.into());
+    }
+    let mut tmp_name = target.file_name().unwrap_or_default().to_os_string();
+    tmp_name.push(format!(".globe-tmp-{}", std::process::id()));
+    let tmp = target.with_file_name(tmp_name);
+    let result = (|| {
+        let mut f = std::fs::File::create(&tmp)?;
+        std::io::Write::write_all(&mut f, text.as_bytes())?;
+        f.set_permissions(meta.permissions())?;
+        f.sync_all()?;
+        drop(f);
+        std::fs::rename(&tmp, &target)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    result
 }
 
 fn read(path: &PathBuf) -> Result<(String, String), ExitCode> {

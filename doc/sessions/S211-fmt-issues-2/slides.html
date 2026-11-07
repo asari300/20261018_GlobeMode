@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S211 整形器と fmt の issue 5 件 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S211 整形器と fmt の issue 5 件">
+
+<section class="slide" id="S01">
+  <span class="tag">S211 · 2026-11-07 · P4</span>
+  <h1>整形器の issue 5 件を直した</h1>
+  <p class="lead">ponytail の監査で立った #24・#26・#27・#28・#32。5 件とも main で再現してから直した</p>
+  <div class="big">利用者のモデルを黙って壊す <b>#24</b> が最優先</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">一覧</span>
+  <h1>再現と直し</h1>
+  <table class="compact">
+    <tr><th>issue</th><th>再現</th><th>直し</th></tr>
+    <tr><td>#24 外の Line(…) を壊す</td><td>extends Pkg.Line(R = 1) に origin が入る</td><td>annotation の中だけ並べ替え</td></tr>
+    <tr><td>#26 fmt --check - が 0</td><td>整形が要る入力で 0</td><td>違えば 1、標準出力は空</td></tr>
+    <tr><td>#27 素の fs::write</td><td>書き込み中に落ちると 6.4 MB が 512 KB に</td><td>一時ファイル + rename</td></tr>
+    <tr><td>#28 深い入れ子で落ちる</td><td>100,000 段で stack overflow</td><td>256 段を越えたら誤り</td></tr>
+    <tr><td>#32 BOM 付きが S0 の誤り</td><td>outline が誤り、fmt が拒む</td><td>読み飛ばし、書き戻しは残す</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">#24</span>
+  <h1>annotation の外は触らない</h1>
+  <ul>
+    <li>apply に <b>in_annotation</b> を渡し、annotation( の下だけで並べ替えと origin の補完</li>
+    <li>Documentation の並べ替えと lint の annotation-order も同じ条件</li>
+    <li>MSL 4.1.0 と src/Modelica ほか 2,661 本の lint・format（幅 80・30）の出力は前後で差 0</li>
+    <li>Buildings・AixLib の 10,627 本も差 0（redeclare の引数が元々止めていた）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">#26 · #27</span>
+  <h1>CLI の fmt</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決め</th></tr>
+    <tr><td>--check -</td><td>out == text なら 0、違えば 1。標準出力に何も出さない</td></tr>
+    <tr><td>書き戻し</td><td>同じフォルダの一時ファイル、権限を写し、sync_all、rename</td></tr>
+    <tr><td>symlink</td><td>指す先を書き換える（リンクは残る）</td></tr>
+    <tr><td>読み取り専用</td><td>これまでどおり書かない（終了コード 2）</td></tr>
+    <tr><td>Windows</td><td>rename は既存のファイルを置き換える</td></tr>
+  </table>
+  <p>ulimit -f で書き込み中に落とすと、直す前は切り詰め、直した後は元のファイルが無傷</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">#28</span>
+  <h1>入れ子の上限は 256 段</h1>
+  <div class="kpis">
+    <div class="kpi"><span class="n">22</span><span class="l">MSL 4.1.0 の最大の入れ子</span></div>
+    <div class="kpi"><span class="n">50</span><span class="l">Buildings・AixLib を含む最大</span></div>
+    <div class="kpi"><span class="n">256</span><span class="l">上限。越えると誤り</span></div>
+  </div>
+  <ul>
+    <li>seq の 1 か所で深さを数えれば、flatten・render・apply・drop は 256 段以内</li>
+    <li>持ち越し: Rumoca の検査は 20,000 段で main スレッドが溢れる</li>
+  </ul>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">#32</span>
+  <h1>BOM の扱い</h1>
+  <table class="compact">
+    <tr><th>面</th><th>扱い</th></tr>
+    <tr><td>format</td><td>BOM を除いて整形し、出力の先頭に残す。CLI と LSP の書き戻しで BOM が残る</td></tr>
+    <tr><td>lint</td><td>BOM を除いた本文で読む</td></tr>
+    <tr><td>GlobeDb::set_file</td><td>BOM を空白 3 個に。バイト位置は渡した本文のまま</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>検査（Rumoca）側の深い入れ子は入口で数えて S0 の誤りにする案</li>
+    <li>診断の桁を BOM を除いて数えるか</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

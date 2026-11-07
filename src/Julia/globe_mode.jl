@@ -71,18 +71,35 @@ struct Progress
     stop_time::Cdouble
 end
 
-# C のコールバック。user_data に Julia の関数 f を Any で渡し、f が true を返したら 1（中断）。
-function progress_trampoline(p::Ptr{Progress}, f)::Cint
-    q = unsafe_load(p)
-    f((stage=unsafe_string(q.stage), time=q.has_time != 0 ? q.time : nothing,
-        start_time=q.start_time, stop_time=q.stop_time)) === true
+# S214: コールバックの例外（f の throw と Ctrl-C の InterruptException）を Rust のフレームの外へ出さない。
+# 例外はここに退避して 1（中断）を返し、ccall が返ってから投げ直す。
+mutable struct Observer
+    f::Any
+    err::Any
+end
+
+# C のコールバック。user_data に Observer を Any で渡し、f が true を返したら 1（中断）。
+function progress_trampoline(p::Ptr{Progress}, o)::Cint
+    try
+        q = unsafe_load(p)
+        o.f((stage=unsafe_string(q.stage), time=q.has_time != 0 ? q.time : nothing,
+            start_time=q.start_time, stop_time=q.stop_time)) === true
+    catch e
+        o.err = e
+        true
+    end
 end
 
 # simulate と同じだが、進捗のたびに on_progress(NamedTuple{stage, time, start_time, stop_time}) を呼び、true が返ったら止める。
-# 止めたら termination が cancelled で途中までの CSV と GM-I11004。
-simulate_observed(ws::Workspace, model, on_progress, settings=C_NULL) =
-    take(ccall((:gm_simulate_observed, LIB), Ptr{UInt8}, (Ptr{Cvoid}, Cstring, Cstring, Ptr{Cvoid}, Any),
-        ws.ptr, model, settings, @cfunction(progress_trampoline, Cint, (Ptr{Progress}, Any)), on_progress))
+# 止めたら termination が cancelled で途中までの CSV と GM-I11004。on_progress が例外を投げたら、止めてから投げ直す（S214）。
+function simulate_observed(ws::Workspace, model, on_progress, settings=C_NULL)
+    o = Observer(on_progress, nothing)
+    # 実行中に ws の finalizer が gm_workspace_free を試みない（S214）
+    res = GC.@preserve ws o take(ccall((:gm_simulate_observed, LIB), Ptr{UInt8}, (Ptr{Cvoid}, Cstring, Cstring, Ptr{Cvoid}, Any),
+        ws.ptr, model, settings, @cfunction(progress_trampoline, Cint, (Ptr{Progress}, Any)), o))
+    o.err === nothing || throw(o.err)
+    res
+end
 
 # S118: FMU の書き出し。{"path": ...} か {"error": ...} の JSON。options は {"fmi_version": 2, "build": false, ...}（省略可）。
 export_fmu(ws::Workspace, model, out_dir, options=C_NULL) =

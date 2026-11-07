@@ -1,6 +1,6 @@
 # GlobeMode 整形・lint（Streamlit）
 
-GlobeMode の整形器と lint を、Streamlit の 1 ページの画面で使う。計算は `globe` の CLI（`globe fmt --json` / `globe lint --json`）を子プロセスで呼んで行い、この画面は表示と入出力だけを受け持つ（[doc/web-apps.md](../../../doc/web-apps.md)）。
+GlobeMode の整形器と lint を、Streamlit の 1 ページの画面で使う。計算は `globe` の CLI（`globe fmt --json -` / `globe lint --json -`）を子プロセスで呼んで行い、この画面は表示と入出力だけを受け持つ（[doc/web-apps.md](../../../doc/web-apps.md)）。
 
 English summary: a one-page Streamlit UI for the GlobeMode formatter and linter. It calls the `globe` CLI (`GLOBE_BIN`, default `globe`) as a subprocess; no formatting logic lives here.
 
@@ -15,6 +15,10 @@ GLOBE_BIN=/path/to/globe uv run streamlit run fmt_app.py   # GLOBE_BIN を省く
 ```
 
 手元のバイナリは `cargo build -p globe-mode-cli` で作る `target/debug/globe`。
+
+## 入力の守り
+
+本文は 1 MiB まで（超えたら HTTP 413。Streamlit・marimo は画面にエラー）、`globe` は 10 秒で kill する（環境変数 `GLOBE_TIMEOUT_MS` で変える。試験が使う）。決めた値は [doc/web-apps.md の 3.1](../../../doc/web-apps.md)（S215）。
 
 ## 検査
 

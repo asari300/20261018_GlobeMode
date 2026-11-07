@@ -68,3 +68,8 @@ GlobeMode.simulate_observed(ws, "Wiggle", p -> begin
 @test length(errs) == 2 && all(e -> occursin("\"error\"", e) && occursin("使用中", e), errs)
 @test occursin("\"passed\"", GlobeMode.check(ws, "Wiggle"))
 println("reentry: $(errs[1])")
+# S214: コールバックの例外は Rust のフレームを突き抜けず、中断として扱われてから投げ直される。ws は使用中のまま固まらない
+@test_throws ErrorException GlobeMode.simulate_observed(ws, "Wiggle", p -> error("boom"),
+    "{\"solver\": \"esdirk34\", \"stop_time\": 1000, \"interval\": 1}")
+@test occursin("\"passed\"", GlobeMode.check(ws, "Wiggle"))
+println("callback exception: ok")

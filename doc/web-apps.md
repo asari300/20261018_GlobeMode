@@ -8,20 +8,21 @@ S053 で決めた。GlobeMode の整形器と lint（`globe-mode-fmt`、[format-
 | 呼び方 | 使う側 |
 | --- | --- |
 | crate `globe-mode-fmt`（`src/Rust/mod/globe-mode-fmt`、依存 0） | Rust のアプリ（`path` 依存） |
-| CLI `globe fmt --json` / `globe lint --json`（標準入力 → 標準出力の JSON） | Rust 以外のアプリ（子プロセス） |
+| CLI `globe fmt --json -` / `globe lint --json -`（標準入力 → 標準出力の JSON） | Rust 以外のアプリ（子プロセス） |
 
 CLI の契約（`globe-mode-cli`）:
 
 ```text
-echo '<Modelica>' | globe fmt --json [--indent 2] [--width 80] [--no-insert-origin]
+echo '<Modelica>' | globe fmt --json - [--indent 2] [--width 80] [--no-insert-origin]
 → {"ok": true, "text": "<整形後>", "error": null}            終了コード 0
 → {"ok": false, "text": null, "error": "<理由> (byte N)"}     終了コード 1（文法が壊れている。入力は触らない）
 
-echo '<Modelica>' | globe lint --json [--disable <rule>]...
+echo '<Modelica>' | globe lint --json - [--disable <rule>]...
 → {"messages": [{"file": "<stdin>", "rule": "line-too-long", "line": 5, "column": 81, "message": "…"}]}
    終了コード 0（0 件）/ 1（1 件以上）
 ```
 
+- 標準入力は `-` を明示する（`globe fmt --json -`）。`--json` だけでパスも `-` も無ければ、使い方を出して終了コード 2（S209。S199 までは `--json` のパスなしだけ標準入力だった）。
 - バイナリの場所は環境変数 `GLOBE_BIN`。無ければ PATH の `globe`。手元では `cargo build -p globe-mode-cli` の `target/debug/globe`。
 - 本文は UTF-8。行番号・桁は 1 始まり、桁は文字単位。
 
@@ -50,6 +51,18 @@ echo '<Modelica>' | globe lint --json [--disable <rule>]...
 Streamlit・marimo のようにサーバの API を持たないものは、画面だけを同じ機能で作る。
 
 実装で決めた細部（S053）: `indent` は 0〜16 の外なら `ok: false`（HTTP 200）。本文が JSON でない・`text` が無いときはフレームワークの 4xx（400 / 422）。lint の応答は CLI の `file` 欄を落とす。認証・CORS は無い。
+
+### 3.1 入力の守り（S215。CLI を子プロセスで呼ぶ 6 種）
+
+信用できない本文がネットワークから来るので、次の 3 つを守る。
+
+| 項目 | 決めた値 | 超えたとき |
+| --- | --- | --- |
+| 本文の上限 | 1 MiB（1048576 バイト） | HTTP 413。画面だけのアプリ（Streamlit・marimo）は画面にエラーを出して `globe` を呼ばない |
+| `globe` の時間切れ | 10 秒（環境変数 `GLOBE_TIMEOUT_MS` で変える。試験が使う） | 子を kill して 5xx（FastAPI は 504、ほかは「`globe` を実行できない」と同じ扱い）。画面だけのアプリはエラー |
+| 一時ファイル | 使うなら排他（`O_EXCL`）で作り、`finally` 相当で必ず消す。使わないのが望ましい | Phoenix と Gleam だけが使う（標準入力を閉じられないため） |
+
+`indent` は 0〜16、`disable` の規則名は `^[a-z][a-z-]*$`（外れたら 4xx。Gleam の整形だけは §3 のとおり HTTP 200 の `ok: false`）。
 
 ## 4. 置き場と約束
 

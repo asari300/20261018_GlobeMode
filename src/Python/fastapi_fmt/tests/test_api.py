@@ -72,3 +72,29 @@ async def test_missing_binary_is_503(client, monkeypatch):
     async with client as c:
         r = await c.post("/api/lint", json={"text": "model A end A;"})
     assert r.status_code == 503
+
+
+@pytest.mark.anyio
+async def test_oversize_body_is_413(client):
+    async with client as c:
+        r = await c.post("/api/format", json={"text": "x" * (1 << 20)})  # JSON の枠で 1 MiB を超える
+    assert r.status_code == 413
+
+
+@pytest.mark.anyio
+async def test_slow_globe_is_504(client, monkeypatch, tmp_path):
+    slow = tmp_path / "slow.sh"
+    slow.write_text("#!/bin/sh\nexec sleep 30\n")
+    slow.chmod(0o755)
+    monkeypatch.setenv("GLOBE_BIN", str(slow))
+    monkeypatch.setenv("GLOBE_TIMEOUT_MS", "200")
+    async with client as c:
+        r = await c.post("/api/format", json={"text": "model A end A;"})
+    assert r.status_code == 504
+
+
+@pytest.mark.anyio
+async def test_disable_must_be_a_rule_name(client):
+    async with client as c:
+        r = await c.post("/api/lint", json={"text": "model A end A;", "disable": ["--json"]})
+    assert r.status_code == 422

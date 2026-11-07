@@ -3,7 +3,7 @@
 GlobeMode の整形（`globe fmt`）と lint（`globe lint`）を、Phoenix のウェブアプリとして使えるようにしたもの。
 計算は Rust 側の CLI（`globe`）だけで、このアプリは子プロセスで呼んで JSON を受け渡す。
 
-English summary: A small Phoenix (1.8, Bandit) web app that formats and lints Modelica code by calling the `globe` CLI (`globe fmt --json` / `globe lint --json`) as a child process. Routes: `GET /` (Japanese UI), `POST /api/format`, `POST /api/lint`, `GET /healthz`. Set `GLOBE_BIN` to the path of the `globe` binary.
+English summary: A small Phoenix (1.8, Bandit) web app that formats and lints Modelica code by calling the `globe` CLI (`globe fmt --json -` / `globe lint --json -`) as a child process. Routes: `GET /` (Japanese UI), `POST /api/format`, `POST /api/lint`, `GET /healthz`. Set `GLOBE_BIN` to the path of the `globe` binary.
 
 ## 起動
 
@@ -20,6 +20,10 @@ GLOBE_BIN=/絶対パス/target/debug/globe mise exec -- mix phx.server
 
 - 既定の待ち受けは http://localhost:4000 （環境変数 `PORT` で変える）。
 - `GLOBE_BIN` を省くと PATH の `globe` を使う。
+
+## 入力の守り
+
+本文は 1 MiB まで（超えたら HTTP 413。Streamlit・marimo は画面にエラー）、`globe` は 10 秒で kill する（環境変数 `GLOBE_TIMEOUT_MS` で変える。試験が使う）。決めた値は [doc/web-apps.md の 3.1](../../../doc/web-apps.md)（S215）。
 
 ## 検査
 

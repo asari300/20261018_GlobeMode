@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S208 言語の面の重複を facade に寄せた — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S208 言語の面の重複を facade に寄せた">
+
+<section class="slide" id="S01">
+  <span class="tag">S208 · 2026-11-07 · P7</span>
+  <h1>言語の面の重複を facade に寄せた</h1>
+  <p class="lead">Python・wasm・LSP・C・NIF に散らばった同じ処理を、振る舞いを変えずに facade の関数へ</p>
+  <div class="big">面を足すたびに 4〜5 か所を直す状態を無くす</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">洗い出し</span>
+  <h1>3 つ以上の面で同じものを寄せた</h1>
+  <table class="compact">
+    <tr><th>処理</th><th>facade の関数</th><th>面</th></tr>
+    <tr><td>設定の JSON から要求</td><td><code>simulate_request</code></td><td>C・NIF・Python</td></tr>
+    <tr><td>進捗の段の名前</td><td><code>ExecStage::as_str</code></td><td>5 面</td></tr>
+    <tr><td>outline の誤りの文面</td><td><code>outline_json</code></td><td>C・NIF・Python・wasm</td></tr>
+    <tr><td>列の道の layout</td><td><code>Simulated::columns</code></td><td>LSP が手組みだった</td></tr>
+    <tr><td>FMU options の JSON</td><td><code>FmuOptions::from_json</code></td><td>C・NIF・Python</td></tr>
+    <tr><td>ライブラリの有無</td><td><code>Workspace::open</code></td><td>C・NIF・Python</td></tr>
+    <tr><td>値を JSON に</td><td><code>to_json</code></td><td>C・NIF・Python・wasm</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">残したもの</span>
+  <h1>形が違うものは寄せない</h1>
+  <ul>
+    <li><code>layout_json</code> は C と NIF の 2 面だけ。Python・wasm・LSP は応答の形が違う。</li>
+    <li>進捗を面の形に写す部分は 5 面とも別の形。共通の段の名前だけ <code>as_str</code> に。</li>
+    <li><code>tunable_parameters</code> の診断のつなぎ方、<code>load_dir</code> の文面は 2 面だけ。</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">issue #16</span>
+  <h1>残り 2 つも片付けた</h1>
+  <div class="cols-2">
+    <div class="card">
+      <h2>memory.mjs</h2>
+      <p><code>common.mjs</code> の <code>readMo</code>・<code>defaultPkg</code>・<code>repo</code> を使う。</p>
+    </div>
+    <div class="card">
+      <h2>xtask の None 分岐</h2>
+      <p>数えると 10 か所ほど。<code>solver</code> を <code>&amp;str</code>、<code>known_deviations</code> を <code>&amp;Path</code> に。CLI からの出力は同じ。</p>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">結果</span>
+  <h1>行数は減り、期待値は 1 つも変えていない</h1>
+  <div class="kpis">
+    <div class="kpi"><span class="n">-81</span><span class="l">行（ソース全体）</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">変えた試験の期待値</span></div>
+  </div>
+  <p>facade は +24 行、面は -105 行（Python -44、LSP -18、C・NIF・wasm・xtask・mjs の合計 -43）。</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>mise run check
+mise run wasm:node &amp;&amp; mise run wasm:compare
+mise run c:zig &amp;&amp; mise run c:julia
+mise run elixir:test &amp;&amp; mise run gleam:test
+.venv/bin/python -m pytest src/Python/tests</code></pre>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>残したもの</h1>
+  <ul>
+    <li>Python の <code>defaults</code> の足し方は <code>layout_json</code> を使う面が 3 つになったら寄せる。</li>
+    <li>Astro の fmt の CI（S203 から変わらず）。</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

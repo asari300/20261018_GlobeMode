@@ -135,9 +135,7 @@ fn run_prints_a_warning_and_the_csv() {
             "k=2",
         ]);
         assert!(o.status.success(), "{o:?}");
-        assert!(
-            String::from_utf8_lossy(&o.stderr).contains("FMU の中のネイティブコードを実行する")
-        );
+        assert!(String::from_utf8_lossy(&o.stderr).contains("ネイティブコードを別プロセス"));
         let out = String::from_utf8_lossy(&o.stdout);
         assert!(out.starts_with("time,x\n"), "{out}");
         let row = last_row(&out);

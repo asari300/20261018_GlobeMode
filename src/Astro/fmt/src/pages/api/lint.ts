@@ -1,12 +1,14 @@
 import type { APIRoute } from 'astro';
-import { lint } from '../../lib/globe';
+import { lint, readBody } from '../../lib/globe';
 
 const bad = (error: string) => Response.json({ error }, { status: 400 });
 
 export const POST: APIRoute = async ({ request }) => {
+  const raw = await readBody(request);
+  if (raw === null) return Response.json({ error: '本文が 1 MiB を超えている' }, { status: 413 });
   let body: Record<string, unknown>;
   try {
-    body = await request.json();
+    body = JSON.parse(raw);
   } catch {
     return bad('JSON を読めない');
   }

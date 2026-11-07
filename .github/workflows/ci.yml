@@ -50,6 +50,7 @@ jobs:
       deny: ${{ steps.plan.outputs.deny }}
       python: ${{ steps.plan.outputs.python }}
       lang: ${{ steps.plan.outputs.lang }}
+      web: ${{ steps.plan.outputs.web }}
       docs: ${{ steps.plan.outputs.docs }}
       slides: ${{ steps.plan.outputs.slides }}
       msl: ${{ steps.plan.outputs.msl }}
@@ -294,6 +295,31 @@ jobs:
       - run: mise run c:julia
       - run: mise run elixir:test
       - run: mise run gleam:test
+
+  web:
+    # S215（#22）: Rust のウェブアプリ 4 種（別の workspace）が globe-mode-fmt の変更に追従してビルドでき、試験が通るか。
+    # 自分のディレクトリか globe-mode-fmt を変えたときだけ（ci_plan.py の web）
+    needs: plan
+    if: needs.plan.outputs.web == 'true'
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [axum, actix, rocket, loco]
+    defaults:
+      run:
+        working-directory: src/Rust/apps/web-${{ matrix.app }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+        with:
+          install_args: rust
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # .cargo/config.toml で target-dir がリポジトリ直下の target/ になっている
+          workspaces: src/Rust/apps/web-${{ matrix.app }} -> ../../../../target
+      - run: cargo build --locked
+      - run: cargo test --locked
 
   docs:
     needs: plan

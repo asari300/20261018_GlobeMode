@@ -81,6 +81,17 @@ pub struct FmuOptions {
 }
 
 #[cfg(feature = "fmu")]
+impl FmuOptions {
+    /// JSON（省略した鍵は既定。`None` は全部既定）から読む（S208。C の ABI・NIF・Python が共有する）。
+    pub fn from_json(options_json: Option<&str>) -> Result<Self, String> {
+        options_json.map_or_else(
+            || Ok(Self::default()),
+            |s| serde_json::from_str(s).map_err(|e| format!("options が読めない: {e}")),
+        )
+    }
+}
+
+#[cfg(feature = "fmu")]
 impl Default for FmuOptions {
     fn default() -> Self {
         Self {
@@ -108,7 +119,12 @@ pub fn export_fmu(
     globe_mode_fmi::export::write_fmu(&src, out_dir, headers, &options.targets)
 }
 
-/// `settings_json`（`{"stop_time": 2, "solver": "bdf"}` など。`None` は設定なし）から実行の依頼を作る（S202。C の ABI・NIF が共有する）。
+/// 値を JSON の文字列にする（S208。C の ABI・NIF・Python・wasm が共有する。誤りの文面は `JSON: …`）。
+pub fn to_json<T: serde::Serialize + ?Sized>(value: &T) -> Result<String, String> {
+    serde_json::to_string(value).map_err(|e| format!("JSON: {e}"))
+}
+
+/// `settings_json`（`{"stop_time": 2, "solver": "bdf"}` など。`None` は設定なし）から実行の依頼を作る（S202。C の ABI・NIF・Python が共有する）。
 pub fn simulate_request(
     model: &str,
     settings_json: Option<&str>,
@@ -172,13 +188,12 @@ impl Simulated {
     /// 列の道の見出しの JSON（S202。C の ABI・NIF が共有する）。
     /// `{"response": SimulateResponse（csv 無し）, "names": [...], "points": n, "defaults": [...]}`。
     pub fn layout_json(&self, layout: &ColumnsLayout) -> Result<String, String> {
-        serde_json::to_string(&serde_json::json!({
+        to_json(&serde_json::json!({
             "response": self.response,
             "names": layout.names,
             "points": layout.points,
             "defaults": layout.defaults,
         }))
-        .map_err(|e| format!("JSON: {e}"))
     }
 
     /// 列の道（S116。wasm の `SimColumns`・Python の `simulate_columns`・C の `gm_simulate_columns`・NIF と共通）。
@@ -238,6 +253,15 @@ impl Workspace {
     /// ライブラリ無しのワークスペース。
     pub fn new() -> Self {
         Self::from_db(GlobeDb::new(), 0, 0.0)
+    }
+
+    /// `libraries` が空ならライブラリ無し（[`Workspace::new`]）、あれば [`Workspace::with_libraries`]（S208。C の ABI・NIF・Python が共有する）。
+    pub fn open(libraries: &[PathBuf]) -> Result<Self, Vec<Diagnostic>> {
+        if libraries.is_empty() {
+            Ok(Self::new())
+        } else {
+            Self::with_libraries(libraries)
+        }
     }
 
     /// ライブラリのディレクトリ（MSL など）の `.mo` を本文のまま持ち、検査のたびにモデルが使うファイルだけを
@@ -360,12 +384,12 @@ impl Workspace {
         self.db.outline(path)
     }
 
-    /// [`Workspace::outline`] の JSON（`globe outline --json` と同じ。S202。C の ABI・NIF が共有する）。
+    /// [`Workspace::outline`] の JSON（`globe outline --json` と同じ。S202。C の ABI・NIF・Python・wasm が共有する）。
     /// ファイルが無いか構文の誤りがあれば誤りの文（誤りは最初の診断の `コード: 文`）。
     pub fn outline_json(&self, path: &str) -> Result<String, String> {
         match self.outline(path) {
             None => Err(format!("ファイル {path} がワークスペースに無い")),
-            Some(Ok(o)) => serde_json::to_string(o).map_err(|e| format!("JSON: {e}")),
+            Some(Ok(o)) => to_json(o),
             Some(Err(ds)) => Err(ds
                 .first()
                 .map_or_else(String::new, |d| format!("{}: {}", d.code, d.message))),

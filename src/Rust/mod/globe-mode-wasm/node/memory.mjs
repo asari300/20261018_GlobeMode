@@ -6,38 +6,28 @@
 // モデルを順に check して、1 本ごとに wasm の線形メモリ（memory_bytes）と時間を記録する。
 // 線形メモリが --recycle-mib（ADR-0023 (c) の上限。既定 2048）を超えたら、次の check の前に Worker を作り直して
 // MSL を読み直す（UI がする作り直しと同じ。時間も記録する）。作り直しをしない比較は --recycle-mib 0。
-import { readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { readFileSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { Worker } from "node:worker_threads";
 import { GlobeWorker } from "../web/client.js";
+import { defaultPkg, readMo, repo } from "./common.mjs";
 
-const here = dirname(fileURLToPath(import.meta.url));
-const repo = resolve(here, "../../../../..");
 const args = process.argv.slice(2);
 const arg = (name, dflt) => {
   const i = args.indexOf(name);
   return i >= 0 ? args[i + 1] : dflt;
 };
-const pkg = resolve(arg("--pkg", join(process.env.CARGO_TARGET_DIR ?? join(repo, "target"), "wasm-pkg/web")));
+const pkg = resolve(arg("--pkg", defaultPkg("web")));
 const mslDir = resolve(arg("--msl", join(repo, "data/msl")));
 const models = readFileSync(arg("--list"), "utf8").split("\n").map((s) => s.trim()).filter(Boolean).slice(0, Number(arg("--limit", 1e9)));
 const recycleMiB = Number(arg("--recycle-mib", 2048));
 const out = arg("--json");
 
-function readMo(dir, out = {}) {
-  for (const e of readdirSync(dir).sort()) {
-    const p = join(dir, e);
-    if (statSync(p).isDirectory()) readMo(p, out);
-    else if (p.endsWith(".mo")) out[relative(mslDir, p).replaceAll("\\", "/")] = readFileSync(p, "utf8");
-  }
-  return out;
-}
-
 const mib = (b) => +(b / 2 ** 20).toFixed(1);
 const ms = (t) => +(performance.now() - t).toFixed(1);
 const wasm = readFileSync(join(pkg, "globe_mode_wasm_bg.wasm"));
-const libJson = JSON.stringify(readMo(mslDir));
+const libJson = JSON.stringify(readMo(mslDir, mslDir));
 const make = () => new GlobeWorker(() => new Worker(new URL("../web/worker.js", import.meta.url)), { pkg: pathToFileURL(pkg).href, wasm });
 
 let w = make();
