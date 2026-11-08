@@ -631,9 +631,9 @@ impl GlobeDb {
     /// 渡した本文のままなので、診断の範囲を渡した本文で行・桁に直す呼び出し元（CLI・LSP）はずれない。
     pub fn set_file(&mut self, path: &str, text: impl Into<String>) {
         let text: String = text.into();
-        let text = match text.strip_prefix('\u{feff}') {
-            Some(rest) => format!("   {rest}"),
-            None => text,
+        let text = match globe_mode_frontend::blank_bom(&text) {
+            std::borrow::Cow::Owned(blanked) => blanked,
+            std::borrow::Cow::Borrowed(_) => text,
         };
         let path = &normalize_path(path);
         if let Some(file) = self.files.get(path).copied() {
@@ -678,8 +678,15 @@ impl GlobeDb {
         let mut paths = Vec::new();
         globe_mode_frontend::collect_mo_files(dir, &mut paths)?;
         paths.sort();
-        for p in &paths {
-            let text = std::fs::read_to_string(p)?;
+        // 全部読めてから足す（途中で止まって前半だけ入った状態にしない）。誤りにはファイルのパスを付ける（#85）
+        let texts = paths
+            .iter()
+            .map(|p| {
+                std::fs::read_to_string(p)
+                    .map_err(|e| std::io::Error::new(e.kind(), format!("{}: {e}", p.display())))
+            })
+            .collect::<std::io::Result<Vec<_>>>()?;
+        for (p, text) in paths.iter().zip(texts) {
             self.set_file(&p.display().to_string(), text);
         }
         Ok(paths.len())

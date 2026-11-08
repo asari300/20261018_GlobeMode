@@ -732,9 +732,10 @@ fn fmt(
                 );
                 ExitCode::from(1)
             }
+            // 構文の誤りはファイルと同じ 2（#60）。`--json` は 1 のまま（上。ウェブアプリが 0・1 を結果として読む）
             Err(e) => {
                 eprintln!("error: {e}");
-                ExitCode::from(1)
+                ExitCode::from(2)
             }
         };
     };
@@ -840,10 +841,19 @@ fn collect_mo(inputs: &[PathBuf]) -> Result<Vec<PathBuf>, ExitCode> {
 
 /// `globe lint`。1 件以上あれば終了コード 1。
 fn lint(files: &[PathBuf], disable: &[String], json: bool) -> ExitCode {
+    // #56: `--disable` も設定ファイルと同じく、コードでも名前でもよく、知らない規則は使い方の誤り（2）
+    let mut disabled = Vec::new();
+    for r in disable {
+        let Some(name) = globe_mode_fmt::rule_name(r) else {
+            eprintln!("error: --disable の {r} は知らない規則");
+            return ExitCode::from(2);
+        };
+        disabled.push(name.to_string());
+    }
     // S130: ファイルごとに設定ファイルの `[lint] disable` にコマンドラインの `--disable` を足す
     let options_for = |path: &Path| {
         config(path).map(|mut c| {
-            c.disabled.extend_from_slice(disable);
+            c.disabled.extend_from_slice(&disabled);
             c
         })
     };

@@ -118,7 +118,7 @@ async function handle({ id, op, ...args }) {
   try {
     if (!ops[op]) throw new Error(`未知の op: ${op}`);
     const value = await ops[op](args, id);
-    send({ id, ok: true, value }, value?.columns?.map((c) => c.buffer));
+    send({ id, ok: true, value, mem: gm.memory_bytes() }, value?.columns?.map((c) => c.buffer)); // mem: 線形メモリ（client.js が上限を見て作り直す。ADR-0023 (c)）
   } catch (e) {
     const poisoned = typeof WebAssembly !== "undefined" && e instanceof WebAssembly.RuntimeError;
     // simulate の失敗は文字列の例外のこともある

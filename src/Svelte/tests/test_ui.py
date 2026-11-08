@@ -146,11 +146,11 @@ FAKE_TAURI = """
   const listen = async () => () => {};
   const rpc = { "globe/models": [], "globe/lint": [], "globe/completion": [], "globe/solvers": [], "globe/tunableParameters": { parameters: [] } };
   window.__TAURI__ = {
-    core: { invoke: async (cmd, args) => (cmd === "libraries" ? [] : cmd === "bench" ? false : cmd === "read_recent" ? fake.files[args.path] : cmd === "write_recent" ? (fake.writes.push([args.path, args.text]), null) : cmd === "rpc" ? (rpc[args.method] ?? null) : null) },
+    core: { invoke: async (cmd, args) => (cmd === "libraries" ? [] : cmd === "bench" ? false : cmd === "read_recent" ? fake.files[args.path] : cmd === "write_recent" ? (fake.writes.push([args.path, args.text]), (fake.files[args.path] = args.text), null) : cmd === "rpc" ? (rpc[args.method] ?? null) : null) },
     event: { listen },
     // 本物の fs プラグインは dialog で選んだパスにしか許可を与えない（#67。以前の偽物はどのパスも受けて、欠陥を隠していた）
     dialog: { open: async () => { const p = fake.opens.shift() ?? null; if (p) fake.scope.add(p); return p; }, save: async () => { const p = fake.saves.shift() ?? null; if (p) fake.scope.add(p); return p; } },
-    fs: { readTextFile: async (p) => fake.files[p], writeTextFile: async (p, t) => { if (!fake.scope.has(p)) throw new Error("forbidden path: " + p); fake.writes.push([p, t]); }, writeFile: async () => {} },
+    fs: { readTextFile: async (p) => fake.files[p], writeTextFile: async (p, t) => { if (!fake.scope.has(p)) throw new Error("forbidden path: " + p); fake.writes.push([p, t]); fake.files[p] = t; }, writeFile: async () => {} },
   };
 })();
 """
@@ -160,11 +160,11 @@ def review_fixes(browser, origin: str, errors: list[str]) -> None:
     """S196: UI のレビューの指摘（Desktop の保存先の取り違え、ライブラリのタブの読み取り専用、タブを切り替えたときの残り、保存の遅延と失敗、Tab での補完の確定ほか）。"""
     has_msl = (DIST / "msl/MSL.json").exists()
 
-    def new_page(ctx=None, **kw):
+    def new_page(ctx=None, dialog=lambda d: d.accept(), **kw):
         pg = (ctx or browser).new_page(**kw)
         pg.on("console", lambda m: m.type == "error" and errors.append(m.text))
         pg.on("pageerror", lambda e: errors.append(str(e)))
-        pg.on("dialog", lambda d: d.accept())
+        pg.on("dialog", dialog)
         return pg
 
     def ready(pg) -> None:
@@ -180,7 +180,14 @@ def review_fixes(browser, origin: str, errors: list[str]) -> None:
         return json.loads(pg.evaluate("localStorage.getItem('globe-mode.tabs')"))
 
     # 1. Desktop: 同じ名前の別のファイルを開いても、保存はそのタブが本文を受け取ったパスに書く
-    dt = new_page()
+    asked: list[str] = []
+    answer = {"ok": True}  # confirm への答え（#70 の確かめで切り替える）
+
+    def on_dialog(d) -> None:
+        asked.append(d.message)
+        d.accept() if answer["ok"] else d.dismiss()
+
+    dt = new_page(dialog=on_dialog)
     dt.add_init_script(FAKE_TAURI)
     ready(dt)
     P1, P2 = "model P1\nend P1;\n", "model P2\nend P2;\n"
@@ -228,6 +235,27 @@ def review_fixes(browser, origin: str, errors: list[str]) -> None:
     dt.keyboard.press("Control+s")
     expect(dt.locator("[data-saved]")).to_contain_text("/d4/recent.mo")
     assert dt.evaluate("__fake.writes")[-1] == ["/d4/recent.mo", "model R\nend R;\n// e4"], dt.evaluate("__fake.writes")
+    # #70: 開いたあとに外で書き換わったファイルは、確かめてから上書きする（取り消せば書かず、承知すれば書く）
+    asked.clear()
+    answer["ok"] = False
+    desktop_open("/d5/ext.mo", "model E\nend E;\n")
+    expect(dt.locator(".cm-content")).to_contain_text("model E", timeout=30_000)
+    dt.evaluate("__fake.files['/d5/ext.mo'] = 'model E // 外で直した\\nend E;\\n'")
+    dt.locator(".cm-content").click()
+    dt.keyboard.press("Control+End")
+    dt.keyboard.type("// e5")
+    n = len(dt.evaluate("__fake.writes"))
+    dt.keyboard.press("Control+s")
+    dt.wait_for_timeout(500)
+    assert len(asked) == 1 and "外で書き換わっている" in asked[0], asked
+    assert len(dt.evaluate("__fake.writes")) == n, "取り消したのに書いた"
+    answer["ok"] = True
+    dt.keyboard.press("Control+s")
+    expect(dt.locator("[data-saved]")).to_contain_text("/d5/ext.mo")
+    assert dt.evaluate("__fake.writes")[-1][0] == "/d5/ext.mo" and len(asked) == 2, asked
+    dt.keyboard.press("Control+s")  # 自分で書いたあとは、確かめない
+    dt.wait_for_timeout(300)
+    assert len(asked) == 2, asked
     dt.close()
     print("Desktop の保存先: 同じ名前の別のファイル（/d1/package.mo と /d2/package.mo）は別のタブで、それぞれのパスに保存される")
 

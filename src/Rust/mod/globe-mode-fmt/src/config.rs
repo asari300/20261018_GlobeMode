@@ -12,7 +12,7 @@
 //! disable = ["missing-description", "GM-L0004"]
 //! ```
 
-use crate::{LintOptions, RULES};
+use crate::{LintOptions, rule_name};
 use std::path::Path;
 
 pub const CONFIG_FILE: &str = "globe-mode.toml";
@@ -46,9 +46,7 @@ impl LintOptions {
                         let list = v.as_array().ok_or_else(|| format!("{at} は文字列の配列"))?;
                         for r in list {
                             let r = r.as_str().ok_or_else(|| format!("{at} は文字列の配列"))?;
-                            let (_, name) = RULES
-                                .iter()
-                                .find(|(code, name)| r == *code || r == *name)
+                            let name = rule_name(r)
                                 .ok_or_else(|| format!("{at} の {r} は知らない規則"))?;
                             o.disabled.push(name.to_string());
                         }

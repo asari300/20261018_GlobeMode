@@ -157,7 +157,7 @@ pub fn build(index: &ClassIndex, model: &str, depth: u32) -> Result<ConnectGraph
         edges: Vec::new(),
         unresolved: BTreeSet::new(),
     };
-    b.walk(model, "", 1, depth.max(1));
+    b.walk(model, "", 1, depth.max(1), &mut vec![model.to_string()]);
     let mut nodes: Vec<Node> = b.nodes.into_values().collect();
     nodes.sort_by(|a, b| (a.level, &a.key).cmp(&(b.level, &b.key)));
     Ok(ConnectGraph {
@@ -201,7 +201,15 @@ impl Builder<'_> {
     }
 
     /// `class`（`prefix` の位置にあるインスタンス）の中身を、`level` の深さでグラフに足す。
-    fn walk(&mut self, class: &str, prefix: &str, level: u32, max_depth: u32) {
+    /// `open` は開いている途中のクラス。自分を（間接にでも）部品に持つモデルを開き直さない（#86）。
+    fn walk(
+        &mut self,
+        class: &str,
+        prefix: &str,
+        level: u32,
+        max_depth: u32,
+        open: &mut Vec<String>,
+    ) {
         let interface = self.index.interface(class);
         let mut expanded = BTreeSet::new();
 
@@ -216,9 +224,14 @@ impl Builder<'_> {
                 continue;
             }
             let key = Self::join(prefix, &comp.name);
-            if level < max_depth && self.is_composite(&comp.type_name) {
+            if level < max_depth
+                && self.is_composite(&comp.type_name)
+                && !open.contains(&comp.type_name)
+            {
                 expanded.insert(comp.name.clone());
-                self.walk(&comp.type_name, &key, level + 1, max_depth);
+                open.push(comp.type_name.clone());
+                self.walk(&comp.type_name, &key, level + 1, max_depth, open);
+                open.pop();
             } else {
                 self.nodes.insert(
                     key.clone(),
@@ -515,5 +528,36 @@ mod mismatch_tests {
                 ("c.b".into(), "RealOutput".into(), "BooleanInput".into()),
             ]
         );
+    }
+
+    /// #86: 自分を部品に持つモデルは、深さに対して指数的に膨らまない（A の a1・a2 が A なので 2^depth 本に開いていた）。
+    #[test]
+    fn a_model_containing_itself_is_not_expanded_again() {
+        let o = Outline {
+            within: None,
+            classes: vec![
+                class(
+                    "Pin",
+                    ClassKind::Connector,
+                    &[],
+                    &[("v", "Real", ConnectPrefix::Potential)],
+                    &[],
+                ),
+                class(
+                    "A",
+                    ClassKind::Model,
+                    &[],
+                    &[
+                        ("p", "Pin", ConnectPrefix::Potential),
+                        ("a1", "A", ConnectPrefix::Potential),
+                        ("a2", "A", ConnectPrefix::Potential),
+                    ],
+                    &[("a1.p", "a2.p")],
+                ),
+            ],
+        };
+        let index = ClassIndex::from_outlines([&o]);
+        let g = build(&index, "A", 40).unwrap();
+        assert!(g.nodes.len() < 10 && g.edges.len() == 1, "{g:?}");
     }
 }

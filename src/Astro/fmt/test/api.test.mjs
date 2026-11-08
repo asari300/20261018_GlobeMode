@@ -13,21 +13,21 @@ const sample = readFileSync(
   'utf8',
 );
 
-test('format が例題に origin を足す', () => {
-  const r = format(sample);
+test('format が例題に origin を足す', async () => {
+  const r = await format(sample);
   assert.equal(r.ok, true, r.error ?? '');
   assert.ok(r.text.includes('origin = {0, 0}'), 'origin = {0, 0} が無い');
 });
 
-test('format は文法が壊れた入力を ok:false で返す', () => {
-  const r = format('model A\n');
+test('format は文法が壊れた入力を ok:false で返す', async () => {
+  const r = await format('model A\n');
   assert.equal(r.ok, false);
   assert.equal(r.text, null);
   assert.equal(typeof r.error, 'string');
 });
 
-test('lint は messages の配列を返す', () => {
-  const r = lint(sample);
+test('lint は messages の配列を返す', async () => {
+  const r = await lint(sample);
   assert.ok(Array.isArray(r.messages));
   for (const m of r.messages) {
     assert.deepEqual(Object.keys(m).sort(), ['column', 'line', 'message', 'rule']);
@@ -40,7 +40,7 @@ test('readBody は 1 MiB を超える本文を null にする', async () => {
   assert.equal(await readBody(post('a'.repeat(MAX_BODY + 1))), null);
 });
 
-test('遅い globe は時間切れで投げる', () => {
+test('遅い globe は時間切れで投げる', async () => {
   const slow = join(mkdtempSync(join(tmpdir(), 'globe-slow-')), 'slow.sh');
   writeFileSync(slow, '#!/bin/sh\nexec sleep 30\n');
   chmodSync(slow, 0o755);
@@ -48,10 +48,29 @@ test('遅い globe は時間切れで投げる', () => {
   process.env.GLOBE_BIN = slow;
   process.env.GLOBE_TIMEOUT_MS = '200';
   try {
-    assert.throws(() => format('model A end A;'), /時間内/);
+    await assert.rejects(format('model A end A;'), /時間内/);
   } finally {
     process.env.GLOBE_BIN = saved.bin;
     if (saved.timeout === undefined) delete process.env.GLOBE_TIMEOUT_MS;
     else process.env.GLOBE_TIMEOUT_MS = saved.timeout;
   }
+});
+
+// #78: globe を待つ間もイベントループは止まらない（spawnSync だと 1 要求が全部の要求を待たせた）
+test('遅い globe を待つ間も、イベントループが動く', async () => {
+  const slow = join(mkdtempSync(join(tmpdir(), 'globe-slow-')), 'slow.sh');
+  writeFileSync(slow, '#!/bin/sh\nsleep 0.6\necho \'{"ok":true,"text":"x","error":null}\'\n');
+  chmodSync(slow, 0o755);
+  const saved = process.env.GLOBE_BIN;
+  process.env.GLOBE_BIN = slow;
+  let ticks = 0;
+  const timer = setInterval(() => ticks++, 50);
+  try {
+    assert.equal((await format('model A end A;')).text, 'x');
+  } finally {
+    clearInterval(timer);
+    if (saved === undefined) delete process.env.GLOBE_BIN;
+    else process.env.GLOBE_BIN = saved;
+  }
+  assert.ok(ticks >= 5, `待つ間に動いた回数 ${ticks}`);
 });

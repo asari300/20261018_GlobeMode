@@ -250,7 +250,7 @@ fn run_fmu(
             }
         );
     }
-    let mut text = format!("time,{}\n", run.names.join(","));
+    let mut text = csv_header(&run.names);
     for (t, values) in &run.rows {
         text.push_str(&t.to_string());
         for v in values {
@@ -263,4 +263,32 @@ fn run_fmu(
         None => print!("{text}"),
     }
     Ok(())
+}
+
+/// CSV の見出し行。`A[1,2]` のように `,` `"` を含む名前だけを引用する（simulate と同じ `push_quoted`。#52）。
+/// ほかは今までどおり引用しない（`time,x`）。
+fn csv_header(names: &[String]) -> String {
+    let mut line = String::from("time");
+    for n in names {
+        line.push(',');
+        if n.contains([',', '"', '\n', '\r']) {
+            globe_mode::sim::store::push_quoted(&mut line, n);
+        } else {
+            line.push_str(n);
+        }
+    }
+    line.push('\n');
+    line
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// #52: カンマを含む変数名（配列の `A[1,2]`）は引用し、列がずれない。
+    #[test]
+    fn csv_header_quotes_names_with_commas() {
+        let names = ["x".to_string(), "A[1,2]".to_string(), "q\"".to_string()];
+        assert_eq!(csv_header(&names), "time,x,\"A[1,2]\",\"q\"\"\"\n");
+    }
 }

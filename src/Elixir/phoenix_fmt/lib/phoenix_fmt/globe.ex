@@ -59,7 +59,13 @@ defmodule PhoenixFmt.Globe do
         with {:os_pid, pid} <- Port.info(port, :os_pid),
              do: System.cmd("kill", ["-KILL", to_string(pid)])
 
-        Port.close(port)
+        # kill のあと、port は exit_status で自分で閉じることがある（閉じ済みの Port.close は ArgumentError。CI で出た）
+        try do
+          Port.close(port)
+        rescue
+          ArgumentError -> :ok
+        end
+
         :timeout
     end
   end
