@@ -41,8 +41,9 @@ ADR-0026 (k) の次。FMI Import を CLI だけから、facade・Python・Deskto
 - `cargo check -p globe-mode-wasm --target wasm32-unknown-unknown`: 通った（`fmu-import` は wasm に入らない）。
 - pytest（`GLOBE_BIN` を試験の debug の `globe` に）: 49 passed, 1 skipped（既存）。`test_fmu.py` は 4 本。
 - `svelte-check` 0 エラー、`test_tauri.mjs` ok、`render_slides.py` 問題 0 件、`check_docs.py` 切れ 0 件。
-- `test_ui.py`: 自分の `open_fmu_file` は単独で通った（`open_results_file` と一緒に）。全体を回すと **S188 の Tab で補完を確定する試験（`lines()[2].startswith("mod")`、editor の Tab・補完）で 2 回とも落ちた**。この箇所は自分の変更の前にあり、`editor.ts` も App のキー操作も触っていない。共有 target の古い wasm（ほかの worktree のビルド）を使ったための食い違いの疑いだが、main で回して確かめていない【未確認】。CI の `ci.yml -f full=true` で確かめる。
-- CI の run: （下に書く）
+- `test_ui.py`: 自分の `open_fmu_file` は単独で通った（`open_results_file` と一緒に）。全体を回すと **S188 の Tab で補完を確定する試験（`lines()[2].startswith("mod")`、editor の Tab・補完）で 2 回とも落ちた**。この箇所は自分の変更の前にあり、`editor.ts` も App のキー操作も触っていない。手元の共有 target の古い wasm（ほかの worktree のビルド）を使ったための食い違いとみられるが、原因は確かめていない【未確認】。CI の `ui` ジョブでは全体が通った。
+- `fmu-import.yml`（feature ブランチ、3 OS）: run 42450598977 が success（ubuntu-24.04・windows-2025・macos-latest。`fmu_import`・`fmu_worker`・`lsp` を含む）。
+- `ci.yml -f full=true`（feature ブランチ）: run 42450606920 が success（rust-linux・rust-windows・python・ui〔`test_ui.py` 全体を含む。手元で落ちた S188 の試験もここでは通った〕・wasm-node・lang ほか全ジョブ）。
 
 ## 残したこと
 
