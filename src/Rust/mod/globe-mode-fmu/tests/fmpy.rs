@@ -348,13 +348,11 @@ fn state_start_values_survive_a_rebuild() {
 /// （`events`・`reinit`）を `名前=値` で並べた出力を返す。FMPy が使えなければ None。
 /// `input` は FMPy の `input=` に渡す入力（`{"u": [[時刻, 値], …]}` の JSON。無ければ空）。
 /// `v3` なら FMI 3.0 の FMU にする（S137）。
-#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 fn fmpy(name: &str, names: &[&str], input: &str, v3: bool) -> Option<String> {
     fmpy_as(name, names, input, v3, Kind::Me)
 }
 
 /// [`fmpy`] と同じで、`kind` が `Cs` なら FMPy の Co-Simulation で回す（S231。`modelDescription.xml` は CS だけ）。
-#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 fn fmpy_as(name: &str, names: &[&str], input: &str, v3: bool, kind: Kind) -> Option<String> {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let tmp = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
@@ -374,22 +372,33 @@ fn fmpy_as(name: &str, names: &[&str], input: &str, v3: bool, kind: Kind) -> Opt
         }
     }
     // 結合テストは rlib だけを作るので、cdylib を cargo で作らせて置き場を JSON の出力から取る
-    let build = Command::new(env!("CARGO"))
-        .args(["build", "--lib", "--message-format=json", "--manifest-path"])
-        .arg(manifest.join("Cargo.toml"))
-        .output()
-        .unwrap();
+    let mut cargo = Command::new(env!("CARGO"));
+    cargo.args(["build", "--lib", "--message-format=json", "--manifest-path"]);
+    cargo.arg(manifest.join("Cargo.toml"));
+    // S234: `cargo test --release` なら cdylib も release（fmu-export.yml の fmu-native が速く回すため）
+    if !cfg!(debug_assertions) {
+        cargo.arg("--release");
+    }
+    let build = cargo.output().unwrap();
     assert!(
         build.status.success(),
         "{}",
         String::from_utf8_lossy(&build.stderr)
     );
+    // S234: Windows は globe_mode_fmu.dll、macOS は libglobe_mode_fmu.dylib（JSON の中の `\` は `\\`）
+    let lib = if cfg!(windows) {
+        "globe_mode_fmu.dll"
+    } else if cfg!(target_os = "macos") {
+        "libglobe_mode_fmu.dylib"
+    } else {
+        "libglobe_mode_fmu.so"
+    };
     let json = String::from_utf8_lossy(&build.stdout);
     let end = json
-        .find("libglobe_mode_fmu.so\"")
+        .find(&format!("{lib}\""))
         .expect("cdylib の置き場が出ない")
-        + "libglobe_mode_fmu.so".len();
-    let so = PathBuf::from(&json[json[..end].rfind('"').unwrap() + 1..end]);
+        + lib.len();
+    let so = PathBuf::from(json[json[..end].rfind('"').unwrap() + 1..end].replace("\\\\", "\\"));
     let (model, text) = source(name);
     // 試験は並行に走るので、置き場は ME と CS で分ける（S231）
     let dir = resources(&format!("{name}-{kind:?}"), &model, &text);
@@ -435,7 +444,6 @@ fn fmpy_as(name: &str, names: &[&str], input: &str, v3: bool, kind: Kind) -> Opt
 }
 
 /// `globe_mode_exec::run`（bdf の既定）で回し、終了時刻での `names` の値を返す。
-#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 fn exec_last(name: &str, names: &[&str]) -> Vec<f64> {
     let (model, text) = source(name);
     let report = globe_mode_exec::run(&compile(&model, &text).unwrap(), &Default::default());
@@ -459,7 +467,6 @@ fn value(stdout: &str, name: &str) -> f64 {
 }
 
 #[test]
-#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 fn fmpy_simulates_decay() {
     for v3 in [false, true] {
         let Some(out) = fmpy("Decay", &["x"], "", v3) else {
@@ -472,7 +479,6 @@ fn fmpy_simulates_decay() {
 
 /// 状態 2 つ・事象なしの HarmonicOscillator を、FMPy と `globe_mode_exec::run`（bdf の既定）で回して x(1)・v(1) を突き合わせる。
 #[test]
-#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 fn fmpy_matches_exec_on_harmonic_oscillator() {
     for v3 in [false, true] {
         let Some(out) = fmpy("HarmonicOscillator", &["x", "v"], "", v3) else {
@@ -489,7 +495,6 @@ fn fmpy_matches_exec_on_harmonic_oscillator() {
 /// S109・S112: 状態事象と reinit。跳ねた回数（FMU の中の n と reinit で状態が変わった事象の数、exec の n）と
 /// h(2)・v(2) を突き合わせる。
 #[test]
-#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 fn fmpy_matches_exec_on_bouncing_ball() {
     for v3 in [false, true] {
         let Some(out) = fmpy("BouncingBall", &["h", "v", "n"], "", v3) else {
@@ -508,7 +513,6 @@ fn fmpy_matches_exec_on_bouncing_ball() {
 /// S109・S112: 時刻事象（`sample`）。FMU の中の Integer の n と discrete Real の xs（fmi2GetInteger・fmi2GetReal）、
 /// x(1) を exec と突き合わせる（n は 10、xs は最後の標本の時刻 0.95 の x）。
 #[test]
-#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 fn fmpy_matches_exec_on_sample_counter() {
     for v3 in [false, true] {
         let Some(out) = fmpy("SampleCounter", &["x", "n", "xs"], "", v3) else {
@@ -527,7 +531,6 @@ fn fmpy_matches_exec_on_sample_counter() {
 /// S112: 代数変数（非線形のループの y・z）を fmi2GetReal で読み、exec の最後の値（解析解 y = 2、z = 4）と突き合わせる。
 /// HarmonicOscillator・BouncingBall には代数変数が無いので NonlinearLoop を使う。
 #[test]
-#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 fn fmpy_matches_exec_on_algebraic_variables() {
     for v3 in [false, true] {
         let Some(out) = fmpy("NonlinearLoop", &["x", "y", "z"], "", v3) else {
@@ -543,7 +546,6 @@ fn fmpy_matches_exec_on_algebraic_variables() {
 
 /// S224: Enumeration と String を持つ modelDescription.xml が FMPy の validate を通り、ME で回る（speed = fast なので x(1) = e^-2）。
 #[test]
-#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 fn fmpy_validates_enumeration_and_string() {
     for v3 in [false, true] {
         let Some(out) = fmpy("EnumString", &["x", "level"], "", v3) else {
@@ -557,7 +559,6 @@ fn fmpy_validates_enumeration_and_string() {
 /// S114: 入力 u（`causality="input"`）を FMPy の `input=` で t = 0.5 に 0 → 2 の階段で与え、x(1)・出力 y(1) = 2 x(1) を
 /// 解析解 x(1) = 2 + (e^-0.5 - 2) e^-0.5 と突き合わせる（exec の `run` は入力を与える道が無く、駆動されない入力を断る）。
 #[test]
-#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 fn fmpy_drives_input_step() {
     for v3 in [false, true] {
         let Some(out) = fmpy(
@@ -582,7 +583,6 @@ fn fmpy_drives_input_step() {
 /// S231: Co-Simulation。FMPy の CS（`fmi2DoStep` / `fmi3DoStep`）で、Decay の x(1) = e^-1、BouncingBall の h・v・n を exec と
 /// （状態事象と reinit を刻みの中で回す）、InputDecay の入力の階段を解析解と突き合わせる。
 #[test]
-#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 fn fmpy_co_simulation() {
     for v3 in [false, true] {
         let Some(out) = fmpy_as("Decay", &["x"], "", v3, Kind::Cs) else {

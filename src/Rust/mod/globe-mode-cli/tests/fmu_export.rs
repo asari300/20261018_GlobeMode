@@ -4,7 +4,7 @@
 //! - `--build` で共有ライブラリまで作り、FMPy（別プロセス、BSD-2）で validate と simulate を回して
 //!   x(1) ≈ e⁻¹ になること（2.0 は ME、3.0 は ME と CS。S098）
 //!   （`cc` か `uv` が無い、または FMPy を取れない環境では飛ばす）
-//! - `--target x86_64-windows-gnu`（zig cc）で `binaries/win64/*.dll` ができること（S105。zig・uv・FMPy が無ければ飛ばす。
+//! - `--target x86_64-windows-gnu`・`x86_64-macos`・`aarch64-macos`（zig cc）で `binaries/<名前>/*.dll`・`*.dylib` ができること（S234 で macOS を足した）（S105。zig・uv・FMPy が無ければ飛ばす。
 //!   Windows・macOS での実行は fmu-export.yml の fmu-cross で確かめる）
 
 use std::path::{Path, PathBuf};
@@ -304,7 +304,7 @@ fn fmpy_simulates_the_built_fmi3_fmu() {
 }
 
 #[test]
-fn zig_cross_builds_a_win64_dll() {
+fn zig_cross_builds_win_and_macos_binaries() {
     if Command::new("zig").arg("version").output().is_err() {
         eprintln!("skip: zig が無い");
         return;
@@ -315,8 +315,39 @@ fn zig_cross_builds_a_win64_dll() {
         return;
     };
     let headers = String::from_utf8_lossy(&o.stdout).trim().to_owned();
-    for (v, platform) in [("2", "win64"), ("3", "x86_64-windows")] {
-        let out = out_dir(&format!("cross{v}"));
+    // S234: Windows（PE の MZ）と macOS（64 bit の Mach-O、magic 0xfeedfacf のリトルエンディアン）。macOS は arch ごと
+    for (v, target, platform, ext, magic) in [
+        ("2", "x86_64-windows-gnu", "win64", "dll", &b"MZ"[..]),
+        (
+            "3",
+            "x86_64-windows-gnu",
+            "x86_64-windows",
+            "dll",
+            &b"MZ"[..],
+        ),
+        (
+            "2",
+            "x86_64-macos",
+            "darwin64",
+            "dylib",
+            &[0xcf, 0xfa, 0xed, 0xfe][..],
+        ),
+        (
+            "3",
+            "x86_64-macos",
+            "x86_64-darwin",
+            "dylib",
+            &[0xcf, 0xfa, 0xed, 0xfe][..],
+        ),
+        (
+            "3",
+            "aarch64-macos",
+            "aarch64-darwin",
+            "dylib",
+            &[0xcf, 0xfa, 0xed, 0xfe][..],
+        ),
+    ] {
+        let out = out_dir(&format!("cross{v}-{target}"));
         let o = export(
             &out,
             &[
@@ -326,7 +357,7 @@ fn zig_cross_builds_a_win64_dll() {
                 "--fmi-headers",
                 &headers,
                 "--target",
-                "x86_64-windows-gnu",
+                target,
             ],
         );
         assert!(o.status.success(), "{o:?}");
@@ -340,8 +371,13 @@ fn zig_cross_builds_a_win64_dll() {
             .collect();
         assert_eq!(files.len(), 1, "{files:?}");
         let dll = &files[0];
-        assert_eq!(dll.extension().unwrap(), "dll");
+        assert_eq!(dll.extension().unwrap(), ext);
         let bytes = std::fs::read(dll).unwrap();
-        assert_eq!(&bytes[..2], b"MZ", "{} は PE でない", dll.display());
+        assert_eq!(
+            &bytes[..magic.len()],
+            magic,
+            "{} の先頭が違う",
+            dll.display()
+        );
     }
 }

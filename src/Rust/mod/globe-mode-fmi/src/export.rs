@@ -202,6 +202,16 @@ pub fn write_fmu(
     std::fs::create_dir_all(&licenses).map_err(io)?;
     std::fs::write(licenses.join("Rumoca-LICENSE.txt"), RUMOCA_LICENSE).map_err(io)?;
     if let Some(headers) = fmi_headers {
+        // S234: FMI 2.0 の darwin64 は arch を区別しない。x86_64-macos と aarch64-macos を両方付けると後のものが前のものを上書きする
+        let mut seen = std::collections::BTreeSet::new();
+        for t in targets {
+            let (dir, _) = platform(t, src.fmi_version)?;
+            if !seen.insert(dir.clone()) {
+                return Err(format!(
+                    "--target {t}: binaries/{dir} が重なる（FMI 2.0 の darwin64 は arch を区別しない。macOS は片方だけ）"
+                ));
+            }
+        }
         if targets.is_empty() {
             build(src, &root, headers, None)?;
         }
@@ -402,6 +412,22 @@ mod tests {
     }
 
     #[test]
+    fn two_macos_targets_collide_in_fmi2_only() {
+        let out = std::env::temp_dir().join(format!("globe-fmu-collide-{}", std::process::id()));
+        let t = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let two = t(&["x86_64-macos", "aarch64-macos"]);
+        let e = write_fmu(
+            &sources(),
+            &out,
+            Some(std::path::Path::new("/nonexistent")),
+            &two,
+        )
+        .unwrap_err();
+        assert!(e.contains("darwin64"), "{e}");
+        let _ = std::fs::remove_dir_all(&out);
+    }
+
+    #[test]
     fn cc_with_arguments_is_split_on_whitespace() {
         let c = host_cc("ccache  gcc -m64");
         assert_eq!(c.get_program(), "ccache");
@@ -418,6 +444,9 @@ mod tests {
         assert_eq!(p("aarch64-macos", 2), ("darwin64".into(), "dylib"));
         assert_eq!(p("x86_64-windows-gnu", 3), ("x86_64-windows".into(), "dll"));
         assert_eq!(p("aarch64-macos", 3), ("aarch64-darwin".into(), "dylib"));
+        // S234: x86_64 の macOS。2.0 は darwin64 のまま、3.0 は x86_64-darwin
+        assert_eq!(p("x86_64-macos", 2), ("darwin64".into(), "dylib"));
+        assert_eq!(p("x86_64-macos", 3), ("x86_64-darwin".into(), "dylib"));
         assert!(platform("aarch64-linux-gnu", 2).is_err());
         assert!(platform("wasm32-wasi", 3).is_err());
     }
