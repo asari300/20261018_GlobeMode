@@ -77,7 +77,10 @@ jobs:
             pull_request) ARGS+=(--base "$PR_BASE") ;;
             schedule) ARGS+=(--full --reason "定期実行") ;;
             workflow_dispatch)
-              if [ "$FULL_INPUT" = "true" ]; then ARGS+=(--full --reason "手動実行"); else ARGS+=(--base "$HEAD_SHA~1"); fi ;;
+              # full=false の比較元は origin/main（#80。feature の全体の差を見る）。main 自身の手動実行は直前のコミット
+              if [ "$FULL_INPUT" = "true" ]; then ARGS+=(--full --reason "手動実行")
+              elif [ "$(git rev-parse origin/main)" = "$HEAD_SHA" ]; then ARGS+=(--base "$HEAD_SHA~1")
+              else ARGS+=(--base origin/main); fi ;;
           esac
           python3 .github/scripts/ci_plan.py "${ARGS[@]}" --head "$HEAD_SHA" --github-output "$GITHUB_OUTPUT"
 

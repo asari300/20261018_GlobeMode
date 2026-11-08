@@ -99,6 +99,9 @@ git -C "$MAIN" push origin main
 - feature ブランチは push しない。
 - CI は差分だけを検査する（ADR-0006）。push の前に `mise run ci:plan` で計画を見る。
   - 大きな作り直しや、判定に入っていない種類のファイルを触ったときは、マージのコミットメッセージに `[full-ci]` を入れて全体を検査する。
+- **意味的な衝突を防ぐ**（#80。feature 単独では通るが、ほかのセッションの変更と合わさると壊れる。S212 と S210 の `drive` の引数の食い違いなど）。
+  - main へマージする前に、feature に最新の main を取り込む（`git merge main`）。マージの後は、`python3 .github/scripts/ci_plan.py --base <CI が通った最後の main の sha> --head HEAD` を回す（`mise run ci:plan` は `origin/main` が比較元）。
+  - 出力の `rust_packages` に、自分が触っていない crate（他のセッションの変更の依存元）が出たら、その crate の clippy と test を手元で回す。重いときは feature を push して `gh workflow run ci.yml --ref feature/<topic>` を回す（`full` を付けなければ `origin/main` との差、付ければ全体。`workflow_dispatch` の比較元は `origin/main`）。
 - push したら Actions の結果を確かめる（`gh` は認証済み）。
 
   ```bash
