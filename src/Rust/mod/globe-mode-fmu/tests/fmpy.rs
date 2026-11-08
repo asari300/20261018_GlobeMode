@@ -269,7 +269,11 @@ fn explicit_euler_through_the_c_abi() {
         )
     };
     unsafe {
-        assert!(instantiate(1, &guid).is_null(), "CS は断る");
+        // S231: CS も受ける（fmi2Type は 0 = ME、1 = CS）。それ以外は断る
+        let cs = instantiate(1, &guid);
+        assert!(!cs.is_null(), "CS は受ける");
+        fmi2FreeInstance(cs);
+        assert!(instantiate(2, &guid).is_null(), "ME・CS 以外は断る");
         assert!(
             instantiate(0, &CString::new("{x}").unwrap()).is_null(),
             "guid 違いは断る"
@@ -387,7 +391,8 @@ fn fmpy_as(name: &str, names: &[&str], input: &str, v3: bool, kind: Kind) -> Opt
         + "libglobe_mode_fmu.so".len();
     let so = PathBuf::from(&json[json[..end].rfind('"').unwrap() + 1..end]);
     let (model, text) = source(name);
-    let dir = resources(name, &model, &text);
+    // 試験は並行に走るので、置き場は ME と CS で分ける（S231）
+    let dir = resources(&format!("{name}-{kind:?}"), &model, &text);
     let work = dir.parent().unwrap();
     let md = work.join("modelDescription.xml");
     std::fs::write(
