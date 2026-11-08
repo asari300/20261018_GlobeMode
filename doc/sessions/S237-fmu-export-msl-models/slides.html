@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S237 MSL を使うモデルを FMU に — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S237 MSL を使うモデルを FMU に">
+
+<section class="slide" id="S01">
+  <span class="tag">S237 · 2026-11-08 · P5</span>
+  <h1>MSL の例題 20 本を FMU にして測った</h1>
+  <p class="lead">利用者のモデルはほぼ MSL を使う。FMPy の ME・CS を <code>globe simulate</code> の結果と管で比べた</p>
+  <div class="big">P5a <b>3</b> / 20、P5b <b>16</b> / 20</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">測り方</span>
+  <h1>20 本の選び方と比べ方</h1>
+  <ul>
+    <li>実行できた例題から compile の短い順。Clocked は除き、パッケージごとに 2 本まで。</li>
+    <li>P5a は <code>globe fmu export --build</code>、P5b は cdylib と <code>resources/lib</code> に MSL を入れて組む。</li>
+    <li>FMPy 0.3.32 の validate、ME、CS。全変数を矩形の管（幅 0.002）で比べ、管の外が 1% 以下なら合格。</li>
+    <li>ふつうの選び方では外部 C 関数・表・文字列は出てこなかった。</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">結果</span>
+  <h1>P5a が落ちる 17 本</h1>
+  <table class="compact">
+    <tr><th>分類</th><th>本数</th><th>中身</th></tr>
+    <tr><td>事象・関係式の根</td><td>6</td><td>Rumoca の C profile は事象を扱わない</td></tr>
+    <tr><td>初期化</td><td>6</td><td><code>initial equation T = T_start</code> など</td></tr>
+    <tr><td>Clock</td><td>3</td><td><code>Math.Mean</code> の Clock 分割ほか</td></tr>
+    <tr><td>実行時の失敗</td><td>1</td><td>TwoTanks の初期化</td></tr>
+    <tr><td>カオス</td><td>1</td><td>ChuaCircuit（3700 s までは一致）</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">直したもの</span>
+  <h1>P5b の 5 つの不足</h1>
+  <table class="compact">
+    <tr><th>直し</th><th>症状</th></tr>
+    <tr><td><code>resources/lib</code> から MSL を読む</td><td>MSL のクラスが解決できない</td></tr>
+    <tr><td>関係式の記憶を初期化の点から</td><td>最初の事象まで違う枝で微分を返す</td></tr>
+    <tr><td>初期化の事象を回す</td><td>StateGraph が 1 s ずれて始まる</td></tr>
+    <tr><td>離散の値を <code>held_y</code> に保つ</td><td>状態から y を作り直すと戻る（先回り）</td></tr>
+    <tr><td>内部の名前 <code>$…</code> を引用符で囲む</td><td>FMPy の validate が断る</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">図</span>
+  <h1>測定の流れ</h1>
+  <svg class="fig" viewBox="0 0 800 240" role="img" aria-label="MSL の例題から FMU と参照の CSV を作り管で比べる流れの図">
+    <rect class="svg-box" x="20" y="90" width="150" height="70" rx="10"/>
+    <text class="svg-text-b" x="95" y="130" text-anchor="middle">MSL の例題</text>
+    <line class="svg-line" x1="170" y1="125" x2="250" y2="125"/>
+    <rect class="svg-box-accent" x="250" y="40" width="200" height="70" rx="10"/>
+    <text class="svg-text-b" x="350" y="80" text-anchor="middle">P5a / P5b の FMU</text>
+    <rect class="svg-box" x="250" y="140" width="200" height="70" rx="10"/>
+    <text class="svg-text-b" x="350" y="180" text-anchor="middle">globe simulate</text>
+    <line class="svg-line" x1="450" y1="75" x2="540" y2="110"/>
+    <line class="svg-line" x1="450" y1="175" x2="540" y2="140"/>
+    <rect class="svg-box" x="540" y="90" width="240" height="70" rx="10"/>
+    <text class="svg-text-b" x="660" y="130" text-anchor="middle">FMPy と管で比べる</text>
+  </svg>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">試験と CI</span>
+  <h1>足した試験</h1>
+  <ul>
+    <li><code>fmu_export.rs</code>: MSL ありのときだけ、P5a の Accelerate を FMPy の ME・CS で、事象のある例題が断られる理由つき。</li>
+    <li><code>fmpy.rs</code>: P5b の CompareBrakingTorque（2.0 の ME、3.0 の CS）。<code>relation_memory_starts_from_the_initial_point</code>。</li>
+    <li><code>fmu-export.yml</code>: MSL の 3 本を P5a（2.0・3.0）と P5b で、FMPy と fmusim。</li>
+  </ul>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>残したもの</h1>
+  <ul>
+    <li>P5b の 4 本: カオス、刻みの点に依存する最小・最大、状態事象の多い回路の <code>Math.Mean</code>。</li>
+    <li>P5b を作る CLI と、使うクラスだけを入れる絞り込み。</li>
+    <li>上流の下書き 35（状態への initial equation）。提出はユーザー。</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>上流の下書き 35 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode 上流の下書き 35">
+
+<section class="slide" id="S01">
+  <span class="tag">下書き 35 · Rumoca · 未提出 · 2026-11-08</span>
+  <h1>状態への initial equation を FMU に書き出せない</h1>
+  <p class="lead">C profile の初期化は残差の行を「代数の再計算」の上でしか評価しない。fixed の start なら通る。v0.10.4 でも同じ</p>
+  <div class="cols-2">
+    <div>
+      <pre><code>model E
+  parameter Real T_start = 100;
+  parameter Real C = 15;
+  Real T;
+equation
+  C * der(T) = -T;
+initial equation
+  T = T_start; // rows over declaration seeds
+end E;
+
+// 対照: Real T(start = T_start, fixed = true);
+// なら fmi2 に書き出せる</code></pre>
+      <p class="small muted">本文: <a href="35-fmi-c-profile-initial-equation-on-state_jp.md">日本語</a> · <a href="35-fmi-c-profile-initial-equation-on-state.md">英語</a> · 再現 <a href="35-fmi-c-profile-initial-equation-on-state.mo">.mo</a> · 一覧 <a href="../../upstream.md">upstream.md</a></p>
+    </div>
+    <table class="small">
+      <tr><th>v0.10.4 の結果</th><td><span class="ng">再現</span>（E・F が断られる。A は書き出せる）</td></tr>
+      <tr><th>期待</th><td>左辺が状態、右辺がパラメータの initial equation は <code>fixed = true</code> の start と同じ条件（MLS 8.6）</td></tr>
+      <tr><th>影響</th><td>MSL の <code>HeatCapacitor</code> を使うモデルなど。小さい例題 20 本のうち初期化のメッセージで 6 本</td></tr>
+      <tr><th>GlobeMode 側の回避</th><td>P5b（自前のランタイム）では回る。P5a は断る</td></tr>
+      <tr><th>提出の判断材料</th><td>自己完結・3 コマンド。提出の順は 15 位の「残り」と同じ扱い</td></tr>
+    </table>
+  </div>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

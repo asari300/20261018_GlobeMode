@@ -381,3 +381,85 @@ fn zig_cross_builds_win_and_macos_binaries() {
         );
     }
 }
+
+/// S237: MSL の例題を FMU にして FMPy の ME・CS で回す（`data/msl` が無い・cc か uv が無ければ飛ばす）。
+/// `Modelica.Mechanics.Translational.Examples.Accelerate` は事象が無く、Rumoca のテンプレート（P5a）が受ける。
+/// `mass.s(1) = 1`（`globe simulate` も 1.0000000098）。事象のある例題は Rumoca が断る（`unsupported_msl_example_says_why`）。
+#[test]
+fn fmpy_simulates_an_msl_example() {
+    let msl = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../../data/msl");
+    let linux64 = cfg!(target_os = "linux") && cfg!(target_arch = "x86_64");
+    if !msl.is_dir() || !linux64 || Command::new("cc").arg("--version").output().is_err() {
+        eprintln!("skip: data/msl か x86_64 の Linux の cc が無い");
+        return;
+    }
+    let code = "import fmpy, os; print(os.path.join(os.path.dirname(fmpy.__file__), 'c-code'))";
+    let Some(o) = fmpy(&["-c", code]) else {
+        eprintln!("skip: uv か FMPy が無い");
+        return;
+    };
+    let headers = String::from_utf8_lossy(&o.stdout).trim().to_owned();
+    let model = "Modelica.Mechanics.Translational.Examples.Accelerate";
+    let out = out_dir("msl");
+    let o = Command::new(env!("CARGO_BIN_EXE_globe"))
+        .args(["fmu", "export", "-L"])
+        .arg(&msl)
+        .args(["-m", model, "--out"])
+        .arg(&out)
+        .args(["--build", "--fmi-headers", &headers])
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{o:?}");
+    let fmu = out.join("Modelica_Mechanics_Translational_Examples_Accelerate-fmi2.fmu");
+    assert!(
+        fmpy(&["-c", FMPY_MAIN, "validate", fmu.to_str().unwrap()]).is_some(),
+        "fmpy validate が通らない"
+    );
+    for interface in ["ModelExchange", "CoSimulation"] {
+        let csv = out.join(format!("accelerate-{interface}.csv"));
+        let o = fmpy(&[
+            "-c",
+            FMPY_MAIN,
+            "simulate",
+            fmu.to_str().unwrap(),
+            "--interface-type",
+            interface,
+            "--stop-time",
+            "1",
+            "--output-variables",
+            "mass.s",
+            "--output-file",
+            csv.to_str().unwrap(),
+        ]);
+        assert!(o.is_some(), "{interface}: fmpy simulate が通らない");
+        let text = std::fs::read_to_string(&csv).unwrap();
+        let last = text.lines().last().unwrap();
+        let s: f64 = last.split(',').nth(1).unwrap().trim().parse().unwrap();
+        assert!((s - 1.0).abs() < 1e-3, "{interface}: mass.s(1) = {s}");
+    }
+}
+
+/// S237: 事象のある MSL の例題（`Modelica.Mechanics.Rotational.Examples.First`、ステップ入力）は P5a では断られる。
+/// 理由は Rumoca の原文（FMI C profile）が付く。
+#[test]
+fn unsupported_msl_example_says_why() {
+    let msl = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../../data/msl");
+    if !msl.is_dir() {
+        eprintln!("skip: data/msl が無い");
+        return;
+    }
+    let o = Command::new(env!("CARGO_BIN_EXE_globe"))
+        .args(["fmu", "export", "-L"])
+        .arg(&msl)
+        .args([
+            "-m",
+            "Modelica.Mechanics.Rotational.Examples.First",
+            "--out",
+        ])
+        .arg(out_dir("msl-first"))
+        .output()
+        .unwrap();
+    assert_eq!(o.status.code(), Some(1), "{o:?}");
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(err.contains("FMI C profile"), "{err}");
+}

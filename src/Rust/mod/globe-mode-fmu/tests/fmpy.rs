@@ -4,7 +4,7 @@
 //! モデルは `src/Modelica/GlobeModeValidation/Simulation/` の 1 ファイルを `resources/<完全修飾名>.mo` に置く。
 
 use std::ffi::{CString, c_int};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use globe_mode_fmu::*;
@@ -222,8 +222,8 @@ fn enumeration_and_string_through_the_c_abi() {
             );
             v[0]
         };
-        // level（出力）は離散の変数なので、事象の後まで開始値（1）のまま（初期化の事象は回さない。P5b の限界）。読めることだけ見る
-        assert_eq!((int(c, speed), int(c, request), int(c, level)), (2, 1, 1));
+        // level（出力）は離散の変数。S237 から初期化の事象を回すので、最初から speed と同じ 2（それまでは開始値の 1 のままだった）
+        assert_eq!((int(c, speed), int(c, request), int(c, level)), (2, 1, 2));
         let mut s = [std::ptr::null()];
         assert_eq!(fmi2GetString(c, [label].as_ptr(), 1, s.as_mut_ptr()), 0);
         assert_eq!(std::ffi::CStr::from_ptr(s[0]).to_str().unwrap(), "decay");
@@ -354,6 +354,21 @@ fn fmpy(name: &str, names: &[&str], input: &str, v3: bool) -> Option<String> {
 
 /// [`fmpy`] と同じで、`kind` が `Cs` なら FMPy の Co-Simulation で回す（S231。`modelDescription.xml` は CS だけ）。
 fn fmpy_as(name: &str, names: &[&str], input: &str, v3: bool, kind: Kind) -> Option<String> {
+    fmpy_with(source(name), None, names, input, v3, kind)
+}
+
+/// [`fmpy_as`] の本体。`libdir` があれば MSL などのライブラリを FMU の `resources/lib` に入れる（S237。`model` がライブラリの
+/// クラスなら `text` はコメントだけ）。
+fn fmpy_with(
+    (model, text): (String, String),
+    libdir: Option<&Path>,
+    names: &[&str],
+    input: &str,
+    v3: bool,
+    kind: Kind,
+) -> Option<String> {
+    let name = model.rsplit('.').next().unwrap().to_string();
+    let name = name.as_str();
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let tmp = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
     let uv = |args: &[&std::ffi::OsStr]| {
@@ -399,16 +414,15 @@ fn fmpy_as(name: &str, names: &[&str], input: &str, v3: bool, kind: Kind) -> Opt
         .expect("cdylib の置き場が出ない")
         + lib.len();
     let so = PathBuf::from(json[json[..end].rfind('"').unwrap() + 1..end].replace("\\\\", "\\"));
-    let (model, text) = source(name);
     // 試験は並行に走るので、置き場は ME と CS で分ける（S231）
     let dir = resources(&format!("{name}-{kind:?}"), &model, &text);
     let work = dir.parent().unwrap();
     let md = work.join("modelDescription.xml");
-    std::fs::write(
-        &md,
-        model_description_kind(&model, &text, v3, kind).unwrap(),
-    )
-    .unwrap();
+    let xml = match libdir {
+        Some(l) => model_description_lib(&model, &text, v3, kind, l),
+        None => model_description_kind(&model, &text, v3, kind),
+    };
+    std::fs::write(&md, xml.unwrap()).unwrap();
     let fmu = work.join("model.fmu");
     let out = uv(&[
         manifest.join("tests/fmpy_run.py").as_os_str(),
@@ -426,6 +440,7 @@ fn fmpy_as(name: &str, names: &[&str], input: &str, v3: bool, kind: Kind) -> Opt
             "ModelExchange"
         }
         .as_ref(),
+        libdir.map_or(std::ffi::OsStr::new(""), |l| l.as_os_str()),
     ])
     .unwrap();
     let _ = std::fs::remove_dir_all(work);
@@ -631,5 +646,33 @@ fn model_description_kind_writes_co_simulation() {
             }
             .unwrap()
         );
+    }
+}
+
+/// S237: MSL の例題を P5b で。`CompareBrakingTorque` の `SignTorque` は `abs(w) >= w0`（noEvent でない関係式）で、
+/// 初期化の点（w = 100）から関係式の記憶を決めないと最初から別の枝（`w/w0`）で微分を返し、w が指数で減る
+/// （正しくは一定のトルクで 1 s で止まり、phi = 50.005）。`data/msl` が無ければ飛ばす。
+#[test]
+fn fmpy_runs_an_msl_example_through_resources_lib() {
+    let msl = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../../data/msl");
+    if !msl.is_dir() {
+        eprintln!("skip: data/msl が無い");
+        return;
+    }
+    let model = "Modelica.Mechanics.Rotational.Examples.CompareBrakingTorque";
+    for (v3, kind) in [(false, Kind::Me), (true, Kind::Cs)] {
+        let src = (model.to_string(), "// library model\n".to_string());
+        let Some(out) = fmpy_with(
+            src,
+            Some(&msl),
+            &["inertia1.phi", "inertia1.w"],
+            "",
+            v3,
+            kind,
+        ) else {
+            return;
+        };
+        let phi = value(&out, "inertia1.phi");
+        assert!((phi - 50.005).abs() < 0.05, "phi(5) = {phi}");
     }
 }
