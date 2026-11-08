@@ -14,7 +14,7 @@ GlobeMode checks, simulates and edits [Modelica](https://modelica.org/) models. 
 - **FMU export** (FMI 2.0 and 3.0, Model Exchange and Co-Simulation) from the CLI, the UI and every language API. FMI import (Co-Simulation and Model Exchange) runs from the CLI (`globe fmu run`), the Rust facade, Python (`run_fmu`) and the Desktop UI (Open a `.fmu`, with a confirmation; not the browser or Android): the FMU's native code runs in a separate worker process, so a crashing FMU does not take the CLI down (`--timeout`, `--memory-limit` on Linux; the disk and network are not isolated).
 - **APIs**: Rust, Python (PyO3), C ABI, Zig, Julia, Elixir, Gleam, WebAssembly.
 
-Not done: FMI import from the browser/Android UI and the C/Elixir/Gleam APIs (CLI, Rust, Python and the Desktop UI work), SSP, Diagram/Icon/Documentation views, an own compiler frontend (Track B), signed installers and automatic updates (the updater is off until a key is registered), a public web deployment. The full list with priorities is [doc/features.md](doc/features.md); the plan is [doc/roadmap.md](doc/roadmap.md).
+Not done: FMI import from the browser/Android UI and the C/Elixir/Gleam APIs (CLI, Rust, Python and the Desktop UI work), SSP, Diagram/Icon views (the Documentation panel works; images are not shown), an own compiler frontend (Track B), signed installers and automatic updates (the updater is off until a key is registered), a public web deployment. The full list with priorities is [doc/features.md](doc/features.md); the plan is [doc/roadmap.md](doc/roadmap.md).
 
 UI keyboard shortcuts (browser, Desktop, Android with a keyboard; Cmd instead of Ctrl on macOS; they work inside the editor and in the input fields). Diagnostic and reference rows are real buttons: Tab to one and press Enter or Space to jump to the editor.
 
@@ -70,7 +70,7 @@ GlobeMode は Rust で作る OSS の Modelica IDE。同じ Rust のコアを、C
 - FMU の書き出し: FMI 2.0・3.0 の Model Exchange・Co-Simulation を、CLI・UI・各言語の API から。FMI の読み込み（Co-Simulation・Model Exchange）は CLI の `globe fmu run`・Python の `run_fmu`・Desktop の UI の「開く」（確認つき。ブラウザ・Android は不可）。FMU の中のネイティブコードは別プロセス（ワーカー）で実行するので、FMU が落ちても呼び出し側は落ちない（`--timeout`、Linux は `--memory-limit`。ディスクとネットワークは隔離しない）。
 - API: Rust（facade `globe-mode`）、Python（PyO3）、C ABI、Zig、Julia、Elixir、Gleam、WebAssembly。
 
-できていないもの: FMI の読み込みの UI と各言語の API（いまは CLI だけ）、SSP、Diagram / Icon / Documentation ビュー、自前のコンパイラ（Track B）、署名したインストーラと自動更新（鍵を登録するまで更新は未設定）、ブラウザ版の公開。順位つきの一覧は [doc/features.md](doc/features.md)、順序は [doc/roadmap.md](doc/roadmap.md)。
+できていないもの: FMI の読み込みの UI と各言語の API（いまは CLI だけ）、SSP、Diagram / Icon ビュー（Documentation は右の「説明」パネルで読める。画像は未対応）、自前のコンパイラ（Track B）、署名したインストーラと自動更新（鍵を登録するまで更新は未設定）、ブラウザ版の公開。順位つきの一覧は [doc/features.md](doc/features.md)、順序は [doc/roadmap.md](doc/roadmap.md)。
 
 UI のキーボード（ブラウザ・Desktop・Android。macOS は Ctrl の代わりに Cmd。エディタの中でも入力欄でも効く）: Ctrl+Enter 実行（CodeMirror の「空行を挿入」は覆う）、Ctrl+Shift+Enter 検査、Ctrl+. 止める、Ctrl+S 保存（Desktop は Ctrl+Shift+S で名前を付けて保存）、Ctrl+O 開く。診断と参照の行は本物の button で、Tab で選んで Enter か Space を押すとエディタの該当位置へ移る。プロットの canvas には信号名と時間の範囲の代替テキストが付く。ページの先頭にスキップリンク（エディタへ・結果へ）があり、タブは左右の矢印・Home・End で移れ、未保存のタブには ● が付く。初めて開いたとき（保存したタブが無いとき）だけ、はじめの 3 手順の案内が出る（閉じられる）。
 

@@ -8,6 +8,7 @@
 mod annotation;
 #[cfg(feature = "config")]
 mod config;
+mod documentation;
 mod html;
 mod layout;
 mod lexer;
@@ -17,6 +18,7 @@ mod tree;
 
 #[cfg(feature = "config")]
 pub use config::CONFIG_FILE;
+pub use documentation::{Documentation, class_at, documentation}; // S232: UI の説明パネル
 pub use lexer::{Kind, Token, lex}; // S161: LSP の参照・リネームが、識別子のトークンだけを一致の対象にする
 pub use lint::{LintMessage, LintOptions, RULES, lint, rule_name};
 pub use tree::{LibraryTree, TreeEntry};

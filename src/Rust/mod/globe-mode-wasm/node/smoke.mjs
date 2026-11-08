@@ -57,6 +57,12 @@ console.log(`結果を開く: MAT ${layout.points} 点 × ${layout.names.length}
   const lines = JSON.parse(fw.folding_ranges("F.mo", doc)).map((r) => [r.startLine, r.endLine]);
   assert.ok([[0, 5], [2, 5]].every(([a, b]) => lines.some((r) => r[0] === a && r[1] === b)), JSON.stringify(lines));
   console.log(`折りたたみ: ${JSON.stringify(lines)}`);
+  // 説明（S232）: カーソルのクラスの Documentation（生の HTML。エスケープは戻す）。クラスの外とライブラリに無い名前は null
+  const withDoc = 'model D\n  Real x;\n  annotation(Documentation(info = "<p>\\"hi\\"</p>", revisions = "<ul/>"));\nend D;\n';
+  const d = JSON.parse(fw.documentation("", withDoc, 1, 3));
+  assert.deepEqual(d, { class: "D", info: '<p>"hi"</p>', revisions: "<ul/>" });
+  assert.equal(fw.documentation("", withDoc, 9, 0), "null");
+  assert.equal(fw.documentation("Nope", "", 0, 0), "null");
   fw.free();
 }
 
@@ -171,6 +177,10 @@ if (msl && existsSync(msl)) {
   // S186: 入れ子のクラスを開くとき、宣言の行（0 始まり）が range で分かる（Blocks/package.mo の BusUsage は 990 行目）
   const src = JSON.parse(lib.library_source("Modelica.Blocks.Examples.BusUsage"));
   assert.ok(src.range.start.line > 900 && src.text.split("\n")[src.range.start.line].includes("model BusUsage"), JSON.stringify(src.range));
+  // S232: 説明。MSL の PID の Documentation の生の HTML（リンクの引用符のエスケープは戻っている）
+  const pidDoc = JSON.parse(lib.documentation("Modelica.Blocks.Continuous.PID", "", 0, 0));
+  assert.ok(pidDoc.info.includes("text-book version of a PID controller") && pidDoc.info.includes('<a href="modelica://Modelica.Blocks.Types.Init">'), pidDoc.info.slice(0, 120));
+  assert.equal(lib.documentation("Modelica.Nope", "", 0, 0), "null");
   console.log(`MSL の木と検索: Blocks の子 ${kids.length} 件、検索 PID_Con ${q1} ms、s（${many.length} 件）${ms(t)} ms`);
   // S171: 補完。型の位置の `Modelica.Blocks.Sources.` で Sine が出る・`.` の後ろで部品名が出る・文字列の中は空。応答時間も測る。
   // どれも打ちかけで文書は壊れている（カーソルの行を除いて読む）

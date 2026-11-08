@@ -415,6 +415,17 @@ impl Workspace {
         serde_json::Value::Array(globe_mode_lsp::folding::folding_ranges(text, classes)).to_string()
     }
 
+    /// クラスの Documentation（`annotation(Documentation(info, revisions))` の生の HTML）を `{class, info, revisions}` の JSON で返す（S232。LSP の `globe/documentation` と同じ形）。
+    /// `class` は完全修飾名。空なら `text`（開いている文書の本文。空なら使わない）の行・列（UTF-16）にあるいちばん内側のクラス。
+    /// 文書のクラスを先に、無ければライブラリのクラスから引く。クラスが引けなければ `null`。HTML は洗わない（洗うのは UI）。
+    pub fn documentation(&self, class: &str, text: &str, line: u32, character: u32) -> String {
+        let at = (!text.is_empty()).then_some((text, line, character));
+        let found = globe_mode_lsp::documentation::documentation(class, at, |c| {
+            self.tree_source(c).map(|(_, t)| t.to_string())
+        });
+        found.to_string()
+    }
+
     /// 名前を `new_name` に変える TextEdit（`{range, newText}`）の配列の JSON（S161。LSP の `globe/rename` と同じ形）。
     /// 断る場合（部品でもクラスでもない・別のファイルのクラス・識別子でない・予約語・同じ階層に既にある）は理由を例外（文字列）で返す。
     pub fn rename(

@@ -8,6 +8,7 @@ dist/ を localhost で配り（CSP は index.html の meta と同じものを�
 クラス名のリネーム（S186）: モデル名のクラス（入れ子の途中も）を F2 で変えると欄も追って検査が通り、Ctrl+Z で戻る。ライブラリの木・検索で入れ子のクラスを開くと宣言の行にカーソルがあって画面に入る。候補が開いたままの Ctrl+Enter は候補を閉じる。「MSL を読む」を Enter で押すとフォーカスは検索欄へ、「結果へ」は結果を画面へ入れる。
 最後に「MSL を読む」で MSL 4.1.0 を読み（public/msl/MSL.json が無ければ飛ばす）、ChuaCircuit の検査（error 0）と実行（プロットの canvas と系列）を確かめて、秒数を出す（S048）。
 長いモデルの実行で進捗（段と t の割合）が出て、「止める」で止まり（data-run="cancelled"）、ボタンが戻ることを確かめる（S133）。止めたあとプロットに途中までの列が残る（S157。dist を cross-origin isolated で配る）。
+説明パネル（S232）: カーソルのあるクラスの Documentation が右のパネルに出る。script・onerror・javascript: は出ず走らず（白リストで組み直す）、表と改訂履歴は出て、無ければ「Documentation が無い」。暗でも読める。MSL の PID を検索で開くと本文が出る。
 折りたたみ（S225）: gutter の印で model Decay を畳むと `end Decay;` の行が隣に来て、開くと戻る（範囲は Rust の foldingRange）。
 Decay の `der(x)` の x で F12 を押すと宣言の行（`Real x`）へ動く。ChuaCircuit のファイルで型 `Modelica.Electrical.Analog.Basic.Resistor` の上の F12 は、ライブラリの Resistor.mo をエディタに開き、Alt+← で ChuaCircuit に戻る（S138）。
 構文の色付け（S163）: 予約語・型・数値・文字列・コメントに別々の色のクラス（cm-mo-*）が付き、エディタの地に対してコントラスト 4.5 以上。暗でも同じ。editor.ts の KEYWORDS は Rust の KEYWORDS と同じ並び。
@@ -602,6 +603,75 @@ def open_results_file(browser, origin: str, errors: list[str]) -> None:
     print("結果を開く: .csv と .mat が結果のタブでプロットされ、エディタは隠れ、タブの切り替えで列が戻り、保存と読めないファイルは理由が出る")
 
 
+def docs_panel(browser, origin: str, errors: list[str]) -> None:
+    """S232: 説明パネル。カーソルのあるクラスの Documentation（Rust が生の HTML を引く）が、白リストで洗われて出る。
+    script・onerror・javascript: は出ず走らず、表と改訂履歴は出る。Documentation の無いクラスは「無い」。暗でも読める。MSL があれば PID を木（検索）で選ぶと本文が出る。"""
+    html = (
+        '<html><p>Hello <b>bold</b></p><script>window.__pwned = 1</script><img src=\\"x\\" onerror=\\"window.__pwned = 2\\" alt=\\"picalt\\">'
+        '<a href=\\"javascript:window.__pwned = 3\\" onclick=\\"window.__pwned = 4\\">js</a> <a href=\\"https://example.com/\\">ok</a>'
+        '<table><tr><td>cell</td></tr></table></html>'
+    )
+    body = (
+        'model Docs "d"\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -x;\n'
+        f'  annotation(Documentation(info = "{html}", revisions = "<ul><li>rev1</li></ul>"));\nend Docs;\n'
+        'model Plain\n  Real y;\nequation\n  y = 1;\nend Plain;\n'
+    )
+    pg = browser.new_page(color_scheme="dark")
+    # DOMParser の不活性な文書でも、onerror= などの属性を読むと CSP が「インラインのイベントハンドラ」を console に報告する（走りはしない）。
+    # この悪意のある本文のページでは、そのときの報告だけを別に集める（ほかの error は今までどおり失敗）
+    csp: list[str] = []
+    pg.on("console", lambda m: m.type == "error" and (csp if "Content Security Policy" in m.text and "inline event handler" in m.text else errors).append(m.text))
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(origin)
+    pg.get_by_role("button", name="検査").wait_for()
+    with pg.expect_file_chooser() as ch:
+        pg.get_by_role("button", name="開く").click(force=True)
+    ch.value.set_files(files=[{"name": "Docs.mo", "mimeType": "text/plain", "buffer": body.encode()}])
+    pg.locator(".cm-content").focus()
+    pg.keyboard.press("Control+Home")
+    pg.keyboard.press("ArrowDown")  # model Docs の中
+    info = pg.locator("[data-docs-info]")
+    expect(info).to_contain_text("Hello bold", timeout=60_000)
+    expect(pg.locator(".docs .cls")).to_have_text("Docs")
+    expect(info.locator("td")).to_have_text("cell")
+    expect(info).to_contain_text("picalt")  # img は alt の文字になる
+    assert info.locator("script, img, iframe").count() == 0
+    assert pg.evaluate("document.querySelectorAll('.docs [onerror], .docs [onclick], .docs [style], .docs [src]').length") == 0
+    links = info.locator("a")
+    assert links.count() == 1 and links.get_attribute("href") == "https://example.com/" and links.get_attribute("target") == "_blank" and "noopener" in links.get_attribute("rel")
+    assert pg.evaluate("window.__pwned") is None  # script も onerror も javascript: も走っていない
+    pg.locator(".docs summary").click()
+    expect(pg.locator("[data-docs-revisions]")).to_contain_text("rev1")
+    colors = info.evaluate("(e) => [getComputedStyle(e).color, getComputedStyle(document.body).backgroundColor]")
+    assert contrast(*colors) >= 4.5, colors  # 暗でも読める（色は theme.css の変数）
+    # Documentation の無いクラスへカーソルを動かすと「無い」（クラス名は出る）。クラスの外では何も引かない
+    pg.locator(".cm-content").focus()
+    pg.keyboard.press("Control+End")
+    pg.keyboard.press("ArrowUp")
+    pg.keyboard.press("ArrowUp")
+    expect(pg.locator(".docs .cls")).to_have_text("Plain", timeout=30_000)
+    expect(pg.locator("[data-docs-empty]")).to_have_text("Documentation が無い")
+    assert info.count() == 0
+    pg.close()
+    print("説明パネル: カーソルのクラスの Documentation が出る（script・onerror・javascript: は出ず走らない、表と改訂履歴は出る、無ければ「無い」、暗でも読める）")
+    if not (DIST / "msl/MSL.json").exists():
+        print("public/msl/MSL.json が無いので、PID の説明の試験は飛ばす")
+        return
+    pg = browser.new_page()
+    pg.on("console", lambda m: m.type == "error" and errors.append(m.text))
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(origin)
+    pg.get_by_role("button", name="MSL を読む").click(force=True)
+    expect(pg.locator("p[data-msl]")).to_have_attribute("data-msl", "loaded", timeout=300_000)
+    pg.get_by_label("ライブラリを検索").fill("Modelica.Blocks.Continuous.PID")
+    pg.get_by_label("ライブラリを検索").press("Enter")
+    expect(pg.locator(".docs .cls")).to_have_text("Modelica.Blocks.Continuous.PID", timeout=60_000)
+    expect(pg.locator("[data-docs-info]")).to_contain_text("text-book version of a PID controller")
+    expect(pg.locator("[data-docs-info] table")).to_have_count(1)
+    pg.close()
+    print("説明パネル: MSL の PID を木（検索）で開くと、本文と表が出る")
+
+
 def open_fmu_file(browser, origin: str, errors: list[str]) -> None:
     """S229: 「開く」で .fmu を選ぶ。ブラウザは「Desktop だけ」と理由を出す。Desktop（偽の window.__TAURI__）は警告つきの確認のあと
     sidecar（偽の rpc）が回した列を結果のタブに出し、確認を断れば何も回さない。実行の失敗は理由を出す。"""
@@ -795,6 +865,7 @@ def main() -> int:
     assert ts_kw == RUST_KW, set(ts_kw) ^ set(RUST_KW)
     # 列の道の NaN / Inf は null になる（uPlot の欠損。S065）
     subprocess.run(["node", str(Path(__file__).with_name("test_columns.mjs"))], check=True)
+    subprocess.run(["node", "--test", str(Path(__file__).with_name("test_html_sanitize.mjs"))], check=True)  # S232: 説明パネルの HTML の白リスト
     subprocess.run(["node", str(Path(__file__).with_name("test_tauri.mjs"))], check=True)  # S196: Desktop の保存先・outDir・タブの key
     server = serve()
     errors: list[str] = []
@@ -1915,6 +1986,7 @@ def main() -> int:
         plot_fixes(browser, origin, errors)  # S201
         open_results_file(browser, origin, errors)  # S222
         ui_polish(browser, origin, errors)  # S228
+        docs_panel(browser, origin, errors)  # S232
         open_fmu_file(browser, origin, errors)  # S229
         print("エディタの Tab: 空白 2 つの字下げ（選択した 2 行も）と Shift+Tab、補完の一覧が開いていれば確定・閉じていれば字下げ、Esc のあと Tab・Shift+Tab と Ctrl+M で外へ、説明は aria-describedby と画面に")
         print("キーボードだけ: モデル名・エディタへ Tab、Ctrl+Shift+Enter で検査、診断と参照の行を Tab・Enter・Space でエディタへ、Ctrl+Enter で実行（プロットの aria-label に信号名と時間の範囲）、Ctrl+. で止め、Ctrl+S で保存")
