@@ -7,7 +7,7 @@
 | worktree | `.git-worktree/s224-fmu-export-types` |
 | Phase | P5 |
 | セッション文書 | `doc/sessions/S224-fmu-export-types/` |
-| セッション記録 | （親が写す） |
+| セッション記録 | [2026-11-02-a2580a13-3889-4662-9db4-a45dc1ca6772.md](../sessions/2026-11-02-a2580a13-3889-4662-9db4-a45dc1ca6772.md) |
 
 ## 依頼
 
@@ -31,7 +31,7 @@ roadmap の表「FMU の Export の残り」から Enumeration・String・`depen
 - 手元で Rumoca の C を `--build` した EnumString（2.0・3.0）: FMPy の validate が問題なし、ME・CS の x(1) = 0.1353353（e⁻² との差 9e-9）。
 - `check_docs.py`: デッキ OK / リンク 4282 件中の切れ 0 件。`render_slides.py`（S224 の 1 デッキ）: 問題 0 件。
 - CI: 親が回す（feature の push と `fmu-export.yml`・`ci.yml -f full=true` は報告の run を見る）。
-- セッション記録の `--check`・ステージ差分の漏洩検査: （親が写す）
+- セッション記録の `--check`・ステージ差分の漏洩検査: 取りこぼし 0 件（親が写した）
 
 ## 残したこと
 
