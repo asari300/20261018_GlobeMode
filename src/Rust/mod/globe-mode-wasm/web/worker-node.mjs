@@ -163,6 +163,18 @@ try {
     await t.terminate();
     await rejected;
     await assert.rejects(hang(t.version(), "6 の後"), /./);
+    // 7（#69）: 線形メモリが上限を越えたら、次の要求の前に worker を作り直す（ライブラリとファイルは再生する）。上限内なら作り直さない
+    const big = mk({ memoryLimit: 1 });
+    const fine = mk();
+    try {
+      const src = "model A\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -x;\nend A;\n";
+      for (const g of [big, fine]) await g.setFile("A.mo", src);
+      assert.equal(big.restarts, 0, "7: 上限を越えた応答の前に作り直した");
+      assert.ok((await big.check("A")).passed, "7: 作り直したあとファイルが再生されている");
+      assert.equal(big.restarts, 1, "7: 上限を越えたのに作り直さない");
+      assert.ok((await fine.check("A")).passed);
+      assert.equal(fine.restarts, 0, "7: 上限内なのに作り直した");
+    } finally { await big.terminate(); await fine.terminate(); }
     console.log("中断の経路: cancel() 2 回・起動中・キューの中・応えない実行・捨てた worker の応答・terminate() を確かめた");
   }
   const g = await w.graph("GlobeModeValidation.Connect.RealCircuit", 1);
