@@ -39,6 +39,7 @@ roadmap の「エディタの言語サービス」の先頭: 参照・リネー�
 - ステージした差分の漏洩検査（ホームのパス・メール・トークン）: 0 件。
 - `vscode.yml` run 42456754949: success（e2e の rename の一括を含む）。
 - `ci.yml` run 42456752698（1 回目）: rust-windows が failure（cross_file の試験の URI が `file://C:\...` になっていた。試験の側を `file:///C:/...` に直した）。docs は取り消し。run 42458115328（直した後）: 全ジョブ success。
+- 親の指示で「解決できなかった候補は断る」守りを戻した後: `cargo test -p globe-mode-lsp` 通った、clippy ok、`render_slides.py`（自分のデッキ）問題 0 件、`ci.yml` run 42459552907 success（全ジョブ）、`vscode.yml` run 42459561041 success。
 
 ## 残したこと
 
