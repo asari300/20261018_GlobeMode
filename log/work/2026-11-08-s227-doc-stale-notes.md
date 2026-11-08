@@ -30,8 +30,8 @@ README.md、doc/adr/0023・0026、doc/architecture.md、doc/roadmap.md、doc/mis
 ## 検証
 
 - `cargo fmt --check -p globe-mode-lsp`: ok。
-- `check_docs.py`・`render_slides.py`: 下の通り。
-- ci.yml の run: 下の通り。
+- `check_docs.py`: 文書 907 件 / 相対リンク 4330 件 / 切れ 0 件。`render_slides.py`（自分のデッキ）: 問題 0 件。
+- `ci.yml`（feature ブランチ、full）run 42446798160: success。
 
 ## 残したこと
 
