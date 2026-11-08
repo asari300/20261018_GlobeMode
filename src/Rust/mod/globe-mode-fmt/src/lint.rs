@@ -33,6 +33,15 @@ pub const RULES: &[(&str, &str)] = &[
     ("GM-L0005", "connect-type-mismatch"),
 ];
 
+/// 規則のコード（`GM-L0003`）でも名前（`missing-description`）でも、名前を返す。知らなければ `None`。
+/// 設定ファイルの `[lint] disable` と CLI の `--disable` が共有する（#56）。
+pub fn rule_name(rule: &str) -> Option<&'static str> {
+    RULES
+        .iter()
+        .find(|(code, name)| rule == *code || rule == *name)
+        .map(|(_, name)| *name)
+}
+
 const CLASS_KEYWORD: &[&str] = &[
     "model",
     "package",

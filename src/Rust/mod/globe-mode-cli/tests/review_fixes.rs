@@ -402,6 +402,56 @@ fn stdin_needs_an_explicit_dash() {
     assert!(out(&o).contains("\"messages\""), "{}", out(&o));
 }
 
+/// #60: 構文の誤りの終了コードは、標準入力でもファイルでも 2（`--check` が「整形が要る」の 1 と取り違えない）。
+/// `--json` は 1 のまま（ウェブアプリが 0・1 を結果として読み、`ok: false` の JSON を返す）。
+#[test]
+fn fmt_syntax_error_exits_2_on_stdin_like_a_file() {
+    use std::io::Write;
+    let run = |args: &[&str], input: &str| {
+        let mut c = Command::new(env!("CARGO_BIN_EXE_globe"))
+            .args(args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let _ = c.stdin.take().unwrap().write_all(input.as_bytes());
+        c.wait_with_output().unwrap()
+    };
+    let broken = "model A\n  Real x\nend A;\n";
+    for args in [&["fmt", "--check", "-"][..], &["fmt", "-"]] {
+        assert_eq!(run(args, broken).status.code(), Some(2), "{args:?}");
+    }
+    assert_eq!(run(&["fmt", "--check", "-"], MESSY).status.code(), Some(1));
+    let o = run(&["fmt", "--json", "-"], broken);
+    assert_eq!(o.status.code(), Some(1), "{o:?}");
+    assert!(out(&o).contains("\"ok\":false"), "{}", out(&o));
+}
+
+/// #56: `lint --disable` は規則のコード（GM-L0003）でも効き、知らない規則（打ち間違い）は終了コード 2。
+#[test]
+fn lint_disable_takes_codes_and_rejects_unknown_rules() {
+    use std::io::Write;
+    let run = |args: &[&str]| {
+        let mut c = Command::new(env!("CARGO_BIN_EXE_globe"))
+            .args(args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let _ = c.stdin.take().unwrap().write_all(b"model A\nend A;\n");
+        c.wait_with_output().unwrap()
+    };
+    let o = run(&["lint", "-"]);
+    assert!(out(&o).contains("missing-description"), "{o:?}");
+    let o = run(&["lint", "-", "--disable", "GM-L0003"]);
+    assert!(!out(&o).contains("missing-description"), "{o:?}");
+    let o = run(&["lint", "-", "--disable", "missing-descripton"]);
+    assert_eq!(o.status.code(), Some(2), "{o:?}");
+    assert!(err(&o).contains("missing-descripton"), "{}", err(&o));
+}
+
 /// ヘルプの末尾に終了コードの表がある。
 #[test]
 fn help_lists_the_exit_codes() {
