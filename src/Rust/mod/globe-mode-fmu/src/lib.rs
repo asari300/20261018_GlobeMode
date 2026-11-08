@@ -148,7 +148,15 @@ fn describe(model: &str, source: &str, v3: bool) -> Result<String, String> {
                 (Causality::Output, Some(Initial::Calculated), None)
             }
             // 入力は initial を書かず start を必須とする（FMI 2.0 の表）
-            VariableRole::Input => (Causality::Input, None, Some(format!("{:?}", values[i]))),
+            VariableRole::Input => {
+                // start は変数の型で書く（Integer・Boolean に f64 の `2.0` を書くと XSD に反する。#51）
+                let start = match ty {
+                    VarType::Int32 => format!("{}", values[i] as i32),
+                    VarType::Boolean => format!("{}", values[i] != 0.0),
+                    _ => format!("{:?}", values[i]),
+                };
+                (Causality::Input, None, Some(start))
+            }
             _ => (Causality::Local, Some(Initial::Calculated), None),
         };
         let variability = if discrete {
@@ -292,7 +300,22 @@ fn resource_path(location: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use super::resource_path;
+    use super::*;
+
+    /// #51: Integer・Boolean の入力の start は XSD の型（xs:int・xs:boolean）で書く（`2.0` ではなく `2`、`true`）。
+    #[test]
+    fn integer_and_boolean_inputs_start_in_their_own_types() {
+        let src = "model M\n  input Integer n(start = 2);\n  input Boolean b(start = true);\n  Real x(start = 1);\nequation\n  der(x) = -x;\nend M;\n";
+        for xml in [
+            model_description("M", src).unwrap(),
+            model_description_3("M", src).unwrap(),
+        ] {
+            assert!(
+                xml.contains("start=\"2\"") && xml.contains("start=\"true\""),
+                "{xml}"
+            );
+        }
+    }
 
     #[test]
     fn resource_path_from_uri() {
