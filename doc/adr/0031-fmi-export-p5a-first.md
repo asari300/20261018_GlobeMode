@@ -43,6 +43,9 @@
 - **P5a の `--target` は `x86_64-macos` も受ける**（`platform()` は元から arch を見ていた）。zig が書いた Mach-O と PE の先頭の magic を `globe-mode-cli` の試験が確かめる。FMI 2.0 の `darwin64` は arch を区別しないので、`x86_64-macos` と `aarch64-macos` を両方付けると後のものが前を上書きしていた。`write_fmu` が置き場の名前の重なりを先に断る。3.0 は `x86_64-darwin` と `aarch64-darwin` に分かれるので両方入れられる。
 - **fmusim を 3 OS で回す**: `fmu-cross` が fmusim v0.15.0（Linux・Windows は x86_64、macOS は aarch64-darwin。x86_64-darwin の release は無い）で validate と ME・CS を回す。macOS の x86_64 向けの FMU は Mach-O の magic の確認までで、実行はしない（ランナーが arm64 で、Rosetta 上の fmusim も無い）。
 - **P5b は cross しない**: `globe-mode-fmu` の cdylib は rumoca と exec を静的に含むので zig で組まず、ランナーの OS でネイティブにビルドする（`fmu-native`）。`tests/fmpy.rs` と `fmpy_run.py` は cdylib の名前（`.so`・`.dll`・`.dylib`）と `binaries/` の置き場を OS で決める。
+- **fmusim の macOS(arm64) 版は FMI 2.0 の `darwin64` を見つけない**: v0.15.0 は 2.0 の FMU でも `binaries/aarch64-darwin/` を探して `dlopen failed` で落ちる（P5a・P5b とも、run 42471079551 のログ）。Linux・Windows の fmusim は 2.0 の `linux64`・`win64` を見つける。FMI 2.0 の規格の名前は `darwin64` なので FMU は直さず、macOS・FMI 2.0 の fmusim の simulate だけ飛ばす（validate は通る。FMPy の ME・CS は通る）。上流への報告は未提出。
+- 結果（`fmu-export.yml`、run 42472525126 success）: 3 OS とも FMPy の ME・CS が x(1) − e⁻¹ = −2.608e-08（ME）・3.331e-16（CS）、fmusim が −2.282e-08（ME）・3.331e-16（CS）。P5b の FMPy CS と fmusim CS は 3.886e-15、fmusim ME は −2.282e-08。`tests/fmpy.rs` の 16 件は Ubuntu・Windows・macOS で通った。
+- 道具: github.com の release の直リンクが 504 を返し続けた（mise の `packslip.sigstore.json` など。2026-11-08）。`fmu-cross`・`fmu-native` は mise を使わずランナーの rustup と `pipx install uv` にし、fmusim は API 経由の `gh release download` で取る。
 - 1 つの FMU に P5b の複数 OS の置き場を同梱する道は持ち越し（各 OS のビルドを 1 つの zip に集める手順が要る）。
 
 ## 追記（S117、2026-11-03）: `modelDescription.xml` の型と書く側の共有
