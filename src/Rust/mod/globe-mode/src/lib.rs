@@ -281,9 +281,13 @@ impl Workspace {
         files.sort();
         let mut texts = Vec::with_capacity(files.len());
         for f in &files {
-            let text =
-                std::fs::read_to_string(f).map_err(|e| vec![library_error(f, &e.to_string())])?;
-            texts.push((f.display().to_string(), text));
+            // UTF-8 でないファイル（Latin-1 の `°` など）が 1 つあるだけで、無関係なモデルまで読めなくならないよう、
+            // 悪いバイトは U+FFFD にして読む（#85）。コメントと文字列の中の字が変わるだけ
+            let bytes = std::fs::read(f).map_err(|e| vec![library_error(f, &e.to_string())])?;
+            texts.push((
+                f.display().to_string(),
+                String::from_utf8_lossy(&bytes).into_owned(),
+            ));
         }
         let sources: Vec<Source<'_>> = texts
             .iter()
