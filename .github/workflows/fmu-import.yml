@@ -38,5 +38,6 @@ jobs:
       - name: 読み込みと参照の CSV との突き合わせ
         run: cargo test -p globe-mode-fmi-import -- --nocapture
       # S210: fmu_worker は FMU を別プロセスのワーカーで回す。落ちる FMU・無限ループ・メモリの試験は cc があれば Linux・macOS で回る（Windows は飛ばす）
-      - name: globe fmu info / run と、Export した FMU の往復（Linux だけ）、ワーカー
-        run: cargo test -p globe-mode-cli --test fmu_import --test fmu_worker -- --nocapture
+      # S229: facade の import_fmu_info / run_fmu と中断（fmu_worker）、LSP の globe/fmuInfo・fmuRun（lsp）
+      - name: globe fmu info / run と、Export した FMU の往復（Linux だけ）、ワーカー、facade、LSP
+        run: cargo test -p globe-mode-cli --test fmu_import --test fmu_worker --test lsp -- --nocapture

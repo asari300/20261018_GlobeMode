@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S229 FMI Import を facade・Python・UI へ — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S229 FMI Import を facade・Python・UI へ">
+
+<section class="slide" id="S01">
+  <span class="tag">S229 · 2026-11-08 · P5</span>
+  <h1>FMI Import を CLI の外へ</h1>
+  <p class="lead">facade、Python、Desktop の UI から FMU を読んで回せる</p>
+  <div class="big">ワーカーは<b>呼び手が渡す</b>。ネイティブコードは別プロセスのまま</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">facade</span>
+  <h1>口は 2 つだけ</h1>
+  <ul>
+    <li><code>import_fmu_info(path)</code>: <code>globe fmu info</code> と同じ情報。ネイティブコードは実行しない</li>
+    <li><code>run_fmu(worker, path, request, on_progress, cancel)</code>: ワーカーで回す</li>
+    <li>結果の列は <code>OpenedResults::columns()</code>（S222）で、実行の結果と同じ形</li>
+    <li>CLI の <code>fmu info</code> / <code>run</code> も同じ関数を呼ぶ（写しは作らない）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">ワーカー</span>
+  <h1>実行ファイルの探し方</h1>
+  <table class="compact">
+    <tr><th>呼び手</th><th>ワーカー</th></tr>
+    <tr><td>CLI・Desktop の sidecar（LSP）</td><td><code>current_exe()</code>（<code>globe</code> 自身）</td></tr>
+    <tr><td>Python</td><td><code>GLOBE_BIN</code>、無ければ PATH の <code>globe</code>。無ければ <code>FmuError</code></td></tr>
+  </table>
+  <p>wheel の中には実行ファイルが無いので、Python は外の <code>globe</code> を使う</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">中断</span>
+  <h1>旗が立てば 50 ms で kill</h1>
+  <ul>
+    <li><code>WorkerSpec::cancel</code>（<code>AtomicBool</code>）を親が 50 ms おきに見る</li>
+    <li>DoStep が戻らない FMU も止まる（進捗に頼らない）</li>
+    <li>Desktop は既存の <code>$/cancelRequest</code> で届き、Python は <code>on_progress</code> が真を返すか Ctrl-C</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">Desktop</span>
+  <h1>「開く」で .fmu</h1>
+  <ol>
+    <li><code>globe/fmuInfo</code> の警告と要約を <code>confirm</code> に出す（断れば回さない）</li>
+    <li><code>globe/fmuRun</code> を sidecar のワーカーで回す。進捗は <code>$/progress</code>、「止める」で kill</li>
+    <li>結果は S222 の結果のタブにプロット</li>
+  </ol>
+  <p>ブラウザ・Android は zip を読まず「Desktop だけ」と理由を出す。<code>RPC_METHODS</code> は 20 から 22</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">試験</span>
+  <h1>確かめたこと</h1>
+  <ul>
+    <li>facade: Dahlquist の CS・ME、JSON の request、失敗、遅い FMU の中断（子が残らない）</li>
+    <li>LSP: <code>globe lsp</code> を起動して info・run・-32000・-32602</li>
+    <li>Python: 同じ FMU で <code>FmuError</code> の各場合</li>
+    <li>Playwright: ブラウザは「Desktop だけ」、Desktop は確認から結果のタブまで</li>
+  </ul>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ul>
+    <li>C ABI・NIF からの呼び出し、マスター、SE、sandbox</li>
+    <li>UI の実験設定の入力欄と ME の積分器の選択</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

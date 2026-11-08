@@ -28,9 +28,11 @@ print(res["ok"], table(res).shape)
   | `SourceError` | `ValueError` | `outline` のファイルが無い・構文の誤り（`.diagnostics`）、`format` の構文の誤り |
   | `ExportError` | `ValueError` | `export_fmu` が書き出せない（版が 2・3 でない、DAE にできない、書き込めない） |
   | `ResultError` | `ValueError` | `table` に時系列の無い結果（`ok: False`）を渡した |
+  | `FmuError` | `RuntimeError` | `fmu_info` が FMU を読めない、`run_fmu` が回せない（FMU が落ちた・時間切れ・止めた・`globe` が見つからない） |
 
   呼び方の誤りは Python の習慣どおり素の `TypeError`（未知の設定のキー、`on_progress` が呼べない、`libraries` が bytes）で、`GlobeModeError` ではない。`on_progress` のコールバックが出した例外はそのまま通り、Rust の panic は `pyo3_runtime.PanicException`（`BaseException` の子）のまま。
 - `simulate` / `simulate_columns` は実行の間 GIL を離す（`on_progress` が無くても。ほかの Python のスレッドは動き、Ctrl-C は進捗の区切りで効く）。`on_progress` は**キーワード専用**（`ws.simulate(m, {"stop_time": 2})` は `TypeError`。設定は `stop_time=2` で渡す）。コールバックの中から同じ `Workspace` は呼べない（`RuntimeError: Already borrowed`）。
 - `on_progress` は既定のソルバ（`bdf`・`auto`・`dopri45`）では積分の中に届かない（段の変わり目だけ。積分を止めたいなら `max_wall_seconds`）。`esdirk34` などなら積分の時刻が付き、`True` を返して止められる。
+- FMU の読み込みと実行（S229、FMI Import。[ADR-0026](../../doc/adr/0026-fmi-import-placement.md) の (p)）: `fmu_info("Dahlquist.fmu")`（`globe fmu info` と同じ情報の dict。ネイティブコードは実行しない）、`run_fmu("Dahlquist.fmu", kind="cs", stop_time=1, outputs=["x"], parameters={"k": 2}, timeout=60)`（`read_results` と同じ形の dict。`table(res)` で表になり、ME だけ `res["me"]` に事象の要約）。**FMU のネイティブコードを別プロセス（ワーカー）で実行する**ので、FMU が落ちても Python は落ちず `FmuError` になる（ディスク・ネットワークは隔離しない。信頼できる FMU だけ）。ワーカーは CLI の `globe`: 環境変数 `GLOBE_BIN`、無ければ PATH（wheel の中には実行ファイルが無い。見つからなければ `FmuError` が「`globe` を PATH に置くか GLOBE_BIN」と言う）。`on_progress(t)` が真を返すか `timeout` を超えるとワーカーを kill する。
 
 経路の説明は [doc/architecture.md](../../doc/architecture.md#5-言語-api)。

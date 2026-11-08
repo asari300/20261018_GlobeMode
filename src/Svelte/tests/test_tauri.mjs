@@ -35,4 +35,18 @@ globalThis.window.__TAURI__.core.invoke = async (cmd, a) => (calls.push([cmd, a]
 const opened = await b.openFile();
 assert.deepEqual(calls, [["rpc", { method: "globe/readResults", params: { path: "/r/out.csv" } }]]);
 assert.deepEqual(opened, { name: "out.csv", text: "", path: "/r/out.csv", columns: { names: ["x"], points: 2, defaults: ["x"], data: [[0, 1], [1, null]] } });
+// FMU（S229）: 開くときは読まず（text は空）、確認のあと fmuInfo・runFmu が sidecar の globe/fmuInfo・globe/fmuRun を呼ぶ。止めた呼び出しは cancelled で reject する
+calls.length = 0;
+globalThis.window.__TAURI__.dialog.open = async () => "/r/D.fmu";
+assert.deepEqual(await b.openFile(), { name: "D.fmu", text: "", path: "/r/D.fmu" });
+assert.deepEqual(calls, []);
+globalThis.window.__TAURI__.event = { listen: async () => () => {} };
+globalThis.window.__TAURI__.core.invoke = async (cmd, a) => (calls.push([cmd, a]), cmd === "rpc" && a.method === "globe/fmuRun" ? { layout: { names: ["time", "x"], points: 2 }, columns: [[0, 1], [1, 0.5]] } : { model_name: "D" });
+assert.equal((await b.fmuInfo("/r/D.fmu")).model_name, "D");
+assert.deepEqual((await b.runFmu("/r/D.fmu")).names, ["x"]);
+assert.deepEqual(calls.map(([, a]) => a.method), ["globe/fmuInfo", "globe/fmuRun"]);
+globalThis.window.__TAURI__.core.invoke = async (cmd) => { if (cmd === "cancel_run") return; throw "中断した"; };
+const running = b.runFmu("/r/D.fmu");
+b.cancel();
+await assert.rejects(running, (e) => e.cancelled === true);
 console.log("test_tauri ok");

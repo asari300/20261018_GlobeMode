@@ -23,12 +23,12 @@ sundials = ["globe-mode/sundials"]
 [dependencies]
 # S035: facade（と protocol の型）経由。db・exec・sim は facade の再公開を使う
 # S118: fmu で `globe fmu export` を facade の export_fmu から
-globe-mode = { workspace = true, features = ["fmu"] }
+globe-mode = { workspace = true, features = ["fmu", "fmu-import"] }
 globe-mode-core = { workspace = true }
 # S204: `globe fmu info` / `run`（FMU の読み込み。ネイティブのみ。ADR-0026）
 globe-mode-fmi = { workspace = true }
 globe-mode-fmi-import = { workspace = true }
-globe-mode-lsp = { workspace = true }
+globe-mode-lsp = { workspace = true, features = ["fmu-import"] }
 globe-mode-fmt = { workspace = true, features = ["config"] }
 globe-mode-ir = { workspace = true }
 clap = { workspace = true }

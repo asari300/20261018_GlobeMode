@@ -253,3 +253,114 @@ fn lsp_serves_custom_requests() {
     send(&mut stdin, json!({"jsonrpc": "2.0", "method": "exit"}));
     assert!(child.wait().unwrap().success());
 }
+
+/// S229: `globe/fmuInfo`・`globe/fmuRun`。ワーカーは `globe lsp` と同じ実行ファイルの `fmu __worker`。
+#[test]
+fn lsp_reads_and_runs_fmus() {
+    let fmu = root().join("data/reference-fmus/3.0/Dahlquist.fmu");
+    if !fmu.is_file() {
+        assert!(
+            std::env::var_os("GLOBE_REQUIRE_REFERENCE_FMUS").is_none(),
+            "{fmu:?} が無い"
+        );
+        eprintln!("skip: {fmu:?} が無い（cargo xtask fetch-reference-fmus）");
+        return;
+    }
+    let mut child = Command::new(env!("CARGO_BIN_EXE_globe"))
+        .current_dir(root())
+        .args(["lsp"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("run globe lsp");
+    let mut stdin = child.stdin.take().unwrap();
+    let mut out = BufReader::new(child.stdout.take().unwrap());
+    send(
+        &mut stdin,
+        json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"capabilities": {}}}),
+    );
+    response(&mut out, 1);
+    let call = |stdin: &mut ChildStdin, out: &mut BufReader<ChildStdout>, id, method, params| {
+        send(
+            stdin,
+            json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}),
+        );
+        response(out, id)
+    };
+
+    let r = call(
+        &mut stdin,
+        &mut out,
+        2,
+        "globe/fmuInfo",
+        json!({"path": fmu}),
+    );
+    assert_eq!(r["result"]["model_name"], "Dahlquist", "{r}");
+    assert!(
+        r["result"]["interfaces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|i| i["kind"] == "CoSimulation"),
+        "{r}"
+    );
+    assert!(
+        r["result"]["warning"]
+            .as_str()
+            .unwrap()
+            .contains("ネイティブコード")
+    );
+
+    let params =
+        json!({"path": fmu, "request": {"stop_time": 1, "set": {"k": 2}}, "workDoneToken": "t"});
+    let r = call(&mut stdin, &mut out, 3, "globe/fmuRun", params);
+    let res = &r["result"];
+    assert_eq!(res["layout"]["names"], json!(["time", "x"]), "{r}");
+    assert_eq!(res["layout"]["points"], 501);
+    assert_eq!(res["layout"]["defaults"], json!(["x"]));
+    assert!(res["me"].is_null());
+    let x = res["columns"][1][500].as_f64().unwrap();
+    assert!((x - 0.8f64.powi(10)).abs() < 1e-12, "{x}");
+
+    let r = call(
+        &mut stdin,
+        &mut out,
+        4,
+        "globe/fmuRun",
+        json!({"path": fmu, "request": {"kind": "me"}}),
+    );
+    assert_eq!(r["result"]["me"]["terminated_by_fmu"], false, "{r}");
+    // 失敗は -32000、params の誤りは -32602
+    let r = call(
+        &mut stdin,
+        &mut out,
+        5,
+        "globe/fmuRun",
+        json!({"path": "/no/such.fmu"}),
+    );
+    assert_eq!(r["error"]["code"], -32000, "{r}");
+    let r = call(
+        &mut stdin,
+        &mut out,
+        6,
+        "globe/fmuRun",
+        json!({"path": fmu, "request": {"outputs": ["nope"]}}),
+    );
+    assert!(
+        r["error"]["message"].as_str().unwrap().contains("nope"),
+        "{r}"
+    );
+    let r = call(
+        &mut stdin,
+        &mut out,
+        7,
+        "globe/fmuRun",
+        json!({"path": fmu, "request": {"bogus": 1}}),
+    );
+    assert_eq!(r["error"]["code"], -32602, "{r}");
+    let r = call(&mut stdin, &mut out, 8, "globe/fmuInfo", json!({}));
+    assert_eq!(r["error"]["code"], -32602, "{r}");
+
+    send(&mut stdin, json!({"jsonrpc": "2.0", "method": "exit"}));
+    assert!(child.wait().unwrap().success());
+}

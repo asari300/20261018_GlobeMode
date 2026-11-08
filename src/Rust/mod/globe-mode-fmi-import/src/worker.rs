@@ -18,6 +18,7 @@
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -31,9 +32,12 @@ const TAG: &str = "\u{1}GW ";
 const TAIL: usize = 4096;
 /// 子が進捗を流す間隔の下限。
 const PROGRESS_EVERY: Duration = Duration::from_millis(250);
+/// 親が中断の旗を見る間隔。
+const CANCEL_POLL: Duration = Duration::from_millis(50);
 
-/// 回し方。
+/// 回し方。JSON では `"cs"` / `"me"`（S229）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Kind {
     /// Co-Simulation
     Cs,
@@ -87,6 +91,8 @@ pub struct WorkerSpec {
     pub timeout: Option<Duration>,
     /// 子の仮想メモリの上限（バイト。`ulimit -v`）。Linux だけ。ほかの OS で指定すると [`Error::Worker`]。
     pub memory_limit: Option<u64>,
+    /// 立ったら kill して [`Error::Worker`]（「中断した」。S229）。親が 50 ms おきに見る。
+    pub cancel: Option<Arc<AtomicBool>>,
 }
 
 impl WorkerSpec {
@@ -96,6 +102,7 @@ impl WorkerSpec {
             args: args.iter().map(Into::into).collect(),
             timeout: None,
             memory_limit: None,
+            cancel: None,
         }
     }
 }
@@ -353,20 +360,43 @@ pub fn run_in_worker(
     let deadline = spec.timeout.map(|t| Instant::now() + t);
     let (mut names, mut rows, mut me) = (None, Vec::new(), None);
     let (mut done, mut failed, mut last_t) = (false, None, None);
-    let mut timed_out = false;
+    let (mut timed_out, mut cancelled) = (false, false);
+    let is_cancelled = || {
+        spec.cancel
+            .as_ref()
+            .is_some_and(|c| c.load(Ordering::Relaxed))
+    };
     loop {
-        let msg = match deadline {
-            Some(d) => rx.recv_timeout(d.saturating_duration_since(Instant::now())),
+        let left = deadline.map(|d| d.saturating_duration_since(Instant::now()));
+        // 中断の旗があれば、短く区切って待つ
+        let wait = match (left, spec.cancel.is_some()) {
+            (Some(l), true) => Some(l.min(CANCEL_POLL)),
+            (None, true) => Some(CANCEL_POLL),
+            (l, false) => l,
+        };
+        let msg = match wait {
+            Some(w) => rx.recv_timeout(w),
             None => rx.recv().map_err(|_| RecvTimeoutError::Disconnected),
         };
         let text = match msg {
             Ok(t) => t,
             Err(RecvTimeoutError::Timeout) => {
-                timed_out = true;
-                break;
+                if is_cancelled() {
+                    cancelled = true;
+                    break;
+                }
+                if deadline.is_some_and(|d| Instant::now() >= d) {
+                    timed_out = true;
+                    break;
+                }
+                continue;
             }
             Err(RecvTimeoutError::Disconnected) => break,
         };
+        if is_cancelled() {
+            cancelled = true;
+            break;
+        }
         let (kind, payload) = text.split_at(text.len().min(1));
         let payload = payload.trim_start();
         let bad = || worker(format!("ワーカーが読めない行を返した: {text:?}"));
@@ -417,6 +447,9 @@ pub fn run_in_worker(
     };
     if let Some(m) = failed {
         return Err(Error::Child(m));
+    }
+    if cancelled {
+        return Err(worker(with_tail("中断した".into())));
     }
     if timed_out {
         let at = last_t.map_or(String::new(), |t| format!("（最後の進捗は t = {t}）"));

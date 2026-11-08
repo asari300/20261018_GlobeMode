@@ -1,6 +1,6 @@
-import type { Backend, CompletionEntry, Definition, Hover, LintMessage, Progress, TreeEntry } from "./backend";
+import type { Backend, CompletionEntry, Definition, FmuInfo, Hover, LintMessage, Progress, TreeEntry } from "./backend";
 import type { Columns } from "./plot/csv";
-import { isResultsFile, toColumns } from "./results.ts"; // node の型の除去（tests/test_tauri.mjs）が拡張子を要る
+import { isFmuFile, isResultsFile, toColumns } from "./results.ts"; // node の型の除去（tests/test_tauri.mjs）が拡張子を要る
 import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse, SolverEntry, TunableParameter } from "./protocol";
 
 // Tauri が `withGlobalTauri` で注入する関数だけを使う（@tauri-apps/api は入れない。npm の依存を増やさないため）。
@@ -9,7 +9,7 @@ type Listen = <T>(event: string, cb: (e: { payload: T }) => void) => Promise<() 
 type Dialog = { open(o: object): Promise<string | null>; save(o: object): Promise<string | null> };
 type Fs = { readTextFile(p: string): Promise<string>; writeTextFile(p: string, t: string): Promise<void>; writeFile(p: string, b: Uint8Array): Promise<void> };
 const tauriGlobal = () => (window as unknown as { __TAURI__: { core: { invoke: Invoke }; event: { listen: Listen }; dialog: Dialog; fs: Fs } }).__TAURI__;
-const OPEN = [{ name: "Modelica・結果", extensions: ["mo", "mat", "csv"] }]; // S222: 結果のファイルも開く
+const OPEN = [{ name: "Modelica・結果・FMU", extensions: ["mo", "mat", "csv", "fmu"] }]; // S222: 結果のファイルも開く。S229: FMU も（確認のあと回して結果のタブに出す）
 const extFilter = (name: string) => [{ name: "File", extensions: [name.split(".").pop() ?? ""] }]; // 保存ダイアログの拡張子の絞り込み
 const baseName = (p: string) => p.split(/[\\/]/).pop() ?? p;
 /** 保存ダイアログで選んだファイルのフォルダ（Windows のドライブの根は `C:\`。`C:` だとドライブ相対になる。S196）。 */
@@ -99,16 +99,20 @@ export class TauriBackend implements Backend {
   #onProgress?: (p: Progress) => void;
   #listening?: Promise<unknown>;
   #cancelling = false;
-  // sidecar の `globe/simulateColumns`（S076）。列は JSON の数の配列で、有限でない値は既に null（uPlot の欠損）。
-  // S136（ADR-0033）: workDoneToken を付け、サーバの `$/progress`（イベント `globe-notification`）の value を onProgress に渡す
-  async simulateColumns(req: SimulateRequest, onProgress?: (p: Progress) => void): Promise<{ response: SimulateResponse; columns: Columns }> {
+  // `$/progress`（イベント `globe-notification`）の value を onProgress に渡す口。実行は 1 度に 1 つなので 1 つだけ張る
+  #listen(onProgress?: (p: Progress) => void): Promise<unknown> {
     this.#listening ??= tauriGlobal().event.listen<{ method?: string; params?: { token?: string; value?: Progress } }>("globe-notification", (e) => {
       const p = e.payload;
       if (p.method === "$/progress" && p.params?.token === RUN_TOKEN && p.params.value?.stage) this.#onProgress?.(p.params.value);
     });
-    await this.#listening;
     this.#onProgress = onProgress;
     this.#cancelling = false;
+    return this.#listening;
+  }
+  // sidecar の `globe/simulateColumns`（S076）。列は JSON の数の配列で、有限でない値は既に null（uPlot の欠損）。
+  // S136（ADR-0033）: workDoneToken を付け、サーバの `$/progress`（イベント `globe-notification`）の value を onProgress に渡す
+  async simulateColumns(req: SimulateRequest, onProgress?: (p: Progress) => void): Promise<{ response: SimulateResponse; columns: Columns }> {
+    await this.#listen(onProgress);
     try {
       const r = await invoke<{ response: SimulateResponse; layout: { names: string[]; points: number; defaults?: string[] }; columns: (number | null)[][] }>(
         "rpc",
@@ -123,7 +127,24 @@ export class TauriBackend implements Backend {
       this.#onProgress = undefined;
     }
   }
-  /** 実行中の simulateColumns を止める（S136）。サーバが止めれば途中までの列と GM-I11004 の普通の応答、止まらなければ sidecar を作り直して cancelled で reject。 */
+  /** S229: FMU の要約（`globe fmu info` と同じ。ネイティブコードは実行しない）と、実行前に見せる警告。 */
+  fmuInfo(path: string): Promise<FmuInfo> {
+    return invoke("rpc", { method: "globe/fmuInfo", params: { path } });
+  }
+  /** S229: FMU を sidecar のワーカー（別プロセス）で回す。`cancel` で止められ（ワーカーを kill）、止めた呼び出しは cancelled で reject する。 */
+  async runFmu(path: string, onProgress?: (t: number) => void): Promise<Columns> {
+    await this.#listen((p) => p.time !== undefined && onProgress?.(p.time));
+    try {
+      const r = await invoke<{ layout: { names: string[]; points: number; defaults?: string[] }; columns: (number | null)[][] }>("rpc", { method: "globe/fmuRun", params: { path, request: {}, workDoneToken: RUN_TOKEN } });
+      return toColumns(r.layout, r.columns);
+    } catch (e) {
+      if (this.#cancelling) throw Object.assign(new Error(String(e)), { cancelled: true });
+      throw e;
+    } finally {
+      this.#onProgress = undefined;
+    }
+  }
+  /** 実行中の simulateColumns・runFmu を止める（S136）。サーバが止めれば途中までの列と GM-I11004 の普通の応答（FMU はワーカーを kill して cancelled で reject）、止まらなければ sidecar を作り直して cancelled で reject。 */
   cancel(): void {
     this.#cancelling = true;
     void invoke("cancel_run");
@@ -164,6 +185,7 @@ export class TauriBackend implements Backend {
     const path = await tauriGlobal().dialog.open({ multiple: false, filters: OPEN });
     if (!path) return null;
     const name = baseName(path);
+    if (isFmuFile(name)) return { name, text: "", path }; // S229: 読むのは sidecar（確認のあと App が fmuInfo・runFmu を呼ぶ）
     if (isResultsFile(name)) { // S222: sidecar が path を読む（bytes を JSON で往復しない）。列は simulateColumns と同じ形
       const r = await invoke<{ layout: { names: string[]; points: number; defaults?: string[] }; columns: (number | null)[][] }>("rpc", { method: "globe/readResults", params: { path } });
       return { name, text: "", path, columns: toColumns(r.layout, r.columns) };
