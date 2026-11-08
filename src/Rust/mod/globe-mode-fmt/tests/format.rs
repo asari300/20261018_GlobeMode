@@ -214,6 +214,17 @@ fn lint_rules() {
     assert_eq!(only.len(), 1);
 }
 
+/// #62: function は小文字から始めてよい（`pure function` も `operator function` も）。
+#[test]
+fn lowercase_function_names_are_not_flagged() {
+    let src = "function f \"d\"\nend f;\npure function g \"d\"\nend g;\nrecord R \"d\"\n  operator function h \"d\"\n  end h;\nend R;\nmodel m \"d\"\nend m;\n";
+    let msgs: Vec<_> = lint(src, &LintOptions::default())
+        .into_iter()
+        .map(|m| (m.rule, m.line))
+        .collect();
+    assert_eq!(msgs, [("class-name-pascal-case", 9)]);
+}
+
 /// #58: 整形で書き換わる行（Documentation の HTML の字下げ）の line-too-long も、元の本文の行を指す（1 行目に置かない）。
 #[test]
 fn line_too_long_points_at_the_source_line_even_when_the_format_changes_it() {

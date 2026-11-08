@@ -1,5 +1,5 @@
 //! lint。規則は 4 つ: `line-too-long`（整形しても行幅を超える行）、
-//! `class-name-pascal-case`（クラス名が大文字で始まらない）、`missing-description`（長いクラスに説明文字列が無い）、
+//! `class-name-pascal-case`（クラス名が大文字で始まらない。function は除く）、`missing-description`（長いクラスに説明文字列が無い）、
 //! `annotation-order`（S061。annotation と Documentation の引数の順。整形で直る。LSP では通知の重さ）。
 
 use std::collections::HashMap;
@@ -83,7 +83,9 @@ pub fn lint(src: &str, options: &LintOptions) -> Vec<LintMessage> {
             continue;
         };
         let (line, column) = line_col(name.start);
+        // function は Modelica の慣習で小文字から始める（MSL の指摘 1,873 件のうち 1,749 件が function。#62）
         if on("class-name-pascal-case")
+            && t.text != "function"
             && !name.text.starts_with(|c: char| c.is_ascii_uppercase())
             && !name.text.starts_with('\'')
         {
