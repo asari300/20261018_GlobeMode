@@ -154,6 +154,8 @@ jobs:
             done
             # S234: その OS の fmusim。fmusim の ME は CVode の既定なので許容は緩める
             "$FMUSIM" validate "$fmu"
+            # fmusim 0.15.0 の macOS(arm64) 版は FMI 2.0 の FMU でも binaries/aarch64-darwin を探す（darwin64 を見つけない。run 42471079551）ので、そこだけ飛ばす
+            if [ "$RUNNER_OS" = macOS ] && [ "$v" = 2 ]; then echo "skip: fmusim simulate（macOS・FMI 2.0）"; continue; fi
             for it in me cs; do
               "$FMUSIM" simulate "$fmu" --interface-type "$it" --stop-time 1 --output-variable x --output-file "sim-$v-$it.csv"
               check "sim-$v-$it.csv" "${{ runner.os }} FMI $v fmusim $it" 1e-3
@@ -230,6 +232,8 @@ jobs:
             "$FMUSIM" validate "$fmu"
             fmpy simulate "$fmu" --interface-type CoSimulation --relative-tolerance 1e-8 --stop-time 1 --output-variables x --output-file "$out/fmpy-cs.csv"
             last_x "$out/fmpy-cs.csv" "${{ runner.os }} P5b FMI $v FMPy CoSimulation"
+            # fmusim 0.15.0 の macOS(arm64) 版は FMI 2.0 の FMU でも binaries/aarch64-darwin を探す（darwin64 を見つけない。run 42471079551）ので、そこだけ飛ばす
+            if [ "$RUNNER_OS" = macOS ] && [ "$v" = 2 ]; then echo "skip: fmusim simulate（macOS・FMI 2.0）"; continue; fi
             for it in me cs; do
               "$FMUSIM" simulate "$fmu" --interface-type "$it" --stop-time 1 --output-variable x --output-file "$out/fmusim-$it.csv"
               last_x "$out/fmusim-$it.csv" "${{ runner.os }} P5b FMI $v fmusim $it"
