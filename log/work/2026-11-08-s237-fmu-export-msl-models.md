@@ -33,10 +33,10 @@ roadmap の「FMU の Export の残り」のうち「MSL を使うモデル」�
 
 - 測定（FMI 2.0、FMPy 0.3.32、release の `globe`、20 本）: P5a 3/20、P5b 16/20。P5a の FMI 3.0 も通った 3 本は同じ。
 - P5b の直す前の最初の測定（`resources/lib` だけ足した状態、15 本目まで）: 通ったのは 6 本。validate が `$` の名前で 5 本落ち、compare が関係式の記憶などで落ちた。直した後は 16 本。
-- 手元の試験: `cargo test --release -p globe-mode-fmu`（17 本、`EnumString` の期待を直した後の再実行は下の「検査」の欄）。
-- コードの検査（`mise run check`）: （下に記入）
-- CI（`fmu-export.yml` の run、`ci.yml -f full=true` の run）: （下に記入）
-- `check_docs.py`・`render_slides.py`: （下に記入）
+- 手元の試験: `cargo test --release -p globe-mode-fmu`（17 本。`EnumString` の期待を直す前に 1 本が落ちた）。`mise run check` 内の `fmu_export`（MSL の 2 本を含む）と `fmpy_runs_an_msl_example_through_resources_lib` も通った。
+- コードの検査（`mise run check`）: 通った（fmt・clippy・test 925 本 ok・deny・`uv sync --locked`）。実行系の `run` の経路は変えていない（`ModelInstance` は `globe-mode-fmu` だけが使う）ので `wasm:node`・`wasm:compare`・`msl:sim` は回していない。
+- CI: `fmu-export.yml` run 42494360236 が success（`fmu-export` の MSL の step: P5a の FMI 2.0・3.0 と P5b の 2.0 の 3 本、3.0 の Accelerate が FMPy の ME・CS で ok。fmusim の `mass.s(1)`: P5a の 2.0・3.0 は ME 1.0000407、CS 1.0（0.9999999999999998）、P5b の 2.0・3.0 は ME 1.0000005、CS 1.0。`fmu-native` の 3 OS も success）。`ci.yml -f full=true` run 42494363197 が success。
+- `check_docs.py`: 切れ 0 件。`render_slides.py`: S237 のデッキと上流の下書き 35 の 1 枚で問題 0 件
 
 ## 残したこと
 
