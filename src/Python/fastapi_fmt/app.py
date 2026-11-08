@@ -1,6 +1,7 @@
 """GlobeMode の整形と lint を HTTP で提供する。計算は globe CLI（子プロセス）が行う。"""
 
 import json
+import logging
 import os
 import subprocess
 from pathlib import Path
@@ -13,6 +14,8 @@ from pydantic import BaseModel, Field, StringConstraints
 INDEX = Path(__file__).parent / "static" / "index.html"
 MAX_BODY = 1 << 20  # doc/web-apps.md §3.1
 RULE = r"^[a-z][a-z-]*$"  # disable の値を CLI のオプションと取り違えない
+
+log = logging.getLogger("uvicorn.error")
 
 app = FastAPI(title="GlobeMode 整形・lint（FastAPI）")
 
@@ -57,7 +60,9 @@ def run_globe(args: list[str], text: str) -> subprocess.CompletedProcess:
             timeout=timeout_s(),
         )
     except FileNotFoundError as e:
-        raise HTTPException(503, f"globe を起動できない（GLOBE_BIN={binary}）: {e}") from e
+        # 応答には内部のパスを出さず、詳細はサーバのログに残す（#82）
+        log.error("globe を起動できない（GLOBE_BIN=%s）: %s", binary, e)
+        raise HTTPException(503, "globe を起動できない") from e
     except subprocess.TimeoutExpired as e:
         raise HTTPException(504, "globe が時間内に終わらなかった") from e
 
@@ -66,7 +71,8 @@ def parse_json(proc: subprocess.CompletedProcess) -> dict:
     try:
         return json.loads(proc.stdout)
     except json.JSONDecodeError as e:
-        raise HTTPException(500, f"globe の出力を読めない: {proc.stderr.strip()}") from e
+        log.error("globe の出力を読めない: %s", proc.stderr.strip())
+        raise HTTPException(500, "globe の出力を読めない") from e
 
 
 @app.get("/", include_in_schema=False)
