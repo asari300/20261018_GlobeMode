@@ -31,7 +31,10 @@ roadmap の「FMU の Export の残り」から P5b の Co-Simulation。`globe-m
 
 - `cargo test -p globe-mode-fmu --test fmpy co_simulation model_description_kind`: 2 件 OK。FMPy の CS で Decay の x(1) = 0.3678794411714462（e⁻¹ と 4e-15）、BouncingBall の h = 0.26074173・v = -0.16586914・n = 3（exec は 0.26074169・-0.16586948・3）、InputDecay の x = 1.1548181、y = 2.3096362（2.0・3.0 とも同じ）。
 - `fmu-export.yml`（feature ブランチ、run 42453859348）success。新しい step で P5b の FMU（ME と CS を 1 つに書く）を FMPy と fmusim が validate し、CS の Decay が FMI 2.0・3.0 とも FMPy・fmusim で x(1) = 0.3678794411714462（e⁻¹ と 3.886e-15）。
-- 検査・ci.yml の結果は最後に埋める。
+- `mise run check`: EXIT=0（`globe-mode-fmu` の試験 16 件 OK。最初の回は、既存の `explicit_euler_through_the_c_abi` が「CS は断る」を前提にしていたのと、ME と CS の試験が同じ作業ディレクトリを使って並行に消し合ったのとで 2 件落ち、直した。ci.yml の最初の run 42454907042 も前者で rust-linux・rust-windows が落ちた）。
+- `ci.yml -f full=true`（feature ブランチ、run 42456868789）: 全 17 ジョブ success。
+- `cargo test -p globe-mode`（feature 無し）OK。直す前は `cargo check -p globe-mode --tests` が `E0433` で落ちるのを再現した。
+- `check_docs.py`: 切れ 0 件。`render_slides.py`（S231 のデッキ）: 問題 0 件。セッション記録の写しと漏洩検査は親がやる。
 
 ## 残したこと
 
