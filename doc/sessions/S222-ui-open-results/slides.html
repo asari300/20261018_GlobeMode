@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S222 UI の「結果を開く」 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S222 UI の結果を開く">
+
+<section class="slide" id="S01">
+  <span class="tag">S222 · 2026-11-08 · P4</span>
+  <h1>UI の「結果を開く」</h1>
+  <p class="lead">「開く」が .mat と .csv も受け付け、実行の結果と同じプロットで見られる</p>
+  <div class="big">新しい描画は<b>書かない</b>。Plot.svelte をそのまま使う</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">Rust</span>
+  <h1>バイト列から読む入口を 1 つ</h1>
+  <ul>
+    <li><code>mat::read_results_bytes(名前, バイト列)</code>。<code>read_results(path)</code> はファイルを読んでこれを呼ぶ</li>
+    <li>facade の <code>open_results</code> が <code>simulate_columns</code> と同じ列の形にする</li>
+    <li>既定で描く信号は先頭の 3 本（読んだ結果に役割は無い）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">道</span>
+  <h1>ブラウザと Desktop で道を分ける</h1>
+  <table class="compact">
+    <tr><th>面</th><th>道</th><th>理由</th></tr>
+    <tr><td>ブラウザ・Android</td><td>wasm の <code>read_results(名前, bytes)</code></td><td>ファイルの中身は JS が持つ</td></tr>
+    <tr><td>Desktop</td><td>sidecar の <code>globe/readResults {path}</code></td><td>wasm が無い。bytes を JSON で往復しない</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">UI</span>
+  <h1>タブの種類は 1 つ足しただけ</h1>
+  <ul>
+    <li><code>Tab.results</code> に読んだ列を持つ。編集はできず、エディタは隠れる</li>
+    <li><code>activate</code> が <code>columns = t.results</code> にするので、プロットは実行の結果と同じ</li>
+    <li>実行・保存は断る。自動保存と再読み込みの対象外</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">試験</span>
+  <h1>確かめたこと</h1>
+  <ul>
+    <li>Rust: バイト列の往復、LSP の <code>globe/readResults</code>、wasm の Node（MAT の実物と CSV）</li>
+    <li>Playwright: .csv と omc の .mat を開いてプロット、タブの切り替え、保存は断る、読めないファイルは理由</li>
+  </ul>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ul>
+    <li>結果のタブは再読み込みで戻らない（列を localStorage に持たない）</li>
+    <li>MAT のパラメータは UI に出さない</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

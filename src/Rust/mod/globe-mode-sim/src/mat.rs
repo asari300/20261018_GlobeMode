@@ -291,17 +291,22 @@ fn trimmed(bytes: &[u8]) -> String {
     String::from_utf8_lossy(&bytes[start..end]).into_owned()
 }
 
-/// 結果のファイルを拡張子で読み分ける（`.mat` は [`read_mat4`]、それ以外は [`crate::store::read_csv`]。`globe simulate -o` の
-/// 書き分けと同じ規則）。CSV にパラメータは無いので `parameters` は空。
+/// 結果のファイルを拡張子で読み分ける（[`read_results_bytes`] にファイルの中身を渡す）。
 pub fn read_results(path: &std::path::Path) -> io::Result<MatContents> {
-    let mut file = std::fs::File::open(path)?;
-    if path
+    read_results_bytes(&path.to_string_lossy(), &std::fs::read(path)?)
+}
+
+/// 結果のバイト列を `name` の拡張子で読み分ける（`.mat` は [`read_mat4`]、それ以外は [`crate::store::read_csv`]。
+/// `globe simulate -o` の書き分けと同じ規則。ブラウザの wasm はファイルでなくバイト列で受け取る。S222）。
+/// CSV にパラメータは無いので `parameters` は空。
+pub fn read_results_bytes(name: &str, mut bytes: &[u8]) -> io::Result<MatContents> {
+    if std::path::Path::new(name)
         .extension()
         .is_some_and(|e| e.eq_ignore_ascii_case("mat"))
     {
-        read_mat4(&mut file)
+        read_mat4(&mut bytes)
     } else {
-        let trajectory = crate::store::read_csv(&mut file).map_err(|e| invalid(e.to_string()))?;
+        let trajectory = crate::store::read_csv(&mut bytes).map_err(|e| invalid(e.to_string()))?;
         Ok(MatContents {
             trajectory,
             parameters: Vec::new(),
@@ -859,5 +864,26 @@ mod tests {
             io::ErrorKind::NotFound
         );
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn read_results_bytes_round_trips_mat_and_csv() {
+        let r = run(
+            vec![0.0, 1.0],
+            vec![variable("x", vec![1.0, 0.5])],
+            vec![parameter("k", 2.0)],
+        );
+        let m = read_results_bytes("a.MAT", &bytes(&r)).unwrap();
+        assert_eq!(m.parameters[0].value, 2.0);
+        let mut csv = Vec::new();
+        crate::store::write_csv(&r.trajectory, &mut csv).unwrap();
+        let c = read_results_bytes("a.csv", &csv).unwrap();
+        assert_eq!(c.trajectory.variable("x").unwrap().values, [1.0, 0.5]);
+        assert_eq!(
+            read_results_bytes("bad.csv", b"x,y\n1,2\n")
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::InvalidData
+        );
     }
 }

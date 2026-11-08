@@ -169,6 +169,8 @@ export class GlobeWorker {
     const r = await this.#call("simulate_columns", { request: JSON.stringify(request), progress: !!onProgress }, onProgress);
     return { ...r, response: JSON.parse(r.response) };
   }
+  // 結果のファイル（.mat か .csv の Uint8Array）を列にする（S222）: {layout, columns}（simulateColumns と同じ。response は無い）。読めなければ reject
+  readResults(name, bytes) { return this.#call("read_results", { name, bytes }); }
   version() { return this.#call("version"); }
   async solvers() { return JSON.parse(await this.#call("solvers")); }
   memory() { return this.#call("memory"); }

@@ -56,6 +56,11 @@ try {
   assert.ok(c.columns.every((col) => col instanceof Float64Array && col.length === c.layout.points));
   assert.equal(c.columns[1].at(-1), c.response.final.x);
   console.log(`simulateColumns: ${c.layout.points} 点 × ${c.columns.length} 列、x(1) = ${c.columns[1].at(-1)}`);
+  // 結果のファイルを開く（S222）
+  const opened = await w.readResults("r.csv", new TextEncoder().encode("time,x\n0,1\n1,0.5\n"));
+  assert.deepEqual(opened.layout, { names: ["time", "x"], points: 2, defaults: ["x"] });
+  assert.deepEqual([...opened.columns[1]], [1, 0.5]);
+  await assert.rejects(w.readResults("bad.csv", new TextEncoder().encode("x,y\n1,2\n")));
   // 進捗と中断（S133、ADR-0033）: onProgress が段と t を受ける。長い実行を cancel() する（下）
   const seen = [];
   await w.simulateColumns({ model: decay, settings: { solver: "esdirk34" } }, { onProgress: (p) => seen.push(p) });
