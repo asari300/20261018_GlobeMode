@@ -172,7 +172,10 @@ impl SplitLibrary {
     pub(crate) fn new(sources: impl IntoIterator<Item = (String, String)>) -> Self {
         let files: Vec<LibFile> = sources
             .into_iter()
-            .map(|(name, text)| LibFile { name, text })
+            .map(|(name, text)| LibFile {
+                text: crate::blank_bom(&text).into_owned(),
+                name,
+            })
             .collect();
         let mut tree: HashMap<String, Vec<usize>> = HashMap::new();
         let mut unindexed = Vec::new();

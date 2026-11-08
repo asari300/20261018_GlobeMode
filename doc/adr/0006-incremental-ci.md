@@ -61,3 +61,7 @@
 ### S215: Rust のウェブアプリ 4 種（`web`）
 
 `src/Rust/apps/web-{axum,actix,rocket,loco}` は別の workspace で、ルートの cargo は見ない。`globe_mode_fmt::Options` にフィールドが足されて（S061・S062）コンパイルできなくなっても気づけなかった（#22）。`ci_plan.py` に出力 `web`（`src/Rust/apps/web-*` か `globe-mode-fmt` の影響、または full）を足し、ジョブ `web` が 4 つを matrix で `cargo build --locked` と `cargo test --locked` する。
+
+### S223: CLI を呼ぶウェブアプリ 6 種の試験（#77）
+
+CLI を子プロセスで呼ぶ 6 種（FastAPI・Astro・Phoenix・Wisp・Streamlit・marimo）の試験は、FastAPI を除いて CI に無かった（S218 で FastAPI だけ `python` に入れた）。`ci_plan.py` に出力 `astro`（`src/Astro/*` か CLI の影響、または full）を足し、`python` と `lang` も CLI（`globe-mode-cli` とその依存の `globe-mode-fmt` など）の影響で立てる。`python` が marimo（ルートの uv プロジェクト）と Streamlit（独自のプロジェクト）、`lang` が Phoenix（`mix test`）と Wisp（`gleam test`）、新しいジョブ `astro` が `node --test` を回す。どれも `cargo build -p globe-mode-cli` の debug を `GLOBE_BIN` に渡す。

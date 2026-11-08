@@ -359,3 +359,18 @@ fn measure_recheck_after_whitespace_edit() {
     );
     assert!(times[10] < 50.0, "中央値 {:.2} ms", times[10]);
 }
+
+/// #85: `load_dir` は読めないファイルのパスを誤りに付け、全部読めてから足す（前半だけ入った状態を残さない）。
+#[test]
+fn load_dir_names_the_unreadable_file_and_adds_nothing() {
+    let dir = std::env::temp_dir().join(format!("gm-s223-loaddir-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("A.mo"), "model A end A;").unwrap();
+    std::fs::write(dir.join("B.mo"), b"model B \"\xb0\" end B;").unwrap();
+    let mut db = GlobeDb::new();
+    let e = db.load_dir(&dir).unwrap_err();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(e.to_string().contains("B.mo"), "{e}");
+    assert_eq!(db.paths().count(), 0);
+}

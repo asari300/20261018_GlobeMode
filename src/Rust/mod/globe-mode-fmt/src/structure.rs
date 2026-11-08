@@ -290,7 +290,7 @@ fn class_header(tokens: &[Token<'_>], mut i: usize) -> Option<(usize, usize)> {
 }
 
 /// `tokens[open]`（`(`）に対応する閉じ括弧の次の位置（S167: `redeclare model extends X(p(a = 1))` の修飾を読み飛ばす）。
-fn skip_group(tokens: &[Token<'_>], open: usize) -> Result<usize, FormatError> {
+pub(crate) fn skip_group(tokens: &[Token<'_>], open: usize) -> Result<usize, FormatError> {
     let mut depth = 0i32;
     for (i, t) in tokens.iter().enumerate().skip(open) {
         depth += i32::from(t.is("(") || t.is("[") || t.is("{"));

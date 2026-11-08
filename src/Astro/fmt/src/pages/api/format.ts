@@ -23,7 +23,7 @@ export const POST: APIRoute = async ({ request }) => {
   if (insert_origin !== undefined && typeof insert_origin !== 'boolean') {
     return bad('insert_origin が真偽値ではない');
   }
-  const result = format(body.text, {
+  const result = await format(body.text, {
     indent: indent as number | undefined,
     width: width as number | undefined,
     insert_origin: insert_origin as boolean | undefined,

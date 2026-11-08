@@ -683,6 +683,12 @@
     failure = "";
     if (isResults) { failure = "結果のファイルのタブは保存できない（プロットの CSV・PNG の書き出しを使う）"; return; }
     try {
+      // #70: 開いた・保存したあとに外（別のエディタ・git）で書き換わっていたら、確かめてから上書きする。読めなければ（消えた）そのまま書く
+      const at = own && desktop && !saveAs ? tabs[cur].path : undefined;
+      if (at) {
+        const disk = await backend.openPath?.(at).then((f) => f.text, () => undefined);
+        if (disk !== undefined && disk !== tabs[cur].clean && !confirm(`${baseName(file)} は開いたあとに外で書き換わっている。上書きする？`)) return;
+      }
       const to = await backend.saveFile(baseName(file), view.state.doc.toString(), saveAs, own ? tabs[cur].path : undefined);
       if (to) {
         saved = `保存した: ${to}`;

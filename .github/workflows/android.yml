@@ -1,3 +1,5 @@
+# 第三者の action（jdx/mise-action・Swatinem/rust-cache・android-actions/setup-android・reactivecircus/android-emulator-runner・softprops/action-gh-release）は
+# コミットの SHA で固定する（#76。タグは付け替えられ、署名鍵やリリースを扱う step の前に偽の cargo を置かれうる）。更新は SHA を引き直し、末尾の版は目印。
 # GlobeMode の Android の APK（S092、ADR-0023 の「Android」）。署名なしの debug APK を作り、artifact `globe-android` に残す。
 # S106: 同じ apk ジョブで release の APK（aarch64・x86_64 の ABI ごと）も作り、artifact `globe-android-release` に残す。
 # secret ANDROID_KEYSTORE_BASE64・ANDROID_KEYSTORE_PASSWORD・ANDROID_KEY_ALIAS・ANDROID_KEY_PASSWORD があるときだけ署名し、
@@ -41,10 +43,10 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      - uses: jdx/mise-action@v5
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5
         with:
           install_args: rust github:wasm-bindgen/wasm-bindgen node pnpm
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           key: android-wasm
       # S103: data/msl があれば pnpm build（pack-msl.mjs）が MSL.json を dist に入れる（ADR-0023 の S103。Android で MSL を読める）
@@ -71,7 +73,7 @@ jobs:
       APK_OUT: src/Rust/apps/desktop/gen/android/app/build/outputs/apk
     steps:
       - uses: actions/checkout@v7
-      - uses: jdx/mise-action@v5
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5
         with:
           install_args: rust
       - uses: actions/setup-java@v5
@@ -79,14 +81,14 @@ jobs:
           distribution: temurin
           java-version: "17"
       # 既定の packages（"tools"）は今の cmdline-tools に無く sdkmanager が落ちるので、要るものを名指しする
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
         with:
           packages: platform-tools platforms;android-34 build-tools;34.0.0 ndk;27.0.12077973
       - name: NDK と Rust の Android の target
         run: |
           echo "NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> "$GITHUB_ENV"
           rustup target add aarch64-linux-android x86_64-linux-android
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           workspaces: ${{ env.DESKTOP }} -> target
           key: android-apk
@@ -209,7 +211,7 @@ jobs:
           name: ${{ matrix.artifact }}
           path: apk
       - name: API 34 のエミュレータで起動し、UI からの検査と実行（GM-SMOKE の行）を待つ
-        uses: reactivecircus/android-emulator-runner@v2
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         with:
           api-level: 34
           arch: x86_64

@@ -190,9 +190,9 @@ fn check_with_stdin_exits_1_when_formatting_is_needed() {
     let o = globe_stdin(&["fmt", "--check", "-"], TIDY);
     assert_eq!(o.status.code(), Some(0));
     assert_eq!(stdout(&o), "");
-    // 壊れた入力は今までどおり 1（--check が無くても同じ）
+    // 壊れた入力はファイルと同じ 2（#60。S211 は 1 にしていたが、「整形が要る」の 1 と取り違える）
     let o = globe_stdin(&["fmt", "--check", "-"], "model E\n  Real x(\nend E;\n");
-    assert_eq!(o.status.code(), Some(1));
+    assert_eq!(o.status.code(), Some(2));
 }
 
 #[test]

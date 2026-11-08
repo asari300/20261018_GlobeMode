@@ -52,6 +52,7 @@ jobs:
       python: ${{ steps.plan.outputs.python }}
       lang: ${{ steps.plan.outputs.lang }}
       web: ${{ steps.plan.outputs.web }}
+      astro: ${{ steps.plan.outputs.astro }}
       docs: ${{ steps.plan.outputs.docs }}
       slides: ${{ steps.plan.outputs.slides }}
       msl: ${{ steps.plan.outputs.msl }}
@@ -272,6 +273,16 @@ jobs:
         env:
           GLOBE_BIN: ${{ github.workspace }}/target/debug/globe
         run: uv run --locked pytest -q
+      # #77: marimo（ルートの uv プロジェクトの依存）と Streamlit（独自の uv プロジェクト）。どちらも globe CLI を呼ぶ
+      - name: marimo の試験
+        env:
+          GLOBE_BIN: ${{ github.workspace }}/target/debug/globe
+        run: uv run pytest -q src/Python/marimo/test_fmt_app.py
+      - name: streamlit の試験
+        working-directory: src/Python/streamlit
+        env:
+          GLOBE_BIN: ${{ github.workspace }}/target/debug/globe
+        run: uv run --locked pytest -q
 
   lang:
     # S077: C ABI（globe-mode-c の release の .so）を Zig（src/Zig）と Julia（src/Julia、ccall だけ）から呼び、
@@ -294,6 +305,8 @@ jobs:
           otp-version: "27"
           elixir-version: "1.18.3"
           gleam-version: "1.19.2"
+          # wisp_fmt の依存（hpack_erl など）は Erlang のソースで、rebar3 でビルドする（#77）
+          rebar3-version: "3"
       - uses: Swatinem/rust-cache@v2
         with:
           # release の成果物は、rust-linux（debug）のキャッシュと分ける
@@ -303,6 +316,18 @@ jobs:
       - run: mise run c:julia
       - run: mise run elixir:test
       - run: mise run gleam:test
+      # #77: CLI を呼ぶウェブアプリ（Phoenix・Wisp）。globe の debug ビルドを GLOBE_BIN に渡す
+      - run: cargo build -p globe-mode-cli
+      - name: phoenix_fmt の試験
+        working-directory: src/Elixir/phoenix_fmt
+        env:
+          GLOBE_BIN: ${{ github.workspace }}/target/debug/globe
+        run: mix deps.get && mix test
+      - name: wisp_fmt の試験
+        working-directory: src/Gleam/wisp_fmt
+        env:
+          GLOBE_BIN: ${{ github.workspace }}/target/debug/globe
+        run: gleam test
 
   web:
     # S215（#22）: Rust のウェブアプリ 4 種（別の workspace）が globe-mode-fmt の変更に追従してビルドでき、試験が通るか。
@@ -328,6 +353,24 @@ jobs:
           workspaces: src/Rust/apps/web-${{ matrix.app }} -> ../../../../target
       - run: cargo build --locked
       - run: cargo test --locked
+
+  astro:
+    # #77: Astro のウェブアプリ（src/Astro/fmt）の試験。globe CLI を子プロセスで呼ぶ。依存パッケージは要らない（試験は lib/globe.ts だけを読む）
+    needs: plan
+    if: needs.plan.outputs.astro == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+        with:
+          install_args: rust node
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build -p globe-mode-cli
+      - name: astro_fmt の試験
+        working-directory: src/Astro/fmt
+        env:
+          GLOBE_BIN: ${{ github.workspace }}/target/debug/globe
+        run: node --test test/api.test.mjs
 
   docs:
     needs: plan

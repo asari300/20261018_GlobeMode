@@ -31,6 +31,15 @@ pub use rumoca::{
     Checker, CompiledModel, ReferenceStructure, RumocaFrontend, SkippedFile, collect_mo_files,
 };
 
+/// 先頭の UTF-8 の BOM を空白 3 個にする（#84。Rumoca は BOM を構文の誤りにする）。バイト位置は変わらない。
+/// ファイルを持ち込む入口（`GlobeDb::set_file`、ライブラリの読み込み）が共有する。
+pub fn blank_bom(text: &str) -> std::borrow::Cow<'_, str> {
+    match text.strip_prefix('\u{feff}') {
+        Some(rest) => format!("   {rest}").into(),
+        None => text.into(),
+    }
+}
+
 /// 1 つのソースファイル（名前と本文）。
 #[derive(Debug, Clone, Copy)]
 pub struct Source<'a> {
