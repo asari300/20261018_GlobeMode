@@ -15,6 +15,10 @@
 //! [`model_description_3`]）。3.0 の EventIndicator は値参照 `2n+p+q..`（q は代数・離散・入力の変数の数）の
 //! Float64 の変数として載せ、その次に independent の `time` を置く。
 //!
+//! S231: Co-Simulation。`fmi2Instantiate(CoSimulation)`・`fmi3InstantiateCoSimulation` の instance は `fmi2DoStep`・`fmi3DoStep` で進む
+//! （中は固定刻みの RK4 と、ME と同じ事象処理。`modelDescription.xml` は [`model_description_kind`]）。入力・出力の微分、
+//! `fmi2CancelStep`、`fmi2Get*Status` は `Error`。
+//!
 //! - 値参照: `0..n` = 状態、`n..2n` = その微分（`der(…)`）、`2n..2n+p` = tunable なパラメータ、
 //!   `2n+p..` = 代数・出力・離散・入力の変数（S112・S114。書けるのは Real の入力だけ）。
 //! - パラメータの変更は `fmi2ExitInitializationMode` で lowering からやり直して反映する（依存するパラメータにも届く）。
@@ -38,6 +42,8 @@ const OK: Status = 0;
 const ERROR: Status = 3;
 /// `fmi2ModelExchange`
 const MODEL_EXCHANGE: c_int = 0;
+/// `fmi2CoSimulation`
+const CO_SIMULATION: c_int = 1;
 
 /// `modelDescription.xml` の `guid`。モデルの名前と文面の FNV-1a（64 ビット）なので、`fmi2Instantiate` が
 /// resources の文面から同じ値を作って突き合わせられる。
@@ -66,15 +72,34 @@ pub fn compile(model: &str, source: &str) -> Result<CompiledModel, String> {
 /// FMU の `modelDescription.xml`（FMI 2.0 ME）。変数表は [`ModelInstance`] の状態とパラメータから作り、
 /// XML は `globe_mode_fmi::write_model_description_2` が書く（S117、P5a と型を共有）。
 pub fn model_description(model: &str, source: &str) -> Result<String, String> {
-    describe(model, source, false)
+    describe(model, source, false, Kind::Me)
 }
 
 /// FMU の `modelDescription.xml`（FMI 3.0 ME、S137）。変数表は 2.0 と同じで、EventIndicator の変数を足す。
 pub fn model_description_3(model: &str, source: &str) -> Result<String, String> {
-    describe(model, source, true)
+    describe(model, source, true, Kind::Me)
 }
 
-fn describe(model: &str, source: &str, v3: bool) -> Result<String, String> {
+/// `modelDescription.xml` に書くインターフェース（S231）。既定の [`model_description`]・[`model_description_3`] は `Me`。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    Me,
+    Cs,
+    Both,
+}
+
+/// [`model_description`]（`v3` が偽）・[`model_description_3`]（真）と同じで、`kind` に Co-Simulation を含めると
+/// `<CoSimulation modelIdentifier="globe_mode_fmu" canHandleVariableCommunicationStepSize="true"/>` を書く（S231）。
+pub fn model_description_kind(
+    model: &str,
+    source: &str,
+    v3: bool,
+    kind: Kind,
+) -> Result<String, String> {
+    describe(model, source, v3, kind)
+}
+
+fn describe(model: &str, source: &str, v3: bool, kind: Kind) -> Result<String, String> {
     use globe_mode_fmi::{
         Causality, DefaultExperiment, EnumerationType, Initial, Interface, ModelDescription,
         ModelStructure, ScalarVariable, VarType, Variability,
@@ -250,10 +275,12 @@ fn describe(model: &str, source: &str, v3: bool) -> Result<String, String> {
         fmi_version: if v3 { "3.0" } else { "2.0" }.into(),
         model_name: model.into(),
         instantiation_token: guid(model, source),
-        model_exchange: Some(Interface {
+        model_exchange: (kind != Kind::Cs).then(|| Interface {
             model_identifier: "globe_mode_fmu".into(),
         }),
-        co_simulation: None,
+        co_simulation: (kind != Kind::Me).then(|| Interface {
+            model_identifier: "globe_mode_fmu".into(),
+        }),
         scheduled_execution: None,
         variables,
         generation_tool: Some("GlobeMode globe-mode-fmu".into()),
@@ -299,6 +326,12 @@ struct Instance {
     /// （`2n+i`。String も 1 枠を取るので、Real のパラメータと同じ数え方）
     strings: BTreeMap<String, std::ffi::CString>,
     dirty: bool,
+    /// S231: Co-Simulation で作られたか（`fmi2DoStep` / `fmi3DoStep` を受ける）
+    cs: bool,
+    /// CS: 次の時刻事象（`fmi2ExitInitializationMode` と事象のたびに更新）
+    t_next: Option<f64>,
+    /// CS: 直前の点の事象指示関数（領域が変わったら状態事象）
+    z_prev: Vec<f64>,
 }
 
 impl Instance {
@@ -331,6 +364,124 @@ impl Instance {
         }
         true
     }
+}
+
+impl Instance {
+    /// CS: 初期化の後、次の時刻事象と事象指示関数の最初の値を控える（ME の `fmi2NewDiscreteStates` の最初の呼び出しに当たる）。
+    fn start_cs(&mut self) -> bool {
+        if !self.cs {
+            return true;
+        }
+        let r = self.inst.update_discrete_states().and_then(|u| {
+            self.t_next = u.next_event_time;
+            self.z_prev = self.inst.event_indicators()?;
+            Ok(())
+        });
+        r.map_err(|e| eprintln!("globe-mode-fmu: {e}")).is_ok()
+    }
+}
+
+/// CS の内部の 1 刻みの上限。
+// shortcut: 固定刻みの RK4 で、誤差の制御は無い（`globe-mode-fmi-import` の ode.rs は Rumoca を引かないよう pub(crate) で分けてあり、
+// 共有ライブラリの読み込みも引くので使えない）。硬い系・速い系で足りなければ上限を小さくするか陰的な積分に替える。
+const CS_MAX_SUBSTEP: f64 = 1e-3;
+/// 同じ時刻に事象が止まらない（Zeno）と見なす回数。
+const MAX_EVENTS_AT_ONE_TIME: usize = 100;
+
+/// 古典 RK4 の 1 歩（`t` から `h`）。
+fn rk4(inst: &mut ModelInstance, t: f64, x: &[f64], h: f64) -> Result<Vec<f64>, String> {
+    let mut f = |t: f64, x: &[f64]| -> Result<Vec<f64>, String> {
+        inst.set_time(t);
+        inst.set_states(x)?;
+        inst.derivatives()
+    };
+    let at = |k: &[f64], c: f64| -> Vec<f64> { x.iter().zip(k).map(|(x, k)| x + c * k).collect() };
+    let k1 = f(t, x)?;
+    let k2 = f(t + h / 2.0, &at(&k1, h / 2.0))?;
+    let k3 = f(t + h / 2.0, &at(&k2, h / 2.0))?;
+    let k4 = f(t + h, &at(&k3, h))?;
+    let x1: Vec<f64> = (0..x.len())
+        .map(|i| x[i] + h / 6.0 * (k1[i] + 2.0 * k2[i] + 2.0 * k3[i] + k4[i]))
+        .collect();
+    if x1.iter().any(|v| !v.is_finite()) {
+        return Err(format!("t = {t} からの 1 歩で状態が有限でなくなった"));
+    }
+    Ok(x1)
+}
+
+/// CS の 1 歩 `[t0, t0 + h]`。ME と同じ事象処理（状態事象は二分法で詰め、時刻事象は刻みを区切る）を中で回す。
+/// `Ok(true)` はモデルの `terminate()` で、そのとき時刻は事象の時刻で止まる。
+fn do_step(m: &mut Instance, t0: f64, h: f64) -> Result<bool, String> {
+    if !m.cs {
+        return Err("Co-Simulation で作った instance ではない".into());
+    }
+    if (m.inst.time() - t0).abs() > 1e-9 * t0.abs().max(1.0) {
+        return Err(format!(
+            "currentCommunicationPoint {t0} が今の時刻 {} と違う（巻き戻しは未対応）",
+            m.inst.time()
+        ));
+    }
+    let domain_changed =
+        |a: &[f64], b: &[f64]| a.iter().zip(b).any(|(a, b)| (*a > 0.0) != (*b > 0.0));
+    let (t_end, mut t, mut x, mut here) = (t0 + h, t0, m.inst.states().to_vec(), 0usize);
+    while t < t_end {
+        let t_lim = m.t_next.map_or(t_end, |tn| tn.min(t_end));
+        let mut t1 = if t_lim <= t {
+            t
+        } else {
+            (t + CS_MAX_SUBSTEP).min(t_lim)
+        };
+        let mut x1 = if t1 > t && !x.is_empty() {
+            rk4(&mut m.inst, t, &x, t1 - t)?
+        } else {
+            x.clone()
+        };
+        m.inst.set_time(t1);
+        m.inst.set_states(&x1)?;
+        let z1 = m.inst.event_indicators()?;
+        let state_event = domain_changed(&m.z_prev, &z1);
+        if state_event {
+            // 領域が変わった最初の時刻を二分法で詰める（hi は変わった側）
+            let (mut lo, mut hi) = (t, t1);
+            while hi - lo > 1e-12 * hi.abs().max(1.0) {
+                let mid = 0.5 * (lo + hi);
+                let xm = if x.is_empty() {
+                    Vec::new()
+                } else {
+                    rk4(&mut m.inst, t, &x, mid - t)?
+                };
+                m.inst.set_time(mid);
+                m.inst.set_states(&xm)?;
+                if domain_changed(&m.z_prev, &m.inst.event_indicators()?) {
+                    (hi, x1) = (mid, xm);
+                } else {
+                    lo = mid;
+                }
+            }
+            t1 = hi;
+            m.inst.set_time(t1);
+            m.inst.set_states(&x1)?;
+        }
+        let time_event = m.t_next.is_some_and(|tn| t1 >= tn);
+        here = if t1 == t { here + 1 } else { 0 };
+        (t, x) = (t1, x1);
+        if state_event || time_event {
+            if here > MAX_EVENTS_AT_ONE_TIME {
+                return Err(format!("t = {t} で事象が止まらない（Zeno かもしれない）"));
+            }
+            m.inst.enter_event_mode()?;
+            let u = m.inst.update_discrete_states()?;
+            m.t_next = u.next_event_time;
+            if u.terminate {
+                return Ok(true);
+            }
+            x = m.inst.states().to_vec();
+            m.z_prev = m.inst.event_indicators()?;
+        } else {
+            m.z_prev = z1;
+        }
+    }
+    Ok(false)
 }
 
 /// `resources` の場所の URI（またはそのままのパス）をパスの文字列にする。
@@ -485,7 +636,7 @@ pub unsafe extern "C" fn fmi2SetDebugLogging(
     OK
 }
 
-/// ME だけを受け、resources の `.mo` を compile する。`guid` が文面と合わないか、載せられないモデルなら NULL を返す。
+/// ME と CS を受け（S231）、resources の `.mo` を compile する。`guid` が文面と合わないか、載せられないモデルなら NULL を返す。
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fmi2Instantiate(
     _instance_name: *const c_char,
@@ -496,14 +647,18 @@ pub unsafe extern "C" fn fmi2Instantiate(
     _visible: c_int,
     _logging_on: c_int,
 ) -> Component {
-    if fmu_type != MODEL_EXCHANGE {
+    if fmu_type != MODEL_EXCHANGE && fmu_type != CO_SIMULATION {
         return std::ptr::null_mut();
     }
-    unsafe { instantiate(guid, resource_location) }
+    unsafe { instantiate(guid, resource_location, fmu_type == CO_SIMULATION) }
 }
 
-/// `fmi2Instantiate`・`fmi3InstantiateModelExchange` の中身。
-unsafe fn instantiate(guid: *const c_char, resource_location: *const c_char) -> Component {
+/// `fmi2Instantiate`・`fmi3InstantiateModelExchange`・`fmi3InstantiateCoSimulation` の中身。
+unsafe fn instantiate(
+    guid: *const c_char,
+    resource_location: *const c_char,
+    cs: bool,
+) -> Component {
     if guid.is_null() || resource_location.is_null() {
         return std::ptr::null_mut();
     }
@@ -542,6 +697,9 @@ unsafe fn instantiate(guid: *const c_char, resource_location: *const c_char) -> 
                 states: BTreeMap::new(),
                 strings,
                 dirty: false,
+                cs,
+                t_next: None,
+                z_prev: Vec::new(),
             }))
             .cast()
         }
@@ -589,7 +747,13 @@ pub unsafe extern "C" fn fmi2EnterInitializationMode(c: Component) -> Status {
 /// パラメータか開始時刻が変わっていれば、lowering からやり直して初期化し直す。
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fmi2ExitInitializationMode(c: Component) -> Status {
-    unsafe { inst(c) }.map_or(ERROR, |m| if m.rebuild() { OK } else { ERROR })
+    unsafe { inst(c) }.map_or(ERROR, |m| {
+        if m.rebuild() && m.start_cs() {
+            OK
+        } else {
+            ERROR
+        }
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -1044,6 +1208,30 @@ pub unsafe extern "C" fn fmi2GetEventIndicators(c: Component, z: *mut f64, ni: u
     }
 }
 
+/// 1 歩進める（S231）。モデルの `terminate()` は `fmi2Discard` + `fmi2GetBooleanStatus` を実装していないので `fmi2Error`。
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fmi2DoStep(
+    c: Component,
+    current_communication_point: f64,
+    communication_step_size: f64,
+    _no_set_fmu_state_prior: c_int,
+) -> Status {
+    let Some(m) = (unsafe { inst(c) }) else {
+        return ERROR;
+    };
+    match do_step(m, current_communication_point, communication_step_size) {
+        Ok(false) => OK,
+        Ok(true) => {
+            eprintln!("globe-mode-fmu: モデルが terminate() した（FMI 2.0 の CS では未対応）");
+            ERROR
+        }
+        Err(e) => {
+            eprintln!("globe-mode-fmu: {e}");
+            ERROR
+        }
+    }
+}
+
 // ---- FMI 3.0 の ME（S137）。2.0 の関数を形だけ変えて呼ぶ（fmi3Boolean は C の bool） ----
 
 #[unsafe(no_mangle)]
@@ -1072,14 +1260,29 @@ pub unsafe extern "C" fn fmi3InstantiateModelExchange(
     _environment: *mut c_void,
     _log_message: *const c_void,
 ) -> Component {
-    unsafe { instantiate(instantiation_token, resource_path) }
+    unsafe { instantiate(instantiation_token, resource_path, false) }
 }
 
-// CS・SE は無い。引数を読まずに NULL を返す（呼び手が引数を片付ける C の呼び出し規約なので、引数を宣言しなくてよい）
+/// 3.0 の CS（S231）。`eventModeUsed`・`earlyReturnAllowed` は使わない（事象は刻みの中で回し、途中では返らない）。
 #[unsafe(no_mangle)]
-pub extern "C" fn fmi3InstantiateCoSimulation() -> Component {
-    std::ptr::null_mut()
+pub unsafe extern "C" fn fmi3InstantiateCoSimulation(
+    _instance_name: *const c_char,
+    instantiation_token: *const c_char,
+    resource_path: *const c_char,
+    _visible: bool,
+    _logging_on: bool,
+    _event_mode_used: bool,
+    _early_return_allowed: bool,
+    _required_intermediate_variables: *const c_uint,
+    _n_required_intermediate_variables: usize,
+    _environment: *mut c_void,
+    _log_message: *const c_void,
+    _intermediate_update: *const c_void,
+) -> Component {
+    unsafe { instantiate(instantiation_token, resource_path, true) }
 }
+
+// SE は無い。引数を読まずに NULL を返す（呼び手が引数を片付ける C の呼び出し規約なので、引数を宣言しなくてよい）
 
 #[unsafe(no_mangle)]
 pub extern "C" fn fmi3InstantiateScheduledExecution() -> Component {
@@ -1106,6 +1309,51 @@ pub unsafe extern "C" fn fmi3EnterInitializationMode(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fmi3ExitInitializationMode(c: Component) -> Status {
     unsafe { fmi2ExitInitializationMode(c) }
+}
+
+/// CS の Step Mode に入る（`eventModeUsed` を使わないので、初期化の直後から Step Mode のまま。何もしない）。
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fmi3EnterStepMode(c: Component) -> Status {
+    if unsafe { inst(c) }.is_some() {
+        OK
+    } else {
+        ERROR
+    }
+}
+
+/// 1 歩進める（S231）。事象は刻みの中で回すので `eventHandlingNeeded`・`earlyReturn` はいつも偽。`terminateSimulation` は
+/// モデルの `terminate()` のとき真（`lastSuccessfulTime` はその時刻）。
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fmi3DoStep(
+    c: Component,
+    current_communication_point: f64,
+    communication_step_size: f64,
+    _no_set_fmu_state_prior: bool,
+    event_handling_needed: *mut bool,
+    terminate_simulation: *mut bool,
+    early_return: *mut bool,
+    last_successful_time: *mut f64,
+) -> Status {
+    let (Some(m), Some(e), Some(t), Some(r), Some(l)) = (
+        unsafe { inst(c) },
+        unsafe { event_handling_needed.as_mut() },
+        unsafe { terminate_simulation.as_mut() },
+        unsafe { early_return.as_mut() },
+        unsafe { last_successful_time.as_mut() },
+    ) else {
+        return ERROR;
+    };
+    match do_step(m, current_communication_point, communication_step_size) {
+        Ok(terminated) => {
+            (*e, *t, *r) = (false, terminated, false);
+            *l = m.inst.time();
+            OK
+        }
+        Err(msg) => {
+            eprintln!("globe-mode-fmu: {msg}");
+            ERROR
+        }
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -1400,7 +1648,7 @@ pub unsafe extern "C" fn fmi3GetNumberOfContinuousStates(c: Component, n: *mut u
     }
 }
 
-/// 無い関数（ほかの型の値・FMUstate・方向微分・Clock・CS・SE）。引数を読まずに `fmi3Error` を返す
+/// 無い関数（ほかの型の値・FMUstate・方向微分・Clock・CS の微分と状態の問い合わせ・SE）。引数を読まずに `fmi3Error` を返す
 /// （呼び手が引数を片付ける C の呼び出し規約なので、引数を宣言しなくてよい）。
 macro_rules! unsupported {
     ($($name:ident),* $(,)?) => {$(
@@ -1412,6 +1660,15 @@ macro_rules! unsupported {
 }
 
 unsupported!(
+    // FMI 2.0 の CS で、無いもの（入力の微分・出力の微分・取り消し・状態の問い合わせ）
+    fmi2SetRealInputDerivatives,
+    fmi2GetRealOutputDerivatives,
+    fmi2CancelStep,
+    fmi2GetStatus,
+    fmi2GetRealStatus,
+    fmi2GetIntegerStatus,
+    fmi2GetBooleanStatus,
+    fmi2GetStringStatus,
     fmi3GetFloat32,
     fmi3GetInt8,
     fmi3GetUInt8,
@@ -1452,8 +1709,6 @@ unsupported!(
     fmi3SetShiftDecimal,
     fmi3SetShiftFraction,
     fmi3EvaluateDiscreteStates,
-    fmi3EnterStepMode,
     fmi3GetOutputDerivatives,
-    fmi3DoStep,
     fmi3ActivateModelPartition,
 );

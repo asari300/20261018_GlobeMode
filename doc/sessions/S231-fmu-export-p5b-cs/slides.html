@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S231 P5b の Co-Simulation — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S231 P5b の Co-Simulation">
+
+<section class="slide" id="S01">
+  <span class="tag">S231 · 2026-11-08 · P5</span>
+  <h1>自前のランタイムが Co-Simulation を出す</h1>
+  <p class="lead"><code>globe-mode-fmu</code> に <code>fmi2DoStep</code> と <code>fmi3DoStep</code>。FMI 2.0 も 3.0 も</p>
+  <div class="big">Decay の x(1) が e⁻¹ と<b>4e-15</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">決定と理由</span>
+  <h1>積分器は再利用できなかった</h1>
+  <ul>
+    <li><code>ode.rs</code>（Import の crate）は <code>pub(crate)</code> で、<code>Error</code> も Import の型。</li>
+    <li>Import の crate は共有ライブラリの読み込みを引く。Export のランタイムが背負うと逆向き。</li>
+    <li><code>globe-mode-exec</code> に 1 歩ずつ進める道は無い。</li>
+    <li>そこで古典 RK4 を 20 行ほど crate の中に置いた（刻みは 1e-3 以下、誤差の制御なし）。</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>CS の入口</h1>
+  <table class="compact">
+    <tr><th>関数</th><th>対応</th></tr>
+    <tr><td><code>fmi2DoStep</code>・<code>fmi3DoStep</code></td><td>○。巻き戻しは Error</td></tr>
+    <tr><td>3.0 の出力</td><td>事象の要求と早期の復帰は偽、<code>lastSuccessfulTime</code> は到達時刻</td></tr>
+    <tr><td>入力・出力の微分、<code>CancelStep</code>、<code>Get*Status</code></td><td>Error</td></tr>
+    <tr><td>事象</td><td>ME と同じ。状態事象は二分法、時刻事象は刻みを区切る</td></tr>
+    <tr><td>XML</td><td><code>model_description_kind</code> で CS を要求したときだけ書く</td></tr>
+    <tr><td>CLI の <code>--kind</code></td><td>足さない。<code>globe fmu export</code> は P5a で ME と CS を元から書く</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>1 回の <code>DoStep</code></h1>
+  <svg class="fig" viewBox="0 0 800 240" role="img" aria-label="DoStep から RK4 と事象処理への流れの図">
+    <rect class="svg-box" x="20" y="90" width="170" height="70" rx="10"/>
+    <text class="svg-text-b" x="105" y="130" text-anchor="middle">DoStep</text>
+    <line class="svg-line" x1="190" y1="125" x2="280" y2="125"/>
+    <rect class="svg-box-accent" x="280" y="90" width="200" height="70" rx="10"/>
+    <text class="svg-text-b" x="380" y="130" text-anchor="middle">RK4（1e-3 以下）</text>
+    <line class="svg-line" x1="480" y1="125" x2="570" y2="125"/>
+    <rect class="svg-box" x="570" y="90" width="210" height="70" rx="10"/>
+    <text class="svg-text-b" x="675" y="130" text-anchor="middle">事象なら処理して続ける</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>検証</h1>
+  <ul>
+    <li>FMPy の CS（2.0・3.0）: Decay の x(1) が e⁻¹ と 4e-15、BouncingBall の n = 3 と h・v が exec と 1e-3 以内、InputDecay の階段入力が解析解と 1e-5 以内。</li>
+    <li><code>fmu-export.yml</code> に FMPy と fmusim の CS の step を足した。</li>
+    <li>#89: <code>cargo test -p globe-mode</code>（feature 無し）が通る。</li>
+  </ul>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>残したもの</h1>
+  <ul>
+    <li>誤差の制御つきの積分と陰的な積分。</li>
+    <li><code>CancelStep</code>・<code>GetStatus</code>・入力の微分、2.0 の <code>terminate()</code>。</li>
+    <li>P5b を作る CLI と、Python・UI の選択肢。</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
