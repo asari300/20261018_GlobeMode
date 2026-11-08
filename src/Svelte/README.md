@@ -30,6 +30,8 @@ mise run ui:build            # dist/ に静的サイトを作る
 
 「開く」（Ctrl/Cmd+O）は `.mo` のほかに結果のファイル `.mat`（MAT v4）・`.csv` も受け付ける（S222）。`Backend.openFile` が `columns` を返し（ブラウザ・Android は wasm の `read_results`、Desktop は sidecar の `globe/readResults`）、App が「結果 <ファイル名>」のタブ（`Tab.results`）に開く。プロットとその CSV・PNG の書き出しは実行の結果と同じ部品で、エディタは隠れ、実行と保存はできない。結果のタブは自動保存しない。
 
+折りたたみ（S225）は `lib/editor.ts` の `modelicaFolding`: 範囲は `Backend.foldingRanges(file)`（LSP の `foldingRange` と同じ Rust の関数。ブラウザ・Android は wasm の `folding_ranges`、Desktop は sidecar の `textDocument/foldingRange`）で、入力が 300 ms 止まったら本文を送って取り直し、`foldService` と `foldGutter` に渡すだけ。`end M;` などの行は畳んでも残る。
+
 - CSP は `index.html` の meta で `connect-src 'self'` のまま。`'wasm-unsafe-eval'` は wasm の初期化に、`style-src 'unsafe-inline'` は Svelte と CodeMirror が注入する style に要る
 - TypeScript は 6 系（svelte-check 4.7 が 7 を単独では受けない）
 - 診断の `range` は UTF-8 のバイト位置。UI で UTF-16 の位置に直して選択する

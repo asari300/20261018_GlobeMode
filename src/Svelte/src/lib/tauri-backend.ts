@@ -205,6 +205,9 @@ export class TauriBackend implements Backend {
   rename(file: string, line: number, character: number, newName: string) {
     return invoke<{ range: Definition["range"]; newText: string }[]>("rpc", { method: "globe/rename", params: { file, line, character, newName } });
   }
+  async foldingRanges(file: string): Promise<{ startLine: number; endLine: number }[]> {
+    return (await invoke<{ startLine: number; endLine: number }[] | null>("rpc", { method: "textDocument/foldingRange", params: { textDocument: { uri: file } } })) ?? []; // S225（setFile の didOpen と同じ uri）
+  }
   hover(file: string, line: number, character: number): Promise<Hover | null> {
     return invoke("rpc", { method: "globe/hover", params: { file, line, character } }); // S149（globe/definition と同じ解決で宣言の 1 行）
   }
