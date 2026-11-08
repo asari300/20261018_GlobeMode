@@ -116,3 +116,9 @@
 - **doctest を回さない crate が増えた**: `globe-mode-fmu` は cdylib 兼 rlib で、その rlib は hash 無しの名前になる。`globe-mode-fmu` 自身の試験（`tests/fmpy.rs`）と CLI の試験が入れ子で `cargo build -p globe-mode-fmu` を回すと、ワークスペース全体のビルドの rlib が（feature の組が違うので）上書きされる。facade が feature `fmu-p5b` で rlib として依存し、ワークスペース全体で有効になったため、あとの doctest で rustdoc が facade を読むときに E0460 / E0463 になった（`release` や `cargo rustc --crate-type cdylib` に変えても rlib が書き換わった）。そこで facade・`globe-mode-c`・`-lsp`・`-py`・`-wasm` に `doctest = false`（`globe-mode-nif` と同じ）。facade の本文の例（Decay の検査と実行）は `tests/` が通している。cdylib を rlib の依存から外せたら戻す（持ち越し）。
 - **LICENSE**: `-L` のルートの `LICENSE`（MSL の BSD-3-Clause）を `resources/lib/LICENSE` に写す。
 - 詳細: [S239 の解説書](../sessions/S239-fmu-export-p5b-surfaces/解説書.md)。
+
+## 追記（S240、2026-11-09）: 共有ライブラリを別 crate に（S239 の持ち越しを閉じる）
+
+- `globe-mode-fmu` は rlib だけにし、共有ライブラリは新しい crate `globe-mode-fmu-cdylib`（`crate-type = ["cdylib"]`、`pub use globe_mode_fmu::*;` の 1 行）が作る。`extern "C"` の入口は `Instance` の内部と密なので `globe-mode-fmu` に残し、上流の `#[no_mangle]` として共有ライブラリから出る（`nm -D` で 119 個）。
+- 入れ子の `cargo build`（`tests/fmpy.rs`、CLI の試験、facade の `build_runtime`、`fmu-export.yml`）は `-p globe-mode-fmu-cdylib` を指す。共有ライブラリの名前は `libglobe_mode_fmu_cdylib.so` など。FMU の中は `globe_mode_fmu.<拡張子>` のまま。
+- facade が依存するのは rlib だけなので、入れ子のビルドに書き換えられず、S239 で置いた `doctest = false`（facade・`globe-mode-c`・`-lsp`・`-py`・`-wasm`）を外した。`globe-mode-nif` は元から false。

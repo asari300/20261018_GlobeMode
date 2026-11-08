@@ -302,11 +302,11 @@ class Workspace:
 
         `runtime="p5b"`（S239）は自前の実行時（`globe-mode-fmu`）の共有ライブラリを入れた FMU を `out_dir/<名前>-p5b-fmi2.fmu` に書く
         （イベント・MSL のモデルも載る。host の OS 用だけ）。共有ライブラリは `runtime_lib` で渡すか、省略すると globe のソースの
-        作業ツリーの中で `cargo build --release -p globe-mode-fmu` を呼んで作る（cargo が無い・作業ツリーの外なら `ExportError`）。
+        作業ツリーの中で `cargo build --release -p globe-mode-fmu-cdylib` を呼んで作る（cargo が無い・作業ツリーの外なら `ExportError`）。
         モデルは 1 つのファイルか、開いたライブラリの中のクラス。`build`・`targets`・`fmi_headers` とは組み合わせられない（`ExportError`）。
 
             ws.export_fmu("RC", "out", fmi_version=3)
-            ws.export_fmu("RC", "out", runtime="p5b", runtime_lib="target/release/libglobe_mode_fmu.so")
+            ws.export_fmu("RC", "out", runtime="p5b", runtime_lib="target/release/libglobe_mode_fmu_cdylib.so")
         """
         targets = [targets] if isinstance(targets, str) else list(targets)
         options = dict(fmi_version=fmi_version, build=build, targets=targets, fmi_headers=None if fmi_headers is None else os.fspath(fmi_headers),

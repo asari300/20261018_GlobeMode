@@ -93,7 +93,7 @@ jobs:
       # 使う MSL のファイルだけを resources/lib に入れる。S238 から globe fmu export --runtime p5b）を FMI 2.0 の 3 本と 3.0 の 1 本で、FMPy の ME・CS と `globe simulate` の結果の管で比べる。
       # fmusim は Accelerate（mass.s(1) = 1）。落ちる例題は doc/sessions/S237-fmu-export-msl-models/解説書.md の表
       - run: cargo xtask fetch-msl
-      - run: cargo build --release -p globe-mode-fmu --lib
+      - run: cargo build --release -p globe-mode-fmu-cdylib --lib
       - name: MSL の例題を FMU にして FMPy と fmusim で回す（S237）
         run: |
           py() { uv run --no-project --with fmpy==0.3.32 --with numpy python -I "$@"; }
@@ -103,8 +103,8 @@ jobs:
           for v in 2 3; do
             py .github/scripts/fmu_msl_check.py --strict --globe target/debug/globe --lib data/msl --out "$out/p5a-$v" --fmi $v $models | tee -a "$RUNNER_TEMP/msl.txt"
           done
-          py .github/scripts/fmu_msl_check.py --strict --globe target/debug/globe --lib data/msl --out "$out/p5b-2" --fmi 2 --p5b target/release/libglobe_mode_fmu.so $models | tee -a "$RUNNER_TEMP/msl.txt"
-          py .github/scripts/fmu_msl_check.py --strict --globe target/debug/globe --lib data/msl --out "$out/p5b-3" --fmi 3 --p5b target/release/libglobe_mode_fmu.so $acc | tee -a "$RUNNER_TEMP/msl.txt"
+          py .github/scripts/fmu_msl_check.py --strict --globe target/debug/globe --lib data/msl --out "$out/p5b-2" --fmi 2 --p5b target/release/libglobe_mode_fmu_cdylib.so $models | tee -a "$RUNNER_TEMP/msl.txt"
+          py .github/scripts/fmu_msl_check.py --strict --globe target/debug/globe --lib data/msl --out "$out/p5b-3" --fmi 3 --p5b target/release/libglobe_mode_fmu_cdylib.so $acc | tee -a "$RUNNER_TEMP/msl.txt"
           check() { python3 -I -c "import csv, sys; r = list(csv.reader(open(sys.argv[1]))); i = [c.strip().strip('\"') for c in r[0]].index('mass.s'); s = float(r[-1][i]); print(f'{sys.argv[2]}: mass.s(1) = {s!r}'); sys.exit(abs(s - 1) > 1e-3)" "$@"; }
           for fmu in "$out/p5a-2/$acc/${acc//./_}-fmi2.fmu" "$out/p5a-3/$acc/${acc//./_}-fmi3.fmu" "$out/p5b-2/$acc/${acc//./_}-p5b-fmi2.fmu" "$out/p5b-3/$acc/${acc//./_}-p5b-fmi3.fmu"; do
             fmusim validate "$fmu"
@@ -227,7 +227,7 @@ jobs:
           echo "FMUSIM=$PWD/fmusim" >> "$GITHUB_ENV"
           ls -l
           ./fmusim --version
-      # tests/fmpy.rs は cdylib を作って FMPy の ME・CS で回す（OS ごとの置き場と拡張子は試験の側で決める）
+      # tests/fmpy.rs は globe-mode-fmu-cdylib を作って FMPy の ME・CS で回す（OS ごとの置き場と拡張子は試験の側で決める）
       - name: FMPy の試験（tests/fmpy.rs、ME と CS、FMI 2.0 と 3.0）
         run: cargo test --release -p globe-mode-fmu --test fmpy -- --nocapture
       - name: ME と CS を 1 つの FMU に書き、FMPy の CS と fmusim の ME・CS で回す（S231、S234 で 3 OS）
@@ -235,11 +235,11 @@ jobs:
           py() { uv run --no-project --with fmpy==0.3.32 python -I "$@"; }
           fmpy() { py -c "import sys; from fmpy.cli import main; sys.argv = ['fmpy'] + sys.argv[1:]; main()" "$@"; }
           last_x() { py -c "import csv, math, sys; r = list(csv.reader(open(sys.argv[1]))); i = [c.strip().strip('\"') for c in r[0]].index('x'); x = float(r[-1][i]); print(f'{sys.argv[2]}: t = {r[-1][0]}, x(1) = {x!r}, x(1) - e^-1 = {x - math.exp(-1):.3e}'); sys.exit(abs(x - math.exp(-1)) > 1e-3)" "$@" | tee -a summary.txt; test "${PIPESTATUS[0]}" = 0; }
-          cargo build --release -p globe-mode-fmu
+          cargo build --release -p globe-mode-fmu-cdylib
           mo=src/Modelica/GlobeModeValidation/Simulation/Decay.mo
           for v in 2 3; do
             out="$RUNNER_TEMP/p5b$v"; mkdir -p "$out"
-            # S238: P5b の FMU は CLI が作る（共有ライブラリは cargo build --release -p globe-mode-fmu で作り、OS ごとの置き場へ入れる）
+            # S238: P5b の FMU は CLI が作る（共有ライブラリは cargo build --release -p globe-mode-fmu-cdylib で作り、OS ごとの置き場へ入れる）
             cargo run -q --release -p globe-mode-cli -- fmu export "$mo" -m "$MODEL" --out "$out" --fmi-version "$v" --runtime p5b
             fmu="$out/${MODEL//./_}-p5b-fmi$v.fmu"
             fmpy validate "$fmu"

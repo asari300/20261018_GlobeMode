@@ -386,10 +386,14 @@ fn fmpy_with(
             return None;
         }
     }
-    // 結合テストは rlib だけを作るので、cdylib を cargo で作らせて置き場を JSON の出力から取る
+    // 共有ライブラリは別 crate（globe-mode-fmu-cdylib、S240）なので、cargo で作らせて置き場を JSON の出力から取る
     let mut cargo = Command::new(env!("CARGO"));
     cargo.args(["build", "--lib", "--message-format=json", "--manifest-path"]);
-    cargo.arg(manifest.join("Cargo.toml"));
+    cargo.arg(
+        manifest
+            .with_file_name("globe-mode-fmu-cdylib")
+            .join("Cargo.toml"),
+    );
     // S234: `cargo test --release` なら cdylib も release（fmu-export.yml の fmu-native が速く回すため）
     if !cfg!(debug_assertions) {
         cargo.arg("--release");
@@ -400,13 +404,13 @@ fn fmpy_with(
         "{}",
         String::from_utf8_lossy(&build.stderr)
     );
-    // S234: Windows は globe_mode_fmu.dll、macOS は libglobe_mode_fmu.dylib（JSON の中の `\` は `\\`）
+    // S234: Windows は globe_mode_fmu_cdylib.dll、macOS は libglobe_mode_fmu_cdylib.dylib（JSON の中の `\` は `\\`）
     let lib = if cfg!(windows) {
-        "globe_mode_fmu.dll"
+        "globe_mode_fmu_cdylib.dll"
     } else if cfg!(target_os = "macos") {
-        "libglobe_mode_fmu.dylib"
+        "libglobe_mode_fmu_cdylib.dylib"
     } else {
-        "libglobe_mode_fmu.so"
+        "libglobe_mode_fmu_cdylib.so"
     };
     let json = String::from_utf8_lossy(&build.stdout);
     let end = json

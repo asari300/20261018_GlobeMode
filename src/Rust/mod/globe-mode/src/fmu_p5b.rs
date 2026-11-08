@@ -40,7 +40,7 @@ impl From<P5bError> for String {
 /// `out_dir/<名前>-p5b/`（展開した FMU）と `out_dir/<名前>-p5b-fmi<版>.fmu` を書き、`.fmu` のパスを返す。
 ///
 /// `text` はモデルを定義する利用者のファイルの本文（`None` は `library` の中のクラス）。`files` は入力のファイル
-/// （出力先に入っていたら断るためのもの）。`options.runtime_lib` が `None` なら `cargo build --release -p globe-mode-fmu` で作る。
+/// （出力先に入っていたら断るためのもの）。`options.runtime_lib` が `None` なら `cargo build --release -p globe-mode-fmu-cdylib` で作る。
 /// shortcut: 実行時が読む resources の .mo は 1 つだけ（利用者のモデルは 1 ファイルか、`library` の中のクラス）。複数ファイルなら実行時を直すときに広げる
 pub fn export_fmu_p5b(
     model: &str,
@@ -191,16 +191,16 @@ fn strip(lib: &Path) {
         .status();
 }
 
-/// `cargo build --release -p globe-mode-fmu` で cdylib を作り、そのパスを返す（globe のソースの作業ツリーの中で）。
+/// `cargo build --release -p globe-mode-fmu-cdylib` で cdylib を作り、そのパスを返す（globe のソースの作業ツリーの中で）。
 /// 作れない（cargo が無い・作業ツリーの外）ときは `runtime_lib` を使うよう添えた理由。
 fn build_runtime() -> Result<PathBuf, String> {
-    let hint = "globe のソースの作業ツリーの中で回すか、runtime_lib（--runtime-lib）で globe-mode-fmu の共有ライブラリを渡す";
+    let hint = "globe のソースの作業ツリーの中で回すか、runtime_lib（--runtime-lib）で globe-mode-fmu-cdylib の共有ライブラリを渡す";
     let out = Command::new(std::env::var_os("CARGO").unwrap_or("cargo".into()))
         .args([
             "build",
             "--release",
             "-p",
-            "globe-mode-fmu",
+            "globe-mode-fmu-cdylib",
             "--lib",
             "--message-format",
             "json-render-diagnostics",
@@ -209,12 +209,16 @@ fn build_runtime() -> Result<PathBuf, String> {
         .output()
         .map_err(|e| format!("cargo を起動できない（{e}）。{hint}"))?;
     if !out.status.success() {
-        return Err(format!("cargo build -p globe-mode-fmu が失敗した。{hint}"));
+        return Err(format!(
+            "cargo build -p globe-mode-fmu-cdylib が失敗した。{hint}"
+        ));
     }
     String::from_utf8_lossy(&out.stdout)
         .lines()
         .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
-        .filter(|m| m["reason"] == "compiler-artifact" && m["target"]["name"] == "globe_mode_fmu")
+        .filter(|m| {
+            m["reason"] == "compiler-artifact" && m["target"]["name"] == "globe_mode_fmu_cdylib"
+        })
         .flat_map(|m| m["filenames"].as_array().cloned().unwrap_or_default())
         .filter_map(|f| f.as_str().map(PathBuf::from))
         .find(|f| {

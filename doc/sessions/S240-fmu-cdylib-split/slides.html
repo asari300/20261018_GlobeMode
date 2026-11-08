@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S240 FMU の共有ライブラリを別 crate に — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S240 FMU の共有ライブラリを別 crate に">
+
+<section class="slide" id="S01">
+  <span class="tag">S240 · 2026-11-09 · P5</span>
+  <h1>cdylib を別 crate に出して doctest を戻す</h1>
+  <p class="lead">S239 の持ち越し。facade が依存する rlib を、入れ子の cargo build に書き換えさせない</p>
+  <div class="big"><code>globe-mode-fmu-cdylib</code></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">原因</span>
+  <h1>cdylib 兼 rlib の 1 crate だった</h1>
+  <ul>
+    <li><code>globe-mode-fmu</code> の試験と CLI の試験は、共有ライブラリを作るために入れ子で <code>cargo build -p globe-mode-fmu</code> を回す。</li>
+    <li>crate-type に cdylib が入ると rlib は hash の無い名前になり、入れ子のビルドがそれを書き換える。</li>
+    <li>facade が feature <code>fmu-p5b</code> で依存したため、doctest の rustdoc が E0460 / E0463 で落ち、5 crate に <code>doctest = false</code> を置いた。</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">図</span>
+  <h1>crate の分け方</h1>
+  <svg class="fig" viewBox="0 0 800 220" role="img" aria-label="facade と試験は rlib の globe-mode-fmu に依存し、globe-mode-fmu-cdylib がそれを再公開して共有ライブラリを作る図">
+    <rect class="svg-box" x="20" y="30" width="200" height="60" rx="10"/>
+    <text class="svg-text-b" x="120" y="66" text-anchor="middle">facade・CLI</text>
+    <rect class="svg-box-accent" x="300" y="30" width="200" height="60" rx="10"/>
+    <text class="svg-text-b" x="400" y="66" text-anchor="middle">globe-mode-fmu（rlib）</text>
+    <rect class="svg-box" x="580" y="130" width="200" height="60" rx="10"/>
+    <text class="svg-text-b" x="680" y="166" text-anchor="middle">fmu-cdylib（cdylib）</text>
+    <line class="svg-line" x1="220" y1="60" x2="300" y2="60"/>
+    <line class="svg-line" x1="500" y1="60" x2="620" y2="130"/>
+  </svg>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定</span>
+  <h1>何がどちらへ</h1>
+  <table class="compact">
+    <tr><th>crate</th><th>中身</th></tr>
+    <tr><td><code>globe-mode-fmu</code></td><td>rlib だけ。本体と <code>fmi2*</code>・<code>fmi3*</code> の入口、<code>tests/fmpy.rs</code></td></tr>
+    <tr><td><code>globe-mode-fmu-cdylib</code></td><td>cdylib だけ。<code>pub use globe_mode_fmu::*;</code> の 1 行</td></tr>
+  </table>
+  <p>入口 119 個は共有ライブラリから出る（<code>nm -D</code> で確認）。</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">結果</span>
+  <h1>doctest が戻った</h1>
+  <ul>
+    <li>facade・<code>globe-mode-c</code>・<code>-lsp</code>・<code>-py</code>・<code>-wasm</code> の <code>doctest = false</code> を外した。</li>
+    <li>共有ライブラリの名前は <code>libglobe_mode_fmu_cdylib.so</code> など。FMU の中では今まで通り <code>globe_mode_fmu.&lt;拡張子&gt;</code>。</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

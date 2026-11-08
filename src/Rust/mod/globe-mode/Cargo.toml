@@ -8,11 +8,6 @@ repository.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
-[lib]
-# S239: doctest を回さない。feature fmu-p5b がワークスペース全体で有効になり、cdylib 兼 rlib の globe-mode-fmu（hash 無しの名前の rlib）に
-# 依存する。その rlib は globe-mode-fmu の試験が入れ子で回す cargo build に上書きされ、rustdoc が E0460 / E0463 で落ちる（globe-mode-nif と同じ扱い）。
-doctest = false
-
 [features]
 # S032・S034: CVODE と IDA（SUNDIALS）。cmake と C コンパイラが要る
 sundials = ["globe-mode-exec/sundials"]
