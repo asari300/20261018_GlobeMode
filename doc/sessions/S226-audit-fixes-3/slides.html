@@ -3,21 +3,21 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>S226 監査のあれば良い 13 件 — GlobeMode</title>
+<title>S226 監査のあれば良い 15 件 — GlobeMode</title>
 <link rel="stylesheet" href="../../assets/slides.css">
 </head>
-<body data-deck="GlobeMode S226 監査のあれば良い 13 件">
+<body data-deck="GlobeMode S226 監査のあれば良い 15 件">
 
 <section class="slide" id="S01">
   <span class="tag">S226 · 2026-11-08 · P3〜P7</span>
-  <h1>全体監査の「あれば良い」13 件を、直す価値で選んだ</h1>
-  <p class="lead">10 件は最小の直し、3 件は直さない理由を書いた。コミットは 1 件 1 つ</p>
-  <div class="big">直した 10 件、直さない 3 件。閉じるのはユーザー</div>
+  <h1>全体監査の「あれば良い」15 件を、直す価値で選んだ</h1>
+  <p class="lead">12 件は最小の直し、3 件は直さない理由を書いた。コミットは 1 件 1 つ</p>
+  <div class="big">直した 12 件、直さない 3 件。閉じるのはユーザー</div>
 </section>
 
 <section class="slide" id="S02">
   <span class="tag">結果</span>
-  <h1>直した 10 件</h1>
+  <h1>直した 12 件</h1>
   <table class="compact">
     <tr><th>issue</th><th>直し</th></tr>
     <tr><td>#47 イベントの 2 行の文書</td><td>実物は数 ulp ずれた時刻。文書 2 か所</td></tr>
@@ -29,6 +29,8 @@
     <tr><td>#71 <code>LONG</code></td><td>1e6 に揃える</td></tr>
     <tr><td>#81 <code>fetch_zip</code></td><td>前の版の展開を消してから展開</td></tr>
     <tr><td>#82 FastAPI</td><td>応答から内部のパスと stderr を外す</td></tr>
+    <tr><td>#87 クエリの実行の記録</td><td>旗を立てたときだけ積む（本番で増え続けない）</td></tr>
+    <tr><td>#88 段階を求める式</td><td><code>FullReport::failed_stage()</code> に寄せて 1 つに</td></tr>
     <tr><td>#80 意味的な衝突</td><td>手順の 1 項目と、手動実行の比較元</td></tr>
   </table>
 </section>
@@ -64,7 +66,7 @@
     <text class="svg-text-b" x="420" y="55" text-anchor="middle">釣り合う: 直す</text>
     <rect class="svg-box" x="300" y="140" width="240" height="60" rx="10"/>
     <text class="svg-text-b" x="420" y="175" text-anchor="middle">釣り合わない: 理由</text>
-    <text class="svg-text" x="560" y="55">10 件</text>
+    <text class="svg-text" x="560" y="55">12 件</text>
     <text class="svg-text" x="560" y="175">#45 #46 #63</text>
   </svg>
 </section>
