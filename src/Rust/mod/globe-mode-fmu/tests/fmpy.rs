@@ -143,6 +143,114 @@ fn inputs_and_outputs_through_the_c_abi() {
     let _ = std::fs::remove_dir_all(dir.parent().unwrap());
 }
 
+/// S224: Enumeration（パラメータ・入力・出力）は `declaredType` つきの Integer として読み書きし、String のパラメータは
+/// `fmi2GetString` で読む（書くと Error）。2.0 と 3.0 の modelDescription.xml に型の定義が載る。
+#[test]
+fn enumeration_and_string_through_the_c_abi() {
+    let (model, text) = source("EnumString");
+    let md = model_description(&model, &text).unwrap();
+    let md3 = model_description_3(&model, &text).unwrap();
+    for v in [
+        r#"<SimpleType name="Speed">"#,
+        r#"<Item name="fast" value="2"/>"#,
+        r#"<Enumeration declaredType="Speed" start="2"/>"#,
+        r#"<Enumeration declaredType="Speed" start="1"/>"#,
+        r#"<String start="decay"/>"#,
+    ] {
+        assert!(md.contains(v), "{v} が無い:\n{md}");
+    }
+    for v in [
+        r#"<EnumerationType name="Speed">"#,
+        r#"<Enumeration name="speed" valueReference="#,
+        r#"<Start value="decay"/>"#,
+    ] {
+        assert!(md3.contains(v), "{v} が無い:\n{md3}");
+    }
+    // 自分の読み手を通して、型の定義と declaredType が戻る
+    for (xml, v3) in [(&md, false), (&md3, true)] {
+        let d = globe_mode_fmi::parse_model_description(xml).unwrap();
+        assert_eq!(d.enum_types.len(), 1, "{xml}");
+        assert_eq!(
+            d.enum_types[0].items,
+            [("slow".to_string(), 1), ("fast".to_string(), 2)]
+        );
+        let var = |n: &str| d.variables.iter().find(|v| v.name == n).unwrap();
+        for n in ["speed", "request", "level"] {
+            assert_eq!(
+                var(n).ty,
+                globe_mode_fmi::VarType::Enumeration,
+                "{n} (v3={v3})"
+            );
+            assert_eq!(var(n).declared_type.as_deref(), Some("Speed"));
+        }
+        let label = var("label");
+        assert_eq!(
+            (label.ty, label.start.as_deref()),
+            (globe_mode_fmi::VarType::String, Some("decay"))
+        );
+        assert_eq!(label.variability, globe_mode_fmi::Variability::Fixed);
+    }
+    let d = globe_mode_fmi::parse_model_description(&md).unwrap();
+    let vr = |n: &str| {
+        d.variables
+            .iter()
+            .find(|v| v.name == n)
+            .unwrap()
+            .value_reference
+    };
+    let (speed, label, request, level) = (vr("speed"), vr("label"), vr("request"), vr("level"));
+    let dir = resources("enum", &model, &text);
+    let location = CString::new(format!("file://{}", dir.display())).unwrap();
+    let guid = CString::new(guid(&model, &text)).unwrap();
+    unsafe {
+        let c = fmi2Instantiate(
+            c"i".as_ptr(),
+            0,
+            guid.as_ptr(),
+            location.as_ptr(),
+            std::ptr::null(),
+            0,
+            0,
+        );
+        assert!(!c.is_null());
+        let int = |c, r: u32| {
+            let mut v = [0 as c_int];
+            assert_eq!(
+                fmi2GetInteger(c, [r].as_ptr(), 1, v.as_mut_ptr()),
+                0,
+                "vr {r}"
+            );
+            v[0]
+        };
+        // level（出力）は離散の変数なので、事象の後まで開始値（1）のまま（初期化の事象は回さない。P5b の限界）。読めることだけ見る
+        assert_eq!((int(c, speed), int(c, request), int(c, level)), (2, 1, 1));
+        let mut s = [std::ptr::null()];
+        assert_eq!(fmi2GetString(c, [label].as_ptr(), 1, s.as_mut_ptr()), 0);
+        assert_eq!(std::ffi::CStr::from_ptr(s[0]).to_str().unwrap(), "decay");
+        assert_eq!(
+            fmi2SetString(c, [label].as_ptr(), 1, s.as_ptr()),
+            3,
+            "String は fixed"
+        );
+        // 範囲の外と、出力と、Real の変数に Integer は書けない
+        assert_eq!(fmi2SetInteger(c, [speed].as_ptr(), 1, [3].as_ptr()), 3);
+        assert_eq!(fmi2SetInteger(c, [level].as_ptr(), 1, [1].as_ptr()), 3);
+        assert_eq!(fmi2SetInteger(c, [0].as_ptr(), 1, [1].as_ptr()), 3);
+        // speed = fast（2）なら der(x) = -2x、slow（1）に変えて初期化し直すと -x
+        let mut dx = [0.0];
+        assert_eq!(fmi2GetDerivatives(c, dx.as_mut_ptr(), 1), 0);
+        assert_eq!(dx[0], -2.0);
+        assert_eq!(fmi2SetInteger(c, [speed].as_ptr(), 1, [1].as_ptr()), 0);
+        assert_eq!(fmi2SetInteger(c, [request].as_ptr(), 1, [2].as_ptr()), 0);
+        assert_eq!(fmi2ExitInitializationMode(c), 0);
+        assert_eq!((int(c, speed), int(c, request), int(c, level)), (1, 2, 1));
+        assert_eq!(fmi2GetDerivatives(c, dx.as_mut_ptr(), 1), 0);
+        assert_eq!(dx[0], -1.0);
+        fmi2FreeInstance(c);
+    }
+    let _ = std::fs::remove_dir_all(dir.parent().unwrap());
+}
+
 #[test]
 fn explicit_euler_through_the_c_abi() {
     let (model, text) = source("Decay");
@@ -414,6 +522,19 @@ fn fmpy_matches_exec_on_algebraic_variables() {
             let f = value(&out, n);
             assert!((f - e).abs() < 1e-4, "{n}: FMPy {f} と exec {e}");
         }
+    }
+}
+
+/// S224: Enumeration と String を持つ modelDescription.xml が FMPy の validate を通り、ME で回る（speed = fast なので x(1) = e^-2）。
+#[test]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+fn fmpy_validates_enumeration_and_string() {
+    for v3 in [false, true] {
+        let Some(out) = fmpy("EnumString", &["x", "level"], "", v3) else {
+            return;
+        };
+        let x = value(&out, "x");
+        assert!((x - (-2.0f64).exp()).abs() < 1e-5, "x(1) = {x}");
     }
 }
 

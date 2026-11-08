@@ -20,7 +20,7 @@ use rumoca_compile::compile::{
 use rumoca_compile::parsing::{ParseError, ast};
 use rumoca_compile::source_roots::parse_source_root_with_cache;
 use rumoca_compile::{Session, SessionConfig};
-use rumoca_ir_dae::ScalarType;
+use rumoca_ir_dae::{DaeLiteral, ExpressionOperation, ScalarType};
 
 use crate::split_library::SplitLibrary;
 use crate::{CheckReport, Frontend, Source};
@@ -166,9 +166,53 @@ pub struct CompiledModel {
     /// モデルの experiment annotation（根のクラスの本文を読み直した生の値。S010 の S10 と同じ）
     pub experiment: Option<Experiment>,
     dae: Arc<Dae>,
+    /// 変数の名前 → その Enumeration 型（S224。flat モデルから取る。DAE は型の名前もリテラルの名前も持たない）
+    enums: Arc<BTreeMap<String, EnumType>>,
+}
+
+/// Enumeration 型（S224）。リテラル `literals[i]` の ordinal は `i + 1`（FMI の `Item` の `value` と同じ）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnumType {
+    /// 型の完全修飾名（例 `Pkg.Model.Speed`）
+    pub name: String,
+    pub literals: Vec<String>,
 }
 
 impl CompiledModel {
+    /// 変数 `name` の Enumeration 型。配列の要素 `v[1]` は `v` の型。Enumeration でなければ None。
+    pub fn enum_type_of(&self, name: &str) -> Option<&EnumType> {
+        self.enums.get(name.split('[').next().unwrap_or(name))
+    }
+
+    /// 文字列リテラルを start か束縛に持つスカラーの String パラメータ（名前, 値）。式や配列のものは含めない。
+    pub fn string_parameters(&self) -> Vec<(String, String)> {
+        let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.dae.inspect(|view| {
+                let mut out = Vec::new();
+                for (_, v) in view.variables() {
+                    if v.role() != VariableRole::Parameter
+                        || v.value_type().scalar_type() != ScalarType::String
+                        || v.value_type().scalar_count() != Some(1)
+                    {
+                        continue;
+                    }
+                    let Some(e) = v
+                        .start()
+                        .or_else(|| v.binding())
+                        .and_then(|e| view.expression(e))
+                    else {
+                        continue;
+                    };
+                    if let ExpressionOperation::Literal(DaeLiteral::String(t)) = e.operation() {
+                        out.push((v.name().to_string(), t.clone()));
+                    }
+                }
+                out
+            })
+        }));
+        caught.unwrap_or_default()
+    }
+
     /// Rumoca の DAE。`globe-mode-exec` だけが使う。
     #[doc(hidden)]
     pub fn rumoca_dae(&self) -> &Arc<Dae> {
@@ -1277,6 +1321,7 @@ fn compile_strict(session: &mut Session, model: &str) -> Result<CompiledModel, V
                 experiment: crate::preflight::experiment_for_model(result, model),
                 // MSL 4.0.0 の `external "builtin"`（Modelica.Math.sin など）を組み込み演算にする（S068）
                 dae: crate::external_builtin::lower_builtin_externals(&result.dae),
+                enums: Arc::new(enum_types(&result.flat)),
             })
         }
         Err(strict) => {
@@ -1295,6 +1340,33 @@ fn compile_strict(session: &mut Session, model: &str) -> Result<CompiledModel, V
             Err(vec![d])
         }
     }
+}
+
+/// flat モデルの変数のうち Enumeration 型のもの（変数の名前 → 型）。リテラルは `enum_literal_ordinals`
+/// （`型.リテラル` → ordinal。引用符つきの別名も入るので、ordinal ごとに最初の 1 つを引用符を外して取る）から集める。
+fn enum_types(flat: &FlatModel) -> BTreeMap<String, EnumType> {
+    let mut by_type: HashMap<&str, Option<EnumType>> = HashMap::new();
+    let mut out = BTreeMap::new();
+    for (var, ty) in &flat.variable_type_names {
+        let found = by_type.entry(ty.as_str()).or_insert_with(|| {
+            let prefix = format!("{ty}.");
+            let mut lits = BTreeMap::new();
+            for (k, &o) in &flat.enum_literal_ordinals {
+                if let Some(l) = k.strip_prefix(&prefix).filter(|l| !l.contains('.')) {
+                    lits.entry(o)
+                        .or_insert_with(|| l.trim_matches('\'').to_string());
+                }
+            }
+            (!lits.is_empty()).then(|| EnumType {
+                name: ty.clone(),
+                literals: lits.into_values().collect(),
+            })
+        });
+        if let Some(t) = found {
+            out.insert(var.to_string(), t.clone());
+        }
+    }
+    out
 }
 
 /// ライブラリを読めない診断（`GM-E1003`）。

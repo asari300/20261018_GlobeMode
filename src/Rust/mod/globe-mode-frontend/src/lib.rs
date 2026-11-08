@@ -28,7 +28,8 @@ mod structure;
 pub mod unsupported;
 #[cfg(feature = "rumoca")]
 pub use rumoca::{
-    Checker, CompiledModel, ReferenceStructure, RumocaFrontend, SkippedFile, collect_mo_files,
+    Checker, CompiledModel, EnumType, ReferenceStructure, RumocaFrontend, SkippedFile,
+    collect_mo_files,
 };
 
 /// 1 つのソースファイル（名前と本文）。

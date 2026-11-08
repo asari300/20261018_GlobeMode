@@ -118,6 +118,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - S204: **FMI Import の最初の一切れ**。新 crate `globe-mode-fmi-import` が FMU（zip）を安全に展開し（zip slip・シンボリックリンク・2 GiB 超を拒む）、共有ライブラリを読み込んで FMI 2.0・3.0 の Co-Simulation を回す（自前の C ABI。Reference-FMUs の BouncingBall・Dahlquist・VanDerPol の参照の CSV と全桁で一致、Export した Decay の往復も通る）。CLI に `globe fmu info <file.fmu>`（`modelDescription.xml` の要約。ネイティブコードは実行しない）と `globe fmu run <file.fmu> [--stop-time …] [--step …] [--set 名前=値]`（CSV を出す。**実行の前に「FMU の中のネイティブコードを実行する」と標準エラーに 1 行出す**）。ADR-0026 を Accepted に。`fmi` crate 0.8 は zip 8.6.0 の脆弱性（4 件）などで入れていない。ME・マスター・SE は未。
 - S095・S099・S109・S112・S114・S137: 自前のランタイム `globe-mode-fmu`（依存 0）。FMI 2.0 ME の関数、モデルの compile、事象、代数・離散の変数、入力、FMI 3.0 ME。S117・S124 で `modelDescription.xml` の書き手を P5a と共有。
 - S144・S154: UI の「FMU を書き出す」（ブラウザ・Desktop・Android。FMI 2.0 / 3.0 を選べる）。
+- S224: Export した FMU の型。**FMI 2.0 の P5a は Enumeration の変数を `<Enumeration declaredType>` と `<TypeDefinitions>` で書く**（これまでは `<Integer>` で、型の名前とリテラルが落ちていた。Enumeration を持たないモデルの XML は変わらない）。P5b（`globe-mode-fmu`）は 2.0・3.0 とも Enumeration のパラメータ・入力・出力を型の定義つきで書き、Integer（3.0 は Int64）で読み書きし、String のパラメータを `fmi2GetString`/`fmi3GetString` で読む（`fixed`。書くと `fmi2Error`）。**P5a の 3.0 の Enumeration は Int32 のまま**（Rumoca の C が `fmi3GetInt64` 未対応）。`dependencies` は出力ごとの依存の情報が無く持ち越し。
 
 ### P6 Web・Android・ノートブック
 

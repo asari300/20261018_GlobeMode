@@ -18,7 +18,9 @@
 //! - 値参照: `0..n` = 状態、`n..2n` = その微分（`der(…)`）、`2n..2n+p` = tunable なパラメータ、
 //!   `2n+p..` = 代数・出力・離散・入力の変数（S112・S114。書けるのは Real の入力だけ）。
 //! - パラメータの変更は `fmi2ExitInitializationMode` で lowering からやり直して反映する（依存するパラメータにも届く）。
-//! - 状態の保存（FMUstate）・方向微分・String の値と、Integer/Boolean の書き込みは無いので `fmi2Error` を返す（`nvr = 0` は OK）。
+//! - S224: Enumeration は Integer（3.0 は Int64）の ordinal として読み書きし（`declaredType` と `TypeDefinitions` を書く）、
+//!   String のパラメータは `fmi2GetString` で読む（`fixed` なので書くと `fmi2Error`）。値参照はパラメータの枠のまま。
+//! - 状態の保存（FMUstate）・方向微分と、Boolean と Enumeration でない Integer の書き込みは無いので `fmi2Error` を返す（`nvr = 0` は OK）。
 //! - ログの callback は呼ばない（失敗の理由は標準エラーに出す）。panic は `extern "C"` の境界で abort する（Rust 2024）。
 // 安全の約束は FMI 2.0 の規格（呼び手は fmi2Instantiate が返した c と、nvr 個の有効な配列を渡す）
 #![allow(clippy::missing_safety_doc)]
@@ -74,8 +76,8 @@ pub fn model_description_3(model: &str, source: &str) -> Result<String, String> 
 
 fn describe(model: &str, source: &str, v3: bool) -> Result<String, String> {
     use globe_mode_fmi::{
-        Causality, DefaultExperiment, Initial, Interface, ModelDescription, ModelStructure,
-        ScalarVariable, VarType, Variability,
+        Causality, DefaultExperiment, EnumerationType, Initial, Interface, ModelDescription,
+        ModelStructure, ScalarVariable, VarType, Variability,
     };
     let compiled = compile(model, source)?;
     let inst =
@@ -94,6 +96,7 @@ fn describe(model: &str, source: &str, v3: bool) -> Result<String, String> {
         initial,
         start,
         derivative: None,
+        declared_type: None,
     };
     let mut variables = Vec::new();
     for (i, (name, x)) in inst.state_names().iter().zip(inst.states()).enumerate() {
@@ -121,8 +124,36 @@ fn describe(model: &str, source: &str, v3: bool) -> Result<String, String> {
             )
         });
     }
+    let strings = compiled.string_parameters();
+    let mut enum_types = Vec::new();
+    // S224: Enumeration の変数は Int32 の値（ordinal）に declaredType を付け、型の定義を TypeDefinitions に書く
+    let mut declare = |name: &str, v: &mut ScalarVariable| {
+        if let Some(t) = compiled.enum_type_of(name) {
+            v.ty = VarType::Enumeration;
+            v.declared_type = Some(t.name.clone());
+            v.start = v.start.take().map(|s| {
+                s.parse::<f64>()
+                    .map_or(s, |x| format!("{}", x.round() as i64))
+            });
+            if !enum_types
+                .iter()
+                .any(|e: &EnumerationType| e.name == t.name)
+            {
+                let items = t
+                    .literals
+                    .iter()
+                    .zip(1..)
+                    .map(|(l, i)| (l.clone(), i))
+                    .collect();
+                enum_types.push(EnumerationType {
+                    name: t.name.clone(),
+                    items,
+                });
+            }
+        }
+    };
     for (i, (name, p)) in inst.parameters().iter().enumerate() {
-        variables.push(var(
+        let mut v = var(
             name.clone(),
             2 * n + i,
             Causality::Parameter,
@@ -130,7 +161,13 @@ fn describe(model: &str, source: &str, v3: bool) -> Result<String, String> {
             Some(Initial::Exact),
             VarType::Float64,
             Some(format!("{p:?}")),
-        ));
+        );
+        declare(name, &mut v);
+        // S224: String のパラメータも Rumoca のパラメータの枠に 1 つ入っている（Real の 0.0）。型と値を直す
+        if let Some((_, text)) = strings.iter().find(|(n, _)| n == name) {
+            (v.ty, v.start) = (VarType::String, Some(text.clone()));
+        }
+        variables.push(v);
     }
     let first = 2 * n + inst.parameters().len();
     let values = inst.variable_values()?;
@@ -141,6 +178,7 @@ fn describe(model: &str, source: &str, v3: bool) -> Result<String, String> {
             ValueType::Real => (VarType::Float64, v.role == VariableRole::Discrete),
             ValueType::Integer => (VarType::Int32, true),
             ValueType::Boolean => (VarType::Boolean, true),
+            ValueType::Enumeration => (VarType::Int32, true),
         };
         let (causality, initial, start) = match v.role {
             VariableRole::Output => {
@@ -156,7 +194,7 @@ fn describe(model: &str, source: &str, v3: bool) -> Result<String, String> {
         } else {
             Variability::Continuous
         };
-        variables.push(var(
+        let mut sv = var(
             v.name.clone(),
             r,
             causality,
@@ -164,7 +202,11 @@ fn describe(model: &str, source: &str, v3: bool) -> Result<String, String> {
             initial,
             ty,
             start,
-        ));
+        );
+        if v.value_type == ValueType::Enumeration {
+            declare(&v.name, &mut sv);
+        }
+        variables.push(sv);
     }
     let mut event_indicators = Vec::new();
     if v3 {
@@ -217,6 +259,7 @@ fn describe(model: &str, source: &str, v3: bool) -> Result<String, String> {
             tolerance: Some(format!("{:?}", e.tolerance.map_or(1e-6, |b| b.get()))),
             step_size: None,
         }),
+        enum_types,
         model_structure: ModelStructure {
             outputs,
             derivatives,
@@ -243,6 +286,9 @@ struct Instance {
     inputs: BTreeMap<String, f64>,
     /// `fmi2SetReal` で与えた状態の値（添字 → 値。作り直したときに置き直す。start 値と同じ）
     states: BTreeMap<usize, f64>,
+    /// String のパラメータの値（`fmi2GetString` が返すポインタの置き場）。値参照は Rumoca のパラメータの枠の位置
+    /// （`2n+i`。String も 1 枠を取るので、Real のパラメータと同じ数え方）
+    strings: BTreeMap<String, std::ffi::CString>,
     dirty: bool,
 }
 
@@ -457,16 +503,24 @@ unsafe fn instantiate(guid: *const c_char, resource_location: *const c_char) -> 
             .map_err(|d| format!("{d:?}"))
     });
     match built {
-        Ok((model, inst)) => Box::into_raw(Box::new(Instance {
-            model,
-            inst,
-            start: 0.0,
-            overrides: BTreeMap::new(),
-            inputs: BTreeMap::new(),
-            states: BTreeMap::new(),
-            dirty: false,
-        }))
-        .cast(),
+        Ok((model, inst)) => {
+            let strings = model
+                .string_parameters()
+                .into_iter()
+                .map(|(n, v)| (n, std::ffi::CString::new(v).unwrap_or_default()))
+                .collect();
+            Box::into_raw(Box::new(Instance {
+                model,
+                inst,
+                start: 0.0,
+                overrides: BTreeMap::new(),
+                inputs: BTreeMap::new(),
+                states: BTreeMap::new(),
+                strings,
+                dirty: false,
+            }))
+            .cast()
+        }
         Err(e) => {
             eprintln!("globe-mode-fmu: {e}");
             std::ptr::null_mut()
@@ -609,7 +663,9 @@ fn variable(m: &Instance, r: usize, ty: ValueType) -> Option<f64> {
         }
         return m.inst.event_indicators().ok()?.get(k).copied();
     }
-    if m.inst.variables().nth(i)?.value_type != ty {
+    let vt = m.inst.variables().nth(i)?.value_type;
+    // Enumeration は FMI では Integer
+    if vt != ty && !(ty == ValueType::Integer && vt == ValueType::Enumeration) {
         return None;
     }
     match m.inst.variable_values() {
@@ -621,9 +677,67 @@ fn variable(m: &Instance, r: usize, ty: ValueType) -> Option<f64> {
     }
 }
 
-/// String の変数と、Integer・Boolean の書き込みは無い（`nvr = 0` だけ OK）。
+/// Boolean の書き込みと、Integer の書き込みのうち Enumeration でないものは無い（`nvr = 0` だけ OK）。
 fn no_variables(nvr: usize) -> Status {
     if nvr == 0 { OK } else { ERROR }
+}
+
+/// 値参照 `r` の Integer（Enumeration を含む）の今の値。
+fn integer(m: &Instance, r: usize) -> Option<i64> {
+    let n = m.inst.n_states();
+    // Enumeration の tunable パラメータは P の枠の値（ordinal）を読む
+    let param = r
+        .checked_sub(2 * n)
+        .and_then(|i| m.inst.parameters().get(i))
+        .filter(|(name, _)| m.model.enum_type_of(name).is_some());
+    // 値は整数の f64（Rumoca は離散の値も f64 で持つ）
+    let got = match param {
+        Some((name, p)) => Some(*m.overrides.get(name).unwrap_or(p)),
+        None => variable(m, r, ValueType::Integer),
+    };
+    got.map(|x| x.round() as i64)
+}
+
+/// Enumeration の tunable パラメータか入力 `r` に ordinal `v`（1 以上リテラルの数以下）を書く。
+fn set_enum(m: &mut Instance, r: usize, v: i64) -> bool {
+    let Some((name, input)) = enum_slot(m, r) else {
+        return false;
+    };
+    let count = m
+        .model
+        .enum_type_of(&name)
+        .map_or(i64::MAX, |t| t.literals.len() as i64);
+    if !(1..=count).contains(&v) {
+        eprintln!("globe-mode-fmu: {name} = {v} は Enumeration の範囲（1..={count}）の外");
+        return false;
+    }
+    let x = v as f64;
+    if input {
+        let ok = m.inst.set_input(&name, x).is_ok();
+        if ok {
+            m.inputs.insert(name, x);
+        }
+        return ok;
+    }
+    m.overrides.insert(name, x);
+    m.dirty = true;
+    true
+}
+
+/// 値参照 `r` が Enumeration の tunable パラメータか入力なら、その名前と、入力かどうか。
+fn enum_slot(m: &Instance, r: usize) -> Option<(String, bool)> {
+    let (n, p) = (m.inst.n_states(), m.inst.parameters().len());
+    if let Some((name, _)) = r
+        .checked_sub(2 * n)
+        .and_then(|i| m.inst.parameters().get(i))
+    {
+        return m.model.enum_type_of(name).map(|_| (name.clone(), false));
+    }
+    let v = r
+        .checked_sub(2 * n + p)
+        .and_then(|i| m.inst.variables().nth(i))?;
+    (v.value_type == ValueType::Enumeration && v.role == VariableRole::Input)
+        .then(|| (v.name.clone(), true))
 }
 
 #[unsafe(no_mangle)]
@@ -635,10 +749,7 @@ pub unsafe extern "C" fn fmi2GetInteger(
 ) -> Status {
     unsafe {
         each(c, vr, nvr, value, |m, r, v| {
-            // 値は整数の f64（Rumoca は離散の値も f64 で持つ）
-            variable(m, r as usize, ValueType::Integer)
-                .map(|x| *v = x.round() as c_int)
-                .is_some()
+            integer(m, r as usize).map(|x| *v = x as c_int).is_some()
         })
     }
 }
@@ -659,24 +770,38 @@ pub unsafe extern "C" fn fmi2GetBoolean(
     }
 }
 
+/// String のパラメータ（S224）を読む。ポインタは次の呼び出しまで（実際はインスタンスの寿命の間）有効。
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fmi2GetString(
-    _c: Component,
-    _vr: *const c_uint,
+    c: Component,
+    vr: *const c_uint,
     nvr: usize,
-    _v: *mut *const c_char,
+    v: *mut *const c_char,
 ) -> Status {
-    no_variables(nvr)
+    unsafe {
+        each(c, vr, nvr, v, |m, r, out| {
+            let name = (r as usize)
+                .checked_sub(2 * m.inst.n_states())
+                .and_then(|i| m.inst.parameters().get(i));
+            let s = name.and_then(|(n, _)| m.strings.get(n));
+            s.map(|s| *out = s.as_ptr()).is_some()
+        })
+    }
 }
 
+/// Enumeration の tunable パラメータと入力を書く（S224。ordinal は 1 以上リテラルの数以下）。
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fmi2SetInteger(
-    _c: Component,
-    _vr: *const c_uint,
+    c: Component,
+    vr: *const c_uint,
     nvr: usize,
-    _v: *const c_int,
+    v: *const c_int,
 ) -> Status {
-    no_variables(nvr)
+    unsafe {
+        each(c, vr, nvr, v.cast_mut(), |m, r, v| {
+            set_enum(m, r as usize, i64::from(*v))
+        })
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -689,6 +814,7 @@ pub unsafe extern "C" fn fmi2SetBoolean(
     no_variables(nvr)
 }
 
+/// String のパラメータは `variability="fixed"` で、`fmi2Instantiate` で .mo から決まる値を変えられない。
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn fmi2SetString(
     _c: Component,
@@ -696,6 +822,9 @@ pub unsafe extern "C" fn fmi2SetString(
     nvr: usize,
     _v: *const *const c_char,
 ) -> Status {
+    if nvr > 0 {
+        eprintln!("globe-mode-fmu: String の値は書けない（String のパラメータは fixed）");
+    }
     no_variables(nvr)
 }
 
@@ -1014,6 +1143,85 @@ pub unsafe extern "C" fn fmi3GetInt32(
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn fmi3SetInt32(
+    c: Component,
+    vr: *const c_uint,
+    nvr: usize,
+    values: *const i32,
+    n_values: usize,
+) -> Status {
+    if n_values != nvr {
+        return ERROR;
+    }
+    unsafe { fmi2SetInteger(c, vr, nvr, values) }
+}
+
+/// 3.0 の Enumeration は Int64 の getter・setter で読み書きする。
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fmi3GetInt64(
+    c: Component,
+    vr: *const c_uint,
+    nvr: usize,
+    values: *mut i64,
+    n_values: usize,
+) -> Status {
+    if n_values != nvr {
+        return ERROR;
+    }
+    unsafe {
+        each(c, vr, nvr, values, |m, r, v| {
+            integer(m, r as usize).map(|x| *v = x).is_some()
+        })
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fmi3SetInt64(
+    c: Component,
+    vr: *const c_uint,
+    nvr: usize,
+    values: *const i64,
+    n_values: usize,
+) -> Status {
+    if n_values != nvr {
+        return ERROR;
+    }
+    unsafe {
+        each(c, vr, nvr, values.cast_mut(), |m, r, v| {
+            set_enum(m, r as usize, *v)
+        })
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fmi3GetString(
+    c: Component,
+    vr: *const c_uint,
+    nvr: usize,
+    values: *mut *const c_char,
+    n_values: usize,
+) -> Status {
+    if n_values != nvr {
+        return ERROR;
+    }
+    unsafe { fmi2GetString(c, vr, nvr, values) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fmi3SetString(
+    c: Component,
+    vr: *const c_uint,
+    nvr: usize,
+    values: *const *const c_char,
+    n_values: usize,
+) -> Status {
+    if n_values != nvr {
+        return ERROR;
+    }
+    unsafe { fmi2SetString(c, vr, nvr, values) }
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn fmi3GetBoolean(
     c: Component,
     vr: *const c_uint,
@@ -1186,9 +1394,7 @@ unsupported!(
     fmi3GetInt16,
     fmi3GetUInt16,
     fmi3GetUInt32,
-    fmi3GetInt64,
     fmi3GetUInt64,
-    fmi3GetString,
     fmi3GetBinary,
     fmi3GetClock,
     fmi3SetFloat32,
@@ -1196,12 +1402,9 @@ unsupported!(
     fmi3SetUInt8,
     fmi3SetInt16,
     fmi3SetUInt16,
-    fmi3SetInt32,
     fmi3SetUInt32,
-    fmi3SetInt64,
     fmi3SetUInt64,
     fmi3SetBoolean,
-    fmi3SetString,
     fmi3SetBinary,
     fmi3SetClock,
     fmi3GetNumberOfVariableDependencies,
