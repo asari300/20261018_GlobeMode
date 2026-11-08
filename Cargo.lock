@@ -1421,6 +1421,8 @@ dependencies = [
  "globe-mode-fmi",
  "globe-mode-fmi-import",
  "globe-mode-fmt",
+ "globe-mode-fmu",
+ "globe-mode-frontend",
  "globe-mode-ir",
  "globe-mode-lsp",
  "ignore",

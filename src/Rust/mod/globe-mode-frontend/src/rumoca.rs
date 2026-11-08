@@ -375,6 +375,21 @@ fn parse_sources_lenient<'a>(
     (documents, failures)
 }
 
+/// S238: `model` と `user_texts`（利用者のファイルの本文）が使うライブラリのファイル（分割読み込みと同じ閉包。
+/// 外側の `package.mo` と、クラスの見つからないファイルを含む）の名前。FMU の `resources/lib` に入れるものを選ぶのに使う。
+pub fn library_closure(library: &[Source<'_>], model: &str, user_texts: &[&str]) -> Vec<String> {
+    let mut lib = SplitLibrary::new(
+        library
+            .iter()
+            .map(|s| (s.name.to_string(), s.text.to_string())),
+    );
+    let mut need = lib.closure(model, user_texts.iter().copied());
+    need.extend(lib.unindexed());
+    need.into_iter()
+        .map(|n| lib.file(n).0.to_string())
+        .collect()
+}
+
 /// `dir` の下の `.mo`（`.` で始まる名前は飛ばす）。ディレクトリの読み込み（全部読む・分割とも）、facade、db が共有する走査（#31）。
 pub fn collect_mo_files(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
     if dir.is_file() {

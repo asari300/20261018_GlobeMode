@@ -30,6 +30,7 @@ globe-mode = { path = "src/Rust/mod/globe-mode", version = "0.2.0" }
 globe-mode-lsp = { path = "src/Rust/mod/globe-mode-lsp", version = "0.2.0" }
 globe-mode-fmt = { path = "src/Rust/mod/globe-mode-fmt", version = "0.2.0" }
 globe-mode-fmi = { path = "src/Rust/mod/globe-mode-fmi", version = "0.2.0" }
+globe-mode-fmu = { path = "src/Rust/mod/globe-mode-fmu", version = "0.2.0" }
 globe-mode-fmi-import = { path = "src/Rust/mod/globe-mode-fmi-import", version = "0.2.0" }
 globe-mode-py = { path = "src/Rust/mod/globe-mode-py", version = "0.2.0" }
 

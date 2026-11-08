@@ -243,7 +243,7 @@ pub fn fmu_bytes(src: &MeSources) -> Result<Vec<u8>, String> {
 
 /// zig の target triple（例 `x86_64-windows-gnu`）から、`binaries/` の下の名前と共有ライブラリの拡張子を返す。
 /// FMI 2.0 は `linux64`・`win64`・`darwin64`、3.0 は `<arch>-<os>`（`x86_64-windows`・`aarch64-darwin` など）。
-fn platform(triple: &str, fmi_version: u8) -> Result<(String, &'static str), String> {
+pub fn platform(triple: &str, fmi_version: u8) -> Result<(String, &'static str), String> {
     let mut parts = triple.split('-');
     let arch = parts.next().unwrap_or_default();
     let (os, ext) = match parts.next() {
@@ -349,7 +349,7 @@ fn build(src: &MeSources, root: &Path, headers: &Path, triple: Option<&str>) -> 
     Ok(())
 }
 
-fn zip_dir(root: &Path, fmu: &Path) -> Result<(), String> {
+pub fn zip_dir(root: &Path, fmu: &Path) -> Result<(), String> {
     let file = std::fs::File::create(fmu).map_err(|e| e.to_string())?;
     let mut zip = zip::ZipWriter::new(file);
     let options = zip::write::SimpleFileOptions::default();

@@ -22,9 +22,10 @@ class Plan(unittest.TestCase):
         self.assertFalse(p["wasm_node"])
         self.assertFalse(p["deny"])
 
-    def test_fmu_runtime_has_no_dependents(self):
-        # S095: globe-mode-fmu に依存元は無い。S099 から exec と frontend に依存するので、exec の変更で回る
-        self.assertEqual(pkgs(plan(["src/Rust/mod/globe-mode-fmu/src/lib.rs"])), {"globe-mode-fmu"})
+    def test_fmu_runtime_has_only_the_cli_as_dependent(self):
+        # S095: globe-mode-fmu に依存元は無かった。S099 から exec と frontend に依存するので、exec の変更で回る。
+        # S238: `globe fmu export --runtime p5b` が modelDescription.xml を作るのに使うので、依存元は globe-mode-cli だけ
+        self.assertEqual(pkgs(plan(["src/Rust/mod/globe-mode-fmu/src/lib.rs"])), {"globe-mode-fmu", "globe-mode-cli"})
         self.assertIn("globe-mode-fmu", pkgs(plan(["src/Rust/mod/globe-mode-exec/src/lib.rs"])))
         # S117: fmu は fmi（既定の feature だけ）の書く側を使うので、fmi の変更で回る（S118 から facade も fmi に依存するので、その依存元も）
         self.assertIn("globe-mode-fmu", pkgs(plan(["src/Rust/mod/globe-mode-fmi/src/lib.rs"])))

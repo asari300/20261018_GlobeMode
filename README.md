@@ -114,7 +114,8 @@ globe check src/Modelica/GlobeModeValidation -m GlobeModeValidation.Simulation.D
 globe fmt --check src/Modelica   # ファイルかフォルダを指す。整形が要るファイルを列挙して終了コード 1。--check を外すと書き換える（リポジトリの根の `.` は検証用の入力も含むので通らない）
 globe fmt -               # `-` は標準入力 → 標準出力。パスも `-` も無ければ使い方を出して終了コード 2。ウェブアプリは `globe fmt --json -`
 globe lint .              # line-too-long など。--disable <規則> で止める。`-` は標準入力
-globe fmu export src/Modelica/GlobeModeValidation -m GlobeModeValidation.Simulation.Decay --out out/ [--fmi-version 3]   # out/ に展開したフォルダと GlobeModeValidation_Simulation_Decay-fmi2.fmu（3.0 は -fmi3）。版つきなので 2.0 と 3.0 を同じ out/ に書ける
+globe fmu export src/Modelica/GlobeModeValidation -m GlobeModeValidation.Simulation.Decay --out out/ [--fmi-version 3] [--runtime p5b]   # out/ に展開したフォルダと GlobeModeValidation_Simulation_Decay-fmi2.fmu（3.0 は -fmi3）。版つきなので 2.0 と 3.0 を同じ out/ に書ける
+globe fmu export -L data/msl -m Modelica.Mechanics.Translational.Examples.Accelerate --out out/ --runtime p5b   # P5b（GlobeMode の実行時の共有ライブラリを入れた FMU。イベントのあるモデルも載る）out/…-p5b-fmi2.fmu。使う MSL のファイルだけを同梱。共有ライブラリは cargo build --release -p globe-mode-fmu か --runtime-lib <path>。host の OS 用
 globe lsp -L data/msl     # 標準入出力の LSP サーバ
 ```
 

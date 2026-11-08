@@ -463,3 +463,118 @@ fn unsupported_msl_example_says_why() {
     let err = String::from_utf8_lossy(&o.stderr);
     assert!(err.contains("FMI C profile"), "{err}");
 }
+
+/// S238: `--runtime p5b` に渡す `globe-mode-fmu` の共有ライブラリ（debug。`cargo build` で作る。作れなければ None）。
+fn p5b_runtime() -> Option<PathBuf> {
+    let cargo = std::env::var_os("CARGO").unwrap_or("cargo".into());
+    let ok = Command::new(cargo)
+        .args(["build", "-q", "-p", "globe-mode-fmu", "--lib"])
+        .status()
+        .ok()?
+        .success();
+    let exe = PathBuf::from(env!("CARGO_BIN_EXE_globe"));
+    let name = format!(
+        "{}globe_mode_fmu{}",
+        std::env::consts::DLL_PREFIX,
+        std::env::consts::DLL_SUFFIX
+    );
+    let lib = exe.parent()?.join(name);
+    (ok && lib.is_file()).then_some(lib)
+}
+
+/// P5b の FMU を `globe fmu run`（CS）で 1 秒回し、`column` の最後の値を返す。
+fn run_p5b_fmu(fmu: &Path, column: &str) -> f64 {
+    let csv = fmu.with_extension("csv");
+    let o = Command::new(env!("CARGO_BIN_EXE_globe"))
+        .args(["fmu", "run"])
+        .arg(fmu)
+        .args(["--stop-time", "1", "--output", column, "--out"])
+        .arg(&csv)
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{o:?}");
+    let text = std::fs::read_to_string(&csv).unwrap();
+    text.lines()
+        .last()
+        .unwrap()
+        .split(',')
+        .nth(1)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap()
+}
+
+/// S238: `--runtime p5b` が Decay の P5b の FMU（共有ライブラリ・modelDescription.xml・resources）を作り、`globe fmu run` で
+/// x(1) ≈ e⁻¹ になる。p5a の旗（--build）との組み合わせは断る（終了コード 2）。共有ライブラリを作れなければ飛ばす。
+#[test]
+fn p5b_runtime_exports_a_runnable_fmu() {
+    let Some(lib) = p5b_runtime() else {
+        eprintln!("skip: cargo build -p globe-mode-fmu ができない");
+        return;
+    };
+    let mo = package_dir().join("Simulation/Decay.mo");
+    let out = out_dir("p5b");
+    let export = |extra: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_globe"))
+            .args(["fmu", "export", mo.to_str().unwrap(), "-m", MODEL, "--out"])
+            .arg(&out)
+            .args(["--runtime", "p5b"])
+            .args(extra)
+            .output()
+            .unwrap()
+    };
+    let o = export(&["--runtime-lib", lib.to_str().unwrap()]);
+    assert!(o.status.success(), "{o:?}");
+    let fmu = out.join("GlobeModeValidation_Simulation_Decay-p5b-fmi2.fmu");
+    let root = out.join("GlobeModeValidation_Simulation_Decay-p5b");
+    assert!(root.join("modelDescription.xml").is_file());
+    assert!(root.join(format!("resources/{MODEL}.mo")).is_file());
+    assert!(
+        !root.join("resources/lib").exists(),
+        "ライブラリを使わないモデルには resources/lib が要らない"
+    );
+    let x = run_p5b_fmu(&fmu, "x");
+    assert!((x - (-1f64).exp()).abs() < 1e-3, "x(1) = {x}");
+    // p5a のもの（--build）とは組み合わせない。共有ライブラリが無い・FMU でないフォルダを消さない守りも p5a と同じ
+    let o = export(&["--build", "--fmi-headers", "."]);
+    assert_eq!(o.status.code(), Some(2), "{o:?}");
+    let o = export(&["--runtime-lib", "/no/such/lib"]);
+    assert_eq!(o.status.code(), Some(2), "{o:?}");
+}
+
+/// S238: MSL のモデルの P5b の FMU は、使うクラスのファイルだけを `resources/lib` に入れる（MSL は 2556 ファイル）。
+/// 入れたものだけで instantiate でき、`mass.s(1) = 1`。`data/msl` か共有ライブラリが無ければ飛ばす。
+#[test]
+fn p5b_runtime_ships_only_the_used_library_files() {
+    let msl = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../../data/msl");
+    let Some(lib) = msl.is_dir().then(p5b_runtime).flatten() else {
+        eprintln!("skip: data/msl か globe-mode-fmu の共有ライブラリが無い");
+        return;
+    };
+    let model = "Modelica.Mechanics.Translational.Examples.Accelerate";
+    let out = out_dir("p5b-msl");
+    let o = Command::new(env!("CARGO_BIN_EXE_globe"))
+        .args(["fmu", "export", "-L"])
+        .arg(&msl)
+        .args(["-m", model, "--out"])
+        .arg(&out)
+        .args(["--runtime", "p5b", "--runtime-lib", lib.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{o:?}");
+    let mut files = Vec::new();
+    globe_mode::collect_mo_files(
+        &out.join("Modelica_Mechanics_Translational_Examples_Accelerate-p5b/resources/lib"),
+        &mut files,
+    )
+    .unwrap();
+    assert!(
+        (50..500).contains(&files.len()),
+        "resources/lib の .mo は {} 個",
+        files.len()
+    );
+    let fmu = out.join("Modelica_Mechanics_Translational_Examples_Accelerate-p5b-fmi2.fmu");
+    let s = run_p5b_fmu(&fmu, "mass.s");
+    assert!((s - 1.0).abs() < 1e-3, "mass.s(1) = {s}");
+}
