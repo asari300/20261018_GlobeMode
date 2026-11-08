@@ -14,6 +14,7 @@ fn package_dir() -> PathBuf {
 
 fn loaded() -> GlobeDb {
     let mut db = GlobeDb::new();
+    db.record_executed();
     db.load_dir(&package_dir())
         .expect("GlobeModeValidation を読める");
     db
@@ -159,6 +160,7 @@ fn structurally_singular_stops_at_s6_with_positions() {
     // a を 2 回決め、b を決める方程式が無い（x と der(x) をまとめたグラフでも、der の形でも特異）
     let text = "// 先頭のコメント\n/* ブロック\n   コメント */\nmodel Singular\n  Real x(start = 1);\n  Real a;\n  Real b \"どの方程式にも現れない\";\nequation\n  der(x) = -x;\n  a = 2 * x;\n  a = 3 * x;\nend Singular;\n";
     let mut db = GlobeDb::new();
+    db.record_executed();
     db.set_file("Singular.mo", text);
     let r = db.check_model("Singular");
     assert!(r.check.passed(), "S5 までは通る: {:?}", r.check.diagnostics);
@@ -204,6 +206,7 @@ fn syntax_error_positions_are_mapped_back_to_the_original_text() {
 #[test]
 fn unbalanced_flat_summary_is_available() {
     let mut db = GlobeDb::new();
+    db.record_executed();
     db.set_file(
         "Unbalanced.mo",
         "model Unbalanced\n  Real x(start = 1);\n  Real y;\nequation\n  der(x) = -x;\nend Unbalanced;\n",
@@ -213,6 +216,25 @@ fn unbalanced_flat_summary_is_available() {
     assert!(r.structural.is_none());
     let flat = db.flat_summary("Unbalanced").expect("flat");
     assert_eq!((flat.variables, flat.equations), (2, 1));
+}
+
+/// #87: 記録を始めなければ、実行したクエリの名前を積まない（本番で増え続けない）。
+#[test]
+fn executed_queries_are_recorded_only_after_record_executed() {
+    let mut db = GlobeDb::new();
+    db.set_file(
+        "M.mo",
+        "model M\n  Real x(start = 1);\nequation\n  der(x) = -x;\nend M;\n",
+    );
+    db.check_model("M");
+    assert!(db.take_executed().is_empty());
+    db.record_executed();
+    db.set_file(
+        "M.mo",
+        "model M\n  Real x(start = 2);\nequation\n  der(x) = -x;\nend M;\n",
+    );
+    db.check_model("M");
+    assert!(!db.take_executed().is_empty());
 }
 
 // --------------------------------------------------------------------------- 防火壁
@@ -369,6 +391,7 @@ fn load_dir_names_the_unreadable_file_and_adds_nothing() {
     std::fs::write(dir.join("A.mo"), "model A end A;").unwrap();
     std::fs::write(dir.join("B.mo"), b"model B \"\xb0\" end B;").unwrap();
     let mut db = GlobeDb::new();
+    db.record_executed();
     let e = db.load_dir(&dir).unwrap_err();
     let _ = std::fs::remove_dir_all(&dir);
     assert!(e.to_string().contains("B.mo"), "{e}");

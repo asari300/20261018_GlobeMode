@@ -12,6 +12,7 @@ fn package_dir() -> PathBuf {
 
 fn loaded() -> GlobeDb {
     let mut db = GlobeDb::new();
+    db.record_executed();
     let n = db
         .load_dir(&package_dir())
         .expect("GlobeModeValidation を読める");
@@ -156,6 +157,7 @@ fn graphology_json_has_nodes_and_edges() {
 #[test]
 fn nested_class_of_extended_class_is_resolved() {
     let mut db = GlobeDb::new();
+    db.record_executed();
     db.set_file(
         "NestedInherited.mo",
         "package NestedInherited
@@ -350,6 +352,7 @@ const LIB_DOC: &str = "model Doc\n  GlobeModeValidation.Components.Resistor r(R 
 fn library_graph_is_backdated() {
     let modelica = package_dir().join("..");
     let mut db = GlobeDb::with_libraries(&[modelica]).expect("GlobeModeValidation を読める");
+    db.record_executed();
     db.set_file("Doc.mo", LIB_DOC);
     let first = db.connect_graph("Doc", 1).unwrap();
     assert!(first.unresolved.is_empty(), "{:?}", first.unresolved);
@@ -389,6 +392,7 @@ fn bom_file_is_checked_and_positions_keep_the_original_offsets() {
     // S211（#32）: UTF-8 の BOM つきでも構文の誤りにならず、位置は BOM を含む渡した本文のバイト位置
     const BODY: &str = "model M\n  Real x;\nequation\n  der(x) = -x;\nend M;\n";
     let mut db = GlobeDb::new();
+    db.record_executed();
     db.set_file("bom.mo", format!("\u{feff}{BODY}"));
     db.set_file("plain.mo", BODY.to_string());
     let with = db

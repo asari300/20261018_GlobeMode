@@ -39,12 +39,14 @@
 //!   `structural`（S6）は再計算されない。
 //! - `loop_report`（S9、S010）は `dae_shape` と `index_report` と `init_shape`（反復変数の start 値の有無）を読む。
 //!   `preflight_report`（S10、S010）は `preflight_shape`（位置を落としたプリフライトの入力）だけを読む。
-//! - どのクエリが実行されたかは [`GlobeDb::take_executed`] で取り出せる（テストと計測に使う）。
+//! - どのクエリが実行されたかは [`GlobeDb::record_executed`] で記録を始めたあと、[`GlobeDb::take_executed`] で取り出せる（テストと計測に使う。
+//!   既定では記録しない。積むだけで減らないので、長く開く LSP のメモリが増え、毎クエリの文字列の組み立てもかかる。#87）。
 
 mod deps;
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// CLI が S10 の experiment の判定を表示するのに使う（S010）
@@ -529,6 +531,8 @@ impl FullReport {
 pub struct GlobeDb {
     storage: salsa::Storage<Self>,
     executed: Arc<Mutex<Vec<String>>>,
+    /// `executed` に積むか（[`GlobeDb::record_executed`]）。既定は積まない
+    recording: Arc<AtomicBool>,
     files: BTreeMap<String, SourceFile>,
     workspace: Option<Workspace>,
     /// salsa の外の検査器（中の Rumoca の Session は共有される）
@@ -604,9 +608,13 @@ impl GlobeDb {
         let checker = checker.new_handle();
         let executed: Arc<Mutex<Vec<String>>> = Arc::default();
         let log = executed.clone();
+        let recording: Arc<AtomicBool> = Arc::default();
+        let on = recording.clone();
         Self {
             storage: salsa::Storage::new(Some(Box::new(move |event| {
-                if let salsa::EventKind::WillExecute { database_key } = event.kind {
+                if let salsa::EventKind::WillExecute { database_key } = event.kind
+                    && on.load(Ordering::Relaxed)
+                {
                     // `outline(Id(…))` のような表記から、クエリの名前だけを残す
                     let name = format!("{database_key:?}");
                     let name = name.split('(').next().unwrap_or(&name).to_string();
@@ -616,6 +624,7 @@ impl GlobeDb {
                 }
             }))),
             executed,
+            recording,
             files: BTreeMap::new(),
             workspace: None,
             checker,
@@ -977,7 +986,12 @@ impl GlobeDb {
         &self.checker
     }
 
-    /// これまでに実行されたクエリの名前（実行順）を取り出して、記録を空にする。
+    /// 実行されたクエリの名前の記録を始める（試験と計測用。呼ぶ前に実行されたものは記録されない）。
+    pub fn record_executed(&self) {
+        self.recording.store(true, Ordering::Relaxed);
+    }
+
+    /// 記録を始めてから実行されたクエリの名前（実行順）を取り出して、記録を空にする。
     pub fn take_executed(&self) -> Vec<String> {
         self.executed
             .lock()

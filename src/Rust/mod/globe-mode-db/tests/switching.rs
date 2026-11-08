@@ -53,6 +53,7 @@ impl Ws {
     }
 
     fn with_db(mut db: GlobeDb, reference: Checker) -> Ws {
+        db.record_executed();
         db.load_dir(&package_dir())
             .expect("GlobeModeValidation を読める");
         let texts = db
