@@ -43,6 +43,10 @@ class ResultError(GlobeModeError, ValueError):
     """結果に時系列が無い（`table`。実行できなかった結果を表にしようとした）か、結果のファイルを読めない（`read_results`）。"""
 
 
+class FmuError(GlobeModeError, RuntimeError):
+    """FMU を読めない・回せない（`fmu_info`・`run_fmu`。FMU が落ちた・時間切れ・止めた、`globe` の実行ファイルが見つからない）。本文に理由。"""
+
+
 def _summary(ds: list[dict[str, Any]]) -> str:
     """診断のリストを、最初の error の `コード: 文（ファイル・バイト位置・補足）` と `ほか n 件` にする。"""
     if not ds:
@@ -55,5 +59,5 @@ def _summary(ds: list[dict[str, Any]]) -> str:
     return text + (f" ほか {len(ds) - 1} 件" if len(ds) > 1 else "")
 
 
-for _c in (GlobeModeError, LibraryError, SettingsError, ModelNotFoundError, SourceError, ExportError, ResultError):
+for _c in (GlobeModeError, LibraryError, SettingsError, ModelNotFoundError, SourceError, ExportError, ResultError, FmuError):
     _c.__module__ = "globe_mode"

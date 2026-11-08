@@ -1,4 +1,4 @@
-import { isResultsFile } from "./results";
+import { isFmuFile, isResultsFile } from "./results";
 
 // ブラウザ（と Android の WebView）のファイル操作（S141）。`<input type=file>` と Blob のダウンロードだけ。
 // shortcut: File System Access API は使わない（Firefox・Safari に無い）。同じファイルへの上書きはできず、保存は毎回ダウンロード。入れるなら Chromium だけで分岐する。
@@ -7,12 +7,13 @@ import { isResultsFile } from "./results";
 export function browserOpen(): Promise<{ name: string; text: string; bytes?: Uint8Array } | null> {
   return new Promise((resolve, reject) => {
     // DOM に付けておく（付けないと change の前に回収されるブラウザがある）
-    const input = Object.assign(document.createElement("input"), { type: "file", accept: ".mo,.mat,.csv", hidden: true });
+    const input = Object.assign(document.createElement("input"), { type: "file", accept: ".mo,.mat,.csv,.fmu", hidden: true });
     const done = () => input.remove();
     input.onchange = () => {
       const f = input.files?.[0];
       done();
       if (!f) return resolve(null);
+      if (isFmuFile(f.name)) return resolve({ name: f.name, text: "" }); // S229: 回せるのは Desktop だけ。zip を文字として読まない
       if (isResultsFile(f.name)) f.arrayBuffer().then((b) => resolve({ name: f.name, text: "", bytes: new Uint8Array(b) }), reject);
       else f.text().then((text) => resolve({ name: f.name, text }), reject);
     };

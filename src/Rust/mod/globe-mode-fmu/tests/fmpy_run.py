@@ -4,7 +4,9 @@ S109: 事象の回数も出す（`events=` は fmi2EnterEventMode の回数、`r
 S114: 8 番目の引数（任意）は FMPy の `input=` に渡す入力（`{"u": [[時刻, 値], ...]}` の JSON）。
 S137: 7 番目の引数は FMI の主版（2 または 3）。3 なら binaries/x86_64-linux/ に置き、fmi3UpdateDiscreteStates を数える。
 
-使い方: python fmpy_run.py <libglobe_mode_fmu.so> <modelDescription.xml> <model.mo> <完全修飾名> <出力の .fmu> <変数,...> <2|3> [入力の JSON]
+S231: 9 番目の引数（任意）に CoSimulation を渡すと、FMPy の CS で回す（modelDescription.xml は CS を含むものを渡す）。
+
+使い方: python fmpy_run.py <libglobe_mode_fmu.so> <modelDescription.xml> <model.mo> <完全修飾名> <出力の .fmu> <変数,...> <2|3> [入力の JSON] [CoSimulation]
 """
 
 import json
@@ -50,6 +52,6 @@ if len(sys.argv) > 8 and sys.argv[8]:
         [(row[0], *(columns[n][i][1] for n in columns)) for i, row in enumerate(times)],
         dtype=[("time", np.float64)] + [(n, np.float64) for n in columns],
     )
-result = simulate_fmu(fmu, fmi_type="ModelExchange", output=names.split(","), input=signal)
+result = simulate_fmu(fmu, fmi_type=sys.argv[9] if len(sys.argv) > 9 else "ModelExchange", output=names.split(","), input=signal)
 print(" ".join(f"{n}={float(result[n][-1])!r}" for n in names.split(",")), f"t={float(result['time'][-1])!r}",
       " ".join(f"{k}={v}" for k, v in counts.items()))

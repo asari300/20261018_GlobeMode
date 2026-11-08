@@ -12,6 +12,7 @@ dist/ を localhost で配り（CSP は index.html の meta と同じものを�
 Decay の `der(x)` の x で F12 を押すと宣言の行（`Real x`）へ動く。ChuaCircuit のファイルで型 `Modelica.Electrical.Analog.Basic.Resistor` の上の F12 は、ライブラリの Resistor.mo をエディタに開き、Alt+← で ChuaCircuit に戻る（S138）。
 構文の色付け（S163）: 予約語・型・数値・文字列・コメントに別々の色のクラス（cm-mo-*）が付き、エディタの地に対してコントラスト 4.5 以上。暗でも同じ。editor.ts の KEYWORDS は Rust の KEYWORDS と同じ並び。
 Decay の x で Shift+F12 を押すと参照の一覧（3 行）が出て行を押すと飛べ、F2 で pos に変えると全出現が変わって検査が通り（予約語は断られ、Ctrl+Z 1 回で戻る。S161）。クラス名も同じ（`extends Base` の Base を Core に変えると宣言・end・extends が変わる。S166）。
+FMU を開く（S229）: 「開く」で .fmu を選ぶと、ブラウザは「Desktop だけ」と理由を出す。Desktop（偽の window.__TAURI__）は警告つきの確認のあと結果のタブにプロットを出し、確認を断れば回さず、FMU の失敗は理由を出す。
 `.mo` を開く（ファイル選択）とエディタに入りモデル名が本文から付いて検査が通り、「保存」でダウンロードされ、再読み込みで localStorage から戻る（S141）。
 名前の上にマウスを置くと宣言の 1 行が出る（Decay の x は `Real x`、ChuaCircuit の Resistor は見出しと説明文字列。S149）。
 タブ（S151）: 開くたびにタブが増え、切り替えで本文・モデル名・診断が戻り、再読み込みでタブが戻り、閉じるボタンで減り（未保存なら confirm 1 つ。最後の 1 つは閉じられない）、「最近使ったファイル」から開き直せる。
@@ -145,7 +146,7 @@ FAKE_TAURI = """
 (() => {
   const fake = (window.__fake = { files: {}, opens: [], saves: [], writes: [], scope: new Set() });
   const listen = async () => () => {};
-  const rpc = { "globe/models": [], "globe/lint": [], "globe/completion": [], "globe/solvers": [], "globe/tunableParameters": { parameters: [] } };
+  const rpc = (window.__rpc = { "globe/models": [], "globe/lint": [], "globe/completion": [], "globe/solvers": [], "globe/tunableParameters": { parameters: [] } });
   window.__TAURI__ = {
     core: { invoke: async (cmd, args) => (cmd === "libraries" ? [] : cmd === "bench" ? false : cmd === "read_recent" ? fake.files[args.path] : cmd === "write_recent" ? (fake.writes.push([args.path, args.text]), (fake.files[args.path] = args.text), null) : cmd === "rpc" ? (rpc[args.method] ?? null) : null) },
     event: { listen },
@@ -599,6 +600,74 @@ def open_results_file(browser, origin: str, errors: list[str]) -> None:
     assert pg.get_by_role("tab").count() == n
     pg.close()
     print("結果を開く: .csv と .mat が結果のタブでプロットされ、エディタは隠れ、タブの切り替えで列が戻り、保存と読めないファイルは理由が出る")
+
+
+def open_fmu_file(browser, origin: str, errors: list[str]) -> None:
+    """S229: 「開く」で .fmu を選ぶ。ブラウザは「Desktop だけ」と理由を出す。Desktop（偽の window.__TAURI__）は警告つきの確認のあと
+    sidecar（偽の rpc）が回した列を結果のタブに出し、確認を断れば何も回さない。実行の失敗は理由を出す。"""
+    asked: list[str] = []
+    answer = {"ok": True}
+
+    def on_dialog(d) -> None:
+        asked.append(d.message)
+        d.accept() if answer["ok"] else d.dismiss()
+
+    def page():
+        pg = browser.new_page()
+        pg.on("console", lambda m: m.type == "error" and errors.append(m.text))
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.on("dialog", on_dialog)
+        return pg
+
+    # ブラウザ: zip を読まず、理由だけ
+    pg = page()
+    pg.goto(origin)
+    pg.get_by_role("button", name="検査").wait_for()
+    with pg.expect_file_chooser() as ch:
+        pg.get_by_role("button", name="開く").click(force=True)
+    ch.value.set_files(files=[{"name": "d.fmu", "mimeType": "application/octet-stream", "buffer": b"PK\x03\x04"}])
+    expect(pg.get_by_role("alert")).to_contain_text("Desktop だけ", timeout=10_000)
+    assert pg.get_by_role("tab").count() == 1 and not asked, asked
+    pg.close()
+
+    # Desktop
+    dt = page()
+    dt.add_init_script(FAKE_TAURI)
+    dt.goto(origin)
+    dt.get_by_role("button", name="検査").wait_for()
+    dt.evaluate(
+        """() => {
+      const calls = (window.__fmuCalls = []);
+      __rpc["globe/fmuInfo"] = { model_name: "Dahlquist", fmi_version: "3.0", interfaces: [{ kind: "CoSimulation", model_identifier: "Dahlquist" }], warning: "警告: FMU の中のネイティブコードを別プロセスで実行する" };
+      Object.defineProperty(__rpc, "globe/fmuRun", { get() { calls.push("run"); if (window.__fmuFail) throw new Error("FMU のワーカー（別プロセス）: 結果を返す前に終わった（signal: 11）"); return { layout: { names: ["time", "x"], points: 3, defaults: ["x"] }, columns: [[0, 1, 2], [1, 0.5, 0.25]], me: null }; } });
+    }"""
+    )
+
+    def desktop_open() -> None:
+        dt.evaluate("__fake.opens.push('/d1/Dahlquist.fmu')")
+        dt.get_by_role("button", name="開く", exact=True).click(force=True)
+
+    answer["ok"] = False
+    desktop_open()
+    for _ in range(100):
+        if asked:
+            break
+        dt.wait_for_timeout(100)
+    assert "ネイティブコード" in asked[0] and "Dahlquist" in asked[0] and "CoSimulation" in asked[0], asked
+    dt.wait_for_timeout(500)
+    assert dt.evaluate("__fmuCalls.length") == 0 and dt.get_by_role("tab").count() == 1  # 断れば回さない
+    answer["ok"] = True
+    desktop_open()
+    expect(dt.get_by_role("tab", name="結果 Dahlquist.fmu")).to_have_attribute("aria-selected", "true", timeout=30_000)
+    expect(dt.locator(".plot")).to_have_attribute("data-series", "1")
+    expect(dt.locator("p[data-results]")).to_contain_text("3 点")
+    assert dt.evaluate("__fmuCalls.length") == 1
+    dt.evaluate("window.__fmuFail = true")
+    dt.evaluate("__fake.opens.push('/d1/Dahlquist.fmu')")
+    dt.get_by_role("button", name="開く", exact=True).click(force=True)
+    expect(dt.get_by_role("alert")).to_contain_text("signal: 11", timeout=10_000)
+    dt.close()
+    print("FMU を開く: ブラウザは Desktop だけと理由、Desktop は警告つきの確認（断れば回さない）のあと結果のタブにプロット、FMU の失敗は理由を出す")
 
 
 def plot_fixes(browser, origin: str, errors: list[str]) -> None:
@@ -1846,6 +1915,7 @@ def main() -> int:
         plot_fixes(browser, origin, errors)  # S201
         open_results_file(browser, origin, errors)  # S222
         ui_polish(browser, origin, errors)  # S228
+        open_fmu_file(browser, origin, errors)  # S229
         print("エディタの Tab: 空白 2 つの字下げ（選択した 2 行も）と Shift+Tab、補完の一覧が開いていれば確定・閉じていれば字下げ、Esc のあと Tab・Shift+Tab と Ctrl+M で外へ、説明は aria-describedby と画面に")
         print("キーボードだけ: モデル名・エディタへ Tab、Ctrl+Shift+Enter で検査、診断と参照の行を Tab・Enter・Space でエディタへ、Ctrl+Enter で実行（プロットの aria-label に信号名と時間の範囲）、Ctrl+. で止め、Ctrl+S で保存")
         # 初回の案内・スキップリンク・タブの矢印キー・未保存の印（S179）

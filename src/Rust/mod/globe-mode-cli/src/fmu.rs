@@ -9,10 +9,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Subcommand, ValueEnum};
-use globe_mode_fmi_import::{
-    Kind, TRUST_WARNING, WorkerRequest, WorkerSpec, read_model_description, run_in_worker,
-    worker_main,
-};
+use globe_mode_fmi_import::worker_main;
 
 /// `globe fmu run --kind`
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -136,29 +133,18 @@ pub fn run(command: FmuImportCommand) -> ExitCode {
     }
 }
 
-fn info(file: &std::path::Path) -> Result<(), globe_mode_fmi_import::Error> {
-    let md = read_model_description(file)?;
-    println!("{}（FMI {}）", md.model_name, md.fmi_version);
-    for (label, i) in [
-        ("ModelExchange", &md.model_exchange),
-        ("CoSimulation", &md.co_simulation),
-        ("ScheduledExecution", &md.scheduled_execution),
-    ] {
-        if let Some(i) = i {
-            // ME は連続状態の数（ModelStructure の Derivatives）と event indicator の数も出す
-            let me = if label == "ModelExchange" {
-                format!(
-                    "（連続状態 {}、event indicator {}）",
-                    md.model_structure.derivatives.len(),
-                    md.number_of_event_indicators
-                )
-            } else {
-                String::new()
-            };
-            println!("  {label}: {}{me}", i.model_identifier);
-        }
+fn info(file: &std::path::Path) -> Result<(), String> {
+    let info = globe_mode::import_fmu_info(file)?;
+    println!("{}（FMI {}）", info.model_name, info.fmi_version);
+    for i in &info.interfaces {
+        // ME は連続状態の数（ModelStructure の Derivatives）と event indicator の数も出す
+        let me = match (i.continuous_states, i.event_indicators) {
+            (Some(s), Some(e)) => format!("（連続状態 {s}、event indicator {e}）"),
+            _ => String::new(),
+        };
+        println!("  {}: {}{me}", i.kind, i.model_identifier);
     }
-    if let Some(e) = &md.default_experiment {
+    if let Some(e) = &info.default_experiment {
         let f = |v: &Option<String>| v.clone().unwrap_or_else(|| "-".into());
         println!(
             "  DefaultExperiment: 開始 {} 終了 {}",
@@ -166,14 +152,14 @@ fn info(file: &std::path::Path) -> Result<(), globe_mode_fmi_import::Error> {
             f(&e.stop_time)
         );
     }
-    println!("  変数 {}:", md.variables.len());
-    for v in &md.variables {
+    println!("  変数 {}:", info.variables.len());
+    for v in &info.variables {
         let start = v
             .start
             .as_deref()
             .map(|s| format!(" = {s}"))
             .unwrap_or_default();
-        println!("    {} ({:?}, {:?}){start}", v.name, v.causality, v.ty);
+        println!("    {} ({}, {}){start}", v.name, v.causality, v.ty);
     }
     Ok(())
 }
@@ -199,41 +185,32 @@ fn run_fmu(
     c: Common,
     out: Option<&std::path::Path>,
     limits: Limits,
-) -> Result<(), globe_mode_fmi_import::Error> {
-    use globe_mode_fmi_import::Error;
-    eprintln!("{TRUST_WARNING}");
-    let mut spec = WorkerSpec::new(
-        std::env::current_exe().map_err(|e| Error::Worker(e.to_string()))?,
-        &["fmu", "__worker"],
-    );
-    spec.timeout = limits
-        .timeout
-        .map(|s| {
-            std::time::Duration::try_from_secs_f64(s)
-                .map_err(|_| Error::Worker(format!("--timeout {s} が不正（0 以上の秒数）")))
-        })
-        .transpose()?;
-    spec.memory_limit = limits.memory_limit.map(|m| m.saturating_mul(1 << 20));
-    let run = run_in_worker(
-        &spec,
-        &WorkerRequest {
-            file: file.to_owned(),
-            kind: kind.map(|k| match k {
-                FmuKind::Cs => Kind::Cs,
-                FmuKind::Me => Kind::Me,
-            }),
-            start_time: c.start_time,
-            stop_time: c.stop_time,
-            step: c.step,
-            outputs: c.outputs,
-            set: c.set,
-            work_dir: None, // run_in_worker が親の側で作る
-        },
+) -> Result<(), String> {
+    eprintln!("{}", globe_mode::FMU_TRUST_WARNING);
+    let worker = std::env::current_exe().map_err(|e| e.to_string())?;
+    let request = globe_mode::FmuRunRequest {
+        kind: kind.map(|k| match k {
+            FmuKind::Cs => globe_mode::FmuKind::Cs,
+            FmuKind::Me => globe_mode::FmuKind::Me,
+        }),
+        start_time: c.start_time,
+        stop_time: c.stop_time,
+        step: c.step,
+        outputs: c.outputs,
+        set: c.set.into_iter().collect(),
+        timeout: limits.timeout,
+        memory_limit_mib: limits.memory_limit,
+    };
+    let run = globe_mode::run_fmu(
+        &worker,
+        file,
+        &request,
         &mut |t| {
             if limits.progress {
                 eprintln!("進捗: t = {t}");
             }
         },
+        None,
     )?;
     if let Some(me) = &run.me {
         eprintln!(
@@ -250,16 +227,15 @@ fn run_fmu(
             }
         );
     }
-    let mut text = csv_header(&run.names);
-    for (t, values) in &run.rows {
-        text.push_str(&t.to_string());
-        for v in values {
-            text.push_str(&format!(",{v}"));
-        }
+    let (layout, columns) = run.results.columns();
+    let mut text = csv_header(&layout.names[1..]);
+    for i in 0..layout.points {
+        let row: Vec<String> = columns.iter().map(|c| c[i].to_string()).collect();
+        text.push_str(&row.join(","));
         text.push('\n');
     }
     match out {
-        Some(p) => std::fs::write(p, text).map_err(|e| Error::Io(e.to_string()))?,
+        Some(p) => std::fs::write(p, text).map_err(|e| format!("入出力の失敗: {e}"))?,
         None => print!("{text}"),
     }
     Ok(())

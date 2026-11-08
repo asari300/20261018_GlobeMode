@@ -33,6 +33,14 @@ pub use globe_mode_protocol::{
 };
 pub use globe_mode_sim::solvers::{SOLVERS, SolverEntry};
 // facade に無いものを呼ぶとき（CLI の文字の表示が `FullReport` を読む、結果を CSV / MAT に書く）
+#[cfg(feature = "fmu-import")]
+mod fmu_import;
+#[cfg(feature = "fmu-import")]
+pub use fmu_import::{
+    FMU_TRUST_WARNING, FmuExperiment, FmuInfo, FmuInterface, FmuKind, FmuRun, FmuRunRequest,
+    FmuVariable, MeSummary, import_fmu_info, run_fmu,
+};
+
 pub use globe_mode_db as db;
 pub use globe_mode_exec as exec;
 pub use globe_mode_exec::{CancelToken, ExecStage, Progress};
