@@ -261,6 +261,36 @@ impl SimColumns {
     }
 }
 
+/// 開いた結果のファイルの列（S222）。[`SimColumns`] の `layout`・`column` と同じ形。使い終わったら `free()`。
+#[wasm_bindgen]
+#[derive(Debug)]
+pub struct ResultColumns(globe_mode::OpenedResults);
+
+#[wasm_bindgen]
+impl ResultColumns {
+    /// [`globe_mode::ColumnsLayout`] の JSON。
+    pub fn layout(&self) -> String {
+        serde_json::to_string(&self.0.columns().0).unwrap_or_default()
+    }
+
+    /// 列 `i`（0 が時刻、1 から変数）。範囲外は空。
+    pub fn column(&self, i: usize) -> Vec<f64> {
+        self.0
+            .columns()
+            .1
+            .get(i)
+            .map_or_else(Vec::new, |c| c.to_vec())
+    }
+}
+
+/// 結果のファイル（`.mat` か `.csv`。`name` の拡張子で読み分ける）を列にする（S222）。読めなければ理由を投げる。
+#[wasm_bindgen]
+pub fn read_results(name: &str, bytes: &[u8]) -> Result<ResultColumns, JsValue> {
+    globe_mode::open_results(name, bytes)
+        .map(ResultColumns)
+        .map_err(js_error)
+}
+
 /// 一度きりの実行（Rust から呼ぶ形）。ライブラリ無しのワークスペースを作り、`request.files` を足して回す。
 pub fn run(request: &Request) -> Response {
     Workspace::new().run(request)

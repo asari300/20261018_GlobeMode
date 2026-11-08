@@ -64,7 +64,7 @@
   async function refreshModels(set = true) {
     const f = file;
     try {
-      if (set) await backend.setFile(f, view.state.doc.toString());
+      if (set && !isResults) await backend.setFile(f, view.state.doc.toString());
       const m = own ? await backend.models(f) : [];
       if (f === file) models = m;
     } catch {
@@ -105,9 +105,10 @@
   }
 
   // S151: タブ。いまの文書の file / model / own / diagnostics / saved はこれまでどおり大域の変数で、離れるときに tab へ写す（state は EditorState。元に戻す履歴も文書ごと）
-  type Tab = { file: string; model: string; own: boolean; state: EditorState; diagnostics: Diagnostic[]; saved: string; clean: string; path?: string }; // path: Desktop でこのタブが本文を受け取った（開いた・保存した）ファイルのパス。保存はここに書く（S196）。 // clean: 開いた・保存した本文（閉じるとき、違えば確かめる。ライブラリは見ない）
+  type Tab = { file: string; model: string; own: boolean; state: EditorState; diagnostics: Diagnostic[]; saved: string; clean: string; path?: string; results?: Columns }; // results: 開いた結果のファイル（.mat・.csv。S222）のタブ。本文は無く、プロットだけを持つ。 // path: Desktop でこのタブが本文を受け取った（開いた・保存した）ファイルのパス。保存はここに書く（S196）。 // clean: 開いた・保存した本文（閉じるとき、違えば確かめる。ライブラリは見ない）
   let tabs = $state.raw<Tab[]>([]);
   let cur = $state(0);
+  const isResults = $derived(!!tabs[cur]?.results);
   // 最近使ったファイル（古い順。上限 10）。Desktop は path だけ、ブラウザは名前と本文
   type Recent = { path: string; text?: string };
   let recent = $state.raw<Recent[]>([]);
@@ -392,10 +393,12 @@
     failure = "";
     live = ""; // 同じ文が続いても、消してから入れ直すと読まれる
     try {
-      await backend.setFile(file, view.state.doc.toString());
-      await refreshModels(false);
-      strayLib = "";
-      if (own && models.length && !models.includes(model) && msl === "loaded") await backend.librarySource(model).then(() => (strayLib = model), () => {});
+      if (!isResults) {
+        await backend.setFile(file, view.state.doc.toString());
+        await refreshModels(false);
+        strayLib = "";
+        if (own && models.length && !models.includes(model) && msl === "loaded") await backend.librarySource(model).then(() => (strayLib = model), () => {});
+      }
       await job();
     } catch (e) {
       failure = String((e as Error).message ?? e);
@@ -591,7 +594,7 @@
     if (prev.own && prev.file !== t.file) void backend.setFile(prev.file, "").catch(() => {}); // 離れた自分のファイルは Workspace から外す（同じクラスの二重定義を避ける。S141）
     cur = i;
     ({ file, model, own, diagnostics, saved } = t);
-    columns = null;
+    columns = t.results ?? null; // S222: 結果のファイルのタブはプロットを持つ
     graphModel = null;
     tabs = [...tabs];
     view.setState(t.state);
@@ -646,9 +649,21 @@
   // S141: 開く。S151 から新しいタブに開く（同じ名前のタブがあればその本文を差し替える）。Workspace の二重定義は activate が避ける
   // S196: Desktop は path を受け取り、同じ名前の別のファイルは別の key のタブにして、保存先はタブの path で決める（tabKey）
   const openOwn = (name: string, text: string, path?: string) => openDoc(tabKey(name, path, tabs), text, guessModel(text), true, path);
+  // S222: 結果のファイル（.mat・.csv）は読んだ列を持つタブに開く（同じファイルならそのタブの列を差し替える）。エディタは隠し、プロットは実行の結果と同じ
+  function openResults(name: string, c: Columns) {
+    const key = `結果 ${name}`;
+    if (key === file) { tabs[cur].results = c; columns = c; return; }
+    let i = tabs.findIndex((t, j) => j !== cur && t.file === key);
+    if (i < 0) {
+      tabs = [...tabs, { file: key, model: name.replace(/\.[^.]*$/, ""), own: false, state: mkState("", true), diagnostics: [], saved: "", clean: "", results: c }];
+      i = tabs.length - 1;
+    } else tabs[i].results = c;
+    activate(i);
+  }
   const openFromDisk = () => run(async () => {
     const f = await backend.openFile();
     if (!f) return;
+    if (f.columns) return openResults(f.name, f.columns);
     openOwn(f.name, f.text, f.path);
     remember(f.path ?? f.name, f.text);
   });
@@ -666,6 +681,7 @@
   });
   async function save(saveAs = false) {
     failure = "";
+    if (isResults) { failure = "結果のファイルのタブは保存できない（プロットの CSV・PNG の書き出しを使う）"; return; }
     try {
       // #70: 開いた・保存したあとに外（別のエディタ・git）で書き換わっていたら、確かめてから上書きする。読めなければ（消えた）そのまま書く
       const at = own && desktop && !saveAs ? tabs[cur].path : undefined;
@@ -819,12 +835,13 @@
       </span>
     {/each}
   </div>
-  {#if !own}<p class="note" class:hit={roHit} data-readonly>{RO_MSG}</p>{/if}
+  {#if isResults}<p class="note" data-results>開いた結果のファイル: {file}（{columns?.points ?? 0} 点、{columns?.names.length ?? 0} 信号）。プロットの CSV・PNG の書き出しはそのまま使える。実行・保存はできない。</p>
+  {:else if !own}<p class="note" class:hit={roHit} data-readonly>{RO_MSG}</p>{/if}
   {#if otherWindow}<p class="note" role="status" data-other-window>別のウィンドウでも開いている。自動保存は最後に編集したほうだけが残る。</p>{/if}
   {#if storeNote}<p class="failure" role="status" data-store-note>{storeNote}</p>{/if}
   <div class="work">
     {#if msl === "loaded"}<aside class="library"><LibraryTree {backend} onOpen={openLibrary} /></aside>{/if}
-    <div class="editor" id="editor" bind:this={host}></div>
+    <div class="editor" id="editor" hidden={isResults} bind:this={host}></div>
   </div>
   <p class="hint" id="editor-help">{EDITOR_HELP}</p>
   {#if saved}<p class="note" role="status" data-saved>{saved}</p>{/if}
@@ -875,6 +892,7 @@
   .tab.active button[role=tab] { font-weight: bold; }
   .work { display: flex; gap: .5rem; }
   .library { flex: 0 0 16rem; height: 16rem; overflow: auto; border: 1px solid var(--border); font-size: .9em; }
+  .editor[hidden] { display: none; }
   .editor { flex: 1; min-width: 0; border: 1px solid var(--border); }
   .editor :global(.cm-editor) { height: 16rem; }
   .diagnostics, .refs { width: 100%; border-collapse: collapse; margin-top: .5rem; }

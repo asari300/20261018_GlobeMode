@@ -2,6 +2,7 @@ import { GlobeWorker } from "../../../Rust/mod/globe-mode-wasm/web/client.js";
 import type { Backend, CompletionEntry, Definition, Hover, LintMessage, Progress, TreeEntry } from "./backend";
 import { browserOpen, browserSave, browserSaveBinary } from "./browser-file";
 import { gapNonFinite, type Columns } from "./plot/csv";
+import { toColumns } from "./results";
 import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse, SolverEntry, TunableParameter } from "./protocol";
 
 /** Web Worker 上の wasm（ADR-0014、ADR-0023）。呼び出しは直列で、panic のあとは worker を作り直す。 */
@@ -75,7 +76,12 @@ export class WorkerBackend implements Backend {
   async exportFmu(model: string, fmiVersion: number): Promise<string | null> {
     return browserSave(`${model.replaceAll(".", "_")}-fmi${fmiVersion}.fmu`, await this.#w.exportFmu(model, fmiVersion)); // S144。名前は facade の `MeSources::file_name` と同じ（S189。版つき）
   }
-  openFile = browserOpen;
+  async openFile() {
+    const f = await browserOpen();
+    if (!f?.bytes) return f;
+    const r = await this.#w.readResults(f.name, f.bytes); // S222。列は wasm から Float64Array
+    return { name: f.name, text: "", columns: toColumns(r.layout, r.columns.map(gapNonFinite)) };
+  }
   saveFile = browserSave;
   saveBinary = browserSaveBinary;
 }

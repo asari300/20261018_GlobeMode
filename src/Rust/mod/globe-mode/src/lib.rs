@@ -199,32 +199,56 @@ impl Simulated {
     /// 列の道（S116。wasm の `SimColumns`・Python の `simulate_columns`・C の `gm_simulate_columns`・NIF と共通）。
     /// 列の並び（`names[0]` は `time`）と、列ごとの値（`points` 個ずつ）。実行できなかったときは空の列と 0 点。
     pub fn columns(&self) -> (ColumnsLayout, Vec<&[f64]>) {
-        let Some(run) = &self.run else {
-            return (
+        match &self.run {
+            Some(run) => columns_of(&run.trajectory, self.default_plot.clone()),
+            None => (
                 ColumnsLayout {
                     names: Vec::new(),
                     points: 0,
                     defaults: Vec::new(),
                 },
                 Vec::new(),
-            );
-        };
-        let traj = &run.trajectory;
-        let names = std::iter::once("time".to_string())
-            .chain(traj.variables.iter().map(|v| v.name.clone()))
-            .collect();
-        let columns = std::iter::once(traj.time.as_slice())
-            .chain(traj.variables.iter().map(|v| v.values.as_slice()))
-            .collect();
-        (
-            ColumnsLayout {
-                names,
-                points: traj.time.len(),
-                defaults: self.default_plot.clone(),
-            },
-            columns,
-        )
+            ),
+        }
     }
+}
+
+fn columns_of(
+    traj: &globe_mode_ir::Trajectory,
+    defaults: Vec<String>,
+) -> (ColumnsLayout, Vec<&[f64]>) {
+    let names = std::iter::once("time".to_string())
+        .chain(traj.variables.iter().map(|v| v.name.clone()))
+        .collect();
+    let columns = std::iter::once(traj.time.as_slice())
+        .chain(traj.variables.iter().map(|v| v.values.as_slice()))
+        .collect();
+    (
+        ColumnsLayout {
+            names,
+            points: traj.time.len(),
+            defaults,
+        },
+        columns,
+    )
+}
+
+/// 開いた結果のファイル（`.mat` か `.csv`）の時系列。UI の「結果を開く」（S222）が実行の結果と同じ列の道で描く。
+#[derive(Debug)]
+pub struct OpenedResults(globe_mode_ir::Trajectory);
+
+impl OpenedResults {
+    /// [`Simulated::columns`] と同じ形（既定で描く信号は先頭の 3 本。読んだ結果に役割は無い）。
+    pub fn columns(&self) -> (ColumnsLayout, Vec<&[f64]>) {
+        columns_of(&self.0, self.0.default_plot(&[]))
+    }
+}
+
+/// 結果のファイルの中身を `name` の拡張子で読む（[`sim::mat::read_results_bytes`]）。読めなければ理由。
+pub fn open_results(name: &str, bytes: &[u8]) -> Result<OpenedResults, String> {
+    sim::mat::read_results_bytes(name, bytes)
+        .map(|m| OpenedResults(m.trajectory))
+        .map_err(|e| format!("{name}: {e}"))
 }
 
 /// ライブラリを 1 回だけ読み、作業中のファイルを出し入れしながら、検査・グラフ・実行を繰り返す。
