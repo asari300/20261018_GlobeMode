@@ -434,7 +434,7 @@ def ui_polish(browser, origin: str, errors: list[str]) -> None:
     run = pg.get_by_role("button", name="実行", exact=True)
     running = pg.locator("[data-run=running]")
     run.click(force=True)
-    expect(running).to_contain_text("integration", timeout=120_000)
+    expect(running).to_contain_text("t = ", timeout=120_000)  # 積分が進み出してから（段の名前だけの時点で押すと、止める旗が積分の開始で消されることがあった）
     pg.get_by_label("モデル名").focus()
     pg.keyboard.press("Escape")
     pg.wait_for_timeout(500)
@@ -452,7 +452,7 @@ def ui_polish(browser, origin: str, errors: list[str]) -> None:
     assert pg.get_by_role("alert").count() == 0, pg.get_by_role("alert").all_inner_texts()
     put(pg, "Long", LONG)  # 打った "Rea" を戻す
     run.click(force=True)  # フォーカスが本文以外（body）でも止まる
-    expect(running).to_contain_text("integration", timeout=120_000)
+    expect(running).to_contain_text("t = ", timeout=120_000)  # 積分が進み出してから（段の名前だけの時点で押すと、止める旗が積分の開始で消されることがあった）
     pg.locator("body").evaluate("() => document.activeElement?.blur()")
     pg.keyboard.press("Escape")
     expect(pg.locator("[data-run=cancelled]")).to_be_visible(timeout=60_000)
