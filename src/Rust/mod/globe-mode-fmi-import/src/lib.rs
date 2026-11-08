@@ -320,6 +320,11 @@ pub(crate) fn find_float(md: &ModelDescription, name: &str) -> Result<u32> {
             "変数 {name:?} は Float64（Real）でない（この版は Float64 だけ）"
         )));
     }
+    if v.dimensions {
+        return Err(Error::Fmu(format!(
+            "変数 {name:?} は配列（<Dimension>）で、この版は未対応（スカラーだけ）"
+        )));
+    }
     Ok(v.value_reference)
 }
 
@@ -348,7 +353,9 @@ pub(crate) fn output_names(md: &ModelDescription, wanted: &[String]) -> Vec<Stri
     if wanted.is_empty() {
         md.variables
             .iter()
-            .filter(|v| v.causality == Causality::Output && v.ty == VarType::Float64)
+            .filter(|v| {
+                v.causality == Causality::Output && v.ty == VarType::Float64 && !v.dimensions
+            })
             .map(|v| v.name.clone())
             .collect()
     } else {

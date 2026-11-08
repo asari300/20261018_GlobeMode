@@ -94,6 +94,7 @@ fn describe(model: &str, source: &str, v3: bool) -> Result<String, String> {
         initial,
         start,
         derivative: None,
+        dimensions: false,
     };
     let mut variables = Vec::new();
     for (i, (name, x)) in inst.state_names().iter().zip(inst.states()).enumerate() {

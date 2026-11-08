@@ -102,6 +102,9 @@ pub struct ScalarVariable {
     pub start: Option<String>,
     /// S117: 属性 `derivative`。2.0 は状態の索引（1 始まり）、3.0 は状態の valueReference。
     pub derivative: Option<u32>,
+    /// #50: FMI 3.0 の配列変数（子に `<Dimension>` がある）。1 つの `valueReference` が複数の値を持つので、
+    /// スカラーとして読み書きしてはならない。
+    pub dimensions: bool,
 }
 
 /// `DefaultExperiment` の属性（文字列そのまま）。
@@ -262,6 +265,7 @@ fn variable(
         initial: initial(n.attribute("initial"))?,
         start: ty_node.attribute("start").map(str::to_string),
         derivative: u32_attr(ty_node, "derivative")?,
+        dimensions: ty_node.children().any(|c| c.has_tag_name("Dimension")),
     })
 }
 
