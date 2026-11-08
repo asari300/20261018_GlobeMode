@@ -48,4 +48,4 @@ def format_text(text: str, indent: int = 2, insert_origin: bool = True) -> dict:
 
 def lint_text(text: str) -> list[dict]:
     """指摘の一覧（rule / line / column / message など）を返す。0 件なら空のリスト。"""
-    return _parse(_run(["lint", "--json", "-"], text), "lint")["messages"]
+    return _parse(_run(["lint", "--json", "-", "--disable", "connect-type-mismatch"], text), "lint")["messages"]

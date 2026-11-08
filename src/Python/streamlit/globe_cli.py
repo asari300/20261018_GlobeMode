@@ -44,4 +44,4 @@ def fmt(text: str, indent: int = 2, insert_origin: bool = True) -> dict:
 
 def lint(text: str) -> list[dict]:
     """{"file", "rule", "line", "column", "message"} の並びを返す。"""
-    return _run([os.environ.get("GLOBE_BIN", "globe"), "lint", "--json", "-"], text)["messages"]
+    return _run([os.environ.get("GLOBE_BIN", "globe"), "lint", "--json", "-", "--disable", "connect-type-mismatch"], text)["messages"]

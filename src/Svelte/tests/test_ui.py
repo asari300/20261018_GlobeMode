@@ -141,14 +141,15 @@ def check_syntax(pg) -> None:
 # Desktop の dialog / fs / invoke の偽物（S196）。TauriBackend を通した App の保存先の持ち方を、実機なしで確かめる
 FAKE_TAURI = """
 (() => {
-  const fake = (window.__fake = { files: {}, opens: [], saves: [], writes: [] });
+  const fake = (window.__fake = { files: {}, opens: [], saves: [], writes: [], scope: new Set() });
   const listen = async () => () => {};
   const rpc = { "globe/models": [], "globe/lint": [], "globe/completion": [], "globe/solvers": [], "globe/tunableParameters": { parameters: [] } };
   window.__TAURI__ = {
-    core: { invoke: async (cmd, args) => (cmd === "libraries" ? [] : cmd === "bench" ? false : cmd === "read_recent" ? fake.files[args.path] : cmd === "rpc" ? (rpc[args.method] ?? null) : null) },
+    core: { invoke: async (cmd, args) => (cmd === "libraries" ? [] : cmd === "bench" ? false : cmd === "read_recent" ? fake.files[args.path] : cmd === "write_recent" ? (fake.writes.push([args.path, args.text]), null) : cmd === "rpc" ? (rpc[args.method] ?? null) : null) },
     event: { listen },
-    dialog: { open: async () => fake.opens.shift() ?? null, save: async () => fake.saves.shift() ?? null },
-    fs: { readTextFile: async (p) => fake.files[p], writeTextFile: async (p, t) => { fake.writes.push([p, t]); }, writeFile: async () => {} },
+    // 本物の fs プラグインは dialog で選んだパスにしか許可を与えない（#67。以前の偽物はどのパスも受けて、欠陥を隠していた）
+    dialog: { open: async () => { const p = fake.opens.shift() ?? null; if (p) fake.scope.add(p); return p; }, save: async () => { const p = fake.saves.shift() ?? null; if (p) fake.scope.add(p); return p; } },
+    fs: { readTextFile: async (p) => fake.files[p], writeTextFile: async (p, t) => { if (!fake.scope.has(p)) throw new Error("forbidden path: " + p); fake.writes.push([p, t]); }, writeFile: async () => {} },
   };
 })();
 """
@@ -216,8 +217,30 @@ def review_fixes(browser, origin: str, errors: list[str]) -> None:
     dt.keyboard.press("Control+s")
     dt.wait_for_timeout(300)
     assert dt.evaluate("__fake.writes")[-1][0] == "/d3/other.mo", dt.evaluate("__fake.writes")
+    # #67: dialog を通していない path（再起動後や最近使ったファイル）でも、Ctrl+S は Rust の write_recent で書ける
+    desktop_open("/d4/recent.mo", "model R\nend R;\n")
+    expect(dt.locator(".cm-content")).to_contain_text("model R", timeout=30_000)
+    dt.evaluate("__fake.scope.clear()")
+    dt.locator(".cm-content").click()
+    dt.keyboard.press("Control+End")
+    dt.keyboard.type("// e4")
+    dt.keyboard.press("Control+s")
+    expect(dt.locator("[data-saved]")).to_contain_text("/d4/recent.mo")
+    assert dt.evaluate("__fake.writes")[-1] == ["/d4/recent.mo", "model R\nend R;\n// e4"], dt.evaluate("__fake.writes")
     dt.close()
     print("Desktop の保存先: 同じ名前の別のファイル（/d1/package.mo と /d2/package.mo）は別のタブで、それぞれのパスに保存される")
+
+    # #68: Android の Tauri（dialog / fs が無い）でも、プロットの CSV はブラウザと同じダウンロードで書き出せる（TypeError にならない）
+    an = new_page(user_agent="Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36")
+    an.add_init_script("window.__TAURI__ = { core: { invoke: async (c) => (c === 'libraries' ? [] : null) }, event: { listen: async () => () => {} } };")
+    ready(an)
+    an.get_by_role("button", name="実行", exact=True).click(force=True)
+    expect(an.locator(".plot canvas").first).to_be_visible(timeout=120_000)
+    with an.expect_download(timeout=10_000) as dl:
+        an.get_by_role("button", name="CSV").click(force=True)
+    assert dl.value.suggested_filename.endswith(".csv"), dl.value.suggested_filename
+    an.close()
+    print("Android: dialog / fs が無くても、プロットの CSV がダウンロードで書き出せる")
 
     # 2. タブを切り替えたとき、リネームの入力欄・参照の一覧・最後の値が前のタブに残らない
     tb = new_page()

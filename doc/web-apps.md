@@ -25,6 +25,7 @@ echo '<Modelica>' | globe lint --json - [--disable <rule>]...
 - 標準入力は `-` を明示する（`globe fmt --json -`）。`--json` だけでパスも `-` も無ければ、使い方を出して終了コード 2（S209。S199 までは `--json` のパスなしだけ標準入力だった）。
 - バイナリの場所は環境変数 `GLOBE_BIN`。無ければ PATH の `globe`。手元では `cargo build -p globe-mode-cli` の `target/debug/globe`。
 - 本文は UTF-8。行番号・桁は 1 始まり、桁は文字単位。
+- CLI を呼ぶ 6 つのアプリ（FastAPI・Astro・Phoenix・Gleam・Streamlit・marimo）は lint に `--disable connect-type-mismatch` を常に付ける（#73）。CLI の lint は既定で connect の型検査（Workspace の構文解析）も回し、1 MiB の入力で 11.8 s・RSS 2.6 GB になる（付けると 0.6 s・229 MB）。Rust の 4 アプリは `fmt::lint` だけを呼ぶので、もともと出さない。
 
 ## 2. 画面（全アプリ共通。日本語、外部 CDN なし）
 

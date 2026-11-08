@@ -98,7 +98,9 @@ pub fn read_model_description(path: &Path) -> Result<ModelDescription> {
 /// 展開した FMU。drop で展開先を消す（読み込んだ [`FmuCs`] より後に drop されるよう、借用で結ぶ）。
 #[derive(Debug)]
 pub struct Fmu {
-    dir: tempfile::TempDir,
+    /// 自分で作った一時ディレクトリ（drop で消す）。[`Fmu::open_in`] で渡された展開先なら None（消すのは渡した側）
+    owned: Option<tempfile::TempDir>,
+    root: PathBuf,
     pub description: ModelDescription,
 }
 
@@ -142,14 +144,26 @@ impl Fmu {
             .prefix("globe-fmu-")
             .tempdir()
             .map_err(io)?;
-        unpack(std::fs::File::open(path).map_err(io)?, dir.path())?;
-        let xml = std::fs::read_to_string(dir.path().join("modelDescription.xml")).map_err(io)?;
+        let mut fmu = Fmu::open_in(path, dir.path())?;
+        fmu.owned = Some(dir);
+        Ok(fmu)
+    }
+
+    /// 渡された（空の）ディレクトリに展開する。drop しても消さない。ワーカーが kill・クラッシュで終わっても残らないよう、
+    /// 親が作って後始末する展開先を子に渡すための入口（#49。[`WorkerRequest::work_dir`]）。
+    pub fn open_in(path: &Path, root: &Path) -> Result<Fmu> {
+        unpack(std::fs::File::open(path).map_err(io)?, root)?;
+        let xml = std::fs::read_to_string(root.join("modelDescription.xml")).map_err(io)?;
         let description = parse_model_description(&xml).map_err(Error::Description)?;
-        Ok(Fmu { dir, description })
+        Ok(Fmu {
+            owned: None,
+            root: root.to_owned(),
+            description,
+        })
     }
 
     pub fn root(&self) -> &Path {
-        self.dir.path()
+        &self.root
     }
 
     /// この OS・CPU の `binaries/<置き場>/<modelIdentifier>.<拡張子>`。2.0 は旧名（linux64 など）と新名（x86_64-linux）の両方を試す。

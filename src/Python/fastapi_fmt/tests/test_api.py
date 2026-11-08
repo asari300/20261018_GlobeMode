@@ -98,3 +98,15 @@ async def test_disable_must_be_a_rule_name(client):
     async with client as c:
         r = await c.post("/api/lint", json={"text": "model A end A;", "disable": ["--json"]})
     assert r.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_lint_always_disables_the_connect_type_check(client, monkeypatch, tmp_path):
+    # #73: 1 MiB の lint が 11.8 s・RSS 2.6 GB になるのを避けるため、型検査は常に止める（引数を JSON で返す偽の globe）
+    fake = tmp_path / "globe"
+    fake.write_text('#!/bin/sh\nprintf \'{"messages":[{"rule":"%s","line":1,"column":1,"message":"m"}]}\' "$*"\n')
+    fake.chmod(0o755)
+    monkeypatch.setenv("GLOBE_BIN", str(fake))
+    async with client as c:
+        r = await c.post("/api/lint", json={"text": "model A end A;", "disable": ["line-too-long"]})
+    assert "--disable connect-type-mismatch" in r.json()["messages"][0]["rule"]

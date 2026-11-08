@@ -29,7 +29,8 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # S218: push の run は止めない（止めた run の差分はどこでも検査されない）。ただし待ち行列で 2 本以上並ぶと古い待ちは GitHub が捨てるので、続けて push するときは full=true で回す
+  cancel-in-progress: ${{ github.event_name != 'push' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -264,6 +265,13 @@ jobs:
       - run: uv sync --locked --extra widget
       - run: uv run globe-mode
       - run: uv run pytest -q
+      # #73: FastAPI のウェブアプリの試験（globe CLI を子プロセスで呼ぶ。別の uv プロジェクト）
+      - run: cargo build -p globe-mode-cli
+      - name: fastapi_fmt の試験
+        working-directory: src/Python/fastapi_fmt
+        env:
+          GLOBE_BIN: ${{ github.workspace }}/target/debug/globe
+        run: uv run --locked pytest -q
 
   lang:
     # S077: C ABI（globe-mode-c の release の .so）を Zig（src/Zig）と Julia（src/Julia、ccall だけ）から呼び、

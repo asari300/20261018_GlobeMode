@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 /// 利用者が指定した実行の設定。None の項目は experiment annotation か既定値で決める
 /// （[`ResolvedSettings`]）。
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)] // 綴りの誤り（`stoptime`・`parameter`）を黙って捨てない。外側の SimulateRequest と同じ（#83）
 pub struct SimSettings {
     pub start_time: Option<f64>,
     pub stop_time: Option<f64>,
