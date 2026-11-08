@@ -157,6 +157,10 @@
 - **限界**: (1) FMU が自分で子プロセスを作って管を握ると、親の標準エラーの読み取りが戻らない（`shortcut` のコメント。Job Object / プロセスグループへ）。(2) 結果は全行を子の中のメモリに持ってから送る（格子点の上限 1000 万は (m) のまま）ので、メモリの上限は子の分を含めて見積もる。(3) 起動のたびに `globe` の起動（約 数十 ms）と FMU の展開が子で行われる。(4) 要求に ME の積分器と許容誤差は無い（CLI にも無い。要るようになったら足す）。
 - **試験**（`globe-mode-cli/tests/fmu_worker.rs`）: Reference-FMUs の Dahlquist（2.0・3.0 の CS）・BouncingBall（2.0・3.0 の ME）・VanDerPol（3.0 の ME）が、プロセス内の結果と**ビット単位で同じ**。`cc` で作った小さな共有ライブラリで、`abort`（Instantiate）・segfault（DoStep）・無限ループ（DoStep、`--timeout`）・メモリの食いつぶし（GetReal、`--memory-limit`）を起こし、親が落ちずに誤りを返し、`/proc/self/task/*/children` に zombie も孤児も残らないことを確かめる（結果は解説書の表）。
 
+### (o) S218 の付記（2026-11-08）: (f) の「ME は設計だけ」は S204 の時点
+
+(f) の「実装済み＝CS。ME は設計だけ」は S204 の時点の記述で、本文は書き換えない。いまは、ME を S205 で足し（(l)）、ワーカーでの隔離を S210 で足した（(n)）。S218 で、ワーカーの一時ディレクトリ（FMU の展開先）を親が作って `WorkerRequest.work_dir` で子に渡すようにした（`Fmu::open_in`。#49）ので、abort・segfault・kill で子が終わっても展開先が `/tmp` に残らない。ただし親が SIGKILL で落ちたときの親の一時ディレクトリは、`/tmp` の掃除に任せる。
+
 ## 結果
 
 - **S210 の結果**: 上の (n)。`globe fmu run` は FMU を別プロセスで回し、落ちても `globe` は落ちない。

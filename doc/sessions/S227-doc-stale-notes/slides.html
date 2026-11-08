@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S227 doc-stale-notes — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S227 doc-stale-notes">
+
+<section class="slide" id="S01">
+  <span class="tag">S227 · 2026-11-08 · 文書</span>
+  <h1>古くなった記述を実物に合わせた</h1>
+  <p class="lead">S217 が残した食い違いと、S218〜S226 で古くなったものを直した</p>
+  <div class="big">推敲ではなく<b>内容の直し</b>。計画は変えない</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">直したもの</span>
+  <h1>前から後へ</h1>
+  <table>
+    <tr><th>場所</th><th>前</th><th>後</th></tr>
+    <tr><td>README の英語</td><td>Not done: FMI import</td><td>UI と各言語の API は未（CLI は済）</td></tr>
+    <tr><td>ADR-0026</td><td>ME は設計だけ</td><td>(o) を追記: ME・ワーカー・展開先</td></tr>
+    <tr><td>ADR-0023</td><td>rpc は 18 個</td><td>付記: 20 個</td></tr>
+    <tr><td>lsp の先頭のコメント</td><td>params だけで決める</td><td>設定ファイルを土台にする</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">直したもの</span>
+  <h1>前から後へ（続き）</h1>
+  <table>
+    <tr><th>場所</th><th>前</th><th>後</th></tr>
+    <tr><td>mise-setup.html</td><td>S001 の例（uv 0.12 ほか）</td><td>いまの mise.toml</td></tr>
+    <tr><td>architecture.md 2.5 章</td><td>FastAPI の試験が無い</td><td>python ジョブに載せた</td></tr>
+    <tr><td>roadmap.md の末尾の表</td><td>Astro の CI が残り</td><td>打ち消し線と S223 で済</td></tr>
+    <tr><td>CLAUDE.md の workflow</td><td>12 本</td><td>実物と一致（直しなし）</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>cargo fmt --check -p globe-mode-lsp
+python3 -I .claude/skills/session-docs/check_docs.py</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">20</span><span class="l">RPC_METHODS の数</span></div>
+    <div class="kpi"><span class="n">12</span><span class="l">workflow（全部一致）</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>mise-setup.html の S001 の手順を、実際に実行して確かめる</li>
+    <li>README の英語にキーボードの補足を足すかを決める</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

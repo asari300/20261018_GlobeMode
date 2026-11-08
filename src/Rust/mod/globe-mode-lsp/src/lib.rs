@@ -32,7 +32,8 @@
 //!
 //! 設定ファイル（S130）: `initialize` の `rootUri`（無ければ `rootPath`）から上へたどって最初の `globe-mode.toml` を
 //! 読み、lint の診断と `textDocument/formatting` に使う（`workspace/didChangeConfiguration` で読み直す）。
-//! `globe/format`・`globe/lint` は wasm と同じく params だけで決める。
+//! `globe/format`・`globe/lint` も設定ファイルを土台にする（S143）。`globe/format` の params は設定に重ねる（indent は
+//! 設定ファイルがあれば設定が勝ち、無いときだけ params。S214）。設定ファイルが無ければ wasm と同じく params と既定で決まる。
 //!
 //! params が読めなければ -32602、モデルが無いなど計算の失敗は -32000（`message` に理由）。
 //! facade（`globe-mode`）の `Workspace` だけを呼び、新しい計算は入れない。
