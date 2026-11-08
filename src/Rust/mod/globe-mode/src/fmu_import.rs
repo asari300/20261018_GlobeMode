@@ -175,7 +175,7 @@ pub fn run_fmu(
         }
     }
     Ok(FmuRun {
-        results: OpenedResults(Trajectory { time, variables }),
+        results: OpenedResults(Trajectory { time, variables }, Vec::new()),
         me: run.me,
     })
 }

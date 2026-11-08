@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S236 UI の結果と FMU の仕上げ — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S236 UI の結果と FMU の仕上げ">
+
+<section class="slide" id="S01">
+  <span class="tag">S236 · 2026-11-08 · P4</span>
+  <h1>UI の結果と FMU の仕上げ 4 点</h1>
+  <p class="lead">S222 と S229 が持ち越した、結果のタブと FMU の使い心地</p>
+  <div class="big">新しい部品は<b>設定フォーム 1 つ</b>。あとは既存の道に乗せた</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">1 再読み込み</span>
+  <h1>結果のタブは Desktop だけ戻る</h1>
+  <ul>
+    <li>自動保存（300 ms のまとめ書き）に結果のファイルの<b>パス</b>を載せる。列は載せない</li>
+    <li>起動で <code>globe/readResults {path}</code> を呼び直す。読めなければタブを閉じて理由を出す</li>
+    <li>ブラウザはパスが無いので閉じる。結果のタブの注に書く</li>
+    <li>FMU の結果は戻さない（ネイティブコードを黙って回し直さない）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">2 パラメータ</span>
+  <h1>MAT のパラメータを折りたたみの表に</h1>
+  <ul>
+    <li>Rust の <code>OpenedResults</code> が <code>data_1</code> のパラメータを持つ（これまでは捨てていた）</li>
+    <li>LSP の応答と wasm の <code>read_results</code> に <code>parameters</code> を足した</li>
+    <li>結果のタブに名前・値・単位・説明。CSV と FMU の結果は空で、表を出さない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">3 最近</span>
+  <h1>最近使ったファイルに結果と .fmu</h1>
+  <table class="compact">
+    <tr><th>面</th><th>入るか</th><th>理由</th></tr>
+    <tr><td>Desktop</td><td>.mat・.csv・.fmu も入る</td><td>読むのは sidecar。<code>read_recent</code> を広げずに済んだ</td></tr>
+    <tr><td>ブラウザ</td><td>入らない</td><td>パスが無い（本文を持つのは .mo だけ）</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">4 FMU の設定</span>
+  <h1>確認ダイアログを設定フォームに</h1>
+  <ul>
+    <li>警告と要約は残し、終了時刻・刻み・予算（秒）・種類 CS / ME を入れて「実行」</li>
+    <li>空の欄は送らない。数でない欄は実行できず理由が出る。Esc でやめる</li>
+    <li>FMU のパスごとに localStorage へ残す（S228 の実行の設定と同じ作り）</li>
+    <li>ME の積分器の選択は出していない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">試験</span>
+  <h1>確かめたこと</h1>
+  <ul>
+    <li>Rust: <code>globe/readResults</code> の <code>parameters</code>、wasm の Node（MAT の実物）</li>
+    <li>Playwright: 再読み込みでの復元と読めないとき、パラメータの表、最近の一覧、フォームの request と FMU ごとの保存</li>
+    <li><code>test_tauri.mjs</code>: request の受け渡しと <code>readResultsAt</code></li>
+  </ul>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ul>
+    <li>ME の積分器の選択、FMU の出力の選択、<code>set</code>（パラメータの上書き）の欄</li>
+    <li>ブラウザで結果のファイルを覚える（File System Access API）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

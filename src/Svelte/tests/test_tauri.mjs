@@ -35,6 +35,11 @@ globalThis.window.__TAURI__.core.invoke = async (cmd, a) => (calls.push([cmd, a]
 const opened = await b.openFile();
 assert.deepEqual(calls, [["rpc", { method: "globe/readResults", params: { path: "/r/out.csv" } }]]);
 assert.deepEqual(opened, { name: "out.csv", text: "", path: "/r/out.csv", columns: { names: ["x"], points: 2, defaults: ["x"], data: [[0, 1], [1, null]] } });
+// MAT のパラメータ（S236）と、パスからの読み直し（最近使ったファイル・再読み込み）
+globalThis.window.__TAURI__.core.invoke = async () => ({ layout: { names: ["time", "x"], points: 2 }, columns: [[0, 1], [1, 0.5]], parameters: [{ name: "k", value: 2, unit: "1/s" }] });
+assert.deepEqual((await b.readResultsAt("/r/out.mat")).parameters, [{ name: "k", value: 2, unit: "1/s" }]);
+globalThis.window.__TAURI__.core.invoke = async () => ({ layout: { names: ["time", "x"], points: 2 }, columns: [[0, 1], [1, 0.5]], parameters: [] });
+assert.equal("parameters" in (await b.readResultsAt("/r/out.csv")), false);
 // FMU（S229）: 開くときは読まず（text は空）、確認のあと fmuInfo・runFmu が sidecar の globe/fmuInfo・globe/fmuRun を呼ぶ。止めた呼び出しは cancelled で reject する
 calls.length = 0;
 globalThis.window.__TAURI__.dialog.open = async () => "/r/D.fmu";
@@ -45,6 +50,11 @@ globalThis.window.__TAURI__.core.invoke = async (cmd, a) => (calls.push([cmd, a]
 assert.equal((await b.fmuInfo("/r/D.fmu")).model_name, "D");
 assert.deepEqual((await b.runFmu("/r/D.fmu")).names, ["x"]);
 assert.deepEqual(calls.map(([, a]) => a.method), ["globe/fmuInfo", "globe/fmuRun"]);
+// 実行の設定（S236）: request がそのまま globe/fmuRun の params.request に乗る（省けば {}）
+const sent = calls.filter(([, a]) => a.method === "globe/fmuRun").map(([, a]) => a.params.request);
+await b.runFmu("/r/D.fmu", { kind: "me", stop_time: 2, step: 0.1, timeout: 30 });
+assert.deepEqual(sent, [{}]);
+assert.deepEqual(calls.at(-1)[1].params.request, { kind: "me", stop_time: 2, step: 0.1, timeout: 30 });
 globalThis.window.__TAURI__.core.invoke = async (cmd) => { if (cmd === "cancel_run") return; throw "中断した"; };
 const running = b.runFmu("/r/D.fmu");
 b.cancel();

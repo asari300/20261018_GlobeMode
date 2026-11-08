@@ -165,9 +165,9 @@
 - **中断**: `WorkerSpec::cancel`（`Arc<AtomicBool>`。facade は `CancelToken::flag()`）が立つと、親が 50 ms おきの確認で子を kill して `Error::Worker`（「中断した」）にする。進捗の出ない FMU（DoStep が戻らない）も止まる。`globe-mode-fmi-import` の `worker.rs` を触ったのはここと、`Kind` の JSON を小文字（`"cs"` / `"me"`）にした 1 行だけ。
 - **LSP（Desktop の sidecar）**: `globe/fmuInfo {path}`（`FmuInfo` に実行前に見せる `warning` を足す）と `globe/fmuRun {path, request?, workDoneToken?}`（`{layout, columns, me}`。`layout`・`columns` は `globe/readResults` と同じ。`$/progress` は `{kind: "report", stage: "integration", time}`、`$/cancelRequest` でワーカーを kill して -32800、失敗は -32000、params の誤りは -32602）。`shell.rs` の `RPC_METHODS` は 20 から 22。ワーカーは sidecar と同じ `globe` なので、Desktop に新しい実行ファイルは要らない。
 - **Python**: `fmu_info(path)`、`run_fmu(path, *, kind, start_time, stop_time, step, outputs, parameters, timeout, on_progress)`（`read_results` と同じ形の dict に `me` を足す）、例外 `FmuError`（`RuntimeError` も継ぐ）。`on_progress(t)` が真を返すか Ctrl-C で止まる（進捗が出たときだけ見る。出ない FMU は `timeout`）。
-- **UI**: 「開く」で `.fmu` を選ぶと、`fmuInfo` の警告（S210 の文面）と要約を `confirm` に出し、承知したら `fmuRun`（FMU の既定の実験設定）で回して結果のタブ（S222）にプロットする。「止める」で kill。**ブラウザ・Android は zip を読まず「Desktop だけ」と理由を出す**。ME の積分器の選択・実験設定の入力欄は UI に出していない。
+- **UI**: 「開く」で `.fmu` を選ぶと、`fmuInfo` の警告（S210 の文面）と要約を `confirm` に出し、承知したら `fmuRun`（FMU の既定の実験設定）で回して結果のタブ（S222）にプロットする（**S236 で `confirm` は設定フォームに替わった**。警告と要約を残し、終了時刻・刻み・予算・種類 CS / ME を FMU のパスごとに保つ）。「止める」で kill。**ブラウザ・Android は zip を読まず「Desktop だけ」と理由を出す**。ME の積分器の選択・実験設定の入力欄は UI に出していない。
 - **試験**: facade（`globe-mode-cli/tests/fmu_worker.rs`。Dahlquist の CS・ME、JSON の request、失敗、中断の旗〔`cc` の遅い FMU を 400 ms で止める。子が残らない〕）、LSP の rpc（`tests/lsp.rs` で `globe lsp` を起動して info・run・-32000・-32602。`globe-mode-lsp` の単体は params の誤りだけ。ワーカーが試験のバイナリになるため）、Python（`GLOBE_BIN` を試験の `globe` に向ける）、`test_ui.py`（ブラウザは「Desktop だけ」、Desktop の偽 fs で確認を断れば回さず、承知すれば結果のタブ）、`test_tauri.mjs`。
-- **限界**: sandbox・macOS / Windows のメモリの上限は (n) のまま。UI は実験設定を変えられない。C ABI・NIF は未（(k) 3 の残り）。Desktop の中断は sidecar への `$/cancelRequest` が届いてから 50 ms 以内にワーカーを止める（sidecar の LSP は要求を 1 本ずつ処理するので、FMU の実行中はほかの要求が待つ）。
+- **限界**: sandbox・macOS / Windows のメモリの上限は (n) のまま。UI は実験設定の一部（終了時刻・刻み・予算・種類）だけを変えられる（S236）。C ABI・NIF は未（(k) 3 の残り）。Desktop の中断は sidecar への `$/cancelRequest` が届いてから 50 ms 以内にワーカーを止める（sidecar の LSP は要求を 1 本ずつ処理するので、FMU の実行中はほかの要求が待つ）。
 
 ### (o) S218 の付記（2026-11-08）: (f) の「ME は設計だけ」は S204 の時点
 

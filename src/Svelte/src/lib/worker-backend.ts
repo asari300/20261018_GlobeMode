@@ -86,7 +86,7 @@ export class WorkerBackend implements Backend {
     const f = await browserOpen();
     if (!f?.bytes) return f;
     const r = await this.#w.readResults(f.name, f.bytes); // S222。列は wasm から Float64Array
-    return { name: f.name, text: "", columns: toColumns(r.layout, r.columns.map(gapNonFinite)) };
+    return { name: f.name, text: "", columns: toColumns(r.layout, r.columns.map(gapNonFinite), r.parameters) };
   }
   saveFile = browserSave;
   saveBinary = browserSaveBinary;

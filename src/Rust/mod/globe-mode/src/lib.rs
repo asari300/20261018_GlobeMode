@@ -243,19 +243,27 @@ fn columns_of(
 
 /// 開いた結果のファイル（`.mat` か `.csv`）の時系列。UI の「結果を開く」（S222）が実行の結果と同じ列の道で描く。
 #[derive(Debug)]
-pub struct OpenedResults(globe_mode_ir::Trajectory);
+pub struct OpenedResults(
+    globe_mode_ir::Trajectory,
+    Vec<globe_mode_ir::ResultParameter>,
+);
 
 impl OpenedResults {
     /// [`Simulated::columns`] と同じ形（既定で描く信号は先頭の 3 本。読んだ結果に役割は無い）。
     pub fn columns(&self) -> (ColumnsLayout, Vec<&[f64]>) {
         columns_of(&self.0, self.0.default_plot(&[]))
     }
+
+    /// MAT の `data_1` のパラメータ（S236。CSV と FMU の結果は空）。
+    pub fn parameters(&self) -> &[globe_mode_ir::ResultParameter] {
+        &self.1
+    }
 }
 
 /// 結果のファイルの中身を `name` の拡張子で読む（[`sim::mat::read_results_bytes`]）。読めなければ理由。
 pub fn open_results(name: &str, bytes: &[u8]) -> Result<OpenedResults, String> {
     sim::mat::read_results_bytes(name, bytes)
-        .map(|m| OpenedResults(m.trajectory))
+        .map(|m| OpenedResults(m.trajectory, m.parameters))
         .map_err(|e| format!("{name}: {e}"))
 }
 
