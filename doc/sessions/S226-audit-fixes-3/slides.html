@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S226 監査のあれば良い 15 件 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S226 監査のあれば良い 15 件">
+
+<section class="slide" id="S01">
+  <span class="tag">S226 · 2026-11-08 · P3〜P7</span>
+  <h1>全体監査の「あれば良い」15 件を、直す価値で選んだ</h1>
+  <p class="lead">12 件は最小の直し、3 件は直さない理由を書いた。コミットは 1 件 1 つ</p>
+  <div class="big">直した 12 件、直さない 3 件。閉じるのはユーザー</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">結果</span>
+  <h1>直した 12 件</h1>
+  <table class="compact">
+    <tr><th>issue</th><th>直し</th></tr>
+    <tr><td>#47 イベントの 2 行の文書</td><td>実物は数 ulp ずれた時刻。文書 2 か所</td></tr>
+    <tr><td>#53 初期化前の <code>Terminate</code></td><td><code>initialized</code> が真のときだけ呼ぶ</td></tr>
+    <tr><td>#61 <code>split</code> の死んだ分岐</td><td>0 回しか通らないと確かめて -13 行</td></tr>
+    <tr><td>#62 function の PascalCase</td><td>function は飛ばす</td></tr>
+    <tr><td>#65 Julia の GC</td><td><code>cconvert</code> で ws を ccall の間生かす</td></tr>
+    <tr><td>#66 Zig の JSON</td><td><code>std.json.fmt</code> でエスケープ</td></tr>
+    <tr><td>#71 <code>LONG</code></td><td>1e6 に揃える</td></tr>
+    <tr><td>#81 <code>fetch_zip</code></td><td>前の版の展開を消してから展開</td></tr>
+    <tr><td>#82 FastAPI</td><td>応答から内部のパスと stderr を外す</td></tr>
+    <tr><td>#87 クエリの実行の記録</td><td>旗を立てたときだけ積む（本番で増え続けない）</td></tr>
+    <tr><td>#88 段階を求める式</td><td><code>FullReport::failed_stage()</code> に寄せて 1 つに</td></tr>
+    <tr><td>#80 意味的な衝突</td><td>手順の 1 項目と、手動実行の比較元</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>直さない 3 件</h1>
+  <ul>
+    <li>#45 BDF の初期化 3 回: 外すと初期化の失敗が「初期化」の段の診断にならない。上流に口が要る。</li>
+    <li>#46 lowering 2 回: issue の案は #43 で測って取り消した session の道。1 回にするにも上流の口が要る。</li>
+    <li>#63 annotation の行コメント: 見た目だけで、2 回目の整形で同じになる。直し方が無い。</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由</span>
+  <h1>#61: 死んでいると確かめてから消した</h1>
+  <ul>
+    <li>分岐を <code>unreachable!</code> に替え、fmt の試験と MSL 4.1.0・<code>src/Modelica</code> の <code>fmt --check</code> を回した。</li>
+    <li>文の後ろのコメントは、各分岐の末尾のループが要素に取り込むので、先頭のループには来ない。</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">図</span>
+  <h1>進め方</h1>
+  <svg class="fig" viewBox="0 0 800 220" role="img" aria-label="直す価値で選ぶ流れの図">
+    <rect class="svg-box-accent" x="20" y="75" width="170" height="70" rx="10"/>
+    <text class="svg-text-b" x="105" y="116" text-anchor="middle">価値と手間</text>
+    <line class="svg-line" x1="190" y1="110" x2="300" y2="50"/>
+    <line class="svg-line" x1="190" y1="110" x2="300" y2="170"/>
+    <rect class="svg-box" x="300" y="20" width="240" height="60" rx="10"/>
+    <text class="svg-text-b" x="420" y="55" text-anchor="middle">釣り合う: 直す</text>
+    <rect class="svg-box" x="300" y="140" width="240" height="60" rx="10"/>
+    <text class="svg-text-b" x="420" y="175" text-anchor="middle">釣り合わない: 理由</text>
+    <text class="svg-text" x="560" y="55">12 件</text>
+    <text class="svg-text" x="560" y="175">#45 #46 #63</text>
+  </svg>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>残したもの</h1>
+  <ul>
+    <li>#45・#46: 上流に口を頼む候補。測ってから。</li>
+    <li>#53 の落ちる FMU と #65 の GC の競合は【未確認】のまま。</li>
+    <li>#71 は手元で UI の試験を回していない。CI の full で確かめる。</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

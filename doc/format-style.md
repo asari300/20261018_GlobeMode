@@ -70,7 +70,7 @@ end Objects_Before;
 | 規則 | LSP のコード | 中身 |
 | --- | --- | --- |
 | `line-too-long` | `GM-L0001` | 整形しても行幅を超える行（長い文字列など） |
-| `class-name-pascal-case` | `GM-L0002` | クラス名が大文字で始まらない |
+| `class-name-pascal-case` | `GM-L0002` | クラス名が大文字で始まらない（function は除く） |
 | `missing-description` | `GM-L0003` | 長いクラス（`end` を持つもの）に説明の文字列が無い |
 | `annotation-order` | `GM-L0004`（通知の重さ） | `annotation(…)` と `Documentation(…)` の引数が 1 章の順でない（S061）。整形で直る |
 | `connect-type-mismatch` | `GM-L0005` | `connect(a, b)` の両端のコネクタの型が合わない（S062）。名前が違っても中身（変数の名前・flow / stream・型）が同じなら合うとみなす（`PositivePin` と `NegativePin`、`RealInput` と `RealOutput`）。型を解決できない端（`--library` で読んだ MSL の型、開いていないファイルの型）は判定しない。`globe lint` は渡したファイルをまとめて見る |

@@ -427,16 +427,12 @@ impl Workspace {
     /// モデルの検査（S0〜S10）。診断の位置は元の本文の中。
     pub fn check(&mut self, model: &str) -> CheckResponse {
         let report = self.db.check_model(model);
+        let (passed, failed_stage) = (report.passed(), report.failed_stage());
         let check = report.check;
         let mut response = CheckResponse {
             model: report.model,
-            passed: !report.diagnostics.iter().any(Diagnostic::is_error),
-            failed_stage: report
-                .diagnostics
-                .iter()
-                .filter(|d| d.is_error())
-                .map(|d| d.stage)
-                .min(),
+            passed,
+            failed_stage,
             balance: check.balance,
             dae: check.dae,
             structure: check.structure.as_ref().map(|s| StructureCounts {
@@ -629,8 +625,9 @@ impl Workspace {
         lap("load", &mut response.timings_ms);
         let checked = self.db.check_model(model);
         lap("check", &mut response.timings_ms);
+        let failed_stage = checked.failed_stage();
         response.diagnostics.extend(checked.diagnostics);
-        if let Some(stage) = checked_failed_stage(&response.diagnostics)
+        if let Some(stage) = failed_stage
             && !request.force
         {
             let hint = if force_helps(&response.diagnostics) {
@@ -727,15 +724,6 @@ fn csv_text(traj: &globe_mode_ir::Trajectory) -> Result<String, String> {
     let mut buf = Vec::new();
     globe_mode_sim::store::write_csv(traj, &mut buf).map_err(|e| e.to_string())?;
     String::from_utf8(buf).map_err(|e| e.to_string())
-}
-
-/// Error が出た最初の段階。
-fn checked_failed_stage(diagnostics: &[Diagnostic]) -> Option<Stage> {
-    diagnostics
-        .iter()
-        .filter(|d| d.is_error())
-        .map(|d| d.stage)
-        .min()
 }
 
 fn library_error(path: &Path, why: &str) -> Diagnostic {

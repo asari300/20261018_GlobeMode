@@ -267,7 +267,7 @@ flowchart LR
 | 整形 | `Documentation` の HTML を改行とインデントで整える（空白だけを変える。lint はしない。S062） | オン | `--no-format-html`、VS Code の `globeMode.formatHtml` |
 | 整形 | 演算子の両側に空白、カンマは後ろだけ、行末の空白を消す | オン | — |
 | lint | `line-too-long`（GM-L0001）: 整形しても 80 桁を超える行 | warning | `globe lint --disable <規則>` |
-| lint | `class-name-pascal-case`（GM-L0002）: クラス名が大文字で始まらない | warning | 同上 |
+| lint | `class-name-pascal-case`（GM-L0002）: クラス名が大文字で始まらない（function は除く） | warning | 同上 |
 | lint | `missing-description`（GM-L0003）: クラスに説明の文字列が無い | warning | 同上 |
 | lint | `annotation-order`（GM-L0004）: annotation の引数が上の順でない。整形で直る | 通知 | 同上 |
 | lint | `connect-type-mismatch`（GM-L0005）: connect の両端のコネクタの型が合わない（S062） | warning | 同上 |

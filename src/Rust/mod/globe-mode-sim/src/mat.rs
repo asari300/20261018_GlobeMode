@@ -16,7 +16,7 @@
 //!
 //! パラメータは `dataInfo` が (1, 行, 0, 0)、時系列は (2, 行, 0, 0)。時系列のうち、前の列と値がすべて同じ列は
 //! その列の別名 (2, 行) に、符号だけが反対の列は負の別名 (2, −行) に畳む（`data_2` に列を足さない）。
-//! イベントの時刻では同じ時刻の時点が 2 つ続く（そのまま書く）。Integer・Boolean も double で書く。
+//! イベントでは時点が 2 つ続く（左極限とイベント後。Rumoca は時刻を数 ulp ずらして書くので同じ時刻とは限らない。そのまま書く）。Integer・Boolean も double で書く。
 
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;

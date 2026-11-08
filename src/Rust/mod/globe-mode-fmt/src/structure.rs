@@ -10,8 +10,6 @@ pub struct Element<'t, 'a> {
     /// 段（0 がファイルの最上位）
     pub indent: usize,
     pub blank_before: bool,
-    /// 最初のトークンの位置（同じ行に続くコメントを後から足すため）
-    first: usize,
 }
 
 #[derive(Debug)]
@@ -62,22 +60,12 @@ pub fn split<'t, 'a>(
         let mut blank = force_blank || (t.newlines_before >= 2 && !out.is_empty());
         force_blank = false;
         if t.is_comment() {
-            // 文の後ろに続くコメントは、その文の行に残す
-            if t.newlines_before == 0
-                && i > 0
-                && !tokens[i - 1].is_comment()
-                && let Some(last) = out.last_mut()
-            {
-                last.tokens = &tokens[last.first..=i];
-                i += 1;
-                continue;
-            }
+            // 文の後ろに続くコメントは、その文の要素が下で取り込むので、ここに来るのは行頭のコメントだけ
             let indent = stack.len();
             out.push(Element {
                 tokens: &tokens[i..=i],
                 indent,
                 blank_before: blank,
-                first: i,
             });
             i += 1;
             continue;
@@ -181,7 +169,6 @@ pub fn split<'t, 'a>(
             tokens: &tokens[start..i],
             indent,
             blank_before: blank,
-            first: start,
         });
     }
     if let Some(ctx) = stack.last() {

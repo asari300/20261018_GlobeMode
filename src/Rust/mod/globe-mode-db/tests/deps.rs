@@ -23,6 +23,7 @@ fn load(db: &mut GlobeDb) {
 
 fn loaded() -> GlobeDb {
     let mut db = GlobeDb::new();
+    db.record_executed();
     load(&mut db);
     db
 }
@@ -497,6 +498,7 @@ fn measure_checks_with_msl() {
     }
     let t = std::time::Instant::now();
     let mut db = GlobeDb::with_libraries(&[msl]).expect("MSL を読める");
+    db.record_executed();
     let msl_load = ms(t);
     load(&mut db);
     let unused = file("Invalid/StructurallySingular.mo");

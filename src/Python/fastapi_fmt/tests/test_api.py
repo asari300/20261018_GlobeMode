@@ -72,6 +72,19 @@ async def test_missing_binary_is_503(client, monkeypatch):
     async with client as c:
         r = await c.post("/api/lint", json={"text": "model A end A;"})
     assert r.status_code == 503
+    assert "/nonexistent" not in r.text, "#82: 応答に GLOBE_BIN のパスを出さない"
+
+
+@pytest.mark.anyio
+async def test_unreadable_output_is_500_without_stderr(client, monkeypatch, tmp_path):
+    fake = tmp_path / "globe"
+    fake.write_text("#!/bin/sh\necho 'secret internal /srv/path' >&2\necho not-json\n")
+    fake.chmod(0o755)
+    monkeypatch.setenv("GLOBE_BIN", str(fake))
+    async with client as c:
+        r = await c.post("/api/format", json={"text": "model A end A;"})
+    assert r.status_code == 500
+    assert "secret" not in r.text and "/srv" not in r.text, "#82: 応答に stderr を出さない"
 
 
 @pytest.mark.anyio

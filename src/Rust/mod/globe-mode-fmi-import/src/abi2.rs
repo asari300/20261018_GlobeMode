@@ -122,6 +122,8 @@ struct Common {
     _callbacks: Box<Callbacks>,
     // 関数ポインタが指すライブラリ。最後に drop される（Drop::drop のあとにフィールドが落ちる）
     lib: Library,
+    /// ExitInitializationMode が成功したか。Terminate は初期化のあとにしか呼べない（#53）
+    initialized: bool,
 }
 
 impl Common {
@@ -176,6 +178,7 @@ impl Common {
             c,
             _callbacks: callbacks,
             lib,
+            initialized: false,
         })
     }
 
@@ -200,8 +203,10 @@ impl Common {
                 ),
             )?;
             check("fmi2EnterInitializationMode", (self.api.enter_init)(self.c))?;
-            check("fmi2ExitInitializationMode", (self.api.exit_init)(self.c))
+            check("fmi2ExitInitializationMode", (self.api.exit_init)(self.c))?;
         }
+        self.initialized = true;
+        Ok(())
     }
 
     fn get_real(&mut self, vrs: &[u32]) -> Result<Vec<f64>> {
@@ -226,9 +231,12 @@ impl Common {
 
 impl Drop for Common {
     fn drop(&mut self) {
-        // SAFETY: self.c は有効で、ここで最後に使う。Terminate の失敗は後片付けの途中なので無視する
+        // SAFETY: self.c は有効で、ここで最後に使う。Terminate の失敗は後片付けの途中なので無視する。
+        // 初期化の前（失敗を含む）は Terminate を呼ばない（状態の守りが弱い FMU が落ちるため）
         unsafe {
-            (self.api.terminate)(self.c);
+            if self.initialized {
+                (self.api.terminate)(self.c);
+            }
             (self.api.free_instance)(self.c);
         }
     }

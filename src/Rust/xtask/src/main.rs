@@ -583,6 +583,11 @@ fn fetch_zip(
         println!("{label} {version} は展開済み: {}", dest.display());
         return Ok(ExitCode::SUCCESS);
     }
+    // 目印がある展開先は前の版の展開なので、新しい版に無いファイルが残らないよう消す（#81）。目印が無い場所は消さない
+    // （`--dest` に別の物がある場合）。fetch_library が `dest/<名前>` を消してから展開するのと同じ
+    if marker.exists() {
+        fs::remove_dir_all(dest).map_err(|e| format!("{}: {e}", dest.display()))?;
+    }
     let zip_path = dest.join(".download").join(zip_name);
     download(url, sha256, &zip_path)?;
 
@@ -967,6 +972,37 @@ fn bump_rumoca() -> Result<ExitCode> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #81: 版を上げて取り直すと、新しい版に無いファイルは消える。
+    #[test]
+    fn fetch_zip_removes_files_of_the_previous_version() {
+        use std::io::Write as _;
+        let root = std::env::temp_dir().join(format!("xtask-fetch-zip-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let make = |name: &str, files: &[&str]| {
+            let path = root.join(name);
+            let mut z = zip::ZipWriter::new(fs::File::create(&path).unwrap());
+            for f in files {
+                z.start_file(*f, zip::write::SimpleFileOptions::default())
+                    .unwrap();
+                z.write_all(b"x").unwrap();
+            }
+            z.finish().unwrap();
+            (
+                format!("file://{}", path.display()),
+                sha256_file(&path).unwrap(),
+            )
+        };
+        let dest = root.join("dest");
+        let (url1, sha1) = make("v1.zip", &["keep.txt", "gone.txt"]);
+        fetch_zip("T", "1", &url1, &sha1, "t.zip", ".marker", &dest).unwrap();
+        assert!(dest.join("gone.txt").exists());
+        let (url2, sha2) = make("v2.zip", &["keep.txt"]);
+        fetch_zip("T", "2", &url2, &sha2, "t.zip", ".marker", &dest).unwrap();
+        assert!(dest.join("keep.txt").exists() && !dest.join("gone.txt").exists());
+        fs::remove_dir_all(&root).unwrap();
+    }
 
     fn o(ok: bool, counts: Option<(usize, usize, usize)>) -> Outcome {
         Outcome {
