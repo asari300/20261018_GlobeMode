@@ -18,6 +18,9 @@ const INLINE: &[&str] = &[
     "span", "strong", "sub", "sup", "tt", "u", "var",
 ];
 
+/// 入れ子の深さの上限。これを超えたら整えない
+const MAX_DEPTH: usize = 256;
+
 #[derive(Debug)]
 enum H<'a> {
     Text(&'a str),
@@ -87,6 +90,10 @@ fn parse(s: &str) -> Option<Vec<H<'_>>> {
                     close: "",
                 });
             } else {
+                // 深さの上限（#54）。整えない（None）だけで、再帰が 2 MiB のスタックを溢れさせない
+                if stack.len() > MAX_DEPTH {
+                    return None;
+                }
                 stack.push((name, tag, Vec::new()));
             }
             i = end;
@@ -272,6 +279,22 @@ mod tests {
         // 整えた結果をもう一度整えても同じ
         let again = format!("\"\n{}\n\"", want.join("\n"));
         assert_eq!(lines(&again), want);
+    }
+
+    #[test]
+    fn very_deep_nesting_is_left_alone_not_a_stack_overflow() {
+        // 1 MiB のスタックの上で回す。上限が無いと再帰（block・flat・drop）が溢れて abort する
+        std::thread::Builder::new()
+            .stack_size(1 << 20)
+            .spawn(|| {
+                let deep = format!("\"{}x{}\"", "<div>".repeat(10_000), "</div>".repeat(10_000));
+                assert_eq!(pretty(&deep), None);
+                let ok = format!("\"{}x{}\"", "<div>".repeat(200), "</div>".repeat(200));
+                assert!(pretty(&ok).is_some());
+            })
+            .unwrap()
+            .join()
+            .unwrap();
     }
 
     #[test]

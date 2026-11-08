@@ -20,7 +20,7 @@ assert.equal(tabKey("M.mo", "/d/M.mo", [{ file: "M.mo" }]), "M.mo"); // 保存�
 // TauriBackend: パスを名前で覚えない（名前が同じ別のファイルの保存先を取り違えない）
 const writes = [];
 let saveTo = "/picked/x.mo";
-globalThis.window = { __TAURI__: { dialog: { open: async () => null, save: async () => saveTo }, fs: { writeTextFile: async (p, t) => writes.push([p, t]), readTextFile: async () => "" }, core: { invoke: async () => "" } } };
+globalThis.window = { __TAURI__: { dialog: { open: async () => null, save: async () => saveTo }, fs: { writeTextFile: async (p, t) => writes.push([p, t]), readTextFile: async () => "" }, core: { invoke: async (cmd, a) => (cmd === "write_recent" ? writes.push([a.path, a.text]) && null : "") } } }; // #67: path があるときの上書きは Rust の write_recent
 const b = new TauriBackend();
 assert.equal(await b.saveFile("package.mo", "A", false, "/d1/package.mo"), "/d1/package.mo");
 assert.equal(await b.saveFile("package.mo", "B", false), "/picked/x.mo"); // パスが無ければ、前に保存した /d1 には書かずダイアログ

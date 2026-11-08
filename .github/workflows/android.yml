@@ -68,11 +68,6 @@ jobs:
     needs: ui
     runs-on: ubuntu-24.04
     env:
-      # secrets は if: に書けないので env に写して分岐する（S106）
-      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
       APK_OUT: src/Rust/apps/desktop/gen/android/app/build/outputs/apk
     steps:
       - uses: actions/checkout@v7
@@ -100,7 +95,7 @@ jobs:
           name: ui-dist-wasm
           path: src/Svelte/dist
       - name: tauri-cli を入れる
-        run: cargo install tauri-cli --version "^2" --locked
+        run: cargo install tauri-cli --version 2.12.4 --locked
       - name: gen/android が無ければ作る（作ったものは artifact gen-android。コミットするのは人の手）
         working-directory: ${{ env.DESKTOP }}
         run: |
@@ -121,9 +116,15 @@ jobs:
         working-directory: ${{ env.DESKTOP }}
         run: cargo tauri android build --apk --debug --ci --target aarch64 --target x86_64
       - name: 鍵があれば keystore.properties を書く（build.gradle.kts がこれを見て release に署名する）
-        if: env.ANDROID_KEYSTORE_BASE64 != ''
         working-directory: ${{ env.DESKTOP }}/gen/android
+        # S218: 鍵は第三者の action に見えないよう、この step だけに渡す（secrets は if: に書けないので、空なら中で抜ける）
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
+          [ -n "$ANDROID_KEYSTORE_BASE64" ] || exit 0
           echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
           {
             echo "storeFile=$RUNNER_TEMP/release.jks"

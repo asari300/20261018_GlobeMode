@@ -89,7 +89,7 @@ def format_text(req: FormatRequest) -> dict:
 
 @app.post("/api/lint")
 def lint_text(req: LintRequest) -> dict:
-    args = ["lint", "--json", "-"]
+    args = ["lint", "--json", "-", "--disable", "connect-type-mismatch"]  # #73: 型検査は 1 MiB で 2.6 GB になる
     for rule in req.disable:
         args += ["--disable", rule]
     data = parse_json(run_globe(args, req.text))

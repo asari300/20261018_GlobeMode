@@ -9,7 +9,7 @@
   import { EDITOR_HELP, byteToChar, darkSlot, makeEditable, readOnlySlot, modelFollow, modelRenamed, modelicaCompletion, modelicaHighlight, modelicaDefinition, modelicaLinter, modelicaRefactor, modelicaTab, modelicaTheme, themeSlot, toCmDiagnostics } from "./lib/editor";
   import { setPref, theme, type Pref } from "./theme.svelte";
   import { WorkerBackend } from "./lib/worker-backend";
-  import { TauriBackend, inTauri, tabKey } from "./lib/tauri-backend";
+  import { TauriBackend, inDesktop, tabKey } from "./lib/tauri-backend";
   import type { Backend, TreeEntry } from "./lib/backend";
   import type { Columns } from "./lib/plot/csv";
   import type { CheckResponse, Diagnostic, ResolvedSettings, SimulateRequest } from "./lib/protocol";
@@ -22,7 +22,7 @@
   // エディタの文書の名前。ライブラリの木で開くと、そのライブラリのファイルの名前（同じ名前で差し替える。S127）
   let file = $state("Model.mo");
   // S092: Android の Tauri には sidecar が無い（ADR-0023）ので、ブラウザと同じ Worker（wasm）を使う
-  const desktop = inTauri() && !/Android/i.test(navigator.userAgent);
+  const desktop = inDesktop();
   const tauri = desktop ? new TauriBackend() : null;
   const backend: Backend = tauri ?? new WorkerBackend(); // S049: Tauri の中では sidecar
   const severityRank = { error: 0, warning: 1, info: 2 };

@@ -74,7 +74,7 @@ def _windows_profiles() -> set[str]:
 
 # 順番に意味がある。具体的なもの（トークン・パス）から先に潰す。
 REDACTIONS: list[tuple[re.Pattern[str], str]] = [
-    (re.compile(r"ghp_[A-Za-z0-9]{36}"), "<redacted>"),
+    (re.compile(r"\bgh[pousr]_[A-Za-z0-9]{36,}"), "<redacted>"),   # ghp_ gho_ ghu_ ghs_ ghr_
     (re.compile(r"github_pat_[A-Za-z0-9_]{20,}"), "<redacted>"),
     (re.compile(r"\bsk-[A-Za-z0-9_\-]{20,}"), "<redacted>"),
     (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), "<redacted>"),

@@ -5,7 +5,7 @@
   import { toCsv, type Columns } from "./csv";
   import { exportName, isInternal, matches, plotLabel } from "./signals";
   import type { Backend } from "../backend";
-  import { TauriBackend, inTauri } from "../tauri-backend";
+  import { TauriBackend, inDesktop } from "../tauri-backend";
   import { cssVar, theme } from "../../theme.svelte";
   import { browserSave, browserSaveBinary } from "../browser-file";
 
@@ -72,7 +72,7 @@
   });
 
   // Plot の中で完結させる（App から backend を受けない）。Desktop は dialog / fs、ブラウザ・Android はダウンロード
-  const out: Pick<Backend, "saveFile" | "saveBinary"> = inTauri() ? new TauriBackend() : { saveFile: browserSave, saveBinary: browserSaveBinary };
+  const out: Pick<Backend, "saveFile" | "saveBinary"> = inDesktop() ? new TauriBackend() : { saveFile: browserSave, saveBinary: browserSaveBinary };
 
   const done = (p: string | null) => void (p && (saved = p));
   const fail = (e: unknown) => (error = String((e as Error).message ?? e));

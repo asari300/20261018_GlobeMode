@@ -12,7 +12,8 @@ defmodule PhoenixFmt.Globe do
 
   @doc "`globe lint --json -` の JSON（`%{\"messages\" => [...]}`）を返す。"
   def lint(text, disable) do
-    run(text, ["lint", "--json", "-" | Enum.flat_map(disable, &["--disable", &1])])
+    # #73: connect-type-mismatch は 1 MiB で 2.6 GB になるので常に止める
+    run(text, ["lint", "--json", "-", "--disable", "connect-type-mismatch" | Enum.flat_map(disable, &["--disable", &1])])
   end
 
   defp run(text, args) do

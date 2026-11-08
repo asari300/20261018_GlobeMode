@@ -291,5 +291,21 @@ mod tests {
         assert!(
             serde_json::from_str::<SimulateRequest>(r#"{"model":"M","solver":"bdf"}"#).is_err()
         );
+        // #83: 入れ子の settings も、綴りの誤りを黙って捨てない
+        for bad in [
+            r#"{"model":"M","settings":{"stoptime":10}}"#,
+            r#"{"model":"M","settings":{"parameter":{"k":2}}}"#,
+        ] {
+            assert!(
+                serde_json::from_str::<SimulateRequest>(bad).is_err(),
+                "{bad}"
+            );
+        }
+        assert!(
+            serde_json::from_str::<SimulateRequest>(
+                r#"{"model":"M","settings":{"stop_time":10,"parameters":{"k":2}}}"#
+            )
+            .is_ok()
+        );
     }
 }

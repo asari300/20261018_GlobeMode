@@ -52,6 +52,10 @@ pub struct WorkerRequest {
     pub step: Option<f64>,
     pub outputs: Vec<String>,
     pub set: Vec<(String, f64)>,
+    /// FMU の展開先。[`run_in_worker`] が親の側で一時ディレクトリを作って埋める（子が kill・クラッシュで終わっても、親が消す。#49）。
+    /// 空なら [`run_in_process`] が自分で作って消す
+    #[serde(default)]
+    pub work_dir: Option<PathBuf>,
 }
 
 /// ME の要約（事象の中身は数だけ）。
@@ -98,7 +102,10 @@ impl WorkerSpec {
 
 /// 要求を**このプロセスの中で**回す（ワーカーの中身。落ちると呼び出し側ごと落ちる）。
 pub fn run_in_process(req: &WorkerRequest, progress: &mut dyn FnMut(f64)) -> Result<WorkerRun> {
-    let fmu = Fmu::open(&req.file)?;
+    let fmu = match &req.work_dir {
+        Some(dir) => Fmu::open_in(&req.file, dir)?,
+        None => Fmu::open(&req.file)?,
+    };
     let kind = req
         .kind
         .unwrap_or(if fmu.description.co_simulation.is_some() {
@@ -268,6 +275,11 @@ pub fn run_in_worker(
         Some(_) => return Err(worker("メモリの上限は Linux だけで使える".into())),
         None => cmd = Command::new(&spec.exe),
     }
+    // #49: 展開先は親が作る。子が SIGKILL・segfault・exit で終わっても drop が走らず残る、ということが無い（`work` は child より先に宣言したので、wait のあとで落ちる）
+    let work = tempfile::Builder::new()
+        .prefix("globe-fmu-")
+        .tempdir()
+        .map_err(|e| worker(format!("一時ディレクトリを作れない: {e}")))?;
     let mut child = Reaper(
         cmd.args(&spec.args)
             .stdin(Stdio::piped())
@@ -279,7 +291,11 @@ pub fn run_in_worker(
     let tail = Arc::new(Mutex::new(Vec::new()));
     // 親が消えたら子が自分で終われるよう、終わるまで標準入力を開けておく
     let mut stdin = child.0.stdin.take();
-    let request = serde_json::to_string(req).map_err(|e| worker(e.to_string()))?;
+    let request = WorkerRequest {
+        work_dir: Some(work.path().to_owned()),
+        ..req.clone()
+    };
+    let request = serde_json::to_string(&request).map_err(|e| worker(e.to_string()))?;
     if let Some(i) = stdin.as_mut() {
         // 子が既に死んでいて書けないときは、下で終了の状態を報告する
         let _ = writeln!(i, "{request}");

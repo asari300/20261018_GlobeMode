@@ -547,6 +547,10 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - 試験: `test_ui.py` に 1 本（初回の案内と閉じる・smoke で出ない、スキップリンク、矢印・Home・End と tabindex、編集で印・再読み込み・beforeunload・保存で消える）。`pnpm check` 0 警告。
 - 持ち越し: タブの並べ替え（ドラッグ）、ツリーのアイコン、案内の多言語化、案内を出し直す操作、Esc で止める、スクリーンリーダーの実機（【未確認】）。
 
+### S218（P3〜P7、2026-11-08）で済んだこと
+
+- **全体監査の「必ず直す」13 件**（[解説書](sessions/S218-audit-fixes-1/解説書.md)）: #72・#74・#75・#55・#43・#48・#64・#54・#73・#49・#67・#68・#83 を 1 件 1 コミットで直した。#43 は session の道への切り替えを測って取り消し（EngineV6 の bdf が時間切れ）、型付きの道を別スレッドで回して即返す形にした（[ADR-0013](adr/0013-exec-backend.md) に付記）。持ち越し: #72 の待ち行列、#49 の親が落ちたとき、#89。
+
 ### S215（P4、2026-11-07）で済んだこと
 
 - **ウェブアプリの issue 2 件**（[解説書](sessions/S215-web-apps-issues/解説書.md)）: #22 Rust のウェブアプリ 4 種が `Options` のフィールド不足（S061・S062）で S061 からビルドできなかった（E0063、4 種とも再現）。`..defaults` で直し、CI にジョブ `web`（`src/Rust/apps/web-*` か `globe-mode-fmt` の変更、または full のとき、4 種を matrix で `cargo build` と `cargo test`）を足した。#36 CLI を子プロセスで呼ぶ 6 種に、本文 1 MiB（413）・`globe` の時間切れ 10 秒（kill。`GLOBE_TIMEOUT_MS`）・Gleam の一時ファイルの排他を足し、`disable` の形と `indent` 0〜16 を揃えた（[web-apps.md の 3.1](web-apps.md)）。**挙動が変わる**: 1 MiB を超える本文は 413、FastAPI の時間切れは 60 秒から 10 秒。
