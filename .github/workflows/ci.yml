@@ -28,7 +28,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  # S241: group を event ごとに分ける。S218（#72）で push の run が他を止めないようにしたが、schedule・workflow_dispatch の run が
+  # 同じ group の push の run を止めていた（2026-11-09 の毎週の全体検査が S239 の push の run を cancelled にした）
+  group: ci-${{ github.ref }}-${{ github.event_name }}
   # S218: push の run は止めない（止めた run の差分はどこでも検査されない）。ただし待ち行列で 2 本以上並ぶと古い待ちは GitHub が捨てるので、続けて push するときは full=true で回す
   cancel-in-progress: ${{ github.event_name != 'push' }}
 
