@@ -346,6 +346,12 @@ fn state_start_values_survive_a_rebuild() {
 /// `v3` なら FMI 3.0 の FMU にする（S137）。
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 fn fmpy(name: &str, names: &[&str], input: &str, v3: bool) -> Option<String> {
+    fmpy_as(name, names, input, v3, Kind::Me)
+}
+
+/// [`fmpy`] と同じで、`kind` が `Cs` なら FMPy の Co-Simulation で回す（S231。`modelDescription.xml` は CS だけ）。
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+fn fmpy_as(name: &str, names: &[&str], input: &str, v3: bool, kind: Kind) -> Option<String> {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let tmp = PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
     let uv = |args: &[&std::ffi::OsStr]| {
@@ -384,12 +390,11 @@ fn fmpy(name: &str, names: &[&str], input: &str, v3: bool) -> Option<String> {
     let dir = resources(name, &model, &text);
     let work = dir.parent().unwrap();
     let md = work.join("modelDescription.xml");
-    let describe = if v3 {
-        model_description_3
-    } else {
-        model_description
-    };
-    std::fs::write(&md, describe(&model, &text).unwrap()).unwrap();
+    std::fs::write(
+        &md,
+        model_description_kind(&model, &text, v3, kind).unwrap(),
+    )
+    .unwrap();
     let fmu = work.join("model.fmu");
     let out = uv(&[
         manifest.join("tests/fmpy_run.py").as_os_str(),
@@ -401,6 +406,12 @@ fn fmpy(name: &str, names: &[&str], input: &str, v3: bool) -> Option<String> {
         names.join(",").as_ref(),
         if v3 { "3" } else { "2" }.as_ref(),
         input.as_ref(),
+        if kind == Kind::Cs {
+            "CoSimulation"
+        } else {
+            "ModelExchange"
+        }
+        .as_ref(),
     ])
     .unwrap();
     let _ = std::fs::remove_dir_all(work);
@@ -560,5 +571,60 @@ fn fmpy_drives_input_step() {
             eprintln!("{n}(1): FMPy {f}、解析解 {e}、差 {:.1e}", (f - e).abs());
             assert!((f - e).abs() < 1e-5, "{n}: FMPy {f} と解析解 {e}");
         }
+    }
+}
+
+/// S231: Co-Simulation。FMPy の CS（`fmi2DoStep` / `fmi3DoStep`）で、Decay の x(1) = e^-1、BouncingBall の h・v・n を exec と
+/// （状態事象と reinit を刻みの中で回す）、InputDecay の入力の階段を解析解と突き合わせる。
+#[test]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+fn fmpy_co_simulation() {
+    for v3 in [false, true] {
+        let Some(out) = fmpy_as("Decay", &["x"], "", v3, Kind::Cs) else {
+            return;
+        };
+        let x = value(&out, "x");
+        assert!((x - (-1.0f64).exp()).abs() < 1e-6, "Decay x(1) = {x}");
+
+        let out = fmpy_as("BouncingBall", &["h", "v", "n"], "", v3, Kind::Cs).unwrap();
+        let exec = exec_last("BouncingBall", &["h", "v", "n"]);
+        assert_eq!(value(&out, "n"), exec[2], "跳ねた回数");
+        for (n, e) in ["h", "v"].iter().zip(&exec) {
+            let f = value(&out, n);
+            assert!((f - e).abs() < 1e-3, "{n}: FMPy(CS) {f} と exec {e}");
+        }
+
+        let input = r#"{"u": [[0, 0], [0.5, 0], [0.5, 2], [1, 2]]}"#;
+        let out = fmpy_as("InputDecay", &["x", "y"], input, v3, Kind::Cs).unwrap();
+        let h = (-0.5f64).exp();
+        let x = 2.0 + (h - 2.0) * h;
+        for (n, e) in [("x", x), ("y", 2.0 * x)] {
+            let f = value(&out, n);
+            assert!((f - e).abs() < 1e-5, "{n}: FMPy(CS) {f} と解析解 {e}");
+        }
+    }
+}
+
+/// S231: CS を含む modelDescription.xml は `canHandleVariableCommunicationStepSize` を書き、既定（ME だけ）は変わらない。
+#[test]
+fn model_description_kind_writes_co_simulation() {
+    let (model, text) = source("Decay");
+    for v3 in [false, true] {
+        let get = |k| model_description_kind(&model, &text, v3, k).unwrap();
+        let cs = r#"<CoSimulation modelIdentifier="globe_mode_fmu" canHandleVariableCommunicationStepSize="true"/>"#;
+        let me = r#"<ModelExchange modelIdentifier="globe_mode_fmu"/>"#;
+        let (m, c, b) = (get(Kind::Me), get(Kind::Cs), get(Kind::Both));
+        assert!(m.contains(me) && !m.contains("CoSimulation"));
+        assert!(c.contains(cs) && !c.contains("ModelExchange"));
+        assert!(b.contains(cs) && b.contains(me));
+        assert_eq!(
+            m,
+            if v3 {
+                model_description_3(&model, &text)
+            } else {
+                model_description(&model, &text)
+            }
+            .unwrap()
+        );
     }
 }

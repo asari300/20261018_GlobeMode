@@ -480,9 +480,15 @@ fn write_model_description(md: &ModelDescription, major: u8) -> Result<String, E
         ("ScheduledExecution", &md.scheduled_execution),
     ] {
         if let Some(i) = i {
+            // S231: 書く側は P5b の自前のランタイムだけで、その CS は刻みの幅を呼び手に任せる
+            let cs = if tag == "CoSimulation" {
+                " canHandleVariableCommunicationStepSize=\"true\""
+            } else {
+                ""
+            };
             let _ = writeln!(
                 x,
-                "  <{tag} modelIdentifier=\"{}\"/>",
+                "  <{tag} modelIdentifier=\"{}\"{cs}/>",
                 esc(&i.model_identifier)
             );
         }

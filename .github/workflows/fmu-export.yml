@@ -61,6 +61,33 @@ jobs:
             done
           done
           { echo '```text'; cat "$RUNNER_TEMP/summary.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      # S231: P5b（自前のランタイム globe-mode-fmu）の Co-Simulation。ME と CS を 1 つの FMU に書き、CS を FMPy と fmusim で回す
+      - name: P5b の CS を FMPy と fmusim で確かめる（S231）
+        run: |
+          fmpy() { uv run --no-project --with fmpy==0.3.32 python -I -c "import sys; from fmpy.cli import main; sys.argv = ['fmpy'] + sys.argv[1:]; main()" "$@"; }
+          last_x() { python3 -I -c "import csv, math, sys; r = list(csv.reader(open(sys.argv[1]))); h = r[0]; row = r[-1]; x = float(row[[c.strip().strip('\"') for c in h].index('x')]); print(f'{sys.argv[2]}: t = {row[0]}, x(1) = {x!r}, x(1) - e^-1 = {x - math.exp(-1):.3e}')" "$@"; }
+          cargo build --release -p globe-mode-fmu
+          mo=src/Modelica/GlobeModeValidation/Simulation/Decay.mo
+          for v in 2 3; do
+            out="$RUNNER_TEMP/p5b$v"; mkdir -p "$out"
+            cargo run -q --release -p globe-mode-fmu --example md -- "$mo" "$MODEL" "$v" both > "$out/modelDescription.xml"
+            python3 -I - "$out" "$v" "$MODEL" "$mo" <<'PY'
+          import sys, zipfile
+          out, v, model, mo = sys.argv[1:]
+          with zipfile.ZipFile(f"{out}/p5b.fmu", "w") as z:
+              z.write(f"{out}/modelDescription.xml", "modelDescription.xml")
+              z.write("target/release/libglobe_mode_fmu.so", f"binaries/{'x86_64-linux' if v == '3' else 'linux64'}/globe_mode_fmu.so")
+              z.write(mo, f"resources/{model}.mo")
+          PY
+            fmu="$out/p5b.fmu"
+            fmpy validate "$fmu"
+            fmusim validate "$fmu"
+            fmpy simulate "$fmu" --interface-type CoSimulation --relative-tolerance 1e-8 --stop-time 1 --output-variables x --output-file "$out/fmpy-cs.csv"
+            last_x "$out/fmpy-cs.csv" "P5b FMI $v FMPy CoSimulation" | tee -a "$RUNNER_TEMP/summary.txt"
+            fmusim simulate "$fmu" --interface-type cs --stop-time 1 --output-variable x --output-file "$out/fmusim-cs.csv"
+            last_x "$out/fmusim-cs.csv" "P5b FMI $v fmusim cs" | tee -a "$RUNNER_TEMP/summary.txt"
+          done
+          { echo '```text'; cat "$RUNNER_TEMP/summary.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - name: Enumeration と String のモデルを FMPy と fmusim で確かめる（S224）
         run: |
           fmpy() { uv run --no-project --with fmpy==0.3.32 python -I -c "import sys; from fmpy.cli import main; sys.argv = ['fmpy'] + sys.argv[1:]; main()" "$@"; }
