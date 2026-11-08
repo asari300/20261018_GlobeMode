@@ -56,11 +56,14 @@ export interface Backend {
   openPath?(path: string): Promise<{ name: string; text: string }>;
   /** 本文を手元に書く。保存先（Desktop はパス、ブラウザは名前）を返す。取り消しは null。saveAs は Desktop で保存先を選び直す（ブラウザは毎回ダウンロードなので同じ）。path は Desktop で、そのタブが本文を受け取った（開いた・保存した）パス（S196。あれば saveAs でない限りそこへ上書きする）。 */
   saveFile(name: string, text: string, saveAs?: boolean, path?: string): Promise<string | null>;
-  /** ソースの FMU（FMI 2 か 3、build 無し）を書き出す（S144）。保存先（Desktop はパス、ブラウザは名前）を返す。取り消しは null。作れなければ reject。 */
-  exportFmu(model: string, fmiVersion: number): Promise<string | null>;
+  /** ソースの FMU（FMI 2 か 3、build 無し）を書き出す（S144）。保存先（Desktop はパス、ブラウザは名前）を返す。取り消しは null。作れなければ reject。runtime（S239）の "p5b" は自前の実行時の共有ライブラリ入りの FMU（Desktop だけ。sidecar が cargo で作るので globe のソースの作業ツリーが要る。ブラウザは無視してソースの FMU）。 */
+  exportFmu(model: string, fmiVersion: number, runtime?: FmuRuntime): Promise<string | null>;
   /** バイナリ（PNG など）を手元に書く（S146）。保存先と取り消しは saveFile と同じ。 */
   saveBinary?(name: string, bytes: Uint8Array): Promise<string | null>;
 }
+
+/** FMU の実行時（S239）。p5a は Rumoca の C のソース、p5b は自前の共有ライブラリ入り。 */
+export type FmuRuntime = "p5a" | "p5b";
 
 /** `globe/fmuRun` の request のうち UI が送る分（S236。空の鍵は送らない）。kind は "cs" か "me"、timeout は壁時計の秒（予算）。 */
 export interface FmuRunRequest { kind?: "cs" | "me"; stop_time?: number; step?: number; timeout?: number }

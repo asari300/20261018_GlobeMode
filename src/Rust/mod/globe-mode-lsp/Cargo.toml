@@ -8,9 +8,16 @@ repository.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
+[lib]
+# S239: doctest を回さない。feature fmu-p5b がワークスペース全体で有効になり、cdylib 兼 rlib の globe-mode-fmu（hash 無しの名前の rlib）に
+# 依存する。その rlib は globe-mode-fmu の試験が入れ子で回す cargo build に上書きされ、rustdoc が E0460 / E0463 で落ちる（globe-mode-nif と同じ扱い）。
+doctest = false
+
 [features]
 # S229: globe/fmuInfo・globe/fmuRun（FMU を別プロセスで回す。共有ライブラリを読むので wasm には付けない。CLI が付ける）
 fmu-import = ["globe-mode/fmu-import"]
+# S239: globe/exportFmu の runtime = p5b（自前の実行時の FMU。cargo か共有ライブラリが要るので wasm には付けない。CLI が付ける）
+fmu-p5b = ["globe-mode/fmu-p5b"]
 
 [dependencies]
 # S038: facade 経由だけ（db・exec・sim には直接依存しない）

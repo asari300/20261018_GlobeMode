@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S239 P5b の FMU を CLI 以外の面へ — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S239 P5b の FMU を CLI 以外の面へ">
+
+<section class="slide" id="S01">
+  <span class="tag">S239 · 2026-11-09 · P5</span>
+  <h1>P5b の Export を facade・Python・LSP・UI から</h1>
+  <p class="lead">CLI にあった本体を facade へ移し、ほかの面はそれを呼ぶ。共有ライブラリは strip して入れる</p>
+  <div class="big"><code>export_fmu(runtime="p5b")</code></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">形</span>
+  <h1>どの面も同じ 1 つの関数</h1>
+  <table class="compact">
+    <tr><th>面</th><th>入口</th></tr>
+    <tr><td>facade</td><td><code>export_fmu_p5b</code>、<code>FmuOptions { runtime, runtime_lib }</code></td></tr>
+    <tr><td>CLI</td><td><code>--runtime p5b</code>（引数を読み、終了コードにするだけ）</td></tr>
+    <tr><td>Python</td><td><code>ws.export_fmu(model, out, runtime="p5b", runtime_lib=None)</code></td></tr>
+    <tr><td>LSP</td><td><code>globe/exportFmu</code> の <code>runtime</code>・<code>runtimeLib</code></td></tr>
+    <tr><td>UI</td><td>Desktop だけ「実行時」select</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">図</span>
+  <h1>呼び出しの向き</h1>
+  <svg class="fig" viewBox="0 0 800 240" role="img" aria-label="CLI、Python、LSP が facade の export_fmu_p5b を呼び、UI は LSP を通る図">
+    <rect class="svg-box" x="20" y="20" width="160" height="50" rx="10"/>
+    <text class="svg-text-b" x="100" y="50" text-anchor="middle">CLI</text>
+    <rect class="svg-box" x="20" y="95" width="160" height="50" rx="10"/>
+    <text class="svg-text-b" x="100" y="125" text-anchor="middle">Python</text>
+    <rect class="svg-box" x="20" y="170" width="160" height="50" rx="10"/>
+    <text class="svg-text-b" x="100" y="200" text-anchor="middle">LSP（UI から）</text>
+    <line class="svg-line" x1="180" y1="45" x2="330" y2="115"/>
+    <line class="svg-line" x1="180" y1="120" x2="330" y2="120"/>
+    <line class="svg-line" x1="180" y1="195" x2="330" y2="125"/>
+    <rect class="svg-box-accent" x="330" y="85" width="220" height="70" rx="10"/>
+    <text class="svg-text-b" x="440" y="125" text-anchor="middle">facade export_fmu_p5b</text>
+    <line class="svg-line" x1="550" y1="120" x2="620" y2="120"/>
+    <rect class="svg-box" x="620" y="85" width="160" height="70" rx="10"/>
+    <text class="svg-text-b" x="700" y="125" text-anchor="middle">strip して zip</text>
+  </svg>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">大きさ</span>
+  <h1>strip の前後</h1>
+  <p>Decay の P5b の FMU は <b>14.3 → 12.9 MB</b>。共有ライブラリは 44.5 → 33.1 MB（zip の中で 14.3 → 12.8 MB）。</p>
+  <ul>
+    <li>zip に入れる写しだけを strip する。<code>runtime_lib</code> で渡したファイルは触らない。</li>
+    <li>Linux は <code>strip</code>、macOS は <code>strip -x</code>、Windows は何もしない。</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">UI</span>
+  <h1>ブラウザ・Android には出さない</h1>
+  <ul>
+    <li>Desktop の「FMU を書き出す」の隣に、P5a（Rumoca の C）と P5b（自前、cargo が要る）の select。</li>
+    <li>P5b は sidecar が <code>cargo build</code> を呼ぶので、globe のソースの作業ツリーの外では理由つきで失敗する。</li>
+    <li>cdylib を作れないブラウザ・Android に選択肢は無い。</li>
+  </ul>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">ライセンス</span>
+  <h1>MSL の LICENSE を同梱</h1>
+  <p><code>-L</code> のルートに <code>LICENSE</code> があれば <code>resources/lib/LICENSE</code> に写す。MSL は BSD-3-Clause。</p>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>残したもの</h1>
+  <ul>
+    <li>閉包のクラス単位化（<code>resources/lib</code> を数百 KB に）。</li>
+    <li>配布物に cdylib を同梱（Desktop が作業ツリー無しで P5b を書けるように）。</li>
+    <li>複数ファイルのモデル、host 以外の OS の P5b、FMI 3.0 の SE。</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

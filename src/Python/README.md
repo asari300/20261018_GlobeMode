@@ -26,7 +26,7 @@ print(res["ok"], table(res).shape)
   | `SettingsError` | `ValueError` | `simulate` / `simulate_columns` の設定の値や型の誤り（NaN・inf を含む。どの設定かを言う） |
   | `ModelNotFoundError` | `ValueError` | `graph` のモデルが索引に無い |
   | `SourceError` | `ValueError` | `outline` のファイルが無い・構文の誤り（`.diagnostics`）、`format` の構文の誤り |
-  | `ExportError` | `ValueError` | `export_fmu` が書き出せない（版が 2・3 でない、DAE にできない、書き込めない） |
+  | `ExportError` | `ValueError` | `export_fmu` が書き出せない（版が 2・3 でない、DAE にできない、書き込めない、`runtime="p5b"` の共有ライブラリを作れない・無い） |
   | `ResultError` | `ValueError` | `table` に時系列の無い結果（`ok: False`）を渡した |
   | `FmuError` | `RuntimeError` | `fmu_info` が FMU を読めない、`run_fmu` が回せない（FMU が落ちた・時間切れ・止めた・`globe` が見つからない） |
 

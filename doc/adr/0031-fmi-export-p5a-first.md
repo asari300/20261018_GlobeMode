@@ -107,3 +107,12 @@
 - `examples/md.rs` は CLI に置き換えて消した。`fmu-export.yml` の P5b の step と `.github/scripts/fmu_msl_check.py` の `--p5b` は CLI を呼ぶ。
 - **shortcut**: P5b のモデルは 1 つの `.mo` か `-L` のライブラリの中のクラス（実行時が `resources/` の `.mo` を 1 つだけ読むため。複数ファイルのパッケージを渡すと終了コード 2）。host の OS 以外の P5b の cross は無い（各 OS でその OS の cdylib を作る。S234）。MSL の `LICENSE` は FMU に同梱していない。Python（`export_fmu` の `runtime`）と UI の選択肢は足していない。
 - 詳細: [S238 の解説書](../sessions/S238-fmu-export-p5b-cli/解説書.md)。
+
+## 追記（S239、2026-11-09）: P5b を CLI 以外の面へ
+
+- **本体を facade へ**: `fmu_p5b.rs` の本体を `globe-mode`（feature `fmu-p5b`）の `export_fmu_p5b` に移し、CLI はそれを呼んで終了コードにするだけ（写しは無い）。`FmuOptions` に `runtime: FmuRuntime`（`p5a` 既定 / `p5b`）と `runtime_lib: Option<PathBuf>`（JSON の鍵も同じ。C ABI・NIF・Python が共有）。`Workspace::export_fmu` は `runtime = p5b` なら、モデルを定義するワークスペースのファイル（無ければ開いたライブラリの中のクラス）と開いたライブラリ（`Workspace` が `with_libraries` に渡されたパスを持つ）から作る。誤りは `P5bError::{Usage, Failed}`（CLI は 2 と 1）。feature が無い版（wasm）は理由つきの `Err`。
+- **Python**: `export_fmu(..., runtime="p5b", runtime_lib=None)`。cdylib を作れなければ `ExportError`。**LSP**: `globe/exportFmu` に `runtime`（p5a・p5b。ほかは -32602）と `runtimeLib`。**UI**: Desktop だけ「実行時」の select。ブラウザ・Android は cdylib を作れないので出さない。Desktop の sidecar（`globe lsp`）は cargo を呼ぶので、globe のソースの作業ツリーの外では理由つきで失敗する（配布物への cdylib の同梱は持ち越し）。
+- **strip**: zip に入れる cdylib の写しを strip する（Linux `strip`、macOS `strip -x`、Windows は無し。`strip` が無ければそのまま）。`runtime_lib` で渡されたファイルは触らない。測定は解説書（FMU 全体 14.3 → 12.9 MB）。
+- **doctest を回さない crate が増えた**: `globe-mode-fmu` は cdylib 兼 rlib で、その rlib は hash 無しの名前になる。`globe-mode-fmu` 自身の試験（`tests/fmpy.rs`）と CLI の試験が入れ子で `cargo build -p globe-mode-fmu` を回すと、ワークスペース全体のビルドの rlib が（feature の組が違うので）上書きされる。facade が feature `fmu-p5b` で rlib として依存し、ワークスペース全体で有効になったため、あとの doctest で rustdoc が facade を読むときに E0460 / E0463 になった（`release` や `cargo rustc --crate-type cdylib` に変えても rlib が書き換わった）。そこで facade・`globe-mode-c`・`-lsp`・`-py`・`-wasm` に `doctest = false`（`globe-mode-nif` と同じ）。facade の本文の例（Decay の検査と実行）は `tests/` が通している。cdylib を rlib の依存から外せたら戻す（持ち越し）。
+- **LICENSE**: `-L` のルートの `LICENSE`（MSL の BSD-3-Clause）を `resources/lib/LICENSE` に写す。
+- 詳細: [S239 の解説書](../sessions/S239-fmu-export-p5b-surfaces/解説書.md)。

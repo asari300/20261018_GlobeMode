@@ -26,7 +26,7 @@
 //! | `globe/readResults` | `{path}`（`.mat` は MAT v4、それ以外は CSV） | `{layout, columns, parameters}`（S222。`globe/simulateColumns` の `layout`・`columns` と同じ形。`parameters` は MAT の `data_1` の `[{name, value, unit?, description?}]`で、CSV は空。S236。`defaults` は先頭の 3 本。読めなければ -32000） |
 //! | `globe/fmuInfo` | `{path}`（`.fmu`） | `FmuInfo` の JSON に `warning`（実行の前に見せる警告。S229。`globe fmu info` と同じ情報。ネイティブコードは実行しない。読めなければ -32000。feature `fmu-import`） |
 //! | `globe/fmuRun` | `{path, request?, workDoneToken?}`（`request` は `FmuRunRequest`: `kind`（`"cs"`/`"me"`）・`start_time`・`stop_time`・`step`・`outputs`・`set`・`timeout`・`memory_limit_mib`） | `{layout, columns, me}`（S229。`globe/readResults` と同じ `layout`・`columns` に、ME だけ事象の要約 `me`。**FMU のネイティブコードを別プロセス（自分と同じ実行ファイルの `fmu __worker`）で実行する**。`$/progress` は `{kind: "report", stage: "integration", time}`、`$/cancelRequest` でワーカーを kill して -32800。失敗は -32000。feature `fmu-import`） |
-//! | `globe/exportFmu` | `{model, fmiVersion?, outDir}`（既定は FMI 2。`build` はしない） | `{path}`（S144。`outDir/<名前>.fmu` と展開した `outDir/<名前>/` を書く。DAE まで変換できなければ -32000） |
+//! | `globe/exportFmu` | `{model, fmiVersion?, outDir, runtime?, runtimeLib?}`（既定は FMI 2・`runtime` は `"p5a"`。`build` はしない） | `{path}`（S144。`outDir/<名前>.fmu` と展開した `outDir/<名前>/` を書く。S239 から `runtime: "p5b"` は自前の実行時の共有ライブラリ入りの `<名前>-p5b-fmi<版>.fmu`〔`runtimeLib` か cargo。この版に P5b が無い wasm では -32000〕。`runtime` が p5a・p5b 以外なら -32602。DAE まで変換できなければ -32000） |
 //! | `globe/tunableParameters` | `{model}` | `ParametersResponse` の JSON（S150。上書きできるパラメータの一覧。wasm の `tunable_parameters` と同じ。DAE まで変換できなければ -32000） |
 //! | `globe/completion` | `{file, line, character}`（`globe/definition` と同じ） | LSP の `CompletionList` `{isIncomplete, items}`（S171。`textDocument/completion` と同じ計算。予約語、文書の名前、点つきの名前の途中はクラスの子か部品の型の部品名。最大 200 件で、200 件に達したら `isIncomplete: true`（S198。打ちかけの語で絞ってから切る）。文字列・コメントの中は空。wasm の `completion` は `items` と同じ配列だけを返す） |
 //! | `globe/librarySearch` | `{query}`（名前の部分一致。大文字小文字を区別しない。`.` を含めると完全修飾名） | 同じ形の項目の配列（S167。最大 50 件、近い順。ファイルの中の入れ子のクラスも出る） |
@@ -664,13 +664,26 @@ impl Server {
             // ソースの FMU の書き出し（S144。build 無し。`outDir/<名前>-fmi<版>.fmu` と展開した `outDir/<名前>/` を書く）
             "globe/exportFmu" => match (params["model"].as_str(), params["outDir"].as_str()) {
                 (Some(model), Some(out_dir)) => {
-                    let options = globe_mode::FmuOptions {
-                        fmi_version: params["fmiVersion"].as_u64().unwrap_or(2) as u8,
-                        ..Default::default()
+                    let runtime = match params["runtime"].as_str() {
+                        None | Some("p5a") => Some(globe_mode::FmuRuntime::P5a),
+                        Some("p5b") => Some(globe_mode::FmuRuntime::P5b),
+                        Some(_) => None,
                     };
-                    match self.ws.export_fmu(model, std::path::Path::new(out_dir), &options) {
-                        Ok(path) => reply(id, json!({"path": path.to_string_lossy()})),
-                        Err(e) => error(id, -32000, &e),
+                    match runtime {
+                        // S239: runtime（p5a か p5b）と runtimeLib（p5b の共有ライブラリ。省略すると cargo で作る）
+                        Some(runtime) => {
+                            let options = globe_mode::FmuOptions {
+                                fmi_version: params["fmiVersion"].as_u64().unwrap_or(2) as u8,
+                                runtime,
+                                runtime_lib: params["runtimeLib"].as_str().map(Into::into),
+                                ..Default::default()
+                            };
+                            match self.ws.export_fmu(model, std::path::Path::new(out_dir), &options) {
+                                Ok(path) => reply(id, json!({"path": path.to_string_lossy()})),
+                                Err(e) => error(id, -32000, &e),
+                            }
+                        }
+                        None => error(id, -32602, "params.runtime は \"p5a\" か \"p5b\""),
                     }
                 }
                 _ => error(id, -32602, "params.model と params.outDir が文字列でない"),
@@ -1837,6 +1850,48 @@ mod tests {
         let r =
             s.handle(json!({"id": 3, "method": "globe/exportFmu", "params": {"model": "Decay"}}));
         assert_eq!(r[0]["error"]["code"], -32602);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// S239: `runtime` が通る。p5a・p5b 以外は -32602。p5b は `runtimeLib`（ここでは中身は何でもよい）を zip に入れる
+    /// （cargo は要らない）。共有ライブラリの無いパスは -32000。この版に P5b が無ければ -32000。
+    #[test]
+    fn export_fmu_passes_the_runtime() {
+        let mut s = Server::new(&[]).unwrap();
+        let src = "model Decay\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -x;\nend Decay;\n";
+        s.handle(
+            json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+            "uri": "Decay.mo", "languageId": "modelica", "version": 1, "text": src}}}),
+        );
+        let dir = std::env::temp_dir().join(format!("globe-lsp-p5b-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let out = dir.to_string_lossy().to_string();
+        let call = |s: &mut Server, p: Value| {
+            s.handle(json!({"id": 1, "method": "globe/exportFmu", "params": p}))
+        };
+        let r = call(
+            &mut s,
+            json!({"model": "Decay", "outDir": out, "runtime": "p6"}),
+        );
+        assert_eq!(r[0]["error"]["code"], -32602);
+        let lib = dir.join("fake_runtime.so");
+        std::fs::write(&lib, b"not a real library").unwrap();
+        let r = call(
+            &mut s,
+            json!({"model": "Decay", "outDir": out, "runtime": "p5b", "runtimeLib": lib}),
+        );
+        if cfg!(feature = "fmu-p5b") {
+            let path = PathBuf::from(r[0]["result"]["path"].as_str().unwrap());
+            assert_eq!(path, dir.join("Decay-p5b-fmi2.fmu"));
+            assert!(dir.join("Decay-p5b/resources/Decay.mo").is_file());
+            let r = call(
+                &mut s,
+                json!({"model": "Decay", "outDir": out, "runtime": "p5b", "runtimeLib": dir.join("none")}),
+            );
+            assert_eq!(r[0]["error"]["code"], -32000);
+        } else {
+            assert_eq!(r[0]["error"]["code"], -32000);
+        }
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

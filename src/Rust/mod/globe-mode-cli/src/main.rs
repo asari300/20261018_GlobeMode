@@ -455,6 +455,7 @@ fn main() -> ExitCode {
                 build,
                 targets: target,
                 fmi_headers,
+                ..Default::default()
             },
         ),
         Command::Fmu {
@@ -1195,19 +1196,17 @@ fn fmu_export(
     options: &globe_mode::FmuOptions,
 ) -> ExitCode {
     if runtime == fmu_p5b::FmuRuntime::P5b {
-        if options.build || !options.targets.is_empty() || options.fmi_headers.is_some() {
-            eprintln!(
-                "error: --build・--target・--fmi-headers は --runtime p5a のもの（p5b は共有ライブラリを入れる）"
-            );
-            return ExitCode::from(2);
-        }
+        // 旗の組み合わせの誤り（--build など）は facade が断る（終了コード 2）
         return fmu_p5b::export(&fmu_p5b::Args {
             files,
             library,
             model,
             out,
-            fmi_version: options.fmi_version,
-            runtime_lib,
+            options: &globe_mode::FmuOptions {
+                runtime: globe_mode::FmuRuntime::P5b,
+                runtime_lib: runtime_lib.map(Path::to_path_buf),
+                ..options.clone()
+            },
         });
     }
     if runtime_lib.is_some() {

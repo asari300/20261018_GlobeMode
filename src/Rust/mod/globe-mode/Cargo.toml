@@ -8,6 +8,11 @@ repository.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
+[lib]
+# S239: doctest を回さない。feature fmu-p5b がワークスペース全体で有効になり、cdylib 兼 rlib の globe-mode-fmu（hash 無しの名前の rlib）に
+# 依存する。その rlib は globe-mode-fmu の試験が入れ子で回す cargo build に上書きされ、rustdoc が E0460 / E0463 で落ちる（globe-mode-nif と同じ扱い）。
+doctest = false
+
 [features]
 # S032・S034: CVODE と IDA（SUNDIALS）。cmake と C コンパイラが要る
 sundials = ["globe-mode-exec/sundials"]
@@ -15,6 +20,8 @@ sundials = ["globe-mode-exec/sundials"]
 fmu = ["dep:globe-mode-fmi", "globe-mode-fmi/export"]
 # S229: FMU の読み込みと実行（import_fmu_info・run_fmu。ADR-0026 の (p)）。共有ライブラリを読むので wasm32・Android では付けない
 fmu-import = ["dep:globe-mode-fmi-import"]
+# S239: P5b の FMU の書き出し（runtime = p5b。自前の実行時の共有ライブラリを入れる）。cargo か runtime_lib を使うので wasm32 では付けない
+fmu-p5b = ["fmu", "dep:globe-mode-fmu"]
 
 [dependencies]
 globe-mode-core = { workspace = true }
@@ -31,6 +38,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 globe-mode-fmi = { workspace = true, optional = true }
 globe-mode-fmi-import = { workspace = true, optional = true }
+globe-mode-fmu = { workspace = true, optional = true }
 
 [lints]
 workspace = true

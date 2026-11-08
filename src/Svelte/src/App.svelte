@@ -732,10 +732,13 @@
   });
   // S144: ソースの FMU。ブラウザはダウンロード、Desktop は保存先のフォルダへ sidecar が書く。S154: FMI の版（2.0 / 3.0）を選べる
   let fmiVersion = $state(2);
+  let fmuRuntime = $state<"p5a" | "p5b">("p5a"); // S239: P5b は Desktop だけ（cdylib を sidecar が cargo で作る。ブラウザ・Android には無い）
   const FMU_BUILD = "globe fmu export --build"; // S173: バイナリ入りは CLI だけ（cc か zig cc が要る。S144 の書き出しは build 無し）
   const exportFmu = () => run(async () => {
-    const to = await backend.exportFmu(model, fmiVersion);
-    if (to) saved = `FMU を書き出した: ${to}。ソースだけでバイナリは入っていない（Desktop も同じ）。他のツールで読むには CLI の ${FMU_BUILD} で作る`;
+    const to = await backend.exportFmu(model, fmiVersion, fmuRuntime);
+    if (to) saved = fmuRuntime === "p5b"
+      ? `FMU を書き出した: ${to}。自前の実行時（P5b）の共有ライブラリ入りで、この OS 用だけ`
+      : `FMU を書き出した: ${to}。ソースだけでバイナリは入っていない（Desktop も同じ）。他のツールで読むには CLI の ${FMU_BUILD} で作る`;
   });
   async function save(saveAs = false) {
     failure = "";
@@ -828,6 +831,7 @@
     {#if desktop}<button onclick={() => save(true)} title="名前を付けて保存（Ctrl/Cmd+Shift+S）" aria-keyshortcuts="Control+Shift+S Meta+Shift+S">名前を付けて保存</button>{/if}
     <button onclick={exportFmu} disabled={busy} aria-describedby="fmu-note">FMU を書き出す</button>
     <select aria-label="FMI の版" bind:value={fmiVersion}><option value={2}>FMI 2.0</option><option value={3}>FMI 3.0</option></select>
+    {#if desktop}<select aria-label="実行時" bind:value={fmuRuntime}><option value="p5a">P5a（Rumoca の C のソース）</option><option value="p5b">P5b（自前の実行時。cargo が要る）</option></select>{/if}
     <small id="fmu-note" data-fmu-note>FMU はソースだけ（バイナリ無し）。他のツールで読むには CLI の <code>{FMU_BUILD}</code></small>
     <label>モデル名 <input bind:value={model} aria-label="モデル名"></label>
     {#if models.length > 1}
