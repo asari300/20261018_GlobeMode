@@ -7,7 +7,7 @@
 | worktree | `.git-worktree/s238-fmu-export-p5b-cli` |
 | Phase | P5 |
 | セッション文書 | `doc/sessions/S238-fmu-export-p5b-cli/` |
-| セッション記録 | （親が写す） |
+| セッション記録 | [2026-11-02-a2580a13-3889-4662-9db4-a45dc1ca6772.md](../sessions/2026-11-02-a2580a13-3889-4662-9db4-a45dc1ca6772.md) |
 
 ## 依頼
 
@@ -37,7 +37,7 @@ S237 の持ち越し 2 つ。P5b の FMU を CLI（`globe fmu export --runtime p
 - コードの検査（`mise run check`）: 通った（fmt・clippy・test・deny・`fmt --check src/Modelica`・`uv sync --locked`）。途中で落ちたのは 2 件で直した: `test_ci_plan.py`（`globe-mode-fmu` に依存元 `globe-mode-cli` ができた）と `cli_flow.rs` の `help_has_examples_and_no_session_numbers`（`--runtime` の説明に S238 と書いた）。
 - CI（feature ブランチ）: `fmu-export.yml` run 42501030245 が success（`fmu-export` の MSL の step は CLI の P5b。`fmu-native` の 3 OS は CLI の自動の cargo build 経路で Decay を FMPy・fmusim。`fmu-cross` の 3 OS も success）。`ci.yml -f full=true` run 42501039677 が success。
 - `check_docs.py`: デッキ 全件 OK / リンク 4454 件中の切れ 0 件。`render_slides.py`: S238 のデッキ 問題 0 件
-- セッション記録の `--check`: （親が写す）
+- セッション記録の `--check`: 取りこぼし 0 件（親が写した）
 
 ## 残したこと
 
