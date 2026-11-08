@@ -34,9 +34,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo build -p globe-mode-cli --bin globe
       - name: fmusim を取得する
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p "$RUNNER_TEMP/fmusim" && cd "$RUNNER_TEMP/fmusim"
-          curl -sSfL --retry 10 --retry-all-errors --retry-delay 10 -o fmusim.zip "$FMUSIM_URL"
+          # S234: github.com の release の直リンク（curl）が 504 を返し続けたので、API 経由の gh で取る
+          gh release download v0.15.0 -R modelica/fmusim -p fmusim-x86_64-linux.zip -O fmusim.zip --clobber
           echo "$FMUSIM_SHA256  fmusim.zip" | sha256sum -c
           unzip -q fmusim.zip && chmod +x fmusim
           echo "$RUNNER_TEMP/fmusim" >> "$GITHUB_PATH"
@@ -119,6 +122,8 @@ jobs:
           name: fmu-cross
           path: fmu
       - name: fmusim を取得する（S234。OS ごとの release、sha256 は S234 で GitHub の digest を確かめたもの）
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           case "$RUNNER_OS" in
             Linux)   a=x86_64-linux;   h=d92bd9054ac9693d263c4d68e75a6dd4d540cdd415c178dd75521571ed9e29a0 ;;
@@ -126,7 +131,8 @@ jobs:
             macOS)   a=aarch64-darwin; h=e00ccf908cc4295a0794e63babc4c1fd060e020f64163f22695e3ce1524a58f2 ;;
           esac
           mkdir -p fmusim-bin && cd fmusim-bin
-          curl -sSfL --retry 10 --retry-all-errors --retry-delay 10 -o fmusim.zip "https://github.com/modelica/fmusim/releases/download/v0.15.0/fmusim-$a.zip"
+          # github.com の release の直リンク（curl）が 504 を返し続けたので、API 経由の gh で取る
+          gh release download v0.15.0 -R modelica/fmusim -p "fmusim-$a.zip" -O fmusim.zip --clobber
           py() { uv run --no-project python -I "$@"; }
           py -c "import hashlib, sys; d = hashlib.sha256(open('fmusim.zip', 'rb').read()).hexdigest(); print(d); sys.exit(d != sys.argv[1])" "$h"
           py -c "import zipfile; zipfile.ZipFile('fmusim.zip').extractall('.')"
@@ -175,6 +181,8 @@ jobs:
       - run: pipx install uv && echo "$(pipx environment --value PIPX_BIN_DIR)" >> "$GITHUB_PATH"
       - uses: Swatinem/rust-cache@v2
       - name: fmusim を取得する（S234。OS ごとの release、sha256 は S234 で GitHub の digest を確かめたもの）
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           case "$RUNNER_OS" in
             Linux)   a=x86_64-linux;   h=d92bd9054ac9693d263c4d68e75a6dd4d540cdd415c178dd75521571ed9e29a0 ;;
@@ -182,7 +190,8 @@ jobs:
             macOS)   a=aarch64-darwin; h=e00ccf908cc4295a0794e63babc4c1fd060e020f64163f22695e3ce1524a58f2 ;;
           esac
           mkdir -p fmusim-bin && cd fmusim-bin
-          curl -sSfL --retry 10 --retry-all-errors --retry-delay 10 -o fmusim.zip "https://github.com/modelica/fmusim/releases/download/v0.15.0/fmusim-$a.zip"
+          # github.com の release の直リンク（curl）が 504 を返し続けたので、API 経由の gh で取る
+          gh release download v0.15.0 -R modelica/fmusim -p "fmusim-$a.zip" -O fmusim.zip --clobber
           py() { uv run --no-project python -I "$@"; }
           py -c "import hashlib, sys; d = hashlib.sha256(open('fmusim.zip', 'rb').read()).hexdigest(); print(d); sys.exit(d != sys.argv[1])" "$h"
           py -c "import zipfile; zipfile.ZipFile('fmusim.zip').extractall('.')"
