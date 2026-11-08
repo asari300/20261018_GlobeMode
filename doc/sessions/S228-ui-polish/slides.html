@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S228 UI の使い心地 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S228 UI の使い心地">
+
+<section class="slide" id="S01">
+  <span class="tag">S228 · 2026-11-08 · P4</span>
+  <h1>UI の使い心地 4 点</h1>
+  <p class="lead">Esc で止める、タブの並べ替え、設定のモデルごとの保存、開始時刻・刻み幅・予算の欄</p>
+  <div class="big">Svelte の UI だけ。Rust も新しいライブラリも触らない</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">キー</span>
+  <h1>Esc とタブの並べ替え</h1>
+  <table class="compact">
+    <tr><th>操作</th><th>動き</th></tr>
+    <tr><td>実行中の Esc</td><td>Ctrl+. と同じ。入力欄・ダイアログの中では奪わない。補完の一覧が開いていれば閉じるだけ</td></tr>
+    <tr><td>Ctrl+Shift+PageUp / PageDown</td><td>いまのタブを左へ・右へ（端では動かない）。「B.mo を 2 番目へ移した」と読み上げる</td></tr>
+    <tr><td>ドラッグ</td><td>HTML5 の <code>draggable</code>。順序は 300 ms のまとめ書きで残る</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">設定</span>
+  <h1>モデルごとの保存と新しい欄</h1>
+  <ul>
+    <li><code>globe-mode.sim</code>: モデル名 → 触った欄だけ。モデルを変えると入れ替わり、「設定を既定に戻す」で消える</li>
+    <li>開始時刻・刻み幅（固定刻みのソルバのときだけ有効）・予算（秒）の欄</li>
+    <li>GM-E10004（出力が 1000 万点を超えるなど）は欄の下にも出る</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">試験</span>
+  <h1>試験と再現</h1>
+  <pre><code>cd src/Svelte &amp;&amp; pnpm check &amp;&amp; pnpm build
+uv run python src/Svelte/tests/test_ui.py   # ui_polish の 4 本</code></pre>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ul>
+    <li>リネーム（F2）でモデル名が変わると、設定は新しい名前の保存に入れ替わる</li>
+    <li>固定刻みのソルバの一覧は UI に写してある（<code>SolverEntry</code> に印が要る）</li>
+    <li>Mac のキー、スクリーンリーダー、Desktop・Android の実機は【未確認】</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

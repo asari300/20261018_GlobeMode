@@ -96,6 +96,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 - S219: **結果の読み込み**。CLI に `globe results <in.mat|in.csv> [-o out.csv|out.mat]`（形は拡張子で決める。`-o` 無しは CSV を標準出力へ。入力と同じ書き先は断る）、Python に `globe_mode.read_results(path)`（`simulate_columns` と同じ形の dict。`table` で表になる。MAT のパラメータは `parameters`）。omc の実物の MAT で試した。UI の「結果を開く」は別の仕事。
 - S220: LSP に `textDocument/foldingRange`（クラス・節・複数行の annotation・連続コメント）、VS Code の拡張に `indentationRules`（`model`/`function`/`if … then`/`for … loop` などの次の行で字下げし、`end`・`else`・節の見出しで戻す）。UI（CodeMirror）の折りたたみは別 WP。
+- S228: **UI の使い心地 4 点**。実行中に **Esc で止める**（Ctrl+. と同じ。入力欄・ダイアログの中では奪わず、補完の一覧が開いていれば閉じるだけ）。**タブの並べ替え**（ドラッグと Ctrl+Shift+PageUp / PageDown。順序は自動保存に乗る）。**実行の設定をモデル名ごとに保存**（localStorage `globe-mode.sim`。**挙動が変わる**: モデル名を変えるとそのモデルの設定に入れ替わり、保存が無ければ既定に戻る。「設定を既定に戻す」で消える）。実行の設定に**開始時刻・刻み幅（固定刻みのソルバのときだけ）・予算（秒）**の欄を足し、GM-E10004 を欄の下にも出す。
 - S225: UI（CodeMirror）に折りたたみ（行番号の隣の印と Ctrl+Shift+[ / ]。LSP と同じ範囲）。範囲は Rust の同じ関数で、ブラウザ・Android は wasm に `folding_ranges(file, text)`、Desktop は sidecar の `textDocument/foldingRange`（UI が中継する method は 20 本）。入力が 300 ms 止まったら取り直す。
 - S215: **挙動が変わる**: CLI を子プロセスで呼ぶウェブアプリ 6 種は、本文が 1 MiB を超えると 413（Streamlit・marimo は画面にエラー）、`globe` が 10 秒（`GLOBE_TIMEOUT_MS`）で終わらなければ kill して 5xx（FastAPI は 60 秒から 10 秒に）。Astro の `indent` は 0〜16、Phoenix・Gleam は `indent: 0` を受け、`disable` は規則名の形だけ。Rust のウェブアプリ 4 種は `Options` のフィールド不足（S061 から）でビルドできなかったのを直し、CI にジョブ `web` を足した（#22・#36）。
 

@@ -169,6 +169,10 @@
 - **試験**: facade（`globe-mode-cli/tests/fmu_worker.rs`。Dahlquist の CS・ME、JSON の request、失敗、中断の旗〔`cc` の遅い FMU を 400 ms で止める。子が残らない〕）、LSP の rpc（`tests/lsp.rs` で `globe lsp` を起動して info・run・-32000・-32602。`globe-mode-lsp` の単体は params の誤りだけ。ワーカーが試験のバイナリになるため）、Python（`GLOBE_BIN` を試験の `globe` に向ける）、`test_ui.py`（ブラウザは「Desktop だけ」、Desktop の偽 fs で確認を断れば回さず、承知すれば結果のタブ）、`test_tauri.mjs`。
 - **限界**: sandbox・macOS / Windows のメモリの上限は (n) のまま。UI は実験設定を変えられない。C ABI・NIF は未（(k) 3 の残り）。Desktop の中断は sidecar への `$/cancelRequest` が届いてから 50 ms 以内にワーカーを止める（sidecar の LSP は要求を 1 本ずつ処理するので、FMU の実行中はほかの要求が待つ）。
 
+### (o) S218 の付記（2026-11-08）: (f) の「ME は設計だけ」は S204 の時点
+
+(f) の「実装済み＝CS。ME は設計だけ」は S204 の時点の記述で、本文は書き換えない。いまは、ME を S205 で足し（(l)）、ワーカーでの隔離を S210 で足した（(n)）。S218 で、ワーカーの一時ディレクトリ（FMU の展開先）を親が作って `WorkerRequest.work_dir` で子に渡すようにした（`Fmu::open_in`。#49）ので、abort・segfault・kill で子が終わっても展開先が `/tmp` に残らない。ただし親が SIGKILL で落ちたときの親の一時ディレクトリは、`/tmp` の掃除に任せる。
+
 ## 結果
 
 - **S229 の結果**: 上の (p)。facade・Python・Desktop の UI から FMU を読んで回せる。

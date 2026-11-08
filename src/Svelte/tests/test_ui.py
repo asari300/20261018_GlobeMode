@@ -29,6 +29,7 @@ FMU を書き出す（S144）: ブラウザの wasm が作ったソースの FMU
 `?smoke=1` で起動すると Decay の検査と実行の結果が console に `GM-SMOKE check=ok simulate=ok x1=… msl=… ready_ms=…` の 1 行で出ること（S100、android.yml の smoke。時刻は S125）。MSL.json があれば msl=ok（MSL を読んで ChuaCircuit の検査が error 0。S103）。
 UI の操作の項目 `tree= fmt= graph= cancel= settings= plot= def=`（S147。Desktop と Android の smoke と同じ。MSL.json が無ければ tree・graph は skip）も全部 ok で `failure=` が無いこと。
 console の error（CSP の違反を含む）と、配った origin の外への要求は失敗（S093）。
+使い心地（S228）: 実行中の Esc で止まる（入力欄の Esc と補完の一覧を閉じる Esc では止まらない）。タブは Ctrl+Shift+PageUp / PageDown とドラッグで並べ替わり、開いているタブは同じまま、順序が自動保存に乗って再読み込みで戻る。実行の設定はモデル名ごとに残り（`globe-mode.sim`）、切り替えると戻り、「設定を既定に戻す」で消える。開始時刻・刻み幅（固定刻みだけ）・予算の欄が要求に乗り、GM-E10004 が欄の下に出る。
 S196（レビューの指摘）: Desktop（偽の window.__TAURI__）で同じ名前の別のファイルが別のタブになり保存が取り違えない。ライブラリのタブは読み取り専用（打てず案内が出る。整形・リネームは断る）。タブを切り替えるとリネームの入力欄・参照の一覧・最後の値が残らない。実行中は F12 に入らず進捗の行は role を持たない。自動保存は遅らせても離れる前に書き、書けなければ 1 文出す。別のウィンドウの保存を知らせる。Tab は補完の一覧が開いていれば確定。Modelica.Units.SI.Vol で Voltage が出る（一覧が 200 件で切れていても問い直す）。
 """
 
@@ -410,6 +411,152 @@ def review_fixes(browser, origin: str, errors: list[str]) -> None:
     print("ライブラリのタブ: 読み取り専用（入力できず、案内、整形は断る、未保存にならない）。Modelica.Units.SI.Vol で Voltage が出る")
 
 
+def ui_polish(browser, origin: str, errors: list[str]) -> None:
+    """S228: 使い心地の 4 点。Esc で止める、タブの並べ替え（ドラッグとキーボード、順序が保存に乗る）、設定のモデルごとの保存、開始時刻・刻み幅・予算の欄。"""
+
+    def new_page():
+        pg = browser.new_page()
+        pg.on("console", lambda m: m.type == "error" and errors.append(m.text))
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.on("dialog", lambda d: d.accept())
+        pg.goto(origin)
+        pg.get_by_role("button", name="検査").wait_for()
+        return pg
+
+    def put(pg, model: str, body: str) -> None:
+        pg.get_by_label("モデル名").fill(model)
+        pg.locator(".cm-content").focus()
+        pg.keyboard.press("Control+A")
+        pg.keyboard.insert_text(body)
+
+    # 1. Esc で止める: 入力欄の中では奪わない。補完の一覧が開いていれば閉じるだけ。それ以外は Ctrl+. と同じ
+    pg = new_page()
+    put(pg, "Long", LONG)
+    run = pg.get_by_role("button", name="実行", exact=True)
+    running = pg.locator("[data-run=running]")
+    run.click(force=True)
+    expect(running).to_contain_text("t = ", timeout=120_000)  # 積分が進み出してから（段の名前だけの時点で押すと、止める旗が積分の開始で消されることがあった）
+    pg.get_by_label("モデル名").focus()
+    pg.keyboard.press("Escape")
+    pg.wait_for_timeout(500)
+    expect(running).to_have_count(1)  # 入力欄の Esc では止まらない
+    pg.locator(".cm-content").focus()
+    pg.keyboard.type("Rea")
+    expect(pg.locator(".cm-tooltip-autocomplete")).to_be_visible(timeout=30_000)
+    pg.keyboard.press("Escape")
+    expect(pg.locator(".cm-tooltip-autocomplete")).to_have_count(0)
+    expect(running).to_have_count(1)  # 補完の一覧を閉じただけ
+    pg.keyboard.press("Escape")
+    expect(pg.locator("[data-run=cancelled]")).to_be_visible(timeout=60_000)
+    expect(run).to_be_enabled(timeout=60_000)
+    pg.keyboard.press("Escape")  # 実行中でなければ何も起きない
+    assert pg.get_by_role("alert").count() == 0, pg.get_by_role("alert").all_inner_texts()
+    put(pg, "Long", LONG)  # 打った "Rea" を戻す
+    run.click(force=True)  # フォーカスが本文以外（body）でも止まる
+    expect(running).to_contain_text("t = ", timeout=120_000)  # 積分が進み出してから（段の名前だけの時点で押すと、止める旗が積分の開始で消されることがあった）
+    pg.locator("body").evaluate("() => document.activeElement?.blur()")
+    pg.keyboard.press("Escape")
+    expect(pg.locator("[data-run=cancelled]")).to_be_visible(timeout=60_000)
+    print("Esc: 入力欄では止まらず、補完の一覧は閉じるだけ、本文・body では止まる")
+    pg.close()
+
+    # 2. タブの並べ替え: Ctrl+Shift+PageUp / PageDown とドラッグ。開いているタブは動かした先でも同じ、順序は保存に乗り再読み込みで戻る
+    pg = new_page()
+    for name in ("A.mo", "B.mo"):
+        with pg.expect_file_chooser() as ch:
+            pg.get_by_role("button", name="開く").click(force=True)
+        ch.value.set_files(files=[{"name": name, "mimeType": "text/plain", "buffer": f"model {name[0]}\nend {name[0]};\n".encode()}])
+        expect(pg.locator("[role=tab][aria-selected=true]")).to_contain_text(name, timeout=30_000)
+    tabs = pg.locator("[role=tab]")
+    order = lambda: [t.strip(" ●") for t in tabs.all_inner_texts()]
+    active = lambda: pg.locator("[role=tab][aria-selected=true]").inner_text().strip(" ●")
+    assert order() == ["Model.mo", "A.mo", "B.mo"] and active() == "B.mo", order()
+    pg.locator("[role=tab][aria-selected=true]").focus()
+    pg.keyboard.press("Control+Shift+PageUp")
+    assert order() == ["Model.mo", "B.mo", "A.mo"] and active() == "B.mo", order()
+    expect(pg.locator("[role=tab][aria-selected=true]")).to_be_focused()  # フォーカスも動いたタブについていく
+    pg.keyboard.press("Control+Shift+PageUp")
+    pg.keyboard.press("Control+Shift+PageUp")  # 端では動かない
+    assert order() == ["B.mo", "Model.mo", "A.mo"] and active() == "B.mo", order()
+    pg.keyboard.press("Control+Shift+PageDown")
+    assert order() == ["Model.mo", "B.mo", "A.mo"], order()
+    expect(pg.locator("p[aria-live=polite]")).to_contain_text("B.mo を 2 番目へ移した")
+    pg.locator(".tab").nth(2).drag_to(pg.locator(".tab").nth(0))  # A.mo を先頭へ
+    assert order() == ["A.mo", "Model.mo", "B.mo"] and active() == "B.mo", order()
+    pg.wait_for_timeout(600)  # 保存は 300 ms のまとめ書き
+    saved = json.loads(pg.evaluate("localStorage.getItem('globe-mode.tabs')"))
+    assert [t["file"] for t in saved["tabs"]] == ["A.mo", "Model.mo", "B.mo"] and saved["active"] == 2, saved
+    pg.reload()
+    pg.get_by_role("button", name="検査").wait_for()
+    assert order() == ["A.mo", "Model.mo", "B.mo"] and active() == "B.mo", order()
+    print(f"タブの並べ替え: キーボードとドラッグで {order()}、再読み込みで戻る")
+    pg.close()
+
+    # 3. 設定のモデルごとの保存: モデルを切り替えると、そのモデルの設定に戻る。「既定に戻す」で消える
+    pg = new_page()
+    stop, start, step, budget, solver = (pg.get_by_label(n, exact=True) for n in ("終了時刻", "開始時刻", "刻み幅", "予算（秒）", "ソルバ"))
+    reset = pg.get_by_role("button", name="設定を既定に戻す")
+    sim = lambda: json.loads(pg.evaluate("localStorage.getItem('globe-mode.sim')") or "{}")
+    expect(step).to_be_disabled()  # 刻み幅は固定刻みのソルバのときだけ
+    expect(reset).to_be_disabled()
+    stop.fill("7")
+    solver.select_option("rk4")
+    expect(step).to_be_enabled()
+    step.fill("0.5")
+    assert sim()["Decay"] == {"solver": "rk4", "text": {"stop_time": "7", "step": "0.5"}, "parameters": "", "picked": {}}, sim()
+    pg.get_by_label("モデル名").fill("Other")
+    expect(stop).to_have_value("")
+    expect(solver).to_have_value("")
+    expect(step).to_be_disabled()
+    stop.fill("3")
+    pg.get_by_label("モデル名").fill("Decay")
+    expect(stop).to_have_value("7")
+    expect(solver).to_have_value("rk4")
+    expect(step).to_have_value("0.5")
+    pg.reload()
+    pg.get_by_role("button", name="検査").wait_for()
+    expect(stop).to_have_value("7")  # 再読み込みのあとも
+    expect(solver).to_have_value("rk4")
+    reset.click()
+    expect(stop).to_have_value("")
+    expect(solver).to_have_value("")
+    assert "Decay" not in sim() and sim()["Other"]["text"] == {"stop_time": "3"}, sim()
+    pg.get_by_label("モデル名").fill("Other")
+    expect(stop).to_have_value("3")  # ほかのモデルは残る
+    print(f"設定のモデルごとの保存: {sim()}")
+
+    # 4. 開始時刻・刻み幅・予算の欄: 開始時刻 1・終了時刻 3 は実行に使われ、刻み幅が小さすぎれば GM-E10004 が欄の近くに出る。予算は壁時計で打ち切る
+    pg.get_by_label("モデル名").fill("Decay")
+    start.fill("1")
+    stop.fill("3")
+    run = pg.get_by_role("button", name="実行", exact=True)
+    run.click(force=True)
+    expect(run).to_be_enabled(timeout=300_000)
+    last = pg.locator("[data-last]").inner_text()
+    assert "開始 1" in last and "終了 3（指定）" in last, last
+    solver.select_option("rk4")
+    step.fill("1e-9")  # 区間 2 s / 1e-9 = 20 億点 > 1000 万（S212）
+    run.click(force=True)
+    expect(run).to_be_enabled(timeout=300_000)
+    refusal = pg.locator("[data-refusal]")
+    expect(refusal).to_contain_text("GM-E10004")
+    assert pg.locator(".settings [data-refusal]").count() == 1
+    step.fill("0.5")
+    budget.fill("-1")
+    put(pg, "Long", LONG)
+    stop.fill("")
+    start.fill("")
+    solver.select_option("")
+    pg.get_by_label("モデル名").fill("Long")
+    budget.fill("2")
+    run.click(force=True)
+    expect(run).to_be_enabled(timeout=300_000)
+    text = pg.locator("table.diagnostics").inner_text() + pg.locator(".failure").all_inner_texts().__str__()
+    assert "GM-E11005" in text, text  # 予算（2 秒）で打ち切られた
+    print("新しい欄: 開始時刻・刻み幅・予算が要求に乗る")
+    pg.close()
+
+
 def open_results_file(browser, origin: str, errors: list[str]) -> None:
     """S222: 「開く」で .csv と .mat（MAT v4）の結果のファイルを開くと、結果のタブにプロットが出る。エディタは隠れ、モデルのタブに戻ると結果は消える。読めないファイルは理由が出る。"""
     pg = browser.new_page()
@@ -605,7 +752,7 @@ def plot_fixes(browser, origin: str, errors: list[str]) -> None:
     go()
     expect(plot).to_have_attribute("data-series", "0")  # 選び直し（全部外した）は保たれる
     pg.get_by_label("信号を絞り込む").fill("zzz")
-    reset = pg.get_by_role("button", name="既定に戻す")
+    reset = pg.get_by_role("button", name="既定に戻す", exact=True)
     reset.focus()
     pg.keyboard.press("Enter")
     expect(plot).to_have_attribute("data-series", "1")
@@ -1714,6 +1861,7 @@ def main() -> int:
         ti.keyboard.press("Control+End")
         ti.keyboard.type("mod")
         expect(opt).to_be_visible(timeout=10_000)
+        ti.wait_for_timeout(300)  # CodeMirror は一覧が出て 75 ms 以内の確定を無視する（負荷が高いと Enter が改行になる）
         ti.keyboard.press("Enter")
         assert lines()[2].startswith("mod") and lines()[2] != "mod" and len(lines()) == 3, lines()
         ti.keyboard.press("Control+z")
@@ -1766,6 +1914,7 @@ def main() -> int:
         review_fixes(browser, origin, errors)  # S196
         plot_fixes(browser, origin, errors)  # S201
         open_results_file(browser, origin, errors)  # S222
+        ui_polish(browser, origin, errors)  # S228
         open_fmu_file(browser, origin, errors)  # S229
         print("エディタの Tab: 空白 2 つの字下げ（選択した 2 行も）と Shift+Tab、補完の一覧が開いていれば確定・閉じていれば字下げ、Esc のあと Tab・Shift+Tab と Ctrl+M で外へ、説明は aria-describedby と画面に")
         print("キーボードだけ: モデル名・エディタへ Tab、Ctrl+Shift+Enter で検査、診断と参照の行を Tab・Enter・Space でエディタへ、Ctrl+Enter で実行（プロットの aria-label に信号名と時間の範囲）、Ctrl+. で止め、Ctrl+S で保存")
