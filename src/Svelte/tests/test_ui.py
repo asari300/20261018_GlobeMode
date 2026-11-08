@@ -63,8 +63,8 @@ CIRCUIT = (
     "model G\n  connector P\n    Real v;\n    flow Real i;\n  end P;\n  model R\n    P p;\n    P n;\n  equation\n    p.i + n.i = 0;\n  end R;\n"
     "  R r1;\n  R r2;\nequation\n  connect(r1.n, r2.p);\nend G;\n"
 )
-# 進捗と止める（S133）: 1000 s の振動（wasm で数秒かかる）
-LONG = "model Long\n  Real x(start = 0, fixed = true);\nequation\n  der(x) = sin(100 * time);\n  annotation(experiment(StopTime = 1000));\nend Long;\n"
+# 進捗と止める（S133）: 1e6 s の振動（実行は止めるまで終わらない。CI の速い機械では 1000 s だと F12 や画面の確認の待ちの間に終わる。S201・#71）
+LONG = "model Long\n  Real x(start = 0, fixed = true);\nequation\n  der(x) = sin(100 * time);\n  annotation(experiment(StopTime = 1e6));\nend Long;\n"
 # 実行の設定（S142）: パラメータ k を上書きできる。experiment の Tolerance が初期値に出る
 DECAY_K = (
     "model DecayK\n  parameter Real k = 1 \"減衰の速さ\";\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -k * x;\n"
@@ -299,7 +299,7 @@ def review_fixes(browser, origin: str, errors: list[str]) -> None:
     bz.get_by_label("モデル名").fill("Long")
     bz.locator(".cm-content").click()
     bz.keyboard.press("Control+A")
-    bz.keyboard.insert_text(LONG.replace("StopTime = 1000", "StopTime = 1000000"))  # CI の速い機械では 1000 s の実行が F12 の待ちの間に終わる（S201）
+    bz.keyboard.insert_text(LONG)
     bz.get_by_role("button", name="実行", exact=True).click(force=True)
     expect(bz.locator("p.run")).to_contain_text("integration", timeout=120_000)
     assert bz.locator("p.run").get_attribute("role") is None, "実行中の進捗の行は role を持たない"
