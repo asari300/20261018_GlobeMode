@@ -31,7 +31,13 @@ S238 の持ち越し。P5b の Export を CLI 以外の面（facade・Python・L
 
 ## 検証
 
-{VERIFY}
+- strip（Linux x86_64、release、Decay の P5b の FMU）: 共有ライブラリ 44.5 → 33.1 MB（zip の中 14.3 → 12.8 MB）、FMU 全体 14.3 → 12.9 MB。Accelerate（`-L data/msl`）は 13.5 MB（S238 は 14.9 MB）。strip した FMU は `globe fmu run` で x(1) = 0.36788（e⁻¹）。`resources/lib/LICENSE` が入る。
+- 試験: facade `tests/fmu_p5b.rs` 2 本（`runtime_lib` に試験自身の実行ファイルを渡し、strip で小さくなること・渡したファイルが残ること・`build` との併用と無い `runtime_lib` は `Err`）、LSP `export_fmu_passes_the_runtime`、Python `test_export_fmu_p5b`（48 passed）、`test_ui.py` の `fmu_runtime_select`（`mise run ui:check` が通る）。
+- `mise run check`: 通った。途中で直したもの: `test_ci_plan.py`（`globe-mode-fmu` の依存元が facade とその依存元になった）、`cargo fmt`、**doctest が E0460 / E0463 で落ちた**（facade が cdylib 兼 rlib の `globe-mode-fmu` に依存したため。`globe-mode-fmu` の試験の入れ子の `cargo build` が hash 無しの rlib を上書きする。CLI の入れ子を release や `cargo rustc` に変えても、`globe-mode-fmu` 自身の `tests/fmpy.rs` が同じことをする）。facade・c・lsp・py・wasm に `doctest = false`（nif と同じ）。
+- `mise run ui:check`（wasm のビルド、svelte-check、`test_ui.py`）: 通った。`wasm:node`・`wasm:compare` は回していない（exec・sim・wasm の中身は変えていない。wasm には `fmu-p5b` を付けていない）。
+- CI（feature ブランチ）: `fmu-export.yml` run 42521513013 が success、`ci.yml -f full=true` run 42521523173 が success。
+- `check_docs.py`: 切れ 0 件。`render_slides.py`: S239 のデッキ 問題 0 件。
+- セッション記録の `--check`: （親が写す）
 
 ## 残したこと
 
