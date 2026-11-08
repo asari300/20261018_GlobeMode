@@ -71,6 +71,7 @@ fn stdout_failed(e: &std::io::Error) {
 static VERBOSE: AtomicBool = AtomicBool::new(false);
 
 mod fmu;
+mod fmu_p5b;
 mod report;
 mod results;
 mod simulate;
@@ -341,6 +342,14 @@ enum FmuCommand {
         /// `fmi2Functions.h`（3.0 は `fmi3Functions.h`）などのあるディレクトリ（--build で使う。例: FMPy の `c-code`）
         #[arg(long)]
         fmi_headers: Option<PathBuf>,
+        /// 実行時。p5a は Rumoca のテンプレートの C のソース、p5b は GlobeMode の実行時 `globe-mode-fmu` の共有ライブラリを入れた
+        /// FMU（`<名前>-p5b-fmi2.fmu`。ME と CS。イベントのあるモデルや MSL のモデルも載る。モデルが使うライブラリのファイルだけを同梱する。
+        /// 共有ライブラリは `cargo build --release -p globe-mode-fmu` で作る〔globe のソースの作業ツリーの中〕か `--runtime-lib` で渡す。host の OS 用だけ）
+        #[arg(long, value_enum, default_value_t = fmu_p5b::FmuRuntime::P5a)]
+        runtime: fmu_p5b::FmuRuntime,
+        /// --runtime p5b の共有ライブラリ（`libglobe_mode_fmu.so` など）。省略すると cargo で作る
+        #[arg(long)]
+        runtime_lib: Option<PathBuf>,
     },
 }
 
@@ -431,8 +440,12 @@ fn main() -> ExitCode {
                     build,
                     target,
                     fmi_headers,
+                    runtime,
+                    runtime_lib,
                 },
         } => fmu_export(
+            runtime,
+            runtime_lib.as_deref(),
             &files,
             &library,
             &model,
@@ -1173,12 +1186,34 @@ fn flat(files: &[PathBuf], library: &[PathBuf], model: &str, json: bool) -> Exit
 }
 
 fn fmu_export(
+    runtime: fmu_p5b::FmuRuntime,
+    runtime_lib: Option<&std::path::Path>,
     files: &[PathBuf],
     library: &[PathBuf],
     model: &str,
     out: &std::path::Path,
     options: &globe_mode::FmuOptions,
 ) -> ExitCode {
+    if runtime == fmu_p5b::FmuRuntime::P5b {
+        if options.build || !options.targets.is_empty() || options.fmi_headers.is_some() {
+            eprintln!(
+                "error: --build・--target・--fmi-headers は --runtime p5a のもの（p5b は共有ライブラリを入れる）"
+            );
+            return ExitCode::from(2);
+        }
+        return fmu_p5b::export(&fmu_p5b::Args {
+            files,
+            library,
+            model,
+            out,
+            fmi_version: options.fmi_version,
+            runtime_lib,
+        });
+    }
+    if runtime_lib.is_some() {
+        eprintln!("error: --runtime-lib は --runtime p5b のもの");
+        return ExitCode::from(2);
+    }
     if let Err(message) = prepare_out_dir(out, model, files, library) {
         eprintln!("error: --out {message}");
         return ExitCode::from(2);

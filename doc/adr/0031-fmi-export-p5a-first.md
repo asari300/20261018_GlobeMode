@@ -85,3 +85,25 @@
 - **P5b で残る 4 本**: `ChuaCircuit`（カオス。FMPy の ME は 3700 s まで管に収まり、以降は積分器の差が増幅される。P5a も同じ）、`DemonstrateSignalExtrema`（`SignalExtrema` の最小・最大は積分器の刻みの点の値で、刻みの違いで 0.2〜0.4% ずれる）、`RectifierBridge2Pulse.DiodeBridge2Pulse`・`RectifierCenterTap2Pulse.DiodeCenterTap2Pulse`（状態事象の多い回路の中の `Math.Mean`（`when sample`）の出力 `y` が事象の間で保たれない。原因は未調査）。
 - **試験**: `globe-mode-cli/tests/fmu_export.rs` に MSL ありのときだけ回る 2 本（`fmpy_simulates_an_msl_example`＝P5a の Accelerate を FMPy の ME・CS で、`unsupported_msl_example_says_why`＝事象のある例題が FMI C profile の原文つきで断られる）。`globe-mode-fmu/tests/fmpy.rs` に `fmpy_runs_an_msl_example_through_resources_lib`（P5b の CompareBrakingTorque、2.0 の ME と 3.0 の CS）と、`globe-mode-fmu` の単体の `relation_memory_starts_from_the_initial_point`。`fmu-export.yml` の step で MSL の 3 本（Accelerate・SignConvention・CompareBrakingTorque）を P5a の FMI 2.0・3.0 と P5b の FMI 2.0 で、Accelerate を P5b の FMI 3.0 でも、FMPy の ME・CS と fmusim で回す（`fmu-export.yml` run 42494360236 が success。fmusim の `mass.s(1)` は P5a が ME 1.0000407・CS 1.0、P5b が ME 1.0000005・CS 1.0）。
 - 詳細: [S237 の解説書](../sessions/S237-fmu-export-msl-models/解説書.md)。
+
+## 追記（S238、2026-11-09）: P5b を作る CLI と、使うクラスのファイルだけの同梱
+
+- **`globe fmu export --runtime p5a|p5b`**（既定 p5a）。`p5b` は `<名前>-p5b-fmi2.fmu`（3.0 は `-fmi3`）と展開したフォルダ `<名前>-p5b/` を `--out` に書く。ME と CS を 1 つの FMU に書く（`Kind::Both`）。`--build`・`--target`・`--fmi-headers` は p5a のもので、p5b に付けると終了コード 2。`--kind` は足していない（S231 のまま）。
+- **共有ライブラリ（cdylib）の入手は `--runtime-lib <path>` か、無ければ `cargo build --release -p globe-mode-fmu --lib` をその場で呼ぶ**（`--message-format json` から cdylib のパスを読む）。作れない（cargo が無い、globe のソースの作業ツリーの外）ときは理由と `--runtime-lib` の案内を出して終了コード 2。`--build` が `cc`・`zig` を呼ぶのと同じ扱いで、host の OS 用だけ（`binaries/linux64`・`win64`・`darwin64`、3.0 は `<arch>-<os>`。置き場の名前は P5a の `platform` を共有）。
+  - 採らなかった案: (a) `globe` に `globe-mode-fmu` を静的に組み込み実行時に取り出す。cdylib は `globe` と同じ crate 群をリンクし直す別の成果物で、組み込むと循環し、`globe` が cdylib の大きさ（約 44 MB、strip 前）だけ増える。(c) release の配布物に同梱。release の組み方（`release.yml`）を変える割に、手元の `globe` ビルドでは使えない。
+- **`modelDescription.xml` は FMU に入れる `resources/lib` から作る**（`globe_mode_fmu::model_description_lib`、S237）。出力した FMU が instantiate でき、足りないクラスがあればここで断る（`<モデル>: FMU にできない（…）`）。壊れた作りかけは消す。展開先の守りは `check_out_root`（S212、#23）を P5a と共有。
+- **使うファイルだけを `resources/lib` に入れる**: `globe-mode-frontend` の `library_closure`（S037 の分割読み込みの閉包。モデルと利用者のファイルの本文から名前をたどり、外側の `package.mo` と、クラスの見つからないファイルを含む）が選ぶ。`globe deps`（`deps_closure`）は使わなかった: ワークスペースのファイルの単純名の一致で広めに拾い、MSL では 1070 / 2556 ファイル（11 MB）になる。分割読み込みの閉包は 293 / 2556。
+- **測定**（`Modelica.Mechanics.Translational.Examples.Accelerate`、FMI 2.0、release）:
+
+  | | S237（MSL の `.mo` を全部） | S238（使うファイルだけ） |
+  | --- | ---: | ---: |
+  | `resources/lib` のファイル | 2556 | 293（CompareBrakingTorque は 296） |
+  | `resources/lib` の大きさ（未圧縮 / zip の中） | 15.3 MB / 3.9 MB | 3.3 MB / 0.53 MB |
+  | `globe fmu run`（instantiate + CS を 1 s） | 8.1 s | 1.2 s |
+  | `globe fmu export` | （CLI が無かった） | 初回 約 1 分（MSL 全体を読む `-L` の解析）。2 回目から 2 s（Rumoca のキャッシュ） |
+
+  FMU 全体は約 14.9 MB で、大半は strip していない release の cdylib（約 14 MB）。数十〜数百 KB の目標には届かない: 閉包の単位が**ファイル**で、MSL の `Rotational/Components.mo` のように 1 ファイルに多くのクラスを持つので、使わないクラスも入る。クラス単位に刻むのは持ち越し。
+- **MSL の 20 本を `--runtime p5b` で FMPy の ME・CS にかけ直した結果は 16/20**（S237 と同じ。落ちる 4 本も同じ: ChuaCircuit、DemonstrateSignalExtrema、DiodeBridge2Pulse、DiodeCenterTap2Pulse）。絞り込みで足りないクラスが出た例題は無い。
+- `examples/md.rs` は CLI に置き換えて消した。`fmu-export.yml` の P5b の step と `.github/scripts/fmu_msl_check.py` の `--p5b` は CLI を呼ぶ。
+- **shortcut**: P5b のモデルは 1 つの `.mo` か `-L` のライブラリの中のクラス（実行時が `resources/` の `.mo` を 1 つだけ読むため。複数ファイルのパッケージを渡すと終了コード 2）。host の OS 以外の P5b の cross は無い（各 OS でその OS の cdylib を作る。S234）。MSL の `LICENSE` は FMU に同梱していない。Python（`export_fmu` の `runtime`）と UI の選択肢は足していない。
+- 詳細: [S238 の解説書](../sessions/S238-fmu-export-p5b-cli/解説書.md)。

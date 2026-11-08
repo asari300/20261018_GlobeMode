@@ -94,22 +94,12 @@ def compare(ref, fmu_csv):
 
 
 def build_p5b(a, model, work):
-    """P5b の FMU: cdylib + md + resources（モデルの名前のコメントだけの .mo と、MSL の .mo を resources/lib に）。失敗なら理由の文字列。"""
-    cdylib, md_bin = a.p5b
-    stub = work / f"{model}.mo"
-    stub.write_text("// library model (S237)\n")
-    r = run([md_bin, str(stub), model, a.fmi, "both", a.lib], a.timeout)
+    """P5b の FMU を `globe fmu export --runtime p5b`（S238。使うライブラリのファイルだけを resources/lib に入れる）で作る。失敗なら理由の文字列。"""
+    r = run([a.globe, "fmu", "export", "-L", a.lib, "-m", model, "--out", str(work), "--fmi-version", a.fmi,
+             "--runtime", "p5b", "--runtime-lib", a.p5b], a.timeout)
     if r.returncode != 0:
         return r.stderr
-    v3 = a.fmi == "3"
-    fmu = work / f"{model.replace('.', '_')}-p5b-fmi{a.fmi}.fmu"
-    with zipfile.ZipFile(fmu, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr("modelDescription.xml", r.stdout)
-        z.write(cdylib, f"binaries/{'x86_64-linux' if v3 else 'linux64'}/globe_mode_fmu.so")
-        z.write(stub, f"resources/{model}.mo")
-        for mo in sorted(Path(a.lib).rglob("*.mo")):
-            z.write(mo, f"resources/lib/{mo.relative_to(a.lib)}")
-    return fmu
+    return work / f"{model.replace('.', '_')}-p5b-fmi{a.fmi}.fmu"
 
 
 def main():
@@ -120,7 +110,7 @@ def main():
     p.add_argument("--fmi", default="2")
     p.add_argument("--kinds", default="ModelExchange,CoSimulation")
     p.add_argument("--timeout", type=int, default=300)
-    p.add_argument("--p5b", nargs=2, metavar=("CDYLIB", "MD_BIN"), help="P5b（globe-mode-fmu の cdylib と examples/md）で FMU を作る")
+    p.add_argument("--p5b", metavar="CDYLIB", help="P5b（globe-mode-fmu の共有ライブラリ）で FMU を作る（globe fmu export --runtime p5b）")
     p.add_argument("--strict", action="store_true", help="ok でないモデルがあれば終了コード 1（CI 用）")
     p.add_argument("models", nargs="+")
     a = p.parse_args()

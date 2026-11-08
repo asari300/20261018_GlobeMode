@@ -90,10 +90,10 @@ jobs:
             done
           done
       # S237: MSL の例題。P5a（Rumoca のテンプレート）が受ける事象の無い 3 本を FMI 2.0・3.0 で、P5b（自前のランタイム。
-      # MSL を resources/lib に入れる）を FMI 2.0 の 3 本と 3.0 の 1 本で、FMPy の ME・CS と `globe simulate` の結果の管で比べる。
+      # 使う MSL のファイルだけを resources/lib に入れる。S238 から globe fmu export --runtime p5b）を FMI 2.0 の 3 本と 3.0 の 1 本で、FMPy の ME・CS と `globe simulate` の結果の管で比べる。
       # fmusim は Accelerate（mass.s(1) = 1）。落ちる例題は doc/sessions/S237-fmu-export-msl-models/解説書.md の表
       - run: cargo xtask fetch-msl
-      - run: cargo build --release -p globe-mode-fmu --lib --example md
+      - run: cargo build --release -p globe-mode-fmu --lib
       - name: MSL の例題を FMU にして FMPy と fmusim で回す（S237）
         run: |
           py() { uv run --no-project --with fmpy==0.3.32 --with numpy python -I "$@"; }
@@ -103,8 +103,8 @@ jobs:
           for v in 2 3; do
             py .github/scripts/fmu_msl_check.py --strict --globe target/debug/globe --lib data/msl --out "$out/p5a-$v" --fmi $v $models | tee -a "$RUNNER_TEMP/msl.txt"
           done
-          py .github/scripts/fmu_msl_check.py --strict --globe target/debug/globe --lib data/msl --out "$out/p5b-2" --fmi 2 --p5b target/release/libglobe_mode_fmu.so target/release/examples/md $models | tee -a "$RUNNER_TEMP/msl.txt"
-          py .github/scripts/fmu_msl_check.py --strict --globe target/debug/globe --lib data/msl --out "$out/p5b-3" --fmi 3 --p5b target/release/libglobe_mode_fmu.so target/release/examples/md $acc | tee -a "$RUNNER_TEMP/msl.txt"
+          py .github/scripts/fmu_msl_check.py --strict --globe target/debug/globe --lib data/msl --out "$out/p5b-2" --fmi 2 --p5b target/release/libglobe_mode_fmu.so $models | tee -a "$RUNNER_TEMP/msl.txt"
+          py .github/scripts/fmu_msl_check.py --strict --globe target/debug/globe --lib data/msl --out "$out/p5b-3" --fmi 3 --p5b target/release/libglobe_mode_fmu.so $acc | tee -a "$RUNNER_TEMP/msl.txt"
           check() { python3 -I -c "import csv, sys; r = list(csv.reader(open(sys.argv[1]))); i = [c.strip().strip('\"') for c in r[0]].index('mass.s'); s = float(r[-1][i]); print(f'{sys.argv[2]}: mass.s(1) = {s!r}'); sys.exit(abs(s - 1) > 1e-3)" "$@"; }
           for fmu in "$out/p5a-2/$acc/${acc//./_}-fmi2.fmu" "$out/p5a-3/$acc/${acc//./_}-fmi3.fmu" "$out/p5b-2/$acc/${acc//./_}-p5b-fmi2.fmu" "$out/p5b-3/$acc/${acc//./_}-p5b-fmi3.fmu"; do
             fmusim validate "$fmu"
@@ -239,21 +239,9 @@ jobs:
           mo=src/Modelica/GlobeModeValidation/Simulation/Decay.mo
           for v in 2 3; do
             out="$RUNNER_TEMP/p5b$v"; mkdir -p "$out"
-            cargo run -q --release -p globe-mode-fmu --example md -- "$mo" "$MODEL" "$v" both > "$out/modelDescription.xml"
-            py - "$out" "$v" "$MODEL" "$mo" <<'PY'
-          import platform, sys, zipfile
-          out, v, model, mo = sys.argv[1:]
-          arch = {"AMD64": "x86_64", "arm64": "aarch64"}.get(platform.machine(), platform.machine())
-          os_name, v2_dir, lib, ext = {
-              "win32": ("windows", "win64", "globe_mode_fmu.dll", "dll"),
-              "darwin": ("darwin", "darwin64", "libglobe_mode_fmu.dylib", "dylib"),
-          }.get(sys.platform, ("linux", "linux64", "libglobe_mode_fmu.so", "so"))
-          with zipfile.ZipFile(f"{out}/p5b.fmu", "w") as z:
-              z.write(f"{out}/modelDescription.xml", "modelDescription.xml")
-              z.write(f"target/release/{lib}", f"binaries/{f'{arch}-{os_name}' if v == '3' else v2_dir}/globe_mode_fmu.{ext}")
-              z.write(mo, f"resources/{model}.mo")
-          PY
-            fmu="$out/p5b.fmu"
+            # S238: P5b の FMU は CLI が作る（共有ライブラリは cargo build --release -p globe-mode-fmu で作り、OS ごとの置き場へ入れる）
+            cargo run -q --release -p globe-mode-cli -- fmu export "$mo" -m "$MODEL" --out "$out" --fmi-version "$v" --runtime p5b
+            fmu="$out/${MODEL//./_}-p5b-fmi$v.fmu"
             fmpy validate "$fmu"
             "$FMUSIM" validate "$fmu"
             fmpy simulate "$fmu" --interface-type CoSimulation --relative-tolerance 1e-8 --stop-time 1 --output-variables x --output-file "$out/fmpy-cs.csv"

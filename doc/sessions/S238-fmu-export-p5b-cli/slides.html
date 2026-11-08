@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S238 P5b の FMU を CLI で作る — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S238 P5b の FMU を CLI で作る">
+
+<section class="slide" id="S01">
+  <span class="tag">S238 · 2026-11-09 · P5</span>
+  <h1>P5b の FMU を CLI で作れるようにした</h1>
+  <p class="lead">cdylib・<code>examples/md.rs</code>・zip を手で組むのをやめ、MSL は使うファイルだけを入れる</p>
+  <div class="big"><code>globe fmu export --runtime p5b</code></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">使い方</span>
+  <h1>旗は 2 つ</h1>
+  <ul>
+    <li><code>--runtime p5a|p5b</code>。既定は p5a で、今までの出力は変わらない。</li>
+    <li><code>--runtime-lib</code>: <code>globe-mode-fmu</code> の共有ライブラリを渡す。無ければ <code>cargo build --release -p globe-mode-fmu</code> をその場で呼ぶ。</li>
+    <li>cargo が無い、ソースの作業ツリーの外なら、理由を出して終了コード 2。</li>
+    <li>p5b に <code>--build</code> などを付けても終了コード 2。</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">絞り込み</span>
+  <h1>使うファイルだけを入れる</h1>
+  <table class="compact">
+    <tr><th>Accelerate</th><th>S237</th><th>S238</th></tr>
+    <tr><td><code>resources/lib</code> のファイル</td><td>2556</td><td>293</td></tr>
+    <tr><td>zip の中の大きさ</td><td>3.9 MB</td><td>0.53 MB</td></tr>
+    <tr><td>instantiate + CS を 1 s</td><td>8.1 s</td><td>1.2 s</td></tr>
+  </table>
+  <p>選ぶのは S037 の分割読み込みの閉包。<code>globe deps</code> は 1070 ファイルになるので使わない。</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>作る流れ</h1>
+  <svg class="fig" viewBox="0 0 800 240" role="img" aria-label="モデルと MSL から閉包を選び resources/lib に入れ、共有ライブラリと zip にする流れの図">
+    <rect class="svg-box" x="20" y="90" width="150" height="70" rx="10"/>
+    <text class="svg-text-b" x="95" y="130" text-anchor="middle">モデル + -L</text>
+    <line class="svg-line" x1="170" y1="125" x2="240" y2="125"/>
+    <rect class="svg-box-accent" x="240" y="90" width="170" height="70" rx="10"/>
+    <text class="svg-text-b" x="325" y="130" text-anchor="middle">閉包を選ぶ</text>
+    <line class="svg-line" x1="410" y1="125" x2="480" y2="125"/>
+    <rect class="svg-box" x="480" y="40" width="300" height="70" rx="10"/>
+    <text class="svg-text-b" x="630" y="80" text-anchor="middle">resources/lib から md を作る</text>
+    <rect class="svg-box" x="480" y="140" width="300" height="70" rx="10"/>
+    <text class="svg-text-b" x="630" y="180" text-anchor="middle">共有ライブラリ + zip</text>
+    <line class="svg-line" x1="410" y1="125" x2="480" y2="75"/>
+    <line class="svg-line" x1="410" y1="125" x2="480" y2="175"/>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">結果</span>
+  <h1>20 本は 16 本のまま</h1>
+  <ul>
+    <li>FMPy の ME・CS で <code>globe simulate</code> と管で比べ直した。P5b は <b>16 / 20</b>。</li>
+    <li>落ちる 4 本は S237 と同じ。絞り込みで足りないクラスが出た例題は無い。</li>
+    <li>md を <code>resources/lib</code> から作るので、足りなければ export が断る。</li>
+  </ul>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">試験と CI</span>
+  <h1>足したもの</h1>
+  <ul>
+    <li><code>fmu_export.rs</code>: Decay の P5b を <code>globe fmu run</code> で x(1) = e⁻¹、MSL の Accelerate が 50〜500 ファイルで mass.s(1) = 1。</li>
+    <li><code>fmu-export.yml</code> の P5b の step と <code>fmu_msl_check.py</code> は CLI を呼ぶ。<code>examples/md.rs</code> は消した。</li>
+  </ul>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>残したもの</h1>
+  <ul>
+    <li>閉包の単位がファイルなので 0.5 MB。クラス単位に刻むと小さくなる。</li>
+    <li>FMU 全体は約 15 MB で、大半は strip 前の cdylib。</li>
+    <li>Python の <code>runtime=</code> と UI の選択肢。複数ファイルのモデル。</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
