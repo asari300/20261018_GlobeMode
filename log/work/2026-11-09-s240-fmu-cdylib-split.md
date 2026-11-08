@@ -24,8 +24,9 @@ S239 の持ち越し。cdylib を別 crate に出し、facade は rlib だけに
 
 - `cargo test --workspace` を 2 回続けて: どちらも exit 0、849 passed / 0 failed、E0460・E0463 は 0 件。Doc-tests は globe_mode・c・lsp・py（`_native`）・wasm を含めて実行（facade の Decay の例が戻った）。
 - `test_ci_plan.py` 28 本 OK。
-- `mise run check`（2 回）: （下に追記）
-- CI: （下に追記）
+- `mise run check` を 2 回続けて: どちらも exit 0（初回は `cargo fmt --check` で落ちたので `cargo fmt` をかけた）。
+- `check_docs.py`: 切れ 0 件。`render_slides.py`: 245 デッキ、問題 0 件。
+- CI（feature ブランチ）: `fmu-export.yml` run 42528969176 が success、`ci.yml -f full=true` run 42528972733 が success。
 
 ## 残したこと
 
