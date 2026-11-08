@@ -53,6 +53,7 @@ jobs:
       lang: ${{ steps.plan.outputs.lang }}
       web: ${{ steps.plan.outputs.web }}
       astro: ${{ steps.plan.outputs.astro }}
+      ui_exp: ${{ steps.plan.outputs.ui_exp }}
       docs: ${{ steps.plan.outputs.docs }}
       slides: ${{ steps.plan.outputs.slides }}
       msl: ${{ steps.plan.outputs.msl }}
@@ -355,6 +356,31 @@ jobs:
           # .cargo/config.toml で target-dir がリポジトリ直下の target/ になっている
           workspaces: src/Rust/apps/web-${{ matrix.app }} -> ../../../../target
       - run: cargo build --locked
+      - run: cargo test --locked
+
+  ui-exp:
+    # S233: 試験版 UI（Leptos・Dioxus。別の workspace）が wasm32 でビルドでき、試験が通るか。trunk・dx・wasm-bindgen は回さない。
+    # 自分のディレクトリか facade を変えたときだけ（ci_plan.py の ui_exp）
+    needs: plan
+    if: needs.plan.outputs.ui_exp == 'true'
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [leptos, dioxus]
+    defaults:
+      run:
+        working-directory: src/Rust/apps/experimental/${{ matrix.app }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+        with:
+          install_args: rust
+      - run: rustup target add wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src/Rust/apps/experimental/${{ matrix.app }}
+      - run: cargo build --locked --target wasm32-unknown-unknown
       - run: cargo test --locked
 
   astro:
