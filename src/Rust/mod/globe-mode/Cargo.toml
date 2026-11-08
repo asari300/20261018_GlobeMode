@@ -12,7 +12,7 @@ publish.workspace = true
 # S032・S034: CVODE と IDA（SUNDIALS）。cmake と C コンパイラが要る
 sundials = ["globe-mode-exec/sundials"]
 # S118: FMU の書き出し（export_fmu）。S144: zip のバイト列で返す export_fmu_bytes は wasm32 でも通る（lsp が有効にし、wasm はそれを使う）
-fmu = ["dep:globe-mode-fmi", "globe-mode-fmi/export", "dep:serde"]
+fmu = ["dep:globe-mode-fmi", "globe-mode-fmi/export"]
 
 [dependencies]
 globe-mode-core = { workspace = true }
@@ -25,9 +25,9 @@ globe-mode-sim = { workspace = true }
 globe-mode-protocol = { workspace = true }
 # S111: format / lint（各言語の束ねが facade だけで呼べるように）
 globe-mode-fmt = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 globe-mode-fmi = { workspace = true, optional = true }
-serde = { workspace = true, optional = true }
 
 [lints]
 workspace = true
