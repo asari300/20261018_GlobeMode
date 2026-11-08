@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S233 CI の穴 2 つ — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S233 CI の穴 2 つ">
+
+<section class="slide" id="S01">
+  <span class="tag">S233 · 2026-11-08 · P4・P7</span>
+  <h1>VS Code の 3 OS と試験版 UI の CI</h1>
+  <p class="lead">roadmap の CI の穴を 2 つ塞いだ</p>
+  <div class="big"><b>3 OS</b> の e2e · <b>ui-exp</b> 2 本</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">決定と理由</span>
+  <h1>やったこと</h1>
+  <ul>
+    <li><code>vscode.yml</code> を ubuntu・windows・macos の matrix に（<code>fail-fast: false</code>）。<code>xvfb-run</code> は Linux だけ。</li>
+    <li><code>ci_plan.py</code> に出力 <code>ui_exp</code>。<code>ci.yml</code> にジョブ <code>ui-exp</code>（leptos・dioxus）。</li>
+    <li>起動条件は experimental の下か facade の影響、または full。</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">結果</span>
+  <h1>3 OS の結果</h1>
+  <table>
+    <tr><th>OS</th><th>1 回目</th><th>直し</th><th>2 回目</th></tr>
+    <tr><td>ubuntu</td><td>成功</td><td>なし</td><td>成功</td></tr>
+    <tr><td>windows</td><td>成功</td><td>なし</td><td>成功</td></tr>
+    <tr><td>macos</td><td>失敗（IPC ソケット名が長い）</td><td>試験の user-data-dir を短く</td><td>成功</td></tr>
+  </table>
+  <p>拡張の実装の問題は 0 件。試験の書き方の問題が 1 件。</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">発見</span>
+  <h1>ui-exp が最初に見つけたもの</h1>
+  <ul>
+    <li>試験版 2 種の <code>Cargo.lock</code> が古かった（<code>--locked</code> で落ちた）。</li>
+    <li><code>cargo update -w</code> で直した。別の workspace は誰も見ていなかった。</li>
+  </ul>
+  <div class="kpis">
+    <div class="kpi"><span class="n">29</span><span class="l">ci_plan の試験</span></div>
+  </div>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
