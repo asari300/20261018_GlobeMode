@@ -9,12 +9,15 @@ rust-version.workspace = true
 publish.workspace = true
 
 [lib]
+# S239: doctest を回さない。feature fmu-p5b がワークスペース全体で有効になり、cdylib 兼 rlib の globe-mode-fmu（hash 無しの名前の rlib）に
+# 依存する。その rlib は globe-mode-fmu の試験が入れ子で回す cargo build に上書きされ、rustdoc が E0460 / E0463 で落ちる（globe-mode-nif と同じ扱い）。
+doctest = false
 name = "_native"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 # S039: facade だけに依存する（globe-mode-wasm と同じ）
-globe-mode = { workspace = true, features = ["fmu", "fmu-import"] }
+globe-mode = { workspace = true, features = ["fmu", "fmu-import", "fmu-p5b"] }
 pyo3 = { workspace = true }
 serde_json = { workspace = true }
 

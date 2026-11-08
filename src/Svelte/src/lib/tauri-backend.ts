@@ -1,4 +1,4 @@
-import type { Backend, CompletionEntry, Definition, Documentation, FmuInfo, FmuRunRequest, Hover, LintMessage, Progress, TreeEntry } from "./backend";
+import type { Backend, CompletionEntry, Definition, Documentation, FmuInfo, FmuRunRequest, FmuRuntime, Hover, LintMessage, Progress, TreeEntry } from "./backend";
 import type { Columns } from "./plot/csv";
 import { isFmuFile, isResultsFile, toColumns, type ResultColumns, type ResultParam } from "./results.ts"; // node の型の除去（tests/test_tauri.mjs）が拡張子を要る
 import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse, SolverEntry, TunableParameter } from "./protocol";
@@ -238,10 +238,11 @@ export class TauriBackend implements Backend {
   hover(file: string, line: number, character: number): Promise<Hover | null> {
     return invoke("rpc", { method: "globe/hover", params: { file, line, character } }); // S149（globe/definition と同じ解決で宣言の 1 行）
   }
-  async exportFmu(model: string, fmiVersion: number): Promise<string | null> {
-    const path = await tauriGlobal().dialog.save({ defaultPath: `${model.replaceAll(".", "_")}-fmi${fmiVersion}.fmu`, filters: [{ name: "FMU", extensions: ["fmu"] }] });
+  async exportFmu(model: string, fmiVersion: number, runtime: FmuRuntime = "p5a"): Promise<string | null> {
+    const stem = `${model.replaceAll(".", "_")}${runtime === "p5b" ? "-p5b" : ""}-fmi${fmiVersion}`; // sidecar が書く名前（p5b は <名前>-p5b-fmi<版>.fmu）
+    const path = await tauriGlobal().dialog.save({ defaultPath: `${stem}.fmu`, filters: [{ name: "FMU", extensions: ["fmu"] }] });
     if (!path) return null;
-    const r = await invoke<{ path: string }>("rpc", { method: "globe/exportFmu", params: { model, fmiVersion, outDir: dirOf(path) } });
+    const r = await invoke<{ path: string }>("rpc", { method: "globe/exportFmu", params: { model, fmiVersion, runtime, outDir: dirOf(path) } });
     return r.path;
   }
 

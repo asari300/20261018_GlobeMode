@@ -290,6 +290,8 @@ class Workspace:
         build: bool = False,
         targets: Iterable[str] = (),
         fmi_headers: str | os.PathLike[str] | None = None,
+        runtime: Literal["p5a", "p5b"] = "p5a",
+        runtime_lib: str | os.PathLike[str] | None = None,
     ) -> Path:
         """FMU を `out_dir/<名前>-fmi2.fmu`（3.0 は `-fmi3`。と展開したディレクトリ）に書き、`.fmu` のパスを返す（S118。`globe fmu export` と同じ）。
 
@@ -298,10 +300,17 @@ class Workspace:
         未知のキーは `TypeError`、書き出せなければ（版が 2・3 でない、モデルの誤りなど）`ExportError`（`ValueError` でもある）。
         `targets` は 1 つなら文字列でもよい。
 
+        `runtime="p5b"`（S239）は自前の実行時（`globe-mode-fmu`）の共有ライブラリを入れた FMU を `out_dir/<名前>-p5b-fmi2.fmu` に書く
+        （イベント・MSL のモデルも載る。host の OS 用だけ）。共有ライブラリは `runtime_lib` で渡すか、省略すると globe のソースの
+        作業ツリーの中で `cargo build --release -p globe-mode-fmu` を呼んで作る（cargo が無い・作業ツリーの外なら `ExportError`）。
+        モデルは 1 つのファイルか、開いたライブラリの中のクラス。`build`・`targets`・`fmi_headers` とは組み合わせられない（`ExportError`）。
+
             ws.export_fmu("RC", "out", fmi_version=3)
+            ws.export_fmu("RC", "out", runtime="p5b", runtime_lib="target/release/libglobe_mode_fmu.so")
         """
         targets = [targets] if isinstance(targets, str) else list(targets)
-        options = dict(fmi_version=fmi_version, build=build, targets=targets, fmi_headers=None if fmi_headers is None else os.fspath(fmi_headers))
+        options = dict(fmi_version=fmi_version, build=build, targets=targets, fmi_headers=None if fmi_headers is None else os.fspath(fmi_headers),
+                       runtime=runtime, runtime_lib=None if runtime_lib is None else os.fspath(runtime_lib))
         return Path(self._ws.export_fmu(model, out_dir, json.dumps(options)))
 
 

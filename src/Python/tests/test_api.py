@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from globe_mode import Workspace, format, lint, table
+from globe_mode import ExportError, Workspace, format, lint, table
 
 MODELICA = Path(__file__).parents[2] / "Modelica"
 
@@ -46,6 +46,29 @@ def test_export_fmu(tmp_path):
     assert (tmp_path / "GlobeModeValidation_Simulation_Decay/modelDescription.xml").is_file()
     with pytest.raises(ValueError):
         ws.export_fmu("GlobeModeValidation.Simulation.Decay", tmp_path, fmi_version=4)
+
+
+def test_export_fmu_p5b(tmp_path):
+    """S239: runtime="p5b" は runtime_lib（ここでは中身は何でもよい。実際に回す試験は CLI 側）を binaries に入れた FMU を書く。
+    p5a の旗とは組み合わせられず、無い共有ライブラリは ExportError（cargo は呼ばない）。"""
+    import zipfile
+
+    ws = Workspace(libraries=[MODELICA])
+    model = "GlobeModeValidation.Simulation.Decay"
+    lib = tmp_path / "libglobe_mode_fmu.so"
+    lib.write_bytes(b"not a real library")
+    fmu = ws.export_fmu(model, tmp_path, runtime="p5b", runtime_lib=lib)
+    assert fmu == tmp_path / "GlobeModeValidation_Simulation_Decay-p5b-fmi2.fmu"
+    with zipfile.ZipFile(fmu) as z:
+        names = z.namelist()
+    assert "modelDescription.xml" in names and f"resources/{model}.mo" in names
+    assert any(n.startswith("binaries/") and "globe_mode_fmu" in n for n in names)
+    with pytest.raises(ExportError, match="p5a のもの"):
+        ws.export_fmu(model, tmp_path, runtime="p5b", runtime_lib=lib, build=True)
+    with pytest.raises(ExportError, match="runtime_lib"):
+        ws.export_fmu(model, tmp_path, runtime="p5b", runtime_lib=tmp_path / "none")
+    with pytest.raises(ExportError):
+        ws.export_fmu(model, tmp_path, runtime="p6")  # type: ignore[arg-type]
 
 
 # S129（ADR-0033）: 積分に 100 ms より長くかかる（t が途中で知らされる）ように、細かく振れる入力を長く積む

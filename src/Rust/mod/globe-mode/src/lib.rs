@@ -73,8 +73,25 @@ pub fn lint(text: &str) -> String {
     serde_json::Value::from(msgs).to_string()
 }
 
-/// FMU の書き出しの設定（S118。`globe fmu export` の `--fmi-version`・`--build`・`--target`・`--fmi-headers`）。
-/// C ABI・NIF・Python は同じ形の JSON（`{"fmi_version": 2, "build": false, "targets": [], "fmi_headers": null}`。省略可）で渡す。
+#[cfg(feature = "fmu-p5b")]
+mod fmu_p5b;
+#[cfg(feature = "fmu-p5b")]
+pub use fmu_p5b::{P5bError, export_fmu_p5b};
+
+/// FMU の実行時（S239。`globe fmu export --runtime`）。JSON では `"p5a"` / `"p5b"`。
+#[cfg(feature = "fmu")]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FmuRuntime {
+    /// Rumoca のテンプレートが描く C のソースの FMU（既定。`build` で共有ライブラリも作る）
+    #[default]
+    P5a,
+    /// `globe-mode-fmu`（自前の実行時）の共有ライブラリを入れた FMU。イベント・MSL のモデルも載る（feature `fmu-p5b`）
+    P5b,
+}
+
+/// FMU の書き出しの設定（S118。`globe fmu export` の `--fmi-version`・`--build`・`--target`・`--fmi-headers`・`--runtime`・`--runtime-lib`）。
+/// C ABI・NIF・Python は同じ形の JSON（`{"fmi_version": 2, "build": false, "targets": [], "fmi_headers": null, "runtime": "p5a", "runtime_lib": null}`。省略可）で渡す。
 #[cfg(feature = "fmu")]
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -86,6 +103,10 @@ pub struct FmuOptions {
     pub targets: Vec<String>,
     /// `fmi2Functions.h`（3.0 は `fmi3Functions.h`）などのあるディレクトリ
     pub fmi_headers: Option<PathBuf>,
+    /// 実行時（S239）。`P5b` は `build`・`targets`・`fmi_headers` と一緒に使えない
+    pub runtime: FmuRuntime,
+    /// `P5b` の共有ライブラリ（`libglobe_mode_fmu.so` など）。省略すると `cargo build --release -p globe-mode-fmu` で作る（S239）
+    pub runtime_lib: Option<PathBuf>,
 }
 
 #[cfg(feature = "fmu")]
@@ -107,6 +128,8 @@ impl Default for FmuOptions {
             build: false,
             targets: Vec::new(),
             fmi_headers: None,
+            runtime: FmuRuntime::P5a,
+            runtime_lib: None,
         }
     }
 }
@@ -118,6 +141,9 @@ pub fn export_fmu(
     out_dir: &Path,
     options: &FmuOptions,
 ) -> Result<PathBuf, String> {
+    if options.runtime != FmuRuntime::P5a || options.runtime_lib.is_some() {
+        return Err("runtime p5b・runtime_lib はモデルの本文が要る（Workspace::export_fmu か export_fmu_p5b から）".into());
+    }
     let headers = match (options.build, &options.fmi_headers) {
         (false, _) => None,
         (true, Some(h)) => Some(h.as_path()),
@@ -272,6 +298,8 @@ pub struct Workspace {
     db: GlobeDb,
     library_files: usize,
     library_load_ms: f64,
+    /// `with_libraries` に渡したディレクトリ（S239。P5b の FMU の `resources/lib` に使うファイルを選ぶ）
+    library_paths: Vec<PathBuf>,
 }
 
 impl std::fmt::Debug for Workspace {
@@ -339,7 +367,7 @@ impl Workspace {
             .collect::<Vec<_>>()
             .join(",");
         let db = GlobeDb::with_library_sources_split(&name, &sources)?;
-        Ok(Self::from_db(db, paths.len(), now_ms() - t))
+        Ok(Self::from_db(db, paths.len(), now_ms() - t).with_library_paths(paths))
     }
 
     /// [`Workspace::with_libraries`] と同じ入力で、ライブラリのファイルを全部 Session に読む（S054 より前の道。
@@ -347,7 +375,7 @@ impl Workspace {
     pub fn with_libraries_full(paths: &[PathBuf]) -> Result<Self, Vec<Diagnostic>> {
         let t = now_ms();
         let db = GlobeDb::with_libraries(paths)?;
-        Ok(Self::from_db(db, paths.len(), now_ms() - t))
+        Ok(Self::from_db(db, paths.len(), now_ms() - t).with_library_paths(paths))
     }
 
     /// ライブラリをファイルの組（名前 → 本文）で読み込んだワークスペース（ファイルシステムの無い wasm32 用）。
@@ -385,7 +413,13 @@ impl Workspace {
             db,
             library_files,
             library_load_ms,
+            library_paths: Vec::new(),
         }
+    }
+
+    fn with_library_paths(mut self, paths: &[PathBuf]) -> Self {
+        self.library_paths = paths.to_vec();
+        self
     }
 
     /// 読み込んだライブラリのファイル（`with_libraries` ではディレクトリ）の数。
@@ -515,6 +549,8 @@ impl Workspace {
     }
 
     /// コンパイルして [`export_fmu`]（S118）。DAE まで変換できなければ診断の文を並べた `Err`。
+    /// `options.runtime` が `P5b` なら [`export_fmu_p5b`]（S239。feature `fmu-p5b`。モデルを定義するワークスペースのファイル
+    /// 〔無ければライブラリの中のクラス〕と、開いたライブラリから作る。ワークスペースのファイルが複数に跨るモデルは断る）。
     #[cfg(feature = "fmu")]
     pub fn export_fmu(
         &mut self,
@@ -522,8 +558,48 @@ impl Workspace {
         out_dir: &Path,
         options: &FmuOptions,
     ) -> Result<PathBuf, String> {
+        if options.runtime == FmuRuntime::P5b {
+            return self.export_fmu_p5b(model, out_dir, options);
+        }
         let compiled = self.compile_for_fmu(model)?;
         export_fmu(&compiled, out_dir, options)
+    }
+
+    #[cfg(feature = "fmu")]
+    fn export_fmu_p5b(
+        &mut self,
+        model: &str,
+        out_dir: &Path,
+        options: &FmuOptions,
+    ) -> Result<PathBuf, String> {
+        #[cfg(not(feature = "fmu-p5b"))]
+        {
+            let _ = (model, out_dir, options);
+            Err("この版には P5b（runtime = p5b）が入っていない（Desktop・CLI・Python の版で使える）".into())
+        }
+        #[cfg(feature = "fmu-p5b")]
+        {
+            let files = self.db.deps_closure(model);
+            let text = match files.as_slice() {
+                [] => None,
+                [f] => self.db.text(f),
+                _ => {
+                    return Err(format!(
+                        "{model}: runtime p5b のモデルは 1 つのファイルか、ライブラリの中のクラス（{} 個のファイルに跨る）",
+                        files.len()
+                    ));
+                }
+            };
+            export_fmu_p5b(
+                model,
+                text.as_deref(),
+                &[],
+                &self.library_paths,
+                out_dir,
+                options,
+            )
+            .map_err(Into::into)
+        }
     }
 
     /// [`Workspace::export_fmu`] の `build` 無しを、ファイルに書かず zip のバイト列で返す（S144。wasm32 でも呼べる。ブラウザの UI のダウンロード用）。

@@ -673,6 +673,49 @@ def docs_panel(browser, origin: str, errors: list[str]) -> None:
     print("説明パネル: MSL の PID を木（検索）で開くと、本文と表が出る")
 
 
+def fmu_runtime_select(browser, origin: str, errors: list[str]) -> None:
+    """S239: FMU の実行時（P5a / P5b）の選択。ブラウザには選択肢が無い（cdylib を作れない）。Desktop（偽の window.__TAURI__）は既定が p5a で、
+    P5b を選ぶと globe/exportFmu の request に runtime: "p5b" が乗り、書き出したあとの文が P5b のものになる。"""
+
+    def page():
+        pg = browser.new_page()
+        pg.on("console", lambda m: m.type == "error" and errors.append(m.text))
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.on("dialog", lambda d: d.accept())
+        return pg
+
+    pg = page()
+    pg.goto(origin)
+    pg.get_by_role("button", name="検査").wait_for()
+    assert pg.get_by_label("実行時").count() == 0
+    pg.close()
+
+    dt = page()
+    dt.add_init_script(FAKE_TAURI)
+    dt.goto(origin)
+    dt.get_by_role("button", name="検査").wait_for()
+    dt.evaluate(
+        """() => {
+      const reqs = (window.__fmuExport = []);
+      const inv = __TAURI__.core.invoke;
+      __TAURI__.core.invoke = async (cmd, a) => { if (cmd === "rpc" && a.method === "globe/exportFmu") reqs.push(a.params); return inv(cmd, a); };
+      __rpc["globe/exportFmu"] = { path: "/o/Decay-p5b-fmi2.fmu" };
+    }"""
+    )
+    sel = dt.get_by_label("実行時")
+    assert sel.locator("option").all_inner_texts() == ["P5a（Rumoca の C のソース）", "P5b（自前の実行時。cargo が要る）"]
+    for runtime in ["p5a", "p5b"]:
+        sel.select_option(runtime)
+        dt.evaluate("__fake.saves.push('/o/x.fmu')")
+        dt.get_by_role("button", name="FMU を書き出す").click(force=True)
+        expect(dt.locator("p[data-saved]")).to_contain_text("FMU を書き出した", timeout=10_000)
+        assert dt.evaluate("__fmuExport").pop()["runtime"] == runtime
+        has_p5b = "P5b" in dt.locator("p[data-saved]").inner_text()
+        assert has_p5b == (runtime == "p5b"), dt.locator("p[data-saved]").inner_text()
+    dt.close()
+    print("FMU の実行時: ブラウザに選択肢は無く、Desktop は既定が p5a で、P5b を選ぶと globe/exportFmu の request に runtime: p5b が乗る")
+
+
 def open_fmu_file(browser, origin: str, errors: list[str]) -> None:
     """S229: 「開く」で .fmu を選ぶ。ブラウザは「Desktop だけ」と理由を出す。Desktop（偽の window.__TAURI__）は警告と実行の設定のフォーム（S236。
     確認ダイアログの代わり）のあと sidecar（偽の rpc）が回した列を結果のタブに出し、やめれば何も回さない。フォームの終了時刻・刻み・予算・種類が
@@ -2100,6 +2143,7 @@ def main() -> int:
         ui_polish(browser, origin, errors)  # S228
         docs_panel(browser, origin, errors)  # S232
         open_fmu_file(browser, origin, errors)  # S229
+        fmu_runtime_select(browser, origin, errors)  # S239
         results_followups(browser, origin, errors)  # S236
         print("エディタの Tab: 空白 2 つの字下げ（選択した 2 行も）と Shift+Tab、補完の一覧が開いていれば確定・閉じていれば字下げ、Esc のあと Tab・Shift+Tab と Ctrl+M で外へ、説明は aria-describedby と画面に")
         print("キーボードだけ: モデル名・エディタへ Tab、Ctrl+Shift+Enter で検査、診断と参照の行を Tab・Enter・Space でエディタへ、Ctrl+Enter で実行（プロットの aria-label に信号名と時間の範囲）、Ctrl+. で止め、Ctrl+S で保存")

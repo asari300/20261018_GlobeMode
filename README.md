@@ -66,7 +66,7 @@ GlobeMode は Rust で作る OSS の Modelica IDE。同じ Rust のコアを、C
 
 - 実行前の検査（S0〜S10）: 構文、名前、型、接続、方程式数と変数数、構造特異、インデックスと状態選択、初期化、代数ループ、パラメータと start 値の評価。実行できない理由を名指しする。方程式数と変数数（S5）は OpenModelica の `omc checkModel()` と、判定のある MSL の例題 382 本すべてで一致した（omc は照合のために別プロセスで呼ぶだけ。[doc/omc-compare.md](doc/omc-compare.md)）。
 - シミュレーション: 20 以上のソルバ（`bdf`・`dopri45`・`auto`・`esdirk34`・`radau5`・`rk4` など。`cvode`・`ida` は feature `sundials` のビルドだけ。一覧は [doc/msl-solvers.md](doc/msl-solvers.md)）、パラメータの上書き、CSV と MAT v4 の出力、進捗と中断。
-- 編集: 整形・lint・補完・ホバー・定義ジャンプ・参照・リネーム（部品とクラス名。開いている文書の中）を、言語サーバ、VS Code の拡張、ブラウザ・Desktop・Android の UI から。UI にはライブラリツリー、プロット（系列の選択・右の軸・CSV / PNG の書き出し）、connect グラフ、タブ、ファイルを開く・保存、実行の設定、FMU の書き出し、ダークモードがある。
+- 編集: 整形・lint・補完・ホバー・定義ジャンプ・参照・リネーム（部品とクラス名。開いている文書の中）を、言語サーバ、VS Code の拡張、ブラウザ・Desktop・Android の UI から。UI にはライブラリツリー、プロット（系列の選択・右の軸・CSV / PNG の書き出し）、connect グラフ、タブ、ファイルを開く・保存、実行の設定、FMU の書き出し（Desktop は P5a / P5b の選択つき）、ダークモードがある。
 - FMU の書き出し: FMI 2.0・3.0 の Model Exchange・Co-Simulation を、CLI・UI・各言語の API から。FMI の読み込み（Co-Simulation・Model Exchange）は CLI の `globe fmu run`・Python の `run_fmu`・Desktop の UI の「開く」（確認つき。ブラウザ・Android は不可）。FMU の中のネイティブコードは別プロセス（ワーカー）で実行するので、FMU が落ちても呼び出し側は落ちない（`--timeout`、Linux は `--memory-limit`。ディスクとネットワークは隔離しない）。
 - API: Rust（facade `globe-mode`）、Python（PyO3）、C ABI、Zig、Julia、Elixir、Gleam、WebAssembly。
 

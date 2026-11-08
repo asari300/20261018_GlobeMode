@@ -821,6 +821,13 @@ impl GlobeDb {
             .collect()
     }
 
+    /// ファイルの本文（S239。P5b の FMU の `resources` に入れる）。
+    pub fn text(&self, path: &str) -> Option<String> {
+        self.files
+            .get(&normalize_path(path))
+            .map(|f| f.text(self).clone())
+    }
+
     /// 読み込んだファイルのパス（区切りは `/`、昇順）。
     pub fn paths(&self) -> impl Iterator<Item = &str> {
         self.files.keys().map(String::as_str)
