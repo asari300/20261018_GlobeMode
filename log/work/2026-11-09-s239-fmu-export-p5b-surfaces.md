@@ -7,7 +7,7 @@
 | worktree | `.git-worktree/s239-fmu-export-p5b-surfaces` |
 | Phase | P5 |
 | セッション文書 | `doc/sessions/S239-fmu-export-p5b-surfaces/` |
-| セッション記録 | （親が写す） |
+| セッション記録 | [2026-11-02-a2580a13-3889-4662-9db4-a45dc1ca6772.md](../sessions/2026-11-02-a2580a13-3889-4662-9db4-a45dc1ca6772.md) |
 
 ## 依頼
 
@@ -37,7 +37,7 @@ S238 の持ち越し。P5b の Export を CLI 以外の面（facade・Python・L
 - `mise run ui:check`（wasm のビルド、svelte-check、`test_ui.py`）: 通った。`wasm:node`・`wasm:compare` は回していない（exec・sim・wasm の中身は変えていない。wasm には `fmu-p5b` を付けていない）。
 - CI（feature ブランチ）: `fmu-export.yml` run 42521513013 が success、`ci.yml -f full=true` run 42521523173 が success。
 - `check_docs.py`: 切れ 0 件。`render_slides.py`: S239 のデッキ 問題 0 件。
-- セッション記録の `--check`: （親が写す）
+- セッション記録の `--check`: 取りこぼし 0 件（親が写した）
 
 ## 残したこと
 
