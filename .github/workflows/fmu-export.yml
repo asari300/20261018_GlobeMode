@@ -36,7 +36,7 @@ jobs:
       - name: fmusim を取得する
         run: |
           mkdir -p "$RUNNER_TEMP/fmusim" && cd "$RUNNER_TEMP/fmusim"
-          curl -sSfL -o fmusim.zip "$FMUSIM_URL"
+          curl -sSfL --retry 10 --retry-all-errors --retry-delay 10 -o fmusim.zip "$FMUSIM_URL"
           echo "$FMUSIM_SHA256  fmusim.zip" | sha256sum -c
           unzip -q fmusim.zip && chmod +x fmusim
           echo "$RUNNER_TEMP/fmusim" >> "$GITHUB_PATH"
@@ -112,13 +112,8 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: jdx/mise-action@v5
-        with:
-          install_args: uv
-          # checkout しないので mise.toml が無い
-          mise_toml: |
-            [tools]
-            uv = "latest"
+      # S234: mise の取得（github.com の release）が 504 で落ち続けたので pipx の uv を使う
+      - run: pipx install uv && echo "$(pipx environment --value PIPX_BIN_DIR)" >> "$GITHUB_PATH"
       - uses: actions/download-artifact@v4
         with:
           name: fmu-cross
@@ -131,7 +126,7 @@ jobs:
             macOS)   a=aarch64-darwin; h=e00ccf908cc4295a0794e63babc4c1fd060e020f64163f22695e3ce1524a58f2 ;;
           esac
           mkdir -p fmusim-bin && cd fmusim-bin
-          curl -sSfL -o fmusim.zip "https://github.com/modelica/fmusim/releases/download/v0.15.0/fmusim-$a.zip"
+          curl -sSfL --retry 10 --retry-all-errors --retry-delay 10 -o fmusim.zip "https://github.com/modelica/fmusim/releases/download/v0.15.0/fmusim-$a.zip"
           py() { uv run --no-project python -I "$@"; }
           py -c "import hashlib, sys; d = hashlib.sha256(open('fmusim.zip', 'rb').read()).hexdigest(); print(d); sys.exit(d != sys.argv[1])" "$h"
           py -c "import zipfile; zipfile.ZipFile('fmusim.zip').extractall('.')"
@@ -175,9 +170,9 @@ jobs:
       MODEL: GlobeModeValidation.Simulation.Decay
     steps:
       - uses: actions/checkout@v7
-      - uses: jdx/mise-action@v5
-        with:
-          install_args: rust uv
+      # S234: mise の取得（github.com の release）が 504 で落ち続けたので、ランナーの rustup と pipx の uv を使う（S233 の vscode.yml と同じ方針）
+      - run: rustup toolchain install stable --profile minimal --no-self-update && rustup default stable
+      - run: pipx install uv && echo "$(pipx environment --value PIPX_BIN_DIR)" >> "$GITHUB_PATH"
       - uses: Swatinem/rust-cache@v2
       - name: fmusim を取得する（S234。OS ごとの release、sha256 は S234 で GitHub の digest を確かめたもの）
         run: |
@@ -187,7 +182,7 @@ jobs:
             macOS)   a=aarch64-darwin; h=e00ccf908cc4295a0794e63babc4c1fd060e020f64163f22695e3ce1524a58f2 ;;
           esac
           mkdir -p fmusim-bin && cd fmusim-bin
-          curl -sSfL -o fmusim.zip "https://github.com/modelica/fmusim/releases/download/v0.15.0/fmusim-$a.zip"
+          curl -sSfL --retry 10 --retry-all-errors --retry-delay 10 -o fmusim.zip "https://github.com/modelica/fmusim/releases/download/v0.15.0/fmusim-$a.zip"
           py() { uv run --no-project python -I "$@"; }
           py -c "import hashlib, sys; d = hashlib.sha256(open('fmusim.zip', 'rb').read()).hexdigest(); print(d); sys.exit(d != sys.argv[1])" "$h"
           py -c "import zipfile; zipfile.ZipFile('fmusim.zip').extractall('.')"
