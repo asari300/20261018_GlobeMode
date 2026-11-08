@@ -30,7 +30,7 @@ roadmap の表「結果の入出力」に残る UI の「結果を開く」。�
 - `cargo test -p globe-mode-sim --lib mat` 23 本、`-p globe-mode-lsp read_results` 1 本、`-p globe-mode -p globe-mode-wasm --lib` が通る。
 - `wasm:build` のあと `smoke.mjs`（MAT の実物と CSV と読めないファイル）と `worker-node.mjs` が通る。
 - `pnpm check` 0 errors、`test_tauri.mjs` ok、`test_ui.py` の `open_results_file`（.csv と omc の .mat）。
-- CI: （親が写す／下に追記）
+- CI: `ci.yml` を `-f full=true` で feature ブランチに回し、run 42430131728 が success。Desktop の `cargo test shell` は手元に GTK（glib-sys）が無く回せない（`rpc` の許可と `tauri-backend.ts` の突き合わせは 19 + 1 を手で数えて合わせた）。
 
 ## 残したこと
 
