@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
 
+use globe_mode::{CancelToken, FmuKind, FmuRunRequest, import_fmu_info, run_fmu};
 use globe_mode_fmi_import::{
     Error, Kind, WorkerRequest, WorkerSpec, run_in_process, run_in_worker,
 };
@@ -58,6 +59,63 @@ fn worker_gives_the_same_result_as_in_process() {
         assert_eq!(direct, worker, "{version} {name} {kind:?}");
         assert_eq!(worker.me.is_some(), kind == Kind::Me);
     }
+}
+
+/// S229: facade の `import_fmu_info` / `run_fmu`。結果の列は実行の結果と同じ形（`time` が先頭）で、CLI の `fmu run` と同じ値。
+#[test]
+fn facade_reads_info_and_runs_in_a_worker() {
+    let Some(file) = reference_fmu("3.0", "Dahlquist") else {
+        return;
+    };
+    let info = import_fmu_info(&file).unwrap();
+    assert_eq!(info.model_name, "Dahlquist");
+    assert!(info.interfaces.iter().any(|i| i.kind == "CoSimulation"));
+    assert!(info.variables.iter().any(|v| v.name == "k"));
+    let json = serde_json::to_value(&info).unwrap();
+    assert_eq!(json["model_name"], "Dahlquist");
+    assert!(import_fmu_info(Path::new("/no/such.fmu")).is_err());
+
+    let exe = Path::new(env!("CARGO_BIN_EXE_globe"));
+    let request = FmuRunRequest {
+        kind: Some(FmuKind::Cs),
+        stop_time: Some(1.0),
+        set: [("k".to_owned(), 2.0)].into(),
+        ..Default::default()
+    };
+    let run = run_fmu(exe, &file, &request, &mut |_| {}, None).unwrap();
+    let (layout, columns) = run.results.columns();
+    assert_eq!(layout.names, ["time", "x"]);
+    assert_eq!(layout.defaults, ["x"]);
+    assert_eq!(layout.points, 501); // CS の既定の刻みは (終了 - 開始) / 500
+    assert!(run.me.is_none());
+    // 内部刻み 0.1 の前進 Euler（run_prints_a_warning_and_the_csv と同じ）
+    assert!((columns[1][500] - 0.8f64.powi(10)).abs() < 1e-12);
+
+    // JSON からも読める（LSP・Python の request）。未知の鍵は誤り
+    let request: FmuRunRequest = serde_json::from_str(r#"{"kind": "me", "stop_time": 1}"#).unwrap();
+    let run = run_fmu(exe, &file, &request, &mut |_| {}, None).unwrap();
+    assert!(run.me.is_some());
+    assert!(serde_json::from_str::<FmuRunRequest>(r#"{"stop": 1}"#).is_err());
+
+    // FMU の中の失敗はワーカーの文面のまま、timeout の不正は実行の前に断る
+    let bad = FmuRunRequest {
+        outputs: vec!["nope".into()],
+        ..Default::default()
+    };
+    assert!(
+        run_fmu(exe, &file, &bad, &mut |_| {}, None)
+            .unwrap_err()
+            .contains("nope")
+    );
+    let bad = FmuRunRequest {
+        timeout: Some(-1.0),
+        ..Default::default()
+    };
+    assert!(
+        run_fmu(exe, &file, &bad, &mut |_| {}, None)
+            .unwrap_err()
+            .contains("timeout")
+    );
 }
 
 #[test]
@@ -223,6 +281,41 @@ fn crashing_fmus_are_reported_and_leave_no_process() {
     let run = run_in_worker(&globe_spec(), &request(&ok), &mut |t| progress.push(t)).unwrap();
     assert_eq!(run.rows.len(), 501); // CS の既定の刻みは (終了 - 開始) / 500
     assert!(!progress.is_empty(), "進捗が来ない");
+    assert_no_children();
+
+    // S229: 中断の旗が立てば 50 ms おきの確認で kill して「中断した」。子は残らない（run_in_worker と facade の run_fmu の両方）
+    let flag = CancelToken::new();
+    let mut spec = globe_spec();
+    spec.cancel = Some(flag.flag());
+    let stopper = {
+        let flag = flag.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(400));
+            flag.cancel();
+        })
+    };
+    let started = Instant::now();
+    let e = run_in_worker(&spec, &request(&ok), &mut |_| {}).unwrap_err();
+    stopper.join().unwrap();
+    assert!(
+        matches!(e, Error::Worker(_)) && e.to_string().contains("中断した"),
+        "{e}"
+    );
+    assert!(
+        started.elapsed() < Duration::from_millis(1400),
+        "中断が遅い: {:?}",
+        started.elapsed()
+    );
+    assert_no_children();
+    let e = run_fmu(
+        Path::new(env!("CARGO_BIN_EXE_globe")),
+        &ok,
+        &FmuRunRequest::default(),
+        &mut |_| {},
+        Some(&flag), // 既に立っている
+    )
+    .unwrap_err();
+    assert!(e.contains("中断した"), "{e}");
     assert_no_children();
 
     // abort（Instantiate）と segfault（DoStep）: 終了の状態が文面に入る
