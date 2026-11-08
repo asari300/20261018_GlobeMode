@@ -9,12 +9,12 @@ GlobeMode checks, simulates and edits [Modelica](https://modelica.org/) models. 
 ## What works
 
 - **Checks before simulation** (S0 to S10): syntax, names, types, connections, equation/variable balance, structural singularity, index, initialization, algebraic loops, parameter and start-value evaluation. Errors name the reason a model cannot be simulated. The balance check agrees with OpenModelica's `omc checkModel()` on all 382 MSL examples that have a verdict ([doc/omc-compare.md](doc/omc-compare.md)).
-- **Simulation** with 20+ solvers (`bdf`, `dopri45`, `auto`, `esdirk34`, `radau5`, `rk4`, ...; `cvode` and `ida` only in a build with the `sundials` feature), parameter overrides, CSV and MAT v4 output (and `globe results` / Python `read_results` to read them back), progress and cancel.
-- **Editing**: formatter, lint, completion, hover, go-to-definition, references and rename (components and class names, within the open document) in the language server, the VS Code extension and the browser/desktop/Android UI; library tree, plot, connect graph, tabs, open/save, dark mode.
+- **Simulation** with 20+ solvers (`bdf`, `dopri45`, `auto`, `esdirk34`, `radau5`, `rk4`, ...; `cvode` and `ida` only in a build with the `sundials` feature; list in [doc/msl-solvers.md](doc/msl-solvers.md)), parameter overrides, CSV and MAT v4 output (and `globe results` / Python `read_results` to read them back), progress and cancel.
+- **Editing**: formatter, lint, completion, hover, go-to-definition, references and rename (components and class names, within the open document) in the language server, the VS Code extension and the browser/desktop/Android UI; library tree, plot (series selection, right axis, CSV/PNG export), connect graph, tabs, open/save, run settings, FMU export, dark mode.
 - **FMU export** (FMI 2.0 and 3.0, Model Exchange and Co-Simulation) from the CLI, the UI and every language API. FMI import (`globe fmu run`, Co-Simulation and Model Exchange) is CLI-only for now: the FMU's native code runs in a separate worker process, so a crashing FMU does not take the CLI down (`--timeout`, `--memory-limit` on Linux; the disk and network are not isolated).
 - **APIs**: Rust, Python (PyO3), C ABI, Zig, Julia, Elixir, Gleam, WebAssembly.
 
-Not done: FMI import, SSP, Diagram/Icon/Documentation views, an own compiler frontend (Track B), signed installers and automatic updates (the updater is off until a key is registered), a public web deployment. The full list with priorities is [doc/features.md](doc/features.md); the plan is [doc/roadmap.md](doc/roadmap.md).
+Not done: FMI import in the UI and the language APIs (CLI only for now), SSP, Diagram/Icon/Documentation views, an own compiler frontend (Track B), signed installers and automatic updates (the updater is off until a key is registered), a public web deployment. The full list with priorities is [doc/features.md](doc/features.md); the plan is [doc/roadmap.md](doc/roadmap.md).
 
 UI keyboard shortcuts (browser, Desktop, Android with a keyboard; Cmd instead of Ctrl on macOS; they work inside the editor and in the input fields). Diagnostic and reference rows are real buttons: Tab to one and press Enter or Space to jump to the editor.
 
@@ -45,7 +45,7 @@ All of these start from a checkout (`git clone https://github.com/asari300/20261
 
 ## Known limits
 
-Of the 566 MSL 4.1.0 examples, 369 pass all checks, 13 fail them (model errors or structural singularity) and 184 hit a compiler limitation (`GM-U`, mostly in Rumoca v0.10.2). Of the 356 runnable examples that pass, 312 run to their stop time, and 303 of the 311 that have a reference result stay inside the reference tube (relative 0.2 %) of the MSL 4.1.0 reference results ([doc/msl-funnel.md](doc/msl-funnel.md), [doc/msl-sim.md](doc/msl-sim.md), run of 2026-11-03).
+Of the 566 MSL 4.1.0 examples, 369 pass all checks, 13 fail them (model errors or structural singularity) and 184 hit a compiler limitation (`GM-U`, mostly in Rumoca v0.10.2). Of the 356 runnable examples that pass, 312 run to their stop time, and 303 of the 311 that have a reference result stay inside the reference tube (relative 0.2 %) of the MSL 4.1.0 reference results ([doc/msl-funnel.md](doc/msl-funnel.md), [doc/msl-sim.md](doc/msl-sim.md), run of 2026-11-03). Results for seven public libraries other than MSL are in [doc/libraries.md](doc/libraries.md).
 
 ## License
 
