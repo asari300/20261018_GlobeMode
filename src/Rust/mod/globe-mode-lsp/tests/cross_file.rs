@@ -79,6 +79,15 @@ fn references_and_rename_reach_unopened_files_and_libraries() {
     .into();
     assert_eq!(hits, want, "{r}");
 
+    // 同名の部品だけを持つファイルは、解決できない候補なので rename は断る。消すと通る
+    let r = ask(&mut s, "textDocument/rename").remove(0);
+    assert_eq!(r["error"]["code"], -32803, "{r}");
+    assert!(
+        r["error"]["message"].as_str().unwrap().contains("Plain.mo"),
+        "{r}"
+    );
+    std::fs::remove_file(root.join("sub/Plain.mo")).unwrap();
+
     // リネーム: changes は Defs.mo と Use.mo の 2 ファイル。ライブラリは含めず、知らせる
     let out = ask(&mut s, "textDocument/rename");
     let changes = out[0]["result"]["changes"].as_object().unwrap();
@@ -105,5 +114,20 @@ fn references_and_rename_reach_unopened_files_and_libraries() {
             .contains("ライブラリの 1 箇所"),
         "{out:?}"
     );
+
+    // import の別名を通る参照（`D.Base`。D の先のパッケージはどこにも無い）は解決できない。黙って取りこぼさず、ファイルを挙げて断る
+    write(
+        root.join("Imp.mo"),
+        "model Imp\n  import D = Elsewhere.Pkg;\n  D.Base b;\nend Imp;\n",
+    );
+    let r = ask(&mut s, "textDocument/rename").remove(0);
+    assert_eq!(r["error"]["code"], -32803, "{r}");
+    assert!(
+        r["error"]["message"].as_str().unwrap().contains("Imp.mo"),
+        "{r}"
+    );
+    // 参照の一覧は引けた分だけ返す
+    let r = ask(&mut s, "textDocument/references").remove(0);
+    assert_eq!(r["result"].as_array().unwrap().len(), 4, "{r}");
     let _ = std::fs::remove_dir_all(&dir);
 }

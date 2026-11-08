@@ -21,7 +21,7 @@
 //! | `globe/hover` | `{file, line, character}`（`globe/definition` と同じ） | `{contents, range}` か null（S149。名前の宣言の 1 行（クラスは見出し、部品は `;` まで。説明文字列を含む）と、カーソルの名前の Range。wasm の `hover` と同じ形） |
 //! | `globe/references` | `{file, line, character}`（`globe/definition` と同じ） | LSP の Range の配列（S161。カーソルの名前と字句が同じ位置。部品はカーソルのあるいちばん内側のクラスの中だけ。S166: クラス名の上なら、同じ文書の中で定義ジャンプと同じ解決で同じクラスに行き着く識別子（宣言・`end`・型・`extends`・`import`）。wasm の `references` と同じ形） |
 //! | `globe/models` | `{file}` | 文字列の配列（S170。文書の model・block・class の修飾名。partial は除く。package の中まで入り、`within` は頭に付く。構文が壊れていれば空。wasm の `models` と同じ形） |
-//! | `globe/rename` | `{file, line, character, newName}` | LSP の TextEdit（`{range, newText}`）の配列（S161。いちばん内側のクラスで宣言した部品と、S166 からこの文書で定義したクラス。部品でもクラスでもない・別のファイルのクラス・識別子でない・予約語・同じ階層に既にある名前・ほかの開いた文書に参照があるときは -32803 に理由。`textDocument/rename` は同じ計算の WorkspaceEdit（S198: クラスのリネームは、最上位のクラスがファイル名 `M.mo`・`package.mo` に対応しているときも断る。`prepareRename` も同じ。S230: `textDocument/references` は開いていない `.mo`（根の下。隠しフォルダは除く）とライブラリ（`-L`）にも届き、`textDocument/rename` は開いているほかの文書と根の下の開いていない `.mo` を `changes` に入れる〔ライブラリは変えず `window/showMessage` で「ライブラリの N 箇所は変えない」〕。UI の `globe/references`・`globe/rename` はメモリ上の文書だけ。開いていない文書への `globe/rename`・`textDocument/rename` は -32803、`globe/references` は空の配列）、`textDocument/prepareRename` はカーソルの識別子の Range か同じ理由） |
+//! | `globe/rename` | `{file, line, character, newName}` | LSP の TextEdit（`{range, newText}`）の配列（S161。いちばん内側のクラスで宣言した部品と、S166 からこの文書で定義したクラス。部品でもクラスでもない・別のファイルのクラス・識別子でない・予約語・同じ階層に既にある名前・ほかの開いた文書に参照があるときは -32803 に理由。`textDocument/rename` は同じ計算の WorkspaceEdit（S198: クラスのリネームは、最上位のクラスがファイル名 `M.mo`・`package.mo` に対応しているときも断る。`prepareRename` も同じ。S230: `textDocument/references` は開いていない `.mo`（根の下。隠しフォルダは除く）とライブラリ（`-L`）にも届き、`textDocument/rename` は開いているほかの文書と根の下の開いていない `.mo` を `changes` に入れる〔ライブラリは変えず `window/showMessage` で「ライブラリの N 箇所は変えない」。識別子はあるのに同じクラスと解決できなかった根の下のファイルがあれば、そのファイルを挙げて断る〕。UI の `globe/references`・`globe/rename` はメモリ上の文書だけ。開いていない文書への `globe/rename`・`textDocument/rename` は -32803、`globe/references` は空の配列）、`textDocument/prepareRename` はカーソルの識別子の Range か同じ理由） |
 //! | `globe/solvers` | なし | ソルバの登録表（`[{name, status, description, instead?}]`。S142。wasm の `solvers` と同じ） |
 //! | `globe/readResults` | `{path}`（`.mat` は MAT v4、それ以外は CSV） | `{layout, columns}`（S222。`globe/simulateColumns` の `layout`・`columns` と同じ形。`defaults` は先頭の 3 本。読めなければ -32000） |
 //! | `globe/exportFmu` | `{model, fmiVersion?, outDir}`（既定は FMI 2。`build` はしない） | `{path}`（S144。`outDir/<名前>.fmu` と展開した `outDir/<名前>/` を書く。DAE まで変換できなければ -32000） |
@@ -404,7 +404,7 @@ impl Server {
                             }
                         }
                         // S230: 開いていない `.mo`（根の下）とライブラリのファイル
-                        for h in disk_class_hits(r, root.as_deref(), &libs, &open, &name, &t) {
+                        for h in disk_class_hits(r, root.as_deref(), &libs, &open, &name, &t).0 {
                             for x in h.ranges {
                                 refs.push(json!({"uri": file_uri(&h.path), "range": range(&h.text, x)}));
                             }
@@ -480,7 +480,13 @@ impl Server {
                                 }
                             }
                             let mut library = 0;
-                            for h in disk_class_hits(r, root.as_deref(), libs, open, &name, &t) {
+                            let (disk_hits, unresolved) = disk_class_hits(r, root.as_deref(), libs, open, &name, &t);
+                            if let Some(f) = unresolved.first() {
+                                return Err(format!(
+                                    "開いていないファイル {f} にも {name} があるが、同じクラスか解決できない（import を通る参照など。リネームしない）"
+                                ));
+                            }
+                            for h in disk_hits {
                                 if h.library {
                                     library += h.ranges.len();
                                 } else {
@@ -1006,6 +1012,8 @@ struct DiskHit {
 
 /// ワークスペースの根の下とライブラリ（`-L`）の `.mo` から、`open`（開いている文書。正規化したパス）以外を `name` で絞って調べる。
 /// `name` を含まないファイルは字句に分けない（MSL 2,500 本でも読むだけ）。
+/// 2 つ目は、根の下の（ライブラリでない）ファイルで、識別子 `name` があるのに `t` に行き着くものが 0 件だったもの
+/// （開いていない中間のパッケージの `import` を通るなど、解決できなかった候補。`rename` が断る理由になる）。
 fn disk_class_hits(
     r: &mut definition::Resolver,
     root: Option<&std::path::Path>,
@@ -1013,7 +1021,7 @@ fn disk_class_hits(
     open: &[String],
     name: &str,
     t: &definition::Target,
-) -> Vec<DiskHit> {
+) -> (Vec<DiskHit>, Vec<String>) {
     let mut files = Vec::new();
     if let Some(root) = root {
         collect_mo(root, &mut files);
@@ -1022,7 +1030,7 @@ fn disk_class_hits(
         collect_mo(lib, &mut files);
     }
     let mut seen = std::collections::HashSet::new();
-    let mut out = Vec::new();
+    let (mut out, mut unresolved) = (Vec::new(), Vec::new());
     for f in files {
         let path = f.display().to_string();
         let key = normalize_path(&path);
@@ -1035,19 +1043,26 @@ fn disk_class_hits(
         else {
             continue;
         };
+        let library =
+            libs.iter().any(|l| f.starts_with(l)) && !root.is_some_and(|d| f.starts_with(d));
         let ranges = definition::class_hits(r, &path, &text, name, t);
         if !ranges.is_empty() {
-            let library =
-                libs.iter().any(|l| f.starts_with(l)) && !root.is_some_and(|d| f.starts_with(d));
             out.push(DiskHit {
                 path,
                 text,
                 ranges,
                 library,
             });
+        } else if !library
+            && globe_mode_fmt::lex(&text).is_ok_and(|k| {
+                k.iter()
+                    .any(|k| k.kind == globe_mode_fmt::Kind::Ident && k.text == name)
+            })
+        {
+            unresolved.push(path);
         }
     }
-    out
+    (out, unresolved)
 }
 
 /// 範囲の一覧を LSP の TextEdit の配列にする。
@@ -1062,8 +1077,9 @@ fn text_edits(text: &str, ranges: &[TextRange], new_name: &str) -> Value {
 
 /// クラスのリネームが、ファイル名と食い違うか（S198。`textDocument/rename` と `prepareRename` だけ）。理由を返す。
 /// ファイルの最上位のクラスがファイル名（`M.mo` の `model M`、`package.mo`）に対応しているとき。
-/// S230: 開いていない `.mo` の参照は `textDocument/rename` の `changes` に入れるので、「同じ名前の識別子があれば断る」守りは外した。
-/// shortcut: 開いていない `.mo` の中の、開いていない中間のパッケージの `import` を通る参照は引けず、`changes` に入らない。要るなら根の下の `.mo` の索引を持つ。
+/// S230: 開いていない `.mo` の解決できた参照は `textDocument/rename` の `changes` に入れる。「同じ名前の識別子があれば断る」守りは、解決できなかった候補だけを断る弱い形にした（`disk_class_hits`）。
+/// 開いていない中間のパッケージの `import` を通る参照は引けない。`textDocument/rename` は、識別子があるのに解決できなかった根の下のファイルがあれば、そのファイルを挙げて断る（`disk_class_hits`）。
+/// shortcut: 同名の部品を持つだけのファイルも断る。要るなら根の下の `.mo` の索引を持つ。
 fn class_rename_blocked(
     r: &mut definition::Resolver,
     path: &str,
