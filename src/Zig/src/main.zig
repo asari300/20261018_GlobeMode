@@ -33,7 +33,8 @@ pub fn main(init: std.process.Init) !void {
     const args = try init.minimal.args.toSlice(arena);
     if (args.len != 3) return error.Usage;
 
-    const libs = try std.fmt.allocPrintSentinel(arena, "[\"{s}\"]", .{args[1]}, 0);
+    // パスは JSON の文字列にエスケープして埋める（Windows の `C:\msl` の `\` で壊れる。#66）
+    const libs = try std.fmt.allocPrintSentinel(arena, "[{f}]", .{std.json.fmt(args[1], .{})}, 0);
     const model = args[2];
     const ws = gm.gm_workspace_new(libs.ptr) orelse return error.WorkspaceNew;
     defer gm.gm_workspace_free(ws);
