@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S230 参照・リネームの届く範囲 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S230 参照・リネームの届く範囲">
+
+<section class="slide" id="S01">
+  <span class="tag">S230 · 2026-11-08 · P4</span>
+  <h1>参照・リネームを未開封のファイルとライブラリへ</h1>
+  <p class="lead">S166 は開いている文書の中だけだった</p>
+  <div class="big">根の下の <b>開いていない .mo</b> とライブラリ（-L）まで広げる</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">届く範囲</span>
+  <h1>前と後</h1>
+  <table class="compact">
+    <tr><th>場所</th><th>参照</th><th>リネーム</th></tr>
+    <tr><td>開いている文書</td><td>前から</td><td>前は断る。後は changes に入る</td></tr>
+    <tr><td>根の下の開いていない .mo</td><td>後から（隠しフォルダは除く）</td><td>後から changes に入る</td></tr>
+    <tr><td>ライブラリ（-L）</td><td>後から</td><td>変えない。「ライブラリの N 箇所は変えない」と知らせる</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">しくみ</span>
+  <h1>新しい解析は入れない</h1>
+  <ul>
+    <li>走査は frontend の <code>collect_mo_files</code>（facade が再公開）。LSP の写しは薄い包みにした</li>
+    <li>名前を含まないファイルは <code>contains</code> で先に落とす。読むだけで字句には分けない</li>
+    <li>Resolver が開いていないファイルのアウトラインを scratch に読んで引く</li>
+    <li>同じ <code>class_hits</code> を掛けるので、同名の部品や別の入れ子のクラスは含まれない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">守りの整理</span>
+  <h1>同じ名前の識別子があれば断る守り</h1>
+  <ul>
+    <li>S198 の守りは、開いていない .mo の字句の一致で一律に断っていた</li>
+    <li>一括編集ができるので外した。同名の部品は断る理由にならない</li>
+    <li>ファイル名に対応する最上位のクラス（M.mo の model M）を断る守りは残す</li>
+    <li>限界: 開いていない中間のパッケージの import を通る参照は引けない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">測定</span>
+  <h1>MSL（約 2,500 本）で RealInput</h1>
+  <table class="compact">
+    <tr><th>呼び出し</th><th>時間</th><th>結果</th></tr>
+    <tr><td>初回（213 本のアウトラインを読む）</td><td>2.0 s</td><td>465 箇所、213 ファイル</td></tr>
+    <tr><td>2 回目以降</td><td>0.29 s</td><td>同じ</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>対象外と持ち越し</h1>
+  <ul>
+    <li>継承した部品と import の別名のリネーム</li>
+    <li>UI の <code>globe/references</code> と <code>globe/rename</code> はメモリ上の文書のまま</li>
+    <li>根の下の .mo の索引（開いていない中間パッケージの import）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

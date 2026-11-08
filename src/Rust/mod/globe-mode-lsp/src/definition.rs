@@ -101,6 +101,19 @@ pub struct Resolver<'a> {
 }
 
 impl Resolver<'_> {
+    /// 文書 `path` のアウトライン。開いていないファイル（根の下の `.mo`・ライブラリ）は `scratch` に読んで引く（S230）。
+    fn outline(&mut self, path: &str) -> Option<&Outline> {
+        if self.ws.outline(path).is_none() && self.scratch.outline(path).is_none() {
+            let text = (self.read)(path)?;
+            self.scratch.set_file(path, text);
+        }
+        let ws = self.ws;
+        match ws.outline(path) {
+            Some(o) => o.as_ref().ok(),
+            None => self.scratch.outline(path)?.as_ref().ok(),
+        }
+    }
+
     /// ライブラリのクラス `qualified` を定義するファイル `file`（本文 `text`）の中の、そのクラスの範囲（S186。`librarySource` が添える）。
     /// ワークスペースの文書は見ない（`locate` と違い、同じ名前の自分のファイルがあっても `text` の位置を返す）。
     fn library_class_range(
@@ -223,10 +236,7 @@ impl Resolver<'_> {
     /// 文書 `path`（本文 `text`）の `at` にある名前の定義。
     pub fn definition(&mut self, path: &str, text: &str, at: usize) -> Option<Target> {
         let (_, name) = name_at(text, at)?;
-        let Some(Ok(o)) = self.ws.outline(path) else {
-            return None;
-        };
-        let (chain, scopes, within) = scopes_at(o, at);
+        let (chain, scopes, within) = scopes_at(self.outline(path)?, at);
         let mut segs = name.split('.');
         let head = segs.next()?;
         // 部品名（内側のクラスから外へ、extends の先も）
@@ -436,7 +446,6 @@ fn class_of(
     if t.kind != Kind::Ident || globe_mode_fmt::KEYWORDS.contains(&t.text) {
         return None;
     }
-    let ws = r.ws;
     let prev = i.checked_sub(1).map(|j| &toks[j]);
     let is = |x: Option<&globe_mode_fmt::Token>, s: &str| {
         x.is_some_and(|x| x.text == s && x.kind != Kind::Str)
@@ -444,9 +453,7 @@ fn class_of(
     if prev.is_some_and(|p| {
         p.kind == Kind::Ident && (p.text == "end" || CLASS_KEYWORDS.contains(&p.text))
     }) {
-        let Some(Ok(o)) = ws.outline(path) else {
-            return None;
-        };
+        let o = r.outline(path)?;
         return enclosing(&o.classes, t.start as u32)
             .last()
             .filter(|c| c.name == t.text)

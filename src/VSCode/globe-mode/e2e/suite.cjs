@@ -47,6 +47,15 @@ const cases = {
     assert.equal(edits.length, 3, JSON.stringify(edits));
     assert.ok(edits.every((e) => e.newText === "pos"));
   },
+  async "クラスの rename が、開いていない .mo も WorkspaceEdit に入れる（S230）"() {
+    const defs = fixture("Defs.mo");
+    await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(defs));
+    // Pairs.mo は開かない。Defs.mo の `model Pair`（行 0、桁 7）を変えると、Pairs.mo の `Pair p;` も入る
+    const we = await until("rename", () => vscode.commands.executeCommand("vscode.executeDocumentRenameProvider", defs, new vscode.Position(0, 7), "Duo"));
+    const files = we.entries().map(([u]) => path.basename(u.fsPath)).sort();
+    assert.deepEqual(files, ["Defs.mo", "Pairs.mo"], JSON.stringify(files));
+    assert.ok(we.entries().every(([, es]) => es.every((e) => e.newText === "Duo")));
+  },
 };
 
 exports.run = async () => {

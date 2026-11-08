@@ -21,7 +21,7 @@
 //! | `globe/hover` | `{file, line, character}`（`globe/definition` と同じ） | `{contents, range}` か null（S149。名前の宣言の 1 行（クラスは見出し、部品は `;` まで。説明文字列を含む）と、カーソルの名前の Range。wasm の `hover` と同じ形） |
 //! | `globe/references` | `{file, line, character}`（`globe/definition` と同じ） | LSP の Range の配列（S161。カーソルの名前と字句が同じ位置。部品はカーソルのあるいちばん内側のクラスの中だけ。S166: クラス名の上なら、同じ文書の中で定義ジャンプと同じ解決で同じクラスに行き着く識別子（宣言・`end`・型・`extends`・`import`）。wasm の `references` と同じ形） |
 //! | `globe/models` | `{file}` | 文字列の配列（S170。文書の model・block・class の修飾名。partial は除く。package の中まで入り、`within` は頭に付く。構文が壊れていれば空。wasm の `models` と同じ形） |
-//! | `globe/rename` | `{file, line, character, newName}` | LSP の TextEdit（`{range, newText}`）の配列（S161。いちばん内側のクラスで宣言した部品と、S166 からこの文書で定義したクラス。部品でもクラスでもない・別のファイルのクラス・識別子でない・予約語・同じ階層に既にある名前・ほかの開いた文書に参照があるときは -32803 に理由。`textDocument/rename` は同じ計算の WorkspaceEdit（S198: クラスのリネームは、最上位のクラスがファイル名 `M.mo`・`package.mo` に対応しているとき、ワークスペースの根の下の開いていない `.mo` に同じ名前の識別子があるときも断る。`prepareRename` も同じ。開いていない文書への `globe/rename`・`textDocument/rename` は -32803、`globe/references` は空の配列）、`textDocument/prepareRename` はカーソルの識別子の Range か同じ理由） |
+//! | `globe/rename` | `{file, line, character, newName}` | LSP の TextEdit（`{range, newText}`）の配列（S161。いちばん内側のクラスで宣言した部品と、S166 からこの文書で定義したクラス。部品でもクラスでもない・別のファイルのクラス・識別子でない・予約語・同じ階層に既にある名前・ほかの開いた文書に参照があるときは -32803 に理由。`textDocument/rename` は同じ計算の WorkspaceEdit（S198: クラスのリネームは、最上位のクラスがファイル名 `M.mo`・`package.mo` に対応しているときも断る。`prepareRename` も同じ。S230: `textDocument/references` は開いていない `.mo`（根の下。隠しフォルダは除く）とライブラリ（`-L`）にも届き、`textDocument/rename` は開いているほかの文書と根の下の開いていない `.mo` を `changes` に入れる〔ライブラリは変えず `window/showMessage` で「ライブラリの N 箇所は変えない」〕。UI の `globe/references`・`globe/rename` はメモリ上の文書だけ。開いていない文書への `globe/rename`・`textDocument/rename` は -32803、`globe/references` は空の配列）、`textDocument/prepareRename` はカーソルの識別子の Range か同じ理由） |
 //! | `globe/solvers` | なし | ソルバの登録表（`[{name, status, description, instead?}]`。S142。wasm の `solvers` と同じ） |
 //! | `globe/readResults` | `{path}`（`.mat` は MAT v4、それ以外は CSV） | `{layout, columns}`（S222。`globe/simulateColumns` の `layout`・`columns` と同じ形。`defaults` は先頭の 3 本。読めなければ -32000） |
 //! | `globe/exportFmu` | `{model, fmiVersion?, outDir}`（既定は FMI 2。`build` はしない） | `{path}`（S144。`outDir/<名前>.fmu` と展開した `outDir/<名前>/` を書く。DAE まで変換できなければ -32000） |
@@ -52,7 +52,7 @@ use globe_mode::db::normalize_path;
 use globe_mode::{
     CancelToken, Diagnostic, Progress, SimulateHandle, SimulateRequest, Simulated, Workspace,
 };
-use globe_mode_core::Severity;
+use globe_mode_core::{Severity, TextRange};
 use globe_mode_ir::{ClassKind, ClassOutline};
 use lsp_types::{
     DiagnosticSeverity, DocumentSymbol, Hover, HoverContents, MarkupContent, MarkupKind,
@@ -390,6 +390,8 @@ impl Server {
                 let at = offset(&text, lsp_position(&params["position"]));
                 let others = self.others(&uri);
                 let path = uri_path(&uri);
+                let (root, libs) = (self.root.clone(), self.libraries.clone());
+                let open: Vec<String> = self.texts.keys().map(|u| normalize_path(&uri_path(u))).collect();
                 let refs = self.with_resolver(|r| {
                     let mut refs: Vec<Value> = definition::references(r, &path, &text, at)
                         .into_iter()
@@ -401,6 +403,12 @@ impl Server {
                                 refs.push(json!({"uri": u, "range": range(body, x)}));
                             }
                         }
+                        // S230: 開いていない `.mo`（根の下）とライブラリのファイル
+                        for h in disk_class_hits(r, root.as_deref(), &libs, &open, &name, &t) {
+                            for x in h.ranges {
+                                refs.push(json!({"uri": file_uri(&h.path), "range": range(&h.text, x)}));
+                            }
+                        }
                     }
                     refs
                 });
@@ -408,7 +416,7 @@ impl Server {
             }
             // S161: 参照の一覧とリネーム。UI 向けの `globe/*` は `file`・`line`・`character`（rename は `newName` も）、
             // `textDocument/rename` は VS Code 向け。計算は `definition::references_at` / `rename_at`（wasm と同じ）。
-            // S166: クラス名も同じ口。リネームは 1 文書の中だけ、開いているほかの文書に同じクラスへの参照があれば断る。
+            // S166: クラス名も同じ口。S230: `globe/rename` は 1 文書の中だけ（ほかの開いた文書に参照があれば断る）、`textDocument/rename` は複数ファイルの `changes`。
             // `textDocument/prepareRename` は断る理由（`rename` と同じ）かカーソルの識別子の範囲
             "textDocument/rename" | "textDocument/prepareRename" | "globe/references" | "globe/rename" => {
                 let method = msg["method"].as_str().unwrap_or("");
@@ -430,43 +438,68 @@ impl Server {
                 };
                 let (path, others) = (uri_path(&key), self.others(&key));
                 let new_name = params["newName"].as_str().unwrap_or("");
-                // ディスクの上のほかのファイルの検査は VS Code など `textDocument/*` だけ（UI の `globe/*` はメモリ上の文書）
+                // ディスクの上のほかのファイル（S230）は VS Code など `textDocument/*` だけ（UI の `globe/*` はメモリ上の文書）
                 let disk = method.starts_with("textDocument/").then(|| {
-                    (self.root.clone(), self.texts.keys().map(|u| uri_path(u)).collect::<Vec<_>>())
+                    let open: Vec<String> = self.texts.keys().map(|u| normalize_path(&uri_path(u))).collect();
+                    (self.root.clone(), self.libraries.clone(), open)
                 });
-                let result: Result<Value, String> = self.with_resolver(|r| {
-                    let blocked = |r: &mut definition::Resolver| {
-                        let (root, open) = disk.as_ref()?;
-                        class_rename_blocked(r, root.as_deref(), open, &path, &text, offset(&text, pos))
-                    };
+                let result: Result<(Value, usize), String> = self.with_resolver(|r| {
+                    let at = offset(&text, pos);
                     match method {
-                        "globe/references" => Ok(definition::references_at(r, &path, &text, pos.line, pos.character)),
+                        "globe/references" => Ok((definition::references_at(r, &path, &text, pos.line, pos.character), 0)),
                         "textDocument/prepareRename" => {
-                            let x = definition::prepare_rename(r, &path, &text, offset(&text, pos))?;
-                            blocked(r).map_or_else(|| Ok(json!(range(&text, x))), Err)
+                            let x = definition::prepare_rename(r, &path, &text, at)?;
+                            class_rename_blocked(r, &path, &text, at).map_or_else(|| Ok((json!(range(&text, x)), 0)), Err)
                         }
                         _ => {
                             let edits = definition::rename_at(r, &path, &text, pos.line, pos.character, new_name)?;
-                            if !others.is_empty()
-                                && let Some((name, t)) = definition::class_name_at(r, &path, &text, offset(&text, pos))
-                            {
-                                let n: usize = others
-                                    .iter()
-                                    .map(|(u, body)| definition::class_hits(r, &uri_path(u), body, &name, &t).len())
-                                    .sum();
-                                if n > 0 {
-                                    return Err(format!("ほかの文書に {n} 箇所の参照がある（リネームは 1 文書の中だけ）"));
+                            let hit = definition::class_name_at(r, &path, &text, at);
+                            let Some(((name, t), (root, libs, open))) = hit.zip(disk.as_ref()) else {
+                                // 部品、または UI の `globe/rename`: ほかの開いた文書に参照があれば断る（1 文書の中だけ）
+                                if let Some((name, t)) = definition::class_name_at(r, &path, &text, at) {
+                                    let n: usize = others
+                                        .iter()
+                                        .map(|(u, body)| definition::class_hits(r, &uri_path(u), body, &name, &t).len())
+                                        .sum();
+                                    if n > 0 {
+                                        return Err(format!("ほかの文書に {n} 箇所の参照がある（リネームは 1 文書の中だけ）"));
+                                    }
                                 }
-                            }
-                            if let Some(why) = blocked(r) {
+                                return Ok((if method == "globe/rename" { edits } else { json!({"changes": {key.clone(): edits}}) }, 0));
+                            };
+                            if let Some(why) = class_rename_blocked(r, &path, &text, at) {
                                 return Err(why);
                             }
-                            Ok(if method == "globe/rename" { edits } else { json!({"changes": {key.clone(): edits}}) })
+                            // S230: 開いているほかの文書と、根の下の開いていない `.mo` は `changes` に入れる。ライブラリのファイルは数えるだけ
+                            let mut changes = serde_json::Map::new();
+                            changes.insert(key.clone(), edits);
+                            for (u, body) in &others {
+                                let hits = definition::class_hits(r, &uri_path(u), body, &name, &t);
+                                if !hits.is_empty() {
+                                    changes.insert(u.clone(), text_edits(body, &hits, new_name));
+                                }
+                            }
+                            let mut library = 0;
+                            for h in disk_class_hits(r, root.as_deref(), libs, open, &name, &t) {
+                                if h.library {
+                                    library += h.ranges.len();
+                                } else {
+                                    changes.insert(file_uri(&h.path), text_edits(&h.text, &h.ranges, new_name));
+                                }
+                            }
+                            Ok((json!({"changes": changes}), library))
                         }
                     }
                 });
                 match result {
-                    Ok(v) => reply(id, v),
+                    Ok((v, library)) => {
+                        let mut out = reply(id, v);
+                        if library > 0 {
+                            out.push(json!({"jsonrpc": "2.0", "method": "window/showMessage",
+                                "params": {"type": 3, "message": format!("ライブラリの {library} 箇所は変えない")}}));
+                        }
+                        out
+                    }
                     Err(why) => error(id, -32803, &why), // RequestFailed
                 }
             }
@@ -956,25 +989,83 @@ pub fn tree_entries_json(entries: &[globe_mode_fmt::TreeEntry<'_>]) -> Vec<Value
 }
 
 /// URI をワークスペースのパスにする。`file:` はパーセントを戻した path、それ以外は URI の文字列のまま。
-/// `path` の下の `.mo`（`path` が `.mo` ならそれ自身）。読めないディレクトリは飛ばす。
+/// `path` の下の `.mo`（隠しフォルダは読まない。frontend の `collect_mo_files`。読めないディレクトリは飛ばす）。
 fn collect_mo(path: &std::path::Path, out: &mut Vec<PathBuf>) {
-    if path.is_dir() {
-        for entry in std::fs::read_dir(path).into_iter().flatten().flatten() {
-            collect_mo(&entry.path(), out);
-        }
-    } else if path.extension().is_some_and(|e| e == "mo") {
-        out.push(path.to_path_buf());
-    }
+    let _ = globe_mode::collect_mo_files(path, out);
+    out.retain(|p| p.extension().is_some_and(|e| e == "mo"));
 }
 
-/// クラスのリネームが、ディスクの上のほかのファイルと食い違うか（S198。`textDocument/rename` と `prepareRename` だけ）。理由を返す。
-/// ファイルの最上位のクラスがファイル名（`M.mo` の `model M`、`package.mo`）に対応しているときと、
-/// ワークスペースの根の下の開いていない `.mo` に同じ名前の識別子があるとき（字句の一致だけ。部品の同名でも断る）。
-/// shortcut: 根の下の `.mo` を毎回すべて読む（文字列に `old` を含むものだけ字句に分ける。MSL 全体で数百 ms）。大きな根で遅いなら索引を持つ。
-fn class_rename_blocked(
+/// 開いていない `.mo` の中の、クラス `t`（字面 `name`）に行き着く識別子（S230）。`path` のファイルごと。
+struct DiskHit {
+    path: String,
+    text: String,
+    ranges: Vec<TextRange>,
+    /// `-L` の下で、ワークスペースの根の下でないファイル（参照には出すが、リネームでは変えない）
+    library: bool,
+}
+
+/// ワークスペースの根の下とライブラリ（`-L`）の `.mo` から、`open`（開いている文書。正規化したパス）以外を `name` で絞って調べる。
+/// `name` を含まないファイルは字句に分けない（MSL 2,500 本でも読むだけ）。
+fn disk_class_hits(
     r: &mut definition::Resolver,
     root: Option<&std::path::Path>,
+    libs: &[PathBuf],
     open: &[String],
+    name: &str,
+    t: &definition::Target,
+) -> Vec<DiskHit> {
+    let mut files = Vec::new();
+    if let Some(root) = root {
+        collect_mo(root, &mut files);
+    }
+    for lib in libs {
+        collect_mo(lib, &mut files);
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for f in files {
+        let path = f.display().to_string();
+        let key = normalize_path(&path);
+        if open.contains(&key) || !seen.insert(key) {
+            continue;
+        }
+        let Some(text) = std::fs::read_to_string(&f)
+            .ok()
+            .filter(|b| b.contains(name))
+        else {
+            continue;
+        };
+        let ranges = definition::class_hits(r, &path, &text, name, t);
+        if !ranges.is_empty() {
+            let library =
+                libs.iter().any(|l| f.starts_with(l)) && !root.is_some_and(|d| f.starts_with(d));
+            out.push(DiskHit {
+                path,
+                text,
+                ranges,
+                library,
+            });
+        }
+    }
+    out
+}
+
+/// 範囲の一覧を LSP の TextEdit の配列にする。
+fn text_edits(text: &str, ranges: &[TextRange], new_name: &str) -> Value {
+    json!(
+        ranges
+            .iter()
+            .map(|x| json!({"range": range(text, *x), "newText": new_name}))
+            .collect::<Vec<_>>()
+    )
+}
+
+/// クラスのリネームが、ファイル名と食い違うか（S198。`textDocument/rename` と `prepareRename` だけ）。理由を返す。
+/// ファイルの最上位のクラスがファイル名（`M.mo` の `model M`、`package.mo`）に対応しているとき。
+/// S230: 開いていない `.mo` の参照は `textDocument/rename` の `changes` に入れるので、「同じ名前の識別子があれば断る」守りは外した。
+/// shortcut: 開いていない `.mo` の中の、開いていない中間のパッケージの `import` を通る参照は引けず、`changes` に入らない。要るなら根の下の `.mo` の索引を持つ。
+fn class_rename_blocked(
+    r: &mut definition::Resolver,
     path: &str,
     text: &str,
     at: usize,
@@ -985,38 +1076,11 @@ fn class_rename_blocked(
     }
     let o = r.ws.outline(path)?.as_ref().ok()?;
     let name = std::path::Path::new(path).file_name()?.to_string_lossy();
-    if o.classes.iter().any(|c| c.range == t.range)
-        && (name == "package.mo" || name.strip_suffix(".mo") == Some(old.as_str()))
-    {
-        return Some(format!(
-            "{old} はファイル {name} に対応する最上位のクラスで、リネームするとファイル名とほかのファイルの参照が食い違う"
-        ));
-    }
-    let mut files = Vec::new();
-    collect_mo(root?, &mut files);
-    // Windows: URI 由来のパスは `/`、走査したパスは `\` が混ざるので、比べる前にそろえる
-    let path = normalize_path(path);
-    let open: Vec<String> = open.iter().map(|p| normalize_path(p)).collect();
-    files
-        .into_iter()
-        .map(|f| normalize_path(&f.display().to_string()))
-        .find_map(|f| {
-            if f == path || open.contains(&f) {
-                return None;
-            }
-            let body = std::fs::read_to_string(&f)
-                .ok()
-                .filter(|b| b.contains(old.as_str()))?;
-            let hit = globe_mode_fmt::lex(&body)
-                .ok()?
-                .iter()
-                .any(|k| k.text == old);
-            hit.then(|| {
-                format!(
-                    "開いていないファイル {f} にも {old} がある（リネームは開いている文書の中だけ）"
-                )
-            })
-        })
+    (o.classes.iter().any(|c| c.range == t.range)
+        && (name == "package.mo" || name.strip_suffix(".mo") == Some(old.as_str())))
+    .then(|| {
+        format!("{old} はファイル {name} に対応する最上位のクラスで、リネームするとファイル名とほかのファイルの参照が食い違う")
+    })
 }
 
 /// LSP の `Position` の JSON（読めない欄は 0）。
@@ -1984,15 +2048,22 @@ mod tests {
                 r["error"]["message"].as_str().unwrap().contains("M.mo"),
                 "{r}"
             );
-            let r = ask(&mut s, method, &foo);
-            assert!(
-                r["error"]["message"].as_str().unwrap().contains("Other.mo"),
-                "{method}: {r}"
-            );
         }
-        // 参照するファイルが無ければ通る。UI の `globe/rename` はメモリ上の文書なので、ディスクを見ない
+        // S230: 開いていない Other.mo の参照は断る理由でなく、changes に入る
+        let r = ask(&mut s, "textDocument/rename", &foo);
+        let changes = r["result"]["changes"].as_object().unwrap();
+        assert_eq!(changes.len(), 2, "{r}");
+        assert!(changes.keys().any(|k| k.ends_with("/Other.mo")), "{r}");
+        assert!(ask(&mut s, "textDocument/prepareRename", &foo)["result"].is_object());
         std::fs::remove_file(&other).unwrap();
-        assert!(ask(&mut s, "textDocument/rename", &foo)["result"].is_object());
+        assert_eq!(
+            ask(&mut s, "textDocument/rename", &foo)["result"]["changes"]
+                .as_object()
+                .unwrap()
+                .len(),
+            1
+        );
+        // UI の `globe/rename` はメモリ上の文書なので、ディスクを見ない
         assert!(ask(&mut s, "globe/rename", &m)["result"].is_array());
         // 開いていない文書: references は空、リネームは断る
         let r = s.handle(json!({"id": 5, "method": "globe/references", "params": {"file": "none.mo", "line": 0, "character": 0}}));
