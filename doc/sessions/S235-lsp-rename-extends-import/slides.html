@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S235 継承した部品と import の別名 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S235 継承した部品と import の別名">
+
+<section class="slide" id="S01">
+  <span class="tag">S235 · 2026-11-08 · P4</span>
+  <h1>参照・リネームを継承した部品と import の別名へ</h1>
+  <p class="lead">S230 の持ち越し</p>
+  <div class="big">部品は <b>定義元に寄せて</b> 継承先へ、別名は <b>その文書の中</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">届く範囲</span>
+  <h1>前と後</h1>
+  <table class="compact">
+    <tr><th>対象</th><th>リネーム（前）</th><th>リネーム（後）</th></tr>
+    <tr><td>継承先の x（定義元から）</td><td>届かない</td><td>changes に入る</td></tr>
+    <tr><td>継承先の x にカーソル</td><td>断る</td><td>定義元と他の継承先へ</td></tr>
+    <tr><td>b.x の x</td><td>届かない</td><td>changes に入る</td></tr>
+    <tr><td>import の別名 D</td><td>断る</td><td>その文書の中</td></tr>
+    <tr><td>D.X・A.B.* を通る X</td><td>断る</td><td>changes に入る</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">しくみ</span>
+  <h1>新しい名前解決器は書かない</h1>
+  <ul>
+    <li>識別子ごとに <code>Resolver::definition</code> を引き、宣言の場所が同じものを数える（<code>component_hits</code>）</li>
+    <li>継承の鎖は <code>extends</code> の先の名前の組を不動点まで広げ、含むファイルだけ調べる</li>
+    <li>木にない名前は、読み済みの開いていない .mo からも探す。これで別名と鎖の途中が解ける</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">守り</span>
+  <h1>解決できない候補は今も断る</h1>
+  <ul>
+    <li>S230 の仕組みは残した。解決できるようになった分だけ断らなくなった</li>
+    <li>実在しないパッケージ越しの D.Base は別のクラスなので、ファイルを挙げて断る</li>
+    <li>部品の定義元がライブラリなら、リネームは断り参照は返す</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">測定</span>
+  <h1>MSL で SISO の u</h1>
+  <table class="compact">
+    <tr><th>呼び出し</th><th>時間</th><th>結果</th></tr>
+    <tr><td>初回</td><td>4.3 s</td><td>321 箇所、92 ファイル</td></tr>
+    <tr><td>2 回目以降</td><td>0.75 s</td><td>同じ</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>対象外と持ち越し</h1>
+  <ul>
+    <li>redeclare・replaceable の先</li>
+    <li>継承先が同じ名前を宣言していたときの衝突</li>
+    <li>model C = B; の短いクラス定義の鎖</li>
+    <li>UI の globe/references と globe/rename</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

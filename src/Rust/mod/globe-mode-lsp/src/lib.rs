@@ -396,7 +396,18 @@ impl Server {
                 let path = uri_path(&uri);
                 let (root, libs) = (self.root.clone(), self.libraries.clone());
                 let open: Vec<String> = self.texts.keys().map(|u| normalize_path(&uri_path(u))).collect();
+                let docs: Vec<(String, String)> = self.texts.iter().map(|(u, b)| (u.clone(), b.clone())).collect();
                 let refs = self.with_resolver(|r| {
+                    // S235: 部品は継承した先と `b.x` も（開いている文書とディスクの両方）
+                    if let Some((rg, t)) = definition::component_name_at(r, &path, &text, at) {
+                        let name = text[rg.start as usize..rg.end as usize].to_string();
+                        return component_files(r, root.as_deref(), &libs, &docs, &name, &t)
+                            .into_iter()
+                            .flat_map(|(u, body, ranges, _)| {
+                                ranges.into_iter().map(move |x| json!({"uri": u, "range": range(&body, x)}))
+                            })
+                            .collect();
+                    }
                     let mut refs: Vec<Value> = definition::references(r, &path, &text, at)
                         .into_iter()
                         .map(|x| json!({"uri": uri, "range": range(&text, x)}))
@@ -452,10 +463,38 @@ impl Server {
                     match method {
                         "globe/references" => Ok((definition::references_at(r, &path, &text, pos.line, pos.character), 0)),
                         "textDocument/prepareRename" => {
+                            if let Some((rg, t)) = definition::component_name_at(r, &path, &text, at) {
+                                let name = &text[rg.start as usize..rg.end as usize];
+                                component_rename_blocked(&t, disk.as_ref())?;
+                                definition::check_component_name(r, &t, name, name)?;
+                                return Ok((json!(range(&text, rg)), 0));
+                            }
                             let x = definition::prepare_rename(r, &path, &text, at)?;
                             class_rename_blocked(r, &path, &text, at).map_or_else(|| Ok((json!(range(&text, x)), 0)), Err)
                         }
                         _ => {
+                            // S235: 部品は定義元に寄せて、継承した先と `b.x` も（開いている文書とディスク）。UI の `globe/rename` は 1 文書の中だけ
+                            if let Some(((rg, t), (root, libs, _))) =
+                                definition::component_name_at(r, &path, &text, at).zip(disk.as_ref())
+                            {
+                                let name = text[rg.start as usize..rg.end as usize].to_string();
+                                component_rename_blocked(&t, disk.as_ref())?;
+                                definition::check_component_name(r, &t, &name, new_name)?;
+                                let docs: Vec<(String, String)> =
+                                    others.iter().cloned().chain([(key.clone(), text.clone())]).collect();
+                                let (mut changes, mut library) = (serde_json::Map::new(), 0);
+                                for (u, body, ranges, lib) in component_files(r, root.as_deref(), libs, &docs, &name, &t) {
+                                    if lib {
+                                        library += ranges.len();
+                                    } else {
+                                        changes.insert(u, text_edits(&body, &ranges, new_name));
+                                    }
+                                }
+                                if changes.is_empty() {
+                                    return Err("カーソルが識別子の上にない（コメント・文字列の中、または字句に分けられない本文）".into());
+                                }
+                                return Ok((json!({"changes": changes}), library));
+                            }
                             let edits = definition::rename_at(r, &path, &text, pos.line, pos.character, new_name)?;
                             let hit = definition::class_name_at(r, &path, &text, at);
                             let Some(((name, t), (root, libs, open))) = hit.zip(disk.as_ref()) else {
@@ -1108,6 +1147,23 @@ struct DiskHit {
     library: bool,
 }
 
+/// 根の下とライブラリ（`-L`）の `.mo` で、`open`（開いている文書。正規化したパス）でないもの（重複は除く）。
+fn disk_files(root: Option<&std::path::Path>, libs: &[PathBuf], open: &[String]) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    if let Some(root) = root {
+        collect_mo(root, &mut files);
+    }
+    for lib in libs {
+        collect_mo(lib, &mut files);
+    }
+    let mut seen = std::collections::HashSet::new();
+    files.retain(|f| {
+        let key = normalize_path(&f.display().to_string());
+        !open.contains(&key) && seen.insert(key)
+    });
+    files
+}
+
 /// ワークスペースの根の下とライブラリ（`-L`）の `.mo` から、`open`（開いている文書。正規化したパス）以外を `name` で絞って調べる。
 /// `name` を含まないファイルは字句に分けない（MSL 2,500 本でも読むだけ）。
 /// 2 つ目は、根の下の（ライブラリでない）ファイルで、識別子 `name` があるのに `t` に行き着くものが 0 件だったもの
@@ -1120,21 +1176,9 @@ fn disk_class_hits(
     name: &str,
     t: &definition::Target,
 ) -> (Vec<DiskHit>, Vec<String>) {
-    let mut files = Vec::new();
-    if let Some(root) = root {
-        collect_mo(root, &mut files);
-    }
-    for lib in libs {
-        collect_mo(lib, &mut files);
-    }
-    let mut seen = std::collections::HashSet::new();
     let (mut out, mut unresolved) = (Vec::new(), Vec::new());
-    for f in files {
+    for f in disk_files(root, libs, open) {
         let path = f.display().to_string();
-        let key = normalize_path(&path);
-        if open.contains(&key) || !seen.insert(key) {
-            continue;
-        }
         let Some(text) = std::fs::read_to_string(&f)
             .ok()
             .filter(|b| b.contains(name))
@@ -1163,6 +1207,94 @@ fn disk_class_hits(
     (out, unresolved)
 }
 
+/// 部品 `t`（字面 `name`）に行き着く識別子のあるファイル（S235）: `uri`・本文・範囲・ライブラリか。
+/// 開いている文書 `docs`（uri と本文）は全部調べる。ディスクのファイルは、`t` を宣言したクラスを extends でたどって継承する
+/// クラスの名前の組を（開いている文書とディスクの `extends` から）不動点まで広げ、`name` かつその名前のどれかを含むファイルだけ調べる
+/// （MSL 約 2,500 本のうち `SISO` を継承する先と使う先だけを字句に分ける）。継承の鎖の途中のファイルはアウトラインを `scratch` に読むので、
+/// `Resolver::locate` が引ける。shortcut: クラスの名前の一致は部分文字列・`model C = B;` の短いクラス定義は鎖と見ない。要るなら索引を持つ。
+fn component_files(
+    r: &mut definition::Resolver,
+    root: Option<&std::path::Path>,
+    libs: &[PathBuf],
+    docs: &[(String, String)],
+    name: &str,
+    t: &definition::Target,
+) -> Vec<(String, String, Vec<TextRange>, bool)> {
+    fn extenders(classes: &[ClassOutline], names: &mut std::collections::HashSet<String>) {
+        for c in classes {
+            if c.extends
+                .iter()
+                .any(|e| names.contains(e.rsplit('.').next().unwrap_or(e)))
+            {
+                names.insert(c.name.clone());
+            }
+            extenders(&c.classes, names);
+        }
+    }
+    // text の中の `extends X.Y` の先の最後の名前に names のどれかがあるか
+    fn extends_any(text: &str, names: &std::collections::HashSet<String>) -> bool {
+        text.match_indices("extends").any(|(i, w)| {
+            let rest = text[i + w.len()..].trim_start();
+            let end = rest
+                .find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '.'))
+                .unwrap_or(rest.len());
+            names.contains(rest[..end].rsplit('.').next().unwrap_or(""))
+        })
+    }
+    let mut out = Vec::new();
+    for (u, body) in docs {
+        let ranges = definition::component_hits(r, &uri_path(u), body, name, t);
+        if !ranges.is_empty() {
+            out.push((u.clone(), body.clone(), ranges, false));
+        }
+    }
+    let open: Vec<String> = docs
+        .iter()
+        .map(|(u, _)| normalize_path(&uri_path(u)))
+        .collect();
+    let disk: Vec<(String, String)> = disk_files(root, libs, &open)
+        .into_iter()
+        .filter_map(|f| Some((f.display().to_string(), std::fs::read_to_string(&f).ok()?)))
+        .collect();
+    let mut names = std::collections::HashSet::new();
+    if let Some(o) = r.outline(&t.path) {
+        let (chain, _, _) = definition::scopes_at(o, t.range.start as usize);
+        names.extend(chain.last().map(|c| c.name.clone()));
+    }
+    let mut loaded = vec![false; disk.len()];
+    loop {
+        let before = names.len();
+        for (u, _) in docs {
+            if let Some(o) = r.outline(&uri_path(u)) {
+                extenders(&o.classes, &mut names);
+            }
+        }
+        for (k, (p, text)) in disk.iter().enumerate() {
+            if !loaded[k] && extends_any(text, &names) {
+                loaded[k] = true;
+                if let Some(o) = r.outline(p) {
+                    extenders(&o.classes, &mut names);
+                }
+            }
+        }
+        if names.len() == before {
+            break;
+        }
+    }
+    for (p, text) in &disk {
+        if !text.contains(name) || !names.iter().any(|n| text.contains(n.as_str())) {
+            continue;
+        }
+        let ranges = definition::component_hits(r, p, text, name, t);
+        if !ranges.is_empty() {
+            let library = libs.iter().any(|l| std::path::Path::new(p).starts_with(l))
+                && !root.is_some_and(|d| std::path::Path::new(p).starts_with(d));
+            out.push((file_uri(p), text.clone(), ranges, library));
+        }
+    }
+    out
+}
+
 /// 範囲の一覧を LSP の TextEdit の配列にする。
 fn text_edits(text: &str, ranges: &[TextRange], new_name: &str) -> Value {
     json!(
@@ -1171,6 +1303,24 @@ fn text_edits(text: &str, ranges: &[TextRange], new_name: &str) -> Value {
             .map(|x| json!({"range": range(text, *x), "newText": new_name}))
             .collect::<Vec<_>>()
     )
+}
+
+/// 部品の定義元が（根の下でない）ライブラリのファイルなら、リネームを断る理由（S235）。`disk` は (根, ライブラリ, 開いている文書)。
+fn component_rename_blocked(
+    t: &definition::Target,
+    disk: Option<&(Option<PathBuf>, Vec<PathBuf>, Vec<String>)>,
+) -> Result<(), String> {
+    let Some((root, libs, _)) = disk else {
+        return Ok(());
+    };
+    let p = std::path::Path::new(&t.path);
+    if libs.iter().any(|l| p.starts_with(l)) && !root.as_deref().is_some_and(|d| p.starts_with(d)) {
+        return Err(format!(
+            "部品はライブラリのファイル（{}）で宣言されていて、リネームできない",
+            t.path
+        ));
+    }
+    Ok(())
 }
 
 /// クラスのリネームが、ファイル名と食い違うか（S198。`textDocument/rename` と `prepareRename` だけ）。理由を返す。

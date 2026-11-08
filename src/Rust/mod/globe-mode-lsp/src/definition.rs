@@ -102,7 +102,7 @@ pub struct Resolver<'a> {
 
 impl Resolver<'_> {
     /// 文書 `path` のアウトライン。開いていないファイル（根の下の `.mo`・ライブラリ）は `scratch` に読んで引く（S230）。
-    fn outline(&mut self, path: &str) -> Option<&Outline> {
+    pub(crate) fn outline(&mut self, path: &str) -> Option<&Outline> {
         if self.ws.outline(path).is_none() && self.scratch.outline(path).is_none() {
             let text = (self.read)(path)?;
             self.scratch.set_file(path, text);
@@ -151,7 +151,10 @@ impl Resolver<'_> {
             if let Some(f) = self.tree.file(head) {
                 break f.to_string();
             }
-            head = &head[..head.rfind('.')?];
+            let Some(i) = head.rfind('.') else {
+                return self.locate_in_scratch(qualified);
+            };
+            head = &head[..i];
         };
         if self.scratch.outline(&file).is_none() {
             let text = (self.read)(&file)?;
@@ -161,6 +164,17 @@ impl Resolver<'_> {
             return None;
         };
         walk(o, qualified).map(|c| (file, c.clone()))
+    }
+
+    /// 木にないクラスを、すでに読んだ開いていないファイル（根の下の `.mo`。S235）から探す。
+    /// 開いていないファイルの `import` や `extends` の先を引くため。読んでいないファイルは見えない。
+    fn locate_in_scratch(&self, qualified: &str) -> Option<(String, ClassOutline)> {
+        self.scratch
+            .files()
+            .find_map(|f| match self.scratch.outline(f) {
+                Some(Ok(o)) => walk(o, qualified).map(|c| (f.to_string(), c.clone())),
+                _ => None,
+            })
     }
 
     /// `scope`（完全修飾名）の中から見た型名 `name` を完全修飾名にして探す。
@@ -466,10 +480,169 @@ fn class_of(
     if is(prev, ".") && !(i >= 2 && toks[i - 2].kind == Kind::Ident) {
         return None;
     }
-    if is_modifier_name(toks, i, 1) {
+    if is_modifier_name(toks, i, 1) || alias_decl(r, path, toks, i).is_some() {
         return None;
     }
     r.definition(path, text, t.start).filter(|d| d.class)
+}
+
+/// import の別名 `name`（`D=A.B` の `D`）を宣言したクラスか。
+fn has_alias(c: &ClassOutline, name: &str) -> bool {
+    c.imports
+        .iter()
+        .any(|i| i.split_once('=').is_some_and(|(a, _)| a == name))
+}
+
+/// 識別子のトークン `toks[i]` が import の別名（宣言の `D =` か、`D.X` の頭）なら、それを宣言した一番内側のクラスの範囲（S235）。
+/// 前が `.` のもの（別のもののメンバ）は別名でない。
+fn alias_decl(
+    r: &mut Resolver,
+    path: &str,
+    toks: &[globe_mode_fmt::Token],
+    i: usize,
+) -> Option<TextRange> {
+    let t = &toks[i];
+    if t.kind != Kind::Ident
+        || (i > 0 && toks[i - 1].text == "." && toks[i - 1].kind == Kind::Punct)
+    {
+        return None;
+    }
+    let o = r.outline(path)?;
+    enclosing(&o.classes, t.start as u32)
+        .into_iter()
+        .rev()
+        .find(|c| has_alias(c, t.text))
+        .map(|c| c.range)
+}
+
+/// カーソルが import の別名の上なら、その字面、同じ別名を指す識別子の範囲、宣言したクラスの中の既存の名前（新しい名前と衝突させない）（S235）。
+/// 範囲は宣言したクラスの中で、前が `.` のもの・修飾子の名前・同じ別名を自分で宣言した入れ子のクラスの中を除く。解決は要らない（別名はそのクラスの中の字面）。
+fn alias_at(
+    r: &mut Resolver,
+    path: &str,
+    text: &str,
+    at: usize,
+) -> Option<(String, Vec<TextRange>, Vec<String>)> {
+    let toks = lex(text).ok()?;
+    let i = toks
+        .iter()
+        .position(|t| t.kind == Kind::Ident && t.start <= at && at <= t.start + t.text.len())?;
+    let decl = alias_decl(r, path, &toks, i)?;
+    let name = toks[i].text;
+    let o = r.outline(path)?;
+    let (c, _) = find_class(&o.classes, None, decl)?;
+    fn own(c: &ClassOutline, name: &str, out: &mut Vec<TextRange>) {
+        for n in &c.classes {
+            if has_alias(n, name) {
+                out.push(n.range);
+            } else {
+                own(n, name, out);
+            }
+        }
+    }
+    let mut skip = Vec::new();
+    own(c, name, &mut skip);
+    let mut taken: Vec<String> = c.components.iter().map(|m| m.name.clone()).collect();
+    taken.extend(c.classes.iter().map(|k| k.name.clone()));
+    taken.extend(
+        c.imports
+            .iter()
+            .filter_map(|i| i.split_once('=').map(|(a, _)| a.to_string())),
+    );
+    let hits = (0..toks.len())
+        .filter(|&j| {
+            let k = &toks[j];
+            k.kind == Kind::Ident
+                && k.text == name
+                && decl.start as usize <= k.start
+                && k.start < decl.end as usize
+                && !skip
+                    .iter()
+                    .any(|x| x.start as usize <= k.start && k.start < x.end as usize)
+                && !(j > 0 && toks[j - 1].text == "." && toks[j - 1].kind == Kind::Punct)
+                && !is_modifier_name(&toks, j, 1)
+        })
+        .map(|j| tok_range(&toks[j]))
+        .collect();
+    Some((name.to_string(), hits, taken))
+}
+
+/// 識別子のトークン `toks[i]` が指す部品（S235）。クラスの `class_of` の部品版で、解決は `Resolver::definition`
+/// （内側のクラスから外へ、extends の先も）。修飾子の名前・`f(x).y` の `y`・import の別名は対象外。
+fn component_of(
+    r: &mut Resolver,
+    path: &str,
+    text: &str,
+    toks: &[globe_mode_fmt::Token],
+    i: usize,
+) -> Option<Target> {
+    let t = &toks[i];
+    if t.kind != Kind::Ident || globe_mode_fmt::KEYWORDS.contains(&t.text) {
+        return None;
+    }
+    let dot = i > 0 && toks[i - 1].text == "." && toks[i - 1].kind != Kind::Str;
+    if (dot && !(i >= 2 && toks[i - 2].kind == Kind::Ident))
+        || is_modifier_name(toks, i, 1)
+        || alias_decl(r, path, toks, i).is_some()
+    {
+        return None;
+    }
+    r.definition(path, text, t.start).filter(|d| !d.class)
+}
+
+/// カーソルが部品（宣言でも、使い方でも、継承した部品でも、`b.x` の `x` でも）の上なら、その識別子の範囲と、部品の宣言の場所（S235）。
+pub fn component_name_at(
+    r: &mut Resolver,
+    path: &str,
+    text: &str,
+    at: usize,
+) -> Option<(TextRange, Target)> {
+    let toks = lex(text).ok()?;
+    let i = toks
+        .iter()
+        .position(|t| t.kind == Kind::Ident && t.start <= at && at <= t.start + t.text.len())?;
+    component_of(r, path, text, &toks, i).map(|t| (tok_range(&toks[i]), t))
+}
+
+/// 文書 `path`（本文 `text`）で、`name` と書いてあって `target` の部品に行き着く識別子（S235）。
+/// 継承した先の宣言なしの使い方（`B` が `A` を extends しているときの `B` の中の `x`、`b.x`）も入る。
+pub fn component_hits(
+    r: &mut Resolver,
+    path: &str,
+    text: &str,
+    name: &str,
+    target: &Target,
+) -> Vec<TextRange> {
+    let Ok(toks) = lex(text) else {
+        return vec![];
+    };
+    (0..toks.len())
+        .filter(|&i| {
+            toks[i].text == name && component_of(r, path, text, &toks, i).as_ref() == Some(target)
+        })
+        .map(|i| tok_range(&toks[i]))
+        .collect()
+}
+
+/// 部品 `target` を `new_name` に変えてよいか。宣言したクラスの中と、その extends の先に同じ名前が無いこと（S235）。
+/// shortcut: 継承先のクラスが同じ名前を宣言していても見ない。要るなら継承先ごとに調べる。
+pub fn check_component_name(
+    r: &mut Resolver,
+    target: &Target,
+    old: &str,
+    new_name: &str,
+) -> Result<(), String> {
+    let o = r
+        .outline(&target.path)
+        .ok_or("部品の定義元を解析できない")?;
+    let (mut chain, mut scopes, _) = scopes_at(o, target.range.start as usize);
+    let (c, q) = chain
+        .pop()
+        .zip(scopes.pop())
+        .ok_or("部品を宣言したクラスが見つからない")?;
+    check_name(old, new_name, |n| {
+        r.component(&q, &target.path, &c, n, 0).is_some() || c.classes.iter().any(|k| k.name == n)
+    })
 }
 
 /// カーソルの識別子のトークンの番号と、それが指すクラス。
@@ -520,6 +693,9 @@ pub fn class_name_at(
 
 /// 参照の範囲。カーソルがクラス名の上ならその文書の中で同じクラスに行き着く全部（S166）、そうでなければ部品の参照。
 pub fn references(r: &mut Resolver, path: &str, text: &str, at: usize) -> Vec<TextRange> {
+    if let Some((_, hits, _)) = alias_at(r, path, text, at) {
+        return hits;
+    }
     if let Some((name, t)) = class_name_at(r, path, text, at) {
         return class_hits(r, path, text, &name, &t);
     }
@@ -609,9 +785,10 @@ fn find_class<'a>(
 }
 
 /// リネームで置き換える範囲（S161・S166）。
+/// import の別名（S235）は、宣言したクラスの中の別名の字面（`import D = …` の `D` と `D.X` の頭）をその文書の中だけ。
 /// 受けるのは、いちばん内側のクラスで宣言した部品か、この文書で定義したクラスの名前（宣言・`end`・使っている所。同じクラスに行き着くものだけ）。
 /// 断る理由は文字列で返す: 部品でもクラスでもない（継承した部品・`a.b` の `b`・予約語・組み込みの型の上）、別のファイル（ライブラリなど）で定義したクラス、
-/// import の別名の上、新しい名前が識別子でない・予約語・同じ階層に既にある（部品は extends で継承した部品も。S198）。
+/// 新しい名前が識別子でない・予約語・同じ階層に既にある（部品は extends で継承した部品も。S198）。
 /// shortcut: 新しい名前が使う側の見える範囲の別の名前（外側のクラスのもの）を隠すかは見ない。要るなら名前解決をやり直して前後を比べる。
 pub fn rename(
     r: &mut Resolver,
@@ -620,6 +797,10 @@ pub fn rename(
     at: usize,
     new_name: &str,
 ) -> Result<Vec<TextRange>, String> {
+    if let Some((old, hits, taken)) = alias_at(r, path, text, at) {
+        check_name(&old, new_name, |n| taken.iter().any(|t| t == n))?;
+        return Ok(hits);
+    }
     let ws = r.ws;
     let outline = ws.outline(path).and_then(|o| o.as_ref().ok());
     if let Some((old, t)) = class_name_at(r, path, text, at) {
