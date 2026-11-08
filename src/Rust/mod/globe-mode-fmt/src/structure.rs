@@ -229,6 +229,56 @@ pub fn class_defs<'a>(tokens: &[Token<'a>]) -> Result<Vec<(String, String, &'a s
     Ok(out)
 }
 
+/// クラスの範囲（S232）。`path` はファイルの中の入れ子の名前（`Sources.Sine`）、`start`・`end` は宣言の先頭と `end X;` の `;` の次のバイト位置、
+/// `annotation` はクラス直下の `annotation(…);`（短いクラスは宣言の中の `annotation(…)`）のトークン列。
+pub struct ClassSpan<'t, 'a> {
+    pub path: String,
+    pub start: usize,
+    pub end: usize,
+    pub annotation: Option<&'t [Token<'a>]>,
+}
+
+/// ファイルの中の全クラスの範囲（入れ子を含む。出現の順）。文を切り出せなければ `Err`。
+pub fn class_spans<'t, 'a>(tokens: &'t [Token<'a>]) -> Result<Vec<ClassSpan<'t, 'a>>, FormatError> {
+    let mut stack: Vec<usize> = Vec::new(); // out の添字（開いているクラス）
+    let mut out: Vec<ClassSpan<'t, 'a>> = Vec::new();
+    for e in split(tokens, false)? {
+        let t = e.tokens;
+        if t[0].is("end") {
+            if !t
+                .get(1)
+                .is_some_and(|n| BLOCK_END.contains(&n.text) && n.is_keyword())
+                && let Some(i) = stack.pop()
+            {
+                out[i].end = t.get(2).map_or(t[0].start, |s| s.start + 1);
+            }
+        } else if let Some((_, name)) = class_header(t, 0) {
+            let path = match stack.last() {
+                Some(&p) => format!("{}.{}", out[p].path, t[name].text),
+                None => t[name].text.to_string(),
+            };
+            let mut span = ClassSpan {
+                path,
+                start: t[0].start,
+                end: 0,
+                annotation: None,
+            };
+            if t.get(name + 1).is_some_and(|s| s.is("=")) {
+                span.end = t.last().map_or(0, |s| s.start + s.text.len());
+                span.annotation = t.iter().position(|s| s.is("annotation")).map(|p| &t[p..]);
+            } else {
+                stack.push(out.len());
+            }
+            out.push(span);
+        } else if t[0].is("annotation")
+            && let Some(&i) = stack.last()
+        {
+            out[i].annotation = Some(t);
+        }
+    }
+    Ok(out)
+}
+
 fn class_level(stack: &[Ctx<'_>]) -> usize {
     match stack.last() {
         Some(Ctx::Class(_)) => stack.len() - 1,

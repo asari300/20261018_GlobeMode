@@ -31,6 +31,7 @@
 //! | `globe/completion` | `{file, line, character}`（`globe/definition` と同じ） | LSP の `CompletionList` `{isIncomplete, items}`（S171。`textDocument/completion` と同じ計算。予約語、文書の名前、点つきの名前の途中はクラスの子か部品の型の部品名。最大 200 件で、200 件に達したら `isIncomplete: true`（S198。打ちかけの語で絞ってから切る）。文字列・コメントの中は空。wasm の `completion` は `items` と同じ配列だけを返す） |
 //! | `globe/librarySearch` | `{query}`（名前の部分一致。大文字小文字を区別しない。`.` を含めると完全修飾名） | 同じ形の項目の配列（S167。最大 50 件、近い順。ファイルの中の入れ子のクラスも出る） |
 //! | `globe/librarySource` | `{path}`（完全修飾名） | `{file, text, range}`（S127。そのクラスを定義するライブラリのファイル。S186 から `range` はそのクラスの宣言の範囲（LSP の Range。引けなければ無い）。無ければ -32000） |
+//! | `globe/documentation` | `{class?, file?, line?, character?}`（`class` は完全修飾名。空なら開いている文書 `file` の行・列にあるいちばん内側のクラス） | `{class, info, revisions}` か null（S232。クラスの `annotation(Documentation(…))` の生の HTML。エスケープは戻してある。文書のクラスを先に、無ければライブラリのクラスから。クラスが引けなければ null。wasm の `documentation` と同じ形） |
 //!
 //! 設定ファイル（S130）: `initialize` の `rootUri`（無ければ `rootPath`）から上へたどって最初の `globe-mode.toml` を
 //! 読み、lint の診断と `textDocument/formatting` に使う（`workspace/didChangeConfiguration` で読み直す）。
@@ -42,6 +43,7 @@
 
 pub mod completion;
 pub mod definition;
+pub mod documentation;
 pub mod folding;
 
 use std::collections::{HashMap, VecDeque};
@@ -649,6 +651,22 @@ impl Server {
                 Some(q) => reply(id, json!(tree_entries_json(&self.tree().search(q, 50)))),
                 None => error(id, -32602, "params.query が文字列でない"),
             },
+            // S232: クラスの Documentation の生の HTML（UI の説明パネル。洗うのは UI）
+            "globe/documentation" => {
+                let text = params["file"].as_str().and_then(|f| self.texts.get(f).cloned());
+                let (line, character) = (
+                    params["line"].as_u64().unwrap_or(0) as u32,
+                    params["character"].as_u64().unwrap_or(0) as u32,
+                );
+                let at = text.as_deref().map(|t| (t, line, character));
+                let tree = self.tree();
+                reply(
+                    id,
+                    documentation::documentation(params["class"].as_str().unwrap_or(""), at, |c| {
+                        std::fs::read_to_string(tree.file(c)?).ok()
+                    }),
+                )
+            }
             "globe/librarySource" => match params["path"].as_str() {
                 Some(path) => match self.tree().file(path).map(|f| (f.to_string(), std::fs::read_to_string(f))) {
                     Some((file, Ok(text))) => {
@@ -2002,6 +2020,48 @@ mod tests {
             .clone();
         assert!(r["contents"].as_str().unwrap().contains("Resistor"), "{r}");
         assert_eq!(r["range"]["start"]["line"], 2, "{r}");
+    }
+
+    #[test]
+    fn documentation_is_served_for_the_library_and_the_cursor_class() {
+        // S232: クラス名ならライブラリのファイルから、空なら開いている文書の行・列のクラスから。クラスが無ければ null
+        let lib =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../Modelica/GlobeModeValidation");
+        let mut s = Server::new(std::slice::from_ref(&lib)).unwrap();
+        let text = "model T\n  Real x;\nequation\n  der(x) = 1;\n  annotation(Documentation(info = \"<p>\\\"T\\\"</p>\", revisions = \"r\"));\nend T;\n";
+        s.handle(
+            json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+            "uri": "T.mo", "languageId": "modelica", "version": 1, "text": text}}}),
+        );
+        let mut doc = |params: Value| {
+            s.handle(json!({"id": 1, "method": "globe/documentation", "params": params}))
+                .remove(0)["result"]
+                .clone()
+        };
+        let pkg = doc(json!({"class": "GlobeModeValidation"}));
+        assert!(
+            pkg["info"]
+                .as_str()
+                .unwrap()
+                .contains("<code>Connectors</code>"),
+            "{pkg}"
+        );
+        let t = doc(json!({"file": "T.mo", "line": 3, "character": 2}));
+        assert_eq!(
+            (
+                t["class"].as_str(),
+                t["info"].as_str(),
+                t["revisions"].as_str()
+            ),
+            (Some("T"), Some("<p>\"T\"</p>"), Some("r")),
+            "{t}"
+        );
+        assert_eq!(doc(json!({"class": "Nope"})), Value::Null);
+        assert_eq!(
+            doc(json!({"file": "T.mo", "line": 9, "character": 0})),
+            Value::Null
+        );
+        assert_eq!(doc(json!({})), Value::Null);
     }
 
     #[test]
