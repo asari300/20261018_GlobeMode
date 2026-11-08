@@ -35,7 +35,7 @@ S237 の持ち越し 2 つ。P5b の FMU を CLI（`globe fmu export --runtime p
 - MSL の 20 本（P5b、FMI 2.0、FMPy 0.3.32、release の `globe`、1 本ずつ）: 16 / 20（S237 と同じ。落ちる 4 本も同じ）。
 - 手元の試験: `cargo test -p globe-mode-cli --test fmu_export p5b` 2 本 ok（debug で 187 s、負荷あり）。
 - コードの検査（`mise run check`）: 通った（fmt・clippy・test・deny・`fmt --check src/Modelica`・`uv sync --locked`）。途中で落ちたのは 2 件で直した: `test_ci_plan.py`（`globe-mode-fmu` に依存元 `globe-mode-cli` ができた）と `cli_flow.rs` の `help_has_examples_and_no_session_numbers`（`--runtime` の説明に S238 と書いた）。
-- CI: （後で書く）
+- CI（feature ブランチ）: `fmu-export.yml` run 42501030245 が success（`fmu-export` の MSL の step は CLI の P5b。`fmu-native` の 3 OS は CLI の自動の cargo build 経路で Decay を FMPy・fmusim。`fmu-cross` の 3 OS も success）。`ci.yml -f full=true` run 42501039677 が success。
 - `check_docs.py`: デッキ 全件 OK / リンク 4454 件中の切れ 0 件。`render_slides.py`: S238 のデッキ 問題 0 件
 - セッション記録の `--check`: （親が写す）
 
