@@ -1320,9 +1320,10 @@ fn failure_diagnostic(
             Stage::Run,
             "実行系（Rumoca）の内部エラー（実行時の契約違反）",
         ),
+        // 設定の誤りは GM-E10004（S10）。resolve を通ったのにここへ来たら、検査が Rumoca の上限とずれている（#44）
         Kind::Options => Diagnostic::error(
-            codes::RUN_INTERNAL,
-            Stage::Run,
+            codes::EXPERIMENT_INVALID,
+            Stage::S10,
             "実行系（Rumoca）が実行の設定を受け付けない",
         ),
     };

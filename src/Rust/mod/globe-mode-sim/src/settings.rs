@@ -44,11 +44,19 @@ pub const MAX_OUTPUT_POINTS: f64 = 1e7;
 /// 既定のソルバ。
 pub const DEFAULT_SOLVER: SolverId = SolverId::Bdf;
 
-fn too_fine(points: f64) -> String {
-    format!(
-        "が細かすぎる（出力が {points:.3e} 点。上限 {}）",
-        format_number(MAX_OUTPUT_POINTS)
-    )
+/// Rumoca の出力格子（`rumoca-solver` の `try_build_output_times`）が断る刻みなら、その理由（#44）。
+/// 点数 `floor(区間 / 刻み) + 1` が上限以上、または刻みが時刻の大きさの ulp より細かくて進まない。
+fn grid_problem(start: f64, stop: f64, dt: f64) -> Option<String> {
+    let points = (stop - start) / dt;
+    if points.floor() + 1.0 >= MAX_OUTPUT_POINTS {
+        return Some(format!(
+            "が細かすぎる（出力が {points:.3e} 点。上限 {}）",
+            format_number(MAX_OUTPUT_POINTS)
+        ));
+    }
+    let top = start.abs().max(stop.abs());
+    (dt < f64::from_bits(top.to_bits() + 1) - top)
+        .then(|| "が時刻の刻み（浮動小数点の精度）より細かく、時刻が進まない".to_string())
 }
 
 /// 設定を決める。成功なら設定と、止めない診断（GM-I10003 の別名など）を返す。
@@ -146,8 +154,10 @@ pub fn resolve(
                         ),
                     );
                     interval.value = span;
-                } else if span_ok && span / interval.value > MAX_OUTPUT_POINTS {
-                    out.invalid(&interval, &too_fine(span / interval.value));
+                } else if let Some(problem) =
+                    grid_problem(start.value, stop.value, interval.value).filter(|_| span_ok)
+                {
+                    out.invalid(&interval, &problem);
                 }
             }
             interval
@@ -248,10 +258,8 @@ pub fn resolve(
                         format_number(start.value),
                         format_number(stop.value)
                     ))
-                } else if span_ok && span / h > MAX_OUTPUT_POINTS {
-                    Some(too_fine(span / h))
                 } else {
-                    None
+                    grid_problem(start.value, stop.value, h).filter(|_| span_ok)
                 };
                 if let Some(problem) = problem {
                     out.push(
@@ -915,9 +923,22 @@ mod tests {
             let d = err(&requested, None);
             assert_eq!(codes_of(&d), [(codes::EXPERIMENT_INVALID, Severity::Error)]);
         }
-        // 上限ちょうど（1e7 点）は通る
+        // Rumoca は floor(区間 / 刻み) + 1 が 1e7 以上、または刻みが時刻の ulp より細かいと断る。
+        // 通すと実行で GM-U0005（内部エラー）になる（#44）
+        for (start, stop, interval) in [(0.0, 1.0, 1e-7), (0.0, 1e7, 1.0), (1e9, 1e9 + 0.05, 1e-8)]
+        {
+            let requested = SimSettings {
+                start_time: Some(start),
+                stop_time: Some(stop),
+                interval: Some(interval),
+                ..SimSettings::default()
+            };
+            let d = err(&requested, None);
+            assert_eq!(codes_of(&d), [(codes::EXPERIMENT_INVALID, Severity::Error)]);
+        }
+        // 1 点少なければ通る
         let requested = SimSettings {
-            stop_time: Some(1e7),
+            stop_time: Some(9_999_998.0),
             interval: Some(1.0),
             ..SimSettings::default()
         };
