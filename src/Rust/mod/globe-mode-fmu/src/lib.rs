@@ -19,6 +19,10 @@
 //! （中は固定刻みの RK4 と、ME と同じ事象処理。`modelDescription.xml` は [`model_description_kind`]）。入力・出力の微分、
 //! `fmi2CancelStep`、`fmi2Get*Status` は `Error`。
 //!
+//! S237: MSL を使うモデル。FMU の `resources/lib/` にライブラリ（MSL の `.mo`）を入れると `fmi2Instantiate` がそれを `MODELICAPATH` として
+//! 読む（`resources/<完全修飾名>.mo` はそのモデルの文面。モデルがライブラリの中ならコメントだけでよい）。関係式の記憶は初期化の点から決める
+//! （`globe-mode-exec` の `ModelInstance::new`）。内部の名前 `$formal_derivative.1.x` は引用符で囲む（structured の文法）。
+//!
 //! - 値参照: `0..n` = 状態、`n..2n` = その微分（`der(…)`）、`2n..2n+p` = tunable なパラメータ、
 //!   `2n+p..` = 代数・出力・離散・入力の変数（S112・S114。書けるのは Real の入力だけ）。
 //! - パラメータの変更は `fmi2ExitInitializationMode` で lowering からやり直して反映する（依存するパラメータにも届く）。
@@ -59,7 +63,13 @@ pub fn guid(model: &str, source: &str) -> String {
 
 /// 1 ファイルの Modelica の文面から `model` を DAE まで変換する（MSL は読まない）。
 pub fn compile(model: &str, source: &str) -> Result<CompiledModel, String> {
-    let checker = Checker::new(&[]).map_err(|d| format!("{d:?}"))?;
+    compile_in(model, source, None)
+}
+
+/// [`compile`] に、ライブラリのディレクトリ（`MODELICAPATH` の 1 要素。FMU では `resources/lib`、S237）を足す。
+/// `model` がライブラリの中のクラスなら `source` は空（コメントだけ）でよい。
+pub fn compile_in(model: &str, source: &str, lib: Option<&Path>) -> Result<CompiledModel, String> {
+    let checker = Checker::new(lib.as_slice()).map_err(|d| format!("{d:?}"))?;
     let sources = [Source {
         name: "model.mo",
         text: source,
@@ -72,12 +82,12 @@ pub fn compile(model: &str, source: &str) -> Result<CompiledModel, String> {
 /// FMU の `modelDescription.xml`（FMI 2.0 ME）。変数表は [`ModelInstance`] の状態とパラメータから作り、
 /// XML は `globe_mode_fmi::write_model_description_2` が書く（S117、P5a と型を共有）。
 pub fn model_description(model: &str, source: &str) -> Result<String, String> {
-    describe(model, source, false, Kind::Me)
+    describe(model, source, false, Kind::Me, None)
 }
 
 /// FMU の `modelDescription.xml`（FMI 3.0 ME、S137）。変数表は 2.0 と同じで、EventIndicator の変数を足す。
 pub fn model_description_3(model: &str, source: &str) -> Result<String, String> {
-    describe(model, source, true, Kind::Me)
+    describe(model, source, true, Kind::Me, None)
 }
 
 /// `modelDescription.xml` に書くインターフェース（S231）。既定の [`model_description`]・[`model_description_3`] は `Me`。
@@ -96,15 +106,32 @@ pub fn model_description_kind(
     v3: bool,
     kind: Kind,
 ) -> Result<String, String> {
-    describe(model, source, v3, kind)
+    describe(model, source, v3, kind, None)
 }
 
-fn describe(model: &str, source: &str, v3: bool, kind: Kind) -> Result<String, String> {
+/// [`model_description_kind`] に、`resources/lib` に入れるライブラリのディレクトリ（MSL など、S237）を足す。
+pub fn model_description_lib(
+    model: &str,
+    source: &str,
+    v3: bool,
+    kind: Kind,
+    lib: &Path,
+) -> Result<String, String> {
+    describe(model, source, v3, kind, Some(lib))
+}
+
+fn describe(
+    model: &str,
+    source: &str,
+    v3: bool,
+    kind: Kind,
+    lib: Option<&Path>,
+) -> Result<String, String> {
     use globe_mode_fmi::{
         Causality, DefaultExperiment, EnumerationType, Initial, Interface, ModelDescription,
         ModelStructure, ScalarVariable, VarType, Variability,
     };
-    let compiled = compile(model, source)?;
+    let compiled = compile_in(model, source, lib)?;
     let inst =
         ModelInstance::new(&compiled, &BTreeMap::new(), 0.0).map_err(|d| format!("{d:?}"))?;
     let e = compiled.experiment.clone().unwrap_or_default();
@@ -267,6 +294,13 @@ fn describe(model: &str, source: &str, v3: bool, kind: Kind) -> Result<String, S
             VarType::Float64,
             None,
         ));
+    }
+    // S237: `$formal_derivative.1.x` のような内部の名前は structured の文法に合わない（FMPy の validate が断る）ので、
+    // 引用符で 1 つの識別子にする
+    for v in &mut variables {
+        if v.name.contains('$') {
+            v.name = format!("'{}'", v.name);
+        }
     }
     let derivatives: Vec<u32> = (n..2 * n).map(refer).collect();
     // 出力（initial="calculated"）は InitialUnknowns にも並べる（FMI 2.0。索引は微分より後なので昇順のまま）
@@ -515,6 +549,16 @@ mod tests {
         }
     }
 
+    /// S237: noEvent でない関係式（`abs(w) >= 1`）の記憶は、初期化の点（w = 100）から決める。無いと既定の false の枝
+    /// （`w`、微分 -100·100）で始まり、最初の事象まで微分が違う。
+    #[test]
+    fn relation_memory_starts_from_the_initial_point() {
+        let src = "model M\n  Real w(start = 100, fixed = true);\nequation\n  der(w) = -100 * (if abs(w) >= 1 then sign(w) else w);\nend M;\n";
+        let model = compile("M", src).unwrap();
+        let inst = ModelInstance::new(&model, &BTreeMap::new(), 0.0).unwrap();
+        assert_eq!(inst.derivatives().unwrap(), [-100.0]);
+    }
+
     #[test]
     fn resource_path_from_uri() {
         assert_eq!(resource_path("file:///home/u/r"), "/home/u/r");
@@ -528,16 +572,17 @@ mod tests {
 }
 
 /// `resources` の場所（2.0 は `file:///…` の URI、3.0 はそのままのパス）から、ただ 1 つの `.mo` の
-/// （完全修飾名、文面）を読む。
+/// （完全修飾名、文面、`resources/lib` があればそのパス）を読む。`lib` は MSL などのライブラリの置き場（S237）。
 // shortcut: %xx のエスケープを戻さない。空白などを含む置き場で使うときに戻す
-fn read_resource(location: &str) -> Option<(String, String)> {
+fn read_resource(location: &str) -> Option<(String, String, Option<PathBuf>)> {
     let dir = PathBuf::from(resource_path(location));
     let mo = std::fs::read_dir(&dir)
         .ok()?
         .filter_map(|e| e.ok().map(|e| e.path()))
         .find(|p| p.extension().is_some_and(|x| x == "mo"))?;
     let name = Path::new(mo.file_stem()?).to_str()?.to_string();
-    Some((name, std::fs::read_to_string(&mo).ok()?))
+    let lib = Some(dir.join("lib")).filter(|l| l.is_dir());
+    Some((name, std::fs::read_to_string(&mo).ok()?, lib))
 }
 
 /// FMI 2.0 の `fmi2EventInfo`。
@@ -669,14 +714,14 @@ unsafe fn instantiate(
             CStr::from_ptr(resource_location).to_string_lossy(),
         )
     };
-    let Some((name, source)) = read_resource(&location) else {
+    let Some((name, source, lib)) = read_resource(&location) else {
         eprintln!("globe-mode-fmu: {location} に .mo が無い");
         return std::ptr::null_mut();
     };
     if self::guid(&name, &source) != guid_given {
         return std::ptr::null_mut();
     }
-    let built = compile(&name, &source).and_then(|model| {
+    let built = compile_in(&name, &source, lib.as_deref()).and_then(|model| {
         ModelInstance::new(&model, &BTreeMap::new(), 0.0)
             .map(|inst| (model, inst))
             .map_err(|d| format!("{d:?}"))

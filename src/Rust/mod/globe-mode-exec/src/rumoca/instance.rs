@@ -24,9 +24,9 @@ use globe_mode_ir::VariableRole;
 use rumoca_ir_dae::Dae;
 use rumoca_sim::SimOptions;
 use rumoca_solver::{
-    EventActionOutcome, EventUpdateRowFilter, ProjectedEventUpdateInput, SolveRuntime,
-    SolveStopSchedule, commit_pre_params_after_event_at, convert_variable_meta,
-    orient_typed_root_zeros, root_crossings_with_relation_memory,
+    EventActionOutcome, EventUpdateRowFilter, ProjectedEventUpdateInput,
+    ProjectedInitialEventInput, SolveRuntime, SolveStopSchedule, commit_pre_params_after_event_at,
+    convert_variable_meta, orient_typed_root_zeros, root_crossings_with_relation_memory,
 };
 
 use super::{Phase, SETTLE_MAX_ITERS, failure_diagnostic, panic_diagnostic, session};
@@ -44,8 +44,7 @@ const HORIZON: f64 = f64::MAX;
 ///
 /// 事象は [`Self::event_indicators`]・[`Self::enter_event_mode`]・[`Self::update_discrete_states`]（S109）。
 ///
-/// shortcut: 初期化の事象（`initial()` で始まる `when`）は回さない。`initial()` を使うモデルを FMU に載せるときに
-/// `apply_projected_initial_event_boundary` を足す。
+/// S237: 初期化の事象（`when initial()` など）は [`ModelInstance::new`] が回す（`apply_projected_initial_event_boundary`）。
 pub struct ModelInstance {
     runtime: SolveRuntime,
     /// パラメータの枠（初期化が `fixed = false` のパラメータを書き込んだ後の値）
@@ -62,6 +61,9 @@ pub struct ModelInstance {
     event_entry: Option<(Vec<f64>, Vec<f64>)>,
     /// 代数・出力・離散・入力の変数と、Rumoca の見える変数（`visible_names`）での位置
     variables: Vec<(Variable, usize)>,
+    /// solver の y 全体（S237）。状態でない欄に事象で決まった離散の値（`when` の `y_last = …` など）が載る。状態から作り直すと
+    /// 初期値に戻ってしまうので、Rumoca の FMI ME と同じく前回の y を guess にして状態だけ上書きする
+    held_y: std::cell::RefCell<Vec<f64>>,
 }
 
 /// 状態とパラメータ以外の変数 1 つ（S112。値は [`ModelInstance::variable_values`]）。
@@ -156,6 +158,23 @@ impl ModelInstance {
                     format!("初期化に失敗: {e}"),
                 )]
             })?;
+        // S237: 関係式の記憶（`abs(w) >= w0` のような noEvent でない関係式の今の側）を初期化の点から決める。Rumoca の FMI ME の
+        // `exit_initialization_mode` と同じ順（初期化系 → 関係式の記憶）。無いと記憶は既定の false のまま始まり、
+        // 最初の事象まで違う枝で微分を返す。解き直しはしない（Rumoca も解き直さない）
+        runtime
+            .update_relation_memory_from_state(
+                start_time,
+                &y[..n],
+                &mut params,
+                EVAL_TOL,
+                SETTLE_MAX_ITERS,
+            )
+            .map_err(|e| {
+                vec![run_error(
+                    codes::RUN_INIT_FAILED,
+                    format!("関係式の記憶の初期化に失敗: {e}"),
+                )]
+            })?;
         let meta: std::collections::HashMap<_, _> =
             convert_variable_meta(&runtime.model.variable_meta)
                 .into_iter()
@@ -195,6 +214,7 @@ impl ModelInstance {
             .collect();
         let mut inst = Self {
             variables,
+            held_y: Default::default(),
             schedule: SolveStopSchedule::new(&runtime.model.problem, start_time, HORIZON),
             roots: Vec::new(),
             event_entry: None,
@@ -208,10 +228,63 @@ impl ModelInstance {
             time: start_time,
             runtime,
         };
+        inst.run_initial_event()
+            .map_err(|e| vec![run_error(codes::RUN_INIT_FAILED, e)])?;
         inst.roots = inst
             .event_indicators()
             .map_err(|e| vec![run_error(codes::RUN_INIT_FAILED, e)])?;
         Ok(inst)
+    }
+
+    /// 初期化の事象（`when initial()`、`pre` の種、時刻 0 に当たる `when`）。Rumoca の FMI ME の `run_initial_event_boundary` と
+    /// 同じ部品（S237。無いと StateGraph のように初期の離散の状態を `pre` で決めるモデルが違う状態で始まる）。
+    fn run_initial_event(&mut self) -> Result<(), String> {
+        let t = self.time;
+        let mut y = self
+            .runtime
+            .full_solver_y(t, &self.states, &self.params, EVAL_TOL, SETTLE_MAX_ITERS)
+            .map_err(|e| e.to_string())?;
+        let (pre_y, pre_p) = (y.clone(), self.params.clone());
+        let dynamic_event = self
+            .runtime
+            .current_dynamic_time_event_stop(&y, &self.params, t)
+            .map_err(|e| e.to_string())?;
+        let runtime = &self.runtime;
+        let outcome = runtime
+            .apply_projected_initial_event_boundary(
+                ProjectedInitialEventInput {
+                    y: &mut y,
+                    p: &mut self.params,
+                    t_start: t,
+                    t_end: HORIZON,
+                    tol: EVAL_TOL,
+                    event_pre_y: &pre_y,
+                    event_pre_p: &pre_p,
+                    max_iters: SETTLE_MAX_ITERS,
+                    dynamic_event,
+                },
+                |y, p, t| {
+                    let before = y.to_vec();
+                    runtime.refresh_event_dependency_slots_certified(
+                        t,
+                        y,
+                        p,
+                        EVAL_TOL,
+                        SETTLE_MAX_ITERS,
+                    )?;
+                    Ok(before != y)
+                },
+            )
+            .map_err(|e| e.to_string())?;
+        let n = self.states.len();
+        self.states.copy_from_slice(&y[..n]);
+        *self.held_y.borrow_mut() = y;
+        match outcome.action {
+            EventActionOutcome::AssertionFailed { time, message } => {
+                Err(format!("t = {time} で assert が偽: {message}"))
+            }
+            _ => Ok(()),
+        }
     }
 
     /// 連続の状態の数。
@@ -258,14 +331,31 @@ impl ModelInstance {
     /// 今の時刻と状態での微分（[`Self::states`] と同じ順）。
     pub fn derivatives(&self) -> Result<Vec<f64>, String> {
         self.runtime
-            .eval_state_derivatives(
+            .eval_state_derivatives_with_guess(
                 self.time,
                 &self.states,
                 &self.params,
+                &mut self.held_y.borrow_mut(),
                 EVAL_TOL,
                 SETTLE_MAX_ITERS,
             )
             .map_err(|e| e.to_string())
+    }
+
+    /// 今の時刻・状態での solver の y（状態でない欄は直前の事象の後の値を保つ）。
+    fn solver_y(&self) -> Result<Vec<f64>, String> {
+        let mut g = self.held_y.borrow_mut();
+        self.runtime
+            .full_solver_y_with_guess(
+                self.time,
+                &self.states,
+                &self.params,
+                &mut g,
+                EVAL_TOL,
+                SETTLE_MAX_ITERS,
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(g.clone())
     }
 
     /// 入力 `name` の値を置く（S114）。次の [`Self::derivatives`]・[`Self::variable_values`] から効く。
@@ -287,16 +377,7 @@ impl ModelInstance {
 
     /// 今の時刻と状態での [`Self::variables`] の値（同じ順）。離散の変数は直前の事象の後の値。
     pub fn variable_values(&self) -> Result<Vec<f64>, String> {
-        let y = self
-            .runtime
-            .full_solver_y(
-                self.time,
-                &self.states,
-                &self.params,
-                EVAL_TOL,
-                SETTLE_MAX_ITERS,
-            )
-            .map_err(|e| e.to_string())?;
+        let y = self.solver_y()?;
         let all = self
             .runtime
             .visible_values(&y, &self.params, self.time)
@@ -329,16 +410,7 @@ impl ModelInstance {
 
     /// Event Mode に入る（今の時刻と状態を `pre` の値として控える）。
     pub fn enter_event_mode(&mut self) -> Result<(), String> {
-        let y = self
-            .runtime
-            .full_solver_y(
-                self.time,
-                &self.states,
-                &self.params,
-                EVAL_TOL,
-                SETTLE_MAX_ITERS,
-            )
-            .map_err(|e| e.to_string())?;
+        let y = self.solver_y()?;
         self.event_entry = Some((y, self.params.clone()));
         Ok(())
     }
@@ -405,6 +477,7 @@ impl ModelInstance {
             let n = self.states.len();
             states_changed = self.states[..] != y[..n];
             self.states.copy_from_slice(&y[..n]);
+            *self.held_y.borrow_mut() = y;
             match outcome {
                 EventActionOutcome::Continue => {}
                 EventActionOutcome::Terminated { .. } => terminate = true,
@@ -415,9 +488,7 @@ impl ModelInstance {
         }
         self.roots = self.event_indicators()?;
         let y = if self.runtime.dynamic_time_event_stop_reads_solver_y() {
-            self.runtime
-                .full_solver_y(t, &self.states, &self.params, EVAL_TOL, SETTLE_MAX_ITERS)
-                .map_err(|e| e.to_string())?
+            self.solver_y()?
         } else {
             Vec::new()
         };

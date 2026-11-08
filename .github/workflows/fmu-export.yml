@@ -7,6 +7,7 @@
 # 1 つの FMU に入れ、artifact で Ubuntu・Windows・macOS（arm64）に渡して各 OS の FMPy で validate と ME・CS の simulate を回す。
 # S234: 同じ FMU をその OS の fmusim でも回す（fmu-cross）。P5b（自前のランタイム）は各 OS でネイティブにビルドして
 # FMPy の ME・CS と fmusim の CS で回す（fmu-native。cross はしない）。
+# S237: MSL の例題（Accelerate ほか 3 本）を P5a・P5b で FMPy と fmusim にかける（fmu-export の最後の方の step）。
 name: fmu-export
 
 on:
@@ -88,6 +89,31 @@ jobs:
               check "$out/fmusim-$it.csv" "FMI $v fmusim $it"
             done
           done
+      # S237: MSL の例題。P5a（Rumoca のテンプレート）が受ける事象の無い 3 本を FMI 2.0・3.0 で、P5b（自前のランタイム。
+      # MSL を resources/lib に入れる）を FMI 2.0 の 3 本と 3.0 の 1 本で、FMPy の ME・CS と `globe simulate` の結果の管で比べる。
+      # fmusim は Accelerate（mass.s(1) = 1）。落ちる例題は doc/sessions/S237-fmu-export-msl-models/解説書.md の表
+      - run: cargo xtask fetch-msl
+      - run: cargo build --release -p globe-mode-fmu --lib --example md
+      - name: MSL の例題を FMU にして FMPy と fmusim で回す（S237）
+        run: |
+          py() { uv run --no-project --with fmpy==0.3.32 --with numpy python -I "$@"; }
+          acc=Modelica.Mechanics.Translational.Examples.Accelerate
+          models="$acc Modelica.Mechanics.Translational.Examples.SignConvention Modelica.Mechanics.Rotational.Examples.CompareBrakingTorque"
+          out="$RUNNER_TEMP/msl"
+          for v in 2 3; do
+            py .github/scripts/fmu_msl_check.py --strict --globe target/debug/globe --lib data/msl --out "$out/p5a-$v" --fmi $v $models | tee -a "$RUNNER_TEMP/msl.txt"
+          done
+          py .github/scripts/fmu_msl_check.py --strict --globe target/debug/globe --lib data/msl --out "$out/p5b-2" --fmi 2 --p5b target/release/libglobe_mode_fmu.so target/release/examples/md $models | tee -a "$RUNNER_TEMP/msl.txt"
+          py .github/scripts/fmu_msl_check.py --strict --globe target/debug/globe --lib data/msl --out "$out/p5b-3" --fmi 3 --p5b target/release/libglobe_mode_fmu.so target/release/examples/md $acc | tee -a "$RUNNER_TEMP/msl.txt"
+          check() { python3 -I -c "import csv, sys; r = list(csv.reader(open(sys.argv[1]))); i = [c.strip().strip('\"') for c in r[0]].index('mass.s'); s = float(r[-1][i]); print(f'{sys.argv[2]}: mass.s(1) = {s!r}'); sys.exit(abs(s - 1) > 1e-3)" "$@"; }
+          for fmu in "$out/p5a-2/$acc/${acc//./_}-fmi2.fmu" "$out/p5a-3/$acc/${acc//./_}-fmi3.fmu" "$out/p5b-2/$acc/${acc//./_}-p5b-fmi2.fmu" "$out/p5b-3/$acc/${acc//./_}-p5b-fmi3.fmu"; do
+            fmusim validate "$fmu"
+            for it in me cs; do
+              fmusim simulate "$fmu" --interface-type "$it" --stop-time 1 --output-variable mass.s --output-file "$fmu.$it.csv"
+              check "$fmu.$it.csv" "$(basename "$fmu") fmusim $it"
+            done
+          done
+          { echo '```text'; cat "$RUNNER_TEMP/msl.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - name: zig cc で 3 つの OS 向けの FMU を作る（S105）
         run: |
           headers=$(uv run --no-project --with fmpy==0.3.32 python -I -c "import fmpy, os; print(os.path.join(os.path.dirname(fmpy.__file__), 'c-code'))")

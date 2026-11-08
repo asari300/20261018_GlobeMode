@@ -8,13 +8,16 @@ macOS: darwin64・<arch>-darwin）。
 
 S231: 9 番目の引数（任意）に CoSimulation を渡すと、FMPy の CS で回す（modelDescription.xml は CS を含むものを渡す）。
 
-使い方: python fmpy_run.py <cdylib（.so・.dll・.dylib）> <modelDescription.xml> <model.mo> <完全修飾名> <出力の .fmu> <変数,...> <2|3> [入力の JSON] [CoSimulation]
+S237: 10 番目の引数（任意）はライブラリ（MSL など）のディレクトリ。`*.mo` を `resources/lib/` に入れる。
+
+使い方: python fmpy_run.py <cdylib（.so・.dll・.dylib）> <modelDescription.xml> <model.mo> <完全修飾名> <出力の .fmu> <変数,...> <2|3> [入力の JSON] [CoSimulation] [ライブラリ]
 """
 
 import json
 import platform
 import sys
 import zipfile
+from pathlib import Path
 
 import numpy as np
 from fmpy import fmi2, fmi3, simulate_fmu
@@ -29,6 +32,10 @@ with zipfile.ZipFile(fmu, "w") as z:
     z.write(md, "modelDescription.xml")
     z.write(so, f"binaries/{f'{arch}-{os_name}' if version == '3' else v2_dir}/globe_mode_fmu.{ext}")
     z.write(mo, f"resources/{name}.mo")
+    if len(sys.argv) > 10 and sys.argv[10]:
+        lib = Path(sys.argv[10])
+        for f in sorted(lib.rglob("*.mo")):
+            z.write(f, f"resources/lib/{f.relative_to(lib).as_posix()}")
 problems = validate_fmu(fmu)
 assert not problems, problems
 counts = {"events": 0, "reinit": 0}

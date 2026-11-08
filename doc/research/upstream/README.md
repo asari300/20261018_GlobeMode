@@ -5,13 +5,13 @@
 S045（計画書の WP-H）で書いた（15 は S055、16 は S068、17〜21 は S070、24〜26 は S072。20・25 の追記と `20b`・`25b` の再現は S080、25 の 2 回目の追記と `25c`〜`25h`・27 は S083、28〜30 と 25・27 の追記は S091、31・32 と 28 の追記は S108。28〜32 の v0.10.4 での再確認と日本語版（`_jp.md`・`_jp.html`）、AixLib 向けの 33 は S113。17〜27 の v0.10.4 での再確認と日本語版は S115。01〜16 の v0.10.4 での再確認（各件の「Re-check」の節）と日本語版は S162。25 を形ごとに 25b〜25h の `.md` に分けたのは S096）、[Rumoca](https://github.com/CogniPilot/rumoca) と [diffsol](https://github.com/martinjrobins/diffsol) に出す issue の下書き。元の記録は [../msl-sim-failures.md](../msl-sim-failures.md) の「上流に報告する候補」と、[../../roadmap.md](../../roadmap.md) の候補 8。
 
 - **出すのはユーザー。エージェントは出さない**（`gh issue create` を使わない）。
-- **出すときは、再現を Rumoca の最新（main）で確かめてから出す。** 下書きの環境は Rumoca v0.10.2（rev `276e82bd`）、MSL 4.1.0。01〜34 は最新のリリース v0.10.4（2026-11-05 でも最新）でも確かめてある（01〜16 は S162）。Rumoca の CLI がこの環境に無いまま書いた件は、本文に「[not verified]」と書いてある。
+- **出すときは、再現を Rumoca の最新（main）で確かめてから出す。** 下書きの環境は Rumoca v0.10.2（rev `276e82bd`）、MSL 4.1.0。01〜35 は最新のリリース v0.10.4（2026-11-05 でも最新）でも確かめてある（01〜16 は S162、35 は S237）。Rumoca の CLI がこの環境に無いまま書いた件は、本文に「[not verified]」と書いてある。
 - 本文は英語で、issue にそのまま貼れる形（Summary / Steps to reproduce / Expected / Actual / Environment / Workaround in GlobeMode / Notes）。
 - 再現ファイル（`.mo`）は、MSL の例題で再現する件では置かない（モデル名とコマンドを本文に書く）。`src/Modelica/` には置かない（MODELICAPATH として開けるパッケージだけを置く規則）。
 - 再現用の `.mo` は `globe fmt` で整形する（空白が要点のものを除く。S194 で 34 本すべてを整形した。整形の前後で全クラスの診断のコードと重大度が同じことを確かめてある）。新しく足すときも整形し、本文に貼る診断の `行:列` は整形後のファイルのものにする。
 - diffsol の件（10〜12）は Rumoca が同梱する 0.13.2 での観測。diffsol 本家で同じかは確かめていない（本文に "not verified against upstream diffsol main"）。単体の diffsol のプログラムに縮めてから出す。
 - 状態は「下書き」のまま。出したら issue の URL と日付をこの表に足す。
-- v0.10.4 で再現する 01・02・05〜09・12〜33 には日本語版（`NN-<slug>_jp.md`、英語と同じ章立て）とスライド 1 枚の解説（`NN-<slug>_jp.html`、`doc/assets/slides.css`・`slides.js` だけを使う）がある（28〜33 は S113、17〜27 は S115、01〜16 は S162）。v0.10.4 で直った 03・04・15（一部）・25・25b・25c・25g・26 と、diffsol の main で直った 10・11 には作っていない（15 は残る `Dimmer_RL` の分だけ作った）。ユーザーが読んで出すかを決めるためのもの。
+- v0.10.4 で再現する 01・02・05〜09・12〜35 には日本語版（`NN-<slug>_jp.md`、英語と同じ章立て）とスライド 1 枚の解説（`NN-<slug>_jp.html`、`doc/assets/slides.css`・`slides.js` だけを使う）がある（28〜33 は S113、17〜27 は S115、01〜16 は S162）。v0.10.4 で直った 03・04・15（一部）・25・25b・25c・25g・26 と、diffsol の main で直った 10・11 には作っていない（15 は残る `Dimmer_RL` の分だけ作った）。ユーザーが読んで出すかを決めるためのもの。
 
 | # | 件名 | 対象 | 再現 | GlobeMode 側の回避 | 状態 |
 | ---: | --- | --- | --- | --- | --- |
@@ -54,6 +54,7 @@ S045（計画書の WP-H）で書いた（15 は S055、16 は S068、17〜21 �
 | 32 | [モデルが使わない、別の派生クラスの Medium の壊れた関数まで解決して ER002](32-er002-unused-function-of-other-subclass-medium.md) — Rumoca の穴（MLS §5.6）。呼ばれる関数そのものは AixLib の誤り。39 本 | Rumoca | [32](32-er002-unused-function-of-other-subclass-medium.mo)（自己完結。Medium を通して呼ばない・別の派生クラスが無いなら通る） | 一部（`--library` は閉包だけ読む） | 下書き。v0.10.4 で再現（S113）。[日本語](32-er002-unused-function-of-other-subclass-medium_jp.md)・[1 枚](32-er002-unused-function-of-other-subclass-medium_jp.html) |
 | 33 | [AixLib の `CHPCombustionMixtureGasNasa.T_psX` が宣言の無い `specificEntropyOfpTX` を呼ぶ](33-aixlib-specific-entropy-of-ptx-missing.md) — **AixLib の誤り**（MSL の `MixtureGasNasa` から protected の補助関数を写していない）。omc も断る。32 の 39 本の元 | AixLib | [33](33-aixlib-specific-entropy-of-ptx-missing.mo)（自己完結。元の `T_psX` なら通る） | 対象外 | 下書き。AixLib main（`e5df9a8d`）でも同じ（S113）。[日本語](33-aixlib-specific-entropy-of-ptx-missing_jp.md)・[1 枚](33-aixlib-specific-entropy-of-ptx-missing_jp.html) |
 | 34 | [2 つの関係式の根が丸めの雑音のとき、事象の反復が終わらない（`value == 0.0` が厳密な比べ方）](34-event-iteration-exact-zero-test-on-rounding-noise.md) — Rumoca のバグ。MSL 1 本（`sdirk34hw`） | Rumoca | [34](34-event-iteration-exact-zero-test-on-rounding-noise.mo)（MSL の例題の experiment を決めるだけ。`globe simulate --solver sdirk34hw`） | なし（記録と既知の限界の試験） | 下書き。v0.10.4・main のコードも同じ（S158）。[日本語](34-event-iteration-exact-zero-test-on-rounding-noise_jp.md)・[1 枚](34-event-iteration-exact-zero-test-on-rounding-noise_jp.html) |
+| 35 | [状態への `initial equation`（`T = T_start`）を FMI の C profile が断る（"rows over declaration seeds"）](35-fmi-c-profile-initial-equation-on-state.md) — Rumoca の限界（ふつうのモデルが当たる）。MSL の小さい例題 20 本のうち初期化のメッセージで 6 本（この件は 2 本） | Rumoca | [35](35-fmi-c-profile-initial-equation-on-state.mo) | 一部（P5b では回る） | 下書き（S237） |
 
 ## 公開ライブラリの失敗から（17〜21、S070）
 
