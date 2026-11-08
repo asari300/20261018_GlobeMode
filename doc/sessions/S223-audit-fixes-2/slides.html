@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S223 監査の直した方がよい 18 件 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S223 監査の直した方がよい 18 件">
+
+<section class="slide" id="S01">
+  <span class="tag">S223 · 2026-11-08 · P3〜P7</span>
+  <h1>全体監査の「直した方がよい」18 件を、1 件ずつ直した</h1>
+  <p class="lead">再現してから最小の直しと、壊れたら落ちる試験。コミットは 1 件 1 つ（ファイルが重なる 3 組だけ 2 件ずつ）</p>
+  <div class="big">18 件すべて直した。閉じるのはユーザー</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">結果</span>
+  <h1>実行系・ライブラリ・FMU</h1>
+  <table class="compact">
+    <tr><th>issue</th><th>直し</th></tr>
+    <tr><td>#44 出力点数の上限がずれる</td><td>Rumoca の格子の検査に合わせる。<code>GM-U0005</code> でなく <code>GM-E10004</code></td></tr>
+    <tr><td>#84 ライブラリの BOM</td><td><code>blank_bom</code> を 1 か所に置き 3 つの入口で使う</td></tr>
+    <tr><td>#85 UTF-8 でないファイル</td><td>悪いバイトだけ U+FFFD で読む。<code>load_dir</code> は誤りにパス</td></tr>
+    <tr><td>#59 木の BOM と panic</td><td>BOM を落とし、文字境界を守る</td></tr>
+    <tr><td>#86 グラフが指数的に膨らむ</td><td>開いている途中のクラスは開き直さない</td></tr>
+    <tr><td>#50 FMI 3.0 の配列変数</td><td><code>dimensions</code> を持ち、<code>--set</code>・<code>--output</code> で断る</td></tr>
+    <tr><td>#51 Integer・Boolean の start</td><td>型に合わせて書く</td></tr>
+    <tr><td>#52 fmu run の CSV の見出し</td><td>カンマを含む名前だけ引用する</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">結果</span>
+  <h1>lint・CLI・UI・CI</h1>
+  <table class="compact">
+    <tr><th>issue</th><th>直し</th></tr>
+    <tr><td>#56 <code>--disable</code> がコードを無視</td><td><code>rule_name</code> を共有。知らない規則は 2</td></tr>
+    <tr><td>#57 extends の説明の偽陽性</td><td><code>(…)</code> の修飾を飛ばす</td></tr>
+    <tr><td>#58 line-too-long が 1 行目</td><td>最長の語を本文から探す</td></tr>
+    <tr><td>#60 fmt 標準入力の終了コード</td><td>構文の誤りは 2（<code>--json</code> は 1 のまま）</td></tr>
+    <tr><td>#69 wasm の 2 GiB</td><td>応答の <code>mem</code> を見て次の要求の前に作り直す</td></tr>
+    <tr><td>#70 Desktop の保存</td><td>外で書き換わっていたら確かめる</td></tr>
+    <tr><td>#78 Astro の <code>spawnSync</code></td><td>非同期の <code>spawn</code></td></tr>
+    <tr><td>#76 action の SHA 固定</td><td>release.yml・android.yml の 4 つ</td></tr>
+    <tr><td>#77 6 アプリの試験が CI に無い</td><td>python・lang・新しい astro で回す</td></tr>
+    <tr><td>#79 使われない依存</td><td>4 行を消した</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由</span>
+  <h1>#60: 入口で終了コードが違うのを揃えた、ただし JSON は除く</h1>
+  <ul>
+    <li>標準入力の構文の誤りは 1 で、同じ入力のファイルは 2 だった。<code>--check</code> の 1 は「整形が要る」なので、取り違えられる。</li>
+    <li><code>--json</code> は 1 のまま。Astro・FastAPI・Phoenix・Wisp は 0 と 1 を結果として読み、<code>ok: false</code> の JSON を返す。2 にすると 6 アプリが異常終了と取る。</li>
+    <li>S211 の試験が壊れた入力の 1 を固定していたので、2 に直した。</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">決定と理由</span>
+  <h1>#77: 試験を CI に入れたら、潜んでいた欠陥が出た</h1>
+  <ul>
+    <li>python が marimo と Streamlit、lang が Phoenix と Wisp、新しい <code>astro</code> が Astro を回す。CLI（とその依存の fmt）の影響でも立つ。</li>
+    <li>Phoenix の「時間切れで kill される」試験が CI で落ちた。kill のあと port が自分で閉じ、<code>Port.close</code> が <code>ArgumentError</code> になる競合。手元では 5 回とも通る。rescue で受けた。</li>
+  </ul>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">図</span>
+  <h1>進め方</h1>
+  <svg class="fig" viewBox="0 0 800 220" role="img" aria-label="再現してから直す流れの図">
+    <rect class="svg-box-accent" x="20" y="75" width="170" height="70" rx="10"/>
+    <text class="svg-text-b" x="105" y="116" text-anchor="middle">失敗する試験</text>
+    <line class="svg-line" x1="190" y1="110" x2="300" y2="50"/>
+    <line class="svg-line" x1="190" y1="110" x2="300" y2="170"/>
+    <rect class="svg-box" x="300" y="20" width="240" height="60" rx="10"/>
+    <text class="svg-text-b" x="420" y="55" text-anchor="middle">失敗した: 直す</text>
+    <rect class="svg-box" x="300" y="140" width="240" height="60" rx="10"/>
+    <text class="svg-text-b" x="420" y="175" text-anchor="middle">読んで確認: 守りを試験に</text>
+    <text class="svg-text" x="560" y="55">#44 #50 #57 #58 #59 #69 #70 #84 #85</text>
+    <text class="svg-text" x="560" y="175">#51 #52 #56 #60 #76 #78 #79 #86</text>
+  </svg>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>残したもの</h1>
+  <ul>
+    <li>#85: UTF-8 でないファイルは悪いバイトを置き換えて読むだけで、警告は出ない。</li>
+    <li>#58: 長い行の位置はまだ 1 行目に残るものがある（Electrical で 884 件）。</li>
+    <li>#56: 知らない規則名を送るウェブアプリの利用者は、無視でなく異常終了の応答になる。API の 400 にするのは次回。</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
