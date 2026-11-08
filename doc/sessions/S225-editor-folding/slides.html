@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S225 UI の折りたたみ — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S225 UI の折りたたみ">
+
+<section class="slide" id="S01">
+  <span class="tag">S225 · 2026-11-08 · P4</span>
+  <h1>UI（CodeMirror）の折りたたみ</h1>
+  <p class="lead">S220 が持ち越した、ブラウザ・Desktop・Android の同じ UI の折りたたみ</p>
+  <div class="big">範囲は <b>LSP と同じ Rust の関数</b>。UI は印を出すだけ</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">範囲の道</span>
+  <h1>どこで計算するか</h1>
+  <table class="compact">
+    <tr><th>実行環境</th><th>道</th></tr>
+    <tr><td>ブラウザ・Android</td><td>wasm の <code>folding_ranges(file, text)</code> が <code>globe_mode_lsp::folding</code> を呼ぶ</td></tr>
+    <tr><td>Desktop</td><td>sidecar の <code>textDocument/foldingRange</code>（<code>rpc</code> の許可は 20 本目）</td></tr>
+    <tr><td>UI</td><td><code>Backend.foldingRanges(file)</code> が <code>{startLine, endLine}</code> の配列を返す</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">CodeMirror</span>
+  <h1>foldService と foldGutter</h1>
+  <ul>
+    <li><code>foldService</code> は同期なので、範囲は <code>StateField</code> に持つ</li>
+    <li>入力が 300 ms 止まったら本文を送って取り直す。新しい打鍵が来たら古い応答は捨てる</li>
+    <li>範囲が届いたら <code>foldGutter</code> の <code>foldingChanged</code> で印を引き直す</li>
+    <li>畳んでも <code>end M;</code> の行は残る</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">試験</span>
+  <h1>試験と再現</h1>
+  <pre><code>mise run wasm:node          # smoke.mjs の folding_ranges
+mise run ui:check           # test_ui.py: 印を押すと end Decay; が隣に来る</code></pre>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ul>
+    <li>構文が壊れている間はクラスと節の印が出ない（コメントと annotation は出る）</li>
+    <li>畳んだ状態は再読み込みで戻らない</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

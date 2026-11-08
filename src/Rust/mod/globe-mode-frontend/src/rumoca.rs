@@ -363,6 +363,7 @@ fn parse_sources_lenient<'a>(
     let mut documents = Vec::new();
     let mut failures = Vec::new();
     for (name, text) in sources {
+        let text: &str = &crate::blank_bom(text);
         match rumoca_compile::compile::ParsedSourceDocument::parse(name, text) {
             Ok(doc) => documents.push(doc),
             Err(e) => failures.push((

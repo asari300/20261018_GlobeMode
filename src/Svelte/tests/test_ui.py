@@ -8,6 +8,7 @@ dist/ を localhost で配り（CSP は index.html の meta と同じものを�
 クラス名のリネーム（S186）: モデル名のクラス（入れ子の途中も）を F2 で変えると欄も追って検査が通り、Ctrl+Z で戻る。ライブラリの木・検索で入れ子のクラスを開くと宣言の行にカーソルがあって画面に入る。候補が開いたままの Ctrl+Enter は候補を閉じる。「MSL を読む」を Enter で押すとフォーカスは検索欄へ、「結果へ」は結果を画面へ入れる。
 最後に「MSL を読む」で MSL 4.1.0 を読み（public/msl/MSL.json が無ければ飛ばす）、ChuaCircuit の検査（error 0）と実行（プロットの canvas と系列）を確かめて、秒数を出す（S048）。
 長いモデルの実行で進捗（段と t の割合）が出て、「止める」で止まり（data-run="cancelled"）、ボタンが戻ることを確かめる（S133）。止めたあとプロットに途中までの列が残る（S157。dist を cross-origin isolated で配る）。
+折りたたみ（S225）: gutter の印で model Decay を畳むと `end Decay;` の行が隣に来て、開くと戻る（範囲は Rust の foldingRange）。
 Decay の `der(x)` の x で F12 を押すと宣言の行（`Real x`）へ動く。ChuaCircuit のファイルで型 `Modelica.Electrical.Analog.Basic.Resistor` の上の F12 は、ライブラリの Resistor.mo をエディタに開き、Alt+← で ChuaCircuit に戻る（S138）。
 構文の色付け（S163）: 予約語・型・数値・文字列・コメントに別々の色のクラス（cm-mo-*）が付き、エディタの地に対してコントラスト 4.5 以上。暗でも同じ。editor.ts の KEYWORDS は Rust の KEYWORDS と同じ並び。
 Decay の x で Shift+F12 を押すと参照の一覧（3 行）が出て行を押すと飛べ、F2 で pos に変えると全出現が変わって検査が通り（予約語は断られ、Ctrl+Z 1 回で戻る。S161）。クラス名も同じ（`extends Base` の Base を Core に変えると宣言・end・extends が変わる。S166）。
@@ -145,11 +146,11 @@ FAKE_TAURI = """
   const listen = async () => () => {};
   const rpc = { "globe/models": [], "globe/lint": [], "globe/completion": [], "globe/solvers": [], "globe/tunableParameters": { parameters: [] } };
   window.__TAURI__ = {
-    core: { invoke: async (cmd, args) => (cmd === "libraries" ? [] : cmd === "bench" ? false : cmd === "read_recent" ? fake.files[args.path] : cmd === "write_recent" ? (fake.writes.push([args.path, args.text]), null) : cmd === "rpc" ? (rpc[args.method] ?? null) : null) },
+    core: { invoke: async (cmd, args) => (cmd === "libraries" ? [] : cmd === "bench" ? false : cmd === "read_recent" ? fake.files[args.path] : cmd === "write_recent" ? (fake.writes.push([args.path, args.text]), (fake.files[args.path] = args.text), null) : cmd === "rpc" ? (rpc[args.method] ?? null) : null) },
     event: { listen },
     // 本物の fs プラグインは dialog で選んだパスにしか許可を与えない（#67。以前の偽物はどのパスも受けて、欠陥を隠していた）
     dialog: { open: async () => { const p = fake.opens.shift() ?? null; if (p) fake.scope.add(p); return p; }, save: async () => { const p = fake.saves.shift() ?? null; if (p) fake.scope.add(p); return p; } },
-    fs: { readTextFile: async (p) => fake.files[p], writeTextFile: async (p, t) => { if (!fake.scope.has(p)) throw new Error("forbidden path: " + p); fake.writes.push([p, t]); }, writeFile: async () => {} },
+    fs: { readTextFile: async (p) => fake.files[p], writeTextFile: async (p, t) => { if (!fake.scope.has(p)) throw new Error("forbidden path: " + p); fake.writes.push([p, t]); fake.files[p] = t; }, writeFile: async () => {} },
   };
 })();
 """
@@ -159,11 +160,11 @@ def review_fixes(browser, origin: str, errors: list[str]) -> None:
     """S196: UI のレビューの指摘（Desktop の保存先の取り違え、ライブラリのタブの読み取り専用、タブを切り替えたときの残り、保存の遅延と失敗、Tab での補完の確定ほか）。"""
     has_msl = (DIST / "msl/MSL.json").exists()
 
-    def new_page(ctx=None, **kw):
+    def new_page(ctx=None, dialog=lambda d: d.accept(), **kw):
         pg = (ctx or browser).new_page(**kw)
         pg.on("console", lambda m: m.type == "error" and errors.append(m.text))
         pg.on("pageerror", lambda e: errors.append(str(e)))
-        pg.on("dialog", lambda d: d.accept())
+        pg.on("dialog", dialog)
         return pg
 
     def ready(pg) -> None:
@@ -179,7 +180,14 @@ def review_fixes(browser, origin: str, errors: list[str]) -> None:
         return json.loads(pg.evaluate("localStorage.getItem('globe-mode.tabs')"))
 
     # 1. Desktop: 同じ名前の別のファイルを開いても、保存はそのタブが本文を受け取ったパスに書く
-    dt = new_page()
+    asked: list[str] = []
+    answer = {"ok": True}  # confirm への答え（#70 の確かめで切り替える）
+
+    def on_dialog(d) -> None:
+        asked.append(d.message)
+        d.accept() if answer["ok"] else d.dismiss()
+
+    dt = new_page(dialog=on_dialog)
     dt.add_init_script(FAKE_TAURI)
     ready(dt)
     P1, P2 = "model P1\nend P1;\n", "model P2\nend P2;\n"
@@ -227,6 +235,27 @@ def review_fixes(browser, origin: str, errors: list[str]) -> None:
     dt.keyboard.press("Control+s")
     expect(dt.locator("[data-saved]")).to_contain_text("/d4/recent.mo")
     assert dt.evaluate("__fake.writes")[-1] == ["/d4/recent.mo", "model R\nend R;\n// e4"], dt.evaluate("__fake.writes")
+    # #70: 開いたあとに外で書き換わったファイルは、確かめてから上書きする（取り消せば書かず、承知すれば書く）
+    asked.clear()
+    answer["ok"] = False
+    desktop_open("/d5/ext.mo", "model E\nend E;\n")
+    expect(dt.locator(".cm-content")).to_contain_text("model E", timeout=30_000)
+    dt.evaluate("__fake.files['/d5/ext.mo'] = 'model E // 外で直した\\nend E;\\n'")
+    dt.locator(".cm-content").click()
+    dt.keyboard.press("Control+End")
+    dt.keyboard.type("// e5")
+    n = len(dt.evaluate("__fake.writes"))
+    dt.keyboard.press("Control+s")
+    dt.wait_for_timeout(500)
+    assert len(asked) == 1 and "外で書き換わっている" in asked[0], asked
+    assert len(dt.evaluate("__fake.writes")) == n, "取り消したのに書いた"
+    answer["ok"] = True
+    dt.keyboard.press("Control+s")
+    expect(dt.locator("[data-saved]")).to_contain_text("/d5/ext.mo")
+    assert dt.evaluate("__fake.writes")[-1][0] == "/d5/ext.mo" and len(asked) == 2, asked
+    dt.keyboard.press("Control+s")  # 自分で書いたあとは、確かめない
+    dt.wait_for_timeout(300)
+    assert len(asked) == 2, asked
     dt.close()
     print("Desktop の保存先: 同じ名前の別のファイル（/d1/package.mo と /d2/package.mo）は別のタブで、それぞれのパスに保存される")
 
@@ -576,6 +605,16 @@ def main() -> int:
         assert page.locator("tr.error").count() == 0, rows.all_inner_texts()
         print(f"Decay: 診断 {rows.count()} 行、error 0 行: {rows.all_inner_texts()}")
         expect(page.locator(".cm-content .cm-mo-kw").first).to_have_text("model")  # 色付け（S163）: 開いた Decay の予約語に色のクラスが付く
+        # 折りたたみ（S225）: Rust の foldingRange の範囲が gutter に印として出る。畳むと `end Decay;` の行が隣に来て、開くと戻る
+        mark = page.locator('.cm-foldGutter span[title="Fold line"]')
+        expect(mark.first).to_be_visible(timeout=30_000)
+        mark.first.click()
+        expect(page.locator(".cm-foldPlaceholder")).to_have_count(1)
+        expect(page.locator(".cm-line").nth(1)).to_have_text("end Decay;")
+        page.locator(".cm-foldPlaceholder").click()  # 開く印は、畳んだ行の「…」を押しても同じ
+        expect(page.locator(".cm-foldPlaceholder")).to_have_count(0)
+        expect(page.locator(".cm-line").nth(1)).to_contain_text("Real x(start")
+        print("折りたたみ: model Decay を畳むと end Decay; が隣に来て、開くと戻る")
         # 上書きできるパラメータの一覧（S150）: 検査のあとに取る。この Decay は parameter が無いので「無い」と出る
         expect(page.locator("[data-params]")).to_contain_text("上書きできるパラメータは無い", timeout=60_000)
 

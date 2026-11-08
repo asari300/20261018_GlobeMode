@@ -9,6 +9,8 @@
 // panic（wasm32 は abort）や worker の異常終了のとき、その呼び出しを panic の文言つきの Error で reject し、
 // worker を捨てて作り直し、ライブラリとファイルを再生する。次の呼び出しは再生のあとに始まる。restarts が回数。
 const GRACE_MS = 2000;
+// wasm32 の上限 4 GiB の手前。線形メモリは縮まないので、超えたら次の要求の前に worker を作り直す（ADR-0023 (c)）
+const MEMORY_LIMIT = 2 * 2 ** 30;
 
 const cancelledError = () => Object.assign(new Error("止めた"), { cancelled: true });
 
@@ -19,13 +21,15 @@ export class GlobeWorker {
   #ready; #tail = Promise.resolve();
   #alive = false; // init が終わった worker か（終わる前に落ちたら作り直さない）
   #flag; // 中断のフラグ（Int32Array(SharedArrayBuffer)）。使えなければ null（S157）
+  #memoryLimit; #mem = 0; // 直近の応答の線形メモリ（バイト）。#call が上限と比べる
   #graceMs; #running = 0; #grace; // 猶予（ms）、実行中の simulate_columns の id と、cancel() のあとの猶予のタイマー
   #queued = 0; #cancelQueued = false; // 順番待ちか実行中の simulate_columns の数と、待っているものを止める印（S201）
 
   // shared: SharedArrayBuffer を使うか。既定は使えるか（ブラウザは cross-origin isolated のときだけ SharedArrayBuffer がある）
   // graceMs: cancel() のあと Worker が応えるまで待つ時間（試験が短くする）
-  constructor(make, init, { shared = typeof SharedArrayBuffer === "function", graceMs = GRACE_MS } = {}) {
+  constructor(make, init, { shared = typeof SharedArrayBuffer === "function", graceMs = GRACE_MS, memoryLimit = MEMORY_LIMIT } = {}) {
     this.#graceMs = graceMs;
+    this.#memoryLimit = memoryLimit;
     this.#make = make;
     this.#init = init;
     this.#flag = shared ? new Int32Array(new SharedArrayBuffer(4)) : null;
@@ -48,6 +52,7 @@ export class GlobeWorker {
       this.#alive = true;
       if (this.#lib) await this.#raw("library", this.#lib);
       for (const [name, text] of this.#files) await this.#raw("set_file", { name, text });
+      this.#mem = 0; // 作り直した worker の分から数える（再生で上限を越えても、続けて作り直さない）
     });
   }
 
@@ -66,12 +71,12 @@ export class GlobeWorker {
     });
   }
 
-  #reply({ id, type, ok, value, error, panic, poisoned, ...progress }) {
+  #reply({ id, type, ok, value, error, panic, poisoned, mem, ...progress }) {
     const p = this.#pending.get(id);
     if (type === "progress") return p?.onProgress?.(progress);
     this.#pending.delete(id);
     if (id === this.#running) { this.#running = 0; clearTimeout(this.#grace); }
-    if (ok) return p?.resolve(value);
+    if (ok) { if (mem !== undefined) this.#mem = mem; return p?.resolve(value); }
     p?.reject(new Error(panic ? `${error}\n${panic}` : error));
     if (poisoned) this.#die(this.#w, null);
   }
@@ -102,7 +107,8 @@ export class GlobeWorker {
   // 呼び出しは直列に（再生の前に次の呼び出しが割り込まない）
   #call(op, args, onProgress) {
     const sim = op === "simulate_columns";
-    const r = this.#tail.then(() => this.#ready).then(() => {
+    const r = this.#tail.then(() => this.#ready).then(async () => {
+      if (this.#mem > this.#memoryLimit) { this.#die(this.#w, null); await this.#ready; } // 前の応答で上限を越えていた。ライブラリとファイルは再生する
       if (sim && this.#cancelQueued) { this.#cancelQueued = false; throw cancelledError(); } // 待つ間に止められた
       return this.#raw(op, args, onProgress);
     });
@@ -158,6 +164,10 @@ export class GlobeWorker {
   // モデル名の候補（S170）: setFile 済みの file の実行できるクラス（model・block・class。partial は除く）の修飾名。構文が壊れていれば []
   async models(file) {
     return JSON.parse(await this.#call("models", { file }));
+  }
+  // 折りたたみ（S225）: setFile 済みの file の [{startLine, endLine, kind}]（行は 0 始まり、endLine を含む。LSP の foldingRange と同じ）
+  async foldingRanges(file) {
+    return JSON.parse(await this.#call("folding_ranges", { file, text: this.#files.get(file) ?? "" }));
   }
   // リネーム（S161）: [{range, newText}]。部品でない・識別子でない・予約語・既にある名前は、理由つきで reject
   async rename(file, line, character, newName) {

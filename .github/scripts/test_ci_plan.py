@@ -184,6 +184,16 @@ class Plan(unittest.TestCase):
                 self.assertLessEqual({"globe-mode-c", "globe-mode-nif", "globe-mode-py", "globe-mode-lsp", "globe-mode-wasm"}, pkgs(p))
         self.assertFalse(plan(["doc/roadmap.md"])["lang"])
 
+    def test_cli_apps(self):
+        # #77: CLI を子プロセスで呼ぶアプリ（FastAPI・Streamlit・marimo、Phoenix・Wisp、Astro）は、CLI の変更でも回す
+        for path in ["src/Rust/mod/globe-mode-cli/src/main.rs", "src/Rust/mod/globe-mode-fmt/src/lint.rs"]:
+            with self.subTest(path=path):
+                p = plan([path])
+                self.assertTrue(p["python"] and p["lang"] and p["astro"])
+        self.assertTrue(plan(["src/Astro/fmt/src/lib/globe.ts"])["astro"])
+        self.assertFalse(plan(["src/Astro/fmt/src/lib/globe.ts"])["python"])
+        self.assertFalse(plan(["src/Rust/mod/globe-mode-wasm/src/lib.rs"])["astro"])
+
     def test_web_apps(self):
         # S215（#22）: Rust のウェブアプリは別の workspace なので、自分のディレクトリか globe-mode-fmt を変えたときに回す
         for path in ["src/Rust/apps/web-axum/src/lib.rs", "src/Rust/apps/web-loco/Cargo.lock",
@@ -215,7 +225,7 @@ class Plan(unittest.TestCase):
 
     def test_nothing_relevant(self):
         p = plan(["data/.gitkeep"])
-        self.assertFalse(any(p[k] for k in ["full", "rust", "wasm", "wasm_node", "ui", "deny", "python", "lang", "web", "docs", "slides", "msl"]))
+        self.assertFalse(any(p[k] for k in ["full", "rust", "wasm", "wasm_node", "ui", "deny", "python", "lang", "web", "astro", "docs", "slides", "msl"]))
 
 
 if __name__ == "__main__":

@@ -222,7 +222,7 @@ fn push_number(out: &mut String, x: f64) {
 }
 
 /// 名前を二重引用符で囲む（中の `"` は `""` にする）。
-fn push_quoted(out: &mut String, name: &str) {
+pub fn push_quoted(out: &mut String, name: &str) {
     out.push('"');
     for c in name.chars() {
         if c == '"' {

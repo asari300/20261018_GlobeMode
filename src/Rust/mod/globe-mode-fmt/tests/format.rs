@@ -214,6 +214,35 @@ fn lint_rules() {
     assert_eq!(only.len(), 1);
 }
 
+/// #58: 整形で書き換わる行（Documentation の HTML の字下げ）の line-too-long も、元の本文の行を指す（1 行目に置かない）。
+#[test]
+fn line_too_long_points_at_the_source_line_even_when_the_format_changes_it() {
+    let long = "supercalifragilistic".repeat(5);
+    let src = format!(
+        "model M \"d\"\n  Real x;\n  annotation(Documentation(info = \"<html><body><ul><li>{long}</li></ul></body></html>\"));\nend M;\n"
+    );
+    let msgs: Vec<_> = lint(&src, &LintOptions::default())
+        .into_iter()
+        .filter(|m| m.rule == "line-too-long")
+        .map(|m| m.line)
+        .collect();
+    assert_eq!(msgs, [3]);
+}
+
+/// #57: `model extends Base(…) "説明"` の説明を見つける（`(` の修飾を読み飛ばす）。
+#[test]
+fn missing_description_skips_the_modification_of_extends() {
+    let described = "model extends Base(p(a = 1)) \"説明\"\nend Base;\n";
+    let plain = "model extends Base(p(a = 1))\nend Base;\n";
+    let rule = |src: &str| {
+        lint(src, &LintOptions::default())
+            .into_iter()
+            .filter(|m| m.rule == "missing-description")
+            .count()
+    };
+    assert_eq!((rule(described), rule(plain)), (0, 1));
+}
+
 /// S207: lint が本文の長さの 2 乗で遅くなっていた（診断ごとの行・桁の数え直し、長い行ごとの全行の探索）。
 /// 絶対時間ではなく、本文を 2 倍にしたときの時間の比（3 回の最小値）が 3 未満であることを緩く確かめる（2 乗なら 4）。
 #[test]

@@ -19,8 +19,6 @@ doctest = false
 # S082: facade だけに依存する（globe-mode-py・globe-mode-c と同じ）
 globe-mode = { workspace = true, features = ["fmu"] }
 rustler = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
 
 # rustler::init! が unsafe の extern を作るので、workspace の unsafe_code = "forbid" を外す（残りは workspace と同じ）
 [lints.rust]

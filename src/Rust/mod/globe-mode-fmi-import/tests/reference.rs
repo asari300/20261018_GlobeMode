@@ -171,3 +171,39 @@ fn errors_are_reported_not_panics() {
     .unwrap_err();
     assert!(e.to_string().contains("--step"), "{e}");
 }
+
+/// #50: FMI 3.0 の配列変数（StateSpace の x0・u・y）はスカラーとして読み書きしない。
+/// 以前は `GetFloat64` が Error で止まり、`nValues` を見ない FMU だと配列の外へ書く恐れがあった。
+#[test]
+fn array_variables_are_refused_not_read_as_scalars() {
+    let Some(path) = fmu_path("3.0", "StateSpace") else {
+        return;
+    };
+    let fmu = Fmu::open(&path).unwrap();
+    assert!(
+        fmu.description
+            .variables
+            .iter()
+            .any(|v| v.name == "x0" && v.dimensions)
+    );
+    let e = run_cs(
+        &fmu,
+        &CsOptions {
+            stop_time: Some(1.0),
+            set: vec![("x0".into(), 5.0)],
+            ..Default::default()
+        },
+    )
+    .unwrap_err();
+    assert!(e.to_string().contains("配列"), "{e}");
+    let e = run_cs(
+        &fmu,
+        &CsOptions {
+            stop_time: Some(1.0),
+            outputs: vec!["y".into()],
+            ..Default::default()
+        },
+    )
+    .unwrap_err();
+    assert!(e.to_string().contains("配列"), "{e}");
+}

@@ -130,3 +130,48 @@ fn sibling_file_wins_in_the_directory_split() {
     let _ = std::fs::remove_dir_all(&dir);
     assert!(r.passed, "{:?}", r.diagnostics);
 }
+
+/// #84・#85: ライブラリの BOM 付きファイルは読み飛ばさず（使う側が GM-E1001 にならない）、UTF-8 でないファイルが
+/// 1 つあっても、それを使わないモデルは検査できる。分割・全部読むのどちらの道でも（BOM は分割と in-memory）。
+#[test]
+fn a_bom_and_a_non_utf8_library_file_do_not_break_other_models() {
+    let dir = std::env::temp_dir().join(format!("gm-s223-bom-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let latin1 = b"within P; model B \"\xb0C\" end B;";
+    for (path, bytes) in [
+        ("P/package.mo", b"package P end P;".as_slice()),
+        (
+            "P/A.mo",
+            "\u{feff}within P; model A parameter Real x = 1; end A;".as_bytes(),
+        ),
+        ("P/B.mo", latin1.as_slice()),
+        ("M.mo", b"model M P.A a; end M;".as_slice()),
+    ] {
+        let p = dir.join(path);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, bytes).unwrap();
+    }
+    let mut split = Workspace::with_libraries(std::slice::from_ref(&dir)).unwrap();
+    let r = split.check("M");
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(r.passed, "{:?}", r.diagnostics);
+}
+
+/// #84: in-memory の分割・全部読むのどちらも BOM 付きのライブラリファイルを読む。
+#[test]
+fn a_bom_library_file_is_read_from_memory_sources() {
+    let files: std::collections::BTreeMap<String, String> = [
+        ("P/package.mo", "package P end P;"),
+        ("P/A.mo", "\u{feff}within P; model A end A;"),
+    ]
+    .into_iter()
+    .map(|(k, v)| (k.to_string(), v.to_string()))
+    .collect();
+    let mut split = Workspace::with_library_sources_split("p", &files).unwrap();
+    let mut full = Workspace::with_library_sources("p", &files).unwrap();
+    for ws in [&mut split, &mut full] {
+        ws.set_file("M.mo", "model M P.A a; end M;");
+        let r = ws.check("M");
+        assert!(r.passed, "{:?}", r.diagnostics);
+    }
+}

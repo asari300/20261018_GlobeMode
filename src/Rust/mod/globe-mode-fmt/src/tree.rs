@@ -40,6 +40,7 @@ impl LibraryTree {
     pub fn new<'a>(files: impl IntoIterator<Item = (&'a str, &'a str)>) -> Self {
         let mut classes = BTreeMap::new();
         for (file, text) in files {
+            let text = text.strip_prefix('\u{feff}').unwrap_or(text);
             let h = header(text);
             let within = h.as_ref().and_then(|h| h.within).filter(|w| !w.is_empty());
             let join = |name: &str| within.map_or(name.to_string(), |w| format!("{w}.{name}"));
@@ -179,7 +180,10 @@ fn next<'a>(s: &'a str, i: &mut usize) -> Option<Tok<'a>> {
             *i += if b[*i] == b'\\' { 2 } else { 1 };
         }
         *i = (*i + 1).min(b.len());
-        return Some(Tok::Str(&s[start + 1..(*i - 1).max(start + 1)]));
+        // 閉じない文字列が `\` と多バイト文字で終わると、*i - 1 が文字の途中になる
+        return Some(Tok::Str(
+            s.get(start + 1..(*i - 1).max(start + 1)).unwrap_or(""),
+        ));
     }
     let word = |c: u8| c.is_ascii_alphanumeric() || c == b'_' || c == b'.';
     if word(c) {
@@ -188,7 +192,7 @@ fn next<'a>(s: &'a str, i: &mut usize) -> Option<Tok<'a>> {
         }
         return Some(Tok::Word(&s[start..*i]));
     }
-    *i += 1;
+    *i += s[start..].chars().next().map_or(1, char::len_utf8);
     Some(Tok::Punct)
 }
 
@@ -286,6 +290,15 @@ mod tests {
         assert_eq!(tree.children("M.A")[0].kind, "model");
         assert_eq!(tree.file("M.A.B"), Some("M/A/B.mo"));
         assert_eq!(tree.file("M.Z"), None);
+    }
+
+    /// #59: BOM 付きのファイルでも `within` を読み、閉じない文字列が `\\` と多バイト文字で終わっても panic しない。
+    #[test]
+    fn a_bom_and_a_broken_string_do_not_break_the_tree() {
+        let tree = LibraryTree::new([("P/M.mo", "\u{feff}within P;\nmodel M\nend M;\n")]);
+        assert_eq!(tree.file("P.M"), Some("P/M.mo"));
+        assert_eq!(tree.file("M"), None);
+        LibraryTree::new([("x.mo", "model M \"abc\\\u{3042}")]);
     }
 
     const SOURCES: &str = "within M;\npackage Sources \"Src\"\n  \

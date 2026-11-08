@@ -104,6 +104,9 @@ pub struct ScalarVariable {
     pub derivative: Option<u32>,
     /// S224: Enumeration の `declaredType`（[`ModelDescription::enum_types`] の名前）。
     pub declared_type: Option<String>,
+    /// #50: FMI 3.0 の配列変数（子に `<Dimension>` がある）。1 つの `valueReference` が複数の値を持つので、
+    /// スカラーとして読み書きしてはならない。
+    pub dimensions: bool,
 }
 
 /// Enumeration の型の定義（S224）。2.0 は `SimpleType`/`Enumeration`、3.0 は `EnumerationType` の `Item`（名前と値）。
@@ -278,6 +281,7 @@ fn variable(
         }),
         derivative: u32_attr(ty_node, "derivative")?,
         declared_type: ty_node.attribute("declaredType").map(str::to_string),
+        dimensions: ty_node.children().any(|c| c.has_tag_name("Dimension")),
     })
 }
 

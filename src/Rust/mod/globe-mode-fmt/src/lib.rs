@@ -18,7 +18,7 @@ mod tree;
 #[cfg(feature = "config")]
 pub use config::CONFIG_FILE;
 pub use lexer::{Kind, Token, lex}; // S161: LSP の参照・リネームが、識別子のトークンだけを一致の対象にする
-pub use lint::{LintMessage, LintOptions, RULES, lint};
+pub use lint::{LintMessage, LintOptions, RULES, lint, rule_name};
 pub use tree::{LibraryTree, TreeEntry};
 
 /// Modelica の予約語と組み込み型。補完の候補に使う。

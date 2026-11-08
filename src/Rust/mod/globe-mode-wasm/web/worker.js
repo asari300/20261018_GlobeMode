@@ -73,6 +73,7 @@ const ops = {
     return W().hover(file, text, line, character); // S149。{contents, range} の JSON か "null"
   },
   references: ({ file, text, line, character }) => W().references(file, text, line, character), // S161。[Range] の JSON
+  folding_ranges: ({ file, text }) => W().folding_ranges(file, text), // S225。[{startLine, endLine, kind}] の JSON（先に set_file）
   models: ({ file }) => W().models(file), // S170。実行できるクラスの修飾名の JSON 配列（先に set_file）
   rename: ({ file, text, line, character, newName }) => W().rename(file, text, line, character, newName), // S161。[{range, newText}] の JSON。断れば投げる
   tunable_parameters: ({ model }) => W().tunable_parameters(model), // S150。ParametersResponse の JSON
@@ -117,7 +118,7 @@ async function handle({ id, op, ...args }) {
   try {
     if (!ops[op]) throw new Error(`未知の op: ${op}`);
     const value = await ops[op](args, id);
-    send({ id, ok: true, value }, value?.columns?.map((c) => c.buffer));
+    send({ id, ok: true, value, mem: gm.memory_bytes() }, value?.columns?.map((c) => c.buffer)); // mem: 線形メモリ（client.js が上限を見て作り直す。ADR-0023 (c)）
   } catch (e) {
     const poisoned = typeof WebAssembly !== "undefined" && e instanceof WebAssembly.RuntimeError;
     // simulate の失敗は文字列の例外のこともある
