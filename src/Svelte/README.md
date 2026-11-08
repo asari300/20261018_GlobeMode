@@ -24,6 +24,13 @@ mise run ui:check            # svelte-check と、Playwright の Chromium での
 mise run ui:build            # dist/ に静的サイトを作る
 ```
 
+## 使い心地（S228）
+
+- **Esc で止める**: 実行中の Esc は Ctrl+. と同じ（入力欄・select・ダイアログの中では奪わない。補完の一覧が開いていれば CodeMirror が閉じるだけ）。
+- **タブの並べ替え**: タブのドラッグ&ドロップ（HTML5 の `draggable`）と Ctrl+Shift+PageUp / PageDown（Cmd も）。順序は `globe-mode.tabs` に 300 ms のまとめ書きで残り、動かしたあとも開いているタブと `aria-selected` は同じ。ブラウザによっては Ctrl+Shift+PageUp / PageDown をブラウザのタブの移動に使うが、ページが先に受けて止める。
+- **設定のモデルごとの保存**: `SimSettings.svelte` の欄（ソルバ・時刻・許容誤差・間隔・刻み幅・予算・パラメータ）は、モデル名ごとに localStorage の `globe-mode.sim`（モデル名 → 触った欄だけ。上限 50 モデル）へ残る。モデル名を変える・タブを切り替えると、そのモデルの保存に入れ替わる（保存が無ければ既定）。「設定を既定に戻す」でそのモデルの保存を消す。クラス名のリネーム（F2）でモデル名が変わると、新しい名前の保存（無ければ既定）に入れ替わる。
+- **開始時刻・刻み幅・予算**: protocol の `settings.start_time` / `step` / `max_wall_seconds`。刻み幅は固定刻みのソルバ（`euler`・`heun`・`rk4`・`impeuler`・`trapezoid`）を選んだときだけ有効で、他のソルバでは送らない。GM-E10004（出力が 1000 万点を超えるなど）は欄の下の赤字（`data-refusal`）にも出る。
+
 ## 実行とプロット（S042）
 
 「実行」ボタンが `Backend.simulate({ model })` を呼ぶ（ソルバは既定のまま）。`refused` と診断は診断パネルとその上の赤字に出る。結果の CSV（`SimulateResponse.csv`）は `src/lib/plot/csv.ts` が列に分け、`src/lib/plot/Plot.svelte` が uPlot（MIT）で時系列に描く。信号はチェックボックスで選ぶ（既定は最初の 3 本）。ズームは uPlot の既定（ドラッグで拡大、ダブルクリックで戻す）。2 軸（S128）は実装済み。凡例の凝った UI は未実装。
