@@ -305,6 +305,8 @@ jobs:
           otp-version: "27"
           elixir-version: "1.18.3"
           gleam-version: "1.19.2"
+          # wisp_fmt の依存（hpack_erl など）は Erlang のソースで、rebar3 でビルドする（#77）
+          rebar3-version: "3"
       - uses: Swatinem/rust-cache@v2
         with:
           # release の成果物は、rust-linux（debug）のキャッシュと分ける
