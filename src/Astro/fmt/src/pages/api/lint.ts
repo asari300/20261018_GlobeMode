@@ -18,5 +18,5 @@ export const POST: APIRoute = async ({ request }) => {
   if (!Array.isArray(disable) || !disable.every((r) => typeof r === 'string' && /^[a-z][a-z-]*$/.test(r))) {
     return bad('disable が規則名の配列ではない');
   }
-  return Response.json(lint(body.text, disable));
+  return Response.json(await lint(body.text, disable));
 };
