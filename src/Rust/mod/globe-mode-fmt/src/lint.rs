@@ -86,9 +86,15 @@ pub fn lint(src: &str, options: &LintOptions) -> Vec<LintMessage> {
             });
         }
         let short = tokens.get(name_i + 1).is_some_and(|s| s.is("="));
+        // `model extends Base(…) "説明"` は名前の次が修飾の `(…)`。その後ろを見る（#57）
+        let after_name = if tokens.get(name_i + 1).is_some_and(|s| s.is("(")) {
+            structure::skip_group(&tokens, name_i + 1).unwrap_or(name_i + 1)
+        } else {
+            name_i + 1
+        };
         if on("missing-description")
             && !short
-            && !tokens.get(name_i + 1).is_some_and(|s| s.kind == Kind::Str)
+            && !tokens.get(after_name).is_some_and(|s| s.kind == Kind::Str)
         {
             out.push(LintMessage {
                 rule: "missing-description",
@@ -131,7 +137,13 @@ pub fn lint(src: &str, options: &LintOptions) -> Vec<LintMessage> {
             first_line.entry(l.trim()).or_insert(i + 1);
         }
         for long in formatted.lines().filter(|l| l.chars().count() > width) {
-            let line = first_line.get(long.trim()).copied().unwrap_or(1);
+            // 整形で書き換わった行（HTML の字下げなど）は元の本文に無いので、最長の語を本文から探す（#58）
+            let line = first_line.get(long.trim()).copied().unwrap_or_else(|| {
+                long.split_whitespace()
+                    .max_by_key(|w| w.len())
+                    .and_then(|w| src.find(w))
+                    .map_or(1, |at| line_col(at).0)
+            });
             out.push(LintMessage {
                 rule: "line-too-long",
                 line,
