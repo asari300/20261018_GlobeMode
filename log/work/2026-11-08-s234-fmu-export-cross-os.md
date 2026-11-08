@@ -26,3 +26,8 @@ roadmap の「FMU の Export の残り」から Windows・macOS 向けの FMU �
 - `fmu-export.yml`（feature ブランチ、run 42472525126）success。fmu-export・fmu-cross（3 OS）・fmu-native（3 OS）。3 OS で FMPy の ME・CS と fmusim の ME・CS（macOS の 2.0 の simulate だけ飛ばす）。`tests/fmpy.rs` の 16 件は 3 OS で通った。
 - 落ちた原因: github.com の release の直リンクが 504 を返し続けた（mise の `packslip.sigstore.json`・本体、fmusim。run 42465688885、42466331645、42467166460、42467877785、42468883216、42469109384、42470816597、42471079551）。`fmu-cross`・`fmu-native` は mise をやめてランナーの rustup と pipx の uv にし、fmusim は `gh release download`。macOS の fmusim 0.15.0 は FMI 2.0 でも `aarch64-darwin` を探すので、その 1 組だけ飛ばす。
 - `mise run check` EXIT=0。`check_docs.py` 切れ 0 件、`render_slides.py` 問題 0 件。
+- `ci.yml -f full=true`（feature ブランチ、run 42472711952）: 全ジョブ success。
+
+## 残したこと
+
+- 1 つの FMU に P5b の複数 OS の置き場を同梱（対象外）。x86_64 の macOS の実行。macOS(arm64) の fmusim 0.15.0 が FMI 2.0 の `darwin64` を見つけない件（fmusim 側。未報告）。
