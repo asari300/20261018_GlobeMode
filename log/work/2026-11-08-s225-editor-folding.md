@@ -29,7 +29,8 @@ S220 が持ち越した UI（CodeMirror 6）の折りたたみ。LSP の `foldin
 - `node smoke.mjs`（リリースの wasm）: 折りたたみ `[[0,5],[2,5],[4,5]]`。
 - `pnpm check` 0 エラー、`test_tauri.mjs` ok、`test_ui.py` ok（MSL あり。折りたたみ: model Decay を畳むと `end Decay;` が隣に来て、開くと戻る）。
 - `shell.rs` の突き合わせ試験は Desktop の workspace を回せないので、同じ照合を手元で確かめた（UI が送る method と許可の一覧が一致、20 本）。
-- `mise run check`、`mise run wasm:node`、`docs:check`、CI（full）: 下の「結果」。
+- `mise run check` 成功（1 回目は共有 target の古い `globe` で `fmt_dirs` が 1 本落ち、touch して単独で通ってから全体も成功）。`mise run wasm:node`（MSL あり）ok、`check_docs.py` 切れ 0、`render_slides.py` 成功。
+- CI（`gh workflow run ci.yml --ref feature/s225-editor-folding -f full=true`）: 42438124165 が success。
 
 ## 残したこと
 
