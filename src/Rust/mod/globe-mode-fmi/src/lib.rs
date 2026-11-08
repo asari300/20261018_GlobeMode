@@ -102,9 +102,18 @@ pub struct ScalarVariable {
     pub start: Option<String>,
     /// S117: 属性 `derivative`。2.0 は状態の索引（1 始まり）、3.0 は状態の valueReference。
     pub derivative: Option<u32>,
+    /// S224: Enumeration の `declaredType`（[`ModelDescription::enum_types`] の名前）。
+    pub declared_type: Option<String>,
     /// #50: FMI 3.0 の配列変数（子に `<Dimension>` がある）。1 つの `valueReference` が複数の値を持つので、
     /// スカラーとして読み書きしてはならない。
     pub dimensions: bool,
+}
+
+/// Enumeration の型の定義（S224）。2.0 は `SimpleType`/`Enumeration`、3.0 は `EnumerationType` の `Item`（名前と値）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnumerationType {
+    pub name: String,
+    pub items: Vec<(String, i32)>,
 }
 
 /// `DefaultExperiment` の属性（文字列そのまま）。
@@ -147,6 +156,8 @@ pub struct ModelDescription {
     pub number_of_event_indicators: u32,
     pub default_experiment: Option<DefaultExperiment>,
     pub model_structure: ModelStructure,
+    /// S224: `TypeDefinitions` の Enumeration（ほかの型の定義は読まない）。
+    pub enum_types: Vec<EnumerationType>,
 }
 
 impl ModelDescription {
@@ -263,10 +274,28 @@ fn variable(
         variability: variability(n.attribute("variability"), default)?,
         ty,
         initial: initial(n.attribute("initial"))?,
-        start: ty_node.attribute("start").map(str::to_string),
+        // 3.0 の String の start は子の <Start value="…"/>（属性ではない）
+        start: ty_node.attribute("start").map(str::to_string).or_else(|| {
+            let start = ty_node.children().find(|c| c.has_tag_name("Start"));
+            start.and_then(|s| s.attribute("value")).map(str::to_string)
+        }),
         derivative: u32_attr(ty_node, "derivative")?,
+        declared_type: ty_node.attribute("declaredType").map(str::to_string),
         dimensions: ty_node.children().any(|c| c.has_tag_name("Dimension")),
     })
+}
+
+fn enum_items(n: roxmltree::Node<'_, '_>) -> Result<Vec<(String, i32)>, Error> {
+    let items = n.children().filter(|c| c.has_tag_name("Item"));
+    items
+        .map(|i| {
+            let v = required(i, "value")?;
+            let v = v
+                .parse()
+                .or_else(|_| schema(format!("Item の value {v:?} は i32 でない")))?;
+            Ok((required(i, "name")?.to_string(), v))
+        })
+        .collect()
 }
 
 /// `modelDescription.xml` の本文を読む。
@@ -341,6 +370,21 @@ pub fn parse_model_description(xml: &str) -> Result<ModelDescription, Error> {
             }
         }
     }
+    let mut enum_types = Vec::new();
+    for t in child("TypeDefinitions").iter().flat_map(|t| t.children()) {
+        let items = if v3 {
+            t.has_tag_name("EnumerationType").then_some(t)
+        } else {
+            let e = t.children().find(|c| c.has_tag_name("Enumeration"));
+            e.filter(|_| t.has_tag_name("SimpleType"))
+        };
+        if let Some(items) = items {
+            enum_types.push(EnumerationType {
+                name: required(t, "name")?.to_string(),
+                items: enum_items(items)?,
+            });
+        }
+    }
     let text = |n: roxmltree::Node<'_, '_>, a: &str| n.attribute(a).map(str::to_string);
     Ok(ModelDescription {
         generation_tool: text(root, "generationTool"),
@@ -357,6 +401,7 @@ pub fn parse_model_description(xml: &str) -> Result<ModelDescription, Error> {
             step_size: text(n, "stepSize"),
         }),
         model_structure,
+        enum_types,
         model_name: required(root, "modelName")?.to_string(),
         instantiation_token: required(root, token_attr)?.to_string(),
         model_exchange: interface("ModelExchange")?,
@@ -371,8 +416,8 @@ pub fn parse_model_description(xml: &str) -> Result<ModelDescription, Error> {
 /// そのまま使い、これは読み→書き→読みの試験にだけ通す）。
 ///
 /// [`ModelDescription`] に持つものだけを書く（`description`・`unit`・`SourceFiles`・`dependencies` などは落ちる）。
-/// 書ける型は Real・Integer・Boolean だけで、それ以外と 2.0 にない causality は `Err`。
-// shortcut: String・Enumeration（declaredType が要る）は無い。P5b が出すときに足す
+/// 書ける型は Real・Integer・Boolean・String・Enumeration（S224。`declared_type` が要る）だけで、それ以外と
+/// 2.0 にない causality は `Err`。
 pub fn write_model_description_2(md: &ModelDescription) -> Result<String, Error> {
     write_model_description(md, 2)
 }
@@ -442,6 +487,32 @@ fn write_model_description(md: &ModelDescription, major: u8) -> Result<String, E
             );
         }
     }
+    if !md.enum_types.is_empty() {
+        x.push_str("  <TypeDefinitions>\n");
+        for t in &md.enum_types {
+            // 2.0 は SimpleType の中の Enumeration、3.0 は EnumerationType
+            let (open, close) = if v3 {
+                (String::new(), String::new())
+            } else {
+                (
+                    "      <Enumeration>\n".into(),
+                    "      </Enumeration>\n".into(),
+                )
+            };
+            let tag = if v3 { "EnumerationType" } else { "SimpleType" };
+            let _ = write!(x, "    <{tag} name=\"{}\">\n{open}", esc(&t.name));
+            for (name, value) in &t.items {
+                let _ = writeln!(
+                    x,
+                    "{}<Item name=\"{}\" value=\"{value}\"/>",
+                    if v3 { "      " } else { "        " },
+                    esc(name)
+                );
+            }
+            let _ = writeln!(x, "{close}    </{tag}>");
+        }
+        x.push_str("  </TypeDefinitions>\n");
+    }
     if let Some(e) = &md.default_experiment {
         x.push_str("  <DefaultExperiment");
         for (k, v) in [
@@ -481,6 +552,8 @@ fn write_model_description(md: &ModelDescription, major: u8) -> Result<String, E
             (VarType::Float64, true) => "Float64",
             (VarType::Int32, true) => "Int32",
             (VarType::Boolean, _) => "Boolean",
+            (VarType::String, _) => "String",
+            (VarType::Enumeration, _) => "Enumeration",
             (other, _) => return schema(format!("型 {other:?} は書けない")),
         };
         // 3.0 は型の要素に属性をまとめて書く（ScalarVariable の入れ子が無い）
@@ -506,17 +579,30 @@ fn write_model_description(md: &ModelDescription, major: u8) -> Result<String, E
         if !v3 {
             let _ = write!(x, ">\n      <{ty}");
         }
-        if let Some(s) = &v.start {
+        if v.ty == VarType::Enumeration {
+            let Some(d) = &v.declared_type else {
+                return schema(format!("Enumeration {} に declared_type が無い", v.name));
+            };
+            let _ = write!(x, " declaredType=\"{}\"", esc(d));
+        }
+        // 3.0 の String の start は子の <Start value="…"/>
+        let start_child = v3 && v.ty == VarType::String;
+        if let (Some(s), false) = (&v.start, start_child) {
             let _ = write!(x, " start=\"{}\"", esc(s));
         }
         if let Some(d) = v.derivative {
             let _ = write!(x, " derivative=\"{d}\"");
         }
-        x.push_str(if v3 {
-            "/>\n"
-        } else {
-            "/>\n    </ScalarVariable>\n"
-        });
+        match (&v.start, start_child) {
+            (Some(s), true) => {
+                let _ = write!(x, ">\n      <Start value=\"{}\"/>\n    </String>\n", esc(s));
+            }
+            _ => x.push_str(if v3 {
+                "/>\n"
+            } else {
+                "/>\n    </ScalarVariable>\n"
+            }),
+        }
     }
     x.push_str("  </ModelVariables>\n  <ModelStructure>\n");
     let s = &md.model_structure;

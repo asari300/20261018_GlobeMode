@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S224 FMU の Export の型 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S224 FMU の Export の型">
+
+<section class="slide" id="S01">
+  <span class="tag">S224 · 2026-11-08 · P5</span>
+  <h1>Export した FMU に Enumeration と String の型を書く</h1>
+  <p class="lead">P5a の FMI 2.0 と P5b の 2.0・3.0。<code>dependencies</code> は情報源が無く持ち越し</p>
+  <div class="big">Enumeration を持たないモデルの XML は<b>1 バイトも変わらない</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>これまで</h1>
+  <ul>
+    <li>Rumoca のテンプレートは Enumeration を <code>&lt;Integer&gt;</code> で描き、型の名前もリテラルも落ちていた。</li>
+    <li>P5b は Enumeration の変数を載せず、String のパラメータは Real の 0.0 になっていた（FMPy の validate が「名前が重複」で落ちる）。</li>
+    <li>DAE は Enumeration の型の名前もリテラルの名前も持たない。</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th></tr>
+    <tr><td>型の元</td><td>flat の <code>variable_type_names</code> と <code>enum_literal_ordinals</code>。<code>CompiledModel::enum_type_of</code></td></tr>
+    <tr><td>P5a 2.0</td><td><code>&lt;Integer&gt;</code> を <code>&lt;Enumeration declaredType&gt;</code> に、<code>SimpleType</code> を足す</td></tr>
+    <tr><td>P5a 3.0</td><td>Int32 のまま。Rumoca の C が Int64 未対応で、書くと読めない</td></tr>
+    <tr><td>P5b</td><td>2.0・3.0 とも型の定義を書き、Integer（3.0 は Int64）で読み書き、String は <code>GetString</code></td></tr>
+    <tr><td><code>dependencies</code></td><td>出力ごとの依存の情報が無い。持ち越し</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>データの流れ</h1>
+  <svg class="fig" viewBox="0 0 800 240" role="img" aria-label="flat から CompiledModel を経て P5a と P5b へ渡る図">
+    <rect class="svg-box" x="20" y="90" width="190" height="70" rx="10"/>
+    <text class="svg-text-b" x="115" y="130" text-anchor="middle">flat モデル</text>
+    <line class="svg-line" x1="210" y1="125" x2="310" y2="125"/>
+    <rect class="svg-box-accent" x="310" y="90" width="200" height="70" rx="10"/>
+    <text class="svg-text-b" x="410" y="130" text-anchor="middle">CompiledModel</text>
+    <line class="svg-line" x1="510" y1="110" x2="600" y2="50"/>
+    <line class="svg-line" x1="510" y1="140" x2="600" y2="190"/>
+    <rect class="svg-box" x="600" y="20" width="180" height="60" rx="10"/>
+    <text class="svg-text-b" x="690" y="56" text-anchor="middle">P5a の XML</text>
+    <rect class="svg-box" x="600" y="160" width="180" height="60" rx="10"/>
+    <text class="svg-text-b" x="690" y="196" text-anchor="middle">P5b の XML と実行</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>検証</h1>
+  <ul>
+    <li>手元で Rumoca の C を <code>--build</code> した 2.0・3.0 の FMU が、FMPy の validate を通り、ME・CS の x(1) が e⁻² と 9e-9 差。</li>
+    <li>P5b は C ABI の試験と FMPy の validate・ME（2.0・3.0）。</li>
+    <li><code>fmu-export.yml</code> に EnumString の step を足し、FMPy と fmusim で確かめる。</li>
+  </ul>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>残したもの</h1>
+  <ul>
+    <li><code>dependencies</code>: 方程式の出現から依存の辺を張り、マッチングで左辺を決め、出力・微分から状態・入力へ辿る。</li>
+    <li>P5a の 3.0 の Enumeration: Rumoca の fmi3 が Int64 を実装してから。</li>
+    <li>P5b の離散の出力は <code>local</code> で、値は事象の後まで開始値。</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
