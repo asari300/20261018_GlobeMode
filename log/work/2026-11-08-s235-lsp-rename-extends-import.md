@@ -25,7 +25,9 @@ S230 の持ち越し: 継承した部品と `import` の別名を、LSP の参�
 ## 検証
 
 - MSL 4.1.0 `SISO` の `u`（release の `globe lsp -L data/msl`）: 初回 4.3 s、2 回目 0.75 s、321 箇所・92 ファイル。
-- 試験・check・run: （finish で埋める）
+- `cargo test -p globe-mode-lsp`: 通った（lib 48、cross_file 5、folding 1）。`mise run check`: fmt・clippy（-D warnings）・`cargo test --workspace`・deny・`globe fmt --check src/Modelica`・`uv sync --locked` すべて通った。
+- `check_docs.py`: 切れ 0 件。`render_slides.py`（自分のデッキ）問題 0 件。
+- `ci.yml` run 42476548450 success（feature ブランチ）、`vscode.yml` run 42476551094 success（3 OS）。
 
 ## 残したこと
 
