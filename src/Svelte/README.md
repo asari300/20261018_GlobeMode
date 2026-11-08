@@ -4,10 +4,12 @@ Svelte 5 と TypeScript の UI（P4）。Tauri（デスクトップ、Android）
 
 - 計算は `Backend` インターフェースを通して呼ぶ。実装は `TauriBackend`（ネイティブ）と `WorkerBackend`（Web Worker 上の wasm）
 - 業務ロジックを置かない
-- 使う部品:
-  - エディタ: CodeMirror 6 と `@codemirror/lsp-client`
-  - connect グラフ: sigma.js、graphology、ForceAtlas2。巨大なグラフは cosmos.gl
-  - 回路図: Svelte Flow
+- 使っている部品は次のとおり（`package.json`）。
+  - エディタ: CodeMirror 6（`@codemirror/autocomplete`・`commands`・`language`・`lint`・`state`・`view`）
+  - connect グラフ: sigma.js、graphology、ForceAtlas2
+  - プロット: uPlot
+- 計画で挙げた `@codemirror/lsp-client`、cosmos.gl、Svelte Flow は `package.json` に入っていない。
+- 下の「使い方（S041）」と「実行とプロット（S042）」は、その時点の記述。いまの UI の機能は [README.md](../../README.md) と [doc/features.md](../../doc/features.md)。
 
 ## 使い方（S041）
 

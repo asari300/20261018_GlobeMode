@@ -15,6 +15,8 @@ S059 で作った。`.mo` を開くと `globe lsp` を起動してつなぐだ�
 | 構文の色付け | 予約語・組み込みの型・文字列・数値・コメントを TextMate 文法で色付ける（S163。意味に基づく色付けは未）。`/*` を打つと `*/` を補う |
 | 補完 | Ctrl+Space、または `.` のあと |
 | アウトライン・ホバー | エクスプローラーのアウトライン、クラス名にマウスを載せる |
+| 折りたたみ | 行番号の脇の ▾。クラス、`equation` / `algorithm` / `public` / `protected` の節、複数行の `annotation(…)`、連続するコメントを畳める（S220。`globe lsp` の `foldingRange`。構文が壊れている間はクラスと節は出ない） |
+| 字下げの規則 | `model` / `function` などと `equation`・`if … then`・`for … loop` の次の行で字下げし、`end`・`else`・`elseif`・節の見出しで戻す（S220。`language-configuration.json`。`//` の行で Enter しても字下げしない） |
 
 拡張は `.mo` の既定を `editor.tabSize: 2`・80 桁のルーラーにする。インデント 4 にしたいときだけ、設定で `[modelica]` の `editor.tabSize` を 4 にする。
 

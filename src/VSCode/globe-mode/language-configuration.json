@@ -8,5 +8,12 @@
     { "open": "/*", "close": " */", "notIn": ["string"] },
     { "open": "\"", "close": "\"", "notIn": ["string"] }
   ],
-  "surroundingPairs": [["{", "}"], ["[", "]"], ["(", ")"], ["\"", "\""]]
+  "surroundingPairs": [["{", "}"], ["[", "]"], ["(", ")"], ["\"", "\""]],
+  "indentationRules": {
+    "increaseIndentPattern": "^\\s*((encapsulated|partial|expandable|pure|impure)\\s+)*(model|package|function|record|block|connector|class|operator)\\b[^;]*$|^\\s*((initial\\s+)?(equation|algorithm)|public|protected|else)\\s*$|^\\s*(if|elseif|elsewhen|when|for|while)\\b.*\\b(then|loop)\\s*$",
+    "decreaseIndentPattern": "^\\s*(end\\b|elseif\\b|elsewhen\\b|else\\s*$|(initial\\s+)?(equation|algorithm)\\b|public\\b|protected\\b)"
+  },
+  "onEnterRules": [
+    { "beforeText": "^\\s*//.*$", "action": { "indent": "none" } }
+  ]
 }

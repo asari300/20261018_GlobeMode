@@ -7,7 +7,7 @@
 ## 背景
 
 - P5 は「FMI Import（ME / CS / SE）とマスター。Export は後」。完了条件は「Reference-FMUs が linux64 と win64 で一致する」（[roadmap.md](../roadmap.md)）。architecture.md は Import を jondo2010 の `fmi` 0.8 と `fmi-schema` の上に作ると書いていた（S002 の調査）。
-- S057 の調査で分かったこと（出典と確認日は調査の文書）:
+- S057 の調査で分かったこと（出典と確認日は調査の文書）は次のとおり。
   - FMI のヘッダと XSD、Reference-FMUs は **2-Clause BSD**。仕様書の文書だけ CC BY-SA 4.0。ライセンスの障害は無い。
   - Rust の FMI crate は 3 系統ある。`fmi` 0.8.0 系（MIT OR Apache-2.0。`fmi-sys` の build に bindgen、`fmi-schema` は `hard-xml` など 42 パッケージ）、**`fmi-rs` 0.3.4**（BSD-2-Clause。2026-10-29 公開で若い。公式の fmusim の基盤。build.rs が C をコンパイルし wasm32 で落ちた。`colored` が MPL-2.0）、`fmu-runner` 0.4.4（更新が止まっている）。
   - 検証の道具は fmusim（Rust 製、`fmi-rs` 基盤）と FMPy（Python）が生きていて、fmuCheck は FMI 1/2 のみで開発終了。
@@ -62,7 +62,7 @@
 - **案 B（crate `fmi` 0.8）は入れていない**（(g)）。使えないコードを置かないために、feature の名前だけの口も置かない。A と B は trait [`FmuCs`](../../src/Rust/mod/globe-mode-fmi-import/src/lib.rs) の 2 つの実装として並べる設計にしたので、B を入れられる状態になれば、feature `fmi-crate`（仮称）の下に 1 ファイル（S204 で試した実装は 2.0・3.0 で約 90 行）足すだけでよい。
 - **置き場は新しい crate `globe-mode-fmi-import`**。`globe-mode-fmi` の feature にしなかった理由は、(1) Export（`globe-mode-fmi` の `export`）と `parse_model_description` の利用者（wasm のブラウザ、Python、C ABI など。いまの facade `globe-mode` の `fmu` feature、LSP、Desktop）に `libloading` の依存を背負わせないため、(2) wasm32 で通る crate に wasm32 で通らない依存を feature で混ぜると、`--all-features` の検査（deny、clippy）が割れるため。依存は `globe-mode-fmi`（XML の読み取り）、`libloading` 0.9（ISC。Cargo.lock に既にあった）、`zip` 9（既にあった）、`tempfile` 3（既にあった）。facade・Python・C ABI・UI には**まだつなげていない**（呼ぶのは CLI の `globe fmu info` / `run` だけ）。
 - **wasm32・Android では使えない**。共有ライブラリを読めない（wasm32）、FMI の規格に Android 向けの `binaries/` の置き場が無い（Android）。この crate を wasm 用の `cargo check`（ci.yml の wasm32 の行）に入れていないので、ブラウザ版・Android の APK には入らない。ブラウザは今までどおり `parse_model_description` で中身を見るだけ。
-- **trait の形**（実装済み＝CS。ME は設計だけで、次の WP で足す）:
+- **trait の形**（実装済み＝CS。ME は設計だけで、次の WP で足す）は次のとおり。
 
   | | `FmuCs`（実装済み） | `FmuMe`（設計） |
   | --- | --- | --- |
@@ -100,7 +100,7 @@
 
 ### (j) 検証
 
-- 参照の相手は FMU が同梱する `extra/org.fmi-standard.fmi-ls-ref/<名前>_out.csv`（Reference-FMUs が自分の Co-Simulation を刻み 0.01 などで回した結果）。2.0 と 3.0 の BouncingBall・Dahlquist・VanDerPol を `run_cs` で同じ刻みで回し、**全行・全列で相対差 0（ビット単位で一致）**した（Linux x86_64、BouncingBall 301 行、Dahlquist 101 行、VanDerPol 2001 行）。2.0 の Dahlquist・VanDerPol は CSV を持たないので、同じモデルの 3.0 の CSV を使う。
+- 参照の相手は FMU が同梱する `extra/org.fmi-standard.fmi-ls-ref/<名前>_out.csv`（Reference-FMUs が自分の Co-Simulation を刻み 0.01 などで回した結果）。2.0 と 3.0 の BouncingBall・Dahlquist・VanDerPol を `run_cs` で同じ刻みで回し、**全行・全列で相対差 0**（ビット単位で一致）した（Linux x86_64、BouncingBall 301 行、Dahlquist 101 行、VanDerPol 2001 行）。2.0 の Dahlquist・VanDerPol は CSV を持たないので、同じモデルの 3.0 の CSV を使う。
 - **往復**: `globe fmu export --build`（P5a、Rumoca のテンプレート）で作った Decay の FMU を `globe fmu run` で読み込み、x(1) − e⁻¹ = 7.8e-16（2.0・3.0 とも、刻み 0.001）。FMPy の c-code のヘッダと `cc` を使うので Linux の x86_64 だけ、無ければ飛ばす。
 - OS ごと（`fmu-import.yml`。matrix: ubuntu-24.04・windows-2025・macos-latest〔arm64〕。run 42178862896、feature ブランチの push で回した）: 3 OS とも 9 本すべて通った。参照の CSV との最大の相対差は Linux・Windows が 0（ビット単位）、macOS（arm64）が BouncingBall 1.4e-16、Dahlquist 5.6e-17、VanDerPol 2.2e-14（CSV は x86_64 で作られたもので、arm64 の浮動小数点の演算の違い）。往復の試験は Linux だけ（Windows・macOS では飛ばす）。なお、新しい workflow は main に入るまで `gh workflow run --ref` で出せないので、この run は一時的に feature の push のトリガーを付けて回し、あとで外した。
 
@@ -125,7 +125,7 @@
 
 - **ユーザーの決定**（2026-11-07）: 「FMI Import の案 B: 自前で作成」。**この解釈はエージェント（親）のもので、ユーザーが違うと言えば直す**: crate `fmi`（jondo2010、0.8）は入れない。案 B で得るはずだったもの（版を問わない Import の機能一式）も、依存を増やさずに `globe-mode-fmi-import` へ自前で足していく。(g) の「戻す条件」は**採らない**（上で打ち消した）。`doc/licenses.md` の `fmi` の行は「入れない（自前で作る）」にした。
 - 理由: (g) の 3 点（zip 8 の勧告 4 件、Cargo.lock の 67 パッケージ増、3.0 の `resourcePath`）は上流の更新待ちで、S205 までに自前の ME・CS が 2.0・3.0 で Reference-FMUs と一致した（工数の見積りも外れて小さかった）。依存を増やす利点が薄い。
-- **案 B（crate `fmi` 0.8.0）にあって、自前にまだ無いもの**（出典: <https://docs.rs/crate/fmi/0.8.0/features>、<https://docs.rs/fmi/0.8.0/fmi/>、<https://github.com/jondo2010/rust-fmi> の README、tag v0.8.0 の `fmi/src/fmi2|fmi3/instance/*.rs` の関数名。確認日 2026-11-07。コードは写していない）:
+- **案 B（crate `fmi` 0.8.0）にあって、自前にまだ無いもの**（出典: <https://docs.rs/crate/fmi/0.8.0/features>、<https://docs.rs/fmi/0.8.0/fmi/>、<https://github.com/jondo2010/rust-fmi> の README、tag v0.8.0 の `fmi/src/fmi2|fmi3/instance/*.rs` の関数名。確認日 2026-11-07。コードは写していない）は次のとおり。
 
   | 案 B の機能 | 自前の現状 | 行き先 |
   | --- | --- | --- |

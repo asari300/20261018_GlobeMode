@@ -33,7 +33,7 @@
 
 ## 結果
 
-- `mise run msl:sim`（`--tolerance-scale 0.1`、既定 `auto`、時間切れは 180 s で回し直す）を S012 の結果と比べた（[msl-sim.md](../msl-sim.md)、両方にある 356 本）:
+- `mise run msl:sim`（`--tolerance-scale 0.1`、既定 `auto`、時間切れは 180 s で回し直す）を S012 の結果と比べた（[msl-sim.md](../msl-sim.md)、両方にある 356 本）は次のとおり。
   - 実行できた 309 → **308**（−1）。止まったのは `GenerationOfFMUs` で、誤った結果を返さず `GM-U0004` で止まるようになった（(a) の狙いどおり）。
   - 管に収まった 299 → **301**（+2）。`DemonstrateSignalExtrema` と `DemoPowerSupplyWithBuffer` が新しく収まった（(b)）。管に収まらなくなったものは無い。
   - 参照結果と比べた 307 本のうち 301 本（98.0%）。外れた 6 本のうち 3 本は既知の外れの一覧にある（S013 で `DoublePendulumInitTip` を足した。許容誤差を 1/10 にすると 3/4 → 2/4 に悪くなるので、倍率では救えない）。

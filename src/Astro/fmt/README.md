@@ -48,16 +48,16 @@ mise exec -- pnpm build                                          # 本番ビル�
 
 ## 依存
 
-直接の依存（`package.json`）:
+直接の依存（`package.json`）は次のとおり。
 
 | 名前 | 版 | ライセンス | 出典 URL | 確認日 |
 | --- | --- | --- | --- | --- |
 | astro | 7.4.4 | MIT | https://www.npmjs.com/package/astro （リポジトリ https://github.com/withastro/astro） | 2026-10-31 |
 | @astrojs/node | 11.1.9 | MIT | https://www.npmjs.com/package/@astrojs/node （同じリポジトリ） | 2026-10-31 |
 
-ライセンスは `pnpm licenses list`（2026-10-31）で確かめた。推移的依存は計 197 パッケージ:
+ライセンスは `pnpm licenses list`（2026-10-31）で確かめた。推移的依存は計 197 パッケージ。
 MIT 166、ISC 11、BSD-2-Clause 8、BSD-3-Clause 3、Apache-2.0 3、CC0-1.0 1。
-次の 2 種は許可の一覧（[doc/licenses.md](../../../doc/licenses.md)）に無いので、採否を決めるまで要判断:
+次の 2 種は許可の一覧（[doc/licenses.md](../../../doc/licenses.md)）に無いので、採否を決めるまで要判断。
 
 - BlueOak-1.0.0（3 件: lru-cache、sax、common-ancestor-path）。lru-cache は Astro の session 保存で実行時に入る。【要判断】
 - MPL-2.0（2 件: lightningcss、lightningcss-linux-x64-gnu）。vite がビルド時の CSS 変換に使う。改変せず、`dist/` には入らない。

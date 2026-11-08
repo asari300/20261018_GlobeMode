@@ -8,8 +8,8 @@
 - [ADR-0007](0007-unsupported-classification.md) は、GM-U（コンパイラが未対応）の振り分けの C「omc と照合する」を任意にしていた。既知の制約の一覧（`GM-U0003`、50 行）が本当に Rumoca の制約か（omc では通るか）は未確認だった。
 - S005 で S6（構造特異）にした MSL の例題 12 本（`OpAmpCircuits.*`、`FluxTubes…Components.*`）が、単体で本当に特異かも未確認だった。
 - OpenModelica は OSMC-PL / AGPL なので、**リンクもコードの複製もしない。別プロセスで呼ぶ照合用途だけ**にする（[CLAUDE.md](../../CLAUDE.md) の 3、[licenses.md](../licenses.md)）。
-- omc 1.27.1 のスクリプト API を手元で確かめた事実は [research/openmodelica-dymola.md](../research/openmodelica-dymola.md#s008-で確かめた-omc-1271-のスクリプト-api) にある。要点:
-  - `checkModel(M)` は方程式数と変数数（スカラー）を返す。**partial や数が合わないモデルでも「completed successfully」**で、数だけが違う。合う / 合わないは数で判断する。
+- omc 1.27.1 のスクリプト API を手元で確かめた事実は [research/openmodelica-dymola.md](../research/openmodelica-dymola.md#s008-で確かめた-omc-1271-のスクリプト-api) にある。要点は次のとおり。
+  - `checkModel(M)` は方程式数と変数数（スカラー）を返す。**partial や数が合わないモデルでも**「completed successfully」で、数だけが違う。合う / 合わないは数で判断する。
   - `translateModel(M)` はバックエンド（マッチング、インデックス低減、初期化の解析、コード生成）まで走る。構造特異は「Model is structurally singular」「IndexReduction.pantelidesIndexReduction failed」「An independent subset of the model has imbalanced number of equations」の Error で `false` になる。
   - 初期条件の過剰は Warning「The initial conditions are over specified」（`-d=initialization` で余分な初期方程式の本数も出る）。**不足は何も出ない**（start 値で黙って埋める）。
   - `.mos` の中で `print(String(translateModel(M)))` のように式の中で呼ぶと、失敗したときの `getErrorString()` が空になる。文として呼べば残る。
@@ -21,7 +21,7 @@
 - **`cargo xtask omc-compare` が omc を別プロセスで呼ぶ**（`src/Rust/xtask/src/omc.rs`）。入力は `msl-funnel --json` の結果（globe check の S0〜S8 の判定）で、ファネル自体は omc に依存しない。omc が無い環境では `omc-compare` だけが動かない。
 - **omc に読ませる MSL は `data/msl` の素の 4.1.0**（globe check と同じもの）。omc 同梱の `+maint.om` は、中身が違うと照合にならないので使わない。
 - **N 本ごとに 1 つの `.mos` を書いて `omc script.mos` を実行し、標準出力を印（`@@BEGIN` / `@@ERR` / `@@TRANSLATE` / `@@END`）で切って読む。** `checkModel` と `translateModel` は文として呼び、印だけを `print` する。omc が落ちたり時間切れになったりしたら、印の無いモデルを 1 本ずつ再実行し、それでも駄目なら「結果なし」にして続ける（既定: 50 本ごと、制限 900 s / プロセス）。
-- **照合の規則**:
+- **照合の規則**は次のとおり。
 
   | 段階 | globe check 側 | omc 側 | 比べ方 |
   | --- | --- | --- | --- |

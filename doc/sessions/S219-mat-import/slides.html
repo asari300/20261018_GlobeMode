@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S219 MAT v4 の読み込み — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S219 MAT v4 の読み込み">
+
+<section class="slide" id="S01">
+  <span class="tag">S219 · 2026-11-08 · P4</span>
+  <h1>MAT v4 の読み込み</h1>
+  <p class="lead">書くだけだった結果の入出力に、読む側を CLI と Python から足した</p>
+  <div class="big"><code>globe results</code> と <code>read_results</code>。読む本体は<b>すでに sim にあった</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">出発点</span>
+  <h1>読む本体は S203 までに sim へ入っていた</h1>
+  <ul>
+    <li><code>globe-mode-sim::mat::read_mat4</code> が既にあり、xtask に写しは無かった</li>
+    <li>omc 1.27.2 の実物の MAT（<code>omc_decay_res.mat</code>）と、その試験も sim にあった</li>
+    <li>足りなかったのは、ファイルを拡張子で読み分ける入口と、CLI・Python からの呼び出し</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">API</span>
+  <h1>足したもの</h1>
+  <table class="compact">
+    <tr><th>面</th><th>名前</th><th>中身</th></tr>
+    <tr><td>Rust</td><td><code>mat::read_results(path)</code></td><td><code>.mat</code> は MAT v4、それ以外は CSV</td></tr>
+    <tr><td>Rust</td><td><code>mat::write_mat4_parts</code></td><td><code>write_mat4</code> の本体。<code>SimRun</code> なしで書ける</td></tr>
+    <tr><td>CLI</td><td><code>globe results IN [-o OUT]</code></td><td>形は拡張子。<code>-o</code> 無しは CSV を標準出力へ</td></tr>
+    <tr><td>Python</td><td><code>read_results(path)</code></td><td><code>simulate_columns</code> と同じ形の dict。<code>table</code> で表に</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">試験</span>
+  <h1>往復と実物</h1>
+  <ul>
+    <li>write、read、write で 1 ビットも変わらない（-0.0・極小・無限・NaN を含む）</li>
+    <li>omc の実物を CLI で CSV に、CSV を MAT に、また CSV に戻して同じ</li>
+    <li>入力と同じ書き先は断る（終了コード 2）。壊れた入力も 2</li>
+    <li>Python は omc の MAT と、<code>simulate</code> の CSV の往復</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">次回</span>
+  <h1>やらなかったこと</h1>
+  <ul>
+    <li>UI の「結果を開く」は別の仕事</li>
+    <li>MAT のパラメータは CSV に移らない（CSV に列がない）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

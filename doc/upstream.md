@@ -7,7 +7,7 @@
 - **出すのはユーザー。エージェントは出さない**（`gh issue create` を使わない）。当面は提出せず貯める（2026-11-05）。
 - **Rumoca の rev は GlobeMode の版ごとに固定する**。版の途中では上げず、上げるのは次の版の作業の最初（0.2.0 は v0.10.2 のまま。[ADR-0002](adr/0002-rumoca-adapter.md) の付記）。上流の更新は毎日 1 回、読むだけの定期実行で確かめる。
 - 下書きの環境は Rumoca v0.10.2（rev `276e82bd`）、MSL 4.1.0。01〜33 は v0.10.4（タグのコミット `9c8c56fc`、2026-11-02 公開、2026-11-05 でも最新、<https://github.com/CogniPilot/rumoca/releases/tag/v0.10.4>）でも確かめた。Rumoca の main（`91d6e936`、v0.10.4 の 10 コミット後、確認日 2026-11-03。S162 は `590ac739`、2026-11-05）はビルドしていない【未確認】（S162 は 05・06・10〜12・14 で main のソースを v0.10.4 と比べた）。diffsol の main は `883d9a09`（2026-11-02）。Rumoca: <https://github.com/CogniPilot/rumoca>、diffsol: <https://github.com/martinjrobins/diffsol>（確認日 2026-11-02）。
-- 影響の本数の出典:
+- 影響の本数の出典は次のとおり。
   - 「MSL」は GlobeMode の MSL 4.1.0 の検査（S011 以降、[msl-sim.md](msl-sim.md)・[research/msl-sim-failures.md](research/msl-sim-failures.md)）。
   - 「ライブラリ」は公開ライブラリ 7 つの検査。17〜26 は [run 41250636800](https://github.com/asari300/20261018_GlobeMode/actions/runs/41250636800)（S063、失敗 1,781 本、[research/libraries-2026-11-01.md](research/libraries-2026-11-01.md)）、25b〜25h・27〜32 は [run 41365960542](https://github.com/asari300/20261018_GlobeMode/actions/runs/41365960542)（S083・S091・S108）、16 は S067 の MSL 4.0.0 の回し直し。
   - 1 つの例題が 2 つの下書きに数えられることがある（25 の 44 本は 25g の `splineDerivatives` を含む）。本数の和は失敗の本数にならない。
@@ -15,7 +15,7 @@
 
 ## 一覧
 
-状態:
+状態は次のとおり。
 
 - **未提出**: Rumoca v0.10.2 の CLI（または自己完結の `.mo`）で再現を確かめてある。出す前に Rumoca main で確かめる（下の手順の 1）のは同じ。
 - **未提出（v0.10.4 で再現）**: 最新のリリース v0.10.4 でも再現する（S113・S115）。main は【未確認】。

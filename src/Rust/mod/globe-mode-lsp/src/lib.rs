@@ -2,7 +2,7 @@
 //!
 //! 機能: 診断（`publishDiagnostics`、検査 S0〜S10 と lint）、`documentSymbol`（アウトライン）、
 //! `hover`（クラスの種類）、`formatting`（S053、`globe-mode-fmt`）、`completion`（S053、[`completion`]）。
-//! `definition`・`references`（S132、[`definition`]）。同期は Full で、要求は 1 本のスレッドで順に処理する
+//! `definition`・`references`（S132、[`definition`]）、`foldingRange`（S220、[`folding`]）。同期は Full で、要求は 1 本のスレッドで順に処理する
 //! （S136: 入力の読みは別のスレッド。`$/cancelRequest` で `globe/simulate`・`globe/simulateColumns` を止め、
 //! params に `workDoneToken` があれば `$/progress` で進捗を出す。ADR-0033）。
 //!
@@ -38,6 +38,7 @@
 
 pub mod completion;
 pub mod definition;
+pub mod folding;
 
 use std::collections::{HashMap, VecDeque};
 use std::io::{self, BufRead, Write};
@@ -222,7 +223,7 @@ impl Server {
                         // 1 = Full
                         "capabilities": {"textDocumentSync": 1, "documentSymbolProvider": true, "hoverProvider": true,
                             "documentFormattingProvider": true, "completionProvider": {"triggerCharacters": ["."]},
-                            "definitionProvider": true, "referencesProvider": true,
+                            "definitionProvider": true, "referencesProvider": true, "foldingRangeProvider": true,
                             "renameProvider": {"prepareProvider": true}},
                         "serverInfo": {"name": "globe-mode", "version": env!("CARGO_PKG_VERSION")},
                     }),
@@ -276,6 +277,15 @@ impl Server {
                     _ => None,
                 };
                 reply(id, json!(symbols))
+            }
+            // S220: 範囲は行だけ。構文が壊れていてアウトラインが引けなくても、コメントと annotation は出る
+            "textDocument/foldingRange" => {
+                let ranges = self.texts.get(&uri).map(|text| {
+                    let outline = self.ws.outline(&uri_path(&uri));
+                    let classes = outline.as_ref().and_then(|o| o.as_ref().ok()).map(|o| o.classes.as_slice());
+                    folding::folding_ranges(text, classes)
+                });
+                reply(id, json!(ranges))
             }
             "textDocument/hover" => {
                 let pos = &params["position"];

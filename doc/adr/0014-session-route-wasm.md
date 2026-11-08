@@ -6,7 +6,7 @@
 ## 背景
 
 - P3 の完了条件の 3 つ目は「bdf が wasm で（Node 上で）動く」（[roadmap.md](../roadmap.md#p3-の完了条件の進み具合)）。P3 の範囲には esdirk34・tsit45・固定刻みのソルバと ResultStore（CSV / MAT v4 / Arrow）、パラメータを変えた再実行も入る（[features.md](../features.md)）。
-- S012 の調べもので確かめた事実（確認日 2026-10-19、Rumoca rev `276e82bd`。出典の行番号は [research/rumoca.md](../research/rumoca.md#s012-で調べた実行系の公開の道v0102)）:
+- S012 の調べもので確かめた事実（確認日 2026-10-19、Rumoca rev `276e82bd`。出典の行番号は [research/rumoca.md](../research/rumoca.md#s012-で調べた実行系の公開の道v0102)）は次のとおり。
   - S011 の型付きの道（`rumoca_sim::build_simulation` → `check_prepared_initialization` → `run_prepared_simulation`）と `rk45::simulate` は std の `Instant::now()` を呼ぶ。wasm32-unknown-unknown では Node で実際に `RuntimeError: unreachable … <std::time::Instant>::now … build_simulation` になった。
   - Rumoca の FMI ME 風の host（`rumoca_solver::fmi_me`）の生成・実行の関数（`lower_correlated_for_simulation_with_overrides` → `finish_fmi_component` → `MeModelArtifact::new` → `MeRetainedComponent::instantiate` → `into_lease`（初期化）→ `numerical_setup` → `into_session(Some(Box<dyn MeIntegratorBackend>))` → `run_to_stop` → `finish`）はどれも公開されている。数値積分のプラグイン `MeIntegratorBackend`（`initialize`・`advance`・`sample`・`truncate_reset`）を差せば、Rumoca に手を入れずに積分器を替えられる。ハイブリッドの driver（イベント・根探索・出力・時間切れ）は Rumoca の host が受け持つ。この道の時間切れは wasm32 では `instant` を使うので、wasm でも効く。
   - Rumoca の BDF と RK45 のプラグイン（`rumoca_solver_diffsol::model_exchange_integrator`、`rumoca_solver_rk45::model_exchange_integrator`）も公開されている。
