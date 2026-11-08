@@ -37,7 +37,8 @@ roadmap の「エディタの言語サービス」の先頭: 参照・リネー�
 - `mise run check`: 伏せ字の試験・ci_plan の試験・fmt・clippy（-D warnings）は通った。`cargo test --workspace` は globe-mode-fmu の fmpy 3 本が落ちた（別の worktree S231 が共有 target の `tmp/` と試験の実行ファイルを同時に使っていた。FMPy の「Bad CRC-32」「ファイルが無い」と、他の worktree の「CS は断る」。LSP と無関係）。fmu を除いた `cargo test --workspace --no-fail-fast` は、cross_file の 1 回が落ちて（原因を取れず）、単独で 42 回回して全部通った。`cargo deny check` ok、`globe fmt --check src/Modelica` rc=0、`uv sync --locked` ok。
 - `check_docs.py`: デッキ 全件 OK / リンク切れ 0 件。`render_slides.py` は回していない（親が回す）。
 - ステージした差分の漏洩検査（ホームのパス・メール・トークン）: 0 件。
-- vscode.yml・ci.yml: 下の「結果」を見る。
+- `vscode.yml` run 42456754949: success（e2e の rename の一括を含む）。
+- `ci.yml` run 42456752698（1 回目）: rust-windows が failure（cross_file の試験の URI が `file://C:\...` になっていた。試験の側を `file:///C:/...` に直した）。docs は取り消し。run 42458115328（直した後）: 全ジョブ success。
 
 ## 残したこと
 
