@@ -95,6 +95,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 - S219: **結果の読み込み**。CLI に `globe results <in.mat|in.csv> [-o out.csv|out.mat]`（形は拡張子で決める。`-o` 無しは CSV を標準出力へ。入力と同じ書き先は断る）、Python に `globe_mode.read_results(path)`（`simulate_columns` と同じ形の dict。`table` で表になる。MAT のパラメータは `parameters`）。omc の実物の MAT で試した。UI の「結果を開く」は別の仕事。
 - S220: LSP に `textDocument/foldingRange`（クラス・節・複数行の annotation・連続コメント）、VS Code の拡張に `indentationRules`（`model`/`function`/`if … then`/`for … loop` などの次の行で字下げし、`end`・`else`・節の見出しで戻す）。UI（CodeMirror）の折りたたみは別 WP。
+- S225: UI（CodeMirror）に折りたたみ（行番号の隣の印と Ctrl+Shift+[ / ]。LSP と同じ範囲）。範囲は Rust の同じ関数で、ブラウザ・Android は wasm に `folding_ranges(file, text)`、Desktop は sidecar の `textDocument/foldingRange`（UI が中継する method は 20 本）。入力が 300 ms 止まったら取り直す。
 - S215: **挙動が変わる**: CLI を子プロセスで呼ぶウェブアプリ 6 種は、本文が 1 MiB を超えると 413（Streamlit・marimo は画面にエラー）、`globe` が 10 秒（`GLOBE_TIMEOUT_MS`）で終わらなければ kill して 5xx（FastAPI は 60 秒から 10 秒に）。Astro の `indent` は 0〜16、Phoenix・Gleam は `indent: 0` を受け、`disable` は規則名の形だけ。Rust のウェブアプリ 4 種は `Options` のフィールド不足（S061 から）でビルドできなかったのを直し、CI にジョブ `web` を足した（#22・#36）。
 
 - S214: LSP と言語の束ねの issue を直した。**挙動が変わる**: (1) `globe/format`（VS Code の整形）の indent は、`globe-mode.toml` があればその値が勝つ（`textDocument/formatting` と同じ規則。無いときだけ params の indent）。(2) LSP は積まれた `didChange` をまとめ、次の変更が待っている古い版は検査しない（最後の診断は最新の版）。(3) `globe/simulate` に `max_wall_seconds` が無ければ 180 s の予算を置く。(4) Elixir の NIF は panic の後も同じ workspace を使え、Mutex を待つ NIF は DirtyIo で回る。(5) Julia の `simulate_observed` はコールバックの例外を止めてから投げ直す。

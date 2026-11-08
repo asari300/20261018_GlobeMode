@@ -2,10 +2,10 @@
 import { acceptCompletion, autocompletion, completeAnyWord, type CompletionContext, type CompletionResult, type CompletionSource } from "@codemirror/autocomplete";
 import { linter, type Diagnostic as CmDiagnostic } from "@codemirror/lint";
 import { indentWithTab } from "@codemirror/commands";
-import { HighlightStyle, indentUnit, StreamLanguage, syntaxHighlighting, type StringStream } from "@codemirror/language";
+import { foldGutter, foldKeymap, foldService, HighlightStyle, indentUnit, StreamLanguage, syntaxHighlighting, type StringStream } from "@codemirror/language";
 import { invertedEffects } from "@codemirror/commands";
-import { Compartment, EditorState, Prec, StateEffect, type Extension } from "@codemirror/state";
-import { EditorView, hoverTooltip, keymap } from "@codemirror/view";
+import { Compartment, EditorState, Prec, StateEffect, StateField, type Extension } from "@codemirror/state";
+import { EditorView, hoverTooltip, keymap, ViewPlugin } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
 import type { Backend } from "./backend";
 import type { Diagnostic } from "./protocol";
@@ -219,6 +219,48 @@ export function byteToChar(text: string): (n: number) => number {
   return (n) => new TextDecoder().decode(bytes.slice(0, n)).length;
 }
 
+/**
+ * 折りたたみ（S225）。範囲の計算は Backend（LSP の textDocument/foldingRange と同じ Rust の関数）で、ここは受け取った行を foldService に渡して foldGutter を出すだけ。
+ * foldService は同期なので範囲は StateField に持ち、入力が 300 ms 止まったら本文を送って取り直す（打鍵ごとには引かない。新しい打鍵が来たら古い応答は捨てる）。
+ * 範囲は endLine を含む行で、その次の行（`end M;` など）は畳んでも残る。
+ */
+const setFolds = StateEffect.define<{ startLine: number; endLine: number }[]>();
+const folds = StateField.define<{ startLine: number; endLine: number }[]>({
+  create: () => [],
+  update: (v, tr) => tr.effects.reduce((acc, e) => (e.is(setFolds) ? e.value : acc), v),
+});
+export const modelicaFolding = (backend: Backend, file: () => string): Extension => [
+  folds,
+  foldService.of((state, _from, to) => {
+    const startLine = state.doc.lineAt(to).number - 1;
+    const end = Math.max(-1, ...state.field(folds).filter((r) => r.startLine === startLine).map((r) => r.endLine)); // 同じ行から始まるものは大きいほう
+    return end > startLine && end < state.doc.lines ? { from: to, to: state.doc.line(end + 1).to } : null;
+  }),
+  foldGutter({ foldingChanged: (u) => u.transactions.some((tr) => tr.effects.some((e) => e.is(setFolds))) }), // 範囲が届いたら印を引き直す
+  keymap.of(foldKeymap),
+  ViewPlugin.fromClass(
+    class {
+      timer: ReturnType<typeof setTimeout> | undefined;
+      dead = false;
+      constructor(readonly view: EditorView) { this.soon(); }
+      update(u: { docChanged: boolean }) { if (u.docChanged) this.soon(); }
+      destroy() { this.dead = true; clearTimeout(this.timer); }
+      soon() { clearTimeout(this.timer); this.timer = setTimeout(() => void this.fetch(), 300); }
+      async fetch() {
+        const doc = this.view.state.doc, f = file();
+        try {
+          let r: { startLine: number; endLine: number }[] = [];
+          if (doc.length) { // 空の文書（結果のタブ）は Backend に送らない
+            await backend.setFile(f, doc.toString());
+            r = await backend.foldingRanges(f);
+          }
+          if (!this.dead && this.view.state.doc === doc) this.view.dispatch({ effects: setFolds.of(r) });
+        } catch { /* 構文が壊れていても、前の範囲を残す */ }
+      }
+    },
+  ),
+];
+
 /** 読み取り専用（ライブラリのファイルのタブ。S196）。Compartment なので、自分のファイルに切り替えるときは makeEditable。 */
 const editSlot = new Compartment();
 export const readOnlySlot = (readOnly: boolean, onTry: () => void): Extension => [
@@ -263,6 +305,7 @@ export const darkSlot = (dark: boolean): Extension => themeSlot.of(EditorView.da
 export const modelicaTheme: Extension = EditorView.theme({
   "&": { backgroundColor: "var(--bg)", color: "var(--fg)" },
   "&.cm-focused": { outline: "2px solid var(--accent)" }, // S175: 既定の 1px の点線（#212121）は暗で見えない
+  ".cm-foldGutter span": { cursor: "pointer" },
   ".cm-gutters": { backgroundColor: "var(--bg)", color: "var(--muted)", borderRight: "1px solid var(--line)" },
   ".cm-activeLine, .cm-activeLineGutter": { backgroundColor: "var(--hover)" },
   ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--fg)" },

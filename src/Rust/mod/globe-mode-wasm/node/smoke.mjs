@@ -49,6 +49,17 @@ csv.free();
 assert.throws(() => gm.read_results("bad.csv", new TextEncoder().encode("x,y\n1,2\n")), /bad\.csv/);
 console.log(`結果を開く: MAT ${layout.points} 点 × ${layout.names.length} 列、CSV、読めないファイルは投げる`);
 
+// 1c. 折りたたみの範囲（S225）: LSP の textDocument/foldingRange と同じ関数。クラスは end の行を残し、equation の節と複数行の annotation も出る
+{
+  const fw = new gm.Workspace();
+  const doc = "model M\n  Real x;\nequation\n  der(x) = -x;\n  annotation(\n    experiment(StopTime = 1));\nend M;\n";
+  fw.set_file("F.mo", doc);
+  const lines = JSON.parse(fw.folding_ranges("F.mo", doc)).map((r) => [r.startLine, r.endLine]);
+  assert.ok([[0, 5], [2, 5]].every(([a, b]) => lines.some((r) => r[0] === a && r[1] === b)), JSON.stringify(lines));
+  console.log(`折りたたみ: ${JSON.stringify(lines)}`);
+  fw.free();
+}
+
 // 2. Decay
 const ws = new gm.Workspace();
 for (const [name, text] of Object.entries(readMo(join(repo, "src/Modelica/GlobeModeValidation"), repo))) {

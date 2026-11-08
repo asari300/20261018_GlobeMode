@@ -408,6 +408,13 @@ impl Workspace {
         globe_mode_lsp::definition::models(o).to_string()
     }
 
+    /// 文書 `file`（先に `set_file` で足しておく。本文 `text`）の折りたたみの範囲を `{startLine, endLine, kind}` の配列の JSON で返す（S225。LSP の `textDocument/foldingRange` と同じ関数。構文が壊れていればクラスと節は出ない）。
+    pub fn folding_ranges(&self, file: &str, text: &str) -> String {
+        let o = self.inner.outline(file).and_then(|r| r.as_ref().ok());
+        let classes = o.map(|o| o.classes.as_slice());
+        serde_json::Value::Array(globe_mode_lsp::folding::folding_ranges(text, classes)).to_string()
+    }
+
     /// 名前を `new_name` に変える TextEdit（`{range, newText}`）の配列の JSON（S161。LSP の `globe/rename` と同じ形）。
     /// 断る場合（部品でもクラスでもない・別のファイルのクラス・識別子でない・予約語・同じ階層に既にある）は理由を例外（文字列）で返す。
     pub fn rename(

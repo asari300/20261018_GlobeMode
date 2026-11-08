@@ -35,6 +35,8 @@ export interface Backend {
   completion(file: string, line: number, character: number): Promise<CompletionEntry[] | { isIncomplete?: boolean; items: CompletionEntry[] }>;
   /** setFile 済みの file の位置にある名前の参照（S161）。同じ文書の同じ名前の範囲（LSP の Range）。部品はそのいちばん内側のクラスの中、クラス名（S166）は同じクラスに行き着く全部。 */
   references(file: string, line: number, character: number): Promise<Definition["range"][]>;
+  /** setFile 済みの file の折りたたみの範囲（S225。LSP の foldingRange と同じ関数。行は 0 始まりで endLine を含む。クラス・節・複数行の annotation・連続コメント。構文が壊れていればクラスと節は無い）。 */
+  foldingRanges(file: string): Promise<{ startLine: number; endLine: number }[]>;
   /** setFile 済みの file の実行できるクラス（model・block・class。partial は除く）の修飾名（S170。UI のモデル名の候補。構文が壊れていれば空）。 */
   models(file: string): Promise<string[]>;
   /** 位置の名前を newName に変える編集（S161。LSP の TextEdit）。いちばん内側のクラスで宣言した部品と、この文書で定義したクラス（S166。宣言・`end`・使っている所）。部品でもクラスでもない・別のファイル（ライブラリ）のクラス・識別子でない・予約語・同じクラスに既にある名前は、理由つきで reject。 */
