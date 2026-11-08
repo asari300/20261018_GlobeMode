@@ -37,7 +37,7 @@ All of these start from a checkout (`git clone https://github.com/asari300/20261
 | Surface | How |
 | --- | --- |
 | CLI | `cargo build --release -p globe-mode-cli`, then `target/release/globe check -L data/msl -m Modelica.Electrical.Analog.Examples.ChuaCircuit` (MSL: `cargo xtask fetch-msl`) |
-| Browser | `mise run wasm:build`, then `cd src/Svelte && pnpm install --frozen-lockfile && pnpm build`, then serve `dist/` with any static server. Or run the workflow `web.yml` and download the artifact `globe-web`. |
+| Browser (quickest way to see the GUI) | `mise run ui:preview` builds the wasm and the UI and serves it at <http://localhost:4173/> (first run takes a few minutes; `cargo xtask fetch-msl` first if you want MSL in the library tree). Or run the workflow `web.yml` and download the artifact `globe-web`. |
 | Desktop | Run the workflow `desktop.yml` and download the artifact `desktop-linux` (.deb), `desktop-windows` (.msi) or `desktop-macos` (.dmg). Unsigned, so the OS warns. |
 | Android | Run the workflow `android.yml` and download the artifact `globe-android` (debug APK). |
 | VS Code | Build `globe`, then `cd src/VSCode/globe-mode && pnpm install && pnpm package` and install the `.vsix`. |
@@ -70,13 +70,26 @@ GlobeMode は Rust で作る OSS の Modelica IDE。同じ Rust のコアを、C
 - FMU の書き出し: FMI 2.0・3.0 の Model Exchange・Co-Simulation を、CLI・UI・各言語の API から。FMI の読み込み（Co-Simulation・Model Exchange）は CLI の `globe fmu run`・Python の `run_fmu`・Desktop の UI の「開く」（確認つき。ブラウザ・Android は不可）。FMU の中のネイティブコードは別プロセス（ワーカー）で実行するので、FMU が落ちても呼び出し側は落ちない（`--timeout`、Linux は `--memory-limit`。ディスクとネットワークは隔離しない）。
 - API: Rust（facade `globe-mode`）、Python（PyO3）、C ABI、Zig、Julia、Elixir、Gleam、WebAssembly。
 
-できていないもの: FMI の読み込みの UI と各言語の API（いまは CLI だけ）、SSP、Diagram / Icon ビュー（Documentation は右の「説明」パネルで読める。画像は未対応）、自前のコンパイラ（Track B）、署名したインストーラと自動更新（鍵を登録するまで更新は未設定）、ブラウザ版の公開。順位つきの一覧は [doc/features.md](doc/features.md)、順序は [doc/roadmap.md](doc/roadmap.md)。
+できていないもの: FMI の読み込みのブラウザ・Android の UI と C・Elixir・Gleam の API（CLI・Rust・Python・Desktop は済）、SSP、Diagram / Icon ビュー（Documentation は右の「説明」パネルで読める。画像は未対応）、自前のコンパイラ（Track B）、署名したインストーラと自動更新（鍵を登録するまで更新は未設定）、ブラウザ版の公開。順位つきの一覧は [doc/features.md](doc/features.md)、順序は [doc/roadmap.md](doc/roadmap.md)。
 
 UI のキーボード（ブラウザ・Desktop・Android。macOS は Ctrl の代わりに Cmd。エディタの中でも入力欄でも効く）: Ctrl+Enter 実行（CodeMirror の「空行を挿入」は覆う）、Ctrl+Shift+Enter 検査、Ctrl+. 止める、Ctrl+S 保存（Desktop は Ctrl+Shift+S で名前を付けて保存）、Ctrl+O 開く。診断と参照の行は本物の button で、Tab で選んで Enter か Space を押すとエディタの該当位置へ移る。プロットの canvas には信号名と時間の範囲の代替テキストが付く。ページの先頭にスキップリンク（エディタへ・結果へ）があり、タブは左右の矢印・Home・End で移れ、未保存のタブには ● が付く。初めて開いたとき（保存したタブが無いとき）だけ、はじめの 3 手順の案内が出る（閉じられる）。
 
 ### 使い始め方
 
 どれも、チェックアウト（`git clone https://github.com/asari300/20261018_GlobeMode`）と、[mise](https://mise.jdx.dev/) が固定した道具（`mise trust && mise install --locked`）から始める。道具の分担は [ADR-0003](doc/adr/0003-toolchain.md)、手順は [doc/mise-setup.html](doc/mise-setup.html)。
+
+#### まず GUI を見る（クローン直後の最短手順）
+
+```bash
+git clone https://github.com/asari300/20261018_GlobeMode && cd 20261018_GlobeMode
+mise trust && mise install --locked   # 道具（rust / node / pnpm / wasm-bindgen …）
+cargo xtask fetch-msl                 # 任意。ライブラリツリーで MSL を読むなら先に（約 100 MB）
+mise run ui:preview                   # wasm と UI をビルドして http://localhost:4173/ に配る（初回は数分。Ctrl+C で止める）
+```
+
+ブラウザで <http://localhost:4173/> を開く。初回の案内に沿って、左のタブの `Decay` を Ctrl+Enter で実行するとプロットが出る。Ctrl+O で自分の `.mo`（結果の `.mat`/`.csv` も）を開ける。計算はブラウザの Web Worker の wasm で行い、サーバは静的ファイルを配るだけ。WSL2 なら Windows のブラウザから同じ URL で開ける。
+
+Desktop（Tauri）版を手元で動かすなら `src/Rust/apps/desktop` で `cargo tauri dev`（GTK などの依存と構成は [ADR-0023](doc/adr/0023-desktop-and-web-process-layout.md)。CI の手順は `.github/workflows/desktop.yml`）。
 
 #### MSL を取る
 
@@ -140,7 +153,7 @@ mise run wasm:build                        # release の wasm（globe-mode-wasm�
 cd src/Svelte
 pnpm install --frozen-lockfile
 pnpm build                                 # dist/
-python3 -m http.server 8000 -d dist        # http://localhost:8000/ を開く
+python3 -m http.server 8000 -d dist        # http://localhost:8000/ を開く（上の 3 段をまとめたのが mise run ui:preview）
 ```
 
 開発用の `pnpm dev` と試験は [src/Svelte/README.md](src/Svelte/README.md)。ビルド済みの束は、手動のワークフロー `web.yml`（`gh workflow run web.yml`）が artifact `globe-web` に出す（`gh run download <run-id> -n globe-web -D globe-web`、中身は `dist/` と CSP の header の断片）。公開先（Pages など）はまだ無い。

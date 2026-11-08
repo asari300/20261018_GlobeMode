@@ -224,6 +224,16 @@ pnpm install --frozen-lockfile
 pnpm build
 """
 
+[tasks."ui:preview"]
+description = "クローン直後に GUI を確かめる（S242）。wasm:build → ui:build のあと、src/Svelte/dist を vite preview で http://localhost:4173/ に配る（Ctrl+C で止める。MSL は先に cargo xtask fetch-msl。無くても動く）"
+depends = ["wasm:build", "ui:build"]
+run = """
+set -eu
+cd src/Svelte
+echo "ブラウザで http://localhost:4173/ を開く（止めるのは Ctrl+C）"
+pnpm exec vite preview --host 0.0.0.0 --port 4173 --strictPort
+"""
+
 [tasks."ui:check"]
 description = "ブラウザ UI の検査（S041。svelte-check と、Playwright の Chromium で Decay と特異なモデルを検査する試験。S046 から connect グラフの試験も。S048 から data/msl があれば「MSL を読む」と ChuaCircuit の試験も）"
 depends = ["wasm:build"]
