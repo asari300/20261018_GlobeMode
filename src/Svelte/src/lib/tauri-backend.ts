@@ -1,6 +1,6 @@
-import type { Backend, CompletionEntry, Definition, Documentation, FmuInfo, Hover, LintMessage, Progress, TreeEntry } from "./backend";
+import type { Backend, CompletionEntry, Definition, Documentation, FmuInfo, FmuRunRequest, Hover, LintMessage, Progress, TreeEntry } from "./backend";
 import type { Columns } from "./plot/csv";
-import { isFmuFile, isResultsFile, toColumns } from "./results.ts"; // node の型の除去（tests/test_tauri.mjs）が拡張子を要る
+import { isFmuFile, isResultsFile, toColumns, type ResultColumns, type ResultParam } from "./results.ts"; // node の型の除去（tests/test_tauri.mjs）が拡張子を要る
 import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse, SolverEntry, TunableParameter } from "./protocol";
 
 // Tauri が `withGlobalTauri` で注入する関数だけを使う（@tauri-apps/api は入れない。npm の依存を増やさないため）。
@@ -132,10 +132,10 @@ export class TauriBackend implements Backend {
     return invoke("rpc", { method: "globe/fmuInfo", params: { path } });
   }
   /** S229: FMU を sidecar のワーカー（別プロセス）で回す。`cancel` で止められ（ワーカーを kill）、止めた呼び出しは cancelled で reject する。 */
-  async runFmu(path: string, onProgress?: (t: number) => void): Promise<Columns> {
+  async runFmu(path: string, request: FmuRunRequest = {}, onProgress?: (t: number) => void): Promise<Columns> {
     await this.#listen((p) => p.time !== undefined && onProgress?.(p.time));
     try {
-      const r = await invoke<{ layout: { names: string[]; points: number; defaults?: string[] }; columns: (number | null)[][] }>("rpc", { method: "globe/fmuRun", params: { path, request: {}, workDoneToken: RUN_TOKEN } });
+      const r = await invoke<{ layout: { names: string[]; points: number; defaults?: string[] }; columns: (number | null)[][] }>("rpc", { method: "globe/fmuRun", params: { path, request, workDoneToken: RUN_TOKEN } });
       return toColumns(r.layout, r.columns);
     } catch (e) {
       if (this.#cancelling) throw Object.assign(new Error(String(e)), { cancelled: true });
@@ -181,17 +181,19 @@ export class TauriBackend implements Backend {
 
   // S141: 開く・保存は dialog / fs プラグイン（window.__TAURI__.dialog・fs。権限は capabilities/desktop.json）。dialog で選んだパスは fs の許可に自動で入る
   // S196: パスは持たない。UI のタブが本文を受け取ったときのパスを覚え、saveFile に渡す（名前で覚えると、同じ名前の別のファイルを上書きした）
-  async openFile(): Promise<{ name: string; text: string; path: string; columns?: Columns } | null> {
+  async openFile(): Promise<{ name: string; text: string; path: string; columns?: ResultColumns } | null> {
     const path = await tauriGlobal().dialog.open({ multiple: false, filters: OPEN });
     if (!path) return null;
     const name = baseName(path);
     if (isFmuFile(name)) return { name, text: "", path }; // S229: 読むのは sidecar（確認のあと App が fmuInfo・runFmu を呼ぶ）
-    if (isResultsFile(name)) { // S222: sidecar が path を読む（bytes を JSON で往復しない）。列は simulateColumns と同じ形
-      const r = await invoke<{ layout: { names: string[]; points: number; defaults?: string[] }; columns: (number | null)[][] }>("rpc", { method: "globe/readResults", params: { path } });
-      return { name, text: "", path, columns: toColumns(r.layout, r.columns) };
-    }
+    if (isResultsFile(name)) return { name, text: "", path, columns: await this.readResultsAt(path) };
     const text = await tauriGlobal().fs.readTextFile(path); // dialog で選んだパスは fs の許可に入っている
     return { name, text, path };
+  }
+  /** S222: sidecar が path を読む（bytes を JSON で往復しない）。列は simulateColumns と同じ形。S236: 最近使ったファイルと再読み込みも同じ口（dialog を通していなくても、読むのは sidecar） */
+  async readResultsAt(path: string): Promise<ResultColumns> {
+    const r = await invoke<{ layout: { names: string[]; points: number; defaults?: string[] }; columns: (number | null)[][]; parameters?: ResultParam[] }>("rpc", { method: "globe/readResults", params: { path } });
+    return toColumns(r.layout, r.columns, r.parameters);
   }
   /** S151: 最近使ったファイルを path から開く。dialog を通していない path は fs の許可の外なので、Rust の command `read_recent` が読む（S154。`.mo` の通常のファイルだけ）。 */
   async openPath(path: string): Promise<{ name: string; text: string }> {

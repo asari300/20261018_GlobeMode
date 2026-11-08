@@ -1,4 +1,5 @@
 import type { Columns } from "./plot/csv";
+import type { ResultColumns } from "./results";
 import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse, SolverEntry, TunableParameter } from "./protocol";
 
 /** UI が計算を頼む相手。WorkerBackend（ブラウザの wasm）と TauriBackend（sidecar の `globe lsp`）が実装する。 */
@@ -44,11 +45,13 @@ export interface Backend {
   /** 位置の名前を newName に変える編集（S161。LSP の TextEdit）。いちばん内側のクラスで宣言した部品と、この文書で定義したクラス（S166。宣言・`end`・使っている所）。部品でもクラスでもない・別のファイル（ライブラリ）のクラス・識別子でない・予約語・同じクラスに既にある名前は、理由つきで reject。 */
   rename(file: string, line: number, character: number, newName: string): Promise<{ range: Definition["range"]; newText: string }[]>;
   /** 手元のファイルを 1 つ選んで読む（S141）。ブラウザ・Android は `<input type=file>`、Desktop は dialog / fs プラグイン。選ばなければ null。結果のファイル（.mat・.csv。S222）は text が空で、読んだ列が columns に入る（読めなければ reject）。 */
-  openFile(): Promise<{ name: string; text: string; path?: string; columns?: Columns } | null>;
+  openFile(): Promise<{ name: string; text: string; path?: string; columns?: ResultColumns } | null>;
   /** FMU（.fmu）の要約と、実行前に見せる警告（S229。Desktop だけ。ネイティブコードは実行しない）。読めなければ reject。 */
   fmuInfo?(path: string): Promise<FmuInfo>;
-  /** FMU を別プロセスで回し、時刻と出力の列を返す（S229。Desktop だけ。FMU の既定の実験設定で回す）。onProgress は FMU の時刻。止めた呼び出しは cancelled: true の Error で reject する。 */
-  runFmu?(path: string, onProgress?: (t: number) => void): Promise<Columns>;
+  /** FMU を別プロセスで回し、時刻と出力の列を返す（S229。Desktop だけ）。request は `FmuRunRequest`（S236。kind・stop_time・step・timeout だけ使う。省くと FMU の既定の実験設定）。onProgress は FMU の時刻。止めた呼び出しは cancelled: true の Error で reject する。 */
+  runFmu?(path: string, request?: FmuRunRequest, onProgress?: (t: number) => void): Promise<Columns>;
+  /** パスの結果のファイル（.mat・.csv）を読み直す（S236。Desktop だけ。最近使ったファイルと再読み込みで戻すタブ。読めなければ reject）。 */
+  readResultsAt?(path: string): Promise<ResultColumns>;
   /** 最近使ったファイルを path から開く（S151。Desktop だけ。ブラウザは本文を localStorage に持つので無い）。 */
   openPath?(path: string): Promise<{ name: string; text: string }>;
   /** 本文を手元に書く。保存先（Desktop はパス、ブラウザは名前）を返す。取り消しは null。saveAs は Desktop で保存先を選び直す（ブラウザは毎回ダウンロードなので同じ）。path は Desktop で、そのタブが本文を受け取った（開いた・保存した）パス（S196。あれば saveAs でない限りそこへ上書きする）。 */
@@ -58,6 +61,9 @@ export interface Backend {
   /** バイナリ（PNG など）を手元に書く（S146）。保存先と取り消しは saveFile と同じ。 */
   saveBinary?(name: string, bytes: Uint8Array): Promise<string | null>;
 }
+
+/** `globe/fmuRun` の request のうち UI が送る分（S236。空の鍵は送らない）。kind は "cs" か "me"、timeout は壁時計の秒（予算）。 */
+export interface FmuRunRequest { kind?: "cs" | "me"; stop_time?: number; step?: number; timeout?: number }
 
 /** `globe/fmuInfo` の要約（S229。使う分だけ）。warning は実行前に見せる警告（Rust の `FMU_TRUST_WARNING`）。 */
 export interface FmuInfo {

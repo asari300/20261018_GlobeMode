@@ -23,7 +23,7 @@
 //! | `globe/models` | `{file}` | 文字列の配列（S170。文書の model・block・class の修飾名。partial は除く。package の中まで入り、`within` は頭に付く。構文が壊れていれば空。wasm の `models` と同じ形） |
 //! | `globe/rename` | `{file, line, character, newName}` | LSP の TextEdit（`{range, newText}`）の配列（S161。いちばん内側のクラスで宣言した部品と、S166 からこの文書で定義したクラス。部品でもクラスでもない・別のファイルのクラス・識別子でない・予約語・同じ階層に既にある名前・ほかの開いた文書に参照があるときは -32803 に理由。`textDocument/rename` は同じ計算の WorkspaceEdit（S198: クラスのリネームは、最上位のクラスがファイル名 `M.mo`・`package.mo` に対応しているときも断る。`prepareRename` も同じ。S230: `textDocument/references` は開いていない `.mo`（根の下。隠しフォルダは除く）とライブラリ（`-L`）にも届き、`textDocument/rename` は開いているほかの文書と根の下の開いていない `.mo` を `changes` に入れる〔ライブラリは変えず `window/showMessage` で「ライブラリの N 箇所は変えない」。識別子はあるのに同じクラスと解決できなかった根の下のファイルがあれば、そのファイルを挙げて断る〕。UI の `globe/references`・`globe/rename` はメモリ上の文書だけ。開いていない文書への `globe/rename`・`textDocument/rename` は -32803、`globe/references` は空の配列）、`textDocument/prepareRename` はカーソルの識別子の Range か同じ理由） |
 //! | `globe/solvers` | なし | ソルバの登録表（`[{name, status, description, instead?}]`。S142。wasm の `solvers` と同じ） |
-//! | `globe/readResults` | `{path}`（`.mat` は MAT v4、それ以外は CSV） | `{layout, columns}`（S222。`globe/simulateColumns` の `layout`・`columns` と同じ形。`defaults` は先頭の 3 本。読めなければ -32000） |
+//! | `globe/readResults` | `{path}`（`.mat` は MAT v4、それ以外は CSV） | `{layout, columns, parameters}`（S222。`globe/simulateColumns` の `layout`・`columns` と同じ形。`parameters` は MAT の `data_1` の `[{name, value, unit?, description?}]`で、CSV は空。S236。`defaults` は先頭の 3 本。読めなければ -32000） |
 //! | `globe/fmuInfo` | `{path}`（`.fmu`） | `FmuInfo` の JSON に `warning`（実行の前に見せる警告。S229。`globe fmu info` と同じ情報。ネイティブコードは実行しない。読めなければ -32000。feature `fmu-import`） |
 //! | `globe/fmuRun` | `{path, request?, workDoneToken?}`（`request` は `FmuRunRequest`: `kind`（`"cs"`/`"me"`）・`start_time`・`stop_time`・`step`・`outputs`・`set`・`timeout`・`memory_limit_mib`） | `{layout, columns, me}`（S229。`globe/readResults` と同じ `layout`・`columns` に、ME だけ事象の要約 `me`。**FMU のネイティブコードを別プロセス（自分と同じ実行ファイルの `fmu __worker`）で実行する**。`$/progress` は `{kind: "report", stage: "integration", time}`、`$/cancelRequest` でワーカーを kill して -32800。失敗は -32000。feature `fmu-import`） |
 //! | `globe/exportFmu` | `{model, fmiVersion?, outDir}`（既定は FMI 2。`build` はしない） | `{path}`（S144。`outDir/<名前>.fmu` と展開した `outDir/<名前>/` を書く。DAE まで変換できなければ -32000） |
@@ -601,7 +601,10 @@ impl Server {
                 {
                     Ok(r) => {
                         let (layout, columns) = r.columns();
-                        reply(id, json!({"layout": layout, "columns": columns}))
+                        reply(
+                            id,
+                            json!({"layout": layout, "columns": columns, "parameters": r.parameters()}),
+                        )
                     }
                     Err(e) => error(id, -32000, &e),
                 },
@@ -2459,6 +2462,13 @@ mod tests {
         let r = s.handle(json!({"id": 1, "method": "globe/readResults", "params": {"path": mat}}));
         let res = &r[0]["result"];
         assert_eq!(res["layout"]["names"][0], "time", "{}", r[0]);
+        assert!(
+            res["parameters"].as_array().is_some_and(|p| !p.is_empty()
+                && p.iter()
+                    .all(|x| x["name"].is_string() && x["value"].is_number())),
+            "{}",
+            r[0]
+        ); // S236
         let n = res["layout"]["points"].as_u64().unwrap() as usize;
         assert!(
             n > 1
@@ -2479,6 +2489,7 @@ mod tests {
         );
         assert_eq!(r[0]["result"]["layout"]["defaults"], json!(["x"]));
         assert_eq!(r[0]["result"]["columns"][1], json!([1.0, 0.5]));
+        assert_eq!(r[0]["result"]["parameters"], json!([])); // CSV にパラメータは無い
         std::fs::remove_file(&csv).unwrap();
         for (params, code) in [
             (json!({}), -32602),

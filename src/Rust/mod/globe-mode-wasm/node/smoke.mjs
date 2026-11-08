@@ -41,6 +41,7 @@ const opened = gm.read_results("omc_decay_res.mat", readFileSync(join(repo, "src
 const layout = JSON.parse(opened.layout());
 assert.equal(layout.names[0], "time");
 assert.ok(layout.points > 1 && opened.column(0).length === layout.points && opened.column(layout.names.length).length === 0);
+assert.ok(JSON.parse(opened.parameters()).every((p) => typeof p.name === "string" && typeof p.value === "number")); // S236
 opened.free();
 const csv = gm.read_results("r.csv", new TextEncoder().encode("time,x\n0,1\n1,0.5\n"));
 assert.deepEqual(JSON.parse(csv.layout()), { names: ["time", "x"], points: 2, defaults: ["x"] });

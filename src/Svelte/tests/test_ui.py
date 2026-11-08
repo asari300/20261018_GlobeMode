@@ -13,7 +13,7 @@ dist/ を localhost で配り（CSP は index.html の meta と同じものを�
 Decay の `der(x)` の x で F12 を押すと宣言の行（`Real x`）へ動く。ChuaCircuit のファイルで型 `Modelica.Electrical.Analog.Basic.Resistor` の上の F12 は、ライブラリの Resistor.mo をエディタに開き、Alt+← で ChuaCircuit に戻る（S138）。
 構文の色付け（S163）: 予約語・型・数値・文字列・コメントに別々の色のクラス（cm-mo-*）が付き、エディタの地に対してコントラスト 4.5 以上。暗でも同じ。editor.ts の KEYWORDS は Rust の KEYWORDS と同じ並び。
 Decay の x で Shift+F12 を押すと参照の一覧（3 行）が出て行を押すと飛べ、F2 で pos に変えると全出現が変わって検査が通り（予約語は断られ、Ctrl+Z 1 回で戻る。S161）。クラス名も同じ（`extends Base` の Base を Core に変えると宣言・end・extends が変わる。S166）。
-FMU を開く（S229）: 「開く」で .fmu を選ぶと、ブラウザは「Desktop だけ」と理由を出す。Desktop（偽の window.__TAURI__）は警告つきの確認のあと結果のタブにプロットを出し、確認を断れば回さず、FMU の失敗は理由を出す。
+FMU を開く（S229）: 「開く」で .fmu を選ぶと、ブラウザは「Desktop だけ」と理由を出す。Desktop（偽の window.__TAURI__）は警告つきの設定フォーム（S236。終了時刻・刻み・予算・種類が request に乗り、FMU ごとに残る）のあと結果のタブにプロットを出し、やめれば回さず、FMU の失敗は理由を出す。
 `.mo` を開く（ファイル選択）とエディタに入りモデル名が本文から付いて検査が通り、「保存」でダウンロードされ、再読み込みで localStorage から戻る（S141）。
 名前の上にマウスを置くと宣言の 1 行が出る（Decay の x は `Real x`、ChuaCircuit の Resistor は見出しと説明文字列。S149）。
 タブ（S151）: 開くたびにタブが増え、切り替えで本文・モデル名・診断が戻り、再読み込みでタブが戻り、閉じるボタンで減り（未保存なら confirm 1 つ。最後の 1 つは閉じられない）、「最近使ったファイル」から開き直せる。
@@ -674,14 +674,14 @@ def docs_panel(browser, origin: str, errors: list[str]) -> None:
 
 
 def open_fmu_file(browser, origin: str, errors: list[str]) -> None:
-    """S229: 「開く」で .fmu を選ぶ。ブラウザは「Desktop だけ」と理由を出す。Desktop（偽の window.__TAURI__）は警告つきの確認のあと
-    sidecar（偽の rpc）が回した列を結果のタブに出し、確認を断れば何も回さない。実行の失敗は理由を出す。"""
+    """S229: 「開く」で .fmu を選ぶ。ブラウザは「Desktop だけ」と理由を出す。Desktop（偽の window.__TAURI__）は警告と実行の設定のフォーム（S236。
+    確認ダイアログの代わり）のあと sidecar（偽の rpc）が回した列を結果のタブに出し、やめれば何も回さない。フォームの終了時刻・刻み・予算・種類が
+    globe/fmuRun の request に乗り、FMU のパスごとに残る。実行の失敗は理由を出す。"""
     asked: list[str] = []
-    answer = {"ok": True}
 
     def on_dialog(d) -> None:
         asked.append(d.message)
-        d.accept() if answer["ok"] else d.dismiss()
+        d.accept()
 
     def page():
         pg = browser.new_page()
@@ -709,36 +709,147 @@ def open_fmu_file(browser, origin: str, errors: list[str]) -> None:
     dt.evaluate(
         """() => {
       const calls = (window.__fmuCalls = []);
+      const reqs = (window.__fmuReq = []);
+      const inv = __TAURI__.core.invoke;
+      __TAURI__.core.invoke = async (cmd, a) => { if (cmd === "rpc" && a.method === "globe/fmuRun") reqs.push(a.params.request); return inv(cmd, a); };
       __rpc["globe/fmuInfo"] = { model_name: "Dahlquist", fmi_version: "3.0", interfaces: [{ kind: "CoSimulation", model_identifier: "Dahlquist" }], warning: "警告: FMU の中のネイティブコードを別プロセスで実行する" };
       Object.defineProperty(__rpc, "globe/fmuRun", { get() { calls.push("run"); if (window.__fmuFail) throw new Error("FMU のワーカー（別プロセス）: 結果を返す前に終わった（signal: 11）"); return { layout: { names: ["time", "x"], points: 3, defaults: ["x"] }, columns: [[0, 1, 2], [1, 0.5, 0.25]], me: null }; } });
     }"""
     )
+    form = dt.locator("[data-fmu-form]")
 
     def desktop_open() -> None:
         dt.evaluate("__fake.opens.push('/d1/Dahlquist.fmu')")
         dt.get_by_role("button", name="開く", exact=True).click(force=True)
 
-    answer["ok"] = False
     desktop_open()
-    for _ in range(100):
-        if asked:
-            break
-        dt.wait_for_timeout(100)
-    assert "ネイティブコード" in asked[0] and "Dahlquist" in asked[0] and "CoSimulation" in asked[0], asked
-    dt.wait_for_timeout(500)
-    assert dt.evaluate("__fmuCalls.length") == 0 and dt.get_by_role("tab").count() == 1  # 断れば回さない
-    answer["ok"] = True
+    expect(form).to_be_visible(timeout=10_000)
+    text = form.inner_text()
+    assert "ネイティブコード" in text and "Dahlquist" in text and "CoSimulation" in text, text
+    form.get_by_role("button", name="やめる").click()
+    expect(form).to_have_count(0)
+    desktop_open()  # Esc でもやめられる
+    expect(form).to_be_visible()
+    dt.keyboard.press("Escape")
+    expect(form).to_have_count(0)
+    dt.wait_for_timeout(300)
+    assert dt.evaluate("__fmuCalls.length") == 0 and dt.get_by_role("tab").count() == 1  # やめれば回さない
+    # S236: 設定が request に乗る。種類の選択肢はこの FMU が持つものだけ（CS）
     desktop_open()
+    form.get_by_label("終了時刻").fill("2")
+    form.get_by_label("刻み", exact=True).fill("0.1")
+    form.get_by_label("予算（秒）").fill("30")
+    form.get_by_label("FMU の種類").select_option("cs")
+    assert form.get_by_label("FMU の種類").locator("option").all_inner_texts() == ["既定", "Co-Simulation（CS）"]
+    form.get_by_label("終了時刻").fill("abc")  # 数でない欄は実行できず、理由が出る
+    expect(form.get_by_role("button", name="実行")).to_be_disabled()
+    expect(form.get_by_role("alert")).to_contain_text("終了時刻「abc」は数でない")
+    form.get_by_label("終了時刻").fill("2")
+    form.get_by_role("button", name="実行").click()
     expect(dt.get_by_role("tab", name="結果 Dahlquist.fmu")).to_have_attribute("aria-selected", "true", timeout=30_000)
     expect(dt.locator(".plot")).to_have_attribute("data-series", "1")
     expect(dt.locator("p[data-results]")).to_contain_text("3 点")
+    expect(dt.locator("p[data-results]")).to_contain_text("再読み込みで閉じる")  # FMU の結果は path を持たず、再読み込みで戻らない（ネイティブコードを黙って回し直さない）
     assert dt.evaluate("__fmuCalls.length") == 1
+    assert dt.evaluate("__fmuReq") == [{"kind": "cs", "stop_time": 2, "step": 0.1, "timeout": 30}], dt.evaluate("__fmuReq")
+    # 同じ FMU を開き直すと前の設定が入っている。「既定に戻す」で消えて、request は空
+    desktop_open()
+    expect(form.get_by_label("予算（秒）")).to_have_value("30")
+    expect(form.get_by_label("FMU の種類")).to_have_value("cs")
+    form.get_by_role("button", name="設定を既定に戻す").click()
+    expect(form.get_by_label("予算（秒）")).to_have_value("")
+    form.get_by_role("button", name="実行").click()
+    expect(form).to_have_count(0, timeout=30_000)
+    assert dt.evaluate("__fmuReq")[-1] == {}, dt.evaluate("__fmuReq")
+    # S236: 最近使ったファイルから開いても同じフォーム
+    dt.get_by_label("最近使ったファイル").select_option(label="Dahlquist.fmu")
+    expect(form).to_be_visible()
+    form.get_by_role("button", name="やめる").click()
+    # 実行の失敗は理由を出す
     dt.evaluate("window.__fmuFail = true")
-    dt.evaluate("__fake.opens.push('/d1/Dahlquist.fmu')")
-    dt.get_by_role("button", name="開く", exact=True).click(force=True)
+    desktop_open()
+    form.get_by_role("button", name="実行").click()
     expect(dt.get_by_role("alert")).to_contain_text("signal: 11", timeout=10_000)
+    assert not asked, asked  # 確認ダイアログはもう出ない
     dt.close()
-    print("FMU を開く: ブラウザは Desktop だけと理由、Desktop は警告つきの確認（断れば回さない）のあと結果のタブにプロット、FMU の失敗は理由を出す")
+    print("FMU を開く: ブラウザは Desktop だけと理由、Desktop は警告つきの設定フォーム（やめれば回さない）で終了時刻・刻み・予算・種類が request に乗り FMU ごとに残り、結果のタブにプロット、失敗は理由を出す")
+
+
+# S236: 結果のタブの復元、MAT のパラメータ、最近使ったファイルへの結果
+RESULT_RPC = """
+(() => {
+  window.__reads = [];
+  Object.defineProperty(window.__rpc, "globe/readResults", { configurable: true, get() {
+    window.__reads.push(1);
+    if (localStorage.getItem("__gm_fail")) throw new Error("消えた");
+    return { layout: { names: ["time", "x"], points: 3, defaults: ["x"] }, columns: [[0, 1, 2], [1, 0.5, 0.25]], parameters: [{ name: "k", value: 2, unit: "1/s", description: "減衰" }, { name: "R", value: 10 }] };
+  } });
+})();
+"""
+
+
+def results_followups(browser, origin: str, errors: list[str]) -> None:
+    """S236: Desktop は結果のファイル（.mat・.csv）のタブをパスで残し、再読み込みで読み直す（読めなければ閉じて理由）。結果のタブに MAT のパラメータの
+    折りたたみの表。最近使ったファイルに結果が入り、選ぶと開く。ブラウザはパスが無く、再読み込みで閉じる（案内が出て、最近の一覧にも入らない）。"""
+    pg = browser.new_page()
+    pg.on("console", lambda m: m.type == "error" and errors.append(m.text))
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.on("dialog", lambda d: d.accept())
+    pg.add_init_script(FAKE_TAURI)
+    pg.add_init_script(RESULT_RPC)
+    pg.goto(origin)
+    pg.get_by_role("button", name="検査").wait_for()
+    pg.evaluate("__fake.opens.push('/d1/out.mat')")
+    pg.get_by_role("button", name="開く", exact=True).click(force=True)
+    tab = pg.get_by_role("tab", name="結果 out.mat")
+    expect(tab).to_have_attribute("aria-selected", "true", timeout=30_000)
+    expect(pg.locator("p[data-results]")).to_contain_text("再読み込みでは同じファイルを読み直す")
+    # パラメータの折りたたみ（名前・値・単位・説明）
+    params = pg.locator("details[data-result-params]")
+    expect(params.locator("summary")).to_contain_text("2 個")
+    params.locator("summary").click()
+    row = params.locator("tr[data-param=k]")
+    assert [c.strip() for c in row.locator("th,td").all_inner_texts()] == ["k", "2", "1/s", "減衰"], row.inner_text()
+    # 最近使ったファイルに入る
+    recent = pg.get_by_label("最近使ったファイル")
+    assert "out.mat" in recent.locator("option").all_inner_texts()
+    # 再読み込み: タブがパスから戻り、パラメータもある
+    pg.reload()
+    expect(pg.get_by_role("tab", name="結果 out.mat")).to_have_attribute("aria-selected", "true", timeout=30_000)
+    expect(pg.locator(".plot")).to_have_attribute("data-series", "1", timeout=30_000)
+    expect(pg.locator("details[data-result-params] summary")).to_contain_text("2 個")
+    assert pg.evaluate("__reads.length") == 1
+    # 別のタブに移ってから最近使ったファイルで開いても結果のタブに行く
+    pg.get_by_role("tab").nth(0).click()
+    pg.get_by_label("最近使ったファイル").select_option(label="out.mat")
+    expect(pg.get_by_role("tab", name="結果 out.mat")).to_have_attribute("aria-selected", "true")
+    assert pg.get_by_role("tab").count() == 2 and pg.evaluate("__reads.length") == 2
+    # ファイルが読めなくなっていれば、タブを閉じて理由を出す
+    pg.evaluate("localStorage.setItem('__gm_fail', '1')")
+    pg.reload()
+    expect(pg.locator(".failure")).to_contain_text("out.mat を読み直せなかった", timeout=30_000)
+    expect(pg.get_by_role("tab", name="結果 out.mat")).to_have_count(0)
+    assert pg.get_by_role("tab").count() == 1
+    pg.close()
+
+    # ブラウザ: パスが無いので再読み込みで閉じる（案内）。最近使ったファイルにも入れない
+    pg = browser.new_page()
+    pg.on("console", lambda m: m.type == "error" and errors.append(m.text))
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.on("dialog", lambda d: d.accept())
+    pg.goto(origin)
+    pg.get_by_role("button", name="検査").wait_for()
+    with pg.expect_file_chooser() as ch:
+        pg.get_by_role("button", name="開く").click(force=True)
+    ch.value.set_files(files=[{"name": "decay.csv", "mimeType": "text/csv", "buffer": b"time,x\n0,1\n1,0.5\n"}])
+    expect(pg.get_by_role("tab", name="結果 decay.csv")).to_have_attribute("aria-selected", "true", timeout=60_000)
+    expect(pg.locator("p[data-results]")).to_contain_text("再読み込みで閉じる")
+    assert pg.get_by_label("最近使ったファイル").count() == 0
+    pg.reload()
+    pg.get_by_role("button", name="検査").wait_for()
+    assert pg.get_by_role("tab").count() == 1 and pg.get_by_role("tab", name="結果 decay.csv").count() == 0
+    pg.close()
+    print("結果の続き: Desktop の結果のタブは再読み込みでパスから戻り（読めなければ閉じて理由）、MAT のパラメータの表と最近使ったファイルに結果が出る。ブラウザは再読み込みで閉じる案内")
 
 
 def plot_fixes(browser, origin: str, errors: list[str]) -> None:
@@ -1989,6 +2100,7 @@ def main() -> int:
         ui_polish(browser, origin, errors)  # S228
         docs_panel(browser, origin, errors)  # S232
         open_fmu_file(browser, origin, errors)  # S229
+        results_followups(browser, origin, errors)  # S236
         print("エディタの Tab: 空白 2 つの字下げ（選択した 2 行も）と Shift+Tab、補完の一覧が開いていれば確定・閉じていれば字下げ、Esc のあと Tab・Shift+Tab と Ctrl+M で外へ、説明は aria-describedby と画面に")
         print("キーボードだけ: モデル名・エディタへ Tab、Ctrl+Shift+Enter で検査、診断と参照の行を Tab・Enter・Space でエディタへ、Ctrl+Enter で実行（プロットの aria-label に信号名と時間の範囲）、Ctrl+. で止め、Ctrl+S で保存")
         # 初回の案内・スキップリンク・タブの矢印キー・未保存の印（S179）

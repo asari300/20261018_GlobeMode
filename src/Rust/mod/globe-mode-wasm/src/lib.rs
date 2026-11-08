@@ -273,6 +273,11 @@ impl ResultColumns {
         serde_json::to_string(&self.0.columns().0).unwrap_or_default()
     }
 
+    /// MAT のパラメータ（`[{name, value, unit?, description?}]` の JSON。CSV は `[]`。S236）。
+    pub fn parameters(&self) -> String {
+        serde_json::to_string(self.0.parameters()).unwrap_or_default()
+    }
+
     /// 列 `i`（0 が時刻、1 から変数）。範囲外は空。
     pub fn column(&self, i: usize) -> Vec<f64> {
         self.0

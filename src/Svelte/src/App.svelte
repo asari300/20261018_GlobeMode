@@ -10,7 +10,7 @@
   import { setPref, theme, type Pref } from "./theme.svelte";
   import { WorkerBackend } from "./lib/worker-backend";
   import { TauriBackend, inDesktop, tabKey } from "./lib/tauri-backend";
-  import type { Backend, Documentation, TreeEntry } from "./lib/backend";
+  import type { Backend, Documentation, FmuInfo, FmuRunRequest, TreeEntry } from "./lib/backend";
   import type { Columns } from "./lib/plot/csv";
   import type { CheckResponse, Diagnostic, ResolvedSettings, SimulateRequest } from "./lib/protocol";
   import Plot from "./lib/plot/Plot.svelte";
@@ -20,7 +20,8 @@
   import DocsPanel from "./lib/DocsPanel.svelte";
   import { modelicaDocs } from "./lib/docs";
   import { isInternal } from "./lib/plot/signals";
-  import { isFmuFile } from "./lib/results";
+  import FmuForm from "./lib/FmuForm.svelte";
+  import { isFmuFile, isResultsFile, type ResultColumns } from "./lib/results";
 
   // エディタの文書の名前。ライブラリの木で開くと、そのライブラリのファイルの名前（同じ名前で差し替える。S127）
   let file = $state("Model.mo");
@@ -109,10 +110,11 @@
   }
 
   // S151: タブ。いまの文書の file / model / own / diagnostics / saved はこれまでどおり大域の変数で、離れるときに tab へ写す（state は EditorState。元に戻す履歴も文書ごと）
-  type Tab = { file: string; model: string; own: boolean; state: EditorState; diagnostics: Diagnostic[]; saved: string; clean: string; path?: string; results?: Columns }; // results: 開いた結果のファイル（.mat・.csv。S222）のタブ。本文は無く、プロットだけを持つ。 // path: Desktop でこのタブが本文を受け取った（開いた・保存した）ファイルのパス。保存はここに書く（S196）。 // clean: 開いた・保存した本文（閉じるとき、違えば確かめる。ライブラリは見ない）
+  type Tab = { file: string; model: string; own: boolean; state: EditorState; diagnostics: Diagnostic[]; saved: string; clean: string; path?: string; results?: ResultColumns }; // results: 開いた結果のファイル（.mat・.csv。S222）のタブ。本文は無く、プロットだけを持つ。S236: Desktop は path（結果のファイルのパス）を残し、再読み込みで読み直す。 // path: Desktop でこのタブが本文を受け取った（開いた・保存した）ファイルのパス。保存はここに書く（S196）。 // clean: 開いた・保存した本文（閉じるとき、違えば確かめる。ライブラリは見ない）
   let tabs = $state.raw<Tab[]>([]);
   let cur = $state(0);
   const isResults = $derived(!!tabs[cur]?.results);
+  const resultParams = $derived(isResults ? (columns as ResultColumns | null)?.parameters ?? [] : []); // S236: MAT のパラメータ（折りたたみの表）
   // 最近使ったファイル（古い順。上限 10）。Desktop は path だけ、ブラウザは名前と本文
   type Recent = { path: string; text?: string };
   let recent = $state.raw<Recent[]>([]);
@@ -133,12 +135,13 @@
     if (!view || !tabs.length) return;
     const docs = tabs.flatMap((t, i) => { // ライブラリのタブは本文を文字列にしない
       const a = i === cur;
+      if (t.results && t.path) return [{ file: a ? file : t.file, model: t.model, text: "", a, clean: undefined, results: t.path }]; // S236: 結果のファイルのタブはパスだけ（列は再読み込みで読み直す。FMU の結果は path が無く残さない）
       if (!(a ? own : t.own)) return [];
       const text = (a ? view.state : t.state).doc.toString();
-      return [{ file: a ? file : t.file, model: a ? model : t.model, text, a, clean: t.clean === text ? undefined : t.clean }]; // S179: 保存済みの本文は、編集中（本文と違う）のときだけ持つ。再読み込みのあとも未保存の印が正しい
+      return [{ file: a ? file : t.file, model: a ? model : t.model, text, a, clean: t.clean === text ? undefined : t.clean, results: undefined as string | undefined }]; // S179: 保存済みの本文は、編集中（本文と違う）のときだけ持つ。再読み込みのあとも未保存の印が正しい
     });
     const kept = cap(docs, docs.find((t) => t.a) ?? docs[0]);
-    const ok = store(TABS, { active: Math.max(0, kept.findIndex((t) => t.a)), tabs: kept.map(({ file, text, model, clean }) => ({ file, text, model, clean })) }); // S170: モデル名もタブごとに残す
+    const ok = store(TABS, { active: Math.max(0, kept.findIndex((t) => t.a)), tabs: kept.map(({ file, text, model, clean, results }) => ({ file, text, model, clean, results })) }); // S170: モデル名もタブごとに残す
     storeNote = !ok ? "自動保存できない（ブラウザの保存領域に書けない）。閉じる前に「保存」でファイルに書き出す" : kept.length < docs.length ? "自動保存の上限を超えたので、古いタブの本文は再読み込みで戻らない。「保存」でファイルに書き出す" : "";
   };
   const guessModel = (t: string) => /^\s*(?:(?:partial|encapsulated)\s+)*(?:model|block|class|package)\s+(\w+)/m.exec(t)?.[1];
@@ -174,7 +177,7 @@
   $effect(() => { void model; untrack(() => { if (view) persist(); }); }); // S170: モデル名を直したら残す
 
   onMount(() => {
-    let docs: { file: string; text: string; model?: string; clean?: string }[] = [];
+    let docs: { file: string; text: string; model?: string; clean?: string; results?: string }[] = [];
     let active = 0;
     let closed = true; // S179: 案内を閉じたか。読めなければ閉じたことにする（毎回は出さない）
     try {
@@ -189,7 +192,8 @@
     } catch { /* 無ければ Decay から */ }
     welcome = !smokeMode && !closed && !docs.length; // S179: 保存したタブが無い初回だけ案内を出す（試験の smoke では出さない）
     if (!docs.length) docs = [{ file, text: DECAY }];
-    tabs = docs.map((t) => ({ file: t.file, model: (typeof t.model === "string" && t.model && t.text.includes(t.model.split(".").pop()!) ? t.model : guessModel(t.text)) ?? model, own: true, state: mkState(t.text), diagnostics: [], saved: "", clean: typeof t.clean === "string" ? t.clean : t.text })); // S179: 保存済みの本文を持っていなければ（初回・S151 までの保存）戻した本文を保存済みとみなす
+    if (docs.every((t) => typeof t.results === "string")) docs.push({ file, text: DECAY }); // S236: 結果のタブが読み直せなくて閉じても、タブが残るように
+    tabs = docs.map((t) => typeof t.results === "string" ? { file: t.file, model: typeof t.model === "string" ? t.model : model, own: false, state: mkState("", true), diagnostics: [], saved: "", clean: "", path: t.results, results: { names: [], points: 0, data: [[]] } } : ({ file: t.file, model: (typeof t.model === "string" && t.model && t.text.includes(t.model.split(".").pop()!) ? t.model : guessModel(t.text)) ?? model, own: true, state: mkState(t.text), diagnostics: [], saved: "", clean: typeof t.clean === "string" ? t.clean : t.text })); // S179: 保存済みの本文を持っていなければ（初回・S151 までの保存）戻した本文を保存済みとみなす
     cur = Math.min(Math.max(0, active), tabs.length - 1);
     file = tabs[cur].file;
     model = tabs[cur].model; // S170: 残したモデル名が本文に無ければ（本文を書き換えた・古い保存）、本文の最初のクラス
@@ -204,6 +208,13 @@
     });
     view = new EditorView({ parent: host, state: tabs[cur].state });
     void refreshModels();
+    // S236: 結果のファイルのタブは、保存したパスから読み直す（読めなければ閉じて理由を出す）
+    for (const t of tabs) if (t.results && t.path) {
+      void backend.readResultsAt?.(t.path).then(
+        (c) => { t.results = c; if (tabs[cur] === t) columns = c; },
+        (e) => { const i = tabs.indexOf(t); failure = `${baseName(t.path!)} を読み直せなかったので、そのタブを閉じた: ${String((e as Error).message ?? e)}`; if (i >= 0) { t.results = undefined; closeTab(i); } },
+      );
+    }
     // S100: Android のエミュレータの smoke（android.yml が logcat で GM-SMOKE の行を待つ）。クエリを渡せない Tauri の Android はビルド時の VITE_GM_SMOKE=1
     if (smokeMode) void smoke();
     else void tauri?.bench().then((on) => { if (on) { welcome = false; void smoke(); } }); // S125: Desktop の測定（GLOBE_DESKTOP_BENCH）
@@ -671,25 +682,30 @@
   // S196: Desktop は path を受け取り、同じ名前の別のファイルは別の key のタブにして、保存先はタブの path で決める（tabKey）
   const openOwn = (name: string, text: string, path?: string) => openDoc(tabKey(name, path, tabs), text, guessModel(text), true, path);
   // S222: 結果のファイル（.mat・.csv）は読んだ列を持つタブに開く（同じファイルならそのタブの列を差し替える）。エディタは隠し、プロットは実行の結果と同じ
-  function openResults(name: string, c: Columns) {
+  function openResults(name: string, c: ResultColumns, path?: string) {
     const key = `結果 ${name}`;
-    if (key === file) { tabs[cur].results = c; columns = c; return; }
+    if (key === file) { tabs[cur].results = c; tabs[cur].path = path; columns = c; persistSoon(); return; }
     let i = tabs.findIndex((t, j) => j !== cur && t.file === key);
     if (i < 0) {
-      tabs = [...tabs, { file: key, model: name.replace(/\.[^.]*$/, ""), own: false, state: mkState("", true), diagnostics: [], saved: "", clean: "", results: c }];
+      tabs = [...tabs, { file: key, model: name.replace(/\.[^.]*$/, ""), own: false, state: mkState("", true), diagnostics: [], saved: "", clean: "", results: c, path }];
       i = tabs.length - 1;
-    } else tabs[i].results = c;
+    } else Object.assign(tabs[i], { results: c, path });
     activate(i);
   }
   // S229: FMU（Desktop だけ）。要約と警告で確かめてから、sidecar のワーカー（別プロセス）で回し、結果は結果のタブに出す。「止める」でワーカーを kill する
+  // S236: 確認ダイアログの代わりに、警告と実行の設定（FmuForm。FMU のパスごとに保つ）を出す。実行かやめるまで待つ
+  let fmuAsk = $state<{ name: string; path: string; info: FmuInfo; settle: (r: FmuRunRequest | null) => void } | null>(null);
   async function openFmu(name: string, path?: string) {
     if (!path || !backend.fmuInfo || !backend.runFmu) { failure = `${name} を回せるのは Desktop だけ（ブラウザ・Android はネイティブコードを動かせない）`; return; }
     const info = await backend.fmuInfo(path);
-    if (!confirm(`${info.warning}\n\n${name}（${info.model_name}、FMI ${info.fmi_version}、${info.interfaces.map((i) => i.kind).join("・")}）を実行する？`)) return;
+    remember(path, "");
+    const request = await new Promise<FmuRunRequest | null>((settle) => (fmuAsk = { name, path, info, settle }));
+    fmuAsk = null;
+    if (!request) return;
     runState = "running";
     runNote = "FMU を実行中";
     try {
-      openResults(name, await backend.runFmu(path, (t) => { runNote = `FMU を実行中: t = ${t.toPrecision(4)}`; }));
+      openResults(name, await backend.runFmu(path, request, (t) => { runNote = `FMU を実行中: t = ${t.toPrecision(4)}`; }));
     } catch (e) {
       if (!(e as { cancelled?: boolean }).cancelled) throw e;
       runState = "cancelled";
@@ -702,11 +718,14 @@
     const f = await backend.openFile();
     if (!f) return;
     if (isFmuFile(f.name)) return openFmu(f.name, f.path);
-    if (f.columns) return openResults(f.name, f.columns);
+    if (f.columns) { if (f.path) remember(f.path, ""); return openResults(f.name, f.columns, f.path); } // S236: Desktop は最近使ったファイルにも入れる
     openOwn(f.name, f.text, f.path);
     remember(f.path ?? f.name, f.text);
   });
   const openRecent = (path: string) => run(async () => {
+    // S236: 結果と FMU の最近使ったファイル（Desktop だけ。読むのは sidecar）
+    if (desktop && isResultsFile(path) && backend.readResultsAt) { openResults(baseName(path), await backend.readResultsAt(path), path); return remember(path, ""); }
+    if (desktop && isFmuFile(path)) return openFmu(baseName(path), path);
     const r = recent.find((x) => x.path === path);
     const f = r?.text !== undefined ? { name: path, text: r.text } : await backend.openPath?.(path);
     if (f) openOwn(f.name, f.text, desktop ? path : undefined);
@@ -884,7 +903,18 @@
       </span>
     {/each}
   </div>
-  {#if isResults}<p class="note" data-results>開いた結果のファイル: {file}（{columns?.points ?? 0} 点、{columns?.names.length ?? 0} 信号）。プロットの CSV・PNG の書き出しはそのまま使える。実行・保存はできない。</p>
+  {#if fmuAsk}<FmuForm name={fmuAsk.name} path={fmuAsk.path} info={fmuAsk.info} onrun={(r) => fmuAsk?.settle(r)} oncancel={() => fmuAsk?.settle(null)} />{/if}
+  {#if isResults}<p class="note" data-results>開いた結果のファイル: {file}（{columns?.points ?? 0} 点、{columns?.names.length ?? 0} 信号）。プロットの CSV・PNG の書き出しはそのまま使える。実行・保存はできない。{tabs[cur]?.path ? "再読み込みでは同じファイルを読み直す。" : "再読み込みで閉じる（ファイルのパスを持たない）。"}</p>
+    {#if resultParams.length}
+      <details class="params" data-result-params>
+        <summary>パラメータ（{resultParams.length} 個）</summary>
+        <div class="rows"><table><tbody>
+          {#each resultParams as p (p.name)}
+            <tr data-param={p.name}><th scope="row">{p.name}</th><td>{p.value}</td><td>{p.unit ?? ""}</td><td><small>{p.description ?? ""}</small></td></tr>
+          {/each}
+        </tbody></table></div>
+      </details>
+    {/if}
   {:else if !own}<p class="note" class:hit={roHit} data-readonly>{RO_MSG}</p>{/if}
   {#if otherWindow}<p class="note" role="status" data-other-window>別のウィンドウでも開いている。自動保存は最後に編集したほうだけが残る。</p>{/if}
   {#if storeNote}<p class="failure" role="status" data-store-note>{storeNote}</p>{/if}
@@ -930,6 +960,8 @@
 </main>
 
 <style>
+  .params .rows { max-height: 12rem; overflow-y: auto; }
+  .params th { text-align: left; font-weight: normal; padding-right: .5rem; }
   main { font: 14px/1.4 system-ui, sans-serif; max-width: 76rem; margin: 0 auto; padding: 1rem; }
   .bar { display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: .5rem; }
   .note, .run, .final, .hint { color: var(--muted); margin: .25rem 0; }
