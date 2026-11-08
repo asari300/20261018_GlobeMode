@@ -115,7 +115,7 @@ fn references_and_rename_reach_unopened_files_and_libraries() {
         "{out:?}"
     );
 
-    // import の別名を通る参照（`D.Base`。D の先のパッケージはどこにも無い）は解決できない。黙って取りこぼさず、ファイルを挙げて断る
+    // import の別名を通る参照でも `D.Base` は `Elsewhere.Pkg.Base`（ここにはどこにも無い）で、この `Base` とは別。解決できない候補は黙って取りこぼさず、ファイルを挙げて断る（S235 以降、解決できる分は下の試験で `changes` に入る）
     write(
         root.join("Imp.mo"),
         "model Imp\n  import D = Elsewhere.Pkg;\n  D.Base b;\nend Imp;\n",
@@ -129,5 +129,184 @@ fn references_and_rename_reach_unopened_files_and_libraries() {
     // 参照の一覧は引けた分だけ返す
     let r = ask(&mut s, "textDocument/references").remove(0);
     assert_eq!(r["result"].as_array().unwrap().len(), 4, "{r}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ---- S235: 継承した部品と import の別名 ----
+
+/// 根 `root` に `files` を書いて、`opened` の文書を開いたサーバ。
+fn server_with(tag: &str, files: &[(&str, &str)], opened: &[&str]) -> (Server, std::path::PathBuf) {
+    let dir = std::env::temp_dir().join(format!("gm-lsp-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    for (f, t) in files {
+        std::fs::write(dir.join(f), t).unwrap();
+    }
+    let mut s = Server::new(&[]).unwrap();
+    s.handle(json!({"id": 0, "method": "initialize", "params": {"rootUri": uri(&dir)}}));
+    for f in opened {
+        let text = files.iter().find(|(n, _)| n == f).unwrap().1;
+        s.handle(
+            json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+            "uri": uri(&dir.join(f)), "languageId": "modelica", "version": 1, "text": text}}}),
+        );
+    }
+    (s, dir)
+}
+
+fn call(
+    s: &mut Server,
+    dir: &std::path::Path,
+    m: &str,
+    f: &str,
+    line: u32,
+    ch: u32,
+    new: &str,
+) -> Value {
+    s.handle(
+        json!({"id": 1, "method": m, "params": {"textDocument": {"uri": uri(&dir.join(f))},
+        "position": {"line": line, "character": ch}, "newName": new}}),
+    )
+    .remove(0)
+}
+
+/// `changes` を (ファイル名, 行, 列) の並びにする（並べ替え済み）。
+fn edits(r: &Value) -> Vec<(String, u64, u64)> {
+    let mut v: Vec<(String, u64, u64)> = r["result"]["changes"]
+        .as_object()
+        .unwrap_or_else(|| panic!("{r}"))
+        .iter()
+        .flat_map(|(k, es)| {
+            let f = k.rsplit('/').next().unwrap().to_string();
+            es.as_array().unwrap().iter().map(move |e| {
+                (
+                    f.clone(),
+                    e["range"]["start"]["line"].as_u64().unwrap(),
+                    e["range"]["start"]["character"].as_u64().unwrap(),
+                )
+            })
+        })
+        .collect();
+    v.sort();
+    v
+}
+
+const INHERIT: &[(&str, &str)] = &[
+    ("A.mo", "model A\n  Real x;\n  Real w;\nend A;\n"),
+    (
+        "B.mo",
+        "model B\n  extends A;\nequation\n  der(x) = 1;\nend B;\n",
+    ),
+    (
+        "C.mo",
+        "model C\n  extends B;\n  B b;\n  Real y = b.x;\nend C;\n",
+    ),
+    (
+        "Other.mo",
+        "model Other\n  Real x;\nequation\n  der(x) = 1;\nend Other;\n",
+    ),
+];
+
+fn inherit_want() -> Vec<(String, u64, u64)> {
+    // 定義元の宣言、B の中、C の `b.x`。無関係な Other の x は含まない
+    [("A.mo", 1, 7), ("B.mo", 3, 6), ("C.mo", 3, 13)]
+        .map(|(f, l, c)| (f.to_string(), l, c))
+        .into()
+}
+
+#[test]
+fn inherited_component_rename_and_references_from_the_definition() {
+    let (mut s, dir) = server_with("inh-def", INHERIT, &["A.mo"]);
+    let r = call(&mut s, &dir, "textDocument/rename", "A.mo", 1, 7, "z");
+    assert_eq!(edits(&r), inherit_want(), "{r}");
+    let r = call(&mut s, &dir, "textDocument/references", "A.mo", 1, 7, "");
+    let mut got: Vec<_> = r["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|l| {
+            let f = l["uri"]
+                .as_str()
+                .unwrap()
+                .rsplit('/')
+                .next()
+                .unwrap()
+                .to_string();
+            (
+                f,
+                l["range"]["start"]["line"].as_u64().unwrap(),
+                l["range"]["start"]["character"].as_u64().unwrap(),
+            )
+        })
+        .collect();
+    got.sort();
+    assert_eq!(got, inherit_want(), "{r}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn inherited_component_rename_from_the_inheritor_reaches_the_definition() {
+    let (mut s, dir) = server_with("inh-sub", INHERIT, &["A.mo", "B.mo"]);
+    // B の中の `der(x)` の x から: 定義元 A.x と、B を継承する C、`b.x` に届く
+    let p = call(&mut s, &dir, "textDocument/prepareRename", "B.mo", 3, 6, "");
+    assert_eq!(
+        p["result"]["start"],
+        json!({"line": 3, "character": 6}),
+        "{p}"
+    );
+    let r = call(&mut s, &dir, "textDocument/rename", "B.mo", 3, 6, "z");
+    assert_eq!(edits(&r), inherit_want(), "{r}");
+    // 同じ階層に既にある名前は断る
+    let r = call(&mut s, &dir, "textDocument/rename", "B.mo", 3, 6, "w");
+    assert_eq!(r["error"]["code"], -32803, "{r}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+const IMPORTS: &[(&str, &str)] = &[
+    (
+        "Defs.mo",
+        "within Elsewhere.Pkg;\nmodel Base\n  Real x;\nend Base;\n",
+    ),
+    (
+        "Imp.mo",
+        "model Imp\n  import D = Elsewhere.Pkg;\n  D.Base b;\nend Imp;\n",
+    ),
+    (
+        "Wild.mo",
+        "model Wild\n  import Elsewhere.Pkg.*;\n  Base b;\nend Wild;\n",
+    ),
+];
+
+#[test]
+fn class_rename_follows_an_import_alias_and_a_wildcard_import() {
+    let (mut s, dir) = server_with("imp", IMPORTS, &["Defs.mo"]);
+    let r = call(&mut s, &dir, "textDocument/rename", "Defs.mo", 1, 7, "Core");
+    // `D.Base` は Base の部分（列 4）だけ。ワイルドカードは `Base b;`（列 2）
+    let want: Vec<(String, u64, u64)> = [
+        ("Defs.mo", 1, 6),
+        ("Defs.mo", 3, 4),
+        ("Imp.mo", 2, 4),
+        ("Wild.mo", 2, 2),
+    ]
+    .map(|(f, l, c)| (f.to_string(), l, c))
+    .into();
+    assert_eq!(edits(&r), want, "{r}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn import_alias_rename_stays_in_its_document() {
+    let (mut s, dir) = server_with("alias", IMPORTS, &["Imp.mo"]);
+    // `import D = …` の D と、`D.Base` の頭 D。Base や Elsewhere は変えない。ほかのファイルは含まない
+    for (line, ch) in [(1, 9), (2, 2)] {
+        let r = call(&mut s, &dir, "textDocument/rename", "Imp.mo", line, ch, "E");
+        let want: Vec<(String, u64, u64)> = [("Imp.mo", 1, 9), ("Imp.mo", 2, 2)]
+            .map(|(f, l, c)| (f.to_string(), l, c))
+            .into();
+        assert_eq!(edits(&r), want, "{r}");
+    }
+    // 同じクラスにある名前とは衝突させない
+    let r = call(&mut s, &dir, "textDocument/rename", "Imp.mo", 2, 2, "b");
+    assert_eq!(r["error"]["code"], -32803, "{r}");
     let _ = std::fs::remove_dir_all(&dir);
 }
