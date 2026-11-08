@@ -664,6 +664,7 @@ def docs_panel(browser, origin: str, errors: list[str]) -> None:
     pg.get_by_role("button", name="MSL を読む").click(force=True)
     expect(pg.locator("p[data-msl]")).to_have_attribute("data-msl", "loaded", timeout=300_000)
     pg.get_by_label("ライブラリを検索").fill("Modelica.Blocks.Continuous.PID")
+    expect(pg.locator("#library-hits [role=option]").first).to_contain_text("Modelica.Blocks.Continuous.PID", timeout=30_000)  # 候補が出てから Enter（先に押すと開かない）
     pg.get_by_label("ライブラリを検索").press("Enter")
     expect(pg.locator(".docs .cls")).to_have_text("Modelica.Blocks.Continuous.PID", timeout=60_000)
     expect(pg.locator("[data-docs-info]")).to_contain_text("text-book version of a PID controller")
