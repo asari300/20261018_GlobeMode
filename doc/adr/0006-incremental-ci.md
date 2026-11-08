@@ -65,3 +65,7 @@
 ### S223: CLI を呼ぶウェブアプリ 6 種の試験（#77）
 
 CLI を子プロセスで呼ぶ 6 種（FastAPI・Astro・Phoenix・Wisp・Streamlit・marimo）の試験は、FastAPI を除いて CI に無かった（S218 で FastAPI だけ `python` に入れた）。`ci_plan.py` に出力 `astro`（`src/Astro/*` か CLI の影響、または full）を足し、`python` と `lang` も CLI（`globe-mode-cli` とその依存の `globe-mode-fmt` など）の影響で立てる。`python` が marimo（ルートの uv プロジェクト）と Streamlit（独自のプロジェクト）、`lang` が Phoenix（`mix test`）と Wisp（`gleam test`）、新しいジョブ `astro` が `node --test` を回す。どれも `cargo build -p globe-mode-cli` の debug を `GLOBE_BIN` に渡す。
+
+### S233: 試験版 UI 2 種（`ui-exp`）
+
+`src/Rust/apps/experimental/{leptos,dioxus}` も別の workspace で、facade `globe-mode` の API が変わっても push の CI は気づけなかった。`ci_plan.py` に出力 `ui_exp`（`src/Rust/apps/experimental/*` を変えた、または facade `globe-mode` が影響を受けた〔その依存の変更も含む〕、または full）を足し、ジョブ `ui-exp` が 2 つを matrix で `cargo build --locked --target wasm32-unknown-unknown` と `cargo test --locked` する。trunk・dx・wasm-bindgen は回さない（成果物の表示は手元の `leptos:check`・`dioxus:check`）。

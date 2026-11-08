@@ -2260,6 +2260,7 @@ dependencies = [
  "globe-mode-ir",
  "globe-mode-protocol",
  "globe-mode-sim",
+ "serde",
  "serde_json",
 ]
 
@@ -2332,6 +2333,7 @@ name = "globe-mode-frontend"
 version = "0.2.0"
 dependencies = [
  "globe-mode-core",
+ "globe-mode-fmt",
  "globe-mode-ir",
  "rumoca-compile",
  "rumoca-core",
