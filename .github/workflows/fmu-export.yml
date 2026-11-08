@@ -31,8 +31,6 @@ jobs:
       - uses: jdx/mise-action@v5
         with:
           install_args: rust uv zig
-          # S234: github.com の packslip.sigstore.json が 504 を返し続けた（2026-11-08）ので mise.jdx.dev から先に取る
-          fetch_from_github: false
       - uses: Swatinem/rust-cache@v2
       - run: cargo build -p globe-mode-cli --bin globe
       - name: fmusim を取得する
@@ -117,8 +115,6 @@ jobs:
       - uses: jdx/mise-action@v5
         with:
           install_args: uv
-          # S234: github.com の packslip.sigstore.json が 504 を返し続けた（2026-11-08）ので mise.jdx.dev から先に取る
-          fetch_from_github: false
           # checkout しないので mise.toml が無い
           mise_toml: |
             [tools]
@@ -182,8 +178,6 @@ jobs:
       - uses: jdx/mise-action@v5
         with:
           install_args: rust uv
-          # S234: github.com の packslip.sigstore.json が 504 を返し続けた（2026-11-08）ので mise.jdx.dev から先に取る
-          fetch_from_github: false
       - uses: Swatinem/rust-cache@v2
       - name: fmusim を取得する（S234。OS ごとの release、sha256 は S234 で GitHub の digest を確かめたもの）
         run: |
