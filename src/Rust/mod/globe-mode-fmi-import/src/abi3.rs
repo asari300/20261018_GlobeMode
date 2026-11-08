@@ -82,6 +82,8 @@ struct Common {
     c: Instance,
     // 関数ポインタが指すライブラリ。最後に drop される
     lib: Library,
+    /// ExitInitializationMode が成功したか。Terminate は初期化のあとにしか呼べない（#53）
+    initialized: bool,
 }
 
 impl Common {
@@ -124,8 +126,10 @@ impl Common {
                     stop_time.unwrap_or(0.0),
                 ),
             )?;
-            check("fmi3ExitInitializationMode", (self.api.exit_init)(self.c))
+            check("fmi3ExitInitializationMode", (self.api.exit_init)(self.c))?;
         }
+        self.initialized = true;
+        Ok(())
     }
 
     fn get_real(&mut self, vrs: &[u32]) -> Result<Vec<f64>> {
@@ -156,9 +160,12 @@ impl Common {
 
 impl Drop for Common {
     fn drop(&mut self) {
-        // SAFETY: self.c は有効で、ここで最後に使う。Terminate の失敗は後片付けの途中なので無視する
+        // SAFETY: self.c は有効で、ここで最後に使う。Terminate の失敗は後片付けの途中なので無視する。
+        // 初期化の前（失敗を含む）は Terminate を呼ばない（状態の守りが弱い FMU が落ちるため）
         unsafe {
-            (self.api.terminate)(self.c);
+            if self.initialized {
+                (self.api.terminate)(self.c);
+            }
             (self.api.free_instance)(self.c);
         }
     }
@@ -244,7 +251,12 @@ impl<'a> Cs3<'a> {
             ));
         }
         Ok(Cs3 {
-            inner: Common { api, c, lib },
+            inner: Common {
+                api,
+                c,
+                lib,
+                initialized: false,
+            },
             do_step,
             _fmu: PhantomData,
         })
@@ -345,7 +357,12 @@ impl<'a> Me3<'a> {
             ));
         }
         let mut inst = Me3 {
-            inner: Common { api, c, lib },
+            inner: Common {
+                api,
+                c,
+                lib,
+                initialized: false,
+            },
             me,
             nx: 0,
             nz: 0,
@@ -514,5 +531,76 @@ impl std::fmt::Debug for Cs3<'_> {
 impl std::fmt::Debug for Me3<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("Me3")
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU32, Ordering::SeqCst};
+
+    static TERMINATED: AtomicU32 = AtomicU32::new(0);
+    unsafe extern "C" fn ok(_: Instance) -> Status {
+        0
+    }
+    unsafe extern "C" fn fail(_: Instance) -> Status {
+        3 // fmi3Error
+    }
+    unsafe extern "C" fn terminate(_: Instance) -> Status {
+        TERMINATED.fetch_add(1, SeqCst);
+        0
+    }
+    unsafe extern "C" fn free(_: Instance) {}
+    unsafe extern "C" fn enter(_: Instance, _: bool, _: f64, _: f64, _: bool, _: f64) -> Status {
+        0
+    }
+    unsafe extern "C" fn get(
+        _: Instance,
+        _: *const u32,
+        _: usize,
+        _: *mut f64,
+        _: usize,
+    ) -> Status {
+        0
+    }
+    unsafe extern "C" fn set(
+        _: Instance,
+        _: *const u32,
+        _: usize,
+        _: *const f64,
+        _: usize,
+    ) -> Status {
+        0
+    }
+
+    fn common(exit_init: unsafe extern "C" fn(Instance) -> Status) -> Common {
+        Common {
+            api: Api {
+                free_instance: free,
+                enter_init: enter,
+                exit_init,
+                terminate,
+                get_float64: get,
+                set_float64: set,
+            },
+            c: std::ptr::null_mut(),
+            lib: libloading::os::unix::Library::this().into(),
+            initialized: false,
+        }
+    }
+
+    /// #53: 初期化の前（失敗を含む）の drop は Terminate を呼ばず、初期化のあとは呼ぶ。
+    #[test]
+    fn terminate_only_after_initialization() {
+        let before = TERMINATED.load(SeqCst);
+        let mut c = common(fail);
+        assert!(c.initialize(0.0, None, None).is_err());
+        drop(c);
+        drop(common(ok)); // initialize を呼ばない
+        assert_eq!(TERMINATED.load(SeqCst), before);
+        let mut c = common(ok);
+        c.initialize(0.0, None, None).unwrap();
+        drop(c);
+        assert_eq!(TERMINATED.load(SeqCst), before + 1);
     }
 }
