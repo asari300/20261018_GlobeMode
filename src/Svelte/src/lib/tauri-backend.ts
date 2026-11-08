@@ -1,4 +1,4 @@
-import type { Backend, CompletionEntry, Definition, FmuInfo, Hover, LintMessage, Progress, TreeEntry } from "./backend";
+import type { Backend, CompletionEntry, Definition, Documentation, FmuInfo, Hover, LintMessage, Progress, TreeEntry } from "./backend";
 import type { Columns } from "./plot/csv";
 import { isFmuFile, isResultsFile, toColumns } from "./results.ts"; // node の型の除去（tests/test_tauri.mjs）が拡張子を要る
 import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse, SolverEntry, TunableParameter } from "./protocol";
@@ -226,6 +226,9 @@ export class TauriBackend implements Backend {
   }
   rename(file: string, line: number, character: number, newName: string) {
     return invoke<{ range: Definition["range"]; newText: string }[]>("rpc", { method: "globe/rename", params: { file, line, character, newName } });
+  }
+  documentation(cls: string, at?: { file: string; line: number; character: number }): Promise<Documentation | null> {
+    return invoke("rpc", { method: "globe/documentation", params: { class: cls, file: at?.file, line: at?.line, character: at?.character } }); // S232（setFile の didOpen の本文を引く）
   }
   async foldingRanges(file: string): Promise<{ startLine: number; endLine: number }[]> {
     return (await invoke<{ startLine: number; endLine: number }[] | null>("rpc", { method: "textDocument/foldingRange", params: { textDocument: { uri: file } } })) ?? []; // S225（setFile の didOpen と同じ uri）

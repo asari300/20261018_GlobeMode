@@ -556,3 +556,31 @@ fn models_lists_the_runnable_classes_of_a_file() {
     assert_eq!(ws.models("Bad.mo"), "[]");
     assert_eq!(ws.models("Nope.mo"), "[]");
 }
+
+#[test]
+fn documentation_is_read_from_the_document_and_the_library() {
+    // S232: 説明パネル。ライブラリのクラスは名前で、開いている文書のクラスはカーソルで引く（HTML は生のまま、エスケープは戻す）
+    let ws = Workspace::with_library_split("GlobeModeValidation", &package())
+        .unwrap()
+        .with_tree(package());
+    let lib: serde_json::Value =
+        serde_json::from_str(&ws.documentation("GlobeModeValidation", "", 0, 0)).unwrap();
+    assert!(
+        lib["info"]
+            .as_str()
+            .unwrap()
+            .contains("<code>Connectors</code>"),
+        "{lib}"
+    );
+    assert_eq!(
+        ws.documentation("GlobeModeValidation.Nope", "", 0, 0),
+        "null"
+    );
+    assert_eq!(ws.documentation("", "", 0, 0), "null");
+    let text = "model T\n  Real x;\nequation\n  der(x) = 1;\n  annotation(Documentation(info = \"<b>\\\"T\\\"</b>\", revisions = \"r\"));\nend T;\n";
+    let doc: serde_json::Value = serde_json::from_str(&ws.documentation("", text, 3, 4)).unwrap();
+    assert_eq!(doc["class"], "T");
+    assert_eq!(doc["info"], "<b>\"T\"</b>");
+    assert_eq!(doc["revisions"], "r");
+    assert_eq!(ws.documentation("", text, 99, 0), "null", "クラスの外");
+}
