@@ -4,7 +4,9 @@ use globe_mode_lsp::Server;
 use serde_json::{Value, json};
 
 fn uri(p: &std::path::Path) -> String {
-    format!("file://{}", p.display())
+    // Windows: `C:\x` -> `file:///C:/x`
+    let p = p.display().to_string().replace('\\', "/");
+    format!("file://{}{p}", if p.starts_with('/') { "" } else { "/" })
 }
 
 #[test]
