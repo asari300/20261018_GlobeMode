@@ -165,6 +165,10 @@ export class GlobeWorker {
   async models(file) {
     return JSON.parse(await this.#call("models", { file }));
   }
+  // 折りたたみ（S225）: setFile 済みの file の [{startLine, endLine, kind}]（行は 0 始まり、endLine を含む。LSP の foldingRange と同じ）
+  async foldingRanges(file) {
+    return JSON.parse(await this.#call("folding_ranges", { file, text: this.#files.get(file) ?? "" }));
+  }
   // リネーム（S161）: [{range, newText}]。部品でない・識別子でない・予約語・既にある名前は、理由つきで reject
   async rename(file, line, character, newName) {
     return JSON.parse(await this.#call("rename", { file, text: this.#files.get(file) ?? "", line, character, newName }));

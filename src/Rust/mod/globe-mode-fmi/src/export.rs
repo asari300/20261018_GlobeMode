@@ -77,6 +77,9 @@ pub fn export_me_sources(model: &CompiledModel, fmi_version: u8) -> Result<MeSou
             xml.insert_str(at, &format!("  <DefaultExperiment{attrs}/>\n"));
         }
     }
+    if fmi_version == 2 {
+        declare_enums(&mut xml, model)?;
+    }
     let md = crate::parse_model_description(&xml).map_err(|e| e.to_string())?;
     let me = md
         .model_exchange
@@ -88,6 +91,72 @@ pub fn export_me_sources(model: &CompiledModel, fmi_version: u8) -> Result<MeSou
         model_description_xml: xml,
         c_sources: files,
     })
+}
+
+/// S224: Rumoca のテンプレートは Enumeration の変数を `<Integer>` で描く。FMI 2.0 の形にそろえる: 変数を
+/// `<Enumeration declaredType="…">` にして、`<TypeDefinitions>`（`SimpleType`）を `<LogCategories>` の前に足す。
+/// Enumeration の変数が無いモデルの XML は変えない。
+/// FMI 3.0 は直さない: 3.0 の Enumeration は Int64 の getter・setter を使うが、Rumoca の fmi3 の C は Int64 を
+/// 未対応（`UNSUPPORTED_GET_SET(fmi3Int64, …)`）にしているので、`<Enumeration>` と書くと FMPy が読めない。Int32 のまま。
+// shortcut: Item の description（リテラルのコメント）は書かない。配列の要素 `v[1]` は `v` の型で引く
+fn declare_enums(xml: &mut String, model: &CompiledModel) -> Result<(), String> {
+    let doc = roxmltree::Document::parse(xml).map_err(|e| e.to_string())?;
+    let vars = doc.descendants().find(|n| n.has_tag_name("ModelVariables"));
+    let mut edits = Vec::new();
+    let mut types = std::collections::BTreeMap::new();
+    for var in vars
+        .iter()
+        .flat_map(|v| v.children())
+        .filter(|c| c.is_element())
+    {
+        let Some(t) = var.attribute("name").and_then(|n| model.enum_type_of(n)) else {
+            continue;
+        };
+        let Some(el) = var.first_element_child() else {
+            continue;
+        };
+        let head = format!("<Enumeration declaredType=\"{}\"", xml_escape(&t.name));
+        edits.push((el.range(), xml[el.range()].replacen("<Integer", &head, 1)));
+        types.insert(t.name.clone(), t);
+    }
+    if edits.is_empty() {
+        return Ok(());
+    }
+    let mut defs = String::from("  <TypeDefinitions>\n");
+    for t in types.values() {
+        defs += &format!(
+            "    <SimpleType name=\"{}\">\n      <Enumeration>\n",
+            xml_escape(&t.name)
+        );
+        for (i, l) in t.literals.iter().enumerate() {
+            defs += &format!(
+                "        <Item name=\"{}\" value=\"{}\"/>\n",
+                xml_escape(l),
+                i + 1
+            );
+        }
+        defs += "      </Enumeration>\n    </SimpleType>\n";
+    }
+    defs += "  </TypeDefinitions>\n";
+    let at = xml
+        .find("<LogCategories")
+        .or_else(|| xml.find("<DefaultExperiment"))
+        .or_else(|| xml.find("<ModelVariables"))
+        .ok_or("modelDescription.xml に ModelVariables が無い")?;
+    let at = xml[..at].rfind('\n').map_or(at, |n| n + 1);
+    drop(doc);
+    // 後ろから置き換えるので、前の範囲はずれない（TypeDefinitions は変数より前）
+    for (range, text) in edits.into_iter().rev() {
+        xml.replace_range(range, &text);
+    }
+    xml.insert_str(at, &defs);
+    Ok(())
+}
+
+fn xml_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('"', "&quot;")
 }
 
 /// 作り直す `root`（`out_dir/<name>/`）が、前の Export の展開先（`modelDescription.xml` がある）か、まだ無いときだけ `Ok`。

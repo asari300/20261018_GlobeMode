@@ -122,6 +122,69 @@ fn exports_a_fmi3_source_fmu() {
     );
 }
 
+/// S224: FMI 2.0 の Enumeration は `<Enumeration declaredType>` と `TypeDefinitions`（SimpleType）で、String のパラメータは
+/// start つきで出る。3.0 は Rumoca の fmi3 の C が Int64 を未対応なので、Rumoca のまま（Int32）。
+/// Enumeration の無いモデル（Decay）の XML は変わらない（上の 2 本が見る）。
+#[test]
+fn exports_enumeration_and_string_types() {
+    for v in ["2", "3"] {
+        let out = out_dir(&format!("enum{v}"));
+        let o = Command::new(env!("CARGO_BIN_EXE_globe"))
+            .args(["fmu", "export", package_dir().to_str().unwrap(), "-m"])
+            .arg("GlobeModeValidation.Simulation.EnumString")
+            .arg("--out")
+            .arg(&out)
+            .args(["--fmi-version", v])
+            .output()
+            .unwrap();
+        assert!(o.status.success(), "{o:?}");
+        let xml = std::fs::read_to_string(
+            out.join("GlobeModeValidation_Simulation_EnumString/modelDescription.xml"),
+        )
+        .unwrap();
+        let md = globe_mode_fmi::parse_model_description(&xml).unwrap();
+        let var = |n: &str| md.variables.iter().find(|x| x.name == n).expect(&xml);
+        assert_eq!(var("label").ty, globe_mode_fmi::VarType::String, "{xml}");
+        assert_eq!(var("label").start.as_deref(), Some("decay"), "{xml}");
+        if v == "3" {
+            assert!(
+                md.enum_types.is_empty() && !xml.contains("<Enumeration"),
+                "{xml}"
+            );
+            continue;
+        }
+        assert_eq!(
+            md.enum_types
+                .iter()
+                .map(|t| (t.name.as_str(), t.items.as_slice()))
+                .collect::<Vec<_>>(),
+            [(
+                "Speed",
+                &[("slow".to_string(), 1), ("fast".to_string(), 2)][..]
+            )],
+            "{xml}"
+        );
+        for n in ["speed", "request", "level"] {
+            assert_eq!(
+                var(n).ty,
+                globe_mode_fmi::VarType::Enumeration,
+                "{n}\n{xml}"
+            );
+            assert_eq!(var(n).declared_type.as_deref(), Some("Speed"));
+        }
+        assert_eq!(var("speed").start.as_deref(), Some("2"));
+        // TypeDefinitions は LogCategories の前（XSD の順）
+        assert!(xml.find("<TypeDefinitions>").unwrap() < xml.find("<LogCategories").unwrap());
+        // 読み→書き→読みでも同じ表になる
+        let again = globe_mode_fmi::write_model_description_2(&md).unwrap();
+        assert_eq!(
+            globe_mode_fmi::parse_model_description(&again).unwrap(),
+            md,
+            "{again}"
+        );
+    }
+}
+
 /// S189: Rumoca の限界（イベントのあるモデル）は、英語の原文の前に日本語の 1 文が付く。
 #[test]
 fn unsupported_model_says_it_cannot_be_exported() {

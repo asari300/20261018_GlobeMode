@@ -160,11 +160,14 @@ fn fmi2_round_trips_through_the_writer() {
     let xml = globe_mode_fmi::write_model_description_2(&a).unwrap();
     assert_eq!(parse_model_description(&xml).unwrap(), a, "{xml}");
     assert!(globe_mode_fmi::write_model_description_2(&load("Dahlquist-fmi3.xml")).is_err());
-    // Feedthrough-fmi2 は String と Enumeration を持つので書けない（持ち越し）
-    assert!(globe_mode_fmi::write_model_description_2(&load("Feedthrough-fmi2.xml")).is_err());
+    // S224: String と Enumeration（型の定義と declaredType）も往復する
+    let f = load("Feedthrough-fmi2.xml");
+    assert_eq!(f.enum_types.len(), 1);
+    let xml = globe_mode_fmi::write_model_description_2(&f).unwrap();
+    assert_eq!(parse_model_description(&xml).unwrap(), f, "{xml}");
 }
 
-/// S124: 3.0 の書く側も読み→書き→読みで同じ表になる（2.0 と 3.0 は互いに Err、String・Enumeration も Err）。
+/// S124: 3.0 の書く側も読み→書き→読みで同じ表になる（2.0 と 3.0 は互いに Err。3.0 の Feedthrough は Int8 などを持つので Err）。
 /// S137: EventIndicator の valueReference も読み→書き→読みで残り、数が合わなければ Err。
 #[test]
 fn fmi3_round_trips_through_the_writer() {

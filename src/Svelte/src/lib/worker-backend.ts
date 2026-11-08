@@ -70,6 +70,9 @@ export class WorkerBackend implements Backend {
   rename(file: string, line: number, character: number, newName: string) {
     return this.#w.rename(file, line, character, newName);
   }
+  foldingRanges(file: string): Promise<{ startLine: number; endLine: number }[]> {
+    return this.#w.foldingRanges(file); // S225
+  }
   hover(file: string, line: number, character: number): Promise<Hover | null> {
     return this.#w.hover(file, line, character);
   }

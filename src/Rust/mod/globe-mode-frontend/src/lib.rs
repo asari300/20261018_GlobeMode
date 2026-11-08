@@ -28,7 +28,8 @@ mod structure;
 pub mod unsupported;
 #[cfg(feature = "rumoca")]
 pub use rumoca::{
-    Checker, CompiledModel, ReferenceStructure, RumocaFrontend, SkippedFile, collect_mo_files,
+    Checker, CompiledModel, EnumType, ReferenceStructure, RumocaFrontend, SkippedFile,
+    collect_mo_files,
 };
 
 /// 先頭の UTF-8 の BOM を空白 3 個にする（#84。Rumoca は BOM を構文の誤りにする）。バイト位置は変わらない。

@@ -73,6 +73,7 @@ const ops = {
     return W().hover(file, text, line, character); // S149。{contents, range} の JSON か "null"
   },
   references: ({ file, text, line, character }) => W().references(file, text, line, character), // S161。[Range] の JSON
+  folding_ranges: ({ file, text }) => W().folding_ranges(file, text), // S225。[{startLine, endLine, kind}] の JSON（先に set_file）
   models: ({ file }) => W().models(file), // S170。実行できるクラスの修飾名の JSON 配列（先に set_file）
   rename: ({ file, text, line, character, newName }) => W().rename(file, text, line, character, newName), // S161。[{range, newText}] の JSON。断れば投げる
   tunable_parameters: ({ model }) => W().tunable_parameters(model), // S150。ParametersResponse の JSON

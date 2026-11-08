@@ -74,12 +74,14 @@ pub struct Variable {
     pub value_type: ValueType,
 }
 
-/// [`Variable`] の型（値はどれも f64 で返す。Integer は整数の値、Boolean は 0 か 1）。
+/// [`Variable`] の型（値はどれも f64 で返す。Integer は整数の値、Boolean は 0 か 1、Enumeration は ordinal）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ValueType {
     Real,
     Integer,
     Boolean,
+    /// S224: 値は 1 始まりの ordinal（Integer と同じ f64 の整数）。型の名前とリテラルは `CompiledModel::enum_type_of`
+    Enumeration,
 }
 
 /// [`ModelInstance::update_discrete_states`] の結果（FMI 2.0 の `fmi2EventInfo` に当たる）。
@@ -159,7 +161,7 @@ impl ModelInstance {
                 .into_iter()
                 .map(|m| (m.name.clone(), m))
                 .collect();
-        // shortcut: Enumeration・String の変数は載せない。FMU で要るときに型の定義を足す
+        // shortcut: String の変数（パラメータ以外）は載せない。FMU で要るときに足す
         let variables = (runtime.model.visible_names.iter().enumerate())
             .filter_map(|(i, name)| {
                 let m = meta.get(name);
@@ -167,6 +169,7 @@ impl ModelInstance {
                 let value_type = match m.and_then(|m| m.value_type.as_deref()) {
                     Some("Integer") => ValueType::Integer,
                     Some("Boolean") => ValueType::Boolean,
+                    Some("Enumeration") => ValueType::Enumeration,
                     Some("Real") | None => ValueType::Real,
                     Some(_) => return None,
                 };

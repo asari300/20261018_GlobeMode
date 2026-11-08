@@ -61,6 +61,28 @@ jobs:
             done
           done
           { echo '```text'; cat "$RUNNER_TEMP/summary.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: Enumeration と String のモデルを FMPy と fmusim で確かめる（S224）
+        run: |
+          fmpy() { uv run --no-project --with fmpy==0.3.32 python -I -c "import sys; from fmpy.cli import main; sys.argv = ['fmpy'] + sys.argv[1:]; main()" "$@"; }
+          headers=$(uv run --no-project --with fmpy==0.3.32 python -I -c "import fmpy, os; print(os.path.join(os.path.dirname(fmpy.__file__), 'c-code'))")
+          # speed = fast（ordinal 2）なので x(1) = e^-2。2.0 は <Enumeration declaredType> と TypeDefinitions、3.0 は Rumoca のまま（Int32）
+          check() { python3 -I -c "import csv, math, sys; r = list(csv.reader(open(sys.argv[1]))); i = [c.strip().strip('\"') for c in r[0]].index('x'); x = float(r[-1][i]); print(f'{sys.argv[2]}: x(1) = {x!r}, x(1) - e^-2 = {x - math.exp(-2):.3e}'); sys.exit(abs(x - math.exp(-2)) > 1e-6)" "$@"; }
+          for v in 2 3; do
+            out="$RUNNER_TEMP/enum$v"
+            fmu="$out/GlobeModeValidation_Simulation_EnumString-fmi$v.fmu"
+            target/debug/globe fmu export src/Modelica/GlobeModeValidation -m GlobeModeValidation.Simulation.EnumString --out "$out" --fmi-version "$v" --build --fmi-headers "$headers"
+            unzip -p "$fmu" modelDescription.xml | grep -E "TypeDefinitions|Enumeration|String|Start"
+            fmpy validate "$fmu"
+            fmusim validate "$fmu"
+            for it in ModelExchange CoSimulation; do
+              fmpy simulate "$fmu" --interface-type "$it" --relative-tolerance 1e-8 --stop-time 1 --output-variables x --output-file "$out/fmpy-$it.csv"
+              check "$out/fmpy-$it.csv" "FMI $v FMPy $it"
+            done
+            for it in me cs; do
+              fmusim simulate "$fmu" --interface-type "$it" --stop-time 1 --output-variable x --output-file "$out/fmusim-$it.csv"
+              check "$out/fmusim-$it.csv" "FMI $v fmusim $it"
+            done
+          done
       - name: zig cc で 3 つの OS 向けの FMU を作る（S105）
         run: |
           headers=$(uv run --no-project --with fmpy==0.3.32 python -I -c "import fmpy, os; print(os.path.join(os.path.dirname(fmpy.__file__), 'c-code'))")

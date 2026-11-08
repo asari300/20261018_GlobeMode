@@ -96,6 +96,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 - S219: **結果の読み込み**。CLI に `globe results <in.mat|in.csv> [-o out.csv|out.mat]`（形は拡張子で決める。`-o` 無しは CSV を標準出力へ。入力と同じ書き先は断る）、Python に `globe_mode.read_results(path)`（`simulate_columns` と同じ形の dict。`table` で表になる。MAT のパラメータは `parameters`）。omc の実物の MAT で試した。UI の「結果を開く」は別の仕事。
 - S220: LSP に `textDocument/foldingRange`（クラス・節・複数行の annotation・連続コメント）、VS Code の拡張に `indentationRules`（`model`/`function`/`if … then`/`for … loop` などの次の行で字下げし、`end`・`else`・節の見出しで戻す）。UI（CodeMirror）の折りたたみは別 WP。
+- S225: UI（CodeMirror）に折りたたみ（行番号の隣の印と Ctrl+Shift+[ / ]。LSP と同じ範囲）。範囲は Rust の同じ関数で、ブラウザ・Android は wasm に `folding_ranges(file, text)`、Desktop は sidecar の `textDocument/foldingRange`（UI が中継する method は 20 本）。入力が 300 ms 止まったら取り直す。
 - S215: **挙動が変わる**: CLI を子プロセスで呼ぶウェブアプリ 6 種は、本文が 1 MiB を超えると 413（Streamlit・marimo は画面にエラー）、`globe` が 10 秒（`GLOBE_TIMEOUT_MS`）で終わらなければ kill して 5xx（FastAPI は 60 秒から 10 秒に）。Astro の `indent` は 0〜16、Phoenix・Gleam は `indent: 0` を受け、`disable` は規則名の形だけ。Rust のウェブアプリ 4 種は `Options` のフィールド不足（S061 から）でビルドできなかったのを直し、CI にジョブ `web` を足した（#22・#36）。
 
 - S214: LSP と言語の束ねの issue を直した。**挙動が変わる**: (1) `globe/format`（VS Code の整形）の indent は、`globe-mode.toml` があればその値が勝つ（`textDocument/formatting` と同じ規則。無いときだけ params の indent）。(2) LSP は積まれた `didChange` をまとめ、次の変更が待っている古い版は検査しない（最後の診断は最新の版）。(3) `globe/simulate` に `max_wall_seconds` が無ければ 180 s の予算を置く。(4) Elixir の NIF は panic の後も同じ workspace を使え、Mutex を待つ NIF は DirtyIo で回る。(5) Julia の `simulate_observed` はコールバックの例外を止めてから投げ直す。
@@ -120,6 +121,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - S204: **FMI Import の最初の一切れ**。新 crate `globe-mode-fmi-import` が FMU（zip）を安全に展開し（zip slip・シンボリックリンク・2 GiB 超を拒む）、共有ライブラリを読み込んで FMI 2.0・3.0 の Co-Simulation を回す（自前の C ABI。Reference-FMUs の BouncingBall・Dahlquist・VanDerPol の参照の CSV と全桁で一致、Export した Decay の往復も通る）。CLI に `globe fmu info <file.fmu>`（`modelDescription.xml` の要約。ネイティブコードは実行しない）と `globe fmu run <file.fmu> [--stop-time …] [--step …] [--set 名前=値]`（CSV を出す。**実行の前に「FMU の中のネイティブコードを実行する」と標準エラーに 1 行出す**）。ADR-0026 を Accepted に。`fmi` crate 0.8 は zip 8.6.0 の脆弱性（4 件）などで入れていない。ME・マスター・SE は未。
 - S095・S099・S109・S112・S114・S137: 自前のランタイム `globe-mode-fmu`（依存 0）。FMI 2.0 ME の関数、モデルの compile、事象、代数・離散の変数、入力、FMI 3.0 ME。S117・S124 で `modelDescription.xml` の書き手を P5a と共有。
 - S144・S154: UI の「FMU を書き出す」（ブラウザ・Desktop・Android。FMI 2.0 / 3.0 を選べる）。
+- S224: Export した FMU の型。**FMI 2.0 の P5a は Enumeration の変数を `<Enumeration declaredType>` と `<TypeDefinitions>` で書く**（これまでは `<Integer>` で、型の名前とリテラルが落ちていた。Enumeration を持たないモデルの XML は変わらない）。P5b（`globe-mode-fmu`）は 2.0・3.0 とも Enumeration のパラメータ・入力・出力を型の定義つきで書き、Integer（3.0 は Int64）で読み書きし、String のパラメータを `fmi2GetString`/`fmi3GetString` で読む（`fixed`。書くと `fmi2Error`）。**P5a の 3.0 の Enumeration は Int32 のまま**（Rumoca の C が `fmi3GetInt64` 未対応）。`dependencies` は出力ごとの依存の情報が無く持ち越し。
 
 ### P6 Web・Android・ノートブック
 
