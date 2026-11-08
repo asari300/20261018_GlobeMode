@@ -131,7 +131,7 @@ Rumoca の rev は GlobeMode の版ごとに固定する（[ADR-0002](adr/0002-r
 
 | workflow | きっかけ | 中身 |
 | --- | --- | --- |
-| `ci.yml` | main への push、毎週月曜 03:00 JST の全体、手動（`full`） | 差分だけを検査する（[ADR-0006](adr/0006-incremental-ci.md)）。ジョブ `plan`・`rust-linux`・`rust-windows`・`rust-sundials`・`deny`・`wasm-node`・`ui`・`msl`・`python`・`lang`（Zig・Julia・Elixir・Gleam）・`web`（S215。Rust のウェブアプリ 4 種の `cargo build` と試験。別の workspace なので、自分のディレクトリか `globe-mode-fmt` を変えたときだけ）・`docs` |
+| `ci.yml` | main への push、毎週月曜 03:00 JST の全体、手動（`full`） | 差分だけを検査する（[ADR-0006](adr/0006-incremental-ci.md)）。ジョブ `plan`・`rust-linux`・`rust-windows`・`rust-sundials`・`deny`・`wasm-node`・`ui`・`msl`・`python`・`lang`（Zig・Julia・Elixir・Gleam。S223 から Phoenix・Wisp の試験も）・`web`（S215。Rust のウェブアプリ 4 種の `cargo build` と試験。別の workspace なので、自分のディレクトリか `globe-mode-fmt` を変えたときだけ）・`astro`（S223。Astro のウェブアプリの試験）・`docs`。`python` は S223 から marimo・Streamlit の試験も回し、`python`・`lang`・`astro` は CLI（`globe-mode-cli` とその依存）の影響でも立つ |
 | `msl-sim.yml` | 手動 | MSL の全例題の `msl:funnel` と `msl:sim`、分割読み込みの全例題の一致（`split-all`）、14 ソルバの表（`solvers`・`solvers-report`、[msl-solvers.md](msl-solvers.md)） |
 | `libraries.yml` | 手動、毎週月曜 06:00 JST | MSL 以外の公開ライブラリ 7 つの検査と表（[libraries.md](libraries.md) の元。S058） |
 | `resources.yml` | 手動 | 最大 RSS と wasm の線形メモリの測定（S051・S054） |
