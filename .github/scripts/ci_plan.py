@@ -16,7 +16,7 @@
       * 定期実行（schedule）、手動実行で full を指定、比較元が無い（新しいブランチ・履歴の書き換え）
 
 出力（JSON。--github-output を付けると GitHub Actions の出力にも書く）:
-  full, rust, rust_packages（"-p a -p b"）, wasm, wasm_node, ui, deny, python, lang, web, astro, docs, slides, msl, reasons
+  full, rust, rust_packages（"-p a -p b"）, wasm, wasm_node, ui, deny, python, lang, web, astro, ui_exp, docs, slides, msl, reasons
 標準ライブラリだけで動く（Python 3.11 以上、tomllib を使う）。
 """
 
@@ -57,6 +57,8 @@ LANG_FILES = ["src/Zig/*", "src/Julia/*", "src/Elixir/*", "src/Gleam/*"]
 WEB_FILES = ["src/Rust/apps/web-*"]
 # #77: Astro のウェブアプリ（CLI を子プロセスで呼ぶ）
 ASTRO_FILES = ["src/Astro/*"]
+# S233: Leptos・Dioxus の試験版 UI も別の workspace。自分のディレクトリか、リンクする facade（globe-mode。依存の変更も含む）を変えたとき
+UI_EXP_FILES = ["src/Rust/apps/experimental/*"]
 PYTHON_FILES = ["pyproject.toml", "uv.lock", ".python-version", "src/Python/*"]
 DOC_FILES = ["*.md", "doc/*", "log/*", ".claude/skills/*", "src/*/README.md"]
 SLIDE_FILES = ["doc/sessions/*", "doc/assets/*", ".claude/skills/session-docs/*"]
@@ -147,6 +149,7 @@ def plan(changed: list[str] | None, message: str = "", force_full: bool = False,
         "lang": full or "globe-mode-c" in affected or "globe-mode-nif" in affected or "globe-mode-cli" in affected or any(match(p, LANG_FILES) for p in changed),
         "astro": full or "globe-mode-cli" in affected or any(match(p, ASTRO_FILES) for p in changed),
         "web": full or "globe-mode-fmt" in affected or any(match(p, WEB_FILES) for p in changed),
+        "ui_exp": full or "globe-mode" in affected or any(match(p, UI_EXP_FILES) for p in changed),
         "docs": full or any(match(p, DOC_FILES) for p in changed),
         "slides": full or any(match(p, SLIDE_FILES) for p in changed),
         # MSL での Rumoca との突き合わせは重い（MSL と Rumoca の CLI の取得、20 本の検査）ので、全体を検査するときだけ

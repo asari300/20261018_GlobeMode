@@ -204,6 +204,16 @@ class Plan(unittest.TestCase):
         self.assertFalse(plan(["src/Python/fastapi_fmt/app.py"])["web"])
         self.assertTrue(plan([], force_full=True)["web"])
 
+    def test_ui_exp(self):
+        # S233: 試験版 UI（別の workspace）は、自分のディレクトリか、リンクする facade（とその依存）を変えたときに回す
+        for path in ["src/Rust/apps/experimental/leptos/src/lib.rs", "src/Rust/apps/experimental/dioxus/Cargo.lock",
+                     "src/Rust/mod/globe-mode/src/lib.rs", "src/Rust/mod/globe-mode-core/src/lib.rs"]:
+            with self.subTest(path=path):
+                self.assertTrue(plan([path])["ui_exp"])
+        self.assertFalse(plan(["src/Rust/mod/globe-mode-cli/src/main.rs"])["ui_exp"])
+        self.assertFalse(plan(["src/Rust/apps/web-axum/src/lib.rs"])["ui_exp"])
+        self.assertTrue(plan([], force_full=True)["ui_exp"])
+
     def test_full_triggers(self):
         for path in ["Cargo.lock", "Cargo.toml", "mise.toml", "mise.lock", "deny.toml", ".github/workflows/ci.yml",
                      # #7: ビルドの設定（wasm32 の rustflags・xtask の alias）と、checkout の改行の規則（S004 の Windows）
@@ -225,7 +235,7 @@ class Plan(unittest.TestCase):
 
     def test_nothing_relevant(self):
         p = plan(["data/.gitkeep"])
-        self.assertFalse(any(p[k] for k in ["full", "rust", "wasm", "wasm_node", "ui", "deny", "python", "lang", "web", "astro", "docs", "slides", "msl"]))
+        self.assertFalse(any(p[k] for k in ["full", "rust", "wasm", "wasm_node", "ui", "deny", "python", "lang", "web", "astro", "ui_exp", "docs", "slides", "msl"]))
 
 
 if __name__ == "__main__":
