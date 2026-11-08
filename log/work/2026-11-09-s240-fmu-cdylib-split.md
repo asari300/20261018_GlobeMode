@@ -7,7 +7,7 @@
 | worktree | `.git-worktree/s240-fmu-cdylib-split` |
 | Phase | P5 |
 | セッション文書 | `doc/sessions/S240-fmu-cdylib-split/` |
-| セッション記録 | （親が写す） |
+| セッション記録 | [2026-11-02-a2580a13-3889-4662-9db4-a45dc1ca6772.md](../sessions/2026-11-02-a2580a13-3889-4662-9db4-a45dc1ca6772.md) |
 
 ## 依頼
 
