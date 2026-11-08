@@ -106,7 +106,10 @@ fn write_mo(path: &str, text: &str) -> Result<(), String> {
     if p.is_dir() {
         return Err(format!("{path}: ディレクトリである"));
     }
-    if !p.parent().is_none_or(|d| d.as_os_str().is_empty() || d.is_dir()) {
+    if !p
+        .parent()
+        .is_none_or(|d| d.as_os_str().is_empty() || d.is_dir())
+    {
         return Err(format!("{path}: 親のフォルダが無い"));
     }
     std::fs::write(p, text).map_err(|e| format!("{path}: {e}"))
