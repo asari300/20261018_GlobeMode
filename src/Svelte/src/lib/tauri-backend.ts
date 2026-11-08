@@ -1,5 +1,6 @@
 import type { Backend, CompletionEntry, Definition, Hover, LintMessage, Progress, TreeEntry } from "./backend";
 import type { Columns } from "./plot/csv";
+import { isResultsFile, toColumns } from "./results.ts"; // node の型の除去（tests/test_tauri.mjs）が拡張子を要る
 import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse, SolverEntry, TunableParameter } from "./protocol";
 
 // Tauri が `withGlobalTauri` で注入する関数だけを使う（@tauri-apps/api は入れない。npm の依存を増やさないため）。
@@ -8,7 +9,7 @@ type Listen = <T>(event: string, cb: (e: { payload: T }) => void) => Promise<() 
 type Dialog = { open(o: object): Promise<string | null>; save(o: object): Promise<string | null> };
 type Fs = { readTextFile(p: string): Promise<string>; writeTextFile(p: string, t: string): Promise<void>; writeFile(p: string, b: Uint8Array): Promise<void> };
 const tauriGlobal = () => (window as unknown as { __TAURI__: { core: { invoke: Invoke }; event: { listen: Listen }; dialog: Dialog; fs: Fs } }).__TAURI__;
-const MO = [{ name: "Modelica", extensions: ["mo"] }];
+const OPEN = [{ name: "Modelica・結果", extensions: ["mo", "mat", "csv"] }]; // S222: 結果のファイルも開く
 const extFilter = (name: string) => [{ name: "File", extensions: [name.split(".").pop() ?? ""] }]; // 保存ダイアログの拡張子の絞り込み
 const baseName = (p: string) => p.split(/[\\/]/).pop() ?? p;
 /** 保存ダイアログで選んだファイルのフォルダ（Windows のドライブの根は `C:\`。`C:` だとドライブ相対になる。S196）。 */
@@ -159,10 +160,15 @@ export class TauriBackend implements Backend {
 
   // S141: 開く・保存は dialog / fs プラグイン（window.__TAURI__.dialog・fs。権限は capabilities/desktop.json）。dialog で選んだパスは fs の許可に自動で入る
   // S196: パスは持たない。UI のタブが本文を受け取ったときのパスを覚え、saveFile に渡す（名前で覚えると、同じ名前の別のファイルを上書きした）
-  async openFile(): Promise<{ name: string; text: string; path: string } | null> {
-    const path = await tauriGlobal().dialog.open({ multiple: false, filters: MO });
+  async openFile(): Promise<{ name: string; text: string; path: string; columns?: Columns } | null> {
+    const path = await tauriGlobal().dialog.open({ multiple: false, filters: OPEN });
     if (!path) return null;
-    const name = baseName(path), text = await tauriGlobal().fs.readTextFile(path); // dialog で選んだパスは fs の許可に入っている
+    const name = baseName(path);
+    if (isResultsFile(name)) { // S222: sidecar が path を読む（bytes を JSON で往復しない）。列は simulateColumns と同じ形
+      const r = await invoke<{ layout: { names: string[]; points: number; defaults?: string[] }; columns: (number | null)[][] }>("rpc", { method: "globe/readResults", params: { path } });
+      return { name, text: "", path, columns: toColumns(r.layout, r.columns) };
+    }
+    const text = await tauriGlobal().fs.readTextFile(path); // dialog で選んだパスは fs の許可に入っている
     return { name, text, path };
   }
   /** S151: 最近使ったファイルを path から開く。dialog を通していない path は fs の許可の外なので、Rust の command `read_recent` が読む（S154。`.mo` の通常のファイルだけ）。 */

@@ -23,6 +23,7 @@
 //! | `globe/models` | `{file}` | 文字列の配列（S170。文書の model・block・class の修飾名。partial は除く。package の中まで入り、`within` は頭に付く。構文が壊れていれば空。wasm の `models` と同じ形） |
 //! | `globe/rename` | `{file, line, character, newName}` | LSP の TextEdit（`{range, newText}`）の配列（S161。いちばん内側のクラスで宣言した部品と、S166 からこの文書で定義したクラス。部品でもクラスでもない・別のファイルのクラス・識別子でない・予約語・同じ階層に既にある名前・ほかの開いた文書に参照があるときは -32803 に理由。`textDocument/rename` は同じ計算の WorkspaceEdit（S198: クラスのリネームは、最上位のクラスがファイル名 `M.mo`・`package.mo` に対応しているとき、ワークスペースの根の下の開いていない `.mo` に同じ名前の識別子があるときも断る。`prepareRename` も同じ。開いていない文書への `globe/rename`・`textDocument/rename` は -32803、`globe/references` は空の配列）、`textDocument/prepareRename` はカーソルの識別子の Range か同じ理由） |
 //! | `globe/solvers` | なし | ソルバの登録表（`[{name, status, description, instead?}]`。S142。wasm の `solvers` と同じ） |
+//! | `globe/readResults` | `{path}`（`.mat` は MAT v4、それ以外は CSV） | `{layout, columns}`（S222。`globe/simulateColumns` の `layout`・`columns` と同じ形。`defaults` は先頭の 3 本。読めなければ -32000） |
 //! | `globe/exportFmu` | `{model, fmiVersion?, outDir}`（既定は FMI 2。`build` はしない） | `{path}`（S144。`outDir/<名前>.fmu` と展開した `outDir/<名前>/` を書く。DAE まで変換できなければ -32000） |
 //! | `globe/tunableParameters` | `{model}` | `ParametersResponse` の JSON（S150。上書きできるパラメータの一覧。wasm の `tunable_parameters` と同じ。DAE まで変換できなければ -32000） |
 //! | `globe/completion` | `{file, line, character}`（`globe/definition` と同じ） | LSP の `CompletionList` `{isIncomplete, items}`（S171。`textDocument/completion` と同じ計算。予約語、文書の名前、点つきの名前の途中はクラスの子か部品の型の部品名。最大 200 件で、200 件に達したら `isIncomplete: true`（S198。打ちかけの語で絞ってから切る）。文字列・コメントの中は空。wasm の `completion` は `items` と同じ配列だけを返す） |
@@ -499,6 +500,20 @@ impl Server {
                     Err(e) => error(id, -32602, &format!("params.request: {e}")),
                 }
             }
+            // S222: 結果のファイル（.mat か .csv）を開く。UI の dialog で選んだパスをここで読む（Desktop には wasm が無い）
+            "globe/readResults" => match params["path"].as_str() {
+                Some(path) => match std::fs::read(path)
+                    .map_err(|e| format!("{path}: {e}"))
+                    .and_then(|b| globe_mode::open_results(path, &b))
+                {
+                    Ok(r) => {
+                        let (layout, columns) = r.columns();
+                        reply(id, json!({"layout": layout, "columns": columns}))
+                    }
+                    Err(e) => error(id, -32000, &e),
+                },
+                None => error(id, -32602, "params.path が文字列でない"),
+            },
             "globe/graph" => match params["model"].as_str() {
                 Some(model) => {
                     let depth = params["depth"].as_u64().unwrap_or(1) as u32;
@@ -1969,6 +1984,47 @@ mod tests {
             .handle(json!({"id": 3, "method": "globe/models", "params": {"file": uri}}))
             .remove(0);
         assert_eq!(r["result"], json!(["A", "B"]), "{r}");
+    }
+
+    /// S222: 結果のファイル（MAT v4 と CSV）を、`globe/simulateColumns` と同じ形の列で返す。
+    #[test]
+    fn read_results_over_rpc() {
+        let mut s = Server::new(&[]).unwrap();
+        let mat = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../globe-mode-sim/tests/data/omc_decay_res.mat"
+        );
+        let r = s.handle(json!({"id": 1, "method": "globe/readResults", "params": {"path": mat}}));
+        let res = &r[0]["result"];
+        assert_eq!(res["layout"]["names"][0], "time", "{}", r[0]);
+        let n = res["layout"]["points"].as_u64().unwrap() as usize;
+        assert!(
+            n > 1
+                && res["columns"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .all(|c| c.as_array().unwrap().len() == n)
+        );
+        let csv = std::env::temp_dir().join(format!("gm-lsp-read-{}.csv", std::process::id()));
+        std::fs::write(&csv, "time,x\n0,1\n1,0.5\n").unwrap();
+        let r = s.handle(json!({"id": 2, "method": "globe/readResults", "params": {"path": csv}}));
+        assert_eq!(
+            r[0]["result"]["layout"]["names"],
+            json!(["time", "x"]),
+            "{}",
+            r[0]
+        );
+        assert_eq!(r[0]["result"]["layout"]["defaults"], json!(["x"]));
+        assert_eq!(r[0]["result"]["columns"][1], json!([1.0, 0.5]));
+        std::fs::remove_file(&csv).unwrap();
+        for (params, code) in [
+            (json!({}), -32602),
+            (json!({"path": "/nonexistent/a.csv"}), -32000),
+        ] {
+            let r = s.handle(json!({"id": 3, "method": "globe/readResults", "params": params}));
+            assert_eq!(r[0]["error"]["code"], code, "{}", r[0]);
+        }
     }
 
     /// S166: クラス名の参照・リネーム・prepareRename。ほかの開いた文書に参照があるとリネームは断り、参照の一覧には含める。

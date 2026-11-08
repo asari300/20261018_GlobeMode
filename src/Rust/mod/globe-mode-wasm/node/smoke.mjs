@@ -10,7 +10,7 @@
 //    読み込み後と各モデルの後のメモリ（MiB）と時間を出す
 //    （S133）Decay の進捗と、performance.now() の費用（Decay と ChuaCircuit）
 // 4. panic の文言が last_panic() で読める（最後に回す。panic の後のモジュールは使えない）
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createRequire } from "node:module";
 import assert from "node:assert/strict";
@@ -35,6 +35,19 @@ const solvers = JSON.parse(gm.solvers());
 const available = solvers.filter((s) => s.status.kind === "available").map((s) => s.name);
 assert.ok(available.includes("bdf") && available.includes("dopri45") && available.includes("auto"), available.join());
 console.log(`ソルバ: ${solvers.length} 件（実装あり ${available.join(", ")}）`);
+
+// 1b. 結果のファイルを開く（S222）: omc の MAT v4 と CSV が、simulate_columns と同じ列の形になる。読めなければ投げる
+const opened = gm.read_results("omc_decay_res.mat", readFileSync(join(repo, "src/Rust/mod/globe-mode-sim/tests/data/omc_decay_res.mat")));
+const layout = JSON.parse(opened.layout());
+assert.equal(layout.names[0], "time");
+assert.ok(layout.points > 1 && opened.column(0).length === layout.points && opened.column(layout.names.length).length === 0);
+opened.free();
+const csv = gm.read_results("r.csv", new TextEncoder().encode("time,x\n0,1\n1,0.5\n"));
+assert.deepEqual(JSON.parse(csv.layout()), { names: ["time", "x"], points: 2, defaults: ["x"] });
+assert.deepEqual([...csv.column(1)], [1, 0.5]);
+csv.free();
+assert.throws(() => gm.read_results("bad.csv", new TextEncoder().encode("x,y\n1,2\n")), /bad\.csv/);
+console.log(`結果を開く: MAT ${layout.points} 点 × ${layout.names.length} 列、CSV、読めないファイルは投げる`);
 
 // 2. Decay
 const ws = new gm.Workspace();

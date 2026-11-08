@@ -357,6 +357,51 @@ def review_fixes(browser, origin: str, errors: list[str]) -> None:
     print("ライブラリのタブ: 読み取り専用（入力できず、案内、整形は断る、未保存にならない）。Modelica.Units.SI.Vol で Voltage が出る")
 
 
+def open_results_file(browser, origin: str, errors: list[str]) -> None:
+    """S222: 「開く」で .csv と .mat（MAT v4）の結果のファイルを開くと、結果のタブにプロットが出る。エディタは隠れ、モデルのタブに戻ると結果は消える。読めないファイルは理由が出る。"""
+    pg = browser.new_page()
+    pg.on("console", lambda m: m.type == "error" and errors.append(m.text))
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.on("dialog", lambda d: d.accept())
+    pg.goto(origin)
+    pg.get_by_role("button", name="検査").wait_for()
+
+    def choose(name: str, data: bytes) -> None:
+        with pg.expect_file_chooser() as ch:
+            pg.get_by_role("button", name="開く").click(force=True)
+        ch.value.set_files(files=[{"name": name, "mimeType": "application/octet-stream", "buffer": data}])
+
+    plot = pg.locator(".plot")
+    choose("decay.csv", b"time,x,y\n0,1,2\n1,0.5,NaN\n2,0.25,0\n")
+    expect(plot).to_have_attribute("data-series", "2", timeout=60_000)
+    expect(pg.get_by_role("tab", name="結果 decay.csv")).to_have_attribute("aria-selected", "true")
+    expect(pg.locator("p[data-results]")).to_contain_text("3 点")
+    expect(pg.locator("#editor")).to_be_hidden()
+    expect(pg.get_by_label("モデル名")).to_have_value("decay")
+    pg.get_by_role("button", name="保存").click(force=True)
+    expect(pg.get_by_role("alert")).to_contain_text("保存できない")
+    # .mat（omc の実物の MAT v4）。同じ「開く」で、別の結果のタブになる
+    mat = (SRC / "Rust/mod/globe-mode-sim/tests/data/omc_decay_res.mat").read_bytes()
+    choose("omc_decay_res.mat", mat)
+    expect(pg.get_by_role("tab", name="結果 omc_decay_res.mat")).to_have_attribute("aria-selected", "true")
+    expect(plot).to_have_count(1)
+    assert int(plot.get_attribute("data-series")) >= 1
+    assert pg.get_by_role("button", name="CSV").count() >= 1 and pg.get_by_role("button", name="PNG").count() >= 1
+    # モデルのタブに戻ると結果は消え、エディタが見える。結果のタブに戻ると列が戻る
+    pg.get_by_role("tab").nth(0).click()
+    expect(plot).to_have_count(0)
+    expect(pg.locator("#editor")).to_be_visible()
+    pg.get_by_role("tab", name="結果 decay.csv").click()
+    expect(plot).to_have_attribute("data-series", "2")
+    # 読めない結果は理由を出し、タブは増えない
+    n = pg.get_by_role("tab").count()
+    choose("bad.csv", b"x,y\n1,2\n")
+    expect(pg.get_by_role("alert")).to_contain_text("bad.csv", timeout=10_000)
+    assert pg.get_by_role("tab").count() == n
+    pg.close()
+    print("結果を開く: .csv と .mat が結果のタブでプロットされ、エディタは隠れ、タブの切り替えで列が戻り、保存と読めないファイルは理由が出る")
+
+
 def plot_fixes(browser, origin: str, errors: list[str]) -> None:
     """S201: プロットの選択を保つ（同じモデルの再実行・パラメータを変えた再実行・別のモデル・タブの切り替え・信号が無くなった場合）、既定に戻す、uPlot の作り直しが投げたときに古い図を出さない。"""
     pg = browser.new_page(accept_downloads=True)
@@ -1589,6 +1634,7 @@ def main() -> int:
         ti.close()
         review_fixes(browser, origin, errors)  # S196
         plot_fixes(browser, origin, errors)  # S201
+        open_results_file(browser, origin, errors)  # S222
         print("エディタの Tab: 空白 2 つの字下げ（選択した 2 行も）と Shift+Tab、補完の一覧が開いていれば確定・閉じていれば字下げ、Esc のあと Tab・Shift+Tab と Ctrl+M で外へ、説明は aria-describedby と画面に")
         print("キーボードだけ: モデル名・エディタへ Tab、Ctrl+Shift+Enter で検査、診断と参照の行を Tab・Enter・Space でエディタへ、Ctrl+Enter で実行（プロットの aria-label に信号名と時間の範囲）、Ctrl+. で止め、Ctrl+S で保存")
         # 初回の案内・スキップリンク・タブの矢印キー・未保存の印（S179）

@@ -26,7 +26,9 @@ mise run ui:build            # dist/ に静的サイトを作る
 
 ## 実行とプロット（S042）
 
-「実行」ボタンが `Backend.simulate({ model })` を呼ぶ（ソルバは既定のまま）。`refused` と診断は診断パネルとその上の赤字に出る。結果の CSV（`SimulateResponse.csv`）は `src/lib/plot/csv.ts` が列に分け、`src/lib/plot/Plot.svelte` が uPlot（MIT）で時系列に描く。信号はチェックボックスで選ぶ（既定は最初の 3 本）。ズームは uPlot の既定（ドラッグで拡大、ダブルクリックで戻す）。2 軸、凡例の凝った UI、MAT v4 の読み込みは未実装。
+「実行」ボタンが `Backend.simulate({ model })` を呼ぶ（ソルバは既定のまま）。`refused` と診断は診断パネルとその上の赤字に出る。結果の CSV（`SimulateResponse.csv`）は `src/lib/plot/csv.ts` が列に分け、`src/lib/plot/Plot.svelte` が uPlot（MIT）で時系列に描く。信号はチェックボックスで選ぶ（既定は最初の 3 本）。ズームは uPlot の既定（ドラッグで拡大、ダブルクリックで戻す）。2 軸（S128）は実装済み。凡例の凝った UI は未実装。
+
+「開く」（Ctrl/Cmd+O）は `.mo` のほかに結果のファイル `.mat`（MAT v4）・`.csv` も受け付ける（S222）。`Backend.openFile` が `columns` を返し（ブラウザ・Android は wasm の `read_results`、Desktop は sidecar の `globe/readResults`）、App が「結果 <ファイル名>」のタブ（`Tab.results`）に開く。プロットとその CSV・PNG の書き出しは実行の結果と同じ部品で、エディタは隠れ、実行と保存はできない。結果のタブは自動保存しない。
 
 - CSP は `index.html` の meta で `connect-src 'self'` のまま。`'wasm-unsafe-eval'` は wasm の初期化に、`style-src 'unsafe-inline'` は Svelte と CodeMirror が注入する style に要る
 - TypeScript は 6 系（svelte-check 4.7 が 7 を単独では受けない）

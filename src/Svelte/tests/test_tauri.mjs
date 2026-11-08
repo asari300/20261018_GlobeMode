@@ -28,4 +28,11 @@ assert.equal(await b.saveFile("package.mo", "C", true, "/d1/package.mo"), "/pick
 saveTo = null;
 assert.equal(await b.saveFile("package.mo", "D"), null);
 assert.deepEqual(writes, [["/d1/package.mo", "A"], ["/picked/x.mo", "B"], ["/picked/x.mo", "C"]]);
+// 結果のファイルを開く（S222）: .csv は sidecar の globe/readResults に path を渡し、列は simulateColumns と同じ形（time を除いた names）で返る
+const calls = [];
+globalThis.window.__TAURI__.dialog.open = async () => "/r/out.csv";
+globalThis.window.__TAURI__.core.invoke = async (cmd, a) => (calls.push([cmd, a]), { layout: { names: ["time", "x"], points: 2, defaults: ["x"] }, columns: [[0, 1], [1, null]] });
+const opened = await b.openFile();
+assert.deepEqual(calls, [["rpc", { method: "globe/readResults", params: { path: "/r/out.csv" } }]]);
+assert.deepEqual(opened, { name: "out.csv", text: "", path: "/r/out.csv", columns: { names: ["x"], points: 2, defaults: ["x"], data: [[0, 1], [1, null]] } });
 console.log("test_tauri ok");

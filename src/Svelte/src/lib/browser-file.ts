@@ -1,17 +1,20 @@
+import { isResultsFile } from "./results";
+
 // ブラウザ（と Android の WebView）のファイル操作（S141）。`<input type=file>` と Blob のダウンロードだけ。
 // shortcut: File System Access API は使わない（Firefox・Safari に無い）。同じファイルへの上書きはできず、保存は毎回ダウンロード。入れるなら Chromium だけで分岐する。
 
-/** 選んだファイルの名前と本文。選ばずに閉じたら null。 */
-export function browserOpen(): Promise<{ name: string; text: string } | null> {
+/** 選んだファイルの名前と本文。結果のファイル（.mat・.csv。S222）は本文でなく bytes。選ばずに閉じたら null。 */
+export function browserOpen(): Promise<{ name: string; text: string; bytes?: Uint8Array } | null> {
   return new Promise((resolve, reject) => {
     // DOM に付けておく（付けないと change の前に回収されるブラウザがある）
-    const input = Object.assign(document.createElement("input"), { type: "file", accept: ".mo", hidden: true });
+    const input = Object.assign(document.createElement("input"), { type: "file", accept: ".mo,.mat,.csv", hidden: true });
     const done = () => input.remove();
     input.onchange = () => {
       const f = input.files?.[0];
       done();
       if (!f) return resolve(null);
-      f.text().then((text) => resolve({ name: f.name, text }), reject);
+      if (isResultsFile(f.name)) f.arrayBuffer().then((b) => resolve({ name: f.name, text: "", bytes: new Uint8Array(b) }), reject);
+      else f.text().then((text) => resolve({ name: f.name, text }), reject);
     };
     input.oncancel = () => { done(); resolve(null); };
     document.body.append(input);

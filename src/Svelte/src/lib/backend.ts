@@ -39,8 +39,8 @@ export interface Backend {
   models(file: string): Promise<string[]>;
   /** 位置の名前を newName に変える編集（S161。LSP の TextEdit）。いちばん内側のクラスで宣言した部品と、この文書で定義したクラス（S166。宣言・`end`・使っている所）。部品でもクラスでもない・別のファイル（ライブラリ）のクラス・識別子でない・予約語・同じクラスに既にある名前は、理由つきで reject。 */
   rename(file: string, line: number, character: number, newName: string): Promise<{ range: Definition["range"]; newText: string }[]>;
-  /** 手元のファイルを 1 つ選んで読む（S141）。ブラウザ・Android は `<input type=file>`、Desktop は dialog / fs プラグイン。選ばなければ null。 */
-  openFile(): Promise<{ name: string; text: string; path?: string } | null>;
+  /** 手元のファイルを 1 つ選んで読む（S141）。ブラウザ・Android は `<input type=file>`、Desktop は dialog / fs プラグイン。選ばなければ null。結果のファイル（.mat・.csv。S222）は text が空で、読んだ列が columns に入る（読めなければ reject）。 */
+  openFile(): Promise<{ name: string; text: string; path?: string; columns?: Columns } | null>;
   /** 最近使ったファイルを path から開く（S151。Desktop だけ。ブラウザは本文を localStorage に持つので無い）。 */
   openPath?(path: string): Promise<{ name: string; text: string }>;
   /** 本文を手元に書く。保存先（Desktop はパス、ブラウザは名前）を返す。取り消しは null。saveAs は Desktop で保存先を選び直す（ブラウザは毎回ダウンロードなので同じ）。path は Desktop で、そのタブが本文を受け取った（開いた・保存した）パス（S196。あれば saveAs でない限りそこへ上書きする）。 */
