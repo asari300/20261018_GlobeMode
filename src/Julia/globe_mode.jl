@@ -16,6 +16,11 @@ mutable struct Workspace
     end
 end
 
+# ccall に ws そのものを渡す（ws.ptr を渡すと、ccall の間 ws が GC に守られず finalizer が走りうる。#65）。
+# cconvert が返したものは ccall の間生きる
+Base.cconvert(::Type{Ptr{Cvoid}}, w::Workspace) = w
+Base.unsafe_convert(::Type{Ptr{Cvoid}}, w::Workspace) = w.ptr
+
 # ライブラリが返した char* を String に写して放す。
 function take(p::Ptr{UInt8})
     p == C_NULL && error("NULL が返った")
@@ -25,35 +30,35 @@ function take(p::Ptr{UInt8})
 end
 
 set_file(ws::Workspace, path, text) =
-    ccall((:gm_set_file, LIB), Cint, (Ptr{Cvoid}, Cstring, Cstring), ws.ptr, path, text) == 0 ||
+    ccall((:gm_set_file, LIB), Cint, (Ptr{Cvoid}, Cstring, Cstring), ws, path, text) == 0 ||
     error("gm_set_file が失敗した")
 
 # 読んだ .mo の数（S111）。
 load_dir(ws::Workspace, dir) =
-    (n = ccall((:gm_load_dir, LIB), Int64, (Ptr{Cvoid}, Cstring), ws.ptr, dir)) >= 0 ? n :
+    (n = ccall((:gm_load_dir, LIB), Int64, (Ptr{Cvoid}, Cstring), ws, dir)) >= 0 ? n :
     error("gm_load_dir が失敗した")
 
 check(ws::Workspace, model) =
-    take(ccall((:gm_check, LIB), Ptr{UInt8}, (Ptr{Cvoid}, Cstring), ws.ptr, model))
+    take(ccall((:gm_check, LIB), Ptr{UInt8}, (Ptr{Cvoid}, Cstring), ws, model))
 
 # S191: 読み取り（JSON の文字列のまま。outline はファイルが無い・構文の誤りで {"error": ...}、flat は通らなければ null）。
 outline(ws::Workspace, path) =
-    take(ccall((:gm_outline, LIB), Ptr{UInt8}, (Ptr{Cvoid}, Cstring), ws.ptr, path))
+    take(ccall((:gm_outline, LIB), Ptr{UInt8}, (Ptr{Cvoid}, Cstring), ws, path))
 
 deps(ws::Workspace, model) =
-    take(ccall((:gm_deps, LIB), Ptr{UInt8}, (Ptr{Cvoid}, Cstring), ws.ptr, model))
+    take(ccall((:gm_deps, LIB), Ptr{UInt8}, (Ptr{Cvoid}, Cstring), ws, model))
 
 flat(ws::Workspace, model) =
-    take(ccall((:gm_flat, LIB), Ptr{UInt8}, (Ptr{Cvoid}, Cstring), ws.ptr, model))
+    take(ccall((:gm_flat, LIB), Ptr{UInt8}, (Ptr{Cvoid}, Cstring), ws, model))
 
 simulate(ws::Workspace, model, settings=C_NULL) =
-    take(ccall((:gm_simulate, LIB), Ptr{UInt8}, (Ptr{Cvoid}, Cstring, Cstring), ws.ptr, model, settings))
+    take(ccall((:gm_simulate, LIB), Ptr{UInt8}, (Ptr{Cvoid}, Cstring, Cstring), ws, model, settings))
 
 # S116: 列の道。(レイアウトの JSON, 列ごとの Vector{Float64}) を返す。列は Julia の配列に写してから放す。
 function simulate_columns(ws::Workspace, model, settings=C_NULL)
     data, len = Ref{Ptr{Float64}}(C_NULL), Ref{Csize_t}(0)
     layout = take(ccall((:gm_simulate_columns, LIB), Ptr{UInt8},
-        (Ptr{Cvoid}, Cstring, Cstring, Ref{Ptr{Float64}}, Ref{Csize_t}), ws.ptr, model, settings, data, len))
+        (Ptr{Cvoid}, Cstring, Cstring, Ref{Ptr{Float64}}, Ref{Csize_t}), ws, model, settings, data, len))
     flat = copy(unsafe_wrap(Vector{Float64}, data[], len[]))
     ccall((:gm_doubles_free, LIB), Cvoid, (Ptr{Float64}, Csize_t), data[], len[])
     # shortcut: JSON の標準ライブラリが無いので points を正規表現で拾う（test.jl と同じ）
@@ -96,17 +101,17 @@ function simulate_observed(ws::Workspace, model, on_progress, settings=C_NULL)
     o = Observer(on_progress, nothing)
     # 実行中に ws の finalizer が gm_workspace_free を試みない（S214）
     res = GC.@preserve ws o take(ccall((:gm_simulate_observed, LIB), Ptr{UInt8}, (Ptr{Cvoid}, Cstring, Cstring, Ptr{Cvoid}, Any),
-        ws.ptr, model, settings, @cfunction(progress_trampoline, Cint, (Ptr{Progress}, Any)), o))
+        ws, model, settings, @cfunction(progress_trampoline, Cint, (Ptr{Progress}, Any)), o))
     o.err === nothing || throw(o.err)
     res
 end
 
 # S118: FMU の書き出し。{"path": ...} か {"error": ...} の JSON。options は {"fmi_version": 2, "build": false, ...}（省略可）。
 export_fmu(ws::Workspace, model, out_dir, options=C_NULL) =
-    take(ccall((:gm_export_fmu, LIB), Ptr{UInt8}, (Ptr{Cvoid}, Cstring, Cstring, Cstring), ws.ptr, model, out_dir, options))
+    take(ccall((:gm_export_fmu, LIB), Ptr{UInt8}, (Ptr{Cvoid}, Cstring, Cstring, Cstring), ws, model, out_dir, options))
 
 graph(ws::Workspace, model, depth=1) =
-    take(ccall((:gm_graph, LIB), Ptr{UInt8}, (Ptr{Cvoid}, Cstring, UInt32), ws.ptr, model, depth))
+    take(ccall((:gm_graph, LIB), Ptr{UInt8}, (Ptr{Cvoid}, Cstring, UInt32), ws, model, depth))
 
 # S111: 整形（{"text": ...} か {"error": ...} の JSON）と lint（JSON の配列）。Workspace は要らない。
 format(text; indent=2, insert_origin=true) =
