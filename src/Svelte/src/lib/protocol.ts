@@ -30,7 +30,7 @@ export interface CheckResponse {
 export interface SimulateRequest {
   files?: Record<string, string>;
   model: string;
-  settings?: { start_time?: number; stop_time?: number; tolerance?: number; interval?: number; solver?: string; parameters?: Record<string, number> };
+  settings?: { start_time?: number; stop_time?: number; tolerance?: number; interval?: number; step?: number; max_wall_seconds?: number; solver?: string; parameters?: Record<string, number> };
   force?: boolean;
   no_csv?: boolean;
 }

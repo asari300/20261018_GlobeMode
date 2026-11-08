@@ -22,7 +22,8 @@ UI keyboard shortcuts (browser, Desktop, Android with a keyboard; Cmd instead of
 | --- | --- |
 | Ctrl+Enter | Run (this replaces CodeMirror's "insert blank line") |
 | Ctrl+Shift+Enter | Check |
-| Ctrl+. | Stop a running simulation |
+| Ctrl+. or Esc | Stop a running simulation (Esc is ignored in input fields and dialogs; with a completion list open it only closes the list) |
+| Ctrl+Shift+PageUp / PageDown | Move the current tab left / right (tabs can also be dragged; the order is autosaved) |
 | Ctrl+S / Ctrl+Shift+S | Save / Save as (Desktop) |
 | Ctrl+O | Open |
 | F12, Shift+F12, F2, Alt+Left | Go to definition, references, rename, back (editor) |

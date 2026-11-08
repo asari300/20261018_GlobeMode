@@ -5,7 +5,7 @@
   import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
   import { bracketMatching } from "@codemirror/language";
   import { setDiagnostics } from "@codemirror/lint";
-  import { closeCompletion } from "@codemirror/autocomplete";
+  import { closeCompletion, completionStatus } from "@codemirror/autocomplete";
   import { EDITOR_HELP, byteToChar, darkSlot, makeEditable, readOnlySlot, modelFollow, modelRenamed, modelicaCompletion, modelicaHighlight, modelicaDefinition, modelicaFolding, modelicaLinter, modelicaRefactor, modelicaTab, modelicaTheme, themeSlot, toCmDiagnostics } from "./lib/editor";
   import { setPref, theme, type Pref } from "./theme.svelte";
   import { WorkerBackend } from "./lib/worker-backend";
@@ -292,6 +292,7 @@
     });
     restore();
     const settings = await step("settings", async () => {
+      await tick(); // S228: モデル名を直した直後。設定の入れ替え（モデルごとの保存）を済ませてから欄を打つ
       await setField("終了時刻", "abc");
       const refused = settingsProblem !== ""; // 数でない欄は問題として出る
       await setField("終了時刻", "2");
@@ -480,7 +481,7 @@
       else if (!r.ok && !r.diagnostics.length) failure = "実行に失敗した（診断なし）";
     }).then(() => {
       if (!failure && !settingsProblem && !unsupported && runState !== "cancelled") live = `実行が完了した: 信号 ${columns ? columns.names.filter((n) => !isInternal(n)).length : 0} 本、${columns?.points ?? 0} 点`;
-      return reveal(settingsProblem ? ".settings .problem" : failure ? ".failure" : columns ? ".plot" : diagnostics.length ? ".diagnostics" : "");
+      return reveal(settingsProblem ? ".settings .problem" : diagnostics.some((d) => d.code === "GM-E10004") ? ".settings .refusal" : failure ? ".failure" : columns ? ".plot" : diagnostics.length ? ".diagnostics" : "");
     });
   };
 
@@ -636,6 +637,20 @@
     persist();
   }
 
+  // S228: タブの並べ替え（ドラッグ&ドロップと Ctrl+Shift+PageUp / PageDown）。cur は動かしたあとも同じタブを指し、順序は persist（300 ms）で残る
+  let dragFrom = $state<number | null>(null);
+  let dragOver = $state<number | null>(null);
+  function moveTab(from: number, to: number) {
+    if (busy || from === to || !tabs[from] || !tabs[to]) return;
+    const here = tabs[cur], moved = tabs[from];
+    const next = [...tabs];
+    next.splice(to, 0, next.splice(from, 1)[0]);
+    tabs = next;
+    cur = next.indexOf(here);
+    persistSoon();
+    live = `${baseName(moved === here ? file : moved.file)} を ${to + 1} 番目へ移した（全 ${next.length} 枚）`;
+  }
+
   async function tabKeys(e: KeyboardEvent) {
     if ((e.target as HTMLElement).getAttribute("role") !== "tab" || e.altKey || e.ctrlKey || e.metaKey || busy) return;
     const n = tabs.length;
@@ -725,12 +740,16 @@
   // S175: ショートカット。Ctrl（macOS は Cmd）+ Enter 実行、+ Shift+Enter 検査、+ . 止める、+ S 保存（Desktop は + Shift+S 名前を付けて保存）、+ O 開く。
   // ブラウザが握る Ctrl+R・W・F5 などは使わない。修飾キーつきなので入力欄で文字を打っていても誤爆しない。エディタの中でも効くよう capture で受け、CodeMirror の Mod-Enter（空行を挿入）は覆う
   function shortcut(e: KeyboardEvent) {
+    // S228: Esc で実行を止める（Ctrl+. と同じ）。入力欄・選択・ダイアログの中では奪わず、補完の一覧が開いていれば CodeMirror が閉じるだけ（応答待ちで見えていないものは数えない。実行中の Worker は答えない）
+    if (e.key === "Escape" && !e.isComposing && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && runState === "running" && completionStatus(view.state) !== "active" && !(e.target as HTMLElement).closest?.("input, textarea, select, dialog, [role=dialog]")) backend.cancel?.();
     if (e.isComposing || e.repeat || e.altKey || !(e.ctrlKey || e.metaKey)) return;
     const idle = (f: () => unknown) => () => { if (!busy) void f(); };
     const act = {
       "Enter": idle(() => simulate()),
       "Shift+Enter": idle(check),
       ".": () => { if (runState === "running") backend.cancel?.(); },
+      "Shift+PageUp": idle(() => moveTab(cur, cur - 1)), // S228: タブを左へ・右へ
+      "Shift+PageDown": idle(() => moveTab(cur, cur + 1)),
       "s": () => void save(),
       "Shift+s": desktop ? () => void save(true) : undefined,
       "o": idle(openFromDisk),
@@ -815,7 +834,7 @@
   {#if canForce === model}<p class="note" data-can-force><button onclick={() => simulate(true)} disabled={busy}>それでも実行する</button> 検査の Error を無視して実行する（強行）。結果は信頼できないことがある。</p>{/if}
   {#if forced}<p class="note forced" role="status" data-forced>強行した実行: 検査の Error を無視して実行した結果。信頼できないことがある。</p>{/if}
   {#if strayLib === model && own && !models.includes(model)}<p class="note" role="status" data-stray>モデル「{model}」はライブラリのもので、エディタの {baseName(file)} には無い。<button onclick={() => openLibrary({ path: model })} disabled={busy}>ライブラリのファイルを開く</button></p>{/if}
-  <SimSettings {backend} {experiment} checked={checkedModel} last={lastSettings} bind:settings={simSettings} bind:problem={settingsProblem} />
+  <SimSettings {backend} {model} {experiment} errors={diagnostics.filter((d) => d.code === "GM-E10004")} checked={checkedModel} last={lastSettings} bind:settings={simSettings} bind:problem={settingsProblem} />
   {#if tauri}<p class="note" data-config>
     <button onclick={async () => { configNote = ""; try { await tauri.reloadConfig(); configNote ||= "globe-mode.toml を読み直した（無ければ既定）"; } catch (e) { configNote = String(e); } }}>設定を読み直す</button> {configNote}
   </p>{/if}
@@ -826,12 +845,18 @@
   </p>
   <!-- S179: 矢印キー（左右・Home・End）でタブを移る（roving tabindex。選ぶと開く）。Delete や Ctrl+W は足さない（ブラウザが握る） -->
   <div class="tabs" role="tablist" aria-label="開いているファイル" tabindex="-1" onkeydown={tabKeys}>
-    {#each tabs as t, i}
+    {#each tabs as t, i (t)}
       {@const f = i === cur ? file : t.file}
       {@const label = (i === cur ? own : t.own) ? f : baseName(f)} <!-- 自分のファイルは key（同じ名前の別のファイルは「フォルダ/名前」）、ライブラリは末尾 -->
       {@const dirty = rev >= 0 && isDirty(i)} <!-- rev は再計算の合図 -->
-      <span class="tab" class:active={i === cur}>
-        <button role="tab" aria-selected={i === cur} tabindex={i === cur ? 0 : -1} title={f} disabled={busy} onclick={() => activate(i)}>{#if dirty}<span class="dirty" role="img" aria-label="未保存">●</span> {/if}{label}</button>
+      <span
+        class="tab" role="presentation" class:active={i === cur} class:over={dragOver === i && dragFrom !== i} draggable={!busy && tabs.length > 1}
+        ondragstart={(e) => { dragFrom = i; e.dataTransfer?.setData("text/plain", String(i)); if (e.dataTransfer) e.dataTransfer.effectAllowed = "move"; }}
+        ondragover={(e) => { if (dragFrom !== null) { e.preventDefault(); dragOver = i; } }}
+        ondrop={(e) => { e.preventDefault(); if (dragFrom !== null) moveTab(dragFrom, i); dragFrom = dragOver = null; }}
+        ondragend={() => (dragFrom = dragOver = null)}
+      >
+        <button role="tab" aria-selected={i === cur} tabindex={i === cur ? 0 : -1} title={f} aria-keyshortcuts="Control+Shift+PageUp Control+Shift+PageDown" disabled={busy} onclick={() => activate(i)}>{#if dirty}<span class="dirty" role="img" aria-label="未保存">●</span> {/if}{label}</button>
         {#if tabs.length > 1}<button aria-label="{label} を閉じる" disabled={busy} onclick={() => closeTab(i)}>×</button>{/if}
       </span>
     {/each}
@@ -890,6 +915,7 @@
   .welcome { border: 1px solid var(--accent); padding: .25rem .75rem; margin: .5rem 0; }
   .welcome ol { margin: .25rem 0; padding-left: 1.5rem; }
   .dirty, .note.hit { color: var(--warn); }
+  .tab.over { box-shadow: -3px 0 0 var(--accent); }
   .tab.active button[role=tab] { font-weight: bold; }
   .work { display: flex; gap: .5rem; }
   .library { flex: 0 0 16rem; height: 16rem; overflow: auto; border: 1px solid var(--border); font-size: .9em; }
