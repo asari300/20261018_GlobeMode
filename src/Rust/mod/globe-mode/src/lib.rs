@@ -105,7 +105,7 @@ pub struct FmuOptions {
     pub fmi_headers: Option<PathBuf>,
     /// 実行時（S239）。`P5b` は `build`・`targets`・`fmi_headers` と一緒に使えない
     pub runtime: FmuRuntime,
-    /// `P5b` の共有ライブラリ（`libglobe_mode_fmu.so` など）。省略すると `cargo build --release -p globe-mode-fmu` で作る（S239）
+    /// `P5b` の共有ライブラリ（`libglobe_mode_fmu_cdylib.so` など）。省略すると `cargo build --release -p globe-mode-fmu-cdylib` で作る（S239）
     pub runtime_lib: Option<PathBuf>,
 }
 

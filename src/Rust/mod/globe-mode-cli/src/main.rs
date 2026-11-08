@@ -344,10 +344,10 @@ enum FmuCommand {
         fmi_headers: Option<PathBuf>,
         /// 実行時。p5a は Rumoca のテンプレートの C のソース、p5b は GlobeMode の実行時 `globe-mode-fmu` の共有ライブラリを入れた
         /// FMU（`<名前>-p5b-fmi2.fmu`。ME と CS。イベントのあるモデルや MSL のモデルも載る。モデルが使うライブラリのファイルだけを同梱する。
-        /// 共有ライブラリは `cargo build --release -p globe-mode-fmu` で作る〔globe のソースの作業ツリーの中〕か `--runtime-lib` で渡す。host の OS 用だけ）
+        /// 共有ライブラリは `cargo build --release -p globe-mode-fmu-cdylib` で作る〔globe のソースの作業ツリーの中〕か `--runtime-lib` で渡す。host の OS 用だけ）
         #[arg(long, value_enum, default_value_t = fmu_p5b::FmuRuntime::P5a)]
         runtime: fmu_p5b::FmuRuntime,
-        /// --runtime p5b の共有ライブラリ（`libglobe_mode_fmu.so` など）。省略すると cargo で作る
+        /// --runtime p5b の共有ライブラリ（`libglobe_mode_fmu_cdylib.so` など）。省略すると cargo で作る
         #[arg(long)]
         runtime_lib: Option<PathBuf>,
     },

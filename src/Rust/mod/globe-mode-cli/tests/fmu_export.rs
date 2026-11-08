@@ -464,17 +464,17 @@ fn unsupported_msl_example_says_why() {
     assert!(err.contains("FMI C profile"), "{err}");
 }
 
-/// S238: `--runtime p5b` に渡す `globe-mode-fmu` の共有ライブラリ（debug。`cargo build` で作る。作れなければ None）。
+/// S238: `--runtime p5b` に渡す `globe-mode-fmu-cdylib` の共有ライブラリ（debug。`cargo build` で作る。作れなければ None）。
 fn p5b_runtime() -> Option<PathBuf> {
     let cargo = std::env::var_os("CARGO").unwrap_or("cargo".into());
     let ok = Command::new(cargo)
-        .args(["build", "-q", "-p", "globe-mode-fmu", "--lib"])
+        .args(["build", "-q", "-p", "globe-mode-fmu-cdylib", "--lib"])
         .status()
         .ok()?
         .success();
     let exe = PathBuf::from(env!("CARGO_BIN_EXE_globe"));
     let name = format!(
-        "{}globe_mode_fmu{}",
+        "{}globe_mode_fmu_cdylib{}",
         std::env::consts::DLL_PREFIX,
         std::env::consts::DLL_SUFFIX
     );
@@ -510,7 +510,7 @@ fn run_p5b_fmu(fmu: &Path, column: &str) -> f64 {
 #[test]
 fn p5b_runtime_exports_a_runnable_fmu() {
     let Some(lib) = p5b_runtime() else {
-        eprintln!("skip: cargo build -p globe-mode-fmu ができない");
+        eprintln!("skip: cargo build -p globe-mode-fmu-cdylib ができない");
         return;
     };
     let mo = package_dir().join("Simulation/Decay.mo");

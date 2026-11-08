@@ -1507,6 +1507,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "globe-mode-fmu-cdylib"
+version = "0.2.0"
+dependencies = [
+ "globe-mode-fmu",
+]
+
+[[package]]
 name = "globe-mode-frontend"
 version = "0.2.0"
 dependencies = [

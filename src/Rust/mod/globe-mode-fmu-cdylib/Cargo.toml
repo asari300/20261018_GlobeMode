@@ -1,0 +1,20 @@
+[package]
+name = "globe-mode-fmu-cdylib"
+description = "GlobeMode: shared library (cdylib) of the P5b FMU runtime globe-mode-fmu"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+# S240: 共有ライブラリだけを作る crate。中身は globe-mode-fmu（rlib）の `fmi2*`/`fmi3*`。facade は rlib の globe-mode-fmu にだけ依存するので、
+# 試験や CLI の入れ子の cargo build がこの crate を作っても facade の依存の rlib は書き換わらない（S239 の doctest = false の原因を除く）
+[lib]
+crate-type = ["cdylib"]
+# FFI の入口は globe-mode-fmu にあり、ここには試験も doc も無い
+test = false
+doctest = false
+
+[dependencies]
+globe-mode-fmu = { workspace = true }

@@ -11,8 +11,8 @@ publish.workspace = true
 [lib]
 # modelDescription.xml の modelIdentifier と同じ名前（FMU の binaries/linux64/globe_mode_fmu.so）
 name = "globe_mode_fmu"
-# rlib はテスト（tests/fmpy.rs）から関数を直接呼ぶため
-crate-type = ["cdylib", "rlib"]
+# S240: rlib だけ。共有ライブラリは globe-mode-fmu-cdylib が作る（facade が依存する rlib を入れ子の cargo build に書き換えさせないため）
+crate-type = ["rlib"]
 
 # S099: モデルを resources の .mo から compile し、exec の ModelInstance で微分を求める（ADR-0032 の追記）
 [dependencies]
