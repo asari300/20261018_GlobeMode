@@ -13,6 +13,8 @@ publish.workspace = true
 sundials = ["globe-mode-exec/sundials"]
 # S118: FMU の書き出し（export_fmu）。S144: zip のバイト列で返す export_fmu_bytes は wasm32 でも通る（lsp が有効にし、wasm はそれを使う）
 fmu = ["dep:globe-mode-fmi", "globe-mode-fmi/export", "dep:serde"]
+# S229: FMU の読み込みと実行（import_fmu_info・run_fmu。ADR-0026 の (p)）。共有ライブラリを読むので wasm32・Android では付けない
+fmu-import = ["dep:globe-mode-fmi-import", "dep:serde"]
 
 [dependencies]
 globe-mode-core = { workspace = true }
@@ -27,6 +29,7 @@ globe-mode-protocol = { workspace = true }
 globe-mode-fmt = { workspace = true }
 serde_json = { workspace = true }
 globe-mode-fmi = { workspace = true, optional = true }
+globe-mode-fmi-import = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
 
 [lints]

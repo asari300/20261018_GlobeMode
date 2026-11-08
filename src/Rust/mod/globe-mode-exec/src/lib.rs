@@ -85,6 +85,11 @@ impl CancelToken {
     pub fn is_cancelled(&self) -> bool {
         self.0.load(Ordering::Relaxed)
     }
+
+    /// 同じ旗（S229。別の crate が `AtomicBool` で止める口を持つとき、例: FMU のワーカー）。
+    pub fn flag(&self) -> Arc<AtomicBool> {
+        self.0.clone()
+    }
 }
 
 /// [`run_observed`] に渡すもの。`now` は壁時計（ミリ秒。wasm は `performance.now()`）で、t の間引きに使う。

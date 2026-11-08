@@ -18,6 +18,7 @@
   import LibraryTree from "./lib/LibraryTree.svelte";
   import SimSettings from "./lib/SimSettings.svelte";
   import { isInternal } from "./lib/plot/signals";
+  import { isFmuFile } from "./lib/results";
 
   // エディタの文書の名前。ライブラリの木で開くと、そのライブラリのファイルの名前（同じ名前で差し替える。S127）
   let file = $state("Model.mo");
@@ -661,9 +662,27 @@
     } else tabs[i].results = c;
     activate(i);
   }
+  // S229: FMU（Desktop だけ）。要約と警告で確かめてから、sidecar のワーカー（別プロセス）で回し、結果は結果のタブに出す。「止める」でワーカーを kill する
+  async function openFmu(name: string, path?: string) {
+    if (!path || !backend.fmuInfo || !backend.runFmu) { failure = `${name} を回せるのは Desktop だけ（ブラウザ・Android はネイティブコードを動かせない）`; return; }
+    const info = await backend.fmuInfo(path);
+    if (!confirm(`${info.warning}\n\n${name}（${info.model_name}、FMI ${info.fmi_version}、${info.interfaces.map((i) => i.kind).join("・")}）を実行する？`)) return;
+    runState = "running";
+    runNote = "FMU を実行中";
+    try {
+      openResults(name, await backend.runFmu(path, (t) => { runNote = `FMU を実行中: t = ${t.toPrecision(4)}`; }));
+    } catch (e) {
+      if (!(e as { cancelled?: boolean }).cancelled) throw e;
+      runState = "cancelled";
+      runNote = "止めた（FMU の結果は出ない）";
+    } finally {
+      if (runState === "running") { runState = "idle"; runNote = ""; }
+    }
+  }
   const openFromDisk = () => run(async () => {
     const f = await backend.openFile();
     if (!f) return;
+    if (isFmuFile(f.name)) return openFmu(f.name, f.path);
     if (f.columns) return openResults(f.name, f.columns);
     openOwn(f.name, f.text, f.path);
     remember(f.path ?? f.name, f.text);

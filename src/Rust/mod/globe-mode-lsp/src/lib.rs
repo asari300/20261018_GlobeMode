@@ -24,6 +24,8 @@
 //! | `globe/rename` | `{file, line, character, newName}` | LSP の TextEdit（`{range, newText}`）の配列（S161。いちばん内側のクラスで宣言した部品と、S166 からこの文書で定義したクラス。部品でもクラスでもない・別のファイルのクラス・識別子でない・予約語・同じ階層に既にある名前・ほかの開いた文書に参照があるときは -32803 に理由。`textDocument/rename` は同じ計算の WorkspaceEdit（S198: クラスのリネームは、最上位のクラスがファイル名 `M.mo`・`package.mo` に対応しているとき、ワークスペースの根の下の開いていない `.mo` に同じ名前の識別子があるときも断る。`prepareRename` も同じ。開いていない文書への `globe/rename`・`textDocument/rename` は -32803、`globe/references` は空の配列）、`textDocument/prepareRename` はカーソルの識別子の Range か同じ理由） |
 //! | `globe/solvers` | なし | ソルバの登録表（`[{name, status, description, instead?}]`。S142。wasm の `solvers` と同じ） |
 //! | `globe/readResults` | `{path}`（`.mat` は MAT v4、それ以外は CSV） | `{layout, columns}`（S222。`globe/simulateColumns` の `layout`・`columns` と同じ形。`defaults` は先頭の 3 本。読めなければ -32000） |
+//! | `globe/fmuInfo` | `{path}`（`.fmu`） | `FmuInfo` の JSON に `warning`（実行の前に見せる警告。S229。`globe fmu info` と同じ情報。ネイティブコードは実行しない。読めなければ -32000。feature `fmu-import`） |
+//! | `globe/fmuRun` | `{path, request?, workDoneToken?}`（`request` は `FmuRunRequest`: `kind`（`"cs"`/`"me"`）・`start_time`・`stop_time`・`step`・`outputs`・`set`・`timeout`・`memory_limit_mib`） | `{layout, columns, me}`（S229。`globe/readResults` と同じ `layout`・`columns` に、ME だけ事象の要約 `me`。**FMU のネイティブコードを別プロセス（自分と同じ実行ファイルの `fmu __worker`）で実行する**。`$/progress` は `{kind: "report", stage: "integration", time}`、`$/cancelRequest` でワーカーを kill して -32800。失敗は -32000。feature `fmu-import`） |
 //! | `globe/exportFmu` | `{model, fmiVersion?, outDir}`（既定は FMI 2。`build` はしない） | `{path}`（S144。`outDir/<名前>.fmu` と展開した `outDir/<名前>/` を書く。DAE まで変換できなければ -32000） |
 //! | `globe/tunableParameters` | `{model}` | `ParametersResponse` の JSON（S150。上書きできるパラメータの一覧。wasm の `tunable_parameters` と同じ。DAE まで変換できなければ -32000） |
 //! | `globe/completion` | `{file, line, character}`（`globe/definition` と同じ） | LSP の `CompletionList` `{isIncomplete, items}`（S171。`textDocument/completion` と同じ計算。予約語、文書の名前、点つきの名前の途中はクラスの子か部品の型の部品名。最大 200 件で、200 件に達したら `isIncomplete: true`（S198。打ちかけの語で絞ってから切る）。文字列・コメントの中は空。wasm の `completion` は `items` と同じ配列だけを返す） |
@@ -524,6 +526,22 @@ impl Server {
                 },
                 None => error(id, -32602, "params.path が文字列でない"),
             },
+            // S229: FMI Import（feature fmu-import。wasm には付けない）
+            #[cfg(feature = "fmu-import")]
+            "globe/fmuInfo" => match params["path"].as_str() {
+                Some(path) => match globe_mode::import_fmu_info(std::path::Path::new(path)) {
+                    // warning は UI が実行の前の確認に出す
+                    Ok(info) => {
+                        let mut v = json!(info);
+                        v["warning"] = json!(globe_mode::FMU_TRUST_WARNING);
+                        reply(id, v)
+                    }
+                    Err(e) => error(id, -32000, &e),
+                },
+                None => error(id, -32602, "params.path が文字列でない"),
+            },
+            #[cfg(feature = "fmu-import")]
+            "globe/fmuRun" => fmu_run(id, params, cancel, notify),
             "globe/graph" => match params["model"].as_str() {
                 Some(model) => {
                     let depth = params["depth"].as_u64().unwrap_or(1) as u32;
@@ -788,7 +806,69 @@ pub fn run_stdio(libraries: &[PathBuf]) -> io::Result<()> {
 
 /// 実行の要求（`$/cancelRequest` で止められるもの。ADR-0033）。
 fn cancellable(method: &str) -> bool {
-    matches!(method, "globe/simulate" | "globe/simulateColumns")
+    matches!(
+        method,
+        "globe/simulate" | "globe/simulateColumns" | "globe/fmuRun"
+    )
+}
+
+/// `globe/fmuRun`（S229）。ワーカーは自分と同じ実行ファイル（`globe lsp` の `globe`）の `fmu __worker`。
+#[cfg(feature = "fmu-import")]
+fn fmu_run(
+    id: Option<Value>,
+    params: &Value,
+    cancel: Option<CancelToken>,
+    notify: &mut dyn FnMut(Value),
+) -> Vec<Value> {
+    let Some(path) = params["path"].as_str() else {
+        return error(id, -32602, "params.path が文字列でない");
+    };
+    let request = match serde_json::from_value(params.get("request").cloned().unwrap_or(json!({})))
+    {
+        Ok(r) => r,
+        Err(e) => return error(id, -32602, &format!("params.request が読めない: {e}")),
+    };
+    let worker = match std::env::current_exe() {
+        Ok(w) => w,
+        Err(e) => {
+            return error(
+                id,
+                -32000,
+                &format!("ワーカーの実行ファイルが分からない: {e}"),
+            );
+        }
+    };
+    let token = params.get("workDoneToken");
+    let mut progress = |value: Value| {
+        if let Some(token) = token {
+            notify(json!({"jsonrpc": "2.0", "method": "$/progress",
+                "params": {"token": token, "value": value}}));
+        }
+    };
+    progress(json!({"kind": "begin", "title": format!("fmu {path}"), "cancellable": true}));
+    let run = globe_mode::run_fmu(
+        &worker,
+        std::path::Path::new(path),
+        &request,
+        &mut |t| {
+            progress(
+                json!({"kind": "report", "message": "integration", "stage": "integration", "time": t}),
+            )
+        },
+        cancel.as_ref(),
+    );
+    progress(json!({"kind": "end"}));
+    match run {
+        Ok(r) => {
+            let (layout, columns) = r.results.columns();
+            reply(
+                id,
+                json!({"layout": layout, "columns": columns, "me": r.me}),
+            )
+        }
+        Err(e) if cancel.is_some_and(|c| c.is_cancelled()) => error(id, -32800, &e),
+        Err(e) => error(id, -32000, &e),
+    }
 }
 
 /// 読みと計算を分けて回す（S136、ADR-0033）。読みのスレッドは枠を読んでキューに積み、実行の要求には
@@ -2109,6 +2189,37 @@ mod tests {
             let r = s.handle(json!({"id": 3, "method": "globe/readResults", "params": params}));
             assert_eq!(r[0]["error"]["code"], code, "{}", r[0]);
         }
+    }
+
+    /// S229: `globe/fmuInfo`・`globe/fmuRun` の params の誤り（-32602）と、読めない FMU（fmuInfo の -32000）。
+    /// **成功と fmuRun の -32000 は書かない**: ワーカーは `current_exe()` で、この試験ではテストのバイナリ（`fmu __worker` を
+    /// 引数にしたテストの絞り込みで自分を再び起動する）。それらは `globe` を起動する globe-mode-cli の `tests/lsp.rs`。
+    #[cfg(feature = "fmu-import")]
+    #[test]
+    fn fmu_requests_reject_bad_params_over_rpc() {
+        let mut s = Server::new(&[]).unwrap();
+        let bad = |s: &mut Server, method: &str, params: Value, code: i64| {
+            let r = s.handle(json!({"id": 1, "method": method, "params": params}));
+            assert_eq!(r[0]["error"]["code"], code, "{method} {params}: {}", r[0]);
+        };
+        for method in ["globe/fmuInfo", "globe/fmuRun"] {
+            bad(&mut s, method, json!({}), -32602);
+            bad(&mut s, method, json!({"path": 1}), -32602);
+        }
+        let path = json!("/nonexistent/a.fmu");
+        bad(&mut s, "globe/fmuInfo", json!({"path": path}), -32000);
+        bad(
+            &mut s,
+            "globe/fmuRun",
+            json!({"path": path, "request": {"nope": 1}}),
+            -32602,
+        );
+        bad(
+            &mut s,
+            "globe/fmuRun",
+            json!({"path": path, "request": {"kind": "xx"}}),
+            -32602,
+        );
     }
 
     /// S166: クラス名の参照・リネーム・prepareRename。ほかの開いた文書に参照があるとリネームは断り、参照の一覧には含める。

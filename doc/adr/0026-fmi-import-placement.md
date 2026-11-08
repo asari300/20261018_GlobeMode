@@ -116,7 +116,7 @@
 
 1. ~~ME（`FmuMe`）~~ **S205 で済み**（(l)）。残り: 陰的な積分（硬い系）、`HybridSystem` へのアダプタ、連続時間の入力（`Discard` の再試行は S206 で済み）。
 2. ~~ワーカーのプロセスの中で読み込む（FMU が落ちても CLI・UI が落ちない）~~ **S210 で済み**（(n)。CLI だけ。facade・UI・Python は 3 の中）。残り: sandbox（ディスク・ネットワーク）、macOS・Windows のメモリの上限。
-3. facade（`import_fmu`）と UI の「FMU を開く」（確認のダイアログつき）、Python・C ABI からの呼び出し。
+3. ~~facade（`import_fmu`）と UI の「FMU を開く」（確認のダイアログつき）、Python からの呼び出し~~ **S229 で済み**（(p)）。残り: C ABI・NIF。
 4. コシミュレーションのマスター（Jacobi / Gauss–Seidel、系の構成は SSP か `.gmsys`）、SE（Clocks）、Integer・Boolean・String・配列の変数。
 5. ~~案 B（(g) の条件がそろったら）~~（S206 で取り下げ。(m)）、Modelica のモデルから FMU の部品を使う。
 6. (m) の表の「自前に無いもの」のうち、上の順番に入っていない項目（FMU の状態の保存・復元、方向微分、`Reset`・ログの切り替え、CS の early return・Event Mode・出力の微分、3.0 の構造パラメータ）。
@@ -157,8 +157,21 @@
 - **限界**: (1) FMU が自分で子プロセスを作って管を握ると、親の標準エラーの読み取りが戻らない（`shortcut` のコメント。Job Object / プロセスグループへ）。(2) 結果は全行を子の中のメモリに持ってから送る（格子点の上限 1000 万は (m) のまま）ので、メモリの上限は子の分を含めて見積もる。(3) 起動のたびに `globe` の起動（約 数十 ms）と FMU の展開が子で行われる。(4) 要求に ME の積分器と許容誤差は無い（CLI にも無い。要るようになったら足す）。
 - **試験**（`globe-mode-cli/tests/fmu_worker.rs`）: Reference-FMUs の Dahlquist（2.0・3.0 の CS）・BouncingBall（2.0・3.0 の ME）・VanDerPol（3.0 の ME）が、プロセス内の結果と**ビット単位で同じ**。`cc` で作った小さな共有ライブラリで、`abort`（Instantiate）・segfault（DoStep）・無限ループ（DoStep、`--timeout`）・メモリの食いつぶし（GetReal、`--memory-limit`）を起こし、親が落ちずに誤りを返し、`/proc/self/task/*/children` に zombie も孤児も残らないことを確かめる（結果は解説書の表）。
 
+### (p) S229 の決定（2026-11-08）: facade・Python・Desktop の UI から FMU を使う
+
+(k) の 3 番目。**ワーカーの実行ファイルは呼び手が渡す**（(n) の `WorkerSpec`）。facade の口は 2 つだけで、CLI・LSP・Python が同じ道を通る（写しを作らない。CLI の `fmu info` / `run` も facade を呼ぶ形に寄せた）。
+
+- **facade `globe-mode`（feature `fmu-import`）**: `import_fmu_info(path) -> FmuInfo`（`globe fmu info` と同じ情報。`Serialize`）、`run_fmu(worker, path, &FmuRunRequest, on_progress, cancel) -> FmuRun`。`FmuRunRequest` は JSON でも読める（`kind` は `"cs"` / `"me"`、`start_time`・`stop_time`・`step`・`outputs`・`set`〔名前 → 値〕・`timeout`・`memory_limit_mib`。未知の鍵は誤り）。`FmuRun { results: OpenedResults, me }`: 結果の列は `OpenedResults::columns()`（S222。`Simulated::columns` と同じ形。FMU の出力はすべて `Output` の役割で、既定で描くのは先頭の 3 本）。`worker` は `fmu __worker` を持つ実行ファイル: `globe` 自身（CLI・LSP の sidecar は `current_exe()`）、Python は `GLOBE_BIN` か PATH の `globe`（wheel の中には実行ファイルが無い。見つからなければ `FmuError` に理由）。wasm32・Android には付けない（共有ライブラリを読めない）ので feature にし、wasm が引く `globe-mode-lsp` でも既定では切ってある（CLI が付ける）。
+- **中断**: `WorkerSpec::cancel`（`Arc<AtomicBool>`。facade は `CancelToken::flag()`）が立つと、親が 50 ms おきの確認で子を kill して `Error::Worker`（「中断した」）にする。進捗の出ない FMU（DoStep が戻らない）も止まる。`globe-mode-fmi-import` の `worker.rs` を触ったのはここと、`Kind` の JSON を小文字（`"cs"` / `"me"`）にした 1 行だけ。
+- **LSP（Desktop の sidecar）**: `globe/fmuInfo {path}`（`FmuInfo` に実行前に見せる `warning` を足す）と `globe/fmuRun {path, request?, workDoneToken?}`（`{layout, columns, me}`。`layout`・`columns` は `globe/readResults` と同じ。`$/progress` は `{kind: "report", stage: "integration", time}`、`$/cancelRequest` でワーカーを kill して -32800、失敗は -32000、params の誤りは -32602）。`shell.rs` の `RPC_METHODS` は 20 から 22。ワーカーは sidecar と同じ `globe` なので、Desktop に新しい実行ファイルは要らない。
+- **Python**: `fmu_info(path)`、`run_fmu(path, *, kind, start_time, stop_time, step, outputs, parameters, timeout, on_progress)`（`read_results` と同じ形の dict に `me` を足す）、例外 `FmuError`（`RuntimeError` も継ぐ）。`on_progress(t)` が真を返すか Ctrl-C で止まる（進捗が出たときだけ見る。出ない FMU は `timeout`）。
+- **UI**: 「開く」で `.fmu` を選ぶと、`fmuInfo` の警告（S210 の文面）と要約を `confirm` に出し、承知したら `fmuRun`（FMU の既定の実験設定）で回して結果のタブ（S222）にプロットする。「止める」で kill。**ブラウザ・Android は zip を読まず「Desktop だけ」と理由を出す**。ME の積分器の選択・実験設定の入力欄は UI に出していない。
+- **試験**: facade（`globe-mode-cli/tests/fmu_worker.rs`。Dahlquist の CS・ME、JSON の request、失敗、中断の旗〔`cc` の遅い FMU を 400 ms で止める。子が残らない〕）、LSP の rpc（`tests/lsp.rs` で `globe lsp` を起動して info・run・-32000・-32602。`globe-mode-lsp` の単体は params の誤りだけ。ワーカーが試験のバイナリになるため）、Python（`GLOBE_BIN` を試験の `globe` に向ける）、`test_ui.py`（ブラウザは「Desktop だけ」、Desktop の偽 fs で確認を断れば回さず、承知すれば結果のタブ）、`test_tauri.mjs`。
+- **限界**: sandbox・macOS / Windows のメモリの上限は (n) のまま。UI は実験設定を変えられない。C ABI・NIF は未（(k) 3 の残り）。Desktop の中断は sidecar への `$/cancelRequest` が届いてから 50 ms 以内にワーカーを止める（sidecar の LSP は要求を 1 本ずつ処理するので、FMU の実行中はほかの要求が待つ）。
+
 ## 結果
 
+- **S229 の結果**: 上の (p)。facade・Python・Desktop の UI から FMU を読んで回せる。
 - **S210 の結果**: 上の (n)。`globe fmu run` は FMU を別プロセスで回し、落ちても `globe` は落ちない。
 - **S206 の結果**: 上の (m)。案 B は採らず自前で進める。レビューの指摘 4 件を直した。
 - **S205 の結果**: 上の (l)。`FmuMe` が FMI 2.0・3.0 で動き、BouncingBall の衝突 11 回の時刻が解析解と 3.2e-11 で一致する。`globe fmu run --kind me`。

@@ -270,6 +270,67 @@ fn read_results<'py>(
     Ok((parameters, names, pack(py, &columns)?))
 }
 
+/// FMU の要約（`FmuInfo` の JSON。S229）。読めなければ `FmuError`。ネイティブコードは実行しない。
+#[pyfunction]
+fn fmu_info(py: Python<'_>, path: PathBuf) -> PyResult<String> {
+    globe_mode::import_fmu_info(&path)
+        .and_then(|i| json(&i))
+        .map_err(|e| error(py, "FmuError", Some(e), None))
+}
+
+/// FMU を別プロセスのワーカー（`worker` の `fmu __worker`）で回し、`(ME の要約の JSON か null, 列の名前, 列の bytes)` を返す（S229）。
+/// GIL を離して回し、進捗のたびに `check_signals`（Ctrl-C）と `on_progress(t)` を呼ぶ。真の値を返すか例外が出たらワーカーを止める。
+/// 例外（`KeyboardInterrupt` など）は戻ってから投げ直す。失敗は `FmuError`。
+// shortcut: Ctrl-C と on_progress はワーカーの進捗（0.25 秒おき）のときだけ見る。進捗の出ない FMU は `timeout` で止める
+#[pyfunction]
+#[pyo3(signature = (worker, path, request = None, on_progress = None))]
+fn run_fmu<'py>(
+    py: Python<'py>,
+    worker: PathBuf,
+    path: PathBuf,
+    request: Option<&str>,
+    on_progress: Option<Py<PyAny>>,
+) -> PyResult<(String, Vec<String>, Vec<Bound<'py, PyBytes>>)> {
+    let request: globe_mode::FmuRunRequest = request
+        .map_or_else(
+            || Ok(Default::default()),
+            |r| serde_json::from_str(r).map_err(|e| format!("request が読めない: {e}")),
+        )
+        .map_err(|e| error(py, "FmuError", Some(e), None))?;
+    let token = globe_mode::CancelToken::new();
+    let mut raised: Option<PyErr> = None;
+    let mut notify = |t: f64| {
+        if raised.is_some() {
+            return;
+        }
+        let stop = Python::attach(|py| {
+            py.check_signals()?;
+            match &on_progress {
+                Some(f) => f.call1(py, (t,))?.is_truthy(py),
+                None => Ok(false),
+            }
+        });
+        match stop {
+            Ok(false) => {}
+            Ok(true) => token.cancel(),
+            Err(e) => {
+                raised = Some(e);
+                token.cancel();
+            }
+        }
+    };
+    let cancel = token.clone();
+    let run = py
+        .detach(move || globe_mode::run_fmu(&worker, &path, &request, &mut notify, Some(&cancel)));
+    if let Some(e) = raised {
+        return Err(e);
+    }
+    let run = run.map_err(|e| error(py, "FmuError", Some(e), None))?;
+    let (layout, columns) = run.results.columns();
+    let me = json(&run.me).map_err(PyRuntimeError::new_err)?;
+    Ok((me, layout.names, pack(py, &columns)?))
+}
+
 /// 設定のキーと値の型の見本（`SimSettings` を全部埋めた JSON）。Python が未知のキーと型の誤りを弾く元で、
 /// `SimSettings` に項目を足すとここがコンパイルできなくなる（Python 側の一覧と食い違わない）。
 #[pyfunction]
@@ -312,6 +373,8 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Workspace>()?;
     m.add_function(wrap_pyfunction!(solvers, m)?)?;
     m.add_function(wrap_pyfunction!(read_results, m)?)?;
+    m.add_function(wrap_pyfunction!(fmu_info, m)?)?;
+    m.add_function(wrap_pyfunction!(run_fmu, m)?)?;
     m.add_function(wrap_pyfunction!(settings_sample, m)?)?;
     m.add_function(wrap_pyfunction!(format, m)?)?;
     m.add_function(wrap_pyfunction!(lint, m)?)

@@ -10,7 +10,8 @@
     table(res)  # polars.DataFrame（time 列と変数の列）
 
 - 使い方: `Workspace`（開く・`check`・`outline`・`deps`・`flat`・`graph`・`simulate`・`simulate_columns`・`export_fmu`）、`table`、`format`、
-  `lint`、`solvers`、`read_results`（結果の MAT v4・CSV を読む）。それぞれ `help()` に引数・戻り値・誤りがある。
+  `lint`、`solvers`、`read_results`（結果の MAT v4・CSV を読む）、`fmu_info`・`run_fmu`（FMU を読む・回す。FMI Import、S229）。
+  それぞれ `help()` に引数・戻り値・誤りがある。
 - 誤りの扱い: **モデルの誤りは例外にせず、結果の `diagnostics`（`ok`・`passed`）で返す**（未知のモデルも `check` は
   `passed: False`）。ライブラリが出す例外はすべて `GlobeModeError` の子（`.diagnostics` と最初の診断の `.code` を持つ）で、
   これまでの組み込みの型も継ぐので `except ValueError` などでも受けられる:
@@ -23,6 +24,7 @@
   | `SourceError` | `ValueError` | `outline` のファイルが無い・構文の誤り、`format` の構文の誤り |
   | `ExportError` | `ValueError` | `export_fmu` が書き出せない |
   | `ResultError` | `ValueError` | `table` に時系列の無い結果を渡した、`read_results` が結果のファイルを読めない |
+  | `FmuError` | `RuntimeError` | `fmu_info` が FMU を読めない、`run_fmu` が回せない（FMU が落ちた・時間切れ・止めた・`globe` が見つからない） |
 
   **呼び方の誤りは素の `TypeError`**（未知の設定のキー、`on_progress` が呼べない、`libraries` が bytes）で、
   コールバックが出した例外と Rust の panic（`pyo3_runtime.PanicException`）はそのまま通る。
@@ -34,15 +36,17 @@ import json
 import math
 import numbers
 import os
+import shutil
 from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
-from typing import Any, TypedDict, Unpack
+from typing import Any, Literal, TypedDict, Unpack
 
 import polars as pl
 
 from . import _native
 from ._errors import (
     ExportError,
+    FmuError,
     GlobeModeError,
     LibraryError,
     ModelNotFoundError,
@@ -53,6 +57,7 @@ from ._errors import (
 
 __all__ = [
     "ExportError",
+    "FmuError",
     "GlobeModeError",
     "LibraryError",
     "ModelNotFoundError",
@@ -62,10 +67,12 @@ __all__ = [
     "SettingsError",
     "SourceError",
     "Workspace",
+    "fmu_info",
     "format",
     "lint",
     "main",
     "read_results",
+    "run_fmu",
     "solvers",
     "table",
 ]
@@ -322,6 +329,63 @@ def read_results(path: str | os.PathLike[str]) -> dict[str, Any]:
     # shortcut: memoryview の "d" は native-endian（Rust は little-endian で詰める）、big-endian の機械なら byteswap が要る
     cols = {n: pl.Series(n, memoryview(c).cast("d"), pl.Float64) for n, c in zip(names, columns)}
     return {"ok": True, "columns": cols, "csv": None, "parameters": json.loads(parameters)}
+
+
+def fmu_info(path: str | os.PathLike[str]) -> dict[str, Any]:
+    """FMU（`.fmu`）の要約（S229。`globe fmu info` と同じ情報。**ネイティブコードは実行しない**）。
+
+    `model_name`・`fmi_version`・`interfaces`（`kind`＝ModelExchange / CoSimulation / ScheduledExecution、`model_identifier`、ME だけ
+    `continuous_states` と `event_indicators`）・`default_experiment`（`start_time`・`stop_time` の文字列。無ければ `None`）・
+    `variables`（`name`・`causality`・`ty`・`start`）。読めなければ `FmuError`。"""
+    return json.loads(_native.fmu_info(path))
+
+
+def _globe_bin() -> str:
+    """FMU のワーカーになる `globe`。`GLOBE_BIN`、無ければ PATH の `globe`（wheel の中には実行ファイルが無い）。"""
+    found = os.environ.get("GLOBE_BIN") or shutil.which("globe")
+    if not found:
+        raise FmuError("FMU を回すワーカー（CLI の `globe`）が見つからない。`globe` を PATH に置くか、環境変数 GLOBE_BIN にパスを入れる")
+    return found
+
+
+def run_fmu(
+    path: str | os.PathLike[str],
+    *,
+    kind: Literal["cs", "me"] | None = None,
+    start_time: float | None = None,
+    stop_time: float | None = None,
+    step: float | None = None,
+    outputs: Iterable[str] | None = None,
+    parameters: Mapping[str, float] | None = None,
+    timeout: float | None = None,
+    on_progress: Callable[[float], Any] | None = None,
+) -> dict[str, Any]:
+    """FMU を回す（S229。`globe fmu run` と同じ。FMI Import、ADR-0026）。`read_results` と同じ形の dict を返す:
+    `ok`・`columns`（名前 → `polars.Series`、`time` が先頭）・`csv`（None）・`me`（Model Exchange だけ。`steps`・`state_events` など。CS は None）。
+    `table(res)` で表になる。
+
+    **FMU のネイティブコードを実行する**。ただし別プロセス（ワーカー）で動くので、FMU が落ちても Python は落ちず `FmuError` になる
+    （ディスク・ネットワークは隔離しない。信頼できる FMU だけを回すこと）。ワーカーは `globe`（`GLOBE_BIN` か PATH。見つからなければ `FmuError`）。
+
+    `kind` は `"cs"`（FMU の中の積分器）か `"me"`（GlobeMode の積分器。事象あり）。省略は CS を持てば CS。`start_time`・`stop_time`・`step` の
+    省略は FMU の DefaultExperiment、`outputs` の省略は causality が output の Real すべて、`parameters` は初期化の前に与える Real（名前 → 値）。
+    `timeout`（秒）を超えるとワーカーを kill して `FmuError`。`on_progress(t)` は FMU の時刻を 0.25 秒以上おきに受け、真の値を返すと止める（`FmuError`）。
+    Ctrl-C と `on_progress` は進捗が出たときだけ見る（進捗の出ない FMU は `timeout` で止める）。
+
+        res = run_fmu("Dahlquist.fmu", stop_time=1, outputs=["x"])
+        table(res)
+    """
+    if kind not in (None, "cs", "me"):
+        raise TypeError(f"kind は 'cs' か 'me' のはずが {kind!r}")
+    request = dict(kind=kind, start_time=start_time, stop_time=stop_time, step=step, timeout=timeout)
+    if outputs is not None:
+        request["outputs"] = [outputs] if isinstance(outputs, str) else list(outputs)
+    if parameters is not None:
+        request["set"] = dict(parameters)
+    me, names, columns = _native.run_fmu(_globe_bin(), path, json.dumps({k: v for k, v in request.items() if v is not None}), _callback(on_progress))
+    # shortcut: memoryview の "d" は native-endian（Rust は little-endian で詰める）、big-endian の機械なら byteswap が要る
+    cols = {n: pl.Series(n, memoryview(c).cast("d"), pl.Float64) for n, c in zip(names, columns)}
+    return {"ok": True, "columns": cols, "csv": None, "me": json.loads(me)}
 
 
 def solvers() -> list[dict[str, Any]]:

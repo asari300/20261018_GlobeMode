@@ -1383,6 +1383,7 @@ dependencies = [
  "globe-mode-db",
  "globe-mode-exec",
  "globe-mode-fmi",
+ "globe-mode-fmi-import",
  "globe-mode-fmt",
  "globe-mode-frontend",
  "globe-mode-graph",
