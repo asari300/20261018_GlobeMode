@@ -7,7 +7,7 @@
 | worktree | `.git-worktree/s222-ui-open-results` |
 | Phase | P4 |
 | セッション文書 | `doc/sessions/S222-ui-open-results/` |
-| セッション記録 | （親が写す） |
+| セッション記録 | [2026-11-02-a2580a13-3889-4662-9db4-a45dc1ca6772.md](../sessions/2026-11-02-a2580a13-3889-4662-9db4-a45dc1ca6772.md) |
 
 ## 依頼
 
