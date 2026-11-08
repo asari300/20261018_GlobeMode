@@ -64,7 +64,7 @@ CIRCUIT = (
     "  R r1;\n  R r2;\nequation\n  connect(r1.n, r2.p);\nend G;\n"
 )
 # 進捗と止める（S133）: 1e6 s の振動（実行は止めるまで終わらない。CI の速い機械では 1000 s だと F12 や画面の確認の待ちの間に終わる。S201・#71）
-LONG = "model Long\n  Real x(start = 0, fixed = true);\nequation\n  der(x) = sin(100 * time);\n  annotation(experiment(StopTime = 1e6));\nend Long;\n"
+LONG = "model Long\n  Real x(start = 0, fixed = true);\nequation\n  der(x) = sin(100 * time);\n  annotation(experiment(StopTime = 1e6, Interval = 1));\nend Long;\n"
 # 実行の設定（S142）: パラメータ k を上書きできる。experiment の Tolerance が初期値に出る
 DECAY_K = (
     "model DecayK\n  parameter Real k = 1 \"減衰の速さ\";\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -k * x;\n"
