@@ -162,7 +162,7 @@
 <main>
 
 <div class="callout" role="note">
-  <p><strong>この文書は S001（2026-10-18）の時点の手順です。</strong> いまのツールと版は、リポジトリのルートの <code>mise.toml</code> と <code>mise.lock</code>、判断の理由は <a href="adr/0003-toolchain.md">ADR-0003</a> が正です。たとえば uv は 0.13.1、node・pnpm・cargo-deny・wasm-bindgen も入っており、以下の「mise.toml の完成例」と「タスク定義の例」は当時のものです。</p>
+  <p><strong>この文書は S001（2026-10-18）の時点の手順です。</strong> いまのツールと版は、リポジトリのルートの <code>mise.toml</code> と <code>mise.lock</code>、判断の理由は <a href="adr/0003-toolchain.md">ADR-0003</a> が正です。「mise.toml の完成例」と「タスク定義の例」は、S227（2026-11-08）にいまの <code>mise.toml</code> に合わせて書き直しました。ほかの章は S001 の手順のままで、版の数字は例です。</p>
   <p><strong>この手順の確度について。</strong> 作成時点で mise は未インストールだったため、ここに載せたコマンドは実行して確認していません。内容は mise の公式ドキュメント (mise.jdx.dev) と、このリポジトリ・マシンの現状調査に基づきます。バージョン番号は固定で書かず、<code>mise ls-remote</code> で確認する手順にしています。</p>
 </div>
 
@@ -251,7 +251,7 @@ mise ls-remote elixir 1.18
 mise ls-remote zig
 mise ls-remote julia
 mise ls-remote gleam
-mise ls-remote uv 0.12</code></pre>
+mise ls-remote uv</code></pre>
   </div>
 
   <h3>3-5. mise.toml を作って導入する</h3>
@@ -268,10 +268,10 @@ uv sync</code></pre>
 
 <section id="toml">
   <h2>4. mise.toml の完成例</h2>
-  <p>リポジトリのルートに置きます。ポイントは次の 4 つです。</p>
+  <p>リポジトリのルートに置きます。いまの <code>[settings]</code> と <code>[tools]</code> を載せます（コメントは抜粋。正はリポジトリの <code>mise.toml</code>）。ポイントは次の 4 つです。</p>
   <ul>
     <li><strong>Python は書かない。</strong> Python 本体は uv が <code>.python-version</code> (3.12) から取得します。mise にも <code>python</code> を入れると、どちらの Python が使われるかが曖昧になります。</li>
-    <li><strong><code>uv</code> は <code>0.12</code> に固定。</strong> <code>pyproject.toml</code> のビルドバックエンドが <code>uv_build&gt;=0.12.6,&lt;0.13.0</code> を要求しているためです。</li>
+    <li><strong>版は正確に固定する。</strong> <code>uv</code>・<code>cargo-deny</code>・<code>node</code>・<code>pnpm</code>・wasm-bindgen は数字で書きます（wasm-bindgen は <code>Cargo.lock</code> の版と必ず同じ）。Zig・Julia・Gleam は <code>latest</code> ですが、<code>mise.lock</code> に正確な版が残ります。<code>pyproject.toml</code> のビルドバックエンドは maturin なので、uv の版は maturin とは関係なく、ここで決めます。</li>
     <li><strong>Erlang と Elixir は OTP 番号を揃える。</strong> <code>elixir = "latest"</code> は最新の OTP 向けビルドを選ぶので、<code>erlang</code> を古い版に固定していると食い違います。</li>
     <li><strong>Ubuntu 26.04 では <code>precompiled_os</code> を明示する。</strong> 自動判定されないためです。</li>
   </ul>
@@ -285,18 +285,20 @@ precompiled_os = "ubuntu-26.04"    # Ubuntu 26.04 は自動判定されないの
 # compile = true                   # プリコンパイル版が無いときは kerl でソースビルド (3-3 の apt が必要)
 
 [tools]
-uv     = "0.12"                    # pyproject.toml の uv_build&gt;=0.12.6,&lt;0.13.0 に合わせる
-rust   = { version = "stable", profile = "default", components = ["rust-analyzer"] }  # edition 2024 は 1.85 以上
+uv     = "0.13.1"                    # pyproject.toml の build-backend は maturin（S039）。uv 自体の版はここで固定
+rust   = { version = "stable", profile = "default", components = ["rust-analyzer"], targets = "wasm32-unknown-unknown,wasm32-wasip2,aarch64-linux-android" }  # edition 2024 は 1.85 以上。rust-toolchain.toml は置かない
+cargo-deny = "0.20.2"             # ライセンスと依存の監査（doc/licenses.md）
+"github:wasm-bindgen/wasm-bindgen" = "0.2.129"  # S012: wasm の束ねの JS の糊（wasm-bindgen --target nodejs）。版は Cargo.lock の wasm-bindgen と必ず同じにする
+node   = "24.22.0"                   # S041: src/Svelte のビルド（Vite）と wasm の Node 試験。版は ADR-0003 と同じく mise.lock で固定
+pnpm   = "12.14.0"                   # S041: src/Svelte の npm 依存。ロックは src/Svelte/pnpm-lock.yaml
 zig    = "latest"
 julia  = "latest"
 erlang = "27"                      # いま apt で入っている組み合わせと同じ
 elixir = "1.18.3-otp-27"           # erlang のメジャー番号と -otp-NN を必ず揃える
-gleam  = "latest"
-
-# python は書かない。Python 本体は uv が .python-version (3.12) から取得する。</code></pre>
+gleam  = "latest"</code></pre>
   </div>
   <p><code>latest</code> や <code>stable</code> を使っても、<code>mise.lock</code> に正確なバージョンが記録されるので再現性は保たれます。新しい OTP に上げるときは、<code>erlang</code> と <code>elixir</code> の OTP 番号を<strong>同時に</strong>変えてください。</p>
-  <p class="note">Rust の <code>stable</code> 指定が通らない場合は、<code>rustc --version</code> で確認した 1.85 以上の数値 (例: <code>version = "1.xx"</code>) に置き換えてください。<code>profile = "default"</code> には clippy と rustfmt が含まれます。</p>
+  <p class="note">Rust の <code>stable</code> 指定が通らない場合は、<code>rustc --version</code> で確認した 1.85 以上の数値 (例: <code>version = "1.xx"</code>) に置き換えてください。<code>profile = "default"</code> には clippy と rustfmt が含まれます。<code>targets</code> は wasm（ブラウザ版）と Android のビルドに要ります。</p>
 
   <h3>.gitignore に追加する</h3>
   <div class="code">
@@ -316,12 +318,12 @@ mise.local.lock</code></pre>
   <div class="code">
     <div class="code-head"><span class="code-label">shell</span><button type="button" class="copy" aria-label="Python のコマンドをコピー">コピー</button></div>
     <pre tabindex="0"><code>uv sync
-uv run 20261018-globemode
+uv run globe-mode
 uv run python -V</code></pre>
   </div>
 
   <h3>Rust (Cargo)</h3>
-  <p>ルートの <code>Cargo.toml</code> と <code>src/main.rs</code> をそのまま Cargo で扱います。<code>rust-toolchain.toml</code> は作らず、バージョンは <code>mise.toml</code> に一本化してください (mise が設定する <code>RUSTUP_TOOLCHAIN</code> が優先され、ファイルが無視されるため)。</p>
+  <p>ルートの <code>Cargo.toml</code>（workspace。crate は <code>src/Rust/</code> の下）をそのまま Cargo で扱います。<code>rust-toolchain.toml</code> は作らず、バージョンは <code>mise.toml</code> に一本化してください (mise が設定する <code>RUSTUP_TOOLCHAIN</code> が優先され、ファイルが無視されるため)。</p>
   <div class="code">
     <div class="code-head"><span class="code-label">shell</span><button type="button" class="copy" aria-label="Rust のコマンドをコピー">コピー</button></div>
     <pre tabindex="0"><code>cargo build
@@ -371,31 +373,39 @@ gleam run</code></pre>
 
 <section id="tasks">
   <h2>6. タスク定義の例</h2>
-  <p>任意です。実際にプロジェクトがある Python と Rust だけを定義しています。空の <code>src/Elixir</code> などは、プロジェクトを作った後に同じ形で足してください。コロンを含むタスク名は、TOML のキーとして引用符で囲む必要があります。</p>
+  <p>いまの <code>mise.toml</code> のタスクのうち、基本の 3 つ（<code>check</code>・<code>ci:plan</code>・<code>docs:check</code>）を載せます。ほかに <code>msl:*</code>（MSL の検査と実行）、<code>wasm:*</code>、<code>c:*</code>、<code>elixir:test</code>、<code>gleam:test</code>、<code>ui:*</code>、<code>leptos:*</code>、<code>dioxus:*</code> があり、一覧は <code>mise tasks ls</code> で見ます。コロンを含むタスク名は、TOML のキーとして引用符で囲む必要があります。</p>
   <div class="code">
-    <div class="code-head"><span class="code-label">mise.toml (末尾に追記)</span><button type="button" class="copy" aria-label="タスク定義の例をコピー">コピー</button></div>
-    <pre tabindex="0"><code>[tasks.setup]
-description = "ツールを導入して Python 依存を同期する"
-run = ["mise install", "uv sync"]
+    <div class="code-head"><span class="code-label">mise.toml (タスクの抜粋)</span><button type="button" class="copy" aria-label="タスク定義の例をコピー">コピー</button></div>
+    <pre tabindex="0"><code>[tasks.check]
+description = "CI の判定のテスト、Rust の fmt / clippy / test / deny と、uv.lock の整合を確かめる"
+run = [
+  "python3 .claude/hooks/test_save_session_log.py",   # S218: 伏せ字の規則
+  "python3 .github/scripts/test_ci_plan.py",   # CI の plan ジョブと同じ。crate の依存を変えたときに手元で気づくため（S005 の CI の失敗から）
+  "cargo fmt --all --check",
+  "cargo clippy --workspace --all-targets -- -D warnings",
+  "cargo test --workspace",
+  "cargo deny check",
+  "cargo run -q -p globe-mode-cli -- fmt --check src/Modelica",   # S189: 検証用ライブラリは globe fmt で整形してある
+  "uv sync --locked",
+]
 
-[tasks."py:run"]
-description = "Python のエントリポイントを実行する"
-run = "uv run 20261018-globemode"
+[tasks."ci:plan"]
+description = "origin/main との差分で、CI が何を検査するかを表示する（ADR-0006）"
+run = "python3 .github/scripts/ci_plan.py --base origin/main --head HEAD"
 
-[tasks."rust:run"]
-description = "Rust のバイナリを実行する"
-run = "cargo run"
-
-[tasks.check]
-description = "uv.lock の整合と Rust の fmt / clippy を確認する"
-run = ["uv sync --locked", "cargo fmt --check", "cargo clippy -- -D warnings"]</code></pre>
+[tasks."docs:check"]
+description = "スライド・リンクの検査と、Playwright でのブラウザ表示の検査"
+run = [
+  "python3 -I .claude/skills/session-docs/check_docs.py",
+  "uv run python .claude/skills/session-docs/render_slides.py",
+]</code></pre>
   </div>
   <div class="code">
     <div class="code-head"><span class="code-label">shell</span><button type="button" class="copy" aria-label="タスク実行コマンドをコピー">コピー</button></div>
     <pre tabindex="0"><code>mise tasks ls
-mise run setup
 mise run check
-mise run py:run</code></pre>
+mise run ci:plan
+mise run docs:check</code></pre>
   </div>
 </section>
 
@@ -421,7 +431,7 @@ mise upgrade zig</code></pre>
   <p>このマシンには mise 以外の経路で入ったツールがあります。<code>mise activate</code> したシェルでは mise のツールが PATH の先頭に来るので、基本的には mise 側が優先されます。どれが使われているかは <code>mise which</code> で確認できます。</p>
   <ul>
     <li><strong>apt の Erlang / Elixir</strong> (<code>/usr/bin/erl</code>, OTP 27 / Elixir 1.18.3): 消さずに残して構いません。mise の版が優先されます。</li>
-    <li><strong>uv</strong> (<code>~/.local/bin/uv</code> 0.12.6): mise の <code>uv = "0.12"</code> と併存します。どちらも 0.12 系なので実害はありません。</li>
+    <li><strong>uv</strong> (<code>~/.local/bin/uv</code>): mise の <code>uv</code> と併存します。<code>mise activate</code> したシェルでは mise の版が先に使われます（版は <code>mise.toml</code> の <code>uv</code>）。</li>
     <li><strong>rustup</strong> (<code>~/.rustup</code>, <code>~/.cargo</code>): mise は既存の rustup を使い、<code>RUSTUP_TOOLCHAIN</code> を設定してツールチェーンを選びます。<code>cargo install</code> の成果物は <code>~/.cargo/bin</code> に入り、全ツールチェーンで共有されます。</li>
     <li><strong>juliaup</strong> (<code>~/.juliaup</code>): <code>~/.profile</code> で PATH に追加されていますが、確認時点では <code>julia</code> コマンドは見つかりませんでした。mise の Julia を使う限り juliaup は不要です。両方が見える状態になったら <code>which -a julia</code> で順序を確認してください。</li>
     <li><strong>Homebrew の Python</strong>: uv の Python 一覧に出てきますが、このリポジトリの Python 3.12 は uv が取得するものを使います。</li>
