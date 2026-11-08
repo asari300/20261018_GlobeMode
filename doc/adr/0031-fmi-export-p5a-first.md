@@ -38,6 +38,16 @@
 - **`--build --target <triple>`（何度でも）で `zig cc -target <triple>` を呼ぶ**。省略すると今までどおり host（x86_64 の Linux）を `cc` で作る。zig は mise の道具で、新しい依存は無い。置き場は FMI 2.0 が `linux64`・`win64`・`darwin64`（`darwin64` は arch を区別しない）、3.0 が `<arch>-linux`・`<arch>-windows`・`<arch>-darwin`。1 つの FMU に複数の置き場を同梱する。zig の Windows 向けが置く `.pdb` と import library は消す。
 - 検査は `fmu-export.yml` のジョブ `fmu-cross`。Ubuntu で `--target x86_64-linux-gnu --target x86_64-windows-gnu --target aarch64-macos` の FMU を作り、ubuntu-24.04・windows-latest・macos-latest（arm64）の FMPy 0.3.32 で validate と ME・CS を回す。run 41531879481 で 3 つとも 2.0・3.0 の validate が通り、x(1) − e⁻¹ は ME −2.608e-8、CS 3.331e-16（[S105 の解説書](../sessions/S105-fmu-export-cross/解説書.md)）。Windows・macOS の fmusim は回していない。
 
+## 追記（S234、2026-11-08）: Windows・macOS 向けの FMU と fmusim
+
+- **P5a の `--target` は `x86_64-macos` も受ける**（`platform()` は元から arch を見ていた）。zig が書いた Mach-O と PE の先頭の magic を `globe-mode-cli` の試験が確かめる。FMI 2.0 の `darwin64` は arch を区別しないので、`x86_64-macos` と `aarch64-macos` を両方付けると後のものが前を上書きしていた。`write_fmu` が置き場の名前の重なりを先に断る。3.0 は `x86_64-darwin` と `aarch64-darwin` に分かれるので両方入れられる。
+- **fmusim を 3 OS で回す**: `fmu-cross` が fmusim v0.15.0（Linux・Windows は x86_64、macOS は aarch64-darwin。x86_64-darwin の release は無い）で validate と ME・CS を回す。macOS の x86_64 向けの FMU は Mach-O の magic の確認までで、実行はしない（ランナーが arm64 で、Rosetta 上の fmusim も無い）。
+- **P5b は cross しない**: `globe-mode-fmu` の cdylib は rumoca と exec を静的に含むので zig で組まず、ランナーの OS でネイティブにビルドする（`fmu-native`）。`tests/fmpy.rs` と `fmpy_run.py` は cdylib の名前（`.so`・`.dll`・`.dylib`）と `binaries/` の置き場を OS で決める。
+- **fmusim の macOS(arm64) 版は FMI 2.0 の `darwin64` を見つけない**: v0.15.0 は 2.0 の FMU でも `binaries/aarch64-darwin/` を探して `dlopen failed` で落ちる（P5a・P5b とも、run 42471079551 のログ）。Linux・Windows の fmusim は 2.0 の `linux64`・`win64` を見つける。FMI 2.0 の規格の名前は `darwin64` なので FMU は直さず、macOS・FMI 2.0 の fmusim の simulate だけ飛ばす（validate は通る。FMPy の ME・CS は通る）。上流への報告は未提出。
+- 結果（`fmu-export.yml`、run 42472525126 success）: 3 OS とも FMPy の ME・CS が x(1) − e⁻¹ = −2.608e-08（ME）・3.331e-16（CS）、fmusim が −2.282e-08（ME）・3.331e-16（CS）。P5b の FMPy CS と fmusim CS は 3.886e-15、fmusim ME は −2.282e-08。`tests/fmpy.rs` の 16 件は Ubuntu・Windows・macOS で通った。
+- 道具: github.com の release の直リンクが 504 を返し続けた（mise の `packslip.sigstore.json` など。2026-11-08）。`fmu-cross`・`fmu-native` は mise を使わずランナーの rustup と `pipx install uv` にし、fmusim は API 経由の `gh release download` で取る。
+- 1 つの FMU に P5b の複数 OS の置き場を同梱する道は持ち越し（各 OS のビルドを 1 つの zip に集める手順が要る）。
+
 ## 追記（S117、2026-11-03）: `modelDescription.xml` の型と書く側の共有
 
 - **P5a は Rumoca のテンプレートが描く XML をそのまま FMU に入れる（置き換えない）**。`description`・`unit`・`SourceFiles`・`UnitDefinitions` などテンプレートだけが持つものを落とさないため。型 `ModelDescription` と読み（`parse_model_description`）・書き（`write_model_description_2`、FMI 2.0 のみ）は `globe-mode-fmi` の既定の feature が持ち、P5b（`globe-mode-fmu`）と共有する。Decay の 2.0 の XML は読み→書き→読みで同じ `ModelDescription` になる（`globe-mode-cli` の `tests/fmu_export.rs`）。3.0 の書く側は持ち越し。

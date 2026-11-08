@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S234 Windows・macOS 向けの FMU — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S234 Windows・macOS 向けの FMU">
+
+<section class="slide" id="S01">
+  <span class="tag">S234 · 2026-11-08 · P5</span>
+  <h1>Windows・macOS で FMU を回す</h1>
+  <p class="lead">P5a は zig で cross、P5b は各 OS でネイティブにビルド。fmusim も 3 OS</p>
+  <div class="big">FMPy と fmusim が <b>3 OS</b> で ME・CS</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">決定と理由</span>
+  <h1>着手前に何があったか</h1>
+  <ul>
+    <li>P5a の <code>--target</code>（zig cc）と、3 OS の FMPy は S105 から。</li>
+    <li>fmusim は Linux のランナーだけ。P5b は Linux の <code>.so</code> だけ。</li>
+    <li><code>tests/fmpy.rs</code> は Linux x86_64 でしか回らなかった。</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>今回の差</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>決定</th></tr>
+    <tr><td>P5a の macOS</td><td><code>x86_64-macos</code> の Mach-O を試験で確かめる</td></tr>
+    <tr><td>2.0 の <code>darwin64</code></td><td>macOS の <code>--target</code> を 2 つ付けると断る（以前は黙って上書き）</td></tr>
+    <tr><td>fmusim</td><td><code>fmu-cross</code> が 3 OS の fmusim で ME・CS</td></tr>
+    <tr><td>P5b</td><td>ジョブ <code>fmu-native</code> が OS ごとに cdylib を組み、FMPy と fmusim で回す</td></tr>
+    <tr><td>試験</td><td><code>tests/fmpy.rs</code> の cfg を外し、名前と置き場を OS で決める</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>2 つの道</h1>
+  <svg class="fig" viewBox="0 0 800 260" role="img" aria-label="P5a は zig で cross、P5b は各 OS でネイティブにビルドする図">
+    <rect class="svg-box" x="20" y="30" width="190" height="60" rx="10"/>
+    <text class="svg-text-b" x="115" y="66" text-anchor="middle">P5a: zig cc</text>
+    <line class="svg-line" x1="210" y1="60" x2="330" y2="60"/>
+    <rect class="svg-box-accent" x="330" y="30" width="200" height="60" rx="10"/>
+    <text class="svg-text-b" x="430" y="66" text-anchor="middle">win64・darwin64</text>
+    <line class="svg-line" x1="530" y1="60" x2="590" y2="60"/>
+    <rect class="svg-box" x="590" y="30" width="190" height="60" rx="10"/>
+    <text class="svg-text-b" x="685" y="66" text-anchor="middle">各 OS の実行器</text>
+    <rect class="svg-box" x="20" y="150" width="190" height="60" rx="10"/>
+    <text class="svg-text-b" x="115" y="186" text-anchor="middle">P5b: cargo</text>
+    <line class="svg-line" x1="210" y1="180" x2="330" y2="180"/>
+    <rect class="svg-box-accent" x="330" y="150" width="200" height="60" rx="10"/>
+    <text class="svg-text-b" x="430" y="186" text-anchor="middle">.dll・.dylib（その OS）</text>
+    <line class="svg-line" x1="530" y1="180" x2="590" y2="180"/>
+    <rect class="svg-box" x="590" y="150" width="190" height="60" rx="10"/>
+    <text class="svg-text-b" x="685" y="186" text-anchor="middle">FMPy・fmusim</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>検証</h1>
+  <ul>
+    <li>手元: <code>cargo test -p globe-mode-fmu --test fmpy</code> 16 件、zig の cross の試験、重なりの試験。</li>
+    <li>ランナー: <code>gh workflow run fmu-export.yml --ref feature/s234-fmu-export-cross-os</code>。</li>
+    <li>結果と run の ID は解説書と作業記録に書いた。</li>
+  </ul>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>残したもの</h1>
+  <ul>
+    <li>1 つの FMU に P5b の複数 OS の置き場を同梱（今回は対象外）。</li>
+    <li>x86_64 の macOS の実行。</li>
+    <li>FMI 3.0 の SE、MSL を使うモデル、fmuCheck。</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

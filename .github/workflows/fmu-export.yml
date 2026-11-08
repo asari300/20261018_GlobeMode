@@ -5,6 +5,8 @@
 # モデルは GlobeModeValidation.Simulation.Decay（der(x) = -x、x(0) = 1）。x(1) と e⁻¹ の差を出す。
 # S105: Ubuntu で `--target`（zig cc）を 3 つ付けて linux64・win64・darwin64（3.0 は x86_64-linux・x86_64-windows・aarch64-darwin）を
 # 1 つの FMU に入れ、artifact で Ubuntu・Windows・macOS（arm64）に渡して各 OS の FMPy で validate と ME・CS の simulate を回す。
+# S234: 同じ FMU をその OS の fmusim でも回す（fmu-cross）。P5b（自前のランタイム）は各 OS でネイティブにビルドして
+# FMPy の ME・CS と fmusim の CS で回す（fmu-native。cross はしない）。
 name: fmu-export
 
 on:
@@ -32,9 +34,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo build -p globe-mode-cli --bin globe
       - name: fmusim を取得する
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p "$RUNNER_TEMP/fmusim" && cd "$RUNNER_TEMP/fmusim"
-          curl -sSfL -o fmusim.zip "$FMUSIM_URL"
+          # S234: github.com の release の直リンク（curl）が 504 を返し続けたので、API 経由の gh で取る
+          gh release download v0.15.0 -R modelica/fmusim -p fmusim-x86_64-linux.zip -O fmusim.zip --clobber
           echo "$FMUSIM_SHA256  fmusim.zip" | sha256sum -c
           unzip -q fmusim.zip && chmod +x fmusim
           echo "$RUNNER_TEMP/fmusim" >> "$GITHUB_PATH"
@@ -59,33 +64,6 @@ jobs:
               fmusim simulate "$fmu" --interface-type "$it" --stop-time 1 --output-variable x --output-file "$out/fmusim-$it.csv"
               last_x "$out/fmusim-$it.csv" "FMI $v fmusim $it" | tee -a "$RUNNER_TEMP/summary.txt"
             done
-          done
-          { echo '```text'; cat "$RUNNER_TEMP/summary.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-      # S231: P5b（自前のランタイム globe-mode-fmu）の Co-Simulation。ME と CS を 1 つの FMU に書き、CS を FMPy と fmusim で回す
-      - name: P5b の CS を FMPy と fmusim で確かめる（S231）
-        run: |
-          fmpy() { uv run --no-project --with fmpy==0.3.32 python -I -c "import sys; from fmpy.cli import main; sys.argv = ['fmpy'] + sys.argv[1:]; main()" "$@"; }
-          last_x() { python3 -I -c "import csv, math, sys; r = list(csv.reader(open(sys.argv[1]))); h = r[0]; row = r[-1]; x = float(row[[c.strip().strip('\"') for c in h].index('x')]); print(f'{sys.argv[2]}: t = {row[0]}, x(1) = {x!r}, x(1) - e^-1 = {x - math.exp(-1):.3e}')" "$@"; }
-          cargo build --release -p globe-mode-fmu
-          mo=src/Modelica/GlobeModeValidation/Simulation/Decay.mo
-          for v in 2 3; do
-            out="$RUNNER_TEMP/p5b$v"; mkdir -p "$out"
-            cargo run -q --release -p globe-mode-fmu --example md -- "$mo" "$MODEL" "$v" both > "$out/modelDescription.xml"
-            python3 -I - "$out" "$v" "$MODEL" "$mo" <<'PY'
-          import sys, zipfile
-          out, v, model, mo = sys.argv[1:]
-          with zipfile.ZipFile(f"{out}/p5b.fmu", "w") as z:
-              z.write(f"{out}/modelDescription.xml", "modelDescription.xml")
-              z.write("target/release/libglobe_mode_fmu.so", f"binaries/{'x86_64-linux' if v == '3' else 'linux64'}/globe_mode_fmu.so")
-              z.write(mo, f"resources/{model}.mo")
-          PY
-            fmu="$out/p5b.fmu"
-            fmpy validate "$fmu"
-            fmusim validate "$fmu"
-            fmpy simulate "$fmu" --interface-type CoSimulation --relative-tolerance 1e-8 --stop-time 1 --output-variables x --output-file "$out/fmpy-cs.csv"
-            last_x "$out/fmpy-cs.csv" "P5b FMI $v FMPy CoSimulation" | tee -a "$RUNNER_TEMP/summary.txt"
-            fmusim simulate "$fmu" --interface-type cs --stop-time 1 --output-variable x --output-file "$out/fmusim-cs.csv"
-            last_x "$out/fmusim-cs.csv" "P5b FMI $v fmusim cs" | tee -a "$RUNNER_TEMP/summary.txt"
           done
           { echo '```text'; cat "$RUNNER_TEMP/summary.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - name: Enumeration と String のモデルを FMPy と fmusim で確かめる（S224）
@@ -137,28 +115,128 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: jdx/mise-action@v5
-        with:
-          install_args: uv
-          # checkout しないので mise.toml が無い
-          mise_toml: |
-            [tools]
-            uv = "latest"
+      # S234: mise の取得（github.com の release）が 504 で落ち続けたので pipx の uv を使う
+      - run: pipx install uv && echo "$(pipx environment --value PIPX_BIN_DIR)" >> "$GITHUB_PATH"
       - uses: actions/download-artifact@v4
         with:
           name: fmu-cross
           path: fmu
-      - name: FMPy で validate と ME・CS
+      - name: fmusim を取得する（S234。OS ごとの release、sha256 は S234 で GitHub の digest を確かめたもの）
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          case "$RUNNER_OS" in
+            Linux)   a=x86_64-linux;   h=d92bd9054ac9693d263c4d68e75a6dd4d540cdd415c178dd75521571ed9e29a0 ;;
+            Windows) a=x86_64-windows; h=b1b89d2380d956b8eee8129e464c24eb8106742b0e2fbc788a09562174804e98 ;;
+            macOS)   a=aarch64-darwin; h=e00ccf908cc4295a0794e63babc4c1fd060e020f64163f22695e3ce1524a58f2 ;;
+          esac
+          mkdir -p fmusim-bin && cd fmusim-bin
+          # github.com の release の直リンク（curl）が 504 を返し続けたので、API 経由の gh で取る
+          gh release download v0.15.0 -R modelica/fmusim -p "fmusim-$a.zip" -O fmusim.zip --clobber
+          py() { uv run --no-project python -I "$@"; }
+          py -c "import hashlib, sys; d = hashlib.sha256(open('fmusim.zip', 'rb').read()).hexdigest(); print(d); sys.exit(d != sys.argv[1])" "$h"
+          py -c "import zipfile; zipfile.ZipFile('fmusim.zip').extractall('.')"
+          chmod +x fmusim*
+          echo "FMUSIM=$PWD/fmusim" >> "$GITHUB_ENV"
+          ls -l
+          ./fmusim --version
+      - name: FMPy と fmusim で validate と ME・CS
         run: |
           py() { uv run --no-project --with fmpy==0.3.32 python -I "$@"; }
           fmpy() { py -c "import sys; from fmpy.cli import main; sys.argv = ['fmpy'] + sys.argv[1:]; main()" "$@"; }
+          check() { py -c "import csv, math, sys; r = list(csv.reader(open(sys.argv[1]))); i = [c.strip().strip('\"') for c in r[0]].index('x'); x = float(r[-1][i]); d = x - math.exp(-1); print(f'{sys.argv[2]}: t = {r[-1][0]}, x(1) = {x!r}, x(1) - e^-1 = {d:.3e}'); sys.exit(abs(d) > float(sys.argv[3]))" "$@" | tee -a summary.txt; test "${PIPESTATUS[0]}" = 0; }
           for v in 2 3; do
             fmu="fmu/fmi$v/GlobeModeValidation_Simulation_Decay-fmi$v.fmu"
             fmpy validate "$fmu"
             for it in ModelExchange CoSimulation; do
               fmpy simulate "$fmu" --interface-type "$it" --relative-tolerance 1e-8 --stop-time 1 --output-variables x --output-file "out-$v-$it.csv"
-              py -c "import csv, math, sys; r = list(csv.reader(open(sys.argv[1]))); x = float(r[-1][1]); d = x - math.exp(-1); print(f'{sys.argv[2]}: t = {r[-1][0]}, x(1) = {x!r}, x(1) - e^-1 = {d:.3e}'); sys.exit(abs(d) > 1e-6)" \
-                "out-$v-$it.csv" "${{ runner.os }} FMI $v FMPy $it" | tee -a summary.txt
+              check "out-$v-$it.csv" "${{ runner.os }} FMI $v FMPy $it" 1e-6
+            done
+            # S234: その OS の fmusim。fmusim の ME は CVode の既定なので許容は緩める
+            "$FMUSIM" validate "$fmu"
+            # fmusim 0.15.0 の macOS(arm64) 版は FMI 2.0 の FMU でも binaries/aarch64-darwin を探す（darwin64 を見つけない。run 42471079551）ので、そこだけ飛ばす
+            if [ "$RUNNER_OS" = macOS ] && [ "$v" = 2 ]; then echo "skip: fmusim simulate（macOS・FMI 2.0）"; continue; fi
+            for it in me cs; do
+              "$FMUSIM" simulate "$fmu" --interface-type "$it" --stop-time 1 --output-variable x --output-file "sim-$v-$it.csv"
+              check "sim-$v-$it.csv" "${{ runner.os }} FMI $v fmusim $it" 1e-3
+            done
+          done
+          { echo '```text'; cat summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+  # S234: P5b（自前のランタイム globe-mode-fmu）を各 OS でネイティブにビルドして FMPy と fmusim で回す（cross はしない）
+  fmu-native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    env:
+      MODEL: GlobeModeValidation.Simulation.Decay
+    steps:
+      - uses: actions/checkout@v7
+      # S234: mise の取得（github.com の release）が 504 で落ち続けたので、ランナーの rustup と pipx の uv を使う（S233 の vscode.yml と同じ方針）
+      - run: rustup toolchain install stable --profile minimal --no-self-update && rustup default stable
+      - run: pipx install uv && echo "$(pipx environment --value PIPX_BIN_DIR)" >> "$GITHUB_PATH"
+      - uses: Swatinem/rust-cache@v2
+      - name: fmusim を取得する（S234。OS ごとの release、sha256 は S234 で GitHub の digest を確かめたもの）
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          case "$RUNNER_OS" in
+            Linux)   a=x86_64-linux;   h=d92bd9054ac9693d263c4d68e75a6dd4d540cdd415c178dd75521571ed9e29a0 ;;
+            Windows) a=x86_64-windows; h=b1b89d2380d956b8eee8129e464c24eb8106742b0e2fbc788a09562174804e98 ;;
+            macOS)   a=aarch64-darwin; h=e00ccf908cc4295a0794e63babc4c1fd060e020f64163f22695e3ce1524a58f2 ;;
+          esac
+          mkdir -p fmusim-bin && cd fmusim-bin
+          # github.com の release の直リンク（curl）が 504 を返し続けたので、API 経由の gh で取る
+          gh release download v0.15.0 -R modelica/fmusim -p "fmusim-$a.zip" -O fmusim.zip --clobber
+          py() { uv run --no-project python -I "$@"; }
+          py -c "import hashlib, sys; d = hashlib.sha256(open('fmusim.zip', 'rb').read()).hexdigest(); print(d); sys.exit(d != sys.argv[1])" "$h"
+          py -c "import zipfile; zipfile.ZipFile('fmusim.zip').extractall('.')"
+          chmod +x fmusim*
+          echo "FMUSIM=$PWD/fmusim" >> "$GITHUB_ENV"
+          ls -l
+          ./fmusim --version
+      # tests/fmpy.rs は cdylib を作って FMPy の ME・CS で回す（OS ごとの置き場と拡張子は試験の側で決める）
+      - name: FMPy の試験（tests/fmpy.rs、ME と CS、FMI 2.0 と 3.0）
+        run: cargo test --release -p globe-mode-fmu --test fmpy -- --nocapture
+      - name: ME と CS を 1 つの FMU に書き、FMPy の CS と fmusim の ME・CS で回す（S231、S234 で 3 OS）
+        run: |
+          py() { uv run --no-project --with fmpy==0.3.32 python -I "$@"; }
+          fmpy() { py -c "import sys; from fmpy.cli import main; sys.argv = ['fmpy'] + sys.argv[1:]; main()" "$@"; }
+          last_x() { py -c "import csv, math, sys; r = list(csv.reader(open(sys.argv[1]))); i = [c.strip().strip('\"') for c in r[0]].index('x'); x = float(r[-1][i]); print(f'{sys.argv[2]}: t = {r[-1][0]}, x(1) = {x!r}, x(1) - e^-1 = {x - math.exp(-1):.3e}'); sys.exit(abs(x - math.exp(-1)) > 1e-3)" "$@" | tee -a summary.txt; test "${PIPESTATUS[0]}" = 0; }
+          cargo build --release -p globe-mode-fmu
+          mo=src/Modelica/GlobeModeValidation/Simulation/Decay.mo
+          for v in 2 3; do
+            out="$RUNNER_TEMP/p5b$v"; mkdir -p "$out"
+            cargo run -q --release -p globe-mode-fmu --example md -- "$mo" "$MODEL" "$v" both > "$out/modelDescription.xml"
+            py - "$out" "$v" "$MODEL" "$mo" <<'PY'
+          import platform, sys, zipfile
+          out, v, model, mo = sys.argv[1:]
+          arch = {"AMD64": "x86_64", "arm64": "aarch64"}.get(platform.machine(), platform.machine())
+          os_name, v2_dir, lib, ext = {
+              "win32": ("windows", "win64", "globe_mode_fmu.dll", "dll"),
+              "darwin": ("darwin", "darwin64", "libglobe_mode_fmu.dylib", "dylib"),
+          }.get(sys.platform, ("linux", "linux64", "libglobe_mode_fmu.so", "so"))
+          with zipfile.ZipFile(f"{out}/p5b.fmu", "w") as z:
+              z.write(f"{out}/modelDescription.xml", "modelDescription.xml")
+              z.write(f"target/release/{lib}", f"binaries/{f'{arch}-{os_name}' if v == '3' else v2_dir}/globe_mode_fmu.{ext}")
+              z.write(mo, f"resources/{model}.mo")
+          PY
+            fmu="$out/p5b.fmu"
+            fmpy validate "$fmu"
+            "$FMUSIM" validate "$fmu"
+            fmpy simulate "$fmu" --interface-type CoSimulation --relative-tolerance 1e-8 --stop-time 1 --output-variables x --output-file "$out/fmpy-cs.csv"
+            last_x "$out/fmpy-cs.csv" "${{ runner.os }} P5b FMI $v FMPy CoSimulation"
+            # fmusim 0.15.0 の macOS(arm64) 版は FMI 2.0 の FMU でも binaries/aarch64-darwin を探す（darwin64 を見つけない。run 42471079551）ので、そこだけ飛ばす
+            if [ "$RUNNER_OS" = macOS ] && [ "$v" = 2 ]; then echo "skip: fmusim simulate（macOS・FMI 2.0）"; continue; fi
+            for it in me cs; do
+              "$FMUSIM" simulate "$fmu" --interface-type "$it" --stop-time 1 --output-variable x --output-file "$out/fmusim-$it.csv"
+              last_x "$out/fmusim-$it.csv" "${{ runner.os }} P5b FMI $v fmusim $it"
             done
           done
           { echo '```text'; cat summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"

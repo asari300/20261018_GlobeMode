@@ -135,7 +135,7 @@ Rumoca の rev は GlobeMode の版ごとに固定する（[ADR-0002](adr/0002-r
 | `msl-sim.yml` | 手動 | MSL の全例題の `msl:funnel` と `msl:sim`、分割読み込みの全例題の一致（`split-all`）、14 ソルバの表（`solvers`・`solvers-report`、[msl-solvers.md](msl-solvers.md)） |
 | `libraries.yml` | 手動、毎週月曜 06:00 JST | MSL 以外の公開ライブラリ 7 つの検査と表（[libraries.md](libraries.md) の元。S058） |
 | `resources.yml` | 手動 | 最大 RSS と wasm の線形メモリの測定（S051・S054） |
-| `fmu-export.yml` | 手動 | Export した FMU を FMPy と fmusim で確かめる（FMI 2.0・3.0、複数の OS の同梱。S098・S105） |
+| `fmu-export.yml` | 手動 | Export した FMU を FMPy と fmusim で確かめる（FMI 2.0・3.0、複数の OS の同梱、各 OS の FMPy・fmusim、P5b のネイティブビルド。S098・S105・S234） |
 | `fmu-import.yml` | 手動 | Import の試験を Linux・Windows・macOS で回す（Reference-FMUs の参照の CSV・解析解との突き合わせ、`globe fmu info` / `run`。S204・S205） |
 | `desktop.yml` | 手動 | Tauri の Desktop の .deb・.msi・.dmg と smoke、UI の測定（S049・S160） |
 | `android.yml` | 手動、main の `src/Rust/apps/desktop/**`・`src/Svelte/**` の変更 | debug・release の APK と API 34 のエミュレータの smoke（S092・S100・S106） |

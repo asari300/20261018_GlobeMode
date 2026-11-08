@@ -2,14 +2,17 @@
 （tests/fmpy.rs が呼ぶ）。終了時刻での各変数の値を `名前=値` で出す。
 S109: 事象の回数も出す（`events=` は fmi2EnterEventMode の回数、`reinit=` は valuesOfContinuousStatesChanged が真の回数）。
 S114: 8 番目の引数（任意）は FMPy の `input=` に渡す入力（`{"u": [[時刻, 値], ...]}` の JSON）。
-S137: 7 番目の引数は FMI の主版（2 または 3）。3 なら binaries/x86_64-linux/ に置き、fmi3UpdateDiscreteStates を数える。
+S137: 7 番目の引数は FMI の主版（2 または 3）。3 なら <arch>-<os>/ に置き、fmi3UpdateDiscreteStates を数える。
+S234: 置き場と拡張子は実行している OS で決める（Linux x86_64: linux64・x86_64-linux、Windows: win64・x86_64-windows、
+macOS: darwin64・<arch>-darwin）。
 
 S231: 9 番目の引数（任意）に CoSimulation を渡すと、FMPy の CS で回す（modelDescription.xml は CS を含むものを渡す）。
 
-使い方: python fmpy_run.py <libglobe_mode_fmu.so> <modelDescription.xml> <model.mo> <完全修飾名> <出力の .fmu> <変数,...> <2|3> [入力の JSON] [CoSimulation]
+使い方: python fmpy_run.py <cdylib（.so・.dll・.dylib）> <modelDescription.xml> <model.mo> <完全修飾名> <出力の .fmu> <変数,...> <2|3> [入力の JSON] [CoSimulation]
 """
 
 import json
+import platform
 import sys
 import zipfile
 
@@ -18,9 +21,13 @@ from fmpy import fmi2, fmi3, simulate_fmu
 from fmpy.validation import validate_fmu
 
 so, md, mo, name, fmu, names, version = sys.argv[1:8]
+arch = {"AMD64": "x86_64", "arm64": "aarch64"}.get(platform.machine(), platform.machine())
+os_name = {"win32": "windows", "darwin": "darwin"}.get(sys.platform, "linux")
+v2_dir = {"windows": "win64", "darwin": "darwin64"}.get(os_name, "linux64")
+ext = {"windows": "dll", "darwin": "dylib"}.get(os_name, "so")
 with zipfile.ZipFile(fmu, "w") as z:
     z.write(md, "modelDescription.xml")
-    z.write(so, f"binaries/{'x86_64-linux' if version == '3' else 'linux64'}/globe_mode_fmu.so")
+    z.write(so, f"binaries/{f'{arch}-{os_name}' if version == '3' else v2_dir}/globe_mode_fmu.{ext}")
     z.write(mo, f"resources/{name}.mo")
 problems = validate_fmu(fmu)
 assert not problems, problems
