@@ -122,3 +122,32 @@
 - `globe-mode-fmu` は rlib だけにし、共有ライブラリは新しい crate `globe-mode-fmu-cdylib`（`crate-type = ["cdylib"]`、`pub use globe_mode_fmu::*;` の 1 行）が作る。`extern "C"` の入口は `Instance` の内部と密なので `globe-mode-fmu` に残し、上流の `#[no_mangle]` として共有ライブラリから出る（`nm -D` で 119 個）。
 - 入れ子の `cargo build`（`tests/fmpy.rs`、CLI の試験、facade の `build_runtime`、`fmu-export.yml`）は `-p globe-mode-fmu-cdylib` を指す。共有ライブラリの名前は `libglobe_mode_fmu_cdylib.so` など。FMU の中は `globe_mode_fmu.<拡張子>` のまま。
 - facade が依存するのは rlib だけなので、入れ子のビルドに書き換えられず、S239 で置いた `doctest = false`（facade・`globe-mode-c`・`-lsp`・`-py`・`-wasm`）を外した。`globe-mode-nif` は元から false。
+## 追記（S243、2026-11-09）: P5b の FMU を小さくする（S238・S239 の持ち越し）
+
+- **cdylib のプロファイル**: workspace の `[profile.release]` は変えず、facade の `build_runtime`（`globe fmu export --runtime p5b` が cargo を呼ぶ道）が `CARGO_PROFILE_RELEASE_OPT_LEVEL=z`・`LTO=fat`・`CODEGEN_UNITS=1`・`PANIC=abort`・`STRIP=true` を環境変数で与える（mise の `wasm:build` と同じ作り。利用者が同じ変数を決めていればそれを尊重する）。`fmu-export.yml` が cdylib を直接作る step も同じ変数を与える。**`panic = "abort"` は今の挙動と矛盾しない**: `extern "C"` の境界を panic が越えると Rust 2024 では abort で、`globe-mode-fmu` は `catch_unwind` を使っていない（#40 の議論）。abort にすると unwind の表（`.eh_frame` など）が要らなくなるだけ。
+- **cdylib の大きさ**（Linux x86_64、release、`strip` 後。1 施策ずつ足した）:
+
+  | 施策 | 大きさ | 前の行から |
+  | --- | ---: | ---: |
+  | 既定の release（opt-level 3、cgu 16、LTO 無し、unwind） | 33.2 MB | |
+  | LTO fat + cgu 1（opt-level 3 のまま） | 25.4 MB | -7.8 MB |
+  | opt-level s だけ（LTO 無し） | 27.6 MB | （参考） |
+  | opt-level s + LTO fat + cgu 1 | 19.1 MB | |
+  | + panic = abort | 17.1 MB | -2.0 MB |
+  | opt-level z（LTO fat + cgu 1 + abort） | 15.1 MB | -2.0 MB |
+
+  FMU 全体（zip）は 12.9 → 6.3 MB。`Accelerate` の `globe fmu run`（instantiate + CS を 1 s）は 0.29 s → 0.24 s で、小さくして遅くなる向きの影響は出なかった（最大 RSS 59 → 45 MB）。cdylib のビルドは初回 約 6 分（fat LTO。Rumoca を含む）。
+- **残りの大きさ**: `nm -S` を crate ごとに足すと（opt-level s、symbol 付き 13.7 MB 分）Rumoca の compile 段（flatten・dae・solve・structural・parse・instantiate ほか）が約 8 MB、`core`・`alloc`・`hashbrown` が約 3 MB、`serde_json` 0.34 MB、`faer`・`nano_gemm` 0.4 MB。実行時が instantiate のたびに `resources` から compile し直すので Rumoca の compile 段は外せず、**cdylib を「数 MB」にするのは Rumoca を使う限り届かない**（FMU の zip 全体で 6.3 MB が今の値）。`cargo-bloat` は入れていない。外せそうな `globe-mode-exec` の積分器（`rumoca-solver-diffsol`・`-rk45`）は feature が `rumoca-exec` 1 つにまとまっており、切り出しても 1 MB 未満なので持ち越し。Rumoca は改変していない。
+- **`resources/lib` をクラス単位に**: `library_closure`（ファイルの閉包）のあと、`globe-mode-fmt::prune_classes`（`lex` と `class_spans` だけ。整形はしない）が、使わない入れ子のクラスを落とす。規則は字句だけで、広めに残す: トップレベルのクラスは残す。入れ子のクラス `X` は、親が残り、かつ識別子 `X` が利用者の本文かモデルの名前か残るクラスの本文に出るときだけ残す（`extends` の鎖は、増えなくなるまで繰り返してたどる）。`operator` の付いたクラスの子は全部残す（`'+'` などは名前なしで使われる）。字句に分けられない・文を切り出せないファイルはそのまま残す。落としたクラスだけから参照されていたファイルも要らなくなるので、`globe-mode-frontend::library_slice` が閉包を取り直す（変わらなくなるまで）。`within` と `package` の入れ子はそのまま残る。名前の一致だけを見るので、同じ名前の別のクラスや変数があっても残す（shortcut。スコープまでたどると、足りなくなる危険のほうが大きい）。
+- **測定**（`Modelica.Mechanics.Translational.Examples.Accelerate`、FMI 2.0）:
+
+  | | S238（ファイルの閉包） | S243（クラス単位） |
+  | --- | ---: | ---: |
+  | `resources/lib` のファイル | 294 | 90 |
+  | 大きさ（未圧縮 / zip の中） | 2.37 MB / 590 KB | 393 KB / 131 KB |
+  | `globe fmu run`（同じ cdylib で、instantiate + CS を 1 s） | 1.07 s | 0.29 s |
+  | 最大 RSS | 216 MB | 59 MB |
+
+  20 本のうち `resources/lib` は 76〜122 ファイル、387〜490 KB（`Thermal.FluidHeatFlow` の 2 本だけ `Media` のデータで 1.6 MB）。
+- **MSL の 20 本は 16/20**（S238・S237 と同じ。落ちる 4 本も同じ: ChuaCircuit、DemonstrateSignalExtrema、DiodeBridge2Pulse、DiodeCenterTap2Pulse）。切り出しで足りないクラスが出た例題は無い。
+- 詳細: [S243 の解説書](../sessions/S243-fmu-p5b-size/解説書.md)。

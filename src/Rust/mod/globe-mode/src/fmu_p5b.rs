@@ -11,7 +11,7 @@ use std::process::{Command, Stdio};
 
 use globe_mode_fmi::export::{check_out_root, platform, zip_dir};
 use globe_mode_fmu::Kind;
-use globe_mode_frontend::{Source, collect_mo_files, library_closure};
+use globe_mode_frontend::{Source, collect_mo_files, library_slice};
 
 use crate::FmuOptions;
 
@@ -121,7 +121,7 @@ fn stage(
     let res = root.join("resources");
     std::fs::create_dir_all(&res).map_err(io)?;
     std::fs::write(res.join(format!("{model}.mo")), text).map_err(io)?;
-    // ライブラリのうちモデルが使うファイルだけを resources/lib に（相対パスは library のルートからのもの）
+    // ライブラリのうちモデルが使うファイル（とクラス）だけを resources/lib に（相対パスは library のルートからのもの）
     let mut files: BTreeMap<String, String> = BTreeMap::new();
     for lib in library {
         let mut paths = Vec::new();
@@ -146,10 +146,11 @@ fn stage(
         })
         .collect();
     let lib = res.join("lib");
-    for rel in library_closure(&sources, model, &[text]) {
+    // S243: ファイルだけでなく、使わないクラスも落とした本文を入れる
+    for (rel, body) in library_slice(&sources, model, &[text]) {
         let to = lib.join(&rel);
         std::fs::create_dir_all(to.parent().expect("lib の下")).map_err(io)?;
-        std::fs::write(to, &files[&rel]).map_err(io)?;
+        std::fs::write(to, body).map_err(io)?;
     }
     // MSL など、BSD 3-Clause の著作権表示を再配布物に付ける（S239。ライブラリの根にある LICENSE を写す）
     if lib.is_dir() {
@@ -191,11 +192,27 @@ fn strip(lib: &Path) {
         .status();
 }
 
+/// 共有ライブラリを小さくするプロファイル（S243。`panic = "abort"` は `extern "C"` の境界で panic が abort になる今の挙動と同じ）
+const SMALL_PROFILE: [(&str, &str); 5] = [
+    ("CARGO_PROFILE_RELEASE_OPT_LEVEL", "z"),
+    ("CARGO_PROFILE_RELEASE_LTO", "fat"),
+    ("CARGO_PROFILE_RELEASE_CODEGEN_UNITS", "1"),
+    ("CARGO_PROFILE_RELEASE_PANIC", "abort"),
+    ("CARGO_PROFILE_RELEASE_STRIP", "true"),
+];
+
 /// `cargo build --release -p globe-mode-fmu-cdylib` で cdylib を作り、そのパスを返す（globe のソースの作業ツリーの中で）。
 /// 作れない（cargo が無い・作業ツリーの外）ときは `runtime_lib` を使うよう添えた理由。
 fn build_runtime() -> Result<PathBuf, String> {
     let hint = "globe のソースの作業ツリーの中で回すか、runtime_lib（--runtime-lib）で globe-mode-fmu-cdylib の共有ライブラリを渡す";
-    let out = Command::new(std::env::var_os("CARGO").unwrap_or("cargo".into()))
+    let mut cargo = Command::new(std::env::var_os("CARGO").unwrap_or("cargo".into()));
+    // S243: 小さくするプロファイルを環境変数で与える（workspace の [profile.release] は変えない。mise の wasm:build と同じ）。利用者が決めたものは尊重する
+    for (k, v) in SMALL_PROFILE {
+        if std::env::var_os(k).is_none() {
+            cargo.env(k, v);
+        }
+    }
+    let out = cargo
         .args([
             "build",
             "--release",

@@ -13,6 +13,7 @@ mod html;
 mod layout;
 mod lexer;
 mod lint;
+mod prune;
 mod structure;
 mod tree;
 
@@ -21,6 +22,7 @@ pub use config::CONFIG_FILE;
 pub use documentation::{Documentation, class_at, documentation}; // S232: UI の説明パネル
 pub use lexer::{Kind, Token, lex}; // S161: LSP の参照・リネームが、識別子のトークンだけを一致の対象にする
 pub use lint::{LintMessage, LintOptions, RULES, lint, rule_name};
+pub use prune::prune_classes; // S243: FMU の resources/lib から使わないクラスを落とす
 pub use tree::{LibraryTree, TreeEntry};
 
 /// Modelica の予約語と組み込み型。補完の候補に使う。
