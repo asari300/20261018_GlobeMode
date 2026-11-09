@@ -7,7 +7,7 @@
 | worktree | `.git-worktree/s248-parameter-dialog` |
 | Phase | P8 |
 | セッション文書 | `doc/sessions/S248-parameter-dialog/` |
-| セッション記録 | （親が写す） |
+| セッション記録 | [2026-11-02-a2580a13-3889-4662-9db4-a45dc1ca6772.md](../sessions/2026-11-02-a2580a13-3889-4662-9db4-a45dc1ca6772.md) |
 
 ## 依頼
 
@@ -31,7 +31,7 @@ roadmap の P8「パラメータダイアログ」の読み取りと実行時の
 - `wasm:node`（`smoke.mjs`: 自分のモデルの `c.k` = 5・`c.on` = 0・`c.n` = 3、ChuaCircuit の `C1.C`）ok。
 - `pnpm check` 0 エラー 0 警告。`test_ui.py` の `parameter_dialog`（自分のモデル: ダブルクリック、`c.` の絞り込み、Boolean・Enumeration・Integer の部品、`c.k = 2` で x(1) = e⁻²、「既定に戻す」で消えて e⁻¹、小数の Integer の GM-E10006 が欄の近くに出る。MSL: ChuaCircuit の C1 → C1.C）pass。全体の `test_ui.py` は ci.yml に任せた。
 - 時間（wasm、Node）: ChuaCircuit 16 本 33〜94 ms、Fluid.PumpingSystem 187 本 約 1.1 s、Fluid.HeatingSystem 364 本 約 4.7 s（`tunable_parameters` とほぼ同じ。lowering が支配）。
-- `mise run check`、`ci.yml`（full）の結果は下に書く。
+- `ci.yml` の全体検査（feature ブランチ、run 42567818478、コミット 98117c7）は 18 ジョブすべて success。手元の `mise run check` は結果の記録が残っていない（サブエージェントが報告の前に止まった）。回し直さず、同じコミットの全体検査（fmt・clippy・test・deny を含む）で代える。
 
 ## 残したこと
 
