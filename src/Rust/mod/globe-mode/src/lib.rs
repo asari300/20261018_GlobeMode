@@ -28,8 +28,9 @@ pub use globe_mode_frontend::{CompiledModel, collect_mo_files};
 pub use globe_mode_graph::{ConnectGraph, ConnectMismatch, GraphError};
 pub use globe_mode_ir::{FlatSummary, Outline, SimRun, SimSettings};
 pub use globe_mode_protocol::{
-    CheckResponse, ColumnsLayout, ExperimentValues, ParametersResponse, SimulateRequest,
-    SimulateResponse, StructureCounts, force_helps, refused_summary, unsupported_summary,
+    CheckResponse, ColumnsLayout, ExperimentValues, ModelParametersResponse, ParametersResponse,
+    SimulateRequest, SimulateResponse, StructureCounts, force_helps, refused_summary,
+    unsupported_summary,
 };
 pub use globe_mode_sim::solvers::{SOLVERS, SolverEntry};
 // facade に無いものを呼ぶとき（CLI の文字の表示が `FullReport` を読む、結果を CSV / MAT に書く）
@@ -636,6 +637,26 @@ impl Workspace {
             model: model.to_string(),
             parameters,
             diagnostics,
+        })
+    }
+
+    /// モデルのパラメータ宣言の一覧（`comp.k` の形の名前。S248）。DAE まで変換できなければ `Err`（その診断）。
+    /// 既定値が式で数が出なかった Real/Integer は、実行系の tunable な値（lowering の結果）があれば補う（無くても `Ok`）。
+    pub fn parameters(&mut self, model: &str) -> Result<ModelParametersResponse, Vec<Diagnostic>> {
+        let compiled = self.compile(model, &BTreeMap::new())?;
+        let mut parameters = compiled.parameters().to_vec();
+        if parameters
+            .iter()
+            .any(|p| p.value.is_none() && p.dims.is_empty() && p.ty != "String")
+            && let Ok(t) = globe_mode_exec::tunable_parameters(&compiled)
+        {
+            for p in parameters.iter_mut().filter(|p| p.value.is_none()) {
+                p.value = t.iter().find(|t| t.name == p.name).map(|t| t.default);
+            }
+        }
+        Ok(ModelParametersResponse {
+            model: model.to_string(),
+            parameters,
         })
     }
 

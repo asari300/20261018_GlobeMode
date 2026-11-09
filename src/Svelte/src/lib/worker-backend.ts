@@ -3,7 +3,7 @@ import type { Backend, CompletionEntry, Definition, Diagram, Documentation, Hove
 import { browserOpen, browserSave, browserSaveBinary } from "./browser-file";
 import { gapNonFinite, type Columns } from "./plot/csv";
 import { toColumns } from "./results";
-import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse, SolverEntry, TunableParameter } from "./protocol";
+import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse, SolverEntry, ModelParameter, TunableParameter } from "./protocol";
 
 /** Web Worker 上の wasm（ADR-0014、ADR-0023）。呼び出しは直列で、panic のあとは worker を作り直す。 */
 export class WorkerBackend implements Backend {
@@ -39,6 +39,9 @@ export class WorkerBackend implements Backend {
   }
   async tunableParameters(model: string): Promise<TunableParameter[]> {
     return (await this.#w.tunableParameters(model)).parameters ?? [];
+  }
+  async parameters(model: string): Promise<ModelParameter[]> {
+    return (await this.#w.parameters(model)).parameters; // S248
   }
   format(text: string, indent = 2, insertOrigin = true): Promise<string> {
     return this.#w.format(text, indent, insertOrigin); // wasm に設定ファイルは無い（S143）

@@ -546,6 +546,27 @@ fn decay_lists_tunable_parameters() {
 }
 
 #[test]
+fn decay_lists_declared_parameters() {
+    // S248: パラメータのダイアログ。k は型・既定値・単位つきで出る
+    let mut ws = Workspace::new();
+    for (name, text) in package() {
+        ws.put_file(&name, text);
+    }
+    let r = ws
+        .inner()
+        .parameters("GlobeModeValidation.Simulation.Decay");
+    let k = r
+        .ok()
+        .unwrap()
+        .parameters
+        .into_iter()
+        .find(|p| p.name == "k")
+        .unwrap();
+    assert_eq!((k.ty.as_str(), k.value), ("Real", Some(1.0)));
+    assert!(ws.inner().parameters("Nope").is_err());
+}
+
+#[test]
 fn models_lists_the_runnable_classes_of_a_file() {
     // S170: UI のモデル名の候補。model・block・class の修飾名（partial は除く。package の中まで入る）、壊れた構文は空
     let mut ws = Workspace::new();

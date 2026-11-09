@@ -53,6 +53,7 @@
   let simSettings = $state<NonNullable<SimulateRequest["settings"]>>({});
   let settingsProblem = $state("");
   let experiment = $state<CheckResponse["experiment"]>();
+  let openParams = $state<{ part: string } | null>(null); // S248: 図の部品のダブルクリックでパラメータのダイアログを開く合図（SimSettings へ）
   let checkedModel = $state<{ model: string } | null>(null); // S150: 検査したモデル（SimSettings が上書きできるパラメータの一覧を取る合図。検査のたびに新しい値）
   let lastSettings = $state<ResolvedSettings | null>(null);
   let lastFinal = $state<[string, number][]>([]); // 最後の時刻の値（先頭の 8 本。$ で始まる内部名は除く）
@@ -882,7 +883,7 @@
   {#if canForce === model}<p class="note" data-can-force><button onclick={() => simulate(true)} disabled={busy}>それでも実行する</button> 検査の Error を無視して実行する（強行）。結果は信頼できないことがある。</p>{/if}
   {#if forced}<p class="note forced" role="status" data-forced>強行した実行: 検査の Error を無視して実行した結果。信頼できないことがある。</p>{/if}
   {#if strayLib === model && own && !models.includes(model)}<p class="note" role="status" data-stray>モデル「{model}」はライブラリのもので、エディタの {baseName(file)} には無い。<button onclick={() => openLibrary({ path: model })} disabled={busy}>ライブラリのファイルを開く</button></p>{/if}
-  <SimSettings {backend} {model} {experiment} errors={diagnostics.filter((d) => d.code === "GM-E10004")} checked={checkedModel} last={lastSettings} bind:settings={simSettings} bind:problem={settingsProblem} />
+  <SimSettings {backend} {model} {experiment} errors={diagnostics.filter((d) => d.code === "GM-E10004" || d.code === "GM-E10006")} {openParams} checked={checkedModel} last={lastSettings} bind:settings={simSettings} bind:problem={settingsProblem} />
   {#if tauri}<p class="note" data-config>
     <button onclick={async () => { configNote = ""; try { await tauri.reloadConfig(); configNote ||= "globe-mode.toml を読み直した（無ければ既定）"; } catch (e) { configNote = String(e); } }}>設定を読み直す</button> {configNote}
   </p>{/if}
@@ -927,7 +928,7 @@
   <div class="work">
     {#if msl === "loaded"}<aside class="library"><LibraryTree {backend} onOpen={openLibrary} /></aside>{/if}
     <div class="editor" id="editor" hidden={isResults} bind:this={host}></div>
-    <DocsPanel doc={docs} {icon} {diagram} onJump={(line) => moveTo(view.state.doc.line(line + 1).from, view.state.doc.line(line + 1).from)} />
+    <DocsPanel doc={docs} {icon} {diagram} onParams={(part) => (openParams = { part })} onJump={(line) => moveTo(view.state.doc.line(line + 1).from, view.state.doc.line(line + 1).from)} />
   </div>
   <p class="hint" id="editor-help">{EDITOR_HELP}</p>
   {#if saved}<p class="note" role="status" data-saved>{saved}</p>{/if}

@@ -11,7 +11,7 @@ use globe_mode_core::{Diagnostic, Stage, TextRange, codes};
 use globe_mode_fmt::LibraryTree;
 use globe_mode_ir::{
     BalanceCount, Causality, ClassKind, ClassOutline, ComponentOutline, Connect, ConnectPrefix,
-    DaeCounts, Experiment, FlatSummary, Outline,
+    DaeCounts, Experiment, FlatSummary, ModelParameter, Outline,
 };
 use rumoca_compile::compile::{
     Dae, FailedPhase, FlatModel, PhaseResult, SourceRootKind, StrictCompileReport,
@@ -168,6 +168,8 @@ pub struct CompiledModel {
     dae: Arc<Dae>,
     /// 変数の名前 → その Enumeration 型（S224。flat モデルから取る。DAE は型の名前もリテラルの名前も持たない）
     enums: Arc<BTreeMap<String, EnumType>>,
+    /// パラメータ宣言（S248。flat モデルから取る）
+    params: Arc<Vec<ModelParameter>>,
 }
 
 /// Enumeration 型（S224）。リテラル `literals[i]` の ordinal は `i + 1`（FMI の `Item` の `value` と同じ）。
@@ -182,6 +184,11 @@ impl CompiledModel {
     /// 変数 `name` の Enumeration 型。配列の要素 `v[1]` は `v` の型。Enumeration でなければ None。
     pub fn enum_type_of(&self, name: &str) -> Option<&EnumType> {
         self.enums.get(name.split('[').next().unwrap_or(name))
+    }
+
+    /// パラメータ宣言（`comp.k` の形の名前。宣言の修飾を反映した既定値。S248）。
+    pub fn parameters(&self) -> &[ModelParameter] {
+        &self.params
     }
 
     /// 文字列リテラルを start か束縛に持つスカラーの String パラメータ（名前, 値）。式や配列のものは含めない。
@@ -1385,6 +1392,7 @@ fn compile_strict(session: &mut Session, model: &str) -> Result<CompiledModel, V
                 // MSL 4.0.0 の `external "builtin"`（Modelica.Math.sin など）を組み込み演算にする（S068）
                 dae: crate::external_builtin::lower_builtin_externals(&result.dae),
                 enums: Arc::new(enum_types(&result.flat)),
+                params: Arc::new(model_parameters(&result.flat)),
             })
         }
         Err(strict) => {
@@ -1430,6 +1438,103 @@ fn enum_types(flat: &FlatModel) -> BTreeMap<String, EnumType> {
         }
     }
     out
+}
+
+/// flat モデルのパラメータ宣言（S248）。既定値は束縛、無ければ start。リテラルは値にし、それ以外は式の字面にする
+/// （評価はしない。`globe-mode-exec` の tunable な値があれば、呼び出し側が `value` を補う）。
+fn model_parameters(flat: &FlatModel) -> Vec<ModelParameter> {
+    let enums = enum_types(flat);
+    let mut out = Vec::new();
+    for (vn, v) in &flat.variables {
+        if !matches!(v.variability, rumoca_core::Variability::Parameter(_)) || !v.is_primitive {
+            continue;
+        }
+        let name = vn.to_string();
+        let ty = flat
+            .variable_type_names
+            .get(vn)
+            .map_or("Real", String::as_str);
+        let en = enums.get(&name);
+        let ty = match ty {
+            _ if en.is_some() => "Enumeration",
+            "Integer" | "Boolean" | "String" => ty,
+            _ => "Real",
+        };
+        let e = v.binding.as_ref().or(v.start.as_ref());
+        let lits = en.map(|t| t.literals.clone()).unwrap_or_default();
+        let (default, value) = match e {
+            None => (None, None),
+            Some(e) => {
+                let text = render(e);
+                let value = number(e).or_else(|| {
+                    // Enumeration は参照の最後の部分がリテラル名
+                    let last = text.rsplit('.').next()?.trim_matches('\'');
+                    lits.iter().position(|l| l == last).map(|i| (i + 1) as f64)
+                });
+                (Some(text), value)
+            }
+        };
+        out.push(ModelParameter {
+            name,
+            ty: ty.to_string(),
+            dims: v.dims.clone(),
+            default,
+            value,
+            literals: lits,
+            unit: v.unit.clone().filter(|u| !u.is_empty()),
+            description: v.description.clone().filter(|d| !d.is_empty()),
+            min: v.min.as_ref().and_then(number),
+            max: v.max.as_ref().and_then(number),
+            fixed: v.fixed_uniform(),
+        });
+    }
+    out
+}
+
+/// 数のリテラル（符号つきを含む）の値。Boolean は 0/1。
+fn number(e: &rumoca_core::Expression) -> Option<f64> {
+    use rumoca_core::{Expression as E, Literal, OpUnary};
+    match e {
+        E::Literal {
+            value: Literal::Real(x),
+            ..
+        } => Some(*x),
+        E::Literal {
+            value: Literal::Integer(n),
+            ..
+        } => Some(*n as f64),
+        E::Literal {
+            value: Literal::Boolean(b),
+            ..
+        } => Some(f64::from(u8::from(*b))),
+        E::Unary {
+            op: OpUnary::Minus,
+            rhs,
+            ..
+        } => number(rhs).map(|x| -x),
+        E::Unary {
+            op: OpUnary::Plus,
+            rhs,
+            ..
+        } => number(rhs),
+        _ => None,
+    }
+}
+
+/// 式の字面（簡易。評価器ではない）。-5 は `Unary(Minus, 5)` なのでリテラルに畳む。
+fn render(e: &rumoca_core::Expression) -> String {
+    use rumoca_core::Expression as E;
+    match e {
+        E::Literal { value, .. } => value.to_string(),
+        E::VarRef { name, .. } => name.to_string(),
+        E::Unary { op, rhs, .. } => format!("{op}{}", render(rhs)),
+        E::Binary { op, lhs, rhs, .. } => format!("{} {op} {}", render(lhs), render(rhs)),
+        E::FunctionCall { name, args, .. } => {
+            let a: Vec<String> = args.iter().map(render).collect();
+            format!("{name}({})", a.join(", "))
+        }
+        _ => "…".to_string(),
+    }
 }
 
 /// ライブラリを読めない診断（`GM-E1003`）。

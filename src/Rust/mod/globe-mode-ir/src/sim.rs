@@ -298,6 +298,37 @@ pub struct TunableParameter {
     pub description: Option<String>,
 }
 
+/// モデルのパラメータ宣言 1 つ（フラット化の結果。S248。パラメータのダイアログ用）。`name` は `comp.k` の形。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ModelParameter {
+    pub name: String,
+    /// `Real`・`Integer`・`Boolean`・`String`・`Enumeration`
+    #[serde(rename = "type")]
+    pub ty: String,
+    /// 配列の次元（スカラーは空）。配列は上書きできない
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dims: Vec<i64>,
+    /// 既定値の表示（宣言の修飾を反映した束縛か start。リテラルはそのまま、式は式の字面）。無ければ None
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default: Option<String>,
+    /// 既定値が数のとき、その値（Boolean は 0/1、Enumeration は 1 始まりの ordinal。`SimSettings::parameters` と同じ尺度）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<f64>,
+    /// Enumeration のリテラル（ordinal は添字 + 1）
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub literals: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unit: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fixed: Option<bool>,
+}
+
 /// 成功した実行。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SimRun {
