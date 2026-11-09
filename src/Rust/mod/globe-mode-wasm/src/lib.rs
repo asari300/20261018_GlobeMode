@@ -441,6 +441,16 @@ impl Workspace {
         .to_string()
     }
 
+    /// クラスの図（部品の配置と `connect`）を形のデータ `{class, extent, parts, connections, shapes}` の JSON で返す（S245。LSP の `globe/diagram` と同じ形）。
+    /// 引数は `icon` と同じ。引けなければ `null`。描くのは UI。
+    pub fn diagram(&self, class: &str, text: &str, line: u32, character: u32) -> String {
+        let at = (!text.is_empty()).then_some((text, line, character));
+        globe_mode_lsp::diagram::diagram(class, at, &|c| {
+            self.tree_source(c).map(|(_, t)| t.to_string())
+        })
+        .to_string()
+    }
+
     /// 名前を `new_name` に変える TextEdit（`{range, newText}`）の配列の JSON（S161。LSP の `globe/rename` と同じ形）。
     /// 断る場合（部品でもクラスでもない・別のファイルのクラス・識別子でない・予約語・同じ階層に既にある）は理由を例外（文字列）で返す。
     pub fn rename(

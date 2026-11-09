@@ -33,6 +33,7 @@
 //! | `globe/librarySource` | `{path}`（完全修飾名） | `{file, text, range}`（S127。そのクラスを定義するライブラリのファイル。S186 から `range` はそのクラスの宣言の範囲（LSP の Range。引けなければ無い）。無ければ -32000） |
 //! | `globe/documentation` | `{class?, file?, line?, character?}`（`class` は完全修飾名。空なら開いている文書 `file` の行・列にあるいちばん内側のクラス） | `{class, info, revisions}` か null（S232。クラスの `annotation(Documentation(…))` の生の HTML。エスケープは戻してある。文書のクラスを先に、無ければライブラリのクラスから。クラスが引けなければ null。wasm の `documentation` と同じ形） |
 //! | `globe/icon` | `globe/documentation` と同じ | `{class, extent: [x1, y1, x2, y2], shapes: […]}` か null（S244。クラスの `annotation(Icon(…))` を形のデータにしたもの。`extends` の基底クラスのアイコンを 1 段だけ先に重ねる。図形は `kind`（rect・ellipse・line・polygon・text・bitmap）、`origin`・`rotation`・`extent`・`points`・`line`・`fill`（`[r,g,b]` か null）・`thickness`・`dash`・`radius`・`text`・`fontSize`・`align`・`arrows`・`arrowSize`。座標は Modelica のまま〔y は上向き〕。描くのは UI。wasm の `icon` と同じ形） |
+//! | `globe/diagram` | `globe/documentation` と同じ | `{class, extent, parts, connections, shapes}` か null（S245。クラスの部品〔`Placement(transformation)` のある宣言〕と `connect`、`Diagram(graphics)` を形のデータにしたもの。部品は `name`・`class`〔書いてある型〕・`line`〔宣言の行、0 始まり〕・`transform`〔アイコンの座標から Diagram の座標への `[a,b,c,d,e,f]`〕・`bbox`・`shapes`〔部品のクラスの Icon の図形。引けなければ空〕、`connections` は `from`・`to`・`line`〔`Line(points)` か中心どうしを結ぶ図形〕。`globe/icon` と同じ図形の形。wasm の `diagram` と同じ） |
 //!
 //! 設定ファイル（S130）: `initialize` の `rootUri`（無ければ `rootPath`）から上へたどって最初の `globe-mode.toml` を
 //! 読み、lint の診断と `textDocument/formatting` に使う（`workspace/didChangeConfiguration` で読み直す）。
@@ -44,6 +45,7 @@
 
 pub mod completion;
 pub mod definition;
+pub mod diagram;
 pub mod documentation;
 pub mod folding;
 pub mod icon;
@@ -736,6 +738,22 @@ impl Server {
                 reply(
                     id,
                     icon::icon(params["class"].as_str().unwrap_or(""), at, &|c| {
+                        std::fs::read_to_string(tree.file(c)?).ok()
+                    }),
+                )
+            }
+            // S245: クラスの Diagram（部品の配置と connect。形のデータ）
+            "globe/diagram" => {
+                let text = params["file"].as_str().and_then(|f| self.texts.get(f).cloned());
+                let (line, character) = (
+                    params["line"].as_u64().unwrap_or(0) as u32,
+                    params["character"].as_u64().unwrap_or(0) as u32,
+                );
+                let at = text.as_deref().map(|t| (t, line, character));
+                let tree = self.tree();
+                reply(
+                    id,
+                    diagram::diagram(params["class"].as_str().unwrap_or(""), at, &|c| {
                         std::fs::read_to_string(tree.file(c)?).ok()
                     }),
                 )
@@ -2318,6 +2336,32 @@ mod tests {
             Value::Null
         );
         assert_eq!(icon(json!({})), Value::Null);
+    }
+
+    #[test]
+    fn diagram_is_served_with_parts_and_connections() {
+        // S245: globe/diagram。部品の型は文書のクラスから、connect の線は Line か中心どうし。クラスが無ければ null
+        let mut s = Server::new(&[]).unwrap();
+        let text = "model T\n  Icon1 a annotation(Placement(transformation(extent = {{-10, -10}, {10, 10}})));\n  Icon1 b annotation(Placement(transformation(extent = {{-10, -10}, {10, 10}}, origin = {50, 0})));\nequation\n  connect(a.p, b.p);\nend T;\nmodel Icon1\n  annotation(Icon(graphics = {Rectangle(extent = {{-100, -100}, {100, 100}})}));\nend Icon1;\n";
+        s.handle(
+            json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+            "uri": "T.mo", "languageId": "modelica", "version": 1, "text": text}}}),
+        );
+        let mut dg = |params: Value| {
+            s.handle(json!({"id": 1, "method": "globe/diagram", "params": params}))
+                .remove(0)["result"]
+                .clone()
+        };
+        let d = dg(json!({"file": "T.mo", "line": 4, "character": 2}));
+        assert_eq!(d["class"], "T", "{d}");
+        assert_eq!(d["parts"].as_array().unwrap().len(), 2, "{d}");
+        assert_eq!(d["parts"][1]["shapes"][0]["kind"], "rect", "{d}");
+        assert_eq!(
+            d["connections"][0]["line"]["points"],
+            json!([[0.0, 0.0], [50.0, 0.0]])
+        );
+        assert_eq!(dg(json!({"class": "Nope"})), Value::Null);
+        assert_eq!(dg(json!({})), Value::Null);
     }
 
     #[test]

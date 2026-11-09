@@ -728,6 +728,65 @@ def icon_view(browser, origin: str, errors: list[str]) -> None:
     print("アイコン: MSL の Gain を木（検索）で開くと三角形（polygon）が出る")
 
 
+def diagram_view(browser, origin: str, errors: list[str]) -> None:
+    """S245: 図。カーソルのクラスの部品（Placement のある宣言）を自分のクラスの Icon で置き、connect を Line か中心どうしの直線で描く。
+    自分のモデルは部品 2 つ（回転つき）と connect 2 本（Line あり・なし）、部品をクリックすると宣言の行へ。MSL があれば ChuaCircuit（部品 7・connect 9）。"""
+    body = (
+        'model Box "b"\n  annotation(Icon(graphics = {Rectangle(extent = {{-100, -100}, {100, 100}}, fillColor = {200, 220, 255}, fillPattern = FillPattern.Solid)}));\nend Box;\n'
+        'model Pair "p"\n  Box a annotation(Placement(transformation(extent = {{-60, -10}, {-40, 10}})));\n'
+        '  Box b annotation(Placement(transformation(extent = {{40, -10}, {60, 10}}, origin = {0, 20}, rotation = 90)));\n'
+        '  Real z;\nequation\n  connect(a.p, b.p) annotation(Line(points = {{-40, 0}, {0, 0}, {0, 20}, {-20, 40}}, color = {0, 0, 255}));\n'
+        '  connect(b.n, a.n);\n  z = 1;\n'
+        '  annotation(Diagram(coordinateSystem(extent = {{-100, -100}, {100, 100}}), graphics = {Text(extent = {{-50, 60}, {50, 80}}, textString = "label")}));\nend Pair;\n'
+    )
+    pg = browser.new_page(color_scheme="dark")
+    pg.on("console", lambda m: m.type == "error" and errors.append(m.text))
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(origin)
+    pg.get_by_role("button", name="検査").wait_for()
+    with pg.expect_file_chooser() as ch:
+        pg.get_by_role("button", name="開く").click(force=True)
+    ch.value.set_files(files=[{"name": "Pair.mo", "mimeType": "text/plain", "buffer": body.encode()}])
+    pg.locator(".cm-content").focus()
+    pg.keyboard.press("Control+End")
+    pg.keyboard.press("ArrowUp")
+    pg.keyboard.press("ArrowUp")
+    expect(pg.locator(".docs .cls")).to_have_text("Pair", timeout=60_000)
+    pg.locator("[data-tab-diagram]").click()
+    svg = pg.locator("[data-diagram] svg")
+    expect(svg.locator("g[data-part]")).to_have_count(2, timeout=30_000)
+    expect(svg.locator("[data-conn] polyline")).to_have_count(2)
+    expect(svg.locator("g[data-part='a'] rect")).to_have_count(1)  # Box の Icon
+    expect(svg.locator("text", has_text="label")).to_have_count(1)  # Diagram(graphics)
+    assert svg.locator("g[data-part='b'] > g").get_attribute("transform").startswith("matrix("), "rotation は行列"
+    assert svg.locator("[data-conn] polyline").nth(0).get_attribute("points") == "-40,0 0,0 0,-20 -20,-40", "Line は y を反転"
+    assert svg.locator("[data-conn] polyline").nth(1).get_attribute("points") == "0,-70 -50,0", "Line が無ければ中心どうし（b は 90 度回して原点 {0, 20}）"
+    svg.locator("g[data-part='b']").click()
+    expect(pg.locator(".cm-activeLine")).to_contain_text("Box b", timeout=10_000)  # 宣言の行へ
+    pg.close()
+    print("図: 部品 2・connect 2（Line あり・なし）・Diagram の文字が SVG で出て、部品のクリックで宣言の行へ飛ぶ")
+    if not (DIST / "msl/MSL.json").exists():
+        print("public/msl/MSL.json が無いので、ChuaCircuit の図の試験は飛ばす")
+        return
+    pg = browser.new_page()
+    pg.on("console", lambda m: m.type == "error" and errors.append(m.text))
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(origin)
+    pg.get_by_role("button", name="MSL を読む").click(force=True)
+    expect(pg.locator("p[data-msl]")).to_have_attribute("data-msl", "loaded", timeout=300_000)
+    pg.get_by_label("ライブラリを検索").fill("Modelica.Electrical.Analog.Examples.ChuaCircuit")
+    expect(pg.locator("#library-hits [role=option]").first).to_contain_text("ChuaCircuit", timeout=30_000)
+    pg.get_by_label("ライブラリを検索").press("Enter")
+    expect(pg.locator(".docs .cls")).to_have_text("Modelica.Electrical.Analog.Examples.ChuaCircuit", timeout=60_000)
+    pg.locator("[data-tab-diagram]").click()
+    svg = pg.locator("[data-diagram] svg")
+    expect(svg.locator("g[data-part]")).to_have_count(7, timeout=60_000)
+    expect(svg.locator("[data-conn] polyline")).to_have_count(9)
+    assert svg.locator("g[data-part] polygon, g[data-part] polyline, g[data-part] rect").count() > 7, "部品が Icon で描かれている"
+    pg.close()
+    print("図: MSL の ChuaCircuit は部品 7・connect 9")
+
+
 def fmu_runtime_select(browser, origin: str, errors: list[str]) -> None:
     """S239: FMU の実行時（P5a / P5b）の選択。ブラウザには選択肢が無い（cdylib を作れない）。Desktop（偽の window.__TAURI__）は既定が p5a で、
     P5b を選ぶと globe/exportFmu の request に runtime: "p5b" が乗り、書き出したあとの文が P5b のものになる。"""
@@ -2198,6 +2257,7 @@ def main() -> int:
         ui_polish(browser, origin, errors)  # S228
         docs_panel(browser, origin, errors)  # S232
         icon_view(browser, origin, errors)  # S244
+        diagram_view(browser, origin, errors)  # S245
         open_fmu_file(browser, origin, errors)  # S229
         fmu_runtime_select(browser, origin, errors)  # S239
         results_followups(browser, origin, errors)  # S236

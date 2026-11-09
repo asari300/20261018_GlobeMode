@@ -578,6 +578,28 @@ fn icon_is_read_as_shape_data_from_the_document() {
 }
 
 #[test]
+fn diagram_is_read_as_shape_data_from_the_document() {
+    // S245: 図。部品・connect が形のデータ（JSON）で返り、クラスの外は null
+    let ws = Workspace::with_library_split("GlobeModeValidation", &package())
+        .unwrap()
+        .with_tree(package());
+    let text = "model T\n  Pin a annotation(Placement(transformation(extent = {{-10, -10}, {10, 10}})));\n  Pin b annotation(Placement(transformation(extent = {{-10, -10}, {10, 10}}, origin = {40, 0}, rotation = 90)));\nequation\n  connect(a.p, b.p) annotation(Line(points = {{0, 0}, {20, 20}, {40, 0}}));\nend T;\nconnector Pin\n  annotation(Icon(graphics = {Polygon(points = {{-100, -100}, {100, 0}, {-100, 100}})}));\nend Pin;\n";
+    let d: serde_json::Value = serde_json::from_str(&ws.diagram("", text, 3, 2)).unwrap();
+    assert_eq!(d["class"], "T");
+    assert_eq!(d["parts"].as_array().unwrap().len(), 2);
+    assert_eq!(d["parts"][0]["shapes"][0]["kind"], "polygon");
+    assert_eq!(
+        d["connections"][0]["line"]["points"]
+            .as_array()
+            .unwrap()
+            .len(),
+        3
+    );
+    assert_eq!(ws.diagram("", text, 99, 0), "null", "クラスの外");
+    assert_eq!(ws.diagram("GlobeModeValidation.Nope", "", 0, 0), "null");
+}
+
+#[test]
 fn documentation_is_read_from_the_document_and_the_library() {
     // S232: 説明パネル。ライブラリのクラスは名前で、開いている文書のクラスはカーソルで引く（HTML は生のまま、エスケープは戻す）
     let ws = Workspace::with_library_split("GlobeModeValidation", &package())

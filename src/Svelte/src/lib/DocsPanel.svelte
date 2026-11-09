@@ -1,10 +1,12 @@
 <!-- S232: 説明（Documentation）のパネル。HTML は信用せず、sanitize が白リストで組み直した木を要素と文字列として描く（{@html} は使わない） -->
 <script lang="ts">
-  import type { Documentation, Icon } from "./backend";
+  import type { Diagram, Documentation, Icon } from "./backend";
+  import DiagramView from "./DiagramView.svelte";
   import IconView from "./IconView.svelte";
   import { sanitize, type Safe } from "./html-sanitize";
 
-  let { doc, icon = null }: { doc: Documentation | null; icon?: Icon | null } = $props();
+  let { doc, icon = null, diagram = null, onJump }: { doc: Documentation | null; icon?: Icon | null; diagram?: Diagram | null; onJump?: (line: number) => void } = $props();
+  let tab = $state<"docs" | "diagram">("docs"); // S245: 説明と図のタブ
   const info = $derived(doc ? sanitize(doc.info) : []);
   const revisions = $derived(doc ? sanitize(doc.revisions) : []);
 </script>
@@ -18,8 +20,14 @@
   {/each}
 {/snippet}
 
-<aside class="docs" aria-label="説明" data-docs>
-  <h2>説明</h2>
+<aside class="docs" class:wide={tab === "diagram"} aria-label="説明" data-docs>
+  <div class="tabs" role="group" aria-label="パネルの表示">
+    <button aria-pressed={tab === "docs"} onclick={() => (tab = "docs")}>説明</button>
+    <button aria-pressed={tab === "diagram"} data-tab-diagram onclick={() => (tab = "diagram")}>図</button>
+  </div>
+  {#if tab === "diagram"}
+  <DiagramView {diagram} {onJump} />
+  {:else}
   <IconView {icon} />
   {#if doc}<p class="cls"><code>{doc.class}</code></p>{/if}
   {#if info.length}
@@ -28,11 +36,16 @@
     <p class="empty" data-docs-empty>Documentation が無い</p>
   {/if}
   {#if revisions.length}<details><summary>改訂履歴</summary><div class="body" data-docs-revisions>{@render nodes(revisions)}</div></details>{/if}
+  {/if}
 </aside>
 
 <style>
   .docs { flex: 0 0 16rem; height: 16rem; overflow: auto; border: 1px solid var(--border); padding: 0 .5rem; font-size: .9em; overflow-wrap: anywhere; }
-  h2 { font-size: 1em; margin: .25rem 0; }
+  .docs.wide { flex-basis: 30rem; height: 22rem; display: flex; flex-direction: column; }
+  .tabs { display: flex; gap: .25rem; margin: .25rem 0; }
+  .tabs button { font: inherit; padding: .1rem .5rem; }
+  .tabs button[aria-pressed="true"] { font-weight: bold; border-color: var(--accent); }
+  .docs.wide :global(.diagram) { flex: 1; min-height: 0; }
   .cls, .empty { margin: .25rem 0; color: var(--muted); }
   .body :global(a) { color: var(--accent); }
   .body :global(pre) { white-space: pre-wrap; background: var(--hover); padding: .25rem; }

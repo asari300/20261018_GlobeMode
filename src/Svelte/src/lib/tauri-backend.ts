@@ -1,4 +1,4 @@
-import type { Backend, CompletionEntry, Definition, Documentation, FmuInfo, FmuRunRequest, FmuRuntime, Hover, Icon, LintMessage, Progress, TreeEntry } from "./backend";
+import type { Backend, CompletionEntry, Definition, Diagram, Documentation, FmuInfo, FmuRunRequest, FmuRuntime, Hover, Icon, LintMessage, Progress, TreeEntry } from "./backend";
 import type { Columns } from "./plot/csv";
 import { isFmuFile, isResultsFile, toColumns, type ResultColumns, type ResultParam } from "./results.ts"; // node の型の除去（tests/test_tauri.mjs）が拡張子を要る
 import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse, SolverEntry, TunableParameter } from "./protocol";
@@ -234,6 +234,9 @@ export class TauriBackend implements Backend {
   }
   icon(cls: string, at?: { file: string; line: number; character: number }): Promise<Icon | null> {
     return invoke("rpc", { method: "globe/icon", params: { class: cls, file: at?.file, line: at?.line, character: at?.character } }); // S244（documentation と同じ）
+  }
+  diagram(cls: string, at?: { file: string; line: number; character: number }): Promise<Diagram | null> {
+    return invoke("rpc", { method: "globe/diagram", params: { class: cls, file: at?.file, line: at?.line, character: at?.character } }); // S245（icon と同じ）
   }
   async foldingRanges(file: string): Promise<{ startLine: number; endLine: number }[]> {
     return (await invoke<{ startLine: number; endLine: number }[] | null>("rpc", { method: "textDocument/foldingRange", params: { textDocument: { uri: file } } })) ?? []; // S225（setFile の didOpen と同じ uri）

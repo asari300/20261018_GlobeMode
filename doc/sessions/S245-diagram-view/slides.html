@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S245 Diagram ビュー — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S245 Diagram ビュー">
+
+<section class="slide" id="S01">
+  <span class="tag">S245 · 2026-11-09 · P8</span>
+  <h1>UI の Diagram ビュー（読み取り専用）</h1>
+  <p class="lead">部品を Icon で <code>Placement</code> どおりに置き、<code>connect</code> を線で結ぶ</p>
+  <div class="big">S244 の<b>形のデータ</b>をそのまま使い回す</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">道</span>
+  <h1>どこで何をするか</h1>
+  <table class="compact">
+    <tr><th>場所</th><th>役割</th></tr>
+    <tr><td><code>globe-mode-fmt/diagram.rs</code></td><td>部品の宣言・<code>Placement</code>・<code>connect</code>・<code>Diagram</code> を字句解析で読む。型の Icon を引き、変換の行列を付ける</td></tr>
+    <tr><td>wasm / sidecar</td><td><code>diagram</code> と <code>globe/diagram</code>（<code>rpc</code> は 25 本）</td></tr>
+    <tr><td><code>DocsPanel</code></td><td>「説明」と「図」のタブ</td></tr>
+    <tr><td><code>DiagramView.svelte</code></td><td>部品の <code>&lt;g transform&gt;</code>、<code>connect</code> の折れ線、名前、クリックで宣言の行へ</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">規則</span>
+  <h1>読み方</h1>
+  <ul>
+    <li>部品は <code>Placement(transformation)</code> のある宣言だけ。壊れた Placement・<code>visible = false</code>は飛ばす</li>
+    <li>型は <code>import</code> とスコープで引く。引けなければ破線の枠</li>
+    <li><code>extent</code> の向きが逆なら反転、<code>origin</code> を中心に <code>rotation</code></li>
+    <li><code>connect</code> は <code>Line(points)</code>、無ければ中心どうしの直線</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">結果</span>
+  <h1>MSL の例題 20 本</h1>
+  <ul>
+    <li>部品 174、connect 178、Diagram の図形 21</li>
+    <li>部品のアイコンはすべて引けた（空 0）</li>
+    <li>ChuaCircuit は部品 7・connect 9</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">試験</span>
+  <h1>試験と再現</h1>
+  <pre><code>cargo test -p globe-mode-fmt --lib diagram
+mise run wasm:node          # ChuaCircuit の部品 7・connect 9
+mise run ui:check           # test_ui.py の diagram_view</code></pre>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ul>
+    <li>編集（ドラッグ・接続）</li>
+    <li><code>extends</code> で継いだ部品、<code>iconTransformation</code>、<code>DynamicSelect</code></li>
+    <li>VS Code・Leptos・Dioxus には面が無い</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

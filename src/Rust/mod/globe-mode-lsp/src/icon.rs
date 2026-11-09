@@ -26,7 +26,7 @@ pub fn icon(
     }
 }
 
-fn shape(s: &globe_mode_fmt::Shape) -> Value {
+pub(crate) fn shape(s: &globe_mode_fmt::Shape) -> Value {
     json!({
         "kind": s.kind, "origin": s.origin, "rotation": s.rotation, "extent": s.extent, "points": s.points,
         "line": s.line, "fill": s.fill, "thickness": s.thickness, "dash": s.dash, "radius": s.radius,
