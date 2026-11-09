@@ -4,6 +4,7 @@ NonlinearLoop
 NoStates
 BouncingBall
 SampleCounter
+SampleAtZeroCrossing
 Terminate
 RuntimeAssert
 WarningAssert

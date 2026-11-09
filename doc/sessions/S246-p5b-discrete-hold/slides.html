@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S246 P5b の時刻事象と状態事象の重なり — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S246 P5b の時刻事象と状態事象の重なり">
+
+<section class="slide" id="S01">
+  <span class="tag">S246 · 2026-11-09 · P5</span>
+  <h1>P5b の離散値が事象の間で消える</h1>
+  <p class="lead">S237 から残っていた 4 本のうち 2 本を直し、1 本は原因を ADR に書いた</p>
+  <div class="big">16 本から 18 本</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">症状</span>
+  <h1>Math.Mean の出力が 0 に落ちる</h1>
+  <ul>
+    <li>DiodeBridge2Pulse の <code>meanVoltage.y</code> は、<code>globe simulate</code> では 99.03 のまま。FMU では 0.01 s の標本の直後に -5e-16 に落ちた。</li>
+    <li>定数入力の <code>Mean</code> は通る。整流器の電圧が 0 を横切る時刻が、<code>sample</code> の時刻と重なるときだけ。</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">原因</span>
+  <h1>同じ時刻の 2 回目の事象で when sample が回り直す</h1>
+  <ul>
+    <li>1 回目: 時刻事象。<code>y_last = f*pre(x)</code> を取り、<code>reinit(x, 0)</code>。</li>
+    <li>2 回目: 同じ時刻の状態事象（ダイオードの切り替え）。行のフィルタが <code>All</code> なので時計の行がもう一度回り、<code>y_last</code> が x = 0 で上書きされた。</li>
+    <li>Rumoca の host と FMI ME は、処理済みの時刻事象と重なる状態事象では時計の行を回さない。</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>直す前と直した後</h1>
+  <svg class="fig" viewBox="0 0 800 180" role="img" aria-label="2 回目の事象の行フィルタ">
+    <rect class="svg-box" x="20" y="60" width="180" height="60" rx="10"/>
+    <text class="svg-text-b" x="110" y="96" text-anchor="middle">時刻事象 0.01</text>
+    <rect class="svg-box" x="310" y="60" width="180" height="60" rx="10"/>
+    <text class="svg-text-b" x="400" y="96" text-anchor="middle">状態事象 0.01</text>
+    <rect class="svg-box-accent" x="600" y="20" width="180" height="50" rx="10"/>
+    <text class="svg-text-b" x="690" y="50" text-anchor="middle">All: y_last を壊す</text>
+    <rect class="svg-box-accent" x="600" y="110" width="180" height="50" rx="10"/>
+    <text class="svg-text-b" x="690" y="140" text-anchor="middle">UnownedOnly: 保つ</text>
+    <line class="svg-line" x1="200" y1="90" x2="310" y2="90"/>
+    <line class="svg-line" x1="490" y1="80" x2="600" y2="45"/>
+    <line class="svg-line" x1="490" y1="100" x2="600" y2="135"/>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">直し</span>
+  <h1>スケジュールが処理済みと言うときだけ</h1>
+  <ul>
+    <li><code>ModelInstance::update_discrete_states</code> で <code>scheduled_event_coincidence_at(t)</code> が処理済みなら <code>UnownedOnly</code>。</li>
+    <li>P5b の FMU だけが使う部品の中の 1 か所。Rumoca と exec の host は触らない。</li>
+    <li>最小のモデル <code>SampleAtZeroCrossing</code> と試験を足した。直す前は yLast = -1e-20、直した後は 0.6355（ME）・0.6366（CS）。</li>
+  </ul>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">DemonstrateSignalExtrema</span>
+  <h1>FMU の欠陥ではない</h1>
+  <table class="compact">
+    <tr><th>t = 0.64 の y_max</th><th>値</th></tr>
+    <tr><td>解析解</td><td>4.648119</td></tr>
+    <tr><td>exec の BDF（参照）</td><td>4.633220</td></tr>
+    <tr><td>FMPy の ME（相対許容 1e-6）</td><td>4.650760</td></tr>
+    <tr><td>FMPy の ME（相対許容 1e-10）</td><td>4.648122</td></tr>
+    <tr><td>P5b の CS</td><td>4.648119</td></tr>
+  </table>
+  <p>参照のほうが管（0.2%）の外にある。許容は広げず、原因を ADR に書いた。</p>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">結果</span>
+  <h1>MSL の 20 本は 18 本</h1>
+  <ul>
+    <li>通った本数: 16 から 18。DiodeBridge2Pulse と DiodeCenterTap2Pulse が ME・CS とも管に収まった。</li>
+    <li>残る 2 本: ChuaCircuit（カオス）と DemonstrateSignalExtrema（参照の積分誤差）。どちらも FMU の欠陥ではない。</li>
+    <li><code>fmu-export.yml</code> の MSL の step に DiodeBridge2Pulse を 1 本足した。</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
