@@ -236,6 +236,21 @@ pub struct ClassSpan<'t, 'a> {
     pub start: usize,
     pub end: usize,
     pub annotation: Option<&'t [Token<'a>]>,
+    /// `extends A.B(…)` の名前（出現の順。短いクラス `type X = A.B` の `A.B` も。S244: アイコンを 1 段重ねる）
+    pub extends: Vec<String>,
+}
+
+/// `tokens[i..]` の先頭の `A.B.C`（点でつないだ識別子）。
+fn dotted(tokens: &[Token<'_>], mut i: usize) -> String {
+    let mut out = String::new();
+    while let Some(t) = tokens
+        .get(i)
+        .filter(|t| t.kind == crate::lexer::Kind::Ident || t.is("."))
+    {
+        out.push_str(t.text);
+        i += 1;
+    }
+    out
 }
 
 /// ファイルの中の全クラスの範囲（入れ子を含む。出現の順）。文を切り出せなければ `Err`。
@@ -262,8 +277,10 @@ pub fn class_spans<'t, 'a>(tokens: &'t [Token<'a>]) -> Result<Vec<ClassSpan<'t, 
                 start: t[0].start,
                 end: 0,
                 annotation: None,
+                extends: Vec::new(),
             };
             if t.get(name + 1).is_some_and(|s| s.is("=")) {
+                span.extends.push(dotted(t, name + 2));
                 span.end = t.last().map_or(0, |s| s.start + s.text.len());
                 span.annotation = t.iter().position(|s| s.is("annotation")).map(|p| &t[p..]);
             } else {
@@ -274,6 +291,10 @@ pub fn class_spans<'t, 'a>(tokens: &'t [Token<'a>]) -> Result<Vec<ClassSpan<'t, 
             && let Some(&i) = stack.last()
         {
             out[i].annotation = Some(t);
+        } else if t[0].is("extends")
+            && let Some(&i) = stack.last()
+        {
+            out[i].extends.push(dotted(t, 1));
         }
     }
     Ok(out)

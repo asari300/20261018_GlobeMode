@@ -1,9 +1,10 @@
 <!-- S232: 説明（Documentation）のパネル。HTML は信用せず、sanitize が白リストで組み直した木を要素と文字列として描く（{@html} は使わない） -->
 <script lang="ts">
-  import type { Documentation } from "./backend";
+  import type { Documentation, Icon } from "./backend";
+  import IconView from "./IconView.svelte";
   import { sanitize, type Safe } from "./html-sanitize";
 
-  let { doc }: { doc: Documentation | null } = $props();
+  let { doc, icon = null }: { doc: Documentation | null; icon?: Icon | null } = $props();
   const info = $derived(doc ? sanitize(doc.info) : []);
   const revisions = $derived(doc ? sanitize(doc.revisions) : []);
 </script>
@@ -19,6 +20,7 @@
 
 <aside class="docs" aria-label="説明" data-docs>
   <h2>説明</h2>
+  <IconView {icon} />
   {#if doc}<p class="cls"><code>{doc.class}</code></p>{/if}
   {#if info.length}
     <div class="body" data-docs-info>{@render nodes(info)}</div>

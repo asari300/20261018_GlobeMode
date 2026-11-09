@@ -1,5 +1,5 @@
 import { GlobeWorker } from "../../../Rust/mod/globe-mode-wasm/web/client.js";
-import type { Backend, CompletionEntry, Definition, Documentation, Hover, LintMessage, Progress, TreeEntry } from "./backend";
+import type { Backend, CompletionEntry, Definition, Documentation, Hover, Icon, LintMessage, Progress, TreeEntry } from "./backend";
 import { browserOpen, browserSave, browserSaveBinary } from "./browser-file";
 import { gapNonFinite, type Columns } from "./plot/csv";
 import { toColumns } from "./results";
@@ -72,6 +72,9 @@ export class WorkerBackend implements Backend {
   }
   documentation(cls: string, at?: { file: string; line: number; character: number }): Promise<Documentation | null> {
     return this.#w.documentation(cls, at); // S232
+  }
+  icon(cls: string, at?: { file: string; line: number; character: number }): Promise<Icon | null> {
+    return this.#w.icon(cls, at); // S244
   }
   foldingRanges(file: string): Promise<{ startLine: number; endLine: number }[]> {
     return this.#w.foldingRanges(file); // S225

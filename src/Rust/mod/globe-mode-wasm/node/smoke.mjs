@@ -64,6 +64,12 @@ console.log(`結果を開く: MAT ${layout.points} 点 × ${layout.names.length}
   assert.deepEqual(d, { class: "D", info: '<p>"hi"</p>', revisions: "<ul/>" });
   assert.equal(fw.documentation("", withDoc, 9, 0), "null");
   assert.equal(fw.documentation("Nope", "", 0, 0), "null");
+  // アイコン（S244）: 形のデータ。%name は置き換わり、クラスの外は null
+  const withIcon = 'model I\n  Real x;\n  annotation(Icon(graphics = {Rectangle(extent = {{-100, -100}, {100, 100}}, fillColor = {255, 255, 255}, fillPattern = FillPattern.Solid), Text(extent = {{-100, 100}, {100, 140}}, textString = "%name")}));\nend I;\n';
+  const ic = JSON.parse(fw.icon("", withIcon, 1, 3));
+  assert.deepEqual(ic.shapes.map((s) => s.kind), ["rect", "text"]);
+  assert.equal(ic.shapes[1].text, "I");
+  assert.equal(fw.icon("", withIcon, 9, 0), "null");
   fw.free();
 }
 
@@ -182,6 +188,10 @@ if (msl && existsSync(msl)) {
   const pidDoc = JSON.parse(lib.documentation("Modelica.Blocks.Continuous.PID", "", 0, 0));
   assert.ok(pidDoc.info.includes("text-book version of a PID controller") && pidDoc.info.includes('<a href="modelica://Modelica.Blocks.Types.Init">'), pidDoc.info.slice(0, 120));
   assert.equal(lib.documentation("Modelica.Nope", "", 0, 0), "null");
+  // S244: アイコン。Gain は三角形（polygon）を自分で持ち、基底（Interfaces.SISO）を 1 段重ねても壊れない
+  const gain = JSON.parse(lib.icon("Modelica.Blocks.Math.Gain", "", 0, 0));
+  assert.ok(gain.shapes.some((s) => s.kind === "polygon" && s.points.length >= 3), JSON.stringify(gain).slice(0, 200));
+  assert.equal(lib.icon("Modelica.Nope", "", 0, 0), "null");
   console.log(`MSL の木と検索: Blocks の子 ${kids.length} 件、検索 PID_Con ${q1} ms、s（${many.length} 件）${ms(t)} ms`);
   // S171: 補完。型の位置の `Modelica.Blocks.Sources.` で Sine が出る・`.` の後ろで部品名が出る・文字列の中は空。応答時間も測る。
   // どれも打ちかけで文書は壊れている（カーソルの行を除いて読む）
