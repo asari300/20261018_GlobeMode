@@ -69,6 +69,21 @@ export interface TunableParameter {
   description?: string;
 }
 
+/** モデルのパラメータ宣言の 1 行（`ModelParameter`。S248）。name は `comp.k` の形、value は数の既定値（Boolean は 0/1、Enumeration は 1 始まりの ordinal）。 */
+export interface ModelParameter {
+  name: string;
+  type: "Real" | "Integer" | "Boolean" | "String" | "Enumeration";
+  dims?: number[];
+  default?: string;
+  value?: number;
+  literals?: string[];
+  unit?: string;
+  description?: string;
+  min?: number;
+  max?: number;
+  fixed?: boolean;
+}
+
 /** ソルバの登録表の 1 行（`globe_mode_sim::solvers::SolverEntry`）。使えるのは status.kind が available のもの。 */
 export interface SolverEntry {
   name: string;

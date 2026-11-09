@@ -5,7 +5,7 @@
   import IconView from "./IconView.svelte";
   import { sanitize, type Safe } from "./html-sanitize";
 
-  let { doc, icon = null, diagram = null, onJump }: { doc: Documentation | null; icon?: Icon | null; diagram?: Diagram | null; onJump?: (line: number) => void } = $props();
+  let { doc, icon = null, diagram = null, onJump, onParams }: { doc: Documentation | null; icon?: Icon | null; diagram?: Diagram | null; onJump?: (line: number) => void; onParams?: (part: string) => void } = $props();
   let tab = $state<"docs" | "diagram">("docs"); // S245: 説明と図のタブ
   const info = $derived(doc ? sanitize(doc.info) : []);
   const revisions = $derived(doc ? sanitize(doc.revisions) : []);
@@ -26,7 +26,7 @@
     <button aria-pressed={tab === "diagram"} data-tab-diagram onclick={() => (tab = "diagram")}>図</button>
   </div>
   {#if tab === "diagram"}
-  <DiagramView {diagram} {onJump} />
+  <DiagramView {diagram} {onJump} {onParams} />
   {:else}
   <IconView {icon} />
   {#if doc}<p class="cls"><code>{doc.class}</code></p>{/if}

@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S248 パラメータのダイアログ — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S248 パラメータのダイアログ">
+
+<section class="slide" id="S01">
+  <span class="tag">S248 · 2026-11-09 · P8</span>
+  <h1>パラメータのダイアログ（読み取りと実行時の上書き）</h1>
+  <p class="lead">図の部品をダブルクリックすると、その部品のパラメータの表が開く</p>
+  <div class="big">入れた値は<b>実行の設定</b>に乗る。ソースは書き換えない</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">Rust</span>
+  <h1>flat モデルから宣言を取る</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>中身</th></tr>
+    <tr><td>名前</td><td><code>comp.k</code> の形（入れ子の部品ごと）</td></tr>
+    <tr><td>型</td><td>Real / Integer / Boolean / String / Enumeration（<code>literals</code> つき）</td></tr>
+    <tr><td>既定値</td><td>宣言の修飾を反映した束縛か start。リテラルは値（<code>value</code>）、式は字面（<code>default</code>）</td></tr>
+    <tr><td>そのほか</td><td><code>unit</code>・<code>description</code>・<code>min</code>・<code>max</code>・<code>fixed</code>・<code>dims</code></td></tr>
+  </table>
+  <p>新しい評価器は書かない。式の Real / Integer だけ、実行系の tunable な値があれば <code>value</code> を補う</p>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">口</span>
+  <h1>どこから呼ぶか</h1>
+  <ul>
+    <li><code>Workspace::parameters</code> → wasm <code>parameters</code> → <code>Backend.parameters</code></li>
+    <li>LSP <code>globe/parameters</code>（Desktop の RPC 許可は 25 から 26 本）</li>
+    <li>VS Code への配線は次回（口はある）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">UI</span>
+  <h1>表と入力欄</h1>
+  <ul>
+    <li><code>ParameterDialog.svelte</code>（<code>&lt;dialog&gt;</code>）。名前・型・値・既定値・単位・説明</li>
+    <li>Real / Integer は数の欄、Boolean はチェック、Enumeration は選択（ordinal）。String と配列は変えられない</li>
+    <li>変えた値だけが <code>SimSettings</code> の <code>picked</code> に入り、モデルごとの保存（S228）に乗る</li>
+    <li>入口は図の部品のダブルクリック（右クリックも）と、実行の設定の「パラメータ…」</li>
+    <li>GM-E10006 は欄の近くに出る</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">測定</span>
+  <h1>時間（wasm、Node）</h1>
+  <table class="compact">
+    <tr><th>モデル</th><th>本数</th><th>parameters</th></tr>
+    <tr><td>ChuaCircuit</td><td>16</td><td>33〜94 ms</td></tr>
+    <tr><td>Fluid.PumpingSystem</td><td>187</td><td>約 1.1 s</td></tr>
+    <tr><td>Fluid.HeatingSystem</td><td>364</td><td>約 4.7 s</td></tr>
+  </table>
+  <p>ほとんどは tunable の lowering（<code>tunable_parameters</code> と同じ時間）</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">試験</span>
+  <h1>試験と再現</h1>
+  <pre><code>cargo test -p globe-mode-frontend --test parameters
+cargo test -p globe-mode-wasm --test decay
+mise run wasm:node
+mise run ui:check     # test_ui.py の parameter_dialog</code></pre>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ul>
+    <li>修飾の編集（ソースの書き換え）、<code>redeclare</code></li>
+    <li>配列の要素ごとの編集、VS Code への配線</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

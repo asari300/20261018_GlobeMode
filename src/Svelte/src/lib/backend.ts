@@ -1,6 +1,6 @@
 import type { Columns } from "./plot/csv";
 import type { ResultColumns } from "./results";
-import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse, SolverEntry, TunableParameter } from "./protocol";
+import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse, SolverEntry, ModelParameter, TunableParameter } from "./protocol";
 
 /** UI が計算を頼む相手。WorkerBackend（ブラウザの wasm）と TauriBackend（sidecar の `globe lsp`）が実装する。 */
 export interface Backend {
@@ -19,6 +19,8 @@ export interface Backend {
   solvers(): Promise<SolverEntry[]>;
   /** 上書きできるパラメータの一覧（S150）。モデルを DAE まで変換できなければ reject、lowering に失敗したら空。 */
   tunableParameters(model: string): Promise<TunableParameter[]>;
+  /** モデルのパラメータ宣言の一覧（S248。部品ごとの入れ子の名前・型・既定値・単位）。DAE まで変換できなければ reject。 */
+  parameters(model: string): Promise<ModelParameter[]>;
   /** 整形（S053、globe-mode-fmt）。文法が壊れていれば reject で、本文は変えない。indent などを省くと、Desktop は globe-mode.toml（S143）、ブラウザは 2 と true。 */
   format(text: string, indent?: number, insertOrigin?: boolean): Promise<string>;
   lint(text: string): Promise<LintMessage[]>;

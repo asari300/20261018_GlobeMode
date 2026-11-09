@@ -15,7 +15,7 @@ pub use globe_mode_analysis::{
 };
 pub use globe_mode_core::{Diagnostic, Severity, Stage};
 pub use globe_mode_ir::{
-    BalanceCount, Bits, DaeCounts, Experiment, FlatSummary, InitStructure, Outline,
+    BalanceCount, Bits, DaeCounts, Experiment, FlatSummary, InitStructure, ModelParameter, Outline,
     ResolvedSettings, SimSettings, SimStats, Termination, TunableParameter,
 };
 
@@ -250,6 +250,13 @@ pub struct ParametersResponse {
     /// lowering に失敗したら None（理由は `diagnostics`）
     pub parameters: Option<Vec<TunableParameter>>,
     pub diagnostics: Vec<Diagnostic>,
+}
+
+/// モデルのパラメータ宣言の一覧（S248。`globe/parameters`・wasm の `parameters`）。
+#[derive(Debug, Clone, Serialize)]
+pub struct ModelParametersResponse {
+    pub model: String,
+    pub parameters: Vec<ModelParameter>,
 }
 
 #[cfg(test)]

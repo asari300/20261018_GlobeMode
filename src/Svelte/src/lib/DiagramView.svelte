@@ -4,7 +4,7 @@
   import { diagramNodes, viewBoxOf } from "./shape-svg";
   import SvgTree from "./SvgTree.svelte";
 
-  let { diagram, onJump }: { diagram: Diagram | null; onJump?: (line: number) => void } = $props();
+  let { diagram, onJump, onParams }: { diagram: Diagram | null; onJump?: (line: number) => void; onParams?: (part: string) => void } = $props();
 
   const empty = $derived(!diagram || !(diagram.parts.length || diagram.connections.length || diagram.shapes.length));
   // 部品のクリックとキーは svg で受ける（部品の <g> は SvgTree が組む）
@@ -12,13 +12,20 @@
     const line = (e.target as Element).closest("[data-part]")?.getAttribute("data-line");
     if (line != null) onJump?.(Number(line));
   };
+  // S248: ダブルクリックと右クリックで、その部品のパラメータのダイアログへ
+  const params = (e: Event) => {
+    const part = (e.target as Element).closest("[data-part]")?.getAttribute("data-part");
+    if (part == null) return;
+    e.preventDefault();
+    onParams?.(part);
+  };
 </script>
 
 <!-- 地は常に明るい（IconView と同じ） -->
 <div class="diagram" data-diagram={diagram?.class ?? ""}>
   {#if diagram && !empty}
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-    <svg viewBox={viewBoxOf(diagram.extent)} preserveAspectRatio="xMidYMid meet" role="img" aria-label={`${diagram.class} の図`} onclick={jump} onkeydown={(e) => (e.key === "Enter" || e.key === " ") && jump(e)}>
+    <svg viewBox={viewBoxOf(diagram.extent)} preserveAspectRatio="xMidYMid meet" role="img" aria-label={`${diagram.class} の図`} onclick={jump} ondblclick={params} oncontextmenu={params} onkeydown={(e) => (e.key === "Enter" || e.key === " ") && jump(e)}>
       <SvgTree nodes={diagramNodes(diagram)} />
     </svg>
   {:else}

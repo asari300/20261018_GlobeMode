@@ -554,6 +554,19 @@ impl Workspace {
         to_json(&r)
     }
 
+    /// パラメータ宣言の一覧（S248）。`ModelParametersResponse` の JSON。DAE まで変換できなければ例外（診断の文）。
+    pub fn parameters(&mut self, model: &str) -> Result<String, JsValue> {
+        let r = self.inner.parameters(model).map_err(|ds| {
+            js_error(
+                ds.iter()
+                    .map(|d| d.message.as_str())
+                    .collect::<Vec<_>>()
+                    .join("; "),
+            )
+        })?;
+        to_json(&r)
+    }
+
     /// モデルの検査だけ（S0〜S10。実行しない）。`CheckResponse` の JSON を返す（S041。ブラウザ UI の診断パネル用）。
     pub fn check(&mut self, model: &str) -> Result<String, JsValue> {
         to_json(&self.inner.check(model))

@@ -24,6 +24,7 @@ FMU を開く（S229）: 「開く」で .fmu を選ぶと、ブラウザは「D
 初回の案内（S179）: 保存したタブが無い初回だけ「はじめに」の 3 手順（検査・実行のショートカットつき）が出て、閉じると再読み込みでも出ない（smoke では出ない）。スキップリンクは Tab 1 回でエディタへ・2 回で結果へ。タブは矢印・Home・End で移り（roving tabindex）、未保存の印（●）は編集で付いて再読み込みをまたぎ保存で消え、未保存のとき beforeunload が出る。
 ダークモード（S152）: `color_scheme="dark"` で開くと背景が暗く文字が明るい（body・エディタ・診断・プロット・graph。プロットの軸の文字は canvas に描くので明るい画素を数える）。テーマの select で「明」にすると戻り、再読み込みで選択が残り、「OS に合わせる」で暗に戻る。
 FMU を書き出す（S144）: ブラウザの wasm が作ったソースの FMU がダウンロードされ、modelDescription.xml と sources/ がある。S154 から FMI の版（2.0 / 3.0）を select で選ぶ。
+パラメータのダイアログ（S248）: 図の部品のダブルクリックで `c.*` の一覧、Boolean はチェック・Enumeration は選択、値が実行の設定に乗って結果が変わり、「既定に戻す」で消える。GM-E10006 は欄の近くに出る。
 実行の設定（S142）: 終了時刻 2 とソルバ dopri45 で Decay を実行して x(2) が e⁻²、DecayK は experiment の Tolerance が初期値（出どころ experiment）に出て、k = 2 の上書きで x(1) が e⁻²。名前=値でない行は実行しない。
 ライブラリの木で Modelica → Electrical → Analog → Examples → ChuaCircuit と開き、そのファイルがエディタに開いて検査が通ることも確かめる（S127）。
 別のページで MSL.json を構文の誤りのファイルを含むライブラリに差し替え、読み飛ばしの警告 GM-W1001 の行と notes のファイル名が出ることを確かめる（S071）。
@@ -785,6 +786,111 @@ def diagram_view(browser, origin: str, errors: list[str]) -> None:
     assert svg.locator("g[data-part] polygon, g[data-part] polyline, g[data-part] rect").count() > 7, "部品が Icon で描かれている"
     pg.close()
     print("図: MSL の ChuaCircuit は部品 7・connect 9")
+
+
+def parameter_dialog(browser, origin: str, errors: list[str]) -> None:
+    """S248: パラメータのダイアログ。図の部品のダブルクリックで、その部品のパラメータ（`c.k` の形）の一覧が開く。値を入れると実行の設定に乗り（実行の結果が変わる）、
+    「既定に戻す」で消える。Boolean はチェック、Enumeration は選択、Integer は数の欄。Integer に小数を入れた誤り（GM-E10006）は欄の近くに出る。MSL があれば ChuaCircuit の部品 C1。"""
+    body = (
+        'model Leaf "l"\n  type Mode = enumeration(slow, fast);\n  parameter Real k(unit = "1/s") = 1 "減衰の速さ";\n  parameter Integer n = 1;\n'
+        '  parameter Boolean flag = true;\n  parameter Mode mode = Mode.slow;\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -k * n * x;\n'
+        '  annotation(Icon(graphics = {Rectangle(extent = {{-100, -100}, {100, 100}}, fillColor = {200, 220, 255}, fillPattern = FillPattern.Solid)}));\nend Leaf;\n'
+        'model Top "t"\n  Leaf c annotation(Placement(transformation(extent = {{-20, -20}, {20, 20}})));\n'
+        '  annotation(experiment(StopTime = 1, Tolerance = 1e-8));\nend Top;\n'
+    )
+    pg = browser.new_page()
+    pg.on("console", lambda m: m.type == "error" and errors.append(m.text))
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(origin)
+    pg.get_by_role("button", name="検査").wait_for()
+    with pg.expect_file_chooser() as ch:
+        pg.get_by_role("button", name="開く").click(force=True)
+    ch.value.set_files(files=[{"name": "Top.mo", "mimeType": "text/plain", "buffer": body.encode()}])
+    pg.get_by_label("モデル名").fill("Top")
+    pg.locator(".cm-content").focus()
+    pg.keyboard.press("Control+End")
+    for _ in range(3):
+        pg.keyboard.press("ArrowUp")
+    expect(pg.locator(".docs .cls")).to_have_text("Top", timeout=60_000)
+    pg.locator("[data-tab-diagram]").click()
+    part = pg.locator("[data-diagram] svg g[data-part='c']")
+    part.dblclick(timeout=60_000)
+    dlg = pg.locator("[data-param-dialog]")
+    expect(dlg).to_be_visible()
+    row = lambda n: dlg.locator(f"tr[data-param='{n}']")
+    expect(row("c.k")).to_have_count(1, timeout=60_000)
+    assert dlg.get_by_label("パラメータの絞り込み").input_value() == "c.", "部品の名前で絞り込んで開く"
+    assert [row(n).count() for n in ("c.k", "c.n", "c.flag", "c.mode")] == [1, 1, 1, 1]
+    assert row("c.k").inner_text().count("1/s") == 1 and "減衰の速さ" in row("c.k").inner_text() and "Real" in row("c.k").inner_text()
+    expect(row("c.flag").get_by_role("checkbox")).to_be_checked()  # Boolean はチェック
+    expect(row("c.mode").get_by_role("combobox")).to_have_value("1")  # Enumeration は選択（ordinal 1 = slow）
+    assert row("c.mode").locator("option").all_inner_texts() == ["slow", "fast"]
+    expect(row("c.n").get_by_role("textbox")).to_have_attribute("inputmode", "decimal")
+    sim = lambda: json.loads(pg.evaluate("localStorage.getItem('globe-mode.sim')") or "{}").get("Top", {}).get("picked", {})
+    # Boolean / Enumeration は既定と同じ値に戻せば乗らない
+    row("c.flag").get_by_role("checkbox").uncheck()
+    assert sim() == {"c.flag": "0"}, sim()
+    row("c.flag").get_by_role("checkbox").check()
+    row("c.mode").get_by_role("combobox").select_option("2")
+    row("c.mode").get_by_role("combobox").select_option("1")
+    assert sim() == {}, sim()
+    # 値を入れると実行の設定に乗り、実行に効く（k = 2 で x(1) = e⁻²）
+    row("c.k").get_by_role("textbox").fill("2")
+    assert sim() == {"c.k": "2"}, sim()
+    dlg.get_by_role("button", name="閉じる").click()
+    expect(dlg).to_have_count(0)
+    run = pg.get_by_role("button", name="実行", exact=True)
+    run.click(force=True)
+    expect(run).to_be_enabled(timeout=300_000)
+    final = lambda: json.loads(pg.locator("[data-final]").get_attribute("data-final"))
+    x = final()["c.x"]
+    assert abs(x - math.exp(-2)) < 1e-4, x
+    # 実行の設定の「パラメータ…」はモデル全体。「既定に戻す」で消えて、もとの値に戻る
+    pg.get_by_role("button", name="パラメータ…").click()
+    assert dlg.get_by_label("パラメータの絞り込み").input_value() == ""
+    expect(row("c.k")).to_have_count(1, timeout=30_000)
+    expect(row("c.k").get_by_role("textbox")).to_have_value("2")
+    row("c.k").get_by_role("button", name="既定に戻す").click()
+    assert sim() == {}, sim()
+    # Integer に小数: 実行が GM-E10006 で断り、欄の近くに出る
+    row("c.n").get_by_role("textbox").fill("2.5")
+    dlg.get_by_role("button", name="閉じる").click()
+    run.click(force=True)
+    expect(run).to_be_enabled(timeout=300_000)
+    pg.get_by_role("button", name="パラメータ…").click()
+    expect(row("c.n").get_by_role("alert")).to_contain_text("GM-E10006", timeout=30_000)
+    row("c.n").get_by_role("button", name="既定に戻す").click()
+    dlg.get_by_role("button", name="閉じる").click()
+    run.click(force=True)
+    expect(run).to_be_enabled(timeout=300_000)
+    x = final()["c.x"]
+    assert abs(x - math.exp(-1)) < 1e-4, x
+    pg.close()
+    print("パラメータのダイアログ: 部品のダブルクリックで c.* の一覧、値が実行に効き、既定に戻すと消え、GM-E10006 は欄の近くに出る")
+    if not (DIST / "msl/MSL.json").exists():
+        print("public/msl/MSL.json が無いので、ChuaCircuit のパラメータの試験は飛ばす")
+        return
+    pg = browser.new_page()
+    pg.on("console", lambda m: m.type == "error" and errors.append(m.text))
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(origin)
+    pg.get_by_role("button", name="MSL を読む").click(force=True)
+    expect(pg.locator("p[data-msl]")).to_have_attribute("data-msl", "loaded", timeout=300_000)
+    pg.get_by_label("ライブラリを検索").fill("Modelica.Electrical.Analog.Examples.ChuaCircuit")
+    expect(pg.locator("#library-hits [role=option]").first).to_contain_text("ChuaCircuit", timeout=30_000)
+    pg.get_by_label("ライブラリを検索").press("Enter")
+    expect(pg.locator(".docs .cls")).to_have_text("Modelica.Electrical.Analog.Examples.ChuaCircuit", timeout=60_000)
+    pg.locator("[data-tab-diagram]").click()
+    pg.locator("[data-diagram] svg g[data-part='C1']").dblclick(timeout=60_000)
+    dlg = pg.locator("[data-param-dialog]")
+    t0 = time.time()
+    expect(dlg.locator("tr[data-param='C1.C']")).to_have_count(1, timeout=120_000)
+    shown = time.time() - t0
+    assert dlg.locator("tr[data-param]").count() < 10, "C1 の分だけ"
+    dlg.locator("tr[data-param='C1.C']").get_by_role("textbox").fill("2e-8")
+    assert json.loads(pg.evaluate("localStorage.getItem('globe-mode.sim')"))["Modelica.Electrical.Analog.Examples.ChuaCircuit"]["picked"] == {"C1.C": "2e-8"}
+    pg.close()
+    print(f"パラメータのダイアログ: ChuaCircuit の C1 をダブルクリックして {shown:.1f} s で C1.C が出て、値が実行の設定に残る")
 
 
 def fmu_runtime_select(browser, origin: str, errors: list[str]) -> None:
@@ -2258,6 +2364,7 @@ def main() -> int:
         docs_panel(browser, origin, errors)  # S232
         icon_view(browser, origin, errors)  # S244
         diagram_view(browser, origin, errors)  # S245
+        parameter_dialog(browser, origin, errors)  # S248
         open_fmu_file(browser, origin, errors)  # S229
         fmu_runtime_select(browser, origin, errors)  # S239
         results_followups(browser, origin, errors)  # S236

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
   import type { Backend } from "./backend";
+  import ParameterDialog from "./ParameterDialog.svelte";
   import type { CheckResponse, Diagnostic, ResolvedSettings, SimulateRequest, TunableParameter } from "./protocol";
 
   // 実行の設定（S142）。空の欄は、検査で分かった experiment annotation の値か既定値に任せる（欄の横に出どころ）。
@@ -9,10 +10,12 @@
   // S228: 開始時刻・刻み幅（固定刻みのソルバのときだけ）・予算（壁時計の秒）の欄。設定はモデル名ごとに localStorage（globe-mode.sim）へ残し、モデルを切り替えるとそのモデルの設定に戻る（「既定に戻す」で消える）。
   //   GM-E10004（設定・experiment の値が妥当でない）は欄のすぐ下にも出す（errors）。
   // S150: 検査のあと（checked が新しくなるたび）に上書きできるパラメータの一覧を取り、値を打った行だけ 名前=値 と同じ形で入れる（下の欄と同じ名前なら下の欄が優先）。
-  let { backend, model, experiment, checked = null, last, errors = [], settings = $bindable({}), problem = $bindable("") }: {
+  // S248: 「パラメータ…」のダイアログ（部品の名前つき・モデル全体）。picked（上の一覧と同じ名前 → 字面）を共有し、GM-E10006 は欄の近くに出す。
+  let { backend, model, experiment, checked = null, last, errors = [], openParams = null, settings = $bindable({}), problem = $bindable("") }: {
     backend: Backend;
     model: string; // いま編集しているモデル名（保存の鍵）
-    errors?: Diagnostic[]; // GM-E10004 の診断
+    errors?: Diagnostic[]; // GM-E10004・GM-E10006 の診断
+    openParams?: { part: string } | null; // 図の部品のダブルクリック。新しい値が来るたびダイアログを開く
     experiment?: CheckResponse["experiment"];
     checked?: { model: string } | null; // 直近に検査したモデル
     last?: ResolvedSettings | null; // 直近の実行で実際に使われた値と出どころ
@@ -42,10 +45,13 @@
     const model = checked?.model;
     if (!model) return;
     void backend.tunableParameters(model).then(
-      (all) => { listed = all; listedModel = model; listNote = all.length ? "" : "上書きできるパラメータは無い"; picked = Object.fromEntries(Object.entries(picked).filter(([n]) => all.some((p) => p.name === n))); },
+      (all) => { listed = all; listedModel = model; listNote = all.length ? "" : "上書きできるパラメータは無い"; },
       (e) => { listed = []; listedModel = model; listNote = `一覧を取れない: ${String((e as Error).message ?? e)}`; },
     );
   });
+
+  let dialog = $state<{ prefix: string } | null>(null);
+  $effect(() => { if (openParams) dialog = { prefix: openParams.part ? `${openParams.part}.` : "" }; });
 
   onMount(() => { void backend.solvers().then((all) => (solvers = all.filter((e) => e.status.kind === "available").map((e) => e.name))); });
 
@@ -155,11 +161,15 @@
       </div>
     </details>
   {/if}
+  <button type="button" data-open-params onclick={() => (dialog = { prefix: "" })} title="パラメータの一覧を開いて値を入れる（モデル全体）">パラメータ…</button>
+  {#if dialog}
+    {#key dialog}<ParameterDialog {backend} {model} prefix={dialog.prefix} bind:picked errors={errors.filter((d) => d.code === "GM-E10006")} onclose={() => (dialog = null)} />{/key}
+  {/if}
   <label>パラメータの上書き（1 行に 名前=値）
     <textarea bind:value={parameters} rows="2" cols="16" aria-label="パラメータの上書き"></textarea>
   </label>
   <button type="button" onclick={reset} disabled={!snap} title="このモデルの設定を消して既定に戻す">設定を既定に戻す</button>
-  {#if errors.length}<p class="refusal" id="sim-refusal" role="alert" data-refusal>{#each errors as d}<span>{d.code} {d.message.split("\n")[0]}</span> {/each}</p>{/if}
+  {#if errors.some((d) => d.code === "GM-E10004")}<p class="refusal" id="sim-refusal" role="alert" data-refusal>{#each errors.filter((d) => d.code === "GM-E10004") as d}<span>{d.code} {d.message.split("\n")[0]}</span> {/each}</p>{/if}
   {#if problem}<p class="problem" id="sim-problem" role="alert">{problem}</p>{/if}
   {#if last}
     <p class="last" data-last>

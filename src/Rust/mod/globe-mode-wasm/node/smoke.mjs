@@ -76,6 +76,12 @@ console.log(`結果を開く: MAT ${layout.points} 点 × ${layout.names.length}
   assert.deepEqual(dg.parts.map((p) => p.name), ["a", "b"]);
   assert.equal(dg.connections.length, 1);
   assert.equal(fw.diagram("", withDiagram, 99, 0), "null");
+  // パラメータのダイアログ（S248）: 部品ごとの入れ子の名前・型・修飾で変えた既定値・単位。変換できなければ例外
+  const withParams = 'model P\n  Part c(k = 5, on = false);\nend P;\nmodel Part\n  parameter Real k(unit = "1/s") = 1 "rate";\n  parameter Boolean on = true;\n  parameter Integer n = 3;\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -k * x;\nend Part;\n';
+  fw.set_file("P.mo", withParams);
+  const pr = Object.fromEntries(JSON.parse(fw.parameters("P")).parameters.map((p) => [p.name, p]));
+  assert.deepEqual([pr["c.k"].type, pr["c.k"].value, pr["c.k"].unit, pr["c.on"].type, pr["c.on"].value, pr["c.n"].value], ["Real", 5, "1/s", "Boolean", 0, 3], JSON.stringify(pr));
+  assert.throws(() => fw.parameters("Nope"));
   fw.free();
 }
 
@@ -204,6 +210,11 @@ if (msl && existsSync(msl)) {
   assert.equal(chuaDg.connections.length, 9);
   assert.ok(chuaDg.parts.every((p) => p.shapes.length > 0), "全部品のアイコンが引けた");
   assert.equal(lib.diagram("Modelica.Nope", "", 0, 0), "null");
+  // S248: パラメータの一覧。ChuaCircuit は入れ子の名前（C1.C など）で出て、時間を測る
+  let tp = performance.now();
+  const chuaPs = JSON.parse(lib.parameters("Modelica.Electrical.Analog.Examples.ChuaCircuit")).parameters;
+  console.log(`パラメータの一覧 ChuaCircuit: ${chuaPs.length} 本、${(performance.now() - tp).toFixed(0)} ms`);
+  assert.ok(chuaPs.some((p) => p.name === "C1.C" && p.type === "Real" && p.unit === "F" && p.value > 0), JSON.stringify(chuaPs.slice(0, 3)));
   console.log(`MSL の木と検索: Blocks の子 ${kids.length} 件、検索 PID_Con ${q1} ms、s（${many.length} 件）${ms(t)} ms`);
   // S171: 補完。型の位置の `Modelica.Blocks.Sources.` で Sine が出る・`.` の後ろで部品名が出る・文字列の中は空。応答時間も測る。
   // どれも打ちかけで文書は壊れている（カーソルの行を除いて読む）

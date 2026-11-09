@@ -92,6 +92,8 @@ export function diagramNodes(d: Diagram): SvgNode[] {
       attrs: { class: "part", "data-part": p.name, "data-line": p.line, role: "button", tabindex: 0, "aria-label": `${p.name}（${p.class}）の宣言へ` },
       children: [
         { tag: "title", attrs: {}, text: `${p.name}: ${p.class}` },
+        // 線だけのアイコンでも、枠の中を押せるように（S248。rect にすると Icon の rect と数え違うので path）
+        { tag: "path", attrs: { d: `M${b.x} ${b.y}h${b.w}v${b.h}h${-b.w}z`, fill: "#fff", "fill-opacity": 0, stroke: "none" } },
         p.shapes.length
           ? { tag: "g", attrs: { transform: matrix(p.transform) }, children: p.shapes.map(shapeNode) }
           : { tag: "rect", attrs: { x: b.x, y: b.y, width: b.w, height: b.h, fill: "none", stroke: "#888", "stroke-dasharray": "4 3", "vector-effect": VE } },
