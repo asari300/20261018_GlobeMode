@@ -241,7 +241,7 @@ pub struct ClassSpan<'t, 'a> {
 }
 
 /// `tokens[i..]` の先頭の `A.B.C`（点でつないだ識別子）。
-fn dotted(tokens: &[Token<'_>], mut i: usize) -> String {
+pub(crate) fn dotted(tokens: &[Token<'_>], mut i: usize) -> String {
     let mut out = String::new();
     while let Some(t) = tokens
         .get(i)

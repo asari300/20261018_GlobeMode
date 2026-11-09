@@ -50,7 +50,17 @@ const MAX_NEST: usize = 64;
 /// `src` の `qualified`（`within` を含む完全修飾名）のクラスのアイコン。クラスが無ければ None（あってアイコンが無ければ空）。
 /// `library(名前)` はそのクラスを定義するファイルの本文（`extends` 先を引く）。
 pub fn icon(src: &str, qualified: &str, library: &dyn Fn(&str) -> Option<String>) -> Option<Icon> {
-    let (extent, shapes) = collect(src, qualified, library, EXTENDS_DEPTH)?;
+    icon_named(src, qualified, library, None)
+}
+
+/// `icon` の `%name` を `instance`（部品の名前。S245: Diagram の部品）にしたもの。None ならクラスの名前。
+pub(crate) fn icon_named(
+    src: &str,
+    qualified: &str,
+    library: &dyn Fn(&str) -> Option<String>,
+    instance: Option<&str>,
+) -> Option<Icon> {
+    let (extent, shapes) = collect(src, qualified, library, EXTENDS_DEPTH, instance)?;
     Some(Icon {
         class: qualified.to_string(),
         extent: extent.unwrap_or(DEFAULT_EXTENT),
@@ -65,6 +75,7 @@ fn collect(
     qualified: &str,
     library: &dyn Fn(&str) -> Option<String>,
     depth: usize,
+    instance: Option<&str>,
 ) -> Option<Parts> {
     let tokens = lex(src.strip_prefix('\u{feff}').unwrap_or(src)).ok()?;
     let within = within(&tokens);
@@ -85,9 +96,10 @@ fn collect(
                 let found = spans
                     .iter()
                     .find(|s| join(&within, &s.path) == cand)
-                    .and_then(|_| collect(src, &cand, library, depth - 1))
+                    .and_then(|_| collect(src, &cand, library, depth - 1, instance))
                     .or_else(|| {
-                        library(&cand).and_then(|t| collect(&t, &cand, library, depth - 1))
+                        library(&cand)
+                            .and_then(|t| collect(&t, &cand, library, depth - 1, instance))
                     });
                 if let Some((e, s)) = found {
                     extent = extent.or(e);
@@ -100,8 +112,8 @@ fn collect(
             }
         }
     }
-    let name = qualified.rsplit('.').next().unwrap_or(qualified);
-    if let Some(Val::Call(_, args)) = span.annotation.and_then(icon_call) {
+    let name = instance.unwrap_or_else(|| qualified.rsplit('.').next().unwrap_or(qualified));
+    if let Some(Val::Call(_, args)) = span.annotation.and_then(|a| annotation_call(a, "Icon")) {
         let cs = args.iter().find_map(|(_, v)| match v {
             Val::Call(n, cs) if n == "coordinateSystem" => Some(cs),
             _ => None,
@@ -117,7 +129,7 @@ fn collect(
 }
 
 #[derive(Debug, Clone)]
-enum Val {
+pub(crate) enum Val {
     Num(f64),
     Str(String),
     Id(String),
@@ -126,8 +138,8 @@ enum Val {
     Other,
 }
 
-/// `annotation(…)` の直下の `Icon(…)`。
-fn icon_call(annotation: &[Token<'_>]) -> Option<Val> {
+/// `annotation(…)` の直下の `Icon(…)`・`Diagram(…)`・`Placement(…)`（`name`）。
+pub(crate) fn annotation_call(annotation: &[Token<'_>], name: &str) -> Option<Val> {
     let mut i = 1;
     if !annotation.get(i)?.is("(") {
         return None;
@@ -135,11 +147,11 @@ fn icon_call(annotation: &[Token<'_>]) -> Option<Val> {
     i += 1;
     args(annotation, &mut i, 0)
         .into_iter()
-        .find_map(|(_, v)| matches!(&v, Val::Call(n, _) if n == "Icon").then_some(v))
+        .find_map(|(_, v)| matches!(&v, Val::Call(n, _) if n == name).then_some(v))
 }
 
 /// `(` の次から `)` までの引数（`名前 = 値` か位置引数＝名前は空）。`*i` は `)` の次に進む。
-fn args(t: &[Token<'_>], i: &mut usize, nest: usize) -> Vec<(String, Val)> {
+pub(crate) fn args(t: &[Token<'_>], i: &mut usize, nest: usize) -> Vec<(String, Val)> {
     let mut out = Vec::new();
     while let Some(tok) = t.get(*i) {
         if tok.is(")") {
@@ -248,7 +260,7 @@ fn value(t: &[Token<'_>], i: &mut usize, nest: usize) -> Val {
     if rest { Val::Other } else { v }
 }
 
-fn get<'a>(args: &'a [(String, Val)], key: &str) -> Option<&'a Val> {
+pub(crate) fn get<'a>(args: &'a [(String, Val)], key: &str) -> Option<&'a Val> {
     args.iter().find(|(k, _)| k == key).map(|(_, v)| plain(v))
 }
 
@@ -260,14 +272,14 @@ fn plain(v: &Val) -> &Val {
     }
 }
 
-fn num(v: &Val) -> Option<f64> {
+pub(crate) fn num(v: &Val) -> Option<f64> {
     match plain(v) {
         Val::Num(n) if n.is_finite() => Some(*n),
         _ => None,
     }
 }
 
-fn nums(v: &Val) -> Option<Vec<f64>> {
+pub(crate) fn nums(v: &Val) -> Option<Vec<f64>> {
     match plain(v) {
         Val::List(l) => l.iter().map(num).collect(),
         _ => None,
@@ -275,12 +287,12 @@ fn nums(v: &Val) -> Option<Vec<f64>> {
 }
 
 /// `{{x1, y1}, {x2, y2}}`
-fn rect(v: &Val) -> Option<[f64; 4]> {
+pub(crate) fn rect(v: &Val) -> Option<[f64; 4]> {
     let p = points(v)?;
     (p.len() == 2).then(|| [p[0][0], p[0][1], p[1][0], p[1][1]])
 }
 
-fn points(v: &Val) -> Option<Vec<[f64; 2]>> {
+pub(crate) fn points(v: &Val) -> Option<Vec<[f64; 2]>> {
     match plain(v) {
         Val::List(l) => l
             .iter()
@@ -290,7 +302,7 @@ fn points(v: &Val) -> Option<Vec<[f64; 2]>> {
     }
 }
 
-fn color(v: &Val) -> Option<[u8; 3]> {
+pub(crate) fn color(v: &Val) -> Option<[u8; 3]> {
     let n = nums(v).filter(|n| n.len() == 3)?;
     Some([
         n[0].clamp(0.0, 255.0) as u8,
@@ -300,14 +312,14 @@ fn color(v: &Val) -> Option<[u8; 3]> {
 }
 
 /// `LinePattern.Dash` などの列挙値の最後の名前（小文字）。
-fn variant(v: Option<&Val>) -> String {
+pub(crate) fn variant(v: Option<&Val>) -> String {
     match v.map(plain) {
         Some(Val::Id(s)) => s.rsplit('.').next().unwrap_or(s).to_ascii_lowercase(),
         _ => String::new(),
     }
 }
 
-fn shape(v: &Val, name: &str, class: &str) -> Option<Shape> {
+pub(crate) fn shape(v: &Val, name: &str, class: &str) -> Option<Shape> {
     let Val::Call(kind, a) = v else { return None };
     if variant(get(a, "visible")) == "false" {
         return None;

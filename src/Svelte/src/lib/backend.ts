@@ -42,6 +42,8 @@ export interface Backend {
   documentation(cls: string, at?: { file: string; line: number; character: number }): Promise<Documentation | null>;
   /** クラスのアイコン（`annotation(Icon(…))`）の形のデータ（S244）。cls・at は `documentation` と同じ。`extends` の基底クラスのアイコンを 1 段重ねてある。引けなければ null。描くのは UI（`lib/IconView.svelte`）。 */
   icon(cls: string, at?: { file: string; line: number; character: number }): Promise<Icon | null>;
+  /** クラスの図（部品の配置と `connect`）の形のデータ（S245）。cls・at は `documentation` と同じ。引けなければ null。描くのは UI（`lib/DiagramView.svelte`）。 */
+  diagram(cls: string, at?: { file: string; line: number; character: number }): Promise<Diagram | null>;
   /** setFile 済みの file の実行できるクラス（model・block・class。partial は除く）の修飾名（S170。UI のモデル名の候補。構文が壊れていれば空）。 */
   models(file: string): Promise<string[]>;
   /** 位置の名前を newName に変える編集（S161。LSP の TextEdit）。いちばん内側のクラスで宣言した部品と、この文書で定義したクラス（S166。宣言・`end`・使っている所）。部品でもクラスでもない・別のファイル（ライブラリ）のクラス・識別子でない・予約語・同じクラスに既にある名前は、理由つきで reject。 */
@@ -109,6 +111,25 @@ export interface IconShape {
   align: "left" | "center" | "right";
   arrows: ["none" | "open" | "filled" | "half", "none" | "open" | "filled" | "half"];
   arrowSize: number;
+}
+
+/** `Backend.diagram` の結果（S245）。座標は Modelica のまま（y は上向き）。 */
+export interface Diagram {
+  class: string;
+  extent: [number, number, number, number];
+  parts: DiagramPart[];
+  connections: { from: string; to: string; line: IconShape }[];
+  shapes: IconShape[];
+}
+
+/** 部品 1 つ。`transform` はアイコンの座標から図の座標への `[a, b, c, d, e, f]`（`x' = a x + c y + e`、`y' = b x + d y + f`）。`line` は宣言の行（0 始まり）。 */
+export interface DiagramPart {
+  name: string;
+  class: string;
+  line: number;
+  transform: [number, number, number, number, number, number];
+  bbox: [number, number, number, number];
+  shapes: IconShape[];
 }
 
 /** `Backend.icon` の結果（S244）。extent は `[x1, y1, x2, y2]`。shapes は描く順。 */

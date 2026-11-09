@@ -8,6 +8,7 @@
 mod annotation;
 #[cfg(feature = "config")]
 mod config;
+mod diagram;
 mod documentation;
 mod html;
 mod icon;
@@ -20,6 +21,7 @@ mod tree;
 
 #[cfg(feature = "config")]
 pub use config::CONFIG_FILE;
+pub use diagram::{Connection, Diagram, Part, diagram}; // S245: UI の図
 pub use documentation::{Documentation, class_at, documentation}; // S232: UI の説明パネル
 pub use icon::{Icon, Shape, icon}; // S244: UI のアイコン（形のデータ）
 pub use lexer::{Kind, Token, lex}; // S161: LSP の参照・リネームが、識別子のトークンだけを一致の対象にする

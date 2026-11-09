@@ -76,6 +76,7 @@ const ops = {
   folding_ranges: ({ file, text }) => W().folding_ranges(file, text), // S225。[{startLine, endLine, kind}] の JSON（先に set_file）
   documentation: ({ cls, text, line, character }) => W().documentation(cls, text, line, character), // S232。{class, info, revisions} の JSON か null（生の HTML。洗うのは UI）
   icon: ({ cls, text, line, character }) => W().icon(cls, text, line, character), // S244。{class, extent, shapes} の JSON か null（形のデータ。描くのは UI）
+  diagram: ({ cls, text, line, character }) => W().diagram(cls, text, line, character), // S245。{class, extent, parts, connections, shapes} の JSON か null
   models: ({ file }) => W().models(file), // S170。実行できるクラスの修飾名の JSON 配列（先に set_file）
   rename: ({ file, text, line, character, newName }) => W().rename(file, text, line, character, newName), // S161。[{range, newText}] の JSON。断れば投げる
   tunable_parameters: ({ model }) => W().tunable_parameters(model), // S150。ParametersResponse の JSON

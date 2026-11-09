@@ -177,6 +177,10 @@ export class GlobeWorker {
   async icon(cls, at) {
     return JSON.parse(await this.#call("icon", { cls, text: at ? (this.#files.get(at.file) ?? "") : "", line: at?.line ?? 0, character: at?.character ?? 0 }));
   }
+  // 図（S245）: 部品の配置と connect の形のデータ。引数は icon と同じ。引けなければ null
+  async diagram(cls, at) {
+    return JSON.parse(await this.#call("diagram", { cls, text: at ? (this.#files.get(at.file) ?? "") : "", line: at?.line ?? 0, character: at?.character ?? 0 }));
+  }
   // リネーム（S161）: [{range, newText}]。部品でない・識別子でない・予約語・既にある名前は、理由つきで reject
   async rename(file, line, character, newName) {
     return JSON.parse(await this.#call("rename", { file, text: this.#files.get(file) ?? "", line, character, newName }));

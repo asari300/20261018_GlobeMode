@@ -10,7 +10,7 @@
   import { setPref, theme, type Pref } from "./theme.svelte";
   import { WorkerBackend } from "./lib/worker-backend";
   import { TauriBackend, inDesktop, tabKey } from "./lib/tauri-backend";
-  import type { Backend, Documentation, FmuInfo, FmuRunRequest, Icon, TreeEntry } from "./lib/backend";
+  import type { Backend, Diagram, Documentation, FmuInfo, FmuRunRequest, Icon, TreeEntry } from "./lib/backend";
   import type { Columns } from "./lib/plot/csv";
   import type { CheckResponse, Diagnostic, ResolvedSettings, SimulateRequest } from "./lib/protocol";
   import Plot from "./lib/plot/Plot.svelte";
@@ -77,6 +77,7 @@
   }
   let docs = $state.raw<Documentation | null>(null); // S232: 説明パネルの Documentation
   let icon = $state.raw<Icon | null>(null); // S244: 説明パネルの上のアイコン
+  let diagram = $state.raw<Diagram | null>(null); // S245: 「図」のタブ
   let graphModel = $state<string | null>(null); // 「グラフ」を押したときのモデル名（入力のたびに描き直さない）
 
   // S141: 自分のファイルを開く・保存する。本文とファイル名は localStorage に自動保存して起動時に戻す（使えなくても動く。S102）。モデル名は戻さず本文から入れ直す（smoke が書き換えたモデル名を次の起動で拾わないため）
@@ -155,7 +156,7 @@
         modelicaHighlight, modelicaCompletion(), modelicaLinter(backend), // S053（S163: 色付け）
         modelicaDefinition(definition, goBack, { backend, file: () => file }), // S138（S149: ホバー）
         modelicaFolding(backend, () => file), // S225: 折りたたみ（範囲は Rust）
-        modelicaDocs(backend, () => file, (d, i) => ((docs = d), (icon = i))), // S232: 説明パネル（カーソルのクラスの Documentation。引くのは Rust）
+        modelicaDocs(backend, () => file, (d, i, g) => ((docs = d), (icon = i), (diagram = g))), // S232: 説明パネル（カーソルのクラスの Documentation。引くのは Rust）
         modelicaRefactor(references, askRename), // S161: Shift+F12 と F2
         modelicaTab, // S188: Tab は字下げ。出る手は Esc のあと Tab
         modelFollow((from, to) => { if (model === from) model = to; }), // S186: クラス名のリネーム（と元に戻す）でモデル名も追う
@@ -926,7 +927,7 @@
   <div class="work">
     {#if msl === "loaded"}<aside class="library"><LibraryTree {backend} onOpen={openLibrary} /></aside>{/if}
     <div class="editor" id="editor" hidden={isResults} bind:this={host}></div>
-    <DocsPanel doc={docs} {icon} />
+    <DocsPanel doc={docs} {icon} {diagram} onJump={(line) => moveTo(view.state.doc.line(line + 1).from, view.state.doc.line(line + 1).from)} />
   </div>
   <p class="hint" id="editor-help">{EDITOR_HELP}</p>
   {#if saved}<p class="note" role="status" data-saved>{saved}</p>{/if}

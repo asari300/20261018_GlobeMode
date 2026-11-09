@@ -70,6 +70,12 @@ console.log(`結果を開く: MAT ${layout.points} 点 × ${layout.names.length}
   assert.deepEqual(ic.shapes.map((s) => s.kind), ["rect", "text"]);
   assert.equal(ic.shapes[1].text, "I");
   assert.equal(fw.icon("", withIcon, 9, 0), "null");
+  // 図（S245）: 部品と connect。クラスの外は null
+  const withDiagram = 'model D\n  Box a annotation(Placement(transformation(extent = {{-10, -10}, {10, 10}})));\n  Box b annotation(Placement(transformation(extent = {{20, -10}, {40, 10}})));\nequation\n  connect(a.p, b.p);\nend D;\nmodel Box\n  annotation(Icon(graphics = {Rectangle(extent = {{-100, -100}, {100, 100}})}));\nend Box;\n';
+  const dg = JSON.parse(fw.diagram("", withDiagram, 4, 3));
+  assert.deepEqual(dg.parts.map((p) => p.name), ["a", "b"]);
+  assert.equal(dg.connections.length, 1);
+  assert.equal(fw.diagram("", withDiagram, 99, 0), "null");
   fw.free();
 }
 
@@ -192,6 +198,12 @@ if (msl && existsSync(msl)) {
   const gain = JSON.parse(lib.icon("Modelica.Blocks.Math.Gain", "", 0, 0));
   assert.ok(gain.shapes.some((s) => s.kind === "polygon" && s.points.length >= 3), JSON.stringify(gain).slice(0, 200));
   assert.equal(lib.icon("Modelica.Nope", "", 0, 0), "null");
+  // S245: 図。ChuaCircuit は部品 7・connect 9（Line つき）で、部品の型の Icon が引ける
+  const chuaDg = JSON.parse(lib.diagram("Modelica.Electrical.Analog.Examples.ChuaCircuit", "", 0, 0));
+  assert.equal(chuaDg.parts.length, 7, JSON.stringify(chuaDg.parts.map((p) => p.name)));
+  assert.equal(chuaDg.connections.length, 9);
+  assert.ok(chuaDg.parts.every((p) => p.shapes.length > 0), "全部品のアイコンが引けた");
+  assert.equal(lib.diagram("Modelica.Nope", "", 0, 0), "null");
   console.log(`MSL の木と検索: Blocks の子 ${kids.length} 件、検索 PID_Con ${q1} ms、s（${many.length} 件）${ms(t)} ms`);
   // S171: 補完。型の位置の `Modelica.Blocks.Sources.` で Sine が出る・`.` の後ろで部品名が出る・文字列の中は空。応答時間も測る。
   // どれも打ちかけで文書は壊れている（カーソルの行を除いて読む）
