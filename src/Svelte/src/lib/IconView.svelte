@@ -1,21 +1,17 @@
 <!-- S244: クラスのアイコン。Rust が読んだ形のデータ（Icon）を SVG の要素として描く（文字列を {@html} に渡さない）。座標は Modelica のまま（y は上向き）なので y を反転して描く -->
 <script lang="ts">
   import type { Icon } from "./backend";
-  import ShapeView, { boxOf } from "./ShapeView.svelte";
+  import { iconNodes, viewBoxOf } from "./shape-svg";
+  import SvgTree from "./SvgTree.svelte";
 
   let { icon }: { icon: Icon | null } = $props();
-
-  const view = $derived.by(() => {
-    const b = boxOf(icon?.extent ?? [-100, -100, 100, 100]);
-    return `${b.x} ${b.y} ${b.w || 1} ${b.h || 1}`;
-  });
 </script>
 
 <!-- 暗でも見えるよう、地は常に明るい（Modelica の色は白地を前提にしている） -->
 <div class="icon" data-icon={icon?.class ?? ""}>
   {#if icon && icon.shapes.length}
-    <svg viewBox={view} preserveAspectRatio="xMidYMid meet" role="img" aria-label={`${icon.class} のアイコン`}>
-      {#each icon.shapes as s}<ShapeView {s} />{/each}
+    <svg viewBox={viewBoxOf(icon.extent)} preserveAspectRatio="xMidYMid meet" role="img" aria-label={`${icon.class} のアイコン`}>
+      <SvgTree nodes={iconNodes(icon)} />
     </svg>
   {:else}
     <p class="none" data-icon-empty>アイコンが無い</p>

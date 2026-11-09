@@ -1,6 +1,7 @@
 // GlobeMode の VS Code 拡張（S059）。`globe lsp` を起動してつなぐだけで、整形・lint・補完・検査は Rust 側が受け持つ。
 const vscode = require("vscode");
 const { LanguageClient } = require("vscode-languageclient/node");
+const { Panel } = require("./panel");
 
 let client;
 
@@ -32,7 +33,12 @@ exports.activate = async (context) => {
       );
     }),
   );
+  // 側のパネル（S247）
+  const panel = new Panel(context.extensionUri, () => client);
+  context.subscriptions.push(vscode.window.registerWebviewViewProvider("globeMode.panel", panel), panel.watch());
   await client.start();
+  panel.soon();
+  return { panel }; // e2e が描き終えた数（panel.state）と reveal を見る
 };
 
 // 整形は独自の要求 globe/format で頼む（S061）。vscode-languageclient は FormattingOptions の追加のキーを捨てるので、

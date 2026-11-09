@@ -23,8 +23,18 @@ P8 の Diagram / Icon ビューの最初の一切れとして、カーソルの�
 
 ## 付記（S245: Diagram ビュー、読み取り専用）
 
-- **同じ形のデータで渡す。** `globe-mode-fmt` の `diagram(src, 名前, library)`（`icon.rs` の隣の `diagram.rs`。字句解析・`split`・`class_spans` だけ）が `Diagram { class, extent, parts, connections, shapes }` を返し、LSP `globe/diagram`（`RPC_METHODS` 24 から 25）・wasm `diagram`・`Backend.diagram(cls, at?)` が JSON にする。図形は Icon と同じ `IconShape`。UI は `lib/ShapeView.svelte`（S244 の描画を切り出した）を Icon と Diagram で共用する。
+- **同じ形のデータで渡す。** `globe-mode-fmt` の `diagram(src, 名前, library)`（`icon.rs` の隣の `diagram.rs`。字句解析・`split`・`class_spans` だけ）が `Diagram { class, extent, parts, connections, shapes }` を返し、LSP `globe/diagram`（`RPC_METHODS` 24 から 25）・wasm `diagram`・`Backend.diagram(cls, at?)` が JSON にする。図形は Icon と同じ `IconShape`。UI は `lib/ShapeView.svelte`（S244 の描画を切り出した）を Icon と Diagram で共用する（S247 で下の付記のとおり `shape-svg.ts` + `SvgTree.svelte` に替えた）。
 - **部品**は `annotation(Placement(transformation(extent, origin, rotation)))` を持つ宣言だけ（`visible = false`・Placement が無い・`extent` が読めないものは飛ばす。`extent` が無ければアイコンの枠のまま）。型は `import` の別名・`.*`・内側から外側へのスコープの順で引き、そのクラスの Icon を `icon_named`（`%name` を部品の名前にする）で重ねる（`extends` は Icon と同じ 1 段）。引けない型は空のアイコン（UI は破線の枠）。配列の部品（`R[3]`）は 1 つ。
 - **変換**は Rust が行列 `[a, b, c, d, e, f]`（Modelica の座標、y 上向き）にして返す。`extent` の向きが逆なら反転（Modelica の `flipHorizontal` 相当）、`origin` を中心に `rotation`（度、反時計回り）。UI は y を反転した座標に直す（`matrix(a -b -c d e -f)`）だけで、`<g transform>` に置く。`bbox` は変換後の枠（部品名の位置と、`coordinateSystem` が無いときの `extent`）。
 - **connect** は `Line(points)` があればその折れ線（色・太さ・パターンも）、無ければ 2 つの部品の中心を結ぶ直線。端が部品でない（モデル自身の connector）connect で `Line` も無ければ飛ばす。`for` の中の connect も 1 本として数える。
 - **持ち越し**: `extends` で継いだ部品、`import A.{B, C}`、`DynamicSelect`、`iconTransformation`、反転した部品の文字（鏡像のまま）、編集（ドラッグ・接続）。
+
+## 付記（S247: VS Code の側のパネルと、共有の置き場）
+
+- **VS Code 拡張にも「アイコン / 図 / 説明」の側のパネル**（エクスプローラーのビュー `globeMode.panel`）を足した。引くのは `globe lsp` の `globe/icon`・`globe/diagram`・`globe/documentation`（LSP は変えない）で、拡張に業務ロジックは無い。描くのは webview の中。
+- **共有の置き場は `src/Svelte/src/lib/` のまま、移さない。** 拡張の `webview.js` が `../../Svelte/src/lib/html-sanitize.ts` と `shape-svg.ts` を相対パスで import し、esbuild（`pnpm build`）が `dist/webview.js` に束ねる。VSIX に入るのは束ねた結果だけなので、配布物は `src/Svelte` に依存しない。どちらの側にも写しは無い。共通の置き場を新設して両側から import する案は、ファイルを動かすだけで得るものが無いので採らなかった。`vscode.yml` の paths に 2 つのファイルを足し、Svelte の側の変更でも拡張の試験が回る。
+- **`shape-svg.ts`（新）**: S244・S245 の描画（旧 `ShapeView.svelte` と `DiagramView.svelte` の部品の組み立て）を、純粋な関数 `shapeNode` / `iconNodes` / `diagramNodes`（`SvgNode = {tag, attrs, text?, children?}` の木を返す）に切り出した。Svelte の側は `SvgTree.svelte`（`<svelte:element>` で木を要素として描く）、webview は `toDom`（`createElementNS` と `setAttribute`、文字は `textContent`）で DOM にする。見た目と DOM の形（`g[data-part]`・`[data-conn] polyline`・`g[data-part] > g` の `transform`）は変えない。部品のクリックは svg で一括して受け（`data-line` に宣言の行）、Svelte でも webview でも同じ。
+- **無害化**: 説明の HTML は webview の中で `html-sanitize.ts` の `sanitize`（`DOMParser` で読む白リスト）を通し、返った木を `createElement` と文字として描く。拡張ホスト（node）には DOM が無いので、洗うのは webview の側。
+- **CSP**: `default-src 'none'; style-src ${cspSource} 'unsafe-inline'; script-src 'nonce-…'`。`innerHTML` は使わない（`test/panel.test.mjs` が両ファイルを grep する）。
+- **確かめ**: `pnpm test` に無害化と SVG の組み立て（`panel.test.mjs`。node 24 が `.ts` を直接読む）、`e2e/suite.cjs` に「ビューが開き、ChuaCircuit の図に部品が 7 個」。webview の DOM は拡張ホストから見えないので、webview が描き終えた数を `postMessage` で返し、`activate` が返す `panel.state` を e2e が読む。
+- **持ち越し**: 図の編集、画像（`modelica://…/Resources/…`）、テーマに合わせた地の色（地は Svelte の UI と同じく常に白）。

@@ -81,6 +81,15 @@
         ]
       }
     },
+    "views": {
+      "explorer": [
+        {
+          "type": "webview",
+          "id": "globeMode.panel",
+          "name": "GlobeMode"
+        }
+      ]
+    },
     "keybindings": [
       {
         "key": "shift+alt+f",
@@ -90,7 +99,7 @@
     ]
   },
   "scripts": {
-    "build": "esbuild extension.js --bundle --platform=node --format=cjs --external:vscode --outfile=dist/extension.js",
+    "build": "esbuild extension.js --bundle --platform=node --format=cjs --external:vscode --outfile=dist/extension.js && esbuild webview.js --bundle --platform=browser --format=iife --outfile=dist/webview.js",
     "package": "pnpm build && python3 -I pack_vsix.py",
     "test": "node --test",
     "test:vscode": "node e2e/run.mjs"
