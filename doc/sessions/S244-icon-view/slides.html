@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S244 Icon ビュー — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S244 Icon ビュー">
+
+<section class="slide" id="S01">
+  <span class="tag">S244 · 2026-11-09 · P8</span>
+  <h1>UI の Icon ビュー</h1>
+  <p class="lead">カーソルのクラスの <code>annotation(Icon(…))</code> を「説明」パネルの上に描く</p>
+  <div class="big">Rust は<b>形のデータ</b>を返し、UI が<b>要素を組み立てる</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">道</span>
+  <h1>どこで何をするか</h1>
+  <table class="compact">
+    <tr><th>場所</th><th>役割</th></tr>
+    <tr><td><code>globe-mode-fmt</code></td><td><code>icon(src, 名前, library)</code>。字句解析だけで図形を読み、<code>extends</code> の基底を 1 段重ねる</td></tr>
+    <tr><td>wasm / sidecar</td><td><code>icon</code> と <code>globe/icon</code>（<code>rpc</code> は 24 本）</td></tr>
+    <tr><td><code>modelicaDocs</code></td><td>説明と一緒に 300 ms 止まったら引く</td></tr>
+    <tr><td><code>IconView.svelte</code></td><td>y を反転して svg の要素に。<code>{@html}</code> なし</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">要素</span>
+  <h1>読む図形</h1>
+  <ul>
+    <li>Rectangle・Ellipse・Line（矢印）・Polygon・Text（<code>%name</code>）・Bitmap（枠とファイル名）</li>
+    <li>読めない値・要素は飛ばして続ける。壊れた annotation でも空のアイコン</li>
+    <li>塗りは Solid だけ、Bezier は折れ線、<code>DynamicSelect</code> は最初の引数</li>
+    <li>MSL の Blocks の 50 クラスはすべて空でない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">試験</span>
+  <h1>試験と再現</h1>
+  <pre><code>cargo test -p globe-mode-fmt --lib icon
+mise run wasm:node          # MSL の Gain の polygon
+mise run ui:check           # test_ui.py の icon_view</code></pre>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ul>
+    <li>Diagram ビュー（部品の配置と connect の線）</li>
+    <li>2 段以上の <code>extends</code>、グラデーション、<code>%k</code> の置き換え、Bitmap の画像</li>
+    <li>VS Code の拡張には面が無い</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

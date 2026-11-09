@@ -673,6 +673,61 @@ def docs_panel(browser, origin: str, errors: list[str]) -> None:
     print("説明パネル: MSL の PID を木（検索）で開くと、本文と表が出る")
 
 
+def icon_view(browser, origin: str, errors: list[str]) -> None:
+    """S244: アイコン。カーソルのクラスの annotation(Icon(…)) を Rust が形のデータにし、UI が SVG の要素として説明パネルの上に描く。
+    自分のモデルは Rectangle・Polygon・Text（%name はクラス名）、Icon の無いクラスは「無い」。MSL があれば Gain を木（検索）で開くと三角形（polygon）が出る。"""
+    body = (
+        'model Iconic "i"\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -x;\n'
+        '  annotation(Icon(coordinateSystem(extent = {{-100, -100}, {100, 100}}), graphics = {'
+        'Rectangle(extent = {{-100, -100}, {100, 100}}, lineColor = {0, 0, 127}, fillColor = {255, 255, 255}, fillPattern = FillPattern.Solid), '
+        'Polygon(points = {{-60, -60}, {-60, 60}, {60, 0}}, lineColor = {0, 0, 127}), '
+        'Text(extent = {{-100, 100}, {100, 140}}, textString = "%name")}));\nend Iconic;\n'
+        'model Bare\n  Real y;\nequation\n  y = 1;\nend Bare;\n'
+    )
+    pg = browser.new_page(color_scheme="dark")
+    pg.on("console", lambda m: m.type == "error" and errors.append(m.text))
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(origin)
+    pg.get_by_role("button", name="検査").wait_for()
+    with pg.expect_file_chooser() as ch:
+        pg.get_by_role("button", name="開く").click(force=True)
+    ch.value.set_files(files=[{"name": "Iconic.mo", "mimeType": "text/plain", "buffer": body.encode()}])
+    pg.locator(".cm-content").focus()
+    pg.keyboard.press("Control+Home")
+    pg.keyboard.press("ArrowDown")
+    svg = pg.locator("[data-icon] svg")
+    expect(svg.locator("polygon")).to_have_count(1, timeout=60_000)
+    expect(svg.locator("rect")).to_have_count(1)
+    expect(svg.locator("text")).to_have_text("Iconic")  # %name はクラス名
+    assert svg.get_attribute("viewBox") == "-100 -100 200 200", svg.get_attribute("viewBox")  # y は反転（上端 100 → -100）
+    assert svg.evaluate("(e) => e.getBoundingClientRect().height") > 100  # 120 px の枠
+    assert pg.evaluate("document.querySelectorAll('.docs [data-icon] script, .docs [data-icon] [onerror]').length") == 0
+    pg.locator(".cm-content").focus()
+    pg.keyboard.press("Control+End")
+    pg.keyboard.press("ArrowUp")
+    pg.keyboard.press("ArrowUp")
+    expect(pg.locator(".docs .cls")).to_have_text("Bare", timeout=30_000)
+    expect(pg.locator("[data-icon-empty]")).to_have_text("アイコンが無い")
+    pg.close()
+    print("アイコン: カーソルのクラスの Icon が SVG（rect・polygon・text。%name はクラス名、y は反転）で説明パネルの上に出る、無ければ「無い」")
+    if not (DIST / "msl/MSL.json").exists():
+        print("public/msl/MSL.json が無いので、Gain のアイコンの試験は飛ばす")
+        return
+    pg = browser.new_page()
+    pg.on("console", lambda m: m.type == "error" and errors.append(m.text))
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(origin)
+    pg.get_by_role("button", name="MSL を読む").click(force=True)
+    expect(pg.locator("p[data-msl]")).to_have_attribute("data-msl", "loaded", timeout=300_000)
+    pg.get_by_label("ライブラリを検索").fill("Modelica.Blocks.Math.Gain")
+    expect(pg.locator("#library-hits [role=option]").first).to_contain_text("Modelica.Blocks.Math.Gain", timeout=30_000)
+    pg.get_by_label("ライブラリを検索").press("Enter")
+    expect(pg.locator(".docs .cls")).to_have_text("Modelica.Blocks.Math.Gain", timeout=60_000)
+    expect(pg.locator("[data-icon] svg polygon").first).to_be_visible(timeout=30_000)
+    pg.close()
+    print("アイコン: MSL の Gain を木（検索）で開くと三角形（polygon）が出る")
+
+
 def fmu_runtime_select(browser, origin: str, errors: list[str]) -> None:
     """S239: FMU の実行時（P5a / P5b）の選択。ブラウザには選択肢が無い（cdylib を作れない）。Desktop（偽の window.__TAURI__）は既定が p5a で、
     P5b を選ぶと globe/exportFmu の request に runtime: "p5b" が乗り、書き出したあとの文が P5b のものになる。"""
@@ -2142,6 +2197,7 @@ def main() -> int:
         open_results_file(browser, origin, errors)  # S222
         ui_polish(browser, origin, errors)  # S228
         docs_panel(browser, origin, errors)  # S232
+        icon_view(browser, origin, errors)  # S244
         open_fmu_file(browser, origin, errors)  # S229
         fmu_runtime_select(browser, origin, errors)  # S239
         results_followups(browser, origin, errors)  # S236

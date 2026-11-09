@@ -32,6 +32,7 @@
 //! | `globe/librarySearch` | `{query}`（名前の部分一致。大文字小文字を区別しない。`.` を含めると完全修飾名） | 同じ形の項目の配列（S167。最大 50 件、近い順。ファイルの中の入れ子のクラスも出る） |
 //! | `globe/librarySource` | `{path}`（完全修飾名） | `{file, text, range}`（S127。そのクラスを定義するライブラリのファイル。S186 から `range` はそのクラスの宣言の範囲（LSP の Range。引けなければ無い）。無ければ -32000） |
 //! | `globe/documentation` | `{class?, file?, line?, character?}`（`class` は完全修飾名。空なら開いている文書 `file` の行・列にあるいちばん内側のクラス） | `{class, info, revisions}` か null（S232。クラスの `annotation(Documentation(…))` の生の HTML。エスケープは戻してある。文書のクラスを先に、無ければライブラリのクラスから。クラスが引けなければ null。wasm の `documentation` と同じ形） |
+//! | `globe/icon` | `globe/documentation` と同じ | `{class, extent: [x1, y1, x2, y2], shapes: […]}` か null（S244。クラスの `annotation(Icon(…))` を形のデータにしたもの。`extends` の基底クラスのアイコンを 1 段だけ先に重ねる。図形は `kind`（rect・ellipse・line・polygon・text・bitmap）、`origin`・`rotation`・`extent`・`points`・`line`・`fill`（`[r,g,b]` か null）・`thickness`・`dash`・`radius`・`text`・`fontSize`・`align`・`arrows`・`arrowSize`。座標は Modelica のまま〔y は上向き〕。描くのは UI。wasm の `icon` と同じ形） |
 //!
 //! 設定ファイル（S130）: `initialize` の `rootUri`（無ければ `rootPath`）から上へたどって最初の `globe-mode.toml` を
 //! 読み、lint の診断と `textDocument/formatting` に使う（`workspace/didChangeConfiguration` で読み直す）。
@@ -45,6 +46,7 @@ pub mod completion;
 pub mod definition;
 pub mod documentation;
 pub mod folding;
+pub mod icon;
 
 use std::collections::{HashMap, VecDeque};
 use std::io::{self, BufRead, Write};
@@ -718,6 +720,22 @@ impl Server {
                 reply(
                     id,
                     documentation::documentation(params["class"].as_str().unwrap_or(""), at, |c| {
+                        std::fs::read_to_string(tree.file(c)?).ok()
+                    }),
+                )
+            }
+            // S244: クラスの Icon（形のデータ。UI が SVG にする）
+            "globe/icon" => {
+                let text = params["file"].as_str().and_then(|f| self.texts.get(f).cloned());
+                let (line, character) = (
+                    params["line"].as_u64().unwrap_or(0) as u32,
+                    params["character"].as_u64().unwrap_or(0) as u32,
+                );
+                let at = text.as_deref().map(|t| (t, line, character));
+                let tree = self.tree();
+                reply(
+                    id,
+                    icon::icon(params["class"].as_str().unwrap_or(""), at, &|c| {
                         std::fs::read_to_string(tree.file(c)?).ok()
                     }),
                 )
@@ -2270,6 +2288,36 @@ mod tests {
             Value::Null
         );
         assert_eq!(doc(json!({})), Value::Null);
+    }
+
+    #[test]
+    fn icon_is_served_for_the_cursor_class_with_the_base_layered() {
+        // S244: globe/icon。文書のクラスはカーソルで、基底クラス（ライブラリ）のアイコンを 1 段重ねる。クラスが無ければ null
+        let lib =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../Modelica/GlobeModeValidation");
+        let mut s = Server::new(std::slice::from_ref(&lib)).unwrap();
+        let text = "model T\n  Real x;\nequation\n  der(x) = 1;\n  annotation(Icon(graphics = {Rectangle(extent = {{-10, -10}, {10, 10}}, fillColor = {1, 2, 3}, fillPattern = FillPattern.Solid), Text(extent = {{-10, 10}, {10, 20}}, textString = \"%name\")}));\nend T;\n";
+        s.handle(
+            json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+            "uri": "T.mo", "languageId": "modelica", "version": 1, "text": text}}}),
+        );
+        let mut icon = |params: Value| {
+            s.handle(json!({"id": 1, "method": "globe/icon", "params": params}))
+                .remove(0)["result"]
+                .clone()
+        };
+        let t = icon(json!({"file": "T.mo", "line": 3, "character": 2}));
+        assert_eq!(t["class"], "T", "{t}");
+        assert_eq!(t["extent"], json!([-100.0, -100.0, 100.0, 100.0]));
+        assert_eq!(t["shapes"][0]["kind"], "rect", "{t}");
+        assert_eq!(t["shapes"][0]["fill"], json!([1, 2, 3]));
+        assert_eq!(t["shapes"][1]["text"], "T");
+        assert_eq!(icon(json!({"class": "Nope"})), Value::Null);
+        assert_eq!(
+            icon(json!({"file": "T.mo", "line": 9, "character": 0})),
+            Value::Null
+        );
+        assert_eq!(icon(json!({})), Value::Null);
     }
 
     #[test]

@@ -4,6 +4,17 @@
 use lsp_types::Position;
 use serde_json::{Value, json};
 
+/// 引くクラスの完全修飾名。`class` が空なら `at = (本文, 行, 列)` にあるいちばん内側のクラス（S244: アイコンも同じ）。
+pub(crate) fn target(class: &str, at: Option<(&str, u32, u32)>) -> Option<String> {
+    match (class, at) {
+        ("", Some((text, line, character))) => {
+            globe_mode_fmt::class_at(text, crate::offset(text, Position::new(line, character)))
+        }
+        ("", None) => None,
+        (c, _) => Some(c.to_string()),
+    }
+}
+
 /// `class`（完全修飾名）の Documentation を `{class, info, revisions}` で返す。`class` が空なら `at = (本文, 行, 列)`
 /// （列は UTF-16）にあるいちばん内側のクラス。まず `at` の本文から、無ければ `library(class)`（そのクラスを定義するライブラリの
 /// ファイルの本文）から引く。クラスが引けなければ null。
@@ -12,14 +23,7 @@ pub fn documentation(
     at: Option<(&str, u32, u32)>,
     library: impl Fn(&str) -> Option<String>,
 ) -> Value {
-    let class = match (class, at) {
-        ("", Some((text, line, character))) => {
-            globe_mode_fmt::class_at(text, crate::offset(text, Position::new(line, character)))
-        }
-        ("", None) => None,
-        (c, _) => Some(c.to_string()),
-    };
-    let Some(class) = class else {
+    let Some(class) = target(class, at) else {
         return Value::Null;
     };
     let found = at

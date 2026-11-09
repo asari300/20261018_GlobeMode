@@ -558,6 +558,26 @@ fn models_lists_the_runnable_classes_of_a_file() {
 }
 
 #[test]
+fn icon_is_read_as_shape_data_from_the_document() {
+    // S244: アイコン。形のデータ（JSON）で返り、カーソルの外は null
+    let ws = Workspace::with_library_split("GlobeModeValidation", &package())
+        .unwrap()
+        .with_tree(package());
+    let text = "model T\n  Real x;\nequation\n  der(x) = 1;\n  annotation(Icon(coordinateSystem(extent = {{-50, -50}, {50, 50}}), graphics = {Polygon(points = {{-10, -10}, {-10, 10}, {10, 0}}, lineColor = {0, 0, 127}), Text(extent = {{-50, 50}, {50, 60}}, textString = \"%name\")}));\nend T;\n";
+    let icon: serde_json::Value = serde_json::from_str(&ws.icon("", text, 3, 4)).unwrap();
+    assert_eq!(icon["class"], "T");
+    assert_eq!(
+        icon["extent"],
+        serde_json::json!([-50.0, -50.0, 50.0, 50.0])
+    );
+    assert_eq!(icon["shapes"][0]["kind"], "polygon");
+    assert_eq!(icon["shapes"][0]["points"].as_array().unwrap().len(), 3);
+    assert_eq!(icon["shapes"][1]["text"], "T");
+    assert_eq!(ws.icon("", text, 99, 0), "null", "クラスの外");
+    assert_eq!(ws.icon("GlobeModeValidation.Nope", "", 0, 0), "null");
+}
+
+#[test]
 fn documentation_is_read_from_the_document_and_the_library() {
     // S232: 説明パネル。ライブラリのクラスは名前で、開いている文書のクラスはカーソルで引く（HTML は生のまま、エスケープは戻す）
     let ws = Workspace::with_library_split("GlobeModeValidation", &package())

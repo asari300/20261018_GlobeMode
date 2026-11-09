@@ -44,7 +44,7 @@ pub fn class_at(src: &str, offset: usize) -> Option<String> {
     Some(join(&within, &s.path))
 }
 
-fn join(within: &str, path: &str) -> String {
+pub(crate) fn join(within: &str, path: &str) -> String {
     if within.is_empty() {
         path.to_string()
     } else {
@@ -53,7 +53,7 @@ fn join(within: &str, path: &str) -> String {
 }
 
 /// 先頭の `within A.B;`（無ければ空）。
-fn within(tokens: &[Token<'_>]) -> String {
+pub(crate) fn within(tokens: &[Token<'_>]) -> String {
     if !tokens.first().is_some_and(|t| t.is("within")) {
         return String::new();
     }
@@ -100,7 +100,7 @@ fn string_arg(args: &[Token<'_>], name: &str) -> String {
 }
 
 /// 引用符つきの文字列の字句を、エスケープを戻した本文にする。
-fn unescape(token: &str) -> String {
+pub(crate) fn unescape(token: &str) -> String {
     let body = token
         .strip_prefix('"')
         .and_then(|s| s.strip_suffix('"'))
