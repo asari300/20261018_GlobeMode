@@ -16,6 +16,7 @@ HERE = Path(__file__).resolve().parent
 FILES = {
     "package.json": "package.json",
     "dist/extension.js": "dist/extension.js",
+    "dist/webview.js": "dist/webview.js",
     "language-configuration.json": "language-configuration.json",
     "syntaxes/modelica.tmLanguage.json": "syntaxes/modelica.tmLanguage.json",
     "README.md": "README.md",

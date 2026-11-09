@@ -56,6 +56,23 @@ const cases = {
     assert.deepEqual(files, ["Defs.mo", "Pairs.mo"], JSON.stringify(files));
     assert.ok(we.entries().every(([, es]) => es.every((e) => e.newText === "Duo")));
   },
+  async "側のパネル（GlobeMode ビュー）が開き、ChuaCircuit の図に部品が 7 個出る（S247）"() {
+    const doc = await vscode.workspace.openTextDocument(fixture("ChuaCircuit.mo"));
+    const ed = await vscode.window.showTextDocument(doc);
+    // クラス ChuaCircuit の中（部品 Ro の行）にカーソルを置く。入れ子の Part の中ではない
+    const row = doc.getText().split("\n").findIndex((l) => l.startsWith("  Part Ro"));
+    ed.selection = new vscode.Selection(row, 4, row, 4);
+    const ext = vscode.extensions.getExtension("globe-mode.globe-mode");
+    const { panel } = await ext.activate();
+    await vscode.commands.executeCommand("globeMode.panel.focus"); // ビューを開く（webview が resolve される）
+    // webview の DOM は拡張ホストから見えないので、描き終えた数を webview が送ってくる（panel.state）
+    const st = await until("パネルの描画", () => panel.state?.parts === 7 && panel.state);
+    assert.equal(st.class, "ChuaCircuit", JSON.stringify(st));
+    assert.ok(st.icon === false, "ChuaCircuit にアイコンは無い");
+    // 部品のクリックは reveal(宣言の行) になる。カーソルがその行へ動く
+    await panel.reveal(row - 1); // 部品 L の行
+    assert.equal(vscode.window.activeTextEditor.selection.active.line, row - 1);
+  },
 };
 
 exports.run = async () => {

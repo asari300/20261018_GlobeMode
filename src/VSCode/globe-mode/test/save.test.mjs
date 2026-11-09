@@ -23,7 +23,11 @@ test("保存時の整形と、globe/format への振り替え", async () => {
       onWillSaveTextDocument: (f) => ((onWillSave = f), { dispose() {} }),
     },
     commands: { executeCommand: async (...a) => (calls.push(a), []) },
+    // 側のパネル（S247）が activate で登録するぶんだけ
+    window: { registerWebviewViewProvider: () => ({ dispose() {} }), onDidChangeActiveTextEditor: () => ({}), onDidChangeTextEditorSelection: () => ({}) },
+    Disposable: { from: () => ({ dispose() {} }) },
   };
+  vscode.workspace.onDidChangeTextDocument = () => ({});
   const requests = [];
   class LanguageClient {
     start() {}

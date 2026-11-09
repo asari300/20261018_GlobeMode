@@ -3,7 +3,7 @@
 # S233 から Linux・Windows・macOS の 3 OS（fail-fast: false）。xvfb-run と apt は Linux だけ。Windows は rustup を直接使う（ci.yml の rust-windows と同じ理由）。
 #
 # 中身: `globe` を release でビルドして PATH に置き、拡張を束ね（pnpm build）、@vscode/test-electron が取得した VS Code を xvfb の中で起動して
-# src/VSCode/globe-mode/e2e/suite.cjs を拡張ホストで回す（言語 ID と activate、構文の誤りの診断、アウトライン、rename）。
+# src/VSCode/globe-mode/e2e/suite.cjs を拡張ホストで回す（言語 ID と activate、構文の誤りの診断、アウトライン、rename、S247 から側のパネル〔GlobeMode ビューが開き、ChuaCircuit の図に部品が 7 個〕）。
 # その前に pnpm test（lsp.test.mjs ほか。ci.yml は拡張の node --test を回さない）と、Oniguruma での文法の試験（grammar-onig.test.mjs）も回す。
 name: vscode
 
@@ -13,6 +13,8 @@ on:
     branches: [main]
     paths:
       - "src/VSCode/**"
+      - "src/Svelte/src/lib/html-sanitize.ts" # 側のパネル（S247）が Svelte の UI と共有するファイル
+      - "src/Svelte/src/lib/shape-svg.ts"
       - ".github/workflows/vscode.yml"
 
 permissions:

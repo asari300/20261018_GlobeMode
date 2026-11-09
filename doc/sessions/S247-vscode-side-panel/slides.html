@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S247 VS Code の側のパネル — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S247 VS Code の側のパネル">
+
+<section class="slide" id="S01">
+  <span class="tag">S247 · 2026-11-09 · P8</span>
+  <h1>VS Code に「アイコン / 図 / 説明」の側のパネル</h1>
+  <p class="lead">エクスプローラーのビュー「GlobeMode」。引くのは <code>globe lsp</code> の 3 つの口だけ</p>
+  <div class="big">無害化も SVG も、Svelte の UI と<b>同じファイル</b>を読む</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">道</span>
+  <h1>どこで何をするか</h1>
+  <table class="compact">
+    <tr><th>場所</th><th>役割</th></tr>
+    <tr><td><code>panel.js</code>（拡張ホスト）</td><td>カーソルが 300 ms 止まったら <code>globe/documentation</code>・<code>icon</code>・<code>diagram</code> を <code>Promise.all</code> で引き、webview へ渡す。部品のクリックで宣言の行へ</td></tr>
+    <tr><td><code>webview.js</code>（webview）</td><td>届いた形のデータを DOM にする。<code>dist/webview.js</code> に束ねる</td></tr>
+    <tr><td><code>Svelte/src/lib/shape-svg.ts</code></td><td>アイコンと図を SVG の要素の木にする純粋な関数（新）。<code>toDom</code> で DOM に</td></tr>
+    <tr><td><code>Svelte/src/lib/html-sanitize.ts</code></td><td>説明の HTML の白リスト。変更なし</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">共有</span>
+  <h1>写しは作らない</h1>
+  <ul>
+    <li>置き場は <code>src/Svelte/src/lib/</code> のまま。<code>webview.js</code> が相対パスで import し、esbuild が束ねる</li>
+    <li>Svelte の側は <code>SvgTree.svelte</code> が同じ木を要素として描く（見た目と DOM の形は変えない）</li>
+    <li>VSIX には束ねた結果だけが入る。<code>vscode.yml</code> の paths に 2 ファイルを足した</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">安全</span>
+  <h1>CSP と無害化</h1>
+  <pre><code>default-src 'none';
+style-src ${cspSource} 'unsafe-inline';
+script-src 'nonce-…'</code></pre>
+  <ul>
+    <li><code>innerHTML</code> は使わない（試験が grep する）</li>
+    <li>説明は webview の中で <code>sanitize</code>（DOMParser）→ 要素と文字で描く</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">試験</span>
+  <h1>試験と再現</h1>
+  <pre><code>cd src/VSCode/globe-mode
+pnpm build &amp;&amp; pnpm test      # test/panel.test.mjs
+gh workflow run vscode.yml --ref feature/s247-vscode-side-panel</code></pre>
+  <p>e2e: ビューが開き、ChuaCircuit の図に部品が 7 個（3 OS）</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ul>
+    <li>図の編集、画像（<code>modelica://</code>）</li>
+    <li>テーマに合わせた地の色（今は常に白）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
