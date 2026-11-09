@@ -27,7 +27,12 @@ VS Code 拡張に、Svelte の UI と同じ「説明 / アイコン / 図」の�
 
 ## 検証
 
-結果は下に書く。
+- `pnpm test`（拡張。`GLOBE_BIN` を release の globe に）: 14 本 pass（新しい `panel.test.mjs` 3 本: 無害化、アイコン・図の SVG の組み立てと `toDom`、`innerHTML` 不使用と CSP）。`save.test.mjs` は偽の vscode に `window`・`Disposable` を足した。
+- `pnpm check`（Svelte）: 0 エラー 0 警告。`test_ui.py`（wasm は共有 target の既存のもの、MSL なし）: `icon_view`・`diagram_view`（部品のクリックで宣言の行へ）を含め、末尾の smoke の手前まで ok。smoke だけ `GM-SMOKE … msl=ng … failure=MSL.json` で落ちた（この worktree に `data/msl` が無く MSL.json を作っていないため。アイコン・図の描画とは別の項目。main では未確認）。
+- `vscode.yml`（`--ref feature/s247-vscode-side-panel`、run 42560016222）: Linux・Windows・macOS の 3 OS すべて success（新しい e2e「GlobeMode ビューが開き、ChuaCircuit の図に部品が 7 個」と `reveal` を含む）。
+- `ci.yml`（同じ ref、run 42560035372）: 下に書く。
+- `check_docs.py`: 切れ 0 件（文書 965 件・相対リンク 4521 件）。`render_slides.py`: デッキ 250 件 / 問題 0 件。
+- Rust は触っていないので `mise run check` は回していない。
 
 ## 残したこと
 
