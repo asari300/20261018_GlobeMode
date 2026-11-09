@@ -23,6 +23,7 @@ use globe_mode_core::{Diagnostic, Stage, codes};
 use globe_mode_ir::VariableRole;
 use rumoca_ir_dae::Dae;
 use rumoca_sim::SimOptions;
+use rumoca_solver::runtime::schedule::ScheduledEventConsumption;
 use rumoca_solver::{
     EventActionOutcome, EventUpdateRowFilter, ProjectedEventUpdateInput,
     ProjectedInitialEventInput, SolveRuntime, SolveStopSchedule, commit_pre_params_after_event_at,
@@ -421,6 +422,15 @@ impl ModelInstance {
         let mut terminate = false;
         let mut states_changed = false;
         if let Some((pre_y, pre_p)) = self.event_entry.take() {
+            // S246: この時刻の時刻事象（`when sample(...)`）がもう処理済みなら、同じ時刻の 2 回目の事象（状態事象）では
+            // 時計に属する行を回さない（Rumoca の FMI ME の `StateTimeCoincidence::Consumed` と同じ。回すと `Mean` の
+            // `y_last = f*pre(x)` が reinit の後の x で書き直される）
+            let row_filter = match self.schedule.scheduled_event_coincidence_at(t) {
+                Some(c) if c.consumption == ScheduledEventConsumption::Consumed => {
+                    EventUpdateRowFilter::UnownedOnly
+                }
+                _ => EventUpdateRowFilter::All,
+            };
             // 前の事象の後から符号の変わった根を、越えた後の側に固定する（host の pending_root_crossings と同じ）
             let after = self.event_indicators()?;
             let mut overrides: Vec<(usize, f64)> = root_crossings_with_relation_memory(
@@ -450,7 +460,7 @@ impl ModelInstance {
                         event_pre_y: &pre_y,
                         event_pre_p: &pre_p,
                         max_iters: SETTLE_MAX_ITERS,
-                        row_filter: EventUpdateRowFilter::All,
+                        row_filter,
                         root_relation_overrides: &mut overrides,
                     },
                     |y, p| {

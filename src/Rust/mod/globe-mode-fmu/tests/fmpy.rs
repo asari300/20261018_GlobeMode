@@ -547,6 +547,29 @@ fn fmpy_matches_exec_on_sample_counter() {
     }
 }
 
+/// S246: 時刻事象（`when sample`）と同じ時刻の状態事象。2 回目の事象で `when sample` の中を回し直すと、`yLast = f*pre(x)` が
+/// reinit の後の x（ほぼ 0）で書き直されて 0.6366 から 0 に落ちる（`Modelica.Blocks.Math.Mean` が `DiodeBridge2Pulse` で
+/// 値を失った原因）。ME・CS、FMI 2.0・3.0 で exec と突き合わせる。
+#[test]
+fn fmpy_matches_exec_on_sample_at_zero_crossing() {
+    let exec = exec_last("SampleAtZeroCrossing", &["yLast"]);
+    assert!(
+        (exec[0] - std::f64::consts::FRAC_2_PI).abs() < 1e-3,
+        "exec {exec:?}"
+    );
+    for (v3, kind) in [(false, Kind::Me), (true, Kind::Me), (false, Kind::Cs)] {
+        let Some(out) = fmpy_as("SampleAtZeroCrossing", &["yLast"], "", v3, kind) else {
+            return;
+        };
+        let y = value(&out, "yLast");
+        assert!(
+            (y - exec[0]).abs() < 5e-3,
+            "yLast: FMPy {y} と exec {}（v3 {v3}、{kind:?}）",
+            exec[0]
+        );
+    }
+}
+
 /// S112: 代数変数（非線形のループの y・z）を fmi2GetReal で読み、exec の最後の値（解析解 y = 2、z = 4）と突き合わせる。
 /// HarmonicOscillator・BouncingBall には代数変数が無いので NonlinearLoop を使う。
 #[test]

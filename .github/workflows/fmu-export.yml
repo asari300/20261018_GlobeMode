@@ -106,11 +106,13 @@ jobs:
           py() { uv run --no-project --with fmpy==0.3.32 --with numpy python -I "$@"; }
           acc=Modelica.Mechanics.Translational.Examples.Accelerate
           models="$acc Modelica.Mechanics.Translational.Examples.SignConvention Modelica.Mechanics.Rotational.Examples.CompareBrakingTorque"
+          # S246: Math.Mean が時刻事象と同じ時刻の状態事象で値を保つか（整流回路。P5b だけ。P5a は事象を受けない）
+          p5b_only=Modelica.Electrical.PowerConverters.Examples.ACDC.RectifierBridge2Pulse.DiodeBridge2Pulse
           out="$RUNNER_TEMP/msl"
           for v in 2 3; do
             py .github/scripts/fmu_msl_check.py --strict --globe target/debug/globe --lib data/msl --out "$out/p5a-$v" --fmi $v $models | tee -a "$RUNNER_TEMP/msl.txt"
           done
-          py .github/scripts/fmu_msl_check.py --strict --globe target/debug/globe --lib data/msl --out "$out/p5b-2" --fmi 2 --p5b target/release/libglobe_mode_fmu_cdylib.so $models | tee -a "$RUNNER_TEMP/msl.txt"
+          py .github/scripts/fmu_msl_check.py --strict --globe target/debug/globe --lib data/msl --out "$out/p5b-2" --fmi 2 --p5b target/release/libglobe_mode_fmu_cdylib.so $models $p5b_only | tee -a "$RUNNER_TEMP/msl.txt"
           py .github/scripts/fmu_msl_check.py --strict --globe target/debug/globe --lib data/msl --out "$out/p5b-3" --fmi 3 --p5b target/release/libglobe_mode_fmu_cdylib.so $acc | tee -a "$RUNNER_TEMP/msl.txt"
           check() { python3 -I -c "import csv, sys; r = list(csv.reader(open(sys.argv[1]))); i = [c.strip().strip('\"') for c in r[0]].index('mass.s'); s = float(r[-1][i]); print(f'{sys.argv[2]}: mass.s(1) = {s!r}'); sys.exit(abs(s - 1) > 1e-3)" "$@"; }
           for fmu in "$out/p5a-2/$acc/${acc//./_}-fmi2.fmu" "$out/p5a-3/$acc/${acc//./_}-fmi3.fmu" "$out/p5b-2/$acc/${acc//./_}-p5b-fmi2.fmu" "$out/p5b-3/$acc/${acc//./_}-p5b-fmi3.fmu"; do

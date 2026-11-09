@@ -151,3 +151,12 @@
   20 本のうち `resources/lib` は 76〜122 ファイル、387〜490 KB（`Thermal.FluidHeatFlow` の 2 本だけ `Media` のデータで 1.6 MB）。
 - **MSL の 20 本は 16/20**（S238・S237 と同じ。落ちる 4 本も同じ: ChuaCircuit、DemonstrateSignalExtrema、DiodeBridge2Pulse、DiodeCenterTap2Pulse）。切り出しで足りないクラスが出た例題は無い。
 - 詳細: [S243 の解説書](../sessions/S243-fmu-p5b-size/解説書.md)。
+
+## 追記（S246、2026-11-09）: P5b の時刻事象と状態事象が重なったときの離散値（S237 の持ち越し）
+
+- **`Math.Mean` の出力が保たれなかった原因**（`DiodeBridge2Pulse`・`DiodeCenterTap2Pulse`）: `Mean` の `when sample(t0 + 1/f, 1/f) then y_last = f*pre(x); reinit(x, 0)` と、整流器の電圧の零交差（ダイオードの切り替え）が同じ時刻（0.01 の倍数）に起きる。FMPy の ME は時刻事象を回したあと、同じ時刻に状態事象でもう 1 度 `fmi2EnterEventMode` / `fmi2NewDiscreteStates` を呼ぶ。`ModelInstance::update_discrete_states` はこの 2 回目にも Rumoca の `apply_projected_event_update` へ `EventUpdateRowFilter::All` を渡していたので、時計の行（`when sample` の中）がもう一度回り、`y_last = f*pre(x)` が `reinit` の後の x（約 -5e-18）で書き直された（99.03 が -5e-16 に落ちて、次の標本まで戻らない）。
+- **直し**: `SolveStopSchedule::scheduled_event_coincidence_at(t)` が「処理済み」（`Consumed`）を返すときは `UnownedOnly`（時計に属する行を回さない）にする（`globe-mode-exec/src/rumoca/instance.rs`。`ModelInstance` を使うのは P5b の FMU だけで、exec の `globe simulate` の道は変わらない）。Rumoca の FMI ME の `StateTimeCoincidence::Consumed` と同じ判断。`GlobeModeValidation.Simulation.SampleAtZeroCrossing`（`Mean` と同じ形を MSL なしで）と `tests/fmpy.rs` の `fmpy_matches_exec_on_sample_at_zero_crossing` が再現する（直す前は FMPy の ME で `yLast = -1e-20`、直した後は 0.6355、CS 0.6366、exec 0.6365、解析解 0.6366）。
+- **`DemonstrateSignalExtrema` は直さない（FMU の欠陥ではない）**: `u = A(t) sin(phi)`（`phi` は `der(phi) = 2π f(t)` の状態で約 220 rad）を 0.01 s ごとに標本化した極値が、積分器の誤差で動く。t = 0.64 の `y_max` は、解析解 4.648119、exec の BDF（参照）4.633220（-0.32%）、FMPy の ME（CVode、相対許容 1e-6）4.650760（+0.06%）、P5b の FMU を FMPy の ME で相対許容 1e-10 にすると 4.648122、P5b の CS（RK4）4.648119。FMU は積分器を正しく動かせば解析解に 7 桁合い、管（0.2%）の外にいるのは参照の側（と許容 1e-6 の CVode）なので、`fmu_msl_check.py` の許容は広げず、この例題は「参照の積分誤差で比べられない」ものとして残す。S237 の見立て（刻みの違い）の言い換えで、exec と同じ刻みや事象の時刻の出力（`noEvent` の評価点）には原因が無かった。
+- **MSL の 20 本は 18/20**（FMI 2.0、FMPy 0.3.32、`--runtime p5b`、ME・CS）。落ちる 2 本は ChuaCircuit（カオス）と DemonstrateSignalExtrema（上）。`fmu-export.yml` の MSL の step に `DiodeBridge2Pulse` を P5b の FMI 2.0 として 1 本足した。
+- **まだ見ていない順**: 状態事象が先に見つかり、時刻事象があとから来る形（Rumoca の `Unconsumed`）は、P5b の FMU では FMPy が先に時刻事象を回す順しか見ていない。当たる例題が出たら同じ部品で足す。
+- 詳細: [S246 の解説書](../sessions/S246-p5b-discrete-hold/解説書.md)。
