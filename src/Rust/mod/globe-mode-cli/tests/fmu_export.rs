@@ -543,7 +543,7 @@ fn p5b_runtime_exports_a_runnable_fmu() {
     assert_eq!(o.status.code(), Some(2), "{o:?}");
 }
 
-/// S238: MSL のモデルの P5b の FMU は、使うクラスのファイルだけを `resources/lib` に入れる（MSL は 2556 ファイル）。
+/// S238・S243: MSL のモデルの P5b の FMU は、使うクラスのファイルだけ（S243 から使うクラスだけ）を `resources/lib` に入れる（MSL は 2556 ファイル）。
 /// 入れたものだけで instantiate でき、`mass.s(1) = 1`。`data/msl` か共有ライブラリが無ければ飛ばす。
 #[test]
 fn p5b_runtime_ships_only_the_used_library_files() {
@@ -570,10 +570,16 @@ fn p5b_runtime_ships_only_the_used_library_files() {
     )
     .unwrap();
     assert!(
-        (50..500).contains(&files.len()),
+        (50..150).contains(&files.len()),
         "resources/lib の .mo は {} 個",
         files.len()
     );
+    // S243: 使わない入れ子のクラスも落とす（ファイルだけの閉包は 2.4 MB、クラス単位で約 0.4 MB）
+    let bytes: u64 = files
+        .iter()
+        .map(|f| std::fs::metadata(f).unwrap().len())
+        .sum();
+    assert!(bytes < 1_000_000, "resources/lib は {bytes} バイト");
     let fmu = out.join("Modelica_Mechanics_Translational_Examples_Accelerate-p5b-fmi2.fmu");
     let s = run_p5b_fmu(&fmu, "mass.s");
     assert!((s - 1.0).abs() < 1e-3, "mass.s(1) = {s}");

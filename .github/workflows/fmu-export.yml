@@ -93,7 +93,14 @@ jobs:
       # 使う MSL のファイルだけを resources/lib に入れる。S238 から globe fmu export --runtime p5b）を FMI 2.0 の 3 本と 3.0 の 1 本で、FMPy の ME・CS と `globe simulate` の結果の管で比べる。
       # fmusim は Accelerate（mass.s(1) = 1）。落ちる例題は doc/sessions/S237-fmu-export-msl-models/解説書.md の表
       - run: cargo xtask fetch-msl
+      # S243: 共有ライブラリは小さくするプロファイルで作る（globe fmu export --runtime p5b が自分で作るときと同じ環境変数。workspace の profile は変えない）
       - run: cargo build --release -p globe-mode-fmu-cdylib --lib
+        env:
+          CARGO_PROFILE_RELEASE_OPT_LEVEL: z
+          CARGO_PROFILE_RELEASE_LTO: fat
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "1"
+          CARGO_PROFILE_RELEASE_PANIC: abort
+          CARGO_PROFILE_RELEASE_STRIP: "true"
       - name: MSL の例題を FMU にして FMPy と fmusim で回す（S237）
         run: |
           py() { uv run --no-project --with fmpy==0.3.32 --with numpy python -I "$@"; }
@@ -235,11 +242,10 @@ jobs:
           py() { uv run --no-project --with fmpy==0.3.32 python -I "$@"; }
           fmpy() { py -c "import sys; from fmpy.cli import main; sys.argv = ['fmpy'] + sys.argv[1:]; main()" "$@"; }
           last_x() { py -c "import csv, math, sys; r = list(csv.reader(open(sys.argv[1]))); i = [c.strip().strip('\"') for c in r[0]].index('x'); x = float(r[-1][i]); print(f'{sys.argv[2]}: t = {r[-1][0]}, x(1) = {x!r}, x(1) - e^-1 = {x - math.exp(-1):.3e}'); sys.exit(abs(x - math.exp(-1)) > 1e-3)" "$@" | tee -a summary.txt; test "${PIPESTATUS[0]}" = 0; }
-          cargo build --release -p globe-mode-fmu-cdylib
           mo=src/Modelica/GlobeModeValidation/Simulation/Decay.mo
           for v in 2 3; do
             out="$RUNNER_TEMP/p5b$v"; mkdir -p "$out"
-            # S238: P5b の FMU は CLI が作る（共有ライブラリは cargo build --release -p globe-mode-fmu-cdylib で作り、OS ごとの置き場へ入れる）
+            # S238: P5b の FMU は CLI が作る（共有ライブラリは CLI が cargo build --release -p globe-mode-fmu-cdylib で作り、S243 から小さくするプロファイルで、OS ごとの置き場へ入れる）
             cargo run -q --release -p globe-mode-cli -- fmu export "$mo" -m "$MODEL" --out "$out" --fmi-version "$v" --runtime p5b
             fmu="$out/${MODEL//./_}-p5b-fmi$v.fmu"
             fmpy validate "$fmu"

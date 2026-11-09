@@ -29,7 +29,7 @@ pub mod unsupported;
 #[cfg(feature = "rumoca")]
 pub use rumoca::{
     Checker, CompiledModel, EnumType, ReferenceStructure, RumocaFrontend, SkippedFile,
-    collect_mo_files, library_closure,
+    collect_mo_files, library_closure, library_slice,
 };
 
 /// 先頭の UTF-8 の BOM を空白 3 個にする（#84。Rumoca は BOM を構文の誤りにする）。バイト位置は変わらない。

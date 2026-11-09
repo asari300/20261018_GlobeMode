@@ -390,6 +390,53 @@ pub fn library_closure(library: &[Source<'_>], model: &str, user_texts: &[&str])
         .collect()
 }
 
+/// S243: [`library_closure`] のファイルから、使わない入れ子のクラスも落とした（名前, 本文）。
+/// クラスを落とすと、それだけから参照されていたファイルも要らなくなるので、変わらなくなるまで閉包を取り直す。
+/// 字句に分けられない利用者の本文なら、クラスは落とさない（ファイルだけの閉包を返す）。
+pub fn library_slice(
+    library: &[Source<'_>],
+    model: &str,
+    user_texts: &[&str],
+) -> Vec<(String, String)> {
+    let names = library_closure(library, model, user_texts);
+    let mut keep: Vec<(String, String)> = library
+        .iter()
+        .filter(|s| names.iter().any(|n| n == s.name))
+        .map(|s| (s.name.to_string(), s.text.to_string()))
+        .collect();
+    let mut seed: HashSet<String> = model.split('.').map(str::to_string).collect();
+    for t in user_texts {
+        let Ok(toks) = globe_mode_fmt::lex(t) else {
+            return keep;
+        };
+        seed.extend(
+            toks.iter()
+                .filter(|t| t.kind == globe_mode_fmt::Kind::Ident)
+                .map(|t| t.text.to_string()),
+        );
+    }
+    loop {
+        let texts: Vec<&str> = keep.iter().map(|(_, t)| t.as_str()).collect();
+        let pruned: Vec<(String, String)> = keep
+            .iter()
+            .zip(globe_mode_fmt::prune_classes(&texts, &seed))
+            .map(|((n, _), t)| (n.clone(), t))
+            .collect();
+        let sources: Vec<Source> = pruned
+            .iter()
+            .map(|(n, t)| Source { name: n, text: t })
+            .collect();
+        let next = library_closure(&sources, model, user_texts);
+        if next.len() == pruned.len() {
+            return pruned;
+        }
+        keep = pruned
+            .into_iter()
+            .filter(|(n, _)| next.contains(n))
+            .collect();
+    }
+}
+
 /// `dir` の下の `.mo`（`.` で始まる名前は飛ばす）。ディレクトリの読み込み（全部読む・分割とも）、facade、db が共有する走査（#31）。
 pub fn collect_mo_files(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
     if dir.is_file() {

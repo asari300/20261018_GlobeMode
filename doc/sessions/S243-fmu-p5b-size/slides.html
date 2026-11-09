@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S243 P5b の FMU を小さくする — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S243 P5b の FMU を小さくする">
+
+<section class="slide" id="S01">
+  <span class="tag">S243 · 2026-11-09 · P5</span>
+  <h1>P5b の FMU を小さくする</h1>
+  <p class="lead">S238・S239 の持ち越し。cdylib と <code>resources/lib</code> の両方を削った</p>
+  <div class="big">12.9 MB から 6.3 MB</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">cdylib</span>
+  <h1>プロファイルを環境変数で与える</h1>
+  <ul>
+    <li><code>opt-level z</code>・fat LTO・cgu 1・<code>panic = abort</code>・strip。</li>
+    <li>facade の <code>build_runtime</code> と <code>fmu-export.yml</code> が <code>CARGO_PROFILE_RELEASE_*</code> を与える。workspace の profile は変えない。</li>
+    <li><code>panic = abort</code> は今の挙動と同じ。<code>extern "C"</code> の境界の panic は元から abort で、<code>catch_unwind</code> は無い。</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">測定</span>
+  <h1>施策ごとの cdylib の大きさ</h1>
+  <table class="compact">
+    <tr><th>施策</th><th>大きさ</th></tr>
+    <tr><td>既定の release</td><td>33.2 MB</td></tr>
+    <tr><td>LTO fat + cgu 1</td><td>25.4 MB</td></tr>
+    <tr><td>opt-level s + LTO fat + cgu 1</td><td>19.1 MB</td></tr>
+    <tr><td>+ panic = abort</td><td>17.1 MB</td></tr>
+    <tr><td>opt-level z</td><td>15.1 MB</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">resources/lib</span>
+  <h1>クラス単位に切り出す</h1>
+  <ul>
+    <li>ファイルの閉包のあと、使わない入れ子のクラスを落とす。識別子の名前の一致だけを見て、広めに残す。</li>
+    <li><code>operator</code> のクラスの子と、切り出せないファイルは丸ごと残す。</li>
+    <li>落とした分で要らなくなったファイルは、閉包を取り直して外す。</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">図</span>
+  <h1>閉包と切り出しの繰り返し</h1>
+  <svg class="fig" viewBox="0 0 800 160" role="img" aria-label="閉包、切り出し、閉包の取り直しの流れ">
+    <rect class="svg-box" x="20" y="50" width="200" height="60" rx="10"/>
+    <text class="svg-text-b" x="120" y="86" text-anchor="middle">library_closure</text>
+    <rect class="svg-box-accent" x="300" y="50" width="200" height="60" rx="10"/>
+    <text class="svg-text-b" x="400" y="86" text-anchor="middle">prune_classes</text>
+    <rect class="svg-box" x="580" y="50" width="200" height="60" rx="10"/>
+    <text class="svg-text-b" x="680" y="86" text-anchor="middle">resources/lib</text>
+    <line class="svg-line" x1="220" y1="80" x2="300" y2="80"/>
+    <line class="svg-line" x1="500" y1="80" x2="580" y2="80"/>
+  </svg>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">結果</span>
+  <h1>Accelerate の resources/lib</h1>
+  <table class="compact">
+    <tr><th></th><th>前</th><th>後</th></tr>
+    <tr><td>ファイル</td><td>294</td><td>90</td></tr>
+    <tr><td>未圧縮</td><td>2.37 MB</td><td>393 KB</td></tr>
+    <tr><td>zip の中</td><td>590 KB</td><td>131 KB</td></tr>
+    <tr><td>instantiate + CS 1 s</td><td>1.07 s</td><td>0.29 s</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">確認</span>
+  <h1>MSL の 20 本は 16 本のまま</h1>
+  <ul>
+    <li>FMPy の ME・CS。落ちる 4 本も S237 と同じ（ChuaCircuit、DemonstrateSignalExtrema、DiodeBridge2Pulse、DiodeCenterTap2Pulse）。</li>
+    <li>切り出しで足りないクラスが出た例題は無い。</li>
+    <li>cdylib の残りの大半は Rumoca の compile 段で、Rumoca を使う限り「数 MB」には届かない。</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
