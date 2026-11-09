@@ -30,7 +30,7 @@ S237 から残る P5b の正しさの不足 2 件: (1) `DiodeBridge2Pulse`・`Di
 - `mise run check` 通過（fmt・clippy・test・deny・`globe fmt --check src/Modelica` 73 ファイル整形済み・`uv sync --locked`）。
 - `cargo test --release -p globe-mode-fmu --test fmpy -- --test-threads=1`: 18 本通過（新しい `fmpy_matches_exec_on_sample_at_zero_crossing` は直しを外すと落ちることを確認）。
 - `check_docs.py`: 切れ 0 件。`render_slides.py`（S246 のデッキ）: 問題 0 件。
-- セッション記録は親が写す。CI の run は親への報告に書く。
+- セッション記録は親が写す。CI（feature ブランチ）: `fmu-export.yml` run 42556889948 が success（MSL の step に DiodeBridge2Pulse を含む）、`ci.yml -f full=true` run 42556893345 が success。
 
 ## 残したこと
 
