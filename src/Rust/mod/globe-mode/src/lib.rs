@@ -44,7 +44,7 @@ pub use fmu_import::{
 
 pub use globe_mode_db as db;
 pub use globe_mode_exec as exec;
-pub use globe_mode_exec::{CancelToken, ExecStage, Progress};
+pub use globe_mode_exec::{CancelToken, ExecStage, Linearization, Progress};
 pub use globe_mode_sim as sim;
 
 /// ソルバの登録表（`globe simulate --list-solvers` と wasm の `solvers()` の中身）。
@@ -658,6 +658,63 @@ impl Workspace {
             model: model.to_string(),
             parameters,
         })
+    }
+
+    /// モデルの線形化（S254）。入力（`input` の Real）・出力（`output` の Real）・状態の行列 A・B・C・D を数値微分で返す。
+    /// `time` が None か実験の開始時刻なら初期化の直後の点、それより後なら開始時刻から `time` まで実行した点
+    /// （入力を外から駆動するモデルは実行できないので、後の時刻は使えない）。DAE まで変換できなければ `Err`（その診断）。
+    pub fn linearize(
+        &mut self,
+        model: &str,
+        overrides: &BTreeMap<String, f64>,
+        time: Option<f64>,
+    ) -> Result<Linearization, Vec<Diagnostic>> {
+        let compiled = self.compile(model, overrides)?;
+        let start = compiled
+            .experiment
+            .as_ref()
+            .and_then(|e| e.start_time)
+            .map_or(0.0, |t| t.get());
+        let fail = |message: String| {
+            vec![Diagnostic::error(
+                globe_mode_core::codes::RUN_INTEGRATION_FAILED,
+                Stage::Run,
+                format!("線形化に失敗: {message}"),
+            )]
+        };
+        let mut inst = exec::ModelInstance::new(&compiled, overrides, start)?;
+        if let Some(t) = time.filter(|t| *t != start) {
+            if t < start || !t.is_finite() {
+                return Err(fail(format!(
+                    "時刻 {t} は開始時刻 {start} より前（か有限でない）"
+                )));
+            }
+            let report = exec::run(
+                &compiled,
+                &SimSettings {
+                    start_time: Some(start),
+                    stop_time: Some(t),
+                    parameters: overrides.clone(),
+                    ..SimSettings::default()
+                },
+            );
+            let ok = report.succeeded();
+            let Some(run) = report.run.filter(|_| ok) else {
+                return Err(report.diagnostics);
+            };
+            let x: Option<Vec<f64>> = inst
+                .state_names()
+                .iter()
+                .map(|n| {
+                    let v = run.trajectory.variables.iter().find(|v| &v.name == n)?;
+                    v.values.last().copied()
+                })
+                .collect();
+            let x = x.ok_or_else(|| fail("結果の列に状態が見つからない".to_string()))?;
+            inst.set_states(&x).map_err(fail)?;
+            inst.set_time(t);
+        }
+        inst.linearize().map_err(fail)
     }
 
     /// 検査 → コンパイル → 実行。`request.files` は先にワークスペースに足す（残る）。
