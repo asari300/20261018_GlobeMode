@@ -4,7 +4,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
-**次の版は 0.2.0**（S172 で Cargo・Tauri・Python・npm・VS Code の拡張・Elixir・Gleam の版を 0.2.0 に揃えた。一覧は [architecture.md](doc/architecture.md) の「版を書いている場所」）。S001〜S179 の要点（S048 以降は S168 で、S166〜S179 は S179 で足した。内部の整理は束ねた）。日付と比較リンクは公開のときに入れる。GitHub の Release・タグ・PyPI・crates.io・VS Code の Marketplace のどれにも出していない（crates.io に出せないのは Rumoca の git 依存のため。[ADR-0002](doc/adr/0002-rumoca-adapter.md)）。
+**次の版は 0.2.0**（S172 で Cargo・Tauri・Python・npm・VS Code の拡張・Elixir・Gleam の版を 0.2.0 に揃えた。一覧は [architecture.md](doc/architecture.md) の「版を書いている場所」）。S001〜S179 の要点（S048 以降は S168 で、S166〜S179 は S179 で足した。内部の整理は束ねた）。S249〜S268 のうち利用者に見えるものは S273 で足した。日付と比較リンクは公開のときに入れる。GitHub の Release・タグ・PyPI・crates.io・VS Code の Marketplace のどれにも出していない（crates.io に出せないのは Rumoca の git 依存のため。[ADR-0002](doc/adr/0002-rumoca-adapter.md)）。
 
 ### 運用・計画（P0）
 
@@ -12,6 +12,8 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - S006: WSL2 から Windows の LM Studio（Bonsai-27B）を副レビュアーに呼ぶスキル `/local-review`。
 - S033: リリースの見積もりと、エージェントに渡す並行作業の指示書 WP-0〜WP-J（`doc/plan/`）、Codex の監査のための `log/review/`。
 - S194: 文書だけ。CLAUDE.md の 2 章をいまのツリーに合わせ、ADR-0032・0034・0035・0036 を Accepted にし、上流の再現用 `.mo` 34 本を `globe fmt` で整形した（診断は前後で同じ）。
+- S255: ponytail-audit の issue #90〜#97 の 8 件を直した（セッション記録の伏せ字の規則の取りこぼし、プロットの `Math.min(...ys)`、Python `table()` の Inf の列、プロットの CSV の欠損を NaN で書く、VS Code の `globeMode.path` を machine の scope に、push の CI にジョブ `desktop`、`fmu run` の modelDescription.xml を 64 MiB で切る、整形器の `flat` の打ち切り）。各修正に、直す前なら失敗する試験を 1 本ずつ足した。
+- S267: 実行の session の道（wasm）で BDF が始められないときの段をネイティブと揃えた（BDF だけ Initialization）。issue #5 の例は ADR-0015 で解消済みで、残る差はこの段だけ（[ADR-0014](doc/adr/0014-session-route-wasm.md) に付記）。
 
 ### P1 骨格
 
@@ -115,6 +117,12 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - S207: `globe-mode-fmt` の `lint` が本文の長さの 2 乗で遅くなっていたのを直した（クラス宣言・診断ごとに行・桁を先頭から数え直し、長い行ごとに全行を探していた）。4.4 MB で 88.7 s が 0.57 s、MSL の `Fluid/Dissipation.mo`（630 KB）は wasm で 508 ms が 43 ms。診断の内容・順序・位置と `format` の出力は MSL ほか 2,661 本で変わらない（挙動の変化なし）。
 - S236: **UI の結果とFMUの仕上げ 4 点**（**挙動が変わる**）。(1) Desktop は結果のファイル（`.mat`・`.csv`）のタブをパスで残し、再読み込みで `globe/readResults` から読み直す（読めなければタブを閉じて理由を出す）。ブラウザはパスが無いので再読み込みで閉じ、結果のタブの注に書く。(2) 結果のタブに MAT のパラメータの折りたたみ（名前・値・単位・説明）。`globe/readResults` の応答と wasm の `read_results` に `parameters` を足した。(3) Desktop の「最近使ったファイル」に `.mat`・`.csv`・`.fmu` が入る（選ぶと結果のタブ・FMU のフォーム。読むのは sidecar なので `read_recent`・`write_recent` は `.mo` だけのまま）。(4) FMU を開くと、S229 の確認ダイアログの代わりに警告つきの設定フォーム（終了時刻・刻み・予算〔秒〕・種類 CS / ME）が出て、FMU のパスごとに localStorage `globe-mode.fmu` へ残る。ME の積分器の選択は出していない。
 
+- S250: **Diagram の部品のドラッグ移動**。Rust の `move_part` が `Placement` の `origin` を書き換える編集を返し、UI がエディタに適用する（LSP `globe/movePart`。保存はしない）。部品の追加と結線の点の編集は未（[ADR-0037](doc/adr/0037-icon-diagram-as-shape-data.md) の付記）。
+- S261: **Diagram の結線の追加**。コネクタから別のコネクタへドラッグすると、`add_connect` がクラスの最後の `equation` 節の末尾（無ければ節ごと）に `connect(a.p, b.n) annotation(Line(…));` を足す編集を返し、UI がエディタに 1 回で入れる（undo 可、保存しない。LSP `globe/addConnect`、RPC_METHODS 27 → 28）。型の互換は見ず、足したあとの検査に任せる。
+- S265・S264: **Diagram の部品の追加と、VS Code のパネルでの編集**。ライブラリの木の行を図へドロップする（キーボード用に木の「図へ」ボタンもある）と、Rust の `add_part` がクラスの最後の public の宣言の後に `型 名前 annotation(Placement(transformation(origin = {x, y}, extent = {{-10, -10}, {10, 10}})));` を足す編集を返し、UI がエディタに 1 回の dispatch で入れる（元に戻せる。保存しない）。名前は型の最後の部分を小文字に（重なれば 1・2…）、package・function・record・type は断る。口は LSP `globe/addPart`・wasm `add_part`・`Backend.addPart`（`RPC_METHODS` 31）。S264 は部品の移動（S250）と結線の追加（S261）を VS Code の側のパネルでもできるようにした（ドラッグの処理は `src/Svelte/src/lib/diagram-drag.ts` を UI と webview が共有。離したら拡張が `globe/movePart`・`globe/addConnect` を呼び、返った TextEdit を `WorkspaceEdit` で入れる）。限界: VS Code のパネルからの部品の追加、結線の途中の点の編集、型の互換の事前の検査は未（[ADR-0037](doc/adr/0037-icon-diagram-as-shape-data.md)）。
+- S257: ライブラリの木の各行にそのクラスのアイコンを 18 px で描く（画面に入った行だけ引き、同時 4 本に絞る。Rust・LSP・wasm は変えていない）。
+- S256・S262: **BLT の表示**。`globe blt -m <model> [--json]`（S256）が方程式の BLT のブロックを解く順に、変数・式・大きさ・代数ループか・非線形かを出す。S262 で LSP `globe/blt`・wasm `blt`・ツールバーの「BLT」ボタンの `BltPanel.svelte`・Python `Workspace.blt` を足した（大きさ 2 以上の代数ループは警告色）。式からソースへ飛ぶのと、変換の段ごとの差分は未。S9 の出力は変えていない。
+
 ### P5 FMI
 
 - S057: FMI の調査と `globe-mode-fmi`（`modelDescription.xml`）の準備。
@@ -141,6 +149,11 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - S260: **UI・LSP・wasm の線形化**。ツールバーの「線形化」（時刻の欄は空なら開始時刻。上書きは実行の設定のパラメータ）で、状態空間の行列 A・B・C・D の表（行・列の見出しは変数名、有効数字 6 桁）が結果の欄に出て、JSON に書き出せる。口は LSP `globe/linearize`（`RPC_METHODS` 27）、wasm `Workspace.linearize`、`Backend.linearize`。JSON は `globe linearize --json` と同じ（facade の `linearization_json`）。
 - S238: **P5b の FMU を CLI で作る**。`globe fmu export --runtime p5b`（既定は `p5a` で変わらない）が、GlobeMode の実行時 `globe-mode-fmu` の共有ライブラリ（`--runtime-lib <path>`、無ければ `cargo build --release -p globe-mode-fmu` をその場で呼ぶ。作れなければ理由つきで終了コード 2）を入れた `<名前>-p5b-fmi2.fmu`（3.0 は `-fmi3`）を書く。`resources/lib` には**モデルが使う MSL などのファイルだけ**を入れる（Accelerate で 2556 → 293 ファイル、zip の中で 3.9 → 0.5 MB、instantiate 8 s → 1.2 s）。MSL の 20 本は 16/20 のまま。`examples/md.rs` は CLI に置き換えて消した。Python・UI の `runtime` の選択肢は未。
 - S237: **MSL を使うモデルを FMU に**。MSL の例題 20 本（compile の短い順、Clocked 除く）を FMPy の ME・CS で `globe simulate` と比べて、P5a（Rumoca のテンプレート）は 3 本、P5b（自前のランタイム）は 16 本が通る。落ちる分の大半は Rumoca の限界（事象・初期化・Clock。上流の下書き 35 に貯めた）。**挙動が変わる**: P5b の FMU は `resources/lib/` に MSL などの `.mo` を入れるとそれを読む。関係式の記憶と初期化の事象を初期化の点から回す（それまでは `abs(w) >= w0` のような関係式が最初の事象まで偽の枝、`when initial()` は未実行）。事象で決まった離散の値を保つ。`modelDescription.xml` の内部の名前 `$…` は引用符で囲む。P5b を作る CLI は未。
+- S249・S259: **FMI Import のコシミュレーションのマスターの最小版**。`globe fmu cosim spec.json -o out.csv` が、複数の Co-Simulation の FMU（FMI 2.0 と 3.0 の混在可）を固定の通信刻みでつなぎ、全 FMU の出力を `<名前>.<変数名>` の列で 1 つの CSV に出す。既定は Jacobi（入力が 1 刻み遅れる）。S259 で `"algorithm": "gauss-seidel"`（遅れ 0）、`"start"`（初期化の前に値を設定）、Int32・Boolean の同じ型どうしの接続を足した（JSON の既存の鍵は変えていない）。FMU は既存のワーカー（別プロセス）で動く。可変刻み・巻き戻し・代数ループ・ME の混在・Python と UI の口は未（[ADR-0026](doc/adr/0026-fmi-import-placement.md) の (q)・(s)）。
+- S253・S263: **SSP 2.0.1 の最小版の読み取り**。`globe fmu cosim system.ssp --step h [--stop-time T]` が `.ssp`（zip）の `SystemStructure.ssd` の `Component`（FMU）・`Connection`・`DefaultExperiment` を読み、上のマスターで回す。S263 で `Component` の `ParameterBindings`（`.ssv` かインラインの `ParameterSet` の Real・Integer・Boolean）を `start` にして回す（後ろの binding が勝つ。FMU に無い名前は SSP の規定どおり無視する）。入れ子の System・`ParameterMapping`・`SignalDictionary`・`LinearTransformation`・単位の換算・Real 以外のコネクタ・書き出しは未で、読んだら明確な誤りにする（ADR-0026 の (r)・(t)）。
+- S251: **FMI 3.0 の Scheduled Execution（SE）の Export の最初の一切れ**（P5b）。クロックの無い連続モデルを周期 Clock 1 つ・パーティション 1 つとして出す（`globe fmu export --runtime p5b --fmi-version 3 --kind se`）。FMPy の `validate_fmu` と `FMU3ScheduledExecution` で Decay の x(1) が e⁻¹ と 4e-15 で合う。fmusim は SE を回せないので `fmu-export.yml` には足さない（[ADR-0031](doc/adr/0031-fmi-export-p5a-first.md)）。
+- S266: Export した FMU の `modelDescription.xml` に、出力と状態の導関数の `dependencies` を書いた。BLT の解く順でブロックの依存を足す閉包（`analyze_dependencies`）で、2.0 は状態と入力、3.0 はパラメータと `time` も並べる。離散変数・`pre`・条件を介するものとインデックス 2 以上は書かない（省略はすべてに依存の意味）。FMPy の `validate_fmu` と simulate が 2.0・3.0 で通り、`fmu-export.yml`（fmusim を含む）も success。
+
 ### P6 Web・Android・ノートブック
 
 - S078・S085・S097・S102・S104: marimo の anywidget の折れ線（extra `widget`）、Python の `simulate_columns`（列を polars で）、marimo の WASM（Pyodide）から `globe-mode-wasm` を回す（MSL も）。
@@ -163,9 +176,12 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - S176: `release.yml` に macOS（arm64）を足した（`globe` の tar.gz、wheel、Desktop の署名なしの .dmg。鍵があれば `latest.json` に `darwin-aarch64`）。
 - S195: `release.yml` のタグの経路を、タグを打たずに確かめられるようにした（手動実行の入力 `tag`。手動は Release を作らない）。版はファイルが決め、タグの版と違えば最初のジョブで止める（書き換えをやめた。pre-release のタグ `v0.2.0-rc1` の接尾辞は版に入らない）。鍵は bundle の step だけに渡し、softprops/action-gh-release をコミットで固定。手順は `doc/release.md`。
 
+- S254: **線形化の最小版**。`globe linearize -m <model> [--time T] [--param NAME=VALUE] [--json]` が、状態と入力（top-level の `input` の Real）を数値の中心差分でずらして状態空間の行列 A・B・C・D を出す（facade `Workspace::linearize`）。Rumoca に公開のヤコビ行列が無いので数値微分で、誤差は 1e-8 程度（[ADR-0038](doc/adr/0038-linearize-numeric.md)）。`GlobeModeValidation.Simulation.LinearSystem`・`Pendulum` で解析解と 1e-6 で一致。Python・UI・LSP は未。
+
 ### P7 言語 API
 
 - S039: Python の wheel `globe_mode`（`globe-mode-py`、PyO3・abi3-py312・maturin）。load_dir → check → graph → simulate → polars の表の参照シナリオを `pytest` で通した。
+- S258: **Python の `cosim` と `Workspace.linearize`**。`cosim(spec)` は dict・`.json`・`.ssp` を S249 のマスターで回し、`run_fmu` と同じ形・誤り・進捗で返す。`Workspace.linearize(model, time, parameters)` は A・B・C・D を numpy があれば ndarray、無ければ list で返す（`globe linearize --json` と同じ。誤りは `GlobeModeError`）。固有値は未。
 - S075・S082・S087: C ABI の `globe-mode-c`（9 関数、手書きのヘッダ）と Zig・Julia、Elixir の NIF（`globe-mode-nif`）、Gleam の `@external`。参照シナリオ（Decay を開く → check → simulate → x(1) → format）は `mise run c:zig`・`c:julia`・`elixir:test`・`gleam:test`。
 - S110・S111・S116・S118: 公開 API の機能表を作り、6 言語に format / lint、列の道（`simulate_columns`）、FMU の書き出しを足した。
 - S181: Python API を厳しくした。**未知の設定のキー（`stoptime` など）は黙って無視されず `TypeError` になる**（前は `ok: True` で既定の値のまま走った。使えるキーを添える）。設定の型の誤りはどの設定かを言う `ValueError`、`Workspace("data/msl")` は 1 つのライブラリ（前は 1 文字ずつ）、ライブラリが読めない `RuntimeError` の本文は `コード: 文`（元の診断は `.diagnostics`）。`export_fmu` の未知の options は `TypeError`。docstring・`py.typed`・`_native.pyi`、`on_progress` は既定のソルバでは積分の中に届かないと明記。
@@ -180,10 +196,14 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - S121・S123・S129・S131・S133・S136: 実行の進捗と中断をコア・Python・C と他の言語・wasm とブラウザの UI・`globe lsp` と Desktop に入れた（[ADR-0033](doc/adr/0033-progress-and-cancel.md)）。
 - S125・S153・S155・S156・S160: UI の負荷の比較。測定ハーネス（[ADR-0034](doc/adr/0034-ui-bench-method.md)）と、Leptos 版・Dioxus 版の試験版（`src/Rust/apps/experimental/`、配布物には入らない）、Linux・Windows・macOS の結果 `doc/bench/ui.md`。
 
+### Track B 自前のコア
+
+- S268: 新しい crate `globe-mode-syntax`（依存は rowan 0.17 だけ）。Modelica 3.6 の字句解析と、誤りがあっても木を作る寛容なパーサ（クラス・`extends`・`import`・部品の宣言・`equation` / `algorithm` 節・`within` まで。式と注釈の中身は不透明な節点）。MSL 4.1.0 の 2556 本は誤り 0・往復不一致 0・panic 0。Rumoca にも `Frontend` にも CLI にもまだつなげていないので、利用者に見える挙動は変わらない（[ADR-0039](doc/adr/0039-native-cst-parser.md)）。
+
 ### 既知の限界
 
 - Rumoca は git 依存の固定 rev（v0.10.2）で、crates.io には出せない。MSL 4.1.0 の例題 566 本のうち検査を通るのは 369 本、コンパイラの限界（`GM-U`）が 184 本（[doc/msl-funnel.md](doc/msl-funnel.md)）。
 - 配布するバイナリに `sundials` のソルバ（`cvode`・`ida`）は入れない（cmake と C コンパイラが要る）。
-- FMI の読み込み、SSP、Diagram / Icon / Documentation ビューは未実装。
+- FMI の読み込みはブラウザ・Android の UI と C・Elixir・Gleam の API が未、SSP は最小版の読み取りだけ（書き出し・入れ子の System が未）。Diagram は結線の途中の点の編集と、VS Code のパネルからの部品の追加が未。線形化は数値微分で、固有値と解析ヤコビ行列が未。
 - Desktop と Android は署名していない。Desktop の自動更新は鍵を登録するまで「未設定」。実機での長い操作は【未確認】。
 - GitHub の Release・タグ・Pages・PyPI・Marketplace への公開はまだ無い（[doc/research/app-flow-2026-11-05.md](doc/research/app-flow-2026-11-05.md)）。
