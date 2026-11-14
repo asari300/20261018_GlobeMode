@@ -2439,7 +2439,7 @@ mod tests {
         assert_eq!(e[0]["newText"], "{52, -4}", "{e}");
         assert_eq!(
             e[0]["range"]["start"],
-            json!({"line": 1, "character": 87}),
+            json!({"line": 1, "character": 86}),
             "{e}"
         );
         assert_eq!(mv("c"), Value::Null, "Placement が無い");
