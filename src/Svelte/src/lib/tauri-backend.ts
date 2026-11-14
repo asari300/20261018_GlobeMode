@@ -1,7 +1,7 @@
 import type { Backend, CompletionEntry, Definition, Diagram, Documentation, FmuInfo, FmuRunRequest, FmuRuntime, Hover, Icon, LintMessage, Progress, TreeEntry } from "./backend";
 import type { Columns } from "./plot/csv";
 import { isFmuFile, isResultsFile, toColumns, type ResultColumns, type ResultParam } from "./results.ts"; // node の型の除去（tests/test_tauri.mjs）が拡張子を要る
-import type { BltReport, CheckResponse, GraphJson, SimulateRequest, SimulateResponse, SolverEntry, ModelParameter, TunableParameter } from "./protocol";
+import type { BltReport, CheckResponse, GraphJson, SimulateRequest, SimulateResponse, SolverEntry, ModelParameter, TunableParameter, Linearization } from "./protocol";
 
 // Tauri が `withGlobalTauri` で注入する関数だけを使う（@tauri-apps/api は入れない。npm の依存を増やさないため）。
 type Invoke = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
@@ -161,6 +161,9 @@ export class TauriBackend implements Backend {
   }
   async parameters(model: string): Promise<ModelParameter[]> {
     return (await invoke<{ parameters: ModelParameter[] }>("rpc", { method: "globe/parameters", params: { model } })).parameters; // S248
+  }
+  linearize(model: string, time?: number, parameters?: Record<string, number>): Promise<Linearization> {
+    return invoke("rpc", { method: "globe/linearize", params: { model, time, parameters } }); // S260
   }
   // indent などを省くと params から落ち（JSON）、sidecar が globe-mode.toml（S143）の値を使う
   format(text: string, indent?: number, insertOrigin?: boolean): Promise<string> {

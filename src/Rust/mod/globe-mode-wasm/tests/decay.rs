@@ -585,6 +585,33 @@ fn decay_lists_declared_parameters() {
 }
 
 #[test]
+fn linear_system_linearizes_to_the_analytic_matrices() {
+    // S260: wasm の linearize と同じ JSON。A = [-2 1; 1 -2]・D = [3; 0] は解析的に分かる
+    let mut ws = Workspace::new();
+    for (name, text) in package() {
+        ws.put_file(&name, text);
+    }
+    let l = ws
+        .inner()
+        .linearize(
+            "GlobeModeValidation.Simulation.LinearSystem",
+            &BTreeMap::new(),
+            None,
+        )
+        .ok()
+        .unwrap();
+    let j = globe_mode::linearization_json("M", &l);
+    let num = |v: &serde_json::Value| v.as_f64().unwrap();
+    assert!((num(&j["A"][0][0]) + 2.0).abs() < 1e-6 && (num(&j["A"][1][0]) - 1.0).abs() < 1e-6);
+    assert!((num(&j["D"][0][0]) - 3.0).abs() < 1e-6);
+    assert!(
+        ws.inner()
+            .linearize("Nope", &BTreeMap::new(), None)
+            .is_err()
+    );
+}
+
+#[test]
 fn models_lists_the_runnable_classes_of_a_file() {
     // S170: UI のモデル名の候補。model・block・class の修飾名（partial は除く。package の中まで入る）、壊れた構文は空
     let mut ws = Workspace::new();

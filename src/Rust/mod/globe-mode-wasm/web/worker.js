@@ -7,7 +7,7 @@
 //   init {pkg, wasm?}  : `${pkg}/globe_mode_wasm.js`（wasm-bindgen --target web の糊）を読んで初期化。
 //                        wasm に ArrayBuffer を渡すと、それで初期化（Node は file: を fetch できないため）
 //   simulate_columns {request, progress?, cancel?}（{response, layout, columns: Float64Array[]}。buffer は転送。progress で進捗も送る。S133）、read_results {name, bytes}（{layout, columns, parameters}。S222、S236）, library {json, name}, set_file {name, text}, remove_file {name}, check {model}（CheckResponse の JSON）, graph {model, depth}（graphology の JSON）, blt {model}（BltReport の JSON。S262）, simulate {request}（JSON 文字列）、
-//   library_tree {prefix}・library_search {query, limit}（S167。名前の部分一致。木と同じ形の JSON）・library_source {path}（S127。JSON。ライブラリが無ければ [] と例外）, definition {file, text, line, character}（S138。{file, text, range} の JSON か null）, hover {同じ}（S149。{contents, range} の JSON か null）, completion {同じ}（S171。LSP の CompletionItem の配列の JSON）, move_part {cls, text, part, dx, dy}（S250。図の部品の移動の [{range, newText}] の JSON か null）, add_connect {cls, text, from, to, points}（S261。図の結線を足す [{range, newText}] の JSON か null）, references {同じ}・rename {同じ, newName}（S161。[Range]・[{range, newText}] の JSON。rename は断れば例外）, tunable_parameters {model}（S150。ParametersResponse の JSON。変換できなければ例外）, parameters {model}（S248。ModelParametersResponse の JSON。変換できなければ例外）, export_fmu {model, fmiVersion}（S144。ソースの FMU の zip の Uint8Array。失敗は例外）,
+//   library_tree {prefix}・library_search {query, limit}（S167。名前の部分一致。木と同じ形の JSON）・library_source {path}（S127。JSON。ライブラリが無ければ [] と例外）, definition {file, text, line, character}（S138。{file, text, range} の JSON か null）, hover {同じ}（S149。{contents, range} の JSON か null）, completion {同じ}（S171。LSP の CompletionItem の配列の JSON）, move_part {cls, text, part, dx, dy}（S250。図の部品の移動の [{range, newText}] の JSON か null）, add_connect {cls, text, from, to, points}（S261。図の結線を足す [{range, newText}] の JSON か null）, references {同じ}・rename {同じ, newName}（S161。[Range]・[{range, newText}] の JSON。rename は断れば例外）, tunable_parameters {model}（S150。ParametersResponse の JSON。変換できなければ例外）, parameters {model}（S248。ModelParametersResponse の JSON。変換できなければ例外）, linearize {model, time?, parameters?}（S260。{model, time, x, u, y, x0, u0, y0, A, B, C, D} の JSON。できなければ例外）, export_fmu {model, fmiVersion}（S144。ソースの FMU の zip の Uint8Array。失敗は例外）,
 //   format {text, indent, insertOrigin}（整形後の本文）, lint {text}（JSON の配列）（S053）,
 //   version, solvers, memory, panic_for_test {message}
 // 失敗は `{id, ok:false, error, panic, poisoned}`。wasm32 は panic=abort なので、WebAssembly.RuntimeError のあとの
@@ -86,6 +86,7 @@ const ops = {
   rename: ({ file, text, line, character, newName }) => W().rename(file, text, line, character, newName), // S161。[{range, newText}] の JSON。断れば投げる
   tunable_parameters: ({ model }) => W().tunable_parameters(model), // S150。ParametersResponse の JSON
   parameters: ({ model }) => W().parameters(model), // S248。ModelParametersResponse の JSON
+  linearize: ({ model, time, parameters }) => W().linearize(model, time ?? undefined, JSON.stringify(parameters ?? {})), // S260。線形化の JSON
   export_fmu: ({ model, fmiVersion }) => W().export_fmu(model, fmiVersion),
   format: ({ text, indent, insertOrigin }) => gm.format(text, indent, insertOrigin), // S053。壊れていれば投げる
   lint: ({ text }) => gm.lint(text),

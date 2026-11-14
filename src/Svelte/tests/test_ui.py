@@ -24,6 +24,7 @@ FMU を開く（S229）: 「開く」で .fmu を選ぶと、ブラウザは「D
 初回の案内（S179）: 保存したタブが無い初回だけ「はじめに」の 3 手順（検査・実行のショートカットつき）が出て、閉じると再読み込みでも出ない（smoke では出ない）。スキップリンクは Tab 1 回でエディタへ・2 回で結果へ。タブは矢印・Home・End で移り（roving tabindex）、未保存の印（●）は編集で付いて再読み込みをまたぎ保存で消え、未保存のとき beforeunload が出る。
 ダークモード（S152）: `color_scheme="dark"` で開くと背景が暗く文字が明るい（body・エディタ・診断・プロット・graph。プロットの軸の文字は canvas に描くので明るい画素を数える）。テーマの select で「明」にすると戻り、再読み込みで選択が残り、「OS に合わせる」で暗に戻る。
 FMU を書き出す（S144）: ブラウザの wasm が作ったソースの FMU がダウンロードされ、modelDescription.xml と sources/ がある。S154 から FMI の版（2.0 / 3.0）を select で選ぶ。
+線形化（S260）: ツールバーの「線形化」で A・B・C・D の表（行・列の見出しは変数名）が出る。
 パラメータのダイアログ（S248）: 図の部品のダブルクリックで `c.*` の一覧、Boolean はチェック・Enumeration は選択、値が実行の設定に乗って結果が変わり、「既定に戻す」で消える。GM-E10006 は欄の近くに出る。
 実行の設定（S142）: 終了時刻 2 とソルバ dopri45 で Decay を実行して x(2) が e⁻²、DecayK は experiment の Tolerance が初期値（出どころ experiment）に出て、k = 2 の上書きで x(1) が e⁻²。名前=値でない行は実行しない。
 ライブラリの木で Modelica → Electrical → Analog → Examples → ChuaCircuit と開き、そのファイルがエディタに開いて検査が通ることも確かめる（S127）。
@@ -914,6 +915,28 @@ def parameter_dialog(browser, origin: str, errors: list[str]) -> None:
     assert json.loads(pg.evaluate("localStorage.getItem('globe-mode.sim')"))["Modelica.Electrical.Analog.Examples.ChuaCircuit"]["picked"] == {"C1.C": "2e-8"}
     pg.close()
     print(f"パラメータのダイアログ: ChuaCircuit の C1 をダブルクリックして {shown:.1f} s で C1.C が出て、値が実行の設定に残る")
+
+
+def linearize_view(browser, origin: str, errors: list[str]) -> None:
+    """S260: 「線形化」で A・B・C・D の表が出る。der(x) = -k x + u、y = x（k = 2）なので A = [-2]・B = [1]・C = [1]・D = [0]。行・列の見出しは変数名。"""
+    body = "model Lin\n  parameter Real k = 2;\n  input Real u;\n  output Real y;\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -k * x + u;\n  y = x;\nend Lin;\n"
+    pg = browser.new_page()
+    pg.on("console", lambda m: m.type == "error" and errors.append(m.text))
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(origin)
+    pg.get_by_role("button", name="検査").wait_for()
+    with pg.expect_file_chooser() as ch:
+        pg.get_by_role("button", name="開く").click(force=True)
+    ch.value.set_files(files=[{"name": "Lin.mo", "mimeType": "text/plain", "buffer": body.encode()}])
+    pg.get_by_label("モデル名").fill("Lin")
+    pg.get_by_role("button", name="線形化").click()
+    view = pg.locator("[data-linearization]")
+    expect(view).to_be_visible(timeout=60_000)
+    cell = lambda m: view.locator(f"[data-matrix='{m}'] tbody td").all_inner_texts()
+    assert (cell("A"), cell("B"), cell("C"), cell("D")) == (["-2"], ["1"], ["1"], ["0"]), (cell("A"), cell("B"), cell("C"), cell("D"))
+    assert view.locator("[data-matrix='B'] thead th").all_inner_texts() == ["", "u"] and view.locator("[data-matrix='B'] tbody th").all_inner_texts() == ["x"]
+    pg.close()
+    print("線形化: Lin（k = 2）の A・B・C・D の表が出る（A = -2、B = C = 1、D = 0。見出しは変数名）")
 
 
 def fmu_runtime_select(browser, origin: str, errors: list[str]) -> None:
@@ -2389,6 +2412,7 @@ def main() -> int:
         tree_icons(browser, origin, errors)  # S257
         diagram_view(browser, origin, errors)  # S245
         parameter_dialog(browser, origin, errors)  # S248
+        linearize_view(browser, origin, errors)  # S260
         open_fmu_file(browser, origin, errors)  # S229
         fmu_runtime_select(browser, origin, errors)  # S239
         results_followups(browser, origin, errors)  # S236

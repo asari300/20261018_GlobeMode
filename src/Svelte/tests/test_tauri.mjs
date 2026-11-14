@@ -35,6 +35,11 @@ globalThis.window.__TAURI__.core.invoke = async (cmd, a) => (calls.push([cmd, a]
 const opened = await b.openFile();
 assert.deepEqual(calls, [["rpc", { method: "globe/readResults", params: { path: "/r/out.csv" } }]]);
 assert.deepEqual(opened, { name: "out.csv", text: "", path: "/r/out.csv", columns: { names: ["x"], points: 2, defaults: ["x"], data: [[0, 1], [1, null]] } });
+// 線形化（S260）: globe/linearize に model・time・parameters が乗り、結果はそのまま返る
+calls.length = 0;
+globalThis.window.__TAURI__.core.invoke = async (cmd, a) => (calls.push([cmd, a]), { model: "M", A: [[-2]] });
+assert.deepEqual(await b.linearize("M", 2, { k: 3 }), { model: "M", A: [[-2]] });
+assert.deepEqual(calls, [["rpc", { method: "globe/linearize", params: { model: "M", time: 2, parameters: { k: 3 } } }]]);
 // MAT のパラメータ（S236）と、パスからの読み直し（最近使ったファイル・再読み込み）
 globalThis.window.__TAURI__.core.invoke = async () => ({ layout: { names: ["time", "x"], points: 2 }, columns: [[0, 1], [1, 0.5]], parameters: [{ name: "k", value: 2, unit: "1/s" }] });
 assert.deepEqual((await b.readResultsAt("/r/out.mat")).parameters, [{ name: "k", value: 2, unit: "1/s" }]);

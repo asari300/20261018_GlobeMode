@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S260 線形化の UI — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S260 線形化の UI">
+
+<section class="slide" id="S01">
+  <span class="tag">S260 · 2026-11-15 · P8</span>
+  <h1>線形化を UI から使う</h1>
+  <p class="lead">ツールバーの「線形化」で A・B・C・D の表</p>
+  <div class="big">LSP <code>globe/linearize</code>・wasm <code>linearize</code>・<code>Backend.linearize</code></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">口</span>
+  <h1>JSON は 1 か所</h1>
+  <table class="compact">
+    <tr><th>場所</th><th>役割</th></tr>
+    <tr><td>facade</td><td><code>linearization_json</code>（CLI <code>--json</code> と同じ形。CLI の関数を移した）</td></tr>
+    <tr><td>LSP</td><td><code>globe/linearize</code> <code>{model, time?, parameters?}</code>（<code>RPC_METHODS</code> 27）</td></tr>
+    <tr><td>wasm</td><td><code>Workspace.linearize(model, time, parameters_json)</code>、worker・client</td></tr>
+    <tr><td>Svelte</td><td><code>Backend.linearize</code>（worker・tauri）</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">UI</span>
+  <h1>結果の欄に行列の表</h1>
+  <ul>
+    <li>時刻の欄は空なら実験の開始時刻。上書きは実行の設定のパラメータ</li>
+    <li>行・列の見出しは変数名、数は有効数字 6 桁</li>
+    <li>「JSON を書き出す」（Desktop は dialog、ブラウザはダウンロード）</li>
+    <li>固有値は次回</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">試験</span>
+  <h1>各層に 1 本</h1>
+  <ul>
+    <li>lsp: 1 本（A = -3、<code>parameters</code> で k を上書き）</li>
+    <li>wasm: <code>tests/decay.rs</code> 1 本、<code>node/smoke.mjs</code> 1 件</li>
+    <li>Svelte: <code>pnpm check</code>、<code>test_tauri.mjs</code>、<code>test_ui.py</code> に 1 本</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

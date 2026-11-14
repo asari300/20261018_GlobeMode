@@ -86,6 +86,12 @@ console.log(`結果を開く: MAT ${layout.points} 点 × ${layout.names.length}
   const pr = Object.fromEntries(JSON.parse(fw.parameters("P")).parameters.map((p) => [p.name, p]));
   assert.deepEqual([pr["c.k"].type, pr["c.k"].value, pr["c.k"].unit, pr["c.on"].type, pr["c.on"].value, pr["c.n"].value], ["Real", 5, "1/s", "Boolean", 0, 3], JSON.stringify(pr));
   assert.throws(() => fw.parameters("Nope"));
+  // 線形化（S260）: der(x) = -k x + u、y = x。parameters で k を上書きできる。できなければ例外
+  fw.set_file("L.mo", "model L\n  parameter Real k = 2;\n  input Real u;\n  output Real y;\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -k * x + u;\n  y = x;\nend L;\n");
+  const lin = JSON.parse(fw.linearize("L", undefined, JSON.stringify({ k: 3 })));
+  assert.deepEqual([lin.x, lin.u, lin.y], [["x"], ["u"], ["y"]]);
+  assert.ok(Math.abs(lin.A[0][0] + 3) < 1e-6 && Math.abs(lin.B[0][0] - 1) < 1e-6 && Math.abs(lin.C[0][0] - 1) < 1e-6, JSON.stringify(lin));
+  assert.throws(() => fw.linearize("Nope", undefined, "{}"));
   fw.free();
 }
 

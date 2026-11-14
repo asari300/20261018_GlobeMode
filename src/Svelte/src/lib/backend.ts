@@ -1,6 +1,6 @@
 import type { Columns } from "./plot/csv";
 import type { ResultColumns } from "./results";
-import type { CheckResponse, GraphJson, BltReport, SimulateRequest, SimulateResponse, SolverEntry, ModelParameter, TunableParameter } from "./protocol";
+import type { CheckResponse, GraphJson, BltReport, SimulateRequest, SimulateResponse, SolverEntry, ModelParameter, TunableParameter, Linearization } from "./protocol";
 
 /** UI が計算を頼む相手。WorkerBackend（ブラウザの wasm）と TauriBackend（sidecar の `globe lsp`）が実装する。 */
 export interface Backend {
@@ -23,6 +23,8 @@ export interface Backend {
   tunableParameters(model: string): Promise<TunableParameter[]>;
   /** モデルのパラメータ宣言の一覧（S248。部品ごとの入れ子の名前・型・既定値・単位）。DAE まで変換できなければ reject。 */
   parameters(model: string): Promise<ModelParameter[]>;
+  /** モデルの線形化（S260。状態空間の行列 A・B・C・D）。time を省くと実験の開始時刻、parameters は名前 → 数の上書き。DAE まで変換できない・線形化できなければ reject。 */
+  linearize(model: string, time?: number, parameters?: Record<string, number>): Promise<Linearization>;
   /** 整形（S053、globe-mode-fmt）。文法が壊れていれば reject で、本文は変えない。indent などを省くと、Desktop は globe-mode.toml（S143）、ブラウザは 2 と true。 */
   format(text: string, indent?: number, insertOrigin?: boolean): Promise<string>;
   lint(text: string): Promise<LintMessage[]>;
