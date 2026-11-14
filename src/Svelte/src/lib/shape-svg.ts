@@ -15,6 +15,9 @@ type Extent = [number, number, number, number];
 
 export const boxOf = (e: Extent) => ({ x: Math.min(e[0], e[2]), y: -Math.max(e[1], e[3]), w: Math.abs(e[2] - e[0]), h: Math.abs(e[3] - e[1]) });
 
+/** 図の部品を動かす量を格子（既定 2 単位。Modelica の図の慣習）に吸着する。-0 は 0 */
+export const snap = (v: number, grid = 2) => Math.round(v / grid) * grid + 0;
+
 /** `<svg viewBox>` の値。extent が無ければ既定の枠 */
 export const viewBoxOf = (e: Extent | undefined) => {
   const b = boxOf(e ?? [-100, -100, 100, 100]);
@@ -98,6 +101,12 @@ export function diagramNodes(d: Diagram): SvgNode[] {
           ? { tag: "g", attrs: { transform: matrix(p.transform) }, children: p.shapes.map(shapeNode) }
           : { tag: "rect", attrs: { x: b.x, y: b.y, width: b.w, height: b.h, fill: "none", stroke: "#888", "stroke-dasharray": "4 3", "vector-effect": VE } },
         { tag: "text", attrs: { x: b.x + b.w / 2, y: b.y + b.h + size, "text-anchor": "middle", "font-size": size, fill: "#333" }, text: p.name },
+        // S261: コネクタのヒット領域（結線の端。透明で、ホバーで色が付くのは DiagramView の CSS）。data-x・data-y は図の座標（y 上向き）
+        ...(p.connectors ?? []).map((c): SvgNode => ({
+          tag: "circle",
+          attrs: { class: "conn", "data-end": `${p.name}.${c.name}`, "data-x": c.pos[0], "data-y": c.pos[1], cx: c.pos[0], cy: -c.pos[1], r: size * 0.7 },
+          children: [{ tag: "title", attrs: {}, text: `${p.name}.${c.name}` }],
+        })),
       ],
     };
   });

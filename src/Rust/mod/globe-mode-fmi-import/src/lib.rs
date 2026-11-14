@@ -99,10 +99,14 @@ pub fn read_model_description(path: &Path) -> Result<ModelDescription> {
     let file = std::fs::File::open(path).map_err(io)?;
     let mut zip = zip::ZipArchive::new(file).map_err(zip_err)?;
     let entry = zip.by_name("modelDescription.xml").map_err(zip_err)?;
+    parse_model_description(&read_capped(entry)?).map_err(Error::Description)
+}
+
+/// modelDescription.xml を読む。上限つき（巨大な XML で落ちない。`info` と `run` で同じ上限。#96）。
+fn read_capped(r: impl Read) -> Result<String> {
     let mut xml = String::new();
-    // 上限つき（巨大な XML で落ちない）
-    entry.take(64 << 20).read_to_string(&mut xml).map_err(io)?;
-    parse_model_description(&xml).map_err(Error::Description)
+    r.take(64 << 20).read_to_string(&mut xml).map_err(io)?;
+    Ok(xml)
 }
 
 /// 展開した FMU。drop で展開先を消す（読み込んだ [`FmuCs`] より後に drop されるよう、借用で結ぶ）。
@@ -163,7 +167,7 @@ impl Fmu {
     /// 親が作って後始末する展開先を子に渡すための入口（#49。[`WorkerRequest::work_dir`]）。
     pub fn open_in(path: &Path, root: &Path) -> Result<Fmu> {
         unpack(std::fs::File::open(path).map_err(io)?, root)?;
-        let xml = std::fs::read_to_string(root.join("modelDescription.xml")).map_err(io)?;
+        let xml = read_capped(std::fs::File::open(root.join("modelDescription.xml")).map_err(io)?)?;
         let description = parse_model_description(&xml).map_err(Error::Description)?;
         Ok(Fmu {
             owned: None,

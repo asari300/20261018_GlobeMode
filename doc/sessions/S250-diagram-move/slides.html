@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S250 図の部品の移動 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S250 図の部品の移動">
+
+<section class="slide" id="S01">
+  <span class="tag">S250 · 2026-11-14 · P8</span>
+  <h1>Diagram ビューの編集: 部品の移動</h1>
+  <p class="lead">図の部品をドラッグして離すと、宣言の <code>Placement</code> の <code>origin</code> が書き換わる</p>
+  <div class="big">書き換えは<b>Rust</b>、UI はエディタに入れるだけ（Ctrl+Z で戻る）</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">Rust</span>
+  <h1>move_part（globe-mode-fmt）</h1>
+  <table class="compact">
+    <tr><th>宣言</th><th>編集</th></tr>
+    <tr><td><code>origin = {20, 0}</code> あり</td><td><code>{x, y}</code> を新しい値に（小数 3 桁）</td></tr>
+    <tr><td><code>extent</code> だけ</td><td><code>transformation(</code> の直後に <code>origin = {dx, dy}, </code></td></tr>
+    <tr><td><code>rotation</code> つき</td><td>origin は図の座標の平行移動なので、そのまま足す</td></tr>
+    <tr><td>Placement なし・origin が式</td><td>動かさない（null）</td></tr>
+  </table>
+  <p>返すのはバイト範囲と文字列。他の所には触らない</p>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">口</span>
+  <h1>どこから呼ぶか</h1>
+  <ul>
+    <li>LSP <code>globe/movePart</code>（Desktop の RPC 許可は 26 から 27 本）</li>
+    <li>wasm <code>move_part</code> → <code>WorkerBackend</code>・<code>TauriBackend</code> の <code>movePart</code></li>
+    <li>返りは LSP の TextEdit の配列。ファイルは書かない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">UI</span>
+  <h1>ドラッグ</h1>
+  <ul>
+    <li>動かす間は部品の <code>&lt;g&gt;</code> に <code>transform</code> だけ。離したら 2 単位の格子に吸着した (dx, dy) を渡す</li>
+    <li>4 px 未満は移動でなく、従来のクリック（宣言へ）。ダブルクリック・右クリック（S248）とは衝突しない</li>
+    <li>編集は 1 回の <code>dispatch</code>。図が読み直されたら見た目の <code>transform</code> を捨てる</li>
+    <li>結線は中心どうしなら読み直しで追従。<code>Line(points)</code> の点は動かさない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">試験と再現</span>
+  <h1>試験</h1>
+  <pre><code>cargo test -p globe-mode-fmt --lib diagram
+cargo test -p globe-mode-lsp move_part
+cargo test -p globe-mode-wasm --test decay diagram
+node src/Svelte/tests/test_columns.mjs
+node src/Svelte/tests/test_tauri.mjs</code></pre>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ul>
+    <li>部品の追加（ライブラリの木から置く）、結線の追加</li>
+    <li>結線の点の編集、部品の回転・拡大縮小</li>
+    <li>VS Code の側のパネルでの移動</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

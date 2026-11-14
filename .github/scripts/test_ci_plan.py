@@ -219,6 +219,15 @@ class Plan(unittest.TestCase):
         self.assertFalse(plan(["src/Rust/apps/web-axum/src/lib.rs"])["ui_exp"])
         self.assertTrue(plan([], force_full=True)["ui_exp"])
 
+    def test_desktop(self):
+        # #95: UI の method の一覧（tauri-backend.ts）を足して shell.rs の RPC_METHODS を直し忘れるのを push の CI で拾う
+        for path in ["src/Rust/apps/desktop/src/shell.rs", "src/Svelte/src/lib/tauri-backend.ts", "src/Svelte/index.html"]:
+            with self.subTest(path):
+                self.assertTrue(plan([path])["desktop"])
+        self.assertFalse(plan(["src/Svelte/src/App.svelte"])["desktop"])
+        self.assertFalse(plan(["src/Rust/mod/globe-mode-cli/src/main.rs"])["desktop"])
+        self.assertTrue(plan([], force_full=True)["desktop"])
+
     def test_full_triggers(self):
         for path in ["Cargo.lock", "Cargo.toml", "mise.toml", "mise.lock", "deny.toml", ".github/workflows/ci.yml",
                      # #7: ビルドの設定（wasm32 の rustflags・xtask の alias）と、checkout の改行の規則（S004 の Windows）
@@ -240,7 +249,7 @@ class Plan(unittest.TestCase):
 
     def test_nothing_relevant(self):
         p = plan(["data/.gitkeep"])
-        self.assertFalse(any(p[k] for k in ["full", "rust", "wasm", "wasm_node", "ui", "deny", "python", "lang", "web", "astro", "ui_exp", "docs", "slides", "msl"]))
+        self.assertFalse(any(p[k] for k in ["full", "rust", "wasm", "wasm_node", "ui", "deny", "python", "lang", "web", "astro", "ui_exp", "desktop", "docs", "slides", "msl"]))
 
 
 if __name__ == "__main__":

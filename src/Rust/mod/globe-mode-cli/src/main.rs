@@ -377,6 +377,10 @@ enum FmuCommand {
         /// --runtime p5b の共有ライブラリ（`libglobe_mode_fmu_cdylib.so` など）。省略すると cargo で作る
         #[arg(long)]
         runtime_lib: Option<PathBuf>,
+        /// インターフェース。se は FMI 3.0 の Scheduled Execution（周期クロック 1 つ。`--runtime p5b --fmi-version 3` と一緒に使う。
+        /// 周期は `experiment(Interval)`、無ければ 0.01）
+        #[arg(long, value_enum, default_value_t = fmu_p5b::FmuKind::MeCs)]
+        kind: fmu_p5b::FmuKind,
     },
 }
 
@@ -469,6 +473,7 @@ fn main() -> ExitCode {
                     fmi_headers,
                     runtime,
                     runtime_lib,
+                    kind,
                 },
         } => fmu_export(
             runtime,
@@ -482,6 +487,7 @@ fn main() -> ExitCode {
                 build,
                 targets: target,
                 fmi_headers,
+                kind: kind.into(),
                 ..Default::default()
             },
         ),
