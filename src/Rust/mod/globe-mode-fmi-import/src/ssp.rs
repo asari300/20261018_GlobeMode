@@ -2,14 +2,22 @@
 //!
 //! `.ssp` を一時ディレクトリに展開し（zip slip・サイズの上限は FMU と同じ `unpack`）、
 //! `SystemStructure.ssd` の `Component` を `fmus`、`Connection` を `connections` にする。
-//! 通信刻みは SSD に無いので呼び手が渡す。
+//! 通信刻みは SSD に無いので呼び手が渡す。`Component` の `ParameterBindings` は `start` にする（S263）。
 
 use std::path::{Component, Path};
 
 use globe_mode_fmi::Causality;
-use globe_mode_fmi::ssp::parse_ssd;
+use globe_mode_fmi::ssp::{parse_ssd, parse_ssv};
 
 use crate::{CosimSpec, Error, Result, io, read_model_description, unpack};
+
+/// SSP の中の相対パスだけ（`..`・絶対パス・URI スキームは断る）。
+fn is_inside_relative(source: &str) -> bool {
+    !source.contains(':')
+        && Path::new(source)
+            .components()
+            .all(|p| matches!(p, Component::Normal(_)))
+}
 
 /// 展開した `.ssp`。`spec.fmus` は展開先の FMU を指すので、drop（展開先を消す）まで回してよい。
 #[derive(Debug)]
@@ -37,12 +45,7 @@ impl Ssp {
             ..Default::default()
         };
         for c in &ssd.components {
-            // source は SSP の中の相対パスだけ（`..`・絶対パス・URI スキームは断る）
-            if c.source.contains(':')
-                || !Path::new(&c.source)
-                    .components()
-                    .all(|p| matches!(p, Component::Normal(_)))
-            {
+            if !is_inside_relative(&c.source) {
                 return Err(Error::Ssp(format!(
                     "Component {:?} の source {:?} は SSP の中の相対パスでない",
                     c.name, c.source
@@ -66,6 +69,38 @@ impl Ssp {
             let flipped = causality(&c.start_element, &c.start_connector) == Some(Causality::Input)
                 && causality(&c.end_element, &c.end_connector) == Some(Causality::Output);
             spec.connections.push(if flipped { (b, a) } else { (a, b) });
+        }
+        // ParameterBindings → start（5.2.3: 後ろの binding が勝つ。FMU に無い名前は無視する）
+        for c in &ssd.components {
+            let Ok(d) = read_model_description(&spec.fmus[&c.name]) else {
+                continue; // 読めない FMU は実行のときに誤りになる
+            };
+            for b in &c.bindings {
+                let params = match &b.source {
+                    None => b.params.clone(),
+                    Some(s) if is_inside_relative(s) => {
+                        let xml = std::fs::read_to_string(dir.path().join(s)).map_err(|e| {
+                            Error::Ssp(format!(
+                                "Component {:?} の ParameterBinding {s:?} を読めない: {e}",
+                                c.name
+                            ))
+                        })?;
+                        parse_ssv(&xml).map_err(|m| Error::Ssp(format!("{s}: {m}")))?
+                    }
+                    Some(s) => {
+                        return Err(Error::Ssp(format!(
+                            "Component {:?} の ParameterBinding の source {s:?} は SSP の中の相対パスでない",
+                            c.name
+                        )));
+                    }
+                };
+                for (n, v) in params {
+                    let n = format!("{}{n}", b.prefix);
+                    if d.variables.iter().any(|x| x.name == n) {
+                        spec.start.insert(format!("{}.{n}", c.name), v);
+                    }
+                }
+            }
         }
         Ok(Ssp { _dir: dir, spec })
     }
