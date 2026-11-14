@@ -41,6 +41,19 @@ pub fn deps(ws: Workspace, model: String) -> Result(String, String)
 @external(erlang, "globe_mode_nif", "flat")
 pub fn flat(ws: Workspace, model: String) -> Result(String, String)
 
+/// 方程式の BLT 分解（`BltReport` の JSON。大きさ 2 以上のブロックが代数ループ）。通らなければ `Error("コード: 文")`（S285）。
+@external(erlang, "globe_mode_nif", "blt")
+pub fn blt(ws: Workspace, model: String) -> Result(String, String)
+
+/// 線形化（A・B・C・D などの JSON。`globe linearize --json` と同じ）。`options_json` は `{}` か
+/// `{"time": 1.0, "parameters": {"R": 2.0}}`。通らなければ `Error("コード: 文")`（S285）。
+@external(erlang, "globe_mode_nif", "linearize")
+pub fn linearize(
+  ws: Workspace,
+  model: String,
+  options_json: String,
+) -> Result(String, String)
+
 /// `settings_json` は `{"stop_time": 2, "solver": "bdf"}` など。
 @external(erlang, "globe_mode_nif", "simulate")
 pub fn simulate(

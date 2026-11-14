@@ -1,6 +1,7 @@
 //! 補完（S053、S171）。予約語、同じ文書の `Outline` のクラス名・部品名（継承した部品も）、ライブラリの最上位クラスを返す。
 //! 点つきの名前の途中（`a.b.`）は、部品なら型の部品名（継承した分も）、クラスならライブラリの木とその文書の入れ子のクラスの直下の子。
-//! 文字列・コメントの中は出さない。最大 200 件で、打ちかけの語に字が順に当たるものだけを返す。新しい解析は入れない。
+//! 文字列・コメントの中は出さない。最大 200 件で、打ちかけの語に字が順に当たるものだけを返す。
+//! `a.` の後ろで今の道が空のとき（書きかけの文書に誤りがほかにもある）だけ、自前の寛容な構文と名前解決で引く（S279）。
 
 use crate::definition::{Resolver, scopes_at};
 use globe_mode::{Outline, Workspace};
@@ -193,6 +194,50 @@ fn matches(label: &str, word: &str) -> bool {
         .all(|w| l.any(|c| c == w))
 }
 
+/// 今の道（アウトライン）で `a.` の候補が出ないとき（カーソルの行を除いても文書が読めない、など）の足し（S279）:
+/// 自前の寛容な構文の木（`globe-mode-syntax`）の上の名前解決（`globe-mode-resolve`）で、`name` の直下（部品は型の部品とクラス、受け継ぎを含む）を引く。
+/// ライブラリの木は最初に 1 回だけ作って持ち、書きかけの文書だけを足して引く。`lib` を持たない呼び手（wasm）では何も出さない。
+fn tolerant_members(
+    r: &mut Resolver,
+    path: &str,
+    text: &str,
+    at: usize,
+    name: &str,
+) -> Vec<CompletionItem> {
+    let Some(cache) = r.lib.as_mut() else {
+        return vec![];
+    };
+    let (tree, read) = (r.tree, r.read);
+    let lib = cache.get_or_insert_with(|| {
+        let mut files: Vec<&str> = tree.classes().filter_map(|(n, _)| tree.file(n)).collect();
+        files.sort_unstable();
+        files.dedup();
+        let texts: Vec<(&str, String)> = files
+            .into_iter()
+            .filter_map(|f| Some((f, read(f)?)))
+            .collect();
+        let mut l =
+            globe_mode_resolve::Library::from_sources(texts.iter().map(|(f, t)| (*f, t.as_str())));
+        l.refs = Vec::new(); // 補完は使わない（メモリを減らす）
+        l
+    });
+    let parts: Vec<String> = name.split('.').map(str::to_string).collect();
+    let found = lib.with_source(path, text, |l, file| {
+        l.members_of(l.class_at(file, at as u32)?, &parts)
+    });
+    found
+        .unwrap_or_default()
+        .into_iter()
+        .map(|m| {
+            if m.is_class {
+                item(&m.name, CompletionItemKind::CLASS, None)
+            } else {
+                item(&m.name, CompletionItemKind::FIELD, m.ty)
+            }
+        })
+        .collect()
+}
+
 pub fn complete(r: &mut Resolver, path: &str, text: &str, at: usize) -> Vec<CompletionItem> {
     let at = at.min(text.len());
     if inert(text, at) {
@@ -209,6 +254,7 @@ pub fn complete(r: &mut Resolver, path: &str, text: &str, at: usize) -> Vec<Comp
         scratch: &mut *r.scratch,
         read: r.read,
         overlay: fixed.as_ref().map(|o| (path, o)),
+        lib: r.lib.as_deref_mut(),
     };
     candidates(&mut r, path, text, at, fixed.as_ref())
 }
@@ -239,6 +285,9 @@ fn candidates(
                 .map(|o| scopes_at(o, at))
                 .map_or_else(String::new, |(_, s, w)| s.last().cloned().unwrap_or(w));
             class_children(r, &scope, name, &mut out);
+        }
+        if out.is_empty() {
+            out = tolerant_members(r, path, text, at, name);
         }
     } else {
         for k in globe_mode_fmt::KEYWORDS {
@@ -309,6 +358,27 @@ mod tests {
 
     /// `docs` を足したワークスペースと、`lib`（ファイル名と本文）から作った木で `at` の補完のラベルを返す。
     fn labels(docs: &[(&str, &str)], lib: &[(&str, &str)], path: &str, at: usize) -> Vec<String> {
+        labels_in(docs, lib, path, at, false)
+    }
+
+    /// `labels` に、ライブラリの名前解決の木（S279。書きかけの文書での `a.`）をつけたもの。
+    fn labels_tolerant(
+        docs: &[(&str, &str)],
+        lib: &[(&str, &str)],
+        path: &str,
+        at: usize,
+    ) -> Vec<String> {
+        labels_in(docs, lib, path, at, true)
+    }
+
+    fn labels_in(
+        docs: &[(&str, &str)],
+        lib: &[(&str, &str)],
+        path: &str,
+        at: usize,
+        with_lib: bool,
+    ) -> Vec<String> {
+        let mut cache = None;
         let tree = LibraryTree::new(lib.iter().copied());
         let (mut ws, mut scratch) = (Workspace::new(), Workspace::new());
         for (n, t) in docs {
@@ -321,6 +391,7 @@ mod tests {
                 tree: &tree,
                 scratch: &mut scratch,
                 overlay: None,
+                lib: with_lib.then_some(&mut cache),
                 read: &|f| {
                     lib.iter()
                         .find(|(n, _)| *n == f)
@@ -422,6 +493,70 @@ mod tests {
         let text = "model A\n  Real a;\nend A;\nmodel B\n  extends A;\n  Real b;\nend B;\nmodel M\n  B y;\nequation\n  y.\nend M;\n";
         let at = text.find("  y.\n").unwrap() + 4; // 壊れた文書でも、カーソルの行を除いて読む
         assert_eq!(labels(&[("M.mo", text)], &[], "M.mo", at), ["a", "b"]);
+    }
+
+    /// Resistor 型の自前の小さなパッケージ（MSL の `Modelica.Electrical.Analog` の形）
+    const ELECTRIC: [(&str, &str); 4] = [
+        ("E/package.mo", "package E\nend E;\n"),
+        (
+            "E/Pin.mo",
+            "within E;\nconnector Pin\n  Real v;\n  flow Real i;\nend Pin;\n",
+        ),
+        (
+            "E/OnePort.mo",
+            "within E;\npartial model OnePort\n  Pin p;\n  Pin n;\n  Real v;\nprotected\n  Real hidden;\nend OnePort;\n",
+        ),
+        (
+            "E/Resistor.mo",
+            "within E;\nmodel Resistor\n  extends OnePort;\n  parameter Real R = 1;\nend Resistor;\n",
+        ),
+    ];
+
+    #[test]
+    fn dot_members_in_a_file_with_other_errors_via_the_tolerant_syntax() {
+        // カーソルの行を空白にしても、ほかの行に誤りがあれば文書は読めない。今の道は候補なし、足した道は型のメンバーを出す
+        let text = "model Other\n  Real = ;\nend Other;\nmodel M\n  E.Resistor r;\nequation\n  r.\n  r.p.\nend M;\n";
+        let docs = [("M.mo", text)];
+        let at = text.find("r.\n").unwrap() + 2;
+        assert!(labels(&docs, &ELECTRIC, "M.mo", at).is_empty());
+        let want = ["R", "n", "p", "v"]; // protected の `hidden` は出ない
+        assert_eq!(labels_tolerant(&docs, &ELECTRIC, "M.mo", at), want);
+        // 打ちかけの語で絞る
+        let typed = text.replace("  r.\n", "  r.R\n");
+        let at = typed.find("r.R").unwrap() + 3;
+        assert_eq!(
+            labels_tolerant(&[("M.mo", &typed)], &ELECTRIC, "M.mo", at),
+            ["R"]
+        );
+        // 続き（`r.p.`）は部品の型の部品
+        let at = text.find("r.p.").unwrap() + 4;
+        assert_eq!(labels_tolerant(&docs, &ELECTRIC, "M.mo", at), ["i", "v"]);
+    }
+
+    #[test]
+    fn dot_members_in_an_unterminated_class() {
+        // `end` の前にファイルが切れた書きかけ
+        let text = "model M\n  E.Resistor r;\nequation\n  connect(r.";
+        let docs = [("M.mo", text)];
+        let want = ["R", "n", "p", "v"];
+        assert!(labels(&docs, &ELECTRIC, "M.mo", text.len()).is_empty());
+        assert_eq!(labels_tolerant(&docs, &ELECTRIC, "M.mo", text.len()), want);
+    }
+
+    #[test]
+    fn tolerant_syntax_does_not_change_a_readable_document() {
+        // 読める文書では今の道の結果のまま（足した道は今の道が空のときだけ）
+        let text = "model M\n  E.Resistor r;\nequation\n  r.p.v = r.n.v;\nend M;\n";
+        let docs = [("M.mo", text)];
+        for p in ["r.p", "r.n"] {
+            let at = text.find(p).unwrap() + 2;
+            let (a, b) = (
+                labels(&docs, &ELECTRIC, "M.mo", at),
+                labels_tolerant(&docs, &ELECTRIC, "M.mo", at),
+            );
+            assert_eq!(a, b);
+            assert!(a.contains(&"p".to_string()) || a.is_empty(), "{a:?}");
+        }
     }
 
     #[test]

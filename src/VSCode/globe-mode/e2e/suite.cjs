@@ -73,6 +73,30 @@ const cases = {
     await panel.reveal(row - 1); // 部品 L の行
     assert.equal(vscode.window.activeTextEditor.selection.active.line, row - 1);
   },
+  async "パネルの部品の移動と結線が文書に入り、undo で戻る（S264）"() {
+    const doc = await vscode.workspace.openTextDocument(fixture("ChuaCircuit.mo"));
+    const ed = await vscode.window.showTextDocument(doc);
+    const row = doc.getText().split("\n").findIndex((l) => l.startsWith("  Part Ro"));
+    ed.selection = new vscode.Selection(row, 4, row, 4);
+    const { panel } = await vscode.extensions.getExtension("globe-mode.globe-mode").activate();
+    await until("図の対象", () => panel.target?.class === "ChuaCircuit" && panel.target.doc === doc);
+    const before = doc.getText();
+    // webview のドラッグは拡張ホストから起こせないので、webview が送るメッセージをそのまま渡す（ドラッグの処理は pnpm test の diagram-edit.test.mjs）
+    panel.state = null;
+    assert.equal(await panel.handle({ type: "move", id: 1, part: "Ro", dx: 4, dy: -2 }), true, panel.why);
+    assert.ok(doc.getText().includes("origin = {-71, -19}"), doc.getText());
+    assert.ok(doc.isDirty, "保存はしない");
+    await until("移動のあとの図の引き直し", () => panel.state?.parts === 7);
+    await vscode.commands.executeCommand("undo");
+    assert.equal(doc.getText(), before, "undo 1 回で戻る");
+    assert.equal(await panel.handle({ type: "connect", id: 2, from: "L.p", to: "Ro.n", points: [[0, 0], [1, 1]] }), true, panel.why);
+    assert.ok(doc.getText().includes("connect(L.p, Ro.n)"), doc.getText());
+    await vscode.commands.executeCommand("undo");
+    assert.equal(doc.getText(), before);
+    // 検査を通らないメッセージは何もしない
+    assert.equal(await panel.handle({ type: "move", id: 3, part: "R o", dx: 1, dy: 1 }), false);
+    assert.equal(doc.getText(), before);
+  },
 };
 
 exports.run = async () => {

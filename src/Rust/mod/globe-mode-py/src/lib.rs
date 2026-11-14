@@ -182,6 +182,41 @@ impl Workspace {
         }
     }
 
+    /// 線形化（S254。`globe linearize --json` と同じ形の JSON）。DAE まで変換できなければ `GlobeModeError`（`.diagnostics` つき）。
+    /// `overrides` は `{"名前": 値}` の JSON（パラメータの上書き）。
+    #[pyo3(signature = (model, time = None, overrides = None))]
+    fn linearize(
+        &mut self,
+        py: Python<'_>,
+        model: &str,
+        time: Option<f64>,
+        overrides: Option<&str>,
+    ) -> PyResult<String> {
+        let overrides: std::collections::BTreeMap<String, f64> = overrides
+            .map_or_else(
+                || Ok(Default::default()),
+                |o| serde_json::from_str(o).map_err(|e| format!("parameters が読めない: {e}")),
+            )
+            .map_err(|e| error(py, "SettingsError", Some(e), None))?;
+        let l = py
+            .detach(|| self.0.linearize(model, &overrides, time))
+            .map_err(|ds| {
+                error(
+                    py,
+                    "GlobeModeError",
+                    None,
+                    Some(&json(&ds).unwrap_or_default()),
+                )
+            })?;
+        json(&serde_json::json!({
+            "model": model, "time": l.time,
+            "x": l.states, "u": l.inputs, "y": l.outputs,
+            "x0": l.x0, "u0": l.u0, "y0": l.y0,
+            "A": l.a, "B": l.b, "C": l.c, "D": l.d,
+        }))
+        .map_err(PyRuntimeError::new_err)
+    }
+
     /// 検査 → コンパイル → 実行（`SimulateResponse` の JSON）。モデルの誤りは例外にせず `ok` と `diagnostics` で返す。
     /// GIL を離して回し（S200 から `on_progress` が無くても）、進捗を dict で知らせる。`True` を返すか Ctrl-C で止まる（S129）。
     #[pyo3(signature = (model, settings = None, on_progress = None))]
@@ -309,6 +344,54 @@ fn run_fmu<'py>(
             |r| serde_json::from_str(r).map_err(|e| format!("request が読めない: {e}")),
         )
         .map_err(|e| error(py, "FmuError", Some(e), None))?;
+    run_observed(py, on_progress, move |notify, cancel| {
+        globe_mode::run_fmu(&worker, &path, &request, notify, Some(cancel))
+    })
+}
+
+/// 複数の CS の FMU をつなぐ（S249 のマスター。S258）。`spec` は `CosimSpec` の JSON（FMU のパスは呼び手が解決済み）、
+/// `ssp` は `.ssp` のパス（`stop_time`・`step` は `.ssp` のときだけ。展開先は回し終わるまで持つ）。どちらか一方。
+/// 戻り値は `run_fmu` と同じ。ワーカー・進捗・中断も `run_fmu` と同じ。
+#[pyfunction]
+#[pyo3(signature = (worker, spec = None, ssp = None, stop_time = None, step = None, on_progress = None))]
+fn cosim<'py>(
+    py: Python<'py>,
+    worker: PathBuf,
+    spec: Option<&str>,
+    ssp: Option<PathBuf>,
+    stop_time: Option<f64>,
+    step: Option<f64>,
+    on_progress: Option<Py<PyAny>>,
+) -> PyResult<(String, Vec<String>, Vec<Bound<'py, PyBytes>>)> {
+    let fail = |e: String| error(py, "FmuError", Some(e), None);
+    let opened = ssp
+        .map(|p| globe_mode::Ssp::open(&p, stop_time, step).map_err(|e| fail(e.to_string())))
+        .transpose()?;
+    let spec: globe_mode::CosimSpec = match (&opened, spec) {
+        (Some(s), _) => s.spec.clone(),
+        (None, Some(j)) => {
+            serde_json::from_str(j).map_err(|e| fail(format!("spec が読めない: {e}")))?
+        }
+        (None, None) => return Err(fail("spec か ssp のどちらかが要る".into())),
+    };
+    run_observed(py, on_progress, move |notify, cancel| {
+        let run = globe_mode::run_cosim(&worker, &spec, notify, Some(cancel));
+        drop(opened); // 回し終わるまで展開先を消さない
+        run
+    })
+}
+
+/// FMU のワーカーの実行を GIL の外で回し、進捗のたびに `check_signals`（Ctrl-C）と `on_progress(t)` を呼ぶ。
+/// 真の値を返すか例外が出たらワーカーを止める。例外は戻ってから投げ直す。失敗は `FmuError`。
+fn run_observed<'py>(
+    py: Python<'py>,
+    on_progress: Option<Py<PyAny>>,
+    run: impl FnOnce(
+        &mut dyn FnMut(f64),
+        &globe_mode::CancelToken,
+    ) -> Result<globe_mode::FmuRun, String>
+    + Send,
+) -> PyResult<(String, Vec<String>, Vec<Bound<'py, PyBytes>>)> {
     let token = globe_mode::CancelToken::new();
     let mut raised: Option<PyErr> = None;
     let mut notify = |t: f64| {
@@ -332,8 +415,7 @@ fn run_fmu<'py>(
         }
     };
     let cancel = token.clone();
-    let run = py
-        .detach(move || globe_mode::run_fmu(&worker, &path, &request, &mut notify, Some(&cancel)));
+    let run = py.detach(move || run(&mut notify, &cancel));
     if let Some(e) = raised {
         return Err(e);
     }
@@ -387,6 +469,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(read_results, m)?)?;
     m.add_function(wrap_pyfunction!(fmu_info, m)?)?;
     m.add_function(wrap_pyfunction!(run_fmu, m)?)?;
+    m.add_function(wrap_pyfunction!(cosim, m)?)?;
     m.add_function(wrap_pyfunction!(settings_sample, m)?)?;
     m.add_function(wrap_pyfunction!(format, m)?)?;
     m.add_function(wrap_pyfunction!(lint, m)?)

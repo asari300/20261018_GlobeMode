@@ -84,6 +84,22 @@ export interface ModelParameter {
   fixed?: boolean;
 }
 
+/** 線形化の結果（S260。`globe linearize --json` と同じ。`dx/dt ≈ A·dx + B·du`、`dy ≈ C·dx + D·du`。A は x×x、B は x×u、C は y×x、D は y×u の行ごとの配列） */
+export interface Linearization {
+  model: string;
+  time: number;
+  x: string[];
+  u: string[];
+  y: string[];
+  x0: number[];
+  u0: number[];
+  y0: number[];
+  A: number[][];
+  B: number[][];
+  C: number[][];
+  D: number[][];
+}
+
 /** ソルバの登録表の 1 行（`globe_mode_sim::solvers::SolverEntry`）。使えるのは status.kind が available のもの。 */
 export interface SolverEntry {
   name: string;

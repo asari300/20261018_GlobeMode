@@ -35,6 +35,11 @@ globalThis.window.__TAURI__.core.invoke = async (cmd, a) => (calls.push([cmd, a]
 const opened = await b.openFile();
 assert.deepEqual(calls, [["rpc", { method: "globe/readResults", params: { path: "/r/out.csv" } }]]);
 assert.deepEqual(opened, { name: "out.csv", text: "", path: "/r/out.csv", columns: { names: ["x"], points: 2, defaults: ["x"], data: [[0, 1], [1, null]] } });
+// 線形化（S260）: globe/linearize に model・time・parameters が乗り、結果はそのまま返る
+calls.length = 0;
+globalThis.window.__TAURI__.core.invoke = async (cmd, a) => (calls.push([cmd, a]), { model: "M", A: [[-2]] });
+assert.deepEqual(await b.linearize("M", 2, { k: 3 }), { model: "M", A: [[-2]] });
+assert.deepEqual(calls, [["rpc", { method: "globe/linearize", params: { model: "M", time: 2, parameters: { k: 3 } } }]]);
 // MAT のパラメータ（S236）と、パスからの読み直し（最近使ったファイル・再読み込み）
 globalThis.window.__TAURI__.core.invoke = async () => ({ layout: { names: ["time", "x"], points: 2 }, columns: [[0, 1], [1, 0.5]], parameters: [{ name: "k", value: 2, unit: "1/s" }] });
 assert.deepEqual((await b.readResultsAt("/r/out.mat")).parameters, [{ name: "k", value: 2, unit: "1/s" }]);
@@ -64,6 +69,10 @@ assert.deepEqual(calls, [["rpc", { method: "globe/movePart", params: { file: "T.
 calls.length = 0;
 assert.equal(await b.addConnect("T", "a.p", "b.n", [[0, 0], [10, 5]], { file: "T.mo" }), null);
 assert.deepEqual(calls, [["rpc", { method: "globe/addConnect", params: { file: "T.mo", class: "T", from: "a.p", to: "b.n", points: [[0, 0], [10, 5]] } }]]);
+// 図の部品の追加（S265）: globe/addPart に class・type・x・y と file を渡す
+calls.length = 0;
+assert.equal(await b.addPart("T", "L.Res", 12, -4, { file: "T.mo" }), null);
+assert.deepEqual(calls, [["rpc", { method: "globe/addPart", params: { file: "T.mo", class: "T", type: "L.Res", x: 12, y: -4 } }]]);
 globalThis.window.__TAURI__.core.invoke = async (cmd) => { if (cmd === "cancel_run") return; throw "中断した"; };
 const running = b.runFmu("/r/D.fmu");
 b.cancel();

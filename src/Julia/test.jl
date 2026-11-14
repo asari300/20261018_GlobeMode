@@ -49,6 +49,14 @@ GlobeMode.set_file(ws, "Wiggle.mo",
 @test GlobeMode.deps(ws, "Wiggle") == "[\"Wiggle.mo\"]"
 @test occursin("\"variables\":1", GlobeMode.flat(ws, "Wiggle"))
 @test GlobeMode.flat(ws, "NoSuch") == "null"
+# S285: 解析。der(x) = -a x + u、y = 2 x なので A = [-a]・B = [1]・C = [2]・D = [0]。ループは大きさ 2 のブロック
+GlobeMode.set_file(ws, "L.mo", "model L parameter Real a = 1; Real x(start = 1, fixed = true); input Real u = 0; output Real y; equation der(x) = -a*x + u; y = 2*x; end L;")
+lin = GlobeMode.linearize(ws, "L", "{\"parameters\": {\"a\": 3}}")
+@test occursin("\"A\":[[-2.99999", lin) && occursin("\"C\":[[1.99999", lin)  # 数値微分
+@test occursin("\"error\"", GlobeMode.linearize(ws, "NoSuch"))
+GlobeMode.set_file(ws, "Lp.mo", "model Lp Real x; Real y; equation x + y = time; x - 2*y = 1; end Lp;")
+@test occursin("\"size\":2", GlobeMode.blt(ws, "Lp")) && occursin("\"algebraic_loop\":true", GlobeMode.blt(ws, "Lp"))
+@test occursin("\"error\"", GlobeMode.blt(ws, "NoSuch"))
 seen = []
 res = GlobeMode.simulate_observed(ws, "Wiggle", p -> (push!(seen, p); p.time !== nothing),
     "{\"solver\": \"esdirk34\", \"stop_time\": 1000, \"interval\": 1}")

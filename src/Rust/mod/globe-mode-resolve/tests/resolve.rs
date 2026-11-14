@@ -1,4 +1,4 @@
-use globe_mode_resolve::{Library, Reason, Resolution};
+use globe_mode_resolve::{Library, Reason, RefKind, Resolution};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -98,7 +98,7 @@ end N;",
     assert_eq!(get("P.M", "A"), "class P.A");
     assert_eq!(get("P.M", "P.A"), "class P.A");
     assert_eq!(get("P.M", "k"), "comp P.k");
-    assert_eq!(get("P.M", "a.x"), "comp P.M.a");
+    assert_eq!(get("P.M", "a.x"), "comp P.A.x");
     assert_eq!(get("P.M", "time"), "builtin");
     assert_eq!(get("P.M", "sin"), "builtin");
     assert_eq!(get("P.M", "Missing"), "unresolved NotFound");
@@ -121,6 +121,98 @@ end N;",
             .as_deref(),
         Some("P.Sub.C")
     );
+}
+
+/// S275: 成分参照の続き（`a.b.c`）。添字は無視、受け継いだ部品、組み込みの型の属性、部品の型の途中の失敗
+#[test]
+fn component_paths() {
+    let lib = Library::from_sources([(
+        "P.mo",
+        "package P
+  connector Pin Real v; flow Real i; end Pin;
+  model Two Pin p; Pin n; end Two;
+  model Sub extends Two; end Sub;
+  type Volt = Real;
+  model M
+    Two r[2];
+    Volt u;
+    Sub s;
+    Real a = r[1].p.v + u.start + s.n.i;
+    Real b = r[1].p.nope;
+    Real c = r[1].q.v;
+    Real d = u.x.y;
+  end M;
+end P;",
+    )]);
+    assert!(lib.diagnostics.is_empty(), "{:?}", lib.diagnostics);
+    let t = table(&lib);
+    let get = |name: &str| t[&("P.M".to_string(), name.to_string())].as_str();
+    assert_eq!(get("r.p.v"), "comp P.Pin.v");
+    assert_eq!(get("u.start"), "builtin");
+    assert_eq!(get("s.n.i"), "comp P.Pin.i");
+    assert_eq!(get("r.p.nope"), "unresolved NotFound");
+    assert_eq!(get("r.q.v"), "unresolved NotFound");
+    // 属性の先は部品ではない（`resolve_head` は先頭の部品で止まる）
+    assert_eq!(get("u.x.y"), "builtin");
+    let r = lib
+        .refs
+        .iter()
+        .find(|r| r.parts == ["r", "p", "v"])
+        .unwrap();
+    assert_eq!(describe(&lib, &lib.resolve_head(r)), "comp P.M.r");
+}
+
+/// S275: `replaceable` の既定の型・`constrainedby`・`redeclare package`（`extends` の修飾・部品の修飾・short class の修飾）
+#[test]
+fn redeclare_and_replaceable() {
+    let lib = Library::from_sources([(
+        "R.mo",
+        "package R
+  package Base constant Real k = 1; end Base;
+  package Ext extends Base; constant Real e = 2; end Ext;
+  package Other constant Real o = 3; end Other;
+  model A
+    replaceable package Medium = Ext;
+    replaceable package Med2 = Other constrainedby Ext;
+    Real d = Medium.e + Medium.k + Med2.e + Medium.o;
+  end A;
+  model B
+    extends A(redeclare package Medium = Other);
+    Real x = Medium.o;
+  end B;
+  model C
+    A a(redeclare replaceable package Medium = Other constrainedby Base);
+    Real y = a.Medium.o + a.Med2.e;
+  end C;
+  package Pk replaceable package Medium = Ext; end Pk;
+  package P2 = Pk(redeclare package Medium = Other);
+  model D
+    Real z = P2.Medium.o;
+  end D;
+  model E
+    replaceable Ext2 c constrainedby Base2;
+    Real w = c.base + c.more;
+  end E;
+  model Base2 Real base; end Base2;
+  model Ext2 extends Base2; Real more; end Ext2;
+end R;",
+    )]);
+    assert!(lib.diagnostics.is_empty(), "{:?}", lib.diagnostics);
+    let t = table(&lib);
+    let get = |scope: &str, name: &str| t[&(format!("R.{scope}"), name.to_string())].as_str();
+    // 既定の型（`Ext`）と、`constrainedby Ext` の中の `Ext` は受け継ぎでも見える。既定に無い名前は差し替わりうる
+    assert_eq!(get("A", "Medium.e"), "comp R.Ext.e");
+    assert_eq!(get("A", "Medium.k"), "comp R.Base.k");
+    assert_eq!(get("A", "Med2.e"), "comp R.Ext.e");
+    assert_eq!(get("A", "Medium.o"), "unresolved Redeclare");
+    // extends の修飾・部品の修飾・short class の修飾の redeclare
+    assert_eq!(get("B", "Medium.o"), "comp R.Other.o");
+    assert_eq!(get("C", "a.Medium.o"), "comp R.Other.o");
+    assert_eq!(get("C", "a.Med2.e"), "comp R.Ext.e");
+    assert_eq!(get("D", "P2.Medium.o"), "comp R.Other.o");
+    // 部品の `constrainedby`: 型は両方を試す
+    assert_eq!(get("E", "c.base"), "comp R.Base2.base");
+    assert_eq!(get("E", "c.more"), "comp R.Ext2.more");
 }
 
 #[test]
@@ -222,6 +314,33 @@ fn msl_stats() {
     for (k, v) in &counts {
         eprintln!("{k}: {v}");
     }
+    // 成分参照の続き（`a.b.c`）: S275 の前は先頭で止めていた（`resolve_head`）。いまは続きまで（`resolve`）
+    let (mut multi, mut head_ok, mut full_ok) = (0, 0, 0);
+    let mut why: BTreeMap<String, usize> = BTreeMap::new();
+    let mut attrs: BTreeMap<String, usize> = BTreeMap::new();
+    for r in lib
+        .refs
+        .iter()
+        .filter(|r| r.kind == RefKind::Expr && r.parts.len() > 1)
+    {
+        multi += 1;
+        head_ok += usize::from(!matches!(lib.resolve_head(r), Resolution::Unresolved(_)));
+        match lib.resolve(r) {
+            Resolution::Unresolved(w) => *why.entry(format!("{w:?}")).or_default() += 1,
+            Resolution::Builtin => {
+                full_ok += 1;
+                // 組み込みの型の属性（`x.start`）のはず。ここに属性以外が出たら取りこぼし
+                *attrs
+                    .entry(r.parts.last().cloned().unwrap_or_default())
+                    .or_default() += 1;
+            }
+            _ => full_ok += 1,
+        }
+    }
+    eprintln!("組み込みに解決した続きの最後の名前: {attrs:?}");
+    eprintln!(
+        "成分参照の続き（parts>1）: {multi} 件、先頭だけ解決 {head_ok}、続きまで解決 {full_ok}、未解決の内訳 {why:?}"
+    );
     let mut shown: BTreeMap<String, usize> = BTreeMap::new();
     for r in &lib.refs {
         if let Resolution::Unresolved(why) = lib.resolve(r) {
@@ -243,5 +362,76 @@ fn msl_stats() {
     top.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
     for (k, n) in top.iter().take(60) {
         eprintln!("{n:6} {k}");
+    }
+}
+
+fn names(v: &[globe_mode_resolve::Member]) -> Vec<&str> {
+    let mut n: Vec<&str> = v.iter().map(|m| m.name.as_str()).collect();
+    n.sort_unstable();
+    n
+}
+
+/// S279: 書きかけの文書を一時的に足して `a.` の直下を引く。終わったらライブラリは元のまま
+#[test]
+fn members_of_a_broken_document_and_the_library_is_restored() {
+    let mut lib = Library::from_sources([(
+        "A.mo",
+        "package A\n  connector Pin\n    Real v;\n    flow Real i;\n  end Pin;\n  model Base\n    Pin p;\n  protected\n    Real h;\n  end Base;\n  model R\n    extends Base;\n    Pin n;\n    model Inner\n    end Inner;\n  end R;\nend A;\n",
+    )]);
+    let (nc, nf) = (lib.classes.len(), lib.files.len());
+    let text = "within A;\nmodel M\n  R r;\nequation\n  r.p.v = r.\n  Real = ;\n"; // 末尾の `end M;` も無い
+    let at = text.find("r.\n").unwrap() as u32 + 2;
+    let got = lib.with_source("M.mo", text, |l, f| {
+        let c = l.class_at(f, at)?;
+        assert_eq!(l.qualified_name(c), "A.M");
+        let r = l.members_of(c, &["r".into()])?;
+        let p = l.members_of(c, &["r".into(), "p".into()])?;
+        Some((names(&r).join(","), names(&p).join(",")))
+    });
+    assert_eq!(got, Some(("Inner,n,p".into(), "i,v".into())));
+    assert_eq!((lib.classes.len(), lib.files.len()), (nc, nf));
+    assert_eq!(lib.class_by_name("A.M"), None);
+}
+
+/// 計測用（`#[ignore]`）: MSL でライブラリを作る時間・メモリと、`Resistor` の部品のメンバー
+/// `GLOBE_MSL=<main>/data/msl cargo test -p globe-mode-resolve --release --test resolve -- --ignored --nocapture msl_members`
+#[test]
+#[ignore = "MSL が要る"]
+fn msl_members_and_memory() {
+    let rss = || {
+        std::fs::read_to_string("/proc/self/status")
+            .ok()
+            .and_then(|s| {
+                s.lines()
+                    .find(|l| l.starts_with("VmRSS"))?
+                    .split_whitespace()
+                    .nth(1)?
+                    .parse::<u64>()
+                    .ok()
+            })
+            .unwrap_or(0)
+    };
+    let (r0, t0) = (rss(), std::time::Instant::now());
+    let msl = msl_dir();
+    let mut lib = Library::from_dir(&msl).unwrap();
+    let (built, r1) = (t0.elapsed(), rss());
+    lib.refs = Vec::new();
+    lib.refs.shrink_to_fit();
+    let r2 = rss();
+    let text = "model M\n  Modelica.Electrical.Analog.Basic.Resistor r;\nequation\n  r.\n";
+    let t1 = std::time::Instant::now();
+    let m = lib.with_source("M.mo", text, |l, f| {
+        let c = l.class_at(f, text.len() as u32 - 1)?; // `r.` の直後
+        l.members_of(c, &["r".into()])
+    });
+    eprintln!(
+        "build {built:?}, RSS {r0} -> {r1} -> {r2} (refs を捨てた後) kB; with_source+members {:?}",
+        t1.elapsed()
+    );
+    let m = m.expect("Resistor のメンバー");
+    let n = names(&m);
+    eprintln!("{n:?}");
+    for want in ["R", "p", "n", "v", "i", "T"] {
+        assert!(n.contains(&want), "{want}");
     }
 }

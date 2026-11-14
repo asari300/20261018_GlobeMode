@@ -7,7 +7,13 @@
 
   // ライブラリの木（S127）。展開したときに直下の子だけを引く。子の無いクラス（と、子を持つ package 以外のクラス）を押すと onOpen。
   // 最上位（prefix が空）には検索欄（S167）。一致の計算は Rust（backend.librarySearch）で、ここは結果の選択だけ
-  let { backend, prefix = "", onOpen }: { backend: Backend; prefix?: string; onOpen: (e: TreeEntry) => void } = $props();
+  // S265: 部品にできる行（package・function・record・type 以外）は図へドラッグできる。onAdd があれば（図が開いている）キーボード用の「図へ」ボタンも出す
+  let { backend, prefix = "", onOpen, onAdd }: { backend: Backend; prefix?: string; onOpen: (e: TreeEntry) => void; onAdd?: (e: TreeEntry) => void } = $props();
+  const addable = (e: TreeEntry) => !/(package|function|record|type)$/.test(e.kind);
+  const drag = (ev: DragEvent, e: TreeEntry) => {
+    ev.dataTransfer?.setData("application/x-globe-class", e.path);
+    if (ev.dataTransfer) ev.dataTransfer.effectAllowed = "copy";
+  };
   let open = $state<Record<string, boolean>>({});
   // アイコンは最上位の木が持つ loader（memo と同時 4 本）を、入れ子の木が共有する（S257）
   const icons = getContext<ReturnType<typeof treeIconLoader> | undefined>("tree-icons") ?? treeIconLoader({ icon: (c) => backend.icon(c) });
@@ -64,10 +70,12 @@
           <button aria-expanded={!!open[e.path]} title={e.description} onclick={() => (open[e.path] = !open[e.path])}>
             <span aria-hidden="true">{open[e.path] ? "▾" : "▸"}</span> <TreeIcon load={() => icons(e.path)} />{e.name}
           </button>
-          {#if e.kind !== "package"}<button title={e.description} onclick={() => onOpen(e)}>開く <span class="kind">{e.kind}</span></button>{/if}
-          {#if open[e.path]}<LibraryTree {backend} prefix={e.path} {onOpen} />{/if}
+          {#if e.kind !== "package"}<button title={e.description} draggable={addable(e)} ondragstart={(ev) => addable(e) && drag(ev, e)} onclick={() => onOpen(e)}>開く <span class="kind">{e.kind}</span></button>{/if}
+          {#if onAdd && addable(e)}<button class="add" title="図に部品として追加" onclick={() => onAdd(e)}>図へ</button>{/if}
+          {#if open[e.path]}<LibraryTree {backend} prefix={e.path} {onOpen} {onAdd} />{/if}
         {:else}
-          <button title={e.description} onclick={() => onOpen(e)}><TreeIcon load={() => icons(e.path)} />{e.name} <span class="kind">{e.kind}</span></button>
+          <button title={e.description} draggable={addable(e)} ondragstart={(ev) => addable(e) && drag(ev, e)} onclick={() => onOpen(e)}><TreeIcon load={() => icons(e.path)} />{e.name} <span class="kind">{e.kind}</span></button>
+          {#if onAdd && addable(e)}<button class="add" title="図に部品として追加" onclick={() => onAdd(e)}>図へ</button>{/if}
         {/if}
       </li>
     {/each}
@@ -80,6 +88,7 @@
   .tree { list-style: none; margin: 0; padding-left: .8rem; }
   button { border: 0; background: none; color: inherit; padding: .05rem .2rem; cursor: pointer; text-align: left; font: inherit; }
   button:hover { background: var(--hover); }
+  .add { color: var(--muted); font-size: .85em; }
   .kind { color: var(--muted); font-size: .85em; }
   .failure { color: var(--err); }
   .search { position: sticky; top: 0; background: var(--bg); padding: .2rem; }

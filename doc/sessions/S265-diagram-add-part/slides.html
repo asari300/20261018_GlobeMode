@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S265 図の部品の追加 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S265 図の部品の追加">
+
+<section class="slide" id="S01">
+  <span class="tag">S265 · 2026-11-15 · P8</span>
+  <h1>Diagram ビューの編集: 部品の追加</h1>
+  <p class="lead">ライブラリの木の行を図へドロップすると、宣言がソースに入る</p>
+  <div class="big">書き換えは<b>Rust</b>（<code>add_part</code>）、UI はエディタに入れるだけ（Ctrl+Z で戻る）</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">Rust</span>
+  <h1>add_part（globe-mode-fmt）</h1>
+  <table class="compact">
+    <tr><th>クラスの状態</th><th>足す場所</th></tr>
+    <tr><td>public の宣言あり</td><td>最後の宣言の次の行（<code>protected</code>・<code>equation</code> などの手前）。字下げはその宣言に合わせる</td></tr>
+    <tr><td>宣言なし</td><td>最初の節かクラスの <code>annotation</code>（無ければ <code>end</code>）の行の前</td></tr>
+  </table>
+  <p>宣言は <code>L.Res res annotation(Placement(transformation(origin = {x, y}, extent = {{-10, -10}, {10, 10}})));</code></p>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">名前と種類</span>
+  <h1>名前の付け方と断る型</h1>
+  <ul>
+    <li>名前は型の最後の部分の頭を小文字に（<code>resistor</code>、重なれば <code>resistor1</code>）</li>
+    <li>座標は 2 単位に吸着（移動と同じ格子）</li>
+    <li>package・function・record・type は断る。引けない・読めなければ受ける</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">UI</span>
+  <h1>ドロップと「図へ」</h1>
+  <ul>
+    <li>木の行を <code>draggable</code> にし、図の svg が <code>drop</code> を受ける</li>
+    <li>キーボード用に、図が開いているとき各行に「図へ」ボタン（図の中央へ）</li>
+    <li>名前の入力は持ち越し。足したあとにリネームで変える</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">口と試験</span>
+  <h1>口と試験</h1>
+  <ul>
+    <li>LSP <code>globe/addPart</code>（RPC 許可 28 から 29 本）、wasm <code>add_part</code>、<code>Backend.addPart</code></li>
+  </ul>
+  <pre><code>cargo test -p globe-mode-fmt --lib diagram
+cargo test -p globe-mode-lsp add_part
+cargo test -p globe-mode-wasm --test decay diagram
+node src/Svelte/tests/test_tauri.mjs</code></pre>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

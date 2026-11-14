@@ -30,6 +30,7 @@ pub fn main(init: std.process.Init) !void {
 }
 ```
 
+- 解析は `gm_blt(ws, model)`・`gm_linearize(ws, model, options_json)`（S285。JSON の文字列）。
 - 読み取りは `gm_outline(ws, path)`・`gm_deps(ws, model)`・`gm_flat(ws, model)`（S191。JSON の文字列。`main.zig` が読んで放す）。`gm_simulate_columns` の JSON の `defaults` は既定で描く信号の名前（S190）。
 - `build.zig`: `-Dlib-dir=<target/release>`（既定 `../../target/release`）。rpath にも同じディレクトリを入れる。
 - `src/main.zig`: 引数は `<ライブラリのディレクトリ> <モデル>`。`check` の `passed` と、`simulate` の JSON の長さと CSV の最後の時刻を表示する。

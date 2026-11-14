@@ -46,6 +46,68 @@ pub use fmu_import::{
 pub use globe_mode_db as db;
 pub use globe_mode_exec as exec;
 pub use globe_mode_exec::{CancelToken, ExecStage, Linearization, Progress};
+
+/// 診断の列の先頭を `コード: 文` にする（誤りの文字列が要る口用。S285）。
+fn first_diagnostic(ds: Vec<Diagnostic>) -> String {
+    ds.first()
+        .map_or_else(String::new, |d| format!("{}: {}", d.code, d.message))
+}
+
+/// A の固有値（極）を `(実部, 虚部)` の列で返す（S286。実のシューア分解）。A が n×n でない・有限でない・収束しないときは空。
+// shortcut: 密行列の QR 法で O(n^3)。状態が数千のモデルでは重い。大きい系では上位の極だけを求める方法に替える
+pub fn eigenvalues(a: &[Vec<f64>]) -> Vec<(f64, f64)> {
+    let n = a.len();
+    if n == 0
+        || a.iter()
+            .any(|r| r.len() != n || r.iter().any(|v| !v.is_finite()))
+    {
+        return Vec::new();
+    }
+    let m = nalgebra::DMatrix::from_fn(n, n, |i, j| a[i][j]);
+    // 反復の上限を付ける（0 は無制限で、収束しない行列で止まらなくなる）
+    nalgebra::linalg::Schur::try_new(m, f64::EPSILON, 100 * n + 1000).map_or_else(Vec::new, |s| {
+        s.complex_eigenvalues()
+            .iter()
+            .map(|c| (c.re, c.im))
+            .collect()
+    })
+}
+
+/// 固有値からの安定性の一言: `"stable"`（すべて Re<0）・`"unstable"`（Re>0 がある）・`"marginal"`（Re≈0 を含み、Re>0 は無い）・
+/// `"none"`（固有値が無い = 状態が 0 個）。Re≈0 は、数値微分の誤差（1e-8）を見込んで `1e-6·max(1, |λ|の最大)` 以内。
+pub fn stability(eigs: &[(f64, f64)]) -> &'static str {
+    let scale = eigs
+        .iter()
+        .map(|&(re, im)| re.hypot(im))
+        .fold(1.0, f64::max);
+    let tol = 1e-6 * scale;
+    if eigs.is_empty() {
+        "none"
+    } else if eigs.iter().any(|&(re, _)| re > tol) {
+        "unstable"
+    } else if eigs.iter().any(|&(re, _)| re >= -tol) {
+        "marginal"
+    } else {
+        "stable"
+    }
+}
+
+/// 線形化の結果の JSON（`globe linearize --json`・LSP `globe/linearize`・wasm `linearize` で共通。S260）。
+/// S286: `eigenvalues`（`[{re, im}]`）と `stability`（[`stability`]）を足した。
+pub fn linearization_json(model: &str, l: &Linearization) -> serde_json::Value {
+    let eigs = eigenvalues(&l.a);
+    let ev: Vec<_> = eigs
+        .iter()
+        .map(|&(re, im)| serde_json::json!({"re": re, "im": im}))
+        .collect();
+    serde_json::json!({
+        "model": model, "time": l.time,
+        "x": l.states, "u": l.inputs, "y": l.outputs,
+        "x0": l.x0, "u0": l.u0, "y0": l.y0,
+        "A": l.a, "B": l.b, "C": l.c, "D": l.d,
+        "eigenvalues": ev, "stability": stability(&eigs),
+    })
+}
 pub use globe_mode_sim as sim;
 
 /// ソルバの登録表（`globe simulate --list-solvers` と wasm の `solvers()` の中身）。
@@ -539,6 +601,34 @@ impl Workspace {
     /// 方程式の BLT 分解（解く順のブロック。大きさ 2 以上が代数ループ）。検査が通らなければ診断。
     pub fn blt(&mut self, model: &str) -> Result<BltReport, Vec<Diagnostic>> {
         self.db.blt(model)
+    }
+
+    /// `blt` の JSON（C ABI・NIF 用。S285）。診断で失敗したら最初の診断の `コード: 文`。
+    pub fn blt_json(&mut self, model: &str) -> Result<String, String> {
+        self.blt(model)
+            .map_err(first_diagnostic)
+            .and_then(|r| to_json(&r))
+    }
+
+    /// `linearize` の JSON（`linearization_json` の形。C ABI・NIF 用。S285）。`options` は NULL 相当の None か
+    /// `{"time": 1.0, "parameters": {"R": 2.0}}`（どちらも省略可）。
+    pub fn linearize_json(&mut self, model: &str, options: Option<&str>) -> Result<String, String> {
+        #[derive(serde::Deserialize, Default)]
+        #[serde(deny_unknown_fields)]
+        struct Options {
+            time: Option<f64>,
+            #[serde(default)]
+            parameters: BTreeMap<String, f64>,
+        }
+        let o: Options = options
+            .map(serde_json::from_str)
+            .transpose()
+            .map_err(|e| format!("options が読めない: {e}"))?
+            .unwrap_or_default();
+        let l = self
+            .linearize(model, &o.parameters, o.time)
+            .map_err(first_diagnostic)?;
+        to_json(&linearization_json(model, &l))
     }
 
     /// `check` に渡すファイル（モデルが使うものの閉包。パスの昇順）。モデルが無ければ空。
