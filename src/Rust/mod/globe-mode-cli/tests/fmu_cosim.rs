@@ -394,3 +394,62 @@ fn integer_and_boolean_wires() {
     .to_string();
     assert!(err.contains("不正"), "{err}");
 }
+
+/// S274: spec.json → `ssp-export` → `.ssp` を `cosim` で回した CSV は、JSON を直接回した CSV と同じ。
+/// 刻みと algorithm（と start）は SSD の Annotation を通って戻る（`--step` は渡さない）。
+#[test]
+fn ssp_export_round_trips_to_the_same_csv() {
+    let (Some(a), Some(b)) = (
+        reference_fmu("2.0", "Dahlquist"),
+        reference_fmu("3.0", "Feedthrough"),
+    ) else {
+        return;
+    };
+    let dir = scratch("9");
+    for (tag, extra) in [
+        ("jacobi", serde_json::json!({})),
+        (
+            "gs-start",
+            serde_json::json!({"algorithm": "gauss-seidel", "start": {"a.k": 2.0}}),
+        ),
+    ] {
+        let mut spec = serde_json::json!({
+            "fmus": {"a": a, "b": b},
+            "connections": [["a.x", "b.Float64_continuous_input"]],
+            "stop_time": 1.0, "step": 0.1,
+        });
+        spec.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        let json = cosim(&dir, spec);
+        assert!(json.status.success());
+        let ssp_file = dir.join(format!("{tag}.ssp"));
+        let export = Command::new(env!("CARGO_BIN_EXE_globe"))
+            .args(["fmu", "ssp-export"])
+            .arg(dir.join("spec.json"))
+            .arg("-o")
+            .arg(&ssp_file)
+            .output()
+            .unwrap();
+        assert!(
+            export.status.success(),
+            "{}",
+            String::from_utf8_lossy(&export.stderr)
+        );
+        let out = Command::new(env!("CARGO_BIN_EXE_globe"))
+            .args(["fmu", "cosim"])
+            .arg(&ssp_file)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert_eq!(out.stdout, json.stdout, "{tag}");
+        if tag == "gs-start" {
+            // k = 2 が効いている（x(1) = 0.8^10）
+            assert!((table(&out)["a.x"][10] - 0.8f64.powi(10)).abs() < 1e-9);
+        }
+    }
+}

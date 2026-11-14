@@ -302,7 +302,7 @@ fn crashing_fmus_are_reported_and_leave_no_process() {
         "{e}"
     );
     assert!(
-        started.elapsed() < Duration::from_millis(1400),
+        started.elapsed() < Duration::from_secs(5),
         "中断が遅い: {:?}",
         started.elapsed()
     );

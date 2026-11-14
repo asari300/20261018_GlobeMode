@@ -4,7 +4,7 @@
 //! 範囲: クラス（`end` の行は残す）、`equation`・`algorithm`（`initial` を含む）・`public`・`protected` の節
 //! （次の節かクラスの `end` の手前まで。末尾の空行は含めない）、複数行の `annotation(…)`（閉じる `)` だけの行は残す）、
 //! 連続する行コメントと複数行のブロックコメント（kind は `comment`）。
-//! shortcut: 構文が壊れてアウトラインが引けない間は、クラスと節の範囲が出ない（コメントと annotation は出る）。
+//! 構文が壊れてアウトラインが引けないときは、呼び出し側が `tolerant`（globe-mode-syntax の CST）のアウトラインを渡す（S276）。
 
 use globe_mode_fmt::{Kind, Token, lex};
 use globe_mode_ir::ClassOutline;

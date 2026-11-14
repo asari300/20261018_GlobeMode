@@ -47,6 +47,14 @@ pub struct CosimSpec {
     pub memory_limit_mib: Option<u64>,
 }
 
+/// FMU の名前（英数字・`_`・`-` だけ）。`write_ssp` も同じ規則で断る。
+pub(crate) fn valid_fmu_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "_-".contains(c))
+}
+
 /// `"a.y"` を（FMU の添字, 変数名）に割る。
 fn endpoint<'a>(names: &[&String], s: &'a str) -> Result<(usize, &'a str)> {
     let bad = || {
@@ -83,11 +91,7 @@ pub fn run_cosim_with(
     }
     let mut fmus = Vec::new();
     for (name, path) in &spec.fmus {
-        if name.is_empty()
-            || !name
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || "_-".contains(c))
-        {
+        if !valid_fmu_name(name) {
             return Err(Error::Fmu(format!(
                 "FMU の名前 {name:?} が不正（英数字・`_`・`-` だけ）"
             )));

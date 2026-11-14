@@ -9,7 +9,7 @@
 //!   陽的な積分器（RK4・Dormand–Prince 5(4)）で積分し、事象（state・time・step）を扱う（S205）。
 //!
 //! - [`run_cosim_with`] は複数の CS の FMU を固定刻みでつなぐマスター（Jacobi 型。S249）。
-//! - [`Ssp`] は `.ssp`（SSP 2.0.1）を [`CosimSpec`] にする（S253）。
+//! - [`Ssp`] は `.ssp`（SSP 2.0.1）を [`CosimSpec`] にする（S253）。[`write_ssp`] は逆に [`CosimSpec`] を `.ssp` に書く（S274）。
 //!
 //! FMU は任意のネイティブコードを実行する。信頼できない FMU は開かないこと（[`TRUST_WARNING`]）。
 //! 共有ライブラリを読めないので wasm32・Android では使えない（利用側が feature・cfg で外す）。
@@ -29,7 +29,7 @@ pub use me::{
     EventInfo, EventKind, FmuMe, MeEvent, MeIntegrator, MeOptions, MeRun, StepInfo, run_me,
     run_me_with,
 };
-pub use ssp::Ssp;
+pub use ssp::{Ssp, write_ssp};
 pub use worker::{
     Kind, MeSummary, WorkerRequest, WorkerRun, WorkerSpec, run_in_process, run_in_worker,
     worker_main,
@@ -53,7 +53,7 @@ pub enum Error {
     /// zip として壊れている、または危険なエントリ（`..`・絶対パス・シンボリックリンク）、大きすぎる。
     Zip(String),
     Description(globe_mode_fmi::Error),
-    /// `.ssp`（SSP）として読めない・範囲外の内容（S253）。
+    /// `.ssp`（SSP）として読めない・範囲外の内容（S253）、書き出せない spec（S274）。
     Ssp(String),
     /// 共有ライブラリが無い・読めない・関数が無い。
     Library(String),
@@ -73,7 +73,7 @@ impl fmt::Display for Error {
             Error::Io(m) => write!(f, "入出力の失敗: {m}"),
             Error::Zip(m) => write!(f, "FMU（zip）を開けない: {m}"),
             Error::Description(e) => write!(f, "{e}"),
-            Error::Ssp(m) => write!(f, "SSP を読めない: {m}"),
+            Error::Ssp(m) => write!(f, "SSP: {m}"),
             Error::Library(m) => write!(f, "共有ライブラリを読めない: {m}"),
             Error::Fmu(m) | Error::Discard(m) => write!(f, "FMU が失敗を返した: {m}"),
             Error::Worker(m) => write!(f, "FMU のワーカー（別プロセス）: {m}"),
