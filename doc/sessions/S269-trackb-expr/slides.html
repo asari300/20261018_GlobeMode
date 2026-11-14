@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S269 Track B の式 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S269 Track B の式">
+
+<section class="slide" id="S01">
+  <span class="tag">S269 · 2026-11-15 · Track B</span>
+  <h1>不透明だった中身を構造にする</h1>
+  <p class="lead"><code>globe-mode-syntax</code>: 式（Pratt）・修飾・注釈・方程式と文</p>
+  <div class="big">MSL 4.1.0 の 2556 本が誤り 0・往復一致・panic 0 のまま（release で 0.7 秒）</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">式</span>
+  <h1>優先順位は Modelica 3.6 の文法どおり</h1>
+  <ul>
+    <li><code>or</code> &lt; <code>and</code> &lt; <code>not</code> &lt; 関係 &lt; <code>+ -</code> &lt; <code>* /</code> &lt; <code>^</code>。範囲 <code>a:b:c</code> と <code>if</code> 式は最も外側</li>
+    <li>同じ優先順位の連鎖は 1 つの <code>BinaryExpr</code> に平らに入れる（20 万個の <code>+</code> でも木が深くならない）</li>
+    <li>名前つき引数・<code>for</code> の内包・<code>[a, b; c, d]</code>・<code>der</code> / <code>initial</code> / <code>end</code>・<code>function f(a = 1)</code></li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">修飾と文</span>
+  <h1>annotation も修飾と同じ仕組み</h1>
+  <ul>
+    <li><code>ClassModification</code> の中は <code>ElementModification</code>・<code>BreakModification</code>（3.6 の <code>break</code>）・<code>Redeclaration</code></li>
+    <li>方程式と文の中身は式の節点（<code>connect</code>・<code>(a, b) := f(x)</code>・<code>return</code>・<code>for</code> の添字）</li>
+    <li>式の型付き AST（<code>ast::Expr</code> など）を薄く足した</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>文・宣言・クラスの型付き AST、診断の番号（GM-E）、<code>redeclare</code> の引数の構造</li>
+    <li>B2 resolve、<code>Frontend</code> の feature <code>native</code>、<code>xtask diff-frontend</code></li>
+  </ul>
+  <pre><code>cargo test -p globe-mode-syntax
+GLOBE_MSL=data/msl cargo test --release -p globe-mode-syntax -- --ignored --nocapture</code></pre>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
