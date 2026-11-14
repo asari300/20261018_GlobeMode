@@ -11,6 +11,9 @@ use std::fmt::Write as _;
 #[cfg(feature = "export")]
 pub mod export;
 
+/// S253: SSP 2.0.1 の SystemStructure.ssd（XML だけ）
+pub mod ssp;
+
 /// 読み取りの失敗。
 #[derive(Debug, PartialEq, Eq)]
 pub enum Error {

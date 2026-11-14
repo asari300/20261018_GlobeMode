@@ -184,8 +184,20 @@
 - **試験**（`globe-mode-cli/tests/fmu_cosim.rs`）: Reference-FMUs の Dahlquist（2.0）→ Feedthrough（3.0）。`b` の出力が `a.x` の 1 刻み前の値に**ちょうど**等しい（全 10 刻み）。パラメータへの結線は実行の前に断る。
 - **限界・持ち越し**: Gauss–Seidel など他の順序、刻み幅の制御（可変刻み・巻き戻し `fmi2SetFMUstate`）、代数ループ、Integer・Boolean の接続、FMU への初期値（`set`）、ME の FMU の混在、UI・Python・LSP の口は今回なし（facade は足したので、LSP・Python は薄く足せる）。`fmu-import.yml` への足しもしていない。
 
+### (r) S253 の決定（2026-11-15）: SSP 2.0.1 の最小版の Import
+
+(q) のマスターに、`.ssp`（SSP 2.0.1。[調査](../research/ssp-2026-11-15.md)）を読む口を足した。
+
+- **置き場**: SSD の XML は `globe-mode-fmi` の `ssp.rs`（`parse_ssd`。roxmltree だけ。zip・FMU には触れず wasm32 でも通る）、zip の展開と `CosimSpec` への変換は `globe-mode-fmi-import` の `ssp.rs`（`Ssp::open`。FMU の展開と同じ `unpack` で zip slip・サイズの上限を守る）。**依存は増えていない**。facade は `Ssp` を再公開する。
+- **入口**: `globe fmu cosim <spec.json | system.ssp> [--stop-time T] [--step h] [-o out.csv]`。拡張子 `.ssp` で分ける。回すのは (q) のマスターそのままなので、FMU は今までどおりワーカー（別プロセス）の中。SSD に無い通信刻みは `--step`（既定は (終了 - 開始) / 100）、終了時刻は `DefaultExperiment` の `stopTime`（`--stop-time` で上書き。どちらも無ければ誤り）。`.ssp` を展開した一時ディレクトリは `Ssp` の drop で消える。
+- **変換**: `Component`（`source` は SSP の中の相対パスだけ）→ `fmus`、`Connection` → `connections`、`DefaultExperiment` → 開始・終了時刻。SSP の start / end は**データの向きではない**ので、FMU の `modelDescription.xml` の causality で「出力 → 入力」に揃える（入力側が start なら入れ替える）。
+- **断るもの（明確な誤り）**: 入れ子の `System`、`ParameterBindings`（`.ssv`）、`SignalDictionaries`・`SignalDictionaryReference`、`LinearTransformation`、FMU でない `Component`、`source` の無い・SSP の外を指す `Component`、システム自身のコネクタへの接続、Real・Float64 でないコネクタ、接続の両端で `unit` の名前が違うもの（`suppressUnitConversion="true"` を除く）。Real でない・向きの誤った接続は (q) の検査が実行の前に断る。
+- **試験**: `globe-mode-cli/tests/fmu_cosim.rs` に 2 本（Dahlquist 2.0 と Feedthrough 3.0 を入れた `.ssp` を試験の中で zip に組み、入力側を start に書いた接続でも JSON と**同じ CSV**になる。入れ子の `System` を断る）。`globe-mode-fmi` の `ssp.rs` に 2 本。
+- **限界・持ち越し**: `ParameterBindings` と `.ssv`、`SignalDictionary`、単位の換算（名前の一致だけを見る）、Real 以外の接続、入れ子の System（階層の平坦化）、XSD での検証、`source` の URI の符号化、書き出し（`.ssp` の往復）、SSP 内の `.ssp`・`.ssd` の参照、UI・Python・LSP の口、`fmu-import.yml` への足し。
+
 ## 結果
 
+- **S253 の結果**: 上の (r)。`.ssp` を `globe fmu cosim` で回せる。
 - **S229 の結果**: 上の (p)。facade・Python・Desktop の UI から FMU を読んで回せる。
 - **S210 の結果**: 上の (n)。`globe fmu run` は FMU を別プロセスで回し、落ちても `globe` は落ちない。
 - **S206 の結果**: 上の (m)。案 B は採らず自前で進める。レビューの指摘 4 件を直した。

@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S253 SSP の読み取り — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S253 SSP の読み取り">
+
+<section class="slide" id="S01">
+  <span class="tag">S253 · 2026-11-15 · P8</span>
+  <h1>SSP 2.0.1 を読んで回す（最小版）</h1>
+  <p class="lead"><code>globe fmu cosim system.ssp --step 0.1 -o out.csv</code></p>
+  <div class="big"><code>.ssp</code> → <code>CosimSpec</code> → S249 のマスター。依存は増やしていない</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">仕組み</span>
+  <h1>.ssp の中身を spec にする</h1>
+  <table class="compact">
+    <tr><th>SSD</th><th>CosimSpec</th></tr>
+    <tr><td><code>Component</code>（<code>source="resources/a.fmu"</code>）</td><td><code>fmus</code>（展開先の FMU）</td></tr>
+    <tr><td><code>Connection</code></td><td><code>connections</code>（出力 → 入力に揃える）</td></tr>
+    <tr><td><code>DefaultExperiment</code></td><td>開始・終了時刻（刻みは SSD に無いので <code>--step</code>）</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">落とし穴</span>
+  <h1>start / end はデータの向きではない</h1>
+  <ul>
+    <li>SSP 5.3.2: 向きはコネクタの <code>kind</code> で決まる</li>
+    <li>入力側が start に書かれていても通すため、FMU の causality で入れ替える</li>
+    <li>試験はわざと入力側を start に書いた</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">断るもの</span>
+  <h1>黙って無視しない</h1>
+  <ul>
+    <li>入れ子の <code>System</code>、<code>ParameterBindings</code>（<code>.ssv</code>）、SignalDictionary</li>
+    <li>単位の名前が違う接続、Real 以外のコネクタ、システム自身のコネクタへの接続</li>
+    <li>FMU でない・SSP の外を指す <code>Component</code></li>
+  </ul>
+  <pre><code>cargo test -p globe-mode-cli --test fmu_cosim
+cargo test -p globe-mode-fmi ssp</code></pre>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li><code>.ssv</code> のパラメータ、入れ子の System、単位の換算</li>
+    <li><code>.ssp</code> の書き出し（往復）、UI・Python・LSP の口</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
