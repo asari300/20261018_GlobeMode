@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import polars as pl
+
 from globe_mode import Workspace, table
 
 MODELICA = Path(__file__).parents[2] / "Modelica"
@@ -25,3 +27,10 @@ def test_columns_defaults_are_the_states():
     res = ws.simulate_columns("GlobeModeValidation.Simulation.Decay")
     assert res["defaults"] == ["x"]  # 既定で描く信号。応答の列の名前（time を除く）の部分集合
     assert set(res["defaults"]) <= set(res["columns"])
+
+
+def test_table_reads_inf_and_nan_as_numbers():
+    # polars は Inf を数として読まず列が String になる（#92）。time のような整数の列も Float64 に揃う
+    df = table({"csv": '"time","x"\n0,1\n1,Inf\n2,-Inf\n3,NaN\n'})
+    assert df.dtypes == [pl.Float64, pl.Float64]
+    assert df["x"][1] == float("inf") and df["x"][2] == float("-inf")

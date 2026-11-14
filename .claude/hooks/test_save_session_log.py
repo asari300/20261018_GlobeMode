@@ -20,6 +20,18 @@ class Redact(unittest.TestCase):
             self.assertTrue(leftovers(text), t)           # 伏せていない文は --check が拾う
             self.assertFalse(leftovers(redact(text)), t)
 
+    def test_env_style_names_and_bearer(self):
+        # 名前の前に `_` が付く形（\b では当たらなかった。#90）
+        for text in ("ANDROID_KEYSTORE_PASSWORD=hunter2hunter2", "export GITHUB_TOKEN=abcd1234efgh",
+                     'MY_SECRET="abcd1234efgh"', "TAURI_SIGNING_PRIVATE_KEY=abcd1234efgh",
+                     "Authorization: Bearer abcd1234efgh"):
+            self.assertNotIn("1234", redact(text), text)
+            self.assertTrue(leftovers(text), text)
+            self.assertFalse(leftovers(redact(text)), text)
+
+    def test_max_tokens_is_kept(self):
+        self.assertEqual(redact("max_tokens=12345678"), "max_tokens=12345678")
+
 
 if __name__ == "__main__":
     unittest.main()
