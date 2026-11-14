@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S288 レビューの issue 7 件 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S288 レビューの issue 7 件">
+
+<section class="slide" id="S01">
+  <span class="tag">S288 · 2026-11-15 · 保守</span>
+  <h1>レビューの issue #98〜#104 を監査した</h1>
+  <p class="lead">7 件とも再現でき、7 件とも直した。見送りは 0 件</p>
+  <div class="big">根本の共有コードで 1 回ずつ。各修正に、直す前なら落ちる試験を 1 本</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">Diagram の編集</span>
+  <h1>#98・#99・#100 は diagram.rs の共有の関数</h1>
+  <table class="compact">
+    <tr><th>issue</th><th>直し方</th></tr>
+    <tr><td>#98 <code>iconTransformation</code></td><td><code>transformation(</code> の中だけで <code>origin</code> を探す</td></tr>
+    <tr><td>#99 複数の名前</td><td>トップレベルの <code>,</code> で割り、名前ごとに <code>annotation</code> を読む</td></tr>
+    <tr><td>#100 壊れた編集</td><td>端は <code>名前[数]</code> を <code>.</code> でつないだ形、座標は有限で 1e6 以下</td></tr>
+  </table>
+  <p>LSP は fmt を呼ぶだけなので、入口の検査は 1 か所になった</p>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">FMI Import・LSP</span>
+  <h1>#101〜#104 は入口で断る</h1>
+  <ul>
+    <li>#101 <code>modelDescription</code> は FMU ごとに 1 回だけ読む</li>
+    <li>#102 同じ入力への結線・同名の Component は断る</li>
+    <li>#103 <code>fmu cosim --timeout</code>・<code>--memory-limit</code>、Python の <code>cosim(timeout=)</code>。<code>.ssp</code> にも効く</li>
+    <li>#104 <code>globe/linearize</code> の型違いは <code>-32602</code>。Python の JSON は <code>linearization_json</code> に一本化</li>
+  </ul>
+  <pre><code>cargo test -p globe-mode-fmt --lib diagram
+cargo test -p globe-mode-fmi-import --lib ssp</code></pre>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
