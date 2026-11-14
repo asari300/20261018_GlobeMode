@@ -1,0 +1,16 @@
+[package]
+name = "globe-mode-syntax"
+description = "GlobeMode: lossless Modelica CST (rowan) and an error-tolerant parser (Track B, B1)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+# S268（Track B の B1）。MIT OR Apache-2.0。推移的に countme・hashbrown・memoffset・rustc-hash・text-size（doc/licenses.md）
+rowan = "0.17"
+
+[lints]
+workspace = true

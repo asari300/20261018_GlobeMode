@@ -39,6 +39,7 @@
 | [0036](0036-experimental-ui-dioxus.md) | Dioxus 版 UI は Leptos 版（ADR-0035）と同じ作り（UI と計算を 1 つの wasm、別の workspace、CI に入れない）。違いは、Dioxus 0.7.10（`minimal` + `web`）、`dx` を使わず `cargo build` → `wasm-bindgen --target web`（`mise run dioxus:build`）、状態は `Signal`。測定は `bench_ui.py browser --ui dioxus` | Accepted |
 | [0037](0037-icon-diagram-as-shape-data.md) | Icon / Diagram は形のデータ（JSON）で UI に渡し、UI が SVG の要素を組み立てる。字句解析だけで読み、`extends` の基底のアイコンを 1 段重ねる（Icon は S244、Diagram の読み取りは S245） | Accepted |
 | [0038](0038-linearize-numeric.md) | 線形化は `ModelInstance` の上の数値の中心差分で行い、解析ヤコビ行列は使わない（S254） | Accepted |
+| [0039](0039-native-cst-parser.md) | Track B の B1 は独立した crate `globe-mode-syntax` に置き、rowan の CST と、誤りがあっても木を作る寛容なパーサ（全バイトを木に残す。式・修飾・注釈の中身は不透明）を自前で書く。Rumoca にもまだつながない（S268） | Accepted |
 
 0027 は欠番（git の履歴にも無い）。
 
