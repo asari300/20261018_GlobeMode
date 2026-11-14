@@ -103,3 +103,11 @@
 - パラメータの上書きは `Simulation.Parameters` で確かめた（`k = 2` で x(1) = exp(−2)、`c = 2k` が追従。`n`・`e`・`f`・`g`・`x`・無い名前・NaN は `GM-E10006`）。
 - MAT v4 は scipy と DyMat 0.7 で読め、omc 1.27.1 の実物と同じスクリプトで同じに読めた。omc との違いは、変数の並び、omc は最後の時点を 2 回書く、omc はイベントの 2 行目の時刻を 1.5e-10 ずらす、の 3 つ。
 - 残した問題: プリフライトの lowering は 2 回のまま（→ S014 で、ネイティブの dopri45 を除いて 1 回にした。[ADR-0016](0016-preflight-on-build-lowering.md)）。サンプラの食い違いの判定は文言頼み。型付きの道で Cranelift の JIT が本当に使われているかは【未確認】（session の道（インタプリタ）とビット単位で同じだった）。panic の後の `Workspace` は使えない。ブラウザは未試験。
+
+## 付記（S267）: `into_session` の失敗の段（#5 の残り）
+
+- 状態: 実施済み（2026-11-15）。
+- 背景: `into_session` は積分器のプラグインを始め、BDF はここでヤコビ行列を作る。ネイティブの型付きの BDF の道は、この呼び出しを `check_prepared_initialization`（初期化）の中で回すので、段の無い数値の失敗は Initialization（GM-E11001）になる。session の道は Integration（GM-E11002）としていた。`auto` の切り替えの規則 `fallback()` は両方の道で同じ関数だが、段によって「積分の失敗」（切り替える）か「初期化の失敗」（切り替えない）かが分かれるので、段の違いがそのまま答えの違いになる。
+- 再現: できなかった。小さなモデル 13 本（`sqrt(x)`・`1/x`・`log(x)`・特異な代数式・硬い系・桁あふれなど）と MSL の `GenerationOfFMUs` で、`bdf`・`auto` を両方の道で回したが、診断のコード・本文は一致した。Rumoca が段・型（`DirectionalDerivativeUnavailable` → GM-U0004、`Contract` → GM-U0005、段の付いた評価の失敗）を付けるので、段の無い `Numerical` の構築の失敗（`MeNumericalFailure::Construction`）でしか差が出ない。issue の `GenerationOfFMUs` の差は ADR-0015 で解消済み（両方の道で GM-U0004 で止まる）。
+- 決定: 段の決め方を `session::start_phase(integrator)` の 1 か所に置く。`RumocaBdf` は Initialization（ネイティブの `run_bdf` と同じ）、`RumocaRk45` と自前の積分器は Integration（ネイティブの `run_rk`・自前の積分器の道は積分の段）。ネイティブの挙動は変えない。
+- 結果: 段の無い BDF の始動の失敗は、ブラウザ（wasm）でも CLI でも GM-E11001 で止まり、`auto` は切り替えない。この規則の単体試験 `a_bdf_start_failure_is_an_initialization_failure_on_the_session_route` を足した（モデルでの再現は無いので、型と段の組で確かめる）。

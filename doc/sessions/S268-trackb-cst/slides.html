@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S268 Track B の CST — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S268 Track B の CST">
+
+<section class="slide" id="S01">
+  <span class="tag">S268 · 2026-11-15 · Track B</span>
+  <h1>自前コアの最初の一歩: rowan の CST</h1>
+  <p class="lead">新しい crate <code>globe-mode-syntax</code>（Modelica 3.6 の字句解析と寛容なパーサ）</p>
+  <div class="big">MSL 4.1.0 の 2556 本が誤り 0・往復一致・panic 0（release で 0.4 秒）</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">決めたこと</span>
+  <h1>全バイトを木に残し、誤りでも木を作る</h1>
+  <ul>
+    <li>空白・コメント・知らない文字もトークン。木の文字列は元と必ず一致</li>
+    <li>読めないところは <code>Error</code> 節点と <code>ParseError</code>。panic しない、入れ子は 128 段で打ち切り</li>
+    <li>依存は rowan 0.17（MIT OR Apache-2.0）だけ。Rumoca にも <code>Frontend</code> にもまだつながない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">文法</span>
+  <h1>最初の一切れ</h1>
+  <ul>
+    <li>クラス（8 種と prefix）・<code>extends</code>・<code>import</code>・部品の宣言・<code>equation</code> / <code>algorithm</code> 節・<code>if</code> / <code>for</code> / <code>when</code> / <code>while</code></li>
+    <li>式・修飾・注釈の中身は括弧の対応と <code>;</code> までだけ見る不透明な節点（式の文法は次回）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>式の文法と型付き AST、修飾・注釈の構造、診断の番号（GM-E）</li>
+    <li>B2 resolve、<code>Frontend</code> の feature <code>native</code>、<code>xtask diff-frontend</code></li>
+  </ul>
+  <pre><code>cargo test -p globe-mode-syntax
+GLOBE_MSL=data/msl cargo test --release -p globe-mode-syntax -- --ignored --nocapture</code></pre>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
