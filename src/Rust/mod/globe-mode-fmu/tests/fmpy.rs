@@ -62,7 +62,7 @@ fn model_description_3_lists_event_indicators() {
     for v in [
         format!("instantiationToken=\"{}\"", guid(&model, &text)),
         r#"<Float64 name="der(h)" valueReference="2" causality="local" variability="continuous" initial="calculated" derivative="0"/>"#.into(),
-        r#"<ContinuousStateDerivative valueReference="2"/>"#.into(),
+        r#"<ContinuousStateDerivative valueReference="2" dependencies="1"/>"#.into(),
         format!("<EventIndicator valueReference=\"{r}\"/>"),
     ] {
         assert!(md.contains(&v), "{v} が無い:\n{md}");
@@ -102,7 +102,11 @@ fn inputs_and_outputs_through_the_c_abi() {
             "name=\"u\" valueReference=\"{u}\" causality=\"input\" variability=\"continuous\">\n      <Real start=\"0.0\"/>"
         ),
         format!("name=\"y\" valueReference=\"{y}\" causality=\"output\""),
-        format!("<Outputs>\n      <Unknown index=\"{}\"/>", y + 1),
+        // S266: y = 2 x は状態 x（索引 1）だけに依り、入力 u には依らない
+        format!(
+            "<Outputs>\n      <Unknown index=\"{}\" dependencies=\"1\"/>",
+            y + 1
+        ),
     ] {
         assert!(md.contains(&v), "{v} が無い:\n{md}");
     }
@@ -595,6 +599,42 @@ fn fmpy_validates_enumeration_and_string() {
         };
         let x = value(&out, "x");
         assert!((x - (-2.0f64).exp()).abs() < 1e-5, "x(1) = {x}");
+    }
+}
+
+/// S266: 出力・導関数の `dependencies` は BLT の解く順の閉包（代数変数 w を介する）。y2 = x1 - x2 は入力 u に依らない。
+/// 2.0 は索引（1 始まり）、3.0 は valueReference。パラメータ・`time` は 2.0 では書かず、3.0 では並べる。
+#[test]
+fn model_description_writes_dependencies() {
+    for v3 in [false, true] {
+        let (model, text) = source("LinearSystem");
+        let md = globe_mode_fmi::parse_model_description(
+            &model_description_kind(&model, &text, v3, Kind::Me).unwrap(),
+        )
+        .unwrap();
+        // 2.0 の索引は変数の表の位置 + 1、3.0 は valueReference
+        let r = |name: &str| {
+            let i = md.variables.iter().position(|v| v.name == name).unwrap();
+            if v3 {
+                md.variables[i].value_reference
+            } else {
+                i as u32 + 1
+            }
+        };
+        let deps = &md.model_structure.dependencies;
+        let of = |name: &str| {
+            deps.get(&r(name))
+                .unwrap_or_else(|| panic!("{name} に dependencies が無い: {deps:?}"))
+        };
+        let sorted = |names: &[&str]| {
+            let mut l: Vec<u32> = names.iter().map(|n| r(n)).collect();
+            l.sort_unstable();
+            l
+        };
+        assert_eq!(of("y1"), &sorted(&["x1", "x2", "u"]), "y1 = w + 3u");
+        assert_eq!(of("y2"), &sorted(&["x1", "x2"]), "y2 = x1 - x2");
+        assert_eq!(of("der(x1)"), &sorted(&["x1", "x2", "u"]));
+        assert_eq!(of("der(x2)"), &sorted(&["x1", "x2", "u"]));
     }
 }
 

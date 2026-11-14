@@ -18,6 +18,8 @@ crate-type = ["rlib"]
 [dependencies]
 globe-mode-frontend = { workspace = true }
 globe-mode-exec = { workspace = true }
+# S266: 出力・導関数の dependencies（BLT の解く順の閉包）
+globe-mode-analysis = { workspace = true }
 # S117: modelDescription.xml の型と書く側（既定の feature だけ。export は引き込まない）
 globe-mode-fmi = { workspace = true }
 
