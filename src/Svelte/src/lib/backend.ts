@@ -62,6 +62,8 @@ export interface Backend {
   fmuInfo?(path: string): Promise<FmuInfo>;
   /** FMU を別プロセスで回し、時刻と出力の列を返す（S229。Desktop だけ）。request は `FmuRunRequest`（S236。kind・stop_time・step・timeout だけ使う。省くと FMU の既定の実験設定）。onProgress は FMU の時刻。止めた呼び出しは cancelled: true の Error で reject する。 */
   runFmu?(path: string, request?: FmuRunRequest, onProgress?: (t: number) => void): Promise<Columns>;
+  /** コシミュレーション（.ssp か spec の .json）を別プロセスで回し、`<FMU名>.<変数名>` の列を返す（S277。Desktop だけ。stopTime・step は SSP の既定と JSON の値を上書きする。onProgress・cancelled は runFmu と同じ）。 */
+  cosim?(path: string, opts?: { stopTime?: number; step?: number }, onProgress?: (t: number) => void): Promise<Columns>;
   /** パスの結果のファイル（.mat・.csv）を読み直す（S236。Desktop だけ。最近使ったファイルと再読み込みで戻すタブ。読めなければ reject）。 */
   readResultsAt?(path: string): Promise<ResultColumns>;
   /** 最近使ったファイルを path から開く（S151。Desktop だけ。ブラウザは本文を localStorage に持つので無い）。 */

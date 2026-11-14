@@ -55,6 +55,14 @@ const sent = calls.filter(([, a]) => a.method === "globe/fmuRun").map(([, a]) =>
 await b.runFmu("/r/D.fmu", { kind: "me", stop_time: 2, step: 0.1, timeout: 30 });
 assert.deepEqual(sent, [{}]);
 assert.deepEqual(calls.at(-1)[1].params.request, { kind: "me", stop_time: 2, step: 0.1, timeout: 30 });
+// コシミュレーション（S277）: globe/cosim に path・stopTime・step と workDoneToken を渡し、列を返す。SSP・JSON は開くとき読まない
+globalThis.window.__TAURI__.dialog.open = async () => "/r/sys.ssp";
+assert.deepEqual(await b.openFile(), { name: "sys.ssp", text: "", path: "/r/sys.ssp" });
+calls.length = 0;
+globalThis.window.__TAURI__.core.invoke = async (cmd, a) => (calls.push([cmd, a]), { layout: { names: ["time", "a.x"], points: 2 }, columns: [[0, 1], [1, 0.5]] });
+assert.deepEqual((await b.cosim("/r/sys.ssp", { stopTime: 2, step: 0.1 })).names, ["a.x"]);
+assert.equal(calls[0][1].method, "globe/cosim");
+assert.deepEqual({ ...calls[0][1].params, workDoneToken: undefined }, { path: "/r/sys.ssp", stopTime: 2, step: 0.1, workDoneToken: undefined });
 // 図の部品の移動（S250）: globe/movePart に class・part・dx・dy と file を渡す（RPC_METHODS にある method）
 calls.length = 0;
 globalThis.window.__TAURI__.core.invoke = async (cmd, a) => (calls.push([cmd, a]), null);

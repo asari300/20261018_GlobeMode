@@ -26,6 +26,7 @@
 //! | `globe/readResults` | `{path}`（`.mat` は MAT v4、それ以外は CSV） | `{layout, columns, parameters}`（S222。`globe/simulateColumns` の `layout`・`columns` と同じ形。`parameters` は MAT の `data_1` の `[{name, value, unit?, description?}]`で、CSV は空。S236。`defaults` は先頭の 3 本。読めなければ -32000） |
 //! | `globe/fmuInfo` | `{path}`（`.fmu`） | `FmuInfo` の JSON に `warning`（実行の前に見せる警告。S229。`globe fmu info` と同じ情報。ネイティブコードは実行しない。読めなければ -32000。feature `fmu-import`） |
 //! | `globe/fmuRun` | `{path, request?, workDoneToken?}`（`request` は `FmuRunRequest`: `kind`（`"cs"`/`"me"`）・`start_time`・`stop_time`・`step`・`outputs`・`set`・`timeout`・`memory_limit_mib`） | `{layout, columns, me}`（S229。`globe/readResults` と同じ `layout`・`columns` に、ME だけ事象の要約 `me`。**FMU のネイティブコードを別プロセス（自分と同じ実行ファイルの `fmu __worker`）で実行する**。`$/progress` は `{kind: "report", stage: "integration", time}`、`$/cancelRequest` でワーカーを kill して -32800。失敗は -32000。feature `fmu-import`） |
+//! | `globe/cosim` | `{path, stopTime?, step?, workDoneToken?}`（`.ssp` か spec の `.json`。`stopTime`・`step` は SSP の既定と JSON の値を上書きする） | `{layout, columns}`（S277。`globe fmu cosim` と同じ。列は `<FMU の名前>.<変数名>`。FMU のネイティブコードを別プロセスで実行する。進捗・中断は `globe/fmuRun` と同じ。読めない・回せないなら -32000。feature `fmu-import`） |
 //! | `globe/exportFmu` | `{model, fmiVersion?, outDir, runtime?, runtimeLib?}`（既定は FMI 2・`runtime` は `"p5a"`。`build` はしない） | `{path}`（S144。`outDir/<名前>.fmu` と展開した `outDir/<名前>/` を書く。S239 から `runtime: "p5b"` は自前の実行時の共有ライブラリ入りの `<名前>-p5b-fmi<版>.fmu`〔`runtimeLib` か cargo。この版に P5b が無い wasm では -32000〕。`runtime` が p5a・p5b 以外なら -32602。DAE まで変換できなければ -32000） |
 //! | `globe/tunableParameters` | `{model}` | `ParametersResponse` の JSON（S150。上書きできるパラメータの一覧。wasm の `tunable_parameters` と同じ。DAE まで変換できなければ -32000） |
 //! | `globe/parameters` | `{model}` | `ModelParametersResponse` の JSON `{model, parameters: [{name, type, dims?, default?, value?, literals?, unit?, description?, min?, max?, fixed?}]}`（S248。パラメータ宣言の一覧。名前は `comp.k` の形で、既定値は宣言の修飾を反映する。`value` は数の既定値〔Boolean は 0/1、Enumeration は 1 始まりの ordinal〕。wasm の `parameters` と同じ。DAE まで変換できなければ -32000） |
@@ -654,6 +655,8 @@ impl Server {
             },
             #[cfg(feature = "fmu-import")]
             "globe/fmuRun" => fmu_run(id, params, cancel, notify),
+            #[cfg(feature = "fmu-import")]
+            "globe/cosim" => cosim_run(id, params, cancel, notify),
             "globe/graph" => match params["model"].as_str() {
                 Some(model) => {
                     let depth = params["depth"].as_u64().unwrap_or(1) as u32;
@@ -1011,8 +1014,94 @@ pub fn run_stdio(libraries: &[PathBuf]) -> io::Result<()> {
 fn cancellable(method: &str) -> bool {
     matches!(
         method,
-        "globe/simulate" | "globe/simulateColumns" | "globe/fmuRun"
+        "globe/simulate" | "globe/simulateColumns" | "globe/fmuRun" | "globe/cosim"
     )
+}
+
+/// `globe/cosim`（S277）。`.ssp` は `Ssp::open`、それ以外は `globe fmu cosim` と同じ spec の JSON（FMU のパスは JSON からの相対）。
+/// `stopTime`・`step` は SSP の既定と JSON の値を上書きする。回し方・進捗・中断は `globe/fmuRun` と同じ。
+#[cfg(feature = "fmu-import")]
+fn cosim_run(
+    id: Option<Value>,
+    params: &Value,
+    cancel: Option<CancelToken>,
+    notify: &mut dyn FnMut(Value),
+) -> Vec<Value> {
+    let Some(path) = params["path"].as_str().map(std::path::Path::new) else {
+        return error(id, -32602, "params.path が文字列でない");
+    };
+    let (stop, step) = (params["stopTime"].as_f64(), params["step"].as_f64());
+    let ssp; // 展開先（drop で消える）を回し終わるまで持つ
+    let loaded = if path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("ssp"))
+    {
+        match globe_mode::Ssp::open(path, stop, step) {
+            Ok(s) => {
+                ssp = s;
+                Ok(ssp.spec.clone())
+            }
+            Err(e) => Err(e.to_string()),
+        }
+    } else {
+        std::fs::read_to_string(path)
+            .map_err(|e| e.to_string())
+            .and_then(|t| {
+                serde_json::from_str::<globe_mode::CosimSpec>(&t).map_err(|e| e.to_string())
+            })
+            .map(|mut spec| {
+                let dir = path.parent().unwrap_or(std::path::Path::new("."));
+                for p in spec.fmus.values_mut() {
+                    *p = dir.join(&*p);
+                }
+                spec.stop_time = stop.unwrap_or(spec.stop_time);
+                spec.step = step.unwrap_or(spec.step);
+                spec
+            })
+    };
+    let spec = match loaded {
+        Ok(s) => s,
+        Err(e) => return error(id, -32000, &format!("{}: {e}", path.display())),
+    };
+    let worker = match std::env::current_exe() {
+        Ok(w) => w,
+        Err(e) => {
+            return error(
+                id,
+                -32000,
+                &format!("ワーカーの実行ファイルが分からない: {e}"),
+            );
+        }
+    };
+    let token = params.get("workDoneToken");
+    let mut progress = |value: Value| {
+        if let Some(token) = token {
+            notify(json!({"jsonrpc": "2.0", "method": "$/progress",
+                "params": {"token": token, "value": value}}));
+        }
+    };
+    progress(
+        json!({"kind": "begin", "title": format!("cosim {}", path.display()), "cancellable": true}),
+    );
+    let run = globe_mode::run_cosim(
+        &worker,
+        &spec,
+        &mut |t| {
+            progress(
+                json!({"kind": "report", "message": "integration", "stage": "integration", "time": t}),
+            )
+        },
+        cancel.as_ref(),
+    );
+    progress(json!({"kind": "end"}));
+    match run {
+        Ok(r) => {
+            let (layout, columns) = r.results.columns();
+            reply(id, json!({"layout": layout, "columns": columns}))
+        }
+        Err(e) if cancel.is_some_and(|c| c.is_cancelled()) => error(id, -32800, &e),
+        Err(e) => error(id, -32000, &e),
+    }
 }
 
 /// `globe/fmuRun`（S229）。ワーカーは自分と同じ実行ファイル（`globe lsp` の `globe`）の `fmu __worker`。
@@ -2814,6 +2903,7 @@ mod tests {
             let r = s.handle(json!({"id": 1, "method": method, "params": params}));
             assert_eq!(r[0]["error"]["code"], code, "{method} {params}: {}", r[0]);
         };
+        bad(&mut s, "globe/cosim", json!({}), -32602); // S277（読めない path の -32000 は tests/lsp.rs）
         for method in ["globe/fmuInfo", "globe/fmuRun"] {
             bad(&mut s, method, json!({}), -32602);
             bad(&mut s, method, json!({"path": 1}), -32602);
