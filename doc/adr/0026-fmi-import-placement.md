@@ -195,8 +195,19 @@
 - **試験**: `globe-mode-cli/tests/fmu_cosim.rs` に 2 本（Dahlquist 2.0 と Feedthrough 3.0 を入れた `.ssp` を試験の中で zip に組み、入力側を start に書いた接続でも JSON と**同じ CSV**になる。入れ子の `System` を断る）。`globe-mode-fmi` の `ssp.rs` に 2 本。
 - **限界・持ち越し**: `ParameterBindings` と `.ssv`、`SignalDictionary`、単位の換算（名前の一致だけを見る）、Real 以外の接続、入れ子の System（階層の平坦化）、XSD での検証、`source` の URI の符号化、書き出し（`.ssp` の往復）、SSP 内の `.ssp`・`.ssd` の参照、UI・Python・LSP の口、`fmu-import.yml` への足し。
 
+### (s) S259 の付記（2026-11-15）: マスターに Gauss–Seidel・start・Int32/Boolean の接続
+
+(q) の「持ち越し」のうち小さく効く 3 つを足した。**JSON の既存の鍵の意味は変えていない**（鍵を足しただけ。既定は (q) のまま）。
+
+- **`"algorithm": "jacobi" | "gauss-seidel"`**（省略時は jacobi）。Gauss–Seidel は FMU を 1 つずつ `do_step` し、進める直前にその FMU の入力へ、結線の元の**いまの**出力（元が先に進んでいれば同じ刻みの新しい値、後なら前の刻みの終わりの値）を渡す。順番は結線の元 → 先（`fmus` は JSON のオブジェクトで順序を持たない `BTreeMap` なので、「並び順」は使えない）。ループ（相互の結線）は名前の順で破る。Jacobi は (q) のまま（刻みの頭に全部読んでから全部渡す）。
+- **`"start": {"a.k": 2.0}`**（FMU の名前、`.`、変数名 → 値）。instantiate の後・初期化の前に設定する（`run_cs` の `--set` と同じ位置）。Float64 に加え、Int32（整数値だけ）・Boolean（0 か 1 だけ）も受ける（Int の接続を試験で見えるようにするため）。不正な値・型・名前は実行の前に断る。
+- **Int32・Boolean の接続**: 始点と終点が**同じ型**のときだけ（Float64 どうし、Int32 どうし、Boolean どうし）。違う型・ほかの型（Float32・Int8…・String・Binary）は今までどおり明確な誤り（型が違う / どれでもない）。値は f64 で受け渡す（Int32 は厳密、Boolean は 0 / 1）。結果の列は Float64 の出力に加えて、Int32・Boolean の接続の**始点**も出す（FMU の Int32・Boolean の出力を全部は出さない。Float64 だけだった今までの列は変わらない）。`FmuCs` に `get_int`・`set_int`・`get_bool`・`set_bool` を足した（FMI 2.0 は `fmi2GetInteger` 等、3.0 は `fmi3GetInt32`・`fmi3GetBoolean` 等。シンボルは使うときに引くので、使わない FMU の読み込みは変わらない）。
+- **試験**（`globe-mode-cli/tests/fmu_cosim.rs` に 3 本）: Gauss–Seidel は Dahlquist（`z`）→ Feedthrough（`b`）で名前の順と結線の順が逆でも、`b` の出力が同じ刻みの `z.x` に**ちょうど**等しい（Jacobi は 1 刻み遅れ）。`start` は Dahlquist の `k = 2` で x(1) = 0.8^10（Euler の 1 刻み 0.1 を 10 回。`k = 1` なら 0.9^10）。Int32・Boolean は 2.0 と 3.0 の Feedthrough をたすき掛けにして、Jacobi の 1 刻みごとの入れ替え（7, 0, 7, 0, 7）が出る。型違いの接続と整数でない Int の `start` は断る。
+- **持ち越し**: SSP の `ParameterBindings`（`.ssv` の Real を `start` に写す。いまは (r) のとおり断る）と SSP の Int32・Boolean のコネクタ、可変刻みと巻き戻し、代数ループ（Gauss–Seidel の不動点反復）、Float32・Int8 から Int64・String の接続、ME の混在、Python・LSP・UI の口。
+
 ## 結果
 
+- **S259 の結果**: 上の (s)。Gauss–Seidel・`start`・Int32/Boolean の接続。
 - **S253 の結果**: 上の (r)。`.ssp` を `globe fmu cosim` で回せる。
 - **S229 の結果**: 上の (p)。facade・Python・Desktop の UI から FMU を読んで回せる。
 - **S210 の結果**: 上の (n)。`globe fmu run` は FMU を別プロセスで回し、落ちても `globe` は落ちない。

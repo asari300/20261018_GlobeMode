@@ -66,9 +66,9 @@ pub enum FmuImportCommand {
         #[arg(long)]
         progress: bool,
     },
-    /// 複数の Co-Simulation の FMU を固定の通信刻みでつなぎ（Jacobi 型。入力は 1 刻み遅れる）、全 FMU の出力を 1 つの CSV に出す。Real だけ。FMU は別プロセス（ワーカー）で実行する
+    /// 複数の Co-Simulation の FMU を固定の通信刻みでつなぎ（既定は Jacobi 型で入力は 1 刻み遅れる。`algorithm: gauss-seidel` で遅れなし）、全 FMU の出力を 1 つの CSV に出す。接続は Real・Int32・Boolean の同じ型どうし。FMU は別プロセス（ワーカー）で実行する
     #[command(
-        after_help = "spec.json の例:\n  {\"fmus\": {\"a\": \"Dahlquist.fmu\", \"b\": \"Feedthrough.fmu\"}, \"connections\": [[\"a.x\", \"b.Float64_continuous_input\"]], \"stop_time\": 1, \"step\": 0.01}\n  （FMU のパスは spec.json からの相対。`timeout`・`memory_limit_mib` も書ける）\n.ssp（SSP 2.0.1。入れ子の System・ParameterBindings・単位の変換は未対応）も渡せる:\n  globe fmu cosim system.ssp --step 0.01 -o out.csv\n例:\n  globe fmu cosim spec.json -o out.csv"
+        after_help = "spec.json の例:\n  {\"fmus\": {\"a\": \"Dahlquist.fmu\", \"b\": \"Feedthrough.fmu\"}, \"connections\": [[\"a.x\", \"b.Float64_continuous_input\"]], \"stop_time\": 1, \"step\": 0.01}\n  （FMU のパスは spec.json からの相対。`algorithm`・`start`〔{\"a.k\": 2}〕・`timeout`・`memory_limit_mib` も書ける）\n.ssp（SSP 2.0.1。入れ子の System・ParameterBindings・単位の変換は未対応）も渡せる:\n  globe fmu cosim system.ssp --step 0.01 -o out.csv\n例:\n  globe fmu cosim spec.json -o out.csv"
     )]
     Cosim {
         /// 結線の記述（JSON）または `.ssp`（拡張子で分ける）
