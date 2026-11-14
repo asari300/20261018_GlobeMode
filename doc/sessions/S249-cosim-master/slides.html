@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S249 コシミュレーションのマスター — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S249 コシミュレーションのマスター">
+
+<section class="slide" id="S01">
+  <span class="tag">S249 · 2026-11-14 · P5</span>
+  <h1>FMU をつなぐ: コシミュレーションのマスター（最小版）</h1>
+  <p class="lead"><code>globe fmu cosim spec.json -o out.csv</code></p>
+  <div class="big">Jacobi 型・固定刻み・Real だけ。FMI 2.0 と 3.0 を混ぜられる</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">仕組み</span>
+  <h1>1 刻みの流れ</h1>
+  <ul>
+    <li>全 FMU を初期化し、Real の出力を読んで行 0 にする</li>
+    <li>刻みの頭で、前の刻みの終わりの出力を結線の先の入力へ <code>set_real</code></li>
+    <li>全 FMU を <code>do_step(t, h)</code>、出力を読んで 1 行</li>
+    <li>入力は 1 刻み遅れる。代数ループは扱わないので要らない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">置き場</span>
+  <h1>既存の道に載せた</h1>
+  <table class="compact">
+    <tr><th>場所</th><th>役割</th></tr>
+    <tr><td><code>fmi-import/cosim.rs</code></td><td><code>CosimSpec</code>・<code>run_cosim_with</code>。<code>FmuCs</code> の上に載るだけ</td></tr>
+    <tr><td><code>worker.rs</code></td><td>要求に省略可の <code>cosim</code>。FMU は今までどおり別プロセスの中で読む</td></tr>
+    <tr><td>facade</td><td><code>run_cosim</code>（<code>run_fmu</code> と同じ timeout・中断）</td></tr>
+    <tr><td>CLI</td><td><code>globe fmu cosim</code></td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">試験</span>
+  <h1>手で確かめられる試験</h1>
+  <ul>
+    <li>Dahlquist（2.0）の <code>x</code> → Feedthrough（3.0）の入力</li>
+    <li>b の出力が a.x の 1 刻み前の値に<b>ちょうど</b>等しい（全 10 刻み）</li>
+    <li>パラメータへの結線は実行の前に断る</li>
+  </ul>
+  <pre><code>cargo xtask fetch-reference-fmus
+cargo test -p globe-mode-cli --test fmu_cosim</code></pre>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>Gauss–Seidel、可変刻み（<code>fmi2SetFMUstate</code> の巻き戻し）、代数ループ</li>
+    <li>Integer・Boolean の接続、FMU への初期値、ME の混在</li>
+    <li>Python・LSP・UI の口、<code>fmu-import.yml</code> への足し</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
