@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S266 FMU の dependencies — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S266 FMU の dependencies">
+
+<section class="slide" id="S01">
+  <span class="tag">S266 · 2026-11-15 · P5</span>
+  <h1>FMU の出力・導関数に dependencies を書く</h1>
+  <p class="lead"><code>ModelStructure</code> の <code>Output</code>・<code>ContinuousStateDerivative</code></p>
+  <div class="big">BLT の解く順で、推移的に依る状態・入力を求める</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">仕様</span>
+  <h1>何を既知として並べるか</h1>
+  <table class="compact">
+    <tr><th></th><th>2.0</th><th>3.0</th></tr>
+    <tr><td>状態・入力</td><td>並べる</td><td>並べる</td></tr>
+    <tr><td>パラメータ</td><td>並べない</td><td>並べる</td></tr>
+    <tr><td>time</td><td>定義があれば並べる</td><td>並べる</td></tr>
+    <tr><td>省略</td><td colspan="2">すべてに依存（安全側）</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">求め方</span>
+  <h1>解く順にブロックの依存を足す</h1>
+  <ul>
+    <li><code>analyze_dependencies</code>: ブロックが参照する既知の値と、参照する未知数のブロックの集合の和</li>
+    <li>代数ループは塊ごと。新しいグラフ算法は無い</li>
+    <li>離散変数・<code>pre</code>・条件を介するもの、インデックス 2 以上は書かない</li>
+    <li>P5b と P5a（Rumoca の XML への後処理）の両方で書く</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">確認</span>
+  <h1>LinearSystem で y2 は u に依らない</h1>
+  <ul>
+    <li>y1 = w + 3u → x1・x2・u、y2 = x1 − x2 → x1・x2</li>
+    <li>FMPy の <code>validate_fmu</code> と simulate が通る（2.0・3.0）</li>
+    <li><code>InitialUnknown</code> と <code>dependenciesKind</code> は書かない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li><code>InitialUnknown</code> の依存（<code>initial="exact"</code> の変数と初期方程式）</li>
+    <li><code>dependenciesKind</code>（constant・fixed・tunable・discrete）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

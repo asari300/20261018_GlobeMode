@@ -102,7 +102,12 @@ fn bad_wires_are_refused_before_running() {
 }
 
 /// S253: `.ssp`（zip）を試験の中で組み立てる。`ssd` は `SystemStructure.ssd` の本文、`fmus` は `resources/<名前>.fmu` に入れる。
-fn ssp(dir: &std::path::Path, ssd: &str, fmus: &[(&str, &PathBuf)]) -> PathBuf {
+fn ssp(
+    dir: &std::path::Path,
+    ssd: &str,
+    fmus: &[(&str, &PathBuf)],
+    extra: &[(&str, &str)],
+) -> PathBuf {
     use std::io::Write;
     let path = dir.join("sys.ssp");
     let mut zip = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());
@@ -113,6 +118,10 @@ fn ssp(dir: &std::path::Path, ssd: &str, fmus: &[(&str, &PathBuf)]) -> PathBuf {
         zip.start_file(format!("resources/{name}.fmu"), opt)
             .unwrap();
         zip.write_all(&std::fs::read(fmu).unwrap()).unwrap();
+    }
+    for (name, body) in extra {
+        zip.start_file(*name, opt).unwrap();
+        zip.write_all(body.as_bytes()).unwrap();
     }
     zip.finish().unwrap();
     path
@@ -153,7 +162,12 @@ fn ssp_gives_the_same_csv_as_the_json_spec() {
         }),
     );
     assert!(json.status.success());
-    let file = ssp(&dir, &SSD.replace("EXTRA", ""), &[("a", &a), ("b", &b)]);
+    let file = ssp(
+        &dir,
+        &SSD.replace("EXTRA", ""),
+        &[("a", &a), ("b", &b)],
+        &[],
+    );
     let out = Command::new(env!("CARGO_BIN_EXE_globe"))
         .args(["fmu", "cosim"])
         .arg(&file)
@@ -178,7 +192,7 @@ fn ssp_refuses_nested_system() {
     };
     let dir = scratch("4");
     let ssd = SSD.replace("EXTRA", r#"<ssd:System name="inner"/>"#);
-    let file = ssp(&dir, &ssd, &[("a", &a), ("b", &b)]);
+    let file = ssp(&dir, &ssd, &[("a", &a), ("b", &b)], &[]);
     let out = Command::new(env!("CARGO_BIN_EXE_globe"))
         .args(["fmu", "cosim"])
         .arg(&file)
@@ -187,6 +201,82 @@ fn ssp_refuses_nested_system() {
     assert!(!out.status.success());
     let err = String::from_utf8_lossy(&out.stderr);
     assert!(err.contains("入れ子の System"), "{err}");
+}
+
+/// S263: Dahlquist 1 つの SSP。`binding` は `<ssd:Component name="a">` の子（ParameterBindings）。
+fn dahlquist_ssd(binding: &str) -> String {
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<ssd:SystemStructureDescription xmlns:ssd="http://ssp-standard.org/SSP1/SystemStructureDescription"
+  xmlns:ssv="http://ssp-standard.org/SSP1/SystemStructureParameterValues" name="demo" version="2.0">
+  <ssd:System name="top"><ssd:Elements>
+    <ssd:Component name="a" source="resources/a.fmu">{binding}</ssd:Component>
+  </ssd:Elements></ssd:System>
+  <ssd:DefaultExperiment startTime="0" stopTime="1"/>
+</ssd:SystemStructureDescription>"#
+    )
+}
+
+const SSV: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<ssv:ParameterSet xmlns:ssv="http://ssp-standard.org/SSP1/SystemStructureParameterValues" version="2.0" name="p">
+  <ssv:Parameters>
+    <ssv:Parameter name="k"><ssv:Real value="2"/></ssv:Parameter>
+    <ssv:Parameter name="not_in_the_fmu"><ssv:Integer value="7"/></ssv:Parameter>
+  </ssv:Parameters>
+</ssv:ParameterSet>"#;
+
+fn run_ssp(file: &std::path::Path) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_globe"))
+        .args(["fmu", "cosim"])
+        .arg(file)
+        .args(["--step", "0.1"])
+        .output()
+        .unwrap()
+}
+
+/// S263: `.ssv` の参照とインラインの `ParameterSet` は `start` になる（k = 2 なら x(1) は 0.8^10。FMU に無い名前は無視）。
+#[test]
+fn ssp_parameter_bindings_set_start_values() {
+    let Some(a) = reference_fmu("2.0", "Dahlquist") else {
+        return;
+    };
+    let dir = scratch("7");
+    let by_file = dahlquist_ssd(
+        r#"<ssd:ParameterBindings><ssd:ParameterBinding source="resources/p.ssv"/></ssd:ParameterBindings>"#,
+    );
+    let inline = dahlquist_ssd(
+        r#"<ssd:ParameterBindings><ssd:ParameterBinding>
+          <ssd:ParameterValues><ssv:ParameterSet version="2.0" name="i"><ssv:Parameters>
+            <ssv:Parameter name="k"><ssv:Real value="1"/></ssv:Parameter>
+          </ssv:Parameters></ssv:ParameterSet></ssd:ParameterValues>
+        </ssd:ParameterBinding>
+        <ssd:ParameterBinding><ssd:ParameterValues><ssv:ParameterSet version="2.0" name="j"><ssv:Parameters>
+            <ssv:Parameter name="k"><ssv:Real value="2"/></ssv:Parameter>
+          </ssv:Parameters></ssv:ParameterSet></ssd:ParameterValues></ssd:ParameterBinding></ssd:ParameterBindings>"#,
+    );
+    // 後ろの binding が勝つ（5.2.3）ので、インラインの 2 本は k = 2
+    for (ssd, extra) in [(by_file, vec![("resources/p.ssv", SSV)]), (inline, vec![])] {
+        let out = run_ssp(&ssp(&dir, &ssd, &[("a", &a)], &extra));
+        let x = table(&out)["a.x"][10];
+        assert!((x - 0.8f64.powi(10)).abs() < 1e-9, "x(1) = {x}");
+    }
+}
+
+/// S263: `ParameterMapping`（.ssm）・System の階層の ParameterBindings は明確な誤り。
+#[test]
+fn ssp_refuses_parameter_mapping() {
+    let Some(a) = reference_fmu("2.0", "Dahlquist") else {
+        return;
+    };
+    let dir = scratch("8");
+    let ssd = dahlquist_ssd(
+        r#"<ssd:ParameterBindings><ssd:ParameterBinding source="resources/p.ssv">
+          <ssd:ParameterMapping source="resources/m.ssm"/></ssd:ParameterBinding></ssd:ParameterBindings>"#,
+    );
+    let out = run_ssp(&ssp(&dir, &ssd, &[("a", &a)], &[("resources/p.ssv", SSV)]));
+    assert!(!out.status.success());
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("ParameterMapping"), "{err}");
 }
 
 /// 列の名前 → 全行の値。
