@@ -189,7 +189,7 @@ impl Project {
             .map(|r| {
                 (
                     (r.file, u32::from(r.range.start()), u32::from(r.range.end())),
-                    lib.resolve(r),
+                    lib.resolve_head(r), // 先頭の部品で止める（S272 の解決。S275 の resolve は最後の名前）
                 )
             })
             .collect();
