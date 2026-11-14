@@ -304,6 +304,14 @@ fn describe(
             None,
         ));
     }
+    let dependencies = compiled
+        .dae_structure_with_knowns()
+        .ok()
+        .and_then(|(structure, known)| {
+            globe_mode_analysis::unknown_dependencies(&structure, &known)
+        })
+        .map(|deps| globe_mode_fmi::model_structure_dependencies(&variables, v3, &deps))
+        .unwrap_or_default();
     // S237: `$formal_derivative.1.x` のような内部の名前は structured の文法に合わない（FMPy の validate が断る）ので、
     // 引用符で 1 つの識別子にする
     for v in &mut variables {
@@ -352,6 +360,7 @@ fn describe(
             derivatives,
             initial_unknowns,
             event_indicators,
+            dependencies,
         },
     };
     if v3 {

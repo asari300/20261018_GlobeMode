@@ -43,6 +43,7 @@
 //! Rumoca に依存しない。wasm32 でも動く。
 
 use std::cmp::Reverse;
+use std::collections::{BTreeMap, BTreeSet};
 
 use globe_mode_core::{Diagnostic, Stage, codes};
 use globe_mode_ir::{DaeStructure, InitStructure, UnknownKind};
@@ -511,6 +512,89 @@ pub fn analyze_blt(structure: &DaeStructure, index: &IndexReport) -> BltReport {
     }
 }
 
+/// S266: 未知数ごとの、既知の値（状態・入力・パラメータ・`time`）への依存の閉包（FMI の `dependencies` 用）。
+///
+/// [`analyze_blt`] と同じ解く系で、ブロックを解く順（依存の先が先）に、ブロックの方程式が直接参照する既知の値と、
+/// 参照する未知数のブロックの依存を足していく。ブロックの未知数は同じ集合を共有する（代数ループは塊ごと）。
+/// 状態は `der(x)` の名前の `x`（`state_refs`）、入力・パラメータ・`time` は `known` の名前（`time` は `"time"`）。
+///
+/// 戻りは [`DaeStructure::unknowns`] と同じ順。言い切れない未知数（離散変数などを参照するブロックと、それに依る
+/// ブロック）は `None`（FMI では「すべてに依存」の意味で、`dependencies` を書かない）。系を解けない・
+/// 状態選択の前の見込み（インデックス 2 以上）のときは全体が `None`。
+pub fn analyze_dependencies(
+    structure: &DaeStructure,
+    index: &IndexReport,
+    known: &globe_mode_ir::KnownRefs,
+) -> Option<Vec<Option<BTreeSet<String>>>> {
+    let n = structure.equations.len();
+    if known.names.len() != n || known.time.len() != n || known.opaque.len() != n {
+        return None;
+    }
+    let Solved {
+        system,
+        mate_u,
+        blt,
+        ..
+    } = solve(structure, index).ok()?;
+    if system.reduced {
+        return None;
+    }
+    let mut of_block: Vec<Option<BTreeSet<String>>> = Vec::with_capacity(blt.n_blocks());
+    for b in 0..blt.n_blocks() {
+        let deps = (|| {
+            let mut set = BTreeSet::new();
+            for &e in blt.block(b) {
+                if known.opaque[e] {
+                    return None;
+                }
+                set.extend(known.names[e].iter().cloned());
+                if known.time[e] {
+                    set.insert("time".to_string());
+                }
+                for &u in &structure.state_refs[e] {
+                    let name = &structure.unknowns[u as usize].name;
+                    let state = name.strip_prefix("der(").and_then(|n| n.strip_suffix(')'));
+                    set.insert(state.unwrap_or(name).to_string());
+                }
+                for (u, _) in system.row(e) {
+                    let other = blt.block_of[mate_u[u]];
+                    if other != b {
+                        set.extend(of_block[other].as_ref()?.iter().cloned());
+                    }
+                }
+            }
+            Some(set)
+        })();
+        of_block.push(deps);
+    }
+    Some(
+        (0..structure.unknowns.len())
+            .map(|u| of_block[blt.block_of[mate_u[u]]].clone())
+            .collect(),
+    )
+}
+
+/// S266: [`analyze_dependencies`] を未知数の名前で引けるようにしたもの（S7 の結果も内部で求める）。
+/// 言い切れない未知数（`None`）は含めない。
+pub fn unknown_dependencies(
+    structure: &DaeStructure,
+    known: &globe_mode_ir::KnownRefs,
+) -> Option<BTreeMap<String, BTreeSet<String>>> {
+    let deps = analyze_dependencies(
+        structure,
+        &crate::pantelides::analyze_index(structure),
+        known,
+    )?;
+    Some(
+        structure
+            .unknowns
+            .iter()
+            .zip(deps)
+            .filter_map(|(u, d)| Some((u.name.clone(), d?)))
+            .collect(),
+    )
+}
+
 /// 解く系（方程式 × 未知数の列）。行は昇順・重複なしで、参照ごとに非線形かを持つ。
 #[derive(Debug)]
 struct System {
@@ -862,6 +946,50 @@ mod tests {
     use crate::testutil::{FILE, XorShift, dae, structure};
     use globe_mode_core::{Severity, TextRange};
     use globe_mode_ir::InitVariable;
+
+    /// S266: 状態・入力・パラメータ・time への依存が、代数変数と代数ループを経由して伝わる。離散の参照は `None` が伝わる。
+    #[test]
+    fn dependencies_follow_the_solving_order() {
+        // der(x) = -x + u ; z = 2x ; y = z + p t ; a = b + u ; b = a + x（ループ）; q = (離散) ; r = q + x
+        let s = dae(
+            &["x"],
+            &["z", "y", "a", "b", "q", "r"],
+            &[
+                ("der(x)", &["der(x)", "x"]),
+                ("z", &["z", "x"]),
+                ("y", &["y", "z"]),
+                ("a", &["a", "b"]),
+                ("b", &["b", "a", "x"]),
+                ("q", &["q"]),
+                ("r", &["r", "q", "x"]),
+            ],
+        );
+        let known = globe_mode_ir::KnownRefs {
+            names: vec![
+                vec!["u".into()],
+                vec![],
+                vec!["p".into()],
+                vec!["u".into()],
+                vec![],
+                vec![],
+                vec![],
+            ],
+            time: vec![false, false, true, false, false, false, false],
+            opaque: vec![false, false, false, false, false, true, false],
+        };
+        let d = analyze_dependencies(&s, &analyze_index(&s), &known).expect("解ける");
+        let of = |n: &str| {
+            let u = s.unknowns.iter().position(|u| u.name == n).unwrap();
+            d[u].as_ref()
+                .map(|d| d.iter().map(String::as_str).collect::<Vec<_>>())
+        };
+        assert_eq!(of("der(x)"), Some(vec!["u", "x"]));
+        assert_eq!(of("y"), Some(vec!["p", "time", "x"]));
+        assert_eq!(of("a"), Some(vec!["u", "x"]));
+        assert_eq!(of("b"), Some(vec!["u", "x"]));
+        assert_eq!(of("q"), None);
+        assert_eq!(of("r"), None);
+    }
 
     /// 方程式ごとの非線形の参照を付ける。
     fn with_nonlinear(mut s: DaeStructure, nonlinear: &[&[u32]]) -> DaeStructure {

@@ -20,7 +20,7 @@
 use std::collections::HashMap;
 
 use globe_mode_core::TextRange;
-use globe_mode_ir::{DaeStructure, EquationOrigin, EquationRow, Unknown, UnknownKind};
+use globe_mode_ir::{DaeStructure, EquationOrigin, EquationRow, KnownRefs, Unknown, UnknownKind};
 use rumoca_compile::compile::{
     ContinuousOwnerView, CoordinateView, Dae, DaeProvenance, DaeView, VariableRole,
 };
@@ -43,6 +43,11 @@ pub(crate) enum Key {
 
 /// DAE の構造を取り出す。射影できない式があれば Err（理由）。panic しても Err にする。
 pub(crate) fn extract(dae: &Dae) -> Result<DaeStructure, String> {
+    extract_with_knowns(dae).map(|(structure, _)| structure)
+}
+
+/// [`extract`] と、方程式が参照する入力・パラメータ・`time`（S266。FMU の `dependencies` 用）。
+pub(crate) fn extract_with_knowns(dae: &Dae) -> Result<(DaeStructure, KnownRefs), String> {
     let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         dae.inspect(|view| extract_view(dae, view))
     }));
@@ -115,7 +120,7 @@ pub(crate) fn unknowns_and_keys<'dae>(
     Ok((unknowns, keys))
 }
 
-fn extract_view<'dae>(dae: &Dae, view: DaeView<'dae>) -> Result<DaeStructure, String> {
+fn extract_view<'dae>(dae: &Dae, view: DaeView<'dae>) -> Result<(DaeStructure, KnownRefs), String> {
     let locate = |provenance: DaeProvenance| location(dae, provenance);
     let (unknowns, keys) = unknowns_and_keys(dae, view)?;
     // 未知数の添字から、その族へ
@@ -127,6 +132,22 @@ fn extract_view<'dae>(dae: &Dae, view: DaeView<'dae>) -> Result<DaeStructure, St
         };
     }
     let mut linearity = Linearity::new(view);
+    // 入力・パラメータのスカラーの名前（S266）
+    let mut known_names: HashMap<(u32, u32), String> = HashMap::new();
+    for (id, variable) in view.variables() {
+        if matches!(
+            variable.role(),
+            VariableRole::Input | VariableRole::Parameter
+        ) {
+            for scalar in 0..variable.value_type().scalar_count().unwrap_or(0) {
+                let base = variable
+                    .scalar_name(scalar)
+                    .unwrap_or_else(|| variable.name().to_string());
+                known_names.insert((id.index(), scalar as u32), base);
+            }
+        }
+    }
+    let mut knowns = KnownRefs::default();
 
     // 方程式（Rumoca の visit_owner_rows と同じ順）
     let mut equations = Vec::new();
@@ -143,6 +164,7 @@ fn extract_view<'dae>(dae: &Dae, view: DaeView<'dae>) -> Result<DaeStructure, St
         let mut row: Vec<u32> = Vec::new();
         // 状態そのもの（x）を参照しているときの、その状態の der(x) の添字
         let mut states: Vec<u32> = Vec::new();
+        let (mut names, mut time, mut opaque) = (Vec::<String>::new(), false, false);
         for_each_scalar_coordinate_cached(
             view,
             expression,
@@ -169,8 +191,17 @@ fn extract_view<'dae>(dae: &Dae, view: DaeView<'dae>) -> Result<DaeStructure, St
                             states.push(u);
                         }
                     }
-                    // 既知の値（パラメータ・入力・離散・pre・time など）
-                    _ => {}
+                    CoordinateView::Input(v) => {
+                        names.extend(known_names.get(&(v.index(), scalar)).cloned());
+                    }
+                    CoordinateView::Parameter(v) => {
+                        names.extend(known_names.get(&(v.index(), scalar)).cloned());
+                    }
+                    CoordinateView::Time => time = true,
+                    // 定数・ループの添字・関数の引数は連続の依存に効かない
+                    CoordinateView::Binder(_) | CoordinateView::FunctionParameter(_) => {}
+                    // 離散変数・pre・条件など（S266: FMU の dependencies は言い切らない）
+                    _ => opaque = true,
                 }
             },
         )
@@ -194,6 +225,11 @@ fn extract_view<'dae>(dae: &Dae, view: DaeView<'dae>) -> Result<DaeStructure, St
             file,
             range,
         });
+        names.sort_unstable();
+        names.dedup();
+        knowns.names.push(names);
+        knowns.time.push(time);
+        knowns.opaque.push(opaque);
         incidence.push(row);
         state_refs.push(states);
         nonlinear.push(row_nonlinear);
@@ -233,13 +269,16 @@ fn extract_view<'dae>(dae: &Dae, view: DaeView<'dae>) -> Result<DaeStructure, St
         }
     }
 
-    Ok(DaeStructure {
-        unknowns,
-        equations,
-        incidence,
-        state_refs,
-        nonlinear,
-    })
+    Ok((
+        DaeStructure {
+            unknowns,
+            equations,
+            incidence,
+            state_refs,
+            nonlinear,
+        },
+        knowns,
+    ))
 }
 
 /// 未知数の族（変数の添字）。非線形の判定はこの単位で行う。

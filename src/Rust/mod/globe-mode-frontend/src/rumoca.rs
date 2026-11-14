@@ -220,6 +220,13 @@ impl CompiledModel {
         caught.unwrap_or_default()
     }
 
+    /// S266: 方程式 × 未知数の構造と、方程式が参照する入力・パラメータ・`time`（FMU の `dependencies` 用）。
+    pub fn dae_structure_with_knowns(
+        &self,
+    ) -> Result<(globe_mode_ir::DaeStructure, globe_mode_ir::KnownRefs), String> {
+        crate::structure::extract_with_knowns(&self.dae)
+    }
+
     /// Rumoca の DAE。`globe-mode-exec` だけが使う。
     #[doc(hidden)]
     pub fn rumoca_dae(&self) -> &Arc<Dae> {

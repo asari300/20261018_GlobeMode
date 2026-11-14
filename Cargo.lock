@@ -1473,6 +1473,7 @@ dependencies = [
 name = "globe-mode-fmi"
 version = "0.2.0"
 dependencies = [
+ "globe-mode-analysis",
  "globe-mode-frontend",
  "roxmltree",
  "zip",
@@ -1501,6 +1502,7 @@ dependencies = [
 name = "globe-mode-fmu"
 version = "0.2.0"
 dependencies = [
+ "globe-mode-analysis",
  "globe-mode-exec",
  "globe-mode-fmi",
  "globe-mode-frontend",
