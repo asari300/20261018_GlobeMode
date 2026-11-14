@@ -484,6 +484,18 @@ impl Workspace {
         .to_string()
     }
 
+    /// 図の部品 `part` の宣言とつながる `connect` を消す TextEdit の配列の JSON（S281。LSP の `globe/deletePart` と同じ形）。消せなければ `null`。ファイルは書かない。
+    pub fn delete_part(&self, class: &str, text: &str, part: &str) -> String {
+        let at = (!text.is_empty()).then_some((text, 0, 0));
+        globe_mode_lsp::diagram::delete_part(class, at, part).to_string()
+    }
+
+    /// 図の `connect(from, to)` を消す TextEdit の配列の JSON（S281。LSP の `globe/deleteConnect` と同じ形）。無ければ `null`。ファイルは書かない。
+    pub fn delete_connect(&self, class: &str, text: &str, from: &str, to: &str) -> String {
+        let at = (!text.is_empty()).then_some((text, 0, 0));
+        globe_mode_lsp::diagram::delete_connect(class, at, from, to).to_string()
+    }
+
     /// 名前を `new_name` に変える TextEdit（`{range, newText}`）の配列の JSON（S161。LSP の `globe/rename` と同じ形）。
     /// 断る場合（部品でもクラスでもない・別のファイルのクラス・識別子でない・予約語・同じ階層に既にある）は理由を例外（文字列）で返す。
     pub fn rename(

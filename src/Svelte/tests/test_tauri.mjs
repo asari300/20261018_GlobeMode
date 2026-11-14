@@ -69,6 +69,11 @@ assert.deepEqual(calls, [["rpc", { method: "globe/movePart", params: { file: "T.
 calls.length = 0;
 assert.equal(await b.addConnect("T", "a.p", "b.n", [[0, 0], [10, 5]], { file: "T.mo" }), null);
 assert.deepEqual(calls, [["rpc", { method: "globe/addConnect", params: { file: "T.mo", class: "T", from: "a.p", to: "b.n", points: [[0, 0], [10, 5]] } }]]);
+// 図の部品・結線の削除（S281）: globe/deletePart・globe/deleteConnect に class と file を渡す
+calls.length = 0;
+assert.equal(await b.deletePart("T", "a", { file: "T.mo" }), null);
+assert.equal(await b.deleteConnect("T", "a.p", "b.n", { file: "T.mo" }), null);
+assert.deepEqual(calls, [["rpc", { method: "globe/deletePart", params: { file: "T.mo", class: "T", part: "a" } }], ["rpc", { method: "globe/deleteConnect", params: { file: "T.mo", class: "T", from: "a.p", to: "b.n" } }]]);
 // 図の部品の追加（S265）: globe/addPart に class・type・x・y と file を渡す
 calls.length = 0;
 assert.equal(await b.addPart("T", "L.Res", 12, -4, { file: "T.mo" }), null);

@@ -685,6 +685,15 @@ fn diagram_is_read_as_shape_data_from_the_document() {
         "\n  Pin pin annotation(Placement(transformation(origin = {4, 6}, extent = {{-10, -10}, {10, 10}})));"
     );
     assert_eq!(ws.add_part("T", text, "Pin; x", 0.0, 0.0), "null");
+    // S281: 部品を消すと宣言とつながる connect が一緒に消え（2 つの編集）、結線だけも消せる。無ければ null
+    let d: serde_json::Value = serde_json::from_str(&ws.delete_part("T", text, "a")).unwrap();
+    assert_eq!(d.as_array().unwrap().len(), 2, "{d}");
+    assert_eq!(d[1]["newText"], "");
+    let c: serde_json::Value =
+        serde_json::from_str(&ws.delete_connect("T", text, "b.p", "a.p")).unwrap();
+    assert_eq!(c.as_array().unwrap().len(), 1, "{c}");
+    assert_eq!(ws.delete_connect("T", text, "a.p", "x.q"), "null");
+    assert_eq!(ws.delete_part("T", text, "nope"), "null");
 }
 
 #[test]

@@ -598,7 +598,7 @@
     }
     view.focus();
   }
-  // 図の編集（S250 部品の移動・S261 結線・S265 部品の追加）: Rust が返す TextEdit の配列をエディタに 1 回の dispatch（undo 1 回）で入れる。保存はしない。足せなければ false
+  // 図の編集（S250 部品の移動・S261 結線・S265 部品の追加・S281 削除）: Rust が返す TextEdit の配列をエディタに 1 回の dispatch（undo 1 回）で入れる。保存はしない。足せなければ false
   async function editDiagram(get: (d: Diagram) => Promise<{ range: { start: { line: number; character: number }; end: { line: number; character: number } }; newText: string }[] | null>): Promise<boolean> {
     if (!diagram) return false;
     try {
@@ -614,6 +614,7 @@
   const onMove = (part: string, dx: number, dy: number) => editDiagram((d) => backend.movePart(d.class, part, dx, dy, { file }));
   const onConnect = (from: string, to: string, points: [number, number][]) => editDiagram((d) => backend.addConnect(d.class, from, to, points, { file }));
   const onAdd = (type: string, x: number, y: number) => editDiagram((d) => backend.addPart(d.class, type, x, y, { file }));
+  const onDelete = (w: { part: string } | { from: string; to: string }) => editDiagram((d) => "part" in w ? backend.deletePart(d.class, w.part, { file }) : backend.deleteConnect(d.class, w.from, w.to, { file }));
   // S265: 木の「図へ」ボタン（キーボード用）は図の中央に足す
   const addToCenter = (e: { path: string }) => diagram && onAdd(e.path, (diagram.extent[0] + diagram.extent[2]) / 2, (diagram.extent[1] + diagram.extent[3]) / 2);
   function goBack() {
@@ -966,7 +967,7 @@
   <div class="work">
     {#if msl === "loaded"}<aside class="library"><LibraryTree {backend} onOpen={openLibrary} onAdd={diagram ? addToCenter : undefined} /></aside>{/if}
     <div class="editor" id="editor" hidden={isResults} bind:this={host}></div>
-    <DocsPanel doc={docs} {icon} {diagram} {onMove} {onConnect} {onAdd} onParams={(part) => (openParams = { part })} onJump={(line) => moveTo(view.state.doc.line(line + 1).from, view.state.doc.line(line + 1).from)} />
+    <DocsPanel doc={docs} {icon} {diagram} {onMove} {onConnect} {onAdd} {onDelete} onParams={(part) => (openParams = { part })} onJump={(line) => moveTo(view.state.doc.line(line + 1).from, view.state.doc.line(line + 1).from)} />
   </div>
   <p class="hint" id="editor-help">{EDITOR_HELP}</p>
   {#if saved}<p class="note" role="status" data-saved>{saved}</p>{/if}

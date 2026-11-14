@@ -198,6 +198,14 @@ export class GlobeWorker {
   async addPart(cls, type, x, y, at) {
     return JSON.parse(await this.#call("add_part", { cls, text: this.#files.get(at.file) ?? "", type, x, y }));
   }
+  // 図の部品の削除（S281）: cls の部品 part の宣言とつながる connect を消す [{range, newText}]（複数）。at = {file}（setFile 済み）。消せなければ null
+  async deletePart(cls, part, at) {
+    return JSON.parse(await this.#call("delete_part", { cls, text: this.#files.get(at.file) ?? "", part }));
+  }
+  // 図の結線の削除（S281）: cls の connect(from, to) を消す [{range, newText}]。無ければ null
+  async deleteConnect(cls, from, to, at) {
+    return JSON.parse(await this.#call("delete_connect", { cls, text: this.#files.get(at.file) ?? "", from, to }));
+  }
   // リネーム（S161）: [{range, newText}]。部品でない・識別子でない・予約語・既にある名前は、理由つきで reject
   async rename(file, line, character, newName) {
     return JSON.parse(await this.#call("rename", { file, text: this.#files.get(file) ?? "", line, character, newName }));
