@@ -51,6 +51,13 @@ deps(ws::Workspace, model) =
 flat(ws::Workspace, model) =
     take(ccall((:gm_flat, LIB), Ptr{UInt8}, (Ptr{Cvoid}, Cstring), ws, model))
 
+# S285: 解析（JSON の文字列のまま。通らなければ {"error": ...}）。options は {"time": 1.0, "parameters": {"R": 2.0}}（省略可）。
+blt(ws::Workspace, model) =
+    take(ccall((:gm_blt, LIB), Ptr{UInt8}, (Ptr{Cvoid}, Cstring), ws, model))
+
+linearize(ws::Workspace, model, options=C_NULL) =
+    take(ccall((:gm_linearize, LIB), Ptr{UInt8}, (Ptr{Cvoid}, Cstring, Cstring), ws, model, options))
+
 simulate(ws::Workspace, model, settings=C_NULL) =
     take(ccall((:gm_simulate, LIB), Ptr{UInt8}, (Ptr{Cvoid}, Cstring, Cstring), ws, model, settings))
 

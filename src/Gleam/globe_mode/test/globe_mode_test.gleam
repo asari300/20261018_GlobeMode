@@ -114,3 +114,27 @@ pub fn read_outline_deps_flat_test() {
   assert string.contains(flat, "\"variables\":1")
   assert globe_mode.flat(ws, "NoSuchModel") == Ok("null")
 }
+
+/// S285: 解析の口（linearize・blt）。der(x) = -a x + u、y = 2 x なので A = [-3]（a = 3）。Lp は大きさ 2 の代数ループ
+pub fn analysis_linearize_blt_test() {
+  let assert Ok(ws) = globe_mode.new([])
+  let assert Ok(_) =
+    globe_mode.set_file(
+      ws,
+      "L.mo",
+      "model L parameter Real a = 1; Real x(start = 1, fixed = true); input Real u = 0; output Real y; equation der(x) = -a*x + u; y = 2*x; end L;",
+    )
+  let assert Ok(_) =
+    globe_mode.set_file(
+      ws,
+      "Lp.mo",
+      "model Lp Real x; Real y; equation x + y = time; x - 2*y = 1; end Lp;",
+    )
+  let assert Ok(lin) =
+    globe_mode.linearize(ws, "L", "{\"parameters\": {\"a\": 3}}")
+  assert string.contains(lin, "\"A\":[[-2.99999")
+  let assert Error(_) = globe_mode.linearize(ws, "NoSuch", "{}")
+  let assert Ok(blt) = globe_mode.blt(ws, "Lp")
+  assert string.contains(blt, "\"algebraic_loop\":true")
+  let assert Error(_) = globe_mode.blt(ws, "NoSuch")
+}

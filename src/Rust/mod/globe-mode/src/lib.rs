@@ -47,6 +47,12 @@ pub use globe_mode_db as db;
 pub use globe_mode_exec as exec;
 pub use globe_mode_exec::{CancelToken, ExecStage, Linearization, Progress};
 
+/// 診断の列の先頭を `コード: 文` にする（誤りの文字列が要る口用。S285）。
+fn first_diagnostic(ds: Vec<Diagnostic>) -> String {
+    ds.first()
+        .map_or_else(String::new, |d| format!("{}: {}", d.code, d.message))
+}
+
 /// 線形化の結果の JSON（`globe linearize --json`・LSP `globe/linearize`・wasm `linearize` で共通。S260）。
 pub fn linearization_json(model: &str, l: &Linearization) -> serde_json::Value {
     serde_json::json!({
@@ -549,6 +555,34 @@ impl Workspace {
     /// 方程式の BLT 分解（解く順のブロック。大きさ 2 以上が代数ループ）。検査が通らなければ診断。
     pub fn blt(&mut self, model: &str) -> Result<BltReport, Vec<Diagnostic>> {
         self.db.blt(model)
+    }
+
+    /// `blt` の JSON（C ABI・NIF 用。S285）。診断で失敗したら最初の診断の `コード: 文`。
+    pub fn blt_json(&mut self, model: &str) -> Result<String, String> {
+        self.blt(model)
+            .map_err(first_diagnostic)
+            .and_then(|r| to_json(&r))
+    }
+
+    /// `linearize` の JSON（`linearization_json` の形。C ABI・NIF 用。S285）。`options` は NULL 相当の None か
+    /// `{"time": 1.0, "parameters": {"R": 2.0}}`（どちらも省略可）。
+    pub fn linearize_json(&mut self, model: &str, options: Option<&str>) -> Result<String, String> {
+        #[derive(serde::Deserialize, Default)]
+        #[serde(deny_unknown_fields)]
+        struct Options {
+            time: Option<f64>,
+            #[serde(default)]
+            parameters: BTreeMap<String, f64>,
+        }
+        let o: Options = options
+            .map(serde_json::from_str)
+            .transpose()
+            .map_err(|e| format!("options が読めない: {e}"))?
+            .unwrap_or_default();
+        let l = self
+            .linearize(model, &o.parameters, o.time)
+            .map_err(first_diagnostic)?;
+        to_json(&linearization_json(model, &l))
     }
 
     /// `check` に渡すファイル（モデルが使うものの閉包。パスの昇順）。モデルが無ければ空。

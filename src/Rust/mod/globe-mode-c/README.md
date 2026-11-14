@@ -2,7 +2,7 @@
 
 GlobeMode の C ABI（P7、S075）。facade `globe-mode` の `Workspace` を C の関数で包む。入出力は JSON の文字列で、ロジックは Rust 側に置く。関数の一覧と約束はヘッダ [`include/globe_mode.h`](include/globe_mode.h) にある（手書き。`tests/header.rs` が `src/lib.rs` の署名と突き合わせる）。
 
-`gm_outline(ws, path)`・`gm_deps(ws, model)`・`gm_flat(ws, model)` は読み取り（S191。`globe outline` / `deps` / `flat --json` と同じ JSON）。`gm_simulate_columns` の JSON の `defaults` は既定で描く信号の名前（S190）。
+`gm_outline(ws, path)`・`gm_deps(ws, model)`・`gm_flat(ws, model)` は読み取り（S191。`globe outline` / `deps` / `flat --json` と同じ JSON）。`gm_blt(ws, model)`・`gm_linearize(ws, model, options_json)` は解析（S285。`globe blt` / `linearize --json` と同じ JSON。`options_json` は NULL か `{"time": 1.0, "parameters": {"R": 2.0}}`。通らなければ `{"error": "コード: 文"}`）。`gm_simulate_columns` の JSON の `defaults` は既定で描く信号の名前（S190）。
 
 English: the C ABI of GlobeMode (`libglobe_mode_c.so`); `include/globe_mode.h` lists the functions. Strings returned as `char*` are JSON and must be freed with `gm_string_free`. Zig and Julia call this ABI ([`src/Zig`](../../../Zig/README.md), [`src/Julia`](../../../Julia/README.md)).
 

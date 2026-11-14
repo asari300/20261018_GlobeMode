@@ -317,6 +317,34 @@ pub unsafe extern "C" fn gm_flat(ws: *mut GmWorkspace, model: *const c_char) -> 
     })
 }
 
+/// 方程式の BLT 分解（`BltReport` の JSON。`globe blt --json` と同じ。S285）。検査が通らなければ `{"error": "コード: 文"}`。
+///
+/// # Safety
+///
+/// `ws` は生きているワークスペース、`model` は NUL 終端の UTF-8 の文字列。
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn gm_blt(ws: *mut GmWorkspace, model: *const c_char) -> *mut c_char {
+    guard(|| ws_arg(ws)?.blt_json(str_arg(model, "model")?))
+}
+
+/// 線形化（`globe linearize --json` と同じ形の JSON。S254・S285）。`options_json` は NULL 可
+/// （`{"time": 1.0, "parameters": {"R": 2.0}}`）。DAE まで変換できなければ `{"error": "コード: 文"}`。
+///
+/// # Safety
+///
+/// `ws` は生きているワークスペース、`model` は NUL 終端の UTF-8 の文字列、`options_json` は NULL か同じ。
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn gm_linearize(
+    ws: *mut GmWorkspace,
+    model: *const c_char,
+    options_json: *const c_char,
+) -> *mut c_char {
+    guard(|| {
+        let options = opt_str_arg(options_json, "options_json")?;
+        ws_arg(ws)?.linearize_json(str_arg(model, "model")?, options)
+    })
+}
+
 /// 検査 → コンパイル → 実行（`SimulateResponse` の JSON）。モデルの誤りは `ok` と `diagnostics` で返す。
 /// `settings_json` は NULL 可（`{"stop_time": 2, "solver": "bdf"}` など）。
 ///
@@ -816,6 +844,40 @@ mod tests {
         assert_eq!(offset_of!(GmProgress, has_time), 16);
         assert_eq!(offset_of!(GmProgress, start_time), 24);
         assert_eq!(offset_of!(GmProgress, stop_time), 32);
+    }
+
+    #[test]
+    fn linearize_and_blt_return_json() {
+        unsafe {
+            let ws = gm_workspace_new(std::ptr::null());
+            let src = c"model L parameter Real a = 1; Real x(start = 1, fixed = true); input Real u = 0; output Real y; equation der(x) = -a*x + u; y = 2*x; end L;";
+            assert_eq!(gm_set_file(ws, c"L.mo".as_ptr(), src.as_ptr()), 0);
+            let lin = take(gm_linearize(
+                ws,
+                c"L".as_ptr(),
+                c"{\"parameters\": {\"a\": 3}}".as_ptr(),
+            ));
+            // 数値微分なので厳密には一致しない
+            assert!(
+                (lin["A"][0][0].as_f64().unwrap() + 3.0).abs() < 1e-4,
+                "{lin}"
+            );
+            assert!(
+                (lin["C"][0][0].as_f64().unwrap() - 2.0).abs() < 1e-4,
+                "{lin}"
+            );
+            assert!(take(gm_linearize(ws, c"No".as_ptr(), std::ptr::null()))["error"].is_string());
+            assert!(
+                take(gm_linearize(ws, c"L".as_ptr(), c"{\"nope\": 1}".as_ptr()))["error"]
+                    .is_string()
+            );
+            let lp = c"model Lp Real x; Real y; equation x + y = time; x - 2*y = 1; end Lp;";
+            assert_eq!(gm_set_file(ws, c"Lp.mo".as_ptr(), lp.as_ptr()), 0);
+            let blt = take(gm_blt(ws, c"Lp".as_ptr()));
+            assert_eq!(blt["blocks"][0]["size"], 2, "{blt}");
+            assert!(take(gm_blt(ws, c"No".as_ptr()))["error"].is_string());
+            gm_workspace_free(ws);
+        }
     }
 
     #[test]

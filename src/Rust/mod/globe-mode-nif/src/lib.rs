@@ -15,7 +15,7 @@
 //! | `new` | DirtyIo | ライブラリのファイルを読む |
 //! | `set_file` | DirtyIo | Mutex を待つ（実行が持っている間は最大 150〜180 秒）。CPU を使わないので IO 側 |
 //! | `load_dir` | DirtyIo | ファイルを読む。Mutex を待つ |
-//! | `check` `graph` `outline` `deps` `flat` | DirtyIo | Mutex を取り、モデルの大きさに比例する。S214: Mutex を待つ間 CPU を使わないので IO 側（DirtyCpu だと、実行が Mutex を持つ間に同じ ws への呼び出しがコアの数だけ待って、ほかの dirty CPU の NIF まで止める） |
+//! | `check` `graph` `outline` `deps` `flat` `blt` `linearize` | DirtyIo | Mutex を取り、モデルの大きさに比例する。S214: Mutex を待つ間 CPU を使わないので IO 側（DirtyCpu だと、実行が Mutex を持つ間に同じ ws への呼び出しがコアの数だけ待って、ほかの dirty CPU の NIF まで止める） |
 //! | `simulate` `simulate_observed` `simulate_columns` | DirtyIo | Mutex を持ったまま長く回す（同上） |
 //! | `export_fmu` | DirtyIo | Mutex を取り、ファイルを書く |
 //! | `format` `lint` | DirtyCpu | 本文の長さに比例する（Mutex は取らない） |
@@ -112,6 +112,18 @@ fn deps(ws: ResourceArc<Ws>, model: String) -> Result<String, String> {
 #[rustler::nif(schedule = "DirtyIo")]
 fn flat(ws: ResourceArc<Ws>, model: String) -> Result<String, String> {
     with(&ws, |w| json(&w.flat(&model)))
+}
+
+/// 方程式の BLT 分解（`BltReport` の JSON。S285）。通らなければ `{:error, "コード: 文"}`。
+#[rustler::nif(schedule = "DirtyIo")]
+fn blt(ws: ResourceArc<Ws>, model: String) -> Result<String, String> {
+    with(&ws, |w| w.blt_json(&model))
+}
+
+/// 線形化（`globe linearize --json` と同じ形の JSON。S285）。`options_json` は `{}` か `{"time": 1.0, "parameters": {"R": 2.0}}`。
+#[rustler::nif(schedule = "DirtyIo")]
+fn linearize(ws: ResourceArc<Ws>, model: String, options_json: String) -> Result<String, String> {
+    with(&ws, |w| w.linearize_json(&model, Some(&options_json)))
 }
 
 /// 検査 → コンパイル → 実行（`SimulateResponse` の JSON）。`settings_json` は `{"stop_time": 2}` など。
