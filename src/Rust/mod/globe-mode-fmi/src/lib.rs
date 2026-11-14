@@ -137,6 +137,16 @@ pub struct ModelStructure {
     pub event_indicators: Vec<u32>,
 }
 
+/// S251: Scheduled Execution の周期クロック 1 つ（`<Clock causality="input" intervalVariability="constant" priority="1"/>`）。
+/// 書く側だけが使う（読むときはいつも `None`）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PeriodicClock {
+    pub name: String,
+    pub value_reference: u32,
+    /// 属性 `intervalDecimal` の文字列そのまま。
+    pub interval: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModelDescription {
     /// 属性 `fmiVersion` の文字列（"2.0"、"3.0" など）。
@@ -148,6 +158,8 @@ pub struct ModelDescription {
     pub co_simulation: Option<Interface>,
     /// 3.0 のみ。
     pub scheduled_execution: Option<Interface>,
+    /// S251: 3.0 の書く側のみ。`variables` の後ろに `<Clock>` を 1 つ書く。
+    pub clock: Option<PeriodicClock>,
     pub variables: Vec<ScalarVariable>,
     /// S117 から下は書く側（[`write_model_description_2`]）のために読む。
     pub generation_tool: Option<String>,
@@ -407,6 +419,7 @@ pub fn parse_model_description(xml: &str) -> Result<ModelDescription, Error> {
         model_exchange: interface("ModelExchange")?,
         co_simulation: interface("CoSimulation")?,
         scheduled_execution: interface("ScheduledExecution")?,
+        clock: None,
         fmi_version,
         variables,
     })
@@ -609,6 +622,15 @@ fn write_model_description(md: &ModelDescription, major: u8) -> Result<String, E
                 "/>\n    </ScalarVariable>\n"
             }),
         }
+    }
+    if let (Some(c), true) = (&md.clock, v3) {
+        let _ = writeln!(
+            x,
+            "    <Clock name=\"{}\" valueReference=\"{}\" causality=\"input\" intervalVariability=\"constant\" intervalDecimal=\"{}\" priority=\"1\"/>",
+            esc(&c.name),
+            c.value_reference,
+            esc(&c.interval)
+        );
     }
     x.push_str("  </ModelVariables>\n  <ModelStructure>\n");
     let s = &md.model_structure;
