@@ -51,6 +51,7 @@ use std::sync::{Arc, Mutex};
 
 /// CLI が S10 の experiment の判定を表示するのに使う（S010）
 pub use globe_mode_analysis::preflight::ExperimentVerdict;
+pub use globe_mode_analysis::{BltBlock, BltReport};
 use globe_mode_analysis::{IndexReport, InitReport, LoopReport, PreflightReport, StructuralReport};
 use globe_mode_core::normalize::{self, SourceShape};
 use globe_mode_core::{Diagnostic, Stage, codes};
@@ -777,6 +778,24 @@ impl GlobeDb {
         let ws = self.workspace();
         let request = CheckRequest::new(self, model.to_string());
         dae_shape(self, ws, request).clone()
+    }
+
+    /// 方程式の BLT 分解（解く順のブロック）。検査（S0〜S5）が通らないときは診断（元の本文の位置）。
+    /// S7 の結果を使うので、構造特異なモデルでは `skipped` に理由が入る。
+    pub fn blt(&mut self, model: &str) -> Result<BltReport, Vec<Diagnostic>> {
+        let ws = self.workspace();
+        let request = CheckRequest::new(self, model.to_string());
+        let report = check(self, ws, request).clone();
+        let shape = dae_shape(self, ws, request).clone();
+        let index = index_report(self, ws, request).clone();
+        let (Some(structure), Some(index), true) = (shape, index, report.passed()) else {
+            return Err(report
+                .diagnostics
+                .iter()
+                .map(|d| self.to_original(d))
+                .collect());
+        };
+        Ok(globe_mode_analysis::analyze_blt(&structure, &index))
     }
 
     /// DAE まで変換したモデル（S011。実行系 `globe-mode-exec` に渡す）。salsa の外の値。

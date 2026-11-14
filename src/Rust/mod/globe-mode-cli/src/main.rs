@@ -332,6 +332,24 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// 方程式の BLT 分解（解く順のブロック。大きさ 2 以上が代数ループ）を表示する
+    #[command(
+        after_help = "例:\n  globe blt src/Modelica/GlobeModeValidation -m GlobeModeValidation.Loops.LinearLoop\n  globe blt -L data/msl -m Modelica.Electrical.Analog.Examples.ChuaCircuit --json\n\nインデックス 2 以上のモデルは Pantelides 法の最高階の系で分ける（状態選択の前の見込み）"
+    )]
+    Blt {
+        /// ファイルまたはディレクトリ。モデルがライブラリの中にあるなら省略できる
+        #[arg(required_unless_present = "library")]
+        files: Vec<PathBuf>,
+        /// ライブラリのディレクトリ（例: data/msl）。何度でも指定できる
+        #[arg(long, short = 'L')]
+        library: Vec<PathBuf>,
+        /// モデルの完全修飾名
+        #[arg(long, short)]
+        model: String,
+        /// JSON で出力する
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -460,6 +478,12 @@ fn main() -> ExitCode {
             model,
             json,
         } => flat(&files, &library, &model, json),
+        Command::Blt {
+            files,
+            library,
+            model,
+            json,
+        } => blt(&files, &library, &model, json),
         Command::Fmu {
             command:
                 FmuCommand::Export {
@@ -1238,6 +1262,76 @@ fn flat(files: &[PathBuf], library: &[PathBuf], model: &str, json: bool) -> Exit
         print_flat(model, &summary);
     }
     ExitCode::SUCCESS
+}
+
+fn blt(files: &[PathBuf], library: &[PathBuf], model: &str, json: bool) -> ExitCode {
+    let Loaded { mut ws, texts } = match load_db(files, library) {
+        Ok(Ok(v)) => v,
+        Ok(Err(diags)) => return report_early_failure(model, &diags, json, false),
+        Err(code) => return code,
+    };
+    let report = match ws.blt(model) {
+        Ok(r) => r,
+        Err(diags) => {
+            print_diagnostics(&diags, &texts, json);
+            if !json {
+                println!("{model}: BLT を作れなかった（検査が通らない）");
+            }
+            return ExitCode::from(1);
+        }
+    };
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).expect("serialize blt")
+        );
+    } else {
+        print_blt(model, &report);
+    }
+    ExitCode::SUCCESS
+}
+
+/// 大きさ 1 は 1 行、代数ループは見出しと中身を並べて目立たせる。
+fn print_blt(model: &str, r: &globe_mode::BltReport) {
+    if let Some(reason) = &r.skipped {
+        println!("{model}: BLT を作らなかった: {reason}");
+        return;
+    }
+    let loops = r.blocks.iter().filter(|b| b.algebraic_loop).count();
+    let max = r.blocks.iter().map(|b| b.size).max().unwrap_or(0);
+    let reduced = if r.reduced {
+        "（インデックス 2 以上: 最高階の系・状態選択の前の見込み）"
+    } else {
+        ""
+    };
+    println!(
+        "{model}: BLT {} ブロック・代数ループ {loops}・最大 {max}{reduced}",
+        r.blocks.len()
+    );
+    let short = |s: &str| -> String {
+        if s.chars().count() > 60 {
+            format!("{}…", s.chars().take(59).collect::<String>())
+        } else {
+            s.to_string()
+        }
+    };
+    for (i, b) in r.blocks.iter().enumerate() {
+        let n = i + 1;
+        if b.algebraic_loop {
+            let kind = if b.nonlinear { "非線形" } else { "線形" };
+            println!("  #{n:<3} ** 代数ループ（大きさ {}・{kind}） **", b.size);
+            println!("        解く変数: {}", b.variables.join(", "));
+            for e in &b.equations {
+                println!("        式: {}", short(e));
+            }
+        } else {
+            println!(
+                "  #{n:<3} 1  {} <- {}",
+                b.variables[0],
+                short(&b.equations[0])
+            );
+        }
+    }
 }
 
 fn fmu_export(
