@@ -387,6 +387,105 @@ impl ModelInstance {
     }
 }
 
+/// 線形化の結果（S254）。`dx/dt ≈ A·dx + B·du`、`dy ≈ C·dx + D·du`（行列は行ごとの `Vec`。A は n×n、B は n×m、C は p×n、D は p×m）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct Linearization {
+    /// 線形化した時刻
+    pub time: f64,
+    /// 状態の名前（A の行・列の順）
+    pub states: Vec<String>,
+    /// 入力（top-level の `input` の Real）の名前（B・D の列の順）
+    pub inputs: Vec<String>,
+    /// 出力（top-level の `output` の Real）の名前（C・D の行の順）
+    pub outputs: Vec<String>,
+    /// 線形化した点の状態・入力・出力の値
+    pub x0: Vec<f64>,
+    pub u0: Vec<f64>,
+    pub y0: Vec<f64>,
+    pub a: Vec<Vec<f64>>,
+    pub b: Vec<Vec<f64>>,
+    pub c: Vec<Vec<f64>>,
+    pub d: Vec<Vec<f64>>,
+}
+
+impl ModelInstance {
+    /// 今の時刻・状態・入力での線形化（S254）。状態と入力を 1 つずつ中心差分でずらし、微分 `f` と出力 `y` の変化を見る。
+    /// 代数変数はずらすたびに [`Self::derivatives`]・[`Self::variable_values`] が解き直す。終わったら状態と入力を元に戻す。
+    // shortcut: 解析ヤコビ行列でなく数値の中心差分（誤差は 1e-8 程度）。不連続（事象の境）をまたぐ点では値が合わない。
+    // 精度が要るなら Rumoca の解析ヤコビ行列に替える
+    pub fn linearize(&mut self) -> Result<Linearization, String> {
+        let vars: Vec<Variable> = self.variables().cloned().collect();
+        let pick = |role| {
+            vars.iter()
+                .enumerate()
+                .filter(|(_, v)| v.role == role && v.value_type == ValueType::Real)
+                .map(|(i, v)| (i, v.name.clone()))
+                .collect::<Vec<_>>()
+        };
+        let (inputs, outputs) = (pick(VariableRole::Input), pick(VariableRole::Output));
+        let x0 = self.states.clone();
+        let all0 = self.variable_values()?;
+        let u0: Vec<f64> = inputs.iter().map(|&(i, _)| all0[i]).collect();
+        let y0: Vec<f64> = outputs.iter().map(|&(i, _)| all0[i]).collect();
+        let (n, m, p) = (x0.len(), inputs.len(), outputs.len());
+        let out_idx: Vec<usize> = outputs.iter().map(|&(i, _)| i).collect();
+        let (mut a, mut b) = (vec![vec![0.0; n]; n], vec![vec![0.0; m]; n]);
+        let (mut c, mut d) = (vec![vec![0.0; n]; p], vec![vec![0.0; m]; p]);
+        for j in 0..n {
+            let at = |s: &mut Self, v: f64| {
+                let mut x = x0.clone();
+                x[j] = v;
+                s.set_states(&x)
+            };
+            let (df, dy) = self.central_difference(&out_idx, x0[j], at)?;
+            (0..n).for_each(|i| a[i][j] = df[i]);
+            (0..p).for_each(|i| c[i][j] = dy[i]);
+        }
+        for (j, (_, name)) in inputs.iter().enumerate() {
+            let at = |s: &mut Self, v: f64| s.set_input(name, v);
+            let (df, dy) = self.central_difference(&out_idx, u0[j], at)?;
+            (0..n).for_each(|i| b[i][j] = df[i]);
+            (0..p).for_each(|i| d[i][j] = dy[i]);
+        }
+        Ok(Linearization {
+            time: self.time,
+            states: self.state_names.clone(),
+            inputs: inputs.into_iter().map(|(_, n)| n).collect(),
+            outputs: outputs.into_iter().map(|(_, n)| n).collect(),
+            x0: self.states.clone(),
+            u0,
+            y0,
+            a,
+            b,
+            c,
+            d,
+        })
+    }
+
+    /// `set` で 1 つの値を `v0` の前後にずらして微分と出力（`out_idx` は [`Self::variables`] の位置）の中心差分を返し、`v0` に戻す。
+    fn central_difference(
+        &mut self,
+        out_idx: &[usize],
+        v0: f64,
+        set: impl Fn(&mut Self, f64) -> Result<(), String>,
+    ) -> Result<(Vec<f64>, Vec<f64>), String> {
+        // 中心差分の最適な刻みは eps^(1/3)（丸めと打ち切りの釣り合い）。代数ループの許容誤差 1e-10 に埋もれないよう √eps より大きく取る
+        let h = f64::EPSILON.cbrt() * v0.abs().max(1.0);
+        let at = |s: &mut Self, v: f64| -> Result<(Vec<f64>, Vec<f64>), String> {
+            set(s, v)?;
+            let all = s.variable_values()?;
+            Ok((s.derivatives()?, out_idx.iter().map(|&i| all[i]).collect()))
+        };
+        let (fp, yp) = at(self, v0 + h)?;
+        let (fm, ym) = at(self, v0 - h)?;
+        set(self, v0)?;
+        let diff = |p: Vec<f64>, m: Vec<f64>| -> Vec<f64> {
+            p.iter().zip(&m).map(|(p, m)| (p - m) / (2.0 * h)).collect()
+        };
+        Ok((diff(fp, fm), diff(yp, ym)))
+    }
+}
+
 impl ModelInstance {
     /// 事象指示関数の数（root の条件の数）。
     pub fn n_event_indicators(&self) -> usize {

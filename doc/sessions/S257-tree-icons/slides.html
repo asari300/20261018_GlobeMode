@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S257 木のアイコン — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S257 木のアイコン">
+
+<section class="slide" id="S01">
+  <span class="tag">S257 · 2026-11-15 · P4</span>
+  <h1>ライブラリの木の行にアイコン</h1>
+  <p class="lead">各クラスの Icon を 18 px で、見えた行だけ引いて描く</p>
+  <div class="big">S244 の <code>icon</code> の口をそのまま使う。Rust・LSP は変えない</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">仕組み</span>
+  <h1>撃ちすぎない</h1>
+  <ul>
+    <li>行が画面に入ったときだけ引く（IntersectionObserver）</li>
+    <li>クラス名で memo、同時に引くのは 4 本まで（<code>tree-icons.ts</code>）</li>
+    <li>木を作り直す（MSL を読み直す）と memo は捨てる</li>
+    <li>Icon の無いクラスは何も描かない（幅だけ残す）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">アクセシビリティ</span>
+  <h1>装飾なので読み上げない</h1>
+  <ul>
+    <li><code>aria-hidden</code> の枠に入れる。ボタンの名前は今までどおりクラス名</li>
+    <li>text の図形は 18 px では読めないので描かない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">検査</span>
+  <h1>試験</h1>
+  <ul>
+    <li><code>test_tree_icons.mjs</code>: memo・同時 4 本・失敗は null</li>
+    <li><code>test_ui.py</code> の <code>tree_icons</code>: Blocks を開くと子の行に svg（18 px 以下、aria-hidden）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
