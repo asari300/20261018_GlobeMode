@@ -173,6 +173,17 @@
 
 (f) の「実装済み＝CS。ME は設計だけ」は S204 の時点の記述で、本文は書き換えない。いまは、ME を S205 で足し（(l)）、ワーカーでの隔離を S210 で足した（(n)）。S218 で、ワーカーの一時ディレクトリ（FMU の展開先）を親が作って `WorkerRequest.work_dir` で子に渡すようにした（`Fmu::open_in`。#49）ので、abort・segfault・kill で子が終わっても展開先が `/tmp` に残らない。ただし親が SIGKILL で落ちたときの親の一時ディレクトリは、`/tmp` の掃除に任せる。
 
+### (q) S249 の決定（2026-11-14）: コシミュレーションのマスターの最小版
+
+(k) の「マスター」の最初の一切れ。**Jacobi 型・固定刻み・Real だけ**。
+
+- **置き場**: `globe-mode-fmi-import` の `cosim.rs`（`CosimSpec`・`run_cosim_with`）。`FmuCs` の trait の上に載るだけで、FMI 2.0 と 3.0 の FMU を混ぜてつなげる。FMU の読み込みは今までと同じ**ワーカー（別プロセス）の中**: `WorkerRequest` に省略可の `cosim` を足し、あれば `run_in_process` がマスターを回す（FMU は親の作った展開先の下に `<名前>/` で展開）。結果は今までの `names` / `rows` の形（列は `<FMU の名前>.<変数名>`）なので、プロトコル（`H`・`R`）は変えていない。
+- **入口**: facade `run_cosim(worker, &CosimSpec, on_progress, cancel)`（`run_fmu` と同じ `run_worker` を通る。timeout・memory_limit・中断も同じ）、CLI `globe fmu cosim <spec.json> [-o out.csv]`。結線の記述は JSON: `{"fmus": {"a": "a.fmu", ...}, "connections": [["a.y", "b.u"]], "start_time", "stop_time", "step", "timeout", "memory_limit_mib"}`（未知の鍵は誤り。FMU のパスは spec.json からの相対）。
+- **アルゴリズム**: 全 FMU を初期化し、各 FMU の Float64 の出力を読んで行 0 にする。以後 1 刻みごとに、前の刻みの終わりの出力を結線の先の入力へ `set_real` し、全 FMU を `do_step(t, h)` し、出力を読んで行にする（入力は 1 刻み遅れる。代数ループは扱わないので要らない）。どれかの FMU が打ち切りを求めたら終わる。
+- **断るもの（実行の前）**: Real（Float64）でない端（Integer・Boolean など）、出力でない始点、入力でない終点（パラメータ・local を含む）、`fmus` に無い名前、`<名前>.<変数名>` の形でない端、不正な FMU の名前（英数字・`_`・`-` 以外）、Co-Simulation を持たない FMU（ME は未）。
+- **試験**（`globe-mode-cli/tests/fmu_cosim.rs`）: Reference-FMUs の Dahlquist（2.0）→ Feedthrough（3.0）。`b` の出力が `a.x` の 1 刻み前の値に**ちょうど**等しい（全 10 刻み）。パラメータへの結線は実行の前に断る。
+- **限界・持ち越し**: Gauss–Seidel など他の順序、刻み幅の制御（可変刻み・巻き戻し `fmi2SetFMUstate`）、代数ループ、Integer・Boolean の接続、FMU への初期値（`set`）、ME の FMU の混在、UI・Python・LSP の口は今回なし（facade は足したので、LSP・Python は薄く足せる）。`fmu-import.yml` への足しもしていない。
+
 ## 結果
 
 - **S229 の結果**: 上の (p)。facade・Python・Desktop の UI から FMU を読んで回せる。

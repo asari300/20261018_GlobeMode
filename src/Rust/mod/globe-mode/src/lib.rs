@@ -38,8 +38,8 @@ pub use globe_mode_sim::solvers::{SOLVERS, SolverEntry};
 mod fmu_import;
 #[cfg(feature = "fmu-import")]
 pub use fmu_import::{
-    FMU_TRUST_WARNING, FmuExperiment, FmuInfo, FmuInterface, FmuKind, FmuRun, FmuRunRequest,
-    FmuVariable, MeSummary, import_fmu_info, run_fmu,
+    CosimSpec, FMU_TRUST_WARNING, FmuExperiment, FmuInfo, FmuInterface, FmuKind, FmuRun,
+    FmuRunRequest, FmuVariable, MeSummary, import_fmu_info, run_cosim, run_fmu,
 };
 
 pub use globe_mode_db as db;
