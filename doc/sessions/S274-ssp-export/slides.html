@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S274 SSP の書き出し — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S274 SSP の書き出し">
+
+<section class="slide" id="S01">
+  <span class="tag">S274 · 2026-11-15 · P8</span>
+  <h1>spec から .ssp を書き出す</h1>
+  <p class="lead"><code>globe fmu ssp-export spec.json -o system.ssp</code></p>
+  <div class="big">書いて読み戻すと同じ CSV</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">何を書くか</span>
+  <h1>spec の項目と SSD の置き場</h1>
+  <table class="compact">
+    <tr><th>spec</th><th>SSP の中</th></tr>
+    <tr><td><code>fmus</code></td><td><code>Component</code>（<code>resources/&lt;名前&gt;.fmu</code> に FMU を写す）</td></tr>
+    <tr><td><code>connections</code></td><td><code>Connectors</code>（結線の変数だけ）と <code>Connection</code></td></tr>
+    <tr><td><code>start</code></td><td><code>ParameterBindings</code> のインライン</td></tr>
+    <tr><td><code>start_time</code>・<code>stop_time</code></td><td><code>DefaultExperiment</code></td></tr>
+    <tr><td><code>step</code>・<code>algorithm</code></td><td>独自の <code>Annotation</code>（SSD に置き場が無い）</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">試験</span>
+  <h1>往復を 2 本で確かめた</h1>
+  <ul>
+    <li>Dahlquist → Feedthrough を Jacobi と、Gauss–Seidel + <code>start</code> で書き、<code>--step</code> なしで回した CSV が JSON と一致</li>
+    <li>名前に <code>&lt;</code>・<code>&amp;</code>・<code>"</code> を含む偽の FMU でも壊れない</li>
+  </ul>
+  <pre><code>cargo test -p globe-mode-cli --test fmu_cosim ssp_export
+cargo test -p globe-mode-fmi-import --lib ssp</code></pre>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>Int32・Boolean のコネクタ（読み取りと書き出しの両方）</li>
+    <li><code>.ssm</code>、単位、入れ子の System、FMU の重複排除</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

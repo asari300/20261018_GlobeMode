@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S270 時間を測る試験の安定化 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S270 時間を測る試験の安定化">
+
+<section class="slide" id="S01">
+  <span class="tag">S270 · 2026-11-15 · 保守</span>
+  <h1>時間を測る試験の安定化</h1>
+  <p class="lead">共有ランナーで落ちる試験を、守りたい性質を保ったまま直した</p>
+  <div class="big">絶対時間をやめ、<b>同じ入力の別の大きさとの比</b>で測る</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>何が起きたか</h1>
+  <ul>
+    <li>feature の CI（run 43628763459）の rust-linux で <code>lint_time_grows_linearly</code> が落ちた。変更とは無関係</li>
+    <li>S255（#97）の「200 段・2 万項で 5 s 未満」も同じ種類</li>
+    <li>時間を測る試験を洗い出し、落ちうるものだけを直す</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>直した 3 本</h1>
+  <table>
+    <tr><th>試験</th><th>前</th><th>後</th></tr>
+    <tr><td>lint の線形</td><td>2 倍・3 回・しきい値 3</td><td>4 倍・5 回・しきい値 8</td></tr>
+    <tr><td>深い入れ子</td><td>絶対 5 s</td><td>深さ 1 との比 &lt; 50</td></tr>
+    <tr><td>FMU の中断</td><td>1.4 s</td><td>5 s（本体は「中断した」の確認）</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由</span>
+  <h1>しきい値の置き方</h1>
+  <table>
+    <tr><th>試験</th><th>正しいとき</th><th>壊したとき</th><th>しきい値</th></tr>
+    <tr><td>lint</td><td>3.4〜4.7</td><td>15.1</td><td>8</td></tr>
+    <tr><td>深い入れ子</td><td>11〜16</td><td>102</td><td>50</td></tr>
+  </table>
+  <p>どちらも両側に 2 倍以上の余裕がある。</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>for i in $(seq 20); do
+  cargo test -p globe-mode-fmt --test format -- lint_time_grows deeply_nested
+done</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">0/20</span><span class="l">落ちた回数</span></div>
+    <div class="kpi"><span class="n">2/2</span><span class="l">壊すと落ちる</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>ほかの時間の上限は、余裕が 6 倍以上あるので残した（表は解説書）</li>
+    <li>run 43628763459 のログは取れず、落ちた比の値は不明</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
