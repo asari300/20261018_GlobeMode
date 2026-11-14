@@ -4,6 +4,7 @@
 
 | S | 日付 | Phase | 題名 | ブランチ | 状態 | スライド | 解説書 | セッション記録 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| S286 | 2026-11-15 | P8 | `linearize-eigen`: 線形化の JSON・CLI に A の固有値（極）と安定性（安定 / 不安定 / 境界）を足した（facade `eigenvalues`・`stability`、nalgebra の実シューア分解） | `feature/s286-linearize-eigen` | 完了 | [slides](S286-linearize-eigen/slides.html) | [解説書](S286-linearize-eigen/解説書.md) | なし（記録が `log/local/` に無い） |
 | S285 | 2026-11-15 | P7 | `lang-linearize-blt`: 線形化 `linearize` と BLT `blt` を C ABI（`gm_linearize`・`gm_blt`）・Zig・Julia・NIF・Elixir・Gleam から呼べるようにした（facade に `linearize_json`・`blt_json`、JSON の文字列を返すだけ） | `feature/s285-lang-linearize-blt` | 完了 | [slides](S285-lang-linearize-blt/slides.html) | [解説書](S285-lang-linearize-blt/解説書.md) | なし（記録が `log/local/` に無い） |
 | S283 | 2026-11-15 | P8 | `array-connect-ends`: S281 の不具合の修正。`connect_ends` が配列の添字を落とし、`b[2].p` の結線を消すと `b[1].p` も消えた。端を添字を含めて比べる（空白は同じ、式の添字は字句の正規化）ように共有の関数を直し、図の結線の `from`・`to` も添字つきになった。`delete_part` と UI は変更なし | `feature/s283-array-connect-ends` | 完了 | [slides](S283-array-connect-ends/slides.html) | [解説書](S283-array-connect-ends/解説書.md) | 【セッション記録は省略】 |
 | S282 | 2026-11-15 | P8 | `stages-api`: S280 の変換の段ごとの要約を LSP `globe/stages`・wasm `stages`・`Backend.stages`・Python `Workspace.stages` から引けるようにした（UI のパネルは今回やらない） | `feature/s282-stages-api` | 完了 | [slides](S282-stages-api/slides.html) | [解説書](S282-stages-api/解説書.md) | なし |
