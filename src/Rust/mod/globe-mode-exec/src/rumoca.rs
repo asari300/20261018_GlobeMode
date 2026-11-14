@@ -432,7 +432,7 @@ fn result_parameters(
 enum Phase {
     /// lowering と実行系の組み立て（`build_simulation`）
     Build,
-    /// 初期化（`check_prepared_initialization`、session の道の `into_lease`）
+    /// 初期化（`check_prepared_initialization`、session の道の `into_lease`・`numerical_setup`と、BDF の `into_session`）
     Initialization,
     /// 積分（`run_prepared_simulation`、`rk45::simulate`、session の道の `run_to_stop`）
     Integration,
@@ -2022,6 +2022,30 @@ mod tests {
             classify(&unavailable, Phase::Initialization),
             Kind::Unsupported
         );
+    }
+
+    /// #5: BDF の始動（`into_session`）の段の無い数値の失敗は、ネイティブの型付きの道と同じく初期化の失敗になり、
+    /// auto は切り替えない。rk45・自前の積分器は積分の段のまま（切り替える）。
+    #[test]
+    fn a_bdf_start_failure_is_an_initialization_failure_on_the_session_route() {
+        use rumoca_solver::fmi_me::MeNumericalFailure;
+        let numerical = || {
+            SimError::from(MeSessionError::Integration(MeIntegrationError::Numerical {
+                method: "bdf",
+                category: MeNumericalFailure::Construction,
+                detail: String::new(),
+            }))
+        };
+        let bdf = session::start_phase(session::Integrator::RumocaBdf);
+        assert_eq!(bdf, Phase::Initialization);
+        assert_eq!(classify(&numerical(), bdf), Kind::Initialization);
+        assert_eq!(fallback(&numerical(), bdf), None);
+        for other in [
+            session::Integrator::RumocaRk45,
+            session::Integrator::Own(SolverId::Esdirk34),
+        ] {
+            assert_eq!(session::start_phase(other), Phase::Integration);
+        }
     }
 
     #[test]

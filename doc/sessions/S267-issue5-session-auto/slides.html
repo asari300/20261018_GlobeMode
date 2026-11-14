@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S267 issue5-session-auto — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S267 issue5-session-auto">
+
+<section class="slide" id="S01">
+  <span class="tag">S267 · 2026-11-15 · P3</span>
+  <h1>#5: session の道の BDF の始動の段</h1>
+  <p class="lead">wasm とネイティブで、BDF が始められない失敗の段を揃えた</p>
+  <div class="big">issue の例は直っていた。残る差は <b>into_session の段</b> だけ</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">確かめた</span>
+  <h1>今の main で何が起きるか</h1>
+  <ul>
+    <li>GenerationOfFMUs は ADR-0015 から両方の道で GM-U0004 で止まる</li>
+    <li>小さなモデル 13 本で bdf・auto の診断が両方の道で一致</li>
+    <li>fallback() は元から共有の関数。差は段だけ</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>直し方</h1>
+  <table>
+    <tr><th>積分器</th><th>into_session の失敗の段</th><th>理由</th></tr>
+    <tr><td>BDF</td><td>Initialization</td><td>ネイティブは同じ呼び出しを初期化の中で回す</td></tr>
+    <tr><td>rk45・自前</td><td>Integration のまま</td><td>ネイティブも積分の段。esdirk34 の失敗は dopri45 へ回る</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">再現手順</span>
+  <h1>検証</h1>
+  <pre><code>cargo test -p globe-mode-exec</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">69</span><span class="l">本 pass</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">clippy 警告</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>モデルでの再現は無い。見つかれば両方の道を比べる試験を足す</li>
+    <li>wasm:node・wasm:compare は CI に任せた</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
