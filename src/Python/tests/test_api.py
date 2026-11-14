@@ -118,3 +118,12 @@ def test_ctrl_c_raises_keyboard_interrupt():
             wiggle().simulate("Wiggle", on_progress=lambda p: None, **WIGGLE_SETTINGS)
     finally:
         timer.cancel()
+
+
+def test_blt_lists_the_algebraic_loop():
+    # S262: LinearLoop は大きさ 2 の代数ループが 1 つ。通らないモデルは SourceError
+    ws = Workspace(libraries=[MODELICA])
+    blocks = ws.blt("GlobeModeValidation.Loops.LinearLoop")
+    assert [b["size"] for b in blocks if b["algebraic_loop"]] == [2]
+    with pytest.raises(ValueError):
+        ws.blt("No.Such.Model")

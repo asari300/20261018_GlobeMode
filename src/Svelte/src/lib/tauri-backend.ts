@@ -1,7 +1,7 @@
 import type { Backend, CompletionEntry, Definition, Diagram, Documentation, FmuInfo, FmuRunRequest, FmuRuntime, Hover, Icon, LintMessage, Progress, TreeEntry } from "./backend";
 import type { Columns } from "./plot/csv";
 import { isFmuFile, isResultsFile, toColumns, type ResultColumns, type ResultParam } from "./results.ts"; // node の型の除去（tests/test_tauri.mjs）が拡張子を要る
-import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse, SolverEntry, ModelParameter, TunableParameter } from "./protocol";
+import type { BltReport, CheckResponse, GraphJson, SimulateRequest, SimulateResponse, SolverEntry, ModelParameter, TunableParameter } from "./protocol";
 
 // Tauri が `withGlobalTauri` で注入する関数だけを使う（@tauri-apps/api は入れない。npm の依存を増やさないため）。
 type Invoke = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
@@ -92,6 +92,9 @@ export class TauriBackend implements Backend {
   }
   graph(model: string, depth: number): Promise<GraphJson> {
     return invoke("rpc", { method: "globe/graph", params: { model, depth } });
+  }
+  blt(model: string): Promise<BltReport> {
+    return invoke("rpc", { method: "globe/blt", params: { model } }); // S262
   }
   simulate(req: SimulateRequest): Promise<SimulateResponse> {
     return invoke("rpc", { method: "globe/simulate", params: { request: req } });

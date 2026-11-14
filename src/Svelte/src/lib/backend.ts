@@ -1,6 +1,6 @@
 import type { Columns } from "./plot/csv";
 import type { ResultColumns } from "./results";
-import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse, SolverEntry, ModelParameter, TunableParameter } from "./protocol";
+import type { CheckResponse, GraphJson, BltReport, SimulateRequest, SimulateResponse, SolverEntry, ModelParameter, TunableParameter } from "./protocol";
 
 /** UI が計算を頼む相手。WorkerBackend（ブラウザの wasm）と TauriBackend（sidecar の `globe lsp`）が実装する。 */
 export interface Backend {
@@ -10,6 +10,8 @@ export interface Backend {
   check(model: string): Promise<CheckResponse>;
   /** connect グラフ（graphology の JSON）。depth は 1 なら直下の部品だけ。モデルが無ければ reject。 */
   graph(model: string, depth: number): Promise<GraphJson>;
+  /** 方程式の BLT 分解（S262。解く順のブロック）。検査が通らなければ reject。 */
+  blt(model: string): Promise<BltReport>;
   simulate(req: SimulateRequest): Promise<SimulateResponse>;
   /** simulate と同じ実行で、時系列を CSV でなく列ごとに返す（S065）。response.csv は無い（null）。実行できなければ points 0。 */
   simulateColumns(req: SimulateRequest, onProgress?: (p: Progress) => void): Promise<{ response: SimulateResponse; columns: Columns }>;

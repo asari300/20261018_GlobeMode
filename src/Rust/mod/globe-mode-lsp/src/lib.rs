@@ -29,6 +29,7 @@
 //! | `globe/exportFmu` | `{model, fmiVersion?, outDir, runtime?, runtimeLib?}`（既定は FMI 2・`runtime` は `"p5a"`。`build` はしない） | `{path}`（S144。`outDir/<名前>.fmu` と展開した `outDir/<名前>/` を書く。S239 から `runtime: "p5b"` は自前の実行時の共有ライブラリ入りの `<名前>-p5b-fmi<版>.fmu`〔`runtimeLib` か cargo。この版に P5b が無い wasm では -32000〕。`runtime` が p5a・p5b 以外なら -32602。DAE まで変換できなければ -32000） |
 //! | `globe/tunableParameters` | `{model}` | `ParametersResponse` の JSON（S150。上書きできるパラメータの一覧。wasm の `tunable_parameters` と同じ。DAE まで変換できなければ -32000） |
 //! | `globe/parameters` | `{model}` | `ModelParametersResponse` の JSON `{model, parameters: [{name, type, dims?, default?, value?, literals?, unit?, description?, min?, max?, fixed?}]}`（S248。パラメータ宣言の一覧。名前は `comp.k` の形で、既定値は宣言の修飾を反映する。`value` は数の既定値〔Boolean は 0/1、Enumeration は 1 始まりの ordinal〕。wasm の `parameters` と同じ。DAE まで変換できなければ -32000） |
+//! | `globe/blt` | `{model}` | `BltReport` の JSON `{reduced, blocks: [{size, algebraic_loop, nonlinear, variables, equations}], skipped?}`（S262。方程式の BLT 分解を解く順のブロックで。`globe blt --json` と同じ。検査が通らなければ -32000。wasm の `blt` と同じ） |
 //! | `globe/completion` | `{file, line, character}`（`globe/definition` と同じ） | LSP の `CompletionList` `{isIncomplete, items}`（S171。`textDocument/completion` と同じ計算。予約語、文書の名前、点つきの名前の途中はクラスの子か部品の型の部品名。最大 200 件で、200 件に達したら `isIncomplete: true`（S198。打ちかけの語で絞ってから切る）。文字列・コメントの中は空。wasm の `completion` は `items` と同じ配列だけを返す） |
 //! | `globe/librarySearch` | `{query}`（名前の部分一致。大文字小文字を区別しない。`.` を含めると完全修飾名） | 同じ形の項目の配列（S167。最大 50 件、近い順。ファイルの中の入れ子のクラスも出る） |
 //! | `globe/librarySource` | `{path}`（完全修飾名） | `{file, text, range}`（S127。そのクラスを定義するライブラリのファイル。S186 から `range` はそのクラスの宣言の範囲（LSP の Range。引けなければ無い）。無ければ -32000） |
@@ -581,6 +582,16 @@ impl Server {
             },
             "globe/parameters" => match params["model"].as_str() {
                 Some(model) => match self.ws.parameters(model) {
+                    Ok(r) => reply(id, json!(r)),
+                    Err(ds) => {
+                        let m: Vec<&str> = ds.iter().map(|d| d.message.as_str()).collect();
+                        error(id, -32000, &m.join("; "))
+                    }
+                },
+                None => error(id, -32602, "params.model が文字列でない"),
+            },
+            "globe/blt" => match params["model"].as_str() {
+                Some(model) => match self.ws.blt(model) {
                     Ok(r) => reply(id, json!(r)),
                     Err(ds) => {
                         let m: Vec<&str> = ds.iter().map(|d| d.message.as_str()).collect();
@@ -1998,6 +2009,26 @@ mod tests {
             json!({"id": 2, "method": "globe/tunableParameters", "params": {"model": "Nope"}}),
         );
         assert_eq!(r[0]["error"]["code"], -32000);
+    }
+
+    #[test]
+    fn blt_is_served_in_solving_order() {
+        // S262: globe/blt。x' = -x は大きさ 1 のブロックだけ、検査が通らなければ -32000
+        let mut s = Server::new(&[]).unwrap();
+        let src = "model D\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -x;\nend D;\n";
+        s.handle(
+            json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+            "uri": "D.mo", "languageId": "modelica", "version": 1, "text": src}}}),
+        );
+        let r = s.handle(json!({"id": 1, "method": "globe/blt", "params": {"model": "D"}}));
+        let b = &r[0]["result"]["blocks"];
+        assert_eq!(b[0]["size"], 1, "{}", r[0]);
+        assert_eq!(b[0]["algebraic_loop"], false);
+        assert_eq!(b[0]["variables"][0], "der(x)");
+        let r = s.handle(json!({"id": 2, "method": "globe/blt", "params": {"model": "Nope"}}));
+        assert_eq!(r[0]["error"]["code"], -32000);
+        let r = s.handle(json!({"id": 3, "method": "globe/blt", "params": {}}));
+        assert_eq!(r[0]["error"]["code"], -32602);
     }
 
     #[test]
