@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S263 SSP の ParameterBindings — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S263 SSP の ParameterBindings">
+
+<section class="slide" id="S01">
+  <span class="tag">S263 · 2026-11-15 · P8</span>
+  <h1>SSP の ParameterBindings を start にする</h1>
+  <p class="lead"><code>.ssv</code> とインラインの <code>ParameterSet</code> を S259 の <code>start</code> に写して回す</p>
+  <div class="big">k を .ssv で 2 にすると x(1) = 0.8^10</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">読む・断る</span>
+  <h1>読む範囲と断るもの</h1>
+  <table class="compact">
+    <tr><th>読む</th><th>断る（明確な誤り）</th></tr>
+    <tr><td><code>Component</code> の <code>ParameterBinding</code>（<code>source</code> の .ssv か <code>ParameterValues</code>）</td><td><code>ParameterMapping</code>（.ssm）、System の階層の <code>ParameterBindings</code></td></tr>
+    <tr><td>Real・Float64・Integer・Int32・Boolean、<code>prefix</code></td><td>単位つきの値、配列、String・Enumeration ほか</td></tr>
+    <tr><td>後ろの binding が勝つ。FMU に無い名前は無視（仕様どおり）</td><td><code>sourceBase="component"</code>、<code>type</code> が ssp-parameter-set でないもの</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">試験</span>
+  <h1>Dahlquist の k = 2</h1>
+  <ul>
+    <li><code>.ssv</code> の参照とインライン（2 本の binding で後ろが勝つ）の両方で x(1) = 0.8^10</li>
+    <li>FMU に無い名前の Parameter は無視される</li>
+    <li><code>ParameterMapping</code> は誤りで断る</li>
+  </ul>
+  <pre><code>cargo test -p globe-mode-cli --test fmu_cosim ssp</code></pre>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li><code>.ssm</code>、System の階層と優先順位、<code>sourceBase="component"</code>、単位の換算、配列</li>
+    <li>SSP の Int32・Boolean のコネクタ、書き出し（往復）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

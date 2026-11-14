@@ -169,3 +169,12 @@
 - **確かめ方**: FMPy 0.3.32 の `validate_fmu`（XSD を含む）が通り、低水準の `fmpy.fmi3.FMU3ScheduledExecution` で周期ごとに `activateModelPartition` を呼ぶ試験（`globe-mode-fmu/tests/fmpy.rs` の `fmpy_scheduled_execution`）で、Decay の x(1) が e⁻¹ と、BouncingBall の h・v・n が exec と合う。**fmusim は v0.15.0・v0.16.0 とも ME・CS だけで SE を回せない**ので `fmu-export.yml` には足さない。fmuCheck は開発終了。
 - **持ち越し**: 複数の Clock・パーティション、出力 Clock・countdown・triggered の Clock（`fmi3ClockUpdateCallback`・`fmi3GetClock`・`fmi3GetIntervalDecimal`）、`lockPreemption`・`unlockPreemption`、入力の Clock による Clock 紐づけ（変数の `clocks` 属性）、P5a での SE、Windows・macOS・他の importer での確認。連続の状態を FMU の中で積分する使い方を仕様が認めるかは読んだ範囲に明示が無い【未確認】。
 
+
+## 追記（S266、2026-11-15）: 出力・導関数の `dependencies`
+
+- **調査**: [research/fmi-model-structure-dependencies-2026-11-15.md](../research/fmi-model-structure-dependencies-2026-11-15.md)。省略は「すべてに依存」で安全。2.0 の既知は入力・連続状態・独立変数（定義が無ければ暗黙）、3.0 はパラメータも既知で「すべての依存を列挙する」。
+- **求め方**: S224 の足がかりのとおり、BLT の解く順（S256 の解く系）で閉包を取る（`globe_mode_analysis::analyze_dependencies`。ブロックが直接参照する既知の値に、参照する未知数のブロックの依存を足すだけで、代数ループは塊で 1 つ）。入力・パラメータ・`time` は `DaeStructure` に無いので、frontend の `structure.rs` が行ごとに `KnownRefs`（`globe-mode-ir`）で別に返す。離散変数・`pre()`・条件・遅れを参照するブロックと、それに依るブロック、インデックス 2 以上（状態選択の前）は書かない。
+- **書く形**: `Outputs`/`Derivatives` の `Unknown`（2.0）と `Output`/`ContinuousStateDerivative`（3.0）の `dependencies`（昇順）。2.0 は状態と入力（`time` は P5b では暗黙、P5a は変数に定義があるので並べる）、3.0 はこれにパラメータと `time`。変数の表に引き当てられない名前があれば、その未知数は書かない。**P5b**は `describe`、**P5a** は Rumoca の XML への後処理（`<DefaultExperiment>`・Enumeration と同じ流儀で、テンプレートは改変しない）。引き当ては両方とも `globe_mode_fmi::model_structure_dependencies`。
+- **書かないもの**: `dependenciesKind`（省略可）と、`InitialUnknown(s)` の依存（初期化の既知は `initial="exact"` の変数で、初期方程式の依存を別に求める必要がある。省略は仕様どおり安全）。
+- **確かめ方**: 解く順の閉包の単体試験（代数ループ・離散の `None`・`time`）、`LinearSystem` で y2 = x1 − x2 が入力 u に依らないこと（2.0・3.0）、FMPy の `validate_fmu` と simulate（P5a・P5b の既存の試験）。fmusim は `fmu-export.yml` を feature ブランチで回した結果を作業記録に書く。
+- **持ち越し**: `InitialUnknown(s)` の依存、`dependenciesKind`、離散変数を経由する依存の分解。

@@ -80,6 +80,7 @@ pub fn export_me_sources(model: &CompiledModel, fmi_version: u8) -> Result<MeSou
     if fmi_version == 2 {
         declare_enums(&mut xml, model)?;
     }
+    add_dependencies(&mut xml, model, fmi_version == 3)?;
     let md = crate::parse_model_description(&xml).map_err(|e| e.to_string())?;
     let me = md
         .model_exchange
@@ -91,6 +92,58 @@ pub fn export_me_sources(model: &CompiledModel, fmi_version: u8) -> Result<MeSou
         model_description_xml: xml,
         c_sources: files,
     })
+}
+
+/// S266: Rumoca のテンプレートは `dependencies` を描かない（＝すべてに依存）。出力・導関数の `Unknown`（2.0）／
+/// `Output`・`ContinuousStateDerivative`（3.0）に、BLT の解く順の閉包（[`crate::model_structure_dependencies`]）を足す。
+/// 求められないとき・すでに属性があるときは変えない。`InitialUnknown`・`dependenciesKind` は書かない。
+fn add_dependencies(xml: &mut String, model: &CompiledModel, v3: bool) -> Result<(), String> {
+    let Some(deps) = model
+        .dae_structure_with_knowns()
+        .ok()
+        .and_then(|(s, k)| globe_mode_analysis::unknown_dependencies(&s, &k))
+    else {
+        return Ok(());
+    };
+    let md = crate::parse_model_description(xml).map_err(|e| e.to_string())?;
+    let found = crate::model_structure_dependencies(&md.variables, v3, &deps);
+    let doc = roxmltree::Document::parse(xml).map_err(|e| e.to_string())?;
+    let (list, attr) = if v3 {
+        (["Output", "ContinuousStateDerivative"], "valueReference")
+    } else {
+        (["Outputs", "Derivatives"], "index")
+    };
+    let mut edits = Vec::new();
+    for n in doc.descendants().filter(|n| n.is_element()) {
+        let tag = n.tag_name().name();
+        let unknown = if v3 {
+            list.contains(&tag)
+        } else {
+            tag == "Unknown"
+                && n.parent()
+                    .is_some_and(|p| list.contains(&p.tag_name().name()))
+        };
+        let key = n.attribute(attr).and_then(|v| v.parse::<u32>().ok());
+        if let (true, Some(d), None) = (
+            unknown,
+            key.and_then(|k| found.get(&k)),
+            n.attribute("dependencies"),
+        ) {
+            let text = &xml[n.range()];
+            let Some(at) = text.strip_suffix("/>").map(str::len) else {
+                continue;
+            };
+            let d: Vec<String> = d.iter().map(u32::to_string).collect();
+            edits.push((
+                n.range().start + at,
+                format!(" dependencies=\"{}\"", d.join(" ")),
+            ));
+        }
+    }
+    for (at, text) in edits.into_iter().rev() {
+        xml.insert_str(at, &text);
+    }
+    Ok(())
 }
 
 /// S224: Rumoca のテンプレートは Enumeration の変数を `<Integer>` で描く。FMI 2.0 の形にそろえる: 変数を

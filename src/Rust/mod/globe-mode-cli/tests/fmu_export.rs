@@ -51,6 +51,13 @@ fn exports_a_source_fmu() {
     assert!(e.start_time.is_none(), "{xml}");
     assert!(md.model_exchange.is_some());
     assert!(md.variables.iter().any(|v| v.name == "x"), "{xml}");
+    // S266: der(x) = -k x は状態 x だけに依る（索引は変数の表の位置 + 1）
+    let at = |n: &str| md.variables.iter().position(|v| v.name == n).unwrap() as u32 + 1;
+    assert_eq!(
+        md.model_structure.dependencies.get(&at("der(x)")),
+        Some(&vec![at("x")]),
+        "{xml}"
+    );
     // S117: P5a の XML（Rumoca のテンプレート）も P5b の書く側を通して読み直すと同じ表になる
     let again = globe_mode_fmi::write_model_description_2(&md).unwrap();
     assert_eq!(
@@ -98,6 +105,19 @@ fn exports_a_fmi3_source_fmu() {
     assert_eq!(e.tolerance.as_deref(), Some("1e-8"), "{xml}");
     assert!(e.start_time.is_none(), "{xml}");
     assert!(md.model_exchange.is_some() && md.co_simulation.is_some());
+    // S266: 3.0 は valueReference で、der(x) = -k x は状態 x とパラメータ k に依る（2.0 はパラメータを並べない）
+    let vr = |n: &str| {
+        md.variables
+            .iter()
+            .find(|v| v.name == n)
+            .unwrap()
+            .value_reference
+    };
+    assert_eq!(
+        md.model_structure.dependencies.get(&vr("der(x)")),
+        Some(&vec![vr("k"), vr("x")]),
+        "{xml}"
+    );
     // S124: 3.0 の XML も 3.0 の書く側を通して読み直すと同じ表になる
     let again = globe_mode_fmi::write_model_description_3(&md).unwrap();
     assert_eq!(
