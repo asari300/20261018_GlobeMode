@@ -322,7 +322,8 @@ def table(response: dict[str, Any]) -> pl.DataFrame:
         return pl.DataFrame(list(response["columns"].values()))
     if response.get("csv") is None:
         raise ResultError(response.get("refused") or "結果に時系列が無い（ok を確かめてから table に渡す）")
-    return pl.read_csv(io.StringIO(response["csv"]))
+    # Inf は polars が数として読まない（列が String になる）。整数の列も Float64 に揃える（#92）
+    return pl.read_csv(io.StringIO(response["csv"])).cast(pl.Float64)
 
 
 def read_results(path: str | os.PathLike[str]) -> dict[str, Any]:
