@@ -1562,6 +1562,7 @@ dependencies = [
  "globe-mode-fmt",
  "globe-mode-ir",
  "globe-mode-resolve",
+ "globe-mode-syntax",
  "lsp-types",
  "serde_json",
 ]
