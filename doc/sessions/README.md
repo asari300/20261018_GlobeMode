@@ -4,6 +4,7 @@
 
 | S | 日付 | Phase | 題名 | ブランチ | 状態 | スライド | 解説書 | セッション記録 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| S263 | 2026-11-15 | P8 | `ssp-ssv`: SSP の `Component` の `ParameterBindings`（`.ssv` の参照とインラインの `ParameterSet` の Real・Integer・Boolean）を S259 の `start` にして回す。後ろの binding が勝つ。`ParameterMapping`・System の階層・単位つき・配列は断る | `feature/s263-ssp-ssv` | 完了 | [slides](S263-ssp-ssv/slides.html) | [解説書](S263-ssp-ssv/解説書.md) | なし |
 | S259 | 2026-11-15 | P5 | `cosim-gs`: コシミュレーションのマスターに Gauss–Seidel（`"algorithm"`。結線の順に進め、同じ刻みの出力をすぐ渡す）、FMU の初期値（`"start"`）、Int32・Boolean の接続（同じ型どうし）を足した。JSON の既存の鍵は変えていない。SSP の `.ssv` は次回 | `feature/s259-cosim-gs` | 完了 | [slides](S259-cosim-gs/slides.html) | [解説書](S259-cosim-gs/解説書.md) | なし |
 | S257 | 2026-11-15 | P4 | `tree-icons`: ライブラリの木の各行にそのクラスの Icon を 18 px で描く（見えた行だけ IntersectionObserver で引き、クラス名で memo、`icon` は同時 4 本、`aria-hidden`、Rust・LSP は変えない） | `feature/s257-tree-icons` | 完了 | [slides](S257-tree-icons/slides.html) | [解説書](S257-tree-icons/解説書.md) | なし（並行のサブエージェント） |
 | S254 | 2026-11-15 | P8 | `linearize`: モデルの線形化（状態空間の行列 A・B・C・D）の最小版。`ModelInstance::linearize` が状態と入力（`input` の Real）を中心差分でずらして微分と出力（`output` の Real）の変化を見る。facade `Workspace::linearize`、CLI `globe linearize -m <model> [--time T] [--json]`。後の時刻はそこまで実行した状態で線形化。線形系・振り子で解析解と 1e-6 で一致。数値微分（Rumoca に公開のヤコビ行列が無い。ADR-0038）。Python・UI・LSP は次 | `feature/s254-linearize` | 完了 | [slides](S254-linearize/slides.html) | [解説書](S254-linearize/解説書.md) | 【セッション記録なし。作業記録に理由】 |

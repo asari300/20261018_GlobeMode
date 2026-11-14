@@ -191,7 +191,7 @@
 - **置き場**: SSD の XML は `globe-mode-fmi` の `ssp.rs`（`parse_ssd`。roxmltree だけ。zip・FMU には触れず wasm32 でも通る）、zip の展開と `CosimSpec` への変換は `globe-mode-fmi-import` の `ssp.rs`（`Ssp::open`。FMU の展開と同じ `unpack` で zip slip・サイズの上限を守る）。**依存は増えていない**。facade は `Ssp` を再公開する。
 - **入口**: `globe fmu cosim <spec.json | system.ssp> [--stop-time T] [--step h] [-o out.csv]`。拡張子 `.ssp` で分ける。回すのは (q) のマスターそのままなので、FMU は今までどおりワーカー（別プロセス）の中。SSD に無い通信刻みは `--step`（既定は (終了 - 開始) / 100）、終了時刻は `DefaultExperiment` の `stopTime`（`--stop-time` で上書き。どちらも無ければ誤り）。`.ssp` を展開した一時ディレクトリは `Ssp` の drop で消える。
 - **変換**: `Component`（`source` は SSP の中の相対パスだけ）→ `fmus`、`Connection` → `connections`、`DefaultExperiment` → 開始・終了時刻。SSP の start / end は**データの向きではない**ので、FMU の `modelDescription.xml` の causality で「出力 → 入力」に揃える（入力側が start なら入れ替える）。
-- **断るもの（明確な誤り）**: 入れ子の `System`、`ParameterBindings`（`.ssv`）、`SignalDictionaries`・`SignalDictionaryReference`、`LinearTransformation`、FMU でない `Component`、`source` の無い・SSP の外を指す `Component`、システム自身のコネクタへの接続、Real・Float64 でないコネクタ、接続の両端で `unit` の名前が違うもの（`suppressUnitConversion="true"` を除く）。Real でない・向きの誤った接続は (q) の検査が実行の前に断る。
+- **断るもの（明確な誤り）**: 入れ子の `System`、`ParameterBindings`（S263 の (t) で読むようになった）、`SignalDictionaries`・`SignalDictionaryReference`、`LinearTransformation`、FMU でない `Component`、`source` の無い・SSP の外を指す `Component`、システム自身のコネクタへの接続、Real・Float64 でないコネクタ、接続の両端で `unit` の名前が違うもの（`suppressUnitConversion="true"` を除く）。Real でない・向きの誤った接続は (q) の検査が実行の前に断る。
 - **試験**: `globe-mode-cli/tests/fmu_cosim.rs` に 2 本（Dahlquist 2.0 と Feedthrough 3.0 を入れた `.ssp` を試験の中で zip に組み、入力側を start に書いた接続でも JSON と**同じ CSV**になる。入れ子の `System` を断る）。`globe-mode-fmi` の `ssp.rs` に 2 本。
 - **限界・持ち越し**: `ParameterBindings` と `.ssv`、`SignalDictionary`、単位の換算（名前の一致だけを見る）、Real 以外の接続、入れ子の System（階層の平坦化）、XSD での検証、`source` の URI の符号化、書き出し（`.ssp` の往復）、SSP 内の `.ssp`・`.ssd` の参照、UI・Python・LSP の口、`fmu-import.yml` への足し。
 
@@ -203,10 +203,22 @@
 - **`"start": {"a.k": 2.0}`**（FMU の名前、`.`、変数名 → 値）。instantiate の後・初期化の前に設定する（`run_cs` の `--set` と同じ位置）。Float64 に加え、Int32（整数値だけ）・Boolean（0 か 1 だけ）も受ける（Int の接続を試験で見えるようにするため）。不正な値・型・名前は実行の前に断る。
 - **Int32・Boolean の接続**: 始点と終点が**同じ型**のときだけ（Float64 どうし、Int32 どうし、Boolean どうし）。違う型・ほかの型（Float32・Int8…・String・Binary）は今までどおり明確な誤り（型が違う / どれでもない）。値は f64 で受け渡す（Int32 は厳密、Boolean は 0 / 1）。結果の列は Float64 の出力に加えて、Int32・Boolean の接続の**始点**も出す（FMU の Int32・Boolean の出力を全部は出さない。Float64 だけだった今までの列は変わらない）。`FmuCs` に `get_int`・`set_int`・`get_bool`・`set_bool` を足した（FMI 2.0 は `fmi2GetInteger` 等、3.0 は `fmi3GetInt32`・`fmi3GetBoolean` 等。シンボルは使うときに引くので、使わない FMU の読み込みは変わらない）。
 - **試験**（`globe-mode-cli/tests/fmu_cosim.rs` に 3 本）: Gauss–Seidel は Dahlquist（`z`）→ Feedthrough（`b`）で名前の順と結線の順が逆でも、`b` の出力が同じ刻みの `z.x` に**ちょうど**等しい（Jacobi は 1 刻み遅れ）。`start` は Dahlquist の `k = 2` で x(1) = 0.8^10（Euler の 1 刻み 0.1 を 10 回。`k = 1` なら 0.9^10）。Int32・Boolean は 2.0 と 3.0 の Feedthrough をたすき掛けにして、Jacobi の 1 刻みごとの入れ替え（7, 0, 7, 0, 7）が出る。型違いの接続と整数でない Int の `start` は断る。
-- **持ち越し**: SSP の `ParameterBindings`（`.ssv` の Real を `start` に写す。いまは (r) のとおり断る）と SSP の Int32・Boolean のコネクタ、可変刻みと巻き戻し、代数ループ（Gauss–Seidel の不動点反復）、Float32・Int8 から Int64・String の接続、ME の混在、Python・LSP・UI の口。
+- **持ち越し**: SSP の `ParameterBindings`（S263 の (t) で済）と SSP の Int32・Boolean のコネクタ、可変刻みと巻き戻し、代数ループ（Gauss–Seidel の不動点反復）、Float32・Int8 から Int64・String の接続、ME の混在、Python・LSP・UI の口。
+
+### (t) S263 の付記（2026-11-15）: SSP の `ParameterBindings`（`.ssv`・インライン）→ `start`
+
+(r) で断っていた `Component` の `ParameterBindings` を読み、(s) の `start` に写す（[調査](../research/ssp-2026-11-15.md) の 6）。
+
+- **読む**: `Component` の子 `ParameterBindings/ParameterBinding`。`source`（SSP の中の相対パスの `.ssv`。ルートは `ssv:ParameterSet`）か、インラインの `ParameterValues/ParameterSet`（どちらか 1 つ）。`Parameter` の型は Real・Float64・Integer・Int32・Boolean だけ（Integer・Boolean も `start` の f64。Boolean は `true`・`false`・`1`・`0`）。`prefix` は名前の前にそのまま付ける。キーは `"<component>.<prefix><name>"`。
+- **規則どおりにしたところ**: 後ろの `ParameterBinding` が前に勝つ（5.2.3）。**FMU の変数に無い名前は無視する**（5.2.3 の規定。大きな `.ssv` から一部だけ使うため）。裏を返すと名前の綴りの誤りは黙って無視される。型・値の不正（整数でない Integer など）は (s) の `start` の検査が実行の前に断る。
+- **断るもの（明確な誤り）**: `ParameterMapping`（.ssm）、System の階層（`Component` の直下でない場所）の `ParameterBindings`、`type` が `application/x-ssp-parameter-set` でない binding、`sourceBase` が `SSD` でないもの、`source` と `ParameterValues` の両方・どちらも無いもの、単位つきの値（`unit` 属性。換算は未）、配列（`Dimension`）、String・Enumeration・Float32・Int8 から Int64 などの型。
+- **置き場**: XML は `globe-mode-fmi` の `ssp.rs`（`parse_ssv`・`SspBinding`）、`.ssv` の読み込みと FMU の変数との突き合わせは `globe-mode-fmi-import` の `ssp.rs`。**依存は増えていない**。
+- **試験**: `globe-mode-cli/tests/fmu_cosim.rs` に 2 本（`.ssv` とインライン〔2 本の binding で後ろが勝つ〕で Dahlquist の k = 2 → x(1) = 0.8^10、FMU に無い名前は無視。`ParameterMapping` を断る）、`globe-mode-fmi` の `ssp.rs` に 1 本（`parse_ssv` の型と `prefix`）と `ParameterMapping` の拒否。
+- **持ち越し**: `ParameterMapping`（.ssm）、System の階層の `ParameterBindings` と階層名での優先順位、`sourceBase="component"`（FMU の中の `.ssv`）、単位の換算、配列、SSP の Int32・Boolean のコネクタ、書き出し。
 
 ## 結果
 
+- **S263 の結果**: 上の (t)。SSP の `ParameterBindings` が `start` になる。
 - **S259 の結果**: 上の (s)。Gauss–Seidel・`start`・Int32/Boolean の接続。
 - **S253 の結果**: 上の (r)。`.ssp` を `globe fmu cosim` で回せる。
 - **S229 の結果**: 上の (p)。facade・Python・Desktop の UI から FMU を読んで回せる。
