@@ -99,6 +99,16 @@ fn build(
     Ok((artifact, retained))
 }
 
+/// `into_session`（プラグインの始動。BDF はここでヤコビ行列を作る）の失敗の段。ネイティブの型付きの BDF の道は
+/// 同じ呼び出しを `check_prepared_initialization`（初期化）の中で回すので Initialization。rk45 と自前の積分器は
+/// 型付きの道も積分の段なので Integration（#5）。
+pub(super) fn start_phase(integrator: Integrator) -> Phase {
+    match integrator {
+        Integrator::RumocaBdf => Phase::Initialization,
+        Integrator::RumocaRk45 | Integrator::Own(_) => Phase::Integration,
+    }
+}
+
 /// 初期化（`into_lease`）と積分（`run_to_stop`）。
 fn integrate(
     artifact: &MeModelArtifact,
@@ -149,7 +159,7 @@ fn integrate(
         });
         let mut session = host
             .into_session(plugin)
-            .map_err(|e| (SimError::from(e), Phase::Integration))?;
+            .map_err(|e| (SimError::from(e), start_phase(integrator)))?;
         let ran = session.run_to_stop(&mut cursor);
         (ran, session.finish())
     };
