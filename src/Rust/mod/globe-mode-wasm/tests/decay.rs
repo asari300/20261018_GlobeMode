@@ -546,6 +546,24 @@ fn decay_lists_tunable_parameters() {
 }
 
 #[test]
+fn linear_loop_has_one_algebraic_block_of_two() {
+    // S262: UI の BLT パネル。連立 2 元の代数ループが大きさ 2 のブロックとして 1 つ出る
+    let mut ws = Workspace::new();
+    for (name, text) in package() {
+        ws.put_file(&name, text);
+    }
+    let r = ws
+        .inner()
+        .blt("GlobeModeValidation.Loops.LinearLoop")
+        .ok()
+        .unwrap();
+    let loops: Vec<_> = r.blocks.iter().filter(|b| b.algebraic_loop).collect();
+    assert_eq!(loops.len(), 1, "{r:?}");
+    assert_eq!(loops[0].size, 2);
+    assert!(ws.inner().blt("Nope").is_err());
+}
+
+#[test]
 fn decay_lists_declared_parameters() {
     // S248: パラメータのダイアログ。k は型・既定値・単位つきで出る
     let mut ws = Workspace::new();
@@ -618,6 +636,20 @@ fn diagram_is_read_as_shape_data_from_the_document() {
     );
     assert_eq!(ws.diagram("", text, 99, 0), "null", "クラスの外");
     assert_eq!(ws.diagram("GlobeModeValidation.Nope", "", 0, 0), "null");
+    // S250: 部品の移動は origin の書き換え（b の {40, 0} を {42, -4} に）。Placement が無ければ null
+    let e: serde_json::Value =
+        serde_json::from_str(&ws.move_part("T", text, "b", 2.0, -4.0)).unwrap();
+    assert_eq!(e[0]["newText"], "{42, -4}");
+    assert_eq!(ws.move_part("T", text, "nope", 2.0, 0.0), "null");
+    // S261: 結線の追加は equation 節の末尾（最後の connect の次の行）へ。コネクタ（Pin の Placement）は部品の connectors に出る。端が不正なら null
+    let c: serde_json::Value =
+        serde_json::from_str(&ws.add_connect("T", text, "a.p", "b.n", "[[0, 0], [10, 5]]"))
+            .unwrap();
+    assert_eq!(
+        c[0]["newText"],
+        "\n  connect(a.p, b.n) annotation(Line(points = {{0, 0}, {10, 5}}, color = {0, 0, 255}));"
+    );
+    assert_eq!(ws.add_connect("T", text, "a.p;", "b.n", "[]"), "null");
 }
 
 #[test]

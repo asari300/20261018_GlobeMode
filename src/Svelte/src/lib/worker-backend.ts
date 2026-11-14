@@ -3,7 +3,7 @@ import type { Backend, CompletionEntry, Definition, Diagram, Documentation, Hove
 import { browserOpen, browserSave, browserSaveBinary } from "./browser-file";
 import { gapNonFinite, type Columns } from "./plot/csv";
 import { toColumns } from "./results";
-import type { CheckResponse, GraphJson, SimulateRequest, SimulateResponse, SolverEntry, ModelParameter, TunableParameter } from "./protocol";
+import type { BltReport, CheckResponse, GraphJson, SimulateRequest, SimulateResponse, SolverEntry, ModelParameter, TunableParameter } from "./protocol";
 
 /** Web Worker 上の wasm（ADR-0014、ADR-0023）。呼び出しは直列で、panic のあとは worker を作り直す。 */
 export class WorkerBackend implements Backend {
@@ -20,6 +20,9 @@ export class WorkerBackend implements Backend {
   }
   check(model: string): Promise<CheckResponse> {
     return this.#w.check(model);
+  }
+  blt(model: string): Promise<BltReport> {
+    return this.#w.blt(model); // S262
   }
   graph(model: string, depth: number): Promise<GraphJson> {
     return this.#w.graph(model, depth);
@@ -69,6 +72,12 @@ export class WorkerBackend implements Backend {
   }
   models(file: string): Promise<string[]> {
     return this.#w.models(file); // S170
+  }
+  movePart(cls: string, part: string, dx: number, dy: number, at: { file: string }) {
+    return this.#w.movePart(cls, part, dx, dy, at); // S250
+  }
+  addConnect(cls: string, from: string, to: string, points: [number, number][], at: { file: string }) {
+    return this.#w.addConnect(cls, from, to, points, at); // S261
   }
   rename(file: string, line: number, character: number, newName: string) {
     return this.#w.rename(file, line, character, newName);

@@ -55,8 +55,22 @@ const sent = calls.filter(([, a]) => a.method === "globe/fmuRun").map(([, a]) =>
 await b.runFmu("/r/D.fmu", { kind: "me", stop_time: 2, step: 0.1, timeout: 30 });
 assert.deepEqual(sent, [{}]);
 assert.deepEqual(calls.at(-1)[1].params.request, { kind: "me", stop_time: 2, step: 0.1, timeout: 30 });
+// 図の部品の移動（S250）: globe/movePart に class・part・dx・dy と file を渡す（RPC_METHODS にある method）
+calls.length = 0;
+globalThis.window.__TAURI__.core.invoke = async (cmd, a) => (calls.push([cmd, a]), null);
+assert.equal(await b.movePart("T", "a", 2, -4, { file: "T.mo" }), null);
+assert.deepEqual(calls, [["rpc", { method: "globe/movePart", params: { file: "T.mo", class: "T", part: "a", dx: 2, dy: -4 } }]]);
+// 図の結線の追加（S261）: globe/addConnect に class・from・to・points と file を渡す
+calls.length = 0;
+assert.equal(await b.addConnect("T", "a.p", "b.n", [[0, 0], [10, 5]], { file: "T.mo" }), null);
+assert.deepEqual(calls, [["rpc", { method: "globe/addConnect", params: { file: "T.mo", class: "T", from: "a.p", to: "b.n", points: [[0, 0], [10, 5]] } }]]);
 globalThis.window.__TAURI__.core.invoke = async (cmd) => { if (cmd === "cancel_run") return; throw "中断した"; };
 const running = b.runFmu("/r/D.fmu");
 b.cancel();
 await assert.rejects(running, (e) => e.cancelled === true);
+// BLT（S262）: globe/blt に model だけを渡し、sidecar の応答をそのまま返す
+globalThis.window.__TAURI__.core.invoke = async (cmd, a) => (blt.push([cmd, a]), { reduced: false, blocks: [] });
+const blt = [];
+assert.deepEqual(await b.blt("M"), { reduced: false, blocks: [] });
+assert.deepEqual(blt, [["rpc", { method: "globe/blt", params: { model: "M" } }]]);
 console.log("test_tauri ok");

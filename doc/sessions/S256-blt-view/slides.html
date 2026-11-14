@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S256 BLT ビュー — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S256 BLT ビュー">
+
+<section class="slide" id="S01">
+  <span class="tag">S256 · 2026-11-15 · P8</span>
+  <h1>方程式の BLT 分解を読める形で出す</h1>
+  <p class="lead"><code>globe blt -m GlobeModeValidation.Loops.LinearLoop</code></p>
+  <div class="big">S9 が内部でやっている BLT を、解く順のブロックの列として見せる</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">仕組み</span>
+  <h1>新しい算法は書かない</h1>
+  <ul>
+    <li><code>analyze_loops</code> の前半（解く系・完全マッチング・強連結成分）を <code>solve</code> に切り出して共有</li>
+    <li><code>analyze_blt</code> が名前つきのブロックにする（大きさ 1 も含む）</li>
+    <li><code>GlobeDb::blt</code> → facade <code>Workspace::blt</code> → CLI</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">出力</span>
+  <h1>大きいブロックを目立たせる</h1>
+  <pre><code>BLT 3 ブロック・代数ループ 0・最大 1
+  #1   1  der(x) &lt;- der(x) = -x
+  #2   1  y &lt;- y = 2 * x
+  #3   1  z &lt;- z = y^2
+
+BLT 1 ブロック・代数ループ 1・最大 2
+  #1   ** 代数ループ（大きさ 2・線形） **
+        解く変数: x, y</code></pre>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>LSP・UI のパネル、ソース上の位置（方程式にジャンプ）</li>
+    <li>変換の段ごとの差分（flat → DAE）、tearing 変数の表示</li>
+  </ul>
+  <pre><code>cargo test -p globe-mode-cli --test cli_flow blt</code></pre>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

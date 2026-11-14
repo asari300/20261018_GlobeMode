@@ -219,6 +219,7 @@ SourceFile ─┬─▶ outline ─▶ outline_shape ─┬─▶ class_index �
   - 文書は、本文が変わったものだけ差し替え、無くなったものは取り除く。文書を変えると Rumoca は解決済みの状態を捨てるが、parse の結果とモデルごとのキャッシュは残る。
   - panic で Mutex が毒されたら、ライブラリを読んだ直後の写しに戻す。`reset()` でモデルごとのキャッシュを捨てられる。
 - `GlobeDb::check_model(model)` は、`check`（S0〜S5）、`structural`（S6）、`index_report`（S7）、`init_report`（S8）、`loop_report`（S9）、`preflight_report`（S10）をまとめ、診断の位置を `shape_map` で元の本文に戻す。S6 は S0〜S5 を通ったときだけ、S7 は S6 が構造特異でない（regular）ときだけ、S8 は S0〜S7 に Error が無いときだけ、S9 は S0〜S8 に Error が無く S7 の結果があるときだけ、S10 は S0〜S9 に Error が無いときだけ行う。
+- `GlobeDb::blt(model)`（S256、`globe blt`）は `dae_shape` と `index_report` から `analyze_blt` で全ブロック（大きさ 1 も含む）を名前つきで返す。マッチングと強連結成分は S9（`analyze_loops`）と同じ `solve` を共有し、新しい salsa クエリは足していない。
 - `deps_closure` で絞ると、閉包の違うモデルへ初めて切り替えたときに Rumoca が MSL ごと解決し直す（約 1.5〜1.8 s）。使わないファイルの編集の再検査は 0.2 ms になる。S010 から `Checker` は文書の和集合を持つ（渡されなかった文書も Session に残し、本文が変わった・消えた・名前のぶつかる文書だけを取り除く）ので、一度検査したモデルへ編集なしで戻るときは約 2.1 s から約 49 ms になった。計測とトレードオフは [ADR-0005](adr/0005-lazy-query-db.md) の結果にある。
 - Rumoca の AST は salsa に載せない。`outline` が、そのファイルを毎回 parse する。
 
@@ -332,7 +333,7 @@ KLU（LGPL）は同梱しない。
 | 段階 | 方法 | 対応 |
 | --- | --- | --- |
 | P5a（早い経路。**S094 で着手**、[ADR-0031](adr/0031-fmi-export-p5a-first.md)） | Rumoca の `fmi2` / `fmi3` テンプレートでソース FMU を作り、`cc` か `zig cc` で各 target 向けにビルドする。S094: frontend の `fmi_export` が Rumoca の `fmi2` を描き、`globe-mode-fmi` の feature `export` が FMU にする（`globe fmu export`、`--build` は linux64 だけ） | FMI 2.0 の ME / CS（事象・外部関数・表・入力の種は無し）。生成物は Rumoca のテンプレート（Apache-2.0）の文面を含む。表示の要否は【未確認】 |
-| P5b（自前のランタイム） | `globe-mode-fmu`（S095 は Decay を固定した FMI 2.0 ME、S099 から resources の Modelica を compile して exec の `ModelInstance` で回す。[ADR-0032](adr/0032-p5b-own-runtime.md)。BSD-2 の FMI ヘッダの上に作る）。IR を埋め込んで解釈実行するか、Rumoca の `rust-ode` テンプレートでコンパイルする | FMI 2 の ME / CS、FMI 3 の ME / CS / SE。解釈実行ならコンパイラが要らないので、ブラウザや Android からも出力できる |
+| P5b（自前のランタイム） | `globe-mode-fmu`（S095 は Decay を固定した FMI 2.0 ME、S099 から resources の Modelica を compile して exec の `ModelInstance` で回す。[ADR-0032](adr/0032-p5b-own-runtime.md)。BSD-2 の FMI ヘッダの上に作る）。IR を埋め込んで解釈実行するか、Rumoca の `rust-ode` テンプレートでコンパイルする | FMI 2 の ME / CS、FMI 3 の ME / CS / SE。解釈実行ならコンパイラが要らないので、ブラウザや Android からも出力できる。S251: SE は周期 Clock 1 つ・パーティション 1 つ（`--kind se`、`fmi3ActivateModelPartition` が CS の `do_step` を回す） |
 
 - `ModelStructure` は BLT の incidence から作る。
 - CS の FMU は自前のソルバで刻む。

@@ -84,31 +84,12 @@ fn collect(
     let (mut extent, mut shapes) = (None, Vec::new());
     if depth > 0 {
         for base in &span.extends {
-            // 相対名は外側のクラスから順に試す（同じファイルの兄弟→ライブラリ）
-            let mut scope = qualified;
-            loop {
-                scope = scope.rsplit_once('.').map_or("", |(p, _)| p);
-                let cand = if scope.is_empty() {
-                    base.clone()
-                } else {
-                    format!("{scope}.{base}")
-                };
-                let found = spans
-                    .iter()
-                    .find(|s| join(&within, &s.path) == cand)
-                    .and_then(|_| collect(src, &cand, library, depth - 1, instance))
-                    .or_else(|| {
-                        library(&cand)
-                            .and_then(|t| collect(&t, &cand, library, depth - 1, instance))
-                    });
-                if let Some((e, s)) = found {
-                    extent = extent.or(e);
-                    shapes.extend(s);
-                    break;
-                }
-                if scope.is_empty() {
-                    break;
-                }
+            let found = find_base(src, &spans, &within, qualified, base, library, &|t, c| {
+                collect(t, c, library, depth - 1, instance)
+            });
+            if let Some((e, s)) = found {
+                extent = extent.or(e);
+                shapes.extend(s);
             }
         }
     }
@@ -126,6 +107,36 @@ fn collect(
         }
     }
     Some((extent, shapes))
+}
+
+/// `qualified` の `extends base` の基底クラスを引いて `f(そのファイルの本文, 完全修飾名)` する。
+/// 相対名は外側のクラスから順に試す（同じファイルの兄弟→ライブラリ）。S261: 部品のコネクタ（`diagram.rs`）も使う。
+pub(crate) fn find_base<T>(
+    src: &str,
+    spans: &[crate::structure::ClassSpan<'_, '_>],
+    within: &str,
+    qualified: &str,
+    base: &str,
+    library: &dyn Fn(&str) -> Option<String>,
+    f: &dyn Fn(&str, &str) -> Option<T>,
+) -> Option<T> {
+    let mut scope = qualified;
+    loop {
+        scope = scope.rsplit_once('.').map_or("", |(p, _)| p);
+        let cand = if scope.is_empty() {
+            base.to_string()
+        } else {
+            format!("{scope}.{base}")
+        };
+        let found = spans
+            .iter()
+            .find(|s| join(within, &s.path) == cand)
+            .and_then(|_| f(src, &cand))
+            .or_else(|| library(&cand).and_then(|t| f(&t, &cand)));
+        if found.is_some() || scope.is_empty() {
+            return found;
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

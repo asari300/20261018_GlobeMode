@@ -18,6 +18,7 @@
   import LibraryTree from "./lib/LibraryTree.svelte";
   import SimSettings from "./lib/SimSettings.svelte";
   import DocsPanel from "./lib/DocsPanel.svelte";
+  import BltPanel from "./lib/BltPanel.svelte";
   import { modelicaDocs } from "./lib/docs";
   import { isInternal } from "./lib/plot/signals";
   import FmuForm from "./lib/FmuForm.svelte";
@@ -79,6 +80,7 @@
   let docs = $state.raw<Documentation | null>(null); // S232: 説明パネルの Documentation
   let icon = $state.raw<Icon | null>(null); // S244: 説明パネルの上のアイコン
   let diagram = $state.raw<Diagram | null>(null); // S245: 「図」のタブ
+  let bltModel = $state<string | null>(null); // S262: 「BLT」を押したときのモデル名
   let graphModel = $state<string | null>(null); // 「グラフ」を押したときのモデル名（入力のたびに描き直さない）
 
   // S141: 自分のファイルを開く・保存する。本文とファイル名は localStorage に自動保存して起動時に戻す（使えなくても動く。S102）。モデル名は戻さず本文から入れ直す（smoke が書き換えたモデル名を次の起動で拾わないため）
@@ -595,6 +597,32 @@
     }
     view.focus();
   }
+  // S250: 図の部品のドラッグ。Rust（globe/movePart）が返す origin の編集をエディタに 1 回の dispatch（undo 1 回）で入れる。保存はしない。動かせなければ false
+  async function onMove(part: string, dx: number, dy: number): Promise<boolean> {
+    if (!diagram) return false;
+    try {
+      await backend.setFile(file, view.state.doc.toString());
+      const edits = await backend.movePart(diagram.class, part, dx, dy, { file });
+      if (!edits?.length) return false;
+      view.dispatch({ changes: edits.map((e) => ({ from: offsetOf(e.range.start), to: offsetOf(e.range.end), insert: e.newText })) });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  // S261: 図で引いた結線。Rust（globe/addConnect）が返す connect の挿入を、onMove と同じくエディタに 1 回の dispatch で入れる。足せなければ false
+  async function onConnect(from: string, to: string, points: [number, number][]): Promise<boolean> {
+    if (!diagram) return false;
+    try {
+      await backend.setFile(file, view.state.doc.toString());
+      const edits = await backend.addConnect(diagram.class, from, to, points, { file });
+      if (!edits?.length) return false;
+      view.dispatch({ changes: edits.map((e) => ({ from: offsetOf(e.range.start), to: offsetOf(e.range.end), insert: e.newText })) });
+      return true;
+    } catch {
+      return false;
+    }
+  }
   function goBack() {
     if (busy) return; // S196
     let i = -1;
@@ -766,6 +794,9 @@
   const graph = () => run(async () => {
     graphModel = model;
   });
+  const blt = () => run(async () => {
+    bltModel = model;
+  });
 
   // ノードのキー（`stage1.resistor` など）の先頭の名前を、エディタの本文で最初に出る所で選ぶ
   // shortcut: 宣言を名前の字面で探す。同じ名前が先に出ると外れる。outline の位置が要るなら LSP の documentSymbol を使う
@@ -851,6 +882,7 @@
     <button onclick={check} disabled={busy} title="検査（Ctrl/Cmd+Shift+Enter）" aria-keyshortcuts="Control+Shift+Enter Meta+Shift+Enter">検査</button>
     <button onclick={() => simulate()} disabled={busy} title="実行（Ctrl/Cmd+Enter）" aria-keyshortcuts="Control+Enter Meta+Enter">実行</button>
     <button onclick={graph} disabled={busy}>グラフ</button>
+    <button onclick={blt} disabled={busy} data-blt-button>BLT</button>
     <button onclick={format} disabled={busy}>整形</button>
     {#if runState === "running" && backend.cancel}<button onclick={() => backend.cancel?.()} title="止める（Ctrl/Cmd+.）" aria-keyshortcuts="Control+. Meta+.">止める</button>{/if}
     {#if desktop}
@@ -928,7 +960,7 @@
   <div class="work">
     {#if msl === "loaded"}<aside class="library"><LibraryTree {backend} onOpen={openLibrary} /></aside>{/if}
     <div class="editor" id="editor" hidden={isResults} bind:this={host}></div>
-    <DocsPanel doc={docs} {icon} {diagram} onParams={(part) => (openParams = { part })} onJump={(line) => moveTo(view.state.doc.line(line + 1).from, view.state.doc.line(line + 1).from)} />
+    <DocsPanel doc={docs} {icon} {diagram} {onMove} {onConnect} onParams={(part) => (openParams = { part })} onJump={(line) => moveTo(view.state.doc.line(line + 1).from, view.state.doc.line(line + 1).from)} />
   </div>
   <p class="hint" id="editor-help">{EDITOR_HELP}</p>
   {#if saved}<p class="note" role="status" data-saved>{saved}</p>{/if}
@@ -963,6 +995,7 @@
     </tbody>
   </table>
   {#if columns}<Plot {columns} {model} />{/if}
+  {#if bltModel}<BltPanel {backend} model={bltModel} />{/if}
   {#if graphModel}<Graph {backend} model={graphModel} onSelect={select} />{/if}
 </main>
 

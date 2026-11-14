@@ -129,6 +129,7 @@ export class GlobeWorker {
   async setFile(name, text) { await this.#call("set_file", { name, text }); this.#files.set(name, text); }
   async removeFile(name) { const r = await this.#call("remove_file", { name }); this.#files.delete(name); return r; }
   async check(model) { return JSON.parse(await this.#call("check", { model })); }
+  async blt(model) { return JSON.parse(await this.#call("blt", { model })); } // S262: BLT {reduced, blocks: [{size, algebraic_loop, nonlinear, variables, equations}], skipped?}
   async graph(model, depth) { return JSON.parse(await this.#call("graph", { model, depth })); }
   // 読み取り（S191。CLI の `globe outline` / `deps` / `flat --json` と同じ形）: ファイルのアウトライン（無い・構文の誤りは reject）、check が読むファイルの閉包、flat の要約（通らなければ null）
   async outline(path) { return JSON.parse(await this.#call("outline", { path })); }
@@ -182,6 +183,14 @@ export class GlobeWorker {
   // 図（S245）: 部品の配置と connect の形のデータ。引数は icon と同じ。引けなければ null
   async diagram(cls, at) {
     return JSON.parse(await this.#call("diagram", { cls, text: at ? (this.#files.get(at.file) ?? "") : "", line: at?.line ?? 0, character: at?.character ?? 0 }));
+  }
+  // 図の部品の移動（S250）: cls の部品 part を (dx, dy)（Diagram の座標）だけ動かす [{range, newText}]。at = {file}（setFile 済み）。動かせなければ null
+  async movePart(cls, part, dx, dy, at) {
+    return JSON.parse(await this.#call("move_part", { cls, text: this.#files.get(at.file) ?? "", part, dx, dy }));
+  }
+  // 図の結線の追加（S261）: cls に connect(from, to)（points は図の座標の線）を足す [{range, newText}]。at = {file}（setFile 済み）。足せなければ null
+  async addConnect(cls, from, to, points, at) {
+    return JSON.parse(await this.#call("add_connect", { cls, text: this.#files.get(at.file) ?? "", from, to, points }));
   }
   // リネーム（S161）: [{range, newText}]。部品でない・識別子でない・予約語・既にある名前は、理由つきで reject
   async rename(file, line, character, newName) {
