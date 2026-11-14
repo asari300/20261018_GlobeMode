@@ -44,7 +44,10 @@ function render({ model, el }) {
     ctx.strokeRect(P, 8, W - P - 8, H - P - 8);
     if (t.length < 2 || shown.length === 0) return;
     const ys = shown.flatMap((n) => series[n]).filter(Number.isFinite);
-    let lo = Math.min(...ys), hi = Math.max(...ys);
+    if (ys.length === 0) return;
+    // Math.min(...ys) は引数が約 15 万個で RangeError になる（#91）
+    let lo = Infinity, hi = -Infinity;
+    for (const v of ys) { if (v < lo) lo = v; if (v > hi) hi = v; }
     if (lo === hi) { lo -= 1; hi += 1; }
     const t0 = t[0], t1 = t[t.length - 1];
     const x = (v) => P + ((v - t0) / (t1 - t0 || 1)) * (W - P - 8);
