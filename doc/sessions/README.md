@@ -4,6 +4,7 @@
 
 | S | 日付 | Phase | 題名 | ブランチ | 状態 | スライド | 解説書 | セッション記録 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| S274 | 2026-11-15 | P8 | `ssp-export`: `globe fmu ssp-export spec.json -o system.ssp`。S249 の spec を `.ssp` に書き（FMU は `resources/`、`start` はインラインの `ParameterBindings`、刻みと algorithm は独自の `Annotation`）、`globe fmu cosim` で読み戻すと同じ CSV。結線は Real だけ | `feature/s274-ssp-export` | 完了 | [slides](S274-ssp-export/slides.html) | [解説書](S274-ssp-export/解説書.md) | なし |
 | S273 | 2026-11-15 | 文書 | `readme-changelog`: README（日本語と英語）と CHANGELOG に、11-14〜15 に main に入った機能（コシミュレーション・SSP の読み取り・FMI 3.0 SE の Export・dependencies・線形化・BLT・Diagram の編集・木のアイコン・Track B の最初の一切れ）を反映。限界を一言ずつ添えた | `feature/s273-readme-changelog` | 完了 | [slides](S273-readme-changelog/slides.html) | [解説書](S273-readme-changelog/解説書.md) | なし |
 | S272 | 2026-11-15 | Track B | `trackb-resolve`: Track B の B2 の最初の一切れ。型付き AST をクラス・宣言・`extends`・`import` まで足し、新しい crate `globe-mode-resolve`（依存は syntax だけ）がクラスと部品の名前解決（`within` で組む木、Modelica 3.6 の 5.3 の探索、`class extends`、輪の検出）をする。MSL 4.1.0 の参照 161869 件のうち未解決は `redeclare` 由来の 10 件だけ。ADR-0039 に付記 | `feature/s272-trackb-resolve` | 完了 | [slides](S272-trackb-resolve/slides.html) | [解説書](S272-trackb-resolve/解説書.md) | なし（記録が `log/local/` に無い） |
 | S270 | 2026-11-15 | 保守 | `flaky-timing-tests`: 共有ランナーで落ちる時間の試験を直す。lint の線形（4 倍・5 回の最小値・しきい値 8）と深い入れ子（深さ 1 との比 < 50）を比にし、FMU の中断の上限を緩めた。20 回 0 失敗、壊すと落ちる | `feature/s270-flaky-timing-tests` | 完了 | [slides](S270-flaky-timing-tests/slides.html) | [解説書](S270-flaky-timing-tests/解説書.md) | 【省略。log/local に無い】 |
