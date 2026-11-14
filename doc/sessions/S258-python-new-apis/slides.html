@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S258 Python の新 API — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S258 Python の新 API">
+
+<section class="slide" id="S01">
+  <span class="tag">S258 · 2026-11-15 · P7</span>
+  <h1>Python から cosim と linearize</h1>
+  <p class="lead"><code>cosim(spec)</code> と <code>Workspace.linearize(model)</code></p>
+  <div class="big">S249・S253・S254 の facade を既存の流儀で Python に出した</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">cosim</span>
+  <h1>複数の FMU をつなぐ</h1>
+  <ul>
+    <li><code>spec</code> は dict、<code>.json</code>（FMU のパスは JSON から相対）、<code>.ssp</code></li>
+    <li>戻りは <code>run_fmu</code> と同じ形。<code>table(res)</code> で表になる</li>
+    <li>ワーカー（<code>globe</code>）・<code>on_progress</code>・Ctrl-C・<code>FmuError</code> も <code>run_fmu</code> と同じ</li>
+  </ul>
+  <pre><code>res = cosim("system.ssp", step=0.1)
+table(res)["a.x"]</code></pre>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">linearize</span>
+  <h1>状態空間の A・B・C・D</h1>
+  <ul>
+    <li>キーは <code>globe linearize --json</code> と同じ（<code>x</code>・<code>u</code>・<code>y</code>・<code>x0</code>…<code>D</code>）</li>
+    <li>numpy が入っていれば ndarray、無ければ list（依存は増やさない）</li>
+    <li>変換できなければ <code>GlobeModeError</code>（<code>.diagnostics</code>）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">検証</span>
+  <h1>試験と次回</h1>
+  <pre><code>uv run pytest -q src/Python/tests/test_fmu.py src/Python/tests/test_api.py</code></pre>
+  <ul>
+    <li>cosim: dict・JSON・SSP が同じ列、b の出力は a.x の 1 刻み遅れ</li>
+    <li>次回: <code>blt</code>（S256 が main に入ったら）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>

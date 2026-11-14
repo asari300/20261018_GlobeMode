@@ -374,7 +374,10 @@ fn cosim<'py>(
 fn run_observed<'py>(
     py: Python<'py>,
     on_progress: Option<Py<PyAny>>,
-    run: impl FnOnce(&mut dyn FnMut(f64), &globe_mode::CancelToken) -> Result<globe_mode::FmuRun, String>
+    run: impl FnOnce(
+        &mut dyn FnMut(f64),
+        &globe_mode::CancelToken,
+    ) -> Result<globe_mode::FmuRun, String>
     + Send,
 ) -> PyResult<(String, Vec<String>, Vec<Bound<'py, PyBytes>>)> {
     let token = globe_mode::CancelToken::new();

@@ -1187,7 +1187,7 @@ S177（2026-11-05、S175 までが main にある状態）で、各節の「持�
 | 機能の穴（P6） | Android・ブラウザ | 署名つき APK の実機確認（secret の登録後）、WebView で isolated にする別の道【未確認】、ブラウザ版の公開、marimo の emscripten wheel、PWA、`MSL.json` の分割配信 | S104・S106・S145・S159 |
 | 機能の穴（P7） | 言語 API の配布 | Julia のパッケージ化と JLL、Hex での配布（rustler_precompiled）、Gleam の JS target | S075・S082・S087 |
 | 機能の穴（P7） | 試験版 UI | Leptos・Dioxus の CI（push で回す検査）、プロット・graph・ツリー・タブ・Tauri への組み込み、CPU・フレーム時間・PSS | S153・S155・S156 |
-| 機能の穴（P8） | 拡充 | ~~Icon ビュー~~（S244 で済）と Diagram ビュー（S245 で読み取りは済、編集は未）、~~Documentation ビュー~~（S232 で済、VS Code は S247 で済。画像の表示は持ち越し）、~~パラメータダイアログ~~（S248 で読み取りと実行時の上書きは済。修飾の編集・`redeclare` は未）、~~SSP 2.0.1 の最小版の読み取り~~（S253 で済。`.ssp` → S249 のマスター。入れ子の System・`.ssv`・単位の換算・書き出しは未）、BLT の可視化と変換デバッガ、~~線形化~~（S254 で CLI と facade は済。Python・UI・LSP と解析ヤコビ行列は未）、パッケージマネージャ（`uses` の版） | features.md |
+| 機能の穴（P8） | 拡充 | ~~Icon ビュー~~（S244 で済）と Diagram ビュー（S245 で読み取りは済、編集は未）、~~Documentation ビュー~~（S232 で済、VS Code は S247 で済。画像の表示は持ち越し）、~~パラメータダイアログ~~（S248 で読み取りと実行時の上書きは済。修飾の編集・`redeclare` は未）、~~SSP 2.0.1 の最小版の読み取り~~（S253 で済、Python の `cosim` は S258。`.ssp` → S249 のマスター。入れ子の System・`.ssv`・単位の換算・書き出しは未）、BLT の可視化と変換デバッガ、~~線形化~~（S254 で CLI と facade、S258 で Python は済。UI・LSP と解析ヤコビ行列は未）、パッケージマネージャ（`uses` の版） | features.md |
 
 | 機能の穴（P7） | 試験版 UI | ~~Leptos・Dioxus の CI（push で回す検査）~~（S233 で済。`ci.yml` のジョブ `ui-exp`）、プロット・graph・ツリー・タブ・Tauri への組み込み、CPU・フレーム時間・PSS | S153・S155・S156・S233 |
 | 機能の穴（P8） | 拡充 | Diagram / Icon ビュー、Documentation ビュー、パラメータダイアログ、SSP 2.0.1、BLT の可視化と変換デバッガ、~~線形化~~（S254 で CLI と facade は済）、パッケージマネージャ（`uses` の版） | features.md |

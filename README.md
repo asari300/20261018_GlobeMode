@@ -11,7 +11,7 @@ GlobeMode checks, simulates and edits [Modelica](https://modelica.org/) models. 
 - **Checks before simulation** (S0 to S10): syntax, names, types, connections, equation/variable balance, structural singularity, index, initialization, algebraic loops, parameter and start-value evaluation. Errors name the reason a model cannot be simulated. The balance check agrees with OpenModelica's `omc checkModel()` on all 382 MSL examples that have a verdict ([doc/omc-compare.md](doc/omc-compare.md)).
 - **Simulation** with 20+ solvers (`bdf`, `dopri45`, `auto`, `esdirk34`, `radau5`, `rk4`, ...; `cvode` and `ida` only in a build with the `sundials` feature; list in [doc/msl-solvers.md](doc/msl-solvers.md)), parameter overrides, CSV and MAT v4 output (and `globe results` / Python `read_results` to read them back), progress and cancel.
 - **Editing**: formatter, lint, completion, hover, go-to-definition, references and rename (components and class names, within the open document) in the language server, the VS Code extension and the browser/desktop/Android UI; library tree, plot (series selection, right axis, CSV/PNG export), connect graph, tabs, open/save, run settings, FMU export, dark mode.
-- **FMU export** (FMI 2.0 and 3.0, Model Exchange and Co-Simulation) from the CLI, the UI and every language API. FMI import (Co-Simulation and Model Exchange) runs from the CLI (`globe fmu run`), the Rust facade, Python (`run_fmu`) and the Desktop UI (Open a `.fmu`, with a confirmation; not the browser or Android): the FMU's native code runs in a separate worker process, so a crashing FMU does not take the CLI down (`--timeout`, `--memory-limit` on Linux; the disk and network are not isolated).
+- **FMU export** (FMI 2.0 and 3.0, Model Exchange and Co-Simulation) from the CLI, the UI and every language API. FMI import (Co-Simulation and Model Exchange) runs from the CLI (`globe fmu run`), the Rust facade, Python (`run_fmu`, and `cosim` for several FMUs wired together, from a dict, `.json` or `.ssp`) and the Desktop UI (Open a `.fmu`, with a confirmation; not the browser or Android): the FMU's native code runs in a separate worker process, so a crashing FMU does not take the CLI down (`--timeout`, `--memory-limit` on Linux; the disk and network are not isolated).
 - **APIs**: Rust, Python (PyO3), C ABI, Zig, Julia, Elixir, Gleam, WebAssembly.
 
 Not done: FMI import from the browser/Android UI and the C/Elixir/Gleam APIs (CLI, Rust, Python and the Desktop UI work), SSP, Diagram/Icon views (the Documentation panel works; images are not shown), an own compiler frontend (Track B), signed installers and automatic updates (the updater is off until a key is registered), a public web deployment. The full list with priorities is [doc/features.md](doc/features.md); the plan is [doc/roadmap.md](doc/roadmap.md).
@@ -208,6 +208,8 @@ print(ws.check("Modelica.Electrical.Analog.Examples.ChuaCircuit")["passed"])    
 df = table(ws.simulate_columns("Modelica.Electrical.Analog.Examples.ChuaCircuit"))  # polars.DataFrame
 print(df.shape, df.columns[:3])                                                    # (50219, 45) ['time', 'L.i', 'L.v']
 ```
+
+`ws.linearize(model)`（状態空間の A・B・C・D。numpy があれば ndarray）、`cosim(spec)`（複数の FMU をつなぐ。dict・`.json`・`.ssp`。S258）、`run_fmu`・`fmu_info` も同じ流儀で使える（ワーカーの `globe` を PATH か `GLOBE_BIN` に）。
 
 PyPI には出していない。marimo・Jupyter の折れ線 widget は extra `widget`（`uv sync --extra widget`）。ノートブックは [src/Python/marimo/README.md](src/Python/marimo/README.md)、ダッシュボードは [src/Python/streamlit/README.md](src/Python/streamlit/README.md)。
 

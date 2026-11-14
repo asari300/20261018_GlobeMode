@@ -24,7 +24,9 @@
   | `SourceError` | `ValueError` | `outline` のファイルが無い・構文の誤り、`format` の構文の誤り |
   | `ExportError` | `ValueError` | `export_fmu` が書き出せない |
   | `ResultError` | `ValueError` | `table` に時系列の無い結果を渡した、`read_results` が結果のファイルを読めない |
-  | `FmuError` | `RuntimeError` | `fmu_info` が FMU を読めない、`run_fmu` が回せない（FMU が落ちた・時間切れ・止めた・`globe` が見つからない） |
+  | `FmuError` | `RuntimeError` | `fmu_info` が FMU を読めない、`run_fmu`・`cosim` が回せない（FMU が落ちた・時間切れ・止めた・`globe` が見つからない） |
+
+  `Workspace.linearize` が DAE まで変換できないときは、基底の `GlobeModeError`（`.diagnostics`）が出る。
 
   **呼び方の誤りは素の `TypeError`**（未知の設定のキー、`on_progress` が呼べない、`libraries` が bytes）で、
   コールバックが出した例外と Rust の panic（`pyo3_runtime.PanicException`）はそのまま通る。
