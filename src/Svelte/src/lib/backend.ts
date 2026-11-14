@@ -46,6 +46,8 @@ export interface Backend {
   icon(cls: string, at?: { file: string; line: number; character: number }): Promise<Icon | null>;
   /** クラスの図（部品の配置と `connect`）の形のデータ（S245）。cls・at は `documentation` と同じ。引けなければ null。描くのは UI（`lib/DiagramView.svelte`）。 */
   diagram(cls: string, at?: { file: string; line: number; character: number }): Promise<Diagram | null>;
+  /** 図の部品 part を Diagram の座標で (dx, dy) だけ動かす編集（S250。LSP の TextEdit。`Placement` の `origin` を書き換える）。cls は diagram.class、at.file は setFile 済み。動かせなければ null。ファイルは書かない（適用は UI のエディタ）。 */
+  movePart(cls: string, part: string, dx: number, dy: number, at: { file: string }): Promise<{ range: Definition["range"]; newText: string }[] | null>;
   /** setFile 済みの file の実行できるクラス（model・block・class。partial は除く）の修飾名（S170。UI のモデル名の候補。構文が壊れていれば空）。 */
   models(file: string): Promise<string[]>;
   /** 位置の名前を newName に変える編集（S161。LSP の TextEdit）。いちばん内側のクラスで宣言した部品と、この文書で定義したクラス（S166。宣言・`end`・使っている所）。部品でもクラスでもない・別のファイル（ライブラリ）のクラス・識別子でない・予約語・同じクラスに既にある名前は、理由つきで reject。 */

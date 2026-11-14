@@ -38,3 +38,10 @@ P8 の Diagram / Icon ビューの最初の一切れとして、カーソルの�
 - **CSP**: `default-src 'none'; style-src ${cspSource} 'unsafe-inline'; script-src 'nonce-…'`。`innerHTML` は使わない（`test/panel.test.mjs` が両ファイルを grep する）。
 - **確かめ**: `pnpm test` に無害化と SVG の組み立て（`panel.test.mjs`。node 24 が `.ts` を直接読む）、`e2e/suite.cjs` に「ビューが開き、ChuaCircuit の図に部品が 7 個」。webview の DOM は拡張ホストから見えないので、webview が描き終えた数を `postMessage` で返し、`activate` が返す `panel.state` を e2e が読む。
 - **持ち越し**: 図の編集、画像（`modelica://…/Resources/…`）、テーマに合わせた地の色（地は Svelte の UI と同じく常に白）。
+
+## 付記（S250: 部品の移動）
+
+- **編集の最初の一切れとして、部品のドラッグ移動を入れた。** 書き換えは Rust（`globe-mode-fmt` の `move_part`）が決める。字句解析で宣言を見つけ、`Placement(transformation(origin = {x, y}))` の `{x, y}` を新しい値の `{x, y}` にする編集（バイト範囲と文字列）を返す。`origin` が無ければ `transformation(` の直後に `origin = {dx, dy}, ` を足す（`extent` は `origin` からの相対なので触らない。`rotation` があっても `origin` は図の座標の平行移動なので、そのまま足せる）。Placement の無い宣言・`origin` が数の並びでない宣言（式）は動かさない（null）。値は小数 3 桁に丸める。
+- **LSP `globe/movePart`**（`{file, class, part, dx, dy}`、TextEdit の配列か null。`RPC_METHODS` は 27）と wasm の `move_part`（Worker の `move_part`、`WorkerBackend.movePart`、`TauriBackend.movePart`）で返す。ファイルは書かない。UI は返った編集をエディタに 1 回の `dispatch` で入れる（Ctrl+Z で戻せる。保存はユーザー）。
+- **UI**: `DiagramView.svelte` の svg でポインタを受け、ドラッグ中は部品の `<g>` に `transform` だけを付けて動かし、離したら 2 単位の格子に吸着した (dx, dy)（Diagram の座標、y 上向き）を `onMove` に渡す。4 px 未満は移動と見ず従来のクリック（宣言へ飛ぶ）、移動の直後のクリックは飛ばさない。ダブルクリック・右クリック（S248 のパラメータ）とは衝突しない。編集が入って図が読み直されたら見た目の `transform` を捨てる。結線は `Line(points)` を持たなければ中心どうしの直線なので、読み直しで部品に追従する。`Line(points)` の点は動かさない。
+- **持ち越し**: 結線の点の編集、部品・結線の追加、部品の回転・拡大縮小、VS Code の側のパネルでの移動（今回は触っていない）、`extends` で継いだ部品。

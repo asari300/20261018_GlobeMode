@@ -451,6 +451,13 @@ impl Workspace {
         .to_string()
     }
 
+    /// 図の部品 `part` を (dx, dy) だけ動かす TextEdit の配列 `[{range, newText}]` の JSON（S250。LSP の `globe/movePart` と同じ形）。
+    /// `class` は完全修飾名（`diagram` の `class`）、`text` は文書の本文（空なら `null`）。動かせなければ `null`。ファイルは書かない。
+    pub fn move_part(&self, class: &str, text: &str, part: &str, dx: f64, dy: f64) -> String {
+        let at = (!text.is_empty()).then_some((text, 0, 0));
+        globe_mode_lsp::diagram::move_part(class, at, part, dx, dy).to_string()
+    }
+
     /// 名前を `new_name` に変える TextEdit（`{range, newText}`）の配列の JSON（S161。LSP の `globe/rename` と同じ形）。
     /// 断る場合（部品でもクラスでもない・別のファイルのクラス・識別子でない・予約語・同じ階層に既にある）は理由を例外（文字列）で返す。
     pub fn rename(

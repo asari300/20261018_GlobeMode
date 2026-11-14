@@ -15,6 +15,9 @@ type Extent = [number, number, number, number];
 
 export const boxOf = (e: Extent) => ({ x: Math.min(e[0], e[2]), y: -Math.max(e[1], e[3]), w: Math.abs(e[2] - e[0]), h: Math.abs(e[3] - e[1]) });
 
+/** 図の部品を動かす量を格子（既定 2 単位。Modelica の図の慣習）に吸着する。-0 は 0 */
+export const snap = (v: number, grid = 2) => Math.round(v / grid) * grid + 0;
+
 /** `<svg viewBox>` の値。extent が無ければ既定の枠 */
 export const viewBoxOf = (e: Extent | undefined) => {
   const b = boxOf(e ?? [-100, -100, 100, 100]);

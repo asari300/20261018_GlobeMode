@@ -219,6 +219,72 @@ pub fn diagram(
     })
 }
 
+/// 部品 `part` を図の上で (dx, dy) だけ動かす編集（S250）。`Placement(transformation(origin = {x, y}))` の `{x, y}` を書き換える
+/// （`origin` が無ければ `transformation(` の直後に `origin = {dx, dy}, ` を足す）。返すのは `src` のバイト範囲と、そこへ入れる文字列。
+/// 動かせない（クラス・部品が無い・Placement が無い・`origin` が数の並びでない）ときは None。ソースの他の所には触らない。
+pub fn move_part(
+    src: &str,
+    qualified: &str,
+    part: &str,
+    dx: f64,
+    dy: f64,
+) -> Option<(usize, usize, String)> {
+    let bom = if src.starts_with('\u{feff}') { 3 } else { 0 };
+    let body = &src[bom..];
+    let tokens = lex(body).ok()?;
+    let within = within(&tokens);
+    let spans = class_spans(&tokens).ok()?;
+    let own = spans.iter().find(|s| join(&within, &s.path) == qualified)?;
+    for e in split(&tokens, false).ok()? {
+        let t = e.tokens;
+        let st = t[0].start;
+        if t[0].is_comment() || spans.iter().any(|s| s.start == st) {
+            continue;
+        }
+        let owner = spans
+            .iter()
+            .filter(|s| s.start <= st && st < s.end)
+            .max_by_key(|s| s.start);
+        if owner.is_none_or(|o| o.path != own.path)
+            || declaration(t, body).is_none_or(|r| r.name != part)
+        {
+            continue;
+        }
+        let a = t.iter().position(|s| s.is("annotation"))?;
+        let Some(Val::Call(_, p)) = annotation_in(t, "Placement") else {
+            return None;
+        };
+        let tr = call(&p, "transformation")?;
+        let at = |i: usize| t.get(i).map(|s| s.start + bom);
+        let fmt = |v: f64| {
+            let v = (v * 1000.0).round() / 1000.0 + 0.0; // -0 を 0 に
+            v.to_string()
+        };
+        return match get(tr, "origin") {
+            Some(v) => {
+                let n = nums(v).filter(|n| n.len() == 2)?;
+                // 値の `{ … }` は、annotation 以降の `origin` `=` のあとの波括弧
+                let o = (a..t.len())
+                    .find(|&i| t[i].is("origin") && t.get(i + 1).is_some_and(|s| s.is("=")))?;
+                let close = skip_group(t, o + 2).ok()?;
+                Some((
+                    at(o + 2)?,
+                    at(close - 1)? + 1,
+                    format!("{{{}, {}}}", fmt(n[0] + dx), fmt(n[1] + dy)),
+                ))
+            }
+            None => {
+                let o = (a..t.len()).find(|&i| {
+                    t[i].is("transformation") && t.get(i + 1).is_some_and(|s| s.is("("))
+                })?;
+                let pos = at(o + 1)? + 1;
+                Some((pos, pos, format!("origin = {{{}, {}}}, ", fmt(dx), fmt(dy))))
+            }
+        };
+    }
+    None
+}
+
 /// 名前のない位置引数の `name(…)`（`Placement(transformation(…))` の `transformation(…)`）の引数。
 fn call<'a>(args: &'a [(String, Val)], name: &str) -> Option<&'a Vec<(String, Val)>> {
     args.iter().find_map(|(_, v)| match v {
@@ -480,5 +546,48 @@ end Circ;
             )
             .is_none()
         );
+    }
+
+    #[test]
+    fn move_part_rewrites_or_adds_the_origin_and_leaves_the_rest_alone() {
+        let apply_edit = |src: &str, part: &str, dx: f64, dy: f64| {
+            let (a, b, new) = move_part(src, "M", part, dx, dy)?;
+            Some(format!("{}{new}{}", &src[..a], &src[b..]))
+        };
+        let m = "model M\n  A r1(R = 1) annotation(Placement(transformation(extent = {{-10, -10}, {10, 10}}, origin = {20, 0.5}, rotation = 90)));\n  A r2 annotation(Placement(transformation(extent = {{0, 0}, {10, 10}})));\n  A r3 annotation(Placement(transformation(origin = {1, 2})));\n  A plain;\n  A odd annotation(Placement(transformation(origin = {x, 0})));\nend M;\n";
+        let r1 = apply_edit(m, "r1", 4.0, -0.25).unwrap();
+        assert!(r1.contains("origin = {24, 0.25}, rotation = 90"), "{r1}");
+        assert!(r1.contains("A r2 annotation") && r1.ends_with("end M;\n"));
+        let r2 = apply_edit(m, "r2", 2.0, 0.0).unwrap();
+        assert!(
+            r2.contains("transformation(origin = {2, 0}, extent = {{0, 0}, {10, 10}})"),
+            "origin が無ければ足す: {r2}"
+        );
+        assert!(
+            apply_edit(m, "r3", -1.0, -2.0)
+                .unwrap()
+                .contains("origin = {0, 0})"),
+            "-0 は 0"
+        );
+        assert!(
+            apply_edit(m, "plain", 1.0, 1.0).is_none(),
+            "Placement が無い宣言は動かさない"
+        );
+        assert!(
+            apply_edit(m, "odd", 1.0, 1.0).is_none(),
+            "origin が数でなければ動かさない"
+        );
+        assert!(apply_edit(m, "nope", 1.0, 1.0).is_none());
+        assert!(move_part(m, "N", "r1", 1.0, 1.0).is_none());
+        // 動かした結果を diagram が読み直すと、部品の中心がその分だけ動く
+        let before = diagram(m, "M", &|_| None).unwrap().parts[0].bbox;
+        let after = diagram(&r1, "M", &|_| None).unwrap().parts[0].bbox;
+        assert!(
+            (after[0] - before[0] - 4.0).abs() < 1e-9 && (after[1] - before[1] + 0.25).abs() < 1e-9
+        );
+        // BOM があっても範囲は元の文字列のまま
+        let bom = format!("\u{feff}{m}");
+        let (a, _, _) = move_part(&bom, "M", "r1", 1.0, 0.0).unwrap();
+        assert!(bom[a..].starts_with('{'));
     }
 }

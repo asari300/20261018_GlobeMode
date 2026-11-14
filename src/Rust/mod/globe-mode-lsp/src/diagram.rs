@@ -29,3 +29,21 @@ pub fn diagram(
         None => Value::Null,
     }
 }
+
+/// S250: `class` の部品 `part` を図の上で (dx, dy) だけ動かす編集（LSP の TextEdit の配列 `[{range, newText}]`）。
+/// 動かせない（クラス・部品・Placement が無い・`origin` が数でない・`at` の本文が無い）ときは null。ファイルは書き換えない。
+pub fn move_part(class: &str, at: Option<(&str, u32, u32)>, part: &str, dx: f64, dy: f64) -> Value {
+    let Some(class) = crate::documentation::target(class, at) else {
+        return Value::Null;
+    };
+    let Some((text, ..)) = at else {
+        return Value::Null;
+    };
+    match globe_mode_fmt::move_part(text, &class, part, dx, dy) {
+        Some((a, b, new_text)) => {
+            let r = |o| crate::position(text, o as u32);
+            json!([{"range": {"start": r(a), "end": r(b)}, "newText": new_text}])
+        }
+        None => Value::Null,
+    }
+}

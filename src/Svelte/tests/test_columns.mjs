@@ -1,6 +1,7 @@
 // gapNonFinite（src/lib/plot/csv.ts）の確認。node の型の除去でそのまま読む: node tests/test_columns.mjs
 import assert from "node:assert/strict";
 import { gapNonFinite, toCsv } from "../src/lib/plot/csv.ts";
+import { snap } from "../src/lib/shape-svg.ts";
 import { exportName, isInternal, matches } from "../src/lib/plot/signals.ts";
 
 const ok = new Float64Array([1, 2, 3]);
@@ -16,4 +17,7 @@ assert.equal(exportName("Modelica.Mechanics.MultiBody.Examples.Elementary.Double
 assert.equal(exportName("Decay", "png", t), "Decay-20261105-090307.png");
 assert.equal(exportName("'a/b:c'", "csv", t), "_a_b_c_-20261105-090307.csv", "使えない文字は _");
 assert.equal(exportName("", "csv", t), "result-20261105-090307.csv");
+// 図の部品のドラッグの吸着（S250）: 2 単位の格子。-0 は 0
+assert.deepEqual([0.9, 1.1, -3.2, -0.4, 5].map((v) => snap(v)), [0, 2, -4, 0, 6]);
+assert.ok(Object.is(snap(-0.4), 0));
 console.log("ok");

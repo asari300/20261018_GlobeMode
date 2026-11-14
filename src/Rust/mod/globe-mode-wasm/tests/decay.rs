@@ -618,6 +618,11 @@ fn diagram_is_read_as_shape_data_from_the_document() {
     );
     assert_eq!(ws.diagram("", text, 99, 0), "null", "クラスの外");
     assert_eq!(ws.diagram("GlobeModeValidation.Nope", "", 0, 0), "null");
+    // S250: 部品の移動は origin の書き換え（b の {40, 0} を {42, -4} に）。Placement が無ければ null
+    let e: serde_json::Value =
+        serde_json::from_str(&ws.move_part("T", text, "b", 2.0, -4.0)).unwrap();
+    assert_eq!(e[0]["newText"], "{42, -4}");
+    assert_eq!(ws.move_part("T", text, "nope", 2.0, 0.0), "null");
 }
 
 #[test]
