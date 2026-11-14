@@ -44,6 +44,7 @@
         "globeMode.path": {
           "type": "string",
           "default": "globe",
+          "scope": "machine",
           "description": "`globe` の実行ファイル（PATH に無ければ絶対パス）"
         },
         "globeMode.libraries": {

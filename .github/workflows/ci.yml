@@ -56,6 +56,7 @@ jobs:
       web: ${{ steps.plan.outputs.web }}
       astro: ${{ steps.plan.outputs.astro }}
       ui_exp: ${{ steps.plan.outputs.ui_exp }}
+      desktop: ${{ steps.plan.outputs.desktop }}
       docs: ${{ steps.plan.outputs.docs }}
       slides: ${{ steps.plan.outputs.slides }}
       msl: ${{ steps.plan.outputs.msl }}
@@ -384,6 +385,30 @@ jobs:
           workspaces: src/Rust/apps/experimental/${{ matrix.app }}
       - run: cargo build --locked --target wasm32-unknown-unknown
       - run: cargo test --locked
+
+  desktop:
+    # #95: Desktop のシェル（別の workspace）の試験。method の一覧が tauri-backend.ts と、CSP が index.html と一致するか、など。
+    # sidecar の中継の試験は GLOBE_BIN が無いので省かれる（desktop.yml が release の globe で回す）。ci_plan.py の desktop
+    needs: plan
+    if: needs.plan.outputs.desktop == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v5
+        with:
+          install_args: rust
+      - name: Tauri 2 の依存（desktop.yml と同じ）
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src/Rust/apps/desktop
+      - name: tauri::generate_context! が要る入れ物（UI の dist と sidecar の名前）。中身は空でよい
+        run: |
+          mkdir -p src/Svelte/dist
+          touch "src/Rust/apps/desktop/binaries/globe-$(rustc -vV | sed -n 's/^host: //p')"
+      - run: cargo test --locked --manifest-path src/Rust/apps/desktop/Cargo.toml
 
   astro:
     # #77: Astro のウェブアプリ（src/Astro/fmt）の試験。globe CLI を子プロセスで呼ぶ。依存パッケージは要らない（試験は lib/globe.ts だけを読む）
