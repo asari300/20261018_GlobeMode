@@ -194,6 +194,10 @@ export class GlobeWorker {
   async addConnect(cls, from, to, points, at) {
     return JSON.parse(await this.#call("add_connect", { cls, text: this.#files.get(at.file) ?? "", from, to, points }));
   }
+  // 図の部品の追加（S265）: cls に宣言 `<type> <名前> annotation(Placement(…origin = {x, y}…))` を足す [{range, newText}]。at = {file}（setFile 済み）。断れば null
+  async addPart(cls, type, x, y, at) {
+    return JSON.parse(await this.#call("add_part", { cls, text: this.#files.get(at.file) ?? "", type, x, y }));
+  }
   // リネーム（S161）: [{range, newText}]。部品でない・識別子でない・予約語・既にある名前は、理由つきで reject
   async rename(file, line, character, newName) {
     return JSON.parse(await this.#call("rename", { file, text: this.#files.get(file) ?? "", line, character, newName }));

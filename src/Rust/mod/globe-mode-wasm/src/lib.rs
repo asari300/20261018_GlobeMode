@@ -474,6 +474,16 @@ impl Workspace {
         globe_mode_lsp::diagram::add_connect(class, at, from, to, &pts).to_string()
     }
 
+    /// 図に部品 `ty` の宣言を足す TextEdit の配列 `[{range, newText}]` の JSON（S265。LSP の `globe/addPart` と同じ形）。
+    /// `(x, y)` は図の座標（2 単位に吸着）。package・function・record・type と分かる型・名前でない型は断って `null`。ファイルは書かない。
+    pub fn add_part(&self, class: &str, text: &str, ty: &str, x: f64, y: f64) -> String {
+        let at = (!text.is_empty()).then_some((text, 0, 0));
+        globe_mode_lsp::diagram::add_part(class, at, ty, [x, y], &|c| {
+            self.tree_source(c).map(|(_, t)| t.to_string())
+        })
+        .to_string()
+    }
+
     /// 名前を `new_name` に変える TextEdit（`{range, newText}`）の配列の JSON（S161。LSP の `globe/rename` と同じ形）。
     /// 断る場合（部品でもクラスでもない・別のファイルのクラス・識別子でない・予約語・同じ階層に既にある）は理由を例外（文字列）で返す。
     pub fn rename(

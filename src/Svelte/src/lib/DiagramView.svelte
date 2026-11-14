@@ -1,10 +1,10 @@
-<!-- S245: クラスの図。S261: コネクタから別のコネクタへドラッグすると結線（connect）を足す（離したら onConnect）。S250: 部品をドラッグして動かせる（離したら onMove。書き換えるのは Rust の編集をエディタに入れる側）。Rust が読んだ形のデータ（Diagram）を SVG の要素として描く。部品は自分のクラスの Icon を変換して置き、クリックで宣言の行へ飛ぶ -->
+<!-- S245: クラスの図。S261: コネクタから別のコネクタへドラッグすると結線（connect）を足す（離したら onConnect）。S265: 木の行をドロップすると部品を足す（onAdd）。S250: 部品をドラッグして動かせる（離したら onMove。書き換えるのは Rust の編集をエディタに入れる側）。Rust が読んだ形のデータ（Diagram）を SVG の要素として描く。部品は自分のクラスの Icon を変換して置き、クリックで宣言の行へ飛ぶ -->
 <script lang="ts">
   import type { Diagram } from "./backend";
   import { diagramNodes, snap, viewBoxOf } from "./shape-svg";
   import SvgTree from "./SvgTree.svelte";
 
-  let { diagram, onJump, onParams, onMove, onConnect }: { diagram: Diagram | null; onJump?: (line: number) => void; onParams?: (part: string) => void; onMove?: (part: string, dx: number, dy: number) => Promise<boolean>; onConnect?: (from: string, to: string, points: [number, number][]) => Promise<boolean> } = $props();
+  let { diagram, onJump, onParams, onMove, onConnect, onAdd }: { diagram: Diagram | null; onJump?: (line: number) => void; onParams?: (part: string) => void; onMove?: (part: string, dx: number, dy: number) => Promise<boolean>; onConnect?: (from: string, to: string, points: [number, number][]) => Promise<boolean>; onAdd?: (type: string, x: number, y: number) => Promise<boolean> } = $props();
   let svg = $state<SVGSVGElement>();
 
   const empty = $derived(!diagram || !(diagram.parts.length || diagram.connections.length || diagram.shapes.length));
@@ -84,6 +84,18 @@
     diagram;
     svg?.querySelectorAll(".part[transform]").forEach((g) => g.removeAttribute("transform"));
   });
+  // S265: 木の行のドロップ。ドロップした点（Diagram の座標、y 上向き）を onAdd へ
+  const CLASS = "application/x-globe-class";
+  const over = (e: DragEvent) => {
+    if (onAdd && e.dataTransfer?.types.includes(CLASS)) e.preventDefault();
+  };
+  const drop = (e: DragEvent) => {
+    const type = e.dataTransfer?.getData(CLASS);
+    if (!onAdd || !type || !svg?.getScreenCTM()) return;
+    e.preventDefault();
+    const [x, y] = at(e as unknown as PointerEvent);
+    onAdd(type, x, -y);
+  };
   // S248: ダブルクリックと右クリックで、その部品のパラメータのダイアログへ
   const params = (e: Event) => {
     const part = (e.target as Element).closest("[data-part]")?.getAttribute("data-part");
@@ -97,7 +109,7 @@
 <div class="diagram" data-diagram={diagram?.class ?? ""}>
   {#if diagram && !empty}
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-    <svg bind:this={svg} viewBox={viewBoxOf(diagram.extent)} preserveAspectRatio="xMidYMid meet" role="img" aria-label={`${diagram.class} の図`} onpointerdown={down} onpointermove={move} onpointerup={up} onpointercancel={up} onclick={jump} ondblclick={params} oncontextmenu={params} onkeydown={(e) => (e.key === "Enter" || e.key === " ") && jump(e)}>
+    <svg bind:this={svg} viewBox={viewBoxOf(diagram.extent)} preserveAspectRatio="xMidYMid meet" role="img" aria-label={`${diagram.class} の図`} onpointerdown={down} onpointermove={move} onpointerup={up} onpointercancel={up} ondragover={over} ondrop={drop} onclick={jump} ondblclick={params} oncontextmenu={params} onkeydown={(e) => (e.key === "Enter" || e.key === " ") && jump(e)}>
       <SvgTree nodes={diagramNodes(diagram)} />
     </svg>
   {:else}

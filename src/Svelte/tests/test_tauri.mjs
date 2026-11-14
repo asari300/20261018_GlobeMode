@@ -69,6 +69,10 @@ assert.deepEqual(calls, [["rpc", { method: "globe/movePart", params: { file: "T.
 calls.length = 0;
 assert.equal(await b.addConnect("T", "a.p", "b.n", [[0, 0], [10, 5]], { file: "T.mo" }), null);
 assert.deepEqual(calls, [["rpc", { method: "globe/addConnect", params: { file: "T.mo", class: "T", from: "a.p", to: "b.n", points: [[0, 0], [10, 5]] } }]]);
+// 図の部品の追加（S265）: globe/addPart に class・type・x・y と file を渡す
+calls.length = 0;
+assert.equal(await b.addPart("T", "L.Res", 12, -4, { file: "T.mo" }), null);
+assert.deepEqual(calls, [["rpc", { method: "globe/addPart", params: { file: "T.mo", class: "T", type: "L.Res", x: 12, y: -4 } }]]);
 globalThis.window.__TAURI__.core.invoke = async (cmd) => { if (cmd === "cancel_run") return; throw "中断した"; };
 const running = b.runFmu("/r/D.fmu");
 b.cancel();

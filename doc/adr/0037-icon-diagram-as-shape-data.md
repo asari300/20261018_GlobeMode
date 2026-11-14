@@ -54,3 +54,13 @@ P8 の Diagram / Icon ビューの最初の一切れとして、カーソルの�
 - **UI**: 各コネクタに透明な円（`.conn`、半径は図の大きさの 1/40 の 0.7 倍。ホバーで色が付く）をヒット領域として部品の `<g>` の中に置く。コネクタから始めたドラッグは部品の移動でなく結線で、仮の線を描き、別のコネクタの上で離したら確定する。同じコネクタ・コネクタ以外で離したら何もしない。点は両端のコネクタの位置の 2 点だけ。
 - **型の互換は見ない。** 今回は端のコネクタの型（`Pin` と `RealInput` など）を確かめず、足したあとの検査（`globe check`・lint `connect-type-mismatch`）が誤りを出す。エディタで Ctrl+Z すれば戻る。
 - **持ち越し**: 結線の途中の点（折れ線）、既存の結線との重複の検査、部品の追加、VS Code の側のパネルでの結線、配列のコネクタ（`p[1]`）の選択、型の互換の事前の検査。
+
+## 付記（S265: 部品の追加）
+
+- **Diagram の編集の 3 つ目として、部品の追加を入れた。** ライブラリの木（`LibraryTree.svelte`）の行を図へドラッグ＆ドロップすると、カーソルのクラスに `<型の完全名> <名前> annotation(Placement(transformation(origin = {x, y}, extent = {{-10, -10}, {10, 10}})));` の宣言を足す編集を Rust（`globe-mode-fmt` の `add_part`）が返し、UI がエディタに 1 回の `dispatch` で入れる（Ctrl+Z で戻せる。保存しない）。`origin` はドロップした図の座標を 2 単位に吸着（`move_part` と同じ格子）。
+- **足す場所**: クラスの最後の public の宣言（`protected`・`equation`・`algorithm`・`initial`・クラスの `annotation`・`end` の手前まで）の次の行に、その宣言の字下げで足す。宣言が無ければ、最初の節かクラスの `annotation`（無ければ `end`）の行の前に、`end` の字下げ + 2 桁で足す。入れ子のクラスは自分の `end`。挿入位置の行に他の文が詰めてあれば断る（null）。結線の追加（S261）と同じ要素の切り出し（`own_elements`）を共有した。
+- **名前**: 型の最後の部分の頭を小文字にしたもの（`Resistor` → `resistor`）。クラスの中の識別子の字句（宣言・`connect` の端・型名など）・キーワード・型の最後の部分そのものと重なれば `1`、`2`… を付ける（`resistor1`）。字句の一致を見るだけで、継いだクラスの名前は見ない（継いだ名前との重複は検査が後で誤りにする）。
+- **型の種類**: `package`・`function`・`record`・`type` と分かれば断る（null）。`model`・`block`・`connector`・`class` は受ける。種類は `is_connector` と同じ字面の探し方（`kind_of`。ライブラリのファイルから `<種類> <名前>` を探す）で読み、**ライブラリで引けない・読めなければ受ける**。型が名前の並び（英数字・`_`・`.`）でなければ断る（ソースに入る文字列なので）。UI も木の行の種類が `package`・`function`・`record`・`type` で終わるものは `draggable` にしない。
+- **口**: LSP `globe/addPart`（`{file, class, type, x, y}`、TextEdit の配列か null。`RPC_METHODS` は 29）、wasm `add_part`（Worker の `add_part`、`WorkerBackend.addPart`、`TauriBackend.addPart`）。
+- **UI**: 木の行は `draggable` で `application/x-globe-class` に完全名を載せる。`DiagramView.svelte` の svg が `dragover`・`drop` を受け、ドロップ点を Diagram の座標（y 上向き）にして `onAdd` に渡す。キーボードの人のために、図が開いているとき木の各行に「図へ」ボタンを出し、図の `extent` の中心に足す。App の図の編集（移動・結線・追加）は `editDiagram` に共通化した。
+- **持ち越し**: 名前を付ける入力（足したあとは検査後に F2 のリネームで変える）、足した部品の自動選択、パラメータの初期値の入力、VS Code の側のパネルでの追加（S264 の範囲）、型の互換・継いだクラスとの名前の重複の事前の検査、ブラウザでの操作の試験（`test_ui.py`）。
