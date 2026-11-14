@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S259 マスターの Gauss–Seidel — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S259 マスターの Gauss–Seidel">
+
+<section class="slide" id="S01">
+  <span class="tag">S259 · 2026-11-15 · P5</span>
+  <h1>コシミュレーションのマスターに 3 つ足す</h1>
+  <p class="lead">Gauss–Seidel、<code>start</code>、Int32・Boolean の接続</p>
+  <div class="big">JSON の既存の鍵は変えない。足すだけ</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">Gauss–Seidel</span>
+  <h1>1 刻みの遅れが 0 になる</h1>
+  <table class="compact">
+    <tr><th>algorithm</th><th>刻みの中の順</th><th>b の入力</th></tr>
+    <tr><td><code>jacobi</code>（既定）</td><td>全部読む → 全部渡す → 全員進める</td><td>前の刻みの終わりの a</td></tr>
+    <tr><td><code>gauss-seidel</code></td><td>結線の元 → 先の順に、渡して進める</td><td>同じ刻みの a</td></tr>
+  </table>
+  <p>順は結線から決める（<code>fmus</code> は順序を持たない）。ループは名前の順。</p>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">start・型</span>
+  <h1>初期値と Int32・Boolean</h1>
+  <ul>
+    <li><code>"start": {"a.k": 2.0}</code> を初期化の前に設定（Dahlquist の k = 2 なら x(1) = 0.8^10）</li>
+    <li>接続は同じ型どうしだけ（Float64・Int32・Boolean）。型違いは実行の前に断る</li>
+    <li>Feedthrough のたすき掛けで 7, 0, 7, 0, 7 が出る</li>
+  </ul>
+  <pre><code>cargo test -p globe-mode-cli --test fmu_cosim</code></pre>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>SSP の <code>.ssv</code>（<code>ParameterBindings</code>）と SSP の Int32・Boolean のコネクタ</li>
+    <li>可変刻みと巻き戻し、代数ループ、ME の混在、Python・LSP・UI の口</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

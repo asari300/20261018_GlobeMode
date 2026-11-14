@@ -227,6 +227,32 @@ impl Common {
             (self.api.set_real)(self.c, vrs.as_ptr(), vrs.len(), values.as_ptr())
         })
     }
+
+    /// `fmi2GetInteger` / `fmi2GetBoolean`（どちらも `fmi2Integer`・`fmi2Boolean` が int）。必要なときに引く
+    fn get_vals(&mut self, name: &str, vrs: &[u32]) -> Result<Vec<c_int>> {
+        // SAFETY: 型は fmi2FunctionTypes.h の fmi2GetIntegerTYPE / fmi2GetBooleanTYPE
+        let f: unsafe extern "C" fn(Component, *const c_uint, usize, *mut c_int) -> Status =
+            unsafe { sym(&self.lib, name)? };
+        let mut out = vec![0; vrs.len()];
+        // SAFETY: vrs と out は同じ長さ nvr の有効な配列
+        check(name, unsafe {
+            f(self.c, vrs.as_ptr(), vrs.len(), out.as_mut_ptr())
+        })?;
+        Ok(out)
+    }
+
+    fn set_vals(&mut self, name: &str, vrs: &[u32], values: &[c_int]) -> Result<()> {
+        if vrs.len() != values.len() {
+            return Err(Error::Fmu("値参照と値の数が違う".into()));
+        }
+        // SAFETY: 型は fmi2SetIntegerTYPE / fmi2SetBooleanTYPE
+        let f: unsafe extern "C" fn(Component, *const c_uint, usize, *const c_int) -> Status =
+            unsafe { sym(&self.lib, name)? };
+        // SAFETY: vrs と values は同じ長さ nvr の有効な配列
+        check(name, unsafe {
+            f(self.c, vrs.as_ptr(), vrs.len(), values.as_ptr())
+        })
+    }
 }
 
 impl Drop for Common {
@@ -272,6 +298,28 @@ impl FmuCs for Cs2<'_> {
 
     fn set_real(&mut self, vrs: &[u32], values: &[f64]) -> Result<()> {
         self.inner.set_real(vrs, values)
+    }
+
+    fn get_int(&mut self, vrs: &[u32]) -> Result<Vec<i32>> {
+        self.inner.get_vals("fmi2GetInteger", vrs)
+    }
+
+    fn set_int(&mut self, vrs: &[u32], values: &[i32]) -> Result<()> {
+        self.inner.set_vals("fmi2SetInteger", vrs, values)
+    }
+
+    fn get_bool(&mut self, vrs: &[u32]) -> Result<Vec<bool>> {
+        Ok(self
+            .inner
+            .get_vals("fmi2GetBoolean", vrs)?
+            .into_iter()
+            .map(|v| v != 0)
+            .collect())
+    }
+
+    fn set_bool(&mut self, vrs: &[u32], values: &[bool]) -> Result<()> {
+        let v: Vec<c_int> = values.iter().map(|&b| c_int::from(b)).collect();
+        self.inner.set_vals("fmi2SetBoolean", vrs, &v)
     }
 
     fn do_step(&mut self, time: f64, step: f64) -> Result<bool> {
