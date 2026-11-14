@@ -38,7 +38,7 @@ use crate::bipartite::Bipartite;
 pub use crate::dm::{Decomposition, dulmage_mendelsohn};
 pub use crate::init::{InitReport, analyze_init, analyze_init_system};
 pub use crate::init_system::{InitCondition, InitMatching, InitUnknown, match_init_system};
-pub use crate::loops::{LoopReport, analyze_loops};
+pub use crate::loops::{BltBlock, BltReport, LoopReport, analyze_blt, analyze_loops};
 pub use crate::matching::{Matching, hopcroft_karp};
 pub use crate::pantelides::{IndexReport, analyze_index};
 pub use crate::preflight::{PreflightReport, analyze_preflight};
