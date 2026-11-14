@@ -22,10 +22,8 @@ globe-mode-ir = { workspace = true }
 globe-mode-fmt = { workspace = true, features = ["config"] }
 lsp-types = { workspace = true }
 serde_json = { workspace = true }
+# S279: 補完の `a.` を書きかけの文書で引く（自前の寛容な構文の木の上の名前解決。突き合わせ tests/resolve_compare.rs も使う）
+globe-mode-resolve = { path = "../globe-mode-resolve", version = "0.2.0" }
 
 [lints]
 workspace = true
-
-[dev-dependencies]
-# S272: 自前の名前解決（globe-mode-resolve）との突き合わせ（tests/resolve_compare.rs。ignore）だけ
-globe-mode-resolve = { path = "../globe-mode-resolve", version = "0.2.0" }

@@ -84,6 +84,8 @@ pub struct Server {
     libraries: Vec<PathBuf>,
     /// ライブラリの木（S127。最初の `globe/libraryTree` で全ファイルの見出しを読んで作る）
     tree: Option<globe_mode_fmt::LibraryTree>,
+    /// ライブラリの名前解決の木（S279。補完の `a.` が書きかけの文書で引くとき、最初に 1 回だけ作る。`tree` と同じく起動後のライブラリの更新は見ない）
+    lib: Option<globe_mode_resolve::Library>,
     /// ワークスペースの根（`initialize` の `rootUri`）
     root: Option<PathBuf>,
     /// 根の `globe-mode.toml`（S130）。無ければ None
@@ -104,6 +106,7 @@ impl Server {
             texts: HashMap::new(),
             libraries: libraries.to_vec(),
             tree: None,
+            lib: None,
             root: None,
             config: None,
             scratch: Workspace::new(),
@@ -166,6 +169,7 @@ impl Server {
             tree,
             scratch: &mut self.scratch,
             overlay: None,
+            lib: Some(&mut self.lib),
             read: &|p| {
                 open.iter()
                     .find(|(u, _)| uri_path(u) == p)
@@ -2545,6 +2549,33 @@ mod tests {
         let lsp = s.handle(json!({"id": 2, "method": "textDocument/completion",
             "params": {"textDocument": {"uri": "T.mo"}, "position": {"line": 1, "character": 33}}}));
         assert_eq!(labels(lsp[0].clone()), ui);
+    }
+
+    #[test]
+    fn dot_completion_in_a_broken_document_over_rpc() {
+        // S279: ほかの行にも誤りのある書きかけ（`r.`）でも、ライブラリの型のメンバー（受け継ぎを含む）が出る。2 回目はライブラリを作り直さない
+        let lib =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../Modelica/GlobeModeValidation");
+        let mut s = Server::new(std::slice::from_ref(&lib)).unwrap();
+        let text = "model T\n  Real = ;\n  GlobeModeValidation.Components.Resistor r;\nequation\n  r.\nend T;\n";
+        s.handle(
+            json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+            "uri": "T.mo", "languageId": "modelica", "version": 1, "text": text}}}),
+        );
+        for _ in 0..2 {
+            let r = s.handle(json!({"id": 1, "method": "textDocument/completion",
+                "params": {"textDocument": {"uri": "T.mo"}, "position": {"line": 4, "character": 4}}}));
+            let got: Vec<&str> = r[0]["result"]["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|i| i["label"].as_str().unwrap())
+                .collect();
+            for want in ["R", "p", "n"] {
+                assert!(got.contains(&want), "{want} in {got:?}");
+            }
+        }
+        assert!(s.lib.is_some());
     }
 
     #[test]

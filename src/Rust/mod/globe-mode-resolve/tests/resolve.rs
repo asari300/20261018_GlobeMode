@@ -364,3 +364,74 @@ fn msl_stats() {
         eprintln!("{n:6} {k}");
     }
 }
+
+fn names(v: &[globe_mode_resolve::Member]) -> Vec<&str> {
+    let mut n: Vec<&str> = v.iter().map(|m| m.name.as_str()).collect();
+    n.sort_unstable();
+    n
+}
+
+/// S279: 書きかけの文書を一時的に足して `a.` の直下を引く。終わったらライブラリは元のまま
+#[test]
+fn members_of_a_broken_document_and_the_library_is_restored() {
+    let mut lib = Library::from_sources([(
+        "A.mo",
+        "package A\n  connector Pin\n    Real v;\n    flow Real i;\n  end Pin;\n  model Base\n    Pin p;\n  protected\n    Real h;\n  end Base;\n  model R\n    extends Base;\n    Pin n;\n    model Inner\n    end Inner;\n  end R;\nend A;\n",
+    )]);
+    let (nc, nf) = (lib.classes.len(), lib.files.len());
+    let text = "within A;\nmodel M\n  R r;\nequation\n  r.p.v = r.\n  Real = ;\n"; // 末尾の `end M;` も無い
+    let at = text.find("r.\n").unwrap() as u32 + 2;
+    let got = lib.with_source("M.mo", text, |l, f| {
+        let c = l.class_at(f, at)?;
+        assert_eq!(l.qualified_name(c), "A.M");
+        let r = l.members_of(c, &["r".into()])?;
+        let p = l.members_of(c, &["r".into(), "p".into()])?;
+        Some((names(&r).join(","), names(&p).join(",")))
+    });
+    assert_eq!(got, Some(("Inner,n,p".into(), "i,v".into())));
+    assert_eq!((lib.classes.len(), lib.files.len()), (nc, nf));
+    assert_eq!(lib.class_by_name("A.M"), None);
+}
+
+/// 計測用（`#[ignore]`）: MSL でライブラリを作る時間・メモリと、`Resistor` の部品のメンバー
+/// `GLOBE_MSL=<main>/data/msl cargo test -p globe-mode-resolve --release --test resolve -- --ignored --nocapture msl_members`
+#[test]
+#[ignore = "MSL が要る"]
+fn msl_members_and_memory() {
+    let rss = || {
+        std::fs::read_to_string("/proc/self/status")
+            .ok()
+            .and_then(|s| {
+                s.lines()
+                    .find(|l| l.starts_with("VmRSS"))?
+                    .split_whitespace()
+                    .nth(1)?
+                    .parse::<u64>()
+                    .ok()
+            })
+            .unwrap_or(0)
+    };
+    let (r0, t0) = (rss(), std::time::Instant::now());
+    let msl = msl_dir();
+    let mut lib = Library::from_dir(&msl).unwrap();
+    let (built, r1) = (t0.elapsed(), rss());
+    lib.refs = Vec::new();
+    lib.refs.shrink_to_fit();
+    let r2 = rss();
+    let text = "model M\n  Modelica.Electrical.Analog.Basic.Resistor r;\nequation\n  r.\n";
+    let t1 = std::time::Instant::now();
+    let m = lib.with_source("M.mo", text, |l, f| {
+        let c = l.class_at(f, text.len() as u32 - 1)?; // `r.` の直後
+        l.members_of(c, &["r".into()])
+    });
+    eprintln!(
+        "build {built:?}, RSS {r0} -> {r1} -> {r2} (refs を捨てた後) kB; with_source+members {:?}",
+        t1.elapsed()
+    );
+    let m = m.expect("Resistor のメンバー");
+    let n = names(&m);
+    eprintln!("{n:?}");
+    for want in ["R", "p", "n", "v", "i", "T"] {
+        assert!(n.contains(&want), "{want}");
+    }
+}
