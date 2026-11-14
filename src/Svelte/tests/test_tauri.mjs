@@ -60,6 +60,14 @@ const sent = calls.filter(([, a]) => a.method === "globe/fmuRun").map(([, a]) =>
 await b.runFmu("/r/D.fmu", { kind: "me", stop_time: 2, step: 0.1, timeout: 30 });
 assert.deepEqual(sent, [{}]);
 assert.deepEqual(calls.at(-1)[1].params.request, { kind: "me", stop_time: 2, step: 0.1, timeout: 30 });
+// コシミュレーション（S277）: globe/cosim に path・stopTime・step と workDoneToken を渡し、列を返す。SSP・JSON は開くとき読まない
+globalThis.window.__TAURI__.dialog.open = async () => "/r/sys.ssp";
+assert.deepEqual(await b.openFile(), { name: "sys.ssp", text: "", path: "/r/sys.ssp" });
+calls.length = 0;
+globalThis.window.__TAURI__.core.invoke = async (cmd, a) => (calls.push([cmd, a]), { layout: { names: ["time", "a.x"], points: 2 }, columns: [[0, 1], [1, 0.5]] });
+assert.deepEqual((await b.cosim("/r/sys.ssp", { stopTime: 2, step: 0.1 })).names, ["a.x"]);
+assert.equal(calls[0][1].method, "globe/cosim");
+assert.deepEqual({ ...calls[0][1].params, workDoneToken: undefined }, { path: "/r/sys.ssp", stopTime: 2, step: 0.1, workDoneToken: undefined });
 // 図の部品の移動（S250）: globe/movePart に class・part・dx・dy と file を渡す（RPC_METHODS にある method）
 calls.length = 0;
 globalThis.window.__TAURI__.core.invoke = async (cmd, a) => (calls.push([cmd, a]), null);
@@ -69,6 +77,11 @@ assert.deepEqual(calls, [["rpc", { method: "globe/movePart", params: { file: "T.
 calls.length = 0;
 assert.equal(await b.addConnect("T", "a.p", "b.n", [[0, 0], [10, 5]], { file: "T.mo" }), null);
 assert.deepEqual(calls, [["rpc", { method: "globe/addConnect", params: { file: "T.mo", class: "T", from: "a.p", to: "b.n", points: [[0, 0], [10, 5]] } }]]);
+// 図の部品・結線の削除（S281）: globe/deletePart・globe/deleteConnect に class と file を渡す
+calls.length = 0;
+assert.equal(await b.deletePart("T", "a", { file: "T.mo" }), null);
+assert.equal(await b.deleteConnect("T", "a.p", "b.n", { file: "T.mo" }), null);
+assert.deepEqual(calls, [["rpc", { method: "globe/deletePart", params: { file: "T.mo", class: "T", part: "a" } }], ["rpc", { method: "globe/deleteConnect", params: { file: "T.mo", class: "T", from: "a.p", to: "b.n" } }]]);
 // 図の部品の追加（S265）: globe/addPart に class・type・x・y と file を渡す
 calls.length = 0;
 assert.equal(await b.addPart("T", "L.Res", 12, -4, { file: "T.mo" }), null);
@@ -82,4 +95,9 @@ globalThis.window.__TAURI__.core.invoke = async (cmd, a) => (blt.push([cmd, a]),
 const blt = [];
 assert.deepEqual(await b.blt("M"), { reduced: false, blocks: [] });
 assert.deepEqual(blt, [["rpc", { method: "globe/blt", params: { model: "M" } }]]);
+// 変換の段（S282）: globe/stages に model だけを渡す
+globalThis.window.__TAURI__.core.invoke = async (cmd, a) => (stg.push([cmd, a]), { index: { index: 3 } });
+const stg = [];
+assert.deepEqual(await b.stages("P"), { index: { index: 3 } });
+assert.deepEqual(stg, [["rpc", { method: "globe/stages", params: { model: "P" } }]]);
 console.log("test_tauri ok");

@@ -1,6 +1,6 @@
 import type { Columns } from "./plot/csv";
 import type { ResultColumns } from "./results";
-import type { CheckResponse, GraphJson, BltReport, SimulateRequest, SimulateResponse, SolverEntry, ModelParameter, TunableParameter, Linearization } from "./protocol";
+import type { CheckResponse, GraphJson, BltReport, StagesReport, SimulateRequest, SimulateResponse, SolverEntry, ModelParameter, TunableParameter, Linearization } from "./protocol";
 
 /** UI が計算を頼む相手。WorkerBackend（ブラウザの wasm）と TauriBackend（sidecar の `globe lsp`）が実装する。 */
 export interface Backend {
@@ -12,6 +12,8 @@ export interface Backend {
   graph(model: string, depth: number): Promise<GraphJson>;
   /** 方程式の BLT 分解（S262。解く順のブロック）。検査が通らなければ reject。 */
   blt(model: string): Promise<BltReport>;
+  /** 変換の段ごとの要約（S282。flat → DAE → インデックス → BLT → tearing）。検査が通らなければ reject。 */
+  stages(model: string): Promise<StagesReport>;
   simulate(req: SimulateRequest): Promise<SimulateResponse>;
   /** simulate と同じ実行で、時系列を CSV でなく列ごとに返す（S065）。response.csv は無い（null）。実行できなければ points 0。 */
   simulateColumns(req: SimulateRequest, onProgress?: (p: Progress) => void): Promise<{ response: SimulateResponse; columns: Columns }>;
@@ -56,6 +58,10 @@ export interface Backend {
   addConnect(cls: string, from: string, to: string, points: [number, number][], at: { file: string }): Promise<{ range: Definition["range"]; newText: string }[] | null>;
   /** 図に部品の宣言を足す編集（S265。LSP の TextEdit。最後の public の宣言の後へ `<type> <名前> annotation(Placement(…origin = {x, y}…));`。名前は型の最後の部分を小文字に、重なれば 1・2…）。x・y は図の座標（2 単位に吸着）。cls は diagram.class、at.file は setFile 済み。package・function・record・type と分かる型は null（ファイルは書かない。適用は UI のエディタ）。 */
   addPart(cls: string, type: string, x: number, y: number, at: { file: string }): Promise<{ range: Definition["range"]; newText: string }[] | null>;
+  /** 図の部品 part の宣言とつながる `connect` をまとめて消す編集（S281。LSP の TextEdit の配列。複数）。cls は diagram.class、at.file は setFile 済み。宣言が複数の名前を持つ・消せなければ null。ファイルは書かない（適用は UI のエディタ）。 */
+  deletePart(cls: string, part: string, at: { file: string }): Promise<{ range: Definition["range"]; newText: string }[] | null>;
+  /** 図の結線 `connect(from, to)` を消す編集（S281。from・to は `Connection` のもの。逆の並びも同じ）。無ければ null。 */
+  deleteConnect(cls: string, from: string, to: string, at: { file: string }): Promise<{ range: Definition["range"]; newText: string }[] | null>;
   /** setFile 済みの file の実行できるクラス（model・block・class。partial は除く）の修飾名（S170。UI のモデル名の候補。構文が壊れていれば空）。 */
   models(file: string): Promise<string[]>;
   /** 位置の名前を newName に変える編集（S161。LSP の TextEdit）。いちばん内側のクラスで宣言した部品と、この文書で定義したクラス（S166。宣言・`end`・使っている所）。部品でもクラスでもない・別のファイル（ライブラリ）のクラス・識別子でない・予約語・同じクラスに既にある名前は、理由つきで reject。 */
@@ -66,6 +72,8 @@ export interface Backend {
   fmuInfo?(path: string): Promise<FmuInfo>;
   /** FMU を別プロセスで回し、時刻と出力の列を返す（S229。Desktop だけ）。request は `FmuRunRequest`（S236。kind・stop_time・step・timeout だけ使う。省くと FMU の既定の実験設定）。onProgress は FMU の時刻。止めた呼び出しは cancelled: true の Error で reject する。 */
   runFmu?(path: string, request?: FmuRunRequest, onProgress?: (t: number) => void): Promise<Columns>;
+  /** コシミュレーション（.ssp か spec の .json）を別プロセスで回し、`<FMU名>.<変数名>` の列を返す（S277。Desktop だけ。stopTime・step は SSP の既定と JSON の値を上書きする。onProgress・cancelled は runFmu と同じ）。 */
+  cosim?(path: string, opts?: { stopTime?: number; step?: number }, onProgress?: (t: number) => void): Promise<Columns>;
   /** パスの結果のファイル（.mat・.csv）を読み直す（S236。Desktop だけ。最近使ったファイルと再読み込みで戻すタブ。読めなければ reject）。 */
   readResultsAt?(path: string): Promise<ResultColumns>;
   /** 最近使ったファイルを path から開く（S151。Desktop だけ。ブラウザは本文を localStorage に持つので無い）。 */

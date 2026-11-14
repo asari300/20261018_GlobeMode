@@ -60,12 +60,27 @@ impl Ssp {
                     c.name, c.source
                 )));
             }
-            spec.fmus.insert(c.name.clone(), dir.path().join(&c.source));
+            if spec
+                .fmus
+                .insert(c.name.clone(), dir.path().join(&c.source))
+                .is_some()
+            {
+                // 後ろが前を黙って消し、ParameterBindings は両方が後ろの FMU に入る（S288）
+                return Err(Error::Ssp(format!("Component の名前 {:?} が重複", c.name)));
+            }
         }
+        // modelDescription は FMU ごとに 1 回だけ読む（結線の本数に比例して読み直さない。S288）。読めない FMU は実行のときに誤りになる
+        let descs: BTreeMap<&String, _> = spec
+            .fmus
+            .iter()
+            .map(|(n, p)| (n, read_model_description(p).ok()))
+            .collect();
         // start / end はデータの向きではない（SSP 5.3.2）。FMU の causality で「出力 → 入力」に揃える
         let causality = |e: &str, v: &str| -> Option<Causality> {
-            let d = read_model_description(spec.fmus.get(e)?).ok()?;
-            d.variables
+            descs
+                .get(&e.to_string())?
+                .as_ref()?
+                .variables
                 .iter()
                 .find(|x| x.name == v)
                 .map(|x| x.causality)
@@ -81,8 +96,8 @@ impl Ssp {
         }
         // ParameterBindings → start（5.2.3: 後ろの binding が勝つ。FMU に無い名前は無視する）
         for c in &ssd.components {
-            let Ok(d) = read_model_description(&spec.fmus[&c.name]) else {
-                continue; // 読めない FMU は実行のときに誤りになる
+            let Some(d) = &descs[&c.name] else {
+                continue;
             };
             for b in &c.bindings {
                 let params = match &b.source {
@@ -363,5 +378,48 @@ mod tests {
                 .to_string()
                 .contains("output")
         );
+    }
+
+    /// S288 (#102): 同名の Component・同じ入力への複数の結線は黙って最後を採らず断る
+    #[test]
+    fn duplicate_component_names_and_inputs_are_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let var = |n: &str, c: &str| {
+            format!(
+                r#"<ScalarVariable name="{n}" valueReference="0" causality="{c}" variability="continuous"><Real/></ScalarVariable>"#
+            )
+        };
+        let a = fake_fmu(
+            dir.path(),
+            "a",
+            &(var("y1", "output") + &var("y2", "output")),
+        );
+        let b = fake_fmu(dir.path(), "b", &var("u", "input"));
+        let spec = CosimSpec {
+            fmus: [("a".to_owned(), a.clone()), ("b".to_owned(), b)].into(),
+            connections: vec![("a.y1".into(), "b.u".into()), ("a.y2".into(), "b.u".into())],
+            stop_time: 1.0,
+            step: 0.5,
+            ..Default::default()
+        };
+        let e = crate::cosim::run_cosim_with(&spec, None, &mut |_| {}).unwrap_err();
+        assert!(e.to_string().contains("別の結線がもうある"), "{e}");
+        // 同名の Component を持つ .ssp
+        let out = dir.path().join("dup.ssp");
+        let mut z = zip::ZipWriter::new(std::fs::File::create(&out).unwrap());
+        z.start_file(
+            "SystemStructure.ssd",
+            zip::write::SimpleFileOptions::default(),
+        )
+        .unwrap();
+        let c = |s: &str| {
+            format!(
+                r#"<ssd:Component name="a" type="application/x-fmu-sharedlibrary" source="resources/{s}.fmu"/>"#
+            )
+        };
+        write!(z, r#"<ssd:SystemStructureDescription xmlns:ssd="http://ssp-standard.org/SSP1/SystemStructureDescription" name="s" version="2.0"><ssd:System name="s"><ssd:Elements>{}{}</ssd:Elements></ssd:System><ssd:DefaultExperiment startTime="0" stopTime="1"/></ssd:SystemStructureDescription>"#, c("a"), c("b")).unwrap();
+        z.finish().unwrap();
+        let e = Ssp::open(&out, None, None).unwrap_err();
+        assert!(e.to_string().contains("重複"), "{e}");
     }
 }

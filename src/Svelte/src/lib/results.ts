@@ -6,6 +6,9 @@ export const isResultsFile = (name: string): boolean => /\.(mat|csv)$/i.test(nam
 /** 「開く」で受け付ける FMU（S229。Desktop だけが回せる。ブラウザ・Android は理由を出す）。 */
 export const isFmuFile = (name: string): boolean => /\.fmu$/i.test(name);
 
+/** 「開く」で受け付けるコシミュレーション（S277。SSP か spec の JSON。Desktop だけが回せる）。 */
+export const isCosimFile = (name: string): boolean => /\.(ssp|json)$/i.test(name);
+
 /** MAT の `data_1` のパラメータ 1 つ（S236。CSV と FMU の結果には無い）。 */
 export interface ResultParam { name: string; value: number; unit?: string; description?: string }
 /** 開いた結果の列。MAT のパラメータがあれば parameters に付く（プロットは読まない）。 */

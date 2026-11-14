@@ -113,6 +113,11 @@ export function diagramNodes(d: Diagram): SvgNode[] {
   return [
     ...d.shapes.map(shapeNode),
     ...d.connections.map((c): SvgNode => ({ tag: "g", attrs: { "data-conn": `${c.from} ${c.to}` }, children: [shapeNode(c.line)] })),
+    // S281: 結線を選ぶ当たり判定（線の近く 5 px。透明の太い線。`[data-conn]` の外に置き、図形の数を変えない）。Tab で選べる
+    ...d.connections.filter((c) => c.line.points.length >= 2).map((c): SvgNode => ({
+      tag: "polyline",
+      attrs: { class: "hit", "data-hit": `${c.from} ${c.to}`, role: "button", tabindex: 0, "aria-label": `結線 ${c.from} と ${c.to}（Delete で消す）`, points: pts(c.line.points), fill: "none", stroke: "#000", "stroke-opacity": 0, "stroke-width": 10, "stroke-linejoin": "round", "vector-effect": VE },
+    })),
     ...parts,
   ];
 }

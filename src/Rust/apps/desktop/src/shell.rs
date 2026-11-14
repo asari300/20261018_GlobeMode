@@ -14,13 +14,16 @@ pub fn lock(w: &Shared) -> MutexGuard<'_, Worker> {
 }
 
 /// UI が `rpc` で頼む method（`src/Svelte/src/lib/tauri-backend.ts`）。試験が UI の呼び出しと突き合わせる。
-pub const RPC_METHODS: [&str; 31] = [
+pub const RPC_METHODS: [&str; 35] = [
     "globe/addConnect",
     "globe/addPart",
     "globe/blt",
     "globe/check",
+    "globe/cosim",
     "globe/completion",
     "globe/definition",
+    "globe/deleteConnect",
+    "globe/deletePart",
     "globe/diagram",
     "globe/documentation",
     "globe/exportFmu",
@@ -44,6 +47,7 @@ pub const RPC_METHODS: [&str; 31] = [
     "globe/simulate",
     "globe/simulateColumns",
     "globe/solvers",
+    "globe/stages",
     "globe/tunableParameters",
     "textDocument/foldingRange",
 ];

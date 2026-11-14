@@ -546,6 +546,23 @@ fn decay_lists_tunable_parameters() {
 }
 
 #[test]
+fn pendulum_stages_report_index_three() {
+    // S282: 変換の段ごとの要約。振り子は index 3 で、Pantelides が方程式を足す
+    let mut ws = Workspace::new();
+    for (name, text) in package() {
+        ws.put_file(&name, text);
+    }
+    let r = ws
+        .inner()
+        .stages("GlobeModeValidation.Index.Pendulum")
+        .ok()
+        .unwrap();
+    assert_eq!(r.index.index, 3, "{r:?}");
+    assert!(r.index.added_equations > 0);
+    assert!(ws.inner().stages("Nope").is_err());
+}
+
+#[test]
 fn linear_loop_has_one_algebraic_block_of_two() {
     // S262: UI の BLT パネル。連立 2 元の代数ループが大きさ 2 のブロックとして 1 つ出る
     let mut ws = Workspace::new();
@@ -685,6 +702,15 @@ fn diagram_is_read_as_shape_data_from_the_document() {
         "\n  Pin pin annotation(Placement(transformation(origin = {4, 6}, extent = {{-10, -10}, {10, 10}})));"
     );
     assert_eq!(ws.add_part("T", text, "Pin; x", 0.0, 0.0), "null");
+    // S281: 部品を消すと宣言とつながる connect が一緒に消え（2 つの編集）、結線だけも消せる。無ければ null
+    let d: serde_json::Value = serde_json::from_str(&ws.delete_part("T", text, "a")).unwrap();
+    assert_eq!(d.as_array().unwrap().len(), 2, "{d}");
+    assert_eq!(d[1]["newText"], "");
+    let c: serde_json::Value =
+        serde_json::from_str(&ws.delete_connect("T", text, "b.p", "a.p")).unwrap();
+    assert_eq!(c.as_array().unwrap().len(), 1, "{c}");
+    assert_eq!(ws.delete_connect("T", text, "a.p", "x.q"), "null");
+    assert_eq!(ws.delete_part("T", text, "nope"), "null");
 }
 
 #[test]

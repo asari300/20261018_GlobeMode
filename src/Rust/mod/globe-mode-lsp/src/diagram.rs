@@ -96,6 +96,36 @@ pub fn add_part(
     }
 }
 
+/// S281: `class` の部品 `part` の宣言とその部品につながる `connect` を消す編集（TextEdit の配列。複数。重ならない）。
+/// 消せない（クラス・部品・Placement が無い・宣言が複数の名前を持つ）ときは null。ファイルは書き換えない。
+pub fn delete_part(class: &str, at: Option<(&str, u32, u32)>, part: &str) -> Value {
+    erase(class, at, |t, c| globe_mode_fmt::delete_part(t, c, part))
+}
+
+/// S281: `class` の `connect(a, b)`（逆の並びも同じ）を消す編集。無ければ null。
+pub fn delete_connect(class: &str, at: Option<(&str, u32, u32)>, a: &str, b: &str) -> Value {
+    erase(class, at, |t, c| globe_mode_fmt::delete_connect(t, c, a, b))
+}
+
+fn erase(
+    class: &str,
+    at: Option<(&str, u32, u32)>,
+    f: impl Fn(&str, &str) -> Option<Vec<(usize, usize, String)>>,
+) -> Value {
+    let (Some(class), Some((text, ..))) = (crate::documentation::target(class, at), at) else {
+        return Value::Null;
+    };
+    let r = |o| crate::position(text, o as u32);
+    match f(text, &class) {
+        Some(e) => Value::Array(
+            e.into_iter()
+                .map(|(a, b, t)| json!({"range": {"start": r(a), "end": r(b)}, "newText": t}))
+                .collect(),
+        ),
+        None => Value::Null,
+    }
+}
+
 /// `[[x, y], …]` の JSON を点の列にする（読めない要素は捨てる）。
 pub fn points(v: &Value) -> Vec<[f64; 2]> {
     v.as_array()

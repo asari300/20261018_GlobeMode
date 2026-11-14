@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S280 変換の段ごとの要約 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S280 変換の段ごとの要約">
+
+<section class="slide" id="S01">
+  <span class="tag">S280 · 2026-11-15 · P8</span>
+  <h1>モデルが段ごとにどう変わるかを見る</h1>
+  <p class="lead"><code>globe stages -m GlobeModeValidation.Index.Pendulum</code></p>
+  <div class="big">flat → DAE → インデックスの低減 → BLT → tearing を 1 画面に</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">仕組み</span>
+  <h1>新しい解析は足さない</h1>
+  <ul>
+    <li><code>analyze_stages</code> が既存の結果（flat の数・DAE の数・S7・BLT・S9）を 1 つの <code>StagesReport</code> にまとめる</li>
+    <li><code>GlobeDb::stages</code> → facade <code>Workspace::stages</code> → CLI（<code>--json</code> あり）</li>
+    <li>salsa のクエリは足していない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">出力</span>
+  <h1>名前で出せる差分と数だけの差分</h1>
+  <pre><code>3 index    インデックス 3・微分した方程式 3 本（方程式 +4・未知数 +2）
+           増えた未知数: der(der(x)), der(der(y))
+4 BLT      ブロック 1（大きさ×個数: 5×1）・代数ループ 1
+5 tearing  ループ 1: 反復変数 lambda・残差 der(vx) = lambda * x</code></pre>
+  <p>flat → DAE は数だけ（Rumoca の DAE は別名を畳まないので、どの試験でも差は 0）</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>段の UI・LSP・Python</li>
+    <li>変換の前後の式の差分（別名の除去・微分した式そのもの）</li>
+  </ul>
+  <pre><code>cargo test -p globe-mode-cli --test cli_flow stages</code></pre>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

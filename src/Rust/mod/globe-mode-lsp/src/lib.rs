@@ -26,11 +26,13 @@
 //! | `globe/readResults` | `{path}`（`.mat` は MAT v4、それ以外は CSV） | `{layout, columns, parameters}`（S222。`globe/simulateColumns` の `layout`・`columns` と同じ形。`parameters` は MAT の `data_1` の `[{name, value, unit?, description?}]`で、CSV は空。S236。`defaults` は先頭の 3 本。読めなければ -32000） |
 //! | `globe/fmuInfo` | `{path}`（`.fmu`） | `FmuInfo` の JSON に `warning`（実行の前に見せる警告。S229。`globe fmu info` と同じ情報。ネイティブコードは実行しない。読めなければ -32000。feature `fmu-import`） |
 //! | `globe/fmuRun` | `{path, request?, workDoneToken?}`（`request` は `FmuRunRequest`: `kind`（`"cs"`/`"me"`）・`start_time`・`stop_time`・`step`・`outputs`・`set`・`timeout`・`memory_limit_mib`） | `{layout, columns, me}`（S229。`globe/readResults` と同じ `layout`・`columns` に、ME だけ事象の要約 `me`。**FMU のネイティブコードを別プロセス（自分と同じ実行ファイルの `fmu __worker`）で実行する**。`$/progress` は `{kind: "report", stage: "integration", time}`、`$/cancelRequest` でワーカーを kill して -32800。失敗は -32000。feature `fmu-import`） |
+//! | `globe/cosim` | `{path, stopTime?, step?, workDoneToken?}`（`.ssp` か spec の `.json`。`stopTime`・`step` は SSP の既定と JSON の値を上書きする） | `{layout, columns}`（S277。`globe fmu cosim` と同じ。列は `<FMU の名前>.<変数名>`。FMU のネイティブコードを別プロセスで実行する。進捗・中断は `globe/fmuRun` と同じ。読めない・回せないなら -32000。feature `fmu-import`） |
 //! | `globe/exportFmu` | `{model, fmiVersion?, outDir, runtime?, runtimeLib?}`（既定は FMI 2・`runtime` は `"p5a"`。`build` はしない） | `{path}`（S144。`outDir/<名前>.fmu` と展開した `outDir/<名前>/` を書く。S239 から `runtime: "p5b"` は自前の実行時の共有ライブラリ入りの `<名前>-p5b-fmi<版>.fmu`〔`runtimeLib` か cargo。この版に P5b が無い wasm では -32000〕。`runtime` が p5a・p5b 以外なら -32602。DAE まで変換できなければ -32000） |
 //! | `globe/tunableParameters` | `{model}` | `ParametersResponse` の JSON（S150。上書きできるパラメータの一覧。wasm の `tunable_parameters` と同じ。DAE まで変換できなければ -32000） |
 //! | `globe/linearize` | `{model, time?, parameters?}`（`parameters` は名前 → 数の上書き） | `globe linearize --json` と同じ JSON `{model, time, x, u, y, x0, u0, y0, A, B, C, D}`（S260。状態・入力・出力の名前と行列。DAE まで変換できない・線形化できなければ -32000） |
 //! | `globe/parameters` | `{model}` | `ModelParametersResponse` の JSON `{model, parameters: [{name, type, dims?, default?, value?, literals?, unit?, description?, min?, max?, fixed?}]}`（S248。パラメータ宣言の一覧。名前は `comp.k` の形で、既定値は宣言の修飾を反映する。`value` は数の既定値〔Boolean は 0/1、Enumeration は 1 始まりの ordinal〕。wasm の `parameters` と同じ。DAE まで変換できなければ -32000） |
 //! | `globe/blt` | `{model}` | `BltReport` の JSON `{reduced, blocks: [{size, algebraic_loop, nonlinear, variables, equations}], skipped?}`（S262。方程式の BLT 分解を解く順のブロックで。`globe blt --json` と同じ。検査が通らなければ -32000。wasm の `blt` と同じ） |
+//! | `globe/stages` | `{model}` | `StagesReport` の JSON `{flat?, dae?, index, blt, tearing}`（S282。変換の段ごとの要約。`globe stages --json` と同じ。検査が通らなければ -32000。wasm の `stages` と同じ） |
 //! | `globe/completion` | `{file, line, character}`（`globe/definition` と同じ） | LSP の `CompletionList` `{isIncomplete, items}`（S171。`textDocument/completion` と同じ計算。予約語、文書の名前、点つきの名前の途中はクラスの子か部品の型の部品名。最大 200 件で、200 件に達したら `isIncomplete: true`（S198。打ちかけの語で絞ってから切る）。文字列・コメントの中は空。wasm の `completion` は `items` と同じ配列だけを返す） |
 //! | `globe/librarySearch` | `{query}`（名前の部分一致。大文字小文字を区別しない。`.` を含めると完全修飾名） | 同じ形の項目の配列（S167。最大 50 件、近い順。ファイルの中の入れ子のクラスも出る） |
 //! | `globe/librarySource` | `{path}`（完全修飾名） | `{file, text, range}`（S127。そのクラスを定義するライブラリのファイル。S186 から `range` はそのクラスの宣言の範囲（LSP の Range。引けなければ無い）。無ければ -32000） |
@@ -39,6 +41,8 @@
 //! | `globe/movePart` | `{file, class, part, dx, dy}` | LSP の TextEdit の配列 `[{range, newText}]` か null（S250。図の部品 `part` を Diagram の座標で (dx, dy) だけ動かす編集。`Placement(transformation(origin = {x, y}))` の `{x, y}` を書き換え、`origin` が無ければ `transformation(` の直後に足す。`file` は開いている文書、`class` は完全修飾名。Placement が無い・`origin` が数でないなど動かせなければ null。ファイルは書き換えない〔UI がエディタに適用する〕。wasm の `move_part` と同じ） |
 //! | `globe/addConnect` | `{file, class, from, to, points}` | LSP の TextEdit の配列 `[{range, newText}]` か null（S261。図で引いた結線を足す編集。クラスの最後の `equation` 節の末尾（クラスの `annotation` の前）に `connect(from, to) annotation(Line(points = {{x, y}, …}, color = {0, 0, 255}));` を足し、`equation` が無ければクラスの `annotation`（無ければ `end`）の前に節ごと足す。`from`・`to` は `part.connector`、`points` は図の座標〔空なら線の `annotation` を付けない〕。端が不正・クラスが無ければ null。型の互換は見ない〔検査が後で誤りを出す〕。ファイルは書き換えない。wasm の `add_connect` と同じ） |
 //! | `globe/addPart` | `{file, class, type, x, y}` | LSP の TextEdit の配列 `[{range, newText}]` か null（S265。ライブラリの木から図へドロップした部品を足す編集。クラスの最後の public の宣言の後〔無ければ最初の節の前〕に `<type> <名前> annotation(Placement(transformation(origin = {x, y}, extent = {{-10, -10}, {10, 10}})));` を足す。名前は型の最後の部分の頭を小文字にし、重なれば `1`・`2`… を付ける。`x`・`y` は図の座標で 2 単位に吸着。`type` が package・function・record・type と分かる〔ライブラリで引けて種類が読める〕・名前でない・クラスが無ければ null。ファイルは書き換えない。wasm の `add_part` と同じ） |
+//! | `globe/deletePart` | `{file, class, part}` | LSP の TextEdit の配列 `[{range, newText}]` か null（S281。図の部品 `part` の宣言と、その部品につながる `connect(...)` の方程式〔端の最初の名前が `part`。`if` の中は数えない〕をまとめて消す編集。複数で重ならない。ほかの文が無い行は字下げと改行ごと消し、あれば要素だけを消す。宣言が `A a, b;` のように複数の名前を持つ・Placement が無い・クラスや部品が無ければ null。ファイルは書き換えない。wasm の `delete_part` と同じ） |
+//! | `globe/deleteConnect` | `{file, class, from, to}` | LSP の TextEdit の配列か null（S281。`connect(from, to)`〔`globe/diagram` の `connections` の `from`・`to`。逆の並びも同じ。添字を含めて比べ、`b[1].p` と `b[2].p` は別の結線〔S283〕〕の方程式を、同じ行の後ろのコメントごと消す編集。同じ端のものが複数あれば全部。無ければ null。wasm の `delete_connect` と同じ） |
 //! | `globe/diagram` | `globe/documentation` と同じ | `{class, extent, parts, connections, shapes}` か null（S245。クラスの部品〔`Placement(transformation)` のある宣言〕と `connect`、`Diagram(graphics)` を形のデータにしたもの。部品は `name`・`class`〔書いてある型〕・`line`〔宣言の行、0 始まり〕・`transform`〔アイコンの座標から Diagram の座標への `[a,b,c,d,e,f]`〕・`bbox`・`shapes`〔部品のクラスの Icon の図形。引けなければ空〕・`connectors`〔S261。`[{name, pos}]`、部品のクラスと `extends` の 2 段までの、`Placement` を持つ宣言〔型が connector でないと分かるものは除く〕の位置。図の座標〕、`connections` は `from`・`to`・`line`〔`Line(points)` か中心どうしを結ぶ図形〕。`globe/icon` と同じ図形の形。wasm の `diagram` と同じ） |
 //!
 //! 設定ファイル（S130）: `initialize` の `rootUri`（無ければ `rootPath`）から上へたどって最初の `globe-mode.toml` を
@@ -604,15 +608,33 @@ impl Server {
             // S260: 線形化（`globe linearize --json` と同じ JSON）。parameters は名前 → 数の上書き
             "globe/linearize" => match params["model"].as_str() {
                 Some(model) => {
-                    let ov: std::collections::BTreeMap<String, f64> = serde_json::from_value(params["parameters"].clone()).unwrap_or_default();
-                    match self.ws.linearize(model, &ov, params["time"].as_f64()) {
-                        Ok(l) => reply(id, globe_mode::linearization_json(model, &l)),
-                        Err(ds) => {
-                            let m: Vec<&str> = ds.iter().map(|d| d.message.as_str()).collect();
-                            error(id, -32000, &m.join("; "))
-                        }
+                    // 型の違う parameters・time は黙って捨てず断る（wasm・Python・C と同じ。S288）
+                    let ov = match &params["parameters"] {
+                        Value::Null => Ok(Default::default()),
+                        v => serde_json::from_value::<std::collections::BTreeMap<String, f64>>(v.clone()),
+                    };
+                    match (ov, &params["time"]) {
+                        (Err(e), _) => error(id, -32602, &format!("params.parameters が読めない: {e}")),
+                        (_, t) if !t.is_null() && !t.is_number() => error(id, -32602, "params.time が数でない"),
+                        (Ok(ov), t) => match self.ws.linearize(model, &ov, t.as_f64()) {
+                            Ok(l) => reply(id, globe_mode::linearization_json(model, &l)),
+                            Err(ds) => {
+                                let m: Vec<&str> = ds.iter().map(|d| d.message.as_str()).collect();
+                                error(id, -32000, &m.join("; "))
+                            }
+                        },
                     }
                 }
+                None => error(id, -32602, "params.model が文字列でない"),
+            },
+            "globe/stages" => match params["model"].as_str() {
+                Some(model) => match self.ws.stages(model) {
+                    Ok(r) => reply(id, json!(r)),
+                    Err(ds) => {
+                        let m: Vec<&str> = ds.iter().map(|d| d.message.as_str()).collect();
+                        error(id, -32000, &m.join("; "))
+                    }
+                },
                 None => error(id, -32602, "params.model が文字列でない"),
             },
             "globe/simulate" => {
@@ -669,6 +691,8 @@ impl Server {
             },
             #[cfg(feature = "fmu-import")]
             "globe/fmuRun" => fmu_run(id, params, cancel, notify),
+            #[cfg(feature = "fmu-import")]
+            "globe/cosim" => cosim_run(id, params, cancel, notify),
             "globe/graph" => match params["model"].as_str() {
                 Some(model) => {
                     let depth = params["depth"].as_u64().unwrap_or(1) as u32;
@@ -840,6 +864,32 @@ impl Server {
                         params["type"].as_str().unwrap_or(""),
                         [params["x"].as_f64().unwrap_or(0.0), params["y"].as_f64().unwrap_or(0.0)],
                         &|c| std::fs::read_to_string(tree.file(c)?).ok(),
+                    ),
+                )
+            }
+            // S281: 図の部品（とそれにつながる結線）・結線を消す編集（TextEdit の配列。ファイルは書かない）
+            "globe/deletePart" => {
+                let text = params["file"].as_str().and_then(|f| self.texts.get(f).cloned());
+                let at = text.as_deref().map(|t| (t, 0, 0));
+                reply(
+                    id,
+                    diagram::delete_part(
+                        params["class"].as_str().unwrap_or(""),
+                        at,
+                        params["part"].as_str().unwrap_or(""),
+                    ),
+                )
+            }
+            "globe/deleteConnect" => {
+                let text = params["file"].as_str().and_then(|f| self.texts.get(f).cloned());
+                let at = text.as_deref().map(|t| (t, 0, 0));
+                reply(
+                    id,
+                    diagram::delete_connect(
+                        params["class"].as_str().unwrap_or(""),
+                        at,
+                        params["from"].as_str().unwrap_or(""),
+                        params["to"].as_str().unwrap_or(""),
                     ),
                 )
             }
@@ -1050,8 +1100,94 @@ pub fn run_stdio(libraries: &[PathBuf]) -> io::Result<()> {
 fn cancellable(method: &str) -> bool {
     matches!(
         method,
-        "globe/simulate" | "globe/simulateColumns" | "globe/fmuRun"
+        "globe/simulate" | "globe/simulateColumns" | "globe/fmuRun" | "globe/cosim"
     )
+}
+
+/// `globe/cosim`（S277）。`.ssp` は `Ssp::open`、それ以外は `globe fmu cosim` と同じ spec の JSON（FMU のパスは JSON からの相対）。
+/// `stopTime`・`step` は SSP の既定と JSON の値を上書きする。回し方・進捗・中断は `globe/fmuRun` と同じ。
+#[cfg(feature = "fmu-import")]
+fn cosim_run(
+    id: Option<Value>,
+    params: &Value,
+    cancel: Option<CancelToken>,
+    notify: &mut dyn FnMut(Value),
+) -> Vec<Value> {
+    let Some(path) = params["path"].as_str().map(std::path::Path::new) else {
+        return error(id, -32602, "params.path が文字列でない");
+    };
+    let (stop, step) = (params["stopTime"].as_f64(), params["step"].as_f64());
+    let ssp; // 展開先（drop で消える）を回し終わるまで持つ
+    let loaded = if path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("ssp"))
+    {
+        match globe_mode::Ssp::open(path, stop, step) {
+            Ok(s) => {
+                ssp = s;
+                Ok(ssp.spec.clone())
+            }
+            Err(e) => Err(e.to_string()),
+        }
+    } else {
+        std::fs::read_to_string(path)
+            .map_err(|e| e.to_string())
+            .and_then(|t| {
+                serde_json::from_str::<globe_mode::CosimSpec>(&t).map_err(|e| e.to_string())
+            })
+            .map(|mut spec| {
+                let dir = path.parent().unwrap_or(std::path::Path::new("."));
+                for p in spec.fmus.values_mut() {
+                    *p = dir.join(&*p);
+                }
+                spec.stop_time = stop.unwrap_or(spec.stop_time);
+                spec.step = step.unwrap_or(spec.step);
+                spec
+            })
+    };
+    let spec = match loaded {
+        Ok(s) => s,
+        Err(e) => return error(id, -32000, &format!("{}: {e}", path.display())),
+    };
+    let worker = match std::env::current_exe() {
+        Ok(w) => w,
+        Err(e) => {
+            return error(
+                id,
+                -32000,
+                &format!("ワーカーの実行ファイルが分からない: {e}"),
+            );
+        }
+    };
+    let token = params.get("workDoneToken");
+    let mut progress = |value: Value| {
+        if let Some(token) = token {
+            notify(json!({"jsonrpc": "2.0", "method": "$/progress",
+                "params": {"token": token, "value": value}}));
+        }
+    };
+    progress(
+        json!({"kind": "begin", "title": format!("cosim {}", path.display()), "cancellable": true}),
+    );
+    let run = globe_mode::run_cosim(
+        &worker,
+        &spec,
+        &mut |t| {
+            progress(
+                json!({"kind": "report", "message": "integration", "stage": "integration", "time": t}),
+            )
+        },
+        cancel.as_ref(),
+    );
+    progress(json!({"kind": "end"}));
+    match run {
+        Ok(r) => {
+            let (layout, columns) = r.results.columns();
+            reply(id, json!({"layout": layout, "columns": columns}))
+        }
+        Err(e) if cancel.is_some_and(|c| c.is_cancelled()) => error(id, -32800, &e),
+        Err(e) => error(id, -32000, &e),
+    }
 }
 
 /// `globe/fmuRun`（S229）。ワーカーは自分と同じ実行ファイル（`globe lsp` の `globe`）の `fmu __worker`。
@@ -2071,6 +2207,23 @@ mod tests {
     }
 
     #[test]
+    fn stages_are_served() {
+        // S282: globe/stages。x' = -x は index 1、検査が通らなければ -32000
+        let mut s = Server::new(&[]).unwrap();
+        let src = "model D\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -x;\nend D;\n";
+        s.handle(
+            json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+            "uri": "D.mo", "languageId": "modelica", "version": 1, "text": src}}}),
+        );
+        let r = s.handle(json!({"id": 1, "method": "globe/stages", "params": {"model": "D"}}));
+        assert_eq!(r[0]["result"]["index"]["index"], 1, "{}", r[0]);
+        let r = s.handle(json!({"id": 2, "method": "globe/stages", "params": {"model": "Nope"}}));
+        assert_eq!(r[0]["error"]["code"], -32000);
+        let r = s.handle(json!({"id": 3, "method": "globe/stages", "params": {}}));
+        assert_eq!(r[0]["error"]["code"], -32602);
+    }
+
+    #[test]
     fn declared_parameters_are_listed() {
         // S248: 部品ごとの入れ子の名前・型・修飾で変えた既定値・単位
         let mut s = Server::new(&[]).unwrap();
@@ -2118,6 +2271,15 @@ mod tests {
         let r =
             s.handle(json!({"id": 2, "method": "globe/linearize", "params": {"model": "Nope"}}));
         assert_eq!(r[0]["error"]["code"], -32000);
+        // S288 (#104): 型の違う parameters・time は既定値で線形化せず -32602
+        for p in [
+            json!({"model": "L", "parameters": {"k": "3"}}),
+            json!({"model": "L", "time": "1"}),
+            json!({"model": "L", "parameters": [1]}),
+        ] {
+            let r = s.handle(json!({"id": 3, "method": "globe/linearize", "params": p}));
+            assert_eq!(r[0]["error"]["code"], -32602, "{p}: {}", r[0]);
+        }
     }
 
     #[test]
@@ -2580,6 +2742,76 @@ mod tests {
     }
 
     #[test]
+    fn delete_part_and_delete_connect_return_text_edits() {
+        // S281: globe/deletePart は宣言とつながる connect をまとめて、globe/deleteConnect は結線だけ消す。消せなければ null
+        let mut s = Server::new(&[]).unwrap();
+        let text = "model T\n  Box a annotation(Placement(transformation(extent = {{-10, -10}, {10, 10}})));\n  Box b;\nequation\n  connect(a.p, b.n);\n  connect(b.p, b.n);\nend T;\n";
+        s.handle(
+            json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+            "uri": "T.mo", "languageId": "modelica", "version": 1, "text": text}}}),
+        );
+        let mut rpc = |m: &str, p: Value| {
+            let mut params = json!({"file": "T.mo", "class": "T"});
+            params
+                .as_object_mut()
+                .unwrap()
+                .extend(p.as_object().unwrap().clone());
+            s.handle(json!({"id": 1, "method": m, "params": params}))
+                .remove(0)["result"]
+                .clone()
+        };
+        let e = rpc("globe/deletePart", json!({"part": "a"}));
+        assert_eq!(e.as_array().unwrap().len(), 2, "{e}");
+        assert_eq!(
+            e[0]["range"],
+            json!({"start": {"line": 1, "character": 0}, "end": {"line": 2, "character": 0}}),
+            "{e}"
+        );
+        assert_eq!(
+            e[1]["range"],
+            json!({"start": {"line": 4, "character": 0}, "end": {"line": 5, "character": 0}}),
+            "{e}"
+        );
+        assert_eq!(e[1]["newText"], "");
+        assert_eq!(
+            rpc("globe/deletePart", json!({"part": "b"})),
+            Value::Null,
+            "Placement が無い"
+        );
+        let e = rpc("globe/deleteConnect", json!({"from": "b.n", "to": "b.p"}));
+        assert_eq!(
+            e[0]["range"]["start"],
+            json!({"line": 5, "character": 0}),
+            "{e}"
+        );
+        assert_eq!(
+            rpc("globe/deleteConnect", json!({"from": "a.p", "to": "x.q"})),
+            Value::Null
+        );
+    }
+
+    #[test]
+    fn delete_connect_removes_only_the_matching_array_index() {
+        // S283: 添字つきの端は添字ごとに別の結線。b[2].p を消しても b[1].p は残る
+        let mut s = Server::new(&[]).unwrap();
+        let text = "model T\n  Box b[2];\n  Box c;\nequation\n  connect(b[1].p, c.n);\n  connect(b[2].p, c.n);\nend T;\n";
+        s.handle(
+            json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+            "uri": "T.mo", "languageId": "modelica", "version": 1, "text": text}}}),
+        );
+        let e = s
+            .handle(json!({"id": 1, "method": "globe/deleteConnect", "params": {"file": "T.mo", "class": "T", "from": "c.n", "to": "b[2].p"}}))
+            .remove(0)["result"]
+            .clone();
+        assert_eq!(e.as_array().unwrap().len(), 1, "{e}");
+        assert_eq!(
+            e[0]["range"]["start"],
+            json!({"line": 5, "character": 0}),
+            "{e}"
+        );
+    }
+
+    #[test]
     fn add_part_returns_a_text_edit_after_the_last_declaration() {
         // S265: globe/addPart。最後の宣言の後に部品の宣言を足す TextEdit。名前の重複は 1 を付け、型が名前でなければ null
         let mut s = Server::new(&[]).unwrap();
@@ -2928,6 +3160,7 @@ mod tests {
             let r = s.handle(json!({"id": 1, "method": method, "params": params}));
             assert_eq!(r[0]["error"]["code"], code, "{method} {params}: {}", r[0]);
         };
+        bad(&mut s, "globe/cosim", json!({}), -32602); // S277（読めない path の -32000 は tests/lsp.rs）
         for method in ["globe/fmuInfo", "globe/fmuRun"] {
             bad(&mut s, method, json!({}), -32602);
             bad(&mut s, method, json!({"path": 1}), -32602);

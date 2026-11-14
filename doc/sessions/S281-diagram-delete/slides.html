@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S281 図の部品と結線の削除 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S281 図の部品と結線の削除">
+
+<section class="slide" id="S01">
+  <span class="tag">S281 · 2026-11-15 · P8</span>
+  <h1>Diagram ビューの編集: 削除</h1>
+  <p class="lead">部品か結線を選んで Delete。部品を消すとつながる結線も一緒に消える</p>
+  <div class="big">範囲を決めるのは<b>Rust</b>（<code>delete_part</code>・<code>delete_connect</code>）、UI は 1 回の dispatch で入れる</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">Rust</span>
+  <h1>消す範囲</h1>
+  <table class="compact">
+    <tr><th>操作</th><th>消すもの</th></tr>
+    <tr><td><code>delete_part</code></td><td>部品の宣言と、端の最初の名前がその部品の <code>connect</code>（複数の編集）</td></tr>
+    <tr><td><code>delete_connect</code></td><td>その <code>connect</code> の文全体（<code>annotation</code>・同じ行のコメントを含む）</td></tr>
+  </table>
+  <p>文が行に 1 つだけなら字下げと改行ごと、他の文があればその要素だけ</p>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">断るもの</span>
+  <h1>断る場合</h1>
+  <ul>
+    <li>宣言が <code>A a, b;</code> のように複数の名前を持つ（<code>annotation</code> の帰属が曖昧）</li>
+    <li>Placement が無い宣言（図に出ない）・クラスや部品が無い</li>
+    <li><code>if</code> の中の <code>connect</code> は数えない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">UI</span>
+  <h1>選ぶ・消す</h1>
+  <ul>
+    <li>クリックか Tab で選ぶ（部品は青い破線の枠、結線は青い太線）</li>
+    <li>結線の当たり判定は線の近く 5 px（透明の太い線）</li>
+    <li>Delete / Backspace は図の中でだけ受ける。クリックで宣言へ飛んだ後、フォーカスを選んだ対象へ戻す</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">口と試験</span>
+  <h1>口と試験</h1>
+  <ul>
+    <li>LSP <code>globe/deletePart</code>・<code>globe/deleteConnect</code>（RPC 許可 31 から 33 本）、wasm、<code>Backend</code></li>
+  </ul>
+  <pre><code>cargo test -p globe-mode-fmt --lib diagram
+cargo test -p globe-mode-lsp --lib delete_part
+cargo test -p globe-mode-wasm --test decay diagram
+node src/Svelte/tests/test_tauri.mjs</code></pre>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

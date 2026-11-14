@@ -113,8 +113,8 @@ pub fn diagram(
         } else if !mine {
         } else if t[0].is("connect") {
             conns.push(t);
-        } else if let Some(r) = declaration(t, body) {
-            raws.push(r);
+        } else {
+            raws.extend(declarations(t, body).into_iter().map(|(r, _)| r));
         }
     }
 
@@ -250,40 +250,46 @@ pub fn move_part(
             .iter()
             .filter(|s| s.start <= st && st < s.end)
             .max_by_key(|s| s.start);
-        if owner.is_none_or(|o| o.path != own.path)
-            || declaration(t, body).is_none_or(|r| r.name != part)
-        {
+        if owner.is_none_or(|o| o.path != own.path) {
             continue;
         }
-        let a = t.iter().position(|s| s.is("annotation"))?;
+        // 複数の名前（`A a, b annotation(…)`）は名前ごとの区切りだけを見る（S288）
+        let Some((_, t)) = declarations(t, body)
+            .into_iter()
+            .find(|(r, _)| r.name == part)
+        else {
+            continue;
+        };
         let Some(Val::Call(_, p)) = annotation_in(t, "Placement") else {
             return None;
         };
         let tr = call(&p, "transformation")?;
         let at = |i: usize| t.get(i).map(|s| s.start + bom);
-        let fmt = |v: f64| {
-            let v = (v * 1000.0).round() / 1000.0 + 0.0; // -0 を 0 に
-            v.to_string()
-        };
+        // `Placement(` の中で、`transformation(` を先に探してから `origin` を探す（`iconTransformation(origin = …)` が先でも誤らない。S288）
+        let a = t.iter().position(|s| s.is("annotation"))?;
+        let o = (a..t.len())
+            .find(|&i| t[i].is("transformation") && t.get(i + 1).is_some_and(|s| s.is("(")))?;
         return match get(tr, "origin") {
             Some(v) => {
                 let n = nums(v).filter(|n| n.len() == 2)?;
-                // 値の `{ … }` は、annotation 以降の `origin` `=` のあとの波括弧
-                let o = (a..t.len())
+                let open = o + 1;
+                let end = skip_group(t, open).ok()?;
+                let k = (open..end)
                     .find(|&i| t[i].is("origin") && t.get(i + 1).is_some_and(|s| s.is("=")))?;
-                let close = skip_group(t, o + 2).ok()?;
+                let close = skip_group(t, k + 2).ok()?;
                 Some((
-                    at(o + 2)?,
+                    at(k + 2)?,
                     at(close - 1)? + 1,
-                    format!("{{{}, {}}}", fmt(n[0] + dx), fmt(n[1] + dy)),
+                    format!("{{{}, {}}}", coord(n[0] + dx)?, coord(n[1] + dy)?),
                 ))
             }
             None => {
-                let o = (a..t.len()).find(|&i| {
-                    t[i].is("transformation") && t.get(i + 1).is_some_and(|s| s.is("("))
-                })?;
                 let pos = at(o + 1)? + 1;
-                Some((pos, pos, format!("origin = {{{}, {}}}, ", fmt(dx), fmt(dy))))
+                Some((
+                    pos,
+                    pos,
+                    format!("origin = {{{}, {}}}, ", coord(dx)?, coord(dy)?),
+                ))
             }
         };
     }
@@ -293,7 +299,7 @@ pub fn move_part(
 /// クラス `qualified` に `connect(a, b) annotation(Line(points = {…}, color = {0, 0, 255}));` を足す編集（S261）。
 /// 返すのは `src` のバイト範囲（挿入だけなので始めと終わりは同じ）と、そこへ入れる文字列。
 /// 最後の `equation` 節の末尾（クラスの `annotation` の前）に、その節の字下げで足す。`equation` が無ければ、クラスの `annotation`（無ければ `end`）の行の前に
-/// `equation` 節ごと足す（`equation` は `end` の字下げ、文は最初の宣言の字下げ）。`a`・`b` は `part.connector`（英数字・`_`・`.`・`[]` だけ）。
+/// `equation` 節ごと足す（`equation` は `end` の字下げ、文は最初の宣言の字下げ）。`a`・`b` は `part.connector`（`名前` か `名前[数]` を `.` でつないだ形。座標は有限で絶対値が 1e6 以下、でなければ None。S288）。
 /// `points` は図の座標の線（空なら `annotation` を付けない）。クラスが無い・端が不正・挿入位置の行に他の文がある（1 行に詰めた）ときは None。
 pub fn add_connect(
     src: &str,
@@ -302,11 +308,6 @@ pub fn add_connect(
     b: &str,
     points: &[[f64; 2]],
 ) -> Option<(usize, usize, String)> {
-    let end_ok = |e: &str| {
-        !e.is_empty()
-            && e.chars()
-                .all(|c| c.is_ascii_alphanumeric() || "_.[]".contains(c))
-    };
     if !end_ok(a) || !end_ok(b) {
         return None;
     }
@@ -315,14 +316,13 @@ pub fn add_connect(
     let tokens = lex(body).ok()?;
     let name_of = qualified.rsplit('.').next().unwrap_or(qualified);
     let mine = own_elements(&tokens, qualified)?;
-    let fmt = |v: f64| ((v * 1000.0).round() / 1000.0 + 0.0).to_string();
     let line = if points.is_empty() {
         String::new()
     } else {
-        let pts: Vec<_> = points
-            .iter()
-            .map(|p| format!("{{{}, {}}}", fmt(p[0]), fmt(p[1])))
-            .collect();
+        let mut pts = Vec::new();
+        for p in points {
+            pts.push(format!("{{{}, {}}}", coord(p[0])?, coord(p[1])?));
+        }
         format!(
             " annotation(Line(points = {{{}}}, color = {{0, 0, 255}}))",
             pts.join(", ")
@@ -377,6 +377,82 @@ pub fn add_connect(
         ls + bom,
         format!("{end_ind}equation\n{decl}{stmt}\n"),
     ))
+}
+
+/// 部品 `part` の宣言と、その部品につながる `connect(...)` の方程式をまとめて消す編集（S281）。返すのは `src` のバイト範囲と置き換える文字列（空）の組で、
+/// 重ならず、先頭から並ぶ。要素（文と同じ行の後ろのコメント）だけが行にあれば、字下げと行末の改行まで消し、他の文が同じ行にあれば要素だけを消す。
+/// 宣言が `A a, b;` のように複数の名前を持つとき・Placement の無い宣言（図に出ない）・クラスや部品が無いときは None。`if` の中の `connect` は数えない。
+pub fn delete_part(src: &str, qualified: &str, part: &str) -> Option<Vec<(usize, usize, String)>> {
+    let bom = if src.starts_with('\u{feff}') { 3 } else { 0 };
+    let body = &src[bom..];
+    let tokens = lex(body).ok()?;
+    let mine = own_elements(&tokens, qualified)?;
+    let decl = mine.iter().find(|t| {
+        !t[0].is_comment() && declarations(t, body).iter().any(|(r, _)| r.name == part)
+    })?;
+    let mut i = 0;
+    while i < decl.len() {
+        if ["(", "[", "{"].iter().any(|b| decl[i].is(b)) {
+            i = skip_group(decl, i).ok()?;
+            continue;
+        }
+        if decl[i].is(",") {
+            return None; // 複数の名前（`A a, b;`）
+        }
+        i += 1;
+    }
+    let hit = |t: &&&[Token<'_>]| {
+        std::ptr::eq(**t, *decl)
+            || (t[0].is("connect")
+                && connect_ends(t).is_some_and(|(a, b)| first(&a) == part || first(&b) == part))
+    };
+    Some(erase(body, bom, mine.iter().filter(hit).copied()))
+}
+
+/// `connect(a, b)` の方程式（`annotation` と同じ行の後ろのコメントを含む文全体）を消す編集（S281）。端は `Connection` の `from`・`to` と同じ字句で、
+/// 逆の並びも同じ結線とみなす（添字を含めて比べる。`b[2].p` と `b[ 2 ].p` は同じ、`b[1].p` は別。S283）。同じ端の `connect` が複数あれば全部消す。無ければ None。範囲の決め方は [`delete_part`] と同じ。
+pub fn delete_connect(
+    src: &str,
+    qualified: &str,
+    a: &str,
+    b: &str,
+) -> Option<Vec<(usize, usize, String)>> {
+    let bom = if src.starts_with('\u{feff}') { 3 } else { 0 };
+    let body = &src[bom..];
+    let tokens = lex(body).ok()?;
+    let mine = own_elements(&tokens, qualified)?;
+    let hit: Vec<_> = mine
+        .iter()
+        .filter(|t| {
+            t[0].is("connect")
+                && connect_ends(t).is_some_and(|(x, y)| (x == a && y == b) || (x == b && y == a))
+        })
+        .copied()
+        .collect();
+    (!hit.is_empty()).then(|| erase(body, bom, hit.into_iter()))
+}
+
+/// 要素（トークンの並び）を消すバイト範囲。行に他に何も無ければ行ごと（行末の改行まで）、あれば要素と後ろの空白だけ。
+fn erase<'t, 'a: 't>(
+    body: &str,
+    bom: usize,
+    elems: impl Iterator<Item = &'t [Token<'a>]>,
+) -> Vec<(usize, usize, String)> {
+    elems
+        .map(|t| {
+            let (s, e) = (t[0].start, t.last().map_or(0, |l| l.start + l.text.len()));
+            let ls = body[..s].rfind('\n').map_or(0, |i| i + 1);
+            let le = body[e..].find('\n').map_or(body.len(), |i| e + i);
+            let alone = body[ls..s].trim().is_empty() && body[e..le].trim().is_empty();
+            let (from, to) = if alone {
+                (ls, (le + 1).min(body.len()))
+            } else {
+                let sp = body[e..].len() - body[e..].trim_start_matches([' ', '\t']).len();
+                (s, e + sp)
+            };
+            (from + bom, to + bom, String::new())
+        })
+        .collect()
 }
 
 /// クラス直下の要素（入れ子のクラスの中は除く）。クラスが無ければ None。
@@ -445,11 +521,11 @@ pub fn add_part(
     } else {
         base
     };
-    let snap = |v: f64| (v / 2.0).round() * 2.0 + 0.0;
+    let snap = |v: f64| coord((v / 2.0).round() * 2.0 + 0.0);
     let decl = format!(
         "{ty} {name} annotation(Placement(transformation(origin = {{{}, {}}}, extent = {{{{-10, -10}}, {{10, 10}}}})));",
-        snap(origin[0]),
-        snap(origin[1])
+        snap(origin[0])?,
+        snap(origin[1])?
     );
     let indent_of = |pos: usize| {
         let ls = body[..pos].rfind('\n').map_or(0, |i| i + 1);
@@ -533,7 +609,7 @@ fn annotation_in(t: &[Token<'_>], name: &str) -> Option<Val> {
     annotation_call(&t[p..], name)
 }
 
-/// `connect(a.p, b[1].n)` の 2 つの端（`a.p`・`b.n` ではなく書いてあるままの字句をつなぐ）。
+/// `connect(a.p, b[1].n)` の 2 つの端（`a.p`・`b[1].n`。添字を含め、書いてあるままの字句を空白なしでつなぐ。S283）。
 fn connect_ends(t: &[Token<'_>]) -> Option<(String, String)> {
     if !t.get(1)?.is("(") {
         return None;
@@ -546,7 +622,9 @@ fn connect_ends(t: &[Token<'_>]) -> Option<(String, String)> {
         } else if s.is(")") {
             break;
         } else if s.is("[") {
-            i = skip_group(t, i).ok()?;
+            let j = skip_group(t, i).ok()?;
+            t[i..j].iter().for_each(|s| ends[k].push_str(s.text)); // 添字も端の一部（空白は落ちる）
+            i = j;
             continue;
         } else if s.kind == Kind::Ident || s.is(".") {
             ends[k].push_str(s.text);
@@ -590,9 +668,73 @@ fn head<'t, 'a>(t: &'t [Token<'a>]) -> Option<(String, &'t Token<'a>)> {
     Some((ty, name))
 }
 
-/// 部品の宣言（`型 名前 … annotation(Placement(transformation(…)))`）。Placement が無い・隠す・壊れていれば None。
-fn declaration(t: &[Token<'_>], body: &str) -> Option<Raw> {
-    let (ty, name) = head(t)?;
+/// 座標を Modelica のソースに入れる字にする（小数 3 桁）。有限でなく、絶対値が 1e6 を超えるものは None（`inf` を書かない。S288）。
+/// LSP のどの編集（`movePart`・`addConnect`・`addPart`）もここを通るので、クライアントの検査に頼らない。
+fn coord(v: f64) -> Option<String> {
+    (v.is_finite() && v.abs() <= 1e6).then(|| ((v * 1000.0).round() / 1000.0 + 0.0).to_string())
+}
+
+/// `connect` の端の形: `名前` か `名前[数]` を `.` でつないだもの（`a.p`・`b[2].n`）。字の種類でなく形を見る（S288）。
+fn end_ok(e: &str) -> bool {
+    let name = |w: &str| {
+        let (id, idx) = w.split_once('[').map_or((w, None), |(a, b)| (a, Some(b)));
+        let id_ok = id
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+            && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+        id_ok
+            && idx.is_none_or(|i| {
+                i.strip_suffix(']').is_some_and(|n| {
+                    !n.is_empty() && n.chars().all(|c| c.is_ascii_digit() || c == ',')
+                })
+            })
+    };
+    e.split('.').all(name)
+}
+
+/// 宣言の要素を、トップレベルの `,` で名前ごとの区切りに割る（`A a annotation(…), b annotation(…)`。括弧の中は割らない）。
+fn comma_split<'t, 'a>(t: &'t [Token<'a>]) -> Vec<&'t [Token<'a>]> {
+    let (mut out, mut from, mut i) = (Vec::new(), 0, 0);
+    while i < t.len() {
+        if ["(", "[", "{"].iter().any(|b| t[i].is(b)) {
+            let Ok(j) = skip_group(t, i) else { break };
+            i = j;
+            continue;
+        }
+        if t[i].is(",") {
+            out.push(&t[from..i]);
+            from = i + 1;
+        }
+        i += 1;
+    }
+    out.push(&t[from..]);
+    out
+}
+
+/// 要素の部品の宣言（`型 名前 … annotation(Placement(transformation(…)))`）。名前が複数あれば、それぞれの区切りの `annotation` を読む（S288）。
+/// Placement が無い・隠す・壊れているものは含めない。区切りのトークン列も返す。
+fn declarations<'t, 'a>(t: &'t [Token<'a>], body: &str) -> Vec<(Raw, &'t [Token<'a>])> {
+    let Some((ty, first_name)) = head(t) else {
+        return Vec::new();
+    };
+    comma_split(t)
+        .into_iter()
+        .enumerate()
+        .filter_map(|(k, piece)| {
+            let name = if k == 0 {
+                first_name
+            } else {
+                piece
+                    .first()
+                    .filter(|n| n.kind == Kind::Ident && !n.is_keyword())?
+            };
+            Some((placement(piece, &ty, name, body)?, piece))
+        })
+        .collect()
+}
+
+fn placement(t: &[Token<'_>], ty: &str, name: &Token<'_>, body: &str) -> Option<Raw> {
     let Val::Call(_, p) = annotation_in(t, "Placement")? else {
         return None;
     };
@@ -603,7 +745,7 @@ fn declaration(t: &[Token<'_>], body: &str) -> Option<Raw> {
     let pair = |k: &str| get(tr, k).and_then(nums).filter(|n| n.len() == 2);
     Some(Raw {
         name: name.text.to_string(),
-        ty,
+        ty: ty.to_string(),
         line: body[..name.start].bytes().filter(|&b| b == b'\n').count(),
         origin: pair("origin").map_or([0.0; 2], |n| [n[0], n[1]]),
         // 無ければアイコンの枠のまま。あって読めなければ壊れた Placement
@@ -615,7 +757,6 @@ fn declaration(t: &[Token<'_>], body: &str) -> Option<Raw> {
     })
 }
 
-/// `import` 1 文を別名（`A = B.C` と `import B.C` の `C`）かワイルドカード（`B.*` の `B`）に積む。
 fn read_import(t: &[Token<'_>], aliases: &mut Vec<(String, String)>, wild: &mut Vec<String>) {
     if t.get(2).is_some_and(|s| s.is("=")) {
         aliases.push((t[1].text.to_string(), dotted(t, 3)));
@@ -906,7 +1047,7 @@ end Circ;
         );
         assert_eq!(d.connections.len(), 2, "端が部品でない connect は飛ばす");
         let c = &d.connections[0];
-        assert_eq!((c.from.as_str(), c.to.as_str()), ("r1.n", "r2.p"));
+        assert_eq!((c.from.as_str(), c.to.as_str()), ("r1.n", "r2[1].p"));
         assert_eq!(c.line.points.len(), 3);
         assert_eq!(c.line.line, Some([0, 0, 255]));
         assert_eq!(
@@ -934,6 +1075,56 @@ end Circ;
             )
             .is_none()
         );
+    }
+
+    #[test]
+    fn move_part_edits_the_transformation_origin_even_when_icon_transformation_comes_first() {
+        // S288 (#98): iconTransformation が先でも、書き換えるのは transformation の origin
+        let src = "model M\n  Foo f annotation(Placement(iconTransformation(origin = {0, 0}, extent = {{-10, -10}, {10, 10}}), transformation(origin = {10, 20}, extent = {{-10, -10}, {10, 10}})));\nend M;\n";
+        let (a, b, t) = move_part(src, "M", "f", 5.0, 5.0).unwrap();
+        assert_eq!((&src[a..b], t.as_str()), ("{10, 20}", "{15, 25}"));
+    }
+
+    #[test]
+    fn several_names_in_one_declaration_each_read_their_own_annotation() {
+        // S288 (#99): `Foo a annotation(…), b annotation(…)` は a・b の 2 部品。annotation が最後の名前だけにあれば a には Placement が無い
+        let pl = |x: i32| {
+            format!(
+                "annotation(Placement(transformation(origin = {{{x}, 0}}, extent = {{{{-10, -10}}, {{10, 10}}}})))"
+            )
+        };
+        let src = format!("model M\n  Foo a {}, b {};\nend M;\n", pl(0), pl(40));
+        let d = diagram(&src, "M", &|_| None).unwrap();
+        let names: Vec<_> = d
+            .parts
+            .iter()
+            .map(|p| (p.name.as_str(), p.bbox[0]))
+            .collect();
+        assert_eq!(names, [("a", -10.0), ("b", 30.0)]);
+        let (a, b, t) = move_part(&src, "M", "b", 2.0, 0.0).unwrap();
+        assert_eq!((&src[a..b], t.as_str()), ("{40, 0}", "{42, 0}"));
+        let last = format!("model M\n  Foo a, b {};\nend M;\n", pl(40));
+        let names: Vec<_> = diagram(&last, "M", &|_| None)
+            .unwrap()
+            .parts
+            .into_iter()
+            .map(|p| p.name)
+            .collect();
+        assert_eq!(names, ["b"]);
+    }
+
+    #[test]
+    fn edits_refuse_malformed_ends_and_non_finite_or_huge_coordinates() {
+        // S288 (#100): 端は成分参照の形、座標は有限で 1e6 以下（`inf` や構文エラーのソースを作る編集を返さない）
+        let src = "model M\n  Foo a;\n  Foo b;\nequation\n  connect(a.p, b.n);\nend M;\n";
+        assert!(add_connect(src, "M", "a[", "]b..", &[]).is_none());
+        assert!(add_connect(src, "M", "a.", "b", &[]).is_none());
+        assert!(add_connect(src, "M", "a[1].p", "b.n", &[]).is_some());
+        assert!(add_connect(src, "M", "a.p", "b.n", &[[1e306, 0.0]]).is_none());
+        let s = "model M\n  Foo a(k = 1) if cond annotation(Placement(transformation(origin={1,2})));\nend M;\n";
+        assert!(move_part(s, "M", "a", 1e306, 0.0).is_none());
+        assert!(move_part(s, "M", "a", 1.0, 0.0).is_some());
+        assert!(add_part(src, "M", "Foo", [f64::INFINITY, 0.0], &|_| None).is_none());
     }
 
     #[test]
@@ -1114,5 +1305,77 @@ end Circ;
         // 不正な型・クラス無し
         assert!(apply(with, "M", "L.Res; x").is_none());
         assert!(apply(with, "Nope", "L.Res").is_none());
+    }
+
+    #[test]
+    fn delete_part_removes_the_declaration_and_its_connects() {
+        let apply = |src: &str, edits: Vec<(usize, usize, String)>| {
+            let mut out = src.to_string();
+            for (a, b, t) in edits.into_iter().rev() {
+                out.replace_range(a..b, &t);
+            }
+            out
+        };
+        let src = "model M\n  Box a annotation(Placement(transformation(extent = {{0, 0}, {1, 1}})));\n  Box b[2] annotation(Placement(transformation(extent = {{0, 0}, {1, 1}})));\n  Box c annotation(Placement(transformation(extent = {{0, 0}, {1, 1}})));\nequation\n  connect(a.p, b[1].n) annotation(Line(points = {{0, 0}, {1, 1}})); // a-b\n  connect(b[2].p, c.n);\n    connect(c.p, a.n);\n  x = 1;\nend M;\n";
+        let got = apply(src, delete_part(src, "M", "a").unwrap());
+        assert_eq!(
+            got,
+            "model M\n  Box b[2] annotation(Placement(transformation(extent = {{0, 0}, {1, 1}})));\n  Box c annotation(Placement(transformation(extent = {{0, 0}, {1, 1}})));\nequation\n  connect(b[2].p, c.n);\n  x = 1;\nend M;\n"
+        );
+        // 配列の部品（b[1]）は b の名前で数える
+        let got = apply(src, delete_part(src, "M", "b").unwrap());
+        assert!(
+            !got.contains("b[") && got.contains("connect(c.p, a.n);"),
+            "{got}"
+        );
+        // 結線だけ: 逆の並びでも消え、字下げは他の行を壊さない
+        let got = apply(src, delete_connect(src, "M", "c.n", "b[2].p").unwrap());
+        assert_eq!(got, src.replace("  connect(b[2].p, c.n);\n", ""));
+        assert!(delete_connect(src, "M", "a.p", "c.p").is_none());
+        assert!(
+            delete_connect(src, "M", "c.n", "b.p").is_none(),
+            "添字の無い端は別物"
+        );
+        // 同じ行に他の文があれば、その要素だけ
+        let packed = "model M\n  Box a annotation(Placement(transformation(extent = {{0, 0}, {1, 1}})));\nequation\n  x = 1; connect(a.p, a.n);  y = 2;\nend M;\n";
+        let got = apply(packed, delete_connect(packed, "M", "a.p", "a.n").unwrap());
+        assert_eq!(
+            got,
+            "model M\n  Box a annotation(Placement(transformation(extent = {{0, 0}, {1, 1}})));\nequation\n  x = 1; y = 2;\nend M;\n"
+        );
+        // 複数の名前・Placement 無し・無い部品・BOM
+        let multi = "model M\n  Box a, b annotation(Placement(transformation(extent = {{0, 0}, {1, 1}})));\nend M;\n";
+        assert!(delete_part(multi, "M", "a").is_none());
+        assert!(delete_part(src, "M", "zzz").is_none());
+        assert!(delete_part(src, "N", "a").is_none());
+        let bom = format!("\u{feff}{src}");
+        let got = apply(&bom, delete_connect(&bom, "M", "b[2].p", "c.n").unwrap());
+        assert_eq!(got, bom.replace("  connect(b[2].p, c.n);\n", ""));
+    }
+
+    #[test]
+    fn delete_connect_tells_array_indices_apart() {
+        let src = "model M\n  Box b[3];\n  Box c;\nequation\n  connect(b[1].p, c.n);\n  connect(b[ 2 ].p, c.n);\n  connect(c.n, b[i + 1].p);\nend M;\n";
+        let del = |a: &str, b: &str| {
+            let mut out = src.to_string();
+            for (s, e, t) in delete_connect(src, "M", a, b).unwrap().into_iter().rev() {
+                out.replace_range(s..e, &t);
+            }
+            out
+        };
+        // 1 本だけ消える（空白の違いは同じ、逆の並びも同じ）
+        assert_eq!(
+            del("b[2].p", "c.n"),
+            src.replace("  connect(b[ 2 ].p, c.n);\n", "")
+        );
+        assert_eq!(
+            del("c.n", "b[1].p"),
+            src.replace("  connect(b[1].p, c.n);\n", "")
+        );
+        assert_eq!(
+            del("b[i+1].p", "c.n"),
+            src.replace("  connect(c.n, b[i + 1].p);\n", "")
+        );
+        assert!(delete_connect(src, "M", "b[3].p", "c.n").is_none());
     }
 }

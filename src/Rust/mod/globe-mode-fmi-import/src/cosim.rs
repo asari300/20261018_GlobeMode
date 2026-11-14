@@ -140,6 +140,10 @@ pub fn run_cosim_with(
         if sk != Kind::Real && !extra[si].iter().any(|e| e.0 == sv) {
             extra[si].push((sv.to_string(), svr, sk));
         }
+        // 1 つの入力につなげる出力は 1 本（SSP も同じ）。黙って最後の 1 本だけが効くのを断る（S288）
+        if wires.iter().any(|w: &Wire| (w.di, w.dvr) == (di, dvr)) {
+            return Err(ctx(Error::Fmu(format!("入力 {b} に別の結線がもうある"))));
+        }
         wires.push(Wire {
             si,
             svr,

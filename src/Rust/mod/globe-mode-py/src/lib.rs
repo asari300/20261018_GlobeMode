@@ -208,13 +208,19 @@ impl Workspace {
                     Some(&json(&ds).unwrap_or_default()),
                 )
             })?;
-        json(&serde_json::json!({
-            "model": model, "time": l.time,
-            "x": l.states, "u": l.inputs, "y": l.outputs,
-            "x0": l.x0, "u0": l.u0, "y0": l.y0,
-            "A": l.a, "B": l.b, "C": l.c, "D": l.d,
-        }))
-        .map_err(PyRuntimeError::new_err)
+        json(&globe_mode::linearization_json(model, &l)).map_err(PyRuntimeError::new_err)
+    }
+
+    /// 変換の段ごとの要約（`StagesReport` の JSON。S282）。検査が通らなければ `SourceError`（診断つき）。
+    fn stages(&mut self, py: Python<'_>, model: &str) -> PyResult<String> {
+        let r = py.detach(|| self.0.stages(model));
+        match r {
+            Ok(r) => json(&r).map_err(PyRuntimeError::new_err),
+            Err(ds) => {
+                let msg = ds.first().map(|d| format!("{}: {}", d.code, d.message));
+                Err(error(py, "SourceError", msg, json(&ds).ok().as_deref()))
+            }
+        }
     }
 
     /// 検査 → コンパイル → 実行（`SimulateResponse` の JSON）。モデルの誤りは例外にせず `ok` と `diagnostics` で返す。
@@ -353,7 +359,8 @@ fn run_fmu<'py>(
 /// `ssp` は `.ssp` のパス（`stop_time`・`step` は `.ssp` のときだけ。展開先は回し終わるまで持つ）。どちらか一方。
 /// 戻り値は `run_fmu` と同じ。ワーカー・進捗・中断も `run_fmu` と同じ。
 #[pyfunction]
-#[pyo3(signature = (worker, spec = None, ssp = None, stop_time = None, step = None, on_progress = None))]
+#[allow(clippy::too_many_arguments)] // Python の口の引数がそのまま並ぶ
+#[pyo3(signature = (worker, spec = None, ssp = None, stop_time = None, step = None, on_progress = None, timeout = None))]
 fn cosim<'py>(
     py: Python<'py>,
     worker: PathBuf,
@@ -362,18 +369,20 @@ fn cosim<'py>(
     stop_time: Option<f64>,
     step: Option<f64>,
     on_progress: Option<Py<PyAny>>,
+    timeout: Option<f64>,
 ) -> PyResult<(String, Vec<String>, Vec<Bound<'py, PyBytes>>)> {
     let fail = |e: String| error(py, "FmuError", Some(e), None);
     let opened = ssp
         .map(|p| globe_mode::Ssp::open(&p, stop_time, step).map_err(|e| fail(e.to_string())))
         .transpose()?;
-    let spec: globe_mode::CosimSpec = match (&opened, spec) {
+    let mut spec: globe_mode::CosimSpec = match (&opened, spec) {
         (Some(s), _) => s.spec.clone(),
         (None, Some(j)) => {
             serde_json::from_str(j).map_err(|e| fail(format!("spec が読めない: {e}")))?
         }
         (None, None) => return Err(fail("spec か ssp のどちらかが要る".into())),
     };
+    spec.timeout = timeout.or(spec.timeout); // `.ssp` にも効かせる（S288）
     run_observed(py, on_progress, move |notify, cancel| {
         let run = globe_mode::run_cosim(&worker, &spec, notify, Some(cancel));
         drop(opened); // 回し終わるまで展開先を消さない
