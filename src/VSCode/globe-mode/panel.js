@@ -61,21 +61,22 @@ table { border-collapse: collapse; } td, th { border: 1px solid var(--vscode-pan
   /** 図の編集（S264）。LSP の globe/movePart・globe/addConnect が返す TextEdit を WorkspaceEdit で文書に入れる（undo 1 回。保存しない）。
    * 入れたあとの図は、文書の変更で動く `soon()` が引き直す。結果は webview に返し、失敗なら見た目を戻させる */
   async edit(req) {
-    const ok = req ? await this.apply(req).catch(() => false) : false;
+    const ok = req ? await this.apply(req).catch((e) => ((this.why = String(e)), false)) : false;
     if (req) void this.view?.webview.postMessage({ type: "edited", id: req.id, ok });
     return ok;
   }
 
   async apply({ method, args }) {
     const t = this.target, client = this.getClient();
-    if (!t || !client) return false;
+    this.why = ""; // 失敗の理由（e2e が見る）
+    if (!t || !client) return (this.why = "対象が無い"), false;
     const v = t.doc.version;
     const edits = await client.sendRequest(method, { file: t.doc.uri.toString(), class: t.class, ...args });
     // 待つあいだに文書が変わったら、古い本文に対する編集は入れない
-    if (!edits?.length || t.doc.version !== v) return false;
+    if (!edits?.length || t.doc.version !== v) return (this.why = `edits=${JSON.stringify(edits)} version ${v} → ${t.doc.version}`), false;
     const we = new vscode.WorkspaceEdit();
     we.set(t.doc.uri, client.protocol2CodeConverter.asTextEdits(edits));
-    return vscode.workspace.applyEdit(we);
+    return (await vscode.workspace.applyEdit(we)) || ((this.why = "applyEdit が false"), false);
   }
 
   soon() {

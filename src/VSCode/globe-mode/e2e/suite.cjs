@@ -83,13 +83,13 @@ const cases = {
     const before = doc.getText();
     // webview のドラッグは拡張ホストから起こせないので、webview が送るメッセージをそのまま渡す（ドラッグの処理は pnpm test の diagram-edit.test.mjs）
     panel.state = null;
-    assert.equal(await panel.handle({ type: "move", id: 1, part: "Ro", dx: 4, dy: -2 }), true);
+    assert.equal(await panel.handle({ type: "move", id: 1, part: "Ro", dx: 4, dy: -2 }), true, panel.why);
     assert.ok(doc.getText().includes("origin = {-71, -19}"), doc.getText());
     assert.ok(doc.isDirty, "保存はしない");
     await until("移動のあとの図の引き直し", () => panel.state?.parts === 7);
     await vscode.commands.executeCommand("undo");
     assert.equal(doc.getText(), before, "undo 1 回で戻る");
-    assert.equal(await panel.handle({ type: "connect", id: 2, from: "L.p", to: "Ro.n", points: [[0, 0], [1, 1]] }), true);
+    assert.equal(await panel.handle({ type: "connect", id: 2, from: "L.p", to: "Ro.n", points: [[0, 0], [1, 1]] }), true, panel.why);
     assert.ok(doc.getText().includes("connect(L.p, Ro.n)"), doc.getText());
     await vscode.commands.executeCommand("undo");
     assert.equal(doc.getText(), before);
