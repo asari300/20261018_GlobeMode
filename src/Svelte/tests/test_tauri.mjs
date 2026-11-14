@@ -68,4 +68,9 @@ globalThis.window.__TAURI__.core.invoke = async (cmd) => { if (cmd === "cancel_r
 const running = b.runFmu("/r/D.fmu");
 b.cancel();
 await assert.rejects(running, (e) => e.cancelled === true);
+// BLT（S262）: globe/blt に model だけを渡し、sidecar の応答をそのまま返す
+globalThis.window.__TAURI__.core.invoke = async (cmd, a) => (blt.push([cmd, a]), { reduced: false, blocks: [] });
+const blt = [];
+assert.deepEqual(await b.blt("M"), { reduced: false, blocks: [] });
+assert.deepEqual(blt, [["rpc", { method: "globe/blt", params: { model: "M" } }]]);
 console.log("test_tauri ok");

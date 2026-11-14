@@ -595,6 +595,19 @@ impl Workspace {
         to_json(&self.inner.check(model))
     }
 
+    /// 方程式の BLT 分解（`globe blt --json` と同じ `BltReport` の JSON。S262）。検査が通らなければ例外（診断の文を `;` でつないだ文字列）。
+    pub fn blt(&mut self, model: &str) -> Result<String, JsValue> {
+        let r = self.inner.blt(model).map_err(|ds| {
+            js_error(
+                ds.iter()
+                    .map(|d| d.message.as_str())
+                    .collect::<Vec<_>>()
+                    .join("; "),
+            )
+        })?;
+        to_json(&r)
+    }
+
     /// connect グラフ（graphology の JSON。`graph.import(json)` で読める形。S046）。ライブラリとして読んだモデルも引ける（S079）。モデルが無ければ例外（文字列）。
     pub fn graph(&mut self, model: &str, depth: u32) -> Result<String, JsValue> {
         let g = self

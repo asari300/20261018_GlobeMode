@@ -546,6 +546,24 @@ fn decay_lists_tunable_parameters() {
 }
 
 #[test]
+fn linear_loop_has_one_algebraic_block_of_two() {
+    // S262: UI の BLT パネル。連立 2 元の代数ループが大きさ 2 のブロックとして 1 つ出る
+    let mut ws = Workspace::new();
+    for (name, text) in package() {
+        ws.put_file(&name, text);
+    }
+    let r = ws
+        .inner()
+        .blt("GlobeModeValidation.Loops.LinearLoop")
+        .ok()
+        .unwrap();
+    let loops: Vec<_> = r.blocks.iter().filter(|b| b.algebraic_loop).collect();
+    assert_eq!(loops.len(), 1, "{r:?}");
+    assert_eq!(loops[0].size, 2);
+    assert!(ws.inner().blt("Nope").is_err());
+}
+
+#[test]
 fn decay_lists_declared_parameters() {
     // S248: パラメータのダイアログ。k は型・既定値・単位つきで出る
     let mut ws = Workspace::new();

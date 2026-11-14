@@ -187,6 +187,9 @@ try {
   assert.ok(g.nodes.length > 0 && g.edges.length > 0, "graph: ノードと辺がある");
   await assert.rejects(w.graph("No.Such.Model", 1), /索引に無い/);
   console.log(`graph: ノード ${g.nodes.length}、辺 ${g.edges.length}`);
+  const blt = await w.blt("GlobeModeValidation.Loops.LinearLoop"); // S262
+  assert.equal(blt.blocks.filter((b) => b.algebraic_loop).length, 1, "blt: 代数ループが 1 つ");
+  await assert.rejects(w.blt("No.Such.Model"));
   // 読み取りの口と summary（S191）
   const ol = await w.outline("src/Modelica/GlobeModeValidation/Simulation/Decay.mo");
   assert.equal(ol.within, "GlobeModeValidation.Simulation");

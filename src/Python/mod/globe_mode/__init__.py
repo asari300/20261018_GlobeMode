@@ -222,6 +222,13 @@ class Workspace:
         `top_level_connectors`・`equations_by_component`）。flatten まで通らなければ `None`（理由は `check` の `diagnostics`）。"""
         return json.loads(self._ws.flat(model))
 
+    def blt(self, model: str) -> list[dict[str, Any]]:
+        """方程式の BLT 分解（`globe blt --json` の `blocks`）。解く順のブロックのリストで、各要素は
+        `size`・`algebraic_loop`（`size >= 2`）・`nonlinear`・`variables`・`equations`。解析しなかったとき（`skipped`）は空のリスト。
+
+        検査が通らなければ `SourceError`（`ValueError` でもある。診断は `.diagnostics`）。"""
+        return json.loads(self._ws.blt(model))["blocks"]
+
     def simulate(
         self,
         model: str,

@@ -103,3 +103,8 @@ export interface GraphJson {
     attributes: { lhs: string; rhs: string; domain: string; connector: string };
   }[];
 }
+
+/** BLT のブロック 1 つ（S256。`globe blt --json` と同じ。size 2 以上が代数ループ）。 */
+export interface BltBlock { size: number; algebraic_loop: boolean; nonlinear: boolean; variables: string[]; equations: string[] }
+/** BLT（S262）。blocks は解く順。skipped があれば解析しなかった理由で blocks は空。 */
+export interface BltReport { reduced: boolean; blocks: BltBlock[]; skipped?: string }
