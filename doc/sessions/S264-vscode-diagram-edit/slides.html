@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S264 VS Code の図の編集 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S264 VS Code の図の編集">
+
+<section class="slide" id="S01">
+  <span class="tag">S264 · 2026-11-15 · P8</span>
+  <h1>VS Code の側のパネルで部品の移動と結線</h1>
+  <p class="lead">S250（移動）と S261（結線）を、拡張のパネルでもできるようにする</p>
+  <div class="big">ドラッグの処理は<b>1 か所</b>（<code>diagram-drag.ts</code>）、書き換えは Rust、適用は <code>WorkspaceEdit</code></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">共有</span>
+  <h1>ドラッグの処理を出した</h1>
+  <ul>
+    <li><code>DiagramView.svelte</code> に埋まっていた処理を <code>src/Svelte/src/lib/diagram-drag.ts</code> へ</li>
+    <li>2 単位の吸着、4 px 未満はクリック、捕まえ先は部品の <code>&lt;g&gt;</code>、<code>.conn</code> から始めたら結線</li>
+    <li>Svelte と webview の両方が同じファイルを読む（<code>shape-svg.ts</code> と同じ置き方。写しは無い）</li>
+    <li>svg の API だけを呼ぶので、node の試験に偽の svg を渡せる</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">流れ</span>
+  <h1>webview から文書まで</h1>
+  <table class="compact">
+    <tr><th>場所</th><th>すること</th></tr>
+    <tr><td>webview</td><td>ドラッグ中は見た目だけ動かし、離したら <code>move</code> / <code>connect</code> を <code>postMessage</code></td></tr>
+    <tr><td>拡張（<code>edit.js</code>）</td><td>型と値を検査（通らなければ捨てる）。file と class は webview の言い分を使わない</td></tr>
+    <tr><td>拡張（<code>panel.js</code>）</td><td><code>globe/movePart</code>・<code>globe/addConnect</code> を呼び、TextEdit を <code>WorkspaceEdit</code> で入れる（undo 1 回、保存しない）</td></tr>
+    <tr><td>webview</td><td><code>edited</code> の ok を待ち、失敗なら見た目を戻す</td></tr>
+    <tr><td>拡張</td><td>文書が変わると既存の 300 ms 後の再取得が図を引き直す</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">安全</span>
+  <h1>webview は信頼の境界の外</h1>
+  <ul>
+    <li>名前は <code>\w+</code>、端は <code>名前.名前</code>、数は有限で 1e6 以下、点は 64 個まで</li>
+    <li>LSP の応答を待つあいだに文書の版が変わったら入れない</li>
+    <li>CSP（<code>default-src 'none'</code>、script は nonce）と <code>innerHTML</code> 不使用は変えない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">試験</span>
+  <h1>確かめ</h1>
+  <ul>
+    <li><code>pnpm test</code>: <code>diagram-edit.test.mjs</code>（吸着・クリック・結線・戻し・メッセージの検査）</li>
+    <li>e2e: 移動と結線が文書に入り、undo で戻り、図が引き直される（3 OS）</li>
+    <li><code>svelte-check</code> 0 件</li>
+  </ul>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ul>
+    <li>実機の VS Code でのポインタ操作の目視（e2e は webview の DOM を操作できない）</li>
+    <li>結線の途中の点、部品の追加、型の互換の事前の検査</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
