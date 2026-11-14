@@ -73,6 +73,20 @@ Track B（自前コア）は B1 rowan の CST と寛容なパーサ → B2 resol
 - 以前は、誤りがあると `documentSymbol` は `null`、折りたたみはコメントと annotation だけだった。試験（`globe-mode-lsp/tests/tolerant_outline.rs`・`tests/folding.rs`）で、`SyntaxError.mo`（`;` 抜け）からクラス `Broken` と部品 `x : Real` が出ること、クラスと equation 節が折りたためること、途中まで書いた入れ子のクラスでも出ること、正常なファイルは同じであることを確かめた。`cargo test -p globe-mode-lsp` 全 pass（既存 1 本の期待値だけ、誤りのあるファイルでクラスの範囲が増えた分を直した）。
 - 持ち越し: 補完・定義ジャンプの `globe-mode-resolve` へのつなぎ、`Frontend`（診断・コンパイル）は Rumoca のまま。
 
+## 付記（S278）: B3 の最初の一切れ、flatten は新しい crate `globe-mode-flat`
+
+新しい ADR は立てず、同じ流れの続きとしてここに足す。
+
+- **新しい crate `globe-mode-flat`**（依存は `globe-mode-syntax` と `globe-mode-resolve`。rowan は両方と同じで、`TextRange` の型だけ。新しい外部依存は無い）。`Frontend` の feature `native`・LSP にはまだつなげない。`globe-mode-resolve` の中は変えていない（公開の API だけを使う）。
+- **作り**: `Project` が `Library`（名前解決）と、クラスごとの CST（ファイルを読み直して `(ファイル, 名前の位置)` で引く）、全 `Ref` の解決結果の表を持つ。`resolve` は `extends` の基底（`bases`）を公開していないので、基底は CST の `extends` の名前を解決表で引いて `Project` 側で補った。`flatten(モデル名)` はクラスをインスタンス化する: `extends` を取り込みながら宣言と節を集め、修飾（外側が勝つ。式は書いた場所の前置きで名前を付け替える）を当て、変数と方程式を出す。
+- **出力**: 変数（名前・`parameter`/`constant`/`discrete`/連続・`input`/`output`・`flow`/`stream`・型・大きさ・`start`・束縛・その他の属性）と、方程式（名前を付け替えて正規化した式の印字と、スカラーの数）。配列の変数は 1 個（大きさつき）で、部品の配列は要素ごと（`c[2].x`）。束縛は Rumoca の flat と同じく変数に残し、`FlatModel::binding_equations` で DAE の方程式の数を出す。`when` は別の列、`algorithm` 節は印字だけ。
+- **評価するのは大きさ・`for` の範囲・添字だけ**（リテラル・parameter の束縛・`size`・四則・`min`/`max` など。外側の修飾の値も使う）。`if` の方程式・`when`・関数の呼び出しは式のまま残す。`[:]` は束縛が配列リテラルのときだけ大きさを決める。
+- **`connect`**: インスタンスごとに集合を作り（union-find）、potential は等式（n-1 本）、flow は内側のコネクタを `+`・外側を `-` とした和が 0。つなげなかった内側のコネクタの flow は 0。最上位のモデル自身のコネクタの flow も 0（Rumoca の flat と同じ）。`for` の中の `connect` は展開して数える。`stream` は断る。
+- **断るもの（`Unsupported::kind`）**: `redeclare`・`replaceable`・`class-extends`・`inner-outer`・`conditional-component`・`external`・`stream`・`expandable`・`unsized-array`・`non-constant-dim`・`composite-binding`・`array-type`・`connect-array`（配列のコネクタの一括接続）など。暗黙に近似せず、理由を返す。
+- **Rumoca の flat との突き合わせ**（`tests/compare.rs`、`#[ignore]`。`FlatSummary::variable_names` を足した。JSON には出さない）: `GlobeModeValidation` の model・block 75 本のうち、自前で平らにできた 71 本（断ったのは `redeclare` 3・`inner`/`outer` 1）。Rumoca の flat まで通った 74 本と両方で通った 70 本は、**変数の名前の集合 70/70、方程式の数 70/70 が一致**。初回は名前 69・方程式 52 で、差は (1) 最上位のコネクタの flow = 0、(2) Rumoca は束縛と `when` を `equations` に数えない、(3) 組み込みの列挙 `StateSelect` の変数は flat に入れない、の 3 つだった。
+- **MSL の例題 566 本**（`#[ignore]` の `msl_examples_flatten`。選び方は `xtask msl-funnel` と同じ。debug、読み込み 19 秒・flatten 1.2 秒）: **自前で平らにできたのは 67 本**（Rumoca の flatten は 562 本）。Rumoca の flat まで通った 66 本で、変数の名前の集合は 66/66、方程式の数は 64/66 が一致（合わない 2 本は `Modelica.Clocked.Examples.Elementary.RealSignals.UniformNoise`（10 対 12）と `UniformNoiseXorshift64star`（10 対 11）。`(a, b) = f(x)` とクロックの `previous` の数え方で、原因は未確認）。断った 499 本の理由（最初の 1 つだけ数える）: `redeclare` 205（大半は resolve が型を決められない `Redeclare`）、条件つきの宣言 131、`inner`/`outer` 43、大きさが定数でない 35、レコードの束縛 33、`[:]` の大きさが決まらない 25、`class extends` 11、`replaceable` 5、配列の型 5、配列のコネクタの一括接続 4、`expandable` 2。最初の計測は 11 本だった（共有 target の古い resolve のビルドが混ざり、`a.b` が部品の型を通した要素に解決されていた。touch して 66 本、`[:]` の大きさを足して 67 本）。
+- **持ち越し**: `redeclare` / `replaceable`（`globe-mode-resolve` の S275 と合わせる）、条件つきの宣言（`if` が定数なら外す）、`inner`/`outer`、配列のコネクタの一括接続、レコードの束縛、`xtask diff-frontend` への組み込み、B4（DAE）。
+
 ## 付記（S279）: LSP の補完を自前の構文と名前解決に（IDE の機能を先に自前に、S276 に続く 2 つ目）
 
 新しい ADR は立てず、同じ流れの続きとしてここに足す。S272・S275 では「Frontend・LSP にはまだつなげない」とし、S276 で LSP のアウトライン・折りたたみだけをつないだ。IDE の機能から自前にする方針（Track B）の 2 つ目として、LSP の `textDocument/completion`（と `globe/completion`）の `a.` の後ろに自前の寛容な構文の木（`globe-mode-syntax`）の上の名前解決（`globe-mode-resolve`）を**足す**。
