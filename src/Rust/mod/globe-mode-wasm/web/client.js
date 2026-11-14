@@ -130,6 +130,7 @@ export class GlobeWorker {
   async removeFile(name) { const r = await this.#call("remove_file", { name }); this.#files.delete(name); return r; }
   async check(model) { return JSON.parse(await this.#call("check", { model })); }
   async blt(model) { return JSON.parse(await this.#call("blt", { model })); } // S262: BLT {reduced, blocks: [{size, algebraic_loop, nonlinear, variables, equations}], skipped?}
+  async stages(model) { return JSON.parse(await this.#call("stages", { model })); } // S282: 変換の段ごとの要約 {flat, dae, index, blt, tearing}
   async graph(model, depth) { return JSON.parse(await this.#call("graph", { model, depth })); }
   // 読み取り（S191。CLI の `globe outline` / `deps` / `flat --json` と同じ形）: ファイルのアウトライン（無い・構文の誤りは reject）、check が読むファイルの閉包、flat の要約（通らなければ null）
   async outline(path) { return JSON.parse(await this.#call("outline", { path })); }

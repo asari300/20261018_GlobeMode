@@ -255,6 +255,13 @@ class Workspace:
             res[k] = np.array(res[k], dtype=float).reshape(len(res["x" if k in "AB" else "y"]), len(res["x" if k in "AC" else "u"]))
         return res
 
+    def stages(self, model: str) -> dict[str, Any]:
+        """変換の段ごとの要約（`globe stages --json` と同じ。S282）。キーは `flat`（無ければ `None`）・`dae`・`index`
+        （`index`・`added_equations`・`added_unknowns`・`dynamic_states` など）・`blt`・`tearing`。
+
+        検査が通らなければ `SourceError`（`ValueError` でもある。診断は `.diagnostics`）。"""
+        return json.loads(self._ws.stages(model))
+
     def simulate(
         self,
         model: str,

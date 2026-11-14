@@ -87,4 +87,9 @@ globalThis.window.__TAURI__.core.invoke = async (cmd, a) => (blt.push([cmd, a]),
 const blt = [];
 assert.deepEqual(await b.blt("M"), { reduced: false, blocks: [] });
 assert.deepEqual(blt, [["rpc", { method: "globe/blt", params: { model: "M" } }]]);
+// 変換の段（S282）: globe/stages に model だけを渡す
+globalThis.window.__TAURI__.core.invoke = async (cmd, a) => (stg.push([cmd, a]), { index: { index: 3 } });
+const stg = [];
+assert.deepEqual(await b.stages("P"), { index: { index: 3 } });
+assert.deepEqual(stg, [["rpc", { method: "globe/stages", params: { model: "P" } }]]);
 console.log("test_tauri ok");
