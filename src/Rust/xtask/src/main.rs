@@ -996,10 +996,10 @@ mod tests {
         };
         let dest = root.join("dest");
         let (url1, sha1) = make("v1.zip", &["keep.txt", "gone.txt"]);
-        fetch_zip("T", "1", &url1, &sha1, "t.zip", ".marker", &dest).unwrap();
+        let _ = fetch_zip("T", "1", &url1, &sha1, "t.zip", ".marker", &dest).unwrap();
         assert!(dest.join("gone.txt").exists());
         let (url2, sha2) = make("v2.zip", &["keep.txt"]);
-        fetch_zip("T", "2", &url2, &sha2, "t.zip", ".marker", &dest).unwrap();
+        let _ = fetch_zip("T", "2", &url2, &sha2, "t.zip", ".marker", &dest).unwrap();
         assert!(dest.join("keep.txt").exists() && !dest.join("gone.txt").exists());
         fs::remove_dir_all(&root).unwrap();
     }
