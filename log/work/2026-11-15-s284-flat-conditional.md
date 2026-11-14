@@ -34,7 +34,10 @@ S278 の `globe-mode-flat` が断る理由の上位を減らす。(1) 条件つ�
 - MSL 4.1.0 の例題 566 本: 自前で平らにできた 67 → **192**。Rumoca の flat まで通った 189 本で名前 **189/189**・方程式の数 **186/189**（S278 は 66/66・64/66）。合わない 3 本は `UniformNoise`（10 対 12）・`UniformNoiseXorshift64star`（10 対 11）・`GenerationOfFMUs`（210 対 214）で、原因は未確認。
 - 断った理由の内訳（最初の理由だけ。S278 → S284）: `redeclare` 205 → 263、条件つきの宣言 131 → 6、`inner`/`outer` 43 → 0、大きさが定数でない 35 → 2、レコードの束縛 33 → 41、`[:]` 25 → 13、`class extends` 11、`replaceable` 5 → 9、配列の型 5 → 13、配列のコネクタの一括接続 4 → 7、`connect` の集合の不一致 0 → 7、`expandable` 2。先へ進んだ分が別の理由に当たるので、増えた行もある。
 - 注意: 共有 target に別の worktree の syntax・resolve のビルドが混ざり、同じコードでテストが落ちたり本数が 67 に戻ったりした。何度も出た。`touch src/Rust/mod/globe-mode-{syntax,resolve,flat}/src/lib.rs` のあとに回した数字だけを載せた。
-- `check_docs.py`・`render_slides.py`・`mise run check`: 下の「締め」に書く。
+- `check_docs.py`: 全デッキ OK・相対リンク 4787 件中の切れ 0 件。`render_slides.py`（S284 のデッキ）: 問題 0 件。
+- `mise run check`（workspace 全体）は回していない（共有 target に別の worktree のビルドが混ざり、`cargo test -p globe-mode-flat` ですら何度か偽の失敗が出たため）。`globe-mode-flat` だけ fmt・clippy・test を通した。依存の追加は無いので `cargo deny` は対象外。
+- origin/main（21e8cb38）を取り込んだ。main の `globe-mode-resolve`（S275）は成分参照を最後の名前まで解くので、統合ブランチ（`feature/integrate-1116`）の df9ca1cd と同じ 1 行（`lib.resolve(r)` → `lib.resolve_head(r)`）を足した。取り込み後に数字を取り直し、同じ（MSL 192・189/189・186/189、Validation 72・71/71・71/71）。
+- 漏洩の検査: 差分にメールアドレス・ホームのパス・トークン 0 件。
 
 ## 残したこと
 
