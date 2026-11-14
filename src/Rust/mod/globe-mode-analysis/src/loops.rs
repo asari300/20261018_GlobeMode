@@ -291,39 +291,22 @@ pub fn analyze_loops(
     index: &IndexReport,
     init: Option<&InitStructure>,
 ) -> LoopReport {
-    let system = match System::new(structure, index) {
+    let Solved {
+        system,
+        mate_e,
+        mate_u,
+        blt,
+    } = match solve(structure, index) {
         Ok(s) => s,
-        Err(reason) => {
+        Err((reduced, reason)) => {
             return LoopReport {
+                reduced,
                 skipped: Some(reason),
                 ..LoopReport::default()
             };
         }
     };
-    let n = system.n();
     let m = structure.unknowns.len();
-    let matching = hopcroft_karp(n, m, &system.rows);
-    if !matching.is_perfect() {
-        return LoopReport {
-            reduced: system.reduced,
-            skipped: Some(format!(
-                "解く系に完全マッチングが無い（方程式 {n} 本のうち {} 本しか対応づかない）",
-                matching.size
-            )),
-            ..LoopReport::default()
-        };
-    }
-    let mate_e: Vec<usize> = matching
-        .equation_to_unknown
-        .iter()
-        .map(|u| u.expect("完全マッチング"))
-        .collect();
-    let mate_u: Vec<usize> = matching
-        .unknown_to_equation
-        .iter()
-        .map(|e| e.expect("完全マッチング"))
-        .collect();
-    let blt = blt(&system, &mate_u);
 
     // start 値: 代数・出力の族 → InitStructure::algebraics の添字
     let n_algebraics = structure
@@ -374,11 +357,7 @@ pub fn analyze_loops(
         equations.sort_unstable();
         let mut unknowns: Vec<usize> = equations.iter().map(|&e| mate_e[e]).collect();
         unknowns.sort_unstable();
-        let nonlinear = equations.iter().any(|&e| {
-            system
-                .row(e)
-                .any(|(u, nl)| nl && blt.block_of[mate_u[u]] == b)
-        });
+        let nonlinear = block_nonlinear(&system, &blt, &mate_u, b, &equations);
         let torn = tearer.tear(b, &equations, &unknowns);
         let without_start = if nonlinear && init.is_some() {
             torn.tearing
@@ -406,6 +385,128 @@ pub fn analyze_loops(
         reduced: system.reduced,
         loops,
         start_checked: init.is_some(),
+        skipped: None,
+    }
+}
+
+/// 解く系・完全マッチング・BLT（`analyze_loops` と [`analyze_blt`] で共有）。
+struct Solved {
+    system: System,
+    mate_e: Vec<usize>,
+    mate_u: Vec<usize>,
+    blt: Blt,
+}
+
+/// 解けないときは（reduced か, 理由）。
+fn solve(structure: &DaeStructure, index: &IndexReport) -> Result<Solved, (bool, String)> {
+    let system = System::new(structure, index).map_err(|reason| (false, reason))?;
+    let n = system.n();
+    let m = structure.unknowns.len();
+    let matching = hopcroft_karp(n, m, &system.rows);
+    if !matching.is_perfect() {
+        return Err((
+            system.reduced,
+            format!(
+                "解く系に完全マッチングが無い（方程式 {n} 本のうち {} 本しか対応づかない）",
+                matching.size
+            ),
+        ));
+    }
+    let mate_e: Vec<usize> = matching
+        .equation_to_unknown
+        .iter()
+        .map(|u| u.expect("完全マッチング"))
+        .collect();
+    let mate_u: Vec<usize> = matching
+        .unknown_to_equation
+        .iter()
+        .map(|e| e.expect("完全マッチング"))
+        .collect();
+    let blt = blt(&system, &mate_u);
+    Ok(Solved {
+        system,
+        mate_e,
+        mate_u,
+        blt,
+    })
+}
+
+/// ブロック b の方程式が、同じブロックの未知数を非線形に参照するか。
+fn block_nonlinear(system: &System, blt: &Blt, mate_u: &[usize], b: usize, eqs: &[usize]) -> bool {
+    eqs.iter().any(|&e| {
+        system
+            .row(e)
+            .any(|(u, nl)| nl && blt.block_of[mate_u[u]] == b)
+    })
+}
+
+/// BLT のブロック 1 つ（大きさ 1 も含む）。名前は [`DaeStructure`] のもの。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct BltBlock {
+    /// 方程式の数（= 解く未知数の数）。2 以上が代数ループ
+    pub size: usize,
+    /// 代数ループ（`size >= 2`）
+    pub algebraic_loop: bool,
+    /// ブロックの中で、ブロックの未知数を非線形に参照する方程式がある
+    pub nonlinear: bool,
+    /// 解く未知数の名前（昇順の添字順）
+    pub variables: Vec<String>,
+    /// 方程式のラベル（昇順の添字順）
+    pub equations: Vec<String>,
+}
+
+/// BLT のブロックの列（解く順。依存の先が先）。
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize)]
+pub struct BltReport {
+    /// Pantelides 法の最高階の系で解析した（インデックス 2 以上。状態選択の前の見込み）
+    pub reduced: bool,
+    pub blocks: Vec<BltBlock>,
+    /// 解析しなかった理由（[`LoopReport::skipped`] と同じ）。あれば `blocks` は空
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skipped: Option<String>,
+}
+
+/// BLT を名前つきで出す（可視化用）。マッチングと強連結成分は `analyze_loops` と同じもの。
+pub fn analyze_blt(structure: &DaeStructure, index: &IndexReport) -> BltReport {
+    let Solved {
+        system,
+        mate_e,
+        mate_u,
+        blt,
+    } = match solve(structure, index) {
+        Ok(s) => s,
+        Err((reduced, reason)) => {
+            return BltReport {
+                reduced,
+                skipped: Some(reason),
+                ..BltReport::default()
+            };
+        }
+    };
+    let blocks = (0..blt.n_blocks())
+        .map(|b| {
+            let mut eqs = blt.block(b).to_vec();
+            eqs.sort_unstable();
+            let mut unknowns: Vec<usize> = eqs.iter().map(|&e| mate_e[e]).collect();
+            unknowns.sort_unstable();
+            BltBlock {
+                size: eqs.len(),
+                algebraic_loop: eqs.len() >= 2,
+                nonlinear: block_nonlinear(&system, &blt, &mate_u, b, &eqs),
+                variables: unknowns
+                    .iter()
+                    .map(|&u| structure.unknowns[u].name.clone())
+                    .collect(),
+                equations: eqs
+                    .iter()
+                    .map(|&e| structure.equations[e].label.clone())
+                    .collect(),
+            }
+        })
+        .collect();
+    BltReport {
+        reduced: system.reduced,
+        blocks,
         skipped: None,
     }
 }
