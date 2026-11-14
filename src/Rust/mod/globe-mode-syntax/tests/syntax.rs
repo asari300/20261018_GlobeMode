@@ -1,3 +1,4 @@
+use globe_mode_syntax::ast;
 use globe_mode_syntax::{SyntaxKind, SyntaxKind::*, SyntaxNode, lex, parse};
 use std::path::{Path, PathBuf};
 
@@ -184,6 +185,281 @@ fn repo_fixtures() {
         let p = roundtrip(&std::fs::read_to_string(f).unwrap());
         assert!(!p.errors.is_empty(), "{}", f.display());
         assert!(kinds(&p.syntax(), ClassDef) >= 1);
+    }
+}
+
+/// 木を S 式にする。`ComponentRef` / `Literal` / `EndExpr` は字句、ほかは `(種類 子…)`。括弧・コンマは省く
+fn sexpr(n: &SyntaxNode) -> String {
+    if matches!(n.kind(), ComponentRef | Literal | EndExpr) {
+        return n.text().to_string().split_whitespace().collect();
+    }
+    let mut out = format!("({}", format!("{:?}", n.kind()).trim_end_matches("Expr"));
+    for c in n.children_with_tokens() {
+        match c {
+            rowan::NodeOrToken::Node(c) => {
+                out.push(' ');
+                out += &sexpr(&c);
+            }
+            rowan::NodeOrToken::Token(t) => {
+                if !t.kind().is_trivia()
+                    && !matches!(
+                        t.kind(),
+                        LParen | RParen | Comma | LBracket | RBracket | LBrace | RBrace
+                    )
+                {
+                    out.push(' ');
+                    out += t.text();
+                }
+            }
+        }
+    }
+    out.push(')');
+    out
+}
+
+/// `model M Real x = <e>; end M;` の束縛の式を S 式で返す（誤りが無いこと）
+fn ex(e: &str) -> String {
+    let p = roundtrip(&format!("model M Real x = {e}; end M;"));
+    assert!(p.errors.is_empty(), "{e}: {:?}", p.errors);
+    let m = p
+        .syntax()
+        .descendants()
+        .find(|d| d.kind() == Modification)
+        .unwrap();
+    sexpr(&m.children().last().unwrap())
+}
+
+#[test]
+fn precedence_and_associativity() {
+    for (src, want) in [
+        ("a + b * c", "(Binary a + (Binary b * c))"),
+        ("a - b - c", "(Binary a - b - c)"),
+        ("a * b / c", "(Binary a * b / c)"),
+        ("-a * b", "(Unary - (Binary a * b))"),
+        ("-a + b", "(Binary (Unary - a) + b)"),
+        ("a ^ b * c", "(Binary (Binary a ^ b) * c)"),
+        ("a * b ^ c", "(Binary a * (Binary b ^ c))"),
+        ("-a ^ b", "(Unary - (Binary a ^ b))"),
+        ("2 ^ -1 * 3", "(Binary (Binary 2 ^ (Unary - 1)) * 3)"),
+        (
+            "a .* b .+ c ./ d",
+            "(Binary (Binary a .* b) .+ (Binary c ./ d))",
+        ),
+        ("not a and b", "(Binary (Unary not a) and b)"),
+        ("not a < b", "(Unary not (Binary a < b))"),
+        ("a or b and c", "(Binary a or (Binary b and c))"),
+        (
+            "a and b or c and d",
+            "(Binary (Binary a and b) or (Binary c and d))",
+        ),
+        ("a < b + c", "(Binary a < (Binary b + c))"),
+        (
+            "a + b < c or d",
+            "(Binary (Binary (Binary a + b) < c) or d)",
+        ),
+        ("a == b", "(Binary a == b)"),
+        ("1 : n", "(Range 1 : n)"),
+        ("1 : 2 : n", "(Range 1 : 2 : n)"),
+        ("a + 1 : b or c", "(Range (Binary a + 1) : (Binary b or c))"),
+        ("x[:, 1:end].y[i]", "x[:,1:end].y[i]"),
+        ("(a + b) * c", "(Binary (Paren (Binary a + b)) * c)"),
+        ("(a, , b)", "(Paren a b)"),
+        (
+            "if a then 1 elseif b then 2 else 3 + 4",
+            "(If if a then 1 elseif b then 2 else (Binary 3 + 4))",
+        ),
+        (
+            "1 + if a then 1 else 2",
+            "(Binary 1 + (If if a then 1 else 2))",
+        ),
+        (
+            "f(1, k = 2, g(x))",
+            "(Call f (FunctionArgs 1 (NamedArg k = 2) (Call g (FunctionArgs x))))",
+        ),
+        (
+            "der(x) + .P.q()",
+            "(Binary (Call der (FunctionArgs x)) + (Call .P.q (FunctionArgs)))",
+        ),
+        ("{1, {2, 3}}", "(Array 1 (Array 2 3))"),
+        ("[1, 2; 3, 4]", "(Matrix 1 2 ; 3 4)"),
+        (
+            "sum(x[i] for i in 1:3, j in v)",
+            "(Call sum (FunctionArgs (Comprehension x[i] for (ForIndices (ForIndex i in (Range 1 : 3)) (ForIndex j in v)))))",
+        ),
+        (
+            "{x for i in 1:n}",
+            "(Array (Comprehension x for (ForIndices (ForIndex i in (Range 1 : n)))))",
+        ),
+        (
+            "apply(function f(a = 1), 2)",
+            "(Call apply (FunctionArgs (PartialApp function f (FunctionArgs (NamedArg a = 1))) 2))",
+        ),
+        ("\"a\" + \"b\"", "(Binary \"a\" + \"b\")"),
+        ("true and not false", "(Binary true and (Unary not false))"),
+    ] {
+        assert_eq!(ex(src), want, "{src}");
+    }
+}
+
+#[test]
+fn modifications_and_statements() {
+    let src = r#"model M
+  Real x[3](start = 0, each final unit = "m" "u", redeclare Real y, a.b(c = 1) = 2) = {1, 2, 3}
+    if k > 0 "desc" annotation(Placement(transformation(extent = {{-10, -10}, {10, 10}})));
+  extends B(final p = 1, break u, break connect(a.b, c), d(e = 1)) annotation(x = 1);
+  type T = Real[2](unit = "m") constrainedby Foo(a = 1) "d" annotation(a = 2);
+  type E = enumeration(a "x", b);
+algorithm
+  (a, b) := f(x, 1);
+  y := if c then 1 else 2;
+  g(x);
+  when a then
+    return;
+  end when;
+  while i < 3 loop
+    if a then break; elseif b then x := 1; else x := 2; end if;
+  end while;
+  for i in 1:2, j loop x[i] := i; end for;
+equation
+  connect(a.b, c[1].d) annotation(Line(points = {{0, 0}, {1, 1}}));
+  reinit(x, 0);
+  when x > 0 then
+    y = 1 "d";
+  elsewhen x < 0 then
+    y = 2;
+  end when;
+  x = 1;
+end M;
+"#;
+    let p = roundtrip(src);
+    assert!(p.errors.is_empty(), "{:?}", p.errors);
+    let t = p.syntax();
+    assert_eq!(kinds(&t, ClassModification), 12 + 1);
+    assert_eq!(kinds(&t, ElementModification), 16);
+    assert_eq!(kinds(&t, BreakModification), 2);
+    assert_eq!(kinds(&t, Redeclaration), 1);
+    assert_eq!(kinds(&t, Annotation), 4);
+    assert_eq!(kinds(&t, ForIndex), 2);
+    assert_eq!(kinds(&t, Condition), 1);
+    assert_eq!(kinds(&t, ShortBody), 2);
+    // 文: 3 本 + when(return) 2 + while(if(break, x:=1, x:=2)) 5 + for(1) 2
+    assert_eq!(kinds(&t, Statement), 3 + 2 + 5 + 2);
+    // 方程式: connect, reinit, when(中に 2), x = 1
+    assert_eq!(kinds(&t, Equation), 2 + 3 + 1);
+    // 式の構造を取り出す
+    let calls: Vec<_> = t
+        .descendants()
+        .filter_map(ast::CallExpr::cast)
+        .filter_map(|c| c.callee())
+        .collect();
+    assert_eq!(calls[..2], ["connect", "f"]);
+}
+
+#[test]
+fn typed_ast_folds_a_flat_chain() {
+    fn eval(e: &ast::Expr) -> f64 {
+        match e {
+            ast::Expr::Literal(l) => l.token().unwrap().text().parse().unwrap(),
+            ast::Expr::Paren(p) => eval(&p.items()[0]),
+            ast::Expr::Unary(u) => -eval(&u.operand().unwrap()),
+            ast::Expr::Binary(b) => {
+                let v: Vec<f64> = b.operands().iter().map(eval).collect();
+                let mut acc = v[0];
+                for (op, x) in b.ops().iter().zip(&v[1..]) {
+                    acc = match op.text() {
+                        "+" => acc + x,
+                        "-" => acc - x,
+                        "*" => acc * x,
+                        "/" => acc / x,
+                        "^" => acc.powf(*x),
+                        o => panic!("{o}"),
+                    };
+                }
+                acc
+            }
+            e => panic!("{:?}", e.syntax()),
+        }
+    }
+    let p = parse("model M equation 1 + 2 * 3 ^ 2 - 4 / (2 - 0) = 0; end M;");
+    assert!(p.errors.is_empty());
+    let eq = p
+        .syntax()
+        .descendants()
+        .find(|d| d.kind() == Equation)
+        .unwrap();
+    let e = ast::Expr::cast(eq.children().next().unwrap()).unwrap();
+    assert_eq!(eval(&e), 17.0);
+    let p = parse("model M equation f(1, k = 2) = if a then 1 elseif b then 2 else 3; end M;");
+    let eq = p
+        .syntax()
+        .descendants()
+        .find(|d| d.kind() == Equation)
+        .unwrap();
+    let mut it = eq.children().filter_map(ast::Expr::cast);
+    let (Some(ast::Expr::Call(c)), Some(ast::Expr::If(i))) = (it.next(), it.next()) else {
+        panic!()
+    };
+    assert_eq!((c.args().len(), c.named_args()[0].0.as_str()), (1, "k"));
+    assert_eq!(i.branches().len(), 2);
+    assert!(i.else_branch().is_some());
+}
+
+#[test]
+fn deep_and_long_expressions() {
+    let m = |e: &str| format!("model M Real x = {e}; end M;");
+    for e in [
+        "(".repeat(5000),
+        "-".repeat(5000) + "1",
+        "f(".repeat(5000),
+        "{".repeat(5000),
+        "[".repeat(5000),
+        "if a then ".repeat(5000),
+        "a[".repeat(5000),
+        "not ".repeat(5000),
+        "1 ^ ".repeat(5000) + "1",
+        "x(a = ".repeat(5000),
+    ] {
+        roundtrip(&m(&e));
+        roundtrip(&format!("model M equation {e} = 0; end M;"));
+        roundtrip(&format!("model M Real x(a(b(c = {e}))); end M;"));
+    }
+    // 長い平らな連鎖は木を深くしない
+    let long = "1 + ".repeat(200_000) + "1";
+    let p = roundtrip(&m(&long));
+    assert!(p.errors.is_empty());
+    let a = "model M Real x(".to_string() + &"a(".repeat(5000);
+    roundtrip(&a);
+}
+
+#[test]
+fn broken_expressions_keep_a_tree() {
+    for s in [
+        "model M equation x = ; y = 1; end M;",
+        "model M equation x = * 3; end M;",
+        "model M equation x = (1 + ; y = 2; end M;",
+        "model M equation f(1, ) = 0; end M;",
+        "model M equation if a then b = 1; end if end M;",
+        "model M equation x[1 2] = 3; end M;",
+        "model M Real x(start = ) = ; end M;",
+        "model M Real x = if a then 1; end M;",
+        "model M algorithm x := ; y := 1; end M;",
+        "model M algorithm x = 1; end M;",
+        "model M equation der = 1; end M;",
+        "model M annotation(; end M;",
+        "model M Real x annotation(a = , b); end M;",
+    ] {
+        let p = roundtrip(s);
+        assert!(!p.errors.is_empty(), "no error for {s:?}");
+    }
+    // 誤りの次の文は読める
+    let p = roundtrip("model M equation x = ; y = 1; z = 2; end M;");
+    assert_eq!(kinds(&p.syntax(), Equation), 3);
+    // どの位置で切っても往復する（式の多い入力）
+    let src = "model M Real x(start = if a then {1, 2} else [1; 2], each unit = \"m\") = f(a, k = b[1:end].c) \"d\" annotation(A(b = {{1}}));\nequation\n  (a, , b) = g(x for i in 1:n); when x > 0 then reinit(x, -1); end when;\nend M;";
+    for cut in 0..src.len() {
+        if src.is_char_boundary(cut) {
+            roundtrip(&src[..cut]);
+        }
     }
 }
 

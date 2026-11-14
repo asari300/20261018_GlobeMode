@@ -1,0 +1,17 @@
+[package]
+name = "globe-mode-resolve"
+description = "GlobeMode: class and component name resolution over the native CST (Track B, B2)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+# 依存は globe-mode-syntax（と、その rowan の TextRange）だけ。新しい外部依存は無い
+globe-mode-syntax = { path = "../globe-mode-syntax", version = "0.2.0" }
+rowan = "0.17"
+
+[lints]
+workspace = true
