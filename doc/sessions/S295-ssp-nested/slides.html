@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S295 SSP の入れ子の System — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S295 SSP の入れ子の System">
+
+<section class="slide" id="S01">
+  <span class="tag">S295 · 2026-11-15 · P8 SSP</span>
+  <h1>SSP の入れ子の System と Int32・Boolean を読む</h1>
+  <p class="lead">読み取りの持ち越し 2 つ。新しい依存なし</p>
+  <div class="big">入れ子は <code>外側.内側</code> に平らにし、System のコネクタは素通しで 1 本の結線にたどる</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">読み方</span>
+  <h1>接続の端を節点にして網にまとめる</h1>
+  <ul>
+    <li>端は (要素, コネクタ)。<code>startElement</code> を省くと、その System 自身のコネクタ</li>
+    <li>System のコネクタは外側と内側で同じ節点。網ごとに出力 1 本 → 残りの入力</li>
+    <li>出力が 2 本・FMU の端が 1 つだけ・最上位のシステム自身のコネクタは明確な誤り</li>
+    <li>FMU の名前に <code>.</code> を許し、<code>a.b.x</code> は一番長く合う名前で割る</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">ParameterBindings</span>
+  <h1>System の binding は階層名で当て、上位が勝つ</h1>
+  <table class="compact">
+    <tr><th>置き場</th><th>名前</th><th>例（Dahlquist <code>g.a</code> の k）</th></tr>
+    <tr><td>Component</td><td><code>k</code></td><td>3</td></tr>
+    <tr><td>System <code>g</code></td><td><code>a.k</code></td><td>4（Component に勝つ）</td></tr>
+    <tr><td>最上位</td><td><code>g.a.k</code></td><td>2（全部に勝つ。x(1) = 0.8^10）</td></tr>
+  </table>
+  <p>SSP 2.0.1 の 5.2.3。同じ階層では後ろが勝つ</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">Int32・Boolean・試験</span>
+  <h1>書き出しも読み取りも Int32・Boolean を通す</h1>
+  <ul>
+    <li><code>ssc:Real</code>・<code>ssc:Integer</code>・<code>ssc:Boolean</code> で書き、両端の型が違えば書く前に断る</li>
+    <li>入れ子が平らな版と同じ CSV、System のコネクタを通る接続も同じ CSV</li>
+    <li>Int32・Boolean の <code>ssp-export</code> → <code>cosim</code> がバイトで一致</li>
+  </ul>
+  <pre><code>cargo test -p globe-mode-cli --test fmu_cosim</code></pre>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

@@ -451,7 +451,7 @@ def cosim(
 
     `spec` は dict（`fmus`＝名前 → `.fmu` のパス、`connections`＝`[["a.y", "b.u"], ...]`、`stop_time`・`step`・`start_time`・`timeout`。
     FMU のパスは今の作業ディレクトリから）か、そのパス（`.json`＝FMU のパスは JSON のあるディレクトリから、`.ssp`＝SSP 2.0.1 の最小版。
-    入れ子の System・単位の変換は未対応で `FmuError`。`ParameterBindings` は `start` にする）。
+    単位の変換は未対応（入れ子の System は S295 から読める）で `FmuError`。`ParameterBindings` は `start` にする）。
     `stop_time`・`step` は spec の値を上書きする（`.ssp` では省略すると DefaultExperiment と（終了 - 開始）/ 100）。`timeout`（秒。ワーカーの時間の上限）は
     spec の値を上書きし、`.ssp` にも効く（`.ssp` には上限を書く所が無い。信頼できない `.ssp` には付ける）。
     FMU を別プロセス（ワーカー。`GLOBE_BIN` か PATH の `globe`）で回すこと、`on_progress`・Ctrl-C は `run_fmu` と同じ。誤りは `FmuError`。
