@@ -1,6 +1,6 @@
 //! Modelica 3.6 の 5.3 の名前の探索。
 
-use crate::{ClassId, Import, Library, PathRef, Reason, Ref, RefKind, Resolution, St};
+use crate::{ClassId, Import, Library, PathRef, Reason, Redecl, Ref, RefKind, Resolution, St};
 
 /// 組み込みの名前（型・関数・演算子・変数）。ここにあるものは、探索で見つからなかったときだけ使う
 const BUILTINS: &[&str] = &[
@@ -106,6 +106,8 @@ enum Want {
     Class,
     /// 最後がクラスでも部品でもよい（式・`import`）。途中で部品に当たったらそこで止める
     Any,
+    /// `Any` に加え、途中の部品は型の中へたどる（式の成分参照）
+    Path,
 }
 
 #[derive(Default)]
@@ -114,10 +116,22 @@ struct Walk {
     cycle: bool,
     redecl: bool,
     base_fail: bool,
+    /// 継承元が組み込みの型だった（`type V = Real` の `start` など、属性は探索の外）
+    builtin: bool,
 }
 
 impl Library {
+    /// 成分参照は続きまで（`a.b.c` の `c`）
     pub fn resolve(&self, r: &Ref) -> Resolution {
+        self.resolve_with(r, Want::Path)
+    }
+
+    /// 成分参照は先頭の部品で止める（S272 の解決。続きは調べない）
+    pub fn resolve_head(&self, r: &Ref) -> Resolution {
+        self.resolve_with(r, Want::Any)
+    }
+
+    fn resolve_with(&self, r: &Ref, expr: Want) -> Resolution {
         if r.local {
             return Resolution::Local;
         }
@@ -125,7 +139,7 @@ impl Library {
             RefKind::Type => (Mode::Normal, Want::Class),
             RefKind::Extends => (Mode::Extends, Want::Class),
             RefKind::Import => (Mode::Import, Want::Any),
-            RefKind::Expr => (Mode::Normal, Want::Any),
+            RefKind::Expr => (Mode::Normal, expr),
         };
         self.resolve_path(Some(r.scope), &r.parts, r.global, mode, want)
     }
@@ -182,6 +196,12 @@ impl Library {
                         None => {
                             return Resolution::Unresolved(reason(&w, self.classes[c].replaceable));
                         }
+                    }
+                }
+                Resolution::Component(c, k) if want == Want::Path => {
+                    hit = match self.step(c, k, p, &mut w) {
+                        Ok(h) => h,
+                        Err(r) => return Resolution::Unresolved(r),
                     }
                 }
                 Resolution::Component(..) if want == Want::Any => return hit,
@@ -247,6 +267,10 @@ impl Library {
         let mut found = None;
         for (i, b) in cl.bases.iter().enumerate() {
             w.redecl |= b.redeclare;
+            if let Some(id) = self.redecl_hit(c, &b.redecls, name) {
+                found = Some(Resolution::Class(id));
+                break;
+            }
             match self.base(c, i) {
                 Ok(bid) => {
                     if let Some(h) = self.member(bid, name, w) {
@@ -256,6 +280,7 @@ impl Library {
                 }
                 Err(Reason::Cycle) => w.cycle = true,
                 Err(Reason::Redeclare) => w.redecl = true,
+                Err(_) if matches!(b.state.get(), St::Builtin) => w.builtin = true,
                 Err(_) => w.base_fail = true,
             }
         }
@@ -270,6 +295,7 @@ impl Library {
             St::Done(id) => return Ok(id),
             St::Fail(r) => return Err(r),
             St::Busy => return Err(Reason::Cycle),
+            St::Builtin => return Err(Reason::NotAClass),
             St::Todo => {}
         }
         b.state.set(St::Busy);
@@ -280,6 +306,7 @@ impl Library {
         };
         let st = match r {
             Resolution::Class(id) => St::Done(id),
+            Resolution::Builtin => St::Builtin,
             Resolution::Unresolved(r) => St::Fail(r),
             _ => St::Fail(Reason::NotAClass),
         };
@@ -287,8 +314,56 @@ impl Library {
         match st {
             St::Done(id) => Ok(id),
             St::Fail(r) => Err(r),
-            _ => unreachable!(),
+            _ => Err(Reason::NotAClass),
         }
+    }
+
+    /// `scope` の中の名前 `p` が指すクラス（結果は覚える。解決中にまた来たら `Busy`）
+    fn target_state(&self, scope: ClassId, p: &PathRef) -> St {
+        if let St::Todo = p.state.get() {
+            p.state.set(St::Busy);
+            let r = self.resolve_path(Some(scope), &p.path, p.global, Mode::Normal, Want::Class);
+            p.state.set(match r {
+                Resolution::Class(id) => St::Done(id),
+                Resolution::Builtin => St::Builtin,
+                Resolution::Unresolved(r) => St::Fail(r),
+                _ => St::Fail(Reason::NotAClass),
+            });
+        }
+        p.state.get()
+    }
+
+    /// 修飾の `redeclare package name = X` があれば `X`（`scope` の中で解決）
+    fn redecl_hit(&self, scope: ClassId, redecls: &[Redecl], name: &str) -> Option<ClassId> {
+        let r = redecls.iter().find(|r| r.name == name)?;
+        r.targets
+            .iter()
+            .find_map(|t| match self.target_state(scope, t) {
+                St::Done(id) => Some(id),
+                _ => None,
+            })
+    }
+
+    /// 部品 `c` の `k` 番目の型の中で、続きの名前 `name` を探す
+    fn step(&self, c: ClassId, k: usize, name: &str, w: &mut Walk) -> Result<Resolution, Reason> {
+        let comp = &self.classes[c].components[k];
+        if let Some(id) = self.redecl_hit(c, &comp.redecls, name) {
+            return Ok(Resolution::Class(id));
+        }
+        let mut why = Reason::NotAClass;
+        for t in &comp.tys {
+            match self.target_state(c, t) {
+                St::Done(tc) => match self.member(tc, name, w) {
+                    Some(h) => return Ok(h),
+                    None if w.builtin => return Ok(Resolution::Builtin),
+                    None => why = reason(w, self.classes[tc].replaceable),
+                },
+                St::Builtin => return Ok(Resolution::Builtin),
+                St::Fail(r) => why = r,
+                _ => {}
+            }
+        }
+        Err(why)
     }
 
     /// `class extends X` の `X`: 外側のクラスの継承元から探す（外側自身の宣言は自分）

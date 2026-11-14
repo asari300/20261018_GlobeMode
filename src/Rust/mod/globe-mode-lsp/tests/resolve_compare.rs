@@ -2,7 +2,7 @@
 //! `GLOBE_MSL=<data/msl> cargo test -p globe-mode-lsp --test resolve_compare -- --ignored --nocapture`
 
 use globe_mode_lsp::Server;
-use globe_mode_resolve::{Library, RefKind, Resolution};
+use globe_mode_resolve::{Library, Ref, RefKind, Resolution};
 use serde_json::json;
 use std::path::{Path, PathBuf};
 
@@ -18,9 +18,13 @@ fn pos(text: &str, off: usize) -> (usize, usize) {
     (line, text[start..off].encode_utf16().count())
 }
 
-#[test]
-#[ignore]
-fn definition_agrees_on_msl_type_names() {
+/// 自前が `pick` で `(宣言の file, 宣言の名前の位置, 表示名)` に解決した参照 `refs` を、ファイルごとに最大 3 つ
+/// （ファイルは 40 本おき）LSP の定義ジャンプと突き合わせる
+fn compare(
+    label: &str,
+    wanted: impl Fn(&Library, &Ref) -> bool,
+    pick: impl Fn(&Library, &Ref) -> Option<(u32, usize, String)>,
+) {
     let root = std::env::var_os("GLOBE_MSL").map_or_else(
         || Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../../data/msl"),
         PathBuf::from,
@@ -30,10 +34,9 @@ fn definition_agrees_on_msl_type_names() {
         return;
     }
     let lib = Library::from_dir(&root).unwrap();
-    // 型名（Type）で、自前が型に解決したものを、ファイルごとに 1 つおきに最大 3 つ（ファイルは 40 本おき）
     let mut by_file: std::collections::BTreeMap<u32, Vec<usize>> = Default::default();
     for (i, r) in lib.refs.iter().enumerate() {
-        if r.kind == RefKind::Type && matches!(lib.resolve(r), Resolution::Class(_)) {
+        if wanted(&lib, r) && pick(&lib, r).is_some() {
             by_file.entry(r.file).or_default().push(i);
         }
     }
@@ -54,7 +57,7 @@ fn definition_agrees_on_msl_type_names() {
         );
         for &i in ids.iter().step_by(ids.len().div_ceil(3).max(1)).take(3) {
             let r = &lib.refs[i];
-            let Resolution::Class(c) = lib.resolve(r) else {
+            let Some((dfile, dstart, shown)) = pick(&lib, r) else {
                 continue;
             };
             // 名前の最後の字の位置（点つきの名前の全体が引かれる）
@@ -75,22 +78,20 @@ fn definition_agrees_on_msl_type_names() {
                 ));
                 continue;
             }
-            let cl = &lib.classes[c];
-            let cpath = Path::new(&lib.files[cl.file as usize]);
-            let ctext = std::fs::read_to_string(cpath).unwrap();
-            let (cl_line, cl_ch) = pos(&ctext, usize::from(cl.name_range.start()));
-            let want = json!({"line": cl_line, "character": cl_ch});
+            let dpath = Path::new(&lib.files[dfile as usize]);
+            let dtext = std::fs::read_to_string(dpath).unwrap();
+            let (d_line, d_ch) = pos(&dtext, dstart);
+            let want = json!({"line": d_line, "character": d_ch});
             // LSP の URI は空白を %20 にする
             let got_uri = res["uri"].as_str().unwrap_or_default().replace("%20", " ");
-            if got_uri.ends_with(&cpath.display().to_string()) && res["range"]["start"] == want {
+            if got_uri.ends_with(&dpath.display().to_string()) && res["range"]["start"] == want {
                 agree += 1;
             } else {
                 diffs.push(format!(
-                    "{} in {}:{}: 自前 {} @{want} / LSP {} @{}",
+                    "{} in {}:{}: 自前 {shown} @{want} / LSP {} @{}",
                     r.parts.join("."),
                     path.display(),
                     line + 1,
-                    lib.qualified_name(c),
                     got_uri,
                     res["range"]["start"]
                 ));
@@ -98,10 +99,51 @@ fn definition_agrees_on_msl_type_names() {
         }
     }
     eprintln!(
-        "突き合わせ {total} 箇所: 一致 {agree}、LSP が null {missing}、不一致 {}",
+        "{label}: 突き合わせ {total} 箇所: 一致 {agree}、LSP が null {missing}、不一致 {}",
         total - agree - missing
     );
     for d in &diffs {
         eprintln!("  {d}");
     }
+}
+
+#[test]
+#[ignore]
+fn definition_agrees_on_msl_type_names() {
+    compare(
+        "型名",
+        |_, r| r.kind == RefKind::Type,
+        |lib, r| {
+            let Resolution::Class(c) = lib.resolve(r) else {
+                return None;
+            };
+            let cl = &lib.classes[c];
+            Some((
+                cl.file,
+                usize::from(cl.name_range.start()),
+                lib.qualified_name(c),
+            ))
+        },
+    );
+}
+
+/// S275: 成分参照の続き（`resistor.p.v` の `v`）。部品の型の中の部品に解決したもの
+#[test]
+#[ignore]
+fn definition_agrees_on_msl_component_paths() {
+    compare(
+        "成分参照の続き",
+        |_, r| r.kind == RefKind::Expr && r.parts.len() > 1,
+        |lib, r| {
+            let Resolution::Component(c, i) = lib.resolve(r) else {
+                return None;
+            };
+            let cl = &lib.classes[c];
+            Some((
+                cl.file,
+                usize::from(cl.components[i].range.start()),
+                format!("{}.{}", lib.qualified_name(c), cl.components[i].name),
+            ))
+        },
+    );
 }

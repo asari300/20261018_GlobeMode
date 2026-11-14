@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S275 名前解決の続き — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S275 名前解決の続き">
+
+<section class="slide" id="S01">
+  <span class="tag">S275 · 2026-11-15 · Track B</span>
+  <h1>成分参照の続きと <code>redeclare</code>（B2 の 2 つ目）</h1>
+  <p class="lead"><code>globe-mode-resolve</code> が <code>a.b.c</code> を部品の型の中へたどる</p>
+  <div class="big">続きのある成分参照 45463 件のうち 44824 件（98.6%）が最後の名前まで解決</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">続き</span>
+  <h1><code>a.b.c</code> は部品の型の中へ</h1>
+  <ul>
+    <li>先頭が部品なら、その型（<code>constrainedby</code> があれば先）の中で次の名前を探す。受け継ぎも含む。添字は無視</li>
+    <li>型が組み込み（<code>Real</code>・<code>type V = Real</code>）なら、続きは属性（<code>x.start</code>）で <code>Builtin</code></li>
+    <li><code>resolve</code> は続きまで、<code>resolve_head</code> は先頭まで（S272 と同じ）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">redeclare</span>
+  <h1>その場の型に置き換える（1 段）</h1>
+  <ul>
+    <li><code>redeclare package M = X [constrainedby Y]</code> を <code>extends</code>・部品・short class の修飾から読む</li>
+    <li>探索でその場の <code>M</code> を <code>X</code> に置き換える。<code>replaceable</code> の既定の型と <code>constrainedby</code> も候補</li>
+    <li>2 段以上先、部品の再宣言、長い形は <code>Reason::Redeclare</code> のまま</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">結果</span>
+  <h1>MSL 4.1.0 の続きのある成分参照</h1>
+  <table>
+    <thead><tr><th>項目</th><th>S272</th><th>S275</th></tr></thead>
+    <tbody>
+      <tr><td>続きのある成分参照</td><td>45463 件</td><td>45463 件</td></tr>
+      <tr><td>最後の名前まで解決</td><td>0 件（先頭で止める）</td><td>44824 件（98.6%）</td></tr>
+      <tr><td>未解決（<code>Redeclare</code>）</td><td>10 件（先頭）</td><td>639 件（先頭は 0 件）</td></tr>
+      <tr><td>LSP との突き合わせ（続き）</td><td>未実施</td><td>93 箇所で不一致 0、LSP が null 7</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li><code>Redeclare</code> の 639 件（2 段以上先の <code>state.T</code>、部品の再宣言）</li>
+    <li>LSP・<code>Frontend</code> へのつなぎ、文の型付き AST、診断の番号</li>
+  </ul>
+  <pre><code>cargo test -p globe-mode-resolve
+GLOBE_MSL=data/msl cargo test -p globe-mode-resolve -- --ignored --nocapture</code></pre>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

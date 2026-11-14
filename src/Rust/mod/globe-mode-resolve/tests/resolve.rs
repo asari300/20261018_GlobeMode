@@ -1,4 +1,4 @@
-use globe_mode_resolve::{Library, Reason, Resolution};
+use globe_mode_resolve::{Library, Reason, RefKind, Resolution};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -98,7 +98,7 @@ end N;",
     assert_eq!(get("P.M", "A"), "class P.A");
     assert_eq!(get("P.M", "P.A"), "class P.A");
     assert_eq!(get("P.M", "k"), "comp P.k");
-    assert_eq!(get("P.M", "a.x"), "comp P.M.a");
+    assert_eq!(get("P.M", "a.x"), "comp P.A.x");
     assert_eq!(get("P.M", "time"), "builtin");
     assert_eq!(get("P.M", "sin"), "builtin");
     assert_eq!(get("P.M", "Missing"), "unresolved NotFound");
@@ -121,6 +121,98 @@ end N;",
             .as_deref(),
         Some("P.Sub.C")
     );
+}
+
+/// S275: 成分参照の続き（`a.b.c`）。添字は無視、受け継いだ部品、組み込みの型の属性、部品の型の途中の失敗
+#[test]
+fn component_paths() {
+    let lib = Library::from_sources([(
+        "P.mo",
+        "package P
+  connector Pin Real v; flow Real i; end Pin;
+  model Two Pin p; Pin n; end Two;
+  model Sub extends Two; end Sub;
+  type Volt = Real;
+  model M
+    Two r[2];
+    Volt u;
+    Sub s;
+    Real a = r[1].p.v + u.start + s.n.i;
+    Real b = r[1].p.nope;
+    Real c = r[1].q.v;
+    Real d = u.x.y;
+  end M;
+end P;",
+    )]);
+    assert!(lib.diagnostics.is_empty(), "{:?}", lib.diagnostics);
+    let t = table(&lib);
+    let get = |name: &str| t[&("P.M".to_string(), name.to_string())].as_str();
+    assert_eq!(get("r.p.v"), "comp P.Pin.v");
+    assert_eq!(get("u.start"), "builtin");
+    assert_eq!(get("s.n.i"), "comp P.Pin.i");
+    assert_eq!(get("r.p.nope"), "unresolved NotFound");
+    assert_eq!(get("r.q.v"), "unresolved NotFound");
+    // 属性の先は部品ではない（`resolve_head` は先頭の部品で止まる）
+    assert_eq!(get("u.x.y"), "builtin");
+    let r = lib
+        .refs
+        .iter()
+        .find(|r| r.parts == ["r", "p", "v"])
+        .unwrap();
+    assert_eq!(describe(&lib, &lib.resolve_head(r)), "comp P.M.r");
+}
+
+/// S275: `replaceable` の既定の型・`constrainedby`・`redeclare package`（`extends` の修飾・部品の修飾・short class の修飾）
+#[test]
+fn redeclare_and_replaceable() {
+    let lib = Library::from_sources([(
+        "R.mo",
+        "package R
+  package Base constant Real k = 1; end Base;
+  package Ext extends Base; constant Real e = 2; end Ext;
+  package Other constant Real o = 3; end Other;
+  model A
+    replaceable package Medium = Ext;
+    replaceable package Med2 = Other constrainedby Ext;
+    Real d = Medium.e + Medium.k + Med2.e + Medium.o;
+  end A;
+  model B
+    extends A(redeclare package Medium = Other);
+    Real x = Medium.o;
+  end B;
+  model C
+    A a(redeclare replaceable package Medium = Other constrainedby Base);
+    Real y = a.Medium.o + a.Med2.e;
+  end C;
+  package Pk replaceable package Medium = Ext; end Pk;
+  package P2 = Pk(redeclare package Medium = Other);
+  model D
+    Real z = P2.Medium.o;
+  end D;
+  model E
+    replaceable Ext2 c constrainedby Base2;
+    Real w = c.base + c.more;
+  end E;
+  model Base2 Real base; end Base2;
+  model Ext2 extends Base2; Real more; end Ext2;
+end R;",
+    )]);
+    assert!(lib.diagnostics.is_empty(), "{:?}", lib.diagnostics);
+    let t = table(&lib);
+    let get = |scope: &str, name: &str| t[&(format!("R.{scope}"), name.to_string())].as_str();
+    // 既定の型（`Ext`）と、`constrainedby Ext` の中の `Ext` は受け継ぎでも見える。既定に無い名前は差し替わりうる
+    assert_eq!(get("A", "Medium.e"), "comp R.Ext.e");
+    assert_eq!(get("A", "Medium.k"), "comp R.Base.k");
+    assert_eq!(get("A", "Med2.e"), "comp R.Ext.e");
+    assert_eq!(get("A", "Medium.o"), "unresolved Redeclare");
+    // extends の修飾・部品の修飾・short class の修飾の redeclare
+    assert_eq!(get("B", "Medium.o"), "comp R.Other.o");
+    assert_eq!(get("C", "a.Medium.o"), "comp R.Other.o");
+    assert_eq!(get("C", "a.Med2.e"), "comp R.Ext.e");
+    assert_eq!(get("D", "P2.Medium.o"), "comp R.Other.o");
+    // 部品の `constrainedby`: 型は両方を試す
+    assert_eq!(get("E", "c.base"), "comp R.Base2.base");
+    assert_eq!(get("E", "c.more"), "comp R.Ext2.more");
 }
 
 #[test]
@@ -222,6 +314,33 @@ fn msl_stats() {
     for (k, v) in &counts {
         eprintln!("{k}: {v}");
     }
+    // 成分参照の続き（`a.b.c`）: S275 の前は先頭で止めていた（`resolve_head`）。いまは続きまで（`resolve`）
+    let (mut multi, mut head_ok, mut full_ok) = (0, 0, 0);
+    let mut why: BTreeMap<String, usize> = BTreeMap::new();
+    let mut attrs: BTreeMap<String, usize> = BTreeMap::new();
+    for r in lib
+        .refs
+        .iter()
+        .filter(|r| r.kind == RefKind::Expr && r.parts.len() > 1)
+    {
+        multi += 1;
+        head_ok += usize::from(!matches!(lib.resolve_head(r), Resolution::Unresolved(_)));
+        match lib.resolve(r) {
+            Resolution::Unresolved(w) => *why.entry(format!("{w:?}")).or_default() += 1,
+            Resolution::Builtin => {
+                full_ok += 1;
+                // 組み込みの型の属性（`x.start`）のはず。ここに属性以外が出たら取りこぼし
+                *attrs
+                    .entry(r.parts.last().cloned().unwrap_or_default())
+                    .or_default() += 1;
+            }
+            _ => full_ok += 1,
+        }
+    }
+    eprintln!("組み込みに解決した続きの最後の名前: {attrs:?}");
+    eprintln!(
+        "成分参照の続き（parts>1）: {multi} 件、先頭だけ解決 {head_ok}、続きまで解決 {full_ok}、未解決の内訳 {why:?}"
+    );
     let mut shown: BTreeMap<String, usize> = BTreeMap::new();
     for r in &lib.refs {
         if let Resolution::Unresolved(why) = lib.resolve(r) {
