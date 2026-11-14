@@ -2,9 +2,12 @@
 //!
 //! - `lex`: 全バイトをトークンに分ける（空白・コメント・誤りも）。
 //! - `parse`: 誤りがあっても木を作る。`Parse::syntax().to_string()` は元の文字列と一致する。
+//!   式（Pratt）・修飾・注釈・方程式と文の中身も構造にする（S269）。
+//! - `ast`: 式の節点の薄い型（S269）。
 //!
 //! 既存のフロントエンド（Rumoca）にはつながない（doc/adr/0039-native-cst-parser.md）。
 
+pub mod ast;
 mod kind;
 mod lexer;
 mod parser;
