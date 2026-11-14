@@ -45,6 +45,16 @@ pub use fmu_import::{
 pub use globe_mode_db as db;
 pub use globe_mode_exec as exec;
 pub use globe_mode_exec::{CancelToken, ExecStage, Linearization, Progress};
+
+/// 線形化の結果の JSON（`globe linearize --json`・LSP `globe/linearize`・wasm `linearize` で共通。S260）。
+pub fn linearization_json(model: &str, l: &Linearization) -> serde_json::Value {
+    serde_json::json!({
+        "model": model, "time": l.time,
+        "x": l.states, "u": l.inputs, "y": l.outputs,
+        "x0": l.x0, "u0": l.u0, "y0": l.y0,
+        "A": l.a, "B": l.b, "C": l.c, "D": l.d,
+    })
+}
 pub use globe_mode_sim as sim;
 
 /// ソルバの登録表（`globe simulate --list-solvers` と wasm の `solvers()` の中身）。

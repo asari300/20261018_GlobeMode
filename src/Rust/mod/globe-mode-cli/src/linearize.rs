@@ -29,7 +29,7 @@ pub(crate) fn linearize(args: LinearizeArgs) -> ExitCode {
             if args.json {
                 println!(
                     "{}",
-                    serde_json::to_string_pretty(&json(model, &l))
+                    serde_json::to_string_pretty(&globe_mode::linearization_json(model, &l))
                         .expect("serialize linearization")
                 );
             } else {
@@ -44,15 +44,6 @@ pub(crate) fn linearize(args: LinearizeArgs) -> ExitCode {
             failure_code(&diags)
         }
     }
-}
-
-fn json(model: &str, l: &Linearization) -> serde_json::Value {
-    serde_json::json!({
-        "model": model, "time": l.time,
-        "x": l.states, "u": l.inputs, "y": l.outputs,
-        "x0": l.x0, "u0": l.u0, "y0": l.y0,
-        "A": l.a, "B": l.b, "C": l.c, "D": l.d,
-    })
 }
 
 fn lines(model: &str, l: &Linearization) -> Vec<String> {

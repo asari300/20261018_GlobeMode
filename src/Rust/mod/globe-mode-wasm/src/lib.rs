@@ -567,6 +567,27 @@ impl Workspace {
         to_json(&r)
     }
 
+    /// モデルの線形化（S260）。`globe linearize --json` と同じ JSON `{model, time, x, u, y, x0, u0, y0, A, B, C, D}`。
+    /// `time` が未指定なら実験の開始時刻、`parameters` は名前 → 数の上書きの JSON（空なら `{}`）。線形化できなければ例外（診断の文）。
+    pub fn linearize(
+        &mut self,
+        model: &str,
+        time: Option<f64>,
+        parameters: &str,
+    ) -> Result<String, JsValue> {
+        let ov: std::collections::BTreeMap<String, f64> =
+            serde_json::from_str(parameters).map_err(|e| js_error(format!("parameters: {e}")))?;
+        let l = self.inner.linearize(model, &ov, time).map_err(|ds| {
+            js_error(
+                ds.iter()
+                    .map(|d| d.message.as_str())
+                    .collect::<Vec<_>>()
+                    .join("; "),
+            )
+        })?;
+        to_json(&globe_mode::linearization_json(model, &l))
+    }
+
     /// モデルの検査だけ（S0〜S10。実行しない）。`CheckResponse` の JSON を返す（S041。ブラウザ UI の診断パネル用）。
     pub fn check(&mut self, model: &str) -> Result<String, JsValue> {
         to_json(&self.inner.check(model))

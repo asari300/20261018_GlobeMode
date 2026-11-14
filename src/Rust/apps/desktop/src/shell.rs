@@ -14,7 +14,7 @@ pub fn lock(w: &Shared) -> MutexGuard<'_, Worker> {
 }
 
 /// UI が `rpc` で頼む method（`src/Svelte/src/lib/tauri-backend.ts`）。試験が UI の呼び出しと突き合わせる。
-pub const RPC_METHODS: [&str; 26] = [
+pub const RPC_METHODS: [&str; 27] = [
     "globe/check",
     "globe/completion",
     "globe/definition",
@@ -30,6 +30,7 @@ pub const RPC_METHODS: [&str; 26] = [
     "globe/librarySearch",
     "globe/librarySource",
     "globe/libraryTree",
+    "globe/linearize",
     "globe/lint",
     "globe/models",
     "globe/parameters",

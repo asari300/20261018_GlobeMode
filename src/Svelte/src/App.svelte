@@ -12,7 +12,8 @@
   import { TauriBackend, inDesktop, tabKey } from "./lib/tauri-backend";
   import type { Backend, Diagram, Documentation, FmuInfo, FmuRunRequest, Icon, TreeEntry } from "./lib/backend";
   import type { Columns } from "./lib/plot/csv";
-  import type { CheckResponse, Diagnostic, ResolvedSettings, SimulateRequest } from "./lib/protocol";
+  import type { CheckResponse, Diagnostic, Linearization, ResolvedSettings, SimulateRequest } from "./lib/protocol";
+  import LinearizeView from "./lib/LinearizeView.svelte";
   import Plot from "./lib/plot/Plot.svelte";
   import Graph from "./lib/graph/Graph.svelte";
   import LibraryTree from "./lib/LibraryTree.svelte";
@@ -767,6 +768,17 @@
     graphModel = model;
   });
 
+  // S260: 線形化。時刻の欄が空なら実験の開始時刻。上書きは実行の設定のパラメータ（simSettings.parameters）を使う
+  let linTime = $state("");
+  let lin = $state<Linearization | null>(null);
+  const linearize = () => run(async () => {
+    const t = linTime.trim() === "" ? undefined : Number(linTime);
+    if (t !== undefined && !Number.isFinite(t)) { failure = "線形化の時刻が数でない"; return; }
+    lin = await backend.linearize(model, t, simSettings.parameters);
+    live = `線形化が完了した: 状態 ${lin.x.length}・入力 ${lin.u.length}・出力 ${lin.y.length}`;
+    void reveal("[data-linearization]");
+  });
+
   // ノードのキー（`stage1.resistor` など）の先頭の名前を、エディタの本文で最初に出る所で選ぶ
   // shortcut: 宣言を名前の字面で探す。同じ名前が先に出ると外れる。outline の位置が要るなら LSP の documentSymbol を使う
   function select(node: string) {
@@ -851,6 +863,8 @@
     <button onclick={check} disabled={busy} title="検査（Ctrl/Cmd+Shift+Enter）" aria-keyshortcuts="Control+Shift+Enter Meta+Shift+Enter">検査</button>
     <button onclick={() => simulate()} disabled={busy} title="実行（Ctrl/Cmd+Enter）" aria-keyshortcuts="Control+Enter Meta+Enter">実行</button>
     <button onclick={graph} disabled={busy}>グラフ</button>
+    <button onclick={linearize} disabled={busy} title="状態空間の行列 A・B・C・D を出す（数値の中心差分）">線形化</button>
+    <input class="lin-time" inputmode="decimal" placeholder="開始時刻" aria-label="線形化の時刻（空なら開始時刻）" bind:value={linTime}>
     <button onclick={format} disabled={busy}>整形</button>
     {#if runState === "running" && backend.cancel}<button onclick={() => backend.cancel?.()} title="止める（Ctrl/Cmd+.）" aria-keyshortcuts="Control+. Meta+.">止める</button>{/if}
     {#if desktop}
@@ -963,10 +977,12 @@
     </tbody>
   </table>
   {#if columns}<Plot {columns} {model} />{/if}
+  {#if lin}<LinearizeView result={lin} onclose={() => (lin = null)} />{/if}
   {#if graphModel}<Graph {backend} model={graphModel} onSelect={select} />{/if}
 </main>
 
 <style>
+  .lin-time { width: 6rem; }
   .params .rows { max-height: 12rem; overflow-y: auto; }
   .params th { text-align: left; font-weight: normal; padding-right: .5rem; }
   main { font: 14px/1.4 system-ui, sans-serif; max-width: 76rem; margin: 0 auto; padding: 1rem; }
