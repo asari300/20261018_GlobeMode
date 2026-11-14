@@ -28,7 +28,7 @@ flowchart LR
 | **P8 拡充** | radau5（S030）、SUNDIALS（S032・S034）、ESDIRK / CERK（S027・S029）は済。SSP 2.0.1（S253 で最小版の読み取り。`.ssp` を `globe fmu cosim` で回す。S263 で `Component` の `ParameterBindings`〔`.ssv`・インライン〕。往復・`.ssm` は未）、BLT ビュー（S256 で `globe blt`、S262 で LSP・wasm・UI のパネル・Python。式の位置・変換の段ごとの差分は未）、Diagram ビュー（Icon ビューは S244、読み取りの図は S245、VS Code の側のパネルは S247、部品のドラッグ移動は S250、結線の追加は S261 で済。部品の追加と結線の点の編集は未）、BLT の変換デバッガは未 | ソルバの表がそろう（**済**: S050、S126 で回し直し）。SSP が往復できる（読み取りの最小版は S253 で済、書き出しは未） | 未定 |
 | **Track B 自前コア** | B1 rowan の CST と寛容なパーサ（**S268 で最初の一切れ、S269 で式**。新しい crate `globe-mode-syntax`。クラス・`extends`・`import`・部品の宣言・`equation` / `algorithm` 節（S268）、式（Pratt）・修飾・注釈・方程式と文の中身・式の型付き AST（S269）。MSL 2556 本が誤り 0・往復一致・panic 0、[ADR-0039](adr/0039-native-cst-parser.md)）→ **B2 resolve（S272 で最初の一切れ。新しい crate `globe-mode-resolve`。クラスと部品の名前解決。MSL 4.1.0 の参照 161869 件のうち未解決は `redeclare` 由来の 10 件だけ）** → B3 flatten → B4 DAE。`Frontend` の feature `native` として作る | 段階ごとに Rumoca 以上の数字を出す（parse 566 / flatten 562 / balanced 464 / simulate 153）。`xtask diff-frontend` で回帰が 0 件になったら既定を切り替える | P4 以降、余裕ができてから |
 
-Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先に使える。コンパイルのパイプラインは引き続き Rumoca が受け持つ。ただし AST が別物なので、両者を混ぜるのは「IDE 機能か、コンパイルか」の境目に限る。
+Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先に使える（**S276 で最初につないだ**: LSP のアウトラインと折りたたみが、構文の誤りがあるファイルでも CST から出る）。コンパイルのパイプラインは引き続き Rumoca が受け持つ。ただし AST が別物なので、両者を混ぜるのは「IDE 機能か、コンパイルか」の境目に限る。
 
 ## 進み具合
 
@@ -1194,7 +1194,7 @@ S177（2026-11-05、S175 までが main にある状態）で、各節の「持�
 | 機能の穴（CLI・Python） | 使える流れの点検（S178） | 通る流れは通る。穴は誤った使い方の手がかり（ライブラリのモデル名の候補、`-L`、負の数、`fmt --check` が CI で黙って通る、`-o` なしで結果を捨てる）、未対応（GM-U）の終了コード、Python の型・例外・既定ソルバでの進捗と中断、CLI の面（`graph` などに `-L`、MSL を取る道）、FMU `--build` の入口。順位付き 13 件と WP の案は [調査](research/cli-python-flow-2026-11-06.md) | S178 |
 | 機能の穴（UI・CLI・Python） | 並行で入れた 16 本の再点検（S185） | S164・S178 の穴は大半が直った（ブラウザ版の例題 10 本中 9 本が通り、CLI の誤った使い方は 21 通り中 9 が直った）。残りと新しい食い違い 10 件: ~~README の「既知の限界」が補完と検索を「無い」と書いたまま~~（README は S171・S167 の状態に直してある）、クラス名のリネームでモデル名の欄が古いまま、入れ子のクラスを開いても位置へ動かない、~~FMU のファイル名（2.0 と 3.0 が同じ）と MSL の例題での英語の失敗~~（S189 で済）、`-L` を忘れた・サブフォルダの案内、候補の質、キーボードの細部。上位 10 と WP の組（A 文書、B App、C CLI・frontend、~~D FMU~~）は [調査](research/app-flow-2026-11-06.md) | S185 |
 | 決まり（2026-11-06） | S185 の再点検に対するユーザーの決定 | 済: エディタの Tab は字下げ（S188）、プロットの既定は状態を先に（S190）、`src/Modelica` を `globe fmt` で整形し FMU の既定のファイル名を `<名前>-fmi2.fmu` / `-fmi3.fmu` に（S189）、ADR-0032・0034・0035・0036 を Accepted に（S194）、上流の再現用 `.mo` を `globe fmt` で整形（S194）。別の WP で実装: **FMI Import は案 A と案 B の両方**、**Python に例外の階層を入れる**、**補完中の Tab は候補の確定、再実行時は選択を保つ**、CLI の終了コードなど（未対応だけのときは終了コード 3、`fmt` の標準入力は `-` を明示したときだけ（`--json` も S209）、MSL の取得コマンドは足さず README で案内。親が決めて別の WP） | S185・S188・S189・S190・S194 |
-| 機能の穴（Track B） | 自前コア | B1 は式まで済（S268・S269、`globe-mode-syntax`）、B2 は名前の解決の最初の一切れが済（S272、`globe-mode-resolve`）。残り: 文の型付き AST、診断の番号（GM-E）、`redeclare` の引数の構造、B2 の残り（`redeclare` / `replaceable` と修飾で変わる型、部品の型を通した `a.b.c` の続き、LSP・`Frontend` へのつなぎ）、B3 以降、`Frontend` の feature `native`（まだ無い）、`xtask diff-frontend`。IDE の機能を先に自前にする | S268・S269・S272、P4 以降 |
+| 機能の穴（Track B） | 自前コア | B1 は式まで済（S268・S269、`globe-mode-syntax`）、B2 は名前の解決の最初の一切れが済（S272、`globe-mode-resolve`）。残り: 文の型付き AST、診断の番号（GM-E）、`redeclare` の引数の構造、B2 の残り（`redeclare` / `replaceable` と修飾で変わる型、部品の型を通した `a.b.c` の続き、`Frontend` へのつなぎと、LSP の補完・定義ジャンプへのつなぎ。アウトラインと折りたたみは S276 でつないだ）、B3 以降、`Frontend` の feature `native`（まだ無い）、`xtask diff-frontend`。IDE の機能を先に自前にする | S268・S269・S272・S276、P4 以降 |
 
 ## 運用上の決まり
 

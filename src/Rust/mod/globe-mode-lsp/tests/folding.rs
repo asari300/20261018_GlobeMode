@@ -60,10 +60,30 @@ fn classes_sections_annotations_and_comments_fold_by_line() {
     }
 
     // 構文が壊れてアウトラインが引けなくても、コメントは出る。1 行のものは出ない
+    // （S276 から、クラスの範囲も CST から出る。`end` が無いので最後の字句の行の手前まで）
     s.handle(
         json!({"method": "textDocument/didChange", "params": {"textDocument": {"uri": uri},
         "contentChanges": [{"text": "model A\n// a\n// b\nx /* one */\n"}]}}),
     );
-    assert_eq!(ranges(&mut s, uri), [(1, 2, Some("comment".into()))]);
+    let got = ranges(&mut s, uri);
+    assert!(got.contains(&(1, 2, Some("comment".into()))), "{got:?}");
+    assert_eq!(got.len(), 2, "{got:?}"); // コメントとクラス
     assert_eq!(s.handle(json!({"id": 3, "method": "textDocument/foldingRange", "params": {"textDocument": {"uri": "file:///nope.mo"}}}))[0]["result"], Value::Null);
+}
+
+/// S276: 構文の誤り（`Real x` の `;` 抜け）があっても、クラスと equation 節の折りたたみが出る
+#[test]
+fn broken_syntax_still_folds_classes_and_sections() {
+    let mut s = Server::new(&[]).unwrap();
+    let uri = "file:///tmp/Broken.mo";
+    let text = include_str!("../../globe-mode-frontend/tests/data/SyntaxError.mo");
+    s.handle(
+        json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+        "uri": uri, "languageId": "modelica", "version": 1, "text": text}}}),
+    );
+    // 0: // コメント, 1: model Broken, 2: Real x, 3: equation, 4: x = 1;, 5: end Broken;
+    let got = ranges(&mut s, uri);
+    for (a, b) in [(1, 4), (3, 4)] {
+        assert!(got.contains(&(a, b, None)), "{a}-{b} not in {got:?}");
+    }
 }
