@@ -216,7 +216,7 @@
 - **試験**: `globe-mode-cli/tests/fmu_cosim.rs` に 2 本（`.ssv` とインライン〔2 本の binding で後ろが勝つ〕で Dahlquist の k = 2 → x(1) = 0.8^10、FMU に無い名前は無視。`ParameterMapping` を断る）、`globe-mode-fmi` の `ssp.rs` に 1 本（`parse_ssv` の型と `prefix`）と `ParameterMapping` の拒否。
 - **持ち越し**: `ParameterMapping`（.ssm）、System の階層の `ParameterBindings` と階層名での優先順位、`sourceBase="component"`（FMU の中の `.ssv`）、単位の換算、配列、SSP の Int32・Boolean のコネクタ、書き出し。
 
-### (u) S277 の付記（2026-11-15）: コシミュレーションの UI の口（Desktop だけ）
+### (v) S277 の付記（2026-11-15）: コシミュレーションの UI の口（Desktop だけ）
 
 (q)〜(t) の持ち越しの「LSP・UI の口」のうち、LSP と Desktop の UI。FMU の Import の口（(p)）と同じ流儀。
 
@@ -229,7 +229,7 @@
 ## 結果
 
 - **S263 の結果**: 上の (t)。SSP の `ParameterBindings` が `start` になる。
-- **S277 の結果**: 上の (u)。Desktop の UI から `.ssp`・spec の `.json` を開いてコシミュレーションを回せる（LSP `globe/cosim`）。
+- **S277 の結果**: 上の (v)。Desktop の UI から `.ssp`・spec の `.json` を開いてコシミュレーションを回せる（LSP `globe/cosim`）。
 - **S259 の結果**: 上の (s)。Gauss–Seidel・`start`・Int32/Boolean の接続。
 - **S253 の結果**: 上の (r)。`.ssp` を `globe fmu cosim` で回せる。
 - **S229 の結果**: 上の (p)。facade・Python・Desktop の UI から FMU を読んで回せる。
