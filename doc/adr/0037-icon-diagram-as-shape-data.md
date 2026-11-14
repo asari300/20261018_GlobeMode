@@ -38,3 +38,19 @@ P8 の Diagram / Icon ビューの最初の一切れとして、カーソルの�
 - **CSP**: `default-src 'none'; style-src ${cspSource} 'unsafe-inline'; script-src 'nonce-…'`。`innerHTML` は使わない（`test/panel.test.mjs` が両ファイルを grep する）。
 - **確かめ**: `pnpm test` に無害化と SVG の組み立て（`panel.test.mjs`。node 24 が `.ts` を直接読む）、`e2e/suite.cjs` に「ビューが開き、ChuaCircuit の図に部品が 7 個」。webview の DOM は拡張ホストから見えないので、webview が描き終えた数を `postMessage` で返し、`activate` が返す `panel.state` を e2e が読む。
 - **持ち越し**: 図の編集、画像（`modelica://…/Resources/…`）、テーマに合わせた地の色（地は Svelte の UI と同じく常に白）。
+
+## 付記（S250: 部品の移動）
+
+- **編集の最初の一切れとして、部品のドラッグ移動を入れた。** 書き換えは Rust（`globe-mode-fmt` の `move_part`）が決める。字句解析で宣言を見つけ、`Placement(transformation(origin = {x, y}))` の `{x, y}` を新しい値の `{x, y}` にする編集（バイト範囲と文字列）を返す。`origin` が無ければ `transformation(` の直後に `origin = {dx, dy}, ` を足す（`extent` は `origin` からの相対なので触らない。`rotation` があっても `origin` は図の座標の平行移動なので、そのまま足せる）。Placement の無い宣言・`origin` が数の並びでない宣言（式）は動かさない（null）。値は小数 3 桁に丸める。
+- **LSP `globe/movePart`**（`{file, class, part, dx, dy}`、TextEdit の配列か null。`RPC_METHODS` は 27）と wasm の `move_part`（Worker の `move_part`、`WorkerBackend.movePart`、`TauriBackend.movePart`）で返す。ファイルは書かない。UI は返った編集をエディタに 1 回の `dispatch` で入れる（Ctrl+Z で戻せる。保存はユーザー）。
+- **UI**: `DiagramView.svelte` の svg でポインタを受け、ドラッグ中は部品の `<g>` に `transform` だけを付けて動かし、離したら 2 単位の格子に吸着した (dx, dy)（Diagram の座標、y 上向き）を `onMove` に渡す。4 px 未満は移動と見ず従来のクリック（宣言へ飛ぶ）、移動の直後のクリックは飛ばさない。ダブルクリック・右クリック（S248 のパラメータ）とは衝突しない。編集が入って図が読み直されたら見た目の `transform` を捨てる。結線は `Line(points)` を持たなければ中心どうしの直線なので、読み直しで部品に追従する。`Line(points)` の点は動かさない。
+- **持ち越し**: 結線の点の編集、部品・結線の追加、部品の回転・拡大縮小、VS Code の側のパネルでの移動（今回は触っていない）、`extends` で継いだ部品。
+
+## 付記（S261: 結線の追加）
+
+- **Diagram の編集の 2 つ目として、結線（`connect`）の追加を入れた。** コネクタから別のコネクタへドラッグして離すと、クラスに `connect(a.p, b.n) annotation(Line(points = {{x1, y1}, {x2, y2}}, color = {0, 0, 255}));` を足す編集を Rust（`globe-mode-fmt` の `add_connect`）が返す。最後の `equation` 節の末尾（クラスの `annotation` の前）にその節の字下げで足し、`equation` が無ければクラスの `annotation`（無ければ `end`）の行の前に `equation` 節ごと足す（`equation` は `end` の字下げ、文は最初の宣言の字下げ）。`initial equation`・`algorithm` の節は数えない。端は英数字・`_`・`.`・`[]` だけを受ける（ソースに入れる文字列なので）。挿入位置の行に他の文が詰めてあれば断る（null）。
+- **コネクタの位置**: S245 の図は部品の中のコネクタを出していなかったので、`Part.connectors`（名前と図の座標）を足した。部品のクラスと `extends` の 2 段までで、`Placement` を持つ `parameter`・`constant` でない宣言の `iconTransformation`（無ければ `transformation`）の `extent` の中心を `origin` のまわりに `rotation` 回し、部品の変換で図の座標にする。基底クラスの探し方は Icon と共通（`icon.rs` の `find_base`）。部品のクラスの中の部品（`LimPID` の `Gain` など、Placement を持つ非コネクタ）を除くため、`iconTransformation` が無い宣言は型を引いて、`connector` 以外と分かれば除く（`is_connector`。字句解析せず `<種類> <名前>` の字面を探すだけ）。**型が引けなければ残す**ので、非コネクタが混ざることはある（結線できるかは検査が後で GM の誤りにする）。MSL で `CauerLowPassAnalog` の `Capacitor`（`p`・`n`）、`PID_Controller` の `LimPID`（`u_s`・`u_m`・`y`・`u_ff`）、`Inertia`（`flange_a`・`flange_b`）を確かめた。
+- **口**: LSP `globe/addConnect`（`{file, class, from, to, points}`、TextEdit の配列か null。`RPC_METHODS` は 28）、wasm `add_connect`、`Backend.addConnect`。`globe/diagram` の部品に `connectors: [{name, pos}]` が増えた。
+- **UI**: 各コネクタに透明な円（`.conn`、半径は図の大きさの 1/40 の 0.7 倍。ホバーで色が付く）をヒット領域として部品の `<g>` の中に置く。コネクタから始めたドラッグは部品の移動でなく結線で、仮の線を描き、別のコネクタの上で離したら確定する。同じコネクタ・コネクタ以外で離したら何もしない。点は両端のコネクタの位置の 2 点だけ。
+- **型の互換は見ない。** 今回は端のコネクタの型（`Pin` と `RealInput` など）を確かめず、足したあとの検査（`globe check`・lint `connect-type-mismatch`）が誤りを出す。エディタで Ctrl+Z すれば戻る。
+- **持ち越し**: 結線の途中の点（折れ線）、既存の結線との重複の検査、部品の追加、VS Code の側のパネルでの結線、配列のコネクタ（`p[1]`）の選択、型の互換の事前の検査。
