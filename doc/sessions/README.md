@@ -4,6 +4,7 @@
 
 | S | 日付 | Phase | 題名 | ブランチ | 状態 | スライド | 解説書 | セッション記録 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| S286 | 2026-11-15 | P8 | `linearize-eigen`: 線形化の JSON・CLI に A の固有値（極）と安定性（安定 / 不安定 / 境界）を足した（facade `eigenvalues`・`stability`、nalgebra の実シューア分解） | `feature/s286-linearize-eigen` | 完了 | [slides](S286-linearize-eigen/slides.html) | [解説書](S286-linearize-eigen/解説書.md) | なし（記録が `log/local/` に無い） |
 | S285 | 2026-11-15 | P7 | `lang-linearize-blt`: 線形化 `linearize` と BLT `blt` を C ABI（`gm_linearize`・`gm_blt`）・Zig・Julia・NIF・Elixir・Gleam から呼べるようにした（facade に `linearize_json`・`blt_json`、JSON の文字列を返すだけ） | `feature/s285-lang-linearize-blt` | 完了 | [slides](S285-lang-linearize-blt/slides.html) | [解説書](S285-lang-linearize-blt/解説書.md) | なし（記録が `log/local/` に無い） |
 | S279 | 2026-11-15 | Track B | `lsp-completion-resolve`: LSP の補完の `a.` を、今の道（`Outline`）で出ないとき（ほかの行にも誤りのある書きかけ、`end` の前で切れた文書）だけ自前の寛容な構文と名前解決（`Library::with_source`・`class_at`・`members_of`）で引く。ライブラリの木は 1 回だけ作って持つ（MSL で約 72 MB、debug で 9 秒）。読める文書の出力は変えない | `feature/s279-lsp-completion-resolve` | 完了 | [slides](S279-lsp-completion-resolve/slides.html) | [解説書](S279-lsp-completion-resolve/解説書.md) | なし（記録が `log/local/` に無い） |
 | S276 | 2026-11-15 | Track B | `lsp-tolerant-syntax`: Track B を初めて製品につないだ。LSP の `documentSymbol` と `foldingRange` が、構文の誤りで Rumoca のアウトラインが引けないときも `globe-mode-syntax` の CST から出る。正常なファイルは変わらない。ADR-0039 に付記 | `feature/s276-lsp-tolerant-syntax` | 完了 | [slides](S276-lsp-tolerant-syntax/slides.html) | [解説書](S276-lsp-tolerant-syntax/解説書.md) | なし（記録が `log/local/` に無い） |

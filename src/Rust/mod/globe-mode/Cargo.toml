@@ -31,6 +31,8 @@ globe-mode-protocol = { workspace = true }
 globe-mode-fmt = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+# S286: 線形化の固有値
+nalgebra = { workspace = true }
 globe-mode-fmi = { workspace = true, optional = true }
 globe-mode-fmi-import = { workspace = true, optional = true }
 globe-mode-fmu = { workspace = true, optional = true }

@@ -1397,6 +1397,7 @@ dependencies = [
  "globe-mode-ir",
  "globe-mode-protocol",
  "globe-mode-sim",
+ "nalgebra",
  "serde",
  "serde_json",
 ]

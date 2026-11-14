@@ -18,3 +18,10 @@ P8 の線形化（features.md「A/B/C/D」）は「Rumoca の機能をアダプ�
 - 良い: Rumoca の内部に触らず、試験で解析的に分かる行列（線形系、振り子 `A = [0 1; -cos θ -c]`）が 1e-6 で合う。同じ口で FMU の `ModelInstance` を使うので、後から Python などに同じ関数を出せる。
 - 悪い: 誤差は 1e-8 程度で、事象の境（不連続）をまたぐ点では値が合わない。状態の数だけ 2 回ずつ評価するので、状態が数千のモデルでは遅い（解析ヤコビ行列なら 1 回）。後の時刻の線形化は、入力のあるモデルで使えない。入力・出力は Real だけ（Integer・Boolean・配列の要素は含まない）。
 - 解析ヤコビ行列を使える公開の道が Rumoca に出たら、同じ `Linearization` を返す実装に差し替える。
+
+## 付記（S286、2026-11-15）: A の固有値
+
+- 決定 3 の JSON に `eigenvalues`（`[{re, im}]`）と `stability` を足した（足すだけで、既存のキーの意味は変えない）。facade の `globe_mode::eigenvalues(a)`（`nalgebra` 0.34 の `Schur::try_new` → `complex_eigenvalues`。反復に上限を付け、A が正方でない・有限でない・収束しないときは空）と `stability(&eigs)`。`linearization_json` が呼ぶので LSP・wasm・Python・C ABI・NIF は変更なしで出る。CLI は「固有値（A）」の行と、安定（すべて Re < 0）・不安定・境界の 1 行を出す。状態が 0 個なら出さない。
+- 境界の判定は `|Re| ≤ 1e-6·max(1, |λ|の最大)`。数値微分の誤差（1e-8）で、減衰のない振り子の ±i が不安定に振れないようにするため。
+- 依存: `nalgebra` を `globe-mode` の直接の依存にした（`default-features = false, features = ["std"]`。diffsol の推移的依存で Cargo.lock に既にあり、新しい package は増えない。Apache-2.0。wasm32 でもビルドできる）。
+- 悪い: 密行列の O(n³) で、状態が数千のモデルでは重い。固有ベクトル・モードの寄与率は無い。Svelte の固有値の表は別の担当が Svelte を触っているので今回は足していない。
