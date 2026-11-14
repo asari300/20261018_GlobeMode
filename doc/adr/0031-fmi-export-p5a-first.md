@@ -160,3 +160,12 @@
 - **MSL の 20 本は 18/20**（FMI 2.0、FMPy 0.3.32、`--runtime p5b`、ME・CS）。落ちる 2 本は ChuaCircuit（カオス）と DemonstrateSignalExtrema（上）。`fmu-export.yml` の MSL の step に `DiodeBridge2Pulse` を P5b の FMI 2.0 として 1 本足した。
 - **まだ見ていない順**: 状態事象が先に見つかり、時刻事象があとから来る形（Rumoca の `Unconsumed`）は、P5b の FMU では FMPy が先に時刻事象を回す順しか見ていない。当たる例題が出たら同じ部品で足す。
 - 詳細: [S246 の解説書](../sessions/S246-p5b-discrete-hold/解説書.md)。
+
+## 追記（S251、2026-11-14）: FMI 3.0 の Scheduled Execution（SE）の最初の一切れ
+
+- **調査**: [research/fmi3-se-export-2026-11-14.md](../research/fmi3-se-export-2026-11-14.md)。SE の FMU には入力 Clock（= モデルパーティション）が要り、`priority` は SE では必須。クロックの無い連続モデルは「周期 Clock 1 つ・パーティション 1 つ」として出せる。Rumoca の `fmi3` テンプレート（P5a）に SE は無いので、**P5b（`globe-mode-fmu`）だけ**で出す。
+- **出す形**: `globe fmu export --runtime p5b --fmi-version 3 --kind se`（facade の `FmuOptions.kind = "se"`、JSON は `"se"`。2.0 や p5a と組み合わせると断る）。`<ScheduledExecution modelIdentifier="globe_mode_fmu"/>` と、`<Clock name="clock" valueReference=… causality="input" intervalVariability="constant" intervalDecimal=… priority="1"/>` を 1 つ書く（ME・CS の要素は書かない）。Clock の値参照は変数の最後（`time` の次）、周期は `experiment(Interval)`（無ければ 0.01）。書き出しの名前は `<名前>-p5b-se/` と `<名前>-p5b-se-fmi3.fmu`。
+- **実行時**: `fmi3InstantiateScheduledExecution` は CS と同じ instance を作り、`fmi3ActivateModelPartition(clock, t)` が前の時刻（初めは開始時刻）から `t` まで CS と同じ `do_step`（固定刻み RK4・時刻事象・状態事象）で進める。`t` は狭義単調増加（最初の 1 回だけ開始時刻と同じでよい）で、クロックの値参照が違う・時間が戻る・モデルの `terminate()` は `fmi3Error`。変数は ME・CS と同じ `fmi3Get*`・`fmi3Set*` で読み書きする。
+- **確かめ方**: FMPy 0.3.32 の `validate_fmu`（XSD を含む）が通り、低水準の `fmpy.fmi3.FMU3ScheduledExecution` で周期ごとに `activateModelPartition` を呼ぶ試験（`globe-mode-fmu/tests/fmpy.rs` の `fmpy_scheduled_execution`）で、Decay の x(1) が e⁻¹ と、BouncingBall の h・v・n が exec と合う。**fmusim は v0.15.0・v0.16.0 とも ME・CS だけで SE を回せない**ので `fmu-export.yml` には足さない。fmuCheck は開発終了。
+- **持ち越し**: 複数の Clock・パーティション、出力 Clock・countdown・triggered の Clock（`fmi3ClockUpdateCallback`・`fmi3GetClock`・`fmi3GetIntervalDecimal`）、`lockPreemption`・`unlockPreemption`、入力の Clock による Clock 紐づけ（変数の `clocks` 属性）、P5a での SE、Windows・macOS・他の importer での確認。連続の状態を FMU の中で積分する使い方を仕様が認めるかは読んだ範囲に明示が無い【未確認】。
+

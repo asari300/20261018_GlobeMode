@@ -15,6 +15,24 @@ pub enum FmuRuntime {
     P5b,
 }
 
+/// `globe fmu export --kind`（S251）
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum FmuKind {
+    /// Model Exchange と Co-Simulation（既定）
+    MeCs,
+    /// FMI 3.0 の Scheduled Execution（周期クロック 1 つ。`--runtime p5b --fmi-version 3`）
+    Se,
+}
+
+impl From<FmuKind> for globe_mode::FmuExportKind {
+    fn from(k: FmuKind) -> Self {
+        match k {
+            FmuKind::MeCs => Self::MeCs,
+            FmuKind::Se => Self::Se,
+        }
+    }
+}
+
 pub struct Args<'a> {
     pub files: &'a [PathBuf],
     pub library: &'a [PathBuf],
