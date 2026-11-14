@@ -608,13 +608,21 @@ impl Server {
             // S260: 線形化（`globe linearize --json` と同じ JSON）。parameters は名前 → 数の上書き
             "globe/linearize" => match params["model"].as_str() {
                 Some(model) => {
-                    let ov: std::collections::BTreeMap<String, f64> = serde_json::from_value(params["parameters"].clone()).unwrap_or_default();
-                    match self.ws.linearize(model, &ov, params["time"].as_f64()) {
-                        Ok(l) => reply(id, globe_mode::linearization_json(model, &l)),
-                        Err(ds) => {
-                            let m: Vec<&str> = ds.iter().map(|d| d.message.as_str()).collect();
-                            error(id, -32000, &m.join("; "))
-                        }
+                    // 型の違う parameters・time は黙って捨てず断る（wasm・Python・C と同じ。S288）
+                    let ov = match &params["parameters"] {
+                        Value::Null => Ok(Default::default()),
+                        v => serde_json::from_value::<std::collections::BTreeMap<String, f64>>(v.clone()),
+                    };
+                    match (ov, &params["time"]) {
+                        (Err(e), _) => error(id, -32602, &format!("params.parameters が読めない: {e}")),
+                        (_, t) if !t.is_null() && !t.is_number() => error(id, -32602, "params.time が数でない"),
+                        (Ok(ov), t) => match self.ws.linearize(model, &ov, t.as_f64()) {
+                            Ok(l) => reply(id, globe_mode::linearization_json(model, &l)),
+                            Err(ds) => {
+                                let m: Vec<&str> = ds.iter().map(|d| d.message.as_str()).collect();
+                                error(id, -32000, &m.join("; "))
+                            }
+                        },
                     }
                 }
                 None => error(id, -32602, "params.model が文字列でない"),
@@ -2263,6 +2271,15 @@ mod tests {
         let r =
             s.handle(json!({"id": 2, "method": "globe/linearize", "params": {"model": "Nope"}}));
         assert_eq!(r[0]["error"]["code"], -32000);
+        // S288 (#104): 型の違う parameters・time は既定値で線形化せず -32602
+        for p in [
+            json!({"model": "L", "parameters": {"k": "3"}}),
+            json!({"model": "L", "time": "1"}),
+            json!({"model": "L", "parameters": [1]}),
+        ] {
+            let r = s.handle(json!({"id": 3, "method": "globe/linearize", "params": p}));
+            assert_eq!(r[0]["error"]["code"], -32602, "{p}: {}", r[0]);
+        }
     }
 
     #[test]
