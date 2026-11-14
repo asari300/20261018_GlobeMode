@@ -33,4 +33,5 @@ Diagram ビューの編集の 3 つ目 = 部品の追加。ライブラリの木
 - `cargo test -p globe-mode-wasm --test decay`: 25 本 pass（diagram の試験に `add_part` を足した）。
 - `cargo clippy -p globe-mode-fmt -p globe-mode-lsp -p globe-mode-wasm --all-targets -- -D warnings` 警告 0、`cargo fmt --check` 差分 0。
 - Svelte: `pnpm check` 0 エラー・0 警告、`test_tauri.mjs`（`addPart` の呼び出し）pass。
+- `git merge origin/main` は衝突なし（S251 などを取り込み）のあと `mise run check`（fmt・clippy・test・deny・uv sync）が exit 0。cargo test は 887 本 pass・失敗 0。`check_docs.py` はリンク切れ 0。
 - 回していないもの: `mise run wasm:node`（`node/smoke.mjs` に `add_part` を 1 件足した。CI の `wasm-node` に任せる）、Desktop の RPC 許可の試験（別 workspace。`tauri-backend.ts` と `RPC_METHODS` に `globe/addPart` を足した）、Playwright。
