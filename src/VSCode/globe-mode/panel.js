@@ -75,7 +75,7 @@ table { border-collapse: collapse; } td, th { border: 1px solid var(--vscode-pan
     // 待つあいだに文書が変わったら、古い本文に対する編集は入れない
     if (!edits?.length || t.doc.version !== v) return (this.why = `edits=${JSON.stringify(edits)} version ${v} → ${t.doc.version}`), false;
     const we = new vscode.WorkspaceEdit();
-    we.set(t.doc.uri, client.protocol2CodeConverter.asTextEdits(edits));
+    we.set(t.doc.uri, await client.protocol2CodeConverter.asTextEdits(edits)); // v9 では Promise
     return (await vscode.workspace.applyEdit(we)) || ((this.why = "applyEdit が false"), false);
   }
 
