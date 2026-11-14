@@ -80,12 +80,20 @@ console.log(`結果を開く: MAT ${layout.points} 点 × ${layout.names.length}
   assert.match(mv[0].newText, /^origin = \{2, 0\}, $/);
   const ac = JSON.parse(fw.add_connect("D", withDiagram, "a.p", "b.p", "[[0, 0], [30, 0]]")); // S261: equation 節の末尾へ
   assert.match(ac[0].newText, /^\n  connect\(a\.p, b\.p\) annotation\(Line\(points = \{\{0, 0\}, \{30, 0\}\}/);
+  const ap = JSON.parse(fw.add_part("D", withDiagram, "Pin", 13, -7)); // S265: 最後の宣言の後へ
+  assert.match(ap[0].newText, /^\n  Pin pin annotation\(Placement\(transformation\(origin = \{14, -8\}, extent = \{\{-10, -10\}, \{10, 10\}\}\)\)\);$/, ap[0].newText);
   // パラメータのダイアログ（S248）: 部品ごとの入れ子の名前・型・修飾で変えた既定値・単位。変換できなければ例外
   const withParams = 'model P\n  Part c(k = 5, on = false);\nend P;\nmodel Part\n  parameter Real k(unit = "1/s") = 1 "rate";\n  parameter Boolean on = true;\n  parameter Integer n = 3;\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -k * x;\nend Part;\n';
   fw.set_file("P.mo", withParams);
   const pr = Object.fromEntries(JSON.parse(fw.parameters("P")).parameters.map((p) => [p.name, p]));
   assert.deepEqual([pr["c.k"].type, pr["c.k"].value, pr["c.k"].unit, pr["c.on"].type, pr["c.on"].value, pr["c.n"].value], ["Real", 5, "1/s", "Boolean", 0, 3], JSON.stringify(pr));
   assert.throws(() => fw.parameters("Nope"));
+  // 線形化（S260）: der(x) = -k x + u、y = x。parameters で k を上書きできる。できなければ例外
+  fw.set_file("L.mo", "model L\n  parameter Real k = 2;\n  input Real u;\n  output Real y;\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -k * x + u;\n  y = x;\nend L;\n");
+  const lin = JSON.parse(fw.linearize("L", undefined, JSON.stringify({ k: 3 })));
+  assert.deepEqual([lin.x, lin.u, lin.y], [["x"], ["u"], ["y"]]);
+  assert.ok(Math.abs(lin.A[0][0] + 3) < 1e-6 && Math.abs(lin.B[0][0] - 1) < 1e-6 && Math.abs(lin.C[0][0] - 1) < 1e-6, JSON.stringify(lin));
+  assert.throws(() => fw.linearize("Nope", undefined, "{}"));
   fw.free();
 }
 

@@ -474,6 +474,16 @@ impl Workspace {
         globe_mode_lsp::diagram::add_connect(class, at, from, to, &pts).to_string()
     }
 
+    /// 図に部品 `ty` の宣言を足す TextEdit の配列 `[{range, newText}]` の JSON（S265。LSP の `globe/addPart` と同じ形）。
+    /// `(x, y)` は図の座標（2 単位に吸着）。package・function・record・type と分かる型・名前でない型は断って `null`。ファイルは書かない。
+    pub fn add_part(&self, class: &str, text: &str, ty: &str, x: f64, y: f64) -> String {
+        let at = (!text.is_empty()).then_some((text, 0, 0));
+        globe_mode_lsp::diagram::add_part(class, at, ty, [x, y], &|c| {
+            self.tree_source(c).map(|(_, t)| t.to_string())
+        })
+        .to_string()
+    }
+
     /// 名前を `new_name` に変える TextEdit（`{range, newText}`）の配列の JSON（S161。LSP の `globe/rename` と同じ形）。
     /// 断る場合（部品でもクラスでもない・別のファイルのクラス・識別子でない・予約語・同じ階層に既にある）は理由を例外（文字列）で返す。
     pub fn rename(
@@ -588,6 +598,27 @@ impl Workspace {
             )
         })?;
         to_json(&r)
+    }
+
+    /// モデルの線形化（S260）。`globe linearize --json` と同じ JSON `{model, time, x, u, y, x0, u0, y0, A, B, C, D}`。
+    /// `time` が未指定なら実験の開始時刻、`parameters` は名前 → 数の上書きの JSON（空なら `{}`）。線形化できなければ例外（診断の文）。
+    pub fn linearize(
+        &mut self,
+        model: &str,
+        time: Option<f64>,
+        parameters: &str,
+    ) -> Result<String, JsValue> {
+        let ov: std::collections::BTreeMap<String, f64> =
+            serde_json::from_str(parameters).map_err(|e| js_error(format!("parameters: {e}")))?;
+        let l = self.inner.linearize(model, &ov, time).map_err(|ds| {
+            js_error(
+                ds.iter()
+                    .map(|d| d.message.as_str())
+                    .collect::<Vec<_>>()
+                    .join("; "),
+            )
+        })?;
+        to_json(&globe_mode::linearization_json(model, &l))
     }
 
     /// モデルの検査だけ（S0〜S10。実行しない）。`CheckResponse` の JSON を返す（S041。ブラウザ UI の診断パネル用）。

@@ -12,7 +12,8 @@
   import { TauriBackend, inDesktop, tabKey } from "./lib/tauri-backend";
   import type { Backend, Diagram, Documentation, FmuInfo, FmuRunRequest, Icon, TreeEntry } from "./lib/backend";
   import type { Columns } from "./lib/plot/csv";
-  import type { CheckResponse, Diagnostic, ResolvedSettings, SimulateRequest } from "./lib/protocol";
+  import type { CheckResponse, Diagnostic, Linearization, ResolvedSettings, SimulateRequest } from "./lib/protocol";
+  import LinearizeView from "./lib/LinearizeView.svelte";
   import Plot from "./lib/plot/Plot.svelte";
   import Graph from "./lib/graph/Graph.svelte";
   import LibraryTree from "./lib/LibraryTree.svelte";
@@ -597,12 +598,12 @@
     }
     view.focus();
   }
-  // S250: 図の部品のドラッグ。Rust（globe/movePart）が返す origin の編集をエディタに 1 回の dispatch（undo 1 回）で入れる。保存はしない。動かせなければ false
-  async function onMove(part: string, dx: number, dy: number): Promise<boolean> {
+  // 図の編集（S250 部品の移動・S261 結線・S265 部品の追加）: Rust が返す TextEdit の配列をエディタに 1 回の dispatch（undo 1 回）で入れる。保存はしない。足せなければ false
+  async function editDiagram(get: (d: Diagram) => Promise<{ range: { start: { line: number; character: number }; end: { line: number; character: number } }; newText: string }[] | null>): Promise<boolean> {
     if (!diagram) return false;
     try {
       await backend.setFile(file, view.state.doc.toString());
-      const edits = await backend.movePart(diagram.class, part, dx, dy, { file });
+      const edits = await get(diagram);
       if (!edits?.length) return false;
       view.dispatch({ changes: edits.map((e) => ({ from: offsetOf(e.range.start), to: offsetOf(e.range.end), insert: e.newText })) });
       return true;
@@ -610,19 +611,11 @@
       return false;
     }
   }
-  // S261: 図で引いた結線。Rust（globe/addConnect）が返す connect の挿入を、onMove と同じくエディタに 1 回の dispatch で入れる。足せなければ false
-  async function onConnect(from: string, to: string, points: [number, number][]): Promise<boolean> {
-    if (!diagram) return false;
-    try {
-      await backend.setFile(file, view.state.doc.toString());
-      const edits = await backend.addConnect(diagram.class, from, to, points, { file });
-      if (!edits?.length) return false;
-      view.dispatch({ changes: edits.map((e) => ({ from: offsetOf(e.range.start), to: offsetOf(e.range.end), insert: e.newText })) });
-      return true;
-    } catch {
-      return false;
-    }
-  }
+  const onMove = (part: string, dx: number, dy: number) => editDiagram((d) => backend.movePart(d.class, part, dx, dy, { file }));
+  const onConnect = (from: string, to: string, points: [number, number][]) => editDiagram((d) => backend.addConnect(d.class, from, to, points, { file }));
+  const onAdd = (type: string, x: number, y: number) => editDiagram((d) => backend.addPart(d.class, type, x, y, { file }));
+  // S265: 木の「図へ」ボタン（キーボード用）は図の中央に足す
+  const addToCenter = (e: { path: string }) => diagram && onAdd(e.path, (diagram.extent[0] + diagram.extent[2]) / 2, (diagram.extent[1] + diagram.extent[3]) / 2);
   function goBack() {
     if (busy) return; // S196
     let i = -1;
@@ -798,6 +791,17 @@
     bltModel = model;
   });
 
+  // S260: 線形化。時刻の欄が空なら実験の開始時刻。上書きは実行の設定のパラメータ（simSettings.parameters）を使う
+  let linTime = $state("");
+  let lin = $state<Linearization | null>(null);
+  const linearize = () => run(async () => {
+    const t = linTime.trim() === "" ? undefined : Number(linTime);
+    if (t !== undefined && !Number.isFinite(t)) { failure = "線形化の時刻が数でない"; return; }
+    lin = await backend.linearize(model, t, simSettings.parameters);
+    live = `線形化が完了した: 状態 ${lin.x.length}・入力 ${lin.u.length}・出力 ${lin.y.length}`;
+    void reveal("[data-linearization]");
+  });
+
   // ノードのキー（`stage1.resistor` など）の先頭の名前を、エディタの本文で最初に出る所で選ぶ
   // shortcut: 宣言を名前の字面で探す。同じ名前が先に出ると外れる。outline の位置が要るなら LSP の documentSymbol を使う
   function select(node: string) {
@@ -883,6 +887,8 @@
     <button onclick={() => simulate()} disabled={busy} title="実行（Ctrl/Cmd+Enter）" aria-keyshortcuts="Control+Enter Meta+Enter">実行</button>
     <button onclick={graph} disabled={busy}>グラフ</button>
     <button onclick={blt} disabled={busy} data-blt-button>BLT</button>
+    <button onclick={linearize} disabled={busy} title="状態空間の行列 A・B・C・D を出す（数値の中心差分）">線形化</button>
+    <input class="lin-time" inputmode="decimal" placeholder="開始時刻" aria-label="線形化の時刻（空なら開始時刻）" bind:value={linTime}>
     <button onclick={format} disabled={busy}>整形</button>
     {#if runState === "running" && backend.cancel}<button onclick={() => backend.cancel?.()} title="止める（Ctrl/Cmd+.）" aria-keyshortcuts="Control+. Meta+.">止める</button>{/if}
     {#if desktop}
@@ -958,9 +964,9 @@
   {#if otherWindow}<p class="note" role="status" data-other-window>別のウィンドウでも開いている。自動保存は最後に編集したほうだけが残る。</p>{/if}
   {#if storeNote}<p class="failure" role="status" data-store-note>{storeNote}</p>{/if}
   <div class="work">
-    {#if msl === "loaded"}<aside class="library"><LibraryTree {backend} onOpen={openLibrary} /></aside>{/if}
+    {#if msl === "loaded"}<aside class="library"><LibraryTree {backend} onOpen={openLibrary} onAdd={diagram ? addToCenter : undefined} /></aside>{/if}
     <div class="editor" id="editor" hidden={isResults} bind:this={host}></div>
-    <DocsPanel doc={docs} {icon} {diagram} {onMove} {onConnect} onParams={(part) => (openParams = { part })} onJump={(line) => moveTo(view.state.doc.line(line + 1).from, view.state.doc.line(line + 1).from)} />
+    <DocsPanel doc={docs} {icon} {diagram} {onMove} {onConnect} {onAdd} onParams={(part) => (openParams = { part })} onJump={(line) => moveTo(view.state.doc.line(line + 1).from, view.state.doc.line(line + 1).from)} />
   </div>
   <p class="hint" id="editor-help">{EDITOR_HELP}</p>
   {#if saved}<p class="note" role="status" data-saved>{saved}</p>{/if}
@@ -996,10 +1002,12 @@
   </table>
   {#if columns}<Plot {columns} {model} />{/if}
   {#if bltModel}<BltPanel {backend} model={bltModel} />{/if}
+  {#if lin}<LinearizeView result={lin} onclose={() => (lin = null)} />{/if}
   {#if graphModel}<Graph {backend} model={graphModel} onSelect={select} />{/if}
 </main>
 
 <style>
+  .lin-time { width: 6rem; }
   .params .rows { max-height: 12rem; overflow-y: auto; }
   .params th { text-align: left; font-weight: normal; padding-right: .5rem; }
   main { font: 14px/1.4 system-ui, sans-serif; max-width: 76rem; margin: 0 auto; padding: 1rem; }

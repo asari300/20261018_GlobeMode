@@ -1,13 +1,15 @@
 """`fmu_info` と `run_fmu`（S229、FMI Import）。Reference-FMUs の Dahlquist（`cargo xtask fetch-reference-fmus`。無ければ飛ばす）。
 ワーカーは CLI の `globe`: 環境変数 GLOBE_BIN を試験のビルドに向ける（無ければ成功の試験は飛ばす）。"""
 
+import json
 import os
 import shutil
+import zipfile
 from pathlib import Path
 
 import pytest
 
-from globe_mode import FmuError, GlobeModeError, fmu_info, run_fmu, table
+from globe_mode import FmuError, GlobeModeError, cosim, fmu_info, run_fmu, table
 
 FMU = Path(__file__).parents[3] / "data/reference-fmus/3.0/Dahlquist.fmu"
 need_fmu = pytest.mark.skipif(not FMU.is_file(), reason=f"{FMU} が無い（cargo xtask fetch-reference-fmus）")
@@ -63,3 +65,41 @@ def test_run_fmu_failures_progress_and_stop():
     assert all(isinstance(t, float) for t in seen)
     with pytest.raises(TypeError):
         run_fmu(FMU, on_progress=3)  # type: ignore[arg-type]
+
+
+REF = FMU.parents[1]
+need_ref = pytest.mark.skipif(not (REF / "2.0/Dahlquist.fmu").is_file(), reason="Reference-FMUs 2.0 が無い（cargo xtask fetch-reference-fmus）")
+SSD = """<?xml version="1.0" encoding="UTF-8"?>
+<ssd:SystemStructureDescription xmlns:ssd="http://ssp-standard.org/SSP1/SystemStructureDescription"
+  xmlns:ssc="http://ssp-standard.org/SSP1/SystemStructureCommon" name="demo" version="2.0">
+  <ssd:System name="top"><ssd:Elements>
+    <ssd:Component name="a" source="resources/a.fmu"/><ssd:Component name="b" source="resources/b.fmu"/>
+  </ssd:Elements><ssd:Connections>
+    <ssd:Connection startElement="a" startConnector="x" endElement="b" endConnector="Float64_continuous_input"/>
+  </ssd:Connections></ssd:System>
+  <ssd:DefaultExperiment startTime="0" stopTime="1"/>
+</ssd:SystemStructureDescription>"""
+
+
+@need_ref
+@need_globe
+def test_cosim_dict_json_and_ssp_give_the_same_columns(tmp_path):
+    """Dahlquist（2.0）→ Feedthrough（3.0）。Jacobi 型なので b の出力は a.x の 1 刻み遅れにちょうど等しい。"""
+    a, b = REF / "2.0/Dahlquist.fmu", REF / "3.0/Feedthrough.fmu"
+    spec = {"fmus": {"a": a, "b": b}, "connections": [["a.x", "b.Float64_continuous_input"]], "stop_time": 1, "step": 0.1}
+    res = cosim(spec)
+    assert res["ok"] and res["csv"] is None and res["me"] is None
+    df = table(res)
+    assert df.height == 11 and df["a.x"][0] == 1.0
+    assert df["b.Float64_continuous_output"].to_list()[1:] == df["a.x"].to_list()[:-1]
+    # JSON: FMU のパスは JSON のあるディレクトリから
+    (tmp_path / "s.json").write_text(json.dumps({**spec, "fmus": {"a": os.path.relpath(a, tmp_path), "b": os.path.relpath(b, tmp_path)}}))
+    assert table(cosim(tmp_path / "s.json")).equals(df)
+    # SSP: step は引数で（終了時刻は DefaultExperiment）
+    with zipfile.ZipFile(tmp_path / "s.ssp", "w") as z:
+        z.writestr("SystemStructure.ssd", SSD)
+        z.write(a, "resources/a.fmu")
+        z.write(b, "resources/b.fmu")
+    assert table(cosim(tmp_path / "s.ssp", step=0.1)).equals(df)
+    with pytest.raises(FmuError, match="入力でない"):
+        cosim({**spec, "connections": [["a.x", "a.k"]]})

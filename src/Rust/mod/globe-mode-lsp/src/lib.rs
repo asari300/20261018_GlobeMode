@@ -28,6 +28,7 @@
 //! | `globe/fmuRun` | `{path, request?, workDoneToken?}`（`request` は `FmuRunRequest`: `kind`（`"cs"`/`"me"`）・`start_time`・`stop_time`・`step`・`outputs`・`set`・`timeout`・`memory_limit_mib`） | `{layout, columns, me}`（S229。`globe/readResults` と同じ `layout`・`columns` に、ME だけ事象の要約 `me`。**FMU のネイティブコードを別プロセス（自分と同じ実行ファイルの `fmu __worker`）で実行する**。`$/progress` は `{kind: "report", stage: "integration", time}`、`$/cancelRequest` でワーカーを kill して -32800。失敗は -32000。feature `fmu-import`） |
 //! | `globe/exportFmu` | `{model, fmiVersion?, outDir, runtime?, runtimeLib?}`（既定は FMI 2・`runtime` は `"p5a"`。`build` はしない） | `{path}`（S144。`outDir/<名前>.fmu` と展開した `outDir/<名前>/` を書く。S239 から `runtime: "p5b"` は自前の実行時の共有ライブラリ入りの `<名前>-p5b-fmi<版>.fmu`〔`runtimeLib` か cargo。この版に P5b が無い wasm では -32000〕。`runtime` が p5a・p5b 以外なら -32602。DAE まで変換できなければ -32000） |
 //! | `globe/tunableParameters` | `{model}` | `ParametersResponse` の JSON（S150。上書きできるパラメータの一覧。wasm の `tunable_parameters` と同じ。DAE まで変換できなければ -32000） |
+//! | `globe/linearize` | `{model, time?, parameters?}`（`parameters` は名前 → 数の上書き） | `globe linearize --json` と同じ JSON `{model, time, x, u, y, x0, u0, y0, A, B, C, D}`（S260。状態・入力・出力の名前と行列。DAE まで変換できない・線形化できなければ -32000） |
 //! | `globe/parameters` | `{model}` | `ModelParametersResponse` の JSON `{model, parameters: [{name, type, dims?, default?, value?, literals?, unit?, description?, min?, max?, fixed?}]}`（S248。パラメータ宣言の一覧。名前は `comp.k` の形で、既定値は宣言の修飾を反映する。`value` は数の既定値〔Boolean は 0/1、Enumeration は 1 始まりの ordinal〕。wasm の `parameters` と同じ。DAE まで変換できなければ -32000） |
 //! | `globe/blt` | `{model}` | `BltReport` の JSON `{reduced, blocks: [{size, algebraic_loop, nonlinear, variables, equations}], skipped?}`（S262。方程式の BLT 分解を解く順のブロックで。`globe blt --json` と同じ。検査が通らなければ -32000。wasm の `blt` と同じ） |
 //! | `globe/completion` | `{file, line, character}`（`globe/definition` と同じ） | LSP の `CompletionList` `{isIncomplete, items}`（S171。`textDocument/completion` と同じ計算。予約語、文書の名前、点つきの名前の途中はクラスの子か部品の型の部品名。最大 200 件で、200 件に達したら `isIncomplete: true`（S198。打ちかけの語で絞ってから切る）。文字列・コメントの中は空。wasm の `completion` は `items` と同じ配列だけを返す） |
@@ -37,6 +38,7 @@
 //! | `globe/icon` | `globe/documentation` と同じ | `{class, extent: [x1, y1, x2, y2], shapes: […]}` か null（S244。クラスの `annotation(Icon(…))` を形のデータにしたもの。`extends` の基底クラスのアイコンを 1 段だけ先に重ねる。図形は `kind`（rect・ellipse・line・polygon・text・bitmap）、`origin`・`rotation`・`extent`・`points`・`line`・`fill`（`[r,g,b]` か null）・`thickness`・`dash`・`radius`・`text`・`fontSize`・`align`・`arrows`・`arrowSize`。座標は Modelica のまま〔y は上向き〕。描くのは UI。wasm の `icon` と同じ形） |
 //! | `globe/movePart` | `{file, class, part, dx, dy}` | LSP の TextEdit の配列 `[{range, newText}]` か null（S250。図の部品 `part` を Diagram の座標で (dx, dy) だけ動かす編集。`Placement(transformation(origin = {x, y}))` の `{x, y}` を書き換え、`origin` が無ければ `transformation(` の直後に足す。`file` は開いている文書、`class` は完全修飾名。Placement が無い・`origin` が数でないなど動かせなければ null。ファイルは書き換えない〔UI がエディタに適用する〕。wasm の `move_part` と同じ） |
 //! | `globe/addConnect` | `{file, class, from, to, points}` | LSP の TextEdit の配列 `[{range, newText}]` か null（S261。図で引いた結線を足す編集。クラスの最後の `equation` 節の末尾（クラスの `annotation` の前）に `connect(from, to) annotation(Line(points = {{x, y}, …}, color = {0, 0, 255}));` を足し、`equation` が無ければクラスの `annotation`（無ければ `end`）の前に節ごと足す。`from`・`to` は `part.connector`、`points` は図の座標〔空なら線の `annotation` を付けない〕。端が不正・クラスが無ければ null。型の互換は見ない〔検査が後で誤りを出す〕。ファイルは書き換えない。wasm の `add_connect` と同じ） |
+//! | `globe/addPart` | `{file, class, type, x, y}` | LSP の TextEdit の配列 `[{range, newText}]` か null（S265。ライブラリの木から図へドロップした部品を足す編集。クラスの最後の public の宣言の後〔無ければ最初の節の前〕に `<type> <名前> annotation(Placement(transformation(origin = {x, y}, extent = {{-10, -10}, {10, 10}})));` を足す。名前は型の最後の部分の頭を小文字にし、重なれば `1`・`2`… を付ける。`x`・`y` は図の座標で 2 単位に吸着。`type` が package・function・record・type と分かる〔ライブラリで引けて種類が読める〕・名前でない・クラスが無ければ null。ファイルは書き換えない。wasm の `add_part` と同じ） |
 //! | `globe/diagram` | `globe/documentation` と同じ | `{class, extent, parts, connections, shapes}` か null（S245。クラスの部品〔`Placement(transformation)` のある宣言〕と `connect`、`Diagram(graphics)` を形のデータにしたもの。部品は `name`・`class`〔書いてある型〕・`line`〔宣言の行、0 始まり〕・`transform`〔アイコンの座標から Diagram の座標への `[a,b,c,d,e,f]`〕・`bbox`・`shapes`〔部品のクラスの Icon の図形。引けなければ空〕・`connectors`〔S261。`[{name, pos}]`、部品のクラスと `extends` の 2 段までの、`Placement` を持つ宣言〔型が connector でないと分かるものは除く〕の位置。図の座標〕、`connections` は `from`・`to`・`line`〔`Line(points)` か中心どうしを結ぶ図形〕。`globe/icon` と同じ図形の形。wasm の `diagram` と同じ） |
 //!
 //! 設定ファイル（S130）: `initialize` の `rootUri`（無ければ `rootPath`）から上へたどって最初の `globe-mode.toml` を
@@ -595,6 +597,20 @@ impl Server {
                 },
                 None => error(id, -32602, "params.model が文字列でない"),
             },
+            // S260: 線形化（`globe linearize --json` と同じ JSON）。parameters は名前 → 数の上書き
+            "globe/linearize" => match params["model"].as_str() {
+                Some(model) => {
+                    let ov: std::collections::BTreeMap<String, f64> = serde_json::from_value(params["parameters"].clone()).unwrap_or_default();
+                    match self.ws.linearize(model, &ov, params["time"].as_f64()) {
+                        Ok(l) => reply(id, globe_mode::linearization_json(model, &l)),
+                        Err(ds) => {
+                            let m: Vec<&str> = ds.iter().map(|d| d.message.as_str()).collect();
+                            error(id, -32000, &m.join("; "))
+                        }
+                    }
+                }
+                None => error(id, -32602, "params.model が文字列でない"),
+            },
             "globe/simulate" => {
                 match serde_json::from_value::<SimulateRequest>(params["request"].clone()) {
                     Ok(mut request) => {
@@ -804,6 +820,22 @@ impl Server {
                         params["from"].as_str().unwrap_or(""),
                         params["to"].as_str().unwrap_or(""),
                         &diagram::points(&params["points"]),
+                    ),
+                )
+            }
+            // S265: ライブラリの木から図へドロップした部品の宣言を足す編集（TextEdit の配列。ファイルは書かない）
+            "globe/addPart" => {
+                let text = params["file"].as_str().and_then(|f| self.texts.get(f).cloned());
+                let at = text.as_deref().map(|t| (t, 0, 0));
+                let tree = self.tree();
+                reply(
+                    id,
+                    diagram::add_part(
+                        params["class"].as_str().unwrap_or(""),
+                        at,
+                        params["type"].as_str().unwrap_or(""),
+                        [params["x"].as_f64().unwrap_or(0.0), params["y"].as_f64().unwrap_or(0.0)],
+                        &|c| std::fs::read_to_string(tree.file(c)?).ok(),
                     ),
                 )
             }
@@ -2065,6 +2097,26 @@ mod tests {
     }
 
     #[test]
+    fn linearize_returns_state_space() {
+        // S260: der(x) = -k x + u, y = x
+        let mut s = Server::new(&[]).unwrap();
+        let src = "model L\n  parameter Real k = 2;\n  input Real u;\n  output Real y;\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -k * x + u;\n  y = x;\nend L;\n";
+        s.handle(
+            json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+            "uri": "L.mo", "languageId": "modelica", "version": 1, "text": src}}}),
+        );
+        let r = s.handle(json!({"id": 1, "method": "globe/linearize", "params": {"model": "L", "parameters": {"k": 3}}}));
+        let a = r[0]["result"]["A"][0][0]
+            .as_f64()
+            .unwrap_or_else(|| panic!("{}", r[0]));
+        assert!((a + 3.0).abs() < 1e-6, "{a}");
+        assert_eq!(r[0]["result"]["u"], json!(["u"]));
+        let r =
+            s.handle(json!({"id": 2, "method": "globe/linearize", "params": {"model": "Nope"}}));
+        assert_eq!(r[0]["error"]["code"], -32000);
+    }
+
+    #[test]
     fn solvers_and_experiment() {
         let mut s = Server::new(&[]).unwrap();
         let r = s.handle(json!({"id": 1, "method": "globe/solvers"}));
@@ -2521,6 +2573,34 @@ mod tests {
             "{e}"
         );
         assert_eq!(ac("b.n; x"), Value::Null);
+    }
+
+    #[test]
+    fn add_part_returns_a_text_edit_after_the_last_declaration() {
+        // S265: globe/addPart。最後の宣言の後に部品の宣言を足す TextEdit。名前の重複は 1 を付け、型が名前でなければ null
+        let mut s = Server::new(&[]).unwrap();
+        let text = "model T\n  Box box;\nequation\n  x = 1;\nend T;\n";
+        s.handle(
+            json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+            "uri": "T.mo", "languageId": "modelica", "version": 1, "text": text}}}),
+        );
+        let mut ap = |ty: &str| {
+            s.handle(json!({"id": 1, "method": "globe/addPart", "params": {"file": "T.mo", "class": "T", "type": ty, "x": 11, "y": -5}}))
+                .remove(0)["result"]
+                .clone()
+        };
+        let e = ap("L.Box");
+        assert_eq!(
+            e[0]["newText"],
+            "\n  L.Box box1 annotation(Placement(transformation(origin = {12, -6}, extent = {{-10, -10}, {10, 10}})));",
+            "{e}"
+        );
+        assert_eq!(
+            e[0]["range"]["start"],
+            json!({"line": 1, "character": 10}),
+            "{e}"
+        );
+        assert_eq!(ap("L.Box; x"), Value::Null);
     }
 
     #[test]

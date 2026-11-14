@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from globe_mode import ExportError, Workspace, format, lint, table
+from globe_mode import ExportError, GlobeModeError, Workspace, format, lint, table
 
 MODELICA = Path(__file__).parents[2] / "Modelica"
 
@@ -127,3 +127,17 @@ def test_blt_lists_the_algebraic_loop():
     assert [b["size"] for b in blocks if b["algebraic_loop"]] == [2]
     with pytest.raises(ValueError):
         ws.blt("No.Such.Model")
+
+
+def test_linearize_gives_state_space_matrices():
+    """der(x) = -a x + u、y = 2 x なので A = [-a]・B = [1]・C = [2]・D = [0]。numpy があれば ndarray（shape が行×列）。"""
+    ws = Workspace()
+    ws.set_file("L.mo", "model L parameter Real a = 1; Real x(start = 1, fixed = true); input Real u = 0; output Real y; equation der(x) = -a*x + u; y = 2*x; end L;")
+    lin = ws.linearize("L", parameters={"a": 3})
+    assert (lin["x"], lin["u"], lin["y"]) == (["x"], ["u"], ["y"])
+    got = [float(lin[k][0][0]) for k in "ABCD"]
+    assert got == pytest.approx([-3.0, 1.0, 2.0, 0.0], abs=1e-5)
+    assert ws.linearize("L", time=1.0)["time"] == 1.0
+    with pytest.raises(GlobeModeError) as e:
+        ws.linearize("NoSuch")
+    assert e.value.diagnostics

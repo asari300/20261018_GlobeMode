@@ -2,6 +2,7 @@
 // 説明の HTML の無害化とアイコン・図の SVG の組み立ては、Svelte の UI と同じファイルを読む（写しを作らない）。
 // HTML の文字列は作らない。文字は textContent、要素は createElement / createElementNS で作る。
 import { sanitize } from "../../Svelte/src/lib/html-sanitize.ts";
+import { diagramDrag } from "../../Svelte/src/lib/diagram-drag.ts";
 import { diagramNodes, iconNodes, toDom, viewBoxOf } from "../../Svelte/src/lib/shape-svg.ts";
 
 const vscode = acquireVsCodeApi();
@@ -41,10 +42,32 @@ function show({ doc, icon, diagram }) {
   });
 }
 
-window.addEventListener("message", (e) => e.data?.type === "show" && show(e.data));
+// 編集の結果の待ち（S264）。拡張が edited で返す。返らない（拡張が落ちた）ときは 10 秒で失敗にして見た目を戻す
+let seq = 0;
+const pending = new Map();
+const ask = (msg) =>
+  new Promise((resolve) => {
+    const id = ++seq;
+    const t = setTimeout(() => (pending.delete(id), resolve(false)), 10_000);
+    pending.set(id, (ok) => (clearTimeout(t), resolve(ok)));
+    vscode.postMessage({ ...msg, id });
+  });
+
+window.addEventListener("message", (e) => {
+  if (e.data?.type === "show") show(e.data);
+  else if (e.data?.type === "edited") pending.get(e.data.id)?.(e.data.ok === true), pending.delete(e.data.id);
+});
+
+// 部品のドラッグ移動と結線（S264）。Svelte の DiagramView と同じ diagram-drag.ts。図（svg）は show のたびに作り直すので、受けるのは外側の #diagram
+const dnd = diagramDrag(() => $("diagram").querySelector("svg"), {
+  onMove: (part, dx, dy) => ask({ type: "move", part, dx, dy }),
+  onConnect: (from, to, points) => ask({ type: "connect", from, to, points }),
+});
+for (const [ev, f] of [["pointerdown", dnd.down], ["pointermove", dnd.move], ["pointerup", dnd.up], ["pointercancel", dnd.up]]) $("diagram").addEventListener(ev, f);
 
 // 部品のクリック・Enter・Space で宣言の行へ（svg の中は一括で受ける）
 const jump = (e) => {
+  if (dnd.swallowed()) return; // ドラッグの終わりのクリックは宣言へ飛ばない
   const line = e.target.closest?.("[data-part]")?.getAttribute("data-line");
   if (line != null) vscode.postMessage({ type: "reveal", line: Number(line) });
 };
