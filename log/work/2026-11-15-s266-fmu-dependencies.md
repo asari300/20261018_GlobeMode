@@ -35,7 +35,9 @@ Export した FMU の `modelDescription.xml` の `ModelStructure` に、出力�
 
 - `cargo test`（ir・analysis・frontend・fmi・fmu、cli の `fmu_export`・`fmu_worker`、facade の `fmu_p5b`）: すべて成功、失敗 0。FMPy の `validate_fmu` と simulate を含む（2.0・3.0、ME・CS・SE）。
 - `cargo clippy -D warnings`（関係する 6 crate、`globe-mode-fmi/export`）: 警告 0。
-- fmusim（`fmu-export.yml`）: 後述（締めのとき追記）。
+- fmusim（`fmu-export.yml`、`gh workflow run fmu-export.yml --ref feature/s266-fmu-dependencies`、run 43625699295）: ジョブ `fmu-export`（FMPy・fmusim）と `fmu-native (ubuntu)`、`fmu-cross` 3 本が成功。`fmu-native` の Windows・macOS は締めの時点でまだ実行中（結果は親が run を見る）。
+- `check_docs.py`: 切れ 0 件。`render_slides.py`（S266 だけ）: 問題 0 件。
+- main（origin/main）を取り込んだ後も、analysis・fmi・fmu・frontend・cli の試験は全部成功。
 
 ## 残したこと
 
