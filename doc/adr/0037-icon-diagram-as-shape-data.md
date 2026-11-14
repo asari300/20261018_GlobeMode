@@ -85,4 +85,15 @@ P8 の Diagram / Icon ビューの最初の一切れとして、カーソルの�
 - **UI**: `DiagramView.svelte` で部品（`[data-part]`）か結線を選ぶ。クリックと Tab（フォーカス）で選び、何も無い所のクリックで外す。選んだ部品は青い破線の枠と薄い地、結線は青い太線（`.sel`）。結線の当たり判定は、線と同じ点の透明な太い線（`stroke-width` 10 の非拡大の `polyline.hit`、`data-hit`、`tabindex 0`、`role=button`）を `[data-conn]` の外に置いた（図形の数を変えない）。Delete / Backspace は svg の中でだけ受け（`onkeydown`）、`onDelete` を呼ぶ。部品のクリックは従来どおり宣言の行へ飛ぶが、エディタへ移ったフォーカスを選んだ部品か結線へ戻す（さもないと Delete がエディタの文字を消す）。編集で消えた対象の選びは図の読み直しで外れる。
 - **確かめ**: Rust は `delete_part_removes_the_declaration_and_its_connects`（部品とつながる結線をまとめて・配列・結線だけ〔逆の並び〕・字下げ・同じ行に他の文・複数の名前・BOM）、LSP 1 本、wasm 1 件、`pnpm check` 0 件、`test_tauri.mjs` の rpc 一覧。**ブラウザでの操作（`test_ui.py`）は書いていない**。
 - **S283 で直した（配列の添字）**: 当初は `connect_ends` が添字を落とし、`b[2].p` を消すと `b[1].p` の結線も消えた。`connect_ends` が `[…]` の字句を端に含める（空白を除き、`b[i + 1].p` は `b[i+1].p`）ようにして、`delete_connect`・`add_connect` の突き合わせと `globe/diagram` の `connections` の `from`・`to`（UI の `data-conn`・`deleteConnect` へ渡す端）が添字つきになった。`delete_part` は端の最初の名前（`first`）で数えるので、添字があっても部品 `b` の結線は全部消える（変わらない）。試験は `delete_connect_tells_array_indices_apart`（Rust）と LSP `delete_connect_removes_only_the_matching_array_index`。
-- **持ち越し**: VS Code の側のパネルでの削除（`shape-svg.ts` は共有で、webview にも `.hit` の透明な線が出るが、選びも消すキーも無い）、複数選び、宣言の複数の名前から 1 つだけ外す、消した部品を参照する他の文（方程式の `a.x` など）の整理、ブラウザでの操作の試験、削除の確認の問い。
+- **持ち越し**: ~~VS Code の側のパネルでの削除~~（S293 で済）、複数選び、宣言の複数の名前から 1 つだけ外す、消した部品を参照する他の文（方程式の `a.x` など）の整理、ブラウザでの操作の試験、削除の確認の問い。
+
+## 付記（S293: VS Code の側のパネルでの削除）
+
+- **S281 の部品・結線の削除を、VS Code の側のパネルでもできるようにした。** Rust・LSP は変えない（`globe/deletePart`・`globe/deleteConnect` をそのまま呼ぶ）。
+- **選びの処理は共有する。** `DiagramView.svelte` に埋まっていた選び（クリック・フォーカスで部品か `.hit` を選び、何も無い所のクリックで外す、`.sel` を付け直し、図が変わって消えた対象を外す、Delete / Backspace の対象）を `src/Svelte/src/lib/diagram-select.ts` の `pickSel`・`markSel`・`deleteOf` に出し、Svelte と webview の両方が読む（`diagram-drag.ts` と同じ置き方）。Svelte の見た目と挙動は変えない。
+- **webview**: 図（`#diagram`）の `click`・`focusin` で選び、`keydown` の Delete / Backspace で `{type: "deletePart", id, part}`・`{type: "deleteConnect", id, from, to}` を `postMessage`（S264 の `ask` と同じ。`edited` を待つ）。図は `show` のたびに作り直すので、`show` の最後に選びの印を付け直す。選んだ部品は青い破線の枠、結線は青い太線（CSS は Svelte と同じ）。
+- **拡張**: `edit.js` の `parseEdit` が 2 種を足した（id は整数、`part` は `\w+`、結線の端は `名前` か `名前[添字]` を `.` でつないだ 2 つ。添字の字は `\w , + * -` だけ。`deleteConnect` は文字列を比べるだけでソースに書かないので `b[i+1].p` も通し、`file`・`class` は受け取らない）。`panel.js` は S264 と同じ `apply`（LSP の応答を待つあいだに文書の版が変わったら入れない。複数の TextEdit を 1 つの `WorkspaceEdit` で入れて undo 1 回、保存しない）に流す。LSP が null（消せない。複数の名前の宣言など）なら何もせず、webview へ `ok: false`。
+- **フォーカス**: 部品のクリックで宣言の行へ飛ぶ `reveal` を `preserveFocus: true` にした。エディタへフォーカスが移ると、続く Delete がエディタの文字を消すため（Svelte の `DiagramView` が飛んだあとに選びへフォーカスを戻すのと同じ理由）。
+- **CSP・DOM**: 変えていない（`default-src 'none'`、script は nonce、`innerHTML` 不使用）。
+- **確かめ**: `pnpm test` に、メッセージの検査（添字つきの端・余計な字・`file`/`class`）、偽の要素での選び・印・削除の対象。`e2e/suite.cjs` に「`panel.handle` へ connect → deleteConnect（逆順の端）→ undo → deletePart を渡すと、宣言と `connect(` がまとめて消え、undo で戻る」。webview の DOM は拡張ホストから操作できないので、e2e は webview が送るメッセージから先を回す（S264 と同じ）。`pnpm check`（svelte-check）0 件。
+- **持ち越し**: 実機の VS Code でのクリック・Tab・Delete の目視、複数選び、削除の確認の問い。

@@ -40,7 +40,8 @@ class Panel {
 #icon, #diagram { background: #fff; color: #555; border: 1px solid var(--vscode-panel-border, #888); margin: 4px 0; }
 #icon svg { height: 120px; } #diagram svg { height: 240px; }
 svg { width: 100%; display: block; } svg .part { cursor: grab; touch-action: none; } svg .part:focus-visible { outline: 2px solid #06c; }
-svg .conn { fill: #06c; fill-opacity: 0; cursor: crosshair; } svg .conn:hover { fill-opacity: .35; }
+svg .conn { fill: #06c; fill-opacity: 0; cursor: crosshair; } svg .conn:hover { fill-opacity: .35; } svg .hit { cursor: pointer; } svg .hit:focus-visible { outline: 2px solid #06c; }
+svg .part.sel > path { stroke: #06c; stroke-width: 2; stroke-dasharray: 4 2; vector-effect: non-scaling-stroke; fill: #06c; fill-opacity: .08; } svg [data-conn].sel polyline { stroke: #06c; stroke-width: 3; }
 .none { margin: 4px; font-size: .85em; } #docs { overflow-wrap: anywhere; } pre { white-space: pre-wrap; }
 table { border-collapse: collapse; } td, th { border: 1px solid var(--vscode-panel-border, #888); padding: 1px 4px; }
 </style></head>
@@ -55,7 +56,7 @@ table { border-collapse: collapse; } td, th { border: 1px solid var(--vscode-pan
   handle(m) {
     if (m?.type === "reveal" && Number.isInteger(m.line)) void this.reveal(m.line);
     else if (m?.type === "rendered") this.state = m;
-    else if (m?.type === "move" || m?.type === "connect") return this.edit(parseEdit(m));
+    else if (["move", "connect", "deletePart", "deleteConnect"].includes(m?.type)) return this.edit(parseEdit(m));
   }
 
   /** 図の編集（S264）。LSP の globe/movePart・globe/addConnect が返す TextEdit を WorkspaceEdit で文書に入れる（undo 1 回。保存しない）。
@@ -104,7 +105,7 @@ table { border-collapse: collapse; } td, th { border: 1px solid var(--vscode-pan
     const ed = this.editor;
     if (!ed) return;
     const p = new vscode.Position(line, 0);
-    await vscode.window.showTextDocument(ed.document, { viewColumn: ed.viewColumn, selection: new vscode.Range(p, p) });
+    await vscode.window.showTextDocument(ed.document, { viewColumn: ed.viewColumn, selection: new vscode.Range(p, p), preserveFocus: true }); // フォーカスは webview に残す（選んだ部品を Delete で消せるように。S293）
   }
 }
 

@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import { diagramDrag } from "../../../Svelte/src/lib/diagram-drag.ts";
+import { deleteOf, markSel, pickSel } from "../../../Svelte/src/lib/diagram-select.ts";
 
 const { parseEdit } = createRequire(import.meta.url)("../edit.js");
 
@@ -80,4 +81,45 @@ test("webview からのメッセージは型と値を検査する（file・class
 test("webview は結果（edited）を待ち、拡張は webview の file・class を使わない", () => {
   const panel = readFileSync(new URL("../panel.js", import.meta.url), "utf8");
   assert.ok(panel.includes("parseEdit(m)") && panel.includes("t.doc.uri.toString(), class: t.class, ...args"));
+});
+
+test("削除のメッセージの検査（S293）。端は添字つきも通り、file・class・余計な字は通らない", () => {
+  assert.deepEqual(parseEdit({ type: "deletePart", id: 1, part: "R1", file: "/x", class: "X" }), { id: 1, method: "globe/deletePart", args: { part: "R1" } });
+  assert.deepEqual(parseEdit({ type: "deleteConnect", id: 2, from: "b[2].p", to: "c.n" }), { id: 2, method: "globe/deleteConnect", args: { from: "b[2].p", to: "c.n" } });
+  assert.equal(parseEdit({ type: "deleteConnect", id: 2, from: "b[i+1].p", to: "c.n" })?.args.from, "b[i+1].p");
+  for (const bad of [
+    { type: "deletePart", id: 1 }, { type: "deletePart", id: 1, part: "a b" }, { type: "deletePart", id: 1, part: "a.b" }, { type: "deletePart", part: "a" },
+    { type: "deleteConnect", id: 1, from: "a", to: "b.n" }, { type: "deleteConnect", id: 1, from: "a.p", to: "b.n.x" }, { type: "deleteConnect", id: 1, from: "a.p", to: "b[1.n" },
+    { type: "deleteConnect", id: 1, from: "a.p", to: "b.n);x(" }, { type: "deleteConnect", id: 1, from: "a.p" },
+  ]) assert.equal(parseEdit(bad), null, JSON.stringify(bad));
+});
+
+test("部品・結線の選びと削除の対象（DiagramView と共有）", () => {
+  const el = (attrs, inside) => {
+    const e = { classList: { s: new Set(), add(c) { this.s.add(c); }, remove(c) { this.s.delete(c); } }, getAttribute: (k) => attrs[k] ?? null };
+    e.closest = (sel) => (sel.includes("data-part") && attrs["data-part"] != null ? e : sel.includes("data-hit") && attrs["data-hit"] != null ? e : inside?.closest(sel) ?? null);
+    return e;
+  };
+  const part = el({ "data-part": "R1" }), hit = el({ "data-hit": "a.p b.n" }), conn = el({ "data-conn": "a.p b.n" }), bare = el({});
+  assert.deepEqual(pickSel(part, "click", null), { part: "R1" });
+  assert.deepEqual(pickSel(hit, "focusin", { part: "R1" }), { key: "a.p b.n" });
+  assert.equal(pickSel(bare, "click", { part: "R1" }), null, "何も無い所のクリックで外す");
+  assert.deepEqual(pickSel(bare, "focusin", { part: "R1" }), { part: "R1" }, "フォーカスでは外さない");
+  const svg = { querySelectorAll: (q) => (q === ".sel" ? [part, conn].filter((e) => e.classList.s.has("sel")) : [part, conn]) };
+  assert.deepEqual(markSel(svg, { part: "R1" }), { part: "R1" });
+  assert.ok(part.classList.s.has("sel"));
+  assert.deepEqual(markSel(svg, { key: "a.p b.n" }), { key: "a.p b.n" });
+  assert.ok(!part.classList.s.has("sel") && conn.classList.s.has("sel"), "前の印は外れる");
+  assert.equal(markSel(svg, { part: "Gone" }), null, "消えた対象は外れる");
+  assert.deepEqual(deleteOf({ part: "R1" }, "Delete"), { part: "R1" });
+  assert.deepEqual(deleteOf({ key: "a.p b.n" }, "Backspace"), { from: "a.p", to: "b.n" });
+  assert.equal(deleteOf({ part: "R1" }, "x"), null);
+  assert.equal(deleteOf(null, "Delete"), null);
+});
+
+test("webview は Delete / Backspace を選びのあるときだけ postMessage にし、パネルは編集のメッセージとして受ける", () => {
+  const web = readFileSync(new URL("../webview.js", import.meta.url), "utf8");
+  assert.ok(web.includes("deleteOf(selected, e.key)") && web.includes('type: "deletePart"') && web.includes('type: "deleteConnect"'));
+  assert.ok(!web.includes("innerHTML"));
+  assert.ok(readFileSync(new URL("../panel.js", import.meta.url), "utf8").includes('"deletePart", "deleteConnect"'));
 });
