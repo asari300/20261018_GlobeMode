@@ -4,6 +4,7 @@
 
 | S | 日付 | Phase | 題名 | ブランチ | 状態 | スライド | 解説書 | セッション記録 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| S270 | 2026-11-15 | 保守 | `flaky-timing-tests`: 共有ランナーで落ちる時間の試験を直す。lint の線形（4 倍・5 回の最小値・しきい値 8）と深い入れ子（深さ 1 との比 < 50）を比にし、FMU の中断の上限を緩めた。20 回 0 失敗、壊すと落ちる | `feature/s270-flaky-timing-tests` | 完了 | [slides](S270-flaky-timing-tests/slides.html) | [解説書](S270-flaky-timing-tests/解説書.md) | 【省略。log/local に無い】 |
 | S266 | 2026-11-15 | P5 | `fmu-dependencies`: Export した FMU の `ModelStructure` の出力・状態の導関数に `dependencies` を書く。BLT の解く順の閉包（`analyze_dependencies`、`KnownRefs`）で、2.0 は状態と入力、3.0 はパラメータと time も並べ、離散変数を介するもの・インデックス 2 以上は書かない。P5b と P5a（Rumoca の XML への後処理）の両方。`InitialUnknown` と `dependenciesKind` は未 | `feature/s266-fmu-dependencies` | 作業中 | [slides](S266-fmu-dependencies/slides.html) | [解説書](S266-fmu-dependencies/解説書.md) | 【セッション記録は省略】 |
 | S263 | 2026-11-15 | P8 | `ssp-ssv`: SSP の `Component` の `ParameterBindings`（`.ssv` の参照とインラインの `ParameterSet` の Real・Integer・Boolean）を S259 の `start` にして回す。後ろの binding が勝つ。`ParameterMapping`・System の階層・単位つき・配列は断る | `feature/s263-ssp-ssv` | 完了 | [slides](S263-ssp-ssv/slides.html) | [解説書](S263-ssp-ssv/解説書.md) | なし |
 | S262 | 2026-11-15 | P8 | `blt-panel`: S256 の BLT を UI と Python から見られるようにする。LSP `globe/blt`（Desktop の RPC は 28 → 29）、wasm `blt`、`Backend.blt`、ツールバーの「BLT」で `BltPanel.svelte`（解く順、大きさ 2 以上の代数ループは警告色の縁と見出しで目立たせ、変数と式を出す）、Python `Workspace.blt(model)`。式からソースへ飛ぶのは位置が無いので次回。新しい算法・依存なし | `feature/s262-blt-panel` | 完了 | [slides](S262-blt-panel/slides.html) | [解説書](S262-blt-panel/解説書.md) | なし |
