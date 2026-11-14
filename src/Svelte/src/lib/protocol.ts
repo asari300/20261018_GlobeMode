@@ -106,5 +106,13 @@ export interface GraphJson {
 
 /** BLT のブロック 1 つ（S256。`globe blt --json` と同じ。size 2 以上が代数ループ）。 */
 export interface BltBlock { size: number; algebraic_loop: boolean; nonlinear: boolean; variables: string[]; equations: string[] }
+/** 変換の段ごとの要約（S280・S282。`globe stages --json` と同じ）。flat → DAE は数だけ。 */
+export interface StagesReport {
+  flat: { variables: number; equations: number; initial_equations: number } | null;
+  dae: Record<string, number> | null;
+  index: { index: number; failed: boolean; differentiated: string[]; added_equations: number; added_unknowns: string[]; dynamic_states: number; dummy_candidates: string[] };
+  blt: { reduced: boolean; blocks: number; algebraic_loops: number; max_size: number; size_histogram: [number, number][]; skipped?: string };
+  tearing: { loops: { size: number; nonlinear: boolean; variables: string[]; residuals: string[] }[]; iteration_variables: number };
+}
 /** BLT（S262）。blocks は解く順。skipped があれば解析しなかった理由で blocks は空。 */
 export interface BltReport { reduced: boolean; blocks: BltBlock[]; skipped?: string }

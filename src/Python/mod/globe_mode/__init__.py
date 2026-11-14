@@ -229,6 +229,13 @@ class Workspace:
         検査が通らなければ `SourceError`（`ValueError` でもある。診断は `.diagnostics`）。"""
         return json.loads(self._ws.blt(model))["blocks"]
 
+    def stages(self, model: str) -> dict[str, Any]:
+        """変換の段ごとの要約（`globe stages --json` と同じ。S282）。キーは `flat`（無ければ `None`）・`dae`・`index`
+        （`index`・`added_equations`・`added_unknowns`・`dynamic_states` など）・`blt`・`tearing`。
+
+        検査が通らなければ `SourceError`（`ValueError` でもある。診断は `.diagnostics`）。"""
+        return json.loads(self._ws.stages(model))
+
     def simulate(
         self,
         model: str,

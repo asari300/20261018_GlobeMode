@@ -4,6 +4,7 @@
 
 | S | 日付 | Phase | 題名 | ブランチ | 状態 | スライド | 解説書 | セッション記録 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| S282 | 2026-11-15 | P8 | `stages-api`: S280 の変換の段ごとの要約を LSP `globe/stages`・wasm `stages`・`Backend.stages`・Python `Workspace.stages` から引けるようにした（UI のパネルは今回やらない） | `feature/s282-stages-api` | 完了 | [slides](S282-stages-api/slides.html) | [解説書](S282-stages-api/解説書.md) | なし |
 | S280 | 2026-11-15 | P8 | `transform-stages`: 変換デバッガの 2 つ目。`globe stages -m <model> [--json]`（facade `Workspace::stages`）が flat → DAE → インデックスの低減 → BLT → tearing の段ごとの数と、微分した方程式・増えた未知数・tearing 変数と残差を出す。新しい解析なし | `feature/s280-transform-stages` | 完了 | [slides](S280-transform-stages/slides.html) | [解説書](S280-transform-stages/解説書.md) | なし |
 | S276 | 2026-11-15 | Track B | `lsp-tolerant-syntax`: Track B を初めて製品につないだ。LSP の `documentSymbol` と `foldingRange` が、構文の誤りで Rumoca のアウトラインが引けないときも `globe-mode-syntax` の CST から出る。正常なファイルは変わらない。ADR-0039 に付記 | `feature/s276-lsp-tolerant-syntax` | 完了 | [slides](S276-lsp-tolerant-syntax/slides.html) | [解説書](S276-lsp-tolerant-syntax/解説書.md) | なし（記録が `log/local/` に無い） |
 | S274 | 2026-11-15 | P8 | `ssp-export`: `globe fmu ssp-export spec.json -o system.ssp`。S249 の spec を `.ssp` に書き（FMU は `resources/`、`start` はインラインの `ParameterBindings`、刻みと algorithm は独自の `Annotation`）、`globe fmu cosim` で読み戻すと同じ CSV。結線は Real だけ | `feature/s274-ssp-export` | 完了 | [slides](S274-ssp-export/slides.html) | [解説書](S274-ssp-export/解説書.md) | なし |

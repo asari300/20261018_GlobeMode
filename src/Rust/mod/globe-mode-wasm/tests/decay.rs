@@ -546,6 +546,23 @@ fn decay_lists_tunable_parameters() {
 }
 
 #[test]
+fn pendulum_stages_report_index_three() {
+    // S282: 変換の段ごとの要約。振り子は index 3 で、Pantelides が方程式を足す
+    let mut ws = Workspace::new();
+    for (name, text) in package() {
+        ws.put_file(&name, text);
+    }
+    let r = ws
+        .inner()
+        .stages("GlobeModeValidation.Index.Pendulum")
+        .ok()
+        .unwrap();
+    assert_eq!(r.index.index, 3, "{r:?}");
+    assert!(r.index.added_equations > 0);
+    assert!(ws.inner().stages("Nope").is_err());
+}
+
+#[test]
 fn linear_loop_has_one_algebraic_block_of_two() {
     // S262: UI の BLT パネル。連立 2 元の代数ループが大きさ 2 のブロックとして 1 つ出る
     let mut ws = Workspace::new();

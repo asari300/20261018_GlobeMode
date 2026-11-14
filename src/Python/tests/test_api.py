@@ -120,6 +120,16 @@ def test_ctrl_c_raises_keyboard_interrupt():
         timer.cancel()
 
 
+def test_stages_reports_the_pendulum_index():
+    # S282: 振り子は index 3。通らないモデルは SourceError
+    ws = Workspace(libraries=[MODELICA])
+    s = ws.stages("GlobeModeValidation.Index.Pendulum")
+    assert s["index"]["index"] == 3
+    assert s["index"]["added_equations"] > 0
+    with pytest.raises(ValueError):
+        ws.stages("No.Such.Model")
+
+
 def test_blt_lists_the_algebraic_loop():
     # S262: LinearLoop は大きさ 2 の代数ループが 1 つ。通らないモデルは SourceError
     ws = Workspace(libraries=[MODELICA])
