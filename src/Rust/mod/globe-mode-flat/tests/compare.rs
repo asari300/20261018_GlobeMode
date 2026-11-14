@@ -193,7 +193,8 @@ fn msl_examples_flatten() {
     kinds.sort_by(|a, b| b.cmp(a));
     for (n, k) in &kinds {
         println!("  断った {k}: {n}");
-        for x in why[k].iter().take(2) {
+        let show = std::env::var("GLOBE_FLAT_SHOW").is_ok_and(|s| s.split(',').any(|x| x == *k));
+        for x in why[k].iter().take(if show { usize::MAX } else { 2 }) {
             println!("    {x}");
         }
     }

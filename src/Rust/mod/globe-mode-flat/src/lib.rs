@@ -4,10 +4,14 @@
 //! - 範囲: 部品の入れ子（`a.b.x`）、`extends`、修飾（外側が勝つ）、parameter の束縛、方程式の名前の付け替え、
 //!   `connect`（potential は等式、flow は和が 0、つながない内側の flow は 0。`stream` は断る）、
 //!   大きさが定数の配列（部品の配列は要素ごとに展開、`for` の方程式も展開）。
-//! - 式は評価せず、正規化した印字として残す（`if` の方程式・`when`・関数の呼び出し）。
-//!   大きさ・`for` の範囲・添字だけ、定数の式（リテラル・parameter・`size`・四則）を評価する。
-//! - 断るもの（`Unsupported::kind`）: `redeclare`・`replaceable`、`inner`/`outer`、条件つきの宣言、外部関数、
-//!   `stream`、`expandable`、`class extends`、大きさの決まらない配列、`if`/`when` の中の `connect` など。
+//! - S284: 条件つきの宣言（条件が定数に評価できるとき。偽なら宣言と、それにつながる `connect` を落とす）、
+//!   定数の条件の `if` の方程式（選んだ枝だけを平らにする。`connect` も入る）、`inner`/`outer`（`outer` は部品を作らず、
+//!   外側へたどって最初の同じ名前の `inner` へ参照を付け替える）、レコードの束縛（`R r = R(a = 1)`・`r = other` は欄ごとの修飾）、
+//!   `[:]` と添字の大きさ（行列・範囲・`fill`/`zeros`・パッケージの定数・列挙の型・後ろで宣言した配列の `size`）。
+//! - 式は評価せず、正規化した印字として残す（評価できない条件の `if` の方程式・`when`・関数の呼び出し）。
+//!   大きさ・`for` の範囲・添字・定数の条件だけ、定数の式（リテラル・parameter・列挙・`size`・四則・`max`/`min` など）を評価する。
+//! - 断るもの（`Unsupported::kind`）: `redeclare`・`replaceable`、`inner` の無い `outer`、評価できない条件の宣言、外部関数、
+//!   `stream`、`expandable`、`class extends`、形の決まらない `[:]`、関数の戻り値のレコード、評価できない条件の `if`/`when` の中の `connect` など。
 //!
 //! 既存のフロントエンド（Rumoca）にはつながない（doc/adr/0039-native-cst-parser.md の付記）。
 

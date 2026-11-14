@@ -4,7 +4,7 @@ use crate::{Causality, Equation, FlatModel, Project, Res, Var, VarKind, un};
 use globe_mode_resolve::{ClassId, Reason, Resolution};
 use globe_mode_syntax::ast::{self, Element, Expr};
 use globe_mode_syntax::{SyntaxKind as K, SyntaxNode};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::rc::Rc;
 
 /// 修飾 `x(start = 1) = 2`。値は書いた場所の文脈（`Bind::ctx`）で名前を付け替える
@@ -21,6 +21,8 @@ struct Bind {
     node: SyntaxNode,
     file: u32,
     ctx: Rc<Ctx>,
+    /// レコードの束縛 `r = other` を欄に分けたときの `.f.g`（印字だけに足す。評価はしない）
+    suffix: String,
 }
 
 /// 式を書いた場所: インスタンスの名前の前置き（`a.b.`）、そのクラスと基底の全部、`for` の添字の値
@@ -94,7 +96,6 @@ fn flags_of(toks: impl Iterator<Item = K>) -> Res<Flags> {
             K::KwOutput => f.causality = Causality::Output,
             K::KwFlow => f.flow = true,
             K::KwStream => f.stream = true,
-            K::KwInner | K::KwOuter => return un("inner-outer", "inner / outer"),
             K::KwReplaceable | K::KwRedeclare => {
                 return un("replaceable", "replaceable / redeclare");
             }
@@ -119,6 +120,8 @@ enum Val {
     I(i64),
     R(f64),
     B(bool),
+    /// 列挙の要素（列挙のクラスと、その中の順番）
+    E(ClassId, usize),
 }
 
 impl Val {
@@ -127,6 +130,7 @@ impl Val {
             Val::I(i) => i as f64,
             Val::R(r) => r,
             Val::B(b) => f64::from(u8::from(b)),
+            Val::E(_, i) => i as f64,
         }
     }
     fn int(self) -> Option<i64> {
@@ -181,7 +185,27 @@ struct F<'a> {
     ieqs: Vec<Equation>,
     algs: Vec<String>,
     env: HashMap<String, Bind>,
+    /// `inner` で宣言した部品の完全な名前
+    inners: HashSet<String>,
+    /// `outer` の部品 → 結びつけた `inner` の完全な名前
+    alias: HashMap<String, String>,
+    /// 条件が偽で落とした部品の完全な名前（これにつながる `connect` も落とす）
+    removed: Vec<String>,
+    /// まだ平らにしていない宣言（`size(x, 1)` が後ろで宣言した配列の大きさを引くため）
+    pending: HashMap<String, Pending>,
+    depth: std::cell::Cell<u32>,
 }
+
+struct Pending {
+    cc: ast::ComponentClause,
+    d: ast::Declaration,
+    file: u32,
+    ctx: Rc<Ctx>,
+    m: Mod,
+}
+
+/// 「パッケージの定数を評価する文脈」の印（`Ctx::pfx`）
+const PKG: &str = "\u{0}";
 
 pub(crate) fn run(p: &Project, cid: ClassId, model: &str) -> Res<FlatModel> {
     let mut f = F {
@@ -193,6 +217,11 @@ pub(crate) fn run(p: &Project, cid: ClassId, model: &str) -> Res<FlatModel> {
         ieqs: Vec::new(),
         algs: Vec::new(),
         env: HashMap::new(),
+        inners: HashSet::new(),
+        alias: HashMap::new(),
+        removed: Vec::new(),
+        pending: HashMap::new(),
+        depth: std::cell::Cell::new(0),
     };
     let own = f.inst_class(cid, "", &ModMap::new(), Flags::default())?;
     // 最上位のモデル自身のコネクタの flow は 0（外へ流れ出ない。Rumoca の flat も同じ）
@@ -302,6 +331,38 @@ impl F<'_> {
                 if let Some(b) = &m.val {
                     self.env.insert(format!("{pfx}{name}"), b.clone());
                 }
+                // inner は先に登録し、outer は外側の同じ名前の inner を探す（別の部品の束縛・方程式でも使うので先に）
+                let toks: Vec<K> = tokens(cc.syntax())
+                    .map(|t| t.kind())
+                    .take_while(|k| !matches!(k, K::Ident | K::Dot))
+                    .collect();
+                let full = format!("{pfx}{name}");
+                let found = toks
+                    .contains(&K::KwOuter)
+                    .then(|| self.find_inner(pfx, &name))
+                    .flatten();
+                match found {
+                    Some(t) => {
+                        self.alias.insert(full.clone(), t);
+                    }
+                    None if toks.contains(&K::KwOuter) && !toks.contains(&K::KwInner) => {
+                        return un("inner-outer", format!("outer {full} has no inner"));
+                    }
+                    None => {}
+                }
+                if toks.contains(&K::KwInner) {
+                    self.inners.insert(full);
+                }
+                self.pending.insert(
+                    format!("{pfx}{name}"),
+                    Pending {
+                        cc: cc.clone(),
+                        d: d.clone(),
+                        file: *file,
+                        ctx: ctx.clone(),
+                        m: m.clone(),
+                    },
+                );
                 decls.push((cc.clone(), *file, d, name, m));
             }
         }
@@ -328,6 +389,19 @@ impl F<'_> {
         }
         self.gen_connects(pfx, &lv, &inside)?;
         Ok(own_conns)
+    }
+
+    /// `pfx` のインスタンスから見て、外側へたどって最初の同じ名前の `inner`（`pfx` 自身は見ない）
+    fn find_inner(&self, pfx: &str, name: &str) -> Option<String> {
+        let mut cur = pfx.to_string();
+        loop {
+            let t = cur.strip_suffix('.')?;
+            cur = t.rfind('.').map_or(String::new(), |i| t[..=i].to_string());
+            let cand = format!("{cur}{name}");
+            if self.inners.contains(&cand) {
+                return Some(self.alias.get(&cand).cloned().unwrap_or(cand));
+            }
+        }
     }
 
     /// `extends` を取り込みながら、宣言と節を宣言の順に集める
@@ -436,8 +510,23 @@ impl F<'_> {
                 .map(|t| t.kind())
                 .take_while(|k| !matches!(k, K::Ident | K::Dot)),
         )?;
-        if d.syntax().children().any(|c| c.kind() == K::Condition) {
-            return un("conditional-component", name);
+        if self.alias.contains_key(&format!("{}{name}", ctx.pfx)) {
+            return Ok(()); // outer: 部品は作らず、参照を inner の名前に付け替える
+        }
+        if let Some(c) = d.syntax().children().find(|c| c.kind() == K::Condition) {
+            // 条件が定数に評価できるときだけ。偽なら宣言を落とす
+            let v = c
+                .children()
+                .find_map(Expr::cast)
+                .and_then(|e| self.eval(e.syntax(), file, ctx, 0));
+            match v {
+                Some(Val::B(true)) => {}
+                Some(Val::B(false)) => {
+                    self.removed.push(format!("{}{name}", ctx.pfx));
+                    return Ok(());
+                }
+                _ => return un("conditional-component", format!("{name} if {}", c.text())),
+            }
         }
         if cc.constraint().is_some() {
             return un("replaceable", name);
@@ -447,30 +536,7 @@ impl F<'_> {
         };
         let tres = self.p.res_of(file, tn.range()).cloned();
         let ty = self.type_of(tres, &tn.parts())?;
-        // 大きさ: 宣言の添字、型の添字。`[:]` は束縛の配列リテラルから決める
-        let mut dims = Vec::new();
-        let mut unsized_ = false;
-        for sn in d
-            .syntax()
-            .children()
-            .chain(cc.syntax().children())
-            .filter(|c| c.kind() == K::Subscripts)
-        {
-            unsized_ |= tokens(&sn).any(|t| t.kind() == K::Colon);
-            for e in sn.children().filter_map(Expr::cast) {
-                match self.eval(e.syntax(), file, ctx, 0).and_then(Val::int) {
-                    Some(n) if n >= 0 => dims.push(n as usize),
-                    _ => return un("non-constant-dim", format!("{name}: {}", e.syntax().text())),
-                }
-            }
-        }
-        if unsized_ {
-            // shortcut: 大きさを決められるのは束縛が配列リテラルのときだけ（関数の戻り値・他の変数の束縛は断る）
-            match m.val.as_ref().map(|b| array_dims(&b.node)) {
-                Some(v) if !v.is_empty() => dims = v,
-                _ => return un("unsized-array", name),
-            }
-        }
+        let dims = self.decl_dims(ctx, file, cc, d, name, &m)?;
         let full = format!("{}{}", ctx.pfx, name);
         match ty {
             Ty::Prim {
@@ -528,11 +594,17 @@ impl F<'_> {
                 flags,
                 conn,
             } => {
-                if m.val.is_some() {
-                    return un("composite-binding", name);
-                }
+                // `R r = R(a = 1)`・`r = other` は欄ごとの修飾にする。明示した修飾 > 束縛 > 型の修飾
+                let bound = match &m.val {
+                    Some(b) if dims.is_empty() => self.record_value(b, name)?,
+                    Some(b) => {
+                        let t = b.node.text();
+                        return un("composite-binding", format!("{name}[] = {t}"));
+                    }
+                    None => ModMap::new(),
+                };
                 let eff = fill(parent, fill(own_flags, flags));
-                let mods = merge(&m.sub, &mods);
+                let mods = merge(&m.sub, &merge(&bound, &mods));
                 if !dims.is_empty() && has_array_value(&m.sub) {
                     return un("array-modification", name);
                 }
@@ -548,6 +620,156 @@ impl F<'_> {
             }
         }
         Ok(())
+    }
+
+    /// レコードの束縛（コンストラクタの呼び出しか、別のレコードの部品）を、欄ごとの修飾にする
+    fn record_value(&self, b: &Bind, name: &str) -> Res<ModMap> {
+        let bind = |e: &SyntaxNode, suffix: String| Bind {
+            node: e.clone(),
+            file: b.file,
+            ctx: b.ctx.clone(),
+            suffix,
+        };
+        let mut out = ModMap::new();
+        match Expr::cast(b.node.clone()) {
+            Some(Expr::Call(c)) => {
+                let rid = c
+                    .syntax()
+                    .children()
+                    .find_map(ast::ComponentRef::cast)
+                    .and_then(|r| match self.p.res_of(b.file, r.range()) {
+                        Some(Resolution::Class(rid)) => Some(*rid),
+                        _ => None,
+                    })
+                    .filter(|rid| {
+                        matches!(self.p.kind_of(*rid), Some(K::KwRecord | K::KwOperator))
+                    });
+                let Some(rid) = rid else {
+                    return un("composite-binding", format!("{name} = {}", b.node.text()));
+                };
+                let mut fields = Vec::new();
+                self.record_fields(rid, &mut fields, 0);
+                for (f, a) in fields.iter().zip(c.args()) {
+                    out.insert(f.clone(), field_mod(bind(a.syntax(), String::new())));
+                }
+                for (f, a) in c.named_args() {
+                    out.insert(f, field_mod(bind(a.syntax(), String::new())));
+                }
+            }
+            Some(Expr::ComponentRef(r))
+                if !b.node.children().any(|x| x.kind() == K::Subscripts) =>
+            {
+                let t = self.cref(&r, b.file, &b.ctx)?;
+                let pre = format!("{t}.");
+                let leaves: Vec<&str> = self
+                    .var_idx
+                    .range(pre.clone()..)
+                    .take_while(|(k, _)| k.starts_with(&pre))
+                    .map(|(k, _)| &k[pre.len()..])
+                    .collect();
+                if leaves.is_empty() || leaves.iter().any(|l| l.contains('[')) {
+                    return un(
+                        "composite-binding",
+                        format!("{name} = {t} (欄が分からない)"),
+                    );
+                }
+                for l in leaves {
+                    let path: Vec<&str> = l.split('.').collect();
+                    nest(&mut out, &path, bind(&b.node, format!(".{l}")));
+                }
+            }
+            _ => return un("composite-binding", format!("{name} = {}", b.node.text())),
+        }
+        Ok(out)
+    }
+
+    /// レコードのコンストラクタの位置引数の順（`extends` の欄が先。constant は除く）
+    fn record_fields(&self, cid: ClassId, out: &mut Vec<String>, depth: u32) {
+        let Some(cd) = self.p.class(cid) else { return };
+        let file = self.p.lib.classes[cid].file;
+        if depth > 30 {
+            return;
+        }
+        let mut bases: Vec<ast::Name> =
+            cd.short_body().and_then(|s| s.base()).into_iter().collect();
+        for e in cd.elements() {
+            match e {
+                Element::Extends(x) => bases.extend(x.name()),
+                Element::Component(cc)
+                    if !tokens(cc.syntax()).any(|t| t.kind() == K::KwConstant) =>
+                {
+                    out.extend(cc.declarations().iter().filter_map(|d| Some(d.name()?.0)));
+                }
+                _ => {}
+            }
+        }
+        // `extends` の欄は自分の欄より先に並ぶ
+        let own = std::mem::take(out);
+        for n in bases {
+            if let Some(Resolution::Class(b)) = self.p.res_of(file, n.range()) {
+                self.record_fields(*b, out, depth + 1);
+            }
+        }
+        out.extend(own);
+    }
+
+    /// 大きさ: 宣言の添字、型の添字。`[:]` は束縛の式の形から決める。添字が列挙の型名なら要素の数
+    fn decl_dims(
+        &self,
+        ctx: &Rc<Ctx>,
+        file: u32,
+        cc: &ast::ComponentClause,
+        d: &ast::Declaration,
+        name: &str,
+        m: &Mod,
+    ) -> Res<Vec<usize>> {
+        let mut dims = Vec::new();
+        let mut unsized_ = false;
+        for sn in d
+            .syntax()
+            .children()
+            .chain(cc.syntax().children())
+            .filter(|c| c.kind() == K::Subscripts)
+        {
+            unsized_ |= tokens(&sn).any(|t| t.kind() == K::Colon);
+            for e in sn.children().filter_map(Expr::cast) {
+                if let Expr::ComponentRef(r) = &e
+                    && let Some(Resolution::Class(cid)) = self.p.res_of(file, r.range())
+                    && self.is_enum(*cid)
+                {
+                    dims.push(self.p.lib.classes[*cid].components.len());
+                    continue;
+                }
+                match self.eval(e.syntax(), file, ctx, 0).and_then(Val::int) {
+                    Some(n) if n >= 0 => dims.push(n as usize),
+                    _ => {
+                        let b = self
+                            .env
+                            .get(&format!("{}{}", ctx.pfx, e.syntax().text()))
+                            .map(|b| b.node.text().to_string());
+                        return un(
+                            "non-constant-dim",
+                            format!("{name}: {} = {b:?}", e.syntax().text()),
+                        );
+                    }
+                }
+            }
+        }
+        if unsized_ {
+            // shortcut: 大きさを決められるのは束縛の式の形が分かるときだけ（`dims_of`。ユーザー定義の関数の戻り値は断る）
+            match m
+                .val
+                .as_ref()
+                .and_then(|b| self.dims_of(&b.node, b.file, &b.ctx))
+            {
+                Some(v) if !v.is_empty() => dims = v,
+                _ => {
+                    let b = m.val.as_ref().map(|b| b.node.text().to_string());
+                    return un("unsized-array", format!("{name} = {b:?}"));
+                }
+            }
+        }
+        Ok(dims)
     }
 
     /// 型名を、組み込みの型（短いクラスの鎖をたどった属性の修飾つき）か、部品をもつクラスにする
@@ -694,12 +916,13 @@ impl F<'_> {
                 node,
                 file,
                 ctx: ctx.clone(),
+                suffix: String::new(),
             });
         Ok(Mod { val, sub, each })
     }
 
     fn print_bind(&self, b: &Bind) -> Res<String> {
-        self.text(&b.node, b.file, &b.ctx)
+        Ok(self.text(&b.node, b.file, &b.ctx)? + &b.suffix)
     }
 
     // ---------------------------------------------------------------- 式の印字
@@ -780,7 +1003,8 @@ impl F<'_> {
             }
             Some(Resolution::Component(cid, idx)) => {
                 if ctx.lineage.contains(cid) {
-                    segs[0].0 = format!("{}{}", ctx.pfx, segs[0].0);
+                    let full = format!("{}{}", ctx.pfx, segs[0].0);
+                    segs[0].0 = self.alias.get(&full).cloned().unwrap_or(full);
                 } else {
                     // 外側のパッケージの定数・列挙の要素: 完全修飾で出す
                     let comp = &self.p.lib.classes[*cid].components[*idx].name;
@@ -873,11 +1097,26 @@ impl F<'_> {
                 let parts = c.parts();
                 match self.p.res_of(file, c.range())? {
                     Resolution::Local if parts.len() == 1 => ctx.local(&parts[0]).map(Val::I),
-                    Resolution::Component(cid, _)
-                        if parts.len() == 1 && ctx.lineage.contains(cid) =>
-                    {
-                        let b = self.env.get(&format!("{}{}", ctx.pfx, parts[0]))?;
-                        self.eval(&b.node, b.file, &b.ctx, d)
+                    Resolution::Component(cid, idx) => {
+                        if ctx.pfx != PKG && ctx.lineage.contains(cid) {
+                            let key = format!("{}{}", ctx.pfx, parts.join("."));
+                            let b = self.env.get(self.alias.get(&key).unwrap_or(&key))?;
+                            if !b.suffix.is_empty() {
+                                return None;
+                            }
+                            self.eval(&b.node, b.file, &b.ctx, d)
+                        } else {
+                            // 列挙の要素、またはパッケージの定数
+                            let comp = &self.p.lib.classes[*cid].components[*idx].name;
+                            if parts.last() != Some(comp) {
+                                return None;
+                            }
+                            if self.is_enum(*cid) {
+                                return Some(Val::E(*cid, *idx));
+                            }
+                            let (node, f, c2, _) = self.pkg_const(*cid, comp)?;
+                            self.eval(&node, f, &c2, d)
+                        }
                     }
                     _ => None,
                 }
@@ -892,7 +1131,7 @@ impl F<'_> {
                         };
                         let name = self.cref(r, file, ctx).ok()?;
                         let k = v(1)?.int()? as usize;
-                        let dims = &self.vars[*self.var_idx.get(&name)?].dims;
+                        let dims = self.var_dims(&name)?;
                         dims.get(k.checked_sub(1)?).map(|&x| Val::I(x as i64))
                     }
                     "abs" => Some(match v(0)? {
@@ -900,9 +1139,20 @@ impl F<'_> {
                         x => Val::R(x.f().abs()),
                     }),
                     "max" | "min" => {
-                        let (a, b) = (v(0)?, v(1)?);
-                        let pick_a = (a.f() >= b.f()) == (c.callee()?.as_str() == "max");
-                        Some(if pick_a { a } else { b })
+                        let is_max = c.callee()?.as_str() == "max";
+                        // `max({a, b})`・`max([a; b])` は要素の最大
+                        let xs: Vec<Val> = match args.as_slice() {
+                            [a @ (Expr::Array(_) | Expr::Matrix(_))] => a
+                                .syntax()
+                                .children()
+                                .filter_map(Expr::cast)
+                                .map(|e| self.eval(e.syntax(), file, ctx, d))
+                                .collect::<Option<_>>()?,
+                            _ => (0..args.len()).map(v).collect::<Option<_>>()?,
+                        };
+                        let mut it = xs.into_iter();
+                        let first = it.next()?;
+                        Some(it.fold(first, |a, b| if (a.f() >= b.f()) == is_max { a } else { b }))
                     }
                     "floor" => Some(Val::I(v(0)?.f().floor() as i64)),
                     "ceil" => Some(Val::I(v(0)?.f().ceil() as i64)),
@@ -913,6 +1163,165 @@ impl F<'_> {
                         (b != 0).then(|| Val::I(a - (a as f64 / b as f64).floor() as i64 * b))
                     }
                     "sqrt" => Some(Val::R(v(0)?.f().sqrt())),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// 変数の大きさ。まだ平らにしていなければ、宣言から出す（循環は深さで止める）
+    fn var_dims(&self, name: &str) -> Option<Vec<usize>> {
+        if let Some(&i) = self.var_idx.get(name) {
+            return Some(self.vars[i].dims.clone());
+        }
+        let p = self.pending.get(name)?;
+        if self.depth.get() > 16 {
+            return None;
+        }
+        self.depth.set(self.depth.get() + 1);
+        let r = self.decl_dims(&p.ctx, p.file, &p.cc, &p.d, name, &p.m);
+        self.depth.set(self.depth.get() - 1);
+        r.ok()
+    }
+
+    fn is_enum(&self, cid: ClassId) -> bool {
+        self.p
+            .class(cid)
+            .and_then(|c| c.short_body())
+            .is_some_and(|sb| tokens(sb.syntax()).any(|t| t.kind() == K::KwEnumeration))
+    }
+
+    /// パッケージの定数 `constant T name = 式` の式と、それを評価する文脈
+    fn pkg_const(&self, cid: ClassId, name: &str) -> Option<(SyntaxNode, u32, Rc<Ctx>, bool)> {
+        let file = self.p.lib.classes[cid].file;
+        for e in self.p.class(cid)?.elements() {
+            let Element::Component(cc) = e else { continue };
+            let is_const = tokens(cc.syntax())
+                .map(|t| t.kind())
+                .take_while(|k| !matches!(k, K::Ident | K::Dot))
+                .any(|k| k == K::KwConstant);
+            if !is_const {
+                continue;
+            }
+            for d in cc.declarations() {
+                if d.name().is_some_and(|(n, _)| n == name) {
+                    let m = d
+                        .syntax()
+                        .children()
+                        .find(|c| c.kind() == K::Modification)?;
+                    let node = m.children().find(|c| Expr::cast(c.clone()).is_some())?;
+                    let ctx = Rc::new(Ctx {
+                        pfx: PKG.to_string(),
+                        lineage: self.p.lineage(cid),
+                        locals: Vec::new(),
+                    });
+                    let scalar = !d
+                        .syntax()
+                        .children()
+                        .chain(cc.syntax().children())
+                        .any(|c| c.kind() == K::Subscripts);
+                    return Some((node, file, ctx, scalar));
+                }
+            }
+        }
+        None
+    }
+
+    /// 式の配列の形（スカラーは空）。分からなければ `None`
+    // shortcut: 行列の積・関数の戻り値の形は見ない（要素ごとの関数だけ）。必要になったら足す
+    fn dims_of(&self, n: &SyntaxNode, file: u32, ctx: &Rc<Ctx>) -> Option<Vec<usize>> {
+        let ev = |x: &Expr| {
+            self.eval(x.syntax(), file, ctx, 0)
+                .and_then(Val::int)
+                .and_then(|v| usize::try_from(v).ok())
+        };
+        match Expr::cast(n.clone())? {
+            Expr::Literal(_) => Some(Vec::new()),
+            Expr::Paren(p) => match p.items().as_slice() {
+                [e] => self.dims_of(e.syntax(), file, ctx),
+                _ => None,
+            },
+            Expr::Unary(u) => self.dims_of(u.operand()?.syntax(), file, ctx),
+            Expr::Binary(b) => {
+                let mut out: Vec<usize> = Vec::new();
+                for o in b.operands() {
+                    let d = self.dims_of(o.syntax(), file, ctx)?;
+                    if out.is_empty() {
+                        out = d;
+                    } else if !d.is_empty() && d != out {
+                        return None;
+                    }
+                }
+                Some(out)
+            }
+            Expr::If(i) => self.dims_of(i.branches().first()?.1.syntax(), file, ctx),
+            Expr::Array(a) => {
+                let items = a.items();
+                let mut v = vec![items.len()];
+                v.extend(self.dims_of(items.first()?.syntax(), file, ctx)?);
+                Some(v)
+            }
+            Expr::Matrix(m) => {
+                let rows = 1 + tokens(m.syntax()).filter(|t| t.kind() == K::Semi).count();
+                let items: Vec<Expr> = m.syntax().children().filter_map(Expr::cast).collect();
+                for e in &items {
+                    if !self.dims_of(e.syntax(), file, ctx)?.is_empty() {
+                        return None; // 要素が配列の連結は断る
+                    }
+                }
+                (items.len().is_multiple_of(rows)).then(|| vec![rows, items.len() / rows])
+            }
+            Expr::Range(r) => {
+                let v: Vec<f64> = r
+                    .parts()
+                    .iter()
+                    .map(|e| self.eval(e.syntax(), file, ctx, 0).map(Val::f))
+                    .collect::<Option<_>>()?;
+                let (a, s, b) = match v.as_slice() {
+                    [a, b] => (*a, 1.0, *b),
+                    [a, s, b] if *s != 0.0 => (*a, *s, *b),
+                    _ => return None,
+                };
+                Some(vec![(((b - a) / s).floor() + 1.0).max(0.0) as usize])
+            }
+            Expr::Call(c) => {
+                let name = c.callee()?;
+                let args = c.args();
+                match name.rsplit('.').next()? {
+                    "zeros" | "ones" => args.iter().map(ev).collect(),
+                    "fill" => args.get(1..)?.iter().map(ev).collect(),
+                    "identity" => Some(vec![ev(args.first()?)?; 2]),
+                    "from_rpm" | "from_deg" | "to_deg" | "sqrt" | "abs" | "sin" | "cos" | "exp"
+                    | "log" => self.dims_of(args.first()?.syntax(), file, ctx),
+                    _ => None,
+                }
+            }
+            Expr::ComponentRef(c) => {
+                if n.children().any(|x| x.kind() == K::Subscripts) {
+                    return None;
+                }
+                match self.p.res_of(file, c.range())? {
+                    Resolution::Component(cid, idx)
+                        if ctx.pfx == PKG || !ctx.lineage.contains(cid) =>
+                    {
+                        let comp = &self.p.lib.classes[*cid].components[*idx].name;
+                        if c.parts().last() != Some(comp) {
+                            return None;
+                        }
+                        if self.is_enum(*cid) {
+                            return Some(Vec::new());
+                        }
+                        let (node, f, c2, scalar) = self.pkg_const(*cid, comp)?;
+                        if scalar {
+                            return Some(Vec::new());
+                        }
+                        self.dims_of(&node, f, &c2)
+                    }
+                    Resolution::Component(..) => {
+                        let t = self.cref(&c, file, ctx).ok()?;
+                        self.var_dims(&t)
+                    }
                     _ => None,
                 }
             }
@@ -962,6 +1371,13 @@ impl F<'_> {
                     .unwrap_or_default();
                 self.for_eq(node, &fis, file, ctx, initial, lv)
             }
+            Some(K::KwIf) if self.const_branch(node, file, ctx).is_some() => {
+                // 条件がすべて定数に評価できる `if` は選んだ枝だけを平らにする（`connect` も入る）
+                for e in self.const_branch(node, file, ctx).unwrap_or_default() {
+                    self.equation(&e, file, ctx, initial, lv)?;
+                }
+                Ok(())
+            }
             Some(K::KwIf | K::KwWhen) => {
                 if node
                     .descendants()
@@ -988,7 +1404,9 @@ impl F<'_> {
                             return un("connect", c.syntax().text().to_string());
                         };
                         let (x, y) = (self.cref(x, file, ctx)?, self.cref(y, file, ctx)?);
-                        lv.conns.push((x, y));
+                        if !(self.is_removed(&x) || self.is_removed(&y)) {
+                            lv.conns.push((x, y));
+                        }
                     }
                     [e] => {
                         let t = self.text(e.syntax(), file, ctx)?;
@@ -1011,6 +1429,50 @@ impl F<'_> {
                 Ok(())
             }
         }
+    }
+
+    /// `if` の方程式の条件を先頭から評価し、真になる枝（無ければ `else`、それも無ければ空）の方程式を返す。
+    /// 途中で評価できない条件があれば `None`
+    fn const_branch(&self, node: &SyntaxNode, file: u32, ctx: &Rc<Ctx>) -> Option<Vec<SyntaxNode>> {
+        let mut branches: Vec<(Option<SyntaxNode>, Vec<SyntaxNode>)> = Vec::new();
+        let mut want_cond = false;
+        for e in node.children_with_tokens() {
+            match e {
+                rowan::NodeOrToken::Token(t) => match t.kind() {
+                    K::KwIf | K::KwElseif => {
+                        branches.push((None, Vec::new()));
+                        want_cond = true;
+                    }
+                    K::KwElse => branches.push((None, Vec::new())),
+                    _ => {}
+                },
+                rowan::NodeOrToken::Node(c) if want_cond && Expr::cast(c.clone()).is_some() => {
+                    branches.last_mut()?.0 = Some(c);
+                    want_cond = false;
+                }
+                rowan::NodeOrToken::Node(c) if c.kind() == K::Equation => {
+                    branches.last_mut()?.1.push(c);
+                }
+                _ => {}
+            }
+        }
+        for (cond, eqs) in branches {
+            let Some(c) = cond else { return Some(eqs) }; // else
+            match self.eval(&c, file, ctx, 0)? {
+                Val::B(true) => return Some(eqs),
+                Val::B(false) => {}
+                _ => return None,
+            }
+        }
+        Some(Vec::new())
+    }
+
+    /// 条件が偽で落とした部品（またはその中・要素）か
+    fn is_removed(&self, s: &str) -> bool {
+        self.removed.iter().any(|r| {
+            s.strip_prefix(r.as_str())
+                .is_some_and(|t| t.is_empty() || t.starts_with(['.', '[']))
+        })
     }
 
     fn for_eq(
@@ -1277,6 +1739,10 @@ impl F<'_> {
                     if v.stream {
                         return un("stream", format!("{}{suffix}", members[0]));
                     }
+                    // コネクタの中の parameter・constant は等式にしない（Rumoca の flat も同じ）
+                    if matches!(v.kind, VarKind::Parameter | VarKind::Constant) {
+                        continue;
+                    }
                     for m in &members[1..] {
                         let other = self.leaves(m);
                         if !other.iter().any(|(s, _, _)| s == suffix) {
@@ -1315,18 +1781,20 @@ impl F<'_> {
     }
 }
 
-/// 配列リテラル `{{1, 2}, {3, 4}}` の大きさ（先頭の要素の入れ子をたどる）
-fn array_dims(n: &SyntaxNode) -> Vec<usize> {
-    let mut out = Vec::new();
-    let mut cur = ast::ArrayExpr::cast(n.clone());
-    while let Some(a) = cur {
-        let items = a.items();
-        out.push(items.len());
-        cur = items
-            .first()
-            .and_then(|e| ast::ArrayExpr::cast(e.syntax().clone()));
+fn field_mod(b: Bind) -> Mod {
+    Mod {
+        val: Some(b),
+        ..Mod::default()
     }
-    out
+}
+
+fn nest(map: &mut ModMap, path: &[&str], b: Bind) {
+    let e = map.entry(path[0].to_string()).or_default();
+    match path {
+        [_] => e.val = Some(b),
+        [_, rest @ ..] => nest(&mut e.sub, rest, b),
+        [] => {}
+    }
 }
 
 fn has_array_value(m: &ModMap) -> bool {
@@ -1351,6 +1819,8 @@ fn binop(op: K, a: Val, b: Val) -> Option<Val> {
         (K::Star | K::DotStar, _, _) => R(a.f() * b.f()),
         (K::Slash | K::DotSlash, _, _) => R(a.f() / b.f()),
         (K::Caret | K::DotCaret, _, _) => R(a.f().powf(b.f())),
+        (K::EqEq, E(c, i), E(d, j)) => B(c == d && i == j),
+        (K::Ne, E(c, i), E(d, j)) => B(c != d || i != j),
         (K::Lt, _, _) => B(a.f() < b.f()),
         (K::Le, _, _) => B(a.f() <= b.f()),
         (K::Gt, _, _) => B(a.f() > b.f()),
