@@ -254,8 +254,19 @@ fn missing_description_skips_the_modification_of_extends() {
     assert_eq!((rule(described), rule(plain)), (0, 1));
 }
 
+/// 時間の試験用: 5 回の最小値（共有ランナーの一時的な揺れを落とす）。
+fn best_of_5(mut f: impl FnMut()) -> f64 {
+    (0..5)
+        .map(|_| {
+            let t = std::time::Instant::now();
+            f();
+            t.elapsed().as_secs_f64()
+        })
+        .fold(f64::MAX, f64::min)
+}
+
 /// S207: lint が本文の長さの 2 乗で遅くなっていた（診断ごとの行・桁の数え直し、長い行ごとの全行の探索）。
-/// 絶対時間ではなく、本文を 2 倍にしたときの時間の比（3 回の最小値）が 3 未満であることを緩く確かめる（2 乗なら 4）。
+/// 絶対時間ではなく、本文を 4 倍にしたときの時間の比（5 回の最小値）が 8 未満であることを確かめる（線形なら約 4、2 乗なら約 16）。
 #[test]
 fn lint_time_grows_linearly() {
     let body = |n: usize| {
@@ -269,19 +280,16 @@ fn lint_time_grows_linearly() {
         s + "end P;\n"
     };
     let time = |src: &str| {
-        (0..3)
-            .map(|_| {
-                let t = std::time::Instant::now();
-                std::hint::black_box(lint(src, &LintOptions::default()));
-                t.elapsed().as_secs_f64()
-            })
-            .fold(f64::MAX, f64::min)
+        best_of_5(|| {
+            std::hint::black_box(lint(src, &LintOptions::default()));
+        })
     };
-    let (small, large) = (body(4000), body(8000));
+    let (small, large) = (body(2000), body(8000));
     let n = lint(&large, &LintOptions::default()).len();
     assert_eq!(n, 3 * 8000, "診断の数（クラス名・説明・行の長さ）");
     let ratio = time(&large) / time(&small);
-    assert!(ratio < 3.0, "本文を 2 倍にして時間が {ratio:.2} 倍");
+    eprintln!("lint 比 {ratio:.2}");
+    assert!(ratio < 8.0, "本文を 4 倍にして時間が {ratio:.2} 倍");
 }
 
 #[test]
@@ -379,20 +387,29 @@ fn bom_is_accepted_and_kept() {
 }
 
 /// 幅を超える括弧の入れ子で、`flat` が 1 行を最後まで組み立てない（#97。入力 × 深さの仕事になっていた）。
-/// 時間は環境で変わるので、手前の実装（debug で約 10 倍以上）との差が出る大きさで、緩い上限にする。
+/// 絶対時間は環境で変わるので、同じ入力を深さ 1 で整形した時間（5 回の最小値）との比で見る
+/// （debug で、直したあとは約 11 倍、直す前は約 200 倍。しきい値は 50）。
 #[test]
 fn deeply_nested_wide_input_is_not_quadratic() {
-    let depth = 200;
-    let inner = vec!["x"; 20_000].join(" + ");
-    let src = format!(
-        "model M\n  Real y = {}{}{};\nend M;\n",
-        "f(".repeat(depth),
-        inner,
-        ")".repeat(depth)
+    let src = |depth: usize| {
+        format!(
+            "model M\n  Real y = {}{}{};\nend M;\n",
+            "f(".repeat(depth),
+            vec!["x"; 20_000].join(" + "),
+            ")".repeat(depth)
+        )
+    };
+    let time = |s: &str| {
+        best_of_5(|| {
+            std::hint::black_box(format(s, &Options::default()).unwrap());
+        })
+    };
+    let deep = src(200);
+    assert!(
+        format(&deep, &Options::default()).unwrap().contains("f(\n"),
+        "幅を超える括弧は展開される"
     );
-    let t = std::time::Instant::now();
-    let out = format(&src, &Options::default()).unwrap();
-    assert!(out.contains("f(\n"), "幅を超える括弧は展開される");
-    eprintln!("elapsed {:?}", t.elapsed());
-    assert!(t.elapsed().as_secs() < 5, "{:?}", t.elapsed());
+    let ratio = time(&deep) / time(&src(1));
+    eprintln!("深さ比 {ratio:.1}");
+    assert!(ratio < 50.0, "深さ 200 は深さ 1 の {ratio:.1} 倍");
 }

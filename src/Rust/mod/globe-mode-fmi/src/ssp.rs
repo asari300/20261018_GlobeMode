@@ -41,7 +41,15 @@ pub struct Ssd {
     pub connections: Vec<SspConnection>,
     pub start_time: Option<f64>,
     pub stop_time: Option<f64>,
+    /// S274: GlobeMode 独自の `Annotation`（[`COSIM_ANNOTATION`]）の `step`（通信刻み）
+    pub cosim_step: Option<f64>,
+    /// S274: 同 `algorithm`（`jacobi` か `gauss-seidel`。解釈は呼び手）
+    pub cosim_algorithm: Option<String>,
 }
+
+/// S274: `globe fmu ssp-export` が SSD の `Annotations` に入れる、通信刻みと結線の解き方（SSD に置き場が無いもの）。
+/// SSP の規則どおり、型は自分たちが持つドメインの逆順。中身は `<globe:cosim step=".." algorithm=".."/>`。
+pub const COSIM_ANNOTATION: &str = "io.github.asari300.globe-mode.cosim";
 
 /// 範囲外で、見つけたら断る要素（名前空間は見ない）。
 const UNSUPPORTED: [&str; 4] = [
@@ -257,7 +265,23 @@ pub fn parse_ssd(xml: &str) -> Result<Ssd, String> {
             })
             .transpose()
     };
+    let cosim = child(root, "Annotations")
+        .into_iter()
+        .flat_map(|a| a.children())
+        .filter(|a| a.is_element() && a.attribute("type") == Some(COSIM_ANNOTATION))
+        .find_map(|a| child(a, "cosim"));
+    let cosim_step = cosim
+        .and_then(|c| c.attribute("step"))
+        .map(|v| {
+            v.parse()
+                .map_err(|_| format!("Annotation の step {v:?} が数でない"))
+        })
+        .transpose()?;
     Ok(Ssd {
+        cosim_step,
+        cosim_algorithm: cosim
+            .and_then(|c| c.attribute("algorithm"))
+            .map(str::to_owned),
         components,
         connections,
         start_time: time("startTime")?,

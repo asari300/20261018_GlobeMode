@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S276 構文の誤りでも出るアウトライン — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S276 構文の誤りでも出るアウトライン">
+
+<section class="slide" id="S01">
+  <span class="tag">S276 · 2026-11-15 · Track B</span>
+  <h1>Track B を初めて製品につなぐ</h1>
+  <p class="lead">LSP の <code>documentSymbol</code> と <code>foldingRange</code> が、構文の誤りがあるファイルでも出る</p>
+  <div class="big">打ちかけのファイルで、アウトラインが空にならない</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">前</span>
+  <h1>これまで</h1>
+  <ul>
+    <li>アウトラインは Rumoca の parse の結果。構文の誤りがあると <code>Err</code> で、<code>documentSymbol</code> は <code>null</code></li>
+    <li>折りたたみは字句でコメントと annotation だけ出て、クラスと節の範囲は出なかった</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">変更</span>
+  <h1>Rumoca が引けなければ CST から</h1>
+  <ul>
+    <li>新しい <code>globe-mode-lsp/src/tolerant.rs</code>: <code>globe-mode-syntax</code> の型付き AST からクラス（名前・種類・<code>partial</code>・範囲）と部品（名前・型名・範囲）だけを作る</li>
+    <li>Rumoca のアウトラインが引ければそちらを使う。正常なファイルの出力は変わらない。新しい RPC は無い</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">検証</span>
+  <h1>試験</h1>
+  <ul>
+    <li>誤りのあるファイル: クラス <code>Broken</code> と部品 <code>x : Real</code>、折りたたみ（クラス・equation 節）</li>
+    <li>途中まで書いた入れ子のクラスでも出る。正常なファイルは今までと同じ範囲</li>
+  </ul>
+  <pre><code>cargo test -p globe-mode-lsp</code></pre>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>補完・定義ジャンプを <code>globe-mode-resolve</code> につなぐ</li>
+    <li>誤りのあるファイルでの <code>extends</code>・<code>import</code>・connect は出さない</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
