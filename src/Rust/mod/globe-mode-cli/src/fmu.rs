@@ -66,6 +66,17 @@ pub enum FmuImportCommand {
         #[arg(long)]
         progress: bool,
     },
+    /// 複数の Co-Simulation の FMU を固定の通信刻みでつなぎ（Jacobi 型。入力は 1 刻み遅れる）、全 FMU の出力を 1 つの CSV に出す。Real だけ。FMU は別プロセス（ワーカー）で実行する
+    #[command(
+        after_help = "spec.json の例:\n  {\"fmus\": {\"a\": \"Dahlquist.fmu\", \"b\": \"Feedthrough.fmu\"}, \"connections\": [[\"a.x\", \"b.Float64_continuous_input\"]], \"stop_time\": 1, \"step\": 0.01}\n  （FMU のパスは spec.json からの相対。`timeout`・`memory_limit_mib` も書ける）\n例:\n  globe fmu cosim spec.json -o out.csv"
+    )]
+    Cosim {
+        /// 結線の記述（JSON）
+        spec: PathBuf,
+        /// CSV の書き先（省略時は標準出力）
+        #[arg(short, long)]
+        out: Option<PathBuf>,
+    },
     /// 内部用: FMU を回すワーカー（`fmu run` が自分自身を子プロセスとして起動する。標準入力の 1 行目が要求）
     #[command(name = "__worker", hide = true)]
     Worker,
@@ -83,6 +94,7 @@ fn parse_set(s: &str) -> Result<(String, f64), String> {
 pub fn run(command: FmuImportCommand) -> ExitCode {
     let result = match command {
         FmuImportCommand::Info { file } => info(&file),
+        FmuImportCommand::Cosim { spec, out } => cosim(&spec, out.as_deref()),
         FmuImportCommand::Worker => return ExitCode::from(worker_main() as u8),
         FmuImportCommand::Run {
             file,
@@ -227,6 +239,31 @@ fn run_fmu(
             }
         );
     }
+    write_csv(&run, out)
+}
+
+/// `globe fmu cosim`（S249）。
+fn cosim(spec: &std::path::Path, out: Option<&std::path::Path>) -> Result<(), String> {
+    if let Some(path) = out
+        && let Err(message) = crate::check_writable_file(path, &[spec.to_owned()], &[])
+    {
+        return Err(format!("結果を {message}"));
+    }
+    let text = std::fs::read_to_string(spec).map_err(|e| format!("{}: {e}", spec.display()))?;
+    let mut spec_data: globe_mode::CosimSpec =
+        serde_json::from_str(&text).map_err(|e| format!("{}: {e}", spec.display()))?;
+    // FMU のパスは spec.json のあるディレクトリからの相対
+    let dir = spec.parent().unwrap_or(std::path::Path::new("."));
+    for p in spec_data.fmus.values_mut() {
+        *p = dir.join(&*p);
+    }
+    eprintln!("{}", globe_mode::FMU_TRUST_WARNING);
+    let worker = std::env::current_exe().map_err(|e| e.to_string())?;
+    let run = globe_mode::run_cosim(&worker, &spec_data, &mut |_| {}, None)?;
+    write_csv(&run, out)
+}
+
+fn write_csv(run: &globe_mode::FmuRun, out: Option<&std::path::Path>) -> Result<(), String> {
     let (layout, columns) = run.results.columns();
     let mut text = csv_header(&layout.names[1..]);
     for i in 0..layout.points {

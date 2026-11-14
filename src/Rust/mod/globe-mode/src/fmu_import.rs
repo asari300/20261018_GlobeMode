@@ -13,7 +13,7 @@ use globe_mode_ir::{Trajectory, TrajectoryVariable, VariableRole};
 
 use crate::{CancelToken, OpenedResults};
 
-pub use imp::{Kind as FmuKind, MeSummary, TRUST_WARNING as FMU_TRUST_WARNING};
+pub use imp::{CosimSpec, Kind as FmuKind, MeSummary, TRUST_WARNING as FMU_TRUST_WARNING};
 
 /// FMU の要約（`globe fmu info` と同じ情報。ネイティブコードは実行しない）。
 #[derive(Debug, Clone, serde::Serialize)]
@@ -130,19 +130,11 @@ pub fn run_fmu(
     on_progress: &mut dyn FnMut(f64),
     cancel: Option<&CancelToken>,
 ) -> Result<FmuRun, String> {
-    let mut spec = imp::WorkerSpec::new(worker, &["fmu", "__worker"]);
-    spec.timeout = request
-        .timeout
-        .map(|s| {
-            Duration::try_from_secs_f64(s)
-                .map_err(|_| format!("timeout {s} が不正（0 以上の秒数）"))
-        })
-        .transpose()?;
-    spec.memory_limit = request.memory_limit_mib.map(|m| m.saturating_mul(1 << 20));
-    spec.cancel = cancel.map(CancelToken::flag);
-    let run = imp::run_in_worker(
-        &spec,
-        &imp::WorkerRequest {
+    run_worker(
+        worker,
+        request.timeout,
+        request.memory_limit_mib,
+        imp::WorkerRequest {
             file: path.to_owned(),
             kind: request.kind,
             start_time: request.start_time,
@@ -151,10 +143,53 @@ pub fn run_fmu(
             outputs: request.outputs.clone(),
             set: request.set.clone().into_iter().collect(),
             work_dir: None, // run_in_worker が親の側で作る
+            cosim: None,
         },
         on_progress,
+        cancel,
     )
-    .map_err(|e| e.to_string())?;
+}
+
+/// 複数の CS の FMU を固定の通信刻みでつなぐマスター（Jacobi 型。S249）を別プロセスのワーカーで回す。
+/// 列は `<FMU の名前>.<変数名>`（各 FMU の Real の出力すべて）。`spec.fmus` の相対パスは呼び手が解決しておく。
+/// ワーカー・中断・進捗は [`run_fmu`] と同じ。
+pub fn run_cosim(
+    worker: &Path,
+    spec: &CosimSpec,
+    on_progress: &mut dyn FnMut(f64),
+    cancel: Option<&CancelToken>,
+) -> Result<FmuRun, String> {
+    run_worker(
+        worker,
+        spec.timeout,
+        spec.memory_limit_mib,
+        imp::WorkerRequest {
+            cosim: Some(spec.clone()),
+            ..Default::default()
+        },
+        on_progress,
+        cancel,
+    )
+}
+
+fn run_worker(
+    worker: &Path,
+    timeout: Option<f64>,
+    memory_limit_mib: Option<u64>,
+    request: imp::WorkerRequest,
+    on_progress: &mut dyn FnMut(f64),
+    cancel: Option<&CancelToken>,
+) -> Result<FmuRun, String> {
+    let mut spec = imp::WorkerSpec::new(worker, &["fmu", "__worker"]);
+    spec.timeout = timeout
+        .map(|s| {
+            Duration::try_from_secs_f64(s)
+                .map_err(|_| format!("timeout {s} が不正（0 以上の秒数）"))
+        })
+        .transpose()?;
+    spec.memory_limit = memory_limit_mib.map(|m| m.saturating_mul(1 << 20));
+    spec.cancel = cancel.map(CancelToken::flag);
+    let run = imp::run_in_worker(&spec, &request, on_progress).map_err(|e| e.to_string())?;
     // 列を転置する（ワーカーは行で返す）
     let mut variables: Vec<TrajectoryVariable> = run
         .names
