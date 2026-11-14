@@ -367,3 +367,49 @@ fn msl_subfolder_as_the_library_points_to_its_parent() {
     assert!(text.contains("ModelicaServices.Machine.eps"), "{text}");
     assert!(text.contains("親のフォルダ"), "{text}");
 }
+
+/// S256: `globe blt` は BLT のブロックを解く順に出す。ループ無しは大きさ 1 が 3 つ、線形ループは大きさ 2 が 1 つ。
+#[test]
+fn blt_lists_blocks_in_solving_order() {
+    let blt = |model: &str| {
+        let out = globe(&[
+            "blt",
+            &modelica("GlobeModeValidation"),
+            "-m",
+            &format!("GlobeModeValidation.Loops.{model}"),
+            "--json",
+        ]);
+        assert!(out.status.success(), "{out:?}");
+        serde_json::from_slice::<serde_json::Value>(&out.stdout).unwrap()
+    };
+    let no_loop = blt("NoLoop");
+    let sizes = |v: &serde_json::Value| -> Vec<u64> {
+        v["blocks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|b| b["size"].as_u64().unwrap())
+            .collect()
+    };
+    assert_eq!(sizes(&no_loop), [1, 1, 1]);
+    // der(x) = -x が先、z = y^2 は y の後
+    assert_eq!(no_loop["blocks"][0]["variables"][0], "der(x)");
+    assert_eq!(no_loop["blocks"][2]["variables"][0], "z");
+
+    let linear = blt("LinearLoop");
+    assert_eq!(sizes(&linear), [2]);
+    assert_eq!(linear["blocks"][0]["algebraic_loop"], true);
+    assert_eq!(linear["blocks"][0]["nonlinear"], false);
+    assert_eq!(
+        linear["blocks"][0]["variables"],
+        serde_json::json!(["x", "y"])
+    );
+
+    let text = globe(&[
+        "blt",
+        &modelica("GlobeModeValidation"),
+        "-m",
+        "GlobeModeValidation.Loops.LinearLoop",
+    ]);
+    assert!(String::from_utf8_lossy(&text.stdout).contains("代数ループ（大きさ 2・線形）"));
+}
