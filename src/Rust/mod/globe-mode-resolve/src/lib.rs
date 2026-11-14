@@ -19,6 +19,7 @@ use std::cell::Cell;
 use std::collections::HashMap;
 
 pub use build::Library;
+pub use lookup::Member;
 
 pub type ClassId = usize;
 
@@ -28,6 +29,8 @@ pub struct Class {
     pub parent: Option<ClassId>,
     pub file: u32,
     pub name_range: TextRange,
+    /// クラス全体の範囲（S279。書きかけで `end` が無ければ、読めたところまで）
+    pub range: TextRange,
     pub encapsulated: bool,
     pub replaceable: bool,
     /// 入れ子のクラス（直接の子）

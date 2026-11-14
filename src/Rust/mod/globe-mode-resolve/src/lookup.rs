@@ -1,5 +1,8 @@
 //! Modelica 3.6 の 5.3 の名前の探索。
 
+use rowan::{TextRange, TextSize};
+use std::collections::HashSet;
+
 use crate::{ClassId, Import, Library, PathRef, Reason, Redecl, Ref, RefKind, Resolution, St};
 
 /// 組み込みの名前（型・関数・演算子・変数）。ここにあるものは、探索で見つからなかったときだけ使う
@@ -440,5 +443,78 @@ fn reason(w: &Walk, replaceable: bool) -> Reason {
         Reason::Inherited
     } else {
         Reason::NotFound
+    }
+}
+
+/// 補完の候補 1 件（S279）
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Member {
+    pub name: String,
+    /// 入れ子のクラス（でなければ部品）
+    pub is_class: bool,
+    /// 部品の宣言の型（書いたとおり。`Modelica.Electrical.Analog.Interfaces.PositivePin`）
+    pub ty: Option<String>,
+}
+
+impl Library {
+    /// ファイル `file` の中の、`offset`（バイト）を含む一番内側のクラス。書きかけのクラスでも使える
+    pub fn class_at(&self, file: u32, offset: u32) -> Option<ClassId> {
+        let at = TextSize::from(offset);
+        (0..self.classes.len())
+            .filter(|&i| {
+                self.classes[i].file == file && self.classes[i].range.contains_inclusive(at)
+            })
+            .min_by_key(|&i| self.classes[i].range.len())
+    }
+
+    /// `scope` の中で成分参照・クラス名 `parts`（`a.b`）が指すものの、直下の要素（部品は型の要素、受け継ぎを含む。`protected` の部品は除く）。
+    /// 引けなければ None。`redeclare` で型が変わる所は、書いてある型で引く。
+    pub fn members_of(&self, scope: ClassId, parts: &[String]) -> Option<Vec<Member>> {
+        let r = Ref {
+            file: self.classes.get(scope)?.file,
+            range: TextRange::default(),
+            scope,
+            kind: RefKind::Expr,
+            parts: parts.to_vec(),
+            global: false,
+            local: false,
+        };
+        let target = match self.resolve(&r) {
+            Resolution::Class(c) => c,
+            Resolution::Component(c, k) => {
+                self.classes[c].components[k].tys.iter().find_map(|t| {
+                    match self.target_state(c, t) {
+                        St::Done(tc) => Some(tc),
+                        _ => None,
+                    }
+                })?
+            }
+            _ => return None,
+        };
+        let mut out = Vec::new();
+        self.collect_members(target, &mut out, &mut HashSet::new());
+        Some(out)
+    }
+
+    fn collect_members(&self, c: ClassId, out: &mut Vec<Member>, seen: &mut HashSet<ClassId>) {
+        if !seen.insert(c) {
+            return;
+        }
+        let cl = &self.classes[c];
+        out.extend(cl.components.iter().filter(|x| x.public).map(|x| Member {
+            name: x.name.clone(),
+            is_class: false,
+            ty: x.tys.last().map(|t| t.path.join(".")),
+        }));
+        out.extend(cl.classes.keys().map(|n| Member {
+            name: n.clone(),
+            is_class: true,
+            ty: None,
+        }));
+        for i in 0..cl.bases.len() {
+            if let Ok(b) = self.base(c, i) {
+                self.collect_members(b, out, seen);
+            }
+        }
     }
 }

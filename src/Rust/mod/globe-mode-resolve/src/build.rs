@@ -106,6 +106,41 @@ impl Library {
         lib
     }
 
+    /// 文書 1 つを一時的に足して `f(木, ファイル番号)` を回し、終わったら取り除く（S279。LSP の補完が、ライブラリを作り直さずに書きかけの文書を引く）。
+    /// shortcut: 文書が `within` で足したクラスを、回している間にライブラリの継承元が引いて覚えた結果は戻さない（ライブラリは文書を知らないはずなので）
+    pub fn with_source<T>(
+        &mut self,
+        name: &str,
+        text: &str,
+        f: impl FnOnce(&Library, u32) -> T,
+    ) -> T {
+        let (nf, nc, nr, nd) = (
+            self.files.len(),
+            self.classes.len(),
+            self.refs.len(),
+            self.diagnostics.len(),
+        );
+        let mut raws = Vec::new();
+        self.add(name.to_string(), text, &mut raws);
+        self.link(raws);
+        let out = f(self, nf as u32);
+        for id in nc..self.classes.len() {
+            let n = self.classes[id].name.clone();
+            let map = match self.classes[id].parent {
+                Some(p) => &mut self.classes[p].classes,
+                None => &mut self.roots,
+            };
+            if map.get(&n) == Some(&id) {
+                map.remove(&n);
+            }
+        }
+        self.classes.truncate(nc);
+        self.files.truncate(nf);
+        self.refs.truncate(nr);
+        self.diagnostics.truncate(nd);
+        out
+    }
+
     fn add(&mut self, name: String, text: &str, raws: &mut Vec<(Vec<String>, Raw)>) {
         let file = self.files.len() as u32;
         self.files.push(name);
@@ -202,6 +237,7 @@ fn extract(c: &ast::ClassDef, file: u32) -> Option<Raw> {
             parent: None,
             file,
             name_range: c.name_range()?,
+            range: c.syntax().text_range(),
             encapsulated: c.is_encapsulated(),
             replaceable: c.is_replaceable(),
             classes: HashMap::new(),
