@@ -45,7 +45,7 @@ pub use fmu_import::{
 
 pub use globe_mode_db as db;
 pub use globe_mode_exec as exec;
-pub use globe_mode_exec::{CancelToken, ExecStage, Progress};
+pub use globe_mode_exec::{CancelToken, ExecStage, Linearization, Progress};
 pub use globe_mode_sim as sim;
 
 /// ソルバの登録表（`globe simulate --list-solvers` と wasm の `solvers()` の中身）。
@@ -92,6 +92,18 @@ pub enum FmuRuntime {
     P5b,
 }
 
+/// FMU のインターフェース（S251。`globe fmu export --kind`）。JSON では `"me_cs"` / `"se"`。
+#[cfg(feature = "fmu")]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FmuExportKind {
+    /// Model Exchange と Co-Simulation（既定）
+    #[default]
+    MeCs,
+    /// FMI 3.0 の Scheduled Execution（周期クロック 1 つ。`runtime` は p5b）
+    Se,
+}
+
 /// FMU の書き出しの設定（S118。`globe fmu export` の `--fmi-version`・`--build`・`--target`・`--fmi-headers`・`--runtime`・`--runtime-lib`）。
 /// C ABI・NIF・Python は同じ形の JSON（`{"fmi_version": 2, "build": false, "targets": [], "fmi_headers": null, "runtime": "p5a", "runtime_lib": null}`。省略可）で渡す。
 #[cfg(feature = "fmu")]
@@ -109,6 +121,8 @@ pub struct FmuOptions {
     pub runtime: FmuRuntime,
     /// `P5b` の共有ライブラリ（`libglobe_mode_fmu_cdylib.so` など）。省略すると `cargo build --release -p globe-mode-fmu-cdylib` で作る（S239）
     pub runtime_lib: Option<PathBuf>,
+    /// インターフェース（S251）。`Se` は `fmi_version` 3 と `runtime` p5b だけ
+    pub kind: FmuExportKind,
 }
 
 #[cfg(feature = "fmu")]
@@ -132,6 +146,7 @@ impl Default for FmuOptions {
             fmi_headers: None,
             runtime: FmuRuntime::P5a,
             runtime_lib: None,
+            kind: FmuExportKind::MeCs,
         }
     }
 }
@@ -145,6 +160,9 @@ pub fn export_fmu(
 ) -> Result<PathBuf, String> {
     if options.runtime != FmuRuntime::P5a || options.runtime_lib.is_some() {
         return Err("runtime p5b・runtime_lib はモデルの本文が要る（Workspace::export_fmu か export_fmu_p5b から）".into());
+    }
+    if options.kind == FmuExportKind::Se {
+        return Err("kind se は runtime p5b だけ".into());
     }
     let headers = match (options.build, &options.fmi_headers) {
         (false, _) => None,
@@ -664,6 +682,63 @@ impl Workspace {
             model: model.to_string(),
             parameters,
         })
+    }
+
+    /// モデルの線形化（S254）。入力（`input` の Real）・出力（`output` の Real）・状態の行列 A・B・C・D を数値微分で返す。
+    /// `time` が None か実験の開始時刻なら初期化の直後の点、それより後なら開始時刻から `time` まで実行した点
+    /// （入力を外から駆動するモデルは実行できないので、後の時刻は使えない）。DAE まで変換できなければ `Err`（その診断）。
+    pub fn linearize(
+        &mut self,
+        model: &str,
+        overrides: &BTreeMap<String, f64>,
+        time: Option<f64>,
+    ) -> Result<Linearization, Vec<Diagnostic>> {
+        let compiled = self.compile(model, overrides)?;
+        let start = compiled
+            .experiment
+            .as_ref()
+            .and_then(|e| e.start_time)
+            .map_or(0.0, |t| t.get());
+        let fail = |message: String| {
+            vec![Diagnostic::error(
+                globe_mode_core::codes::RUN_INTEGRATION_FAILED,
+                Stage::Run,
+                format!("線形化に失敗: {message}"),
+            )]
+        };
+        let mut inst = exec::ModelInstance::new(&compiled, overrides, start)?;
+        if let Some(t) = time.filter(|t| *t != start) {
+            if t < start || !t.is_finite() {
+                return Err(fail(format!(
+                    "時刻 {t} は開始時刻 {start} より前（か有限でない）"
+                )));
+            }
+            let report = exec::run(
+                &compiled,
+                &SimSettings {
+                    start_time: Some(start),
+                    stop_time: Some(t),
+                    parameters: overrides.clone(),
+                    ..SimSettings::default()
+                },
+            );
+            let ok = report.succeeded();
+            let Some(run) = report.run.filter(|_| ok) else {
+                return Err(report.diagnostics);
+            };
+            let x: Option<Vec<f64>> = inst
+                .state_names()
+                .iter()
+                .map(|n| {
+                    let v = run.trajectory.variables.iter().find(|v| &v.name == n)?;
+                    v.values.last().copied()
+                })
+                .collect();
+            let x = x.ok_or_else(|| fail("結果の列に状態が見つからない".to_string()))?;
+            inst.set_states(&x).map_err(fail)?;
+            inst.set_time(t);
+        }
+        inst.linearize().map_err(fail)
     }
 
     /// 検査 → コンパイル → 実行。`request.files` は先にワークスペースに足す（残る）。

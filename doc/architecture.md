@@ -132,7 +132,7 @@ Rumoca の rev は GlobeMode の版ごとに固定する（[ADR-0002](adr/0002-r
 
 | workflow | きっかけ | 中身 |
 | --- | --- | --- |
-| `ci.yml` | main への push、`pull_request`（使わない決め）、毎週月曜 03:00 JST の全体、手動（入力 `full`。既定は全体） | 差分だけを検査する（[ADR-0006](adr/0006-incremental-ci.md)）。ジョブ `plan`・`rust-linux`・`rust-windows`・`rust-sundials`・`deny`・`wasm-node`・`ui`・`msl`・`python`・`lang`（Zig・Julia・Elixir・Gleam。S223 から Phoenix・Wisp の試験も）・`web`（S215。Rust のウェブアプリ 4 種の `cargo build` と試験。別の workspace なので、自分のディレクトリか `globe-mode-fmt` を変えたときだけ）・`astro`（S223。Astro のウェブアプリの試験）・`ui-exp`（S233。Leptos・Dioxus の試験版 UI が wasm32 でビルドでき試験が通るか。別の workspace なので、`src/Rust/apps/experimental/**` か facade `globe-mode`〔とその依存〕を変えたときだけ）・`docs`。`python` は S218 から FastAPI のウェブアプリの試験（#73）、S223 から marimo・Streamlit の試験も回し、`python`・`lang`・`astro` は CLI（`globe-mode-cli` とその依存）の影響でも立つ |
+| `ci.yml` | main への push、`pull_request`（使わない決め）、毎週月曜 03:00 JST の全体、手動（入力 `full`。既定は全体） | 差分だけを検査する（[ADR-0006](adr/0006-incremental-ci.md)）。ジョブ `plan`・`rust-linux`・`rust-windows`・`rust-sundials`・`deny`・`wasm-node`・`ui`・`msl`・`python`・`lang`（Zig・Julia・Elixir・Gleam。S223 から Phoenix・Wisp の試験も）・`web`（S215。Rust のウェブアプリ 4 種の `cargo build` と試験。別の workspace なので、自分のディレクトリか `globe-mode-fmt` を変えたときだけ）・`astro`（S223。Astro のウェブアプリの試験）・`ui-exp`（S233。Leptos・Dioxus の試験版 UI が wasm32 でビルドでき試験が通るか。別の workspace なので、`src/Rust/apps/experimental/**` か facade `globe-mode`〔とその依存〕を変えたときだけ）・`desktop`（S255。Desktop のシェル〔別の workspace〕の `cargo test`。`tauri-backend.ts` の method 一覧・CSP の一致など。sidecar の試験は `GLOBE_BIN` が無いので省かれ、`desktop.yml` が回す。`src/Rust/apps/desktop/**`・`tauri-backend.ts`・`index.html` を変えたときだけ）・`docs`。`python` は S218 から FastAPI のウェブアプリの試験（#73）、S223 から marimo・Streamlit の試験も回し、`python`・`lang`・`astro` は CLI（`globe-mode-cli` とその依存）の影響でも立つ |
 | `msl-sim.yml` | 手動 | MSL の全例題の `msl:funnel` と `msl:sim`、分割読み込みの全例題の一致（`split-all`）、14 ソルバの表（`solvers`・`solvers-report`、[msl-solvers.md](msl-solvers.md)） |
 | `libraries.yml` | 手動、毎週月曜 06:00 JST | MSL 以外の公開ライブラリ 7 つの検査と表（[libraries.md](libraries.md) の元。S058） |
 | `resources.yml` | 手動 | 最大 RSS と wasm の線形メモリの測定（S051・S054） |
@@ -333,7 +333,7 @@ KLU（LGPL）は同梱しない。
 | 段階 | 方法 | 対応 |
 | --- | --- | --- |
 | P5a（早い経路。**S094 で着手**、[ADR-0031](adr/0031-fmi-export-p5a-first.md)） | Rumoca の `fmi2` / `fmi3` テンプレートでソース FMU を作り、`cc` か `zig cc` で各 target 向けにビルドする。S094: frontend の `fmi_export` が Rumoca の `fmi2` を描き、`globe-mode-fmi` の feature `export` が FMU にする（`globe fmu export`、`--build` は linux64 だけ） | FMI 2.0 の ME / CS（事象・外部関数・表・入力の種は無し）。生成物は Rumoca のテンプレート（Apache-2.0）の文面を含む。表示の要否は【未確認】 |
-| P5b（自前のランタイム） | `globe-mode-fmu`（S095 は Decay を固定した FMI 2.0 ME、S099 から resources の Modelica を compile して exec の `ModelInstance` で回す。[ADR-0032](adr/0032-p5b-own-runtime.md)。BSD-2 の FMI ヘッダの上に作る）。IR を埋め込んで解釈実行するか、Rumoca の `rust-ode` テンプレートでコンパイルする | FMI 2 の ME / CS、FMI 3 の ME / CS / SE。解釈実行ならコンパイラが要らないので、ブラウザや Android からも出力できる |
+| P5b（自前のランタイム） | `globe-mode-fmu`（S095 は Decay を固定した FMI 2.0 ME、S099 から resources の Modelica を compile して exec の `ModelInstance` で回す。[ADR-0032](adr/0032-p5b-own-runtime.md)。BSD-2 の FMI ヘッダの上に作る）。IR を埋め込んで解釈実行するか、Rumoca の `rust-ode` テンプレートでコンパイルする | FMI 2 の ME / CS、FMI 3 の ME / CS / SE。解釈実行ならコンパイラが要らないので、ブラウザや Android からも出力できる。S251: SE は周期 Clock 1 つ・パーティション 1 つ（`--kind se`、`fmi3ActivateModelPartition` が CS の `do_step` を回す） |
 
 - `ModelStructure` は BLT の incidence から作る。
 - CS の FMU は自前のソルバで刻む。

@@ -68,3 +68,9 @@ test("保存時の整形と、globe/format への振り替え", async () => {
   assert.deepEqual(await ext.formatEdits(doc("model M (end M;"), { tabSize: 2 }), []); // 壊れていれば変えない
   assert.deepEqual(await ext.formatEdits(doc("整形後\n"), { tabSize: 2 }), []); // 変わらなければ空
 });
+
+test("globeMode.path はワークスペースの設定から変えられない（clone したリポジトリのプログラムが走る。#94）", async () => {
+  const { readFileSync } = await import("node:fs");
+  const props = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).contributes.configuration.properties;
+  assert.equal(props["globeMode.path"].scope, "machine");
+});

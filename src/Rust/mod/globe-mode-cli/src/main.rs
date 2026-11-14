@@ -10,6 +10,7 @@
 //!                [--tolerance X] [--interval X] [--start-time T] [--timeout S] [--param NAME=VALUE]...
 //!                [--output result.csv|result.mat|-] [--format csv|mat] [--list-parameters] [--force] [--json]
 //! globe simulate --list-solvers [--json]
+//! globe linearize [<FILE|DIR>...] [--library <DIR>]... --model <NAME> [--time T] [--param NAME=VALUE]... [--json]
 //! globe lsp [--library <DIR>]...
 //! ```
 //!
@@ -72,6 +73,7 @@ static VERBOSE: AtomicBool = AtomicBool::new(false);
 
 mod fmu;
 mod fmu_p5b;
+mod linearize;
 mod report;
 mod results;
 mod simulate;
@@ -305,6 +307,31 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// モデルを線形化し、状態空間の行列 A・B・C・D を出す（S254。入力は `input` の Real、出力は `output` の Real）
+    #[command(
+        allow_negative_numbers = true,
+        after_help = "例:\n  globe linearize model.mo -m Plant\n  globe linearize model.mo -m Plant --time 2 --json\n\n--time を省くと初期化の直後（実験の開始時刻）で線形化する。後の時刻は、そこまで実行した状態で線形化する（入力を外から駆動するモデルは実行できないので使えない）。微分は数値の中心差分で、誤差は 1e-8 程度"
+    )]
+    Linearize {
+        /// ファイルまたはディレクトリ。モデルがライブラリの中にあるなら省略できる
+        #[arg(required_unless_present = "library")]
+        files: Vec<PathBuf>,
+        /// ライブラリのディレクトリ（例: data/msl）。何度でも指定できる
+        #[arg(long, short = 'L')]
+        library: Vec<PathBuf>,
+        /// モデルの完全修飾名
+        #[arg(long, short)]
+        model: String,
+        /// 線形化する時刻（既定は実験の開始時刻）
+        #[arg(long)]
+        time: Option<f64>,
+        /// パラメータの上書き（名前=値。何度でも）
+        #[arg(long = "param", value_name = "NAME=VALUE")]
+        params: Vec<String>,
+        /// JSON（`{x, u, y, A, B, C, D, x0, u0, y0, time}`）で出力する
+        #[arg(long)]
+        json: bool,
+    },
     /// 方程式の BLT 分解（解く順のブロック。大きさ 2 以上が代数ループ）を表示する
     #[command(
         after_help = "例:\n  globe blt src/Modelica/GlobeModeValidation -m GlobeModeValidation.Loops.LinearLoop\n  globe blt -L data/msl -m Modelica.Electrical.Analog.Examples.ChuaCircuit --json\n\nインデックス 2 以上のモデルは Pantelides 法の最高階の系で分ける（状態選択の前の見込み）"
@@ -368,6 +395,10 @@ enum FmuCommand {
         /// --runtime p5b の共有ライブラリ（`libglobe_mode_fmu_cdylib.so` など）。省略すると cargo で作る
         #[arg(long)]
         runtime_lib: Option<PathBuf>,
+        /// インターフェース。se は FMI 3.0 の Scheduled Execution（周期クロック 1 つ。`--runtime p5b --fmi-version 3` と一緒に使う。
+        /// 周期は `experiment(Interval)`、無ければ 0.01）
+        #[arg(long, value_enum, default_value_t = fmu_p5b::FmuKind::MeCs)]
+        kind: fmu_p5b::FmuKind,
     },
 }
 
@@ -466,6 +497,7 @@ fn main() -> ExitCode {
                     fmi_headers,
                     runtime,
                     runtime_lib,
+                    kind,
                 },
         } => fmu_export(
             runtime,
@@ -479,6 +511,7 @@ fn main() -> ExitCode {
                 build,
                 targets: target,
                 fmi_headers,
+                kind: kind.into(),
                 ..Default::default()
             },
         ),
@@ -536,6 +569,27 @@ fn main() -> ExitCode {
                 json,
             })
         }
+        Command::Linearize {
+            files,
+            library,
+            model,
+            time,
+            params,
+            json,
+        } => match simulate::parse_params(&params) {
+            Ok(params) => linearize::linearize(linearize::LinearizeArgs {
+                files,
+                library,
+                model,
+                time,
+                params,
+                json,
+            }),
+            Err(message) => {
+                eprintln!("error: {message}");
+                ExitCode::from(2)
+            }
+        },
     }
 }
 

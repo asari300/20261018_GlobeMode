@@ -674,6 +674,29 @@ def docs_panel(browser, origin: str, errors: list[str]) -> None:
     print("説明パネル: MSL の PID を木（検索）で開くと、本文と表が出る")
 
 
+def tree_icons(browser, origin: str, errors: list[str]) -> None:
+    """S257: ライブラリの木の各行に、そのクラスの Icon を小さく（18 px、aria-hidden）描く。見えた行だけ引き、行の読み上げ（名前）は変えない。
+    MSL（public/msl/MSL.json）があるときだけ。Blocks を開くと子の行に svg が出る。"""
+    if not (DIST / "msl/MSL.json").exists():
+        print("public/msl/MSL.json が無いので、木のアイコンの試験は飛ばす")
+        return
+    pg = browser.new_page()
+    pg.on("console", lambda m: m.type == "error" and errors.append(m.text))
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(origin)
+    pg.get_by_role("button", name="MSL を読む").click(force=True)
+    expect(pg.locator("p[data-msl]")).to_have_attribute("data-msl", "loaded", timeout=300_000)
+    tree = pg.locator("ul.tree[aria-label=ライブラリ]")
+    tree.locator("li[data-path='Modelica'] > button").first.click()
+    tree.locator("li[data-path='Modelica.Blocks'] > button").first.click()
+    expect(tree.locator("li[data-path^='Modelica.Blocks.'] svg[data-tree-icon]").first).to_be_visible(timeout=60_000)
+    assert tree.locator("svg[data-tree-icon]").first.evaluate("(e) => e.getBoundingClientRect().height") <= 20
+    assert tree.locator(".ti:not([aria-hidden=true])").count() == 0, "アイコンは装飾（aria-hidden）"
+    assert tree.locator("li[data-path='Modelica.Blocks'] > button").first.get_attribute("aria-expanded") == "true"
+    pg.close()
+    print("木のアイコン: MSL の Blocks を開くと子の行に svg（18 px、aria-hidden）が出る")
+
+
 def icon_view(browser, origin: str, errors: list[str]) -> None:
     """S244: アイコン。カーソルのクラスの annotation(Icon(…)) を Rust が形のデータにし、UI が SVG の要素として説明パネルの上に描く。
     自分のモデルは Rectangle・Polygon・Text（%name はクラス名）、Icon の無いクラスは「無い」。MSL があれば Gain を木（検索）で開くと三角形（polygon）が出る。"""
@@ -2363,6 +2386,7 @@ def main() -> int:
         ui_polish(browser, origin, errors)  # S228
         docs_panel(browser, origin, errors)  # S232
         icon_view(browser, origin, errors)  # S244
+        tree_icons(browser, origin, errors)  # S257
         diagram_view(browser, origin, errors)  # S245
         parameter_dialog(browser, origin, errors)  # S248
         open_fmu_file(browser, origin, errors)  # S229

@@ -34,7 +34,9 @@
 //! | `globe/librarySource` | `{path}`（完全修飾名） | `{file, text, range}`（S127。そのクラスを定義するライブラリのファイル。S186 から `range` はそのクラスの宣言の範囲（LSP の Range。引けなければ無い）。無ければ -32000） |
 //! | `globe/documentation` | `{class?, file?, line?, character?}`（`class` は完全修飾名。空なら開いている文書 `file` の行・列にあるいちばん内側のクラス） | `{class, info, revisions}` か null（S232。クラスの `annotation(Documentation(…))` の生の HTML。エスケープは戻してある。文書のクラスを先に、無ければライブラリのクラスから。クラスが引けなければ null。wasm の `documentation` と同じ形） |
 //! | `globe/icon` | `globe/documentation` と同じ | `{class, extent: [x1, y1, x2, y2], shapes: […]}` か null（S244。クラスの `annotation(Icon(…))` を形のデータにしたもの。`extends` の基底クラスのアイコンを 1 段だけ先に重ねる。図形は `kind`（rect・ellipse・line・polygon・text・bitmap）、`origin`・`rotation`・`extent`・`points`・`line`・`fill`（`[r,g,b]` か null）・`thickness`・`dash`・`radius`・`text`・`fontSize`・`align`・`arrows`・`arrowSize`。座標は Modelica のまま〔y は上向き〕。描くのは UI。wasm の `icon` と同じ形） |
-//! | `globe/diagram` | `globe/documentation` と同じ | `{class, extent, parts, connections, shapes}` か null（S245。クラスの部品〔`Placement(transformation)` のある宣言〕と `connect`、`Diagram(graphics)` を形のデータにしたもの。部品は `name`・`class`〔書いてある型〕・`line`〔宣言の行、0 始まり〕・`transform`〔アイコンの座標から Diagram の座標への `[a,b,c,d,e,f]`〕・`bbox`・`shapes`〔部品のクラスの Icon の図形。引けなければ空〕、`connections` は `from`・`to`・`line`〔`Line(points)` か中心どうしを結ぶ図形〕。`globe/icon` と同じ図形の形。wasm の `diagram` と同じ） |
+//! | `globe/movePart` | `{file, class, part, dx, dy}` | LSP の TextEdit の配列 `[{range, newText}]` か null（S250。図の部品 `part` を Diagram の座標で (dx, dy) だけ動かす編集。`Placement(transformation(origin = {x, y}))` の `{x, y}` を書き換え、`origin` が無ければ `transformation(` の直後に足す。`file` は開いている文書、`class` は完全修飾名。Placement が無い・`origin` が数でないなど動かせなければ null。ファイルは書き換えない〔UI がエディタに適用する〕。wasm の `move_part` と同じ） |
+//! | `globe/addConnect` | `{file, class, from, to, points}` | LSP の TextEdit の配列 `[{range, newText}]` か null（S261。図で引いた結線を足す編集。クラスの最後の `equation` 節の末尾（クラスの `annotation` の前）に `connect(from, to) annotation(Line(points = {{x, y}, …}, color = {0, 0, 255}));` を足し、`equation` が無ければクラスの `annotation`（無ければ `end`）の前に節ごと足す。`from`・`to` は `part.connector`、`points` は図の座標〔空なら線の `annotation` を付けない〕。端が不正・クラスが無ければ null。型の互換は見ない〔検査が後で誤りを出す〕。ファイルは書き換えない。wasm の `add_connect` と同じ） |
+//! | `globe/diagram` | `globe/documentation` と同じ | `{class, extent, parts, connections, shapes}` か null（S245。クラスの部品〔`Placement(transformation)` のある宣言〕と `connect`、`Diagram(graphics)` を形のデータにしたもの。部品は `name`・`class`〔書いてある型〕・`line`〔宣言の行、0 始まり〕・`transform`〔アイコンの座標から Diagram の座標への `[a,b,c,d,e,f]`〕・`bbox`・`shapes`〔部品のクラスの Icon の図形。引けなければ空〕・`connectors`〔S261。`[{name, pos}]`、部品のクラスと `extends` の 2 段までの、`Placement` を持つ宣言〔型が connector でないと分かるものは除く〕の位置。図の座標〕、`connections` は `from`・`to`・`line`〔`Line(points)` か中心どうしを結ぶ図形〕。`globe/icon` と同じ図形の形。wasm の `diagram` と同じ） |
 //!
 //! 設定ファイル（S130）: `initialize` の `rootUri`（無ければ `rootPath`）から上へたどって最初の `globe-mode.toml` を
 //! 読み、lint の診断と `textDocument/formatting` に使う（`workspace/didChangeConfiguration` で読み直す）。
@@ -767,6 +769,36 @@ impl Server {
                     diagram::diagram(params["class"].as_str().unwrap_or(""), at, &|c| {
                         std::fs::read_to_string(tree.file(c)?).ok()
                     }),
+                )
+            }
+            // S250: 図の部品を (dx, dy) だけ動かす編集（TextEdit の配列。ファイルは書かない）
+            "globe/movePart" => {
+                let text = params["file"].as_str().and_then(|f| self.texts.get(f).cloned());
+                let at = text.as_deref().map(|t| (t, 0, 0));
+                reply(
+                    id,
+                    diagram::move_part(
+                        params["class"].as_str().unwrap_or(""),
+                        at,
+                        params["part"].as_str().unwrap_or(""),
+                        params["dx"].as_f64().unwrap_or(0.0),
+                        params["dy"].as_f64().unwrap_or(0.0),
+                    ),
+                )
+            }
+            // S261: 図の結線を足す編集（TextEdit の配列。ファイルは書かない）
+            "globe/addConnect" => {
+                let text = params["file"].as_str().and_then(|f| self.texts.get(f).cloned());
+                let at = text.as_deref().map(|t| (t, 0, 0));
+                reply(
+                    id,
+                    diagram::add_connect(
+                        params["class"].as_str().unwrap_or(""),
+                        at,
+                        params["from"].as_str().unwrap_or(""),
+                        params["to"].as_str().unwrap_or(""),
+                        &diagram::points(&params["points"]),
+                    ),
                 )
             }
             "globe/librarySource" => match params["path"].as_str() {
@@ -2403,6 +2435,58 @@ mod tests {
         );
         assert_eq!(dg(json!({"class": "Nope"})), Value::Null);
         assert_eq!(dg(json!({})), Value::Null);
+    }
+
+    #[test]
+    fn move_part_returns_a_text_edit_for_the_origin() {
+        // S250: globe/movePart。origin の `{…}` を書き換える TextEdit。動かせなければ null
+        let mut s = Server::new(&[]).unwrap();
+        let text = "model T\n  Box a annotation(Placement(transformation(extent = {{-10, -10}, {10, 10}}, origin = {50, 0})));\n  Box c;\nend T;\n";
+        s.handle(
+            json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+            "uri": "T.mo", "languageId": "modelica", "version": 1, "text": text}}}),
+        );
+        let mut mv = |part: &str| {
+            s.handle(json!({"id": 1, "method": "globe/movePart", "params": {"file": "T.mo", "class": "T", "part": part, "dx": 2, "dy": -4}}))
+                .remove(0)["result"]
+                .clone()
+        };
+        let e = mv("a");
+        assert_eq!(e[0]["newText"], "{52, -4}", "{e}");
+        assert_eq!(
+            e[0]["range"]["start"],
+            json!({"line": 1, "character": 86}),
+            "{e}"
+        );
+        assert_eq!(mv("c"), Value::Null, "Placement が無い");
+    }
+
+    #[test]
+    fn add_connect_returns_a_text_edit_that_appends_to_the_equation_section() {
+        // S261: globe/addConnect。equation 節の末尾に connect を足す TextEdit。端が不正なら null
+        let mut s = Server::new(&[]).unwrap();
+        let text = "model T\n  Box a;\n  Box b;\nequation\n  x = 1;\nend T;\n";
+        s.handle(
+            json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+            "uri": "T.mo", "languageId": "modelica", "version": 1, "text": text}}}),
+        );
+        let mut ac = |to: &str| {
+            s.handle(json!({"id": 1, "method": "globe/addConnect", "params": {"file": "T.mo", "class": "T", "from": "a.p", "to": to, "points": [[0, 0], [10, 5]]}}))
+                .remove(0)["result"]
+                .clone()
+        };
+        let e = ac("b.n");
+        assert_eq!(
+            e[0]["newText"],
+            "\n  connect(a.p, b.n) annotation(Line(points = {{0, 0}, {10, 5}}, color = {0, 0, 255}));",
+            "{e}"
+        );
+        assert_eq!(
+            e[0]["range"]["start"],
+            json!({"line": 4, "character": 8}),
+            "{e}"
+        );
+        assert_eq!(ac("b.n; x"), Value::Null);
     }
 
     #[test]
