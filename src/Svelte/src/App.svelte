@@ -18,6 +18,7 @@
   import LibraryTree from "./lib/LibraryTree.svelte";
   import SimSettings from "./lib/SimSettings.svelte";
   import DocsPanel from "./lib/DocsPanel.svelte";
+  import BltPanel from "./lib/BltPanel.svelte";
   import { modelicaDocs } from "./lib/docs";
   import { isInternal } from "./lib/plot/signals";
   import FmuForm from "./lib/FmuForm.svelte";
@@ -79,6 +80,7 @@
   let docs = $state.raw<Documentation | null>(null); // S232: 説明パネルの Documentation
   let icon = $state.raw<Icon | null>(null); // S244: 説明パネルの上のアイコン
   let diagram = $state.raw<Diagram | null>(null); // S245: 「図」のタブ
+  let bltModel = $state<string | null>(null); // S262: 「BLT」を押したときのモデル名
   let graphModel = $state<string | null>(null); // 「グラフ」を押したときのモデル名（入力のたびに描き直さない）
 
   // S141: 自分のファイルを開く・保存する。本文とファイル名は localStorage に自動保存して起動時に戻す（使えなくても動く。S102）。モデル名は戻さず本文から入れ直す（smoke が書き換えたモデル名を次の起動で拾わないため）
@@ -792,6 +794,9 @@
   const graph = () => run(async () => {
     graphModel = model;
   });
+  const blt = () => run(async () => {
+    bltModel = model;
+  });
 
   // ノードのキー（`stage1.resistor` など）の先頭の名前を、エディタの本文で最初に出る所で選ぶ
   // shortcut: 宣言を名前の字面で探す。同じ名前が先に出ると外れる。outline の位置が要るなら LSP の documentSymbol を使う
@@ -877,6 +882,7 @@
     <button onclick={check} disabled={busy} title="検査（Ctrl/Cmd+Shift+Enter）" aria-keyshortcuts="Control+Shift+Enter Meta+Shift+Enter">検査</button>
     <button onclick={() => simulate()} disabled={busy} title="実行（Ctrl/Cmd+Enter）" aria-keyshortcuts="Control+Enter Meta+Enter">実行</button>
     <button onclick={graph} disabled={busy}>グラフ</button>
+    <button onclick={blt} disabled={busy} data-blt-button>BLT</button>
     <button onclick={format} disabled={busy}>整形</button>
     {#if runState === "running" && backend.cancel}<button onclick={() => backend.cancel?.()} title="止める（Ctrl/Cmd+.）" aria-keyshortcuts="Control+. Meta+.">止める</button>{/if}
     {#if desktop}
@@ -989,6 +995,7 @@
     </tbody>
   </table>
   {#if columns}<Plot {columns} {model} />{/if}
+  {#if bltModel}<BltPanel {backend} model={bltModel} />{/if}
   {#if graphModel}<Graph {backend} model={graphModel} onSelect={select} />{/if}
 </main>
 

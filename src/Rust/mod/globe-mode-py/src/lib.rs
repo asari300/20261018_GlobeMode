@@ -170,6 +170,18 @@ impl Workspace {
             .map_err(PyRuntimeError::new_err)
     }
 
+    /// 方程式の BLT 分解（`BltReport` の JSON。S262）。検査が通らなければ `SourceError`（診断つき）。
+    fn blt(&mut self, py: Python<'_>, model: &str) -> PyResult<String> {
+        let r = py.detach(|| self.0.blt(model));
+        match r {
+            Ok(r) => json(&r).map_err(PyRuntimeError::new_err),
+            Err(ds) => {
+                let msg = ds.first().map(|d| format!("{}: {}", d.code, d.message));
+                Err(error(py, "SourceError", msg, json(&ds).ok().as_deref()))
+            }
+        }
+    }
+
     /// 検査 → コンパイル → 実行（`SimulateResponse` の JSON）。モデルの誤りは例外にせず `ok` と `diagnostics` で返す。
     /// GIL を離して回し（S200 から `on_progress` が無くても）、進捗を dict で知らせる。`True` を返すか Ctrl-C で止まる（S129）。
     #[pyo3(signature = (model, settings = None, on_progress = None))]
