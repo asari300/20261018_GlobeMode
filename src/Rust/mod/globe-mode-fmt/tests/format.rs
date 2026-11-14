@@ -377,3 +377,22 @@ fn bom_is_accepted_and_kept() {
         "{l:?}"
     );
 }
+
+/// 幅を超える括弧の入れ子で、`flat` が 1 行を最後まで組み立てない（#97。入力 × 深さの仕事になっていた）。
+/// 時間は環境で変わるので、手前の実装（debug で約 10 倍以上）との差が出る大きさで、緩い上限にする。
+#[test]
+fn deeply_nested_wide_input_is_not_quadratic() {
+    let depth = 200;
+    let inner = vec!["x"; 20_000].join(" + ");
+    let src = format!(
+        "model M\n  Real y = {}{}{};\nend M;\n",
+        "f(".repeat(depth),
+        inner,
+        ")".repeat(depth)
+    );
+    let t = std::time::Instant::now();
+    let out = format(&src, &Options::default()).unwrap();
+    assert!(out.contains("f(\n"), "幅を超える括弧は展開される");
+    eprintln!("elapsed {:?}", t.elapsed());
+    assert!(t.elapsed().as_secs() < 5, "{:?}", t.elapsed());
+}
