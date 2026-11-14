@@ -10,7 +10,7 @@
     table(res)  # polars.DataFrame（time 列と変数の列）
 
 - 使い方: `Workspace`（開く・`check`・`outline`・`deps`・`flat`・`graph`・`simulate`・`simulate_columns`・`export_fmu`）、`table`、`format`、
-  `lint`、`solvers`、`read_results`（結果の MAT v4・CSV を読む）、`fmu_info`・`run_fmu`（FMU を読む・回す。FMI Import、S229）。
+  `lint`、`solvers`、`read_results`（結果の MAT v4・CSV を読む）、`fmu_info`・`run_fmu`（FMU を読む・回す。FMI Import、S229）、`cosim`（複数の FMU をつなぐ。`.json`・`.ssp`・dict。S258）。
   それぞれ `help()` に引数・戻り値・誤りがある。
 - 誤りの扱い: **モデルの誤りは例外にせず、結果の `diagnostics`（`ok`・`passed`）で返す**（未知のモデルも `check` は
   `passed: False`）。ライブラリが出す例外はすべて `GlobeModeError` の子（`.diagnostics` と最初の診断の `.code` を持つ）で、
@@ -67,6 +67,7 @@ __all__ = [
     "SettingsError",
     "SourceError",
     "Workspace",
+    "cosim",
     "fmu_info",
     "format",
     "lint",
@@ -392,6 +393,47 @@ def run_fmu(
     if parameters is not None:
         request["set"] = dict(parameters)
     me, names, columns = _native.run_fmu(_globe_bin(), path, json.dumps({k: v for k, v in request.items() if v is not None}), _callback(on_progress))
+    # shortcut: memoryview の "d" は native-endian（Rust は little-endian で詰める）、big-endian の機械なら byteswap が要る
+    cols = {n: pl.Series(n, memoryview(c).cast("d"), pl.Float64) for n, c in zip(names, columns)}
+    return {"ok": True, "columns": cols, "csv": None, "me": json.loads(me)}
+
+
+def cosim(
+    spec: Mapping[str, Any] | str | os.PathLike[str],
+    *,
+    stop_time: float | None = None,
+    step: float | None = None,
+    on_progress: Callable[[float], Any] | None = None,
+) -> dict[str, Any]:
+    """複数の CS の FMU を固定の通信刻みでつなぐ（S258。`globe fmu cosim` と同じ。S249 のマスター、S253 の SSP）。`run_fmu` と同じ形の dict を返す
+    （`ok`・`columns`・`csv`＝None・`me`＝None）。列は `<FMU の名前>.<変数名>`（各 FMU の Real の出力すべて）。
+
+    `spec` は dict（`fmus`＝名前 → `.fmu` のパス、`connections`＝`[["a.y", "b.u"], ...]`、`stop_time`・`step`・`start_time`・`timeout`。
+    FMU のパスは今の作業ディレクトリから）か、そのパス（`.json`＝FMU のパスは JSON のあるディレクトリから、`.ssp`＝SSP 2.0.1 の最小版。
+    入れ子の System・ParameterBindings・単位の変換は未対応で `FmuError`）。
+    `stop_time`・`step` は spec の値を上書きする（`.ssp` では省略すると DefaultExperiment と（終了 - 開始）/ 100）。`timeout`（秒）は spec の値を上書きする。
+    FMU を別プロセス（ワーカー。`GLOBE_BIN` か PATH の `globe`）で回すこと、`on_progress`・Ctrl-C は `run_fmu` と同じ。誤りは `FmuError`。
+
+        res = cosim({"fmus": {"a": "Dahlquist.fmu"}, "connections": [], "stop_time": 1, "step": 0.01})
+        table(res)
+    """
+    ssp, spec_json = None, None
+    if isinstance(spec, Mapping):
+        data = dict(spec)
+    elif Path(spec).suffix.lower() == ".ssp":
+        ssp = spec
+    else:
+        try:
+            data = json.loads(Path(spec).read_text(encoding="utf-8"))
+        except (OSError, ValueError) as e:
+            raise FmuError(f"{spec}: {e}") from e
+        if isinstance(data, dict) and isinstance(data.get("fmus"), dict):
+            data["fmus"] = {k: str(Path(spec).parent / v) for k, v in data["fmus"].items()}
+    if ssp is None:
+        # 未知の鍵・型の誤りは Rust の `CosimSpec` が断る（deny_unknown_fields）
+        data.update({k: v for k, v in dict(stop_time=stop_time, step=step).items() if v is not None})
+        spec_json = json.dumps(data, default=os.fspath)
+    me, names, columns = _native.cosim(_globe_bin(), spec_json, ssp, stop_time, step, _callback(on_progress))
     # shortcut: memoryview の "d" は native-endian（Rust は little-endian で詰める）、big-endian の機械なら byteswap が要る
     cols = {n: pl.Series(n, memoryview(c).cast("d"), pl.Float64) for n, c in zip(names, columns)}
     return {"ok": True, "columns": cols, "csv": None, "me": json.loads(me)}

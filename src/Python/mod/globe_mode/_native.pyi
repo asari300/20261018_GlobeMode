@@ -34,3 +34,11 @@ def run_fmu(
     request: str | None = None,
     on_progress: Callable[[float], Any] | None = None,
 ) -> tuple[str, list[str], list[bytes]]: ...
+def cosim(
+    worker: str | os.PathLike[str],
+    spec: str | None = None,
+    ssp: str | os.PathLike[str] | None = None,
+    stop_time: float | None = None,
+    step: float | None = None,
+    on_progress: Callable[[float], Any] | None = None,
+) -> tuple[str, list[str], list[bytes]]: ...
