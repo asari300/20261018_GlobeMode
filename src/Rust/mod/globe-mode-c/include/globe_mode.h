@@ -58,6 +58,11 @@ char *gm_graph(GmWorkspace *ws, const char *model, uint32_t depth);
 char *gm_outline(GmWorkspace *ws, const char *path);
 char *gm_deps(GmWorkspace *ws, const char *model);
 char *gm_flat(GmWorkspace *ws, const char *model);
+/* 解析（S285、globe blt・linearize --json と同じ形）。gm_blt は BltReport の JSON（解く順のブロック。大きさ 2 以上が代数ループ）、
+ * gm_linearize は A・B・C・D などの JSON（options_json は NULL か {"time": 1.0, "parameters": {"R": 2.0}}）。
+ * どちらも通らなければ {"error": "コード: 文"}。 */
+char *gm_blt(GmWorkspace *ws, const char *model);
+char *gm_linearize(GmWorkspace *ws, const char *model, const char *options_json);
 /* SimulateResponse の JSON。settings_json は NULL 可（{"stop_time": 2, "solver": "bdf"} など）。 */
 char *gm_simulate(GmWorkspace *ws, const char *model, const char *settings_json);
 /* 列の道（S116）。{"response": SimulateResponse（csv 無し）, "names": ["time", ...], "points": n,

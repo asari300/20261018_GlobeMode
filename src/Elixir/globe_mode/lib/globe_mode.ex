@@ -18,6 +18,8 @@ defmodule :globe_mode_nif do
   def outline(_ws, _path), do: :erlang.nif_error(:not_loaded)
   def deps(_ws, _model), do: :erlang.nif_error(:not_loaded)
   def flat(_ws, _model), do: :erlang.nif_error(:not_loaded)
+  def blt(_ws, _model), do: :erlang.nif_error(:not_loaded)
+  def linearize(_ws, _model, _options_json), do: :erlang.nif_error(:not_loaded)
   def panic_for_test(_ws), do: :erlang.nif_error(:not_loaded)
   def cancel_token, do: :erlang.nif_error(:not_loaded)
   def cancel(_token), do: :erlang.nif_error(:not_loaded)
@@ -55,6 +57,13 @@ defmodule GlobeMode do
 
   @doc "flat モデルの要約。flatten まで通らなければ `{:ok, nil}`（S191）。"
   def flat(ws, model), do: decode(:globe_mode_nif.flat(ws, model))
+
+  @doc "方程式の BLT 分解（`blocks` のリストを持つ map。大きさ 2 以上が代数ループ）。検査が通らなければ `{:error, 理由}`（S285）。"
+  def blt(ws, model), do: decode(:globe_mode_nif.blt(ws, model))
+
+  @doc "線形化（A・B・C・D など。`globe linearize --json` と同じ）。`options` は `%{time: 1.0, parameters: %{R: 2.0}}`（S285）。"
+  def linearize(ws, model, options \\ %{}),
+    do: decode(:globe_mode_nif.linearize(ws, model, JSON.encode!(options)))
 
   @doc "`settings` は `%{stop_time: 2, solver: \"bdf\"}` など。"
   def simulate(ws, model, settings \\ %{}),

@@ -53,6 +53,20 @@ defmodule GlobeModeTest do
     assert GlobeMode.flat(ws, "Bad") == {:ok, nil}
   end
 
+  test "解析の口 linearize・blt（S285）" do
+    {:ok, ws} = GlobeMode.new()
+    GlobeMode.set_file(ws, "L.mo", "model L parameter Real a = 1; Real x(start = 1, fixed = true); input Real u = 0; output Real y; equation der(x) = -a*x + u; y = 2*x; end L;")
+    GlobeMode.set_file(ws, "Lp.mo", "model Lp Real x; Real y; equation x + y = time; x - 2*y = 1; end Lp;")
+    assert {:ok, %{"A" => [[a]], "B" => [[b]], "C" => [[c]]}} = GlobeMode.linearize(ws, "L", %{parameters: %{"a" => 3}})
+    assert_in_delta a, -3.0, 1.0e-4
+    assert_in_delta b, 1.0, 1.0e-4
+    assert_in_delta c, 2.0, 1.0e-4
+    assert {:error, _} = GlobeMode.linearize(ws, "NoSuch")
+    assert {:ok, %{"blocks" => blocks}} = GlobeMode.blt(ws, "Lp")
+    assert [2] = for %{"algebraic_loop" => true, "size" => n} <- blocks, do: n
+    assert {:error, _} = GlobeMode.blt(ws, "NoSuch")
+  end
+
   # S131（ADR-0033）: 積分に 100 ms より長くかかる（t が途中で知らされる）ように、細かく振れる入力を長く積む（S129 と同じ）
   @wiggle "model Wiggle Real x(start = 0, fixed = true); equation der(x) = sin(100 * time); end Wiggle;"
 
