@@ -623,6 +623,15 @@ fn diagram_is_read_as_shape_data_from_the_document() {
         serde_json::from_str(&ws.move_part("T", text, "b", 2.0, -4.0)).unwrap();
     assert_eq!(e[0]["newText"], "{42, -4}");
     assert_eq!(ws.move_part("T", text, "nope", 2.0, 0.0), "null");
+    // S261: 結線の追加は equation 節の末尾（最後の connect の次の行）へ。コネクタ（Pin の Placement）は部品の connectors に出る。端が不正なら null
+    let c: serde_json::Value =
+        serde_json::from_str(&ws.add_connect("T", text, "a.p", "b.n", "[[0, 0], [10, 5]]"))
+            .unwrap();
+    assert_eq!(
+        c[0]["newText"],
+        "\n  connect(a.p, b.n) annotation(Line(points = {{0, 0}, {10, 5}}, color = {0, 0, 255}));"
+    );
+    assert_eq!(ws.add_connect("T", text, "a.p;", "b.n", "[]"), "null");
 }
 
 #[test]

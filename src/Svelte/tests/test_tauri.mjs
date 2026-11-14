@@ -60,6 +60,10 @@ calls.length = 0;
 globalThis.window.__TAURI__.core.invoke = async (cmd, a) => (calls.push([cmd, a]), null);
 assert.equal(await b.movePart("T", "a", 2, -4, { file: "T.mo" }), null);
 assert.deepEqual(calls, [["rpc", { method: "globe/movePart", params: { file: "T.mo", class: "T", part: "a", dx: 2, dy: -4 } }]]);
+// 図の結線の追加（S261）: globe/addConnect に class・from・to・points と file を渡す
+calls.length = 0;
+assert.equal(await b.addConnect("T", "a.p", "b.n", [[0, 0], [10, 5]], { file: "T.mo" }), null);
+assert.deepEqual(calls, [["rpc", { method: "globe/addConnect", params: { file: "T.mo", class: "T", from: "a.p", to: "b.n", points: [[0, 0], [10, 5]] } }]]);
 globalThis.window.__TAURI__.core.invoke = async (cmd) => { if (cmd === "cancel_run") return; throw "中断した"; };
 const running = b.runFmu("/r/D.fmu");
 b.cancel();

@@ -101,6 +101,12 @@ export function diagramNodes(d: Diagram): SvgNode[] {
           ? { tag: "g", attrs: { transform: matrix(p.transform) }, children: p.shapes.map(shapeNode) }
           : { tag: "rect", attrs: { x: b.x, y: b.y, width: b.w, height: b.h, fill: "none", stroke: "#888", "stroke-dasharray": "4 3", "vector-effect": VE } },
         { tag: "text", attrs: { x: b.x + b.w / 2, y: b.y + b.h + size, "text-anchor": "middle", "font-size": size, fill: "#333" }, text: p.name },
+        // S261: コネクタのヒット領域（結線の端。透明で、ホバーで色が付くのは DiagramView の CSS）。data-x・data-y は図の座標（y 上向き）
+        ...(p.connectors ?? []).map((c): SvgNode => ({
+          tag: "circle",
+          attrs: { class: "conn", "data-end": `${p.name}.${c.name}`, "data-x": c.pos[0], "data-y": c.pos[1], cx: c.pos[0], cy: -c.pos[1], r: size * 0.7 },
+          children: [{ tag: "title", attrs: {}, text: `${p.name}.${c.name}` }],
+        })),
       ],
     };
   });

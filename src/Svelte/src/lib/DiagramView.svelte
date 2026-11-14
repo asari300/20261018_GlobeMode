@@ -1,10 +1,10 @@
-<!-- S245: クラスの図。S250: 部品をドラッグして動かせる（離したら onMove。書き換えるのは Rust の編集をエディタに入れる側）。Rust が読んだ形のデータ（Diagram）を SVG の要素として描く。部品は自分のクラスの Icon を変換して置き、クリックで宣言の行へ飛ぶ -->
+<!-- S245: クラスの図。S261: コネクタから別のコネクタへドラッグすると結線（connect）を足す（離したら onConnect）。S250: 部品をドラッグして動かせる（離したら onMove。書き換えるのは Rust の編集をエディタに入れる側）。Rust が読んだ形のデータ（Diagram）を SVG の要素として描く。部品は自分のクラスの Icon を変換して置き、クリックで宣言の行へ飛ぶ -->
 <script lang="ts">
   import type { Diagram } from "./backend";
   import { diagramNodes, snap, viewBoxOf } from "./shape-svg";
   import SvgTree from "./SvgTree.svelte";
 
-  let { diagram, onJump, onParams, onMove }: { diagram: Diagram | null; onJump?: (line: number) => void; onParams?: (part: string) => void; onMove?: (part: string, dx: number, dy: number) => Promise<boolean> } = $props();
+  let { diagram, onJump, onParams, onMove, onConnect }: { diagram: Diagram | null; onJump?: (line: number) => void; onParams?: (part: string) => void; onMove?: (part: string, dx: number, dy: number) => Promise<boolean>; onConnect?: (from: string, to: string, points: [number, number][]) => Promise<boolean> } = $props();
   let svg = $state<SVGSVGElement>();
 
   const empty = $derived(!diagram || !(diagram.parts.length || diagram.connections.length || diagram.shapes.length));
@@ -21,7 +21,39 @@
     const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(svg!.getScreenCTM()!.inverse());
     return [p.x, p.y];
   };
+  // S261: 結線のドラッグ。コネクタ（.conn）から始め、仮の線を引く。別のコネクタの上で離したら onConnect（同じコネクタ・コネクタ以外なら何もしない）
+  let wire: { from: Element; sx: number; sy: number; line: SVGLineElement; moved: boolean } | null = null;
+  const ends = (c: Element): [number, number] => [Number(c.getAttribute("data-x")), Number(c.getAttribute("data-y"))];
+  const downWire = (e: PointerEvent, c: Element) => {
+    const [x, y] = ends(c);
+    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    for (const [k, v] of Object.entries({ x1: x, y1: -y, x2: x, y2: -y, stroke: "#00f", "stroke-width": 2, "vector-effect": "non-scaling-stroke", "pointer-events": "none" })) line.setAttribute(k, String(v));
+    wire = { from: c, sx: e.clientX, sy: e.clientY, line, moved: false };
+    svg!.setPointerCapture(e.pointerId);
+  };
+  const moveWire = (e: PointerEvent) => {
+    if (!wire || (!wire.moved && Math.hypot(e.clientX - wire.sx, e.clientY - wire.sy) < 4)) return;
+    if (!wire.moved) svg!.append(wire.line);
+    wire.moved = true;
+    const [x, y] = at(e);
+    wire.line.setAttribute("x2", String(x));
+    wire.line.setAttribute("y2", String(y));
+  };
+  const upWire = async (e: PointerEvent) => {
+    const w = wire;
+    wire = null;
+    w?.line.remove();
+    if (!w?.moved) return;
+    swallow = true;
+    setTimeout(() => (swallow = false), 0);
+    const to = document.elementFromPoint(e.clientX, e.clientY)?.closest(".conn");
+    const [a, b] = [w.from.getAttribute("data-end"), to?.getAttribute("data-end")];
+    if (!to || !a || !b || a === b) return;
+    await onConnect?.(a, b, [ends(w.from), ends(to)]);
+  };
   const down = (e: PointerEvent) => {
+    const c = (e.target as Element).closest(".conn");
+    if (c && onConnect && e.button === 0 && svg?.getScreenCTM()) return downWire(e, c);
     const g = (e.target as Element).closest("[data-part]");
     if (!onMove || e.button !== 0 || !g || !svg?.getScreenCTM()) return;
     const [x, y] = at(e);
@@ -29,6 +61,7 @@
     g.setPointerCapture(e.pointerId); // 部品に捕まえる（svg だと離したあとの click の対象が svg になり、宣言へ飛べない）
   };
   const move = (e: PointerEvent) => {
+    if (wire) return moveWire(e);
     if (!drag || (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 4)) return;
     const [x, y] = at(e);
     drag.moved = true;
@@ -36,7 +69,8 @@
     drag.dy = snap(drag.y - y);
     drag.g.setAttribute("transform", `translate(${drag.dx} ${-drag.dy})`);
   };
-  const up = async () => {
+  const up = async (e: PointerEvent) => {
+    if (wire) return upWire(e);
     const d = drag;
     drag = null;
     if (!d?.moved) return;
@@ -75,6 +109,8 @@
   .diagram { height: 100%; min-height: 12rem; background: #fff; color: #555; border: 1px solid var(--line); display: flex; align-items: center; justify-content: center; }
   svg { width: 100%; height: 100%; display: block; }
   svg :global(.part) { cursor: grab; touch-action: none; }
+  svg :global(.conn) { fill: #06c; fill-opacity: 0; cursor: crosshair; }
+  svg :global(.conn:hover) { fill-opacity: .35; }
   svg :global(.part:focus-visible) { outline: 2px solid #06c; }
   .none { margin: 0; font-size: .85em; }
 </style>

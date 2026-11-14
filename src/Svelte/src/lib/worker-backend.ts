@@ -73,6 +73,9 @@ export class WorkerBackend implements Backend {
   movePart(cls: string, part: string, dx: number, dy: number, at: { file: string }) {
     return this.#w.movePart(cls, part, dx, dy, at); // S250
   }
+  addConnect(cls: string, from: string, to: string, points: [number, number][], at: { file: string }) {
+    return this.#w.addConnect(cls, from, to, points, at); // S261
+  }
   rename(file: string, line: number, character: number, newName: string) {
     return this.#w.rename(file, line, character, newName);
   }

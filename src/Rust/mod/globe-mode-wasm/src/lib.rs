@@ -458,6 +458,22 @@ impl Workspace {
         globe_mode_lsp::diagram::move_part(class, at, part, dx, dy).to_string()
     }
 
+    /// 図に結線 `connect(from, to)` を足す TextEdit の配列 `[{range, newText}]` の JSON（S261。LSP の `globe/addConnect` と同じ形）。
+    /// `points` は図の座標の `[[x, y], …]` の JSON（空・読めなければ線の annotation なし）。足せなければ `null`。ファイルは書かない。
+    pub fn add_connect(
+        &self,
+        class: &str,
+        text: &str,
+        from: &str,
+        to: &str,
+        points: &str,
+    ) -> String {
+        let at = (!text.is_empty()).then_some((text, 0, 0));
+        let pts = serde_json::from_str(points)
+            .map_or_else(|_| Vec::new(), |v| globe_mode_lsp::diagram::points(&v));
+        globe_mode_lsp::diagram::add_connect(class, at, from, to, &pts).to_string()
+    }
+
     /// 名前を `new_name` に変える TextEdit（`{range, newText}`）の配列の JSON（S161。LSP の `globe/rename` と同じ形）。
     /// 断る場合（部品でもクラスでもない・別のファイルのクラス・識別子でない・予約語・同じ階層に既にある）は理由を例外（文字列）で返す。
     pub fn rename(

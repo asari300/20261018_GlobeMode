@@ -232,6 +232,9 @@ export class TauriBackend implements Backend {
   movePart(cls: string, part: string, dx: number, dy: number, at: { file: string }) {
     return invoke<{ range: Definition["range"]; newText: string }[] | null>("rpc", { method: "globe/movePart", params: { file: at.file, class: cls, part, dx, dy } }); // S250
   }
+  addConnect(cls: string, from: string, to: string, points: [number, number][], at: { file: string }) {
+    return invoke<{ range: Definition["range"]; newText: string }[] | null>("rpc", { method: "globe/addConnect", params: { file: at.file, class: cls, from, to, points } }); // S261
+  }
   rename(file: string, line: number, character: number, newName: string) {
     return invoke<{ range: Definition["range"]; newText: string }[]>("rpc", { method: "globe/rename", params: { file, line, character, newName } });
   }
