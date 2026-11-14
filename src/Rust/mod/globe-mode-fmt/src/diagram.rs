@@ -313,22 +313,8 @@ pub fn add_connect(
     let bom = if src.starts_with('\u{feff}') { 3 } else { 0 };
     let body = &src[bom..];
     let tokens = lex(body).ok()?;
-    let within = within(&tokens);
-    let spans = class_spans(&tokens).ok()?;
-    let own = spans.iter().find(|s| join(&within, &s.path) == qualified)?;
     let name_of = qualified.rsplit('.').next().unwrap_or(qualified);
-    // 自分のクラス直下の要素（入れ子のクラスの中は除く）
-    let mut mine = Vec::new();
-    for e in split(&tokens, false).ok()? {
-        let st = e.tokens[0].start;
-        let inner = spans
-            .iter()
-            .filter(|s| s.start <= st && st < s.end)
-            .max_by_key(|s| s.start);
-        if inner.is_some_and(|o| o.path == own.path) && !spans.iter().any(|s| s.start == st) {
-            mine.push(e.tokens);
-        }
-    }
+    let mine = own_elements(&tokens, qualified)?;
     let fmt = |v: f64| ((v * 1000.0).round() / 1000.0 + 0.0).to_string();
     let line = if points.is_empty() {
         String::new()
@@ -391,6 +377,122 @@ pub fn add_connect(
         ls + bom,
         format!("{end_ind}equation\n{decl}{stmt}\n"),
     ))
+}
+
+/// クラス直下の要素（入れ子のクラスの中は除く）。クラスが無ければ None。
+fn own_elements<'t, 'a>(tokens: &'t [Token<'a>], qualified: &str) -> Option<Vec<&'t [Token<'a>]>> {
+    let within = within(tokens);
+    let spans = class_spans(tokens).ok()?;
+    let own = spans.iter().find(|s| join(&within, &s.path) == qualified)?;
+    let mut mine = Vec::new();
+    for e in split(tokens, false).ok()? {
+        let st = e.tokens[0].start;
+        let inner = spans
+            .iter()
+            .filter(|s| s.start <= st && st < s.end)
+            .max_by_key(|s| s.start);
+        if inner.is_some_and(|o| o.path == own.path) && !spans.iter().any(|s| s.start == st) {
+            mine.push(e.tokens);
+        }
+    }
+    Some(mine)
+}
+
+/// クラス `qualified` に部品 `<ty> <名前> annotation(Placement(transformation(origin = {x, y}, extent = {{-10, -10}, {10, 10}})));` の宣言を足す編集（S265）。
+/// 返すのは `src` のバイト範囲（挿入だけ）と、そこへ入れる文字列。最後の public の宣言の後（`protected`・`equation` などの節の前）に、その字下げで足す。
+/// 宣言が無ければ、最初の節かクラスの `annotation`（無ければ `end`）の行の前に足す。名前は型の最後の部分の頭を小文字にしたもので、
+/// クラスの中の字句と重なる（キーワードを含む）ときは `1`、`2`… を付ける。`origin` は 2 単位に吸着。
+/// 型が `package`・`function`・`record`・`type` と分かれば None（`library` で引けない・種類が読めなければ受ける）。型が名前でない・クラスが無い・挿入位置の行に他の文がある（1 行に詰めた）ときも None。
+pub fn add_part(
+    src: &str,
+    qualified: &str,
+    ty: &str,
+    origin: [f64; 2],
+    library: &dyn Fn(&str) -> Option<String>,
+) -> Option<(usize, usize, String)> {
+    let ident = |w: &str| {
+        w.chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+            && w.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    };
+    if !ty.split('.').all(ident) {
+        return None;
+    }
+    if matches!(
+        kind_of(ty, "", &[], &[], src, library),
+        Some("package" | "function" | "record" | "type")
+    ) {
+        return None;
+    }
+    let bom = if src.starts_with('\u{feff}') { 3 } else { 0 };
+    let body = &src[bom..];
+    let tokens = lex(body).ok()?;
+    let name_of = qualified.rsplit('.').next().unwrap_or(qualified);
+    let mine = own_elements(&tokens, qualified)?;
+    let last = ty.rsplit('.').next()?;
+    let base = format!("{}{}", last[..1].to_lowercase(), &last[1..]);
+    let taken = |n: &str| {
+        n == last
+            || crate::KEYWORDS.contains(&n)
+            || mine
+                .iter()
+                .flat_map(|t| t.iter())
+                .any(|t| t.kind == Kind::Ident && t.text == n)
+    };
+    let name = if taken(&base) {
+        (1..).map(|i| format!("{base}{i}")).find(|n| !taken(n))?
+    } else {
+        base
+    };
+    let snap = |v: f64| (v / 2.0).round() * 2.0 + 0.0;
+    let decl = format!(
+        "{ty} {name} annotation(Placement(transformation(origin = {{{}, {}}}, extent = {{{{-10, -10}}, {{10, 10}}}})));",
+        snap(origin[0]),
+        snap(origin[1])
+    );
+    let indent_of = |pos: usize| {
+        let ls = body[..pos].rfind('\n').map_or(0, |i| i + 1);
+        body[ls..]
+            .chars()
+            .take_while(|c| *c == ' ' || *c == '\t')
+            .collect::<String>()
+    };
+    let is_end = |t: &[Token<'_>]| t[0].is("end") && t.get(1).is_some_and(|n| n.is(name_of));
+    let stop = |t: &[Token<'_>]| {
+        [
+            "protected",
+            "equation",
+            "algorithm",
+            "initial",
+            "annotation",
+        ]
+        .iter()
+        .any(|k| t[0].is(k))
+            || is_end(t)
+    };
+    let decls: Vec<_> = mine.iter().take_while(|t| !stop(t)).collect();
+    if let Some(l) = decls.last() {
+        let indent = decls
+            .iter()
+            .rev()
+            .find(|t| !t[0].is_comment() && !t[0].is("public"))
+            .map_or_else(
+                || decl_indent(&mine, body, name_of),
+                |t| indent_of(t[0].start),
+            );
+        let end = l.last()?;
+        let pos = end.start + end.text.len() + bom;
+        return Some((pos, pos, format!("\n{indent}{decl}")));
+    }
+    let target = mine.get(decls.len())?;
+    let ls = body[..target[0].start].rfind('\n').map_or(0, |i| i + 1);
+    if !body[ls..target[0].start].trim().is_empty() {
+        return None; // 同じ行に他の文がある
+    }
+    let end = mine.iter().find(|t| is_end(t))?;
+    let indent = format!("{}  ", indent_of(end[0].start));
+    Some((ls + bom, ls + bom, format!("{indent}{decl}\n")))
 }
 
 /// クラスの最初の宣言の字下げ（無ければ `end` の字下げ + 2 桁）。
@@ -664,7 +766,7 @@ fn connectors(
     Some(out)
 }
 
-/// 型 `ty` のクラスが `connector` か。引けなければ None。ファイルを字句解析せず、`<種類> <名前>` の字面を探すだけ（大きなライブラリの本文を何度も読むので）。
+/// 型 `ty` のクラスが `connector` か。引けなければ None。
 fn is_connector(
     ty: &str,
     class: &str,
@@ -673,6 +775,19 @@ fn is_connector(
     src: &str,
     library: &dyn Fn(&str) -> Option<String>,
 ) -> Option<bool> {
+    kind_of(ty, class, aliases, wild, src, library).map(|k| k == "connector")
+}
+
+/// 型 `ty` のクラスの種類（`connector`・`model`・`block`・`record`・`class`・`type`・`package`・`function`）。引けなければ None。
+/// ファイルを字句解析せず、`<種類> <名前>` の字面を探すだけ（大きなライブラリの本文を何度も読むので）。
+fn kind_of(
+    ty: &str,
+    class: &str,
+    aliases: &[(String, String)],
+    wild: &[String],
+    src: &str,
+    library: &dyn Fn(&str) -> Option<String>,
+) -> Option<&'static str> {
     let last = ty.rsplit('.').next().unwrap_or(ty);
     candidates(ty, class, aliases, wild)
         .into_iter()
@@ -684,13 +799,18 @@ fn is_connector(
                     return None;
                 }
                 let kind = text[..i].split_whitespace().next_back()?;
-                match kind {
-                    "connector" => Some(true),
-                    "model" | "block" | "record" | "class" | "type" | "package" | "function" => {
-                        Some(false)
-                    }
-                    _ => None,
-                }
+                [
+                    "connector",
+                    "model",
+                    "block",
+                    "record",
+                    "class",
+                    "type",
+                    "package",
+                    "function",
+                ]
+                .into_iter()
+                .find(|k| *k == kind)
             })
         })
 }
@@ -947,5 +1067,52 @@ end Circ;
         assert!(add_connect(with, "Nope", "a.p", "b.n", &pts).is_none());
         let (_, _, t) = add_connect(with, "M", "a.p", "b[2].n", &[]).unwrap();
         assert_eq!(t, "\n    connect(a.p, b[2].n);");
+    }
+
+    #[test]
+    fn add_part_goes_after_the_last_public_declaration() {
+        let lib = |c: &str| match c {
+            "L.Res" => Some("within L;\nmodel Res\nend Res;\n".to_string()),
+            "L.Fn" => Some("within L;\nfunction Fn\nend Fn;\n".to_string()),
+            _ => None,
+        };
+        let apply = |src: &str, class: &str, ty: &str| {
+            let (a, b, t) = add_part(src, class, ty, [13.0, -7.0], &lib)?;
+            Some(format!("{}{}{}", &src[..a], t, &src[b..]))
+        };
+        let decl = "L.Res res annotation(Placement(transformation(origin = {14, -8}, extent = {{-10, -10}, {10, 10}})));";
+        // 宣言の後（protected の前）、最後の宣言の字下げで。末尾のコメントの後ろ
+        let with = "model M\n    Real x; // 値\n    Real y;\nprotected\n  Real z;\nequation\n  x = 1;\nend M;\n";
+        assert_eq!(
+            apply(with, "M", "L.Res").unwrap(),
+            format!(
+                "model M\n    Real x; // 値\n    Real y;\n    {decl}\nprotected\n  Real z;\nequation\n  x = 1;\nend M;\n"
+            )
+        );
+        // 宣言が無い: 最初の節の前（end の字下げ + 2）。入れ子のクラスは自分の end
+        let none = "package P\n  model M\n  equation\n    x = 1;\n  end M;\n  model N\n    Real a;\n  end N;\nend P;\n";
+        assert_eq!(
+            apply(none, "P.M", "L.Res").unwrap(),
+            format!(
+                "package P\n  model M\n    {decl}\n  equation\n    x = 1;\n  end M;\n  model N\n    Real a;\n  end N;\nend P;\n"
+            )
+        );
+        // 名前の重複: res（宣言とキーワードでない字句）→ res1 → res2
+        let dup = "model M\n  L.Res res;\n  L.Res res1;\nend M;\n";
+        assert!(
+            apply(dup, "M", "L.Res")
+                .unwrap()
+                .contains("\n  L.Res res2 annotation")
+        );
+        // 種類: function は断る、引けなければ受ける
+        assert!(apply(with, "M", "L.Fn").is_none());
+        assert!(
+            apply(with, "M", "Other.Thing")
+                .unwrap()
+                .contains("Other.Thing thing annotation")
+        );
+        // 不正な型・クラス無し
+        assert!(apply(with, "M", "L.Res; x").is_none());
+        assert!(apply(with, "Nope", "L.Res").is_none());
     }
 }

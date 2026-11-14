@@ -5,7 +5,7 @@
   import IconView from "./IconView.svelte";
   import { sanitize, type Safe } from "./html-sanitize";
 
-  let { doc, icon = null, diagram = null, onJump, onParams, onMove, onConnect }: { doc: Documentation | null; icon?: Icon | null; diagram?: Diagram | null; onJump?: (line: number) => void; onParams?: (part: string) => void; onMove?: (part: string, dx: number, dy: number) => Promise<boolean>; onConnect?: (from: string, to: string, points: [number, number][]) => Promise<boolean> } = $props();
+  let { doc, icon = null, diagram = null, onJump, onParams, onMove, onConnect, onAdd }: { doc: Documentation | null; icon?: Icon | null; diagram?: Diagram | null; onJump?: (line: number) => void; onParams?: (part: string) => void; onMove?: (part: string, dx: number, dy: number) => Promise<boolean>; onConnect?: (from: string, to: string, points: [number, number][]) => Promise<boolean>; onAdd?: (type: string, x: number, y: number) => Promise<boolean> } = $props();
   let tab = $state<"docs" | "diagram">("docs"); // S245: 説明と図のタブ
   const info = $derived(doc ? sanitize(doc.info) : []);
   const revisions = $derived(doc ? sanitize(doc.revisions) : []);
@@ -26,7 +26,7 @@
     <button aria-pressed={tab === "diagram"} data-tab-diagram onclick={() => (tab = "diagram")}>図</button>
   </div>
   {#if tab === "diagram"}
-  <DiagramView {diagram} {onJump} {onParams} {onMove} {onConnect} />
+  <DiagramView {diagram} {onJump} {onParams} {onMove} {onConnect} {onAdd} />
   {:else}
   <IconView {icon} />
   {#if doc}<p class="cls"><code>{doc.class}</code></p>{/if}

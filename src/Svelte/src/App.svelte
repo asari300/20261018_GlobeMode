@@ -595,12 +595,12 @@
     }
     view.focus();
   }
-  // S250: 図の部品のドラッグ。Rust（globe/movePart）が返す origin の編集をエディタに 1 回の dispatch（undo 1 回）で入れる。保存はしない。動かせなければ false
-  async function onMove(part: string, dx: number, dy: number): Promise<boolean> {
+  // 図の編集（S250 部品の移動・S261 結線・S265 部品の追加）: Rust が返す TextEdit の配列をエディタに 1 回の dispatch（undo 1 回）で入れる。保存はしない。足せなければ false
+  async function editDiagram(get: (d: Diagram) => Promise<{ range: { start: { line: number; character: number }; end: { line: number; character: number } }; newText: string }[] | null>): Promise<boolean> {
     if (!diagram) return false;
     try {
       await backend.setFile(file, view.state.doc.toString());
-      const edits = await backend.movePart(diagram.class, part, dx, dy, { file });
+      const edits = await get(diagram);
       if (!edits?.length) return false;
       view.dispatch({ changes: edits.map((e) => ({ from: offsetOf(e.range.start), to: offsetOf(e.range.end), insert: e.newText })) });
       return true;
@@ -608,19 +608,11 @@
       return false;
     }
   }
-  // S261: 図で引いた結線。Rust（globe/addConnect）が返す connect の挿入を、onMove と同じくエディタに 1 回の dispatch で入れる。足せなければ false
-  async function onConnect(from: string, to: string, points: [number, number][]): Promise<boolean> {
-    if (!diagram) return false;
-    try {
-      await backend.setFile(file, view.state.doc.toString());
-      const edits = await backend.addConnect(diagram.class, from, to, points, { file });
-      if (!edits?.length) return false;
-      view.dispatch({ changes: edits.map((e) => ({ from: offsetOf(e.range.start), to: offsetOf(e.range.end), insert: e.newText })) });
-      return true;
-    } catch {
-      return false;
-    }
-  }
+  const onMove = (part: string, dx: number, dy: number) => editDiagram((d) => backend.movePart(d.class, part, dx, dy, { file }));
+  const onConnect = (from: string, to: string, points: [number, number][]) => editDiagram((d) => backend.addConnect(d.class, from, to, points, { file }));
+  const onAdd = (type: string, x: number, y: number) => editDiagram((d) => backend.addPart(d.class, type, x, y, { file }));
+  // S265: 木の「図へ」ボタン（キーボード用）は図の中央に足す
+  const addToCenter = (e: { path: string }) => diagram && onAdd(e.path, (diagram.extent[0] + diagram.extent[2]) / 2, (diagram.extent[1] + diagram.extent[3]) / 2);
   function goBack() {
     if (busy) return; // S196
     let i = -1;
@@ -952,9 +944,9 @@
   {#if otherWindow}<p class="note" role="status" data-other-window>別のウィンドウでも開いている。自動保存は最後に編集したほうだけが残る。</p>{/if}
   {#if storeNote}<p class="failure" role="status" data-store-note>{storeNote}</p>{/if}
   <div class="work">
-    {#if msl === "loaded"}<aside class="library"><LibraryTree {backend} onOpen={openLibrary} /></aside>{/if}
+    {#if msl === "loaded"}<aside class="library"><LibraryTree {backend} onOpen={openLibrary} onAdd={diagram ? addToCenter : undefined} /></aside>{/if}
     <div class="editor" id="editor" hidden={isResults} bind:this={host}></div>
-    <DocsPanel doc={docs} {icon} {diagram} {onMove} {onConnect} onParams={(part) => (openParams = { part })} onJump={(line) => moveTo(view.state.doc.line(line + 1).from, view.state.doc.line(line + 1).from)} />
+    <DocsPanel doc={docs} {icon} {diagram} {onMove} {onConnect} {onAdd} onParams={(part) => (openParams = { part })} onJump={(line) => moveTo(view.state.doc.line(line + 1).from, view.state.doc.line(line + 1).from)} />
   </div>
   <p class="hint" id="editor-help">{EDITOR_HELP}</p>
   {#if saved}<p class="note" role="status" data-saved>{saved}</p>{/if}

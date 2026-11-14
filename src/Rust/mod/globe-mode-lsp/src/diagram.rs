@@ -72,6 +72,30 @@ pub fn add_connect(
     }
 }
 
+/// S265: `class` に部品 `ty` の宣言（`origin` は図の座標を 2 単位に吸着）を足す編集（`move_part` と同じ TextEdit の配列）。
+/// `ty` が package・function・record・type と分かる・型が名前でない・クラスが無ければ null。ファイルは書き換えない。
+pub fn add_part(
+    class: &str,
+    at: Option<(&str, u32, u32)>,
+    ty: &str,
+    origin: [f64; 2],
+    library: &dyn Fn(&str) -> Option<String>,
+) -> Value {
+    let Some(class) = crate::documentation::target(class, at) else {
+        return Value::Null;
+    };
+    let Some((text, ..)) = at else {
+        return Value::Null;
+    };
+    match globe_mode_fmt::add_part(text, &class, ty, origin, library) {
+        Some((a, b, new_text)) => {
+            let r = |o| crate::position(text, o as u32);
+            json!([{"range": {"start": r(a), "end": r(b)}, "newText": new_text}])
+        }
+        None => Value::Null,
+    }
+}
+
 /// `[[x, y], …]` の JSON を点の列にする（読めない要素は捨てる）。
 pub fn points(v: &Value) -> Vec<[f64; 2]> {
     v.as_array()

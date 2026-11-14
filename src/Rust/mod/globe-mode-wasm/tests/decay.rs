@@ -632,6 +632,14 @@ fn diagram_is_read_as_shape_data_from_the_document() {
         "\n  connect(a.p, b.n) annotation(Line(points = {{0, 0}, {10, 5}}, color = {0, 0, 255}));"
     );
     assert_eq!(ws.add_connect("T", text, "a.p;", "b.n", "[]"), "null");
+    // S265: 部品の追加は最後の宣言の後へ。名前は型の最後の部分を小文字に。型が名前でなければ null
+    let p: serde_json::Value =
+        serde_json::from_str(&ws.add_part("T", text, "Pin", 3.0, 5.0)).unwrap();
+    assert_eq!(
+        p[0]["newText"],
+        "\n  Pin pin annotation(Placement(transformation(origin = {4, 6}, extent = {{-10, -10}, {10, 10}})));"
+    );
+    assert_eq!(ws.add_part("T", text, "Pin; x", 0.0, 0.0), "null");
 }
 
 #[test]
