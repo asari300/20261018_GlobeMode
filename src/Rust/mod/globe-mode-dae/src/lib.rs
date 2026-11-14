@@ -228,6 +228,19 @@ fn defines_discrete(cx: &Ctx, roles: &[Role], eq: &SyntaxNode) -> bool {
     })
 }
 
+/// 辺の 1 つが Clock 型の変数そのもの（`c = Clock(…)`・`y = c`）。`z = sample(u, c)` のように式の中で使うだけなら数える
+fn is_clock_equation(cx: &Ctx, eq: &SyntaxNode) -> bool {
+    eq.children()
+        .filter_map(Expr::cast)
+        .take(2)
+        .any(|e| match e {
+            Expr::ComponentRef(c) => cx
+                .resolve(&c.syntax().text().to_string())
+                .is_some_and(|(v, _)| cx.vars[v].ty == "Clock"),
+            _ => false,
+        })
+}
+
 struct Row {
     label: String,
     origin: EquationOrigin,
@@ -259,7 +272,7 @@ pub fn build(m: &FlatModel) -> Result<Dae, Unsupported> {
         if e.count > 0 {
             let node = first_equation(&parse_in_model("equation", &e.text)?)?;
             // Rumoca は Clock 型の変数とその式を数えない（`c = Clock(…)`・`y = c`）
-            if cx.refs(&node).iter().any(|r| cx.vars[r.var].ty == "Clock") {
+            if is_clock_equation(&cx, &node) {
                 continue;
             }
             eqs.push((node, e.count, e.text.clone()));
