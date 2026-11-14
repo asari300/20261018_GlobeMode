@@ -1445,6 +1445,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "globe-mode-dae"
+version = "0.2.0"
+dependencies = [
+ "globe-mode-analysis",
+ "globe-mode-flat",
+ "globe-mode-frontend",
+ "globe-mode-ir",
+ "globe-mode-syntax",
+]
+
+[[package]]
 name = "globe-mode-db"
 version = "0.2.0"
 dependencies = [
