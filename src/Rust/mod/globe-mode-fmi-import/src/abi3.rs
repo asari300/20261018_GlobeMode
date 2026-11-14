@@ -156,6 +156,38 @@ impl Common {
             )
         })
     }
+
+    /// `fmi3GetInt32` / `fmi3GetBoolean`（`fmi3Boolean` は C の bool）。必要なときに引く
+    fn get_vals<T: Default + Clone>(&mut self, name: &str, vrs: &[u32]) -> Result<Vec<T>> {
+        // SAFETY: 型は fmi3FunctionTypes.h の fmi3GetInt32TYPE / fmi3GetBooleanTYPE（T は i32 か bool）
+        let f: unsafe extern "C" fn(Instance, *const u32, usize, *mut T, usize) -> Status =
+            unsafe { sym(&self.lib, name)? };
+        let mut out = vec![T::default(); vrs.len()];
+        // SAFETY: vrs と out は同じ長さ（nValueReferences = nValues = len）の有効な配列
+        check(name, unsafe {
+            f(self.c, vrs.as_ptr(), vrs.len(), out.as_mut_ptr(), out.len())
+        })?;
+        Ok(out)
+    }
+
+    fn set_vals<T>(&mut self, name: &str, vrs: &[u32], values: &[T]) -> Result<()> {
+        if vrs.len() != values.len() {
+            return Err(Error::Fmu("値参照と値の数が違う".into()));
+        }
+        // SAFETY: 型は fmi3SetInt32TYPE / fmi3SetBooleanTYPE
+        let f: unsafe extern "C" fn(Instance, *const u32, usize, *const T, usize) -> Status =
+            unsafe { sym(&self.lib, name)? };
+        // SAFETY: vrs と values は同じ長さの有効な配列（スカラの変数だけ）
+        check(name, unsafe {
+            f(
+                self.c,
+                vrs.as_ptr(),
+                vrs.len(),
+                values.as_ptr(),
+                values.len(),
+            )
+        })
+    }
 }
 
 impl Drop for Common {
@@ -274,6 +306,22 @@ impl FmuCs for Cs3<'_> {
 
     fn set_real(&mut self, vrs: &[u32], values: &[f64]) -> Result<()> {
         self.inner.set_real(vrs, values)
+    }
+
+    fn get_int(&mut self, vrs: &[u32]) -> Result<Vec<i32>> {
+        self.inner.get_vals("fmi3GetInt32", vrs)
+    }
+
+    fn set_int(&mut self, vrs: &[u32], values: &[i32]) -> Result<()> {
+        self.inner.set_vals("fmi3SetInt32", vrs, values)
+    }
+
+    fn get_bool(&mut self, vrs: &[u32]) -> Result<Vec<bool>> {
+        self.inner.get_vals("fmi3GetBoolean", vrs)
+    }
+
+    fn set_bool(&mut self, vrs: &[u32], values: &[bool]) -> Result<()> {
+        self.inner.set_vals("fmi3SetBoolean", vrs, values)
     }
 
     fn do_step(&mut self, time: f64, step: f64) -> Result<bool> {

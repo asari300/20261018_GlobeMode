@@ -24,7 +24,7 @@ mod ode;
 mod ssp;
 mod worker;
 
-pub use cosim::{CosimSpec, run_cosim_with};
+pub use cosim::{Algorithm, CosimSpec, run_cosim_with};
 pub use me::{
     EventInfo, EventKind, FmuMe, MeEvent, MeIntegrator, MeOptions, MeRun, StepInfo, run_me,
     run_me_with,
@@ -262,6 +262,11 @@ pub trait FmuCs {
     fn initialize(&mut self, start_time: f64, stop_time: Option<f64>) -> Result<()>;
     fn get_real(&mut self, value_references: &[u32]) -> Result<Vec<f64>>;
     fn set_real(&mut self, value_references: &[u32], values: &[f64]) -> Result<()>;
+    /// Int32（2.0 の Integer）。コシミュレーションのマスターの接続と `start` が使う（S259）。
+    fn get_int(&mut self, value_references: &[u32]) -> Result<Vec<i32>>;
+    fn set_int(&mut self, value_references: &[u32], values: &[i32]) -> Result<()>;
+    fn get_bool(&mut self, value_references: &[u32]) -> Result<Vec<bool>>;
+    fn set_bool(&mut self, value_references: &[u32], values: &[bool]) -> Result<()>;
     /// `[time, time + step]` を進める。FMU が打ち切りを求めたら `true`。
     fn do_step(&mut self, time: f64, step: f64) -> Result<bool>;
 }

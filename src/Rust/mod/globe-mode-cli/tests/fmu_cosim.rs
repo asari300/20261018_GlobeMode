@@ -188,3 +188,119 @@ fn ssp_refuses_nested_system() {
     let err = String::from_utf8_lossy(&out.stderr);
     assert!(err.contains("入れ子の System"), "{err}");
 }
+
+/// 列の名前 → 全行の値。
+fn table(out: &std::process::Output) -> std::collections::BTreeMap<String, Vec<f64>> {
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = String::from_utf8(out.stdout.clone()).unwrap();
+    let mut lines = text.lines();
+    let header: Vec<String> = lines
+        .next()
+        .unwrap()
+        .split(',')
+        .map(str::to_string)
+        .collect();
+    let mut cols = vec![Vec::new(); header.len()];
+    for l in lines {
+        for (c, v) in cols.iter_mut().zip(l.split(',')) {
+            c.push(v.parse().unwrap());
+        }
+    }
+    header.into_iter().zip(cols).collect()
+}
+
+/// S259: Gauss–Seidel は FMU を結線の順（元 → 先。名前の順ではない）に進め、同じ刻みの出力をすぐ渡す。
+/// Jacobi（上の試験）の 1 刻み遅れが 0 になる。
+#[test]
+fn gauss_seidel_has_no_delay() {
+    let (Some(a), Some(b)) = (
+        reference_fmu("2.0", "Dahlquist"),
+        reference_fmu("3.0", "Feedthrough"),
+    ) else {
+        return;
+    };
+    let dir = scratch("5");
+    let t = table(&cosim(
+        &dir,
+        serde_json::json!({
+            "fmus": {"z": a, "b": b}, "algorithm": "gauss-seidel",
+            "connections": [["z.x", "b.Float64_continuous_input"]],
+            "stop_time": 1.0, "step": 0.1,
+        }),
+    ));
+    let (x, y) = (&t["z.x"], &t["b.Float64_continuous_output"]);
+    assert_eq!(x.len(), 11);
+    assert!(x[10] < x[0]);
+    for k in 1..x.len() {
+        assert_eq!(y[k], x[k], "行 {k}: b の出力 = 同じ刻みの z.x");
+    }
+}
+
+/// S259: `start` は初期化の前に効く（Dahlquist の k = 2 なら x(1) は 0.8^10）。
+#[test]
+fn start_sets_parameters_before_initialization() {
+    let Some(a) = reference_fmu("2.0", "Dahlquist") else {
+        return;
+    };
+    let dir = scratch("6");
+    let t = table(&cosim(
+        &dir,
+        serde_json::json!({
+            "fmus": {"a": a}, "start": {"a.k": 2.0}, "connections": [],
+            "stop_time": 1.0, "step": 0.1,
+        }),
+    ));
+    let x = t["a.x"][10];
+    // Reference-FMUs の Dahlquist は通信刻みを Euler で 1 回: k = 2、h = 0.1 なら x(1) = 0.8^10（k = 1 なら 0.9^10）
+    assert!((x - 0.8f64.powi(10)).abs() < 1e-9, "x(1) = {x}");
+}
+
+/// S259: Int32・Boolean の接続（2.0 と 3.0 の Feedthrough を入出力でたすき掛け）。Jacobi なので値は 1 刻みごとに入れ替わる。
+#[test]
+fn integer_and_boolean_wires() {
+    let (Some(a), Some(b)) = (
+        reference_fmu("2.0", "Feedthrough"),
+        reference_fmu("3.0", "Feedthrough"),
+    ) else {
+        return;
+    };
+    let dir = scratch("7");
+    let spec = |extra: serde_json::Value| {
+        let mut s = serde_json::json!({
+            "fmus": {"a": a, "b": b},
+            "start": {"a.Int32_input": 7.0, "a.Boolean_input": 1.0},
+            "connections": [
+                ["a.Int32_output", "b.Int32_input"], ["b.Int32_output", "a.Int32_input"],
+                ["a.Boolean_output", "b.Boolean_input"], ["b.Boolean_output", "a.Boolean_input"],
+            ],
+            "stop_time": 0.4, "step": 0.1,
+        });
+        s.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        s
+    };
+    let t = table(&cosim(&dir, spec(serde_json::json!({}))));
+    assert_eq!(t["a.Int32_output"], [7.0, 0.0, 7.0, 0.0, 7.0]);
+    assert_eq!(t["b.Int32_output"], [0.0, 7.0, 0.0, 7.0, 0.0]);
+    assert_eq!(t["a.Boolean_output"], [1.0, 0.0, 1.0, 0.0, 1.0]);
+    assert_eq!(t["b.Boolean_output"], [0.0, 1.0, 0.0, 1.0, 0.0]);
+    // 型の違う接続と、整数でない Int の start は実行の前に断る
+    let mut bad = spec(serde_json::json!({}));
+    bad["connections"] = serde_json::json!([["a.Int32_output", "b.Float64_continuous_input"]]);
+    let err = String::from_utf8_lossy(&cosim(&dir, bad).stderr).to_string();
+    assert!(err.contains("型が違う"), "{err}");
+    let err = String::from_utf8_lossy(
+        &cosim(
+            &dir,
+            spec(serde_json::json!({"start": {"a.Int32_input": 1.5}})),
+        )
+        .stderr,
+    )
+    .to_string();
+    assert!(err.contains("不正"), "{err}");
+}
