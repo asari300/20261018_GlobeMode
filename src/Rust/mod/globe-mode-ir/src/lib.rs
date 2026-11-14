@@ -466,6 +466,20 @@ pub struct DaeStructure {
     pub nonlinear: Vec<Vec<u32>>,
 }
 
+/// S266: 方程式が参照する既知の値（FMI の `dependencies` の素。[`DaeStructure`] と同じ行の順）。
+///
+/// `DaeStructure` は入力・パラメータ・`time` を既知として数えないので、別の表にした（`DaeStructure` と
+/// その解析の鍵を変えない）。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct KnownRefs {
+    /// 行ごとに、参照する入力・パラメータのスカラーの名前（昇順、重複なし）
+    pub names: Vec<Vec<String>>,
+    /// 行ごとに、`time` を参照する
+    pub time: Vec<bool>,
+    /// 行ごとに、離散変数・`pre()`・条件・遅れなど、連続の依存として言い切れないものを参照する
+    pub opaque: Vec<bool>,
+}
+
 impl DaeStructure {
     /// 位置をすべて落とした写し（防火壁 2、ADR-0005）。
     /// パラメータの値だけを変えた編集などでは前と等しくなり、S6 以降は再計算されない。

@@ -5,6 +5,7 @@
 //!
 //! [ADR-0026]: https://github.com/asari300/20261018_GlobeMode/blob/main/doc/adr/0026-fmi-import-placement.md
 
+use std::collections::BTreeMap;
 use std::fmt;
 use std::fmt::Write as _;
 
@@ -130,7 +131,8 @@ pub struct DefaultExperiment {
 }
 
 /// `ModelStructure`（S117）。2.0 は `Unknown` の `index`（変数の 1 始まりの索引）、3.0 は
-/// `Output`・`ContinuousStateDerivative`・`InitialUnknown` の `valueReference`。`dependencies` は読まない。
+/// `Output`・`ContinuousStateDerivative`・`InitialUnknown` の `valueReference`。`dependencies` は `Outputs` と
+/// `Derivatives` のものだけ読み書きする（`InitialUnknown` は書かない＝すべてに依存。S266）。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ModelStructure {
     pub outputs: Vec<u32>,
@@ -138,6 +140,9 @@ pub struct ModelStructure {
     pub initial_unknowns: Vec<u32>,
     /// S137: 3.0 の `EventIndicator` の `valueReference`（2.0 は持たず、読み書きでは空のまま）。
     pub event_indicators: Vec<u32>,
+    /// S266: 出力・状態の導関数の `dependencies`（キーは 2.0 なら `index`、3.0 なら `valueReference`。値は昇順の
+    /// 既知の変数の同じ種類の参照）。キーが無ければ属性を書かない（すべてに依存）。`dependenciesKind` は扱わない。
+    pub dependencies: BTreeMap<u32, Vec<u32>>,
 }
 
 /// S251: Scheduled Execution の周期クロック 1 つ（`<Clock causality="input" intervalVariability="constant" priority="1"/>`）。
@@ -227,6 +232,106 @@ fn u32_attr(n: roxmltree::Node<'_, '_>, attr: &str) -> Result<Option<u32>, Error
                 .or_else(|_| schema(format!("{attr} {v:?} は u32 でない")))
         })
         .transpose()
+}
+
+/// S266: 出力と状態の導関数の `dependencies`（[`ModelStructure::dependencies`] の素）。
+///
+/// `deps` は、未知数の名前（出力は `y`、導関数は `der(x)`）→ 推移的に依る状態・入力・パラメータ・`time` の名前
+/// （`globe_mode_analysis::unknown_dependencies`）。変数の表に引き当てる。FMI の既知（調査は
+/// `doc/research/fmi-model-structure-dependencies-2026-11-15.md`）:
+///
+/// - 入力と連続状態（`derivative` が指す変数）はどちらの版でも並べる。
+/// - パラメータは 3.0 だけ並べる（2.0 では固定の因子で、既知に数えない）。
+/// - 独立変数 `time` は、変数の表に定義があれば並べる。2.0 で定義が無ければ暗黙に依存するので書かない。3.0 で
+///   定義が無ければ書けないので、その未知数は省く。
+///
+/// 引き当てられない名前があるとき、`deps` に無いとき、出力でも導関数でもないときは、その未知数を省く
+/// （＝すべてに依存。安全側）。キーと値は 2.0 は 1 始まりの表の位置、3.0 は `valueReference`。
+pub fn model_structure_dependencies(
+    variables: &[ScalarVariable],
+    v3: bool,
+    deps: &BTreeMap<String, std::collections::BTreeSet<String>>,
+) -> BTreeMap<u32, Vec<u32>> {
+    let key = |i: usize| {
+        if v3 {
+            variables[i].value_reference
+        } else {
+            i as u32 + 1
+        }
+    };
+    let by_name: BTreeMap<&str, usize> = variables
+        .iter()
+        .enumerate()
+        .map(|(i, v)| (v.name.as_str(), i))
+        .collect();
+    let states: Vec<u32> = variables.iter().filter_map(|v| v.derivative).collect();
+    let time = variables
+        .iter()
+        .position(|v| v.causality == Causality::Independent);
+    let mut out = BTreeMap::new();
+    for (i, v) in variables.iter().enumerate() {
+        if v.derivative.is_none() && v.causality != Causality::Output {
+            continue;
+        }
+        let Some(set) = deps.get(&v.name) else {
+            continue;
+        };
+        let mut list = Vec::new();
+        let ok = set.iter().all(|name| {
+            if name == "time" {
+                return match time {
+                    Some(t) => {
+                        list.push(key(t));
+                        true
+                    }
+                    None => !v3,
+                };
+            }
+            let Some(&k) = by_name.get(name.as_str()) else {
+                return false;
+            };
+            match variables[k].causality {
+                Causality::Input => list.push(key(k)),
+                Causality::Parameter if v3 => list.push(key(k)),
+                Causality::Parameter => {}
+                _ if states.contains(&key(k)) => list.push(key(k)),
+                _ => return false,
+            }
+            true
+        });
+        if ok {
+            list.sort_unstable();
+            out.insert(key(i), list);
+        }
+    }
+    out
+}
+
+/// 属性 `dependencies`（空白区切りの u32。空文字は「どれにも依らない」）を `key` の項に読む。無ければ何もしない。
+fn read_dependencies(
+    n: roxmltree::Node<'_, '_>,
+    key: u32,
+    out: &mut BTreeMap<u32, Vec<u32>>,
+) -> Result<(), Error> {
+    if let Some(v) = n.attribute("dependencies") {
+        let list = v
+            .split_whitespace()
+            .map(|t| {
+                t.parse()
+                    .or_else(|_| schema(format!("dependencies {t:?} は u32 でない")))
+            })
+            .collect::<Result<_, _>>()?;
+        out.insert(key, list);
+    }
+    Ok(())
+}
+
+/// ` dependencies="…"`（無ければ空文字列）。
+fn dependencies_attr(deps: &BTreeMap<u32, Vec<u32>>, key: u32) -> String {
+    deps.get(&key).map_or_else(String::new, |l| {
+        let l: Vec<String> = l.iter().map(u32::to_string).collect();
+        format!(" dependencies=\"{}\"", l.join(" "))
+    })
 }
 
 fn variability(s: Option<&str>, default: Variability) -> Result<Variability, Error> {
@@ -369,7 +474,11 @@ pub fn parse_model_description(xml: &str) -> Result<ModelDescription, Error> {
                 "EventIndicator" => &mut model_structure.event_indicators,
                 _ => continue,
             };
-            list.push(u32_attr(n, "valueReference")?.unwrap_or_default());
+            let r = u32_attr(n, "valueReference")?.unwrap_or_default();
+            if matches!(n.tag_name().name(), "Output" | "ContinuousStateDerivative") {
+                read_dependencies(n, r, &mut model_structure.dependencies)?;
+            }
+            list.push(r);
         }
     } else {
         for n in elements {
@@ -381,7 +490,11 @@ pub fn parse_model_description(xml: &str) -> Result<ModelDescription, Error> {
             };
             for u in n.children().filter(|c| c.has_tag_name("Unknown")) {
                 required(u, "index")?;
-                list.push(u32_attr(u, "index")?.unwrap_or_default());
+                let i = u32_attr(u, "index")?.unwrap_or_default();
+                if matches!(n.tag_name().name(), "Outputs" | "Derivatives") {
+                    read_dependencies(u, i, &mut model_structure.dependencies)?;
+                }
+                list.push(i);
             }
         }
     }
@@ -645,7 +758,13 @@ fn write_model_description(md: &ModelDescription, major: u8) -> Result<String, E
             ("EventIndicator", &s.event_indicators),
         ] {
             for r in list {
-                let _ = writeln!(x, "    <{tag} valueReference=\"{r}\"/>");
+                let d = match tag {
+                    "Output" | "ContinuousStateDerivative" => {
+                        dependencies_attr(&s.dependencies, *r)
+                    }
+                    _ => String::new(),
+                };
+                let _ = writeln!(x, "    <{tag} valueReference=\"{r}\"{d}/>");
             }
         }
         x.push_str("  </ModelStructure>\n</fmiModelDescription>\n");
@@ -662,7 +781,11 @@ fn write_model_description(md: &ModelDescription, major: u8) -> Result<String, E
         }
         let _ = writeln!(x, "    <{tag}>");
         for i in list {
-            let _ = writeln!(x, "      <Unknown index=\"{i}\"/>");
+            let d = match tag {
+                "Outputs" | "Derivatives" => dependencies_attr(&s.dependencies, *i),
+                _ => String::new(),
+            };
+            let _ = writeln!(x, "      <Unknown index=\"{i}\"{d}/>");
         }
         let _ = writeln!(x, "    </{tag}>");
     }
