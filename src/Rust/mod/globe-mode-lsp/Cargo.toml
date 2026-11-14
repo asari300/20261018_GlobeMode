@@ -20,6 +20,8 @@ globe-mode = { workspace = true, features = ["fmu"] } # S144: globe/exportFmu
 globe-mode-core = { workspace = true }
 globe-mode-ir = { workspace = true }
 globe-mode-fmt = { workspace = true, features = ["config"] }
+# S276: 構文の誤りがあるファイルのアウトライン・折りたたみ（寛容な CST）
+globe-mode-syntax = { path = "../globe-mode-syntax", version = "0.2.0" }
 lsp-types = { workspace = true }
 serde_json = { workspace = true }
 # S279: 補完の `a.` を書きかけの文書で引く（自前の寛容な構文の木の上の名前解決。突き合わせ tests/resolve_compare.rs も使う）
