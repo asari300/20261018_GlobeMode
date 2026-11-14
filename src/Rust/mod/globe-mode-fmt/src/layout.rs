@@ -201,10 +201,7 @@ fn space_between(prev: &(Kind, String), prev_unary: bool, next: &Token<'_>) -> b
             _ => {}
         }
     }
-    if pk == Kind::Punct && matches!(pt, "(" | "[" | "{" | "." | "^" | ":") {
-        return false;
-    }
-    true
+    !(pk == Kind::Punct && matches!(pt, "(" | "[" | "{" | "." | "^" | ":"))
 }
 
 /// `-` `+` が単項か（直前が演算子・開き括弧・区切り・予約語なら単項）。
