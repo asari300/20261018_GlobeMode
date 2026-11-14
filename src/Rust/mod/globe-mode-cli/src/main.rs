@@ -350,6 +350,24 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// モデルが変換の段（flat → DAE → インデックスの低減 → BLT → tearing）ごとにどう変わるかを表示する
+    #[command(
+        after_help = "例:\n  globe stages src/Modelica/GlobeModeValidation -m GlobeModeValidation.Index.Pendulum\n  globe stages -L data/msl -m Modelica.Electrical.Analog.Examples.ChuaCircuit --json\n\nflat → DAE は数だけ（Rumoca の DAE は別名を畳まない）。名前の差分はインデックスの低減（増えた方程式・未知数）と tearing（反復変数・残差）"
+    )]
+    Stages {
+        /// ファイルまたはディレクトリ。モデルがライブラリの中にあるなら省略できる
+        #[arg(required_unless_present = "library")]
+        files: Vec<PathBuf>,
+        /// ライブラリのディレクトリ（例: data/msl）。何度でも指定できる
+        #[arg(long, short = 'L')]
+        library: Vec<PathBuf>,
+        /// モデルの完全修飾名
+        #[arg(long, short)]
+        model: String,
+        /// JSON で出力する
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -484,6 +502,12 @@ fn main() -> ExitCode {
             model,
             json,
         } => blt(&files, &library, &model, json),
+        Command::Stages {
+            files,
+            library,
+            model,
+            json,
+        } => stages(&files, &library, &model, json),
         Command::Fmu {
             command:
                 FmuCommand::Export {
@@ -1289,6 +1313,116 @@ fn blt(files: &[PathBuf], library: &[PathBuf], model: &str, json: bool) -> ExitC
         print_blt(model, &report);
     }
     ExitCode::SUCCESS
+}
+
+fn stages(files: &[PathBuf], library: &[PathBuf], model: &str, json: bool) -> ExitCode {
+    let Loaded { mut ws, texts } = match load_db(files, library) {
+        Ok(Ok(v)) => v,
+        Ok(Err(diags)) => return report_early_failure(model, &diags, json, false),
+        Err(code) => return code,
+    };
+    let report = match ws.stages(model) {
+        Ok(r) => r,
+        Err(diags) => {
+            print_diagnostics(&diags, &texts, json);
+            if !json {
+                println!("{model}: 段ごとの要約を作れなかった（検査が通らない）");
+            }
+            return ExitCode::from(1);
+        }
+    };
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report).expect("serialize stages")
+        );
+    } else {
+        print_stages(model, &report);
+    }
+    ExitCode::SUCCESS
+}
+
+fn print_stages(model: &str, r: &globe_mode::StagesReport) {
+    let names = |v: &[String]| {
+        if v.is_empty() {
+            "なし".to_string()
+        } else {
+            v.join(", ")
+        }
+    };
+    println!("{model}: 変換の段");
+    if let Some(f) = &r.flat {
+        println!(
+            "  1 flat     変数 {}・方程式 {}・初期方程式 {}",
+            f.variables, f.equations, f.initial_equations
+        );
+    }
+    if let Some(d) = &r.dae {
+        println!(
+            "  2 DAE      状態 {}・代数 {}・出力 {}・入力 {}・パラメータ {}（変数 {}、flat から {:+}）\n             方程式 {}（flat から {:+}）・未知数 {}・der {}",
+            d.states,
+            d.algebraics,
+            d.outputs,
+            d.inputs,
+            d.parameters,
+            d.variables,
+            d.variables_delta,
+            d.equations,
+            d.equations_delta,
+            d.unknowns,
+            d.derivatives
+        );
+    }
+    let i = &r.index;
+    if i.failed {
+        println!("  3 index    打ち切った（構造特異など）");
+    } else {
+        println!(
+            "  3 index    インデックス {}・微分した方程式 {} 本（方程式 +{}・未知数 +{}）・動的な状態 {}",
+            i.index,
+            i.differentiated.len(),
+            i.added_equations,
+            i.added_unknowns.len(),
+            i.dynamic_states
+        );
+        if i.added_equations > 0 {
+            println!("             微分: {}", names(&i.differentiated));
+            println!("             増えた未知数: {}", names(&i.added_unknowns));
+            println!(
+                "             状態選択の候補: {}",
+                names(&i.dummy_candidates)
+            );
+        }
+    }
+    let b = &r.blt;
+    if let Some(reason) = &b.skipped {
+        println!("  4 BLT      作らなかった: {reason}");
+        return;
+    }
+    let hist: Vec<String> = b
+        .size_histogram
+        .iter()
+        .map(|(s, n)| format!("{s}×{n}"))
+        .collect();
+    println!(
+        "  4 BLT      ブロック {}（大きさ×個数: {}）・代数ループ {}",
+        b.blocks,
+        hist.join(" "),
+        b.algebraic_loops
+    );
+    if r.tearing.loops.is_empty() {
+        println!("  5 tearing  ループなし");
+    }
+    for (n, l) in r.tearing.loops.iter().enumerate() {
+        println!(
+            "  5 tearing  ループ {}: 大きさ {}・{}・反復変数 {}・残差 {}",
+            n + 1,
+            l.size,
+            if l.nonlinear { "非線形" } else { "線形" },
+            names(&l.variables),
+            names(&l.residuals)
+        );
+    }
 }
 
 /// 大きさ 1 は 1 行、代数ループは見出しと中身を並べて目立たせる。
