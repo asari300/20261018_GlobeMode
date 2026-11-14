@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S272 Track B の名前解決 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S272 Track B の名前解決">
+
+<section class="slide" id="S01">
+  <span class="tag">S272 · 2026-11-15 · Track B</span>
+  <h1>クラスと部品の名前解決（B2 の最初の一切れ）</h1>
+  <p class="lead">新しい crate <code>globe-mode-resolve</code>（依存は <code>globe-mode-syntax</code> だけ）</p>
+  <div class="big">MSL 4.1.0 の参照 161869 件のうち、未解決は <code>redeclare</code> 由来の 10 件だけ</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">作り</span>
+  <h1><code>within</code> で木を組む</h1>
+  <ul>
+    <li>型付き AST をクラス・宣言・<code>extends</code>・<code>import</code> まで足した（<code>globe_mode_syntax::ast</code>）</li>
+    <li><code>Library</code> は各ファイルの <code>within</code> でクラスの木を組む。<code>package.mo</code> の入れ子、単一ファイル、<code>Modelica 4.1.0/</code> のような版つきのディレクトリを同じに扱う</li>
+    <li>解決するのは型名と、式の成分参照の先頭（<code>a.b.c</code> の <code>a</code>）。<code>annotation</code> の中は読まない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">探索</span>
+  <h1>Modelica 3.6 の 5.3</h1>
+  <ul>
+    <li>内側から外へ: 宣言 → 受け継いだ要素（再帰・輪の検出）→ <code>import</code>（修飾・別名・<code>*</code>・<code>{…}</code>）</li>
+    <li><code>encapsulated</code> で止まり、最上位、組み込み。<code>extends</code> の基底は自分の受け継ぎを見ない。<code>class extends</code> は外側の継承元の同名のクラスを継ぐ</li>
+    <li>型が変わりうる所（<code>redeclare</code> つきの <code>extends</code>・<code>replaceable</code>）で見つからなければ <code>Reason::Redeclare</code></li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">結果</span>
+  <h1>MSL 4.1.0 の 2556 本</h1>
+  <table>
+    <thead><tr><th>種類</th><th>件数</th><th>解決</th></tr></thead>
+    <tbody>
+      <tr><td>型名</td><td>32508</td><td>すべて</td></tr>
+      <tr><td><code>extends</code>・short class の基底</td><td>6164</td><td>すべて</td></tr>
+      <tr><td><code>import</code></td><td>1017</td><td>すべて</td></tr>
+      <tr><td>式の成分参照</td><td>122180</td><td>10 件が未解決（<code>Medium.…</code>。<code>Redeclare</code>）</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li><code>redeclare</code> / <code>replaceable</code> と修飾で変わる型、部品の型を通した <code>a.b.c</code> の続き</li>
+    <li>LSP・<code>Frontend</code> へのつなぎ、文の型付き AST、診断の番号</li>
+  </ul>
+  <pre><code>cargo test -p globe-mode-resolve
+GLOBE_MSL=data/msl cargo test -p globe-mode-resolve -- --ignored --nocapture</code></pre>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

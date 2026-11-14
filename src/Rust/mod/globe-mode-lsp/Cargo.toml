@@ -25,3 +25,7 @@ serde_json = { workspace = true }
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+# S272: 自前の名前解決（globe-mode-resolve）との突き合わせ（tests/resolve_compare.rs。ignore）だけ
+globe-mode-resolve = { path = "../globe-mode-resolve", version = "0.2.0" }
