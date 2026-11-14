@@ -390,6 +390,9 @@ impl ShortBody {
     pub fn has_redeclare(&self) -> bool {
         has_redeclare(&self.0)
     }
+    pub fn redeclared_classes(&self) -> Vec<RedeclaredClass> {
+        redeclared_classes(&self.0)
+    }
 }
 
 impl ExtendsClause {
@@ -399,6 +402,95 @@ impl ExtendsClause {
     pub fn has_redeclare(&self) -> bool {
         has_redeclare(&self.0)
     }
+    pub fn redeclared_classes(&self) -> Vec<RedeclaredClass> {
+        redeclared_classes(&self.0)
+    }
+}
+
+/// 修飾の中の `redeclare [replaceable] package M = X [constrainedby Y]`（短いクラスの形だけ。S275）。
+/// 部品の再宣言（`redeclare Real x`）と長い形（`redeclare model M … end M`）は含まない。パスは `(部分, 先頭の . の有無)`
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RedeclaredClass {
+    pub name: String,
+    pub base: (Vec<String>, bool),
+    pub constraint: Option<(Vec<String>, bool)>,
+}
+
+/// `n` の直下の `(…)` と、宣言の `Modification` の中の `(…)` にある `Redeclaration`（入れ子の修飾の中は見ない）
+fn redeclared_classes(n: &SyntaxNode) -> Vec<RedeclaredClass> {
+    let mods = n.children().flat_map(|c| match c.kind() {
+        SyntaxKind::Modification => c.children().collect::<Vec<_>>(),
+        _ => vec![c],
+    });
+    mods.filter(|m| m.kind() == SyntaxKind::ClassModification)
+        .flat_map(|m| m.children().collect::<Vec<_>>())
+        .filter(|r| r.kind() == SyntaxKind::Redeclaration)
+        .filter_map(|r| parse_redeclared_class(&r))
+        .collect()
+}
+
+fn parse_redeclared_class(r: &SyntaxNode) -> Option<RedeclaredClass> {
+    use SyntaxKind::*;
+    let t: Vec<_> = tokens(r).collect();
+    let mut i = 0;
+    while t
+        .get(i)
+        .is_some_and(|t| matches!(t.kind(), KwRedeclare | KwReplaceable | KwEach | KwFinal))
+    {
+        i += 1;
+    }
+    if !matches!(
+        t.get(i)?.kind(),
+        KwClass | KwModel | KwBlock | KwConnector | KwType | KwPackage | KwRecord | KwFunction
+    ) {
+        return None;
+    }
+    let name = t
+        .get(i + 1)
+        .filter(|t| t.kind() == Ident)?
+        .text()
+        .to_string();
+    if t.get(i + 2)?.kind() != Eq {
+        return None;
+    }
+    i += 3;
+    let path = |i: &mut usize| {
+        let global = t.get(*i).is_some_and(|t| t.kind() == Dot);
+        *i += usize::from(global);
+        let mut v = Vec::new();
+        while let Some(id) = t.get(*i).filter(|t| t.kind() == Ident) {
+            v.push(id.text().to_string());
+            *i += 1;
+            if t.get(*i).is_some_and(|t| t.kind() == Dot) {
+                *i += 1;
+            } else {
+                break;
+            }
+        }
+        (!v.is_empty()).then_some((v, global))
+    };
+    let base = path(&mut i)?;
+    // `Base(…)` の修飾は読み飛ばして `constrainedby` を探す
+    let mut depth = 0;
+    let mut constraint = None;
+    while let Some(tok) = t.get(i) {
+        match tok.kind() {
+            LParen => depth += 1,
+            RParen => depth -= 1,
+            KwConstrainedby if depth == 0 => {
+                i += 1;
+                constraint = path(&mut i);
+                break;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    Some(RedeclaredClass {
+        name,
+        base,
+        constraint,
+    })
 }
 
 /// `import` の形（S272）。パスは完全修飾（`Modelica.Units.SI`）
@@ -467,6 +559,9 @@ impl ComponentClause {
 }
 
 impl Declaration {
+    pub fn redeclared_classes(&self) -> Vec<RedeclaredClass> {
+        redeclared_classes(&self.0)
+    }
     pub fn name(&self) -> Option<(String, TextRange)> {
         let t = tokens(&self.0).find(|t| t.kind() == SyntaxKind::Ident)?;
         Some((t.text().to_string(), t.text_range()))

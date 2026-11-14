@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S279 LSP の補完を自前の名前解決に — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S279 LSP の補完を自前の名前解決に">
+
+<section class="slide" id="S01">
+  <span class="tag">S279 · 2026-11-15 · Track B</span>
+  <h1>書きかけでも <code>r.</code> の後ろにメンバーが出る</h1>
+  <p class="lead">LSP の補完を、自前の寛容な構文と名前解決につなぐ最初の一切れ</p>
+  <div class="big">今の道で空のときだけ足す。読める文書の出力は変えない</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">なぜ</span>
+  <h1>今の道が出せなかった所</h1>
+  <ul>
+    <li>今の道は、カーソルの行を空白にして読み直した <code>Outline</code> で型を引く</li>
+    <li>ほかの行にも誤りがある・<code>end</code> の前で切れた文書は読めず、候補が空になる</li>
+    <li>自前の構文（<code>globe-mode-syntax</code>）は誤りがあっても木を返す</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">しくみ</span>
+  <h1>書きかけの文書を 1 本だけ足して引く</h1>
+  <ul>
+    <li>ライブラリの <code>Library</code> は最初に 1 回だけ作って <code>Server</code> が持つ</li>
+    <li>補完のたびに <code>with_source</code> で文書を足し、<code>class_at</code> → <code>members_of</code> で引いて、元に戻す</li>
+    <li>部品は型の部品とクラス（受け継ぎを含む、<code>protected</code> は除く）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">結果</span>
+  <h1>MSL 4.1.0（debug）</h1>
+  <table>
+    <thead><tr><th>項目</th><th>値</th></tr></thead>
+    <tbody>
+      <tr><td><code>Library</code> を作る（2556 本）</td><td>8.8 秒（release は未測定）</td></tr>
+      <tr><td>RSS</td><td>3.3 MB → 83 MB、<code>refs</code> を捨てて 75 MB</td></tr>
+      <tr><td><code>Resistor r;</code> の <code>r.</code> を引く</td><td>0.5 ms、13 件（R・n・p・v・i・T ほか）</td></tr>
+      <tr><td>試験</td><td>lsp の補完 3 本と RPC 1 本、resolve 1 本、lsp 全体 59 pass</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>別の開いている文書の型、<code>redeclare</code> が 2 段以上先で効く型、組み込みの属性（<code>x.start</code>）</li>
+    <li>ライブラリの更新で <code>Library</code> を作り直す仕組み、wasm への展開</li>
+    <li>定義ジャンプ・参照・ホバーの自前化</li>
+  </ul>
+  <pre><code>cargo test -p globe-mode-lsp -p globe-mode-resolve</code></pre>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

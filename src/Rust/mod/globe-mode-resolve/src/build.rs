@@ -1,6 +1,6 @@
 //! 構文の木から、クラスの木と名前の使われ方（`Ref`）を取り出す。ファイルごとに木を捨てるので、全体の木は持たない。
 
-use crate::{Class, ClassId, Component, Import, PathRef, Ref, RefKind, St};
+use crate::{Class, ClassId, Component, Import, PathRef, Redecl, Ref, RefKind, St};
 use globe_mode_syntax::ast::{self, Element, ImportKind};
 use globe_mode_syntax::{SyntaxKind, SyntaxNode, parse};
 use rowan::TextRange;
@@ -39,10 +39,23 @@ impl PathRef {
             path,
             global,
             redeclare,
+            redecls: Vec::new(),
             class_ext: false,
             state: Cell::new(St::Todo),
         }
     }
+}
+
+fn redecls(v: Vec<ast::RedeclaredClass>) -> Vec<Redecl> {
+    v.into_iter()
+        .map(|r| Redecl {
+            name: r.name,
+            targets: std::iter::once(r.base)
+                .chain(r.constraint)
+                .map(|(p, g)| PathRef::new(p, g, false))
+                .collect(),
+        })
+        .collect()
 }
 
 fn mo_files(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
@@ -91,6 +104,41 @@ impl Library {
         }
         lib.link(raws);
         lib
+    }
+
+    /// 文書 1 つを一時的に足して `f(木, ファイル番号)` を回し、終わったら取り除く（S279。LSP の補完が、ライブラリを作り直さずに書きかけの文書を引く）。
+    /// shortcut: 文書が `within` で足したクラスを、回している間にライブラリの継承元が引いて覚えた結果は戻さない（ライブラリは文書を知らないはずなので）
+    pub fn with_source<T>(
+        &mut self,
+        name: &str,
+        text: &str,
+        f: impl FnOnce(&Library, u32) -> T,
+    ) -> T {
+        let (nf, nc, nr, nd) = (
+            self.files.len(),
+            self.classes.len(),
+            self.refs.len(),
+            self.diagnostics.len(),
+        );
+        let mut raws = Vec::new();
+        self.add(name.to_string(), text, &mut raws);
+        self.link(raws);
+        let out = f(self, nf as u32);
+        for id in nc..self.classes.len() {
+            let n = self.classes[id].name.clone();
+            let map = match self.classes[id].parent {
+                Some(p) => &mut self.classes[p].classes,
+                None => &mut self.roots,
+            };
+            if map.get(&n) == Some(&id) {
+                map.remove(&n);
+            }
+        }
+        self.classes.truncate(nc);
+        self.files.truncate(nf);
+        self.refs.truncate(nr);
+        self.diagnostics.truncate(nd);
+        out
     }
 
     fn add(&mut self, name: String, text: &str, raws: &mut Vec<(Vec<String>, Raw)>) {
@@ -189,6 +237,7 @@ fn extract(c: &ast::ClassDef, file: u32) -> Option<Raw> {
             parent: None,
             file,
             name_range: c.name_range()?,
+            range: c.syntax().text_range(),
             encapsulated: c.is_encapsulated(),
             replaceable: c.is_replaceable(),
             classes: HashMap::new(),
@@ -214,17 +263,23 @@ fn extract(c: &ast::ClassDef, file: u32) -> Option<Raw> {
             .enumerate()
         {
             let kind = if i == 0 && sb.base().is_some() {
-                raw.class
-                    .bases
-                    .push(PathRef::new(n.parts(), n.is_global(), sb.has_redeclare()));
+                let mut b = PathRef::new(n.parts(), n.is_global(), sb.has_redeclare());
+                b.redecls = redecls(sb.redeclared_classes());
+                raw.class.bases.push(b);
                 RefKind::Extends
             } else {
+                // `= X constrainedby Y` の `Y`: 型の候補として `X` の後ろに足す
+                if i == 1 && sb.base().is_some() {
+                    raw.class
+                        .bases
+                        .push(PathRef::new(n.parts(), n.is_global(), false));
+                }
                 RefKind::Type
             };
             raw.refs.push(name_ref(&n, kind));
         }
         for (l, r) in sb.enum_literals() {
-            add_component(&mut raw.class, l, r, true);
+            add_component(&mut raw.class, l, r, true, Vec::new(), Vec::new());
         }
     }
     let mut public = true;
@@ -234,9 +289,9 @@ fn extract(c: &ast::ClassDef, file: u32) -> Option<Raw> {
             Element::Class(ch) => raw.children.extend(extract(&ch, file)),
             Element::Extends(x) => {
                 if let Some(n) = x.name() {
-                    raw.class
-                        .bases
-                        .push(PathRef::new(n.parts(), n.is_global(), x.has_redeclare()));
+                    let mut b = PathRef::new(n.parts(), n.is_global(), x.has_redeclare());
+                    b.redecls = redecls(x.redeclared_classes());
+                    raw.class.bases.push(b);
                     raw.refs.push(name_ref(&n, RefKind::Extends));
                 }
             }
@@ -264,7 +319,20 @@ fn extract(c: &ast::ClassDef, file: u32) -> Option<Raw> {
                 }
                 for d in cc.declarations() {
                     if let Some((n, r)) = d.name() {
-                        add_component(&mut raw.class, n, r, public);
+                        let tys = cc
+                            .constraint()
+                            .into_iter()
+                            .chain(cc.type_name())
+                            .map(|t| PathRef::new(t.parts(), t.is_global(), false))
+                            .collect();
+                        add_component(
+                            &mut raw.class,
+                            n,
+                            r,
+                            public,
+                            tys,
+                            redecls(d.redeclared_classes()),
+                        );
                     }
                 }
             }
@@ -288,7 +356,14 @@ fn extract(c: &ast::ClassDef, file: u32) -> Option<Raw> {
     Some(raw)
 }
 
-fn add_component(c: &mut Class, name: String, range: TextRange, public: bool) {
+fn add_component(
+    c: &mut Class,
+    name: String,
+    range: TextRange,
+    public: bool,
+    tys: Vec<PathRef>,
+    redecls: Vec<Redecl>,
+) {
     c.comp_index
         .entry(name.clone())
         .or_insert(c.components.len());
@@ -296,6 +371,8 @@ fn add_component(c: &mut Class, name: String, range: TextRange, public: bool) {
         name,
         range,
         public,
+        tys,
+        redecls,
     });
 }
 

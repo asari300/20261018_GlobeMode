@@ -104,6 +104,7 @@ impl Workspace {
             tree,
             scratch: &mut scratch,
             overlay: None,
+            lib: None,
             read: &|f| files?.get(f).cloned(),
         })
     }

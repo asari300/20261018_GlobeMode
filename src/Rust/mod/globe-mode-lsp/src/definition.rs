@@ -98,6 +98,8 @@ pub struct Resolver<'a> {
     pub read: &'a dyn Fn(&str) -> Option<String>,
     /// 文書 `path` を `ws` の代わりにこのアウトラインで引く（S171。入力の途中で文書が壊れている間の補完が、同じファイルの型を引く）
     pub overlay: Option<(&'a str, &'a Outline)>,
+    /// ライブラリの名前解決の木（S279。補完の `a.` が書きかけの文書で使う。最初に要るとき `read` で作る）。持たない呼び手は None
+    pub lib: Option<&'a mut Option<globe_mode_resolve::Library>>,
 }
 
 impl Resolver<'_> {
@@ -915,6 +917,7 @@ mod tests {
             tree: &tree,
             scratch: &mut scratch,
             overlay: None,
+            lib: None,
             read: &|_| Some(String::new()),
         };
         assert_eq!(hover_at(&mut r, "A.mo", text, 1, 2), None);
@@ -931,6 +934,7 @@ mod tests {
             tree: &tree,
             scratch: &mut scratch,
             overlay: None,
+            lib: None,
             read: &|_| None,
         };
         let h = hover_at(&mut r, "A.mo", text, 5, 12).unwrap(); // -x の x
@@ -953,6 +957,7 @@ mod tests {
             tree: &tree,
             scratch: &mut scratch,
             overlay: None,
+            lib: None,
             read: &|_| None,
         })
     }
