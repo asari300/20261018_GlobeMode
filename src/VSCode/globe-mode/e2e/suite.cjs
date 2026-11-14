@@ -109,7 +109,7 @@ const cases = {
     const connected = doc.getText();
     // 結線だけ消す（端の逆順でも同じ結線）。undo で戻る
     assert.equal(await panel.handle({ type: "deleteConnect", id: 2, from: "Ro.n", to: "L.p" }), true, panel.why);
-    assert.equal(doc.getText(), before, "結線だけが消える");
+    assert.ok(!doc.getText().includes("connect(") && doc.getText().includes("Part Ro"), doc.getText()); // 空になった equation の見出しは残る（S281）
     await vscode.commands.executeCommand("undo");
     assert.equal(doc.getText(), connected);
     // 部品を消すと、宣言とつながる connect がまとめて消え、undo 1 回で戻る
