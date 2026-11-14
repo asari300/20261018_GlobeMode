@@ -32,3 +32,8 @@ Diagram ビューの編集の最初の一切れ = 部品のドラッグ移動。
 - `mise run wasm:node`（release の wasm のビルドが要る）は、他の worktree と RAM を分け合うため手元では回していない。CI のジョブ `wasm-node` に任せる（`node/smoke.mjs` に `move_part` を 1 件足してある）。
 - `mise run docs:check` のうち `check_docs.py` は通過（スライド OK、リンク 971 文書・4538 リンク・切れ 0）。Playwright の `render_slides.py` は CI の全体検査に任せる。
 - ブラウザ操作の試験（`test_ui.py` のドラッグ）は足していない。
+
+## 全体検査（feature、run 43607491173）で出た 2 件と直し
+
+- `ui`: S245 の `diagram_view` の「部品のクリックで宣言の行へ」が落ちた。ドラッグで `svg.setPointerCapture` していたため、離したあとの `click` の対象が svg になり `closest("[data-part]")` が引けなかった。捕まえる先を部品の `<g>` に変えた。
+- `rust-linux`: CI の stable の clippy が `globe-mode-fmt/src/layout.rs` の `needless_bool`（今回の変更の外。手元の mise の版では出ない）。提案どおり 1 式にした。

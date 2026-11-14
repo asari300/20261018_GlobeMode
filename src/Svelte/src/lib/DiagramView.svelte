@@ -26,7 +26,7 @@
     if (!onMove || e.button !== 0 || !g || !svg?.getScreenCTM()) return;
     const [x, y] = at(e);
     drag = { g, part: g.getAttribute("data-part")!, x, y, sx: e.clientX, sy: e.clientY, dx: 0, dy: 0, moved: false };
-    svg.setPointerCapture(e.pointerId);
+    g.setPointerCapture(e.pointerId); // 部品に捕まえる（svg だと離したあとの click の対象が svg になり、宣言へ飛べない）
   };
   const move = (e: PointerEvent) => {
     if (!drag || (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 4)) return;
