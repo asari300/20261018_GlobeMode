@@ -94,7 +94,7 @@ const cases = {
     await vscode.commands.executeCommand("undo");
     assert.equal(doc.getText(), before);
     // 検査を通らないメッセージは何もしない
-    assert.equal(await panel.handle({ type: "move", id: 3, part: "R o", dx: 1, dy: 1 }), undefined);
+    assert.equal(await panel.handle({ type: "move", id: 3, part: "R o", dx: 1, dy: 1 }), false);
     assert.equal(doc.getText(), before);
   },
 };
