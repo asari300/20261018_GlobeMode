@@ -96,6 +96,18 @@ pub fn main(init: std.process.Init) !void {
     defer gm.gm_string_free(flat);
     if ((try std.json.parseFromSliceLeaky(std.json.Value, arena, text(flat), .{})).object.get("variables").?.integer != 1) return error.ReadFailed;
     std.debug.print("read: outline={d} bytes, deps={s}, flat={s}\n", .{ text(outline).len, text(deps), text(flat) });
+    // S285: 解析（linearize・blt）。der(x) = -a x + u、y = 2 x なので A = [-3]（a = 3）。Lp は大きさ 2 の代数ループ
+    const lsrc = "model L parameter Real a = 1; Real x(start = 1, fixed = true); input Real u = 0; output Real y; equation der(x) = -a*x + u; y = 2*x; end L;";
+    if (gm.gm_set_file(ws, "L.mo", lsrc) != 0) return error.SetFile;
+    const lin = gm.gm_linearize(ws, "L", "{\"parameters\": {\"a\": 3}}");
+    defer gm.gm_string_free(lin);
+    const a00 = (try std.json.parseFromSliceLeaky(std.json.Value, arena, text(lin), .{})).object.get("A").?.array.items[0].array.items[0].float;
+    if (@abs(a00 + 3.0) > 1e-4) return error.WrongValue;
+    if (gm.gm_set_file(ws, "Lp.mo", "model Lp Real x; Real y; equation x + y = time; x - 2*y = 1; end Lp;") != 0) return error.SetFile;
+    const blt = gm.gm_blt(ws, "Lp");
+    defer gm.gm_string_free(blt);
+    if (std.mem.indexOf(u8, text(blt), "\"algebraic_loop\":true") == null) return error.WrongValue;
+    std.debug.print("analysis: A={d}, blt={d} bytes\n", .{ a00, text(blt).len });
     var calls: u32 = 0;
     const obs = gm.gm_simulate_observed(ws, "Wiggle", "{\"solver\": \"esdirk34\", \"stop_time\": 1000, \"interval\": 1}", stopAtFirstTime, &calls);
     defer gm.gm_string_free(obs);

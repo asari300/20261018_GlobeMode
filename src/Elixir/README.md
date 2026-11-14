@@ -4,7 +4,7 @@ Rustler の NIF（`globe-mode-nif`、Erlang モジュール名 `globe_mode_nif`�
 
 | 場所 | 内容 |
 | --- | --- |
-| `globe_mode/` | mix プロジェクト。`GlobeMode.new(libraries)` / `set_file` / `load_dir` / `check` / `graph` / `outline` / `deps` / `flat`（読み取り。S191）/ `simulate` / `solvers`（S082）。`simulate_columns` の layout の `defaults` は既定で描く信号の名前（S190）。結果は `{:ok, map}` か `{:error, 理由}`。Hex の依存は無い（JSON は Elixir 1.18 の標準 `JSON`） |
+| `globe_mode/` | mix プロジェクト。`GlobeMode.new(libraries)` / `set_file` / `load_dir` / `check` / `graph` / `outline` / `deps` / `flat`（読み取り。S191）/ `blt` / `linearize`（解析。S285）/ `simulate` / `solvers`（S082）。`simulate_columns` の layout の `defaults` は既定で描く信号の名前（S190）。結果は `{:ok, map}` か `{:error, 理由}`。Hex の依存は無い（JSON は Elixir 1.18 の標準 `JSON`） |
 | `phoenix_fmt/` | `globe fmt` の CLI を呼ぶウェブアプリ |
 
 ```bash
@@ -30,7 +30,7 @@ res["final"]["x"]                            # 0.367879468116207（e⁻¹）
 
 | NIF | スケジューラ |
 | --- | --- |
-| `new` `load_dir` `set_file` `export_fmu` `check` `graph` `outline` `deps` `flat` `simulate` `simulate_observed` `simulate_columns` | DirtyIo（Mutex を待つものは S214 からすべて。DirtyCpu だと、実行が Mutex を持つ間に待つ呼び出しがコアの数だけ溜まって、ほかの dirty CPU の NIF まで止める） |
+| `new` `load_dir` `set_file` `export_fmu` `check` `graph` `outline` `deps` `flat` `blt` `linearize` `simulate` `simulate_observed` `simulate_columns` | DirtyIo（Mutex を待つものは S214 からすべて。DirtyCpu だと、実行が Mutex を持つ間に待つ呼び出しがコアの数だけ溜まって、ほかの dirty CPU の NIF まで止める） |
 | `format` `lint` | DirtyCpu（Mutex を取らない。本文の長さに比例する） |
 | `cancel_token` `cancel` `solvers` | 通常（Mutex を取らない定数時間） |
 
