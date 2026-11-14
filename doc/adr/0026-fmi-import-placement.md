@@ -216,6 +216,18 @@
 - **試験**: `globe-mode-cli/tests/fmu_cosim.rs` に 2 本（`.ssv` とインライン〔2 本の binding で後ろが勝つ〕で Dahlquist の k = 2 → x(1) = 0.8^10、FMU に無い名前は無視。`ParameterMapping` を断る）、`globe-mode-fmi` の `ssp.rs` に 1 本（`parse_ssv` の型と `prefix`）と `ParameterMapping` の拒否。
 - **持ち越し**: `ParameterMapping`（.ssm）、System の階層の `ParameterBindings` と階層名での優先順位、`sourceBase="component"`（FMU の中の `.ssv`）、単位の換算、配列、SSP の Int32・Boolean のコネクタ、書き出し。
 
+### (u) S274 の付記（2026-11-15）: SSP の書き出し（`globe fmu ssp-export`）
+
+(q) の spec（`CosimSpec`）を `.ssp` に書き、(r)・(t) の読み取りで読み戻すと同じ結線・`start`・時刻・刻み・algorithm になる「往復」の最小版。
+
+- **形**: `globe fmu ssp-export <spec.json> -o system.ssp`（spec は `fmu cosim` と同じ。FMU のパスは spec.json からの相対）。実装は `globe-mode-fmi-import` の `write_ssp`（facade にも出した）。FMU のネイティブコードは実行しない（`modelDescription.xml` を読むだけ）。**新しい依存は無い**（zip は既にあり、XML は文字列の組み立て。属性値は `& < > "` を escape する）。
+- **SSD**: `System` 1 つ。`Component`（`type="application/x-fmu-sharedlibrary"`、`source="resources/<名前>.fmu"`。FMU は zip のまま Stored で写す）、`Connectors` は結線に出る変数だけ（`kind` は出力・入力、型は FMU の modelDescription が Float64 であることを確かめて `ssc:Real`）、`Connection` は出力を `startElement` に書く、`DefaultExperiment` に `startTime`・`stopTime`。
+- **`start`**: `Component` の `ParameterBindings` のインラインの `ParameterValues/ParameterSet`（`.ssv` は作らない。小さい方）。型は FMU の変数から（Float64 は `ssv:Real`、Int32 は `ssv:Integer`、Boolean は `ssv:Boolean`）。
+- **SSD に置き場が無いもの**: 通信刻み `step` と `algorithm` は SSD の `ssc:Annotations`（ルートの `DefaultExperiment` の次）の `ssc:Annotation` に入れる。SSP 2.0 の `Annotation` は `type`（必須。**自分たちが持つドメインの逆順**と XSD に書かれている）と任意の XML の中身を取る（[SystemStructureCommon.xsd の `TAnnotations`](https://github.com/modelica/ssp-standard/blob/main/schema/SystemStructureCommon.xsd)、2026-11-15 に確認）。型は `io.github.asari300.globe-mode.cosim`、中身は `<globe:cosim step=".." algorithm=".."/>`（名前空間 `urn:globe-mode:cosim`）。読み取り側（`parse_ssd`）が拾い、`Ssp::open` は刻みを**引数 `--step` > Annotation > (終了 - 開始) / 100** の順で決める。他のツールは未知の Annotation を無視してよい（仕様）ので、ほかのツールで開いても壊れない。`timeout`・`memory_limit_mib` は実行の上限で系の構造ではないので書かない。
+- **書き出さないもの（明確な誤りにする）**: 名前が英数字・`_`・`-` 以外の FMU、出力→入力でない・Float64（スカラー）でない結線の端、FMU に無い変数、Float64・Int32・Boolean 以外の `start`、不正な値。**結線は Real だけ**: 読み取りが Real 以外のコネクタを断る（(r)）ので、Int32・Boolean の結線を書くと往復できない。書かずに断る（読み取りを広げるときに一緒に直す）。
+- **試験**: `globe-mode-fmi-import` の `ssp.rs` に 1 本（FMU の名前と変数名に `<`・`&`・`"` を含む偽の FMU で、書いて `Ssp::open` で読み戻すと spec が等しい。`--step` が Annotation に勝つ。不正な名前・出力でない結線を書く前に断る）、`globe-mode-cli/tests/fmu_cosim.rs` に 1 本（Dahlquist → Feedthrough を Jacobi と Gauss–Seidel + `start`〔k = 2〕で書き、`globe fmu cosim system.ssp`〔`--step` なし〕の CSV が JSON の CSV とバイトで一致する）。
+- **持ち越し**: Int32・Boolean のコネクタ（書き出しと読み取りの両方）、`.ssv`・`.ssm` の書き出し、単位（`unit`）、入れ子の System、`resources/` の FMU の重複排除（同じ FMU を 2 つの Component に使うと 2 回写す）、`.ssp` から spec.json への逆変換。
+
 ### (v) S277 の付記（2026-11-15）: コシミュレーションの UI の口（Desktop だけ）
 
 (q)〜(t) の持ち越しの「LSP・UI の口」のうち、LSP と Desktop の UI。FMU の Import の口（(p)）と同じ流儀。
@@ -228,6 +240,7 @@
 
 ## 結果
 
+- **S274 の結果**: 上の (u)。`globe fmu ssp-export` が spec を `.ssp` に書き、`globe fmu cosim` が同じ CSV に読み戻す。
 - **S263 の結果**: 上の (t)。SSP の `ParameterBindings` が `start` になる。
 - **S277 の結果**: 上の (v)。Desktop の UI から `.ssp`・spec の `.json` を開いてコシミュレーションを回せる（LSP `globe/cosim`）。
 - **S259 の結果**: 上の (s)。Gauss–Seidel・`start`・Int32/Boolean の接続。
