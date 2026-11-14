@@ -60,6 +60,9 @@ pub struct WorkerRequest {
     /// 空なら [`run_in_process`] が自分で作って消す
     #[serde(default)]
     pub work_dir: Option<PathBuf>,
+    /// 結線の記述（S249）。あれば `file`・`kind` などは無視して、マスターで回す（FMU は `work_dir/<名前>/` に展開）
+    #[serde(default)]
+    pub cosim: Option<crate::CosimSpec>,
 }
 
 /// ME の要約（事象の中身は数だけ）。
@@ -109,6 +112,14 @@ impl WorkerSpec {
 
 /// 要求を**このプロセスの中で**回す（ワーカーの中身。落ちると呼び出し側ごと落ちる）。
 pub fn run_in_process(req: &WorkerRequest, progress: &mut dyn FnMut(f64)) -> Result<WorkerRun> {
+    if let Some(spec) = &req.cosim {
+        let r = crate::run_cosim_with(spec, req.work_dir.as_deref(), progress)?;
+        return Ok(WorkerRun {
+            names: r.names,
+            rows: r.rows,
+            me: None,
+        });
+    }
     let fmu = match &req.work_dir {
         Some(dir) => Fmu::open_in(&req.file, dir)?,
         None => Fmu::open(&req.file)?,

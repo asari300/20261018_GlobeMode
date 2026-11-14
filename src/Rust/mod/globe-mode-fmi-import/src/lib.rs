@@ -8,6 +8,8 @@
 //! - [`Fmu::instantiate_me`] は Model Exchange のインスタンス（[`FmuMe`]）を作る。[`run_me`] は FMU の微分をこの crate の
 //!   陽的な積分器（RK4・Dormand–Prince 5(4)）で積分し、事象（state・time・step）を扱う（S205）。
 //!
+//! - [`run_cosim_with`] は複数の CS の FMU を固定刻みでつなぐマスター（Jacobi 型。S249）。
+//!
 //! FMU は任意のネイティブコードを実行する。信頼できない FMU は開かないこと（[`TRUST_WARNING`]）。
 //! 共有ライブラリを読めないので wasm32・Android では使えない（利用側が feature・cfg で外す）。
 //!
@@ -15,10 +17,12 @@
 
 mod abi2;
 mod abi3;
+mod cosim;
 mod me;
 mod ode;
 mod worker;
 
+pub use cosim::{CosimSpec, run_cosim_with};
 pub use me::{
     EventInfo, EventKind, FmuMe, MeEvent, MeIntegrator, MeOptions, MeRun, StepInfo, run_me,
     run_me_with,
