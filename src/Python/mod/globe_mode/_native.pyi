@@ -44,4 +44,5 @@ def cosim(
     stop_time: float | None = None,
     step: float | None = None,
     on_progress: Callable[[float], Any] | None = None,
+    timeout: float | None = None,
 ) -> tuple[str, list[str], list[bytes]]: ...

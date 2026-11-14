@@ -279,6 +279,34 @@ fn ssp_refuses_parameter_mapping() {
     assert!(err.contains("ParameterMapping"), "{err}");
 }
 
+/// S288: `.ssp` にも `--timeout`・`--memory-limit` が効く（不正な上限は実行の前に断る。正しい上限なら結果は変わらない）。
+#[test]
+fn ssp_honours_timeout_and_memory_limit_flags() {
+    let Some(a) = reference_fmu("2.0", "Dahlquist") else {
+        return;
+    };
+    let dir = scratch("9");
+    let file = ssp(&dir, &dahlquist_ssd(""), &[("a", &a)], &[]);
+    let run = |extra: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_globe"))
+            .args(["fmu", "cosim"])
+            .arg(&file)
+            .args(["--step", "0.1"])
+            .args(extra)
+            .output()
+            .unwrap()
+    };
+    let bad = run(&["--timeout=-1"]);
+    let err = String::from_utf8_lossy(&bad.stderr);
+    assert!(
+        !bad.status.success() && err.contains("timeout") && !err.contains("unexpected"),
+        "{err}"
+    );
+    let plain = run(&[]);
+    let limited = run(&["--timeout", "60", "--memory-limit", "4096"]);
+    assert_eq!(table(&limited), table(&plain));
+}
+
 /// 列の名前 → 全行の値。
 fn table(out: &std::process::Output) -> std::collections::BTreeMap<String, Vec<f64>> {
     assert!(

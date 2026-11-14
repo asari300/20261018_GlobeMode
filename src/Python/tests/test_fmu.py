@@ -101,5 +101,9 @@ def test_cosim_dict_json_and_ssp_give_the_same_columns(tmp_path):
         z.write(a, "resources/a.fmu")
         z.write(b, "resources/b.fmu")
     assert table(cosim(tmp_path / "s.ssp", step=0.1)).equals(df)
+    # S288: timeout は .ssp にも効く（不正な値は実行の前に FmuError）
+    assert table(cosim(tmp_path / "s.ssp", step=0.1, timeout=60)).equals(df)
+    with pytest.raises(FmuError, match="timeout"):
+        cosim(tmp_path / "s.ssp", step=0.1, timeout=-1)
     with pytest.raises(FmuError, match="入力でない"):
         cosim({**spec, "connections": [["a.x", "a.k"]]})
