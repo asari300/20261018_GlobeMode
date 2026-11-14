@@ -100,3 +100,91 @@ fn bad_wires_are_refused_before_running() {
     let err = String::from_utf8_lossy(&out.stderr);
     assert!(err.contains("入力でない"), "{err}");
 }
+
+/// S253: `.ssp`（zip）を試験の中で組み立てる。`ssd` は `SystemStructure.ssd` の本文、`fmus` は `resources/<名前>.fmu` に入れる。
+fn ssp(dir: &std::path::Path, ssd: &str, fmus: &[(&str, &PathBuf)]) -> PathBuf {
+    use std::io::Write;
+    let path = dir.join("sys.ssp");
+    let mut zip = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());
+    let opt = zip::write::SimpleFileOptions::default();
+    zip.start_file("SystemStructure.ssd", opt).unwrap();
+    zip.write_all(ssd.as_bytes()).unwrap();
+    for (name, fmu) in fmus {
+        zip.start_file(format!("resources/{name}.fmu"), opt)
+            .unwrap();
+        zip.write_all(&std::fs::read(fmu).unwrap()).unwrap();
+    }
+    zip.finish().unwrap();
+    path
+}
+
+const SSD: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<ssd:SystemStructureDescription xmlns:ssd="http://ssp-standard.org/SSP1/SystemStructureDescription"
+  xmlns:ssc="http://ssp-standard.org/SSP1/SystemStructureCommon" name="demo" version="2.0">
+  <ssd:System name="top">
+    <ssd:Elements>
+      EXTRA
+      <ssd:Component name="a" source="resources/a.fmu"/>
+      <ssd:Component name="b" source="resources/b.fmu"/>
+    </ssd:Elements>
+    <ssd:Connections>
+      <!-- start / end はデータの向きではない: 入力側を start に書いても通る -->
+      <ssd:Connection startElement="b" startConnector="Float64_continuous_input" endElement="a" endConnector="x"/>
+    </ssd:Connections>
+  </ssd:System>
+  <ssd:DefaultExperiment startTime="0" stopTime="1"/>
+</ssd:SystemStructureDescription>"#;
+
+#[test]
+fn ssp_gives_the_same_csv_as_the_json_spec() {
+    let (Some(a), Some(b)) = (
+        reference_fmu("2.0", "Dahlquist"),
+        reference_fmu("3.0", "Feedthrough"),
+    ) else {
+        return;
+    };
+    let dir = scratch("3");
+    let json = cosim(
+        &dir,
+        serde_json::json!({
+            "fmus": {"a": a, "b": b},
+            "connections": [["a.x", "b.Float64_continuous_input"]],
+            "start_time": 0.0, "stop_time": 1.0, "step": 0.1,
+        }),
+    );
+    assert!(json.status.success());
+    let file = ssp(&dir, &SSD.replace("EXTRA", ""), &[("a", &a), ("b", &b)]);
+    let out = Command::new(env!("CARGO_BIN_EXE_globe"))
+        .args(["fmu", "cosim"])
+        .arg(&file)
+        .args(["--step", "0.1"])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(out.stdout, json.stdout);
+}
+
+#[test]
+fn ssp_refuses_nested_system() {
+    let (Some(a), Some(b)) = (
+        reference_fmu("2.0", "Dahlquist"),
+        reference_fmu("3.0", "Feedthrough"),
+    ) else {
+        return;
+    };
+    let dir = scratch("4");
+    let ssd = SSD.replace("EXTRA", r#"<ssd:System name="inner"/>"#);
+    let file = ssp(&dir, &ssd, &[("a", &a), ("b", &b)]);
+    let out = Command::new(env!("CARGO_BIN_EXE_globe"))
+        .args(["fmu", "cosim"])
+        .arg(&file)
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("入れ子の System"), "{err}");
+}
