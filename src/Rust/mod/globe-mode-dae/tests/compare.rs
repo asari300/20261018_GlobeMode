@@ -112,7 +112,7 @@ impl Tally {
             self.regular_compared += 1;
             self.regular_same += usize::from(mr == tr);
         }
-        if !same && self.diffs.len() < 40 {
+        if !same && self.diffs.len() < 400 {
             self.diffs.push(format!(
                 "{model}: eq {} vs {}, unk {} vs {} (rumoca); states {} vs {}, discrete {} vs {}, discrete_eq {}",
                 m.counts.equations,
@@ -235,4 +235,32 @@ fn msl_examples_dae() {
     for (k, v) in &why {
         println!("  DAE にできなかった {k}: {} 例 {:?}", v.len(), v.first());
     }
+}
+
+/// 1 本の中身を見る（`GLOBE_DAE_SHOW=モデル名`）。差の原因を調べるとき用
+#[test]
+#[ignore = "MSL が要る"]
+fn show_model() {
+    let Ok(name) = std::env::var("GLOBE_DAE_SHOW") else {
+        return;
+    };
+    let p = Project::from_dirs(&[msl_dir().as_path()]).unwrap();
+    let f = p.flatten(&name).unwrap();
+    let d = build(&f).unwrap();
+    for (v, r) in f.vars.iter().zip(&d.roles) {
+        println!(
+            "var {} : {} {:?} {:?} dims{:?} bind={:?}",
+            v.name, v.ty, v.kind, r, v.dims, v.binding
+        );
+    }
+    for e in &f.equations {
+        println!("eq[{}] {}", e.count, e.text);
+    }
+    for e in &f.when_equations {
+        println!("when[{}] {}", e.count, e.text);
+    }
+    for a in &f.algorithms {
+        println!("alg {a}");
+    }
+    println!("counts {:?} discrete_eq {}", d.counts, d.discrete_equations);
 }

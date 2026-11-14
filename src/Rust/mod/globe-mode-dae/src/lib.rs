@@ -212,7 +212,7 @@ fn first_branch(node: &SyntaxNode, kind: K) -> Vec<SyntaxNode> {
     out
 }
 
-/// `Equation` の節（`if`・`when` は最初の枝）が離散の変数を定義するか
+/// `Equation` の節（`if`・`when` は最初の枝）の左辺が離散の変数か（Rumoca と同じ。右辺が離散でも左辺が代数なら連続の行）
 fn defines_discrete(cx: &Ctx, roles: &[Role], eq: &SyntaxNode) -> bool {
     if matches!(kw_tokens(eq).next(), Some(K::KwIf | K::KwWhen | K::KwFor)) {
         return first_branch(eq, K::Equation)
@@ -220,7 +220,7 @@ fn defines_discrete(cx: &Ctx, roles: &[Role], eq: &SyntaxNode) -> bool {
             .any(|e| defines_discrete(cx, roles, e));
     }
     let es: Vec<Expr> = eq.children().filter_map(Expr::cast).collect();
-    es.iter().take(2).any(|e| match e {
+    es.iter().take(1).any(|e| match e {
         Expr::ComponentRef(c) => cx
             .resolve(&c.syntax().text().to_string())
             .is_some_and(|(v, _)| roles[v] == Role::Discrete),
@@ -257,11 +257,12 @@ pub fn build(m: &FlatModel) -> Result<Dae, Unsupported> {
     let mut eqs: Vec<(SyntaxNode, usize, String)> = Vec::new();
     for e in &m.equations {
         if e.count > 0 {
-            eqs.push((
-                first_equation(&parse_in_model("equation", &e.text)?)?,
-                e.count,
-                e.text.clone(),
-            ));
+            let node = first_equation(&parse_in_model("equation", &e.text)?)?;
+            // Rumoca は Clock 型の変数とその式を数えない（`c = Clock(…)`・`y = c`）
+            if cx.refs(&node).iter().any(|r| cx.vars[r.var].ty == "Clock") {
+                continue;
+            }
+            eqs.push((node, e.count, e.text.clone()));
         }
     }
     let mut whens: Vec<(SyntaxNode, usize)> = Vec::new();
@@ -273,6 +274,10 @@ pub fn build(m: &FlatModel) -> Result<Dae, Unsupported> {
     }
     let mut algs: Vec<SyntaxNode> = Vec::new();
     for a in &m.algorithms {
+        // 初期の algorithm は釣り合いに数えない（Rumoca と同じ）
+        if a.trim_start().starts_with("initial") {
+            continue;
+        }
         let body = a.trim_start().strip_prefix("algorithm").unwrap_or(a);
         algs.push(parse_in_model("algorithm", body)?);
     }
@@ -281,6 +286,7 @@ pub fn build(m: &FlatModel) -> Result<Dae, Unsupported> {
         if let Some(b) = &v.binding
             && matches!(v.kind, VarKind::Continuous | VarKind::Discrete)
             && !is_top_input(v)
+            && v.ty != "Clock"
         {
             binds.push((
                 i,
@@ -322,6 +328,7 @@ pub fn build(m: &FlatModel) -> Result<Dae, Unsupported> {
         .map(|(i, v)| {
             if matches!(v.kind, VarKind::Constant | VarKind::Parameter)
                 || v.ty == "String"
+                || v.ty == "Clock"
                 || is_top_input(v)
             {
                 Role::Known
