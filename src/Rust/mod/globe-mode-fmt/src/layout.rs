@@ -306,6 +306,11 @@ impl Renderer<'_> {
                     self.push_token(close, 0);
                 }
             }
+            // 幅（先頭の空白 1 つぶんを足す）を超えたら、呼び出し側はどうせ展開する。最後まで組み立てない（#97）
+            if self.cur.len() > self.opt.width + 1 && self.cur.chars().count() > self.opt.width + 1
+            {
+                return None;
+            }
         }
         Some(())
     }
