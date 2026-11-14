@@ -595,6 +595,32 @@
     }
     view.focus();
   }
+  // S250: 図の部品のドラッグ。Rust（globe/movePart）が返す origin の編集をエディタに 1 回の dispatch（undo 1 回）で入れる。保存はしない。動かせなければ false
+  async function onMove(part: string, dx: number, dy: number): Promise<boolean> {
+    if (!diagram) return false;
+    try {
+      await backend.setFile(file, view.state.doc.toString());
+      const edits = await backend.movePart(diagram.class, part, dx, dy, { file });
+      if (!edits?.length) return false;
+      view.dispatch({ changes: edits.map((e) => ({ from: offsetOf(e.range.start), to: offsetOf(e.range.end), insert: e.newText })) });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  // S261: 図で引いた結線。Rust（globe/addConnect）が返す connect の挿入を、onMove と同じくエディタに 1 回の dispatch で入れる。足せなければ false
+  async function onConnect(from: string, to: string, points: [number, number][]): Promise<boolean> {
+    if (!diagram) return false;
+    try {
+      await backend.setFile(file, view.state.doc.toString());
+      const edits = await backend.addConnect(diagram.class, from, to, points, { file });
+      if (!edits?.length) return false;
+      view.dispatch({ changes: edits.map((e) => ({ from: offsetOf(e.range.start), to: offsetOf(e.range.end), insert: e.newText })) });
+      return true;
+    } catch {
+      return false;
+    }
+  }
   function goBack() {
     if (busy) return; // S196
     let i = -1;
@@ -928,7 +954,7 @@
   <div class="work">
     {#if msl === "loaded"}<aside class="library"><LibraryTree {backend} onOpen={openLibrary} /></aside>{/if}
     <div class="editor" id="editor" hidden={isResults} bind:this={host}></div>
-    <DocsPanel doc={docs} {icon} {diagram} onParams={(part) => (openParams = { part })} onJump={(line) => moveTo(view.state.doc.line(line + 1).from, view.state.doc.line(line + 1).from)} />
+    <DocsPanel doc={docs} {icon} {diagram} {onMove} {onConnect} onParams={(part) => (openParams = { part })} onJump={(line) => moveTo(view.state.doc.line(line + 1).from, view.state.doc.line(line + 1).from)} />
   </div>
   <p class="hint" id="editor-help">{EDITOR_HELP}</p>
   {#if saved}<p class="note" role="status" data-saved>{saved}</p>{/if}

@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S261 図の結線の追加 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S261 図の結線の追加">
+
+<section class="slide" id="S01">
+  <span class="tag">S261 · 2026-11-15 · P8</span>
+  <h1>Diagram ビューの編集: 結線の追加</h1>
+  <p class="lead">コネクタから別のコネクタへドラッグして離すと、<code>connect</code> がソースに入る</p>
+  <div class="big">書き換えは<b>Rust</b>（<code>add_connect</code>）、UI はエディタに入れるだけ（Ctrl+Z で戻る）</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">Rust</span>
+  <h1>add_connect（globe-mode-fmt）</h1>
+  <table class="compact">
+    <tr><th>クラスの状態</th><th>足す場所</th></tr>
+    <tr><td><code>equation</code> 節あり</td><td>最後の節の最後の文の次の行（クラスの <code>annotation</code> の前）。字下げはその文に合わせる</td></tr>
+    <tr><td>空の <code>equation</code> 節</td><td>最初の宣言の字下げ</td></tr>
+    <tr><td><code>equation</code> 無し</td><td>クラスの <code>annotation</code>（無ければ <code>end</code>）の行の前に節ごと</td></tr>
+  </table>
+  <p>文は <code>connect(a.p, b.n) annotation(Line(points = {{x1, y1}, {x2, y2}}, color = {0, 0, 255}));</code></p>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">コネクタの位置</span>
+  <h1>部品のコネクタ（Part.connectors）</h1>
+  <ul>
+    <li>部品のクラスと <code>extends</code> の 2 段までの、<code>Placement</code> を持つ宣言</li>
+    <li><code>iconTransformation</code> があればそれ、無ければ <code>transformation</code> の extent の中心</li>
+    <li>型が引けて <code>connector</code> でなければ除く（引けなければ残す）</li>
+    <li>MSL で Capacitor・LimPID・Inertia の位置を確かめた</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">UI</span>
+  <h1>ドラッグ</h1>
+  <ul>
+    <li>各コネクタに透明な円（ホバーで色）。そこから始めると部品の移動でなく結線</li>
+    <li>仮の線を描き、別のコネクタの上で離したら確定。同じコネクタ・コネクタ以外なら何もしない</li>
+    <li>型の互換は見ない。足したあとの検査が誤りを出す</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">口と試験</span>
+  <h1>口と試験</h1>
+  <ul>
+    <li>LSP <code>globe/addConnect</code>（RPC 許可 27 から 28 本）、wasm <code>add_connect</code>、<code>Backend.addConnect</code></li>
+  </ul>
+  <pre><code>cargo test -p globe-mode-fmt --lib diagram
+cargo test -p globe-mode-lsp add_connect
+cargo test -p globe-mode-wasm --test decay diagram
+node src/Svelte/tests/test_columns.mjs
+node src/Svelte/tests/test_tauri.mjs</code></pre>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ul>
+    <li>結線の途中の点、既存の結線との重複の検査、型の互換の事前の検査</li>
+    <li>部品の追加、VS Code の側のパネルでの結線</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

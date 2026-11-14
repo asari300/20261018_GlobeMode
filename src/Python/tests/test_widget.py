@@ -22,6 +22,7 @@ def test_simulation_plot_traits():
     assert plot.time[0] == 0.0 and plot.time[-1] == 1.0
     assert math.isclose(plot.series["x"][-1], math.exp(-1), rel_tol=1e-4)
     assert "export default" in plot._esm
+    assert "Math.min(..." not in plot._esm  # 値が約 15 万個で RangeError（#91）
 
 
 def test_refused_result_raises():

@@ -17,10 +17,10 @@ export function gapNonFinite(col: Float64Array): Float64Array | (number | null)[
   return col;
 }
 
-/** 見出し行と列を CSV にする（S146）。null（欠損）は空欄。見出しにコンマ・引用符・改行があれば "..." で囲む。 */
+/** 見出し行と列を CSV にする（S146）。null（欠損）は NaN と書く（空欄は globe-mode-sim の parse_csv が読めない。#93）。見出しにコンマ・引用符・改行があれば "..." で囲む。 */
 export function toCsv(head: string[], cols: ArrayLike<number | null>[]): string {
   const q = (s: string) => (/[",\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s);
   const rows = [head.map(q).join(",")];
-  for (let r = 0; r < (cols[0]?.length ?? 0); r++) rows.push(cols.map((c) => c[r] ?? "").join(","));
+  for (let r = 0; r < (cols[0]?.length ?? 0); r++) rows.push(cols.map((c) => c[r] ?? "NaN").join(","));
   return rows.join("\n") + "\n";
 }

@@ -183,6 +183,14 @@ export class GlobeWorker {
   async diagram(cls, at) {
     return JSON.parse(await this.#call("diagram", { cls, text: at ? (this.#files.get(at.file) ?? "") : "", line: at?.line ?? 0, character: at?.character ?? 0 }));
   }
+  // 図の部品の移動（S250）: cls の部品 part を (dx, dy)（Diagram の座標）だけ動かす [{range, newText}]。at = {file}（setFile 済み）。動かせなければ null
+  async movePart(cls, part, dx, dy, at) {
+    return JSON.parse(await this.#call("move_part", { cls, text: this.#files.get(at.file) ?? "", part, dx, dy }));
+  }
+  // 図の結線の追加（S261）: cls に connect(from, to)（points は図の座標の線）を足す [{range, newText}]。at = {file}（setFile 済み）。足せなければ null
+  async addConnect(cls, from, to, points, at) {
+    return JSON.parse(await this.#call("add_connect", { cls, text: this.#files.get(at.file) ?? "", from, to, points }));
+  }
   // リネーム（S161）: [{range, newText}]。部品でない・識別子でない・予約語・既にある名前は、理由つきで reject
   async rename(file, line, character, newName) {
     return JSON.parse(await this.#call("rename", { file, text: this.#files.get(file) ?? "", line, character, newName }));
