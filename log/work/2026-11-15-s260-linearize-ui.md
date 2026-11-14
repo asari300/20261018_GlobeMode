@@ -30,6 +30,9 @@ S254 の線形化を UI から使えるようにする。LSP `globe/linearize`�
 - `pnpm check` 0 errors 0 warnings、`test_tauri.mjs` ok、`test_ui.py` の `linearize_view` だけを単独で回して ok（A = -2・B = C = 1・D = 0。console の error 0）。`test_ui.py` 全体は回していない。
 - Desktop の crate は webkit のシステムライブラリが無く手元でビルドできないので、`relayed_methods_are_exactly_what_the_ui_sends` と同じ突き合わせ（`tauri-backend.ts` の `method:` と `RPC_METHODS`＋`NOTIFY_METHODS`）を Python で行い、27 本が一致。
 
+- main（S257 まで）を取り込み。衝突は `doc/sessions/README.md` の索引だけ（両方残した）。`RPC_METHODS` は 27 のまま（S250・S256 は main に未着）。
+- `check_docs.py` 切れ 0 件、`render_slides.py`（S260 のスライドだけ）問題 0 件、差分にメールアドレス・ホームのパス 0 件。`mise run check` 全体は回していない（変えた crate の試験・clippy・fmt のみ）。
+
 ## 残したこと
 
 固有値、Python の口、平衡点、解析ヤコビ行列。結果を「タブ」にするなら `Tab` の型の拡張が要る。
