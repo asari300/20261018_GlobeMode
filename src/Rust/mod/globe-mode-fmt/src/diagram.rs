@@ -410,7 +410,7 @@ pub fn delete_part(src: &str, qualified: &str, part: &str) -> Option<Vec<(usize,
 }
 
 /// `connect(a, b)` の方程式（`annotation` と同じ行の後ろのコメントを含む文全体）を消す編集（S281）。端は `Connection` の `from`・`to` と同じ字句で、
-/// 逆の並びも同じ結線とみなす（添字は `connect_ends` が落とすので `b[2].p` は `b.p`。同じ名前の別の添字の結線も消える）。同じ端の `connect` が複数あれば全部消す。無ければ None。範囲の決め方は [`delete_part`] と同じ。
+/// 逆の並びも同じ結線とみなす（添字を含めて比べる。`b[2].p` と `b[ 2 ].p` は同じ、`b[1].p` は別。S283）。同じ端の `connect` が複数あれば全部消す。無ければ None。範囲の決め方は [`delete_part`] と同じ。
 pub fn delete_connect(
     src: &str,
     qualified: &str,
@@ -609,7 +609,7 @@ fn annotation_in(t: &[Token<'_>], name: &str) -> Option<Val> {
     annotation_call(&t[p..], name)
 }
 
-/// `connect(a.p, b[1].n)` の 2 つの端（`a.p`・`b.n` ではなく書いてあるままの字句をつなぐ）。
+/// `connect(a.p, b[1].n)` の 2 つの端（`a.p`・`b[1].n`。添字を含め、書いてあるままの字句を空白なしでつなぐ。S283）。
 fn connect_ends(t: &[Token<'_>]) -> Option<(String, String)> {
     if !t.get(1)?.is("(") {
         return None;
@@ -622,7 +622,9 @@ fn connect_ends(t: &[Token<'_>]) -> Option<(String, String)> {
         } else if s.is(")") {
             break;
         } else if s.is("[") {
-            i = skip_group(t, i).ok()?;
+            let j = skip_group(t, i).ok()?;
+            t[i..j].iter().for_each(|s| ends[k].push_str(s.text)); // 添字も端の一部（空白は落ちる）
+            i = j;
             continue;
         } else if s.kind == Kind::Ident || s.is(".") {
             ends[k].push_str(s.text);
@@ -982,7 +984,7 @@ end Circ;
         );
         assert_eq!(d.connections.len(), 2, "端が部品でない connect は飛ばす");
         let c = &d.connections[0];
-        assert_eq!((c.from.as_str(), c.to.as_str()), ("r1.n", "r2.p"));
+        assert_eq!((c.from.as_str(), c.to.as_str()), ("r1.n", "r2[1].p"));
         assert_eq!(c.line.points.len(), 3);
         assert_eq!(c.line.line, Some([0, 0, 255]));
         assert_eq!(
@@ -1214,9 +1216,13 @@ end Circ;
             "{got}"
         );
         // 結線だけ: 逆の並びでも消え、字下げは他の行を壊さない
-        let got = apply(src, delete_connect(src, "M", "c.n", "b.p").unwrap());
+        let got = apply(src, delete_connect(src, "M", "c.n", "b[2].p").unwrap());
         assert_eq!(got, src.replace("  connect(b[2].p, c.n);\n", ""));
         assert!(delete_connect(src, "M", "a.p", "c.p").is_none());
+        assert!(
+            delete_connect(src, "M", "c.n", "b.p").is_none(),
+            "添字の無い端は別物"
+        );
         // 同じ行に他の文があれば、その要素だけ
         let packed = "model M\n  Box a annotation(Placement(transformation(extent = {{0, 0}, {1, 1}})));\nequation\n  x = 1; connect(a.p, a.n);  y = 2;\nend M;\n";
         let got = apply(packed, delete_connect(packed, "M", "a.p", "a.n").unwrap());
@@ -1230,7 +1236,33 @@ end Circ;
         assert!(delete_part(src, "M", "zzz").is_none());
         assert!(delete_part(src, "N", "a").is_none());
         let bom = format!("\u{feff}{src}");
-        let got = apply(&bom, delete_connect(&bom, "M", "b.p", "c.n").unwrap());
+        let got = apply(&bom, delete_connect(&bom, "M", "b[2].p", "c.n").unwrap());
         assert_eq!(got, bom.replace("  connect(b[2].p, c.n);\n", ""));
+    }
+
+    #[test]
+    fn delete_connect_tells_array_indices_apart() {
+        let src = "model M\n  Box b[3];\n  Box c;\nequation\n  connect(b[1].p, c.n);\n  connect(b[ 2 ].p, c.n);\n  connect(c.n, b[i + 1].p);\nend M;\n";
+        let del = |a: &str, b: &str| {
+            let mut out = src.to_string();
+            for (s, e, t) in delete_connect(src, "M", a, b).unwrap().into_iter().rev() {
+                out.replace_range(s..e, &t);
+            }
+            out
+        };
+        // 1 本だけ消える（空白の違いは同じ、逆の並びも同じ）
+        assert_eq!(
+            del("b[2].p", "c.n"),
+            src.replace("  connect(b[ 2 ].p, c.n);\n", "")
+        );
+        assert_eq!(
+            del("c.n", "b[1].p"),
+            src.replace("  connect(b[1].p, c.n);\n", "")
+        );
+        assert_eq!(
+            del("b[i+1].p", "c.n"),
+            src.replace("  connect(c.n, b[i + 1].p);\n", "")
+        );
+        assert!(delete_connect(src, "M", "b[3].p", "c.n").is_none());
     }
 }

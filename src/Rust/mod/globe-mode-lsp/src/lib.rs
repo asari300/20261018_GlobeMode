@@ -40,7 +40,7 @@
 //! | `globe/addConnect` | `{file, class, from, to, points}` | LSP の TextEdit の配列 `[{range, newText}]` か null（S261。図で引いた結線を足す編集。クラスの最後の `equation` 節の末尾（クラスの `annotation` の前）に `connect(from, to) annotation(Line(points = {{x, y}, …}, color = {0, 0, 255}));` を足し、`equation` が無ければクラスの `annotation`（無ければ `end`）の前に節ごと足す。`from`・`to` は `part.connector`、`points` は図の座標〔空なら線の `annotation` を付けない〕。端が不正・クラスが無ければ null。型の互換は見ない〔検査が後で誤りを出す〕。ファイルは書き換えない。wasm の `add_connect` と同じ） |
 //! | `globe/addPart` | `{file, class, type, x, y}` | LSP の TextEdit の配列 `[{range, newText}]` か null（S265。ライブラリの木から図へドロップした部品を足す編集。クラスの最後の public の宣言の後〔無ければ最初の節の前〕に `<type> <名前> annotation(Placement(transformation(origin = {x, y}, extent = {{-10, -10}, {10, 10}})));` を足す。名前は型の最後の部分の頭を小文字にし、重なれば `1`・`2`… を付ける。`x`・`y` は図の座標で 2 単位に吸着。`type` が package・function・record・type と分かる〔ライブラリで引けて種類が読める〕・名前でない・クラスが無ければ null。ファイルは書き換えない。wasm の `add_part` と同じ） |
 //! | `globe/deletePart` | `{file, class, part}` | LSP の TextEdit の配列 `[{range, newText}]` か null（S281。図の部品 `part` の宣言と、その部品につながる `connect(...)` の方程式〔端の最初の名前が `part`。`if` の中は数えない〕をまとめて消す編集。複数で重ならない。ほかの文が無い行は字下げと改行ごと消し、あれば要素だけを消す。宣言が `A a, b;` のように複数の名前を持つ・Placement が無い・クラスや部品が無ければ null。ファイルは書き換えない。wasm の `delete_part` と同じ） |
-//! | `globe/deleteConnect` | `{file, class, from, to}` | LSP の TextEdit の配列か null（S281。`connect(from, to)`〔`globe/diagram` の `connections` の `from`・`to`。逆の並びも同じ。添字は落ちる〕の方程式を、同じ行の後ろのコメントごと消す編集。同じ端のものが複数あれば全部。無ければ null。wasm の `delete_connect` と同じ） |
+//! | `globe/deleteConnect` | `{file, class, from, to}` | LSP の TextEdit の配列か null（S281。`connect(from, to)`〔`globe/diagram` の `connections` の `from`・`to`。逆の並びも同じ。添字を含めて比べ、`b[1].p` と `b[2].p` は別の結線〔S283〕〕の方程式を、同じ行の後ろのコメントごと消す編集。同じ端のものが複数あれば全部。無ければ null。wasm の `delete_connect` と同じ） |
 //! | `globe/diagram` | `globe/documentation` と同じ | `{class, extent, parts, connections, shapes}` か null（S245。クラスの部品〔`Placement(transformation)` のある宣言〕と `connect`、`Diagram(graphics)` を形のデータにしたもの。部品は `name`・`class`〔書いてある型〕・`line`〔宣言の行、0 始まり〕・`transform`〔アイコンの座標から Diagram の座標への `[a,b,c,d,e,f]`〕・`bbox`・`shapes`〔部品のクラスの Icon の図形。引けなければ空〕・`connectors`〔S261。`[{name, pos}]`、部品のクラスと `extends` の 2 段までの、`Placement` を持つ宣言〔型が connector でないと分かるものは除く〕の位置。図の座標〕、`connections` は `from`・`to`・`line`〔`Line(points)` か中心どうしを結ぶ図形〕。`globe/icon` と同じ図形の形。wasm の `diagram` と同じ） |
 //!
 //! 設定ファイル（S130）: `initialize` の `rootUri`（無ければ `rootPath`）から上へたどって最初の `globe-mode.toml` を
@@ -2649,6 +2649,27 @@ mod tests {
         assert_eq!(
             rpc("globe/deleteConnect", json!({"from": "a.p", "to": "x.q"})),
             Value::Null
+        );
+    }
+
+    #[test]
+    fn delete_connect_removes_only_the_matching_array_index() {
+        // S283: 添字つきの端は添字ごとに別の結線。b[2].p を消しても b[1].p は残る
+        let mut s = Server::new(&[]).unwrap();
+        let text = "model T\n  Box b[2];\n  Box c;\nequation\n  connect(b[1].p, c.n);\n  connect(b[2].p, c.n);\nend T;\n";
+        s.handle(
+            json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+            "uri": "T.mo", "languageId": "modelica", "version": 1, "text": text}}}),
+        );
+        let e = s
+            .handle(json!({"id": 1, "method": "globe/deleteConnect", "params": {"file": "T.mo", "class": "T", "from": "c.n", "to": "b[2].p"}}))
+            .remove(0)["result"]
+            .clone();
+        assert_eq!(e.as_array().unwrap().len(), 1, "{e}");
+        assert_eq!(
+            e[0]["range"]["start"],
+            json!({"line": 5, "character": 0}),
+            "{e}"
         );
     }
 
