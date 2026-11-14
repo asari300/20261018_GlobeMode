@@ -332,7 +332,7 @@ KLU（LGPL）は同梱しない。
 | 段階 | 方法 | 対応 |
 | --- | --- | --- |
 | P5a（早い経路。**S094 で着手**、[ADR-0031](adr/0031-fmi-export-p5a-first.md)） | Rumoca の `fmi2` / `fmi3` テンプレートでソース FMU を作り、`cc` か `zig cc` で各 target 向けにビルドする。S094: frontend の `fmi_export` が Rumoca の `fmi2` を描き、`globe-mode-fmi` の feature `export` が FMU にする（`globe fmu export`、`--build` は linux64 だけ） | FMI 2.0 の ME / CS（事象・外部関数・表・入力の種は無し）。生成物は Rumoca のテンプレート（Apache-2.0）の文面を含む。表示の要否は【未確認】 |
-| P5b（自前のランタイム） | `globe-mode-fmu`（S095 は Decay を固定した FMI 2.0 ME、S099 から resources の Modelica を compile して exec の `ModelInstance` で回す。[ADR-0032](adr/0032-p5b-own-runtime.md)。BSD-2 の FMI ヘッダの上に作る）。IR を埋め込んで解釈実行するか、Rumoca の `rust-ode` テンプレートでコンパイルする | FMI 2 の ME / CS、FMI 3 の ME / CS / SE。解釈実行ならコンパイラが要らないので、ブラウザや Android からも出力できる |
+| P5b（自前のランタイム） | `globe-mode-fmu`（S095 は Decay を固定した FMI 2.0 ME、S099 から resources の Modelica を compile して exec の `ModelInstance` で回す。[ADR-0032](adr/0032-p5b-own-runtime.md)。BSD-2 の FMI ヘッダの上に作る）。IR を埋め込んで解釈実行するか、Rumoca の `rust-ode` テンプレートでコンパイルする | FMI 2 の ME / CS、FMI 3 の ME / CS / SE。解釈実行ならコンパイラが要らないので、ブラウザや Android からも出力できる。S251: SE は周期 Clock 1 つ・パーティション 1 つ（`--kind se`、`fmi3ActivateModelPartition` が CS の `do_step` を回す） |
 
 - `ModelStructure` は BLT の incidence から作る。
 - CS の FMU は自前のソルバで刻む。
