@@ -45,7 +45,7 @@ function render({ model, el }) {
     if (t.length < 2 || shown.length === 0) return;
     const ys = shown.flatMap((n) => series[n]).filter(Number.isFinite);
     if (ys.length === 0) return;
-    // Math.min(...ys) は引数が約 15 万個で RangeError になる（#91）
+    // 全値を関数の引数にすると、約 15 万個で RangeError になる（#91）
     let lo = Infinity, hi = -Infinity;
     for (const v of ys) { if (v < lo) lo = v; if (v > hi) hi = v; }
     if (lo === hi) { lo -= 1; hi += 1; }
