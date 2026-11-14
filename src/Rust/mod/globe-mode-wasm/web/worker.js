@@ -86,6 +86,7 @@ const ops = {
   models: ({ file }) => W().models(file), // S170。実行できるクラスの修飾名の JSON 配列（先に set_file）
   add_connect: ({ cls, text, from, to, points }) => W().add_connect(cls, text, from, to, JSON.stringify(points ?? [])), // S261。[{range, newText}] の JSON か null
   add_part: ({ cls, text, type, x, y }) => W().add_part(cls, text, type, x, y), // S265。[{range, newText}] の JSON か null
+  set_modifier: ({ cls, text, modifiers }) => W().set_modifier(cls, text, modifiers), // S294。[{range, newText}] の JSON。断れば投げる
   delete_part: ({ cls, text, part }) => W().delete_part(cls, text, part), // S281。[{range, newText}] の JSON か null
   delete_connect: ({ cls, text, from, to }) => W().delete_connect(cls, text, from, to), // S281。同上
   move_part: ({ cls, text, part, dx, dy }) => W().move_part(cls, text, part, dx, dy), // S250。[{range, newText}] の JSON か null

@@ -612,6 +612,18 @@
       return false;
     }
   }
+  // S294: パラメータのダイアログの「ソースに書く」。部品の修飾を TextEdit にして 1 回の dispatch で入れる（undo 1 回。保存しない）。断られたら理由を返す
+  async function writeModifiers(cls: string, modifiers: { part: string; name: string; value: string }[]): Promise<string | null> {
+    try {
+      await backend.setFile(file, view.state.doc.toString());
+      const edits = await backend.setModifier(cls, modifiers, { file });
+      if (!edits.length) return "ソースは変わらなかった";
+      view.dispatch({ changes: edits.map((e) => ({ from: offsetOf(e.range.start), to: offsetOf(e.range.end), insert: e.newText })) });
+      return null;
+    } catch (e) {
+      return String((e as Error).message ?? e);
+    }
+  }
   const onMove = (part: string, dx: number, dy: number) => editDiagram((d) => backend.movePart(d.class, part, dx, dy, { file }));
   const onConnect = (from: string, to: string, points: [number, number][]) => editDiagram((d) => backend.addConnect(d.class, from, to, points, { file }));
   const onAdd = (type: string, x: number, y: number) => editDiagram((d) => backend.addPart(d.class, type, x, y, { file }));
@@ -945,7 +957,7 @@
   {#if canForce === model}<p class="note" data-can-force><button onclick={() => simulate(true)} disabled={busy}>それでも実行する</button> 検査の Error を無視して実行する（強行）。結果は信頼できないことがある。</p>{/if}
   {#if forced}<p class="note forced" role="status" data-forced>強行した実行: 検査の Error を無視して実行した結果。信頼できないことがある。</p>{/if}
   {#if strayLib === model && own && !models.includes(model)}<p class="note" role="status" data-stray>モデル「{model}」はライブラリのもので、エディタの {baseName(file)} には無い。<button onclick={() => openLibrary({ path: model })} disabled={busy}>ライブラリのファイルを開く</button></p>{/if}
-  <SimSettings {backend} {model} {experiment} errors={diagnostics.filter((d) => d.code === "GM-E10004" || d.code === "GM-E10006")} {openParams} checked={checkedModel} last={lastSettings} bind:settings={simSettings} bind:problem={settingsProblem} />
+  <SimSettings {backend} {model} {experiment} errors={diagnostics.filter((d) => d.code === "GM-E10004" || d.code === "GM-E10006")} {openParams} onwrite={writeModifiers} checked={checkedModel} last={lastSettings} bind:settings={simSettings} bind:problem={settingsProblem} />
   {#if tauri}<p class="note" data-config>
     <button onclick={async () => { configNote = ""; try { await tauri.reloadConfig(); configNote ||= "globe-mode.toml を読み直した（無ければ既定）"; } catch (e) { configNote = String(e); } }}>設定を読み直す</button> {configNote}
   </p>{/if}

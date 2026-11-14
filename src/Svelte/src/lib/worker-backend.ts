@@ -91,6 +91,9 @@ export class WorkerBackend implements Backend {
   deletePart(cls: string, part: string, at: { file: string }) {
     return this.#w.deletePart(cls, part, at); // S281
   }
+  setModifier(cls: string, modifiers: { part: string; name: string; value: string }[], at: { file: string }) {
+    return this.#w.setModifier(cls, modifiers, at); // S294
+  }
   deleteConnect(cls: string, from: string, to: string, at: { file: string }) {
     return this.#w.deleteConnect(cls, from, to, at); // S281
   }

@@ -711,6 +711,14 @@ fn diagram_is_read_as_shape_data_from_the_document() {
     assert_eq!(c.as_array().unwrap().len(), 1, "{c}");
     assert_eq!(ws.delete_connect("T", text, "a.p", "x.q"), "null");
     assert_eq!(ws.delete_part("T", text, "nope"), "null");
+    // S294: 修飾を書く（1 つの編集）。断る場合の例外は wasm でしか作れないので smoke.mjs で確かめる
+    let s: serde_json::Value = serde_json::from_str(
+        &ws.set_modifier("T", text, r#"[{"part":"a","name":"k","value":"2"}]"#)
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(s.as_array().unwrap().len(), 1, "{s}");
+    assert!(s[0]["newText"].as_str().unwrap().contains("(k = 2)"), "{s}");
 }
 
 #[test]

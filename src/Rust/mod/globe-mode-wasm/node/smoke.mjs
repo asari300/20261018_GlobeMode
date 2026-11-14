@@ -84,6 +84,9 @@ console.log(`結果を開く: MAT ${layout.points} 点 × ${layout.names.length}
   assert.match(ap[0].newText, /^\n  Pin pin annotation\(Placement\(transformation\(origin = \{14, -8\}, extent = \{\{-10, -10\}, \{10, 10\}\}\)\)\);$/, ap[0].newText);
   const dp = JSON.parse(fw.delete_part("D", withDiagram, "a")); // S281: 宣言と connect をまとめて消す
   assert.equal(dp.length, 2);
+  const sm = JSON.parse(fw.set_modifier("D", withDiagram, JSON.stringify([{ part: "a", name: "k", value: "2" }]))); // S294: 修飾を書く
+  assert.equal(sm.length, 1);
+  assert.throws(() => fw.set_modifier("D", withDiagram, JSON.stringify([{ part: "a", name: "x.k", value: "2" }])), /入れ子/);
   assert.equal(fw.delete_connect("D", withDiagram, "a.p", "zz.q"), "null");
   // パラメータのダイアログ（S248）: 部品ごとの入れ子の名前・型・修飾で変えた既定値・単位。変換できなければ例外
   const withParams = 'model P\n  Part c(k = 5, on = false);\nend P;\nmodel Part\n  parameter Real k(unit = "1/s") = 1 "rate";\n  parameter Boolean on = true;\n  parameter Integer n = 3;\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -k * x;\nend Part;\n';

@@ -11,11 +11,12 @@
   //   GM-E10004（設定・experiment の値が妥当でない）は欄のすぐ下にも出す（errors）。
   // S150: 検査のあと（checked が新しくなるたび）に上書きできるパラメータの一覧を取り、値を打った行だけ 名前=値 と同じ形で入れる（下の欄と同じ名前なら下の欄が優先）。
   // S248: 「パラメータ…」のダイアログ（部品の名前つき・モデル全体）。picked（上の一覧と同じ名前 → 字面）を共有し、GM-E10006 は欄の近くに出す。
-  let { backend, model, experiment, checked = null, last, errors = [], openParams = null, settings = $bindable({}), problem = $bindable("") }: {
+  let { backend, model, experiment, checked = null, last, errors = [], openParams = null, onwrite, settings = $bindable({}), problem = $bindable("") }: {
     backend: Backend;
     model: string; // いま編集しているモデル名（保存の鍵）
     errors?: Diagnostic[]; // GM-E10004・GM-E10006 の診断
     openParams?: { part: string } | null; // 図の部品のダブルクリック。新しい値が来るたびダイアログを開く
+    onwrite?: (cls: string, modifiers: { part: string; name: string; value: string }[]) => Promise<string | null>; // S294: ダイアログの「ソースに書く」（App がエディタに入れる）
     experiment?: CheckResponse["experiment"];
     checked?: { model: string } | null; // 直近に検査したモデル
     last?: ResolvedSettings | null; // 直近の実行で実際に使われた値と出どころ
@@ -163,7 +164,7 @@
   {/if}
   <button type="button" data-open-params onclick={() => (dialog = { prefix: "" })} title="パラメータの一覧を開いて値を入れる（モデル全体）">パラメータ…</button>
   {#if dialog}
-    {#key dialog}<ParameterDialog {backend} {model} prefix={dialog.prefix} bind:picked errors={errors.filter((d) => d.code === "GM-E10006")} onclose={() => (dialog = null)} />{/key}
+    {#key dialog}<ParameterDialog {backend} {model} prefix={dialog.prefix} bind:picked errors={errors.filter((d) => d.code === "GM-E10006")} {onwrite} onclose={() => (dialog = null)} />{/key}
   {/if}
   <label>パラメータの上書き（1 行に 名前=値）
     <textarea bind:value={parameters} rows="2" cols="16" aria-label="パラメータの上書き"></textarea>

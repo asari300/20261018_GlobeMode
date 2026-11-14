@@ -82,6 +82,12 @@ calls.length = 0;
 assert.equal(await b.deletePart("T", "a", { file: "T.mo" }), null);
 assert.equal(await b.deleteConnect("T", "a.p", "b.n", { file: "T.mo" }), null);
 assert.deepEqual(calls, [["rpc", { method: "globe/deletePart", params: { file: "T.mo", class: "T", part: "a" } }], ["rpc", { method: "globe/deleteConnect", params: { file: "T.mo", class: "T", from: "a.p", to: "b.n" } }]]);
+// 部品の修飾（S294）: globe/setModifier に class・modifiers と file を渡す
+calls.length = 0;
+globalThis.window.__TAURI__.core.invoke = async (cmd, a) => (calls.push([cmd, a]), []);
+assert.deepEqual(await b.setModifier("T", [{ part: "r", name: "R", value: "2" }], { file: "T.mo" }), []);
+assert.deepEqual(calls, [["rpc", { method: "globe/setModifier", params: { file: "T.mo", class: "T", modifiers: [{ part: "r", name: "R", value: "2" }] } }]]);
+globalThis.window.__TAURI__.core.invoke = async (cmd, a) => (calls.push([cmd, a]), null);
 // 図の部品の追加（S265）: globe/addPart に class・type・x・y と file を渡す
 calls.length = 0;
 assert.equal(await b.addPart("T", "L.Res", 12, -4, { file: "T.mo" }), null);

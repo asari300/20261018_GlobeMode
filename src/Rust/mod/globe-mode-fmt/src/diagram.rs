@@ -591,6 +591,168 @@ fn decl_indent(mine: &[&[Token<'_>]], body: &str, name_of: &str) -> String {
         .unwrap_or_else(|| "  ".to_string())
 }
 
+/// 部品 `part` の宣言の修飾 `(name = value)` を足す・書き換える・外す編集（S294）。返すのは `src` のバイト範囲と、そこへ入れる文字列。
+/// 修飾が無ければ名前（と配列の添字）の直後に `(name = value)` を、`(…)` があれば末尾に `, name = value` を足し、`name` の引数があれば `=` の右だけ置き換える。
+/// `value` が空なら `name` の束縛を外す（引数が他に何も持たなければ引数ごと、`(…)` が空になれば括弧ごと）。何も変わらないなら範囲が空の編集を返す。
+/// 断る理由（Err）: 入れ子の名前（`a.b`）、`each`・`final` つきの引数、`name.x = …` のような入れ子の引数がある、式が壊れている、クラス・部品が無い。
+/// 式の検査は字句と括弧の対応だけ（型や名前は見ない。fmt は依存 0 なので構文の木は持たない）。複数の名前（`A a, b;`）は名前ごとの区切りだけを見る。
+pub fn set_modifier(
+    src: &str,
+    qualified: &str,
+    part: &str,
+    name: &str,
+    value: &str,
+) -> Result<(usize, usize, String), String> {
+    let ident = |s: &str| {
+        lex(s).is_ok_and(|t| t.len() == 1 && t[0].kind == Kind::Ident && !t[0].is_keyword())
+    };
+    if name.contains('.') {
+        return Err(format!(
+            "入れ子の名前 `{name}` の修飾は書けない（部品の直下の 1 段だけ）"
+        ));
+    }
+    if !ident(part) || !ident(name) {
+        return Err(format!("`{part}`・`{name}` は識別子でない"));
+    }
+    let value = value.trim();
+    if !value.is_empty() {
+        expr_ok(value)?;
+    }
+    let bom = if src.starts_with('\u{feff}') { 3 } else { 0 };
+    let body = &src[bom..];
+    let tokens = lex(body).map_err(|e| e.to_string())?;
+    let mine = own_elements(&tokens, qualified)
+        .ok_or(format!("クラス `{qualified}` がこのファイルに無い"))?;
+    let (t, n) = mine
+        .iter()
+        .filter(|t| !t[0].is_comment())
+        .find_map(|t| site(t, part))
+        .ok_or(format!("部品 `{part}` の宣言が `{qualified}` に無い"))?;
+    let at = |i: usize| t[i].start + bom;
+    let end = |i: usize| t[i].start + t[i].text.len() + bom;
+    let group = |i: usize| skip_group(t, i).map_err(|e| e.to_string());
+    let opener = |i: usize| ["(", "[", "{"].iter().any(|b| t[i].is(b));
+    let mut j = n + 1;
+    if t.get(j).is_some_and(|s| s.is("[")) {
+        j = group(j)?;
+    }
+    if !t.get(j).is_some_and(|s| s.is("(")) {
+        let text = if value.is_empty() {
+            String::new()
+        } else {
+            format!("({name} = {value})")
+        };
+        return Ok((end(j - 1), end(j - 1), text));
+    }
+    let close = group(j)? - 1;
+    // 引数ごとの [from, to)（コメントは両端から外す）
+    let (mut args, mut from, mut i) = (Vec::new(), j + 1, j + 1);
+    while i < close {
+        if opener(i) {
+            i = group(i)?;
+            continue;
+        }
+        if t[i].is(",") {
+            args.push((from, i));
+            from = i + 1;
+        }
+        i += 1;
+    }
+    args.push((from, close));
+    let args: Vec<(usize, usize)> = args
+        .into_iter()
+        .filter_map(|(a, b)| {
+            let c: Vec<usize> = (a..b).filter(|&k| !t[k].is_comment()).collect();
+            Some((*c.first()?, c.last()? + 1))
+        })
+        .collect();
+    let mut found = None;
+    for (k, &(a, b)) in args.iter().enumerate() {
+        let mut i = a;
+        while i < b && (t[i].is("each") || t[i].is("final")) {
+            i += 1;
+        }
+        if i < b && t[i].is(name) {
+            if t.get(i + 1).is_some_and(|s| s.is(".")) {
+                return Err(format!(
+                    "`{name}` の入れ子の引数（`{name}.x = …`）があるので書けない"
+                ));
+            }
+            if i > a {
+                return Err(format!("`each`・`final` つきの `{name}` は書き換えない"));
+            }
+            found = Some((k, i));
+        }
+    }
+    let Some((k, i)) = found else {
+        return Ok(match (value.is_empty(), args.last()) {
+            (true, _) => (end(close), end(close), String::new()),
+            (_, None) => (end(j), end(j), format!("{name} = {value}")),
+            (_, Some(&(_, b))) => (end(b - 1), end(b - 1), format!(", {name} = {value}")),
+        });
+    };
+    let (a, b) = args[k];
+    let mut eq = i + 1;
+    while eq < b && !t[eq].is("=") {
+        eq = if opener(eq) { group(eq)? } else { eq + 1 };
+    }
+    if eq >= b {
+        let text = if value.is_empty() {
+            String::new()
+        } else {
+            format!(" = {value}")
+        };
+        return Ok((end(b - 1), end(b - 1), text));
+    }
+    // 式の終わり: 後ろに説明の文字列（`k = 1 "説明"`）があれば手前まで
+    let desc = t[b - 1].kind == Kind::Str
+        && b - 1 > eq + 1
+        && (t[b - 2].kind != Kind::Punct || [")", "]", "}"].iter().any(|c| t[b - 2].is(c)));
+    let stop = end(if desc { b - 2 } else { b - 1 });
+    if !value.is_empty() {
+        return Ok((at(eq + 1), stop, value.to_string()));
+    }
+    if eq > i + 1 {
+        return Ok((end(eq - 1), stop, String::new())); // `k(min = 0) = 1` は ` = 1` だけ外す
+    }
+    Ok(match (k, args.len()) {
+        (_, 1) => (at(j), end(close), String::new()),
+        (0, _) => (at(a), at(args[1].0), String::new()),
+        _ => (end(args[k - 1].1 - 1), end(b - 1), String::new()),
+    })
+}
+
+/// 要素の `part` の名前の区切りと、その中の名前のトークンの位置。
+fn site<'t, 'a>(t: &'t [Token<'a>], part: &str) -> Option<(&'t [Token<'a>], usize)> {
+    let (_, first) = head(t)?;
+    comma_split(t).into_iter().enumerate().find_map(|(k, p)| {
+        let i = if k == 0 {
+            p.iter().position(|s| s.start == first.start)?
+        } else {
+            0
+        };
+        (p.get(i)?.kind == Kind::Ident && p[i].text == part).then_some((p, i))
+    })
+}
+
+/// 修飾に入れる式の簡単な検査: 字句に分けられ、コメント・`;`・`=`・深さ 0 の `,` が無く、括弧が対応する。
+fn expr_ok(v: &str) -> Result<(), String> {
+    let bad = || format!("式 `{v}` が壊れている");
+    let t = lex(v).map_err(|_| bad())?;
+    let mut i = 0;
+    while i < t.len() {
+        if ["(", "[", "{"].iter().any(|b| t[i].is(b)) {
+            i = skip_group(&t, i).map_err(|_| bad())?;
+            continue;
+        }
+        if t[i].is_comment() || [")", "]", "}", ",", ";", "="].iter().any(|c| t[i].is(c)) {
+            return Err(bad());
+        }
+        i += 1;
+    }
+    Ok(())
+}
+
 /// 名前のない位置引数の `name(…)`（`Placement(transformation(…))` の `transformation(…)`）の引数。
 fn call<'a>(args: &'a [(String, Val)], name: &str) -> Option<&'a Vec<(String, Val)>> {
     args.iter().find_map(|(_, v)| match v {
@@ -1377,5 +1539,84 @@ end Circ;
             src.replace("  connect(c.n, b[i + 1].p);\n", "")
         );
         assert!(delete_connect(src, "M", "b[3].p", "c.n").is_none());
+    }
+    #[test]
+    fn set_modifier_adds_replaces_and_removes() {
+        let go = |decl: &str, name: &str, v: &str| -> Result<String, String> {
+            let src = format!("model M\n  {decl}\n  Real y;\nend M;\n");
+            let (a, b, t) = set_modifier(&src, "M", "r", name, v)?;
+            Ok(format!("{}{}{}", &src[..a], t, &src[b..])[8..]
+                .lines()
+                .next()
+                .unwrap()
+                .trim()
+                .to_string())
+        };
+        let ann = "annotation(Placement(transformation(origin = {0, 0})));";
+        // 修飾なし: 名前の直後へ（配列の添字・複数の名前・annotation の前）
+        assert_eq!(
+            go(&format!("Res r {ann}"), "R", "2").unwrap(),
+            format!("Res r(R = 2) {ann}")
+        );
+        assert_eq!(go("Res r[2];", "R", " 2 ").unwrap(), "Res r[2](R = 2);");
+        assert_eq!(go("Res a, r;", "R", "2").unwrap(), "Res a, r(R = 2);");
+        // 別の修飾の末尾へ・空の括弧へ・式の中の , や ( は 1 つの値
+        assert_eq!(
+            go("Res r(C = 1);", "R", "max({1, 2})").unwrap(),
+            "Res r(C = 1, R = max({1, 2}));"
+        );
+        assert_eq!(go("Res r();", "R", "2").unwrap(), "Res r(R = 2);");
+        // 書き換え: 前後の引数・自分の修飾・説明の文字列は残す
+        assert_eq!(
+            go("Res r(R = 1, C = 3);", "R", "2").unwrap(),
+            "Res r(R = 2, C = 3);"
+        );
+        assert_eq!(
+            go("Res r(C = 3, R(min = 0) = f(1, 2) \"d\");", "R", "2").unwrap(),
+            "Res r(C = 3, R(min = 0) = 2 \"d\");"
+        );
+        // 外す: 唯一なら括弧ごと、先頭・末尾は区切りごと、自分の修飾があれば束縛だけ
+        assert_eq!(go("Res r(R = 1);", "R", "").unwrap(), "Res r;");
+        assert_eq!(
+            go("Res r(R = 1, C = 3);", "R", "").unwrap(),
+            "Res r(C = 3);"
+        );
+        assert_eq!(
+            go("Res r(C = 3, R = 1);", "R", "").unwrap(),
+            "Res r(C = 3);"
+        );
+        assert_eq!(
+            go("Res r(R(min = 0) = 1);", "R", "").unwrap(),
+            "Res r(R(min = 0));"
+        );
+        assert_eq!(go("Res r(C = 3);", "R", "").unwrap(), "Res r(C = 3);"); // 無ければ何も変えない
+        assert_eq!(go("Res r;", "R", "").unwrap(), "Res r;");
+        // 断る（理由つき）
+        for (d, n, v, why) in [
+            ("Res r;", "a.b", "1", "入れ子の名前"),
+            ("Res r;", "R", "1 +)", "壊れている"),
+            ("Res r;", "R", "1, 2", "壊れている"),
+            ("Res r;", "R", "a = 1", "壊れている"),
+            ("Res r;", "R", "1 // c", "壊れている"),
+            ("Res r(each R = 1);", "R", "2", "each"),
+            ("Res r(final R = 1);", "R", "2", "final"),
+            ("Res r(R.start = 1);", "R", "2", "入れ子の引数"),
+            ("Res q;", "R", "2", "部品 `r`"),
+        ] {
+            let e = go(d, n, v).unwrap_err();
+            assert!(e.contains(why), "{d} {n} {v}: {e}");
+        }
+        assert!(
+            set_modifier("model M end M;", "N", "r", "R", "1")
+                .unwrap_err()
+                .contains("クラス")
+        );
+        // BOM があっても範囲は元のバイト位置
+        let src = "\u{feff}model M\n  Res r;\nend M;\n";
+        let (a, b, t) = set_modifier(src, "M", "r", "R", "2").unwrap();
+        assert_eq!(
+            format!("{}{}{}", &src[..a], t, &src[b..]),
+            "\u{feff}model M\n  Res r(R = 2);\nend M;\n"
+        );
     }
 }
