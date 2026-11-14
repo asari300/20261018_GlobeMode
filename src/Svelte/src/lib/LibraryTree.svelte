@@ -1,11 +1,17 @@
 <script lang="ts">
   import type { Backend, TreeEntry } from "./backend";
+  import { getContext, setContext } from "svelte";
   import LibraryTree from "./LibraryTree.svelte";
+  import TreeIcon from "./TreeIcon.svelte";
+  import { treeIconLoader } from "./tree-icons";
 
   // ライブラリの木（S127）。展開したときに直下の子だけを引く。子の無いクラス（と、子を持つ package 以外のクラス）を押すと onOpen。
   // 最上位（prefix が空）には検索欄（S167）。一致の計算は Rust（backend.librarySearch）で、ここは結果の選択だけ
   let { backend, prefix = "", onOpen }: { backend: Backend; prefix?: string; onOpen: (e: TreeEntry) => void } = $props();
   let open = $state<Record<string, boolean>>({});
+  // アイコンは最上位の木が持つ loader（memo と同時 4 本）を、入れ子の木が共有する（S257）
+  const icons = getContext<ReturnType<typeof treeIconLoader> | undefined>("tree-icons") ?? treeIconLoader({ icon: (c) => backend.icon(c) });
+  setContext("tree-icons", icons);
   const entries = $derived(backend.libraryTree(prefix));
 
   let query = $state("");
@@ -56,12 +62,12 @@
       <li data-path={e.path}>
         {#if e.hasChildren}
           <button aria-expanded={!!open[e.path]} title={e.description} onclick={() => (open[e.path] = !open[e.path])}>
-            <span aria-hidden="true">{open[e.path] ? "▾" : "▸"}</span> {e.name}
+            <span aria-hidden="true">{open[e.path] ? "▾" : "▸"}</span> <TreeIcon load={() => icons(e.path)} />{e.name}
           </button>
           {#if e.kind !== "package"}<button title={e.description} onclick={() => onOpen(e)}>開く <span class="kind">{e.kind}</span></button>{/if}
           {#if open[e.path]}<LibraryTree {backend} prefix={e.path} {onOpen} />{/if}
         {:else}
-          <button title={e.description} onclick={() => onOpen(e)}>{e.name} <span class="kind">{e.kind}</span></button>
+          <button title={e.description} onclick={() => onOpen(e)}><TreeIcon load={() => icons(e.path)} />{e.name} <span class="kind">{e.kind}</span></button>
         {/if}
       </li>
     {/each}

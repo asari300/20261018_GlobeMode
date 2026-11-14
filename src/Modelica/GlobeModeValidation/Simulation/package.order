@@ -20,3 +20,5 @@ ArrayParameters
 ExternalBuiltin
 InputDecay
 EnumString
+LinearSystem
+Pendulum

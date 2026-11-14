@@ -69,3 +69,7 @@ CLI を子プロセスで呼ぶ 6 種（FastAPI・Astro・Phoenix・Wisp・Strea
 ### S233: 試験版 UI 2 種（`ui-exp`）
 
 `src/Rust/apps/experimental/{leptos,dioxus}` も別の workspace で、facade `globe-mode` の API が変わっても push の CI は気づけなかった。`ci_plan.py` に出力 `ui_exp`（`src/Rust/apps/experimental/*` を変えた、または facade `globe-mode` が影響を受けた〔その依存の変更も含む〕、または full）を足し、ジョブ `ui-exp` が 2 つを matrix で `cargo build --locked --target wasm32-unknown-unknown` と `cargo test --locked` する。trunk・dx・wasm-bindgen は回さない（成果物の表示は手元の `leptos:check`・`dioxus:check`）。
+
+### S255: Desktop のシェル（`desktop`、#95）
+
+`src/Rust/apps/desktop` の試験 21 本（中継を許す method の一覧が UI の `tauri-backend.ts` と一致する、CSP が `index.html` と一致する、など）は、手動の `desktop.yml` でしか回らなかった。method を足して `shell.rs` の `RPC_METHODS` を直し忘れても push の CI は通っていた。`ci_plan.py` に出力 `desktop`（`src/Rust/apps/desktop/*`・`src/Svelte/src/lib/tauri-backend.ts`・`src/Svelte/index.html` を変えた、または full）を足し、ジョブ `desktop` が webkit2gtk を入れて `cargo test --locked` する。`tauri::generate_context!` のために空の `src/Svelte/dist` と sidecar 名のファイルを置く。sidecar の中継の試験は環境変数 `GLOBE_BIN` が無いと省かれ（release の `globe` が要るため）、`desktop.yml` が従来どおり回す。

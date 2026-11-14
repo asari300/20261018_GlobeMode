@@ -9,6 +9,7 @@
 //!   陽的な積分器（RK4・Dormand–Prince 5(4)）で積分し、事象（state・time・step）を扱う（S205）。
 //!
 //! - [`run_cosim_with`] は複数の CS の FMU を固定刻みでつなぐマスター（Jacobi 型。S249）。
+//! - [`Ssp`] は `.ssp`（SSP 2.0.1）を [`CosimSpec`] にする（S253）。
 //!
 //! FMU は任意のネイティブコードを実行する。信頼できない FMU は開かないこと（[`TRUST_WARNING`]）。
 //! 共有ライブラリを読めないので wasm32・Android では使えない（利用側が feature・cfg で外す）。
@@ -20,6 +21,7 @@ mod abi3;
 mod cosim;
 mod me;
 mod ode;
+mod ssp;
 mod worker;
 
 pub use cosim::{CosimSpec, run_cosim_with};
@@ -27,6 +29,7 @@ pub use me::{
     EventInfo, EventKind, FmuMe, MeEvent, MeIntegrator, MeOptions, MeRun, StepInfo, run_me,
     run_me_with,
 };
+pub use ssp::Ssp;
 pub use worker::{
     Kind, MeSummary, WorkerRequest, WorkerRun, WorkerSpec, run_in_process, run_in_worker,
     worker_main,
@@ -50,6 +53,8 @@ pub enum Error {
     /// zip として壊れている、または危険なエントリ（`..`・絶対パス・シンボリックリンク）、大きすぎる。
     Zip(String),
     Description(globe_mode_fmi::Error),
+    /// `.ssp`（SSP）として読めない・範囲外の内容（S253）。
+    Ssp(String),
     /// 共有ライブラリが無い・読めない・関数が無い。
     Library(String),
     /// FMU の関数が `OK` / `Warning` 以外を返した、または引数が合わない。
@@ -68,6 +73,7 @@ impl fmt::Display for Error {
             Error::Io(m) => write!(f, "入出力の失敗: {m}"),
             Error::Zip(m) => write!(f, "FMU（zip）を開けない: {m}"),
             Error::Description(e) => write!(f, "{e}"),
+            Error::Ssp(m) => write!(f, "SSP を読めない: {m}"),
             Error::Library(m) => write!(f, "共有ライブラリを読めない: {m}"),
             Error::Fmu(m) | Error::Discard(m) => write!(f, "FMU が失敗を返した: {m}"),
             Error::Worker(m) => write!(f, "FMU のワーカー（別プロセス）: {m}"),
@@ -93,10 +99,14 @@ pub fn read_model_description(path: &Path) -> Result<ModelDescription> {
     let file = std::fs::File::open(path).map_err(io)?;
     let mut zip = zip::ZipArchive::new(file).map_err(zip_err)?;
     let entry = zip.by_name("modelDescription.xml").map_err(zip_err)?;
+    parse_model_description(&read_capped(entry)?).map_err(Error::Description)
+}
+
+/// modelDescription.xml を読む。上限つき（巨大な XML で落ちない。`info` と `run` で同じ上限。#96）。
+fn read_capped(r: impl Read) -> Result<String> {
     let mut xml = String::new();
-    // 上限つき（巨大な XML で落ちない）
-    entry.take(64 << 20).read_to_string(&mut xml).map_err(io)?;
-    parse_model_description(&xml).map_err(Error::Description)
+    r.take(64 << 20).read_to_string(&mut xml).map_err(io)?;
+    Ok(xml)
 }
 
 /// 展開した FMU。drop で展開先を消す（読み込んだ [`FmuCs`] より後に drop されるよう、借用で結ぶ）。
@@ -157,7 +167,7 @@ impl Fmu {
     /// 親が作って後始末する展開先を子に渡すための入口（#49。[`WorkerRequest::work_dir`]）。
     pub fn open_in(path: &Path, root: &Path) -> Result<Fmu> {
         unpack(std::fs::File::open(path).map_err(io)?, root)?;
-        let xml = std::fs::read_to_string(root.join("modelDescription.xml")).map_err(io)?;
+        let xml = read_capped(std::fs::File::open(root.join("modelDescription.xml")).map_err(io)?)?;
         let description = parse_model_description(&xml).map_err(Error::Description)?;
         Ok(Fmu {
             owned: None,

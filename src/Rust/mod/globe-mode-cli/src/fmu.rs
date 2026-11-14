@@ -68,11 +68,17 @@ pub enum FmuImportCommand {
     },
     /// 複数の Co-Simulation の FMU を固定の通信刻みでつなぎ（Jacobi 型。入力は 1 刻み遅れる）、全 FMU の出力を 1 つの CSV に出す。Real だけ。FMU は別プロセス（ワーカー）で実行する
     #[command(
-        after_help = "spec.json の例:\n  {\"fmus\": {\"a\": \"Dahlquist.fmu\", \"b\": \"Feedthrough.fmu\"}, \"connections\": [[\"a.x\", \"b.Float64_continuous_input\"]], \"stop_time\": 1, \"step\": 0.01}\n  （FMU のパスは spec.json からの相対。`timeout`・`memory_limit_mib` も書ける）\n例:\n  globe fmu cosim spec.json -o out.csv"
+        after_help = "spec.json の例:\n  {\"fmus\": {\"a\": \"Dahlquist.fmu\", \"b\": \"Feedthrough.fmu\"}, \"connections\": [[\"a.x\", \"b.Float64_continuous_input\"]], \"stop_time\": 1, \"step\": 0.01}\n  （FMU のパスは spec.json からの相対。`timeout`・`memory_limit_mib` も書ける）\n.ssp（SSP 2.0.1。入れ子の System・ParameterBindings・単位の変換は未対応）も渡せる:\n  globe fmu cosim system.ssp --step 0.01 -o out.csv\n例:\n  globe fmu cosim spec.json -o out.csv"
     )]
     Cosim {
-        /// 結線の記述（JSON）
+        /// 結線の記述（JSON）または `.ssp`（拡張子で分ける）
         spec: PathBuf,
+        /// `.ssp` のとき: 終了時刻（省略時は DefaultExperiment の stopTime）
+        #[arg(long)]
+        stop_time: Option<f64>,
+        /// `.ssp` のとき: 通信刻み（省略時は (終了 - 開始) / 100）
+        #[arg(long)]
+        step: Option<f64>,
         /// CSV の書き先（省略時は標準出力）
         #[arg(short, long)]
         out: Option<PathBuf>,
@@ -94,7 +100,12 @@ fn parse_set(s: &str) -> Result<(String, f64), String> {
 pub fn run(command: FmuImportCommand) -> ExitCode {
     let result = match command {
         FmuImportCommand::Info { file } => info(&file),
-        FmuImportCommand::Cosim { spec, out } => cosim(&spec, out.as_deref()),
+        FmuImportCommand::Cosim {
+            spec,
+            stop_time,
+            step,
+            out,
+        } => cosim(&spec, stop_time, step, out.as_deref()),
         FmuImportCommand::Worker => return ExitCode::from(worker_main() as u8),
         FmuImportCommand::Run {
             file,
@@ -243,20 +254,39 @@ fn run_fmu(
 }
 
 /// `globe fmu cosim`（S249）。
-fn cosim(spec: &std::path::Path, out: Option<&std::path::Path>) -> Result<(), String> {
+fn cosim(
+    spec: &std::path::Path,
+    stop_time: Option<f64>,
+    step: Option<f64>,
+    out: Option<&std::path::Path>,
+) -> Result<(), String> {
     if let Some(path) = out
         && let Err(message) = crate::check_writable_file(path, &[spec.to_owned()], &[])
     {
         return Err(format!("結果を {message}"));
     }
-    let text = std::fs::read_to_string(spec).map_err(|e| format!("{}: {e}", spec.display()))?;
-    let mut spec_data: globe_mode::CosimSpec =
-        serde_json::from_str(&text).map_err(|e| format!("{}: {e}", spec.display()))?;
-    // FMU のパスは spec.json のあるディレクトリからの相対
-    let dir = spec.parent().unwrap_or(std::path::Path::new("."));
-    for p in spec_data.fmus.values_mut() {
-        *p = dir.join(&*p);
-    }
+    // `.ssp`（S253）は展開先（drop で消える）の FMU を指す spec にする。`ssp` は回し終わるまで持つ
+    let ssp;
+    let spec_data = if spec
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("ssp"))
+    {
+        ssp = globe_mode::Ssp::open(spec, stop_time, step).map_err(|e| e.to_string())?;
+        ssp.spec.clone()
+    } else {
+        if stop_time.is_some() || step.is_some() {
+            return Err("--stop-time・--step は .ssp のときだけ（JSON は中に書く）".into());
+        }
+        let text = std::fs::read_to_string(spec).map_err(|e| format!("{}: {e}", spec.display()))?;
+        let mut spec_data: globe_mode::CosimSpec =
+            serde_json::from_str(&text).map_err(|e| format!("{}: {e}", spec.display()))?;
+        // FMU のパスは spec.json のあるディレクトリからの相対
+        let dir = spec.parent().unwrap_or(std::path::Path::new("."));
+        for p in spec_data.fmus.values_mut() {
+            *p = dir.join(&*p);
+        }
+        spec_data
+    };
     eprintln!("{}", globe_mode::FMU_TRUST_WARNING);
     let worker = std::env::current_exe().map_err(|e| e.to_string())?;
     let run = globe_mode::run_cosim(&worker, &spec_data, &mut |_| {}, None)?;
