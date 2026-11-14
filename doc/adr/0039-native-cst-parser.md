@@ -98,3 +98,13 @@ Track B（自前コア）は B1 rowan の CST と寛容なパーサ → B2 resol
 - **計測**（debug、`GLOBE_MSL=data/msl cargo test -p globe-mode-resolve --test resolve -- --ignored --nocapture msl_members`）: MSL 4.1.0（2556 本）で `Library` を作るのに 8.8 秒（debug。release ならこの 1 桁下の見込みだが、**release は測っていない**）、RSS は作る前 3.3 MB から 83 MB、`refs` を捨てて 75 MB（約 72 MB が持つ分）。書きかけの文書を足して `Modelica.Electrical.Analog.Basic.Resistor r;` の `r.` を引くのに 0.4〜0.5 ms。出たのは `R`・`n`・`p`・`v`・`i`・`T`・`T_heatPort`・`heatPort`・`useHeatPort` ほか 13 件。
 - **試験**: `globe-mode-lsp` に補完 3 本（ほかの行に誤りのある書きかけで `r.`・`r.R`・`r.p.`、`end` の前に切れた `connect(r.`、読める文書では今の道と同じ）と、LSP の RPC で GlobeModeValidation の `Resistor` を 2 回引く試験（2 回目は作り直さない）、`globe-mode-resolve` に `with_source` がライブラリを元に戻すこと。今の道では空になることも同じ試験で確かめた。
 - **悪い点・持ち越し**: 型が別の開いている文書にあるときは、自前の道は読まない（今の道が読める間は今の道が引く）。文書がライブラリのファイルと同じクラスを定義しているときは、ライブラリ側のクラスが優先される（重複として扱う）。`redeclare` が 2 段以上先で効く型、組み込みの型の属性（`x.` の `start`・`min`）、補完のほかの位置（`a.` 以外、名前引数、`annotation` の中）は出さない。ライブラリのファイルの更新で `Library` を作り直す仕組みは入れていない（`tree` と同じ）。
+
+## 付記（S296）: LSP の定義ジャンプとホバーを自前の構文と名前解決に（IDE の機能を先に自前に、S279 に続く 3 つ目）
+
+新しい ADR は立てず、同じ流れの続きとしてここに足す。S279 の補完と同じ形で、`textDocument/definition`・`globe/definition`・`textDocument/hover`・`globe/hover` を、**文書が今の道で読めないとき**だけ自前の道で答える。
+
+- **足し方**: 今の道（`Outline`）が引けるときは変えない（読める文書の出力と既存の試験の期待値は同じ）。文書の `Outline` が `Err`（構文の誤り・`end` の前で切れている）のときだけ、`Resolver::definition` が自前の道を使う。`globe/hover` と `globe_definition` は `definition` を通るので、同じ道で答える。`textDocument/hover` は今の道が null で文書が読めないときだけ、同じ解決の宣言の 1 行を `**…**` で返す（読める文書では今まで通り、カーソルの下のクラスの見出し）。wasm（`lib` を持たない）は今の道だけ。
+- **自前の道**（`definition.rs` の `tolerant_definition`）: S279 の `Library`（ライブラリのファイル全部から 1 回だけ作って `Server` が持つ。作る処理は `completion::tolerant_lib` に切り出して共有）に、書きかけの文書だけを `with_source` で一時的に足す。そのとき文書の `Ref`（型名・`extends`・成分参照）が `refs` に入るので、カーソルを含む一番狭い `Ref` を取り、`a.b.c` ならカーソルの段まで（`r.p.v` の `p` の上なら `r.p`）に切って `Library::resolve` で引く。クラスならそのクラスの範囲、部品なら部品の範囲を、そのファイルのパス（ライブラリのファイル、または文書）と共に返す。組み込み（`Real`）・`for` の添字・解決できないものは null。
+- **ホバーの文面**: 今の `globe/hover` と同じで、宣言の行（クラスは見出しの 1 行、部品は `;` まで。説明文字列を含む）。`hover_at` が定義の `Target` から作るので、書き換えていない。
+- **試験**: `globe-mode-lsp` に RPC の 1 本（ほかの行に誤りのある文書で、型名・`r1.p`・`r1.p.v` の定義ジャンプが `Components.mo`・`Connectors.mo` の同じ位置に飛ぶこと、`textDocument/hover` が `model Resistor` と部品の宣言を出すこと、`end` の前で切れた文書でも同じ）。既存の定義・ホバーの試験は変えずに通る。
+- **悪い点・持ち越し**: 段は名前の頭からカーソルまでの `.` の数で決めるので、添字に `.` がある `a[x.y].b` ではずれる。型が別の開いている文書にあるときは読まない（S279 と同じ）。`redeclare` が 2 段以上先で効く型、`Component` が属性（`x.start`）のときは null。ライブラリのファイルの更新で `Library` を作り直す仕組みは入れていない。読める文書でも今の道が null のときの自前の道への落ち方は入れていない（読めない文書だけ）。

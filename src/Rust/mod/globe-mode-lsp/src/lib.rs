@@ -318,7 +318,21 @@ impl Server {
                     }
                     _ => None,
                 };
-                reply(id, json!(hover))
+                let mut hover = json!(hover);
+                // S296: 文書が読めない（構文の誤り・`end` の前で切れている）ときは、カーソルの名前の宣言を自前の構文と名前解決で出す
+                if hover.is_null()
+                    && !matches!(self.ws.outline(&uri_path(&uri)), Some(Ok(_)))
+                    && let Some(text) = self.texts.get(&uri).cloned()
+                {
+                    let path = uri_path(&uri);
+                    let found = self.with_resolver(|r| {
+                        definition::hover_at(r, &path, &text, pos.line, pos.character)
+                    });
+                    if let Some(h) = found {
+                        hover = json!({"contents": {"kind": "markdown", "value": format!("**{}**", h["contents"].as_str().unwrap_or(""))}, "range": h["range"]});
+                    }
+                }
+                reply(id, hover)
             }
             "textDocument/formatting" => {
                 // 文書全体を 1 つの TextEdit で置き換える。整形できない（文法が壊れている）ときは null
@@ -2539,6 +2553,92 @@ mod tests {
         assert_eq!(r["result"]["range"]["start"]["line"], 19, "{r}");
         // r1.p の p は extends TwoPin の先の部品
         let r = ask_at(&mut s, uri, text, "textDocument/definition", "r1.p.v", 3);
+        assert_eq!(
+            r["result"]["range"]["start"],
+            json!({"line": 6, "character": 19}),
+            "{r}"
+        );
+    }
+
+    /// S296: 読めない文書（ほかの行に誤り・`end` の前で切れている）でも、型名・部品の続きの定義ジャンプとホバーが自前の構文と名前解決で答える。
+    #[test]
+    fn definition_and_hover_in_a_broken_document_via_the_tolerant_syntax() {
+        let lib =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../Modelica/GlobeModeValidation");
+        let mut s = Server::new(std::slice::from_ref(&lib)).unwrap();
+        let uri = "file:///tmp/Broken.mo";
+        let text = "model Other
+  Real = ;
+end Other;
+model T
+  import GlobeModeValidation.Components;
+  Components.Resistor r1;
+equation
+  connect(r1.p.v, r1.n.v);
+  r1.p.v = 0;
+";
+        let line = |r: &Value| r["result"]["range"]["start"]["line"].clone();
+        // 型名は Components.mo の `model Resistor`（正常な文書の試験と同じ行）
+        let r = ask_at(
+            &mut s,
+            uri,
+            text,
+            "textDocument/definition",
+            "Resistor r1",
+            1,
+        );
+        let u = r["result"]["uri"].as_str().unwrap_or_default();
+        assert!(u.ends_with("/Components.mo"), "{r}");
+        assert_eq!(line(&r), 19, "{r}");
+        // `r1.p.v` の p は TwoPin の部品（正常な文書の試験と同じ位置）、v はそのコネクタの部品
+        let r = ask_at(
+            &mut s,
+            uri,
+            text,
+            "textDocument/definition",
+            "r1.p.v = 0",
+            3,
+        );
+        assert_eq!(
+            r["result"]["range"]["start"],
+            json!({"line": 6, "character": 19}),
+            "{r}"
+        );
+        let r = ask_at(
+            &mut s,
+            uri,
+            text,
+            "textDocument/definition",
+            "r1.p.v = 0",
+            5,
+        );
+        assert!(
+            r["result"]["uri"]
+                .as_str()
+                .unwrap_or_default()
+                .ends_with("/Connectors.mo"),
+            "{r}"
+        );
+        // ホバーは宣言の行（`textDocument/hover` は太字、`globe/hover` は文字列）
+        let h = ask_at(&mut s, uri, text, "textDocument/hover", "Resistor r1", 1);
+        assert!(
+            h["result"]["contents"]["value"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("model Resistor"),
+            "{h}"
+        );
+        let h = ask_at(&mut s, uri, text, "textDocument/hover", "r1.p.v = 0", 3);
+        assert!(
+            h["result"]["contents"]["value"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("p"),
+            "{h}"
+        );
+        // `end` の前で切れていても同じ
+        let cut = "model T\n  import GlobeModeValidation.Components;\n  Components.Resistor r1;\nequation\n  r1.p.v";
+        let r = ask_at(&mut s, uri, cut, "textDocument/definition", "r1.p.v", 3);
         assert_eq!(
             r["result"]["range"]["start"],
             json!({"line": 6, "character": 19}),

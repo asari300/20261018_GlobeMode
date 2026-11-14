@@ -9,6 +9,7 @@ use globe_mode::{Outline, Workspace};
 use globe_mode_core::TextRange;
 use globe_mode_fmt::{Kind, LibraryTree, lex};
 use globe_mode_ir::{ClassKind, ClassOutline, ComponentOutline};
+use globe_mode_resolve::{Ref, Resolution};
 use lsp_types::Position;
 use serde_json::{Value, json};
 
@@ -249,10 +250,60 @@ impl Resolver<'_> {
         None
     }
 
+    /// S296: 読めない文書の `at` にある型名・成分参照（`r.p.v` のカーソルの段まで）を、`globe-mode-syntax` の寛容な木の上の
+    /// `globe-mode-resolve` で引く。書きかけの文書だけを一時的にライブラリに足し、その `Ref`（カーソルを含む一番狭いもの）を段で切って解決する。
+    /// shortcut: 段は名前の頭からカーソルまでの `.` の数で決める（`a[x.y].b` のように添字に `.` があるとずれる）。
+    fn tolerant_definition(&mut self, path: &str, text: &str, at: usize) -> Option<Target> {
+        let (start, name) = name_at(text, at)?;
+        let end = start + name.len();
+        let lib = crate::completion::tolerant_lib(self)?;
+        lib.with_source(path, text, |l, file| {
+            let (s, e) = (start as u32, end as u32);
+            let r = l
+                .refs
+                .iter()
+                .filter(|r| r.file == file)
+                .filter(|r| u32::from(r.range.start()) <= s && e <= u32::from(r.range.end()))
+                .min_by_key(|r| r.range.len())?;
+            let from = u32::from(r.range.start()) as usize;
+            let k = text
+                .get(from..end)?
+                .matches('.')
+                .count()
+                .min(r.parts.len() - 1);
+            let cut = Ref {
+                file: r.file,
+                range: r.range,
+                scope: r.scope,
+                kind: r.kind,
+                parts: r.parts[..=k].to_vec(),
+                global: r.global,
+                local: r.local,
+            };
+            let (c, range, class) = match l.resolve(&cut) {
+                Resolution::Class(c) => (c, l.classes[c].range, true),
+                Resolution::Component(c, i) => (c, l.classes[c].components[i].range, false),
+                _ => return None,
+            };
+            Some(Target {
+                path: l.files[l.classes[c].file as usize].clone(),
+                range: TextRange {
+                    start: range.start().into(),
+                    end: range.end().into(),
+                },
+                class,
+            })
+        })
+    }
+
     /// 文書 `path`（本文 `text`）の `at` にある名前の定義。
     pub fn definition(&mut self, path: &str, text: &str, at: usize) -> Option<Target> {
         let (_, name) = name_at(text, at)?;
-        let (chain, scopes, within) = scopes_at(self.outline(path)?, at);
+        // 文書が読めない（構文の誤り・`end` の前で切れている）ときだけ、自前の構文と名前解決で引く（S296）
+        let Some(outline) = self.outline(path) else {
+            return self.tolerant_definition(path, text, at);
+        };
+        let (chain, scopes, within) = scopes_at(outline, at);
         let mut segs = name.split('.');
         let head = segs.next()?;
         // 部品名（内側のクラスから外へ、extends の先も）
