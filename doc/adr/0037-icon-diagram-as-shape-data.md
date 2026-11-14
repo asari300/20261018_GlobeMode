@@ -74,3 +74,14 @@ P8 の Diagram / Icon ビューの最初の一切れとして、カーソルの�
 - **CSP・DOM**: 変えていない（`default-src 'none'`、script は nonce、`innerHTML` 不使用）。
 - **確かめ**: `pnpm test` に `diagram-edit.test.mjs`（偽の svg での吸着・クリック・結線・戻し、メッセージの検査）、`e2e/suite.cjs` に「`panel.handle` へ move・connect を渡すと文書が書き換わり、undo で戻り、図が引き直される」。webview の DOM は拡張ホストから操作できないので、e2e はドラッグそのものでなく webview が送るメッセージから先を回す。
 - **持ち越し**: 実機の VS Code でのポインタ操作の目視、結線の途中の点、部品の追加、型の互換の事前の検査。
+
+## 付記（S281: 部品と結線の削除）
+
+- **Diagram の編集の 4 つ目として、部品と結線の削除を入れた。** Rust（`globe-mode-fmt` の `delete_part`・`delete_connect`）が消す範囲の編集（バイト範囲と空の文字列。重ならず先頭から並ぶ複数）を返し、UI がエディタに 1 回の `dispatch` で入れる（Ctrl+Z で戻せる。保存しない）。
+- **`delete_part(src, class, part)`**: `part` の宣言（S250 と同じく Placement を持つ宣言）と、クラス直下の `connect(...)` のうち端の最初の名前（`b[1].n` の `b`）が `part` のものを、まとめて消す。`if` の中の `connect` は 1 つの文として扱われるので数えない。宣言が `A a, b;` のように深さ 0 の `,` を含む（複数の名前）ときは**断る**（null）。名前だけ外す編集は、宣言ごとの `annotation` の帰属が曖昧なので入れない。
+- **`delete_connect(src, class, a, b)`**: `connect(a, b)` を消す。端は `globe/diagram` の `connections` の `from`・`to` と同じ字句（添字は `connect_ends` が落とすので `b[2].p` は `b.p`）、逆の並びも同じ結線とみなす。同じ端の `connect` が複数あれば全部消す（添字だけが違う結線も消える。配列のコネクタの結線の選び分けは持ち越し）。
+- **範囲**: 文（同じ行の後ろのコメントを含む要素）が行に 1 つだけなら、字下げと行末の改行ごと消す。同じ行に他の文があれば、その要素と後ろの空白だけ。`equation` 節が空になっても節の見出しは残す（空の節は有効）。BOM は S250 と同じく数えて足す。
+- **口**: LSP `globe/deletePart`（`{file, class, part}`）・`globe/deleteConnect`（`{file, class, from, to}`）、TextEdit の配列か null（`RPC_METHODS` は 33）。wasm `delete_part`・`delete_connect`、`Backend.deletePart`・`deleteConnect`（`WorkerBackend`・`TauriBackend`）。
+- **UI**: `DiagramView.svelte` で部品（`[data-part]`）か結線を選ぶ。クリックと Tab（フォーカス）で選び、何も無い所のクリックで外す。選んだ部品は青い破線の枠と薄い地、結線は青い太線（`.sel`）。結線の当たり判定は、線と同じ点の透明な太い線（`stroke-width` 10 の非拡大の `polyline.hit`、`data-hit`、`tabindex 0`、`role=button`）を `[data-conn]` の外に置いた（図形の数を変えない）。Delete / Backspace は svg の中でだけ受け（`onkeydown`）、`onDelete` を呼ぶ。部品のクリックは従来どおり宣言の行へ飛ぶが、エディタへ移ったフォーカスを選んだ部品か結線へ戻す（さもないと Delete がエディタの文字を消す）。編集で消えた対象の選びは図の読み直しで外れる。
+- **確かめ**: Rust は `delete_part_removes_the_declaration_and_its_connects`（部品とつながる結線をまとめて・配列・結線だけ〔逆の並び〕・字下げ・同じ行に他の文・複数の名前・BOM）、LSP 1 本、wasm 1 件、`pnpm check` 0 件、`test_tauri.mjs` の rpc 一覧。**ブラウザでの操作（`test_ui.py`）は書いていない**。
+- **持ち越し**: VS Code の側のパネルでの削除（`shape-svg.ts` は共有で、webview にも `.hit` の透明な線が出るが、選びも消すキーも無い）、複数選び、配列のコネクタ（`p[1]`）の結線の選び分け、宣言の複数の名前から 1 つだけ外す、消した部品を参照する他の文（方程式の `a.x` など）の整理、ブラウザでの操作の試験、削除の確認の問い。

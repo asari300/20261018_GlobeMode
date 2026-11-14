@@ -39,6 +39,8 @@
 //! | `globe/movePart` | `{file, class, part, dx, dy}` | LSP の TextEdit の配列 `[{range, newText}]` か null（S250。図の部品 `part` を Diagram の座標で (dx, dy) だけ動かす編集。`Placement(transformation(origin = {x, y}))` の `{x, y}` を書き換え、`origin` が無ければ `transformation(` の直後に足す。`file` は開いている文書、`class` は完全修飾名。Placement が無い・`origin` が数でないなど動かせなければ null。ファイルは書き換えない〔UI がエディタに適用する〕。wasm の `move_part` と同じ） |
 //! | `globe/addConnect` | `{file, class, from, to, points}` | LSP の TextEdit の配列 `[{range, newText}]` か null（S261。図で引いた結線を足す編集。クラスの最後の `equation` 節の末尾（クラスの `annotation` の前）に `connect(from, to) annotation(Line(points = {{x, y}, …}, color = {0, 0, 255}));` を足し、`equation` が無ければクラスの `annotation`（無ければ `end`）の前に節ごと足す。`from`・`to` は `part.connector`、`points` は図の座標〔空なら線の `annotation` を付けない〕。端が不正・クラスが無ければ null。型の互換は見ない〔検査が後で誤りを出す〕。ファイルは書き換えない。wasm の `add_connect` と同じ） |
 //! | `globe/addPart` | `{file, class, type, x, y}` | LSP の TextEdit の配列 `[{range, newText}]` か null（S265。ライブラリの木から図へドロップした部品を足す編集。クラスの最後の public の宣言の後〔無ければ最初の節の前〕に `<type> <名前> annotation(Placement(transformation(origin = {x, y}, extent = {{-10, -10}, {10, 10}})));` を足す。名前は型の最後の部分の頭を小文字にし、重なれば `1`・`2`… を付ける。`x`・`y` は図の座標で 2 単位に吸着。`type` が package・function・record・type と分かる〔ライブラリで引けて種類が読める〕・名前でない・クラスが無ければ null。ファイルは書き換えない。wasm の `add_part` と同じ） |
+//! | `globe/deletePart` | `{file, class, part}` | LSP の TextEdit の配列 `[{range, newText}]` か null（S281。図の部品 `part` の宣言と、その部品につながる `connect(...)` の方程式〔端の最初の名前が `part`。`if` の中は数えない〕をまとめて消す編集。複数で重ならない。ほかの文が無い行は字下げと改行ごと消し、あれば要素だけを消す。宣言が `A a, b;` のように複数の名前を持つ・Placement が無い・クラスや部品が無ければ null。ファイルは書き換えない。wasm の `delete_part` と同じ） |
+//! | `globe/deleteConnect` | `{file, class, from, to}` | LSP の TextEdit の配列か null（S281。`connect(from, to)`〔`globe/diagram` の `connections` の `from`・`to`。逆の並びも同じ。添字は落ちる〕の方程式を、同じ行の後ろのコメントごと消す編集。同じ端のものが複数あれば全部。無ければ null。wasm の `delete_connect` と同じ） |
 //! | `globe/diagram` | `globe/documentation` と同じ | `{class, extent, parts, connections, shapes}` か null（S245。クラスの部品〔`Placement(transformation)` のある宣言〕と `connect`、`Diagram(graphics)` を形のデータにしたもの。部品は `name`・`class`〔書いてある型〕・`line`〔宣言の行、0 始まり〕・`transform`〔アイコンの座標から Diagram の座標への `[a,b,c,d,e,f]`〕・`bbox`・`shapes`〔部品のクラスの Icon の図形。引けなければ空〕・`connectors`〔S261。`[{name, pos}]`、部品のクラスと `extends` の 2 段までの、`Placement` を持つ宣言〔型が connector でないと分かるものは除く〕の位置。図の座標〕、`connections` は `from`・`to`・`line`〔`Line(points)` か中心どうしを結ぶ図形〕。`globe/icon` と同じ図形の形。wasm の `diagram` と同じ） |
 //!
 //! 設定ファイル（S130）: `initialize` の `rootUri`（無ければ `rootPath`）から上へたどって最初の `globe-mode.toml` を
@@ -840,6 +842,32 @@ impl Server {
                         params["type"].as_str().unwrap_or(""),
                         [params["x"].as_f64().unwrap_or(0.0), params["y"].as_f64().unwrap_or(0.0)],
                         &|c| std::fs::read_to_string(tree.file(c)?).ok(),
+                    ),
+                )
+            }
+            // S281: 図の部品（とそれにつながる結線）・結線を消す編集（TextEdit の配列。ファイルは書かない）
+            "globe/deletePart" => {
+                let text = params["file"].as_str().and_then(|f| self.texts.get(f).cloned());
+                let at = text.as_deref().map(|t| (t, 0, 0));
+                reply(
+                    id,
+                    diagram::delete_part(
+                        params["class"].as_str().unwrap_or(""),
+                        at,
+                        params["part"].as_str().unwrap_or(""),
+                    ),
+                )
+            }
+            "globe/deleteConnect" => {
+                let text = params["file"].as_str().and_then(|f| self.texts.get(f).cloned());
+                let at = text.as_deref().map(|t| (t, 0, 0));
+                reply(
+                    id,
+                    diagram::delete_connect(
+                        params["class"].as_str().unwrap_or(""),
+                        at,
+                        params["from"].as_str().unwrap_or(""),
+                        params["to"].as_str().unwrap_or(""),
                     ),
                 )
             }
@@ -2577,6 +2605,55 @@ mod tests {
             "{e}"
         );
         assert_eq!(ac("b.n; x"), Value::Null);
+    }
+
+    #[test]
+    fn delete_part_and_delete_connect_return_text_edits() {
+        // S281: globe/deletePart は宣言とつながる connect をまとめて、globe/deleteConnect は結線だけ消す。消せなければ null
+        let mut s = Server::new(&[]).unwrap();
+        let text = "model T\n  Box a annotation(Placement(transformation(extent = {{-10, -10}, {10, 10}})));\n  Box b;\nequation\n  connect(a.p, b.n);\n  connect(b.p, b.n);\nend T;\n";
+        s.handle(
+            json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+            "uri": "T.mo", "languageId": "modelica", "version": 1, "text": text}}}),
+        );
+        let mut rpc = |m: &str, p: Value| {
+            let mut params = json!({"file": "T.mo", "class": "T"});
+            params
+                .as_object_mut()
+                .unwrap()
+                .extend(p.as_object().unwrap().clone());
+            s.handle(json!({"id": 1, "method": m, "params": params}))
+                .remove(0)["result"]
+                .clone()
+        };
+        let e = rpc("globe/deletePart", json!({"part": "a"}));
+        assert_eq!(e.as_array().unwrap().len(), 2, "{e}");
+        assert_eq!(
+            e[0]["range"],
+            json!({"start": {"line": 1, "character": 0}, "end": {"line": 2, "character": 0}}),
+            "{e}"
+        );
+        assert_eq!(
+            e[1]["range"],
+            json!({"start": {"line": 4, "character": 0}, "end": {"line": 5, "character": 0}}),
+            "{e}"
+        );
+        assert_eq!(e[1]["newText"], "");
+        assert_eq!(
+            rpc("globe/deletePart", json!({"part": "b"})),
+            Value::Null,
+            "Placement が無い"
+        );
+        let e = rpc("globe/deleteConnect", json!({"from": "b.n", "to": "b.p"}));
+        assert_eq!(
+            e[0]["range"]["start"],
+            json!({"line": 5, "character": 0}),
+            "{e}"
+        );
+        assert_eq!(
+            rpc("globe/deleteConnect", json!({"from": "a.p", "to": "x.q"})),
+            Value::Null
+        );
     }
 
     #[test]
