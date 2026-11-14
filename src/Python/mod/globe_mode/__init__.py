@@ -9,7 +9,7 @@
     res = ws.simulate_columns("Modelica.Electrical.Analog.Examples.ChuaCircuit", stop_time=2)
     table(res)  # polars.DataFrame（time 列と変数の列）
 
-- 使い方: `Workspace`（開く・`check`・`outline`・`deps`・`flat`・`graph`・`simulate`・`simulate_columns`・`export_fmu`）、`table`、`format`、
+- 使い方: `Workspace`（開く・`check`・`outline`・`deps`・`flat`・`graph`・`linearize`・`simulate`・`simulate_columns`・`export_fmu`）、`table`、`format`、
   `lint`、`solvers`、`read_results`（結果の MAT v4・CSV を読む）、`fmu_info`・`run_fmu`（FMU を読む・回す。FMI Import、S229）、`cosim`（複数の FMU をつなぐ。`.json`・`.ssp`・dict。S258）。
   それぞれ `help()` に引数・戻り値・誤りがある。
 - 誤りの扱い: **モデルの誤りは例外にせず、結果の `diagnostics`（`ok`・`passed`）で返す**（未知のモデルも `check` は
@@ -222,6 +222,29 @@ class Workspace:
         """flat モデルの要約（`globe flat --json` と同じ。`variables`・`equations`・`initial_equations`・`partial`・
         `top_level_connectors`・`equations_by_component`）。flatten まで通らなければ `None`（理由は `check` の `diagnostics`）。"""
         return json.loads(self._ws.flat(model))
+
+    def linearize(
+        self, model: str, time: float | None = None, parameters: Mapping[str, float] | None = None
+    ) -> dict[str, Any]:
+        """モデルを線形化して状態空間の行列を返す（S258。`globe linearize --json` と同じ。S254）。
+
+        戻り値: `model`・`time`・`x`（状態の名前）・`u`（入力＝`input` の Real）・`y`（出力＝`output` の Real）・`x0`・`u0`・`y0`（作業点の値）・
+        `A`・`B`・`C`・`D`（行は x か y、列は x か u。numpy が入っていれば `ndarray`、無ければ list のリスト）。
+        `time` は省略（か実験の開始時刻）なら初期化の直後、それより後なら開始時刻からそこまで実行した点（入力を外から駆動するモデルは後の時刻に使えない）。
+        入力には既定値（`input Real u = 0`）が要る。`parameters` はパラメータの上書き（名前 → 値）。DAE まで変換できなければ `GlobeModeError`（`.diagnostics`。モデルの誤りは `check` で見る）。
+
+            lin = ws.linearize("RC", parameters={"R": 2.0})
+            lin["A"]
+        """
+        params = None if parameters is None else json.dumps(dict(parameters), default=float)
+        res = json.loads(self._ws.linearize(model, time, params))
+        try:
+            import numpy as np
+        except ImportError:  # numpy は任意（polars の依存でもない）。無ければ list のまま
+            return res
+        for k in "ABCD":
+            res[k] = np.array(res[k], dtype=float).reshape(len(res["x" if k in "AB" else "y"]), len(res["x" if k in "AC" else "u"]))
+        return res
 
     def simulate(
         self,

@@ -170,6 +170,41 @@ impl Workspace {
             .map_err(PyRuntimeError::new_err)
     }
 
+    /// 線形化（S254。`globe linearize --json` と同じ形の JSON）。DAE まで変換できなければ `GlobeModeError`（`.diagnostics` つき）。
+    /// `overrides` は `{"名前": 値}` の JSON（パラメータの上書き）。
+    #[pyo3(signature = (model, time = None, overrides = None))]
+    fn linearize(
+        &mut self,
+        py: Python<'_>,
+        model: &str,
+        time: Option<f64>,
+        overrides: Option<&str>,
+    ) -> PyResult<String> {
+        let overrides: std::collections::BTreeMap<String, f64> = overrides
+            .map_or_else(
+                || Ok(Default::default()),
+                |o| serde_json::from_str(o).map_err(|e| format!("parameters が読めない: {e}")),
+            )
+            .map_err(|e| error(py, "SettingsError", Some(e), None))?;
+        let l = py
+            .detach(|| self.0.linearize(model, &overrides, time))
+            .map_err(|ds| {
+                error(
+                    py,
+                    "GlobeModeError",
+                    None,
+                    Some(&json(&ds).unwrap_or_default()),
+                )
+            })?;
+        json(&serde_json::json!({
+            "model": model, "time": l.time,
+            "x": l.states, "u": l.inputs, "y": l.outputs,
+            "x0": l.x0, "u0": l.u0, "y0": l.y0,
+            "A": l.a, "B": l.b, "C": l.c, "D": l.d,
+        }))
+        .map_err(PyRuntimeError::new_err)
+    }
+
     /// 検査 → コンパイル → 実行（`SimulateResponse` の JSON）。モデルの誤りは例外にせず `ok` と `diagnostics` で返す。
     /// GIL を離して回し（S200 から `on_progress` が無くても）、進捗を dict で知らせる。`True` を返すか Ctrl-C で止まる（S129）。
     #[pyo3(signature = (model, settings = None, on_progress = None))]
