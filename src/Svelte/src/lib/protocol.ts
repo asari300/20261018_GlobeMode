@@ -98,6 +98,9 @@ export interface Linearization {
   B: number[][];
   C: number[][];
   D: number[][];
+  /** A の固有値（極。S286）と安定性（stable / unstable / marginal / none） */
+  eigenvalues: { re: number; im: number }[];
+  stability: "stable" | "unstable" | "marginal" | "none";
 }
 
 /** ソルバの登録表の 1 行（`globe_mode_sim::solvers::SolverEntry`）。使えるのは status.kind が available のもの。 */
