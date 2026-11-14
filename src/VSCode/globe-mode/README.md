@@ -18,7 +18,7 @@ S059 で作った。`.mo` を開くと `globe lsp` を起動してつなぐだ�
 | アウトライン・ホバー | エクスプローラーのアウトライン、クラス名にマウスを載せる |
 | 折りたたみ | 行番号の脇の ▾。クラス、`equation` / `algorithm` / `public` / `protected` の節、複数行の `annotation(…)`、連続するコメントを畳める（S220。`globe lsp` の `foldingRange`。構文が壊れている間はクラスと節は出ない） |
 | 字下げの規則 | `model` / `function` などと `equation`・`if … then`・`for … loop` の次の行で字下げし、`end`・`else`・`elseif`・節の見出しで戻す（S220。`language-configuration.json`。`//` の行で Enter しても字下げしない） |
-| 側のパネル | エクスプローラーのビュー「GlobeMode」（S247）。Svelte の UI の説明パネルと同じ、上からアイコン・図・説明。カーソルのあるクラスについて、カーソルが 300 ms 止まったら `globe/icon`・`globe/diagram`・`globe/documentation` を引く。図の部品をクリック（Enter / Space）すると宣言の行へ飛ぶ。`.mo` 以外のエディタでは更新しない |
+| 側のパネル | エクスプローラーのビュー「GlobeMode」（S247）。Svelte の UI の説明パネルと同じ、上からアイコン・図・説明。カーソルのあるクラスについて、カーソルが 300 ms 止まったら `globe/icon`・`globe/diagram`・`globe/documentation` を引く。図の部品をクリック（Enter / Space）すると宣言の行へ飛ぶ。部品をドラッグすると `Placement` の `origin` を書き換え、コネクタから別のコネクタへドラッグすると `connect` を足す（S264。編集は文書に入るだけで保存しない。Ctrl+Z で戻る）。`.mo` 以外のエディタでは更新しない |
 
 拡張は `.mo` の既定を `editor.tabSize: 2`・80 桁のルーラーにする。インデント 4 にしたいときだけ、設定で `[modelica]` の `editor.tabSize` を 4 にする。
 
@@ -53,7 +53,7 @@ WSL の中のファイルを Windows の VS Code で開くときは、Remote - W
 GLOBE_BIN=$PWD/../../../target/debug/globe mise exec -- pnpm test
 ```
 
-`globe lsp` を VS Code と同じ形（`file://` の URI、拡張の既定の tabSize）で起こし、整形・lint の診断・補完を 1 往復ずつ確かめる。VS Code の本体は起動しない。`test/panel.test.mjs`（S247）は側のパネルの無害化と SVG の組み立てを試す（`globe` は要らない）。
+`globe lsp` を VS Code と同じ形（`file://` の URI、拡張の既定の tabSize）で起こし、整形・lint の診断・補完を 1 往復ずつ確かめる。VS Code の本体は起動しない。`test/panel.test.mjs`（S247）は側のパネルの無害化と SVG の組み立て、`test/diagram-edit.test.mjs`（S264）は図のドラッグとメッセージの検査を試す（`globe` は要らない）。
 
 本物の VS Code の中での確かめ（S165）は Actions の `vscode.yml`（手動と、main への `src/VSCode/**` の push）で回す: `gh workflow run vscode.yml`。手元では `pnpm build && PATH=$PWD/../../../target/release:$PATH xvfb-run -a pnpm test:vscode`（VS Code を約 150 MB 取得して起動する）。
 
@@ -63,6 +63,7 @@ GLOBE_BIN=$PWD/../../../target/debug/globe mise exec -- pnpm test
 
 - **無害化と SVG は Svelte の UI と同じファイルを読む**（写しは作らない）。`webview.js` が `../../Svelte/src/lib/html-sanitize.ts`（説明の HTML を白リストの木にする）と `shape-svg.ts`（アイコンと図を SVG の要素の木にし、`toDom` で DOM にする）を import し、esbuild が束ねる。Svelte の側は `IconView.svelte`・`DiagramView.svelte` が `shape-svg.ts` を、`DocsPanel.svelte` が `html-sanitize.ts` を読む。`pnpm test` の `test/panel.test.mjs` も同じファイルを（node 24 が `.ts` をそのまま読む）直接 import して試す。
 - **安全**: HTML の文字列を作らず、`innerHTML` を使わない（要素は `createElement` / `createElementNS`、文字は `textContent`・テキストノード）。CSP は `default-src 'none'; style-src ${cspSource} 'unsafe-inline'; script-src 'nonce-…'`（外への通信なし、nonce の無いスクリプトなし）。リンクは `http`・`https`・`modelica` だけ。
+- **図の編集（S264）**: ドラッグの処理は UI と同じ `diagram-drag.ts`（`DiagramView.svelte` から出した）を束ねる。webview は離したら `move` / `connect` を `postMessage` し、拡張（`panel.js`）が `edit.js` で型と値を検査して `globe/movePart`・`globe/addConnect` を呼び、返った TextEdit を `WorkspaceEdit` で文書に入れて `edited` を返す（失敗なら webview が見た目を戻す）。`file`・`class` は webview から受け取らず、最後に描かせた図のものを使う。入れたあとの図は文書変更の監視（300 ms）が引き直す。詳しくは [ADR-0037](../../../doc/adr/0037-icon-diagram-as-shape-data.md) の付記。
 - `activate` は `{ panel }` を返す。e2e が webview の描き終えた数（`panel.state`）と `panel.reveal(行)` を見るため（webview の DOM は拡張ホストから見えない）。
 
 ## 依存

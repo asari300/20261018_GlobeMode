@@ -64,3 +64,13 @@ P8 の Diagram / Icon ビューの最初の一切れとして、カーソルの�
 - **口**: LSP `globe/addPart`（`{file, class, type, x, y}`、TextEdit の配列か null。`RPC_METHODS` は 29）、wasm `add_part`（Worker の `add_part`、`WorkerBackend.addPart`、`TauriBackend.addPart`）。
 - **UI**: 木の行は `draggable` で `application/x-globe-class` に完全名を載せる。`DiagramView.svelte` の svg が `dragover`・`drop` を受け、ドロップ点を Diagram の座標（y 上向き）にして `onAdd` に渡す。キーボードの人のために、図が開いているとき木の各行に「図へ」ボタンを出し、図の `extent` の中心に足す。App の図の編集（移動・結線・追加）は `editDiagram` に共通化した。
 - **持ち越し**: 名前を付ける入力（足したあとは検査後に F2 のリネームで変える）、足した部品の自動選択、パラメータの初期値の入力、VS Code の側のパネルでの追加（S264 の範囲）、型の互換・継いだクラスとの名前の重複の事前の検査、ブラウザでの操作の試験（`test_ui.py`）。
+
+## 付記（S264: VS Code の側のパネルでの移動と結線）
+
+- **S250 の部品の移動と S261 の結線を、VS Code の側のパネルでもできるようにした。** Rust・LSP は変えない（`globe/movePart`・`globe/addConnect` をそのまま呼ぶ）。
+- **ドラッグの処理は共有する。** `DiagramView.svelte` に埋まっていた処理（2 単位の吸着、4 px 未満はクリック、ポインタの捕まえ先は部品の `<g>`、`.conn` から始めたら結線、仮の線、離したあとのクリックを飛ばさない）を `src/Svelte/src/lib/diagram-drag.ts` の `diagramDrag(svg, {onMove, onConnect})`（イベントの処理 `down` / `move` / `up` と `swallowed()` を返す）に出し、Svelte と webview の両方が読む（`shape-svg.ts` と同じ置き方。写しは無い）。値は渡された svg の API だけを呼び（`DOMPoint`・グローバルの `document` を使わない）、node の試験に偽の svg を渡せる。`DiagramView` の見た目と挙動は変えない（`svelte-check` 0 件）。
+- **編集の流れ**: webview はドラッグ中は `transform` だけ動かし、離したら `{type: "move", id, part, dx, dy}`・`{type: "connect", id, from, to, points}` を拡張へ `postMessage` し、`{type: "edited", id, ok}` を待つ（10 秒で失敗扱い。失敗なら見た目を戻す）。拡張（`panel.js`）は `edit.js` の `parseEdit` で検査し（id は整数、名前は `\w+`、`from`・`to` は `名前.名前`、数は有限で絶対値 1e6 以下、点は 64 個まで。通らなければ捨てる）、LSP を呼び、返った TextEdit を `client.protocol2CodeConverter.asTextEdits` で変えて `WorkspaceEdit` で入れる（undo 1 回。保存しない）。**`file` と `class` は webview の言い分を使わず**、拡張が最後に webview へ描かせた図（`panel.target`）のものを使う。LSP の応答を待つあいだに文書の版が変わったら入れない。
+- **適用後の図の更新は、既存の文書変更の監視（`onDidChangeTextDocument` → 300 ms 後の `refresh`）で足りる。** 引き直した図が `show` で DOM ごと作り直されるので、見た目の `transform` も消える。
+- **CSP・DOM**: 変えていない（`default-src 'none'`、script は nonce、`innerHTML` 不使用）。
+- **確かめ**: `pnpm test` に `diagram-edit.test.mjs`（偽の svg での吸着・クリック・結線・戻し、メッセージの検査）、`e2e/suite.cjs` に「`panel.handle` へ move・connect を渡すと文書が書き換わり、undo で戻り、図が引き直される」。webview の DOM は拡張ホストから操作できないので、e2e はドラッグそのものでなく webview が送るメッセージから先を回す。
+- **持ち越し**: 実機の VS Code でのポインタ操作の目視、結線の途中の点、部品の追加、型の互換の事前の検査。
