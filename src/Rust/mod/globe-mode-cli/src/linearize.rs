@@ -77,6 +77,29 @@ fn lines(model: &str, l: &Linearization) -> Vec<String> {
     block("B = df/du", &l.states, &l.inputs, &l.b);
     block("C = dy/dx", &l.outputs, &l.states, &l.c);
     block("D = dy/du", &l.outputs, &l.inputs, &l.d);
+    // S286: A の固有値（極）と安定性の一言。状態が 0 個なら出さない
+    let eigs = globe_mode::eigenvalues(&l.a);
+    if !eigs.is_empty() {
+        let list: Vec<String> = eigs
+            .iter()
+            .map(|&(re, im)| {
+                if im == 0.0 {
+                    format!("{re:.6}")
+                } else {
+                    format!("{re:.6}{im:+.6}i")
+                }
+            })
+            .collect();
+        out.push(format!("固有値（A）: {}", list.join(", ")));
+        out.push(
+            match globe_mode::stability(&eigs) {
+                "stable" => "安定（すべて Re < 0）",
+                "unstable" => "不安定（Re > 0 の固有値がある）",
+                _ => "境界（Re ≈ 0 の固有値を含む）",
+            }
+            .to_string(),
+        );
+    }
     out
 }
 
