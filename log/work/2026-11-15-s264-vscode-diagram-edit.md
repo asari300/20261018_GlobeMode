@@ -34,7 +34,7 @@ VS Code 拡張の側のパネル（S247）で、Svelte 版と同じ「部品の�
 - `pnpm test`（`GLOBE_BIN` に手元の debug の `globe`）: 19 本 pass・失敗 0（`diagram-edit.test.mjs` 4 本を含む）。
 - `pnpm build`（esbuild）: `dist/webview.js` 13.1 kB。`pnpm check`（Svelte）: 0 エラー・0 警告。
 - 手元で `globe lsp` に ChuaCircuit を開いて `globe/movePart`（Ro、dx 4、dy -2 → `{-71, -19}`）と `globe/addConnect`（`L.p`→`Ro.n`）が TextEdit を返すことを確かめた。
-- e2e（`gh workflow run vscode.yml --ref feature/s264-vscode-diagram-edit`、run 43623261453）: ubuntu・windows は新しい case を含めて success。1 回目・2 回目の run は新しい case で落ち、本物の VS Code でしか見えない不具合を 2 つ見つけて直した（`protocol2CodeConverter.asTextEdits` は v9 で Promise を返す＝`WorkspaceEdit.set` に渡すと `e is not iterable`、と、検査を通らないメッセージの戻り値の期待が違った）。macOS は最初に S247 の既存の case（パネルの描画）が 90 秒で時間切れになり、failed job を再実行した（下に結果）。
+- e2e（`gh workflow run vscode.yml --ref feature/s264-vscode-diagram-edit`、run 43623261453）: ubuntu・windows・macOS（再実行後）は新しい case を含めて success。1 回目・2 回目の run は新しい case で落ち、本物の VS Code でしか見えない不具合を 2 つ見つけて直した（`protocol2CodeConverter.asTextEdits` は v9 で Promise を返す＝`WorkspaceEdit.set` に渡すと `e is not iterable`、と、検査を通らないメッセージの戻り値の期待が違った）。macOS は最初に S247 の既存の case（パネルの描画）が 90 秒で時間切れになり、failed job を再実行したら success（既存の case の一時的な時間切れ。main の直前の run は 3 OS とも success）。3 OS とも success。
 - `check_docs.py`: スライド全件 OK / リンク切れ 0 件。
 
 ## 追記: 失敗の理由を `panel.why` に残した
