@@ -23,7 +23,8 @@
   import { modelicaDocs } from "./lib/docs";
   import { isInternal } from "./lib/plot/signals";
   import FmuForm from "./lib/FmuForm.svelte";
-  import { isFmuFile, isResultsFile, type ResultColumns } from "./lib/results";
+  import CosimForm from "./lib/CosimForm.svelte";
+  import { isCosimFile, isFmuFile, isResultsFile, type ResultColumns } from "./lib/results";
 
   // エディタの文書の名前。ライブラリの木で開くと、そのライブラリのファイルの名前（同じ名前で差し替える。S127）
   let file = $state("Model.mo");
@@ -739,10 +740,31 @@
       if (runState === "running") { runState = "idle"; runNote = ""; }
     }
   }
+  // S277: コシミュレーション（.ssp / spec の .json。Desktop だけ）。FMU と同じ流れ（設定 → 別プロセスで実行 → 結果のタブ）
+  let cosimAsk = $state<{ name: string; settle: (r: { stopTime?: number; step?: number } | null) => void } | null>(null);
+  async function openCosim(name: string, path?: string) {
+    if (!path || !backend.cosim) { failure = `${name} を回せるのは Desktop だけ（ブラウザ・Android はネイティブコードを動かせない）`; return; }
+    remember(path, "");
+    const opts = await new Promise<{ stopTime?: number; step?: number } | null>((settle) => (cosimAsk = { name, settle }));
+    cosimAsk = null;
+    if (!opts) return;
+    runState = "running";
+    runNote = "コシミュレーションを実行中";
+    try {
+      openResults(name, await backend.cosim(path, opts, (t) => { runNote = `コシミュレーションを実行中: t = ${t.toPrecision(4)}`; }));
+    } catch (e) {
+      if (!(e as { cancelled?: boolean }).cancelled) throw e;
+      runState = "cancelled";
+      runNote = "止めた（コシミュレーションの結果は出ない）";
+    } finally {
+      if (runState === "running") { runState = "idle"; runNote = ""; }
+    }
+  }
   const openFromDisk = () => run(async () => {
     const f = await backend.openFile();
     if (!f) return;
     if (isFmuFile(f.name)) return openFmu(f.name, f.path);
+    if (desktop && isCosimFile(f.name)) return openCosim(f.name, f.path);
     if (f.columns) { if (f.path) remember(f.path, ""); return openResults(f.name, f.columns, f.path); } // S236: Desktop は最近使ったファイルにも入れる
     openOwn(f.name, f.text, f.path);
     remember(f.path ?? f.name, f.text);
@@ -751,6 +773,7 @@
     // S236: 結果と FMU の最近使ったファイル（Desktop だけ。読むのは sidecar）
     if (desktop && isResultsFile(path) && backend.readResultsAt) { openResults(baseName(path), await backend.readResultsAt(path), path); return remember(path, ""); }
     if (desktop && isFmuFile(path)) return openFmu(baseName(path), path);
+    if (desktop && isCosimFile(path)) return openCosim(baseName(path), path);
     const r = recent.find((x) => x.path === path);
     const f = r?.text !== undefined ? { name: path, text: r.text } : await backend.openPath?.(path);
     if (f) openOwn(f.name, f.text, desktop ? path : undefined);
@@ -949,6 +972,7 @@
       </span>
     {/each}
   </div>
+  {#if cosimAsk}<CosimForm name={cosimAsk.name} onrun={(r) => cosimAsk?.settle(r)} oncancel={() => cosimAsk?.settle(null)} />{/if}
   {#if fmuAsk}<FmuForm name={fmuAsk.name} path={fmuAsk.path} info={fmuAsk.info} onrun={(r) => fmuAsk?.settle(r)} oncancel={() => fmuAsk?.settle(null)} />{/if}
   {#if isResults}<p class="note" data-results>開いた結果のファイル: {file}（{columns?.points ?? 0} 点、{columns?.names.length ?? 0} 信号）。プロットの CSV・PNG の書き出しはそのまま使える。実行・保存はできない。{tabs[cur]?.path ? "再読み込みでは同じファイルを読み直す。" : "再読み込みで閉じる（ファイルのパスを持たない）。"}</p>
     {#if resultParams.length}
