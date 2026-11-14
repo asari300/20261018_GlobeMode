@@ -23,6 +23,7 @@
 | rumoca-sim、rumoca-solver、rumoca-solver-diffsol、rumoca-solver-rk45、rumoca-phase-solve、rumoca-exec-cranelift | Apache-2.0（Rumoca のワークスペース） | 許可 | S011 で導入（`globe-mode-exec` だけ。cargo-deny の `wrappers`）。feature は `solver-diffsol` と `solver-rk45` だけ（zenoh・UDP・gamepad は入らない）。S012 で `rumoca-phase-solve`・`rumoca-solver-diffsol`・`rumoca-solver-rk45` を exec の直接の依存にした（session の道。どれも Cargo.lock に既にあり、外部の package は増えていない） |
 | Cranelift 0.125（cranelift-*、regalloc2、target-lexicon、wasmtime-internal-*） | Apache-2.0 WITH LLVM-exception | 許可 | S011 で `rumoca-exec-cranelift` 経由（wasm 以外で無条件）。region（MIT）、arbitrary（MIT OR Apache-2.0）も同じ経路 |
 | nalgebra-sparse 0.11 | Apache-2.0 | 許可 | S011 で diffsol 経由 |
+| nalgebra 0.34 | Apache-2.0 | 許可 | diffsol の推移的依存で Cargo.lock に既にある。S286 で `globe-mode`（facade）の直接の依存にした（線形化の A の固有値。`default-features = false, features = ["std"]`、wasm32 でもビルドできる） |
 | self_cell 1.3 | Apache-2.0 OR GPL-2.0-only | 許可（Apache-2.0 を選ぶ） | S011 で rumoca-solver-diffsol 経由。S012 で `globe-mode-exec` の直接の依存にした（問題とソルバの自己参照。rumoca-solver-diffsol と同じ使い方） |
 | atomic-wait 1.1 | BSD-2-Clause | 許可 | S011 で faer の rayon（spindle）経由 |
 | instant 0.1 | BSD-3-Clause | 許可 | S011 で rumoca-solver が wasm32 のときだけ使う。保守終了の勧告 RUSTSEC-2024-0384 を deny.toml の `ignore` に理由付きで足した |
