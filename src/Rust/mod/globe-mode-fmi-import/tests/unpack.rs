@@ -29,6 +29,18 @@ fn reads_the_description_without_unpacking() {
 }
 
 #[test]
+fn an_oversized_description_is_cut_for_run_as_for_info() {
+    // 64 MiB を超える XML は `info` も `run`（Fmu::open）も同じ上限で切る。切られた XML は読めない（#96）
+    let big = format!("{XML}<!--{}-->", "a".repeat(65 << 20));
+    let f = fmu(&[("modelDescription.xml", big.as_bytes(), None)]);
+    assert!(read_model_description(f.path()).is_err());
+    assert!(matches!(
+        Fmu::open(f.path()).unwrap_err(),
+        Error::Description(_)
+    ));
+}
+
+#[test]
 fn zip_slip_is_rejected_and_nothing_is_written_outside() {
     let parent = tempfile::tempdir().unwrap();
     let evil = format!(
