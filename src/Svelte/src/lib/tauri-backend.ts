@@ -1,7 +1,7 @@
 import type { Backend, CompletionEntry, Definition, Diagram, Documentation, FmuInfo, FmuRunRequest, FmuRuntime, Hover, Icon, LintMessage, Progress, TreeEntry } from "./backend";
 import type { Columns } from "./plot/csv";
-import { isFmuFile, isResultsFile, toColumns, type ResultColumns, type ResultParam } from "./results.ts"; // node の型の除去（tests/test_tauri.mjs）が拡張子を要る
-import type { BltReport, CheckResponse, GraphJson, SimulateRequest, SimulateResponse, SolverEntry, ModelParameter, TunableParameter, Linearization } from "./protocol";
+import { isCosimFile, isFmuFile, isResultsFile, toColumns, type ResultColumns, type ResultParam } from "./results.ts"; // node の型の除去（tests/test_tauri.mjs）が拡張子を要る
+import type { BltReport, StagesReport, CheckResponse, GraphJson, SimulateRequest, SimulateResponse, SolverEntry, ModelParameter, TunableParameter, Linearization } from "./protocol";
 
 // Tauri が `withGlobalTauri` で注入する関数だけを使う（@tauri-apps/api は入れない。npm の依存を増やさないため）。
 type Invoke = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
@@ -9,7 +9,7 @@ type Listen = <T>(event: string, cb: (e: { payload: T }) => void) => Promise<() 
 type Dialog = { open(o: object): Promise<string | null>; save(o: object): Promise<string | null> };
 type Fs = { readTextFile(p: string): Promise<string>; writeTextFile(p: string, t: string): Promise<void>; writeFile(p: string, b: Uint8Array): Promise<void> };
 const tauriGlobal = () => (window as unknown as { __TAURI__: { core: { invoke: Invoke }; event: { listen: Listen }; dialog: Dialog; fs: Fs } }).__TAURI__;
-const OPEN = [{ name: "Modelica・結果・FMU", extensions: ["mo", "mat", "csv", "fmu"] }]; // S222: 結果のファイルも開く。S229: FMU も（確認のあと回して結果のタブに出す）
+const OPEN = [{ name: "Modelica・結果・FMU・コシミュレーション", extensions: ["mo", "mat", "csv", "fmu", "ssp", "json"] }]; // S222: 結果のファイルも開く。S229: FMU も（確認のあと回して結果のタブに出す）
 const extFilter = (name: string) => [{ name: "File", extensions: [name.split(".").pop() ?? ""] }]; // 保存ダイアログの拡張子の絞り込み
 const baseName = (p: string) => p.split(/[\\/]/).pop() ?? p;
 /** 保存ダイアログで選んだファイルのフォルダ（Windows のドライブの根は `C:\`。`C:` だとドライブ相対になる。S196）。 */
@@ -96,6 +96,9 @@ export class TauriBackend implements Backend {
   blt(model: string): Promise<BltReport> {
     return invoke("rpc", { method: "globe/blt", params: { model } }); // S262
   }
+  stages(model: string): Promise<StagesReport> {
+    return invoke("rpc", { method: "globe/stages", params: { model } }); // S282
+  }
   simulate(req: SimulateRequest): Promise<SimulateResponse> {
     return invoke("rpc", { method: "globe/simulate", params: { request: req } });
   }
@@ -139,6 +142,19 @@ export class TauriBackend implements Backend {
     await this.#listen((p) => p.time !== undefined && onProgress?.(p.time));
     try {
       const r = await invoke<{ layout: { names: string[]; points: number; defaults?: string[] }; columns: (number | null)[][] }>("rpc", { method: "globe/fmuRun", params: { path, request, workDoneToken: RUN_TOKEN } });
+      return toColumns(r.layout, r.columns);
+    } catch (e) {
+      if (this.#cancelling) throw Object.assign(new Error(String(e)), { cancelled: true });
+      throw e;
+    } finally {
+      this.#onProgress = undefined;
+    }
+  }
+  /** S277: コシミュレーション。runFmu と同じ作り（別プロセスのワーカー・進捗・中断）。 */
+  async cosim(path: string, opts: { stopTime?: number; step?: number } = {}, onProgress?: (t: number) => void): Promise<Columns> {
+    await this.#listen((p) => p.time !== undefined && onProgress?.(p.time));
+    try {
+      const r = await invoke<{ layout: { names: string[]; points: number; defaults?: string[] }; columns: (number | null)[][] }>("rpc", { method: "globe/cosim", params: { path, ...opts, workDoneToken: RUN_TOKEN } });
       return toColumns(r.layout, r.columns);
     } catch (e) {
       if (this.#cancelling) throw Object.assign(new Error(String(e)), { cancelled: true });
@@ -195,6 +211,7 @@ export class TauriBackend implements Backend {
     if (!path) return null;
     const name = baseName(path);
     if (isFmuFile(name)) return { name, text: "", path }; // S229: 読むのは sidecar（確認のあと App が fmuInfo・runFmu を呼ぶ）
+    if (isCosimFile(name)) return { name, text: "", path }; // S277: FMU と同じ（確認のあと App が cosim を呼ぶ）
     if (isResultsFile(name)) return { name, text: "", path, columns: await this.readResultsAt(path) };
     const text = await tauriGlobal().fs.readTextFile(path); // dialog で選んだパスは fs の許可に入っている
     return { name, text, path };
@@ -243,6 +260,12 @@ export class TauriBackend implements Backend {
   }
   addPart(cls: string, type: string, x: number, y: number, at: { file: string }) {
     return invoke<{ range: Definition["range"]; newText: string }[] | null>("rpc", { method: "globe/addPart", params: { file: at.file, class: cls, type, x, y } }); // S265
+  }
+  deletePart(cls: string, part: string, at: { file: string }) {
+    return invoke<{ range: Definition["range"]; newText: string }[] | null>("rpc", { method: "globe/deletePart", params: { file: at.file, class: cls, part } }); // S281
+  }
+  deleteConnect(cls: string, from: string, to: string, at: { file: string }) {
+    return invoke<{ range: Definition["range"]; newText: string }[] | null>("rpc", { method: "globe/deleteConnect", params: { file: at.file, class: cls, from, to } }); // S281
   }
   rename(file: string, line: number, character: number, newName: string) {
     return invoke<{ range: Definition["range"]; newText: string }[]>("rpc", { method: "globe/rename", params: { file, line, character, newName } });

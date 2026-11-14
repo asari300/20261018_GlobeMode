@@ -228,10 +228,21 @@
 - **試験**: `globe-mode-fmi-import` の `ssp.rs` に 1 本（FMU の名前と変数名に `<`・`&`・`"` を含む偽の FMU で、書いて `Ssp::open` で読み戻すと spec が等しい。`--step` が Annotation に勝つ。不正な名前・出力でない結線を書く前に断る）、`globe-mode-cli/tests/fmu_cosim.rs` に 1 本（Dahlquist → Feedthrough を Jacobi と Gauss–Seidel + `start`〔k = 2〕で書き、`globe fmu cosim system.ssp`〔`--step` なし〕の CSV が JSON の CSV とバイトで一致する）。
 - **持ち越し**: Int32・Boolean のコネクタ（書き出しと読み取りの両方）、`.ssv`・`.ssm` の書き出し、単位（`unit`）、入れ子の System、`resources/` の FMU の重複排除（同じ FMU を 2 つの Component に使うと 2 回写す）、`.ssp` から spec.json への逆変換。
 
+### (v) S277 の付記（2026-11-15）: コシミュレーションの UI の口（Desktop だけ）
+
+(q)〜(t) の持ち越しの「LSP・UI の口」のうち、LSP と Desktop の UI。FMU の Import の口（(p)）と同じ流儀。
+
+- **LSP**: `globe/cosim`（`{path, stopTime?, step?, workDoneToken?}` → `{layout, columns}`）。`.ssp` は `Ssp::open(path, stopTime, step)`、それ以外は `globe fmu cosim` と同じ spec の JSON（FMU のパスは JSON からの相対）。CLI と違い、`stopTime`・`step` は JSON の値も上書きする（UI の欄が空なら JSON の値）。回すのは `run_cosim`（別プロセスのワーカー）で、進捗の `$/progress`・`$/cancelRequest` による中断（`cancellable` の一覧に足した）は `globe/fmuRun` と同じ。feature `fmu-import`（wasm には付かない）。
+- **Desktop**: `RPC_METHODS` に `globe/cosim`。UI は `Backend.cosim?`（`TauriBackend` だけが持つ）。「開く」の dialog が `.ssp`・`.json` も受け、確認の欄（`CosimForm.svelte`: 警告・終了時刻・刻み。空なら既定）のあと実行して、結果は既存の結果のタブ（列は `<FMU 名>.<変数名>`）。実行中の「止める」は FMU と同じ（ワーカーを kill して `cancelled`）。最近使ったファイルにも入る。
+- **ブラウザ・Android**: `Backend.cosim` が無いので、`.ssp`・`.json` を選んでも「回せるのは Desktop だけ」と出す（ブラウザの `accept` は変えていない）。
+- **試験**: `globe-mode-cli/tests/lsp.rs` の `lsp_reads_and_runs_fmus` に、Dahlquist の spec の JSON で `stopTime`・`step` の上書き（11 点）、読めないパス（-32000）、`path` 無し（-32602）。`globe-mode-lsp` に `path` 無しの 1 件。`src/Svelte/tests/test_tauri.mjs` に `cosim` の呼び出し。`.ssp` の読みは S253 の試験（CLI）で済み。
+- **持ち越し**: SSP の書き出し（`write_ssp`）の UI、FMU の名前・接続を UI で編集する口、結果のタブの再読み込みでの復元（FMU の結果と同じく path を持たない）。
+
 ## 結果
 
 - **S274 の結果**: 上の (u)。`globe fmu ssp-export` が spec を `.ssp` に書き、`globe fmu cosim` が同じ CSV に読み戻す。
 - **S263 の結果**: 上の (t)。SSP の `ParameterBindings` が `start` になる。
+- **S277 の結果**: 上の (v)。Desktop の UI から `.ssp`・spec の `.json` を開いてコシミュレーションを回せる（LSP `globe/cosim`）。
 - **S259 の結果**: 上の (s)。Gauss–Seidel・`start`・Int32/Boolean の接続。
 - **S253 の結果**: 上の (r)。`.ssp` を `globe fmu cosim` で回せる。
 - **S229 の結果**: 上の (p)。facade・Python・Desktop の UI から FMU を読んで回せる。

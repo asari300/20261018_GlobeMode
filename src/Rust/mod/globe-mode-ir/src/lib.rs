@@ -587,6 +587,9 @@ pub enum EquationOrigin {
 pub struct FlatSummary {
     /// 変数の宣言の数（配列は 1 個）
     pub variables: usize,
+    /// 変数の名前（Rumoca の flat モデルのキー。JSON には出さない。S278 の自前の flatten との突き合わせ用）
+    #[serde(skip)]
+    pub variable_names: Vec<String>,
     /// 方程式の数（スカラー）
     pub equations: usize,
     /// 初期方程式の数（スカラー）

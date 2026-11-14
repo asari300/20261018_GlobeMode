@@ -1,0 +1,23 @@
+[package]
+name = "globe-mode-flat"
+description = "GlobeMode: flattening a model into variables and equations over the native CST (Track B, B3)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+# 依存は globe-mode-syntax と globe-mode-resolve だけ（rowan は両方の依存と同じ）。新しい外部依存は無い
+globe-mode-syntax = { path = "../globe-mode-syntax", version = "0.2.0" }
+globe-mode-resolve = { path = "../globe-mode-resolve", version = "0.2.0" }
+# syntax・resolve と同じ rowan（TextRange の型だけ。新しい外部依存ではない）
+rowan = "0.17"
+
+[dev-dependencies]
+# Rumoca の flat との突き合わせ（`#[ignore]` の試験）だけ。本体の依存には入らない
+globe-mode-frontend = { workspace = true }
+
+[lints]
+workspace = true

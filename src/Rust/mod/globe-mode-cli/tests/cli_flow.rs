@@ -413,3 +413,67 @@ fn blt_lists_blocks_in_solving_order() {
     ]);
     assert!(String::from_utf8_lossy(&text.stdout).contains("代数ループ（大きさ 2・線形）"));
 }
+
+/// S280: `globe stages` は段ごとの数を出す。ループ無し（flat と DAE が同じ数・微分なし）、
+/// 非線形ループ（tearing 変数 1）、インデックス 3 の振り子（微分した方程式と増えた未知数が名前で出る）。
+#[test]
+fn stages_summarizes_each_transform_stage() {
+    let stages = |model: &str| {
+        let out = globe(&[
+            "stages",
+            &modelica("GlobeModeValidation"),
+            "-m",
+            &format!("GlobeModeValidation.{model}"),
+            "--json",
+        ]);
+        assert!(out.status.success(), "{out:?}");
+        serde_json::from_slice::<serde_json::Value>(&out.stdout).unwrap()
+    };
+    let no_loop = stages("Loops.NoLoop");
+    assert_eq!(no_loop["flat"]["equations"], no_loop["dae"]["equations"]);
+    assert_eq!(no_loop["dae"]["equations_delta"], 0);
+    assert_eq!(no_loop["index"]["index"], 1);
+    assert_eq!(no_loop["index"]["added_equations"], 0);
+    assert_eq!(
+        no_loop["blt"]["size_histogram"],
+        serde_json::json!([[1, 3]])
+    );
+    assert_eq!(no_loop["tearing"]["loops"], serde_json::json!([]));
+
+    let nonlinear = stages("Loops.NonlinearLoopWithStart");
+    assert_eq!(nonlinear["blt"]["algebraic_loops"], 1);
+    assert_eq!(nonlinear["tearing"]["loops"][0]["size"], 2);
+    assert_eq!(nonlinear["tearing"]["loops"][0]["nonlinear"], true);
+    assert_eq!(nonlinear["tearing"]["iteration_variables"], 1);
+    assert_eq!(
+        nonlinear["tearing"]["loops"][0]["residuals"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+
+    let pendulum = stages("Index.Pendulum");
+    assert_eq!(pendulum["index"]["index"], 3);
+    assert!(pendulum["index"]["added_equations"].as_u64().unwrap() > 0);
+    let added = pendulum["index"]["added_unknowns"].as_array().unwrap();
+    assert!(
+        added
+            .iter()
+            .any(|n| n.as_str().unwrap().starts_with("der(der(")),
+        "{added:?}"
+    );
+    assert_eq!(pendulum["blt"]["reduced"], true);
+
+    let text = globe(&[
+        "stages",
+        &modelica("GlobeModeValidation"),
+        "-m",
+        "GlobeModeValidation.Index.Pendulum",
+    ]);
+    let text = String::from_utf8_lossy(&text.stdout);
+    assert!(
+        text.contains("3 index") && text.contains("5 tearing"),
+        "{text}"
+    );
+}

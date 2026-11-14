@@ -1477,6 +1477,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "globe-mode-flat"
+version = "0.2.0"
+dependencies = [
+ "globe-mode-frontend",
+ "globe-mode-resolve",
+ "globe-mode-syntax",
+ "rowan",
+]
+
+[[package]]
 name = "globe-mode-fmi"
 version = "0.2.0"
 dependencies = [

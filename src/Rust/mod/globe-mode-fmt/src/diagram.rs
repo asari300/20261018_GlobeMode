@@ -379,6 +379,82 @@ pub fn add_connect(
     ))
 }
 
+/// 部品 `part` の宣言と、その部品につながる `connect(...)` の方程式をまとめて消す編集（S281）。返すのは `src` のバイト範囲と置き換える文字列（空）の組で、
+/// 重ならず、先頭から並ぶ。要素（文と同じ行の後ろのコメント）だけが行にあれば、字下げと行末の改行まで消し、他の文が同じ行にあれば要素だけを消す。
+/// 宣言が `A a, b;` のように複数の名前を持つとき・Placement の無い宣言（図に出ない）・クラスや部品が無いときは None。`if` の中の `connect` は数えない。
+pub fn delete_part(src: &str, qualified: &str, part: &str) -> Option<Vec<(usize, usize, String)>> {
+    let bom = if src.starts_with('\u{feff}') { 3 } else { 0 };
+    let body = &src[bom..];
+    let tokens = lex(body).ok()?;
+    let mine = own_elements(&tokens, qualified)?;
+    let decl = mine
+        .iter()
+        .find(|t| !t[0].is_comment() && declaration(t, body).is_some_and(|r| r.name == part))?;
+    let mut i = 0;
+    while i < decl.len() {
+        if ["(", "[", "{"].iter().any(|b| decl[i].is(b)) {
+            i = skip_group(decl, i).ok()?;
+            continue;
+        }
+        if decl[i].is(",") {
+            return None; // 複数の名前（`A a, b;`）
+        }
+        i += 1;
+    }
+    let hit = |t: &&&[Token<'_>]| {
+        std::ptr::eq(**t, *decl)
+            || (t[0].is("connect")
+                && connect_ends(t).is_some_and(|(a, b)| first(&a) == part || first(&b) == part))
+    };
+    Some(erase(body, bom, mine.iter().filter(hit).copied()))
+}
+
+/// `connect(a, b)` の方程式（`annotation` と同じ行の後ろのコメントを含む文全体）を消す編集（S281）。端は `Connection` の `from`・`to` と同じ字句で、
+/// 逆の並びも同じ結線とみなす（添字を含めて比べる。`b[2].p` と `b[ 2 ].p` は同じ、`b[1].p` は別。S283）。同じ端の `connect` が複数あれば全部消す。無ければ None。範囲の決め方は [`delete_part`] と同じ。
+pub fn delete_connect(
+    src: &str,
+    qualified: &str,
+    a: &str,
+    b: &str,
+) -> Option<Vec<(usize, usize, String)>> {
+    let bom = if src.starts_with('\u{feff}') { 3 } else { 0 };
+    let body = &src[bom..];
+    let tokens = lex(body).ok()?;
+    let mine = own_elements(&tokens, qualified)?;
+    let hit: Vec<_> = mine
+        .iter()
+        .filter(|t| {
+            t[0].is("connect")
+                && connect_ends(t).is_some_and(|(x, y)| (x == a && y == b) || (x == b && y == a))
+        })
+        .copied()
+        .collect();
+    (!hit.is_empty()).then(|| erase(body, bom, hit.into_iter()))
+}
+
+/// 要素（トークンの並び）を消すバイト範囲。行に他に何も無ければ行ごと（行末の改行まで）、あれば要素と後ろの空白だけ。
+fn erase<'t, 'a: 't>(
+    body: &str,
+    bom: usize,
+    elems: impl Iterator<Item = &'t [Token<'a>]>,
+) -> Vec<(usize, usize, String)> {
+    elems
+        .map(|t| {
+            let (s, e) = (t[0].start, t.last().map_or(0, |l| l.start + l.text.len()));
+            let ls = body[..s].rfind('\n').map_or(0, |i| i + 1);
+            let le = body[e..].find('\n').map_or(body.len(), |i| e + i);
+            let alone = body[ls..s].trim().is_empty() && body[e..le].trim().is_empty();
+            let (from, to) = if alone {
+                (ls, (le + 1).min(body.len()))
+            } else {
+                let sp = body[e..].len() - body[e..].trim_start_matches([' ', '\t']).len();
+                (s, e + sp)
+            };
+            (from + bom, to + bom, String::new())
+        })
+        .collect()
+}
+
 /// クラス直下の要素（入れ子のクラスの中は除く）。クラスが無ければ None。
 fn own_elements<'t, 'a>(tokens: &'t [Token<'a>], qualified: &str) -> Option<Vec<&'t [Token<'a>]>> {
     let within = within(tokens);
@@ -533,7 +609,7 @@ fn annotation_in(t: &[Token<'_>], name: &str) -> Option<Val> {
     annotation_call(&t[p..], name)
 }
 
-/// `connect(a.p, b[1].n)` の 2 つの端（`a.p`・`b.n` ではなく書いてあるままの字句をつなぐ）。
+/// `connect(a.p, b[1].n)` の 2 つの端（`a.p`・`b[1].n`。添字を含め、書いてあるままの字句を空白なしでつなぐ。S283）。
 fn connect_ends(t: &[Token<'_>]) -> Option<(String, String)> {
     if !t.get(1)?.is("(") {
         return None;
@@ -546,7 +622,9 @@ fn connect_ends(t: &[Token<'_>]) -> Option<(String, String)> {
         } else if s.is(")") {
             break;
         } else if s.is("[") {
-            i = skip_group(t, i).ok()?;
+            let j = skip_group(t, i).ok()?;
+            t[i..j].iter().for_each(|s| ends[k].push_str(s.text)); // 添字も端の一部（空白は落ちる）
+            i = j;
             continue;
         } else if s.kind == Kind::Ident || s.is(".") {
             ends[k].push_str(s.text);
@@ -906,7 +984,7 @@ end Circ;
         );
         assert_eq!(d.connections.len(), 2, "端が部品でない connect は飛ばす");
         let c = &d.connections[0];
-        assert_eq!((c.from.as_str(), c.to.as_str()), ("r1.n", "r2.p"));
+        assert_eq!((c.from.as_str(), c.to.as_str()), ("r1.n", "r2[1].p"));
         assert_eq!(c.line.points.len(), 3);
         assert_eq!(c.line.line, Some([0, 0, 255]));
         assert_eq!(
@@ -1114,5 +1192,77 @@ end Circ;
         // 不正な型・クラス無し
         assert!(apply(with, "M", "L.Res; x").is_none());
         assert!(apply(with, "Nope", "L.Res").is_none());
+    }
+
+    #[test]
+    fn delete_part_removes_the_declaration_and_its_connects() {
+        let apply = |src: &str, edits: Vec<(usize, usize, String)>| {
+            let mut out = src.to_string();
+            for (a, b, t) in edits.into_iter().rev() {
+                out.replace_range(a..b, &t);
+            }
+            out
+        };
+        let src = "model M\n  Box a annotation(Placement(transformation(extent = {{0, 0}, {1, 1}})));\n  Box b[2] annotation(Placement(transformation(extent = {{0, 0}, {1, 1}})));\n  Box c annotation(Placement(transformation(extent = {{0, 0}, {1, 1}})));\nequation\n  connect(a.p, b[1].n) annotation(Line(points = {{0, 0}, {1, 1}})); // a-b\n  connect(b[2].p, c.n);\n    connect(c.p, a.n);\n  x = 1;\nend M;\n";
+        let got = apply(src, delete_part(src, "M", "a").unwrap());
+        assert_eq!(
+            got,
+            "model M\n  Box b[2] annotation(Placement(transformation(extent = {{0, 0}, {1, 1}})));\n  Box c annotation(Placement(transformation(extent = {{0, 0}, {1, 1}})));\nequation\n  connect(b[2].p, c.n);\n  x = 1;\nend M;\n"
+        );
+        // 配列の部品（b[1]）は b の名前で数える
+        let got = apply(src, delete_part(src, "M", "b").unwrap());
+        assert!(
+            !got.contains("b[") && got.contains("connect(c.p, a.n);"),
+            "{got}"
+        );
+        // 結線だけ: 逆の並びでも消え、字下げは他の行を壊さない
+        let got = apply(src, delete_connect(src, "M", "c.n", "b[2].p").unwrap());
+        assert_eq!(got, src.replace("  connect(b[2].p, c.n);\n", ""));
+        assert!(delete_connect(src, "M", "a.p", "c.p").is_none());
+        assert!(
+            delete_connect(src, "M", "c.n", "b.p").is_none(),
+            "添字の無い端は別物"
+        );
+        // 同じ行に他の文があれば、その要素だけ
+        let packed = "model M\n  Box a annotation(Placement(transformation(extent = {{0, 0}, {1, 1}})));\nequation\n  x = 1; connect(a.p, a.n);  y = 2;\nend M;\n";
+        let got = apply(packed, delete_connect(packed, "M", "a.p", "a.n").unwrap());
+        assert_eq!(
+            got,
+            "model M\n  Box a annotation(Placement(transformation(extent = {{0, 0}, {1, 1}})));\nequation\n  x = 1; y = 2;\nend M;\n"
+        );
+        // 複数の名前・Placement 無し・無い部品・BOM
+        let multi = "model M\n  Box a, b annotation(Placement(transformation(extent = {{0, 0}, {1, 1}})));\nend M;\n";
+        assert!(delete_part(multi, "M", "a").is_none());
+        assert!(delete_part(src, "M", "zzz").is_none());
+        assert!(delete_part(src, "N", "a").is_none());
+        let bom = format!("\u{feff}{src}");
+        let got = apply(&bom, delete_connect(&bom, "M", "b[2].p", "c.n").unwrap());
+        assert_eq!(got, bom.replace("  connect(b[2].p, c.n);\n", ""));
+    }
+
+    #[test]
+    fn delete_connect_tells_array_indices_apart() {
+        let src = "model M\n  Box b[3];\n  Box c;\nequation\n  connect(b[1].p, c.n);\n  connect(b[ 2 ].p, c.n);\n  connect(c.n, b[i + 1].p);\nend M;\n";
+        let del = |a: &str, b: &str| {
+            let mut out = src.to_string();
+            for (s, e, t) in delete_connect(src, "M", a, b).unwrap().into_iter().rev() {
+                out.replace_range(s..e, &t);
+            }
+            out
+        };
+        // 1 本だけ消える（空白の違いは同じ、逆の並びも同じ）
+        assert_eq!(
+            del("b[2].p", "c.n"),
+            src.replace("  connect(b[ 2 ].p, c.n);\n", "")
+        );
+        assert_eq!(
+            del("c.n", "b[1].p"),
+            src.replace("  connect(b[1].p, c.n);\n", "")
+        );
+        assert_eq!(
+            del("b[i+1].p", "c.n"),
+            src.replace("  connect(c.n, b[i + 1].p);\n", "")
+        );
+        assert!(delete_connect(src, "M", "b[3].p", "c.n").is_none());
     }
 }

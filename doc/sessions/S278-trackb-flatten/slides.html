@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S278 Track B の flatten — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S278 Track B の flatten">
+
+<section class="slide" id="S01">
+  <span class="tag">S278 · 2026-11-15 · Track B</span>
+  <h1>モデルを平らな変数と方程式にする（B3 の最初の一切れ）</h1>
+  <p class="lead">新しい crate <code>globe-mode-flat</code>（依存は <code>globe-mode-syntax</code> と <code>globe-mode-resolve</code>）</p>
+  <div class="big">GlobeModeValidation の 70 本で、Rumoca の flat と変数の名前・方程式の数が全部一致</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">作り</span>
+  <h1>クラスをインスタンス化する</h1>
+  <ul>
+    <li><code>Project</code> は resolve の <code>Library</code> と、クラスごとの CST、全参照の解決表を持つ。resolve の中は変えていない</li>
+    <li><code>extends</code> を取り込みながら宣言と節を集め、修飾は外側が勝つ。式は書いた場所の前置きで名前を付け替える</li>
+    <li>評価するのは大きさ・<code>for</code> の範囲・添字だけ。<code>if</code>・<code>when</code>・関数の呼び出しは式のまま印字する</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">connect</span>
+  <h1>potential は等式、flow は和が 0</h1>
+  <ul>
+    <li>インスタンスごとに集合を作る。内側のコネクタは <code>+</code>、外側は <code>-</code></li>
+    <li>つなげなかった内側のコネクタの flow は 0。最上位のモデル自身のコネクタの flow も 0</li>
+    <li><code>for</code> の中の <code>connect</code> は展開して数える。<code>stream</code> は断る</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">結果</span>
+  <h1>Rumoca の flat との突き合わせ</h1>
+  <table>
+    <thead><tr><th>対象</th><th>自前で平らにできた</th><th>名前の集合が一致</th><th>方程式の数が一致</th></tr></thead>
+    <tbody>
+      <tr><td><code>GlobeModeValidation</code> 75 本</td><td>71</td><td>70 / 70</td><td>70 / 70</td></tr>
+      <tr><td>MSL の例題 566 本</td><td>67</td><td>66 / 66（Rumoca の flat まで通った 66 本）</td><td>64 / 66</td></tr>
+    </tbody>
+  </table>
+  <p>Rumoca の flatten は 566 本中 562 本。断ったものは理由で分類してある</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">断った理由</span>
+  <h1>MSL の例題で断った本数</h1>
+  <table class="compact">
+    <thead><tr><th>理由</th><th>本数</th></tr></thead>
+    <tbody>
+      <tr><td>redeclare（resolve が型を決められない `Redeclare` を含む）</td><td>205</td></tr>
+      <tr><td>conditional-component（条件つきの宣言）</td><td>131</td></tr>
+      <tr><td>inner-outer</td><td>43</td></tr>
+      <tr><td>non-constant-dim（大きさが関数の戻り値などで決まる）</td><td>35</td></tr>
+      <tr><td>composite-binding（レコードの束縛）</td><td>33</td></tr>
+      <tr><td>unsized-array（`[:]` で束縛が配列リテラルでない）</td><td>25</td></tr>
+      <tr><td>class-extends</td><td>11</td></tr>
+      <tr><td>replaceable</td><td>5</td></tr>
+      <tr><td>array-type（`type T = Real[3]`）</td><td>5</td></tr>
+      <tr><td>connect-array（配列のコネクタの一括接続）</td><td>4</td></tr>
+      <tr><td>expandable</td><td>2</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li><code>redeclare</code> / <code>replaceable</code>（resolve の S275 と合わせる）、条件つきの宣言、<code>inner</code> / <code>outer</code></li>
+    <li>配列のコネクタの一括接続、レコードの束縛、B4（DAE）、<code>xtask diff-frontend</code></li>
+  </ul>
+  <pre><code>cargo test -p globe-mode-flat
+GLOBE_MSL=data/msl GLOBE_FLAT_RUMOCA=1 cargo test -p globe-mode-flat --test compare -- --ignored --nocapture</code></pre>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

@@ -190,6 +190,9 @@ try {
   const blt = await w.blt("GlobeModeValidation.Loops.LinearLoop"); // S262
   assert.equal(blt.blocks.filter((b) => b.algebraic_loop).length, 1, "blt: 代数ループが 1 つ");
   await assert.rejects(w.blt("No.Such.Model"));
+  const stg = await w.stages("GlobeModeValidation.Index.Pendulum"); // S282
+  assert.equal(stg.index.index, 3, "stages: 振り子は index 3");
+  await assert.rejects(w.stages("No.Such.Model"));
   // 読み取りの口と summary（S191）
   const ol = await w.outline("src/Modelica/GlobeModeValidation/Simulation/Decay.mo");
   assert.equal(ol.within, "GlobeModeValidation.Simulation");

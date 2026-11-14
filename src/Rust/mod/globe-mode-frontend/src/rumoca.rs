@@ -1799,6 +1799,7 @@ fn flat_summary(flat: &FlatModel) -> FlatSummary {
     }
     FlatSummary {
         variables: flat.variables.len(),
+        variable_names: flat.variables.keys().map(ToString::to_string).collect(),
         equations: flat.equations.iter().map(|e| e.scalar_count).sum(),
         initial_equations: flat.initial_equations.iter().map(|e| e.scalar_count).sum(),
         partial: flat.is_partial,

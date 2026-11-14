@@ -27,6 +27,7 @@ pub mod loops;
 mod matching;
 pub mod pantelides;
 pub mod preflight;
+pub mod stages;
 #[cfg(test)]
 mod testutil;
 
@@ -45,6 +46,7 @@ pub use crate::loops::{
 pub use crate::matching::{Matching, hopcroft_karp};
 pub use crate::pantelides::{IndexReport, analyze_index};
 pub use crate::preflight::{PreflightReport, analyze_preflight};
+pub use crate::stages::{StagesReport, analyze_stages};
 
 /// 診断の補足に並べる項目の上限。超えた分は「ほか k 件」にまとめる。
 pub const NOTE_LIST_LIMIT: usize = 10;
