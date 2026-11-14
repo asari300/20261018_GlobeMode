@@ -1,8 +1,10 @@
 //! 寛容なパーサ。誤りがあっても必ず木を作り、読めなかったところは `Error` 節点に入れて診断を残す。
 //! 全トークン（空白・コメント含む）が木に入るので、木の文字列は元の文字列と一致する。
 //!
-//! 最初の一切れの範囲: クラスの定義・`extends`・`import`・部品の宣言・`equation` / `algorithm` 節。
-//! 式・修飾・注釈の中身・文の中身は「括弧の対応と `;` までだけ見る」不透明な節点（式の文法は次回）。
+//! 範囲: クラスの定義・`extends`・`import`・部品の宣言・`equation` / `algorithm` 節（S268）、
+//! 式（Pratt パーサ）・修飾・注釈・方程式と文の中身（S269）。
+//! 不透明なまま残すもの: `redeclare` / `replaceable` の引数、`import A.{…}` の中、`enumeration(…)`、
+//! 誤りから戻るときに読み飛ばす範囲（`Error` 節点）。
 
 use crate::kind::{SyntaxKind, SyntaxKind::*};
 use crate::lexer::lex;
@@ -52,14 +54,12 @@ struct Parser<'a> {
 
 #[derive(Clone, Copy, PartialEq)]
 enum Scan {
-    /// 宣言の束縛・条件。`,` `annotation` と、被演算子の後ろの `if`・文字列で止まる
-    Expr,
-    /// 方程式・文・short class。`;` だけで止まる
+    /// 誤りから戻る・不透明な文。`;` と、ブロックの終わり（`end` / `else` 系）で止まる
     Stmt,
     /// `(` `[` `{` から対応する閉じまで
     Group,
-    /// `if` / `when` / `for` / `while` の条件。`then`（入れ子の if 式の分を除く）か `loop` で止まる
-    Header,
+    /// `redeclare` の引数。`,` か `)` で止まる
+    Arg,
 }
 
 fn is_class_kind(k: SyntaxKind) -> bool {
@@ -253,8 +253,6 @@ impl<'a> Parser<'a> {
 
     fn scan(&mut self, mode: Scan) {
         let mut stack: Vec<SyntaxKind> = Vec::new();
-        let mut pending_then = 0u32;
-        let mut prev_operand = false;
         while let Some(k) = self.cur() {
             if self.is_boundary() {
                 break;
@@ -262,17 +260,8 @@ impl<'a> Parser<'a> {
             let top_level = stack.is_empty();
             match k {
                 Semi if stack.last() != Some(&LBracket) => break,
-                Comma | KwAnnotation if mode == Scan::Expr && top_level => break,
-                Str | KwIf if mode == Scan::Expr && top_level && prev_operand => break,
-                RParen | RBracket | RBrace if mode == Scan::Expr && top_level => break,
-                KwLoop if mode == Scan::Header => break,
-                KwThen if mode == Scan::Header => {
-                    if pending_then == 0 {
-                        break;
-                    }
-                    pending_then -= 1;
-                }
-                KwIf | KwElseif if mode == Scan::Header => pending_then += 1,
+                KwEnd | KwElse | KwElseif | KwElsewhen if mode == Scan::Stmt && top_level => break,
+                Comma | RParen if mode == Scan::Arg && top_level => break,
                 _ => {}
             }
             match k {
@@ -282,10 +271,6 @@ impl<'a> Parser<'a> {
                 }
                 _ => {}
             }
-            prev_operand = matches!(
-                k,
-                Ident | UInt | UReal | Str | RParen | RBracket | RBrace | KwTrue | KwFalse | KwEnd
-            );
             self.bump();
             if mode == Scan::Group && stack.is_empty() {
                 return;
@@ -294,6 +279,411 @@ impl<'a> Parser<'a> {
         if !stack.is_empty() {
             self.error("unclosed bracket");
         }
+    }
+
+    /// 文・宣言の終わりの `;`。無ければ誤りにして、`;` まで（ブロックの終わりの手前まで）を `Error` に入れる
+    fn semi(&mut self) {
+        if self.eat(Semi) {
+            return;
+        }
+        self.error("expected `;`");
+        if self.eof()
+            || self.is_boundary()
+            || matches!(self.cur(), Some(KwEnd | KwElse | KwElseif | KwElsewhen))
+        {
+            return;
+        }
+        self.start(Error);
+        self.scan(Scan::Stmt);
+        self.eat(Semi);
+        self.finish_node();
+    }
+
+    // ---- 式（Pratt）
+    /// 式を始められないが、読み飛ばしてはいけないトークン（構造を作る語・閉じ・区切り）
+    fn is_stop(k: SyntaxKind) -> bool {
+        matches!(
+            k,
+            Semi | Comma | RParen | RBracket | RBrace | Eq | Assign | Colon
+        ) || ((KwAlgorithm..=KwWithin).contains(&k)
+            && !matches!(
+                k,
+                KwNot
+                    | KwDer
+                    | KwInitial
+                    | KwIf
+                    | KwFunction
+                    | KwTrue
+                    | KwFalse
+                    | KwEnd
+                    | KwConnect
+            ))
+    }
+
+    /// 1 つの式（if 式・範囲を含む）
+    fn expr(&mut self) {
+        self.eat_trivia();
+        let cp = self.builder.checkpoint();
+        self.expr_bp(1);
+        if self.at(Colon) && self.depth < MAX_DEPTH {
+            self.builder
+                .start_node_at(cp, rowan::SyntaxKind(RangeExpr as u16));
+            for _ in 0..2 {
+                if !self.eat(Colon) {
+                    break;
+                }
+                self.expr_bp(1);
+            }
+            self.finish_node();
+        }
+    }
+
+    /// 優先順位（左・右の束縛力）。`^` は左結合の連鎖として平らに持つ（仕様では連鎖は不可）
+    fn infix(k: SyntaxKind) -> Option<(u8, u8)> {
+        Some(match k {
+            KwOr => (1, 2),
+            KwAnd => (3, 4),
+            Lt | Le | Gt | Ge | EqEq | Ne => (5, 6),
+            Plus | Minus | DotPlus | DotMinus => (7, 8),
+            Star | Slash | DotStar | DotSlash => (9, 10),
+            Caret | DotCaret => (11, 12),
+            _ => return None,
+        })
+    }
+
+    fn expr_bp(&mut self, min: u8) {
+        if self.depth >= MAX_DEPTH {
+            self.error("expression is nested too deeply");
+            // 打ち切り: 閉じている範囲（括弧の組）か 1 トークンを読み飛ばす
+            if matches!(self.cur(), Some(LParen | LBracket | LBrace)) {
+                self.start(Error);
+                self.scan(Scan::Group);
+                self.finish_node();
+            } else if self.cur().is_some_and(|k| !Self::is_stop(k)) {
+                self.bump_error("expression is nested too deeply");
+            }
+            return;
+        }
+        self.depth += 1;
+        self.eat_trivia();
+        let cp = self.builder.checkpoint();
+        self.unary_or_atom(min);
+        let mut open: Option<u8> = None;
+        while let Some((l, r)) = self.cur().and_then(Self::infix) {
+            if l < min {
+                break;
+            }
+            if open != Some(l) {
+                if open.is_some() {
+                    self.finish_node();
+                }
+                self.builder
+                    .start_node_at(cp, rowan::SyntaxKind(BinaryExpr as u16));
+                open = Some(l);
+            }
+            self.bump();
+            self.expr_bp(r);
+        }
+        if open.is_some() {
+            self.finish_node();
+        }
+        self.depth -= 1;
+    }
+
+    fn unary_or_atom(&mut self, min: u8) {
+        match self.cur() {
+            Some(Plus | Minus | DotPlus | DotMinus) => {
+                self.start(UnaryExpr);
+                self.bump();
+                self.expr_bp(min.max(9));
+                self.finish_node();
+            }
+            Some(KwNot) => {
+                self.start(UnaryExpr);
+                self.bump();
+                self.expr_bp(min.max(5));
+                self.finish_node();
+            }
+            _ => self.atom(),
+        }
+    }
+
+    fn atom(&mut self) {
+        match self.cur() {
+            Some(UInt | UReal | Str | KwTrue | KwFalse) => {
+                self.start(Literal);
+                self.bump();
+                self.finish_node();
+            }
+            Some(KwEnd) => {
+                self.start(EndExpr);
+                self.bump();
+                self.finish_node();
+            }
+            Some(Ident | Dot) => {
+                self.eat_trivia();
+                let cp = self.builder.checkpoint();
+                self.component_ref();
+                if self.at(LParen) {
+                    self.builder
+                        .start_node_at(cp, rowan::SyntaxKind(CallExpr as u16));
+                    self.function_args();
+                    self.finish_node();
+                }
+            }
+            Some(KwDer | KwInitial | KwConnect) => {
+                self.start(CallExpr);
+                self.bump();
+                if self.at(LParen) {
+                    self.function_args();
+                } else {
+                    self.error("expected `(`");
+                }
+                self.finish_node();
+            }
+            Some(KwFunction) => {
+                self.start(PartialApp);
+                self.bump();
+                if matches!(self.cur(), Some(Ident | Dot)) {
+                    self.component_ref();
+                } else {
+                    self.error("expected function name");
+                }
+                if self.at(LParen) {
+                    self.function_args();
+                }
+                self.finish_node();
+            }
+            Some(KwIf) => self.if_expr(),
+            Some(LParen) => {
+                self.start(ParenExpr);
+                self.bump();
+                while !self.at(RParen) {
+                    let before = self.pos;
+                    if !self.at(Comma) {
+                        self.expr();
+                    }
+                    if !self.eat(Comma) || self.pos == before {
+                        break;
+                    }
+                }
+                self.close(RParen, "`)`");
+                self.finish_node();
+            }
+            Some(LBracket) => {
+                self.start(MatrixExpr);
+                self.bump();
+                while !self.at(RBracket) {
+                    let before = self.pos;
+                    self.expr();
+                    if !(self.eat(Comma) || self.eat(Semi)) || self.pos == before {
+                        break;
+                    }
+                }
+                self.close(RBracket, "`]`");
+                self.finish_node();
+            }
+            Some(LBrace) => {
+                self.start(ArrayExpr);
+                self.bump();
+                self.arg_list(RBrace);
+                self.close(RBrace, "`}`");
+                self.finish_node();
+            }
+            Some(k) if !Self::is_stop(k) => self.bump_error("expected an expression"),
+            _ => self.error("expected an expression"),
+        }
+    }
+
+    fn close(&mut self, k: SyntaxKind, what: &str) {
+        if !self.eat(k) {
+            self.error(&format!("expected {what}"));
+        }
+    }
+
+    fn component_ref(&mut self) {
+        self.start(ComponentRef);
+        self.eat(Dot);
+        loop {
+            if !self.eat(Ident) {
+                self.error("expected name");
+                break;
+            }
+            if self.at(LBracket) {
+                self.subscripts();
+            }
+            if !(self.at(Dot) && self.nth(1) == Some(Ident)) {
+                break;
+            }
+            self.bump();
+        }
+        self.finish_node();
+    }
+
+    /// `[` 添字 `,` … `]`。添字は `:` か式
+    fn subscripts(&mut self) {
+        self.start(Subscripts);
+        self.bump();
+        while !self.at(RBracket) {
+            let before = self.pos;
+            if !self.eat(Colon) {
+                self.expr();
+            }
+            if !self.eat(Comma) || self.pos == before {
+                break;
+            }
+        }
+        self.close(RBracket, "`]`");
+        self.finish_node();
+    }
+
+    fn if_expr(&mut self) {
+        self.start(IfExpr);
+        self.bump();
+        loop {
+            self.expr();
+            self.close(KwThen, "`then`");
+            self.expr();
+            if !self.eat(KwElseif) {
+                break;
+            }
+        }
+        if self.eat(KwElse) {
+            self.expr();
+        } else {
+            self.error("expected `else`");
+        }
+        self.finish_node();
+    }
+
+    /// `(` 引数 `,` … `)`。名前つき引数（`k = e`）と内包（`e for i in r`）を含む
+    fn function_args(&mut self) {
+        self.start(FunctionArgs);
+        self.bump();
+        self.arg_list(RParen);
+        self.close(RParen, "`)`");
+        self.finish_node();
+    }
+
+    fn arg_list(&mut self, close: SyntaxKind) {
+        while !self.at(close) {
+            let before = self.pos;
+            if self.at(Ident) && self.nth(1) == Some(Eq) {
+                self.start(NamedArg);
+                self.bump();
+                self.bump();
+                self.expr();
+                self.finish_node();
+            } else {
+                self.eat_trivia();
+                let cp = self.builder.checkpoint();
+                self.expr();
+                if self.at(KwFor) {
+                    self.builder
+                        .start_node_at(cp, rowan::SyntaxKind(Comprehension as u16));
+                    self.bump();
+                    self.for_indices();
+                    self.finish_node();
+                }
+            }
+            if !self.eat(Comma) || self.pos == before {
+                break;
+            }
+            if self.at(close) {
+                self.error("expected an argument");
+            }
+        }
+    }
+
+    /// `i in 1:n, j in v`（`in` が無い添字も許す）
+    fn for_indices(&mut self) {
+        self.start(ForIndices);
+        loop {
+            self.start(ForIndex);
+            if !self.eat(Ident) {
+                self.error("expected index name");
+            }
+            if self.eat(KwIn) {
+                self.expr();
+            }
+            self.finish_node();
+            if !self.eat(Comma) {
+                break;
+            }
+        }
+        self.finish_node();
+    }
+
+    // ---- 修飾・注釈
+    /// `( 要素の修飾 , … )`
+    fn class_modification(&mut self) {
+        if self.depth >= MAX_DEPTH {
+            self.error("modification is nested too deeply");
+            self.start(Error);
+            self.scan(Scan::Group);
+            self.finish_node();
+            return;
+        }
+        self.depth += 1;
+        self.start(ClassModification);
+        self.bump();
+        while !self.at(RParen) {
+            let before = self.pos;
+            let mut n = 0;
+            while matches!(self.nth(n), Some(KwEach | KwFinal)) {
+                n += 1;
+            }
+            if self.at(KwBreak) {
+                // Modelica 3.6: `extends B(break x, break connect(a, b))`
+                self.start(BreakModification);
+                self.bump();
+                if self.at(KwConnect) {
+                    self.expr();
+                } else if self.at(Ident) {
+                    self.name();
+                } else {
+                    self.error("expected name");
+                }
+                self.finish_node();
+            } else if matches!(self.nth(n), Some(KwRedeclare | KwReplaceable)) {
+                self.start(Redeclaration);
+                self.scan(Scan::Arg);
+                self.finish_node();
+            } else {
+                self.start(ElementModification);
+                while matches!(self.cur(), Some(KwEach | KwFinal)) {
+                    self.bump();
+                }
+                if self.at(Ident) {
+                    self.name();
+                } else {
+                    self.error("expected name");
+                }
+                if matches!(self.cur(), Some(LParen | Eq | Assign)) {
+                    self.modification();
+                }
+                self.comment();
+                self.finish_node();
+            }
+            if !self.eat(Comma) || self.pos == before {
+                break;
+            }
+        }
+        self.close(RParen, "`)`");
+        self.finish_node();
+        self.depth -= 1;
+    }
+
+    /// `(…)` と `= 式` / `:= 式`
+    fn modification(&mut self) {
+        self.start(Modification);
+        if self.at(LParen) {
+            self.class_modification();
+        }
+        if self.eat(Eq) || self.eat(Assign) {
+            self.expr();
+        }
+        self.finish_node();
     }
 
     // ---- 文法
@@ -348,12 +738,6 @@ impl<'a> Parser<'a> {
         self.finish_node();
     }
 
-    fn group_node(&mut self, kind: SyntaxKind) {
-        self.start(kind);
-        self.scan(Scan::Group);
-        self.finish_node();
-    }
-
     /// 説明文字列（`"a" + "b"`）
     fn comment(&mut self) {
         if !self.at(Str) {
@@ -375,7 +759,7 @@ impl<'a> Parser<'a> {
         self.start(Annotation);
         self.bump();
         if self.at(LParen) {
-            self.scan(Scan::Group);
+            self.class_modification();
         } else {
             self.error("expected `(`");
         }
@@ -399,17 +783,14 @@ impl<'a> Parser<'a> {
             self.bump();
             self.eat(Ident);
             if self.at(LParen) {
-                self.group_node(Modification);
+                self.class_modification();
             }
         } else if !self.eat(Ident) {
             self.error("expected class name");
         }
         if self.at(Eq) {
-            self.start(ShortBody);
-            self.bump();
-            self.scan(Scan::Stmt);
-            self.finish_node();
-            self.expect(Semi, "`;`");
+            self.short_body();
+            self.semi();
         } else {
             self.comment();
             self.composition();
@@ -424,6 +805,52 @@ impl<'a> Parser<'a> {
         }
         self.finish_node();
         self.depth -= 1;
+    }
+
+    /// `= [前置き] 型名 [添字] [(修飾)] [constrainedby …] [説明] [annotation]`、`= enumeration(…)`、`= der(…)`
+    fn short_body(&mut self) {
+        self.start(ShortBody);
+        self.bump();
+        while self.cur().is_some_and(is_component_prefix) {
+            self.bump();
+        }
+        match self.cur() {
+            Some(KwEnumeration | KwDer) => {
+                // shortcut: 列挙の中身と `der(F, x)` の引数は不透明、使う層ができたら構造にする
+                self.bump();
+                if self.at(LParen) {
+                    self.scan(Scan::Group);
+                }
+            }
+            Some(Ident | Dot) => {
+                self.name();
+                if self.at(LBracket) {
+                    self.subscripts();
+                }
+                if self.at(LParen) {
+                    self.class_modification();
+                }
+            }
+            _ => self.error("expected type name"),
+        }
+        self.constrainedby();
+        self.comment();
+        self.annotation();
+        self.finish_node();
+    }
+
+    fn constrainedby(&mut self) {
+        if self.at(KwConstrainedby) {
+            self.bump();
+            if matches!(self.cur(), Some(Ident | Dot)) {
+                self.name();
+            } else {
+                self.error("expected name");
+            }
+            if self.at(LParen) {
+                self.class_modification();
+            }
+        }
     }
 
     fn composition(&mut self) {
@@ -451,13 +878,20 @@ impl<'a> Parser<'a> {
                 Some(KwExternal) => {
                     self.start(ExternalClause);
                     self.bump();
-                    self.scan(Scan::Stmt);
-                    self.expect(Semi, "`;`");
+                    self.eat(Str);
+                    if matches!(self.cur(), Some(Ident | Dot)) {
+                        self.expr();
+                        if self.eat(Eq) {
+                            self.expr();
+                        }
+                    }
+                    self.annotation();
+                    self.semi();
                     self.finish_node();
                 }
                 Some(KwAnnotation) => {
                     self.annotation();
-                    self.expect(Semi, "`;`");
+                    self.semi();
                 }
                 Some(KwExtends) => self.extends_clause(),
                 Some(KwImport) => self.import_clause(),
@@ -489,10 +923,10 @@ impl<'a> Parser<'a> {
             self.error("expected name");
         }
         if self.at(LParen) {
-            self.group_node(Modification);
+            self.class_modification();
         }
         self.annotation();
-        self.expect(Semi, "`;`");
+        self.semi();
         self.finish_node();
     }
 
@@ -518,7 +952,7 @@ impl<'a> Parser<'a> {
         }
         self.comment();
         self.annotation();
-        self.expect(Semi, "`;`");
+        self.semi();
         self.finish_node();
     }
 
@@ -529,14 +963,16 @@ impl<'a> Parser<'a> {
         }
         if !matches!(self.cur(), Some(Ident | Dot)) {
             self.error("expected type name");
+            self.start(Error);
             self.scan(Scan::Stmt);
             self.eat(Semi);
+            self.finish_node();
             self.finish_node();
             return;
         }
         self.name();
         if self.at(LBracket) {
-            self.group_node(Subscripts);
+            self.subscripts();
         }
         loop {
             self.declaration();
@@ -545,12 +981,11 @@ impl<'a> Parser<'a> {
             }
         }
         if self.at(KwConstrainedby) {
-            self.bump();
-            self.scan(Scan::Expr);
+            self.constrainedby();
             self.comment();
             self.annotation();
         }
-        self.expect(Semi, "`;`");
+        self.semi();
         self.finish_node();
     }
 
@@ -560,22 +995,15 @@ impl<'a> Parser<'a> {
             self.error("expected component name");
         }
         if self.at(LBracket) {
-            self.group_node(Subscripts);
+            self.subscripts();
         }
         if matches!(self.cur(), Some(LParen | Eq | Assign)) {
-            self.start(Modification);
-            if self.at(LParen) {
-                self.scan(Scan::Group);
-            }
-            if self.eat(Eq) || self.eat(Assign) {
-                self.scan(Scan::Expr);
-            }
-            self.finish_node();
+            self.modification();
         }
         if self.at(KwIf) {
             self.start(Condition);
             self.bump();
-            self.scan(Scan::Expr);
+            self.expr();
             self.finish_node();
         }
         self.comment();
@@ -612,6 +1040,7 @@ impl<'a> Parser<'a> {
                     // 対応する if / for / when が無い `end if;`
                     self.error("`end` without a block");
                     self.start(Error);
+                    self.bump();
                     self.scan(Scan::Stmt);
                     self.eat(Semi);
                     self.finish_node();
@@ -620,17 +1049,30 @@ impl<'a> Parser<'a> {
                     self.compound(eq)
                 }
                 Some(Semi) => self.bump_error("empty statement"),
-                _ => {
-                    self.start(if eq { Equation } else { Statement });
-                    self.scan(Scan::Stmt);
-                    self.expect(Semi, "`;`");
-                    self.finish_node();
-                }
+                _ => self.simple_item(eq),
             }
             if self.pos == before {
                 self.bump_error("unexpected token");
             }
         }
+    }
+
+    /// `a = b;`（方程式）、`a := b;`・`f(x);`・`(a, b) := f(x);`・`return;`・`break;`（文）。`connect(a, b);` と
+    /// `f(x);` の呼び出しは式の `CallExpr` になる。説明文字列と annotation も付けられる
+    fn simple_item(&mut self, eq: bool) {
+        self.start(if eq { Equation } else { Statement });
+        if !eq && matches!(self.cur(), Some(KwReturn | KwBreak)) {
+            self.bump();
+        } else {
+            self.expr();
+            if self.eat(if eq { Eq } else { Assign }) {
+                self.expr();
+            }
+        }
+        self.comment();
+        self.annotation();
+        self.semi();
+        self.finish_node();
     }
 
     /// `if … then … elseif … else … end if;`、`for … loop … end for;`、`when … elsewhen … end when;`
@@ -640,9 +1082,11 @@ impl<'a> Parser<'a> {
         self.start(if eq { Equation } else { Statement });
         self.bump();
         loop {
-            self.start(Expr);
-            self.scan(Scan::Header);
-            self.finish_node();
+            if kw == KwFor {
+                self.for_indices();
+            } else {
+                self.expr();
+            }
             if !(self.eat(KwThen) || self.eat(KwLoop)) {
                 self.error("expected `then` or `loop`");
             }
