@@ -13,7 +13,7 @@ use globe_mode_fmi::export::{check_out_root, platform, zip_dir};
 use globe_mode_fmu::Kind;
 use globe_mode_frontend::{Source, collect_mo_files, library_slice};
 
-use crate::FmuOptions;
+use crate::{FmuExportKind, FmuOptions};
 
 /// 書き出せなかった理由。CLI は `Usage` を終了コード 2、`Failed` を 1 にする。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,8 +57,16 @@ pub fn export_fmu_p5b(
                 .into(),
         ));
     }
+    let se = options.kind == FmuExportKind::Se;
+    if se && options.fmi_version != 3 {
+        return Err(Usage("kind se は FMI 3.0（fmi_version 3）だけ".into()));
+    }
     let text = text.unwrap_or("// library model (S238)\n");
-    let name = format!("{}-p5b", model.replace('.', "_"));
+    let name = format!(
+        "{}-p5b{}",
+        model.replace('.', "_"),
+        if se { "-se" } else { "" }
+    );
     let root = out_dir.join(&name);
     let (dir, ext) = platform(
         &format!("{}-{}", std::env::consts::ARCH, std::env::consts::OS),
@@ -91,6 +99,7 @@ pub fn export_fmu_p5b(
         text,
         library,
         options.fmi_version,
+        se,
         &root,
         &runtime,
         &dir,
@@ -112,6 +121,7 @@ fn stage(
     text: &str,
     library: &[PathBuf],
     fmi_version: u8,
+    se: bool,
     root: &Path,
     runtime: &Path,
     dir: &str,
@@ -158,7 +168,7 @@ fn stage(
             std::fs::copy(lib_root.join("LICENSE"), lib.join("LICENSE")).map_err(io)?;
         }
     }
-    let (v3, kind) = (fmi_version == 3, Kind::Both);
+    let (v3, kind) = (fmi_version == 3, if se { Kind::Se } else { Kind::Both });
     let xml = if lib.is_dir() {
         globe_mode_fmu::model_description_lib(model, text, v3, kind, &lib)
     } else {

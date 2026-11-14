@@ -91,6 +91,18 @@ pub enum FmuRuntime {
     P5b,
 }
 
+/// FMU のインターフェース（S251。`globe fmu export --kind`）。JSON では `"me_cs"` / `"se"`。
+#[cfg(feature = "fmu")]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FmuExportKind {
+    /// Model Exchange と Co-Simulation（既定）
+    #[default]
+    MeCs,
+    /// FMI 3.0 の Scheduled Execution（周期クロック 1 つ。`runtime` は p5b）
+    Se,
+}
+
 /// FMU の書き出しの設定（S118。`globe fmu export` の `--fmi-version`・`--build`・`--target`・`--fmi-headers`・`--runtime`・`--runtime-lib`）。
 /// C ABI・NIF・Python は同じ形の JSON（`{"fmi_version": 2, "build": false, "targets": [], "fmi_headers": null, "runtime": "p5a", "runtime_lib": null}`。省略可）で渡す。
 #[cfg(feature = "fmu")]
@@ -108,6 +120,8 @@ pub struct FmuOptions {
     pub runtime: FmuRuntime,
     /// `P5b` の共有ライブラリ（`libglobe_mode_fmu_cdylib.so` など）。省略すると `cargo build --release -p globe-mode-fmu-cdylib` で作る（S239）
     pub runtime_lib: Option<PathBuf>,
+    /// インターフェース（S251）。`Se` は `fmi_version` 3 と `runtime` p5b だけ
+    pub kind: FmuExportKind,
 }
 
 #[cfg(feature = "fmu")]
@@ -131,6 +145,7 @@ impl Default for FmuOptions {
             fmi_headers: None,
             runtime: FmuRuntime::P5a,
             runtime_lib: None,
+            kind: FmuExportKind::MeCs,
         }
     }
 }
@@ -144,6 +159,9 @@ pub fn export_fmu(
 ) -> Result<PathBuf, String> {
     if options.runtime != FmuRuntime::P5a || options.runtime_lib.is_some() {
         return Err("runtime p5b・runtime_lib はモデルの本文が要る（Workspace::export_fmu か export_fmu_p5b から）".into());
+    }
+    if options.kind == FmuExportKind::Se {
+        return Err("kind se は runtime p5b だけ".into());
     }
     let headers = match (options.build, &options.fmi_headers) {
         (false, _) => None,

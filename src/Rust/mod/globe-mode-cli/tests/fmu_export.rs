@@ -543,6 +543,43 @@ fn p5b_runtime_exports_a_runnable_fmu() {
     assert_eq!(o.status.code(), Some(2), "{o:?}");
 }
 
+/// S251: `--kind se` は FMI 3.0 の p5b だけ。書けた FMU の modelDescription.xml に `ScheduledExecution` と周期の `Clock` が出る。
+/// （SE を実際に回すのは globe-mode-fmu の `fmpy_scheduled_execution`。fmusim は SE を回せない）
+#[test]
+fn kind_se_writes_a_scheduled_execution_fmu() {
+    let Some(lib) = p5b_runtime() else {
+        eprintln!("skip: cargo build -p globe-mode-fmu-cdylib ができない");
+        return;
+    };
+    let mo = package_dir().join("Simulation/Decay.mo");
+    let out = out_dir("p5b-se");
+    let export = |extra: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_globe"))
+            .args(["fmu", "export", mo.to_str().unwrap(), "-m", MODEL, "--out"])
+            .arg(&out)
+            .args(["--runtime", "p5b", "--runtime-lib", lib.to_str().unwrap()])
+            .args(["--kind", "se"])
+            .args(extra)
+            .output()
+            .unwrap()
+    };
+    let o = export(&["--fmi-version", "3"]);
+    assert!(o.status.success(), "{o:?}");
+    let root = out.join("GlobeModeValidation_Simulation_Decay-p5b-se");
+    let xml = std::fs::read_to_string(root.join("modelDescription.xml")).unwrap();
+    assert!(
+        xml.contains("<ScheduledExecution ") && xml.contains("<Clock "),
+        "{xml}"
+    );
+    assert!(
+        out.join("GlobeModeValidation_Simulation_Decay-p5b-se-fmi3.fmu")
+            .is_file()
+    );
+    // FMI 2.0 には SE が無い
+    let o = export(&[]);
+    assert_eq!(o.status.code(), Some(2), "{o:?}");
+}
+
 /// S238・S243: MSL のモデルの P5b の FMU は、使うクラスのファイルだけ（S243 から使うクラスだけ）を `resources/lib` に入れる（MSL は 2556 ファイル）。
 /// 入れたものだけで instantiate でき、`mass.s(1) = 1`。`data/msl` か共有ライブラリが無ければ飛ばす。
 #[test]

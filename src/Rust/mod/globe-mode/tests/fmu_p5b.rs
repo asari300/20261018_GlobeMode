@@ -4,7 +4,7 @@
 
 use std::path::PathBuf;
 
-use globe_mode::{FmuOptions, FmuRuntime, Workspace};
+use globe_mode::{FmuExportKind, FmuOptions, FmuRuntime, Workspace};
 
 const DECAY: &str =
     "model Decay\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -x;\nend Decay;\n";
@@ -93,4 +93,41 @@ fn options_json_reads_runtime() {
         (FmuRuntime::P5b, Some("x.so".into()))
     );
     assert!(FmuOptions::from_json(Some(r#"{"runtime": "p6"}"#)).is_err());
+}
+
+/// S251: `kind = se` は FMI 3.0 の p5b だけ。書けた FMU の modelDescription.xml は ScheduledExecution と周期の Clock を持つ。
+#[test]
+fn se_kind_writes_a_scheduled_execution_fmu_for_fmi3_p5b_only() {
+    assert_eq!(
+        FmuOptions::from_json(Some(r#"{"kind": "se"}"#))
+            .unwrap()
+            .kind,
+        FmuExportKind::Se
+    );
+    let out = out_dir("se");
+    let mut ws = Workspace::new();
+    ws.set_file("Decay.mo", DECAY);
+    let lib = std::env::current_exe().unwrap();
+    let se = |fmi_version| FmuOptions {
+        fmi_version,
+        kind: FmuExportKind::Se,
+        ..p5b(&lib)
+    };
+    let err = ws.export_fmu("Decay", &out, &se(2)).unwrap_err();
+    assert!(err.contains("FMI 3.0"), "{err}");
+    let fmu = ws.export_fmu("Decay", &out, &se(3)).unwrap();
+    assert_eq!(fmu, out.join("Decay-p5b-se-fmi3.fmu"));
+    let xml = std::fs::read_to_string(out.join("Decay-p5b-se/modelDescription.xml")).unwrap();
+    assert!(
+        xml.contains("<ScheduledExecution ") && xml.contains("<Clock "),
+        "{xml}"
+    );
+    // p5a は SE を出せない
+    let compiled = ws.compile("Decay", &Default::default()).unwrap();
+    let p5a = FmuOptions {
+        kind: FmuExportKind::Se,
+        ..Default::default()
+    };
+    assert!(globe_mode::export_fmu(&compiled, &out, &p5a).is_err());
+    std::fs::remove_dir_all(&out).unwrap();
 }

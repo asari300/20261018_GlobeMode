@@ -8,6 +8,9 @@ macOS: darwin64・<arch>-darwin）。
 
 S231: 9 番目の引数（任意）に CoSimulation を渡すと、FMPy の CS で回す（modelDescription.xml は CS を含むものを渡す）。
 
+S251: 9 番目の引数が ScheduledExecution なら、FMPy の `FMU3ScheduledExecution` で周期クロックを 1 周期ずつ
+`fmi3ActivateModelPartition` で動かし（`simulate_fmu` は SE を回せない）、DefaultExperiment の stopTime で止める。
+
 S237: 10 番目の引数（任意）はライブラリ（MSL など）のディレクトリ。`*.mo` を `resources/lib/` に入れる。
 
 使い方: python fmpy_run.py <cdylib（.so・.dll・.dylib）> <modelDescription.xml> <model.mo> <完全修飾名> <出力の .fmu> <変数,...> <2|3> [入力の JSON] [CoSimulation] [ライブラリ]
@@ -38,6 +41,31 @@ with zipfile.ZipFile(fmu, "w") as z:
             z.write(f, f"resources/lib/{f.relative_to(lib).as_posix()}")
 problems = validate_fmu(fmu)
 assert not problems, problems
+if len(sys.argv) > 9 and sys.argv[9] == "ScheduledExecution":
+    import xml.etree.ElementTree as ET
+
+    from fmpy import extract, read_model_description
+
+    root = ET.parse(md).getroot()
+    clock = root.find("ModelVariables/Clock")
+    vr, period = int(clock.get("valueReference")), float(clock.get("intervalDecimal"))
+    stop = float(root.find("DefaultExperiment").get("stopTime"))
+    d = read_model_description(fmu)
+    refs = {v.name: v for v in d.modelVariables}
+    se = fmi3.FMU3ScheduledExecution(
+        guid=d.guid, unzipDirectory=extract(fmu), modelIdentifier=d.scheduledExecution.modelIdentifier, instanceName="se"
+    )
+    se.instantiate()
+    se.enterInitializationMode(startTime=0.0)
+    se.exitInitializationMode()
+    steps = round(stop / period)
+    for k in range(steps + 1):
+        se.activateModelPartition(vr, k * period)
+    get = lambda v: (se.getInt32 if v.type == "Int32" else se.getFloat64)([v.valueReference])[0]
+    print(" ".join(f"{n}={get(refs[n])!r}" for n in names.split(",")), f"t={steps * period!r}", "clock_vr=" + str(vr))
+    se.terminate()
+    se.freeInstance()
+    sys.exit(0)
 counts = {"events": 0, "reinit": 0}
 # 2.0 は FMU2Model.newDiscreteStates、3.0 は _FMU3.updateDiscreteStates（どちらも 4 番目が valuesOfContinuousStatesChanged）
 model, update = (fmi3._FMU3, "updateDiscreteStates") if version == "3" else (fmi2.FMU2Model, "newDiscreteStates")

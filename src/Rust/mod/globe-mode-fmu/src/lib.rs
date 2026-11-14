@@ -19,6 +19,10 @@
 //! （中は固定刻みの RK4 と、ME と同じ事象処理。`modelDescription.xml` は [`model_description_kind`]）。入力・出力の微分、
 //! `fmi2CancelStep`、`fmi2Get*Status` は `Error`。
 //!
+//! S251: Scheduled Execution（FMI 3.0 のみ）。`fmi3InstantiateScheduledExecution` の instance は周期クロック 1 つ（パーティション 1 つ）を持ち、
+//! `fmi3ActivateModelPartition(clock, t)` が前の時刻から `t` まで [`do_step`] で進める（CS と同じ固定刻みの RK4・事象処理）。
+//! クロックの値参照は変数の最後（`time` の次。[`clock_ref`]）、周期は `experiment(Interval)`（無ければ 0.01）。
+//!
 //! S237: MSL を使うモデル。FMU の `resources/lib/` にライブラリ（MSL の `.mo`）を入れると `fmi2Instantiate` がそれを `MODELICAPATH` として
 //! 読む（`resources/<完全修飾名>.mo` はそのモデルの文面。モデルがライブラリの中ならコメントだけでよい）。関係式の記憶は初期化の点から決める
 //! （`globe-mode-exec` の `ModelInstance::new`）。内部の名前 `$formal_derivative.1.x` は引用符で囲む（structured の文法）。
@@ -96,6 +100,8 @@ pub enum Kind {
     Me,
     Cs,
     Both,
+    /// S251: FMI 3.0 の Scheduled Execution だけ（周期クロック 1 つ）
+    Se,
 }
 
 /// [`model_description`]（`v3` が偽）・[`model_description_3`]（真）と同じで、`kind` に Co-Simulation を含めると
@@ -131,6 +137,9 @@ fn describe(
         Causality, DefaultExperiment, EnumerationType, Initial, Interface, ModelDescription,
         ModelStructure, ScalarVariable, VarType, Variability,
     };
+    if kind == Kind::Se && !v3 {
+        return Err("Scheduled Execution は FMI 3.0 だけ".into());
+    }
     let compiled = compile_in(model, source, lib)?;
     let inst =
         ModelInstance::new(&compiled, &BTreeMap::new(), 0.0).map_err(|d| format!("{d:?}"))?;
@@ -309,13 +318,21 @@ fn describe(
         fmi_version: if v3 { "3.0" } else { "2.0" }.into(),
         model_name: model.into(),
         instantiation_token: guid(model, source),
-        model_exchange: (kind != Kind::Cs).then(|| Interface {
+        model_exchange: matches!(kind, Kind::Me | Kind::Both).then(|| Interface {
             model_identifier: "globe_mode_fmu".into(),
         }),
-        co_simulation: (kind != Kind::Me).then(|| Interface {
+        co_simulation: matches!(kind, Kind::Cs | Kind::Both).then(|| Interface {
             model_identifier: "globe_mode_fmu".into(),
         }),
-        scheduled_execution: None,
+        scheduled_execution: (kind == Kind::Se).then(|| Interface {
+            model_identifier: "globe_mode_fmu".into(),
+        }),
+        clock: (kind == Kind::Se).then(|| globe_mode_fmi::PeriodicClock {
+            name: "clock".into(),
+            value_reference: clock_ref(&inst),
+            // shortcut: 周期は experiment(Interval) か 0.01 の 1 つだけ。複数のクロック・パーティションは未対応
+            interval: format!("{:?}", e.interval.map_or(0.01, |b| b.get())),
+        }),
         variables,
         generation_tool: Some("GlobeMode globe-mode-fmu".into()),
         variable_naming_convention: Some("structured".into()),
@@ -345,6 +362,12 @@ fn describe(
     .map_err(|e| e.to_string())
 }
 
+/// SE の周期クロックの値参照（S251）。3.0 の変数表（状態・微分・パラメータ・代数／離散／入力・EventIndicator・`time`）の次。
+fn clock_ref(inst: &ModelInstance) -> u32 {
+    let (n, p) = (inst.n_states(), inst.parameters().len());
+    (2 * n + p + inst.variables().count() + inst.n_event_indicators() + 1) as u32
+}
+
 /// 1 つの FMU のインスタンス。
 struct Instance {
     model: CompiledModel,
@@ -362,6 +385,10 @@ struct Instance {
     dirty: bool,
     /// S231: Co-Simulation で作られたか（`fmi2DoStep` / `fmi3DoStep` を受ける）
     cs: bool,
+    /// S251: Scheduled Execution で作られたか（`cs` も真。`fmi3ActivateModelPartition` を受ける）
+    se: bool,
+    /// SE: `fmi3ActivateModelPartition` を 1 度でも呼んだか（最初の呼び出しだけ開始時刻と同じ時刻を許す）
+    activated: bool,
     /// CS: 次の時刻事象（`fmi2ExitInitializationMode` と事象のたびに更新）
     t_next: Option<f64>,
     /// CS: 直前の点の事象指示関数（領域が変わったら状態事象）
@@ -743,6 +770,8 @@ unsafe fn instantiate(
                 strings,
                 dirty: false,
                 cs,
+                se: false,
+                activated: false,
                 t_next: None,
                 z_prev: Vec::new(),
             }))
@@ -1327,11 +1356,62 @@ pub unsafe extern "C" fn fmi3InstantiateCoSimulation(
     unsafe { instantiate(instantiation_token, resource_path, true) }
 }
 
-// SE は無い。引数を読まずに NULL を返す（呼び手が引数を片付ける C の呼び出し規約なので、引数を宣言しなくてよい）
-
+/// 3.0 の SE（S251）。クロックの更新・割り込み禁止の callback は使わない（パーティションは 1 つで、`ActivateModelPartition` の中で
+/// 完結するので、`fmi3ClockUpdateCallback` を呼ぶ出力クロックも、守る区間も無い）。
 #[unsafe(no_mangle)]
-pub extern "C" fn fmi3InstantiateScheduledExecution() -> Component {
-    std::ptr::null_mut()
+pub unsafe extern "C" fn fmi3InstantiateScheduledExecution(
+    _instance_name: *const c_char,
+    instantiation_token: *const c_char,
+    resource_path: *const c_char,
+    _visible: bool,
+    _logging_on: bool,
+    _environment: *mut c_void,
+    _log_message: *const c_void,
+    _clock_update: *const c_void,
+    _lock_preemption: *const c_void,
+    _unlock_preemption: *const c_void,
+) -> Component {
+    let c = unsafe { instantiate(instantiation_token, resource_path, true) };
+    if let Some(m) = unsafe { inst(c) } {
+        m.se = true;
+    }
+    c
+}
+
+/// 入力クロック（パーティション）を `activationTime` で動かす（S251）。前の時刻（初めは開始時刻）から `activationTime` まで進める。
+/// 時刻は狭義単調増加（最初の 1 回だけ開始時刻と同じでよい）。モデルの `terminate()` は SE に伝える手段が無いので `fmi3Error`。
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fmi3ActivateModelPartition(
+    c: Component,
+    clock_reference: c_uint,
+    activation_time: f64,
+) -> Status {
+    let Some(m) = (unsafe { inst(c) }) else {
+        return ERROR;
+    };
+    let now = m.inst.time();
+    if !m.se
+        || clock_reference != clock_ref(&m.inst)
+        || activation_time < now
+        || (m.activated && activation_time == now)
+    {
+        eprintln!(
+            "globe-mode-fmu: fmi3ActivateModelPartition({clock_reference}, {activation_time}) は受けられない（時刻 {now}）"
+        );
+        return ERROR;
+    }
+    m.activated = true;
+    match do_step(m, now, activation_time - now) {
+        Ok(false) => OK,
+        Ok(true) => {
+            eprintln!("globe-mode-fmu: モデルが terminate() した（SE では未対応）");
+            ERROR
+        }
+        Err(e) => {
+            eprintln!("globe-mode-fmu: {e}");
+            ERROR
+        }
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -1693,7 +1773,7 @@ pub unsafe extern "C" fn fmi3GetNumberOfContinuousStates(c: Component, n: *mut u
     }
 }
 
-/// 無い関数（ほかの型の値・FMUstate・方向微分・Clock・CS の微分と状態の問い合わせ・SE）。引数を読まずに `fmi3Error` を返す
+/// 無い関数（ほかの型の値・FMUstate・方向微分・Clock・CS の微分と状態の問い合わせ）。引数を読まずに `fmi3Error` を返す
 /// （呼び手が引数を片付ける C の呼び出し規約なので、引数を宣言しなくてよい）。
 macro_rules! unsupported {
     ($($name:ident),* $(,)?) => {$(
@@ -1755,5 +1835,4 @@ unsupported!(
     fmi3SetShiftFraction,
     fmi3EvaluateDiscreteStates,
     fmi3GetOutputDerivatives,
-    fmi3ActivateModelPartition,
 );
