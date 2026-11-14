@@ -438,10 +438,10 @@ fn fmpy_with(
         names.join(",").as_ref(),
         if v3 { "3" } else { "2" }.as_ref(),
         input.as_ref(),
-        if kind == Kind::Cs {
-            "CoSimulation"
-        } else {
-            "ModelExchange"
+        match kind {
+            Kind::Cs => "CoSimulation",
+            Kind::Se => "ScheduledExecution",
+            _ => "ModelExchange",
         }
         .as_ref(),
         libdir.map_or(std::ffi::OsStr::new(""), |l| l.as_os_str()),
@@ -650,6 +650,45 @@ fn fmpy_co_simulation() {
             assert!((f - e).abs() < 1e-5, "{n}: FMPy(CS) {f} と解析解 {e}");
         }
     }
+}
+
+/// S251: Scheduled Execution。FMPy の `FMU3ScheduledExecution` が周期クロックを `fmi3ActivateModelPartition` で動かし（周期 0.01）、
+/// Decay の x(1) = e^-1 と、BouncingBall の h・v・n が exec と（事象を `ActivateModelPartition` の中で回す）合う。
+#[test]
+fn fmpy_scheduled_execution() {
+    let Some(out) = fmpy_as("Decay", &["x"], "", true, Kind::Se) else {
+        return;
+    };
+    let x = value(&out, "x");
+    assert!((x - (-1.0f64).exp()).abs() < 1e-6, "Decay x(1) = {x}");
+    let out = fmpy_as("BouncingBall", &["h", "v", "n"], "", true, Kind::Se).unwrap();
+    let exec = exec_last("BouncingBall", &["h", "v", "n"]);
+    assert_eq!(value(&out, "n"), exec[2], "跳ねた回数");
+    for (n, e) in ["h", "v"].iter().zip(&exec) {
+        let f = value(&out, n);
+        assert!((f - e).abs() < 1e-3, "{n}: FMPy(SE) {f} と exec {e}");
+    }
+}
+
+/// S251: SE の modelDescription.xml は `ScheduledExecution` と周期の `Clock`（値参照は `time` の次）だけを書く。2.0 には無いので `Err`。
+#[test]
+fn model_description_se_writes_one_periodic_clock() {
+    let (model, text) = source("Decay");
+    let xml = model_description_kind(&model, &text, true, Kind::Se).unwrap();
+    assert!(
+        xml.contains(r#"<ScheduledExecution modelIdentifier="globe_mode_fmu"/>"#),
+        "{xml}"
+    );
+    assert!(
+        !xml.contains("ModelExchange") && !xml.contains("CoSimulation"),
+        "{xml}"
+    );
+    // Decay: 状態 x（0）・der(x)（1）・パラメータ k（2）・time（3）の次
+    let clock = r#"<Clock name="clock" valueReference="4" causality="input" intervalVariability="constant" intervalDecimal="0.01" priority="1"/>"#;
+    assert!(xml.contains(clock), "{xml}");
+    let md = globe_mode_fmi::parse_model_description(&xml).unwrap();
+    assert!(md.scheduled_execution.is_some() && md.model_exchange.is_none());
+    assert!(model_description_kind(&model, &text, false, Kind::Se).is_err());
 }
 
 /// S231: CS を含む modelDescription.xml は `canHandleVariableCommunicationStepSize` を書き、既定（ME だけ）は変わらない。
