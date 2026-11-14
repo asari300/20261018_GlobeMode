@@ -69,10 +69,11 @@ class Plan(unittest.TestCase):
 
     def test_analysis_change_reaches_db_and_cli(self):
         p = plan(["src/Rust/mod/globe-mode-analysis/src/lib.rs"])
+        # S266 から fmi も analysis（FMU の dependencies）に依存し、fmi の依存元も届く
         self.assertEqual(
             pkgs(p),
             {"globe-mode-analysis", "globe-mode-db", "globe-mode-protocol", "globe-mode", "globe-mode-cli", "globe-mode-lsp", "globe-mode-py", "globe-mode-c", "globe-mode-nif", "globe-mode-wasm",
-             "xtask"},
+             "globe-mode-fmi", "globe-mode-fmi-import", "globe-mode-fmu", "globe-mode-fmu-cdylib", "xtask"},
         )
         self.assertTrue(p["wasm"])
 
