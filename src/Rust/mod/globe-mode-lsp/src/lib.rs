@@ -57,6 +57,7 @@ pub mod diagram;
 pub mod documentation;
 pub mod folding;
 pub mod icon;
+pub mod tolerant;
 
 use std::collections::{HashMap, VecDeque};
 use std::io::{self, BufRead, Write};
@@ -284,24 +285,18 @@ impl Server {
                 out.extend(self.republish_others(&uri));
                 out
             }
+            // S276: 構文が壊れてアウトラインが引けなければ、寛容な CST（globe-mode-syntax）のアウトラインで代える
             "textDocument/documentSymbol" => {
-                let symbols = match (self.ws.outline(&uri_path(&uri)), self.texts.get(&uri)) {
-                    (Some(Ok(o)), Some(text)) => Some(
-                        o.classes
-                            .iter()
-                            .map(|c| symbol(c, text))
-                            .collect::<Vec<_>>(),
-                    ),
-                    _ => None,
-                };
+                let symbols = self.texts.get(&uri).map(|text| {
+                    let classes = self.outline_or_tolerant(&uri, text);
+                    classes.iter().map(|c| symbol(c, text)).collect::<Vec<_>>()
+                });
                 reply(id, json!(symbols))
             }
-            // S220: 範囲は行だけ。構文が壊れていてアウトラインが引けなくても、コメントと annotation は出る
+            // S220: 範囲は行だけ。S276: アウトラインが引けなくても、クラスと節は CST から出す
             "textDocument/foldingRange" => {
                 let ranges = self.texts.get(&uri).map(|text| {
-                    let outline = self.ws.outline(&uri_path(&uri));
-                    let classes = outline.as_ref().and_then(|o| o.as_ref().ok()).map(|o| o.classes.as_slice());
-                    folding::folding_ranges(text, classes)
+                    folding::folding_ranges(text, Some(&self.outline_or_tolerant(&uri, text)))
                 });
                 reply(id, json!(ranges))
             }
@@ -936,6 +931,14 @@ impl Server {
             .simulate_observed(request, &globe_mode::now_ms, handle);
         progress(json!({"kind": "end"}));
         s
+    }
+
+    /// Rumoca のアウトライン。構文の誤りで引けなければ `globe-mode-syntax` の CST から作ったもの（S276）
+    fn outline_or_tolerant(&self, uri: &str, text: &str) -> Vec<ClassOutline> {
+        match self.ws.outline(&uri_path(uri)) {
+            Some(Ok(o)) => o.classes.clone(),
+            _ => tolerant::outline(text),
+        }
     }
 
     fn update(&mut self, uri: String, text: String) -> Vec<Value> {

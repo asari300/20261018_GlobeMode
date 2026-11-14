@@ -13,7 +13,9 @@ use globe_mode_ir::{Trajectory, TrajectoryVariable, VariableRole};
 
 use crate::{CancelToken, OpenedResults};
 
-pub use imp::{CosimSpec, Kind as FmuKind, MeSummary, Ssp, TRUST_WARNING as FMU_TRUST_WARNING};
+pub use imp::{
+    CosimSpec, Kind as FmuKind, MeSummary, Ssp, TRUST_WARNING as FMU_TRUST_WARNING, write_ssp,
+};
 
 /// FMU の要約（`globe fmu info` と同じ情報。ネイティブコードは実行しない）。
 #[derive(Debug, Clone, serde::Serialize)]
