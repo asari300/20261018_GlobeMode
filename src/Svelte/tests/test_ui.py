@@ -1831,8 +1831,8 @@ def main() -> int:
             # ライブラリの木（S127）: Modelica → Electrical → Analog → Examples と開き、ChuaCircuit のファイルをエディタに開いて検査する
             t = time.perf_counter()
             for path in ["Modelica", "Modelica.Electrical", "Modelica.Electrical.Analog", "Modelica.Electrical.Analog.Examples"]:
-                page.locator(f'.library li[data-path="{path}"] > button').click(force=True)
-            page.locator(f'.library li[data-path="{CHUA}"] > button').click(force=True)
+                page.locator(f'.library li[data-path="{path}"] > button:not(.add)').click(force=True)
+            page.locator(f'.library li[data-path="{CHUA}"] > button:not(.add)').click(force=True)
             expect(page.get_by_label("モデル名")).to_have_value(CHUA, timeout=60_000)
             expect(page.locator(".cm-content")).to_contain_text("model ChuaCircuit")
             opened = time.perf_counter() - t
@@ -1876,8 +1876,8 @@ def main() -> int:
             # 木からも同じクラスへ行ける: Blocks（ファイルの package.mo）の入れ子の Examples を開き、Sources.Sine は別のファイルの中の入れ子
             page.get_by_label("モデル名").fill("")
             for path in ["Modelica.Blocks", "Modelica.Blocks.Examples"]:
-                page.locator(f'.library li[data-path="{path}"] > button').click(force=True)
-            page.locator(f'.library li[data-path="{pid}"] > button').click(force=True)
+                page.locator(f'.library li[data-path="{path}"] > button:not(.add)').click(force=True)
+            page.locator(f'.library li[data-path="{pid}"] > button:not(.add)').click(force=True)
             expect(page.get_by_label("モデル名")).to_have_value(pid, timeout=60_000)
             sine = "Modelica.Blocks.Sources.Sine"
             page.get_by_label("ライブラリを検索").fill("sources.sine")
