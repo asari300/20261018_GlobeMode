@@ -598,7 +598,12 @@ impl Workspace {
     /// 方程式の BLT 分解（`globe blt --json` と同じ `BltReport` の JSON。S262）。検査が通らなければ例外（診断の文を `;` でつないだ文字列）。
     pub fn blt(&mut self, model: &str) -> Result<String, JsValue> {
         let r = self.inner.blt(model).map_err(|ds| {
-            js_error(ds.iter().map(|d| d.message.as_str()).collect::<Vec<_>>().join("; "))
+            js_error(
+                ds.iter()
+                    .map(|d| d.message.as_str())
+                    .collect::<Vec<_>>()
+                    .join("; "),
+            )
         })?;
         to_json(&r)
     }

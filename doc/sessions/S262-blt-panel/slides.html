@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S262 BLT パネル — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S262 BLT パネル">
+
+<section class="slide" id="S01">
+  <span class="tag">S262 · 2026-11-15 · P8</span>
+  <h1>BLT を UI と Python から見る</h1>
+  <p class="lead">S256 の <code>Workspace::blt</code> を、LSP・wasm・UI・Python に通す</p>
+  <div class="big">代数ループが 1 つあるモデルが、どの口でも「大きさ 2 のブロック 1 つ」で見える</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">口</span>
+  <h1>既存の口と同じ形で足した</h1>
+  <ul>
+    <li>LSP <code>globe/blt</code>（<code>{model}</code> → <code>BltReport</code> の JSON）。Desktop の <code>RPC_METHODS</code> は 26 → 27</li>
+    <li>wasm <code>Workspace.blt</code> → worker → <code>client.js</code></li>
+    <li>Svelte <code>Backend.blt</code>（Tauri と Worker の 2 実装）</li>
+    <li>Python <code>Workspace.blt(model)</code> → <code>blocks</code> の dict のリスト</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">UI</span>
+  <h1>「BLT」ボタンのパネル</h1>
+  <ul>
+    <li>ブロックを解く順に並べる。大きさ 1 は <code>変数 ← 式</code> の 1 行</li>
+    <li>大きさ 2 以上は警告色の縁と見出し（大きさ・線形か非線形か）、解く変数と式を並べる</li>
+    <li>式からソースへ飛ぶのは位置が無いので未対応</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>式のソース上の位置（クリックで宣言へ）</li>
+    <li>incidence グラフ・tearing 変数の表示</li>
+  </ul>
+  <pre><code>cargo test -p globe-mode-lsp blt
+cargo test -p globe-mode-wasm --test decay linear_loop
+uv run pytest src/Python/tests/test_api.py -k blt</code></pre>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
