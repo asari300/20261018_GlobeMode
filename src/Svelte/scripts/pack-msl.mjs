@@ -3,10 +3,12 @@
 // S301: ブラウザ版（WorkerBackend）は分割配信を使う。msl/index.json（索引。ファイルごとの見出し `tree_stub` と、ファイル → 塊の番号）と、
 // msl/c/<番号>.json（同じディレクトリのファイルを CAP 以内でまとめた塊 { 名前: 本文 }）を作る。Worker は開いたモデルの閉包に要る塊だけを取る
 // （globe-mode-wasm/web/worker.js）。MSL.json は Leptos・Dioxus・marimo と、index.json が無いときの代わり。wasm（public/wasm/pkg）が無ければ作らない。
+// S340: 環境変数 GM_MSL_PACK=1（android.yml）なら、MSL.json と c/ を作らず、索引と pack.bin（塊を 1 本にしたもの）だけを作る。
+// APK（Tauri）は asset ごとに brotli をかけるので、塊が 838 本だと MSL.json より 1.2 MB 大きい。パックなら MSL.json と同じ大きさ + 索引になる。
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { pack } from "../../Rust/mod/globe-mode-wasm/web/pack.js";
+import { pack, packFile } from "../../Rust/mod/globe-mode-wasm/web/pack.js";
 
 const here = (p) => fileURLToPath(new URL(p, import.meta.url));
 const repo = here("../../..");
@@ -26,9 +28,12 @@ function readMo(d, acc = {}) {
   return acc;
 }
 const files = readMo(dir);
+const asPack = process.env.GM_MSL_PACK === "1";
 mkdirSync(out, { recursive: true });
-writeFileSync(`${out}/MSL.json`, JSON.stringify(files));
-console.log(`MSL.json: ${Object.keys(files).length} ファイル、${(statSync(`${out}/MSL.json`).size / 2 ** 20).toFixed(1)} MiB`);
+if (!asPack) {
+  writeFileSync(`${out}/MSL.json`, JSON.stringify(files));
+  console.log(`MSL.json: ${Object.keys(files).length} ファイル、${(statSync(`${out}/MSL.json`).size / 2 ** 20).toFixed(1)} MiB`);
+}
 
 // S301: 分割配信
 const pkg = here("../public/wasm/pkg");
@@ -38,8 +43,11 @@ if (!existsSync(`${pkg}/globe_mode_wasm.js`)) {
 }
 const gm = await import(pathToFileURL(`${pkg}/globe_mode_wasm.js`).href);
 gm.initSync({ module: readFileSync(`${pkg}/globe_mode_wasm_bg.wasm`) });
-const { index, chunks } = pack(files, gm.tree_stub, gm.file_deps);
-mkdirSync(`${out}/c`, { recursive: true });
-chunks.forEach((c, i) => writeFileSync(`${out}/c/${i}.json`, JSON.stringify(c)));
+const { index, chunks } = pack(files, gm.tree_stub, gm.file_deps, Number(process.env.GM_MSL_CAP) || undefined, process.env.GM_MSL_PREFETCH === undefined ? undefined : Number(process.env.GM_MSL_PREFETCH));
+if (asPack) writeFileSync(`${out}/pack.bin`, packFile(index, chunks));
+else {
+  mkdirSync(`${out}/c`, { recursive: true });
+  chunks.forEach((c, i) => writeFileSync(`${out}/c/${i}.json`, JSON.stringify(c)));
+}
 writeFileSync(`${out}/index.json`, JSON.stringify(index));
-console.log(`index.json: ${(statSync(`${out}/index.json`).size / 2 ** 10).toFixed(0)} KiB、塊 ${chunks.length} 本、本文のまま ${Object.keys(index.real).length} ファイル`);
+console.log(`index.json: ${(statSync(`${out}/index.json`).size / 2 ** 10).toFixed(0)} KiB、塊 ${chunks.length} 本${asPack ? "（pack.bin 1 本）" : ""}、本文のまま ${Object.keys(index.real).length} ファイル`);

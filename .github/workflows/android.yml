@@ -18,6 +18,12 @@ name: android
 
 on:
   workflow_dispatch:
+    inputs:
+      variant:
+        description: "MSL の束の作り方（S340 の比較）。pack = 塊を pack.bin 1 本に（案 A）、cap = 塊の cap を上げる（案 B）、chunks = S308 のまま"
+        type: choice
+        options: [pack, cap, chunks]
+        default: pack
   push:
     branches: [main]
     paths:
@@ -29,7 +35,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: android-${{ github.ref }}
+  group: android-${{ github.ref }}-${{ inputs.variant }}
   cancel-in-progress: true
 
 env:
@@ -54,6 +60,9 @@ jobs:
       - name: release の wasm（mise.toml の wasm:build）と UI（pnpm build。MSL の分割配信の束も作る）
         env:
           VITE_GM_SMOKE: "1" # S100: 起動したら Decay を検査・実行し、MSL を読んで ChuaCircuit を検査して GM-SMOKE の行を console に出す（emulator が待つ）
+          GM_MSL_PACK: ${{ (inputs.variant == 'pack' || inputs.variant == '') && '1' || '' }} # S340 案 A
+          GM_MSL_CAP: ${{ inputs.variant == 'cap' && '262144' || '' }} # S340 案 B
+          GM_MSL_PREFETCH: ${{ inputs.variant == 'cap' && '0' || '' }}
         run: |
           mise run wasm:build
           cd src/Svelte
@@ -62,10 +71,13 @@ jobs:
           # S308: APK は MSL.json（15 MiB）を持たず、分割配信（msl/index.json と msl/c/*.json）だけにする（ブラウザ版の束と同じ。web.yml）。
           # Android は sidecar を使わず WorkerBackend なので、UI は index.json を見つければ塊を取る（assets の相対 URL）
           test -s dist/msl/index.json
-          du -sb dist/msl | awk '{printf "dist/msl（MSL.json を含む）%.1f MiB\n", $1/1048576}'
-          rm dist/msl/MSL.json
-          node -e 'const i=JSON.parse(require("fs").readFileSync("dist/msl/index.json"));for(let k=0;k<i.chunks;k++)require("fs").statSync(`dist/msl/c/${k}.json`);console.log("塊",i.chunks,"本")'
-          du -sb dist/msl | awk '{printf "dist/msl（分割配信だけ）%.1f MiB\n", $1/1048576}'
+          if [ -n "$GM_MSL_PACK" ]; then
+            test -s dist/msl/pack.bin
+          else
+            rm dist/msl/MSL.json
+            node -e 'const i=JSON.parse(require("fs").readFileSync("dist/msl/index.json"));for(let k=0;k<i.chunks;k++)require("fs").statSync(`dist/msl/c/${k}.json`);console.log("塊",i.chunks,"本")'
+          fi
+          du -sb dist/msl | awk '{printf "dist/msl %.1f MiB\n", $1/1048576}'
       - uses: actions/upload-artifact@v4
         with:
           name: ui-dist-wasm
