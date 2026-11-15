@@ -1345,6 +1345,45 @@ def plot_fixes(browser, origin: str, errors: list[str]) -> None:
     print("uPlot の作り直しが投げたあと: PNG は古い図を書き出さず、選択を戻すと描ける")
 
 
+def multi_solver(browser, origin: str, errors: list[str]) -> None:
+    """S323: 実行の設定で「複数」を選び、Decay を 3 ソルバ（bdf・rk4・euler）で並列を頼んで回す。ブラウザは 1 つずつに落ちて注記が出る。比較を on（n = 6）にすると表が出て、プロットにソルバごとの線が重なる。設定はモデルごとに残る。"""
+    pg = browser.new_page()
+    pg.on("console", lambda m: m.type == "error" and errors.append(m.text))
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(origin)
+    pg.get_by_role("button", name="検査").wait_for()
+    settings = pg.locator(".settings")
+    settings.get_by_role("radio", name="複数").check()
+    group = settings.locator("[data-many-solvers]")
+    for name in ("bdf", "rk4", "euler"):
+        group.get_by_role("checkbox", name=name, exact=True).check()
+    settings.get_by_role("radio", name="並列").check()
+    expect(settings.locator("[data-parallel-note]")).to_contain_text("ブラウザでは 1 つずつ")
+    settings.get_by_label("終了時刻").fill("1")
+    settings.get_by_label("最大積分次数").fill("3")
+    settings.get_by_role("checkbox", name="全部終わったら結果を比べる").check()
+    settings.get_by_label("基準のソルバ").select_option("bdf")
+    pg.get_by_role("button", name="実行", exact=True).click(force=True)
+    many = pg.locator("[data-many]")
+    expect(many).to_be_visible(timeout=120_000)
+    expect(many.locator("[data-mode-note]")).to_be_visible()  # wasm は並列を頼んでも逐次（応答の mode_note）
+    rows = many.locator("tr[data-run-solver]")
+    assert rows.evaluate_all("rs => rs.map(r => r.dataset.runSolver + ':' + r.dataset.runStatus)") == ["bdf:ok", "euler:ok", "rk4:ok"]  # 一覧の順, rows.all_inner_texts()
+    assert "最大次数" in many.locator("tr[data-run-solver='bdf']").inner_text()  # bdf は最大次数を使わない注記
+    verdict = many.locator("[data-compare-verdict]")
+    expect(verdict).to_contain_text("基準 bdf")
+    assert re.search(r"合格|不合格", verdict.inner_text())  # 合否は文字
+    assert many.locator("table[aria-label='基準との比較'] th[scope=col]").count() == 5
+    assert many.locator("tr[data-pair]").evaluate_all("rs => rs.map(r => r.dataset.pair)") == ["euler", "rk4"]
+    assert pg.locator(".plot").get_attribute("data-series") == "3"  # x の 3 ソルバが重なる
+    pg.reload()
+    pg.get_by_role("button", name="検査").wait_for()
+    assert pg.locator(".settings").get_by_role("radio", name="複数").is_checked()  # S228: モデルごとの保存に乗る
+    assert pg.locator(".settings [data-many-solvers]").get_by_role("checkbox", name="rk4", exact=True).is_checked()
+    pg.close()
+    print("複数のソルバ: bdf・rk4・euler を並列で頼むとブラウザは 1 つずつに落ちて注記が出る。比較の表（基準 bdf・合否は文字）と 3 本の重ね描きが出て、設定は再読み込みで残る")
+
+
 def main() -> int:
     # 色付けの予約語は Rust の KEYWORDS と同じ並び（S163。editor.ts の KEYWORDS は補完と色付けの共通の一覧）
     ts_kw = re.findall(r'"(\w+)"', re.search(r"export const KEYWORDS = \[(.*?)\];", (SRC / "Svelte/src/lib/editor.ts").read_text(), re.S).group(1))
@@ -2503,6 +2542,7 @@ def main() -> int:
         parameter_dialog(browser, origin, errors)  # S248
         linearize_view(browser, origin, errors)  # S260
         eigen_and_stages(browser, origin, errors)  # S291
+        multi_solver(browser, origin, errors)  # S323
         open_fmu_file(browser, origin, errors)  # S229
         fmu_runtime_select(browser, origin, errors)  # S239
         results_followups(browser, origin, errors)  # S236
