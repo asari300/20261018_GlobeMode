@@ -983,7 +983,8 @@ fn record_arrays_bound_through_record_fields_and_2d_connector_arrays() {
          package Modelica package Math package BooleanVectors
            function anyTrue input Boolean b[:]; output Boolean r; algorithm r := false; end anyTrue;
          end BooleanVectors; end Math; end Modelica;
-         model Top import Modelica.Math.BooleanVectors.anyTrue; D d; In c(d = d);
+         model Sl Res r[3]; P q[3]; equation connect(r[3:-1:2].p, q[1:2]); end Sl;
+         model Top import Modelica.Math.BooleanVectors.anyTrue; D d; In c(d = d); Sl sl;
            parameter Integer k[:, 2] = [1, 2];
            RC pick[1, 2] = {{if anyTrue({a == k[i, 1] and b == k[i, 2] for i in 1:size(k, 1)}) then RC(R = 7) else RC(R = 8) for b in 1:2} for a in 1:1};
            Res r[2, 2]; P q[2, 2];
@@ -995,7 +996,13 @@ fn record_arrays_bound_through_record_fields_and_2d_connector_arrays() {
     assert_eq!(b("pick[1,1].R").as_deref(), Some("8"));
     assert_eq!(b("pick[1,2].R").as_deref(), Some("7"));
     // 部品の 2 次元の配列 `r.p` と `q[2, 2]` が 4 要素ずつ対応する（potential 4 本）
-    assert_eq!(eqs(&m).iter().filter(|e| e.ends_with(".v")).count(), 4);
+    assert_eq!(
+        eqs(&m).iter().filter(|e| e.ends_with("q[1,1].v")).count(),
+        1
+    );
+    // 範囲の切り出し `r[3:-1:2].p` と `q[1:2]` は要素ごとに（r[3]-q[1]、r[2]-q[2]）
+    assert!(eqs(&m).contains(&"sl.r[3].p.v = sl.q[1].v".to_string()));
+    assert!(eqs(&m).contains(&"sl.r[2].p.v = sl.q[2].v".to_string()));
 }
 
 #[test]

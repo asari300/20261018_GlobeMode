@@ -2097,6 +2097,30 @@ impl F<'_> {
         Ok(format!("[{}]", parts.join(",")))
     }
 
+    /// `connect` の端の印字。最後の添字が範囲 `[a:s:b]` で評価できるなら、要素ごとの端 `x[k]`（それ以外は 1 つ）。S367
+    fn conn_ends(&self, c: &ast::ComponentRef, file: u32, ctx: &Rc<Ctx>) -> Res<Vec<String>> {
+        let t = self.cref(c, file, ctx)?;
+        let range = (c
+            .syntax()
+            .children()
+            .filter(|x| x.kind() == K::Subscripts)
+            .last())
+        .and_then(|sn| single(sn.children().filter(|x| Expr::cast(x.clone()).is_some())))
+        .filter(|e| matches!(Expr::cast(e.clone()), Some(Expr::Range(_))));
+        // shortcut: 範囲の印字に `[` を含まないものだけ（範囲の最後の添字の `]` までを `[k]` に置き換える）
+        let (Some(r), Some(at)) = (range, t.rfind('[')) else {
+            return Ok(vec![t]);
+        };
+        let (Ok(ks), Some(close)) = (self.range_vals(&r, file, ctx), t[at..].find(']')) else {
+            return Ok(vec![t]);
+        };
+        let (head, tail) = (&t[..at], &t[at + close + 1..]);
+        Ok(ks
+            .into_iter()
+            .map(|k| format!("{head}[{k}]{tail}"))
+            .collect())
+    }
+
     /// 成分参照の印字。部品は前置きを付け、`for` の添字は値にし、添字は定数なら評価する
     fn cref(&self, c: &ast::ComponentRef, file: u32, ctx: &Rc<Ctx>) -> Res<String> {
         let n = c.syntax();
@@ -2395,6 +2419,18 @@ impl F<'_> {
                             m /= 2;
                         }
                         Some(Val::I(n))
+                    }
+                    // shortcut: `isPowerOf2` も決め打つ（`PolyphaseRectifierData.Par` の `if`）。関数の評価器ができたら置き換える
+                    f if f.rsplit('.').next() == Some("isPowerOf2") => {
+                        let r = c.syntax().children().find_map(ast::ComponentRef::cast)?;
+                        let Some(Resolution::Class(rid)) = self.p.res_of(file, r.range()) else {
+                            return None;
+                        };
+                        if self.p.lib.qualified_name(rid) != "Modelica.Math.isPowerOf2" {
+                            return None;
+                        }
+                        let i = v(0)?.int().filter(|i| *i >= 1)?;
+                        Some(Val::B(i & (i - 1) == 0))
                     }
                     // shortcut: `anyTrue` だけ決め打つ（`CCCV_Stack` の劣化したセルの判定）。関数の評価器ができたら置き換える
                     f if f.rsplit('.').next() == Some("anyTrue") => {
@@ -3206,10 +3242,19 @@ impl F<'_> {
                         let [Expr::ComponentRef(x), Expr::ComponentRef(y)] = a.as_slice() else {
                             return un("connect", c.syntax().text().to_string());
                         };
-                        let (x, y) = (self.cref(x, file, ctx)?, self.cref(y, file, ctx)?);
-                        let (x, y) = (self.bridge_end(&ctx.pfx, x), self.bridge_end(&ctx.pfx, y));
-                        if !(self.is_removed(&x) || self.is_removed(&y)) {
-                            lv.conns.push((x, y, self.cur.clone()));
+                        let (xs, ys) =
+                            (self.conn_ends(x, file, ctx)?, self.conn_ends(y, file, ctx)?);
+                        // 範囲の切り出し `a[n:-1:1]`・`b[1:n]` は要素ごとの接続にする（大きさが合わなければそのまま断る。S367）
+                        let n = if xs.len() == ys.len() { xs.len() } else { 1 };
+                        for k in 0..n {
+                            let pick =
+                                |v: &[String]| v.get(k).or(v.first()).cloned().unwrap_or_default();
+                            let (x, y) = (pick(&xs), pick(&ys));
+                            let (x, y) =
+                                (self.bridge_end(&ctx.pfx, x), self.bridge_end(&ctx.pfx, y));
+                            if !(self.is_removed(&x) || self.is_removed(&y)) {
+                                lv.conns.push((x, y, self.cur.clone()));
+                            }
                         }
                     }
                     [e] => {
