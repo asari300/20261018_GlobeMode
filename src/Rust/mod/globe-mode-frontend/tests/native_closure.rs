@@ -59,7 +59,13 @@ fn closure_keeps_only_used_files_and_flattens_the_same() {
     let files = closure_sources(&libs, "L.Top", &[]).unwrap();
     let names: Vec<_> = files
         .iter()
-        .map(|(n, _)| n.rsplit('/').next().unwrap().to_string())
+        .map(|(n, _)| {
+            Path::new(n)
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned()
+        })
         .collect();
     assert!(names.contains(&"Top.mo".to_string()), "{names:?}");
     assert!(names.contains(&"Base.mo".to_string()), "{names:?}");
