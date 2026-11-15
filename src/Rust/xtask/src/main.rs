@@ -7,6 +7,7 @@
 //! cargo xtask fetch-rumoca     Rumoca の CLI（v0.10.2、Linux x86_64）を data/rumoca/ に取得する
 //! cargo xtask msl-compare      MSL の例題で globe check と Rumoca の CLI を突き合わせる
 //! cargo xtask msl-funnel       MSL の全例題（566 本）に globe check の判定を出し、報告を書く
+//! cargo xtask diff-frontend    自前の段（parse → resolve → flat → dae）と Rumoca を MSL の例題で突き合わせ、報告を書く（S300）
 //! cargo xtask omc-compare      msl-funnel の結果（--json）を omc（OpenModelica、別プロセス）と突き合わせ、報告を書く
 //! cargo xtask fetch-msl-ref    MAP-LIB の参照結果（MSL 4.1.0、commit 固定）を data/msl-ref/ に取得する
 //! cargo xtask msl-sim          msl-funnel で OK の例題を実行し（別プロセスのワーカー）、参照結果と管で比べ、報告を書く
@@ -30,6 +31,7 @@ use clap::{Parser, Subcommand};
 use globe_mode_frontend::{Frontend, RumocaFrontend};
 use sha2::{Digest, Sha256};
 
+mod diff_frontend;
 mod funnel;
 mod libs;
 mod omc;
@@ -168,6 +170,33 @@ enum Cmd {
         #[arg(long)]
         list: bool,
         /// N 本ごとに Session を MSL を読んだ直後に戻す（メモリを抑える。0 なら戻さない）
+        #[arg(long, default_value_t = 50)]
+        reset_every: usize,
+    },
+    /// 自前の段（parse → resolve → flat → dae）と Rumoca を、MSL の例題と GlobeModeValidation で突き合わせ、報告を書く（S300）。
+    /// 前回の JSON（既定は `--json` と同じ場所）より通る項目が減ったら終了コード 1
+    DiffFrontend {
+        #[arg(long, default_value = "data/msl")]
+        msl: PathBuf,
+        /// GlobeModeValidation のあるライブラリのディレクトリ
+        #[arg(long, default_value = "src/Modelica")]
+        validation: PathBuf,
+        /// 名前にこの文字列を含むものだけを検査する
+        #[arg(long)]
+        filter: Option<String>,
+        /// 先頭から N 本だけ検査する（--filter の後に当てる）
+        #[arg(long)]
+        limit: Option<usize>,
+        /// Markdown の報告を書くファイル
+        #[arg(long)]
+        report: Option<PathBuf>,
+        /// モデルごとの結果を JSON で書くファイル
+        #[arg(long)]
+        json: Option<PathBuf>,
+        /// 回帰を調べる前回の JSON（既定は --json。書き込む前に読む）
+        #[arg(long)]
+        baseline_json: Option<PathBuf>,
+        /// N 本ごとに Rumoca の Session を戻す（0 なら戻さない）
         #[arg(long, default_value_t = 50)]
         reset_every: usize,
     },
@@ -372,6 +401,25 @@ fn main() -> ExitCode {
             report: report.as_deref(),
             json: json.as_deref(),
             list,
+            reset_every,
+        }),
+        Cmd::DiffFrontend {
+            msl,
+            validation,
+            filter,
+            limit,
+            report,
+            json,
+            baseline_json,
+            reset_every,
+        } => diff_frontend::diff_frontend(&diff_frontend::Options {
+            msl: &msl,
+            validation: &validation,
+            filter: filter.as_deref(),
+            limit,
+            report: report.as_deref(),
+            json: json.as_deref(),
+            baseline: baseline_json.as_deref().or(json.as_deref()),
             reset_every,
         }),
         Cmd::OmcCompare {

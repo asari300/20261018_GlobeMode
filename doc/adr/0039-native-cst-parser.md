@@ -131,3 +131,12 @@ Track B（自前コア）は B1 rowan の CST と寛容なパーサ → B2 resol
   - `is_regular` は広めの incidence で正則寄りに出るはずだが、MSL では自前 119 が Rumoca 133 より少ない。配列の行の割り当て（添字なしの全要素）や、`algorithm` を 1 行にまとめる shortcut が効いている見込みだが、**確かめていない**。
   - 断ったモデルは flat の理由のまま（`redeclare` 263 ほか。S284）。DAE の段で断るのは、方程式の印字を読み直せないときだけ（MSL の 192 本では 0 本）。
 - **持ち越し**: 差の分類と直し、`when` の中の `if` の枝ごとの数え方、非線形の判定、位置の付与、`Frontend` の feature `native` へのつなぎ、`xtask diff-frontend` への組み込み、B5 以降（simulate）。計測は debug。release は測っていない。
+
+## 付記（S300）: 自前の段と Rumoca の突き合わせを `cargo xtask diff-frontend` に一本化
+
+新しい ADR は立てず、Track B の「`xtask diff-frontend` で回帰が 0 件になったら既定を切り替える」の入口をここに足す。
+
+- **何を一度で回すか**: 自前の parse → resolve → flat → dae を、MSL の例題（`msl-funnel` と同じ選び方の 566 本）と `GlobeModeValidation`（親がパッケージの model・block・class、partial を除く）で数え、Rumoca の flat（変数の名前の集合・方程式の数）・釣り合い（方程式と未知数の数・状態の数・判定）・構造の正則と突き合わせる。S278・S284・S290 の `tests/compare.rs`（`#[ignore]`）の数え方を xtask の `diff_frontend.rs` に一本化し、`globe-mode-flat`・`globe-mode-dae` の `compare.rs` と、そのための `globe-mode-frontend` の dev 依存を消した（その結果、CI の判定で frontend の変更が flat・dae の試験を回さなくなった）。
+- **旗**: 段ごとの検査は「はい / いいえ」の旗（`parse`・`resolve`・`flat`・`rumoca_flat`・`flat_names`・`flat_eqs`・`dae`・`rumoca_balance`・`balance`・`counts`・`states`・`regular`）にして JSON（`target/frontend-diff.json`）に書く。次の実行は書く前にそれを読み、前回は通っていた旗が通らなくなったモデルを**回帰**として報告（`doc/frontend-diff.md`。手で編集しない生成物）の先頭に出し、回帰が 1 本でもあれば終了コード 1。「回帰が 0 件」はこの数で測る。
+- **Rumoca を呼ぶ範囲**: 自前で平らにできたものだけ（呼ぶと flat・釣り合い・構造が 1 回で取れる）。Rumoca の全体の本数は `msl-funnel` の報告にある。resolve は例題のクラスとその中のクラスの参照だけを数える（継承元の中の参照は含めない）。
+- **持ち越し**: 判定の閾値（どの旗が何本なら既定を切り替えるか）は決めていない。`Frontend` の feature `native` はまだ無い。
