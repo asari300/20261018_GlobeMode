@@ -403,7 +403,7 @@ S297 の見立て（Complex のレコード）は外れで、`Connections.isRoot
   - 既定の型で引けたものは今まで通り（差し替えた型は引けないときだけ使う）なので、これまで解決した参照の結果は変わらない。
 - **診断**: `cargo xtask diff-frontend --class … --dump` が、resolve で未解決になった参照（理由・名前・種類・クラス）を `unresolved …` の行で出す。
 - **試験**: `globe-mode-resolve` に `redeclared_component_types`（`class extends` で差し替えた型を受け継いだ `BaseProperties`・関数から引く、`extends Base(redeclare PortX port)` の差し替え、差し替えた型にも無い名前は `Redeclare`、差し替えていない側は `NotFound`）、`globe-mode-syntax` に `redeclared_components_in_extends`（接頭辞・`final`・添字・`constrainedby`・クラスの再宣言を拾わない）。
-- **数字**（MSL の例題 566 本・`GlobeModeValidation` 75 本、S334 → S341）: resolve 467/566 → **566/566**、未解決の参照の総数 1330 → **0**。`GlobeModeValidation` は 74/75 → **75/75**、13 → **0**。flat・dae の列は変わらない。回帰 0 本。MSL の全 `.mo`（2556 本、参照 161869 件）の成分参照の続き 45463 件は、S275 から残っていた `Redeclare` の 639 件が 0 になり、すべて解決する（`msl_stats`）。`globe-mode-lsp` の `resolve_compare`（定義ジャンプの Rumoca の道との突き合わせ）は不一致 0 のまま。
+- **数字**（MSL の例題 566 本・`GlobeModeValidation` 75 本、S334 → S341）: resolve 467/566 → **566/566**、未解決の参照の総数 1330 → **0**。`GlobeModeValidation` は 74/75 → **75/75**、13 → **0**。flat・dae の列は変わらない（flat 471/566・方程式の数 451/463・DAE 471/471・正則 334/334 のまま）。**回帰 0 本、改善 100 本（すべて resolve の旗）**。`mise run msl:diff-frontend` は 1880 s（他の WP と同時で swap し、`Spice3BenchmarkFourBitBinaryAdder` だけで 1095 s。S334 は 554 s）、最大 RSS 3.9 GiB。MSL の全 `.mo`（2556 本、参照 161869 件）の成分参照の続き 45463 件は、S275 から残っていた `Redeclare` の 639 件が 0 になり、すべて解決する（`msl_stats`）。`globe-mode-lsp` の `resolve_compare`（定義ジャンプの Rumoca の道との突き合わせ）は不一致 0 のまま。
 - **shortcut（計測の範囲で未解決が 0 になるだけ）**:
   - 部品の再宣言は `extends` の修飾（と short class の基底）の中だけ。部品の修飾の中の `A a(redeclare T x)` は見ない（MSL の例題には出ていない）。
   - 差し替えは名前と受け継ぎで決める。差し替え先が `constrainedby` に合うか、`replaceable` かは見ない。「解決できた」は「正しい」とは限らない。

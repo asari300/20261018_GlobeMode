@@ -5,55 +5,67 @@
 ## 前回の結果との差
 
 前回の結果 `target/frontend-diff.json` と、両方にある 641 本で比べる（この実行にだけある 0 本、前回にだけある 0 本）。
-**回帰 0 本**（前回は通った項目が通らなくなった）、改善 39 本。
+**回帰 0 本**（前回は通った項目が通らなくなった）、改善 100 本。
 
-- 改善 `Modelica.Mechanics.MultiBody.Examples.Constraints.PrismaticConstraint`: flat_eqs・balance・counts・states・regular
-- 改善 `Modelica.Mechanics.MultiBody.Examples.Constraints.RevoluteConstraint`: flat_eqs・balance・counts・states・regular
-- 改善 `Modelica.Mechanics.MultiBody.Examples.Constraints.SphericalConstraint`: flat_eqs・balance・counts・states・regular
-- 改善 `Modelica.Mechanics.MultiBody.Examples.Constraints.UniversalConstraint`: balance・counts・states・regular
-- 改善 `Modelica.Mechanics.MultiBody.Examples.Elementary.DoublePendulum`: balance・counts・states・regular
-- 改善 `Modelica.Mechanics.MultiBody.Examples.Elementary.DoublePendulumInitTip`: balance・counts・states・regular
-- 改善 `Modelica.Mechanics.MultiBody.Examples.Elementary.ForceAndTorque`: flat_eqs・balance・counts・states・regular
-- 改善 `Modelica.Mechanics.MultiBody.Examples.Elementary.FreeBody`: flat_eqs・balance・counts・states・regular
-- 改善 `Modelica.Mechanics.MultiBody.Examples.Elementary.HeatLosses`: flat_eqs・balance・counts・states・regular
-- 改善 `Modelica.Mechanics.MultiBody.Examples.Elementary.InitSpringConstant`: balance・counts・states・regular
-- 改善 `Modelica.Mechanics.MultiBody.Examples.Elementary.LineForceWithTwoMasses`: balance・counts・states・regular
-- 改善 `Modelica.Mechanics.MultiBody.Examples.Elementary.Pendulum`: balance・counts・states・regular
-- 改善 `Modelica.Mechanics.MultiBody.Examples.Elementary.PendulumWithSpringDamper`: balance・counts・states・regular
-- 改善 `Modelica.Mechanics.MultiBody.Examples.Elementary.PointGravity`: flat_eqs・balance・counts・states・regular
-- 改善 `Modelica.Mechanics.MultiBody.Examples.Elementary.PointGravityWithPointMasses`: flat_eqs・balance・counts・regular
-- 改善 `Modelica.Mechanics.MultiBody.Examples.Elementary.PointGravityWithPointMasses2`: flat_eqs・balance・counts・states・regular
-- 改善 `Modelica.Mechanics.MultiBody.Examples.Elementary.RollingWheel`: states・regular
-- 改善 `Modelica.Mechanics.MultiBody.Examples.Elementary.RollingWheelSetDriving`: balance・counts・states・regular
-- 改善 `Modelica.Mechanics.MultiBody.Examples.Elementary.RollingWheelSetPulling`: balance・counts・states・regular
-- 改善 `Modelica.Mechanics.MultiBody.Examples.Elementary.SpringDamperSystem`: flat_eqs・balance・counts・states・regular
-- 改善 `Modelica.Mechanics.MultiBody.Examples.Elementary.SpringMassSystem`: states
-- 改善 `Modelica.Mechanics.MultiBody.Examples.Elementary.SpringWithMass`: flat_eqs・balance・counts・states・regular
-- 改善 `Modelica.Mechanics.MultiBody.Examples.Elementary.ThreeSprings`: flat_eqs・balance・counts・states・regular
-- 改善 `Modelica.Mechanics.MultiBody.Examples.Elementary.UserDefinedGravityField`: balance・counts・states・regular
-- 改善 `Modelica.Mechanics.MultiBody.Examples.Loops.Engine1a`: balance・counts・states・regular
-- 改善 `Modelica.Mechanics.MultiBody.Examples.Loops.Engine1b`: balance・counts・states・regular
-- 改善 `Modelica.Mechanics.MultiBody.Examples.Loops.Engine1b_analytic`: balance・counts・states・regular
-- 改善 `Modelica.Mechanics.MultiBody.Examples.Loops.EngineV6`: flat_eqs・balance・counts・states・regular
-- 改善 `Modelica.Mechanics.MultiBody.Examples.Loops.EngineV6_analytic`: flat_eqs・balance・counts・states・regular
-- 改善 `Modelica.Mechanics.MultiBody.Examples.Loops.Fourbar1`: flat_eqs・balance・counts・states・regular
-- 改善 `Modelica.Mechanics.MultiBody.Examples.Loops.Fourbar2`: balance・counts・states・regular
-- 改善 `Modelica.Mechanics.MultiBody.Examples.Loops.Fourbar_analytic`: balance・counts・states・regular
-- 改善 `Modelica.Mechanics.MultiBody.Examples.Loops.PlanarFourbar`: balance・counts・states・regular
-- 改善 `Modelica.Mechanics.MultiBody.Examples.Loops.PlanarLoops_analytic`: balance・counts・states・regular
-- 改善 `Modelica.Mechanics.MultiBody.Examples.Rotational3DEffects.ActuatedDrive`: balance・counts・states・regular
-- 改善 `Modelica.Mechanics.MultiBody.Examples.Rotational3DEffects.BevelGear1D`: balance・counts・states・regular
-- 改善 `Modelica.Mechanics.MultiBody.Examples.Rotational3DEffects.GearConstraint`: balance・counts・states・regular
-- 改善 `Modelica.Mechanics.MultiBody.Examples.Rotational3DEffects.GyroscopicEffects`: flat_eqs・balance・counts・states・regular
-- 改善 `Modelica.Mechanics.MultiBody.Examples.Rotational3DEffects.MovingActuatedDrive`: balance・counts・states・regular
+- 改善 `Modelica.Blocks.Examples.Noise.ActuatorWithNoise`: resolve
+- 改善 `Modelica.Electrical.Batteries.Examples.BatteryDischargeCharge`: resolve
+- 改善 `Modelica.Electrical.Batteries.Examples.CCCVcharging`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.DCMachines.DCEE_Start`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.DCMachines.DCPM_Temperature`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.DCMachines.DCSE_SinglePhase`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.DCMachines.DCSE_Start`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.DCMachines.DC_CompareCharacteristics`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.InductionMachines.IMC_Conveyor`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.InductionMachines.IMC_DCBraking`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.InductionMachines.IMC_DOL`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.InductionMachines.IMC_Initialize`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.InductionMachines.IMC_Inverter`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.InductionMachines.IMC_InverterDrive`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.InductionMachines.IMC_Steinmetz`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.InductionMachines.IMC_Transformer`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.InductionMachines.IMC_YD`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.InductionMachines.IMC_YDarc`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.InductionMachines.IMC_withLosses`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.InductionMachines.IMS_Start`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.SynchronousMachines.SMEE_DOL`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.SynchronousMachines.SMEE_Generator`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.SynchronousMachines.SMEE_LoadDump`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.SynchronousMachines.SMEE_Rectifier`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.SynchronousMachines.SMPM_Braking`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.SynchronousMachines.SMPM_CurrentSource`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.SynchronousMachines.SMPM_Inverter`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.SynchronousMachines.SMPM_NoLoad`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.SynchronousMachines.SMPM_ResistiveBraking`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.SynchronousMachines.SMPM_VoltageSource`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.SynchronousMachines.SMR_DOL`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.SynchronousMachines.SMR_Inverter`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.Transformers.IMC_Transformer`: resolve
+- 改善 `Modelica.Electrical.PowerConverters.Examples.ACAC.SoftStarter`: resolve
+- 改善 `Modelica.Fluid.Examples.AST_BatchPlant.BatchPlant_StandardWater`: resolve
+- 改善 `Modelica.Fluid.Examples.AST_BatchPlant.Test.TanksWithEmptyingPipe2`: resolve
+- 改善 `Modelica.Fluid.Examples.BranchingDynamicPipes`: resolve
+- 改善 `Modelica.Fluid.Examples.ControlledTankSystem.ControlledTanks`: resolve
+- 改善 `Modelica.Fluid.Examples.HeatExchanger.HeatExchangerSimulation`: resolve
+- 改善 `Modelica.Fluid.Examples.HeatingSystem`: resolve
+- 改善 `Modelica.Fluid.Examples.IncompressibleFluidNetwork`: resolve
+- 改善 `Modelica.Fluid.Examples.InverseParameterization`: resolve
+- 改善 `Modelica.Fluid.Examples.NonCircularPipes`: resolve
+- 改善 `Modelica.Fluid.Examples.PumpingSystem`: resolve
+- 改善 `Modelica.Fluid.Examples.Tanks.ThreeTanks`: resolve
+- 改善 `Modelica.Fluid.Examples.TraceSubstances.RoomCO2`: resolve
+- 改善 `Modelica.Fluid.Examples.TraceSubstances.RoomCO2WithControls`: resolve
+- 改善 `Modelica.Magnetic.FundamentalWave.Examples.BasicMachines.InductionMachines.ComparisonPolyphase.IMC_DOL_CommonLeakage`: resolve
+- 改善 `Modelica.Magnetic.FundamentalWave.Examples.BasicMachines.InductionMachines.ComparisonPolyphase.IMC_DOL_Polyphase`: resolve
+- 改善 `Modelica.Magnetic.FundamentalWave.Examples.BasicMachines.InductionMachines.ComparisonPolyphase.IMS_Start_Polyphase`: resolve
+- 改善: ほか 50 本
 
 | | |
 | --- | --- |
 | MSL | 4.1.0（sha256 `5409cfa17797…`） |
 | Rumoca | v0.10.2（rev `276e82bd`、ライブラリとして呼ぶ） |
 | 検査した本数 | 641 本 |
-| 時間 | 全体 554 s（1 本ずつの検査 514 s） |
-| 最大の常駐メモリ（VmHWM） | 5.8 GiB |
+| 時間 | 全体 1880 s（1 本ずつの検査 1663 s） |
+| 最大の常駐メモリ（VmHWM） | 3.9 GiB |
 
 自前の parse・resolve・flat・dae を、Rumoca は自前で平らにできたものにだけ呼んで比べる（母数はその本数）。
 resolve は、例題のクラスから、中のクラス・`extends`・部品の型（解決できたもの）をたどって、届くクラスすべての参照を数える。
@@ -63,7 +75,7 @@ resolve は、例題のクラスから、中のクラス・`extends`・部品の
 | 段 | 項目 | 本数 | 母数 |
 | --- | --- | ---: | ---: |
 | parse | 構文の誤りが 0 | 566 | 566 |
-| resolve | 未解決の参照が 0（`extends`・部品の型をたどって） | 467 | 566 |
+| resolve | 未解決の参照が 0（`extends`・部品の型をたどって） | 566 | 566 |
 | flat | 自前で平らにできた | 471 | 566 |
 | flat | Rumoca も flat まで通った（比べられた本数） | 463 | 471 |
 | flat | 変数の名前の集合が Rumoca の flat と一致 | 463 | 463 |
@@ -75,13 +87,7 @@ resolve は、例題のクラスから、中のクラス・`extends`・部品の
 | dae | 状態の数が一致 | 332 | 334 |
 | dae | 構造が正則かの判定が一致（Rumoca の構造が取れたもの） | 334 | 334 |
 
-未解決の参照の総数: 1330
-
-resolve の理由（本数の多い順）:
-
-| 理由 | 本数 | 例 |
-| --- | ---: | --- |
-| `Redeclare` | 99 | `Modelica.Blocks.Examples.Noise.ActuatorWithNoise` |
+未解決の参照の総数: 0
 
 flat の理由（本数の多い順）:
 
@@ -101,7 +107,7 @@ flat の理由（本数の多い順）:
 | 段 | 項目 | 本数 | 母数 |
 | --- | --- | ---: | ---: |
 | parse | 構文の誤りが 0 | 75 | 75 |
-| resolve | 未解決の参照が 0（`extends`・部品の型をたどって） | 74 | 75 |
+| resolve | 未解決の参照が 0（`extends`・部品の型をたどって） | 75 | 75 |
 | flat | 自前で平らにできた | 74 | 75 |
 | flat | Rumoca も flat まで通った（比べられた本数） | 73 | 74 |
 | flat | 変数の名前の集合が Rumoca の flat と一致 | 73 | 73 |
@@ -113,13 +119,7 @@ flat の理由（本数の多い順）:
 | dae | 状態の数が一致 | 73 | 73 |
 | dae | 構造が正則かの判定が一致（Rumoca の構造が取れたもの） | 72 | 72 |
 
-未解決の参照の総数: 13
-
-resolve の理由（本数の多い順）:
-
-| 理由 | 本数 | 例 |
-| --- | ---: | --- |
-| `Redeclare` | 1 | `GlobeModeValidation.Connect.MediumFlow` |
+未解決の参照の総数: 0
 
 flat の理由（本数の多い順）:
 

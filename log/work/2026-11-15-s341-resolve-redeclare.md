@@ -29,8 +29,9 @@ Track B の自前の resolve（`globe-mode-resolve`）で、MSL の例題 566 �
 ## 検証
 
 - 99 本＋1 本のクラスの未解決の参照: 1343 → 0（一時の試験）。MSL の全 `.mo`（`msl_stats`）の成分参照の続き 45463 件の未解決: 639 → 0。
-- `mise run msl:diff-frontend`: 下の「数字」。
-- `cargo test -p globe-mode-resolve -p globe-mode-syntax -p globe-mode-flat -p globe-mode-lsp -p globe-mode-frontend --features native`、clippy、fmt。
+- `mise run msl:diff-frontend`（release の xtask を worktree でビルドして scratchpad にコピーし、`flock` つきで同じ引数で回した。他の WP が先に走っていたので待ち、走っている間は swap していた。全体 1880 s、最大 RSS 3.9 GiB）: **resolve 467/566 → 566/566**、未解決の参照の総数 **1330 → 0**。`GlobeModeValidation` 74/75 → **75/75**、13 → **0**。flat 471/566・Rumoca も通った 463/471・名前の一致 463/463・方程式の数 451/463・DAE 471/471・釣り合い 334/334・状態 332/334・正則 334/334 は変わらない。**回帰 0 本、改善 100 本**（すべて resolve の旗。MSL 99 本＋`GlobeModeValidation.Connect.MediumFlow`）。
+- `cargo test -p globe-mode-resolve -p globe-mode-syntax -p globe-mode-flat -p globe-mode-lsp`（全 pass）、`-p globe-mode-frontend --features native`（全 pass）、`-p globe-mode-lsp --test resolve_compare -- --ignored`（定義ジャンプの Rumoca との突き合わせ: 型名 110 箇所は一致 110・不一致 0、成分参照の続き 93 箇所は一致 86・LSP が null 7・不一致 0。S275 と同じ）、clippy（syntax・resolve・flat・xtask、`-D warnings`）0 件、`cargo fmt --check` 差分なし。
+- `check_docs.py`: 全デッキ OK、相対リンク 5172 件中の切れ 0 件。`render_slides.py`（S341 のデッキ）: 問題 0 件。
 
 ## 残したこと
 
