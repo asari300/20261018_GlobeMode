@@ -580,6 +580,8 @@ S297 の見立て（Complex のレコード）は外れで、`Connections.isRoot
 - **試験**: `globe-mode-lsp/tests/call_hierarchy.rs` の 1 本（ライブラリ `-L` の関数 `f`・`g` とレコード `R`、開いた文書 `M` と開いていない `LibUser`）。prepare は別のファイルの関数の呼び出しの上で出てモデルの名前の上は null、incoming(f) は `g`（2 箇所）と `M`（2 箇所）で宣言・`end f` は数えず、incoming(g) は開いた文書 `M` と開いていない `LibUser`、outgoing(g) は `f` だけ（`sin`・引けない `nope`・`R(x)` は出ない。`is_function` を外すと `R` が出て落ちることを確かめた）、outgoing(f) は空、モデルの項目は null、capability。
 - **shortcut**: 呼び元の探索はアウトラインの道（`class_name_at`）なので、構文の誤りで Rumoca のアウトラインが引けないファイルで宣言した関数は対象にできない（呼び先はその文書でも出る）。呼び元の探索は `references` と同じ費用（関数の名前の字面が部分文字列で入るファイルを全部字句に分ける。索引は持たない）。呼び先は、ライブラリ（`-L`）とその文書の中の関数だけ（別の開いた文書の関数は引けない。S352 と同じ）。レコードの構築子・`operator function` の呼び先は対象外。本物の VS Code の call hierarchy の表示は【未確認】（`vscode-languageclient` 9 が capability を見て自動で登録するので、拡張側の変更は無い。`vscode.yml` の起動試験にも足していない）。
 
+- **S360 の修正（Windows）**: 試験は S354 の CI では `rust-windows` が省かれていたので、main で初めて Windows で走って落ちた（`incomingCalls` が空）。原因は `Target`（`definition.rs`）の `==` がパスの文字列比較だったこと。宣言の名前の上（`class_of` の `end 名前`・`class 名前`）は呼び手のパス（項目の URI から戻した `C:/…/Fns.mo`）を、名前の解決はライブラリの木のパス（`display()` の `C:\…\Fns.mo`）を入れるので、Windows では同じファイルでも一致しなかった。`PartialEq for Target` を `same_path_key`（`lib.rs`。`\` と `/`、ドライブ文字の大文字小文字を畳む）で比べるものにした（`references`・`rename`・部品の参照の `class_hits`・`component_hits` も同じ比較を通る）。回帰試験は `call_hierarchy.rs` の単体試験（木のパスをバックスラッシュで綴る。Linux でも直す前は `[]` で落ちる）。
+
 ## 付記（S339）: 5 回目のレビューの issue（#121〜#127・#130・#131）
 
 5 回目のレビュー（S324〜S333 の変更）が立てた issue のうち、native の `globe-mode-flat`・LSP・xtask に届く 9 件を、再現を確かめてから直した。**issue の題は本文より 1 つずれている**（#122 の題は #121 の本文のもの、…、#126 と #121 の題は `x`）。番号は本文の指摘の番号で書く。#128・#129 は [ADR-0040](0040-multi-solver-compare.md)（#128）と CLI（#129）。

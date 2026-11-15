@@ -54,6 +54,7 @@ import zipfile
 from pathlib import Path
 
 from playwright.sync_api import Locator, expect, sync_playwright
+from playwright.sync_api import Error as PlaywrightError
 
 DIST = Path(__file__).resolve().parents[1] / "dist"
 TOLERANT = Path(__file__).resolve().parents[2] / "Rust/mod/globe-mode-frontend/tests/data/tolerant/a/A"
@@ -93,17 +94,44 @@ BAD = "model Bad\n  Real x;\nequation\n  der(x) = -x;\n  x = 1;\nend Bad;\n"
 
 
 def click_without_stable() -> None:
-    """Locator.click の既定を、可視・有効はポーリングで待ってから force=True で押すものにする（S310）。
-    既定の actionability の "stable" は rAF で位置を 2 回比べるので、負荷が高く frame が出ない間は 30 秒詰まる。ポーリングの待ちは rAF に頼らない。"""
+    """Locator.click の既定を、可視・有効はポーリングで待ってから force=True で押し、押した点が要素に当たらなかったら押し直すものにする（S310・S360）。
+    既定の actionability の "stable" は rAF で位置を 2 回比べるので、負荷が高く frame が出ない間は 30 秒詰まる。ポーリングの待ちは rAF に頼らない。
+    ただし force=True だけだと、押す直前に配置が動いたとき別の要素を押す（検査の終わり・タブの切り替えのあと SimSettings の高さが 6〜47 px 動く。
+    S353 の CI で、タブを戻す押下が `p.note` に当たって診断の表が 0 行のまま落ちた。負荷をかけた手元の再現は 60 回中 2 回）。
+    そこで押す前に mousedown の対象を記録する小さな listener を足し、要素の外（`__gmHit === false`）なら押し直す（3 回まで）。"""
     orig = Locator.click
+    probe = "(el) => { window.__gmHit = undefined; document.addEventListener('mousedown', (e) => { window.__gmHit = el.contains(e.target); }, { capture: true, once: true }); }"
 
     def click(self: Locator, **kw: object) -> None:
-        if not kw.get("force"):
-            expect(self).to_be_visible(timeout=30_000)
-            expect(self).to_be_enabled(timeout=30_000)
-        orig(self, **{"force": True, **kw})
+        if kw.get("force"):
+            return orig(self, **kw)
+        expect(self).to_be_visible(timeout=30_000)
+        expect(self).to_be_enabled(timeout=30_000)
+        for attempt in range(3):
+            self.evaluate(probe)
+            orig(self, **{"force": True, **kw})
+            try:
+                if self.page.evaluate("window.__gmHit") is not False:
+                    return
+            except PlaywrightError:
+                return  # 押したら遷移した・閉じた
+            print(f"クリックが要素に当たらず押し直した（{attempt + 1} 回目）: {self}")
 
     Locator.click = click  # type: ignore[method-assign]
+
+
+def check_click_survives_shift(page) -> None:
+    """押す点に要素が無いとき、Locator.click は押し直す（S360）。マウスが動いた時点で、アプリの上に足したボタンを 200 px 下げる:
+    force=True だけの押下は空きを押して 0 回、押し直す click は 1 回。"""
+    page.evaluate(
+        """() => { const b = document.createElement('button'); b.id = 'shift-probe'; b.textContent = 'probe';
+        b.style.cssText = 'position:fixed;top:2px;right:2px;z-index:9999'; window.probeClicks = 0; b.onclick = () => { window.probeClicks++; };
+        document.addEventListener('mousemove', () => { b.style.top = '200px'; }, { once: true }); document.body.append(b); }"""
+    )
+    page.locator("#shift-probe").click()
+    n = page.evaluate("window.probeClicks")
+    page.evaluate("document.getElementById('shift-probe').remove()")
+    assert n == 1, f"ずれた押下を押し直せていない（{n} 回）"
 
 
 def serve(prefix: str = "") -> http.server.ThreadingHTTPServer:
@@ -1553,6 +1581,7 @@ def main() -> int:
             expect(button).to_be_enabled(timeout=120_000)  # CSP が eval を禁じるので wait_for_function は使えない
 
         page.get_by_role("button", name="検査").wait_for()
+        check_click_survives_shift(page)  # S360
         check()  # 初回は wasm の読み込みを待つ
         assert page.get_by_role("alert").count() == 0, page.get_by_role("alert").all_inner_texts()
         assert rows.count() > 0, "info の診断（GM-I10001）は出るはず"  # 描画の確認も兼ねる
