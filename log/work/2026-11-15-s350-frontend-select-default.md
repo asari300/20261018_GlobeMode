@@ -33,6 +33,7 @@
 - `cargo fmt --check`（protocol・globe-mode・lsp）OK、`cargo clippy -p globe-mode-protocol -p globe-mode -p globe-mode-lsp --all-targets --features globe-mode-lsp/native -- -D warnings` 0 件。
 - `node src/Svelte/tests/test_tauri.mjs`: ok。`pnpm check`（svelte-check）: 287 ファイル、error 0・warning 0。
 - UI: `pnpm build` のあと、`check_frontend_select` だけを Playwright で（共有 target の S347 の wasm〔`wasm-pkg/web`、19,598,045 バイト〕）: OK、console の error 0。Desktop の偽の Tauri で、既定「設定に従う」・`rumoca`・`native`・「設定に従う」・「設定に従う」（応答が `frontend: "native"`）の順に、`globe/check` の `frontend` は `None・rumoca・native・None・None`、要約は「自前」の回と、最後の（応答が `frontend: "native"` の）回だけに出て、それ以外では出なかった。`test_ui.py` の全体と `test_graph.py` は回していない（select 以外の UI は変えていない。RAM が厳しいため）。
+- `origin/main`（S344 の予算の修正など）を取り込んだ。衝突なし。取り込み後に `cargo test -p globe-mode-lsp --features native --lib`（73 本 OK・1 本 ignored）、`check_docs.py`（リンクの切れ 0 件、文書 1,253 件・相対リンク 5,259 件）。UI の試験は取り込み前の tree で回した（取り込みの差は実行系と文書）。
 - 回していないもの: `mise run check` 全体（deny・uv。依存を足していない）、release・wasm のビルド、`wasm:node`・`wasm:compare`（応答の欄を 1 つ足しただけで、wasm の挙動を変えていない）、`msl:*`。実機の Desktop（Tauri）の起動は【未確認】。
 - セッション記録は無いので `--check` は省く。
 
