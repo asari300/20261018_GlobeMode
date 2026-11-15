@@ -4,6 +4,7 @@
 
 | S | 日付 | Phase | 題名 | ブランチ | 状態 | スライド | 解説書 | セッション記録 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| S321 | 2026-11-15 | 監査 | `ssp-wasm-vscode-issues`: 3 回目のレビューの issue #112・#110・#117 を監査して直した（SSP の階層名 4096 バイトと項目 10000 個の上限、分割配信の壊れた塊・索引と合わない塊で固まらない、VS Code のパネルのパラメータ入力は開始時の対象と版を使う） | `feature/s321-ssp-wasm-vscode-issues` | 完了 | [slides](S321-ssp-wasm-vscode-issues/slides.html) | [解説書](S321-ssp-wasm-vscode-issues/解説書.md) | なし |
 | S320 | 2026-11-15 | Track B | `native-issues`: 3 回目のレビューの native・LSP の issue 5 件を直した。#111 `inst_class` の入れ子に 64 段の上限（自分を部品に持つモデルで abort しない）、#113 編集中のライブラリのファイルを優先、#114 UTF-8 でないファイルも読む、#115 LSP のパス比較を正規化、#116 `Box::leak` をやめる | `feature/s320-native-issues` | 作業中 | [slides](S320-native-issues/slides.html) | [解説書](S320-native-issues/解説書.md) | |
 | S319 | 2026-11-15 | P7 | `marimo-analysis-demo`: 解析の機能を 1 本で試せる marimo のノートブック `analysis_app.py`。`linearize`（LinearSystem の A・B・C・D・固有値）、`blt`・`stages`（LinearLoop・Pendulum）、`cosim`（Jacobi と Gauss–Seidel の差）、`check(frontend="native")` を Rumoca と並べる。試験 2 本。Rust・依存は変えない | `feature/s319-marimo-analysis-demo` | 完了 | [slides](S319-marimo-analysis-demo/slides.html) | [解説書](S319-marimo-analysis-demo/解説書.md) | なし |
 | S318 | 2026-11-15 | P8 | `ssp-ssv-export`: `globe fmu ssp-export --ssv` で `start` を Component ごとの `resources/<名前>.ssv` に書く（既定はインライン）。型の要素の名前空間を XSD で確認 | `feature/s318-ssp-ssv-export` | 完了 | [slides](S318-ssp-ssv-export/slides.html) | [解説書](S318-ssp-ssv-export/解説書.md) | なし |

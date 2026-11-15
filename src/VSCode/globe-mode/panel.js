@@ -76,6 +76,7 @@ table { border-collapse: collapse; } td, th { border: 1px solid var(--vscode-pan
   async editParams(part) {
     const t = this.target, client = this.getClient(), ui = this.ui;
     if (!part || !t || !client) return false;
+    const v = t.doc.version; // 開始時の対象と版を使い続ける（応答待ちと入力の間に target が変わる。#117）
     const fail = (m) => (ui.showErrorMessage(`GlobeMode: ${m}`), false);
     let list;
     try {
@@ -100,7 +101,7 @@ table { border-collapse: collapse; } td, th { border: 1px solid var(--vscode-pan
       if (value === null) return fail("列挙の型の名前が無く書けない");
     }
     if (value === undefined) return false;
-    const ok = await this.apply({ method: "globe/setModifier", args: { modifiers: [{ part, name: p.key, value: value.trim() }] } }).catch((e) => ((this.why = e.message ?? String(e)), false));
+    const ok = await this.apply({ method: "globe/setModifier", args: { modifiers: [{ part, name: p.key, value: value.trim() }] } }, t, v).catch((e) => ((this.why = e.message ?? String(e)), false));
     return ok || fail(`書けなかった: ${this.why}`);
   }
 
@@ -113,11 +114,11 @@ table { border-collapse: collapse; } td, th { border: 1px solid var(--vscode-pan
     return pick ? this.editParams(pick.name) : false;
   }
 
-  async apply({ method, args }) {
-    const t = this.target, client = this.getClient();
+  async apply({ method, args }, t = this.target, v = t?.doc.version) {
+    const client = this.getClient();
     this.why = ""; // 失敗の理由（e2e が見る）
     if (!t || !client) return (this.why = "対象が無い"), false;
-    const v = t.doc.version;
+    if (t.doc.version !== v) return (this.why = "文書が変わったので入れなかった"), false; // 呼び手が控えた版から変わっている
     const edits = await client.sendRequest(method, { file: t.doc.uri.toString(), class: t.class, ...args });
     // 待つあいだに文書が変わったら、古い本文に対する編集は入れない
     if (!edits?.length || t.doc.version !== v) return (this.why = t.doc.version !== v ? "文書が変わったので入れなかった" : "ソースは変わらなかった（変えられない）"), false;
