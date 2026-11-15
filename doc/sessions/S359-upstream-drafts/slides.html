@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S359 upstream-drafts — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S359 upstream-drafts">
+
+<section class="slide" id="S01">
+  <span class="tag">S359 · 2026-11-16 · 文書</span>
+  <h1>上流への依頼の候補 3 件を、下書きの 4 点セットにした</h1>
+  <p class="lead">rk45 の口、初期化の再利用、レコードの配列式。Rumoca v0.10.2 と v0.10.4 で確かめた。出さない</p>
+  <div class="big">37・38 は API の要望、<b>39 は不具合（v0.10.4 で一部直った）</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">37 · 38</span>
+  <h1>公開の口が、繰り返す仕事を共有させてくれない</h1>
+  <div class="cols-2">
+    <div>
+      <pre><code>// 37: rk45
+lower_correlated_for_simulation_with_overrides  // 1 回目
+rk45::simulate(&amp;dae, &amp;opts)  // 中でもう 1 回
+// simulate_artifact は pub(crate)
+
+// 38: BDF
+build_simulation_..._lowered_model // warm-up
+check_prepared_initialization      // 2 回目
+run_prepared_simulation            // 3 回目</code></pre>
+    </div>
+    <table class="small">
+      <tr><th>v0.10.4・main</th><td>どちらもソースは同じ（main は <code>b55eafce</code>）</td></tr>
+      <tr><th>37 の費用</th><td>lowering 1 回分。<code>EngineV6</code> 64 s（v0.10.2、S015）</td></tr>
+      <tr><th>38 の費用</th><td><span class="warn">測っていない</span></td></tr>
+      <tr><th>確かめ方</th><td>ソースを読んだ。コンパイル・計測はしていない</td></tr>
+    </table>
+  </div>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">39</span>
+  <h1>aw = {R(1, 0), ...} を 3 本と数える（6 本のはず）</h1>
+  <table class="small">
+    <tr><th>モデル</th><th>v0.10.2</th><th>v0.10.4</th></tr>
+    <tr><td>普通のレコード、大きさ 3</td><td>ED008</td><td>ED001（3 本・未知数 6）</td></tr>
+    <tr><td>普通のレコード、<code>size(a, 1)</code></td><td>ED001</td><td>ED001</td></tr>
+    <tr><td>MSL の Complex、大きさ 3</td><td>ED008</td><td><span class="ok">通る</span></td></tr>
+    <tr><td>MSL の Complex、<code>size(a, 1)</code></td><td>ED001</td><td>ED001</td></tr>
+    <tr><td>for 文・<code>aw = bw</code>（対照）</td><td>通る</td><td>通る</td></tr>
+  </table>
+  <p class="small muted">omc 1.27.2 は 6 と 6 で通す。MLS 3.7 の 10.6.1・4.8</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">見つけたもの</span>
+  <h1>ShowTransferFunction は別の ED019 が先に止める</h1>
+  <ul>
+    <li>部品の中でレコードの配列の成分を切り出す（<code>sum(aw.re)</code>）と ED019 <code>record-array member slice</code>（両版）</li>
+    <li>最上位のクラスとして compile すれば通る。omc は通す</li>
+    <li>S351 の「0/1」は方程式の数でなく、これが先に当たったと見られる</li>
+    <li>別の下書きにはしていない。作るかはユーザーが決める</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>確かめ方</h1>
+  <pre><code>rumoca compile 39-….mo -m Rep39.A --emit dae-mo
+rumoca compile ComplexForms.mo -m P --source-root data/msl/Complex.mo --emit dae-mo
+rumoca sim 37-….mo -m Rep37.A --solver rk-like</code></pre>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

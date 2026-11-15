@@ -81,13 +81,24 @@ fn walk<'o>(o: &'o Outline, qualified: &str) -> Option<&'o ClassOutline> {
 }
 
 /// 定義の場所（ワークスペースのパスとバイトの範囲）。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct Target {
     pub path: String,
     pub range: TextRange,
     /// クラスの定義か（false なら部品の宣言。範囲は名前だけ）
     pub class: bool,
 }
+
+/// パスは綴り（`\` と `/`、ドライブ文字の大文字小文字）でなく同じファイルかで比べる。
+/// 宣言の名前の上では呼び手のパス（URI から戻した `C:/lib/A.mo`）、名前の解決ではライブラリの木のパス（`display()` の `C:\lib\A.mo`）が入る（S360）。
+impl PartialEq for Target {
+    fn eq(&self, o: &Self) -> bool {
+        self.range == o.range
+            && self.class == o.class
+            && crate::same_path_key(&self.path) == crate::same_path_key(&o.path)
+    }
+}
+impl Eq for Target {}
 
 /// 名前を引く道具。`scratch` はライブラリのファイルを読んでアウトラインにするだけの別のワークスペース。
 #[allow(missing_debug_implementations)] // dyn Fn を持つ
