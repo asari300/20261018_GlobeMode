@@ -2823,9 +2823,9 @@ impl F<'_> {
                     "fill" => args.get(1..)?.iter().map(ev).collect(),
                     "identity" => Some(vec![ev(args.first()?)?; 2]),
                     "vector" => Some(vec![
-                        self.dims_of(args.first()?.syntax(), file, ctx)?
-                            .iter()
-                            .product(),
+                        (self.dims_of(args.first()?.syntax(), file, ctx)?)
+                            .into_iter()
+                            .fold(1, capped_mul),
                     ]),
                     "from_rpm" | "from_deg" | "to_deg" | "sqrt" | "abs" | "sin" | "cos" | "exp"
                     | "log" | "mod" | "rem" | "div" | "floor" | "ceil" | "integer" | "sign" => {
@@ -3436,7 +3436,7 @@ impl F<'_> {
             .filter(|x| x.kind() == K::ForIndex)
             .try_fold(1usize, |n, fi| {
                 let r = fi.children().find(|c| Expr::cast(c.clone()).is_some())?;
-                Some(n * self.range_vals(&r, file, ctx).ok()?.len())
+                Some(capped_mul(n, self.range_vals(&r, file, ctx).ok()?.len()))
             })
     }
 
@@ -3507,10 +3507,10 @@ impl F<'_> {
                                 .and_then(|r| self.range_vals(&r, file, ctx).ok())
                                 .map_or(1, |v| v.len())
                         })
-                        .product::<usize>()
+                        .fold(1, capped_mul)
                 })
                 .unwrap_or(1);
-            return total * n;
+            return capped_mul(total, n);
         }
         total
     }
@@ -3841,6 +3841,12 @@ impl F<'_> {
 /// 次元の積。溢れたら `None`（宣言の次元は入力なので、検査なしの `product` は debug で panic・release で巻き戻る。S339）
 fn dims_product(d: &[usize]) -> Option<usize> {
     d.iter().try_fold(1usize, |a, &x| a.checked_mul(x))
+}
+
+/// 数の積。`MAX_SCALARS` を超えたら `MAX_SCALARS + 1` に頭打ちにする（溢れず、あとのスカラーの総数の検査が断る。S365・#137）。
+/// 宣言した変数の次元の積は `check_dims` が先に断るので、ここは変数から来ない積（内包の範囲・`vector`・`for` の反復）に使う
+fn capped_mul(a: usize, b: usize) -> usize {
+    a.saturating_mul(b).min(MAX_SCALARS + 1)
 }
 
 fn field_mod(b: Bind) -> Mod {
@@ -4182,5 +4188,37 @@ mod tests {
         );
         // 上限に届く大きさは通る
         assert_eq!(kind("Real x[1000000]; equation der(x) = -x;"), None);
+    }
+
+    #[test]
+    fn products_of_sizes_do_not_overflow() {
+        // #137: 内包の範囲・`vector`・`for` の反復の積は検査なしで、debug は panic・release は巻き戻っていた（頭打ちにして上限の検査が断る）
+        let kind = |body: &str| {
+            let src = format!("model M {body} end M;");
+            let r = Project::from_sources([("t.mo", src.as_str())]).flatten("M");
+            r.err().map(|e| e.kind)
+        };
+        let big = Some("too-large");
+        let r4 = "i in 1:100000, j in 1:100000, k in 1:100000, l in 1:100000";
+        assert_eq!(
+            kind(&format!("Real x[2]; equation {{1 for {r4}}} = x;")),
+            big
+        );
+        assert_eq!(
+            kind("parameter Real y[:] = vector(zeros(4294967296, 4294967296));"),
+            big
+        );
+        let body = "for i in 1:100000 loop for j in 1:100000 loop for k in 1:100000 loop for l in 1:100000 loop x[1] = 1; end for; end for; end for; end for;";
+        assert_eq!(
+            kind(&format!(
+                "Boolean b; Real x[2]; equation when b then {body} end when;"
+            )),
+            big
+        );
+        // 小さい積は通る
+        assert_eq!(
+            kind("Real x[6]; equation {1 for i in 1:2, j in 1:3} = x;"),
+            None
+        );
     }
 }
