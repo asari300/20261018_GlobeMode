@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S316 キーボードで結線を足す — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S316 キーボードで結線を足す">
+
+<section class="slide" id="S01">
+  <span class="tag">S316 · 2026-11-15 · P8</span>
+  <h1>結線をマウスなしで足す</h1>
+  <p class="lead">部品を選んで <code>c</code>、コネクタを Tab で選んで Enter を 2 回。</p>
+  <div class="big"><b>c</b> → Tab → Enter（始点）→ Tab → Enter（終点）</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">操作</span>
+  <h1>キーと見え方</h1>
+  <table>
+    <tr><th>キー</th><th>動き</th></tr>
+    <tr><td>c（部品を選んで）</td><td>その部品のコネクタの選びに入る</td></tr>
+    <tr><td>Tab・矢印（Shift+Tab で戻る）</td><td>候補を切り替える</td></tr>
+    <tr><td>Enter</td><td>始点を決める。次に別の部品の終点を決めると結線</td></tr>
+    <tr><td>Esc</td><td>やめる</td></tr>
+    <tr><td>+（結線を選んで）</td><td>中点に途中の点を足す</td></tr>
+  </table>
+  <p>選び中のコネクタは枠、図の下の <code>role="status"</code> の文で読み上げる。</p>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <ul>
+    <li>状態の進め方は <code>diagram-connect.ts</code> に置き、webview と Svelte が共有する</li>
+    <li>出すメッセージはドラッグと同じ <code>connect</code>。Rust・LSP は変えない</li>
+    <li>Svelte も部品の Enter はパラメータにした（S175 の試験に部品の Enter は無く、衝突なし）</li>
+    <li>途中の点は <code>+</code> で中点に足すだけ。動かす操作は次回</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>cd src/VSCode/globe-mode &amp;&amp; pnpm test
+gh workflow run vscode.yml --ref feature/s316-keyboard-connect</code></pre>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>途中の点を選んでキーで動かす・消す</li>
+    <li>実機でのキー操作の目視</li>
+    <li>Svelte でコネクタのあるモデルの結線の試験</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

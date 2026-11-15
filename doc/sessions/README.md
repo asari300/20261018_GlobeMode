@@ -4,6 +4,7 @@
 
 | S | 日付 | Phase | 題名 | ブランチ | 状態 | スライド | 解説書 | セッション記録 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| S316 | 2026-11-15 | P8 | `keyboard-connect`: 結線をマウスなしで足せるようにした。部品を選んで `c` でコネクタを Tab・矢印で選び、Enter で始点・終点（VS Code のパネルと Svelte の DiagramView で共有の `diagram-connect.ts`）。選んだ結線の `+` で中点に途中の点。Svelte でも部品の Enter がパラメータ | `feature/s316-keyboard-connect` | 完了 | [slides](S316-keyboard-connect/slides.html) | [解説書](S316-keyboard-connect/解説書.md) | なし |
 | S313 | 2026-11-15 | Track B | `native-everywhere`: native の検査を CLI 以外からも選べるようにした。facade `Workspace::check_with(model, CheckFrontend)`、LSP は `globe-mode.toml` の `[check] frontend = "native"`、Python は `check(model, frontend="native")`（既定は Rumoca、wasm・UI は未） | `feature/s313-native-everywhere` | 完了 | [slides](S313-native-everywhere/slides.html) | [解説書](S313-native-everywhere/解説書.md) | なし |
 | S309 | 2026-11-15 | P8 | `vscode-keyboard`: VS Code の側のパネルを、マウスなしで操作できるようにした。選んだ部品を矢印キー（2 単位、Shift で 10 単位）で動かし、Enter でパラメータの QuickPick、コマンド「GlobeMode: 部品のパラメータを編集」（カーソルの部品か QuickPick で選ぶ） | `feature/s309-vscode-keyboard` | 作業中 | [slides](S309-vscode-keyboard/slides.html) | [解説書](S309-vscode-keyboard/解説書.md) | なし |
 | S308 | 2026-11-15 | P6 | `split-delivery-followups`: 分割配信の塊を先読みして往復を減らした（索引に塊の依存 `deps`、深さ 2 で ChuaCircuit 11 → 3 往復、取る量 4.6 → 5.2 MiB）。Android の APK から `MSL.json` を外した | `feature/s308-split-delivery-followups` | 完了 | [slides](S308-split-delivery-followups/slides.html) | [解説書](S308-split-delivery-followups/解説書.md) | 専用の記録なし |

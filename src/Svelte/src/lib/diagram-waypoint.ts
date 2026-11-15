@@ -58,3 +58,12 @@ export function addWaypointOf(diagram: Diagram | null | undefined, hit: string |
   };
   return { from: c.from, to: c.to, index: seg + 1, x: snap(x), y: snap(y), ends: [end(c.from, pts[0] as [number, number]), end(c.to, pts[pts.length - 1] as [number, number])] };
 }
+
+/** S316: 選んだ結線で `+` を押したとき、いちばん長い線分の中点に途中の点を足す（マウスなしの口。足した点を動かすのはまだマウス）。結線が選ばれていなければ null */
+export function midWaypointOf(diagram: Diagram | null | undefined, sel: Sel, key: string): AddWaypoint | null {
+  const pts = sel && "key" in sel && key === "+" ? diagram?.connections.find((c) => `${c.from} ${c.to}` === sel.key)?.line.points : null;
+  if (!pts || pts.length < 2 || !diagram) return null;
+  const len = (i: number) => Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]);
+  const i = pts.slice(0, -1).map((_, k) => k).reduce((m, k) => (len(k) > len(m) ? k : m), 0);
+  return addWaypointOf(diagram, (sel as { key: string }).key, (pts[i][0] + pts[i + 1][0]) / 2, (pts[i][1] + pts[i + 1][1]) / 2);
+}

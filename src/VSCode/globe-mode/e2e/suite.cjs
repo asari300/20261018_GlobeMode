@@ -97,6 +97,32 @@ const cases = {
     assert.equal(await panel.handle({ type: "move", id: 3, part: "R o", dx: 1, dy: 1 }), false);
     assert.equal(doc.getText(), before);
   },
+  async "キー操作の流れ（c → Tab・Enter で始点・終点）のメッセージで結線が足され、undo で戻る（S316）"() {
+    const doc = await vscode.workspace.openTextDocument(fixture("ChuaCircuit.mo"));
+    const ed = await vscode.window.showTextDocument(doc);
+    const row = doc.getText().split("\n").findIndex((l) => l.startsWith("  Part Ro"));
+    ed.selection = new vscode.Selection(row, 4, row, 4);
+    const { panel } = await vscode.extensions.getExtension("globe-mode.globe-mode").activate();
+    await until("図の対象", () => panel.target?.class === "ChuaCircuit" && panel.target.doc === doc);
+    const before = doc.getText();
+    // webview のキーは拡張ホストから起こせないので、共有の diagram-connect.ts（esbuild で JS にする）にキーを渡し、出てきた connect をそのままパネルへ渡す
+    const m = { exports: {} };
+    new Function("module", "exports", require("esbuild").buildSync({ entryPoints: [path.join(__dirname, "../../../Svelte/src/lib/diagram-connect.ts")], bundle: true, format: "cjs", write: false }).outputFiles[0].text)(m, m.exports);
+    const d = { parts: panel.parts, connections: [] };
+    const press = (w, sel, key, shiftKey = false) => m.exports.wireKey(w, d, sel, { key, shiftKey, ctrlKey: false, metaKey: false, altKey: false });
+    const choose = (s, end) => {
+      for (let i = 0; i < 20 && s.wire.list[s.wire.i] !== end; i++) s = press(s.wire, null, "Tab");
+      return press(s.wire, null, "Enter");
+    };
+    let s = choose(press(null, { part: "L" }, "c"), "L.p");
+    assert.equal(s.wire.from, "L.p", s.say);
+    s = choose(s, "Ro.n");
+    assert.deepEqual([s.wire, s.connect.from, s.connect.to], [null, "L.p", "Ro.n"], s.say);
+    assert.equal(await panel.handle({ type: "connect", id: 1, ...s.connect }), true, panel.why);
+    assert.ok(doc.getText().includes("connect(L.p, Ro.n)"), doc.getText());
+    await vscode.commands.executeCommand("undo");
+    assert.equal(doc.getText(), before);
+  },
   async "パネルの部品・結線の削除が文書に入り、undo で戻る（S293）"() {
     const doc = await vscode.workspace.openTextDocument(fixture("ChuaCircuit.mo"));
     const ed = await vscode.window.showTextDocument(doc);
