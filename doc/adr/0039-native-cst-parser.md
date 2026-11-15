@@ -52,10 +52,11 @@ MSL 4.1.0 の例題 566 本での推移（括弧は「一致した本数 / 母�
 | S362（S355 の上。DAE のレコードの配列） | 538（DAE にできた 538/538） | 511（508/511・498/511） | 367（判定 367/367・方程式と未知数の数 366/367・状態 366/367・構造の正則 367/367） |
 | S361（S355・S362 の上。外側の `inner` への `connect`） | 548（DAE にできた 548/548） | 521（518/521・508/521） | 377（判定 377/377・方程式と未知数の数 376/377・状態 376/377・構造の正則 373/377） |
 | S364（S361 の上。`{…} = fill(…)` の離散の方程式） | 548（DAE にできた 548/548） | 521（518/521・508/521） | 377（判定 377/377・方程式と未知数の数 376/377・状態 376/377・構造の正則 **377/377**） |
-| S367（S365 の上。expandable・レコードの配列の束縛） | **561**（DAE にできた 561/561） | 532（529/532・517/532） | 382（判定 382/382・方程式と未知数の数 381/382・状態 381/382・構造の正則 382/382） |
+| S367（S365 の上。expandable・レコードの配列の束縛） | 561（DAE にできた 561/561） | 532（529/532・517/532） | 382（判定 382/382・方程式と未知数の数 381/382・状態 381/382・構造の正則 382/382） |
+| S370（S367 の上。関数の評価器） | **565**（DAE にできた 565/565） | 532（529/532・517/532。FFT の 4 本は Rumoca の flat が通らない） | 382（S367 と同じ） |
 
 - parse は MSL の例題 566/566（S300 の時点も今も）、resolve は未解決 0 が 467/566（S300 の時点も今も。残る 99 本はすべて `Redeclare`）。`GlobeModeValidation` 75 本は S334・S337 で、Rumoca も通った 73 本の名前・方程式の数・判定・数・状態が 73/73、正則が 72/72。
-- 断る理由の残り（S367。5 本、最初の理由だけ数える）: `non-constant-dim` 4（FFT。`realFFTsamplePoints` の評価に関数の評価器が要る）・`unsized-array` 1（`ReadRealMatrixFromFile`。ファイルを読む関数で決められない）。S365 までは 18 本（`composite-binding` 6・`expandable` 5・`non-constant-dim` 4・`connect-array` 1・`non-constant-for` 1・`unsized-array` 1）で、`non-constant-dim` と `unsized-array` 以外の 13 本を S367 が平らにした。`connect` は 0（S361。S355 では 10 本）、`stream` は 0（S355）、`composite-binding` の 25 本のうち 19 本は S335 が平らにした。
+- 断る理由の残り（S370。1 本）: `unsized-array` 1（`ReadRealMatrixFromFile`。ファイルを読む関数で決められない）。S367 では 5 本で、`non-constant-dim` の 4 本（FFT。`realFFTsamplePoints` の評価に関数の評価器が要る）を S370 が平らにした。S365 までは 18 本（`composite-binding` 6・`expandable` 5・`non-constant-dim` 4・`connect-array` 1・`non-constant-for` 1・`unsized-array` 1）で、`non-constant-dim` と `unsized-array` 以外の 13 本を S367 が平らにした。`connect` は 0（S361。S355 では 10 本）、`stream` は 0（S355）、`composite-binding` の 25 本のうち 19 本は S335 が平らにした。
 - 方程式の数が合わない 11 本は（S334 では 12 本。S337 で `ShowTransferFunction` を直した）、Rotational・Translational の摩擦・歯車の 10 本（S330 が Rumoca の数え方の誤りと確かめ、S331 が最新の release v0.10.4 では直ると確かめた。[upstream.md](../upstream.md) の下書き 36）、`ActuatorWithNoise`（同じ表の数え方）。状態の数が合わなかった 2 本（`IMC_DCBraking`・`IMC_Initialize`）は S337 で直した（Rumoca が初期方程式の `der` も状態にするため。自前の抜け）。
 
 付記の案内（主題ごと）:
@@ -64,8 +65,8 @@ MSL 4.1.0 の例題 566 本での推移（括弧は「一致した本数 / 母�
 | --- | --- |
 | B1 構文 | 本文、S269 |
 | B2 名前の解決 | S272、S275 |
-| B3 flatten | S278、S284、S297、S312、S324、S329、S333、S334、S335（`[:]` の大きさ）、S336（`Complex` の配列の束縛）、S337、S355（`stream`）、S361（外側の `inner` への `connect`・`inner outer`・`cardinality`）、S367（expandable connector・レコードの配列の束縛・2 次元の部品の配列の `connect`） |
-| B4 DAE | S290、S312、S325、S330、S332（計測と、名前・数の食い違いの原因）、S337（初期方程式の `der` と状態の数）、S362（レコードの配列の範囲への方程式と、レコードの配列を渡す参照）、S364（左辺が離散の変数の配列の構築子 `{…} = fill(…)` を離散の方程式に）、S367（使われない expandable の欄を未知数にしない・2 次元の部品の配列を通した欄の参照） |
+| B3 flatten | S278、S284、S297、S312、S324、S329、S333、S334、S335（`[:]` の大きさ）、S336（`Complex` の配列の束縛）、S337、S355（`stream`）、S361（外側の `inner` への `connect`・`inner outer`・`cardinality`）、S367（expandable connector・レコードの配列の束縛・2 次元の部品の配列の `connect`）、S370（関数の評価器・FFT の 4 本）、S372（`connect` の大きさの食い違いを断る・範囲の `i += s` の溢れ・`inStream` を内包で使う印字） |
+| B4 DAE | S290、S312、S325、S330、S332（計測と、名前・数の食い違いの原因）、S337（初期方程式の `der` と状態の数）、S362（レコードの配列の範囲への方程式と、レコードの配列を渡す参照）、S364（左辺が離散の変数の配列の構築子 `{…} = fill(…)` を離散の方程式に）、S367（使われない expandable の欄を未知数にしない・2 次元の部品の配列を通した欄の参照）、S372（配列の構築子の方程式の incidence を行ごとに疎に） |
 | 製品へのつなぎ | S276（アウトライン・折りたたみ）、S279（補完）、S296（定義ジャンプ・ホバー）、S305（`globe check --frontend native`）、S307（閉包だけを読む）、S311（位置）、S313（CLI 以外から選ぶ）、S320（#111・#113〜#116）、S327（#118）、S352（inlay hint）、S354（call hierarchy） |
 | 突き合わせ | S300（`cargo xtask diff-frontend`） |
 
@@ -706,6 +707,22 @@ S297 の見立て（Complex のレコード）は外れで、`Connections.isRoot
 - **平らにできなかった 1078 本**（先頭の語）: `unsized-array` 371、`expandable` 266、`composite-binding` 141、`inner-outer` 63、`redeclare` 58、`connect-array` 58、`non-constant-dim` 53、`connect` 29、`conditional-component` 22、`unresolved` 10、`stream` 5、`non-constant-for` 1、`break` 1。`expandable`・`composite-binding` は S367 が通した範囲で、この run はその前。上限が実在のモデルを断るかは、S367 の後で回し直して確かめる（持ち越し）。
 - **食い違い 13 本**（Rumoca も flat まで通ったもの。直していない）: `PrescribedOutlet_Water`（Buildings・IBPSA・AixLib で方程式 237 対 242）、`EnthalpyFlowRate`（61 対 63）、`MoistAirEnthalpyFlowRate`（91 対 93。この 2 つも 3 ライブラリ）、AixLib の `VentilationFlowRateSashOpening`・`…SimpleOpening`（Rumoca にだけ `….openingArea.opnWidth_in`）、ThermofluidStream の `Exercise3OttoEngine.BaseModel`・`Exercise4DieselEngine.BaseModel`（自前にだけ `dropOfCommons.assertionLevel`）。DAE は `BoilerPolynomial`（状態 6 対 7）と `WindowSimple`（構造の正則: 自前は特異、Rumoca は正則）。
 - **時間**: diff-frontend は小さなライブラリで 5〜16 s、ThermofluidStream 100 s、IBPSA 189 s、AixLib 295 s、Buildings 3426 s（4 分割。4 分割目の 3080 s のうち 2963 s は Rumoca が 1 本 `GroundTemperature.Examples.CorrectedNFactors` にかけた時間で、funnel も同じ。自前は通り Rumoca と全部一致）。最大 RSS 2.8 GiB（Buildings）。
+
+## 付記（S370）: flat が Modelica の関数を実行する（断る 5 本 → 1 本、平らにできた 561 → 565）
+
+新しい ADR は立てず、S367 の続きとしてここに足す。変えたのは `globe-mode-flat`（`flatten.rs` の `eval` と、新しい `flatten/fneval.rs`）だけ。S367 のあと自前の flat が断る MSL の例題 5 本のうち、`non-constant-dim` の 4 本（FFT）は `realFFTsamplePoints(…)`（`algorithm` を持つ関数）を実行しないと配列の大きさが決まらない。S367 までは `anyTrue`・`isPowerOf2`・`numberOfSymmetricBaseSystems` を名前で決め打っていた。
+
+- **関数の評価器**（`fneval.rs`）: `eval` の `Call` のうち組み込みでないものを `call_fn` に渡し、関数のクラスの `algorithm` と、出力・保護変数の束縛 `= e` を実行して最初の出力を返す。値は整数・実数・論理のスカラーと 1 次元の配列（`Val` と `V`）。文は代入（`x := e`・`x[i] := e`）・`if`・`elseif`・`else`・`for`（添字 1 つ。範囲か配列）・`while`・`return`・`break`・`assert`（偽なら「分からない」）。変数は宣言の型（`type_of` で型の鎖をたどる）に代入のたびに合わせる。式の `fx` は局所変数・配列の添字・`size`・`max`・`min`・関数の呼び出しを見て、残りは `eval` に任せる。`and`・`or` は左で決まれば右を評価しない（`anyTrue` の `size(b, 1) > 0 and max(b)` は空の配列で `max` が決まらない）。
+- **評価しないもの（今までどおり「分からない」）**: `external`・`impure`・入力や出力を持つ基底への `extends`・Real・Integer・Boolean 以外の型・`when`・`assert` 以外の呼び出しの文（`print` など）・複数の左辺・配列どうしの演算・内包。
+- **上限**: 1 回の呼び出し（入れ子の呼び出しを含む）で数える文と反復は `MAX_ITERS`（S365 と同じ。release で 100 万、試験で 1 万）、呼び出しの入れ子は 16、1 つの呼び出しの中の文・式の入れ子は 32（積がスタックの最大の使い方で、release の native で 1 段の入れ子が約 0.5 KB。最初の 32 × 48 は約 0.75 MB でスタック 1 MiB の wasm に危なかったので下げた）。上限に届いた関数は `fn_blown` に覚え、同じ関数を繰り返し評価しない（`eval` は同じ式を何度も評価する）。
+- **wasm のスタック**: S347 から `globe-mode-wasm` は既定で native（flat を含む）を持つので、再帰する評価器が wasm のスタック（影のスタック 1 MiB）を溢れさせないかを確かめた。native の release（テストのスレッドを `RUST_MIN_STACK` で絞った）の最大の使い方は、最初の上限（再帰 32 段・入れ子 48）で 512 KB 超 1 MB 以下、下げた上限（16 段・32）で 256 KB 超 512 KB 以下。Node で release の wasm に `node/fneval.mjs`（`mise run wasm:node` の最後）を通し、native の検査で FFT の大きさ（MSL の本文）が決まること、再帰 16 段 × 括弧 16 段 × `if` 8 段で終わらない再帰が溢れず `GM-U0006` で返ることを、Node の既定のスタックと `--stack-size=100` で確かめた。`wasm:node` は通り、`wasm:compare` は 480 件中 466 件一致・既知の差 13・一致しない 1（`Pendulum` / `dopri853` の 2.0e-9。S347 と同じ）。
+- **`eval` と共有した部品**: 組み込みの表 `BUILTINS`・`builtin`・`extremum`・`unop`。`eval` が `sin`・`cos`・`tan`・`exp`・`log`・`atan2`・`sign`・`rem` なども評価できるようになった。`mod` は実数の引数も、`div` はゼロ除算を `None` に、`-i64::MIN` と `abs(i64::MIN)` の溢れを `None` にした（前は debug で panic）。
+- **決め打ちの置き換え**: `eval` から 3 つの決め打ちを消した。MSL 4.1.0 の本体（`anyTrue` は束縛だけで本体が空の `algorithm`、`isPowerOf2` は `while`、`numberOfSymmetricBaseSystems` は自分を呼ぶ再帰）を貼った試験で、前と同じ値になる。S367 の試験の `anyTrue` は常に `false` の偽物の本体で、決め打ち前提だったので MSL と同じ本体に直した。
+- **FFT の 4 本**（`Rectifier12pulseFFT`・`Rectifier6pulseFFT`・`RealFFT1`・`RealFFT2`）: `ns = realFFTsamplePoints(f_max, f_res, f_max_factor=5)`（`while true`・入れ子の `while`・`break`・`assert`・名前つきの引数・既定値の入力）が評価できて平らになり、DAE にもなった。**Rumoca とは突き合わせられない**: Rumoca v0.10.2 は `ET004`（`msl-known-unsupported.txt`）、手元の CLI v0.10.4 も `RealFFT1` で `E008: unevaluable array dimensions for 'fi'`（`rumoca compile --emit flat-json`。ほかの 3 本は CLI では試していない）で flat が通らない。代わりに omc の `checkModel` の数（[omc-compare.md](../omc-compare.md)）と自前の DAE の方程式と未知数の数を比べて、4 本とも一致した（5853 / 5853・5386 / 5386・245 / 245・224 / 224。釣り合いと構造の正則も自前が示す）。上流の下書きには足していない。
+- **試験**: `flatten.rs` の `modelica_functions_are_evaluated_for_sizes`（`for`・`while`・`if`・`break`・`return`・再帰・配列の入力と添字の代入・実数の入力・既定値・名前つきの引数。外部関数・偽の `assert`・終わらない `while`・終わらない再帰・巨大な `for` の範囲は、今までどおり `non-constant-dim` で断る）、`flat.rs` の `msl_function_bodies_decide_array_sizes`（MSL の 3 つの関数の本体。`realFFTsamplePoints` は 200・108・36）。どれも直す前は断る。
+- **数字**（MSL の例題 566 本、`mise run msl:diff-frontend` と同じ `diff-frontend`。S367 の全体の検査の JSON との差）: 平らにできた 561 → **565**、DAE にできた 561/561 → **565/565**。Rumoca も通った 532 本（名前 529/532・方程式の数 517/532）と、Rumoca の釣り合いまで通った 382 本（判定 382/382・方程式と未知数の数 381/382・状態 381/382・構造の正則 382/382）は、Rumoca がこの 4 本の flat を通さないので変わらない。`GlobeModeValidation` 75 本も変わらない。**回帰 0 本、改善 4 本**（ほかの 637 本は、フラグも名前・方程式の数の食い違いの一覧も S367 と同じ）。1089 s、最大 RSS 5.3 GiB。
+- **作業の落とし穴**: 共有 target の release の `globe-mode-flat` が別の worktree の古い rlib のままで、新しい評価器が入らずに `diff-frontend` が走った（debug の試験は通るのに release が断る食い違いで見つけた。原因は【未確認】）。全体の検査の前に `src/Rust/mod/*/src/lib.rs` と `xtask/src/main.rs` を `touch -c` して作り直した。
+- **持ち越し**: `unsized-array` の 1 本（`ReadRealMatrixFromFile`。ファイルを読む外部関数の戻り値の大きさ）は決められない。評価器の shortcut（配列は 1 次元・スカラーだけ、結果を覚えない）は必要になったら広げる。
 
 ## 付記（S372）: 8 回目のレビューの flat・DAE の issue（#144〜#147）
 

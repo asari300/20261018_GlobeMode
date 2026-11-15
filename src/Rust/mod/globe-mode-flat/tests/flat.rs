@@ -1020,7 +1020,7 @@ fn unsized_dims_from_comprehension_function_args_and_record_fields() {
 
 #[test]
 fn record_arrays_bound_through_record_fields_and_2d_connector_arrays() {
-    // S367: `r = other` の欄がレコードの配列（`rc[n] = d.rc`）、`anyTrue` と parameter の行列 `k[i, 1]` で選ぶ `if`、2 次元の部品の配列の `connect`
+    // S367: `r = other` の欄がレコードの配列（`rc[n] = d.rc`）、`anyTrue`（S370 から関数を実行する。MSL と同じ本体）と parameter の行列 `k[i, 1]` で選ぶ `if`、2 次元の部品の配列の `connect`
     let m = flat(
         "connector P Real v; flow Real i; end P;
          model Res P p; P n; parameter Real R = 1; equation p.v - n.v = R * p.i; p.i + n.i = 0; end Res;
@@ -1028,7 +1028,7 @@ fn record_arrays_bound_through_record_fields_and_2d_connector_arrays() {
          record D parameter Integer n = 2; parameter RC rc[n] = {RC(R = 2), RC(R = 3)}; end D;
          model In D d; RC rc[d.n] = d.rc; end In;
          package Modelica package Math package BooleanVectors
-           function anyTrue input Boolean b[:]; output Boolean r; algorithm r := false; end anyTrue;
+           function anyTrue input Boolean b[:]; output Boolean r = size(b, 1) > 0 and max(b); algorithm end anyTrue;
          end BooleanVectors; end Math; end Modelica;
          model Sl Res r[3]; P q[3]; equation connect(r[3:-1:2].p, q[1:2]); end Sl;
          model Top import Modelica.Math.BooleanVectors.anyTrue; D d; In c(d = d); Sl sl;
@@ -1337,4 +1337,71 @@ fn read_dirs_skips_hidden_dirs() {
     std::fs::write(dir.join(".history/A.mo"), "model A Real x; end A;").unwrap();
     let files = Project::read_dirs(&[dir.as_path()]).unwrap();
     assert_eq!(files.len(), 1, "{files:?}");
+}
+
+#[test]
+fn msl_function_bodies_decide_array_sizes() {
+    // S370: S367 は `anyTrue`・`isPowerOf2`・`numberOfSymmetricBaseSystems` を名前で決め打っていた。MSL 4.1.0 の本体（注釈と説明を除く）を実行して同じ値になる。
+    // `realFFTsamplePoints`（FFT の 4 本の `ns`）は `while`・`break`・`assert`・名前つきの引数・既定値の入力を使う
+    let src = |body: &str| {
+        format!(
+            "type Frequency = Real(unit = \"Hz\");
+            function isPowerOf2 input Integer i(min=1); output Boolean result; protected Integer target; Integer powOf2; algorithm
+              assert(i>=1, \"Integer input to isPowerOf2 has to be >= 1\");
+              if mod(i, 2) == 1 then result := i == 1;
+              else target := div(i, 2); powOf2 := 1;
+                while powOf2 < target loop powOf2 := powOf2 * 2; end while;
+                result := target == powOf2;
+              end if;
+            end isPowerOf2;
+            function numberOfSymmetricBaseSystems input Integer m=3; output Integer n; algorithm
+              n := 1;
+              if mod(m, 2) == 0 then
+                if m == 2 then n := 1; else n := n*2*numberOfSymmetricBaseSystems(integer(m/2)); end if;
+              else n := 1; end if;
+            end numberOfSymmetricBaseSystems;
+            function realFFTsamplePoints
+              input Frequency f_max; input Frequency f_resolution; input Integer f_max_factor(min=1)=5; output Integer ns;
+            protected Integer ns1;
+            algorithm
+              assert(f_resolution > 0, \"f_resolution > 0 required\");
+              assert(f_max > f_resolution, \"f_max > f_resolution required\");
+              ns1 :=2*integer(ceil(f_max*f_max_factor/f_resolution));
+              ns :=if mod(ns1, 2) == 0 then ns1 else ns1 + 1;
+              while true loop
+                ns1 :=ns;
+                while mod(ns1,2) == 0 loop ns1 :=div(ns1, 2);end while;
+                while mod(ns1,3) == 0 loop ns1 :=div(ns1, 3);end while;
+                while mod(ns1,5) == 0 loop ns1 :=div(ns1, 5);end while;
+                if ns1 <= 1 then break; end if;
+                ns :=ns + 2;
+              end while;
+            end realFFTsamplePoints;
+            model M {body} end M;"
+        )
+    };
+    let dims = |body: &str| {
+        let m = Project::from_sources([("t.mo", src(body).as_str())])
+            .flatten("M")
+            .unwrap();
+        m.vars.iter().map(|v| v.dims[0]).collect::<Vec<_>>()
+    };
+    assert_eq!(
+        dims(
+            "Real a[if isPowerOf2(16) then 1 else 2]; Real b[if isPowerOf2(12) then 1 else 2]; Real c[if isPowerOf2(1) then 1 else 2];"
+        ),
+        [1, 2, 1]
+    );
+    assert_eq!(
+        dims(
+            "Real a[numberOfSymmetricBaseSystems(3)]; Real b[numberOfSymmetricBaseSystems(6)]; Real c[numberOfSymmetricBaseSystems(12)]; Real d[numberOfSymmetricBaseSystems(16)]; Real e[numberOfSymmetricBaseSystems()];"
+        ),
+        [1, 2, 4, 8, 1]
+    );
+    assert_eq!(
+        dims(
+            "Real a[realFFTsamplePoints(50, 2.5, f_max_factor=5)]; Real b[realFFTsamplePoints(21, 2)]; Real c[realFFTsamplePoints(7, 2, 5)];"
+        ),
+        [200, 108, 36]
+    );
 }

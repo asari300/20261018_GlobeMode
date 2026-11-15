@@ -9,9 +9,11 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::rc::Rc;
 
+mod fneval;
 mod graph;
 mod stream;
 
+use fneval::{BUILTINS, builtin, extremum, unop};
 use stream::OUT_STREAM;
 
 /// 修飾 `x(start = 1) = 2`。値は書いた場所の文脈（`Bind::ctx`）で名前を付け替える
@@ -285,6 +287,10 @@ struct F<'a> {
     card_ifs: Vec<CardIf>,
     /// `for` の方程式の反復の数（`MAX_ITERS` で断る。S365）
     iters: usize,
+    /// 関数の評価器（`fneval`。S370）: 今の呼び出しで数えた文と反復、呼び出しの入れ子の深さ、上限に届いた関数（繰り返さない）
+    fn_steps: std::cell::Cell<usize>,
+    fn_depth: std::cell::Cell<u32>,
+    fn_blown: RefCell<HashSet<ClassId>>,
     /// `cardinality(c)` の値（`connect` の端として出てきた数）。`card_ifs` を決めるときだけ `Some`
     card: Option<HashMap<String, i64>>,
     /// expandable connector の中を平らにしている入れ子の深さ（0 より大きいあいだに宣言した変数は `exp_vars` に入る。S367）
@@ -360,6 +366,9 @@ pub(crate) fn run(p: &Project, cid: ClassId, model: &str) -> Res<FlatModel> {
         oc_ifs: Vec::new(),
         card_ifs: Vec::new(),
         iters: 0,
+        fn_steps: std::cell::Cell::new(0),
+        fn_depth: std::cell::Cell::new(0),
+        fn_blown: RefCell::default(),
         card: None,
         exp_depth: 0,
         exp_vars: HashSet::new(),
@@ -2223,18 +2232,7 @@ impl F<'_> {
             },
             Expr::Unary(u) => {
                 let v = self.eval(u.operand()?.syntax(), file, ctx, d)?;
-                match u.op()?.kind() {
-                    K::Minus => Some(match v {
-                        Val::I(i) => Val::I(-i),
-                        v => Val::R(-v.f()),
-                    }),
-                    K::Plus => Some(v),
-                    K::KwNot => match v {
-                        Val::B(b) => Some(Val::B(!b)),
-                        _ => None,
-                    },
-                    _ => None,
-                }
+                unop(u.op()?.kind(), v)
             }
             Expr::Binary(b) => {
                 let operands = b.operands();
@@ -2380,10 +2378,6 @@ impl F<'_> {
                         let name = self.cref(r, file, ctx).ok()?;
                         Some(Val::I(*self.card.as_ref()?.get(&name).unwrap_or(&0)))
                     }
-                    "abs" => Some(match v(0)? {
-                        Val::I(i) => Val::I(i.abs()),
-                        x => Val::R(x.f().abs()),
-                    }),
                     "max" | "min" => {
                         let is_max = c.callee()?.as_str() == "max";
                         // `max({a, b})`・`max([a; b])` は要素の最大
@@ -2396,66 +2390,13 @@ impl F<'_> {
                                 .collect::<Option<_>>()?,
                             _ => (0..args.len()).map(v).collect::<Option<_>>()?,
                         };
-                        let mut it = xs.into_iter();
-                        let first = it.next()?;
-                        Some(it.fold(first, |a, b| if (a.f() >= b.f()) == is_max { a } else { b }))
+                        extremum(xs, is_max)
                     }
-                    "floor" => Some(Val::I(v(0)?.f().floor() as i64)),
-                    "ceil" => Some(Val::I(v(0)?.f().ceil() as i64)),
-                    "integer" => Some(Val::I(v(0)?.f().floor() as i64)),
-                    "div" => Some(Val::I((v(0)?.f() / v(1)?.f()).trunc() as i64)),
-                    "mod" => {
-                        let (a, b) = (v(0)?.int()?, v(1)?.int()?);
-                        (b != 0).then(|| Val::I(a - (a as f64 / b as f64).floor() as i64 * b))
+                    f if BUILTINS.contains(&f) => {
+                        builtin(f, &(0..args.len()).map(v).collect::<Option<Vec<_>>>()?)
                     }
-                    "sqrt" => Some(Val::R(v(0)?.f().sqrt())),
-                    // shortcut: MSL の 1 つの関数だけを決め打つ（`for k in 1:mSystems` の範囲）。関数の評価器ができたら置き換える
-                    f if f.rsplit('.').next() == Some("numberOfSymmetricBaseSystems") => {
-                        let r = c.syntax().children().find_map(ast::ComponentRef::cast)?;
-                        let Some(Resolution::Class(rid)) = self.p.res_of(file, r.range()) else {
-                            return None;
-                        };
-                        let q = self.p.lib.qualified_name(rid);
-                        if q != "Modelica.Electrical.Polyphase.Functions.numberOfSymmetricBaseSystems"
-                        {
-                            return None;
-                        }
-                        let mut m = v(0)?.int().filter(|m| *m >= 1)?;
-                        let mut n = 1;
-                        while m % 2 == 0 && m != 2 {
-                            n *= 2;
-                            m /= 2;
-                        }
-                        Some(Val::I(n))
-                    }
-                    // shortcut: `isPowerOf2` も決め打つ（`PolyphaseRectifierData.Par` の `if`）。関数の評価器ができたら置き換える
-                    f if f.rsplit('.').next() == Some("isPowerOf2") => {
-                        let r = c.syntax().children().find_map(ast::ComponentRef::cast)?;
-                        let Some(Resolution::Class(rid)) = self.p.res_of(file, r.range()) else {
-                            return None;
-                        };
-                        if self.p.lib.qualified_name(rid) != "Modelica.Math.isPowerOf2" {
-                            return None;
-                        }
-                        let i = v(0)?.int().filter(|i| *i >= 1)?;
-                        Some(Val::B(i & (i - 1) == 0))
-                    }
-                    // shortcut: `anyTrue` だけ決め打つ（`CCCV_Stack` の劣化したセルの判定）。関数の評価器ができたら置き換える
-                    f if f.rsplit('.').next() == Some("anyTrue") => {
-                        let r = c.syntax().children().find_map(ast::ComponentRef::cast)?;
-                        let Some(Resolution::Class(rid)) = self.p.res_of(file, r.range()) else {
-                            return None;
-                        };
-                        if self.p.lib.qualified_name(rid) != "Modelica.Math.BooleanVectors.anyTrue"
-                        {
-                            return None;
-                        }
-                        let xs = self.eval_items(args.first()?.syntax(), file, ctx, d)?;
-                        xs.iter()
-                            .all(|x| matches!(x, Val::B(_)))
-                            .then(|| Val::B(xs.iter().any(|x| matches!(x, Val::B(true)))))
-                    }
-                    _ => None,
+                    // Modelica の関数（`algorithm` を実行する。`fneval`。S370）
+                    _ => self.call_fn(&c, file, ctx, d),
                 }
             }
             _ => None,
@@ -4600,6 +4541,80 @@ mod tests {
         .flatten("M")
         .unwrap_err();
         assert_eq!(e.kind, "expandable");
+    }
+
+    #[test]
+    fn modelica_functions_are_evaluated_for_sizes() {
+        // S370: 配列の大きさを決める関数（`for`・`while`・`if`・`break`・`return`・再帰・配列の入力・実数）を、定数の評価が実行する
+        let funs = "function tri input Integer n; output Integer r; algorithm
+              r := 0; for i in 1:n loop r := r + i; end for; end tri;
+            function collatz input Integer n; output Integer steps; protected Integer m = n; algorithm
+              steps := 0;
+              while true loop
+                if m == 1 then break; elseif mod(m, 2) == 0 then m := div(m, 2); else m := 3*m + 1; end if;
+                steps := steps + 1;
+              end while;
+            end collatz;
+            function fact input Integer n; output Integer r; algorithm
+              r := 1; if n <= 1 then return; end if; r := n*fact(n - 1); end fact;
+            function cnt input Boolean b[:]; output Integer k = 0; algorithm
+              for i in 1:size(b, 1) loop if b[i] then k := k + 1; end if; end for; end cnt;
+            function up input Real x; input Integer k = 2; output Integer r; protected Real y[2]; algorithm
+              y[1] := x*k; y[2] := sqrt(y[1]); r := integer(ceil(y[1] + max(y))); end up;";
+        let dims = |body: &str| {
+            let src = format!("{funs} model M {body} end M;");
+            let m = Project::from_sources([("t.mo", src.as_str())]).flatten("M");
+            m.map(|m| m.vars.iter().map(|v| v.dims.clone()).collect::<Vec<_>>())
+        };
+        assert_eq!(
+            dims("Real a[tri(4)]; Real b[collatz(6)]; Real c[fact(4)]; Real d[cnt({true, false, true})];")
+                .unwrap(),
+            [vec![10], vec![8], vec![24], vec![2]]
+        );
+        // 実数の入力・既定値・名前つきの引数・出力の最後の `max`: ceil(2.5*2 + max(5, sqrt 5)) = 10、k = 3 なら ceil(7.5 + 7.5) = 15
+        assert_eq!(
+            dims("Real a[up(2.5)]; Real b[up(2.5, k=3)];").unwrap(),
+            [vec![10], vec![15]]
+        );
+        // 再帰は 16 段まで（深さ 15 の呼び出しは 16 段）
+        let rec = "function dep input Integer n; output Integer r; algorithm if n <= 0 then r := 1; else r := dep(n - 1) + 1; end if; end dep;";
+        let sized = |n: usize| {
+            let src = format!("{rec} model M Real x[dep({n})]; end M;");
+            Project::from_sources([("t.mo", src.as_str())])
+                .flatten("M")
+                .map(|m| m.vars[0].dims[0])
+        };
+        assert_eq!(sized(15).unwrap(), 16);
+        assert_eq!(sized(16).unwrap_err().kind, "non-constant-dim");
+        // 評価できない（外部関数・偽の assert・暴走・終わらない再帰）は、今までどおり大きさが定数でないと断る
+        let bad = |fun: &str, call: &str| {
+            let src = format!("{fun} model M Real x[{call}]; end M;");
+            let e = Project::from_sources([("t.mo", src.as_str())])
+                .flatten("M")
+                .unwrap_err();
+            e.kind
+        };
+        let head = "function f input Integer n; output Integer r;";
+        for (fun, call) in [
+            (format!("{head} external \"C\"; end f;"), "f(1)"),
+            (
+                format!("{head} algorithm assert(n > 5, \"small\"); r := n; end f;"),
+                "f(1)",
+            ),
+            (
+                format!("{head} algorithm r := n; while true loop r := r + 1; end while; end f;"),
+                "f(1)",
+            ),
+            (format!("{head} algorithm r := f(n + 1); end f;"), "f(1)"),
+            (
+                format!(
+                    "{head} algorithm r := 1; for i in 1:100000000 loop r := r + 1; end for; end f;"
+                ),
+                "f(1)",
+            ),
+        ] {
+            assert_eq!(bad(&fun, call), "non-constant-dim", "{fun}");
+        }
     }
 
     #[test]
