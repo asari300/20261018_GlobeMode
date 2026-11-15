@@ -43,7 +43,7 @@ src/Rust/mod/<crate>/           workspace の library crate（2.2 の表）
 src/Rust/apps/desktop/          Tauri 2 のシェル（Linux・Windows・macOS・Android）
 src/Rust/apps/experimental/     leptos/ と dioxus/（別の Cargo workspace。S153・S155）
 src/Rust/apps/web-*/            整形・lint のウェブアプリ群 actix・axum・loco・rocket（別の Cargo workspace。[web-apps.md](web-apps.md)）
-src/Rust/xtask/                 build、bump-rumoca、licenses、wasm --threads
+src/Rust/xtask/                 build、bump-rumoca、diff-frontend、licenses、wasm --threads
 src/Svelte/                     Svelte 5 + TypeScript の UI。Tauri・ブラウザ・Android で共用する（Backend・WorkerBackend・TauriBackend、CodeMirror 6、診断・プロット・graph・ライブラリツリー・実行の設定。Diagram ビューは未実装）
 src/Python/mod/                 Python パッケージ globe_mode（PyO3 と maturin）
 src/Python/marimo/              marimo のノートブックと anywidget
@@ -90,7 +90,7 @@ doc/  log/                      文書と記録
 | `globe-mode-py` **（S039）** | PyO3（abi3-py312）で facade の `Workspace` を包む `globe_mode._native`（`Workspace{new(libraries), set_file, load_dir, check, graph, simulate}` と `solvers()`。入出力は JSON の文字列）。maturin が Python パッケージ `globe_mode` に入れ、`__init__.py` が `dict` への変換と、結果の CSV を polars の表にする `table()` を受け持つ。`unsendable`（salsa のデータベースは Sync でない）。S085 で `simulate_columns`（列ごとの f64 の `bytes`。Arrow・numpy は入れない）、S111 で `format` / `lint`、S118 で `export_fmu`、S129 で `simulate` / `simulate_columns` の `on_progress`（進捗と中断） | globe-mode, pyo3 |
 | `globe-mode-wasm` **（S012）** | wasm-bindgen（wasm32-unknown-unknown）。S035 から facade `globe-mode` の `Workspace::simulate_with` に JS の時計（`performance.now()`）と線形メモリの大きさを足すだけ（`Request` / `Response` は protocol の型）。`Workspace`（ライブラリを 1 回だけ読む、`set_file`・`remove_file`・`files`・`simulate`）と `simulate`・`solvers`・`version`・`memory_bytes`・`last_panic`。入出力は JSON の文字列。ネイティブの `globe simulate` と同じ道（db の `check_model` → `compiled_model` → exec の `run`）。S012 は Node で確かめた（[ADR-0014](adr/0014-session-route-wasm.md)）。S036 で `--target web` の糊と Web Worker（`web/worker.js`・`web/client.js` の `GlobeWorker`。panic の後は Worker を作り直し、ライブラリとファイルを再生する）。S037 からライブラリは分割読み込み（frontend の `Checker::with_library_sources_split`。MSL で読み込み後 62 MiB）。今後: Gleam の JS target、marimo の anywidget S138 から `Workspace.definition`（定義ジャンプ。`globe-mode-lsp` の `definition::definition_at` を呼ぶ。wasm が lsp に依存するのはこれだけ）。 | wasm-bindgen 0.2.129（`=` で固定）、db、exec、sim、lsp（S138。定義ジャンプだけ） |
 | `globe-mode-testkit` | MSL コーパス、ファネル比較、omc との照合、Reference-FMUs（S003 の突き合わせと S005 のファネルは、ひとまず xtask に置いた） | — |
-| `xtask` **（S003）** | `cargo xtask fetch-msl` / `fetch-rumoca` / `msl-compare` / `msl-funnel`（S005。S007 で S7・S8 の列）/ `omc-compare`（S008。omc を別プロセスで呼ぶ）/ `bump-rumoca`。場所は `src/Rust/xtask` | sha2, zip, db, analysis |
+| `xtask` **（S003）** | `cargo xtask fetch-msl` / `fetch-rumoca` / `msl-compare` / `msl-funnel`（S005。S007 で S7・S8 の列）/ `omc-compare`（S008。omc を別プロセスで呼ぶ）/ `diff-frontend`（S300。自前の parse → resolve → flat → dae を Rumoca と一度に突き合わせ、報告 [frontend-diff.md](frontend-diff.md) と回帰を出す）/ `bump-rumoca`。場所は `src/Rust/xtask` | sha2, zip, db, analysis |
 
 ### 2.3 ツールチェーン
 

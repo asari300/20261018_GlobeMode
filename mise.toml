@@ -57,6 +57,13 @@ run = [
   "cargo xtask msl-sim --funnel-json target/msl-funnel.json --tolerance-scale 0.1 --fetch-ref --baseline-json target/msl-sim.json --report doc/msl-sim.md --json target/msl-sim.json",
 ]
 
+[tasks."msl:diff-frontend"]
+description = "Track B の自前の段（parse → resolve → flat → dae）を Rumoca と MSL の例題・GlobeModeValidation で突き合わせ、報告 doc/frontend-diff.md を書く（S300。前回の target/frontend-diff.json との回帰を先頭に出し、あれば終了コード 1）"
+run = [
+  "cargo xtask fetch-msl",
+  "cargo xtask diff-frontend --report doc/frontend-diff.md --json target/frontend-diff.json",
+]
+
 [tasks."msl:omc"]
 description = "msl:funnel の結果（target/msl-funnel.json）を omc（OpenModelica、別プロセス）と突き合わせ、報告 doc/omc-compare.md を書く（S008。omc が PATH に要る）"
 run = [

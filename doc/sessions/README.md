@@ -4,6 +4,7 @@
 
 | S | 日付 | Phase | 題名 | ブランチ | 状態 | スライド | 解説書 | セッション記録 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| S300 | 2026-11-15 | Track B | `diff-frontend`: `cargo xtask diff-frontend`（`mise run msl:diff-frontend`）。自前の parse → resolve → flat → dae を Rumoca と MSL の例題 566 本・GlobeModeValidation 75 本で一度に突き合わせ、旗の JSON と前回との回帰を報告 `doc/frontend-diff.md` の先頭に出す（flat・dae の `compare.rs` は消した） | `feature/s300-diff-frontend` | 完了 | [slides](S300-diff-frontend/slides.html) | [解説書](S300-diff-frontend/解説書.md) | なし |
 | S299 | 2026-11-15 | P8 | `diagram-waypoints`: Diagram の結線の途中の点を動かす・足す（Rust `move_waypoint`・`add_waypoint`、LSP `globe/moveWaypoint`・`globe/addWaypoint`、wasm・Backend、UI のつまみとダブルクリック） | `feature/s299-diagram-waypoints` | 作業中 | [slides](S299-diagram-waypoints/slides.html) | [解説書](S299-diagram-waypoints/解説書.md) | - |
 | S298 | 2026-11-15 | P8 | `param-dialog-2`: S294 の持ち越し 3 つ。修飾を外す UI、列挙のパラメータ（`ModelParameter.enum_type`、`型.リテラル` で書く）、書いたあとの `parameters` の引き直し | `feature/s298-param-dialog-2` | 完了 | [slides](S298-param-dialog-2/slides.html) | [解説書](S298-param-dialog-2/解説書.md) | なし |
 | S296 | 2026-11-15 | Track B | `lsp-definition-resolve`: LSP の定義ジャンプとホバーを、読めない文書でも自前の構文と名前解決で答える（S279 の補完と同じ形） | `feature/s296-lsp-definition-resolve` | 完了 | [slides](S296-lsp-definition-resolve/slides.html) | [解説書](S296-lsp-definition-resolve/解説書.md) | 省略 |

@@ -14,6 +14,10 @@ globe-mode-ir = { workspace = true }
 globe-mode-frontend = { workspace = true }
 globe-mode-db = { workspace = true }
 globe-mode-exec = { workspace = true }
+globe-mode-syntax = { path = "../mod/globe-mode-syntax" }
+globe-mode-resolve = { path = "../mod/globe-mode-resolve" }
+globe-mode-flat = { path = "../mod/globe-mode-flat" }
+globe-mode-dae = { path = "../mod/globe-mode-dae" }
 globe-mode-sim = { workspace = true }
 serde = { workspace = true }
 globe-mode-analysis = { workspace = true }

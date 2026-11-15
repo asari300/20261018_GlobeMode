@@ -1450,7 +1450,6 @@ version = "0.2.0"
 dependencies = [
  "globe-mode-analysis",
  "globe-mode-flat",
- "globe-mode-frontend",
  "globe-mode-ir",
  "globe-mode-syntax",
 ]
@@ -1491,7 +1490,6 @@ dependencies = [
 name = "globe-mode-flat"
 version = "0.2.0"
 dependencies = [
- "globe-mode-frontend",
  "globe-mode-resolve",
  "globe-mode-syntax",
  "rowan",
@@ -4579,11 +4577,15 @@ dependencies = [
  "clap",
  "globe-mode-analysis",
  "globe-mode-core",
+ "globe-mode-dae",
  "globe-mode-db",
  "globe-mode-exec",
+ "globe-mode-flat",
  "globe-mode-frontend",
  "globe-mode-ir",
+ "globe-mode-resolve",
  "globe-mode-sim",
+ "globe-mode-syntax",
  "serde",
  "serde_json",
  "sha2",

@@ -15,9 +15,5 @@ globe-mode-syntax = { path = "../globe-mode-syntax", version = "0.2.0" }
 globe-mode-ir = { workspace = true }
 globe-mode-analysis = { workspace = true }
 
-[dev-dependencies]
-# Rumoca の判定との突き合わせ（`#[ignore]` の計測）だけ。本体の依存には入らない
-globe-mode-frontend = { workspace = true }
-
 [lints]
 workspace = true
