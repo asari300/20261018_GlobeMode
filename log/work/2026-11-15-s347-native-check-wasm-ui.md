@@ -42,3 +42,15 @@ wasm とブラウザ・Tauri の UI からも、検査に native（自前の Tra
 - `cargo test -p globe-mode --features native --test check_with`: 2 本 OK（`native_explains_a_library_it_cannot_see` を含む）。
 - `mise run wasm:node`（data/msl を worktree に symlink して MSL も）: 全部 OK（`check_with(native): …Decay: OK（native: S0〜S6 を通過。S7 以降は検査していない）`、MSL の `ChuaCircuit` は Rumoca が通り native は注つきで止まる、MSL の分割読み込みが全部読みと同じ 5 本一致）。`web/worker-node.mjs` OK。
 - `mise exec -- pnpm check`（svelte-check）: 287 ファイル、error 0・warning 0。`test_ui.py` の `check_frontend_select` だけを先に回して OK（console の error 0）。
+- `cargo test -p globe-mode --features native`: lib・tests・doctest が全部 OK（doctest は 1 回、共有 target の入れ替わりで落ちたが、そのあと同じコマンドで 1 本 OK）。
+- `mise run wasm:compare`: **480 件中 466 件が一致、既知の差 13 件、一致しない 1 件**（`Pendulum` / `dopri853`、相対差 2.0e-9、閾値 1e-9）。S322 の記録と同じ数字で、この WP は検査の口と UI だけなので実行には触れていない。
+- UI（`mise run ui:check` の中身）: `pnpm check` 0 error、`pnpm build`、`test_ui.py` は最後まで OK（新しい `check_frontend_select` を含む。console の error 0）、`test_graph.py` OK。
+- `check_docs.py`: スライドは S347 を含め全部 OK、リンクは文書 1,234 件・相対リンク 5,211 件中の切れ 0 件。`render_slides.py`（S347 のデッキだけ）: デッキ 1 件・問題 0 件（負荷が高い間は 1 回、スクリーンショットが時間切れ。下がってから通した）。
+- 回していないもの: `mise run check` 全体（deny・uv）は、依存を足していないので省いた（`cargo fmt --check`・clippy・変えた crate の試験だけ）。`msl:*`・`wasm:web` の Chromium 側（`browser.py`）・`mise run docs:check` 全体は回していない（並行の WP で RAM が厳しい。S347 のデッキだけ検査した）。
+- セッション記録は無いので `--check` は省く。
+
+## 残したこと
+
+- **Desktop の UI**: sidecar の LSP `globe/check` が `params.frontend` を読むようにして、`TauriBackend` が `check(model, frontend)` で渡し `checkFrontends = true` にする（S345 の後。LSP の変更が要る）。
+- **ブラウザの MSL を native に見せる**: facade が `with_library_sources` のファイルの写しを持つ必要がある（MSL の本文が 2 重になる）。分割読み込み（S037）の塊を native に渡す道も要る。今は注を付けるだけ。
+- native の検査は S0〜S6 まで。実行（`simulate`）・BLT・段・グラフは Rumoca のまま。選択は保存しない。

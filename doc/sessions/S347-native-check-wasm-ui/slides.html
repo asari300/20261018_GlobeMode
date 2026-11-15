@@ -53,6 +53,7 @@
   <ul>
     <li>wasm（Node）: <code>check_with(Decay, "native")</code> が通って要約に「native: S0〜S6」、<code>rumoca</code> は <code>check</code> と同じ、知らない名前は例外。Worker 越しにも届く</li>
     <li>UI（Playwright）: 選択肢と既定、自前で Decay が通って要約、<code>expandable</code> が <code>GM-U0006</code>、Desktop に選択肢が無い</li>
+    <li>数字: <code>cargo test -p globe-mode-wasm</code> 29 本・clippy 0 件、<code>mise run wasm:node</code>（MSL つき）OK、<code>test_ui.py</code>・<code>test_graph.py</code> 全部 OK、svelte-check 0 件</li>
   </ul>
 </section>
 
