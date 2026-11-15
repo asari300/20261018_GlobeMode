@@ -17,7 +17,7 @@
 
 - **25 本を `diff-frontend --class … --dump` の理由で分けた**。内包 8（`uInternal`）、配列の式 15（`vs`・`v`）、レコード配列の内包の修飾 1（`G_m`）、2 次元と関数 1（`sTM`）。直すたびに次の理由が現れた（`fill(Complex(1, 0), nin)`、そのあとに S335 の `unsized-array`）。
 - **束縛に添字を付けて `record_value` に渡す形に一般化した**。1 次元の `{…}` の項を選ぶ特別扱い（`inst_decl`）を `pick_elem` に移し、内包・N 次元・関数の戻り値を同じ道にした。`Complex` の配列の式は `complex_parts` の葉に `[k]` を当てる（`index_leaf`）。
-- **Rumoca の数え方に合わせた**: `GlobeModeValidation` の小さなモデル（`$SCRATCH/val`。コミットしない）で確かめた。`Complex c[3]` の配列の方程式 `c = a - b` は 3 本（6 本ではない）、`c = {a[k]*b[k] for k in 1:3}` も 3 本。自前は内包を 1 本と数えていたので `comp_len` で範囲の長さにした。
+- **Rumoca の数え方に合わせた**: `GlobeModeValidation` の小さなモデル（scratchpad に置いた。コミットしない）で確かめた。`Complex c[3]` の配列の方程式 `c = a - b` は 3 本（6 本ではない）、`c = {a[k]*b[k] for k in 1:3}` も 3 本。自前は内包を 1 本と数えていたので `comp_len` で範囲の長さにした。
 - **S335 とは触る場所が重なるので、S335 の WIP を仮にマージして確かめた**（コミットしていない）。19 本は `indexNonPos[:] = f(m)` の `unsized-array` で止まる（S335 の領分）。合わせると 25 本すべてが平らになり、Rumoca の flat まで通った 7 本で名前の集合 7/7。ただし S335 の `var_dims` の新しい分岐が、部品の配列を通した欄 `plug_p.pin.i` に `Some([])` を返し、`plug_p.pin.i + plug_n.pin.i = fill(Complex(0), m)` を 3 本から 1 本にする（7 本の方程式の数が合わない原因の 1 つ）。S335 側か最後のマージで直す。
 - 共有 target の罠: cargo の識別子は workspace からの相対で決まるので、worktree 間で `debug/xtask`・`release/xtask` と test のバイナリが上書きされる（`DBG` の出力が消えた・試験が古いままだった）。touch してから作り、作ったバイナリをすぐ scratchpad に写して使った。
 
@@ -29,8 +29,14 @@
 
 ## 検証
 
-@@VERIFY@@
+- `mise run msl:diff-frontend` と同じ `diff-frontend`（`flock` つき、作ったバイナリを写して回した。共有 target の `release/xtask` は他の worktree に上書きされるため）: MSL の例題 566 本（S334 → S336）で、平らにできた 471 → **477**、Rumoca も通った 463 → 468 本で名前 463/463 → **468/468**・方程式の数 451/463 → **457/468**、DAE 471 → **477/477**、`composite-binding` 25 → **0**、`unsized-array` 28 → 47（19 本が移った）。**回帰 0 本、改善 7 本**。`GlobeModeValidation` 75 本は変わらない（73/73・73/73・73/73・正則 72/72）。1348 s、最大 RSS 5.4 GiB。
+- 1 回目の `msl:diff-frontend` は 2800 s かけたが、`cargo xtask` が他の worktree のバイナリを使っていて（cargo の fingerprint が worktree 間で共有され、ソースの mtime がその build より古いと「最新」と見なされる）自前の変更が入っていなかった（`composite-binding` 25 のまま）。touch して作り直し、バイナリを写して回し直した。
+- 前回の JSON（S334 の 641 本）は S335 の worktree の `target/frontend-diff.json` から写した（S334 の worktree は片付いていた）。
+- `cargo test -p globe-mode-flat -p globe-mode-dae -p globe-mode-frontend -p globe-mode-lsp` 通過（flat 37・dae 13・frontend・lsp 71）、`cargo clippy -p globe-mode-flat -p xtask --all-targets -- -D warnings` 0 件、fmt 済み。
+- `check_docs.py`: 全デッキ OK、相対リンク 5199 件中の切れ 0 件。`render_slides.py`（S336 のデッキだけ）: 問題 0 件。ステージした差分にメールアドレス・ホームのパス・トークンは 0 件。セッション記録はコピーしていない（専用の記録が `log/local/` に無い）。
 
 ## 残したこと
 
-@@LEFT@@
+- `unsized-array` 47 本（S335）。25 本のうち 19 本はここで止まる。S335 と結合したあとで、方程式の数 7 本の比較をやり直す。
+- 内包の添字が 2 つ以上、`Complex` の関数に配列を渡す式。
+- /tmp（tmpfs 3.9 GB）が他の担当の xtask のコピー（`xtask-s337` は 783 MB）などで一時的に満杯になった。自分の分は消した。

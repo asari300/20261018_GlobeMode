@@ -44,10 +44,11 @@ MSL 4.1.0 の例題 566 本での推移（括弧は「一致した本数 / 母�
 | S332（S329 と S330 を合わせた） | 471（DAE にできた 471/471） | 463（463/463・435/463） | 334（297/334・297/334・294/334・296/334） |
 | S333 | 471 | 463（463/463・449/463） | 334（332/334・332/334・332/334・301/334） |
 | S334 | 471 | 463（463/463・451/463） | 334（334/334・334/334・332/334・334/334） |
+| S336 | 477（DAE にできた 477/477） | 468（468/468・457/468） | 334（334/334・334/334・332/334・334/334。新しい 6 本は Rumoca の釣り合いが無い） |
 
 - parse は MSL の例題 566/566（S300 の時点も今も）、resolve は未解決 0 が 467/566（S300 の時点も今も。残る 99 本はすべて `Redeclare`）。`GlobeModeValidation` 75 本は S334 で、Rumoca も通った 73 本の名前・方程式の数・判定・数・状態が 73/73、正則が 72/72。
-- 断る理由の残り（S334。95 本、最初の理由だけ数える）: `unsized-array` 28・`composite-binding` 25・`stream` 21・`connect` 9・`non-constant-dim` 6・`expandable` 4・`connect-array` 1・`non-constant-for` 1。
-- 方程式の数が合わない 12 本は、Rotational・Translational の摩擦・歯車の 10 本（S330 が Rumoca の数え方の誤りと確かめ、S331 が最新の release v0.10.4 では直ると確かめた。[upstream.md](../upstream.md) の下書き 36）、`ActuatorWithNoise`（同じ表の数え方）、`ShowTransferFunction`（14 対 16、【原因未確認】）。状態の数が合わない 2 本は `IMC_DCBraking`・`IMC_Initialize`（Electrical.Machines）。
+- 断る理由の残り（S336。89 本、最初の理由だけ数える）: `unsized-array` 47（S336 で `composite-binding` の 25 本のうち 19 本がここで止まる。S335 が直している）・`stream` 21・`connect` 9・`non-constant-dim` 6・`expandable` 4・`connect-array` 1・`non-constant-for` 1。`composite-binding` は 0。
+- 方程式の数が合わない 11 本は、Rotational・Translational の摩擦・歯車の 10 本（S330 が Rumoca の数え方の誤りと確かめ、S331 が最新の release v0.10.4 では直ると確かめた。[upstream.md](../upstream.md) の下書き 36）と `ActuatorWithNoise`（同じ表の数え方）。`ShowTransferFunction`（14 対 16）は S336 で内包の方程式の数を直して一致した。状態の数が合わない 2 本は `IMC_DCBraking`・`IMC_Initialize`（Electrical.Machines）。
 
 付記の案内（主題ごと）:
 
@@ -55,7 +56,7 @@ MSL 4.1.0 の例題 566 本での推移（括弧は「一致した本数 / 母�
 | --- | --- |
 | B1 構文 | 本文、S269 |
 | B2 名前の解決 | S272、S275 |
-| B3 flatten | S278、S284、S297、S312、S324、S329、S333、S334 |
+| B3 flatten | S278、S284、S297、S312、S324、S329、S333、S334、S336 |
 | B4 DAE | S290、S312、S325、S330、S332（計測と、名前・数の食い違いの原因） |
 | 製品へのつなぎ | S276（アウトライン・折りたたみ）、S279（補完）、S296（定義ジャンプ・ホバー）、S305（`globe check --frontend native`）、S307（閉包だけを読む）、S311（位置）、S313（CLI 以外から選ぶ）、S320（#111・#113〜#116）、S327（#118） |
 | 突き合わせ | S300（`cargo xtask diff-frontend`） |
@@ -155,7 +156,7 @@ roadmap の要約で外した、古くなっていた「残り」: 診断の `GM
 - **断った理由の内訳**（MSL の例題 566 本、最初の理由だけ数える。S284 → S297）: `redeclare` 263 → 0、`replaceable` 9 → 0、`class extends` 11 → 0、配列の型 13 → 0、レコードの束縛 41 → 155（先へ進んだ分。`frictionParameters = dcpmData.frictionParameters`〔後ろで宣言したレコード〕46、外部オブジェクト `tableID` 29、関数の戻り値のレコード `R = Frames.nullRotation()` 27、配列のレコード 11 ほか）、配列のコネクタの一括接続 7 → 72（`source.sineVoltage.p` のように部品の配列の同名のコネクタをまとめてつなぐ形）、`[:]` 13 → 20、条件つきの宣言 6 → 19（条件に配列の修飾つきの `useHeatPort` や文字列の比較）、`connect` の集合の不一致 7 → 8、配列の修飾 0 → 8、`expandable` 2、`stream` 1。
 - **持ち越し**: 後ろで宣言したレコードを欄ごとの修飾にするための宣言順の入れ替え（46 本）、関数の戻り値のレコード・外部オブジェクト、配列のコネクタの一括接続（72 本）、`Connections.isRoot` の評価、`xtask diff-frontend` への組み込み、B4（DAE）。
 
-## 付記（S336）: B3 の続き、`Complex` の配列の束縛を要素ごとに（`composite-binding` 25 → 0）
+## 付記（S336）: B3 の続き、`Complex` の配列の束縛を要素ごとに（`composite-binding` 25 → 0、平らにできた 471 → 477）
 
 新しい ADR は立てず、S329 の続きとしてここに足す。変えたのは `globe-mode-flat`（`flatten.rs`）の中と、`xtask diff-frontend --dump`（自前が断ったときも Rumoca の flat を印字する）だけ。S334 の後に残った断る理由 `composite-binding` の 25 本（MSL の例題 566 本。最初の理由）を、原因ごとに分けて減らした。
 
@@ -166,7 +167,10 @@ roadmap の要約で外した、古くなっていた「残り」: 診断の `GM
 - **内包 `{e for i in r}` の方程式の数**（`shape` の `Expr::Array`、`comp_len`）: 範囲の長さの積。これまでは項が 1 つとして 1 本と数えていた。Rumoca は `c = {a[k]*b[k] for k in 1:3}`（`Complex c[3]`）を 3 本と数える（`GlobeModeValidation` に置いて確かめた）。`Complex` の配列の方程式も Rumoca は要素の数で数える（`c = a - b` は 3 本。実部・虚部の 6 本ではない）。
 - **試験**: `globe-mode-flat` に 2 本（`complex_arrays_expand_elementwise`〔内包・部品の配列を通した欄の差と参照・関数の戻り値の 2 次元・`fill`・レコードの配列の内包の修飾〕、`comprehension_equation_counts_its_range`）。
 - **shortcut**: 内包は添字が 1 つのものだけ（`{… for i in a, j in b}` は断る。MSL の例題では出ない）。`index_leaf` は葉の名前から配列を探すので、`Complex` を返す関数の配列の引数（`conj(u)` の `u` が配列）は見ない（断る）。要素の式の中の条件 `if c then …` の `c` が配列のときも見ない（MSL の例題では `useConjugateInput[k]` と添字つき）。
-- **S335（`unsized-array`）との関係**: 25 本のうち 19 本（`indexNonPos[:] = f(m)` の `Modelica.Electrical.Polyphase.Functions.indexNonPositiveSequence` を持つ Machines の例題）は、`composite-binding` の先で `unsized-array` で止まる。S335 を取り込んだ仮の結合では 25 本すべてが平らになった（Rumoca の flat まで通ったのは 7 本で、名前の集合は 7/7）。
+- **S335（`unsized-array`）との関係**: 25 本のうち 19 本（`indexNonPos[:] = f(m)` の `Modelica.Electrical.Polyphase.Functions.indexNonPositiveSequence` を持つ Machines の例題）は、`composite-binding` の先で `unsized-array` で止まる。S335 の WIP を仮に結合して（コミットせず）確かめると 25 本すべてが平らになった（Rumoca の flat まで通ったのは 7 本で、名前の集合は 7/7）。そのとき、部品の配列を通した欄の方程式 `plug_p.pin.i + plug_n.pin.i = fill(Complex(0), m)` の数が 3 から 1 に減る問題が見つかった（S335 の `var_dims` の新しい分岐が `pin.i` に `Some([])` を返していた）。S335 は同じ原因を自分の WIP で直していた（宣言が後ろの部品の欄は、まだ平らにしていない配列でない部品だけにする）。
+- **Rumoca の flat との突き合わせ**（MSL の例題 566 本、`mise run msl:diff-frontend` と同じ `diff-frontend` を回した。S334 → S336。`GlobeModeValidation` 75 本は変わらず）: 自前で平らにできた **471 → 477**（`composite-binding` の 25 本のうち 6 本。ほかの 19 本は `unsized-array` に移った）、Rumoca の flat まで通った 463 → **468** 本で名前の集合 463/463 → **468/468**・方程式の数 451/463 → **457/468**（新しく比べられた 5 本が一致、内包の数え方で `ShowTransferFunction` が一致。残り 11 本は S334 から変わらず、Rumoca の数え方の誤りとみている）、DAE にできた 471 → **477/477**。Rumoca の釣り合いまで通った本数は 334 のまま（新しい 6 本は Rumoca が釣り合いまで通らない）で、判定・方程式と未知数の数・構造の正則は 334/334、状態の数は 332/334（`IMC_DCBraking`・`IMC_Initialize`。S337 の担当）。**回帰 0 本、改善 7 本**。1348 s、最大 RSS 5.4 GiB。
+- **断った理由の内訳**（最初の理由。S334 → S336）: `composite-binding` 25 → **0**、`unsized-array` 28 → **47**（19 本が移った）、`stream` 21、`connect` 9、`non-constant-dim` 6、`expandable` 4、`connect-array` 1、`non-constant-for` 1。
+- **持ち越し**: `unsized-array` 47 本（S335）、内包の添字が 2 つ以上・`Complex` を返す関数に配列を渡す式、S335 と合わせた 25 本のうち Rumoca が flat まで通るのは 7 本だけで（上の仮の結合）、残り 18 本は Rumoca と名前・方程式の数を比べられない（Rumoca の側の限界）。
 
 ## 付記（S334）: 構造の正則の不一致 33 本と `PrismaticConstraint`・`Fourbar1` の方程式の数（MultiBody）
 
