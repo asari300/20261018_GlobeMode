@@ -4,15 +4,53 @@
 
 ## 前回の結果との差
 
-前回の結果が無かったので、差は書かない。
+前回の結果 `target/frontend-diff.json` と、両方にある 641 本で比べる（この実行にだけある 0 本、前回にだけある 0 本）。
+**回帰 0 本**（前回は通った項目が通らなくなった）、改善 36 本。
+
+- 改善 `Modelica.Clocked.Examples.Elementary.RealSignals.SampleWithADeffects`: flat_eqs・balance・counts
+- 改善 `Modelica.Clocked.Examples.Elementary.RealSignals.UniformNoise`: flat_eqs・balance・counts
+- 改善 `Modelica.Clocked.Examples.Elementary.RealSignals.UniformNoiseXorshift64star`: flat_eqs・balance・counts
+- 改善 `Modelica.Clocked.Examples.SimpleControlledDrive.ClockedWith_AD_DA_Effects`: flat_eqs・balance・counts
+- 改善 `Modelica.ComplexBlocks.Examples.TestConversionBlock`: balance・counts・regular
+- 改善 `Modelica.Electrical.Analog.Examples.GenerationOfFMUs`: states
+- 改善 `Modelica.Electrical.Analog.Examples.ResonanceCircuits`: states
+- 改善 `Modelica.Electrical.Batteries.Examples.SuperCapDischargeCharge`: flat_eqs・balance・counts・regular
+- 改善 `Modelica.Electrical.Machines.Examples.DCMachines.DCPM_Drive`: flat_eqs・balance・counts・states・regular
+- 改善 `Modelica.Electrical.Machines.Examples.DCMachines.DC_CompareCharacteristics`: flat_eqs・balance・counts・states・regular
+- 改善 `Modelica.Electrical.QuasiStatic.SinglePhase.Examples.ParallelResonance`: flat_eqs
+- 改善 `Modelica.Electrical.QuasiStatic.SinglePhase.Examples.SeriesResonance`: flat_eqs
+- 改善 `Modelica.Magnetic.QuasiStatic.FluxTubes.Examples.BasicExamples.QuadraticCoreAirgap`: flat_eqs
+- 改善 `Modelica.Magnetic.QuasiStatic.FluxTubes.Examples.BasicExamples.ToroidalCoreAirgap`: flat_eqs
+- 改善 `Modelica.Magnetic.QuasiStatic.FluxTubes.Examples.BasicExamples.ToroidalCoreQuadraticCrossSection`: flat_eqs
+- 改善 `Modelica.Magnetic.QuasiStatic.FluxTubes.Examples.FixedShapes.CuboidSections`: flat_eqs
+- 改善 `Modelica.Magnetic.QuasiStatic.FluxTubes.Examples.FixedShapes.CylinderSections`: flat_eqs
+- 改善 `Modelica.Magnetic.QuasiStatic.FluxTubes.Examples.Leakage.CylinderLeakage`: flat_eqs
+- 改善 `Modelica.Magnetic.QuasiStatic.FluxTubes.Examples.Leakage.GeneralLeakage`: flat_eqs
+- 改善 `Modelica.Magnetic.QuasiStatic.FluxTubes.Examples.LinearInductor`: flat_eqs
+- 改善 `Modelica.Magnetic.QuasiStatic.FluxTubes.Examples.NonLinearInductor`: flat_eqs
+- 改善 `Modelica.Mechanics.Rotational.Examples.GenerationOfFMUs`: flat_eqs
+- 改善 `Modelica.Mechanics.Translational.Examples.GenerationOfFMUs`: states
+- 改善 `Modelica.Media.Examples.SimpleLiquidWater`: balance・counts・regular
+- 改善 `Modelica.Media.Examples.WaterIF97`: balance・counts
+- 改善 `Modelica.Thermal.FluidHeatFlow.Examples.IndirectCooling`: states
+- 改善 `Modelica.Thermal.FluidHeatFlow.Examples.OneMass`: states
+- 改善 `Modelica.Thermal.FluidHeatFlow.Examples.ParallelCooling`: states
+- 改善 `Modelica.Thermal.FluidHeatFlow.Examples.ParallelPumpDropOut`: states
+- 改善 `Modelica.Thermal.FluidHeatFlow.Examples.PumpAndValve`: states
+- 改善 `Modelica.Thermal.FluidHeatFlow.Examples.PumpDropOut`: states
+- 改善 `Modelica.Thermal.FluidHeatFlow.Examples.SimpleCooling`: states
+- 改善 `Modelica.Thermal.FluidHeatFlow.Examples.TwoMass`: states
+- 改善 `Modelica.Thermal.FluidHeatFlow.Examples.TwoTanks`: states
+- 改善 `Modelica.Thermal.FluidHeatFlow.Examples.WaterPump`: states
+- 改善 `Modelica.Thermal.HeatTransfer.Examples.GenerationOfFMUs`: states
 
 | | |
 | --- | --- |
 | MSL | 4.1.0（sha256 `5409cfa17797…`） |
 | Rumoca | v0.10.2（rev `276e82bd`、ライブラリとして呼ぶ） |
 | 検査した本数 | 641 本 |
-| 時間 | 全体 317 s（1 本ずつの検査 296 s） |
-| 最大の常駐メモリ（VmHWM） | 1.2 GiB |
+| 時間 | 全体 241 s（1 本ずつの検査 213 s） |
+| 最大の常駐メモリ（VmHWM） | 1.1 GiB |
 
 自前の parse・resolve・flat・dae を、Rumoca は自前で平らにできたものにだけ呼んで比べる（母数はその本数）。
 resolve は、例題のクラスから、中のクラス・`extends`・部品の型（解決できたもの）をたどって、届くクラスすべての参照を数える。
@@ -26,13 +64,13 @@ resolve は、例題のクラスから、中のクラス・`extends`・部品の
 | flat | 自前で平らにできた | 279 | 566 |
 | flat | Rumoca も flat まで通った（比べられた本数） | 273 | 279 |
 | flat | 変数の名前の集合が Rumoca の flat と一致 | 273 | 273 |
-| flat | 方程式の数が Rumoca の flat と一致 | 254 | 273 |
+| flat | 方程式の数が Rumoca の flat と一致 | 273 | 273 |
 | dae | 自前で DAE にできた | 279 | 279 |
 | dae | Rumoca も釣り合いまで通った（比べられた本数） | 201 | 279 |
-| dae | 釣り合いの判定（釣り合う / 釣り合わない）が一致 | 191 | 201 |
-| dae | 方程式と未知数の数が一致 | 191 | 201 |
-| dae | 状態の数が一致 | 185 | 201 |
-| dae | 構造が正則かの判定が一致（Rumoca の構造が取れたもの） | 179 | 201 |
+| dae | 釣り合いの判定（釣り合う / 釣り合わない）が一致 | 201 | 201 |
+| dae | 方程式と未知数の数が一致 | 201 | 201 |
+| dae | 状態の数が一致 | 201 | 201 |
+| dae | 構造が正則かの判定が一致（Rumoca の構造が取れたもの） | 184 | 201 |
 
 未解決の参照の総数: 1330
 
@@ -95,63 +133,15 @@ flat の理由（本数の多い順）:
 - `Modelica.Clocked.Examples.CascadeControlledDrive.SuperSampled`: dae: 正則 自前 false / rumoca true
 - `Modelica.Clocked.Examples.Elementary.RealSignals.AssignClock`: dae: 正則 自前 false / rumoca true
 - `Modelica.Clocked.Examples.Elementary.RealSignals.AssignClockVectorized`: dae: 正則 自前 false / rumoca true
-- `Modelica.Clocked.Examples.Elementary.RealSignals.SampleWithADeffects`: flat: eq 21 vs 23 (rumoca); vars 50 vs 50; only mine []; only rumoca []
-- `Modelica.Clocked.Examples.Elementary.RealSignals.SampleWithADeffects`: dae: eq 19 vs 21, unk 21 vs 21 (rumoca); states 0 vs 0, discrete 4 vs 18
 - `Modelica.Clocked.Examples.Elementary.RealSignals.SampleWithADeffects`: dae: 正則 自前 false / rumoca true
-- `Modelica.Clocked.Examples.Elementary.RealSignals.UniformNoise`: flat: eq 10 vs 12 (rumoca); vars 20 vs 20; only mine []; only rumoca []
-- `Modelica.Clocked.Examples.Elementary.RealSignals.UniformNoise`: dae: eq 7 vs 9, unk 9 vs 9 (rumoca); states 0 vs 0, discrete 3 vs 7
 - `Modelica.Clocked.Examples.Elementary.RealSignals.UniformNoise`: dae: 正則 自前 false / rumoca true
-- `Modelica.Clocked.Examples.Elementary.RealSignals.UniformNoiseXorshift64star`: flat: eq 10 vs 11 (rumoca); vars 21 vs 21; only mine []; only rumoca []
-- `Modelica.Clocked.Examples.Elementary.RealSignals.UniformNoiseXorshift64star`: dae: eq 7 vs 8, unk 8 vs 8 (rumoca); states 0 vs 0, discrete 2 vs 6
 - `Modelica.Clocked.Examples.Elementary.RealSignals.UniformNoiseXorshift64star`: dae: 正則 自前 false / rumoca true
 - `Modelica.Clocked.Examples.Elementary.RealSignals.UpSample1`: dae: 正則 自前 false / rumoca true
 - `Modelica.Clocked.Examples.Elementary.RealSignals.UpSample2`: dae: 正則 自前 false / rumoca true
 - `Modelica.Clocked.Examples.SimpleControlledDrive.ClockedWithDiscreteController`: dae: 正則 自前 false / rumoca true
 - `Modelica.Clocked.Examples.SimpleControlledDrive.ClockedWithDiscreteTextbookController`: dae: 正則 自前 false / rumoca true
-- `Modelica.Clocked.Examples.SimpleControlledDrive.ClockedWith_AD_DA_Effects`: flat: eq 64 vs 66 (rumoca); vars 120 vs 120; only mine []; only rumoca []
-- `Modelica.Clocked.Examples.SimpleControlledDrive.ClockedWith_AD_DA_Effects`: dae: eq 66 vs 68, unk 68 vs 68 (rumoca); states 3 vs 3, discrete 6 vs 47
 - `Modelica.Clocked.Examples.SimpleControlledDrive.ClockedWith_AD_DA_Effects`: dae: 正則 自前 false / rumoca true
 - `Modelica.Clocked.Examples.SimpleControlledDrive.ExactlyClockedWithDiscreteController`: dae: 正則 自前 false / rumoca true
 - `Modelica.Clocked.Examples.Systems.EngineThrottleControl`: dae: 正則 自前 false / rumoca true
-- `Modelica.ComplexBlocks.Examples.TestConversionBlock`: dae: eq 9 vs 10, unk 10 vs 10 (rumoca); states 0 vs 0, discrete 0 vs 0
-- `Modelica.ComplexBlocks.Examples.TestConversionBlock`: dae: 正則 自前 false / rumoca true
-- `Modelica.Electrical.Analog.Examples.GenerationOfFMUs`: dae: eq 306 vs 306, unk 306 vs 306 (rumoca); states 32 vs 10, discrete 0 vs 0
-- `Modelica.Electrical.Analog.Examples.ResonanceCircuits`: dae: eq 252 vs 252, unk 252 vs 252 (rumoca); states 28 vs 10, discrete 0 vs 0
-- `Modelica.Electrical.Batteries.Examples.SuperCapDischargeCharge`: flat: eq 71 vs 72 (rumoca); vars 118 vs 118; only mine []; only rumoca []
-- `Modelica.Electrical.Batteries.Examples.SuperCapDischargeCharge`: dae: eq 76 vs 77, unk 77 vs 77 (rumoca); states 2 vs 2, discrete 3 vs 3
-- `Modelica.Electrical.Batteries.Examples.SuperCapDischargeCharge`: dae: 正則 自前 false / rumoca true
-- `Modelica.Electrical.Machines.Examples.DCMachines.DCPM_Drive`: flat: eq 597 vs 601 (rumoca); vars 997 vs 997; only mine []; only rumoca []
-- `Modelica.Electrical.Machines.Examples.DCMachines.DCPM_Drive`: dae: eq 667 vs 671, unk 671 vs 671 (rumoca); states 34 vs 37, discrete 5 vs 5
-- `Modelica.Electrical.Machines.Examples.DCMachines.DCPM_Drive`: dae: 正則 自前 false / rumoca true
-- `Modelica.Electrical.Machines.Examples.DCMachines.DC_CompareCharacteristics`: flat: eq 544 vs 548 (rumoca); vars 1095 vs 1095; only mine []; only rumoca []
-- `Modelica.Electrical.Machines.Examples.DCMachines.DC_CompareCharacteristics`: dae: eq 662 vs 666, unk 666 vs 666 (rumoca); states 38 vs 33, discrete 0 vs 0
-- `Modelica.Electrical.Machines.Examples.DCMachines.DC_CompareCharacteristics`: dae: 正則 自前 false / rumoca true
-- `Modelica.Electrical.QuasiStatic.SinglePhase.Examples.ParallelResonance`: flat: eq 80 vs 75 (rumoca); vars 148 vs 148; only mine []; only rumoca []
-- `Modelica.Electrical.QuasiStatic.SinglePhase.Examples.SeriesResonance`: flat: eq 77 vs 75 (rumoca); vars 148 vs 148; only mine []; only rumoca []
-- `Modelica.Magnetic.QuasiStatic.FluxTubes.Examples.BasicExamples.QuadraticCoreAirgap`: flat: eq 203 vs 197 (rumoca); vars 369 vs 369; only mine []; only rumoca []
-- `Modelica.Magnetic.QuasiStatic.FluxTubes.Examples.BasicExamples.ToroidalCoreAirgap`: flat: eq 137 vs 132 (rumoca); vars 240 vs 240; only mine []; only rumoca []
-- `Modelica.Magnetic.QuasiStatic.FluxTubes.Examples.BasicExamples.ToroidalCoreQuadraticCrossSection`: flat: eq 137 vs 132 (rumoca); vars 243 vs 243; only mine []; only rumoca []
-- `Modelica.Magnetic.QuasiStatic.FluxTubes.Examples.FixedShapes.CuboidSections`: flat: eq 112 vs 110 (rumoca); vars 212 vs 212; only mine []; only rumoca []
-- `Modelica.Magnetic.QuasiStatic.FluxTubes.Examples.FixedShapes.CylinderSections`: flat: eq 105 vs 104 (rumoca); vars 198 vs 198; only mine []; only rumoca []
-- `Modelica.Magnetic.QuasiStatic.FluxTubes.Examples.Leakage.CylinderLeakage`: flat: eq 154 vs 150 (rumoca); vars 275 vs 275; only mine []; only rumoca []
-- `Modelica.Magnetic.QuasiStatic.FluxTubes.Examples.Leakage.GeneralLeakage`: flat: eq 52 vs 51 (rumoca); vars 96 vs 96; only mine []; only rumoca []
-- `Modelica.Magnetic.QuasiStatic.FluxTubes.Examples.LinearInductor`: flat: eq 204 vs 200 (rumoca); vars 348 vs 348; only mine []; only rumoca []
-- `Modelica.Magnetic.QuasiStatic.FluxTubes.Examples.NonLinearInductor`: flat: eq 288 vs 284 (rumoca); vars 529 vs 529; only mine []; only rumoca []
-- `Modelica.Mechanics.Rotational.Examples.GenerationOfFMUs`: flat: eq 210 vs 214 (rumoca); vars 266 vs 266; only mine []; only rumoca []
-- `Modelica.Mechanics.Translational.Examples.GenerationOfFMUs`: dae: eq 201 vs 201, unk 201 vs 201 (rumoca); states 33 vs 17, discrete 0 vs 0
-- `Modelica.Media.Examples.SimpleLiquidWater`: dae: eq 33 vs 34, unk 36 vs 34 (rumoca); states 4 vs 4, discrete 0 vs 0
-- `Modelica.Media.Examples.SimpleLiquidWater`: dae: 正則 自前 false / rumoca true
-- `Modelica.Media.Examples.WaterIF97`: dae: eq 26 vs 34, unk 35 vs 34 (rumoca); states 5 vs 5, discrete 4 vs 4
 - `Modelica.Media.Examples.WaterIF97`: dae: 正則 自前 false / rumoca true
-- `Modelica.Thermal.FluidHeatFlow.Examples.IndirectCooling`: dae: eq 169 vs 169, unk 169 vs 169 (rumoca); states 6 vs 4, discrete 0 vs 0
-- `Modelica.Thermal.FluidHeatFlow.Examples.OneMass`: dae: eq 79 vs 79, unk 79 vs 79 (rumoca); states 3 vs 2, discrete 0 vs 0
-- `Modelica.Thermal.FluidHeatFlow.Examples.ParallelCooling`: dae: eq 144 vs 144, unk 144 vs 144 (rumoca); states 6 vs 5, discrete 0 vs 0
-- `Modelica.Thermal.FluidHeatFlow.Examples.ParallelPumpDropOut`: dae: eq 149 vs 149, unk 149 vs 149 (rumoca); states 6 vs 5, discrete 0 vs 0
-- `Modelica.Thermal.FluidHeatFlow.Examples.PumpAndValve`: dae: eq 111 vs 111, unk 111 vs 111 (rumoca); states 5 vs 4, discrete 0 vs 0
-- `Modelica.Thermal.FluidHeatFlow.Examples.PumpDropOut`: dae: eq 85 vs 85, unk 85 vs 85 (rumoca); states 3 vs 2, discrete 0 vs 0
-- `Modelica.Thermal.FluidHeatFlow.Examples.SimpleCooling`: dae: eq 80 vs 80, unk 80 vs 80 (rumoca); states 3 vs 2, discrete 0 vs 0
-- `Modelica.Thermal.FluidHeatFlow.Examples.TwoMass`: dae: eq 137 vs 137, unk 137 vs 137 (rumoca); states 6 vs 5, discrete 0 vs 0
-- `Modelica.Thermal.FluidHeatFlow.Examples.TwoTanks`: dae: eq 50 vs 50, unk 50 vs 50 (rumoca); states 5 vs 4, discrete 0 vs 0
-- `Modelica.Thermal.FluidHeatFlow.Examples.WaterPump`: dae: eq 127 vs 127, unk 127 vs 127 (rumoca); states 6 vs 3, discrete 3 vs 3
-- `Modelica.Thermal.HeatTransfer.Examples.GenerationOfFMUs`: dae: eq 102 vs 102, unk 102 vs 102 (rumoca); states 16 vs 5, discrete 0 vs 0
 
