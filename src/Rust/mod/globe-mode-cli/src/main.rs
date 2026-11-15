@@ -111,7 +111,7 @@ enum Command {
         after_help = "例:\n  globe graph model.mo -m RC\n  globe graph src/Modelica/GlobeModeExamples -m GlobeModeExamples.RC --depth 2 --json\n  globe graph -L data/msl -m Modelica.Electrical.Analog.Examples.ChuaCircuit"
     )]
     Graph {
-        /// ファイルまたはディレクトリ（ディレクトリは下の .mo をすべて読む）。モデルがライブラリの中にあるなら省略できる
+        /// ファイルまたはディレクトリ（ディレクトリは下の .mo を、隠しディレクトリを除いてすべて読む）。モデルがライブラリの中にあるなら省略できる
         #[arg(required_unless_present = "library")]
         inputs: Vec<PathBuf>,
         /// ライブラリのディレクトリ（例: data/msl）。何度でも指定できる
@@ -132,7 +132,7 @@ enum Command {
         after_help = "例:\n  globe check model.mo -m RC\n  globe check -L data/msl -m Modelica.Blocks.Examples.PID_Controller\n  globe check model.mo -m RC --json\n\ninfo の診断は件数だけ出す。-v で全部表示する。--json は info も含む"
     )]
     Check {
-        /// 検査するファイルまたはディレクトリ（ディレクトリは下の .mo をすべて読む）。
+        /// 検査するファイルまたはディレクトリ（ディレクトリは下の .mo を、隠しディレクトリを除いてすべて読む）。
         /// モデルがライブラリの中にあるなら省略できる
         #[arg(required_unless_present = "library")]
         files: Vec<PathBuf>,
@@ -207,7 +207,7 @@ enum Command {
         after_help = "例:\n  globe deps src/Modelica/GlobeModeExamples -m GlobeModeExamples.RC\n  globe deps -L data/msl -m Modelica.Electrical.Analog.Examples.ChuaCircuit\n  globe deps model.mo -L data/msl -m RC"
     )]
     Deps {
-        /// ファイルまたはディレクトリ（ディレクトリは下の .mo をすべて読む）。モデルがライブラリの中にあるなら省略できる
+        /// ファイルまたはディレクトリ（ディレクトリは下の .mo を、隠しディレクトリを除いてすべて読む）。モデルがライブラリの中にあるなら省略できる
         #[arg(required_unless_present = "library")]
         inputs: Vec<PathBuf>,
         /// ライブラリのディレクトリ（例: data/msl）。何度でも指定できる。ライブラリのファイルも閉包に含める
@@ -662,22 +662,12 @@ fn main() -> ExitCode {
 /// 文書として読む。Rumoca v0.10.2 は、ライブラリとして読んだクラスから別のライブラリ（MSL）を
 /// extends できない（S004 で確かめた）ため。
 fn expand_inputs(inputs: &[PathBuf]) -> Result<Vec<PathBuf>, ExitCode> {
-    fn walk(dir: &std::path::Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
-        for entry in std::fs::read_dir(dir)? {
-            let p = entry?.path();
-            if p.is_dir() {
-                walk(&p, out)?;
-            } else if p.extension().is_some_and(|e| e == "mo") {
-                out.push(p);
-            }
-        }
-        Ok(())
-    }
     let mut out = Vec::new();
     for input in inputs {
         if input.is_dir() {
             let mut found = Vec::new();
-            if let Err(e) = walk(input, &mut found) {
+            // 走査は frontend のもの（隠しディレクトリ `.history/` は読まない。`fmt`・LSP と同じ規則。S357 の D-3）
+            if let Err(e) = globe_mode::collect_mo_files(input, &mut found) {
                 eprintln!("error: {}", io_error(input, false, &e));
                 return Err(ExitCode::from(2));
             }

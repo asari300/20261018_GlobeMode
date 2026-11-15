@@ -466,3 +466,20 @@ fn help_lists_the_exit_codes() {
     }
     assert!(text.contains("未対応"), "{text}");
 }
+
+/// S357（#42 の D-3）: ディレクトリの入力は、`fmt`・LSP と同じく隠しディレクトリを読まない。
+/// `.history/`（VS Code の Local History）の写しが同じクラスの二重（EM001）にならない。
+#[test]
+fn check_dir_input_skips_hidden_directories() {
+    let d = work("hidden-dir");
+    fs::create_dir_all(d.join(".history")).unwrap();
+    fs::write(d.join("Decay.mo"), DECAY_SRC).unwrap();
+    // 内容が違う同名のクラス: 読めば Duplicate class（GM-E1001）で NG になる
+    fs::write(
+        d.join(".history/Decay_old.mo"),
+        DECAY_SRC.replace("-x", "-2 * x"),
+    )
+    .unwrap();
+    let o = globe(&["check", s(&d), "-m", "Decay"]);
+    assert_eq!(o.status.code(), Some(0), "{}{}", out(&o), err(&o));
+}
