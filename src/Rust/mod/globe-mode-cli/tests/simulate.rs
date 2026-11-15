@@ -176,3 +176,46 @@ fn missing_files_and_library_suggests_the_library_form() {
         "{err}"
     );
 }
+
+/// S322: `--solvers` で複数のソルバを回して比べる。-o はディレクトリで、ソルバごとの CSV を書く。
+/// 比較が不合格なら終了コード 1、最大次数を持たないソルバには注記が出る。
+#[test]
+fn solvers_run_many_and_compare_with_an_exit_code() {
+    let dir = out_path("many");
+    let _ = std::fs::remove_dir_all(&dir);
+    let o = simulate(
+        "Decay",
+        &[
+            "--solvers",
+            "bdf,esdirk34,tsit45",
+            "--parallel",
+            "--compare",
+            "4",
+            "--tolerance",
+            "1e-9",
+            "--max-order",
+            "3",
+            "-o",
+            dir.to_str().unwrap(),
+        ],
+    );
+    let text = stdout(&o);
+    assert!(o.status.success(), "{text}\n{}", String::from_utf8_lossy(&o.stderr));
+    assert!(text.contains("3 ソルバ") && text.contains("合格"), "{text}");
+    assert!(text.contains("最大次数"), "{text}");
+    for s in ["bdf", "esdirk34", "tsit45"] {
+        assert!(dir.join(format!("{s}.csv")).is_file(), "{s}");
+    }
+    // 陽的 Euler は管の幅 1e-6 に収まらない → 終了コード 1、--json は comparison.passed が false
+    let o = simulate(
+        "Decay",
+        &["--solvers", "tsit45,euler", "--compare", "6", "--json"],
+    );
+    assert_eq!(o.status.code(), Some(1), "{o:?}");
+    let v: serde_json::Value = serde_json::from_slice(&o.stdout).unwrap();
+    assert_eq!(v["comparison"]["passed"], false);
+    assert_eq!(v["runs"][1]["solver"], "euler");
+    // --solver との併用は使い方の誤り
+    let o = simulate("Decay", &["--solvers", "bdf", "--solver", "rk4"]);
+    assert_eq!(o.status.code(), Some(2), "{o:?}");
+}
