@@ -428,6 +428,11 @@ impl<'a> Parser<'a> {
                     self.builder
                         .start_node_at(cp, rowan::SyntaxKind(CallExpr as u16));
                     self.function_args();
+                    // レコードを返す関数の値の欄 `f(x).T`（Rumoca の flat の印字）。木では呼び出しの節に含める
+                    while self.at(Dot) && self.nth(1) == Some(Ident) {
+                        self.bump();
+                        self.bump();
+                    }
                     self.finish_node();
                 }
             }

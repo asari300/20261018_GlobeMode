@@ -505,3 +505,17 @@ fn msl_all() {
     );
     assert_eq!((bad_roundtrip, panics), (0, 0));
 }
+
+#[test]
+fn field_after_call_stays_in_the_call() {
+    // Rumoca の flat は `R.T = f(x).T` と印字する
+    let p = parse("model M equation R.T = f(x).T + g(1, 2).a.b; end M;");
+    assert!(p.errors.is_empty(), "{:?}", p.errors);
+    let t = p.syntax();
+    let calls: Vec<_> = t
+        .descendants()
+        .filter_map(ast::CallExpr::cast)
+        .filter_map(|c| c.callee())
+        .collect();
+    assert_eq!(calls, ["f", "g"]);
+}
