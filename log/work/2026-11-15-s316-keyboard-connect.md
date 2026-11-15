@@ -30,7 +30,8 @@ S309 の持ち越し「結線の追加と途中の点をキーボードで行う
 
 - `pnpm test`（VS Code）: 30 件中 29 pass / 1 fail（`globe` が PATH に無い lsp.test.mjs の 1 件。今回の変更とは無関係）。追加の 1 件は pass。
 - `pnpm check`（Svelte）: 0 件。`pnpm build` のあと `diagram_view`（test_ui.py の 1 関数だけ）pass。MSL.json が無いので ChuaCircuit の節は飛ばした。test_ui.py の全体は回していない。
-- `vscode.yml`（3 OS の e2e）: 下に追記。
+- `vscode.yml`（3 OS の e2e）: 1 回目（run 43671854763）は ubuntu で失敗（フィクスチャの Part に Icon のコネクタが無く、図にコネクタが出ないため `wireKey` が入らなかった。e2e は部品の名前に p・n を付けた図で回すよう直した）。2 回目（run 43672686081、feature ブランチ）は ubuntu・windows・macos とも success（追加した e2e を含む）。
+- `check_docs.py`: 切れ 0 件。`render_slides.py`: デッキ 1 件 / 問題 0 件。
 
 ## 残したこと
 
