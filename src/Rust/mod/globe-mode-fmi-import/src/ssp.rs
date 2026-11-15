@@ -9,10 +9,10 @@ use std::path::{Component, Path};
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
-use globe_mode_fmi::ssp::{COSIM_ANNOTATION, SspBinding, parse_ssd, parse_ssv};
+use globe_mode_fmi::ssp::{COSIM_ANNOTATION, MAX_NAME, SspBinding, parse_ssd, parse_ssv};
 use globe_mode_fmi::{Causality, VarType};
 
-use crate::cosim::valid_fmu_name;
+use crate::cosim::valid_fmu_path;
 use crate::{
     Algorithm, CosimSpec, Error, Result, io, read_model_description, read_xml_file, unpack,
 };
@@ -221,6 +221,31 @@ impl Ssp {
         }
         Ok(Ssp { _dir: dir, spec })
     }
+
+    /// 展開した FMU を `dir/<名前>.fmu` に写し、それを指す spec にする（パスは `<名前>.fmu`。spec.json を `dir` に置く前提。S315）。
+    /// `Ssp` は drop で展開先を消すので、JSON に残すには FMU を外に出すしかない。既にあるファイルは上書きしない。
+    pub fn export_spec(&self, dir: &Path) -> Result<CosimSpec> {
+        let mut spec = self.spec.clone();
+        for name in spec.fmus.keys() {
+            // 名前は信頼できない入力: `..`・`/` でフォルダの外に書かせない
+            if !valid_fmu_path(name) {
+                return Err(Error::Ssp(format!("Component の名前 {name:?} が不正")));
+            }
+            let to = dir.join(format!("{name}.fmu"));
+            if to.symlink_metadata().is_ok() {
+                return Err(Error::Ssp(format!(
+                    "{} が既にある（上書きしない）",
+                    to.display()
+                )));
+            }
+        }
+        for (name, p) in &mut spec.fmus {
+            let file = format!("{name}.fmu");
+            std::fs::copy(&*p, dir.join(&file)).map_err(io)?;
+            *p = file.into();
+        }
+        Ok(spec)
+    }
 }
 
 /// XML の属性値に入れる文字列。
@@ -243,12 +268,17 @@ fn var_of<'a>(
     key: &'a str,
 ) -> Result<(&'a str, &'a str, &'a globe_mode_fmi::ScalarVariable)> {
     let err = |m: String| Error::Ssp(m);
-    let (f, v) = key
-        .split_once('.')
-        .ok_or_else(|| err(format!("{key:?} が `<FMU の名前>.<変数名>` の形でない")))?;
-    let d = descs
-        .get(&f.to_owned())
-        .ok_or_else(|| err(format!("{key:?} の FMU {f:?} が `fmus` に無い")))?;
+    // FMU の名前は `.` を含んでよい（S315）ので、一番長く合う名前で割る（`cosim.rs` の `endpoint` と同じ）
+    let (f, v) = descs
+        .keys()
+        .filter_map(|f| Some((f.as_str(), key.strip_prefix(f.as_str())?.strip_prefix('.')?)))
+        .max_by_key(|(f, _)| f.len())
+        .ok_or_else(|| {
+            err(format!(
+                "{key:?} が `<FMU の名前>.<変数名>` の形でないか、FMU が `fmus` に無い"
+            ))
+        })?;
+    let d = &descs[&f.to_owned()];
     let x = d
         .variables
         .iter()
@@ -262,9 +292,11 @@ pub fn write_ssp(spec: &CosimSpec, out: &Path) -> Result<()> {
     let err = |m: String| Error::Ssp(m);
     let mut descs = BTreeMap::new();
     for (name, path) in &spec.fmus {
-        if !valid_fmu_name(name) {
+        // `.` を含む名前（入れ子を平らにしたもの）は平らな Component の名前のまま書く（S315）。SSD の `name` は
+        // `xs:string`（minLength 1 だけ）で `.` を禁じていない。読み取りは名前を 1 つの文字列として扱う
+        if !valid_fmu_path(name) || name.len() > MAX_NAME {
             return Err(err(format!(
-                "FMU の名前 {name:?} が不正（英数字・`_`・`-` だけ）"
+                "FMU の名前 {name:?} が不正（`.` でつないだ英数字・`_`・`-` だけ、{MAX_NAME} バイトまで）"
             )));
         }
         descs.insert(name, read_model_description(path)?);
@@ -475,7 +507,7 @@ mod tests {
         assert_eq!(Ssp::open(&out, None, Some(0.5)).unwrap().spec.step, 0.5);
         // 不正な名前・Real でない結線は書く前に断る
         let mut bad = spec.clone();
-        bad.fmus.insert("x.y".into(), bad.fmus["a"].clone());
+        bad.fmus.insert("x y".into(), bad.fmus["a"].clone());
         assert!(write_ssp(&bad, &out).is_err());
         let mut bad = spec.clone();
         bad.connections = vec![(format!("a.{k}"), format!("b-2.{u}"))];
@@ -485,6 +517,46 @@ mod tests {
                 .to_string()
                 .contains("output")
         );
+    }
+
+    /// S315: 名前に `.` を含む FMU（入れ子を平らにしたもの）は平らな Component のまま書いて読み戻せ、
+    /// `export_spec` で FMU を外に出した spec は（パス以外）元と同じ。
+    #[test]
+    fn dotted_names_stay_flat_and_export_spec_round_trips() {
+        let dir = tempfile::tempdir().unwrap();
+        let var = |n: &str, c: &str| {
+            format!(
+                r#"<ScalarVariable name="{n}" valueReference="0" causality="{c}" variability="continuous"><Real/></ScalarVariable>"#
+            )
+        };
+        let a = fake_fmu(dir.path(), "a", &var("y", "output"));
+        let b = fake_fmu(dir.path(), "b", &var("u", "input"));
+        let spec = CosimSpec {
+            fmus: [("s.a".to_owned(), a), ("s.b".to_owned(), b)].into(),
+            connections: vec![("s.a.y".into(), "s.b.u".into())],
+            stop_time: 1.0,
+            step: 0.5,
+            ..Default::default()
+        };
+        let out = dir.path().join("s.ssp");
+        write_ssp(&spec, &out).unwrap();
+        let ssp = Ssp::open(&out, None, None).unwrap();
+        let to = dir.path().join("out");
+        std::fs::create_dir(&to).unwrap();
+        let got = ssp.export_spec(&to).unwrap();
+        assert_eq!(got.connections, spec.connections);
+        assert_eq!(
+            (got.start_time, got.stop_time, got.step),
+            (Some(0.0), 1.0, 0.5)
+        );
+        assert_eq!(got.fmus.keys().collect::<Vec<_>>(), ["s.a", "s.b"]);
+        assert_eq!(got.fmus["s.a"], std::path::Path::new("s.a.fmu"));
+        assert_eq!(
+            std::fs::read(to.join("s.b.fmu")).unwrap(),
+            std::fs::read(&spec.fmus["s.b"]).unwrap()
+        );
+        // 上書きしない
+        assert!(ssp.export_spec(&to).is_err());
     }
 
     /// S295: Int32・Boolean の結線も書いて読み戻せる。型が違う結線は書く前に断る。
