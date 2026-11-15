@@ -237,27 +237,28 @@ pub fn deviations(
         .collect()
 }
 
-/// 同じ時刻が続く行（イベントの縦の跳び）の時刻のうち、もう一方の時系列では同じ時刻でなく `delta` 以内にずれているもの
-/// （ソルバごとにずれたイベント。時刻の順）。相手が無い・`delta` より遠いイベントは含めない（本物の食い違いなので比べる）
+/// 同じ瞬間（`SAME_INSTANT` 以内）が続く行（イベントの縦の跳び）の時刻のうち、もう一方の時系列では同じ瞬間でなく
+/// `delta` 以内にずれているもの（ソルバごとにずれたイベント。時刻の順）。相手が無い・`delta` より遠いイベントは含めない
+/// （本物の食い違いなので比べる）。Rumoca は同じイベントの行を、浮動小数点の誤差だけ違う時刻で書くことがある
 fn moved_events(a: &[f64], b: &[f64], delta: f64) -> Vec<f64> {
     let events = |t: &[f64]| -> Vec<f64> {
         let mut v: Vec<f64> = t
             .windows(2)
-            .filter(|w| w[0] == w[1])
+            .filter(|w| w[1] - w[0] <= SAME_INSTANT * w[0].abs().max(1.0))
             .map(|w| w[0])
             .collect();
         v.dedup();
         v
     };
     let (ea, eb) = (events(a), events(b));
+    let near = |y: &[f64], t: f64, eps: f64| {
+        y.get(y.partition_point(|&e| e < t - eps))
+            .is_some_and(|&e| e <= t + eps)
+    };
     let only = |x: &[f64], y: &[f64]| -> Vec<f64> {
-        let within = |t: f64| {
-            y.get(y.partition_point(|&e| e < t - delta))
-                .is_some_and(|&e| e <= t + delta)
-        };
         x.iter()
             .copied()
-            .filter(|&t| y.binary_search_by(|e| e.total_cmp(&t)).is_err() && within(t))
+            .filter(|&t| !near(y, t, SAME_INSTANT * t.abs().max(1.0)) && near(y, t, delta))
             .collect()
     };
     let mut out = only(&ea, &eb);
@@ -711,26 +712,29 @@ mod tests {
     #[test]
     fn deviations_skip_points_near_a_moved_event() {
         // 基準は t=1 で 1 → 3 に跳ぶ。試験側は同じ跳びが 1e-7 遅れる（ソルバごとのイベント時刻のずれ）。
-        // 補間が跳びをまたぐ点（1、1、1+5e-8）は、管の δt（1e-6 × 2）以内なので比べない
-        let r = trajectory(
-            vec![0.0, 0.5, 1.0, 1.0, 1.0 + 5e-8, 1.5, 2.0],
-            &[("y", vec![1.0, 1.0, 1.0, 3.0, 3.0, 3.0, 3.0])],
-        );
-        let shifted = |dt: f64| {
-            trajectory(
-                vec![0.0, 0.5, 1.0 + dt, 1.0 + dt, 1.5, 2.0],
-                &[("y", vec![1.0, 1.0, 1.0, 3.0, 3.0, 3.0])],
-            )
-        };
-        let tube = TubeOptions { tolerance: 1e-6 };
-        let d = &deviations(&r, &shifted(1e-7), &["y"], &tube)[0];
-        assert_eq!((d.compared, d.max_abs, d.max_rel), (4, 0.0, 0.0), "{d:?}");
-        // δt より大きくずれたイベントは外さない（管でも不合格になるずれ）
-        let d = &deviations(&r, &shifted(0.1), &["y"], &tube)[0];
-        assert!(d.max_abs > 1.0 && d.compared == 7, "{d:?}");
-        // 閾値 0 では何も外さない
-        let d = &deviations(&r, &shifted(1e-7), &["y"], &TubeOptions { tolerance: 0.0 })[0];
-        assert!(d.max_abs > 1.0, "{d:?}");
+        // 補間が跳びをまたぐ点（1、1、1+5e-8）は、管の δt（1e-6 × 2）以内なので比べない。
+        // `jitter` は同じイベントの 2 行の時刻の誤差（Rumoca は浮動小数点の誤差だけ違う時刻で書く）
+        for jitter in [0.0, 4e-15] {
+            let r = trajectory(
+                vec![0.0, 0.5, 1.0, 1.0 + jitter, 1.0 + 5e-8, 1.5, 2.0],
+                &[("y", vec![1.0, 1.0, 1.0, 3.0, 3.0, 3.0, 3.0])],
+            );
+            let shifted = |dt: f64| {
+                trajectory(
+                    vec![0.0, 0.5, 1.0 + dt, 1.0 + dt + jitter, 1.5, 2.0],
+                    &[("y", vec![1.0, 1.0, 1.0, 3.0, 3.0, 3.0])],
+                )
+            };
+            let tube = TubeOptions { tolerance: 1e-6 };
+            let d = &deviations(&r, &shifted(1e-7), &["y"], &tube)[0];
+            assert_eq!((d.compared, d.max_abs, d.max_rel), (4, 0.0, 0.0), "{d:?}");
+            // δt より大きくずれたイベントは外さない（管でも不合格になるずれ）
+            let d = &deviations(&r, &shifted(0.1), &["y"], &tube)[0];
+            assert!(d.max_abs > 1.0 && d.compared == 7, "{d:?}");
+            // 閾値 0 では何も外さない
+            let d = &deviations(&r, &shifted(1e-7), &["y"], &TubeOptions { tolerance: 0.0 })[0];
+            assert!(d.max_abs > 1.0, "{d:?}");
+        }
     }
 
     #[test]

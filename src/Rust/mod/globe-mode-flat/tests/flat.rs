@@ -973,7 +973,7 @@ fn array_connector_connect_is_not_quadratic() {
 
 #[test]
 fn huge_output_dims_do_not_overflow_the_equation_count() {
-    // #131: 関数の戻り値の次元の積（`by_dims`・`equalityConstraint` の戻り値）を検査なしで取り、debug は panic・release は巻き戻った
+    // #130: 関数の戻り値の次元の積（`by_dims`・`equalityConstraint` の戻り値）を検査なしで取り、debug は panic・release は巻き戻った
     let src = "function f input Real x; output Real y[10000000000, 10000000000]; algorithm y := zeros(1,1); end f;
         function g input Real x; output Real y[10000000000, 10000000000]; algorithm y := zeros(1,1); end g;
         model M Real a; equation f(a) = g(a); end M;";

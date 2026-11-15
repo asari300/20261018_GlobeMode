@@ -1872,7 +1872,7 @@ mod tests {
 
     #[test]
     fn out_dir_inside_the_library_is_refused_however_deep_it_is_not_yet_created() {
-        // #130（#119 の続き）: 親が 2 階層以上無いと `resolve` が相対のままで、ライブラリの中が通っていた
+        // #129（#119 の続き）: 親が 2 階層以上無いと `resolve` が相対のままで、ライブラリの中が通っていた
         let root = std::env::temp_dir().join(format!("globe-s339-{}", std::process::id()));
         let lib = root.join("lib1");
         std::fs::create_dir_all(&lib).unwrap();
