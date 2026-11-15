@@ -393,6 +393,9 @@ impl ShortBody {
     pub fn redeclared_classes(&self) -> Vec<RedeclaredClass> {
         redeclared_classes(&self.0)
     }
+    pub fn redeclared_components(&self) -> Vec<RedeclaredComponent> {
+        redeclared_components(&self.0)
+    }
 }
 
 impl ExtendsClause {
@@ -405,10 +408,13 @@ impl ExtendsClause {
     pub fn redeclared_classes(&self) -> Vec<RedeclaredClass> {
         redeclared_classes(&self.0)
     }
+    pub fn redeclared_components(&self) -> Vec<RedeclaredComponent> {
+        redeclared_components(&self.0)
+    }
 }
 
 /// 修飾の中の `redeclare [replaceable] package M = X [constrainedby Y]`（短いクラスの形だけ。S275）。
-/// 部品の再宣言（`redeclare Real x`）と長い形（`redeclare model M … end M`）は含まない。パスは `(部分, 先頭の . の有無)`
+/// 部品の再宣言は `RedeclaredComponent`。長い形（`redeclare model M … end M`）は含まない。パスは `(部分, 先頭の . の有無)`
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RedeclaredClass {
     pub name: String,
@@ -416,8 +422,16 @@ pub struct RedeclaredClass {
     pub constraint: Option<(Vec<String>, bool)>,
 }
 
+/// 修飾の中の部品の再宣言 `redeclare [final] [replaceable] T x [(…)] [constrainedby C]`（S341）。パスは `(部分, 先頭の . の有無)`
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RedeclaredComponent {
+    pub name: String,
+    pub ty: (Vec<String>, bool),
+    pub constraint: Option<(Vec<String>, bool)>,
+}
+
 /// `n` の直下の `(…)` と、宣言の `Modification` の中の `(…)` にある `Redeclaration`（入れ子の修飾の中は見ない）
-fn redeclared_classes(n: &SyntaxNode) -> Vec<RedeclaredClass> {
+fn redeclarations(n: &SyntaxNode) -> impl Iterator<Item = SyntaxNode> {
     let mods = n.children().flat_map(|c| match c.kind() {
         SyntaxKind::Modification => c.children().collect::<Vec<_>>(),
         _ => vec![c],
@@ -425,8 +439,95 @@ fn redeclared_classes(n: &SyntaxNode) -> Vec<RedeclaredClass> {
     mods.filter(|m| m.kind() == SyntaxKind::ClassModification)
         .flat_map(|m| m.children().collect::<Vec<_>>())
         .filter(|r| r.kind() == SyntaxKind::Redeclaration)
+}
+
+fn redeclared_classes(n: &SyntaxNode) -> Vec<RedeclaredClass> {
+    redeclarations(n)
         .filter_map(|r| parse_redeclared_class(&r))
         .collect()
+}
+
+fn redeclared_components(n: &SyntaxNode) -> Vec<RedeclaredComponent> {
+    redeclarations(n)
+        .filter_map(|r| parse_redeclared_component(&r))
+        .collect()
+}
+
+/// `A.B.C` / `.A.B`（`i` から。読めた分だけ `i` を進める）
+fn path_at(t: &[SyntaxToken], i: &mut usize) -> Option<(Vec<String>, bool)> {
+    use SyntaxKind::*;
+    let global = t.get(*i).is_some_and(|t| t.kind() == Dot);
+    *i += usize::from(global);
+    let mut v = Vec::new();
+    while let Some(id) = t.get(*i).filter(|t| t.kind() == Ident) {
+        v.push(id.text().to_string());
+        *i += 1;
+        if t.get(*i).is_some_and(|t| t.kind() == Dot) {
+            *i += 1;
+        } else {
+            break;
+        }
+    }
+    (!v.is_empty()).then_some((v, global))
+}
+
+/// `Base(…)` の修飾は読み飛ばして、深さ 0 の `constrainedby` の後ろのパスを読む
+fn constraint_from(t: &[SyntaxToken], mut i: usize) -> Option<(Vec<String>, bool)> {
+    use SyntaxKind::*;
+    let mut depth = 0;
+    while let Some(tok) = t.get(i) {
+        match tok.kind() {
+            LParen => depth += 1,
+            RParen => depth -= 1,
+            KwConstrainedby if depth == 0 => {
+                i += 1;
+                return path_at(t, &mut i);
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
+fn parse_redeclared_component(r: &SyntaxNode) -> Option<RedeclaredComponent> {
+    use SyntaxKind::*;
+    let t: Vec<_> = tokens(r).collect();
+    let mut i = 0;
+    while t.get(i).is_some_and(|t| {
+        matches!(
+            t.kind(),
+            KwRedeclare
+                | KwReplaceable
+                | KwEach
+                | KwFinal
+                | KwFlow
+                | KwStream
+                | KwInput
+                | KwOutput
+                | KwParameter
+                | KwConstant
+                | KwDiscrete
+                | KwInner
+                | KwOuter
+        )
+    }) {
+        i += 1;
+    }
+    let ty = path_at(&t, &mut i)?;
+    // `T[3] x` の添字は読み飛ばす
+    if t.get(i).is_some_and(|t| t.kind() == LBracket) {
+        while t.get(i).is_some_and(|t| t.kind() != RBracket) {
+            i += 1;
+        }
+        i += 1;
+    }
+    let name = t.get(i).filter(|t| t.kind() == Ident)?.text().to_string();
+    Some(RedeclaredComponent {
+        name,
+        ty,
+        constraint: constraint_from(&t, i + 1),
+    })
 }
 
 fn parse_redeclared_class(r: &SyntaxNode) -> Option<RedeclaredClass> {
@@ -454,38 +555,8 @@ fn parse_redeclared_class(r: &SyntaxNode) -> Option<RedeclaredClass> {
         return None;
     }
     i += 3;
-    let path = |i: &mut usize| {
-        let global = t.get(*i).is_some_and(|t| t.kind() == Dot);
-        *i += usize::from(global);
-        let mut v = Vec::new();
-        while let Some(id) = t.get(*i).filter(|t| t.kind() == Ident) {
-            v.push(id.text().to_string());
-            *i += 1;
-            if t.get(*i).is_some_and(|t| t.kind() == Dot) {
-                *i += 1;
-            } else {
-                break;
-            }
-        }
-        (!v.is_empty()).then_some((v, global))
-    };
-    let base = path(&mut i)?;
-    // `Base(…)` の修飾は読み飛ばして `constrainedby` を探す
-    let mut depth = 0;
-    let mut constraint = None;
-    while let Some(tok) = t.get(i) {
-        match tok.kind() {
-            LParen => depth += 1,
-            RParen => depth -= 1,
-            KwConstrainedby if depth == 0 => {
-                i += 1;
-                constraint = path(&mut i);
-                break;
-            }
-            _ => {}
-        }
-        i += 1;
-    }
+    let base = path_at(&t, &mut i)?;
+    let constraint = constraint_from(&t, i);
     Some(RedeclaredClass {
         name,
         base,
