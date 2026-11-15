@@ -197,6 +197,9 @@ fn run_row(
     let theirs = catch_unwind(AssertUnwindSafe(|| checker.check(&[], name))).ok();
     let theirs_flat = theirs.as_ref().and_then(|r| r.flat.as_ref());
     if dump && let Some(t) = theirs_flat {
+        for n in &t.variable_names {
+            println!("  rumoca var {n}");
+        }
         for (o, n) in &t.equation_origins {
             println!("  rumoca[{n}] {o}");
         }
@@ -288,6 +291,9 @@ fn compare_flat(
     eqs: usize,
 ) {
     let m: std::collections::BTreeSet<String> = mine.vars.iter().map(|v| v.name.clone()).collect();
+    // 部品・レコードの配列の要素の添字 `a[1].x` を落として比べる。Rumoca は大きさを評価できない配列
+    // （`n = size(lines, 1)` など）を要素に展開せず `a.x` にする（S332、ADR-0039）
+    let (m, theirs) = (without_elem_subs(&m), without_elem_subs(&theirs));
     let (names, e) = (m == theirs, mine.equation_count() == eqs);
     row.flags.insert("flat_names", names);
     row.flags.insert("flat_eqs", e);
@@ -301,6 +307,26 @@ fn compare_flat(
             theirs.len()
         ));
     }
+}
+
+/// `a[1].x` → `a.x`（`.` の直前の `[…]` を落とす）
+fn without_elem_subs(
+    names: &std::collections::BTreeSet<String>,
+) -> std::collections::BTreeSet<String> {
+    names
+        .iter()
+        .map(|n| {
+            let mut out = String::with_capacity(n.len());
+            let mut rest = n.as_str();
+            while let Some(i) = rest.find('[') {
+                let Some(j) = rest[i..].find("].") else { break };
+                out.push_str(&rest[..i]);
+                rest = &rest[i + j + 1..];
+            }
+            out.push_str(rest);
+            out
+        })
+        .collect()
 }
 
 fn is_model_class(p: &Project, cid: ClassId) -> bool {
@@ -744,6 +770,13 @@ fn render_json(rows: &[Row], info: &Info<'_>) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn element_subscripts_are_dropped_only_before_a_field() {
+        let set = |v: &[&str]| v.iter().map(|s| s.to_string()).collect();
+        let got = without_elem_subs(&set(&["c[1].R.T", "a[2].b[3].c", "x[1,2]", "y.z"]));
+        assert_eq!(got, set(&["c.R.T", "a.b.c", "x[1,2]", "y.z"]));
+    }
 
     fn row(name: &str, flags: &[(&'static str, bool)]) -> Row {
         Row {

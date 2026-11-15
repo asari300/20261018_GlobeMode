@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S332 S329 と S330 を合わせた計測 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S332 S329 と S330 を合わせた計測">
+
+<section class="slide" id="S01">
+  <span class="tag">S332 · 2026-11-15 · Track B</span>
+  <h1>S329 と S330 を合わせた計測</h1>
+  <p class="lead">DAE が読めない 41 本・名前の食い違い 37 本・方程式の数の差の原因</p>
+  <div class="big">DAE 430 → 471 / 471、名前 425 → 463 / 463、回帰 0</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">DAE が読めない 41 本</span>
+  <h1>括弧の式への添字</h1>
+  <ul>
+    <li>見立ての <code>f(…).T</code> ではなく、<code>(({…})[1])</code> が 37 本</li>
+    <li>MLS の文法の primary は <code>"(" … ")" [ array-subscripts ]</code></li>
+    <li><code>globe-mode-syntax</code> が括弧の節に <code>[…]</code> を取り込む。木の往復は変えない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">名前の食い違い 37 本</span>
+  <h1>Rumoca は次元を評価できないと展開しない</h1>
+  <ul>
+    <li><code>Complex aw[size(a, 1)]</code> を <code>a = aa</code>（引数への参照）で修飾すると Rumoca は <code>tf.aw.re</code></li>
+    <li>評価器が <code>shape_expr</code> を評価できず、あとで親の次元を足している</li>
+    <li>自前は要素ごとに展開（普通の flat）。比べるときだけ <code>a[1].x</code> の添字を落とす</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">方程式の数の差</span>
+  <h1>2 つの原因</h1>
+  <ul>
+    <li><code>ActuatorWithNoise</code> は S330 と同じ表の数え方の誤り（<code>LossyGear</code> の表 1×5 で +8、2×5 で +18）</li>
+    <li><code>EngineV6</code> と MultiBody は <code>Connections.isRoot</code> を含む <code>if</code>。Rumoca は根を決めて枝を 1 つ選ぶが、自前は枝の和集合（Body 1 つで状態 +6）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">数字</span>
+  <h1>MSL の例題 566 本（S329 の報告 → S332）</h1>
+  <div class="kpis">
+    <div class="kpi"><span class="n">471 / 471</span><span class="l">DAE にできた（前 430）</span></div>
+    <div class="kpi"><span class="n">463 / 463</span><span class="l">名前の一致（前 425）</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">回帰（改善 85 項目）</span></div>
+  </div>
+  <p>比べられる DAE が 297 → 334 本に増え、新しい 37 本（MultiBody）は <code>isRoot</code> のため不一致。</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>過剰決定の接続のグラフ（<code>Connections.isRoot</code>）を <code>globe-mode-flat</code> に作る</li>
+    <li>リテラルの修飾 <code>a = {1, 2}</code> で Rumoca が展開するかは未確認</li>
+    <li>上流への報告の 4 点セット（表の方程式の数）</li>
+  </ul>
+  <p class="foot">GlobeMode S332</p>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
