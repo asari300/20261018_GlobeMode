@@ -36,10 +36,10 @@ use sundials_sys::{
     IDA_LSOLVE_FAIL, IDA_ONE_STEP, IDA_REP_RES_ERR, IDA_RES_FAIL, IDA_SUCCESS, IDA_TOO_MUCH_ACC,
     IDA_TOO_MUCH_WORK, IDA_TSTOP_RETURN, IDACreate, IDAFree, IDAGetCurrentTime, IDAGetDky,
     IDAGetLastOrder, IDAGetLastStep, IDAInit, IDALS_SUCCESS, IDAReInit, IDASVtolerances,
-    IDASetLinearSolver, IDASetStopTime, IDASetUserData, IDASolve, N_VDestroy, N_VGetArrayPointer,
-    N_VNew_Serial, N_Vector, SUNContext, SUNContext_ClearErrHandlers, SUNContext_Create,
-    SUNContext_Free, SUNDenseMatrix, SUNLinSol_Dense, SUNLinSolFree, SUNLinearSolver,
-    SUNMatDestroy, SUNMatrix, comm_no_mpi,
+    IDASetLinearSolver, IDASetMaxOrd, IDASetStopTime, IDASetUserData, IDASolve, N_VDestroy,
+    N_VGetArrayPointer, N_VNew_Serial, N_Vector, SUNContext, SUNContext_ClearErrHandlers,
+    SUNContext_Create, SUNContext_Free, SUNDenseMatrix, SUNLinSol_Dense, SUNLinSolFree,
+    SUNLinearSolver, SUNMatDestroy, SUNMatrix, comm_no_mpi,
 };
 
 use super::rk::scaled_absolute_tolerances;
@@ -95,6 +95,8 @@ impl Drop for Raw {
 pub(super) struct Ida {
     rtol: f64,
     atol: Vec<f64>,
+    /// 最大の積分次数（None は SUNDIALS の既定の 5。S322）
+    max_order: Option<u32>,
     /// `raw` が参照する user_data。`raw` より後に落とす（宣言の順）
     raw: Option<Raw>,
     user: Option<Box<User>>,
@@ -107,10 +109,11 @@ pub(super) struct Ida {
 }
 
 impl Ida {
-    pub(super) fn new(setup: MeNumericalSetup) -> Self {
+    pub(super) fn new(setup: MeNumericalSetup, max_order: Option<u32>) -> Self {
         Self {
             rtol: setup.relative_tolerance(),
             atol: scaled_absolute_tolerances(&setup),
+            max_order,
             raw: None,
             user: None,
             start: 0.0,
@@ -181,6 +184,12 @@ impl Ida {
             let flag = IDASVtolerances(raw.mem, self.rtol, raw.abstol);
             if flag != IDA_SUCCESS {
                 return Err(self.construction("IDASVtolerances", flag));
+            }
+            if let Some(q) = self.max_order {
+                let flag = IDASetMaxOrd(raw.mem, q as c_int);
+                if flag != IDA_SUCCESS {
+                    return Err(self.construction("IDASetMaxOrd", flag));
+                }
             }
             raw.matrix = SUNDenseMatrix(len, len, raw.ctx);
             if raw.matrix.is_null() {

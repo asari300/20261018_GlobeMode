@@ -25,6 +25,10 @@ pub struct SimSettings {
     /// 固定刻みのソルバ（`euler`・`heun`・`rk4`・`impeuler`・`trapezoid`）の刻み幅。None なら出力の間隔（S012）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub step: Option<f64>,
+    /// 最大の積分次数（S322。次数を持つソルバ [`SolverId::has_max_order`]＝`cvode`・`ida` だけが使い、持たないソルバでは
+    /// 無視して GM-I10005 を出す。None はソルバの既定）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_order: Option<u32>,
     /// パラメータの上書き（名前 → 値）。再コンパイル無しに変えられる（tunable な）パラメータだけ。
     /// 変えられないものは GM-E10006（S012）
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -123,6 +127,12 @@ impl SolverId {
         }
     }
 
+    /// 最大の積分次数を設定できるソルバか（SUNDIALS の `cvode`・`ida` の BDF、次数 1〜5。S322）。
+    /// diffsol の BDF（`bdf`・`auto`）は次数の上限が定数 5 で、設定の口が無い。そのほかの手法は次数が固定。
+    pub const fn has_max_order(self) -> bool {
+        matches!(self, SolverId::Cvode | SolverId::Ida)
+    }
+
     /// 固定刻みのソルバか（許容誤差を使わず、刻み幅 [`ResolvedSettings::step`] で進む）。
     pub const fn is_fixed_step(self) -> bool {
         matches!(
@@ -148,6 +158,9 @@ pub struct ResolvedSettings {
     /// 固定刻みの幅。固定刻みのソルバのときだけ Some（指定が無ければ出力の間隔）
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub step: Option<f64>,
+    /// 最大の積分次数（次数を持つソルバで、指定があったときだけ Some。[`SimSettings::max_order`]）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_order: Option<u32>,
     /// パラメータの上書き（[`SimSettings::parameters`] をそのまま写す）
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub parameters: BTreeMap<String, f64>,

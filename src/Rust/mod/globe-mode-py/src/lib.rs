@@ -35,8 +35,17 @@ fn error(py: Python<'_>, class: &str, message: Option<String>, diagnostics: Opti
 }
 
 /// `Progress` を Python の dict に（`stage` は `"integration"` などの小文字、`time` は積分の段だけ）。
-fn progress_dict<'py>(py: Python<'py>, p: &globe_mode::Progress) -> PyResult<Bound<'py, PyDict>> {
+fn progress_dict<'py>(
+    py: Python<'py>,
+    p: &globe_mode::Progress,
+    solver: Option<(usize, &str)>,
+) -> PyResult<Bound<'py, PyDict>> {
     let d = PyDict::new(py);
+    // `simulate_many` だけ: どの実行（添字とソルバの名前）の進捗か（S322）
+    if let Some((index, name)) = solver {
+        d.set_item("index", index)?;
+        d.set_item("solver", name)?;
+    }
     d.set_item("stage", p.stage.as_str())?;
     d.set_item("time", p.time)?;
     d.set_item("start_time", p.start_time)?;
@@ -56,16 +65,39 @@ fn simulate_observed<T: Send>(
     on_progress: Option<Py<PyAny>>,
     finish: impl FnOnce(globe_mode::Simulated) -> Result<T, String> + Send,
 ) -> PyResult<T> {
+    observed(py, on_progress, |notify, cancel| {
+        finish(ws.simulate_observed(
+            request,
+            &globe_mode::now_ms,
+            globe_mode::SimulateHandle {
+                on_progress: Some(&mut |p: &globe_mode::Progress| notify(None, p)),
+                cancel: Some(cancel),
+            },
+        ))
+    })
+}
+
+/// [`simulate_observed`] の本体。`run` は GIL を離して回し、進捗を `notify(実行の添字とソルバ、進捗)` で知らせる
+/// （`simulate_many` が S322 から同じ道を使う）。
+fn observed<T: Send>(
+    py: Python<'_>,
+    on_progress: Option<Py<PyAny>>,
+    run: impl FnOnce(
+        &mut dyn FnMut(Option<(usize, &str)>, &globe_mode::Progress),
+        globe_mode::CancelToken,
+    ) -> Result<T, String>
+    + Send,
+) -> PyResult<T> {
     let token = globe_mode::CancelToken::new();
     let mut raised: Option<PyErr> = None;
-    let mut notify = |p: &globe_mode::Progress| {
+    let mut notify = |solver: Option<(usize, &str)>, p: &globe_mode::Progress| {
         if raised.is_some() {
             return;
         }
         let stop = Python::attach(|py| {
             py.check_signals()?;
             match &on_progress {
-                Some(f) => f.call1(py, (progress_dict(py, p)?,))?.is_truthy(py),
+                Some(f) => f.call1(py, (progress_dict(py, p, solver)?,))?.is_truthy(py),
                 None => Ok(false),
             }
         });
@@ -79,16 +111,7 @@ fn simulate_observed<T: Send>(
         }
     };
     let cancel = token.clone();
-    let out = py.detach(move || {
-        finish(ws.simulate_observed(
-            request,
-            &globe_mode::now_ms,
-            globe_mode::SimulateHandle {
-                on_progress: Some(&mut notify),
-                cancel: Some(cancel),
-            },
-        ))
-    });
+    let out = py.detach(move || run(&mut notify, cancel));
     if let Some(e) = raised {
         return Err(e);
     }
@@ -268,6 +291,49 @@ impl Workspace {
         let (layout, columns) = simulated.columns();
         let columns = pack(py, &columns)?;
         Ok((response, layout.names, columns))
+    }
+
+    /// 複数のソルバで回す（S322。`SimulateManyRequest` の JSON → `(結果の JSON, 実行ごとの列の名前, 実行ごとの列の bytes)`）。
+    /// 回せなかった実行の列は空。`on_progress(dict)` は `index`・`solver` つきで、真の値を返すか Ctrl-C で全部が止まる。
+    #[pyo3(signature = (request_json, on_progress = None))]
+    #[allow(clippy::type_complexity)]
+    fn simulate_many<'py>(
+        &mut self,
+        py: Python<'py>,
+        request_json: &str,
+        on_progress: Option<Py<PyAny>>,
+    ) -> PyResult<(String, Vec<Vec<String>>, Vec<Vec<Bound<'py, PyBytes>>>)> {
+        let request: globe_mode::SimulateManyRequest =
+            serde_json::from_str(request_json).map_err(|e| {
+                error(
+                    py,
+                    "SettingsError",
+                    Some(format!("依頼が読めない: {e}")),
+                    None,
+                )
+            })?;
+        let ws = &mut self.0;
+        let many = observed(py, on_progress, |notify, cancel| {
+            let mut forward = |i: usize, solver: &str, p: &globe_mode::Progress| {
+                notify(Some((i, solver)), p);
+            };
+            Ok(ws.simulate_many(
+                &request,
+                &globe_mode::now_ms,
+                globe_mode::ManyHandle {
+                    on_progress: Some(&mut forward),
+                    cancel: Some(cancel),
+                },
+            ))
+        })?;
+        let (mut names, mut columns) = (Vec::new(), Vec::new());
+        for data in &many.runs {
+            let (layout, cols) = data.columns();
+            names.push(layout.names);
+            columns.push(pack(py, &cols)?);
+        }
+        let response = json(&many.response).map_err(PyRuntimeError::new_err)?;
+        Ok((response, names, columns))
     }
 
     /// FMU を書き出し（S118。`globe fmu export` と同じ）、`.fmu` のパスを返す。`options` は
@@ -451,6 +517,7 @@ fn settings_sample() -> String {
         solver: Some(String::new()),
         max_wall_seconds: Some(0.0),
         step: Some(0.0),
+        max_order: Some(0),
         parameters: [(String::new(), 0.0)].into(),
     })
     .unwrap_or_default()

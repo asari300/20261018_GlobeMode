@@ -243,6 +243,8 @@ pub mod codes {
     pub const TOLERANCE_CLAMPED: &str = "GM-W10003";
     /// S10: 固定刻みのソルバは許容誤差を使わない（刻み幅で精度が決まる。情報。S012）
     pub const FIXED_STEP_IGNORES_TOLERANCE: &str = "GM-I10004";
+    /// S10: 最大の積分次数はこのソルバでは使わない（次数の上限を持たない。情報。S322）
+    pub const MAX_ORDER_IGNORED: &str = "GM-I10005";
     /// S10: 初期化の結果を初期化系にもう一度入れると、実行が始まった t0 の値と違う値になる（初期化方程式を満たして
     /// いない恐れ）。初期化方程式が t0 で反転する関係式を読むと、Rumoca は関係式の既定値の枝で解いて解き直さない
     /// （S016 の EngineV6）。`run` だけが出す（実行の t0 の値と比べるため）。警告。S018）

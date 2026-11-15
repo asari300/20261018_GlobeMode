@@ -1,7 +1,7 @@
 import type { Backend, CompletionEntry, Definition, Diagram, Documentation, FmuInfo, FmuRunRequest, FmuRuntime, Hover, Icon, LintMessage, Progress, TreeEntry } from "./backend";
 import type { Columns } from "./plot/csv";
 import { isCosimFile, isFmuFile, isResultsFile, toColumns, type ResultColumns, type ResultParam } from "./results.ts"; // node の型の除去（tests/test_tauri.mjs）が拡張子を要る
-import type { BltReport, StagesReport, CheckResponse, GraphJson, SimulateRequest, SimulateResponse, SolverEntry, ModelParameter, TunableParameter, Linearization } from "./protocol";
+import type { BltReport, StagesReport, CheckResponse, GraphJson, SimulateRequest, SimulateResponse, SimulateManyRequest, SimulateManyResponse, SolverEntry, ModelParameter, TunableParameter, Linearization } from "./protocol";
 
 // Tauri が `withGlobalTauri` で注入する関数だけを使う（@tauri-apps/api は入れない。npm の依存を増やさないため）。
 type Invoke = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
@@ -127,6 +127,22 @@ export class TauriBackend implements Backend {
       return { response: r.response, columns: { names: r.layout.names.slice(1), points: r.layout.points, defaults: r.layout.defaults, data: r.columns } };
     } catch (e) {
       // 止めても応えない sidecar は作り直される（command `cancel_run`）。UI には止めたとして返す
+      if (this.#cancelling) throw Object.assign(new Error(String(e)), { cancelled: true });
+      throw e;
+    } finally {
+      this.#onProgress = undefined;
+    }
+  }
+  // S322（ADR-0040）: sidecar の `globe/simulateMany`。同じ進捗の通知で、value に solver・index・count が付く。cancel で全部が止まる
+  async simulateMany(req: SimulateManyRequest, onProgress?: (p: Progress) => void): Promise<{ response: SimulateManyResponse; columns: Columns[] }> {
+    await this.#listen(onProgress);
+    try {
+      const r = await invoke<{ response: SimulateManyResponse; columns: ({ layout: { names: string[]; points: number; defaults?: string[] }; columns: (number | null)[][] } | null)[] }>(
+        "rpc",
+        { method: "globe/simulateMany", params: { request: req, workDoneToken: RUN_TOKEN } },
+      );
+      return { response: r.response, columns: r.columns.map((c) => ({ names: c?.layout.names.slice(1) ?? [], points: c?.layout.points ?? 0, defaults: c?.layout.defaults, data: c?.columns ?? [] })) };
+    } catch (e) {
       if (this.#cancelling) throw Object.assign(new Error(String(e)), { cancelled: true });
       throw e;
     } finally {
