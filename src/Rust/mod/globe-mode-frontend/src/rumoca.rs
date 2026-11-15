@@ -429,6 +429,24 @@ impl LibraryClosure {
         self.0.set_text(name, text)
     }
 
+    /// S308: ファイルごとの直接の依存（名前 → 名前の配列。依存の無いファイルは載せない）。pack が塊の依存を作る。
+    pub fn direct_deps(&mut self) -> std::collections::BTreeMap<String, Vec<String>> {
+        let mut out = std::collections::BTreeMap::new();
+        for n in 0..self.0.len() {
+            let deps: Vec<String> = self
+                .0
+                .direct_deps(n)
+                .into_iter()
+                .filter(|&d| d != n)
+                .map(|d| self.0.file(d).0.to_string())
+                .collect();
+            if !deps.is_empty() {
+                out.insert(self.0.file(n).0.to_string(), deps);
+            }
+        }
+        out
+    }
+
     /// [`library_closure`] と同じ（外側の `package.mo` と、クラスの見つからないファイルを含む）。`bases_only` なら、
     /// `extends` の基底だけをたどる（アイコンなど、クラス 1 つの `extends` の鎖だけが要るとき）。
     pub fn closure(&mut self, model: &str, user_texts: &[&str], bases_only: bool) -> Vec<String> {

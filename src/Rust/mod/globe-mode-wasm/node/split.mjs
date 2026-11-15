@@ -1,6 +1,6 @@
 // MSL.json の分割配信（S301）の試験と測定。
 //
-//   node split.mjs --msl DIR [--list FILE] [--limit N] [--pkg DIR] [--json OUT]
+//   node split.mjs --msl DIR [--list FILE] [--limit N] [--pkg DIR] [--json OUT] [--prefetch N]
 //
 // MSL を全部読んだ Worker と、分割配信（index.json と塊。web/pack.js が作る）を使う Worker で、FILE（既定 src/Modelica/msl-compare.txt。
 // 1 行 1 モデル）の各モデルを check して、結果（passed・段階・診断のコード）が同じことを確かめる。分割は閉包が足りないと名前が解決できず
@@ -12,7 +12,7 @@ import { pathToFileURL } from "node:url";
 import { Worker } from "node:worker_threads";
 import assert from "node:assert/strict";
 import { GlobeWorker } from "../web/client.js";
-import { pack } from "../web/pack.js";
+import { PREFETCH, pack } from "../web/pack.js";
 import { defaultPkg, readMo, repo } from "./common.mjs";
 
 const args = process.argv.slice(2);
@@ -31,7 +31,8 @@ const wasm = readFileSync(join(pkg, "globe_mode_wasm_bg.wasm"));
 const gm = await import(pathToFileURL(join(pkg, "globe_mode_wasm.js")).href);
 gm.initSync({ module: wasm });
 const files = readMo(mslDir, repo);
-const { index, chunks } = pack(files, gm.tree_stub);
+const { index, chunks } = pack(files, gm.tree_stub, gm.file_deps);
+index.prefetch = Number(arg("--prefetch", index.prefetch)); // 先読みの深さを変えて測る（S308）
 const dir = mkdtempSync(join(tmpdir(), "globe-msl-"));
 mkdirSync(join(dir, "c"));
 chunks.forEach((c, i) => writeFileSync(join(dir, "c", `${i}.json`), JSON.stringify(c)));
@@ -67,10 +68,12 @@ for (const model of models) {
   const st = await b.libraryStats();
   const same = shape(x) === shape(y);
   if (!same) bad++;
-  rows.push({ model, same, passed: y.passed, full_ms: tf, split_ms: tl, chunks: st.chunks, mchars: +(st.bytes / 1e6).toFixed(2), mem_mib: mib(await b.memory()) });
-  console.log(`${same ? "一致" : "不一致"} ${model} passed=${y.passed} 全部 ${tf} ms / 分割 ${tl} ms、塊 ${st.chunks}/${st.of}、${(st.bytes / 2 ** 20).toFixed(2)} MiB、線形メモリ ${mib(await b.memory())} MiB（全部 ${mib(await a.memory())}）`);
+  rows.push({ model, same, passed: y.passed, full_ms: tf, split_ms: tl, chunks: st.chunks, rounds: st.rounds, mchars: +(st.bytes / 1e6).toFixed(2), mem_mib: mib(await b.memory()) });
+  console.log(`${same ? "一致" : "不一致"} ${model} passed=${y.passed} 全部 ${tf} ms / 分割 ${tl} ms、塊 ${st.chunks}/${st.of}、往復 ${st.rounds}、${(st.bytes / 2 ** 20).toFixed(2)} MiB、線形メモリ ${mib(await b.memory())} MiB（全部 ${mib(await a.memory())}）`);
   if (!same) console.log(`  全部 ${shape(x)}\n  分割 ${shape(y)}`);
 }
+// 往復の回数（S308）: 既定の先読みなら、最初のモデル（既定は ChuaCircuit。先読み無しでは 11 回）の塊の取得が 4 回以内。取る塊は先読み無しの 1.2 倍以内
+if (index.prefetch === PREFETCH && models[0]?.endsWith("ChuaCircuit")) assert.ok(rows[0].rounds <= 4 && rows[0].chunks <= 190, JSON.stringify(rows[0]));
 // 作業中の文書が MSL を参照するとき（ライブラリの外のモデル）も、文書の閉包の塊を取る
 const doc = "model UserCircuit\n  extends Modelica.Electrical.Analog.Examples.Rectifier;\nend UserCircuit;\n";
 await a.setFile("UserCircuit.mo", doc);
@@ -85,7 +88,7 @@ assert.equal(sa.text, sb.text);
 assert.deepEqual(sa.range, sb.range);
 console.log(`木と開くファイル: 一致、塊 ${(await b.libraryStats()).chunks}`);
 const stats = await b.libraryStats();
-const summary = { files: Object.keys(files).length, models: models.length, mismatched: bad, full_load_ms: fullLoad, lazy_load_ms: lazyLoad, chunks: stats.of, chunks_got: stats.chunks, mib_got: mib(stats.bytes), mib_full: mib(full.length) };
+const summary = { files: Object.keys(files).length, models: models.length, mismatched: bad, full_load_ms: fullLoad, lazy_load_ms: lazyLoad, chunks: stats.of, chunks_got: stats.chunks, rounds: stats.rounds, prefetch: index.prefetch, mib_got: mib(stats.bytes), mib_full: mib(full.length) };
 console.log(JSON.stringify(summary));
 await a.terminate();
 await b.terminate();
