@@ -227,6 +227,8 @@ struct F<'a> {
     /// まだ平らにしていない宣言（`size(x, 1)` が後ろで宣言した配列の大きさを引くため）
     pending: HashMap<String, Pending>,
     depth: std::cell::Cell<u32>,
+    /// `inst_class` の入れ子の深さ（自分を部品に持つモデルでスタックを溢れさせないための上限。S320・#111）
+    inst_depth: std::cell::Cell<u32>,
     /// パッケージ（差し替え先を含む）の定数の束縛。`extends` の修飾で決まる値も入る（S297）
     pkg_envs: RefCell<HashMap<ClassId, PkgEnv>>,
     /// パッケージの `extends P(redeclare record R = X)` が決めた差し替え（`pkg_env` と一緒に作る）
@@ -240,6 +242,9 @@ struct Pending {
     ctx: Rc<Ctx>,
     m: Mod,
 }
+
+/// `inst_class` の入れ子の上限（MSL の部品の入れ子は 30 段に届かない）
+const MAX_INST_DEPTH: u32 = 64;
 
 /// 「パッケージの定数を評価する文脈」の印（`Ctx::pfx`）
 const PKG: &str = "\u{0}";
@@ -260,6 +265,7 @@ pub(crate) fn run(p: &Project, cid: ClassId, model: &str) -> Res<FlatModel> {
         removed: Vec::new(),
         pending: HashMap::new(),
         depth: std::cell::Cell::new(0),
+        inst_depth: std::cell::Cell::new(0),
         pkg_envs: RefCell::default(),
         pkg_cenvs: RefCell::default(),
     };
@@ -324,6 +330,24 @@ impl F<'_> {
 
     /// 戻り値は、このインスタンスが直接持つコネクタの名前（親が「内側のコネクタ」として使う公開のものと、`protected` を含む全部）
     fn inst_class(
+        &mut self,
+        cid: ClassId,
+        pfx: &str,
+        mods: &ModMap,
+        flags: Flags,
+        heir: Option<ClassId>,
+    ) -> Res<(Vec<String>, Vec<String>)> {
+        // 上限は Rumoca の GM-E3001（循環）に合わせて断る。debug でも溢れない段数（#111）
+        if self.inst_depth.get() >= MAX_INST_DEPTH {
+            return un("deep-instantiation", self.p.lib.qualified_name(cid));
+        }
+        self.inst_depth.set(self.inst_depth.get() + 1);
+        let r = self.inst_class_body(cid, pfx, mods, flags, heir);
+        self.inst_depth.set(self.inst_depth.get() - 1);
+        r
+    }
+
+    fn inst_class_body(
         &mut self,
         cid: ClassId,
         pfx: &str,
@@ -764,7 +788,7 @@ impl F<'_> {
                     .children()
                     .find_map(ast::ComponentRef::cast)
                     .and_then(|r| match self.p.res_of(b.file, r.range()) {
-                        Some(Resolution::Class(rid)) => Some(*rid),
+                        Some(Resolution::Class(rid)) => Some(rid),
                         _ => None,
                     })
                     .filter(|rid| {
@@ -833,7 +857,7 @@ impl F<'_> {
         let own = std::mem::take(out);
         for n in bases {
             if let Some(Resolution::Class(b)) = self.p.res_of(file, n.range()) {
-                self.record_fields(*b, out, depth + 1);
+                self.record_fields(b, out, depth + 1);
             }
         }
         out.extend(own);
@@ -861,9 +885,9 @@ impl F<'_> {
             for e in sn.children().filter_map(Expr::cast) {
                 if let Expr::ComponentRef(r) = &e
                     && let Some(Resolution::Class(cid)) = self.p.res_of(file, r.range())
-                    && self.is_enum(*cid)
+                    && self.is_enum(cid)
                 {
-                    dims.push(self.p.lib.classes[*cid].components.len());
+                    dims.push(self.p.lib.classes[cid].components.len());
                     continue;
                 }
                 match self.eval(e.syntax(), file, ctx, 0).and_then(Val::int) {
@@ -953,7 +977,7 @@ impl F<'_> {
                                 acc = merge(&acc, &self.mods_of(&cm, file, &tctx)?);
                             }
                             last = n.parts().last().cloned().unwrap_or_default();
-                            res = self.p.res_of(file, n.range()).cloned();
+                            res = self.p.res_of(file, n.range());
                             continue;
                         }
                         return Ok((
@@ -1012,7 +1036,7 @@ impl F<'_> {
                         return un("short-class", "no base");
                     };
                     last = base.parts().last().cloned().unwrap_or_default();
-                    res = self.p.res_of(file, base.range()).cloned();
+                    res = self.p.res_of(file, base.range());
                 }
                 Some(Resolution::Unresolved(Reason::Redeclare)) => return un("redeclare", last),
                 other => {
@@ -1151,7 +1175,7 @@ impl F<'_> {
         tn: &ast::Name,
         ctx: &Rc<Ctx>,
     ) -> (Option<Resolution>, ModMap, Option<ClassId>) {
-        let stat = self.p.res_of(file, tn.range()).cloned();
+        let stat = self.p.res_of(file, tn.range());
         let parts = tn.parts();
         let hit = (!tn.is_global())
             .then(|| ctx.cenv.borrow().get(&parts[0]).cloned())
@@ -1358,7 +1382,7 @@ impl F<'_> {
         }
         let r = self.p.res_of(file, c.range());
         let mut qualified = None;
-        match r {
+        match &r {
             Some(Resolution::Local) => {
                 if let Some(v) = ctx.local(&segs[0].0) {
                     segs[0].0 = v.to_string();
@@ -1462,7 +1486,7 @@ impl F<'_> {
                 if let Some((node, f, c2)) = self.dyn_const(&c, ctx) {
                     return self.eval(&node, f, &c2, d);
                 }
-                match self.p.res_of(file, c.range())? {
+                match &self.p.res_of(file, c.range())? {
                     Resolution::Local if parts.len() == 1 => ctx.local(&parts[0]).map(Val::I),
                     Resolution::Component(cid, idx) => {
                         if ctx.pfx != PKG && ctx.lineage.contains(cid) {
@@ -1498,16 +1522,17 @@ impl F<'_> {
                         };
                         let k = v(1)?.int()? as usize;
                         // パッケージの定数の配列（`size(substanceNames, 1)`）は、束縛の式の形から
-                        if let Some((node, f, c2)) = self.dyn_const(r, ctx).or_else(|| {
-                            match self.p.res_of(file, r.range())? {
-                                Resolution::Component(cid, idx)
-                                    if ctx.pfx == PKG || !ctx.lineage.contains(cid) =>
-                                {
-                                    let comp = &self.p.lib.classes[*cid].components[*idx].name;
-                                    self.pkg_binding(ctx, *cid, comp)
-                                }
-                                _ => None,
+                        if let Some((node, f, c2)) = self.dyn_const(r, ctx).or_else(|| match &self
+                            .p
+                            .res_of(file, r.range())?
+                        {
+                            Resolution::Component(cid, idx)
+                                if ctx.pfx == PKG || !ctx.lineage.contains(cid) =>
+                            {
+                                let comp = &self.p.lib.classes[*cid].components[*idx].name;
+                                self.pkg_binding(ctx, *cid, comp)
                             }
+                            _ => None,
                         }) {
                             let dims = self.dims_of(&node, f, &c2)?;
                             return dims.get(k.checked_sub(1)?).map(|&x| Val::I(x as i64));
@@ -1772,7 +1797,7 @@ impl F<'_> {
                 if n.children().any(|x| x.kind() == K::Subscripts) {
                     return None;
                 }
-                match self.p.res_of(file, c.range())? {
+                match &self.p.res_of(file, c.range())? {
                     Resolution::Component(cid, idx)
                         if ctx.pfx == PKG || !ctx.lineage.contains(cid) =>
                     {

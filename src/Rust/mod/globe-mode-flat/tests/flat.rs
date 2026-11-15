@@ -461,3 +461,19 @@ fn huge_component_array_is_refused_before_allocating() {
         assert_eq!(err(&src, "M"), "too-large");
     }
 }
+
+/// #111: 自分を部品に持つモデルは、スタックを溢れさせず「深すぎる」で断る
+#[test]
+fn self_containing_model_is_refused_not_overflowed() {
+    assert_eq!(err("model C C a; end C;", "C"), "deep-instantiation");
+    // `redeclare` で自分に戻す循環
+    assert_eq!(
+        err(
+            "model C replaceable model M = D; M m; end C;
+             model D replaceable model M = D; M m; end D;
+             model E C c(redeclare model M = C); end E;",
+            "E"
+        ),
+        "deep-instantiation"
+    );
+}
