@@ -26,7 +26,7 @@ VS Code の側のパネルでも、部品と結線を選んで Delete / Backspac
 ## 検証
 
 - `pnpm test`（globe の debug を PATH に置いて）22 本が通る。`pnpm check`（svelte-check）0 件。`pnpm build` 通る。
-- e2e は `vscode.yml` を feature で回す（結果は下に追記）。実機の VS Code での目視はしていない。
+- e2e: `vscode.yml` を feature で回した。1 回目は ubuntu で落ち（結線だけを消したあとは空の `equation` の見出しが残るのに、元の本文と等しいと確かめていた。S281 の仕様どおり、確かめを直した）、2 回目 run 43655786357 は Linux・Windows・macOS の 3 OS とも success。実機の VS Code での目視はしていない。
 
 ## 残したこと
 
