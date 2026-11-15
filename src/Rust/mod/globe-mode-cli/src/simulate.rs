@@ -464,6 +464,14 @@ fn many_lines(r: &globe_mode::SimulateManyResponse, output: Option<&Path>) -> Ve
             c.threshold_exp,
             if c.passed { "合格" } else { "不合格" }
         ));
+        if let (Some(m), Some(w)) = (c.max_rel, &c.worst) {
+            lines.push(format!(
+                "  全変数の最大の相対差 {m:.3e}（{}、{}、{}）",
+                w.solver.as_deref().unwrap_or(""),
+                w.name,
+                w.time.map_or("t 不明".into(), |t| format!("t = {t}"))
+            ));
+        }
         for p in &c.pairs {
             lines.push(format!(
                 "  {:<name_width$}  {}（信号 {} 本中 {} 本が管の外）",
@@ -472,12 +480,23 @@ fn many_lines(r: &globe_mode::SimulateManyResponse, output: Option<&Path>) -> Ve
                 p.signals,
                 p.failed_signals
             ));
+            if let (Some(rel), Some(abs)) = (p.max_rel, p.max_abs) {
+                lines.push(format!(
+                    "      最大の相対差 {rel:.3e}（{}）、最大の絶対差 {abs:.3e}",
+                    if rel < c.threshold {
+                        format!("< 1e-{}", c.threshold_exp)
+                    } else {
+                        format!(">= 1e-{}", c.threshold_exp)
+                    }
+                ));
+            }
             for f in p.failures.iter().take(3) {
                 lines.push(format!(
-                    "      {}: 外れ {} 点、最大 {:e}{}",
+                    "      {}: 外れ {} 点、最大 {:e}、最大の相対差 {}{}",
                     f.name,
                     f.errors,
                     f.max_excess,
+                    f.max_rel.map_or("-".into(), |r| format!("{r:.3e}")),
                     f.first_error_time
                         .map_or(String::new(), |t| format!("、最初は t = {t}"))
                 ));

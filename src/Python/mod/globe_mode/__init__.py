@@ -345,7 +345,8 @@ class Workspace:
         戻り値: `ok`（全部の実行が成功）・`refused`・`diagnostics`（検査とコンパイルの分）・`mode`・`workers`・`mode_note`・`elapsed_ms`・
         `runs`（`solvers` の順。各 `solver`・`status`（`ok`/`failed`/`cancelled`）・`response`（`simulate_columns` の応答と同じ形で `csv` なし）・
         `elapsed_ms`・`notes`〔例: 最大次数を持たないソルバの注記〕・`columns`（名前 → `polars.Series`。回せなかった実行は空））・
-        `comparison`（`reference`・`passed`・`pairs`〔ソルバごとの `passed`・`failures`〕・`skipped`。`compare` を頼んだときだけ）。
+        `comparison`（`reference`・`passed`・`max_rel`・`worst`（全体で相対差が最大のソルバ・信号・時刻）・`pairs`〔ソルバごとの `passed`・`failures`・`max_rel`・`max_abs`・`worst`。
+        `failures` の各信号にも `max_rel`・`max_abs`〕・`skipped`。`compare` を頼んだときだけ）。
         `on_progress(p)` の `p` には `Progress` に加えて `index`（`solvers` の添字）と `solver` が入る。
 
             res = ws.simulate_many("RC", ["bdf", "esdirk34", "radau5"], tolerance=1e-9, compare=6, parallel=True)

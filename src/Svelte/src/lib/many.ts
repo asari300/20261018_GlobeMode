@@ -59,3 +59,10 @@ export function mergeRuns(runs: Pick<ManyRun, "solver">[], cols: Columns[]): Col
     data,
   };
 }
+
+/** 最大の相対差の表示（有効数字 3 桁の指数表記）と、閾値 10^-n との大小を文字で（S328）。null は有限でない（NaN など）、undefined は比べた点が無い。 */
+export function relText(v: number | null | undefined, thresholdExp: number): string {
+  if (v === undefined) return "-";
+  if (v === null || !Number.isFinite(v)) return "有限でない";
+  return `${v.toExponential(2)}（${v < 10 ** -thresholdExp ? "<" : "≥"} 1e-${thresholdExp}）`;
+}

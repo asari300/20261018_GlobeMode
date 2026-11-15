@@ -51,3 +51,5 @@ def test_simulate_many_compares_solvers_and_notes_the_ignored_max_order():
         assert a["columns"]["x"].equals(b["columns"]["x"])
     bad = ws.simulate_many(model, ["tsit45", "euler"], compare=6)
     assert not bad["comparison"]["passed"] and bad["comparison"]["pairs"][0]["solver"] == "euler"
+    # S328: 最大の相対差（dict にそのまま）
+    assert bad["comparison"]["pairs"][0]["max_rel"] > 1e-6 and bad["comparison"]["worst"]["solver"] == "euler"

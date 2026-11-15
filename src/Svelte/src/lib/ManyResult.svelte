@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { SimulateManyResponse } from "./protocol";
-  import { pairSummary } from "./many";
+  import { pairSummary, relText } from "./many";
 
   // 複数のソルバで回した結果の表（S323）。合否は色でなく文字で出す。重ね描きは Plot が受け持つ
   let { result }: { result: SimulateManyResponse } = $props();
@@ -30,9 +30,12 @@
     <p data-compare-verdict role="status">
       比較: 閾値 10<sup>-{c.threshold_exp}</sup>（{c.threshold}）、基準 {c.reference}、全体で <strong>{c.passed ? "合格" : "不合格"}</strong>
     </p>
+    {#if c.worst}
+      <p data-compare-worst>全変数の最大の相対差: {relText(c.max_rel, c.threshold_exp)}（{c.worst.solver}、{c.worst.name}{#if c.worst.time != null}、t = {num(c.worst.time)}{/if}）</p>
+    {/if}
     <table aria-label="基準との比較">
       <caption>基準 {c.reference} との比較</caption>
-      <thead><tr><th scope="col">ソルバ</th><th scope="col">合否</th><th scope="col">外れた信号</th><th scope="col">最大のはみ出し量</th><th scope="col">最初に外れた時刻</th></tr></thead>
+      <thead><tr><th scope="col">ソルバ</th><th scope="col">合否</th><th scope="col">外れた信号</th><th scope="col">最大のはみ出し量</th><th scope="col">最初に外れた時刻</th><th scope="col">最大の相対差</th></tr></thead>
       <tbody>
         {#each c.pairs as p}
           {@const s = pairSummary(p)}
@@ -40,9 +43,10 @@
             <th scope="row">{p.solver}</th><td>{p.passed ? "合格" : "不合格"}</td>
             <td>{p.failed_signals} / {p.signals}{#if p.failures.length}（{p.failures.slice(0, 3).map((f) => f.name).join("、")}{p.failures.length > 3 ? " ほか" : ""}）{/if}</td>
             <td>{s ? num(s.excess) : "-"}</td><td>{s && Number.isFinite(s.first) ? num(s.first) : "-"}</td>
+            <td data-max-rel>{relText(p.max_rel, c.threshold_exp)}{#if p.worst}<small>（{p.worst.name}{#if p.worst.time != null}、t = {num(p.worst.time)}{/if}）</small>{/if}</td>
           </tr>
         {/each}
-        {#each c.skipped as k}<tr data-skipped={k.solver}><th scope="row">{k.solver}</th><td colspan="4">比べなかった: {k.reason}</td></tr>{/each}
+        {#each c.skipped as k}<tr data-skipped={k.solver}><th scope="row">{k.solver}</th><td colspan="5">比べなかった: {k.reason}</td></tr>{/each}
       </tbody>
     </table>
   {/if}
