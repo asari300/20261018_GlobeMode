@@ -10,7 +10,7 @@
 # - 大きいライブラリは例題を `--shard i/n` で割り、分割ごとに 1 ジョブにする（Buildings 4、AixLib 2。最初の run で Buildings 6 分割は 1 分割 約 10 分だったので減らした）。
 #   1 ジョブの上限は 360 分で、funnel と sim のステップに別の上限を付ける。funnel が間に合わないと JSON が書かれず、その分割は欠ける。
 # - 参照結果（MAP-LIB）は MSL のものだけなので、sim は実行できたかを数えるだけで管の比較はしない。
-# - diff-frontend（S369）は自前の parse → resolve → flat → dae を Rumoca と突き合わせる（funnel とは別の道。funnel・sim の結果に依らない）。
+# - diff-frontend（S369。funnel と sim の間。上限 60 分）は自前の parse → resolve → flat → dae を Rumoca と突き合わせる（funnel とは別の道。funnel・sim の結果に依らない）。
 #   自前の flat の上限（`too-large`）を MSL 以外の実在のモデルで確かめるためでもある。continue-on-error で、報告（Markdown と JSON）は artifact に残る。
 # - 最後のジョブ libraries-report が分割ごとの JSON を集めて表（doc/libraries.md）を作り、artifact `libraries` に上げる。
 name: libraries
@@ -134,6 +134,13 @@ jobs:
         run: |
           mkdir -p target
           cargo xtask msl-funnel --library data/libs/${{ matrix.name }} --package ${{ matrix.package }} ${{ matrix.examples_in }} --shard ${{ matrix.shard }} --report target/${{ matrix.id }}-funnel.md --json target/${{ matrix.id }}-funnel.json
+      - name: diff-frontend（自前の flat・DAE を Rumoca と突き合わせ。S369）
+        id: diff
+        continue-on-error: true
+        timeout-minutes: 60
+        shell: bash
+        run: |
+          cargo xtask diff-frontend --library data/libs/${{ matrix.name }} --package ${{ matrix.package }} ${{ matrix.examples_in }} --shard ${{ matrix.shard }} --report target/${{ matrix.id }}-diff.md --json target/${{ matrix.id }}-diff.json
       - name: msl-sim（OK の例題を実行。参照結果は無い）
         id: sim
         continue-on-error: true
@@ -141,13 +148,6 @@ jobs:
         shell: bash
         run: |
           cargo xtask msl-sim --library data/libs/${{ matrix.name }} --package ${{ matrix.package }} --funnel-json target/${{ matrix.id }}-funnel.json --tolerance-scale 0.1 --report target/${{ matrix.id }}-sim.md --json target/${{ matrix.id }}-sim.json
-      - name: diff-frontend（自前の flat・DAE を Rumoca と突き合わせ。S369）
-        id: diff
-        continue-on-error: true
-        timeout-minutes: 170
-        shell: bash
-        run: |
-          cargo xtask diff-frontend --library data/libs/${{ matrix.name }} --package ${{ matrix.package }} ${{ matrix.examples_in }} --shard ${{ matrix.shard }} --report target/${{ matrix.id }}-diff.md --json target/${{ matrix.id }}-diff.json
       - name: ジョブの要約
         if: always()
         shell: python3 {0}
