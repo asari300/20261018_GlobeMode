@@ -25,7 +25,8 @@
 
 ## 検証
 
-検証の数字は最終コミットの報告に書く。
+- `cargo test -p globe-mode-fmi-import ssp`（5 本 pass。新規 1 本を含む）、`-p globe-mode-cli --test fmu_cosim ssp`（12 本 pass。reference FMU あり、`GLOBE_REQUIRE_REFERENCE_FMUS=1`。`--ssv` の CSV がバイト一致）。
+- `cargo clippy -D warnings`（fmi-import・cli の全 target、facade も確認）・`cargo fmt --check`: 警告 0。`check_docs.py`: 切れ 0。`mise run check` 全体と render_slides は回していない（変えた crate に絞った）。
 
 ## 残したこと
 
