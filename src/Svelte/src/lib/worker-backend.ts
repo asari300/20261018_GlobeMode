@@ -3,7 +3,7 @@ import type { Backend, CompletionEntry, Definition, Diagram, Documentation, Hove
 import { browserOpen, browserSave, browserSaveBinary } from "./browser-file";
 import { gapNonFinite, type Columns } from "./plot/csv";
 import { toColumns } from "./results";
-import type { BltReport, StagesReport, CheckResponse, GraphJson, SimulateRequest, SimulateResponse, SolverEntry, ModelParameter, TunableParameter, Linearization } from "./protocol";
+import type { BltReport, StagesReport, CheckResponse, GraphJson, SimulateRequest, SimulateResponse, SimulateManyRequest, SimulateManyResponse, SolverEntry, ModelParameter, TunableParameter, Linearization } from "./protocol";
 
 /** Web Worker 上の wasm（ADR-0014、ADR-0023）。呼び出しは直列で、panic のあとは worker を作り直す。 */
 export class WorkerBackend implements Backend {
@@ -14,6 +14,9 @@ export class WorkerBackend implements Backend {
 
   library(name: string, json: string): Promise<void> {
     return this.#w.library(json, name);
+  }
+  async libraryIndex(name: string, url: string): Promise<boolean> {
+    return (await this.#w.libraryIndex(url, name)) !== null;
   }
   setFile(name: string, text: string): Promise<void> {
     return this.#w.setFile(name, text);
@@ -36,6 +39,12 @@ export class WorkerBackend implements Backend {
   async simulateColumns(req: SimulateRequest, onProgress?: (p: Progress) => void): Promise<{ response: SimulateResponse; columns: Columns }> {
     const r = await this.#w.simulateColumns(req, { onProgress }); // layout.names は time を含む
     return { response: r.response, columns: { names: r.layout.names.slice(1), points: r.layout.points, defaults: r.layout.defaults, data: r.columns.map(gapNonFinite) } };
+  }
+  // S322: ブラウザは逐次に落ちる（response.mode_note）。layout.names は time を含む
+  async simulateMany(req: SimulateManyRequest, onProgress?: (p: Progress) => void): Promise<{ response: SimulateManyResponse; columns: Columns[] }> {
+    const r = await this.#w.simulateMany(req, { onProgress });
+    const columns = r.runs.map((run: { layout: { names: string[]; points: number; defaults?: string[] }; columns: Float64Array[] }) => ({ names: run.layout.names.slice(1), points: run.layout.points, defaults: run.layout.defaults, data: run.columns.map(gapNonFinite) }));
+    return { response: r.response, columns };
   }
   cancel(): void {
     this.#w.cancel();

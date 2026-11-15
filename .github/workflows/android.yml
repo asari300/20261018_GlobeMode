@@ -13,7 +13,7 @@
 # gen/android がまだ無ければ `cargo tauri android init --ci` で作り、artifact `gen-android` に残す）→ emulator（API 34 の
 # x86_64 のエミュレータに APK を入れて起動し、UI が組み込みの Decay を検査・実行して console に出す
 # `GM-SMOKE check=ok simulate=ok x1=… msl=ok` の 1 行を logcat で待つ。S100、P6。msl=ok は S103: 同梱の MSL.json を読んで
-# ChuaCircuit を検査した）。S147: 同じ行に UI の操作の項目（tree・fmt・graph・cancel・settings・plot・def。ライブラリの木・整形・グラフ・止める・実行の設定・プロットの選択・定義ジャンプ）が付き、全部 ok を合格にする（待ちは 15 分）。MSL は ui で fetch-msl してから pnpm build するので、pack-msl.mjs の MSL.json が dist（APK の assets）に入る。UI は VITE_GM_SMOKE=1 でビルドするので、この APK は起動すると smoke を回す。S159: 同じ行の `isolated=1 cancel_path=flag` も合格の条件（Android の WebView は COOP / COEP を付けても cross-origin isolated にならず、止めるのは Worker の作り直しのまま。ADR-0033 の 7 段目。isolated=1 になったら flag に直す）。desktop.yml と同じ理由で tauri-cli は `cargo install` で入れる。
+# ChuaCircuit を検査した。S308 から MSL.json でなく分割配信の索引と塊）。S147: 同じ行に UI の操作の項目（tree・fmt・graph・cancel・settings・plot・def。ライブラリの木・整形・グラフ・止める・実行の設定・プロットの選択・定義ジャンプ）が付き、全部 ok を合格にする（待ちは 15 分）。MSL は ui で fetch-msl してから pnpm build するので、pack-msl.mjs の msl/index.json と msl/c/*.json が dist（APK の assets）に入る（MSL.json は ui の step で消す。S308）。UI は VITE_GM_SMOKE=1 でビルドするので、この APK は起動すると smoke を回す。S159: 同じ行の `isolated=1 cancel_path=flag` も合格の条件（Android の WebView は COOP / COEP を付けても cross-origin isolated にならず、止めるのは Worker の作り直しのまま。ADR-0033 の 7 段目。isolated=1 になったら flag に直す）。desktop.yml と同じ理由で tauri-cli は `cargo install` で入れる。
 name: android
 
 on:
@@ -49,9 +49,9 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           key: android-wasm
-      # S103: data/msl があれば pnpm build（pack-msl.mjs）が MSL.json を dist に入れる（ADR-0023 の S103。Android で MSL を読める）
+      # S103: data/msl があれば pnpm build（pack-msl.mjs）が MSL の束を dist に入れる（ADR-0023 の S103、S308。Android で MSL を読める）
       - run: cargo xtask fetch-msl
-      - name: release の wasm（mise.toml の wasm:build）と UI（pnpm build。MSL.json も作る）
+      - name: release の wasm（mise.toml の wasm:build）と UI（pnpm build。MSL の分割配信の束も作る）
         env:
           VITE_GM_SMOKE: "1" # S100: 起動したら Decay を検査・実行し、MSL を読んで ChuaCircuit を検査して GM-SMOKE の行を console に出す（emulator が待つ）
         run: |
@@ -59,7 +59,13 @@ jobs:
           cd src/Svelte
           pnpm install --frozen-lockfile
           pnpm build
-          test -s dist/msl/MSL.json
+          # S308: APK は MSL.json（15 MiB）を持たず、分割配信（msl/index.json と msl/c/*.json）だけにする（ブラウザ版の束と同じ。web.yml）。
+          # Android は sidecar を使わず WorkerBackend なので、UI は index.json を見つければ塊を取る（assets の相対 URL）
+          test -s dist/msl/index.json
+          du -sb dist/msl | awk '{printf "dist/msl（MSL.json を含む）%.1f MiB\n", $1/1048576}'
+          rm dist/msl/MSL.json
+          node -e 'const i=JSON.parse(require("fs").readFileSync("dist/msl/index.json"));for(let k=0;k<i.chunks;k++)require("fs").statSync(`dist/msl/c/${k}.json`);console.log("塊",i.chunks,"本")'
+          du -sb dist/msl | awk '{printf "dist/msl（分割配信だけ）%.1f MiB\n", $1/1048576}'
       - uses: actions/upload-artifact@v4
         with:
           name: ui-dist-wasm

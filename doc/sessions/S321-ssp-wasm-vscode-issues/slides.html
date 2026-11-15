@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S321 ssp-wasm-vscode-issues — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S321 ssp-wasm-vscode-issues">
+
+<section class="slide" id="S01">
+  <span class="tag">S321 · 2026-11-15 · 監査</span>
+  <h1>3 回目のレビューの issue を 3 件直した</h1>
+  <p class="lead">#112 SSP、#110 MSL の分割配信、#117 VS Code のパネル</p>
+  <div class="big">どれも、直す前なら落ちる試験つき</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">#112 SSP</span>
+  <h1>積に上限を付ける</h1>
+  <ul>
+    <li>深さ 64 と名前 1024 だけでは、階層名が 64 KB になり、5000 個で RSS 650 MB</li>
+    <li>階層名は 4096 バイト、項目（System・Component・コネクタ・接続・束縛）は 10000 個まで</li>
+    <li>試験: <code>hierarchy_name_length_and_item_count_are_capped</code></li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">#110 分割配信</span>
+  <h1>壊れた塊で固まらない</h1>
+  <ul>
+    <li>読めて、索引と合ってから <code>got</code> に入れる。合わない塊は誤りにして取り直せる</li>
+    <li><code>ensure</code> の繰り返しは塊の数 + 1 回まで</li>
+    <li>試験: <code>node/broken-chunks.mjs</code>（<code>{}</code>・<code>&lt;html&gt;</code>・直したあと）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">#117 VS Code</span>
+  <h1>入力の途中で対象が変わっても</h1>
+  <ul>
+    <li><code>editParams</code> の最初に対象と版を控え、<code>apply</code> に渡す</li>
+    <li>版が変わっていれば入れない（S264 と同じ）</li>
+    <li>試験: <code>panel-params-target.test.mjs</code></li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>展開後の合計（<code>MAX_UNPACKED</code>）の見直し</li>
+    <li>#117 の e2e は <code>vscode.yml</code> を手動で回して確かめる</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

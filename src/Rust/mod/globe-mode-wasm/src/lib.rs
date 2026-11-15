@@ -262,6 +262,41 @@ impl SimColumns {
     }
 }
 
+/// 複数ソルバの実行の結果（S322）。時系列は wasm の中に残し、JS は `layout(run)`・`column(run, i)` で実行ごとの列を受け取る。
+/// 使い終わったら `free()`。
+#[wasm_bindgen]
+#[derive(Debug)]
+pub struct ManyColumns {
+    response: String,
+    many: globe_mode::ManyResult,
+}
+
+#[wasm_bindgen]
+impl ManyColumns {
+    /// `SimulateManyResponse` の JSON（`runs[i]` が `layout(i)`・`column(i, _)` の実行）。
+    #[wasm_bindgen(getter)]
+    pub fn response(&self) -> String {
+        self.response.clone()
+    }
+
+    /// 実行 `run` の [`globe_mode::ColumnsLayout`] の JSON。回せなかった実行・範囲外は空の列と 0 点。
+    pub fn layout(&self, run: usize) -> String {
+        let empty = globe_mode::ManyData {
+            run: None,
+            default_plot: Vec::new(),
+        };
+        serde_json::to_string(&self.many.runs.get(run).unwrap_or(&empty).columns().0)
+            .unwrap_or_default()
+    }
+
+    /// 実行 `run` の列 `i`（0 が時刻、1 から変数）。範囲外は空。
+    pub fn column(&self, run: usize, i: usize) -> Vec<f64> {
+        self.many.runs.get(run).map_or_else(Vec::new, |d| {
+            d.columns().1.get(i).map_or_else(Vec::new, |c| c.to_vec())
+        })
+    }
+}
+
 /// 開いた結果のファイルの列（S222）。[`SimColumns`] の `layout`・`column` と同じ形。使い終わったら `free()`。
 #[wasm_bindgen]
 #[derive(Debug)]
@@ -630,6 +665,47 @@ impl Workspace {
         Ok(self.run_columns_observed(request, handle))
     }
 
+    /// 複数のソルバで回す（S322、ADR-0040。`SimulateManyRequest` の JSON → [`ManyColumns`]）。ブラウザにはスレッドが無いので
+    /// `parallel` は逐次に落とし、応答の `mode_note` に書く。`on_progress(stage, time, start_time, stop_time, solver)` を同期で呼び、
+    /// 厳密に `true` を返すと全部の実行が次の区切りで止まる（`simulate_columns` と同じ）。
+    pub fn simulate_many_columns(
+        &mut self,
+        request_json: &str,
+        on_progress: Option<ProgressFn>,
+    ) -> Result<ManyColumns, JsValue> {
+        clear_last_panic();
+        let request: globe_mode::SimulateManyRequest = serde_json::from_str(request_json)
+            .map_err(|e| js_error(format!("入力の JSON が読めない: {e}")))?;
+        let token = globe_mode::CancelToken::default();
+        let mut notify = |_: usize, solver: &str, p: &globe_mode::Progress| {
+            if let Some(f) = &on_progress {
+                let stop = f.call5(
+                    &JsValue::NULL,
+                    p.stage.as_str(),
+                    p.time,
+                    p.start_time,
+                    p.stop_time,
+                    solver,
+                );
+                if stop.is_ok_and(|v| v.as_bool() == Some(true)) {
+                    token.cancel();
+                }
+            }
+        };
+        let many = self.inner.simulate_many(
+            &request,
+            &now_ms,
+            globe_mode::ManyHandle {
+                on_progress: Some(&mut notify),
+                cancel: Some(token.clone()),
+            },
+        );
+        Ok(ManyColumns {
+            response: to_json(&many.response)?,
+            many,
+        })
+    }
+
     /// ソースの FMU（FMI `fmi_version`、2 か 3。build 無し）を zip のバイト列（`Uint8Array`）で返す（S144。UI は Blob にしてダウンロードする）。
     /// DAE まで変換できないなど、作れなければ例外（文字列）。
     pub fn export_fmu(&mut self, model: &str, fmi_version: u8) -> Result<Vec<u8>, JsValue> {
@@ -749,6 +825,57 @@ pub fn simulate(request_json: &str) -> Result<String, JsValue> {
     to_json(&run(&request))
 }
 
+/// 分割配信のライブラリ（S301）の閉包。`files_json` は名前 → 本文（まだ取っていないファイルは [`tree_stub`] の見出し）。
+/// `closure` の答えに見出しのままのファイルが入っていたら、JS はその本文を取って `set_text` で替え、もう一度呼ぶ
+/// （本文だけが参照を持つので、取るたびに閉包が広がる）。答えが全部本文になれば、全部読んだときの検査と同じ閉包。
+#[wasm_bindgen]
+#[derive(Debug)]
+pub struct LibraryClosure(globe_mode::LibraryClosure);
+
+#[wasm_bindgen]
+impl LibraryClosure {
+    #[wasm_bindgen(constructor)]
+    pub fn js_new(files_json: &str) -> Result<LibraryClosure, JsValue> {
+        let files: BTreeMap<String, String> = serde_json::from_str(files_json)
+            .map_err(|e| js_error(format!("ライブラリの JSON が読めない: {e}")))?;
+        Ok(LibraryClosure(globe_mode::LibraryClosure::new(files)))
+    }
+
+    /// ファイル `name` の本文を替える。
+    pub fn set_text(&mut self, name: &str, text: &str) -> bool {
+        self.0.set_text(name, text)
+    }
+
+    /// `model` と `user_texts_json`（文字列の配列。作業中の文書の本文）が使うファイルの名前の JSON の配列。
+    /// `bases_only` なら `extends` の基底だけをたどる（アイコンなど、クラス 1 つの `extends` の鎖だけが要るとき）。
+    pub fn closure(
+        &mut self,
+        model: &str,
+        user_texts_json: &str,
+        bases_only: bool,
+    ) -> Result<String, JsValue> {
+        let texts: Vec<String> = serde_json::from_str(user_texts_json)
+            .map_err(|e| js_error(format!("文書の JSON が読めない: {e}")))?;
+        let texts: Vec<&str> = texts.iter().map(String::as_str).collect();
+        to_json(&self.0.closure(model, &texts, bases_only))
+    }
+}
+
+/// S308: ファイルごとの直接の依存（名前 → 名前の配列の JSON）。pack が、塊ごとの「参照する他の塊」を作る。
+/// `files_json` は名前 → 本文（見出しでなく全部の本文）。
+#[wasm_bindgen]
+pub fn file_deps(files_json: &str) -> Result<String, JsValue> {
+    let files: BTreeMap<String, String> = serde_json::from_str(files_json)
+        .map_err(|e| js_error(format!("ライブラリの JSON が読めない: {e}")))?;
+    to_json(&globe_mode::LibraryClosure::new(files).direct_deps())
+}
+
+/// ファイルの本文の代わりに配る見出し（[`globe_mode_fmt::tree_stub`]）。見出しが読めなければ `undefined`（本文のまま配る）。
+#[wasm_bindgen]
+pub fn tree_stub(text: &str) -> Option<String> {
+    globe_mode_fmt::tree_stub(text)
+}
+
 /// ソルバの登録表（`globe_mode_sim::solvers::SOLVERS` の JSON の配列）。
 #[wasm_bindgen]
 pub fn solvers() -> String {
@@ -811,6 +938,17 @@ extern "C" {
         time: Option<f64>,
         start_time: f64,
         stop_time: f64,
+    ) -> Result<JsValue, JsValue>;
+    /// `call4` に、どのソルバの進捗かを足したもの（`simulate_many_columns`）
+    #[wasm_bindgen(method, catch, js_name = call)]
+    fn call5(
+        this: &ProgressFn,
+        context: &JsValue,
+        stage: &str,
+        time: Option<f64>,
+        start_time: f64,
+        stop_time: f64,
+        solver: &str,
     ) -> Result<JsValue, JsValue>;
 }
 

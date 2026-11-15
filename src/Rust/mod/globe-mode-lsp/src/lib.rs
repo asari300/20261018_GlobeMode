@@ -13,6 +13,7 @@
 //! | `globe/check` | `{model}` | `CheckResponse` の JSON |
 //! | `globe/simulate` | `{request}`（`SimulateRequest` の JSON。S214: `max_wall_seconds` が無ければ 180 s の予算を置く） | `SimulateResponse` の JSON |
 //! | `globe/simulateColumns` | `{request}` | `{response, layout, columns}`（S076。wasm の `simulate_columns` と同じ形。`response` に CSV は無く、`layout` は `ColumnsLayout`（`names`・`points`・既定で描く `defaults`。S190）、`columns[i]` は列 `i` の数の配列で、有限でない値は null） |
+//! | `globe/simulateMany` | `{request}`（`SimulateManyRequest` の JSON。S322: 複数のソルバで回し、`compare` があれば比べる。進捗の report に `solver`・`index`・`count` が付く。`$/cancelRequest` は全部に効く） | `{response, columns}`（`response` は `SimulateManyResponse`。`columns[i]` は `response.runs[i]` の `{layout, columns}` で、回せなかった実行は null） |
 //! | `globe/graph` | `{model, depth}` | graphology の JSON（`ConnectGraph::to_graphology`） |
 //! | `globe/format` | `{text, indent?, insertOrigin?, blankAroundSections?, formatHtml?}` | 整形後の本文（S053。壊れていれば -32000。S214: `globe-mode.toml` があれば indent は設定が勝つ。無いときだけ params の indent） |
 //! | `globe/lint` | `{text}` | `[{rule, line, column, message}]`（S053） |
@@ -48,7 +49,7 @@
 //! | `globe/setModifier` | `{file, class, modifiers: [{part, name, value}]}` | LSP の TextEdit の配列 `[{range, newText}]`（S294。図の部品 `part` の宣言の修飾 `(name = value)` を足す・書き換える。`value` が空なら外す。複数を順に当てて 1 つの編集〔最初と最後の本文の差〕にする。何も変わらなければ空の配列。ファイルは書かない）。断る理由〔クラス・部品が無い、入れ子の名前 `a.b`、`each`・`final` つきの引数、壊れた式〕は -32803 に理由 |
 //! | `globe/diagram` | `globe/documentation` と同じ | `{class, extent, parts, connections, shapes}` か null（S245。クラスの部品〔`Placement(transformation)` のある宣言〕と `connect`、`Diagram(graphics)` を形のデータにしたもの。部品は `name`・`class`〔書いてある型〕・`line`〔宣言の行、0 始まり〕・`transform`〔アイコンの座標から Diagram の座標への `[a,b,c,d,e,f]`〕・`bbox`・`shapes`〔部品のクラスの Icon の図形。引けなければ空〕・`connectors`〔S261。`[{name, pos}]`、部品のクラスと `extends` の 2 段までの、`Placement` を持つ宣言〔型が connector でないと分かるものは除く〕の位置。図の座標〕、`connections` は `from`・`to`・`line`〔`Line(points)` か中心どうしを結ぶ図形〕。`globe/icon` と同じ図形の形。wasm の `diagram` と同じ） |
 //!
-//! 設定ファイル（S130）: `initialize` の `rootUri`（無ければ `rootPath`）から上へたどって最初の `globe-mode.toml` を
+//! 設定ファイル（S130。S313 で `[check] frontend = "native"` を足した。診断を自前の段で出す）: `initialize` の `rootUri`（無ければ `rootPath`）から上へたどって最初の `globe-mode.toml` を
 //! 読み、lint の診断と `textDocument/formatting` に使う（`workspace/didChangeConfiguration` で読み直す）。
 //! `globe/format`・`globe/lint` も設定ファイルを土台にする（S143）。`globe/format` の params は設定に重ねる（indent は
 //! 設定ファイルがあれば設定が勝ち、無いときだけ params。S214）。設定ファイルが無ければ wasm と同じく params と既定で決まる。
@@ -72,7 +73,8 @@ use std::thread;
 
 use globe_mode::db::normalize_path;
 use globe_mode::{
-    CancelToken, Diagnostic, Progress, SimulateHandle, SimulateRequest, Simulated, Workspace,
+    CancelToken, Diagnostic, ManyHandle, Progress, SimulateHandle, SimulateManyRequest,
+    SimulateRequest, Simulated, Workspace,
 };
 use globe_mode_core::{Severity, TextRange};
 use globe_mode_ir::{ClassKind, ClassOutline};
@@ -94,7 +96,7 @@ pub struct Server {
     libraries: Vec<PathBuf>,
     /// ライブラリの木（S127。最初の `globe/libraryTree` で全ファイルの見出しを読んで作る）
     tree: Option<globe_mode_fmt::LibraryTree>,
-    /// ライブラリの名前解決の木（S279。補完の `a.` が書きかけの文書で引くとき、最初に 1 回だけ作る。`tree` と同じく起動後のライブラリの更新は見ない）
+    /// ライブラリの名前解決の木（S279。補完の `a.` が書きかけの文書で引くとき、最初に 1 回だけ作る。`tree` と同じく起動後のライブラリのディスクでの更新は見ない。開いているファイルの編集・閉じでは捨てる。#107）
     lib: Option<globe_mode_resolve::Library>,
     /// ワークスペースの根（`initialize` の `rootUri`）
     root: Option<PathBuf>,
@@ -181,8 +183,9 @@ impl Server {
             overlay: None,
             lib: Some(&mut self.lib),
             read: &|p| {
+                let key = same_path_key(p);
                 open.iter()
-                    .find(|(u, _)| uri_path(u) == p)
+                    .find(|(u, _)| same_path_key(&uri_path(u)) == key)
                     .map(|(_, t)| t.clone())
                     .or_else(|| std::fs::read_to_string(p).ok())
             },
@@ -289,6 +292,7 @@ impl Server {
             "textDocument/didClose" => {
                 self.texts.remove(&uri);
                 self.published.remove(&uri);
+                self.drop_lib_for(&uri_path(&uri));
                 self.ws.remove_file(&uri_path(&uri));
                 let mut out = vec![publish(&uri, &[])];
                 out.extend(self.republish_others(&uri));
@@ -386,7 +390,11 @@ impl Server {
                 let target = self.with_resolver(|r| r.definition(&path, &text, at));
                 let location = target.and_then(|t| {
                     // 開いている文書ならその本文と URI、無ければディスクから読む
-                    let open = self.texts.iter().find(|(u, _)| uri_path(u) == t.path);
+                    let key = same_path_key(&t.path);
+                    let open = self
+                        .texts
+                        .iter()
+                        .find(|(u, _)| same_path_key(&uri_path(u)) == key);
                     let (u, body) = match open {
                         Some((u, body)) => (u.clone(), body.clone()),
                         None => (file_uri(&t.path), std::fs::read_to_string(&t.path).ok()?),
@@ -671,6 +679,31 @@ impl Server {
                         let (layout, columns) = s.columns();
                         // serde_json は NaN / Inf を null にする（UI の欠損と同じ）
                         reply(id, json!({"response": s.response, "layout": layout, "columns": columns}))
+                    }
+                    Err(e) => error(id, -32602, &format!("params.request: {e}")),
+                }
+            }
+            "globe/simulateMany" => {
+                match serde_json::from_value::<SimulateManyRequest>(params["request"].clone()) {
+                    Ok(mut request) => {
+                        let out = self.simulate_many(
+                            &mut request,
+                            params.get("workDoneToken"),
+                            cancel,
+                            notify,
+                        );
+                        let columns: Vec<Value> = out
+                            .runs
+                            .iter()
+                            .map(|d| match &d.run {
+                                Some(_) => {
+                                    let (layout, columns) = d.columns();
+                                    json!({"layout": layout, "columns": columns})
+                                }
+                                None => Value::Null,
+                            })
+                            .collect();
+                        reply(id, json!({"response": out.response, "columns": columns}))
                     }
                     Err(e) => error(id, -32602, &format!("params.request: {e}")),
                 }
@@ -1006,6 +1039,53 @@ impl Server {
         s
     }
 
+    /// 複数ソルバの実行（S322）。`globe/simulate` と同じ予算（実行ごと）・同じ進捗の形で、report に `solver`・`index`・`count` を足す。
+    /// 進捗の `percentage` は実行ごと。並列のときはソルバごとの report が交互に来る。
+    fn simulate_many(
+        &mut self,
+        request: &mut SimulateManyRequest,
+        token: Option<&Value>,
+        cancel: Option<CancelToken>,
+        notify: &mut dyn FnMut(Value),
+    ) -> globe_mode::ManyResult {
+        request
+            .settings
+            .max_wall_seconds
+            .get_or_insert(DEFAULT_MAX_WALL_SECONDS);
+        let mut progress = |value: Value| {
+            if let Some(token) = token {
+                notify(json!({"jsonrpc": "2.0", "method": "$/progress",
+                    "params": {"token": token, "value": value}}));
+            }
+        };
+        progress(
+            json!({"kind": "begin", "title": format!("simulate {} ({} solvers)", request.model, request.solvers.len()), "cancellable": true}),
+        );
+        let count = request.solvers.len();
+        let mut on_progress = |index: usize, solver: &str, p: &Progress| {
+            let stage = p.stage.as_str();
+            let mut v = json!({"kind": "report", "message": format!("{solver}: {stage}"), "stage": stage,
+                "solver": solver, "index": index, "count": count,
+                "start_time": p.start_time, "stop_time": p.stop_time});
+            if let Some(t) = p.time {
+                let pct = (t - p.start_time) / (p.stop_time - p.start_time) * 100.0;
+                v["time"] = json!(t);
+                v["percentage"] = json!(pct.clamp(0.0, 100.0) as u32);
+            }
+            progress(v);
+        };
+        let out = self.ws.simulate_many(
+            request,
+            &globe_mode::now_ms,
+            ManyHandle {
+                on_progress: Some(&mut on_progress),
+                cancel,
+            },
+        );
+        progress(json!({"kind": "end"}));
+        out
+    }
+
     /// Rumoca のアウトライン。構文の誤りで引けなければ `globe-mode-syntax` の CST から作ったもの（S276）
     fn outline_or_tolerant(&self, uri: &str, text: &str) -> Vec<ClassOutline> {
         match self.ws.outline(&uri_path(uri)) {
@@ -1016,6 +1096,7 @@ impl Server {
 
     fn update(&mut self, uri: String, text: String) -> Vec<Value> {
         let path = uri_path(&uri);
+        self.drop_lib_for(&path);
         self.ws.set_file(&path, text.clone());
         // 検査が panic しても本文は最新にしておく（S214。古い本文から整形やリネームの編集を作らない）
         self.texts.insert(uri.clone(), text.clone());
@@ -1023,6 +1104,20 @@ impl Server {
         let out = vec![publish(&uri, &diags)];
         self.published.insert(uri, diags);
         out
+    }
+
+    /// ライブラリのファイルの本文が変わるときは、自前の名前解決の木（`lib`）を捨てて次に要るとき作り直す（#107。MSL 全体で 0.6 s。
+    /// 残すと定義・ホバーが古いバイト位置を返す）。`tree` が無ければ `lib` も無い。
+    fn drop_lib_for(&mut self, path: &str) {
+        // 木のファイル名は `--library` の文字列のまま（相対・`\` 区切りがありうる）なので、絶対にして `/` と小文字のドライブにそろえて比べる（#115）
+        let path = same_path_key(path);
+        if let Some(tree) = self.tree.as_ref().filter(|_| self.lib.is_some())
+            && tree
+                .classes()
+                .any(|(n, _)| tree.file(n).is_some_and(|f| same_path_key(f) == path))
+        {
+            self.lib = None;
+        }
     }
 
     /// 文書 `except` の編集・閉じ・開きのあと、ほかの開いている文書の診断を取り直し、変わったものだけ出し直す（#64。
@@ -1089,8 +1184,14 @@ impl Server {
                 ..Default::default()
             });
         }
+        // S313: `[check] frontend = "native"` なら自前の段で診断を出す（読む側 `from_toml` が値を rumoca か native に絞ってある）
+        let frontend = lint
+            .frontend
+            .as_deref()
+            .and_then(|f| f.parse().ok())
+            .unwrap_or_default();
         for model in models {
-            for d in self.ws.check(&model).diagnostics {
+            for d in self.ws.check_with(&model, frontend).diagnostics {
                 if d.file.as_deref().is_none_or(|f| f == key) {
                     let d = lsp_diagnostic(&d, text);
                     if !out.contains(&d) {
@@ -1147,7 +1248,11 @@ pub fn run_stdio(libraries: &[PathBuf]) -> io::Result<()> {
 fn cancellable(method: &str) -> bool {
     matches!(
         method,
-        "globe/simulate" | "globe/simulateColumns" | "globe/fmuRun" | "globe/cosim"
+        "globe/simulate"
+            | "globe/simulateColumns"
+            | "globe/simulateMany"
+            | "globe/fmuRun"
+            | "globe/cosim"
     )
 }
 
@@ -1701,6 +1806,27 @@ fn file_uri(path: &str) -> String {
     out
 }
 
+/// パスの比べる形: 絶対、`..` を字句で畳む、区切りは `/`、ドライブ文字は小文字（`uri_path` の形に合わせる）。
+/// shortcut: symlink は解かない（syscall を避ける）。symlink 越しに開く人が出たら `canonicalize` にする。
+fn same_path_key(p: &str) -> String {
+    use std::path::Component;
+    let abs = std::path::absolute(p).unwrap_or_else(|_| PathBuf::from(p));
+    let mut out = PathBuf::new();
+    for c in abs.components() {
+        match c {
+            Component::ParentDir => {
+                out.pop();
+            }
+            c => out.push(c),
+        }
+    }
+    let mut s = out.display().to_string().replace('\\', "/");
+    if s.as_bytes().get(1) == Some(&b':') {
+        s[..1].make_ascii_lowercase();
+    }
+    s
+}
+
 fn uri_path(uri: &str) -> String {
     match uri.parse::<Uri>() {
         Ok(u) if u.scheme().is_some_and(|s| s.as_str() == "file") => {
@@ -2119,6 +2245,25 @@ mod tests {
             "{}",
             r[0]
         );
+        // S322: 複数ソルバ。逐次と並列で同じ最終値、比較つき、実行ごとの列
+        for parallel in [false, true] {
+            let r = s.handle(
+                json!({"id": 5, "method": "globe/simulateMany", "params": {"request": {
+                "model": "D", "settings": {"stop_time": 1.0, "tolerance": 1e-9, "max_order": 3},
+                "solvers": ["bdf", "esdirk34", "tsit45"], "parallel": parallel,
+                "compare": {"threshold_exp": 4}}}}),
+            );
+            let res = &r[0]["result"];
+            assert_eq!(res["response"]["ok"], true, "{}", r[0]);
+            assert_eq!(res["response"]["comparison"]["passed"], true, "{}", r[0]);
+            let runs = res["response"]["runs"].as_array().unwrap();
+            assert_eq!(runs.len(), 3);
+            assert_eq!(runs[0]["solver"], "bdf");
+            assert_eq!(runs[0]["notes"].as_array().unwrap().len(), 1); // 最大次数は bdf では使わない
+            let cols = res["columns"].as_array().unwrap();
+            assert_eq!(cols.len(), 3);
+            assert_eq!(cols[2]["layout"]["names"], json!(["time", "x"]));
+        }
         // 読めない params は -32602、モデルが無ければ -32000、通知（id 無し）には何も返さない
         for (method, params, code) in [
             ("globe/check", json!({}), -32602),
@@ -2126,6 +2271,11 @@ mod tests {
             (
                 "globe/simulateColumns",
                 json!({"request": {"nope": 1}}),
+                -32602,
+            ),
+            (
+                "globe/simulateMany",
+                json!({"request": {"model": "D"}}),
                 -32602,
             ),
             ("globe/graph", json!({"model": "Nope"}), -32000),
@@ -2505,6 +2655,27 @@ mod tests {
         );
         assert_eq!(out[0]["method"], "window/showMessage");
         assert!(out[1].to_string().contains("GM-L0003"), "{}", out[1]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// S313: `[check] frontend = "native"` なら診断を自前の段で出す（断る形は `GM-U0006`）。無ければ Rumoca のまま。
+    #[test]
+    fn config_frontend_native_drives_diagnostics() {
+        let dir = std::env::temp_dir().join(format!("globe-lsp-native-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let toml = dir.join("globe-mode.toml");
+        let uri = "file:///tmp/E.mo";
+        let text = "expandable connector EC\n  Real a;\nend EC;\nmodel E\n  EC ec;\nend E;\n";
+        let open = |s: &mut Server| {
+            s.handle(json!({"id": 0, "method": "initialize", "params": {"rootPath": dir}}));
+            s.handle(json!({"method": "textDocument/didOpen", "params": {"textDocument": {"uri": uri, "text": text}}}))
+        };
+        std::fs::write(&toml, "[check]\nfrontend = \"native\"\n").unwrap();
+        let out = open(&mut Server::new(&[]).unwrap());
+        assert!(out[0].to_string().contains("GM-U0006"), "{}", out[0]);
+        std::fs::write(&toml, "[fmt]\nindent = 2\n").unwrap();
+        let out = open(&mut Server::new(&[]).unwrap());
+        assert!(!out[0].to_string().contains("GM-U0006"), "{}", out[0]);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -3198,6 +3369,99 @@ equation
             .unwrap();
         assert_eq!(hover(&mut s), "model R");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn editing_an_open_library_file_refreshes_tolerant_definition() {
+        // #107: 読めない文書の定義は自前の木（`lib`）を使う。開いているライブラリのファイルを didChange したら作り直す
+        let dir = scratch_dir("tolerant-edit");
+        let lib = dir.join("Lib");
+        std::fs::create_dir_all(&lib).unwrap();
+        let file = lib.join("package.mo");
+        let src = "package Lib\n  model A\n  end A;\nend Lib;\n";
+        std::fs::write(&file, src).unwrap();
+        let (fp, uri) = (file.display().to_string(), "T.mo");
+        let mut s = Server::new(std::slice::from_ref(&dir)).unwrap();
+        let open = |s: &mut Server, method: &str, uri: &str, text: &str| {
+            s.handle(json!({"method": method, "params": {"textDocument": {
+                "uri": uri, "languageId": "modelica", "version": 1, "text": text},
+                "contentChanges": [{"text": text}]}}))
+        };
+        open(&mut s, "textDocument/didOpen", &fp, src);
+        open(
+            &mut s,
+            "textDocument/didOpen",
+            uri,
+            "model T\n  Lib.A a;\n  Real = ;\nend T;\n",
+        );
+        let line = |s: &mut Server| {
+            s.handle(
+                json!({"id": 1, "method": "textDocument/definition", "params": {
+                "textDocument": {"uri": uri}, "position": {"line": 1, "character": 6}}}),
+            )
+            .remove(0)["result"]
+                .to_string()
+        };
+        assert!(line(&mut s).contains(r#""line":1"#), "{}", line(&mut s));
+        open(
+            &mut s,
+            "textDocument/didChange",
+            &fp,
+            &format!("\n\n\n\n\n{src}"),
+        );
+        assert!(line(&mut s).contains(r#""line":6"#), "{}", line(&mut s));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn editing_an_open_library_file_refreshes_with_relative_library_path() {
+        // #115: `--library` が相対パスでも、木のファイル名（文字列のまま）と開いた文書の絶対パスが同じファイルだと分かる
+        let dir = scratch_dir("tolerant-edit-rel");
+        let lib = dir.join("Lib");
+        std::fs::create_dir_all(&lib).unwrap();
+        let file = lib.join("package.mo");
+        let src = "package Lib\n  model A\n  end A;\nend Lib;\n";
+        std::fs::write(&file, src).unwrap();
+        let up = "../".repeat(std::env::current_dir().unwrap().components().count() - 1);
+        let rel = PathBuf::from(format!("{up}{}", dir.strip_prefix("/").unwrap().display()));
+        let (fp, uri) = (file.display().to_string(), "T.mo");
+        let mut s = Server::new(&[rel]).unwrap();
+        let open = |s: &mut Server, method: &str, uri: &str, text: &str| {
+            s.handle(json!({"method": method, "params": {"textDocument": {
+                "uri": uri, "languageId": "modelica", "version": 1, "text": text},
+                "contentChanges": [{"text": text}]}}))
+        };
+        open(&mut s, "textDocument/didOpen", &fp, src);
+        open(
+            &mut s,
+            "textDocument/didOpen",
+            uri,
+            "model T\n  Lib.A a;\n  Real = ;\nend T;\n",
+        );
+        let line = |s: &mut Server| {
+            s.handle(
+                json!({"id": 1, "method": "textDocument/definition", "params": {
+                "textDocument": {"uri": uri}, "position": {"line": 1, "character": 6}}}),
+            )
+            .remove(0)["result"]
+                .to_string()
+        };
+        assert!(line(&mut s).contains(r#""line":1"#), "{}", line(&mut s));
+        open(
+            &mut s,
+            "textDocument/didChange",
+            &fp,
+            &format!("\n\n\n\n\n{src}"),
+        );
+        assert!(line(&mut s).contains(r#""line":6"#), "{}", line(&mut s));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn same_path_key_ignores_separator_and_drive_case() {
+        assert_eq!(same_path_key("C:\\lib\\A.mo"), same_path_key("c:/lib/A.mo"));
     }
 
     #[test]

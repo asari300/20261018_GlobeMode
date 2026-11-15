@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S311 flat-ranges — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S311 flat-ranges">
+
+<section class="slide" id="S01">
+  <span class="tag">S311 · 2026-11-15 · Track B</span>
+  <h1>flat の結果に元のソースの位置を持たせた</h1>
+  <p class="lead"><code>globe check --frontend native</code></p>
+  <div class="big">GM-E6001・GM-E5002 に行と列が付く</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">やり方</span>
+  <h1>Var と Equation に「由来」を足した</h1>
+  <ul>
+    <li><code>Origin</code>: ファイル名と元のファイルのバイト範囲（番号でなく名前なので、閉包だけ読んでも全部読んでも同じ）</li>
+    <li>入れ子・<code>extends</code>・<code>redeclare</code>: 宣言した場所（基底クラスのファイル）の位置をそのまま運ぶ</li>
+    <li><code>for</code> の展開: 中の方程式。<code>connect</code>: 集合の最初の <code>connect</code> の文</li>
+    <li><code>globe-mode-dae</code> が <code>DaeStructure</code> の <code>file</code>・<code>range</code> に入れる（S290 では <code>None</code>）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">結果</span>
+  <h1>native の診断が Rumoca の道と同じ形になった</h1>
+  <ul>
+    <li>GM-E6001: 対応のない方程式の行・列と、対応のない未知数の宣言の行・列</li>
+    <li>GM-E5002: 多い側の対応のない方程式か未知数の位置と、その名前の注</li>
+    <li>残り: <code>algorithm</code> の行、<code>if</code>/<code>when</code> の枝ごとの位置</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

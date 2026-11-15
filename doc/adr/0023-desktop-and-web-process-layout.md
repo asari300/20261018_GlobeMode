@@ -124,7 +124,7 @@ UI（Svelte）のプロセスでは検査も実行もしない。計算は 1 つ
 
 ### S145 で決まったこと（ブラウザ版の配布物、2026-11-04）
 
-- **ブラウザ版は、サーバーで計算しない静的ファイルの束として配る。** 手動の `web.yml` が wasm と UI（vite の `base: "./"`。どのサブパスでも動く）、`MSL.json`、CSP の header の断片（`_headers`・`nginx.csp.conf`。正は `index.html` の meta で、Worker に効かせるため配布先の header に写す）を artifact `globe-web` に出す。`Cross-Origin-Opener-Policy` / `Cross-Origin-Embedder-Policy` は要らない（`SharedArrayBuffer` を使わない）。**公開（GitHub Pages の有効化、URL の配布）はユーザーの判断で、このセッションでは行わない。** 持ち越し: PWA、ダークモード、`MSL.json` の分割配信。
+- **ブラウザ版は、サーバーで計算しない静的ファイルの束として配る。** 手動の `web.yml` が wasm と UI（vite の `base: "./"`。どのサブパスでも動く）、`MSL.json`、CSP の header の断片（`_headers`・`nginx.csp.conf`。正は `index.html` の meta で、Worker に効かせるため配布先の header に写す）を artifact `globe-web` に出す。`Cross-Origin-Opener-Policy` / `Cross-Origin-Embedder-Policy` は要らない（`SharedArrayBuffer` を使わない）。**公開（GitHub Pages の有効化、URL の配布）はユーザーの判断で、このセッションでは行わない。** 持ち越し: PWA、ダークモード、~~`MSL.json` の分割配信~~（S301 で済。下の付記）。
 
 ### S154 で決まったこと（最近使ったファイルの読み込み、2026-11-05）
 
@@ -177,3 +177,38 @@ UI（Svelte）のプロセスでは検査も実行もしない。計算は 1 つ
   - **付記（S227、2026-11-08）**: 上の「18 個」は S197 の時点。いまの `RPC_METHODS`（`src/Rust/apps/desktop/src/shell.rs`）は **20 個**で、`globe/*` が 19 個、`textDocument/foldingRange` が 1 個。S222 が `globe/readResults`（結果を開く）、S225 が `textDocument/foldingRange`（折りたたみ）を足した。以後も一覧と数は `shell.rs` を正とする。
 - **CSP を入れた。** `tauri.conf.json` の `app.security.csp` は、ブラウザ版が使う `index.html` の meta の CSP と同じものに、IPC の `connect-src` だけを足したもの。`default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; connect-src 'self' ipc: http://ipc.localhost; style-src 'self' 'unsafe-inline'; img-src 'self' data:`。`'wasm-unsafe-eval'` は Android の `WorkerBackend`（wasm）、`'unsafe-inline'` は Svelte と CodeMirror が注入する style のため。meta の `connect-src 'self'` は元のままなので、実際の IPC は以前と同じ道を通る（meta と header は両方が効く）。両者が食い違わないことを試験（`tauri_csp_is_the_index_html_csp_plus_ipc`）が確かめる。Tauri は CSP の書式に `ipc: http://ipc.localhost` を示している（出典: <https://v2.tauri.app/security/csp/>、確認日 2026-11-06【文書を直接は取得できず、tauri-utils 2.10.2 のソースの例示で確認】）。Tauri は HTML に `<style>` や外部 http の script があるときだけ nonce・hash を足す。Vite の出力には無いので CSP は変わらない。Desktop（Linux・Windows・macOS）と Android の smoke が全項目 ok のままであることは run の ID を作業記録に書いた。
 - **限界（変えていない）:** `globe/exportFmu` の `outDir` は dialog で選んだパスに限られない。sidecar の `outDir` は任意のディレクトリで、UI の JS を乗っ取れる者は `outDir` を好きに言える（FMU と同名のフォルダを作る）。UI は `dialog.save` の親ディレクトリを渡している。限るには Rust 側で dialog を呼ぶ必要があり、UI の構成を変えるので持ち越し。`read_recent`（`.mo` の通常のファイルだけ）は S154 のまま。
+
+### S301 で決まったこと（MSL.json の分割配信、2026-11-15）
+
+- **背景**: S145 の持ち越し。分割読み込み（S037）は Worker の線形メモリを減らしただけで、UI は「MSL を読む」で `MSL.json`（15.2 MiB、gzip で 2.7 MB）を全部取り、JSON の文字列を Worker に渡して読み込んでいた。ChuaCircuit の閉包は 295 / 2556 ファイル（2.4 MB）しか使わない。
+- **形**（`scripts/pack-msl.mjs` と `globe-mode-wasm/web/pack.js` が作る。依存の追加なし）:
+  - `msl/index.json`: ファイルごとの**見出し**（`globe_mode_fmt::tree_stub`。`within` と、入れ子を含むクラスの種類・名前・説明文字列だけ。`LibraryTree` の結果と分割読み込みの修飾名の索引が本文のときと同じになる）と、ファイル → 塊の番号。見出しにできないファイル（クラス名を引用符で囲んだ入れ子がある `ModelicaReference/package.mo`）は本文のまま `real` に入れる。
+  - `msl/c/<番号>.json`: 同じディレクトリのファイルを 16 KiB までまとめた塊 `{ 名前: 本文 }`（838 本）。
+- **Worker の動き**（`worker.js` の `library_index`・`ensure`）: 見出しだけの `Workspace` を作る。モデルや文書を使う操作（check・simulate・graph・flat・definition・hover・completion・diagram など）の前に、`LibraryClosure`（frontend。S238 の `library_closure` と同じ走査で、ファイルごとの走査の記憶を持ち越す）で閉包を求め、答えに見出しのままのファイルがあれば、その塊を `fetch` して `set_text` で本文に替え、閉包を求め直す。本文だけが参照を持つので、見出しのファイルが無くなるまで繰り返す（全部読みと同じ閉包に落ち着く）。取ったら `Workspace` を作り直し、`set_file` した文書を足し直す。木から開くファイルは、そのファイルの塊だけを取る。**木の行ごとに引くアイコンと説明は、クラスの `extends` の基底だけをたどる**（`bases_only`。そうしないと、`ObsoleteModelica4` のように多くを参照するクラスの行を描くだけで塊の 7 割を取った）。
+- **変えなかったこと**: Service Worker・独自のキャッシュは足さない（ブラウザの HTTP キャッシュに任せる）。塊も同じ origin なので CSP の `connect-src 'self'` のまま。`MSL.json` は pack が引き続き作る（Leptos・Dioxus・marimo と、`index.json` が無い配信への代わり。UI は `index.json` が無い・JSON でないときだけ `MSL.json` に戻る）。`web.yml` の束 `globe-web` には入れない。Desktop（sidecar）は影響なし。
+- **確かめ方**: `node globe-mode-wasm/node/split.mjs`（`mise run wasm:node` が 5 本、全 20 本は手で）が、`msl-compare.txt` の 20 本で全部読みと検査結果（passed・段階・診断のコード）が一致すること、作業中の文書が MSL を参照するとき、木と開くファイルが一致することを確かめる（20/20 一致）。`test_ui.py` の既存の MSL の試験はすべて分割配信で通り、新しい試験が `MSL.json` を取らず索引と塊だけで ChuaCircuit の検査が通ること・取る量が `MSL.json` の半分未満であることを確かめる。
+- **限界**: (1) 塊は閉包の深さだけ順番に取る（ChuaCircuit で 11 回、Pendulum 8 回、PID_Controller 6 回。各回の中は並列）ので、往復の遅い回線では回数ぶん待つ。(2) 索引（1.5 MiB、gzip で 0.2 MB）は必ず取る。ブラウザ（`?smoke=1`）では、検査のほかに木の行のアイコンなどで塊を足し、ChuaCircuit までに 174 要求、4.8 MiB。(3) 閉包の外のファイルは見出しのままなので、そこの型のメンバーを引く補完などは本文を取るまで出ない。(4) Android の APK は dist に `MSL.json` も入る（S308 で外した）。(5) `bench_ui.py` の Svelte の `msl_ms` は S301 から分割配信の値で、Leptos・Dioxus（`MSL.json` 全部）とは条件が違う。
+
+### S308 で決まったこと（塊の先読みと Android の APK の分割配信、2026-11-15）
+
+S301 の持ち越し 2 つ。
+
+- **塊の先読み**（往復の回数）: 索引 `index.json` に、塊ごとの「その塊のファイルが直接参照する他の塊」`deps`（塊の番号の配列。`pack.js` が作る）と、先読みの深さ `prefetch`（既定 2）を足した。直接の参照は閉包と同じ走査（`SplitLibrary::deps_of`。`extends`・型・`import`・外側のパッケージ）で、wasm の `file_deps` が全部の本文から求める（pack の時だけ。実行時の閉包は変えない）。Worker の `fetchChunks` は、閉包に要るファイルの塊に加えて、そこから `deps` を `prefetch` 段たどった塊をまとめて 1 回の `Promise.all` で取る。**閉包の正しさは今までの繰り返しのまま**（先読みは目安。足りなければ見出しのファイルが残り、次の回で追加の塊を取る。先読みが取りすぎても、本文が増えるだけで閉包は変わらない）。
+- **測り方**: `node globe-mode-wasm/node/split.mjs --prefetch N`（Node、release の wasm、全部読みと同じ検査結果になることは毎回確かめる）。ChuaCircuit の初回（索引は先読み無しの 1.5 MiB に deps の約 50 KB が足される）:
+
+  | 深さ | 往復 | 塊 | 取る量（索引 1.5 MiB を含む） |
+  | ---: | ---: | ---: | ---: |
+  | 0（S301） | 11 | 163 | 4.64 MiB |
+  | 1 | 5 | 174 | 4.78 MiB |
+  | **2（既定）** | **3** | **179** | **5.16 MiB** |
+  | 3 | 3 | 182 | 5.19 MiB |
+  | 4 | 2 | 189 | 5.26 MiB |
+  | 6 | 1 | 192 | 5.29 MiB |
+
+  20 本を続けて回した合計は、先読み無し 39 往復・235 塊・8.8 MiB、深さ 2 で 17 往復・258 塊・9.4 MiB、深さ 4 で 16 往復・265 塊・9.5 MiB。**深さ 2 を既定にした**（往復が ChuaCircuit で 11 → 3、20 本の合計で 39 → 17 に減り、取りすぎは 1 割ほど（ChuaCircuit は +0.5 MiB、20 本は +0.6 MiB）。3 より先は往復があまり減らず、取りすぎだけが増える）。往復あたりの待ちは回線しだいで、ここでは測っていない（往復 × 往復時間で、たとえば 100 ms なら ChuaCircuit の塊の待ちは約 1.1 s → 約 0.3 s という計算上の見積もりで、実測ではない）。
+- **木のアイコンは先読みしない**: 基底だけの閉包（`bases_only`。木の行ごとのアイコンと説明）は `deps`（全部の参照）をたどらない。たどると、ブラウザ（`?smoke=1`）の ChuaCircuit までが 218 要求・6.9 MiB に膨らんだ（S301 は 174 要求・4.8 MiB）。たどらないと 192 要求・5.35 MiB（Chromium、`/msl/` の content-length の合計。索引を含む）で、Node の増え方（+0.5 MiB）と合う。
+- **試験**: `split.mjs` が既定の先読みのとき、ChuaCircuit の塊の取得が 4 往復以内・190 塊以内であることを確かめる（20 本の一致は従来どおり）。`globe-mode-frontend` に `direct_deps_are_one_step`。
+- **Android の APK**: `android.yml` の `ui` ジョブが、`pnpm build` のあとに `dist/msl/MSL.json` を消し、`index.json` の塊が全部あることを確かめてから APK に渡す。Android は sidecar を使わず WorkerBackend なので、UI は `index.json` を見つければ分割配信で読む（ブラウザ版と同じ道）。エミュレータの smoke（`msl=ok`）が、塊だけで ChuaCircuit を検査できることを確かめる。**APK は軽くならなかった**（run 43665628896 と main の run 43663027170 の比べ: arm64 release 13,616,490 → 14,859,242 B、x86_64 release 14,202,127 → 15,444,927 B、universal debug 259,532,967 → 261,050,263 B。塊 838 本は別々に圧縮され、重複が効かないため。zlib -9 で `MSL.json` 2.65 MB に対し塊の合計 3.30 MB と索引 0.22 MB）。分割配信の利点は実行時の線形メモリ（62 → 14 MiB）で、smoke の `msl_ms` は前後で変わらない（9〜11 s）。APK の大きさを優先するなら、Android だけ `MSL.json` に戻す選択肢がある。
+- **限界**: (1) 先読みは塊の依存の目安。塊の粒度（16 KiB）のぶん、使わないファイルの参照も追うので、深さを上げると取りすぎが増える。(2) 往復の回数は Node で数えた値。ブラウザの実際の回線での時間は測っていない。(3) `MSL.json` は Leptos・Dioxus・marimo と、索引が無い配信のために pack が作り続ける。
+
+**S321 の付記（#110）**: 分割配信の塊が壊れている・索引と合わないときに Worker が固まらないようにした。`fetchChunks` は全部の塊を取って読めてから本文を入れ、索引が「その塊にある」と言うファイルが見出しのままなら誤り（「塊に無いファイル」）にして、その塊を取得済みに入れない（配信が直れば次の呼び出しで取り直す）。壊れた塊は「壊れている」の誤り。`ensure` の繰り返しは塊の数 + 1 回で打ち切る。試験は `globe-mode-wasm/node/broken-chunks.mjs`（MSL 不要。`mise run wasm:node` に入れた）。

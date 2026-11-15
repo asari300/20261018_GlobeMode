@@ -1,11 +1,13 @@
 import type { Columns } from "./plot/csv";
 import type { ResultColumns } from "./results";
-import type { CheckResponse, GraphJson, BltReport, StagesReport, SimulateRequest, SimulateResponse, SolverEntry, ModelParameter, TunableParameter, Linearization } from "./protocol";
+import type { CheckResponse, GraphJson, BltReport, StagesReport, SimulateRequest, SimulateResponse, SimulateManyRequest, SimulateManyResponse, SolverEntry, ModelParameter, TunableParameter, Linearization } from "./protocol";
 
 /** UI が計算を頼む相手。WorkerBackend（ブラウザの wasm）と TauriBackend（sidecar の `globe lsp`）が実装する。 */
 export interface Backend {
   /** ライブラリ（{ パス: 本文 } の JSON）を読む。今の Workspace は捨てて作り直す。 */
   library(name: string, json: string): Promise<void>;
+  /** S301: 分割配信のライブラリ（index.json の URL）を読む。索引が無ければ false（呼び手は `library` に戻る）。本文は検査などのときに要る分だけ取る。 */
+  libraryIndex?(name: string, url: string): Promise<boolean>;
   setFile(name: string, text: string): Promise<void>;
   check(model: string): Promise<CheckResponse>;
   /** connect グラフ（graphology の JSON）。depth は 1 なら直下の部品だけ。モデルが無ければ reject。 */
@@ -17,6 +19,8 @@ export interface Backend {
   simulate(req: SimulateRequest): Promise<SimulateResponse>;
   /** simulate と同じ実行で、時系列を CSV でなく列ごとに返す（S065）。response.csv は無い（null）。実行できなければ points 0。 */
   simulateColumns(req: SimulateRequest, onProgress?: (p: Progress) => void): Promise<{ response: SimulateResponse; columns: Columns }>;
+  /** S322（ADR-0040）: 複数のソルバで回し、必要なら比べる。`columns[i]` は `response.runs[i]` の列（回せなかった実行は points 0）。進捗の `solver`・`index` で実行を見分ける。cancel で全部が止まる。 */
+  simulateMany?(req: SimulateManyRequest, onProgress?: (p: Progress) => void): Promise<{ response: SimulateManyResponse; columns: Columns[] }>;
   /** 実行中の simulateColumns を止める（S133、ADR-0033）。止めた呼び出しは cancelled: true の Error で reject する。無ければ止められない。 */
   cancel?(): void;
   /** ソルバの登録表（S142）。 */
@@ -184,6 +188,9 @@ export interface Hover {
 /** 実行系の進捗（ADR-0033）。stage は "lowering"・"integration" など、time は積分の t（無ければ undefined）。 */
 export interface Progress {
   stage: string;
+  /** simulateMany だけ: どの実行（solvers の添字とソルバの名前）の進捗か（S322） */
+  index?: number;
+  solver?: string;
   time?: number;
   start_time: number;
   stop_time: number;

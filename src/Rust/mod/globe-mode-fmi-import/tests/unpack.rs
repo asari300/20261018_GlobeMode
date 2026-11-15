@@ -29,14 +29,14 @@ fn reads_the_description_without_unpacking() {
 }
 
 #[test]
-fn an_oversized_description_is_cut_for_run_as_for_info() {
-    // 64 MiB を超える XML は `info` も `run`（Fmu::open）も同じ上限で切る。切られた XML は読めない（#96）
+fn an_oversized_description_is_refused_for_run_as_for_info() {
+    // 64 MiB を超える XML は `info` も `run`（Fmu::open）も同じ上限で断る（#96。#105 から黙って切らず「大きすぎる」の誤り）
     let big = format!("{XML}<!--{}-->", "a".repeat(65 << 20));
     let f = fmu(&[("modelDescription.xml", big.as_bytes(), None)]);
     assert!(read_model_description(f.path()).is_err());
     assert!(matches!(
         Fmu::open(f.path()).unwrap_err(),
-        Error::Description(_)
+        Error::Io(m) if m.contains("大きすぎる")
     ));
 }
 

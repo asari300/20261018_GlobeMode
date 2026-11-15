@@ -139,6 +139,26 @@ for (const solver of ["bdf", "dopri45", "auto"]) {
   assert.equal(JSON.parse(ws.check(decay)).summary, `${decay}: OK（S0〜S10 を通過）`);
   console.log("outline・deps・flat・summary: 読めた");
 }
+// 2a'. 複数のソルバ（S322、ADR-0040）: 3 つを回し、並列を頼んでも逐次に落ち（mode_note）、基準との管の比較が合格する。列は実行ごと
+{
+  const req = JSON.stringify({ model: decay, settings: { tolerance: 1e-9, max_order: 3 }, solvers: ["bdf", "esdirk34", "tsit45"], parallel: true, compare: { threshold_exp: 4 } });
+  const many = ws.simulate_many_columns(req);
+  try {
+    const r = JSON.parse(many.response);
+    assert.equal(r.mode, "sequential");
+    assert.match(r.mode_note, /スレッドが無い/);
+    assert.ok(r.ok && r.comparison.passed, many.response);
+    assert.deepEqual(r.runs.map((x) => x.solver), ["bdf", "esdirk34", "tsit45"]);
+    assert.ok(r.runs.every((x) => x.notes.some((n) => n.includes("最大次数"))));
+    const lay = JSON.parse(many.layout(2));
+    assert.deepEqual(lay.names, ["time", "x"]);
+    assert.equal(many.column(2, 1).length, lay.points);
+    assert.equal(many.column(2, 1).at(-1), r.runs[2].response.final.x);
+    console.log(`simulate_many_columns: ${r.runs.length} ソルバ、比較 ${r.comparison.passed ? "合格" : "不合格"}（${r.mode_note}）`);
+  } finally {
+    many.free();
+  }
+}
 // 2b. 進捗（S133、ADR-0033）: simulate_columns に関数を渡すと段と t を受け、列は渡さないときと同じ
 {
   const req = JSON.stringify({ model: decay, settings: { solver: "esdirk34" } });

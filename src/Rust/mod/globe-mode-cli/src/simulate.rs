@@ -10,7 +10,10 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use globe_mode::sim::solvers::{SOLVERS, SolverStatus};
-use globe_mode::{CompiledModel, ParametersResponse, SimulateRequest, Simulated};
+use globe_mode::{
+    CompareRequest, CompiledModel, ManyHandle, ManyStatus, ParametersResponse, SimulateManyRequest,
+    SimulateRequest, Simulated,
+};
 use globe_mode_core::Diagnostic;
 use globe_mode_ir::{
     ResolvedSettings, ResultParameter, SettingOrigin, SimRun, SimSettings, Termination,
@@ -38,6 +41,16 @@ pub(crate) struct SimulateArgs {
     /// S0〜S10 に Error があっても実行する
     pub force: bool,
     pub json: bool,
+    /// 複数のソルバで回す（`--solvers`。S322）
+    pub many: Option<ManyArgs>,
+}
+
+/// `--solvers a,b,c` と、それに付く `--parallel`・`--compare N`・`--reference NAME`（S322）。
+#[derive(Debug)]
+pub(crate) struct ManyArgs {
+    pub solvers: Vec<String>,
+    pub parallel: bool,
+    pub compare: Option<CompareRequest>,
 }
 
 /// 結果の形式。
@@ -230,6 +243,7 @@ pub(crate) fn simulate(args: SimulateArgs) -> ExitCode {
     let model = args.model.as_str();
     // 書けない出力先は、長い計算の後ではなく前に分かるようにする
     if !args.list_parameters
+        && args.many.is_none()
         && let Some(path) = args.output.as_deref().filter(|p| *p != Path::new("-"))
         && let Err(message) = check_writable_file(path, &args.files, &args.library)
     {
@@ -258,6 +272,10 @@ pub(crate) fn simulate(args: SimulateArgs) -> ExitCode {
         };
     }
 
+    if let Some(many) = &args.many {
+        return simulate_many(&args, many, &mut ws, &texts);
+    }
+
     // 検査（S0〜S10）→ コンパイル → 実行は facade に 1 本にまとめてある（Error があれば --force が無い限り実行しない）
     let request = SimulateRequest {
         files: BTreeMap::new(),
@@ -274,7 +292,7 @@ pub(crate) fn simulate(args: SimulateArgs) -> ExitCode {
     } = ws.simulate_with(&request, &globe_mode::now_ms);
 
     if let (Some(run), Some(path), Some(compiled)) = (&run, &args.output, &compiled)
-        && let Err(e) = write_result(run, path, args.format, compiled)
+        && let Err(e) = write_result(run, path, args.format, Some(compiled))
     {
         // `-o - | head` で読み手が閉じたのは誤りではない。以後の標準出力を捨て、報告と終了コードは本来のまま
         if e.kind() == std::io::ErrorKind::BrokenPipe {
@@ -296,11 +314,13 @@ fn write_result(
     run: &SimRun,
     path: &Path,
     format: OutputFormat,
-    compiled: &CompiledModel,
+    compiled: Option<&CompiledModel>,
 ) -> std::io::Result<()> {
     // MAT にはパラメータの値を添える。実行系が返さなかったら tunable なパラメータから補う
     let filled;
-    let run = if format == OutputFormat::Mat && run.parameters.is_empty() {
+    let run = if let (OutputFormat::Mat, true, Some(compiled)) =
+        (format, run.parameters.is_empty(), compiled)
+    {
         match globe_mode::exec::tunable_parameters(compiled) {
             Ok(p) if !p.is_empty() => {
                 filled = SimRun {
@@ -329,6 +349,145 @@ fn write_result(
         write(&mut out)?;
         out.flush()
     }
+}
+
+/// 複数のソルバで回し、表と比較を出す（S322）。`-o DIR` は `DIR/<ソルバ>.csv`（`.mat` は `--format mat`）に書く。
+/// 終了コードは、全部成功し、比較を頼んだなら合格のとき 0、そうでなければ 1（回さなかったときは 3 か 1）。
+fn simulate_many(
+    args: &SimulateArgs,
+    many: &ManyArgs,
+    ws: &mut globe_mode::Workspace,
+    texts: &std::collections::HashMap<String, String>,
+) -> ExitCode {
+    let request = SimulateManyRequest {
+        model: args.model.clone(),
+        settings: args.settings.clone(),
+        solvers: many.solvers.clone(),
+        parallel: many.parallel,
+        compare: many.compare.clone(),
+        force: args.force,
+        ..Default::default()
+    };
+    let out = ws.simulate_many(&request, &globe_mode::now_ms, ManyHandle::default());
+    let r = &out.response;
+    if let Some(dir) = args.output.as_deref().filter(|_| r.refused.is_none()) {
+        let ext = if args.format == OutputFormat::Mat {
+            "mat"
+        } else {
+            "csv"
+        };
+        if let Err(e) = std::fs::create_dir_all(dir) {
+            eprintln!("error: 結果を {}", io_error(dir, true, &e));
+            return ExitCode::from(2);
+        }
+        for (run, data) in r.runs.iter().zip(&out.runs) {
+            if let Some(sim) = &data.run {
+                let path = dir.join(format!("{}.{ext}", run.solver));
+                if let Err(e) = write_result(sim, &path, args.format, None) {
+                    eprintln!("error: 結果を {}", io_error(&path, true, &e));
+                    return ExitCode::from(2);
+                }
+            }
+        }
+    }
+    let passed = r.comparison.as_ref().is_none_or(|c| c.passed);
+    if args.json {
+        let text = serde_json::to_string_pretty(r).expect("serialize simulate_many");
+        println!("{text}");
+    } else {
+        for l in diagnostic_lines(&r.diagnostics, texts) {
+            println!("{l}");
+        }
+        for line in many_lines(r, args.output.as_deref()) {
+            println!("{line}");
+        }
+    }
+    if r.refused.is_some() {
+        failure_code(&r.diagnostics)
+    } else if r.ok && passed {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    }
+}
+
+/// 複数のソルバの実行の表示（実行ごとの 1 行、注記、比較）。
+fn many_lines(r: &globe_mode::SimulateManyResponse, output: Option<&Path>) -> Vec<String> {
+    let model = &r.model;
+    if let Some(why) = &r.refused {
+        return vec![format!("{model}: {why}")];
+    }
+    let mode = if r.mode == "parallel" {
+        format!("並列（{} 本）", r.workers)
+    } else {
+        "逐次".to_string()
+    };
+    let mut lines = vec![format!(
+        "{model}: {} ソルバを{mode}で回した（{:.0} ms）",
+        r.runs.len(),
+        r.elapsed_ms
+    )];
+    if let Some(note) = &r.mode_note {
+        lines.push(format!("    注: {note}"));
+    }
+    let name_width = r.runs.iter().map(|x| x.solver.len()).max().unwrap_or(0);
+    for run in &r.runs {
+        let status = match run.status {
+            ManyStatus::Ok => "OK",
+            ManyStatus::Failed => "失敗",
+            ManyStatus::Cancelled => "中断",
+        };
+        let points = run.response.stats.as_ref().map_or(0, |s| s.points);
+        let mut line = format!(
+            "  {:<name_width$}  {status}  {:>8.1} ms  {points} 行",
+            run.solver, run.elapsed_ms
+        );
+        if let Some(d) = run.response.diagnostics.iter().find(|d| d.is_error()) {
+            line.push_str(&format!(
+                "  {} {}",
+                d.code,
+                d.message.lines().next().unwrap_or("")
+            ));
+        }
+        lines.push(line);
+        lines.extend(run.notes.iter().map(|n| format!("      注: {n}")));
+    }
+    if let Some(c) = &r.comparison {
+        lines.push(format!(
+            "比較: 基準 {}、閾値 1e-{}（管の幅）: {}",
+            c.reference,
+            c.threshold_exp,
+            if c.passed { "合格" } else { "不合格" }
+        ));
+        for p in &c.pairs {
+            lines.push(format!(
+                "  {:<name_width$}  {}（信号 {} 本中 {} 本が管の外）",
+                p.solver,
+                if p.passed { "合格" } else { "不合格" },
+                p.signals,
+                p.failed_signals
+            ));
+            for f in p.failures.iter().take(3) {
+                lines.push(format!(
+                    "      {}: 外れ {} 点、最大 {:e}{}",
+                    f.name,
+                    f.errors,
+                    f.max_excess,
+                    f.first_error_time
+                        .map_or(String::new(), |t| format!("、最初は t = {t}"))
+                ));
+            }
+        }
+        lines.extend(
+            c.skipped
+                .iter()
+                .map(|s| format!("  {}: 比べなかった（{}）", s.solver, s.reason)),
+        );
+    }
+    if let Some(dir) = output {
+        lines.push(format!("書いた: {}/<ソルバ>", dir.display()));
+    }
+    lines
 }
 
 /// 結果を表示して終了コードを返す。`refused` は実行しなかった理由。
@@ -583,6 +742,7 @@ mod tests {
             solver,
             max_wall_seconds: None,
             step,
+            max_order: None,
             parameters: BTreeMap::new(),
             origins: SettingOrigins {
                 start_time: o,

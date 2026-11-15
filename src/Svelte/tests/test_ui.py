@@ -802,8 +802,15 @@ def diagram_view(browser, origin: str, errors: list[str]) -> None:
     assert svg.locator("[data-conn] polyline").nth(1).get_attribute("points") == "0,-70 -50,0", "Line が無ければ中心どうし（b は 90 度回して原点 {0, 20}）"
     svg.locator("g[data-part='b']").click()
     expect(pg.locator(".cm-activeLine")).to_contain_text("Box b", timeout=10_000)  # 宣言の行へ
+    # S316: キーボードだけ。部品で c（Box にコネクタは無いので、その旨が role=status に出る）、部品で Enter はパラメータのダイアログ（宣言の行へは Space）
+    svg.locator("g[data-part='a']").focus()
+    pg.keyboard.press("c")
+    expect(pg.locator("[data-diagram] [role=status]")).to_contain_text("a にコネクタが無い")
+    svg.locator("g[data-part='a']").focus()
+    pg.keyboard.press("Enter")
+    expect(pg.locator("[data-param-dialog]")).to_be_visible(timeout=30_000)
     pg.close()
-    print("図: 部品 2・connect 2（Line あり・なし）・Diagram の文字が SVG で出て、部品のクリックで宣言の行へ飛ぶ")
+    print("図: 部品 2・connect 2（Line あり・なし）・Diagram の文字が SVG で出て、部品のクリックで宣言の行へ飛ぶ。キーボード: c で結線の選び（コネクタ無しはその旨）、Enter でパラメータのダイアログ")
     if not (DIST / "msl/MSL.json").exists():
         print("public/msl/MSL.json が無いので、ChuaCircuit の図の試験は飛ばす")
         return
@@ -1350,6 +1357,45 @@ def plot_fixes(browser, origin: str, errors: list[str]) -> None:
     expect(pg.get_by_role("alert")).to_have_count(0)
     pg.close()
     print("uPlot の作り直しが投げたあと: PNG は古い図を書き出さず、選択を戻すと描ける")
+
+
+def multi_solver(browser, origin: str, errors: list[str]) -> None:
+    """S323: 実行の設定で「複数」を選び、Decay を 3 ソルバ（bdf・rk4・euler）で並列を頼んで回す。ブラウザは 1 つずつに落ちて注記が出る。比較を on（n = 6）にすると表が出て、プロットにソルバごとの線が重なる。設定はモデルごとに残る。"""
+    pg = browser.new_page()
+    pg.on("console", lambda m: m.type == "error" and errors.append(m.text))
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(origin)
+    pg.get_by_role("button", name="検査").wait_for()
+    settings = pg.locator(".settings")
+    settings.get_by_role("radio", name="複数").check()
+    group = settings.locator("[data-many-solvers]")
+    for name in ("bdf", "rk4", "euler"):
+        group.get_by_role("checkbox", name=name, exact=True).check()
+    settings.get_by_role("radio", name="並列").check()
+    expect(settings.locator("[data-parallel-note]")).to_contain_text("ブラウザでは 1 つずつ")
+    settings.get_by_label("終了時刻").fill("1")
+    settings.get_by_label("最大積分次数").fill("3")
+    settings.get_by_role("checkbox", name="全部終わったら結果を比べる").check()
+    settings.get_by_label("基準のソルバ").select_option("bdf")
+    pg.get_by_role("button", name="実行", exact=True).click(force=True)
+    many = pg.locator("[data-many]")
+    expect(many).to_be_visible(timeout=120_000)
+    expect(many.locator("[data-mode-note]")).to_be_visible()  # wasm は並列を頼んでも逐次（応答の mode_note）
+    rows = many.locator("tr[data-run-solver]")
+    assert rows.evaluate_all("rs => rs.map(r => r.dataset.runSolver + ':' + r.dataset.runStatus)") == ["bdf:ok", "euler:ok", "rk4:ok"]  # 一覧の順, rows.all_inner_texts()
+    assert "最大次数" in many.locator("tr[data-run-solver='bdf']").inner_text()  # bdf は最大次数を使わない注記
+    verdict = many.locator("[data-compare-verdict]")
+    expect(verdict).to_contain_text("基準 bdf")
+    assert re.search(r"合格|不合格", verdict.inner_text())  # 合否は文字
+    assert many.locator("table[aria-label='基準との比較'] th[scope=col]").count() == 5
+    assert many.locator("tr[data-pair]").evaluate_all("rs => rs.map(r => r.dataset.pair)") == ["euler", "rk4"]
+    assert pg.locator(".plot").get_attribute("data-series") == "3"  # x の 3 ソルバが重なる
+    pg.reload()
+    pg.get_by_role("button", name="検査").wait_for()
+    assert pg.locator(".settings").get_by_role("radio", name="複数").is_checked()  # S228: モデルごとの保存に乗る
+    assert pg.locator(".settings [data-many-solvers]").get_by_role("checkbox", name="rk4", exact=True).is_checked()
+    pg.close()
+    print("複数のソルバ: bdf・rk4・euler を並列で頼むとブラウザは 1 つずつに落ちて注記が出る。比較の表（基準 bdf・合否は文字）と 3 本の重ね描きが出て、設定は再読み込みで残る")
 
 
 def main() -> int:
@@ -2000,6 +2046,29 @@ def main() -> int:
             expect(mk.get_by_label("ライブラリを検索")).to_be_focused(timeout=10_000)
             mk.close()
             print("MSL を読む: Enter で押すと、読み終えたあとフォーカスがライブラリの検索欄へ移った")
+            # 分割配信（S301）: MSL.json を取らず、索引（index.json）と、ChuaCircuit の閉包に要る塊（c/*.json）だけで検査が通る。取る量は MSL.json の半分より少ない
+            if (DIST / "msl/index.json").exists():
+                sp = browser.new_page()
+                sp.on("console", lambda m: m.type == "error" and errors.append(m.text))
+                sp.on("pageerror", lambda e: errors.append(str(e)))
+                got: list[tuple[str, int]] = []
+                sp.on("response", lambda r: "/msl/" in r.url and got.append((r.url, int(r.headers.get("content-length", "0")))))
+                sp.goto(origin)
+                sp.get_by_role("button", name="MSL を読む").click()
+                expect(sp.locator("p.note[data-msl]")).to_have_attribute("data-msl", "loaded", timeout=120_000)
+                sp.get_by_label("モデル名").fill(CHUA)
+                button = sp.get_by_role("button", name="検査")
+                button.click(force=True)
+                expect(button).to_be_enabled(timeout=300_000)
+                assert sp.locator("tr.error").count() == 0 and sp.get_by_role("alert").count() == 0
+                urls = [u for u, _ in got]
+                chunks = [u for u in urls if "/msl/c/" in u]
+                total = sum(n for _, n in got)
+                full = (DIST / "msl/MSL.json").stat().st_size
+                assert any(u.endswith("/msl/index.json") for u in urls) and not any(u.endswith("MSL.json") for u in urls), urls[:5]
+                assert 0 < len(chunks) < 400 and total < full / 2, (len(chunks), total, full)
+                print(f"分割配信: ChuaCircuit の検査が通り、取ったのは索引と塊 {len(chunks)} 本の合計 {total / 2**20:.1f} MiB（MSL.json は {full / 2**20:.1f} MiB、取らない）")
+                sp.close()
         else:
             print("public/msl/MSL.json が無いので MSL の試験は飛ばす")
         # ライブラリに構文の誤りのファイルがあっても読み、読み飛ばしを GM-W1001 の行（ファイル名は notes）で出す（S071）。
@@ -2009,6 +2078,7 @@ def main() -> int:
         tolerant = browser.new_page()
         tolerant.on("console", lambda m: m.type == "error" and errors.append(m.text))
         tolerant.on("pageerror", lambda e: errors.append(str(e)))
+        tolerant.route("**/msl/index.json", lambda route: route.fulfill(status=404))  # 索引が無ければ MSL.json に戻る（S301）
         tolerant.route("**/msl/MSL.json", lambda route: route.fulfill(status=200, content_type="application/json", body=json.dumps(files)))
         tolerant.goto(f"http://127.0.0.1:{server.server_port}/")
         tolerant.get_by_role("button", name="MSL を読む").click(force=True)
@@ -2488,6 +2558,7 @@ def main() -> int:
         parameter_dialog(browser, origin, errors)  # S248
         linearize_view(browser, origin, errors)  # S260
         eigen_and_stages(browser, origin, errors)  # S291
+        multi_solver(browser, origin, errors)  # S323
         open_fmu_file(browser, origin, errors)  # S229
         fmu_runtime_select(browser, origin, errors)  # S239
         results_followups(browser, origin, errors)  # S236

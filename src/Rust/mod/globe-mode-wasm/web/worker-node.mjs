@@ -56,6 +56,11 @@ try {
   assert.ok(c.columns.every((col) => col instanceof Float64Array && col.length === c.layout.points));
   assert.equal(c.columns[1].at(-1), c.response.final.x);
   console.log(`simulateColumns: ${c.layout.points} 点 × ${c.columns.length} 列、x(1) = ${c.columns[1].at(-1)}`);
+  // 複数のソルバ（S322）: 実行ごとの列。ブラウザ・Node は逐次に落ちる
+  const m = await w.simulateMany({ model: decay, solvers: ["bdf", "esdirk34"], parallel: true, compare: { threshold_exp: 4 } });
+  assert.ok(m.response.ok && m.response.comparison.passed && m.response.mode === "sequential");
+  assert.ok(m.runs.length === 2 && m.runs.every((r) => r.columns.every((col) => col instanceof Float64Array && col.length === r.layout.points)));
+  console.log(`simulateMany: ${m.runs.length} 実行、比較 合格（${m.response.mode_note}）`);
   // 結果のファイルを開く（S222）
   const opened = await w.readResults("r.csv", new TextEncoder().encode("time,x\n0,1\n1,0.5\n"));
   assert.deepEqual(opened.layout, { names: ["time", "x"], points: 2, defaults: ["x"] });

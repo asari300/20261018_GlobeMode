@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S313 native-everywhere — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S313 native-everywhere">
+
+<section class="slide" id="S01">
+  <span class="tag">S313 · 2026-11-15 · Track B</span>
+  <h1>native の検査を CLI 以外からも選べる</h1>
+  <p class="lead">facade・LSP・Python。既定は Rumoca のまま</p>
+  <div class="big">frontend を 1 つ選ぶ口</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">口</span>
+  <h1>3 つの面に、最小の口を 1 つずつ</h1>
+  <ul>
+    <li>facade: <code>Workspace::check_with(model, CheckFrontend)</code>（<code>check</code> は Rumoca）</li>
+    <li>LSP: <code>globe-mode.toml</code> の <code>[check] frontend = "native"</code> で、診断を自前の段で出す</li>
+    <li>Python: <code>Workspace.check(model, frontend="native")</code>（知らない名前は <code>ValueError</code>）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">境界</span>
+  <h1>wasm と UI は今回やらない</h1>
+  <ul>
+    <li>native は feature。CLI と Python が立て、wasm は立てない（ビルドの大きさを別に測る）</li>
+    <li>立てない build で選ぶと <code>GM-U0006</code>「この build に入っていない」</li>
+    <li>未対応の形は Rumoca に切り替えず <code>GM-U0006</code></li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

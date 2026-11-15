@@ -1,6 +1,6 @@
 # ブラウザ版の配布物（S145、P6、ADR-0023 の「Web」）。手動実行（workflow_dispatch）だけ。静的ファイルの束を artifact `globe-web` に残す。
 # 公開（GitHub Pages の有効化・URL の配布）はしない。それはユーザーの判断で、手順は doc/sessions/S145-web-bundle/解説書.md。
-# 中身: wasm の UI（vite build。base は相対 ./ なのでどのサブパスに置いても動く）、MSL.json（pack-msl.mjs。android.yml の ui と同じ道）、
+# 中身: wasm の UI（vite build。base は相対 ./ なのでどのサブパスに置いても動く）、MSL の分割配信（pack-msl.mjs。msl/index.json と msl/c/*.json。S301 から MSL.json は入れない）、
 # CSP の header の断片（_headers = Cloudflare Pages / Netlify、nginx.csp.conf = nginx）。CSP は index.html の meta が正（scripts/web-bundle.sh が取り出す）。
 # 大きさ（生・gzip・brotli）は Step Summary に出す。
 name: web
@@ -38,6 +38,7 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm build
           test -s dist/msl/MSL.json
+          test -s dist/msl/index.json
       - name: ブラウザで確かめる（dist をサブパス /app/ で配って検査と MSL の読み込み、幅 400 px）
         run: |
           uv sync --locked
@@ -48,6 +49,10 @@ jobs:
           command -v brotli > /dev/null || sudo apt-get install -y brotli
           bash src/Svelte/scripts/web-bundle.sh src/Svelte/dist globe-web | tee size.md
           { echo "### globe-web の大きさ"; echo; cat size.md; } >> "$GITHUB_STEP_SUMMARY"
+          # S301: 束は分割配信だけ（MSL.json を入れない）。索引の塊の番号が、塊のファイルに全部ある
+          test -s globe-web/msl/index.json
+          test ! -e globe-web/msl/MSL.json
+          node -e 'const i=JSON.parse(require("fs").readFileSync("globe-web/msl/index.json"));for(let k=0;k<i.chunks;k++)require("fs").statSync(`globe-web/msl/c/${k}.json`);console.log("塊",i.chunks,"本")'
       - uses: actions/upload-artifact@v4
         with:
           name: globe-web

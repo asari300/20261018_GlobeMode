@@ -165,6 +165,15 @@ fn bindings(component: roxmltree::Node, cname: &str) -> Result<Vec<SspBinding>, 
     Ok(out)
 }
 
+/// 入れ子の System の深さと名前 1 つの長さの上限（信頼できない `.ssp` で階層名の連結が深さ² のメモリになる。#106）。
+/// 実際の SSP は数段（FMU の入れ子は 10 段に届かない）なので、桁に余裕を持たせた値。
+const MAX_DEPTH: usize = 64;
+pub const MAX_NAME: usize = 1024;
+/// 階層名の全体の長さと、階層名を抱える項目（System・Component・コネクタ・接続・System の束縛）の総数の上限。
+/// 深さ × 名前の積と、項目数 × 階層名の積を抑える（#112。64 段 × 1 KB の階層名 × 5000 個で RSS 650 MB だった）。
+const MAX_PATH: usize = 4096;
+const MAX_ITEMS: usize = 10_000;
+
 /// 階層の名前（`外側.内側`）。ルートの System は空。
 fn join(path: &str, name: &str) -> String {
     if path.is_empty() {
@@ -179,16 +188,26 @@ fn join(path: &str, name: &str) -> String {
 struct Walk {
     ssd: Ssd,
     names: std::collections::BTreeSet<String>,
+    items: usize,
     /// (要素の階層名, コネクタ) -> (型, 単位)。System 自身のコネクタは (System の階層名, コネクタ)
     connectors: std::collections::BTreeMap<(String, String), (String, Option<String>)>,
 }
 
 impl Walk {
-    fn connectors(&mut self, node: roxmltree::Node, owner: &str) {
+    fn item(&mut self) -> Result<(), String> {
+        self.items += 1;
+        if self.items > MAX_ITEMS {
+            return Err(format!("要素の数が多すぎる（{MAX_ITEMS} 個まで）"));
+        }
+        Ok(())
+    }
+
+    fn connectors(&mut self, node: roxmltree::Node, owner: &str) -> Result<(), String> {
         for c in child(node, "Connectors")
             .into_iter()
             .flat_map(|c| c.children().filter(|c| c.is_element()))
         {
+            self.item()?;
             let ty = c.first_element_child().map(|t| t.tag_name().name());
             let unit = c.first_element_child().and_then(|t| t.attribute("unit"));
             self.connectors.insert(
@@ -199,14 +218,19 @@ impl Walk {
                 (ty.unwrap_or_default().to_owned(), unit.map(str::to_owned)),
             );
         }
+        Ok(())
     }
 
-    fn system(&mut self, system: roxmltree::Node, path: &str) -> Result<(), String> {
+    fn system(&mut self, system: roxmltree::Node, path: &str, depth: usize) -> Result<(), String> {
+        if depth > MAX_DEPTH {
+            return Err(format!("System の入れ子が深すぎる（{MAX_DEPTH} 段まで）"));
+        }
         if !path.is_empty() {
             self.ssd.systems.push(path.to_owned());
-            self.connectors(system, path);
+            self.connectors(system, path)?;
         }
         for b in bindings(system, if path.is_empty() { "System" } else { path })? {
+            self.item()?;
             self.ssd.system_bindings.push((path.to_owned(), b));
         }
         for e in child(system, "Elements")
@@ -215,7 +239,14 @@ impl Walk {
         {
             let tag = e.tag_name().name();
             let local = e.attribute("name").unwrap_or_default();
+            if local.len() > MAX_NAME {
+                return Err(format!("要素の名前が長すぎる（{MAX_NAME} バイトまで）"));
+            }
             let name = join(path, local);
+            if name.len() > MAX_PATH {
+                return Err(format!("階層名が長すぎる（{MAX_PATH} バイトまで）"));
+            }
+            self.item()?;
             if tag != "Component" && tag != "System" {
                 return Err(format!("未対応の要素 {tag}"));
             }
@@ -223,7 +254,7 @@ impl Walk {
                 return Err(format!("要素の名前 {name:?} が重複"));
             }
             if tag == "System" {
-                self.system(e, &name)?;
+                self.system(e, &name, depth + 1)?;
                 continue;
             }
             let ty = e
@@ -235,7 +266,7 @@ impl Walk {
             let source = e
                 .attribute("source")
                 .ok_or_else(|| format!("Component {name:?} に source が無い"))?;
-            self.connectors(e, &name);
+            self.connectors(e, &name)?;
             self.ssd.components.push(SspComponent {
                 bindings: bindings(e, &name)?,
                 name,
@@ -246,6 +277,7 @@ impl Walk {
             .into_iter()
             .flat_map(|c| c.children().filter(|c| c.is_element()))
         {
+            self.item()?;
             // 要素を省くとこの System 自身のコネクタ（入れ子の System では外側から見たのと同じ節点）
             let own = |a: &str| match c.attribute(a) {
                 Some(e) => Ok(join(path, e)),
@@ -255,6 +287,9 @@ impl Walk {
                 None => Ok(path.to_owned()),
             };
             let (se, ee) = (own("startElement")?, own("endElement")?);
+            if se.len().max(ee.len()) > MAX_PATH {
+                return Err(format!("階層名が長すぎる（{MAX_PATH} バイトまで）"));
+            }
             let (Some(sc), Some(ec)) = (
                 c.attribute("startConnector").map(str::to_owned),
                 c.attribute("endConnector").map(str::to_owned),
@@ -312,7 +347,7 @@ pub fn parse_ssd(xml: &str) -> Result<Ssd, String> {
     }
     let system = child(root, "System").ok_or("System が無い")?;
     let mut walk = Walk::default();
-    walk.system(system, "")?;
+    walk.system(system, "", 0)?;
     let Walk { mut ssd, .. } = walk;
     let time = |a: &str| -> Result<Option<f64>, String> {
         child(root, "DefaultExperiment")
@@ -462,5 +497,65 @@ mod tests {
         assert_eq!(ends, [("g", "g.b"), ("a", "g")]);
         let dup = ssd.replace("name=\"g\"", "name=\"a\"");
         assert!(parse_ssd(&dup).unwrap_err().contains("重複"));
+    }
+
+    /// #106: 入れ子の深さと名前の長さに上限（階層名の連結が深さ² のメモリにならない）。
+    #[test]
+    fn nested_system_depth_and_name_are_capped() {
+        let nest = |depth: usize, name: &str| {
+            let mut s = String::new();
+            for _ in 0..depth {
+                s += &format!("<ssd:System name=\"{name}\"><ssd:Elements>");
+            }
+            for _ in 0..depth {
+                s += "</ssd:Elements></ssd:System>";
+            }
+            SSD.replace("UNIT", "m")
+                .replacen("</ssd:Elements>", &format!("{s}</ssd:Elements>"), 1)
+        };
+        parse_ssd(&nest(MAX_DEPTH, "s")).unwrap();
+        assert!(
+            parse_ssd(&nest(MAX_DEPTH + 1, "s"))
+                .unwrap_err()
+                .contains("深すぎる")
+        );
+        assert!(
+            parse_ssd(&nest(1, &"x".repeat(MAX_NAME + 1)))
+                .unwrap_err()
+                .contains("長すぎる")
+        );
+    }
+
+    /// #112: 深さ 64 × 名前 1 KB の最深部に Component を並べる積と、項目の総数に上限。
+    #[test]
+    fn hierarchy_name_length_and_item_count_are_capped() {
+        let wrap = |inner: String| {
+            SSD.replace("UNIT", "m").replacen(
+                "</ssd:Elements>",
+                &format!("{inner}</ssd:Elements>"),
+                1,
+            )
+        };
+        let comp = |i: usize| {
+            format!(
+                "<ssd:Component name=\"c{i}\" type=\"application/x-fmu-sharedlibrary\" source=\"resources/a.fmu\"/>"
+            )
+        };
+        let deep = "x".repeat(MAX_NAME);
+        let mut s = String::new();
+        for _ in 0..MAX_DEPTH {
+            s += &format!("<ssd:System name=\"{deep}\"><ssd:Elements>");
+        }
+        s += &(0..5).map(comp).collect::<String>();
+        for _ in 0..MAX_DEPTH {
+            s += "</ssd:Elements></ssd:System>";
+        }
+        assert!(
+            parse_ssd(&wrap(s))
+                .unwrap_err()
+                .contains("階層名が長すぎる")
+        );
+        let many = (0..=MAX_ITEMS).map(comp).collect::<String>();
+        assert!(parse_ssd(&wrap(many)).unwrap_err().contains("多すぎる"));
     }
 }

@@ -34,9 +34,9 @@ use sundials_sys::{
     CV_LSOLVE_FAIL, CV_ONE_STEP, CV_REPTD_RHSFUNC_ERR, CV_RHSFUNC_FAIL, CV_SUCCESS,
     CV_TOO_MUCH_ACC, CV_TOO_MUCH_WORK, CV_TSTOP_RETURN, CV_UNREC_RHSFUNC_ERR, CVLS_SUCCESS, CVode,
     CVodeCreate, CVodeFree, CVodeGetCurrentTime, CVodeGetDky, CVodeGetLastOrder, CVodeGetLastStep,
-    CVodeInit, CVodeReInit, CVodeSVtolerances, CVodeSetLinearSolver, CVodeSetStopTime,
-    CVodeSetUserData, N_VDestroy, N_VGetArrayPointer, N_VNew_Serial, N_Vector, SUNContext,
-    SUNContext_ClearErrHandlers, SUNContext_Create, SUNContext_Free, SUNDenseMatrix,
+    CVodeInit, CVodeReInit, CVodeSVtolerances, CVodeSetLinearSolver, CVodeSetMaxOrd,
+    CVodeSetStopTime, CVodeSetUserData, N_VDestroy, N_VGetArrayPointer, N_VNew_Serial, N_Vector,
+    SUNContext, SUNContext_ClearErrHandlers, SUNContext_Create, SUNContext_Free, SUNDenseMatrix,
     SUNLinSol_Dense, SUNLinSolFree, SUNLinearSolver, SUNMatDestroy, SUNMatrix, comm_no_mpi,
 };
 
@@ -89,6 +89,8 @@ impl Drop for Raw {
 pub(super) struct Cvode {
     rtol: f64,
     atol: Vec<f64>,
+    /// 最大の積分次数（None は SUNDIALS の既定の 5。S322）
+    max_order: Option<u32>,
     /// `raw` が参照する user_data。`raw` より後に落とす（宣言の順）
     raw: Option<Raw>,
     user: Option<Box<User>>,
@@ -101,10 +103,11 @@ pub(super) struct Cvode {
 }
 
 impl Cvode {
-    pub(super) fn new(setup: MeNumericalSetup) -> Self {
+    pub(super) fn new(setup: MeNumericalSetup, max_order: Option<u32>) -> Self {
         Self {
             rtol: setup.relative_tolerance(),
             atol: scaled_absolute_tolerances(&setup),
+            max_order,
             raw: None,
             user: None,
             start: 0.0,
@@ -171,6 +174,12 @@ impl Cvode {
             let flag = CVodeSVtolerances(raw.mem, self.rtol, raw.abstol);
             if flag != CV_SUCCESS {
                 return Err(self.construction("CVodeSVtolerances", flag));
+            }
+            if let Some(q) = self.max_order {
+                let flag = CVodeSetMaxOrd(raw.mem, q as c_int);
+                if flag != CV_SUCCESS {
+                    return Err(self.construction("CVodeSetMaxOrd", flag));
+                }
             }
             raw.matrix = SUNDenseMatrix(len, len, raw.ctx);
             if raw.matrix.is_null() {

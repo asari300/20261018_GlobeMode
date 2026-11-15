@@ -133,19 +133,16 @@ fn connect_in_for_and_if_kept_as_text() {
 #[test]
 fn declined_forms() {
     let conn = "connector P Real v; flow Real i; stream Real h; end P;";
-    assert_eq!(
-        err("model A replaceable Real x; end A;", "A"),
-        "replaceable"
-    );
     // inner が無い outer、定数に評価できない条件
     assert_eq!(err("model A outer Real x; end A;", "A"), "inner-outer");
     assert_eq!(
         err("model A input Boolean b; Real x if b; end A;", "A"),
         "conditional-component"
     );
+    // 型が決まらない redeclare（長い形のクラス）は断る
     assert_eq!(
         err(
-            "model B Real x; end B; model A extends B(redeclare Real x); end A;",
+            "model B replaceable model M Real x; end M; M m; end B; model A extends B(redeclare model M Real y; end M); end A;",
             "A"
         ),
         "redeclare"
@@ -278,4 +275,283 @@ fn record_binding_and_constant_dims() {
     assert_eq!(v("y").dims, [3]);
     assert_eq!(v("u").dims, [2, 3]);
     assert_eq!(v("w").dims, [3]);
+}
+
+const SRC: &str = "model Src parameter Real a = 1; Real y; equation y = a; end Src;
+    model Src2 extends Src; parameter Real b = 3; end Src2;
+    model Base replaceable Src s(a = 2); Real z; equation z = s.y; end Base;";
+
+#[test]
+fn redeclare_component() {
+    // 既定の型（`replaceable` は印だけ）
+    let m = flat(&format!("{SRC} model T Base b; end T;"), "T");
+    assert_eq!(names(&m), ["b.s.a", "b.s.y", "b.z"]);
+    // `extends B(redeclare T x(…))`: 型を差し替え、元の修飾（a = 2）は残り、新しい修飾（b = 7）が足される
+    let m = flat(
+        &format!("{SRC} model D extends Base(redeclare Src2 s(b = 7)); end D;"),
+        "D",
+    );
+    assert_eq!(names(&m), ["s.a", "s.y", "s.b", "z"]);
+    let v = |n: &str| m.vars.iter().find(|v| v.name == n).unwrap().binding.clone();
+    assert_eq!((v("s.a"), v("s.b")), (Some("2".into()), Some("7".into())));
+    assert_eq!(eqs(&m), ["s.y = s.a", "z = s.y"]);
+    // 部品の修飾の中の redeclare と、short class の中の redeclare。外側が勝つ
+    let m = flat(
+        &format!(
+            "{SRC} model D extends Base(redeclare Src2 s(b = 7)); end D; model Dd = D;
+             model T D d1; Dd d2; D d3(redeclare Src s); Base b(redeclare Src2 s); end T;"
+        ),
+        "T",
+    );
+    let n = names(&m);
+    assert!(n.contains(&"d1.s.b") && n.contains(&"d2.s.b") && n.contains(&"b.s.b"));
+    assert!(!n.contains(&"d3.s.b"));
+    // 型の別名（単位つき Real）への差し替え
+    let m = flat(
+        "type Volt = Real(unit = \"V\"); model R replaceable Real v; end R; model S R r(redeclare Volt v); end S;",
+        "S",
+    );
+    assert_eq!(
+        m.vars[0].attrs,
+        vec![("unit".to_string(), "\"V\"".to_string())]
+    );
+}
+
+#[test]
+fn redeclare_package_and_class_extends() {
+    let lib = "package PM replaceable model BP Real h; end BP; end PM;
+        package P2 extends PM; redeclare model extends BP Real g; end BP; end P2;
+        model Pipe replaceable package M = PM; M.BP bp; end Pipe;
+        model Cyl replaceable model C = PM.BP; C c; end Cyl;";
+    // 既定の package
+    let m = flat(&format!("{lib} model T Pipe p; end T;"), "T");
+    assert_eq!(names(&m), ["p.bp.h"]);
+    // `redeclare package M = P2`（P2.BP は class extends で h と g を持つ）
+    let m = flat(
+        &format!("{lib} model T Pipe p(redeclare package M = P2); end T;"),
+        "T",
+    );
+    assert_eq!(names(&m), ["p.bp.h", "p.bp.g"]);
+    // 入れ子の部品へは、`redeclare package M = M` で運ぶ
+    let m = flat(
+        &format!(
+            "{lib} model Out replaceable package M = PM; Pipe q(redeclare package M = M); end Out;
+             model T Out o(redeclare package M = P2); end T;"
+        ),
+        "T",
+    );
+    assert_eq!(names(&m), ["o.q.bp.h", "o.q.bp.g"]);
+    // `redeclare model C = X`、関数の差し替えは平らにしない
+    let m = flat(
+        &format!(
+            "{lib} model T Cyl y(redeclare model C = P2.BP, redeclare function f = g); end T;"
+        ),
+        "T",
+    );
+    assert_eq!(names(&m), ["y.c.h", "y.c.g"]);
+}
+
+#[test]
+fn redeclare_package_members_follow_the_heir() {
+    // 受け継いだクラス BP の中の `TS` と `n` は、差し替え後のパッケージ P2 のもの（`redeclare record TS` と `extends PM(n = 2)`）
+    let lib = "package PM constant Integer n = 1; replaceable record TS Real a; end TS;
+          replaceable model BP TS state; Real x[n]; end BP; end PM;
+        package P2 extends PM(n = 2); redeclare record TS Real a; Real b; end TS; end P2;
+        model Pipe replaceable package M = PM; M.BP bp; Real y[M.n]; end Pipe;";
+    let m = flat(
+        &format!("{lib} model T Pipe p(redeclare package M = P2); end T;"),
+        "T",
+    );
+    assert_eq!(names(&m), ["p.bp.state.a", "p.bp.state.b", "p.bp.x", "p.y"]);
+    assert_eq!(m.vars[2].dims, vec![2]);
+    assert_eq!(m.vars[3].dims, vec![2]);
+    let m = flat(&format!("{lib} model T Pipe p; end T;"), "T");
+    assert_eq!(names(&m), ["p.bp.state.a", "p.bp.x", "p.y"]);
+    assert_eq!(m.vars[1].dims, vec![1]);
+}
+
+#[test]
+fn array_type_and_type_extends_builtin() {
+    // `type V3 = Real[3]` は使う側の添字の後ろに足す。長い形の `type T extends String;` は組み込みの型として扱う
+    let m = flat(
+        "type V3 = Real[3](each unit = \"1\"); type L extends String; end L; model A V3 a; V3 b[2]; parameter L s = \"x\"; end A;",
+        "A",
+    );
+    assert_eq!(names(&m), ["a", "b", "s"]);
+    assert_eq!(
+        (
+            m.vars[0].dims.clone(),
+            m.vars[1].dims.clone(),
+            m.vars[2].ty.as_str()
+        ),
+        (vec![3], vec![2, 3], "String")
+    );
+}
+
+#[test]
+fn alias_package_selects_heir_members() {
+    // `package Medium = G` の別名経由で `Medium.BP` を使う（受け継いだ BP の中の `TS` は TB のもの）
+    let lib = "partial package PM replaceable record TS end TS; replaceable model BP TS state; end BP; end PM;
+        partial package TB extends PM; redeclare record extends TS Real T; end TS; redeclare model extends BP end BP; end TB;
+        package G = TB;";
+    let m = flat(
+        &format!("{lib} model T package Medium = G; Medium.BP medium; end T;"),
+        "T",
+    );
+    assert_eq!(names(&m), ["medium.state.T"]);
+}
+
+#[test]
+fn package_extends_redeclares_record() {
+    // `extends PM(redeclare record TS = R2)`（TableBased と同じ形）で決まった TS を、別名のパッケージ経由でも使う
+    let lib = "record R2 Real T; Real p; end R2;
+        partial package PM replaceable record TS end TS; replaceable model BP TS state; end BP; end PM;
+        partial package TB extends PM(redeclare record TS = R2); end TB;
+        package G = TB;";
+    let m = flat(
+        &format!("{lib} model T package Medium = G; Medium.BP medium; end T;"),
+        "T",
+    );
+    assert_eq!(names(&m), ["medium.state.T", "medium.state.p"]);
+}
+
+#[test]
+fn overconstrained_connections_drop_broken_edges_and_non_root_ifs() {
+    // `Reference` は `equalityConstraint` を持つ（大きさ 0）。端子を輪にくくる（閉路）と、辺が 1 本切れて等式が 1 本減る。
+    // 根は Source（確定）なので、Ground（潜在的な根）の `if isRoot` の等式は無い
+    let src = "record Reference Real gamma;
+          function equalityConstraint input Reference r1; input Reference r2; output Real residue[0]; algorithm end equalityConstraint;
+        end Reference;
+        connector Pin Real v; flow Real i; Reference reference; end Pin;
+        model Two Pin p; Pin n; equation Connections.branch(p.reference, n.reference); p.v - n.v = 1; p.i + n.i = 0; end Two;
+        model Src Pin p; equation Connections.root(p.reference); p.v = 1; end Src;
+        model Gnd Pin p; equation Connections.potentialRoot(p.reference, 256);
+          if Connections.isRoot(p.reference) then p.reference.gamma = 0; end if; p.v = 0; end Gnd;
+        model Top Src s; Gnd g; Two a; Two b;
+        equation connect(s.p, a.p); connect(a.n, b.p); connect(b.n, g.p); connect(g.p, s.p); end Top;";
+    let m = flat(src, "Top");
+    let e = eqs(&m);
+    // 接続集合は 4 端子と 2 端子の 2 つ。gamma の等式は (4 - 1) + (2 - 1) = 4 本だが、閉路の辺が 1 本切れて 3 本
+    let gammas = e.iter().filter(|t| t.contains("reference.gamma")).count();
+    assert_eq!(gammas, 3, "{e:#?}");
+    assert!(
+        !e.iter().any(|t| t.starts_with("if Connections.isRoot")),
+        "{e:#?}"
+    );
+}
+
+#[test]
+fn connection_sets_are_merged_by_leaf_variable() {
+    // `connect(x.p, q.a)` と、丸ごとの `connect(q, w)` は、葉の変数 `q.a.i` で同じ集合になる（flow の和は 1 本）
+    let src = "connector Pin Real v; flow Real i; end Pin;
+        connector Port Pin a; end Port;
+        model Two Pin p; Pin n; equation p.v - n.v = 1; p.i + n.i = 0; end Two;
+        model Top Two x; Port q; Port w; protected Pin hidden; equation connect(x.p, q.a); connect(q, w); end Top;";
+    let e = eqs(&flat(src, "Top"));
+    let sums: Vec<_> = e.iter().filter(|t| t.contains("q.a.i")).collect();
+    assert_eq!(sums.len(), 2, "{e:#?}"); // 3 端子の flow の和 + 外側のコネクタ q の flow = 0
+    assert!(
+        e.iter()
+            .any(|t| t.contains("x.p.i") && t.contains("q.a.i") && t.contains("w.a.i")),
+        "{e:#?}"
+    );
+    // `protected` で、どこにもつながっていないコネクタの flow は 0
+    assert!(e.contains(&"hidden.i = 0".to_string()), "{e:#?}");
+}
+
+#[test]
+fn matrix_of_vectors_and_tuple_of_arrays_count_scalars() {
+    let src = "function f input Real x; output Real a; output Real b[2]; algorithm a := x; b := {x, x}; end f;
+        model M Real y[3]; Real u1[1]; Real u2[2]; Real r; Real s[2];
+        equation [y] = [u1; u2]; (r, s) = f(1); u1 = {1}; u2 = {1, 2}; end M;";
+    let m = flat(src, "M");
+    assert_eq!(m.equation_count(), 3 + 3 + 1 + 2, "{:#?}", eqs(&m));
+}
+
+#[test]
+fn if_on_parameter_and_package_constant_picks_branch() {
+    let src = "package Svc package Machine final constant Real small = 2.2250738585072014e-308; end Machine; end Svc;
+        package K final constant Real small = Svc.Machine.small; end K;
+        model P parameter Real m = 0; Real T; Real x;
+          equation if m > K.small then x = m * der(T); else x = 0; end if; T = time; end P;
+        model Top P p(m = 0); P q(m = 2); end Top;";
+    let e = eqs(&flat(src, "Top"));
+    assert!(e.contains(&"p.x = 0".to_string()), "{e:#?}");
+    assert!(e.contains(&"q.x = q.m * der(q.T)".to_string()), "{e:#?}");
+}
+
+#[test]
+fn if_expression_on_parameter_keeps_only_the_taken_branch() {
+    let src = "model P parameter Boolean use = false; Real x; Real y; Real z;
+          equation y = if use then -der(x) else 0; z = if time > 1 then 1 else 2; x = time; end P;";
+    let e = eqs(&flat(src, "P"));
+    assert!(e.contains(&"y = 0".to_string()), "{e:#?}");
+    // 実行時の条件はそのまま
+    assert!(
+        e.contains(&"z = if time > 1 then 1 else 2".to_string()),
+        "{e:#?}"
+    );
+}
+
+/// S311: 変数・方程式が元のソースの位置（ファイル名とバイト範囲）を運ぶ
+#[test]
+fn origins_follow_nesting_extends_connect_and_for() {
+    let src = "connector Pin Real v; flow Real i; end Pin;
+model Base Real b; equation b = 1; end Base;
+model Cell extends Base; Pin p; equation p.v = b; end Cell;
+model Top Cell c[2]; Pin q; Real y[2];
+equation for k in 1:2 loop y[k] = c[k].b; end for; connect(c[1].p, q); end Top;";
+    let m = flat(src, "Top");
+    let at = |o: &Option<globe_mode_flat::Origin>| {
+        let o = o.as_ref().expect("origin");
+        assert_eq!(&*o.file, "t.mo");
+        src[o.start as usize..o.end as usize]
+            .trim_end_matches(';')
+            .to_string()
+    };
+    // 入れ子: c[2].b は Base の宣言（extends で受け継いだ宣言は基底のファイル内の位置）
+    let var = |n: &str| m.vars.iter().find(|v| v.name == n).unwrap();
+    assert_eq!(at(&var("c[2].b").origin), "b");
+    assert_eq!(at(&var("y").origin), "y[2]");
+    // extends の方程式（Base の `b = 1`）、入れ子の方程式、for（展開した 2 本とも中の方程式）
+    let on = |text: &str| {
+        m.equations
+            .iter()
+            .filter(|e| e.text == text)
+            .map(|e| at(&e.origin))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(on("c[1].b = 1"), ["b = 1"]);
+    assert_eq!(on("c[2].p.v = c[2].b"), ["p.v = b"]);
+    assert_eq!(on("y[2] = c[2].b"), ["y[k] = c[k].b"]);
+    // connect から作った potential・flow の方程式は connect の文
+    assert_eq!(on("c[1].p.v = q.v"), ["connect(c[1].p, q)"]);
+    assert_eq!(on("c[1].p.i - q.i = 0"), ["connect(c[1].p, q)"]);
+    // つなげなかったコネクタの flow = 0 は flow 変数の宣言
+    assert_eq!(on("c[2].p.i = 0"), ["i"]); // コネクタの flow 変数の宣言
+}
+
+#[test]
+fn huge_component_array_is_refused_before_allocating() {
+    // #109: 添字の文字列を作る前に断る（積が MAX_VARS を超える・usize を溢れる）
+    for dims in ["100000, 100000", "4294967296, 4294967296, 4294967296"] {
+        let src = format!("model R Real x; equation x = 1; end R; model M R r[{dims}]; end M;");
+        assert_eq!(err(&src, "M"), "too-large");
+    }
+}
+
+/// #111: 自分を部品に持つモデルは、スタックを溢れさせず「深すぎる」で断る
+#[test]
+fn self_containing_model_is_refused_not_overflowed() {
+    assert_eq!(err("model C C a; end C;", "C"), "deep-instantiation");
+    // `redeclare` で自分に戻す循環
+    assert_eq!(
+        err(
+            "model C replaceable model M = D; M m; end C;
+             model D replaceable model M = D; M m; end D;
+             model E C c(redeclare model M = C); end E;",
+            "E"
+        ),
+        "deep-instantiation"
+    );
 }

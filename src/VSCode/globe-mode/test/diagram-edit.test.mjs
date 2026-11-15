@@ -4,10 +4,11 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import { diagramDrag } from "../../../Svelte/src/lib/diagram-drag.ts";
-import { deleteOf, markSel, pickSel } from "../../../Svelte/src/lib/diagram-select.ts";
-import { addWaypointOf, halfOf, handleNode, handlesOf } from "../../../Svelte/src/lib/diagram-waypoint.ts";
+import { deleteOf, markSel, nudgeOf, pickSel } from "../../../Svelte/src/lib/diagram-select.ts";
+import { markWire, wireKey } from "../../../Svelte/src/lib/diagram-connect.ts";
+import { addWaypointOf, halfOf, handleNode, handlesOf, midWaypointOf } from "../../../Svelte/src/lib/diagram-waypoint.ts";
 
-const { parseEdit } = createRequire(import.meta.url)("../edit.js");
+const { parseEdit, parseParams, partParams, enumValue } = createRequire(import.meta.url)("../edit.js");
 
 // 偽の要素・svg。画面の座標 = 図の座標（CTM は単位行列）
 const attrs = (o = {}) => ({ ...o, setAttribute(k, v) { this[k] = v; }, getAttribute(k) { return this[k] ?? null; }, removeAttribute(k) { delete this[k]; } });
@@ -172,4 +173,87 @@ test("webview はつまみの移動と線のダブルクリックを postMessage
   assert.ok(web.includes('type: "moveWaypoint"') && web.includes('type: "addWaypoint"') && web.includes('"dblclick"'));
   assert.ok(!web.includes("innerHTML"));
   assert.ok(readFileSync(new URL("../panel.js", import.meta.url), "utf8").includes('"moveWaypoint", "addWaypoint"'));
+});
+
+test("パラメータの入力（S306）: webview の要求は部品の名前だけ。一覧からは部品の直下の書けるものだけを取り、列挙は型つきの名前にする", () => {
+  assert.equal(parseParams({ type: "params", part: "r1", file: "/etc/passwd", class: "X" }), "r1");
+  for (const bad of [null, {}, { type: "params" }, { type: "params", part: "a.b" }, { type: "params", part: "r 1" }, { type: "params", part: 1 }, { type: "move", part: "r1" }]) assert.equal(parseParams(bad), null, JSON.stringify(bad));
+  const list = [
+    { name: "r1.R", type: "Real", default: "1" },
+    { name: "r1.mode", type: "Enumeration", literals: ["low", "high"], enum_type: "P.Mode" },
+    { name: "r1.d.k", type: "Real" }, // 入れ子
+    { name: "r1.v", type: "Real", dims: [3] }, // 配列
+    { name: "r1.s", type: "String" },
+    { name: "r10.R", type: "Real" }, // 別の部品
+    { name: "R", type: "Real" }, // モデル自身
+  ];
+  assert.deepEqual(partParams(list, "r1").map((p) => p.key), ["R", "mode"]);
+  assert.deepEqual(partParams(null, "r1"), []);
+  assert.equal(enumValue(list[1], "high"), "P.Mode.high");
+  assert.equal(enumValue(list[1], "a b"), "P.Mode.'a b'");
+  assert.equal(enumValue({ literals: ["x"] }, "x"), null);
+  const web = readFileSync(new URL("../webview.js", import.meta.url), "utf8");
+  assert.ok(web.includes('addEventListener("dblclick"') && web.includes('type: "params", part'));
+  assert.ok(readFileSync(new URL("../panel.js", import.meta.url), "utf8").includes("parseParams(m)"));
+});
+
+test("矢印キーは選んだ部品を 2 単位（Shift で 10 単位）動かす。y は上向き。部品の選びが無ければ null（S309）", () => {
+  assert.deepEqual(nudgeOf({ part: "R1" }, "ArrowRight", false), { part: "R1", dx: 2, dy: 0 });
+  assert.deepEqual(nudgeOf({ part: "R1" }, "ArrowLeft", true), { part: "R1", dx: -10, dy: 0 });
+  assert.deepEqual(nudgeOf({ part: "R1" }, "ArrowUp", false), { part: "R1", dx: 0, dy: 2 });
+  assert.deepEqual(nudgeOf({ part: "R1" }, "ArrowDown", true), { part: "R1", dx: 0, dy: -10 });
+  assert.equal(nudgeOf({ key: "a.p b.n" }, "ArrowUp", false), null, "結線は動かさない");
+  assert.equal(nudgeOf(null, "ArrowUp", false), null);
+  assert.equal(nudgeOf({ part: "R1" }, "x", false), null);
+});
+
+test("webview は矢印キーを move、Enter を params にし、コマンドは package.json と extension.js にある（S309）", () => {
+  const web = readFileSync(new URL("../webview.js", import.meta.url), "utf8");
+  assert.ok(web.includes("nudgeOf(selected, e.key, e.shiftKey)") && web.includes('type: "move", ...n'));
+  assert.ok(web.includes('e.key === "Enter" && e.target.closest?.("[data-part]")') && web.includes('type: "params", part'));
+  const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  assert.ok(pkg.contributes.commands.some((c) => c.command === "globeMode.editParams"));
+  assert.ok(readFileSync(new URL("../extension.js", import.meta.url), "utf8").includes('registerCommand("globeMode.editParams"'));
+});
+
+test("キーボードの結線（S316）: c で始点・終点のコネクタを Tab で選び Enter で決めると connect の引数になる。Esc・修飾キー・選び無しでは動かない", () => {
+  const d = { parts: [{ name: "r1", connectors: [{ name: "p", pos: [-10, 0] }, { name: "n", pos: [10, 0] }] }, { name: "g", connectors: [{ name: "p", pos: [0, -20] }] }], connections: [{ from: "r1.n", to: "g.p", line: { points: [[10, 0], [10, -20], [0, -20]] } }] };
+  const k = (key, o = {}) => ({ key, shiftKey: false, ctrlKey: false, metaKey: false, altKey: false, ...o });
+  assert.equal(wireKey(null, d, null, k("c")).handled, false, "選びが無ければ入らない");
+  assert.equal(wireKey(null, d, { part: "r1" }, k("c", { ctrlKey: true })).handled, false, "Ctrl+C はコピー");
+  assert.equal(wireKey(null, d, { key: "r1.n g.p" }, k("c")).handled, false, "結線では入らない");
+  let s = wireKey(null, d, { part: "r1" }, k("c"));
+  assert.deepEqual(s.wire, { list: ["r1.p", "r1.n"], i: 0 });
+  assert.ok(s.say.includes("始点") && s.say.includes("r1.p"));
+  s = wireKey(s.wire, d, null, k("Tab"));
+  assert.equal(s.wire.i, 1);
+  s = wireKey(s.wire, d, null, k("Tab", { shiftKey: true }));
+  assert.equal(s.wire.i, 0, "Shift+Tab で戻る");
+  s = wireKey(s.wire, d, null, k("ArrowLeft"));
+  assert.equal(s.wire.i, 1, "先頭から末尾へ回る");
+  s = wireKey(s.wire, d, null, k("Enter"));
+  assert.deepEqual(s.wire, { list: ["g.p"], i: 0, from: "r1.n" }, "終点の候補は別の部品のコネクタだけ");
+  assert.ok(s.say.includes("r1.n を始点に選んだ"));
+  assert.equal(wireKey(s.wire, d, null, k("Delete")).handled, true, "最中は他のキーを効かせない");
+  const esc = wireKey(s.wire, d, null, k("Escape"));
+  assert.equal(esc.wire, null);
+  s = wireKey(s.wire, d, null, k("Enter"));
+  assert.equal(s.wire, null);
+  assert.deepEqual(s.connect, { from: "r1.n", to: "g.p", points: [[10, 0], [0, -20]] });
+  // 選びの枠と aria-label
+  const el = (end) => ({ end, cls: new Set(), aria: null, getAttribute: () => end, setAttribute(_, v) { this.aria = v; }, classList: { add: (...c) => c.forEach((x) => el.last.cls.add(x)), remove() {} } });
+  const [a, b] = [el("r1.p"), el("r1.n")].map((e) => ((e.classList = { add: (...c) => c.forEach((x) => e.cls.add(x)), remove: (...c) => c.forEach((x) => e.cls.delete(x)) }), e));
+  markWire({ querySelectorAll: (q) => (q === "[data-end]" ? [a, b] : [a, b].filter((e) => e.cls.size)) }, { list: ["r1.p", "r1.n"], i: 1, from: "r1.p" }, "文");
+  assert.ok(a.cls.has("from") && !a.cls.has("cur") && b.cls.has("cur") && b.aria === "文");
+  // 選んだ結線の + は、いちばん長い線分（r1.n→(10,-20) の 20）の中点に点を足す
+  const m = midWaypointOf(d, { key: "r1.n g.p" }, "+");
+  assert.deepEqual([m.from, m.to, m.index, m.x, m.y], ["r1.n", "g.p", 1, 10, -10]);
+  assert.equal(midWaypointOf(d, { part: "r1" }, "+"), null);
+  assert.equal(midWaypointOf(d, { key: "r1.n g.p" }, "a"), null);
+  // webview と DiagramView の配線
+  const web = readFileSync(new URL("../webview.js", import.meta.url), "utf8");
+  assert.ok(web.includes("wireKey(wire, current, selected, e)") && web.includes('ask({ type: "connect", ...step.connect })') && web.includes("if (wire) return;") && web.includes("midWaypointOf(current, selected, e.key)"));
+  const dv = readFileSync(new URL("../../../Svelte/src/lib/DiagramView.svelte", import.meta.url), "utf8");
+  assert.ok(dv.includes("wireKey(wire, diagram, selected, e)") && dv.includes('role="status"') && dv.includes("onParams(("));
+  assert.ok(readFileSync(new URL("../panel.js", import.meta.url), "utf8").includes('id="say" role="status"'));
 });

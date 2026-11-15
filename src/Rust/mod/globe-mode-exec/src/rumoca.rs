@@ -2399,6 +2399,7 @@ mod tests {
             solver: SolverId::Dopri45,
             max_wall_seconds: Some(5.0),
             step: None,
+            max_order: None,
             parameters: Default::default(),
             origins: globe_mode_ir::SettingOrigins {
                 start_time: o,
@@ -2439,6 +2440,7 @@ mod tests {
             solver: SolverId::Bdf,
             max_wall_seconds: None,
             step: None,
+            max_order: None,
             parameters: Default::default(),
             origins: globe_mode_ir::SettingOrigins {
                 start_time: o,

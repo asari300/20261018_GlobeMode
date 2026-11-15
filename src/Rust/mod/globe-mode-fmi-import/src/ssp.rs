@@ -9,11 +9,13 @@ use std::path::{Component, Path};
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
-use globe_mode_fmi::ssp::{COSIM_ANNOTATION, SspBinding, parse_ssd, parse_ssv};
+use globe_mode_fmi::ssp::{COSIM_ANNOTATION, MAX_NAME, SspBinding, parse_ssd, parse_ssv};
 use globe_mode_fmi::{Causality, VarType};
 
-use crate::cosim::valid_fmu_name;
-use crate::{Algorithm, CosimSpec, Error, Result, io, read_model_description, unpack};
+use crate::cosim::valid_fmu_path;
+use crate::{
+    Algorithm, CosimSpec, Error, Result, io, read_model_description, read_xml_file, unpack,
+};
 
 /// SSP の中の相対パスだけ（`..`・絶対パス・URI スキームは断る）。
 fn is_inside_relative(source: &str) -> bool {
@@ -35,7 +37,7 @@ impl Ssp {
     pub fn open(path: &Path, stop_time: Option<f64>, step: Option<f64>) -> Result<Ssp> {
         let dir = tempfile::tempdir().map_err(io)?;
         unpack(std::fs::File::open(path).map_err(io)?, dir.path())?;
-        let ssd = std::fs::read_to_string(dir.path().join("SystemStructure.ssd"))
+        let ssd = read_xml_file(&dir.path().join("SystemStructure.ssd"))
             .map_err(|e| Error::Ssp(format!("SystemStructure.ssd を読めない: {e}")))?;
         let ssd = parse_ssd(&ssd).map_err(Error::Ssp)?;
         let start = ssd.start_time.unwrap_or(0.0);
@@ -174,17 +176,23 @@ impl Ssp {
         };
         let mut order: Vec<usize> = (0..scoped.len()).collect();
         order.sort_by_key(|&i| std::cmp::Reverse(depth(scoped[i].0)));
+        let mut ssv: BTreeMap<&str, _> = BTreeMap::new();
         for i in order {
             let (scope, b) = scoped[i];
             let params = match &b.source {
                 None => b.params.clone(),
                 Some(s) if is_inside_relative(s) => {
-                    let xml = std::fs::read_to_string(dir.path().join(s)).map_err(|e| {
-                        Error::Ssp(format!(
-                            "{scope:?} の ParameterBinding {s:?} を読めない: {e}"
-                        ))
-                    })?;
-                    parse_ssv(&xml).map_err(|m| Error::Ssp(format!("{s}: {m}")))?
+                    // 同じ source を指す binding は 1 回だけ読んで解析する（#105）
+                    if !ssv.contains_key(s.as_str()) {
+                        let xml = read_xml_file(&dir.path().join(s)).map_err(|e| {
+                            Error::Ssp(format!(
+                                "{scope:?} の ParameterBinding {s:?} を読めない: {e}"
+                            ))
+                        })?;
+                        let p = parse_ssv(&xml).map_err(|m| Error::Ssp(format!("{s}: {m}")))?;
+                        ssv.insert(s.as_str(), p);
+                    }
+                    ssv[s.as_str()].clone()
                 }
                 Some(s) => {
                     return Err(Error::Ssp(format!(
@@ -213,6 +221,31 @@ impl Ssp {
         }
         Ok(Ssp { _dir: dir, spec })
     }
+
+    /// 展開した FMU を `dir/<名前>.fmu` に写し、それを指す spec にする（パスは `<名前>.fmu`。spec.json を `dir` に置く前提。S315）。
+    /// `Ssp` は drop で展開先を消すので、JSON に残すには FMU を外に出すしかない。既にあるファイルは上書きしない。
+    pub fn export_spec(&self, dir: &Path) -> Result<CosimSpec> {
+        let mut spec = self.spec.clone();
+        for name in spec.fmus.keys() {
+            // 名前は信頼できない入力: `..`・`/` でフォルダの外に書かせない
+            if !valid_fmu_path(name) {
+                return Err(Error::Ssp(format!("Component の名前 {name:?} が不正")));
+            }
+            let to = dir.join(format!("{name}.fmu"));
+            if to.symlink_metadata().is_ok() {
+                return Err(Error::Ssp(format!(
+                    "{} が既にある（上書きしない）",
+                    to.display()
+                )));
+            }
+        }
+        for (name, p) in &mut spec.fmus {
+            let file = format!("{name}.fmu");
+            std::fs::copy(&*p, dir.join(&file)).map_err(io)?;
+            *p = file.into();
+        }
+        Ok(spec)
+    }
 }
 
 /// XML の属性値に入れる文字列。
@@ -235,12 +268,17 @@ fn var_of<'a>(
     key: &'a str,
 ) -> Result<(&'a str, &'a str, &'a globe_mode_fmi::ScalarVariable)> {
     let err = |m: String| Error::Ssp(m);
-    let (f, v) = key
-        .split_once('.')
-        .ok_or_else(|| err(format!("{key:?} が `<FMU の名前>.<変数名>` の形でない")))?;
-    let d = descs
-        .get(&f.to_owned())
-        .ok_or_else(|| err(format!("{key:?} の FMU {f:?} が `fmus` に無い")))?;
+    // FMU の名前は `.` を含んでよい（S315）ので、一番長く合う名前で割る（`cosim.rs` の `endpoint` と同じ）
+    let (f, v) = descs
+        .keys()
+        .filter_map(|f| Some((f.as_str(), key.strip_prefix(f.as_str())?.strip_prefix('.')?)))
+        .max_by_key(|(f, _)| f.len())
+        .ok_or_else(|| {
+            err(format!(
+                "{key:?} が `<FMU の名前>.<変数名>` の形でないか、FMU が `fmus` に無い"
+            ))
+        })?;
+    let d = &descs[&f.to_owned()];
     let x = d
         .variables
         .iter()
@@ -250,13 +288,21 @@ fn var_of<'a>(
 }
 
 pub fn write_ssp(spec: &CosimSpec, out: &Path) -> Result<()> {
+    write_ssp_with(spec, out, false)
+}
+
+/// [`write_ssp`] の `ssv` 版（S318）。`ssv` が真なら `start` を Component ごとの `resources/<名前>.ssv` に書き、
+/// `ParameterBinding source="resources/<名前>.ssv"` で参照する（偽ならインラインの `ParameterValues`）。読み戻した結果は同じ。
+pub fn write_ssp_with(spec: &CosimSpec, out: &Path, ssv: bool) -> Result<()> {
     use std::io::Write;
     let err = |m: String| Error::Ssp(m);
     let mut descs = BTreeMap::new();
     for (name, path) in &spec.fmus {
-        if !valid_fmu_name(name) {
+        // `.` を含む名前（入れ子を平らにしたもの）は平らな Component の名前のまま書く（S315）。SSD の `name` は
+        // `xs:string`（minLength 1 だけ）で `.` を禁じていない。読み取りは名前を 1 つの文字列として扱う
+        if !valid_fmu_path(name) || name.len() > MAX_NAME {
             return Err(err(format!(
-                "FMU の名前 {name:?} が不正（英数字・`_`・`-` だけ）"
+                "FMU の名前 {name:?} が不正（`.` でつないだ英数字・`_`・`-` だけ、{MAX_NAME} バイトまで）"
             )));
         }
         descs.insert(name, read_model_description(path)?);
@@ -325,6 +371,7 @@ pub fn write_ssp(spec: &CosimSpec, out: &Path) -> Result<()> {
         )
         .unwrap();
     }
+    let mut ssv_files: Vec<(String, String)> = Vec::new();
     let mut ssd = String::from(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <ssd:SystemStructureDescription xmlns:ssd="http://ssp-standard.org/SSP1/SystemStructureDescription"
@@ -346,7 +393,13 @@ pub fn write_ssp(spec: &CosimSpec, out: &Path) -> Result<()> {
             ssd.push_str("        </ssd:Connectors>\n");
         }
         if let Some(p) = starts.get(name.as_str()) {
-            write!(ssd, "        <ssd:ParameterBindings><ssd:ParameterBinding><ssd:ParameterValues>\n          <ssv:ParameterSet version=\"2.0\" name=\"start\"><ssv:Parameters>\n{p}          </ssv:Parameters></ssv:ParameterSet>\n        </ssd:ParameterValues></ssd:ParameterBinding></ssd:ParameterBindings>\n").unwrap();
+            if ssv {
+                // 型の要素（Real・Integer・Boolean）は ssv の名前空間（XSD は elementFormDefault="qualified"）
+                ssv_files.push((format!("resources/{name}.ssv"), format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<ssv:ParameterSet xmlns:ssv=\"http://ssp-standard.org/SSP1/SystemStructureParameterValues\" version=\"2.0\" name=\"start\">\n  <ssv:Parameters>\n{p}  </ssv:Parameters>\n</ssv:ParameterSet>\n")));
+                writeln!(ssd, "        <ssd:ParameterBindings><ssd:ParameterBinding source=\"resources/{n}.ssv\"/></ssd:ParameterBindings>").unwrap();
+            } else {
+                write!(ssd, "        <ssd:ParameterBindings><ssd:ParameterBinding><ssd:ParameterValues>\n          <ssv:ParameterSet version=\"2.0\" name=\"start\"><ssv:Parameters>\n{p}          </ssv:Parameters></ssv:ParameterSet>\n        </ssd:ParameterValues></ssd:ParameterBinding></ssd:ParameterBindings>\n").unwrap();
+            }
         }
         ssd.push_str("      </ssd:Component>\n");
     }
@@ -386,6 +439,11 @@ pub fn write_ssp(spec: &CosimSpec, out: &Path) -> Result<()> {
             zip.start_file(format!("resources/{name}.fmu"), stored)
                 .map_err(crate::zip_err)?;
             std::io::copy(&mut std::fs::File::open(path).map_err(io)?, &mut zip).map_err(io)?;
+        }
+        for (path, text) in &ssv_files {
+            zip.start_file(path, zip::write::SimpleFileOptions::default())
+                .map_err(crate::zip_err)?;
+            zip.write_all(text.as_bytes()).map_err(io)?;
         }
         zip.finish().map_err(crate::zip_err)?;
         std::fs::rename(&tmp, out).map_err(io)
@@ -467,7 +525,7 @@ mod tests {
         assert_eq!(Ssp::open(&out, None, Some(0.5)).unwrap().spec.step, 0.5);
         // 不正な名前・Real でない結線は書く前に断る
         let mut bad = spec.clone();
-        bad.fmus.insert("x.y".into(), bad.fmus["a"].clone());
+        bad.fmus.insert("x y".into(), bad.fmus["a"].clone());
         assert!(write_ssp(&bad, &out).is_err());
         let mut bad = spec.clone();
         bad.connections = vec![(format!("a.{k}"), format!("b-2.{u}"))];
@@ -477,6 +535,104 @@ mod tests {
                 .to_string()
                 .contains("output")
         );
+    }
+
+    /// S318: `write_ssp_with(.., true)` は start を `resources/<名前>.ssv` に書く。読み戻すとインライン版と同じ spec で、
+    /// `.ssv` は ssv の名前空間・`ssv:Real`・`ssv:Integer`・`ssv:Boolean` の要素になる（型は FMU の変数から）。
+    #[test]
+    fn ssv_export_reads_back_like_inline() {
+        let dir = tempfile::tempdir().unwrap();
+        let var = |n: &str, ty: &str, start: &str| {
+            format!(
+                r#"<ScalarVariable name="{n}" valueReference="0" causality="parameter" variability="fixed"><{ty} start="{start}"/></ScalarVariable>"#
+            )
+        };
+        let a = fake_fmu(
+            dir.path(),
+            "a",
+            &(var("k", "Real", "1") + &var("n", "Integer", "1") + &var("f", "Boolean", "false")),
+        );
+        let b = fake_fmu(dir.path(), "b", &var("k", "Real", "1"));
+        let spec = CosimSpec {
+            fmus: [("a".to_owned(), a), ("b".to_owned(), b)].into(),
+            stop_time: 1.0,
+            step: 0.5,
+            start: [
+                ("a.k".to_owned(), 0.1),
+                ("a.n".to_owned(), 3.0),
+                ("a.f".to_owned(), 1.0),
+            ]
+            .into(),
+            ..Default::default()
+        };
+        let (inline, ssv) = (dir.path().join("i.ssp"), dir.path().join("v.ssp"));
+        write_ssp_with(&spec, &inline, false).unwrap();
+        write_ssp_with(&spec, &ssv, true).unwrap();
+        let got = Ssp::open(&ssv, None, None).unwrap().spec;
+        assert_eq!(
+            got.start,
+            Ssp::open(&inline, None, None).unwrap().spec.start
+        );
+        assert_eq!(got.start, spec.start);
+        let mut z = zip::ZipArchive::new(std::fs::File::open(&ssv).unwrap()).unwrap();
+        let mut text = String::new();
+        std::io::Read::read_to_string(&mut z.by_name("resources/a.ssv").unwrap(), &mut text)
+            .unwrap();
+        assert!(
+            text.contains(
+                r#"xmlns:ssv="http://ssp-standard.org/SSP1/SystemStructureParameterValues""#
+            ),
+            "{text}"
+        );
+        for want in [
+            r#"<ssv:Real value="0.1"/>"#,
+            r#"<ssv:Integer value="3"/>"#,
+            r#"<ssv:Boolean value="true"/>"#,
+        ] {
+            assert!(text.contains(want), "{text}");
+        }
+        // start の無い Component には .ssv を作らない
+        assert!(z.by_name("resources/b.ssv").is_err());
+    }
+
+    /// S315: 名前に `.` を含む FMU（入れ子を平らにしたもの）は平らな Component のまま書いて読み戻せ、
+    /// `export_spec` で FMU を外に出した spec は（パス以外）元と同じ。
+    #[test]
+    fn dotted_names_stay_flat_and_export_spec_round_trips() {
+        let dir = tempfile::tempdir().unwrap();
+        let var = |n: &str, c: &str| {
+            format!(
+                r#"<ScalarVariable name="{n}" valueReference="0" causality="{c}" variability="continuous"><Real/></ScalarVariable>"#
+            )
+        };
+        let a = fake_fmu(dir.path(), "a", &var("y", "output"));
+        let b = fake_fmu(dir.path(), "b", &var("u", "input"));
+        let spec = CosimSpec {
+            fmus: [("s.a".to_owned(), a), ("s.b".to_owned(), b)].into(),
+            connections: vec![("s.a.y".into(), "s.b.u".into())],
+            stop_time: 1.0,
+            step: 0.5,
+            ..Default::default()
+        };
+        let out = dir.path().join("s.ssp");
+        write_ssp(&spec, &out).unwrap();
+        let ssp = Ssp::open(&out, None, None).unwrap();
+        let to = dir.path().join("out");
+        std::fs::create_dir(&to).unwrap();
+        let got = ssp.export_spec(&to).unwrap();
+        assert_eq!(got.connections, spec.connections);
+        assert_eq!(
+            (got.start_time, got.stop_time, got.step),
+            (Some(0.0), 1.0, 0.5)
+        );
+        assert_eq!(got.fmus.keys().collect::<Vec<_>>(), ["s.a", "s.b"]);
+        assert_eq!(got.fmus["s.a"], std::path::Path::new("s.a.fmu"));
+        assert_eq!(
+            std::fs::read(to.join("s.b.fmu")).unwrap(),
+            std::fs::read(&spec.fmus["s.b"]).unwrap()
+        );
+        // 上書きしない
+        assert!(ssp.export_spec(&to).is_err());
     }
 
     /// S295: Int32・Boolean の結線も書いて読み戻せる。型が違う結線は書く前に断る。

@@ -2742,6 +2742,7 @@ mod tests {
             solver: SolverId::Bdf,
             max_wall_seconds: Some(30.0),
             step: None,
+            max_order: None,
             parameters: Default::default(),
             origins: SettingOrigins {
                 start_time: o,

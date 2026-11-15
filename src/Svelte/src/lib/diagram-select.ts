@@ -26,3 +26,13 @@ export function deleteOf(sel: Sel, key: string): Del | null {
   const [from, to] = sel.key.split(" ");
   return { from, to };
 }
+
+const ARROWS: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] };
+
+/** 矢印キーで選んだ部品を動かす量（S309。マウスなしの移動）。ドラッグと同じ 2 単位（Shift で 10 単位）、Diagram の座標（y 上向き）。部品が選ばれていなければ null */
+export function nudgeOf(sel: Sel, key: string, shift: boolean): { part: string; dx: number; dy: number } | null {
+  const a = ARROWS[key];
+  if (!sel || !("part" in sel) || !a) return null;
+  const n = shift ? 10 : 2;
+  return { part: sel.part, dx: a[0] * n, dy: a[1] * n };
+}

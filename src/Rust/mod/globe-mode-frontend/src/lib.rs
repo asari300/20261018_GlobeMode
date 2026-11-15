@@ -10,6 +10,10 @@ use globe_mode_ir::{
     BalanceCount, DaeCounts, DaeStructure, FlatSummary, InitStructure, Outline, PreflightStructure,
 };
 
+#[cfg(feature = "native")]
+mod native;
+#[cfg(feature = "native")]
+pub use native::{NativeFrontend, closure_sources};
 #[cfg(feature = "rumoca")]
 mod external_builtin;
 #[cfg(feature = "rumoca")]
@@ -20,7 +24,7 @@ mod init;
 mod preflight;
 #[cfg(feature = "rumoca")]
 mod rumoca;
-#[cfg(feature = "rumoca")]
+#[cfg(any(feature = "rumoca", feature = "native"))]
 mod split_library;
 #[cfg(feature = "rumoca")]
 mod structure;
@@ -28,8 +32,8 @@ mod structure;
 pub mod unsupported;
 #[cfg(feature = "rumoca")]
 pub use rumoca::{
-    Checker, CompiledModel, EnumType, ReferenceStructure, RumocaFrontend, SkippedFile,
-    collect_mo_files, library_closure, library_slice,
+    Checker, CompiledModel, EnumType, LibraryClosure, ReferenceStructure, RumocaFrontend,
+    SkippedFile, collect_mo_files, library_closure, library_slice,
 };
 
 /// 先頭の UTF-8 の BOM を空白 3 個にする（#84。Rumoca は BOM を構文の誤りにする）。バイト位置は変わらない。

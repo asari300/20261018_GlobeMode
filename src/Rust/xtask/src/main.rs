@@ -199,6 +199,12 @@ enum Cmd {
         /// N 本ごとに Rumoca の Session を戻す（0 なら戻さない）
         #[arg(long, default_value_t = 50)]
         reset_every: usize,
+        /// 例題でなくても、この完全修飾名のクラスを検査する（`,` 区切り。小さなモデルで食い違いを調べる）
+        #[arg(long)]
+        class: Option<String>,
+        /// 自前の flat（変数と方程式）を印字する
+        #[arg(long)]
+        dump: bool,
     },
     /// msl-funnel の結果（--json）を omc（OpenModelica のコンパイラ、別プロセス）と突き合わせ、報告を書く（S008）
     OmcCompare {
@@ -412,10 +418,14 @@ fn main() -> ExitCode {
             json,
             baseline_json,
             reset_every,
+            class,
+            dump,
         } => diff_frontend::diff_frontend(&diff_frontend::Options {
             msl: &msl,
             validation: &validation,
             filter: filter.as_deref(),
+            classes: class.as_deref(),
+            dump,
             limit,
             report: report.as_deref(),
             json: json.as_deref(),

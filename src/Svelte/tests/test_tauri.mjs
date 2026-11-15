@@ -111,4 +111,11 @@ globalThis.window.__TAURI__.core.invoke = async (cmd, a) => (stg.push([cmd, a]),
 const stg = [];
 assert.deepEqual(await b.stages("P"), { index: { index: 3 } });
 assert.deepEqual(stg, [["rpc", { method: "globe/stages", params: { model: "P" } }]]);
+// 複数ソルバ（S322）: globe/simulateMany に request と workDoneToken を渡し、実行ごとの列（回せなかった実行は points 0）を返す
+globalThis.window.__TAURI__.core.invoke = async (cmd, a) => (many.push([cmd, a]), { response: { ok: false, runs: [{ solver: "bdf" }, { solver: "rk4" }] }, columns: [{ layout: { names: ["time", "x"], points: 2 }, columns: [[0, 1], [1, 0.5]] }, null] });
+const many = [];
+const m = await b.simulateMany({ model: "D", solvers: ["bdf", "rk4"], compare: { threshold_exp: 6 } });
+assert.deepEqual(m.columns.map((c) => [c.names, c.points]), [[["x"], 2], [[], 0]]);
+assert.equal(many[0][1].method, "globe/simulateMany");
+assert.deepEqual({ ...many[0][1].params, workDoneToken: undefined }.request, { model: "D", solvers: ["bdf", "rk4"], compare: { threshold_exp: 6 } });
 console.log("test_tauri ok");

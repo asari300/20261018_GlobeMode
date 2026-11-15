@@ -13,6 +13,9 @@ default = ["rumoca"]
 # Phase A のフロントエンド。Rumoca を import してよいのはこの feature の中だけ。
 rumoca = ["dep:serde_json", "dep:rumoca-compile", "dep:rumoca-ir-dae", "dep:rumoca-eval-dae", "dep:rumoca-core", "dep:rumoca-phase-solve"]
 
+# S305（Track B）: 自前の parse → resolve → flat → dae で `globe check --frontend native`。外部依存は増えない
+native = ["dep:globe-mode-flat", "dep:globe-mode-dae", "dep:globe-mode-resolve", "dep:globe-mode-syntax", "dep:globe-mode-analysis"]
+
 [dependencies]
 globe-mode-core = { workspace = true }
 globe-mode-ir = { workspace = true }
@@ -25,6 +28,12 @@ rumoca-core = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 # S094: Solve IR を FMI の部品にする（`fmi_export`）。rumoca-compile の推移的依存で、新しい外部依存は増えない
 rumoca-phase-solve = { workspace = true, optional = true }
+
+globe-mode-flat = { path = "../globe-mode-flat", version = "0.2.0", optional = true }
+globe-mode-dae = { path = "../globe-mode-dae", version = "0.2.0", optional = true }
+globe-mode-resolve = { path = "../globe-mode-resolve", version = "0.2.0", optional = true }
+globe-mode-syntax = { path = "../globe-mode-syntax", version = "0.2.0", optional = true }
+globe-mode-analysis = { workspace = true, optional = true }
 
 [lints]
 workspace = true

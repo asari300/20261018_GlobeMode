@@ -35,7 +35,11 @@ exports.activate = async (context) => {
   );
   // 側のパネル（S247）
   const panel = new Panel(context.extensionUri, () => client);
-  context.subscriptions.push(vscode.window.registerWebviewViewProvider("globeMode.panel", panel), panel.watch());
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider("globeMode.panel", panel),
+    panel.watch(),
+    vscode.commands.registerCommand("globeMode.editParams", () => panel.editParamsCommand()), // S309
+  );
   await client.start();
   panel.soon();
   return { panel }; // e2e が描き終えた数（panel.state）と reveal を見る

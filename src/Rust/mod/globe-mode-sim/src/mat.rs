@@ -512,6 +512,7 @@ mod tests {
                 solver: SolverId::Bdf,
                 max_wall_seconds: None,
                 step: None,
+                max_order: None,
                 parameters: Default::default(),
                 origins: SettingOrigins {
                     start_time: o,

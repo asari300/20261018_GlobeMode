@@ -12,6 +12,8 @@ const GRACE_MS = 2000;
 // wasm32 の上限 4 GiB の手前。線形メモリは縮まないので、超えたら次の要求の前に worker を作り直す（ADR-0023 (c)）
 const MEMORY_LIMIT = 2 * 2 ** 30;
 
+// 実行（止められる呼び出し）の op。S322 から複数ソルバの実行も
+const isRun = (op) => op === "simulate_columns" || op === "simulate_many_columns";
 const cancelledError = () => Object.assign(new Error("止めた"), { cancelled: true });
 
 export class GlobeWorker {
@@ -50,7 +52,7 @@ export class GlobeWorker {
     }
     return this.#raw("init", this.#init).then(async () => {
       this.#alive = true;
-      if (this.#lib) await this.#raw("library", this.#lib);
+      if (this.#lib) await this.#raw(this.#lib.url ? "library_index" : "library", this.#lib);
       for (const [name, text] of this.#files) await this.#raw("set_file", { name, text });
       this.#mem = 0; // 作り直した worker の分から数える（再生で上限を越えても、続けて作り直さない）
     });
@@ -60,7 +62,7 @@ export class GlobeWorker {
     return new Promise((resolve, reject) => {
       const id = ++this.#id;
       this.#pending.set(id, { resolve, reject, onProgress });
-      if (op === "simulate_columns") {
+      if (isRun(op)) {
         this.#running = id;
         if (this.#flag) {
           Atomics.store(this.#flag, 0, 0);
@@ -106,7 +108,7 @@ export class GlobeWorker {
 
   // 呼び出しは直列に（再生の前に次の呼び出しが割り込まない）
   #call(op, args, onProgress) {
-    const sim = op === "simulate_columns";
+    const sim = isRun(op);
     const r = this.#tail.then(() => this.#ready).then(async () => {
       if (this.#mem > this.#memoryLimit) { this.#die(this.#w, null); await this.#ready; } // 前の応答で上限を越えていた。ライブラリとファイルは再生する
       if (sim && this.#cancelQueued) { this.#cancelQueued = false; throw cancelledError(); } // 待つ間に止められた
@@ -126,6 +128,17 @@ export class GlobeWorker {
     this.#lib = { json, name };
     this.#files.clear(); // 新しい Workspace になるので、ファイルの記憶も捨てる
   }
+  // 分割配信のライブラリ（S301）: url は index.json（pack-msl.mjs が作る。塊は同じ場所の c/<番号>.json）。Worker が開いたモデルの閉包に要る塊だけを取る。
+  // 索引が無ければ null（呼び手は `library(json)` に戻す）、あれば {files, chunks}
+  async libraryIndex(url, name) {
+    const r = await this.#call("library_index", { url, name });
+    if (r) {
+      this.#lib = { url, name };
+      this.#files.clear();
+    }
+    return r;
+  }
+  libraryStats() { return this.#call("library_stats"); } // 取った塊の数と文字数 {chunks, of, bytes, stubs}。分割配信でなければ null（S301）
   async setFile(name, text) { await this.#call("set_file", { name, text }); this.#files.set(name, text); }
   async removeFile(name) { const r = await this.#call("remove_file", { name }); this.#files.delete(name); return r; }
   async check(model) { return JSON.parse(await this.#call("check", { model })); }
@@ -226,6 +239,13 @@ export class GlobeWorker {
   // onProgress を渡すと進捗 {stage, time, start_time, stop_time} を受ける（S133、ADR-0033。time は積分の t で無ければ undefined）
   async simulateColumns(request, { onProgress } = {}) {
     const r = await this.#call("simulate_columns", { request: JSON.stringify(request), progress: !!onProgress }, onProgress);
+    return { ...r, response: JSON.parse(r.response) };
+  }
+  // S322（ADR-0040）: 複数のソルバで回す。request は SimulateManyRequest（{model, settings, solvers, parallel?, compare?}）。ブラウザにはスレッドが無いので parallel は
+  // 逐次に落ちる（response.mode_note）。{response（SimulateManyResponse）, runs: [{layout, columns: Float64Array[]}]}（回せなかった実行の layout は空）。
+  // onProgress は {stage, time, start_time, stop_time, solver}。実行中の cancel() は全部の実行に効く
+  async simulateMany(request, { onProgress } = {}) {
+    const r = await this.#call("simulate_many_columns", { request: JSON.stringify(request), progress: !!onProgress }, onProgress);
     return { ...r, response: JSON.parse(r.response) };
   }
   // 結果のファイル（.mat か .csv の Uint8Array）を列にする（S222）: {layout, columns, parameters}（simulateColumns と同じ。response は無い。parameters は MAT のパラメータで CSV は []。S236）。読めなければ reject
