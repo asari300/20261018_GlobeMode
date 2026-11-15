@@ -215,13 +215,8 @@ end R;",
     assert_eq!(get("E", "c.more"), "comp R.Ext2.more");
 }
 
-/// S341: 既定の型で引けず `Redeclare` になる成分参照を、差し替えた後の型で引く。
-/// `extends B(redeclare T x)`（部品の再宣言）と、`class extends` で差し替えた型の名前を受け継いだクラスから見直す形
-#[test]
-fn redeclared_component_types() {
-    let lib = Library::from_sources([(
-        "S.mo",
-        "package S
+/// S341・S345 の試験が使う、差し替えた型の例（`class extends` の `ThermodynamicState` と `extends B(redeclare T x)`）
+const REDECLARED: &str = "package S
   package PM
     replaceable record TS end TS;
     replaceable partial model BP TS state; end BP;
@@ -244,8 +239,13 @@ fn redeclared_component_types() {
     extends Base;
     Real b = port.hot;
   end Other;
-end S;",
-    )]);
+end S;";
+
+/// S341: 既定の型で引けず `Redeclare` になる成分参照を、差し替えた後の型で引く。
+/// `extends B(redeclare T x)`（部品の再宣言）と、`class extends` で差し替えた型の名前を受け継いだクラスから見直す形
+#[test]
+fn redeclared_component_types() {
+    let lib = Library::from_sources([("S.mo", REDECLARED)]);
     assert!(lib.diagnostics.is_empty(), "{:?}", lib.diagnostics);
     let t = table(&lib);
     let get = |scope: &str, name: &str| t[&(format!("S.{scope}"), name.to_string())].as_str();
@@ -260,6 +260,22 @@ end S;",
     assert_eq!(get("Machine", "port.cold"), "unresolved Redeclare");
     // 差し替えていない `Other` では `hot` は引けない
     assert_eq!(get("Other", "port.hot"), "unresolved NotFound");
+}
+
+/// S345: 補完の `members_of` も、`scope` から見て差し替わった後の型の要素を出す（S341 と同じ規則）
+#[test]
+fn members_of_follows_redeclared_types() {
+    let lib = Library::from_sources([("S.mo", REDECLARED)]);
+    let at = |scope: &str, parts: &[&str]| {
+        let c = lib.class_by_name(scope).unwrap();
+        let parts: Vec<String> = parts.iter().map(|p| p.to_string()).collect();
+        names(&lib.members_of(c, &parts).unwrap()).join(",")
+    };
+    // `class extends` で差し替えた `TS`（既定の `PM.TS` は空）
+    assert_eq!(at("S.Simple.BP", &["state"]), "T");
+    // `extends Base(redeclare PortX port)`。差し替えていない `Other` は既定の `Port` のまま
+    assert_eq!(at("S.Machine", &["port"]), "hot,p");
+    assert_eq!(at("S.Other", &["port"]), "p");
 }
 
 #[test]
