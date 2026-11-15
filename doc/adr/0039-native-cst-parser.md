@@ -44,10 +44,11 @@ MSL 4.1.0 の例題 566 本での推移（括弧は「一致した本数 / 母�
 | S332（S329 と S330 を合わせた） | 471（DAE にできた 471/471） | 463（463/463・435/463） | 334（297/334・297/334・294/334・296/334） |
 | S333 | 471 | 463（463/463・449/463） | 334（332/334・332/334・332/334・301/334） |
 | S334 | 471 | 463（463/463・451/463） | 334（334/334・334/334・332/334・334/334） |
+| S337 | 471 | 463（463/463・452/463） | 334（4 つとも 334/334） |
 
-- parse は MSL の例題 566/566（S300 の時点も今も）、resolve は未解決 0 が 467/566（S300 の時点も今も。残る 99 本はすべて `Redeclare`）。`GlobeModeValidation` 75 本は S334 で、Rumoca も通った 73 本の名前・方程式の数・判定・数・状態が 73/73、正則が 72/72。
+- parse は MSL の例題 566/566（S300 の時点も今も）、resolve は未解決 0 が 467/566（S300 の時点も今も。残る 99 本はすべて `Redeclare`）。`GlobeModeValidation` 75 本は S334・S337 で、Rumoca も通った 73 本の名前・方程式の数・判定・数・状態が 73/73、正則が 72/72。
 - 断る理由の残り（S334。95 本、最初の理由だけ数える）: `unsized-array` 28・`composite-binding` 25・`stream` 21・`connect` 9・`non-constant-dim` 6・`expandable` 4・`connect-array` 1・`non-constant-for` 1。
-- 方程式の数が合わない 12 本は、Rotational・Translational の摩擦・歯車の 10 本（S330 が Rumoca の数え方の誤りと確かめ、S331 が最新の release v0.10.4 では直ると確かめた。[upstream.md](../upstream.md) の下書き 36）、`ActuatorWithNoise`（同じ表の数え方）、`ShowTransferFunction`（14 対 16、【原因未確認】）。状態の数が合わない 2 本は `IMC_DCBraking`・`IMC_Initialize`（Electrical.Machines）。
+- 方程式の数が合わない 11 本は（S334 では 12 本。S337 で `ShowTransferFunction` を直した）、Rotational・Translational の摩擦・歯車の 10 本（S330 が Rumoca の数え方の誤りと確かめ、S331 が最新の release v0.10.4 では直ると確かめた。[upstream.md](../upstream.md) の下書き 36）、`ActuatorWithNoise`（同じ表の数え方）。状態の数が合わなかった 2 本（`IMC_DCBraking`・`IMC_Initialize`）は S337 で直した（Rumoca が初期方程式の `der` も状態にするため。自前の抜け）。
 
 付記の案内（主題ごと）:
 
@@ -55,8 +56,8 @@ MSL 4.1.0 の例題 566 本での推移（括弧は「一致した本数 / 母�
 | --- | --- |
 | B1 構文 | 本文、S269 |
 | B2 名前の解決 | S272、S275 |
-| B3 flatten | S278、S284、S297、S312、S324、S329、S333、S334 |
-| B4 DAE | S290、S312、S325、S330、S332（計測と、名前・数の食い違いの原因） |
+| B3 flatten | S278、S284、S297、S312、S324、S329、S333、S334、S337 |
+| B4 DAE | S290、S312、S325、S330、S332（計測と、名前・数の食い違いの原因）、S337（初期方程式の `der` と状態の数） |
 | 製品へのつなぎ | S276（アウトライン・折りたたみ）、S279（補完）、S296（定義ジャンプ・ホバー）、S305（`globe check --frontend native`）、S307（閉包だけを読む）、S311（位置）、S313（CLI 以外から選ぶ）、S320（#111・#113〜#116）、S327（#118） |
 | 突き合わせ | S300（`cargo xtask diff-frontend`） |
 
@@ -154,6 +155,19 @@ roadmap の要約で外した、古くなっていた「残り」: 診断の `GM
 - **Rumoca の flat との突き合わせ**（S278 と同じ手順）: `GlobeModeValidation` の 75 本は、自前で平らにできたのが 72 本から **74 本**（断ったのは `stream` 1 本だけ）、両方で通った 73 本で名前の集合 **73/73**・方程式の数 **73/73** が一致（S284 は 71/71）。MSL の例題 566 本は、自前で平らにできたのが 192 本から **279 本**、Rumoca の flat まで通った 273 本で名前の集合 **273/273**、方程式の数 **254/273** が一致（S284 は 189/189 と 186/189）。方程式の数が合わない 19 本は原因が未確認のものを含む: `Clocked` の 4 本（`UniformNoise` 系。`(a, b) = f(x)` とクロックの `previous` の数え方）、`QuasiStatic` の 11 本（`Complex` と Overconstrained connection の `Connections.isRoot` の扱いが違うと見ているが【未確認】）、DC 機械 2 本（`protected` のコネクタの数え方。自前は 4 本少ない）、`SuperCapDischargeCharge`（1 本）、`GenerationOfFMUs`（S284 から）。
 - **断った理由の内訳**（MSL の例題 566 本、最初の理由だけ数える。S284 → S297）: `redeclare` 263 → 0、`replaceable` 9 → 0、`class extends` 11 → 0、配列の型 13 → 0、レコードの束縛 41 → 155（先へ進んだ分。`frictionParameters = dcpmData.frictionParameters`〔後ろで宣言したレコード〕46、外部オブジェクト `tableID` 29、関数の戻り値のレコード `R = Frames.nullRotation()` 27、配列のレコード 11 ほか）、配列のコネクタの一括接続 7 → 72（`source.sineVoltage.p` のように部品の配列の同名のコネクタをまとめてつなぐ形）、`[:]` 13 → 20、条件つきの宣言 6 → 19（条件に配列の修飾つきの `useHeatPort` や文字列の比較）、`connect` の集合の不一致 7 → 8、配列の修飾 0 → 8、`expandable` 2、`stream` 1。
 - **持ち越し**: 後ろで宣言したレコードを欄ごとの修飾にするための宣言順の入れ替え（46 本）、関数の戻り値のレコード・外部オブジェクト、配列のコネクタの一括接続（72 本）、`Connections.isRoot` の評価、`xtask diff-frontend` への組み込み、B4（DAE）。
+
+## 付記（S337）: 初期方程式の `der` と状態の数（Electrical.Machines 2 本）、`Complex` の配列への方程式の数
+
+新しい ADR は立てず、S334 の持ち越し（状態の数 2 本と `ShowTransferFunction` の方程式の数）の原因を `cargo xtask diff-frontend --class … --dump` で確かめて直した記録をここに足す。**どちらも自前の抜けで、Rumoca の誤りではない**（v0.10.4 の確認は要らない。上流へも出さない）。変えたのは `globe-mode-dae`（状態の判定）と `globe-mode-flat`（方程式の数え方）。
+
+- **状態 2 本の原因**: `--dump` の Rumoca の構造に、自前に無い未知数 `der(imc.is[1..3])`・`der(imc.idq_rs[1..2])`（`IMC_DCBraking`、計 5 本、18 → 23）と `der(aimc.idq_sr[1..2])`・`der(aimc.idq_rr[1..2])`（`IMC_Initialize`、計 4 本、18 → 22）があった。どれも、どの行にも参照されない未知数で、`initial equation` の `der(imc.is[2]) = 0`・`der(aimc.idq_sr) = zeros(2)` などの対象。Rumoca の `rumoca-phase-dae` の `analyze_model_roles` は `der` の対象を `flat.equations` と `flat.initial_equations` の両方から集める（コードを読んで確かめた。写してはいない）が、自前の `has_der` は連続側の方程式・`when`・algorithm・束縛だけを見ていた。変数ごと（配列は全要素）に状態にする点も同じ。
+- **Rumoca の誤りとはしない理由**: [MLS 8.6（master）](https://specification.modelica.org/master/equations.html)（2026-11-15 確認）は、初期化では `der` と `pre` を未知数に数えると書くだけで、連続側で一度も微分されない変数が初期方程式の `der` だけで状態になるかは決めていない（例の `der(y) = 0` は連続側にも `der(y)` がある）。Rumoca の規則は意図して書かれたもの（初期方程式を明示的に走査する）なので、自前を合わせた。実際のツールは `imc.is[2]` を状態の別名とみなすと考えられるが【未確認】、Track B の目的は Rumoca の判定との一致なので、ここでは追わない。
+- **直し（DAE）**: `has_der` に `m.initial_equations` の `der` の対象も足す（`globe-mode-dae` の `build`）。釣り合い（未知数と方程式の数）は変わらない（代数 → 状態で未知数の数は同じ。初期方程式は数えない）。構造の正則は、`der(x)` の未知数が行から参照されなくなるが Rumoca も同じで、334/334 のまま。
+- **`ShowTransferFunction`（14 対 16）の原因**: `Modelica.ComplexBlocks.ComplexMath.TransferFunction` の `aw = {a[i]*… for i in 1:size(a,1)}`（`Complex aw[size(a,1)]`、3 本）。`Complex` の配列は要素ごとに展開され（`aw[k].re`・`aw[k].im`）、左辺の名前 `transferFunction.aw` は変数として無いので、`shape` が大きさを引けず、右辺も内包表記で引けず 1 本と数えていた（Rumoca は `transferFunction` の 7 本のうち 3 本）。`shape` の最後の手段に `record_array_len`（`t[` で始まる変数名の `t[k].x` の `k` の数。変数の表は整列しているので範囲だけをなめる）を足した。
+- **試験**: `globe-mode-dae` に 1 本（`der_in_initial_equation_makes_state`）、`globe-mode-flat` に 1 本（`record_array_equation_counts_one_per_element`。直す前は 2、直して 4）。`cargo xtask diff-frontend --dump` に初期方程式の行 `ieq[…]` を足した。
+- **shortcut**: 読めない初期方程式の印字は黙って飛ばす（状態の数だけが変わる）。属性（`start` など）の中の `der` は見ない（Rumoca は見る）。`if` の初期方程式は、条件が定数なら選んだ枝だけが `initial_equations` に入る（Rumoca も構造の選択で同じ）。実行（`globe-mode-exec`）は Rumoca のままなので、この規則は自前の DAE の判定にだけ効く。
+- **数字**（MSL の例題 566 本、S334 → S337。`GlobeModeValidation` 75 本は変わらず 73/73・73/73・73/73・正則 72/72。回帰 0、改善 3 本）: 状態の数 332/334 → **334/334**、flat の方程式の数 451/463 → **452/463**（残り 11 本は Rumoca の数え方の誤りとみている。Rotational・Translational の摩擦・歯車の 10 本と `ActuatorWithNoise`）、DAE の判定・数・構造の正則は 334/334 のまま。`msl:diff-frontend` と同じ引数で 744 s（ほかの担当と並行。S334 は 554 s）、最大 RSS 5.2 GiB。
+- **作業上の注意**: 共有 target では、同じ crate の成果物（`release/xtask`・試験のバイナリ）の名前が worktree をまたいで同じで、別の worktree のビルドに入れ替わることがある（`--dump` の出力が食い違って気付いた。試験でも起きた）。ビルド直後に自分の分を `cp` して走らせ、変えた crate の `lib.rs` を `touch` して作り直す。
 
 ## 付記（S334）: 構造の正則の不一致 33 本と `PrismaticConstraint`・`Fourbar1` の方程式の数（MultiBody）
 
