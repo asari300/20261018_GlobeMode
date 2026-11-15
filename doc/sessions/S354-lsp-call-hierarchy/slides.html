@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S354 LSP の call hierarchy — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S354 LSP の call hierarchy">
+
+<section class="slide" id="S01">
+  <span class="tag">S354 · 2026-11-15 · Track B</span>
+  <h1>LSP の call hierarchy（最小版）</h1>
+  <p class="lead">機能の穴「アウトライン・inlay hint・call hierarchy」の最後の 1 つ</p>
+  <div class="big">関数を「誰が呼ぶか」「何を呼ぶか」を木で辿れる</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">仕様</span>
+  <h1>3 つの要求、対象は <code>function</code> だけ</h1>
+  <ul>
+    <li><code>prepareCallHierarchy</code>: カーソルの関数（宣言の名前でも呼び出しでも）</li>
+    <li><code>incomingCalls</code>: その関数を呼ぶクラスと、その中の呼び出しの範囲</li>
+    <li><code>outgoingCalls</code>: その関数の本体が呼ぶ関数と、呼び出しの範囲</li>
+    <li>モデル・部品・レコードの上は <code>null</code>。呼び元はモデルでもよい</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">つなぎ</span>
+  <h1>新しい規則は作らない</h1>
+  <table class="compact">
+    <tr><th>向き</th><th>使う道</th></tr>
+    <tr><td>呼び元</td><td><code>references</code>（S166・S230）の <code>class_hits</code>・<code>disk_class_hits</code>。呼び出しの名前に当たるものだけ採る</td></tr>
+    <tr><td>呼び先</td><td>inlay hint（S352）と同じ <code>Library::with_source</code> と <code>resolve</code>。関数のクラスだけ</td></tr>
+    <tr><td>resolve</td><td><code>Class.is_function</code> を 1 つ足しただけ</td></tr>
+    <tr><td>VS Code</td><td>変更なし（capability で自動登録）</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">出さないもの</span>
+  <h1>推測しない</h1>
+  <ul>
+    <li>宣言・<code>end f</code>・<code>extends f(…)</code> は呼び出しでない</li>
+    <li>組み込み（<code>sin</code>）、引けない名前、レコードの構築子は呼び先に出さない</li>
+    <li>構文の誤りで読めないファイルの関数は呼び元の探索の対象外（呼び先は出る）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">確かめたこと</span>
+  <h1>試験 1 本</h1>
+  <ul>
+    <li>ライブラリ（<code>-L</code>）の関数 2 本とレコード 1 本、開いた文書と開いていないファイルの呼び元</li>
+    <li><code>is_function</code> を外すとレコードの構築子が出て落ちる</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

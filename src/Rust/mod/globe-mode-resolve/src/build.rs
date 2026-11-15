@@ -253,6 +253,9 @@ fn extract(c: &ast::ClassDef, file: u32) -> Option<Raw> {
             range: c.syntax().text_range(),
             encapsulated: c.is_encapsulated(),
             replaceable: c.is_replaceable(),
+            is_function: c
+                .kind_token()
+                .is_some_and(|t| t.kind() == SyntaxKind::KwFunction),
             classes: HashMap::new(),
             components: Vec::new(),
             comp_index: HashMap::new(),
