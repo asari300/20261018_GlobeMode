@@ -437,10 +437,18 @@ impl Workspace {
 
     /// `file`（本文 `text`）とワークスペースのほかの文書（S368。UI は開いているタブの全部を `set_file` してから呼ぶ）。`file` の番号を添える。
     fn docs(&self, file: &str, text: &str) -> (Vec<globe_mode_lsp::definition::Doc>, usize) {
+        // S372: ライブラリのファイルを開いたタブ（`library_source` の `file`）は自分の文書でない
+        let own = |f: &str| {
+            !self
+                .tree
+                .as_ref()
+                .is_some_and(|(_, files)| files.contains_key(f))
+        };
         let doc = |f: &str, text: String| globe_mode_lsp::definition::Doc {
             key: f.into(),
             path: f.into(),
             text,
+            own: own(f),
         };
         let mut docs: Vec<_> = self
             .inner

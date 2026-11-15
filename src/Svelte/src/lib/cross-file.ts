@@ -3,6 +3,7 @@ import type { Backend } from "./backend";
 /**
  * S368: 参照・リネームを開いているタブの全部に広げる。離れたタブは Workspace では空（同じクラスの二重定義を避ける。S141）なので、
  * 今の文書と `others`（ほかの自分のタブ）の本文を Workspace に入れて `f` を回し、終わったら（失敗しても）`others` を空に戻す。
+ * 同じ名前のクラスを複数のタブが定義するときの区別、ライブラリのタブ（Workspace に残る）の扱い、構文の誤りで読めないタブの断りは Rust 側（`rename_in`。S372）。
  */
 export async function acrossDocs<T>(
   backend: Pick<Backend, "setFile">,
