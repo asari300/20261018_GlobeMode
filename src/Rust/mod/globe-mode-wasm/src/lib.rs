@@ -698,6 +698,34 @@ pub fn simulate(request_json: &str) -> Result<String, JsValue> {
     to_json(&run(&request))
 }
 
+/// 分割配信のライブラリ（S301）で、`model` と `user_texts_json`（文字列の配列。作業中の文書の本文）が使うファイルの名前の
+/// JSON の配列。`files_json` は名前 → 本文（まだ取っていないファイルは [`tree_stub`] の見出し）。見出しのファイルが
+/// 答えに入っていたら、JS はその本文を取ってもう一度呼ぶ（本文だけが参照を持つので、取るたびに閉包が広がる）。
+/// 答えが全部本文になれば、全部読んだときの検査と同じ閉包。
+#[wasm_bindgen]
+pub fn library_closure(
+    files_json: &str,
+    model: &str,
+    user_texts_json: &str,
+) -> Result<String, JsValue> {
+    let files: BTreeMap<String, String> = serde_json::from_str(files_json)
+        .map_err(|e| js_error(format!("ライブラリの JSON が読めない: {e}")))?;
+    let texts: Vec<String> = serde_json::from_str(user_texts_json)
+        .map_err(|e| js_error(format!("文書の JSON が読めない: {e}")))?;
+    let sources: Vec<globe_mode::Source<'_>> = files
+        .iter()
+        .map(|(name, text)| globe_mode::Source { name, text })
+        .collect();
+    let texts: Vec<&str> = texts.iter().map(String::as_str).collect();
+    to_json(&globe_mode::library_closure(&sources, model, &texts))
+}
+
+/// ファイルの本文の代わりに配る見出し（[`globe_mode_fmt::tree_stub`]）。見出しが読めなければ `undefined`（本文のまま配る）。
+#[wasm_bindgen]
+pub fn tree_stub(text: &str) -> Option<String> {
+    globe_mode_fmt::tree_stub(text)
+}
+
 /// ソルバの登録表（`globe_mode_sim::solvers::SOLVERS` の JSON の配列）。
 #[wasm_bindgen]
 pub fn solvers() -> String {

@@ -50,7 +50,7 @@ export class GlobeWorker {
     }
     return this.#raw("init", this.#init).then(async () => {
       this.#alive = true;
-      if (this.#lib) await this.#raw("library", this.#lib);
+      if (this.#lib) await this.#raw(this.#lib.url ? "library_index" : "library", this.#lib);
       for (const [name, text] of this.#files) await this.#raw("set_file", { name, text });
       this.#mem = 0; // 作り直した worker の分から数える（再生で上限を越えても、続けて作り直さない）
     });
@@ -126,6 +126,17 @@ export class GlobeWorker {
     this.#lib = { json, name };
     this.#files.clear(); // 新しい Workspace になるので、ファイルの記憶も捨てる
   }
+  // 分割配信のライブラリ（S301）: url は index.json（pack-msl.mjs が作る。塊は同じ場所の c/<番号>.json）。Worker が開いたモデルの閉包に要る塊だけを取る。
+  // 索引が無ければ null（呼び手は `library(json)` に戻す）、あれば {files, chunks}
+  async libraryIndex(url, name) {
+    const r = await this.#call("library_index", { url, name });
+    if (r) {
+      this.#lib = { url, name };
+      this.#files.clear();
+    }
+    return r;
+  }
+  libraryStats() { return this.#call("library_stats"); } // 取った塊の数と文字数 {chunks, of, bytes, stubs}。分割配信でなければ null（S301）
   async setFile(name, text) { await this.#call("set_file", { name, text }); this.#files.set(name, text); }
   async removeFile(name) { const r = await this.#call("remove_file", { name }); this.#files.delete(name); return r; }
   async check(model) { return JSON.parse(await this.#call("check", { model })); }

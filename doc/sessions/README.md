@@ -4,6 +4,7 @@
 
 | S | 日付 | Phase | 題名 | ブランチ | 状態 | スライド | 解説書 | セッション記録 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| S301 | 2026-11-15 | P6 | `msl-split-delivery`: ブラウザ版の MSL.json を分割配信（索引 `index.json` と塊 `c/*.json`）にした。Worker が閉包に要る塊だけを取り、ChuaCircuit の初回は 15.2 → 4.6 MiB、線形メモリは 62 → 10 MiB | `feature/s301-msl-split-delivery` | 作業中 | [slides](S301-msl-split-delivery/slides.html) | [解説書](S301-msl-split-delivery/解説書.md) | 専用の記録なし |
 | S292 | 2026-11-15 | 文書 | `readme-changelog-2`: README と CHANGELOG に、S273 の後に main に入った機能（SSP の書き出し・Desktop のコシミュレーション・`globe stages`・図の部品と結線の削除・線形化と BLT を各言語から・固有値と安定性・Track B をつないだ範囲・S288 の修正）を反映。限界を一言ずつ添えた。S284 は main に無いので書いていない | `feature/s292-readme-changelog-2` | 完了 | [slides](S292-readme-changelog-2/slides.html) | [解説書](S292-readme-changelog-2/解説書.md) | なし |
 | S286 | 2026-11-15 | P8 | `linearize-eigen`: 線形化の JSON・CLI に A の固有値（極）と安定性（安定 / 不安定 / 境界）を足した（facade `eigenvalues`・`stability`、nalgebra の実シューア分解） | `feature/s286-linearize-eigen` | 完了 | [slides](S286-linearize-eigen/slides.html) | [解説書](S286-linearize-eigen/解説書.md) | なし（記録が `log/local/` に無い） |
 | S288 | 2026-11-15 | 保守 | `review-issues`: レビューの issue #98〜#104 の 7 件を監査し、7 件とも直した（`move_part` の `iconTransformation`、複数の名前の宣言、Diagram の編集の入口の検査、`Ssp::open` の読み直し、同じ入力への結線・同名の Component、`.ssp` の `--timeout`、`globe/linearize` の型違い） | `feature/s288-review-issues` | 完了 | [slides](S288-review-issues/slides.html) | [解説書](S288-review-issues/解説書.md) | なし |

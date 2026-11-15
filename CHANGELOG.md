@@ -164,6 +164,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - S078・S085・S097・S102・S104: marimo の anywidget の折れ線（extra `widget`）、Python の `simulate_columns`（列を polars で）、marimo の WASM（Pyodide）から `globe-mode-wasm` を回す（MSL も）。
 - S092・S100・S103・S106・S147・S159: Android の APK（`android.yml`）。sidecar は使わず Worker 上の wasm で、MSL を同梱し、API 34 のエミュレータで検査・実行・UI の操作を確かめる。release の APK は ABI ごと。
 - S093: ブラウザ版が CSP `connect-src 'self'` のまま実行でき、外への要求が 0 件であることを試験で確かめた。
+- S301: ブラウザ版は MSL を分割して配る（`msl/index.json` と塊 `msl/c/*.json`）。開いたモデルの閉包に要る塊だけを取り、ChuaCircuit の初回の取得は 15.2 → 4.6 MiB。配布物 `globe-web` に `MSL.json` は入らない。
 - S145: ブラウザ版の配布物（`web.yml` が artifact `globe-web` に wasm・UI・`MSL.json`・CSP の header の断片を出す。サブパスで動く）。公開先はまだ無い。
 - S160: Desktop の macOS（`desktop.yml` に `macos-latest`。署名・公証なしの .dmg）。
 

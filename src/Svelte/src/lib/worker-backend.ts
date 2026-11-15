@@ -15,6 +15,9 @@ export class WorkerBackend implements Backend {
   library(name: string, json: string): Promise<void> {
     return this.#w.library(json, name);
   }
+  async libraryIndex(name: string, url: string): Promise<boolean> {
+    return (await this.#w.libraryIndex(url, name)) !== null;
+  }
   setFile(name: string, text: string): Promise<void> {
     return this.#w.setFile(name, text);
   }

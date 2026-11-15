@@ -21,11 +21,11 @@ use std::path::{Path, PathBuf};
 
 use globe_mode_db::GlobeDb;
 pub use globe_mode_db::{BltBlock, BltReport, StagesReport};
-use globe_mode_frontend::Source;
+pub use globe_mode_frontend::Source; // S301: library_closure の入力
 use globe_mode_ir::UnknownKind;
 
 pub use globe_mode_core::{Diagnostic, Stage};
-pub use globe_mode_frontend::{CompiledModel, collect_mo_files};
+pub use globe_mode_frontend::{CompiledModel, collect_mo_files, library_closure}; // S301: wasm の分割配信が、どのファイルを足すかを聞く
 pub use globe_mode_graph::{ConnectGraph, ConnectMismatch, GraphError};
 pub use globe_mode_ir::{FlatSummary, Outline, SimRun, SimSettings};
 pub use globe_mode_protocol::{

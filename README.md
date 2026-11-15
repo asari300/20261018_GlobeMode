@@ -163,7 +163,7 @@ globe lsp -L data/msl     # 標準入出力の LSP サーバ
 wasm と UI をビルドして、静的ファイルとして配る。計算はブラウザの Web Worker で行い、サーバでは計算しない。
 
 ```bash
-cargo xtask fetch-msl                      # 先に。「MSL を読む」用の MSL.json が UI に入る（無くても動く）
+cargo xtask fetch-msl                      # 先に。「MSL を読む」用の msl/index.json と塊（分割配信。S301）と MSL.json が UI に入る（無くても動く）
 mise run wasm:build                        # release の wasm（globe-mode-wasm）
 cd src/Svelte
 pnpm install --frozen-lockfile
