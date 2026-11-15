@@ -168,6 +168,19 @@ fn run_row(
             row.flags.insert("flat", false);
             row.reasons
                 .insert("flat", format!("{}: {}", e.kind, e.detail));
+            // 自前が断ったときも、`--dump` なら Rumoca の flat は見られるようにする（直す前の確かめ用）
+            if dump
+                && let Some(t) = catch_unwind(AssertUnwindSafe(|| checker.check(&[], name)))
+                    .ok()
+                    .and_then(|r| r.flat)
+            {
+                for n in &t.variable_names {
+                    println!("  rumoca var {n}");
+                }
+                for (o, n) in &t.equation_origins {
+                    println!("  rumoca[{n}] {o}");
+                }
+            }
             return row;
         }
     };

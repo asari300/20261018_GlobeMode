@@ -803,28 +803,27 @@ impl F<'_> {
                     return Ok(());
                 }
                 // `R r = R(a = 1)`・`r = other` は欄ごとの修飾にする。明示した修飾 > 束縛 > 型の修飾
-                // 配列のレコードは要素ごとに: `{R(…), R(…)}` は要素の式、別の配列 `x` は `x[k]`
+                // 配列のレコードは要素ごとに: `{R(…), R(…)}`・`{… for k in 1:n}` は要素の式、別の配列 `x` は `x[k]`（`[i,j]` も。`pick_elem`）
+                // 添字の文字列を作る前に個数を見る（積の overflow も。#109）
+                let n = dims.iter().try_fold(1usize, |a, &d| a.checked_mul(d));
+                if n.is_none_or(|n| n > MAX_VARS - self.vars.len().min(MAX_VARS)) {
+                    return un("too-large", format!("{name}[] too many elements"));
+                }
                 let bound: Vec<ModMap> = match &m.val {
                     Some(b) if dims.is_empty() => vec![self.record_value(b, name, cid)?],
-                    Some(b) if dims.len() == 1 && b.suffix.is_empty() => {
-                        let items = match Expr::cast(b.node.clone()) {
-                            Some(Expr::Array(a)) => Some(a.items()),
-                            _ => None,
-                        };
-                        if items.as_ref().is_some_and(|i| i.len() != dims[0]) {
+                    Some(b) if b.suffix.is_empty() => {
+                        if let Some(Expr::Array(a)) = Expr::cast(b.node.clone())
+                            && !b.node.children().any(|c| c.kind() == K::Comprehension)
+                            && a.items().len() != dims[0]
+                        {
                             return un("composite-binding", format!("{name}[] size differs"));
                         }
-                        (1..=dims[0].min(MAX_VARS))
-                            .map(|k| {
-                                let el = match &items {
-                                    Some(i) => Bind {
-                                        node: i[k - 1].syntax().clone(),
-                                        ..b.clone()
-                                    },
-                                    None => Bind {
-                                        suffix: format!("[{k}]"),
-                                        ..b.clone()
-                                    },
+                        idx_names(&dims)
+                            .into_iter()
+                            .map(|ix| {
+                                let el = Bind {
+                                    suffix: ix,
+                                    ..b.clone()
                                 };
                                 self.record_value(&el, name, cid)
                             })
@@ -847,11 +846,6 @@ impl F<'_> {
                         .unwrap_or(0);
                     Some((self.p.lib.qualified_name(f), n))
                 });
-                // 添字の文字列を作る前に個数を見る（積の overflow も。#109）
-                let n = dims.iter().try_fold(1usize, |a, &d| a.checked_mul(d));
-                if n.is_none_or(|n| n > MAX_VARS - self.vars.len().min(MAX_VARS)) {
-                    return un("too-large", format!("{name}[] too many elements"));
-                }
                 let mut items = HashMap::new();
                 for (e, ix) in idx_names(&dims).into_iter().enumerate() {
                     let el = format!("{full}{ix}");
@@ -905,6 +899,10 @@ impl F<'_> {
             lit: None,
         };
         let mut out = ModMap::new();
+        // 配列の式 `{…}`・`{… for k in 1:n}` への添字 `[k]` は、その要素の式（S336）
+        if let Some(e) = self.pick_elem(b)? {
+            return self.record_value(&e, name, cid);
+        }
         // 条件が定数に決まる `if` の式は、選ばれた枝（S329）
         if let Some(Expr::If(i)) = Expr::cast(b.node.clone())
             && let Some(e) = self.const_if_expr(&i, b.file, &b.ctx)
@@ -930,7 +928,11 @@ impl F<'_> {
                     matches!(self.p.kind_of(*rid), Some(K::KwRecord | K::KwOperator))
                 });
                 let Some(rid) = rid else {
-                    return un("composite-binding", format!("{name} = {}", b.node.text()));
+                    // `fill(Complex(1, 0), n)` のような組み込みの関数の呼び出しは、`Complex` の式として欄ごとに
+                    return match self.complex_value(b, cid)? {
+                        Some(m) => Ok(m),
+                        None => un("composite-binding", format!("{name} = {}", b.node.text())),
+                    };
                 };
                 let mut fields = Vec::new();
                 self.record_fields(rid, &mut fields, 0);
@@ -945,7 +947,15 @@ impl F<'_> {
                 if !b.node.children().any(|x| x.kind() == K::Subscripts) =>
             {
                 let t = self.cref(&r, b.file, &b.ctx)?;
-                let pre = format!("{t}{}.", b.suffix);
+                // 部品の配列を通した欄 `plug.pin.i` の要素 `[k]` は `plug.pin[k].i`（名前そのままの式 `lit` で束縛する。S336）
+                let through = self
+                    .index_leaf(&t, &b.suffix)
+                    .filter(|c| *c != format!("{t}{}", b.suffix));
+                let (t, sfx) = match &through {
+                    Some(c) => (c.clone(), String::new()),
+                    None => (t, b.suffix.clone()),
+                };
+                let pre = format!("{t}{sfx}.");
                 let leaves: Vec<&str> = self
                     .var_idx
                     .range(pre.clone()..)
@@ -959,7 +969,14 @@ impl F<'_> {
                 }
                 for l in leaves {
                     let path: Vec<&str> = l.split('.').collect();
-                    nest(&mut out, &path, bind(&b.node, format!("{}.{l}", b.suffix)));
+                    let el = match &through {
+                        Some(c) => Bind {
+                            lit: Some(format!("{c}.{l}")),
+                            ..bind(&b.node, String::new())
+                        },
+                        None => bind(&b.node, format!("{}.{l}", b.suffix)),
+                    };
+                    nest(&mut out, &path, el);
                 }
             }
             // `x.i[1]` のように添字のある参照は、型の欄ごとに `x.i[1].f`
@@ -968,26 +985,139 @@ impl F<'_> {
             }
             _ => {
                 // `Complex` の演算子の式 `a - b` は評価せず、欄ごとの式にする（S329）
-                if b.suffix.is_empty()
-                    && self.is_msl_complex(cid)
-                    && let Some((re, im)) = self.complex_parts(&b.node, b, 0)?
-                {
-                    for (f, t) in [("re", re), ("im", im.unwrap_or_else(|| "0".into()))] {
-                        let lit = Some(t);
-                        out.insert(
-                            f.to_string(),
-                            field_mod(Bind {
-                                lit,
-                                ..bind(&b.node, String::new())
-                            }),
-                        );
-                    }
-                    return Ok(out);
+                if let Some(m) = self.complex_value(b, cid)? {
+                    return Ok(m);
                 }
                 return un("composite-binding", format!("{name} = {}", b.node.text()));
             }
         }
         Ok(out)
+    }
+
+    /// `Complex` の式の束縛を欄 `re`・`im` ごとの式にする（`complex_parts`）。`Complex` でない・読めない形は `None`
+    fn complex_value(&self, b: &Bind, cid: ClassId) -> Res<Option<ModMap>> {
+        if !is_index(&b.suffix) || !self.is_msl_complex(cid) {
+            return Ok(None);
+        }
+        let Some((re, im)) = self.complex_parts(&b.node, b, 0)? else {
+            return Ok(None);
+        };
+        let mut out = ModMap::new();
+        for (f, t) in [("re", re), ("im", im.unwrap_or_else(|| "0".into()))] {
+            let bind = Bind {
+                node: b.node.clone(),
+                file: b.file,
+                ctx: b.ctx.clone(),
+                suffix: String::new(),
+                lit: Some(t),
+            };
+            out.insert(f.to_string(), field_mod(bind));
+        }
+        Ok(Some(out))
+    }
+
+    /// 束縛の式が配列の式 `{a, b}`・`{e for k in 1:n}` で、束縛に添字 `[i, …]` が付いているとき、その要素の束縛
+    /// （残りの添字は付けたまま。内包の `k` は要素の値を局所変数として持つ文脈で）。S336
+    fn pick_elem(&self, b: &Bind) -> Res<Option<Bind>> {
+        let Some(Expr::Array(a)) = Expr::cast(b.node.clone()) else {
+            return Ok(None);
+        };
+        let Some((head, tail)) = b.suffix.strip_prefix('[').and_then(|s| s.split_once(']')) else {
+            return Ok(None);
+        };
+        let (first, more) = head
+            .split_once(',')
+            .map_or((head, None), |(f, m)| (f, Some(m)));
+        let Ok(i) = first.trim().parse::<usize>() else {
+            return Ok(None);
+        };
+        let suffix = match more {
+            Some(m) => format!("[{m}]{tail}"),
+            None => tail.to_string(),
+        };
+        let size = || {
+            un(
+                "composite-binding",
+                format!("{} size differs", b.node.text()),
+            )
+        };
+        if let Some(c) = b.node.children().find(|c| c.kind() == K::Comprehension) {
+            let body = c.children().find_map(Expr::cast);
+            let fis: Vec<SyntaxNode> = c
+                .children()
+                .find(|x| x.kind() == K::ForIndices)
+                .map(|x| x.children().filter(|f| f.kind() == K::ForIndex).collect())
+                .unwrap_or_default();
+            // shortcut: 添字が 1 つの内包だけ（`for i in …, j in …` は多次元。MSL の例題では出ない）
+            let ([fi], Some(body)) = (fis.as_slice(), body) else {
+                return un("composite-binding", b.node.text());
+            };
+            let var = tokens(fi)
+                .find(|t| t.kind() == K::Ident)
+                .map(|t| t.text().to_string());
+            let range = fi.children().find(|x| Expr::cast(x.clone()).is_some());
+            let (Some(var), Some(range)) = (var, range) else {
+                return un("composite-binding", b.node.text());
+            };
+            let v = self.range_vals(&range, b.file, &b.ctx)?;
+            let Some(v) = i.checked_sub(1).and_then(|k| v.get(k)).copied() else {
+                return size();
+            };
+            let mut locals = b.ctx.locals.clone();
+            locals.push((var, v));
+            let ctx = Rc::new(Ctx {
+                pfx: b.ctx.pfx.clone(),
+                lineage: b.ctx.lineage.clone(),
+                locals,
+                cenv: b.ctx.cenv.clone(),
+                heir: b.ctx.heir,
+            });
+            return Ok(Some(Bind {
+                node: body.syntax().clone(),
+                ctx,
+                suffix,
+                lit: None,
+                ..b.clone()
+            }));
+        }
+        let Some(item) = i.checked_sub(1).and_then(|k| a.items().into_iter().nth(k)) else {
+            return size();
+        };
+        Ok(Some(Bind {
+            node: item.syntax().clone(),
+            suffix,
+            lit: None,
+            ..b.clone()
+        }))
+    }
+
+    /// 配列の式の葉 `t`（`plug.pin.v`・`u`）の要素 `ix`（`[2]`）の名前。配列でなければ `None`（スカラーは全要素で同じ）。S336
+    fn index_leaf(&self, t: &str, ix: &str) -> Option<String> {
+        if ix.is_empty() || !is_index(ix) || t.ends_with(']') {
+            return None;
+        }
+        // 変数そのもの、または欄を持つレコード（`Complex` の `.re` など）
+        let has = |c: &str| {
+            let pre = format!("{c}.");
+            self.var_idx.contains_key(c)
+                || self
+                    .var_idx
+                    .range(pre.clone()..)
+                    .next()
+                    .is_some_and(|(k, _)| k.starts_with(&pre))
+        };
+        let whole = format!("{t}{ix}");
+        if self
+            .var_idx
+            .get(t)
+            .is_some_and(|&v| !self.vars[v].dims.is_empty())
+            || has(&whole)
+        {
+            return Some(whole);
+        }
+        t.match_indices('.')
+            .map(|(i, _)| format!("{}{ix}{}", &t[..i], &t[i..]))
+            .find(|c| has(c))
     }
 
     /// 最上位の `Complex` で、欄が `re`・`im` だけ（名前だけ同じユーザー定義のレコードを展開しない。S339）
@@ -1088,6 +1218,8 @@ impl F<'_> {
             }
             Expr::ComponentRef(_) => {
                 let t = txt(n)?;
+                // 配列の式の要素（束縛に `[k]` が付いているとき）は、配列の変数・部品の配列を通した欄の `[k]`
+                let t = self.index_leaf(&t, &b.suffix).unwrap_or(t);
                 if self.var_idx.contains_key(&format!("{t}.re")) {
                     return Ok(Some((format!("{t}.re"), Some(format!("{t}.im")))));
                 }
@@ -1101,6 +1233,13 @@ impl F<'_> {
                 Ok(Some((format!("{t}.re"), Some(format!("{t}.im")))))
             }
             Expr::Call(c) => {
+                // 配列の式の要素（束縛に `[k]` が付いているとき）: `fill(x, n…)` の要素は `x`（S336）
+                if !b.suffix.is_empty()
+                    && c.callee().as_deref() == Some("fill")
+                    && let Some(x) = c.args().first()
+                {
+                    return self.complex_parts(x.syntax(), b, d);
+                }
                 let rid = c
                     .syntax()
                     .children()
@@ -2671,7 +2810,10 @@ impl F<'_> {
             Expr::Call(c) if c.callee().as_deref() == Some("der") => {
                 self.shape(c.args().first()?, file, ctx)
             }
-            Expr::Array(a) => Some(a.items().len()),
+            Expr::Array(a) => Some(
+                self.comp_len(a.syntax(), file, ctx)
+                    .unwrap_or_else(|| a.items().len()),
+            ),
             Expr::ComponentRef(c) => {
                 let t = self.cref(c, file, ctx).ok()?;
                 let (base, nsub) = match t.find('[') {
@@ -2700,6 +2842,21 @@ impl F<'_> {
             }
             _ => None,
         }
+    }
+
+    /// 内包 `{e for i in 1:n}` の要素の数（範囲の長さの積。内包でない・範囲が定数でなければ `None`）。S336
+    fn comp_len(&self, a: &SyntaxNode, file: u32, ctx: &Rc<Ctx>) -> Option<usize> {
+        let fis = a
+            .children()
+            .find(|c| c.kind() == K::Comprehension)?
+            .children()
+            .find(|c| c.kind() == K::ForIndices)?;
+        fis.children()
+            .filter(|x| x.kind() == K::ForIndex)
+            .try_fold(1usize, |n, fi| {
+                let r = fi.children().find(|c| Expr::cast(c.clone()).is_some())?;
+                Some(n * self.range_vals(&r, file, ctx).ok()?.len())
+            })
     }
 
     /// 要素ごとに展開されたレコード・部品の配列 `t[k].x` の要素の数（`Complex aw[3]` の `aw = {…}` は 3 本。Rumoca と同じ。S337）。
@@ -3145,6 +3302,11 @@ fn split_mod(
         out.insert(k.clone(), x);
     }
     Ok(out)
+}
+
+/// 添字だけの接尾辞（`` か `[1]`・`[1,2]`。`.f` の続きは欄の接尾辞）
+fn is_index(s: &str) -> bool {
+    s.is_empty() || (s.starts_with('[') && s.find(']') == Some(s.len() - 1))
 }
 
 /// `Complex` の (実部, 虚部)。虚部 `None` は Real
