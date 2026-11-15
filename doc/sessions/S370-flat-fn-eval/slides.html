@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S370 flat の関数の評価器 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S370 flat の関数の評価器">
+
+<section class="slide" id="S01">
+  <span class="tag">S370 · 2026-11-16 · Track B</span>
+  <h1>flat が Modelica の関数を実行して、配列の大きさを決める</h1>
+  <p class="lead">FFT の 4 本は <code>realFFTsamplePoints(…)</code> を実行しないと <code>Real buf[ns]</code> の大きさが決まらない</p>
+  <div class="big">平らにできた <b>565</b> / 566。回帰 <b>0</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">評価器</span>
+  <h1>入力が定数に決まる <code>function</code> の <code>algorithm</code> を実行する</h1>
+  <ul>
+    <li>値は整数・実数・論理のスカラーと 1 次元の配列。文は代入・<code>if</code>・<code>for</code>・<code>while</code>・<code>return</code>・<code>break</code>・<code>assert</code></li>
+    <li><code>external</code>・<code>impure</code>・<code>print</code>・文字列・レコードは評価しない（今までどおり「分からない」）</li>
+    <li>暴走を防ぐ: 文と反復の上限は <code>MAX_ITERS</code>（S365 と同じ）、再帰は 32 段。上限に届いた関数は繰り返さない</li>
+    <li><code>and</code>・<code>or</code> は左で決まれば右を見ない（<code>size(b, 1) &gt; 0 and max(b)</code>）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決め打ちの置き換え</span>
+  <h1>3 つの shortcut を、MSL の本体の実行に</h1>
+  <ul>
+    <li><code>anyTrue</code>・<code>isPowerOf2</code>・<code>numberOfSymmetricBaseSystems</code>（再帰）の名前の決め打ちを <code>eval</code> から消した</li>
+    <li>MSL の本体を貼った試験で、前と同じ値になることを確かめた</li>
+    <li>S367 の試験の <code>anyTrue</code> は決め打ち前提の偽物だったので、MSL と同じ本体に直した</li>
+    <li>組み込みの表を <code>eval</code> と共有。<code>sin</code>・<code>exp</code>・<code>atan2</code> なども評価できる</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">FFT の 4 本</span>
+  <h1>Rumoca は通らないので、omc の数と比べた</h1>
+  <table class="compact">
+    <thead><tr><th>例題</th><th>自前の DAE（式 / 未知数）</th><th>omc</th></tr></thead>
+    <tbody>
+      <tr><td><code>Rectifier12pulseFFT</code></td><td>5853 / 5853</td><td>5853 / 5853</td></tr>
+      <tr><td><code>Rectifier6pulseFFT</code></td><td>5386 / 5386</td><td>5386 / 5386</td></tr>
+      <tr><td><code>RealFFT1</code></td><td>245 / 245</td><td>245 / 245</td></tr>
+      <tr><td><code>RealFFT2</code></td><td>224 / 224</td><td>224 / 224</td></tr>
+    </tbody>
+  </table>
+  <p>Rumoca v0.10.2 は <code>ET004</code>、CLI v0.10.4 も <code>RealFFT1</code> で断る</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">数字</span>
+  <h1>MSL の例題 566 本（S367 → S370）</h1>
+  <div class="kpis">
+    <div class="kpi"><span class="n">565 / 566</span><span class="l">平らにできた（前 561）</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">回帰</span></div>
+    <div class="kpi"><span class="n">4</span><span class="l">改善</span></div>
+  </div>
+  <p>改善 4 本はすべて FFT（flat・DAE）。Rumoca は通らないので、Rumoca と比べる母数（532 本・382 本）は変わらない。1089 s、最大 RSS 5.3 GiB</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>断る残りは <code>unsized-array</code> 1 本（<code>ReadRealMatrixFromFile</code>。ファイルを読む関数で決められない）</li>
+    <li>配列は 1 次元・スカラーだけ、結果は覚えない（上限に届いたものだけ）。必要になったら広げる</li>
+    <li>共有 target の release の rlib は別の worktree のものが残ることがある。全体の検査の前に <code>touch -c</code> で作り直す</li>
+  </ul>
+  <p class="foot">GlobeMode S370</p>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
