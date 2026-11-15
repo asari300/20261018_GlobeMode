@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S358 ライブラリの走査も隠しフォルダを飛ばす — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S358 ライブラリの走査も隠しフォルダを飛ばす">
+
+<section class="slide" id="S01">
+  <span class="tag">S358 · 2026-11-16 · Track B</span>
+  <h1>ライブラリの走査も隠しフォルダを飛ばす</h1>
+  <p class="lead">S357 の D-3 の残り。resolve と flat の <code>mo_files</code></p>
+  <div class="big">走査の規則 4 か所 → 同じ規則</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">背景</span>
+  <h1>走査の抜けが 2 か所残っていた</h1>
+  <ul>
+    <li>S357 で CLI の <code>expand_inputs</code> を <code>collect_mo_files</code>（fmt・LSP と同じ規則）に替えた</li>
+    <li><code>globe-mode-resolve</code> の <code>Library::from_dirs</code> と <code>globe-mode-flat</code> の <code>Project::read_dirs</code> は、自前の <code>mo_files</code> で <code>.history/</code> の <code>.mo</code> も読んだ</li>
+    <li>同名のクラスが二重になる（<code>--library</code> のディレクトリに古い写しがあるとき）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">直し</span>
+  <h1>resolve に 1 つだけ置いて flat も使う</h1>
+  <ul>
+    <li><code>resolve::mo_files</code> が <code>.</code> で始まる名前（ファイルもフォルダも）を飛ばし、<code>pub</code> で公開する</li>
+    <li>flat は自前の関数を消して <code>globe_mode_resolve::mo_files</code> を呼ぶ（flat は resolve に依存している）</li>
+    <li>frontend の <code>collect_mo_files</code> は使えない: frontend が resolve に依存するので向きが逆になる</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">確かめた</span>
+  <h1>直す前なら落ちる試験を 1 本ずつ</h1>
+  <table class="compact">
+    <tr><th>crate</th><th>試験</th><th>直す前</th></tr>
+    <tr><td>resolve</td><td><code>from_dirs_skips_hidden_dirs</code></td><td>読んだファイル 2 本</td></tr>
+    <tr><td>flat</td><td><code>read_dirs_skips_hidden_dirs</code></td><td>読んだファイル 2 本</td></tr>
+  </table>
+  <p>MSL に隠しフォルダの <code>.mo</code> は無い（<code>data/msl</code> の隠しは <code>.download</code> の zip と <code>.globe-mode-msl</code>）ので、Track B の数え方は変わらない</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">残し</span>
+  <h1>S068 の規則はそのまま</h1>
+  <ul>
+    <li><code>X.mo</code> と <code>X/</code>（<code>package.mo</code> 無し）が並ぶ配置は、frontend だけが <code>X.mo</code> を正にする。resolve・flat には足していない</li>
+    <li>隠しフォルダだけを揃えた（今回の範囲）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

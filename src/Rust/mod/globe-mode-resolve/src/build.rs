@@ -71,9 +71,16 @@ fn comp_redecls(v: Vec<ast::RedeclaredComponent>) -> Vec<Redecl> {
         .collect()
 }
 
-fn mo_files(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
+/// `dir` の下の `.mo`（`.` で始まる名前は飛ばす。`.history/` の古い写しで同名のクラスが二重になるのを防ぐ）。
+/// frontend の `collect_mo_files` と同じ規則だが、frontend は resolve に依存するので、ここに最小の写しを置く（flat も使う。S358）
+pub fn mo_files(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
     for e in std::fs::read_dir(dir)? {
         let p = e?.path();
+        if p.file_name()
+            .is_some_and(|n| n.to_string_lossy().starts_with('.'))
+        {
+            continue;
+        }
         if p.is_dir() {
             mo_files(&p, out)?;
         } else if p.extension().is_some_and(|x| x == "mo") {
