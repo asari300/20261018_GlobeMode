@@ -780,24 +780,68 @@ pub fn references(r: &mut Resolver, path: &str, text: &str, at: usize) -> Vec<Te
 }
 
 /// UI の参照・リネームが見る文書（S368）。`key` は応答に書く名前（wasm はファイル名、LSP は URI）、`path` はワークスペースでの名前。
+/// `own` は編集してよい文書（UI の自分のタブ）。ライブラリのファイルを開いたタブは false（参照には出るが、リネームでは変えず、そこで宣言した部品は断る。S372）。
 #[derive(Debug, Clone)]
 pub struct Doc {
     pub key: String,
     pub path: String,
     pub text: String,
+    pub own: bool,
 }
 
-/// 部品 `t`（字面 `name`）に行き着く識別子を、`docs` の全部から集める（S235 の `component_hits` を文書ごとに）。
+/// 文書 `path` の中の名前は、同じ名前のクラスを別の文書も定義していても、まず `path` 自身の定義に解決する（S372）。
+/// ワークスペースは 1 つの名前空間なので、そのままではファイル名順の先の定義に寄る（タブをコピーして試すと、後ろのタブが先のタブのクラスを使うことになる）。
+fn at_home<T>(r: &mut Resolver, path: &str, f: impl FnOnce(&mut Resolver) -> T) -> T {
+    let ws = r.ws;
+    let Some(Ok(o)) = ws.outline(path) else {
+        return f(r);
+    };
+    f(&mut Resolver {
+        ws,
+        tree: r.tree,
+        scratch: &mut *r.scratch,
+        read: r.read,
+        overlay: Some((path, o)),
+        lib: r.lib.as_deref_mut(),
+    })
+}
+
+/// 部品 `t`（字面 `name`）に行き着く識別子を、`docs` の全部（`own_only` なら自分の文書だけ）から集める（S235 の `component_hits` を文書ごとに）。
 fn component_hits_in(
     r: &mut Resolver,
     docs: &[Doc],
     name: &str,
     t: &Target,
+    own_only: bool,
 ) -> Vec<(usize, TextRange)> {
     let mut out = Vec::new();
-    for (i, d) in docs.iter().enumerate() {
+    for (i, d) in docs.iter().enumerate().filter(|(_, d)| d.own || !own_only) {
         out.extend(
-            component_hits(r, &d.path, &d.text, name, t)
+            at_home(r, &d.path, |r| component_hits(r, &d.path, &d.text, name, t))
+                .into_iter()
+                .map(|x| (i, x)),
+        );
+    }
+    out
+}
+
+/// クラス `t`（字面 `name`）に行き着く識別子を、`cur` 以外の文書から集める（`own_only` なら自分の文書だけ）。
+fn class_hits_in(
+    r: &mut Resolver,
+    docs: &[Doc],
+    cur: usize,
+    name: &str,
+    t: &Target,
+    own_only: bool,
+) -> Vec<(usize, TextRange)> {
+    let mut out = Vec::new();
+    for (i, o) in docs
+        .iter()
+        .enumerate()
+        .filter(|(i, o)| *i != cur && (o.own || !own_only))
+    {
+        out.extend(
+            at_home(r, &o.path, |r| class_hits(r, &o.path, &o.text, name, t))
                 .into_iter()
                 .map(|x| (i, x)),
         );
@@ -808,6 +852,7 @@ fn component_hits_in(
 /// 参照の範囲を `docs`（`docs[cur]` のカーソル位置 `at`）の全部に広げる（S368）。規則は `textDocument/references`（S166・S235）と同じ:
 /// 部品は継承した先と `b.x` も、クラス名は同じクラスに行き着く全部、import の別名は `cur` の文書の中だけ。
 /// 範囲は `(docs の番号, 範囲)`。
+/// shortcut: 構文の誤りで読めない文書の参照は黙って出ない（リネームは断る。`rename_in`）。要るなら理由を添えて返す。
 pub fn references_in(
     r: &mut Resolver,
     docs: &[Doc],
@@ -815,29 +860,44 @@ pub fn references_in(
     at: usize,
 ) -> Vec<(usize, TextRange)> {
     let d = &docs[cur];
-    if let Some((rg, t)) = component_name_at(r, &d.path, &d.text, at) {
+    if let Some((rg, t)) = at_home(r, &d.path, |r| component_name_at(r, &d.path, &d.text, at)) {
         let name = d.text[rg.start as usize..rg.end as usize].to_string();
-        return component_hits_in(r, docs, &name, &t);
+        return component_hits_in(r, docs, &name, &t, false);
     }
-    let mut out: Vec<_> = references(r, &d.path, &d.text, at)
+    let mut out: Vec<_> = at_home(r, &d.path, |r| references(r, &d.path, &d.text, at))
         .into_iter()
         .map(|x| (cur, x))
         .collect();
-    if let Some((name, t)) = class_name_at(r, &d.path, &d.text, at) {
-        for (i, o) in docs.iter().enumerate().filter(|(i, _)| *i != cur) {
-            out.extend(
-                class_hits(r, &o.path, &o.text, &name, &t)
-                    .into_iter()
-                    .map(|x| (i, x)),
-            );
-        }
+    if let Some((name, t)) = at_home(r, &d.path, |r| class_name_at(r, &d.path, &d.text, at)) {
+        out.extend(class_hits_in(r, docs, cur, &name, &t, false));
     }
     out
 }
 
+/// 自分の文書（`cur` 以外）のうち、構文の誤りで読めず、識別子 `name` があるもの。そこに参照があるか分からない（S372。S230 の開いていない `.mo` の守りに合わせる）。
+fn unreadable_with(r: &Resolver, docs: &[Doc], cur: usize, name: &str) -> Option<String> {
+    let d = docs
+        .iter()
+        .enumerate()
+        .filter(|(i, d)| *i != cur && d.own)
+        .map(|(_, d)| d)
+        .find(|d| {
+            r.ws.outline(&d.path).is_none_or(|o| o.is_err())
+                && lex(&d.text).map_or(d.text.contains(name), |t| {
+                    t.iter().any(|k| k.kind == Kind::Ident && k.text == name)
+                })
+        })?;
+    Some(format!(
+        "{} は構文の誤りで読めず、{name} の参照があるか分からない（直してからリネームする）",
+        d.key
+    ))
+}
+
 /// リネームの範囲を `docs` の全部に広げる（S368）。規則は `textDocument/rename`（S166・S235）と同じ: 受けるのは `rename` が受けるものと、
-/// 継承した先・`b.x` も含む部品（宣言したファイルが `docs` の中にあるとき。ライブラリのファイルで宣言された部品は断る）。
+/// 継承した先・`b.x` も含む部品（宣言したファイルが `docs` の自分の文書のとき。ライブラリのファイルで宣言された部品は断る）。
 /// クラスは、その文書で定義したものだけ（別の文書で定義したクラスは `rename` が断る）で、ほかの文書の同じクラスへの参照も入る。
+/// 変えるのは自分の文書（`Doc::own`）だけ。構文の誤りで読めない自分の文書に `name` があれば、参照があるか分からないので断る（S372）。
+/// shortcut: 同じ名前のクラスを複数の文書が定義するとき、各文書の名前は自分の定義に解決する（`at_home`）。定義しない 3 つ目の文書の使い方はファイル名順の先（定義ジャンプと同じ）。
 pub fn rename_in(
     r: &mut Resolver,
     docs: &[Doc],
@@ -846,17 +906,29 @@ pub fn rename_in(
     new_name: &str,
 ) -> Result<Vec<(usize, TextRange)>, String> {
     let d = &docs[cur];
-    if let Some((rg, t)) = component_name_at(r, &d.path, &d.text, at) {
+    if !d.own {
+        return Err(format!(
+            "{} はライブラリのファイルで、リネームできない",
+            d.key
+        ));
+    }
+    if let Some((rg, t)) = at_home(r, &d.path, |r| component_name_at(r, &d.path, &d.text, at)) {
         let name = d.text[rg.start as usize..rg.end as usize].to_string();
         let key = crate::same_path_key(&t.path);
-        if !docs.iter().any(|o| crate::same_path_key(&o.path) == key) {
+        if !docs
+            .iter()
+            .any(|o| o.own && crate::same_path_key(&o.path) == key)
+        {
             return Err(format!(
                 "部品はライブラリのファイル（{}）で宣言されていて、リネームできない",
                 t.path
             ));
         }
-        check_component_name(r, &t, &name, new_name)?;
-        let hits = component_hits_in(r, docs, &name, &t);
+        at_home(r, &t.path, |r| check_component_name(r, &t, &name, new_name))?;
+        if let Some(why) = unreadable_with(r, docs, cur, &name) {
+            return Err(why);
+        }
+        let hits = component_hits_in(r, docs, &name, &t, true);
         return if hits.is_empty() {
             Err(
                 "カーソルが識別子の上にない（コメント・文字列の中、または字句に分けられない本文）"
@@ -866,18 +938,15 @@ pub fn rename_in(
             Ok(hits)
         };
     }
-    let mut out: Vec<_> = rename(r, &d.path, &d.text, at, new_name)?
+    let mut out: Vec<_> = at_home(r, &d.path, |r| rename(r, &d.path, &d.text, at, new_name))?
         .into_iter()
         .map(|x| (cur, x))
         .collect();
-    if let Some((name, t)) = class_name_at(r, &d.path, &d.text, at) {
-        for (i, o) in docs.iter().enumerate().filter(|(i, _)| *i != cur) {
-            out.extend(
-                class_hits(r, &o.path, &o.text, &name, &t)
-                    .into_iter()
-                    .map(|x| (i, x)),
-            );
+    if let Some((name, t)) = at_home(r, &d.path, |r| class_name_at(r, &d.path, &d.text, at)) {
+        if let Some(why) = unreadable_with(r, docs, cur, &name) {
+            return Err(why);
         }
+        out.extend(class_hits_in(r, docs, cur, &name, &t, true));
     }
     Ok(out)
 }
@@ -1218,6 +1287,7 @@ mod tests {
             key: name.into(),
             path: name.into(),
             text: text.into(),
+            own: true,
         }
     }
 
@@ -1415,6 +1485,87 @@ mod tests {
             assert_eq!(references(r, "A.mo", text, at).len(), 2); // 部品 R と修飾子の `R = 1` は含めない
             let e = rename(r, "A.mo", text, at, "S").unwrap_err();
             assert!(e.contains("別のファイル"), "{e}");
+        });
+    }
+
+    /// S372 (#141): ライブラリのファイルを開いたタブ（`own: false`）で宣言した部品は断り、リネームではそのタブを書き換えない。参照には出る。
+    #[test]
+    fn library_tab_is_listed_but_never_edited() {
+        let lib = "package Lib\n  partial model SISO\n    Real u;\n  end SISO;\nend Lib;\n";
+        let t = "model T\n  extends Lib.SISO;\nequation\n  u = 1;\nend T;\n";
+        let own = "model Base\n  Real x;\nend Base;\n";
+        let z = "package Lib2\n  model Z\n    Base b;\n  end Z;\nend Lib2;\n";
+        with_docs(
+            &[("Lib.mo", lib), ("T.mo", t), ("U.mo", own), ("Z.mo", z)],
+            |r| {
+                let mut l = doc("Lib.mo", lib);
+                l.own = false;
+                let docs = [l, doc("T.mo", t)];
+                let at = t.find("u = 1").unwrap();
+                let e = rename_in(r, &docs, 1, at, "v").unwrap_err();
+                assert!(e.contains("ライブラリのファイル"), "{e}");
+                assert_eq!(references_in(r, &docs, 1, at).len(), 2); // 宣言（Lib.mo）と `u = 1`
+                // クラス: ライブラリのタブにある同じクラスへの参照は変えない（自分のタブだけ）
+                let mut l = doc("Z.mo", z);
+                l.own = false;
+                let docs = [doc("U.mo", own), l];
+                let at = own.find("Base").unwrap() + 1;
+                assert_eq!(references_in(r, &docs, 0, at).len(), 3);
+                let hits = rename_in(r, &docs, 0, at, "Core").unwrap();
+                assert!(hits.iter().all(|(i, _)| *i == 0), "{hits:?}");
+                // ライブラリのタブからのリネームは断る
+                assert!(
+                    rename_in(r, &docs, 1, 0, "Y")
+                        .unwrap_err()
+                        .contains("ライブラリのファイル")
+                );
+            },
+        );
+    }
+
+    /// S372 (#142): 同じ名前のクラスを 2 つの文書が定義していても、各文書の名前は自分の定義に解決する（参照・リネーム・継承した部品）。
+    #[test]
+    fn same_named_classes_in_two_documents_stay_apart() {
+        let a = "model Base\n  Real x;\nend Base;\nmodel CA\n  extends Base;\nequation\n  x = 1;\nend CA;\n";
+        let b = "model Base\n  Real y;\n  Real x;\nend Base;\nmodel UseB\n  Base b;\nend UseB;\nmodel CB\n  extends Base;\nequation\n  x = 2;\nend CB;\n";
+        with_docs(&[("A.mo", a), ("B.mo", b)], |r| {
+            let docs = [doc("A.mo", a), doc("B.mo", b)];
+            let on = |h: &[(usize, TextRange)], i: usize| h.iter().filter(|(j, _)| *j == i).count();
+            // A の Base: A の宣言・end・extends の 3 つだけ。B の `Base b;` は B 自身の Base
+            let h = references_in(r, &docs, 0, a.find("Base").unwrap() + 1);
+            assert_eq!((on(&h, 0), on(&h, 1)), (3, 0), "{h:?}");
+            let h = rename_in(r, &docs, 0, a.find("Base").unwrap() + 1, "Core").unwrap();
+            assert_eq!((on(&h, 0), on(&h, 1)), (3, 0), "{h:?}");
+            // B の Base: B の宣言・end・`Base b;`・extends の 4 つ（A の Base の使い方は混ざらない）
+            let h = rename_in(r, &docs, 1, b.find("Base").unwrap() + 1, "Core").unwrap();
+            assert_eq!((on(&h, 0), on(&h, 1)), (0, 4), "{h:?}");
+            // 継承した部品: A の `Real x` は A の `x = 1` だけ。B の `x = 2` は B の Base の x
+            let h = rename_in(r, &docs, 0, a.find("Real x").unwrap() + 5, "pos").unwrap();
+            assert_eq!((on(&h, 0), on(&h, 1)), (2, 0), "{h:?}");
+            let h = rename_in(r, &docs, 1, b.find("Real x").unwrap() + 5, "pos").unwrap();
+            assert_eq!((on(&h, 0), on(&h, 1)), (0, 2), "{h:?}");
+        });
+    }
+
+    /// S372 (#143): 構文の誤りで読めない自分のタブに名前があれば、そこに参照があるか分からないのでリネームは断る（参照の一覧は出す）。読めないタブでも名前が無ければ通る。
+    #[test]
+    fn rename_refuses_when_another_tab_cannot_be_read() {
+        let a = "model Base\n  Real x;\nend Base;\n";
+        let broken = "model UseB\n  Base b;\n  Real y\nend UseB;\n";
+        let unrelated = "model Z\n  Real q\nend Z;\n";
+        with_docs(&[("A.mo", a), ("B.mo", broken), ("Z.mo", unrelated)], |r| {
+            let at = a.find("Base").unwrap() + 1;
+            let docs = [doc("A.mo", a), doc("B.mo", broken)];
+            let e = rename_in(r, &docs, 0, at, "Core").unwrap_err();
+            assert!(e.contains("B.mo") && e.contains("構文"), "{e}");
+            let e = rename_in(r, &docs, 0, a.find("Real x").unwrap() + 5, "pos").map(|_| ()); // x は B に無い
+            assert!(e.is_ok(), "{e:?}");
+            let docs = [doc("A.mo", a), doc("Z.mo", unrelated)];
+            assert!(rename_in(r, &docs, 0, at, "Core").is_ok());
+            // 読めないタブがライブラリのタブ（`own: false`）なら見ない
+            let mut b = doc("B.mo", broken);
+            b.own = false;
+            assert!(rename_in(r, &[doc("A.mo", a), b], 0, at, "Core").is_ok());
         });
     }
 }

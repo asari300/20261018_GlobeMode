@@ -64,6 +64,28 @@ console.log(`結果を開く: MAT ${layout.points} 点 × ${layout.names.length}
   console.log("参照・リネーム: 2 ファイルにまたがるクラス名・継承した部品、予約語は投げる");
 }
 
+// 1b3. 参照・リネームの自分の文書（S372）: ライブラリのファイル（木のファイル名）を開いたタブで宣言した部品のリネームは、そのタブを開いていてもいなくても断る（参照には出る）。
+// 同じ名前のクラスを 2 つの文書が定義しても、各文書の名前は自分の定義に解決する。構文の誤りで読めないタブに名前があれば断る
+{
+  const lib = { "Lib/package.mo": "package Lib\n  partial model SISO\n    Real u;\n  end SISO;\nend Lib;\n" };
+  const lw = new gm.Workspace(JSON.stringify(lib), "Lib");
+  const t = "model T\n  extends Lib.SISO;\nequation\n  u = 1;\nend T;\n";
+  lw.set_file("T.mo", t);
+  assert.throws(() => lw.rename("T.mo", t, 3, 2, "v"), /ライブラリのファイル/);
+  lw.set_file("Lib/package.mo", lib["Lib/package.mo"]); // UI がライブラリのタブを開いた
+  assert.throws(() => lw.rename("T.mo", t, 3, 2, "v"), /ライブラリのファイル/);
+  assert.equal(JSON.parse(lw.references("T.mo", t, 3, 2)).length, 2);
+  const rw = new gm.Workspace();
+  const [a, b] = ["model Base\n  Real x;\nend Base;\nmodel UseA\n  Base b;\nend UseA;\n", "model Base\n  Real y;\nend Base;\nmodel UseB\n  Base b;\nend UseB;\n"];
+  rw.set_file("A.mo", a);
+  rw.set_file("B.mo", b);
+  assert.deepEqual(JSON.parse(rw.references("A.mo", a, 0, 7)).map((r) => r.uri), ["A.mo", "A.mo", "A.mo"]);
+  assert.deepEqual(Object.keys(JSON.parse(rw.rename("B.mo", b, 0, 7, "Core")).changes), ["B.mo"]);
+  rw.set_file("C.mo", "model UseC\n  Base b;\n  Real y\nend UseC;\n");
+  assert.throws(() => rw.rename("A.mo", a, 0, 7, "Core"), /C\.mo/);
+  console.log("参照・リネーム: ライブラリのタブで宣言した部品は断る、同名のクラスは文書ごとに区別、読めないタブは断る");
+}
+
 // 1c. 折りたたみの範囲（S225）: LSP の textDocument/foldingRange と同じ関数。クラスは end の行を残し、equation の節と複数行の annotation も出る
 {
   const fw = new gm.Workspace();
