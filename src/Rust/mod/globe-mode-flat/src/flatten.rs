@@ -1128,8 +1128,21 @@ impl F<'_> {
             let (Some(var), Some(range)) = (var, range) else {
                 return un("composite-binding", b.node.text());
             };
-            let v = self.range_vals(&range, b.file, &b.ctx)?;
-            let Some(v) = i.checked_sub(1).and_then(|k| v.get(k)).copied() else {
+            // 範囲 `a:s:b` の i 番目は全部を作らずに出す（束縛の要素ごとに呼ばれる。S365・#138）
+            let k = i.checked_sub(1);
+            let v = match Expr::cast(range.clone()) {
+                Some(Expr::Range(x)) => {
+                    let (a, s, e) = self.range_abc(&x, &range, b.file, &b.ctx)?;
+                    (k.and_then(|k| i64::try_from(k).ok()))
+                        .and_then(|k| k.checked_mul(s)?.checked_add(a))
+                        .filter(|v| (s > 0 && *v <= e) || (s < 0 && *v >= e))
+                }
+                _ => {
+                    let vals = self.range_vals(&range, b.file, &b.ctx)?;
+                    k.and_then(|k| vals.get(k).copied())
+                }
+            };
+            let Some(v) = v else {
                 return size();
             };
             let mut locals = b.ctx.locals.clone();
@@ -3285,24 +3298,40 @@ impl F<'_> {
         Ok(())
     }
 
+    /// 範囲の式 `r`（の部品 `n`）の整数の値
+    fn range_int(&self, n: &SyntaxNode, r: &SyntaxNode, file: u32, ctx: &Rc<Ctx>) -> Res<i64> {
+        self.eval(n, file, ctx, 0)
+            .and_then(Val::int)
+            .ok_or_else(|| crate::Unsupported {
+                kind: "non-constant-for",
+                detail: r.text().to_string(),
+            })
+    }
+
+    /// 範囲 `a:b`・`a:s:b` の（始め, 刻み, 終わり）
+    fn range_abc(
+        &self,
+        x: &ast::RangeExpr,
+        r: &SyntaxNode,
+        file: u32,
+        ctx: &Rc<Ctx>,
+    ) -> Res<(i64, i64, i64)> {
+        let p = x.parts();
+        let n: Vec<i64> = (p.iter())
+            .map(|e| self.range_int(e.syntax(), r, file, ctx))
+            .collect::<Res<_>>()?;
+        match n.as_slice() {
+            [a, b] => Ok((*a, 1, *b)),
+            [a, s, b] if *s != 0 => Ok((*a, *s, *b)),
+            _ => un("non-constant-for", r.text().to_string()),
+        }
+    }
+
     fn range_vals(&self, r: &SyntaxNode, file: u32, ctx: &Rc<Ctx>) -> Res<Vec<i64>> {
-        let ev = |n: &SyntaxNode| {
-            self.eval(n, file, ctx, 0)
-                .and_then(Val::int)
-                .ok_or_else(|| crate::Unsupported {
-                    kind: "non-constant-for",
-                    detail: r.text().to_string(),
-                })
-        };
+        let ev = |n: &SyntaxNode| self.range_int(n, r, file, ctx);
         let v: Vec<i64> = match Expr::cast(r.clone()) {
             Some(Expr::Range(x)) => {
-                let p = x.parts();
-                let n: Vec<i64> = p.iter().map(|e| ev(e.syntax())).collect::<Res<_>>()?;
-                let (a, s, b) = match n.as_slice() {
-                    [a, b] => (*a, 1, *b),
-                    [a, s, b] if *s != 0 => (*a, *s, *b),
-                    _ => return un("non-constant-for", r.text().to_string()),
-                };
+                let (a, s, b) = self.range_abc(&x, r, file, ctx)?;
                 let mut out = Vec::new();
                 let mut i = a;
                 while (s > 0 && i <= b) || (s < 0 && i >= b) {
@@ -4048,5 +4077,56 @@ mod tests {
                 .flatten("M")
                 .is_ok()
         );
+    }
+
+    #[test]
+    fn record_array_comprehension_binding_picks_range_elements_directly() {
+        // #138: `R r[n] = {R(k, 2*k) for k in 1:n}` が要素ごとに範囲全体を作り直し、n = 40000 で 22 s（O(n²)）だった
+        let rec = "record R Real a; Real b; end R;";
+        let flat = |src: &str| Project::from_sources([("t.mo", src)]).flatten("M");
+        let bound = |m: &crate::FlatModel| {
+            let b = |n: &str| {
+                m.vars
+                    .iter()
+                    .find(|v| v.name == n)
+                    .and_then(|v| v.binding.clone())
+            };
+            (b("r[1].a"), b("r[2].a"), b("r[3].a"), b("r[3].b"))
+        };
+        // 刻みのある範囲・降順の範囲も、i 番目の値を直接出す
+        let m = flat(&format!(
+            "{rec} model M R r[3] = {{R(k, 2*k) for k in 1:2:5}}; end M;"
+        ))
+        .unwrap();
+        assert_eq!(
+            bound(&m),
+            (
+                Some("1".into()),
+                Some("3".into()),
+                Some("5".into()),
+                Some("2 * 5".into())
+            )
+        );
+        let m = flat(&format!(
+            "{rec} model M R r[3] = {{R(k, 2*k) for k in 5:-2:1}}; end M;"
+        ))
+        .unwrap();
+        assert_eq!(bound(&m).0.as_deref(), Some("5"));
+        // 範囲より多い要素は断る
+        let e = flat(&format!(
+            "{rec} model M R r[4] = {{R(k, 2*k) for k in 1:3}}; end M;"
+        ))
+        .unwrap_err();
+        assert_eq!(e.kind, "composite-binding");
+        // 宣言だけ（束縛なし）との比で見る（n = 40000 で前は 8.7 倍、今は 2.1 倍。机の速さによらない）
+        let time = |decl: &str| {
+            let src = format!("{rec} model M R r[40000]{decl}; end M;");
+            let t = std::time::Instant::now();
+            assert!(flat(&src).is_ok());
+            t.elapsed()
+        };
+        let plain = time("");
+        let with = time(" = {R(k, 2*k) for k in 1:40000}");
+        assert!(with * 2 < plain * 9, "{with:?} vs {plain:?}");
     }
 }
