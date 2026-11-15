@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S343 引数の行コメントと整形 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S343 引数の行コメントと整形">
+
+<section class="slide" id="S01">
+  <span class="tag">S343 · 2026-11-15 · 整形</span>
+  <h1>annotation の行コメントと <code>,</code></h1>
+  <p class="lead">issue #63: 並べ替えた引数の後ろの行コメントのせいで <code>,</code> が次の行の頭に出る</p>
+  <div class="big">行コメントを引数に付け、<code>,</code> をコメントの前に置く</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">原因</span>
+  <h1>コメントは次の引数の頭に付いていた</h1>
+  <ul>
+    <li><code>Icon(…), // b</code> の <code>// b</code> は、字句を <code>,</code> で切る括弧の木（<code>layout::seq</code>）では<strong>次の引数の最初の字句</strong></li>
+    <li>名前で並べる <code>annotation::position_in</code> は先頭の字句を見る。コメントが先頭だと「その他」になり、並べ替えが外れる／コメントが取り残される</li>
+    <li>コメントが <code>,</code> の前（<code>a // c</code> の次の行に <code>, b</code>）だと、<code>,</code> は行コメントの後ろで改行され、行頭に出る</li>
+    <li>これは annotation だけでなく、どの括弧の引数でも同じ（修飾子 <code>start = 1, // s</code>、関数の引数）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">直し</span>
+  <h1><code>Arg.trail</code> を足した</h1>
+  <ul>
+    <li><code>layout::Arg</code> に <code>trail</code>（引数と同じ行の末尾の行コメント）。木を作るとき、区切りの直後の同じ行のコメントと、引数の末尾のコメントを入れる</li>
+    <li>描画は 引数 → <code>,</code> → コメント。次の引数は必ず改行。<code>flat</code>（1 行に収める）はコメントがあれば断る</li>
+    <li>並べ替えは <code>Arg</code> ごと動かすので、コメントは引数と一緒に動く。<code>annotation.rs</code> は <code>Arg</code> の作り直しの 3 か所に <code>trail: Vec::new()</code> を足しただけ</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">前後</span>
+  <h1>同じ入力が、こうなる</h1>
+  <table class="compact">
+    <tr><th>入力（<code>annotation</code> の引数）</th><th>前</th><th>後</th></tr>
+    <tr><td><code>Doc, // a</code> / <code>Icon, // b</code> / <code>experiment // c</code></td><td>並べ替えず、<code>// a</code> が別の行で字下げが崩れる</td><td class="ok"><code>experiment, // c</code> / <code>Icon, // b</code> / <code>Doc // a</code></td></tr>
+    <tr><td><code>Doc // a</code> の次の行に <code>, Icon // b</code>…</td><td><code>,</code> が行頭に出る</td><td class="ok">上と同じ（2 回目で変わらない）</td></tr>
+  </table>
+  <p>回帰試験 <code>trailing_line_comments_travel_with_annotation_args</code>（上の 2 通りを同じ出力にし、冪等を確かめる）</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">確かめたこと</span>
+  <h1>数字</h1>
+  <ul>
+    <li><code>cargo test -p globe-mode-fmt</code>: 34 + 23 本 OK（新しい試験 1 本を含む）。clippy <code>-D warnings</code> 0 件</li>
+    <li><code>globe fmt --check src/Modelica</code>: 75 ファイルが整形済み（0 件が要整形）</li>
+    <li>MSL 4.1.0 の 2,556 ファイルを <code>globe fmt --check</code> に通して、「整形でトークンが変わった」は 0 件（<code>, //</code> を含むファイルは 1 本）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>コメントだけの行にあるコメントは、次の引数の頭に付いたまま。その引数は名前で位置を決められず「その他」（後ろ）に回る</li>
+    <li>引数と同じ行の <code>/* … */</code>（ブロックコメント）は対象外。行コメントだけ</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

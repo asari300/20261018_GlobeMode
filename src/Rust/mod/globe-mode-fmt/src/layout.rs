@@ -25,6 +25,22 @@ pub struct Arg<'a> {
     pub sep: Option<&'static str>,
     /// 並べ替えのグループ。違うグループの間では改行する（0 は並べ替えなし）
     pub rank: u16,
+    /// 引数と同じ行の末尾の行コメント（`a, // c` と `a // c` の次に `,`）。`,` はコメントの前に置き、引数と一緒に動く（S343）
+    pub trail: Vec<Token<'a>>,
+}
+
+/// 引数の末尾の行コメントを切り出す（`,` をコメントの前に置くため）。引数がコメントだけなら残す。
+fn take_trail<'a>(nodes: &mut Vec<Node<'a>>) -> Vec<Token<'a>> {
+    let mut trail = Vec::new();
+    while nodes.len() > 1
+        && let Some(Node::Leaf(t)) = nodes.last()
+        && t.kind == Kind::LineComment
+    {
+        trail.push(*t);
+        nodes.pop();
+    }
+    trail.reverse();
+    trail
 }
 
 /// 括弧の入れ子の上限（S211）。木をたどる `flatten`・`render`・`annotation::apply` と木の drop は入れ子の深さだけ再帰するので、
@@ -73,7 +89,8 @@ fn seq<'a>(
             }
             let mut args = Vec::new();
             loop {
-                let nodes = seq(tokens, i, Some(want), depth + 1)?;
+                let mut nodes = seq(tokens, i, Some(want), depth + 1)?;
+                let mut trail = take_trail(&mut nodes);
                 let Some(next) = tokens.get(*i) else {
                     return Err(err("括弧が閉じていない", t.start));
                 };
@@ -84,6 +101,7 @@ fn seq<'a>(
                             nodes,
                             sep: None,
                             rank: 0,
+                            trail,
                         });
                     }
                     out.push(Node::Group {
@@ -94,10 +112,19 @@ fn seq<'a>(
                     break;
                 }
                 *i += 1;
+                // 区切りと同じ行の行コメントは前の引数のもの（次の引数の頭に付けると、並べ替えで取り残される）
+                if let Some(c) = tokens.get(*i)
+                    && c.kind == Kind::LineComment
+                    && c.newlines_before == 0
+                {
+                    trail.push(*c);
+                    *i += 1;
+                }
                 args.push(Arg {
                     nodes,
                     sep: Some(if next.is(",") { "," } else { ";" }),
                     rank: 0,
+                    trail,
                 });
             }
         } else {
@@ -125,6 +152,7 @@ pub fn flatten<'a>(nodes: &[Node<'a>], out: &mut Vec<(Kind, &'a str)>) {
                     if let Some(s) = a.sep {
                         out.push((Kind::Punct, s));
                     }
+                    out.extend(a.trail.iter().map(|c| (c.kind, c.text)));
                 }
                 out.push((close.kind, close.text));
             }
@@ -302,6 +330,9 @@ impl Renderer<'_> {
                         if let Some(s) = a.sep {
                             self.push_token(&Token::synthetic(Kind::Punct, s), 0);
                         }
+                        if !a.trail.is_empty() {
+                            return None;
+                        }
                     }
                     self.push_token(close, 0);
                 }
@@ -379,9 +410,12 @@ impl Renderer<'_> {
                 }
                 _ => self.emit(&a.nodes, inner),
             }
-            prev_expanded = self.lines.len() > before;
+            prev_expanded = self.lines.len() > before || !a.trail.is_empty();
             if let Some(s) = a.sep {
                 self.push_token(&Token::synthetic(Kind::Punct, s), inner);
+            }
+            for c in &a.trail {
+                self.push_token(c, inner);
             }
             prev_rank = Some(a.rank);
         }
