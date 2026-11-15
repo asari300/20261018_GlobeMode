@@ -233,6 +233,9 @@ const MAX_EQS: usize = 10_000;
 const MAX_ITERS: usize = 1_000_000;
 #[cfg(test)]
 const MAX_ITERS: usize = 10_000;
+/// スカラーの総数（変数・方程式それぞれ）と、変数 1 つの次元の積の上限。`MAX_VARS`・`MAX_EQS` は配列を 1 つと数えるので、
+/// `Real x[10000000]` を通し、DAE の構築が 1 スカラー約 300 バイトを使う（S365・#139）。次元の積は溢れる大きさも書ける（#137）
+const MAX_SCALARS: usize = 2_000_000;
 
 /// 修飾の表の中の特別な名前: レコード全体の束縛 `r = other`（`other` の欄を、型の欄ごとに束縛する。宣言が後ろにある兄弟のレコードや、レコードを返す関数の呼び出し）
 const WHOLE: &str = "*";
@@ -369,6 +372,15 @@ pub(crate) fn run(p: &Project, cid: ClassId, model: &str) -> Res<FlatModel> {
     f.apply_connection_graph();
     f.resolve_card_ifs()?;
     f.expand_streams()?;
+    // 配列は 1 つと数える `MAX_VARS`・`MAX_EQS` では抑えられない、スカラーの総数（S365・#139）
+    let sat = usize::saturating_add;
+    let vs = (f.vars.iter()).fold(0, |a, v| {
+        sat(a, dims_product(&v.dims).unwrap_or(usize::MAX))
+    });
+    let es = (f.eqs.iter().chain(&f.whens).chain(&f.ieqs)).fold(0, |a, e| sat(a, e.count));
+    if vs > MAX_SCALARS || es > MAX_SCALARS {
+        return un("too-large", "too many scalar variables or equations");
+    }
     Ok(FlatModel {
         name: model.to_string(),
         vars: f.vars,
@@ -824,6 +836,7 @@ impl F<'_> {
                 if self.var_idx.contains_key(&full) {
                     return Ok(()); // 同じ要素が 2 つの `extends` から届いた
                 }
+                self.check_dims(&full, &dims)?;
                 self.var_idx.insert(full.clone(), self.vars.len());
                 self.vars.push(Var {
                     name: full.clone(),
@@ -855,6 +868,7 @@ impl F<'_> {
                     }
                     let binding = m.val.as_ref().map(|b| self.print_bind(b)).transpose()?;
                     let eff = fill(parent, fill(own_flags, flags));
+                    self.check_dims(&full, &dims)?;
                     self.var_idx.insert(full.clone(), self.vars.len());
                     self.vars.push(Var {
                         name: full,
@@ -944,6 +958,14 @@ impl F<'_> {
             }
         }
         Ok(())
+    }
+
+    /// 変数 1 つのスカラーの数（次元の積）が上限を超えていないか。以降の変数ごとの `dims.iter().product()`（flat・dae）は溢れない（S365・#137・#139）
+    fn check_dims(&self, name: &str, dims: &[usize]) -> Res<()> {
+        match dims_product(dims) {
+            Some(n) if n <= MAX_SCALARS => Ok(()),
+            _ => un("too-large", format!("{name}[] too many elements")),
+        }
     }
 
     /// `extends ExternalObject` を持つクラスか
@@ -4128,5 +4150,37 @@ mod tests {
         let plain = time("");
         let with = time(" = {R(k, 2*k) for k in 1:40000}");
         assert!(with * 2 < plain * 9, "{with:?} vs {plain:?}");
+    }
+
+    #[test]
+    fn scalar_total_is_capped() {
+        // #139: 配列は 1 つと数えるので `Real x[10000000]` が通り、DAE の構築が 4 GB・92 s を使った。#137: 次元の積の溢れは panic していた
+        let kind = |body: &str| {
+            let src = format!("model M {body} end M;");
+            let r = Project::from_sources([("t.mo", src.as_str())]).flatten("M");
+            r.err().map(|e| e.kind)
+        };
+        let big = Some("too-large");
+        assert_eq!(
+            kind("Real x[10000000]; Real y[10000000]; equation x = y;"),
+            big
+        );
+        // 1 つ 2000000 に収まっても、総数が上限を超える
+        assert_eq!(kind("Real x[1500000]; Real y[1500000];"), big);
+        assert_eq!(
+            kind("Real x[1000, 1000]; equation {1 for i in 1:3000, j in 1:3000} = x;"),
+            big
+        );
+        // 次元の積が usize を溢れる
+        assert_eq!(
+            kind("Real x[4294967296, 4294967296]; equation der(x) = x;"),
+            big
+        );
+        assert_eq!(
+            kind("Real x[4294967296, 4294967296] = zeros(4294967296, 4294967296);"),
+            big
+        );
+        // 上限に届く大きさは通る
+        assert_eq!(kind("Real x[1000000]; equation der(x) = -x;"), None);
     }
 }
