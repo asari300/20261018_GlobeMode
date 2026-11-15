@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S364 DAE の fill の行 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S364 DAE の fill の行">
+
+<section class="slide" id="S01">
+  <span class="tag">S364 · 2026-11-16 · Track B</span>
+  <h1>構造の正則が合わなかった 4 本</h1>
+  <p class="lead">S361 のあと 373/377 だった。原因は 4 本とも<b>同じ 1 つ</b>で、自前の DAE の誤りだった</p>
+  <div class="big"><code>{a[1], a[2]} = fill(x, 2)</code> を<b>連続の行</b>にして、触れる未知数が無く空になっていた</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">原因</span>
+  <h1>配列の構築子の左辺を見ていなかった</h1>
+  <ul>
+    <li><code>join.occupied = fill(outPort.occupied, nBranches)</code>（<code>Boolean</code>）を flat は <code>{a.join[1].occupied, a.join[2].occupied} = fill(…)</code> と印字する</li>
+    <li>DAE は左辺が離散の変数なら離散の方程式にする（Rumoca と同じ）。ところが <code>defines_discrete</code> は<b>最初の式が成分参照のときだけ</b>調べ、構築子は偽だった</li>
+    <li>連続の行になった 7 本（<code>ExecutionPaths</code>）は連続の未知数に触れず incidence が空。自前 47 行・Rumoca 40 行。空の行は完全マッチングを作れない</li>
+    <li><code>BatchPlant_StandardWater</code> は <code>controller.Parallel1</code>（<code>StateGraph.Parallel</code>）の 4 行で、同じ形</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">直し</span>
+  <h1>defines_discrete に構築子の場合を足した</h1>
+  <ul>
+    <li>左辺が配列の構築子で、<b>要素がすべて離散の変数</b>なら離散の方程式（行にしない）。数は元のまま</li>
+    <li>離散と連続が混ざる構築子は今までどおり（MSL に出ない。shortcut）</li>
+    <li>試験 <code>fill_into_discrete_array_constructor_is_discrete_equation</code> は直す前は (連続 2, 離散 1)、今は (0, 3) で正則</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">数字</span>
+  <h1>MSL の例題 566 本（S361 → S364）</h1>
+  <div class="kpis">
+    <div class="kpi"><span class="n">377 / 377</span><span class="l">構造の正則（前 373）</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">回帰</span></div>
+    <div class="kpi"><span class="n">4</span><span class="l">改善</span></div>
+  </div>
+  <p>改善は <code>ExecutionPaths</code>・<code>ShowCompositeStep</code>・<code>ShowExceptions</code>・<code>BatchPlant_StandardWater</code>。釣り合いの判定 377 / 377、方程式と未知数の数 376 / 377、状態 376 / 377（残り 1 本ずつは Rumoca の側）。1003 s、最大 RSS 5.5 GiB</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>方程式と未知数の数・状態の残り 1 本ずつは Rumoca の側（<code>InverseParameterization</code>・<code>HeatingSystem</code>。上流の下書き 40・07。提出しない）</li>
+    <li>離散と連続が混ざる配列の構築子の左辺は連続の行のまま（MSL に出ない）</li>
+    <li>B3 が断る 18 本（<code>composite-binding</code> 6・<code>expandable</code> 5・<code>non-constant-dim</code> 4 ほか）</li>
+  </ul>
+  <p class="foot">GlobeMode S364</p>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
