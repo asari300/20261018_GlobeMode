@@ -58,4 +58,12 @@ assert.match(await check("パックが無い"), /ENOENT|パック/);
 writeFileSync(join(pdir, "pack.bin"), bytes);
 assert.equal(await check("パックを置いた"), true);
 console.log(`パックの束: 塊 ${chunks.length} 本を ${bytes.length} B の pack.bin から切り出して通る`);
+// S351（#134）: 壊れたパック（同じ長さの別の中身。応答は 200 で中身が壊れた）のあとも、壊れた Blob を持ち続けず、直せば通る
+await w.libraryIndex(pathToFileURL(join(pdir, "index.json")).href, "Lib"); // 取り直し（got と Blob を空に戻す）
+writeFileSync(join(pdir, "pack.bin"), Buffer.alloc(bytes.length, 0x20));
+assert.match(await check("壊れたパック 1 回目"), /壊れている/);
+assert.match(await check("壊れたパック 2 回目"), /壊れている/);
+writeFileSync(join(pdir, "pack.bin"), bytes);
+assert.equal(await check("直したパック"), true);
+console.log("壊れたパック: 誤りで返り、直せば再試行で通る");
 await w.terminate();
