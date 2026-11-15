@@ -440,6 +440,86 @@ fn overconstrained_connections_drop_broken_edges_and_non_root_ifs() {
     );
 }
 
+const OC: &str = "record Ref Real g;
+      function equalityConstraint input Ref r1; input Ref r2; output Real residue[0]; algorithm end equalityConstraint;
+    end Ref;
+    connector Fr Ref r; Real x; flow Real f; end Fr;
+    model World Fr b; equation Connections.root(b.r); b.x = 0; end World;
+    model Body Fr a; Real q; Real w; parameter Boolean useQ = true;
+      equation Connections.potentialRoot(a.r, 10);
+      if not Connections.isRoot(a.r) then q = 0; w = 0;
+      elseif useQ then der(q) = 1; w = q;
+      else w = 2; end if;
+      initial equation if not Connections.isRoot(a.r) then q = 5; else q = 6; end if;
+    end Body;
+    model Joint Fr a; Fr b; equation Connections.branch(a.r, b.r); a.f + b.f = 0;
+      if Connections.rooted(a.r) then b.x = a.x + 1; else a.x = b.x - 1; end if;
+    end Joint;";
+
+#[test]
+fn is_root_if_with_elseif_keeps_only_the_chosen_branch() {
+    // 世界（確定した根）につなぐと Body は根でない: `q = 0; w = 0` だけで `der(q)` は無い
+    let m = flat(
+        &format!("{OC} model Top World world; Body b; equation connect(world.b, b.a); end Top;"),
+        "Top",
+    );
+    let e = eqs(&m);
+    assert!(
+        e.contains(&"b.q = 0".to_string()) && !e.iter().any(|t| t.contains("der(b.q)")),
+        "{e:#?}"
+    );
+    // `initial equation` の `if` も同じに選ぶ
+    let ie: Vec<_> = m
+        .initial_equations
+        .iter()
+        .map(|e| e.text.as_str())
+        .collect();
+    assert_eq!(ie, ["b.q = 5"]);
+    // 単独の Body は根（接続が無いので Rumoca の既定と同じ）: `elseif useQ` の枝
+    let m = flat(&format!("{OC} model Top Body b; end Top;"), "Top");
+    let e = eqs(&m);
+    assert!(
+        e.contains(&"der(b.q) = 1".to_string()) && !e.contains(&"b.q = 0".to_string()),
+        "{e:#?}"
+    );
+    assert_eq!(m.initial_equations[0].text, "b.q = 6");
+}
+
+#[test]
+fn rooted_follows_the_branch_direction_in_the_spanning_tree() {
+    // 世界 - j.a ... j.b - body: `rooted(j.a.r)`（a が根に近い）は真、向きを逆につなぐと偽
+    let top =
+        |c: &str| format!("{OC} model Top World world; Joint j; Body b; equation {c} end Top;");
+    let e = eqs(&flat(
+        &top("connect(world.b, j.a); connect(j.b, b.a);"),
+        "Top",
+    ));
+    assert!(e.iter().any(|t| t.starts_with("j.b.x = j.a.x")), "{e:#?}");
+    assert!(!e.iter().any(|t| t.starts_with("j.a.x = j.b.x")), "{e:#?}");
+    let e = eqs(&flat(
+        &top("connect(world.b, j.b); connect(j.a, b.a);"),
+        "Top",
+    ));
+    assert!(e.iter().any(|t| t.starts_with("j.a.x = j.b.x")), "{e:#?}");
+    assert!(!e.iter().any(|t| t.starts_with("j.b.x = j.a.x")), "{e:#?}");
+}
+
+#[test]
+fn potential_root_with_lower_priority_number_becomes_the_root() {
+    let src = "record Ref Real g;
+          function equalityConstraint input Ref r1; input Ref r2; output Real residue[0]; algorithm end equalityConstraint;
+        end Ref;
+        connector Fr Ref r; Real x; flow Real f; end Fr;
+        model P1 Fr a; equation Connections.potentialRoot(a.r, 5); if Connections.isRoot(a.r) then a.x = 1; end if; end P1;
+        model P2 Fr a; equation Connections.potentialRoot(a.r, 3); if Connections.isRoot(a.r) then a.x = 2; end if; end P2;
+        model Top P1 p; P2 q; equation connect(p.a, q.a); end Top;";
+    let e = eqs(&flat(src, "Top"));
+    assert!(
+        e.contains(&"q.a.x = 2".to_string()) && !e.contains(&"p.a.x = 1".to_string()),
+        "{e:#?}"
+    );
+}
+
 #[test]
 fn connection_sets_are_merged_by_leaf_variable() {
     // `connect(x.p, q.a)` と、丸ごとの `connect(q, w)` は、葉の変数 `q.a.i` で同じ集合になる（flow の和は 1 本）
@@ -457,6 +537,15 @@ fn connection_sets_are_merged_by_leaf_variable() {
     );
     // `protected` で、どこにもつながっていないコネクタの flow は 0
     assert!(e.contains(&"hidden.i = 0".to_string()), "{e:#?}");
+}
+
+#[test]
+fn product_shapes_count_scalars() {
+    // ベクトルの内積は 1 本、行列 × ベクトルは行の数、`.*` は要素ごと
+    let src = "model M Real u[3]; Real v[3]; Real A[2,3]; Real y[2];
+        equation u * v = 0; A * v = y; u .* v = {1, 2, 3}; end M;";
+    let m = flat(src, "M");
+    assert_eq!(m.equation_count(), 1 + 2 + 3, "{:#?}", eqs(&m));
 }
 
 #[test]

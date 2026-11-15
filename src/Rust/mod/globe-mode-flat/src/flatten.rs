@@ -248,6 +248,8 @@ struct F<'a> {
     /// 過剰決定コネクタの接続集合（`graph::OcSet`）と、すべての `connect` の端
     oc_sets: Vec<graph::OcSet>,
     conn_pairs: Vec<(String, String)>,
+    /// 条件に `Connections.isRoot`・`rooted` を含む `if` の方程式（根の決定のあとに枝を選ぶ。S333）
+    oc_ifs: Vec<graph::OcIf>,
 }
 
 struct Pending {
@@ -286,6 +288,7 @@ pub(crate) fn run(p: &Project, cid: ClassId, model: &str) -> Res<FlatModel> {
         oc_nodes: BTreeSet::new(),
         oc_sets: Vec::new(),
         conn_pairs: Vec::new(),
+        oc_ifs: Vec::new(),
     };
     // パッケージの中のモデルを直接平らにするときは、そのパッケージが差し替え後のパッケージ（`TwoPhaseWater.BaseProperties`）
     let heir = p.lib.classes[cid]
@@ -2132,10 +2135,24 @@ impl F<'_> {
             },
             Expr::Unary(u) => self.dims_of(u.operand()?.syntax(), file, ctx),
             Expr::Binary(b) => {
-                let mut out: Vec<usize> = Vec::new();
-                for o in b.operands() {
+                let ops = b.ops();
+                let mut it = b.operands().into_iter();
+                let mut out = self.dims_of(it.next()?.syntax(), file, ctx)?;
+                for (i, o) in it.enumerate() {
                     let d = self.dims_of(o.syntax(), file, ctx)?;
-                    if out.is_empty() {
+                    if ops.get(i).is_some_and(|t| t.kind() == K::Star)
+                        && !out.is_empty()
+                        && !d.is_empty()
+                    {
+                        // 行列の積（`*`）: ベクトルどうしは内積でスカラー
+                        out = match (out.as_slice(), d.as_slice()) {
+                            ([n], [m]) if n == m => Vec::new(),
+                            ([n, k], [m]) if k == m => vec![*n],
+                            ([n], [m, k]) if n == m => vec![*k],
+                            ([n, k], [m, l]) if k == m => vec![*n, *l],
+                            _ => return None,
+                        };
+                    } else if out.is_empty() {
                         out = d;
                     } else if !d.is_empty() && d != out {
                         return None;
@@ -2295,6 +2312,7 @@ impl F<'_> {
                 }
                 Ok(())
             }
+            Some(K::KwIf) if self.defer_root_if(node, file, ctx, initial, lv)? => Ok(()),
             Some(K::KwIf | K::KwWhen) => {
                 if node
                     .descendants()
@@ -2358,9 +2376,8 @@ impl F<'_> {
         }
     }
 
-    /// `if` の方程式の条件を先頭から評価し、真になる枝（無ければ `else`、それも無ければ空）の方程式を返す。
-    /// 途中で評価できない条件があれば `None`
-    fn const_branch(&self, node: &SyntaxNode, file: u32, ctx: &Rc<Ctx>) -> Option<Vec<SyntaxNode>> {
+    /// `if` の方程式の枝（条件、枝の方程式）の並び。`else` の条件は `None`
+    fn if_branches(node: &SyntaxNode) -> Vec<(Option<SyntaxNode>, Vec<SyntaxNode>)> {
         let mut branches: Vec<(Option<SyntaxNode>, Vec<SyntaxNode>)> = Vec::new();
         let mut want_cond = false;
         for e in node.children_with_tokens() {
@@ -2374,16 +2391,26 @@ impl F<'_> {
                     _ => {}
                 },
                 rowan::NodeOrToken::Node(c) if want_cond && Expr::cast(c.clone()).is_some() => {
-                    branches.last_mut()?.0 = Some(c);
+                    if let Some(b) = branches.last_mut() {
+                        b.0 = Some(c);
+                    }
                     want_cond = false;
                 }
                 rowan::NodeOrToken::Node(c) if c.kind() == K::Equation => {
-                    branches.last_mut()?.1.push(c);
+                    if let Some(b) = branches.last_mut() {
+                        b.1.push(c);
+                    }
                 }
                 _ => {}
             }
         }
-        for (cond, eqs) in branches {
+        branches
+    }
+
+    /// `if` の方程式の条件を先頭から評価し、真になる枝（無ければ `else`、それも無ければ空）の方程式を返す。
+    /// 途中で評価できない条件があれば `None`
+    fn const_branch(&self, node: &SyntaxNode, file: u32, ctx: &Rc<Ctx>) -> Option<Vec<SyntaxNode>> {
+        for (cond, eqs) in Self::if_branches(node) {
             let Some(c) = cond else { return Some(eqs) }; // else
             match self.eval(&c, file, ctx, 0)? {
                 Val::B(true) => return Some(eqs),
@@ -2392,6 +2419,90 @@ impl F<'_> {
             }
         }
         Some(Vec::new())
+    }
+
+    /// 条件に `[not] Connections.isRoot(N)`・`rooted(N)` を含む `if` の方程式は、枝ごとに平らにして `oc_ifs` に置く。
+    /// 根の決定（`graph.rs`）のあとで、真になる最初の枝だけを残す（S333）。条件が定数の枝は先に決める。
+    /// 置けない形（ほかの条件が混ざる・`connect` を含む）なら false を返して今までの道に任せる
+    fn defer_root_if(
+        &mut self,
+        node: &SyntaxNode,
+        file: u32,
+        ctx: &Rc<Ctx>,
+        initial: bool,
+        lv: &mut Level,
+    ) -> Res<bool> {
+        let mut branches = Vec::new();
+        let mut any = false;
+        for (cond, eqs) in Self::if_branches(node) {
+            let Some(c) = cond else {
+                branches.push((None, eqs));
+                break;
+            };
+            match self.eval(&c, file, ctx, 0) {
+                Some(Val::B(true)) => {
+                    branches.push((None, eqs));
+                    break;
+                }
+                Some(Val::B(false)) => {}
+                Some(_) => return Ok(false),
+                None => {
+                    let t = self.text(&c, file, ctx)?;
+                    let (not, t) = t
+                        .strip_prefix("not ")
+                        .map_or((false, t.as_str()), |r| (true, r));
+                    let hit = [("Connections.isRoot", false), ("Connections.rooted", true)]
+                        .into_iter()
+                        .find_map(|(f, r)| graph::arg(t, f).map(|n| (r, not, n)));
+                    let Some(h) = hit else { return Ok(false) };
+                    any = true;
+                    branches.push((Some(h), eqs));
+                }
+            }
+        }
+        if !any
+            || node
+                .descendants()
+                .filter_map(ast::CallExpr::cast)
+                .any(|c| c.callee().as_deref() == Some("connect"))
+        {
+            return Ok(false);
+        }
+        let at = if initial {
+            self.ieqs.len()
+        } else {
+            self.eqs.len()
+        };
+        self.push(initial, String::new(), 0);
+        let mut out = Vec::new();
+        for (c, eqs) in branches {
+            let (n0, k0) = (
+                if initial {
+                    self.ieqs.len()
+                } else {
+                    self.eqs.len()
+                },
+                self.oc_ifs.len(),
+            );
+            for e in eqs {
+                self.equation(&e, file, ctx, initial, lv)?;
+            }
+            if self.oc_ifs.len() != k0 {
+                return un("nested-isroot-if", node.text().to_string());
+            }
+            let tgt = if initial {
+                &mut self.ieqs
+            } else {
+                &mut self.eqs
+            };
+            out.push((c, tgt.split_off(n0)));
+        }
+        self.oc_ifs.push(graph::OcIf {
+            initial,
+            at,
+            branches: out,
+        });
+        Ok(true)
     }
 
     /// 条件が偽で落とした部品（またはその中・要素）か

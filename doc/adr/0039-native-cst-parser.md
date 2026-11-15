@@ -117,6 +117,22 @@ Track B（自前コア）は B1 rowan の CST と寛容なパーサ → B2 resol
 - **断った理由の内訳**（MSL の例題 566 本、最初の理由だけ数える。S284 → S297）: `redeclare` 263 → 0、`replaceable` 9 → 0、`class extends` 11 → 0、配列の型 13 → 0、レコードの束縛 41 → 155（先へ進んだ分。`frictionParameters = dcpmData.frictionParameters`〔後ろで宣言したレコード〕46、外部オブジェクト `tableID` 29、関数の戻り値のレコード `R = Frames.nullRotation()` 27、配列のレコード 11 ほか）、配列のコネクタの一括接続 7 → 72（`source.sineVoltage.p` のように部品の配列の同名のコネクタをまとめてつなぐ形）、`[:]` 13 → 20、条件つきの宣言 6 → 19（条件に配列の修飾つきの `useHeatPort` や文字列の比較）、`connect` の集合の不一致 7 → 8、配列の修飾 0 → 8、`expandable` 2、`stream` 1。
 - **持ち越し**: 後ろで宣言したレコードを欄ごとの修飾にするための宣言順の入れ替え（46 本）、関数の戻り値のレコード・外部オブジェクト、配列のコネクタの一括接続（72 本）、`Connections.isRoot` の評価、`xtask diff-frontend` への組み込み、B4（DAE）。
 
+## 付記（S333）: `Connections.isRoot`・`rooted` の根の決定（MultiBody の DAE の不一致）
+
+新しい ADR は立てず、S332 が特定した MultiBody の DAE の不一致（`Parts.Body` の `if not Connections.isRoot(frame_a.R) … elseif … else …`）を直した記録をここに足す。変えたのは `globe-mode-flat`（`flatten.rs`・`flatten/graph.rs`）だけで、`globe-mode-dae`・`globe-mode-syntax` は変えていない。
+
+- **仕様**: [MLS 9.4（master）](https://specification.modelica.org/master/connectors-and-connections.html)（2026-11-15 確認）。確定した根（`Connections.root`）は 1 つの全域木の根、確定した根が無い部分グラフは `potentialRoot` の優先度の数が一番小さいものが根（Section 9.4.2.2）。`isRoot(R)` は R が根に選ばれたとき真、`rooted(R)` は `branch` で R とつながるもう一方の節点より R が根に近いとき真（Section 9.4.1）。木の選び方は MLS が決めない。
+- **直し**（Rumoca の `rumoca-phase-flatten/src/vcg.rs` の `build_vcg` と同じ段取りを、自前の `graph.rs` に足した。コードは写していない）:
+  - `if` の方程式の条件が `[not] Connections.isRoot(N)`・`[not] Connections.rooted(N)` を含むとき、`flatten.rs` の `defer_root_if` が枝ごとに方程式を平らにして `graph::OcIf` に置く（条件が定数の枝は先に決める。`connect` を含む・ほかの条件が混ざるときは今までの道）。置き場所には 1 行の仮の行を入れておく。
+  - 全部の `connect` を集め終えた `apply_connection_graph` が根を決め、`OcIf` ごとに最初に条件が真の枝（`else` なら常に真）の方程式で仮の行を置き換える。`initial equation` の `if` も同じ。節点が過剰決定の接続の外なら Rumoca の既定（`isRoot` 真・`rooted` 偽）。
+  - 根は、確定した根、無ければ潜在的な根（優先度が小さく、同じなら名前が先）、無ければ名前が先の節点。`rooted(a)` は `branch(a, b)` の `a` の木の上の深さが `b` より小さいこと（同じ `a` の枝が複数なら最後のもの）。木は、必須の辺（`branch`）に、根（確定した根、無ければ選んだ根）からの距離が近い任意の辺（`connect`）から順に足して作る（Rumoca の辺の順と同じ。S312 は `connect` の書いた順だった）。
+  - S312 の `if Connections.isRoot(N) then … end if`（`else` なし）の文字による判定は、この道に統合した。
+- **見つけて直したもの**: `a * b`（ベクトルどうしの積）の方程式を 3 本と数えていた。`dims_of` の `*` を行列の積の形にし（ベクトル × ベクトルはスカラー、行列 × ベクトルは行の数）、`.*` は要素ごとのまま。これは `Joints.Constraints.Universal` の `frame_a.t * n_a = 0` で、`if` を枝の和集合で数えていたときは別の誤差と打ち消し合って一致して見えていた（最初の計測で `UniversalConstraint` が回帰に出て気づいた）。
+- **数字**（MSL の例題 566 本、S332 → S333。`GlobeModeValidation` 75 本は変わらず 73/73・73/73・73/73・正則 72/72。回帰 0、改善 39 本）: flat の方程式の数 435/463 → **449/463**（残り 14 本は Rotational と `ActuatorWithNoise` など Rumoca の数え方の誤りの 12 本と、`PrismaticConstraint`〔2 本差〕・`Fourbar1`〔3 本差〕）。MultiBody の 37 本（DAE が Rumoca の釣り合いまで通ったもの）の DAE の判定 297/334 → **332/334**、方程式と未知数の数 297/334 → **332/334**、状態の数 294/334 → **332/334**、構造の正則 296/334 → **301/334**。`EngineV6`（7392 対 7464）・`EngineV6_analytic`（6583 対 6631）の flat の方程式の数は Rumoca と一致（判定・数・状態も一致。正則だけ不一致）。`mise run msl:diff-frontend` は 519 s、最大 RSS 6.0 GiB（途中の 1 回目は回帰 1 本のため JSON を更新せず、直して回し直した）。
+- **試験**: `globe-mode-flat` に 4 本（`is_root_if_with_elseif_keeps_only_the_chosen_branch`〔`Parts.Body` の最小の形。世界につなぐと非根、単独だと根、`initial equation` の `if` も〕、`rooted_follows_the_branch_direction_in_the_spanning_tree`〔世界 — 継手 — Body。向きを逆につなぐと `rooted` が偽〕、`potential_root_with_lower_priority_number_becomes_the_root`、`product_shapes_count_scalars`）。S312 の試験 `overconstrained_connections_drop_broken_edges_and_non_root_ifs` も通る。
+- **shortcut**: 条件は `[not] isRoot(N)`・`[not] rooted(N)` の形だけ（`and`・`or` や、条件が複数の関数を含む形は今までの道）。枝の中に条件が `isRoot` の `if` を入れ子にした形は `nested-isroot-if` で断る（MSL には無い）。`rooted` は `branch` が複数あるときの MLS の制約（ちょうど 1 つ）を確かめない。大きさが 0 でない `equalityConstraint`（MultiBody の `Orientation`）を木の外の接続でどう扱うかは S312 のまま（等式を作らない。`Prismatic` の `zeros(3) = equalityConstraint(…)` の数え方は未確認）。
+- **持ち越し**: 構造の正則の不一致 33 本（MultiBody。DAE の判定・数・状態は合うので、正則の判定の差【原因未確認】。`Joints.Universal` と世界と `BodyShape` だけの最小の形でも再現するが、`R.T` の 2 次元の添字の名前〔自前 `T[1]`・Rumoca `T[1,1]`〕など、行の比べだけでは分けられなかった）、`PrismaticConstraint`・`Fourbar1` の方程式の数の差（2・3 本）。
+
 ## 付記（S332）: S329 と S330 を合わせた計測、括弧の式への添字、名前の食い違い 37 本の原因（Rumoca が配列を展開しない条件）
 
 新しい ADR は立てず、S329（`flat-arrays-complex`）と S330（`dae-mismatches-2`）を合わせて `mise run msl:diff-frontend` を回した記録をここに足す。変えたのは `globe-mode-syntax`（式の読み 1 か所）と `xtask diff-frontend`（比べ方と `--dump`）だけで、`globe-mode-flat`・`globe-mode-dae` は変えていない。
