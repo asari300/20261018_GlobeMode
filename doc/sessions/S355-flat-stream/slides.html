@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S355 flat の stream — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S355 flat の stream">
+
+<section class="slide" id="S01">
+  <span class="tag">S355 · 2026-11-16 · Track B</span>
+  <h1>flat の stream（inStream）</h1>
+  <p class="lead"><code>stream</code> で断っていた 21 本を、MLS 15 の定義どおりに平らにした</p>
+  <div class="big">断る理由 <b>stream 21 → 0</b>、平らにできた <b>518 → 538</b>、回帰 0</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">仕組み</span>
+  <h1>集合を作り、あとで置き換える</h1>
+  <ul>
+    <li><code>connect</code> の集合を作るとき、<code>stream</code> の葉は等式にせず「集合」として残す</li>
+    <li>外側のコネクタの端には <code>x = 集合の混合</code> を 1 本（内側の端・つながない端には作らない）</li>
+    <li>平らにし終わってから、式の中の <code>inStream(x)</code>・<code>actualStream(x)</code> を混合の式に置き換える</li>
+    <li>端 1 つなら相手の値、2 つ以上なら <code>max(∓m_flow, ε)</code> の重みの平均、つながないなら自分</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">直し</span>
+  <h1>stream を通すと見えた 2 つの穴</h1>
+  <table>
+    <tr><th>穴</th><th>直し</th></tr>
+    <tr><td>後ろの <code>inner system</code> の <code>massDynamics = energyDynamics</code> が引けず、初期方程式の <code>if</code> の全部の枝が残る（状態 8 本、Rumoca は 4 本）</td><td>既定値が別の欄そのものなら、その欄の修飾か既定値にたどる（<code>pending_bind</code>）</td></tr>
+    <tr><td><code>for</code> の中の <code>zeros(nXi) = …</code>（nXi = 0）を 1 本と数える（+44）</td><td><code>if</code>・<code>for</code> の中も入れ子でない方程式と同じ数え方に（<code>eq_count</code>）</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">数字</span>
+  <h1>MSL の例題 566 本（S335 → S355）</h1>
+  <div class="kpis">
+    <div class="kpi"><span class="n">538 / 566</span><span class="l">自前で平らにできた（前 518）</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">stream（前 21）</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">回帰（改善 21）</span></div>
+  </div>
+  <p>名前 508 / 511、方程式の数 498 / 511、DAE 538 / 538。<code>MediumFlow</code> も一致（Validation 75 / 75）</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">合わない項目</span>
+  <h1>新しい 20 本で合わないもの</h1>
+  <table>
+    <tr><th>項目</th><th>本数</th><th>原因</th></tr>
+    <tr><td>名前</td><td>3</td><td>Rumoca が <code>redeclare model M = X(show_Res = true)</code> の条件つき宣言を評価しない（小さなモデルで確認）</td></tr>
+    <tr><td>方程式の数</td><td>2</td><td>Rumoca が部品の配列 <code>heat2[5]</code> の方程式を 1 本と数える</td></tr>
+    <tr><td>DAE</td><td>5</td><td><code>ThermodynamicState</code> のレコードの方程式が欄ごとの行にならない【推測】</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li><code>BatchPlant_StandardWater</code> は <code>connect</code> で断る（<code>StateGraph</code> の <code>outer</code> のコネクタ。<code>connect</code> 10 本）</li>
+    <li>DAE のレコードの欄ごとの行（Fluid の 5 本）</li>
+    <li><code>smooth(0, m_flow * actualStream(x))</code> と、添字が定数でない <code>inStream(ports[i].h)</code></li>
+  </ul>
+  <p class="foot">GlobeMode S355</p>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

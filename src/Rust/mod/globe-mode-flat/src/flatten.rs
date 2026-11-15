@@ -10,6 +10,9 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::rc::Rc;
 
 mod graph;
+mod stream;
+
+use stream::OUT_STREAM;
 
 /// 修飾 `x(start = 1) = 2`。値は書いた場所の文脈（`Bind::ctx`）で名前を付け替える
 #[derive(Clone, Default)]
@@ -260,6 +263,8 @@ struct F<'a> {
     /// 過剰決定コネクタの接続集合（`graph::OcSet`）と、すべての `connect` の端
     oc_sets: Vec<graph::OcSet>,
     conn_pairs: Vec<(String, String)>,
+    /// stream 変数の接続集合（MLS 15.2）。端は（葉の名前, 外側のコネクタの端か）。`expand_streams` が `inStream` などを展開する（S355）
+    stream_sets: Vec<Vec<(String, bool)>>,
     /// 条件に `Connections.isRoot`・`rooted` を含む `if` の方程式（根の決定のあとに枝を選ぶ。S333）
     oc_ifs: Vec<graph::OcIf>,
 }
@@ -303,6 +308,7 @@ pub(crate) fn run(p: &Project, cid: ClassId, model: &str) -> Res<FlatModel> {
         oc_nodes: BTreeMap::new(),
         oc_sets: Vec::new(),
         conn_pairs: Vec::new(),
+        stream_sets: Vec::new(),
         oc_ifs: Vec::new(),
     };
     // パッケージの中のモデルを直接平らにするときは、そのパッケージが差し替え後のパッケージ（`TwoPhaseWater.BaseProperties`）
@@ -323,6 +329,7 @@ pub(crate) fn run(p: &Project, cid: ClassId, model: &str) -> Res<FlatModel> {
         }
     }
     f.apply_connection_graph();
+    f.expand_streams()?;
     Ok(FlatModel {
         name: model.to_string(),
         vars: f.vars,
@@ -2009,7 +2016,8 @@ impl F<'_> {
                             let Some(b) = self.env.get(&key) else {
                                 // まだ平らにしていない部品（宣言が後ろの `inner world`）の欄は、修飾か型の既定値から
                                 let tgt = key.strip_suffix(&format!(".{}", parts.last()?))?;
-                                return (parts.len() == 2)
+                                // 欄の既定値が同じ部品の別の欄（`massDynamics = energyDynamics`）を引くときは、前置きが部品（`parts` は欄だけ。S355）
+                                return (parts.len() <= 2)
                                     .then(|| self.pending_field(tgt, parts.last()?, d))
                                     .flatten();
                             };
@@ -2157,7 +2165,24 @@ impl F<'_> {
             return Some(b.clone());
         }
         // 型の既定値の式が、宣言の場所で修飾された欄を使うなら決めない（この文脈は修飾を知らない）
-        let b = self.pkg_env(self.pending_type(tgt)?)?.get(field)?.clone();
+        let env = self.pkg_env(self.pending_type(tgt)?)?;
+        let mut b = env.get(field)?.clone();
+        // 既定値が別の欄そのもの（`massDynamics = energyDynamics`）なら、その欄の修飾か既定値にたどる（S355）
+        for _ in 0..8 {
+            let Some(Expr::ComponentRef(c)) = Expr::cast(b.node.clone()) else {
+                break;
+            };
+            let parts = c.parts();
+            let [f] = parts.as_slice() else { break };
+            if !b.suffix.is_empty() || b.lit.is_some() {
+                break;
+            }
+            if let Some(m) = p.m.sub.get(f).and_then(|x| x.val.as_ref()) {
+                return Some(m.clone());
+            }
+            let Some(next) = env.get(f) else { break };
+            b = next.clone();
+        }
         let modified: Vec<&String> = p.m.sub.keys().collect();
         (!mentions(&b.node, &modified)).then_some(b)
     }
@@ -2842,16 +2867,7 @@ impl F<'_> {
                             self.text(l.syntax(), file, ctx)?,
                             self.text(r.syntax(), file, ctx)?
                         );
-                        let by_dims = |x: &Expr| {
-                            self.dims_of(x.syntax(), file, ctx)
-                                .and_then(|d| dims_product(&d))
-                        };
-                        let c = self
-                            .shape(l, file, ctx)
-                            .or_else(|| self.shape(r, file, ctx))
-                            .or_else(|| by_dims(l))
-                            .or_else(|| by_dims(r))
-                            .unwrap_or(1);
+                        let c = self.eq_count(l, r, file, ctx);
                         self.push(initial, t, c);
                     }
                     _ => return un("equation-shape", node.text().to_string()),
@@ -2859,6 +2875,19 @@ impl F<'_> {
                 Ok(())
             }
         }
+    }
+
+    /// `l = r` のスカラーの数（どちらかの形から。決まらなければ 1）
+    fn eq_count(&self, l: &Expr, r: &Expr, file: u32, ctx: &Rc<Ctx>) -> usize {
+        let by_dims = |x: &Expr| {
+            self.dims_of(x.syntax(), file, ctx)
+                .and_then(|d| dims_product(&d))
+        };
+        self.shape(l, file, ctx)
+            .or_else(|| self.shape(r, file, ctx))
+            .or_else(|| by_dims(l))
+            .or_else(|| by_dims(r))
+            .unwrap_or(1)
     }
 
     /// `if` の方程式の枝（条件、枝の方程式）の並び。`else` の条件は `None`
@@ -3187,10 +3216,7 @@ impl F<'_> {
                     _ => {
                         let es: Vec<Expr> = c.children().filter_map(Expr::cast).collect();
                         match es.as_slice() {
-                            [l, r] => self
-                                .shape(l, file, ctx)
-                                .or_else(|| self.shape(r, file, ctx))
-                                .unwrap_or(1),
+                            [l, r] => self.eq_count(l, r, file, ctx),
                             _ => 0,
                         }
                     }
@@ -3425,7 +3451,20 @@ impl F<'_> {
                 });
             } else {
                 if v.stream {
-                    return un("stream", names[set[0]].clone());
+                    // 大きさ 0 の配列の欄（`Xi_outflow[0]`）は端にしない。外側の端ごとに 1 本、`x = <集合の混合>`（MLS 15.2。本文は expand_streams が作る）
+                    if count > 0 {
+                        self.stream_sets
+                            .push(set.iter().map(|&i| (names[i].clone(), info[i].2)).collect());
+                        for &i in set.iter().filter(|&&i| info[i].2) {
+                            let n = &names[i];
+                            self.eqs.push(Equation {
+                                text: format!("{n} = {OUT_STREAM}({n})"),
+                                count,
+                                origin: origin.clone(),
+                            });
+                        }
+                    }
+                    continue;
                 }
                 // コネクタの中の parameter・constant は等式にしない（Rumoca の flat も同じ）
                 if matches!(v.kind, VarKind::Parameter | VarKind::Constant) {
@@ -3473,9 +3512,6 @@ impl F<'_> {
         for n in inside {
             for (suffix, vi, count) in self.leaves(n) {
                 let v = &self.vars[vi];
-                if v.stream {
-                    return un("stream", n.clone());
-                }
                 if v.flow && !connected.contains(format!("{n}{suffix}").as_str()) {
                     self.eqs.push(Equation {
                         text: format!("{n}{suffix} = 0"),

@@ -2,7 +2,7 @@
 //!
 //! - 入力は `globe-mode-syntax` の CST と `globe-mode-resolve` の名前解決だけ（`Project` が両方を持つ）。
 //! - 範囲: 部品の入れ子（`a.b.x`）、`extends`、修飾（外側が勝つ）、parameter の束縛、方程式の名前の付け替え、
-//!   `connect`（potential は等式、flow は和が 0、つながない内側の flow は 0。`stream` は断る）、
+//!   `connect`（potential は等式、flow は和が 0、つながない内側の flow は 0。`stream` は S355 で展開する）、
 //!   大きさが定数の配列（部品の配列は要素ごとに展開、`for` の方程式も展開）。
 //! - S284: 条件つきの宣言（条件が定数に評価できるとき。偽なら宣言と、それにつながる `connect` を落とす）、
 //!   定数の条件の `if` の方程式（選んだ枝だけを平らにする。`connect` も入る）、`inner`/`outer`（`outer` は部品を作らず、
@@ -15,7 +15,10 @@
 //!   `redeclare package M = X` された `M` を通した型名・定数（`Medium.BaseProperties`・`Medium.nXi`）は差し替え先のパッケージで引き、
 //!   受け継いだクラスの中のパッケージのメンバー（`ThermodynamicState`・`nXi`）も差し替え後のパッケージで引き直す。関数の差し替えは平らにしない。
 //! - 断るもの（`Unsupported::kind`）: 長い形の `redeclare model M … end M`、`inner` の無い `outer`、評価できない条件の宣言、外部関数、
-//!   `stream`、`expandable`、`class extends`、形の決まらない `[:]`、関数の戻り値のレコード、評価できない条件の `if`/`when` の中の `connect` など。
+//!   `expandable`、`class extends`、形の決まらない `[:]`、関数の戻り値のレコード、評価できない条件の `if`/`when` の中の `connect` など。
+//! - S355: `stream`（MLS 15）。接続集合の `stream` 変数ごとに、外側のコネクタの端の方程式 `x = <集合の混合>` を 1 本作り、式の中の
+//!   `inStream(x)`・`actualStream(x)` を接続集合の混合の式（端が 1 つなら相手の値、2 つ以上なら流量の重みの平均、つながないなら自分）に置き換える
+//!   （`flatten/stream.rs`）。添字が定数でない `inStream(ports[i].h)` と、流量が 1 つに決まらないコネクタは断る（`stream`）。
 //!
 //! 既存のフロントエンド（Rumoca）にはつながない（doc/adr/0039-native-cst-parser.md の付記）。
 
