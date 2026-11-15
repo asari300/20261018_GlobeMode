@@ -4,6 +4,7 @@
 
 | S | 日付 | Phase | 題名 | ブランチ | 状態 | スライド | 解説書 | セッション記録 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| S290 | 2026-11-15 | Track B | `trackb-dae`: B4 の最初の一切れ。新しい crate `globe-mode-dae` が、平らなモデルから変数の役割・`DaeStructure`・釣り合いの数を作る。MSL の例題で Rumoca の釣り合いまで通った 146 本のうち、判定 144・方程式と未知数の数 144・状態の数 141・正則 132 が一致（`GlobeModeValidation` は 71/71）。ADR-0039 の付記 | `feature/s290-trackb-dae` | 完了 | [slides](S290-trackb-dae/slides.html) | [解説書](S290-trackb-dae/解説書.md) | なし（記録が `log/local/` に無い） |
 | S286 | 2026-11-15 | P8 | `linearize-eigen`: 線形化の JSON・CLI に A の固有値（極）と安定性（安定 / 不安定 / 境界）を足した（facade `eigenvalues`・`stability`、nalgebra の実シューア分解） | `feature/s286-linearize-eigen` | 完了 | [slides](S286-linearize-eigen/slides.html) | [解説書](S286-linearize-eigen/解説書.md) | なし（記録が `log/local/` に無い） |
 | S288 | 2026-11-15 | 保守 | `review-issues`: レビューの issue #98〜#104 の 7 件を監査し、7 件とも直した（`move_part` の `iconTransformation`、複数の名前の宣言、Diagram の編集の入口の検査、`Ssp::open` の読み直し、同じ入力への結線・同名の Component、`.ssp` の `--timeout`、`globe/linearize` の型違い） | `feature/s288-review-issues` | 完了 | [slides](S288-review-issues/slides.html) | [解説書](S288-review-issues/解説書.md) | なし |
 | S285 | 2026-11-15 | P7 | `lang-linearize-blt`: 線形化 `linearize` と BLT `blt` を C ABI（`gm_linearize`・`gm_blt`）・Zig・Julia・NIF・Elixir・Gleam から呼べるようにした（facade に `linearize_json`・`blt_json`、JSON の文字列を返すだけ） | `feature/s285-lang-linearize-blt` | 完了 | [slides](S285-lang-linearize-blt/slides.html) | [解説書](S285-lang-linearize-blt/解説書.md) | なし（記録が `log/local/` に無い） |
