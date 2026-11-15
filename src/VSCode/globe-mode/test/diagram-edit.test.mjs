@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import { diagramDrag } from "../../../Svelte/src/lib/diagram-drag.ts";
 import { deleteOf, markSel, pickSel } from "../../../Svelte/src/lib/diagram-select.ts";
+import { addWaypointOf, halfOf, handleNode, handlesOf } from "../../../Svelte/src/lib/diagram-waypoint.ts";
 
 const { parseEdit, parseParams, partParams, enumValue } = createRequire(import.meta.url)("../edit.js");
 
@@ -135,6 +136,42 @@ test("webview は Delete / Backspace を選びのあるときだけ postMessage 
   assert.ok(web.includes("deleteOf(selected, e.key)") && web.includes('type: "deletePart"') && web.includes('type: "deleteConnect"'));
   assert.ok(!web.includes("innerHTML"));
   assert.ok(readFileSync(new URL("../panel.js", import.meta.url), "utf8").includes('"deletePart", "deleteConnect"'));
+});
+
+test("途中の点のメッセージの検査（S302）。端・index・座標・ends を見て、file・class は通さない", () => {
+  const mv = { type: "moveWaypoint", id: 1, from: "a.p", to: "b[2].n", index: 1, dx: 2, dy: -4 };
+  assert.deepEqual(parseEdit({ ...mv, file: "/x", class: "X" }), { id: 1, method: "globe/moveWaypoint", args: { from: "a.p", to: "b[2].n", index: 1, dx: 2, dy: -4 } });
+  const add = { type: "addWaypoint", id: 2, from: "a.p", to: "b.n", index: 1, x: 4, y: 6, ends: [[0, 0], [10, 10]] };
+  assert.deepEqual(parseEdit(add), { id: 2, method: "globe/addWaypoint", args: { from: "a.p", to: "b.n", index: 1, x: 4, y: 6, ends: [[0, 0], [10, 10]] } });
+  for (const bad of [
+    { ...mv, index: 1.5 }, { ...mv, index: -1 }, { ...mv, index: "1" }, { ...mv, index: 1e9 }, { ...mv, dx: NaN }, { ...mv, dy: 1e9 }, { ...mv, from: "a" }, { ...mv, to: "b.n);x(" }, { ...mv, id: undefined },
+    { ...add, x: Infinity }, { ...add, ends: [[0, 0]] }, { ...add, ends: [[0, 0], [1, 1], [2, 2]] }, { ...add, ends: [[0, 0], [1]] }, { ...add, ends: [[0, 0], [1, "1"]] }, { ...add, ends: "xx" }, { ...add, to: "b.n.x" }, { ...add, index: 0.5 },
+  ]) assert.equal(parseEdit(bad), null, JSON.stringify(bad));
+});
+
+test("途中の点のつまみと足す点の決め方（DiagramView と共有）", () => {
+  const line = (points) => ({ points });
+  const diagram = {
+    extent: [-100, -100, 100, 100],
+    parts: [{ name: "a", connectors: [{ name: "p", pos: [-50, 0] }] }, { name: "b", connectors: [{ name: "n", pos: [50, 0] }] }],
+    connections: [{ from: "a.p", to: "b.n", line: line([[-50, 0], [0, 0], [0, 20], [50, 0]]) }, { from: "a.p", to: "b.n2", line: line([[-50, 0], [50, 0]]) }],
+  };
+  assert.deepEqual(handlesOf(diagram, { key: "a.p b.n" }).map((h) => h.index), [1, 2], "最初と最後は出さない");
+  assert.deepEqual(handlesOf(diagram, { part: "a" }), []);
+  assert.equal(halfOf(diagram), 2.5);
+  const n = handleNode(handlesOf(diagram, { key: "a.p b.n" })[1], 2.5);
+  assert.deepEqual([n.attrs.class, n.attrs["data-wp"], n.attrs["data-index"], n.attrs.x, n.attrs.y], ["wp", "a.p b.n", 2, -2.5, -22.5]);
+  // 点 (-3, 10) に近いのは線分 1（(0,0)-(0,20)）なので、その次の番号 2。座標は 2 単位に吸着
+  assert.deepEqual(addWaypointOf(diagram, "a.p b.n", -3, 10), { from: "a.p", to: "b.n", index: 2, x: -2, y: 10, ends: [[-50, 0], [50, 0]] });
+  assert.equal(addWaypointOf(diagram, "x y", 0, 0), null);
+  assert.equal(addWaypointOf(diagram, null, 0, 0), null);
+});
+
+test("webview はつまみの移動と線のダブルクリックを postMessage にし、パネルは受ける（innerHTML は使わない）", () => {
+  const web = readFileSync(new URL("../webview.js", import.meta.url), "utf8");
+  assert.ok(web.includes('type: "moveWaypoint"') && web.includes('type: "addWaypoint"') && web.includes('"dblclick"'));
+  assert.ok(!web.includes("innerHTML"));
+  assert.ok(readFileSync(new URL("../panel.js", import.meta.url), "utf8").includes('"moveWaypoint", "addWaypoint"'));
 });
 
 test("パラメータの入力（S306）: webview の要求は部品の名前だけ。一覧からは部品の直下の書けるものだけを取り、列挙は型つきの名前にする", () => {
