@@ -57,7 +57,7 @@ async function ensure(model, extra = [], basesOnly = false) {
     const closure = JSON.parse(lazy.closure.closure(model, JSON.stringify([...docs.values(), ...extra]), basesOnly));
     const need = closure.filter((n) => lazy.stub.has(n));
     if (!need.length) break;
-    await fetchChunks(need);
+    await fetchChunks(need, basesOnly ? 0 : lazy.prefetch); // 基底だけの閉包（木のアイコン）は deps（全部の参照）をたどると取りすぎる
     grown = true;
   }
   if (grown) rebuild();
@@ -65,8 +65,18 @@ async function ensure(model, extra = [], basesOnly = false) {
   lazy.ok.add(key);
 }
 
-async function fetchChunks(names) {
-  const ids = [...new Set(names.map((n) => lazy.chunk[n]))].filter((i) => !lazy.got.has(i));
+// 名前のファイルの塊と、その塊から索引の deps を depth 段たどった塊（先読み。S308）をまとめて並行に取る。
+// 本文だけが参照を持つので閉包は取るたびに広がる。先読みは、その往復を減らす目安（足りなければ呼び手が繰り返す。取りすぎは起きうる）
+async function fetchChunks(names, depth = 0) {
+  const seen = new Set(names.map((n) => lazy.chunk[n]));
+  for (let frontier = [...seen]; depth-- > 0 && frontier.length; ) {
+    frontier = frontier.flatMap((i) => lazy.deps[i] ?? []).filter((d) => !seen.has(d) && !lazy.got.has(d));
+    frontier = [...new Set(frontier)];
+    for (const d of frontier) seen.add(d);
+  }
+  const ids = [...seen].filter((i) => !lazy.got.has(i));
+  if (!ids.length) return;
+  lazy.rounds++;
   const texts = await Promise.all(
     ids.map(async (i) => (await getText(`${lazy.base}c/${i}.json`)) ?? Promise.reject(new Error(`MSL の塊 ${i} を取得できない（${lazy.base}c/${i}.json）`))),
   );
@@ -109,11 +119,11 @@ const ops = {
     ws = next;
     docs.clear();
     lazy?.closure.free();
-    lazy = { name, base: url.slice(0, url.lastIndexOf("/") + 1), files, stub: new Set(Object.keys(idx.stubs)), chunk: idx.chunk, got: new Set(), ok: new Set(), closure: new gm.LibraryClosure(JSON.stringify(files)), bytes: indexText.length, chunks: idx.chunks };
+    lazy = { name, base: url.slice(0, url.lastIndexOf("/") + 1), files, stub: new Set(Object.keys(idx.stubs)), chunk: idx.chunk, got: new Set(), rounds: 0, deps: idx.deps ?? [], prefetch: idx.prefetch ?? 0, ok: new Set(), closure: new gm.LibraryClosure(JSON.stringify(files)), bytes: indexText.length, chunks: idx.chunks };
     return { files: Object.keys(files).length, chunks: idx.chunks, bytes: indexText.length };
   },
   // 分割配信で、ここまでに取った塊の数と文字数（索引を含む）。分割配信でなければ null
-  library_stats: () => lazy && { chunks: lazy.got.size, of: lazy.chunks, bytes: lazy.bytes, stubs: lazy.stub.size },
+  library_stats: () => lazy && { chunks: lazy.got.size, of: lazy.chunks, bytes: lazy.bytes, stubs: lazy.stub.size, rounds: lazy.rounds },
   set_file({ name, text }) {
     W().set_file(name, text);
     docs.set(name, text);

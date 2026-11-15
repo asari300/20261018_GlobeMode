@@ -170,6 +170,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - S092・S100・S103・S106・S147・S159: Android の APK（`android.yml`）。sidecar は使わず Worker 上の wasm で、MSL を同梱し、API 34 のエミュレータで検査・実行・UI の操作を確かめる。release の APK は ABI ごと。
 - S093: ブラウザ版が CSP `connect-src 'self'` のまま実行でき、外への要求が 0 件であることを試験で確かめた。
 - S301: ブラウザ版は MSL を分割して配る（`msl/index.json` と塊 `msl/c/*.json`）。開いたモデルの閉包に要る塊だけを取り、ChuaCircuit の初回の取得は 15.2 → 4.6 MiB。配布物 `globe-web` に `MSL.json` は入らない。
+- S308: MSL の分割配信で、塊を先読みして往復を減らした（索引に塊ごとの依存を持たせ、閉包に要る塊から 2 段たどってまとめて取る。ChuaCircuit の塊の往復 11 → 3、取る量 4.6 → 5.2 MiB）。Android の APK から `MSL.json` を外し、分割配信だけにした（APK は軽くならず arm64 で +1.2 MB。塊を別々に圧縮するため）。
 - S145: ブラウザ版の配布物（`web.yml` が artifact `globe-web` に wasm・UI・`MSL.json`・CSP の header の断片を出す。サブパスで動く）。公開先はまだ無い。
 - S160: Desktop の macOS（`desktop.yml` に `macos-latest`。署名・公証なしの .dmg）。
 
