@@ -83,15 +83,12 @@ fn syntax_error_and_unresolved_name_have_positions() {
 
 #[test]
 fn unsupported_is_reported_not_switched_to_rumoca() {
-    let m = temp_model(
-        "e.mo",
-        "expandable connector EC\n  Real a;\nend EC;\nmodel E\n  EC ec;\nend E;\n",
-    );
+    let m = temp_model("e.mo", "model E\n  extends Real;\nend E;\n");
     let o = globe(&["check", &m, "-m", "E", "--frontend", "native"]);
     assert_eq!(o.status.code(), Some(3), "{}", out(&o));
     assert!(out(&o).contains("unsupported[GM-U0006]"), "{}", out(&o));
     assert!(
-        out(&o).contains("native では未対応: expandable"),
+        out(&o).contains("native では未対応: extends-builtin"),
         "{}",
         out(&o)
     );

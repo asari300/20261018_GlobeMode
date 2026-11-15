@@ -15,7 +15,7 @@
 //!   `redeclare package M = X` された `M` を通した型名・定数（`Medium.BaseProperties`・`Medium.nXi`）は差し替え先のパッケージで引き、
 //!   受け継いだクラスの中のパッケージのメンバー（`ThermodynamicState`・`nXi`）も差し替え後のパッケージで引き直す。関数の差し替えは平らにしない。
 //! - 断るもの（`Unsupported::kind`）: 長い形の `redeclare model M … end M`、`inner` の無い `outer`、評価できない条件の宣言、外部関数、
-//!   `expandable`、`class extends`、形の決まらない `[:]`、関数の戻り値のレコード、評価できない条件の `if`/`when` の中の `connect` など。
+//!   `class extends`、形の決まらない `[:]`、関数の戻り値のレコード、評価できない条件の `if`/`when` の中の `connect` など。
 //! - S355: `stream`（MLS 15）。接続集合の `stream` 変数ごとに、外側のコネクタの端の方程式 `x = <集合の混合>` を 1 本作り、式の中の
 //!   `inStream(x)`・`actualStream(x)` を接続集合の混合の式（端が 1 つなら相手の値、2 つ以上なら流量の重みの平均、つながないなら自分）に置き換える
 //!   （`flatten/stream.rs`）。添字が定数でない `inStream(ports[i].h)` と、流量が 1 つに決まらないコネクタは断る（`stream`）。
@@ -76,6 +76,9 @@ pub struct Var {
     pub attrs: Vec<(String, String)>,
     /// 宣言の位置（`extends` で受け継いだ宣言は基底クラスのファイルの位置。`redeclare` で差し替えても元の宣言）
     pub origin: Option<Origin>,
+    /// expandable connector の宣言済みの欄で、束縛が無く、接続の方程式にも入らなかったもの（MLS 9.1.3 は残さない。
+    /// Rumoca の flat も変数には残し、DAE が未知数に数えない。S367）
+    pub unused_expandable: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

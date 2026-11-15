@@ -289,7 +289,7 @@ fn check_returns_diagnostics_without_running() {
     ); // S173: 無いときは出ない
 }
 
-/// S347: `check_with` はフロントエンドを選ぶ。native は自前の段（S0〜S6）で、断る形（expandable）は `GM-U0006`。
+/// S347: `check_with` はフロントエンドを選ぶ。native は自前の段（S0〜S6）で、断る形（組み込みの型を継承する `extends Real`）は `GM-U0006`。
 /// 知らない名前は例外だが、`JsValue` はネイティブで作れないので wasm の試験（node/smoke.mjs）で確かめる。
 #[test]
 fn check_with_selects_the_frontend() {
@@ -301,10 +301,7 @@ fn check_with_selects_the_frontend() {
         "Decay.mo",
         "model Decay Real x(start = 1, fixed = true); equation der(x) = -x; end Decay;",
     );
-    ws.put_file(
-        "E.mo",
-        "expandable connector EC\n  Real a;\nend EC;\nmodel E\n  EC ec;\nend E;\n",
-    );
+    ws.put_file("E.mo", "model E\n  extends Real;\nend E;\n");
     let default: serde_json::Value = serde_json::from_str(&ws.check("Decay").unwrap()).unwrap();
     assert_eq!(json(&mut ws, "Decay", "rumoca"), default);
     let e = json(&mut ws, "E", "native");

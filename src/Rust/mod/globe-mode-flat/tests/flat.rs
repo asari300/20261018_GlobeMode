@@ -972,6 +972,40 @@ fn unsized_dims_from_comprehension_function_args_and_record_fields() {
 }
 
 #[test]
+fn record_arrays_bound_through_record_fields_and_2d_connector_arrays() {
+    // S367: `r = other` の欄がレコードの配列（`rc[n] = d.rc`）、`anyTrue` と parameter の行列 `k[i, 1]` で選ぶ `if`、2 次元の部品の配列の `connect`
+    let m = flat(
+        "connector P Real v; flow Real i; end P;
+         model Res P p; P n; parameter Real R = 1; equation p.v - n.v = R * p.i; p.i + n.i = 0; end Res;
+         record RC parameter Real R = 1; end RC;
+         record D parameter Integer n = 2; parameter RC rc[n] = {RC(R = 2), RC(R = 3)}; end D;
+         model In D d; RC rc[d.n] = d.rc; end In;
+         package Modelica package Math package BooleanVectors
+           function anyTrue input Boolean b[:]; output Boolean r; algorithm r := false; end anyTrue;
+         end BooleanVectors; end Math; end Modelica;
+         model Sl Res r[3]; P q[3]; equation connect(r[3:-1:2].p, q[1:2]); end Sl;
+         model Top import Modelica.Math.BooleanVectors.anyTrue; D d; In c(d = d); Sl sl;
+           parameter Integer k[:, 2] = [1, 2];
+           RC pick[1, 2] = {{if anyTrue({a == k[i, 1] and b == k[i, 2] for i in 1:size(k, 1)}) then RC(R = 7) else RC(R = 8) for b in 1:2} for a in 1:1};
+           Res r[2, 2]; P q[2, 2];
+         equation connect(r.p, q); end Top;",
+        "Top",
+    );
+    let b = |n: &str| m.vars.iter().find(|v| v.name == n).unwrap().binding.clone();
+    assert_eq!(b("c.rc[2].R").as_deref(), Some("c.d.rc[2].R"));
+    assert_eq!(b("pick[1,1].R").as_deref(), Some("8"));
+    assert_eq!(b("pick[1,2].R").as_deref(), Some("7"));
+    // 部品の 2 次元の配列 `r.p` と `q[2, 2]` が 4 要素ずつ対応する（potential 4 本）
+    assert_eq!(
+        eqs(&m).iter().filter(|e| e.ends_with("q[1,1].v")).count(),
+        1
+    );
+    // 範囲の切り出し `r[3:-1:2].p` と `q[1:2]` は要素ごとに（r[3]-q[1]、r[2]-q[2]）
+    assert!(eqs(&m).contains(&"sl.r[3].p.v = sl.q[1].v".to_string()));
+    assert!(eqs(&m).contains(&"sl.r[2].p.v = sl.q[2].v".to_string()));
+}
+
+#[test]
 fn complex_arrays_expand_elementwise() {
     // S336: `Complex` の配列の束縛は要素ごとに。内包 `{… for k in 1:n}`、部品の配列を通した欄の差、関数の戻り値の行列
     let m = flat(
@@ -1003,10 +1037,9 @@ fn complex_arrays_expand_elementwise() {
             .binding
             .clone()
     };
-    assert_eq!(
-        b("w[2].re").as_deref(),
-        Some("if c[2] then u[2].re else -u[2].re")
-    );
+    // 条件 `c[k]` は parameter の配列の要素で、評価できるので選んだ枝だけを印字する（スカラーの parameter と同じ。S367）
+    assert_eq!(b("w[1].re").as_deref(), Some("u[1].re"));
+    assert_eq!(b("w[2].re").as_deref(), Some("-u[2].re"));
     assert_eq!(
         b("v[2].im").as_deref(),
         Some("p.pin[2].v.im - q.pin[2].v.im")

@@ -1491,7 +1491,7 @@ def many_result_view(browser, origin: str, errors: list[str]) -> None:
 
 def check_frontend_select(browser, origin: str, errors: list[str]) -> None:
     """S347: 検査のフロントエンド（設定に従う / Rumoca / 自前（試験））の選択。既定は「設定に従う」（S350。ブラウザは設定ファイルが無いので Rumoca と同じで要約を出さない）。
-    「自前」で検査すると Rust の要約（S0〜S6 まで）が出て、自前の段が断る形（expandable）は GM-U0006 で「自前の段の原文」になる。
+    「自前」で検査すると Rust の要約（S0〜S6 まで）が出て、自前の段が断る形（組み込みの型を継承する `extends Real`）は GM-U0006 で「自前の段の原文」になる。
     S349: Desktop（偽の window.__TAURI__）にも選択肢があり、sidecar の `globe/check` の params.frontend に選んだ名前が乗る。
     S350: 「設定に従う」のあいだは frontend を渡さず、設定が native だった応答（応答の frontend）は要約を出す。"""
     pg = browser.new_page()
@@ -1512,7 +1512,7 @@ def check_frontend_select(browser, origin: str, errors: list[str]) -> None:
     pg.close()
 
     pg = browser.new_page()
-    open_text_model(pg, origin, errors, "E.mo", "expandable connector EC\n  Real a;\nend EC;\nmodel E\n  EC ec;\nend E;\n", "E")
+    open_text_model(pg, origin, errors, "E.mo", "model E\n  extends Real;\nend E;\n", "E")
     pg.get_by_label("検査のフロントエンド").select_option("native")
     pg.get_by_role("button", name="検査").click(force=True)
     expect(pg.locator("[data-unsupported]")).to_be_visible(timeout=120_000)
@@ -1552,7 +1552,7 @@ def check_frontend_select(browser, origin: str, errors: list[str]) -> None:
     expect(dt.locator("[data-native-note]")).to_contain_text("native: S0〜S6", timeout=30_000)
     assert [c.get("frontend") for c in dt.evaluate("__checks")] == [None, "rumoca", "native", None, None]
     dt.close()
-    print("検査のフロントエンド: ブラウザに選択肢があり、自前で Decay が通って要約が出て、expandable は GM-U0006（自前の段の原文）、Desktop にも選択肢があり sidecar の globe/check に選んだ frontend が乗る（設定に従うあいだは乗らず、応答の frontend が native なら要約が出る）")
+    print("検査のフロントエンド: ブラウザに選択肢があり、自前で Decay が通って要約が出て、組み込みの型を継承する extends Real は GM-U0006（自前の段の原文）、Desktop にも選択肢があり sidecar の globe/check に選んだ frontend が乗る（設定に従うあいだは乗らず、応答の frontend が native なら要約が出る）")
 
 
 # タブ列の上端（文書の座標）の最大と最小を 5 ms ごとに取る記録器。reset() からの差が、その間の配置のずれ（S363）
