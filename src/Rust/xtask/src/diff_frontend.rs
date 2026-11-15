@@ -300,6 +300,14 @@ fn dump_structure(who: &str, s: &globe_mode_ir::DaeStructure) {
             .collect();
         println!("    {who} row[{i}] {} -> {inc:?} state {st:?}", e.label);
     }
+    // 構造特異のとき、マッチしなかった行と未知数（正則の食い違いを調べる。S362）
+    let r = globe_mode_analysis::analyze(s);
+    for &i in &r.unmatched_equations {
+        println!("    {who} unmatched row[{i}] {}", s.equations[i].label);
+    }
+    for &u in &r.unmatched_unknowns {
+        println!("    {who} unmatched unknown {}", s.unknowns[u].name);
+    }
     let covered: std::collections::HashSet<u32> = s.incidence.iter().flatten().copied().collect();
     for (u, k) in s.unknowns.iter().enumerate() {
         if !covered.contains(&(u as u32)) {

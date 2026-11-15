@@ -46,3 +46,4 @@ MSL Fluid の `FixedInitial` の例題【本数未確認】。GlobeMode の S8�
 ## 備考
 
 - 下書き 08（修正の範囲）と同じ族だが、別のコードの道。
+- MSL の別の形（S362、2026-11-16、Rumoca v0.10.2・v0.10.4 の `--emit flat-json`）: `Modelica.Fluid.Examples.HeatingSystem` は `inner Modelica.Fluid.System system(energyDynamics = Dynamics.SteadyStateInitial)` を宣言する。flat は `system.energyDynamics` を `SteadyStateInitial` に、`tank.energyDynamics` を `system.energyDynamics` に束縛するのに、`initial_equations` は 8 本で `der(...)` を含むものが 1 本も無い。容積の `if energyDynamics == Dynamics.SteadyStateInitial then ... der(medium.T) = 0` の枝が消えている。自前は残す（状態は自前 20、Rumoca 11。初期方程式で `der(...) = 0` の変数は、どちらも状態に数えるため）。原因は上と同じ（型の既定を読む）らしいが、たどっていない【未確認】。

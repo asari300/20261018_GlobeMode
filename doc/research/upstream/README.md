@@ -5,7 +5,7 @@
 S045（計画書の WP-H）で書いた（15 は S055、16 は S068、17〜21 は S070、24〜26 は S072。20・25 の追記と `20b`・`25b` の再現は S080、25 の 2 回目の追記と `25c`〜`25h`・27 は S083、28〜30 と 25・27 の追記は S091、31・32 と 28 の追記は S108。28〜32 の v0.10.4 での再確認と日本語版（`_jp.md`・`_jp.html`）、AixLib 向けの 33 は S113。17〜27 の v0.10.4 での再確認と日本語版は S115。01〜16 の v0.10.4 での再確認（各件の「Re-check」の節）と日本語版は S162。25 を形ごとに 25b〜25h の `.md` に分けたのは S096。36 は S331）、[Rumoca](https://github.com/CogniPilot/rumoca) と [diffsol](https://github.com/martinjrobins/diffsol) に出す issue の下書き。元の記録は [../msl-sim-failures.md](../msl-sim-failures.md) の「上流に報告する候補」と、[../../roadmap.md](../../roadmap.md) の候補 8。
 
 - **出すのはユーザー。エージェントは出さない**（`gh issue create` を使わない）。
-- **出すときは、再現を Rumoca の最新（main）で確かめてから出す。** 下書きの環境は Rumoca v0.10.2（rev `276e82bd`）、MSL 4.1.0。01〜36 は最新のリリース v0.10.4（2026-11-15 でも最新）でも確かめてある（01〜16 は S162、35 は S237、36 は S331）。Rumoca の CLI がこの環境に無いまま書いた件は、本文に「[not verified]」と書いてある。
+- **出すときは、再現を Rumoca の最新（main）で確かめてから出す。** 下書きの環境は Rumoca v0.10.2（rev `276e82bd`）、MSL 4.1.0。01〜36・40 は最新のリリース v0.10.4（2026-11-15 でも最新）でも確かめてある（01〜16 は S162、35 は S237、36 は S331）。Rumoca の CLI がこの環境に無いまま書いた件は、本文に「[not verified]」と書いてある。
 - 本文は英語で、issue にそのまま貼れる形（Summary / Steps to reproduce / Expected / Actual / Environment / Workaround in GlobeMode / Notes）。
 - 再現ファイル（`.mo`）は、MSL の例題で再現する件では置かない（モデル名とコマンドを本文に書く）。`src/Modelica/` には置かない（MODELICAPATH として開けるパッケージだけを置く規則）。
 - 再現用の `.mo` は `globe fmt` で整形する（空白が要点のものを除く。S194 で 34 本すべてを整形した。整形の前後で全クラスの診断のコードと重大度が同じことを確かめてある）。新しく足すときも整形し、本文に貼る診断の `行:列` は整形後のファイルのものにする。
@@ -56,6 +56,7 @@ S045（計画書の WP-H）で書いた（15 は S055、16 は S068、17〜21 �
 | 34 | [2 つの関係式の根が丸めの雑音のとき、事象の反復が終わらない（`value == 0.0` が厳密な比べ方）](34-event-iteration-exact-zero-test-on-rounding-noise.md) — Rumoca のバグ。MSL 1 本（`sdirk34hw`） | Rumoca | [34](34-event-iteration-exact-zero-test-on-rounding-noise.mo)（MSL の例題の experiment を決めるだけ。`globe simulate --solver sdirk34hw`） | なし（記録と既知の限界の試験） | 下書き。v0.10.4・main のコードも同じ（S158）。[日本語](34-event-iteration-exact-zero-test-on-rounding-noise_jp.md)・[1 枚](34-event-iteration-exact-zero-test-on-rounding-noise_jp.html) |
 | 35 | [状態への `initial equation`（`T = T_start`）を FMI の C profile が断る（"rows over declaration seeds"）](35-fmi-c-profile-initial-equation-on-state.md) — Rumoca の限界（ふつうのモデルが当たる）。MSL の小さい例題 20 本のうち初期化のメッセージで 6 本（この件は 2 本） | Rumoca | [35](35-fmi-c-profile-initial-equation-on-state.mo) | 一部（P5b では回る） | 下書き（S237） |
 | 36 | [表から読むスカラーの parameter を通って、方程式の数が表の要素の数になる（ED001 unbalanced）](36-flat-equation-count-from-external-object-table-size.md) — Rumoca のバグ。**v0.10.4 で修正**（S331）。MSL の Rotational の摩擦・歯車と Translational の `Brake` の 10 本 | Rumoca | [36](36-flat-equation-count-from-external-object-table-size.mo)（自己完結は flat の数だけ。MSL の `W4` は本文） | 不要（自前の flat は 1 本と数える） | **v0.10.4 で修正**（出さない） |
+| 40 | [`redeclare model M = Impl(show = true)` の修飾が捨てられ、`show` を条件にした成分が消える](40-redeclare-class-modification-dropped.md) — Rumoca のバグ。MSL の `InverseParameterization` | Rumoca | [40](40-redeclare-class-modification-dropped.mo)（自己完結） | 不要（自前の flat は修飾を適用する） | 下書き。v0.10.2・v0.10.4 で再現（S362）。 [日本語](40-redeclare-class-modification-dropped_jp.md)・[1 枚](40-redeclare-class-modification-dropped_jp.html) |
 
 ## 公開ライブラリの失敗から（17〜21、S070）
 
