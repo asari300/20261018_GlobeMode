@@ -490,3 +490,17 @@ S297 の見立て（Complex のレコード）は外れで、`Connections.isRoot
   - 差し替えは名前と受け継ぎで決める。差し替え先が `constrainedby` に合うか、`replaceable` かは見ない。「解決できた」は「正しい」とは限らない。
   - LSP の補完（`members_of`）は `state.` の候補を既定の型の要素のままにしている。
   - 差し替えた型の名前の見直しは、部品の持ち主を受け継ぐクラスからの参照だけ。持ち主を受け継がないクラスから `a.state.T` のように 2 段先で効く差し替え（`Medium` が `replaceable package` のとき）は、これまで通り `Redeclare`（MSL の例題には出ていない）。
+
+## 付記（S345）: LSP の補完・定義ジャンプ・ホバーも、差し替えた後の型で引く（B2 の続き）
+
+新しい ADR は立てず、S341 の付記の「shortcut」（LSP の補完は `state.` の候補を既定の型の要素のままにしている）を直した記録としてここに足す。変えたのは `globe-mode-resolve` の `members_of`・`step`（resolve の数え方は変えない）と、`globe-mode-lsp` の `definition`。
+
+- **補完**（`Library::members_of`）: 最後の名前が部品のとき、その型を「`scope`（カーソルのあるクラス）から見て差し替わった後の型」で引く。差し替えた型の探し方は S341 の `step` と同じなので、`step` の中にあった「`extends B(redeclare T x)` の部品の型 → 受け継ぐクラスから見直した型の名前」を `redeclared_types` に切り出して、`step` と `members_of` の両方が使う（LSP 側に規則を複製しない）。差し替えた型があればそれ、無ければ書いてある型。差し替えた型は既定の型を受け継ぐか制約の下位の型なので、要素は既定の型の要素を含む。
+- **定義ジャンプ・ホバー**: 書きかけの文書（今の道の `Outline` が引けない）は、S296 から `Library::resolve` で引いているので、S341 の `step` のまま差し替えた型に飛ぶ（直す所は無かった）。**読める文書**は今の道（`globe-mode-fmt` のアウトライン）が既定の型で引いて `null` になっていたので、成分参照（名前に `.` がある）が引けなかったときだけ、同じ自前の道（`tolerant_definition`）で引き直す。点のない名前（`Real`・`time`）では木を作らせない（木を作るのは最初の 1 回で、MSL では debug 8.8 秒・RSS 約 75 MB（S279 の計測。#107 のコメントは 0.6 s））。
+- **試験**: `globe-mode-resolve` に `members_of_follows_redeclared_types`（`class extends` で差し替えた record の欄、`extends Base(redeclare PortX port)` の差し替えた部品の欄、差し替えていない側は既定のまま）、`globe-mode-lsp` に `completion_and_definition_follow_redeclared_types`（別の行にも誤りのある書きかけの `port.`・`state.` の補完、読める文書と書きかけの文書での `port.hot` の定義ジャンプとホバー）。
+- **数字**: `cargo test -p globe-mode-resolve --test resolve`（8 本 pass）・`cargo test -p globe-mode-lsp`（lib 72・cross_file 5・folding 2・tolerant_outline 2 本 pass）、clippy（`--all-targets -D warnings`）0 件。`globe-mode-lsp` の `resolve_compare`（定義ジャンプを Rumoca の道と突き合わせる `#[ignore]` 試験。debug で 1312 s）は、型名 110 箇所が一致 110・LSP が null 0 のまま、成分参照の続き 93 箇所が一致 **86 → 91**・LSP が null **7 → 2**・不一致 0。残る 2 は突き合わせの位置（参照の範囲の最後の字）が添字の中・後ろになる参照（`massflowsink1.ports[1]`・`cellData.rcData[k].C`）で、名前を `1`・`C` と切るため null になる（`massflowsink1.ports` の上では `Sources.mo` の `ports` に飛ぶことを確かめた。`cellData.rcData[k].C` は S296 の添字の shortcut で、`name_at` が `]` で切る）。`msl:diff-frontend` は回していない（resolve の数え方は変えていない）
+- **shortcut**:
+  - 補完は、今の道（アウトライン）で候補が 1 件でも出る間は自前の道に回さない（木を作る費用を毎回払わないため）。既定の型に要素があり、差し替えた型にだけある要素は、今の道が読めない（カーソルの行を除いても誤りがある）ときだけ出る。MSL の Media の `ThermodynamicState` のように既定の型が空なら、カーソルの行だけ書きかけの文書でも出る。
+  - 差し替えの規則は S341 と同じなので、持ち主を受け継がないクラスから見る `a.state.` のような 2 段先の差し替え、部品の修飾の中の `A a(redeclare T x)` は同じく見ない。
+  - 定義ジャンプの引き直しは、点のある名前だけ。`Redeclare` 以外の理由で今の道が `null` のときも（`x.start` などの属性・誤字）、1 回だけ余計に木を引く。
+
