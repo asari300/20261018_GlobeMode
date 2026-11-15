@@ -228,6 +228,14 @@ const MAX_EQS: usize = 1_000_000;
 /// 試験では小さくする（debug のビルドは 1 本 50 µs。下の `nested_for_equation_count_is_capped`）
 #[cfg(test)]
 const MAX_EQS: usize = 10_000;
+/// `for` の方程式の反復の数の上限。方程式を作らない入れ子の `for`（本体が空・偽の `if` だけ）は `MAX_EQS` に数えられない（S365・#136）
+#[cfg(not(test))]
+const MAX_ITERS: usize = 1_000_000;
+#[cfg(test)]
+const MAX_ITERS: usize = 10_000;
+/// スカラーの総数（変数・方程式それぞれ）と、変数 1 つの次元の積の上限。`MAX_VARS`・`MAX_EQS` は配列を 1 つと数えるので、
+/// `Real x[10000000]` を通し、DAE の構築が 1 スカラー約 300 バイトを使う（S365・#139）。次元の積は溢れる大きさも書ける（#137）
+const MAX_SCALARS: usize = 2_000_000;
 
 /// 修飾の表の中の特別な名前: レコード全体の束縛 `r = other`（`other` の欄を、型の欄ごとに束縛する。宣言が後ろにある兄弟のレコードや、レコードを返す関数の呼び出し）
 const WHOLE: &str = "*";
@@ -275,6 +283,8 @@ struct F<'a> {
     oc_ifs: Vec<graph::OcIf>,
     /// 条件に `cardinality` を含む `if` の方程式（全部の `connect` がそろってから枝を選ぶ。S361）
     card_ifs: Vec<CardIf>,
+    /// `for` の方程式の反復の数（`MAX_ITERS` で断る。S365）
+    iters: usize,
     /// `cardinality(c)` の値（`connect` の端として出てきた数）。`card_ifs` を決めるときだけ `Some`
     card: Option<HashMap<String, i64>>,
 }
@@ -333,6 +343,7 @@ pub(crate) fn run(p: &Project, cid: ClassId, model: &str) -> Res<FlatModel> {
         stream_sets: Vec::new(),
         oc_ifs: Vec::new(),
         card_ifs: Vec::new(),
+        iters: 0,
         card: None,
     };
     // パッケージの中のモデルを直接平らにするときは、そのパッケージが差し替え後のパッケージ（`TwoPhaseWater.BaseProperties`）
@@ -361,6 +372,15 @@ pub(crate) fn run(p: &Project, cid: ClassId, model: &str) -> Res<FlatModel> {
     f.apply_connection_graph();
     f.resolve_card_ifs()?;
     f.expand_streams()?;
+    // 配列は 1 つと数える `MAX_VARS`・`MAX_EQS` では抑えられない、スカラーの総数（S365・#139）
+    let sat = usize::saturating_add;
+    let vs = (f.vars.iter()).fold(0, |a, v| {
+        sat(a, dims_product(&v.dims).unwrap_or(usize::MAX))
+    });
+    let es = (f.eqs.iter().chain(&f.whens).chain(&f.ieqs)).fold(0, |a, e| sat(a, e.count));
+    if vs > MAX_SCALARS || es > MAX_SCALARS {
+        return un("too-large", "too many scalar variables or equations");
+    }
     Ok(FlatModel {
         name: model.to_string(),
         vars: f.vars,
@@ -816,6 +836,7 @@ impl F<'_> {
                 if self.var_idx.contains_key(&full) {
                     return Ok(()); // 同じ要素が 2 つの `extends` から届いた
                 }
+                self.check_dims(&full, &dims)?;
                 self.var_idx.insert(full.clone(), self.vars.len());
                 self.vars.push(Var {
                     name: full.clone(),
@@ -847,6 +868,7 @@ impl F<'_> {
                     }
                     let binding = m.val.as_ref().map(|b| self.print_bind(b)).transpose()?;
                     let eff = fill(parent, fill(own_flags, flags));
+                    self.check_dims(&full, &dims)?;
                     self.var_idx.insert(full.clone(), self.vars.len());
                     self.vars.push(Var {
                         name: full,
@@ -936,6 +958,14 @@ impl F<'_> {
             }
         }
         Ok(())
+    }
+
+    /// 変数 1 つのスカラーの数（次元の積）が上限を超えていないか。以降の変数ごとの `dims.iter().product()`（flat・dae）は溢れない（S365・#137・#139）
+    fn check_dims(&self, name: &str, dims: &[usize]) -> Res<()> {
+        match dims_product(dims) {
+            Some(n) if n <= MAX_SCALARS => Ok(()),
+            _ => un("too-large", format!("{name}[] too many elements")),
+        }
     }
 
     /// `extends ExternalObject` を持つクラスか
@@ -1120,8 +1150,21 @@ impl F<'_> {
             let (Some(var), Some(range)) = (var, range) else {
                 return un("composite-binding", b.node.text());
             };
-            let v = self.range_vals(&range, b.file, &b.ctx)?;
-            let Some(v) = i.checked_sub(1).and_then(|k| v.get(k)).copied() else {
+            // 範囲 `a:s:b` の i 番目は全部を作らずに出す（束縛の要素ごとに呼ばれる。S365・#138）
+            let k = i.checked_sub(1);
+            let v = match Expr::cast(range.clone()) {
+                Some(Expr::Range(x)) => {
+                    let (a, s, e) = self.range_abc(&x, &range, b.file, &b.ctx)?;
+                    (k.and_then(|k| i64::try_from(k).ok()))
+                        .and_then(|k| k.checked_mul(s)?.checked_add(a))
+                        .filter(|v| (s > 0 && *v <= e) || (s < 0 && *v >= e))
+                }
+                _ => {
+                    let vals = self.range_vals(&range, b.file, &b.ctx)?;
+                    k.and_then(|k| vals.get(k).copied())
+                }
+            };
+            let Some(v) = v else {
                 return size();
             };
             let mut locals = b.ctx.locals.clone();
@@ -2780,9 +2823,9 @@ impl F<'_> {
                     "fill" => args.get(1..)?.iter().map(ev).collect(),
                     "identity" => Some(vec![ev(args.first()?)?; 2]),
                     "vector" => Some(vec![
-                        self.dims_of(args.first()?.syntax(), file, ctx)?
-                            .iter()
-                            .product(),
+                        (self.dims_of(args.first()?.syntax(), file, ctx)?)
+                            .into_iter()
+                            .fold(1, capped_mul),
                     ]),
                     "from_rpm" | "from_deg" | "to_deg" | "sqrt" | "abs" | "sin" | "cos" | "exp"
                     | "log" | "mod" | "rem" | "div" | "floor" | "ceil" | "integer" | "sign" => {
@@ -3259,6 +3302,10 @@ impl F<'_> {
         };
         let vals = self.range_vals(&range, file, ctx)?;
         for v in vals {
+            self.iters += 1;
+            if self.iters > MAX_ITERS {
+                return un("too-large", "too many loop iterations");
+            }
             let mut locals = ctx.locals.clone();
             locals.push((name.clone(), v));
             let c2 = Rc::new(Ctx {
@@ -3273,24 +3320,40 @@ impl F<'_> {
         Ok(())
     }
 
+    /// 範囲の式 `r`（の部品 `n`）の整数の値
+    fn range_int(&self, n: &SyntaxNode, r: &SyntaxNode, file: u32, ctx: &Rc<Ctx>) -> Res<i64> {
+        self.eval(n, file, ctx, 0)
+            .and_then(Val::int)
+            .ok_or_else(|| crate::Unsupported {
+                kind: "non-constant-for",
+                detail: r.text().to_string(),
+            })
+    }
+
+    /// 範囲 `a:b`・`a:s:b` の（始め, 刻み, 終わり）
+    fn range_abc(
+        &self,
+        x: &ast::RangeExpr,
+        r: &SyntaxNode,
+        file: u32,
+        ctx: &Rc<Ctx>,
+    ) -> Res<(i64, i64, i64)> {
+        let p = x.parts();
+        let n: Vec<i64> = (p.iter())
+            .map(|e| self.range_int(e.syntax(), r, file, ctx))
+            .collect::<Res<_>>()?;
+        match n.as_slice() {
+            [a, b] => Ok((*a, 1, *b)),
+            [a, s, b] if *s != 0 => Ok((*a, *s, *b)),
+            _ => un("non-constant-for", r.text().to_string()),
+        }
+    }
+
     fn range_vals(&self, r: &SyntaxNode, file: u32, ctx: &Rc<Ctx>) -> Res<Vec<i64>> {
-        let ev = |n: &SyntaxNode| {
-            self.eval(n, file, ctx, 0)
-                .and_then(Val::int)
-                .ok_or_else(|| crate::Unsupported {
-                    kind: "non-constant-for",
-                    detail: r.text().to_string(),
-                })
-        };
+        let ev = |n: &SyntaxNode| self.range_int(n, r, file, ctx);
         let v: Vec<i64> = match Expr::cast(r.clone()) {
             Some(Expr::Range(x)) => {
-                let p = x.parts();
-                let n: Vec<i64> = p.iter().map(|e| ev(e.syntax())).collect::<Res<_>>()?;
-                let (a, s, b) = match n.as_slice() {
-                    [a, b] => (*a, 1, *b),
-                    [a, s, b] if *s != 0 => (*a, *s, *b),
-                    _ => return un("non-constant-for", r.text().to_string()),
-                };
+                let (a, s, b) = self.range_abc(&x, r, file, ctx)?;
                 let mut out = Vec::new();
                 let mut i = a;
                 while (s > 0 && i <= b) || (s < 0 && i >= b) {
@@ -3373,7 +3436,7 @@ impl F<'_> {
             .filter(|x| x.kind() == K::ForIndex)
             .try_fold(1usize, |n, fi| {
                 let r = fi.children().find(|c| Expr::cast(c.clone()).is_some())?;
-                Some(n * self.range_vals(&r, file, ctx).ok()?.len())
+                Some(capped_mul(n, self.range_vals(&r, file, ctx).ok()?.len()))
             })
     }
 
@@ -3444,10 +3507,10 @@ impl F<'_> {
                                 .and_then(|r| self.range_vals(&r, file, ctx).ok())
                                 .map_or(1, |v| v.len())
                         })
-                        .product::<usize>()
+                        .fold(1, capped_mul)
                 })
                 .unwrap_or(1);
-            return total * n;
+            return capped_mul(total, n);
         }
         total
     }
@@ -3780,6 +3843,12 @@ fn dims_product(d: &[usize]) -> Option<usize> {
     d.iter().try_fold(1usize, |a, &x| a.checked_mul(x))
 }
 
+/// 数の積。`MAX_SCALARS` を超えたら `MAX_SCALARS + 1` に頭打ちにする（溢れず、あとのスカラーの総数の検査が断る。S365・#137）。
+/// 宣言した変数の次元の積は `check_dims` が先に断るので、ここは変数から来ない積（内包の範囲・`vector`・`for` の反復）に使う
+fn capped_mul(a: usize, b: usize) -> usize {
+    a.saturating_mul(b).min(MAX_SCALARS + 1)
+}
+
 fn field_mod(b: Bind) -> Mod {
     Mod {
         val: Some(b),
@@ -4010,5 +4079,146 @@ mod tests {
             .flatten("M")
             .unwrap();
         assert_eq!(m.equation_count(), 2500);
+    }
+
+    #[test]
+    fn nested_for_without_equations_is_capped() {
+        // #136: 方程式を作らない入れ子の `for`（偽の `if` だけ）は `MAX_EQS` に届かず、1000×1000 で 9 s・10 万の 2 重で終わらなかった（試験の上限は 1 万回）
+        let src = "model M Real x;
+            equation x = 1;
+            for i in 1:200 loop for j in 1:200 loop if false then x = 2; end if; end for; end for;
+            end M;";
+        let e = Project::from_sources([("t.mo", src)])
+            .flatten("M")
+            .expect_err("too many iterations");
+        assert_eq!(e.kind, "too-large");
+        // 空の本体も同じ
+        let empty = src.replace("if false then x = 2; end if;", "");
+        let e = Project::from_sources([("t.mo", empty.as_str())])
+            .flatten("M")
+            .expect_err("too many iterations");
+        assert_eq!(e.kind, "too-large");
+        // 上限に届かない回数は通る
+        let src = src.replace("1:200 loop for j in 1:200", "1:50 loop for j in 1:50");
+        assert!(
+            Project::from_sources([("t.mo", src.as_str())])
+                .flatten("M")
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn record_array_comprehension_binding_picks_range_elements_directly() {
+        // #138: `R r[n] = {R(k, 2*k) for k in 1:n}` が要素ごとに範囲全体を作り直し、n = 40000 で 22 s（O(n²)）だった
+        let rec = "record R Real a; Real b; end R;";
+        let flat = |src: &str| Project::from_sources([("t.mo", src)]).flatten("M");
+        let bound = |m: &crate::FlatModel| {
+            let b = |n: &str| {
+                m.vars
+                    .iter()
+                    .find(|v| v.name == n)
+                    .and_then(|v| v.binding.clone())
+            };
+            (b("r[1].a"), b("r[2].a"), b("r[3].a"), b("r[3].b"))
+        };
+        // 刻みのある範囲・降順の範囲も、i 番目の値を直接出す
+        let m = flat(&format!(
+            "{rec} model M R r[3] = {{R(k, 2*k) for k in 1:2:5}}; end M;"
+        ))
+        .unwrap();
+        assert_eq!(
+            bound(&m),
+            (
+                Some("1".into()),
+                Some("3".into()),
+                Some("5".into()),
+                Some("2 * 5".into())
+            )
+        );
+        let m = flat(&format!(
+            "{rec} model M R r[3] = {{R(k, 2*k) for k in 5:-2:1}}; end M;"
+        ))
+        .unwrap();
+        assert_eq!(bound(&m).0.as_deref(), Some("5"));
+        // 範囲より多い要素は断る
+        let e = flat(&format!(
+            "{rec} model M R r[4] = {{R(k, 2*k) for k in 1:3}}; end M;"
+        ))
+        .unwrap_err();
+        assert_eq!(e.kind, "composite-binding");
+        // 宣言だけ（束縛なし）との比で見る（n = 40000 で前は 8.7 倍、今は 2.1 倍。机の速さによらない）
+        let time = |decl: &str| {
+            let src = format!("{rec} model M R r[40000]{decl}; end M;");
+            let t = std::time::Instant::now();
+            assert!(flat(&src).is_ok());
+            t.elapsed()
+        };
+        let plain = time("");
+        let with = time(" = {R(k, 2*k) for k in 1:40000}");
+        assert!(with * 2 < plain * 9, "{with:?} vs {plain:?}");
+    }
+
+    #[test]
+    fn scalar_total_is_capped() {
+        // #139: 配列は 1 つと数えるので `Real x[10000000]` が通り、DAE の構築が 4 GB・92 s を使った。#137: 次元の積の溢れは panic していた
+        let kind = |body: &str| {
+            let src = format!("model M {body} end M;");
+            let r = Project::from_sources([("t.mo", src.as_str())]).flatten("M");
+            r.err().map(|e| e.kind)
+        };
+        let big = Some("too-large");
+        assert_eq!(
+            kind("Real x[10000000]; Real y[10000000]; equation x = y;"),
+            big
+        );
+        // 1 つ 2000000 に収まっても、総数が上限を超える
+        assert_eq!(kind("Real x[1500000]; Real y[1500000];"), big);
+        assert_eq!(
+            kind("Real x[1000, 1000]; equation {1 for i in 1:3000, j in 1:3000} = x;"),
+            big
+        );
+        // 次元の積が usize を溢れる
+        assert_eq!(
+            kind("Real x[4294967296, 4294967296]; equation der(x) = x;"),
+            big
+        );
+        assert_eq!(
+            kind("Real x[4294967296, 4294967296] = zeros(4294967296, 4294967296);"),
+            big
+        );
+        // 上限に届く大きさは通る
+        assert_eq!(kind("Real x[1000000]; equation der(x) = -x;"), None);
+    }
+
+    #[test]
+    fn products_of_sizes_do_not_overflow() {
+        // #137: 内包の範囲・`vector`・`for` の反復の積は検査なしで、debug は panic・release は巻き戻っていた（頭打ちにして上限の検査が断る）
+        let kind = |body: &str| {
+            let src = format!("model M {body} end M;");
+            let r = Project::from_sources([("t.mo", src.as_str())]).flatten("M");
+            r.err().map(|e| e.kind)
+        };
+        let big = Some("too-large");
+        let r4 = "i in 1:100000, j in 1:100000, k in 1:100000, l in 1:100000";
+        assert_eq!(
+            kind(&format!("Real x[2]; equation {{1 for {r4}}} = x;")),
+            big
+        );
+        assert_eq!(
+            kind("parameter Real y[:] = vector(zeros(4294967296, 4294967296));"),
+            big
+        );
+        let body = "for i in 1:100000 loop for j in 1:100000 loop for k in 1:100000 loop for l in 1:100000 loop x[1] = 1; end for; end for; end for; end for;";
+        assert_eq!(
+            kind(&format!(
+                "Boolean b; Real x[2]; equation when b then {body} end when;"
+            )),
+            big
+        );
+        // 小さい積は通る
+        assert_eq!(
+            kind("Real x[6]; equation {1 for i in 1:2, j in 1:3} = x;"),
+            None
+        );
     }
 }

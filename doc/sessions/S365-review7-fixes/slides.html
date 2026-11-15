@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S365 7 回目のレビューの issue #135〜#140 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S365 7 回目のレビューの issue #135〜#140">
+
+<section class="slide" id="S01">
+  <span class="tag">S365 · 2026-11-16 · Track B</span>
+  <h1>7 回目のレビューの issue 6 件を直した</h1>
+  <p class="lead">native の検査の計算量 3 件と資源の上限 3 件（うち 1 件は文書）。1 件ずつ再現してから直した</p>
+  <div class="big">一番大きいのは <b>Real x[10000000]</b> が 4 GB を使う前に GM-U で断ること</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>6 件の内訳</h1>
+  <table class="compact">
+    <tr><th>#</th><th>種類</th><th>起きていたこと</th></tr>
+    <tr><td>135</td><td>計算量</td><td><code>time</code> を使う部品 16000 個の DAE が 69 s（O(N²)）</td></tr>
+    <tr><td>136</td><td>上限</td><td>方程式を作らない入れ子の <code>for</code> が 1000×1000 で 9 s</td></tr>
+    <tr><td>137</td><td>溢れ</td><td>次元・内包・<code>for</code> の積が debug で panic、release で巻き戻る</td></tr>
+    <tr><td>138</td><td>計算量</td><td>レコードの配列の内包の束縛が O(n²)（n = 40000 で 22 s）</td></tr>
+    <tr><td>139</td><td>上限</td><td>配列の大きさに上限が無く、1000 万要素で 4 GB・92 s</td></tr>
+    <tr><td>140</td><td>文書</td><td>上流の下書き 40 ほかの <code>InverseParameterization</code> の説明が MSL と違う</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>直し方</h1>
+  <table class="compact">
+    <tr><th>#</th><th>直し</th></tr>
+    <tr><td>135</td><td>名前の表を <code>BTreeMap</code> にして、前置きが同じ名前を範囲で引く</td></tr>
+    <tr><td>136</td><td>反復を数え、100 万を超えたら <code>too-large</code>（<code>MAX_ITERS</code>）</td></tr>
+    <tr><td>137・139</td><td>変数 1 つの次元の積とスカラーの総数に 200 万（<code>MAX_SCALARS</code>）。変数から来ない積は頭打ち</td></tr>
+    <tr><td>138</td><td>範囲の i 番目を <code>a + (i - 1) * s</code> で直接出す</td></tr>
+    <tr><td>140</td><td>MSL の本文を読んで 6 か所を直した</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由</span>
+  <h1>#137 は issue の案から形を変えた</h1>
+  <div class="cols-2">
+    <div class="card">
+      <h3>issue の案</h3>
+      <p>報告された場所を <code>dims_product</code>（<code>checked_mul</code>）にそろえ、<code>None</code> なら断る</p>
+    </div>
+    <div class="card">
+      <h3>採った形</h3>
+      <p><code>Option</code> を返す関数の <code>None</code> は「分からない」で、黙って 1 本と数える。だから変数の次元は宣言の所で 1 回、変数から来ない積は頭打ち + 総数の検査で断る</p>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">図</span>
+  <h1>どこで断るか</h1>
+  <svg class="fig" viewBox="0 0 800 260" role="img" aria-label="宣言から DAE までの上限の置き場所">
+    <rect class="svg-box-accent" x="30" y="90" width="170" height="80" rx="10"/>
+    <text class="svg-text-b" x="115" y="125" text-anchor="middle">宣言</text>
+    <text class="svg-text" x="115" y="148" text-anchor="middle">check_dims</text>
+    <line class="svg-line" x1="200" y1="130" x2="300" y2="130"/>
+    <rect class="svg-box" x="300" y="90" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="400" y="125" text-anchor="middle">flat</text>
+    <text class="svg-text" x="400" y="148" text-anchor="middle">MAX_ITERS · MAX_SCALARS</text>
+    <line class="svg-line" x1="500" y1="130" x2="590" y2="130"/>
+    <rect class="svg-box" x="590" y="90" width="180" height="80" rx="10"/>
+    <text class="svg-text-b" x="680" y="125" text-anchor="middle">dae build</text>
+    <text class="svg-text" x="680" y="148" text-anchor="middle">名前の範囲で引く</text>
+    <text class="svg-text" x="400" y="215" text-anchor="middle">どれも超えたら too-large（GM-U）</text>
+  </svg>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">再現手順</span>
+  <h1>検証</h1>
+  <pre><code>cargo test -p globe-mode-flat -p globe-mode-dae
+flock &lt;lock&gt; xtask-s365 diff-frontend --report doc/frontend-diff.md</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">0</span><span class="l">回帰（MSL 566 本）</span></div>
+    <div class="kpi"><span class="n">5</span><span class="l">追加した試験（直す前は落ちる）</span></div>
+    <div class="kpi"><span class="n">548/566</span><span class="l">平らにできた（前と同じ）</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>反復 100 万・スカラー 200 万は MSL の大きさから決めた。Buildings などで <code>too-large</code> が出たら見直す</li>
+    <li>DAE の 1 スカラー約 300 バイトの費用そのものは減らしていない</li>
+    <li>上流の下書き 40 の数字（513 対 507）は S355・S362 の時点のまま</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
