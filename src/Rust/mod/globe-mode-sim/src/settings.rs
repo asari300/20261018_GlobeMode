@@ -41,6 +41,8 @@ pub const MIN_TOLERANCE: f64 = 1e-10;
 /// 出力の点数（区間 / Interval、固定刻みでは区間 / 刻み幅）の上限。超える設定は GM-E10004（#34）。
 /// `globe-mode-fmi-import` の格子点の上限（`MAX_GRID_POINTS`）と同じ値・同じ根拠（1 行 8 バイト × 変数の数でも収まる桁）。
 pub const MAX_OUTPUT_POINTS: f64 = 1e7;
+/// SUNDIALS の BDF（cvode・ida）の最大次数。
+pub const MAX_BDF_ORDER: u32 = 5;
 /// 既定のソルバ。
 pub const DEFAULT_SOLVER: SolverId = SolverId::Bdf;
 
@@ -293,6 +295,40 @@ pub fn resolve(
         (None, None)
     };
 
+    // 最大の積分次数（S322）。次数を持つソルバ（cvode・ida は 1〜5）だけが使う。持たないソルバでは無視して知らせる
+    let max_order = match requested.max_order {
+        Some(q) if solver.has_max_order() => {
+            if !(1..=MAX_BDF_ORDER).contains(&q) {
+                out.push(
+                    SettingOrigin::Requested,
+                    Diagnostic::error(
+                        codes::EXPERIMENT_INVALID,
+                        Stage::S10,
+                        format!("指定した最大次数（{q}）が 1〜{MAX_BDF_ORDER} にない"),
+                    ),
+                );
+            }
+            Some(q)
+        }
+        Some(q) => {
+            if solver_known {
+                out.push(
+                    SettingOrigin::Requested,
+                    Diagnostic::info(
+                        codes::MAX_ORDER_IGNORED,
+                        Stage::S10,
+                        format!(
+                            "指定した最大次数（{q}）はソルバ {} では使わない（次数の上限を設定できるのは cvode・ida だけ）",
+                            solver.name()
+                        ),
+                    ),
+                );
+            }
+            None
+        }
+        None => None,
+    };
+
     // パラメータの上書きの値（tunable かどうかは実行系が確かめる）
     for (name, &value) in &requested.parameters {
         if !value.is_finite() {
@@ -322,6 +358,7 @@ pub fn resolve(
         solver,
         max_wall_seconds: requested.max_wall_seconds,
         step,
+        max_order,
         parameters: requested.parameters.clone(),
         origins: SettingOrigins {
             start_time: start.origin,
@@ -1007,6 +1044,27 @@ mod tests {
             assert_eq!(s.tolerance, tol);
             assert!(d.is_empty());
         }
+    }
+
+    /// S322: 最大次数を持たないソルバでは使わず、情報 GM-I10005 で知らせる（黙って無視しない。Error にはしない）。
+    /// 次数を持つ cvode・ida の範囲（1〜5）の検査は feature `sundials` のビルドだけ（登録表に実装がある）
+    #[test]
+    fn max_order_is_noted_for_solvers_without_one() {
+        for solver in ["bdf", "esdirk34", "euler"] {
+            let requested = SimSettings {
+                solver: Some(solver.into()),
+                max_order: Some(3),
+                ..SimSettings::default()
+            };
+            let (s, d) = ok(&requested, None);
+            assert_eq!(s.max_order, None, "{solver}");
+            assert!(
+                codes_of(&d).contains(&(codes::MAX_ORDER_IGNORED, Severity::Info)),
+                "{solver}: {d:?}"
+            );
+        }
+        let (s, d) = ok(&SimSettings::default(), None);
+        assert!(s.max_order.is_none() && d.is_empty());
     }
 
     fn fixed(step: Option<f64>) -> SimSettings {

@@ -40,6 +40,7 @@
 | [0037](0037-icon-diagram-as-shape-data.md) | Icon / Diagram は形のデータ（JSON）で UI に渡し、UI が SVG の要素を組み立てる。字句解析だけで読み、`extends` の基底のアイコンを 1 段重ねる（Icon は S244、Diagram の読み取りは S245） | Accepted |
 | [0038](0038-linearize-numeric.md) | 線形化は `ModelInstance` の上の数値の中心差分で行い、解析ヤコビ行列は使わない（S254） | Accepted |
 | [0039](0039-native-cst-parser.md) | Track B の B1 は独立した crate `globe-mode-syntax` に置き、rowan の CST と、誤りがあっても木を作る寛容なパーサ（全バイトを木に残す。式・修飾・注釈の中身は不透明）を自前で書く。Rumoca にもまだつながない（S268。S269 で式、S272 で名前解決 `globe-mode-resolve` を付記） | Accepted |
+| [0040](0040-multi-solver-compare.md) | 複数のソルバで 1 つのモデルを回して比べる。検査とコンパイルは 1 回、並列は同じコンパイル結果を共有するスレッド（最大 4 本。wasm は逐次）、比較は MSL の参照結果と同じ矩形の管（閾値 10^-n）。最大次数 `SimSettings.max_order` は cvode・ida だけが使い、持たないソルバは情報 GM-I10005 で注記する（S322） | Accepted |
 
 0027 は欠番（git の履歴にも無い）。
 

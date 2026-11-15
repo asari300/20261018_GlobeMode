@@ -145,6 +145,8 @@ P8 の Diagram / Icon ビューの最初の一切れとして、カーソルの�
 - **確かめ**: `pnpm test` に `nudgeOf`（向き・Shift・結線と選び無しは null）と、webview・package.json・extension.js の配線。e2e に、コマンドでカーソルの部品の `R` を書く（偽の `panel.ui`）、カーソルが外なら部品を選んでから書く、undo で戻る 1 本。webview のキー操作そのものは拡張ホストから起こせないので e2e に無い（S264 と同じ）。
 - **持ち越し**: 結線の追加と途中の点をキーボードで行う口、Svelte の Enter からのパラメータ、実機でのキー操作の目視。
 
+**S321 の付記（#117）**: パネルのパラメータの入力（`editParams`）は、最初に対象（ファイル・クラス）と文書の版を控え、`apply` にそれを渡す。応答待ちと入力の間に `refresh` が `this.target` を差し替えても別のクラスの同名の部品には書かず、版が変わっていれば S264 の `apply` と同じく入れない（「文書が変わったので入れなかった」）。ドラッグなどの `edit` は従来どおり呼ぶ時点の対象と版。試験は `test/panel-params-target.test.mjs`。
+
 ## 付記（S316: キーボードで結線を足す）
 
 - **S309 の持ち越し「結線の追加と途中の点をキーボードで行う口」と「Svelte の Enter からのパラメータ」のうち、結線の追加と Enter を済ませた。** Rust・LSP は変えない（`globe/addConnect`・`globe/addWaypoint` をそのまま呼ぶ）。

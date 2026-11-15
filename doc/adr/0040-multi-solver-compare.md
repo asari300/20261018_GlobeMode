@@ -1,0 +1,33 @@
+# ADR-0040 複数のソルバで 1 つのモデルを回して比べる: 同じコンパイル結果を共有するスレッドと、矩形の管での比較
+
+- 状態: Accepted（2026-11-15、S322）
+- 関係: [ADR-0013](0013-exec-backend.md)（実行系）、[ADR-0023](0023-desktop-and-web-process-layout.md)（プロセス構成。ワーカーは 1 つ）、[ADR-0033](0033-progress-and-cancel.md)（進捗と中断）、[ADR-0015](0015-auto-and-reference-tolerance.md)（許容誤差）。UI は次の S323。
+
+## 背景
+
+ユーザーの要望（2026-11-15）: 実行のときに複数のソルバを選んで結果を比べる手段が欲しい。(1) 3 つ以上を選べる（既定は 1 つ、複数のときはチェックボックス）、(2) 1 つずつ回すか並列かを選べる（既定は 1 つずつ）、(3) 全部が終わった後に自動で比べるオプション（既定は比べない）で、最大積分次数・許容値・比較の閾値（10^-n）を指定する。参考は OpenModelica の OMEdit の「シミュレーションのセットアップ」（手法 dassl、許容値 1e-06、最大積分次数 5、初期・最大ステップサイズ）。
+
+調べたこと（コードで確認。2026-11-15）:
+
+| ソルバ | 最大次数 | 根拠 |
+| --- | --- | --- |
+| `bdf`・`auto`（diffsol の BDF） | **設定する口が無い** | diffsol 0.13.2 の `BdfState::MAX_ORDER` は定数 5（`src/ode_solver/bdf_state.rs`）。Rumoca の `rumoca-solver-diffsol`（rev 276e82b）にも次数の設定は無い |
+| `cvode`・`ida`（SUNDIALS の BDF。feature `sundials`） | **1〜5 を設定できる** | `CVodeSetMaxOrd`・`IDASetMaxOrd`（`sundials-sys` 0.6.2 の同梱ソースの `cvode.h`・`ida.h`）。上限は同じソースの `cvode_impl.h` の `BDF_Q_MAX 5`、`ida_impl.h` の `MAXORD_DEFAULT 5` |
+| `esdirk*`・`trbdf2`・`sdirk34hw`・`tsit45`・`dopri45`・`dopri853`・`cerk*`・`radau5`・`qss`・固定刻みの 5 つ | 次数は手法で決まっていて、設定する意味が無い | 係数表で次数が固定（`dopri853` は 8、`radau5` は 5 など） |
+
+許容値（`tolerance`）は既存の `SimSettings.tolerance`（相対と絶対に同じ値。下限 1e-10、固定刻みは使わない。GM-I10004）で、そのまま全部の実行に渡せる。
+
+## 決定
+
+1. **`SimSettings.max_order: Option<u32>` を足す**（`deny_unknown_fields` のまま。Python の `Settings` と `_native.settings_sample` も合わせた）。次数を持つソルバ（`SolverId::has_max_order` ＝ `cvode`・`ida`）では 1〜5 を渡し（外なら GM-E10004）、持たないソルバでは**無視して情報 `GM-I10005`**（「指定した最大次数（3）はソルバ bdf では使わない」）を出す。黙って無視しない。`ResolvedSettings.max_order` に写す。
+2. **`Workspace::simulate_many(&SimulateManyRequest, now, ManyHandle) -> ManyResult`**（facade）。依頼は `{files?, model, settings, solvers[], parallel?, compare?{threshold_exp, reference?}, force?}`、応答 `SimulateManyResponse` は `{ok, refused, diagnostics（検査・コンパイルの分）, mode, workers, mode_note?, runs[], comparison?, elapsed_ms}` で、`runs[i]` は `{solver, status: ok|failed|cancelled, response（その実行の SimulateResponse。csv 無し）, elapsed_ms, notes[]}`。時系列は応答に含めず `ManyResult.runs[i]`（列）に持つ。検査とコンパイルは**1 回だけ**行い、実行ごとに `run_observed` を呼ぶ。`settings.solver` は使わない（誤り）。
+3. **並列は、同じコンパイル結果（`CompiledModel`）を共有するスレッドで、最大 `min(CPU 数, 4, ソルバ数)` 本**（`MAX_PARALLEL` = 4）。要望は別プロセスのワーカーを想定していたが、スレッドにした。理由: (a) ADR-0023 は検査と実行の RSS が 1 本で GiB の単位なので同時のプロセスを増やさないと決めた。コンパイルを共有すれば、増えるのは実行ごとの組み立てだけ。(b) facade は wasm・Python・C・NIF からも呼ばれ、`globe` の実行ファイルの場所を知らない。(c) 中断は `CancelToken` が全部の実行に効く（既存の道。ネイティブの型付きの道は別のスレッドで回し、トークンが立てば結果を捨てて返す）。**代わりに、硬い実行を外から確実に止めること（kill）はできない**（実行ごとの `max_wall_seconds`、既定 180 s〔LSP〕は協調型）。Desktop は sidecar の kill の予算を「ソルバの数 × 180 s」にした。逐次は 1 つずつ回す（スレッドを作らない）。**wasm はスレッドが無いので `parallel` は逐次に落とし、`mode_note` に書く**。進捗は、並列のときも呼ぶスレッドを 1 つにして（チャネルで集めて）呼ぶ。
+4. **比較は `globe-mode-sim::compare` の矩形の管（csv-compare の既定）をそのまま使う**。基準（`reference`、無ければ最初に成功した実行）の信号を折れ線とみなし、幅 `2·δt`・高さ `2·δy`（`δ = 10^-n × 範囲`、時間と値の両方向）の矩形が掃く領域を管とし、ほかの成功した実行の点が管の外に出たら不合格。要望の「共通の時刻に線形補間して `max |a−b| / max(|b|, atol)` を閾値と比べる」案は採らなかった。理由: (a) 同じ数え方を 2 か所に書かない（MSL の参照結果との比較と同じ判定）。(b) 出力の格子が違う実行（固定刻み、イベントでの 2 行）を補間なしに比べられ、イベントの縦の跳びや時刻のずれに強い。(c) 補間と相対差では、ゼロ交差の近くで分母が小さくなり、閾値が安定しない。**欠点**: 変数ごとの「最大の相対差・絶対差」は出ず、出るのは管の外の点の数・最大のはみ出し量（値の単位）・最初の時刻と、信号ごとの合否。閾値 `10^-n`（1〜15）は管の幅の比率で、相対差そのものではない。比べる信号は基準の `Parameter` と内部名（`$`）を除いた全部。全体の合否 `comparison.passed` は、比べた実行がすべて合格（相手が 1 つも無ければ false）。基準が失敗していたら全部を `skipped`。
+5. **選べる数は 1〜16**（`MAX_MANY_SOLVERS`。登録表は 22 個あるが、列を JSON で返す大きさ〔1 実行 = 全列〕が 16 を超えるとメッセージが数十 MB になりやすい。UI の表も 16 行で収まる）。同じ名前の重複は誤り。
+6. **口**: CLI `globe simulate --solvers a,b,c [--parallel] [--compare N [--reference NAME]] [--max-order N] [--tolerance X] [-o DIR] [--json]`（終了コードは全部成功かつ比較が合格なら 0、そうでなければ 1）、LSP `globe/simulateMany`（`{request}` → `{response, columns: [{layout, columns}|null]}`。進捗の report に `solver`・`index`・`count`。`$/cancelRequest` は全部に効く）、Desktop の `RPC_METHODS`、wasm `simulate_many_columns`（JS: `GlobeWorker.simulateMany`）、`Backend.simulateMany`（UI はまだ作らない）、Python `Workspace.simulate_many(model, solvers, parallel=, compare=, **settings)`。
+
+## 結果
+
+- 良い: 1 回のコンパイルで何本でも回せる。比較の判定が MSL の参照結果の比較と同じ（試験済みの実装）。最大次数を持たないソルバは注記で分かる。
+- 悪い: (a) 並列の実行は硬いモデルを外から kill できない（スレッドを放置する。既存の `checked_detached` と同じ）。(b) 実行ごとの時系列を全部メモリに持つので、1 実行 × 16 本の分のメモリが要る。(c) 管の比較は「何 % ずれたか」の数字を出さない。(d) `bdf` の最大次数は diffsol に口が無いので無視される。必要なら上流への依頼。(e) feature `sundials` を立てたビルドの `cvode`・`ida` の最大次数は、C の API を呼ぶだけで、MSL での挙動は未確認。
+- 持ち越し: S323 の UI（チェックボックス・並列の選択・比較の欄）、別プロセスでの並列（確実に止めたい場合）、最大の相対差の表示。

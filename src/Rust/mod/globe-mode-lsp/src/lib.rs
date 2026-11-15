@@ -13,6 +13,7 @@
 //! | `globe/check` | `{model}` | `CheckResponse` の JSON |
 //! | `globe/simulate` | `{request}`（`SimulateRequest` の JSON。S214: `max_wall_seconds` が無ければ 180 s の予算を置く） | `SimulateResponse` の JSON |
 //! | `globe/simulateColumns` | `{request}` | `{response, layout, columns}`（S076。wasm の `simulate_columns` と同じ形。`response` に CSV は無く、`layout` は `ColumnsLayout`（`names`・`points`・既定で描く `defaults`。S190）、`columns[i]` は列 `i` の数の配列で、有限でない値は null） |
+//! | `globe/simulateMany` | `{request}`（`SimulateManyRequest` の JSON。S322: 複数のソルバで回し、`compare` があれば比べる。進捗の report に `solver`・`index`・`count` が付く。`$/cancelRequest` は全部に効く） | `{response, columns}`（`response` は `SimulateManyResponse`。`columns[i]` は `response.runs[i]` の `{layout, columns}` で、回せなかった実行は null） |
 //! | `globe/graph` | `{model, depth}` | graphology の JSON（`ConnectGraph::to_graphology`） |
 //! | `globe/format` | `{text, indent?, insertOrigin?, blankAroundSections?, formatHtml?}` | 整形後の本文（S053。壊れていれば -32000。S214: `globe-mode.toml` があれば indent は設定が勝つ。無いときだけ params の indent） |
 //! | `globe/lint` | `{text}` | `[{rule, line, column, message}]`（S053） |
@@ -72,7 +73,8 @@ use std::thread;
 
 use globe_mode::db::normalize_path;
 use globe_mode::{
-    CancelToken, Diagnostic, Progress, SimulateHandle, SimulateRequest, Simulated, Workspace,
+    CancelToken, Diagnostic, ManyHandle, Progress, SimulateHandle, SimulateManyRequest,
+    SimulateRequest, Simulated, Workspace,
 };
 use globe_mode_core::{Severity, TextRange};
 use globe_mode_ir::{ClassKind, ClassOutline};
@@ -681,6 +683,31 @@ impl Server {
                     Err(e) => error(id, -32602, &format!("params.request: {e}")),
                 }
             }
+            "globe/simulateMany" => {
+                match serde_json::from_value::<SimulateManyRequest>(params["request"].clone()) {
+                    Ok(mut request) => {
+                        let out = self.simulate_many(
+                            &mut request,
+                            params.get("workDoneToken"),
+                            cancel,
+                            notify,
+                        );
+                        let columns: Vec<Value> = out
+                            .runs
+                            .iter()
+                            .map(|d| match &d.run {
+                                Some(_) => {
+                                    let (layout, columns) = d.columns();
+                                    json!({"layout": layout, "columns": columns})
+                                }
+                                None => Value::Null,
+                            })
+                            .collect();
+                        reply(id, json!({"response": out.response, "columns": columns}))
+                    }
+                    Err(e) => error(id, -32602, &format!("params.request: {e}")),
+                }
+            }
             // S222: 結果のファイル（.mat か .csv）を開く。UI の dialog で選んだパスをここで読む（Desktop には wasm が無い）
             "globe/readResults" => match params["path"].as_str() {
                 Some(path) => match std::fs::read(path)
@@ -1012,6 +1039,53 @@ impl Server {
         s
     }
 
+    /// 複数ソルバの実行（S322）。`globe/simulate` と同じ予算（実行ごと）・同じ進捗の形で、report に `solver`・`index`・`count` を足す。
+    /// 進捗の `percentage` は実行ごと。並列のときはソルバごとの report が交互に来る。
+    fn simulate_many(
+        &mut self,
+        request: &mut SimulateManyRequest,
+        token: Option<&Value>,
+        cancel: Option<CancelToken>,
+        notify: &mut dyn FnMut(Value),
+    ) -> globe_mode::ManyResult {
+        request
+            .settings
+            .max_wall_seconds
+            .get_or_insert(DEFAULT_MAX_WALL_SECONDS);
+        let mut progress = |value: Value| {
+            if let Some(token) = token {
+                notify(json!({"jsonrpc": "2.0", "method": "$/progress",
+                    "params": {"token": token, "value": value}}));
+            }
+        };
+        progress(
+            json!({"kind": "begin", "title": format!("simulate {} ({} solvers)", request.model, request.solvers.len()), "cancellable": true}),
+        );
+        let count = request.solvers.len();
+        let mut on_progress = |index: usize, solver: &str, p: &Progress| {
+            let stage = p.stage.as_str();
+            let mut v = json!({"kind": "report", "message": format!("{solver}: {stage}"), "stage": stage,
+                "solver": solver, "index": index, "count": count,
+                "start_time": p.start_time, "stop_time": p.stop_time});
+            if let Some(t) = p.time {
+                let pct = (t - p.start_time) / (p.stop_time - p.start_time) * 100.0;
+                v["time"] = json!(t);
+                v["percentage"] = json!(pct.clamp(0.0, 100.0) as u32);
+            }
+            progress(v);
+        };
+        let out = self.ws.simulate_many(
+            request,
+            &globe_mode::now_ms,
+            ManyHandle {
+                on_progress: Some(&mut on_progress),
+                cancel,
+            },
+        );
+        progress(json!({"kind": "end"}));
+        out
+    }
+
     /// Rumoca のアウトライン。構文の誤りで引けなければ `globe-mode-syntax` の CST から作ったもの（S276）
     fn outline_or_tolerant(&self, uri: &str, text: &str) -> Vec<ClassOutline> {
         match self.ws.outline(&uri_path(uri)) {
@@ -1174,7 +1248,11 @@ pub fn run_stdio(libraries: &[PathBuf]) -> io::Result<()> {
 fn cancellable(method: &str) -> bool {
     matches!(
         method,
-        "globe/simulate" | "globe/simulateColumns" | "globe/fmuRun" | "globe/cosim"
+        "globe/simulate"
+            | "globe/simulateColumns"
+            | "globe/simulateMany"
+            | "globe/fmuRun"
+            | "globe/cosim"
     )
 }
 
@@ -2167,6 +2245,25 @@ mod tests {
             "{}",
             r[0]
         );
+        // S322: 複数ソルバ。逐次と並列で同じ最終値、比較つき、実行ごとの列
+        for parallel in [false, true] {
+            let r = s.handle(
+                json!({"id": 5, "method": "globe/simulateMany", "params": {"request": {
+                "model": "D", "settings": {"stop_time": 1.0, "tolerance": 1e-9, "max_order": 3},
+                "solvers": ["bdf", "esdirk34", "tsit45"], "parallel": parallel,
+                "compare": {"threshold_exp": 4}}}}),
+            );
+            let res = &r[0]["result"];
+            assert_eq!(res["response"]["ok"], true, "{}", r[0]);
+            assert_eq!(res["response"]["comparison"]["passed"], true, "{}", r[0]);
+            let runs = res["response"]["runs"].as_array().unwrap();
+            assert_eq!(runs.len(), 3);
+            assert_eq!(runs[0]["solver"], "bdf");
+            assert_eq!(runs[0]["notes"].as_array().unwrap().len(), 1); // 最大次数は bdf では使わない
+            let cols = res["columns"].as_array().unwrap();
+            assert_eq!(cols.len(), 3);
+            assert_eq!(cols[2]["layout"]["names"], json!(["time", "x"]));
+        }
         // 読めない params は -32602、モデルが無ければ -32000、通知（id 無し）には何も返さない
         for (method, params, code) in [
             ("globe/check", json!({}), -32602),
@@ -2174,6 +2271,11 @@ mod tests {
             (
                 "globe/simulateColumns",
                 json!({"request": {"nope": 1}}),
+                -32602,
+            ),
+            (
+                "globe/simulateMany",
+                json!({"request": {"model": "D"}}),
                 -32602,
             ),
             ("globe/graph", json!({"model": "Nope"}), -32000),

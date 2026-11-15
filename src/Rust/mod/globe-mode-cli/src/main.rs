@@ -9,6 +9,8 @@
 //! globe simulate [<FILE|DIR>...] [--library <DIR>]... --model <NAME> [--stop-time T] [--solver NAME] [--step H]
 //!                [--tolerance X] [--interval X] [--start-time T] [--timeout S] [--param NAME=VALUE]...
 //!                [--output result.csv|result.mat|-] [--format csv|mat] [--list-parameters] [--force] [--json]
+//! globe simulate [<FILE|DIR>...] --model <NAME> --solvers bdf,esdirk34,radau5 [--parallel] [--compare N [--reference NAME]]
+//!                [--max-order N] [--tolerance X] [--output DIR] [--json]     （複数のソルバで回して比べる。S322）
 //! globe simulate --list-solvers [--json]
 //! globe linearize [<FILE|DIR>...] [--library <DIR>]... --model <NAME> [--time T] [--param NAME=VALUE]... [--json]
 //! globe lsp [--library <DIR>]...
@@ -221,7 +223,7 @@ enum Command {
     /// 検査（S0〜S10）を通してから実行し、結果を CSV か MAT v4 に書く
     #[command(
         allow_negative_numbers = true,
-        after_help = "例:\n  globe simulate model.mo -m RC -o rc.csv          結果を CSV に書く（.mat なら MAT v4、`-` は標準出力）\n  globe simulate -L data/msl -m Modelica.Electrical.Analog.Examples.ChuaCircuit --stop-time 5 -o chua.csv\n  globe simulate model.mo -m RC --solver rk4 --step 0.01 --param R=200 -o rc.csv\n  globe simulate --list-solvers\n\n-o を省くと結果は書かず、要約だけを出す。info の診断は件数だけ出す（-v で全部）"
+        after_help = "例:\n  globe simulate model.mo -m RC -o rc.csv          結果を CSV に書く（.mat なら MAT v4、`-` は標準出力）\n  globe simulate -L data/msl -m Modelica.Electrical.Analog.Examples.ChuaCircuit --stop-time 5 -o chua.csv\n  globe simulate model.mo -m RC --solver rk4 --step 0.01 --param R=200 -o rc.csv\n  globe simulate model.mo -m RC --solvers bdf,esdirk34,radau5 --parallel --compare 6 --tolerance 1e-9 --max-order 5\n  globe simulate --list-solvers\n\n--solvers は複数のソルバで回して表にし、--compare N で基準との差を 10^-N の管で判定する（-o DIR で DIR/<ソルバ>.csv）\n-o を省くと結果は書かず、要約だけを出す。info の診断は件数だけ出す（-v で全部）"
     )]
     Simulate {
         /// ファイルまたはディレクトリ。モデルがライブラリの中にあるなら省略できる
@@ -252,6 +254,21 @@ enum Command {
         /// 固定刻みのソルバ（euler・heun・rk4・impeuler・trapezoid）の刻み幅（省略すると出力の間隔）
         #[arg(long)]
         step: Option<f64>,
+        /// 最大の積分次数（cvode・ida だけが使い、1〜5。ほかのソルバでは使わず、注記を出す）
+        #[arg(long)]
+        max_order: Option<u32>,
+        /// 複数のソルバで回す（`bdf,esdirk34,radau5`。最大 16 個。--solver とは同時に使えない。`-o` は DIR で、DIR/<ソルバ>.csv に書く）
+        #[arg(long, value_delimiter = ',', conflicts_with = "solver")]
+        solvers: Vec<String>,
+        /// --solvers を同時に回す（同じコンパイル結果を共有するスレッドで最大 4 本。既定は 1 つずつ）
+        #[arg(long, requires = "solvers")]
+        parallel: bool,
+        /// 全部が終わったあとで結果を比べる。閾値は 10^-N（1〜15）の、基準に対する矩形の管の幅。合格でなければ終了コード 1
+        #[arg(long, value_name = "N", requires = "solvers")]
+        compare: Option<u32>,
+        /// --compare の基準にするソルバ（省略すると最初に成功したもの）
+        #[arg(long, requires = "compare")]
+        reference: Option<String>,
         /// パラメータの上書き `名前=値`。何度でも指定できる（変えられるものは --list-parameters）
         #[arg(long = "param", value_name = "NAME=VALUE")]
         params: Vec<String>,
@@ -561,6 +578,11 @@ fn main() -> ExitCode {
             interval,
             solver,
             step,
+            max_order,
+            solvers,
+            parallel,
+            compare,
+            reference,
             params,
             timeout,
             output,
@@ -592,6 +614,7 @@ fn main() -> ExitCode {
                     solver,
                     max_wall_seconds: timeout,
                     step,
+                    max_order,
                     parameters,
                 },
                 format: simulate::OutputFormat::resolve(format, output.as_deref()),
@@ -599,6 +622,14 @@ fn main() -> ExitCode {
                 list_parameters,
                 force,
                 json,
+                many: (!solvers.is_empty()).then(|| simulate::ManyArgs {
+                    solvers,
+                    parallel,
+                    compare: compare.map(|threshold_exp| globe_mode::CompareRequest {
+                        threshold_exp,
+                        reference,
+                    }),
+                }),
             })
         }
         Command::Linearize {

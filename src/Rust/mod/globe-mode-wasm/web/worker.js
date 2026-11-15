@@ -6,7 +6,7 @@
 // 呼び方は client.js の GlobeWorker が受け持つ。ここは `{id, op, …}` を受けて `{id, ok, value}` を返すだけ。
 //   init {pkg, wasm?}  : `${pkg}/globe_mode_wasm.js`（wasm-bindgen --target web の糊）を読んで初期化。
 //                        wasm に ArrayBuffer を渡すと、それで初期化（Node は file: を fetch できないため）
-//   simulate_columns {request, progress?, cancel?}（{response, layout, columns: Float64Array[]}。buffer は転送。progress で進捗も送る。S133）、read_results {name, bytes}（{layout, columns, parameters}。S222、S236）, library {json, name}, set_file {name, text}, remove_file {name}, check {model}（CheckResponse の JSON）, graph {model, depth}（graphology の JSON）, blt {model}（BltReport の JSON。S262）, stages {model}（StagesReport の JSON。S282）, simulate {request}（JSON 文字列）、
+//   simulate_many_columns {request, progress?, cancel?}（S322。複数のソルバ。{response, runs: [{layout, columns}]}。進捗に solver が付く）、simulate_columns {request, progress?, cancel?}（{response, layout, columns: Float64Array[]}。buffer は転送。progress で進捗も送る。S133）、read_results {name, bytes}（{layout, columns, parameters}。S222、S236）, library {json, name}, set_file {name, text}, remove_file {name}, check {model}（CheckResponse の JSON）, graph {model, depth}（graphology の JSON）, blt {model}（BltReport の JSON。S262）, stages {model}（StagesReport の JSON。S282）, simulate {request}（JSON 文字列）、
 //   library_index {url, name}（S301。分割配信のライブラリ。index.json の URL から索引を読み、見出しだけの Workspace を作る。本文の塊は検査などの前に要るだけ取る。索引が無ければ null、あれば {files, chunks}）,
 //   library_tree {prefix}・library_search {query, limit}（S167。名前の部分一致。木と同じ形の JSON）・library_source {path}（S127。JSON。ライブラリが無ければ [] と例外）, definition {file, text, line, character}（S138。{file, text, range} の JSON か null）, hover {同じ}（S149。{contents, range} の JSON か null）, completion {同じ}（S171。LSP の CompletionItem の配列の JSON）, move_part {cls, text, part, dx, dy}（S250。図の部品の移動の [{range, newText}] の JSON か null）, add_connect {cls, text, from, to, points}（S261。図の結線を足す [{range, newText}] の JSON か null）, add_part {cls, text, type, x, y}（S265。図の部品の宣言を足す [{range, newText}] の JSON か null）, references {同じ}・rename {同じ, newName}（S161。[Range]・[{range, newText}] の JSON。rename は断れば例外）, tunable_parameters {model}（S150。ParametersResponse の JSON。変換できなければ例外）, parameters {model}（S248。ModelParametersResponse の JSON。変換できなければ例外）, linearize {model, time?, parameters?}（S260。{model, time, x, u, y, x0, u0, y0, A, B, C, D} の JSON。できなければ例外）, export_fmu {model, fmiVersion}（S144。ソースの FMU の zip の Uint8Array。失敗は例外）,
 //   format {text, indent, insertOrigin}（整形後の本文）, lint {text}（JSON の配列）（S053）,
@@ -53,7 +53,8 @@ async function ensure(model, extra = [], basesOnly = false) {
   const key = JSON.stringify([model, extra, basesOnly, [...docs]]);
   if (lazy.ok.has(key)) return;
   let grown = false;
-  for (;;) {
+  for (let round = 0; ; round++) {
+    if (round > lazy.chunks + 1) throw new Error(`塊を取っても閉包が決まらない（${round} 回）。索引と塊の版が合っていない`); // 1 回ごとに新しい塊を取るので塊の数で終わる
     const closure = JSON.parse(lazy.closure.closure(model, JSON.stringify([...docs.values(), ...extra]), basesOnly));
     const need = closure.filter((n) => lazy.stub.has(n));
     if (!need.length) break;
@@ -77,18 +78,32 @@ async function fetchChunks(names, depth = 0) {
   const ids = [...seen].filter((i) => !lazy.got.has(i));
   if (!ids.length) return;
   lazy.rounds++;
-  const texts = await Promise.all(
-    ids.map(async (i) => (await getText(`${lazy.base}c/${i}.json`)) ?? Promise.reject(new Error(`MSL の塊 ${i} を取得できない（${lazy.base}c/${i}.json）`))),
+  // 取れて、読めてから got に入れる（壊れた塊を入れると、次の呼び出しが何も取らず ensure が回り続けた。#110）
+  const parsed = await Promise.all(
+    ids.map(async (i) => {
+      const url = `${lazy.base}c/${i}.json`;
+      const text = (await getText(url)) ?? Promise.reject(new Error(`MSL の塊 ${i} を取得できない（${url}）`));
+      try {
+        return [text, JSON.parse(text)];
+      } catch (e) {
+        throw new Error(`MSL の塊 ${i} が壊れている（${url}）: ${e.message}`);
+      }
+    }),
   );
-  for (const i of ids) lazy.got.add(i);
-  for (const text of texts) {
+  for (const [text, chunk] of parsed) {
     lazy.bytes += text.length;
-    for (const [n, body] of Object.entries(JSON.parse(text))) {
+    for (const [n, body] of Object.entries(chunk)) {
       if (!lazy.stub.delete(n)) continue;
       lazy.files[n] = body;
       lazy.closure.set_text(n, body);
     }
   }
+  // 索引が「この塊にある」と言うファイルが見出しのままなら、塊が索引と合っていない。その塊は got に入れない（次に取り直せる）
+  const fetched = new Set(ids);
+  const missing = Object.keys(lazy.chunk).filter((n) => fetched.has(lazy.chunk[n]) && lazy.stub.has(n));
+  const badIds = new Set(missing.map((n) => lazy.chunk[n]));
+  for (const i of ids) if (!badIds.has(i)) lazy.got.add(i);
+  if (missing.length) throw new Error(`MSL の塊に無いファイル: ${missing.slice(0, 3).join(", ")}（索引と塊の版が合っていない）`);
 }
 
 const ops = {
@@ -219,6 +234,26 @@ const ops = {
       c.free();
     }
   },
+  // S322: 複数のソルバで回す。進捗は {id, type: "progress", stage, time, start_time, stop_time, solver}。cancel は simulate_columns と同じ
+  // （全部の実行が止まる）。{response, runs: [{layout, columns}]}
+  simulate_many_columns({ request, progress, cancel }, id) {
+    const flag = cancel && new Int32Array(cancel);
+    const notify = (stage, time, start_time, stop_time, solver) => {
+      if (progress) send({ id, type: "progress", stage, time, start_time, stop_time, solver });
+      return flag ? Atomics.load(flag, 0) === 1 : undefined;
+    };
+    const c = W().simulate_many_columns(request, progress || flag ? notify : undefined);
+    try {
+      const response = c.response;
+      const runs = JSON.parse(response).runs.map((_, run) => {
+        const layout = JSON.parse(c.layout(run));
+        return { layout, columns: layout.names.map((_, i) => c.column(run, i)) };
+      });
+      return { response, runs };
+    } finally {
+      c.free();
+    }
+  },
   // 結果のファイル（.mat か .csv。S222）を列にする。simulate_columns と同じ {layout, columns}（response は無い）。読めなければ投げる
   read_results({ name, bytes }) {
     const c = gm.read_results(name, bytes);
@@ -248,6 +283,7 @@ const needs = {
   export_fmu: ({ model }) => [model],
   simulate: ({ request }) => [JSON.parse(request).model],
   simulate_columns: ({ request }) => [JSON.parse(request).model],
+  simulate_many_columns: ({ request }) => [JSON.parse(request).model],
   definition: ({ text }) => ["", [text]],
   hover: ({ text }) => ["", [text]],
   completion: ({ text }) => ["", [text]],
@@ -271,7 +307,7 @@ async function handle({ id, op, ...args }) {
   try {
     if (!ops[op]) throw new Error(`未知の op: ${op}`);
     const value = await ops[op](args, id);
-    send({ id, ok: true, value, mem: gm.memory_bytes() }, value?.columns?.map((c) => c.buffer)); // mem: 線形メモリ（client.js が上限を見て作り直す。ADR-0023 (c)）
+    send({ id, ok: true, value, mem: gm.memory_bytes() }, (value?.columns ?? value?.runs?.flatMap((r) => r.columns))?.map((c) => c.buffer)); // mem: 線形メモリ（client.js が上限を見て作り直す。ADR-0023 (c)）
   } catch (e) {
     const poisoned = typeof WebAssembly !== "undefined" && e instanceof WebAssembly.RuntimeError;
     // simulate の失敗は文字列の例外のこともある
