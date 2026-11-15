@@ -97,6 +97,34 @@ const cases = {
     assert.equal(await panel.handle({ type: "move", id: 3, part: "R o", dx: 1, dy: 1 }), false);
     assert.equal(doc.getText(), before);
   },
+  async "パネルの部品・結線の削除が文書に入り、undo で戻る（S293）"() {
+    const doc = await vscode.workspace.openTextDocument(fixture("ChuaCircuit.mo"));
+    const ed = await vscode.window.showTextDocument(doc);
+    const row = doc.getText().split("\n").findIndex((l) => l.startsWith("  Part Ro"));
+    ed.selection = new vscode.Selection(row, 4, row, 4);
+    const { panel } = await vscode.extensions.getExtension("globe-mode.globe-mode").activate();
+    await until("図の対象", () => panel.target?.class === "ChuaCircuit" && panel.target.doc === doc);
+    const before = doc.getText();
+    assert.equal(await panel.handle({ type: "connect", id: 1, from: "L.p", to: "Ro.n", points: [[0, 0], [1, 1]] }), true, panel.why);
+    const connected = doc.getText();
+    // 結線だけ消す（端の逆順でも同じ結線）。undo で戻る
+    assert.equal(await panel.handle({ type: "deleteConnect", id: 2, from: "Ro.n", to: "L.p" }), true, panel.why);
+    assert.ok(!doc.getText().includes("connect(") && doc.getText().includes("Part Ro"), doc.getText()); // 空になった equation の見出しは残る（S281）
+    await vscode.commands.executeCommand("undo");
+    assert.equal(doc.getText(), connected);
+    // 部品を消すと、宣言とつながる connect がまとめて消え、undo 1 回で戻る
+    assert.equal(await panel.handle({ type: "deletePart", id: 3, part: "Ro" }), true, panel.why);
+    assert.ok(!doc.getText().includes("Part Ro") && !doc.getText().includes("connect("), doc.getText());
+    assert.ok(doc.isDirty, "保存はしない");
+    await vscode.commands.executeCommand("undo");
+    assert.equal(doc.getText(), connected, "undo 1 回で戻る");
+    await vscode.commands.executeCommand("undo");
+    assert.equal(doc.getText(), before);
+    // 検査を通らない・無い部品は何もしない
+    assert.equal(await panel.handle({ type: "deletePart", id: 4, part: "R o" }), false);
+    assert.equal(await panel.handle({ type: "deletePart", id: 5, part: "Nothing" }), false);
+    assert.equal(doc.getText(), before);
+  },
 };
 
 exports.run = async () => {

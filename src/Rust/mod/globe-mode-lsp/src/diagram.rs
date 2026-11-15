@@ -153,6 +153,42 @@ pub fn delete_connect(class: &str, at: Option<(&str, u32, u32)>, a: &str, b: &st
     erase(class, at, |t, c| globe_mode_fmt::delete_connect(t, c, a, b))
 }
 
+/// S299: `class` の `connect(from, to)` の線の途中の点 `index` を (dx, dy) だけ動かす編集（`move_part` と同じ TextEdit の配列）。端・`points` が無い・結線が無いときは null。
+pub fn move_waypoint(
+    class: &str,
+    at: Option<(&str, u32, u32)>,
+    (from, to): (&str, &str),
+    index: usize,
+    (dx, dy): (f64, f64),
+) -> Value {
+    one(class, at, |t, c| {
+        globe_mode_fmt::move_waypoint(t, c, from, to, index, dx, dy)
+    })
+}
+
+/// S299: `class` の `connect(from, to)` の線に途中の点 `at_xy` を足す編集。`points` があれば `index` の前に挿し、無ければ `ends`（始めと終わり）と合わせた 3 点を足す。足せなければ null。
+pub fn add_waypoint(
+    class: &str,
+    at: Option<(&str, u32, u32)>,
+    (from, to): (&str, &str),
+    index: usize,
+    at_xy: [f64; 2],
+    ends: &[[f64; 2]],
+) -> Value {
+    let ends = <[[f64; 2]; 2]>::try_from(ends).ok();
+    one(class, at, |t, c| {
+        globe_mode_fmt::add_waypoint(t, c, from, to, index, at_xy, ends)
+    })
+}
+
+fn one(
+    class: &str,
+    at: Option<(&str, u32, u32)>,
+    f: impl Fn(&str, &str) -> Option<(usize, usize, String)>,
+) -> Value {
+    erase(class, at, |t, c| f(t, c).map(|e| vec![e]))
+}
+
 fn erase(
     class: &str,
     at: Option<(&str, u32, u32)>,

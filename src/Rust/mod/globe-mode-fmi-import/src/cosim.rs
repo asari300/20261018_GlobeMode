@@ -55,19 +55,27 @@ pub(crate) fn valid_fmu_name(name: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || "_-".contains(c))
 }
 
-/// `"a.y"` を（FMU の添字, 変数名）に割る。
+/// `"a.y"` を（FMU の添字, 変数名）に割る。FMU の名前は `.` を含んでよい（入れ子の System。S295）ので、一番長く合う名前を採る。
 fn endpoint<'a>(names: &[&String], s: &'a str) -> Result<(usize, &'a str)> {
-    let bad = || {
-        Error::Fmu(format!(
-            "接続の端 {s:?} が `<FMU の名前>.<変数名>` の形でない"
-        ))
-    };
-    let (fmu, var) = s.split_once('.').ok_or_else(bad)?;
-    let i = names
+    let (i, n) = names
         .iter()
-        .position(|n| n.as_str() == fmu)
-        .ok_or_else(|| Error::Fmu(format!("接続の端 {s:?} の FMU {fmu:?} が `fmus` に無い")))?;
-    Ok((i, var))
+        .enumerate()
+        .filter(|(_, n)| {
+            s.strip_prefix(n.as_str())
+                .is_some_and(|r| r.starts_with('.'))
+        })
+        .max_by_key(|(_, n)| n.len())
+        .ok_or_else(|| {
+            Error::Fmu(format!(
+                "接続の端 {s:?} が `<FMU の名前>.<変数名>` の形でないか、FMU が `fmus` に無い"
+            ))
+        })?;
+    Ok((i, &s[n.len() + 1..]))
+}
+
+/// `run_cosim_with` が受ける FMU の名前: [`valid_fmu_name`] を `.` でつないだもの（入れ子の System の `外側.内側`）。
+fn valid_fmu_path(name: &str) -> bool {
+    name.split('.').all(valid_fmu_name)
 }
 
 /// 結線の記述を回す。`work_dir` があれば FMU を `<work_dir>/<名前>/` に展開する（ワーカーが親の作った展開先を使う）。
@@ -91,9 +99,9 @@ pub fn run_cosim_with(
     }
     let mut fmus = Vec::new();
     for (name, path) in &spec.fmus {
-        if !valid_fmu_name(name) {
+        if !valid_fmu_path(name) {
             return Err(Error::Fmu(format!(
-                "FMU の名前 {name:?} が不正（英数字・`_`・`-` だけ）"
+                "FMU の名前 {name:?} が不正（英数字・`_`・`-` だけ。入れ子の System は `.` でつなぐ）"
             )));
         }
         fmus.push(match work_dir {

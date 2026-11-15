@@ -20,6 +20,7 @@
   import SimSettings from "./lib/SimSettings.svelte";
   import DocsPanel from "./lib/DocsPanel.svelte";
   import BltPanel from "./lib/BltPanel.svelte";
+  import StagesPanel from "./lib/StagesPanel.svelte";
   import { modelicaDocs } from "./lib/docs";
   import { isInternal } from "./lib/plot/signals";
   import FmuForm from "./lib/FmuForm.svelte";
@@ -83,6 +84,7 @@
   let icon = $state.raw<Icon | null>(null); // S244: 説明パネルの上のアイコン
   let diagram = $state.raw<Diagram | null>(null); // S245: 「図」のタブ
   let bltModel = $state<string | null>(null); // S262: 「BLT」を押したときのモデル名
+  let stagesModel = $state<string | null>(null); // S291: 「段」を押したときのモデル名
   let graphModel = $state<string | null>(null); // 「グラフ」を押したときのモデル名（入力のたびに描き直さない）
 
   // S141: 自分のファイルを開く・保存する。本文とファイル名は localStorage に自動保存して起動時に戻す（使えなくても動く。S102）。モデル名は戻さず本文から入れ直す（smoke が書き換えたモデル名を次の起動で拾わないため）
@@ -619,6 +621,7 @@
       const edits = await backend.setModifier(cls, modifiers, { file });
       if (!edits.length) return "ソースは変わらなかった";
       view.dispatch({ changes: edits.map((e) => ({ from: offsetOf(e.range.start), to: offsetOf(e.range.end), insert: e.newText })) });
+      await backend.setFile(file, view.state.doc.toString()); // S298: ダイアログが parameters を引き直せるよう、書いた本文を Workspace に入れる
       return null;
     } catch (e) {
       return String((e as Error).message ?? e);
@@ -627,6 +630,9 @@
   const onMove = (part: string, dx: number, dy: number) => editDiagram((d) => backend.movePart(d.class, part, dx, dy, { file }));
   const onConnect = (from: string, to: string, points: [number, number][]) => editDiagram((d) => backend.addConnect(d.class, from, to, points, { file }));
   const onAdd = (type: string, x: number, y: number) => editDiagram((d) => backend.addPart(d.class, type, x, y, { file }));
+  // S299: 結線の途中の点（点のドラッグと、線のダブルクリックで足す）
+  const onWaypoint = (from: string, to: string, index: number, dx: number, dy: number) => editDiagram((d) => backend.moveWaypoint(d.class, from, to, index, dx, dy, { file }));
+  const onAddWaypoint = (from: string, to: string, index: number, x: number, y: number, ends: [[number, number], [number, number]]) => editDiagram((d) => backend.addWaypoint(d.class, from, to, index, x, y, ends, { file }));
   const onDelete = (w: { part: string } | { from: string; to: string }) => editDiagram((d) => "part" in w ? backend.deletePart(d.class, w.part, { file }) : backend.deleteConnect(d.class, w.from, w.to, { file }));
   // S265: 木の「図へ」ボタン（キーボード用）は図の中央に足す
   const addToCenter = (e: { path: string }) => diagram && onAdd(e.path, (diagram.extent[0] + diagram.extent[2]) / 2, (diagram.extent[1] + diagram.extent[3]) / 2);
@@ -826,6 +832,9 @@
   const blt = () => run(async () => {
     bltModel = model;
   });
+  const stages = () => run(async () => {
+    stagesModel = model;
+  });
 
   // S260: 線形化。時刻の欄が空なら実験の開始時刻。上書きは実行の設定のパラメータ（simSettings.parameters）を使う
   let linTime = $state("");
@@ -923,6 +932,7 @@
     <button onclick={() => simulate()} disabled={busy} title="実行（Ctrl/Cmd+Enter）" aria-keyshortcuts="Control+Enter Meta+Enter">実行</button>
     <button onclick={graph} disabled={busy}>グラフ</button>
     <button onclick={blt} disabled={busy} data-blt-button>BLT</button>
+    <button onclick={stages} disabled={busy} data-stages-button title="変換の段（flat → DAE → インデックス → BLT → tearing）の要約">段</button>
     <button onclick={linearize} disabled={busy} title="状態空間の行列 A・B・C・D を出す（数値の中心差分）">線形化</button>
     <input class="lin-time" inputmode="decimal" placeholder="開始時刻" aria-label="線形化の時刻（空なら開始時刻）" bind:value={linTime}>
     <button onclick={format} disabled={busy}>整形</button>
@@ -1003,7 +1013,7 @@
   <div class="work">
     {#if msl === "loaded"}<aside class="library"><LibraryTree {backend} onOpen={openLibrary} onAdd={diagram ? addToCenter : undefined} /></aside>{/if}
     <div class="editor" id="editor" hidden={isResults} bind:this={host}></div>
-    <DocsPanel doc={docs} {icon} {diagram} {onMove} {onConnect} {onAdd} {onDelete} onParams={(part) => (openParams = { part })} onJump={(line) => moveTo(view.state.doc.line(line + 1).from, view.state.doc.line(line + 1).from)} />
+    <DocsPanel doc={docs} {icon} {diagram} {onMove} {onConnect} {onAdd} {onDelete} {onWaypoint} {onAddWaypoint} onParams={(part) => (openParams = { part })} onJump={(line) => moveTo(view.state.doc.line(line + 1).from, view.state.doc.line(line + 1).from)} />
   </div>
   <p class="hint" id="editor-help">{EDITOR_HELP}</p>
   {#if saved}<p class="note" role="status" data-saved>{saved}</p>{/if}
@@ -1039,6 +1049,7 @@
   </table>
   {#if columns}<Plot {columns} {model} />{/if}
   {#if bltModel}<BltPanel {backend} model={bltModel} />{/if}
+  {#if stagesModel}<StagesPanel {backend} model={stagesModel} />{/if}
   {#if lin}<LinearizeView result={lin} onclose={() => (lin = null)} />{/if}
   {#if graphModel}<Graph {backend} model={graphModel} onSelect={select} />{/if}
 </main>

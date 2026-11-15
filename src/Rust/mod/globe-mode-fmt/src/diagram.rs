@@ -432,6 +432,142 @@ pub fn delete_connect(
     (!hit.is_empty()).then(|| erase(body, bom, hit.into_iter()))
 }
 
+/// `connect(a, b)`（逆の並びも同じ）の `Line(points = {…})` の途中の点 `index`（1 以上、最後の点の手前。端は部品のコネクタに付くので動かさない）を (dx, dy) だけ動かす編集（S299）。
+/// 返すのは `src` のバイト範囲（その点の `{x, y}`）と入れる文字列。結線が無い・`points` が無い・`index` が端か範囲外・座標が不正（[`coord`]）なら None。ソースの他の所には触らない。
+pub fn move_waypoint(
+    src: &str,
+    qualified: &str,
+    a: &str,
+    b: &str,
+    index: usize,
+    dx: f64,
+    dy: f64,
+) -> Option<(usize, usize, String)> {
+    let bom = if src.starts_with('\u{feff}') { 3 } else { 0 };
+    let tokens = lex(&src[bom..]).ok()?;
+    let mine = own_elements(&tokens, qualified)?;
+    let (ranges, pts) = waypoints(connect_of(&mine, a, b)?)?;
+    if index == 0 || index + 1 >= pts.len() {
+        return None;
+    }
+    let p = pts[index];
+    Some((
+        ranges[index].0 + bom,
+        ranges[index].1 + bom,
+        format!("{{{}, {}}}", coord(p[0] + dx)?, coord(p[1] + dy)?),
+    ))
+}
+
+/// `connect(a, b)` の線に途中の点 `at` を足す編集（S299）。`Line(points)` があれば `index`（1 以上、点の数以下）番目の点の前に挿す（`index` は線の線分の番号 + 1）。
+/// `points` が無い（中心どうしの直線として描かれている）結線には、`ends`（始めと終わり。UI はコネクタの位置を渡す）と `at` の 3 点の `Line(points = …)` を足す
+/// （`Line(` があればその直後、`annotation(` だけならその直後、無ければ末尾に `annotation(Line(points = …, color = {0, 0, 255}))` を足す。`index` は見ない。`ends` が None なら断る）。結線が無い・座標が不正・`points` が読めない（`index` が範囲外を含む）なら None。
+pub fn add_waypoint(
+    src: &str,
+    qualified: &str,
+    a: &str,
+    b: &str,
+    index: usize,
+    at: [f64; 2],
+    ends: Option<[[f64; 2]; 2]>,
+) -> Option<(usize, usize, String)> {
+    let bom = if src.starts_with('\u{feff}') { 3 } else { 0 };
+    let tokens = lex(&src[bom..]).ok()?;
+    let mine = own_elements(&tokens, qualified)?;
+    let t = connect_of(&mine, a, b)?;
+    let pt = |p: [f64; 2]| Some(format!("{{{}, {}}}", coord(p[0])?, coord(p[1])?));
+    let mid = pt(at)?;
+    let line = line_at(t);
+    if line.is_some_and(|(o, c)| (o..c).any(|i| t[i].is("points"))) {
+        let (ranges, pts) = waypoints(t)?;
+        if index == 0 || index > pts.len().saturating_sub(1) {
+            return None;
+        }
+        let s = ranges[index].0 + bom;
+        return Some((s, s, format!("{mid}, ")));
+    }
+    let ends = ends?; // points が無いのに端が渡されなければ断る
+    let list = format!("{{{}, {mid}, {}}}", pt(ends[0])?, pt(ends[1])?);
+    let after_open = |o: usize, text: String| {
+        let comma = if t.get(o + 1).is_some_and(|s| s.is(")")) {
+            ""
+        } else {
+            ", "
+        };
+        let pos = t[o].start + 1 + bom;
+        Some((pos, pos, format!("{text}{comma}")))
+    };
+    if let Some((o, _)) = line {
+        return after_open(o, format!("points = {list}"));
+    }
+    let ann = t.iter().position(|s| s.is("annotation"));
+    if let Some(i) = ann.filter(|&i| t.get(i + 1).is_some_and(|s| s.is("("))) {
+        return after_open(i + 1, format!("Line(points = {list})"));
+    }
+    if ann.is_some() {
+        return None;
+    }
+    // 文末の `;` の前（要素に `;` が入っていれば）
+    let last = t.last()?;
+    let end = if last.is(";") {
+        t.len() - 2
+    } else {
+        t.len() - 1
+    };
+    let e = t.get(end)?;
+    let pos = e.start + e.text.len() + bom;
+    Some((
+        pos,
+        pos,
+        format!(" annotation(Line(points = {list}, color = {{0, 0, 255}}))"),
+    ))
+}
+
+/// 要素の中の `connect(a, b)`（逆の並びも同じ。添字を含めて比べる。最初の 1 本）。
+fn connect_of<'t, 'a>(mine: &[&'t [Token<'a>]], a: &str, b: &str) -> Option<&'t [Token<'a>]> {
+    mine.iter().copied().find(|t| {
+        t[0].is("connect")
+            && connect_ends(t).is_some_and(|(x, y)| (x == a && y == b) || (x == b && y == a))
+    })
+}
+
+/// `annotation(…Line(…)…)` の `Line` の `(` と、閉じの次のトークンの位置。
+fn line_at(t: &[Token<'_>]) -> Option<(usize, usize)> {
+    let p = t.iter().position(|s| s.is("annotation"))?;
+    let l = (p..t.len()).find(|&i| t[i].is("Line") && t.get(i + 1).is_some_and(|s| s.is("(")))?;
+    Some((l + 1, skip_group(t, l + 1).ok()?))
+}
+
+/// 各点のバイト範囲と座標
+type Waypoints = (Vec<(usize, usize)>, Vec<[f64; 2]>);
+
+/// `Line(points = {{x, y}, …})` の各点の `{x, y}` のバイト範囲と座標。`points` が無い・読めないときは None。
+fn waypoints(t: &[Token<'_>]) -> Option<Waypoints> {
+    let (o, c) = line_at(t)?;
+    let k = (o..c).find(|&i| t[i].is("points") && t.get(i + 1).is_some_and(|s| s.is("=")))?;
+    let end = skip_group(t, k + 2).ok()?;
+    let (mut ranges, mut i) = (Vec::new(), k + 3);
+    while i + 1 < end {
+        if t[i].is("{") {
+            let j = skip_group(t, i).ok()?;
+            ranges.push((t[i].start, t[j - 1].start + 1));
+            i = j;
+        } else {
+            i += 1;
+        }
+    }
+    let Some(Val::Call(_, args)) = annotation_in(t, "Line") else {
+        return None;
+    };
+    let Some(Val::List(items)) = get(&args, "points") else {
+        return None;
+    };
+    let pts: Vec<[f64; 2]> = items
+        .iter()
+        .map(|v| nums(v).filter(|n| n.len() == 2).map(|n| [n[0], n[1]]))
+        .collect::<Option<_>>()?;
+    (pts.len() == ranges.len()).then_some((ranges, pts))
+}
+
 /// 要素（トークンの並び）を消すバイト範囲。行に他に何も無ければ行ごと（行末の改行まで）、あれば要素と後ろの空白だけ。
 fn erase<'t, 'a: 't>(
     body: &str,
@@ -1617,6 +1753,75 @@ end Circ;
         assert_eq!(
             format!("{}{}{}", &src[..a], t, &src[b..]),
             "\u{feff}model M\n  Res r(R = 2);\nend M;\n"
+        );
+    }
+
+    #[test]
+    fn waypoints_move_add_and_refuse_the_ends() {
+        let src = "model M\n  Box a;\n  Box b;\nequation\n  connect(a.p, b.n) annotation(Line(points = {{0, 0}, {10, 0}, {10, 5}, {20, 5}}, color = {0, 0, 255}));\n  connect(a.q, b.q);\n  connect(a.r, b.r) annotation(Line(color = {1, 2, 3}));\n  connect(a.s, b.s) annotation(Icon());\nend M;\n";
+        let apply = |e: Option<(usize, usize, String)>| {
+            let (a, b, t) = e?;
+            Some(format!("{}{t}{}", &src[..a], &src[b..]))
+        };
+        // 途中の点は動き、逆の並びでも同じ結線
+        let m = apply(move_waypoint(src, "M", "b.n", "a.p", 2, 1.0, -0.5)).unwrap();
+        assert!(m.contains("{{0, 0}, {10, 0}, {11, 4.5}, {20, 5}}"), "{m}");
+        assert!(m.contains("color = {0, 0, 255}));\n  connect(a.q"), "{m}");
+        // 端・範囲外・points の無い結線・無い結線・座標が不正は断る
+        for (i, a) in [(0, "a.p"), (3, "a.p"), (9, "a.p"), (1, "a.q"), (1, "x.y")] {
+            assert!(
+                move_waypoint(src, "M", a, "b.n", i, 1.0, 1.0).is_none(),
+                "{i} {a}"
+            );
+        }
+        assert!(move_waypoint(src, "M", "a.p", "b.n", 1, f64::NAN, 0.0).is_none());
+        assert!(move_waypoint(src, "M", "a.p", "b.n", 1, 2e6, 0.0).is_none());
+        // points がある結線への追加: index の前に挿す（端の前後は不可）
+        let e = ([0.0, 0.0], [20.0, 5.0]);
+        let add = |a: &str, b: &str, i| {
+            apply(add_waypoint(
+                src,
+                "M",
+                a,
+                b,
+                i,
+                [5.0, 7.5],
+                Some([e.0, e.1]),
+            ))
+        };
+        assert!(
+            add("a.p", "b.n", 1)
+                .unwrap()
+                .contains("{{0, 0}, {5, 7.5}, {10, 0}, {10, 5}, {20, 5}}")
+        );
+        assert!(
+            add("a.p", "b.n", 3)
+                .unwrap()
+                .contains("{10, 5}, {5, 7.5}, {20, 5}}")
+        );
+        assert!(add("a.p", "b.n", 0).is_none() && add("a.p", "b.n", 4).is_none());
+        // points が無い結線: annotation が無い・Line が無い・Line に points が無い
+        let n = add("a.q", "b.q", 1).unwrap();
+        assert!(n.contains("connect(a.q, b.q) annotation(Line(points = {{0, 0}, {5, 7.5}, {20, 5}}, color = {0, 0, 255}));"), "{n}");
+        let l = add("a.r", "b.r", 1).unwrap();
+        assert!(
+            l.contains(
+                "annotation(Line(points = {{0, 0}, {5, 7.5}, {20, 5}}, color = {1, 2, 3}));"
+            ),
+            "{l}"
+        );
+        let i = add("a.s", "b.s", 1).unwrap();
+        assert!(
+            i.contains("annotation(Line(points = {{0, 0}, {5, 7.5}, {20, 5}}), Icon());"),
+            "{i}"
+        );
+        assert!(add("a.p", "x.y", 1).is_none());
+        assert!(add_waypoint(src, "M", "a.q", "b.q", 1, [5.0, 7.5], None).is_none());
+        // 足した結果を diagram が読み直すと、途中の点が 1 つできる
+        let d = diagram(&n, "M", &|_| None).unwrap();
+        assert_eq!(
+            d.connections[1].line.points,
+            [[0.0, 0.0], [5.0, 7.5], [20.0, 5.0]]
         );
     }
 }

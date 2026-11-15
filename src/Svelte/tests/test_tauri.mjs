@@ -88,6 +88,11 @@ globalThis.window.__TAURI__.core.invoke = async (cmd, a) => (calls.push([cmd, a]
 assert.deepEqual(await b.setModifier("T", [{ part: "r", name: "R", value: "2" }], { file: "T.mo" }), []);
 assert.deepEqual(calls, [["rpc", { method: "globe/setModifier", params: { file: "T.mo", class: "T", modifiers: [{ part: "r", name: "R", value: "2" }] } }]]);
 globalThis.window.__TAURI__.core.invoke = async (cmd, a) => (calls.push([cmd, a]), null);
+// 図の結線の途中の点（S299）: globe/moveWaypoint・globe/addWaypoint に from・to・index と file を渡す
+calls.length = 0;
+assert.equal(await b.moveWaypoint("T", "a.p", "b.n", 1, 2, -4, { file: "T.mo" }), null);
+assert.equal(await b.addWaypoint("T", "a.p", "b.n", 1, 5, 6, [[0, 0], [9, 9]], { file: "T.mo" }), null);
+assert.deepEqual(calls, [["rpc", { method: "globe/moveWaypoint", params: { file: "T.mo", class: "T", from: "a.p", to: "b.n", index: 1, dx: 2, dy: -4 } }], ["rpc", { method: "globe/addWaypoint", params: { file: "T.mo", class: "T", from: "a.p", to: "b.n", index: 1, x: 5, y: 6, ends: [[0, 0], [9, 9]] } }]]);
 // 図の部品の追加（S265）: globe/addPart に class・type・x・y と file を渡す
 calls.length = 0;
 assert.equal(await b.addPart("T", "L.Res", 12, -4, { file: "T.mo" }), null);
