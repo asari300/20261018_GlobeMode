@@ -34,3 +34,20 @@ def test_table_reads_inf_and_nan_as_numbers():
     df = table({"csv": '"time","x"\n0,1\n1,Inf\n2,-Inf\n3,NaN\n'})
     assert df.dtypes == [pl.Float64, pl.Float64]
     assert df["x"][1] == float("inf") and df["x"][2] == float("-inf")
+
+
+def test_simulate_many_compares_solvers_and_notes_the_ignored_max_order():
+    """S322: 複数のソルバで回して比べる。逐次と並列は同じ列、最大次数を持たないソルバには注記、閾値で合否。"""
+    ws = Workspace()
+    ws.load_dir(MODELICA)
+    model = "GlobeModeValidation.Simulation.Decay"
+    solvers = ["bdf", "esdirk34", "tsit45"]
+    seq = ws.simulate_many(model, solvers, tolerance=1e-9, max_order=3, compare=4)
+    par = ws.simulate_many(model, solvers, tolerance=1e-9, max_order=3, compare=4, parallel=True)
+    assert seq["ok"] and seq["mode"] == "sequential" and seq["comparison"]["passed"]
+    assert [r["solver"] for r in seq["runs"]] == solvers
+    assert all(len(r["notes"]) == 1 and "最大次数" in r["notes"][0] for r in seq["runs"])
+    for a, b in zip(seq["runs"], par["runs"]):
+        assert a["columns"]["x"].equals(b["columns"]["x"])
+    bad = ws.simulate_many(model, ["tsit45", "euler"], compare=6)
+    assert not bad["comparison"]["passed"] and bad["comparison"]["pairs"][0]["solver"] == "euler"

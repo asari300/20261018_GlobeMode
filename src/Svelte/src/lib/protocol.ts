@@ -30,9 +30,59 @@ export interface CheckResponse {
 export interface SimulateRequest {
   files?: Record<string, string>;
   model: string;
-  settings?: { start_time?: number; stop_time?: number; tolerance?: number; interval?: number; step?: number; max_wall_seconds?: number; solver?: string; parameters?: Record<string, number> };
+  settings?: { start_time?: number; stop_time?: number; tolerance?: number; interval?: number; step?: number; max_order?: number; max_wall_seconds?: number; solver?: string; parameters?: Record<string, number> };
   force?: boolean;
   no_csv?: boolean;
+}
+
+/** S322（ADR-0040）: 複数のソルバで回す依頼。`settings`（`tolerance`・`max_order` を含む）は全部の実行に同じものを渡し、`settings.solver` は使わない。 */
+export interface SimulateManyRequest {
+  files?: Record<string, string>;
+  model: string;
+  settings?: SimulateRequest["settings"];
+  /** 回すソルバの名前（1〜16 個、重複なし） */
+  solvers: string[];
+  /** 同時に回す（ネイティブは最大 4 本。ブラウザ・wasm は逐次に落ちて response.mode_note に出る）。既定は 1 つずつ */
+  parallel?: boolean;
+  /** 全部が終わってから比べる。閾値は 10^-threshold_exp（1〜15、既定 6）の矩形の管の幅。reference は基準のソルバ（省略は最初に成功した実行） */
+  compare?: { threshold_exp?: number; reference?: string };
+  force?: boolean;
+}
+
+export type ManyStatus = "ok" | "failed" | "cancelled";
+export interface ManyRun {
+  /** 依頼の名前（別名のまま。使ったソルバは response.settings.solver） */
+  solver: string;
+  status: ManyStatus;
+  /** その実行の応答（csv 無し。diagnostics はこの実行の分だけ） */
+  response: SimulateResponse;
+  elapsed_ms: number;
+  /** 例: 「指定した最大次数（3）はソルバ bdf では使わない…」 */
+  notes: string[];
+}
+export interface SignalDiff { name: string; passed: boolean; errors: number; max_excess: number; first_error_time?: number; missing?: boolean }
+export interface PairComparison { solver: string; passed: boolean; signals: number; failed_signals: number; failures: SignalDiff[] }
+export interface ManyComparison {
+  threshold_exp: number;
+  threshold: number;
+  reference: string;
+  passed: boolean;
+  pairs: PairComparison[];
+  skipped: { solver: string; reason: string }[];
+}
+export interface SimulateManyResponse {
+  model: string;
+  /** すべての実行が ok（比較の合否は comparison.passed） */
+  ok: boolean;
+  refused: string | null;
+  /** 実行の前の共通の診断（検査・コンパイル） */
+  diagnostics: Diagnostic[];
+  mode: "sequential" | "parallel";
+  workers: number;
+  mode_note?: string;
+  runs: ManyRun[];
+  comparison?: ManyComparison;
+  elapsed_ms: number;
 }
 
 export interface SimulateResponse {

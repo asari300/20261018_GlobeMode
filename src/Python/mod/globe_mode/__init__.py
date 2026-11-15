@@ -9,7 +9,7 @@
     res = ws.simulate_columns("Modelica.Electrical.Analog.Examples.ChuaCircuit", stop_time=2)
     table(res)  # polars.DataFrame（time 列と変数の列）
 
-- 使い方: `Workspace`（開く・`check`・`outline`・`deps`・`flat`・`graph`・`linearize`・`simulate`・`simulate_columns`・`export_fmu`）、`table`、`format`、
+- 使い方: `Workspace`（開く・`check`・`outline`・`deps`・`flat`・`graph`・`linearize`・`simulate`・`simulate_columns`・`simulate_many`〔複数のソルバで回して比べる〕・`export_fmu`）、`table`、`format`、
   `lint`、`solvers`、`read_results`（結果の MAT v4・CSV を読む）、`fmu_info`・`run_fmu`（FMU を読む・回す。FMI Import、S229）、`cosim`（複数の FMU をつなぐ。`.json`・`.ssp`・dict。S258）。
   それぞれ `help()` に引数・戻り値・誤りがある。
 - 誤りの扱い: **モデルの誤りは例外にせず、結果の `diagnostics`（`ok`・`passed`）で返す**（未知のモデルも `check` は
@@ -101,6 +101,7 @@ class Settings(TypedDict, total=False):
     solver: str | None  # `solvers()` の名前（bdf・dopri45・auto・esdirk34 …）
     max_wall_seconds: float | None  # 壁時計の予算（秒）
     step: float | None  # 固定刻みのソルバ（euler・heun・rk4・impeuler・trapezoid）の刻み幅
+    max_order: int | None  # 最大の積分次数（cvode・ida だけが使い 1〜5。ほかのソルバでは使わず、結果に注記が出る。S322）
     parameters: dict[str, float]  # パラメータの上書き（名前 → 値。tunable なものだけ）
 
 
@@ -322,6 +323,42 @@ class Workspace:
         response = json.loads(response)
         # shortcut: memoryview の "d" は native-endian（Rust は little-endian で詰める）、big-endian の機械なら byteswap が要る
         response["columns"] = {n: pl.Series(n, memoryview(c).cast("d"), pl.Float64) for n, c in zip(names, columns)}
+        return response
+
+    def simulate_many(
+        self,
+        model: str,
+        solvers: Iterable[str],
+        *,
+        parallel: bool = False,
+        compare: int | Mapping[str, Any] | None = None,
+        force: bool = False,
+        on_progress: Callable[[Progress], Any] | None = None,
+        **settings: Unpack[Settings],
+    ) -> dict[str, Any]:
+        """複数のソルバで同じモデルを回し、必要なら結果を比べる（S322、ADR-0040）。設定（`tolerance`・`max_order` を含む）は全部に同じものを渡す。
+
+        `solvers` は 1〜16 個の名前（重複は不可。`settings` の `solver` は使わない）。`parallel=True` は同じコンパイル結果を共有する
+        スレッドで最大 4 本を同時に回す（既定は 1 つずつ）。`compare` は整数 n（閾値 10^-n の管の幅。1〜15）か
+        `{"threshold_exp": n, "reference": "bdf"}`（基準は省略すると最初に成功した実行）。全部が終わってから比べる。
+
+        戻り値: `ok`（全部の実行が成功）・`refused`・`diagnostics`（検査とコンパイルの分）・`mode`・`workers`・`mode_note`・`elapsed_ms`・
+        `runs`（`solvers` の順。各 `solver`・`status`（`ok`/`failed`/`cancelled`）・`response`（`simulate_columns` の応答と同じ形で `csv` なし）・
+        `elapsed_ms`・`notes`〔例: 最大次数を持たないソルバの注記〕・`columns`（名前 → `polars.Series`。回せなかった実行は空））・
+        `comparison`（`reference`・`passed`・`pairs`〔ソルバごとの `passed`・`failures`〕・`skipped`。`compare` を頼んだときだけ）。
+        `on_progress(p)` の `p` には `Progress` に加えて `index`（`solvers` の添字）と `solver` が入る。
+
+            res = ws.simulate_many("RC", ["bdf", "esdirk34", "radau5"], tolerance=1e-9, compare=6, parallel=True)
+            res["comparison"]["passed"]
+        """
+        request: dict[str, Any] = {"model": model, "solvers": list(solvers), "parallel": parallel, "force": force,
+                                   "settings": json.loads(_settings_json(settings))}
+        if compare is not None:
+            request["compare"] = {"threshold_exp": compare} if isinstance(compare, int) and not isinstance(compare, bool) else dict(compare)
+        response, names, columns = self._ws.simulate_many(json.dumps(request), _callback(on_progress))
+        response = json.loads(response)
+        for run, ns, cs in zip(response["runs"], names, columns):
+            run["columns"] = {n: pl.Series(n, memoryview(c).cast("d"), pl.Float64) for n, c in zip(ns, cs)}
         return response
 
     def export_fmu(
