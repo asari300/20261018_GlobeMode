@@ -38,7 +38,7 @@ main の CI（run 43727293319、S353 のマージ `ce38ea4f`）が 2 つのジ�
 ## 検証
 
 - `cargo test -p globe-mode-lsp`: 全部通った。`cargo clippy -p globe-mode-lsp --all-targets -- -D warnings`・`cargo fmt` 0 件。
-- Windows の CI: `ci.yml -f full=true`（feature の `a119e384`、run 43730056976）は全ジョブ success（`rust-windows` の `cargo test --workspace` に `call_hierarchy` の統合試験を含む）。最後の版の CI は下の「残したこと」の run。
+- Windows の CI: `ci.yml -f full=true`（feature の `a119e384`、run 43730056976）は全ジョブ success（`rust-windows` の `cargo test --workspace` に `call_hierarchy` の統合試験を含む）。最後の版（`5064db4d`）は run 43734279788 で全ジョブ success（`rust-windows` は単体試験 `calls_are_found_when_tree_path_spells_backslashes` を含めて通り、`ui` は押し直しの版と回帰試験で通った）。
 - UI の CI での再現: run 43730056976（feature、full）と run 43729347424（main の S356 のマージ）の `ui` はどちらも success。**CI では再現せず**。
 - UI の手元の負荷（CPU を使い切るループ 8〜12 本）: 直す前の版 60 回中 2 回落ちた。Playwright の既定を 3 秒試す版（採らなかった）は 80 回と 100 回（12 本）で 0 回。押し直す最終版は **150 回で 0 回、そのうち 4 回で押し直しが働いた**（押下が 5 回のところ 6 回）。直す前の版ならこの 4 回が落ちていた。
 - 回帰試験 `check_click_survives_shift`: S310 の版は 0 回で落ち、押し直す版は 1 回で通る（毎回 0.4 秒）。
@@ -49,6 +49,6 @@ main の CI（run 43727293319、S353 のマージ `ce38ea4f`）が 2 つのジ�
 ## 残したこと
 
 - UI の layout shift（`SimSettings` の高さが検査の終わり・タブの切り替えのあと 6〜47 px 動く）は直していない。試験は押し直しで吸収したが、利用者が押す直前にずれると別の場所を押す。
-- 最後の版の CI（`ci.yml -f full=true`）の run 番号と結果は、親への報告に書く（このコミットの時点では未確認）。
+- 最後の版（`5064db4d`、main の `93d9670c` を取り込んだ後）の CI: `ci.yml -f full=true`、run 43734279788 が全ジョブ success（`rust-windows`・`ui`〔MSL の試験を含む〕・`msl` を含む）。
 - ドライブ文字が小文字の URI（VS Code）での実機の call hierarchy は【未確認】（`same_path_key` が畳むことは既存の単体試験で確かめている）。
 - 手元の負荷試験の再現用スクリプトはコミットしていない（scratchpad に置いた。作り方は解説書の「再現手順」）。
