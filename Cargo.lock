@@ -1449,6 +1449,7 @@ name = "globe-mode-dae"
 version = "0.2.0"
 dependencies = [
  "globe-mode-analysis",
+ "globe-mode-core",
  "globe-mode-flat",
  "globe-mode-ir",
  "globe-mode-syntax",
@@ -1545,9 +1546,14 @@ dependencies = [
 name = "globe-mode-frontend"
 version = "0.2.0"
 dependencies = [
+ "globe-mode-analysis",
  "globe-mode-core",
+ "globe-mode-dae",
+ "globe-mode-flat",
  "globe-mode-fmt",
  "globe-mode-ir",
+ "globe-mode-resolve",
+ "globe-mode-syntax",
  "rumoca-compile",
  "rumoca-core",
  "rumoca-eval-dae",

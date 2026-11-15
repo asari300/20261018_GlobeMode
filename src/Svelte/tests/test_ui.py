@@ -788,8 +788,15 @@ def diagram_view(browser, origin: str, errors: list[str]) -> None:
     assert svg.locator("[data-conn] polyline").nth(1).get_attribute("points") == "0,-70 -50,0", "Line が無ければ中心どうし（b は 90 度回して原点 {0, 20}）"
     svg.locator("g[data-part='b']").click()
     expect(pg.locator(".cm-activeLine")).to_contain_text("Box b", timeout=10_000)  # 宣言の行へ
+    # S316: キーボードだけ。部品で c（Box にコネクタは無いので、その旨が role=status に出る）、部品で Enter はパラメータのダイアログ（宣言の行へは Space）
+    svg.locator("g[data-part='a']").focus()
+    pg.keyboard.press("c")
+    expect(pg.locator("[data-diagram] [role=status]")).to_contain_text("a にコネクタが無い")
+    svg.locator("g[data-part='a']").focus()
+    pg.keyboard.press("Enter")
+    expect(pg.locator("[data-param-dialog]")).to_be_visible(timeout=30_000)
     pg.close()
-    print("図: 部品 2・connect 2（Line あり・なし）・Diagram の文字が SVG で出て、部品のクリックで宣言の行へ飛ぶ")
+    print("図: 部品 2・connect 2（Line あり・なし）・Diagram の文字が SVG で出て、部品のクリックで宣言の行へ飛ぶ。キーボード: c で結線の選び（コネクタ無しはその旨）、Enter でパラメータのダイアログ")
     if not (DIST / "msl/MSL.json").exists():
         print("public/msl/MSL.json が無いので、ChuaCircuit の図の試験は飛ばす")
         return
@@ -1984,6 +1991,29 @@ def main() -> int:
             expect(mk.get_by_label("ライブラリを検索")).to_be_focused(timeout=10_000)
             mk.close()
             print("MSL を読む: Enter で押すと、読み終えたあとフォーカスがライブラリの検索欄へ移った")
+            # 分割配信（S301）: MSL.json を取らず、索引（index.json）と、ChuaCircuit の閉包に要る塊（c/*.json）だけで検査が通る。取る量は MSL.json の半分より少ない
+            if (DIST / "msl/index.json").exists():
+                sp = browser.new_page()
+                sp.on("console", lambda m: m.type == "error" and errors.append(m.text))
+                sp.on("pageerror", lambda e: errors.append(str(e)))
+                got: list[tuple[str, int]] = []
+                sp.on("response", lambda r: "/msl/" in r.url and got.append((r.url, int(r.headers.get("content-length", "0")))))
+                sp.goto(origin)
+                sp.get_by_role("button", name="MSL を読む").click()
+                expect(sp.locator("p.note[data-msl]")).to_have_attribute("data-msl", "loaded", timeout=120_000)
+                sp.get_by_label("モデル名").fill(CHUA)
+                button = sp.get_by_role("button", name="検査")
+                button.click(force=True)
+                expect(button).to_be_enabled(timeout=300_000)
+                assert sp.locator("tr.error").count() == 0 and sp.get_by_role("alert").count() == 0
+                urls = [u for u, _ in got]
+                chunks = [u for u in urls if "/msl/c/" in u]
+                total = sum(n for _, n in got)
+                full = (DIST / "msl/MSL.json").stat().st_size
+                assert any(u.endswith("/msl/index.json") for u in urls) and not any(u.endswith("MSL.json") for u in urls), urls[:5]
+                assert 0 < len(chunks) < 400 and total < full / 2, (len(chunks), total, full)
+                print(f"分割配信: ChuaCircuit の検査が通り、取ったのは索引と塊 {len(chunks)} 本の合計 {total / 2**20:.1f} MiB（MSL.json は {full / 2**20:.1f} MiB、取らない）")
+                sp.close()
         else:
             print("public/msl/MSL.json が無いので MSL の試験は飛ばす")
         # ライブラリに構文の誤りのファイルがあっても読み、読み飛ばしを GM-W1001 の行（ファイル名は notes）で出す（S071）。
@@ -1993,6 +2023,7 @@ def main() -> int:
         tolerant = browser.new_page()
         tolerant.on("console", lambda m: m.type == "error" and errors.append(m.text))
         tolerant.on("pageerror", lambda e: errors.append(str(e)))
+        tolerant.route("**/msl/index.json", lambda route: route.fulfill(status=404))  # 索引が無ければ MSL.json に戻る（S301）
         tolerant.route("**/msl/MSL.json", lambda route: route.fulfill(status=200, content_type="application/json", body=json.dumps(files)))
         tolerant.goto(f"http://127.0.0.1:{server.server_port}/")
         tolerant.get_by_role("button", name="MSL を読む").click(force=True)

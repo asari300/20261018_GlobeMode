@@ -249,8 +249,30 @@
 - **試験**: `globe-mode-fmi` の `ssp.rs` に 1 本（平らな名前・System のコネクタの節点・重複）、`globe-mode-fmi-import` の `ssp.rs` に 1 本（Int32・Boolean の書き出し → 読み取りと型違い）、`globe-mode-cli/tests/fmu_cosim.rs` に 4 本（入れ子の System が平らな版と同じ値。System のコネクタを通る接続が平らな版と同じ値で、片側が宙に浮くと断る。System の `ParameterBindings` の優先〔Component k = 3・`g` が 4・最上位が 2 で、上位が勝つ〕。Int32・Boolean の `ssp-export` → `cosim` がバイトで一致）。(r) の「入れ子の System を断る」試験は「最上位のシステム自身のコネクタを断る」に替えた。
 - **持ち越し**: 入れ子の System の書き出し（`write_ssp` は平らのまま）、System のコネクタの鎖が複雑な形（`inout`・`local` の素通しの向きの検査）、`sourceBase="component"`、`.ssm`、単位の換算、`Float32` などほかの型のコネクタ、System の `Connector` の型と FMU の変数の型の突き合わせ（FMU の型は実行の前の検査が断る）。
 
+### (x) S315 の付記（2026-11-15）: `.ssp` → spec.json の逆変換（`globe fmu ssp-import`）と `.` を含む名前の書き出し
+
+(u)・(w) の持ち越し（`.ssp` から spec.json への逆変換、入れ子の System の書き出し）の続き。
+
+- **逆変換**: `globe fmu ssp-import <system.ssp> -o <dir>/spec.json [--stop-time T] [--step h]`。`Ssp::open`（(r)・(t)・(w) と同じ読み取り）の結果を JSON にするだけで、FMU のネイティブコードは実行しない。実装は `globe-mode-fmi-import` の `Ssp::export_spec(dir)`（`CosimSpec` は元から `Serialize`）。結線・`start`・時刻・刻み・`algorithm` が入り、`timeout`・`memory_limit_mib` は SSP に置き場が無いので書かない。
+- **FMU は `.ssp` の外へ出す**: `Ssp` は drop で展開先を消すので、展開先を指す JSON は残せない。かといって FMU を JSON に埋める（base64 など）のは大きく、`spec.json` の形（`fmus` はパス）も変わる。小さい方として、FMU を JSON と同じフォルダに `<名前>.fmu` で写し、JSON には相対パス（`<名前>.fmu`）を書く（`read_spec` が JSON のフォルダからの相対で読む規則のまま）。同名のファイルが既にあれば**上書きせず断る**。名前は信頼できない入力なので、`.` でつないだ英数字・`_`・`-` 以外（`..`・`/` など）は書く前に断る。
+- **`.` を含む名前は平らのまま書く**: 入れ子の System を平らにした `s.a` を、`write_ssp` は入れ子の System に戻さず、`name="s.a"` の Component 1 つとして書く。理由は 2 つ。(1) SSD の XSD（`SystemStructureDescription.xsd`、2026-11-15 に確認）は要素の `name` を `xs:string`（`minLength` 1 だけ）とし、`.` を禁じていない（「直上の System の中で一意」という注意書きだけ）。(2) 入れ子に戻すには、System をまたぐ結線のために System のコネクタを作って素通しにする必要があり、(w) の読み取りの逆をまるごと書くことになって大きい。**限界**: 他のツールが `s.a` を階層名として解釈すると、`s` の中の `a` と取り違えることがある（System の `ParameterBindings` の階層名と同じ形のため）。GlobeMode の読み取りは名前を 1 つの文字列として扱い、`start` は Component の `ParameterBindings`（階層名でない）に書くので、往復では取り違えない。変数名の中の `.` と区別するため、`<FMU の名前>.<変数名>` は一番長く合う FMU の名前で割る（(w) と同じ。`write_ssp` の `var_of` も同じ規則にした）。名前の上限は読み取りと同じ 1024 バイトで、超えるものは書く前に断る。
+- **試験**: `globe-mode-fmi-import` の `ssp.rs` に 1 本（`s.a`・`s.b` を書いて読み戻し、`export_spec` の spec が元と同じで FMU がバイト一致し、2 回目は上書きしない）、`globe-mode-cli/tests/fmu_cosim.rs` に 2 本（spec.json → `ssp-export` → `ssp-import` で、パス以外が元と同じで回した CSV がバイトで一致し、同名のファイルがあれば断る。入れ子の `.ssp` → `ssp-import` → `ssp-export` → `cosim` が入れ子を直接回した CSV とバイトで一致し、列は `s.a.x`）。既存の「`x.y` を断る」試験は `x y` に替えた。
+- **持ち越し**: 入れ子の System への書き出し（階層を JSON に持たないので、元の入れ子の形は往復で残らない。平らに書き直される）、`.ssv` の書き出し（S318 の (y) で済）、`.ssp` に FMU を使い回す `resources/` の重複排除、UI・LSP から `ssp-import` を呼ぶ口。
+
+### (y) S318 の付記（2026-11-15）: `start` を `.ssv` に書く（`globe fmu ssp-export --ssv`）
+
+(u)・(x) の持ち越しの「`.ssv` の書き出し」。**既定は今のまま**（インラインの `ParameterValues`）で、`--ssv` を付けたときだけ変わる。
+
+- **書き方**: `start` を持つ Component ごとに `resources/<名前>.ssv`（ルート `ssv:ParameterSet version="2.0" name="start"`）を書き、SSD の Component には `<ssd:ParameterBinding source="resources/<名前>.ssv"/>` を置く。`start` の無い Component には作らない。型（`ssv:Real`・`ssv:Integer`・`ssv:Boolean`）は FMU の変数から決め、名前の escape と値の検査（有限でない Real・整数でない Integer・0/1 でない Boolean は書く前に断る）はインライン版と同じコードを通す。`.` を含む名前も平らのまま（`resources/s.a.ssv`）。
+- **名前空間**: 型の要素は `ssv` の名前空間（XSD の `elementFormDefault="qualified"`）。仕様のリポジトリの `v2.0.1` の XSD で確かめた（[調査](../research/ssp-2026-11-15.md)の「XSD での確認」。S263 の【未確認】2 点も解消）。
+- **実装**: `globe-mode-fmi-import` の `write_ssp_with(spec, out, ssv: bool)`（`write_ssp` は `ssv = false` の別名）。facade が再 export し、CLI の `ssp-export` に `--ssv` を足した。
+- **試験**: `ssp.rs` に 1 本（`--ssv` で書いて読み戻した `start` がインライン版と同じで、`.ssv` の名前空間と `ssv:Real`・`ssv:Integer`・`ssv:Boolean` の要素が期待どおり、`start` の無い Component に `.ssv` は無い）、`globe-mode-cli/tests/fmu_cosim.rs` の `ssp_export_round_trips_to_the_same_csv` に `--ssv` の場合を 1 つ足した（JSON を直接回した CSV とバイトで一致）。
+- **持ち越し**: 1 つの `.ssv` を複数の Component で共有する書き方、`ParameterMapping`（`.ssm`）の書き出し、UI・LSP からの `--ssv`。
+
 ## 結果
 
+- **S318 の結果**: 上の (y)。`globe fmu ssp-export --ssv` が `start` を `.ssv` に書き、読み戻すとインラインと同じ。
+- **S315 の結果**: 上の (x)。`globe fmu ssp-import` が `.ssp` を spec.json（と外に出した FMU）にし、`ssp-export` と往復する。`.` を含む名前は平らのまま書ける。
 - **S295 の結果**: 上の (w)。入れ子の System・System のコネクタを通る接続・System の `ParameterBindings` を読み、SSP の Int32・Boolean のコネクタが往復する。
 - **S274 の結果**: 上の (u)。`globe fmu ssp-export` が spec を `.ssp` に書き、`globe fmu cosim` が同じ CSV に読み戻す。
 - **S263 の結果**: 上の (t)。SSP の `ParameterBindings` が `start` になる。
@@ -267,3 +289,5 @@
 - (b) をユーザーが決めたら、architecture.md §3.4 の「`fmi` 0.8 と `fmi-schema` の上に作る」と、表の `globe-mode-fmi` の行（`fmi, fmi-schema`）を直す。案 A なら「`libloading` と `roxmltree` の上に作る」。S057 では architecture.md を触っていない（並行セッションが編集中）。
 - 次（P5 の最初）: 案 A の関数の一覧をヘッダと突き合わせ、2.0 の Dahlquist の ME（`libloading` で `.so` を読み、`GetDerivatives` を呼ぶ）を 1 本通す。`binaries/` のプラットフォーム名の選択（2.0 は `linux64`・`win64`、3.0 は `x86_64-linux`・`x86_64-windows`）も同時に作る。
 - 残る不確かさ: 3.0 の `variability` の既定値（XSD に無く、仕様本文で未確認）、`fmu-runner` の FMI 3.0 対応、fmi-standard.org の validation のページの内容。
+
+**S303 の付記（#105・#106）**: `.ssp` は信頼できない入力として扱う。`SystemStructure.ssd` と `.ssv` は `modelDescription.xml` と同じ 64 MiB の上限で読み（超えたら誤り。`globe-mode-fmi-import` の `read_capped` 1 か所）、同じ `.ssv` を指す binding は 1 回だけ読んで解析する。入れ子の System は深さ 64、要素の名前 1 つ 1024 バイトまで（超えたら誤り。階層名を毎段つなぐ連結が深さ² のメモリになるため。実際の SSP は数段）。

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S303 review2-issues — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S303 review2-issues">
+
+<section class="slide" id="S01">
+  <span class="tag">S303 · 2026-11-15 · 監査</span>
+  <h1>2 回目のレビューの issue #105〜#109 を直した</h1>
+  <p class="lead">5 件を 1 件ずつ読み直し、5 件とも妥当だった</p>
+  <div class="big">入力は疑う・キャッシュには無効にする条件を・ゲートは状態を壊さない</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">直したこと</span>
+  <h1>資源の上限が 3 つ、古い値が 1 つ、基準の上書きが 1 つ</h1>
+  <table class="compact">
+    <tr><th>issue</th><th>直し</th></tr>
+    <tr><td>#105 SSP の XML</td><td>ssd・ssv も 64 MiB（超えたら誤り）、ssv は 1 回だけ読む</td></tr>
+    <tr><td>#106 入れ子の System</td><td>深さ 64、名前 1024 バイト</td></tr>
+    <tr><td>#107 LSP の定義</td><td>開いているライブラリのファイルを編集したら <code>lib</code> を捨てる</td></tr>
+    <tr><td>#108 diff-frontend</td><td>回帰・一部の実行は基準を書かない、壊れた基準は誤り</td></tr>
+    <tr><td>#109 flat の配列</td><td>確保の前に積（overflow も）を見る</td></tr>
+  </table>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

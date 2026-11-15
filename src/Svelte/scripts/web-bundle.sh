@@ -12,6 +12,8 @@ rm -rf "$out"
 mkdir -p "$out"
 cp -r "$dist"/. "$out"/
 rm -f "$out/graph-test.html" # 試験用の入口
+# S301: UI は msl/index.json と msl/c/*.json（分割配信）を使う。MSL.json（15 MiB。Leptos・Dioxus・marimo と、索引が無いときの代わり）は配布物に入れない
+if [ -s "$out/msl/index.json" ]; then rm -f "$out/msl/MSL.json"; fi
 csp=$(sed -n 's/.*http-equiv="Content-Security-Policy" content="\([^"]*\)".*/\1/p' "$out/index.html")
 test -n "$csp"
 cat > "$out/_headers" <<EOF
@@ -46,6 +48,10 @@ row() { # 名前 ファイル...（複数なら tar で 1 本にして測る）
 # 合計は「ファイルごとに圧縮した大きさの和」に近いが、ここでは連結して測る（配布先が個別に圧縮するので目安）
 row "wasm (globe_mode_wasm_bg.wasm)" "$out/wasm/pkg/globe_mode_wasm_bg.wasm"
 if [ -f "$out/msl/MSL.json" ]; then row "msl/MSL.json" "$out/msl/MSL.json"; fi
+if [ -f "$out/msl/index.json" ]; then # 分割配信（S301）: 初回に取るのは索引と、開いたモデルの閉包に要る塊だけ。全部を足した値は全塊を取ったときの上限
+  row "msl/index.json（索引。MSL を読むと必ず取る）" "$out/msl/index.json"
+  row "msl/c/*.json（塊 $(ls "$out"/msl/c | wc -l) 本の全部）" "$out"/msl/c/*.json
+fi
 row "JS・CSS (assets/)" "$out"/assets/*
 row "合計（連結）" $(find "$out" -type f | sort)
 echo

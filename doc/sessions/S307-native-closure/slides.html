@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S307 native-closure — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S307 native-closure">
+
+<section class="slide" id="S01">
+  <span class="tag">S307 · 2026-11-15 · Track B</span>
+  <h1>native の検査は閉包だけを読む</h1>
+  <p class="lead"><code>globe check --frontend native</code></p>
+  <div class="big">MSL 2556 ファイルを毎回読むのをやめた</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">やり方</span>
+  <h1>Rumoca の道の分割読み込みを共用した</h1>
+  <ul>
+    <li><code>SplitLibrary</code>（字句の索引。Rumoca に依存しない）を feature <code>native</code> でも作る</li>
+    <li><code>closure_sources</code>: モデルと入力から名前をたどり、使うファイルと外側の <code>package.mo</code> だけを返す</li>
+    <li><code>globe-mode-resolve</code>・<code>-flat</code> の中は変えていない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">前後</span>
+  <h1>時間は約 5 分の 1、メモリは約 3 分の 1</h1>
+  <table class="compact">
+    <tr><th>モデル（debug）</th><th>前</th><th>後</th></tr>
+    <tr><td>PID_Controller</td><td>15.8 s・227 MB</td><td>2.9 s・67 MB</td></tr>
+    <tr><td>Rotational.Examples.First</td><td>14.4 s・227 MB</td><td>2.3 s・67 MB</td></tr>
+    <tr><td>ファイル数</td><td>2556</td><td>290〜320</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">確かめたこと</span>
+  <h1>平坦化の結果は全部読みと同じ</h1>
+  <ul>
+    <li>S305 の 3 本の試験が同じ結果</li>
+    <li>MSL の 10 モデルで、成功も断る理由も完全一致（<code>#[ignore]</code> の試験）</li>
+    <li>残り: <code>GM-E6001</code> の位置（flat に範囲が無い）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

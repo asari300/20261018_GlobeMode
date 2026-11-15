@@ -1,6 +1,6 @@
 //! 平らにする本体。クラスをインスタンス化し（`extends` を取り込み、修飾を外側から当てる）、変数と方程式を集める。
 
-use crate::{Causality, Equation, FlatModel, Project, Res, Var, VarKind, un};
+use crate::{Causality, Equation, FlatModel, Origin, Project, Res, Var, VarKind, un};
 use crate::{Snip, SnipItem};
 use globe_mode_resolve::{ClassId, Reason, Ref, RefKind, Resolution};
 use globe_mode_syntax::ast::{self, Element, Expr};
@@ -204,7 +204,7 @@ enum Ty {
 
 #[derive(Default)]
 struct Level {
-    conns: Vec<(String, String)>,
+    conns: Vec<(String, String, Option<Origin>)>,
 }
 
 const MAX_VARS: usize = 200_000;
@@ -217,6 +217,8 @@ struct F<'a> {
     whens: Vec<Equation>,
     ieqs: Vec<Equation>,
     algs: Vec<String>,
+    /// 今平らにしている方程式の位置（`push` が付ける）
+    cur: Option<Origin>,
     env: HashMap<String, Bind>,
     /// `inner` で宣言した部品の完全な名前
     inners: HashSet<String>,
@@ -227,6 +229,8 @@ struct F<'a> {
     /// まだ平らにしていない宣言（`size(x, 1)` が後ろで宣言した配列の大きさを引くため）
     pending: HashMap<String, Pending>,
     depth: std::cell::Cell<u32>,
+    /// `inst_class` の入れ子の深さ（自分を部品に持つモデルでスタックを溢れさせないための上限。S320・#111）
+    inst_depth: std::cell::Cell<u32>,
     /// パッケージ（差し替え先を含む）の定数の束縛。`extends` の修飾で決まる値も入る（S297）
     pkg_envs: RefCell<HashMap<ClassId, PkgEnv>>,
     /// パッケージの `extends P(redeclare record R = X)` が決めた差し替え（`pkg_env` と一緒に作る）
@@ -246,6 +250,9 @@ struct Pending {
     m: Mod,
 }
 
+/// `inst_class` の入れ子の上限（MSL の部品の入れ子は 30 段に届かない）
+const MAX_INST_DEPTH: u32 = 64;
+
 /// 「パッケージの定数を評価する文脈」の印（`Ctx::pfx`）
 const PKG: &str = "\u{0}";
 
@@ -258,12 +265,14 @@ pub(crate) fn run(p: &Project, cid: ClassId, model: &str) -> Res<FlatModel> {
         whens: Vec::new(),
         ieqs: Vec::new(),
         algs: Vec::new(),
+        cur: None,
         env: HashMap::new(),
         inners: HashSet::new(),
         alias: HashMap::new(),
         removed: Vec::new(),
         pending: HashMap::new(),
         depth: std::cell::Cell::new(0),
+        inst_depth: std::cell::Cell::new(0),
         pkg_envs: RefCell::default(),
         pkg_cenvs: RefCell::default(),
         oc_nodes: BTreeSet::new(),
@@ -282,6 +291,7 @@ pub(crate) fn run(p: &Project, cid: ClassId, model: &str) -> Res<FlatModel> {
                 f.eqs.push(Equation {
                     text: format!("{n}{suffix} = 0"),
                     count,
+                    origin: f.vars[vi].origin.clone(),
                 });
             }
         }
@@ -330,6 +340,24 @@ impl F<'_> {
 
     /// 戻り値は、このインスタンスが直接持つコネクタの名前（親が「内側のコネクタ」として使う公開のものと、`protected` を含む全部）
     fn inst_class(
+        &mut self,
+        cid: ClassId,
+        pfx: &str,
+        mods: &ModMap,
+        flags: Flags,
+        heir: Option<ClassId>,
+    ) -> Res<(Vec<String>, Vec<String>)> {
+        // 上限は Rumoca の GM-E3001（循環）に合わせて断る。debug でも溢れない段数（#111）
+        if self.inst_depth.get() >= MAX_INST_DEPTH {
+            return un("deep-instantiation", self.p.lib.qualified_name(cid));
+        }
+        self.inst_depth.set(self.inst_depth.get() + 1);
+        let r = self.inst_class_body(cid, pfx, mods, flags, heir);
+        self.inst_depth.set(self.inst_depth.get() - 1);
+        r
+    }
+
+    fn inst_class_body(
         &mut self,
         cid: ClassId,
         pfx: &str,
@@ -713,6 +741,7 @@ impl F<'_> {
                     start,
                     binding,
                     attrs,
+                    origin: self.p.origin(file, d.syntax()),
                 });
                 if conn {
                     own.push(full);
@@ -743,6 +772,11 @@ impl F<'_> {
                         .classes
                         .contains_key("equalityConstraint")
                 });
+                // 添字の文字列を作る前に個数を見る（積の overflow も。#109）
+                let n = dims.iter().try_fold(1usize, |a, &d| a.checked_mul(d));
+                if n.is_none_or(|n| n > MAX_VARS - self.vars.len().min(MAX_VARS)) {
+                    return un("too-large", format!("{name}[] too many elements"));
+                }
                 for ix in idx_names(&dims) {
                     let el = format!("{full}{ix}");
                     if oc {
@@ -777,7 +811,7 @@ impl F<'_> {
                     .children()
                     .find_map(ast::ComponentRef::cast)
                     .and_then(|r| match self.p.res_of(b.file, r.range()) {
-                        Some(Resolution::Class(rid)) => Some(*rid),
+                        Some(Resolution::Class(rid)) => Some(rid),
                         _ => None,
                     })
                     .filter(|rid| {
@@ -846,7 +880,7 @@ impl F<'_> {
         let own = std::mem::take(out);
         for n in bases {
             if let Some(Resolution::Class(b)) = self.p.res_of(file, n.range()) {
-                self.record_fields(*b, out, depth + 1);
+                self.record_fields(b, out, depth + 1);
             }
         }
         out.extend(own);
@@ -874,9 +908,9 @@ impl F<'_> {
             for e in sn.children().filter_map(Expr::cast) {
                 if let Expr::ComponentRef(r) = &e
                     && let Some(Resolution::Class(cid)) = self.p.res_of(file, r.range())
-                    && self.is_enum(*cid)
+                    && self.is_enum(cid)
                 {
-                    dims.push(self.p.lib.classes[*cid].components.len());
+                    dims.push(self.p.lib.classes[cid].components.len());
                     continue;
                 }
                 match self.eval(e.syntax(), file, ctx, 0).and_then(Val::int) {
@@ -966,7 +1000,7 @@ impl F<'_> {
                                 acc = merge(&acc, &self.mods_of(&cm, file, &tctx)?);
                             }
                             last = n.parts().last().cloned().unwrap_or_default();
-                            res = self.p.res_of(file, n.range()).cloned();
+                            res = self.p.res_of(file, n.range());
                             continue;
                         }
                         return Ok((
@@ -1025,7 +1059,7 @@ impl F<'_> {
                         return un("short-class", "no base");
                     };
                     last = base.parts().last().cloned().unwrap_or_default();
-                    res = self.p.res_of(file, base.range()).cloned();
+                    res = self.p.res_of(file, base.range());
                 }
                 Some(Resolution::Unresolved(Reason::Redeclare)) => return un("redeclare", last),
                 other => {
@@ -1164,7 +1198,7 @@ impl F<'_> {
         tn: &ast::Name,
         ctx: &Rc<Ctx>,
     ) -> (Option<Resolution>, ModMap, Option<ClassId>) {
-        let stat = self.p.res_of(file, tn.range()).cloned();
+        let stat = self.p.res_of(file, tn.range());
         let parts = tn.parts();
         let hit = (!tn.is_global())
             .then(|| ctx.cenv.borrow().get(&parts[0]).cloned())
@@ -1400,7 +1434,7 @@ impl F<'_> {
         }
         let r = self.p.res_of(file, c.range());
         let mut qualified = None;
-        match r {
+        match &r {
             Some(Resolution::Local) => {
                 if let Some(v) = ctx.local(&segs[0].0) {
                     segs[0].0 = v.to_string();
@@ -1504,7 +1538,7 @@ impl F<'_> {
                 if let Some((node, f, c2)) = self.dyn_const(&c, ctx) {
                     return self.eval(&node, f, &c2, d);
                 }
-                match self.p.res_of(file, c.range())? {
+                match &self.p.res_of(file, c.range())? {
                     Resolution::Local if parts.len() == 1 => ctx.local(&parts[0]).map(Val::I),
                     Resolution::Component(cid, idx) => {
                         if ctx.pfx != PKG && ctx.lineage.contains(cid) {
@@ -1540,16 +1574,17 @@ impl F<'_> {
                         };
                         let k = v(1)?.int()? as usize;
                         // パッケージの定数の配列（`size(substanceNames, 1)`）は、束縛の式の形から
-                        if let Some((node, f, c2)) = self.dyn_const(r, ctx).or_else(|| {
-                            match self.p.res_of(file, r.range())? {
-                                Resolution::Component(cid, idx)
-                                    if ctx.pfx == PKG || !ctx.lineage.contains(cid) =>
-                                {
-                                    let comp = &self.p.lib.classes[*cid].components[*idx].name;
-                                    self.pkg_binding(ctx, *cid, comp)
-                                }
-                                _ => None,
+                        if let Some((node, f, c2)) = self.dyn_const(r, ctx).or_else(|| match &self
+                            .p
+                            .res_of(file, r.range())?
+                        {
+                            Resolution::Component(cid, idx)
+                                if ctx.pfx == PKG || !ctx.lineage.contains(cid) =>
+                            {
+                                let comp = &self.p.lib.classes[*cid].components[*idx].name;
+                                self.pkg_binding(ctx, *cid, comp)
                             }
+                            _ => None,
                         }) {
                             let dims = self.dims_of(&node, f, &c2)?;
                             return dims.get(k.checked_sub(1)?).map(|&x| Val::I(x as i64));
@@ -1840,7 +1875,7 @@ impl F<'_> {
                 if n.children().any(|x| x.kind() == K::Subscripts) {
                     return None;
                 }
-                match self.p.res_of(file, c.range())? {
+                match &self.p.res_of(file, c.range())? {
                     Resolution::Component(cid, idx)
                         if ctx.pfx == PKG || !ctx.lineage.contains(cid) =>
                     {
@@ -1885,7 +1920,11 @@ impl F<'_> {
     }
 
     fn push(&mut self, initial: bool, text: String, count: usize) {
-        let e = Equation { text, count };
+        let e = Equation {
+            text,
+            count,
+            origin: self.cur.clone(),
+        };
         if initial {
             self.ieqs.push(e);
         } else {
@@ -1901,6 +1940,7 @@ impl F<'_> {
         initial: bool,
         lv: &mut Level,
     ) -> Res<()> {
+        self.cur = self.p.origin(file, node);
         let first = tokens(node).next().map(|t| t.kind());
         match first {
             Some(K::KwFor) => {
@@ -1929,7 +1969,11 @@ impl F<'_> {
                 let t = self.text(node, file, ctx)?;
                 let c = self.count_eq(node, file, ctx);
                 if first == Some(K::KwWhen) && !initial {
-                    self.whens.push(Equation { text: t, count: c });
+                    self.whens.push(Equation {
+                        text: t,
+                        count: c,
+                        origin: self.cur.clone(),
+                    });
                 } else {
                     self.push(initial, t, c);
                 }
@@ -1945,7 +1989,7 @@ impl F<'_> {
                         };
                         let (x, y) = (self.cref(x, file, ctx)?, self.cref(y, file, ctx)?);
                         if !(self.is_removed(&x) || self.is_removed(&y)) {
-                            lv.conns.push((x, y));
+                            lv.conns.push((x, y, self.cur.clone()));
                         }
                     }
                     [e] => {
@@ -2218,7 +2262,8 @@ impl F<'_> {
 
     /// 1 つのインスタンスの `connect` から、potential の等式と flow の和（つながない内側の flow は 0）を作る。
     /// 接続集合は葉の変数（`a.heatPort.Q_flow`）の単位で作る。丸ごとの `connect(c, d)` と、欄だけの `connect(x, d.f)` は同じ集合に入る
-    /// （Rumoca の flat も同じ）。`own` はこのインスタンスのコネクタの名前（外側の `connect` の端は、flow の和の符号が逆になる）
+    /// （Rumoca の flat も同じ）。`own` はこのインスタンスのコネクタの名前（外側の `connect` の端は、flow の和の符号が逆になる）、
+    /// `prot` はそのうち `protected` のもの
     fn gen_connects(
         &mut self,
         lv: &Level,
@@ -2250,8 +2295,9 @@ impl F<'_> {
             })
         };
         let mut st: (Vec<String>, Vec<Info>, Vec<usize>) = Default::default();
-        self.conn_pairs.extend(lv.conns.iter().cloned());
-        for (a, b) in &lv.conns {
+        self.conn_pairs
+            .extend(lv.conns.iter().map(|(a, b, _)| (a.clone(), b.clone())));
+        for (a, b, _) in &lv.conns {
             let la = self.leaves(a);
             if la.is_empty() {
                 return un(
@@ -2282,17 +2328,33 @@ impl F<'_> {
             });
             sets[k].push(i);
         }
-        for set in &sets {
+        // 集合の位置: その集合の端を最初に左辺に書いた `connect` の位置
+        let mut origins: Vec<Option<Origin>> = vec![None; sets.len()];
+        let mut seen = vec![false; sets.len()];
+        for (a, _, o) in &lv.conns {
+            let prefix = format!("{a}.");
+            for (i, n) in names.iter().enumerate() {
+                if n == a || n.starts_with(&prefix) || n.starts_with(&format!("{a}[")) {
+                    let k = root_of[&find(&mut parent, i)];
+                    if !seen[k] {
+                        seen[k] = true;
+                        origins[k] = o.clone();
+                    }
+                }
+            }
+        }
+        for (k, set) in sets.iter().enumerate() {
+            let origin = origins[k].clone();
             let (vi, count, _) = info[set[0]];
             let v = &self.vars[vi];
             if v.flow {
                 let flip = set.iter().all(|&i| info[i].2);
                 let mut s = String::new();
-                for (k, &i) in set.iter().enumerate() {
+                for (j, &i) in set.iter().enumerate() {
                     // 外側のコネクタの端は符号が逆（内側の端が 1 つも無いときは全部そろえる）
                     let plus = !info[i].2 != flip;
                     let t = &names[i];
-                    s += &match (k, plus) {
+                    s += &match (j, plus) {
                         (0, true) => t.clone(),
                         (0, false) => format!("-{t}"),
                         (_, true) => format!(" + {t}"),
@@ -2302,6 +2364,7 @@ impl F<'_> {
                 self.eqs.push(Equation {
                     text: format!("{s} = 0"),
                     count,
+                    origin,
                 });
             } else {
                 if v.stream {
@@ -2321,6 +2384,7 @@ impl F<'_> {
                     self.eqs.push(Equation {
                         text: format!("{} = {}", names[set[0]], names[i]),
                         count,
+                        origin: origin.clone(),
                     });
                 }
             }
@@ -2331,7 +2395,7 @@ impl F<'_> {
         let whole: HashSet<&str> = lv
             .conns
             .iter()
-            .flat_map(|(a, b)| [a.as_str(), b.as_str()])
+            .flat_map(|(a, b, _)| [a.as_str(), b.as_str()])
             .collect();
         for n in prot {
             for (suffix, vi, count) in self.leaves(n) {
@@ -2343,6 +2407,7 @@ impl F<'_> {
                     self.eqs.push(Equation {
                         text: format!("{n}{suffix} = 0"),
                         count,
+                        origin: v.origin.clone(),
                     });
                 }
             }
@@ -2358,6 +2423,7 @@ impl F<'_> {
                     self.eqs.push(Equation {
                         text: format!("{n}{suffix} = 0"),
                         count,
+                        origin: v.origin.clone(),
                     });
                 }
             }

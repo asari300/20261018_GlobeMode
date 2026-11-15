@@ -165,6 +165,11 @@ fn bindings(component: roxmltree::Node, cname: &str) -> Result<Vec<SspBinding>, 
     Ok(out)
 }
 
+/// 入れ子の System の深さと名前 1 つの長さの上限（信頼できない `.ssp` で階層名の連結が深さ² のメモリになる。#106）。
+/// 実際の SSP は数段（FMU の入れ子は 10 段に届かない）なので、桁に余裕を持たせた値。
+const MAX_DEPTH: usize = 64;
+pub const MAX_NAME: usize = 1024;
+
 /// 階層の名前（`外側.内側`）。ルートの System は空。
 fn join(path: &str, name: &str) -> String {
     if path.is_empty() {
@@ -201,7 +206,10 @@ impl Walk {
         }
     }
 
-    fn system(&mut self, system: roxmltree::Node, path: &str) -> Result<(), String> {
+    fn system(&mut self, system: roxmltree::Node, path: &str, depth: usize) -> Result<(), String> {
+        if depth > MAX_DEPTH {
+            return Err(format!("System の入れ子が深すぎる（{MAX_DEPTH} 段まで）"));
+        }
         if !path.is_empty() {
             self.ssd.systems.push(path.to_owned());
             self.connectors(system, path);
@@ -215,6 +223,9 @@ impl Walk {
         {
             let tag = e.tag_name().name();
             let local = e.attribute("name").unwrap_or_default();
+            if local.len() > MAX_NAME {
+                return Err(format!("要素の名前が長すぎる（{MAX_NAME} バイトまで）"));
+            }
             let name = join(path, local);
             if tag != "Component" && tag != "System" {
                 return Err(format!("未対応の要素 {tag}"));
@@ -223,7 +234,7 @@ impl Walk {
                 return Err(format!("要素の名前 {name:?} が重複"));
             }
             if tag == "System" {
-                self.system(e, &name)?;
+                self.system(e, &name, depth + 1)?;
                 continue;
             }
             let ty = e
@@ -312,7 +323,7 @@ pub fn parse_ssd(xml: &str) -> Result<Ssd, String> {
     }
     let system = child(root, "System").ok_or("System が無い")?;
     let mut walk = Walk::default();
-    walk.system(system, "")?;
+    walk.system(system, "", 0)?;
     let Walk { mut ssd, .. } = walk;
     let time = |a: &str| -> Result<Option<f64>, String> {
         child(root, "DefaultExperiment")
@@ -462,5 +473,32 @@ mod tests {
         assert_eq!(ends, [("g", "g.b"), ("a", "g")]);
         let dup = ssd.replace("name=\"g\"", "name=\"a\"");
         assert!(parse_ssd(&dup).unwrap_err().contains("重複"));
+    }
+
+    /// #106: 入れ子の深さと名前の長さに上限（階層名の連結が深さ² のメモリにならない）。
+    #[test]
+    fn nested_system_depth_and_name_are_capped() {
+        let nest = |depth: usize, name: &str| {
+            let mut s = String::new();
+            for _ in 0..depth {
+                s += &format!("<ssd:System name=\"{name}\"><ssd:Elements>");
+            }
+            for _ in 0..depth {
+                s += "</ssd:Elements></ssd:System>";
+            }
+            SSD.replace("UNIT", "m")
+                .replacen("</ssd:Elements>", &format!("{s}</ssd:Elements>"), 1)
+        };
+        parse_ssd(&nest(MAX_DEPTH, "s")).unwrap();
+        assert!(
+            parse_ssd(&nest(MAX_DEPTH + 1, "s"))
+                .unwrap_err()
+                .contains("深すぎる")
+        );
+        assert!(
+            parse_ssd(&nest(1, &"x".repeat(MAX_NAME + 1)))
+                .unwrap_err()
+                .contains("長すぎる")
+        );
     }
 }

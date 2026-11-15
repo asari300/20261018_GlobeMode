@@ -23,3 +23,7 @@
 - 代償: 診断の位置は変わらないが、ライブラリのファイルの構文の誤りは「そのファイルを読むとき」に見つかる（以前は起動時）。モデルが使わないファイルの誤りは見つからない。`Checker::libraries()` は `library:<パスをコンマでつないだ名前>` を返す（ディレクトリのパスではない）。
 - 閉包が狭すぎると Rumoca の名前解決が失敗する危険は残る。MSL の 566 本は S047 で確かめた。ほかのライブラリは `with_libraries_full` に戻して比べられる。
 - `Checker` の内部（`globe-mode-frontend` の `Checker::new`）は変えていない。`msl:funnel`・`msl:compare`・xtask は全部読みのままで、数字は変わらない。
+
+## 付記（S307）: 自前の段（native）も同じ閉包を使う
+
+`globe check --frontend native`（S305）は毎回ライブラリ全体を読んでいた（debug で約 15 秒・最大 RSS 約 227 MB）。`SplitLibrary`（`split_library.rs`）は Rumoca に依存しない字句の走査なので、feature `native` でも作り、`globe-mode-frontend` の `closure_sources` がモデルと入力のファイルの閉包だけを自前の `Project` に渡す。`PID_Controller` で約 2.9 秒・約 67 MB になった。詳しくは [ADR-0039](0039-native-cst-parser.md) の付記（S307）。Rumoca の道（`Workspace::with_libraries`）は変えていない。

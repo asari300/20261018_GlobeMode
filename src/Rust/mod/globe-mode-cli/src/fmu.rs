@@ -68,7 +68,7 @@ pub enum FmuImportCommand {
     },
     /// 複数の Co-Simulation の FMU を固定の通信刻みでつなぎ（既定は Jacobi 型で入力は 1 刻み遅れる。`algorithm: gauss-seidel` で遅れなし）、全 FMU の出力を 1 つの CSV に出す。接続は Real・Int32・Boolean の同じ型どうし。FMU は別プロセス（ワーカー）で実行する
     #[command(
-        after_help = "spec.json の例:\n  {\"fmus\": {\"a\": \"Dahlquist.fmu\", \"b\": \"Feedthrough.fmu\"}, \"connections\": [[\"a.x\", \"b.Float64_continuous_input\"]], \"stop_time\": 1, \"step\": 0.01}\n  （FMU のパスは spec.json からの相対。`algorithm`・`start`〔{\"a.k\": 2}〕・`timeout`・`memory_limit_mib` も書ける）\n.ssp（SSP 2.0.1。入れ子の System は読める。単位の変換は未対応。`globe fmu ssp-export` で書ける）も渡せる:\n  globe fmu cosim system.ssp --step 0.01 --timeout 60 -o out.csv\n例:\n  globe fmu cosim spec.json -o out.csv"
+        after_help = "spec.json の例:\n  {\"fmus\": {\"a\": \"Dahlquist.fmu\", \"b\": \"Feedthrough.fmu\"}, \"connections\": [[\"a.x\", \"b.Float64_continuous_input\"]], \"stop_time\": 1, \"step\": 0.01}\n  （FMU のパスは spec.json からの相対。`algorithm`・`start`〔{\"a.k\": 2}〕・`timeout`・`memory_limit_mib` も書ける）\n.ssp（SSP 2.0.1。入れ子の System は読める。単位の変換は未対応。`globe fmu ssp-export` で書ける。`ssp-import` で spec.json にできる）も渡せる:\n  globe fmu cosim system.ssp --step 0.01 --timeout 60 -o out.csv\n例:\n  globe fmu cosim spec.json -o out.csv"
     )]
     Cosim {
         /// 結線の記述（JSON）または `.ssp`（拡張子で分ける）
@@ -92,7 +92,7 @@ pub enum FmuImportCommand {
     /// Co-Simulation の結線の記述（`fmu cosim` の spec.json）を `.ssp`（SSP 2.0.1）に書き出す（S274）。`globe fmu cosim <out>.ssp` で読み戻すと同じ結果になる。FMU のネイティブコードは実行しない
     #[command(
         name = "ssp-export",
-        after_help = "SSD は System 1 つ。FMU は resources/ にそのまま写し、start は Component の ParameterBindings、時刻は DefaultExperiment、通信刻みと algorithm は GlobeMode 独自の Annotation に入れる。結線は Real（Float64）だけ。`timeout`・`memory_limit_mib` は書かない\n例:\n  globe fmu ssp-export spec.json -o system.ssp"
+        after_help = "SSD は System 1 つ。FMU は resources/ にそのまま写し、start は Component の ParameterBindings（既定はインライン。`--ssv` なら Component ごとの `resources/<名前>.ssv` を参照）、時刻は DefaultExperiment、通信刻みと algorithm は GlobeMode 独自の Annotation に入れる。結線は Real・Int32・Boolean の同じ型どうし。名前に `.` を含む FMU（入れ子を平らにしたもの）は平らな Component の名前のまま書く。逆は `globe fmu ssp-import`。`timeout`・`memory_limit_mib` は書かない\n例:\n  globe fmu ssp-export spec.json -o system.ssp"
     )]
     SspExport {
         /// 結線の記述（JSON。`fmu cosim` と同じ。FMU のパスは spec.json からの相対）
@@ -100,6 +100,27 @@ pub enum FmuImportCommand {
         /// 書き出す `.ssp`
         #[arg(short, long)]
         out: PathBuf,
+        /// `start` を Component ごとの `resources/<名前>.ssv` に書いて参照する（既定はインラインの `ParameterValues`）
+        #[arg(long)]
+        ssv: bool,
+    },
+    /// `.ssp`（SSP 2.0.1）を `fmu cosim` の spec.json に書き出す（S315）。`ssp-export` の逆。FMU は `.ssp` から取り出して JSON と同じフォルダに `<名前>.fmu` で置く
+    #[command(
+        name = "ssp-import",
+        after_help = "入れ子の System は `外側.内側` の名前に平らになる。`.ssp` を開いた結果（結線・start・時刻・刻み・algorithm）を JSON にするだけで、FMU のネイティブコードは実行しない。FMU は JSON から相対のパスで書き、同名のファイルが既にあれば上書きせず断る。`timeout`・`memory_limit_mib` は書かない\n例:\n  globe fmu ssp-import system.ssp -o work/spec.json"
+    )]
+    SspImport {
+        /// 読む `.ssp`
+        ssp: PathBuf,
+        /// 書き出す spec.json（FMU はこのフォルダに置く）
+        #[arg(short, long)]
+        out: PathBuf,
+        /// 終了時刻（省略時は DefaultExperiment の stopTime）
+        #[arg(long)]
+        stop_time: Option<f64>,
+        /// 通信刻み（省略時は `ssp-export` が書いた Annotation、無ければ (終了 - 開始) / 100）
+        #[arg(long)]
+        step: Option<f64>,
     },
     /// 内部用: FMU を回すワーカー（`fmu run` が自分自身を子プロセスとして起動する。標準入力の 1 行目が要求）
     #[command(name = "__worker", hide = true)]
@@ -132,7 +153,13 @@ pub fn run(command: FmuImportCommand) -> ExitCode {
             (timeout, memory_limit),
             out.as_deref(),
         ),
-        FmuImportCommand::SspExport { spec, out } => ssp_export(&spec, &out),
+        FmuImportCommand::SspExport { spec, out, ssv } => ssp_export(&spec, &out, ssv),
+        FmuImportCommand::SspImport {
+            ssp,
+            out,
+            stop_time,
+            step,
+        } => ssp_import(&ssp, &out, stop_time, step),
         FmuImportCommand::Worker => return ExitCode::from(worker_main() as u8),
         FmuImportCommand::Run {
             file,
@@ -293,12 +320,30 @@ fn read_spec(spec: &std::path::Path) -> Result<globe_mode::CosimSpec, String> {
 }
 
 /// `globe fmu ssp-export`（S274）。
-fn ssp_export(spec: &std::path::Path, out: &std::path::Path) -> Result<(), String> {
+fn ssp_export(spec: &std::path::Path, out: &std::path::Path, ssv: bool) -> Result<(), String> {
     let data = read_spec(spec)?;
     let mut inputs: Vec<_> = data.fmus.values().cloned().collect();
     inputs.push(spec.to_owned());
     crate::check_writable_file(out, &inputs, &[]).map_err(|m| format!("結果を {m}"))?;
-    globe_mode::write_ssp(&data, out).map_err(|e| e.to_string())
+    globe_mode::write_ssp_with(&data, out, ssv).map_err(|e| e.to_string())
+}
+
+/// `globe fmu ssp-import`（S315）。
+fn ssp_import(
+    ssp: &std::path::Path,
+    out: &std::path::Path,
+    stop_time: Option<f64>,
+    step: Option<f64>,
+) -> Result<(), String> {
+    crate::check_writable_file(out, &[ssp.to_owned()], &[]).map_err(|m| format!("結果を {m}"))?;
+    let opened = globe_mode::Ssp::open(ssp, stop_time, step).map_err(|e| e.to_string())?;
+    let dir = out
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(std::path::Path::new("."));
+    let spec = opened.export_spec(dir).map_err(|e| e.to_string())?;
+    let json = serde_json::to_string_pretty(&spec).map_err(|e| e.to_string())?;
+    std::fs::write(out, json + "\n").map_err(|e| format!("{}: {e}", out.display()))
 }
 
 /// `globe fmu cosim`（S249）。

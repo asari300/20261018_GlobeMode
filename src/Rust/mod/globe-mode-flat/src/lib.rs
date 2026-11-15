@@ -28,6 +28,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum VarKind {
@@ -46,6 +47,14 @@ pub enum Causality {
     Output,
 }
 
+/// 元のソースの位置（S311）: ファイル名（`Library::files`。番号でなく名前なので、閉包だけ読んでも全部読んでも同じ）と、そのファイルのバイト範囲
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Origin {
+    pub file: Arc<str>,
+    pub start: u32,
+    pub end: u32,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Var {
     /// `a.b[2].x`（配列の変数は添字なしの 1 個。部品の配列は要素ごと）
@@ -62,6 +71,8 @@ pub struct Var {
     pub binding: Option<String>,
     /// `start` 以外の属性の修飾（`unit`・`min`・`fixed` など。名前順）
     pub attrs: Vec<(String, String)>,
+    /// 宣言の位置（`extends` で受け継いだ宣言は基底クラスのファイルの位置。`redeclare` で差し替えても元の宣言）
+    pub origin: Option<Origin>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -69,6 +80,9 @@ pub struct Equation {
     pub text: String,
     /// スカラーの方程式の数。配列の方程式は配列の大きさ、`if`/`when` は最初の枝、関数の呼び出しの文は 0
     pub count: usize,
+    /// 元の方程式の位置。`connect` から作った方程式は、その集合の最初の `connect` の文。`for` の展開は中の方程式、
+    /// `extends` で受け継いだものは基底クラスのファイルの位置。コネクタの flow = 0 は変数の宣言
+    pub origin: Option<Origin>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -131,6 +145,8 @@ pub(crate) fn un<T>(kind: &'static str, detail: impl Into<String>) -> Res<T> {
 #[derive(Debug)]
 pub struct Project {
     pub lib: Library,
+    /// `lib.files` の名前（`Origin::file` に共有する）
+    file_names: Vec<Arc<str>>,
     classes: Vec<Option<ast::ClassDef>>,
     bases: Vec<Vec<ClassId>>,
     /// `(ファイル, 名前の始まり, 終わり)` → 解決の結果（`Library::refs` のすべて）
@@ -138,8 +154,8 @@ pub struct Project {
     lineage: RefCell<HashMap<ClassId, Rc<Vec<ClassId>>>>,
     /// `redeclare …` の引数の読み直し（S297）。`(ファイル, Redeclaration の始まり)` → 節
     snips: RefCell<HashMap<(u32, u32), SnipSlot>>,
-    /// 節の中の名前の解決（`res` と同じ表。節は数が限られるので漏らして `&'static` にする）
-    extra: RefCell<HashMap<(u32, u32, u32), &'static Resolution>>,
+    /// 節の中の名前の解決（`res` と同じ表。`Project` と一緒に捨てる。S320: 以前は `Box::leak` で作り直すたびに増えた）
+    extra: RefCell<HashMap<(u32, u32, u32), Resolution>>,
 }
 
 type SnipSlot = Option<Rc<Snip>>;
@@ -176,18 +192,37 @@ fn mo_files(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
 impl Project {
     /// ディレクトリの下の `.mo` をすべて読む（`Library::from_dirs` と同じ順）
     pub fn from_dirs(dirs: &[&Path]) -> std::io::Result<Project> {
+        Self::from_dirs_with(dirs, &[])
+    }
+
+    /// ディレクトリの下の `.mo` の（パス, 本文）。`Library::from_dirs` と同じ順。読めないファイルは省く（UTF-8 でないものは U+FFFD にして読む）（S307: 閉包を選ぶ前の読み込み）
+    pub fn read_dirs(dirs: &[&Path]) -> std::io::Result<Vec<(String, String)>> {
         let mut files = Vec::new();
         for d in dirs {
             let before = files.len();
             mo_files(d, &mut files)?;
             files[before..].sort();
         }
-        let texts: Vec<(String, String)> = files
+        Ok(files
             .iter()
-            .filter_map(|f| Some((f.display().to_string(), std::fs::read_to_string(f).ok()?)))
-            .collect();
+            .filter_map(|f| {
+                // UTF-8 でないファイルは U+FFFD にして読む（`Workspace::with_libraries` と同じ。S320・#114）
+                Some((
+                    f.display().to_string(),
+                    String::from_utf8_lossy(&std::fs::read(f).ok()?).into_owned(),
+                ))
+            })
+            .collect())
+    }
+
+    /// `from_dirs` に、メモリ上のファイル（名前と本文。ディレクトリの後ろに並ぶ）を足す（S305。`globe check` の入力）
+    pub fn from_dirs_with(dirs: &[&Path], extra: &[(&str, &str)]) -> std::io::Result<Project> {
+        let texts = Self::read_dirs(dirs)?;
         Ok(Self::from_sources(
-            texts.iter().map(|(n, t)| (n.as_str(), t.as_str())),
+            texts
+                .iter()
+                .map(|(n, t)| (n.as_str(), t.as_str()))
+                .chain(extra.iter().copied()),
         ))
     }
 
@@ -224,8 +259,10 @@ impl Project {
                 )
             })
             .collect();
+        let file_names = lib.files.iter().map(|f| Arc::from(f.as_str())).collect();
         let mut p = Project {
             lib,
+            file_names,
             classes,
             bases: Vec::new(),
             res,
@@ -252,18 +289,28 @@ impl Project {
         names
             .iter()
             .filter_map(|n| match self.res_of(file, n.range()) {
-                Some(Resolution::Class(b)) => Some(*b),
+                Some(Resolution::Class(b)) => Some(b),
                 _ => None,
             })
             .collect()
     }
 
-    pub(crate) fn res_of(&self, file: u32, r: rowan::TextRange) -> Option<&Resolution> {
+    /// 節点の元の位置。`redeclare` の読み直しの仮のファイル（`SNIP_FILE_BASE` 以上）は位置を持たない
+    pub(crate) fn origin(&self, file: u32, n: &SyntaxNode) -> Option<Origin> {
+        let r = n.text_range();
+        Some(Origin {
+            file: self.file_names.get(file as usize)?.clone(),
+            start: r.start().into(),
+            end: r.end().into(),
+        })
+    }
+
+    pub(crate) fn res_of(&self, file: u32, r: rowan::TextRange) -> Option<Resolution> {
         let key = (file, u32::from(r.start()), u32::from(r.end()));
         if file >= SNIP_FILE_BASE {
-            return self.extra.borrow().get(&key).copied();
+            return self.extra.borrow().get(&key).cloned();
         }
-        self.res.get(&key)
+        self.res.get(&key).cloned()
     }
 
     /// 修飾の `Redeclaration` を読み直す。先頭の `redeclare`・`final`・`each`・`replaceable` は落とす。読めなければ `None`
@@ -333,7 +380,7 @@ impl Project {
                 global,
                 local: false,
             };
-            let res: &'static Resolution = Box::leak(Box::new(self.lib.resolve_head(&r)));
+            let res = self.lib.resolve_head(&r);
             self.extra
                 .borrow_mut()
                 .insert((fid, u32::from(range.start()), u32::from(range.end())), res);

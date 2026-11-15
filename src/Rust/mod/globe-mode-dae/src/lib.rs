@@ -12,11 +12,12 @@
 //! shortcut（広めの incidence。釣り合いの数は変わらず、構造の正則は甘く出る方に傾く）:
 //! - `if`・`when`・`algorithm` は 1 本のまとまりとして、枝の中の未知数の和集合を行の incidence にする。
 //! - 配列は、添字が定数ならその要素、添字なしで大きさが行の数と同じなら行 k に要素 k、それ以外は全要素。
-//! - 非線形の判定はしない（`nonlinear` は空）。位置は付けない。
+//! - 非線形の判定はしない（`nonlinear` は空）。位置は平らなモデルの由来（`Origin`、S311）をそのまま付ける（`algorithm` の行は付けない）。
 //!
 //! 既存のフロントエンド（Rumoca）・LSP にはつながない（doc/adr/0039-native-cst-parser.md の付記）。
 
-use globe_mode_flat::{Causality, FlatModel, Unsupported, Var, VarKind};
+use globe_mode_core::TextRange;
+use globe_mode_flat::{Causality, FlatModel, Origin, Unsupported, Var, VarKind};
 use globe_mode_ir::{
     BalanceCount, DaeStructure, EquationOrigin, EquationRow, Unknown, UnknownKind,
 };
@@ -262,9 +263,13 @@ fn is_clock_equation(cx: &Ctx, eq: &SyntaxNode) -> bool {
         })
 }
 
+/// 連続側の方程式: 木・スカラーの数・印字・由来・（レコードの方程式なら）欄の変数
+type EqRow = (SyntaxNode, usize, String, Option<Origin>, Vec<usize>);
+
 struct Row {
     label: String,
     origin: EquationOrigin,
+    at: Option<Origin>,
     count: usize,
     refs: Vec<Ref>,
     /// 左辺（束縛・algorithm の代入先）として必ず入れる未知数
@@ -277,6 +282,8 @@ fn label(text: &str) -> String {
 
 /// 平らなモデルから DAE の構造を作る
 pub fn build(m: &FlatModel) -> Result<Dae, Unsupported> {
+    let file = |o: &Origin| o.file.to_string();
+    let span = |o: &Origin| TextRange::new(o.start, o.end);
     let cx = Ctx {
         index: m
             .vars
@@ -288,7 +295,7 @@ pub fn build(m: &FlatModel) -> Result<Dae, Unsupported> {
     };
 
     // 方程式の木（連続側）。`when` と algorithm は別に持つ
-    let mut eqs: Vec<(SyntaxNode, usize, String, Vec<usize>)> = Vec::new();
+    let mut eqs: Vec<EqRow> = Vec::new();
     for e in &m.equations {
         if e.count > 0 {
             let node = first_equation(&parse_in_model("equation", &e.text)?)?;
@@ -306,7 +313,7 @@ pub fn build(m: &FlatModel) -> Result<Dae, Unsupported> {
             } else {
                 leaves.iter().map(|&v| cx.n(v)).sum()
             };
-            eqs.push((node, count, e.text.clone(), leaves));
+            eqs.push((node, count, e.text.clone(), e.origin.clone(), leaves));
         }
     }
     let mut whens: Vec<(SyntaxNode, usize)> = Vec::new();
@@ -426,8 +433,8 @@ pub fn build(m: &FlatModel) -> Result<Dae, Unsupported> {
                             name(k)
                         },
                         kind,
-                        file: None,
-                        range: None,
+                        file: v.origin.as_ref().map(file),
+                        range: v.origin.as_ref().map(span),
                     });
                 }
             }
@@ -439,13 +446,14 @@ pub fn build(m: &FlatModel) -> Result<Dae, Unsupported> {
     // 行
     let mut rows: Vec<Row> = Vec::new();
     let mut discrete_equations = 0;
-    for (node, count, text, leaves) in &eqs {
+    for (node, count, text, at, leaves) in &eqs {
         if defines_discrete(&cx, &roles, node) {
             discrete_equations += count;
         } else {
             rows.push(Row {
                 label: label(text),
                 origin: EquationOrigin::Source,
+                at: at.clone(),
                 count: *count,
                 refs: cx.refs(node),
                 // レコードの方程式は、どの行も欄の変数すべてに触れる（shortcut: 欄ごとの対応は付けない。正則は甘く出る方に傾く）
@@ -462,6 +470,7 @@ pub fn build(m: &FlatModel) -> Result<Dae, Unsupported> {
             rows.push(Row {
                 label: label(&format!("{} = …", m.vars[*i].name)),
                 origin: EquationOrigin::Binding,
+                at: m.vars[*i].origin.clone(),
                 count: n,
                 refs: cx.refs(node),
                 own: vec![(*i, Sel::All)],
@@ -490,6 +499,7 @@ pub fn build(m: &FlatModel) -> Result<Dae, Unsupported> {
                 _ => rows.push(Row {
                     label: label(&format!("algorithm {}", m.vars[v].name)),
                     origin: EquationOrigin::Source,
+                    at: None,
                     count: 1,
                     refs: refs.clone(),
                     own: vec![(v, Sel::One(k))],
@@ -531,8 +541,8 @@ pub fn build(m: &FlatModel) -> Result<Dae, Unsupported> {
             s.equations.push(EquationRow {
                 label: r.label.clone(),
                 origin: r.origin,
-                file: None,
-                range: None,
+                file: r.at.as_ref().map(file),
+                range: r.at.as_ref().map(span),
             });
             s.incidence.push(inc.into_iter().collect());
             s.state_refs.push(st.into_iter().collect());

@@ -4,7 +4,7 @@
 
 ## 前回の結果との差
 
-前回の結果 `target/frontend-diff.json` と、両方にある 641 本で比べる（この実行にだけある 0 本、前回にだけある 0 本）。
+前回の結果 `target/frontend-diff.json`（S297 の最後の実行） と、両方にある 641 本で比べる（この実行にだけある 0 本、前回にだけある 0 本）。
 **回帰 0 本**（前回は通った項目が通らなくなった）、改善 36 本。
 
 - 改善 `Modelica.Clocked.Examples.Elementary.RealSignals.SampleWithADeffects`: flat_eqs・balance・counts
@@ -49,8 +49,8 @@
 | MSL | 4.1.0（sha256 `5409cfa17797…`） |
 | Rumoca | v0.10.2（rev `276e82bd`、ライブラリとして呼ぶ） |
 | 検査した本数 | 641 本 |
-| 時間 | 全体 241 s（1 本ずつの検査 213 s） |
-| 最大の常駐メモリ（VmHWM） | 1.1 GiB |
+| 時間 | 全体 105 s（1 本ずつの検査 95 s） |
+| 最大の常駐メモリ（VmHWM） | 1.2 GiB |
 
 自前の parse・resolve・flat・dae を、Rumoca は自前で平らにできたものにだけ呼んで比べる（母数はその本数）。
 resolve は、例題のクラスから、中のクラス・`extends`・部品の型（解決できたもの）をたどって、届くクラスすべての参照を数える。

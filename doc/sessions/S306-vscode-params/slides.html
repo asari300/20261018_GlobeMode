@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S306 VS Code のパラメータ入力 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S306 VS Code のパラメータ入力">
+
+<section class="slide" id="S01">
+  <span class="tag">S306 · 2026-11-15 · P8</span>
+  <h1>VS Code のパネルでパラメータを書く</h1>
+  <p class="lead">図の部品のダブルクリックから、パラメータを宣言の修飾として書けるようにした。</p>
+  <div class="big">部品の <b>R</b> を 100 にすると <b>Res r1(R = 100)</b>。undo で戻る</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>UI のパラメータダイアログ（S248・S294・S298）の VS Code 版の最小を作る</li>
+    <li>Rust・LSP は変えない。<code>globe/parameters</code> と <code>globe/setModifier</code> を呼ぶだけ</li>
+    <li>P8 の「VS Code の側の編集」の続き（S264 移動と結線、S293 削除）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table>
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>入力の形</td><td>QuickPick と InputBox</td><td>webview に表を足すより小さい。キーボードで使え、e2e から差し替えられる</td></tr>
+    <tr><td>webview が送るもの</td><td>部品の名前だけ</td><td><code>file</code>・<code>class</code> は受け取らない（S264 と同じ）</td></tr>
+    <tr><td>値の検査</td><td>Rust の <code>set_modifier</code></td><td>断られたら理由を通知に出す</td></tr>
+    <tr><td>空の入力</td><td>修飾を外す</td><td>UI と同じ</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>流れ</h1>
+  <p>x</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>cd src/VSCode/globe-mode &amp;&amp; pnpm test
+gh workflow run vscode.yml --ref feature/s306-vscode-params</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">24</span><span class="l">pnpm test</span></div>
+    <div class="kpi"><span class="n">1</span><span class="l">e2e を追加</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ul>
+    <li>キーボードだけで開く口（コマンドパレット）</li>
+    <li>複数の値を一度に直す表</li>
+    <li>入れ子・<code>each</code>・<code>final</code>・<code>redeclare</code></li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

@@ -487,5 +487,71 @@ fn if_expression_on_parameter_keeps_only_the_taken_branch() {
     let e = eqs(&flat(src, "P"));
     assert!(e.contains(&"y = 0".to_string()), "{e:#?}");
     // 実行時の条件はそのまま
-    assert!(e.contains(&"z = if time > 1 then 1 else 2".to_string()), "{e:#?}");
+    assert!(
+        e.contains(&"z = if time > 1 then 1 else 2".to_string()),
+        "{e:#?}"
+    );
+}
+
+/// S311: 変数・方程式が元のソースの位置（ファイル名とバイト範囲）を運ぶ
+#[test]
+fn origins_follow_nesting_extends_connect_and_for() {
+    let src = "connector Pin Real v; flow Real i; end Pin;
+model Base Real b; equation b = 1; end Base;
+model Cell extends Base; Pin p; equation p.v = b; end Cell;
+model Top Cell c[2]; Pin q; Real y[2];
+equation for k in 1:2 loop y[k] = c[k].b; end for; connect(c[1].p, q); end Top;";
+    let m = flat(src, "Top");
+    let at = |o: &Option<globe_mode_flat::Origin>| {
+        let o = o.as_ref().expect("origin");
+        assert_eq!(&*o.file, "t.mo");
+        src[o.start as usize..o.end as usize]
+            .trim_end_matches(';')
+            .to_string()
+    };
+    // 入れ子: c[2].b は Base の宣言（extends で受け継いだ宣言は基底のファイル内の位置）
+    let var = |n: &str| m.vars.iter().find(|v| v.name == n).unwrap();
+    assert_eq!(at(&var("c[2].b").origin), "b");
+    assert_eq!(at(&var("y").origin), "y[2]");
+    // extends の方程式（Base の `b = 1`）、入れ子の方程式、for（展開した 2 本とも中の方程式）
+    let on = |text: &str| {
+        m.equations
+            .iter()
+            .filter(|e| e.text == text)
+            .map(|e| at(&e.origin))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(on("c[1].b = 1"), ["b = 1"]);
+    assert_eq!(on("c[2].p.v = c[2].b"), ["p.v = b"]);
+    assert_eq!(on("y[2] = c[2].b"), ["y[k] = c[k].b"]);
+    // connect から作った potential・flow の方程式は connect の文
+    assert_eq!(on("c[1].p.v = q.v"), ["connect(c[1].p, q)"]);
+    assert_eq!(on("c[1].p.i - q.i = 0"), ["connect(c[1].p, q)"]);
+    // つなげなかったコネクタの flow = 0 は flow 変数の宣言
+    assert_eq!(on("c[2].p.i = 0"), ["i"]); // コネクタの flow 変数の宣言
+}
+
+#[test]
+fn huge_component_array_is_refused_before_allocating() {
+    // #109: 添字の文字列を作る前に断る（積が MAX_VARS を超える・usize を溢れる）
+    for dims in ["100000, 100000", "4294967296, 4294967296, 4294967296"] {
+        let src = format!("model R Real x; equation x = 1; end R; model M R r[{dims}]; end M;");
+        assert_eq!(err(&src, "M"), "too-large");
+    }
+}
+
+/// #111: 自分を部品に持つモデルは、スタックを溢れさせず「深すぎる」で断る
+#[test]
+fn self_containing_model_is_refused_not_overflowed() {
+    assert_eq!(err("model C C a; end C;", "C"), "deep-instantiation");
+    // `redeclare` で自分に戻す循環
+    assert_eq!(
+        err(
+            "model C replaceable model M = D; M m; end C;
+             model D replaceable model M = D; M m; end D;
+             model E C c(redeclare model M = C); end E;",
+            "E"
+        ),
+        "deep-instantiation"
+    );
 }

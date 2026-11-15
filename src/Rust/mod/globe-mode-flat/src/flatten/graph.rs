@@ -151,7 +151,10 @@ impl F<'_> {
             if keys.iter().all(Option::is_none) {
                 continue;
             }
-            let count = self.eqs[set.start].count;
+            let (count, origin) = (
+                self.eqs[set.start].count,
+                self.eqs[set.start].origin.clone(),
+            );
             let mut first: HashMap<usize, usize> = HashMap::new();
             let mut eqs = Vec::new();
             for (i, k) in keys.iter().enumerate() {
@@ -161,6 +164,7 @@ impl F<'_> {
                     Some(&j) => eqs.push(Equation {
                         text: format!("{} = {}", set.members[j], set.members[i]),
                         count,
+                        origin: origin.clone(),
                     }),
                     None => {
                         first.insert(g, i);

@@ -29,7 +29,7 @@ pub use me::{
     EventInfo, EventKind, FmuMe, MeEvent, MeIntegrator, MeOptions, MeRun, StepInfo, run_me,
     run_me_with,
 };
-pub use ssp::{Ssp, write_ssp};
+pub use ssp::{Ssp, write_ssp, write_ssp_with};
 pub use worker::{
     Kind, MeSummary, WorkerRequest, WorkerRun, WorkerSpec, run_in_process, run_in_worker,
     worker_main,
@@ -102,11 +102,25 @@ pub fn read_model_description(path: &Path) -> Result<ModelDescription> {
     parse_model_description(&read_capped(entry)?).map_err(Error::Description)
 }
 
-/// modelDescription.xml を読む。上限つき（巨大な XML で落ちない。`info` と `run` で同じ上限。#96）。
+/// XML（modelDescription.xml・SystemStructure.ssd・.ssv）を読む上限（#96・#105）。
+const MAX_XML: u64 = 64 << 20;
+
+/// XML を読む。上限つき（巨大な XML で落ちない。`info`・`run`・`.ssp` で同じ上限）。超えたら黙って切らずに誤り。
 fn read_capped(r: impl Read) -> Result<String> {
-    let mut xml = String::new();
-    r.take(64 << 20).read_to_string(&mut xml).map_err(io)?;
-    Ok(xml)
+    let mut buf = Vec::new();
+    r.take(MAX_XML + 1).read_to_end(&mut buf).map_err(io)?;
+    if buf.len() as u64 > MAX_XML {
+        return Err(Error::Io(format!(
+            "XML が大きすぎる（{} MiB を超える）",
+            MAX_XML >> 20
+        )));
+    }
+    String::from_utf8(buf).map_err(io)
+}
+
+/// ファイルの XML を上限つきで読む（[`read_capped`]）。
+fn read_xml_file(path: &Path) -> Result<String> {
+    read_capped(std::fs::File::open(path).map_err(io)?)
 }
 
 /// 展開した FMU。drop で展開先を消す（読み込んだ [`FmuCs`] より後に drop されるよう、借用で結ぶ）。
@@ -426,4 +440,19 @@ pub fn run_cs_with(fmu: &Fmu, opts: &CsOptions, progress: &mut dyn FnMut(f64)) -
         }
     }
     Ok(CsRun { names, rows })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// #105: 上限ちょうどは読め、1 バイトでも超えたら黙って切らずに誤り。
+    #[test]
+    fn read_capped_rejects_over_limit() {
+        let n = MAX_XML as usize;
+        assert_eq!(read_capped(&vec![b' '; n][..]).unwrap().len(), n);
+        assert!(
+            matches!(read_capped(&vec![b' '; n + 1][..]), Err(Error::Io(m)) if m.contains("大きすぎる"))
+        );
+    }
 }

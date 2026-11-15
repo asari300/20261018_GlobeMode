@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S315 ssp-roundtrip-2 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S315 ssp-roundtrip-2">
+
+<section class="slide" id="S01">
+  <span class="tag">S315 · 2026-11-15 · P8</span>
+  <h1>SSP の往復の続き</h1>
+  <p class="lead"><code>.ssp</code> → spec.json の逆変換と、<code>.</code> を含む名前の書き出し</p>
+  <div class="big">JSON → ssp → JSON が閉じた</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">逆変換</span>
+  <h1><code>globe fmu ssp-import</code></h1>
+  <ul>
+    <li><code>system.ssp -o dir/spec.json</code>（<code>--stop-time</code>・<code>--step</code> は <code>cosim</code> と同じ）</li>
+    <li>FMU は <code>.ssp</code> の外の <code>dir/&lt;名前&gt;.fmu</code> に出し、JSON は相対パス。埋め込むより小さい</li>
+    <li>同名のファイルは上書きせず断る。名前は書く前に検査（<code>..</code>・<code>/</code> を断る）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">名前</span>
+  <h1><code>s.a</code> は平らのまま書ける</h1>
+  <ul>
+    <li>SSD の XSD は要素の <code>name</code> を <code>xs:string</code>（長さ 1 以上）とし、<code>.</code> を禁じない</li>
+    <li>入れ子に戻すには System のコネクタの素通しを書く必要があり、大きい</li>
+    <li>限界: 他のツールが階層名と取り違えうる。GlobeMode の往復は取り違えない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">試験</span>
+  <h1>CSV がバイトで一致する</h1>
+  <ul>
+    <li>spec.json → <code>ssp-export</code> → <code>ssp-import</code>: パス以外が同じで、CSV も同じ</li>
+    <li>入れ子の <code>.ssp</code> → import → export → <code>cosim</code>: 入れ子を直接回した CSV と同じ</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

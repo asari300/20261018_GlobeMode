@@ -144,6 +144,53 @@ impl LibraryTree {
     }
 }
 
+/// S301: ライブラリのファイルの本文の代わりに配る見出し（`MSL.json` の分割配信。[ADR-0023](../../../../doc/adr/0023-desktop-and-web-process-layout.md) の付記）。
+/// `within` と、クラス（入れ子を含む）の種類・名前・説明文字列だけを残す。`LibraryTree::new` の結果と、分割読み込みの
+/// 修飾名の索引（先頭のクラス）が本文のときと同じになる。そうならない（見出しが読めない）ファイルは None（本文のまま配る）。
+pub fn tree_stub(text: &str) -> Option<String> {
+    let out = stub_text(text)?;
+    let same = |a: &str| LibraryTree::new([("f", a)]).classes;
+    (same(&out) == same(text)).then_some(out)
+}
+
+fn stub_text(text: &str) -> Option<String> {
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    let h = header(text)?;
+    let mut out = String::new();
+    if let Some(w) = h.within {
+        out.push_str(&format!("within {w};\n"));
+    }
+    let defs = lex(text)
+        .and_then(|t| class_defs(&t))
+        .map(|d| {
+            d.into_iter()
+                .map(|(rel, kind, desc)| (rel, kind, desc.to_string()))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_else(|_| {
+            vec![(
+                h.name.to_string(),
+                h.kind.clone(),
+                h.description.to_string(),
+            )]
+        });
+    let mut open: Vec<&str> = Vec::new();
+    for (n, (rel, kind, desc)) in defs.iter().enumerate() {
+        // 先頭のクラスの説明は木も見出し（名前のすぐ後ろの文字列）から取る。短いクラス `type X = Y "説明"` では入れ子の読み方と違う
+        let desc = if n == 0 { h.description } else { desc };
+        let names: Vec<&str> = rel.split('.').collect();
+        while open.len() >= names.len() {
+            out.push_str(&format!("end {};\n", open.pop()?));
+        }
+        out.push_str(&format!("{kind} {} \"{desc}\"\n", names.last()?));
+        open.push(names.last()?);
+    }
+    while let Some(n) = open.pop() {
+        out.push_str(&format!("end {n};\n"));
+    }
+    Some(out)
+}
+
 struct Header<'a> {
     within: Option<&'a str>,
     kind: String,
@@ -364,5 +411,23 @@ mod tests {
             .map(|e| (e.name, e.kind, e.description))
             .collect();
         assert_eq!(kids, [("B", "model", "d"), ("E", "type", "enum")]);
+    }
+
+    #[test]
+    fn a_stub_keeps_the_tree() {
+        for text in [
+            SOURCES,
+            "within M.A;\npartial model B \"d\\\"q\"\nend B;\n",
+            "\u{feff}operator record C \"Rec\"\nend C;\n",
+            "within M;\ntype T = Real\n  \"説明\";\n",
+        ] {
+            let stub = tree_stub(text).unwrap();
+            assert!(stub.len() < text.len() + 40, "{stub}");
+            assert_eq!(
+                LibraryTree::new([("f", &*stub)]).classes,
+                LibraryTree::new([("f", text)]).classes
+            );
+        }
+        assert_eq!(tree_stub("not modelica"), None);
     }
 }
