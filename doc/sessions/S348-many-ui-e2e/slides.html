@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S348 many-ui-e2e — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S348 many-ui-e2e">
+
+<section class="slide" id="S01">
+  <span class="tag">S348 · 2026-11-15 · P8</span>
+  <h1>複数ソルバの結果を、実ブラウザで通した</h1>
+  <p class="lead">レビュー第 5 回の「ManyResult を実ブラウザで見ていない」に答える</p>
+  <div class="big">表 3 行・比較 2 行・合否・最大の相対差</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">試験</span>
+  <h1><code>many_result_view</code>（<code>test_ui.py</code>）</h1>
+  <ul>
+    <li>既定: 1 つずつ・比較 off・何も選ばない・n = 6</li>
+    <li>Decay を bdf・dopri45・rk4、比較 on・閾値 6 で回す</li>
+    <li>実行の表 3 行、比較の表 2 行（基準 bdf 以外）、全体の合否は行の AND、最大の相対差は行の最大</li>
+    <li>並列を頼むと「1 つずつ」と <code>mode_note</code> が出る（wasm は逐次）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">見つけた</span>
+  <h1>設定欄の名前が入力欄から泣き別れる</h1>
+  <ul>
+    <li>「開始時刻」の入力欄が次の行の頭、チェックの箱と名前も離れる（幅 1280 で 3 か所、390 で 9 か所）</li>
+    <li>直し: <code>.settings label</code> に <code>display: inline-block</code>（1 行）</li>
+    <li>試験は修正を戻すと落ちる</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">確かめた</span>
+  <h1>要望どおりだったところ</h1>
+  <ul>
+    <li>実行の仕方の既定は「1 つずつ」、比較は off、n は 6</li>
+    <li>ソルバは 3 つ以上選べる（上限 16）</li>
+    <li>合否・状態は文字、最大の相対差は <code>5.69e-7（&lt; 1e-6）</code> の形</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">限界</span>
+  <h1>見ていないこと</h1>
+  <ul>
+    <li>Desktop（sidecar の並列）の実機の画面</li>
+    <li>結果の表の幅・狭い画面での折り返し（390 で横にはみ出さないことだけ）</li>
+    <li>ソルバの一覧が届くまでは、チェックボックスが空で警告が出る（仕様）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

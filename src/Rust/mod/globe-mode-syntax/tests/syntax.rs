@@ -534,3 +534,37 @@ fn subscript_after_paren_stays_in_the_paren() {
         3
     );
 }
+
+/// S341: `extends B(redeclare …)` の部品の再宣言（接頭辞・`final`・添字・`constrainedby`）。クラスの再宣言は含まない
+#[test]
+fn redeclared_components_in_extends() {
+    let p = parse(
+        "model A extends B(redeclare final X.Y z(k = 1), redeclare replaceable parameter .T[2] w constrainedby C.D, redeclare package M = N, redeclare model extends E); end A;",
+    );
+    assert!(p.errors.is_empty(), "{:?}", p.errors);
+    let ext = p
+        .syntax()
+        .descendants()
+        .find_map(ast::ExtendsClause::cast)
+        .unwrap();
+    let got: Vec<_> = ext
+        .redeclared_components()
+        .into_iter()
+        .map(|r| {
+            (
+                r.name,
+                r.ty.0.join("."),
+                r.ty.1,
+                r.constraint.map(|c| c.0.join(".")),
+            )
+        })
+        .collect();
+    assert_eq!(
+        got,
+        vec![
+            ("z".into(), "X.Y".into(), false, None),
+            ("w".into(), "T".into(), true, Some("C.D".into())),
+        ]
+    );
+    assert_eq!(ext.redeclared_classes().len(), 1);
+}

@@ -141,6 +141,14 @@ fn run_row(
             match p.lib.resolve(r) {
                 Resolution::Unresolved(why) => {
                     row.unresolved += 1;
+                    if dump {
+                        println!(
+                            "  unresolved {why:?} {} {:?} in {}",
+                            r.parts.join("."),
+                            r.kind,
+                            p.lib.qualified_name(c)
+                        );
+                    }
                     first.get_or_insert(format!("{why:?}"));
                 }
                 Resolution::Class(b) if matches!(r.kind, RefKind::Type | RefKind::Extends) => {
@@ -176,6 +184,9 @@ fn run_row(
         }
         for e in &flat.when_equations {
             println!("  when[{}] {}", e.count, e.text);
+        }
+        for e in &flat.initial_equations {
+            println!("  ieq[{}] {}", e.count, e.text);
         }
         for a in &flat.algorithms {
             println!("  algorithm {a}");

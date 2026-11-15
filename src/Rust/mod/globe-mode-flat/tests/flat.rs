@@ -844,7 +844,24 @@ fn conditions_on_strings_and_later_inner_fields_and_record_if() {
     );
 }
 
-// ---- S339: 5 回目のレビューの issue（#121〜#127）
+#[test]
+fn record_array_equation_counts_one_per_element() {
+    // S337: `Complex aw[3]` は `aw[k].re`・`aw[k].im` に展開される。`aw = {… for …}` は Rumoca と同じく 3 本（左辺が変数でない）
+    let m = flat(
+        "operator record Complex Real re; Real im; end Complex;
+         model Top
+           Complex aw[3];
+           Complex s;
+         equation
+           aw = {Complex(i, 0) for i in 1:3};
+           s = aw[1];
+         end Top;",
+        "Top",
+    );
+    assert_eq!(m.equation_count(), 4);
+}
+
+// ---- S339: 5 回目のレビューの issue（#121〜#127・#130）
 
 /// 時間を計って返す（計算量の試験。余裕を見た上限で、増え方が変わったことだけを見る）
 fn timed<T>(f: impl FnOnce() -> T) -> (T, std::time::Duration) {

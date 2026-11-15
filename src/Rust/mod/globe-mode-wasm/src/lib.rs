@@ -766,6 +766,13 @@ impl Workspace {
         to_json(&self.inner.check(model))
     }
 
+    /// `check` の検査のフロントエンドを選ぶ版（S347）。`frontend` は `rumoca`・`native`（facade の `CheckFrontend`。知らない名前は例外）。
+    /// feature `native` の無い build の `native` は `GM-U0006`（この build に入っていない）。
+    pub fn check_with(&mut self, model: &str, frontend: &str) -> Result<String, JsValue> {
+        let frontend: globe_mode::CheckFrontend = frontend.parse().map_err(js_error)?;
+        to_json(&self.inner.check_with(model, frontend))
+    }
+
     /// 方程式の BLT 分解（`globe blt --json` と同じ `BltReport` の JSON。S262）。検査が通らなければ例外（診断の文を `;` でつないだ文字列）。
     pub fn blt(&mut self, model: &str) -> Result<String, JsValue> {
         let r = self.inner.blt(model).map_err(|ds| {

@@ -205,6 +205,7 @@ try {
   assert.ok((await w.deps(decay)).some((p) => p.endsWith("Decay.mo")));
   assert.ok((await w.flat(decay)).variables >= 1);
   assert.match((await w.check(decay)).summary, /OK/);
+  assert.match((await w.check(decay, "native")).summary, /native: S0〜S6/); // S347: worker 越しに frontend が届く
   console.log("outline・deps・flat・summary: 読めた");
   console.log(`wasm の線形メモリ ${(await w.memory()) / 2 ** 20 | 0} MiB`);
 

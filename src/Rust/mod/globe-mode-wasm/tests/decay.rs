@@ -289,6 +289,44 @@ fn check_returns_diagnostics_without_running() {
     ); // S173: 無いときは出ない
 }
 
+/// S347: `check_with` はフロントエンドを選ぶ。native は自前の段（S0〜S6）で、断る形（expandable）は `GM-U0006`。
+/// 知らない名前は例外だが、`JsValue` はネイティブで作れないので wasm の試験（node/smoke.mjs）で確かめる。
+#[test]
+fn check_with_selects_the_frontend() {
+    fn json(ws: &mut Workspace, model: &str, frontend: &str) -> serde_json::Value {
+        serde_json::from_str(&ws.check_with(model, frontend).unwrap()).unwrap()
+    }
+    let mut ws = Workspace::new();
+    ws.put_file(
+        "Decay.mo",
+        "model Decay Real x(start = 1, fixed = true); equation der(x) = -x; end Decay;",
+    );
+    ws.put_file(
+        "E.mo",
+        "expandable connector EC\n  Real a;\nend EC;\nmodel E\n  EC ec;\nend E;\n",
+    );
+    let default: serde_json::Value = serde_json::from_str(&ws.check("Decay").unwrap()).unwrap();
+    assert_eq!(json(&mut ws, "Decay", "rumoca"), default);
+    let e = json(&mut ws, "E", "native");
+    assert!(
+        e["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|d| d["code"] == "GM-U0006"),
+        "{e}"
+    );
+    #[cfg(feature = "native")]
+    {
+        let ok = json(&mut ws, "Decay", "native");
+        assert_eq!(ok["passed"], true, "{ok}");
+        assert!(
+            ok["summary"].as_str().unwrap().contains("native: S0〜S6"),
+            "{ok}"
+        );
+    }
+}
+
 /// S173: 検査の応答にも `can_force`（GM-E8001）と `unsupported`（GM-U）が付く
 #[test]
 fn check_marks_forceable_and_unsupported() {

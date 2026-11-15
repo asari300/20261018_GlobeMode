@@ -39,6 +39,19 @@ async function getText(url) {
   return res.ok ? res.text() : null;
 }
 
+// S340: 分割配信がパック（索引の pack）なら、パックを Blob で 1 回だけ取り（取れた Blob を持つ。Worker のヒープに載せず、塊は slice で読む）、i 番の塊の本文を返す
+async function packText(i) {
+  const { url, at } = lazy.pack;
+  lazy.blob ??= getBlob(lazy.base + url).catch((e) => ((lazy.blob = null), Promise.reject(e)));
+  return (await lazy.blob).slice(at[i], at[i + 1]).text();
+}
+async function getBlob(url) {
+  if (!isWeb && url.startsWith("file:")) return (await import("node:fs")).openAsBlob(new URL(url)); // Node: ファイルを読まずに Blob にする
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`MSL のパックを取得できない（${url}）: ${res.status}`);
+  return res.blob();
+}
+
 function rebuild() {
   const next = new gm.Workspace(JSON.stringify(lazy.files), lazy.name);
   for (const [name, text] of docs) next.set_file(name, text);
@@ -81,8 +94,8 @@ async function fetchChunks(names, depth = 0) {
   // 取れて、読めてから got に入れる（壊れた塊を入れると、次の呼び出しが何も取らず ensure が回り続けた。#110）
   const parsed = await Promise.all(
     ids.map(async (i) => {
-      const url = `${lazy.base}c/${i}.json`;
-      const text = (await getText(url)) ?? Promise.reject(new Error(`MSL の塊 ${i} を取得できない（${url}）`));
+      const url = lazy.pack ? `${lazy.base}${lazy.pack.url}#${i}` : `${lazy.base}c/${i}.json`;
+      const text = (await (lazy.pack ? packText(i) : getText(url))) ?? Promise.reject(new Error(`MSL の塊 ${i} を取得できない（${url}）`));
       try {
         return [text, JSON.parse(text)];
       } catch (e) {
@@ -134,7 +147,7 @@ const ops = {
     ws = next;
     docs.clear();
     lazy?.closure.free();
-    lazy = { name, base: url.slice(0, url.lastIndexOf("/") + 1), files, stub: new Set(Object.keys(idx.stubs)), chunk: idx.chunk, got: new Set(), rounds: 0, deps: idx.deps ?? [], prefetch: idx.prefetch ?? 0, ok: new Set(), closure: new gm.LibraryClosure(JSON.stringify(files)), bytes: indexText.length, chunks: idx.chunks };
+    lazy = { name, base: url.slice(0, url.lastIndexOf("/") + 1), files, stub: new Set(Object.keys(idx.stubs)), chunk: idx.chunk, got: new Set(), rounds: 0, pack: idx.pack, blob: null, deps: idx.deps ?? [], prefetch: idx.prefetch ?? 0, ok: new Set(), closure: new gm.LibraryClosure(JSON.stringify(files)), bytes: indexText.length, chunks: idx.chunks };
     return { files: Object.keys(files).length, chunks: idx.chunks, bytes: indexText.length };
   },
   // 分割配信で、ここまでに取った塊の数と文字数（索引を含む）。分割配信でなければ null
@@ -147,8 +160,8 @@ const ops = {
     docs.delete(name);
     return W().remove_file(name);
   },
-  check({ model }) {
-    return W().check(model);
+  check({ model, frontend }) {
+    return frontend ? W().check_with(model, frontend) : W().check(model); // S347: frontend は "rumoca"（既定）か "native"
   },
   blt({ model }) {
     return W().blt(model);
