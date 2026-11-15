@@ -544,7 +544,7 @@ impl Library {
     /// `scope` の中で成分参照・クラス名 `parts`（`a.b`）が指すものの、直下の要素（部品は型の要素、受け継ぎを含む。`protected` の部品は除く）。
     /// 引けなければ None。`redeclare` で型が変わる所は、`scope` から見て差し替わった後の型で引く（S345。`resolve` の S341 と同じ規則）。
     pub fn members_of(&self, scope: ClassId, parts: &[String]) -> Option<Vec<Member>> {
-        let r = Ref {
+        let mut r = Ref {
             file: self.classes.get(scope)?.file,
             range: TextRange::default(),
             scope,
@@ -555,7 +555,8 @@ impl Library {
         };
         let target = match self.resolve(&r) {
             Resolution::Class(c) => c,
-            // 差し替えた後の型が先（S345。無ければ書いてある型）
+            // 書いてある型が先。続きの名前が引けないとき `Redeclare` になる（差し替えがありうる）ときだけ、
+            // 差し替えた後の型が先（S345。`step` と同じ門。S351: 差し替えていない同名の別の型を拾わない）
             Resolution::Component(c, k) => {
                 let declared = self.classes[c].components[k].tys.iter().find_map(|t| {
                     match self.target_state(c, t) {
@@ -563,9 +564,10 @@ impl Library {
                         _ => None,
                     }
                 });
-                self.redeclared_types(scope, c, k)
-                    .into_iter()
-                    .next()
+                r.parts.push(String::new());
+                let open = self.resolve(&r) == Resolution::Unresolved(Reason::Redeclare);
+                open.then(|| self.redeclared_types(scope, c, k).into_iter().next())
+                    .flatten()
                     .or(declared)?
             }
             _ => return None,

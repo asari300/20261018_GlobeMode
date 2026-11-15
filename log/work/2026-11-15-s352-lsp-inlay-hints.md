@@ -32,6 +32,7 @@ LSP に `textDocument/inlayHint` の最小版を足す。出すのは関数の�
 - `cargo test -p globe-mode-lsp -p globe-mode-resolve`: lsp の lib 75 本 pass（S345 の 73 本 + 新規 2 本・1 本 ignored）・cross_file 5・folding 2・tolerant_outline 2、resolve の `tests/resolve.rs` 8 本 pass（2 本 ignored）。`cargo fmt`（lsp・resolve）済み、`cargo clippy -p globe-mode-lsp -p globe-mode-resolve --all-targets -- -D warnings` 0 件。`Component` に欄を足したので、使う側の `cargo check -p globe-mode-flat -p globe-mode-frontend --all-targets` も通した。
 - `check_docs.py`: スライド全部 OK・リンク 文書 1263 件 / 相対リンク 5286 件 / 切れ 0 件。`render_slides.py`（自分のデッキだけ）: 1 件 / 問題 0 件（desktop-light・desktop-dark・mobile 各 5 枚）。
 - 初回の試験は列の数え間違い（11 行目の内包の `f` の中の `0` は 22 列、`f(1, 2)` の 1 は 51 列）で落ち、期待値を直した。実装の出力は正しかった。
+- `origin/main`（S351 を含む）を取り込んだ。衝突は CHANGELOG・architecture・features・roadmap・sessions 索引の 1 行の表（両方が同じ行を足した）で、origin/main の版を取って S352 の語を手で足し直した（difflib では合成しない）。取り込み後に `cargo test -p globe-mode-lsp -p globe-mode-resolve`（lsp lib 75・resolve 9 本 pass）、fmt、clippy 0 件、`check_docs.py`（文書 1267 件・相対リンク 5291 件・切れ 0 件）。
 - 回していないもの: `mise run check` 全体（deny・uv。依存を足していない）、release・wasm のビルド（`globe-mode-wasm` は `inlay` を呼ばない）、`resolve_compare`（resolve の規則は変えていない）、本物の VS Code（【未確認】）、`msl:*`。セッション記録は無いので `--check` は省く。
 
 ## 残したこと
