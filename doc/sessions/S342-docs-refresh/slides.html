@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S342 docs-refresh — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S342 docs-refresh">
+
+<section class="slide" id="S01">
+  <span class="tag">S342 · 2026-11-15 · 文書</span>
+  <h1>S322〜S334 の成果を利用者向けの文書に反映</h1>
+  <p class="lead">コードは変えない。足りなかった分と、古くなった数字だけを直した</p>
+  <div class="big">Track B は MSL の例題 566 本のうち <b>471</b> 本を平らにでき、DAE の釣り合い・数・正則は <b>334/334</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">足したもの</span>
+  <h1>文書ごとの変更</h1>
+  <table>
+    <tr><th>文書</th><th>変更</th></tr>
+    <tr><td>CHANGELOG</td><td>S327（issue #118〜#120）と Track B の S324・S329〜S334 を足し、既知の限界の 279 本を 471 本に</td></tr>
+    <tr><td>README（日本語・英語）</td><td>複数ソルバの限界の古い 1 文（相対差が無い）を S328 に合わせ、S327 の注意を足し、Track B の数字を直した</td></tr>
+    <tr><td>features</td><td>Track B の行を S334 まで、複数ソルバの行に S327 を足した</td></tr>
+    <tr><td>roadmap</td><td>Track B の欄を「今の数字と残り」の要約にし、経緯は ADR-0039 へ</td></tr>
+    <tr><td>ADR-0039</td><td>付記 S342: 段ごとの数字の推移の表と、付記の案内</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">今の数字</span>
+  <h1>MSL の例題 566 本（S334。回帰 0）</h1>
+  <table>
+    <tr><th>段</th><th>数字</th></tr>
+    <tr><td>B1・B2</td><td>parse 566/566、resolve は未解決 0 が 467/566（残り 99 本は <code>Redeclare</code>）</td></tr>
+    <tr><td>B3 flatten</td><td>471/566 を平らにでき、Rumoca も通った 463 本で名前 463/463・方程式の数 451/463</td></tr>
+    <tr><td>B4 DAE</td><td>471/471 が DAE。Rumoca の釣り合いまで通った 334 本で判定・数・正則 334/334、状態 332/334</td></tr>
+    <tr><td>残り</td><td><code>unsized-array</code> 28・<code>composite-binding</code> 25・<code>stream</code> 21・<code>Redeclare</code> 99・状態 2 本</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定</span>
+  <h1>roadmap を要約にした理由</h1>
+  <ul>
+    <li>1 つの欄に S268〜S334 の経緯が全部入っていて読めなかった（約 4,500 字）</li>
+    <li>経緯の数字は ADR-0039 の付記にすでにあるので、roadmap は今の数字と残りだけにした</li>
+    <li>ADR にまとまっていなかった推移は、付記 S342 の表に集めた（消した情報は無い）</li>
+    <li>古くなっていた「残り」（<code>GM-E</code> の番号・定義ジャンプが未など）は外し、理由を ADR に書いた</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>検査</h1>
+  <pre><code>python3 -I .claude/skills/session-docs/check_docs.py
+npx --no-install markdownlint-cli2 README.md CHANGELOG.md doc/roadmap.md doc/features.md doc/adr/0039-native-cst-parser.md</code></pre>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>並行の S335〜S341 が roadmap の同じ欄の数字を変える。取り込むときは要約の形に合わせる</li>
+    <li>S335〜S337 の結果（<code>unsized-array</code>・<code>composite-binding</code>・状態）が main に入ったら、roadmap の「残り」・README・CHANGELOG の数字を直す</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
