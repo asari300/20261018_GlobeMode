@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S345 LSP と差し替えた型 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S345 LSP と差し替えた型">
+
+<section class="slide" id="S01">
+  <span class="tag">S345 · 2026-11-15 · Track B</span>
+  <h1>補完・定義ジャンプ・ホバーも、差し替えた後の型で</h1>
+  <p class="lead">S341 で resolve が引けるようになった <code>redeclare</code> / <code>class extends</code> の型を、LSP も使う</p>
+  <div class="big">規則は resolve に 1 つだけ。LSP は複製しない</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">問題</span>
+  <h1>LSP は既定の型のままだった</h1>
+  <ul>
+    <li>補完 <code>state.</code>: <code>members_of</code> が部品の宣言の型（既定の <code>ThermodynamicState</code>、中身は空）で引き、<code>T</code>・<code>p</code> が出ない</li>
+    <li>定義ジャンプ・ホバー: 書きかけの文書は <code>resolve</code> を通るので S341 のまま飛ぶ。<strong>読める文書</strong>は今の道（アウトライン）が既定の型で引いて <code>null</code></li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>探し方を 1 つにして、2 か所から使う</h1>
+  <table>
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>差し替えた型</td><td><code>step</code> の中の探し方を <code>redeclared_types</code> に切り出し、<code>members_of</code> も使う</td><td>LSP 側に規則を複製しない。補完と成分参照が食い違わない</td></tr>
+    <tr><td>補完</td><td>差し替えた型が先、無ければ書いてある型</td><td>差し替えた型は既定の型を受け継ぐか下位の型なので、既定の要素は含む</td></tr>
+    <tr><td>定義ジャンプ</td><td>読める文書で今の道が <code>null</code> の、<code>.</code> のある名前だけ自前の道で引き直す</td><td><code>Real</code>・<code>time</code> のホバーで木（MSL 全体。debug 8.8 秒）を作らせない</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">数字</span>
+  <h1>試験と MSL との突き合わせ</h1>
+  <div class="kpis">
+    <div class="kpi"><span class="n">@@A@@</span><span class="l">成分参照の続き 一致（前 86）</span></div>
+    <div class="kpi"><span class="n">@@B@@</span><span class="l">LSP が null（前 7）</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">不一致</span></div>
+  </div>
+  <p>型名 110 箇所は 110 一致のまま。<code>msl:diff-frontend</code> は回さない（resolve の数え方は変えていない）。</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>補完は、今の道で候補が 1 件でも出る間は既定の型のまま（既定の型が空の Media は出る）</li>
+    <li>持ち主を受け継がないクラスから見る <code>a.state.</code>、部品の修飾の中の <code>A a(redeclare T x)</code> は S341 と同じく見ない</li>
+    <li>VS Code の拡張は触っていない</li>
+  </ul>
+  <p class="foot">GlobeMode S345</p>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

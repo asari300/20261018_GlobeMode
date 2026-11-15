@@ -2863,6 +2863,112 @@ equation
         );
     }
 
+    /// S345: 補完の `a.`・定義ジャンプ・ホバーが、差し替えた後の型（`class extends` の `TS`・`extends B(redeclare T x)` の部品）を引く。
+    /// 読めない文書は自前の名前解決（S279・S296）、読める文書はアウトラインで引けなかった成分参照だけ自前の名前解決で引く。
+    #[test]
+    fn completion_and_definition_follow_redeclared_types() {
+        let dir = scratch_dir("redeclared");
+        std::fs::create_dir_all(dir.join("Lib")).unwrap();
+        std::fs::write(
+            dir.join("Lib/package.mo"),
+            "package Lib
+  package PM
+    replaceable record TS end TS;
+    replaceable partial model BP TS state; end BP;
+  end PM;
+  package Simple
+    extends PM;
+    redeclare record extends TS Real T; end TS;
+    redeclare model extends BP Real x = state.T; end BP;
+  end Simple;
+  model Port Real p; end Port;
+  model PortX
+    extends Port;
+    Real hot;
+  end PortX;
+  model Base replaceable Port port; end Base;
+end Lib;
+",
+        )
+        .unwrap();
+        let mut s = Server::new(std::slice::from_ref(&dir)).unwrap();
+        let labels = |r: &Value| -> Vec<String> {
+            r["result"]["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|i| i["label"].as_str().unwrap().to_string())
+                .collect()
+        };
+        // 補完（別の行にも誤りがある書きかけ）: 差し替えた `PortX` の `hot` と受け継いだ `p`、`class extends` で差し替えた `TS` の `T`
+        let text = "model M\n  extends Lib.Base(redeclare Lib.PortX port);\n  Real = ;\nequation\n  port.\nend M;\n";
+        let r = ask_at(
+            &mut s,
+            "M.mo",
+            text,
+            "textDocument/completion",
+            "port.\n",
+            5,
+        );
+        assert_eq!(labels(&r), ["hot", "p"], "{r}");
+        let text =
+            "within Lib.Simple;\nmodel M\n  extends BP;\n  Real = ;\nequation\n  state.\nend M;\n";
+        let r = ask_at(
+            &mut s,
+            "S.mo",
+            text,
+            "textDocument/completion",
+            "state.\n",
+            6,
+        );
+        assert_eq!(labels(&r), ["T"], "{r}");
+        // 読める文書（カーソルの行だけ書きかけ）でも、今の道は既定の空の `TS` で 0 件なので自前の道に回って同じ
+        let text = "within Lib.Simple;\nmodel M3\n  extends BP;\nequation\n  state.\nend M3;\n";
+        let r = ask_at(
+            &mut s,
+            "S3.mo",
+            text,
+            "textDocument/completion",
+            "state.\n",
+            6,
+        );
+        assert_eq!(labels(&r), ["T"], "{r}");
+        // 定義ジャンプとホバー: `PortX` の `Real hot;`（0 始まりで 13 行目）。読める文書も、読めない文書も
+        let valid = "model N\n  extends Lib.Base(redeclare Lib.PortX port);\nequation\n  port.hot = 0;\nend N;\n";
+        for (uri, text) in [
+            ("N.mo", valid.to_string()),
+            ("N2.mo", format!("{valid}Real = ;\n")),
+        ] {
+            let r = ask_at(&mut s, uri, &text, "textDocument/definition", "port.hot", 6);
+            assert_eq!(r["result"]["range"]["start"]["line"], 13, "{uri}: {r}");
+        }
+        // ホバー: 書きかけの文書は `textDocument/hover`、読める文書の名前のホバーは UI 向けの `globe/hover`（`textDocument/hover` はクラスの見出し）
+        let h = ask_at(
+            &mut s,
+            "N2.mo",
+            &format!("{valid}Real = ;\n"),
+            "textDocument/hover",
+            "port.hot",
+            6,
+        );
+        assert!(
+            h["result"]["contents"]["value"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("hot"),
+            "{h}"
+        );
+        let h = s.handle(json!({"id": 2, "method": "globe/hover", "params": {"file": "N.mo", "line": 3, "character": 9}}));
+        assert!(
+            h[0]["result"]["contents"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("hot"),
+            "{h:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn globe_definition_returns_the_target_file_text() {
         let lib =
