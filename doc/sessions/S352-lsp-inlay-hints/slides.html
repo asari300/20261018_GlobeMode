@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S352 LSP の inlay hint — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S352 LSP の inlay hint">
+
+<section class="slide" id="S01">
+  <span class="tag">S352 · 2026-11-15 · Track B</span>
+  <h1>LSP の inlay hint（最小版）</h1>
+  <p class="lead">機能の穴「アウトライン・inlay hint・call hierarchy」のうち inlay hint</p>
+  <div class="big"><code>f(x, y)</code> が <code>f(a: x, b: y)</code> に見える</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">仕様</span>
+  <h1>出すのは 1 種類だけ</h1>
+  <ul>
+    <li><code>textDocument/inlayHint</code>（capability <code>inlayHintProvider</code>）。<code>range</code> の内側だけ返す</li>
+    <li>関数の呼び出しの位置引数の前に、引数の名前（kind = Parameter）</li>
+    <li>名前は呼び先の関数の <code>input</code> の並び（<code>extends</code> の基底が先）。引けなければ出さない</li>
+    <li>書きかけの文書でも出る（自前の構文の木の上。S276・S279 と同じ道）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">つなぎ</span>
+  <h1>resolve に 1 関数だけ足した</h1>
+  <table class="compact">
+    <tr><th>場所</th><th>変更</th></tr>
+    <tr><td><code>globe-mode-resolve</code></td><td><code>Component.input</code>、<code>Library::function_inputs</code></td></tr>
+    <tr><td><code>globe-mode-lsp</code></td><td><code>inlay.rs</code>、<code>textDocument/inlayHint</code>、capability</td></tr>
+    <tr><td>VS Code の拡張</td><td>変更なし（<code>vscode-languageclient</code> 9 が capability で自動登録）</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">出さないもの</span>
+  <h1>推測しない</h1>
+  <ul>
+    <li>組み込み（<code>sin</code>・<code>der</code>）、部品、解決できない名前</li>
+    <li><code>input</code> より多い引数、名前つき引数、<code>for</code> 内包の引数、<code>annotation</code> の中</li>
+    <li>レコードの構築子（<code>Complex(1, 2)</code>）は次回以降</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">確かめたこと</span>
+  <h1>試験 2 本</h1>
+  <ul>
+    <li>名前が出る: <code>extends</code> の基底の <code>input</code> が先、入れ子の呼び出し、書きかけの文書、範囲の内側だけ</li>
+    <li>出ない: 組み込み・未定義・部品・多すぎる引数・名前つき引数・<code>der</code></li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

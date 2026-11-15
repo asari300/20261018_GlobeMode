@@ -575,6 +575,31 @@ impl Library {
         Some(out)
     }
 
+    /// 関数 `c` の位置引数の名前（S352）: `input` の部品を宣言の順に、`extends` の基底のものを先に。
+    /// 基底が引けなければ None（推測しない）。関数かどうかは見ない（呼び手が `Resolution::Class` で引いた名前だけ渡す）。
+    pub fn function_inputs(&self, c: ClassId) -> Option<Vec<String>> {
+        fn go(l: &Library, c: ClassId, out: &mut Vec<String>, seen: &mut HashSet<ClassId>) -> bool {
+            if !seen.insert(c) {
+                return true;
+            }
+            let cl = &l.classes[c];
+            for i in 0..cl.bases.len() {
+                if !l.base(c, i).is_ok_and(|b| go(l, b, out, seen)) {
+                    return false;
+                }
+            }
+            out.extend(
+                cl.components
+                    .iter()
+                    .filter(|x| x.input)
+                    .map(|x| x.name.clone()),
+            );
+            true
+        }
+        let mut out = Vec::new();
+        go(self, c, &mut out, &mut HashSet::new()).then_some(out)
+    }
+
     fn collect_members(&self, c: ClassId, out: &mut Vec<Member>, seen: &mut HashSet<ClassId>) {
         if !seen.insert(c) {
             return;

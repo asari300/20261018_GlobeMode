@@ -18,7 +18,7 @@ pub fn outline(text: &str) -> Vec<ClassOutline> {
 }
 
 /// 空白・コメントを除いた範囲
-fn span(n: &SyntaxNode) -> Option<TextRange> {
+pub(crate) fn span(n: &SyntaxNode) -> Option<TextRange> {
     let mut t = n
         .descendants_with_tokens()
         .filter_map(|e| e.into_token())
