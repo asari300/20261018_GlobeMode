@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S341 resolve の Redeclare — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S341 resolve の Redeclare">
+
+<section class="slide" id="S01">
+  <span class="tag">S341 · 2026-11-15 · Track B</span>
+  <h1>resolve の Redeclare を 0 に</h1>
+  <p class="lead">未解決の参照が 0 にならなかった 99 本は、差し替えた後の型を引けば解決した</p>
+  <div class="big">resolve 467 → 566 / 566、未解決の参照 1330 → 0</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">原因</span>
+  <h1>99 本・1330 件は 2 つの形だった</h1>
+  <ul>
+    <li><code>state.T</code>・<code>state_a.p</code>（Media）: 部品の型 <code>ThermodynamicState</code> は、基底では中身が空の <code>replaceable record</code>。受け継いだクラスが <code>redeclare record extends ThermodynamicState</code> で差し替えている</li>
+    <li><code>internalThermalPort.heatPortRotorWinding</code>・<code>cellData.nRC</code>: <code>extends B(redeclare … ThermalPortIMC internalThermalPort)</code> のように、<code>extends</code> の修飾で部品の型を差し替えている</li>
+    <li>どちらも既定の型には名前が無く、<code>Redeclare</code> と数えていた</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>既定の型で引けないときだけ、差し替えた型でも引く</h1>
+  <table>
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>部品の再宣言</td><td><code>extends B(redeclare T x)</code> を読み、参照のあるクラスの受け継ぎをたどって <code>x</code> の型を <code>T</code> にする</td><td>flat の S297 と同じ「外側が勝つ」。参照の場所が決まっている resolve では受け継ぎの木をたどるだけで済む</td></tr>
+    <tr><td>型の名前の見直し</td><td>参照のあるクラスが部品の持ち主を受け継ぐとき、型の名前をそのクラスから引き直す</td><td><code>class extends</code> で差し替えた型が、外側のパッケージにあるため</td></tr>
+    <tr><td>順序</td><td>既定の型で引けたものは変えない</td><td>回帰 0。LSP の定義ジャンプの突き合わせも同じ</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">数字</span>
+  <h1>MSL の例題 566 本（S334 → S341）</h1>
+  <div class="kpis">
+    <div class="kpi"><span class="n">566 / 566</span><span class="l">resolve（前 467）</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">未解決の参照（前 1330）</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">回帰</span></div>
+  </div>
+  <p>MSL の全 <code>.mo</code>（成分参照の続き 45463 件）でも、S275 から残っていた <code>Redeclare</code> 639 件は 0。</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>部品の修飾の中の <code>A a(redeclare T x)</code>（MSL の例題には出ていない）</li>
+    <li>LSP の補完 <code>state.</code> は既定の型の要素のまま</li>
+    <li>「解決できた」は「正しい」とは限らない（差し替えの条件は名前と受け継ぎだけ）</li>
+  </ul>
+  <p class="foot">GlobeMode S341</p>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
