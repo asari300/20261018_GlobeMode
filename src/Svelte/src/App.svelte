@@ -43,7 +43,7 @@
   let live = $state(""); // S175: 検査・実行の完了を読み上げる 1 行（aria-live="polite"）。失敗は role="alert"、未対応の要約・止めたは role="status" が読むので、ここには入れない
   let diagnostics = $state<Diagnostic[]>([]);
   let columns = $state.raw<Columns | null>(null); // $state だと配列を丸ごと Proxy にする。10 万点では遅い
-  // MSL（public/msl/MSL.json。pack-msl.mjs が data/msl から作る）。起動時には読まず、ボタンで読む
+  // MSL（public/msl/index.json と c/*.json（分割配信。S301）、無ければ MSL.json。pack-msl.mjs が data/msl から作る）。起動時には読まず、ボタンで読む
   let msl = $state<"none" | "loading" | "loaded">("none");
   let mslNote = $state("");
   // S084: Desktop だけ版を選べる（4.0.0 は公開ライブラリの前提の版）。loadedVersion は起動時に取得済みを読んだときは不明（null）
@@ -385,17 +385,19 @@
     failure = "";
     const t = performance.now();
     try {
-      let json = "";
+      let size = "";
       if (tauri) await tauri.fetchMsl(mslVersion); // Desktop は JSON を使わない（sidecar が取得した MSL を読む）
-      else {
+      else if (await backend.libraryIndex?.("MSL", new URL(`${import.meta.env.BASE_URL}msl/index.json`, location.href).href)) {
+        size = "分割配信、"; // S301: 索引だけ読み、本文は検査のときに要る塊を取る（index.json が無いときだけ下の MSL.json）
+      } else {
         const res = await fetch(`${import.meta.env.BASE_URL}msl/MSL.json`);
         if (!res.ok) throw new Error(`MSL.json を取得できない（${res.status}）。data/msl を取得して pnpm prepare-wasm（cargo xtask fetch-msl）`);
-        json = await res.text();
+        const json = await res.text();
         await backend.library("MSL", json);
+        size = `${(json.length / 2 ** 20).toFixed(0)} MiB、`;
       }
       msl = "loaded";
       loadedVersion = desktop ? mslVersion : "4.1.0";
-      const size = desktop ? "" : `${(json.length / 2 ** 20).toFixed(0)} MiB、`;
       mslNote = `MSL ${loadedVersion} を読んだ（${size}${((performance.now() - t) / 1000).toFixed(1)} 秒）`;
       diagnostics = [];
       columns = null;
@@ -973,7 +975,7 @@
   </p>{/if}
   <p class="note" data-msl={msl}>
     {#if msl === "loaded"}{mslNote}。左の木でモデルを選ぶか、モデル名にライブラリのモデル（例 Modelica.Electrical.Analog.Examples.ChuaCircuit）を入れて検査・実行できる。グラフも描ける。
-    {:else if msl === "loading"}{desktop ? `MSL ${mslVersion} を取得して展開している（${mslProgress || "回線しだい"}）。もう一度押すと取り消す。` : "MSL.json を取得して読み込んでいる（十数秒）。"}
+    {:else if msl === "loading"}{desktop ? `MSL ${mslVersion} を取得して展開している（${mslProgress || "回線しだい"}）。もう一度押すと取り消す。` : "MSL を取得して読み込んでいる。"}
     {:else}MSL は未読み込み。{/if}
   </p>
   <!-- S179: 矢印キー（左右・Home・End）でタブを移る（roving tabindex。選ぶと開く）。Delete や Ctrl+W は足さない（ブラウザが握る） -->

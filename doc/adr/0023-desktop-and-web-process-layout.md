@@ -124,7 +124,7 @@ UI（Svelte）のプロセスでは検査も実行もしない。計算は 1 つ
 
 ### S145 で決まったこと（ブラウザ版の配布物、2026-11-04）
 
-- **ブラウザ版は、サーバーで計算しない静的ファイルの束として配る。** 手動の `web.yml` が wasm と UI（vite の `base: "./"`。どのサブパスでも動く）、`MSL.json`、CSP の header の断片（`_headers`・`nginx.csp.conf`。正は `index.html` の meta で、Worker に効かせるため配布先の header に写す）を artifact `globe-web` に出す。`Cross-Origin-Opener-Policy` / `Cross-Origin-Embedder-Policy` は要らない（`SharedArrayBuffer` を使わない）。**公開（GitHub Pages の有効化、URL の配布）はユーザーの判断で、このセッションでは行わない。** 持ち越し: PWA、ダークモード、`MSL.json` の分割配信。
+- **ブラウザ版は、サーバーで計算しない静的ファイルの束として配る。** 手動の `web.yml` が wasm と UI（vite の `base: "./"`。どのサブパスでも動く）、`MSL.json`、CSP の header の断片（`_headers`・`nginx.csp.conf`。正は `index.html` の meta で、Worker に効かせるため配布先の header に写す）を artifact `globe-web` に出す。`Cross-Origin-Opener-Policy` / `Cross-Origin-Embedder-Policy` は要らない（`SharedArrayBuffer` を使わない）。**公開（GitHub Pages の有効化、URL の配布）はユーザーの判断で、このセッションでは行わない。** 持ち越し: PWA、ダークモード、~~`MSL.json` の分割配信~~（S301 で済。下の付記）。
 
 ### S154 で決まったこと（最近使ったファイルの読み込み、2026-11-05）
 
@@ -177,3 +177,14 @@ UI（Svelte）のプロセスでは検査も実行もしない。計算は 1 つ
   - **付記（S227、2026-11-08）**: 上の「18 個」は S197 の時点。いまの `RPC_METHODS`（`src/Rust/apps/desktop/src/shell.rs`）は **20 個**で、`globe/*` が 19 個、`textDocument/foldingRange` が 1 個。S222 が `globe/readResults`（結果を開く）、S225 が `textDocument/foldingRange`（折りたたみ）を足した。以後も一覧と数は `shell.rs` を正とする。
 - **CSP を入れた。** `tauri.conf.json` の `app.security.csp` は、ブラウザ版が使う `index.html` の meta の CSP と同じものに、IPC の `connect-src` だけを足したもの。`default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; connect-src 'self' ipc: http://ipc.localhost; style-src 'self' 'unsafe-inline'; img-src 'self' data:`。`'wasm-unsafe-eval'` は Android の `WorkerBackend`（wasm）、`'unsafe-inline'` は Svelte と CodeMirror が注入する style のため。meta の `connect-src 'self'` は元のままなので、実際の IPC は以前と同じ道を通る（meta と header は両方が効く）。両者が食い違わないことを試験（`tauri_csp_is_the_index_html_csp_plus_ipc`）が確かめる。Tauri は CSP の書式に `ipc: http://ipc.localhost` を示している（出典: <https://v2.tauri.app/security/csp/>、確認日 2026-11-06【文書を直接は取得できず、tauri-utils 2.10.2 のソースの例示で確認】）。Tauri は HTML に `<style>` や外部 http の script があるときだけ nonce・hash を足す。Vite の出力には無いので CSP は変わらない。Desktop（Linux・Windows・macOS）と Android の smoke が全項目 ok のままであることは run の ID を作業記録に書いた。
 - **限界（変えていない）:** `globe/exportFmu` の `outDir` は dialog で選んだパスに限られない。sidecar の `outDir` は任意のディレクトリで、UI の JS を乗っ取れる者は `outDir` を好きに言える（FMU と同名のフォルダを作る）。UI は `dialog.save` の親ディレクトリを渡している。限るには Rust 側で dialog を呼ぶ必要があり、UI の構成を変えるので持ち越し。`read_recent`（`.mo` の通常のファイルだけ）は S154 のまま。
+
+### S301 で決まったこと（MSL.json の分割配信、2026-11-15）
+
+- **背景**: S145 の持ち越し。分割読み込み（S037）は Worker の線形メモリを減らしただけで、UI は「MSL を読む」で `MSL.json`（15.2 MiB、gzip で 2.7 MB）を全部取り、JSON の文字列を Worker に渡して読み込んでいた。ChuaCircuit の閉包は 295 / 2556 ファイル（2.4 MB）しか使わない。
+- **形**（`scripts/pack-msl.mjs` と `globe-mode-wasm/web/pack.js` が作る。依存の追加なし）:
+  - `msl/index.json`: ファイルごとの**見出し**（`globe_mode_fmt::tree_stub`。`within` と、入れ子を含むクラスの種類・名前・説明文字列だけ。`LibraryTree` の結果と分割読み込みの修飾名の索引が本文のときと同じになる）と、ファイル → 塊の番号。見出しにできないファイル（クラス名を引用符で囲んだ入れ子がある `ModelicaReference/package.mo`）は本文のまま `real` に入れる。
+  - `msl/c/<番号>.json`: 同じディレクトリのファイルを 16 KiB までまとめた塊 `{ 名前: 本文 }`（838 本）。
+- **Worker の動き**（`worker.js` の `library_index`・`ensure`）: 見出しだけの `Workspace` を作る。モデルや文書を使う操作（check・simulate・graph・flat・definition・hover・completion・diagram など）の前に、`LibraryClosure`（frontend。S238 の `library_closure` と同じ走査で、ファイルごとの走査の記憶を持ち越す）で閉包を求め、答えに見出しのままのファイルがあれば、その塊を `fetch` して `set_text` で本文に替え、閉包を求め直す。本文だけが参照を持つので、見出しのファイルが無くなるまで繰り返す（全部読みと同じ閉包に落ち着く）。取ったら `Workspace` を作り直し、`set_file` した文書を足し直す。木から開くファイルは、そのファイルの塊だけを取る。**木の行ごとに引くアイコンと説明は、クラスの `extends` の基底だけをたどる**（`bases_only`。そうしないと、`ObsoleteModelica4` のように多くを参照するクラスの行を描くだけで塊の 7 割を取った）。
+- **変えなかったこと**: Service Worker・独自のキャッシュは足さない（ブラウザの HTTP キャッシュに任せる）。塊も同じ origin なので CSP の `connect-src 'self'` のまま。`MSL.json` は pack が引き続き作る（Leptos・Dioxus・marimo と、`index.json` が無い配信への代わり。UI は `index.json` が無い・JSON でないときだけ `MSL.json` に戻る）。`web.yml` の束 `globe-web` には入れない。Desktop（sidecar）は影響なし。
+- **確かめ方**: `node globe-mode-wasm/node/split.mjs`（`mise run wasm:node` が 5 本、全 20 本は手で）が、`msl-compare.txt` の 20 本で全部読みと検査結果（passed・段階・診断のコード）が一致すること、作業中の文書が MSL を参照するとき、木と開くファイルが一致することを確かめる（20/20 一致）。`test_ui.py` の既存の MSL の試験はすべて分割配信で通り、新しい試験が `MSL.json` を取らず索引と塊だけで ChuaCircuit の検査が通ること・取る量が `MSL.json` の半分未満であることを確かめる。
+- **限界**: (1) 塊は閉包の深さだけ順番に取る（ChuaCircuit で 11 回、Pendulum 8 回、PID_Controller 6 回。各回の中は並列）ので、往復の遅い回線では回数ぶん待つ。(2) 索引（1.5 MiB、gzip で 0.2 MB）は必ず取る。ブラウザ（`?smoke=1`）では、検査のほかに木の行のアイコンなどで塊を足し、ChuaCircuit までに 174 要求、4.8 MiB。(3) 閉包の外のファイルは見出しのままなので、そこの型のメンバーを引く補完などは本文を取るまで出ない。(4) Android の APK は dist に `MSL.json` も入る（未整理）。(5) `bench_ui.py` の Svelte の `msl_ms` は S301 から分割配信の値で、Leptos・Dioxus（`MSL.json` 全部）とは条件が違う。

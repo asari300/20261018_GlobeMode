@@ -407,6 +407,41 @@ pub fn library_closure(library: &[Source<'_>], model: &str, user_texts: &[&str])
         .collect()
 }
 
+/// S301: ブラウザの分割配信（見出しだけのファイルを本文に替えながら閉包を求め直す）で、ファイルの走査の記憶を持ち越す
+/// [`library_closure`]。`new` に渡すのは（名前, 本文か見出し）。本文を取ったら `set_text` で替える。
+pub struct LibraryClosure(SplitLibrary);
+
+impl std::fmt::Debug for LibraryClosure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LibraryClosure")
+            .field("files", &self.0.len())
+            .finish()
+    }
+}
+
+impl LibraryClosure {
+    pub fn new(sources: impl IntoIterator<Item = (String, String)>) -> Self {
+        LibraryClosure(SplitLibrary::new(sources))
+    }
+
+    /// ファイル `name` の本文を差し替える。無い名前は false。
+    pub fn set_text(&mut self, name: &str, text: &str) -> bool {
+        self.0.set_text(name, text)
+    }
+
+    /// [`library_closure`] と同じ（外側の `package.mo` と、クラスの見つからないファイルを含む）。`bases_only` なら、
+    /// `extends` の基底だけをたどる（アイコンなど、クラス 1 つの `extends` の鎖だけが要るとき）。
+    pub fn closure(&mut self, model: &str, user_texts: &[&str], bases_only: bool) -> Vec<String> {
+        let mut need = self
+            .0
+            .closure_within(model, user_texts.iter().copied(), bases_only);
+        need.extend(self.0.unindexed());
+        need.into_iter()
+            .map(|n| self.0.file(n).0.to_string())
+            .collect()
+    }
+}
+
 /// S243: [`library_closure`] のファイルから、使わない入れ子のクラスも落とした（名前, 本文）。
 /// クラスを落とすと、それだけから参照されていたファイルも要らなくなるので、変わらなくなるまで閉包を取り直す。
 /// 字句に分けられない利用者の本文なら、クラスは落とさない（ファイルだけの閉包を返す）。
