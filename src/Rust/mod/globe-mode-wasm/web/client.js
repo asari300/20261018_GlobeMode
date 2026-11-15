@@ -207,6 +207,13 @@ export class GlobeWorker {
   async deleteConnect(cls, from, to, at) {
     return JSON.parse(await this.#call("delete_connect", { cls, text: this.#files.get(at.file) ?? "", from, to }));
   }
+  // 図の結線の途中の点（S299）: cls の connect(from, to) の線の index 番目の点を (dx, dy) だけ動かす / 点 (x, y) を足す（points が無ければ ends = [[x1, y1], [x2, y2]] と合わせた 3 点）。[{range, newText}]、断れば null
+  async moveWaypoint(cls, from, to, index, dx, dy, at) {
+    return JSON.parse(await this.#call("move_waypoint", { cls, text: this.#files.get(at.file) ?? "", from, to, index, dx, dy }));
+  }
+  async addWaypoint(cls, from, to, index, x, y, ends, at) {
+    return JSON.parse(await this.#call("add_waypoint", { cls, text: this.#files.get(at.file) ?? "", from, to, index, x, y, ends }));
+  }
   // リネーム（S161）: [{range, newText}]。部品でない・識別子でない・予約語・既にある名前は、理由つきで reject
   async rename(file, line, character, newName) {
     return JSON.parse(await this.#call("rename", { file, text: this.#files.get(file) ?? "", line, character, newName }));

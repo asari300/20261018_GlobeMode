@@ -94,6 +94,12 @@ export class WorkerBackend implements Backend {
   deleteConnect(cls: string, from: string, to: string, at: { file: string }) {
     return this.#w.deleteConnect(cls, from, to, at); // S281
   }
+  moveWaypoint(cls: string, from: string, to: string, index: number, dx: number, dy: number, at: { file: string }) {
+    return this.#w.moveWaypoint(cls, from, to, index, dx, dy, at); // S299
+  }
+  addWaypoint(cls: string, from: string, to: string, index: number, x: number, y: number, ends: [[number, number], [number, number]], at: { file: string }) {
+    return this.#w.addWaypoint(cls, from, to, index, x, y, ends, at); // S299
+  }
   rename(file: string, line: number, character: number, newName: string) {
     return this.#w.rename(file, line, character, newName);
   }

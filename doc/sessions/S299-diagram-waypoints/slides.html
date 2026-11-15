@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S299 結線の途中の点 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S299 結線の途中の点">
+
+<section class="slide" id="S01">
+  <span class="tag">S299 · 2026-11-15 · P8</span>
+  <h1>結線の途中の点を図の上で動かす</h1>
+  <p class="lead">Diagram の編集の 5 つ目。<code>connect(...) annotation(Line(points = {...}))</code> の中間の点</p>
+  <div class="big">つまみをドラッグ、線をダブルクリックで点を足す</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">Rust</span>
+  <h1>2 つの編集</h1>
+  <table class="compact">
+    <tr><th>関数</th><th>することと断るとき</th></tr>
+    <tr><td><code>move_waypoint</code></td><td>途中の点を (dx, dy) だけ動かす。<b>最初と最後はコネクタに付くので断る</b></td></tr>
+    <tr><td><code>add_waypoint</code></td><td><code>points</code> があれば index の前に挿す。無ければ両端のコネクタの位置と合わせた 3 点の <code>Line(points)</code> を作る</td></tr>
+  </table>
+  <p>書き換えるのは 1 点の範囲だけ。座標は S288 の共有の入口（有限で 1e6 以下）を通る</p>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">UI</span>
+  <h1>つまみと線のダブルクリック</h1>
+  <ul>
+    <li>結線を選ぶと途中の点に四角のつまみ。4 px 未満はクリック、2 単位に吸着、離したら 1 回の dispatch（undo 可、保存しない）</li>
+    <li>線の上のダブルクリックは、いちばん近い線分の次へ点を足す</li>
+    <li>口は LSP <code>globe/moveWaypoint</code>・<code>globe/addWaypoint</code>、wasm、Backend。VS Code のパネルは今回やらない</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

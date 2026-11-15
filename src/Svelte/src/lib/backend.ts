@@ -62,6 +62,10 @@ export interface Backend {
   deletePart(cls: string, part: string, at: { file: string }): Promise<{ range: Definition["range"]; newText: string }[] | null>;
   /** 図の結線 `connect(from, to)` を消す編集（S281。from・to は `Connection` のもの。逆の並びも同じ）。無ければ null。 */
   deleteConnect(cls: string, from: string, to: string, at: { file: string }): Promise<{ range: Definition["range"]; newText: string }[] | null>;
+  /** 図の結線 `connect(from, to)` の線の途中の点 index（0 始まり。端は動かせず null）を Diagram の座標で (dx, dy) だけ動かす編集（S299。LSP の TextEdit の配列）。ファイルは書かない。 */
+  moveWaypoint(cls: string, from: string, to: string, index: number, dx: number, dy: number, at: { file: string }): Promise<{ range: Definition["range"]; newText: string }[] | null>;
+  /** 図の結線の線に途中の点 (x, y) を足す編集（S299）。`points` があれば index（1 以上）の点の前に挿し、無ければ ends（始めと終わりのコネクタの位置）と合わせた 3 点の `Line(points)` を作る。 */
+  addWaypoint(cls: string, from: string, to: string, index: number, x: number, y: number, ends: [[number, number], [number, number]], at: { file: string }): Promise<{ range: Definition["range"]; newText: string }[] | null>;
   /** setFile 済みの file の実行できるクラス（model・block・class。partial は除く）の修飾名（S170。UI のモデル名の候補。構文が壊れていれば空）。 */
   models(file: string): Promise<string[]>;
   /** 位置の名前を newName に変える編集（S161。LSP の TextEdit）。いちばん内側のクラスで宣言した部品と、この文書で定義したクラス（S166。宣言・`end`・使っている所）。部品でもクラスでもない・別のファイル（ライブラリ）のクラス・識別子でない・予約語・同じクラスに既にある名前は、理由つきで reject。 */

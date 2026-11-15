@@ -64,6 +64,19 @@ test("onMove が false なら見た目を戻す。コネクタから始めたら
   assert.deepEqual(calls, [["connect", "R1.p", "R2.n", [[1, 2], [30, 40]]]]);
 });
 
+test("結線の途中の点のつまみ（.wp）のドラッグは 2 単位に吸着し、結線の端と番号つきで onWaypoint へ（S299）", async () => {
+  const { svg, ev } = rig();
+  const calls = [];
+  const d = diagramDrag(() => svg, { onWaypoint: async (...a) => (calls.push(a), true) });
+  const h = attrs({ "data-wp": "a.p b.n", "data-index": "2", setPointerCapture() {} });
+  h.closest = (s) => (s === ".wp" ? h : null);
+  d.down(ev(h, 10, 10));
+  d.move(ev(h, 23, 3));
+  assert.equal(h.transform, "translate(14 -8)");
+  await d.up(ev(h, 23, 3));
+  assert.deepEqual(calls, [["a.p", "b.n", 2, 14, 8]]);
+});
+
 test("webview からのメッセージは型と値を検査する（file・class は受け取らない）", () => {
   assert.deepEqual(parseEdit({ type: "move", id: 1, part: "R1", dx: 2, dy: -4, file: "/etc/passwd", class: "X" }), { id: 1, method: "globe/movePart", args: { part: "R1", dx: 2, dy: -4 } });
   assert.deepEqual(parseEdit({ type: "connect", id: 2, from: "a.p", to: "b.n", points: [[0, 0], [1.5, 2]] }), { id: 2, method: "globe/addConnect", args: { from: "a.p", to: "b.n", points: [[0, 0], [1.5, 2]] } });
