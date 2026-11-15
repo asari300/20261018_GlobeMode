@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S327 review4-issues — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S327 review4-issues">
+
+<section class="slide" id="S01">
+  <span class="tag">S327 · 2026-11-15 · 監査</span>
+  <h1>4 回目のレビューの issue を 3 件直した</h1>
+  <p class="lead">#118 LSP の URI、#119 CLI の出力先、#120 ソルバ名の重複</p>
+  <div class="big">どれも、直す前なら落ちる試験つき</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">#118 LSP</span>
+  <h1>相対の --library でも URI は絶対</h1>
+  <ul>
+    <li><code>file_uri</code> が <code>/</code> 始まりでも <code>C:</code> 始まりでもないパスに cwd を足す</li>
+    <li>定義・参照・リネームの URI は全部この 1 か所を通る</li>
+    <li>試験: <code>file_uri_makes_relative_paths_absolute</code></li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">#119 CLI</span>
+  <h1>出力先は計算の前に確かめる</h1>
+  <ul>
+    <li><code>--solvers -o DIR</code>: 既存のファイル・ライブラリの中・<code>-</code> は終了コード 2 で、計算しない</li>
+    <li><code>-</code> というフォルダを作らない</li>
+    <li>試験: <code>solvers_check_the_output_and_names_before_running</code></li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">#120 facade</span>
+  <h1>ソルバ名は正規化してから比べる</h1>
+  <ul>
+    <li>trim と小文字（<code>lookup</code> と同じ）で重複と基準を見る。<code>-o DIR</code> のファイル名もそろえる</li>
+    <li>ソルバ 1 つの <code>--compare</code> は、比べる相手が無いと理由つきで断る</li>
+    <li>試験: <code>simulate_many.rs</code> と CLI の同じ試験</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>読み取り専用の既存フォルダは、書くときに誤りになる</li>
+    <li>大文字小文字を区別しない OS での確認は Linux でしかしていない</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
