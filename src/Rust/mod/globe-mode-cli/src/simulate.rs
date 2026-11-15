@@ -21,8 +21,8 @@ use globe_mode_ir::{
 };
 
 use super::{
-    Loaded, check_writable_file, diagnostic_lines, emit, failure_code, io_error, load_db,
-    print_diagnostics, report_early_failure,
+    Loaded, check_out_dir, check_writable_file, diagnostic_lines, emit, failure_code, io_error,
+    load_db, print_diagnostics, report_early_failure,
 };
 
 /// `globe simulate` の引数（clap の外で受け渡す形）。
@@ -243,9 +243,14 @@ pub(crate) fn simulate(args: SimulateArgs) -> ExitCode {
     let model = args.model.as_str();
     // 書けない出力先は、長い計算の後ではなく前に分かるようにする
     if !args.list_parameters
-        && args.many.is_none()
-        && let Some(path) = args.output.as_deref().filter(|p| *p != Path::new("-"))
-        && let Err(message) = check_writable_file(path, &args.files, &args.library)
+        && let Some(path) = args.output.as_deref()
+        && let Err(message) = if args.many.is_some() {
+            check_out_dir(path, &args.library)
+        } else if path == Path::new("-") {
+            Ok(())
+        } else {
+            check_writable_file(path, &args.files, &args.library)
+        }
     {
         eprintln!("error: 結果を {message}");
         return ExitCode::from(2);
@@ -382,7 +387,7 @@ fn simulate_many(
         }
         for (run, data) in r.runs.iter().zip(&out.runs) {
             if let Some(sim) = &data.run {
-                let path = dir.join(format!("{}.{ext}", run.solver));
+                let path = dir.join(format!("{}.{ext}", run.solver.trim().to_ascii_lowercase()));
                 if let Err(e) = write_result(sim, &path, args.format, None) {
                     eprintln!("error: 結果を {}", io_error(&path, true, &e));
                     return ExitCode::from(2);

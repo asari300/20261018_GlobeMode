@@ -1347,6 +1347,11 @@ pub struct ManyResult {
     pub runs: Vec<ManyData>,
 }
 
+/// ソルバ名の比べる形（`globe_mode_sim::solvers::lookup` と同じ: 前後の空白を除き、小文字にする）。
+fn solver_key(name: &str) -> String {
+    name.trim().to_ascii_lowercase()
+}
+
 /// 依頼そのものの誤り（ソルバの数・重複・比較の指定）。誤りなら回さない。
 fn many_request_problem(r: &SimulateManyRequest) -> Option<String> {
     if r.solvers.is_empty() {
@@ -1358,13 +1363,18 @@ fn many_request_problem(r: &SimulateManyRequest) -> Option<String> {
             r.solvers.len()
         ));
     }
-    if let Some(i) = (1..r.solvers.len()).find(|&i| r.solvers[..i].contains(&r.solvers[i])) {
-        return Some(format!("solvers に {} が 2 回ある", r.solvers[i]));
+    // #120: ソルバ名の解決（`globe_mode_sim::solvers::lookup`）と同じ正規化（前後の空白・大文字小文字）で重複を見る
+    let keys: Vec<String> = r.solvers.iter().map(|s| solver_key(s)).collect();
+    if let Some(i) = (1..keys.len()).find(|&i| keys[..i].contains(&keys[i])) {
+        return Some(format!("solvers に {} が 2 回ある", keys[i]));
     }
     if r.settings.solver.is_some() {
         return Some("settings.solver は使わない（ソルバは solvers で選ぶ）".into());
     }
     let c = r.compare.as_ref()?;
+    if r.solvers.len() < 2 {
+        return Some("compare は solvers が 2 つ以上のときだけ（比べる相手が無い）".into());
+    }
     if !(1..=15).contains(&c.threshold_exp) {
         return Some(format!(
             "compare.threshold_exp（{}）が 1〜15 にない",
@@ -1373,7 +1383,7 @@ fn many_request_problem(r: &SimulateManyRequest) -> Option<String> {
     }
     c.reference
         .as_ref()
-        .filter(|name| !r.solvers.contains(name))
+        .filter(|name| !keys.contains(&solver_key(name)))
         .map(|name| format!("compare.reference の {name} が solvers にない"))
 }
 
@@ -1383,7 +1393,9 @@ fn compare_runs(runs: &[ManyRun], data: &[ManyData], options: &CompareRequest) -
     let threshold = 10f64.powi(-i32::try_from(options.threshold_exp).unwrap_or(6));
     let ok = |i: usize| runs[i].status == ManyStatus::Ok && data[i].run.is_some();
     let reference = match &options.reference {
-        Some(name) => runs.iter().position(|r| &r.solver == name),
+        Some(name) => runs
+            .iter()
+            .position(|r| solver_key(&r.solver) == solver_key(name)),
         None => (0..runs.len()).find(|&i| ok(i)),
     };
     let mut out = ManyComparison {
