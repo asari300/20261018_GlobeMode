@@ -2264,6 +2264,11 @@ mod tests {
             let res = &r[0]["result"];
             assert_eq!(res["response"]["ok"], true, "{}", r[0]);
             assert_eq!(res["response"]["comparison"]["passed"], true, "{}", r[0]);
+            assert!(
+                res["response"]["comparison"]["pairs"][0]["max_rel"].is_number(),
+                "{}",
+                r[0]
+            );
             let runs = res["response"]["runs"].as_array().unwrap();
             assert_eq!(runs.len(), 3);
             assert_eq!(runs[0]["solver"], "bdf");

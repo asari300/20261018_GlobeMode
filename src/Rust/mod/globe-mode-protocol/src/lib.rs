@@ -328,6 +328,23 @@ pub struct SignalDiff {
     /// どちらかに無い・基準の区間を覆わないなど、比べられなかった
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub missing: bool,
+    /// 最大の相対差・絶対差（S328。基準の出力点の時刻に試験側を線形補間。比べた点が無ければ無い。
+    /// NaN の点があると無限大で、JSON では null）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_rel: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_abs: Option<f64>,
+}
+
+/// 相対差が最大の点（S328）。
+#[derive(Debug, Clone, Serialize)]
+pub struct WorstPoint {
+    /// 全体の要約（`ManyComparison.worst`）のときだけ、どのソルバか
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub solver: Option<String>,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub time: Option<f64>,
 }
 
 /// 基準と 1 つのソルバの比較。
@@ -341,6 +358,15 @@ pub struct PairComparison {
     pub failed_signals: usize,
     /// 不合格だった信号（合格は数だけ）。`max_excess` の大きい順
     pub failures: Vec<SignalDiff>,
+    /// 比べた全信号での最大の相対差と絶対差（S328。信号ごとの最大のうちの最大。単位の違う信号をまたぐので、
+    /// 絶対差は目安）。比べた点が無ければ無い
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_rel: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_abs: Option<f64>,
+    /// `max_rel` の信号と時刻
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub worst: Option<WorstPoint>,
 }
 
 /// 結果の比較（S322）。
@@ -354,6 +380,11 @@ pub struct ManyComparison {
     /// 基準以外の成功した実行がすべて合格（比べる相手が無ければ false）
     pub passed: bool,
     pub pairs: Vec<PairComparison>,
+    /// 全部の組での最大の相対差（S328）と、そのソルバ・信号・時刻。比べた点が無ければ無い
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_rel: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub worst: Option<WorstPoint>,
     /// 比べなかった実行とその理由（失敗した実行など）
     pub skipped: Vec<SkippedRun>,
 }

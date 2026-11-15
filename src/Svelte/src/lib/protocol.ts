@@ -60,14 +60,22 @@ export interface ManyRun {
   /** 例: 「指定した最大次数（3）はソルバ bdf では使わない…」 */
   notes: string[];
 }
-export interface SignalDiff { name: string; passed: boolean; errors: number; max_excess: number; first_error_time?: number; missing?: boolean }
-export interface PairComparison { solver: string; passed: boolean; signals: number; failed_signals: number; failures: SignalDiff[] }
+export interface SignalDiff { name: string; passed: boolean; errors: number; max_excess: number; first_error_time?: number; missing?: boolean;
+  /** 最大の相対差・絶対差（S328。基準の出力点に試験側を線形補間。無限大は null。比べた点が無ければ無い） */
+  max_rel?: number | null; max_abs?: number | null }
+export interface WorstPoint { solver?: string; name: string; time?: number }
+export interface PairComparison { solver: string; passed: boolean; signals: number; failed_signals: number; failures: SignalDiff[];
+  /** 全信号での最大の相対差・絶対差と、相対差が最大の信号・時刻（S328） */
+  max_rel?: number | null; max_abs?: number | null; worst?: WorstPoint }
 export interface ManyComparison {
   threshold_exp: number;
   threshold: number;
   reference: string;
   passed: boolean;
   pairs: PairComparison[];
+  /** 全部の組での最大の相対差と、そのソルバ・信号・時刻（S328） */
+  max_rel?: number | null;
+  worst?: WorstPoint;
   skipped: { solver: string; reason: string }[];
 }
 export interface SimulateManyResponse {
