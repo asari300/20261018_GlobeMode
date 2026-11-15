@@ -24,6 +24,44 @@ Track B（自前コア）は B1 rowan の CST と寛容なパーサ → B2 resol
 - 悪い点・持ち越し: 式の木が無いので、名前の解決（B2）にはまだ使えない。診断の文言は英語の仮のもので、`GM-E` の番号は付けていない。`Rumoca` の `parse 566` との比較（`xtask diff-frontend`）は、`Frontend` につなぐ B2 以降で行う。
 - 依存: rowan 0.17.0（MIT OR Apache-2.0）。`Cargo.lock` に増えたのは rowan・countme・hashbrown 0.14.5・memoffset・text-size の 5 つ（rustc-hash 1.1.0 は既にあった）。いずれも許可のライセンス（[licenses.md](../licenses.md)）。
 
+## 付記（S342）: 段ごとの数字の推移と、付記の案内
+
+新しい ADR は立てず、[roadmap.md](../roadmap.md) の Track B の欄を「今の数字と残り」の要約にしたときに、そこにあった経緯をここへ集めた。付記は書いた順に並べてあり（S334 が S269 の前にある）、読みにくいので、下に案内を付ける。今の数字は [frontend-diff.md](../frontend-diff.md)（`mise run msl:diff-frontend` が書く）。
+
+MSL 4.1.0 の例題 566 本での推移（括弧は「一致した本数 / 母数」。各行の数字はその付記の報告から写した）。
+
+| 付記 | 自前で平らにできた | Rumoca も flat まで通った本数（名前・方程式の数） | Rumoca の釣り合いまで通った本数（判定・方程式と未知数の数・状態の数・構造の正則） |
+| --- | ---: | --- | --- |
+| S278 | 67 | 66（66/66・64/66） | まだ DAE が無い |
+| S284 | 192 | 189（189/189・186/189） | まだ DAE が無い |
+| S290 | 192（全部 DAE になった） | 測り直していない | 146（144/146・144/146・141/146・132/146） |
+| S297 | 279 | 273（273/273・254/273） | 報告に無い |
+| S312 | 279 | 273（273/273・273/273） | 201（201/201・201/201・201/201・184/201） |
+| S325 | 279 | 273（273/273・273/273） | 201（201/201・201/201・201/201・201/201） |
+| S324（S325 を取り込んだ後） | 358 | 350（350/350・340/350） | 253（253/253・253/253・253/253・249/253） |
+| S330 | 358（DAE にできた 358/358） | 350（350/350・340/350） | 253（4 つとも 253/253） |
+| S329（単独） | 471 | 463（425/463・435/463） | 297（判定 295/297・状態 293/297・正則 289/297。方程式と未知数の数は報告に無い） |
+| S332（S329 と S330 を合わせた） | 471（DAE にできた 471/471） | 463（463/463・435/463） | 334（297/334・297/334・294/334・296/334） |
+| S333 | 471 | 463（463/463・449/463） | 334（332/334・332/334・332/334・301/334） |
+| S334 | 471 | 463（463/463・451/463） | 334（334/334・334/334・332/334・334/334） |
+
+- parse は MSL の例題 566/566（S300 の時点も今も）、resolve は未解決 0 が 467/566（S300 の時点も今も。残る 99 本はすべて `Redeclare`）。`GlobeModeValidation` 75 本は S334 で、Rumoca も通った 73 本の名前・方程式の数・判定・数・状態が 73/73、正則が 72/72。
+- 断る理由の残り（S334。95 本、最初の理由だけ数える）: `unsized-array` 28・`composite-binding` 25・`stream` 21・`connect` 9・`non-constant-dim` 6・`expandable` 4・`connect-array` 1・`non-constant-for` 1。
+- 方程式の数が合わない 12 本は、Rotational・Translational の摩擦・歯車の 10 本（S330 が Rumoca の数え方の誤りと確かめ、S331 が最新の release v0.10.4 では直ると確かめた。[upstream.md](../upstream.md) の下書き 36）、`ActuatorWithNoise`（同じ表の数え方）、`ShowTransferFunction`（14 対 16、【原因未確認】）。状態の数が合わない 2 本は `IMC_DCBraking`・`IMC_Initialize`（Electrical.Machines）。
+
+付記の案内（主題ごと）:
+
+| 主題 | 付記 |
+| --- | --- |
+| B1 構文 | 本文、S269 |
+| B2 名前の解決 | S272、S275 |
+| B3 flatten | S278、S284、S297、S312、S324、S329、S333、S334 |
+| B4 DAE | S290、S312、S325、S330、S332（計測と、名前・数の食い違いの原因） |
+| 製品へのつなぎ | S276（アウトライン・折りたたみ）、S279（補完）、S296（定義ジャンプ・ホバー）、S305（`globe check --frontend native`）、S307（閉包だけを読む）、S311（位置）、S313（CLI 以外から選ぶ）、S320（#111・#113〜#116）、S327（#118） |
+| 突き合わせ | S300（`cargo xtask diff-frontend`） |
+
+roadmap の要約で外した、古くなっていた「残り」: 診断の `GM-E` の番号が無い（S305 の native の検査が `GM-E0001`・`GM-E1001`・`GM-E1002`・`GM-E5002`・`GM-E6001` を出す）、定義ジャンプ・ホバーが未（S296 で済）、`Frontend` の feature `native` が無い（S305 で済）、B3 の残りが後ろで宣言したレコード・関数の戻り値のレコード・配列のコネクタの一括接続（S324 で減らした）、B4 の残りが balance の差 2 本・状態 5 本・正則 14 本（S312・S325・S330・S334 で直した）。まだ残っているのは、文の型付き AST（S269 は式の節点だけ）、`redeclare` の引数の構造（不透明な節点のまま）、native の検査の S7 以降と wasm・UI から選ぶこと、実行へのつなぎ、既定を切り替える閾値（未決）。
+
 ## 付記（S269）: 式・修飾・注釈・文を構造にした
 
 決定 5（式・修飾・注釈・文の中身は不透明）を次のとおり置き換えた。それ以外の決定は変えない。
@@ -34,7 +72,7 @@ Track B（自前コア）は B1 rowan の CST と寛容なパーサ → B2 resol
 - **修飾**: `Modification` = [`ClassModification`] [`=` / `:=` 式]。`ClassModification` の中は `ElementModification`（`each`・`final`・`Name`・`Modification`・説明文字列）、`BreakModification`（Modelica 3.6 の `break x` / `break connect(a, b)`。Buildings に実在）、`Redeclaration`。`Annotation` の中身も `ClassModification`。`extends`・`class extends`・short class の `(…)` も同じ。`Subscripts` の中も式。
 - **方程式と文**は `Equation` / `Statement` の 1 種のまま、中身が式になった（`a = b`、`a := b`、`(a, b) := f(x)`、`f(x);`、`connect(…);`、`return;` / `break;`、説明文字列と annotation）。`if` / `for` / `when` / `while` は条件・`ForIndices` が式の節点になった。種類の区別は先頭の字句（`KwIf` など）か `=` / `:=` の有無で行う（型付きの層で `enum` にする）。
 - **不透明なまま残すもの**: `redeclare` / `replaceable` の引数（`,` か `)` まで）、`import A.{…}` の中、`enumeration(…)` と `der(F, x)` の short class の括弧の中、誤りから戻るために読み飛ばす範囲（`Error` 節点）。診断の `GM-E` の番号はまだ無い。
-- **入れ子の上限**: 式・修飾・クラス・if/for/when を合わせて 128 段（`depth` は 1 つ）。超えたら括弧 1 組か 1 字句を `Error` に入れて先へ進む（`(`・`-`・`f(`・`{`・`[`・`if a then `・`not `・`x(a = ` を 5000 個並べた入力で試験）。
+- **入れ子の上限**: 式・修飾・クラス・if/for/when を合わせて 128 段（`depth` は 1 つ）。超えたら括弧 1 組か 1 字句を `Error` に入れて先へ進む（`(`・`-`・`f(`・`{`・`[`・`if a then`・`not`・`x(a =` を 5000 個並べた入力で試験）。
 - **型付き AST**（`globe_mode_syntax::ast`）: 式の節点だけ。`Expr` の `enum` と、`BinaryExpr::{operands, ops}`・`UnaryExpr`・`RangeExpr`・`IfExpr::{branches, else_branch}`・`CallExpr::{callee, args, named_args}`・`ComponentRef::parts`・`Literal::token`。文・宣言・クラスの型は B2 の resolve を書くときに足す。
 - 結果: `cargo test -p globe-mode-syntax` は 9 本 pass（優先順位 34 例の S 式比較、修飾と文の構造、型付き AST で平らな連鎖を畳む、壊れた式 13 例と全位置での切り落とし、深い・長い入力）、1 本 ignored。`src/Modelica` の 75 本は誤り 0。MSL 4.1.0 の 2556 本・4.0.0 の 2512 本は誤り 0・往復不一致 0・panic 0（release、0.7 秒）。`data/libs` の 10627 本は往復一致・panic 0 で、誤りは S268 と同じ 2 本だけ（`end for` の後ろの `;` 抜け。実際の構文の誤り）。初回は Buildings の 2 本が `break` の修飾（Modelica 3.6）で誤りになり、`BreakModification` を足して 0 にした。
 
