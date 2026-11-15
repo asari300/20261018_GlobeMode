@@ -402,8 +402,8 @@ struct Info<'a> {
 fn skip_json_reason(opts: &Options<'_>, regressed: bool) -> Option<&'static str> {
     if regressed {
         Some("回帰がある。直してから回し直す")
-    } else if opts.filter.is_some() || opts.limit.is_some() {
-        Some("--filter / --limit は一部のモデルだけ")
+    } else if opts.filter.is_some() || opts.limit.is_some() || opts.classes.is_some() {
+        Some("--filter / --limit / --class は一部のモデルだけ")
     } else {
         None
     }
@@ -724,6 +724,8 @@ mod tests {
             msl: Path::new("m"),
             validation: Path::new("v"),
             filter,
+            classes: None,
+            dump: false,
             limit,
             report: None,
             json: None,
@@ -734,6 +736,9 @@ mod tests {
         assert!(skip_json_reason(&o(None, None), true).is_some());
         assert!(skip_json_reason(&o(Some("A"), None), false).is_some());
         assert!(skip_json_reason(&o(None, Some(3)), false).is_some());
+        let mut by_class = o(None, None);
+        by_class.classes = Some("A.B");
+        assert!(skip_json_reason(&by_class, false).is_some());
     }
 
     #[test]
