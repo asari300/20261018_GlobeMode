@@ -440,6 +440,45 @@ fn overconstrained_connections_drop_broken_edges_and_non_root_ifs() {
     );
 }
 
+#[test]
+fn broken_edge_gets_equality_constraint_of_its_residue_size() {
+    // 閉路の辺が 1 本切れると、`residue[n]` の大きさの `zeros(n) = equalityConstraint(a, b)` になる（n = 0 なら作らない。S334）
+    let src = |n: usize| {
+        format!(
+            "record Reference Real gamma;
+          function equalityConstraint input Reference r1; input Reference r2; output Real residue[{n}]; algorithm end equalityConstraint;
+        end Reference;
+        connector Pin Real v; flow Real i; Reference reference; end Pin;
+        model Two Pin p; Pin n; equation Connections.branch(p.reference, n.reference); p.v - n.v = 1; p.i + n.i = 0; end Two;
+        model Src Pin p; equation Connections.root(p.reference); p.v = 1; end Src;
+        model Top Src s; Two a; Two b;
+        equation connect(s.p, a.p); connect(a.n, b.p); connect(b.n, s.p); end Top;"
+        )
+    };
+    let (m0, m3) = (flat(&src(0), "Top"), flat(&src(3), "Top"));
+    assert_eq!(
+        m3.equation_count(),
+        m0.equation_count() + 3,
+        "{:#?}",
+        eqs(&m3)
+    );
+    assert!(
+        eqs(&m3)
+            .iter()
+            .any(|t| t.starts_with("zeros(3) = Reference.equalityConstraint(")),
+        "{:#?}",
+        eqs(&m3)
+    );
+}
+
+#[test]
+fn user_function_with_array_output_gives_equation_size() {
+    // 左辺が配列を返す関数の呼び出し（`Frames.angularVelocity2(R) = …`）は、出力の大きさの本数（S334）
+    let src = "function w2 input Real x; output Real w[3]; algorithm w := {x, x, x}; end w2;
+        model M Real a; Real b[3]; equation w2(a) = b + w2(a); end M;";
+    assert_eq!(flat(src, "M").equation_count(), 3);
+}
+
 const OC: &str = "record Ref Real g;
       function equalityConstraint input Ref r1; input Ref r2; output Real residue[0]; algorithm end equalityConstraint;
     end Ref;
