@@ -452,3 +452,12 @@ equation for k in 1:2 loop y[k] = c[k].b; end for; connect(c[1].p, q); end Top;"
     // つなげなかったコネクタの flow = 0 は flow 変数の宣言
     assert_eq!(on("c[2].p.i = 0"), ["i"]); // コネクタの flow 変数の宣言
 }
+
+#[test]
+fn huge_component_array_is_refused_before_allocating() {
+    // #109: 添字の文字列を作る前に断る（積が MAX_VARS を超える・usize を溢れる）
+    for dims in ["100000, 100000", "4294967296, 4294967296, 4294967296"] {
+        let src = format!("model R Real x; equation x = 1; end R; model M R r[{dims}]; end M;");
+        assert_eq!(err(&src, "M"), "too-large");
+    }
+}

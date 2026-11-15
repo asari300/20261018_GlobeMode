@@ -166,6 +166,8 @@ pub(crate) struct SplitLibrary {
     /// ファイルの番号 → 修飾名
     qualified: Vec<Option<String>>,
     deps: Vec<Option<Vec<usize>>>,
+    /// `deps` の `extends` の基底だけ版（S301。[`SplitLibrary::closure_within`]）
+    base_deps: Vec<Option<Vec<usize>>>,
 }
 
 // native だけのビルドでは `len`・`class_names` を使わない（Rumoca の道が使う）
@@ -191,12 +193,14 @@ impl SplitLibrary {
             qualified.push(q);
         }
         let deps = vec![None; files.len()];
+        let base_deps = vec![None; files.len()];
         SplitLibrary {
             files,
             tree,
             unindexed,
             qualified,
             deps,
+            base_deps,
         }
     }
 
@@ -224,13 +228,24 @@ impl SplitLibrary {
         model: &str,
         texts: impl IntoIterator<Item = &'t str>,
     ) -> BTreeSet<usize> {
+        self.closure_within(model, texts, false)
+    }
+
+    /// [`SplitLibrary::closure`]。`bases_only` なら、`extends` の基底の名前だけをたどる（S301。木のアイコンのように、
+    /// クラス 1 つの `extends` の鎖だけが要るときに、本文を取る量を抑える。外側のパッケージのファイルは入る）。
+    pub(crate) fn closure_within<'t>(
+        &mut self,
+        model: &str,
+        texts: impl IntoIterator<Item = &'t str>,
+        bases_only: bool,
+    ) -> BTreeSet<usize> {
         let mut seeds = HashSet::new();
         self.follow("", &model.split('.').collect::<Vec<_>>(), &mut seeds);
         for text in texts {
             let toks = tokens(text, usize::MAX);
             let own = qualified_name(&toks);
             let scopes = own.as_deref().map(scopes).unwrap_or_default();
-            self.references(&toks, &scopes, &mut seeds);
+            self.references(&toks, &scopes, bases_only, &mut seeds);
             // 作業中の文書の外側のパッケージ（`within A.B;` の `A`、`A.B`）
             for s in &scopes {
                 seeds.extend(self.tree.get(*s).into_iter().flatten());
@@ -239,7 +254,7 @@ impl SplitLibrary {
         let mut closure: BTreeSet<usize> = seeds.into_iter().collect();
         let mut queue: Vec<usize> = closure.iter().copied().collect();
         while let Some(n) = queue.pop() {
-            for d in self.deps_of(n) {
+            for d in self.deps_of(n, bases_only) {
                 if closure.insert(d) {
                     queue.push(d);
                 }
@@ -248,21 +263,42 @@ impl SplitLibrary {
         closure
     }
 
-    fn deps_of(&mut self, n: usize) -> Vec<usize> {
-        if let Some(d) = &self.deps[n] {
+    /// ファイル `name` の本文を差し替える（S301。見出しだけを本文にする。見出し＝修飾名は変わらないので索引はそのまま、
+    /// このファイルの依存の記憶だけを捨てる）。無い名前は false。
+    pub(crate) fn set_text(&mut self, name: &str, text: &str) -> bool {
+        let Some(n) = self.files.iter().position(|f| f.name == name) else {
+            return false;
+        };
+        self.files[n].text = crate::blank_bom(text).into_owned();
+        self.deps[n] = None;
+        self.base_deps[n] = None;
+        true
+    }
+
+    fn deps_of(&mut self, n: usize, bases_only: bool) -> Vec<usize> {
+        let cache = if bases_only {
+            &self.base_deps
+        } else {
+            &self.deps
+        };
+        if let Some(d) = &cache[n] {
             return d.clone();
         }
         let toks = tokens(&self.files[n].text, usize::MAX);
         let own = self.qualified[n].clone();
         let scopes = own.as_deref().map(scopes).unwrap_or_default();
         let mut out = HashSet::new();
-        self.references(&toks, &scopes, &mut out);
+        self.references(&toks, &scopes, bases_only, &mut out);
         for s in &scopes {
             out.extend(self.tree.get(*s).into_iter().flatten());
         }
         let mut d: Vec<usize> = out.into_iter().collect();
         d.sort_unstable();
-        self.deps[n] = Some(d.clone());
+        if bases_only {
+            self.base_deps[n] = Some(d.clone());
+        } else {
+            self.deps[n] = Some(d.clone());
+        }
         d
     }
 
@@ -282,7 +318,13 @@ impl SplitLibrary {
     }
 
     /// 字句の列にある名前の連なりをたどる（本文の説明を参照）。
-    fn references(&self, toks: &[Tok<'_>], scopes: &[&str], out: &mut HashSet<usize>) {
+    fn references(
+        &self,
+        toks: &[Tok<'_>],
+        scopes: &[&str],
+        bases_only: bool,
+        out: &mut HashSet<usize>,
+    ) {
         let mut chains: HashSet<Vec<&str>> = HashSet::new();
         let mut alias: HashMap<&str, Vec<&str>> = HashMap::new();
         let mut wild: Vec<Vec<&str>> = Vec::new();
@@ -330,9 +372,17 @@ impl SplitLibrary {
                         // `import A.B.C;` は `C` を `A.B.C` の別名にする
                         alias.insert(last, path.clone());
                     }
-                    chains.insert(path);
+                    if !bases_only {
+                        chains.insert(path);
+                    }
                     i = j.max(i + 1);
                 }
+                Tok::Id("extends") if bases_only => {
+                    let (c, next) = chain(toks, i + 1);
+                    chains.insert(c);
+                    i = next.max(i + 1);
+                }
+                Tok::Id(_) if bases_only => i += 1,
                 Tok::Id(_) => {
                     let (c, next) = chain(toks, i);
                     chains.insert(c);
@@ -354,8 +404,10 @@ impl SplitLibrary {
                 self.follow(&w.join("."), ch, out);
             }
         }
-        for path in alias.values() {
-            self.follow("", path, out);
+        if !bases_only {
+            for path in alias.values() {
+                self.follow("", path, out);
+            }
         }
     }
 }
@@ -386,6 +438,24 @@ mod tests {
         assert_eq!(t("within ;\nmodel M end M;"), Some("M".into()));
         assert_eq!(t("within A;\n"), None);
         assert_eq!(scopes("A.B.C"), ["A", "A.B", "A.B.C"]);
+    }
+
+    /// S301: 見出しだけのファイルは参照を持たない。本文に替える（`set_text`）と閉包が広がり、`bases_only` は `extends` の基底だけをたどる。
+    #[test]
+    fn stubs_grow_into_the_closure_and_bases_only_follows_extends() {
+        let mut l = lib(&[
+            ("A.mo", "model A end A;"),
+            ("B.mo", "model B end B;"),
+            ("C.mo", "model C end C;"),
+        ]);
+        let c = l.closure("A", []);
+        assert_eq!(names(&l, &c), ["A.mo"]);
+        assert!(l.set_text("A.mo", "model A\n  extends B;\n  C c;\nend A;"));
+        let c = l.closure("A", []);
+        assert_eq!(names(&l, &c), ["A.mo", "B.mo", "C.mo"]);
+        let c = l.closure_within("A", [], true);
+        assert_eq!(names(&l, &c), ["A.mo", "B.mo"]);
+        assert!(!l.set_text("none.mo", ""));
     }
 
     #[test]

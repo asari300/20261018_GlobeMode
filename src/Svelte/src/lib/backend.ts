@@ -6,6 +6,8 @@ import type { CheckResponse, GraphJson, BltReport, StagesReport, SimulateRequest
 export interface Backend {
   /** ライブラリ（{ パス: 本文 } の JSON）を読む。今の Workspace は捨てて作り直す。 */
   library(name: string, json: string): Promise<void>;
+  /** S301: 分割配信のライブラリ（index.json の URL）を読む。索引が無ければ false（呼び手は `library` に戻る）。本文は検査などのときに要る分だけ取る。 */
+  libraryIndex?(name: string, url: string): Promise<boolean>;
   setFile(name: string, text: string): Promise<void>;
   check(model: string): Promise<CheckResponse>;
   /** connect グラフ（graphology の JSON）。depth は 1 なら直下の部品だけ。モデルが無ければ reject。 */

@@ -267,3 +267,5 @@
 - (b) をユーザーが決めたら、architecture.md §3.4 の「`fmi` 0.8 と `fmi-schema` の上に作る」と、表の `globe-mode-fmi` の行（`fmi, fmi-schema`）を直す。案 A なら「`libloading` と `roxmltree` の上に作る」。S057 では architecture.md を触っていない（並行セッションが編集中）。
 - 次（P5 の最初）: 案 A の関数の一覧をヘッダと突き合わせ、2.0 の Dahlquist の ME（`libloading` で `.so` を読み、`GetDerivatives` を呼ぶ）を 1 本通す。`binaries/` のプラットフォーム名の選択（2.0 は `linux64`・`win64`、3.0 は `x86_64-linux`・`x86_64-windows`）も同時に作る。
 - 残る不確かさ: 3.0 の `variability` の既定値（XSD に無く、仕様本文で未確認）、`fmu-runner` の FMI 3.0 対応、fmi-standard.org の validation のページの内容。
+
+**S303 の付記（#105・#106）**: `.ssp` は信頼できない入力として扱う。`SystemStructure.ssd` と `.ssv` は `modelDescription.xml` と同じ 64 MiB の上限で読み（超えたら誤り。`globe-mode-fmi-import` の `read_capped` 1 か所）、同じ `.ssv` を指す binding は 1 回だけ読んで解析する。入れ子の System は深さ 64、要素の名前 1 つ 1024 バイトまで（超えたら誤り。階層名を毎段つなぐ連結が深さ² のメモリになるため。実際の SSP は数段）。

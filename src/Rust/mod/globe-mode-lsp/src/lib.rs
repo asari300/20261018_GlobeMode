@@ -94,7 +94,7 @@ pub struct Server {
     libraries: Vec<PathBuf>,
     /// ライブラリの木（S127。最初の `globe/libraryTree` で全ファイルの見出しを読んで作る）
     tree: Option<globe_mode_fmt::LibraryTree>,
-    /// ライブラリの名前解決の木（S279。補完の `a.` が書きかけの文書で引くとき、最初に 1 回だけ作る。`tree` と同じく起動後のライブラリの更新は見ない）
+    /// ライブラリの名前解決の木（S279。補完の `a.` が書きかけの文書で引くとき、最初に 1 回だけ作る。`tree` と同じく起動後のライブラリのディスクでの更新は見ない。開いているファイルの編集・閉じでは捨てる。#107）
     lib: Option<globe_mode_resolve::Library>,
     /// ワークスペースの根（`initialize` の `rootUri`）
     root: Option<PathBuf>,
@@ -289,6 +289,7 @@ impl Server {
             "textDocument/didClose" => {
                 self.texts.remove(&uri);
                 self.published.remove(&uri);
+                self.drop_lib_for(&uri_path(&uri));
                 self.ws.remove_file(&uri_path(&uri));
                 let mut out = vec![publish(&uri, &[])];
                 out.extend(self.republish_others(&uri));
@@ -1016,6 +1017,7 @@ impl Server {
 
     fn update(&mut self, uri: String, text: String) -> Vec<Value> {
         let path = uri_path(&uri);
+        self.drop_lib_for(&path);
         self.ws.set_file(&path, text.clone());
         // 検査が panic しても本文は最新にしておく（S214。古い本文から整形やリネームの編集を作らない）
         self.texts.insert(uri.clone(), text.clone());
@@ -1023,6 +1025,16 @@ impl Server {
         let out = vec![publish(&uri, &diags)];
         self.published.insert(uri, diags);
         out
+    }
+
+    /// ライブラリのファイルの本文が変わるときは、自前の名前解決の木（`lib`）を捨てて次に要るとき作り直す（#107。MSL 全体で 0.6 s。
+    /// 残すと定義・ホバーが古いバイト位置を返す）。`tree` が無ければ `lib` も無い。
+    fn drop_lib_for(&mut self, path: &str) {
+        if let Some(tree) = self.tree.as_ref().filter(|_| self.lib.is_some())
+            && tree.classes().any(|(n, _)| tree.file(n) == Some(path))
+        {
+            self.lib = None;
+        }
     }
 
     /// 文書 `except` の編集・閉じ・開きのあと、ほかの開いている文書の診断を取り直し、変わったものだけ出し直す（#64。
@@ -3197,6 +3209,48 @@ equation
             .set_modified(t)
             .unwrap();
         assert_eq!(hover(&mut s), "model R");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn editing_an_open_library_file_refreshes_tolerant_definition() {
+        // #107: 読めない文書の定義は自前の木（`lib`）を使う。開いているライブラリのファイルを didChange したら作り直す
+        let dir = scratch_dir("tolerant-edit");
+        let lib = dir.join("Lib");
+        std::fs::create_dir_all(&lib).unwrap();
+        let file = lib.join("package.mo");
+        let src = "package Lib\n  model A\n  end A;\nend Lib;\n";
+        std::fs::write(&file, src).unwrap();
+        let (fp, uri) = (file.display().to_string(), "T.mo");
+        let mut s = Server::new(std::slice::from_ref(&dir)).unwrap();
+        let open = |s: &mut Server, method: &str, uri: &str, text: &str| {
+            s.handle(json!({"method": method, "params": {"textDocument": {
+                "uri": uri, "languageId": "modelica", "version": 1, "text": text},
+                "contentChanges": [{"text": text}]}}))
+        };
+        open(&mut s, "textDocument/didOpen", &fp, src);
+        open(
+            &mut s,
+            "textDocument/didOpen",
+            uri,
+            "model T\n  Lib.A a;\n  Real = ;\nend T;\n",
+        );
+        let line = |s: &mut Server| {
+            s.handle(
+                json!({"id": 1, "method": "textDocument/definition", "params": {
+                "textDocument": {"uri": uri}, "position": {"line": 1, "character": 6}}}),
+            )
+            .remove(0)["result"]
+                .to_string()
+        };
+        assert!(line(&mut s).contains(r#""line":1"#), "{}", line(&mut s));
+        open(
+            &mut s,
+            "textDocument/didChange",
+            &fp,
+            &format!("\n\n\n\n\n{src}"),
+        );
+        assert!(line(&mut s).contains(r#""line":6"#), "{}", line(&mut s));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -25,7 +25,7 @@ use globe_mode_frontend::Source;
 use globe_mode_ir::UnknownKind;
 
 pub use globe_mode_core::{Diagnostic, Stage};
-pub use globe_mode_frontend::{CompiledModel, collect_mo_files};
+pub use globe_mode_frontend::{CompiledModel, LibraryClosure, collect_mo_files}; // S301: wasm の分割配信が、どのファイルを足すかを聞く
 pub use globe_mode_graph::{ConnectGraph, ConnectMismatch, GraphError};
 pub use globe_mode_ir::{FlatSummary, Outline, SimRun, SimSettings};
 pub use globe_mode_protocol::{

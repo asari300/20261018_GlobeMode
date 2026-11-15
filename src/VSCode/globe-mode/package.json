@@ -82,6 +82,12 @@
         ]
       }
     },
+    "commands": [
+      {
+        "command": "globeMode.editParams",
+        "title": "GlobeMode: 部品のパラメータを編集"
+      }
+    ],
     "views": {
       "explorer": [
         {
