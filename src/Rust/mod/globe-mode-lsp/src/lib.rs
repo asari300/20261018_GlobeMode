@@ -10,7 +10,7 @@
 //!
 //! | 要求 | params | result |
 //! | --- | --- | --- |
-//! | `globe/check` | `{model}` | `CheckResponse` の JSON |
+//! | `globe/check` | `{model, frontend?}`（S349: `"rumoca"` か `"native"`。無ければ `globe-mode.toml` の `[check] frontend`、それも無ければ Rumoca。知らない名前は -32602） | `CheckResponse` の JSON |
 //! | `globe/simulate` | `{request}`（`SimulateRequest` の JSON。S214: `max_wall_seconds` が無ければ 180 s の予算を置く） | `SimulateResponse` の JSON |
 //! | `globe/simulateColumns` | `{request}` | `{response, layout, columns}`（S076。wasm の `simulate_columns` と同じ形。`response` に CSV は無く、`layout` は `ColumnsLayout`（`names`・`points`・既定で描く `defaults`。S190）、`columns[i]` は列 `i` の数の配列で、有限でない値は null） |
 //! | `globe/simulateMany` | `{request}`（`SimulateManyRequest` の JSON。S322: 複数のソルバで回し、`compare` があれば比べる。進捗の report に `solver`・`index`・`count` が付く。`$/cancelRequest` は全部に効く） | `{response, columns}`（`response` は `SimulateManyResponse`。`columns[i]` は `response.runs[i]` の `{layout, columns}` で、回せなかった実行は null） |
@@ -597,7 +597,10 @@ impl Server {
                 reply(id, definition::models(o))
             }
             "globe/check" => match params["model"].as_str() {
-                Some(model) => reply(id, json!(self.ws.check(model))),
+                Some(model) => match self.check_frontend(&params["frontend"]) {
+                    Ok(f) => reply(id, json!(self.ws.check_with(model, f))),
+                    Err(why) => error(id, -32602, &why),
+                },
                 None => error(id, -32602, "params.model が文字列でない"),
             },
             "globe/tunableParameters" => match params["model"].as_str() {
@@ -1117,6 +1120,20 @@ impl Server {
                 .any(|(n, _)| tree.file(n).is_some_and(|f| same_path_key(f) == path))
         {
             self.lib = None;
+        }
+    }
+
+    /// `globe/check` の frontend（S349）。`params.frontend` があればそれ（知らない名前は誤り）、無ければ設定の `[check] frontend`、それも無ければ Rumoca。
+    fn check_frontend(&self, requested: &Value) -> Result<globe_mode::CheckFrontend, String> {
+        match requested {
+            Value::Null => Ok(self
+                .config
+                .as_ref()
+                .and_then(|c| c.frontend.as_deref())
+                .and_then(|f| f.parse().ok())
+                .unwrap_or_default()),
+            Value::String(s) => s.parse(),
+            _ => Err("params.frontend が文字列でない".to_string()),
         }
     }
 
@@ -2690,6 +2707,31 @@ mod tests {
         let out = open(&mut Server::new(&[]).unwrap());
         assert!(!out[0].to_string().contains("GM-U0006"), "{}", out[0]);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// S349: `globe/check` は `params.frontend` で自前の段（native）を選べる。無ければ設定か Rumoca、知らない名前・文字列でない値は -32602。
+    #[test]
+    fn check_selects_the_frontend() {
+        let mut s = Server::new(&[]).unwrap();
+        let text = "expandable connector EC\n  Real a;\nend EC;\nmodel E\n  EC ec;\nend E;\n";
+        s.handle(json!({"method": "textDocument/didOpen", "params": {"textDocument": {"uri": "E.mo", "text": text}}}));
+        let mut check = |params: Value| {
+            s.handle(json!({"id": 1, "method": "globe/check", "params": params}))
+                .remove(0)
+        };
+        // expandable は Rumoca が通し、自前の段は GM-U0006 で断る
+        assert_eq!(check(json!({"model": "E"}))["result"]["passed"], true);
+        assert_eq!(
+            check(json!({"model": "E", "frontend": "rumoca"}))["result"]["passed"],
+            true
+        );
+        let native = check(json!({"model": "E", "frontend": "native"}));
+        assert_eq!(native["result"]["passed"], false, "{native}");
+        assert!(native.to_string().contains("GM-U0006"), "{native}");
+        for bad in [json!("nope"), json!(1)] {
+            let r = check(json!({"model": "E", "frontend": bad}));
+            assert_eq!(r["error"]["code"], -32602, "{r}");
+        }
     }
 
     /// 文書を開き、`needle` の `k` 文字目に置いたカーソルで `method` を頼む。

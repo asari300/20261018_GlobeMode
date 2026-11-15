@@ -11,7 +11,7 @@ export interface Backend {
   setFile(name: string, text: string): Promise<void>;
   /** 検査（S0〜S10）。frontend を省くと Rumoca（S347。"native" は自前の段で S0〜S6、未対応は GM-U0006。選べる実行環境だけ。下の checkFrontends）。 */
   check(model: string, frontend?: CheckFrontend): Promise<CheckResponse>;
-  /** 検査のフロントエンドを選べる実行環境か（S347。ブラウザ・Android の wasm は true。Desktop の sidecar は `globe/check` が frontend を取るまで無い）。 */
+  /** 検査のフロントエンドを選べる実行環境か（S347。ブラウザ・Android の wasm と、Desktop の sidecar（S349。`globe/check` の `params.frontend`）は true）。 */
   readonly checkFrontends?: boolean;
   /** connect グラフ（graphology の JSON）。depth は 1 なら直下の部品だけ。モデルが無ければ reject。 */
   graph(model: string, depth: number): Promise<GraphJson>;

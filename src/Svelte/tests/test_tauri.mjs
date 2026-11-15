@@ -68,6 +68,13 @@ globalThis.window.__TAURI__.core.invoke = async (cmd, a) => (calls.push([cmd, a]
 assert.deepEqual((await b.cosim("/r/sys.ssp", { stopTime: 2, step: 0.1 })).names, ["a.x"]);
 assert.equal(calls[0][1].method, "globe/cosim");
 assert.deepEqual({ ...calls[0][1].params, workDoneToken: undefined }, { path: "/r/sys.ssp", stopTime: 2, step: 0.1, workDoneToken: undefined });
+// 検査のフロントエンド（S349）: globe/check の params.frontend に乗る。省けば乗せず（sidecar は設定か Rumoca）、select を出す印 checkFrontends は true
+assert.equal(b.checkFrontends, true);
+calls.length = 0;
+globalThis.window.__TAURI__.core.invoke = async (cmd, a) => (calls.push([cmd, a]), { model: "M" });
+await b.check("M", "native");
+await b.check("M");
+assert.deepEqual(calls, [["rpc", { method: "globe/check", params: { model: "M", frontend: "native" } }], ["rpc", { method: "globe/check", params: { model: "M" } }]]);
 // 図の部品の移動（S250）: globe/movePart に class・part・dx・dy と file を渡す（RPC_METHODS にある method）
 calls.length = 0;
 globalThis.window.__TAURI__.core.invoke = async (cmd, a) => (calls.push([cmd, a]), null);

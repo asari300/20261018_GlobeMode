@@ -1404,7 +1404,7 @@ def multi_solver(browser, origin: str, errors: list[str]) -> None:
 def check_frontend_select(browser, origin: str, errors: list[str]) -> None:
     """S347: 検査のフロントエンド（Rumoca / 自前（試験））の選択。ブラウザ（wasm）にだけあり、既定は Rumoca で要約を出さない。
     「自前」で検査すると Rust の要約（S0〜S6 まで）が出て、自前の段が断る形（expandable）は GM-U0006 で「自前の段の原文」になる。
-    Desktop（偽の window.__TAURI__。sidecar の `globe/check` はまだ frontend を取らない）には選択肢が無い。"""
+    S349: Desktop（偽の window.__TAURI__）にも選択肢があり、sidecar の `globe/check` の params.frontend に選んだ名前が乗る。"""
     pg = browser.new_page()
     pg.on("console", lambda m: m.type == "error" and errors.append(m.text))
     pg.on("pageerror", lambda e: errors.append(str(e)))
@@ -1437,9 +1437,20 @@ def check_frontend_select(browser, origin: str, errors: list[str]) -> None:
     dt.add_init_script(FAKE_TAURI)
     dt.goto(origin)
     dt.get_by_role("button", name="検査").wait_for()
-    assert dt.get_by_label("検査のフロントエンド").count() == 0
+    dt.evaluate("""() => { window.__checks = []; const i = __TAURI__.core.invoke;
+      __TAURI__.core.invoke = (c, a) => (c === "rpc" && a.method === "globe/check" && __checks.push(a.params), i(c, a));
+      __rpc["globe/check"] = { diagnostics: [], summary: "native: S0〜S6 まで" }; }""")
+    dsel = dt.get_by_label("検査のフロントエンド")
+    assert dsel.input_value() == "rumoca"
+    dt.get_by_role("button", name="検査").click(force=True)
+    expect(dt.get_by_role("button", name="検査")).to_be_enabled(timeout=30_000)
+    assert dt.locator("[data-native-note]").count() == 0
+    dsel.select_option("native")
+    dt.get_by_role("button", name="検査").click(force=True)
+    expect(dt.locator("[data-native-note]")).to_contain_text("native: S0〜S6", timeout=30_000)
+    assert [c["frontend"] for c in dt.evaluate("__checks")] == ["rumoca", "native"]
     dt.close()
-    print("検査のフロントエンド: ブラウザに選択肢があり、自前で Decay が通って要約が出て、expandable は GM-U0006（自前の段の原文）、Desktop には選択肢が無い")
+    print("検査のフロントエンド: ブラウザに選択肢があり、自前で Decay が通って要約が出て、expandable は GM-U0006（自前の段の原文）、Desktop にも選択肢があり sidecar の globe/check に frontend が乗る")
 
 
 def main() -> int:
