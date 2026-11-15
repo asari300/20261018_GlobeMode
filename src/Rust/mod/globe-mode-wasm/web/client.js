@@ -176,7 +176,7 @@ export class GlobeWorker {
   async completion(file, line, character) {
     return JSON.parse(await this.#call("completion", { file, text: this.#files.get(file) ?? "", line, character }));
   }
-  // 参照（S161）: definition と同じ引数で、同じ名前の範囲 [LSP の Range]。同じ文書の、カーソルのあるいちばん内側のクラスの中だけ
+  // 参照（S161・S368）: definition と同じ引数で、setFile 済みの文書の全部に広げた [{uri, range}]（LSP の Location。uri は setFile の名前）。クラス名は読み込んだライブラリの参照も library: true で足す（見るだけ）
   async references(file, line, character) {
     return JSON.parse(await this.#call("references", { file, text: this.#files.get(file) ?? "", line, character }));
   }
@@ -231,7 +231,7 @@ export class GlobeWorker {
   async addWaypoint(cls, from, to, index, x, y, ends, at) {
     return JSON.parse(await this.#call("add_waypoint", { cls, text: this.#files.get(at.file) ?? "", from, to, index, x, y, ends }));
   }
-  // リネーム（S161）: [{range, newText}]。部品でない・識別子でない・予約語・既にある名前は、理由つきで reject
+  // リネーム（S161・S368）: setFile 済みの文書の全部に広げた {changes: {名前: [{range, newText}]}}（LSP の WorkspaceEdit。ライブラリは変えない）。部品でない・識別子でない・予約語・既にある名前は、理由つきで reject
   async rename(file, line, character, newName) {
     return JSON.parse(await this.#call("rename", { file, text: this.#files.get(file) ?? "", line, character, newName }));
   }

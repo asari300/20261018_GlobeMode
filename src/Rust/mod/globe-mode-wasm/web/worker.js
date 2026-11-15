@@ -212,7 +212,7 @@ const ops = {
   hover({ file, text, line, character }) {
     return W().hover(file, text, line, character); // S149。{contents, range} の JSON か "null"
   },
-  references: ({ file, text, line, character }) => W().references(file, text, line, character), // S161。[Range] の JSON
+  references: ({ file, text, line, character }) => W().references(file, text, line, character), // S161・S368。[{uri, range}] の JSON（set_file 済みの文書の全部）
   folding_ranges: ({ file, text }) => W().folding_ranges(file, text), // S225。[{startLine, endLine, kind}] の JSON（先に set_file）
   documentation: ({ cls, text, line, character }) => W().documentation(cls, text, line, character), // S232。{class, info, revisions} の JSON か null（生の HTML。洗うのは UI）
   icon: ({ cls, text, line, character }) => W().icon(cls, text, line, character), // S244。{class, extent, shapes} の JSON か null（形のデータ。描くのは UI）
@@ -226,7 +226,7 @@ const ops = {
   move_waypoint: ({ cls, text, from, to, index, dx, dy }) => W().move_waypoint(cls, text, from, to, index, dx, dy), // S299。結線の途中の点を動かす。同上
   add_waypoint: ({ cls, text, from, to, index, x, y, ends }) => W().add_waypoint(cls, text, from, to, index, x, y, JSON.stringify(ends ?? [])), // S299。同上
   move_part: ({ cls, text, part, dx, dy }) => W().move_part(cls, text, part, dx, dy), // S250。[{range, newText}] の JSON か null
-  rename: ({ file, text, line, character, newName }) => W().rename(file, text, line, character, newName), // S161。[{range, newText}] の JSON。断れば投げる
+  rename: ({ file, text, line, character, newName }) => W().rename(file, text, line, character, newName), // S161・S368。{changes: {名前: [{range, newText}]}} の JSON。断れば投げる
   tunable_parameters: ({ model }) => W().tunable_parameters(model), // S150。ParametersResponse の JSON
   parameters: ({ model }) => W().parameters(model), // S248。ModelParametersResponse の JSON
   linearize: ({ model, time, parameters }) => W().linearize(model, time ?? undefined, JSON.stringify(parameters ?? {})), // S260。線形化の JSON

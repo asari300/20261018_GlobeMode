@@ -585,6 +585,11 @@ impl Workspace {
         self.db.paths()
     }
 
+    /// ワークスペースのファイルの本文（S368。UI の参照・リネームが、開いている文書の全部を見る）。無ければ None。
+    pub fn text(&self, path: &str) -> Option<String> {
+        self.db.text(path)
+    }
+
     /// ファイルのアウトライン（位置を含む）。ワークスペースに無ければ None、構文の誤りは S0 の診断。
     pub fn outline(&self, path: &str) -> Option<&Result<Outline, Vec<Diagnostic>>> {
         self.db.outline(path)

@@ -1,6 +1,7 @@
 // tauri-backend.ts の純粋な部分（S196）。node の型の除去で .ts を直接読む。実機（Tauri）は要らない。
 import assert from "node:assert/strict";
 import { TauriBackend, dirOf, tabKey } from "../src/lib/tauri-backend.ts";
+import { acrossDocs } from "../src/lib/cross-file.ts";
 
 // Windows でドライブの根に書いても outDir は "C:\"（"C:" はドライブ相対）
 for (const [path, want] of [["C:\\Foo.fmu", "C:\\"], ["C:\\a\\Foo.fmu", "C:\\a"], ["/a/Foo.fmu", "/a"], ["\\\\server\\share\\Foo.fmu", "\\\\server\\share"], ["/Foo.fmu", "/"]]) {
@@ -128,4 +129,22 @@ const m = await b.simulateMany({ model: "D", solvers: ["bdf", "rk4"], compare: {
 assert.deepEqual(m.columns.map((c) => [c.names, c.points]), [[["x"], 2], [[], 0]]);
 assert.equal(many[0][1].method, "globe/simulateMany");
 assert.deepEqual({ ...many[0][1].params, workDoneToken: undefined }.request, { model: "D", solvers: ["bdf", "rk4"], compare: { threshold_exp: 6 } });
+// 参照・リネームを開いているタブの全部に広げる（S368）: 今の文書とほかのタブの本文を didOpen で入れてから globe/references・globe/rename を呼び、
+// 終わったら（断られても）ほかのタブを空の本文に戻す。応答（Location・WorkspaceEdit）はそのまま返る
+const rpcLog = [];
+const r0 = { start: { line: 1, character: 7 }, end: { line: 1, character: 11 } };
+globalThis.window.__TAURI__.core.invoke = async (cmd, a) => {
+  rpcLog.push(cmd === "notify" ? `${a.params.textDocument.uri}=${a.params.textDocument.text}` : a.method);
+  if (a.method === "globe/references") return [{ uri: "A.mo", range: r0 }, { uri: "B.mo", range: r0 }];
+  if (a.method === "globe/rename") { if (a.params.newName === "end") throw "予約語"; return { changes: { "A.mo": [{ range: r0, newText: a.params.newName }], "B.mo": [{ range: r0, newText: a.params.newName }] } }; }
+};
+const across = (f) => acrossDocs(b, { file: "A.mo", text: "model A\nend A;\n" }, [{ file: "B.mo", text: "model B\nend B;\n" }], f);
+assert.deepEqual((await across(() => b.references("A.mo", 1, 8))).map((l) => l.uri), ["A.mo", "B.mo"]);
+assert.deepEqual(rpcLog, ["A.mo=model A\nend A;\n", "B.mo=model B\nend B;\n", "globe/references", "B.mo="]);
+rpcLog.length = 0;
+assert.deepEqual(Object.keys((await across(() => b.rename("A.mo", 1, 8, "Core"))).changes), ["A.mo", "B.mo"]);
+assert.equal(rpcLog.at(-1), "B.mo=");
+rpcLog.length = 0;
+await assert.rejects(across(() => b.rename("A.mo", 1, 8, "end")), /予約語/);
+assert.equal(rpcLog.at(-1), "B.mo="); // 断られても、ほかのタブは Workspace から外れる
 console.log("test_tauri ok");

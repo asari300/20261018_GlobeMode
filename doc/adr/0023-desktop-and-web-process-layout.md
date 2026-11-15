@@ -242,3 +242,13 @@ S308 で APK が +1.24 MB（arm64 で +9.1%）増えた件。ユーザーの指�
 - **確かめ方**: `node globe-mode-wasm/node/split.mjs --msl data/msl --pack`（20 本が全部読みと一致し、ヒープと線形メモリを出す。`--cap N` で B を測れる）、MSL 不要の `broken-chunks.mjs`（`mise run wasm:node`。パックが無ければ誤りで返り、置けば通る）。実機に近い確認は `android.yml`（emulator の smoke）。ブラウザ版（`web.yml`）は変えていない。
 - **限界**: (1) 実機の Android（WebView）の Blob のメモリの置き場・速度は、エミュレータの smoke でしか見ていない。(2) 往復の時間・JS ヒープは Node の `worker.getHeapStatistics`（ArrayBuffer は wasm の線形メモリも含むので引いている）。ブラウザ・WebView のメモリの測定ではない。(3) APK は MSL.json 時代より +230,624 B（+1.7%）。索引（`stubs` は木の見出しに要る）を縮めれば戻せるが、していない。
 
+
+### S368 で決まったこと（UI の参照・リネームが開いているタブの全部に届く、2026-11-16）
+
+S230・S235 で LSP（`textDocument/references`・`rename`）は開いていないファイル・ライブラリ・継承した部品まで届いたが、UI は開いている 1 文書の中だけだった（S366 で確かめた。S230 は UI の `globe/*` を広げなかった）。UI（ブラウザ・Desktop・Android）が開いているタブの全部を見るようにした。
+
+- **口の形を変えた（互換を切る）**: S230 が広げなかった理由の 1 つは「配列の応答が複数ファイルを表せない」ことだった。`globe/references`（と wasm の `references`）は `[{uri, range}]`（LSP の Location）、`globe/rename`（と wasm の `rename`）は `{changes: {uri: [TextEdit]}}`（WorkspaceEdit）に変えた。`textDocument/references`・`rename` と同じ形で、`uri` は UI が `setFile`（`didOpen`）に渡した名前（タブの key）。利用者は UI の `Backend` だけなので旧形は残さない。新しい名前の口は作らなかった。
+- **規則は新しく作らない**: `definition::references_in`・`rename_in`（`globe-mode-lsp`）が、`textDocument/*` と同じ部品（`component_name_at`・`component_hits`・`check_component_name`・`class_name_at`・`class_hits`・`rename`）を文書の組に回す。クラス名は同じクラスに行き着くほかの文書の識別子（S166）、部品は継承した先と `b.x`（S235）、import の別名はその文書の中。クラスのリネームは定義した文書の中から（別のファイルで定義したクラスは使う側から断る。S166 のまま）。宣言したファイルが組の外（ライブラリ）の部品は断る。wasm は `Workspace::text`（facade に足した小さな口）で組を作り、sidecar は `didOpen` 済みの文書（`texts`）で作る。
+- **ディスクは見ない（S230 の「UI はメモリ上の文書」を保つ）**: sidecar の根（`initialize` の `rootPath`。Desktop は作業フォルダ）の下の開いていない `.mo` は、UI のタブの本文と食い違い、UI には適用先のタブが無いので、`globe/*` は読まない。**ライブラリ（`-L`・wasm の読み込んだ木）のクラスの参照は一覧に足す**（`library: true`。見るだけ。`disk_class_hits`・`definition::library_references`）。リネームはライブラリのファイル・開いていないファイルを変えない。
+- **離れたタブの本文は呼ぶ間だけ Workspace に入れる**: UI は S141 以来、タブを離れるとそのファイルを Workspace から外す（同じクラスの二重定義を避ける）。参照・リネームの間だけほかの自分のタブを `setFile` で入れて、終わったら（断られても）空に戻す（`src/Svelte/src/lib/cross-file.ts`。Svelte に業務ロジックは置かず、編集の計算は Rust）。リネームは今のタブを 1 回の dispatch（undo 1 回）で、ほかの自分のタブは本文に当てる（そのタブの undo で戻る。1 回の Ctrl+Z で全タブは戻らない）。ライブラリのタブは変えず、変えなかった箇所の数を知らせる。
+- **限界**: (1) 同じクラスを 2 つのタブが定義していると（二重定義）、`Resolver` はどちらかに寄せるので参照が片方に偏る。(2) 参照・リネームの間は Workspace を書き換えるので、実行・検査の最中は入らない（`busy` なら何もしない）。(3) 1 回の Ctrl+Z で全タブは戻らない。(4) ライブラリの参照は、名前を含むファイルを全部字句に分けるので、短い名前（`R` など）の上の初回は遅い（LSP の S230 と同じ。wasm は読み込んだ木の本文を走る）。(5) 部品の参照は開いているタブの中だけ（ライブラリのファイルの継承の鎖の先は一覧に出さない。LSP の `textDocument/references` は出す）。
