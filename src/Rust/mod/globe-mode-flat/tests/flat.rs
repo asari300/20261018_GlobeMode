@@ -414,3 +414,66 @@ fn package_extends_redeclares_record() {
     );
     assert_eq!(names(&m), ["medium.state.T", "medium.state.p"]);
 }
+
+#[test]
+fn overconstrained_connections_drop_broken_edges_and_non_root_ifs() {
+    // `Reference` は `equalityConstraint` を持つ（大きさ 0）。端子を輪にくくる（閉路）と、辺が 1 本切れて等式が 1 本減る。
+    // 根は Source（確定）なので、Ground（潜在的な根）の `if isRoot` の等式は無い
+    let src = "record Reference Real gamma;
+          function equalityConstraint input Reference r1; input Reference r2; output Real residue[0]; algorithm end equalityConstraint;
+        end Reference;
+        connector Pin Real v; flow Real i; Reference reference; end Pin;
+        model Two Pin p; Pin n; equation Connections.branch(p.reference, n.reference); p.v - n.v = 1; p.i + n.i = 0; end Two;
+        model Src Pin p; equation Connections.root(p.reference); p.v = 1; end Src;
+        model Gnd Pin p; equation Connections.potentialRoot(p.reference, 256);
+          if Connections.isRoot(p.reference) then p.reference.gamma = 0; end if; p.v = 0; end Gnd;
+        model Top Src s; Gnd g; Two a; Two b;
+        equation connect(s.p, a.p); connect(a.n, b.p); connect(b.n, g.p); connect(g.p, s.p); end Top;";
+    let m = flat(src, "Top");
+    let e = eqs(&m);
+    // 接続集合は 4 端子と 2 端子の 2 つ。gamma の等式は (4 - 1) + (2 - 1) = 4 本だが、閉路の辺が 1 本切れて 3 本
+    let gammas = e.iter().filter(|t| t.contains("reference.gamma")).count();
+    assert_eq!(gammas, 3, "{e:#?}");
+    assert!(!e.iter().any(|t| t.starts_with("if Connections.isRoot")), "{e:#?}");
+}
+
+#[test]
+fn connection_sets_are_merged_by_leaf_variable() {
+    // `connect(x.p, q.a)` と、丸ごとの `connect(q, w)` は、葉の変数 `q.a.i` で同じ集合になる（flow の和は 1 本）
+    let src = "connector Pin Real v; flow Real i; end Pin;
+        connector Port Pin a; end Port;
+        model Two Pin p; Pin n; equation p.v - n.v = 1; p.i + n.i = 0; end Two;
+        model Top Two x; Port q; Port w; protected Pin hidden; equation connect(x.p, q.a); connect(q, w); end Top;";
+    let e = eqs(&flat(src, "Top"));
+    let sums: Vec<_> = e.iter().filter(|t| t.contains("q.a.i")).collect();
+    assert_eq!(sums.len(), 2, "{e:#?}"); // 3 端子の flow の和 + 外側のコネクタ q の flow = 0
+    assert!(
+        e.iter()
+            .any(|t| t.contains("x.p.i") && t.contains("q.a.i") && t.contains("w.a.i")),
+        "{e:#?}"
+    );
+    // `protected` で、どこにもつながっていないコネクタの flow は 0
+    assert!(e.contains(&"hidden.i = 0".to_string()), "{e:#?}");
+}
+
+#[test]
+fn matrix_of_vectors_and_tuple_of_arrays_count_scalars() {
+    let src = "function f input Real x; output Real a; output Real b[2]; algorithm a := x; b := {x, x}; end f;
+        model M Real y[3]; Real u1[1]; Real u2[2]; Real r; Real s[2];
+        equation [y] = [u1; u2]; (r, s) = f(1); u1 = {1}; u2 = {1, 2}; end M;";
+    let m = flat(src, "M");
+    assert_eq!(m.equation_count(), 3 + 3 + 1 + 2, "{:#?}", eqs(&m));
+}
+
+#[test]
+fn if_on_parameter_and_package_constant_picks_branch() {
+    let src = "package Svc package Machine final constant Real small = 2.2250738585072014e-308; end Machine; end Svc;
+        package K final constant Real small = Svc.Machine.small; end K;
+        model P parameter Real m = 0; Real T; Real x;
+          equation if m > K.small then x = m * der(T); else x = 0; end if; T = time; end P;
+        model Top P p(m = 0); P q(m = 2); end Top;";
+    let e = eqs(&flat(src, "Top"));
+    assert!(e.contains(&"p.x = 0".to_string()), "{e:#?}");
+    assert!(e.contains(&"q.x = q.m * der(q.T)".to_string()), "{e:#?}");
+}
+

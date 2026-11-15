@@ -6,8 +6,10 @@ use globe_mode_resolve::{ClassId, Reason, Ref, RefKind, Resolution};
 use globe_mode_syntax::ast::{self, Element, Expr};
 use globe_mode_syntax::{SyntaxKind as K, SyntaxNode};
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
+
+mod graph;
 
 /// 修飾 `x(start = 1) = 2`。値は書いた場所の文脈（`Bind::ctx`）で名前を付け替える
 #[derive(Clone, Default)]
@@ -229,6 +231,11 @@ struct F<'a> {
     pkg_envs: RefCell<HashMap<ClassId, PkgEnv>>,
     /// パッケージの `extends P(redeclare record R = X)` が決めた差し替え（`pkg_env` と一緒に作る）
     pkg_cenvs: RefCell<HashMap<ClassId, Cenv>>,
+    /// `equalityConstraint` を持つレコード（過剰決定コネクタ）の部品の完全な名前（S312）
+    oc_nodes: BTreeSet<String>,
+    /// 過剰決定コネクタの接続集合（`graph::OcSet`）と、すべての `connect` の端
+    oc_sets: Vec<graph::OcSet>,
+    conn_pairs: Vec<(String, String)>,
 }
 
 struct Pending {
@@ -259,14 +266,16 @@ pub(crate) fn run(p: &Project, cid: ClassId, model: &str) -> Res<FlatModel> {
         depth: std::cell::Cell::new(0),
         pkg_envs: RefCell::default(),
         pkg_cenvs: RefCell::default(),
+        oc_nodes: BTreeSet::new(),
+        oc_sets: Vec::new(),
+        conn_pairs: Vec::new(),
     };
-    // 最上位のモデルは `protected` のコネクタも対象（Rumoca の flat も同じ）
     // パッケージの中のモデルを直接平らにするときは、そのパッケージが差し替え後のパッケージ（`TwoPhaseWater.BaseProperties`）
     let heir = p.lib.classes[cid]
         .parent
         .filter(|q| p.kind_of(*q) == Some(K::KwPackage));
-    let (_, own) = f.inst_class(cid, "", &ModMap::new(), Flags::default(), heir)?;
-    // 最上位のモデル自身のコネクタの flow は 0（外へ流れ出ない。Rumoca の flat も同じ）
+    let (own, _) = f.inst_class(cid, "", &ModMap::new(), Flags::default(), heir)?;
+    // 最上位のモデル自身の公開のコネクタの flow は 0（外へ流れ出ない。Rumoca の flat も同じ。`protected` は gen_connects）
     for n in own {
         for (suffix, vi, count) in f.leaves(&n) {
             if f.vars[vi].flow {
@@ -277,6 +286,7 @@ pub(crate) fn run(p: &Project, cid: ClassId, model: &str) -> Res<FlatModel> {
             }
         }
     }
+    f.apply_connection_graph();
     Ok(FlatModel {
         name: model.to_string(),
         vars: f.vars,
@@ -443,7 +453,12 @@ impl F<'_> {
                 self.section(node, *file, &ctx, &mut lv)?;
             }
         }
-        self.gen_connects(pfx, &lv, &inside)?;
+        let prot: Vec<String> = own_all
+            .iter()
+            .filter(|n| !own_conns.contains(n))
+            .cloned()
+            .collect();
+        self.gen_connects(&lv, &inside, &own_all, &prot)?;
         Ok((own_conns, own_all))
     }
 
@@ -723,8 +738,16 @@ impl F<'_> {
                 if !dims.is_empty() && has_array_value(&m.sub) {
                     return un("array-modification", name);
                 }
+                let oc = self.p.lineage(cid).iter().any(|c| {
+                    self.p.lib.classes[*c]
+                        .classes
+                        .contains_key("equalityConstraint")
+                });
                 for ix in idx_names(&dims) {
                     let el = format!("{full}{ix}");
+                    if oc {
+                        self.oc_nodes.insert(el.clone());
+                    }
                     let (sub, _) =
                         self.inst_class(cid, &format!("{el}."), &mods, inherit(eff), heir)?;
                     if conn {
@@ -1576,7 +1599,10 @@ impl F<'_> {
         } else {
             ctx.heir
         };
+        // 差し替え後のパッケージの `extends` の修飾が効くのは、そのパッケージの系統の定数だけ（別のパッケージの同じ名前の定数に当てない。
+        // `K.small = Svc.Machine.small` を評価するときに `Svc.Machine.small` が `K.small` を引いて輪になる）
         if let Some(b) = h
+            .filter(|h| self.p.lineage(*h).contains(&cid))
             .and_then(|h| self.pkg_env(h))
             .and_then(|e| e.get(comp).cloned())
         {
@@ -1724,14 +1750,37 @@ impl F<'_> {
                 Some(v)
             }
             Expr::Matrix(m) => {
-                let rows = 1 + tokens(m.syntax()).filter(|t| t.kind() == K::Semi).count();
-                let items: Vec<Expr> = m.syntax().children().filter_map(Expr::cast).collect();
-                for e in &items {
-                    if !self.dims_of(e.syntax(), file, ctx)?.is_empty() {
-                        return None; // 要素が配列の連結は断る
+                // 行は `;`、行の中は `,` で区切る。要素はスカラー（1×1）・ベクトル（n×1）・行列（n×m）で、行の中は横に、行どうしは縦に連結する
+                // （`[y] = [u1; u2; u3]` の `y`・`u1`… はベクトル）
+                let (mut rows, mut cur) = (0, None::<(usize, usize)>);
+                let mut width = None;
+                for ch in m.syntax().children_with_tokens() {
+                    if let Some(c) = ch.as_node().and_then(|c| Expr::cast(c.clone())) {
+                        let d = self.dims_of(c.syntax(), file, ctx)?;
+                        let (r, w) = match d.as_slice() {
+                            [] => (1, 1),
+                            [n] => (*n, 1),
+                            [n, k] => (*n, *k),
+                            _ => return None,
+                        };
+                        cur = match cur {
+                            None => Some((r, w)),
+                            Some((r0, w0)) if r0 == r => Some((r0, w0 + w)),
+                            _ => return None,
+                        };
+                    } else if ch.as_token().is_some_and(|t| t.kind() == K::Semi) {
+                        let (r, w) = cur.take()?;
+                        if width.is_some_and(|w0| w0 != w) {
+                            return None;
+                        }
+                        (rows, width) = (rows + r, Some(w));
                     }
                 }
-                (items.len().is_multiple_of(rows)).then(|| vec![rows, items.len() / rows])
+                let (r, w) = cur?;
+                if width.is_some_and(|w0| w0 != w) {
+                    return None;
+                }
+                Some(vec![rows + r, w])
             }
             Expr::Range(r) => {
                 let v: Vec<f64> = r
@@ -2025,8 +2074,13 @@ impl F<'_> {
         match e {
             Expr::Paren(p) => match p.items().as_slice() {
                 [x] => self.shape(x, file, ctx),
-                // `(a, b) = f(x)` は出力の数だけ
-                items => Some(items.len()),
+                // `(a, b) = f(x)` は出力のスカラーの数の和（配列の出力は大きさの分）
+                items => Some(
+                    items
+                        .iter()
+                        .map(|x| self.shape(x, file, ctx).unwrap_or(1))
+                        .sum(),
+                ),
             },
             Expr::Call(c) if c.callee().as_deref() == Some("der") => {
                 self.shape(c.args().first()?, file, ctx)
@@ -2133,18 +2187,17 @@ impl F<'_> {
         Vec::new()
     }
 
-    /// 1 つのインスタンスの `connect` から、potential の等式と flow の和（つながない内側の flow は 0）を作る
-    fn gen_connects(&mut self, pfx: &str, lv: &Level, inside: &[String]) -> Res<()> {
-        // 集合（union-find）。出てきた順に並べる
-        let mut names: Vec<String> = Vec::new();
-        let mut parent: Vec<usize> = Vec::new();
-        let id = |s: &String, names: &mut Vec<String>, parent: &mut Vec<usize>| {
-            names.iter().position(|x| x == s).unwrap_or_else(|| {
-                names.push(s.clone());
-                parent.push(parent.len());
-                names.len() - 1
-            })
-        };
+    /// 1 つのインスタンスの `connect` から、potential の等式と flow の和（つながない内側の flow は 0）を作る。
+    /// 接続集合は葉の変数（`a.heatPort.Q_flow`）の単位で作る。丸ごとの `connect(c, d)` と、欄だけの `connect(x, d.f)` は同じ集合に入る
+    /// （Rumoca の flat も同じ）。`own` はこのインスタンスのコネクタの名前（外側の `connect` の端は、flow の和の符号が逆になる）
+    fn gen_connects(
+        &mut self,
+        lv: &Level,
+        inside: &[String],
+        own: &[String],
+        prot: &[String],
+    ) -> Res<()> {
+        // 葉の名前 → 番号（出てきた順）。葉ごとに（変数の添字、スカラーの数、外側のコネクタの端か）。集合は union-find
         fn find(p: &mut [usize], mut x: usize) -> usize {
             while p[x] != x {
                 p[x] = p[p[x]];
@@ -2152,14 +2205,44 @@ impl F<'_> {
             }
             x
         }
+        let outside = |n: &str| {
+            own.iter().any(|o| {
+                n.strip_prefix(o.as_str())
+                    .is_some_and(|t| t.is_empty() || t.starts_with(['.', '[']))
+            })
+        };
+        type Info = (usize, usize, bool);
+        let id = |s: &mut (Vec<String>, Vec<Info>, Vec<usize>), name: String, i: Info| {
+            s.0.iter().position(|x| *x == name).unwrap_or_else(|| {
+                s.0.push(name);
+                s.1.push(i);
+                s.2.push(s.2.len());
+                s.0.len() - 1
+            })
+        };
+        let mut st: (Vec<String>, Vec<Info>, Vec<usize>) = Default::default();
+        self.conn_pairs.extend(lv.conns.iter().cloned());
         for (a, b) in &lv.conns {
-            let (ia, ib) = (
-                id(a, &mut names, &mut parent),
-                id(b, &mut names, &mut parent),
-            );
-            let (ra, rb) = (find(&mut parent, ia), find(&mut parent, ib));
-            parent[rb] = ra;
+            let la = self.leaves(a);
+            if la.is_empty() {
+                return un(
+                    "connect-array",
+                    format!("unknown connector (or a whole array of connectors) {a}"),
+                );
+            }
+            let lb = self.leaves(b);
+            let (oa, ob) = (outside(a), outside(b));
+            for (suffix, vi, count) in &la {
+                let Some((_, vj, _)) = lb.iter().find(|(s, _, _)| s == suffix) else {
+                    return un("connect", format!("{a} and {b} differ"));
+                };
+                let ia = id(&mut st, format!("{a}{suffix}"), (*vi, *count, oa));
+                let ib = id(&mut st, format!("{b}{suffix}"), (*vj, *count, ob));
+                let (ra, rb) = (find(&mut st.2, ia), find(&mut st.2, ib));
+                st.2[rb] = ra;
+            }
         }
+        let (names, info, mut parent) = st;
         let mut sets: Vec<Vec<usize>> = Vec::new();
         let mut root_of: HashMap<usize, usize> = HashMap::new();
         for i in 0..names.len() {
@@ -2171,75 +2254,78 @@ impl F<'_> {
             sets[k].push(i);
         }
         for set in &sets {
-            let members: Vec<&String> = set.iter().map(|&i| &names[i]).collect();
-            let first = self.leaves(members[0]);
-            if first.is_empty() {
-                return un(
-                    "connect-array",
-                    format!(
-                        "unknown connector (or a whole array of connectors) {}",
-                        members[0]
-                    ),
-                );
-            }
-            for (suffix, vi, count) in &first {
-                let (v, count) = (&self.vars[*vi], *count);
-                if v.flow {
-                    let mut terms = Vec::new();
-                    for m in &members {
-                        let inside = m.strip_prefix(pfx).is_some_and(|r| r.contains('.'));
-                        terms.push((inside, format!("{m}{suffix}")));
-                    }
-                    let flip = terms.iter().all(|(i, _)| !i);
-                    let mut s = String::new();
-                    for (i, (ins, t)) in terms.iter().enumerate() {
-                        let plus = *ins != flip;
-                        s += &match (i, plus) {
-                            (0, true) => t.clone(),
-                            (0, false) => format!("-{t}"),
-                            (_, true) => format!(" + {t}"),
-                            (_, false) => format!(" - {t}"),
-                        };
-                    }
+            let (vi, count, _) = info[set[0]];
+            let v = &self.vars[vi];
+            if v.flow {
+                let flip = set.iter().all(|&i| info[i].2);
+                let mut s = String::new();
+                for (k, &i) in set.iter().enumerate() {
+                    // 外側のコネクタの端は符号が逆（内側の端が 1 つも無いときは全部そろえる）
+                    let plus = !info[i].2 != flip;
+                    let t = &names[i];
+                    s += &match (k, plus) {
+                        (0, true) => t.clone(),
+                        (0, false) => format!("-{t}"),
+                        (_, true) => format!(" + {t}"),
+                        (_, false) => format!(" - {t}"),
+                    };
+                }
+                self.eqs.push(Equation {
+                    text: format!("{s} = 0"),
+                    count,
+                });
+            } else {
+                if v.stream {
+                    return un("stream", names[set[0]].clone());
+                }
+                // コネクタの中の parameter・constant は等式にしない（Rumoca の flat も同じ）
+                if matches!(v.kind, VarKind::Parameter | VarKind::Constant) {
+                    continue;
+                }
+                if set.len() > 1 {
+                    self.oc_sets.push(graph::OcSet {
+                        start: self.eqs.len(),
+                        members: set.iter().map(|&i| names[i].clone()).collect(),
+                    });
+                }
+                for &i in &set[1..] {
                     self.eqs.push(Equation {
-                        text: format!("{s} = 0"),
+                        text: format!("{} = {}", names[set[0]], names[i]),
                         count,
                     });
-                } else {
-                    if v.stream {
-                        return un("stream", format!("{}{suffix}", members[0]));
-                    }
-                    // コネクタの中の parameter・constant は等式にしない（Rumoca の flat も同じ）
-                    if matches!(v.kind, VarKind::Parameter | VarKind::Constant) {
-                        continue;
-                    }
-                    for m in &members[1..] {
-                        let other = self.leaves(m);
-                        if !other.iter().any(|(s, _, _)| s == suffix) {
-                            return un("connect", format!("{} and {m} differ", members[0]));
-                        }
-                        self.eqs.push(Equation {
-                            text: format!("{}{suffix} = {m}{suffix}", members[0]),
-                            count,
-                        });
-                    }
                 }
             }
         }
-        // つながっていない内側のコネクタの flow は 0
-        for n in inside {
-            let used = names.iter().any(|m| {
-                m == n || m.starts_with(&format!("{n}.")) || n.starts_with(&format!("{m}."))
-            });
-            if used {
-                continue;
+        let connected: HashSet<&str> = names.iter().map(String::as_str).collect();
+        // `protected` のコネクタは、丸ごと `connect` の端になっているか、どこにもつながっていない葉の flow が 0
+        // （Rumoca の flat: 接続の端が「集合の中の単一の識別子」なら外側の flow、そうでなければ未接続の flow だけ。S312）
+        let whole: HashSet<&str> = lv
+            .conns
+            .iter()
+            .flat_map(|(a, b)| [a.as_str(), b.as_str()])
+            .collect();
+        for n in prot {
+            for (suffix, vi, count) in self.leaves(n) {
+                let v = &self.vars[vi];
+                if v.flow
+                    && (whole.contains(n.as_str())
+                        || !connected.contains(format!("{n}{suffix}").as_str()))
+                {
+                    self.eqs.push(Equation {
+                        text: format!("{n}{suffix} = 0"),
+                        count,
+                    });
+                }
             }
+        }
+        // つながっていない内側のコネクタの flow は 0（葉の単位。一部の欄だけつないだコネクタの残りの flow も 0）
+        for n in inside {
             for (suffix, vi, count) in self.leaves(n) {
                 let v = &self.vars[vi];
                 if v.stream {
                     return un("stream", n.clone());
                 }
-                if v.flow {
+                if v.flow && !connected.contains(format!("{n}{suffix}").as_str()) {
                     self.eqs.push(Equation {
                         text: format!("{n}{suffix} = 0"),
                         count,

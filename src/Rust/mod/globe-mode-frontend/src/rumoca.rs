@@ -1825,6 +1825,11 @@ fn flat_summary(flat: &FlatModel) -> FlatSummary {
         partial: flat.is_partial,
         top_level_connectors: flat.top_level_connectors.iter().cloned().collect(),
         equations_by_component: by_component.into_iter().collect(),
+        equation_origins: flat
+            .equations
+            .iter()
+            .map(|e| (e.origin.to_string(), e.scalar_count))
+            .collect(),
     }
 }
 

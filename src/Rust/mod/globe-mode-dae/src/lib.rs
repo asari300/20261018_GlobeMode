@@ -99,6 +99,26 @@ impl Ctx<'_> {
         self.vars[v].dims.iter().product::<usize>().max(1)
     }
 
+    /// 方程式の左辺がレコードの部品（変数ではなく、`a.re`・`a.im` の持ち主）なら、欄のスカラーの数の和。
+    /// 平らにした方程式は 1 本と数えるが、DAE では欄ごとの方程式になる（Rumoca の record equation。`y = Complex(a, b)` は 2 本）
+    fn record_scalars(&self, eq: &SyntaxNode) -> Option<usize> {
+        let Some(Expr::ComponentRef(c)) = eq.children().find_map(Expr::cast) else {
+            return None;
+        };
+        let t: String = c.syntax().text().to_string().split_whitespace().collect();
+        if self.index.contains_key(t.as_str()) {
+            return None;
+        }
+        let pre = format!("{t}.");
+        let n: usize = self
+            .index
+            .iter()
+            .filter(|(k, _)| k.starts_with(&pre))
+            .map(|(_, &v)| self.n(v))
+            .sum();
+        (n > 0).then_some(n)
+    }
+
     /// `a.b[2].x[1]` を変数と選択に解く。変数でなければ None
     fn resolve(&self, text: &str) -> Option<(usize, Sel)> {
         let t: String = text.chars().filter(|c| !c.is_whitespace()).collect();
@@ -275,7 +295,11 @@ pub fn build(m: &FlatModel) -> Result<Dae, Unsupported> {
             if is_clock_equation(&cx, &node) {
                 continue;
             }
-            eqs.push((node, e.count, e.text.clone()));
+            let count = cx
+                .record_scalars(&node)
+                .filter(|_| e.count == 1)
+                .unwrap_or(e.count);
+            eqs.push((node, count, e.text.clone()));
         }
     }
     let mut whens: Vec<(SyntaxNode, usize)> = Vec::new();

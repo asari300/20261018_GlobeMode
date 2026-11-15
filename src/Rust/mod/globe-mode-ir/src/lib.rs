@@ -599,6 +599,9 @@ pub struct FlatSummary {
     pub top_level_connectors: Vec<String>,
     /// 部品ごとの方程式の数（スカラー）。部品のパス順
     pub equations_by_component: Vec<(String, usize)>,
+    /// 方程式ごとの由来の表記とスカラーの数（JSON には出さない。S312 の食い違いの調査用）
+    #[serde(skip)]
+    pub equation_origins: Vec<(String, usize)>,
 }
 
 /// 初期化系の構造（S8 の入力、S007）。`check` が DAE から取り出す。
