@@ -104,11 +104,40 @@ impl Ctx<'_> {
 
     /// 方程式の左辺がレコードの部品（変数ではなく、`a.re`・`a.im` の持ち主）なら、その欄の変数（`BTreeMap` の順）。
     /// 平らにした方程式は 1 本と数えるが、DAE では欄ごとの方程式になる（Rumoca の record equation。`y = Complex(a, b)` は 2 本）
-    fn record_leaves(&self, eq: &SyntaxNode) -> Vec<usize> {
+    /// 要素ごとに展開されたレコードの配列（`Complex aw[3]` の `aw = {…}`。flat の数は要素の数 3）は、全要素の欄を数える（S351）。
+    /// 欄の変数の数は Rumoca の数え方と同じ（要素 × 欄のスカラー）
+    fn record_leaves(&self, eq: &SyntaxNode, count: usize) -> Vec<usize> {
         let Some(Expr::ComponentRef(c)) = eq.children().find_map(Expr::cast) else {
             return Vec::new();
         };
-        self.leaves_of(&c.syntax().text().to_string())
+        let text = c.syntax().text().to_string();
+        let v = if count == 1 {
+            self.leaves_of(&text)
+        } else {
+            Vec::new()
+        };
+        if v.is_empty() {
+            self.array_leaves(&text)
+        } else {
+            v
+        }
+    }
+
+    /// 要素ごとに展開されたレコードの配列 `t` の、欄の変数（`t[1].re`・`t[1].im`・`t[2].re` …。`BTreeMap` の順）
+    fn array_leaves(&self, text: &str) -> Vec<usize> {
+        let t: String = text.split_whitespace().collect();
+        if t.ends_with(']') || self.index.contains_key(t.as_str()) {
+            return Vec::new();
+        }
+        let pre = format!("{t}[");
+        let mut v: Vec<usize> = self
+            .index
+            .iter()
+            .filter(|(k, _)| k.strip_prefix(&pre).is_some_and(|r| r.contains("].")))
+            .map(|(_, &v)| v)
+            .collect();
+        v.sort_unstable();
+        v
     }
 
     /// 変数でないレコードの参照 `a.R` の、欄の変数（`a.R.T`・`a.R.w` …。`BTreeMap` の順）
@@ -477,11 +506,7 @@ pub fn build(m: &FlatModel) -> Result<Dae, Unsupported> {
             if is_clock_equation(&cx, &node) {
                 continue;
             }
-            let leaves = if e.count == 1 {
-                cx.record_leaves(&node)
-            } else {
-                Vec::new()
-            };
+            let leaves = cx.record_leaves(&node, e.count);
             let count = if leaves.is_empty() {
                 e.count
             } else {
@@ -906,6 +931,33 @@ mod tests {
         let d = build(&m).unwrap();
         assert_eq!((d.counts.equations, d.counts.unknowns), (4, 4));
         assert!(d.is_regular());
+    }
+
+    /// S351（#133）: レコードの配列への方程式は、要素ごとの欄に展開して数える（for 文の形・配列の形・配列どうしで同じ）
+    #[test]
+    fn record_array_equation_counts_per_field() {
+        let rec = "operator record Complex Real re; Real im; end Complex;\n";
+        for body in [
+            "for i in 1:3 loop aw[i] = Complex(i, 0); end for; s = aw[1];",
+            "aw = {Complex(i, 0) for i in 1:3}; s = aw[1];",
+            "aw = {Complex(1, 0), Complex(2, 0), Complex(3, 0)}; s = aw[1];",
+        ] {
+            let d = dae(&format!(
+                "{rec}model M Complex aw[3]; Complex s; equation {body} end M;"
+            ));
+            assert_eq!((d.counts.equations, d.counts.unknowns), (8, 8), "{body}");
+            assert!(d.is_balanced(), "{body}");
+        }
+        let d = dae(&format!(
+            "{rec}model M Complex aw[3]; Complex bw[3]; equation aw = bw; \
+             bw = {{Complex(1, 0), Complex(2, 0), Complex(3, 0)}}; end M;"
+        ));
+        assert_eq!((d.counts.equations, d.counts.unknowns), (12, 12));
+        // 長さ 1 の配列も、要素の欄 2 本
+        let d = dae(&format!(
+            "{rec}model M Complex aw[1]; equation aw = {{Complex(1, 0)}}; end M;"
+        ));
+        assert_eq!((d.counts.equations, d.counts.unknowns), (2, 2));
     }
 
     #[test]

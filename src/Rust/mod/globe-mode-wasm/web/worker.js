@@ -99,6 +99,7 @@ async function fetchChunks(names, depth = 0) {
       try {
         return [text, JSON.parse(text)];
       } catch (e) {
+        lazy.blob = null; // 壊れたパックの Blob を持ち続けない（次は取り直す。#134）
         throw new Error(`MSL の塊 ${i} が壊れている（${url}）: ${e.message}`);
       }
     }),
@@ -116,7 +117,10 @@ async function fetchChunks(names, depth = 0) {
   const missing = Object.keys(lazy.chunk).filter((n) => fetched.has(lazy.chunk[n]) && lazy.stub.has(n));
   const badIds = new Set(missing.map((n) => lazy.chunk[n]));
   for (const i of ids) if (!badIds.has(i)) lazy.got.add(i);
-  if (missing.length) throw new Error(`MSL の塊に無いファイル: ${missing.slice(0, 3).join(", ")}（索引と塊の版が合っていない）`);
+  if (missing.length) {
+    lazy.blob = null; // 索引と合わないパックも持ち続けない（#134）
+    throw new Error(`MSL の塊に無いファイル: ${missing.slice(0, 3).join(", ")}（索引と塊の版が合っていない）`);
+  }
 }
 
 const ops = {
