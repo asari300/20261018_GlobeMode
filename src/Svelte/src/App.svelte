@@ -125,7 +125,7 @@
   }
 
   // S151: タブ。いまの文書の file / model / own / diagnostics / saved はこれまでどおり大域の変数で、離れるときに tab へ写す（state は EditorState。元に戻す履歴も文書ごと）
-  type Tab = { file: string; model: string; own: boolean; state: EditorState; diagnostics: Diagnostic[]; saved: string; clean: string; path?: string; results?: ResultColumns }; // results: 開いた結果のファイル（.mat・.csv。S222）のタブ。本文は無く、プロットだけを持つ。S236: Desktop は path（結果のファイルのパス）を残し、再読み込みで読み直す。 // path: Desktop でこのタブが本文を受け取った（開いた・保存した）ファイルのパス。保存はここに書く（S196）。 // clean: 開いた・保存した本文（閉じるとき、違えば確かめる。ライブラリは見ない）
+  type Tab = { file: string; model: string; own: boolean; state: EditorState; diagnostics: Diagnostic[]; saved: string; clean: string; path?: string; results?: ResultColumns; models?: string[] }; // results: 開いた結果のファイル（.mat・.csv。S222）のタブ。本文は無く、プロットだけを持つ。S236: Desktop は path（結果のファイルのパス）を残し、再読み込みで読み直す。 // path: Desktop でこのタブが本文を受け取った（開いた・保存した）ファイルのパス。保存はここに書く（S196）。 // clean: 開いた・保存した本文（閉じるとき、違えば確かめる。ライブラリは見ない）
   let tabs = $state.raw<Tab[]>([]);
   let cur = $state(0);
   const isResults = $derived(!!tabs[cur]?.results);
@@ -694,13 +694,14 @@
   function activate(i: number) {
     if (i === cur || !tabs[i]) return;
     const prev = tabs[cur];
-    Object.assign(prev, { file, model, own, state: view.state, diagnostics, saved });
+    Object.assign(prev, { file, model, own, state: view.state, diagnostics, saved, models });
     // S196: 前のタブのものは持ち越さない（リネームの入力欄は前のタブの位置、参照の一覧の行は前の本文の位置、未対応・強行・最後の値は前のタブの実行の結果）
     refs = []; renaming = null; unsupported = ""; nativeNote = ""; canForce = null; forced = false; lastFinal = []; manyResult = null; strayLib = ""; roHit = false;
     const t = tabs[i];
     if (prev.own && prev.file !== t.file) void backend.setFile(prev.file, "").catch(() => {}); // 離れた自分のファイルは Workspace から外す（同じクラスの二重定義を避ける。S141）
     cur = i;
     ({ file, model, own, diagnostics, saved } = t);
+    models = t.models ?? []; // S363: 前のタブの候補のまま refreshModels を待つと、select の幅が変わってバーの高さが動く（タブを押した直後に配置がずれる）
     columns = t.results ?? null; // S222: 結果のファイルのタブはプロットを持つ
     graphModel = null;
     tabs = [...tabs];

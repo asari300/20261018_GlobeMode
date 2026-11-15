@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S363 UI の配置のずれ — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S363 UI の配置のずれ">
+
+<section class="slide" id="S01">
+  <span class="tag">S363 · 2026-11-16 · P4</span>
+  <h1>検査の終わり・タブの切り替えで配置が動く</h1>
+  <p class="lead">S360 は試験の押下を押し直して吸収した。利用者が押す直前にずれると別の場所を押す</p>
+  <div class="big">タブ列の上端を 5 ms ごとに記録して、動かす原因を 3 つ見つけ、先に場所を確保した</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">原因</span>
+  <h1>動かしていたもの（直す前）</h1>
+  <table class="compact">
+    <tr><th>場面</th><th>動き</th><th>原因</th></tr>
+    <tr><td>検査のあと</td><td>+15 px（1280）・+59 px（390）</td><td>「パラメータ」の <code>details</code> が、一覧が届いて初めて出る（ボタンが戻った約 200 ms 後）</td></tr>
+    <tr><td>初回の検査（740 px）</td><td>+19.6 px</td><td>ソルバの一覧が wasm から後で届き、選択欄が 48 → 83 px に伸びて同じ行が折り返す</td></tr>
+    <tr><td>タブの切り替え</td><td>+40 px（約 2 ms）</td><td>モデルの候補が前のタブのままで、select に長い選択肢が足される</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">直し</span>
+  <h1>出し入れをやめ、先に場所を取る</h1>
+  <ul>
+    <li><code>details</code> は検査の前から出す。1 行に固定（<code>nowrap</code> と省略記号、全文は <code>title</code>）</li>
+    <li>ソルバの選択欄は <code>min-width: 7rem</code></li>
+    <li>モデルの候補はタブごとに持つ（<code>Tab.models</code>。離れるとき写し、戻るとき入れる）</li>
+    <li>変更は <code>SimSettings.svelte</code> と <code>App.svelte</code> の十数行</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">試験</span>
+  <h1><code>layout_shift</code>: タブ列の上端が ±1 px 動かない</h1>
+  <ul>
+    <li>幅 1280・740・390 px で、初回の検査・2 つのモデルのファイルのタブ切り替えと検査（2 周）</li>
+    <li>直す前は 1280 px の初回の検査（15.2 px）で落ちる</li>
+    <li>3 つの直しを 1 つずつ外すと、それぞれ別の段で落ちる（40.0・19.6・19.6 px）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">残したこと</span>
+  <h1>押した操作の結果は直さない</h1>
+  <ul>
+    <li>実行の開始の <code>p.run</code>・終了の <code>p.last</code> は、押した結果が見える場所に出す設計のまま（終了時はタブのボタンが無効のうち）</li>
+    <li>保存された設定が「複数」のとき、ソルバの一覧が届くまでチェックボックスの欄が空</li>
+    <li>CI のフォントでの値は【未確認】（<code>ci.yml</code> の <code>ui</code> で確かめる）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
