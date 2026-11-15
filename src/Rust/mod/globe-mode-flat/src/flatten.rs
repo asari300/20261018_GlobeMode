@@ -209,6 +209,9 @@ struct Level {
 
 const MAX_VARS: usize = 200_000;
 
+/// 修飾の表の中の特別な名前: レコード全体の束縛 `r = other`（`other` の欄を、型の欄ごとに束縛する。宣言が後ろにある兄弟のレコードや、レコードを返す関数の呼び出し）
+const WHOLE: &str = "*";
+
 struct F<'a> {
     p: &'a Project,
     vars: Vec<Var>,
@@ -411,10 +414,19 @@ impl F<'_> {
                     &ctx,
                     false,
                 )?;
-                let m = match mods.get(&name) {
+                let mut m = match mods.get(&name) {
                     Some(o) => merge_mod(o, &own),
                     None => own,
                 };
+                // レコードの束縛 `r = other` の欄（S324）: 外側の明示した修飾が無ければ、欄 `f` は `other.f` に束縛される
+                if let Some(w) = mods.get(WHOLE).and_then(|w| w.val.as_ref())
+                    && mods.get(&name).is_none_or(|o| o.val.is_none())
+                {
+                    m.val = Some(Bind {
+                        suffix: format!("{}.{name}", w.suffix),
+                        ..w.clone()
+                    });
+                }
                 if let Some(b) = &m.val {
                     self.env.insert(format!("{pfx}{name}"), b.clone());
                 }
@@ -753,17 +765,64 @@ impl F<'_> {
                 flags,
                 conn,
             } => {
+                // 外部オブジェクト（`extends ExternalObject`）は評価せず、不透明な 1 つの変数として残す（S324）
+                if self.is_ext_obj(cid) {
+                    if self.var_idx.contains_key(&full) {
+                        return Ok(());
+                    }
+                    let binding = m.val.as_ref().map(|b| self.print_bind(b)).transpose()?;
+                    let eff = fill(parent, fill(own_flags, flags));
+                    self.var_idx.insert(full.clone(), self.vars.len());
+                    self.vars.push(Var {
+                        name: full,
+                        kind: eff.kind.unwrap_or(VarKind::Parameter),
+                        causality: eff.causality,
+                        flow: false,
+                        stream: false,
+                        ty: self.p.lib.qualified_name(cid),
+                        dims,
+                        start: None,
+                        binding,
+                        attrs: Vec::new(),
+                        origin: self.p.origin(file, d.syntax()),
+                    });
+                    return Ok(());
+                }
                 // `R r = R(a = 1)`・`r = other` は欄ごとの修飾にする。明示した修飾 > 束縛 > 型の修飾
-                let bound = match &m.val {
-                    Some(b) if dims.is_empty() => self.record_value(b, name)?,
+                // 配列のレコードは要素ごとに: `{R(…), R(…)}` は要素の式、別の配列 `x` は `x[k]`
+                let bound: Vec<ModMap> = match &m.val {
+                    Some(b) if dims.is_empty() => vec![self.record_value(b, name)?],
+                    Some(b) if dims.len() == 1 && b.suffix.is_empty() => {
+                        let items = match Expr::cast(b.node.clone()) {
+                            Some(Expr::Array(a)) => Some(a.items()),
+                            _ => None,
+                        };
+                        if items.as_ref().is_some_and(|i| i.len() != dims[0]) {
+                            return un("composite-binding", format!("{name}[] size differs"));
+                        }
+                        (1..=dims[0].min(MAX_VARS))
+                            .map(|k| {
+                                let el = match &items {
+                                    Some(i) => Bind {
+                                        node: i[k - 1].syntax().clone(),
+                                        ..b.clone()
+                                    },
+                                    None => Bind {
+                                        suffix: format!("[{k}]"),
+                                        ..b.clone()
+                                    },
+                                };
+                                self.record_value(&el, name)
+                            })
+                            .collect::<Res<_>>()?
+                    }
                     Some(b) => {
                         let t = b.node.text();
                         return un("composite-binding", format!("{name}[] = {t}"));
                     }
-                    None => ModMap::new(),
+                    None => vec![ModMap::new()],
                 };
                 let eff = fill(parent, fill(own_flags, flags));
-                let mods = merge(&m.sub, &merge(&bound, &mods));
                 if !dims.is_empty() && has_array_value(&m.sub) {
                     return un("array-modification", name);
                 }
@@ -777,11 +836,12 @@ impl F<'_> {
                 if n.is_none_or(|n| n > MAX_VARS - self.vars.len().min(MAX_VARS)) {
                     return un("too-large", format!("{name}[] too many elements"));
                 }
-                for ix in idx_names(&dims) {
+                for (e, ix) in idx_names(&dims).into_iter().enumerate() {
                     let el = format!("{full}{ix}");
                     if oc {
                         self.oc_nodes.insert(el.clone());
                     }
+                    let mods = merge(&m.sub, &merge(&bound[e.min(bound.len() - 1)], &mods));
                     let (sub, _) =
                         self.inst_class(cid, &format!("{el}."), &mods, inherit(eff), heir)?;
                     if conn {
@@ -793,6 +853,18 @@ impl F<'_> {
             }
         }
         Ok(())
+    }
+
+    /// `extends ExternalObject` を持つクラスか
+    fn is_ext_obj(&self, cid: ClassId) -> bool {
+        self.p.lineage(cid).iter().any(|c| {
+            self.p.class(*c).is_some_and(|cd| {
+                cd.elements().into_iter().any(|e| {
+                    matches!(e, Element::Extends(x)
+                        if x.name().is_some_and(|n| n.parts() == ["ExternalObject"]))
+                })
+            })
+        })
     }
 
     /// レコードの束縛（コンストラクタの呼び出しか、別のレコードの部品）を、欄ごとの修飾にする
@@ -813,10 +885,15 @@ impl F<'_> {
                     .and_then(|r| match self.p.res_of(b.file, r.range()) {
                         Some(Resolution::Class(rid)) => Some(rid),
                         _ => None,
-                    })
-                    .filter(|rid| {
-                        matches!(self.p.kind_of(*rid), Some(K::KwRecord | K::KwOperator))
                     });
+                // レコードを返す関数の呼び出し `R = Frames.nullRotation()` は評価せず、欄ごとに `f().T` の形で束縛する
+                if rid.is_some_and(|rid| matches!(self.p.kind_of(rid), Some(K::KwFunction))) {
+                    out.insert(WHOLE.to_string(), field_mod(b.clone()));
+                    return Ok(out);
+                }
+                let rid = rid.filter(|rid| {
+                    matches!(self.p.kind_of(*rid), Some(K::KwRecord | K::KwOperator))
+                });
                 let Some(rid) = rid else {
                     return un("composite-binding", format!("{name} = {}", b.node.text()));
                 };
@@ -833,7 +910,7 @@ impl F<'_> {
                 if !b.node.children().any(|x| x.kind() == K::Subscripts) =>
             {
                 let t = self.cref(&r, b.file, &b.ctx)?;
-                let pre = format!("{t}.");
+                let pre = format!("{t}{}.", b.suffix);
                 let leaves: Vec<&str> = self
                     .var_idx
                     .range(pre.clone()..)
@@ -841,14 +918,13 @@ impl F<'_> {
                     .map(|(k, _)| &k[pre.len()..])
                     .collect();
                 if leaves.is_empty() || leaves.iter().any(|l| l.contains('[')) {
-                    return un(
-                        "composite-binding",
-                        format!("{name} = {t} (欄が分からない)"),
-                    );
+                    // 宣言が後ろにある兄弟のレコード（まだ欄が無い）は、型の欄ごとに束縛する
+                    out.insert(WHOLE.to_string(), field_mod(b.clone()));
+                    return Ok(out);
                 }
                 for l in leaves {
                     let path: Vec<&str> = l.split('.').collect();
-                    nest(&mut out, &path, bind(&b.node, format!(".{l}")));
+                    nest(&mut out, &path, bind(&b.node, format!("{}.{l}", b.suffix)));
                 }
             }
             _ => return un("composite-binding", format!("{name} = {}", b.node.text())),
@@ -1345,7 +1421,12 @@ impl F<'_> {
 
     fn pr(&self, n: &SyntaxNode, file: u32, ctx: &Rc<Ctx>, out: &mut Vec<String>) -> Res<()> {
         if let Some(c) = ast::ComponentRef::cast(n.clone()) {
-            out.push(self.cref(&c, file, ctx)?);
+            let t = self.cref(&c, file, ctx)?;
+            // 部品の配列を通した欄 `a.pin.v` は、Rumoca の flat と同じに要素の配列 `{a.pin[1].v, …}` にする
+            out.push(match self.array_elems(&t) {
+                Some(v) => format!("{{{}}}", v.join(", ")),
+                None => t,
+            });
             return Ok(());
         }
         // 条件が定数の `if` 式は、選んだ枝だけを印字する（Rumoca の flat も落とす。`der` が枝にあれば状態の数に効く。S312）
@@ -2171,7 +2252,13 @@ impl F<'_> {
                     }
                     _ => (t.clone(), 0),
                 };
-                let dims = &self.vars[*self.var_idx.get(&base)?].dims;
+                // 部品の配列を通した欄 `a.pin.v`（`pin[1].v` …）は、要素の数
+                let Some(&vi) = self.var_idx.get(&base) else {
+                    let v = self.array_elems(&t)?;
+                    let first = *self.var_idx.get(&v[0])?;
+                    return Some(v.len() * self.vars[first].dims.iter().product::<usize>());
+                };
+                let dims = &self.vars[vi].dims;
                 if t.contains(':') {
                     return None;
                 }
@@ -2179,6 +2266,22 @@ impl F<'_> {
             }
             _ => None,
         }
+    }
+
+    /// `a.pin.v` で `a.pin` が部品の配列のとき、変数として在る `a.pin[k].v`（S324）。変数そのもの・添字つきは対象外
+    fn array_elems(&self, t: &str) -> Option<Vec<String>> {
+        if t.ends_with(']') || self.var_idx.contains_key(t) {
+            return None;
+        }
+        t.match_indices('.').map(|(i, _)| i).find_map(|i| {
+            let at = |k: usize| format!("{}[{k}]{}", &t[..i], &t[i..]);
+            self.var_idx.contains_key(&at(1)).then(|| {
+                (1..)
+                    .map(at)
+                    .take_while(|x| self.var_idx.contains_key(x))
+                    .collect()
+            })
+        })
     }
 
     /// `if` / `when` / `for` の方程式のスカラーの数（最初の枝。範囲が定数でない `for` は 1 回）
@@ -2260,6 +2363,46 @@ impl F<'_> {
         Vec::new()
     }
 
+    /// 配列のコネクタ・部品の配列を通した端 `a.b.p`（`a.b` が部品の配列）を、要素ごとの名前 `a.b[1].p`, `a.b[2].p` … にする（S324）。
+    /// 葉が引けるならそのまま 1 本。配列の添字は 1 つの次元だけ（`[i, j]` は展開しない）
+    fn expand_end(&self, n: &str, depth: u32) -> Vec<String> {
+        if !self.leaves(n).is_empty() || depth > 3 {
+            return vec![n.to_string()];
+        }
+        let cuts = n
+            .match_indices('.')
+            .map(|(i, _)| i)
+            .chain(std::iter::once(n.len()));
+        for i in cuts {
+            if n[..i].ends_with(']') {
+                continue;
+            }
+            let at = |k: usize| format!("{}[{k}]{}", &n[..i], &n[i..]);
+            if self
+                .expand_end(&at(1), depth + 1)
+                .iter()
+                .all(|x| self.leaves(x).is_empty())
+            {
+                continue;
+            }
+            return (1..=MAX_VARS)
+                .map(at)
+                .map(|x| self.expand_end(&x, depth + 1))
+                .take_while(|v| v.iter().all(|x| !self.leaves(x).is_empty()))
+                .flatten()
+                .collect();
+        }
+        vec![n.to_string()]
+    }
+
+    /// 端が 1 つの配列の変数 `i[m]` で、相手が `m` 個の要素なら、`i[1]` … `i[m]` にする
+    fn split_array_var(&self, x: &[String], n: usize) -> Option<Vec<String>> {
+        let [x] = x else { return None };
+        let [(sf, vi, _)] = self.leaves(x).try_into().ok()?;
+        (n > 1 && sf.is_empty() && self.vars[vi].dims == [n] && !x.ends_with(']'))
+            .then(|| (1..=n).map(|k| format!("{x}[{k}]")).collect())
+    }
+
     /// 1 つのインスタンスの `connect` から、potential の等式と flow の和（つながない内側の flow は 0）を作る。
     /// 接続集合は葉の変数（`a.heatPort.Q_flow`）の単位で作る。丸ごとの `connect(c, d)` と、欄だけの `connect(x, d.f)` は同じ集合に入る
     /// （Rumoca の flat も同じ）。`own` はこのインスタンスのコネクタの名前（外側の `connect` の端は、flow の和の符号が逆になる）、
@@ -2295,6 +2438,22 @@ impl F<'_> {
             })
         };
         let mut st: (Vec<String>, Vec<Info>, Vec<usize>) = Default::default();
+        // 配列のコネクタの一括の接続は、要素ごとの接続にしてから数える（S324）
+        let mut conns = Vec::new();
+        for (a, b, o) in &lv.conns {
+            let (mut xa, mut xb) = (self.expand_end(a, 0), self.expand_end(b, 0));
+            // 片方が部品の配列の要素ごとの端で、もう片方が配列の変数 1 つ（`connect(sensor.i, i)`、`i[m]`）なら、変数を要素にする
+            if let Some(v) = self.split_array_var(&xa, xb.len()) {
+                xa = v;
+            } else if let Some(v) = self.split_array_var(&xb, xa.len()) {
+                xb = v;
+            }
+            if xa.len() != xb.len() {
+                return un("connect", format!("{a} and {b} differ in size"));
+            }
+            conns.extend(xa.into_iter().zip(xb).map(|(x, y)| (x, y, o.clone())));
+        }
+        let lv = &Level { conns };
         self.conn_pairs
             .extend(lv.conns.iter().map(|(a, b, _)| (a.clone(), b.clone())));
         for (a, b, _) in &lv.conns {

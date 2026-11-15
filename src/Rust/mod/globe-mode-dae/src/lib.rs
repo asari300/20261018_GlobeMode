@@ -61,6 +61,8 @@ impl Dae {
 enum Sel {
     All,
     One(usize),
+    /// 部品の配列を通した欄（`a.pin.v`）の j 番目の要素の変数。配列の行 k は k == j のときだけ触れる
+    Part(usize),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -183,11 +185,36 @@ impl Ctx<'_> {
             if skip {
                 continue;
             }
-            if let Some((var, sel)) = self.resolve(&c.syntax().text().to_string()) {
+            let text = c.syntax().text().to_string();
+            if let Some((var, sel)) = self.resolve(&text) {
                 out.push(Ref { var, sel, der });
+            } else {
+                for (j, var) in self.parts(&text) {
+                    out.push(Ref {
+                        var,
+                        sel: Sel::Part(j),
+                        der,
+                    });
+                }
             }
         }
         out
+    }
+
+    /// 部品の配列を通した欄の参照 `a.pin.v`（変数は `a.pin[1].v` …）の、要素ごとの（添字 0 から、変数）
+    fn parts(&self, text: &str) -> Vec<(usize, usize)> {
+        let t: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+        t.match_indices('.')
+            .map(|(p, _)| {
+                (1..)
+                    .map_while(|i| {
+                        let name = format!("{}[{i}]{}", &t[..p], &t[p..]);
+                        self.index.get(name.as_str()).map(|&v| (i - 1, v))
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .find(|v| !v.is_empty())
+            .unwrap_or_default()
     }
 
     /// 代入の左辺（`x = …`・`x := …`）の変数
@@ -691,6 +718,7 @@ pub fn build(m: &FlatModel) -> Result<Dae, Unsupported> {
             for (v, sel) in cx.lhs(&s) {
                 match sel {
                     Sel::One(k) => seen.insert((v, k)),
+                    Sel::Part(_) => false,
                     Sel::All => (0..cx.n(v)).fold(false, |_, k| seen.insert((v, k))),
                 };
             }
@@ -721,6 +749,8 @@ pub fn build(m: &FlatModel) -> Result<Dae, Unsupported> {
             let pick = |sel: Sel, v: usize| -> Vec<usize> {
                 match sel {
                     Sel::One(j) => vec![j],
+                    Sel::Part(j) if r.count > 1 => (k == j).then_some(0).into_iter().collect(),
+                    Sel::Part(_) => vec![0],
                     Sel::All if r.count > 1 && cx.n(v) == r.count => vec![k],
                     Sel::All => (0..cx.n(v)).collect(),
                 }
@@ -880,5 +910,28 @@ mod tests {
         let d = build(&Project::from_sources([("t.mo", src)]).flatten("M").unwrap()).unwrap();
         assert_eq!((d.structure.equations.len(), d.discrete_equations), (1, 1));
         assert!(d.is_balanced());
+    }
+
+    #[test]
+    fn field_through_a_component_array_touches_each_element() {
+        // 宣言より前の束縛 `x = p.pin.v + 1` は `p.pin.v` のまま残る。行 k は `p.pin[k].v` に触れる
+        let src = "model Pin Real v; end Pin;
+            model Plug Pin pin[2]; end Plug;
+            model M Real x[2] = p.pin.v + 1; Plug p; equation p.pin[1].v = 1; p.pin[2].v = 2; end M;";
+        let m = Project::from_sources([("t.mo", src)]).flatten("M").unwrap();
+        let d = build(&m).unwrap();
+        assert!(d.is_balanced() && d.is_regular());
+        // 行 0・1 は pin[k].v = k、行 2・3 が x の束縛。未知数は pin[1].v・pin[2].v・x[1]・x[2]
+        assert_eq!(d.structure.incidence[2], [0, 2]);
+        assert_eq!(d.structure.incidence[3], [1, 3]);
+    }
+
+    #[test]
+    fn field_after_a_call_of_a_record_function_is_read() {
+        // 欄ごとの束縛 `r.T = f(time).T`（呼び出しのあとの欄）を読み直せる
+        let d = dae("record R Real T; Real p; end R;
+            function f input Real x; output R y; algorithm y.T := x; y.p := 2 * x; end f;
+            model M R r = f(time); end M;");
+        assert_eq!((d.counts.equations, d.counts.unknowns), (2, 2));
     }
 }

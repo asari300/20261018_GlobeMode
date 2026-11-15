@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S324 レコードの束縛と配列のコネクタ — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S324 レコードの束縛と配列のコネクタ">
+
+<section class="slide" id="S01">
+  <span class="tag">S324 · 2026-11-15 · Track B</span>
+  <h1>平坦化で断る理由の上位 2 つを減らす</h1>
+  <p class="lead">composite-binding 155 本、connect-array 72 本</p>
+  <div class="big">平らにできた MSL の例題 279 → 358 本（回帰 0）</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">レコードの束縛</span>
+  <h1>相手の欄でなく、自分の型の欄に束縛する</h1>
+  <ul>
+    <li>S297 の見立ては「宣言全体の巻き戻しと取り直し」（46 本）</li>
+    <li>束縛される側の型の欄 <code>f</code> に <code>other.f</code> を当てれば、相手が後ろの宣言でも要らない</li>
+    <li>修飾の表の特別な名前 <code>"*"</code>（<code>WHOLE</code>）に <code>other</code> を置き、欄ごとに接尾辞 <code>.f</code>・<code>.f.g</code> を足す</li>
+    <li>優先順は、外側の明示した修飾、<code>r = other</code>、宣言の既定値</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">そのほかの形</span>
+  <h1>関数の戻り値・外部オブジェクト・配列</h1>
+  <table class="compact">
+    <thead><tr><th>形</th><th>やり方</th></tr></thead>
+    <tbody>
+      <tr><td><code>R = Frames.nullRotation()</code></td><td>評価せず <code>R.T = Frames.nullRotation().T</code> と欄ごとに</td></tr>
+      <tr><td><code>tableID = ExternalCombiTable1D(…)</code></td><td>不透明な 1 つの変数。束縛は呼び出しの式のまま</td></tr>
+      <tr><td><code>portsData[] = {R(…), R(…)}</code></td><td>要素の式ごとに（1 次元）</td></tr>
+      <tr><td><code>states[] = statesFM</code></td><td><code>statesFM[k].f</code> を束縛</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">connect-array</span>
+  <h1>要素ごとの接続に展開してから集合を作る</h1>
+  <ul>
+    <li><code>source.sineVoltage.p</code> → <code>source.sineVoltage[k].p</code>（部品の配列を通した端）、<code>a.pin</code> → <code>a.pin[k]</code></li>
+    <li>配列の変数 1 つ（<code>i[m]</code>）と要素ごとの端は <code>i[k]</code> に分けて組にする</li>
+    <li>方程式にある <code>a.pin.v</code> は、数を要素の数にし、Rumoca の flat と同じ <code>{a.pin[1].v, …}</code> と印字する</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">結果</span>
+  <h1>MSL の例題 566 本（S297 → S324）</h1>
+  <table>
+    <thead><tr><th>項目</th><th>前</th><th>後</th></tr></thead>
+    <tbody>
+      <tr><td>自前で平らにできた本数</td><td>279</td><td>358</td></tr>
+      <tr><td>composite-binding で断った</td><td>155</td><td>31</td></tr>
+      <tr><td>connect-array で断った</td><td>72</td><td>1</td></tr>
+      <tr><td>名前の集合の一致（Rumoca も通った本数）</td><td>273 / 273</td><td>350 / 350</td></tr>
+      <tr><td>方程式の数の一致</td><td>273 / 273</td><td>340 / 350</td></tr>
+      <tr><td>釣り合いの判定の一致</td><td>201 / 201</td><td>253 / 253</td></tr>
+      <tr><td>構造の正則の一致</td><td>201 / 201</td><td>249 / 253</td></tr>
+    </tbody>
+  </table>
+  <p>回帰 0 本、改善 96 本（S325 の 17 本を含む。S324 だけでは 79 本）</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>Rotational の 10 本は <code>tau0 = mu0*cgeo*fn</code> を Rumoca が 2 本と数える（原因は未確認）</li>
+    <li>新しい上位: 条件つきの宣言 58、配列の修飾 38（MultiBody の <code>cylinders[n]</code>）、<code>Complex</code> の式 31、<code>stream</code> 20</li>
+    <li><code>f(…).T</code> を DAE が読めない（<code>MixtureGases</code> 1 本。S325 へ）</li>
+  </ul>
+  <pre><code>cargo test -p globe-mode-flat
+mise run msl:diff-frontend</code></pre>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
