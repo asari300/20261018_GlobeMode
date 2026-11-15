@@ -134,3 +134,13 @@ P8 の Diagram / Icon ビューの最初の一切れとして、カーソルの�
 - **検査**: webview から受け取るのは部品の名前（識別子）だけ（`edit.js` の `parseParams`）。`file`・`class` は受け取らず、最後に描かせた図のものを使う。値の字句の検査は Rust の `set_modifier` に任せ、断られたら -32803 の理由を `showErrorMessage` に出す（InputBox で数に絞らない。`2*R0` のような式も書ける）。変わらなかった（外す修飾が無い）ときも「ソースは変わらなかった」と出す。
 - **確かめ**: `pnpm test` に `parseParams`（`file`・`class` を捨てる、入れ子・空白つきの名前を断る）・`partParams`（部品直下の 1 段だけ・配列・String・別の部品・モデル自身を除く）・`enumValue` の試験。e2e（`e2e/suite.cjs`、`e2e/fixtures/Params.mo`）に、部品 `r1` の `R` を 100 にすると宣言が `Res r1(R = 100)` になり undo で戻る、空の入力で外れる、列挙が `(mode = Params.Mode.high)` で入る、`1;2` は理由つきで断られて文書が変わらない、の 1 本（QuickPick・InputBox は `panel.ui` の偽物。ダブルクリックは拡張ホストから起こせないので、webview のメッセージをそのまま渡す）。
 - **持ち越し**: キーボードだけで部品のパラメータを開く口（今はダブルクリックのみ。コマンドパレットのコマンドにするのは小さい）、複数の値を一度に直す表、入れ子・`each`・`final`・`redeclare`、配列の部品。
+
+## 付記（S309: VS Code の側のパネルのキーボード操作）
+
+- **S306 の持ち越し「キーボードだけで開く口」と、部品の移動をキーボードでできるようにした。** Rust・LSP は変えない。
+- **洗い出し**: Tab で部品・結線にフォーカスが移って選びになる（S293）。マウスが要ったのは、部品の移動（ドラッグ）、結線の追加（コネクタからのドラッグ）、途中の点（ドラッグ・ダブルクリック）、パラメータ（ダブルクリック）。削除は Tab と Delete で可。
+- **操作**: 選んだ部品を矢印キーで動かす（ドラッグと同じ 2 単位、Shift で 10 単位。Diagram の座標で y 上向き）。1 回の操作ごとに `{type: "move"}` を送り、S264 の `globe/movePart` に流れる。Enter は、部品ならパラメータの入力（S306 の `{type: "params"}`）。宣言の行へ飛ぶのは Space（部品以外の Enter は従来どおり）。コマンド `globeMode.editParams`（「GlobeMode: 部品のパラメータを編集」）は、カーソルが部品の宣言の行にあればその部品、なければ部品の QuickPick で選ぶ。
+- **共有**: 矢印キーから量を決める `nudgeOf` を `src/Svelte/src/lib/diagram-select.ts` に置き、webview と Svelte の `DiagramView`（`onMove` があるとき）が読む。Svelte の Enter は S175 の操作を変えないため宣言の行のまま。
+- **webview**: 連続して押しても取りこぼさないよう、前の編集の結果（`edited`）を待ってから次の `move` を送る（`apply` は待つあいだに文書の版が変わると入れないため）。図は `show` のたびに作り直すので、フォーカスが図の中にあったときは選んだ部品か結線へフォーカスを戻す。CSP・`innerHTML` 不使用は変えない。
+- **確かめ**: `pnpm test` に `nudgeOf`（向き・Shift・結線と選び無しは null）と、webview・package.json・extension.js の配線。e2e に、コマンドでカーソルの部品の `R` を書く（偽の `panel.ui`）、カーソルが外なら部品を選んでから書く、undo で戻る 1 本。webview のキー操作そのものは拡張ホストから起こせないので e2e に無い（S264 と同じ）。
+- **持ち越し**: 結線の追加と途中の点をキーボードで行う口、Svelte の Enter からのパラメータ、実機でのキー操作の目視。
