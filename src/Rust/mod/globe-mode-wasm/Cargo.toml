@@ -11,6 +11,11 @@ publish.workspace = true
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+# S347: `check_with(model, "native")`（自前の段。Track B）。wasm の大きさは +0.35 MB（+1.8%）で、既定に入れた（ADR-0039 の付記 S347）
+default = ["native"]
+native = ["globe-mode/native"]
+
 [dependencies]
 # S035: facade と protocol だけに依存する。S138: 定義ジャンプの解決（`globe_mode_lsp::definition`）だけ lsp から借りる
 globe-mode = { workspace = true, features = ["fmu"] } # S144: export_fmu_bytes
