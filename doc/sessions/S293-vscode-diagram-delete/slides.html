@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S293 VS Code のパネルで削除 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S293 VS Code のパネルで削除">
+
+<section class="slide" id="S01">
+  <span class="tag">S293 · 2026-11-15 · P8</span>
+  <h1>VS Code のパネルでも、部品と結線を消せる</h1>
+  <p class="lead">選んで Delete / Backspace。Svelte の UI と同じ操作</p>
+  <div class="big">Rust・LSP は変えない。選びの処理は共有、拡張は検査して LSP を呼ぶだけ</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">流れ</span>
+  <h1>webview から文書まで</h1>
+  <ul>
+    <li>webview: クリック・Tab で選び（青い枠・太線）、Delete で <code>deletePart</code> / <code>deleteConnect</code> を <code>postMessage</code></li>
+    <li>拡張: <code>edit.js</code> が型と値を検査（端は <code>b[2].p</code> も可）。<code>file</code>・<code>class</code> は受け取らない</li>
+    <li><code>globe/deletePart</code>・<code>globe/deleteConnect</code> の複数の TextEdit を 1 つの <code>WorkspaceEdit</code> で入れる（undo 1 回、保存しない）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">共有と確かめ</span>
+  <h1>選びは <code>diagram-select.ts</code> に出した</h1>
+  <ul>
+    <li><code>pickSel</code>・<code>markSel</code>・<code>deleteOf</code> を Svelte の DiagramView と webview が読む</li>
+    <li>部品のクリックで宣言へ飛ぶとき、フォーカスは webview に残す（エディタへ移ると Delete が文字を消す）</li>
+    <li>試験: <code>pnpm test</code>（検査・選び）と e2e（消す、undo で戻る）</li>
+  </ul>
+  <pre><code>pnpm test   # src/VSCode/globe-mode
+gh workflow run vscode.yml --ref feature/s293-vscode-diagram-delete</code></pre>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

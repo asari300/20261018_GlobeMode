@@ -2,6 +2,7 @@
 <script lang="ts">
   import type { Diagram } from "./backend";
   import { diagramDrag } from "./diagram-drag";
+  import { deleteOf, markSel, pickSel, type Sel } from "./diagram-select";
   import { diagramNodes, viewBoxOf } from "./shape-svg";
   import SvgTree from "./SvgTree.svelte";
 
@@ -20,29 +21,17 @@
     (t.closest("[data-part], [data-hit]") as SVGElement | null)?.focus({ preventScroll: true });
   };
   // S281: 選び。部品か結線（`.hit`）のクリック・フォーカス（Tab）で選び、何も無い所のクリックで外す。キーは svg だけで受ける（エディタの Delete は触らない）
-  let selected = $state<{ part: string } | { key: string } | null>(null);
-  const pick = (e: Event) => {
-    const t = e.target as Element;
-    const part = t.closest("[data-part]")?.getAttribute("data-part");
-    const hit = t.closest("[data-hit]")?.getAttribute("data-hit");
-    if (part != null) selected = { part };
-    else if (hit != null) selected = { key: hit };
-    else if (e.type === "click") selected = null;
-  };
+  let selected = $state<Sel>(null);
+  const pick = (e: Event) => (selected = pickSel(e.target as Element, e.type, selected));
   $effect(() => {
     diagram;
-    const sel = selected;
-    svg?.querySelectorAll(".sel").forEach((e) => e.classList.remove("sel"));
-    if (!sel) return;
-    const found = [...(svg?.querySelectorAll("[data-part], [data-conn]") ?? [])].filter((e) => ("part" in sel ? e.getAttribute("data-part") === sel.part : e.getAttribute("data-conn") === sel.key));
-    found.forEach((e) => e.classList.add("sel"));
-    if (!found.length) selected = null; // 編集で消えた
+    selected = markSel(svg, selected); // 編集で消えた対象は外れる
   });
   const key = async (e: KeyboardEvent) => {
-    if ((e.key === "Delete" || e.key === "Backspace") && selected && onDelete) {
+    const del = onDelete && deleteOf(selected, e.key);
+    if (del) {
       e.preventDefault();
-      const [from, to] = "key" in selected ? selected.key.split(" ") : [];
-      await onDelete("part" in selected ? { part: selected.part } : { from, to });
+      await onDelete!(del);
     } else if (e.key === "Enter" || e.key === " ") jump(e);
   };
   // S250・S261・S264: ドラッグ（部品の移動と結線）は diagram-drag.ts（VS Code の webview と共通）。動かすのは見た目の transform だけで、離したら onMove・onConnect。編集できなければ元へ戻す
