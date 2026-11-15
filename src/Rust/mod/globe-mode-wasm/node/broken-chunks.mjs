@@ -1,6 +1,7 @@
 // 分割配信の塊が壊れている・索引と合わないときに、Worker が固まらず誤りで返り、直せば再試行で通ることの試験（#110）。
 //
 //   node broken-chunks.mjs [--pkg DIR]     （MSL は要らない。3 ファイルの小さなライブラリを pack する）
+// S340: 塊を 1 本のパック（packFile）にした束（Android）も、パックが無ければ誤りで返り、置けば通ることを確かめる。
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -8,7 +9,7 @@ import { pathToFileURL } from "node:url";
 import { Worker } from "node:worker_threads";
 import assert from "node:assert/strict";
 import { GlobeWorker } from "../web/client.js";
-import { pack } from "../web/pack.js";
+import { pack, packFile } from "../web/pack.js";
 import { defaultPkg } from "./common.mjs";
 
 const args = process.argv.slice(2);
@@ -46,4 +47,15 @@ assert.match(await check("壊れた 2 回目"), /壊れている/);
 put(bad, JSON.stringify(chunks[bad])); // 配信が直れば再試行で通る
 assert.equal(await check("直したあと"), true);
 console.log("壊れた塊・索引と合わない塊: 固まらず誤りで返り、直せば通る");
+
+// S340: パック（pack.bin）の束。索引の pack.at の範囲で塊を切り出す（パックが無ければ誤り、置けば通る）
+const pdir = mkdtempSync(join(tmpdir(), "globe-pack-"));
+const pidx = structuredClone(index);
+const bytes = packFile(pidx, chunks);
+writeFileSync(join(pdir, "index.json"), JSON.stringify(pidx));
+await w.libraryIndex(pathToFileURL(join(pdir, "index.json")).href, "Lib");
+assert.match(await check("パックが無い"), /ENOENT|パック/);
+writeFileSync(join(pdir, "pack.bin"), bytes);
+assert.equal(await check("パックを置いた"), true);
+console.log(`パックの束: 塊 ${chunks.length} 本を ${bytes.length} B の pack.bin から切り出して通る`);
 await w.terminate();

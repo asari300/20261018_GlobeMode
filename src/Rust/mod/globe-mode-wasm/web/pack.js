@@ -3,6 +3,8 @@
 // index = { chunks: 塊の数, chunk: 名前 → 塊の番号, stubs: 名前 → 見出し, real: 名前 → 本文（見出しにできないファイル）,
 //           deps: 塊の番号 → その塊のファイルが直接参照する他の塊の番号の配列（S308。Worker の先読み）, prefetch: 先読みの深さ }
 // chunks[i] = 名前 → 本文。同じディレクトリのファイルを cap 文字以内でまとめる（Worker は閉包に要るファイルを含む塊を取る）。
+// S340: Android の APK は塊を 1 本ずつ圧縮するので、塊 838 本は MSL.json より 1.2 MB 大きい。Android の束だけ packFile で塊を 1 本のパックにまとめ、
+// 索引の pack = { url, at }（at[i]〜at[i+1] が塊 i のバイト範囲）を足す（Worker はパックを 1 回取り、塊を slice で切り出す）。
 // 先読みの深さ（S308）: 閉包に要る塊から deps を何段たどって、まとめて取るか。測った前後は ADR-0023 の S308。
 export const PREFETCH = 2;
 
@@ -25,4 +27,12 @@ export function pack(files, treeStub, fileDeps, cap = 16 * 1024, prefetch = PREF
   for (const [n, ds] of Object.entries(JSON.parse(fileDeps(JSON.stringify(files)))))
     for (const d of ds) if (chunk[d] !== chunk[n]) deps[chunk[n]].add(chunk[d]);
   return { index: { chunks: chunks.length, chunk, stubs, real, deps: deps.map((d) => [...d].sort((a, b) => a - b)), prefetch }, chunks };
+}
+
+// 塊の JSON を UTF-8 のまま連結したパックのバイト列を返し、index.pack を足す。ファイルへの書き出しは呼び手
+export function packFile(index, chunks, url = "pack.bin") {
+  const bufs = chunks.map((c) => Buffer.from(JSON.stringify(c)));
+  let n = 0;
+  index.pack = { url, at: [0, ...bufs.map((b) => (n += b.length))] };
+  return Buffer.concat(bufs);
 }
