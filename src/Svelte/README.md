@@ -28,7 +28,8 @@ mise run ui:build            # dist/ に静的サイトを作る
 
 - **Esc で止める**: 実行中の Esc は Ctrl+. と同じ（入力欄・select・ダイアログの中では奪わない。補完の一覧が開いていれば CodeMirror が閉じるだけ）。
 - **タブの並べ替え**: タブのドラッグ&ドロップ（HTML5 の `draggable`）と Ctrl+Shift+PageUp / PageDown（Cmd も）。順序は `globe-mode.tabs` に 300 ms のまとめ書きで残り、動かしたあとも開いているタブと `aria-selected` は同じ。ブラウザによっては Ctrl+Shift+PageUp / PageDown をブラウザのタブの移動に使うが、ページが先に受けて止める。
-- **設定のモデルごとの保存**: `SimSettings.svelte` の欄（ソルバ・時刻・許容誤差・間隔・刻み幅・予算・パラメータ）は、モデル名ごとに localStorage の `globe-mode.sim`（モデル名 → 触った欄だけ。上限 50 モデル）へ残る。モデル名を変える・タブを切り替えると、そのモデルの保存に入れ替わる（保存が無ければ既定）。「設定を既定に戻す」でそのモデルの保存を消す。クラス名のリネーム（F2）でモデル名が変わると、新しい名前の保存（無ければ既定）に入れ替わる。
+- **複数のソルバ（S323、[ADR-0040](../../doc/adr/0040-multi-solver-compare.md)）**: `SimSettings.svelte` の「ソルバの選び方」で「複数」を選ぶとチェックボックス（`fieldset`・`legend`。1〜16）、「実行の仕方」（1 つずつ／並列。ブラウザは 1 つずつに落ちる旨を欄に出し、応答の `mode_note` を表に出す）、「全部終わったら結果を比べる」（閾値 10^-n の n と基準のソルバ）が出る。許容誤差・最大積分次数（cvode・ida だけが使う）は全部に同じ値で渡る。設定は `many`（`lib/many.ts` の `ManyConfig`）として App に渡り、`App.svelte` の `simulateMany` が `Backend.simulateMany` を呼ぶ（進捗はソルバごと）。列は `mergeRuns` が時刻の和集合に折れ線で補って `x [bdf]` の名前で 1 つの `Columns` に重ね（`Plot` はそのまま）、`ManyResult.svelte` が実行の表（状態・時間・注記）と比較の表（ソルバ・合否・外れた信号・最大のはみ出し量・最初の時刻。全体の合否は文字）を出す。試験は `test_ui.py` の `multi_solver`。
+- **設定のモデルごとの保存**: `SimSettings.svelte` の欄（ソルバ・時刻・許容誤差・最大積分次数・間隔・刻み幅・予算・パラメータ、S323 から複数のソルバの選択・並列・比較の設定）は、モデル名ごとに localStorage の `globe-mode.sim`（モデル名 → 触った欄だけ。上限 50 モデル）へ残る。モデル名を変える・タブを切り替えると、そのモデルの保存に入れ替わる（保存が無ければ既定）。「設定を既定に戻す」でそのモデルの保存を消す。クラス名のリネーム（F2）でモデル名が変わると、新しい名前の保存（無ければ既定）に入れ替わる。
 - **開始時刻・刻み幅・予算**: protocol の `settings.start_time` / `step` / `max_wall_seconds`。刻み幅は固定刻みのソルバ（`euler`・`heun`・`rk4`・`impeuler`・`trapezoid`）を選んだときだけ有効で、他のソルバでは送らない。GM-E10004（出力が 1000 万点を超えるなど）は欄の下の赤字（`data-refusal`）にも出る。
 
 ## 実行とプロット（S042）

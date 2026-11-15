@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S323 multi-solver-ui — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S323 multi-solver-ui">
+
+<section class="slide" id="S01">
+  <span class="tag">S323 · 2026-11-15 · P4 / P8</span>
+  <h1>複数のソルバの UI</h1>
+  <p class="lead">S322 の計算の側（<code>Backend.simulateMany</code>）に、実行の設定と結果の表示をつなぐ</p>
+  <div class="big">「複数」を選ぶと、チェックボックス・並列・比較の欄が出る。結果は<b>重ね描き</b>と<b>表</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">実行の設定</span>
+  <h1>足した欄（既定は今までと同じ）</h1>
+  <table>
+    <tr><th>欄</th><th>既定</th><th>メモ</th></tr>
+    <tr><td>ソルバの選び方</td><td>1 つ</td><td>複数はチェックボックス（1〜16）</td></tr>
+    <tr><td>実行の仕方</td><td>1 つずつ</td><td>ブラウザは並列を選べても 1 つずつと注記</td></tr>
+    <tr><td>全部終わったら比べる</td><td>off</td><td>n（既定 6）と基準のソルバ</td></tr>
+    <tr><td>最大積分次数</td><td>空</td><td>cvode・ida だけが使う。許容誤差と共に全部へ同じ値</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">結果</span>
+  <h1>重ね描きと 2 つの表</h1>
+  <ul>
+    <li>プロットは信号名を <code>x [bdf]</code> にして重ねる（凡例がソルバ名）</li>
+    <li>実行の表: ソルバ・状態・時間・注記（失敗・中断も）</li>
+    <li>比較の表: ソルバ・合否・外れた信号・最大のはみ出し量・最初の時刻</li>
+    <li>合否は色でなく<b>文字</b>（合格／不合格）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">次回</span>
+  <h1>持ち越し</h1>
+  <ul>
+    <li>複数のときの「それでも実行する」（応答に <code>can_force</code> が無い）</li>
+    <li>ソルバごとの許容誤差</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

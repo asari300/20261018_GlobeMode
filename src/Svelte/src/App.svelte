@@ -12,7 +12,9 @@
   import { TauriBackend, inDesktop, tabKey } from "./lib/tauri-backend";
   import type { Backend, Diagram, Documentation, FmuInfo, FmuRunRequest, Icon, TreeEntry } from "./lib/backend";
   import type { Columns } from "./lib/plot/csv";
-  import type { CheckResponse, Diagnostic, Linearization, ResolvedSettings, SimulateRequest } from "./lib/protocol";
+  import type { CheckResponse, Diagnostic, Linearization, ResolvedSettings, SimulateManyResponse, SimulateRequest } from "./lib/protocol";
+  import ManyResult from "./lib/ManyResult.svelte";
+  import { mergeRuns, type ManyConfig } from "./lib/many";
   import LinearizeView from "./lib/LinearizeView.svelte";
   import Plot from "./lib/plot/Plot.svelte";
   import Graph from "./lib/graph/Graph.svelte";
@@ -56,6 +58,8 @@
   // S142: 実行の設定（SimSettings が作る）、検査で分かった experiment、直近の実行の設定と出どころ
   let simSettings = $state<NonNullable<SimulateRequest["settings"]>>({});
   let settingsProblem = $state("");
+  let many = $state<ManyConfig | null>(null); // S323: 実行の設定で「複数」を選んだとき（SimSettings が作る）
+  let manyResult = $state.raw<SimulateManyResponse | null>(null); // 直近の複数ソルバの実行の応答（表に出す）
   let experiment = $state<CheckResponse["experiment"]>();
   let openParams = $state<{ part: string } | null>(null); // S248: 図の部品のダブルクリックでパラメータのダイアログを開く合図（SimSettings へ）
   let checkedModel = $state<{ model: string } | null>(null); // S150: 検査したモデル（SimSettings が上書きできるパラメータの一覧を取る合図。検査のたびに新しい値）
@@ -470,6 +474,39 @@
     return e && line && !head.includes(line) ? `${head}\n${e.code} ${line}` : head;
   };
 
+  // S323（ADR-0040）: 複数のソルバ。列は重ねて 1 つのプロットに、比較と実行の表は ManyResult に出す。進捗はソルバごと
+  async function simulateMany(m: string, cfg: ManyConfig, force: boolean) {
+    if (!backend.simulateMany) { failure = "この実行環境は複数のソルバの実行に対応していない"; return; }
+    runState = "running";
+    runNote = "実行中";
+    const prog: Record<number, string> = {};
+    let out;
+    try {
+      out = await backend.simulateMany({ model: m, settings: simSettings, solvers: cfg.solvers, parallel: cfg.parallel, compare: cfg.compare, force }, (p) => {
+        const pct = p.time === undefined ? "" : ` ${Math.floor((100 * (p.time - p.start_time)) / (p.stop_time - p.start_time || 1))}%`;
+        prog[p.index ?? 0] = `${p.solver ?? cfg.solvers[p.index ?? 0]} ${p.stage}${pct}`;
+        runNote = `実行中: ${Object.values(prog).join("、")}`;
+      });
+    } catch (e) {
+      if (!(e as { cancelled?: boolean }).cancelled) throw e;
+      runState = "cancelled";
+      runNote = "止めた（途中の結果は出ない）";
+      return;
+    } finally {
+      if (runState === "running") { runState = "idle"; runNote = ""; }
+    }
+    const { response: r, columns: cs } = out;
+    diagnostics = bySeverity(r.diagnostics);
+    lastSettings = null;
+    lastFinal = [];
+    forced = force;
+    manyResult = r;
+    columns = mergeRuns(r.runs, cs);
+    const stopped = r.runs.filter((x) => x.status === "cancelled");
+    if (stopped.length) { runState = "cancelled"; runNote = `止めた（${stopped.map((x) => x.solver).join("、")}。そこまでの列は表示）`; }
+    if (r.refused) failure = firstError(r.refused, r.diagnostics);
+  }
+
   const simulate = (force = false) => {
     const m = model; // S196: 押した時点のモデル名
     return run(async () => {
@@ -477,6 +514,8 @@
       if (settingsProblem) { document.querySelector<HTMLElement>(".settings [aria-invalid=true]")?.focus(); return; }
       unsupported = "";
       canForce = null;
+      manyResult = null;
+      if (many) return simulateMany(m, many, force);
       runState = "running";
       runNote = "実行中";
       let out;
@@ -507,8 +546,9 @@
       if (r.refused) failure = firstError(r.refused, r.diagnostics, r.unsupported);
       else if (!r.ok && !r.diagnostics.length) failure = "実行に失敗した（診断なし）";
     }).then(() => {
-      if (!failure && !settingsProblem && !unsupported && runState !== "cancelled") live = `実行が完了した: 信号 ${columns ? columns.names.filter((n) => !isInternal(n)).length : 0} 本、${columns?.points ?? 0} 点`;
-      return reveal(settingsProblem ? ".settings .problem" : diagnostics.some((d) => d.code === "GM-E10004") ? ".settings .refusal" : failure ? ".failure" : columns ? ".plot" : diagnostics.length ? ".diagnostics" : "");
+      if (!failure && !settingsProblem && manyResult && runState !== "cancelled") live = `${manyResult.runs.length} 本のソルバの実行が完了した: 成功 ${manyResult.runs.filter((x) => x.status === "ok").length} 本${manyResult.comparison ? `、比較は${manyResult.comparison.passed ? "合格" : "不合格"}` : ""}`;
+      else if (!failure && !settingsProblem && !unsupported && runState !== "cancelled") live = `実行が完了した: 信号 ${columns ? columns.names.filter((n) => !isInternal(n)).length : 0} 本、${columns?.points ?? 0} 点`;
+      return reveal(settingsProblem ? ".settings .problem" : diagnostics.some((d) => d.code === "GM-E10004") ? ".settings .refusal" : failure ? ".failure" : manyResult ? ".many" : columns ? ".plot" : diagnostics.length ? ".diagnostics" : "");
     });
   };
 
@@ -653,7 +693,7 @@
     const prev = tabs[cur];
     Object.assign(prev, { file, model, own, state: view.state, diagnostics, saved });
     // S196: 前のタブのものは持ち越さない（リネームの入力欄は前のタブの位置、参照の一覧の行は前の本文の位置、未対応・強行・最後の値は前のタブの実行の結果）
-    refs = []; renaming = null; unsupported = ""; canForce = null; forced = false; lastFinal = []; strayLib = ""; roHit = false;
+    refs = []; renaming = null; unsupported = ""; canForce = null; forced = false; lastFinal = []; manyResult = null; strayLib = ""; roHit = false;
     const t = tabs[i];
     if (prev.own && prev.file !== t.file) void backend.setFile(prev.file, "").catch(() => {}); // 離れた自分のファイルは Workspace から外す（同じクラスの二重定義を避ける。S141）
     cur = i;
@@ -969,7 +1009,7 @@
   {#if canForce === model}<p class="note" data-can-force><button onclick={() => simulate(true)} disabled={busy}>それでも実行する</button> 検査の Error を無視して実行する（強行）。結果は信頼できないことがある。</p>{/if}
   {#if forced}<p class="note forced" role="status" data-forced>強行した実行: 検査の Error を無視して実行した結果。信頼できないことがある。</p>{/if}
   {#if strayLib === model && own && !models.includes(model)}<p class="note" role="status" data-stray>モデル「{model}」はライブラリのもので、エディタの {baseName(file)} には無い。<button onclick={() => openLibrary({ path: model })} disabled={busy}>ライブラリのファイルを開く</button></p>{/if}
-  <SimSettings {backend} {model} {experiment} errors={diagnostics.filter((d) => d.code === "GM-E10004" || d.code === "GM-E10006")} {openParams} onwrite={writeModifiers} checked={checkedModel} last={lastSettings} bind:settings={simSettings} bind:problem={settingsProblem} />
+  <SimSettings {backend} {model} {experiment} errors={diagnostics.filter((d) => d.code === "GM-E10004" || d.code === "GM-E10006")} {openParams} onwrite={writeModifiers} checked={checkedModel} last={lastSettings} bind:settings={simSettings} bind:many bind:problem={settingsProblem} />
   {#if tauri}<p class="note" data-config>
     <button onclick={async () => { configNote = ""; try { await tauri.reloadConfig(); configNote ||= "globe-mode.toml を読み直した（無ければ既定）"; } catch (e) { configNote = String(e); } }}>設定を読み直す</button> {configNote}
   </p>{/if}
@@ -1049,6 +1089,7 @@
       {/each}
     </tbody>
   </table>
+  {#if manyResult}<ManyResult result={manyResult} />{/if}
   {#if columns}<Plot {columns} {model} />{/if}
   {#if bltModel}<BltPanel {backend} model={bltModel} />{/if}
   {#if stagesModel}<StagesPanel {backend} model={stagesModel} />{/if}
