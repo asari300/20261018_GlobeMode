@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S331 upstream-table-count — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S331 upstream-table-count">
+
+<section class="slide" id="S01">
+  <span class="tag">S331 · 2026-11-15 · 文書</span>
+  <h1>表の大きさが方程式の数になる誤りは v0.10.4 で直っていた</h1>
+  <p class="lead">S330 が見つけた Rumoca の数え方の誤りを、上流の下書き 36 に記録した（出さない）</p>
+  <div class="big">v0.10.2 で ED001（MSL 10 本）、<b>v0.10.4 で全部通る</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">現象</span>
+  <h1>表から読むスカラーが、表の大きさを引き継ぐ</h1>
+  <div class="cols-2">
+    <div>
+      <pre><code>table = mu_pos  // 3×2
+mu0 = getTable1DValueNoDer2(
+        tableID, 1, 0)  // Real
+tau0 = mu0*cgeo*fn</code></pre>
+      <p class="small muted">MLS ではスカラーの方程式 1 本。v0.10.2 は 6 本と数える</p>
+    </div>
+    <table class="small">
+      <tr><th>表</th><th>v0.10.2</th><th>v0.10.4</th></tr>
+      <tr><td>2×2</td><td>4</td><td>1</td></tr>
+      <tr><td>3×2</td><td>6</td><td>1</td></tr>
+      <tr><td>呼び出しを直に書く</td><td>1</td><td>1</td></tr>
+    </table>
+  </div>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">影響</span>
+  <h1>MSL の 10 本は v0.10.4 ですべて compile が通る</h1>
+  <div class="kpis">
+    <div class="kpi"><span class="n">10</span><span class="l">v0.10.2 で ED001</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">v0.10.4 で ED001</span></div>
+    <div class="kpi"><span class="n">10/10</span><span class="l">自前の flat と数が一致</span></div>
+  </div>
+  <p class="small muted">Rotational の摩擦・歯車 9 本と Translational の Brake。最小の例は MSL の W4（7 本・未知数 2）</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">扱い</span>
+  <h1>出さない。記録し、rev を上げるとき消えることを確かめる</h1>
+  <ul>
+    <li>下書き 36（英語 .md と .mo）。日本語版とスライドは、直った件の慣例どおり作らない</li>
+    <li>GlobeMode 側の回避は要らない。自前の flat は 1 本と数える</li>
+    <li>Rumoca の rev を v0.10.4 に上げる版の最初に、<code>msl:diff-frontend</code> の 340/350 が 350/350 になるかを確かめる</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>確かめ方</h1>
+  <pre><code>rumoca compile W4.mo -m W4 --source-root data/msl   # v0.10.2: ED001
+rumoca compile 36-….mo -m Rep36.B --emit flat-json   # scalar_count</code></pre>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
