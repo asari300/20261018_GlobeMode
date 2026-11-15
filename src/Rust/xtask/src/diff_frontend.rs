@@ -185,6 +185,9 @@ fn run_row(
         for e in &flat.when_equations {
             println!("  when[{}] {}", e.count, e.text);
         }
+        for e in &flat.initial_equations {
+            println!("  ieq[{}] {}", e.count, e.text);
+        }
         for a in &flat.algorithms {
             println!("  algorithm {a}");
         }

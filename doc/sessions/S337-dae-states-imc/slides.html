@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S337 初期方程式の der と状態の数 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S337 初期方程式の der と状態の数">
+
+<section class="slide" id="S01">
+  <span class="tag">S337 · 2026-11-15 · Track B</span>
+  <h1>初期方程式の der と状態の数</h1>
+  <p class="lead">状態の数が合わなかった 2 本は、自前が初期方程式を見ていなかったため</p>
+  <div class="big">状態 332 → 334 / 334、回帰 0</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">原因 1</span>
+  <h1>Rumoca は初期方程式の der も状態にする</h1>
+  <ul>
+    <li><code>IMC_DCBraking</code>: <code>initial equation</code> の <code>der(imc.is[2]) = 0</code> ほか。<code>imc.is</code>（3）と <code>imc.idq_rs</code>（2）で 18 → 23</li>
+    <li><code>IMC_Initialize</code>: <code>der(aimc.idq_sr) = zeros(2)</code> ほか 4 つで 18 → 22</li>
+    <li>Rumoca の <code>analyze_model_roles</code> は初期方程式も走査する。MLS 8.6 は決めていないので、Rumoca の誤りとはしない</li>
+    <li>直し: <code>has_der</code> に初期方程式の <code>der</code> も足す</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">原因 2</span>
+  <h1>ShowTransferFunction の方程式の数</h1>
+  <ul>
+    <li><code>Complex aw[3]</code> は <code>aw[k].re</code>・<code>aw[k].im</code> に展開される</li>
+    <li><code>aw = {… for i in …}</code> の左辺は変数でなく、大きさが引けずに 1 本と数えていた。Rumoca は 3 本</li>
+    <li>直し: <code>aw[k].x</code> の要素の数（<code>record_array_len</code>）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">数字</span>
+  <h1>MSL の例題 566 本（S334 → S337）</h1>
+  <div class="kpis">
+    <div class="kpi"><span class="n">334 / 334</span><span class="l">状態の数（前 332）</span></div>
+    <div class="kpi"><span class="n">452 / 463</span><span class="l">flat の方程式の数（前 451）</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">回帰</span></div>
+  </div>
+  <p>DAE の判定・数・構造の正則は 334 / 334 のまま。改善 3 本。</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>flat の方程式の数の残り（Rumoca の数え方の誤りと見ている 12 本）</li>
+    <li>レコードを渡す incidence は欄すべて（Rumoca は絞る）</li>
+  </ul>
+  <p class="foot">GlobeMode S337</p>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S340 Android の束を 1 本のパックにした — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S340 Android の束を 1 本のパックにした">
+
+<section class="slide" id="S01">
+  <span class="tag">S340 · 2026-11-15 · P6</span>
+  <h1>Android の APK を戻した</h1>
+  <p class="lead">S308 で +9.1% 増えた APK を、塊を 1 本のパックにして +1.7% まで戻した</p>
+  <div class="big">案 A（パック）と案 B（cap を上げる）を両方作って比べ、A を採った</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>なぜ APK が増えたか</h1>
+  <ul>
+    <li>S308 で APK から <code>MSL.json</code> を外し、塊 838 本の分割配信にしたら arm64 で +1.24 MB</li>
+    <li>Tauri は asset を 1 つずつ brotli で圧縮して binary に埋める。16 KiB の塊は辞書を持ち越せない</li>
+    <li>見積もり（brotli q9）: <code>MSL.json</code> 2.08 MB、塊 838 本 3.06 MB + 索引 0.19 MB。差 1.17 MB は実測の差 1.24 MB とほぼ合う</li>
+    <li>残したいもの: 読み込み後の wasm の線形メモリ 62 → 14 MiB</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>2 つの案を両方作った</h1>
+  <table class="compact">
+    <tr><th>案</th><th>中身</th></tr>
+    <tr><td>A（採用）</td><td>Android の束だけ <code>pack.bin</code> に連結し、索引の <code>pack.at</code> に範囲。Worker は 1 回取って <code>Blob.slice</code> で塊を切り出す</td></tr>
+    <tr><td>B（外した）</td><td>Android だけ塊の cap を 16 KiB → 256 KiB。塊は 461 本、先読みは 0</td></tr>
+  </table>
+  <p>ユーザーの指示: 両方を実装して同じ表で比べ、優れた方を採る。採らなかった方は外す</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">結果</span>
+  <h1>APK と実行時のメモリ（同じ 20 本）</h1>
+  <table class="compact">
+    <tr><th></th><th>S308</th><th>案 A</th><th>案 B</th></tr>
+    <tr><td>APK arm64 release</td><td>14,859,242 B</td><td class="ok">13,847,114 B（+1.7%）</td><td>14,432,522 B（+6.0%）</td></tr>
+    <tr><td>asset 数</td><td>839</td><td class="ok">2</td><td>462</td></tr>
+    <tr><td>ChuaCircuit の往復・塊</td><td>3・179</td><td>3・179</td><td>8・95</td></tr>
+    <tr><td>線形メモリ（Chua 後 / 20 本後）</td><td>80.6 / 289.3 MiB</td><td>80.6 / 289.3 MiB</td><td>81.1 / 294.6 MiB</td></tr>
+    <tr><td>smoke（msl=ok を含む）</td><td>ok</td><td>ok</td><td>ok</td></tr>
+  </table>
+  <p>基準の <code>MSL.json</code> 時代は 13,616,490 B。20 本は全部読みと 20 / 20 一致</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">選んだ理由</span>
+  <h1>A が勝つ</h1>
+  <ul>
+    <li><strong>APK</strong>: A は索引の約 0.2 MB だけが増える。B は cap を上げても塊が 446 本から減らず（ディレクトリごとに分ける）、0.5〜0.6 MB の損が残る</li>
+    <li><strong>メモリ</strong>: A は読む塊が S308 と同じなので線形メモリも往復も同じ。B は先読みを効かせると取りすぎる（20 本で最大 341 MiB）</li>
+    <li><strong>Blob</strong>: パックは Worker の JS ヒープに載せない（ArrayBuffer なら +15.2 MiB）</li>
+    <li><strong>ブラウザ版</strong>は変えない（<code>web.yml</code> の束は <code>c/*.json</code> のまま）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>実機の WebView での Blob のメモリと速度（今回はエミュレータの smoke まで）</li>
+    <li>索引（約 0.2 MB）を縮めれば APK がさらに戻る</li>
+    <li>ブラウザ版も 1 本にするかは、回線から塊だけ取れる利点とのトレード。今回は変えない</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

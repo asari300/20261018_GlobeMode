@@ -532,6 +532,13 @@ pub fn build(m: &FlatModel) -> Result<Dae, Unsupported> {
     {
         has_der.extend(cx.refs(node).iter().filter(|r| r.der).map(|r| r.var));
     }
+    // 初期方程式の `der(x) = 0` も `x` を状態にする（Rumoca と同じ。MLS 8.6 は決めていない。S337）。
+    // shortcut: 読めない初期方程式は黙って飛ばす（釣り合いには数えないので、状態の数だけが変わる）
+    for e in &m.initial_equations {
+        if let Ok(root) = parse_in_model("equation", &e.text) {
+            has_der.extend(cx.refs(&root).iter().filter(|r| r.der).map(|r| r.var));
+        }
+    }
     let mut when_assigned = HashSet::new();
     for (w, _) in &whens {
         for n in w.descendants().filter(|n| n.kind() == K::Equation) {
@@ -833,6 +840,19 @@ mod tests {
     fn dae(src: &str) -> Dae {
         let p = Project::from_sources([("t.mo", src)]);
         build(&p.flatten("M").unwrap()).unwrap()
+    }
+
+    #[test]
+    fn der_in_initial_equation_makes_state() {
+        // y は代数変数だが、初期方程式で `der(y)` を使うので Rumoca と同じく状態に数える
+        let d = dae(
+            "model M Real x(start=1); Real y; equation der(x) = -x; y = 2 * x; \
+             initial equation der(y) = 0; end M;",
+        );
+        assert_eq!(
+            (d.counts.states, d.counts.unknowns, d.counts.equations),
+            (2, 2, 2)
+        );
     }
 
     #[test]

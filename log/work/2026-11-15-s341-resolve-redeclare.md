@@ -33,6 +33,8 @@ Track B の自前の resolve（`globe-mode-resolve`）で、MSL の例題 566 �
 - `cargo test -p globe-mode-resolve -p globe-mode-syntax -p globe-mode-flat -p globe-mode-lsp`（全 pass）、`-p globe-mode-frontend --features native`（全 pass）、`-p globe-mode-lsp --test resolve_compare -- --ignored`（定義ジャンプの Rumoca との突き合わせ: 型名 110 箇所は一致 110・不一致 0、成分参照の続き 93 箇所は一致 86・LSP が null 7・不一致 0。S275 と同じ）、clippy（syntax・resolve・flat・xtask、`-D warnings`）0 件、`cargo fmt --check` 差分なし。
 - `check_docs.py`: 全デッキ OK、相対リンク 5172 件中の切れ 0 件。`render_slides.py`（S341 のデッキ）: 問題 0 件。
 
+- main（S337・S340・S342・S343）を取り込んだ。衝突は `doc/architecture.md`・`features.md`・`roadmap.md`・`sessions/README.md`（どちらも 1 行の長い行を直していた）と `doc/frontend-diff.md`（生成物）。前の 4 つは main の版を取り、S341 の置き換えを当て直した。`frontend-diff.md` は main の版（S337 の数字）の resolve の行（467 → 566、75/75、未解決の参照 0）と理由の表だけを手で直した。**ほかの WP をマージした後で `mise run msl:diff-frontend` を回して再生成すること**（今の版は main の版と S341 の継ぎ合わせ）。取り込み後に `cargo test -p globe-mode-resolve -p globe-mode-syntax -p globe-mode-flat -p globe-mode-dae -p globe-mode-lsp`（全 pass）・clippy・fmt・`check_docs.py`（リンク切れ 0）を通し直した。`msl:diff-frontend` は取り込み前の木で回した数字。
+
 ## 残したこと
 
 - 部品の修飾の中の `A a(redeclare T x)`（MSL の例題には出ていない）。
