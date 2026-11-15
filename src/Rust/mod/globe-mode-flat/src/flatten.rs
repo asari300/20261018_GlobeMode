@@ -1919,7 +1919,7 @@ impl F<'_> {
                     }
                     "sqrt" => Some(Val::R(v(0)?.f().sqrt())),
                     // shortcut: MSL の 1 つの関数だけを決め打つ（`for k in 1:mSystems` の範囲）。関数の評価器ができたら置き換える
-                    "numberOfSymmetricBaseSystems" => {
+                    f if f.rsplit('.').next() == Some("numberOfSymmetricBaseSystems") => {
                         let r = c.syntax().children().find_map(ast::ComponentRef::cast)?;
                         let Some(Resolution::Class(rid)) = self.p.res_of(file, r.range()) else {
                             return None;

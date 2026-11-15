@@ -132,6 +132,19 @@ Track B（自前コア）は B1 rowan の CST と寛容なパーサ → B2 resol
 - **DAE（S325 の担当）への申し送り**: レコードを返す関数の値 `R.T = f(…).T` は、`globe-mode-dae` が方程式の印字を読み直すとき `f(…).T`（呼び出しのあとの `.欄`）を読めず `dae-parse` になる（`Modelica.Media.Examples.MixtureGases` の 1 本。ほかは `parameter` の束縛で、方程式にならない）。`globe-mode-syntax` の式の読み方に、呼び出しのあとの欄の参照を足すか、DAE 側で受けるかは S325 に任せる。
 - **持ち越し**: `Complex` の演算子の式をレコードの束縛にする（`re`・`im` に分ける。31 本）、配列のレコードの修飾 `each` でない配列の値（`cylinders[n](length = {…})`、38 本）、条件つきの宣言の評価（58 本）、`stream`（20 本）、Rotational の方程式の数 10 本の原因（Rumoca 側の数え方）。
 
+## 付記（S329）: B3 の続き、部品の配列への修飾・`Complex` の演算子・条件と範囲の評価
+
+新しい ADR は立てず、S324 の続きとしてここに足す。変えたのは `globe-mode-flat` の中だけ（`globe-mode-dae` は触っていない）。S324 の後に上位になった断る理由（array-modification 38、conditional-component 58、composite-binding 31、non-constant-for 16）を減らした。
+
+- **部品の配列への修飾**（`split_mod`）: `c[n](a = {…})`・`fill(x, n…)` を要素ごとの修飾に分ける。1 次元で項が並んだ `{…}` は項そのもの、`for` つきの内包と多次元は `({…})[k]`・`({…})[i,j]`（式には括弧を付けて印字）、`fill` は次元の数が合うとき `x`。`each` は分けない。項の数が合わなければ `array-modification` で断る。array-modification 38 → **0**。
+- **`Complex` の演算子**（`complex_parts`・`cx_bin`）: 束縛が `+ - * /`・単項 `-`・`if`・`Complex(re, im)`・`ComplexMath` の関数の式のとき、評価せず欄 `re`・`im` の式にする（`a - b` → `.re = a.re - b.re`、`.im = a.im - b.im`。`*`・`/` は MSL の `Complex` の定義どおり）。**演算子の関数の中身は読まず、MSL の `Complex` の定義を決め打つ**（演算子の関数の `algorithm` を読んで展開するには、引数の型による解決を作る必要があり、`+ - * /` の 4 つで足りるので小さい方を選んだ）。Real の被演算子は虚部を持たず、0 の項は出さない。型が分からない参照（宣言が後ろの部品）は Complex と見なす。`^`・`==` は断る。`x.i[1]` のように添字のある参照は `WHOLE` で欄ごとに束縛する。式は `Bind::lit`（評価せず組み立てた文字列）に持つ。
+- **条件・範囲の評価**: 文字列の比較（`terminalConnection <> "D"`。中身でなく hash を持つ `Val::S`）、`outer` の部品の欄 `world.enableAnimation` を inner の名前に付け替え、まだ平らにしていない（宣言が後ろの）inner の欄を修飾か型の既定値から引く（`pending_field`）、条件が定数に決まる `if` のレコードの式は選ばれた枝（`R_rel = if rotationType == … then … else …`）、`for k in 1:mSystems` の `numberOfSymmetricBaseSystems(m)`（MSL のこの 1 つの関数だけを決め打つ）。
+- **Rumoca の flat との突き合わせ**（MSL の例題 566 本、`mise run msl:diff-frontend`。S324 → S329）: 自前で平らにできた本数 **358 → 471**（回帰 0、改善 113 本）。Rumoca も通った本数が 350 → 463。名前の集合 350/350 → **425/463**、方程式の数 340/350 → **435/463**。DAE は Rumoca の釣り合いまで通った 253 → 297 本で判定 253/253 → 295/297、状態の数 253/253 → 293/297、構造の正則 249/253 → 289/297。`GlobeModeValidation` の 75 本は変わらない。646 s、最大 RSS 4.8 GiB。
+- **名前の食い違いの内訳**（flat まで通ったのに合わない 51 本。flat の本数が増えても同じ 51 本）: 37 本は `cylinders[n](…)`（MultiBody の `Visualizers.Internal.Lines`）と `Complex aw[2]`（`ShowTransferFunction`）のような**部品・レコードの配列で、Rumoca が要素に展開せず `cylinders.R.T` のように 1 つの配列の変数にする**（自前は `cylinders[1].R.T` …）。同じ要素でも `Pin pin[m]` は Rumoca も展開するので、Rumoca が展開しない条件（非 `each` の配列の修飾か、大きさを評価できないとき）は未確認。ほかは Rotational・Translational の 10 本（S324 から。`tau0 = mu0*cgeo*fn`）、`ActuatorWithNoise`（方程式 728 対 736）、`EngineV6`・`EngineV6_analytic`（方程式 7392 対 7464・6583 対 6631。DAE も状態の数が合わない）で、原因は未確認。
+- **断った理由の内訳**（最初の理由。S324 → S329）: array-modification 38 → 0、conditional-component 58 → 0、composite-binding 31 → 25（`Complex` でない関数の戻り値・`Complex` の `^` など）、non-constant-for 16 → 1、unsized-array 26 → 28、stream 21 → 22、connect 9、non-constant-dim 6、expandable 3 → 4、connect-array 1。
+- **DAE（S330 の担当）への申し送り**: flat まで通って DAE が読めなかったのは 41 本（DAE 430/471）。`f(…).T`（`Frames.nullRotation().T`）が 37 本、`if` の式・括弧の読み（`expected else`・`expected )`）が 4 本。`globe-mode-dae` か `globe-mode-syntax` の式の読み方の側の宿題。
+- **持ち越し**: `stream`（22 本）、unsized-array（27 本。`table = if n > 0 then …` など関数の戻り値の大きさ）、`numberOfSymmetricBaseSystems` の決め打ちを関数の評価器に置き換えること、Rumoca が配列を展開しない条件の確認、`EngineV6`・`ActuatorWithNoise` の方程式の数。
+
 ## 付記（S279）: LSP の補完を自前の構文と名前解決に（IDE の機能を先に自前に、S276 に続く 2 つ目）
 
 新しい ADR は立てず、同じ流れの続きとしてここに足す。S272・S275 では「Frontend・LSP にはまだつなげない」とし、S276 で LSP のアウトライン・折りたたみだけをつないだ。IDE の機能から自前にする方針（Track B）の 2 つ目として、LSP の `textDocument/completion`（と `globe/completion`）の `a.` の後ろに自前の寛容な構文の木（`globe-mode-syntax`）の上の名前解決（`globe-mode-resolve`）を**足す**。

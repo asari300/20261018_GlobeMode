@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S329 配列の修飾と Complex の演算子 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S329 配列の修飾と Complex の演算子">
+
+<section class="slide" id="S01">
+  <span class="tag">S329 · 2026-11-15 · Track B</span>
+  <h1>S324 の後に上位になった断る理由を減らす</h1>
+  <p class="lead">array-modification 38、conditional-component 58、composite-binding 31、non-constant-for 16</p>
+  <div class="big">平らにできた MSL の例題 358 → 471 本（回帰 0）</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">部品の配列への修飾</span>
+  <h1>c[n](a = {…}) を要素ごとの修飾に分ける</h1>
+  <table class="compact">
+    <thead><tr><th>形</th><th>要素 k の修飾</th></tr></thead>
+    <tbody>
+      <tr><td><code>length = {5, 6}</code>（1 次元）</td><td>項そのもの（<code>6</code>）</td></tr>
+      <tr><td><code>length = {… for i in 1:n}</code>・多次元</td><td><code>({…})[k]</code>・<code>({…})[i,j]</code></td></tr>
+      <tr><td><code>useHeatPort = fill(x, n)</code></td><td><code>x</code></td></tr>
+      <tr><td><code>each width = d</code></td><td>分けない</td></tr>
+    </tbody>
+  </table>
+  <p>項の数が合わない <code>{…}</code> だけ断る。array-modification 38 → 0</p>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">Complex</span>
+  <h1>演算子の式は評価せず、欄 re・im の式にする</h1>
+  <ul>
+    <li><code>V_m = a - b</code> → <code>V_m.re = a.re - b.re</code>、<code>V_m.im = a.im - b.im</code></li>
+    <li><code>*</code>・<code>/</code> は MSL の <code>Complex</code> の定義どおり。Real の被演算子は虚部を持たず、0 の項は出さない</li>
+    <li>演算子の関数の中身は読まず、定義を決め打つ（<code>+ - * /</code>・単項 <code>-</code>・<code>if</code>・<code>Complex(re, im)</code>・<code>ComplexMath</code> の関数）。小さい方を選んだ</li>
+    <li>式は <code>Bind::lit</code>（組み立てた文字列）に持つ</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">条件と範囲</span>
+  <h1>評価できるのに評価していなかった形</h1>
+  <table class="compact">
+    <thead><tr><th>形</th><th>やり方</th></tr></thead>
+    <tbody>
+      <tr><td><code>terminalConnection &lt;&gt; "D"</code></td><td>文字列の比較（hash で持つ <code>Val::S</code>）</td></tr>
+      <tr><td><code>if world.enableAnimation and animation</code></td><td><code>outer</code> の欄は inner の名前へ。宣言が後ろの inner は修飾か型の既定値から</td></tr>
+      <tr><td><code>R = if rotationType == … then … else …</code></td><td>定数に決まる <code>if</code> は選ばれた枝</td></tr>
+      <tr><td><code>for k in 1:mSystems</code></td><td><code>numberOfSymmetricBaseSystems</code> だけ決め打ち</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">結果</span>
+  <h1>MSL の例題 566 本（S324 → S329）</h1>
+  <table>
+    <thead><tr><th>項目</th><th>前</th><th>後</th></tr></thead>
+    <tbody>
+      <tr><td>自前で平らにできた本数</td><td>358</td><td>471</td></tr>
+      <tr><td>array-modification / conditional-component</td><td>38 / 58</td><td>0 / 0</td></tr>
+      <tr><td>composite-binding / non-constant-for</td><td>31 / 16</td><td>25 / 1</td></tr>
+      <tr><td>名前の集合の一致（Rumoca も通った本数）</td><td>350 / 350</td><td>425 / 463</td></tr>
+      <tr><td>方程式の数の一致</td><td>340 / 350</td><td>435 / 463</td></tr>
+      <tr><td>釣り合い・正則（DAE）</td><td>253 / 253・249 / 253</td><td>295 / 297・289 / 297</td></tr>
+    </tbody>
+  </table>
+  <p>回帰 0 本、改善 113 本。名前の食い違い 51 本のうち 37 本は Rumoca が部品・レコードの配列を展開しないもの</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>Rumoca が <code>cylinders[n]</code>・<code>Complex aw[2]</code> を展開しない条件（未確認）</li>
+    <li>DAE が読めない 41 本（<code>f(…).T</code> 37、<code>if</code> 式・括弧 4。S330）</li>
+    <li>unsized-array 28、stream 22、composite-binding 25、<code>ActuatorWithNoise</code>・<code>EngineV6</code> の方程式の数</li>
+  </ul>
+  <pre><code>cargo test -p globe-mode-flat
+mise run msl:diff-frontend</code></pre>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
