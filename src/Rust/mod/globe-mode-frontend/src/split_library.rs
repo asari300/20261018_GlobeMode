@@ -170,6 +170,8 @@ pub(crate) struct SplitLibrary {
     base_deps: Vec<Option<Vec<usize>>>,
 }
 
+// native だけのビルドでは `len`・`class_names` を使わない（Rumoca の道が使う）
+#[cfg_attr(not(feature = "rumoca"), allow(dead_code))]
 impl SplitLibrary {
     pub(crate) fn new(sources: impl IntoIterator<Item = (String, String)>) -> Self {
         let files: Vec<LibFile> = sources
