@@ -125,3 +125,12 @@ P8 の Diagram / Icon ビューの最初の一切れとして、カーソルの�
 - **拡張**: `edit.js` の `parseEdit` が 2 種を足した。端は `名前[添字].名前`（`deleteConnect` と同じ）、`index` は 0 以上 1 万以下の整数、座標は有限で絶対値 1e6 以下、`ends` は 2 点。`file`・`class` は受け取らない。`panel.js` は S264 と同じ `apply`（応答を待つあいだに文書の版が変われば入れない。undo 可、保存しない）に流す。端の点・`points` の無い結線の移動は LSP が null を返し、webview へ `ok: false`。
 - **確かめ**: `pnpm test` にメッセージの検査（端・index・座標・ends・`file`/`class`）、共有の関数（つまみの対象、点の決め方、要素の属性）、webview・panel のメッセージ名。`e2e/suite.cjs` に「結線を足して `addWaypoint` → `moveWaypoint`（端の逆順）で `Line(points)` が書き換わり、端の点は動かせず、undo 3 回で戻る」。webview の DOM は拡張ホストから操作できないので、e2e は webview が送るメッセージから先を回す（S264・S293 と同じ）。
 - **持ち越し**: 実機の VS Code でのつまみのドラッグ・ダブルクリックの目視、点の削除、ドラッグ中の線の追従。
+
+## 付記（S306: VS Code の側のパネルでのパラメータの入力）
+
+- **S294・S298 の「ソースへ修飾を書く」を、VS Code の側のパネルでもできるようにした。** Rust・LSP は変えない（`globe/parameters` と `globe/setModifier` をそのまま呼ぶ）。
+- **操作**: 図の部品のダブルクリック（UI のパラメータダイアログと同じ操作）。webview は `{type: "params", part}` を `postMessage` するだけで、拡張（`panel.js` の `editParams`）が受ける。QuickPick で部品のパラメータ（`globe/parameters` の `部品.名前` のうち直下の 1 段。配列・String は UI と同じく除く）を選び、Real・Integer は InputBox（既定値を初期値に。空で修飾を外す）、Boolean は QuickPick の `true` / `false`、列挙は QuickPick のリテラル（書くのは `型.リテラル`。`enum_type` が無ければ断る）、どちらも末尾の「修飾を外す」で外す。`globe/setModifier` が返した TextEdit を、S264・S293 と同じ `apply`（`WorkspaceEdit` で undo 1 回・保存しない・待つあいだに文書の版が変われば入れない）で入れる。
+- **QuickPick と InputBox にした理由**: webview の中に小さな表を作る案より小さい。webview は CSP が `script-src 'nonce'` だけで、入力部品・検証・列挙の選びを足すと `webview.js` が増える。QuickPick・InputBox は VS Code が出し、キーボードで使え、e2e からは `panel.ui` を差し替えて値を渡せる。代わりに、多くの値を一度に見て直すことはできない（その要望が出たら表へ）。
+- **検査**: webview から受け取るのは部品の名前（識別子）だけ（`edit.js` の `parseParams`）。`file`・`class` は受け取らず、最後に描かせた図のものを使う。値の字句の検査は Rust の `set_modifier` に任せ、断られたら -32803 の理由を `showErrorMessage` に出す（InputBox で数に絞らない。`2*R0` のような式も書ける）。変わらなかった（外す修飾が無い）ときも「ソースは変わらなかった」と出す。
+- **確かめ**: `pnpm test` に `parseParams`（`file`・`class` を捨てる、入れ子・空白つきの名前を断る）・`partParams`（部品直下の 1 段だけ・配列・String・別の部品・モデル自身を除く）・`enumValue` の試験。e2e（`e2e/suite.cjs`、`e2e/fixtures/Params.mo`）に、部品 `r1` の `R` を 100 にすると宣言が `Res r1(R = 100)` になり undo で戻る、空の入力で外れる、列挙が `(mode = Params.Mode.high)` で入る、`1;2` は理由つきで断られて文書が変わらない、の 1 本（QuickPick・InputBox は `panel.ui` の偽物。ダブルクリックは拡張ホストから起こせないので、webview のメッセージをそのまま渡す）。
+- **持ち越し**: キーボードだけで部品のパラメータを開く口（今はダブルクリックのみ。コマンドパレットのコマンドにするのは小さい）、複数の値を一度に直す表、入れ子・`each`・`final`・`redeclare`、配列の部品。

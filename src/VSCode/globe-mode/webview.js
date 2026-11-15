@@ -92,6 +92,12 @@ const jump = (e) => {
 $("diagram").addEventListener("click", jump);
 $("diagram").addEventListener("keydown", (e) => (e.key === "Enter" || e.key === " ") && jump(e));
 
+// 部品のダブルクリックでパラメータの入力（S306。UI の ParameterDialog と同じ操作）。値の入力は拡張ホストの QuickPick・InputBox
+$("diagram").addEventListener("dblclick", (e) => {
+  const part = e.target.closest?.("[data-part]")?.getAttribute("data-part");
+  if (part) vscode.postMessage({ type: "params", part });
+});
+
 // 選びと削除（S293）。部品か結線（`.hit`）のクリック・Tab で選び、何も無い所のクリックで外す。Delete / Backspace は図の中でだけ受ける（エディタの文字は消さない）
 function pick(e) {
   const was = JSON.stringify(selected);
