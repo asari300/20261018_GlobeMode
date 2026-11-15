@@ -22,6 +22,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - S343: issue #63 を直した（整形）。引数と同じ行の行コメント（`Icon(…), // b`）は次の引数の頭に付いていて、`annotation(…)` の並べ替えで取り残され、コメントが `,` の前にあると `,` が次の行の頭に出ていた。`layout::Arg` に `trail`（末尾の行コメント）を足し、`,` をコメントの前に出して、コメントを引数と一緒に動かした（annotation に限らず、すべての括弧の引数。[format-style](doc/format-style.md)）。
 - S346: 整形の残り（S343 の続き）。コメントだけの行にあるコメント（次の引数の前の行の `// …`）は次の引数の頭に付き、その引数は先頭がコメントなので名前を引けず「その他」（後ろ）に回って並べ替えられなかった。名前を引くとき（`annotation(…)`・`Documentation(…)`・図形プリミティブ）は頭のコメントを飛ばすようにし、コメントも引数と一緒に動く。lint の `annotation-order` も同じ。回帰試験 1 本（冪等も確かめる）。[format-style](doc/format-style.md)。
 - S357: 親 issue #42（ponytail-audit 2026-11-08 の 49 件）を、今の main のコードと試験で 1 件ずつ確かめ直した（[doc/research/audit42-status-2026-11-15.md](doc/research/audit42-status-2026-11-15.md)）。45 件は済、見送りは #45・#46（lowering の回数）・A-5 の 3 件、未だったのは D-3 の 1 件。**挙動が変わる点**: `globe check`・`deps`・`graph`・`simulate`・`check --frontend native` の入力のディレクトリは、`fmt`・LSP と同じく隠しディレクトリ（`.history/` など）の `.mo` を読まない（読むと同名のクラスが二重で `GM-E1001`）。`globe-mode-protocol` を単体（`-p`）で試験しても鍵の順の試験が通る（serde_json の `preserve_order` を dev-dependency に明示）。
+- S358: S357 の D-3 の残り。ライブラリの読み込み（`globe-mode-resolve` の `Library::from_dirs`、`globe-mode-flat` の `Project::read_dirs`・`from_dirs`）も、`fmt`・LSP・frontend と同じく `.` で始まる名前（`.history/` など）を飛ばす。`--library` のディレクトリに古い写しがあっても同名のクラスが二重にならない。MSL に隠しフォルダの `.mo` は無いので Track B の数え方は変わらない。
 
 ### P1 骨格
 
