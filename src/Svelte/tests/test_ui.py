@@ -2232,6 +2232,20 @@ def main() -> int:
             page.keyboard.press("Alt+ArrowLeft")
             expect(page.locator(".cm-content")).to_contain_text("model ChuaCircuit")
             print("ChuaCircuit の F12: Resistor.mo が開き、Alt+← で ChuaCircuit に戻った")
+            # 参照（S368）: 同じ Resistor の上の Shift+F12 は、ChuaCircuit の行と、読み込んだライブラリで同じクラスに行き着く行（押せない。見るだけ）を出す
+            page.locator(".cm-content").focus()
+            page.keyboard.press("Control+Home")
+            for _ in range(8):
+                page.keyboard.press("ArrowDown")
+            for _ in range(38):
+                page.keyboard.press("ArrowRight")
+            t = time.perf_counter()
+            page.keyboard.press("Shift+F12")
+            expect(page.locator("table.refs button.jump[disabled]").first).to_be_visible(timeout=120_000)
+            n_lib = page.locator("table.refs button.jump[disabled]").count()
+            assert page.locator("table.refs button.jump:not([disabled])").count() >= 1 and page.get_by_role("alert").count() == 0
+            print(f"ChuaCircuit の Shift+F12: Resistor の参照 {page.locator('table.refs tr').count()} 行（ライブラリの押せない行 {n_lib}）、{time.perf_counter() - t:.1f} s")
+            page.get_by_role("button", name="参照を閉じる").click()
             # ホバー（S149）: ライブラリのクラス Resistor の上で、見出しと説明文字列が出る
             hover_over("Basic.Resistor Ro", "Resistor")
             expect(tip).to_contain_text("Ideal linear electrical resistor", timeout=30_000)
