@@ -22,16 +22,17 @@ use std::path::{Path, PathBuf};
 use globe_mode_db::GlobeDb;
 pub use globe_mode_db::{BltBlock, BltReport, StagesReport};
 use globe_mode_frontend::Source;
-use globe_mode_ir::UnknownKind;
+use globe_mode_ir::{Termination, UnknownKind};
 
 pub use globe_mode_core::{Diagnostic, Stage};
 pub use globe_mode_frontend::{CompiledModel, LibraryClosure, collect_mo_files}; // S301: wasm の分割配信が、どのファイルを足すかを聞く
 pub use globe_mode_graph::{ConnectGraph, ConnectMismatch, GraphError};
 pub use globe_mode_ir::{FlatSummary, Outline, SimRun, SimSettings};
 pub use globe_mode_protocol::{
-    CheckResponse, ColumnsLayout, ExperimentValues, ModelParametersResponse, ParametersResponse,
-    SimulateRequest, SimulateResponse, StructureCounts, force_helps, refused_summary,
-    unsupported_summary,
+    CheckResponse, ColumnsLayout, CompareRequest, ExperimentValues, MAX_MANY_SOLVERS, MAX_PARALLEL,
+    ManyComparison, ManyRun, ManyStatus, ModelParametersResponse, PairComparison, ParametersResponse,
+    SignalDiff, SimulateManyRequest, SimulateManyResponse, SimulateRequest, SimulateResponse,
+    SkippedRun, StructureCounts, force_helps, refused_summary, unsupported_summary,
 };
 pub use globe_mode_sim::solvers::{SOLVERS, SolverEntry};
 // facade に無いものを呼ぶとき（CLI の文字の表示が `FullReport` を読む、結果を CSV / MAT に書く）
@@ -936,25 +937,7 @@ impl Workspace {
         handle: SimulateHandle<'_>,
     ) -> Simulated {
         let mut s = self.simulate_unmarked(request, now, handle);
-        // 強行のコンパイルの失敗は、検査と同じ診断を（注が少し違う形で）もう一度返す。コード・位置・文面が同じものは最初の 1 つだけ残す
-        let mut unique: Vec<Diagnostic> = Vec::new();
-        for d in std::mem::take(&mut s.response.diagnostics) {
-            if !unique.iter().any(|x| {
-                (x.code, &x.file, x.range, &x.message) == (d.code, &d.file, d.range, &d.message)
-            }) {
-                unique.push(d);
-            }
-        }
-        s.response.diagnostics = unique;
-        s.response.summary = s
-            .response
-            .refused
-            .as_ref()
-            .map(|r| refused_summary(&s.response.model, r, &s.response.diagnostics));
-        s.response.unsupported = unsupported_summary(&s.response.diagnostics);
-        // 検査で断った（強行していない）ときだけ「強行すれば進める」。強行した結果には付けない
-        s.response.can_force =
-            !request.force && s.response.refused.is_some() && force_helps(&s.response.diagnostics);
+        mark_response(&mut s.response, request.force);
         s
     }
 
@@ -964,73 +947,16 @@ impl Workspace {
         now: &dyn Fn() -> f64,
         handle: SimulateHandle<'_>,
     ) -> Simulated {
-        let model = request.model.as_str();
-        let mut response = SimulateResponse {
-            model: model.to_string(),
-            ok: false,
-            refused: None,
-            diagnostics: Vec::new(),
-            settings: None,
-            termination: None,
-            stats: None,
-            final_values: None,
-            csv: None,
-            timings_ms: BTreeMap::new(),
-            memory_bytes: 0.0,
-            unsupported: None,
-            can_force: false,
-            summary: None,
+        let (compiled, mut response, mut t) = match self.prepare(
+            &request.files,
+            &request.model,
+            &request.settings.parameters,
+            request.force,
+            now,
+        ) {
+            Ok(p) => p,
+            Err(s) => return s,
         };
-        let mut t = now();
-        let mut lap = |name: &str, timings: &mut BTreeMap<String, f64>| {
-            let n = now();
-            timings.insert(name.to_string(), n - t);
-            t = n;
-        };
-        for (name, text) in &request.files {
-            self.db.set_file(name, text.clone());
-        }
-        lap("load", &mut response.timings_ms);
-        let checked = self.db.check_model(model);
-        lap("check", &mut response.timings_ms);
-        let failed_stage = checked.failed_stage();
-        response.diagnostics.extend(checked.diagnostics);
-        if let Some(stage) = failed_stage
-            && !request.force
-        {
-            let hint = if force_helps(&response.diagnostics) {
-                "force で強行できる"
-            } else {
-                "強行しても実行できない"
-            };
-            response.refused = Some(format!(
-                "実行しない（{stage:?} {} で Error。{hint}）",
-                stage.title()
-            ));
-            return Simulated {
-                response,
-                run: None,
-                compiled: None,
-                default_plot: Vec::new(),
-            };
-        }
-        let compiled = match self
-            .db
-            .compiled_model_with_overrides(model, &request.settings.parameters)
-        {
-            Ok(c) => c,
-            Err(ds) => {
-                response.diagnostics.extend(ds);
-                response.refused = Some("DAE まで変換できないので実行できない".to_string());
-                return Simulated {
-                    response,
-                    run: None,
-                    compiled: None,
-                    default_plot: Vec::new(),
-                };
-            }
-        };
-        lap("compile", &mut response.timings_ms);
         let mut quiet = |_: &Progress| {};
         let report = globe_mode_exec::run_observed(
             &compiled,
@@ -1041,49 +967,529 @@ impl Workspace {
                 now,
             },
         );
-        lap("run", &mut response.timings_ms);
-        response.diagnostics.extend(report.diagnostics);
-        // `ok` は「結果があり、Error の診断が無い」。強行（force）で走っても、検査の Error が残れば ok ではない（#2）
-        response.ok =
-            report.run.is_some() && !response.diagnostics.iter().any(Diagnostic::is_error);
-        response.settings = report.settings;
-        if let Some(run) = &report.run {
-            let traj = &run.trajectory;
-            response.final_values = Some(
-                traj.variables
-                    .iter()
-                    .filter_map(|v| v.values.last().map(|x| (v.name.clone(), *x)))
-                    .collect(),
-            );
-            if !request.no_csv {
-                match csv_text(traj) {
-                    Ok(csv) => response.csv = Some(csv),
-                    // 黙って捨てると、呼び手が結果も理由も受け取れない（#13）
-                    Err(e) => {
-                        response.ok = false;
-                        response.refused = Some(format!("結果を CSV にできない: {e}"));
-                    }
-                }
-            }
-            response.termination = Some(run.termination.clone());
-            response.stats = Some(run.stats.clone());
-        } else {
-            response.refused = Some("実行に失敗した".to_string());
-        }
-        let default_plot = report.run.as_ref().map_or_else(Vec::new, |r| {
-            r.trajectory.default_plot(&compiled.state_names())
-        });
+        let n = now();
+        response.timings_ms.insert("run".to_string(), n - t);
+        t = n;
+        let _ = t;
+        let (run, default_plot) = finish_run(&mut response, report, &compiled, request.no_csv);
         Simulated {
             response,
-            run: report.run,
+            run,
             compiled: Some(compiled),
             default_plot,
+        }
+    }
+
+    /// ファイルを足し、検査（`force` でなければ Error で止める）とコンパイルまでを行う。止まったら応答つきの `Err`。
+    /// 成功なら、コンパイル済みのモデルと、診断・段階ごとの時間まで入れた応答の下書きと、最後の時刻を返す。
+    fn prepare(
+        &mut self,
+        files: &BTreeMap<String, String>,
+        model: &str,
+        parameters: &BTreeMap<String, f64>,
+        force: bool,
+        now: &dyn Fn() -> f64,
+    ) -> Result<(CompiledModel, SimulateResponse, f64), Simulated> {
+        let mut response = empty_response(model);
+        let mut t = now();
+        let mut lap = |name: &str, timings: &mut BTreeMap<String, f64>| {
+            let n = now();
+            timings.insert(name.to_string(), n - t);
+            t = n;
+        };
+        for (name, text) in files {
+            self.db.set_file(name, text.clone());
+        }
+        lap("load", &mut response.timings_ms);
+        let checked = self.db.check_model(model);
+        lap("check", &mut response.timings_ms);
+        let failed_stage = checked.failed_stage();
+        response.diagnostics.extend(checked.diagnostics);
+        let stopped = |response: SimulateResponse| Simulated {
+            response,
+            run: None,
+            compiled: None,
+            default_plot: Vec::new(),
+        };
+        if let Some(stage) = failed_stage
+            && !force
+        {
+            let hint = if force_helps(&response.diagnostics) {
+                "force で強行できる"
+            } else {
+                "強行しても実行できない"
+            };
+            response.refused = Some(format!(
+                "実行しない（{stage:?} {} で Error。{hint}）",
+                stage.title()
+            ));
+            return Err(stopped(response));
+        }
+        let compiled = match self.db.compiled_model_with_overrides(model, parameters) {
+            Ok(c) => c,
+            Err(ds) => {
+                response.diagnostics.extend(ds);
+                response.refused = Some("DAE まで変換できないので実行できない".to_string());
+                return Err(stopped(response));
+            }
+        };
+        lap("compile", &mut response.timings_ms);
+        Ok((compiled, response, t))
+    }
+
+    /// 検査 → コンパイル（1 回）→ 複数のソルバで実行（S322、ADR-0040）。`request.solvers` の順に `runs` を返す。
+    /// 逐次は 1 つずつ、並列は同じコンパイル結果を共有するスレッドで最大 [`MAX_PARALLEL`] 本を同時に回す。
+    /// `handle.on_progress` には（実行の添字、ソルバの名前、進捗）が来る。並列のときも呼ぶのはこのスレッドだけ。
+    /// `handle.cancel` は全部の実行に効く。`compare` があれば、全部が終わってから比べる。
+    pub fn simulate_many(
+        &mut self,
+        request: &SimulateManyRequest,
+        now: &(dyn Fn() -> f64 + Sync),
+        handle: ManyHandle<'_>,
+    ) -> ManyResult {
+        let started = now();
+        let mut many = SimulateManyResponse {
+            model: request.model.clone(),
+            ok: false,
+            refused: None,
+            diagnostics: Vec::new(),
+            mode: "sequential".to_string(),
+            workers: 1,
+            mode_note: None,
+            runs: Vec::new(),
+            comparison: None,
+            elapsed_ms: 0.0,
+        };
+        if let Some(why) = many_request_problem(request) {
+            many.refused = Some(why);
+            return ManyResult {
+                response: many,
+                runs: Vec::new(),
+            };
+        }
+        let (compiled, base, _) = match self.prepare(
+            &request.files,
+            &request.model,
+            &request.settings.parameters,
+            request.force,
+            now,
+        ) {
+            Ok(p) => p,
+            Err(mut s) => {
+                mark_response(&mut s.response, request.force);
+                many.diagnostics = s.response.diagnostics;
+                many.refused = s.response.refused;
+                many.elapsed_ms = now() - started;
+                return ManyResult {
+                response: many,
+                runs: Vec::new(),
+            };
+            }
+        };
+        many.diagnostics = base.diagnostics.clone();
+        let ManyHandle {
+            on_progress,
+            cancel,
+        } = handle;
+        let n = request.solvers.len();
+        let threads = cfg!(not(target_arch = "wasm32"));
+        let workers = if request.parallel && threads {
+            n.min(MAX_PARALLEL).min(
+                std::thread::available_parallelism().map_or(1, std::num::NonZero::get),
+            )
+        } else {
+            1
+        };
+        if request.parallel && workers <= 1 {
+            many.mode_note = Some(if !threads {
+                "この環境にはスレッドが無いので、逐次に回した".to_string()
+            } else if n == 1 {
+                "ソルバが 1 つなので、逐次に回した".to_string()
+            } else {
+                "使える CPU が 1 つなので、逐次に回した".to_string()
+            });
+        }
+        if workers > 1 {
+            many.mode = "parallel".to_string();
+            many.workers = workers;
+        }
+        let one = |i: usize, on_progress: &mut dyn FnMut(&Progress)| -> (ManyRun, ManyData) {
+            let solver = request.solvers[i].clone();
+            let mut settings = request.settings.clone();
+            settings.solver = Some(solver.clone());
+            let t0 = now();
+            let report = globe_mode_exec::run_observed(
+                &compiled,
+                &settings,
+                &mut globe_mode_exec::Observer {
+                    on_progress,
+                    cancel: cancel.clone(),
+                    now,
+                },
+            );
+            let elapsed_ms = now() - t0;
+            // 共通の診断（検査・コンパイル）は `many.diagnostics` にあるので、この実行の分だけを持つ
+            let mut response = empty_response(&request.model);
+            response.timings_ms.insert("run".to_string(), elapsed_ms);
+            let (run_data, default_plot) = finish_run(&mut response, report, &compiled, true);
+            mark_response(&mut response, request.force);
+            let stopped = matches!(response.termination, Some(Termination::Cancelled { .. }))
+                || (!response.ok && cancel.as_ref().is_some_and(CancelToken::is_cancelled));
+            let status = if stopped {
+                ManyStatus::Cancelled
+            } else if response.ok {
+                ManyStatus::Ok
+            } else {
+                ManyStatus::Failed
+            };
+            let notes = response
+                .diagnostics
+                .iter()
+                .filter(|d| d.code == globe_mode_core::codes::MAX_ORDER_IGNORED)
+                .map(|d| d.message.clone())
+                .collect();
+            let run = ManyRun {
+                solver,
+                status,
+                response,
+                elapsed_ms,
+                notes,
+            };
+            (run, ManyData { run: run_data, default_plot })
+        };
+        let mut results: Vec<Option<(ManyRun, ManyData)>> = (0..n).map(|_| None).collect();
+        let mut on_progress = on_progress;
+        if workers <= 1 {
+            for (i, slot) in results.iter_mut().enumerate() {
+                let solver = request.solvers[i].as_str();
+                let mut forward = |p: &Progress| {
+                    if let Some(f) = on_progress.as_deref_mut() {
+                        f(i, solver, p);
+                    }
+                };
+                *slot = Some(one(i, &mut forward));
+            }
+        } else {
+            #[cfg(not(target_arch = "wasm32"))]
+            run_parallel(workers, &one, &request.solvers, &mut on_progress, &mut results);
+        }
+        let (runs, data): (Vec<ManyRun>, Vec<ManyData>) = results
+            .into_iter()
+            .map(|r| r.expect("全部の実行が終わった"))
+            .unzip();
+        many.ok = runs.iter().all(|r| r.status == ManyStatus::Ok);
+        many.runs = runs;
+        if let Some(options) = &request.compare {
+            many.comparison = Some(compare_runs(&many.runs, &data, options));
+        }
+        many.elapsed_ms = now() - started;
+        ManyResult {
+            response: many,
+            runs: data,
         }
     }
 
     /// 検査器（salsa の DB）。facade に無いクエリを呼ぶとき。
     pub fn db(&mut self) -> &mut GlobeDb {
         &mut self.db
+    }
+}
+
+fn empty_response(model: &str) -> SimulateResponse {
+    SimulateResponse {
+        model: model.to_string(),
+        ok: false,
+        refused: None,
+        diagnostics: Vec::new(),
+        settings: None,
+        termination: None,
+        stats: None,
+        final_values: None,
+        csv: None,
+        timings_ms: BTreeMap::new(),
+        memory_bytes: 0.0,
+        unsupported: None,
+        can_force: false,
+        summary: None,
+    }
+}
+
+/// 強行のコンパイルの失敗は、検査と同じ診断を（注が少し違う形で）もう一度返す。コード・位置・文面が同じものは最初の 1 つだけ残す。
+/// そのうえで要約・未対応の要約・`can_force` を付ける。
+fn mark_response(response: &mut SimulateResponse, force: bool) {
+    let mut unique: Vec<Diagnostic> = Vec::new();
+    for d in std::mem::take(&mut response.diagnostics) {
+        if !unique.iter().any(|x| {
+            (x.code, &x.file, x.range, &x.message) == (d.code, &d.file, d.range, &d.message)
+        }) {
+            unique.push(d);
+        }
+    }
+    response.diagnostics = unique;
+    response.summary = response
+        .refused
+        .as_ref()
+        .map(|r| refused_summary(&response.model, r, &response.diagnostics));
+    response.unsupported = unsupported_summary(&response.diagnostics);
+    // 検査で断った（強行していない）ときだけ「強行すれば進める」。強行した結果には付けない
+    response.can_force = !force && response.refused.is_some() && force_helps(&response.diagnostics);
+}
+
+/// 実行の結果を応答に書き込む。返すのは時系列と、プロットに既定で描く信号。
+fn finish_run(
+    response: &mut SimulateResponse,
+    report: globe_mode_exec::SimReport,
+    compiled: &CompiledModel,
+    no_csv: bool,
+) -> (Option<SimRun>, Vec<String>) {
+    response.diagnostics.extend(report.diagnostics);
+    // `ok` は「結果があり、Error の診断が無い」。強行（force）で走っても、検査の Error が残れば ok ではない（#2）
+    response.ok = report.run.is_some() && !response.diagnostics.iter().any(Diagnostic::is_error);
+    response.settings = report.settings;
+    if let Some(run) = &report.run {
+        let traj = &run.trajectory;
+        response.final_values = Some(
+            traj.variables
+                .iter()
+                .filter_map(|v| v.values.last().map(|x| (v.name.clone(), *x)))
+                .collect(),
+        );
+        if !no_csv {
+            match csv_text(traj) {
+                Ok(csv) => response.csv = Some(csv),
+                // 黙って捨てると、呼び手が結果も理由も受け取れない（#13）
+                Err(e) => {
+                    response.ok = false;
+                    response.refused = Some(format!("結果を CSV にできない: {e}"));
+                }
+            }
+        }
+        response.termination = Some(run.termination.clone());
+        response.stats = Some(run.stats.clone());
+    } else {
+        response.refused = Some("実行に失敗した".to_string());
+    }
+    let default_plot = report
+        .run
+        .as_ref()
+        .map_or_else(Vec::new, |r| r.trajectory.default_plot(&compiled.state_names()));
+    (report.run, default_plot)
+}
+
+/// [`Workspace::simulate_many`] に渡す進捗の受け手（実行の添字、ソルバの名前、進捗）と中断のトークン。
+#[derive(Default)]
+pub struct ManyHandle<'a> {
+    pub on_progress: Option<&'a mut dyn FnMut(usize, &str, &Progress)>,
+    pub cancel: Option<CancelToken>,
+}
+
+impl std::fmt::Debug for ManyHandle<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ManyHandle")
+            .field("on_progress", &self.on_progress.is_some())
+            .field("cancel", &self.cancel)
+            .finish()
+    }
+}
+
+/// 複数ソルバの実行 1 つの時系列（JSON にしない部分）。
+#[derive(Debug, Clone)]
+pub struct ManyData {
+    pub run: Option<SimRun>,
+    pub default_plot: Vec<String>,
+}
+
+impl ManyData {
+    /// 列の道（[`Simulated::columns`] と同じ形）。
+    pub fn columns(&self) -> (ColumnsLayout, Vec<&[f64]>) {
+        match &self.run {
+            Some(run) => columns_of(&run.trajectory, self.default_plot.clone()),
+            None => (
+                ColumnsLayout {
+                    names: Vec::new(),
+                    points: 0,
+                    defaults: Vec::new(),
+                },
+                Vec::new(),
+            ),
+        }
+    }
+}
+
+/// [`Workspace::simulate_many`] の結果。`runs[i]` は `response.runs[i]` の時系列。回さなかったとき（`refused`）は空。
+#[derive(Debug)]
+pub struct ManyResult {
+    pub response: SimulateManyResponse,
+    pub runs: Vec<ManyData>,
+}
+
+/// 依頼そのものの誤り（ソルバの数・重複・比較の指定）。誤りなら回さない。
+fn many_request_problem(r: &SimulateManyRequest) -> Option<String> {
+    if r.solvers.is_empty() {
+        return Some("solvers が空（ソルバを 1 つ以上選ぶ）".into());
+    }
+    if r.solvers.len() > MAX_MANY_SOLVERS {
+        return Some(format!(
+            "solvers が {} 個ある（上限 {MAX_MANY_SOLVERS}）",
+            r.solvers.len()
+        ));
+    }
+    if let Some(i) = (1..r.solvers.len()).find(|&i| r.solvers[..i].contains(&r.solvers[i])) {
+        return Some(format!("solvers に {} が 2 回ある", r.solvers[i]));
+    }
+    if r.settings.solver.is_some() {
+        return Some("settings.solver は使わない（ソルバは solvers で選ぶ）".into());
+    }
+    let c = r.compare.as_ref()?;
+    if !(1..=15).contains(&c.threshold_exp) {
+        return Some(format!(
+            "compare.threshold_exp（{}）が 1〜15 にない",
+            c.threshold_exp
+        ));
+    }
+    c.reference
+        .as_ref()
+        .filter(|name| !r.solvers.contains(name))
+        .map(|name| format!("compare.reference の {name} が solvers にない"))
+}
+
+/// 基準の実行と、成功したほかの実行を矩形の管（`globe_mode_sim::compare`）で比べる。管の幅は `10^-n`。
+/// 基準は指定か、最初に成功した実行。基準が失敗していたら全部を比べなかったことにする。
+fn compare_runs(
+    runs: &[ManyRun],
+    data: &[ManyData],
+    options: &CompareRequest,
+) -> ManyComparison {
+    let threshold = 10f64.powi(-i32::try_from(options.threshold_exp).unwrap_or(6));
+    let ok = |i: usize| runs[i].status == ManyStatus::Ok && data[i].run.is_some();
+    let reference = match &options.reference {
+        Some(name) => runs.iter().position(|r| &r.solver == name),
+        None => (0..runs.len()).find(|&i| ok(i)),
+    };
+    let mut out = ManyComparison {
+        threshold_exp: options.threshold_exp,
+        threshold,
+        reference: reference.map_or_else(String::new, |i| runs[i].solver.clone()),
+        passed: false,
+        pairs: Vec::new(),
+        skipped: Vec::new(),
+    };
+    let Some(r) = reference.filter(|&i| ok(i)) else {
+        out.skipped = runs
+            .iter()
+            .map(|x| SkippedRun {
+                solver: x.solver.clone(),
+                reason: "基準になる成功した実行が無い".into(),
+            })
+            .collect();
+        return out;
+    };
+    let reference_run = data[r].run.as_ref().expect("ok の実行には結果がある");
+    let names: Vec<&str> = reference_run
+        .trajectory
+        .variables
+        .iter()
+        .filter(|v| v.role != globe_mode_ir::VariableRole::Parameter && !v.name.starts_with('$'))
+        .map(|v| v.name.as_str())
+        .collect();
+    let tube = globe_mode_sim::compare::TubeOptions {
+        tolerance: threshold,
+    };
+    for (i, run) in runs.iter().enumerate().filter(|&(i, _)| i != r) {
+        let Some(sim) = data[i].run.as_ref().filter(|_| ok(i)) else {
+            out.skipped.push(SkippedRun {
+                solver: run.solver.clone(),
+                reason: format!("実行が成功しなかった（{:?}）", run.status),
+            });
+            continue;
+        };
+        let cmp =
+            globe_mode_sim::compare::compare(&reference_run.trajectory, &sim.trajectory, &names, &tube);
+        let mut failures: Vec<SignalDiff> = cmp
+            .signals
+            .iter()
+            .filter(|s| !s.passed)
+            .map(|s| SignalDiff {
+                name: s.name.clone(),
+                passed: false,
+                errors: s.errors,
+                max_excess: s.max_excess,
+                first_error_time: s.first_error_time,
+                missing: s.missing || s.uncovered,
+            })
+            .collect();
+        failures.sort_by(|a, b| b.max_excess.total_cmp(&a.max_excess));
+        out.pairs.push(PairComparison {
+            solver: run.solver.clone(),
+            passed: cmp.passed(),
+            signals: cmp.signals.len(),
+            failed_signals: failures.len(),
+            failures,
+        });
+    }
+    out.passed = !out.pairs.is_empty() && out.pairs.iter().all(|p| p.passed);
+    out
+}
+
+/// 同じコンパイル結果を共有するスレッドで `workers` 本を同時に回す。進捗はこのスレッドが受けて `on_progress` に渡す。
+/// スレッドを作れなかった分は、最後にこのスレッドで回す。
+#[cfg(not(target_arch = "wasm32"))]
+fn run_parallel<R: Send>(
+    workers: usize,
+    one: &(dyn Fn(usize, &mut dyn FnMut(&Progress)) -> R + Sync),
+    solvers: &[String],
+    on_progress: &mut Option<&mut dyn FnMut(usize, &str, &Progress)>,
+    results: &mut [Option<R>],
+) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    enum Msg<R> {
+        Progress(usize, Progress),
+        Done(usize, R),
+    }
+    let n = results.len();
+    let next = AtomicUsize::new(0);
+    let (tx, rx) = std::sync::mpsc::channel::<Msg<R>>();
+    std::thread::scope(|scope| {
+        for _ in 0..workers {
+            let (tx, next) = (tx.clone(), &next);
+            // lowering と積分は深い再帰を使う（`globe-mode-exec` の実行のスレッドと同じ大きさ）
+            let _ = std::thread::Builder::new()
+                .name("globe-many".into())
+                .stack_size(256 << 20)
+                .spawn_scoped(scope, move || {
+                    loop {
+                        let i = next.fetch_add(1, Ordering::SeqCst);
+                        if i >= n {
+                            break;
+                        }
+                        let progress_tx = tx.clone();
+                        let mut forward = |p: &Progress| {
+                            let _ = progress_tx.send(Msg::Progress(i, *p));
+                        };
+                        let r = one(i, &mut forward);
+                        let _ = tx.send(Msg::Done(i, r));
+                    }
+                });
+        }
+        drop(tx);
+        while let Ok(msg) = rx.recv() {
+            match msg {
+                Msg::Progress(i, p) => {
+                    if let Some(f) = on_progress.as_deref_mut() {
+                        f(i, &solvers[i], &p);
+                    }
+                }
+                Msg::Done(i, r) => results[i] = Some(r),
+            }
+        }
+    });
+    for (i, slot) in results.iter_mut().enumerate().filter(|(_, s)| s.is_none()) {
+        let mut forward = |p: &Progress| {
+            if let Some(f) = on_progress.as_deref_mut() {
+                f(i, &solvers[i], &p);
+            }
+        };
+        *slot = Some(one(i, &mut forward));
     }
 }
 

@@ -583,6 +583,7 @@ mod tests {
             solver,
             max_wall_seconds: None,
             step,
+            max_order: None,
             parameters: BTreeMap::new(),
             origins: SettingOrigins {
                 start_time: o,

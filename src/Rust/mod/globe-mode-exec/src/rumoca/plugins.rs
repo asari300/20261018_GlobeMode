@@ -42,7 +42,7 @@ pub(super) fn plugin(
         SolverId::Radau5 => return Ok(Box::new(radau::Radau5::new(setup))),
         SolverId::Qss => return Ok(Box::new(qss::Qss::new(setup))),
         #[cfg(feature = "sundials")]
-        SolverId::Cvode => return Ok(Box::new(cvode::Cvode::new(setup))),
+        SolverId::Cvode => return Ok(Box::new(cvode::Cvode::new(setup, settings.max_order))),
         #[cfg(not(feature = "sundials"))]
         SolverId::Cvode | SolverId::Ida => {
             return Err(format!(
@@ -51,7 +51,7 @@ pub(super) fn plugin(
             ));
         }
         #[cfg(feature = "sundials")]
-        SolverId::Ida => return Ok(Box::new(ida::Ida::new(setup))),
+        SolverId::Ida => return Ok(Box::new(ida::Ida::new(setup, settings.max_order))),
         SolverId::Euler
         | SolverId::Heun
         | SolverId::Rk4

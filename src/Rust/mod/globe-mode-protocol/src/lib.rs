@@ -231,6 +231,164 @@ pub struct SimulateResponse {
     pub summary: Option<String>,
 }
 
+/// 複数ソルバの実行の依頼（S322。`globe simulate --solvers a,b,c`・`globe/simulateMany`・`Workspace.simulate_many`）。
+/// 設定は全部の実行に同じものを渡す（`max_order`・`tolerance` を含む）。`settings.solver` は使わず、`solvers` が決める。
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SimulateManyRequest {
+    /// [`SimulateRequest::files`] と同じ
+    #[serde(default)]
+    pub files: BTreeMap<String, String>,
+    pub model: String,
+    #[serde(default)]
+    pub settings: SimSettings,
+    /// 回すソルバの名前（1 つ以上、[`MAX_MANY_SOLVERS`] まで。同じ名前の重複は誤り）
+    pub solvers: Vec<String>,
+    /// true なら同時に回す（ネイティブは同じコンパイル結果を共有するスレッドで、同時に回す数は最大 [`MAX_PARALLEL`]。
+    /// wasm はスレッドが無いので逐次に落として `mode_note` に書く）。既定は逐次
+    #[serde(default)]
+    pub parallel: bool,
+    /// 指定すると全部の実行のあとで結果を比べる。既定は比べない
+    #[serde(default)]
+    pub compare: Option<CompareRequest>,
+    /// [`SimulateRequest::force`] と同じ
+    #[serde(default)]
+    pub force: bool,
+}
+
+/// 同時に選べるソルバの数の上限（UI のチェックボックスが 22 個ある登録表のすべてを選んでも、結果の列が JSON で
+/// 数十 MB にならない数）。
+pub const MAX_MANY_SOLVERS: usize = 16;
+/// 並列のときに同時に回す数の上限（1 つの実行が lowering で GiB の単位を使うことがある。ADR-0023）。
+pub const MAX_PARALLEL: usize = 4;
+
+/// 結果の比べ方（S322）。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CompareRequest {
+    /// 閾値は 10^-n（既定 6、1〜15）。矩形の管の幅（時間と値の両方向、範囲に対する相対）として使う（ADR-0040）
+    #[serde(default = "default_threshold_exp")]
+    pub threshold_exp: u32,
+    /// 基準にするソルバ（`solvers` の中の名前）。省略すると、最初に成功した実行
+    #[serde(default)]
+    pub reference: Option<String>,
+}
+
+fn default_threshold_exp() -> u32 {
+    6
+}
+
+impl Default for CompareRequest {
+    fn default() -> Self {
+        Self {
+            threshold_exp: default_threshold_exp(),
+            reference: None,
+        }
+    }
+}
+
+/// 複数ソルバの 1 回の実行の状態。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ManyStatus {
+    /// 結果があり、Error の診断が無い
+    Ok,
+    /// 失敗した（診断は `response.diagnostics`）
+    Failed,
+    /// 利用者が止めた（途中までの列があることがある）
+    Cancelled,
+}
+
+/// 複数ソルバの実行 1 つ（S322）。時系列の列は応答に含めず、受け手が別に持つ（LSP は `columns[i]`）。
+#[derive(Debug, Clone, Serialize)]
+pub struct ManyRun {
+    /// 依頼の名前（別名は別名のまま。使ったソルバは `response.settings.solver`）
+    pub solver: String,
+    pub status: ManyStatus,
+    /// その実行の結果（`csv` は無い。`diagnostics` はその実行の分だけで、共通の検査の診断は含まない）
+    pub response: SimulateResponse,
+    /// 実行にかかった壁時計（ミリ秒。wasm は 0）
+    pub elapsed_ms: f64,
+    /// 注記（例: 「最大次数は bdf では使わない」）。診断の情報・警告のうち設定についての文を写す
+    pub notes: Vec<String>,
+}
+
+/// 基準との比較で、信号 1 つの結果。
+#[derive(Debug, Clone, Serialize)]
+pub struct SignalDiff {
+    pub name: String,
+    pub passed: bool,
+    /// 管の外に出た点の数
+    pub errors: usize,
+    /// 管からはみ出した量の最大（値の単位）
+    pub max_excess: f64,
+    /// 最初に管の外に出た時刻
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_error_time: Option<f64>,
+    /// どちらかに無い・基準の区間を覆わないなど、比べられなかった
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub missing: bool,
+}
+
+/// 基準と 1 つのソルバの比較。
+#[derive(Debug, Clone, Serialize)]
+pub struct PairComparison {
+    pub solver: String,
+    /// 比べた信号がすべて合格
+    pub passed: bool,
+    /// 比べた信号の数と、そのうち不合格の数
+    pub signals: usize,
+    pub failed_signals: usize,
+    /// 不合格だった信号（合格は数だけ）。`max_excess` の大きい順
+    pub failures: Vec<SignalDiff>,
+}
+
+/// 結果の比較（S322）。
+#[derive(Debug, Clone, Serialize)]
+pub struct ManyComparison {
+    pub threshold_exp: u32,
+    /// 10^-threshold_exp
+    pub threshold: f64,
+    /// 基準にしたソルバ（依頼の名前）
+    pub reference: String,
+    /// 基準以外の成功した実行がすべて合格（比べる相手が無ければ false）
+    pub passed: bool,
+    pub pairs: Vec<PairComparison>,
+    /// 比べなかった実行とその理由（失敗した実行など）
+    pub skipped: Vec<SkippedRun>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SkippedRun {
+    pub solver: String,
+    pub reason: String,
+}
+
+/// 複数ソルバの実行の結果（S322）。
+#[derive(Debug, Clone, Serialize)]
+pub struct SimulateManyResponse {
+    pub model: String,
+    /// すべての実行が `ok`（比較の合否は含めない。見るのは `comparison.passed`）
+    pub ok: bool,
+    /// 回さなかった理由（検査で断った、DAE にできない、ソルバの指定が誤りなど。回したなら None）
+    pub refused: Option<String>,
+    /// 実行の前の共通の診断（検査・コンパイル。実行ごとの診断は `runs[i].response.diagnostics`）
+    pub diagnostics: Vec<Diagnostic>,
+    /// 実際に使った回し方: `sequential` か `parallel`
+    pub mode: String,
+    /// 同時に回した数（逐次は 1）
+    pub workers: usize,
+    /// 並列を頼んだのに逐次にしたときの理由（wasm、ソルバが 1 つだけなど）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mode_note: Option<String>,
+    /// 依頼の `solvers` の順
+    pub runs: Vec<ManyRun>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comparison: Option<ManyComparison>,
+    /// 全体の壁時計（ミリ秒。コンパイルを含む）
+    pub elapsed_ms: f64,
+}
+
 /// 列ごとの結果の並び（wasm の `simulate_columns`。S051）。時系列を CSV の文字列でなく、列ごとの `Float64Array` で渡すときの
 /// 見出し。`names[0]` は `time`、残りは変数で、列 `i` は `points` 個の値を持つ（CSV の行数 - 1 と同じ）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -314,5 +472,23 @@ mod tests {
             )
             .is_ok()
         );
+    }
+
+    #[test]
+    fn simulate_many_request_has_defaults_and_rejects_unknown_fields() {
+        let r: SimulateManyRequest =
+            serde_json::from_str(r#"{"model":"M","solvers":["bdf","rk4"],"compare":{}}"#).unwrap();
+        assert!(!r.parallel && !r.force && r.settings.max_order.is_none());
+        assert_eq!(r.compare.unwrap().threshold_exp, 6);
+        for bad in [
+            r#"{"model":"M","solvers":[],"solver":"bdf"}"#,
+            r#"{"model":"M","solvers":[],"compare":{"threshold":6}}"#,
+            r#"{"model":"M","solvers":[],"settings":{"maxorder":5}}"#,
+        ] {
+            assert!(
+                serde_json::from_str::<SimulateManyRequest>(bad).is_err(),
+                "{bad}"
+            );
+        }
     }
 }
