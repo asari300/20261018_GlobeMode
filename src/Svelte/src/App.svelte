@@ -619,6 +619,7 @@
       const edits = await backend.setModifier(cls, modifiers, { file });
       if (!edits.length) return "ソースは変わらなかった";
       view.dispatch({ changes: edits.map((e) => ({ from: offsetOf(e.range.start), to: offsetOf(e.range.end), insert: e.newText })) });
+      await backend.setFile(file, view.state.doc.toString()); // S298: ダイアログが parameters を引き直せるよう、書いた本文を Workspace に入れる
       return null;
     } catch (e) {
       return String((e as Error).message ?? e);

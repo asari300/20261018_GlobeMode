@@ -77,6 +77,7 @@ export interface ModelParameter {
   default?: string;
   value?: number;
   literals?: string[];
+  enum_type?: string; // S298: Enumeration の型の完全修飾名（修飾に `型.リテラル` と書く）
   unit?: string;
   description?: string;
   min?: number;
