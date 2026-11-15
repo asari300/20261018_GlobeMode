@@ -362,6 +362,25 @@ fn in_stream_comprehension_as_a_call_argument_is_braced() {
     assert!(e.contains(&"z = {p[1].h, p[2].h}".to_string()), "{e:#?}");
 }
 
+/// 範囲の切り出しの `connect` と、2 次元の部品の配列の `connect` は、大きさが合わなければ断る（S372・#144。先頭の 1 本・行優先の順で黙ってつながなかった）
+#[test]
+fn connect_with_mismatched_sizes_is_refused() {
+    let pin = "connector Pin Real v; flow Real i; end Pin; model Sub Pin p; end Sub;";
+    let ok = |body: &str| {
+        let src = format!("{pin} model M {body} end M;");
+        Project::from_sources([("t.mo", src.as_str())])
+            .flatten("M")
+            .map(|_| ())
+            .map_err(|e| e.kind.to_string())
+    };
+    let bad = Err("connect".to_string());
+    assert_eq!(ok("Pin a[3]; Pin b[3]; equation connect(a[1:3], b[1:2]);"), bad);
+    assert_eq!(ok("Sub x[2, 3]; Sub y[3, 2]; equation connect(x.p, y.p);"), bad);
+    // 合うものは通る
+    assert_eq!(ok("Pin a[3]; Pin b[3]; equation connect(a[1:2], b[2:3]);"), Ok(()));
+    assert_eq!(ok("Sub x[2, 3]; Sub y[2, 3]; equation connect(x.p, y.p);"), Ok(()));
+}
+
 #[test]
 fn record_binding_and_constant_dims() {
     let m = flat(
