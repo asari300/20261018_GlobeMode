@@ -247,7 +247,7 @@
 
 <style>
   .settings { margin: .25rem 0; }
-  .settings label { margin-right: 1rem; }
+  .settings label { display: inline-block; margin-right: 1rem; } /* S348: 欄の名前と入力欄・チェックの名前と箱が行の端で泣き別れない */
   .opt { display: inline-block; vertical-align: top; margin: 0 .5rem .25rem 0; padding: .1rem .5rem; border: 1px solid var(--border); }
   small { color: var(--muted); }
   .rows { max-height: 12rem; overflow-y: auto; }

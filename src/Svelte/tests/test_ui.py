@@ -34,6 +34,7 @@ UI の操作の項目 `tree= fmt= graph= cancel= settings= plot= def=`（S147。
 console の error（CSP の違反を含む）と、配った origin の外への要求は失敗（S093）。
 使い心地（S228）: 実行中の Esc で止まる（入力欄の Esc と補完の一覧を閉じる Esc では止まらない）。タブは Ctrl+Shift+PageUp / PageDown とドラッグで並べ替わり、開いているタブは同じまま、順序が自動保存に乗って再読み込みで戻る。実行の設定はモデル名ごとに残り（`globe-mode.sim`）、切り替えると戻り、「設定を既定に戻す」で消える。開始時刻・刻み幅（固定刻みだけ）・予算の欄が要求に乗り、GM-E10004 が欄の下に出る。
 S196（レビューの指摘）: Desktop（偽の window.__TAURI__）で同じ名前の別のファイルが別のタブになり保存が取り違えない。ライブラリのタブは読み取り専用（打てず案内が出る。整形・リネームは断る）。タブを切り替えるとリネームの入力欄・参照の一覧・最後の値が残らない。実行中は F12 に入らず進捗の行は role を持たない。自動保存は遅らせても離れる前に書き、書けなければ 1 文出す。別のウィンドウの保存を知らせる。Tab は補完の一覧が開いていれば確定。Modelica.Units.SI.Vol で Voltage が出る（一覧が 200 件で切れていても問い直す）。
+複数のソルバの結果（S348）: Decay を bdf・dopri45・rk4 で、比較 on・閾値 10^-6 で回し、実行の表 3 行・比較の表 2 行（基準 bdf）・合否・最大の相対差が出て、並列を頼むと 1 つずつに落ちた注記が出る。設定欄の名前が入力欄から泣き別れず、横にはみ出さない。環境変数 GM_UI_SHOT に PNG のパスを渡すと結果の画面を撮る。
 """
 
 from __future__ import annotations
@@ -43,6 +44,7 @@ import functools
 import http.server
 import json
 import math
+import os
 import re
 import subprocess
 import sys
@@ -1401,6 +1403,63 @@ def multi_solver(browser, origin: str, errors: list[str]) -> None:
     print("複数のソルバ: bdf・rk4・euler を並列で頼むとブラウザは 1 つずつに落ちて注記が出る。比較の表（基準 bdf・合否は文字）と 3 本の重ね描きが出て、設定は再読み込みで残る")
 
 
+def many_result_view(browser, origin: str, errors: list[str]) -> None:
+    """S348: 複数のソルバの結果（ManyResult）を実ブラウザで通す。選ぶ前の既定（1 つずつ・比較 off・何も選ばない・n = 6）、Decay を bdf・dopri45・rk4 で比較 on・閾値 6 で回した表（実行 3 行・基準 bdf との比較 2 行・合否・最大の相対差。全体の合否と最大は行の値と食い違わない）、並列にして回し直すと 1 つずつに落ちた注記が出ること、設定欄の名前が入力欄から泣き別れず横にはみ出さないこと。環境変数 GM_UI_SHOT にファイル名を渡すと結果の画面を PNG に撮る。"""
+    pg = browser.new_page(viewport={"width": 1280, "height": 900})
+    pg.on("console", lambda m: m.type == "error" and errors.append(m.text))
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(origin)
+    pg.get_by_role("button", name="検査").wait_for()
+    settings = pg.locator(".settings")
+    settings.get_by_role("radio", name="複数").check(force=True)
+    compare = settings.get_by_role("checkbox", name="全部終わったら結果を比べる")
+    assert settings.get_by_role("radio", name="1 つずつ").is_checked() and not compare.is_checked()  # 既定は逐次・比較 off
+    assert settings.locator("[data-many-solvers] input:checked").count() == 0 and settings.get_by_label("比較の閾値の n").count() == 0
+    group = settings.locator("[data-many-solvers]")
+    for name in ("bdf", "rk4", "dopri45"):
+        group.get_by_role("checkbox", name=name, exact=True).check(force=True)
+    expect(group.locator("legend")).to_contain_text("3 個を選択")
+    compare.check(force=True)
+    exp = settings.get_by_label("比較の閾値の n")
+    assert exp.input_value() == "6"  # 閾値の既定は 10^-6
+    exp.fill("6")
+    many = pg.locator("[data-many]")
+    run = pg.get_by_role("button", name="実行", exact=True)
+
+    def table() -> tuple[list[str], list[str]]:
+        runs = many.locator("tr[data-run-solver]").evaluate_all("rs => rs.map(r => r.dataset.runSolver + ':' + r.dataset.runStatus)")
+        return runs, many.locator("tr[data-pair]").evaluate_all("rs => rs.map(r => r.dataset.pair + ':' + r.dataset.passed)")
+
+    run.click(force=True)
+    expect(many).to_be_visible(timeout=120_000)
+    assert "1 つずつ" in many.locator("[data-many-mode]").inner_text() and many.locator("[data-mode-note]").count() == 0  # 逐次を選んだので注記は無い
+    runs, pairs = table()
+    assert runs == ["bdf:ok", "dopri45:ok", "rk4:ok"], runs  # 一覧の順。3 行とも成功
+    assert [x.split(":")[0] for x in pairs] == ["dopri45", "rk4"], pairs  # 基準 bdf 以外の 2 行
+    expect(many.locator("[data-compare-verdict]")).to_contain_text("基準 bdf")
+    assert many.locator("[data-compare-verdict] sup").inner_text() == "-6"
+    assert many.locator("[data-compare-verdict] strong").inner_text() == ("合格" if all(x.endswith(":true") for x in pairs) else "不合格")  # 全体の合否は行の合否の AND
+    cells = [t.strip() for t in many.locator("tr[data-pair] [data-max-rel]").all_inner_texts()]
+    assert all(re.match(r"\d\.\d{2}e[+-]?\d+（[<≥] 1e-6）", t) for t in cells), cells
+    worst = re.search(r"最大の相対差: (\d\.\d{2}e[+-]?\d+)", many.locator("[data-compare-worst]").inner_text())
+    assert worst and float(worst[1]) == max(float(t.split("（")[0]) for t in cells), (worst, cells)  # 全体の最大は行の最大
+    assert pg.locator(".plot").get_attribute("data-series") == "3"
+    assert not pg.evaluate("[...document.querySelectorAll('.settings label')].some((l) => l.getClientRects().length > 1)"), "設定欄の名前が入力欄から折り返して離れた"
+    assert pg.evaluate("document.documentElement.scrollWidth <= document.documentElement.clientWidth"), "横にはみ出す"
+    if shot := os.environ.get("GM_UI_SHOT"):
+        y = pg.evaluate("window.scrollY")  # bounding_box は表示領域の座標。full_page の clip はページの座標
+        a, b = settings.bounding_box(), many.bounding_box()
+        pg.screenshot(path=shot, full_page=True, clip={"x": 0, "y": y + a["y"], "width": 1280, "height": b["y"] + b["height"] - a["y"] + 6})
+    # 並列を頼んで回し直す: ブラウザは 1 つずつに落ち（ADR-0040）、欄の横と結果の両方に理由が出る。表は同じ 3 行
+    settings.get_by_role("radio", name="並列").check(force=True)
+    expect(settings.locator("[data-parallel-note]")).to_contain_text("ブラウザでは 1 つずつ")
+    run.click(force=True)
+    expect(many.locator("[data-mode-note]")).to_contain_text("逐次", timeout=120_000)
+    assert "1 つずつ" in many.locator("[data-many-mode]").inner_text() and table()[0] == runs
+    pg.close()
+    print(f"複数の結果: bdf・dopri45・rk4 を比較 on・閾値 6 で回し、実行 3 行・比較 2 行（基準 bdf）・最大の相対差 {cells} が出る。並列は 1 つずつに落ちた注記が出る")
+
+
 def main() -> int:
     # 色付けの予約語は Rust の KEYWORDS と同じ並び（S163。editor.ts の KEYWORDS は補完と色付けの共通の一覧）
     ts_kw = re.findall(r'"(\w+)"', re.search(r"export const KEYWORDS = \[(.*?)\];", (SRC / "Svelte/src/lib/editor.ts").read_text(), re.S).group(1))
@@ -2562,6 +2621,7 @@ def main() -> int:
         linearize_view(browser, origin, errors)  # S260
         eigen_and_stages(browser, origin, errors)  # S291
         multi_solver(browser, origin, errors)  # S323
+        many_result_view(browser, origin, errors)  # S348
         open_fmu_file(browser, origin, errors)  # S229
         fmu_runtime_select(browser, origin, errors)  # S239
         results_followups(browser, origin, errors)  # S236
