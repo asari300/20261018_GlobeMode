@@ -96,7 +96,7 @@ struct Ctx<'a> {
 
 impl Ctx<'_> {
     fn n(&self, v: usize) -> usize {
-        self.vars[v].dims.iter().product::<usize>().max(1)
+        self.vars[v].dims.iter().product::<usize>()
     }
 
     /// 方程式の左辺がレコードの部品（変数ではなく、`a.re`・`a.im` の持ち主）なら、欄のスカラーの数の和。
@@ -339,6 +339,8 @@ pub fn build(m: &FlatModel) -> Result<Dae, Unsupported> {
         .map(|e| &e.0)
         .chain(whens.iter().map(|w| &w.0))
         .chain(algs.iter())
+        // 束縛の中の `der`（`Real w = der(phi)`）も状態を作る
+        .chain(binds.iter().map(|b| &b.1))
     {
         has_der.extend(cx.refs(node).iter().filter(|r| r.der).map(|r| r.var));
     }
@@ -604,5 +606,25 @@ mod tests {
     fn structurally_singular_but_balanced_counts() {
         let d = dae("model M Real x; Real y; equation x = 1; x = 2; end M;");
         assert!(d.is_balanced() && !d.is_regular());
+    }
+
+    #[test]
+    fn record_equation_counts_per_field() {
+        // `y = C(a, b)` は欄ごとの 2 本（flat は 1 本）。平らにした方程式の数は 1
+        let src = "record C Real re; Real im; end C;
+            model M C y; Real a = time; Real b = 2 * time; equation y = C(a, b); end M;";
+        let m = Project::from_sources([("t.mo", src)]).flatten("M").unwrap();
+        assert_eq!(m.equation_count(), 1);
+        let d = build(&m).unwrap();
+        assert_eq!((d.counts.equations, d.counts.unknowns), (4, 4));
+    }
+
+    #[test]
+    fn der_in_a_binding_makes_a_state_and_empty_arrays_have_no_unknowns() {
+        let d =
+            dae("model M Real x(start = 0); Real w = der(x); Real e[0]; equation x = time; end M;");
+        assert_eq!(d.counts.states, 1);
+        // x（状態）の 1 本の方程式、w の束縛の 1 本。未知数は x の状態と w。e[0] は数えない
+        assert_eq!((d.counts.equations, d.counts.unknowns), (2, 2));
     }
 }
