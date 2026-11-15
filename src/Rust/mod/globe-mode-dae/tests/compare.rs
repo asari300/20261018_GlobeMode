@@ -93,6 +93,7 @@ struct Tally {
     regular_same: usize,
     regular_compared: usize,
     diffs: Vec<String>,
+    other: Vec<String>,
 }
 
 impl Tally {
@@ -105,12 +106,22 @@ impl Tally {
         let same = m.counts.equations == t.eq && m.counts.unknowns == t.unk;
         self.counts_same += usize::from(same);
         self.states_same += usize::from(m.counts.states == t.states);
+        if m.counts.states != t.states && self.other.len() < 40 {
+            self.other.push(format!(
+                "状態の数 {model}: {} vs {} (rumoca)",
+                m.counts.states, t.states
+            ));
+        }
         let mr = m.is_regular();
         self.mine_regular += usize::from(mr);
         if let Some(tr) = t.regular {
             self.theirs_regular += usize::from(tr);
             self.regular_compared += 1;
             self.regular_same += usize::from(mr == tr);
+            if mr != tr && self.other.len() < 80 {
+                self.other
+                    .push(format!("正則 {model}: 自前 {mr} / rumoca {tr}"));
+            }
         }
         if !same && self.diffs.len() < 400 {
             self.diffs.push(format!(
@@ -143,6 +154,9 @@ impl Tally {
             self.regular_compared,
             self.regular_same
         );
+        for o in &self.other {
+            println!("  他: {o}");
+        }
         for d in &self.diffs {
             println!("  差: {d}");
         }
