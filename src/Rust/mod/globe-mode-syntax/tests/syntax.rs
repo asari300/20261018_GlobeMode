@@ -519,3 +519,18 @@ fn field_after_call_stays_in_the_call() {
         .collect();
     assert_eq!(calls, ["f", "g"]);
 }
+
+#[test]
+fn subscript_after_paren_stays_in_the_paren() {
+    // Rumoca の flat は配列の部品の修飾を `({a for i in 1 : n})[1]` と印字する
+    let p =
+        parse("model M equation 0 = (({a + f(b) for i in 1 : n})[1]); 0 = (x)[2, 3] + y; end M;");
+    assert!(p.errors.is_empty(), "{:?}", p.errors);
+    assert_eq!(
+        p.syntax()
+            .descendants()
+            .filter_map(ast::ParenExpr::cast)
+            .count(),
+        3
+    );
+}

@@ -473,6 +473,10 @@ impl<'a> Parser<'a> {
                     }
                 }
                 self.close(RParen, "`)`");
+                // 括弧の式への添字 `({…})[1]`（Rumoca の flat の印字）。木では括弧の節に含める
+                if self.at(LBracket) {
+                    self.subscripts();
+                }
                 self.finish_node();
             }
             Some(LBracket) => {
