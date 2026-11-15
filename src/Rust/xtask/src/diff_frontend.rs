@@ -3,6 +3,9 @@
 //!
 //! - 例題の選び方は `msl-funnel` と同じ（[`crate::funnel::msl_examples`]）。`GlobeModeValidation` は
 //!   `--validation`（既定 `src/Modelica`）の下の、親がパッケージの model / block / class（partial を除く）。
+//! - `--library <dir> --package <根> [--examples-in <段>] [--shard i/n]`（S369）で MSL 以外の公開ライブラリの例題を
+//!   `msl-funnel` と同じ選び方（[`crate::funnel::library_examples`]）で突き合わせる。MSL は一緒に読み、
+//!   MSL の例題と `GlobeModeValidation` は検査しない。
 //! - 段ごとの検査は「はい / いいえ」の旗（[`Row::flags`]）にして、前回の JSON との差（回帰・改善）はその旗の変化で出す。
 //! - Rumoca は自前で平らにできたものだけに呼ぶ（呼べば flat・釣り合い・構造まで取れる）。
 //!   S278・S284・S290 の各 crate の `tests/compare.rs`（`#[ignore]`）の数え方をここに一本化した。
@@ -11,7 +14,7 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::fs;
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Instant;
 
@@ -22,12 +25,22 @@ use globe_mode_resolve::{ClassId, RefKind, Resolution};
 use globe_mode_syntax::SyntaxKind;
 use serde_json::{Value, json};
 
-use crate::funnel::{gigabytes, make_checker, msl_examples, peak_rss_kb};
+use crate::funnel::{
+    gigabytes, library_examples, make_checker, msl_examples, parse_shard, peak_rss_kb,
+};
 use crate::{MSL_SHA256, MSL_VERSION, RUMOCA_REV, RUMOCA_VERSION, Result};
 
 pub(crate) struct Options<'a> {
     pub msl: &'a Path,
     pub validation: &'a Path,
+    /// MSL のほかに読むライブラリ（`msl-funnel --library` と同じ。S369）
+    pub libraries: &'a [PathBuf],
+    /// 例題を集めるライブラリの根のパッケージ名。`Modelica`（既定）なら MSL の例題と `GlobeModeValidation`
+    pub package: &'a str,
+    /// 例題を含むパッケージの名前（`--examples-in`）
+    pub example_segments: &'a [String],
+    /// 例題を `n` 組に分けた `i` 組目（`i/n`）だけを検査する。`--filter` の後、`--limit` の前
+    pub shard: Option<&'a str>,
     pub filter: Option<&'a str>,
     /// 例題でなくても、この完全修飾名のクラスをそのまま検査する（`,` 区切り。数え方の食い違いを小さなモデルで調べる。S312）
     pub classes: Option<&'a str>,
@@ -88,7 +101,7 @@ const REASON_STAGES: [&str; 3] = ["resolve", "flat", "dae"];
 /// 例題 1 本の結果。
 struct Row {
     name: String,
-    /// `msl`（例題）か `validation`（`GlobeModeValidation`）
+    /// `msl`（例題）、`validation`（`GlobeModeValidation`）、`library`（`--package` のライブラリの例題）
     group: &'static str,
     /// 検査した項目だけが入る（Rumoca と比べられなかったものは無い）
     flags: BTreeMap<&'static str, bool>,
@@ -413,12 +426,22 @@ fn validation_models(p: &Project) -> Vec<String> {
 
 pub(crate) fn diff_frontend(opts: &Options<'_>) -> Result<ExitCode> {
     let started = Instant::now();
-    let examples: Vec<String> = msl_examples(opts.msl)?
-        .into_iter()
-        .map(|e| e.name)
-        .collect();
+    let library_mode = opts.package != "Modelica";
+    let examples = if library_mode {
+        let segments: Vec<&str> = opts.example_segments.iter().map(String::as_str).collect();
+        library_examples(opts.libraries, opts.package, &segments)?
+    } else {
+        msl_examples(opts.msl)?
+    };
     let t = Instant::now();
-    let dirs = [opts.msl, opts.validation];
+    // MSL → ライブラリ → （MSL の例題のときだけ）GlobeModeValidation の順に読む
+    let mut extra: Vec<PathBuf> = opts.libraries.to_vec();
+    if !library_mode {
+        extra.push(opts.validation.to_path_buf());
+    }
+    let dirs: Vec<&Path> = std::iter::once(opts.msl)
+        .chain(extra.iter().map(PathBuf::as_path))
+        .collect();
     let p = Project::from_dirs(&dirs).map_err(|e| e.to_string())?;
     println!(
         "自前の読み込み {:.1} s、クラス {}",
@@ -426,21 +449,30 @@ pub(crate) fn diff_frontend(opts: &Options<'_>) -> Result<ExitCode> {
         p.lib.classes.len()
     );
     let t = Instant::now();
-    let checker = make_checker(opts.msl, &[opts.validation.to_path_buf()])?;
+    let checker = make_checker(opts.msl, &extra)?;
     println!("Rumoca の読み込み {:.1} s", t.elapsed().as_secs_f64());
     let mut by_scope = vec![Vec::new(); p.lib.classes.len()];
     for (i, r) in p.lib.refs.iter().enumerate() {
         by_scope[r.scope].push(i);
     }
+    let group = if library_mode { "library" } else { "msl" };
     let mut targets: Vec<(String, &'static str)> =
-        examples.into_iter().map(|n| (n, "msl")).collect();
-    targets.extend(validation_models(&p).into_iter().map(|n| (n, "validation")));
+        examples.into_iter().map(|e| (e.name, group)).collect();
+    if !library_mode {
+        targets.extend(validation_models(&p).into_iter().map(|n| (n, "validation")));
+    }
     if let Some(cs) = opts.classes {
-        targets = cs.split(',').map(|c| (c.to_string(), "msl")).collect();
+        targets = cs.split(',').map(|c| (c.to_string(), group)).collect();
     }
     if let Some(f) = opts.filter {
         targets.retain(|(n, _)| n.contains(f));
     }
+    let (shard_i, shard_n) = parse_shard(opts.shard)?;
+    let mut k = 0;
+    targets.retain(|_| {
+        k += 1;
+        (k - 1) % shard_n == shard_i
+    });
     if let Some(n) = opts.limit {
         targets.truncate(n);
     }
@@ -483,8 +515,10 @@ pub(crate) fn diff_frontend(opts: &Options<'_>) -> Result<ExitCode> {
         opts,
     };
     let text = render_report(&rows, &info, delta.as_ref());
-    for g in ["msl", "validation"] {
-        println!("{}", summary_line(&rows, g));
+    for g in ["msl", "validation", "library"] {
+        if rows.iter().any(|r| r.group == g) {
+            println!("{}", summary_line(&rows, g));
+        }
     }
     if let Some(d) = &delta {
         println!(
@@ -540,6 +574,7 @@ fn skip_json_reason(opts: &Options<'_>, regressed: bool) -> Option<&'static str>
     if regressed {
         Some("回帰がある。直してから回し直す")
     } else if opts.filter.is_some() || opts.limit.is_some() || opts.classes.is_some() {
+        // --shard は分割ごとに別の JSON を書く前提（libraries.yml）なので、基準を守る対象にしない
         Some("--filter / --limit / --class は一部のモデルだけ")
     } else {
         None
@@ -651,11 +686,11 @@ fn summary_line(rows: &[Row], g: &str) -> String {
     s
 }
 
-fn group_title(g: &str) -> &'static str {
-    if g == "msl" {
-        "MSL の例題"
-    } else {
-        "GlobeModeValidation"
+fn group_title(g: &str, package: &str) -> String {
+    match g {
+        "msl" => "MSL の例題".into(),
+        "library" => format!("{package} の例題"),
+        _ => "GlobeModeValidation".into(),
     }
 }
 
@@ -678,6 +713,20 @@ fn render_report(rows: &[Row], info: &Info<'_>, delta: Option<&Delta>) -> String
         "| Rumoca | {RUMOCA_VERSION}（rev `{}`、ライブラリとして呼ぶ） |",
         &RUMOCA_REV[..8]
     );
+    if info.opts.package != "Modelica" {
+        let _ = writeln!(
+            md,
+            "| ライブラリ | {}（`{}`、例題を含む段 {}。MSL は一緒に読むだけで検査しない） |",
+            info.opts.package,
+            info.opts
+                .libraries
+                .iter()
+                .map(|l| l.display().to_string())
+                .collect::<Vec<_>>()
+                .join("`・`"),
+            info.opts.example_segments.join("・")
+        );
+    }
     let _ = writeln!(
         md,
         "| 検査した本数 | {} 本{} |",
@@ -700,12 +749,17 @@ fn render_report(rows: &[Row], info: &Info<'_>, delta: Option<&Delta>) -> String
         md,
         "resolve は、例題のクラスから、中のクラス・`extends`・部品の型（解決できたもの）をたどって、届くクラスすべての参照を数える。\n"
     );
-    for g in ["msl", "validation"] {
+    for g in ["msl", "validation", "library"] {
         let rs = group_rows(rows, g);
         if rs.is_empty() {
             continue;
         }
-        let _ = writeln!(md, "## {}（{} 本）\n", group_title(g), rs.len());
+        let _ = writeln!(
+            md,
+            "## {}（{} 本）\n",
+            group_title(g, info.opts.package),
+            rs.len()
+        );
         let _ = writeln!(
             md,
             "| 段 | 項目 | 本数 | 母数 |\n| --- | --- | ---: | ---: |"
@@ -723,6 +777,7 @@ fn render_report(rows: &[Row], info: &Info<'_>, delta: Option<&Delta>) -> String
             render_reasons(&mut md, stage, &rs);
         }
     }
+    render_too_large(&mut md, rows);
     let diffs: Vec<_> = rows
         .iter()
         .flat_map(|r| r.diffs.iter().map(move |d| (r, d)))
@@ -737,6 +792,27 @@ fn render_report(rows: &[Row], info: &Info<'_>, delta: Option<&Delta>) -> String
     md
 }
 
+/// 自前の flat の上限（`too-large`、S365）で断った例題。上限が実在のモデルに厳しすぎないかを見る。
+fn render_too_large(md: &mut String, rows: &[Row]) {
+    let big: Vec<_> = rows
+        .iter()
+        .filter_map(|r| Some((&r.name, r.reasons.get("flat")?)))
+        .filter(|(_, why)| why.starts_with("too-large"))
+        .collect();
+    if big.is_empty() {
+        return;
+    }
+    let _ = writeln!(
+        md,
+        "## 上限（`too-large`）で断った例題（{} 本）\n",
+        big.len()
+    );
+    for (n, why) in big.iter().take(50) {
+        let _ = writeln!(md, "- `{n}`: {why}");
+    }
+    md.push('\n');
+}
+
 fn selection(o: &Options<'_>) -> String {
     let mut s = Vec::new();
     if let Some(f) = o.filter {
@@ -744,6 +820,9 @@ fn selection(o: &Options<'_>) -> String {
     }
     if let Some(n) = o.limit {
         s.push(format!("`--limit {n}`"));
+    }
+    if let Some(n) = o.shard {
+        s.push(format!("`--shard {n}`"));
     }
     if s.is_empty() {
         String::new()
@@ -882,6 +961,10 @@ mod tests {
         let o = |filter, limit| Options {
             msl: Path::new("m"),
             validation: Path::new("v"),
+            libraries: &[],
+            package: "Modelica",
+            example_segments: &[],
+            shard: None,
             filter,
             classes: None,
             dump: false,
@@ -898,6 +981,28 @@ mod tests {
         let mut by_class = o(None, None);
         by_class.classes = Some("A.B");
         assert!(skip_json_reason(&by_class, false).is_some());
+        let mut sharded = o(None, None);
+        sharded.shard = Some("1/2");
+        assert!(skip_json_reason(&sharded, false).is_none());
+    }
+
+    /// S369: 上限で断った例題は報告に名前と理由が出る。ほかの理由・通ったものは出ない
+    #[test]
+    fn too_large_examples_are_listed() {
+        let mut big = row("Lib.Big", &[("flat", false)]);
+        big.reasons
+            .insert("flat", "too-large: too many variables".into());
+        let mut other = row("Lib.Other", &[("flat", false)]);
+        other.reasons.insert("flat", "unsupported: x".into());
+        let mut md = String::new();
+        render_too_large(&mut md, &[big, other, row("Lib.Ok", &[("flat", true)])]);
+        assert!(md.contains("（1 本）"), "{md}");
+        assert!(
+            md.contains("`Lib.Big`: too-large: too many variables"),
+            "{md}"
+        );
+        assert!(!md.contains("Lib.Other") && !md.contains("Lib.Ok"), "{md}");
+        assert_eq!(group_title("library", "Buildings"), "Buildings の例題");
     }
 
     #[test]

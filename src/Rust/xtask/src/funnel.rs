@@ -1069,7 +1069,7 @@ pub(crate) struct Options<'a> {
 }
 
 /// `--shard i/n`（1 ≤ i ≤ n）を（i - 1, n）にする。無ければ（0, 1）。
-fn parse_shard(shard: Option<&str>) -> Result<(usize, usize)> {
+pub(crate) fn parse_shard(shard: Option<&str>) -> Result<(usize, usize)> {
     let Some(text) = shard else {
         return Ok((0, 1));
     };
