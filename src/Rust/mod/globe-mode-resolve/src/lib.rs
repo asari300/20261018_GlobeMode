@@ -19,7 +19,7 @@ use rowan::TextRange;
 use std::cell::Cell;
 use std::collections::HashMap;
 
-pub use build::Library;
+pub use build::{Library, mo_files};
 pub use lookup::Member;
 
 pub type ClassId = usize;
