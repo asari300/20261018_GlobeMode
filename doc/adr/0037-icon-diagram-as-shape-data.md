@@ -144,3 +144,14 @@ P8 の Diagram / Icon ビューの最初の一切れとして、カーソルの�
 - **webview**: 連続して押しても取りこぼさないよう、前の編集の結果（`edited`）を待ってから次の `move` を送る（`apply` は待つあいだに文書の版が変わると入れないため）。図は `show` のたびに作り直すので、フォーカスが図の中にあったときは選んだ部品か結線へフォーカスを戻す。CSP・`innerHTML` 不使用は変えない。
 - **確かめ**: `pnpm test` に `nudgeOf`（向き・Shift・結線と選び無しは null）と、webview・package.json・extension.js の配線。e2e に、コマンドでカーソルの部品の `R` を書く（偽の `panel.ui`）、カーソルが外なら部品を選んでから書く、undo で戻る 1 本。webview のキー操作そのものは拡張ホストから起こせないので e2e に無い（S264 と同じ）。
 - **持ち越し**: 結線の追加と途中の点をキーボードで行う口、Svelte の Enter からのパラメータ、実機でのキー操作の目視。
+
+## 付記（S316: キーボードで結線を足す）
+
+- **S309 の持ち越し「結線の追加と途中の点をキーボードで行う口」と「Svelte の Enter からのパラメータ」のうち、結線の追加と Enter を済ませた。** Rust・LSP は変えない（`globe/addConnect`・`globe/addWaypoint` をそのまま呼ぶ）。
+- **操作**: 部品を選んで `c` でコネクタの選びに入る（Ctrl・Alt・Meta つきは使わない。既存のキー［矢印・Enter・Space・Delete・Tab］と衝突しない）。まず選んだ部品のコネクタを Tab・矢印（Shift+Tab・左・上で戻る。端で回る）で選んで Enter で始点、続けて別の部品のコネクタを同じように選んで Enter で終点、`{type: "connect", from, to, points}`（ドラッグと同じメッセージ）。Esc で抜ける。最中は他のキー（矢印での移動・Delete・Enter のパラメータ）を効かせない。
+- **見た目と読み上げ**: 選び中のコネクタに枠（`.conn.cur` はオレンジ、始点の `.conn.from` は青）と `aria-label`、図の下の `role="status"` に「結線の始点を選ぶ: r1.p（1/2。…）」「r1.n を始点に選んだ。終点を選ぶ: …」「…を結線した」「a にコネクタが無い」を出す。コネクタの円は Tab の対象ではなく、フォーカスは部品に残したまま、状態を live region で伝える。
+- **途中の点**: 選んだ結線で `+` を押すと、いちばん長い線分の中点（2 単位に吸着）に途中の点を足す（S302 の `addWaypoint`）。足した点を動かす口はまだマウスだけ（点を選ぶ・動かす操作は次回）。
+- **共有**: 状態の進め方 `wireKey` と枠の付け直し `markWire` を `src/Svelte/src/lib/diagram-connect.ts`、中点の決め方 `midWaypointOf` を `diagram-waypoint.ts` に置き、webview と Svelte の `DiagramView`（`onConnect` があるとき）が読む。状態は呼び出し側が持つ。
+- **Svelte の Enter**: 部品で Enter はパラメータのダイアログ（`onParams`）にした。S309 が「S175 の操作を変えないため」触らなかったが、S175 の試験（`test_ui.py`）に部品での Enter は無く、衝突しなかった。宣言の行へは Space（webview と同じ）。結線など部品以外の Enter は従来どおり。
+- **確かめ**: `pnpm test` に、`c` から Enter・Enter までの流れが `connect` の引数になること、Esc・Ctrl+C・結線の選びでは入らないこと、`markWire`、`+` の中点、webview・`DiagramView`・`panel.js` の配線。e2e に、`diagram-connect.ts` を esbuild で JS にして ChuaCircuit の図へキー（c・Tab・Enter）を渡し、出てきた `connect` を `panel.handle` に渡すと `connect(L.p, Ro.n)` が入って undo で戻る 1 本（webview のキーは拡張ホストから起こせないので、共有の関数の出力から先）。`test_ui.py` の `diagram_view` に、部品で `c`（コネクタ無しの旨）と Enter（パラメータのダイアログ）。
+- **持ち越し**: 途中の点を選んでキーで動かす・消す、結線の選びから抜けずにフォーカスが図の外へ出たときの自動の取り消し、実機でのキー操作の目視、Svelte での結線の e2e（コネクタのあるモデル。MSL の ChuaCircuit は `public/msl/MSL.json` が要る）。

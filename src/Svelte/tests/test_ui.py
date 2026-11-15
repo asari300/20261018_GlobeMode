@@ -788,8 +788,15 @@ def diagram_view(browser, origin: str, errors: list[str]) -> None:
     assert svg.locator("[data-conn] polyline").nth(1).get_attribute("points") == "0,-70 -50,0", "Line が無ければ中心どうし（b は 90 度回して原点 {0, 20}）"
     svg.locator("g[data-part='b']").click()
     expect(pg.locator(".cm-activeLine")).to_contain_text("Box b", timeout=10_000)  # 宣言の行へ
+    # S316: キーボードだけ。部品で c（Box にコネクタは無いので、その旨が role=status に出る）、部品で Enter はパラメータのダイアログ（宣言の行へは Space）
+    svg.locator("g[data-part='a']").focus()
+    pg.keyboard.press("c")
+    expect(pg.locator("[data-diagram] [role=status]")).to_contain_text("a にコネクタが無い")
+    svg.locator("g[data-part='a']").focus()
+    pg.keyboard.press("Enter")
+    expect(pg.locator("[data-param-dialog]")).to_be_visible(timeout=30_000)
     pg.close()
-    print("図: 部品 2・connect 2（Line あり・なし）・Diagram の文字が SVG で出て、部品のクリックで宣言の行へ飛ぶ")
+    print("図: 部品 2・connect 2（Line あり・なし）・Diagram の文字が SVG で出て、部品のクリックで宣言の行へ飛ぶ。キーボード: c で結線の選び（コネクタ無しはその旨）、Enter でパラメータのダイアログ")
     if not (DIST / "msl/MSL.json").exists():
         print("public/msl/MSL.json が無いので、ChuaCircuit の図の試験は飛ばす")
         return

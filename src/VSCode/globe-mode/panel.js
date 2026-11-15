@@ -42,11 +42,12 @@ class Panel {
 #icon svg { height: 120px; } #diagram svg { height: 240px; }
 svg { width: 100%; display: block; } svg .part { cursor: grab; touch-action: none; } svg .part:focus-visible { outline: 2px solid #06c; }
 svg .conn { fill: #06c; fill-opacity: 0; cursor: crosshair; } svg .conn:hover { fill-opacity: .35; } svg .hit { cursor: pointer; } svg .wp { fill: #fff; stroke: #06c; stroke-width: 2; vector-effect: non-scaling-stroke; cursor: move; touch-action: none; } svg .hit:focus-visible { outline: 2px solid #06c; }
+svg .conn.cur { stroke: #f60; stroke-width: 3; fill-opacity: .35; vector-effect: non-scaling-stroke; } svg .conn.from { stroke: #06c; stroke-width: 3; fill-opacity: .6; vector-effect: non-scaling-stroke; } #say { margin: 2px 4px; font-size: .8em; }
 svg .part.sel > path { stroke: #06c; stroke-width: 2; stroke-dasharray: 4 2; vector-effect: non-scaling-stroke; fill: #06c; fill-opacity: .08; } svg [data-conn].sel polyline { stroke: #06c; stroke-width: 3; }
 .none { margin: 4px; font-size: .85em; } #docs { overflow-wrap: anywhere; } pre { white-space: pre-wrap; }
 table { border-collapse: collapse; } td, th { border: 1px solid var(--vscode-panel-border, #888); padding: 1px 4px; }
 </style></head>
-<body><div id="icon"></div><div id="diagram"></div><p id="cls"></p><div id="docs"></div><details id="revisions" hidden><summary>改訂履歴</summary><div id="rev"></div></details>
+<body><div id="icon"></div><div id="diagram"></div><p id="say" role="status"></p><p id="cls"></p><div id="docs"></div><details id="revisions" hidden><summary>改訂履歴</summary><div id="rev"></div></details>
 <script nonce="${nonce}" src="${script}"></script></body></html>`;
     web.onDidReceiveMessage((m) => this.handle(m));
     view.onDidChangeVisibility(() => view.visible && this.soon());
