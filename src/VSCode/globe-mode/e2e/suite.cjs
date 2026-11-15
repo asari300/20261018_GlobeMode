@@ -126,8 +126,11 @@ const cases = {
     assert.equal(doc.getText(), before);
   },
   async "パネルの部品の R を 100 に書くと宣言に (R = 100) が入り、undo で戻る。空の入力で外れる（S306）"() {
-    // 構文の壊れた Broken.mo が開いたままだと、LSP の Workspace 全体の変換が通らない。閉じて didClose が届くのを待つ
-    await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+    // 構文の壊れた Broken.mo が開いたままだと、LSP の Workspace 全体の変換が通らない（閉じても VS Code が文書を手放すまで didClose は来ない）。保存せずに直しておく
+    const broken = await vscode.workspace.openTextDocument(fixture("Broken.mo"));
+    const fix = new vscode.WorkspaceEdit();
+    fix.replace(broken.uri, new vscode.Range(0, 0, broken.lineCount, 0), "model Broken\nend Broken;\n");
+    assert.ok(await vscode.workspace.applyEdit(fix));
     const doc = await vscode.workspace.openTextDocument(fixture("Params.mo"));
     const ed = await vscode.window.showTextDocument(doc);
     const row = doc.getText().split("\n").findIndex((l) => l.startsWith("  Res r1"));
