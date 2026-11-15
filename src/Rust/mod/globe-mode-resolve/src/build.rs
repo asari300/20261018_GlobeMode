@@ -253,6 +253,9 @@ fn extract(c: &ast::ClassDef, file: u32) -> Option<Raw> {
             range: c.syntax().text_range(),
             encapsulated: c.is_encapsulated(),
             replaceable: c.is_replaceable(),
+            is_function: c
+                .kind_token()
+                .is_some_and(|t| t.kind() == SyntaxKind::KwFunction),
             classes: HashMap::new(),
             components: Vec::new(),
             comp_index: HashMap::new(),
@@ -293,7 +296,7 @@ fn extract(c: &ast::ClassDef, file: u32) -> Option<Raw> {
             raw.refs.push(name_ref(&n, kind));
         }
         for (l, r) in sb.enum_literals() {
-            add_component(&mut raw.class, l, r, true, Vec::new(), Vec::new());
+            add_component(&mut raw.class, l, r, true, false, Vec::new(), Vec::new());
         }
     }
     let mut public = true;
@@ -340,11 +343,17 @@ fn extract(c: &ast::ClassDef, file: u32) -> Option<Raw> {
                             .chain(cc.type_name())
                             .map(|t| PathRef::new(t.parts(), t.is_global(), false))
                             .collect();
+                        let input = cc
+                            .syntax()
+                            .children_with_tokens()
+                            .filter_map(|e| e.into_token())
+                            .any(|t| t.kind() == SyntaxKind::KwInput);
                         add_component(
                             &mut raw.class,
                             n,
                             r,
                             public,
+                            input,
                             tys,
                             redecls(d.redeclared_classes()),
                         );
@@ -376,6 +385,7 @@ fn add_component(
     name: String,
     range: TextRange,
     public: bool,
+    input: bool,
     tys: Vec<PathRef>,
     redecls: Vec<Redecl>,
 ) {
@@ -386,6 +396,7 @@ fn add_component(
         name,
         range,
         public,
+        input,
         tys,
         redecls,
     });

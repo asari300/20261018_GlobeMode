@@ -32,7 +32,7 @@ pub fn name_at(text: &str, at: usize) -> Option<(usize, &str)> {
 }
 
 /// 位置を含むクラスの列（外から内へ）。
-fn enclosing(classes: &[ClassOutline], at: u32) -> Vec<&ClassOutline> {
+pub(crate) fn enclosing(classes: &[ClassOutline], at: u32) -> Vec<&ClassOutline> {
     let mut out = Vec::new();
     let mut level = classes;
     while let Some(c) = level

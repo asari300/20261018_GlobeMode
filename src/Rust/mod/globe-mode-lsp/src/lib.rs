@@ -2,7 +2,8 @@
 //!
 //! 機能: 診断（`publishDiagnostics`、検査 S0〜S10 と lint）、`documentSymbol`（アウトライン）、
 //! `hover`（クラスの種類）、`formatting`（S053、`globe-mode-fmt`）、`completion`（S053、[`completion`]）。
-//! `definition`・`references`（S132、[`definition`]）、`foldingRange`（S220、[`folding`]）。同期は Full で、要求は 1 本のスレッドで順に処理する
+//! `definition`・`references`（S132、[`definition`]）、`foldingRange`（S220、[`folding`]）、`inlayHint`（S352、[`inlay`]。関数の呼び出しの位置引数の名前）、
+//! `prepareCallHierarchy`・`callHierarchy/incomingCalls`・`callHierarchy/outgoingCalls`（S354、[`call_hierarchy`]。`function` だけ）。同期は Full で、要求は 1 本のスレッドで順に処理する
 //! （S136: 入力の読みは別のスレッド。`$/cancelRequest` で `globe/simulate`・`globe/simulateColumns` を止め、
 //! params に `workDoneToken` があれば `$/progress` で進捗を出す。ADR-0033）。
 //!
@@ -57,12 +58,14 @@
 //! params が読めなければ -32602、モデルが無いなど計算の失敗は -32000（`message` に理由）。
 //! facade（`globe-mode`）の `Workspace` だけを呼び、新しい計算は入れない。
 
+pub mod call_hierarchy;
 pub mod completion;
 pub mod definition;
 pub mod diagram;
 pub mod documentation;
 pub mod folding;
 pub mod icon;
+pub mod inlay;
 pub mod tolerant;
 
 use std::collections::{HashMap, VecDeque};
@@ -254,7 +257,7 @@ impl Server {
                         // 1 = Full
                         "capabilities": {"textDocumentSync": 1, "documentSymbolProvider": true, "hoverProvider": true,
                             "documentFormattingProvider": true, "completionProvider": {"triggerCharacters": ["."]},
-                            "definitionProvider": true, "referencesProvider": true, "foldingRangeProvider": true,
+                            "definitionProvider": true, "referencesProvider": true, "foldingRangeProvider": true, "inlayHintProvider": true, "callHierarchyProvider": true,
                             "renameProvider": {"prepareProvider": true}},
                         "serverInfo": {"name": "globe-mode", "version": env!("CARGO_PKG_VERSION")},
                     }),
@@ -312,6 +315,37 @@ impl Server {
                     folding::folding_ranges(text, Some(&self.outline_or_tolerant(&uri, text)))
                 });
                 reply(id, json!(ranges))
+            }
+            // S352: 関数の呼び出しの位置引数の名前。範囲の内側だけ（自前の構文と名前解決。書きかけの文書でも出る）
+            "textDocument/inlayHint" => {
+                let hints = self.texts.get(&uri).cloned().map(|text| {
+                    let at = |k: &str| offset(&text, lsp_position(&params["range"][k]));
+                    let (from, to, path) = (at("start"), at("end"), uri_path(&uri));
+                    self.with_resolver(|r| inlay::inlay_hints(r, &path, &text, from, to))
+                });
+                reply(id, json!(hints))
+            }
+            // S354: call hierarchy（`function` だけ）。`item` の `selectionRange`（関数の名前）から引き直すので状態は持たない。
+            // 呼び元は開いた文書・根の下の `.mo`・ライブラリ（`references` と同じ範囲）、呼び先は自前の名前解決
+            m @ ("textDocument/prepareCallHierarchy" | "callHierarchy/incomingCalls" | "callHierarchy/outgoingCalls") => {
+                let (uri, pos) = if m.starts_with("textDocument/") {
+                    (uri.clone(), &params["position"])
+                } else {
+                    (params["item"]["uri"].as_str().unwrap_or("").to_string(), &params["item"]["selectionRange"]["start"])
+                };
+                let (path, pos) = (uri_path(&uri), lsp_position(pos));
+                let (root, libs) = (self.root.clone(), self.libraries.clone());
+                let docs: Vec<(String, String)> = self.texts.iter().map(|(u, b)| (u.clone(), b.clone())).collect();
+                let found = self.with_resolver(|r| {
+                    let text = (r.read)(&path)?;
+                    let at = offset(&text, pos);
+                    match m {
+                        "textDocument/prepareCallHierarchy" => call_hierarchy::prepare(r, &uri, &path, &text, at).map(|i| json!([i])),
+                        "callHierarchy/incomingCalls" => call_hierarchy::incoming(r, root.as_deref(), &libs, &docs, &path, &text, at),
+                        _ => call_hierarchy::outgoing(r, &uri, &path, &text, at),
+                    }
+                });
+                reply(id, found.unwrap_or(Value::Null))
             }
             "textDocument/hover" => {
                 let pos = &params["position"];
@@ -3437,6 +3471,73 @@ end Lib;
         let lsp = s.handle(json!({"id": 2, "method": "textDocument/completion",
             "params": {"textDocument": {"uri": "T.mo"}, "position": {"line": 1, "character": 33}}}));
         assert_eq!(labels(lsp[0].clone()), ui);
+    }
+
+    /// 文書を開き、行 `lines`（0 始まり、両端を含む）の範囲の `textDocument/inlayHint` を `(行, 列, ラベル)` で返す。
+    fn inlay(s: &mut Server, text: &str, lines: (u32, u32)) -> Vec<(u32, u32, String)> {
+        s.handle(
+            json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+            "uri": "T.mo", "languageId": "modelica", "version": 1, "text": text}}}),
+        );
+        let r = s.handle(json!({"id": 1, "method": "textDocument/inlayHint", "params": {
+            "textDocument": {"uri": "T.mo"},
+            "range": {"start": {"line": lines.0, "character": 0}, "end": {"line": lines.1 + 1, "character": 0}}}}));
+        r[0]["result"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|h| {
+                let p = &h["position"];
+                (
+                    p["line"].as_u64().unwrap() as u32,
+                    p["character"].as_u64().unwrap() as u32,
+                    h["label"].as_str().unwrap().to_string(),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn inlay_hints_name_the_positional_arguments_of_a_resolved_function() {
+        // S352: `input` の並び（`extends` の基底が先）が名前。書きかけ（最後の行の誤り）でも、名前つき引数・`der`・範囲の外には出ない
+        let text = "function f\n  input Real a;\n  input Real b;\n  output Real y = a;\nend f;\n\
+function g\n  extends f;\n  input Real c;\nend g;\n\
+model T\n  Real x = f(1, 2 * 3);\n  Real z = g(x, -x, f(0, b = 1));\nequation\n  der(x) = f(x, 1);\n  Real = ;\nend T;\n";
+        let mut s = Server::new(&[]).unwrap();
+        let init = s.handle(json!({"id": 0, "method": "initialize", "params": {}}));
+        assert_eq!(init[0]["result"]["capabilities"]["inlayHintProvider"], true);
+        let want = |v: &[(u32, u32, &str)]| -> Vec<(u32, u32, String)> {
+            v.iter().map(|(l, c, n)| (*l, *c, n.to_string())).collect()
+        };
+        let all = inlay(&mut s, text, (0, 20));
+        assert_eq!(
+            all,
+            want(&[
+                (10, 13, "a:"),
+                (10, 16, "b:"),
+                (11, 13, "a:"),
+                (11, 16, "b:"),
+                (11, 20, "c:"),
+                (11, 22, "a:"),
+                (13, 13, "a:"),
+                (13, 16, "b:"),
+            ])
+        );
+        // 範囲（11 行目だけ）の内側だけ
+        let one = inlay(&mut s, text, (11, 11));
+        assert!(one.len() == 4 && one.iter().all(|h| h.0 == 11), "{one:?}");
+    }
+
+    #[test]
+    fn inlay_hints_are_silent_when_the_callee_cannot_be_resolved() {
+        // 組み込み・未定義・部品・引数が input より多い分には、推測して出さない
+        let text = "function f\n  input Real a;\n  output Real y = a;\nend f;\n\
+model T\n  Real x;\n  Real y[2];\nequation\n  x = sin(time) + nope(1) + Lib.nope(2) + y(1) + f(1, 2);\nend T;\n";
+        let mut s = Server::new(&[]).unwrap();
+        assert_eq!(
+            inlay(&mut s, text, (0, 10)),
+            [(8, 51, "a:".to_string())] // `f(1, 2)` の 1 だけ。2 は input が無い
+        );
     }
 
     #[test]
