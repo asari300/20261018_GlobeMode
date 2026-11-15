@@ -52,9 +52,10 @@ MSL 4.1.0 の例題 566 本での推移（括弧は「一致した本数 / 母�
 | S362（S355 の上。DAE のレコードの配列） | 538（DAE にできた 538/538） | 511（508/511・498/511） | 367（判定 367/367・方程式と未知数の数 366/367・状態 366/367・構造の正則 367/367） |
 | S361（S355・S362 の上。外側の `inner` への `connect`） | 548（DAE にできた 548/548） | 521（518/521・508/521） | 377（判定 377/377・方程式と未知数の数 376/377・状態 376/377・構造の正則 373/377） |
 | S364（S361 の上。`{…} = fill(…)` の離散の方程式） | 548（DAE にできた 548/548） | 521（518/521・508/521） | 377（判定 377/377・方程式と未知数の数 376/377・状態 376/377・構造の正則 **377/377**） |
+| S367（S365 の上。expandable・レコードの配列の束縛） | **561**（DAE にできた 561/561） | 532（529/532・517/532） | 382（判定 382/382・方程式と未知数の数 381/382・状態 381/382・構造の正則 382/382） |
 
 - parse は MSL の例題 566/566（S300 の時点も今も）、resolve は未解決 0 が 467/566（S300 の時点も今も。残る 99 本はすべて `Redeclare`）。`GlobeModeValidation` 75 本は S334・S337 で、Rumoca も通った 73 本の名前・方程式の数・判定・数・状態が 73/73、正則が 72/72。
-- 断る理由の残り（S361。18 本、最初の理由だけ数える）: `composite-binding` 6・`expandable` 5・`non-constant-dim` 4・`connect-array` 1・`non-constant-for` 1・`unsized-array` 1。`connect` は 0（S361。S355 では 10 本）、`stream` は 0（S355）、`composite-binding` の 25 本のうち 19 本は S335 が平らにした。
+- 断る理由の残り（S367。5 本、最初の理由だけ数える）: `non-constant-dim` 4（FFT。`realFFTsamplePoints` の評価に関数の評価器が要る）・`unsized-array` 1（`ReadRealMatrixFromFile`。ファイルを読む関数で決められない）。S365 までは 18 本（`composite-binding` 6・`expandable` 5・`non-constant-dim` 4・`connect-array` 1・`non-constant-for` 1・`unsized-array` 1）で、`non-constant-dim` と `unsized-array` 以外の 13 本を S367 が平らにした。`connect` は 0（S361。S355 では 10 本）、`stream` は 0（S355）、`composite-binding` の 25 本のうち 19 本は S335 が平らにした。
 - 方程式の数が合わない 11 本は（S334 では 12 本。S337 で `ShowTransferFunction` を直した）、Rotational・Translational の摩擦・歯車の 10 本（S330 が Rumoca の数え方の誤りと確かめ、S331 が最新の release v0.10.4 では直ると確かめた。[upstream.md](../upstream.md) の下書き 36）、`ActuatorWithNoise`（同じ表の数え方）。状態の数が合わなかった 2 本（`IMC_DCBraking`・`IMC_Initialize`）は S337 で直した（Rumoca が初期方程式の `der` も状態にするため。自前の抜け）。
 
 付記の案内（主題ごと）:
@@ -63,8 +64,8 @@ MSL 4.1.0 の例題 566 本での推移（括弧は「一致した本数 / 母�
 | --- | --- |
 | B1 構文 | 本文、S269 |
 | B2 名前の解決 | S272、S275 |
-| B3 flatten | S278、S284、S297、S312、S324、S329、S333、S334、S335（`[:]` の大きさ）、S336（`Complex` の配列の束縛）、S337、S355（`stream`）、S361（外側の `inner` への `connect`・`inner outer`・`cardinality`） |
-| B4 DAE | S290、S312、S325、S330、S332（計測と、名前・数の食い違いの原因）、S337（初期方程式の `der` と状態の数）、S362（レコードの配列の範囲への方程式と、レコードの配列を渡す参照）、S364（左辺が離散の変数の配列の構築子 `{…} = fill(…)` を離散の方程式に） |
+| B3 flatten | S278、S284、S297、S312、S324、S329、S333、S334、S335（`[:]` の大きさ）、S336（`Complex` の配列の束縛）、S337、S355（`stream`）、S361（外側の `inner` への `connect`・`inner outer`・`cardinality`）、S367（expandable connector・レコードの配列の束縛・2 次元の部品の配列の `connect`） |
+| B4 DAE | S290、S312、S325、S330、S332（計測と、名前・数の食い違いの原因）、S337（初期方程式の `der` と状態の数）、S362（レコードの配列の範囲への方程式と、レコードの配列を渡す参照）、S364（左辺が離散の変数の配列の構築子 `{…} = fill(…)` を離散の方程式に）、S367（使われない expandable の欄を未知数にしない・2 次元の部品の配列を通した欄の参照） |
 | 製品へのつなぎ | S276（アウトライン・折りたたみ）、S279（補完）、S296（定義ジャンプ・ホバー）、S305（`globe check --frontend native`）、S307（閉包だけを読む）、S311（位置）、S313（CLI 以外から選ぶ）、S320（#111・#113〜#116）、S327（#118）、S352（inlay hint）、S354（call hierarchy） |
 | 突き合わせ | S300（`cargo xtask diff-frontend`） |
 
@@ -676,3 +677,24 @@ S297 の見立て（Complex のレコード）は外れで、`Connections.isRoot
 - **#138 `pick_elem` が O(n²)**: 内包の範囲 `a:b`・`a:s:b` の i 番目を `a + (i - 1) * s`（範囲内か見る。溢れは `checked_*`）で直接出す。範囲の値の `Vec` は作らない。`range_vals` の整数の評価と範囲の（始め, 刻み, 終わり）は `range_int`・`range_abc` に切り出した。n = 40000 の束縛が、宣言だけの 6.6 倍（issue の数は 8.7 倍）から 2.1 倍（試験は 4.5 倍未満）。
 - **#139 スカラーの総数に上限が無い**: 変数 1 つの次元の積と、変数・方程式それぞれのスカラーの総数が `MAX_SCALARS`（200 万。`MAX_VARS` の 10 倍）を超えたら `too-large`（GM-U）。DAE の `build` は 1 スカラー約 300 バイトを使うので、上限は約 600 MB。`globe-mode-dae` は flat の出力だけを受けるので、上限は flat の入口に置いた（dae に別の上限は持たない）。
 - **#140 文書**: 上流の下書き 40（英語・日本語）・この ADR の 2 か所（S355 の項と表）・S355・S362 の解説書の `InverseParameterization` の説明を、MSL の本文（`Fluid/Pipes.mo`・`Fluid/Examples/InverseParameterization.mo`・`TraceSubstances.mo`）に合わせた。`pipe1` は `NominalTurbulentPipeFlow`（`Res`・`m_flows_turbulent`〔`PartialStaggeredFlowModel`〕と `dps_fg_turbulent`）、`pipe2` は `NominalLaminarFlow`（`Res`・`m_flows_turbulent`〔同〕と `pathLengths_nominal`、`if show_Res`）で、`DetailedPipeFlow(show_Res = true)` を使うのは `TraceSubstances` の `RoomCO2`・`RoomCO2WithControls`（`Res`・`m_flows_turbulent` だけ）。6 変数・8 スカラーの数は合っていた。
+
+## 付記（S367）: flat が expandable connector とレコードの配列の束縛を平らにする（断る 18 本 → 5 本、平らにできた 548 → 561）
+
+新しい ADR は立てず、S335・S336・S361 の続きとしてここに足す。変えたのは `globe-mode-flat`（`lib.rs` の `Var`・`flatten.rs`）と `globe-mode-dae`（`lib.rs`）。S365 のあと、自前の flat が断る MSL の例題 18 本のうち、多い順に `expandable` の 5 本と `composite-binding` の 6 本、余力で `non-constant-dim`・`connect-array`・`non-constant-for` の 1 本ずつを平らにした。
+
+- **expandable connector（MLS 9.1.3）**: Rumoca のソース（`rumoca-phase-flatten` の `generate_connection_set_equations`・`potential_set_is_unused_expandable`、`rumoca-phase-dae` の `model_roles.rs` の `UnusedExpandable`）を読み、実際の動きに合わせた。
+  - 宣言済みの欄は、ふつうのコネクタの変数と同じに作る。Rumoca の flat も、つながらない欄（`controlBus.realSignal2`）を変数に残す（名前の集合が一致する）。依頼の「接続されない欄は作らない」は MLS の言い方で、Rumoca では flat ではなく DAE が数えない。
+  - 接続集合の端がすべて宣言済みの欄（束縛なし）で、集合の外のどの方程式・`when`・algorithm・束縛からも読まれなければ、その集合の等式は作らない（`ExpSet`・`settle_expandable`）。自前は接続集合を階層ごとに作るので、expandable の欄を含む potential の集合を端の共有で全体の集合に束ねてから決める（`pot_sets`）。端がすべて宣言済みの欄の階層ごとの集合は、使われると分かるまで方程式を保留する。
+  - 等式を作った集合に入らなかった欄（`exp_vars` のうち `conn_vars` に無いもの）は `Var::unused_expandable`。DAE は `Role::Known` にする（Rumoca の `UnusedExpandable`）。
+  - 宣言していない欄への接続と、欄の違う expandable どうしの接続は断る（`expandable`。Rumoca の `unsupported_expandable_connector_augmentation`）。
+  - shortcut: 「読まれるか」は式の文字列から成分参照を拾って調べる（`ref_paths`。引用符つきの名前と添字の中の参照は見ない）。過剰決定コネクタ（`oc_sets`）を expandable の欄に使うものは、保留した集合を登録しない（MSL に出ない）。
+- **`composite-binding`**: 原因は 6 つあった（解説書 2.2）。(1) `r = other` の欄がレコードの配列（`rcData[nRC]` の束縛は `cellData` に接尾辞 `.rcData`）は、要素ごとに `.rcData[k]` にして `record_value` に渡す。(2) `nRC` の束縛が `cell.cellData` → `cellData` の 2 段の `r = other` のとき、`eval` が接尾辞が空になるまで `field_bind` をたどる（上限 16 段）。(3) `eval` が parameter の配列の束縛への添字 `kDegraded[i, 1]`（`{…}`・`[a, b; c, d]` の要素。`eval_at`）と、内包の要素の列 `{… for i in 1:n}`（`eval_items`）を評価する。`anyTrue`・`isPowerOf2` は、名前を引いて MSL の関数と確かめて決め打つ（shortcut。`numberOfSymmetricBaseSystems` と同じ）。(4) 部品の配列への修飾の値が、次元の足りる配列の変数・レコードの配列への参照（`cell[Ns, Np](cellData = stackData.cellData)`）なら、要素ごとに `[ix]` を付ける（`split_kind`）。(5) 要素の欄の大きさ `OCV_SOC[:, 2]`（束縛の接尾辞が `[1,1].OCV_SOC`）は、`bind_dims`・`field_bind` が `[i,j].f` の形も受けて引く。(6) 2 次元の部品の配列の `connect`（`cell.cellBus` ↔ `stackBus.cellBus`）・2 次元の変数（`gainV.y` ↔ `stackBusArrays.v`）を行ごとに展開する（`expand_end`・`split_array_var`）。DAE の `parts` も 2 次元の部品の配列を通した欄 `port_a.T` を行ごとに引く。
+  - 余力: `PolyphaseRectifier`（`non-constant-for`。`for p in 1:data.Par` の `Par = if isPowerOf2(ParDesired) then …`）は `isPowerOf2` の shortcut で、`HeatExchangerSimulation`（`connect-array`。`connect(pipe_2.heatPorts[nNodes:-1:1], wall.heatPort_a[1:nNodes])`）は、`connect` の端の最後の添字が評価できる範囲なら要素ごとの接続にする（`conn_ends`）ことで平らになった。
+  - `Complex w[n] = {if c[k] then … else … for k in 1:n}` の束縛の文字列は、`c[k]` が評価できるので選んだ枝だけになった（スカラーの parameter の `if` と同じ。S312。名前・方程式の数には効かない）。試験 `complex_arrays_expand_elementwise` の期待を直した。部品の配列への修飾の値の `[ix]` も同じく、束縛の文字列だけを変える。
+- **試験**: `flatten.rs` の `expandable_connector_drops_unused_members`（欄は全部変数に残る・使われない集合の等式を作らない・`unused_expandable`・読まれれば集合の等式も作る・欄を足す接続を断る）、`flat.rs` の `record_arrays_bound_through_record_fields_and_2d_connector_arrays`（`rc[n] = d.rc`・`anyTrue` と `k[i, 1]` で選ぶ `if`・2 次元の `connect`・`r[3:-1:2].p` ↔ `q[1:2]`）。どれも直す前は断る。
+- **数字**（MSL の例題 566 本、`mise run msl:diff-frontend` と同じ `diff-frontend`。S365 の全体の検査の JSON との差）: 平らにできた 548 → **561**、Rumoca も通った 521 → 532 本で名前 518/521 → **529/532**・方程式の数 508/521 → **517/532**、DAE にできた 548/548 → **561/561**、Rumoca の釣り合いまで通った 377 → **382** 本で判定 **382/382**・方程式と未知数の数 **381/382**・状態 **381/382**・構造の正則 **382/382**。`GlobeModeValidation` 75 本は変わらない（Rumoca も通った 74 本で名前・方程式の数・判定・数・状態 74/74、正則 73/73）。**回帰 0 本、改善 13 本**。1332 s、最大 RSS 5.8 GiB。
+- **改善 13 本の内訳**: expandable の 5 本（`BusUsage`・`BusUsage_Utilities.Part`・`CCCV_Cell`・`OneAxis`・`FullRobot`）は名前・方程式の数・判定・数・状態・正則がすべて Rumoca と一致。`composite-binding` の 6 本のうち `BatteryDischargeCharge`・`ShowImpedance` は名前・方程式の数が一致、`CCCVcharging`・`CCCV_CellRC` は名前だけ一致（方程式の数は下）、`CCCV_Stack`・`CCCV_StackRC` は Rumoca の flat が通らない。`PolyphaseRectifier`・`HeatExchangerSimulation` は名前・方程式の数が一致（Rumoca の釣り合いは通らない）。
+- **Rumoca の側の食い違い**（直さない。`diff-frontend --class … --dump` と `rumoca compile --emit flat-mo` で確かめた）:
+  - `CCCVcharging`・`CCCV_CellRC`（方程式の数 111 対 101・138 対 128）: `resistor[cellData.nRC]`・`capacitor[cellData.nRC]`（`nRC` はレコードの欄）の大きさを Rumoca が評価せず、変数の名前は `battery.resistor.R`（要素なし）のまま、方程式を 1 要素分（6 本・4 本）しか数えない（flat の接続の方程式の `battery.resistor.p.i[1]`・`[2]` は 2 要素）。自前は 2 要素で、差はちょうど 10 本（S332 の「大きさを評価できない配列は展開しない」と同じ種類）。上流の下書きは足していない。
+  - `CCCV_Stack`・`CCCV_StackRC`: Rumoca の flat が `flatten error: expandable connector connection between busTranscription.gainV.u and busTranscription.stackBus.cellBus.v requires unsupported member augmentation` で断る。`stackBus.cellBus` は宣言済みの expandable の配列で、欄 `v` も宣言済みなので、MLS の読みでは欄を足す接続ではない。自前の DAE は釣り合い（823 対 823・999 対 999）・構造の正則で、Rumoca と比べられない。
+- **持ち越し**: `non-constant-dim` の 4 本（`Rectifier12pulseFFT`・`Rectifier6pulseFFT`・`RealFFT1`・`RealFFT2`）は `realFFTsamplePoints`（アルゴリズムのある関数）の評価が要る。`unsized-array` の 1 本（`ReadRealMatrixFromFile`）は決められない。expandable の欄を足す接続は断ったまま（MSL の例題に出ない）。

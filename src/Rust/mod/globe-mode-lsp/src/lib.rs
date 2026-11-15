@@ -2729,7 +2729,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let toml = dir.join("globe-mode.toml");
         let uri = "file:///tmp/E.mo";
-        let text = "expandable connector EC\n  Real a;\nend EC;\nmodel E\n  EC ec;\nend E;\n";
+        let text = "model E\n  extends Real;\nend E;\n";
         let open = |s: &mut Server| {
             s.handle(json!({"id": 0, "method": "initialize", "params": {"rootPath": dir}}));
             s.handle(json!({"method": "textDocument/didOpen", "params": {"textDocument": {"uri": uri, "text": text}}}))
@@ -2762,13 +2762,13 @@ mod tests {
     #[test]
     fn check_selects_the_frontend() {
         let mut s = Server::new(&[]).unwrap();
-        let text = "expandable connector EC\n  Real a;\nend EC;\nmodel E\n  EC ec;\nend E;\n";
+        let text = "model E\n  extends Real;\nend E;\n";
         s.handle(json!({"method": "textDocument/didOpen", "params": {"textDocument": {"uri": "E.mo", "text": text}}}));
         let mut check = |params: Value| {
             s.handle(json!({"id": 1, "method": "globe/check", "params": params}))
                 .remove(0)
         };
-        // expandable は Rumoca が通し、自前の段は GM-U0006 で断る
+        // 組み込みの型を継承する `extends Real` は Rumoca が通し、自前の段は GM-U0006 で断る
         assert_eq!(check(json!({"model": "E"}))["result"]["passed"], true);
         assert_eq!(
             check(json!({"model": "E", "frontend": "rumoca"}))["result"]["passed"],

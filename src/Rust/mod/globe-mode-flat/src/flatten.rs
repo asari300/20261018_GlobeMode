@@ -4087,7 +4087,7 @@ impl F<'_> {
                 && !v.stream
                 && !matches!(v.kind, VarKind::Parameter | VarKind::Constant)
                 && set.iter().all(|&i| self.exp_vars.contains(&info[i].0));
-            if !pending {
+            if !pending && !self.exp_vars.is_empty() {
                 self.conn_vars.extend(set.iter().map(|&i| info[i].0));
             }
             // potential の集合は階層ごとに作るので、expandable の欄を含むものは覚えておき、あとで全体の集合に束ねる
