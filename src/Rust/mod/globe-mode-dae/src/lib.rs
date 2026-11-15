@@ -99,24 +99,25 @@ impl Ctx<'_> {
         self.vars[v].dims.iter().product::<usize>()
     }
 
-    /// 方程式の左辺がレコードの部品（変数ではなく、`a.re`・`a.im` の持ち主）なら、欄のスカラーの数の和。
+    /// 方程式の左辺がレコードの部品（変数ではなく、`a.re`・`a.im` の持ち主）なら、その欄の変数（`BTreeMap` の順）。
     /// 平らにした方程式は 1 本と数えるが、DAE では欄ごとの方程式になる（Rumoca の record equation。`y = Complex(a, b)` は 2 本）
-    fn record_scalars(&self, eq: &SyntaxNode) -> Option<usize> {
+    fn record_leaves(&self, eq: &SyntaxNode) -> Vec<usize> {
         let Some(Expr::ComponentRef(c)) = eq.children().find_map(Expr::cast) else {
-            return None;
+            return Vec::new();
         };
         let t: String = c.syntax().text().to_string().split_whitespace().collect();
         if self.index.contains_key(t.as_str()) {
-            return None;
+            return Vec::new();
         }
         let pre = format!("{t}.");
-        let n: usize = self
+        let mut v: Vec<usize> = self
             .index
             .iter()
             .filter(|(k, _)| k.starts_with(&pre))
-            .map(|(_, &v)| self.n(v))
-            .sum();
-        (n > 0).then_some(n)
+            .map(|(_, &v)| v)
+            .collect();
+        v.sort_unstable();
+        v
     }
 
     /// `a.b[2].x[1]` を変数と選択に解く。変数でなければ None
@@ -287,7 +288,7 @@ pub fn build(m: &FlatModel) -> Result<Dae, Unsupported> {
     };
 
     // 方程式の木（連続側）。`when` と algorithm は別に持つ
-    let mut eqs: Vec<(SyntaxNode, usize, String)> = Vec::new();
+    let mut eqs: Vec<(SyntaxNode, usize, String, Vec<usize>)> = Vec::new();
     for e in &m.equations {
         if e.count > 0 {
             let node = first_equation(&parse_in_model("equation", &e.text)?)?;
@@ -295,11 +296,17 @@ pub fn build(m: &FlatModel) -> Result<Dae, Unsupported> {
             if is_clock_equation(&cx, &node) {
                 continue;
             }
-            let count = cx
-                .record_scalars(&node)
-                .filter(|_| e.count == 1)
-                .unwrap_or(e.count);
-            eqs.push((node, count, e.text.clone()));
+            let leaves = if e.count == 1 {
+                cx.record_leaves(&node)
+            } else {
+                Vec::new()
+            };
+            let count = if leaves.is_empty() {
+                e.count
+            } else {
+                leaves.iter().map(|&v| cx.n(v)).sum()
+            };
+            eqs.push((node, count, e.text.clone(), leaves));
         }
     }
     let mut whens: Vec<(SyntaxNode, usize)> = Vec::new();
@@ -432,7 +439,7 @@ pub fn build(m: &FlatModel) -> Result<Dae, Unsupported> {
     // 行
     let mut rows: Vec<Row> = Vec::new();
     let mut discrete_equations = 0;
-    for (node, count, text) in &eqs {
+    for (node, count, text, leaves) in &eqs {
         if defines_discrete(&cx, &roles, node) {
             discrete_equations += count;
         } else {
@@ -441,7 +448,8 @@ pub fn build(m: &FlatModel) -> Result<Dae, Unsupported> {
                 origin: EquationOrigin::Source,
                 count: *count,
                 refs: cx.refs(node),
-                own: Vec::new(),
+                // レコードの方程式は、どの行も欄の変数すべてに触れる（shortcut: 欄ごとの対応は付けない。正則は甘く出る方に傾く）
+                own: leaves.iter().map(|&v| (v, Sel::All)).collect(),
             });
         }
     }
@@ -617,6 +625,7 @@ mod tests {
         assert_eq!(m.equation_count(), 1);
         let d = build(&m).unwrap();
         assert_eq!((d.counts.equations, d.counts.unknowns), (4, 4));
+        assert!(d.is_regular());
     }
 
     #[test]
