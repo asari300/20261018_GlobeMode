@@ -23,7 +23,7 @@ use globe_mode_ir::{
 };
 use globe_mode_syntax::ast::{self, Expr};
 use globe_mode_syntax::{SyntaxKind as K, SyntaxNode, parse};
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::ops::Bound;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -71,6 +71,8 @@ struct Ref {
     var: usize,
     sel: Sel,
     der: bool,
+    /// 方程式の片辺の配列の構築子 `{e1, …, em}` の `ej` の中の参照なら (j, m)（0 始まり）。方程式の数が m のとき、行 j だけが触れる（S372）
+    row: Option<(usize, usize)>,
 }
 
 fn bad<T>(kind: &'static str, detail: String) -> Result<T, Unsupported> {
@@ -272,9 +274,39 @@ impl<'a> Ctx<'a> {
         Some((v, Sel::One(k)))
     }
 
+    /// `root`（方程式か、束縛の `0 = ({…})`）の片辺の配列の構築子 `{e1, …, em}` の要素 `ej` の節 → (j, m)（S372）。
+    /// 内包 `{e for i in r}` は要素ごとに分けない（参照は `Sel::All` で、行ごとに 1 要素に絞られる）
+    fn elem_rows(root: &SyntaxNode) -> HashMap<SyntaxNode, (usize, usize)> {
+        let mut out = HashMap::new();
+        for c in root.children() {
+            let sides = if c.kind() == K::ParenExpr {
+                c.children().collect()
+            } else {
+                vec![c]
+            };
+            for a in sides.into_iter().filter(|a| a.kind() == K::ArrayExpr) {
+                if a.children().any(|c| c.kind() == K::Comprehension) {
+                    continue;
+                }
+                let items = ast::ArrayExpr::cast(a)
+                    .map(|a| a.items())
+                    .unwrap_or_default();
+                let m = items.len();
+                out.extend(
+                    items
+                        .into_iter()
+                        .enumerate()
+                        .map(|(j, e)| (e.syntax().clone(), (j, m))),
+                );
+            }
+        }
+        out
+    }
+
     /// 木の中の変数の参照。`pre()` の中と関数名は除く
     fn refs(&self, node: &SyntaxNode) -> Vec<Ref> {
         let mut out = Vec::new();
+        let elem = Self::elem_rows(node);
         for n in node.descendants() {
             let Some(c) = ast::ComponentRef::cast(n.clone()) else {
                 continue;
@@ -297,8 +329,9 @@ impl<'a> Ctx<'a> {
                 continue;
             }
             let text = c.syntax().text().to_string();
+            let row = n.ancestors().find_map(|x| elem.get(&x).copied());
             if let Some((var, sel)) = self.resolve(&text) {
-                out.push(Ref { var, sel, der });
+                out.push(Ref { var, sel, der, row });
             } else {
                 let parts = self.parts(&text);
                 if parts.is_empty() {
@@ -309,6 +342,7 @@ impl<'a> Ctx<'a> {
                             var,
                             sel: Sel::All,
                             der,
+                            row,
                         });
                     }
                 }
@@ -317,6 +351,7 @@ impl<'a> Ctx<'a> {
                         var,
                         sel: Sel::Part(j),
                         der,
+                        row,
                     });
                 }
             }
@@ -893,6 +928,15 @@ pub fn build(m: &FlatModel) -> Result<Dae, Unsupported> {
         ..DaeStructure::default()
     };
     for r in &rows {
+        // 配列の構築子の要素 `ej` の中の参照は行 j だけで調べる（行ごとに全要素の参照をなめると incidence が密になり O(n²)。S372）
+        let mut each: Vec<Vec<Ref>> = vec![Vec::new(); r.count];
+        let mut common = Vec::new();
+        for &x in &r.refs {
+            match x.row {
+                Some((j, m)) if m == r.count => each[j].push(x),
+                _ => common.push(x),
+            }
+        }
         for k in 0..r.count {
             let (mut inc, mut st) = (BTreeSet::new(), BTreeSet::new());
             let pick = |sel: Sel, v: usize| -> Vec<usize> {
@@ -908,8 +952,9 @@ pub fn build(m: &FlatModel) -> Result<Dae, Unsupported> {
                 var: v,
                 sel,
                 der: false,
+                row: None,
             });
-            for x in r.refs.iter().copied().chain(own) {
+            for x in common.iter().chain(&each[k]).copied().chain(own) {
                 for j in pick(x.sel, x.var) {
                     let u = (off[x.var] + j) as u32;
                     match roles[x.var] {
@@ -1175,5 +1220,18 @@ mod tests {
             model M P join[2]; Boolean b; equation b = time > 1; join.occupied = fill(b, 2); end M;");
         assert_eq!((d.structure.equations.len(), d.discrete_equations), (0, 3));
         assert!(d.is_balanced() && d.is_regular());
+    }
+
+    #[test]
+    fn array_constructor_equation_touches_one_element_per_row() {
+        // #146: `y = {x[1]*2, …, x[n]*2}` は、行 k が全要素の参照に触れて incidence が密（n = 4000 で 15 s・RSS 330 MB の O(n²)）だった。行 k は y[k] と x[k] だけ
+        let d = dae("model M Real x[3]; Real y[3]; equation x = {1, 2, 3}; y = {x[1]*2, x[2]*2, x[3]*2}; end M;");
+        let rows = &d.structure.incidence;
+        assert_eq!(rows.len(), 6);
+        assert!(rows[3..].iter().all(|r| r.len() == 2), "{rows:?}");
+        assert!(d.is_balanced() && d.is_regular());
+        // 要素より方程式が多い（要素が配列）ときは行ごとに分けず、今までどおり全部に触れる
+        let d = dae("model M Real x[2]; Real y[4]; equation x = {1, 2}; y = {x, x}; end M;");
+        assert_eq!(d.structure.incidence.len(), 6);
     }
 }
