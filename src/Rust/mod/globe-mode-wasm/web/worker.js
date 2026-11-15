@@ -57,7 +57,7 @@ async function ensure(model, extra = [], basesOnly = false) {
     const closure = JSON.parse(lazy.closure.closure(model, JSON.stringify([...docs.values(), ...extra]), basesOnly));
     const need = closure.filter((n) => lazy.stub.has(n));
     if (!need.length) break;
-    await fetchChunks(need, lazy.prefetch);
+    await fetchChunks(need, basesOnly ? 0 : lazy.prefetch); // 基底だけの閉包（木のアイコン）は deps（全部の参照）をたどると取りすぎる
     grown = true;
   }
   if (grown) rebuild();

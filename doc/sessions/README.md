@@ -4,6 +4,7 @@
 
 | S | 日付 | Phase | 題名 | ブランチ | 状態 | スライド | 解説書 | セッション記録 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| S308 | 2026-11-15 | P6 | `split-delivery-followups`: 分割配信の塊を先読みして往復を減らした（索引に塊の依存 `deps`、深さ 2 で ChuaCircuit 11 → 3 往復、取る量 4.6 → 5.2 MiB）。Android の APK から `MSL.json` を外した | `feature/s308-split-delivery-followups` | 完了 | [slides](S308-split-delivery-followups/slides.html) | [解説書](S308-split-delivery-followups/解説書.md) | 専用の記録なし |
 | S301 | 2026-11-15 | P6 | `msl-split-delivery`: ブラウザ版の MSL.json を分割配信（索引 `index.json` と塊 `c/*.json`）にした。Worker が閉包に要る塊だけを取り、ChuaCircuit の初回は 15.2 → 4.6 MiB、線形メモリは 62 → 14 MiB | `feature/s301-msl-split-delivery` | 完了 | [slides](S301-msl-split-delivery/slides.html) | [解説書](S301-msl-split-delivery/解説書.md) | 専用の記録なし |
 | S300 | 2026-11-15 | Track B | `diff-frontend`: `cargo xtask diff-frontend`（`mise run msl:diff-frontend`）。自前の parse → resolve → flat → dae を Rumoca と MSL の例題 566 本・GlobeModeValidation 75 本で一度に突き合わせ、旗の JSON と前回との回帰を報告 `doc/frontend-diff.md` の先頭に出す（flat・dae の `compare.rs` は消した） | `feature/s300-diff-frontend` | 完了 | [slides](S300-diff-frontend/slides.html) | [解説書](S300-diff-frontend/解説書.md) | なし |
 | S299 | 2026-11-15 | P8 | `diagram-waypoints`: Diagram の結線の途中の点を動かす・足す（Rust `move_waypoint`・`add_waypoint`、LSP `globe/moveWaypoint`・`globe/addWaypoint`、wasm・Backend、UI のつまみとダブルクリック） | `feature/s299-diagram-waypoints` | 作業中 | [slides](S299-diagram-waypoints/slides.html) | [解説書](S299-diagram-waypoints/解説書.md) | - |

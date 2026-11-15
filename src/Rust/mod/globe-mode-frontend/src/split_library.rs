@@ -469,7 +469,12 @@ mod tests {
             ("B.mo", "model B C c; end B;"),
             ("C.mo", "model C end C;"),
         ]);
-        let mut d = |n| l.direct_deps(n).into_iter().filter(|&d| d != n).collect::<Vec<_>>();
+        let mut d = |n| {
+            l.direct_deps(n)
+                .into_iter()
+                .filter(|&d| d != n)
+                .collect::<Vec<_>>()
+        };
         assert_eq!(d(0), [1]);
         assert_eq!(d(1), [2]);
         assert!(d(2).is_empty());
