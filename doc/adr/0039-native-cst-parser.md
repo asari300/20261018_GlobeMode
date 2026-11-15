@@ -460,3 +460,23 @@ S297 の見立て（Complex のレコード）は外れで、`Connections.isRoot
 
 - **#118**: S320 の `same_path_key`（#115）は比べる側だけで、LSP が返す URI は相対のまま `file:///data/msl/...`（存在しない）になっていた。URI を作る共有の関数 `file_uri` が、`/` 始まりでも `C:` 始まりでもないパスを `std::path::absolute`（cwd を足す）で絶対にしてから組み立てる。定義・参照・リネーム・ライブラリの診断の URI はすべてここを通る。symlink は解かない（`same_path_key` と同じ）。
 - 詳細と試験は [S327 の解説書](../sessions/S327-review4-issues/解説書.md)。
+
+## 付記（S341）: resolve の `Redeclare` の 99 本を、差し替えた後の型で引いて 0 にした（B2 の続き）
+
+新しい ADR は立てず、同じ流れの続きとしてここに足す。S275 の「未対応のまま `Reason::Redeclare`」のうち、`xtask diff-frontend` の resolve の列（未解決の参照が 0）が 0 にならなかった MSL の例題 99 本（未解決の参照 1330 件）と `GlobeModeValidation` の 1 本（13 件）を直した。変えたのは `globe-mode-resolve` と、`globe-mode-syntax` の AST（`RedeclaredComponent` を足しただけ）。flat は先頭で止める `resolve_head` と型名の解決しか使わないので、結果は変わらない。
+
+- **原因**（99 本のクラスから `diff-frontend` と同じ手順で未解決の参照を全部出して形ごとに数えた）: すべて式の成分参照の続き `a.b` で、既定の型の中に `b` が無く、`redeclare` / `replaceable` が見えたので `Redeclare` と数えていたもの。形は 2 つ。
+  - **型の名前を、受け継いだクラスから見直す形**（Media が大半）: `state.T`・`state_a.p`・`refState.X`。部品 `state` の型 `ThermodynamicState` は、基底 `PartialMedium` では中身が空の `replaceable record`。受け継いだ `PartialSimpleMedium.BaseProperties`・`WaterIF97_base.setSmoothState` などの外側のパッケージが `redeclare record extends ThermodynamicState`（`class extends`）で差し替えており、`T`・`p` はそちらにある。
+  - **`extends B(redeclare T x)` の部品の再宣言**（Electrical）: `internalThermalPort.heatPortRotorWinding`・`thermalPort.heatPortPermanentMagnet`（`redeclare final …ThermalPortIMC internalThermalPort`）、`cellData.nRC`・`cellData.rcData.R`（`redeclare …TransientData.CellData cellData`）。S275 は「部品の再宣言（`redeclare Foo x`）」を未対応にしていた。
+- **直し**（`Library::resolve` の `step`。部品の型の中で続きの名前を探す所）: 既定の型で引けず、失敗の理由が `Redeclare` のときだけ、次の順で差し替えた後の型を試す。
+  1. 参照のあるクラス（`Ref::scope`）の受け継ぎを外側から（外側が勝つ）たどって、部品の持ち主を受け継ぐ基底の `extends B(redeclare T x)` のうち部品 `x` を差し替えるものを探し、`T`（あれば `constrainedby` の `C` も）の中で続きを引く（`comp_redecl`）。`globe-mode-syntax` の `ast::RedeclaredComponent`（接頭辞・`final`・添字・`constrainedby` を読み飛ばして型と名前を取る）で読み、`PathRef::comp_redecls` に持つ。
+  2. 参照のあるクラスが部品の持ち主を受け継ぐ（`reaches`）なら、部品の型の名前を参照のあるクラスから引き直し、その型の中で続きを引く。`class extends` で差し替えた型が外側のパッケージにあるとき、引き直せば差し替え先に当たる。
+  - 既定の型で引けたものは今まで通り（差し替えた型は引けないときだけ使う）なので、これまで解決した参照の結果は変わらない。
+- **診断**: `cargo xtask diff-frontend --class … --dump` が、resolve で未解決になった参照（理由・名前・種類・クラス）を `unresolved …` の行で出す。
+- **試験**: `globe-mode-resolve` に `redeclared_component_types`（`class extends` で差し替えた型を受け継いだ `BaseProperties`・関数から引く、`extends Base(redeclare PortX port)` の差し替え、差し替えた型にも無い名前は `Redeclare`、差し替えていない側は `NotFound`）、`globe-mode-syntax` に `redeclared_components_in_extends`（接頭辞・`final`・添字・`constrainedby`・クラスの再宣言を拾わない）。
+- **数字**（MSL の例題 566 本・`GlobeModeValidation` 75 本、S334 → S341）: resolve 467/566 → **566/566**、未解決の参照の総数 1330 → **0**。`GlobeModeValidation` は 74/75 → **75/75**、13 → **0**。flat・dae の列は変わらない（flat 471/566・方程式の数 451/463・DAE 471/471・正則 334/334 のまま）。**回帰 0 本、改善 100 本（すべて resolve の旗）**。`mise run msl:diff-frontend` は 1880 s（他の WP と同時で swap し、`Spice3BenchmarkFourBitBinaryAdder` だけで 1095 s。S334 は 554 s）、最大 RSS 3.9 GiB。MSL の全 `.mo`（2556 本、参照 161869 件）の成分参照の続き 45463 件は、S275 から残っていた `Redeclare` の 639 件が 0 になり、すべて解決する（`msl_stats`）。`globe-mode-lsp` の `resolve_compare`（定義ジャンプの Rumoca の道との突き合わせ）は不一致 0 のまま。
+- **shortcut（計測の範囲で未解決が 0 になるだけ）**:
+  - 部品の再宣言は `extends` の修飾（と short class の基底）の中だけ。部品の修飾の中の `A a(redeclare T x)` は見ない（MSL の例題には出ていない）。
+  - 差し替えは名前と受け継ぎで決める。差し替え先が `constrainedby` に合うか、`replaceable` かは見ない。「解決できた」は「正しい」とは限らない。
+  - LSP の補完（`members_of`）は `state.` の候補を既定の型の要素のままにしている。
+  - 差し替えた型の名前の見直しは、部品の持ち主を受け継ぐクラスからの参照だけ。持ち主を受け継がないクラスから `a.state.T` のように 2 段先で効く差し替え（`Medium` が `replaceable package` のとき）は、これまで通り `Redeclare`（MSL の例題には出ていない）。

@@ -215,6 +215,53 @@ end R;",
     assert_eq!(get("E", "c.more"), "comp R.Ext2.more");
 }
 
+/// S341: 既定の型で引けず `Redeclare` になる成分参照を、差し替えた後の型で引く。
+/// `extends B(redeclare T x)`（部品の再宣言）と、`class extends` で差し替えた型の名前を受け継いだクラスから見直す形
+#[test]
+fn redeclared_component_types() {
+    let lib = Library::from_sources([(
+        "S.mo",
+        "package S
+  package PM
+    replaceable record TS end TS;
+    replaceable partial model BP TS state; end BP;
+    replaceable partial function f input TS s; end f;
+  end PM;
+  package Simple
+    extends PM;
+    redeclare record extends TS Real T; end TS;
+    redeclare model extends BP Real x = state.T + state.nope; end BP;
+    redeclare function extends f Real y = s.T; end f;
+  end Simple;
+  model Port Real p; end Port;
+  model PortX extends Port; Real hot; end PortX;
+  model Base replaceable Port port; end Base;
+  model Machine
+    extends Base(redeclare PortX port);
+    Real a = port.hot + port.p + port.cold;
+  end Machine;
+  model Other
+    extends Base;
+    Real b = port.hot;
+  end Other;
+end S;",
+    )]);
+    assert!(lib.diagnostics.is_empty(), "{:?}", lib.diagnostics);
+    let t = table(&lib);
+    let get = |scope: &str, name: &str| t[&(format!("S.{scope}"), name.to_string())].as_str();
+    // `ThermodynamicState` を `class extends` で差し替えた `Simple` の `BaseProperties`・関数から見ると `T` は引ける
+    assert_eq!(get("Simple.BP", "state.T"), "comp S.Simple.TS.T");
+    assert_eq!(get("Simple.f", "s.T"), "comp S.Simple.TS.T");
+    // 差し替えた型にも無い名前は Redeclare のまま
+    assert_eq!(get("Simple.BP", "state.nope"), "unresolved Redeclare");
+    // `extends Base(redeclare PortX port)` で差し替えた部品の型。既定の型の名前も引ける
+    assert_eq!(get("Machine", "port.hot"), "comp S.PortX.hot");
+    assert_eq!(get("Machine", "port.p"), "comp S.Port.p");
+    assert_eq!(get("Machine", "port.cold"), "unresolved Redeclare");
+    // 差し替えていない `Other` では `hot` は引けない
+    assert_eq!(get("Other", "port.hot"), "unresolved NotFound");
+}
+
 #[test]
 fn enum_and_builtin_shadow() {
     let lib = Library::from_sources([(

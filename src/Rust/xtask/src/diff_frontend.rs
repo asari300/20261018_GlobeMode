@@ -141,6 +141,14 @@ fn run_row(
             match p.lib.resolve(r) {
                 Resolution::Unresolved(why) => {
                     row.unresolved += 1;
+                    if dump {
+                        println!(
+                            "  unresolved {why:?} {} {:?} in {}",
+                            r.parts.join("."),
+                            r.kind,
+                            p.lib.qualified_name(c)
+                        );
+                    }
                     first.get_or_insert(format!("{why:?}"));
                 }
                 Resolution::Class(b) if matches!(r.kind, RefKind::Type | RefKind::Extends) => {

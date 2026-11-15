@@ -40,6 +40,7 @@ impl PathRef {
             global,
             redeclare,
             redecls: Vec::new(),
+            comp_redecls: Vec::new(),
             class_ext: false,
             state: Cell::new(St::Todo),
         }
@@ -51,6 +52,18 @@ fn redecls(v: Vec<ast::RedeclaredClass>) -> Vec<Redecl> {
         .map(|r| Redecl {
             name: r.name,
             targets: std::iter::once(r.base)
+                .chain(r.constraint)
+                .map(|(p, g)| PathRef::new(p, g, false))
+                .collect(),
+        })
+        .collect()
+}
+
+fn comp_redecls(v: Vec<ast::RedeclaredComponent>) -> Vec<Redecl> {
+    v.into_iter()
+        .map(|r| Redecl {
+            name: r.name,
+            targets: std::iter::once(r.ty)
                 .chain(r.constraint)
                 .map(|(p, g)| PathRef::new(p, g, false))
                 .collect(),
@@ -265,6 +278,7 @@ fn extract(c: &ast::ClassDef, file: u32) -> Option<Raw> {
             let kind = if i == 0 && sb.base().is_some() {
                 let mut b = PathRef::new(n.parts(), n.is_global(), sb.has_redeclare());
                 b.redecls = redecls(sb.redeclared_classes());
+                b.comp_redecls = comp_redecls(sb.redeclared_components());
                 raw.class.bases.push(b);
                 RefKind::Extends
             } else {
@@ -291,6 +305,7 @@ fn extract(c: &ast::ClassDef, file: u32) -> Option<Raw> {
                 if let Some(n) = x.name() {
                     let mut b = PathRef::new(n.parts(), n.is_global(), x.has_redeclare());
                     b.redecls = redecls(x.redeclared_classes());
+                    b.comp_redecls = comp_redecls(x.redeclared_components());
                     raw.class.bases.push(b);
                     raw.refs.push(name_ref(&n, RefKind::Extends));
                 }

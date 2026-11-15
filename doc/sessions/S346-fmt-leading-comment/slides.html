@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S346 先頭のコメント行を持つ引数と整形 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S346 先頭のコメント行を持つ引数と整形">
+
+<section class="slide" id="S01">
+  <span class="tag">S346 · 2026-11-15 · 整形</span>
+  <h1>annotation の引数の前の行のコメント</h1>
+  <p class="lead">S343 の残り: コメントだけの行にあるコメントが付いた引数は、並べ替えから外れていた</p>
+  <div class="big">名前を引くとき、頭のコメントを飛ばす</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">原因</span>
+  <h1>コメントは次の引数の最初の字句</h1>
+  <ul>
+    <li><code>// icon</code> の次の行の <code>Icon(…)</code> は、括弧の木（<code>layout::seq</code>）では 1 つの引数 <code>[// icon, Icon, (…)]</code></li>
+    <li><code>annotation::position_in</code> は先頭の字句の名前を表で引く。先頭がコメントだと引けず「その他」（後ろ）</li>
+    <li>図形プリミティブの <code>arg_name</code> も同じで、先頭にコメントがあると「名前のない引数」とみなして並べ替えと <code>origin</code> の補完をやめていた</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">直し</span>
+  <h1><code>body</code> を 1 つ足した</h1>
+  <ul>
+    <li><code>annotation.rs</code> に <code>body</code>（引数の中身から頭のコメントを除いた節）。<code>position_in</code> と <code>arg_name</code> がそこから名前を引く</li>
+    <li>並べ替えは <code>Arg</code> ごと動かすので、名前が引ければコメントは引数と一緒に動く。<code>layout.rs</code> は変えない</li>
+    <li>lint の <code>annotation-order</code> は <code>position_in</code> を使うので、同じ入力で同じ判定になる</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">前後</span>
+  <h1>同じ入力が、こうなる</h1>
+  <table class="compact">
+    <tr><th>入力（<code>annotation</code> の引数、各引数の前の行にコメント）</th><th>前</th><th>後</th></tr>
+    <tr><td><code>Documentation</code> / <code>Icon</code> / <code>experiment</code></td><td>元の順のまま（3 つとも「その他」）</td><td class="ok"><code>experiment</code> / <code>Icon</code> / <code>Documentation</code>、コメントも一緒</td></tr>
+  </table>
+  <p>回帰試験 <code>leading_line_comments_travel_with_annotation_args</code>（並び、コメントの位置、2 回目で変わらないこと）</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">確かめたこと</span>
+  <h1>数字</h1>
+  <ul>
+    <li><code>cargo test -p globe-mode-fmt</code>: 34 + 24 本 OK（新しい試験 1 本を含む）。clippy <code>-D warnings</code> 0 件</li>
+    <li><code>globe fmt --check src/Modelica</code>: 75 ファイルが整形済み（0 件が要整形）</li>
+    <li>MSL 4.1.0 の 2,556 ファイルを <code>globe fmt --check</code> に通して、「整形でトークンが変わった」は 0 件</li>
+  </ul>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>コメントの次のトークンが 1 段深く字下げされる（<code>layout::push_token</code> の規則。変えると括弧の引数すべての出力が変わる）</li>
+    <li><code>Documentation</code> の <code>info = "…"</code> は、頭にコメントがあると HTML 整形されない（<code>mark_html</code>）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
