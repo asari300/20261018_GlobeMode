@@ -3,7 +3,7 @@
 //! - 実行できるのは `function` の `algorithm` と、出力・保護変数の束縛 `= e`。値は整数・実数・論理のスカラーと 1 次元の配列。
 //!   文は代入（`x := e`・`x[i] := e`）・`if`・`for`（添字 1 つ）・`while`・`return`・`break`・`assert`（条件が偽なら分からないとする）。
 //! - `external` の関数・`impure`・`extends` で入力や出力を受け継ぐ関数・文字列やレコードの変数・`print` などの副作用は評価しない（分からない）。
-//! - 暴走を防ぐ: 1 回の呼び出し（入れ子を含む）で数える文と反復の上限は `MAX_ITERS`、再帰の深さの上限は `MAX_CALL_DEPTH`。
+//! - 暴走を防ぐ: 1 回の呼び出し（入れ子を含む）で数える文と反復の上限は `MAX_ITERS`、再帰の深さの上限は `MAX_CALL_DEPTH`、文・式の入れ子の上限は `MAX_NEST`。
 //!   上限に届いた関数は、そのあと同じ呼び出しを繰り返さない（`fn_blown`）。
 //!
 //! shortcut: 配列は 1 次元・要素はスカラーだけ（配列どうしの演算・内包・`zeros` などは分からない）。必要になったら足す。
@@ -15,8 +15,10 @@ use globe_mode_syntax::{SyntaxKind as K, SyntaxNode};
 use std::collections::HashMap;
 use std::rc::Rc;
 
-/// 関数の呼び出しの入れ子の上限（MSL の再帰は `numberOfSymmetricBaseSystems` の log2 段）
-const MAX_CALL_DEPTH: u32 = 32;
+/// 関数の呼び出しの入れ子の上限（MSL の再帰は `numberOfSymmetricBaseSystems` の log2 段）と、1 つの呼び出しの中の文・式の入れ子の上限。
+/// 積がスタックの最大の使い方になる。release で 1 段の入れ子が約 0.5 KB なので、16 × 32 で約 0.25 MB（wasm の 1 MiB に収まる。32 × 48 は約 0.75 MB だった）
+const MAX_CALL_DEPTH: u32 = 16;
+const MAX_NEST: u32 = 32;
 
 /// 式の名前だけで決まるスカラーの組み込み関数（`eval` と共有）
 pub(super) const BUILTINS: &[&str] = &[
@@ -365,7 +367,7 @@ impl F<'_> {
 
     fn exec(&self, st: &SyntaxNode, fr: &mut Frame, d: u32) -> Option<Flow> {
         self.tick()?;
-        if d > 48 {
+        if d > MAX_NEST {
             return None;
         }
         let d = d + 1;
@@ -531,7 +533,7 @@ impl F<'_> {
 
     /// 関数の中の式
     fn fx(&self, n: &SyntaxNode, fr: &Frame, d: u32) -> Option<V> {
-        if d > 48 {
+        if d > MAX_NEST {
             return None;
         }
         let d = d + 1;

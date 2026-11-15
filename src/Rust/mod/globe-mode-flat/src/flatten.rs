@@ -4552,6 +4552,16 @@ mod tests {
             dims("Real a[up(2.5)]; Real b[up(2.5, k=3)];").unwrap(),
             [vec![10], vec![15]]
         );
+        // 再帰は 16 段まで（深さ 15 の呼び出しは 16 段）
+        let rec = "function dep input Integer n; output Integer r; algorithm if n <= 0 then r := 1; else r := dep(n - 1) + 1; end if; end dep;";
+        let sized = |n: usize| {
+            let src = format!("{rec} model M Real x[dep({n})]; end M;");
+            Project::from_sources([("t.mo", src.as_str())])
+                .flatten("M")
+                .map(|m| m.vars[0].dims[0])
+        };
+        assert_eq!(sized(15).unwrap(), 16);
+        assert_eq!(sized(16).unwrap_err().kind, "non-constant-dim");
         // 評価できない（外部関数・偽の assert・暴走・終わらない再帰）は、今までどおり大きさが定数でないと断る
         let bad = |fun: &str, call: &str| {
             let src = format!("{fun} model M Real x[{call}]; end M;");

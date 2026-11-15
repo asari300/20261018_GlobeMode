@@ -21,7 +21,7 @@
   <ul>
     <li>値は整数・実数・論理のスカラーと 1 次元の配列。文は代入・<code>if</code>・<code>for</code>・<code>while</code>・<code>return</code>・<code>break</code>・<code>assert</code></li>
     <li><code>external</code>・<code>impure</code>・<code>print</code>・文字列・レコードは評価しない（今までどおり「分からない」）</li>
-    <li>暴走を防ぐ: 文と反復の上限は <code>MAX_ITERS</code>（S365 と同じ）、再帰は 32 段。上限に届いた関数は繰り返さない</li>
+    <li>暴走を防ぐ: 文と反復の上限は <code>MAX_ITERS</code>（S365 と同じ）、再帰は 16 段、文と式の入れ子は 32 段（スタックを溢れさせない）。上限に届いた関数は繰り返さない</li>
     <li><code>and</code>・<code>or</code> は左で決まれば右を見ない（<code>size(b, 1) &gt; 0 and max(b)</code>）</li>
   </ul>
 </section>

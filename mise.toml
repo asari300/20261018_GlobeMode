@@ -84,12 +84,13 @@ ls -l "$T/wasm-pkg/node/globe_mode_wasm_bg.wasm" "$T/wasm-pkg/web/globe_mode_was
 """
 
 [tasks."wasm:node"]
-description = "release の wasm を Node で回す（S012。Decay を bdf・dopri45・auto で、data/msl があれば MSL の ChuaCircuit も。panic の文言も確かめる。S301: data/msl があれば MSL の分割配信が全部読みと同じ検査結果になることも、例題 5 本で。全 20 本は node src/Rust/mod/globe-mode-wasm/node/split.mjs。S321: 壊れた塊・索引と合わない塊で固まらないことは broken-chunks.mjs、MSL 不要）"
+description = "release の wasm を Node で回す（S012。Decay を bdf・dopri45・auto で、data/msl があれば MSL の ChuaCircuit も。panic の文言も確かめる。S301: data/msl があれば MSL の分割配信が全部読みと同じ検査結果になることも、例題 5 本で。全 20 本は node src/Rust/mod/globe-mode-wasm/node/split.mjs。S321: 壊れた塊・索引と合わない塊で固まらないことは broken-chunks.mjs、MSL 不要。S370: flat の関数の評価器が wasm のスタックで溢れず、FFT の大きさが native の検査で決まることは fneval.mjs）"
 depends = ["wasm:build"]
 run = """
 set -eu
 node src/Rust/mod/globe-mode-wasm/node/smoke.mjs --msl data/msl
 node src/Rust/mod/globe-mode-wasm/node/broken-chunks.mjs
+node src/Rust/mod/globe-mode-wasm/node/fneval.mjs --msl data/msl
 if [ -d data/msl ]; then node src/Rust/mod/globe-mode-wasm/node/split.mjs --msl data/msl --limit 5; fi
 """
 
