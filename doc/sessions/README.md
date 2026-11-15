@@ -4,6 +4,7 @@
 
 | S | 日付 | Phase | 題名 | ブランチ | 状態 | スライド | 解説書 | セッション記録 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| S292 | 2026-11-15 | 文書 | `readme-changelog-2`: README と CHANGELOG に、S273 の後に main に入った機能（SSP の書き出し・Desktop のコシミュレーション・`globe stages`・図の部品と結線の削除・線形化と BLT を各言語から・固有値と安定性・Track B をつないだ範囲・S288 の修正）を反映。限界を一言ずつ添えた。S284 は main に無いので書いていない | `feature/s292-readme-changelog-2` | 完了 | [slides](S292-readme-changelog-2/slides.html) | [解説書](S292-readme-changelog-2/解説書.md) | なし |
 | S286 | 2026-11-15 | P8 | `linearize-eigen`: 線形化の JSON・CLI に A の固有値（極）と安定性（安定 / 不安定 / 境界）を足した（facade `eigenvalues`・`stability`、nalgebra の実シューア分解） | `feature/s286-linearize-eigen` | 完了 | [slides](S286-linearize-eigen/slides.html) | [解説書](S286-linearize-eigen/解説書.md) | なし（記録が `log/local/` に無い） |
 | S298 | 2026-11-15 | P8 | `param-dialog-2`: S294 の持ち越し 3 つ。修飾を外す UI、列挙のパラメータ（`ModelParameter.enum_type`、`型.リテラル` で書く）、書いたあとの `parameters` の引き直し | `feature/s298-param-dialog-2` | 完了 | [slides](S298-param-dialog-2/slides.html) | [解説書](S298-param-dialog-2/解説書.md) | なし |
 | S294 | 2026-11-15 | P8 | `param-modifiers`: パラメータダイアログに「ソースに書く」。部品の宣言の修飾 `(k = 値)` を足す・書き換える・外す `set_modifier`（`globe-mode-fmt`）、LSP `globe/setModifier`（RPC_METHODS 36）、wasm、UI（1 回の dispatch）。入れ子の名前・`each`/`final`・壊れた式は理由つきで断る | `feature/s294-param-modifiers` | 完了 | [slides](S294-param-modifiers/slides.html) | [解説書](S294-param-modifiers/解説書.md) | なし |
