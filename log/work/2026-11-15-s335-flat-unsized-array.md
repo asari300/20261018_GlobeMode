@@ -20,7 +20,7 @@
 - 宣言が後ろの部品の欄は型の宣言から決めるが、**宣言の場所で修飾された欄を直接使うときは決めない**。最初は既定値で決めて試験が黙って誤った大きさを返したので、`mentions` で止めた。
 - `ReadRealMatrixFromFile` は決めない（ファイルを読む外部関数）。
 - `rcData[] = cellData`（5 本）は `eval` が suffix の欄を評価するようになった副産物で `non-constant-dim` から `composite-binding` に進んだ。S336 の担当なので触らない。
-- `SoftStarter` の方程式の数が Rumoca と 8 本違う（自前が少ない）。単体で平らにした部品は Rumoca と一致するので、組み合わせた中の差と見ているが原因は未確認。Rumoca の数え方の誤り（S330 の表の数え）と同じ型かは確かめていない。
+- 最初の全体の検査は回帰 52 本（Machines・FundamentalWave の方程式の数が少ない）を出した。`SoftStarter` の 8 本の差も同じ原因で、`--class` で `SoftStarter` だけ確かめて「Rumoca の数え方の誤りかもしれない」と読みかけたのは誤りだった（単体の部品が一致していても、組み合わせの中の差は自前の誤りのことがある）。原因は `var_dims` に足した「宣言が後ろの部品の欄」の補助が、平らにしたあとも残る `pending` の部品の配列（`plug_p.pin`）を未処理と見て、`plug_p.pin.i` を要素の数をかけずに 1 本と数えたこと。部品が配列でなく、`tgt.` の変数がまだ無いときだけ使う（`not_instantiated`）。
 
 ## やったこと
 
@@ -35,5 +35,5 @@
 ## 残したこと
 
 - `rcData[] = cellData`（5 本、S336）、`CCCV_Cell` の `expandable`、`ReadRealMatrixFromFile`。
-- `SoftStarter` の方程式の数の差 8 本。
+- 状態の数 3 本（`IMC_*`、S337）。
 - 共有 target の `release/xtask` を別の worktree が上書きして、古い結果（直したはずの例題が全部断られる）を 2 回見た。変えた crate の `lib.rs` を touch して作り直し、`release/xtask` をコピーして回すと安定した。
