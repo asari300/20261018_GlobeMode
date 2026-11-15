@@ -11,7 +11,7 @@
 <section class="slide" id="S01">
   <span class="tag">S301 · 2026-11-15 · P6</span>
   <h1>MSL.json を分割して配る</h1>
-  <p class="lead">ChuaCircuit の初回の取得が 15.2 MiB から 4.6 MiB に、読み込み後の線形メモリが 62 MiB から 10 MiB になった</p>
+  <p class="lead">ChuaCircuit の初回の取得が 15.2 MiB から 4.6 MiB に、読み込み後の線形メモリが 62 MiB から 14 MiB になった</p>
   <div class="big">索引と、閉包に要る塊だけを取る。20 本の検査結果は全部読みと同じ</div>
 </section>
 
@@ -62,10 +62,10 @@
     <tr><th></th><th>全部</th><th>分割</th></tr>
     <tr><td>取る量（生）</td><td>15.2 MiB</td><td>4.6 MiB</td></tr>
     <tr><td>取る量（gzip）</td><td>2.66 MB</td><td>約 0.87 MB</td></tr>
-    <tr><td>読み込み後のメモリ</td><td>62 MiB</td><td>10 MiB</td></tr>
-    <tr><td>初回の検査</td><td>2.0 s</td><td>2.3 s</td></tr>
+    <tr><td>読み込み後のメモリ</td><td>62 MiB</td><td>14 MiB</td></tr>
+    <tr><td>初回の検査</td><td>2.1 s</td><td>2.1 s</td></tr>
   </table>
-  <p>往復は閉包の深さ（6〜11 回）。20 本は全部一致</p>
+  <p>往復は閉包の深さ（6〜11 回）。20 本は全部一致。ブラウザは 174 要求、4.8 MiB</p>
 </section>
 
 <section class="slide" id="S06">

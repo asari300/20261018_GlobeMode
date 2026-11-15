@@ -1161,7 +1161,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 
 ### S301（P6、2026-11-15）で済んだこと
 
-- **`MSL.json` の分割配信**（S145 の持ち越し。[ADR-0023 の S301](adr/0023-desktop-and-web-process-layout.md)、[解説書](sessions/S301-msl-split-delivery/解説書.md)）: ブラウザ版は、索引 `msl/index.json`（ファイルごとの見出し。fmt の `tree_stub`）と、同じディレクトリのファイルをまとめた塊 `msl/c/*.json`（838 本）で MSL を配る。Worker は開いたモデルと文書の閉包（`library_closure`）に要る塊だけを取り、`Workspace` を作り直す。ChuaCircuit の初回の検査で取る量は 15.2 MiB → 4.6 MiB（gzip で 2.66 → 約 0.87 MB）、読み込み後の線形メモリは 62 → 10 MiB。`msl-compare.txt` の 20 本は全部読みと一致。持ち越し: 塊を取る往復が閉包の深さ（6〜11 回）、Android の APK の `MSL.json`。
+- **`MSL.json` の分割配信**（S145 の持ち越し。[ADR-0023 の S301](adr/0023-desktop-and-web-process-layout.md)、[解説書](sessions/S301-msl-split-delivery/解説書.md)）: ブラウザ版は、索引 `msl/index.json`（ファイルごとの見出し。fmt の `tree_stub`）と、同じディレクトリのファイルをまとめた塊 `msl/c/*.json`（838 本）で MSL を配る。Worker は開いたモデルと文書の閉包（`library_closure`）に要る塊だけを取り、`Workspace` を作り直す。ChuaCircuit の初回の検査で取る量は 15.2 MiB → 4.6 MiB（gzip で 2.66 → 約 0.87 MB）、読み込み後の線形メモリは 62 → 14 MiB。`msl-compare.txt` の 20 本は全部読みと一致。持ち越し: 塊を取る往復が閉包の深さ（6〜11 回）、Android の APK の `MSL.json`。
 
 ## いま残っているもの
 

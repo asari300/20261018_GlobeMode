@@ -48,13 +48,13 @@ function rebuild() {
 
 // `model` と文書（と extra の本文）が使うファイルがすべて本文になるまで、塊を取っては閉包を取り直す（本文だけが参照を持つので、
 // 取るたびに閉包が広がる）。全部読んだときと同じ閉包に落ち着く。増えたら Workspace を作り直す（読んだ塊は外さない）
-async function ensure(model, extra = []) {
+async function ensure(model, extra = [], basesOnly = false) {
   if (!lazy) return;
-  const key = JSON.stringify([model, extra, [...docs]]);
+  const key = JSON.stringify([model, extra, basesOnly, [...docs]]);
   if (lazy.ok.has(key)) return;
   let grown = false;
   for (;;) {
-    const closure = JSON.parse(gm.library_closure(JSON.stringify(lazy.files), model, JSON.stringify([...docs.values(), ...extra])));
+    const closure = JSON.parse(lazy.closure.closure(model, JSON.stringify([...docs.values(), ...extra]), basesOnly));
     const need = closure.filter((n) => lazy.stub.has(n));
     if (!need.length) break;
     await fetchChunks(need);
@@ -73,7 +73,11 @@ async function fetchChunks(names) {
   for (const i of ids) lazy.got.add(i);
   for (const text of texts) {
     lazy.bytes += text.length;
-    for (const [n, body] of Object.entries(JSON.parse(text))) if (lazy.stub.delete(n)) lazy.files[n] = body;
+    for (const [n, body] of Object.entries(JSON.parse(text))) {
+      if (!lazy.stub.delete(n)) continue;
+      lazy.files[n] = body;
+      lazy.closure.set_text(n, body);
+    }
   }
 }
 
@@ -86,6 +90,7 @@ const ops = {
     const next = new gm.Workspace(json, name); // 読めなければ投げ、今の ws は残す
     ws?.free();
     ws = next;
+    lazy?.closure.free();
     lazy = null;
     docs.clear();
   },
@@ -103,7 +108,8 @@ const ops = {
     ws?.free();
     ws = next;
     docs.clear();
-    lazy = { name, base: url.slice(0, url.lastIndexOf("/") + 1), files, stub: new Set(Object.keys(idx.stubs)), chunk: idx.chunk, got: new Set(), ok: new Set(), bytes: indexText.length, chunks: idx.chunks };
+    lazy?.closure.free();
+    lazy = { name, base: url.slice(0, url.lastIndexOf("/") + 1), files, stub: new Set(Object.keys(idx.stubs)), chunk: idx.chunk, got: new Set(), ok: new Set(), closure: new gm.LibraryClosure(JSON.stringify(files)), bytes: indexText.length, chunks: idx.chunks };
     return { files: Object.keys(files).length, chunks: idx.chunks, bytes: indexText.length };
   },
   // 分割配信で、ここまでに取った塊の数と文字数（索引を含む）。分割配信でなければ null
@@ -232,8 +238,9 @@ const needs = {
   definition: ({ text }) => ["", [text]],
   hover: ({ text }) => ["", [text]],
   completion: ({ text }) => ["", [text]],
-  documentation: ({ cls, text }) => [cls, [text]],
-  icon: ({ cls, text }) => [cls, [text]],
+  // クラス 1 つの説明とアイコンは `extends` の基底だけ（木の行ごとに icon を引くので、パッケージの参照の閉包を全部は取らない）。図は部品の型も要るので閉包
+  documentation: ({ cls, text }) => [cls, [text], !!cls],
+  icon: ({ cls, text }) => [cls, [text], !!cls],
   diagram: ({ cls, text }) => [cls, [text]],
   move_part: ({ text }) => ["", [text]],
   add_connect: ({ text }) => ["", [text]],
