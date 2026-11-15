@@ -237,11 +237,12 @@ mod tests {
     /// S360: Windows の CI で `incoming` が空だった。ライブラリの木のパス（`C:\lib\Fns.mo`、`display()` のまま）と、
     /// 項目の URI から戻したパス（`C:/lib/Fns.mo`）は別の綴りでも同じファイル。宣言の名前は後者、`Fns.f` の解決は前者で出る。
     #[test]
-    fn incoming_finds_callers_when_tree_path_spells_backslashes() {
-        let fns = "package Fns\n  function f\n    input Real a;\n    output Real y = a;\n  end f;\nend Fns;\n";
+    fn calls_are_found_when_tree_path_spells_backslashes() {
+        let fns = "package Fns\n  function f\n    input Real a;\n    output Real y = a;\n  end f;\n\
+  function g\n    input Real x;\n    output Real y = f(x) + f(2 * x);\n  end g;\nend Fns;\n";
         let m = "model M\n  Real x = Fns.f(1) + Fns.f(2);\nend M;\n";
         let tree = LibraryTree::new([("C:\\lib\\Fns.mo", fns)]);
-        let (mut ws, mut scratch) = (Workspace::new(), Workspace::new());
+        let (mut ws, mut scratch, mut lib) = (Workspace::new(), Workspace::new(), None);
         ws.set_file("/tmp/M.mo", m.to_string());
         let read = |p: &str| (p.replace('\\', "/") == "C:/lib/Fns.mo").then(|| fns.to_string());
         let mut r = Resolver {
@@ -249,23 +250,37 @@ mod tests {
             tree: &tree,
             scratch: &mut scratch,
             overlay: None,
-            lib: None,
+            lib: Some(&mut lib),
             read: &read,
         };
         let docs = [("file:///tmp/M.mo".to_string(), m.to_string())];
-        let at = fns.find("function f").unwrap() + "function ".len();
-        let inc = incoming(&mut r, None, &[], &docs, "C:/lib/Fns.mo", fns, at).unwrap();
-        let from: Vec<(&str, usize)> = inc
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|c| {
-                (
-                    c["from"]["name"].as_str().unwrap(),
-                    c["fromRanges"].as_array().unwrap().len(),
-                )
-            })
-            .collect();
-        assert_eq!(from, [("M", 2)], "{inc}");
+        let at = |name: &str| fns.find(&format!("function {name}")).unwrap() + "function ".len();
+        let names = |v: &Value, key: &str| -> Vec<(String, usize)> {
+            let mut o: Vec<_> = v
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|c| {
+                    (
+                        c[key]["name"].as_str().unwrap().to_string(),
+                        c["fromRanges"].as_array().unwrap().len(),
+                    )
+                })
+                .collect();
+            o.sort();
+            o
+        };
+        let inc = incoming(&mut r, None, &[], &docs, "C:/lib/Fns.mo", fns, at("f")).unwrap();
+        // 開いた文書 M だけ（g は開いていない Fns.mo の中。根・ライブラリを渡さないのでディスクは見ない）
+        assert_eq!(names(&inc, "from"), [("M".into(), 2)], "{inc}");
+        let out = outgoing(
+            &mut r,
+            "file:///C:/lib/Fns.mo",
+            "C:/lib/Fns.mo",
+            fns,
+            at("g"),
+        )
+        .unwrap();
+        assert_eq!(names(&out, "to"), [("f".into(), 2)], "{out}");
     }
 }
