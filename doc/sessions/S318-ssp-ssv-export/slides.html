@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S318 ssp-ssv-export — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S318 ssp-ssv-export">
+
+<section class="slide" id="S01">
+  <span class="tag">S318 · 2026-11-15 · P8</span>
+  <h1>SSP の <code>start</code> を <code>.ssv</code> に書く</h1>
+  <p class="lead"><code>globe fmu ssp-export --ssv</code>。既定はインラインのまま</p>
+  <div class="big">読み戻すとインラインと同じ</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">書き方</span>
+  <h1>Component ごとに 1 ファイル</h1>
+  <ul>
+    <li><code>resources/&lt;名前&gt;.ssv</code> に <code>ssv:ParameterSet</code>、SSD は <code>ParameterBinding source</code> で参照</li>
+    <li>型（Real・Integer・Boolean）は FMU の変数から。<code>start</code> の無い Component には作らない</li>
+    <li>名前の escape と値の検査はインライン版と同じコード</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">XSD で確認</span>
+  <h1>型の要素は <code>ssv</code> の名前空間</h1>
+  <ul>
+    <li>仕様のリポジトリの <code>v2.0.1</code> の XSD は <code>elementFormDefault="qualified"</code></li>
+    <li>Boolean の字句は <code>xs:boolean</code>（<code>true</code>・<code>false</code>・<code>1</code>・<code>0</code>）</li>
+    <li>S263・S295 の【未確認】を解消</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">試験</span>
+  <h1>CSV がバイトで一致する</h1>
+  <ul>
+    <li><code>--ssv</code> の <code>.ssp</code> を <code>cosim</code> で回した CSV は JSON 直の CSV と同じ</li>
+    <li><code>.ssv</code> の名前空間と <code>ssv:Real</code>・<code>ssv:Integer</code>・<code>ssv:Boolean</code> を確かめる</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

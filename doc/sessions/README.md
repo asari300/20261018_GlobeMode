@@ -4,6 +4,7 @@
 
 | S | 日付 | Phase | 題名 | ブランチ | 状態 | スライド | 解説書 | セッション記録 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| S318 | 2026-11-15 | P8 | `ssp-ssv-export`: `globe fmu ssp-export --ssv` で `start` を Component ごとの `resources/<名前>.ssv` に書く（既定はインライン）。型の要素の名前空間を XSD で確認 | `feature/s318-ssp-ssv-export` | 完了 | [slides](S318-ssp-ssv-export/slides.html) | [解説書](S318-ssp-ssv-export/解説書.md) | なし |
 | S317 | 2026-11-15 | 文書 | `readme-changelog-4`: README と CHANGELOG に、S304 の後に main に入った利用者に見える機能（native の検査 S305〜S313、flat の redeclare S297、VS Code のパラメータとキー操作 S306・S309、S303 の修正）を反映（文書だけ） | `feature/s317-readme-changelog-4` | 完了 | [slides](S317-readme-changelog-4/slides.html) | [解説書](S317-readme-changelog-4/解説書.md) | なし |
 | S315 | 2026-11-15 | P8 | `ssp-roundtrip-2`: `.ssp` → spec.json の逆変換 `globe fmu ssp-import`（FMU は外に出す）と、`.` を含む名前を平らな Component のまま書く `write_ssp` | `feature/s315-ssp-roundtrip-2` | 完了 | [slides](S315-ssp-roundtrip-2/slides.html) | [解説書](S315-ssp-roundtrip-2/解説書.md) | なし |
 | S313 | 2026-11-15 | Track B | `native-everywhere`: native の検査を CLI 以外からも選べるようにした。facade `Workspace::check_with(model, CheckFrontend)`、LSP は `globe-mode.toml` の `[check] frontend = "native"`、Python は `check(model, frontend="native")`（既定は Rumoca、wasm・UI は未） | `feature/s313-native-everywhere` | 完了 | [slides](S313-native-everywhere/slides.html) | [解説書](S313-native-everywhere/解説書.md) | なし |

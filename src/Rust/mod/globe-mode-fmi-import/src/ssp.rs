@@ -288,6 +288,12 @@ fn var_of<'a>(
 }
 
 pub fn write_ssp(spec: &CosimSpec, out: &Path) -> Result<()> {
+    write_ssp_with(spec, out, false)
+}
+
+/// [`write_ssp`] の `ssv` 版（S318）。`ssv` が真なら `start` を Component ごとの `resources/<名前>.ssv` に書き、
+/// `ParameterBinding source="resources/<名前>.ssv"` で参照する（偽ならインラインの `ParameterValues`）。読み戻した結果は同じ。
+pub fn write_ssp_with(spec: &CosimSpec, out: &Path, ssv: bool) -> Result<()> {
     use std::io::Write;
     let err = |m: String| Error::Ssp(m);
     let mut descs = BTreeMap::new();
@@ -365,6 +371,7 @@ pub fn write_ssp(spec: &CosimSpec, out: &Path) -> Result<()> {
         )
         .unwrap();
     }
+    let mut ssv_files: Vec<(String, String)> = Vec::new();
     let mut ssd = String::from(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <ssd:SystemStructureDescription xmlns:ssd="http://ssp-standard.org/SSP1/SystemStructureDescription"
@@ -386,7 +393,13 @@ pub fn write_ssp(spec: &CosimSpec, out: &Path) -> Result<()> {
             ssd.push_str("        </ssd:Connectors>\n");
         }
         if let Some(p) = starts.get(name.as_str()) {
-            write!(ssd, "        <ssd:ParameterBindings><ssd:ParameterBinding><ssd:ParameterValues>\n          <ssv:ParameterSet version=\"2.0\" name=\"start\"><ssv:Parameters>\n{p}          </ssv:Parameters></ssv:ParameterSet>\n        </ssd:ParameterValues></ssd:ParameterBinding></ssd:ParameterBindings>\n").unwrap();
+            if ssv {
+                // 型の要素（Real・Integer・Boolean）は ssv の名前空間（XSD は elementFormDefault="qualified"）
+                ssv_files.push((format!("resources/{name}.ssv"), format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<ssv:ParameterSet xmlns:ssv=\"http://ssp-standard.org/SSP1/SystemStructureParameterValues\" version=\"2.0\" name=\"start\">\n  <ssv:Parameters>\n{p}  </ssv:Parameters>\n</ssv:ParameterSet>\n")));
+                writeln!(ssd, "        <ssd:ParameterBindings><ssd:ParameterBinding source=\"resources/{n}.ssv\"/></ssd:ParameterBindings>").unwrap();
+            } else {
+                write!(ssd, "        <ssd:ParameterBindings><ssd:ParameterBinding><ssd:ParameterValues>\n          <ssv:ParameterSet version=\"2.0\" name=\"start\"><ssv:Parameters>\n{p}          </ssv:Parameters></ssv:ParameterSet>\n        </ssd:ParameterValues></ssd:ParameterBinding></ssd:ParameterBindings>\n").unwrap();
+            }
         }
         ssd.push_str("      </ssd:Component>\n");
     }
@@ -426,6 +439,11 @@ pub fn write_ssp(spec: &CosimSpec, out: &Path) -> Result<()> {
             zip.start_file(format!("resources/{name}.fmu"), stored)
                 .map_err(crate::zip_err)?;
             std::io::copy(&mut std::fs::File::open(path).map_err(io)?, &mut zip).map_err(io)?;
+        }
+        for (path, text) in &ssv_files {
+            zip.start_file(path, zip::write::SimpleFileOptions::default())
+                .map_err(crate::zip_err)?;
+            zip.write_all(text.as_bytes()).map_err(io)?;
         }
         zip.finish().map_err(crate::zip_err)?;
         std::fs::rename(&tmp, out).map_err(io)
@@ -517,6 +535,64 @@ mod tests {
                 .to_string()
                 .contains("output")
         );
+    }
+
+    /// S318: `write_ssp_with(.., true)` は start を `resources/<名前>.ssv` に書く。読み戻すとインライン版と同じ spec で、
+    /// `.ssv` は ssv の名前空間・`ssv:Real`・`ssv:Integer`・`ssv:Boolean` の要素になる（型は FMU の変数から）。
+    #[test]
+    fn ssv_export_reads_back_like_inline() {
+        let dir = tempfile::tempdir().unwrap();
+        let var = |n: &str, ty: &str, start: &str| {
+            format!(
+                r#"<ScalarVariable name="{n}" valueReference="0" causality="parameter" variability="fixed"><{ty} start="{start}"/></ScalarVariable>"#
+            )
+        };
+        let a = fake_fmu(
+            dir.path(),
+            "a",
+            &(var("k", "Real", "1") + &var("n", "Integer", "1") + &var("f", "Boolean", "false")),
+        );
+        let b = fake_fmu(dir.path(), "b", &var("k", "Real", "1"));
+        let spec = CosimSpec {
+            fmus: [("a".to_owned(), a), ("b".to_owned(), b)].into(),
+            stop_time: 1.0,
+            step: 0.5,
+            start: [
+                ("a.k".to_owned(), 0.1),
+                ("a.n".to_owned(), 3.0),
+                ("a.f".to_owned(), 1.0),
+            ]
+            .into(),
+            ..Default::default()
+        };
+        let (inline, ssv) = (dir.path().join("i.ssp"), dir.path().join("v.ssp"));
+        write_ssp_with(&spec, &inline, false).unwrap();
+        write_ssp_with(&spec, &ssv, true).unwrap();
+        let got = Ssp::open(&ssv, None, None).unwrap().spec;
+        assert_eq!(
+            got.start,
+            Ssp::open(&inline, None, None).unwrap().spec.start
+        );
+        assert_eq!(got.start, spec.start);
+        let mut z = zip::ZipArchive::new(std::fs::File::open(&ssv).unwrap()).unwrap();
+        let mut text = String::new();
+        std::io::Read::read_to_string(&mut z.by_name("resources/a.ssv").unwrap(), &mut text)
+            .unwrap();
+        assert!(
+            text.contains(
+                r#"xmlns:ssv="http://ssp-standard.org/SSP1/SystemStructureParameterValues""#
+            ),
+            "{text}"
+        );
+        for want in [
+            r#"<ssv:Real value="0.1"/>"#,
+            r#"<ssv:Integer value="3"/>"#,
+            r#"<ssv:Boolean value="true"/>"#,
+        ] {
+            assert!(text.contains(want), "{text}");
+        }
+        // start の無い Component には .ssv を作らない
+        assert!(z.by_name("resources/b.ssv").is_err());
     }
 
     /// S315: 名前に `.` を含む FMU（入れ子を平らにしたもの）は平らな Component のまま書いて読み戻せ、

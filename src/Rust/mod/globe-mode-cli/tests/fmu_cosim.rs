@@ -576,11 +576,18 @@ fn ssp_export_round_trips_to_the_same_csv() {
         return;
     };
     let dir = scratch("9");
-    for (tag, extra) in [
-        ("jacobi", serde_json::json!({})),
+    for (tag, extra, ssv) in [
+        ("jacobi", serde_json::json!({}), false),
         (
             "gs-start",
             serde_json::json!({"algorithm": "gauss-seidel", "start": {"a.k": 2.0}}),
+            false,
+        ),
+        // S318: `--ssv` で書いた `.ssp`（start は resources/a.ssv）も同じ CSV
+        (
+            "gs-start-ssv",
+            serde_json::json!({"algorithm": "gauss-seidel", "start": {"a.k": 2.0}}),
+            true,
         ),
     ] {
         let mut spec = serde_json::json!({
@@ -599,6 +606,7 @@ fn ssp_export_round_trips_to_the_same_csv() {
             .arg(dir.join("spec.json"))
             .arg("-o")
             .arg(&ssp_file)
+            .args(ssv.then_some("--ssv"))
             .output()
             .unwrap();
         assert!(
@@ -617,7 +625,7 @@ fn ssp_export_round_trips_to_the_same_csv() {
             String::from_utf8_lossy(&out.stderr)
         );
         assert_eq!(out.stdout, json.stdout, "{tag}");
-        if tag == "gs-start" {
+        if tag.starts_with("gs-start") {
             // k = 2 が効いている（x(1) = 0.8^10）
             assert!((table(&out)["a.x"][10] - 0.8f64.powi(10)).abs() < 1e-9);
         }

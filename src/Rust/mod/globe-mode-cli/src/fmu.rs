@@ -92,7 +92,7 @@ pub enum FmuImportCommand {
     /// Co-Simulation の結線の記述（`fmu cosim` の spec.json）を `.ssp`（SSP 2.0.1）に書き出す（S274）。`globe fmu cosim <out>.ssp` で読み戻すと同じ結果になる。FMU のネイティブコードは実行しない
     #[command(
         name = "ssp-export",
-        after_help = "SSD は System 1 つ。FMU は resources/ にそのまま写し、start は Component の ParameterBindings、時刻は DefaultExperiment、通信刻みと algorithm は GlobeMode 独自の Annotation に入れる。結線は Real・Int32・Boolean の同じ型どうし。名前に `.` を含む FMU（入れ子を平らにしたもの）は平らな Component の名前のまま書く。逆は `globe fmu ssp-import`。`timeout`・`memory_limit_mib` は書かない\n例:\n  globe fmu ssp-export spec.json -o system.ssp"
+        after_help = "SSD は System 1 つ。FMU は resources/ にそのまま写し、start は Component の ParameterBindings（既定はインライン。`--ssv` なら Component ごとの `resources/<名前>.ssv` を参照）、時刻は DefaultExperiment、通信刻みと algorithm は GlobeMode 独自の Annotation に入れる。結線は Real・Int32・Boolean の同じ型どうし。名前に `.` を含む FMU（入れ子を平らにしたもの）は平らな Component の名前のまま書く。逆は `globe fmu ssp-import`。`timeout`・`memory_limit_mib` は書かない\n例:\n  globe fmu ssp-export spec.json -o system.ssp"
     )]
     SspExport {
         /// 結線の記述（JSON。`fmu cosim` と同じ。FMU のパスは spec.json からの相対）
@@ -100,6 +100,9 @@ pub enum FmuImportCommand {
         /// 書き出す `.ssp`
         #[arg(short, long)]
         out: PathBuf,
+        /// `start` を Component ごとの `resources/<名前>.ssv` に書いて参照する（既定はインラインの `ParameterValues`）
+        #[arg(long)]
+        ssv: bool,
     },
     /// `.ssp`（SSP 2.0.1）を `fmu cosim` の spec.json に書き出す（S315）。`ssp-export` の逆。FMU は `.ssp` から取り出して JSON と同じフォルダに `<名前>.fmu` で置く
     #[command(
@@ -150,7 +153,7 @@ pub fn run(command: FmuImportCommand) -> ExitCode {
             (timeout, memory_limit),
             out.as_deref(),
         ),
-        FmuImportCommand::SspExport { spec, out } => ssp_export(&spec, &out),
+        FmuImportCommand::SspExport { spec, out, ssv } => ssp_export(&spec, &out, ssv),
         FmuImportCommand::SspImport {
             ssp,
             out,
@@ -317,12 +320,12 @@ fn read_spec(spec: &std::path::Path) -> Result<globe_mode::CosimSpec, String> {
 }
 
 /// `globe fmu ssp-export`（S274）。
-fn ssp_export(spec: &std::path::Path, out: &std::path::Path) -> Result<(), String> {
+fn ssp_export(spec: &std::path::Path, out: &std::path::Path, ssv: bool) -> Result<(), String> {
     let data = read_spec(spec)?;
     let mut inputs: Vec<_> = data.fmus.values().cloned().collect();
     inputs.push(spec.to_owned());
     crate::check_writable_file(out, &inputs, &[]).map_err(|m| format!("結果を {m}"))?;
-    globe_mode::write_ssp(&data, out).map_err(|e| e.to_string())
+    globe_mode::write_ssp_with(&data, out, ssv).map_err(|e| e.to_string())
 }
 
 /// `globe fmu ssp-import`（S315）。
