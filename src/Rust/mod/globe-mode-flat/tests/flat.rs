@@ -241,6 +241,114 @@ fn inner_outer_alias() {
     assert_eq!(eqs(&m), ["der(mid.body.x) = - mid.env.g"]);
 }
 
+/// 宣言が後ろの `inner` に `outer` 経由で `connect` する（S361。`StateGraph` の `stateGraphRoot`）。
+/// 接続集合は階層をまたいで 1 つ: flow の和は 1 本（部品ごとに作らない）、つないだ内側の flow は 0 にしない
+#[test]
+fn outer_connect_to_later_inner() {
+    let m = flat(
+        "connector P Real v; flow Real i; end P;
+         model Root P p; end Root;
+         model Port P p; end Port;
+         model Step outer Root root; Port port; equation connect(port.p, root.p); end Step;
+         model Top Step s1; Step s2; inner Root root; end Top;",
+        "Top",
+    );
+    assert_eq!(
+        eqs(&m),
+        [
+            "s1.port.p.i + root.p.i + s2.port.p.i = 0",
+            "s1.port.p.v = root.p.v",
+            "s1.port.p.v = s2.port.p.v"
+        ]
+    );
+}
+
+/// `inner outer` は実体を持ち、中の部品の `outer` はそれにつながる。同じ階層の `connect` の端だけ外側の `inner` につながる（S361。`StateGraph` の `CompositeStep`）
+#[test]
+fn inner_outer_is_instantiated_and_bridged() {
+    let m = flat(
+        "connector P Real v; flow Real i; end P;
+         model Root parameter Real k = 1; P p; end Root;
+         model Leaf outer Root root; P q; equation connect(q, root.p); end Leaf;
+         model Comp inner outer Root root(k = 2); P q; Leaf l; equation connect(q, root.p); end Comp;
+         model Top Comp c; inner Root root; end Top;",
+        "Top",
+    );
+    let n = names(&m);
+    assert!(n.contains(&"c.root.k") && n.contains(&"root.k"), "{n:?}");
+    let e = eqs(&m);
+    // 葉は `c.root`（実体）につながり、`c` 自身の `connect` は外側の `root`（Top）につながる。`l.q`・`c.q` は外側のコネクタなので符号が逆（持ち越しても変わらない）
+    assert!(
+        e.contains(&"-c.l.q.i + c.root.p.i = 0".to_string()),
+        "{e:#?}"
+    );
+    assert!(e.contains(&"-c.q.i + root.p.i = 0".to_string()), "{e:#?}");
+}
+
+/// `cardinality(c)` は `c` が `connect` の端に出てきた数。全部の `connect` がそろってから `if` の枝を選ぶ（S361）
+#[test]
+fn cardinality_selects_if_branch() {
+    let m = flat(
+        "connector P Real v; flow Real i; end P;
+         model A P p; P q[2];
+         equation
+           for k in 1:2 loop if cardinality(q[k]) == 0 then q[k].v = 0; end if; end for;
+           if cardinality(p) < 1 then p.v = 1; else p.v = 2; end if;
+         end A;
+         model Top A a; A b; equation connect(a.q[1], b.q[2]); connect(a.p, b.p); end Top;",
+        "Top",
+    );
+    let e = eqs(&m);
+    // 未接続の `a.q[2]`・`b.q[1]` だけ `= 0`。`a.p`・`b.p` はつながっているので `else` の枝
+    for x in ["a.q[2].v = 0", "b.q[1].v = 0", "a.p.v = 2", "b.p.v = 2"] {
+        assert!(e.contains(&x.to_string()), "{x}: {e:#?}");
+    }
+    assert!(
+        !e.iter()
+            .any(|x| x.starts_with("if ") || x.contains("a.p.v = 1") || x.contains("a.q[1].v = 0")),
+        "{e:#?}"
+    );
+}
+
+/// 差し替えた部品にも、元の宣言の `constrainedby C(nu = nu)` の修飾が掛かる（S361。`Clocked` の `combinator`）。明示した修飾が勝つ
+#[test]
+fn redeclare_keeps_constraining_modification() {
+    let src = |redecl: &str| {
+        format!(
+            "partial model PM parameter Integer nu = 0; Boolean u[nu]; end PM;
+             model And extends PM; end And;
+             partial model PLC parameter Integer nu = 2; replaceable PM c constrainedby PM(nu = nu); end PLC;
+             model Conj extends PLC(redeclare And c{redecl}); end Conj;"
+        )
+    };
+    let dims = |m: &FlatModel| {
+        m.vars
+            .iter()
+            .find(|v| v.name == "c.u")
+            .unwrap()
+            .dims
+            .clone()
+    };
+    assert_eq!(dims(&flat(&src(""), "Conj")), [2]);
+    assert_eq!(dims(&flat(&src("(nu = 3)"), "Conj")), [3]);
+}
+
+/// 内包の中の `inStream` は添字ごとに展開する（S361。`MultiPort` の `sum({… inStream(ports_b[j].h_outflow) for j in 1:n})`）
+#[test]
+fn in_stream_in_comprehension() {
+    let m = flat(
+        "connector P Real v; flow Real i; stream Real h; end P;
+         model N P p[2]; Real s; equation s = sum({inStream(p[k].h) for k in 1:2}); end N;
+         model A N n; end A;",
+        "A",
+    );
+    assert!(
+        eqs(&m).contains(&"n.s = sum({n.p[1].h, n.p[2].h})".to_string()),
+        "{:#?}",
+        eqs(&m)
+    );
+}
+
 #[test]
 fn record_binding_and_constant_dims() {
     let m = flat(

@@ -5,19 +5,29 @@
 ## 前回の結果との差
 
 前回の結果 `target/frontend-diff.json` と、両方にある 641 本で比べる（この実行にだけある 0 本、前回にだけある 0 本）。
-**回帰 0 本**（前回は通った項目が通らなくなった）、改善 4 本。
+**回帰 0 本**（前回は通った項目が通らなくなった）、改善 14 本。
 
+- 改善 `Modelica.Clocked.Examples.Elementary.ClockSignals.LogicalSample`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.Fluid.Examples.AST_BatchPlant.BatchPlant_StandardWater`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states
 - 改善 `Modelica.Fluid.Examples.AST_BatchPlant.Test.TankWithEmptyingPipe1`: regular
+- 改善 `Modelica.Fluid.Examples.ControlledTankSystem.ControlledTanks`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
 - 改善 `Modelica.Fluid.Examples.HeatingSystem`: balance・counts・regular
 - 改善 `Modelica.Fluid.Examples.NonCircularPipes`: balance・counts・regular
 - 改善 `Modelica.Fluid.Examples.Tanks.ThreeTanks`: regular
+- 改善 `Modelica.StateGraph.Examples.ControlledTanks`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.StateGraph.Examples.ExecutionPaths`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states
+- 改善 `Modelica.StateGraph.Examples.FirstExample`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.StateGraph.Examples.FirstExample_Variant2`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.StateGraph.Examples.FirstExample_Variant3`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.StateGraph.Examples.ShowCompositeStep`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states
+- 改善 `Modelica.StateGraph.Examples.ShowExceptions`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states
 
 | | |
 | --- | --- |
 | MSL | 4.1.0（sha256 `5409cfa17797…`） |
 | Rumoca | v0.10.2（rev `276e82bd`、ライブラリとして呼ぶ） |
 | 検査した本数 | 641 本 |
-| 時間 | 全体 1031 s（1 本ずつの検査 970 s） |
+| 時間 | 全体 1190 s（1 本ずつの検査 1103 s） |
 | 最大の常駐メモリ（VmHWM） | 5.8 GiB |
 
 自前の parse・resolve・flat・dae を、Rumoca は自前で平らにできたものにだけ呼んで比べる（母数はその本数）。
@@ -29,16 +39,16 @@ resolve は、例題のクラスから、中のクラス・`extends`・部品の
 | --- | --- | ---: | ---: |
 | parse | 構文の誤りが 0 | 566 | 566 |
 | resolve | 未解決の参照が 0（`extends`・部品の型をたどって） | 566 | 566 |
-| flat | 自前で平らにできた | 538 | 566 |
-| flat | Rumoca も flat まで通った（比べられた本数） | 511 | 538 |
-| flat | 変数の名前の集合が Rumoca の flat と一致 | 508 | 511 |
-| flat | 方程式の数が Rumoca の flat と一致 | 498 | 511 |
-| dae | 自前で DAE にできた | 538 | 538 |
-| dae | Rumoca も釣り合いまで通った（比べられた本数） | 367 | 538 |
-| dae | 釣り合いの判定（釣り合う / 釣り合わない）が一致 | 367 | 367 |
-| dae | 方程式と未知数の数が一致 | 366 | 367 |
-| dae | 状態の数が一致 | 366 | 367 |
-| dae | 構造が正則かの判定が一致（Rumoca の構造が取れたもの） | 367 | 367 |
+| flat | 自前で平らにできた | 548 | 566 |
+| flat | Rumoca も flat まで通った（比べられた本数） | 521 | 548 |
+| flat | 変数の名前の集合が Rumoca の flat と一致 | 518 | 521 |
+| flat | 方程式の数が Rumoca の flat と一致 | 508 | 521 |
+| dae | 自前で DAE にできた | 548 | 548 |
+| dae | Rumoca も釣り合いまで通った（比べられた本数） | 377 | 548 |
+| dae | 釣り合いの判定（釣り合う / 釣り合わない）が一致 | 377 | 377 |
+| dae | 方程式と未知数の数が一致 | 376 | 377 |
+| dae | 状態の数が一致 | 376 | 377 |
+| dae | 構造が正則かの判定が一致（Rumoca の構造が取れたもの） | 373 | 377 |
 
 未解決の参照の総数: 0
 
@@ -46,7 +56,6 @@ flat の理由（本数の多い順）:
 
 | 理由 | 本数 | 例 |
 | --- | ---: | --- |
-| `connect` | 10 | `Modelica.Clocked.Examples.Elementary.ClockSignals.LogicalSample` |
 | `composite-binding` | 6 | `Modelica.Electrical.Batteries.Examples.BatteryDischargeCharge` |
 | `expandable` | 5 | `Modelica.Blocks.Examples.BusUsage` |
 | `non-constant-dim` | 4 | `Modelica.Blocks.Examples.Rectifier12pulseFFT` |
@@ -76,6 +85,7 @@ flat の理由（本数の多い順）:
 ## 一致しなかったもの（先頭 100 件。全部は JSON）
 
 - `Modelica.Blocks.Examples.Noise.ActuatorWithNoise`: flat: eq 728 vs 736 (rumoca); vars 913 vs 913; only mine []; only rumoca []; element counts []
+- `Modelica.Fluid.Examples.AST_BatchPlant.BatchPlant_StandardWater`: dae: 正則 自前 false / rumoca true
 - `Modelica.Fluid.Examples.BranchingDynamicPipes`: flat: eq 1260 vs 1256 (rumoca); vars 830 vs 830; only mine []; only rumoca []; element counts []
 - `Modelica.Fluid.Examples.HeatingSystem`: dae: eq 538 vs 538, unk 538 vs 538 (rumoca); states 20 vs 11, discrete 4 vs 4
 - `Modelica.Fluid.Examples.IncompressibleFluidNetwork`: flat: eq 920 vs 919 (rumoca); vars 2078 vs 2078; only mine []; only rumoca []; element counts []
@@ -93,4 +103,7 @@ flat の理由（本数の多い順）:
 - `Modelica.Mechanics.Rotational.Examples.OneWayClutchDisengaged`: flat: eq 46 vs 47 (rumoca); vars 73 vs 73; only mine []; only rumoca []; element counts []
 - `Modelica.Mechanics.Rotational.Examples.SimpleGearShift`: flat: eq 85 vs 87 (rumoca); vars 136 vs 136; only mine []; only rumoca []; element counts []
 - `Modelica.Mechanics.Translational.Examples.Brake`: flat: eq 71 vs 73 (rumoca); vars 113 vs 113; only mine []; only rumoca []; element counts []
+- `Modelica.StateGraph.Examples.ExecutionPaths`: dae: 正則 自前 false / rumoca true
+- `Modelica.StateGraph.Examples.ShowCompositeStep`: dae: 正則 自前 false / rumoca true
+- `Modelica.StateGraph.Examples.ShowExceptions`: dae: 正則 自前 false / rumoca true
 
