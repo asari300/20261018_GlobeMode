@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S309 VS Code のパネルのキーボード操作 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S309 VS Code のパネルのキーボード操作">
+
+<section class="slide" id="S01">
+  <span class="tag">S309 · 2026-11-15 · P8</span>
+  <h1>パネルをマウスなしで操作する</h1>
+  <p class="lead">部品の移動とパラメータの入力を、キーボードとコマンドパレットからできるようにした。</p>
+  <div class="big">矢印で <b>2 単位</b>、Shift で <b>10 単位</b>。Enter でパラメータ</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">洗い出し</span>
+  <h1>マウスが要った操作</h1>
+  <table>
+    <tr><th>操作</th><th>マウス</th><th>S309 の後</th></tr>
+    <tr><td>部品の移動</td><td>ドラッグ</td><td>矢印キー（Shift で 10 単位）</td></tr>
+    <tr><td>パラメータ</td><td>ダブルクリック</td><td>Enter、コマンド</td></tr>
+    <tr><td>削除</td><td>—</td><td>Delete（S293 から）</td></tr>
+    <tr><td>結線の追加・途中の点</td><td>ドラッグ</td><td>次回</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <ul>
+    <li><code>nudgeOf</code> を <code>diagram-select.ts</code> に置き、webview と Svelte が共有する</li>
+    <li>連打は前の編集を待って送る（版が変わると入れないため）</li>
+    <li>作り直した図で選びへフォーカスを戻す</li>
+    <li>Enter はパラメータ、宣言の行へは Space</li>
+    <li>コマンド <code>globeMode.editParams</code> は、カーソルの部品か QuickPick で選ぶ</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>cd src/VSCode/globe-mode &amp;&amp; pnpm test
+gh workflow run vscode.yml --ref feature/s309-vscode-keyboard</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">2</span><span class="l">pnpm test を追加</span></div>
+    <div class="kpi"><span class="n">1</span><span class="l">e2e を追加</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>結線の追加と途中の点をキーボードで</li>
+    <li>Svelte の Enter からパラメータ</li>
+    <li>実機でのキー操作の目視</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

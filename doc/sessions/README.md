@@ -4,6 +4,7 @@
 
 | S | 日付 | Phase | 題名 | ブランチ | 状態 | スライド | 解説書 | セッション記録 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| S309 | 2026-11-15 | P8 | `vscode-keyboard`: VS Code の側のパネルを、マウスなしで操作できるようにした。選んだ部品を矢印キー（2 単位、Shift で 10 単位）で動かし、Enter でパラメータの QuickPick、コマンド「GlobeMode: 部品のパラメータを編集」（カーソルの部品か QuickPick で選ぶ） | `feature/s309-vscode-keyboard` | 作業中 | [slides](S309-vscode-keyboard/slides.html) | [解説書](S309-vscode-keyboard/解説書.md) | なし |
 | S306 | 2026-11-15 | P8 | `vscode-params`: VS Code の側のパネルで、図の部品のダブルクリックからパラメータを QuickPick・InputBox で入力し、`globe/setModifier` で宣言の修飾に書く（undo 可、空で外す） | `feature/s306-vscode-params` | 作業中 | [slides](S306-vscode-params/slides.html) | [解説書](S306-vscode-params/解説書.md) | なし |
 | S304 | 2026-11-15 | 文書 | `readme-changelog-3`: README と CHANGELOG に、S292 の後に main に入った機能（パラメータをソースへ書く・外す・列挙、固有値の表と段のパネル、VS Code の削除、結線の途中の点、SSP の入れ子と Int32・Boolean、読めない文書での定義とホバー、`msl:diff-frontend`）を反映。済んだ限界を「未」から外した | `feature/s304-readme-changelog-3` | 作業中 | [slides](S304-readme-changelog-3/slides.html) | [解説書](S304-readme-changelog-3/解説書.md) | なし |
 | S303 | 2026-11-15 | 監査 | `review2-issues`: 2 回目のレビューの issue #105〜#109 を監査して直した（SSP の ssd・ssv の上限と入れ子の深さ・名前の上限、LSP の自前の木を編集で捨てる、diff-frontend の基準を守る、flat の多次元配列を確保の前に断る） | `feature/s303-review2-issues` | 完了 | [slides](S303-review2-issues/slides.html) | [解説書](S303-review2-issues/解説書.md) | なし |

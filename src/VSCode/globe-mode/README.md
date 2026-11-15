@@ -18,7 +18,20 @@ S059 で作った。`.mo` を開くと `globe lsp` を起動してつなぐだ�
 | アウトライン・ホバー | エクスプローラーのアウトライン、クラス名にマウスを載せる |
 | 折りたたみ | 行番号の脇の ▾。クラス、`equation` / `algorithm` / `public` / `protected` の節、複数行の `annotation(…)`、連続するコメントを畳める（S220。`globe lsp` の `foldingRange`。構文が壊れている間はクラスと節は出ない） |
 | 字下げの規則 | `model` / `function` などと `equation`・`if … then`・`for … loop` の次の行で字下げし、`end`・`else`・`elseif`・節の見出しで戻す（S220。`language-configuration.json`。`//` の行で Enter しても字下げしない） |
-| 側のパネル | エクスプローラーのビュー「GlobeMode」（S247）。Svelte の UI の説明パネルと同じ、上からアイコン・図・説明。カーソルのあるクラスについて、カーソルが 300 ms 止まったら `globe/icon`・`globe/diagram`・`globe/documentation` を引く。図の部品をクリック（Enter / Space）すると宣言の行へ飛ぶ。部品をドラッグすると `Placement` の `origin` を書き換え、コネクタから別のコネクタへドラッグすると `connect` を足す（S264。編集は文書に入るだけで保存しない。Ctrl+Z で戻る）。部品のダブルクリックでそのパラメータを QuickPick・InputBox で入力し、宣言の修飾 `(名前 = 値)` として書く（S306。空の入力で外す）。`.mo` 以外のエディタでは更新しない |
+| 側のパネル | エクスプローラーのビュー「GlobeMode」（S247）。Svelte の UI の説明パネルと同じ、上からアイコン・図・説明。カーソルのあるクラスについて、カーソルが 300 ms 止まったら `globe/icon`・`globe/diagram`・`globe/documentation` を引く。図の部品をクリック（Enter / Space）すると宣言の行へ飛ぶ。部品をドラッグすると `Placement` の `origin` を書き換え、コネクタから別のコネクタへドラッグすると `connect` を足す（S264。編集は文書に入るだけで保存しない。Ctrl+Z で戻る）。部品のダブルクリックでそのパラメータを QuickPick・InputBox で入力し、宣言の修飾 `(名前 = 値)` として書く（S306。空の入力で外す）。**キーボードだけでも操作できる**（S309。下の表）。`.mo` 以外のエディタでは更新しない |
+
+### 側のパネルのキー操作（S309）
+
+図の部品・結線は Tab でフォーカスを移すと選ばれる（青い破線の枠か太線）。
+
+| キー | 動き |
+| --- | --- |
+| 矢印キー | 選んだ部品を 2 単位動かす（Shift で 10 単位。1 回ごとに `Placement` を書き換える。Ctrl+Z で戻る） |
+| Enter | 選んだ部品のパラメータを QuickPick・InputBox で入力する（部品以外は宣言の行へ飛ぶ） |
+| Space | 宣言の行へ飛ぶ |
+| Delete / Backspace | 選んだ部品・結線を消す |
+
+コマンドパレットの「GlobeMode: 部品のパラメータを編集」（`globeMode.editParams`）は、カーソルが部品の宣言の行にあればその部品、なければ部品を選ぶ QuickPick から始める。結線の追加と途中の点の編集は、まだマウスだけ。
 
 拡張は `.mo` の既定を `editor.tabSize: 2`・80 桁のルーラーにする。インデント 4 にしたいときだけ、設定で `[modelica]` の `editor.tabSize` を 4 にする。
 

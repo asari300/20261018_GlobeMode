@@ -103,6 +103,15 @@ table { border-collapse: collapse; } td, th { border: 1px solid var(--vscode-pan
     return ok || fail(`書けなかった: ${this.why}`);
   }
 
+  /** コマンド「部品のパラメータを編集」（S309。キーボードだけで開く口）。カーソルが部品の宣言の行にあればその部品、なければ部品の QuickPick で選ぶ */
+  async editParamsCommand() {
+    const ed = vscode.window.activeTextEditor, parts = this.parts ?? [], ui = this.ui;
+    if (!this.target || !parts.length || ed?.document !== this.target.doc) return ui.showInformationMessage("GlobeMode: パネルの図に部品が無い（Modelica のクラスの中にカーソルを置く）"), false;
+    const at = parts.find((p) => p.line === ed.selection.active.line);
+    const pick = at ?? (await ui.showQuickPick(parts.map((p) => ({ label: p.name, description: p.class, p })), { title: "パラメータを編集する部品" }))?.p;
+    return pick ? this.editParams(pick.name) : false;
+  }
+
   async apply({ method, args }) {
     const t = this.target, client = this.getClient();
     this.why = ""; // 失敗の理由（e2e が見る）
@@ -132,6 +141,7 @@ table { border-collapse: collapse; } td, th { border: 1px solid var(--vscode-pan
     const ask = (m) => client.sendRequest(m, at).catch(() => null);
     const [doc, icon, diagram] = await Promise.all([ask("globe/documentation"), ask("globe/icon"), ask("globe/diagram")]);
     if (mine !== this.seq) return;
+    this.parts = diagram?.parts ?? []; // コマンド（editParamsCommand）がカーソルの部品を探すのに使う
     this.target = diagram?.class ? { doc: ed.document, class: diagram.class } : null; // 編集（edit）の対象は、いま webview が描いている図
     void this.view?.webview.postMessage({ type: "show", doc, icon, diagram });
   }
