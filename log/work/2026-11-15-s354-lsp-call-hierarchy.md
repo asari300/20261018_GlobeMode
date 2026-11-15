@@ -31,6 +31,8 @@ LSP に call hierarchy の最小版を足す。`textDocument/prepareCallHierarch
 
 - `cargo test -p globe-mode-lsp -p globe-mode-resolve`: lsp の lib 75 本 pass（1 本 ignored）・`call_hierarchy` 1・cross_file 5・folding 2・tolerant_outline 2、resolve の `tests/resolve.rs` 9 本 pass（2 本 ignored）。`cargo fmt` 済み、`cargo clippy -p globe-mode-lsp -p globe-mode-resolve --all-targets -- -D warnings` 0 件。
 - 試験の効きの確認: `is_function` の検査を外すと outgoing(g) にレコード `R` が出て落ちる（戻した）。
+- `check_docs.py`: スライド全部 OK・リンク 文書 1273 件 / 相対リンク 5304 件 / 切れ 0 件。`render_slides.py`（自分のデッキだけ）: 1 件 / 問題 0 件。
+- `origin/main`（S336 を含む）を取り込んだ。衝突は roadmap の Track B の行 1 つだけ（S336 の数字と S352・S354 の足し）で、origin/main の版に S352・S354 の文を重ねた（difflib では合成せず、差が S336 の数字だけであることを確かめた）。取り込み後の試験は共有 target に別の worktree の古いビルドが残っていて 1 回落ち（lib 73 本・capability が出ない）、lsp・resolve の `lib.rs` と試験を touch して再ビルドしたら lsp の lib 75・`call_hierarchy` 1・resolve 9 本が pass。fmt・clippy 0 件。
 - 回していないもの: `mise run check` 全体（依存を足していない）、release・wasm、`resolve_compare`（resolve の解決の規則は変えていない）、本物の VS Code（【未確認】）、`msl:*`。セッション記録は無いので `--check` は省く。
 
 ## 残したこと
