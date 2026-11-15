@@ -937,7 +937,7 @@ pub fn build(m: &FlatModel) -> Result<Dae, Unsupported> {
                 _ => common.push(x),
             }
         }
-        for k in 0..r.count {
+        for (k, each_k) in each.iter().enumerate() {
             let (mut inc, mut st) = (BTreeSet::new(), BTreeSet::new());
             let pick = |sel: Sel, v: usize| -> Vec<usize> {
                 match sel {
@@ -954,7 +954,7 @@ pub fn build(m: &FlatModel) -> Result<Dae, Unsupported> {
                 der: false,
                 row: None,
             });
-            for x in common.iter().chain(&each[k]).copied().chain(own) {
+            for x in common.iter().chain(each_k).copied().chain(own) {
                 for j in pick(x.sel, x.var) {
                     let u = (off[x.var] + j) as u32;
                     match roles[x.var] {
@@ -1225,7 +1225,9 @@ mod tests {
     #[test]
     fn array_constructor_equation_touches_one_element_per_row() {
         // #146: `y = {x[1]*2, …, x[n]*2}` は、行 k が全要素の参照に触れて incidence が密（n = 4000 で 15 s・RSS 330 MB の O(n²)）だった。行 k は y[k] と x[k] だけ
-        let d = dae("model M Real x[3]; Real y[3]; equation x = {1, 2, 3}; y = {x[1]*2, x[2]*2, x[3]*2}; end M;");
+        let d = dae(
+            "model M Real x[3]; Real y[3]; equation x = {1, 2, 3}; y = {x[1]*2, x[2]*2, x[3]*2}; end M;",
+        );
         let rows = &d.structure.incidence;
         assert_eq!(rows.len(), 6);
         assert!(rows[3..].iter().all(|r| r.len() == 2), "{rows:?}");
