@@ -140,6 +140,10 @@ enum Command {
         /// 検査するモデルの完全修飾名（例: GlobeModeExamples.RC）
         #[arg(long, short)]
         model: String,
+        /// 検査に使うフロントエンド。`native` は自前の段（parse → resolve → flat → dae。S5・S6 まで。
+        /// 未対応の機能は `GM-U0006` で止まり、Rumoca には切り替えない。試験用）
+        #[arg(long, value_enum, default_value_t = FrontendKind::Rumoca)]
+        frontend: FrontendKind,
         /// JSON で出力する
         #[arg(long)]
         json: bool,
@@ -449,8 +453,12 @@ fn main() -> ExitCode {
             files,
             library,
             model,
+            frontend,
             json,
-        } => check(&files, &library, &model, json),
+        } => match frontend {
+            FrontendKind::Rumoca => check(&files, &library, &model, json),
+            FrontendKind::Native => check_native(&files, &library, &model, json),
+        },
         Command::Fmt {
             files,
             check,
@@ -1143,6 +1151,78 @@ fn load_db(
         texts.insert(normalize_path(&name), text);
     }
     Ok(Ok(Loaded { ws, texts }))
+}
+
+/// `check --frontend` の選択肢（S305）。
+#[derive(Clone, Copy, Debug, clap::ValueEnum)]
+enum FrontendKind {
+    Rumoca,
+    Native,
+}
+
+/// `globe check --frontend native`: 自前の段で S0〜S6 まで。出力の形は Rumoca の道と同じ（診断・釣り合い・最後の 1 行）。
+fn check_native(files: &[PathBuf], library: &[PathBuf], model: &str, json: bool) -> ExitCode {
+    use globe_mode_frontend::{Frontend, NativeFrontend, Source};
+    let files = match expand_inputs(files) {
+        Ok(f) => f,
+        Err(code) => return code,
+    };
+    let mut inputs = Vec::new();
+    for f in &files {
+        match read(f) {
+            Ok(v) => inputs.push(v),
+            Err(code) => return code,
+        }
+    }
+    let texts: HashMap<_, _> = inputs
+        .iter()
+        .map(|(n, t)| (normalize_path(n), t.clone()))
+        .collect();
+    let sources: Vec<_> = inputs
+        .iter()
+        .map(|(name, text)| Source { name, text })
+        .collect();
+    let libs: Vec<&Path> = library.iter().map(PathBuf::as_path).collect();
+    let report = NativeFrontend::new().check(&sources, &libs, model);
+    let passed = report.passed();
+    let mut response = CheckResponse::failed(model, report.diagnostics.clone());
+    response.passed = passed;
+    response.failed_stage = report.failed_stage();
+    response.balance = report.balance;
+    response.notes = report.notes.clone();
+    response.summary = if passed {
+        format!("{model}: OK（native: S0〜S6 を通過。S7 以降は検査していない）")
+    } else if globe_mode::unsupported_summary(&report.diagnostics).is_some() {
+        format!(
+            "{} native が未対応で止まった。モデルの誤りとは限らない（`--frontend rumoca` で確かめる）",
+            response.summary
+        )
+    } else {
+        response.summary
+    };
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&response).expect("serialize report")
+        );
+    } else {
+        print_diagnostics(&report.diagnostics, &texts, false);
+        if let Some(b) = report.balance {
+            println!(
+                "{model}: 方程式 {} / 変数 {}（状態 {}・代数 {}・出力 {}・離散 {}）",
+                b.equations, b.unknowns, b.states, b.algebraics, b.outputs, b.discrete
+            );
+        }
+        for note in &report.notes {
+            println!("{model}: note: {note}");
+        }
+        println!("{}", response.summary);
+    }
+    if passed {
+        ExitCode::SUCCESS
+    } else {
+        failure_code(&report.diagnostics)
+    }
 }
 
 fn check(files: &[PathBuf], library: &[PathBuf], model: &str, json: bool) -> ExitCode {
