@@ -849,7 +849,7 @@ fn complex_arrays_expand_elementwise() {
     // S336: `Complex` の配列の束縛は要素ごとに。内包 `{… for k in 1:n}`、部品の配列を通した欄の差、関数の戻り値の行列
     let m = flat(
         "operator record Complex Real re; Real im; end Complex;
-         connector Pin Complex v; end Pin;
+         connector Pin Complex v; Complex i; end Pin;
          connector Plug parameter Integer m = 2; Pin pin[m]; end Plug;
          function mat input Integer m; output Complex y[m, m]; algorithm end mat;
          record R parameter Real d = 1; end R;
@@ -861,6 +861,7 @@ fn complex_arrays_expand_elementwise() {
            Complex u[n];
            Complex w[n] = {if c[k] then u[k] else -u[k] for k in 1:n};
            Complex v[n] = p.pin.v - q.pin.v;
+           Complex i[n] = p.pin.i;
            parameter Complex s[n, n] = mat(n);
            parameter Complex k[n] = fill(Complex(1, 0), n);
            E e[n](r = {R(d = 2*k) for k in 1:n});
@@ -883,6 +884,7 @@ fn complex_arrays_expand_elementwise() {
         b("v[2].im").as_deref(),
         Some("p.pin[2].v.im - q.pin[2].v.im")
     );
+    assert_eq!(b("i[2].im").as_deref(), Some("p.pin[2].i.im"));
     assert_eq!(b("k[2].re").as_deref(), Some("1"));
     assert_eq!(b("s[2,1].re").as_deref(), Some("(mat(n))[2,1].re"));
     assert_eq!(b("e[2].r.d").as_deref(), Some("2 * 2"));

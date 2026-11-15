@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S336 flat の配列の束縛 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S336 flat の配列の束縛">
+
+<section class="slide" id="S01">
+  <span class="tag">S336 · 2026-11-15 · Track B</span>
+  <h1>flat の配列の束縛</h1>
+  <p class="lead"><code>composite-binding</code> で断っていた 25 本の原因は 4 つの形だった</p>
+  <div class="big">断る理由 <b>25 → 0</b>、回帰 0</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">原因</span>
+  <h1>25 本は 4 つの形</h1>
+  <table>
+    <tr><th>形</th><th>本数</th></tr>
+    <tr><td><code>Complex u[n] = {… for k in 1:n}</code>（内包）</td><td>8</td></tr>
+    <tr><td><code>Complex v[m] = plug_p.pin.v - plug_n.pin.v</code>（配列の式）</td><td>15</td></tr>
+    <tr><td><code>c[m](G_m = {R(…) for k in 1:m})</code>（レコードの配列の修飾）</td><td>1</td></tr>
+    <tr><td><code>Complex s[m, m] = f(m)</code>（2 次元・関数の戻り値）</td><td>1</td></tr>
+  </table>
+  <p>先に隠れていた <code>fill(Complex(1, 0), n)</code> も同じ道で解いた</p>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">直し</span>
+  <h1>束縛に添字を付けて要素ごとに</h1>
+  <ul>
+    <li>配列の束縛を <code>[i, j]</code> つきの要素の束縛に（1 次元だけ → N 次元）</li>
+    <li><code>pick_elem</code>: <code>{a, b}</code> は項、<code>{e for k}</code> は本体（<code>k</code> は要素の値を局所変数に）</li>
+    <li><code>index_leaf</code>: 配列の式の葉に <code>[k]</code>（<code>plug_p.pin.v</code> は <code>plug_p.pin[k].v</code>）</li>
+    <li>内包の方程式は範囲の長さ本（Rumoca と同じ。これまでは 1 本）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">数字</span>
+  <h1>MSL の例題 566 本（S334 → S336）</h1>
+  <div class="kpis">
+    <div class="kpi"><span class="n">@@FLAT@@</span><span class="l">自前で平らにできた（前 471）</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">composite-binding（前 25）</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">回帰</span></div>
+  </div>
+  <p>@@KPI_NOTE@@</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>19 本は <code>unsized-array</code>（S335）で次に止まる。S335 と合わせると 25 本すべて平らになる</li>
+    <li>S335 の <code>var_dims</code> の新しい分岐が、部品の配列を通した欄の方程式の数を 1 にする（合わせるとき）</li>
+    <li>内包の添字が 2 つ以上、関数の配列の引数を取る <code>Complex</code> の式</li>
+  </ul>
+  <p class="foot">GlobeMode S336</p>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

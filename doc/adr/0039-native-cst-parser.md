@@ -117,6 +117,19 @@ Track B（自前コア）は B1 rowan の CST と寛容なパーサ → B2 resol
 - **断った理由の内訳**（MSL の例題 566 本、最初の理由だけ数える。S284 → S297）: `redeclare` 263 → 0、`replaceable` 9 → 0、`class extends` 11 → 0、配列の型 13 → 0、レコードの束縛 41 → 155（先へ進んだ分。`frictionParameters = dcpmData.frictionParameters`〔後ろで宣言したレコード〕46、外部オブジェクト `tableID` 29、関数の戻り値のレコード `R = Frames.nullRotation()` 27、配列のレコード 11 ほか）、配列のコネクタの一括接続 7 → 72（`source.sineVoltage.p` のように部品の配列の同名のコネクタをまとめてつなぐ形）、`[:]` 13 → 20、条件つきの宣言 6 → 19（条件に配列の修飾つきの `useHeatPort` や文字列の比較）、`connect` の集合の不一致 7 → 8、配列の修飾 0 → 8、`expandable` 2、`stream` 1。
 - **持ち越し**: 後ろで宣言したレコードを欄ごとの修飾にするための宣言順の入れ替え（46 本）、関数の戻り値のレコード・外部オブジェクト、配列のコネクタの一括接続（72 本）、`Connections.isRoot` の評価、`xtask diff-frontend` への組み込み、B4（DAE）。
 
+## 付記（S336）: B3 の続き、`Complex` の配列の束縛を要素ごとに（`composite-binding` 25 → 0）
+
+新しい ADR は立てず、S329 の続きとしてここに足す。変えたのは `globe-mode-flat`（`flatten.rs`）の中と、`xtask diff-frontend --dump`（自前が断ったときも Rumoca の flat を印字する）だけ。S334 の後に残った断る理由 `composite-binding` の 25 本（MSL の例題 566 本。最初の理由）を、原因ごとに分けて減らした。
+
+- **25 本の内訳**（`diff-frontend --class … --dump` の理由。すべて `Complex`・レコードの**配列**の束縛）: (1) `Complex uInternal[nin] = {if useConjugateInput[k] then conj(u[k]) else u[k] for k in 1:nin}`（`ComplexBlocks.Interfaces.ComplexMISO`・`ComplexMIMO`。8 本）、(2) `SI.ComplexVoltage v[m] = plug_p.pin.v - plug_n.pin.v`（配列の式。`vs`・`v`。15 本）、(3) `Permeance strayPermeance[m](final G_m = {SalientPermeance(…) for k in 1:m})`（レコードの配列を内包で修飾。1 本）、(4) `Complex sTM[m, m] = symmetricTransformationMatrix(m)`（2 次元で、関数の戻り値。1 本）。(1) の先には `Complex k[nin] = fill(Complex(1, 0), nin)` が隠れていた。
+- **配列のレコードの束縛を、添字 `[i, j, …]` を付けた要素ごとの束縛にする**（`inst_decl` の `bound`。1 次元だけだったのを N 次元に）。要素の式は `pick_elem` が決める: 束縛の式が `{a, b}` なら項、`{e for k in 1:n}` なら本体 `e`（`k` はその要素の値を局所変数に持つ文脈 `Ctx::locals` で。`for` の方程式と同じ仕組み）、それ以外（別の配列の変数・関数の呼び出し）は式のまま `[i, j]` を付ける（`(f(m))[2,1].re`）。部品の配列への修飾 `strayPermeance[m](G_m = {… for k in 1:m})`（`split_mod` が `({…})[k]` にしたもの）も同じ道で解ける。大きさの検査（項の数・範囲の長さ）は `size differs` で断る。
+- **`Complex` の配列の式を要素ごとに**（`complex_parts` に、束縛に付いた `[k]` を葉に当てる `index_leaf` を足した）: 配列の変数 `u`（`u[k].re`）・部品の配列を通した欄 `plug_p.pin.v`（`plug_p.pin[k].v.re`。`array_elems` と同じく最初の `.` から順に試す）は `[k]` を挟み、スカラーはそのまま（全要素で同じ）。`fill(x, n)` の要素は `x`。`Complex(re, im)`・`if`・`+ - * /` は S329 のまま。`complex_value` に切り出して、組み込みの関数（`fill`）の呼び出しの束縛からも呼ぶ。
+- **部品の配列を通した欄の束縛 `Complex i[m] = plug_p.pin.i`** は、欄ごとの束縛の名前を `plug_p.pin[k].i.re` にする（これまでは `plug_p.pin.i[k].re` という存在しない名前になりうる形。名前そのままの式 `Bind::lit` で束縛する）。
+- **内包 `{e for i in r}` の方程式の数**（`shape` の `Expr::Array`、`comp_len`）: 範囲の長さの積。これまでは項が 1 つとして 1 本と数えていた。Rumoca は `c = {a[k]*b[k] for k in 1:3}`（`Complex c[3]`）を 3 本と数える（`GlobeModeValidation` に置いて確かめた）。`Complex` の配列の方程式も Rumoca は要素の数で数える（`c = a - b` は 3 本。実部・虚部の 6 本ではない）。
+- **試験**: `globe-mode-flat` に 2 本（`complex_arrays_expand_elementwise`〔内包・部品の配列を通した欄の差と参照・関数の戻り値の 2 次元・`fill`・レコードの配列の内包の修飾〕、`comprehension_equation_counts_its_range`）。
+- **shortcut**: 内包は添字が 1 つのものだけ（`{… for i in a, j in b}` は断る。MSL の例題では出ない）。`index_leaf` は葉の名前から配列を探すので、`Complex` を返す関数の配列の引数（`conj(u)` の `u` が配列）は見ない（断る）。要素の式の中の条件 `if c then …` の `c` が配列のときも見ない（MSL の例題では `useConjugateInput[k]` と添字つき）。
+- **S335（`unsized-array`）との関係**: 25 本のうち 19 本（`indexNonPos[:] = f(m)` の `Modelica.Electrical.Polyphase.Functions.indexNonPositiveSequence` を持つ Machines の例題）は、`composite-binding` の先で `unsized-array` で止まる。S335 を取り込んだ仮の結合では 25 本すべてが平らになった（Rumoca の flat まで通ったのは 7 本で、名前の集合は 7/7）。
+
 ## 付記（S334）: 構造の正則の不一致 33 本と `PrismaticConstraint`・`Fourbar1` の方程式の数（MultiBody）
 
 新しい ADR は立てず、S333 の持ち越しの原因を `cargo xtask diff-frontend --class … --dump` で確かめて直した記録をここに足す。**どちらも自前の誤りで、Rumoca は正しかった**（Rumoca 側の誤りではないので、v0.10.4 の確認は要らない）。変えたのは `globe-mode-dae`（incidence）と `globe-mode-flat`（`flatten.rs`・`flatten/graph.rs`）。
