@@ -7,8 +7,10 @@
 //!   選ばれなかった任意の辺をまたぐ等式は `equalityConstraint` に置き換わる。これは Rumoca の flat と同じく、
 //!   戻り値の大きさを 0 と見て等式を作らない（shortcut: 大きさが 0 でない `equalityConstraint`（MultiBody の `Orientation`）は
 //!   平らにできないので考えない）。
-//! - `if Connections.isRoot(N) then … end if`（`else` なし）は、`N` が根のときだけ残す。
+//! - `if` の方程式の条件に `Connections.isRoot(N)`・`Connections.rooted(N)` があれば、`flatten.rs` が枝ごとに平らにして `OcIf` に置く（S333）。
+//!   ここで根の決定のあとに、最初に条件が真の枝（`else` なら常に真）だけを残す。
 //!   根は、木に確定した根があればそれ、無ければ潜在的な根（優先度が小さく、同じなら名前が先のもの）、それも無ければ名前が先のもの。
+//!   `rooted(a)` は `branch(a, b)` の `a` が根に近い（木の上の深さが小さい）こと。選ばれる木は、根からの距離が近い辺を先に採る（Rumoca と同じ。MLS 9.4 は木の選び方を決めない）。
 //!
 //! 全域森の選び方（辺の順）は Rumoca と違ってよい。接続集合ごとの等式の数の合計は選び方によらない。
 
@@ -20,6 +22,16 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 pub(super) struct OcSet {
     pub start: usize,
     pub members: Vec<String>,
+}
+
+/// 条件に `Connections.isRoot`・`rooted` を含む `if` の方程式。枝（条件、平らにした方程式）の並びで、条件が `None` なら `else`。
+/// 条件は `(rooted か、not か、節点)`。置き場所は `F::eqs`（`initial` なら `F::ieqs`）の `at` の 1 行
+pub(super) type RootCond = (bool, bool, String);
+
+pub(super) struct OcIf {
+    pub initial: bool,
+    pub at: usize,
+    pub branches: Vec<(Option<RootCond>, Vec<Equation>)>,
 }
 
 /// `Connections.branch(a, b)` の引数
@@ -41,6 +53,13 @@ fn args(text: &str, f: &str) -> Option<Vec<String>> {
     }
     out.push(cur.trim().to_string());
     Some(out)
+}
+
+/// `f(x)` の引数 1 つ（`Connections.isRoot(a.R)` の `a.R`）
+pub(super) fn arg(text: &str, f: &str) -> Option<String> {
+    args(text, f)
+        .filter(|a| a.len() == 1)
+        .map(|mut a| a.remove(0))
 }
 
 struct Uf {
@@ -73,8 +92,7 @@ impl F<'_> {
         let mut definite: HashSet<String> = HashSet::new();
         let mut potential: Vec<(String, i64)> = Vec::new();
         let mut branches: Vec<(String, String)> = Vec::new();
-        let mut root_ifs: Vec<(usize, String)> = Vec::new();
-        for (i, e) in self.eqs.iter().enumerate() {
+        for e in &self.eqs {
             let t = e.text.trim_end_matches(';').trim();
             if let Some(a) = args(t, "Connections.root") {
                 definite.insert(a[0].clone());
@@ -83,40 +101,54 @@ impl F<'_> {
             } else if let Some(a) = args(t, "Connections.potentialRoot") {
                 let prio = a.get(1).and_then(|p| p.parse().ok()).unwrap_or(0);
                 potential.push((a[0].clone(), prio));
-            } else if let Some(r) = t.strip_prefix("if Connections.isRoot(")
-                && let Some((node, body)) = r.split_once(") then ")
-                && body.ends_with(" end if")
-                && !body.contains(" else")
-            {
-                root_ifs.push((i, node.trim().to_string()));
             }
         }
         let mut all: BTreeSet<String> = self.oc_nodes.clone();
         all.extend(definite.iter().cloned());
         all.extend(potential.iter().map(|(n, _)| n.clone()));
         all.extend(branches.iter().flat_map(|(a, b)| [a.clone(), b.clone()]));
-        if all.is_empty() {
+        if all.is_empty() && self.oc_ifs.is_empty() {
             return;
         }
+        // 節点の番号は名前順（辺の正規化と同じ）
         let nodes: Vec<&String> = all.iter().collect();
         let idx: HashMap<&str, usize> = nodes
             .iter()
             .enumerate()
             .map(|(i, n)| (n.as_str(), i))
             .collect();
+        // 成分の根: 確定した根、無ければ潜在的な根（優先度が小さく、同じなら名前が先）、無ければ名前が先
+        let root_of = |members: &[usize]| -> usize {
+            let is = |j: &usize| definite.contains(nodes[*j].as_str());
+            members.iter().copied().find(is).unwrap_or_else(|| {
+                potential
+                    .iter()
+                    .filter_map(|(n, p)| {
+                        Some((
+                            *p,
+                            idx.get(n.as_str())
+                                .copied()
+                                .filter(|j| members.contains(j))?,
+                        ))
+                    })
+                    .min()
+                    .map_or_else(|| members.iter().copied().min().unwrap_or(0), |(_, j)| j)
+            })
+        };
         let mut tree = Uf {
             parent: (0..nodes.len()).collect(),
             root: nodes.iter().map(|n| definite.contains(*n)).collect(),
         };
+        let mut edges: Vec<(usize, usize)> = Vec::new();
         for (a, b) in &branches {
-            tree.join(idx[a.as_str()], idx[b.as_str()]);
+            let (x, y) = (idx[a.as_str()], idx[b.as_str()]);
+            if tree.join(x, y) {
+                edges.push((x, y));
+            }
         }
         // 任意の辺: `connect(a, b)` の両側の、同じ接尾辞の節点
         let mut seen = HashSet::new();
-        let mut sel = Uf {
-            parent: (0..nodes.len()).collect(),
-            root: vec![false; nodes.len()],
-        };
+        let mut optional: Vec<(usize, usize)> = Vec::new();
         for (a, b) in &self.conn_pairs {
             let pre = format!("{a}.");
             let mut pairs: Vec<(usize, usize)> = Vec::new();
@@ -129,9 +161,60 @@ impl F<'_> {
                 }
             }
             for (x, y) in pairs {
-                if seen.insert((x.min(y), x.max(y))) && tree.join(x, y) {
-                    sel.join(x, y);
+                if seen.insert((x.min(y), x.max(y))) {
+                    optional.push((x, y));
                 }
+            }
+        }
+        // 任意の辺を採る順: 全辺の上で、成分の根（確定した根、無ければ選んだ根）からの距離が近いもの、次に名前（Rumoca と同じ）
+        let mut adj_all: Vec<Vec<usize>> = vec![Vec::new(); nodes.len()];
+        for &(x, y) in branches
+            .iter()
+            .map(|(a, b)| (idx[a.as_str()], idx[b.as_str()]))
+            .collect::<Vec<_>>()
+            .iter()
+            .chain(&optional)
+        {
+            adj_all[x].push(y);
+            adj_all[y].push(x);
+        }
+        let dist = {
+            let mut full = Uf {
+                parent: (0..nodes.len()).collect(),
+                root: vec![false; nodes.len()],
+            };
+            for (x, l) in adj_all.iter().enumerate() {
+                for &y in l {
+                    full.join(x, y);
+                }
+            }
+            let mut comps: HashMap<usize, Vec<usize>> = HashMap::new();
+            for k in 0..nodes.len() {
+                comps.entry(full.find(k)).or_default().push(k);
+            }
+            let mut seeds: Vec<usize> = Vec::new();
+            for m in comps.values() {
+                let d: Vec<usize> = m
+                    .iter()
+                    .copied()
+                    .filter(|&j| definite.contains(nodes[j].as_str()))
+                    .collect();
+                seeds.extend(if d.is_empty() { vec![root_of(m)] } else { d });
+            }
+            bfs(&adj_all, &seeds)
+        };
+        optional.sort_by_key(|&(x, y)| {
+            let (dx, dy) = (dist[x], dist[y]);
+            (dx.min(dy), dx.max(dy), x.min(y), x.max(y))
+        });
+        let mut sel = Uf {
+            parent: (0..nodes.len()).collect(),
+            root: vec![false; nodes.len()],
+        };
+        for (x, y) in optional {
+            if tree.join(x, y) {
+                sel.join(x, y);
+                edges.push((x, y));
             }
         }
         // 接続集合の等式を、選ばれた辺でつながる群ごとの連鎖にする
@@ -173,29 +256,50 @@ impl F<'_> {
             }
             replace.insert(set.start, (set.members.len() - 1, eqs));
         }
-        // 根の判定: 木の根（確定した根、無ければ潜在的な根のうち優先度が小さく名前が先のもの、無ければ名前が先のもの）
-        let mut drop: HashSet<usize> = HashSet::new();
-        for (i, node) in &root_ifs {
-            let Some(&k) = idx.get(node.as_str()) else {
-                continue;
-            };
-            let c = tree.find(k);
-            let members: Vec<usize> = (0..nodes.len()).filter(|&j| tree.find(j) == c).collect();
-            let is_root = definite.contains(node.as_str())
-                || (!tree.root[c] && {
-                    let best = potential
-                        .iter()
-                        .filter(|(n, _)| members.iter().any(|&j| nodes[j] == n))
-                        .min_by(|a, b| (a.1, &a.0).cmp(&(b.1, &b.0)))
-                        .map(|(n, _)| n.as_str());
-                    best.or_else(|| members.iter().map(|&j| nodes[j].as_str()).min())
-                        == Some(node.as_str())
-                });
-            if !is_root {
-                drop.insert(*i);
+        // 根の判定。選ばれた木（必須の辺と選んだ任意の辺）の成分ごとに根を決め、根からの深さを数える
+        let mut adj: Vec<Vec<usize>> = vec![Vec::new(); nodes.len()];
+        for &(x, y) in &edges {
+            adj[x].push(y);
+            adj[y].push(x);
+        }
+        let comp_of: Vec<usize> = (0..nodes.len()).map(|k| tree.find(k)).collect();
+        let mut comps: HashMap<usize, Vec<usize>> = HashMap::new();
+        for (k, &c) in comp_of.iter().enumerate() {
+            comps.entry(c).or_default().push(k);
+        }
+        let roots: Vec<usize> = comps.values().map(|m| root_of(m)).collect();
+        let depth = bfs(&adj, &roots);
+        // 節点が無い（過剰決定の接続の外の）ときの Rumoca の既定は、`isRoot` が真、`rooted` が偽
+        let is_root = |n: &str| {
+            idx.get(n).is_none_or(|&k| {
+                let c = comp_of[k];
+                definite.contains(n) || (!tree.root[c] && root_of(&comps[&c]) == k)
+            })
+        };
+        // `rooted(a)` は、`branch(a, b)` の `a` が `b` より根に近いこと（同じ `a` の枝が複数なら最後のもの）
+        let rooted = |n: &str| {
+            branches
+                .iter()
+                .rfind(|(a, _)| a == n)
+                .is_some_and(|(a, b)| depth[idx[a.as_str()]] < depth[idx[b.as_str()]])
+        };
+        for f in std::mem::take(&mut self.oc_ifs) {
+            let eqs = f
+                .branches
+                .into_iter()
+                .find(|(c, _)| {
+                    c.as_ref()
+                        .is_none_or(|(r, not, n)| (if *r { rooted(n) } else { is_root(n) }) != *not)
+                })
+                .map(|(_, e)| e)
+                .unwrap_or_default();
+            if f.initial {
+                self.ieqs.splice(f.at..=f.at, eqs);
+            } else {
+                replace.insert(f.at, (1, eqs));
             }
         }
-        if replace.is_empty() && drop.is_empty() {
+        if replace.is_empty() {
             return;
         }
         let old = std::mem::take(&mut self.eqs);
@@ -206,9 +310,27 @@ impl F<'_> {
                 for _ in 1..n {
                     it.next();
                 }
-            } else if !drop.contains(&i) {
+            } else {
                 self.eqs.push(e);
             }
         }
     }
+}
+
+/// 複数の始点からの幅優先の距離（届かない節点は `usize::MAX`）
+fn bfs(adj: &[Vec<usize>], seeds: &[usize]) -> Vec<usize> {
+    let mut d = vec![usize::MAX; adj.len()];
+    let mut q: std::collections::VecDeque<usize> = seeds.iter().copied().collect();
+    for &s in seeds {
+        d[s] = 0;
+    }
+    while let Some(x) = q.pop_front() {
+        for &y in &adj[x] {
+            if d[y] == usize::MAX {
+                d[y] = d[x] + 1;
+                q.push_back(y);
+            }
+        }
+    }
+    d
 }

@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S333 Connections.isRoot の根の決定 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S333 Connections.isRoot の根の決定">
+
+<section class="slide" id="S01">
+  <span class="tag">S333 · 2026-11-15 · Track B</span>
+  <h1>Connections.isRoot の根の決定</h1>
+  <p class="lead">MultiBody の DAE の不一致を、過剰決定の接続のグラフで直した</p>
+  <div class="big">DAE の状態 294 → 332 / 334、回帰 0</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">原因</span>
+  <h1>枝の和集合だった</h1>
+  <ul>
+    <li><code>Parts.Body</code> の <code>if not Connections.isRoot(frame_a.R) … elseif … else …</code></li>
+    <li>Rumoca は根を決めて枝を 1 つ選ぶ（MLS 9.4）</li>
+    <li>自前は枝の和集合を 1 行にして、選ばれない枝の <code>der(Q)</code> も状態に数えた</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">直し</span>
+  <h1>枝ごとに置き、根の決定のあとに選ぶ</h1>
+  <ul>
+    <li><code>flatten.rs</code>: 条件が <code>[not] isRoot(N)</code>・<code>rooted(N)</code> の <code>if</code> は枝ごとに平らにして置く</li>
+    <li><code>graph.rs</code>: 根（確定 → 潜在的な根の優先度 → 名前）と木の上の深さを決め、真になる最初の枝を残す</li>
+    <li>木は根からの距離が近い辺から採る（Rumoca と同じ）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">ついでに</span>
+  <h1>ベクトルの積は 1 本</h1>
+  <ul>
+    <li><code>frame_a.t * n_a = 0</code> を 3 本と数えていた（行列の積の形にした）</li>
+    <li>枝の和集合の誤差と打ち消し合って一致して見えていた。最初の計測で <code>UniversalConstraint</code> が回帰に出て気づいた</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">数字</span>
+  <h1>MSL の例題 566 本（S332 → S333）</h1>
+  <div class="kpis">
+    <div class="kpi"><span class="n">449 / 463</span><span class="l">flat の方程式の数（前 435）</span></div>
+    <div class="kpi"><span class="n">332 / 334</span><span class="l">DAE の判定・数・状態（前 297・297・294）</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">回帰（改善 39 本）</span></div>
+  </div>
+  <p><code>EngineV6</code>・<code>EngineV6_analytic</code> の方程式の数は Rumoca と一致。構造の正則は 296 → 301 / 334。</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>構造の正則の不一致 33 本（MultiBody。原因未確認）</li>
+    <li><code>PrismaticConstraint</code>（2 本差）・<code>Fourbar1</code>（3 本差）の方程式の数</li>
+    <li><code>rooted</code> の MLS の制約（<code>branch</code> がちょうど 1 つ）の確認</li>
+  </ul>
+  <p class="foot">GlobeMode S333</p>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
