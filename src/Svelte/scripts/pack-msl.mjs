@@ -43,7 +43,7 @@ if (!existsSync(`${pkg}/globe_mode_wasm.js`)) {
 }
 const gm = await import(pathToFileURL(`${pkg}/globe_mode_wasm.js`).href);
 gm.initSync({ module: readFileSync(`${pkg}/globe_mode_wasm_bg.wasm`) });
-const { index, chunks } = pack(files, gm.tree_stub, gm.file_deps, Number(process.env.GM_MSL_CAP) || undefined, process.env.GM_MSL_PREFETCH === undefined ? undefined : Number(process.env.GM_MSL_PREFETCH));
+const { index, chunks } = pack(files, gm.tree_stub, gm.file_deps);
 if (asPack) writeFileSync(`${out}/pack.bin`, packFile(index, chunks));
 else {
   mkdirSync(`${out}/c`, { recursive: true });
