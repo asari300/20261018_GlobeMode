@@ -211,3 +211,14 @@ Track B（自前コア）は B1 rowan の CST と寛容なパーサ → B2 resol
 - **Python**: `Workspace.check(model, frontend="rumoca")`。知らない名前は `ValueError`。
 - **試験**: facade `tests/check_with.rs`（`expandable` が `GM-U0006`、既定は出さない。feature があれば Decay が通る）、LSP `config_frontend_native_drives_diagnostics`、`test_check_frontend_native`（pytest）、`config` の単体試験に `[check]`。
 - **持ち越し**: wasm・UI から選ぶ（wasm のビルドの大きさの測定が先）。LSP の他の要求（`globe/check`・補完など）と、`outline` 系は Rumoca のまま。
+
+## 付記（S320）: native と LSP の issue 5 件（#111・#113・#114・#115・#116）
+
+新しい ADR は立てず、3 回目のレビューの指摘のうち native と LSP の 5 件を再現して直した記録としてここに足す。
+
+- **#111 入れ子の深さ**: `globe-mode-flat` の `inst_class` に 64 段の上限（`F::inst_depth`）。自分を部品に持つモデル・`redeclare` の循環は `deep-instantiation`（native の検査では `GM-U0006`）で断り、abort しない。Rumoca の `GM-E3001`（循環）と言葉は違うが、断る点は同じ。
+- **#113 編集中の本文が真**: `NativeFrontend::check` は、閉包が読んだライブラリのファイルのうち、作業中のファイルと同じ名前（`\` を `/` にそろえて比べる）のものを使わない。
+- **#114 UTF-8 でないファイル**: `Project::read_dirs` は U+FFFD にして読む（#85 と同じ）。
+- **#115 パスの比べ方**: LSP は `same_path_key`（絶対・`..` を字句で畳む・`/`・ドライブ文字は小文字。symlink は解かない）で、ライブラリの木のファイル名と開いた文書を比べる（`drop_lib_for`・定義ジャンプの読み・開いている文書の判定）。
+- **#116 漏れ**: flat の `redeclare` の節の名前解決（`extra`）は `Project` が持つ値にした（`Box::leak` をやめた。`res_of` は `Option<Resolution>` を返す）。
+- 詳細と試験は [S320 の解説書](../sessions/S320-native-issues/解説書.md)。
