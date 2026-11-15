@@ -228,6 +228,11 @@ const MAX_EQS: usize = 1_000_000;
 /// 試験では小さくする（debug のビルドは 1 本 50 µs。下の `nested_for_equation_count_is_capped`）
 #[cfg(test)]
 const MAX_EQS: usize = 10_000;
+/// `for` の方程式の反復の数の上限。方程式を作らない入れ子の `for`（本体が空・偽の `if` だけ）は `MAX_EQS` に数えられない（S365・#136）
+#[cfg(not(test))]
+const MAX_ITERS: usize = 1_000_000;
+#[cfg(test)]
+const MAX_ITERS: usize = 10_000;
 
 /// 修飾の表の中の特別な名前: レコード全体の束縛 `r = other`（`other` の欄を、型の欄ごとに束縛する。宣言が後ろにある兄弟のレコードや、レコードを返す関数の呼び出し）
 const WHOLE: &str = "*";
@@ -275,6 +280,8 @@ struct F<'a> {
     oc_ifs: Vec<graph::OcIf>,
     /// 条件に `cardinality` を含む `if` の方程式（全部の `connect` がそろってから枝を選ぶ。S361）
     card_ifs: Vec<CardIf>,
+    /// `for` の方程式の反復の数（`MAX_ITERS` で断る。S365）
+    iters: usize,
     /// `cardinality(c)` の値（`connect` の端として出てきた数）。`card_ifs` を決めるときだけ `Some`
     card: Option<HashMap<String, i64>>,
 }
@@ -333,6 +340,7 @@ pub(crate) fn run(p: &Project, cid: ClassId, model: &str) -> Res<FlatModel> {
         stream_sets: Vec::new(),
         oc_ifs: Vec::new(),
         card_ifs: Vec::new(),
+        iters: 0,
         card: None,
     };
     // パッケージの中のモデルを直接平らにするときは、そのパッケージが差し替え後のパッケージ（`TwoPhaseWater.BaseProperties`）
@@ -3259,6 +3267,10 @@ impl F<'_> {
         };
         let vals = self.range_vals(&range, file, ctx)?;
         for v in vals {
+            self.iters += 1;
+            if self.iters > MAX_ITERS {
+                return un("too-large", "too many loop iterations");
+            }
             let mut locals = ctx.locals.clone();
             locals.push((name.clone(), v));
             let c2 = Rc::new(Ctx {
@@ -4010,5 +4022,31 @@ mod tests {
             .flatten("M")
             .unwrap();
         assert_eq!(m.equation_count(), 2500);
+    }
+
+    #[test]
+    fn nested_for_without_equations_is_capped() {
+        // #136: 方程式を作らない入れ子の `for`（偽の `if` だけ）は `MAX_EQS` に届かず、1000×1000 で 9 s・10 万の 2 重で終わらなかった（試験の上限は 1 万回）
+        let src = "model M Real x;
+            equation x = 1;
+            for i in 1:200 loop for j in 1:200 loop if false then x = 2; end if; end for; end for;
+            end M;";
+        let e = Project::from_sources([("t.mo", src)])
+            .flatten("M")
+            .expect_err("too many iterations");
+        assert_eq!(e.kind, "too-large");
+        // 空の本体も同じ
+        let empty = src.replace("if false then x = 2; end if;", "");
+        let e = Project::from_sources([("t.mo", empty.as_str())])
+            .flatten("M")
+            .expect_err("too many iterations");
+        assert_eq!(e.kind, "too-large");
+        // 上限に届かない回数は通る
+        let src = src.replace("1:200 loop for j in 1:200", "1:50 loop for j in 1:50");
+        assert!(
+            Project::from_sources([("t.mo", src.as_str())])
+                .flatten("M")
+                .is_ok()
+        );
     }
 }
