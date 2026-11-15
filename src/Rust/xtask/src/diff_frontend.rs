@@ -26,7 +26,8 @@ use globe_mode_syntax::SyntaxKind;
 use serde_json::{Value, json};
 
 use crate::funnel::{
-    gigabytes, library_examples, make_checker, msl_examples, parse_shard, peak_rss_kb,
+    gigabytes, library_examples, make_checker, msl_examples, panic_message, parse_shard,
+    peak_rss_kb,
 };
 use crate::{MSL_SHA256, MSL_VERSION, RUMOCA_REV, RUMOCA_VERSION, Result};
 
@@ -295,6 +296,21 @@ fn run_row(
     row
 }
 
+/// 自前の段が panic しても 1 本の結果にして先へ進む（分割の結果を捨てない。S369）。理由 `panic` は flat の欄に書く。
+fn catch_row(name: &str, group: &'static str, f: impl FnOnce() -> Row) -> Row {
+    catch_unwind(AssertUnwindSafe(f)).unwrap_or_else(|payload| Row {
+        name: name.to_string(),
+        group,
+        flags: BTreeMap::from([("flat", false)]),
+        reasons: BTreeMap::from([(
+            "flat",
+            format!("panic: {}", panic_message(payload.as_ref())),
+        )]),
+        unresolved: 0,
+        diffs: Vec::new(),
+    })
+}
+
 /// 連続の行と未知数（incidence）を印字する（正則の食い違いを調べる。S325）
 fn dump_structure(who: &str, s: &globe_mode_ir::DaeStructure) {
     println!(
@@ -481,7 +497,9 @@ pub(crate) fn diff_frontend(opts: &Options<'_>) -> Result<ExitCode> {
     let mut run_seconds = 0.0;
     for (i, (name, group)) in targets.iter().enumerate() {
         let t = Instant::now();
-        rows.push(run_row(opts.dump, &p, &checker, &by_scope, name, group));
+        rows.push(catch_row(name, group, || {
+            run_row(opts.dump, &p, &checker, &by_scope, name, group)
+        }));
         if opts.dump
             && let Some(r) = rows.last()
         {
@@ -1003,6 +1021,21 @@ mod tests {
         );
         assert!(!md.contains("Lib.Other") && !md.contains("Lib.Ok"), "{md}");
         assert_eq!(group_title("library", "Buildings"), "Buildings の例題");
+    }
+
+    /// S369: 自前の段の panic は 1 本の行になり、分割の残りを捨てない
+    #[test]
+    fn a_panic_becomes_a_row() {
+        let r = catch_row("A.B", "library", || panic!("boom"));
+        assert_eq!(
+            (r.name.as_str(), r.flags.get("flat")),
+            ("A.B", Some(&false))
+        );
+        assert_eq!(
+            r.reasons.get("flat").map(String::as_str),
+            Some("panic: boom")
+        );
+        assert!(catch_row("A.C", "msl", || row("A.C", &[("flat", true)])).flags["flat"]);
     }
 
     #[test]
