@@ -4,6 +4,7 @@
 
 | S | 日付 | Phase | 題名 | ブランチ | 状態 | スライド | 解説書 | セッション記録 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| S310 | 2026-11-15 | P4 | `test-ui-stability`: 負荷が高いと落ちる `test_ui.py` を直した。クリックの時間切れは actionability の stable（rAF 待ち）が原因なので、可視・有効をポーリングで待って force で押す既定に替え、ホバーは待つ間に本文が変わったら出さず、`render_slides.py` は screenshot の時間切れで 1 回撮り直す | `feature/s310-test-ui-stability` | 作業中 | [slides](S310-test-ui-stability/slides.html) | [解説書](S310-test-ui-stability/解説書.md) | なし |
 | S304 | 2026-11-15 | 文書 | `readme-changelog-3`: README と CHANGELOG に、S292 の後に main に入った機能（パラメータをソースへ書く・外す・列挙、固有値の表と段のパネル、VS Code の削除、結線の途中の点、SSP の入れ子と Int32・Boolean、読めない文書での定義とホバー、`msl:diff-frontend`）を反映。済んだ限界を「未」から外した | `feature/s304-readme-changelog-3` | 作業中 | [slides](S304-readme-changelog-3/slides.html) | [解説書](S304-readme-changelog-3/解説書.md) | なし |
 | S302 | 2026-11-15 | P8 | `vscode-waypoints`: VS Code の側のパネルでも結線の途中の点をドラッグで動かし、線のダブルクリックで足せる（つまみと点の決め方を `diagram-waypoint.ts` に出して共有、`moveWaypoint`・`addWaypoint` を `edit.js` で検査して LSP へ） | `feature/s302-vscode-waypoints` | 作業中 | [slides](S302-vscode-waypoints/slides.html) | [解説書](S302-vscode-waypoints/解説書.md) | - |
 | S300 | 2026-11-15 | Track B | `diff-frontend`: `cargo xtask diff-frontend`（`mise run msl:diff-frontend`）。自前の parse → resolve → flat → dae を Rumoca と MSL の例題 566 本・GlobeModeValidation 75 本で一度に突き合わせ、旗の JSON と前回との回帰を報告 `doc/frontend-diff.md` の先頭に出す（flat・dae の `compare.rs` は消した） | `feature/s300-diff-frontend` | 完了 | [slides](S300-diff-frontend/slides.html) | [解説書](S300-diff-frontend/解説書.md) | なし |

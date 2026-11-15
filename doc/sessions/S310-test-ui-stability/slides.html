@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S310 UI 試験の安定 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S310 UI 試験の安定">
+
+<section class="slide" id="S01">
+  <span class="tag">S310 · 2026-11-15 · P4</span>
+  <h1>UI 試験の安定</h1>
+  <p class="lead">負荷が高いと落ちる test_ui.py を、待ち方を替えて直した。</p>
+  <div class="big">時間切れの上限は<b>延ばさない</b>。rAF に頼る待ちをやめた</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">原因</span>
+  <h1>落ち方と直し方</h1>
+  <table>
+    <tr><th>落ち方</th><th>原因</th><th>直し</th></tr>
+    <tr><td>fold gutter のクリックが 30 秒で切れる</td><td>actionability の stable が rAF を待つ。負荷で frame が出ない</td><td>可視・有効をポーリングで待って force で押す</td></tr>
+    <tr><td>ホバーの RangeError</td><td>待つ間に本文が変わり、古い範囲が外を指す（未再現）</td><td>本文が変わったら出さない</td></tr>
+    <tr><td>screenshot の 30 秒</td><td>cargo と同時に回した負荷</td><td>1 回だけ撮り直す</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>uv run python src/Svelte/tests/test_ui.py</code></pre>
+  <p>CPU を使い切るループを走らせて、負荷が高い状態で回す。結果は作業記録に書いた。</p>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
