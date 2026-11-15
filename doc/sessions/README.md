@@ -4,6 +4,7 @@
 
 | S | 日付 | Phase | 題名 | ブランチ | 状態 | スライド | 解説書 | セッション記録 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| S298 | 2026-11-15 | P8 | `param-dialog-2`: S294 の持ち越し 3 つ。修飾を外す UI、列挙のパラメータ（`ModelParameter.enum_type`、`型.リテラル` で書く）、書いたあとの `parameters` の引き直し | `feature/s298-param-dialog-2` | 完了 | [slides](S298-param-dialog-2/slides.html) | [解説書](S298-param-dialog-2/解説書.md) | なし |
 | S296 | 2026-11-15 | Track B | `lsp-definition-resolve`: LSP の定義ジャンプとホバーを、読めない文書でも自前の構文と名前解決で答える（S279 の補完と同じ形） | `feature/s296-lsp-definition-resolve` | 完了 | [slides](S296-lsp-definition-resolve/slides.html) | [解説書](S296-lsp-definition-resolve/解説書.md) | 省略 |
 | S295 | 2026-11-15 | P8 | `ssp-nested`: SSP の読み取りに入れ子の System（`外側.内側` に平らにし、System のコネクタを通る接続を 1 本の結線にたどる。System の `ParameterBindings` は階層名で当て上位が勝つ）と Int32・Boolean のコネクタ（読み取りと `write_ssp`）を足した | `feature/s295-ssp-nested` | 完了 | [slides](S295-ssp-nested/slides.html) | [解説書](S295-ssp-nested/解説書.md) | なし（記録が `log/local/` に無い） |
 | S294 | 2026-11-15 | P8 | `param-modifiers`: パラメータダイアログに「ソースに書く」。部品の宣言の修飾 `(k = 値)` を足す・書き換える・外す `set_modifier`（`globe-mode-fmt`）、LSP `globe/setModifier`（RPC_METHODS 36）、wasm、UI（1 回の dispatch）。入れ子の名前・`each`/`final`・壊れた式は理由つきで断る | `feature/s294-param-modifiers` | 完了 | [slides](S294-param-modifiers/slides.html) | [解説書](S294-param-modifiers/解説書.md) | なし |

@@ -889,8 +889,28 @@ def parameter_dialog(browser, origin: str, errors: list[str]) -> None:
     expect(run).to_be_enabled(timeout=300_000)
     x = final()["c.x"]
     assert abs(x - math.exp(-1)) < 1e-4, x
+    # S294・S298: 「ソースに書く」は Real と列挙（`型.リテラル`）を部品の修飾にし、既定値の列は再検査を待たず変わる。「修飾を外す」で戻る
+    pg.get_by_role("button", name="パラメータ…").click()
+    expect(row("c.k")).to_have_count(1, timeout=30_000)
+    row("c.k").get_by_role("textbox").fill("3")
+    row("c.mode").get_by_role("combobox").select_option("2")
+    dlg.locator("[data-write-source]").click()
+    expect(dlg.locator("[data-write-note]")).to_contain_text("2 本をソースの修飾に書いた", timeout=30_000)
+    editor = pg.locator(".cm-content")
+    assert "k = 3" in editor.inner_text() and "mode = Leaf.Mode.fast" in editor.inner_text(), editor.inner_text()
+    default_of = lambda n: row(n).locator("td").nth(2)
+    expect(default_of("c.k")).to_have_text("3", timeout=60_000)
+    expect(row("c.mode").get_by_role("combobox")).to_have_value("2")
+    assert sim() == {}, sim()
+    row("c.k").locator("[data-unwrite]").click()
+    expect(default_of("c.k")).to_have_text("1", timeout=60_000)
+    assert "k = 3" not in editor.inner_text() and "mode = Leaf.Mode.fast" in editor.inner_text()
+    row("c.mode").locator("[data-unwrite]").click()
+    expect(row("c.mode").get_by_role("combobox")).to_have_value("1", timeout=60_000)
+    assert "Leaf.Mode" not in editor.inner_text(), editor.inner_text()
+    dlg.get_by_role("button", name="閉じる").click()
     pg.close()
-    print("パラメータのダイアログ: 部品のダブルクリックで c.* の一覧、値が実行に効き、既定に戻すと消え、GM-E10006 は欄の近くに出る")
+    print("パラメータのダイアログ: 部品のダブルクリックで c.* の一覧、値が実行に効き、既定に戻すと消え、GM-E10006 は欄の近くに出る。ソースに書く（Real・列挙）と修飾を外すが往復し、既定値の列が追って変わる")
     if not (DIST / "msl/MSL.json").exists():
         print("public/msl/MSL.json が無いので、ChuaCircuit のパラメータの試験は飛ばす")
         return
