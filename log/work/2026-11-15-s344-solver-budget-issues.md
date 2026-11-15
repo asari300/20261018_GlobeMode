@@ -38,4 +38,13 @@ open のソルバの issue #6・#46・#45・#4 を、直す前に自分で再現
 - `cargo test -p globe-mode-exec --test simulate -- --ignored msl_auto`（MSL を読む。debug）: `msl_auto_stops_alike_on_both_routes_when_the_directional_derivative_is_unavailable` は通る。`msl_auto_falls_back_to_dopri45_when_bdf_fails_to_integrate`（`TwoMass`、予算 300 s）は、**直す前から**古くなっていた期待で落ちた（S064 から GM-I11002 の補足は「esdirk34 の失敗」で、「BDF の失敗」は GM-I11003 の方。`#[ignore]` で CI に入っておらず、気づかれなかった）。期待を BDF → esdirk34（GM-I11003）→ dopri45（GM-I11002）に直し、通った（実際のモデルで、予算の残りを渡す回し直しが終了時刻まで進む確認にもなる）。
 - `mise run wasm:node`: 通る（smoke・壊れた塊・分割読み込み 5 本が全部読みと一致、mismatched 0）。
 - `mise run wasm:compare`: **480 件中 466 件が一致、既知の差 13 件、一致しない 1 件**（`Pendulum` / `dopri853`、相対差 2.0e-9、閾値 1e-9）。S322 の記録と同じ数字・同じ 1 件で、`dopri853` は `run_auto` も `checked_detached` も通らない（この変更の外）。`compare.mjs` は終了コード 1（S322 も同じ）。
-- `check_docs.py`: デッキ OK（S344 を含む）、リンク 5,215 件中の切れ 0 件。`render_slides.py`（S344 のデッキだけ）: 6 枚・問題 0 件。手元の負荷（他の担当の cargo、load 6〜11）で最初のスクリーンショットが 30 s を超えて素のままでは時間切れになったので、`page.screenshot` の既定の時間切れだけ 120 s にした薄いラッパで回した（検査の中身は同じ）。
+- `check_docs.py`: デッキ OK（S344 を含む）、リンク 5,215 件中の切れ 0 件。`render_slides.py`（S344 のデッキだけ）: 7 枚・問題 0 件。最初のスクリーンショットが 30 s を超えて（手元の負荷 load 2〜11 のどれでも）素のままでは時間切れになったので、`page.screenshot` の既定の時間切れだけ 120 s にした薄いラッパで回した（検査の中身は同じ）。
+- **全例題の CI（msl-sim は手元で回さず、`gh workflow run msl-sim.yml --ref feature/s344-solver-budget-issues -f 'solvers=["auto"]'`。run 43708045819）**: `msl-sim` ジョブは成功（1 時間 15 分）、`split-all` も成功、`solvers` は取り消した。同じ設定の main の run 43632447630（2026-11-14）と比べて、**実行できた 312 → 312、管に収まった / 比べた 303 / 311 → 303 / 311、協調型の時間切れ 2・外から停止 6、時間切れの回し直し 14（実行できた 6・管に収まった 4）、`auto` の回し直し 16（auto 301・auto → esdirk34 10・auto → esdirk34 → dopri45 1）が前後で同じ**。356 本を JSON で 1 本ずつ突き合わせて、結果・診断のコード・管の外れの数が違うモデルは 0 本。`LightningSegmentedTransmissionLine` は回し直しで esdirk34 が終えて管に収まった（ADR-0028 (c) の最初の試しで減ったもの）。ワーカーの時間は 3681 s → 3522 s（ランナーの速さの揺れ）。**`doc/msl-sim.md` は手で更新していない**（前後で本数が同じ。報告は run の artifact にある）。
+
+## 残したこと
+
+- **#46 の lowering の回数**（ネイティブの dopri45 は 2 回、`auto` は残りがあれば最大 3 回）。Rumoca に lowering 済みを渡す口（`rk45::simulate_artifact` の公開、`run_prepared_simulation` が初期化済みの状態を受け取る口）が要る。上流 issue の下書きにはしていない（`doc/research/upstream/` の 4 点セットが要るので、出すときに作る）。session の道に替える案は #43 で取り消してある。
+- **#45・#4** も上流の口が要る（#45）、chart の切り替えの設計（#4）で、このセッションでは直していない。根拠は issue のコメント。
+- lowering は Rumoca の予算の外のまま。重い lowering の歯止めは msl-sim の外からの停止（ADR-0017）。
+- 検証していないこと: 放置した型付きの道のスレッドが、段の境目でトークンを見て止まること（スレッドが結果を呼び手へ返さない作りで、直接は観察できない。`cargo test -p globe-mode --test observed` の 4 本は通る）。`mise run check` の全体（`cargo deny`・workspace 全体の test）は回していない（変更は `globe-mode-exec` の中だけ、依存の追加なし）。
+- 手元の `/tmp`（tmpfs 3.9 GB）が他の担当の出力で一時的に 0 MB になった（共有のスクラッチパッドが約 2.4 GB）。

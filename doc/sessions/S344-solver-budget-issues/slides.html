@@ -51,6 +51,20 @@
 </section>
 
 <section class="slide" id="S05">
+  <span class="tag">全例題の CI</span>
+  <h1>356 本のどれも変わらなかった</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>前（main の run 43632447630）</th><th>後（run 43708045819）</th></tr>
+    <tr><td>実行できた</td><td>312</td><td class="ok">312</td></tr>
+    <tr><td>管に収まった / 比べた</td><td>303 / 311</td><td class="ok">303 / 311</td></tr>
+    <tr><td>時間切れの回し直し（実行できた・管）</td><td>14（6・4）</td><td class="ok">14（6・4）</td></tr>
+    <tr><td><code>auto</code> の回し直し</td><td>16</td><td class="ok">16（同じ）</td></tr>
+    <tr><td>結果・コード・管の外れが違うモデル</td><td>-</td><td class="ok">0</td></tr>
+  </table>
+  <p>ADR-0028 の最初の試しで減った <code>Lightning…</code> は、時間切れで返したので 180 s の回し直しに乗って終えた</p>
+</section>
+
+<section class="slide" id="S06">
   <span class="tag">直さなかった</span>
   <h1>3 つは根拠を issue に書いた</h1>
   <ul>
@@ -60,7 +74,7 @@
   </ul>
 </section>
 
-<section class="slide" id="S06">
+<section class="slide" id="S07">
   <span class="tag">次回</span>
   <h1>残したこと</h1>
   <ul>
