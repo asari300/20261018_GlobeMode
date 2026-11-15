@@ -4,6 +4,7 @@
 
 | S | 日付 | Phase | 題名 | ブランチ | 状態 | スライド | 解説書 | セッション記録 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| S318 | 2026-11-15 | P8 | `ssp-ssv-export`: `globe fmu ssp-export --ssv` で `start` を Component ごとの `resources/<名前>.ssv` に書く（既定はインライン）。型の要素の名前空間を XSD で確認 | `feature/s318-ssp-ssv-export` | 完了 | [slides](S318-ssp-ssv-export/slides.html) | [解説書](S318-ssp-ssv-export/解説書.md) | なし |
 | S315 | 2026-11-15 | P8 | `ssp-roundtrip-2`: `.ssp` → spec.json の逆変換 `globe fmu ssp-import`（FMU は外に出す）と、`.` を含む名前を平らな Component のまま書く `write_ssp` | `feature/s315-ssp-roundtrip-2` | 完了 | [slides](S315-ssp-roundtrip-2/slides.html) | [解説書](S315-ssp-roundtrip-2/解説書.md) | なし |
 | S313 | 2026-11-15 | Track B | `native-everywhere`: native の検査を CLI 以外からも選べるようにした。facade `Workspace::check_with(model, CheckFrontend)`、LSP は `globe-mode.toml` の `[check] frontend = "native"`、Python は `check(model, frontend="native")`（既定は Rumoca、wasm・UI は未） | `feature/s313-native-everywhere` | 完了 | [slides](S313-native-everywhere/slides.html) | [解説書](S313-native-everywhere/解説書.md) | なし |
 | S309 | 2026-11-15 | P8 | `vscode-keyboard`: VS Code の側のパネルを、マウスなしで操作できるようにした。選んだ部品を矢印キー（2 単位、Shift で 10 単位）で動かし、Enter でパラメータの QuickPick、コマンド「GlobeMode: 部品のパラメータを編集」（カーソルの部品か QuickPick で選ぶ） | `feature/s309-vscode-keyboard` | 作業中 | [slides](S309-vscode-keyboard/slides.html) | [解説書](S309-vscode-keyboard/解説書.md) | なし |
