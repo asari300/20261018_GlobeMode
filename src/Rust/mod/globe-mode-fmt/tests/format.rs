@@ -190,6 +190,16 @@ fn trailing_line_comments_travel_with_annotation_args() {
     }
 }
 
+/// S346: コメントだけの行のコメントは次の引数の頭に付く。名前は先頭のコメントを飛ばして引き、コメントは引数と一緒に動く。
+#[test]
+fn leading_line_comments_travel_with_annotation_args() {
+    let src = "model M \"m\"\n  Real x;\n  annotation(\n    // doc\n    Documentation(info = \"d\"),\n    // icon\n    Icon(graphics = {}),\n    // exp\n    experiment(StopTime = 1)\n  );\nend M;\n";
+    let want = "model M \"m\"\n\n  Real x;\nannotation(\n  // exp\n    experiment(StopTime = 1),\n  // icon\n    Icon(graphics = {}),\n  // doc\n    Documentation(info = \"d\")\n);\n\nend M;\n";
+    let out = format(src, &Options::default()).unwrap();
+    assert_eq!(out, want);
+    assert_eq!(format(&out, &Options::default()).unwrap(), want, "冪等");
+}
+
 #[test]
 fn indent_four_and_long_line_wraps() {
     let src = "model M\n  Modelica.Blocks.Math.Gain gain(k = 2) annotation(Placement(transformation(extent = {{-10, -10}, {10, 10}})));\nend M;\n";
