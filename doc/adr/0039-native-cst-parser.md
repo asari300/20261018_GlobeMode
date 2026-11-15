@@ -117,6 +117,23 @@ Track B（自前コア）は B1 rowan の CST と寛容なパーサ → B2 resol
 - **断った理由の内訳**（MSL の例題 566 本、最初の理由だけ数える。S284 → S297）: `redeclare` 263 → 0、`replaceable` 9 → 0、`class extends` 11 → 0、配列の型 13 → 0、レコードの束縛 41 → 155（先へ進んだ分。`frictionParameters = dcpmData.frictionParameters`〔後ろで宣言したレコード〕46、外部オブジェクト `tableID` 29、関数の戻り値のレコード `R = Frames.nullRotation()` 27、配列のレコード 11 ほか）、配列のコネクタの一括接続 7 → 72（`source.sineVoltage.p` のように部品の配列の同名のコネクタをまとめてつなぐ形）、`[:]` 13 → 20、条件つきの宣言 6 → 19（条件に配列の修飾つきの `useHeatPort` や文字列の比較）、`connect` の集合の不一致 7 → 8、配列の修飾 0 → 8、`expandable` 2、`stream` 1。
 - **持ち越し**: 後ろで宣言したレコードを欄ごとの修飾にするための宣言順の入れ替え（46 本）、関数の戻り値のレコード・外部オブジェクト、配列のコネクタの一括接続（72 本）、`Connections.isRoot` の評価、`xtask diff-frontend` への組み込み、B4（DAE）。
 
+## 付記（S335）: flat で `[:]` の大きさを束縛の式から決める（`unsized-array` 28 本）
+
+新しい ADR は立てず、S334 の時点で flat が `unsized-array` で断っていた MSL の例題 28 本を、原因ごとに分けて直した記録をここに足す。変えたのは `globe-mode-flat`（`flatten.rs` の `dims_of`・`decl_dims` まわりと、`eval` の一部）だけ。
+
+- **28 本の内訳**（`--dump` の最初の理由）: (1) `BooleanTable` の `table = if n > 0 then … [table[1], 1.0; table, {mod(i + 1, 2.0) for i in 1:n}] …`（12 本。`BooleanNetwork1`・`Interaction1`・`LogicalNetwork1`・`ShowLogicalSources`・`Clocked` の `BooleanSignals` 6 本・`CharacteristicThyristors`・`SoftStarter`）、(2) `TransferFunction` の `bb = vector([zeros(max(0,na-nb),1);b])`（6 本。`Dimmer`・`ThyristorBridge…_DC_Drive` ほか）、(3) Batteries の `OCV_SOC`・`OCV_SOC_internal`（`cellData = cellData1` のようにレコードを別のレコードで束縛した欄。7 本）、(4) 関数の戻り値（`relNodePositions(12)` の `xsi[nNodes]`、`GenerateStribeckFrictionTable(… nTable = 50)` の `table[nTable, 2]`。2 本）、(5) `ReadRealMatrixFromFile`（1 本）。
+- **直し**: `dims_of`（式の配列の形）に次を足した。
+  - 添字つきの参照 `table[1]`・`x[:, 2]`（スカラーの添字は次元を落とし、`:` とベクトルの添字は残す。`indexed_dims`）、内包 `{e for i in 1:n}`（範囲の長さのあとに `e` の形）、`vector(A)`（要素の数の 1 次元）、要素ごとの `mod`・`rem`・`div`・`floor`・`ceil`・`integer`・`sign`、`end`・`for` の添字（スカラー）。
+  - 定数に決まる `if` の式は選ばれた枝（`const_if_expr`）。決まらないときは最初の枝だが、ほかの枝の形が分かって食い違うなら決めない（以前は最初の枝だけを見ていた）。
+  - 定数でない `parameter`（型の `extends` の修飾も合わせた `pkg_env` にだけある欄）の束縛の形。
+  - 関数の戻り値は、整数の入力を呼び出しの引数（名前つきも位置も、無ければ入力の既定値）の値に束ねた文脈（`fn_frame`。`Ctx::pfx` が `FN`）で出力の添字を評価する。実数の入力は束ねない（`output Real y[n]` の `n` は整数）。
+  - レコードを `r = other` で束縛して欄に分けたもの（`Bind::suffix` が `.f`）の大きさと値は、`other.f` 自身の束縛（`field_bind`。`other` が平らになっていれば環境から）。以前は suffix を見ず、レコード `other` の大きさ（空）を欄の大きさにして `unsized-array` で断っていた。`eval` も同じ引き方をするので、`nRC = cellData.nRC` のような欄の値が評価できる。
+  - 宣言が後ろの部品の欄（`reset = {stop.on}` の `stop.on`、`cellData` の `OCV_SOC_internal`）は、部品の型の宣言から（`pending_bind`・`pkg_field_dims`）。**宣言の場所で修飾された欄を、その宣言か既定値の式が直接使うときは決めない**（この文脈は修飾を知らないので、既定値で大きさを決めると黙って誤る）。
+- **決められなかったもの**: `ReadRealMatrixFromFile` の `A[:,:] = readRealMatrix(file, matrixName, dim[1], dim[2])` は、`dim` が外部関数 `readMatrixSize` でファイル（`.mat`）を読んで決まるので、ファイルを読まない flat では決められない（Rumoca がこの例題を通すかは確かめていない【未確認】）。
+- **試験**: `globe-mode-flat` に 1 本（`unsized_dims_from_comprehension_function_args_and_record_fields`。添字つきの参照・内包・`vector`・関数の整数の引数と既定値・宣言が後ろの部品の欄・レコードの束縛の欄、と、修飾された欄を使う大きさは断ること）。
+- **shortcut**: 関数の戻り値の大きさは出力が 1 つのときだけ。欄の型の添字（`type Axis = Real[3]`）は宣言が後ろの部品の欄には足さない。修飾の影響は 1 段だけ見る（別の欄を通る参照は見ない）。
+- **数字**: @@NUMBERS@@
+
 ## 付記（S334）: 構造の正則の不一致 33 本と `PrismaticConstraint`・`Fourbar1` の方程式の数（MultiBody）
 
 新しい ADR は立てず、S333 の持ち越しの原因を `cargo xtask diff-frontend --class … --dump` で確かめて直した記録をここに足す。**どちらも自前の誤りで、Rumoca は正しかった**（Rumoca 側の誤りではないので、v0.10.4 の確認は要らない）。変えたのは `globe-mode-dae`（incidence）と `globe-mode-flat`（`flatten.rs`・`flatten/graph.rs`）。

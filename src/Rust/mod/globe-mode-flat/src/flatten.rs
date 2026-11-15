@@ -1205,7 +1205,7 @@ impl F<'_> {
             }
         }
         if unsized_ {
-            // shortcut: 大きさを決められるのは束縛の式の形が分かるときだけ（`dims_of`。ユーザー定義の関数の戻り値は断る）
+            // shortcut: 大きさを決められるのは束縛の式の形が分かるときだけ（`bind_dims`。ファイルを読む外部関数の戻り値などは断る）
             match m.val.as_ref().and_then(|b| self.bind_dims(b)) {
                 Some(v) if !v.is_empty() => dims = v,
                 _ => {
@@ -1979,6 +1979,9 @@ impl F<'_> {
         let Some(p) = self.pending.get(name) else {
             // 宣言が後ろの部品の欄 `stop.on`: 型の宣言から
             let (tgt, field) = name.rsplit_once('.')?;
+            if !self.not_instantiated(tgt) {
+                return None;
+            }
             let cid = self.pending_type(tgt)?;
             let modified: Vec<&String> = self.pending.get(tgt)?.m.sub.keys().collect();
             return self.pkg_field_dims(cid, field, self.pending_bind(tgt, field), &modified);
@@ -2002,6 +2005,23 @@ impl F<'_> {
         let b = self.pkg_env(self.pending_type(tgt)?)?.get(field)?.clone();
         let modified: Vec<&String> = p.m.sub.keys().collect();
         (!mentions(&b.node, &modified)).then_some(b)
+    }
+
+    /// 部品 `tgt` の宣言があって、まだ中身を平らにしていない（配列でなく、`tgt.…` の変数が無い）。
+    /// `pending` は平らにした後も残るので、変数の有無でも見る（部品の配列の欄 `pin.i` は要素の数をかけるので対象外）
+    fn not_instantiated(&self, tgt: &str) -> bool {
+        let Some(p) = self.pending.get(tgt) else {
+            return false;
+        };
+        let pre = format!("{tgt}.");
+        let has_sub = |n: &SyntaxNode| n.children().any(|c| c.kind() == K::Subscripts);
+        !(has_sub(p.d.syntax())
+            || has_sub(p.cc.syntax())
+            || self
+                .var_idx
+                .range(pre.clone()..)
+                .next()
+                .is_some_and(|(k, _)| k.starts_with(&pre)))
     }
 
     /// まだ平らにしていない部品 `tgt` の型（部品をもつクラス）
@@ -2346,7 +2366,7 @@ impl F<'_> {
     }
 
     /// 式の配列の形（スカラーは空）。分からなければ `None`
-    // shortcut: 行列の積・関数の戻り値の形は見ない（要素ごとの関数だけ）。必要になったら足す
+    // shortcut: 戻り値の形を見る関数は、要素ごとの組み込み・`vector`・出力が 1 つで大きさが定数か整数の引数で決まるユーザー定義だけ。必要になったら足す
     fn dims_of(&self, n: &SyntaxNode, file: u32, ctx: &Rc<Ctx>) -> Option<Vec<usize>> {
         let ev = |x: &Expr| {
             self.eval(x.syntax(), file, ctx, 0)
@@ -2402,7 +2422,7 @@ impl F<'_> {
                         .then_some(first)
                 }
             },
-            // `end`・ループの添字はスカラー
+            // `end` はスカラー
             Expr::End(_) => Some(Vec::new()),
             // `{e for i in r}`: 範囲の長さ、そのあとに `e` の形
             Expr::Comprehension(c) => {
