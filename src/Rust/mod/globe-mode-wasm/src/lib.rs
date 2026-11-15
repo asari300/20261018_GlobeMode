@@ -785,6 +785,15 @@ impl LibraryClosure {
     }
 }
 
+/// S308: ファイルごとの直接の依存（名前 → 名前の配列の JSON）。pack が、塊ごとの「参照する他の塊」を作る。
+/// `files_json` は名前 → 本文（見出しでなく全部の本文）。
+#[wasm_bindgen]
+pub fn file_deps(files_json: &str) -> Result<String, JsValue> {
+    let files: BTreeMap<String, String> = serde_json::from_str(files_json)
+        .map_err(|e| js_error(format!("ライブラリの JSON が読めない: {e}")))?;
+    to_json(&globe_mode::LibraryClosure::new(files).direct_deps())
+}
+
 /// ファイルの本文の代わりに配る見出し（[`globe_mode_fmt::tree_stub`]）。見出しが読めなければ `undefined`（本文のまま配る）。
 #[wasm_bindgen]
 pub fn tree_stub(text: &str) -> Option<String> {

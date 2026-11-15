@@ -273,6 +273,11 @@ impl SplitLibrary {
         true
     }
 
+    /// ファイル `n` が直接参照するファイル（外側のパッケージを含む。自分自身は含みうる）。S308: pack が塊の依存を作るのに使う。
+    pub(crate) fn direct_deps(&mut self, n: usize) -> Vec<usize> {
+        self.deps_of(n, false)
+    }
+
     fn deps_of(&mut self, n: usize, bases_only: bool) -> Vec<usize> {
         let cache = if bases_only {
             &self.base_deps
@@ -454,6 +459,20 @@ mod tests {
         let c = l.closure_within("A", [], true);
         assert_eq!(names(&l, &c), ["A.mo", "B.mo"]);
         assert!(!l.set_text("none.mo", ""));
+    }
+
+    /// S308: 直接の依存は閉包の 1 段分（先読みの塊の依存の元）。
+    #[test]
+    fn direct_deps_are_one_step() {
+        let mut l = lib(&[
+            ("A.mo", "model A extends B; end A;"),
+            ("B.mo", "model B C c; end B;"),
+            ("C.mo", "model C end C;"),
+        ]);
+        let mut d = |n| l.direct_deps(n).into_iter().filter(|&d| d != n).collect::<Vec<_>>();
+        assert_eq!(d(0), [1]);
+        assert_eq!(d(1), [2]);
+        assert!(d(2).is_empty());
     }
 
     #[test]
