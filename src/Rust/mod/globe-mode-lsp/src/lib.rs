@@ -43,6 +43,7 @@
 //! | `globe/addPart` | `{file, class, type, x, y}` | LSP の TextEdit の配列 `[{range, newText}]` か null（S265。ライブラリの木から図へドロップした部品を足す編集。クラスの最後の public の宣言の後〔無ければ最初の節の前〕に `<type> <名前> annotation(Placement(transformation(origin = {x, y}, extent = {{-10, -10}, {10, 10}})));` を足す。名前は型の最後の部分の頭を小文字にし、重なれば `1`・`2`… を付ける。`x`・`y` は図の座標で 2 単位に吸着。`type` が package・function・record・type と分かる〔ライブラリで引けて種類が読める〕・名前でない・クラスが無ければ null。ファイルは書き換えない。wasm の `add_part` と同じ） |
 //! | `globe/deletePart` | `{file, class, part}` | LSP の TextEdit の配列 `[{range, newText}]` か null（S281。図の部品 `part` の宣言と、その部品につながる `connect(...)` の方程式〔端の最初の名前が `part`。`if` の中は数えない〕をまとめて消す編集。複数で重ならない。ほかの文が無い行は字下げと改行ごと消し、あれば要素だけを消す。宣言が `A a, b;` のように複数の名前を持つ・Placement が無い・クラスや部品が無ければ null。ファイルは書き換えない。wasm の `delete_part` と同じ） |
 //! | `globe/deleteConnect` | `{file, class, from, to}` | LSP の TextEdit の配列か null（S281。`connect(from, to)`〔`globe/diagram` の `connections` の `from`・`to`。逆の並びも同じ。添字を含めて比べ、`b[1].p` と `b[2].p` は別の結線〔S283〕〕の方程式を、同じ行の後ろのコメントごと消す編集。同じ端のものが複数あれば全部。無ければ null。wasm の `delete_connect` と同じ） |
+//! | `globe/setModifier` | `{file, class, modifiers: [{part, name, value}]}` | LSP の TextEdit の配列 `[{range, newText}]`（S294。図の部品 `part` の宣言の修飾 `(name = value)` を足す・書き換える。`value` が空なら外す。複数を順に当てて 1 つの編集〔最初と最後の本文の差〕にする。何も変わらなければ空の配列。ファイルは書かない）。断る理由〔クラス・部品が無い、入れ子の名前 `a.b`、`each`・`final` つきの引数、壊れた式〕は -32803 に理由 |
 //! | `globe/diagram` | `globe/documentation` と同じ | `{class, extent, parts, connections, shapes}` か null（S245。クラスの部品〔`Placement(transformation)` のある宣言〕と `connect`、`Diagram(graphics)` を形のデータにしたもの。部品は `name`・`class`〔書いてある型〕・`line`〔宣言の行、0 始まり〕・`transform`〔アイコンの座標から Diagram の座標への `[a,b,c,d,e,f]`〕・`bbox`・`shapes`〔部品のクラスの Icon の図形。引けなければ空〕・`connectors`〔S261。`[{name, pos}]`、部品のクラスと `extends` の 2 段までの、`Placement` を持つ宣言〔型が connector でないと分かるものは除く〕の位置。図の座標〕、`connections` は `from`・`to`・`line`〔`Line(points)` か中心どうしを結ぶ図形〕。`globe/icon` と同じ図形の形。wasm の `diagram` と同じ） |
 //!
 //! 設定ファイル（S130）: `initialize` の `rootUri`（無ければ `rootPath`）から上へたどって最初の `globe-mode.toml` を
@@ -866,6 +867,15 @@ impl Server {
                         &|c| std::fs::read_to_string(tree.file(c)?).ok(),
                     ),
                 )
+            }
+            // S294: 部品の修飾（`(k = 2)`）を書く編集（TextEdit の配列。ファイルは書かない）。断る理由は -32803
+            "globe/setModifier" => {
+                let text = params["file"].as_str().and_then(|f| self.texts.get(f).cloned());
+                let at = text.as_deref().map(|t| (t, 0, 0));
+                match diagram::set_modifiers(params["class"].as_str().unwrap_or(""), at, &params["modifiers"]) {
+                    Ok(v) => reply(id, v),
+                    Err(m) => error(id, -32803, &m),
+                }
             }
             // S281: 図の部品（とそれにつながる結線）・結線を消す編集（TextEdit の配列。ファイルは書かない）
             "globe/deletePart" => {
@@ -2787,6 +2797,42 @@ mod tests {
         assert_eq!(
             rpc("globe/deleteConnect", json!({"from": "a.p", "to": "x.q"})),
             Value::Null
+        );
+    }
+
+    #[test]
+    fn set_modifier_writes_one_edit_and_explains_refusals() {
+        // S294: 複数の修飾を順に当てて 1 つの編集（同じ部品でも壊れない）。断れば -32803 に理由、変わらなければ空の配列
+        let mut s = Server::new(&[]).unwrap();
+        let text = "model T\n  Res a;\n  Res b(R = 1);\nend T;\n";
+        s.handle(
+            json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+            "uri": "T.mo", "languageId": "modelica", "version": 1, "text": text}}}),
+        );
+        let mut rpc = |m: Value| {
+            s.handle(json!({"id": 1, "method": "globe/setModifier", "params": {"file": "T.mo", "class": "T", "modifiers": m}})).remove(0)
+        };
+        let r = rpc(json!([{"part": "a", "name": "R", "value": "2"}, {"part": "a", "name": "C", "value": "3"}, {"part": "b", "name": "R", "value": ""}]))["result"].clone();
+        assert_eq!(r.as_array().unwrap().len(), 1, "{r}");
+        assert_eq!(r[0]["newText"], "(R = 2, C = 3);\n  Res b");
+        assert_eq!(
+            r[0]["range"]["start"],
+            json!({"line": 1, "character": 7}),
+            "{r}"
+        );
+        assert_eq!(
+            rpc(json!([{"part": "a", "name": "R", "value": ""}]))["result"],
+            json!([])
+        );
+        let e = rpc(json!([{"part": "a", "name": "x.y", "value": "1"}]));
+        assert_eq!(e["error"]["code"], -32803, "{e}");
+        assert!(
+            e["error"]["message"].as_str().unwrap().contains("入れ子"),
+            "{e}"
+        );
+        assert_eq!(
+            rpc(json!([{"part": "a", "name": "R", "value": "1 +)"}]))["error"]["code"],
+            -32803
         );
     }
 

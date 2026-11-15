@@ -1,16 +1,18 @@
 <!-- S248: パラメータのダイアログ。モデルのパラメータ宣言（部品ごとの入れ子の名前・型・既定値・単位）を出し、入れた値を picked（名前 → 字面）に入れる。
-     picked は SimSettings の「実行の設定」の parameters になる（ソースは書き換えない）。変えた値だけが入り、既定と同じ値に戻せば消える。 -->
+     picked は SimSettings の「実行の設定」の parameters になる（ソースは書き換えない）。変えた値だけが入り、既定と同じ値に戻せば消える。
+     S294: 「ソースに書く」は、picked のうち `部品.名前` の形の行を、その部品の宣言の修飾 `(名前 = 値)` として onwrite（App）に渡す（エディタに 1 回の dispatch。保存しない）。 -->
 <script lang="ts">
   import { onMount, untrack } from "svelte";
   import type { Backend } from "./backend";
   import type { Diagnostic, ModelParameter } from "./protocol";
 
-  let { backend, model, prefix = "", picked = $bindable({}), errors = [], onclose }: {
+  let { backend, model, prefix = "", picked = $bindable({}), errors = [], onwrite, onclose }: {
     backend: Backend;
     model: string;
     prefix?: string; // 開いたときの絞り込み（図の部品なら `c1.`）
     picked?: Record<string, string>;
     errors?: Diagnostic[]; // GM-E10006。メッセージの中の名前で欄を探す
+    onwrite?: (cls: string, modifiers: { part: string; name: string; value: string }[]) => Promise<string | null>; // S294。null なら書けた、文字列なら断られた理由
     onclose: () => void;
   } = $props();
 
@@ -44,20 +46,35 @@
   };
   const clear = (name: string) => { const next = { ...picked }; delete next[name]; picked = next; };
   const effective = (p: ModelParameter) => picked[p.name] ?? (p.value != null ? String(p.value) : "");
+  // S294: 書けるのは部品の直下の 1 段（`c.k`）。モデル自身の宣言・入れ子（`c.d.k`）・配列の部品・列挙（型の名前が無い）は書かない
+  const PART_NAME = /^([A-Za-z_]\w*)\.([A-Za-z_]\w*)$/;
+  const writable = $derived(all.filter((p) => p.name in picked && editable(p) && p.type !== "Enumeration" && !isBad(picked[p.name]) && PART_NAME.test(p.name)));
+  let writeNote = $state("");
+  async function write() {
+    const mods = writable.map((p) => { const [, part, name] = PART_NAME.exec(p.name)!; return { part, name, value: p.type === "Boolean" ? (picked[p.name] === "1" ? "true" : "false") : picked[p.name].trim() }; });
+    const err = await onwrite!(model, mods);
+    if (err) { writeNote = `書けなかった: ${err}`; return; }
+    const next = { ...picked };
+    for (const p of writable) delete next[p.name];
+    picked = next; // ソースの既定になったので、実行時の上書きからは外す
+    writeNote = `${mods.length} 本をソースの修飾に書いた（Ctrl+Z で戻せる。保存はしていない。既定値の列は再検査のあとに変わる）`;
+  }
   const changed = $derived(Object.keys(picked).filter((n) => all.some((p) => p.name === n)).length);
 </script>
 
 <dialog bind:this={dlg} class="params-dialog" data-param-dialog aria-label={`${model} のパラメータ`} onclose={onclose}>
   <header>
     <strong>{model} のパラメータ</strong>
-    <small>値を入れると実行の設定の parameters に乗る（ソースは変えない）</small>
+    <small>値を入れると実行の設定の parameters に乗る（実行のときだけの上書き。ソースは変えない）。「ソースに書く」は部品の宣言の修飾 <code>(名前 = 値)</code> として書く</small>
   </header>
   <p>
     <input bind:value={filter} aria-label="パラメータの絞り込み" placeholder="名前・説明で絞り込む" size="24">
     （{matched.length} / {all.length} 本）
     <button type="button" onclick={() => (picked = {})} disabled={!Object.keys(picked).length} title="このモデルの上書きをすべて消す">すべて既定に戻す</button>
     {#if changed}<small data-changed>変更 {changed} 本</small>{/if}
+    {#if onwrite}<button type="button" data-write-source onclick={write} disabled={!writable.length} title="入れた値のうち、部品の直下のパラメータ（c.k の形）を、その部品の宣言の修飾としてソースに書く">ソースに書く（{writable.length} 本）</button>{/if}
   </p>
+  {#if writeNote}<p class="note" data-write-note role="status">{writeNote}</p>{/if}
   {#if note}<p class="note" data-param-note>{note}</p>{/if}
   <div class="rows">
     <table>

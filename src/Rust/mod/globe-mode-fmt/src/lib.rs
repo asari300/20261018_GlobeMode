@@ -23,7 +23,7 @@ mod tree;
 pub use config::CONFIG_FILE;
 pub use diagram::{
     Connection, Diagram, Part, add_connect, add_part, delete_connect, delete_part, diagram,
-    move_part,
+    move_part, set_modifier,
 }; // S245: UI の図
 pub use documentation::{Documentation, class_at, documentation}; // S232: UI の説明パネル
 pub use icon::{Icon, Shape, icon}; // S244: UI のアイコン（形のデータ）

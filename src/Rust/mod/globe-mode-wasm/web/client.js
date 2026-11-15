@@ -199,6 +199,10 @@ export class GlobeWorker {
   async addPart(cls, type, x, y, at) {
     return JSON.parse(await this.#call("add_part", { cls, text: this.#files.get(at.file) ?? "", type, x, y }));
   }
+  // 部品の修飾の書き込み（S294）: cls の部品の修飾 [{part, name, value}]（value が空なら外す）を [{range, newText}]（1 つ）にする。断れば理由で reject
+  async setModifier(cls, modifiers, at) {
+    return JSON.parse(await this.#call("set_modifier", { cls, text: this.#files.get(at.file) ?? "", modifiers: JSON.stringify(modifiers) }));
+  }
   // 図の部品の削除（S281）: cls の部品 part の宣言とつながる connect を消す [{range, newText}]（複数）。at = {file}（setFile 済み）。消せなければ null
   async deletePart(cls, part, at) {
     return JSON.parse(await this.#call("delete_part", { cls, text: this.#files.get(at.file) ?? "", part }));

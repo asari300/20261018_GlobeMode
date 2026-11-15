@@ -60,6 +60,8 @@ export interface Backend {
   addPart(cls: string, type: string, x: number, y: number, at: { file: string }): Promise<{ range: Definition["range"]; newText: string }[] | null>;
   /** 図の部品 part の宣言とつながる `connect` をまとめて消す編集（S281。LSP の TextEdit の配列。複数）。cls は diagram.class、at.file は setFile 済み。宣言が複数の名前を持つ・消せなければ null。ファイルは書かない（適用は UI のエディタ）。 */
   deletePart(cls: string, part: string, at: { file: string }): Promise<{ range: Definition["range"]; newText: string }[] | null>;
+  /** 部品の修飾 `(name = value)` を書く編集（S294。LSP の TextEdit の配列。1 つ）。modifiers は `{part, name, value}` の並び（value が空なら外す）を順に当てた結果。cls はモデル名、at.file は setFile 済み。入れ子の名前・each/final・壊れた式・部品が無いは理由つきで reject。ファイルは書かない（適用は UI のエディタ）。 */
+  setModifier(cls: string, modifiers: { part: string; name: string; value: string }[], at: { file: string }): Promise<{ range: Definition["range"]; newText: string }[]>;
   /** 図の結線 `connect(from, to)` を消す編集（S281。from・to は `Connection` のもの。逆の並びも同じ）。無ければ null。 */
   deleteConnect(cls: string, from: string, to: string, at: { file: string }): Promise<{ range: Definition["range"]; newText: string }[] | null>;
   /** setFile 済みの file の実行できるクラス（model・block・class。partial は除く）の修飾名（S170。UI のモデル名の候補。構文が壊れていれば空）。 */
