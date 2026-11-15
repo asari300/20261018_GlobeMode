@@ -301,10 +301,7 @@ fn check_with_selects_the_frontend() {
         "Decay.mo",
         "model Decay Real x(start = 1, fixed = true); equation der(x) = -x; end Decay;",
     );
-    ws.put_file(
-        "E.mo",
-        "model E\n  extends Real;\nend E;\n",
-    );
+    ws.put_file("E.mo", "model E\n  extends Real;\nend E;\n");
     let default: serde_json::Value = serde_json::from_str(&ws.check("Decay").unwrap()).unwrap();
     assert_eq!(json(&mut ws, "Decay", "rumoca"), default);
     let e = json(&mut ws, "E", "native");

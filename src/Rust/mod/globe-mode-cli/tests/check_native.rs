@@ -83,10 +83,7 @@ fn syntax_error_and_unresolved_name_have_positions() {
 
 #[test]
 fn unsupported_is_reported_not_switched_to_rumoca() {
-    let m = temp_model(
-        "e.mo",
-        "model E\n  extends Real;\nend E;\n",
-    );
+    let m = temp_model("e.mo", "model E\n  extends Real;\nend E;\n");
     let o = globe(&["check", &m, "-m", "E", "--frontend", "native"]);
     assert_eq!(o.status.code(), Some(3), "{}", out(&o));
     assert!(out(&o).contains("unsupported[GM-U0006]"), "{}", out(&o));
