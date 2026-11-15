@@ -32,7 +32,7 @@
 ## 検証
 
 - `cargo test -p globe-mode-flat -p globe-mode-dae -p globe-mode-frontend`: 全部 pass（flat 26 本）。clippy（`-D warnings`）0、fmt 差分 0。
-- `mise run msl:diff-frontend`（release、共有 target）: 回帰 0、改善 79。flat 279 → 358、composite-binding 155 → 31、connect-array 72 → 1。Rumoca も通った 350 本で名前 350/350・方程式の数 340/350、DAE 253 本で判定 253/253・方程式と未知数の数 253/253・状態の数 253/253・正則 232/253。`GlobeModeValidation` は変わらず。
+- `mise run msl:diff-frontend`（release、共有 target）: 回帰 0、改善 79。flat 279 → 358、composite-binding 155 → 31、connect-array 72 → 1。Rumoca も通った 350 本で名前 350/350・方程式の数 340/350、DAE 253 本で判定 253/253・方程式と未知数の数 253/253・状態の数 253/253・正則 232/253（S325 を取り込む前）。取り込んだあとに回し直して、flat 358・名前 350/350・方程式の数 340/350・判定・方程式と未知数の数・状態の数 253/253・正則 249/253、回帰 0、改善 96（S325 の 17 本を含む）、521 s、最大 RSS 5.6 GiB。`GlobeModeValidation` は変わらず。
 - release の全体で約 355 s、最大 RSS 6.1 GiB（`Spice3BenchmarkFourBitBinaryAdder` が Rumoca で約 144 s）。
 
 ## 残したこと
