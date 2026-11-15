@@ -2,16 +2,16 @@
 
 全体の一覧・提出の順・手順は正典の [../../upstream.md](../../upstream.md) にまとめた（S096）。
 
-S045（計画書の WP-H）で書いた（15 は S055、16 は S068、17〜21 は S070、24〜26 は S072。20・25 の追記と `20b`・`25b` の再現は S080、25 の 2 回目の追記と `25c`〜`25h`・27 は S083、28〜30 と 25・27 の追記は S091、31・32 と 28 の追記は S108。28〜32 の v0.10.4 での再確認と日本語版（`_jp.md`・`_jp.html`）、AixLib 向けの 33 は S113。17〜27 の v0.10.4 での再確認と日本語版は S115。01〜16 の v0.10.4 での再確認（各件の「Re-check」の節）と日本語版は S162。25 を形ごとに 25b〜25h の `.md` に分けたのは S096。36 は S331）、[Rumoca](https://github.com/CogniPilot/rumoca) と [diffsol](https://github.com/martinjrobins/diffsol) に出す issue の下書き。元の記録は [../msl-sim-failures.md](../msl-sim-failures.md) の「上流に報告する候補」と、[../../roadmap.md](../../roadmap.md) の候補 8。
+S045（計画書の WP-H）で書いた（15 は S055、16 は S068、17〜21 は S070、24〜26 は S072。20・25 の追記と `20b`・`25b` の再現は S080、25 の 2 回目の追記と `25c`〜`25h`・27 は S083、28〜30 と 25・27 の追記は S091、31・32 と 28 の追記は S108。28〜32 の v0.10.4 での再確認と日本語版（`_jp.md`・`_jp.html`）、AixLib 向けの 33 は S113。17〜27 の v0.10.4 での再確認と日本語版は S115。01〜16 の v0.10.4 での再確認（各件の「Re-check」の節）と日本語版は S162。25 を形ごとに 25b〜25h の `.md` に分けたのは S096。36 は S331。37〜39 は S359）、[Rumoca](https://github.com/CogniPilot/rumoca) と [diffsol](https://github.com/martinjrobins/diffsol) に出す issue の下書き。元の記録は [../msl-sim-failures.md](../msl-sim-failures.md) の「上流に報告する候補」と、[../../roadmap.md](../../roadmap.md) の候補 8。
 
 - **出すのはユーザー。エージェントは出さない**（`gh issue create` を使わない）。
-- **出すときは、再現を Rumoca の最新（main）で確かめてから出す。** 下書きの環境は Rumoca v0.10.2（rev `276e82bd`）、MSL 4.1.0。01〜36 は最新のリリース v0.10.4（2026-11-15 でも最新）でも確かめてある（01〜16 は S162、35 は S237、36 は S331）。Rumoca の CLI がこの環境に無いまま書いた件は、本文に「[not verified]」と書いてある。
+- **出すときは、再現を Rumoca の最新（main）で確かめてから出す。** 下書きの環境は Rumoca v0.10.2（rev `276e82bd`）、MSL 4.1.0。01〜39 は最新のリリース v0.10.4（2026-11-16 でも最新）でも確かめてある（01〜16 は S162、35 は S237、36 は S331、37〜39 は S359）。Rumoca の CLI がこの環境に無いまま書いた件は、本文に「[not verified]」と書いてある。
 - 本文は英語で、issue にそのまま貼れる形（Summary / Steps to reproduce / Expected / Actual / Environment / Workaround in GlobeMode / Notes）。
 - 再現ファイル（`.mo`）は、MSL の例題で再現する件では置かない（モデル名とコマンドを本文に書く）。`src/Modelica/` には置かない（MODELICAPATH として開けるパッケージだけを置く規則）。
 - 再現用の `.mo` は `globe fmt` で整形する（空白が要点のものを除く。S194 で 34 本すべてを整形した。整形の前後で全クラスの診断のコードと重大度が同じことを確かめてある）。新しく足すときも整形し、本文に貼る診断の `行:列` は整形後のファイルのものにする。
 - diffsol の件（10〜12）は Rumoca が同梱する 0.13.2 での観測。diffsol 本家で同じかは確かめていない（本文に "not verified against upstream diffsol main"）。単体の diffsol のプログラムに縮めてから出す。
 - 状態は「下書き」のまま。出したら issue の URL と日付をこの表に足す。
-- v0.10.4 で再現する 01・02・05〜09・12〜35 には日本語版（`NN-<slug>_jp.md`、英語と同じ章立て）とスライド 1 枚の解説（`NN-<slug>_jp.html`、`doc/assets/slides.css`・`slides.js` だけを使う）がある（28〜33 は S113、17〜27 は S115、01〜16 は S162）。v0.10.4 で直った 03・04・15（一部）・25・25b・25c・25g・26・36 と、diffsol の main で直った 10・11 には作っていない（15 は残る `Dimmer_RL` の分だけ作った）。ユーザーが読んで出すかを決めるためのもの。
+- v0.10.4 で再現する 01・02・05〜09・12〜35・37〜39 には日本語版（`NN-<slug>_jp.md`、英語と同じ章立て）とスライド 1 枚の解説（`NN-<slug>_jp.html`、`doc/assets/slides.css`・`slides.js` だけを使う）がある（28〜33 は S113、17〜27 は S115、01〜16 は S162、37〜39 は S359）。v0.10.4 で直った 03・04・15（一部）・25・25b・25c・25g・26・36 と、diffsol の main で直った 10・11 には作っていない（15 は残る `Dimmer_RL` の分だけ作った）。ユーザーが読んで出すかを決めるためのもの。
 
 | # | 件名 | 対象 | 再現 | GlobeMode 側の回避 | 状態 |
 | ---: | --- | --- | --- | --- | --- |
@@ -56,6 +56,9 @@ S045（計画書の WP-H）で書いた（15 は S055、16 は S068、17〜21 �
 | 34 | [2 つの関係式の根が丸めの雑音のとき、事象の反復が終わらない（`value == 0.0` が厳密な比べ方）](34-event-iteration-exact-zero-test-on-rounding-noise.md) — Rumoca のバグ。MSL 1 本（`sdirk34hw`） | Rumoca | [34](34-event-iteration-exact-zero-test-on-rounding-noise.mo)（MSL の例題の experiment を決めるだけ。`globe simulate --solver sdirk34hw`） | なし（記録と既知の限界の試験） | 下書き。v0.10.4・main のコードも同じ（S158）。[日本語](34-event-iteration-exact-zero-test-on-rounding-noise_jp.md)・[1 枚](34-event-iteration-exact-zero-test-on-rounding-noise_jp.html) |
 | 35 | [状態への `initial equation`（`T = T_start`）を FMI の C profile が断る（"rows over declaration seeds"）](35-fmi-c-profile-initial-equation-on-state.md) — Rumoca の限界（ふつうのモデルが当たる）。MSL の小さい例題 20 本のうち初期化のメッセージで 6 本（この件は 2 本） | Rumoca | [35](35-fmi-c-profile-initial-equation-on-state.mo) | 一部（P5b では回る） | 下書き（S237） |
 | 36 | [表から読むスカラーの parameter を通って、方程式の数が表の要素の数になる（ED001 unbalanced）](36-flat-equation-count-from-external-object-table-size.md) — Rumoca のバグ。**v0.10.4 で修正**（S331）。MSL の Rotational の摩擦・歯車と Translational の `Brake` の 10 本 | Rumoca | [36](36-flat-equation-count-from-external-object-table-size.mo)（自己完結は flat の数だけ。MSL の `W4` は本文） | 不要（自前の flat は 1 本と数える） | **v0.10.4 で修正**（出さない） |
+| 37 | [`rk45` に lowering 済みのモデルを渡す公開の口が無い（`simulate_artifact` が `pub(crate)`）](37-rk45-no-public-entry-for-a-lowered-model.md) — API の要望。呼び手が自分の用途で lowering すると `rk45::simulate` の中でもう一度 lowering する | Rumoca | [37](37-rk45-no-public-entry-for-a-lowered-model.mo)（どのモデルでもよい） | なし（session の道は BDF で測って取り消した） | 下書き。v0.10.4・main（`b55eafce`）のソースも `pub(crate)`（S359）。 [日本語](37-rk45-no-public-entry-for-a-lowered-model_jp.md)・[1 枚](37-rk45-no-public-entry-for-a-lowered-model_jp.html) |
+| 38 | [準備済みの BDF の部品を 3 回 lease（初期化）し、初期化済みの状態を実行に渡す口が無い](38-bdf-initialized-state-not-reusable.md) — API の要望。費用は測っていない | Rumoca | [38](38-bdf-initialized-state-not-reusable.mo) | なし（2 回目が初期化の失敗の段の目印） | 下書き。v0.10.4・main もソースは同じ（S359）。 [日本語](38-bdf-initialized-state-not-reusable_jp.md)・[1 枚](38-bdf-initialized-state-not-reusable_jp.html) |
+| 39 | [レコードの配列式の方程式（`aw = {R(1, 0), ...}`）を、フィールドごとでなく要素ごとに数える（ED008 → ED001）](39-array-equation-of-record-array-constructor-counts-elements.md) — Rumoca のバグ（MLS 3.7 の 10.6.1・4.8）。本数は未計測 | Rumoca | [39](39-array-equation-of-record-array-constructor-counts-elements.mo)（普通のレコード。MSL の `Complex` の形は本文） | なし（自前の DAE はフィールドごとに数える） | 下書き。**一部は v0.10.4 で直った**（MSL の `Complex`、大きさ 3。普通のレコードと `size(a, 1)` の `Complex` は再現。S359）。 [日本語](39-array-equation-of-record-array-constructor-counts-elements_jp.md)・[1 枚](39-array-equation-of-record-array-constructor-counts-elements_jp.html) |
 
 ## 公開ライブラリの失敗から（17〜21、S070）
 
@@ -168,6 +171,19 @@ S113 と同じ手順で、17〜27（20b・25b〜25h を含む）の再現の `.m
 - 再現する件のメッセージの文面は v0.10.2 と同じ（17 の `DefId(78)` まで同じ）。
 - 直った件は本文に「Status (S115)」の行と再確認の節を足し、出さない記録として残した。日本語版は作っていない。
 - ライブラリの例題そのものは v0.10.4 で回していない【未確認】。直った件の本数（`loadResource` 136、25 の 44、25g の 25、26 の 47 など）が実際に消えるかは、GlobeMode の Rumoca の rev を上げて `msl:funnel`・`libraries.yml` で確かめる。
+
+## 実行系の API の要望 2 件とレコードの配列式（37〜39、S359）
+
+S344（#46・#45）と S351（#133）の「上流に頼む候補」を、既存の書式の 4 点セットにした（確認日 2026-11-16）。出さない（出すのはユーザー）。
+
+| # | 種類 | v0.10.2 | v0.10.4 | main（`b55eafce`） | 確かめ方 |
+| --- | --- | --- | --- | --- | --- |
+| 37 | API の要望 | `rk45::simulate_artifact` は `pub(crate)`（`rk45.rs:44`） | 同じ（`:71`） | 同じ（`:115`） | ソースを読んだ。コンパイル・計測はしていない |
+| 38 | API の要望 | warm-up・`check_prepared_initialization`・`run_prepared_simulation` で 3 回 lease | 同じ。1 回目を warm-up と書き、1 回きりの道だけ warm-up を飛ばす | 同じ | ソースを読んだ。費用は測っていない |
+| 39 | バグ | `ED008`（大きさ 3）・`ED001`（`size(a, 1)`） | `ED001`。MSL の `Complex`・大きさ 3 だけ通る | ビルドしていない【未確認】 | 両版の CLI と omc 1.27.2（6 と 6） |
+
+- 39 の途中で別の限界が見つかった: MSL の `ShowTransferFunction` は、どちらの版でも `sum(bw.re)` で ED019 `record-array member slice` で止まる（部品の中でレコードの配列の成分を切り出すと出る。omc は通す）。GlobeMode の `diff-frontend` で `ShowTransferFunction` が 0/1 だった（S351）のは、方程式の数でなくこれが先に当たったためと見られる。別の下書きにはしていない（本文 39 の備考に再現を書いた）。
+- 37 と 38 は、GlobeMode の issue #46・#45 の「上流の口が要る」の部分。issue 自体は GlobeMode の側の判断（直さない）のまま。
 
 ## 下書きにしなかったもの
 
