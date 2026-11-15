@@ -294,6 +294,14 @@ struct Totals {
     sim_total: usize,
     sim_ok: usize,
     sim_seconds: f64,
+    /// `diff-frontend` の JSON があった分割の数と、検査した本数・自前で平らにできた本数・DAE にできた本数・
+    /// 自前の flat の上限（`too-large`、S365）で断った本数・Rumoca と変数の名前も方程式の数も一致した本数（S369）
+    diff_shards: usize,
+    diff_total: usize,
+    diff_flat: usize,
+    diff_dae: usize,
+    diff_too_large: usize,
+    diff_agree: usize,
 }
 
 fn num(v: &serde_json::Value, ptr: &str) -> usize {
@@ -320,6 +328,31 @@ impl Totals {
             .pointer("/summary/seconds")
             .and_then(serde_json::Value::as_f64)
             .unwrap_or(0.0);
+    }
+
+    fn add_diff(&mut self, j: &serde_json::Value) {
+        self.diff_shards += 1;
+        for m in j
+            .get("models")
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let flag = |k: &str| {
+                m.pointer(&format!("/flags/{k}"))
+                    .and_then(serde_json::Value::as_bool)
+                    == Some(true)
+            };
+            self.diff_total += 1;
+            self.diff_flat += usize::from(flag("flat"));
+            self.diff_dae += usize::from(flag("dae"));
+            self.diff_agree += usize::from(flag("flat_names") && flag("flat_eqs"));
+            self.diff_too_large += usize::from(
+                m.pointer("/reasons/flat")
+                    .and_then(serde_json::Value::as_str)
+                    .is_some_and(|w| w.starts_with("too-large")),
+            );
+        }
     }
 
     fn add_sim(&mut self, j: &serde_json::Value) {
@@ -369,10 +402,27 @@ fn render_libraries(rows: &std::collections::BTreeMap<String, Totals>, msl: &str
         );
     }
     md.push_str("\n- 「分割」は `msl-sim` の JSON が揃った数 / `msl-funnel` の JSON が揃った数。落ちたジョブは欠けたまま数える。\n- 時間は各分割の足し算（並行に回すので壁時計より長い）。\n- 判定の意味は [msl-funnel.md](msl-funnel.md)（S0〜S10、GM-U は未対応）。\n");
+    if rows.values().any(|t| t.diff_shards > 0) {
+        md.push_str("\n## 自前の flat・DAE と Rumoca の突き合わせ（`diff-frontend`、S369）\n\n| ライブラリ | 分割 | 例題 | 自前で平らにできた | `too-large` で断った | 自前で DAE にできた | flat が Rumoca と一致 |\n| --- | ---: | ---: | ---: | ---: | ---: | ---: |\n");
+        for (name, t) in rows.iter().filter(|(_, t)| t.diff_shards > 0) {
+            let _ = writeln!(
+                md,
+                "| {name} | {}/{} | {} | {} | {} | {} | {} |",
+                t.diff_shards,
+                t.shards,
+                t.diff_total,
+                t.diff_flat,
+                t.diff_too_large,
+                t.diff_dae,
+                t.diff_agree
+            );
+        }
+        md.push_str("\n- 「flat が Rumoca と一致」は、Rumoca も flat まで通った例題で、変数の名前の集合と方程式の数が一致した本数。段ごとの詳しい表と一致しなかった例は分割ごとの `-diff.md`（artifact `library-<名前>-<分割>`）にある。\n");
+    }
     md
 }
 
-/// `cargo xtask libraries-report --dir <D>`: `<D>` の下の `<名前>-<分割>-funnel.json` と `<名前>-<分割>-sim.json` を集めて表にする。
+/// `cargo xtask libraries-report --dir <D>`: `<D>` の下の `<名前>-<分割>-funnel.json`・`-sim.json`・`-diff.json`（S369）を集めて表にする。
 pub(crate) fn libraries_report(dir: &Path, msl: &str, report: Option<&Path>) -> Result<ExitCode> {
     let mut rows: std::collections::BTreeMap<String, Totals> = std::collections::BTreeMap::new();
     let mut files = Vec::new();
@@ -383,23 +433,21 @@ pub(crate) fn libraries_report(dir: &Path, msl: &str, report: Option<&Path>) -> 
             .file_name()
             .and_then(|f| f.to_str())
             .unwrap_or_default();
-        let (stem, is_funnel) = match (
-            file.strip_suffix("-funnel.json"),
-            file.strip_suffix("-sim.json"),
-        ) {
-            (Some(s), _) => (s, true),
-            (_, Some(s)) => (s, false),
-            _ => continue,
+        let Some((stem, kind)) = ["funnel", "sim", "diff"]
+            .into_iter()
+            .find_map(|k| Some((file.strip_suffix(&format!("-{k}.json"))?, k)))
+        else {
+            continue;
         };
         let name = stem.split('-').next().unwrap_or(stem).to_string();
         let text = fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
         let json: serde_json::Value =
             serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
         let totals = rows.entry(name).or_default();
-        if is_funnel {
-            totals.add_funnel(&json);
-        } else {
-            totals.add_sim(&json);
+        match kind {
+            "funnel" => totals.add_funnel(&json),
+            "sim" => totals.add_sim(&json),
+            _ => totals.add_diff(&json),
         }
     }
     let md = render_libraries(&rows, msl);
@@ -435,11 +483,26 @@ mod report_tests {
         t.add_funnel(&f);
         t.add_funnel(&f);
         t.add_sim(&json!({"summary": {"total": 6, "stop_time": 4, "terminated": 1}, "total_seconds": 3600.0}));
+        t.add_diff(&json!({"models": [
+            {"flags": {"flat": true, "dae": true, "flat_names": true, "flat_eqs": true}, "reasons": {}},
+            {"flags": {"flat": false}, "reasons": {"flat": "too-large: too many variables"}},
+            {"flags": {"flat": false}, "reasons": {"flat": "unsupported: x"}},
+        ]}));
         assert_eq!(
             (t.shards, t.examples, t.ok, t.gm_u, t.panics),
             (2, 20, 12, 6, 2)
         );
         assert_eq!((t.sim_total, t.sim_ok), (6, 5));
+        assert_eq!(
+            (
+                t.diff_total,
+                t.diff_flat,
+                t.diff_dae,
+                t.diff_too_large,
+                t.diff_agree
+            ),
+            (3, 1, 1, 1, 1)
+        );
         let md = render_libraries(
             &[("Chemical".to_string(), t)].into_iter().collect(),
             "4.0.0",
@@ -448,6 +511,10 @@ mod report_tests {
         assert!(md.contains("| Chemical | 2.0.0"), "{md}");
         assert!(
             md.contains("| 1/2 | 20 | 12 | 0 | 6 | 2 | 6 | 5 | 0:03 + 1:00 |"),
+            "{md}"
+        );
+        assert!(
+            md.contains("| Chemical | 1/2 | 3 | 1 | 1 | 1 | 1 |"),
             "{md}"
         );
     }

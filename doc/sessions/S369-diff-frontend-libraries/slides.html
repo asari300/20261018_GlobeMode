@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S369 diff-frontend-libraries — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S369 diff-frontend-libraries">
+
+<section class="slide" id="S01">
+  <span class="tag">S369 · 2026-11-16 · Track B</span>
+  <h1>自前の flat・DAE を公開ライブラリ 2132 本で Rumoca と突き合わせた</h1>
+  <p class="lead"><code>diff-frontend --library</code> を足し、<code>libraries.yml</code> に載せて 1 回回した</p>
+  <div class="big">自前の panic <b>0</b>・上限（<code>too-large</code>）で断った例題 <b>0</b>。flat は Rumoca も通った 569 本のうち <b>556 本が一致</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>S365 の上限は MSL でしか確かめていなかった</h1>
+  <ul>
+    <li><code>diff-frontend</code>（S300）は自前の parse → resolve → flat → dae を Rumoca と MSL の例題で突き合わせる</li>
+    <li>S365 で自前の flat に上限（反復 100 万・スカラー 200 万）を入れたが、MSL 以外では未確認</li>
+    <li><code>libraries.yml</code>（S058）は <code>msl-funnel</code> で Rumoca の道だけを回し、自前の道を通らない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table>
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>引数</td><td><code>--library</code>・<code>--package</code>・<code>--examples-in</code>・<code>--shard</code>。選び方は funnel と同じ関数</td><td>matrix の値をそのまま渡せる</td></tr>
+    <tr><td>自前の panic</td><td>1 本の行にして先へ進む</td><td>1 本で分割の結果を捨てない</td></tr>
+    <tr><td>workflow</td><td>funnel と sim の間、<code>continue-on-error</code>、100 分</td><td>Buildings の 4 分割目が 51 分</td></tr>
+    <tr><td>表</td><td><code>libraries-report</code> に diff の表を足す</td><td>既存の列は変えない</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>ジョブの中の順序</h1>
+  <svg class="fig" viewBox="0 0 800 200" role="img" aria-label="ジョブの順序">
+    <rect class="svg-box" x="20" y="70" width="150" height="60" rx="10"/>
+    <text class="svg-text-b" x="95" y="106" text-anchor="middle">msl-funnel</text>
+    <line class="svg-line" x1="170" y1="100" x2="230" y2="100"/>
+    <rect class="svg-box-accent" x="230" y="70" width="190" height="60" rx="10"/>
+    <text class="svg-text-b" x="325" y="106" text-anchor="middle">diff-frontend</text>
+    <line class="svg-line" x1="420" y1="100" x2="480" y2="100"/>
+    <rect class="svg-box" x="480" y="70" width="130" height="60" rx="10"/>
+    <text class="svg-text-b" x="545" y="106" text-anchor="middle">msl-sim</text>
+    <line class="svg-line" x1="610" y1="100" x2="660" y2="100"/>
+    <rect class="svg-box" x="660" y="70" width="120" height="60" rx="10"/>
+    <text class="svg-text-b" x="720" y="106" text-anchor="middle">artifact</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">結果</span>
+  <h1>ライブラリごと（run 43755915341、全ジョブ success）</h1>
+  <table>
+    <tr><th>ライブラリ</th><th>例題</th><th>自前で平らに</th><th>Rumoca も flat</th><th>名前と式の数が一致</th></tr>
+    <tr><td>Buildings</td><td>809</td><td>351</td><td>197</td><td>194</td></tr>
+    <tr><td>AixLib</td><td>642</td><td>314</td><td>183</td><td>178</td></tr>
+    <tr><td>IBPSA</td><td>457</td><td>249</td><td>147</td><td>144</td></tr>
+    <tr><td>ThermofluidStream</td><td>122</td><td>117</td><td>25</td><td>23</td></tr>
+    <tr><td>Chemical・DeltaRobot・ClaRa</td><td>102</td><td>23</td><td>17</td><td>17</td></tr>
+    <tr><td>計</td><td>2132</td><td>1054</td><td>569</td><td>556</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">断った理由</span>
+  <h1>平らにできなかった 1078 本</h1>
+  <ul>
+    <li><code>unsized-array</code> 371、<code>expandable</code> 266、<code>composite-binding</code> 141</li>
+    <li><code>inner-outer</code> 63、<code>redeclare</code> 58、<code>connect-array</code> 58、<code>non-constant-dim</code> 53</li>
+    <li><b>上限の <code>too-large</code> は 0 本</b>。<code>expandable</code>・<code>composite-binding</code> の 407 本は S367 が通す範囲で、この run はその前</li>
+  </ul>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">食い違い</span>
+  <h1>Rumoca と合わなかった 13 本（直していない）</h1>
+  <table>
+    <tr><th>例題</th><th>差</th></tr>
+    <tr><td><code>PrescribedOutlet_Water</code>（3 ライブラリ）</td><td>方程式の数 237 対 242</td></tr>
+    <tr><td><code>EnthalpyFlowRate</code>・<code>MoistAirEnthalpyFlowRate</code>（各 3）</td><td>61 対 63・91 対 93</td></tr>
+    <tr><td><code>VentilationFlowRate*Opening</code>（AixLib 2）</td><td>Rumoca にだけ <code>opnWidth_in</code></td></tr>
+    <tr><td>ThermofluidStream の <code>BaseModel</code> 2</td><td>自前にだけ <code>assertionLevel</code></td></tr>
+  </table>
+  <p class="note">DAE は状態の数 1 本（BoilerPolynomial）と構造の正則 1 本（WindowSimple）</p>
+</section>
+
+<section class="slide" id="S08">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>cargo xtask diff-frontend --library data/libs/Buildings \
+  --package Buildings --shard 1/4 --limit 8
+gh workflow run libraries.yml --ref feature/s369-diff-frontend-libraries</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">53</span><span class="l">xtask の試験</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">自前の panic</span></div>
+    <div class="kpi"><span class="n">51 分</span><span class="l">Buildings-4 の diff</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S09">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>食い違いの原因（flat は S367 の持ち場）</li>
+    <li>S367 が入った main で <code>libraries.yml</code> を回し直し、上限の確かめを広げる</li>
+    <li>Rumoca の遅さ（<code>CorrectedNFactors</code> 2963 s）と panic を上流にするか</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
