@@ -957,7 +957,7 @@ fn is_root_on_one_big_component_is_not_cubic() {
 #[test]
 fn array_connector_connect_is_not_quadratic() {
     // #127: `connect(p, q)`（配列のコネクタ 1 行）の葉の探索が線形で O(N²) だった
-    let n = 3000;
+    let n = 6000;
     let src = format!(
         "connector P Real v; flow Real i; end P;
          model M P p[{n}]; P q[{n}]; equation connect(p, q); end M;"
@@ -966,9 +966,10 @@ fn array_connector_connect_is_not_quadratic() {
     assert!(
         m.equations
             .iter()
-            .any(|e| e.text == "p[3000].v = q[3000].v")
+            .any(|e| e.text == "p[6000].v = q[6000].v")
     );
-    assert!(t.as_secs() < 8, "{t:?}");
+    // 直す前は N = 3000 で 6.7 s、2 倍で 4 倍（N = 6000 は 25 s 前後と見積もった）。直したあとは配列の展開そのものが残る（3 s 前後）
+    assert!(t.as_secs() < 12, "{t:?}");
 }
 
 #[test]
