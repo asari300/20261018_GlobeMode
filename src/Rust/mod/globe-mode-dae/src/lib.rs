@@ -23,7 +23,8 @@ use globe_mode_ir::{
 };
 use globe_mode_syntax::ast::{self, Expr};
 use globe_mode_syntax::{SyntaxKind as K, SyntaxNode, parse};
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::ops::Bound;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Role {
@@ -93,11 +94,12 @@ fn parse_in_model(head: &str, text: &str) -> Result<SyntaxNode, Unsupported> {
 }
 
 struct Ctx<'a> {
-    index: HashMap<&'a str, usize>,
+    /// 名前 → 変数。整列しているので、前置きが同じ名前（欄・要素）は範囲でなめる（`prefixed`。S365・#135）
+    index: BTreeMap<&'a str, usize>,
     vars: &'a [Var],
 }
 
-impl Ctx<'_> {
+impl<'a> Ctx<'a> {
     fn n(&self, v: usize) -> usize {
         self.vars[v].dims.iter().product::<usize>()
     }
@@ -173,13 +175,20 @@ impl Ctx<'_> {
         }
         let pre = format!("{t}[");
         let mut v: Vec<usize> = self
-            .index
-            .iter()
-            .filter(|(k, _)| k.strip_prefix(&pre).is_some_and(|r| r.contains("].")))
-            .map(|(_, &v)| v)
+            .prefixed(&pre)
+            .filter(|(k, _)| k[pre.len()..].contains("]."))
+            .map(|(_, v)| v)
             .collect();
         v.sort_unstable();
         v
+    }
+
+    /// 名前が `pre` で始まる変数（`index` は整列しているので、範囲の先頭から前置きが切れるまで）
+    fn prefixed<'s>(&'s self, pre: &'s str) -> impl Iterator<Item = (&'a str, usize)> + 's {
+        self.index
+            .range::<str, _>((Bound::Included(pre), Bound::Unbounded))
+            .take_while(move |(k, _)| k.starts_with(pre))
+            .map(|(&k, &v)| (k, v))
     }
 
     /// 変数でないレコードの参照 `a.R` の、欄の変数（`a.R.T`・`a.R.w` …。`BTreeMap` の順）
@@ -188,13 +197,7 @@ impl Ctx<'_> {
         if self.index.contains_key(t.as_str()) {
             return Vec::new();
         }
-        let pre = format!("{t}.");
-        let mut v: Vec<usize> = self
-            .index
-            .iter()
-            .filter(|(k, _)| k.starts_with(&pre))
-            .map(|(_, &v)| v)
-            .collect();
+        let mut v: Vec<usize> = self.prefixed(&format!("{t}.")).map(|(_, v)| v).collect();
         v.sort_unstable();
         v
     }
@@ -1135,6 +1138,18 @@ mod tests {
             function f input Real x; output R y; algorithm y.T := x; y.p := 2 * x; end f;
             model M R r = f(time); end M;");
         assert_eq!((d.counts.equations, d.counts.unknowns), (2, 2));
+    }
+
+    #[test]
+    fn time_reference_does_not_scan_every_variable() {
+        // #135: 変数でない参照（`time`）のたびに全変数を 2 回なめて、部品 8000 個で 11 s（O(N²)）だった。名前の範囲で引くと 1 s に届かない
+        let src = "model S Real x; equation x = sin(time); end S;
+            model M S s[8000]; end M;";
+        let m = Project::from_sources([("t.mo", src)]).flatten("M").unwrap();
+        let t = std::time::Instant::now();
+        let d = build(&m).unwrap();
+        assert_eq!(d.counts.equations, 8000);
+        assert!(t.elapsed().as_secs() < 4, "{:?}", t.elapsed());
     }
 
     #[test]
