@@ -56,6 +56,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - S054: ネイティブの CLI・`globe lsp`・Desktop も MSL は閉包のファイルだけを読む（`ChuaCircuit` の `globe check` の最大 RSS 1,493 → 128 MiB。[ADR-0025](doc/adr/0025-native-library-closure.md)）。
 - S058・S063・S066・S067・S068・S071・S073: MSL 以外の公開ライブラリ 7 つ（Buildings・AixLib・IBPSA・ClaRa・ThermofluidStream・DeltaRobot・Chemical）を Actions で検査・実行する `libraries.yml` と表 `doc/libraries.md`。構文の誤りのファイルは読み飛ばして `GM-W1001` で知らせ、MSL 4.0.0 も選べ（`cargo xtask fetch-msl --version 4.0.0`）、`Modelica.Math` の `external "builtin"` も実行できる（[ADR-0029](doc/adr/0029-external-builtin-rewrite.md)）。
 - S064: `auto` の回し直しを BDF → esdirk34 → dopri45 にした（[ADR-0028](doc/adr/0028-auto-esdirk34-fallback.md)）。
+- S344: `auto` の回し直しに予算の残りだけを渡すようにした（issue #6・#46。[ADR-0041](doc/adr/0041-auto-remaining-budget.md)、ADR-0028 (c) を改めた）。以前は BDF が失敗しても esdirk34・dopri45 が予算をまるごと持ち直し、`--timeout` の最大 3 倍近く走れた。**挙動が変わる点**: 残り（予算 − それまでの時間）が無ければ、回し直さず時間切れ（`GM-E11005`）で返す。呼び手が止めたあとの放置したスレッドも、段の境目と回し直しの前で止まる。#45（初期化の 3 回）・#4（陽的 RK の刻みの縮め）・#46 の lowering の回数は、再現して調べたうえで直さず、根拠を issue に書いた。
 - S055・S088・S119・S139・S158: 実行できない例題の原因調べ（cerk23 の時間切れ、BDF の `GM-U0005`、サイリスタの事象の費用、SDIRK の退行の修正、sdirk34hw の `GM-E11003`）。
 - S070・S072・S080・S083・S091・S096・S108・S113・S115: 公開ライブラリの失敗を最小の再現にし、上流（Rumoca・diffsol）への issue の下書きを `doc/research/upstream/` に、一覧を正典の [doc/upstream.md](doc/upstream.md) にまとめた。Rumoca v0.10.4 で確かめ直した件は提出の順から外した。提出はしていない。
 

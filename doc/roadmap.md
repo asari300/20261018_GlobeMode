@@ -1171,6 +1171,11 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 
 - **Android の APK の大きさを戻した**（S308 の持ち越し。[ADR-0023 の S340](adr/0023-desktop-and-web-process-layout.md)、[解説書](sessions/S340-android-split-pack/解説書.md)）: Tauri は asset を 1 つずつ brotli で圧縮するので、S308 の塊 838 本は `MSL.json` 1 本より APK が 1.24 MB 大きかった。ユーザーの指示で、**案 A（Android の束だけ、塊を 1 本の `msl/pack.bin` にし、Worker が 1 回取って `Blob.slice` で切り出す）と案 B（Android だけ塊の cap を上げる）を両方実装して同じ表で比べ、A を採った**。APK（arm64 release）は 14,859,242 → **13,847,114 B**（`MSL.json` 時代 13,616,490 B の +1.7%。B は 14,432,522 B で +6.0%）。読む塊・往復（ChuaCircuit 3 往復・179 塊）・線形メモリ（読み込み後 14 MiB、ChuaCircuit の後 80.6 MiB）は S308 と同じで、エミュレータの smoke（`msl=ok` を含む全項目）は ok。ブラウザ版の分割配信（`web.yml` の束）は変えていない。
 
+### S344（P3、2026-11-15）で済んだこと
+
+- **`auto` の回し直しに予算の残りを渡した**（issue #6・#46。[ADR-0041](adr/0041-auto-remaining-budget.md)、[解説書](sessions/S344-solver-budget-issues/解説書.md)。ADR-0028 (c) を改めた）: 残り = 予算 − それまでの組み立てと実行の時間。残りが 0 以下なら回し直さず（その lowering も始めず）時間切れ（`GM-E11005`）で返し、msl-sim の「時間切れを 180 s で回し直す」に乗せる。放置した型付きの道のスレッドもトークンを見る。全例題の CI（run 43708045819、feature で `msl-sim.yml`）は、前の main の run と実行できた 312・管に収まった 303 / 311・時間切れの回し直し 14（6・4）・`auto` の回し直し 16 がすべて同じで、356 本のうち結果が変わったものは 0（ADR-0041 の「結果」）。
+- **直さなかった 3 つ**（根拠は各 issue のコメント）: #46 の lowering の回数（`rk45::simulate_artifact` が `pub(crate)`。上流の口が要る）、#45（初期化の 3 回。2 回目が「初期化」の段の目印）、#4（案を実装して試したが救えない。`SplitCircleChart` でも `step()` は `Err` を返さず、受理した点を host が評価できない。S193 と同じ）。
+
 ## いま残っているもの
 
 S177（2026-11-05、S175 までが main にある状態）で、各節の「持ち越し」を済んだものと突き合わせて 1 つにまとめた。済んだ持ち越しには、各節で打ち消し線と「（S◯◯ で済）」を付けてある。機能ごとの状態は [features.md](features.md)、上流の下書きは [upstream.md](upstream.md)。
@@ -1187,7 +1192,7 @@ S177（2026-11-05、S175 までが main にある状態）で、各節の「持�
 | 上流待ち | diffsol | 10・11 は diffsol の main で直っている（未リリース。同梱は 0.13.2 のまま）。リリースされ、Rumoca が取り込んだら patch を外せるか見る | S162 |
 | 上流待ち | S10 の初期化のヤコビ行列の階数 | Rumoca に公開の API が無い。`Invalid.UngroundedLoop` は実行しても誤りにならない | S010・S063 |
 | 機能の穴（検査・実行） | MSL の例題の通らない分 | 566 本のうち検査を通るのは 369、`GM-U`（コンパイラの限界）184、NG 13。実行できるのは 312（`auto`）、管に収まるのは 303 / 311。ほとんどは Rumoca 側の限界で、上流待ちの行に入る | S126・S168 |
-| 機能の穴（実行系） | 陽的 RK の chart の折り目と `auto` の予算（S193） | **#4**: tsit45・dopri853・cerk45 は、拘束で chart を切り替えるモデル（Rumoca の fixture `CircleChart`、`--tolerance 1e-3 --stop-time 20`）で、受理した点が chart の折り目を越えて評価できず `GM-E11002` で止まる（dopri45 は通る）。issue の案（断られたら刻みを 1/4 ずつ縮めて出し直す）は 48 組のうち失敗した 30 組で 0 組も救えなかったので入れていない。上流の候補 13 と同じ機構。**#6**: `auto` は回し直しにも `max_wall_seconds` をそのまま渡し、全体で最大 2〜3 倍走る（[ADR-0028](adr/0028-auto-esdirk34-fallback.md) (c)。残りの時間を渡す版は `Lightning…` を 1 本減らした）。**#5 の残り**: S267 で直した（`into_session` の失敗の段を BDF だけ Initialization にして、ネイティブの型付きの道と揃えた。[ADR-0014](adr/0014-session-route-wasm.md) の付記。モデルでの再現は無く、単体試験で確かめた） | S193 |
+| 機能の穴（実行系） | 陽的 RK の chart の折り目と `auto` の予算（S193） | **#4**: tsit45・dopri853・cerk45 は、拘束で chart を切り替えるモデル（Rumoca の fixture `CircleChart`、`--tolerance 1e-3 --stop-time 20`）で、受理した点が chart の折り目を越えて評価できず `GM-E11002` で止まる（dopri45 は通る）。issue の案（断られたら刻みを 1/4 ずつ縮めて出し直す）は 48 組のうち失敗した 30 組で 0 組も救えなかったので入れていない。上流の候補 13 と同じ機構。**#6**: ~~`auto` は回し直しにも `max_wall_seconds` をそのまま渡し、全体で最大 2〜3 倍走る~~（S344 で済。残りの予算を渡し、無ければ時間切れで返す。[ADR-0041](adr/0041-auto-remaining-budget.md)。#46 の予算の分も）。**#4 は S344 でも確かめ直した**（`SplitCircleChart` でも案は救えない）。**#5 の残り**: S267 で直した（`into_session` の失敗の段を BDF だけ Initialization にして、ネイティブの型付きの道と揃えた。[ADR-0014](adr/0014-session-route-wasm.md) の付記。モデルでの再現は無く、単体試験で確かめた） | S193 |
 | 機能の穴（CI） | ~~Astro の fmt に CI が無い（S203）~~（S223 で済） | ~~`src/Astro/fmt`（12 ファイル）はどのワークフローにも入っておらず、`ci_plan.py` も選ばない。~~ S223 で `ci.yml` にジョブ `astro` を足し、`ci_plan.py` が `src/Astro/**` の変更と CLI の影響で選ぶ（[architecture.md](architecture.md) の 2.5 章） | S203・S223 |
 | 機能の穴（P4） | 5k ノードのグラフの 30 fps | 実 GPU で未測定（S046 のヘッドレス Chromium で約 10 fps）。P4 の完了条件の 1 つが残っている | S046 |
 | 機能の穴（P4） | エディタの言語サービス | ~~参照・リネームがライブラリ全体・未開封のファイル・複数ファイルの一括に届かない~~（S230 で済。LSP の `textDocument/*` のクラス名）、~~継承した部品・import の別名~~（S235 で済。部品は継承先と `b.x` へ、別名はその文書の中、import 経由のクラスの参照）。UI の `globe/*`・`redeclare` の先は届かない。inlay hint、call hierarchy、semantic tokens、~~折りたたみ、インデントの規則~~（S220 で VS Code、S225 で UI の CodeMirror も済み）。補完の引数・シグネチャ・スニペット・import の自動挿入 | S161・S166・S171・S220・S230・S235 |

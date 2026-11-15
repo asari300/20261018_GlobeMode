@@ -1046,19 +1046,22 @@ fn msl_auto_falls_back_to_dopri45_when_bdf_fails_to_integrate() {
         );
         let auto = run(&model, &requested("auto"));
         assert!(auto.succeeded(), "{:#?}", auto.diagnostics);
-        let info: Vec<_> = auto
-            .diagnostics
-            .iter()
-            .filter(|d| d.code == codes::RUN_SOLVER_FALLBACK)
-            .collect();
-        assert_eq!(info.len(), 1, "{:#?}", auto.diagnostics);
-        assert_eq!(info[0].severity, Severity::Info);
-        assert!(
-            info[0].notes[0].starts_with("BDF の失敗: ")
-                && info[0].notes[0].ends_with("（GM-E11002）"),
-            "{:#?}",
-            info[0]
-        );
+        // S064 から BDF → esdirk34（GM-I11003）→ dopri45（GM-I11002）。esdirk34 は TwoMass で GM-E11002 に落ちる。
+        // 回し直しの診断は前の積分器の失敗を補足に持つ（S344 で、S064 の後に古くなっていた期待を直した）
+        for (code, from) in [
+            (codes::RUN_SOLVER_FALLBACK_ESDIRK, "BDF"),
+            (codes::RUN_SOLVER_FALLBACK, "esdirk34"),
+        ] {
+            let info: Vec<_> = auto.diagnostics.iter().filter(|d| d.code == code).collect();
+            assert_eq!(info.len(), 1, "{code}: {:#?}", auto.diagnostics);
+            assert_eq!(info[0].severity, Severity::Info);
+            assert!(
+                info[0].notes[0].starts_with(&format!("{from} の失敗: "))
+                    && info[0].notes[0].ends_with("（GM-E11002）"),
+                "{:#?}",
+                info[0]
+            );
+        }
         let r = auto.run.unwrap();
         assert_eq!(r.termination, Termination::StopTime);
         assert!(
