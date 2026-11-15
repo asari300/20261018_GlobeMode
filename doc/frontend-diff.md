@@ -4,30 +4,16 @@
 
 ## 前回の結果との差
 
-前回の結果 `target/frontend-diff.json` と、両方にある 641 本で比べる（この実行にだけある 0 本、前回にだけある 0 本）。
-**回帰 0 本**（前回は通った項目が通らなくなった）、改善 13 本。
-
-- 改善 `Modelica.Blocks.Examples.BusUsage`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
-- 改善 `Modelica.Blocks.Examples.BusUsage_Utilities.Part`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
-- 改善 `Modelica.Electrical.Batteries.Examples.BatteryDischargeCharge`: flat・rumoca_flat・flat_names・flat_eqs・dae
-- 改善 `Modelica.Electrical.Batteries.Examples.CCCV_Cell`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
-- 改善 `Modelica.Electrical.Batteries.Examples.CCCV_CellRC`: flat・rumoca_flat・flat_names・dae
-- 改善 `Modelica.Electrical.Batteries.Examples.CCCV_Stack`: flat・dae
-- 改善 `Modelica.Electrical.Batteries.Examples.CCCV_StackRC`: flat・dae
-- 改善 `Modelica.Electrical.Batteries.Examples.CCCVcharging`: flat・rumoca_flat・flat_names・dae
-- 改善 `Modelica.Electrical.Batteries.Examples.ShowImpedance`: flat・rumoca_flat・flat_names・flat_eqs・dae
-- 改善 `Modelica.Electrical.Polyphase.Examples.PolyphaseRectifier`: flat・rumoca_flat・flat_names・flat_eqs・dae
-- 改善 `Modelica.Fluid.Examples.HeatExchanger.HeatExchangerSimulation`: flat・rumoca_flat・flat_names・flat_eqs・dae
-- 改善 `Modelica.Mechanics.MultiBody.Examples.Systems.RobotR3.FullRobot`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
-- 改善 `Modelica.Mechanics.MultiBody.Examples.Systems.RobotR3.OneAxis`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+前回の結果 `.git-worktree/target-shared/bin-copies/frontend-diff-s367.json` と、両方にある 641 本で比べる（この実行にだけある 0 本、前回にだけある 0 本）。
+**回帰 0 本**（前回は通った項目が通らなくなった）、改善 0 本。
 
 | | |
 | --- | --- |
 | MSL | 4.1.0（sha256 `5409cfa17797…`） |
 | Rumoca | v0.10.2（rev `276e82bd`、ライブラリとして呼ぶ） |
 | 検査した本数 | 641 本 |
-| 時間 | 全体 1332 s（1 本ずつの検査 1160 s） |
-| 最大の常駐メモリ（VmHWM） | 5.8 GiB |
+| 時間 | 全体 1419 s（1 本ずつの検査 1297 s） |
+| 最大の常駐メモリ（VmHWM） | 4.9 GiB |
 
 自前の parse・resolve・flat・dae を、Rumoca は自前で平らにできたものにだけ呼んで比べる（母数はその本数）。
 resolve は、例題のクラスから、中のクラス・`extends`・部品の型（解決できたもの）をたどって、届くクラスすべての参照を数える。

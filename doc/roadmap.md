@@ -1180,6 +1180,13 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 
 - **UI の参照・リネームが、開いているタブの全部に届く**（[ADR-0023](adr/0023-desktop-and-web-process-layout.md) の付記、[解説書](sessions/S368-ui-cross-file-refs/解説書.md)）: `globe/references`・`globe/rename`（LSP）と wasm の `references`・`rename` が、ワークスペースに入っている全部の文書を見て `[{uri, range}]`・`{changes: {名前: [TextEdit]}}` を返す（`globe-mode-lsp` の `definition::references_in`・`rename_in`。規則は S166・S230・S235 の `textDocument/*` と同じ）。UI は呼ぶ間だけ離れたタブの本文を Workspace に入れ（`lib/cross-file.ts`）、参照の一覧は別のタブの行を押すとそのタブへ移り、リネームはほかの自分のタブの本文に当てる。ライブラリで同じクラスに行き着く参照は一覧に出すだけで、変えない。開いていないファイルは未。
 
+### S372（P4・Track B、2026-11-16）で済んだこと
+
+- **8 回目のレビュー（S361〜S368）の issue #141〜#147 を 1 件ずつ再現して直した**（[ADR-0023](adr/0023-desktop-and-web-process-layout.md) と [ADR-0039](adr/0039-native-cst-parser.md) の付記、[解説書](sessions/S372-review8-fixes/解説書.md)、レビュー履歴 `log/review/2026-11-16-s361-s368-review8.md`）。各修正に回帰試験を 1 つ（直す前なら落ちることを確かめた）。
+  - **UI の参照・リネーム（#141〜#143）**: `definition::Doc` に `own`（編集してよい文書。ライブラリのタブは false）を足し、ライブラリのタブで宣言した部品の `globe/rename` を断り、`changes` に入れない。同じ名前のクラスを複数のタブが定義するときは、各文書の名前をまず自分の定義に解決する（`at_home`。`Resolver::overlay` を使う）。構文の誤りで読めない自分のタブに名前があればリネームを断る（そのタブのファイル名を出す）。
+  - **flat・DAE（#144〜#147）**: `connect` の大きさの食い違い（範囲 `a[1:3]` と `b[1:2]`、2 次元 `[2,3]` と `[3,2]`）を断る。`sum(inStream(f[i].h) for …)` を `sum({…})` と印字する。DAE の配列の構築子の方程式の incidence を行ごとに疎にする（n = 4000 で 18.8 s・327 MB → 0.23 s・14 MB）。範囲の `i += s` の溢れ。
+  - 持ち越し: 同じ名前のクラスを定義しない 3 つ目の文書の使い方はファイル名順の先に寄る。参照の一覧は読めないタブを黙って飛ばす。
+
 ## いま残っているもの
 
 S177（2026-11-05、S175 までが main にある状態）で、各節の「持ち越し」を済んだものと突き合わせて 1 つにまとめた。済んだ持ち越しには、各節で打ち消し線と「（S◯◯ で済）」を付けてある。機能ごとの状態は [features.md](features.md)、上流の下書きは [upstream.md](upstream.md)。
@@ -1199,7 +1206,7 @@ S177（2026-11-05、S175 までが main にある状態）で、各節の「持�
 | 機能の穴（実行系） | 陽的 RK の chart の折り目と `auto` の予算（S193） | **#4**: tsit45・dopri853・cerk45 は、拘束で chart を切り替えるモデル（Rumoca の fixture `CircleChart`、`--tolerance 1e-3 --stop-time 20`）で、受理した点が chart の折り目を越えて評価できず `GM-E11002` で止まる（dopri45 は通る）。issue の案（断られたら刻みを 1/4 ずつ縮めて出し直す）は 48 組のうち失敗した 30 組で 0 組も救えなかったので入れていない。上流の候補 13 と同じ機構。**#6**: ~~`auto` は回し直しにも `max_wall_seconds` をそのまま渡し、全体で最大 2〜3 倍走る~~（S344 で済。残りの予算を渡し、無ければ時間切れで返す。[ADR-0041](adr/0041-auto-remaining-budget.md)。#46 の予算の分も）。**#4 は S344 でも確かめ直した**（`SplitCircleChart` でも案は救えない）。**#5 の残り**: S267 で直した（`into_session` の失敗の段を BDF だけ Initialization にして、ネイティブの型付きの道と揃えた。[ADR-0014](adr/0014-session-route-wasm.md) の付記。モデルでの再現は無く、単体試験で確かめた） | S193 |
 | 機能の穴（CI） | ~~Astro の fmt に CI が無い（S203）~~（S223 で済） | ~~`src/Astro/fmt`（12 ファイル）はどのワークフローにも入っておらず、`ci_plan.py` も選ばない。~~ S223 で `ci.yml` にジョブ `astro` を足し、`ci_plan.py` が `src/Astro/**` の変更と CLI の影響で選ぶ（[architecture.md](architecture.md) の 2.5 章） | S203・S223 |
 | 機能の穴（P4） | 5k ノードのグラフの 30 fps | 実 GPU で未測定（S046 のヘッドレス Chromium で約 10 fps）。P4 の完了条件の 1 つが残っている | S046 |
-| 機能の穴（P4） | エディタの言語サービス | ~~参照・リネームがライブラリ全体・未開封のファイル・複数ファイルの一括に届かない~~（S230 で済。LSP の `textDocument/*` のクラス名）、~~継承した部品・import の別名~~（S235 で済。部品は継承先と `b.x` へ、別名はその文書の中、import 経由のクラスの参照）。UI の `globe/*` は S368 で開いているタブの全部に届いた（開いていないファイルは未）。`redeclare` の先は届かない。~~inlay hint~~（S352 で済。関数の呼び出しの引数の名前）、~~call hierarchy~~（S354 で済。`function` だけ）、semantic tokens、~~折りたたみ、インデントの規則~~（S220 で VS Code、S225 で UI の CodeMirror も済み）。補完の引数・シグネチャ・スニペット・import の自動挿入 | S161・S166・S171・S220・S230・S235・S368 |
+| 機能の穴（P4） | エディタの言語サービス | ~~参照・リネームがライブラリ全体・未開封のファイル・複数ファイルの一括に届かない~~（S230 で済。LSP の `textDocument/*` のクラス名）、~~継承した部品・import の別名~~（S235 で済。部品は継承先と `b.x` へ、別名はその文書の中、import 経由のクラスの参照）。UI の `globe/*` は S368 で開いているタブの全部に届いた（開いていないファイルは未。S372 で、ライブラリのタブ・同名のクラス・読めないタブの端を直した）。`redeclare` の先は届かない。~~inlay hint~~（S352 で済。関数の呼び出しの引数の名前）、~~call hierarchy~~（S354 で済。`function` だけ）、semantic tokens、~~折りたたみ、インデントの規則~~（S220 で VS Code、S225 で UI の CodeMirror も済み）。補完の引数・シグネチャ・スニペット・import の自動挿入 | S161・S166・S171・S220・S230・S235・S368 |
 | 機能の穴（P4） | UI の使い心地 | ~~起動直後の案内、エディタへ飛ぶスキップリンク、タブの矢印キー、再読み込みをまたぐ未保存の印~~（S179 で済）、~~Esc で止める、タブの並べ替え、設定のモデルごとの保存、開始時刻・固定刻み・予算の欄~~（S228 で済）、~~ライブラリツリーのアイコン~~（S257 で済）。スクリーンリーダー（NVDA・VoiceOver）と Mac・Android の実機は【未確認】 | S164・S175・S179・S150・S151・S228・S257 |
 | 機能の穴（P4） | 結果の入出力 | ~~MAT v4 の読み込み~~（S219 で済。`globe results`・Python の `read_results`）、~~UI の「結果を開く」~~（S222 で済。「開く」が `.mat`・`.csv` を結果のタブにプロットする。S236 で再読み込みでの復元〔Desktop〕、MAT のパラメータの表、最近使ったファイルに結果と `.fmu`、FMU の実行の設定フォームを足した）、凡例つきの画像と SVG、Arrow IPC（列ごとの f64 で足りているので急がない） | S012・S128・S146・S219・S222・S236 |
 | 機能の穴（P4） | VS Code の拡張 | ~~Windows・macOS での試験~~（S233 で済。`vscode.yml` が 3 OS の matrix で、本物の VS Code の e2e 5 本が通る。S353 で inlay hint・call hierarchy の e2e も足した）、Marketplace（ユーザーの判断に付く） | S165・S233・S353 |

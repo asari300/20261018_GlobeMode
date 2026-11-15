@@ -698,3 +698,12 @@ S297 の見立て（Complex のレコード）は外れで、`Connections.isRoot
   - `CCCVcharging`・`CCCV_CellRC`（方程式の数 111 対 101・138 対 128）: `resistor[cellData.nRC]`・`capacitor[cellData.nRC]`（`nRC` はレコードの欄）の大きさを Rumoca が評価せず、変数の名前は `battery.resistor.R`（要素なし）のまま、方程式を 1 要素分（6 本・4 本）しか数えない（flat の接続の方程式の `battery.resistor.p.i[1]`・`[2]` は 2 要素）。自前は 2 要素で、差はちょうど 10 本（S332 の「大きさを評価できない配列は展開しない」と同じ種類）。上流の下書きは足していない。
   - `CCCV_Stack`・`CCCV_StackRC`: Rumoca の flat が `flatten error: expandable connector connection between busTranscription.gainV.u and busTranscription.stackBus.cellBus.v requires unsupported member augmentation` で断る。`stackBus.cellBus` は宣言済みの expandable の配列で、欄 `v` も宣言済みなので、MLS の読みでは欄を足す接続ではない。自前の DAE は釣り合い（823 対 823・999 対 999）・構造の正則で、Rumoca と比べられない。
 - **持ち越し**: `non-constant-dim` の 4 本（`Rectifier12pulseFFT`・`Rectifier6pulseFFT`・`RealFFT1`・`RealFFT2`）は `realFFTsamplePoints`（アルゴリズムのある関数）の評価が要る。`unsized-array` の 1 本（`ReadRealMatrixFromFile`）は決められない。expandable の欄を足す接続は断ったまま（MSL の例題に出ない）。
+
+## 付記（S372）: 8 回目のレビューの flat・DAE の issue（#144〜#147）
+
+8 回目のレビュー（S361〜S368）の issue のうち flat と DAE の 4 件を、再現を確かめてから直した（#141〜#143 は [ADR-0023](0023-desktop-and-web-process-layout.md) の付記）。各修正に小さな回帰試験を 1 つ足した（直す前なら落ちることを確かめた）。native の検査（`--frontend native`・LSP で設定したとき）だけに届き、Rumoca の道（既定）は変わらない。
+
+- **#144 `connect` の大きさの食い違い**: 範囲の切り出しの `connect(a[1:3], b[1:2])` は、両辺の長さが違うと先頭の 1 本だけをつないでいた（S367 より前は断っていたので、断る → 黙って別の接続になる向きの変化だった）。長さが違えば `connect`（`differ in size`）で断る。2 次元の部品の配列 `connect(x.p, y.p)`（`x[2,3]`・`y[3,2]`）は全要素数だけを比べて行優先で対応づけていたので、`expand_end` が展開した次元（`[k]` か `[行, 列]`）も返し、`gen_connects` と `split_array_var` が 2 次元どうしの行数・列数まで比べる（1 次元と 2 次元は今までどおり要素数だけ。回帰を避けるため）。
+- **#145 `sum(inStream(f[i].h) for i in 1:3)` の印字**: 内包の `inStream` の展開は項をカンマでつないだだけで、親が `{…}` でないと `sum(a, b, c)`（引数 3 個）になっていた。親が配列の構築子でなければ `{…}` で包む（`sum({a, b, c})`）。方程式の数・DAE の参照は変わらない。
+- **#146 DAE の配列の構築子の方程式が O(n²)**: `y = {x[1]*2, …, x[n]*2}` は、方程式 1 本分の `refs` を行ごとに全部調べ、`Sel::One(j)` の参照がどの行にも付いて incidence が n×n の密になった（n = 4000 で 15 s・RSS 330 MB）。`Ref` に `row: Option<(j, m)>`（方程式の片辺の構築子の `ej` の中なら）を持たせ、方程式の数が `m` のとき行 `j` だけが調べる（`Ctx::elem_rows`。構築子が方程式の片辺・束縛の `0 = ({…})` の直下のときだけ。内包は従来どおり、要素が配列で数が合わないときも従来どおり）。n = 4000 で debug の `build` が 18.8 s → 0.23 s、RSS 327 MB → 14 MB（この机で直す前後を測った。issue は 15 s・330 MB）。incidence が疎になるので正則の判定は厳しくなる向き（`msl:diff-frontend` で回帰 0・改善 0。MSL 566 本の flat 561/566・正則 382/382 のまま）。
+- **#147 範囲の `i += s` の溢れ**: `for i in 9223372036854775800:9223372036854775807` の最後の要素のあとの `i += s` が溢れて debug は panic（#137 の取りこぼし）。`checked_add` で打ち切る。
