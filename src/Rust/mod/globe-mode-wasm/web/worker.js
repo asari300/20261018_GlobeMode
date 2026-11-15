@@ -53,7 +53,8 @@ async function ensure(model, extra = [], basesOnly = false) {
   const key = JSON.stringify([model, extra, basesOnly, [...docs]]);
   if (lazy.ok.has(key)) return;
   let grown = false;
-  for (;;) {
+  for (let round = 0; ; round++) {
+    if (round > lazy.chunks + 1) throw new Error(`塊を取っても閉包が決まらない（${round} 回）。索引と塊の版が合っていない`); // 1 回ごとに新しい塊を取るので塊の数で終わる
     const closure = JSON.parse(lazy.closure.closure(model, JSON.stringify([...docs.values(), ...extra]), basesOnly));
     const need = closure.filter((n) => lazy.stub.has(n));
     if (!need.length) break;
@@ -77,18 +78,32 @@ async function fetchChunks(names, depth = 0) {
   const ids = [...seen].filter((i) => !lazy.got.has(i));
   if (!ids.length) return;
   lazy.rounds++;
-  const texts = await Promise.all(
-    ids.map(async (i) => (await getText(`${lazy.base}c/${i}.json`)) ?? Promise.reject(new Error(`MSL の塊 ${i} を取得できない（${lazy.base}c/${i}.json）`))),
+  // 取れて、読めてから got に入れる（壊れた塊を入れると、次の呼び出しが何も取らず ensure が回り続けた。#110）
+  const parsed = await Promise.all(
+    ids.map(async (i) => {
+      const url = `${lazy.base}c/${i}.json`;
+      const text = (await getText(url)) ?? Promise.reject(new Error(`MSL の塊 ${i} を取得できない（${url}）`));
+      try {
+        return [text, JSON.parse(text)];
+      } catch (e) {
+        throw new Error(`MSL の塊 ${i} が壊れている（${url}）: ${e.message}`);
+      }
+    }),
   );
-  for (const i of ids) lazy.got.add(i);
-  for (const text of texts) {
+  for (const [text, chunk] of parsed) {
     lazy.bytes += text.length;
-    for (const [n, body] of Object.entries(JSON.parse(text))) {
+    for (const [n, body] of Object.entries(chunk)) {
       if (!lazy.stub.delete(n)) continue;
       lazy.files[n] = body;
       lazy.closure.set_text(n, body);
     }
   }
+  // 索引が「この塊にある」と言うファイルが見出しのままなら、塊が索引と合っていない。その塊は got に入れない（次に取り直せる）
+  const fetched = new Set(ids);
+  const missing = Object.keys(lazy.chunk).filter((n) => fetched.has(lazy.chunk[n]) && lazy.stub.has(n));
+  const badIds = new Set(missing.map((n) => lazy.chunk[n]));
+  for (const i of ids) if (!badIds.has(i)) lazy.got.add(i);
+  if (missing.length) throw new Error(`MSL の塊に無いファイル: ${missing.slice(0, 3).join(", ")}（索引と塊の版が合っていない）`);
 }
 
 const ops = {

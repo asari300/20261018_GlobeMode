@@ -269,3 +269,5 @@
 - 残る不確かさ: 3.0 の `variability` の既定値（XSD に無く、仕様本文で未確認）、`fmu-runner` の FMI 3.0 対応、fmi-standard.org の validation のページの内容。
 
 **S303 の付記（#105・#106）**: `.ssp` は信頼できない入力として扱う。`SystemStructure.ssd` と `.ssv` は `modelDescription.xml` と同じ 64 MiB の上限で読み（超えたら誤り。`globe-mode-fmi-import` の `read_capped` 1 か所）、同じ `.ssv` を指す binding は 1 回だけ読んで解析する。入れ子の System は深さ 64、要素の名前 1 つ 1024 バイトまで（超えたら誤り。階層名を毎段つなぐ連結が深さ² のメモリになるため。実際の SSP は数段）。
+
+**S321 の付記（#112）**: S303 の深さ 64・名前 1024 は積を見ていなかった（64 段 × 1 KB の階層名の最深部に Component を 5000 個並べた 280 KB の `.ssd` で RSS が 650 MB）。階層名の全体を 4096 バイトまで、階層名を抱える項目（System・Component・コネクタ・接続・System の束縛）の総数を 10000 個までにし、超えたら誤りにする（`globe-mode-fmi` の `Walk`。読み取り側だけ。書き出しは変えない）。

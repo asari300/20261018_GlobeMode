@@ -4,6 +4,7 @@
 
 | S | 日付 | Phase | 題名 | ブランチ | 状態 | スライド | 解説書 | セッション記録 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| S321 | 2026-11-15 | 監査 | `ssp-wasm-vscode-issues`: 3 回目のレビューの issue #112・#110・#117 を監査して直した（SSP の階層名 4096 バイトと項目 10000 個の上限、分割配信の壊れた塊・索引と合わない塊で固まらない、VS Code のパネルのパラメータ入力は開始時の対象と版を使う） | `feature/s321-ssp-wasm-vscode-issues` | 完了 | [slides](S321-ssp-wasm-vscode-issues/slides.html) | [解説書](S321-ssp-wasm-vscode-issues/解説書.md) | なし |
 | S317 | 2026-11-15 | 文書 | `readme-changelog-4`: README と CHANGELOG に、S304 の後に main に入った利用者に見える機能（native の検査 S305〜S313、flat の redeclare S297、VS Code のパラメータとキー操作 S306・S309、S303 の修正）を反映（文書だけ） | `feature/s317-readme-changelog-4` | 完了 | [slides](S317-readme-changelog-4/slides.html) | [解説書](S317-readme-changelog-4/解説書.md) | なし |
 | S313 | 2026-11-15 | Track B | `native-everywhere`: native の検査を CLI 以外からも選べるようにした。facade `Workspace::check_with(model, CheckFrontend)`、LSP は `globe-mode.toml` の `[check] frontend = "native"`、Python は `check(model, frontend="native")`（既定は Rumoca、wasm・UI は未） | `feature/s313-native-everywhere` | 完了 | [slides](S313-native-everywhere/slides.html) | [解説書](S313-native-everywhere/解説書.md) | なし |
 | S309 | 2026-11-15 | P8 | `vscode-keyboard`: VS Code の側のパネルを、マウスなしで操作できるようにした。選んだ部品を矢印キー（2 単位、Shift で 10 単位）で動かし、Enter でパラメータの QuickPick、コマンド「GlobeMode: 部品のパラメータを編集」（カーソルの部品か QuickPick で選ぶ） | `feature/s309-vscode-keyboard` | 完了 | [slides](S309-vscode-keyboard/slides.html) | [解説書](S309-vscode-keyboard/解説書.md) | なし |
