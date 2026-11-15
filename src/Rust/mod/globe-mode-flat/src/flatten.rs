@@ -51,6 +51,8 @@ struct Bind {
     ctx: Rc<Ctx>,
     /// レコードの束縛 `r = other` を欄に分けたときの `.f.g`（印字だけに足す。評価はしない）
     suffix: String,
+    /// 評価せず組み立てた式（`Complex` の演算子の展開。S329）。あれば印字はこれ
+    lit: Option<String>,
 }
 
 /// 式を書いた場所: インスタンスの名前の前置き（`a.b.`）、そのクラスと基底の全部、`for` の添字の値
@@ -151,6 +153,8 @@ enum Val {
     I(i64),
     R(f64),
     B(bool),
+    /// 文字列（比較だけに使うので、中身の代わりに hash を持つ。S329）
+    S(u64),
     /// 列挙の要素（列挙のクラスと、その中の順番）
     E(ClassId, usize),
 }
@@ -161,6 +165,7 @@ impl Val {
             Val::I(i) => i as f64,
             Val::R(r) => r,
             Val::B(b) => f64::from(u8::from(b)),
+            Val::S(h) => h as f64,
             Val::E(_, i) => i as f64,
         }
     }
@@ -791,7 +796,7 @@ impl F<'_> {
                 // `R r = R(a = 1)`・`r = other` は欄ごとの修飾にする。明示した修飾 > 束縛 > 型の修飾
                 // 配列のレコードは要素ごとに: `{R(…), R(…)}` は要素の式、別の配列 `x` は `x[k]`
                 let bound: Vec<ModMap> = match &m.val {
-                    Some(b) if dims.is_empty() => vec![self.record_value(b, name)?],
+                    Some(b) if dims.is_empty() => vec![self.record_value(b, name, cid)?],
                     Some(b) if dims.len() == 1 && b.suffix.is_empty() => {
                         let items = match Expr::cast(b.node.clone()) {
                             Some(Expr::Array(a)) => Some(a.items()),
@@ -812,7 +817,7 @@ impl F<'_> {
                                         ..b.clone()
                                     },
                                 };
-                                self.record_value(&el, name)
+                                self.record_value(&el, name, cid)
                             })
                             .collect::<Res<_>>()?
                     }
@@ -823,9 +828,7 @@ impl F<'_> {
                     None => vec![ModMap::new()],
                 };
                 let eff = fill(parent, fill(own_flags, flags));
-                if !dims.is_empty() && has_array_value(&m.sub) {
-                    return un("array-modification", name);
-                }
+                let split = !dims.is_empty() && has_array_value(&m.sub);
                 let oc = self.p.lineage(cid).iter().any(|c| {
                     self.p.lib.classes[*c]
                         .classes
@@ -841,7 +844,17 @@ impl F<'_> {
                     if oc {
                         self.oc_nodes.insert(el.clone());
                     }
-                    let mods = merge(&m.sub, &merge(&bound[e.min(bound.len() - 1)], &mods));
+                    let sub_e = if split {
+                        split_mod(
+                            &m.sub,
+                            &ix,
+                            (dims.len() == 1).then_some((e, dims[0])),
+                            dims.len(),
+                        )?
+                    } else {
+                        m.sub.clone()
+                    };
+                    let mods = merge(&sub_e, &merge(&bound[e.min(bound.len() - 1)], &mods));
                     let (sub, _) =
                         self.inst_class(cid, &format!("{el}."), &mods, inherit(eff), heir)?;
                     if conn {
@@ -868,14 +881,21 @@ impl F<'_> {
     }
 
     /// レコードの束縛（コンストラクタの呼び出しか、別のレコードの部品）を、欄ごとの修飾にする
-    fn record_value(&self, b: &Bind, name: &str) -> Res<ModMap> {
+    fn record_value(&self, b: &Bind, name: &str, cid: ClassId) -> Res<ModMap> {
         let bind = |e: &SyntaxNode, suffix: String| Bind {
             node: e.clone(),
             file: b.file,
             ctx: b.ctx.clone(),
             suffix,
+            lit: None,
         };
         let mut out = ModMap::new();
+        // 条件が定数に決まる `if` の式は、選ばれた枝（S329）
+        if let Some(Expr::If(i)) = Expr::cast(b.node.clone())
+            && let Some(e) = self.const_if_expr(&i, b.file, &b.ctx)
+        {
+            return self.record_value(&bind(e.syntax(), b.suffix.clone()), name, cid);
+        }
         match Expr::cast(b.node.clone()) {
             Some(Expr::Call(c)) => {
                 let rid = c
@@ -927,9 +947,174 @@ impl F<'_> {
                     nest(&mut out, &path, bind(&b.node, format!("{}.{l}", b.suffix)));
                 }
             }
-            _ => return un("composite-binding", format!("{name} = {}", b.node.text())),
+            // `x.i[1]` のように添字のある参照は、型の欄ごとに `x.i[1].f`
+            Some(Expr::ComponentRef(_)) => {
+                out.insert(WHOLE.to_string(), field_mod(b.clone()));
+            }
+            _ => {
+                // `Complex` の演算子の式 `a - b` は評価せず、欄ごとの式にする（S329）
+                if b.suffix.is_empty()
+                    && self.p.lib.qualified_name(cid) == "Complex"
+                    && let Some((re, im)) = self.complex_parts(&b.node, b, 0)?
+                {
+                    for (f, t) in [("re", re), ("im", im.unwrap_or_else(|| "0".into()))] {
+                        let lit = Some(t);
+                        out.insert(
+                            f.to_string(),
+                            field_mod(Bind {
+                                lit,
+                                ..bind(&b.node, String::new())
+                            }),
+                        );
+                    }
+                    return Ok(out);
+                }
+                return un("composite-binding", format!("{name} = {}", b.node.text()));
+            }
         }
         Ok(out)
+    }
+
+    /// `Complex` の式を (実部, 虚部) の式にする。虚部 `None` は Real。読めない形は `None`（S329）。
+    /// shortcut: 演算子の関数の中身は読まず、MSL の `Complex` の定義（`+ - * /`、単項 `-`）を決め打つ。`^`・`==` と、
+    /// 型が分からない参照（宣言が後ろの部品。Complex と見なす）は上位の計測で足りなくなったら型を引く
+    fn complex_parts(&self, n: &SyntaxNode, b: &Bind, depth: u32) -> Res<Option<CxPart>> {
+        if depth > 24 {
+            return Ok(None);
+        }
+        let d = depth + 1;
+        let txt = |x: &SyntaxNode| self.text(x, b.file, &b.ctx);
+        let real = |x: &SyntaxNode| -> Res<Option<CxPart>> { Ok(Some((txt(x)?, None))) };
+        let Some(e) = Expr::cast(n.clone()) else {
+            return Ok(None);
+        };
+        match e {
+            Expr::Literal(_) => real(n),
+            Expr::Paren(p) => match p.items().as_slice() {
+                [e] => self.complex_parts(e.syntax(), b, d),
+                _ => Ok(None),
+            },
+            Expr::Unary(u) => {
+                let Some(o) = u.operand() else {
+                    return Ok(None);
+                };
+                let Some((re, im)) = self.complex_parts(o.syntax(), b, d)? else {
+                    return Ok(None);
+                };
+                Ok(match u.op().map(|t| t.kind()) {
+                    Some(K::Plus) => Some((re, im)),
+                    Some(K::Minus) => Some((
+                        format!("-{}", cx_par(&re)),
+                        im.map(|i| format!("-{}", cx_par(&i))),
+                    )),
+                    _ => None,
+                })
+            }
+            Expr::Binary(bx) => {
+                let operands = bx.operands();
+                let ops = bx.ops();
+                let Some(first) = operands.first() else {
+                    return Ok(None);
+                };
+                let Some(mut acc) = self.complex_parts(first.syntax(), b, d)? else {
+                    return Ok(None);
+                };
+                for (o, op) in operands[1..].iter().zip(ops.iter()) {
+                    let Some(r) = self.complex_parts(o.syntax(), b, d)? else {
+                        return Ok(None);
+                    };
+                    let Some(v) = cx_bin(op.kind(), acc, r) else {
+                        return Ok(None);
+                    };
+                    acc = v;
+                }
+                Ok(Some(acc))
+            }
+            Expr::If(i) => {
+                let mut parts = Vec::new();
+                for (c, v) in i.branches() {
+                    let Some(v) = self.complex_parts(v.syntax(), b, d)? else {
+                        return Ok(None);
+                    };
+                    parts.push((Some(txt(c.syntax())?), v));
+                }
+                let Some(e) = i.else_branch() else {
+                    return Ok(None);
+                };
+                let Some(e) = self.complex_parts(e.syntax(), b, d)? else {
+                    return Ok(None);
+                };
+                parts.push((None, e));
+                let cx = parts.iter().any(|(_, p)| p.1.is_some());
+                let pick = |im: bool| {
+                    let mut s = String::new();
+                    for (c, p) in &parts {
+                        let t = if im {
+                            p.1.clone().unwrap_or_else(|| "0".into())
+                        } else {
+                            p.0.clone()
+                        };
+                        match c {
+                            Some(c) if s.is_empty() => s = format!("if {c} then {t}"),
+                            Some(c) => s += &format!(" elseif {c} then {t}"),
+                            None => s += &format!(" else {t}"),
+                        }
+                    }
+                    s
+                };
+                Ok(Some((pick(false), cx.then(|| pick(true)))))
+            }
+            Expr::ComponentRef(_) => {
+                let t = txt(n)?;
+                if self.var_idx.contains_key(&format!("{t}.re")) {
+                    return Ok(Some((format!("{t}.re"), Some(format!("{t}.im")))));
+                }
+                // Real の部品・定数・`time` は Real。宣言が後ろでまだ無いものは Complex と見なす
+                if t == "time"
+                    || self.var_idx.contains_key(&t)
+                    || self.eval(n, b.file, &b.ctx, 0).is_some()
+                {
+                    return real(n);
+                }
+                Ok(Some((format!("{t}.re"), Some(format!("{t}.im")))))
+            }
+            Expr::Call(c) => {
+                let rid = c
+                    .syntax()
+                    .children()
+                    .find_map(ast::ComponentRef::cast)
+                    .and_then(|r| match self.p.res_of(b.file, r.range()) {
+                        Some(Resolution::Class(rid)) => Some(rid),
+                        _ => None,
+                    });
+                let Some(rid) = rid else {
+                    return real(n); // 組み込みの関数（`sqrt`・`abs`）は Real
+                };
+                let q = self.p.lib.qualified_name(rid);
+                if q == "Complex" || q.starts_with("Complex.") {
+                    let (args, named) = (c.args(), c.named_args());
+                    let get = |i: usize, f: &str| {
+                        let e = named
+                            .iter()
+                            .find(|(k, _)| k == f)
+                            .map(|(_, e)| e)
+                            .or(args.get(i));
+                        e.map(|e| txt(e.syntax())).transpose()
+                    };
+                    let (re, im) = (get(0, "re")?, get(1, "im")?);
+                    return Ok(re.map(|r| (r, Some(im.unwrap_or_else(|| "0".into())))));
+                }
+                if let Some(f) = q.strip_prefix("Modelica.ComplexMath.") {
+                    if matches!(f, "abs" | "arg" | "real" | "imag") {
+                        return real(n);
+                    }
+                    let t = txt(n)?;
+                    return Ok(Some((format!("{t}.re"), Some(format!("{t}.im")))));
+                }
+                Ok(None)
+            }
+            _ => Ok(None),
+        }
     }
 
     /// レコードのコンストラクタの位置引数の順（`extends` の欄が先。constant は除く）
@@ -1398,6 +1583,7 @@ impl F<'_> {
                 file,
                 ctx: ctx.clone(),
                 suffix: String::new(),
+                lit: None,
             });
         Ok(Mod {
             val,
@@ -1408,7 +1594,15 @@ impl F<'_> {
     }
 
     fn print_bind(&self, b: &Bind) -> Res<String> {
-        Ok(self.text(&b.node, b.file, &b.ctx)? + &b.suffix)
+        if let Some(l) = &b.lit {
+            return Ok(l.clone());
+        }
+        let t = self.text(&b.node, b.file, &b.ctx)?;
+        // 添字は参照にしか付けられない。式には括弧を付ける（S329）
+        if b.suffix.starts_with('[') && b.node.kind() != K::ComponentRef {
+            return Ok(format!("({t}){}", b.suffix));
+        }
+        Ok(t + &b.suffix)
     }
 
     // ---------------------------------------------------------------- 式の印字
@@ -1570,6 +1764,12 @@ impl F<'_> {
                     K::UReal => t.text().parse().ok().map(Val::R),
                     K::KwTrue => Some(Val::B(true)),
                     K::KwFalse => Some(Val::B(false)),
+                    K::Str => {
+                        use std::hash::{Hash, Hasher};
+                        let mut h = std::collections::hash_map::DefaultHasher::new();
+                        t.text().hash(&mut h);
+                        Some(Val::S(h.finish()))
+                    }
                     _ => None,
                 }
             }
@@ -1623,9 +1823,24 @@ impl F<'_> {
                     Resolution::Local if parts.len() == 1 => ctx.local(&parts[0]).map(Val::I),
                     Resolution::Component(cid, idx) => {
                         if ctx.pfx != PKG && ctx.lineage.contains(cid) {
+                            // `outer` の部品の欄 `world.enableAnimation` は、先頭を inner の名前に付け替える（S329）
                             let key = format!("{}{}", ctx.pfx, parts.join("."));
-                            let b = self.env.get(self.alias.get(&key).unwrap_or(&key))?;
-                            if !b.suffix.is_empty() {
+                            let key = match self.alias.get(&format!("{}{}", ctx.pfx, parts[0])) {
+                                Some(a) => [a.as_str()]
+                                    .into_iter()
+                                    .chain(parts[1..].iter().map(String::as_str))
+                                    .collect::<Vec<_>>()
+                                    .join("."),
+                                None => key,
+                            };
+                            let Some(b) = self.env.get(&key) else {
+                                // まだ平らにしていない部品（宣言が後ろの `inner world`）の欄は、修飾か型の既定値から
+                                let tgt = key.strip_suffix(&format!(".{}", parts.last()?))?;
+                                return (parts.len() == 2)
+                                    .then(|| self.pending_field(tgt, parts.last()?, d))
+                                    .flatten();
+                            };
+                            if !b.suffix.is_empty() || b.lit.is_some() {
                                 return None;
                             }
                             self.eval(&b.node, b.file, &b.ctx, d)
@@ -1703,6 +1918,25 @@ impl F<'_> {
                         (b != 0).then(|| Val::I(a - (a as f64 / b as f64).floor() as i64 * b))
                     }
                     "sqrt" => Some(Val::R(v(0)?.f().sqrt())),
+                    // shortcut: MSL の 1 つの関数だけを決め打つ（`for k in 1:mSystems` の範囲）。関数の評価器ができたら置き換える
+                    "numberOfSymmetricBaseSystems" => {
+                        let r = c.syntax().children().find_map(ast::ComponentRef::cast)?;
+                        let Some(Resolution::Class(rid)) = self.p.res_of(file, r.range()) else {
+                            return None;
+                        };
+                        let q = self.p.lib.qualified_name(rid);
+                        if q != "Modelica.Electrical.Polyphase.Functions.numberOfSymmetricBaseSystems"
+                        {
+                            return None;
+                        }
+                        let mut m = v(0)?.int().filter(|m| *m >= 1)?;
+                        let mut n = 1;
+                        while m % 2 == 0 && m != 2 {
+                            n *= 2;
+                            m /= 2;
+                        }
+                        Some(Val::I(n))
+                    }
                     _ => None,
                 }
             }
@@ -1723,6 +1957,28 @@ impl F<'_> {
         let r = self.decl_dims(&p.ctx, p.file, &p.cc, &p.d, name, &p.m);
         self.depth.set(self.depth.get() - 1);
         r.ok()
+    }
+
+    /// まだ平らにしていない部品 `tgt` の欄 `field` の値。宣言した場所の修飾が先、無ければ型の既定値（S329）。
+    /// shortcut: 既定値が他の欄を参照していれば評価しない（`pkg_env` の文脈は部品の欄を知らない）
+    fn pending_field(&self, tgt: &str, field: &str, d: u32) -> Option<Val> {
+        let p = self.pending.get(tgt)?;
+        if let Some(b) = p.m.sub.get(field).and_then(|x| x.val.as_ref()) {
+            if !b.suffix.is_empty() || b.lit.is_some() {
+                return None;
+            }
+            return self.eval(&b.node, b.file, &b.ctx, d);
+        }
+        let tn = p.cc.type_name()?;
+        let (res, _, _) = self.class_res(p.file, &tn, &p.ctx);
+        let (Ty::Comp { cid, .. }, _) = self.type_of(res, &tn.parts()).ok()? else {
+            return None;
+        };
+        let b = self.pkg_env(cid)?.get(field)?.clone();
+        if !b.suffix.is_empty() || b.lit.is_some() {
+            return None;
+        }
+        self.eval(&b.node, b.file, &b.ctx, d)
     }
 
     fn is_enum(&self, cid: ClassId) -> bool {
@@ -2612,8 +2868,114 @@ fn has_array_value(m: &ModMap) -> bool {
         (!x.each
             && x.val
                 .as_ref()
-                .is_some_and(|b| b.node.kind() == K::ArrayExpr))
+                .is_some_and(|b| split_kind(&b.node, 0).is_some()))
             || has_array_value(&x.sub)
+    })
+}
+
+/// 分けられる値の形: `{…}`（`None` の中身）か、`fill(x, n…)` の `x`（次元が `nd` 個のときだけ）
+fn split_kind(n: &SyntaxNode, nd: usize) -> Option<Option<SyntaxNode>> {
+    match Expr::cast(n.clone())? {
+        Expr::Array(_) => Some(None),
+        Expr::Call(c) if c.callee().as_deref() == Some("fill") => {
+            let a = c.args();
+            (nd == 0 || a.len() == nd + 1).then(|| a.first().map(|e| e.syntax().clone()))
+        }
+        _ => None,
+    }
+}
+
+/// 部品の配列への修飾 `c[n](a = {…})` を要素 `ix`（`[2]`・`[1,2]`）の分に分ける。`each` の修飾は分けない（S329）。
+/// 1 次元で `{…}` の項が並んでいれば項そのもの、それ以外（`for` つきの内包・多次元）は `({…})[ix]`
+/// `one` は 1 次元のときの（要素の番号 0 始まり, 大きさ）
+fn split_mod(m: &ModMap, ix: &str, one: Option<(usize, usize)>, nd: usize) -> Res<ModMap> {
+    let mut out = ModMap::new();
+    for (k, x) in m {
+        let mut x = x.clone();
+        if !x.each {
+            if let Some(b) = x.val.as_mut()
+                && let Some(kind) = split_kind(&b.node, nd)
+            {
+                // `fill(x, n…)` は要素ごとに `x`
+                if let Some(v) = kind {
+                    b.node = v;
+                    out.insert(k.clone(), x);
+                    continue;
+                }
+                let items = Expr::cast(b.node.clone()).and_then(|e| match e {
+                    Expr::Array(a) => Some(a.items()),
+                    _ => None,
+                });
+                let plain = !b.node.children().any(|c| c.kind() == K::Comprehension);
+                match (one, items) {
+                    (Some((e, n)), Some(i)) if plain => {
+                        if i.len() != n {
+                            return un("array-modification", format!("{k} size differs"));
+                        }
+                        b.node = i[e].syntax().clone();
+                    }
+                    _ => b.suffix = format!("{}{ix}", b.suffix),
+                }
+            }
+            x.sub = split_mod(&x.sub, ix, one, nd)?;
+        }
+        out.insert(k.clone(), x);
+    }
+    Ok(out)
+}
+
+/// `Complex` の (実部, 虚部)。虚部 `None` は Real
+type CxPart = (String, Option<String>);
+
+/// 演算の被演算子の括弧（名前・数・添字はそのまま）
+fn cx_par(s: &str) -> String {
+    if s.chars().all(|c| c.is_alphanumeric() || "._[]".contains(c)) {
+        s.to_string()
+    } else {
+        format!("({s})")
+    }
+}
+
+/// MSL の `Complex` の `+ - * /`。Real の被演算子は虚部 0 として、0 の項は出さない（S329）
+fn cx_bin(op: K, a: CxPart, b: CxPart) -> Option<CxPart> {
+    let (p, q) = (cx_par(&a.0), cx_par(&b.0));
+    let (ai, bi) = (a.1.as_deref().map(cx_par), b.1.as_deref().map(cx_par));
+    Some(match (op, &ai, &bi) {
+        (K::Plus | K::DotPlus, _, _) => (
+            format!("{p} + {q}"),
+            match (&ai, &bi) {
+                (Some(x), Some(y)) => Some(format!("{x} + {y}")),
+                (x, y) => x.clone().or(y.clone()),
+            },
+        ),
+        (K::Minus | K::DotMinus, _, _) => (
+            format!("{p} - {q}"),
+            match (&ai, &bi) {
+                (Some(x), Some(y)) => Some(format!("{x} - {y}")),
+                (x, None) => x.clone(),
+                (None, Some(y)) => Some(format!("-{y}")),
+            },
+        ),
+        (K::Star | K::DotStar, None, None) => (format!("{p}*{q}"), None),
+        (K::Star | K::DotStar, Some(x), None) => (format!("{p}*{q}"), Some(format!("{x}*{q}"))),
+        (K::Star | K::DotStar, None, Some(y)) => (format!("{p}*{q}"), Some(format!("{p}*{y}"))),
+        (K::Star | K::DotStar, Some(x), Some(y)) => (
+            format!("{p}*{q} - {x}*{y}"),
+            Some(format!("{p}*{y} + {x}*{q}")),
+        ),
+        (K::Slash | K::DotSlash, None, None) => (format!("{p}/{q}"), None),
+        (K::Slash | K::DotSlash, Some(x), None) => (format!("{p}/{q}"), Some(format!("{x}/{q}"))),
+        (K::Slash | K::DotSlash, _, Some(y)) => {
+            let den = format!("({q}*{q} + {y}*{y})");
+            match &ai {
+                Some(x) => (
+                    format!("({p}*{q} + {x}*{y})/{den}"),
+                    Some(format!("(-{p}*{y} + {x}*{q})/{den}")),
+                ),
+                None => (format!("{p}*{q}/{den}"), Some(format!("-{p}*{y}/{den}"))),
+            }
+        }
+        _ => return None,
     })
 }
 
@@ -2629,6 +2991,8 @@ fn binop(op: K, a: Val, b: Val) -> Option<Val> {
         (K::Star | K::DotStar, _, _) => R(a.f() * b.f()),
         (K::Slash | K::DotSlash, _, _) => R(a.f() / b.f()),
         (K::Caret | K::DotCaret, _, _) => R(a.f().powf(b.f())),
+        (K::EqEq, S(x), S(y)) => B(x == y),
+        (K::Ne, S(x), S(y)) => B(x != y),
         (K::EqEq, E(c, i), E(d, j)) => B(c == d && i == j),
         (K::Ne, E(c, i), E(d, j)) => B(c != d || i != j),
         (K::Lt, _, _) => B(a.f() < b.f()),
