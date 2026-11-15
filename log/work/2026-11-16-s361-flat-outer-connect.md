@@ -3,7 +3,7 @@
 | | |
 | --- | --- |
 | 日付 | 2026-11-16 |
-| ブランチ | `feature/s361-flat-outer-connect`（S355 の `feature/s355-flat-stream` の 4d916cb0 から切り、main の 93d9670c〔S358 まで〕を取り込んだ） |
+| ブランチ | `feature/s361-flat-outer-connect`（S355 の `feature/s355-flat-stream` の 4d916cb0 から切り、main の 93d9670c〔S358 まで〕、origin/main の ef606e9f〔S359・S360〕、2ef3af37〔S355・S362〕を順に取り込んだ） |
 | worktree | `.git-worktree/s361-flat-outer-connect` |
 | Phase | Track B |
 | セッション文書 | `doc/sessions/S361-flat-outer-connect/` |
@@ -21,7 +21,7 @@ S355 のあと MSL の例題で flat が断るのは 28 本。うち `connect` �
 - **`cardinality` の `if`**: 数える・選ぶのは全部の `connect` がそろったあと。枝ごとに平らにした方程式を目印の 1 行の位置に置き、`apply_connection_graph` のあと（`expand_streams` の前）に置き換える。位置（`at`）ではなく目印の文字列で探すのは、`apply_connection_graph` が方程式の列を積み直して位置が動くため。Rumoca の `compute_cardinality_counts`（`connect` の端の完全な名前の出現の数）と同じ数え方。方程式が部品あたり 2 本多かった（`Step` の `if cardinality(inPort[i]) == 0 …`）のが、10 本のうち 9 本で名前は合うのに数が合わなかった原因。
 - **`constrainedby` の修飾は差し替えた部品にだけ掛けた**。差し替えていない既定の型には掛けていない（`LogicalSample` は差し替えた側で足りる。既定の型に掛けると 498/511 だった一致が動くか確かめていない。Rumoca の挙動も未確認）。
 - **内包の中の `inStream`**（`BatchPlant_StandardWater` が `connect` を通ると `inStream(multiPort.ports_b[j].h_outflow): not a variable` で止まった）は、S355 が shortcut として断っていた形。`pr`（印字）で、本体に `inStream`・`actualStream` を含む内包を添字ごとに展開した。添字が複数の内包は断る（MSL に無い）。
-- **DAE は触らない**（S362 が `globe-mode-dae` を触る）。新しく通った 10 本で DAE が食い違う 4 本は、持ち越しとして ADR に書いた。
+- **DAE は触らない**（S362 が `globe-mode-dae` を触る）。新しく通った 10 本で DAE が食い違う 4 本は、持ち越しとして ADR に書いた。S362 が main に入ったあと取り込み、文書の衝突（CHANGELOG・ADR-0039・architecture・features・frontend-diff.md・roadmap・sessions/README.md。コードは衝突なし）は origin 側を採って S361 の分を当て直し（frontend-diff.md は再生成）、全体の検査を回し直した。
 
 ## やったこと
 
@@ -31,8 +31,10 @@ S355 のあと MSL の例題で flat が断るのは 28 本。うち `connect` �
 
 ## 検証
 
-- **全体の `diff-frontend`**（共有 target の `release/xtask` が入れ替わるので、作った直後に `bin-copies/xtask-s361c` へ写し、`flock` の下で回した）: MSL の例題 566 本で、平らにできた 538 → **548**、Rumoca も通った 511 → 521 本で名前 508/511 → **518/521**・方程式の数 498/511 → **508/521**、DAE 538/538 → **548/548**、Rumoca の釣り合いまで通った 367 → 377 本で判定 **374/377**・方程式と未知数の数 **373/377**・状態の数 **376/377**・構造の正則 **369/377**、`connect` 10 → **0**。`GlobeModeValidation` 75 本は変わらず（Rumoca も通った 74 本で名前・方程式の数・判定・数・状態 74/74、正則 73/73）。**回帰 0 本、改善 10 本**。1009 s、最大 RSS 5.8 GiB。
-- 新しく通った 10 本: 名前・方程式の数 10/10。DAE は 6 本が 4 項目とも一致。食い違う 4 本は、構造の正則 3 本（`ExecutionPaths`・`ShowCompositeStep`・`ShowExceptions`。`{a.join[1].occupied, a.join[2].occupied} = fill(…)` の行の incidence が自前の DAE で空。理由は dae の側で未確認）と `BatchPlant_StandardWater`（方程式の数 2365 対 2389・正則。レコードの欄ごとの行【推測】）。
+- **S362・S355 を取り込んだ後の全体の `diff-frontend`**（最終。写したバイナリ `bin-copies/xtask-s361d`、`flock` の下）: MSL の例題 566 本で、平らにできた **548**、Rumoca も通った 521 本で名前 **518/521**・方程式の数 **508/521**、DAE **548/548**、Rumoca の釣り合いまで通った 377 本で判定 **377/377**・方程式と未知数の数 **376/377**・状態の数 **376/377**・構造の正則 **373/377**、`connect` 0。`GlobeModeValidation` 75 本は変わらず。**回帰 0 本、改善 14 本**（S361 の 10 本と S362 の 4 本）。1190 s、最大 RSS 5.8 GiB。基準の JSON は S355 のもの（S362 の全体の検査の JSON は S362 の worktree が消えて残っていない）。S362 の値（367 本で 367/367・366/367・366/367・367/367）に新しい 10 本の一致した分が足された数字になっている。
+- 新しく通った 10 本の DAE: 6 本が 4 項目とも一致。構造の正則が 4 本で食い違う（`ExecutionPaths`・`ShowCompositeStep`・`ShowExceptions` は `{a.join[1].occupied, …} = fill(…)` の行の incidence が空のまま、`BatchPlant_StandardWater` は構造の正則だけ）。S361 だけの検査で食い違っていた `BatchPlant_StandardWater` の方程式の数（2365 対 2389）と判定は、S362 の直しで合った。S362 でも直っていないのは `{…} = fill(…)` の 3 本と `BatchPlant` の構造の正則。
+- **S361 だけの全体の `diff-frontend`**（取り込む前の最初の検査。共有 target の `release/xtask` が入れ替わるので、作った直後に `bin-copies/xtask-s361c` へ写し、`flock` の下で回した）: MSL の例題 566 本で、平らにできた 538 → **548**、Rumoca も通った 511 → 521 本で名前 508/511 → **518/521**・方程式の数 498/511 → **508/521**、DAE 538/538 → **548/548**、Rumoca の釣り合いまで通った 367 → 377 本で判定 **374/377**・方程式と未知数の数 **373/377**・状態の数 **376/377**・構造の正則 **369/377**、`connect` 10 → **0**。`GlobeModeValidation` 75 本は変わらず（Rumoca も通った 74 本で名前・方程式の数・判定・数・状態 74/74、正則 73/73）。**回帰 0 本、改善 10 本**。1009 s、最大 RSS 5.8 GiB。
+- 新しく通った 10 本（S361 だけの検査）: 名前・方程式の数 10/10。DAE は 6 本が 4 項目とも一致。食い違う 4 本は、構造の正則 3 本（`ExecutionPaths`・`ShowCompositeStep`・`ShowExceptions`。`{a.join[1].occupied, a.join[2].occupied} = fill(…)` の行の incidence が自前の DAE で空。理由は dae の側で未確認）と `BatchPlant_StandardWater`（方程式の数 2365 対 2389・正則。レコードの欄ごとの行【推測】）。
 - `cargo test -p globe-mode-flat`（53 本）・`-p globe-mode-dae`・`-p globe-mode-frontend` 通過、`cargo clippy -p globe-mode-flat -p globe-mode-dae --all-targets -- -D warnings`・`cargo fmt --all --check` 通過。
 - `cargo test -p globe-mode-dae -p globe-mode-frontend`（lib.rs を touch してから）失敗 0。`git fetch && git merge origin/main`（S359・S360 を取り込んだ）は `doc/sessions/README.md` の 1 か所だけ衝突し、S361・S360・S359 を残して解いた。取り込んだ変更は LSP（call hierarchy）・UI の試験・上流の下書き・文書で、flat・dae に及ぶ変更は無い（全体の `diff-frontend` は回し直していない）。取り込み後の `check_docs.py`: 相対リンク 5455 件中の切れ 0 件。`render_slides.py`（S361 のデッキだけ）: 問題 0 件。markdownlint 0 件。
 - 共有 target の罠: 最初の `cargo test` が別の worktree の古い `globe-mode-resolve` を使い、`mo_files` が見つからない E0432 になった（resolve・flat の lib.rs を touch して直った）。あとで `cargo test -p globe-mode-flat` が 53 本でなく 48 本しか走らず（共有 target の `flat-…` の試験のバイナリが別の worktree のものに入れ替わっていた）、tests/flat.rs と lib.rs を touch して 53 本通った。
@@ -40,6 +42,6 @@ S355 のあと MSL の例題で flat が断るのは 28 本。うち `connect` �
 
 ## 残したこと
 
-- DAE の 4 本（`{…} = fill(…)` の incidence、レコードの欄ごとの行）。`globe-mode-dae` の側。
+- 構造の正則 4 本（`{…} = fill(…)` の incidence が空・`BatchPlant_StandardWater`）。`globe-mode-dae` の側。S362 でも直っていない。
 - 断る 18 本: `composite-binding` 6・`expandable` 5・`non-constant-dim` 4・`connect-array` 1・`non-constant-for` 1・`unsized-array` 1。
 - 差し替えていない既定の型への `constrainedby` の修飾、`cardinality` の入れ子（断る）、`smooth(0, m_flow * actualStream(x))`。

@@ -45,18 +45,18 @@
   <div class="kpis">
     <div class="kpi"><span class="n">548 / 566</span><span class="l">自前で平らにできた（前 538）</span></div>
     <div class="kpi"><span class="n">0</span><span class="l">connect（前 10）</span></div>
-    <div class="kpi"><span class="n">0</span><span class="l">回帰（改善 10）</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">回帰（改善 14）</span></div>
   </div>
-  <p>名前 518 / 521、方程式の数 508 / 521、DAE 548 / 548。新しく通った 10 本は名前・方程式の数が 10 / 10 一致</p>
+  <p>名前 518 / 521、方程式の数 508 / 521、DAE 548 / 548、DAE の判定 377 / 377（S362 を取り込んだ後）。新しく通った 10 本は名前・方程式の数が 10 / 10 一致</p>
 </section>
 
 <section class="slide" id="S05">
   <span class="tag">合わない項目</span>
-  <h1>新しい 10 本のうち DAE が食い違う 4 本</h1>
+  <h1>新しい 10 本のうち構造の正則が食い違う 4 本</h1>
   <table class="compact">
     <tr><th>項目</th><th>本数</th><th>原因</th></tr>
     <tr><td>構造の正則</td><td>3</td><td><code>{a.join[1].occupied, a.join[2].occupied} = fill(…)</code> の行の incidence が空（<code>globe-mode-dae</code> の側。理由は未確認）</td></tr>
-    <tr><td>方程式の数・正則</td><td>1</td><td><code>BatchPlant</code>: <code>ThermodynamicState</code> のレコードの欄ごとの行【推測】</td></tr>
+    <tr><td>構造の正則</td><td>1</td><td><code>BatchPlant</code>: 原因は未確認。方程式の数と判定は S362 の直しで合った</td></tr>
   </table>
 </section>
 
@@ -64,7 +64,7 @@
   <span class="tag">次回</span>
   <h1>残したこと</h1>
   <ul>
-    <li>DAE の 4 本（<code>globe-mode-dae</code> の側）</li>
+    <li>構造の正則 4 本（<code>globe-mode-dae</code> の側）</li>
     <li>断る 18 本: <code>composite-binding</code> 6・<code>expandable</code> 5・<code>non-constant-dim</code> 4 ほか</li>
     <li>差し替えていない既定の型への <code>constrainedby</code> の修飾、<code>cardinality</code> の入れ子</li>
   </ul>

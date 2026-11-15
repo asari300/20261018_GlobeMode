@@ -5,11 +5,15 @@
 ## 前回の結果との差
 
 前回の結果 `target/frontend-diff.json` と、両方にある 641 本で比べる（この実行にだけある 0 本、前回にだけある 0 本）。
-**回帰 0 本**（前回は通った項目が通らなくなった）、改善 10 本。
+**回帰 0 本**（前回は通った項目が通らなくなった）、改善 14 本。
 
 - 改善 `Modelica.Clocked.Examples.Elementary.ClockSignals.LogicalSample`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
-- 改善 `Modelica.Fluid.Examples.AST_BatchPlant.BatchPlant_StandardWater`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・states
+- 改善 `Modelica.Fluid.Examples.AST_BatchPlant.BatchPlant_StandardWater`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states
+- 改善 `Modelica.Fluid.Examples.AST_BatchPlant.Test.TankWithEmptyingPipe1`: regular
 - 改善 `Modelica.Fluid.Examples.ControlledTankSystem.ControlledTanks`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.Fluid.Examples.HeatingSystem`: balance・counts・regular
+- 改善 `Modelica.Fluid.Examples.NonCircularPipes`: balance・counts・regular
+- 改善 `Modelica.Fluid.Examples.Tanks.ThreeTanks`: regular
 - 改善 `Modelica.StateGraph.Examples.ControlledTanks`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
 - 改善 `Modelica.StateGraph.Examples.ExecutionPaths`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states
 - 改善 `Modelica.StateGraph.Examples.FirstExample`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
@@ -23,7 +27,7 @@
 | MSL | 4.1.0（sha256 `5409cfa17797…`） |
 | Rumoca | v0.10.2（rev `276e82bd`、ライブラリとして呼ぶ） |
 | 検査した本数 | 641 本 |
-| 時間 | 全体 1009 s（1 本ずつの検査 952 s） |
+| 時間 | 全体 1190 s（1 本ずつの検査 1103 s） |
 | 最大の常駐メモリ（VmHWM） | 5.8 GiB |
 
 自前の parse・resolve・flat・dae を、Rumoca は自前で平らにできたものにだけ呼んで比べる（母数はその本数）。
@@ -41,10 +45,10 @@ resolve は、例題のクラスから、中のクラス・`extends`・部品の
 | flat | 方程式の数が Rumoca の flat と一致 | 508 | 521 |
 | dae | 自前で DAE にできた | 548 | 548 |
 | dae | Rumoca も釣り合いまで通った（比べられた本数） | 377 | 548 |
-| dae | 釣り合いの判定（釣り合う / 釣り合わない）が一致 | 374 | 377 |
-| dae | 方程式と未知数の数が一致 | 373 | 377 |
+| dae | 釣り合いの判定（釣り合う / 釣り合わない）が一致 | 377 | 377 |
+| dae | 方程式と未知数の数が一致 | 376 | 377 |
 | dae | 状態の数が一致 | 376 | 377 |
-| dae | 構造が正則かの判定が一致（Rumoca の構造が取れたもの） | 369 | 377 |
+| dae | 構造が正則かの判定が一致（Rumoca の構造が取れたもの） | 373 | 377 |
 
 未解決の参照の総数: 0
 
@@ -81,18 +85,12 @@ flat の理由（本数の多い順）:
 ## 一致しなかったもの（先頭 100 件。全部は JSON）
 
 - `Modelica.Blocks.Examples.Noise.ActuatorWithNoise`: flat: eq 728 vs 736 (rumoca); vars 913 vs 913; only mine []; only rumoca []; element counts []
-- `Modelica.Fluid.Examples.AST_BatchPlant.BatchPlant_StandardWater`: dae: eq 2365 vs 2389, unk 2389 vs 2389 (rumoca); states 41 vs 41, discrete 622 vs 622
 - `Modelica.Fluid.Examples.AST_BatchPlant.BatchPlant_StandardWater`: dae: 正則 自前 false / rumoca true
-- `Modelica.Fluid.Examples.AST_BatchPlant.Test.TankWithEmptyingPipe1`: dae: 正則 自前 false / rumoca true
 - `Modelica.Fluid.Examples.BranchingDynamicPipes`: flat: eq 1260 vs 1256 (rumoca); vars 830 vs 830; only mine []; only rumoca []; element counts []
-- `Modelica.Fluid.Examples.HeatingSystem`: dae: eq 534 vs 538, unk 538 vs 538 (rumoca); states 20 vs 11, discrete 4 vs 4
-- `Modelica.Fluid.Examples.HeatingSystem`: dae: 正則 自前 false / rumoca true
+- `Modelica.Fluid.Examples.HeatingSystem`: dae: eq 538 vs 538, unk 538 vs 538 (rumoca); states 20 vs 11, discrete 4 vs 4
 - `Modelica.Fluid.Examples.IncompressibleFluidNetwork`: flat: eq 920 vs 919 (rumoca); vars 2078 vs 2078; only mine []; only rumoca []; element counts []
 - `Modelica.Fluid.Examples.InverseParameterization`: flat: eq 177 vs 177 (rumoca); vars 513 vs 507; only mine ["pipe1.flowModel.Res", "pipe1.flowModel.dps_fg_turbulent", "pipe1.flowModel.m_flows_turbulent", "pipe2.flowModel.Res"]; only rumoca []; element counts []
 - `Modelica.Fluid.Examples.InverseParameterization`: dae: eq 287 vs 279, unk 287 vs 279 (rumoca); states 0 vs 0, discrete 19 vs 19
-- `Modelica.Fluid.Examples.NonCircularPipes`: dae: eq 375 vs 391, unk 391 vs 391 (rumoca); states 8 vs 8, discrete 30 vs 30
-- `Modelica.Fluid.Examples.NonCircularPipes`: dae: 正則 自前 false / rumoca true
-- `Modelica.Fluid.Examples.Tanks.ThreeTanks`: dae: 正則 自前 false / rumoca true
 - `Modelica.Fluid.Examples.TraceSubstances.RoomCO2`: flat: eq 180 vs 180 (rumoca); vars 293 vs 291; only mine ["pipe.flowModel.Res", "pipe.flowModel.m_flows_turbulent"]; only rumoca []; element counts []
 - `Modelica.Fluid.Examples.TraceSubstances.RoomCO2WithControls`: flat: eq 585 vs 585 (rumoca); vars 748 vs 744; only mine ["ductIn.flowModel.Res", "ductIn.flowModel.m_flows_turbulent", "ductOut.flowModel.Res", "ductOut.flowModel.m_flows_turbulent"]; only rumoca []; element counts []
 - `Modelica.Mechanics.Rotational.Examples.CoupledClutches`: flat: eq 110 vs 113 (rumoca); vars 187 vs 187; only mine []; only rumoca []; element counts []
