@@ -922,32 +922,30 @@ impl F<'_> {
                 }
                 let bound: Vec<ModMap> = match &m.val {
                     Some(b) if dims.is_empty() => vec![self.record_value(b, name, cid)?],
-                    Some(b) if b.suffix.is_empty() => {
+                    Some(b) => {
                         if let Some(Expr::Array(a)) = Expr::cast(b.node.clone())
+                            && b.suffix.is_empty()
                             && !b.node.children().any(|c| c.kind() == K::Comprehension)
                             && a.items().len() != dims[0]
                         {
                             return un("composite-binding", format!("{name}[] size differs"));
                         }
+                        // 別のレコードの欄の配列 `rcData[n] = cellData.rcData`（`r = other` の欄。suffix は `.rcData`）は、要素ごとに `.rcData[k]`（S367）
                         idx_names(&dims)
                             .into_iter()
                             .map(|ix| {
                                 let el = Bind {
-                                    suffix: ix,
+                                    suffix: format!("{}{ix}", b.suffix),
                                     ..b.clone()
                                 };
                                 self.record_value(&el, name, cid)
                             })
                             .collect::<Res<_>>()?
                     }
-                    Some(b) => {
-                        let t = b.node.text();
-                        return un("composite-binding", format!("{name}[] = {t}"));
-                    }
                     None => vec![ModMap::new()],
                 };
                 let eff = fill(parent, fill(own_flags, flags));
-                let split = !dims.is_empty() && has_array_value(&m.sub);
+                let split = !dims.is_empty() && self.has_array_value(&m.sub);
                 let oc = self.p.lineage(cid).iter().find_map(|c| {
                     let f = *self.p.lib.classes[*c].classes.get("equalityConstraint")?;
                     // 大きさが決められなければ 0（今までと同じ。等式を作らない）
@@ -964,7 +962,7 @@ impl F<'_> {
                         self.oc_nodes.insert(el.clone(), o.clone());
                     }
                     let sub_e = if split {
-                        split_mod(
+                        self.split_mod(
                             &m.sub,
                             &ix,
                             (dims.len() == 1).then_some((e, dims[0])),
@@ -986,6 +984,89 @@ impl F<'_> {
             }
         }
         Ok(())
+    }
+
+    fn has_array_value(&self, m: &ModMap) -> bool {
+        m.values().any(|x| {
+            (!x.each
+                && x.val
+                    .as_ref()
+                    .is_some_and(|b| self.split_kind(b, 0).is_some()))
+                || self.has_array_value(&x.sub)
+        })
+    }
+
+    /// 分けられる値の形（`split_kind`）。それに加えて、次元が `nd` 個以上の配列の変数・レコードの配列への参照
+    /// （`cellData = stackData.cellData`）は、要素ごとに添字 `[ix]` を付ける（`Some(None)`。S367）
+    fn split_kind(&self, b: &Bind, nd: usize) -> Option<Option<SyntaxNode>> {
+        if let Some(k) = split_kind(&b.node, nd) {
+            return Some(k);
+        }
+        let Some(Expr::ComponentRef(r)) = Expr::cast(b.node.clone()) else {
+            return None;
+        };
+        if !b.suffix.is_empty()
+            || b.lit.is_some()
+            || b.node.children().any(|x| x.kind() == K::Subscripts)
+        {
+            return None;
+        }
+        let t = self.cref(&r, b.file, &b.ctx).ok()?;
+        (self.var_dims(&t)?.len() >= nd.max(1)).then_some(None)
+    }
+
+    /// 部品の配列への修飾 `c[n](a = {…})` を要素 `ix`（`[2]`・`[1,2]`）の分に分ける。`each` の修飾は分けない（S329）。
+    /// 1 次元で `{…}` の項が並んでいれば項そのもの、それ以外（`for` つきの内包・多次元）は `({…})[ix]`
+    /// `one` は 1 次元のときの（要素の番号 0 始まり, 大きさ）
+    /// `items` は `{…}` の項（配列の式ごとに 1 回だけ集める。要素ごとに作り直すと O(n²)。S339）
+    fn split_mod(
+        &self,
+        m: &ModMap,
+        ix: &str,
+        one: Option<(usize, usize)>,
+        nd: usize,
+        items: &mut HashMap<SyntaxNode, Option<Vec<SyntaxNode>>>,
+    ) -> Res<ModMap> {
+        let mut out = ModMap::new();
+        for (k, x) in m {
+            let mut x = x.clone();
+            if !x.each {
+                if let Some(b) = x.val.as_mut()
+                    && let Some(kind) = self.split_kind(b, nd)
+                {
+                    // `fill(x, n…)` は要素ごとに `x`
+                    if let Some(v) = kind {
+                        b.node = v;
+                        out.insert(k.clone(), x);
+                        continue;
+                    }
+                    // `for` つきの内包は項に分けない（`None`）
+                    let its = items.entry(b.node.clone()).or_insert_with(|| {
+                        let plain = !b.node.children().any(|c| c.kind() == K::Comprehension);
+                        Expr::cast(b.node.clone())
+                            .filter(|_| plain)
+                            .and_then(|e| match e {
+                                Expr::Array(a) => {
+                                    Some(a.items().iter().map(|x| x.syntax().clone()).collect())
+                                }
+                                _ => None,
+                            })
+                    });
+                    match (one, its) {
+                        (Some((e, n)), Some(i)) => {
+                            if i.len() != n {
+                                return un("array-modification", format!("{k} size differs"));
+                            }
+                            b.node = i[e].clone();
+                        }
+                        _ => b.suffix = format!("{}{ix}", b.suffix),
+                    }
+                }
+                x.sub = self.split_mod(&x.sub, ix, one, nd, items)?;
+            }
+            out.insert(k.clone(), x);
+        }
+        Ok(out)
     }
 
     /// 変数 1 つのスカラーの数（次元の積）が上限を超えていないか。以降の変数ごとの `dims.iter().product()`（flat・dae）は溢れない（S365・#137・#139）
@@ -1487,7 +1568,7 @@ impl F<'_> {
             match m.val.as_ref().and_then(|b| self.bind_dims(b)) {
                 Some(v) if !v.is_empty() => dims = v,
                 _ => {
-                    let b = m.val.as_ref().map(|b| b.node.text().to_string());
+                    let b = (m.val.as_ref()).map(|b| format!("{}{}", b.node.text(), b.suffix));
                     return un("unsized-array", format!("{name} = {b:?}"));
                 }
             }
@@ -2142,16 +2223,32 @@ impl F<'_> {
                 self.eval(i.else_branch()?.syntax(), file, ctx, d)
             }
             Expr::ComponentRef(c) => {
-                if n.children().any(|x| x.kind() == K::Subscripts) {
-                    return None;
-                }
                 let parts = c.parts();
+                // 添字つきの参照は、配列の式の束縛の要素（`kDegraded[i,1]`。部品の欄を通さない 1 つの名前だけ。S367）
+                let mut subs = n.children().filter(|x| x.kind() == K::Subscripts);
+                let sub = match (subs.next(), subs.next()) {
+                    (None, _) => None,
+                    (Some(sn), None) if parts.len() == 1 => Some(
+                        (sn.children().filter_map(Expr::cast))
+                            .map(|e| self.eval(e.syntax(), file, ctx, d)?.int())
+                            .collect::<Option<Vec<_>>>()?,
+                    ),
+                    _ => return None,
+                };
+                let at = |b: &Bind| match &sub {
+                    Some(ix) => self.eval_at(&b.node, ix, b.file, &b.ctx, d),
+                    None => self.eval(&b.node, b.file, &b.ctx, d),
+                };
                 // `Medium.nX`: `Medium` が `redeclare` された package なら、差し替え先の定数
-                if let Some((node, f, c2)) = self.dyn_const(&c, ctx) {
+                if sub.is_none()
+                    && let Some((node, f, c2)) = self.dyn_const(&c, ctx)
+                {
                     return self.eval(&node, f, &c2, d);
                 }
                 match &self.p.res_of(file, c.range())? {
-                    Resolution::Local if parts.len() == 1 => ctx.local(&parts[0]).map(Val::I),
+                    Resolution::Local if parts.len() == 1 && sub.is_none() => {
+                        ctx.local(&parts[0]).map(Val::I)
+                    }
                     Resolution::Component(cid, idx) => {
                         // 関数の入力は呼び出しの引数の値（`output Real y[n]` の `n`）。関数の中の定数は下のパッケージの定数と同じ
                         if ctx.pfx == FN
@@ -2175,23 +2272,26 @@ impl F<'_> {
                                 // まだ平らにしていない部品（宣言が後ろの `inner world`）の欄は、修飾か型の既定値から
                                 let tgt = key.strip_suffix(&format!(".{}", parts.last()?))?;
                                 // 欄の既定値が同じ部品の別の欄（`massDynamics = energyDynamics`）を引くときは、前置きが部品（`parts` は欄だけ。S355）
-                                return (parts.len() <= 2)
+                                return (parts.len() <= 2 && sub.is_none())
                                     .then(|| self.pending_field(tgt, parts.last()?, d))
                                     .flatten();
                             };
                             if b.lit.is_some() {
                                 return None;
                             }
-                            // `r = other` の欄は `other.f` の束縛を評価する
-                            let b = if b.suffix.is_empty() {
-                                b
-                            } else {
-                                &self.field_bind(b)?
-                            };
+                            // `r = other` の欄は `other.f` の束縛を評価する（`other` がさらに別のレコードの欄なら、鎖をたどる。S367）
+                            let mut cur = std::borrow::Cow::Borrowed(b);
+                            for _ in 0..16 {
+                                if cur.suffix.is_empty() {
+                                    break;
+                                }
+                                cur = std::borrow::Cow::Owned(self.field_bind(&cur)?);
+                            }
+                            let b = &*cur;
                             if !b.suffix.is_empty() || b.lit.is_some() {
                                 return None;
                             }
-                            self.eval(&b.node, b.file, &b.ctx, d)
+                            at(b)
                         } else {
                             // 列挙の要素、またはパッケージの定数
                             let comp = &self.p.lib.classes[*cid].components[*idx].name;
@@ -2202,7 +2302,10 @@ impl F<'_> {
                                 return Some(Val::E(*cid, *idx));
                             }
                             let (node, f, c2) = self.pkg_binding(ctx, *cid, comp)?;
-                            self.eval(&node, f, &c2, d)
+                            match &sub {
+                                Some(ix) => self.eval_at(&node, ix, f, &c2, d),
+                                None => self.eval(&node, f, &c2, d),
+                            }
                         }
                     }
                     _ => None,
@@ -2293,8 +2396,87 @@ impl F<'_> {
                         }
                         Some(Val::I(n))
                     }
+                    // shortcut: `anyTrue` だけ決め打つ（`CCCV_Stack` の劣化したセルの判定）。関数の評価器ができたら置き換える
+                    f if f.rsplit('.').next() == Some("anyTrue") => {
+                        let r = c.syntax().children().find_map(ast::ComponentRef::cast)?;
+                        let Some(Resolution::Class(rid)) = self.p.res_of(file, r.range()) else {
+                            return None;
+                        };
+                        if self.p.lib.qualified_name(rid) != "Modelica.Math.BooleanVectors.anyTrue"
+                        {
+                            return None;
+                        }
+                        let xs = self.eval_items(args.first()?.syntax(), file, ctx, d)?;
+                        xs.iter()
+                            .all(|x| matches!(x, Val::B(_)))
+                            .then(|| Val::B(xs.iter().any(|x| matches!(x, Val::B(true)))))
+                    }
                     _ => None,
                 }
+            }
+            _ => None,
+        }
+    }
+
+    /// 配列の式 `{a, b}`・`{e for k in 1:n}` の要素の値（内包は添字が 1 つのものだけ。`k` は要素の値を局所変数として評価する）。S367
+    fn eval_items(&self, n: &SyntaxNode, file: u32, ctx: &Rc<Ctx>, d: u32) -> Option<Vec<Val>> {
+        let Some(Expr::Array(a)) = Expr::cast(n.clone()) else {
+            return None;
+        };
+        let Some(c) = n.children().find(|c| c.kind() == K::Comprehension) else {
+            return (a.items().iter())
+                .map(|e| self.eval(e.syntax(), file, ctx, d))
+                .collect();
+        };
+        let body = c.children().find_map(Expr::cast)?;
+        let fis = c.children().find(|x| x.kind() == K::ForIndices)?;
+        let fi = single(fis.children().filter(|f| f.kind() == K::ForIndex))?;
+        let var = tokens(&fi)
+            .find(|t| t.kind() == K::Ident)?
+            .text()
+            .to_string();
+        let range = fi.children().find(|x| Expr::cast(x.clone()).is_some())?;
+        self.range_vals(&range, file, ctx)
+            .ok()?
+            .into_iter()
+            .map(|v| {
+                let mut locals = ctx.locals.clone();
+                locals.push((var.clone(), v));
+                let ctx = Rc::new(Ctx {
+                    locals,
+                    pfx: ctx.pfx.clone(),
+                    lineage: ctx.lineage.clone(),
+                    cenv: ctx.cenv.clone(),
+                    heir: ctx.heir,
+                });
+                self.eval(body.syntax(), file, &ctx, d)
+            })
+            .collect()
+    }
+
+    /// 配列の式の束縛 `{a, b}`・`[a, b; c, d]` の要素 `ix`（1 始まり。要素はスカラーだけ）の値。S367
+    fn eval_at(&self, n: &SyntaxNode, ix: &[i64], file: u32, ctx: &Rc<Ctx>, d: u32) -> Option<Val> {
+        let Some((&k, rest)) = ix.split_first() else {
+            return self.eval(n, file, ctx, d);
+        };
+        let k = usize::try_from(k.checked_sub(1)?).ok()?;
+        match Expr::cast(n.clone())? {
+            Expr::Array(a) if !n.children().any(|c| c.kind() == K::Comprehension) => {
+                self.eval_at(a.items().get(k)?.syntax(), rest, file, ctx, d)
+            }
+            // 行は `;`、行の中は `,`。`[r, c]` は行 r の c 番目
+            Expr::Matrix(m) => {
+                let mut rows: Vec<Vec<Expr>> = vec![Vec::new()];
+                for ch in m.syntax().children_with_tokens() {
+                    if let Some(e) = ch.as_node().and_then(|c| Expr::cast(c.clone())) {
+                        rows.last_mut()?.push(e);
+                    } else if ch.as_token().is_some_and(|t| t.kind() == K::Semi) {
+                        rows.push(Vec::new());
+                    }
+                }
+                let (&c, rest) = rest.split_first()?;
+                let e = rows.get(k)?.get(usize::try_from(c.checked_sub(1)?).ok()?)?;
+                self.eval_at(e.syntax(), rest, file, ctx, d)
             }
             _ => None,
         }
@@ -2447,14 +2629,18 @@ impl F<'_> {
         let Some(Expr::ComponentRef(r)) = Expr::cast(b.node.clone()) else {
             return None;
         };
-        if !b.suffix.starts_with('.') || b.node.children().any(|x| x.kind() == K::Subscripts) {
+        // 欄 `.f`、またはレコードの配列の要素の欄 `[1,1].f`（S367）
+        let elem = b.suffix.starts_with('[') && b.suffix.contains("].");
+        if !(b.suffix.starts_with('.') || elem)
+            || b.node.children().any(|x| x.kind() == K::Subscripts)
+        {
             return None;
         }
         let t = self.cref(&r, b.file, &b.ctx).ok()?;
         if let Some(x) = self.env.get(&format!("{t}{}", b.suffix)) {
             return Some(x.clone());
         }
-        self.pending_bind(&t, &b.suffix[1..])
+        self.pending_bind(&t, b.suffix.strip_prefix('.')?)
     }
 
     fn is_enum(&self, cid: ClassId) -> bool {
@@ -2696,7 +2882,8 @@ impl F<'_> {
 
     /// 束縛の配列の形。レコードの束縛 `r = other` を欄に分けたもの（`suffix` が `.f`）は `other.f` の大きさ
     fn bind_dims(&self, b: &Bind) -> Option<Vec<usize>> {
-        if b.suffix.starts_with('.') {
+        // `cellData[1,1].OCV_SOC`（レコードの配列の要素の欄。S367）も、平らにした変数の大きさを引く
+        if b.suffix.starts_with('.') || (b.suffix.starts_with('[') && b.suffix.contains("].")) {
             if let Some(Expr::ComponentRef(r)) = Expr::cast(b.node.clone())
                 && let Ok(t) = self.cref(&r, b.file, &b.ctx)
                 && let Some(v) = self.var_dims(&format!("{t}{}", b.suffix))
@@ -3569,7 +3756,10 @@ impl F<'_> {
         let mut refs = HashSet::new();
         let texts = (self.eqs.iter().chain(&self.whens).chain(&self.ieqs)).map(|e| e.text.as_str());
         let binds = self.vars.iter().filter_map(|v| v.binding.as_deref());
-        for t in texts.chain(self.algs.iter().map(String::as_str)).chain(binds) {
+        for t in texts
+            .chain(self.algs.iter().map(String::as_str))
+            .chain(binds)
+        {
             ref_paths(t, &mut refs);
         }
         // 読まれる端を 1 つでも持つ、または宣言済みの欄でない端を持つ集合（根の番号）
@@ -3577,7 +3767,8 @@ impl F<'_> {
         for set in &self.pot_sets {
             for &v in set {
                 let n = &self.vars[v].name;
-                if !self.exp_vars.contains(&v) || refs.contains(n) || refs.contains(&strip_subs(n)) {
+                if !self.exp_vars.contains(&v) || refs.contains(n) || refs.contains(&strip_subs(n))
+                {
                     used.insert(find(&mut parent, v));
                 }
             }
@@ -3653,20 +3844,28 @@ impl F<'_> {
             if n[..i].ends_with(']') {
                 continue;
             }
-            let at = |k: usize| format!("{}[{k}]{}", &n[..i], &n[i..]);
-            if self
-                .expand_end(&at(1), depth + 1)
-                .iter()
-                .all(|x| self.leaves(x).is_empty())
-            {
-                continue;
+            let at = |ix: &str| format!("{}[{ix}]{}", &n[..i], &n[i..]);
+            let ends = |ix: &str| self.expand_end(&at(ix), depth + 1);
+            let live = |v: &[String]| v.iter().all(|x| !self.leaves(x).is_empty());
+            if !ends("1").iter().all(|x| self.leaves(x).is_empty()) {
+                return (1..=MAX_VARS)
+                    .map(|k| ends(&k.to_string()))
+                    .take_while(|v| live(v))
+                    .flatten()
+                    .collect();
             }
-            return (1..=MAX_VARS)
-                .map(at)
-                .map(|x| self.expand_end(&x, depth + 1))
-                .take_while(|v| v.iter().all(|x| !self.leaves(x).is_empty()))
-                .flatten()
-                .collect();
+            // 2 次元の配列 `cell[Ns, Np]`（行ごと）。大きさは `[1,1]` から添字を延ばして数える（S367）
+            if !ends("1,1").iter().all(|x| self.leaves(x).is_empty()) {
+                let count = |f: &dyn Fn(usize) -> String| {
+                    (1..=MAX_VARS).take_while(|&k| live(&ends(&f(k)))).count()
+                };
+                let (a, b) = (count(&|k| format!("{k},1")), count(&|k| format!("1,{k}")));
+                return (1..=a)
+                    .flat_map(|x| (1..=b).map(move |y| format!("{x},{y}")))
+                    .take(MAX_VARS)
+                    .flat_map(|ix| ends(&ix))
+                    .collect();
+            }
         }
         vec![n.to_string()]
     }
@@ -3675,8 +3874,19 @@ impl F<'_> {
     fn split_array_var(&self, x: &[String], n: usize) -> Option<Vec<String>> {
         let [x] = x else { return None };
         let [(sf, vi, _)] = self.leaves(x).try_into().ok()?;
-        (n > 1 && sf.is_empty() && self.vars[vi].dims == [n] && !x.ends_with(']'))
-            .then(|| (1..=n).map(|k| format!("{x}[{k}]")).collect())
+        let d = &self.vars[vi].dims;
+        // 1 次元 `i[m]`、または 2 次元 `v[Ns, Np]`（部品の 2 次元の配列と行ごとに対応。S367）
+        (n > 1
+            && sf.is_empty()
+            && !x.ends_with(']')
+            && matches!(d.len(), 1 | 2)
+            && d.iter().product::<usize>() == n)
+            .then(|| {
+                idx_names(d)
+                    .into_iter()
+                    .map(|ix| format!("{x}{ix}"))
+                    .collect()
+            })
     }
 
     /// 1 つのインスタンスの `connect` から、potential の等式と flow の和（つながない内側の flow は 0）を作る。
@@ -3776,7 +3986,11 @@ impl F<'_> {
             let (oa, ob) = flags[k].unwrap_or((outside(a), outside(b)));
             for (suffix, vi, count) in &la {
                 let Some((_, vj, _)) = lb.iter().find(|(s, _, _)| s == suffix) else {
-                    let kind = if self.exp_vars.contains(vi) { "expandable" } else { "connect" };
+                    let kind = if self.exp_vars.contains(vi) {
+                        "expandable"
+                    } else {
+                        "connect"
+                    };
                     return un(kind, format!("{a} and {b} differ"));
                 };
                 let ia = id(&mut st, format!("{a}{suffix}"), (*vi, *count, oa));
@@ -3979,7 +4193,10 @@ fn ref_paths(t: &str, out: &mut HashSet<String>) {
                 depth += i32::from(b[i] == b'[') - i32::from(b[i] == b']');
                 i += 1;
             }
-            if i + 1 < b.len() && b[i] == b'.' && (b[i + 1].is_ascii_alphabetic() || b[i + 1] == b'_') {
+            if i + 1 < b.len()
+                && b[i] == b'.'
+                && (b[i + 1].is_ascii_alphabetic() || b[i + 1] == b'_')
+            {
                 bare.push('.');
                 i += 1;
             } else {
@@ -4000,6 +4217,12 @@ fn strip_subs(n: &str) -> String {
             depth == 0 && c != ']'
         })
         .collect()
+}
+
+/// 要素がちょうど 1 つのとき、その要素
+fn single<T>(mut it: impl Iterator<Item = T>) -> Option<T> {
+    let x = it.next()?;
+    it.next().is_none().then_some(x)
 }
 
 /// 次元の積。溢れたら `None`（宣言の次元は入力なので、検査なしの `product` は debug で panic・release で巻き戻る。S339）
@@ -4029,16 +4252,6 @@ fn nest(map: &mut ModMap, path: &[&str], b: Bind) {
     }
 }
 
-fn has_array_value(m: &ModMap) -> bool {
-    m.values().any(|x| {
-        (!x.each
-            && x.val
-                .as_ref()
-                .is_some_and(|b| split_kind(&b.node, 0).is_some()))
-            || has_array_value(&x.sub)
-    })
-}
-
 /// 分けられる値の形: `{…}`（`None` の中身）か、`fill(x, n…)` の `x`（次元が `nd` 個のときだけ）
 fn split_kind(n: &SyntaxNode, nd: usize) -> Option<Option<SyntaxNode>> {
     match Expr::cast(n.clone())? {
@@ -4049,59 +4262,6 @@ fn split_kind(n: &SyntaxNode, nd: usize) -> Option<Option<SyntaxNode>> {
         }
         _ => None,
     }
-}
-
-/// 部品の配列への修飾 `c[n](a = {…})` を要素 `ix`（`[2]`・`[1,2]`）の分に分ける。`each` の修飾は分けない（S329）。
-/// 1 次元で `{…}` の項が並んでいれば項そのもの、それ以外（`for` つきの内包・多次元）は `({…})[ix]`
-/// `one` は 1 次元のときの（要素の番号 0 始まり, 大きさ）
-/// `items` は `{…}` の項（配列の式ごとに 1 回だけ集める。要素ごとに作り直すと O(n²)。S339）
-fn split_mod(
-    m: &ModMap,
-    ix: &str,
-    one: Option<(usize, usize)>,
-    nd: usize,
-    items: &mut HashMap<SyntaxNode, Option<Vec<SyntaxNode>>>,
-) -> Res<ModMap> {
-    let mut out = ModMap::new();
-    for (k, x) in m {
-        let mut x = x.clone();
-        if !x.each {
-            if let Some(b) = x.val.as_mut()
-                && let Some(kind) = split_kind(&b.node, nd)
-            {
-                // `fill(x, n…)` は要素ごとに `x`
-                if let Some(v) = kind {
-                    b.node = v;
-                    out.insert(k.clone(), x);
-                    continue;
-                }
-                // `for` つきの内包は項に分けない（`None`）
-                let its = items.entry(b.node.clone()).or_insert_with(|| {
-                    let plain = !b.node.children().any(|c| c.kind() == K::Comprehension);
-                    Expr::cast(b.node.clone())
-                        .filter(|_| plain)
-                        .and_then(|e| match e {
-                            Expr::Array(a) => {
-                                Some(a.items().iter().map(|x| x.syntax().clone()).collect())
-                            }
-                            _ => None,
-                        })
-                });
-                match (one, its) {
-                    (Some((e, n)), Some(i)) => {
-                        if i.len() != n {
-                            return un("array-modification", format!("{k} size differs"));
-                        }
-                        b.node = i[e].clone();
-                    }
-                    _ => b.suffix = format!("{}{ix}", b.suffix),
-                }
-            }
-            x.sub = split_mod(&x.sub, ix, one, nd, items)?;
-        }
-        out.insert(k.clone(), x);
-    }
-    Ok(out)
 }
 
 /// 添字だけの接尾辞（`` か `[1]`・`[1,2]`。`.f` の続きは欄の接尾辞）
@@ -4356,7 +4516,11 @@ mod tests {
         // `bus.b` を読む方程式があれば、その集合（bus.b・p.bus.b・other.b）も等式を作る
         let m = flat("q = bus.b;");
         assert_eq!(m.equation_count(), 7);
-        assert!(!m.vars.iter().any(|v| v.name == "bus.b" && v.unused_expandable));
+        assert!(
+            !m.vars
+                .iter()
+                .any(|v| v.name == "bus.b" && v.unused_expandable)
+        );
         // 宣言していない欄への接続は欄を足すので断る
         let e = Project::from_sources([(
             "t.mo",

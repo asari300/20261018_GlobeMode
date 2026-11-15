@@ -324,15 +324,28 @@ impl<'a> Ctx<'a> {
         out
     }
 
-    /// 部品の配列を通した欄の参照 `a.pin.v`（変数は `a.pin[1].v` …）の、要素ごとの（添字 0 から、変数）
+    /// 部品の配列を通した欄の参照 `a.pin.v`（変数は `a.pin[1].v` …。2 次元は `a.pin[1,1].v` … で行ごと）の、要素ごとの（添字 0 から、変数）
     fn parts(&self, text: &str) -> Vec<(usize, usize)> {
         let t: String = text.chars().filter(|c| !c.is_whitespace()).collect();
         t.match_indices('.')
             .map(|(p, _)| {
+                let at = |ix: String| {
+                    let name = format!("{}[{ix}]{}", &t[..p], &t[p..]);
+                    self.index.get(name.as_str()).copied()
+                };
+                let one: Vec<_> = (1..)
+                    .map_while(|i| at(i.to_string()).map(|v| (i - 1, v)))
+                    .collect();
+                if !one.is_empty() {
+                    return one;
+                }
+                // 2 次元（S367）。列の数は `[1,j]` を延ばして数える
+                let cols = (1..).take_while(|j| at(format!("1,{j}")).is_some()).count();
                 (1..)
-                    .map_while(|i| {
-                        let name = format!("{}[{i}]{}", &t[..p], &t[p..]);
-                        self.index.get(name.as_str()).map(|&v| (i - 1, v))
+                    .take_while(|i| at(format!("{i},1")).is_some())
+                    .flat_map(|i| (1..=cols).map(move |j| (i, j)))
+                    .filter_map(|(i, j)| {
+                        at(format!("{i},{j}")).map(|v| ((i - 1) * cols + j - 1, v))
                     })
                     .collect::<Vec<_>>()
             })
