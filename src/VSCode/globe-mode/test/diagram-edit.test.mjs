@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import { diagramDrag } from "../../../Svelte/src/lib/diagram-drag.ts";
 import { deleteOf, markSel, pickSel } from "../../../Svelte/src/lib/diagram-select.ts";
 
-const { parseEdit } = createRequire(import.meta.url)("../edit.js");
+const { parseEdit, parseParams, partParams, enumValue } = createRequire(import.meta.url)("../edit.js");
 
 // 偽の要素・svg。画面の座標 = 図の座標（CTM は単位行列）
 const attrs = (o = {}) => ({ ...o, setAttribute(k, v) { this[k] = v; }, getAttribute(k) { return this[k] ?? null; }, removeAttribute(k) { delete this[k]; } });
@@ -135,4 +135,26 @@ test("webview は Delete / Backspace を選びのあるときだけ postMessage 
   assert.ok(web.includes("deleteOf(selected, e.key)") && web.includes('type: "deletePart"') && web.includes('type: "deleteConnect"'));
   assert.ok(!web.includes("innerHTML"));
   assert.ok(readFileSync(new URL("../panel.js", import.meta.url), "utf8").includes('"deletePart", "deleteConnect"'));
+});
+
+test("パラメータの入力（S306）: webview の要求は部品の名前だけ。一覧からは部品の直下の書けるものだけを取り、列挙は型つきの名前にする", () => {
+  assert.equal(parseParams({ type: "params", part: "r1", file: "/etc/passwd", class: "X" }), "r1");
+  for (const bad of [null, {}, { type: "params" }, { type: "params", part: "a.b" }, { type: "params", part: "r 1" }, { type: "params", part: 1 }, { type: "move", part: "r1" }]) assert.equal(parseParams(bad), null, JSON.stringify(bad));
+  const list = [
+    { name: "r1.R", type: "Real", default: "1" },
+    { name: "r1.mode", type: "Enumeration", literals: ["low", "high"], enum_type: "P.Mode" },
+    { name: "r1.d.k", type: "Real" }, // 入れ子
+    { name: "r1.v", type: "Real", dims: [3] }, // 配列
+    { name: "r1.s", type: "String" },
+    { name: "r10.R", type: "Real" }, // 別の部品
+    { name: "R", type: "Real" }, // モデル自身
+  ];
+  assert.deepEqual(partParams(list, "r1").map((p) => p.key), ["R", "mode"]);
+  assert.deepEqual(partParams(null, "r1"), []);
+  assert.equal(enumValue(list[1], "high"), "P.Mode.high");
+  assert.equal(enumValue(list[1], "a b"), "P.Mode.'a b'");
+  assert.equal(enumValue({ literals: ["x"] }, "x"), null);
+  const web = readFileSync(new URL("../webview.js", import.meta.url), "utf8");
+  assert.ok(web.includes('addEventListener("dblclick"') && web.includes('type: "params", part'));
+  assert.ok(readFileSync(new URL("../panel.js", import.meta.url), "utf8").includes("parseParams(m)"));
 });

@@ -21,4 +21,17 @@ function parseEdit(m) {
   return null;
 }
 
-module.exports = { parseEdit };
+/** パラメータのダイアログ（S306）の要求。部品の名前だけを受け取る（file・class は panel が持つ図のもの）。検査を通らなければ null */
+const parseParams = (m) => (m?.type === "params" && name(m.part) ? m.part : null);
+
+const ident = (l) => (/^[A-Za-z_]\w*$/.test(l) ? l : `'${l}'`);
+/** `globe/parameters` の一覧から、部品 `part` の直下の 1 段（`part.k`）で書けるもの（配列・String は除く。UI の ParameterDialog と同じ）を [{ name, type, ... }] で返す */
+const partParams = (list, part) =>
+  (list ?? []).flatMap((p) => {
+    const k = typeof p?.name === "string" && p.name.startsWith(`${part}.`) ? p.name.slice(part.length + 1) : "";
+    return /^[A-Za-z_]\w*$/.test(k) && !p.dims?.length && p.type !== "String" ? [{ ...p, key: k }] : [];
+  });
+/** 列挙のリテラル名を、修飾に書く `型.リテラル` にする（型の名前が無ければ null）。Boolean は呼び出し側が true・false を渡す */
+const enumValue = (p, literal) => (p.enum_type ? `${p.enum_type}.${ident(literal)}` : null);
+
+module.exports = { parseEdit, parseParams, partParams, enumValue };

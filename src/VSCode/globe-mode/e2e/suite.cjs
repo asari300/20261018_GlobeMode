@@ -125,6 +125,58 @@ const cases = {
     assert.equal(await panel.handle({ type: "deletePart", id: 5, part: "Nothing" }), false);
     assert.equal(doc.getText(), before);
   },
+  async "パネルの部品の R を 100 に書くと宣言に (R = 100) が入り、undo で戻る。空の入力で外れる（S306）"() {
+    const doc = await vscode.workspace.openTextDocument(fixture("Params.mo"));
+    const ed = await vscode.window.showTextDocument(doc);
+    const row = doc.getText().split("\n").findIndex((l) => l.startsWith("  Res r1"));
+    ed.selection = new vscode.Selection(row, 4, row, 4);
+    const { panel } = await vscode.extensions.getExtension("globe-mode.globe-mode").activate();
+    await until("図の対象", () => panel.target?.class === "Params" && panel.target.doc === doc);
+    const before = doc.getText();
+    // QuickPick・InputBox は値を渡せる偽物に差し替える（webview のダブルクリックは拡張ホストから起こせないので、メッセージをそのまま渡す）
+    const shown = [];
+    const answer = { pick: "R", input: "100" };
+    panel.ui = {
+      showQuickPick: async (items) => (shown.push(items.map((i) => i.label)), items.find((i) => i.label === answer.pick)),
+      showInputBox: async () => answer.input,
+      showErrorMessage: (m) => shown.push(m),
+      showInformationMessage: (m) => shown.push(m),
+    };
+    try {
+      assert.equal(await panel.handle({ type: "params", part: "r1" }), true, JSON.stringify(shown));
+      assert.deepEqual(shown[0], ["R", "mode"]);
+      assert.ok(doc.getText().includes("Res r1(R = 100)"), doc.getText());
+      assert.ok(doc.isDirty, "保存はしない");
+      await vscode.commands.executeCommand("undo");
+      assert.equal(doc.getText(), before, "undo 1 回で戻る");
+      // 空の入力で修飾を外す
+      assert.equal(await panel.handle({ type: "params", part: "r1" }), true, JSON.stringify(shown));
+      answer.input = "";
+      assert.equal(await panel.handle({ type: "params", part: "r1" }), true, JSON.stringify(shown));
+      assert.equal(doc.getText(), before, "(R = 100) が外れる");
+      await vscode.commands.executeCommand("undo");
+      await vscode.commands.executeCommand("undo");
+      assert.equal(doc.getText(), before);
+      // 列挙は QuickPick で選ぶ（型つきの名前で書く）
+      let step = 0;
+      panel.ui.showQuickPick = async (items) => items.find((i) => i.label === (step++ ? "high" : "mode"));
+      assert.equal(await panel.handle({ type: "params", part: "r1" }), true, JSON.stringify(shown));
+      assert.ok(doc.getText().includes("Res r1(mode = Params.Mode.high)"), doc.getText());
+      await vscode.commands.executeCommand("undo");
+      assert.equal(doc.getText(), before);
+      // LSP が断る式は通知に理由が出て、文書は変わらない
+      panel.ui.showQuickPick = async (items) => items.find((i) => i.label === "R");
+      panel.ui.showInputBox = async () => "1;2";
+      shown.length = 0;
+      assert.equal(await panel.handle({ type: "params", part: "r1" }), false);
+      assert.ok(shown.some((m) => typeof m === "string" && m.includes("壊れている")), JSON.stringify(shown));
+      assert.equal(doc.getText(), before);
+      // 検査を通らないメッセージは何もしない
+      assert.equal(await panel.handle({ type: "params", part: "r 1" }), false);
+    } finally {
+      panel.ui = vscode.window;
+    }
+  },
 };
 
 exports.run = async () => {
