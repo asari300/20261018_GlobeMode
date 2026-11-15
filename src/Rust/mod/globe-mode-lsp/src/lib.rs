@@ -2,7 +2,8 @@
 //!
 //! 機能: 診断（`publishDiagnostics`、検査 S0〜S10 と lint）、`documentSymbol`（アウトライン）、
 //! `hover`（クラスの種類）、`formatting`（S053、`globe-mode-fmt`）、`completion`（S053、[`completion`]）。
-//! `definition`・`references`（S132、[`definition`]）、`foldingRange`（S220、[`folding`]）、`inlayHint`（S352、[`inlay`]。関数の呼び出しの位置引数の名前）。同期は Full で、要求は 1 本のスレッドで順に処理する
+//! `definition`・`references`（S132、[`definition`]）、`foldingRange`（S220、[`folding`]）、`inlayHint`（S352、[`inlay`]。関数の呼び出しの位置引数の名前）、
+//! `prepareCallHierarchy`・`callHierarchy/incomingCalls`・`callHierarchy/outgoingCalls`（S354、[`call_hierarchy`]。`function` だけ）。同期は Full で、要求は 1 本のスレッドで順に処理する
 //! （S136: 入力の読みは別のスレッド。`$/cancelRequest` で `globe/simulate`・`globe/simulateColumns` を止め、
 //! params に `workDoneToken` があれば `$/progress` で進捗を出す。ADR-0033）。
 //!
@@ -57,6 +58,7 @@
 //! params が読めなければ -32602、モデルが無いなど計算の失敗は -32000（`message` に理由）。
 //! facade（`globe-mode`）の `Workspace` だけを呼び、新しい計算は入れない。
 
+pub mod call_hierarchy;
 pub mod completion;
 pub mod definition;
 pub mod diagram;
@@ -255,7 +257,7 @@ impl Server {
                         // 1 = Full
                         "capabilities": {"textDocumentSync": 1, "documentSymbolProvider": true, "hoverProvider": true,
                             "documentFormattingProvider": true, "completionProvider": {"triggerCharacters": ["."]},
-                            "definitionProvider": true, "referencesProvider": true, "foldingRangeProvider": true, "inlayHintProvider": true,
+                            "definitionProvider": true, "referencesProvider": true, "foldingRangeProvider": true, "inlayHintProvider": true, "callHierarchyProvider": true,
                             "renameProvider": {"prepareProvider": true}},
                         "serverInfo": {"name": "globe-mode", "version": env!("CARGO_PKG_VERSION")},
                     }),
@@ -322,6 +324,28 @@ impl Server {
                     self.with_resolver(|r| inlay::inlay_hints(r, &path, &text, from, to))
                 });
                 reply(id, json!(hints))
+            }
+            // S354: call hierarchy（`function` だけ）。`item` の `selectionRange`（関数の名前）から引き直すので状態は持たない。
+            // 呼び元は開いた文書・根の下の `.mo`・ライブラリ（`references` と同じ範囲）、呼び先は自前の名前解決
+            m @ ("textDocument/prepareCallHierarchy" | "callHierarchy/incomingCalls" | "callHierarchy/outgoingCalls") => {
+                let (uri, pos) = if m.starts_with("textDocument/") {
+                    (uri.clone(), &params["position"])
+                } else {
+                    (params["item"]["uri"].as_str().unwrap_or("").to_string(), &params["item"]["selectionRange"]["start"])
+                };
+                let (path, pos) = (uri_path(&uri), lsp_position(pos));
+                let (root, libs) = (self.root.clone(), self.libraries.clone());
+                let docs: Vec<(String, String)> = self.texts.iter().map(|(u, b)| (u.clone(), b.clone())).collect();
+                let found = self.with_resolver(|r| {
+                    let text = (r.read)(&path)?;
+                    let at = offset(&text, pos);
+                    match m {
+                        "textDocument/prepareCallHierarchy" => call_hierarchy::prepare(r, &uri, &path, &text, at).map(|i| json!([i])),
+                        "callHierarchy/incomingCalls" => call_hierarchy::incoming(r, root.as_deref(), &libs, &docs, &path, &text, at),
+                        _ => call_hierarchy::outgoing(r, &uri, &path, &text, at),
+                    }
+                });
+                reply(id, found.unwrap_or(Value::Null))
             }
             "textDocument/hover" => {
                 let pos = &params["position"];

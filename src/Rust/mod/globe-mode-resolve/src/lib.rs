@@ -34,6 +34,8 @@ pub struct Class {
     pub range: TextRange,
     pub encapsulated: bool,
     pub replaceable: bool,
+    /// `function`（`pure`・`impure`・`operator` の前置きがあっても。S354。LSP の call hierarchy が呼び先を関数に絞る）
+    pub is_function: bool,
     /// 入れ子のクラス（直接の子）
     pub classes: HashMap<String, ClassId>,
     /// 部品と、列挙の要素

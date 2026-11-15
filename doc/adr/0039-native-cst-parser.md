@@ -45,9 +45,10 @@ MSL 4.1.0 の例題 566 本での推移（括弧は「一致した本数 / 母�
 | S333 | 471 | 463（463/463・449/463） | 334（332/334・332/334・332/334・301/334） |
 | S334 | 471 | 463（463/463・451/463） | 334（334/334・334/334・332/334・334/334） |
 | S337 | 471 | 463（463/463・452/463） | 334（4 つとも 334/334） |
+| S336（S337 と合わせた） | 477（DAE にできた 477/477） | 468（468/468・457/468） | 334（4 つとも 334/334。新しい 6 本は Rumoca の釣り合いが無い） |
 
 - parse は MSL の例題 566/566（S300 の時点も今も）、resolve は未解決 0 が 467/566（S300 の時点も今も。残る 99 本はすべて `Redeclare`）。`GlobeModeValidation` 75 本は S334・S337 で、Rumoca も通った 73 本の名前・方程式の数・判定・数・状態が 73/73、正則が 72/72。
-- 断る理由の残り（S334。95 本、最初の理由だけ数える）: `unsized-array` 28・`composite-binding` 25・`stream` 21・`connect` 9・`non-constant-dim` 6・`expandable` 4・`connect-array` 1・`non-constant-for` 1。
+- 断る理由の残り（S336。89 本、最初の理由だけ数える）: `unsized-array` 47（S336 で `composite-binding` の 25 本のうち 19 本がここで止まる。S335 が直している）・`stream` 21・`connect` 9・`non-constant-dim` 6・`expandable` 4・`connect-array` 1・`non-constant-for` 1。`composite-binding` は 0。
 - 方程式の数が合わない 11 本は（S334 では 12 本。S337 で `ShowTransferFunction` を直した）、Rotational・Translational の摩擦・歯車の 10 本（S330 が Rumoca の数え方の誤りと確かめ、S331 が最新の release v0.10.4 では直ると確かめた。[upstream.md](../upstream.md) の下書き 36）、`ActuatorWithNoise`（同じ表の数え方）。状態の数が合わなかった 2 本（`IMC_DCBraking`・`IMC_Initialize`）は S337 で直した（Rumoca が初期方程式の `der` も状態にするため。自前の抜け）。
 
 付記の案内（主題ごと）:
@@ -56,9 +57,9 @@ MSL 4.1.0 の例題 566 本での推移（括弧は「一致した本数 / 母�
 | --- | --- |
 | B1 構文 | 本文、S269 |
 | B2 名前の解決 | S272、S275 |
-| B3 flatten | S278、S284、S297、S312、S324、S329、S333、S334、S337 |
+| B3 flatten | S278、S284、S297、S312、S324、S329、S333、S334、S336、S337 |
 | B4 DAE | S290、S312、S325、S330、S332（計測と、名前・数の食い違いの原因）、S337（初期方程式の `der` と状態の数） |
-| 製品へのつなぎ | S276（アウトライン・折りたたみ）、S279（補完）、S296（定義ジャンプ・ホバー）、S305（`globe check --frontend native`）、S307（閉包だけを読む）、S311（位置）、S313（CLI 以外から選ぶ）、S320（#111・#113〜#116）、S327（#118）、S352（inlay hint） |
+| 製品へのつなぎ | S276（アウトライン・折りたたみ）、S279（補完）、S296（定義ジャンプ・ホバー）、S305（`globe check --frontend native`）、S307（閉包だけを読む）、S311（位置）、S313（CLI 以外から選ぶ）、S320（#111・#113〜#116）、S327（#118）、S352（inlay hint）、S354（call hierarchy） |
 | 突き合わせ | S300（`cargo xtask diff-frontend`） |
 
 roadmap の要約で外した、古くなっていた「残り」: 診断の `GM-E` の番号が無い（S305 の native の検査が `GM-E0001`・`GM-E1001`・`GM-E1002`・`GM-E5002`・`GM-E6001` を出す）、定義ジャンプ・ホバーが未（S296 で済）、`Frontend` の feature `native` が無い（S305 で済）、B3 の残りが後ろで宣言したレコード・関数の戻り値のレコード・配列のコネクタの一括接続（S324 で減らした）、B4 の残りが balance の差 2 本・状態 5 本・正則 14 本（S312・S325・S330・S334 で直した）。まだ残っているのは、文の型付き AST（S269 は式の節点だけ）、`redeclare` の引数の構造（不透明な節点のまま）、native の検査の S7 以降と wasm・UI から選ぶこと、実行へのつなぎ、既定を切り替える閾値（未決）。
@@ -168,6 +169,22 @@ roadmap の要約で外した、古くなっていた「残り」: 診断の `GM
 - **shortcut**: 読めない初期方程式の印字は黙って飛ばす（状態の数だけが変わる）。属性（`start` など）の中の `der` は見ない（Rumoca は見る）。`if` の初期方程式は、条件が定数なら選んだ枝だけが `initial_equations` に入る（Rumoca も構造の選択で同じ）。実行（`globe-mode-exec`）は Rumoca のままなので、この規則は自前の DAE の判定にだけ効く。
 - **数字**（MSL の例題 566 本、S334 → S337。`GlobeModeValidation` 75 本は変わらず 73/73・73/73・73/73・正則 72/72。回帰 0、改善 3 本）: 状態の数 332/334 → **334/334**、flat の方程式の数 451/463 → **452/463**（残り 11 本は Rumoca の数え方の誤りとみている。Rotational・Translational の摩擦・歯車の 10 本と `ActuatorWithNoise`）、DAE の判定・数・構造の正則は 334/334 のまま。`msl:diff-frontend` と同じ引数で 744 s（ほかの担当と並行。S334 は 554 s）、最大 RSS 5.2 GiB。
 - **作業上の注意**: 共有 target では、同じ crate の成果物（`release/xtask`・試験のバイナリ）の名前が worktree をまたいで同じで、別の worktree のビルドに入れ替わることがある（`--dump` の出力が食い違って気付いた。試験でも起きた）。ビルド直後に自分の分を `cp` して走らせ、変えた crate の `lib.rs` を `touch` して作り直す。
+
+## 付記（S336）: B3 の続き、`Complex` の配列の束縛を要素ごとに（`composite-binding` 25 → 0、平らにできた 471 → 477）
+
+新しい ADR は立てず、S329 の続きとしてここに足す。変えたのは `globe-mode-flat`（`flatten.rs`）の中と、`xtask diff-frontend --dump`（自前が断ったときも Rumoca の flat を印字する）だけ。S334 の後に残った断る理由 `composite-binding` の 25 本（MSL の例題 566 本。最初の理由）を、原因ごとに分けて減らした。
+
+- **25 本の内訳**（`diff-frontend --class … --dump` の理由。すべて `Complex`・レコードの**配列**の束縛）: (1) `Complex uInternal[nin] = {if useConjugateInput[k] then conj(u[k]) else u[k] for k in 1:nin}`（`ComplexBlocks.Interfaces.ComplexMISO`・`ComplexMIMO`。8 本）、(2) `SI.ComplexVoltage v[m] = plug_p.pin.v - plug_n.pin.v`（配列の式。`vs`・`v`。15 本）、(3) `Permeance strayPermeance[m](final G_m = {SalientPermeance(…) for k in 1:m})`（レコードの配列を内包で修飾。1 本）、(4) `Complex sTM[m, m] = symmetricTransformationMatrix(m)`（2 次元で、関数の戻り値。1 本）。(1) の先には `Complex k[nin] = fill(Complex(1, 0), nin)` が隠れていた。
+- **配列のレコードの束縛を、添字 `[i, j, …]` を付けた要素ごとの束縛にする**（`inst_decl` の `bound`。1 次元だけだったのを N 次元に）。要素の式は `pick_elem` が決める: 束縛の式が `{a, b}` なら項、`{e for k in 1:n}` なら本体 `e`（`k` はその要素の値を局所変数に持つ文脈 `Ctx::locals` で。`for` の方程式と同じ仕組み）、それ以外（別の配列の変数・関数の呼び出し）は式のまま `[i, j]` を付ける（`(f(m))[2,1].re`）。部品の配列への修飾 `strayPermeance[m](G_m = {… for k in 1:m})`（`split_mod` が `({…})[k]` にしたもの）も同じ道で解ける。大きさの検査（項の数・範囲の長さ）は `size differs` で断る。
+- **`Complex` の配列の式を要素ごとに**（`complex_parts` に、束縛に付いた `[k]` を葉に当てる `index_leaf` を足した）: 配列の変数 `u`（`u[k].re`）・部品の配列を通した欄 `plug_p.pin.v`（`plug_p.pin[k].v.re`。`array_elems` と同じく最初の `.` から順に試す）は `[k]` を挟み、スカラーはそのまま（全要素で同じ）。`fill(x, n)` の要素は `x`。`Complex(re, im)`・`if`・`+ - * /` は S329 のまま。`complex_value` に切り出して、組み込みの関数（`fill`）の呼び出しの束縛からも呼ぶ。
+- **部品の配列を通した欄の束縛 `Complex i[m] = plug_p.pin.i`** は、欄ごとの束縛の名前を `plug_p.pin[k].i.re` にする（これまでは `plug_p.pin.i[k].re` という存在しない名前になりうる形。名前そのままの式 `Bind::lit` で束縛する）。
+- **内包 `{e for i in r}` の方程式の数**（`shape` の `Expr::Array`、`comp_len`）: 範囲の長さの積。これまでは項が 1 つとして 1 本と数えていた。Rumoca は `c = {a[k]*b[k] for k in 1:3}`（`Complex c[3]`）を 3 本と数える（`GlobeModeValidation` に置いて確かめた）。`Complex` の配列の方程式も Rumoca は要素の数で数える（`c = a - b` は 3 本。実部・虚部の 6 本ではない）。S337 が左辺が要素ごとに展開したレコードの配列（`aw = {…}`）の場合を同じ数え方にした（`record_array_len`）ので、この分は左辺が式の場合（`plug_p.pin.i + plug_n.pin.i = {Complex(0, 0) for k in 1:m}`。`PolyphaseElectroMagneticConverter`）だけが残った。
+- **試験**: `globe-mode-flat` に 2 本（`complex_arrays_expand_elementwise`〔内包・部品の配列を通した欄の差と参照・関数の戻り値の 2 次元・`fill`・レコードの配列の内包の修飾〕、`comprehension_equation_counts_its_range`〔左辺が式の内包の方程式〕）。
+- **shortcut**: 内包は添字が 1 つのものだけ（`{… for i in a, j in b}` は断る。MSL の例題では出ない）。`index_leaf` は葉の名前から配列を探すので、`Complex` を返す関数の配列の引数（`conj(u)` の `u` が配列）は見ない（断る）。要素の式の中の条件 `if c then …` の `c` が配列のときも見ない（MSL の例題では `useConjugateInput[k]` と添字つき）。
+- **S335（`unsized-array`）との関係**: 25 本のうち 19 本（`indexNonPos[:] = f(m)` の `Modelica.Electrical.Polyphase.Functions.indexNonPositiveSequence` を持つ Machines の例題）は、`composite-binding` の先で `unsized-array` で止まる。S335 の WIP を仮に結合して（コミットせず）確かめると 25 本すべてが平らになった（Rumoca の flat まで通ったのは 7 本で、名前の集合は 7/7）。そのとき、部品の配列を通した欄の方程式 `plug_p.pin.i + plug_n.pin.i = fill(Complex(0), m)` の数が 3 から 1 に減る問題が見つかった（S335 の `var_dims` の新しい分岐が `pin.i` に `Some([])` を返していた）。S335 は同じ原因を自分の WIP で直していた（宣言が後ろの部品の欄は、まだ平らにしていない配列でない部品だけにする）。
+- **Rumoca の flat との突き合わせ**（MSL の例題 566 本、`mise run msl:diff-frontend` と同じ `diff-frontend` を回した。S337 と S341 を取り込んだ後。S336 の前は S337 の 471 本・452/463。`GlobeModeValidation` 75 本は変わらず）: 自前で平らにできた **471 → 477**（`composite-binding` の 25 本のうち 6 本。ほかの 19 本は `unsized-array` に移った）、Rumoca の flat まで通った 463 → **468** 本で名前の集合 463/463 → **468/468**・方程式の数 452/463 → **457/468**（新しく比べられた 5 本が一致。残り 11 本は S337 から変わらず、Rumoca の数え方の誤りとみている）、DAE にできた 471 → **477/477**。Rumoca の釣り合いまで通った本数は 334 のまま（新しい 6 本は Rumoca が釣り合いまで通らない）で、判定・方程式と未知数の数・構造の正則・状態の数は 334/334。**回帰 0 本**（S334 の結果との差は、取り込む前の実行で改善 7 本〔新しく平らになった 6 本と `ShowTransferFunction`〕、1348 s、最大 RSS 5.4 GiB。S337・S341 を取り込んだあとの再実行は、取り込む前の結果との差で改善 100 本〔S341 の resolve 99 本 + `GlobeModeValidation` の 1 本。うち 2 本は S337 の状態の数〕）。取り込んだあとの実行は 794 s、最大 RSS 5.6 GiB。続けて S339 も取り込んだ最後の実行（`flatten.rs` の衝突は、S339 の `is_msl_complex` を `complex_value` でも使う形で解いた）は、数字が同じで回帰 0・改善 0、671 s、最大 RSS 5.5 GiB。
+- **断った理由の内訳**（最初の理由。S334 → S336）: `composite-binding` 25 → **0**、`unsized-array` 28 → **47**（19 本が移った）、`stream` 21、`connect` 9、`non-constant-dim` 6、`expandable` 4、`connect-array` 1、`non-constant-for` 1。
+- **持ち越し**: `unsized-array` 47 本（S335）、内包の添字が 2 つ以上・`Complex` を返す関数に配列を渡す式、S335 と合わせた 25 本のうち Rumoca が flat まで通るのは 7 本だけで（上の仮の結合）、残り 18 本は Rumoca と名前・方程式の数を比べられない（Rumoca の側の限界）。
 
 ## 付記（S334）: 構造の正則の不一致 33 本と `PrismaticConstraint`・`Fourbar1` の方程式の数（MultiBody）
 
@@ -532,6 +549,17 @@ S297 の見立て（Complex のレコード）は外れで、`Connections.isRoot
 - **出さないもの**: 呼び先が組み込み（`sin`・`der`）・部品・解決できない名前のとき、`input` より多い引数、名前つき引数（`f(b = 1)` は名前が書いてある）、`for` 内包の引数、`annotation` の中（resolve が `annotation` を読まない）、レコードの構築子（`Complex(1, 2)` の欄は `input` でなく宣言の順）。
 - **試験**: `globe-mode-lsp` の lib に `inlay_hints_name_the_positional_arguments_of_a_resolved_function`（`extends` の基底の `input` が先、入れ子の呼び出し、名前つき引数・`der` は出ない、最後の行が壊れた書きかけの文書、範囲の内側だけ、capability）と `inlay_hints_are_silent_when_the_callee_cannot_be_resolved`（組み込み・未定義・部品・`input` より多い引数）。
 - **shortcut**: 呼び先はライブラリ（`-L`）とその文書の中の関数だけ（別の開いた文書の関数は引けない。S279 の補完と同じ）。ライブラリの木は S279 と同じく起動後のディスクの更新を見ない。引数の名前と同じ名前の引数（`f(x)` の `x:`）も省かず出す。
+
+## 付記（S354）: LSP の call hierarchy（関数の呼び元・呼び先）
+
+新しい ADR は立てず、S352 の続きとして足す。features の「アウトライン・inlay hint・call hierarchy」の最後の穴。**新しい規則は作らず、既にある 2 つの道をつないだ**（呼び元は `references`〔S166・S230〕の道、呼び先は inlay hint〔S352〕の道）。
+
+- **出すもの**（`globe-mode-lsp` の `call_hierarchy.rs`。capability `callHierarchyProvider`）: `textDocument/prepareCallHierarchy`（カーソルの関数の名前 → 宣言の `CallHierarchyItem`。宣言の名前の上でも、呼び出しの上でも）、`callHierarchy/incomingCalls`（その関数を呼ぶクラスと、そのクラスの中の呼び出しの範囲 `fromRanges`）、`callHierarchy/outgoingCalls`（その関数の本体が呼ぶ関数と、呼び出しの範囲）。対象は **`function` だけ**（モデル・部品・レコードの上は `null`）。項目は `selectionRange`（関数の名前）から毎回引き直すので、サーバは状態を持たない。呼び元の項目は関数とは限らない（`kind` は関数が 12、それ以外のクラスが 5）。
+- **呼び元**: `class_name_at`（`textDocument/references` と同じ、カーソルの名前の定義）で関数を決め、`class_hits`（開いた文書）と `disk_class_hits`（根の下の開いていない `.mo` とライブラリ。S230）で同じ関数に行き着く識別子を集める。そのうち、自前の構文（`globe-mode-syntax`）の `CallExpr` の呼び先の名前の終わりに当たるものだけが呼び出し（宣言・`end f`・`extends f(…)`・型の使い方は除く）。呼び元は呼び出しを囲む一番内側の `ClassDef`。
+- **呼び先**: S352 と同じ。`Library::with_source` に文書を足し、関数の本体の `CallExpr` ごとに `Ref` を引いて `resolve`。`Resolution::Class` かつ関数のものだけを呼び先にする。書きかけの文書でも出る。`Class` に `is_function: bool` を足した（`globe-mode-resolve`。`function` の字句があれば、`pure`・`impure`・`operator` の前置きがあっても真。解決の規則は変えていない）。
+- **出さないもの**: 引けない呼び先、組み込み（`sin`）、レコードの構築子（`R(x)` は `record`）、`annotation` の中（resolve が読まない）。
+- **試験**: `globe-mode-lsp/tests/call_hierarchy.rs` の 1 本（ライブラリ `-L` の関数 `f`・`g` とレコード `R`、開いた文書 `M` と開いていない `LibUser`）。prepare は別のファイルの関数の呼び出しの上で出てモデルの名前の上は null、incoming(f) は `g`（2 箇所）と `M`（2 箇所）で宣言・`end f` は数えず、incoming(g) は開いた文書 `M` と開いていない `LibUser`、outgoing(g) は `f` だけ（`sin`・引けない `nope`・`R(x)` は出ない。`is_function` を外すと `R` が出て落ちることを確かめた）、outgoing(f) は空、モデルの項目は null、capability。
+- **shortcut**: 呼び元の探索はアウトラインの道（`class_name_at`）なので、構文の誤りで Rumoca のアウトラインが引けないファイルで宣言した関数は対象にできない（呼び先はその文書でも出る）。呼び元の探索は `references` と同じ費用（関数の名前の字面が部分文字列で入るファイルを全部字句に分ける。索引は持たない）。呼び先は、ライブラリ（`-L`）とその文書の中の関数だけ（別の開いた文書の関数は引けない。S352 と同じ）。レコードの構築子・`operator function` の呼び先は対象外。本物の VS Code の call hierarchy の表示は【未確認】（`vscode-languageclient` 9 が capability を見て自動で登録するので、拡張側の変更は無い。`vscode.yml` の起動試験にも足していない）。
 
 ## 付記（S339）: 5 回目のレビューの issue（#121〜#127・#130・#131）
 
