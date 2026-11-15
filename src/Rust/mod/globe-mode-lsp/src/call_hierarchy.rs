@@ -227,3 +227,45 @@ pub fn outgoing(r: &mut Resolver, uri: &str, path: &str, text: &str, at: usize) 
             .collect::<Vec<_>>()
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use globe_mode::Workspace;
+    use globe_mode_fmt::LibraryTree;
+
+    /// S360: Windows の CI で `incoming` が空だった。ライブラリの木のパス（`C:\lib\Fns.mo`、`display()` のまま）と、
+    /// 項目の URI から戻したパス（`C:/lib/Fns.mo`）は別の綴りでも同じファイル。宣言の名前は後者、`Fns.f` の解決は前者で出る。
+    #[test]
+    fn incoming_finds_callers_when_tree_path_spells_backslashes() {
+        let fns = "package Fns\n  function f\n    input Real a;\n    output Real y = a;\n  end f;\nend Fns;\n";
+        let m = "model M\n  Real x = Fns.f(1) + Fns.f(2);\nend M;\n";
+        let tree = LibraryTree::new([("C:\\lib\\Fns.mo", fns)]);
+        let (mut ws, mut scratch) = (Workspace::new(), Workspace::new());
+        ws.set_file("/tmp/M.mo", m.to_string());
+        let read = |p: &str| (p.replace('\\', "/") == "C:/lib/Fns.mo").then(|| fns.to_string());
+        let mut r = Resolver {
+            ws: &ws,
+            tree: &tree,
+            scratch: &mut scratch,
+            overlay: None,
+            lib: None,
+            read: &read,
+        };
+        let docs = [("file:///tmp/M.mo".to_string(), m.to_string())];
+        let at = fns.find("function f").unwrap() + "function ".len();
+        let inc = incoming(&mut r, None, &[], &docs, "C:/lib/Fns.mo", fns, at).unwrap();
+        let from: Vec<(&str, usize)> = inc
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| {
+                (
+                    c["from"]["name"].as_str().unwrap(),
+                    c["fromRanges"].as_array().unwrap().len(),
+                )
+            })
+            .collect();
+        assert_eq!(from, [("M", 2)], "{inc}");
+    }
+}
