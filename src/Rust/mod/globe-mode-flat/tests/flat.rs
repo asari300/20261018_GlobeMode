@@ -845,6 +845,35 @@ fn conditions_on_strings_and_later_inner_fields_and_record_if() {
 }
 
 #[test]
+fn unsized_dims_from_comprehension_function_args_and_record_fields() {
+    // `[:]` の大きさを束縛の式から決める（S335）: 添字つきの参照・内包・`vector`・関数の整数の引数（既定値も）・
+    // 宣言が後ろの部品の欄（`rr.t`）・レコードの束縛 `r = rr` の欄
+    let src = "function mk input Integer n = 4; output Real v[n]; algorithm for i in 1:n loop v[i] := i; end for; end mk;
+        record R parameter Real t[:] = {1, 2, 3}; parameter Integer k = 2; parameter Real u[k]; end R;
+        model Q parameter R r; end Q;
+        model M parameter Real table[:] = {0, 1, 2};
+          parameter Integer n = size(table, 1);
+          parameter Real a[:, :] = if n > 0 then [table[1], 1.0; table, {mod(i + 1, 2.0) for i in 1:n}] else [0.0, 1.0];
+          parameter Real bb[:] = vector([zeros(max(0, 5 - n), 1); table]);
+          parameter Real f[:] = mk(3);
+          parameter Real g[:] = mk();
+          Q q(r = rr);
+          R rr(t = {1, 2, 3, 4});
+        end M;";
+    let m = flat(src, "M");
+    let dims = |n: &str| m.vars.iter().find(|v| v.name == n).unwrap().dims.clone();
+    assert_eq!(dims("a"), [4, 2]);
+    assert_eq!(dims("bb"), [5]);
+    assert_eq!((dims("f"), dims("g")), (vec![3], vec![4]));
+    assert_eq!(dims("q.r.t"), [4]);
+    // 宣言の場所で修飾された欄を使う大きさ（`u[k]` の `k`）は、宣言が後ろの部品では決めない
+    let src = "record R parameter Integer k = 2; parameter Real u[:] = fill(0.0, k); end R;
+        model Q parameter R r; end Q;
+        model M Q q(r = rr); R rr(k = 3); end M;";
+    assert_eq!(err(src, "M"), "unsized-array");
+}
+
+#[test]
 fn complex_arrays_expand_elementwise() {
     // S336: `Complex` の配列の束縛は要素ごとに。内包 `{… for k in 1:n}`、部品の配列を通した欄の差、関数の戻り値の行列
     let m = flat(

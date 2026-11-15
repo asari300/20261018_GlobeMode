@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S335 flat の [:] の大きさ — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S335 flat の [:] の大きさ">
+
+<section class="slide" id="S01">
+  <span class="tag">S335 · 2026-11-15 · Track B</span>
+  <h1>flat の <code>[:]</code> の大きさ</h1>
+  <p class="lead">大きさ <code>[:]</code> の配列を束縛の式・関数の引数・レコードの束縛から決める</p>
+  <div class="big"><code>unsized-array</code> 28 → 1 本、flat 477 → 518 / 566（S336 と合わせて）、回帰 0</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">内訳</span>
+  <h1>断っていた 28 本の原因</h1>
+  <table>
+    <thead><tr><th>原因</th><th>本数</th></tr></thead>
+    <tbody>
+      <tr><td><code>BooleanTable</code> の <code>table = … [table[1], 1.0; table, {… for i in 1:n}]</code></td><td>12</td></tr>
+      <tr><td><code>vector([zeros(max(0,na-nb),1); b])</code></td><td>6</td></tr>
+      <tr><td><code>cellData = cellData1</code> で欄に分けた <code>OCV_SOC</code></td><td>7</td></tr>
+      <tr><td>関数の戻り値 <code>relNodePositions(12)</code> ほか</td><td>2</td></tr>
+      <tr><td>ファイルを読んで決まる大きさ</td><td>1</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">直し</span>
+  <h1>式の形を読む <code>dims_of</code> に足したもの</h1>
+  <ul>
+    <li>添字つきの参照・内包・<code>vector</code>・<code>mod</code> など</li>
+    <li>関数の戻り値: 整数の入力を引数（既定値も）の値に束ねて出力の添字を評価</li>
+    <li>レコードの束縛の欄 <code>other.f</code> の大きさと値（以前は suffix を見ずに空）</li>
+    <li>宣言が後ろの部品の欄は型の宣言から。<strong>修飾された欄を使うときは決めない</strong></li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">数字</span>
+  <h1>MSL の例題 566 本（S336 と合わせた）</h1>
+  <div class="kpis">
+    <div class="kpi"><span class="n">518 / 566</span><span class="l">自前で平らにできた（S336 だけで 477）</span></div>
+    <div class="kpi"><span class="n">491 / 491</span><span class="l">名前の一致（前 468 / 468）</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">回帰</span></div>
+  </div>
+  <p>方程式の数は 480 / 491 が一致（合わない 11 本は Rumoca の数え方の誤り）。DAE は 518 / 518 で、判定・数・状態・正則が 351 / 351。S335 だけでは 471 → 493</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li><code>rcData[] = cellData</code>（配列のレコードを別のレコードの欄の配列で束縛。<code>composite-binding</code> 6 本）</li>
+    <li><code>ReadRealMatrixFromFile</code>: ファイルを読んで決まる大きさ</li>
+  </ul>
+  <p class="foot">GlobeMode S335</p>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
