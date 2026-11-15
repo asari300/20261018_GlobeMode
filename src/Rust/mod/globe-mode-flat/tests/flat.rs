@@ -349,6 +349,19 @@ fn in_stream_in_comprehension() {
     );
 }
 
+/// 内包の `inStream` を `sum(…)` などの引数に直に書いても、展開した項は `{…}` で包んで引数 1 つの配列にする（S372・#145。`{…}` の内包は `{}` が 1 組のまま）
+#[test]
+fn in_stream_comprehension_as_a_call_argument_is_braced() {
+    let m = flat(
+        "connector P Real v; flow Real i; stream Real h; end P;
+         model N P p[2]; Real s; Real z[2]; equation s = sum(inStream(p[k].h) for k in 1:2); z = {inStream(p[k].h) for k in 1:2}; end N;",
+        "N",
+    );
+    let e = eqs(&m);
+    assert!(e.contains(&"s = sum({p[1].h, p[2].h})".to_string()), "{e:#?}");
+    assert!(e.contains(&"z = {p[1].h, p[2].h}".to_string()), "{e:#?}");
+}
+
 #[test]
 fn record_binding_and_constant_dims() {
     let m = flat(

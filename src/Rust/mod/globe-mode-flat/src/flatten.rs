@@ -2018,6 +2018,11 @@ impl F<'_> {
             let (Some(var), Some(range), Some(body)) = (var, range, body) else {
                 return un("stream", c.syntax().text().to_string());
             };
+            // 親が `{…}` でない（`sum(inStream(f[i].h) for i in 1:3)`）ときは、並べた項を `{…}` で包んで引数 1 つの配列にする（S372）
+            let braces = c.syntax().parent().is_none_or(|p| p.kind() != K::ArrayExpr);
+            if braces {
+                out.push("{".to_string());
+            }
             for (k, v) in self.range_vals(&range, file, ctx)?.into_iter().enumerate() {
                 let mut locals = ctx.locals.clone();
                 locals.push((var.clone(), v));
@@ -2032,6 +2037,9 @@ impl F<'_> {
                     out.push(",".to_string());
                 }
                 self.pr(body.syntax(), file, &lctx, out)?;
+            }
+            if braces {
+                out.push("}".to_string());
             }
             return Ok(());
         }
