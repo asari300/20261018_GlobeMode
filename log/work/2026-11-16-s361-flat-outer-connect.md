@@ -34,7 +34,8 @@ S355 のあと MSL の例題で flat が断るのは 28 本。うち `connect` �
 - **全体の `diff-frontend`**（共有 target の `release/xtask` が入れ替わるので、作った直後に `bin-copies/xtask-s361c` へ写し、`flock` の下で回した）: MSL の例題 566 本で、平らにできた 538 → **548**、Rumoca も通った 511 → 521 本で名前 508/511 → **518/521**・方程式の数 498/511 → **508/521**、DAE 538/538 → **548/548**、Rumoca の釣り合いまで通った 367 → 377 本で判定 **374/377**・方程式と未知数の数 **373/377**・状態の数 **376/377**・構造の正則 **369/377**、`connect` 10 → **0**。`GlobeModeValidation` 75 本は変わらず（Rumoca も通った 74 本で名前・方程式の数・判定・数・状態 74/74、正則 73/73）。**回帰 0 本、改善 10 本**。1009 s、最大 RSS 5.8 GiB。
 - 新しく通った 10 本: 名前・方程式の数 10/10。DAE は 6 本が 4 項目とも一致。食い違う 4 本は、構造の正則 3 本（`ExecutionPaths`・`ShowCompositeStep`・`ShowExceptions`。`{a.join[1].occupied, a.join[2].occupied} = fill(…)` の行の incidence が自前の DAE で空。理由は dae の側で未確認）と `BatchPlant_StandardWater`（方程式の数 2365 対 2389・正則。レコードの欄ごとの行【推測】）。
 - `cargo test -p globe-mode-flat`（53 本）・`-p globe-mode-dae`・`-p globe-mode-frontend` 通過、`cargo clippy -p globe-mode-flat -p globe-mode-dae --all-targets -- -D warnings`・`cargo fmt --all --check` 通過。
-- 共有 target の罠: 最初の `cargo test` が別の worktree の古い `globe-mode-resolve` を使い、`mo_files` が見つからない E0432 になった。resolve・flat の lib.rs を touch して直った。
+- `cargo test -p globe-mode-dae -p globe-mode-frontend`（lib.rs を touch してから）失敗 0。`git fetch && git merge origin/main`（S359・S360 を取り込んだ）は `doc/sessions/README.md` の 1 か所だけ衝突し、S361・S360・S359 を残して解いた。取り込んだ変更は LSP（call hierarchy）・UI の試験・上流の下書き・文書で、flat・dae に及ぶ変更は無い（全体の `diff-frontend` は回し直していない）。取り込み後の `check_docs.py`: 相対リンク 5455 件中の切れ 0 件。`render_slides.py`（S361 のデッキだけ）: 問題 0 件。markdownlint 0 件。
+- 共有 target の罠: 最初の `cargo test` が別の worktree の古い `globe-mode-resolve` を使い、`mo_files` が見つからない E0432 になった（resolve・flat の lib.rs を touch して直った）。あとで `cargo test -p globe-mode-flat` が 53 本でなく 48 本しか走らず（共有 target の `flat-…` の試験のバイナリが別の worktree のものに入れ替わっていた）、tests/flat.rs と lib.rs を touch して 53 本通った。
 - 最初の 10 本の突き合わせは S362 の全体の検査の `flock` を待った（約 20 分）。
 
 ## 残したこと
