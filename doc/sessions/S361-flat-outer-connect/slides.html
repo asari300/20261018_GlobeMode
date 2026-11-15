@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S361 flat の外側の inner への connect — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S361 flat の外側の inner への connect">
+
+<section class="slide" id="S01">
+  <span class="tag">S361 · 2026-11-16 · Track B</span>
+  <h1>外側の <code>inner</code> への <code>connect</code></h1>
+  <p class="lead"><code>StateGraph</code> の <code>stateGraphRoot</code> など、断っていた <code>connect</code> 10 本を平らにした</p>
+  <div class="big">断る理由 <b>connect 10 → 0</b>、平らにできた <b>538 → 548</b>、回帰 0</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">原因</span>
+  <h1><code>inner</code> が後ろで宣言されていて、葉がまだ無い</h1>
+  <ul>
+    <li><code>outer</code> のコネクタへの <code>connect</code> は、端が外側の <code>inner</code>（例題のモデルの <code>stateGraphRoot</code>）の名前になる</li>
+    <li><code>inner</code> は部品より後ろで宣言されるので、部品の階層で <code>connect</code> を処理する時点では葉が無い（<code>differ</code>）</li>
+    <li>前に宣言されていても、部品ごとに別の集合になり、<code>inner</code> の flow の和が部品の数だけできる</li>
+    <li>接続集合は階層をまたいで 1 つ（Rumoca も全部の <code>connect</code> を集めてから集合にする）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">直し</span>
+  <h1>5 つの直し</h1>
+  <table class="compact">
+    <tr><th>直し</th><th>中身</th></tr>
+    <tr><td>外側の <code>inner</code> への <code>connect</code></td><td><code>inner</code> を宣言する階層まで持ち越す（<code>late_conns</code>）。外側のコネクタの端の符号も持ち越す</td></tr>
+    <tr><td><code>inner outer</code></td><td>実体を作る。同じ階層の <code>connect</code> の端だけ外側の <code>inner</code> へ</td></tr>
+    <tr><td><code>if cardinality(c) …</code></td><td>全部の <code>connect</code> がそろってから枝を選ぶ（数 = <code>connect</code> の端に出た回数）</td></tr>
+    <tr><td><code>constrainedby C(nu = nu)</code></td><td>差し替えた部品にも修飾を掛ける（<code>LogicalSample</code>）</td></tr>
+    <tr><td>内包の中の <code>inStream</code></td><td><code>{e for j in r}</code> を <code>j</code> ごとに展開（<code>BatchPlant</code>）</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">数字</span>
+  <h1>MSL の例題 566 本（S355 → S361）</h1>
+  <div class="kpis">
+    <div class="kpi"><span class="n">548 / 566</span><span class="l">自前で平らにできた（前 538）</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">connect（前 10）</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">回帰（改善 10）</span></div>
+  </div>
+  <p>名前 518 / 521、方程式の数 508 / 521、DAE 548 / 548。新しく通った 10 本は名前・方程式の数が 10 / 10 一致</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">合わない項目</span>
+  <h1>新しい 10 本のうち DAE が食い違う 4 本</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>本数</th><th>原因</th></tr>
+    <tr><td>構造の正則</td><td>3</td><td><code>{a.join[1].occupied, a.join[2].occupied} = fill(…)</code> の行の incidence が空（<code>globe-mode-dae</code> の側。理由は未確認）</td></tr>
+    <tr><td>方程式の数・正則</td><td>1</td><td><code>BatchPlant</code>: <code>ThermodynamicState</code> のレコードの欄ごとの行【推測】</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>DAE の 4 本（<code>globe-mode-dae</code> の側）</li>
+    <li>断る 18 本: <code>composite-binding</code> 6・<code>expandable</code> 5・<code>non-constant-dim</code> 4 ほか</li>
+    <li>差し替えていない既定の型への <code>constrainedby</code> の修飾、<code>cardinality</code> の入れ子</li>
+  </ul>
+  <p class="foot">GlobeMode S361</p>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

@@ -333,6 +333,22 @@ fn redeclare_keeps_constraining_modification() {
     assert_eq!(dims(&flat(&src("(nu = 3)"), "Conj")), [3]);
 }
 
+/// 内包の中の `inStream` は添字ごとに展開する（S361。`MultiPort` の `sum({… inStream(ports_b[j].h_outflow) for j in 1:n})`）
+#[test]
+fn in_stream_in_comprehension() {
+    let m = flat(
+        "connector P Real v; flow Real i; stream Real h; end P;
+         model N P p[2]; Real s; equation s = sum({inStream(p[k].h) for k in 1:2}); end N;
+         model A N n; end A;",
+        "A",
+    );
+    assert!(
+        eqs(&m).contains(&"n.s = sum({n.p[1].h, n.p[2].h})".to_string()),
+        "{:#?}",
+        eqs(&m)
+    );
+}
+
 #[test]
 fn record_binding_and_constant_dims() {
     let m = flat(

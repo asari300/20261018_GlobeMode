@@ -49,9 +49,10 @@ MSL 4.1.0 の例題 566 本での推移（括弧は「一致した本数 / 母�
 | S335（S336 を取り込む前。S337・S341 は取り込み済み） | 493 | 484（484/484・473/484） | 351（4 つとも 351/351） |
 | S335（S336 と合わせた） | 518（DAE にできた 518/518） | 491（491/491・480/491） | 351（4 つとも 351/351） |
 | S355（S335 の上。`stream`） | 538（DAE にできた 538/538） | 511（508/511・498/511） | 367（判定 365/367・方程式と未知数の数 364/367・状態 366/367・構造の正則 363/367） |
+| S361（S355 の上。外側の `inner` への `connect`） | 548（DAE にできた 548/548） | 521（518/521・508/521） | 377（判定 374/377・方程式と未知数の数 373/377・状態 376/377・構造の正則 369/377） |
 
 - parse は MSL の例題 566/566（S300 の時点も今も）、resolve は未解決 0 が 467/566（S300 の時点も今も。残る 99 本はすべて `Redeclare`）。`GlobeModeValidation` 75 本は S334・S337 で、Rumoca も通った 73 本の名前・方程式の数・判定・数・状態が 73/73、正則が 72/72。
-- 断る理由の残り（S355。28 本、最初の理由だけ数える）: `connect` 10（`StateGraph` の `outer` のコネクタへの `connect` 9〔`StateGraph.Examples` 7・`Fluid.Examples.ControlledTankSystem.ControlledTanks`・`BatchPlant_StandardWater`〕と `LogicalSample`）・`composite-binding` 6・`expandable` 5・`non-constant-dim` 4・`connect-array` 1・`non-constant-for` 1・`unsized-array` 1。`stream` は 0（S355）、`composite-binding` の 25 本のうち 19 本は S335 が平らにした。
+- 断る理由の残り（S361。18 本、最初の理由だけ数える）: `composite-binding` 6・`expandable` 5・`non-constant-dim` 4・`connect-array` 1・`non-constant-for` 1・`unsized-array` 1。`connect` は 0（S361。S355 では 10 本）、`stream` は 0（S355）、`composite-binding` の 25 本のうち 19 本は S335 が平らにした。
 - 方程式の数が合わない 11 本は（S334 では 12 本。S337 で `ShowTransferFunction` を直した）、Rotational・Translational の摩擦・歯車の 10 本（S330 が Rumoca の数え方の誤りと確かめ、S331 が最新の release v0.10.4 では直ると確かめた。[upstream.md](../upstream.md) の下書き 36）、`ActuatorWithNoise`（同じ表の数え方）。状態の数が合わなかった 2 本（`IMC_DCBraking`・`IMC_Initialize`）は S337 で直した（Rumoca が初期方程式の `der` も状態にするため。自前の抜け）。
 
 付記の案内（主題ごと）:
@@ -60,7 +61,7 @@ MSL 4.1.0 の例題 566 本での推移（括弧は「一致した本数 / 母�
 | --- | --- |
 | B1 構文 | 本文、S269 |
 | B2 名前の解決 | S272、S275 |
-| B3 flatten | S278、S284、S297、S312、S324、S329、S333、S334、S335（`[:]` の大きさ）、S336（`Complex` の配列の束縛）、S337、S355（`stream`） |
+| B3 flatten | S278、S284、S297、S312、S324、S329、S333、S334、S335（`[:]` の大きさ）、S336（`Complex` の配列の束縛）、S337、S355（`stream`）、S361（外側の `inner` への `connect`・`inner outer`・`cardinality`） |
 | B4 DAE | S290、S312、S325、S330、S332（計測と、名前・数の食い違いの原因）、S337（初期方程式の `der` と状態の数） |
 | 製品へのつなぎ | S276（アウトライン・折りたたみ）、S279（補完）、S296（定義ジャンプ・ホバー）、S305（`globe check --frontend native`）、S307（閉包だけを読む）、S311（位置）、S313（CLI 以外から選ぶ）、S320（#111・#113〜#116）、S327（#118）、S352（inlay hint）、S354（call hierarchy） |
 | 突き合わせ | S300（`cargo xtask diff-frontend`） |
@@ -191,6 +192,23 @@ roadmap の要約で外した、古くなっていた「残り」: 診断の `GM
   - DAE の釣り合い 2・数 3・状態 1・正則 4（`HeatingSystem`・`NonCircularPipes`・`ThreeTanks`・`TankWithEmptyingPipe1`・`InverseParameterization`）: 行の incidence を突き合わせると、食い違いはどれも `Medium.ThermodynamicState` のレコード（`state_a = Medium.setState_phX(…)`、`statesFM[1:n] = mediums[1:n].state`、`pipe.flowModel.states[1].p = …`）の方程式と束縛で、Rumoca は欄ごとの行にし、自前は 1 行にしている【推測。`stream` の展開そのものの差ではない】。**持ち越し**。
 - **残る 1 本**: `BatchPlant_StandardWater` は `connect` で断る（`StateGraph` の `outer` のコネクタ `stateGraphRoot.subgraphStatePort` への `connect` で、`inner` が後ろで宣言されていて葉がまだ無い。`StateGraph.Examples` の 7 本と `Fluid.Examples.ControlledTankSystem.ControlledTanks` も同じ。10 本目の `LogicalSample` は大きさの違う配列の `connect`）。
 - **持ち越し**: DAE のレコードの欄ごとの行（上の 4 本）、`outer` のコネクタを後ろの `inner` に `connect` する 9 本、`smooth(0, m_flow * actualStream(x))`。
+
+## 付記（S361）: flat で外側の階層の `inner` への `connect`・`inner outer`・`cardinality` の `if`（`connect` 10 本 → 0、平らにできた 538 → 548）
+
+新しい ADR は立てず、S355 の続きとしてここに足す。変えたのは `globe-mode-flat`（`flatten.rs`）の中だけ（`globe-mode-dae` は変えていない）。S355 の後に断る理由 `connect` で残った 10 本（MSL の例題 566 本の最初の理由。`StateGraph.Examples` の 7 本・`Fluid.Examples.ControlledTankSystem.ControlledTanks`・`AST_BatchPlant.BatchPlant_StandardWater` の 9 本は `StateGraph` の `outer` のコネクタ `stateGraphRoot.subgraphStatePort` への `connect`、残る 1 本は `Clocked.Examples.Elementary.ClockSignals.LogicalSample`）を平らにできるようにした。
+
+- **外側の階層の `inner` につなぐ `connect` は、`inner` を宣言する階層まで持ち越す**（`late_conns`・`late_owner`）。`outer` の部品は参照が外側の `inner` の名前に付け替わるので、`step.outerStatePort` の `connect(outerStatePort.subgraphStatePort, stateGraphRoot.subgraphStatePort)` の端は `stateGraphRoot.subgraphStatePort`（例題のモデルの `inner`）になる。これまでは `step` の階層の `gen_connects` が単独の集合にしていて、(1) `inner` が部品より後ろで宣言されていると葉がまだ無く（`connect: … differ`）、(2) 前でも、部品ごとに別の集合になって `inner` のコネクタの flow の和が部品の数だけできる（MLS 9.2 の接続集合は階層をまたいで 1 つ。Rumoca も全部の `connect` を集めてから集合にする）。端が、`pfx` の祖先の階層で宣言した `inner`（`F::inners`）の中を指していたら、その `inner` を宣言する階層（`gen_connects` に `pfx` を渡して `late_conns` を引く）の集合に入れる。持ち越す前の階層で各端が「外側のコネクタ」だったか（flow の和の符号が逆になる）は一緒に持ち越す。持ち越した端は、元の階層の「つながない内側のコネクタの flow = 0」の対象にしない。宣言する階層に届かなかったら（`inner` が作られなかった）`connect` で断る。`FirstExample` の flow の和は 1 本 `initialStep….activeSteps + stateGraphRoot….activeSteps + step….activeSteps = 0`（Rumoca と同じ）。
+- **`inner outer` は実体を持つ**（`bridge`・`bridge_end`）。`CompositeStep` の `inner outer CompositeStepState stateGraphRoot(suspend = …, resume = …)` は、これまで `outer` と同じく外側の `inner` の別名にして部品を作らなかったが、Rumoca の flat は `compositeStep.stateGraphRoot.*`（`suspend`・`resume`・`subgraphStatePort` の欄・`activeSteps` の 7 変数と、`CompositeStepState` の 4 本の方程式）を作る。実体を作り（中の部品の `outer` は一番近いこの `inner outer` につながる）、`connect` の端のうち**同じ階層**でこの名前で始まるものだけ、外側の `inner` の名前に付け替える（MLS 5.4。Rumoca の `redirect_connection_for_inner_outer` と同じ。子の階層の端は付け替えない）。MSL で `inner outer` を使うのは `StateGraph.PartialCompositeStep` の 1 か所だけ。
+- **`cardinality(c)` を条件に持つ `if` の方程式は、全部の `connect` がそろってから枝を選ぶ**（`defer_card_if`・`resolve_card_ifs`）。`Step` の `if cardinality(inPort[i]) == 0 then inPort[i].set = false; end if;` は、`inPort[i]` が親の階層で `connect` されるので、平らにしている間は値が決まらない。枝ごとに平らにして 1 行の目印を置いておき、`apply_connection_graph` のあと（`expand_streams` の前）に、`c` が `connect` の端に出てきた数（MLS 3.7.2.3。`conn_pairs` の端の完全な名前の出現の数。Rumoca の `compute_cardinality_counts` と同じ）で条件を評価して、真になる最初の枝だけを置き換える。評価できなければ `cardinality` で断る。入れ子は断る。`assert(cardinality(…) …)` は数 0 のまま。
+- **差し替えた部品に、元の宣言の `constrainedby C(x = …)` の修飾も掛ける**（`LogicalSample`）。`PartialLogicalClock` の `replaceable PartialBooleanMISO combinator constrainedby PartialBooleanMISO(nu = nu)` を `redeclare MathBoolean.And combinator` で差し替えると、`nu = nu` が落ちて `combinator.u[nu]` が大きさ 0 になり、`connect(input_memory.Q, combinator.u)` が「大きさが違う」で断られていた（MLS 7.3.2。差し替えた側の明示した修飾が勝つ）。差し替えていない既定の型には掛けない（数字が動くか確かめていない。Rumoca の側も未確認）。
+- **内包の中の `inStream`・`actualStream` は添字ごとに展開する**（`pr`）。`BatchPlant_StandardWater` は `connect` を通ると `stream: inStream(multiPort.ports_b[j].h_outflow): not a variable` で止まった（S355 の「添字が定数でない `inStream` は断る」。`Fittings.MultiPort` の `sum({positiveMax(ports_b[j].m_flow) * inStream(ports_b[j].h_outflow) for j in 1:nPorts_b})`）。印字のとき、本体に `inStream`・`actualStream` を含む内包 `e for j in r` は、`r` の値ごとに `j` を束ねて `e` を並べる（`{e(1), e(2), …}`）。添字が 1 つの内包だけ（複数は `stream` で断る。MSL に無い）。
+- **試験**（`globe-mode-flat/tests/flat.rs`）: `outer_connect_to_later_inner`（後ろで宣言された `inner` に 2 つの部品がつなぐと flow の和が 1 本）、`inner_outer_is_instantiated_and_bridged`（`inner outer` の実体・葉は実体につながり、同じ階層の `connect` は外側の `inner` へ・外側のコネクタの端の符号が持ち越しても逆）、`cardinality_selects_if_branch`（未接続だけ枝が選ばれる・`<`・`else`）、`redeclare_keeps_constraining_modification`（差し替えた部品に `nu = nu` が掛かり、明示した修飾が勝つ）、`in_stream_in_comprehension`。
+- **Rumoca の flat との突き合わせ**（MSL の例題 566 本、`mise run msl:diff-frontend` と同じ `diff-frontend`。S355 の結果との差）: 自前で平らにできた **538 → 548**（`connect` 10 → 0）、Rumoca の flat まで通った 511 → **521** 本で名前の集合 508/511 → **518/521**・方程式の数 498/511 → **508/521**、DAE にできた **548/548**。Rumoca の釣り合いまで通った 367 → **377** 本で判定 **374/377**・方程式と未知数の数 **373/377**・状態の数 **376/377**・構造の正則 **369/377**。`GlobeModeValidation` 75 本は変わらず（Rumoca も通った 74 本ですべて一致）。**回帰 0 本、改善 10 本**。1009 s、最大 RSS 5.8 GiB。
+- **新しく通った 10 本のうち合わない項目**: 名前・方程式の数は 10 本とも一致。DAE は 6 本（`LogicalSample`・`FirstExample`・`_Variant2`・`_Variant3`・`StateGraph.Examples.ControlledTanks`・`Fluid.Examples.ControlledTankSystem.ControlledTanks`）が 4 つとも一致し、4 本が食い違う。
+  - 構造の正則（`ExecutionPaths`・`ShowCompositeStep`・`ShowExceptions`。自前 false、Rumoca true）: `Alternative`・`Parallel` の `join.occupied = fill(outPort.occupied, nBranches)`（flat の印字は `{a.join[1].occupied, a.join[2].occupied} = fill(…)`、数 2）の行の incidence が、自前の DAE では空になる（`ExecutionPaths` で 7 行。Rumoca の行は 40、自前は 47）。unknown のない行は構造の正則を落とすので、これが原因とみているが、行が空になる理由は `globe-mode-dae` の側で**確かめていない**。potential の等式を、自前は集合の先頭を中心にした星形、Rumoca は木にする違いも出るが、行の incidence の違いはこの 1 種類だけ。
+  - `BatchPlant_StandardWater`（方程式の数 2365 対 2389、構造の正則）: S355 の「DAE のレコードの欄ごとの行」と同じ種類【推測】（`Medium.ThermodynamicState` のレコードの方程式。差は 24 本）。
+- **残る断る理由**（18 本）: `composite-binding` 6・`expandable` 5・`non-constant-dim` 4・`connect-array` 1（`HeatExchangerSimulation`。`heatPorts[HEX.nNodes : -1 : 1]`）・`non-constant-for` 1・`unsized-array` 1。
+- **持ち越し**: 上の DAE の 4 本（`globe-mode-dae` の側）、`smooth(0, m_flow * actualStream(x))`、差し替えていない既定の型への `constrainedby` の修飾、`cardinality` の入れ子。
 
 ## 付記（S336）: B3 の続き、`Complex` の配列の束縛を要素ごとに（`composite-binding` 25 → 0、平らにできた 471 → 477）
 

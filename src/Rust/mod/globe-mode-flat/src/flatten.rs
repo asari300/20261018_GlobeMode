@@ -1841,6 +1841,48 @@ impl F<'_> {
             });
             return Ok(());
         }
+        // 内包 `e for j in r` の中の `inStream`・`actualStream` は、`j` ごとに `e` を並べる（添字が定数でないと端の名前が決まらない。S361）
+        if let Some(Expr::Comprehension(c)) = Expr::cast(n.clone())
+            && c.syntax()
+                .descendants()
+                .filter_map(ast::CallExpr::cast)
+                .any(|x| matches!(x.callee().as_deref(), Some("inStream" | "actualStream")))
+        {
+            let mut fis = c
+                .syntax()
+                .children()
+                .find(|x| x.kind() == K::ForIndices)
+                .into_iter()
+                .flat_map(|x| x.children().filter(|f| f.kind() == K::ForIndex));
+            // shortcut: 添字が 1 つの内包だけ（`for i in …, j in …` は断る）
+            let (Some(fi), None) = (fis.next(), fis.next()) else {
+                return un("stream", c.syntax().text().to_string());
+            };
+            let var = tokens(&fi)
+                .find(|t| t.kind() == K::Ident)
+                .map(|t| t.text().to_string());
+            let range = fi.children().find(|x| Expr::cast(x.clone()).is_some());
+            let body = c.syntax().children().find_map(Expr::cast);
+            let (Some(var), Some(range), Some(body)) = (var, range, body) else {
+                return un("stream", c.syntax().text().to_string());
+            };
+            for (k, v) in self.range_vals(&range, file, ctx)?.into_iter().enumerate() {
+                let mut locals = ctx.locals.clone();
+                locals.push((var.clone(), v));
+                let lctx = Rc::new(Ctx {
+                    pfx: ctx.pfx.clone(),
+                    lineage: ctx.lineage.clone(),
+                    locals,
+                    cenv: ctx.cenv.clone(),
+                    heir: ctx.heir,
+                });
+                if k > 0 {
+                    out.push(",".to_string());
+                }
+                self.pr(body.syntax(), file, &lctx, out)?;
+            }
+            return Ok(());
+        }
         // 条件が定数の `if` 式は、選んだ枝だけを印字する（Rumoca の flat も落とす。`der` が枝にあれば状態の数に効く。S312）
         if let Some(Expr::If(i)) = Expr::cast(n.clone())
             && let Some(taken) = self.const_if_expr(&i, file, ctx)
