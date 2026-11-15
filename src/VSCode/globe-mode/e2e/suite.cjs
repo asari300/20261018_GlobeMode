@@ -164,8 +164,8 @@ const cases = {
       await vscode.commands.executeCommand("undo");
       assert.equal(doc.getText(), before);
       // 列挙は QuickPick で選ぶ（型つきの名前で書く）
-      let step = 0;
-      panel.ui.showQuickPick = async (items) => items.find((i) => i.label === (step++ ? "high" : "mode"));
+      const want = ["mode", "high"];
+      panel.ui.showQuickPick = async (items) => { const w = want.shift(); return items.find((i) => i.label === w); };
       assert.equal(await panel.handle({ type: "params", part: "r1" }), true, JSON.stringify(shown));
       assert.ok(doc.getText().includes("Res r1(mode = Params.Mode.high)"), doc.getText());
       await vscode.commands.executeCommand("undo");
