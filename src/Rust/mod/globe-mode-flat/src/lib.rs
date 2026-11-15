@@ -21,12 +21,12 @@
 
 mod flatten;
 
-use globe_mode_resolve::{ClassId, Library, Ref, RefKind, Resolution};
+use globe_mode_resolve::{ClassId, Library, Ref, RefKind, Resolution, mo_files};
 use globe_mode_syntax::ast::{self, Element};
 use globe_mode_syntax::{SyntaxKind, SyntaxNode, parse};
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -176,18 +176,6 @@ pub(crate) enum SnipItem {
 }
 
 pub(crate) const SNIP_FILE_BASE: u32 = 1 << 31;
-
-fn mo_files(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
-    for e in std::fs::read_dir(dir)? {
-        let p = e?.path();
-        if p.is_dir() {
-            mo_files(&p, out)?;
-        } else if p.extension().is_some_and(|x| x == "mo") {
-            out.push(p);
-        }
-    }
-    Ok(())
-}
 
 impl Project {
     /// ディレクトリの下の `.mo` をすべて読む（`Library::from_dirs` と同じ順）

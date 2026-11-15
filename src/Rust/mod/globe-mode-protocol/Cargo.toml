@@ -15,7 +15,8 @@ globe-mode-analysis = { workspace = true }
 serde = { workspace = true }
 
 [dev-dependencies]
-serde_json = { workspace = true }
+# check_response_keys_follow_the_cli_json は to_value の鍵の順（構造体の宣言順）を見る。単体（-p）の試験でも順が保たれるよう明示する（S357）
+serde_json = { workspace = true, features = ["preserve_order"] }
 
 [lints]
 workspace = true
