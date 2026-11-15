@@ -247,6 +247,8 @@ struct F<'a> {
     inners: HashSet<String>,
     /// `outer` の部品 → 結びつけた `inner` の完全な名前
     alias: HashMap<String, String>,
+    /// `inner outer` の部品（実体を持つ）→ 外側の `inner` の完全な名前。同じ階層の `connect` の端だけ、外側の `inner` に付け替える（S361）
+    bridge: HashMap<String, String>,
     /// 条件が偽で落とした部品の完全な名前（これにつながる `connect` も落とす）
     removed: Vec<String>,
     /// まだ平らにしていない宣言（`size(x, 1)` が後ろで宣言した配列の大きさを引くため）
@@ -263,10 +265,28 @@ struct F<'a> {
     /// 過剰決定コネクタの接続集合（`graph::OcSet`）と、すべての `connect` の端
     oc_sets: Vec<graph::OcSet>,
     conn_pairs: Vec<(String, String)>,
+    /// 外側の階層で宣言した `inner` につなぐ `connect`（`outer` 経由）: （その `inner` を宣言する階層の前置き, 端 a, 端 b, 位置, 持ち越す前の階層で各端が外側のコネクタか）。
+    /// 接続集合は階層をまたいで 1 つ（`outer` を持つ部品の全部がその `inner` につながる。`inner` が後ろで宣言されていて葉がまだ無いこともある）なので、
+    /// 宣言する階層の `gen_connects` で集合に入れる（S361）
+    late_conns: Vec<LateConn>,
     /// stream 変数の接続集合（MLS 15.2）。端は（葉の名前, 外側のコネクタの端か）。`expand_streams` が `inStream` などを展開する（S355）
     stream_sets: Vec<Vec<(String, bool)>>,
     /// 条件に `Connections.isRoot`・`rooted` を含む `if` の方程式（根の決定のあとに枝を選ぶ。S333）
     oc_ifs: Vec<graph::OcIf>,
+    /// 条件に `cardinality` を含む `if` の方程式（全部の `connect` がそろってから枝を選ぶ。S361）
+    card_ifs: Vec<CardIf>,
+    /// `cardinality(c)` の値（`connect` の端として出てきた数）。`card_ifs` を決めるときだけ `Some`
+    card: Option<HashMap<String, i64>>,
+}
+
+type LateConn = (String, String, String, Option<Origin>, (bool, bool));
+
+/// 置き場所は方程式の列の中の `marker` の 1 行
+struct CardIf {
+    marker: String,
+    file: u32,
+    ctx: Rc<Ctx>,
+    branches: Vec<(Option<SyntaxNode>, Vec<Equation>)>,
 }
 
 struct Pending {
@@ -299,6 +319,7 @@ pub(crate) fn run(p: &Project, cid: ClassId, model: &str) -> Res<FlatModel> {
         env: HashMap::new(),
         inners: HashSet::new(),
         alias: HashMap::new(),
+        bridge: HashMap::new(),
         removed: Vec::new(),
         pending: HashMap::new(),
         depth: std::cell::Cell::new(0),
@@ -308,8 +329,11 @@ pub(crate) fn run(p: &Project, cid: ClassId, model: &str) -> Res<FlatModel> {
         oc_nodes: BTreeMap::new(),
         oc_sets: Vec::new(),
         conn_pairs: Vec::new(),
+        late_conns: Vec::new(),
         stream_sets: Vec::new(),
         oc_ifs: Vec::new(),
+        card_ifs: Vec::new(),
+        card: None,
     };
     // パッケージの中のモデルを直接平らにするときは、そのパッケージが差し替え後のパッケージ（`TwoPhaseWater.BaseProperties`）
     let heir = p.lib.classes[cid]
@@ -328,7 +352,14 @@ pub(crate) fn run(p: &Project, cid: ClassId, model: &str) -> Res<FlatModel> {
             }
         }
     }
+    if let Some((_, a, b, ..)) = f.late_conns.first() {
+        return un(
+            "connect",
+            format!("{a} and {b}: inner is never instantiated"),
+        );
+    }
     f.apply_connection_graph();
+    f.resolve_card_ifs()?;
     f.expand_streams()?;
     Ok(FlatModel {
         name: model.to_string(),
@@ -471,6 +502,10 @@ impl F<'_> {
                     .then(|| self.find_inner(pfx, &name))
                     .flatten();
                 match found {
+                    // `inner outer` は実体を持ち（中の部品の `outer` はこちらにつながる）、同じ階層の `connect` の端だけ外側の `inner` につながる（MLS 5.4）
+                    Some(t) if toks.contains(&K::KwInner) => {
+                        self.bridge.insert(full.clone(), t);
+                    }
                     Some(t) => {
                         self.alias.insert(full.clone(), t);
                     }
@@ -528,7 +563,7 @@ impl F<'_> {
             .filter(|n| !own_conns.contains(n))
             .cloned()
             .collect();
-        self.gen_connects(&lv, &inside, &own_all, &prot)?;
+        self.gen_connects(&ctx.pfx, &lv, &inside, &own_all, &prot)?;
         Ok((own_conns, own_all))
     }
 
@@ -685,6 +720,16 @@ impl F<'_> {
             )),
             _ => None,
         };
+        // 差し替えられた部品には、元の宣言の `constrainedby C(x = …)` の修飾も掛かる（MLS 7.3.2。差し替えた側の明示した修飾が勝つ。S361）
+        let mut m = m;
+        if redecl.is_some()
+            && let Some(cm) = cc
+                .syntax()
+                .children()
+                .find(|c| c.kind() == K::ClassModification)
+        {
+            m.sub = merge(&m.sub, &self.mods_of(&cm, file, ctx)?);
+        }
         let own_flags = flags_of(
             tokens(redecl.as_ref().map_or(cc, |r| &r.1).syntax())
                 .map(|t| t.kind())
@@ -2079,6 +2124,14 @@ impl F<'_> {
                         let dims = self.var_dims(&name)?;
                         dims.get(k.checked_sub(1)?).map(|&x| Val::I(x as i64))
                     }
+                    // 全部の `connect` がそろうまで（`card` が `Some` になるまで）は評価できない
+                    "cardinality" => {
+                        let Expr::ComponentRef(r) = args.first()? else {
+                            return None;
+                        };
+                        let name = self.cref(r, file, ctx).ok()?;
+                        Some(Val::I(*self.card.as_ref()?.get(&name).unwrap_or(&0)))
+                    }
                     "abs" => Some(match v(0)? {
                         Val::I(i) => Val::I(i.abs()),
                         x => Val::R(x.f().abs()),
@@ -2823,6 +2876,7 @@ impl F<'_> {
                 Ok(())
             }
             Some(K::KwIf) if self.defer_root_if(node, file, ctx, initial, lv)? => Ok(()),
+            Some(K::KwIf) if self.defer_card_if(node, file, ctx, initial, lv)? => Ok(()),
             Some(K::KwIf | K::KwWhen) => {
                 if node
                     .descendants()
@@ -2853,6 +2907,7 @@ impl F<'_> {
                             return un("connect", c.syntax().text().to_string());
                         };
                         let (x, y) = (self.cref(x, file, ctx)?, self.cref(y, file, ctx)?);
+                        let (x, y) = (self.bridge_end(&ctx.pfx, x), self.bridge_end(&ctx.pfx, y));
                         if !(self.is_removed(&x) || self.is_removed(&y)) {
                             lv.conns.push((x, y, self.cur.clone()));
                         }
@@ -3017,6 +3072,117 @@ impl F<'_> {
             branches: out,
         });
         Ok(true)
+    }
+
+    /// 同じ階層の `inner outer` の名前で始まる `connect` の端は、外側の `inner` の側に付け替える（Rumoca の flat も同じ）
+    fn bridge_end(&self, pfx: &str, n: String) -> String {
+        if self.bridge.is_empty() {
+            return n;
+        }
+        let Some(rest) = n.strip_prefix(pfx) else {
+            return n;
+        };
+        let seg = rest.split(['.', '[']).next().unwrap_or_default();
+        match self.bridge.get(&format!("{pfx}{seg}")) {
+            Some(t) => format!("{t}{}", &rest[seg.len()..]),
+            None => n,
+        }
+    }
+
+    /// 条件に `cardinality(c)` を含む `if` の方程式は、枝ごとに平らにして 1 行の目印を置く。全部の `connect` がそろったあと
+    /// （`resolve_card_ifs`）で、条件が真になる最初の枝だけを残す。置けない形（`connect` を含む・入れ子）なら false を返して今までの道に任せる
+    fn defer_card_if(
+        &mut self,
+        node: &SyntaxNode,
+        file: u32,
+        ctx: &Rc<Ctx>,
+        initial: bool,
+        lv: &mut Level,
+    ) -> Res<bool> {
+        let has_card = |n: &SyntaxNode| {
+            n.descendants()
+                .filter_map(ast::CallExpr::cast)
+                .any(|c| c.callee().as_deref() == Some("cardinality"))
+        };
+        let branches = Self::if_branches(node);
+        if !branches
+            .iter()
+            .any(|(c, _)| c.as_ref().is_some_and(has_card))
+            || node
+                .descendants()
+                .filter_map(ast::CallExpr::cast)
+                .any(|c| c.callee().as_deref() == Some("connect"))
+        {
+            return Ok(false);
+        }
+        let marker = format!("\u{2}card{}", self.card_ifs.len());
+        self.push(initial, marker.clone(), 0);
+        let mut out = Vec::new();
+        let k0 = self.card_ifs.len();
+        for (c, eqs) in branches {
+            let tgt_len = |f: &Self| if initial { f.ieqs.len() } else { f.eqs.len() };
+            let n0 = tgt_len(self);
+            for e in eqs {
+                self.equation(&e, file, ctx, initial, lv)?;
+            }
+            if self.card_ifs.len() != k0 {
+                return un("nested-cardinality-if", node.text().to_string());
+            }
+            let tgt = if initial {
+                &mut self.ieqs
+            } else {
+                &mut self.eqs
+            };
+            out.push((c, tgt.split_off(n0)));
+        }
+        self.card_ifs.push(CardIf {
+            marker,
+            file,
+            ctx: ctx.clone(),
+            branches: out,
+        });
+        Ok(true)
+    }
+
+    /// `cardinality(c)` は、`c` が `connect` の端に出てきた数（MLS 3.7.2.3。Rumoca の flat も同じ）。それで条件を評価して枝を決める
+    fn resolve_card_ifs(&mut self) -> Res<()> {
+        if self.card_ifs.is_empty() {
+            return Ok(());
+        }
+        let mut counts: HashMap<String, i64> = HashMap::new();
+        for (a, b) in &self.conn_pairs {
+            *counts.entry(a.clone()).or_insert(0) += 1;
+            *counts.entry(b.clone()).or_insert(0) += 1;
+        }
+        self.card = Some(counts);
+        let mut chosen: HashMap<String, Vec<Equation>> = HashMap::new();
+        for f in std::mem::take(&mut self.card_ifs) {
+            let mut pick = None;
+            for (c, eqs) in f.branches {
+                let hit = match &c {
+                    None => true,
+                    Some(c) => match self.eval(c, f.file, &f.ctx, 0) {
+                        Some(Val::B(b)) => b,
+                        _ => return un("cardinality", c.text().to_string()),
+                    },
+                };
+                if hit {
+                    pick = Some(eqs);
+                    break;
+                }
+            }
+            chosen.insert(f.marker, pick.unwrap_or_default());
+        }
+        self.card = None;
+        for list in [&mut self.eqs, &mut self.ieqs] {
+            if list.iter().any(|e| chosen.contains_key(&e.text)) {
+                *list = std::mem::take(list)
+                    .into_iter()
+                    .flat_map(|e| chosen.remove(&e.text).unwrap_or_else(|| vec![e]))
+                    .collect();
+            }
+        }
+        Ok(())
     }
 
     /// 条件が偽で落とした部品（またはその中・要素）か
@@ -3274,6 +3440,16 @@ impl F<'_> {
         Vec::new()
     }
 
+    /// 端 `n` が、外側の階層（`pfx` の祖先）で宣言した `inner` の中なら、その `inner` を宣言する階層の前置き
+    fn late_owner(&self, n: &str, pfx: &str) -> Option<String> {
+        n.match_indices('.')
+            .map(|(i, _)| &n[..i])
+            .find(|k| self.inners.contains(*k))
+            .map(|k| &k[..k.rfind('.').map_or(0, |i| i + 1)])
+            .filter(|o| *o != pfx && pfx.starts_with(o))
+            .map(str::to_string)
+    }
+
     /// 配列のコネクタ・部品の配列を通した端 `a.b.p`（`a.b` が部品の配列）を、要素ごとの名前 `a.b[1].p`, `a.b[2].p` … にする（S324）。
     /// 葉が引けるならそのまま 1 本。配列の添字は 1 つの次元だけ（`[i, j]` は展開しない）
     fn expand_end(&self, n: &str, depth: u32) -> Vec<String> {
@@ -3320,6 +3496,7 @@ impl F<'_> {
     /// `prot` はそのうち `protected` のもの
     fn gen_connects(
         &mut self,
+        pfx: &str,
         lv: &Level,
         inside: &[String],
         own: &[String],
@@ -3353,9 +3530,29 @@ impl F<'_> {
             s.0.len() - 1
         };
         let mut st: St = Default::default();
+        // 外側の階層の `inner` につなぐ `connect` は、その `inner` を宣言する階層まで持ち越す。この階層が宣言するものは、ここで集合に入れる
+        let (mine, rest): (Vec<_>, Vec<_>) = std::mem::take(&mut self.late_conns)
+            .into_iter()
+            .partition(|l| l.0 == pfx);
+        self.late_conns = rest;
+        let all: Vec<_> = lv
+            .conns
+            .iter()
+            .map(|(a, b, o)| (a.clone(), b.clone(), o.clone(), None))
+            .chain(mine.into_iter().map(|(_, a, b, o, f)| (a, b, o, Some(f))))
+            .collect();
         // 配列のコネクタの一括の接続は、要素ごとの接続にしてから数える（S324）
         let mut conns = Vec::new();
-        for (a, b, o) in &lv.conns {
+        let mut flags = Vec::new();
+        let mut deferred: Vec<(String, String)> = Vec::new();
+        for (a, b, o, f) in &all {
+            if let Some(owner) = self.late_owner(a, pfx).or_else(|| self.late_owner(b, pfx)) {
+                let f = f.unwrap_or((outside(a), outside(b)));
+                self.late_conns
+                    .push((owner, a.clone(), b.clone(), o.clone(), f));
+                deferred.push((a.clone(), b.clone()));
+                continue;
+            }
             let (mut xa, mut xb) = (self.expand_end(a, 0), self.expand_end(b, 0));
             // 片方が部品の配列の要素ごとの端で、もう片方が配列の変数 1 つ（`connect(sensor.i, i)`、`i[m]`）なら、変数を要素にする
             if let Some(v) = self.split_array_var(&xa, xb.len()) {
@@ -3366,12 +3563,13 @@ impl F<'_> {
             if xa.len() != xb.len() {
                 return un("connect", format!("{a} and {b} differ in size"));
             }
+            flags.extend(std::iter::repeat_n(*f, xa.len()));
             conns.extend(xa.into_iter().zip(xb).map(|(x, y)| (x, y, o.clone())));
         }
         let lv = &Level { conns };
         self.conn_pairs
             .extend(lv.conns.iter().map(|(a, b, _)| (a.clone(), b.clone())));
-        for (a, b, _) in &lv.conns {
+        for (k, (a, b, _)) in lv.conns.iter().enumerate() {
             let la = self.leaves(a);
             if la.is_empty() {
                 return un(
@@ -3380,7 +3578,7 @@ impl F<'_> {
                 );
             }
             let lb = self.leaves(b);
-            let (oa, ob) = (outside(a), outside(b));
+            let (oa, ob) = flags[k].unwrap_or((outside(a), outside(b)));
             for (suffix, vi, count) in &la {
                 let Some((_, vj, _)) = lb.iter().find(|(s, _, _)| s == suffix) else {
                     return un("connect", format!("{a} and {b} differ"));
@@ -3485,13 +3683,23 @@ impl F<'_> {
                 }
             }
         }
-        let connected: HashSet<&str> = names.iter().map(String::as_str).collect();
+        // 持ち越した `connect` の端も、つながっているものとして数える（つながない内側の flow = 0 にしない）
+        let connected: HashSet<String> = names
+            .iter()
+            .cloned()
+            .chain(deferred.iter().flat_map(|(a, b)| [a, b]).flat_map(|x| {
+                self.leaves(x)
+                    .into_iter()
+                    .map(move |(sf, ..)| format!("{x}{sf}"))
+            }))
+            .collect();
         // `protected` のコネクタは、丸ごと `connect` の端になっているか、どこにもつながっていない葉の flow が 0
         // （Rumoca の flat: 接続の端が「集合の中の単一の識別子」なら外側の flow、そうでなければ未接続の flow だけ。S312）
         let whole: HashSet<&str> = lv
             .conns
             .iter()
             .flat_map(|(a, b, _)| [a.as_str(), b.as_str()])
+            .chain(deferred.iter().flat_map(|(a, b)| [a.as_str(), b.as_str()]))
             .collect();
         for n in prot {
             for (suffix, vi, count) in self.leaves(n) {
