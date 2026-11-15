@@ -28,7 +28,7 @@ fn check(frontend: &str, model: &str) -> Output {
 fn balance_line(o: &Output) -> String {
     out(o)
         .lines()
-        .find(|l| l.contains(": 方程式 "))
+        .find(|l| l.starts_with("GlobeModeValidation") && l.contains(": 方程式 "))
         .unwrap_or_default()
         .to_string()
 }

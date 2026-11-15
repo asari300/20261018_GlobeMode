@@ -4,6 +4,7 @@
 
 | S | 日付 | Phase | 題名 | ブランチ | 状態 | スライド | 解説書 | セッション記録 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| S305 | 2026-11-15 | Track B | `check-native`: `globe check --frontend native`。自前の parse → resolve → flat → dae を `globe-mode-frontend` の feature `native`（`NativeFrontend`）として検査の入口につなぎ、S0〜S6 まで。未対応は `GM-U0006`（終了コード 3）で Rumoca に切り替えない。既定は Rumoca | `feature/s305-check-native` | 完了 | [slides](S305-check-native/slides.html) | [解説書](S305-check-native/解説書.md) | なし |
 | S302 | 2026-11-15 | P8 | `vscode-waypoints`: VS Code の側のパネルでも結線の途中の点をドラッグで動かし、線のダブルクリックで足せる（つまみと点の決め方を `diagram-waypoint.ts` に出して共有、`moveWaypoint`・`addWaypoint` を `edit.js` で検査して LSP へ） | `feature/s302-vscode-waypoints` | 作業中 | [slides](S302-vscode-waypoints/slides.html) | [解説書](S302-vscode-waypoints/解説書.md) | - |
 | S300 | 2026-11-15 | Track B | `diff-frontend`: `cargo xtask diff-frontend`（`mise run msl:diff-frontend`）。自前の parse → resolve → flat → dae を Rumoca と MSL の例題 566 本・GlobeModeValidation 75 本で一度に突き合わせ、旗の JSON と前回との回帰を報告 `doc/frontend-diff.md` の先頭に出す（flat・dae の `compare.rs` は消した） | `feature/s300-diff-frontend` | 完了 | [slides](S300-diff-frontend/slides.html) | [解説書](S300-diff-frontend/解説書.md) | なし |
 | S299 | 2026-11-15 | P8 | `diagram-waypoints`: Diagram の結線の途中の点を動かす・足す（Rust `move_waypoint`・`add_waypoint`、LSP `globe/moveWaypoint`・`globe/addWaypoint`、wasm・Backend、UI のつまみとダブルクリック） | `feature/s299-diagram-waypoints` | 作業中 | [slides](S299-diagram-waypoints/slides.html) | [解説書](S299-diagram-waypoints/解説書.md) | - |
