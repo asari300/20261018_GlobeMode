@@ -287,6 +287,22 @@ struct F<'a> {
     iters: usize,
     /// `cardinality(c)` の値（`connect` の端として出てきた数）。`card_ifs` を決めるときだけ `Some`
     card: Option<HashMap<String, i64>>,
+    /// expandable connector の中を平らにしている入れ子の深さ（0 より大きいあいだに宣言した変数は `exp_vars` に入る。S367）
+    exp_depth: u32,
+    /// expandable connector の宣言済みの欄（束縛が無いもの）の変数の番号
+    exp_vars: HashSet<usize>,
+    /// 方程式を作った接続集合の端の変数の番号（`exp_vars` のうちここに入らないものは `unused_expandable`）
+    conn_vars: HashSet<usize>,
+    /// 端がすべて `exp_vars` の potential の接続集合（階層ごと）。全体の集合の端がどれも読まれなければ落とす（Rumoca と同じ。`settle_expandable`）
+    exp_sets: Vec<ExpSet>,
+    /// `exp_vars` の変数を端に含む potential の接続集合（階層ごと）の端の変数の番号
+    pot_sets: Vec<Vec<usize>>,
+}
+
+/// 端がすべて expandable connector の宣言済みの欄の接続集合（その方程式は、使われると分かるまで `eqs` に入れない）
+struct ExpSet {
+    vars: Vec<usize>,
+    eqs: Vec<Equation>,
 }
 
 type LateConn = (String, String, String, Option<Origin>, (bool, bool));
@@ -345,6 +361,11 @@ pub(crate) fn run(p: &Project, cid: ClassId, model: &str) -> Res<FlatModel> {
         card_ifs: Vec::new(),
         iters: 0,
         card: None,
+        exp_depth: 0,
+        exp_vars: HashSet::new(),
+        conn_vars: HashSet::new(),
+        exp_sets: Vec::new(),
+        pot_sets: Vec::new(),
     };
     // パッケージの中のモデルを直接平らにするときは、そのパッケージが差し替え後のパッケージ（`TwoPhaseWater.BaseProperties`）
     let heir = p.lib.classes[cid]
@@ -372,6 +393,7 @@ pub(crate) fn run(p: &Project, cid: ClassId, model: &str) -> Res<FlatModel> {
     f.apply_connection_graph();
     f.resolve_card_ifs()?;
     f.expand_streams()?;
+    f.settle_expandable();
     // 配列は 1 つと数える `MAX_VARS`・`MAX_EQS` では抑えられない、スカラーの総数（S365・#139）
     let sat = usize::saturating_add;
     let vs = (f.vars.iter()).fold(0, |a, v| {
@@ -436,7 +458,15 @@ impl F<'_> {
             return un("deep-instantiation", self.p.lib.qualified_name(cid));
         }
         self.inst_depth.set(self.inst_depth.get() + 1);
+        let exp = self.p.class(cid).is_some_and(|cd| {
+            tokens(cd.syntax())
+                .map(|t| t.kind())
+                .take_while(|k| *k != K::Ident)
+                .any(|k| k == K::KwExpandable)
+        });
+        self.exp_depth += u32::from(exp);
         let r = self.inst_class_body(cid, pfx, mods, flags, heir);
+        self.exp_depth -= u32::from(exp);
         self.inst_depth.set(self.inst_depth.get() - 1);
         r
     }
@@ -452,13 +482,6 @@ impl F<'_> {
         let Some(cd) = self.p.class(cid).cloned() else {
             return un("unresolved", "class without syntax");
         };
-        let prefix: Vec<K> = tokens(cd.syntax())
-            .map(|t| t.kind())
-            .take_while(|k| *k != K::Ident)
-            .collect();
-        if prefix.contains(&K::KwExpandable) {
-            return un("expandable", self.p.lib.qualified_name(cid));
-        }
         if matches!(
             cd.kind_token().map(|t| t.kind()),
             Some(K::KwFunction | K::KwPackage)
@@ -838,6 +861,9 @@ impl F<'_> {
                 }
                 self.check_dims(&full, &dims)?;
                 self.var_idx.insert(full.clone(), self.vars.len());
+                if self.exp_depth > 0 && binding.is_none() {
+                    self.exp_vars.insert(self.vars.len());
+                }
                 self.vars.push(Var {
                     name: full.clone(),
                     kind,
@@ -850,6 +876,7 @@ impl F<'_> {
                     binding,
                     attrs,
                     origin: self.p.origin(file, d.syntax()),
+                    unused_expandable: false,
                 });
                 if conn {
                     own.push(full);
@@ -882,6 +909,7 @@ impl F<'_> {
                         binding,
                         attrs: Vec::new(),
                         origin: self.p.origin(file, d.syntax()),
+                        unused_expandable: false,
                     });
                     return Ok(());
                 }
@@ -3515,6 +3543,56 @@ impl F<'_> {
         total
     }
 
+    /// expandable connector の欄の仕上げ（MLS 9.1.3。Rumoca の flat と同じ）: 全体の接続集合（階層ごとの集合を端の共有で束ねる）の端が
+    /// すべて宣言済みの欄で、どれもほかの方程式・algorithm・束縛から読まれないなら、その集合の等式は作らない。
+    /// 方程式を作った集合に入らなかった欄は `unused_expandable`（変数には残し、DAE が数えない）
+    fn settle_expandable(&mut self) {
+        fn find(p: &mut HashMap<usize, usize>, x: usize) -> usize {
+            let q = *p.entry(x).or_insert(x);
+            if q == x {
+                return x;
+            }
+            let r = find(p, q);
+            p.insert(x, r);
+            r
+        }
+        if self.exp_vars.is_empty() {
+            return;
+        }
+        let mut parent = HashMap::new();
+        for set in &self.pot_sets {
+            for &v in &set[1..] {
+                let (a, b) = (find(&mut parent, set[0]), find(&mut parent, v));
+                parent.insert(b, a);
+            }
+        }
+        let mut refs = HashSet::new();
+        let texts = (self.eqs.iter().chain(&self.whens).chain(&self.ieqs)).map(|e| e.text.as_str());
+        let binds = self.vars.iter().filter_map(|v| v.binding.as_deref());
+        for t in texts.chain(self.algs.iter().map(String::as_str)).chain(binds) {
+            ref_paths(t, &mut refs);
+        }
+        // 読まれる端を 1 つでも持つ、または宣言済みの欄でない端を持つ集合（根の番号）
+        let mut used = HashSet::new();
+        for set in &self.pot_sets {
+            for &v in set {
+                let n = &self.vars[v].name;
+                if !self.exp_vars.contains(&v) || refs.contains(n) || refs.contains(&strip_subs(n)) {
+                    used.insert(find(&mut parent, v));
+                }
+            }
+        }
+        for s in std::mem::take(&mut self.exp_sets) {
+            if used.contains(&find(&mut parent, s.vars[0])) {
+                self.conn_vars.extend(s.vars);
+                self.eqs.extend(s.eqs);
+            }
+        }
+        for &i in &self.exp_vars {
+            self.vars[i].unused_expandable = !self.conn_vars.contains(&i);
+        }
+    }
+
     // ---------------------------------------------------------------- connect
 
     /// コネクタ `n` の葉の変数: `(接尾辞, 変数の添字)`。コネクタが 1 つの変数のとき、または配列の要素のときは接尾辞が空
@@ -3543,6 +3621,12 @@ impl F<'_> {
             return vec![(String::new(), i, self.vars[i].dims[nsub..].iter().product())];
         }
         Vec::new()
+    }
+
+    /// 端 `n` が、宣言していない expandable connector の欄か（接続が欄を足す。MLS 9.1.3。Rumoca も断る）
+    fn adds_member(&self, n: &str) -> bool {
+        n.rsplit_once('.')
+            .is_some_and(|(p, _)| self.leaves(p).iter().any(|l| self.exp_vars.contains(&l.1)))
     }
 
     /// 端 `n` が、外側の階層（`pfx` の祖先）で宣言した `inner` の中なら、その `inner` を宣言する階層の前置き
@@ -3677,16 +3761,23 @@ impl F<'_> {
         for (k, (a, b, _)) in lv.conns.iter().enumerate() {
             let la = self.leaves(a);
             if la.is_empty() {
+                if self.adds_member(a) {
+                    return un("expandable", format!("{a}: connection adds a member"));
+                }
                 return un(
                     "connect-array",
                     format!("unknown connector (or a whole array of connectors) {a}"),
                 );
             }
             let lb = self.leaves(b);
+            if lb.is_empty() && self.adds_member(b) {
+                return un("expandable", format!("{b}: connection adds a member"));
+            }
             let (oa, ob) = flags[k].unwrap_or((outside(a), outside(b)));
             for (suffix, vi, count) in &la {
                 let Some((_, vj, _)) = lb.iter().find(|(s, _, _)| s == suffix) else {
-                    return un("connect", format!("{a} and {b} differ"));
+                    let kind = if self.exp_vars.contains(vi) { "expandable" } else { "connect" };
+                    return un(kind, format!("{a} and {b} differ"));
                 };
                 let ia = id(&mut st, format!("{a}{suffix}"), (*vi, *count, oa));
                 let ib = id(&mut st, format!("{b}{suffix}"), (*vj, *count, ob));
@@ -3733,6 +3824,17 @@ impl F<'_> {
             let origin = origins[k].clone();
             let (vi, count, _) = info[set[0]];
             let v = &self.vars[vi];
+            let pending = !v.flow
+                && !v.stream
+                && !matches!(v.kind, VarKind::Parameter | VarKind::Constant)
+                && set.iter().all(|&i| self.exp_vars.contains(&info[i].0));
+            if !pending {
+                self.conn_vars.extend(set.iter().map(|&i| info[i].0));
+            }
+            // potential の集合は階層ごとに作るので、expandable の欄を含むものは覚えておき、あとで全体の集合に束ねる
+            if !v.flow && !v.stream && set.iter().any(|&i| self.exp_vars.contains(&info[i].0)) {
+                self.pot_sets.push(set.iter().map(|&i| info[i].0).collect());
+            }
             if v.flow {
                 let flip = set.iter().all(|&i| info[i].2);
                 let mut s = String::new();
@@ -3771,6 +3873,21 @@ impl F<'_> {
                 }
                 // コネクタの中の parameter・constant は等式にしない（Rumoca の flat も同じ）
                 if matches!(v.kind, VarKind::Parameter | VarKind::Constant) {
+                    continue;
+                }
+                // 端がすべて expandable connector の宣言済みの欄なら、ほかで読まれるまで方程式を保留する（`settle_expandable`）
+                if pending {
+                    self.exp_sets.push(ExpSet {
+                        vars: set.iter().map(|&i| info[i].0).collect(),
+                        eqs: set[1..]
+                            .iter()
+                            .map(|&i| Equation {
+                                text: format!("{} = {}", names[set[0]], names[i]),
+                                count,
+                                origin: origin.clone(),
+                            })
+                            .collect(),
+                    });
                     continue;
                 }
                 if set.len() > 1 {
@@ -3836,6 +3953,53 @@ impl F<'_> {
         }
         Ok(())
     }
+}
+
+/// 式の文字列に出てくる成分参照（`a.b[1].c`）を、そのままと添字を除いた形（`a.b.c`）で `out` に入れる
+/// （shortcut: 引用符つきの名前 `'a b'` は 1 つの名前として見ない。expandable の欄が読まれたかの判定だけに使う）
+fn ref_paths(t: &str, out: &mut HashSet<String>) {
+    let b = t.as_bytes();
+    let ident = |c: u8| c.is_ascii_alphanumeric() || c == b'_';
+    let mut i = 0;
+    while i < b.len() {
+        if !(b[i].is_ascii_alphabetic() || b[i] == b'_') {
+            i += 1;
+            continue;
+        }
+        let st = i;
+        let mut bare = String::new();
+        loop {
+            let s = i;
+            while i < b.len() && ident(b[i]) {
+                i += 1;
+            }
+            bare += &t[s..i];
+            let mut depth = 0;
+            while i < b.len() && (b[i] == b'[' || depth > 0) {
+                depth += i32::from(b[i] == b'[') - i32::from(b[i] == b']');
+                i += 1;
+            }
+            if i + 1 < b.len() && b[i] == b'.' && (b[i + 1].is_ascii_alphabetic() || b[i + 1] == b'_') {
+                bare.push('.');
+                i += 1;
+            } else {
+                break;
+            }
+        }
+        out.insert(t[st..i].to_string());
+        out.insert(bare);
+    }
+}
+
+/// 名前から添字 `[…]` を除く
+fn strip_subs(n: &str) -> String {
+    let mut depth = 0;
+    n.chars()
+        .filter(|&c| {
+            depth += i32::from(c == '[') - i32::from(c == ']');
+            depth == 0 && c != ']'
+        })
+        .collect()
 }
 
 /// 次元の積。溢れたら `None`（宣言の次元は入力なので、検査なしの `product` は debug で panic・release で巻き戻る。S339）
@@ -4156,6 +4320,53 @@ mod tests {
         let plain = time("");
         let with = time(" = {R(k, 2*k) for k in 1:40000}");
         assert!(with * 2 < plain * 9, "{with:?} vs {plain:?}");
+    }
+
+    #[test]
+    fn expandable_connector_drops_unused_members() {
+        // S367: 欄は全部変数に残る（Rumoca の flat と同じ）が、端がすべて宣言済みの欄で、どこからも読まれない集合は等式を作らず、
+        // 方程式を作った集合に入らない欄は `unused_expandable`（DAE が数えない）。実の端（`s.y`）につながる欄 `a` は残す
+        let src = |extra: &str| {
+            format!(
+                "connector Out = output Real;
+                expandable connector Bus Real a; Real b; Real c; end Bus;
+                model Src Out y; equation y = time; end Src;
+                model Sub Bus bus; Src s; equation connect(s.y, bus.a); end Sub;
+                model M Bus bus; Bus other; Sub p; Real q;
+                equation connect(p.bus, bus); connect(bus, other); {extra} end M;"
+            )
+        };
+        let flat = |extra: &str| {
+            Project::from_sources([("t.mo", src(extra).as_str())])
+                .flatten("M")
+                .unwrap()
+        };
+        let m = flat("q = 1;");
+        let unused: Vec<&str> = (m.vars.iter())
+            .filter(|v| v.unused_expandable)
+            .map(|v| v.name.as_str())
+            .collect();
+        assert_eq!(
+            unused,
+            ["bus.b", "bus.c", "other.b", "other.c", "p.bus.b", "p.bus.c"]
+        );
+        assert_eq!(m.vars.len(), 11); // 3 つの Bus の 9 欄、p.s.y、q
+        // 集合 a: p.s.y・p.bus.a・bus.a・other.a の 3 本、y = time、q = 1
+        assert_eq!(m.equation_count(), 5);
+        // `bus.b` を読む方程式があれば、その集合（bus.b・p.bus.b・other.b）も等式を作る
+        let m = flat("q = bus.b;");
+        assert_eq!(m.equation_count(), 7);
+        assert!(!m.vars.iter().any(|v| v.name == "bus.b" && v.unused_expandable));
+        // 宣言していない欄への接続は欄を足すので断る
+        let e = Project::from_sources([(
+            "t.mo",
+            "connector Out = output Real;
+            expandable connector Bus Real a; end Bus;
+            model M Bus bus; Out y; equation connect(y, bus.z); end M;",
+        )])
+        .flatten("M")
+        .unwrap_err();
+        assert_eq!(e.kind, "expandable");
     }
 
     #[test]

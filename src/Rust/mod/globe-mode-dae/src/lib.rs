@@ -670,7 +670,9 @@ pub fn build(m: &FlatModel) -> Result<Dae, Unsupported> {
         .iter()
         .enumerate()
         .map(|(i, v)| {
+            // 使われない expandable connector の欄は未知数にしない（Rumoca の DAE と同じ。S367）
             if matches!(v.kind, VarKind::Constant | VarKind::Parameter)
+                || v.unused_expandable
                 || v.ty == "String"
                 || v.ty == "Clock"
                 || is_top_input(v)
