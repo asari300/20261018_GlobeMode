@@ -1443,8 +1443,12 @@ fn compare_runs(runs: &[ManyRun], data: &[ManyData], options: &CompareRequest) -
             &names,
             &tube,
         );
-        let dev =
-            globe_mode_sim::compare::deviations(&reference_run.trajectory, &sim.trajectory, &names);
+        let dev = globe_mode_sim::compare::deviations(
+            &reference_run.trajectory,
+            &sim.trajectory,
+            &names,
+            &tube,
+        );
         let by_name: std::collections::HashMap<&str, &globe_mode_sim::compare::Deviation> = dev
             .iter()
             .filter(|d| d.compared > 0)
