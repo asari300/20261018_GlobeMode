@@ -2,7 +2,7 @@
 <script lang="ts">
   import type { Diagram } from "./backend";
   import { diagramDrag } from "./diagram-drag";
-  import { deleteOf, markSel, pickSel, type Sel } from "./diagram-select";
+  import { deleteOf, markSel, nudgeOf, pickSel, type Sel } from "./diagram-select";
   import { addWaypointOf, halfOf, handlesOf } from "./diagram-waypoint";
   import { diagramNodes, viewBoxOf } from "./shape-svg";
   import SvgTree from "./SvgTree.svelte";
@@ -33,6 +33,10 @@
     if (del) {
       e.preventDefault();
       await onDelete!(del);
+    } else if (onMove && nudgeOf(selected, e.key, e.shiftKey)) {
+      e.preventDefault(); // S309: 矢印キーで選んだ部品を動かす（ドラッグと同じ 2 単位、Shift で 10 単位）
+      const n = nudgeOf(selected, e.key, e.shiftKey)!;
+      await onMove(n.part, n.dx, n.dy);
     } else if (e.key === "Enter" || e.key === " ") jump(e);
   };
   // S250・S261・S264: ドラッグ（部品の移動と結線）は diagram-drag.ts（VS Code の webview と共通）。動かすのは見た目の transform だけで、離したら onMove・onConnect。編集できなければ元へ戻す

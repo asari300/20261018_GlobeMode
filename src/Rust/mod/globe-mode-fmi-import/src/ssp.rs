@@ -13,7 +13,9 @@ use globe_mode_fmi::ssp::{COSIM_ANNOTATION, SspBinding, parse_ssd, parse_ssv};
 use globe_mode_fmi::{Causality, VarType};
 
 use crate::cosim::valid_fmu_name;
-use crate::{Algorithm, CosimSpec, Error, Result, io, read_model_description, unpack};
+use crate::{
+    Algorithm, CosimSpec, Error, Result, io, read_model_description, read_xml_file, unpack,
+};
 
 /// SSP の中の相対パスだけ（`..`・絶対パス・URI スキームは断る）。
 fn is_inside_relative(source: &str) -> bool {
@@ -35,7 +37,7 @@ impl Ssp {
     pub fn open(path: &Path, stop_time: Option<f64>, step: Option<f64>) -> Result<Ssp> {
         let dir = tempfile::tempdir().map_err(io)?;
         unpack(std::fs::File::open(path).map_err(io)?, dir.path())?;
-        let ssd = std::fs::read_to_string(dir.path().join("SystemStructure.ssd"))
+        let ssd = read_xml_file(&dir.path().join("SystemStructure.ssd"))
             .map_err(|e| Error::Ssp(format!("SystemStructure.ssd を読めない: {e}")))?;
         let ssd = parse_ssd(&ssd).map_err(Error::Ssp)?;
         let start = ssd.start_time.unwrap_or(0.0);
@@ -174,17 +176,23 @@ impl Ssp {
         };
         let mut order: Vec<usize> = (0..scoped.len()).collect();
         order.sort_by_key(|&i| std::cmp::Reverse(depth(scoped[i].0)));
+        let mut ssv: BTreeMap<&str, _> = BTreeMap::new();
         for i in order {
             let (scope, b) = scoped[i];
             let params = match &b.source {
                 None => b.params.clone(),
                 Some(s) if is_inside_relative(s) => {
-                    let xml = std::fs::read_to_string(dir.path().join(s)).map_err(|e| {
-                        Error::Ssp(format!(
-                            "{scope:?} の ParameterBinding {s:?} を読めない: {e}"
-                        ))
-                    })?;
-                    parse_ssv(&xml).map_err(|m| Error::Ssp(format!("{s}: {m}")))?
+                    // 同じ source を指す binding は 1 回だけ読んで解析する（#105）
+                    if !ssv.contains_key(s.as_str()) {
+                        let xml = read_xml_file(&dir.path().join(s)).map_err(|e| {
+                            Error::Ssp(format!(
+                                "{scope:?} の ParameterBinding {s:?} を読めない: {e}"
+                            ))
+                        })?;
+                        let p = parse_ssv(&xml).map_err(|m| Error::Ssp(format!("{s}: {m}")))?;
+                        ssv.insert(s.as_str(), p);
+                    }
+                    ssv[s.as_str()].clone()
                 }
                 Some(s) => {
                     return Err(Error::Ssp(format!(

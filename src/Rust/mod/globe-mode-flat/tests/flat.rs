@@ -279,3 +279,12 @@ fn record_binding_and_constant_dims() {
     assert_eq!(v("u").dims, [2, 3]);
     assert_eq!(v("w").dims, [3]);
 }
+
+#[test]
+fn huge_component_array_is_refused_before_allocating() {
+    // #109: 添字の文字列を作る前に断る（積が MAX_VARS を超える・usize を溢れる）
+    for dims in ["100000, 100000", "4294967296, 4294967296, 4294967296"] {
+        let src = format!("model R Real x; equation x = 1; end R; model M R r[{dims}]; end M;");
+        assert_eq!(err(&src, "M"), "too-large");
+    }
+}

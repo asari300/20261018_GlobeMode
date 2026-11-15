@@ -3,7 +3,7 @@
 // 描くのは webview.js（dist/webview.js に束ねる）。ここは「カーソルが 300 ms 止まったら 3 つを引いて webview へ渡す」と「部品のクリックで宣言の行へ」と、S264 の図の編集（部品の移動・結線を LSP に頼んで文書に入れる）だけ。
 const vscode = require("vscode");
 const crypto = require("node:crypto");
-const { parseEdit } = require("./edit");
+const { parseEdit, parseParams, partParams, enumValue } = require("./edit");
 
 class Panel {
   /** @param {vscode.Uri} extensionUri @param {() => import("vscode-languageclient/node").LanguageClient | undefined} getClient */
@@ -11,6 +11,7 @@ class Panel {
     this.extensionUri = extensionUri;
     this.getClient = getClient;
     this.seq = 0;
+    this.ui = vscode.window; // QuickPick・InputBox・通知（e2e が差し替える）
     this.state = null; // webview が描き終えたあとの数（e2e が見る。webview の DOM は拡張ホストから見えない）
   }
 
@@ -56,6 +57,7 @@ table { border-collapse: collapse; } td, th { border: 1px solid var(--vscode-pan
   handle(m) {
     if (m?.type === "reveal" && Number.isInteger(m.line)) void this.reveal(m.line);
     else if (m?.type === "rendered") this.state = m;
+    else if (m?.type === "params") return this.editParams(parseParams(m));
     else if (["move", "connect", "deletePart", "deleteConnect", "moveWaypoint", "addWaypoint"].includes(m?.type)) return this.edit(parseEdit(m));
   }
 
@@ -67,6 +69,49 @@ table { border-collapse: collapse; } td, th { border: 1px solid var(--vscode-pan
     return ok;
   }
 
+  /** 部品のパラメータの入力（S306）。globe/parameters からその部品の分を QuickPick で選び、値を InputBox（列挙・Boolean は QuickPick）で受けて
+   * globe/setModifier で `(名前 = 値)` を書く。空の入力は修飾を外す。断られたら理由を通知に出す。書けたかを返す。
+   * shortcut: 修飾の検査は Rust 側に任せる。小さい方として webview 内の表でなく QuickPick にした（CSP・入力部品を足さずに済む。多くの値を一度に直すなら表へ） */
+  async editParams(part) {
+    const t = this.target, client = this.getClient(), ui = this.ui;
+    if (!part || !t || !client) return false;
+    const fail = (m) => (ui.showErrorMessage(`GlobeMode: ${m}`), false);
+    let list;
+    try {
+      list = partParams((await client.sendRequest("globe/parameters", { model: t.class })).parameters, part);
+    } catch (e) {
+      return fail(`パラメータを取れない: ${e.message ?? e}`);
+    }
+    if (!list.length) return ui.showInformationMessage(`GlobeMode: ${part} に書けるパラメータは無い`), false;
+    const pick = await ui.showQuickPick(
+      list.map((p) => ({ label: p.key, description: [p.default, p.unit].filter(Boolean).join(" "), detail: p.description, p })),
+      { title: `${part} のパラメータ`, placeHolder: "修飾に書くパラメータ" },
+    );
+    if (!pick) return false;
+    const p = pick.p;
+    let value; // undefined は取り消し、"" は修飾を外す
+    if (p.type === "Real" || p.type === "Integer") {
+      value = await ui.showInputBox({ title: `${part}.${p.key}（${p.type}）`, prompt: "値か式。空で修飾をソースから外す", value: p.default ?? "" });
+    } else {
+      const items = (p.type === "Boolean" ? ["true", "false"] : p.literals ?? []).map((l) => ({ label: l, value: p.type === "Boolean" ? l : enumValue(p, l) }));
+      items.push({ label: "修飾を外す", value: "" });
+      value = (await ui.showQuickPick(items, { title: `${part}.${p.key}（${p.type}）` }))?.value;
+      if (value === null) return fail("列挙の型の名前が無く書けない");
+    }
+    if (value === undefined) return false;
+    const ok = await this.apply({ method: "globe/setModifier", args: { modifiers: [{ part, name: p.key, value: value.trim() }] } }).catch((e) => ((this.why = e.message ?? String(e)), false));
+    return ok || fail(`書けなかった: ${this.why}`);
+  }
+
+  /** コマンド「部品のパラメータを編集」（S309。キーボードだけで開く口）。カーソルが部品の宣言の行にあればその部品、なければ部品の QuickPick で選ぶ */
+  async editParamsCommand() {
+    const ed = vscode.window.activeTextEditor, parts = this.parts ?? [], ui = this.ui;
+    if (!this.target || !parts.length || ed?.document !== this.target.doc) return ui.showInformationMessage("GlobeMode: パネルの図に部品が無い（Modelica のクラスの中にカーソルを置く）"), false;
+    const at = parts.find((p) => p.line === ed.selection.active.line);
+    const pick = at ?? (await ui.showQuickPick(parts.map((p) => ({ label: p.name, description: p.class, p })), { title: "パラメータを編集する部品" }))?.p;
+    return pick ? this.editParams(pick.name) : false;
+  }
+
   async apply({ method, args }) {
     const t = this.target, client = this.getClient();
     this.why = ""; // 失敗の理由（e2e が見る）
@@ -74,7 +119,7 @@ table { border-collapse: collapse; } td, th { border: 1px solid var(--vscode-pan
     const v = t.doc.version;
     const edits = await client.sendRequest(method, { file: t.doc.uri.toString(), class: t.class, ...args });
     // 待つあいだに文書が変わったら、古い本文に対する編集は入れない
-    if (!edits?.length || t.doc.version !== v) return (this.why = `edits=${JSON.stringify(edits)} version ${v} → ${t.doc.version}`), false;
+    if (!edits?.length || t.doc.version !== v) return (this.why = t.doc.version !== v ? "文書が変わったので入れなかった" : "ソースは変わらなかった（変えられない）"), false;
     const we = new vscode.WorkspaceEdit();
     we.set(t.doc.uri, await client.protocol2CodeConverter.asTextEdits(edits)); // v9 では Promise
     return (await vscode.workspace.applyEdit(we)) || ((this.why = "applyEdit が false"), false);
@@ -96,6 +141,7 @@ table { border-collapse: collapse; } td, th { border: 1px solid var(--vscode-pan
     const ask = (m) => client.sendRequest(m, at).catch(() => null);
     const [doc, icon, diagram] = await Promise.all([ask("globe/documentation"), ask("globe/icon"), ask("globe/diagram")]);
     if (mine !== this.seq) return;
+    this.parts = diagram?.parts ?? []; // コマンド（editParamsCommand）がカーソルの部品を探すのに使う
     this.target = diagram?.class ? { doc: ed.document, class: diagram.class } : null; // 編集（edit）の対象は、いま webview が描いている図
     void this.view?.webview.postMessage({ type: "show", doc, icon, diagram });
   }

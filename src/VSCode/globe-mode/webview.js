@@ -3,7 +3,7 @@
 // HTML の文字列は作らない。文字は textContent、要素は createElement / createElementNS で作る。
 import { sanitize } from "../../Svelte/src/lib/html-sanitize.ts";
 import { diagramDrag } from "../../Svelte/src/lib/diagram-drag.ts";
-import { deleteOf, markSel, pickSel } from "../../Svelte/src/lib/diagram-select.ts";
+import { deleteOf, markSel, nudgeOf, pickSel } from "../../Svelte/src/lib/diagram-select.ts";
 import { addWaypointOf, halfOf, handleNode, handlesOf } from "../../Svelte/src/lib/diagram-waypoint.ts";
 import { diagramNodes, iconNodes, toDom, viewBoxOf } from "../../Svelte/src/lib/shape-svg.ts";
 
@@ -39,10 +39,12 @@ function handles() {
 function show({ doc, icon, diagram }) {
   $("icon").replaceChildren(icon?.shapes.length ? svg(`${icon.class} のアイコン`, icon.extent, iconNodes(icon)) : note("アイコンが無い"));
   const empty = !diagram || !(diagram.parts.length || diagram.connections.length || diagram.shapes.length);
+  const focused = $("diagram").contains(document.activeElement); // 作り直すとフォーカスが落ちる。キーでの操作（S309）を続けられるよう、あとで選びへ戻す
   $("diagram").replaceChildren(empty ? note("図が無い") : svg(`${diagram.class} の図`, diagram.extent, diagramNodes(diagram)));
   current = empty ? null : diagram;
   selected = markSel($("diagram").querySelector("svg"), selected); // 図は作り直したので選びの印を付け直す。消えた対象は外れる
   handles();
+  if (focused && selected) [...$("diagram").querySelectorAll("[data-part], [data-hit]")].find((e) => e.getAttribute("data-part") === selected.part || e.getAttribute("data-hit") === selected.key)?.focus({ preventScroll: true });
   $("cls").textContent = doc?.class ?? "";
   const info = doc ? sanitize(doc.info) : [];
   const revisions = doc ? sanitize(doc.revisions) : [];
@@ -82,7 +84,7 @@ const dnd = diagramDrag(() => $("diagram").querySelector("svg"), {
 });
 for (const [ev, f] of [["pointerdown", dnd.down], ["pointermove", dnd.move], ["pointerup", dnd.up], ["pointercancel", dnd.up]]) $("diagram").addEventListener(ev, f);
 
-// 部品のクリック・Enter・Space で宣言の行へ（svg の中は一括で受ける）
+// 部品のクリック・Space で宣言の行へ（svg の中は一括で受ける）。Enter は部品ならパラメータの入力（S309）、それ以外は同じく宣言の行へ
 const jump = (e) => {
   if (dnd.swallowed()) return; // ドラッグの終わりのクリックは宣言へ飛ばない
   pick(e);
@@ -90,7 +92,17 @@ const jump = (e) => {
   if (line != null) vscode.postMessage({ type: "reveal", line: Number(line) });
 };
 $("diagram").addEventListener("click", jump);
-$("diagram").addEventListener("keydown", (e) => (e.key === "Enter" || e.key === " ") && jump(e));
+$("diagram").addEventListener("keydown", (e) => {
+  const part = e.key === "Enter" && e.target.closest?.("[data-part]")?.getAttribute("data-part");
+  if (part) (e.preventDefault(), vscode.postMessage({ type: "params", part }));
+  else if (e.key === "Enter" || e.key === " ") jump(e);
+});
+
+// 部品のダブルクリックでパラメータの入力（S306。UI の ParameterDialog と同じ操作）。値の入力は拡張ホストの QuickPick・InputBox
+$("diagram").addEventListener("dblclick", (e) => {
+  const part = e.target.closest?.("[data-part]")?.getAttribute("data-part");
+  if (part) vscode.postMessage({ type: "params", part });
+});
 
 // 選びと削除（S293）。部品か結線（`.hit`）のクリック・Tab で選び、何も無い所のクリックで外す。Delete / Backspace は図の中でだけ受ける（エディタの文字は消さない）
 function pick(e) {
@@ -109,7 +121,15 @@ $("diagram").addEventListener("dblclick", (e) => {
   void ask({ type: "addWaypoint", ...w });
 });
 $("diagram").addEventListener("focusin", pick);
+// 矢印キーで選んだ部品を動かす（S309）。1 回ごとに move を送る。続けて押しても取りこぼさないよう、前の編集が済んでから送る
+let queue = Promise.resolve();
 $("diagram").addEventListener("keydown", async (e) => {
+  const n = nudgeOf(selected, e.key, e.shiftKey);
+  if (n) {
+    e.preventDefault();
+    queue = queue.then(() => ask({ type: "move", ...n }));
+    return;
+  }
   const d = deleteOf(selected, e.key);
   if (!d) return;
   e.preventDefault();

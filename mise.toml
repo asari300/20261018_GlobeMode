@@ -84,9 +84,13 @@ ls -l "$T/wasm-pkg/node/globe_mode_wasm_bg.wasm" "$T/wasm-pkg/web/globe_mode_was
 """
 
 [tasks."wasm:node"]
-description = "release の wasm を Node で回す（S012。Decay を bdf・dopri45・auto で、data/msl があれば MSL の ChuaCircuit も。panic の文言も確かめる）"
+description = "release の wasm を Node で回す（S012。Decay を bdf・dopri45・auto で、data/msl があれば MSL の ChuaCircuit も。panic の文言も確かめる。S301: data/msl があれば MSL の分割配信が全部読みと同じ検査結果になることも、例題 5 本で。全 20 本は node src/Rust/mod/globe-mode-wasm/node/split.mjs）"
 depends = ["wasm:build"]
-run = "node src/Rust/mod/globe-mode-wasm/node/smoke.mjs --msl data/msl"
+run = """
+set -eu
+node src/Rust/mod/globe-mode-wasm/node/smoke.mjs --msl data/msl
+if [ -d data/msl ]; then node src/Rust/mod/globe-mode-wasm/node/split.mjs --msl data/msl --limit 5; fi
+"""
 
 [tasks."wasm:web"]
 description = "wasm を Web Worker で回す（S036。Node の worker_threads と、Playwright の Chromium の module Worker で、Decay・panic・作り直しと再生を確かめる）"
