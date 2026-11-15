@@ -51,6 +51,7 @@ MSL 4.1.0 の例題 566 本での推移（括弧は「一致した本数 / 母�
 | S355（S335 の上。`stream`） | 538（DAE にできた 538/538） | 511（508/511・498/511） | 367（判定 365/367・方程式と未知数の数 364/367・状態 366/367・構造の正則 363/367） |
 | S362（S355 の上。DAE のレコードの配列） | 538（DAE にできた 538/538） | 511（508/511・498/511） | 367（判定 367/367・方程式と未知数の数 366/367・状態 366/367・構造の正則 367/367） |
 | S361（S355・S362 の上。外側の `inner` への `connect`） | 548（DAE にできた 548/548） | 521（518/521・508/521） | 377（判定 377/377・方程式と未知数の数 376/377・状態 376/377・構造の正則 373/377） |
+| S364（S361 の上。`{…} = fill(…)` の離散の方程式） | 548（DAE にできた 548/548） | 521（518/521・508/521） | 377（判定 377/377・方程式と未知数の数 376/377・状態 376/377・構造の正則 **377/377**） |
 
 - parse は MSL の例題 566/566（S300 の時点も今も）、resolve は未解決 0 が 467/566（S300 の時点も今も。残る 99 本はすべて `Redeclare`）。`GlobeModeValidation` 75 本は S334・S337 で、Rumoca も通った 73 本の名前・方程式の数・判定・数・状態が 73/73、正則が 72/72。
 - 断る理由の残り（S361。18 本、最初の理由だけ数える）: `composite-binding` 6・`expandable` 5・`non-constant-dim` 4・`connect-array` 1・`non-constant-for` 1・`unsized-array` 1。`connect` は 0（S361。S355 では 10 本）、`stream` は 0（S355）、`composite-binding` の 25 本のうち 19 本は S335 が平らにした。
@@ -63,7 +64,7 @@ MSL 4.1.0 の例題 566 本での推移（括弧は「一致した本数 / 母�
 | B1 構文 | 本文、S269 |
 | B2 名前の解決 | S272、S275 |
 | B3 flatten | S278、S284、S297、S312、S324、S329、S333、S334、S335（`[:]` の大きさ）、S336（`Complex` の配列の束縛）、S337、S355（`stream`）、S361（外側の `inner` への `connect`・`inner outer`・`cardinality`） |
-| B4 DAE | S290、S312、S325、S330、S332（計測と、名前・数の食い違いの原因）、S337（初期方程式の `der` と状態の数）、S362（レコードの配列の範囲への方程式と、レコードの配列を渡す参照） |
+| B4 DAE | S290、S312、S325、S330、S332（計測と、名前・数の食い違いの原因）、S337（初期方程式の `der` と状態の数）、S362（レコードの配列の範囲への方程式と、レコードの配列を渡す参照）、S364（左辺が離散の変数の配列の構築子 `{…} = fill(…)` を離散の方程式に） |
 | 製品へのつなぎ | S276（アウトライン・折りたたみ）、S279（補完）、S296（定義ジャンプ・ホバー）、S305（`globe check --frontend native`）、S307（閉包だけを読む）、S311（位置）、S313（CLI 以外から選ぶ）、S320（#111・#113〜#116）、S327（#118）、S352（inlay hint）、S354（call hierarchy） |
 | 突き合わせ | S300（`cargo xtask diff-frontend`） |
 
@@ -187,8 +188,8 @@ roadmap の要約で外した、古くなっていた「残り」: 診断の `GM
 - **試験**（`globe-mode-flat/tests/flat.rs`）: `outer_connect_to_later_inner`（後ろで宣言された `inner` に 2 つの部品がつなぐと flow の和が 1 本）、`inner_outer_is_instantiated_and_bridged`（`inner outer` の実体・葉は実体につながり、同じ階層の `connect` は外側の `inner` へ・外側のコネクタの端の符号が持ち越しても逆）、`cardinality_selects_if_branch`（未接続だけ枝が選ばれる・`<`・`else`）、`redeclare_keeps_constraining_modification`（差し替えた部品に `nu = nu` が掛かり、明示した修飾が勝つ）、`in_stream_in_comprehension`。
 - **Rumoca の flat との突き合わせ**（MSL の例題 566 本、`mise run msl:diff-frontend` と同じ `diff-frontend`。S362 を取り込んだ後に回した。S355 の結果との差）: 自前で平らにできた **538 → 548**（`connect` 10 → 0）、Rumoca の flat まで通った 511 → **521** 本で名前の集合 508/511 → **518/521**・方程式の数 498/511 → **508/521**、DAE にできた **548/548**。Rumoca の釣り合いまで通った 367 → **377** 本で判定 **377/377**・方程式と未知数の数 **376/377**・状態の数 **376/377**・構造の正則 **373/377**（S362 の値 367/367・366/367・366/367・367/367 に、新しい 10 本のうち一致した分が足された。S362 の全体の検査の JSON は残っていないので、基準は S355 の JSON）。`GlobeModeValidation` 75 本は変わらず（Rumoca も通った 74 本ですべて一致）。**回帰 0 本、改善 14 本**（S361 の 10 本と S362 の 4 本）。1190 s、最大 RSS 5.8 GiB。
 - **新しく通った 10 本のうち合わない項目**: 名前・方程式の数は 10 本とも一致。DAE は 6 本（`LogicalSample`・`FirstExample`・`_Variant2`・`_Variant3`・`StateGraph.Examples.ControlledTanks`・`Fluid.Examples.ControlledTankSystem.ControlledTanks`）が 4 つとも一致し、構造の正則が 4 本で食い違う。S361 だけで回した最初の検査では `BatchPlant_StandardWater` も方程式の数が 2365 対 2389 だったが、S362 のレコードの配列の範囲への方程式の直しで合った。
-  - 構造の正則（`ExecutionPaths`・`ShowCompositeStep`・`ShowExceptions`。自前 false、Rumoca true）: `Alternative`・`Parallel` の `join.occupied = fill(outPort.occupied, nBranches)`（flat の印字は `{a.join[1].occupied, a.join[2].occupied} = fill(…)`、数 2〜3）の行の incidence が、自前の DAE では空になる（`ExecutionPaths` で 7 行。自前の行は 47、Rumoca は 40）。unknown のない行は構造の正則を落とすので、これが原因とみているが、行が空になる理由は `globe-mode-dae` の側で**確かめていない**（S362 でも直っていない）。
-  - `BatchPlant_StandardWater`（構造の正則だけ）: 原因は確かめていない【推測: レコードの欄ごとの行の残りか別の原因】。
+  - 構造の正則（`ExecutionPaths`・`ShowCompositeStep`・`ShowExceptions`。自前 false、Rumoca true）: `Alternative`・`Parallel` の `join.occupied = fill(outPort.occupied, nBranches)`（flat の印字は `{a.join[1].occupied, a.join[2].occupied} = fill(…)`、数 2〜3）の行の incidence が、自前の DAE では空になる（`ExecutionPaths` で 7 行。自前の行は 47、Rumoca は 40）。unknown のない行は構造の正則を落とすので、これが原因とみているが、行が空になる理由は `globe-mode-dae` の側で**確かめていない**（S362 でも直っていない）。**S364 で原因を確かめて直した**（下の付記）。
+  - `BatchPlant_StandardWater`（構造の正則だけ）: 原因は確かめていない【推測: レコードの欄ごとの行の残りか別の原因】。**S364 で、`controller.Parallel1`（`StateGraph.Parallel`）の同じ形の 4 行と分かった**。
 - **残る断る理由**（18 本）: `composite-binding` 6・`expandable` 5・`non-constant-dim` 4・`connect-array` 1（`HeatExchangerSimulation`。`heatPorts[HEX.nNodes : -1 : 1]`）・`non-constant-for` 1・`unsized-array` 1。
 - **持ち越し**: 上の構造の正則 4 本（`globe-mode-dae` の側）、`smooth(0, m_flow * actualStream(x))`、差し替えていない既定の型への `constrainedby` の修飾、`cardinality` の入れ子。
 
@@ -209,6 +210,16 @@ roadmap の要約で外した、古くなっていた「残り」: 診断の `GM
 - **試験**: `record_array_slice_equation_counts_per_field`（`sb[2 : 3] = sa[1 : 2]` が 4 本。直す前は 8 対 10）、`record_array_argument_touches_every_field`（`pr(st[i + 1])` の行が `st` の全欄に触れる。直す前は `st` の欄に 1 つも触れない）。2 本とも直す前の `lib.rs` で落ちることを確かめた。
 - **数字**（MSL の例題 566 本、`mise run msl:diff-frontend`。S355 の結果との差）: **回帰 0 本、改善 4 本**（`NonCircularPipes`・`HeatingSystem` の釣り合いの判定・方程式と未知数の数・構造の正則、`ThreeTanks`・`TankWithEmptyingPipe1` の構造の正則）。Rumoca の釣り合いまで通った 367 本で、判定 365 → **367/367**・方程式と未知数の数 364 → **366/367**（残りは `InverseParameterization`）・構造の正則 363 → **367/367**・状態 366/367（残りは `HeatingSystem`）。平らにできた 538、名前 508/511、方程式の数 498/511、DAE にできた 538/538、`GlobeModeValidation` 75 本（Rumoca も通った 74 本で名前・方程式の数・判定・数・状態 74/74、正則 73/73）は変わらない。1031 s、最大 RSS 5.8 GiB。
 - **持ち越し**: 残る 2 本の食い違い（`InverseParameterization` の数・`HeatingSystem` の状態）は Rumoca の側で、自前を合わせない。`connect` で断る 10 本（S355 から）。関数の本体を見て欄を絞る incidence は作らない（構造の正則が Rumoca より甘く出うる。今の MSL の例題では 367/367 で食い違いは無い）。
+
+## 付記（S364）: DAE の `{…} = fill(…)`（左辺が離散の変数の配列の構築子）を離散の方程式にする、構造の正則 373/377 → 377/377
+
+新しい ADR は立てず、S361・S362 の続きとしてここに足す。変えたのは `globe-mode-dae`（`lib.rs` の `defines_discrete`）だけ。S361 のあと、Rumoca の釣り合いまで通った 377 本で構造の正則が合わなかった 4 本（`Modelica.StateGraph.Examples.ExecutionPaths`・`ShowCompositeStep`・`ShowExceptions`、`Modelica.Fluid.Examples.AST_BatchPlant.BatchPlant_StandardWater`）の原因を、`diff-frontend --class … --dump`（S362 で足した `unmatched row` の印字）で確かめた。**原因は 4 本とも同じ 1 つで、自前の誤りだった**。
+
+- **何が起きていたか**: `StateGraph.Alternative`・`Parallel` の `join.occupied = fill(outPort.occupied, nBranches)`・`split.set = fill(inPort.set, nBranches)`・`join.reset = fill(outPort.reset, nBranches)` は、部品の配列 `join[k]`・`split[k]` の `Boolean` の欄への方程式で、flat は `{a.join[1].occupied, a.join[2].occupied} = fill(a.outPort.occupied, a.nBranches)` と印字する（数は要素の数）。DAE は、左辺が離散の変数の方程式を離散の方程式（連続の行にしない。Rumoca の「左辺が離散なら離散」と同じ）に数えるが、その判定 `defines_discrete` は**最初の式が成分参照のときだけ**調べ、配列の構築子は偽にしていた。そのため左辺が離散だけの構築子の方程式が連続の行になり、連続の未知数に触れず incidence が空になった。`ExecutionPaths` の行は自前 47・Rumoca 40 で、差の 7 本がこの行（`alternative` の 3 本・`Parallel1` の `split`・`join` の 4 本）。`BatchPlant_StandardWater` は `controller.Parallel1` の 4 行。S362 の行の突き合わせ（unmatched row）が示すとおり、空の行が自前の完全マッチングを作れなくしていた。数（方程式と未知数）は、離散の方程式の数が `count` で合っていたので元から一致していた。
+- **直し**: `defines_discrete` が、左辺が配列の構築子 `{…}` のとき、要素がすべて離散の変数なら真にする。離散と連続が混ざった構築子は今までどおり（shortcut。MSL の例題には出ない）。
+- **試験**: `fill_into_discrete_array_constructor_is_discrete_equation`（`connector P Boolean occupied; end P;` の `P join[2]` と `Boolean b` で、`join.occupied = fill(b, 2)` の行が連続の行 2 本・離散 1 本ではなく、連続 0 本・離散 3 本になり、釣り合って正則）。直す前の `lib.rs` では `(2, 1)` で落ちることを確かめた。`globe-mode-dae` は 18 本。
+- **数字**（MSL の例題 566 本、`mise run msl:diff-frontend` と同じ `diff-frontend`。S361 の全体の検査の JSON との差）: **回帰 0 本、改善 4 本**（4 本とも構造の正則だけ）。Rumoca の釣り合いまで通った 377 本で、構造の正則 373 → **377/377**、判定 377/377・方程式と未知数の数 376/377（残りは `InverseParameterization`）・状態の数 376/377（残りは `HeatingSystem`）は変わらない。平らにできた 548、名前 518/521、方程式の数 508/521、DAE にできた 548/548、`GlobeModeValidation` 75 本（Rumoca も通った 74 本で名前・方程式の数・判定・数・状態 74/74、正則 73/73）も変わらない。1003 s、最大 RSS 5.5 GiB。
+- **持ち越し**: 残る 2 本の食い違い（上の数・状態）は Rumoca の側で、自前を合わせない（S362 の付記。上流の下書き 40・07、提出しない）。離散と連続が混ざった配列の構築子の左辺は連続の行のまま。
 
 ## 付記（S355）: flat で `stream`（MLS 15）を展開する（`stream` 21 本 → 0、平らにできた 518 → 538）
 
