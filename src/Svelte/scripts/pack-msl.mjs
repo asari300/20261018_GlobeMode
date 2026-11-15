@@ -38,7 +38,7 @@ if (!existsSync(`${pkg}/globe_mode_wasm.js`)) {
 }
 const gm = await import(pathToFileURL(`${pkg}/globe_mode_wasm.js`).href);
 gm.initSync({ module: readFileSync(`${pkg}/globe_mode_wasm_bg.wasm`) });
-const { index, chunks } = pack(files, gm.tree_stub);
+const { index, chunks } = pack(files, gm.tree_stub, gm.file_deps);
 mkdirSync(`${out}/c`, { recursive: true });
 chunks.forEach((c, i) => writeFileSync(`${out}/c/${i}.json`, JSON.stringify(c)));
 writeFileSync(`${out}/index.json`, JSON.stringify(index));
