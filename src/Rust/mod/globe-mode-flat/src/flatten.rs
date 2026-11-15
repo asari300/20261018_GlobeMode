@@ -1314,6 +1314,23 @@ impl F<'_> {
             out.push(self.cref(&c, file, ctx)?);
             return Ok(());
         }
+        // 条件が定数の `if` 式は、選んだ枝だけを印字する（Rumoca の flat も落とす。`der` が枝にあれば状態の数に効く。S312）
+        if let Some(Expr::If(i)) = Expr::cast(n.clone())
+            && let Some(taken) = self.const_if_expr(&i, file, ctx)
+        {
+            let paren = !matches!(
+                taken,
+                Expr::ComponentRef(_) | Expr::Literal(_) | Expr::Call(_)
+            );
+            if paren {
+                out.push("(".to_string());
+            }
+            self.pr(taken.syntax(), file, ctx, out)?;
+            if paren {
+                out.push(")".to_string());
+            }
+            return Ok(());
+        }
         for e in n.children_with_tokens() {
             if let Some(t) = e.as_token() {
                 if !t.kind().is_trivia() {
@@ -1326,6 +1343,18 @@ impl F<'_> {
             }
         }
         Ok(())
+    }
+
+    /// 条件が先頭から順に定数の真偽に評価できる `if` 式の、選ばれる枝（途中で評価できなければ None）
+    fn const_if_expr(&self, i: &ast::IfExpr, file: u32, ctx: &Rc<Ctx>) -> Option<Expr> {
+        for (c, v) in i.branches() {
+            match self.eval(c.syntax(), file, ctx, 0)? {
+                Val::B(true) => return Some(v),
+                Val::B(false) => {}
+                _ => return None,
+            }
+        }
+        i.else_branch()
     }
 
     fn subs(&self, sn: &SyntaxNode, file: u32, ctx: &Rc<Ctx>) -> Res<String> {

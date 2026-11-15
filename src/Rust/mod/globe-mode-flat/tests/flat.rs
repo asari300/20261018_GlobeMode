@@ -434,7 +434,10 @@ fn overconstrained_connections_drop_broken_edges_and_non_root_ifs() {
     // 接続集合は 4 端子と 2 端子の 2 つ。gamma の等式は (4 - 1) + (2 - 1) = 4 本だが、閉路の辺が 1 本切れて 3 本
     let gammas = e.iter().filter(|t| t.contains("reference.gamma")).count();
     assert_eq!(gammas, 3, "{e:#?}");
-    assert!(!e.iter().any(|t| t.starts_with("if Connections.isRoot")), "{e:#?}");
+    assert!(
+        !e.iter().any(|t| t.starts_with("if Connections.isRoot")),
+        "{e:#?}"
+    );
 }
 
 #[test]
@@ -477,3 +480,12 @@ fn if_on_parameter_and_package_constant_picks_branch() {
     assert!(e.contains(&"q.x = q.m * der(q.T)".to_string()), "{e:#?}");
 }
 
+#[test]
+fn if_expression_on_parameter_keeps_only_the_taken_branch() {
+    let src = "model P parameter Boolean use = false; Real x; Real y; Real z;
+          equation y = if use then -der(x) else 0; z = if time > 1 then 1 else 2; x = time; end P;";
+    let e = eqs(&flat(src, "P"));
+    assert!(e.contains(&"y = 0".to_string()), "{e:#?}");
+    // 実行時の条件はそのまま
+    assert!(e.contains(&"z = if time > 1 then 1 else 2".to_string()), "{e:#?}");
+}
