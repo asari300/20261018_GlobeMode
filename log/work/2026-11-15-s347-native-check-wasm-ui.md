@@ -48,6 +48,8 @@ wasm とブラウザ・Tauri の UI からも、検査に native（自前の Tra
 - `check_docs.py`: スライドは S347 を含め全部 OK、リンクは文書 1,234 件・相対リンク 5,211 件中の切れ 0 件。`render_slides.py`（S347 のデッキだけ）: デッキ 1 件・問題 0 件（負荷が高い間は 1 回、スクリーンショットが時間切れ。下がってから通した）。
 - 回していないもの: `mise run check` 全体（deny・uv）は、依存を足していないので省いた（`cargo fmt --check`・clippy・変えた crate の試験だけ）。`msl:*`・`wasm:web` の Chromium 側（`browser.py`）・`mise run docs:check` 全体は回していない（並行の WP で RAM が厳しい。S347 のデッキだけ検査した）。
 - セッション記録は無いので `--check` は省く。
+- `git fetch` のあと `origin/main`（S346・S341）を取り込んだ。衝突は `doc/features.md`・`doc/roadmap.md`・`doc/sessions/README.md` の 1 行ずつで、origin/main 側を残して S347 の差し替えをもう 1 度当て、索引は両方の行を残した。取り込み後に `cargo test -p globe-mode-wasm`（29 本）・`cargo test -p globe-mode --features native --test check_with`（2 本）・clippy 0 件・`cargo check --target wasm32-unknown-unknown -p globe-mode-wasm` が OK、`check_docs.py` はリンクの切れ 0 件。wasm の release のビルドと `wasm:node`・`wasm:compare`・UI の試験は取り込み前の tree で回した（取り込みの差は resolve・syntax・fmt と文書だけ）。
+- worktree の `data/msl` は main の `data/msl` への symlink（`.gitignore` 済み。MSL つきの `wasm:node` のため）。
 
 ## 残したこと
 
