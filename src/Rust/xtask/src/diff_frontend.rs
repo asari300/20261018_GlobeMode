@@ -174,6 +174,12 @@ fn run_row(
         for e in &flat.equations {
             println!("  eq[{}] {}", e.count, e.text);
         }
+        for e in &flat.when_equations {
+            println!("  when[{}] {}", e.count, e.text);
+        }
+        for a in &flat.algorithms {
+            println!("  algorithm {a}");
+        }
     }
     let dae = match build(&flat) {
         Ok(d) => {
@@ -206,6 +212,12 @@ fn run_row(
             t.variable_names.iter().cloned().collect(),
             t.equations,
         );
+    }
+    if dump && let Some(d) = &dae {
+        dump_structure("mine", &d.structure);
+        if let Some(s) = theirs.as_ref().and_then(|r| r.structure.as_ref()) {
+            dump_structure("rumoca", s);
+        }
     }
     if let Some(d) = dae {
         let b = theirs.as_ref().and_then(|r| r.balance.as_ref());
@@ -241,6 +253,28 @@ fn run_row(
         }
     }
     row
+}
+
+/// 連続の行と未知数（incidence）を印字する（正則の食い違いを調べる。S325）
+fn dump_structure(who: &str, s: &globe_mode_ir::DaeStructure) {
+    println!(
+        "  {who}: unknowns {} rows {}",
+        s.unknowns.len(),
+        s.equations.len()
+    );
+    for (i, e) in s.equations.iter().enumerate() {
+        let inc: Vec<&str> = s.incidence[i]
+            .iter()
+            .map(|&u| s.unknowns[u as usize].name.as_str())
+            .collect();
+        println!("    {who} row[{i}] {} -> {inc:?}", e.label);
+    }
+    let covered: std::collections::HashSet<u32> = s.incidence.iter().flatten().copied().collect();
+    for (u, k) in s.unknowns.iter().enumerate() {
+        if !covered.contains(&(u as u32)) {
+            println!("    {who} unknown never referenced: {}", k.name);
+        }
+    }
 }
 
 fn compare_flat(

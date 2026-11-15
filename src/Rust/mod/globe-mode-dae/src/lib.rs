@@ -208,6 +208,111 @@ impl Ctx<'_> {
     }
 }
 
+/// 第 1 引数が別のクロックの区画に属する演算子（MLS 16.3）
+const CLOCK_OPS: [&str; 7] = [
+    "sample",
+    "hold",
+    "subSample",
+    "superSample",
+    "shiftSample",
+    "backSample",
+    "noClock",
+];
+/// 結果がクロックの区画に入る演算子（`hold`・`noClock` の結果は連続の区画）
+const CLOCK_RESULT_OPS: [&str; 5] = [
+    "sample",
+    "subSample",
+    "superSample",
+    "shiftSample",
+    "backSample",
+];
+
+impl Ctx<'_> {
+    /// 区画（MLS 16.5.1）の入力: 式に現れる既知でない変数（`CLOCK_OPS` の第 1 引数は別の区画なので除く）と、
+    /// その式がクロックの区画に属する印（クロックの変換の結果、`previous`）
+    fn partition(&self, roles: &[Role], node: &SyntaxNode) -> (Vec<usize>, bool) {
+        let member = |c: &ast::ComponentRef| {
+            self.resolve(&c.syntax().text().to_string())
+                .map(|(v, _)| v)
+                .filter(|&v| roles[v] != Role::Known)
+        };
+        let (mut vars, mut seed) = (Vec::new(), false);
+        for n in node.descendants() {
+            if let Some(call) = ast::CallExpr::cast(n.clone()) {
+                match call.callee().as_deref() {
+                    Some("previous") => seed = true,
+                    Some(f) if CLOCK_RESULT_OPS.contains(&f) => {
+                        // `sample(0, 0.1)`（イベント）のように第 1 引数が変数でなければ印にしない
+                        seed |= call.args().first().is_some_and(|a| {
+                            a.syntax()
+                                .descendants()
+                                .filter_map(ast::ComponentRef::cast)
+                                .any(|c| member(&c).is_some())
+                        });
+                    }
+                    _ => {}
+                }
+                continue;
+            }
+            let Some(c) = ast::ComponentRef::cast(n.clone()) else {
+                continue;
+            };
+            if n.parent().is_some_and(|p| p.kind() == K::CallExpr) {
+                continue; // 呼ぶ関数の名前
+            }
+            let r = n.text_range();
+            let other = n
+                .ancestors()
+                .skip(1)
+                .filter_map(ast::CallExpr::cast)
+                .any(|call| {
+                    call.callee()
+                        .is_some_and(|f| CLOCK_OPS.contains(&f.as_str()))
+                        && call
+                            .args()
+                            .first()
+                            .is_some_and(|a| a.syntax().text_range().contains_range(r))
+                });
+            if !other && let Some(v) = member(&c) {
+                vars.push(v);
+            }
+        }
+        (vars, seed)
+    }
+
+    /// `when Clock() then`・`when <Clock 型の変数> then`（クロックの区画を宣言する `when`）
+    fn is_clocked_when(&self, w: &SyntaxNode) -> bool {
+        match w.children().find_map(Expr::cast) {
+            Some(Expr::Call(c)) => c.callee().as_deref() == Some("Clock"),
+            Some(Expr::ComponentRef(c)) => self
+                .resolve(&c.syntax().text().to_string())
+                .is_some_and(|(v, _)| self.vars[v].ty == "Clock"),
+            _ => false,
+        }
+    }
+}
+
+/// 変数の区画（素集合）。クロックの区画に入る変数の根の集合を返す
+struct Partitions(Vec<usize>);
+
+impl Partitions {
+    fn find(&mut self, mut x: usize) -> usize {
+        while self.0[x] != x {
+            self.0[x] = self.0[self.0[x]];
+            x = self.0[x];
+        }
+        x
+    }
+    fn join(&mut self, vars: &[usize]) {
+        if let Some((&a, rest)) = vars.split_first() {
+            for &b in rest {
+                let (ra, rb) = (self.find(a), self.find(b));
+                self.0[ra] = rb;
+            }
+        }
+    }
+}
+
 fn kw_tokens(node: &SyntaxNode) -> impl Iterator<Item = K> {
     node.children_with_tokens()
         .filter_map(|e| e.into_token())
@@ -248,6 +353,31 @@ fn defines_discrete(cx: &Ctx, roles: &[Role], eq: &SyntaxNode) -> bool {
             .is_some_and(|(v, _)| roles[v] == Role::Discrete),
         _ => false,
     })
+}
+
+/// 最初の枝が単純な代入だけの `if` 方程式の、代入先の離散のスカラー数と連続の変数。離散と連続が混ざり、
+/// 代入先の大きさの和が方程式の数と一致するときだけ（それ以外は None）
+fn split_if(
+    cx: &Ctx,
+    roles: &[Role],
+    eq: &SyntaxNode,
+    count: usize,
+) -> Option<(usize, Vec<usize>)> {
+    if kw_tokens(eq).next() != Some(K::KwIf) {
+        return None;
+    }
+    let targets: Vec<usize> = first_branch(eq, K::Equation)
+        .iter()
+        .map(|e| match cx.lhs(e).as_slice() {
+            [(v, _)] => Some(*v),
+            _ => None,
+        })
+        .collect::<Option<_>>()?;
+    let (disc, cont): (Vec<usize>, Vec<usize>) =
+        targets.iter().partition(|&&v| roles[v] == Role::Discrete);
+    let total: usize = targets.iter().map(|&v| cx.n(v)).sum();
+    (total == count && !disc.is_empty() && !cont.is_empty())
+        .then(|| (disc.iter().map(|&v| cx.n(v)).sum(), cont))
 }
 
 /// 辺の 1 つが Clock 型の変数そのもの（`c = Clock(…)`・`y = c`）。`z = sample(u, c)` のように式の中で使うだけなら数える
@@ -374,7 +504,7 @@ pub fn build(m: &FlatModel) -> Result<Dae, Unsupported> {
             when_assigned.extend(cx.lhs(&n).into_iter().map(|l| l.0));
         }
     }
-    let roles: Vec<Role> = m
+    let mut roles: Vec<Role> = m
         .vars
         .iter()
         .enumerate()
@@ -393,6 +523,53 @@ pub fn build(m: &FlatModel) -> Result<Dae, Unsupported> {
                 Role::Algebraic
             }
         })
+        .collect();
+
+    // クロックの区画（MLS 16.5.1）: 方程式でつながる変数を 1 つの区画にし、`sample` などの結果・`previous`・
+    // `when Clock()` を含む区画の Real を離散にする（Rumoca の DAE と同じ。クロックの値は持たず、区画の持ち主の整合は見ない）
+    let mut part = Partitions((0..m.vars.len()).collect());
+    let mut seeds: Vec<usize> = Vec::new();
+    let mut eq_parts: Vec<Vec<usize>> = Vec::new();
+    for e in &eqs {
+        let (vars, seed) = cx.partition(&roles, &e.0);
+        part.join(&vars);
+        if seed {
+            seeds.extend(vars.first());
+        }
+        eq_parts.push(vars);
+    }
+    let clocked_whens = whens
+        .iter()
+        .filter(|w| cx.is_clocked_when(&w.0))
+        .map(|w| &w.0);
+    for node in clocked_whens.chain(&algs) {
+        let (vars, seed) = cx.partition(&roles, node);
+        part.join(&vars);
+        // `when Clock()` は必ず、algorithm は印があるときだけ区画を決める
+        if seed || node.kind() == K::Equation {
+            seeds.extend(vars.first());
+        }
+    }
+    for (i, node) in &binds {
+        let (mut vars, seed) = cx.partition(&roles, node);
+        vars.push(*i);
+        part.join(&vars);
+        if seed {
+            seeds.extend(vars.first());
+        }
+    }
+    let owned: HashSet<usize> = seeds.iter().map(|&v| part.find(v)).collect();
+    let in_owned: Vec<bool> = (0..roles.len())
+        .map(|v| owned.contains(&part.find(v)))
+        .collect();
+    for (r, c) in roles.iter_mut().zip(in_owned) {
+        if *r == Role::Algebraic && c {
+            *r = Role::Discrete;
+        }
+    }
+    let eq_clocked: Vec<bool> = eq_parts
+        .iter()
+        .map(|vars| vars.first().is_some_and(|&v| owned.contains(&part.find(v))))
         .collect();
 
     // 未知数（変数の順。状態は der、代数はそのまま）
@@ -446,15 +623,41 @@ pub fn build(m: &FlatModel) -> Result<Dae, Unsupported> {
     // 行
     let mut rows: Vec<Row> = Vec::new();
     let mut discrete_equations = 0;
-    for (node, count, text, at, leaves) in &eqs {
-        if defines_discrete(&cx, &roles, node) {
+    for (k, (node, count, text, at, leaves)) in eqs.iter().enumerate() {
+        // `if` の枝が離散と連続の代入を混ぜるときは、代入先ごとに分ける（Rumoca は代入ごとの方程式）
+        if !eq_clocked[k]
+            && let Some((disc, cont)) = split_if(&cx, &roles, node, *count)
+        {
+            discrete_equations += disc;
+            let refs = cx.refs(node);
+            for v in cont {
+                rows.push(Row {
+                    label: label(text),
+                    origin: EquationOrigin::Source,
+                    at: at.clone(),
+                    count: cx.n(v),
+                    refs: refs.clone(),
+                    own: vec![(v, Sel::All)],
+                });
+            }
+        } else if defines_discrete(&cx, &roles, node) || eq_clocked[k] {
             discrete_equations += count;
         } else {
+            // レコードの方程式の離散の欄（`phase` など）は離散の方程式に数える（Rumoca は欄ごとの方程式）
+            let disc: usize = leaves
+                .iter()
+                .filter(|&&v| roles[v] == Role::Discrete)
+                .map(|&v| cx.n(v))
+                .sum();
+            discrete_equations += disc;
+            if disc == *count {
+                continue;
+            }
             rows.push(Row {
                 label: label(text),
                 origin: EquationOrigin::Source,
                 at: at.clone(),
-                count: *count,
+                count: *count - disc,
                 refs: cx.refs(node),
                 // レコードの方程式は、どの行も欄の変数すべてに触れる（shortcut: 欄ごとの対応は付けない。正則は甘く出る方に傾く）
                 own: leaves.iter().map(|&v| (v, Sel::All)).collect(),
@@ -645,5 +848,37 @@ mod tests {
         assert_eq!(d.counts.states, 1);
         // x（状態）の 1 本の方程式、w の束縛の 1 本。未知数は x の状態と w。e[0] は数えない
         assert_eq!((d.counts.equations, d.counts.unknowns), (2, 2));
+    }
+
+    #[test]
+    fn clocked_partition_is_discrete() {
+        // y = sample(x, c) とそこからつながる v は連続の行に入らない。hold の結果 w は連続
+        let d = dae(
+            "model M Real x(start = 0); Real y; Real v; Real w; Clock c = Clock(0.1); \
+             equation der(x) = 1; y = sample(x, c); v = 2 * y; w = hold(v) + x; end M;",
+        );
+        assert_eq!(d.counts.discrete, 2);
+        assert_eq!(d.discrete_equations, 2);
+        // der(x) と w の 2 本。w は x の状態にも触れる
+        assert_eq!(d.structure.equations.len(), 2);
+        assert!(d.is_balanced() && d.is_regular());
+    }
+
+    #[test]
+    fn if_equation_splits_discrete_and_continuous_targets() {
+        let d = dae("model M Real x; Boolean b; Real y; equation \
+             if time > 1 then x = 1; b = true; else x = 2; b = false; end if; y = x; end M;");
+        // x は連続の 1 行、b は離散、y = x は連続の 1 行（if 全体を離散にしない）
+        assert_eq!((d.structure.equations.len(), d.discrete_equations), (2, 1));
+        assert!(d.is_balanced() && d.is_regular());
+    }
+
+    #[test]
+    fn record_equation_discrete_field_is_discrete_equation() {
+        let src = "record S Real p; Integer k; end S;
+            model M S s; equation s = S(time, 1); end M;";
+        let d = build(&Project::from_sources([("t.mo", src)]).flatten("M").unwrap()).unwrap();
+        assert_eq!((d.structure.equations.len(), d.discrete_equations), (1, 1));
+        assert!(d.is_balanced());
     }
 }
