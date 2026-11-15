@@ -212,6 +212,42 @@ const cases = {
       panel.ui = vscode.window;
     }
   },
+  async "コマンド「部品のパラメータを編集」で、カーソルの部品か QuickPick で選んだ部品の R を書ける（S309）"() {
+    const doc = await vscode.workspace.openTextDocument(fixture("Params.mo"));
+    const ed = await vscode.window.showTextDocument(doc);
+    const row = doc.getText().split("\n").findIndex((l) => l.startsWith("  Res r1"));
+    ed.selection = new vscode.Selection(row, 4, row, 4);
+    const { panel } = await vscode.extensions.getExtension("globe-mode.globe-mode").activate();
+    await until("図の部品", () => panel.target?.class === "Params" && panel.target.doc === doc && panel.parts?.length);
+    await until("パラメータの一覧", () => panel.getClient().sendRequest("globe/parameters", { model: "Params" }).then(() => true, () => false));
+    const before = doc.getText();
+    const shown = [];
+    const want = ["R"]; // カーソルが r1 の行なので、部品は聞かれずパラメータから
+    panel.ui = {
+      showQuickPick: async (items) => (shown.push(items.map((i) => i.label)), items.find((i) => i.label === want.shift())),
+      showInputBox: async () => "42",
+      showErrorMessage: (m) => shown.push(m),
+      showInformationMessage: (m) => shown.push(m),
+    };
+    try {
+      assert.equal(await vscode.commands.executeCommand("globeMode.editParams"), true, JSON.stringify(shown));
+      assert.deepEqual(shown[0], ["R", "mode"]);
+      assert.ok(doc.getText().includes("Res r1(R = 42)"), doc.getText());
+      await vscode.commands.executeCommand("undo");
+      assert.equal(doc.getText(), before);
+      // カーソルが部品の行に無ければ、先に部品を QuickPick で選ぶ
+      ed.selection = new vscode.Selection(0, 0, 0, 0);
+      shown.length = 0;
+      want.push("r1", "R");
+      assert.equal(await vscode.commands.executeCommand("globeMode.editParams"), true, JSON.stringify(shown));
+      assert.deepEqual(shown[0], ["r1"]);
+      assert.ok(doc.getText().includes("Res r1(R = 42)"), doc.getText());
+      await vscode.commands.executeCommand("undo");
+      assert.equal(doc.getText(), before);
+    } finally {
+      panel.ui = vscode.window;
+    }
+  },
 };
 
 exports.run = async () => {

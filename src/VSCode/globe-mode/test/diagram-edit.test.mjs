@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import { diagramDrag } from "../../../Svelte/src/lib/diagram-drag.ts";
-import { deleteOf, markSel, pickSel } from "../../../Svelte/src/lib/diagram-select.ts";
+import { deleteOf, markSel, nudgeOf, pickSel } from "../../../Svelte/src/lib/diagram-select.ts";
 import { addWaypointOf, halfOf, handleNode, handlesOf } from "../../../Svelte/src/lib/diagram-waypoint.ts";
 
 const { parseEdit, parseParams, partParams, enumValue } = createRequire(import.meta.url)("../edit.js");
@@ -194,4 +194,23 @@ test("パラメータの入力（S306）: webview の要求は部品の名前だ
   const web = readFileSync(new URL("../webview.js", import.meta.url), "utf8");
   assert.ok(web.includes('addEventListener("dblclick"') && web.includes('type: "params", part'));
   assert.ok(readFileSync(new URL("../panel.js", import.meta.url), "utf8").includes("parseParams(m)"));
+});
+
+test("矢印キーは選んだ部品を 2 単位（Shift で 10 単位）動かす。y は上向き。部品の選びが無ければ null（S309）", () => {
+  assert.deepEqual(nudgeOf({ part: "R1" }, "ArrowRight", false), { part: "R1", dx: 2, dy: 0 });
+  assert.deepEqual(nudgeOf({ part: "R1" }, "ArrowLeft", true), { part: "R1", dx: -10, dy: 0 });
+  assert.deepEqual(nudgeOf({ part: "R1" }, "ArrowUp", false), { part: "R1", dx: 0, dy: 2 });
+  assert.deepEqual(nudgeOf({ part: "R1" }, "ArrowDown", true), { part: "R1", dx: 0, dy: -10 });
+  assert.equal(nudgeOf({ key: "a.p b.n" }, "ArrowUp", false), null, "結線は動かさない");
+  assert.equal(nudgeOf(null, "ArrowUp", false), null);
+  assert.equal(nudgeOf({ part: "R1" }, "x", false), null);
+});
+
+test("webview は矢印キーを move、Enter を params にし、コマンドは package.json と extension.js にある（S309）", () => {
+  const web = readFileSync(new URL("../webview.js", import.meta.url), "utf8");
+  assert.ok(web.includes("nudgeOf(selected, e.key, e.shiftKey)") && web.includes('type: "move", ...n'));
+  assert.ok(web.includes('e.key === "Enter" && e.target.closest?.("[data-part]")') && web.includes('type: "params", part'));
+  const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  assert.ok(pkg.contributes.commands.some((c) => c.command === "globeMode.editParams"));
+  assert.ok(readFileSync(new URL("../extension.js", import.meta.url), "utf8").includes('registerCommand("globeMode.editParams"'));
 });
