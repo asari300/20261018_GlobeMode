@@ -126,7 +126,7 @@
 
 ### 直さなかった近い所
 
-- `globe-mode-resolve/src/build.rs:73`（`mo_files`）と `globe-mode-flat/src/lib.rs:181`（`mo_files`）にも、隠しディレクトリを飛ばさない自前の走査がある（`Library::from_dirs`・`Project::read_dirs`。`--library` のディレクトリの走査）。ライブラリの中に隠しディレクトリの `.mo` が入る例は今は無く、flat は S355 が並行で触るので、触らない。表の外の【候補】。
+- `globe-mode-resolve/src/build.rs:73`（`mo_files`）と `globe-mode-flat/src/lib.rs:181`（`mo_files`）にも、隠しディレクトリを飛ばさない自前の走査がある（`Library::from_dirs`・`Project::read_dirs`。`--library` のディレクトリの走査）。ライブラリの中に隠しディレクトリの `.mo` が入る例は今は無く、flat は S355 が並行で触るので、S357 では触らなかった。**S358 で直した**（resolve の `mo_files` が `.` で始まる名前を飛ばし、flat はこれを呼ぶ。試験は各 1 本）。
 
 ## 6. 親 issue を閉じてよいか
 

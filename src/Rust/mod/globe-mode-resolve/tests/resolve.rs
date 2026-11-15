@@ -320,6 +320,18 @@ fn enum_and_builtin_shadow() {
     assert_eq!(t[&("Q.T".into(), "E.b".into())], "comp Q.E.b");
 }
 
+/// `.history/` のような隠しフォルダの `.mo` は読まない（S358。同名のクラスが二重にならない。fmt・LSP・frontend の `collect_mo_files` と同じ規則）
+#[test]
+fn from_dirs_skips_hidden_dirs() {
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("resolve_hidden_dirs");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join(".history")).unwrap();
+    std::fs::write(dir.join("A.mo"), "model A Real x; end A;").unwrap();
+    std::fs::write(dir.join(".history/A.mo"), "model A Real x; end A;").unwrap();
+    let lib = Library::from_dir(&dir).unwrap();
+    assert_eq!(lib.files.len(), 1, "{:?}", lib.files);
+}
+
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../..")
 }

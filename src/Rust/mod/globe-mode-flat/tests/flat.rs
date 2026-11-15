@@ -1138,3 +1138,15 @@ fn stream_sets_and_in_stream() {
     let s = m.vars.iter().find(|v| v.name == "n.s").unwrap();
     assert_eq!(s.binding.as_deref(), Some("n.p.h"));
 }
+
+/// `.history/` のような隠しフォルダの `.mo` は読まない（S358。同名のクラスが二重にならない）
+#[test]
+fn read_dirs_skips_hidden_dirs() {
+    let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("flat_hidden_dirs");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join(".history")).unwrap();
+    std::fs::write(dir.join("A.mo"), "model A Real x; end A;").unwrap();
+    std::fs::write(dir.join(".history/A.mo"), "model A Real x; end A;").unwrap();
+    let files = Project::read_dirs(&[dir.as_path()]).unwrap();
+    assert_eq!(files.len(), 1, "{files:?}");
+}
