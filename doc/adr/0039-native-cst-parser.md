@@ -367,11 +367,30 @@ roadmap の要約で外した、古くなっていた「残り」: 診断の `GM
 新しい ADR は立てず、S305・S307 の「残したこと」（LSP・wasm・Python・UI から native を選べない）の続きとしてここに足す。既定は Rumoca のまま。
 
 - **facade**: `globe_mode::CheckFrontend { Rumoca, Native }`（`FromStr` は `rumoca`・`native`）と `Workspace::check_with(model, frontend)`。`check` は `check_with(.., Rumoca)`。`Native` は作業中のファイルと、`with_libraries` に渡したディレクトリ（`library_paths`）を `NativeFrontend` に渡す。`with_library_sources` のワークスペースにはディレクトリが無く、ライブラリが見えない（wasm は対象外）。応答の組み立ては `native_response`（CLI の `check_native` と共有）。
-- **feature**: facade に `native`（`globe-mode-frontend/native`）、LSP に `native`（`globe-mode/native`）。CLI（`globe lsp` を含む）と Python の束ねが立てる。wasm は立てない（理由: native の段の crate が wasm の大きさと build に入る。入れるかどうかは別に判断する）。立てない build で `Native` を選ぶと `GM-U0006`「この build に入っていない」を返す。外部依存は増えない。
+- **feature**: facade に `native`（`globe-mode-frontend/native`）、LSP に `native`（`globe-mode/native`）。CLI（`globe lsp` を含む）と Python の束ねが立てる。wasm は S313 では立てない（理由: native の段の crate が wasm の大きさと build に入る。入れるかどうかは別に判断する → S347 で測って入れた）。立てない build で `Native` を選ぶと `GM-U0006`「この build に入っていない」を返す。外部依存は増えない。
 - **LSP**: `globe-mode.toml` の `[check] frontend = "rumoca" | "native"`（`LintOptions::frontend`。他の値は設定の誤りで、既存の `showMessage` の道）。`publishDiagnostics` の検査（`diagnostics`）だけが `check_with` を使う。`globe/check` の要求は変えていない。設定ファイルが無ければ今まで通り。
 - **Python**: `Workspace.check(model, frontend="rumoca")`。知らない名前は `ValueError`。
 - **試験**: facade `tests/check_with.rs`（`expandable` が `GM-U0006`、既定は出さない。feature があれば Decay が通る）、LSP `config_frontend_native_drives_diagnostics`、`test_check_frontend_native`（pytest）、`config` の単体試験に `[check]`。
-- **持ち越し**: wasm・UI から選ぶ（wasm のビルドの大きさの測定が先）。LSP の他の要求（`globe/check`・補完など）と、`outline` 系は Rumoca のまま。
+- **持ち越し**: wasm・UI から選ぶ（S347 で済。下の付記）。LSP の他の要求（`globe/check`・補完など）と、`outline` 系は Rumoca のまま。
+
+## 付記（S347）: wasm とブラウザの UI からも native の検査を選べるようにした
+
+新しい ADR は立てず、S313 の持ち越し（wasm・UI から選ぶ。wasm のビルドの大きさの測定が先）の続きとしてここに足す。既定は Rumoca のまま。
+
+- **大きさ**（`mise run wasm:build` と同じ release の設定〔fat LTO・codegen-units 1・opt-level s・strip〕で、同じ共有 target に `-p globe-mode-wasm` を feature `native` なし・ありで続けてビルドした。S347 の時点の main から。2026-11-15）:
+
+  | | cargo の出力 | `wasm-bindgen` 後（配る `.wasm`） | `gzip -9` |
+  | --- | ---: | ---: | ---: |
+  | `native` なし | 20,885,103 | 19,242,637 | 5,891,577 |
+  | `native` あり | 21,261,979 | 19,597,599 | 5,998,898 |
+  | 増分 | +376,876 | +354,962（+1.84%、0.34 MiB） | +107,321（+1.82%） |
+
+  この測定のあとで診断の注の文字列（下）を足したので、配る `.wasm` は 19,598,045 バイト（+355,408、+1.85%）。増分は小さく（ブラウザの転送は gzip で +105 KiB）、外部依存も増えない（自前の 5 つの crate）。ので、**wasm の既定の feature に入れた**（`globe-mode-wasm` の `default = ["native"]`。CI・android・web・release の wasm のビルドは `cargo build -p globe-mode-wasm` のままで入る）。外したいときは `--no-default-features` で、`check_with(.., "native")` は `GM-U0006`「この build に入っていない」を返す。
+- **wasm**: `Workspace.check_with(model, frontend)`（`frontend` は `"rumoca"`・`"native"`。知らない名前は例外）。`check(model)` はそのまま Rumoca。Worker の `check` は `{model, frontend}` を取り、`GlobeWorker.check(model, frontend?)` が渡す（省くと Rumoca）。native が読むのは作業中のファイル（`set_file`）だけで、ブラウザで読んだ MSL（`with_library_sources`。ライブラリのファイルは DB の外の `Checker` にあり、ディレクトリも無い）のクラスは見えない（S313 と同じ制限）。Node で確かめた: MSL を読んだ wasm で `ChuaCircuit` を検査すると、Rumoca は通り、native は `GM-E1002`（モデルが見つからない）、自分のファイルが `Modelica.Electrical.Analog.Basic.Resistor` を使うと `GM-E1001`（名前を解決できない）で止まる。これを「モデルの誤り」と読まれないよう、facade の `Native` の道は、ファイルの組で読んだライブラリがあるワークスペース（`library_files > 0` で `library_paths` が空）では、`GM-E1001`・`GM-E1002` の診断に「native は … ライブラリのクラスを見られない。Rumoca で確かめる」の注を足す（診断の種類・段は変えない。ディレクトリで読むワークスペース〔LSP・CLI・Python〕と、ライブラリの無いワークスペースには付けない）。ライブラリを native に見せるには、facade がファイルの組を持つ必要がある（MSL の本文の写しが増えるので、今回はやらない）。
+- **UI**: 検査ボタンの横に「Rumoca / 自前（試験）」の select（`aria-label="検査のフロントエンド"`、既定は Rumoca）。`Backend.check(model, frontend?)` と、選べる実行環境だけが持つ `Backend.checkFrontends`（`WorkerBackend` は true。ブラウザと Android）。native で検査すると Rust が作る要約（「S0〜S6 を通過。S7 以降は検査していない」）を 1 行出し、`GM-U0006` の原文の見出しは「自前の段の原文」にする。業務ロジックは Rust のまま（UI は名前を渡し、要約を出すだけ）。
+- **Desktop は未**: sidecar の LSP `globe/check` が `frontend` を取らない（S313: 要求は変えていない）。取らない要求に選択を出すと黙って Rumoca になるので、`TauriBackend` は `checkFrontends` を持たず、select を出さない。LSP の `globe/check` が `params.frontend` を読むようになれば、`TauriBackend` は `check(model, frontend)` で渡して `checkFrontends = true` にするだけ（LSP は S345 と並行だったので触っていない）。
+- **試験**: wasm（Node）`node/smoke.mjs` で `check_with(Decay, "native")` が通って要約に「native: S0〜S6」、`rumoca` は `check` と同じ、知らない名前は例外。`web/worker-node.mjs` で Worker 越しにも届く。ネイティブの `tests/decay.rs`（`expandable` は `GM-U0006`、feature があれば Decay が通る）。facade の `tests/check_with.rs` の `native_explains_a_library_it_cannot_see`（`with_library_sources` のライブラリを使うモデルは `GM-E1001` に注が付き、使わないモデルは通る）。MSL があれば `smoke.mjs` が `ChuaCircuit` で同じ注を確かめる。UI の `tests/test_ui.py` の `check_frontend_select`（選択肢・既定・Decay が自前で通って要約が出る・`expandable` が「自前の段の原文」・Desktop に選択肢が無い）。
+- **持ち越し**: Desktop の UI（上）。実行（`simulate`）・BLT・段・グラフは Rumoca のまま。選択はタブごとにも保存にも持たない（ページを開くたびに Rumoca）。
 
 ## 付記（S320）: native と LSP の issue 5 件（#111・#113・#114・#115・#116）
 

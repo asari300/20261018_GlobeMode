@@ -10,7 +10,7 @@
   import { setPref, theme, type Pref } from "./theme.svelte";
   import { WorkerBackend } from "./lib/worker-backend";
   import { TauriBackend, inDesktop, tabKey } from "./lib/tauri-backend";
-  import type { Backend, Diagram, Documentation, FmuInfo, FmuRunRequest, Icon, TreeEntry } from "./lib/backend";
+  import type { Backend, CheckFrontend, Diagram, Documentation, FmuInfo, FmuRunRequest, Icon, TreeEntry } from "./lib/backend";
   import type { Columns } from "./lib/plot/csv";
   import type { CheckResponse, Diagnostic, Linearization, ResolvedSettings, SimulateManyResponse, SimulateRequest } from "./lib/protocol";
   import ManyResult from "./lib/ManyResult.svelte";
@@ -67,6 +67,8 @@
   let lastFinal = $state<[string, number][]>([]); // 最後の時刻の値（先頭の 8 本。$ で始まる内部名は除く）
   // S173: コンパイラが未対応で止まった要約（Rust が決める。空なら無い）、強行で進める見込みのモデル（Rust の can_force）、直近の実行が強行か
   let unsupported = $state("");
+  let checkFrontend = $state<CheckFrontend>("rumoca"); // S347: 検査のフロントエンド（wasm だけ。Rust の CheckFrontend）
+  let nativeNote = $state(""); // S347: 直近の検査が native だったときの summary（S0〜S6 までしか見ていない旨を含む。Rust が作る）
   let canForce = $state<string | null>(null);
   let forced = $state(false);
   $effect(() => { void model; experiment = undefined; }); // 別のモデルにしたら、次の検査まで experiment は分からない
@@ -447,7 +449,8 @@
   }
 
   const check = () => { const m = model; return run(async () => { // S196: 押した時点のモデル名（検査の途中で欄を打ち換えても、canForce・checkedModel は検査したモデル）
-    const checked = await backend.check(m);
+    const checked = await backend.check(m, checkFrontend);
+    nativeNote = checkFrontend === "native" ? checked.summary ?? "" : "";
     diagnostics = bySeverity(checked.diagnostics);
     experiment = checked.experiment;
     unsupported = checked.unsupported ?? "";
@@ -512,7 +515,7 @@
     return run(async () => {
       // S173: 数でない欄は SimSettings が欄の近くに理由を出している（aria-invalid）。ここでは二重に出さず、その欄へ移る
       if (settingsProblem) { document.querySelector<HTMLElement>(".settings [aria-invalid=true]")?.focus(); return; }
-      unsupported = "";
+      unsupported = ""; nativeNote = "";
       canForce = null;
       manyResult = null;
       if (many) return simulateMany(m, many, force);
@@ -693,7 +696,7 @@
     const prev = tabs[cur];
     Object.assign(prev, { file, model, own, state: view.state, diagnostics, saved });
     // S196: 前のタブのものは持ち越さない（リネームの入力欄は前のタブの位置、参照の一覧の行は前の本文の位置、未対応・強行・最後の値は前のタブの実行の結果）
-    refs = []; renaming = null; unsupported = ""; canForce = null; forced = false; lastFinal = []; manyResult = null; strayLib = ""; roHit = false;
+    refs = []; renaming = null; unsupported = ""; nativeNote = ""; canForce = null; forced = false; lastFinal = []; manyResult = null; strayLib = ""; roHit = false;
     const t = tabs[i];
     if (prev.own && prev.file !== t.file) void backend.setFile(prev.file, "").catch(() => {}); // 離れた自分のファイルは Workspace から外す（同じクラスの二重定義を避ける。S141）
     cur = i;
@@ -970,6 +973,7 @@
       <option value="light">明</option>
       <option value="dark">暗</option>
     </select>
+    {#if backend.checkFrontends}<select aria-label="検査のフロントエンド" bind:value={checkFrontend} disabled={busy}><option value="rumoca">Rumoca</option><option value="native">自前（試験）</option></select>{/if}
     <button onclick={check} disabled={busy} title="検査（Ctrl/Cmd+Shift+Enter）" aria-keyshortcuts="Control+Shift+Enter Meta+Shift+Enter">検査</button>
     <button onclick={() => simulate()} disabled={busy} title="実行（Ctrl/Cmd+Enter）" aria-keyshortcuts="Control+Enter Meta+Enter">実行</button>
     <button onclick={graph} disabled={busy}>グラフ</button>
@@ -1077,6 +1081,7 @@
     <button type="button" onclick={() => (refs = [])}>参照を閉じる</button>
   {/if}
   <h2 id="results" class="sr-only" tabindex="-1">結果</h2>
+  {#if nativeNote && !unsupported}<p class="note" role="status" data-native-note>{nativeNote}</p>{/if}
   {#if unsupported}<p class="unsup-summary" role="status" data-unsupported><strong>未対応</strong> {unsupported}</p>{/if}
   <table class="diagnostics" aria-label="診断">
     <tbody>
@@ -1084,7 +1089,7 @@
         {@const unsup = !!unsupported && d.severity === "error"}
         <tr class={unsup ? "unsup" : d.severity} onclick={() => jump(d)}>
           <td>{#if d.range && (!d.file || d.file === file)}<button type="button" class="jump" title="エディタの該当位置へ移る（Enter）">{d.code}</button>{:else}{d.code}{/if}</td><td>{d.stage}</td><td>{unsup ? "未対応" : d.severity}</td>
-          <td>{#if unsup}<details><summary>Rumoca の原文</summary>{d.message}</details>{:else}{d.message}{/if}{#each d.notes ?? [] as n}<div class="dnote">{n}</div>{/each}</td>
+          <td>{#if unsup}<details><summary>{nativeNote ? "自前の段の原文" : "Rumoca の原文"}</summary>{d.message}</details>{:else}{d.message}{/if}{#each d.notes ?? [] as n}<div class="dnote">{n}</div>{/each}</td>
         </tr>
       {/each}
     </tbody>

@@ -33,3 +33,30 @@ fn native_is_chosen_per_call_and_unsupported_is_not_switched() {
         assert!(ok.summary.contains("native: S0〜S6"), "{}", ok.summary);
     }
 }
+
+/// S347: ファイルの組で読んだライブラリ（wasm の MSL）は native から見えない。名前が引けない診断に、その旨の注が付く（Rumoca は通る）。
+#[cfg(feature = "native")]
+#[test]
+fn native_explains_a_library_it_cannot_see() {
+    let lib = std::collections::BTreeMap::from([(
+        "Lib/package.mo".to_string(),
+        "package Lib\n  model R\n    Real x;\n  equation\n    x = 1;\n  end R;\nend Lib;\n"
+            .to_string(),
+    )]);
+    let mut ws = Workspace::with_library_sources("Lib", &lib).unwrap();
+    ws.set_file("U.mo", "model U\n  Lib.R r;\nend U;\n");
+    assert!(ws.check("U").passed);
+    let native = ws.check_with("U", CheckFrontend::Native);
+    let d = native
+        .diagnostics
+        .iter()
+        .find(|d| d.code == "GM-E1001")
+        .expect("名前が引けない");
+    assert!(
+        d.notes.iter().any(|n| n.contains("Rumoca で確かめる")),
+        "{d:?}"
+    );
+    // 自分のファイルだけで済むモデルには注を付けない
+    ws.set_file("D.mo", DECAY);
+    assert!(ws.check_with("Decay", CheckFrontend::Native).passed);
+}

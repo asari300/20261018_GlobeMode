@@ -9,7 +9,10 @@ export interface Backend {
   /** S301: 分割配信のライブラリ（index.json の URL）を読む。索引が無ければ false（呼び手は `library` に戻る）。本文は検査などのときに要る分だけ取る。 */
   libraryIndex?(name: string, url: string): Promise<boolean>;
   setFile(name: string, text: string): Promise<void>;
-  check(model: string): Promise<CheckResponse>;
+  /** 検査（S0〜S10）。frontend を省くと Rumoca（S347。"native" は自前の段で S0〜S6、未対応は GM-U0006。選べる実行環境だけ。下の checkFrontends）。 */
+  check(model: string, frontend?: CheckFrontend): Promise<CheckResponse>;
+  /** 検査のフロントエンドを選べる実行環境か（S347。ブラウザ・Android の wasm は true。Desktop の sidecar は `globe/check` が frontend を取るまで無い）。 */
+  readonly checkFrontends?: boolean;
   /** connect グラフ（graphology の JSON）。depth は 1 なら直下の部品だけ。モデルが無ければ reject。 */
   graph(model: string, depth: number): Promise<GraphJson>;
   /** 方程式の BLT 分解（S262。解く順のブロック）。検査が通らなければ reject。 */
@@ -95,6 +98,9 @@ export interface Backend {
   /** バイナリ（PNG など）を手元に書く（S146）。保存先と取り消しは saveFile と同じ。 */
   saveBinary?(name: string, bytes: Uint8Array): Promise<string | null>;
 }
+
+/** 検査のフロントエンド（S347。Rust の `CheckFrontend`）。native は自前の Track B の段（試験）。 */
+export type CheckFrontend = "rumoca" | "native";
 
 /** FMU の実行時（S239）。p5a は Rumoca の C のソース、p5b は自前の共有ライブラリ入り。 */
 export type FmuRuntime = "p5a" | "p5b";

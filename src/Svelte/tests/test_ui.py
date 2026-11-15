@@ -1401,6 +1401,47 @@ def multi_solver(browser, origin: str, errors: list[str]) -> None:
     print("複数のソルバ: bdf・rk4・euler を並列で頼むとブラウザは 1 つずつに落ちて注記が出る。比較の表（基準 bdf・合否は文字）と 3 本の重ね描きが出て、設定は再読み込みで残る")
 
 
+def check_frontend_select(browser, origin: str, errors: list[str]) -> None:
+    """S347: 検査のフロントエンド（Rumoca / 自前（試験））の選択。ブラウザ（wasm）にだけあり、既定は Rumoca で要約を出さない。
+    「自前」で検査すると Rust の要約（S0〜S6 まで）が出て、自前の段が断る形（expandable）は GM-U0006 で「自前の段の原文」になる。
+    Desktop（偽の window.__TAURI__。sidecar の `globe/check` はまだ frontend を取らない）には選択肢が無い。"""
+    pg = browser.new_page()
+    pg.on("console", lambda m: m.type == "error" and errors.append(m.text))
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(origin)
+    button = pg.get_by_role("button", name="検査")
+    button.wait_for()
+    sel = pg.get_by_label("検査のフロントエンド")
+    assert sel.locator("option").all_inner_texts() == ["Rumoca", "自前（試験）"] and sel.input_value() == "rumoca"
+    button.click(force=True)
+    expect(button).to_be_enabled(timeout=120_000)
+    assert pg.locator("[data-native-note]").count() == 0
+    sel.select_option("native")
+    button.click(force=True)
+    expect(pg.locator("[data-native-note]")).to_contain_text("native: S0〜S6", timeout=120_000)
+    assert pg.locator("tr.error").count() == 0
+    pg.close()
+
+    pg = browser.new_page()
+    open_text_model(pg, origin, errors, "E.mo", "expandable connector EC\n  Real a;\nend EC;\nmodel E\n  EC ec;\nend E;\n", "E")
+    pg.get_by_label("検査のフロントエンド").select_option("native")
+    pg.get_by_role("button", name="検査").click(force=True)
+    expect(pg.locator("[data-unsupported]")).to_be_visible(timeout=120_000)
+    assert "GM-U0006" in pg.locator("table.diagnostics").inner_text() and pg.locator("[data-native-note]").count() == 0
+    assert "自前の段の原文" in pg.locator("table.diagnostics summary").first.inner_text()
+    pg.close()
+
+    dt = browser.new_page()
+    dt.on("console", lambda m: m.type == "error" and errors.append(m.text))
+    dt.on("pageerror", lambda e: errors.append(str(e)))
+    dt.add_init_script(FAKE_TAURI)
+    dt.goto(origin)
+    dt.get_by_role("button", name="検査").wait_for()
+    assert dt.get_by_label("検査のフロントエンド").count() == 0
+    dt.close()
+    print("検査のフロントエンド: ブラウザに選択肢があり、自前で Decay が通って要約が出て、expandable は GM-U0006（自前の段の原文）、Desktop には選択肢が無い")
+
+
 def main() -> int:
     # 色付けの予約語は Rust の KEYWORDS と同じ並び（S163。editor.ts の KEYWORDS は補完と色付けの共通の一覧）
     ts_kw = re.findall(r'"(\w+)"', re.search(r"export const KEYWORDS = \[(.*?)\];", (SRC / "Svelte/src/lib/editor.ts").read_text(), re.S).group(1))
@@ -2564,6 +2605,7 @@ def main() -> int:
         multi_solver(browser, origin, errors)  # S323
         open_fmu_file(browser, origin, errors)  # S229
         fmu_runtime_select(browser, origin, errors)  # S239
+        check_frontend_select(browser, origin, errors)  # S347
         results_followups(browser, origin, errors)  # S236
         print("エディタの Tab: 空白 2 つの字下げ（選択した 2 行も）と Shift+Tab、補完の一覧が開いていれば確定・閉じていれば字下げ、Esc のあと Tab・Shift+Tab と Ctrl+M で外へ、説明は aria-describedby と画面に")
         print("キーボードだけ: モデル名・エディタへ Tab、Ctrl+Shift+Enter で検査、診断と参照の行を Tab・Enter・Space でエディタへ、Ctrl+Enter で実行（プロットの aria-label に信号名と時間の範囲）、Ctrl+. で止め、Ctrl+S で保存")
