@@ -113,6 +113,25 @@ Track B（自前コア）は B1 rowan の CST と寛容なパーサ → B2 resol
 - **試験**: `globe-mode-lsp` に補完 3 本（ほかの行に誤りのある書きかけで `r.`・`r.R`・`r.p.`、`end` の前に切れた `connect(r.`、読める文書では今の道と同じ）と、LSP の RPC で GlobeModeValidation の `Resistor` を 2 回引く試験（2 回目は作り直さない）、`globe-mode-resolve` に `with_source` がライブラリを元に戻すこと。今の道では空になることも同じ試験で確かめた。
 - **悪い点・持ち越し**: 型が別の開いている文書にあるときは、自前の道は読まない（今の道が読める間は今の道が引く）。文書がライブラリのファイルと同じクラスを定義しているときは、ライブラリ側のクラスが優先される（重複として扱う）。`redeclare` が 2 段以上先で効く型、組み込みの型の属性（`x.` の `start`・`min`）、補完のほかの位置（`a.` 以外、名前引数、`annotation` の中）は出さない。ライブラリのファイルの更新で `Library` を作り直す仕組みは入れていない（`tree` と同じ）。
 
+## 付記（S290）: B4 の最初の一切れ、平らなモデルから DAE の構造と釣り合いの数
+
+新しい ADR は立てず、S278・S284 の続きとしてここに足す。新しい crate `globe-mode-dae`（依存は `globe-mode-flat`・`globe-mode-syntax`・`globe-mode-ir`・`globe-mode-analysis`。dev に `globe-mode-frontend`。新しい外部依存は無い）を足しただけで、ほかの crate は変えていない。
+
+- **やること**: `build(&FlatModel) -> Result<Dae, Unsupported>`。変数を状態（`der(x)` が現れる連続変数）・代数・離散（`discrete`・Integer/Boolean/列挙・`when` で代入する Real）・既知（parameter・constant・トップレベルの input・String・Clock）に分け、`DaeStructure`（連続の行と未知数）と `BalanceCount`（Rumoca の釣り合いと同じ分け方）を作る。方程式 = 連続の行 + 離散の定義、未知数 = 状態 + 代数 + 離散。`Dae::is_balanced`（総数の一致）と `Dae::is_regular`（`globe-mode-analysis` の構造の正則）がある。
+- **incidence**: flat が出す方程式の印字を `model M equation … end M;` に包んで `globe-mode-syntax` で読み直し、`ComponentRef` から取る。`der(x)` は `der(x)` の未知数、状態そのものの参照は `state_refs`、`pre()` の中は無視する。
+- **shortcut（広めの incidence。釣り合いの数は変わらない）**: `if`・`when`・`algorithm` は 1 本のまとまりとして枝の中の未知数の和集合を行にする。配列は添字が定数ならその要素、添字なしで大きさが行の数と同じなら行 k に要素 k、それ以外は全要素。非線形の判定はしない（`nonlinear` は空）。位置は付けない。
+- **Rumoca に合わせた数え方**（計測で見つけて直した 3 つ）: (1) Clock 型の変数は数えず、辺の 1 つが Clock 型の変数そのものの方程式（`c = Clock(…)`・`y = c`）も数えない。`z = sample(u, c)` のように式の中で使うだけなら数える。(2) `initial algorithm` は数えない。(3) 方程式が離散の定義かは左辺だけで決める（右辺が離散でも左辺が代数なら連続の行）。
+- **Rumoca との突き合わせ**（`tests/compare.rs`、`#[ignore]`。Rumoca 側は `Checker::check` の `balance` と、`structure` を `analyze` に通した `is_regular`。debug）:
+  - `GlobeModeValidation` の 75 本: 平らにできた 72 本がすべて DAE になり、両方で DAE まで通った 71 本で、**釣り合いの判定 71/71・方程式と未知数の数 71/71・状態の数 71/71**。構造の正則は自前 66 / Rumoca 65、比べられた 70 本で一致 70。
+  - MSL の例題 566 本: 平らにできた 192 本（S284）が**すべて DAE になった**。Rumoca の釣り合いまで通った 146 本で、釣り合いは自前 143 / Rumoca 145、**判定の一致 144/146**、**方程式と未知数の数の一致 144/146**、**状態の数の一致 141/146**、構造の正則は自前 119 / Rumoca 133、一致 132/146。
+  - 修正の経過（MSL、同じ 146 本）: 最初の版は数の一致 70・判定の一致 124。Clock・`initial algorithm`・左辺だけの判定で数の一致 111（判定 111）。Clock の方程式を辺が Clock 型の変数そのものに絞って 144（判定 144）。最初の版で判定が合っていた 124 本には、数が合わないまま釣り合いの判定だけ合っていたものが含まれる（数の一致は 70 本だけ）。
+- **既知の差**:
+  - 数の差 2 本は `Modelica.Clocked.Examples.Elementary.RealSignals.UniformNoise`（方程式 7 対 9、離散 3 対 7）と `UniformNoiseXorshift64star`（7 対 8、離散 2 対 6）。乱数の状態を持つ離散変数（外部オブジェクトや配列の状態）の数え方が違う見込みだが、**原因は未確認**。
+  - 状態の数の差 5 本、構造の正則の差 14 本（自前が正則と言わない本が多い）。差の一覧は出す仕組みを足したが、**この版では取り直していないので、モデル名と原因は未確認**。
+  - `is_regular` は広めの incidence で正則寄りに出るはずだが、MSL では自前 119 が Rumoca 133 より少ない。配列の行の割り当て（添字なしの全要素）や、`algorithm` を 1 行にまとめる shortcut が効いている見込みだが、**確かめていない**。
+  - 断ったモデルは flat の理由のまま（`redeclare` 263 ほか。S284）。DAE の段で断るのは、方程式の印字を読み直せないときだけ（MSL の 192 本では 0 本）。
+- **持ち越し**: 差の分類と直し、`when` の中の `if` の枝ごとの数え方、非線形の判定、位置の付与、`Frontend` の feature `native` へのつなぎ、`xtask diff-frontend` への組み込み、B5 以降（simulate）。計測は debug。release は測っていない。
+
 ## 付記（S300）: 自前の段と Rumoca の突き合わせを `cargo xtask diff-frontend` に一本化
 
 新しい ADR は立てず、Track B の「`xtask diff-frontend` で回帰が 0 件になったら既定を切り替える」の入口をここに足す。
