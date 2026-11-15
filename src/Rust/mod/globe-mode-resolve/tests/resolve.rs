@@ -278,6 +278,38 @@ fn members_of_follows_redeclared_types() {
     assert_eq!(at("S.Other", &["port"]), "p");
 }
 
+/// S351（#132）: 差し替えていない（`redeclare` でも `replaceable` でもない）同名の別の型は、補完の候補に出さない
+#[test]
+fn members_of_ignores_unrelated_same_name_types() {
+    let lib = Library::from_sources([(
+        "S.mo",
+        "package Lib
+  connector Pin Real v; flow Real i; end Pin;
+  partial model OnePort Pin p; end OnePort;
+  record T Real a; end T;
+  model Base T t; end Base;
+end Lib;
+package MyLib
+  connector Pin Real x; end Pin;
+  record T Real z; end T;
+  model R extends Lib.OnePort; end R;
+  model D
+    extends Lib.Base;
+    record T Real y; end T;
+  end D;
+end MyLib;",
+    )]);
+    let at = |scope: &str, parts: &[&str]| {
+        let c = lib.class_by_name(scope).unwrap();
+        let parts: Vec<String> = parts.iter().map(|p| p.to_string()).collect();
+        names(&lib.members_of(c, &parts).unwrap()).join(",")
+    };
+    assert_eq!(at("MyLib.R", &["p"]), "i,v");
+    assert_eq!(at("Lib.OnePort", &["p"]), "i,v");
+    // 継ぐ側の外側にも、局所にも同名の `T` があるが、差し替えてはいない
+    assert_eq!(at("MyLib.D", &["t"]), "a");
+}
+
 #[test]
 fn enum_and_builtin_shadow() {
     let lib = Library::from_sources([(
