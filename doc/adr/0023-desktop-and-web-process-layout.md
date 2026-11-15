@@ -208,7 +208,37 @@ S301 の持ち越し 2 つ。
   20 本を続けて回した合計は、先読み無し 39 往復・235 塊・8.8 MiB、深さ 2 で 17 往復・258 塊・9.4 MiB、深さ 4 で 16 往復・265 塊・9.5 MiB。**深さ 2 を既定にした**（往復が ChuaCircuit で 11 → 3、20 本の合計で 39 → 17 に減り、取りすぎは 1 割ほど（ChuaCircuit は +0.5 MiB、20 本は +0.6 MiB）。3 より先は往復があまり減らず、取りすぎだけが増える）。往復あたりの待ちは回線しだいで、ここでは測っていない（往復 × 往復時間で、たとえば 100 ms なら ChuaCircuit の塊の待ちは約 1.1 s → 約 0.3 s という計算上の見積もりで、実測ではない）。
 - **木のアイコンは先読みしない**: 基底だけの閉包（`bases_only`。木の行ごとのアイコンと説明）は `deps`（全部の参照）をたどらない。たどると、ブラウザ（`?smoke=1`）の ChuaCircuit までが 218 要求・6.9 MiB に膨らんだ（S301 は 174 要求・4.8 MiB）。たどらないと 192 要求・5.35 MiB（Chromium、`/msl/` の content-length の合計。索引を含む）で、Node の増え方（+0.5 MiB）と合う。
 - **試験**: `split.mjs` が既定の先読みのとき、ChuaCircuit の塊の取得が 4 往復以内・190 塊以内であることを確かめる（20 本の一致は従来どおり）。`globe-mode-frontend` に `direct_deps_are_one_step`。
-- **Android の APK**: `android.yml` の `ui` ジョブが、`pnpm build` のあとに `dist/msl/MSL.json` を消し、`index.json` の塊が全部あることを確かめてから APK に渡す。Android は sidecar を使わず WorkerBackend なので、UI は `index.json` を見つければ分割配信で読む（ブラウザ版と同じ道）。エミュレータの smoke（`msl=ok`）が、塊だけで ChuaCircuit を検査できることを確かめる。**APK は軽くならなかった**（run 43665628896 と main の run 43663027170 の比べ: arm64 release 13,616,490 → 14,859,242 B、x86_64 release 14,202,127 → 15,444,927 B、universal debug 259,532,967 → 261,050,263 B。塊 838 本は別々に圧縮され、重複が効かないため。zlib -9 で `MSL.json` 2.65 MB に対し塊の合計 3.30 MB と索引 0.22 MB）。分割配信の利点は実行時の線形メモリ（62 → 14 MiB）で、smoke の `msl_ms` は前後で変わらない（9〜11 s）。APK の大きさを優先するなら、Android だけ `MSL.json` に戻す選択肢がある。
+- **Android の APK**: `android.yml` の `ui` ジョブが、`pnpm build` のあとに `dist/msl/MSL.json` を消し、`index.json` の塊が全部あることを確かめてから APK に渡す。Android は sidecar を使わず WorkerBackend なので、UI は `index.json` を見つければ分割配信で読む（ブラウザ版と同じ道）。エミュレータの smoke（`msl=ok`）が、塊だけで ChuaCircuit を検査できることを確かめる。**APK は軽くならなかった**（run 43665628896 と main の run 43663027170 の比べ: arm64 release 13,616,490 → 14,859,242 B、x86_64 release 14,202,127 → 15,444,927 B、universal debug 259,532,967 → 261,050,263 B。塊 838 本は別々に圧縮され、重複が効かないため。zlib -9 で `MSL.json` 2.65 MB に対し塊の合計 3.30 MB と索引 0.22 MB）。分割配信の利点は実行時の線形メモリ（62 → 14 MiB）で、smoke の `msl_ms` は前後で変わらない（9〜11 s）。APK の大きさを優先するなら、Android だけ `MSL.json` に戻す選択肢がある。（**S340 で、塊を 1 本のパックにして戻した**。下の S340。）
 - **限界**: (1) 先読みは塊の依存の目安。塊の粒度（16 KiB）のぶん、使わないファイルの参照も追うので、深さを上げると取りすぎが増える。(2) 往復の回数は Node で数えた値。ブラウザの実際の回線での時間は測っていない。(3) `MSL.json` は Leptos・Dioxus・marimo と、索引が無い配信のために pack が作り続ける。
 
 **S321 の付記（#110）**: 分割配信の塊が壊れている・索引と合わないときに Worker が固まらないようにした。`fetchChunks` は全部の塊を取って読めてから本文を入れ、索引が「その塊にある」と言うファイルが見出しのままなら誤り（「塊に無いファイル」）にして、その塊を取得済みに入れない（配信が直れば次の呼び出しで取り直す）。壊れた塊は「壊れている」の誤り。`ensure` の繰り返しは塊の数 + 1 回で打ち切る。試験は `globe-mode-wasm/node/broken-chunks.mjs`（MSL 不要。`mise run wasm:node` に入れた）。
+
+### S340 で決まったこと（Android の束を 1 本のパックにした、2026-11-15）
+
+S308 で APK が +1.24 MB（arm64 で +9.1%）増えた件。ユーザーの指示（2026-11-15）で、**案 A（パック 1 本 + slice）と案 B（Android だけ塊の cap を上げる）の両方を実装して同じ表で比べ、優れた方を採った**。**案 A を採り、案 B は外した**。
+
+- **原因**: Tauri は frontend の asset を 1 つずつ brotli（quality 9。debug は 2。`tauri-codegen` 2.7.4 の `embedded_assets.rs` の `compression_settings`、確認日 2026-11-15）で圧縮して Rust の binary に埋める。塊（16 KiB）は 1 本ずつ圧縮されて辞書が持ち越されないうえ、838 本ぶんの名前の表の項目もある。brotli（q9、窓 4 MiB）で見積もると、`MSL.json` 15.95 MB は 2.08 MB、塊 838 本の合計は 3.06 MB + 索引 0.19 MB。この見積もりの差 1.17 MB は、APK の実測の差 1.24 MB とほぼ合う。
+- **案 A（採用）**: Android の束だけ、塊の JSON を UTF-8 のまま 1 本に連結した `msl/pack.bin` と、索引 `index.json` の `pack: { url, at }`（`at[i]〜at[i+1]` が塊 i のバイト範囲）にする。`pack-msl.mjs` は環境変数 `GM_MSL_PACK=1`（`android.yml` だけが付ける）のとき `MSL.json` と `c/` を作らない。Worker（`worker.js`）は、索引に `pack` があれば、`fetchChunks` の塊の取得を「パックを `fetch().blob()` で 1 回だけ取り、塊を `blob.slice(a, b).text()` で切り出す」に替える（`packText`。取れなければ誤りで、取れるまで次の呼び出しで取り直す。Node は `fs.openAsBlob`）。**Blob は Worker の JS ヒープに載せない**（ArrayBuffer を握ると 15.2 MiB の外部メモリ。ブラウザの Blob の置き場は Chromium の blob 管理で、Worker のヒープの外）。閉包の繰り返し・先読み・塊の壊れの検査は変えない（塊の本文の取り方だけが違う）。ブラウザ版（`web.yml` の束）は `GM_MSL_PACK` を付けないので、`MSL.json`・`c/*.json` のまま。
+- **案 B（外した）**: 塊の cap を上げる。`pack()` の cap は引数にあり、`split.mjs --cap` で測れる（測るための口として残した）。cap 64 KiB で塊 514 本、256 KiB で 461 本、それ以上は **446 本で頭打ち**（ディレクトリが変わるたびに塊を分けるため）。
+- **比べた表**（同じ 20 本、Node、release の wasm。全部の設定で全部読みと 20 / 20 一致。APK は CI の arm64 release、x86_64・debug は解説書）:
+
+  | | MSL.json（S301 の前） | S308（塊 838 本） | **案 A（pack.bin）** | 案 B（cap 256 KiB・先読み 0） |
+  | --- | ---: | ---: | ---: | ---: |
+  | APK arm64 release | 13,616,490 B | 14,859,242 B（+9.1%） | **13,847,114 B（+1.7%）** | 14,432,522 B（+6.0%） |
+  | 見積もり（brotli q9 の合計） | 2.08 MB | 3.25 MB | 2.28 MB（パック 2.08 + 索引 0.20） | 2.84 MB（塊 2.65 + 索引 0.19） |
+  | `dist/msl` の asset 数 | 1 | 839 | **2** | 462 |
+  | 実行時メモリ: 読み込み直後の線形メモリ | 62.1 MiB | 13.7 MiB | **13.7 MiB** | 13.7 MiB |
+  | ChuaCircuit の後の線形メモリ | 95.9 MiB | 80.6 MiB | **80.6 MiB** | 81.1 MiB |
+  | 20 本の後の線形メモリ（最大） | — | 289.3 MiB | **289.3 MiB** | 294.6 MiB |
+  | 20 本の後の JS ヒープ（Worker。wasm 除く） | — | 41.8 MiB | 43.2 MiB（パックは Blob でヒープ外） | 44.0 MiB |
+  | ChuaCircuit の往復・塊・読んだ文字 | — | 3 往復・179 塊・5.16 MiB | 3 往復・179 塊・5.16 MiB（取得は 1 回 + 切り出し） | 8 往復・95 塊・5.29 MiB |
+  | 20 本の往復・塊・読んだ文字 | — | 17 往復・258 塊・9.4 MiB | 17 往復・258 塊・9.4 MiB | 25 往復・133 塊・10.2 MiB |
+  | エミュレータの smoke（`msl=ok` を含む全項目） | ok | ok | ok | ok |
+  | smoke の `msl_ms`（release / debug、共有ランナーの目安） | — | 10.6 / 11.2 s | 11.3 / 8.2 s | 13.1 / 7.7 s |
+
+  案 B で先読みを 2 にした場合（cap 256 KiB）は、ChuaCircuit が 3 往復・105 塊・5.79 MiB、20 本が 9 往復・160 塊・11.0 MiB・線形メモリ最大 341.2 MiB（塊が大きく、deps が広がって取りすぎる）。cap 64 KiB（514 本）・先読み 2 は、ChuaCircuit が 3 往復・126 塊・5.66 MiB、20 本が 11 往復・193 塊・10.5 MiB・線形メモリ最大 296.7 MiB（往復は保てるが、A より取りすぎ、塊の数は 838 → 514 までしか減らない）。
+- **選んだ理由**: (1) **APK の大きさ**: A は +1.7%（索引の約 0.2 MB だけが `MSL.json` に足される）。B は cap をいくら上げても塊がディレクトリごとに 446 本残り、塊ごとの圧縮の損が 0.5〜0.6 MB 残るので、最良（見積もり）でも +5% 余り（cap 256 KiB の実測は +6.0%）。(2) **実行時のメモリ**: A は読む塊が S308 と同じなので、wasm の線形メモリ（13.7 / 80.6 / 289.3 MiB）も往復も変わらない。B は取る塊が大きく、往復を保つには先読みが要り、取りすぎて線形メモリが増える（先読み 2 で 20 本の最大 341 MiB）。(3) **変更の小ささ**: A は `pack.js` に `packFile`（6 行）、`worker.js` に `packText`・`getBlob`（約 10 行）。B は pack の引数だけで済むが、APK を戻しきれない。
+- **A の費用**: パック（15.2 MiB）を全部読む。Android では APK 内のローカルの資源なので回線は使わない（smoke の `msl_ms` は S308 と同程度で、共有ランナーのばらつきの内）。ブラウザで Blob を握る間、ブラウザプロセスのメモリ（blob の置き場。Chromium は大きいと一時ファイルに逃がす【未確認】）を使うが、Worker のヒープと wasm の線形メモリには載らない。Worker を作り直すと（線形メモリ 2 GiB 超など）パックをもう一度読む。
+- **確かめ方**: `node globe-mode-wasm/node/split.mjs --msl data/msl --pack`（20 本が全部読みと一致し、ヒープと線形メモリを出す。`--cap N` で B を測れる）、MSL 不要の `broken-chunks.mjs`（`mise run wasm:node`。パックが無ければ誤りで返り、置けば通る）。実機に近い確認は `android.yml`（emulator の smoke）。ブラウザ版（`web.yml`）は変えていない。
+- **限界**: (1) 実機の Android（WebView）の Blob のメモリの置き場・速度は、エミュレータの smoke でしか見ていない。(2) 往復の時間・JS ヒープは Node の `worker.getHeapStatistics`（ArrayBuffer は wasm の線形メモリも含むので引いている）。ブラウザ・WebView のメモリの測定ではない。(3) APK は MSL.json 時代より +230,624 B（+1.7%）。索引（`stubs` は木の見出しに要る）を縮めれば戻せるが、していない。
+
