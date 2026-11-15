@@ -555,3 +555,64 @@ fn self_containing_model_is_refused_not_overflowed() {
         "deep-instantiation"
     );
 }
+
+#[test]
+fn record_bound_to_later_sibling_and_function_value() {
+    // S324: 宣言が後ろにある兄弟のレコード、レコードを返す関数、配列のレコード、外部オブジェクト
+    let m = flat(
+        "record P parameter Real a = 1; Real b[2]; end P;
+         model H P p; end H;
+         function mk output P y; algorithm y.a := 2; end mk;
+         class Tab extends ExternalObject; function constructor input Real x; output Tab t; external \"C\"; end constructor;
+           function destructor input Tab t; external \"C\"; end destructor; end Tab;
+         model Top
+           H q(p = d.p);
+           P f = mk();
+           P arr[2] = {P(a = 3), P(a = 4)};
+           P src2[2]; P arr2[2] = src2;
+           parameter Tab t = Tab(3);
+           H d;
+         end Top;",
+        "Top",
+    );
+    let b = |n: &str| {
+        m.vars
+            .iter()
+            .find(|v| v.name == n)
+            .unwrap_or_else(|| panic!("{n}"))
+            .binding
+            .clone()
+    };
+    // `q.p = d.p` は宣言が後ろの `d` を、型の欄ごとに束縛する
+    assert_eq!(b("q.p.a").as_deref(), Some("d.p.a"));
+    assert_eq!(b("q.p.b").as_deref(), Some("d.p.b"));
+    // 関数の戻り値のレコードは評価せず、欄ごとに `f().a`
+    assert_eq!(b("f.a").as_deref(), Some("mk().a"));
+    assert_eq!(b("f.b").as_deref(), Some("mk().b"));
+    // 配列のレコード: リテラルの要素ごと、配列の変数は `x[k].f`
+    assert_eq!(b("arr[2].a").as_deref(), Some("4"));
+    assert_eq!(b("arr2[1].a").as_deref(), Some("src2[1].a"));
+    // 外部オブジェクトは 1 つの変数として残す
+    let t = m.vars.iter().find(|v| v.name == "t").unwrap();
+    assert_eq!(t.binding.as_deref(), Some("Tab(3)"));
+    assert!(m.vars.iter().all(|v| !v.name.starts_with("t.")));
+}
+
+#[test]
+fn connect_whole_arrays() {
+    // S324: 部品の配列の同名のコネクタ・配列のコネクタを、要素ごとの接続にする
+    let m = flat(
+        "connector Pin Real v; flow Real i; end Pin;
+         model R Pin p; Pin n; equation p.v - n.v = p.i; p.i + n.i = 0; end R;
+         model Multi parameter Integer m = 2; Pin pin[m]; end Multi;
+         model Rs parameter Integer m = 2; Multi pp(m = m); Multi pn(m = m); R r[m];
+           equation connect(pp.pin, r.p); connect(r.n, pn.pin); end Rs;
+         model Top Rs s; end Top;",
+        "Top",
+    );
+    let e = eqs(&m).join("\n");
+    // 要素ごとの電位の等式と flow の和（`s.r[1].p` と `s.pp.pin[1]` など）
+    assert!(e.contains("s.r[1].p.i"), "{e}");
+    assert!(e.contains("s.pp.pin[2].v"), "{e}");
+    assert!(!e.contains("s.pp.pin.v"), "{e}");
+}

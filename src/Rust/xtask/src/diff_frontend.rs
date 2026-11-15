@@ -200,6 +200,9 @@ fn run_row(
         for (o, n) in &t.equation_origins {
             println!("  rumoca[{n}] {o}");
         }
+        for (c, n) in &t.equations_by_component {
+            println!("  rumoca-by-component {c:?} {n}");
+        }
     }
     row.flags.insert("rumoca_flat", theirs_flat.is_some());
     if let Some(t) = theirs_flat {
@@ -360,7 +363,20 @@ pub(crate) fn diff_frontend(opts: &Options<'_>) -> Result<ExitCode> {
     for (i, (name, group)) in targets.iter().enumerate() {
         let t = Instant::now();
         rows.push(run_row(opts.dump, &p, &checker, &by_scope, name, group));
+        if opts.dump
+            && let Some(r) = rows.last()
+        {
+            for (k, v) in &r.reasons {
+                println!("  {name}: {k} NG {v}");
+            }
+            for d in &r.diffs {
+                println!("  {name}: diff {d}");
+            }
+        }
         run_seconds += t.elapsed().as_secs_f64();
+        if t.elapsed().as_secs() >= 10 {
+            println!("  遅い {name}: {:.0} s", t.elapsed().as_secs_f64());
+        }
         if (i + 1) % 100 == 0 {
             println!("[{}/{}]", i + 1, targets.len());
         }
