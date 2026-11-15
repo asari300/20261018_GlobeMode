@@ -51,7 +51,7 @@ import time
 import zipfile
 from pathlib import Path
 
-from playwright.sync_api import expect, sync_playwright
+from playwright.sync_api import Locator, expect, sync_playwright
 
 DIST = Path(__file__).resolve().parents[1] / "dist"
 TOLERANT = Path(__file__).resolve().parents[2] / "Rust/mod/globe-mode-frontend/tests/data/tolerant/a/A"
@@ -88,6 +88,20 @@ OVER = "model Over\n  Real x(start = 1, fixed = true);\ninitial equation\n  x = 
 DIV = "model Div\n  parameter Real p = 1 / 0;\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -x;\nend Div;\n"
 FIRST = "Modelica.Mechanics.Rotational.Examples.First"  # 信号に `$formal_derivative.*` と `$state_coordinates[*]` が混じる（S169）
 BAD = "model Bad\n  Real x;\nequation\n  der(x) = -x;\n  x = 1;\nend Bad;\n"
+
+
+def click_without_stable() -> None:
+    """Locator.click の既定を、可視・有効はポーリングで待ってから force=True で押すものにする（S310）。
+    既定の actionability の "stable" は rAF で位置を 2 回比べるので、負荷が高く frame が出ない間は 30 秒詰まる。ポーリングの待ちは rAF に頼らない。"""
+    orig = Locator.click
+
+    def click(self: Locator, **kw: object) -> None:
+        if not kw.get("force"):
+            expect(self).to_be_visible(timeout=30_000)
+            expect(self).to_be_enabled(timeout=30_000)
+        orig(self, **{"force": True, **kw})
+
+    Locator.click = click  # type: ignore[method-assign]
 
 
 def serve(prefix: str = "") -> http.server.ThreadingHTTPServer:
@@ -1392,6 +1406,7 @@ def main() -> int:
     subprocess.run(["node", str(Path(__file__).with_name("test_columns.mjs"))], check=True)
     subprocess.run(["node", "--test", str(Path(__file__).with_name("test_html_sanitize.mjs"))], check=True)  # S232: 説明パネルの HTML の白リスト
     subprocess.run(["node", str(Path(__file__).with_name("test_tauri.mjs"))], check=True)  # S196: Desktop の保存先・outDir・タブの key
+    click_without_stable()
     server = serve()
     errors: list[str] = []
     origin = f"http://127.0.0.1:{server.server_port}/"
@@ -2002,6 +2017,7 @@ def main() -> int:
             on_screen("block Sine")
             assert page.get_by_role("tab").nth(page.get_by_role("tab").count() - 1).get_attribute("title").endswith("Blocks/Sources.mo"), "タブの title にパスが出る"
             page.get_by_label("ライブラリを検索").fill("Examples.BusUsage")  # Blocks/package.mo の 991 行目
+            expect(page.locator("#library-hits [role=option]").first).to_contain_text("Examples.BusUsage", timeout=30_000)  # 候補が出てから Enter（先に押すと開かない。S310）
             page.get_by_label("ライブラリを検索").press("Enter")
             expect(page.get_by_label("モデル名")).to_have_value("Modelica.Blocks.Examples.BusUsage", timeout=60_000)
             on_screen("model BusUsage")
