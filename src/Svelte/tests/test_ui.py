@@ -35,6 +35,7 @@ console の error（CSP の違反を含む）と、配った origin の外への
 使い心地（S228）: 実行中の Esc で止まる（入力欄の Esc と補完の一覧を閉じる Esc では止まらない）。タブは Ctrl+Shift+PageUp / PageDown とドラッグで並べ替わり、開いているタブは同じまま、順序が自動保存に乗って再読み込みで戻る。実行の設定はモデル名ごとに残り（`globe-mode.sim`）、切り替えると戻り、「設定を既定に戻す」で消える。開始時刻・刻み幅（固定刻みだけ）・予算の欄が要求に乗り、GM-E10004 が欄の下に出る。
 S196（レビューの指摘）: Desktop（偽の window.__TAURI__）で同じ名前の別のファイルが別のタブになり保存が取り違えない。ライブラリのタブは読み取り専用（打てず案内が出る。整形・リネームは断る）。タブを切り替えるとリネームの入力欄・参照の一覧・最後の値が残らない。実行中は F12 に入らず進捗の行は role を持たない。自動保存は遅らせても離れる前に書き、書けなければ 1 文出す。別のウィンドウの保存を知らせる。Tab は補完の一覧が開いていれば確定。Modelica.Units.SI.Vol で Voltage が出る（一覧が 200 件で切れていても問い直す）。
 複数のソルバの結果（S348）: Decay を bdf・dopri45・rk4 で、比較 on・閾値 10^-6 で回し、実行の表 3 行・比較の表 2 行（基準 bdf）・合否・最大の相対差が出て、並列を頼むと 1 つずつに落ちた注記が出る。設定欄の名前が入力欄から泣き別れず、横にはみ出さない。環境変数 GM_UI_SHOT に PNG のパスを渡すと結果の画面を撮る。
+配置のずれ（S363）: 検査の終わり（ソルバ・パラメータの一覧が wasm から後で届く）とタブの切り替え（モデルの候補）のあと、タブ列の上端が動かない（±1 px。1280・740・390 px 幅）。動くと押す直前に別の場所を押す。
 """
 
 from __future__ import annotations
@@ -1553,6 +1554,54 @@ def check_frontend_select(browser, origin: str, errors: list[str]) -> None:
     print("検査のフロントエンド: ブラウザに選択肢があり、自前で Decay が通って要約が出て、expandable は GM-U0006（自前の段の原文）、Desktop にも選択肢があり sidecar の globe/check に選んだ frontend が乗る（設定に従うあいだは乗らず、応答の frontend が native なら要約が出る）")
 
 
+# タブ列の上端（文書の座標）の最大と最小を 5 ms ごとに取る記録器。reset() からの差が、その間の配置のずれ（S363）
+SHIFT_REC = """(() => { const r = window.__gmTabs = { min: Infinity, max: -Infinity, reset() { this.min = Infinity; this.max = -Infinity; } };
+  setInterval(() => { const el = document.querySelector('.tabs'); if (!el) return; const y = el.getBoundingClientRect().top + scrollY; r.min = Math.min(r.min, y); r.max = Math.max(r.max, y); }, 5); })()"""
+
+
+def layout_shift(browser, origin: str, errors: list[str]) -> None:
+    """S363: 検査の終わりとタブの切り替えのあと、タブ列の上端が動かない（±1 px）。S360 で、検査の終わりに SimSettings の高さが非同期に動いて、押す直前に配置がずれて別の要素を押す失敗が出た。
+    原因は 3 つ: パラメータの一覧の details が検査のあとに届いて初めて出る（+15〜60 px）、ソルバの選択欄の幅がソルバの一覧の到着で変わって行の折り返しが変わる（740 px 幅で +20 px）、
+    タブを切り替えた直後は前のタブのモデルの候補が残り、select の中身（（このファイルのモデルから選ぶ））でバーの高さが動く（+40 px）。
+    初回の検査（wasm の読み込み・ソルバとパラメータの一覧が届く）、2 つのモデルのファイルを開いたあとの検査とタブの切り替えで、各 300 ms 見張る。"""
+    two = "model A\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -x;\nend A;\nmodel B\n  parameter Real k = 1;\n  Real y(start = 1, fixed = true);\nequation\n  der(y) = -k * y;\nend B;\n"
+    for width in (1280, 740, 390):
+        pg = browser.new_page(viewport={"width": width, "height": 800})
+        pg.on("console", lambda m: m.type == "error" and errors.append(m.text))
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+        pg.add_init_script(SHIFT_REC)
+        pg.goto(origin)
+        button = pg.get_by_role("button", name="検査")
+        button.wait_for()
+
+        def still(what: str) -> None:
+            pg.wait_for_timeout(300)
+            moved = pg.evaluate("window.__gmTabs.max - window.__gmTabs.min")
+            assert moved <= 1, f"{width} px 幅: {what}でタブ列の上端が {moved:.1f} px 動いた"
+            pg.evaluate("window.__gmTabs.reset()")
+
+        button.click(force=True)  # 初回は wasm の読み込みを待つ
+        expect(button).to_be_enabled(timeout=120_000)
+        expect(pg.locator("[data-params] summary")).to_contain_text("（Decay。", timeout=60_000)
+        still("初回の検査")
+        with pg.expect_file_chooser() as ch:
+            pg.get_by_role("button", name="開く").click(force=True)
+        ch.value.set_files(files=[{"name": "Two.mo", "mimeType": "text/plain", "buffer": two.encode()}])
+        expect(pg.get_by_role("tab")).to_have_count(2)
+        expect(pg.get_by_label("ファイルのモデル")).to_be_visible()  # 2 つのモデルがあると select が出る
+        pg.wait_for_timeout(300)
+        pg.evaluate("window.__gmTabs.reset()")  # 開く操作そのもの（新しいタブ・モデルの select が出る）の動きは数えない
+        for i, name in ((1, "A"), (0, "Decay"), (1, "A"), (0, "Decay")):
+            pg.get_by_role("tab").nth(i).click()
+            still(f"タブ {i} への切り替え")
+            button.click(force=True)
+            expect(button).to_be_enabled(timeout=120_000)
+            expect(pg.locator("[data-params] summary")).to_contain_text(f"（{name}。", timeout=60_000)
+            still(f"タブ {i}（{name}）の検査")
+        pg.close()
+    print("配置のずれ: 1280・740・390 px 幅で、初回の検査・2 つのモデルのファイルを開いたあとのタブの切り替えと検査のどれでも、タブ列の上端が ±1 px 動かない")
+
+
 def main() -> int:
     # 色付けの予約語は Rust の KEYWORDS と同じ並び（S163。editor.ts の KEYWORDS は補完と色付けの共通の一覧）
     ts_kw = re.findall(r'"(\w+)"', re.search(r"export const KEYWORDS = \[(.*?)\];", (SRC / "Svelte/src/lib/editor.ts").read_text(), re.S).group(1))
@@ -2719,6 +2768,7 @@ def main() -> int:
         open_fmu_file(browser, origin, errors)  # S229
         fmu_runtime_select(browser, origin, errors)  # S239
         check_frontend_select(browser, origin, errors)  # S347
+        layout_shift(browser, origin, errors)  # S363
         results_followups(browser, origin, errors)  # S236
         print("エディタの Tab: 空白 2 つの字下げ（選択した 2 行も）と Shift+Tab、補完の一覧が開いていれば確定・閉じていれば字下げ、Esc のあと Tab・Shift+Tab と Ctrl+M で外へ、説明は aria-describedby と画面に")
         print("キーボードだけ: モデル名・エディタへ Tab、Ctrl+Shift+Enter で検査、診断と参照の行を Tab・Enter・Space でエディタへ、Ctrl+Enter で実行（プロットの aria-label に信号名と時間の範囲）、Ctrl+. で止め、Ctrl+S で保存")

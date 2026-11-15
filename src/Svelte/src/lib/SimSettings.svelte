@@ -51,6 +51,7 @@
   let listNote = $state("");
   let filter = $state("");
   let picked = $state<Record<string, string>>({}); // 一覧の行に打った値（名前 → 字面）
+  const head = $derived(listedModel ? `パラメータ（${listedModel}。${listed.length} 本。${listNote || "値を打った行だけ上書き"}）` : "パラメータ（検査すると、上書きできる一覧が出る）"); // 1 行に収まるよう、注記（一覧が無い・取れない）は文の終わりでなく括弧の中に（狭い幅で省略記号に隠れない）
   const rows = $derived(listed.filter((p) => `${p.name} ${p.description ?? ""}`.toLowerCase().includes(filter.trim().toLowerCase())));
 
   $effect(() => {
@@ -208,9 +209,10 @@
       <small data-origin={k}>{k === "step" && !fixed ? "固定刻みのソルバのみ" : k === "max_order" ? `${origin(k)}。cvode・ida だけが使う` : origin(k)}</small>
     </label>
   {/each}
-  {#if listedModel}
-    <details class="params" data-params>
-      <summary>パラメータ（{listedModel}。{listed.length} 本。値を打った行だけ上書き）{listNote ? ` ${listNote}` : ""}</summary>
+  <!-- S363: 検査のあとに一覧が届いても高さが動かないよう、details は検査の前から 1 行（折り返さない）で出しておく -->
+  <details class="params" data-params>
+    <summary title={head}>{head}</summary>
+    {#if listedModel}
       {#if listed.length > 12}<input bind:value={filter} aria-label="パラメータの絞り込み" placeholder="名前・説明で絞り込む" size="24">（{rows.length} 本）{/if}
       <div class="rows">
         <table>
@@ -226,8 +228,8 @@
           </tbody>
         </table>
       </div>
-    </details>
-  {/if}
+    {/if}
+  </details>
   <button type="button" data-open-params onclick={() => (dialog = { prefix: "" })} title="パラメータの一覧を開いて値を入れる（モデル全体）">パラメータ…</button>
   {#if dialog}
     {#key dialog}<ParameterDialog {backend} {model} prefix={dialog.prefix} bind:picked errors={errors.filter((d) => d.code === "GM-E10006")} {onwrite} onclose={() => (dialog = null)} />{/key}
@@ -251,6 +253,8 @@
   .opt { display: inline-block; vertical-align: top; margin: 0 .5rem .25rem 0; padding: .1rem .5rem; border: 1px solid var(--border); }
   small { color: var(--muted); }
   .rows { max-height: 12rem; overflow-y: auto; }
+  .params summary { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } /* S363: 1 行に固定（長いモデル名・狭い幅で折り返すと、検査のたびに下の要素が動く） */
+  select { min-width: 7rem; } /* S363: ソルバの一覧は wasm から後で届く。届いても選択欄の幅（と、その行の折り返し）が変わらない */
   th { text-align: left; font-weight: normal; padding-right: .5rem; }
   .problem, .refusal { color: var(--err); margin: .25rem 0; }
   .last { color: var(--muted); margin: .25rem 0; }
