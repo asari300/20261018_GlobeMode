@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S353 VS Code の e2e に inlay hint — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S353 VS Code の e2e に inlay hint">
+
+<section class="slide" id="S01">
+  <span class="tag">S353 · 2026-11-15 · P4</span>
+  <h1>VS Code の e2e に inlay hint</h1>
+  <p class="lead">S352 の「本物の VS Code での表示は【未確認】」を、3 OS の起動試験で確かめる</p>
+  <div class="big"><code>Scale(2, 3)</code> に <code>gain:</code> と <code>offset:</code></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">足したもの</span>
+  <h1>fixture 1 つと試験 1 本</h1>
+  <ul>
+    <li><code>e2e/fixtures/Inlay.mo</code>: 関数 <code>Scale</code>（<code>input</code> が <code>gain</code>・<code>offset</code>）と、それを呼ぶモデル。<code>sin(time)</code> も 1 つ</li>
+    <li><code>suite.cjs</code>: <code>vscode.executeInlayHintProvider</code> を呼び、ヒントが 2 件、位置が引数の直前、ラベルが <code>gain:</code>・<code>offset:</code>、kind が Parameter</li>
+    <li>組み込みの <code>sin</code> に出ないことは、件数がちょうど 2 であることで確かめる</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">範囲</span>
+  <h1>確かめるところと、確かめないところ</h1>
+  <table class="compact">
+    <tr><th>確かめる</th><th>確かめない</th></tr>
+    <tr><td>拡張が inlay hint のプロバイダを登録する</td><td>画面の描画（<code>editor.inlayHints.enabled</code>）</td></tr>
+    <tr><td><code>globe lsp</code> の答えが VS Code のヒントになる</td><td>レコードの構築子・別の開いた文書の関数</td></tr>
+    <tr><td>Linux・Windows・macOS の 3 OS</td><td>call hierarchy（S354）</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">次回</span>
+  <h1>検証の数字は作業記録へ</h1>
+  <ul>
+    <li>手元ではサーバだけ確かめた（VS Code は起動しない）。本物の VS Code は <code>vscode.yml</code> を feature に dispatch して確かめる</li>
+    <li>画面の描画は拡張ホストから見えない（【未確認】のまま）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
