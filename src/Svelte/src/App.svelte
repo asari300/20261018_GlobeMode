@@ -5,7 +5,7 @@
   import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
   import { bracketMatching } from "@codemirror/language";
   import { setDiagnostics } from "@codemirror/lint";
-  import { closeCompletion, completionStatus } from "@codemirror/autocomplete";
+  import { closeCompletion, currentCompletions } from "@codemirror/autocomplete";
   import { EDITOR_HELP, byteToChar, darkSlot, makeEditable, readOnlySlot, modelFollow, modelRenamed, modelicaCompletion, modelicaHighlight, modelicaDefinition, modelicaFolding, modelicaLinter, modelicaRefactor, modelicaTab, modelicaTheme, themeSlot, toCmDiagnostics } from "./lib/editor";
   import { setPref, theme, type Pref } from "./theme.svelte";
   import { WorkerBackend } from "./lib/worker-backend";
@@ -868,8 +868,8 @@
   // S175: ショートカット。Ctrl（macOS は Cmd）+ Enter 実行、+ Shift+Enter 検査、+ . 止める、+ S 保存（Desktop は + Shift+S 名前を付けて保存）、+ O 開く。
   // ブラウザが握る Ctrl+R・W・F5 などは使わない。修飾キーつきなので入力欄で文字を打っていても誤爆しない。エディタの中でも効くよう capture で受け、CodeMirror の Mod-Enter（空行を挿入）は覆う
   function shortcut(e: KeyboardEvent) {
-    // S228: Esc で実行を止める（Ctrl+. と同じ）。入力欄・選択・ダイアログの中では奪わず、補完の一覧が開いていれば CodeMirror が閉じるだけ（応答待ちで見えていないものは数えない。実行中の Worker は答えない）
-    if (e.key === "Escape" && !e.isComposing && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && runState === "running" && completionStatus(view.state) !== "active" && !(e.target as HTMLElement).closest?.("input, textarea, select, dialog, [role=dialog]")) backend.cancel?.();
+    // S228: Esc で実行を止める（Ctrl+. と同じ）。入力欄・選択・ダイアログの中では奪わず、補完の一覧が見えていれば CodeMirror が閉じるだけ（見えていないものは数えない。実行中の Worker は答えず応答待ちのままだが、前の候補が見えている間は status が pending でも一覧は開いている。S310）
+    if (e.key === "Escape" && !e.isComposing && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && runState === "running" && !currentCompletions(view.state).length && !(e.target as HTMLElement).closest?.("input, textarea, select, dialog, [role=dialog]")) backend.cancel?.();
     if (e.isComposing || e.repeat || e.altKey || !(e.ctrlKey || e.metaKey)) return;
     const idle = (f: () => unknown) => () => { if (!busy) void f(); };
     const act = {
