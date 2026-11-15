@@ -187,11 +187,11 @@ const modelicaHover = (backend: Backend, file: () => string): Extension => [
   EditorView.baseTheme({ ".cm-hover": { padding: "2px 6px", maxWidth: "40em", whiteSpace: "pre-wrap", fontFamily: "monospace" } }),
   hoverTooltip(
     async (view, pos) => {
-      const line = view.state.doc.lineAt(pos);
+      const doc = view.state.doc, line = doc.lineAt(pos);
       try {
-        await backend.setFile(file(), view.state.doc.toString());
+        await backend.setFile(file(), doc.toString());
         const h = await backend.hover(file(), line.number - 1, pos - line.from);
-        if (!h) return null;
+        if (!h || view.state.doc !== doc) return null; // 待つ間に本文が変わった（タブの切り替え・打鍵）と、古い範囲が本文の外を指して RangeError になる（S310）
         const from = view.state.doc.line(h.range.start.line + 1).from + h.range.start.character;
         const to = view.state.doc.line(h.range.end.line + 1).from + h.range.end.character;
         return {

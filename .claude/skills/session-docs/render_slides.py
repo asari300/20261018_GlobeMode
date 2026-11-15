@@ -23,7 +23,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import TimeoutError as PlaywrightTimeout, sync_playwright
 
 ROOT = Path(__file__).resolve().parents[3]
 VIEWS = [
@@ -89,7 +89,10 @@ def check_deck(browser, deck: Path, out: Path) -> list[str]:
                 errs.append(f"{rel} [{view}] {sid} のページ番号が操作ボタンに隠れる")
             if not strict and m["pageH"] > 2:
                 errs.append(f"{rel} [{view}] {sid} でページが横にはみ出す（{m['pageH']}px）{m['wide']}")
-            page.screenshot(path=str(shot_dir / f"{sid}.png"))
+            try:
+                page.screenshot(path=str(shot_dir / f"{sid}.png"))
+            except PlaywrightTimeout:                    # 手元で cargo が動いているとき 30 秒で切れる。1 回だけ撮り直す（S310）
+                page.screenshot(path=str(shot_dir / f"{sid}.png"))
 
         if view == "desktop-light" and n >= 3:          # 1 枚の解説（上流の下書きの _jp.html）は送りを見ない
             page.evaluate("location.hash = '#S01'")

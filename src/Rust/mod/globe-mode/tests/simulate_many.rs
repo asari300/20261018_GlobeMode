@@ -101,7 +101,23 @@ fn compare_fails_when_a_solver_is_too_coarse_and_notes_the_ignored_max_order() {
 fn request_problems_are_refused_and_cancel_reaches_every_run() {
     let mut r = request(&["bdf", "bdf"]);
     assert!(run(&r).response.refused.unwrap().contains("2 回"));
+    // #120: ソルバ名の解決と同じ正規化（大文字小文字・前後の空白）で重複を見る
+    for dup in [["bdf", "BDF"], [" Bdf", "bdf "]] {
+        r = request(&dup);
+        assert!(
+            run(&r).response.refused.unwrap().contains("2 回"),
+            "{dup:?}"
+        );
+    }
+    // 比べる相手が 1 つも無い比較は理由つきで断る
+    r = request(&["bdf"]);
+    r.compare = Some(CompareRequest {
+        threshold_exp: 6,
+        reference: None,
+    });
+    assert!(run(&r).response.refused.unwrap().contains("比べる相手"));
     r.solvers = vec![];
+    r.compare = None;
     assert!(run(&r).response.refused.unwrap().contains("空"));
     r.solvers = vec!["bdf".into(), "rk4".into()];
     r.compare = Some(CompareRequest {
