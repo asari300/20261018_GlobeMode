@@ -1790,7 +1790,15 @@ fn lsp_position(p: &Value) -> Position {
 
 /// パス → `file:` の URI（[`uri_path`] の逆。英数字と `/-._~:` 以外はパーセントにする）。
 fn file_uri(path: &str) -> String {
-    let path = path.replace('\\', "/");
+    let mut path = path.replace('\\', "/");
+    // #118: 相対（`--library data/msl` の木のパス）は cwd を足す。`/` 始まりと `C:` 始まりはそのまま
+    let drive = matches!(path.as_bytes(), [d, b':', ..] if d.is_ascii_alphabetic());
+    if !path.starts_with('/')
+        && !drive
+        && let Ok(a) = std::path::absolute(&path)
+    {
+        path = a.display().to_string().replace('\\', "/");
+    }
     let mut out = String::from(if path.starts_with('/') {
         "file://"
     } else {
@@ -3456,6 +3464,17 @@ equation
         );
         assert!(line(&mut s).contains(r#""line":6"#), "{}", line(&mut s));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn file_uri_makes_relative_paths_absolute() {
+        // #118: 相対のライブラリのパスが `file:///data/msl/...`（存在しない）にならない
+        assert_eq!(
+            same_path_key(&uri_path(&file_uri("rel/A b.mo"))),
+            same_path_key("rel/A b.mo")
+        );
+        assert_eq!(file_uri("/x/y.mo"), "file:///x/y.mo");
+        assert_eq!(file_uri("C:\\x\\y.mo"), "file:///C:/x/y.mo");
     }
 
     #[cfg(windows)]

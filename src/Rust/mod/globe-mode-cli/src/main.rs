@@ -727,6 +727,30 @@ fn io_error(path: &Path, writing: bool, e: &std::io::Error) -> String {
 
 /// 結果の書き出し先（ファイル）を、計算の前に確かめる。無ければ作って消す。既にあるものは変えない（追記で開くだけ）。
 /// 入力のファイル・ライブラリの配下・拡張子 `.mo` は、ソースを結果で上書きしてしまうので断る（S199）。
+/// #119: `--solvers` の `-o DIR` を、計算の前に確かめる（`-` は標準出力で、複数の結果は出せない。親をたどって最初に在るものが
+/// ディレクトリでなければ作れない。ライブラリの中は断る）。作るのは結果を書くとき。
+fn check_out_dir(dir: &Path, library: &[PathBuf]) -> Result<(), String> {
+    if dir == Path::new("-") {
+        return Err("- に書けない: 標準出力（`-o -`）は 1 つのソルバのときだけ。`--solvers` ではフォルダを指す".into());
+    }
+    if let Some(a) = dir.ancestors().find(|a| a.symlink_metadata().is_ok())
+        && !a.is_dir()
+    {
+        return Err(format!(
+            "{} に書けない: {} がディレクトリではない",
+            dir.display(),
+            a.display()
+        ));
+    }
+    if library.iter().any(|l| resolve(dir).starts_with(resolve(l))) {
+        return Err(format!(
+            "{} に書けない: ライブラリの中を指している",
+            dir.display()
+        ));
+    }
+    Ok(())
+}
+
 fn check_writable_file(path: &Path, files: &[PathBuf], library: &[PathBuf]) -> Result<(), String> {
     if path.is_dir() {
         return Err(format!("{} に書けない: ディレクトリである", path.display()));

@@ -223,3 +223,22 @@ fn solvers_run_many_and_compare_with_an_exit_code() {
     let o = simulate("Decay", &["--solvers", "bdf", "--solver", "rk4"]);
     assert_eq!(o.status.code(), Some(2), "{o:?}");
 }
+
+/// #119・#120: `--solvers` の `-o` は計算の前に確かめる（既存のファイル・`-` は断る。`-` というフォルダを作らない）。
+/// 大文字小文字だけ違うソルバは重複で断る。
+#[test]
+fn solvers_check_the_output_and_names_before_running() {
+    let file = out_path("many-afile");
+    std::fs::write(&file, "x").unwrap();
+    let before = std::time::Instant::now();
+    for out in [file.to_str().unwrap(), "-"] {
+        let o = simulate("Decay", &["--solvers", "rk4,heun", "-o", out]);
+        assert_eq!(o.status.code(), Some(2), "{out}: {o:?}");
+        assert!(stdout(&o).is_empty(), "計算の前に断る: {}", stdout(&o));
+    }
+    assert!(before.elapsed().as_secs() < 5);
+    assert!(!PathBuf::from("-").exists(), "`-` というフォルダを作らない");
+    let o = simulate("Decay", &["--solvers", "bdf,BDF"]);
+    assert!(stdout(&o).contains("2 回"), "{}", stdout(&o));
+    assert_eq!(o.status.code(), Some(1), "{o:?}");
+}

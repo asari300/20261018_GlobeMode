@@ -328,3 +328,7 @@ S297 の見立て（Complex のレコード）は外れで、`Connections.isRoot
 - **計測の注意の追記**: `cargo xtask`（`.cargo/config.toml` の alias は `--release`）の成果物 `target/release/xtask` は、共有の `target-shared` を使う別の worktree が上書きし、`--dump` の出力が増えない・直した結果が出ない、ということがあった。**worktree 専用の `CARGO_TARGET_DIR`**（最初の release ビルドに約 15 分）で回すと確実。
 - **既知の差**: 構造の正則の食い違いは 0 本。ただし上の shortcut は、クロックの持ち主・変換の整合・区画の `der`・入れ子の `if` を持つモデルでは Rumoca と違いうる（MSL の例題では出ていない）。
 
+## 付記（S327）: 相対の `--library` の URI（#118）
+
+- **#118**: S320 の `same_path_key`（#115）は比べる側だけで、LSP が返す URI は相対のまま `file:///data/msl/...`（存在しない）になっていた。URI を作る共有の関数 `file_uri` が、`/` 始まりでも `C:` 始まりでもないパスを `std::path::absolute`（cwd を足す）で絶対にしてから組み立てる。定義・参照・リネーム・ライブラリの診断の URI はすべてここを通る。symlink は解かない（`same_path_key` と同じ）。
+- 詳細と試験は [S327 の解説書](../sessions/S327-review4-issues/解説書.md)。
