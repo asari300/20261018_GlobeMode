@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S366 features-cleanup — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S366 features-cleanup">
+
+<section class="slide" id="S01">
+  <span class="tag">S366 · 2026-11-16 · 文書</span>
+  <h1>features の重なった行を畳み、参照・リネームの範囲を事実に合わせた</h1>
+  <p class="lead">文書だけ。コードは変えず、cargo も回していない</p>
+  <div class="big">features は 1 機能 1 行。参照・リネームは <b>LSP がライブラリ全体まで、UI は開いている 1 文書の中</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">features</span>
+  <h1>重なっていた 4 機能を畳んだ</h1>
+  <table>
+    <tr><th>行</th><th>今の版</th><th>古い版にだけあったもの</th></tr>
+    <tr><td>整形・lint</td><td>S211・S207・S343・S346 つき</td><td>S192 を足した。「VS Code 拡張は 0.0.4」は S062 の時点と書いた</td></tr>
+    <tr><td>Text ビュー</td><td>S196 つき</td><td>なし（今の版が上位）</td></tr>
+    <tr><td>Desktop</td><td>括弧が閉じた版</td><td>S176（macOS の release）を足し、済んだ「持ち越し」を直した</td></tr>
+    <tr><td>Android</td><td>S106・S159・S340 つき</td><td>なし（今の版が上位）</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">確かめた</span>
+  <h1>参照・リネームが届く範囲</h1>
+  <table>
+    <tr><th>入口</th><th>範囲</th><th>根拠</th></tr>
+    <tr><td>LSP（VS Code）</td><td>開いていない根の下の <code>.mo</code>・ライブラリ・継承した部品・<code>b.x</code></td><td><code>textDocument/references</code>・<code>rename</code>（S230・S235）</td></tr>
+    <tr><td>UI（ブラウザ・Desktop・Android）</td><td>開いている 1 文書の中</td><td><code>globe/references</code>・<code>globe/rename</code> と wasm は <code>references_at</code>・<code>rename_at</code>（文書 1 つ）</td></tr>
+  </table>
+  <p class="note">UI でも <code>import</code> の別名はその文書の中で届く（S235 の <code>alias_at</code> が共通のため）</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">ほかの食い違い</span>
+  <h1>数字と書き方を直した</h1>
+  <ul>
+    <li>README の「できていないもの」の 538 本・367 本を 548 本・377 本に（英語・日本語。同じ README の先の段落と食い違っていた）</li>
+    <li>CHANGELOG の既知の限界の 518 本を 548 本に</li>
+    <li>features に S357・S358（隠しディレクトリ）・S360（Windows の call hierarchy）・S363（配置のずれ）を足した</li>
+    <li>README の表「LSP がワークスペースのフォルダ全体を読む」を、診断と参照で分けて書いた</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>検査</h1>
+  <pre><code>python3 -I .claude/skills/session-docs/check_docs.py
+npx --no-install markdownlint-cli2 README.md CHANGELOG.md doc/features.md doc/sessions/README.md</code></pre>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>UI から別ファイル・ライブラリ全体の参照・リネームを使うには <code>globe/*</code> の形（複数ファイルの応答）を変える</li>
+    <li>S338（Rumoca 0.10.4）が main に入ったら、README の Rumoca の版と既知の限界の数字</li>
+    <li>features の長い行（2,000 字超）を読みやすく分ける案は出していない</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

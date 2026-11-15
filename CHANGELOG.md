@@ -260,6 +260,6 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - Rumoca は git 依存の固定 rev（v0.10.2）で、crates.io には出せない。MSL 4.1.0 の例題 566 本のうち検査を通るのは 369 本、コンパイラの限界（`GM-U`）が 184 本（[doc/msl-funnel.md](doc/msl-funnel.md)）。
 - 配布するバイナリに `sundials` のソルバ（`cvode`・`ida`）は入れない（cmake と C コンパイラが要る）。
 - FMI の読み込みはブラウザ・Android の UI と C・Elixir・Gleam の API が未、SSP は最小版の読み取りと、System 1 つの書き出し（S274）と `.ssp` → spec.json の `ssp-import`（S315）、`start` の `.ssv` 書き出し（S318）だけで、入れ子の System の書き出しが未（読み取りは S295）。Diagram は結線の途中の点の削除と、VS Code のパネルからの部品の追加、途中の点を選んで動かす・消すキー操作が未（結線の追加と途中の点の追加のキー操作は S316）。線形化は数値微分で、解析ヤコビ行列が未（固有値と安定性は S286 で足した）。
-- 自前の検査（`--frontend native`、S305〜S313）は試しで、既定は Rumoca。S6 までで実行にはつながらない。wasm・ブラウザ・Desktop の UI から選べる（S347・S349。S350 から既定は「設定に従う」）。MSL の例題 566 本のうち平らにできるのは 518 本（`GM-U0006` で断る残りの理由は [doc/frontend-diff.md](doc/frontend-diff.md)）。
+- 自前の検査（`--frontend native`、S305〜S313）は試しで、既定は Rumoca。S6 までで実行にはつながらない。wasm・ブラウザ・Desktop の UI から選べる（S347・S349。S350 から既定は「設定に従う」）。MSL の例題 566 本のうち平らにできるのは 548 本（`GM-U0006` で断る残りの理由は [doc/frontend-diff.md](doc/frontend-diff.md)）。
 - Desktop と Android は署名していない。Desktop の自動更新は鍵を登録するまで「未設定」。実機での長い操作は【未確認】。
 - GitHub の Release・タグ・Pages・PyPI・Marketplace への公開はまだ無い（[doc/research/app-flow-2026-11-05.md](doc/research/app-flow-2026-11-05.md)）。
