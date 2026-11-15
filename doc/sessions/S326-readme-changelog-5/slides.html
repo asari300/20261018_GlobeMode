@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S326 readme-changelog-5 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S326 readme-changelog-5">
+
+<section class="slide" id="S01">
+  <span class="tag">S326 · 2026-11-15 · 文書</span>
+  <h1>README と CHANGELOG に S312・S315〜S325 を反映</h1>
+  <p class="lead">コードは変えない。S317 の後に main に入った利用者に見えるものだけを書く</p>
+  <div class="big">複数のソルバで回して比べる（S322・S323）</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">足したもの</span>
+  <h1>面ごとの追加</h1>
+  <table>
+    <tr><th>機能</th><th>出典</th></tr>
+    <tr><td>複数ソルバの実行と比較（CLI・UI）</td><td>S322・S323</td></tr>
+    <tr><td>SSP の往復（<code>ssp-import</code>・<code>ssp-export --ssv</code>）</td><td>S315・S318</td></tr>
+    <tr><td>キーボードで結線</td><td>S316</td></tr>
+    <tr><td>marimo の解析の見本</td><td>S319</td></tr>
+    <tr><td>issue #110〜#117 の修正</td><td>S320・S321</td></tr>
+    <tr><td>Track B の数え方が Rumoca と一致</td><td>S312・S325</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">限界を一言</span>
+  <h1>書いた限界</h1>
+  <ul>
+    <li>並列は同じプロセスのスレッドで、硬い実行を外から止められない</li>
+    <li>比較は最大の相対差ではなく、矩形の管の外の点を数える</li>
+    <li>最大積分次数は cvode・ida だけ</li>
+    <li>入れ子の System の書き出しと、途中の点のキー操作は未</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">再現手順</span>
+  <h1>検査</h1>
+  <pre><code>python3 -I .claude/skills/session-docs/check_docs.py
+npx --no-install markdownlint-cli2 README.md CHANGELOG.md</code></pre>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>S310（試験・UI の安定化）が main に入ったら CHANGELOG の運用の項に足す</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
