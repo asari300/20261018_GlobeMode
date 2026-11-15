@@ -268,3 +268,38 @@ fn refs_of() {
         println!("{:?} {:?} -> {:?}", r.kind, r.parts, p.lib.resolve(r));
     }
 }
+
+/// 名前の集合と方程式の数を Rumoca の flat と比べる（`GLOBE_FLAT_MODEL=A.B,C.D`）。差を絞るために部品のクラスを 1 本ずつ見る
+#[test]
+#[ignore = "MSL と Rumoca の読み込みが要る"]
+fn cmp() {
+    let Ok(models) = std::env::var("GLOBE_FLAT_MODEL") else {
+        return;
+    };
+    let msl = msl_dir();
+    let p = Project::from_dirs(&[msl.as_path()]).unwrap();
+    let checker = Checker::new(&[msl.as_path()]).unwrap_or_else(|_| panic!("Rumoca"));
+    for model in models.split(',') {
+        let mine = match p.flatten(model) {
+            Ok(m) => m,
+            Err(e) => {
+                println!("{model}: 断った {e}");
+                continue;
+            }
+        };
+        let Some(t) = rumoca(&checker, model) else {
+            println!("{model}: Rumoca は通らない");
+            continue;
+        };
+        let m: BTreeSet<String> = mine.var_names().iter().map(|s| s.to_string()).collect();
+        println!(
+            "{model}: eq {} vs {}、vars {} vs {}、only mine {:?}、only rumoca {:?}",
+            mine.equation_count(),
+            t.equations,
+            m.len(),
+            t.names.len(),
+            m.difference(&t.names).take(5).collect::<Vec<_>>(),
+            t.names.difference(&m).take(5).collect::<Vec<_>>()
+        );
+    }
+}
