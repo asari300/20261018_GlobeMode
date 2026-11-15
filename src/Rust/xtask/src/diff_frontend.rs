@@ -29,6 +29,10 @@ pub(crate) struct Options<'a> {
     pub msl: &'a Path,
     pub validation: &'a Path,
     pub filter: Option<&'a str>,
+    /// 例題でなくても、この完全修飾名のクラスをそのまま検査する（`,` 区切り。数え方の食い違いを小さなモデルで調べる。S312）
+    pub classes: Option<&'a str>,
+    /// 自前の flat（変数と方程式）を印字する
+    pub dump: bool,
     pub limit: Option<usize>,
     pub report: Option<&'a Path>,
     pub json: Option<&'a Path>,
@@ -96,6 +100,7 @@ struct Row {
 
 /// 検査器 1 つを使い回して、例題の列を回す。
 fn run_row(
+    dump: bool,
     p: &Project,
     checker: &Checker,
     by_scope: &[Vec<usize>],
@@ -159,6 +164,17 @@ fn run_row(
         }
     };
     row.flags.insert("flat", true);
+    if dump {
+        for v in &flat.vars {
+            println!(
+                "  var {} {:?} {:?} dims={:?} bind={:?}",
+                v.name, v.kind, v.ty, v.dims, v.binding
+            );
+        }
+        for e in &flat.equations {
+            println!("  eq[{}] {}", e.count, e.text);
+        }
+    }
     let dae = match build(&flat) {
         Ok(d) => {
             row.flags.insert("dae", true);
@@ -174,6 +190,11 @@ fn run_row(
     // Rumoca は 1 回だけ呼ぶ（flat・釣り合い・構造が 1 つの結果から取れる）
     let theirs = catch_unwind(AssertUnwindSafe(|| checker.check(&[], name))).ok();
     let theirs_flat = theirs.as_ref().and_then(|r| r.flat.as_ref());
+    if dump && let Some(t) = theirs_flat {
+        for (o, n) in &t.equation_origins {
+            println!("  rumoca[{n}] {o}");
+        }
+    }
     row.flags.insert("rumoca_flat", theirs_flat.is_some());
     if let Some(t) = theirs_flat {
         compare_flat(
@@ -290,6 +311,9 @@ pub(crate) fn diff_frontend(opts: &Options<'_>) -> Result<ExitCode> {
     let mut targets: Vec<(String, &'static str)> =
         examples.into_iter().map(|n| (n, "msl")).collect();
     targets.extend(validation_models(&p).into_iter().map(|n| (n, "validation")));
+    if let Some(cs) = opts.classes {
+        targets = cs.split(',').map(|c| (c.to_string(), "msl")).collect();
+    }
     if let Some(f) = opts.filter {
         targets.retain(|(n, _)| n.contains(f));
     }
@@ -301,7 +325,7 @@ pub(crate) fn diff_frontend(opts: &Options<'_>) -> Result<ExitCode> {
     let mut run_seconds = 0.0;
     for (i, (name, group)) in targets.iter().enumerate() {
         let t = Instant::now();
-        rows.push(run_row(&p, &checker, &by_scope, name, group));
+        rows.push(run_row(opts.dump, &p, &checker, &by_scope, name, group));
         run_seconds += t.elapsed().as_secs_f64();
         if (i + 1) % 100 == 0 {
             println!("[{}/{}]", i + 1, targets.len());
@@ -378,8 +402,8 @@ struct Info<'a> {
 fn skip_json_reason(opts: &Options<'_>, regressed: bool) -> Option<&'static str> {
     if regressed {
         Some("回帰がある。直してから回し直す")
-    } else if opts.filter.is_some() || opts.limit.is_some() {
-        Some("--filter / --limit は一部のモデルだけ")
+    } else if opts.filter.is_some() || opts.limit.is_some() || opts.classes.is_some() {
+        Some("--filter / --limit / --class は一部のモデルだけ")
     } else {
         None
     }
@@ -700,6 +724,8 @@ mod tests {
             msl: Path::new("m"),
             validation: Path::new("v"),
             filter,
+            classes: None,
+            dump: false,
             limit,
             report: None,
             json: None,
@@ -710,6 +736,9 @@ mod tests {
         assert!(skip_json_reason(&o(None, None), true).is_some());
         assert!(skip_json_reason(&o(Some("A"), None), false).is_some());
         assert!(skip_json_reason(&o(None, Some(3)), false).is_some());
+        let mut by_class = o(None, None);
+        by_class.classes = Some("A.B");
+        assert!(skip_json_reason(&by_class, false).is_some());
     }
 
     #[test]

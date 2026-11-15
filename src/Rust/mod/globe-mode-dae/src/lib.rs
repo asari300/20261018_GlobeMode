@@ -97,7 +97,28 @@ struct Ctx<'a> {
 
 impl Ctx<'_> {
     fn n(&self, v: usize) -> usize {
-        self.vars[v].dims.iter().product::<usize>().max(1)
+        self.vars[v].dims.iter().product::<usize>()
+    }
+
+    /// 方程式の左辺がレコードの部品（変数ではなく、`a.re`・`a.im` の持ち主）なら、その欄の変数（`BTreeMap` の順）。
+    /// 平らにした方程式は 1 本と数えるが、DAE では欄ごとの方程式になる（Rumoca の record equation。`y = Complex(a, b)` は 2 本）
+    fn record_leaves(&self, eq: &SyntaxNode) -> Vec<usize> {
+        let Some(Expr::ComponentRef(c)) = eq.children().find_map(Expr::cast) else {
+            return Vec::new();
+        };
+        let t: String = c.syntax().text().to_string().split_whitespace().collect();
+        if self.index.contains_key(t.as_str()) {
+            return Vec::new();
+        }
+        let pre = format!("{t}.");
+        let mut v: Vec<usize> = self
+            .index
+            .iter()
+            .filter(|(k, _)| k.starts_with(&pre))
+            .map(|(_, &v)| v)
+            .collect();
+        v.sort_unstable();
+        v
     }
 
     /// `a.b[2].x[1]` を変数と選択に解く。変数でなければ None
@@ -242,6 +263,9 @@ fn is_clock_equation(cx: &Ctx, eq: &SyntaxNode) -> bool {
         })
 }
 
+/// 連続側の方程式: 木・スカラーの数・印字・由来・（レコードの方程式なら）欄の変数
+type EqRow = (SyntaxNode, usize, String, Option<Origin>, Vec<usize>);
+
 struct Row {
     label: String,
     origin: EquationOrigin,
@@ -271,7 +295,7 @@ pub fn build(m: &FlatModel) -> Result<Dae, Unsupported> {
     };
 
     // 方程式の木（連続側）。`when` と algorithm は別に持つ
-    let mut eqs: Vec<(SyntaxNode, usize, String, Option<Origin>)> = Vec::new();
+    let mut eqs: Vec<EqRow> = Vec::new();
     for e in &m.equations {
         if e.count > 0 {
             let node = first_equation(&parse_in_model("equation", &e.text)?)?;
@@ -279,7 +303,17 @@ pub fn build(m: &FlatModel) -> Result<Dae, Unsupported> {
             if is_clock_equation(&cx, &node) {
                 continue;
             }
-            eqs.push((node, e.count, e.text.clone(), e.origin.clone()));
+            let leaves = if e.count == 1 {
+                cx.record_leaves(&node)
+            } else {
+                Vec::new()
+            };
+            let count = if leaves.is_empty() {
+                e.count
+            } else {
+                leaves.iter().map(|&v| cx.n(v)).sum()
+            };
+            eqs.push((node, count, e.text.clone(), e.origin.clone(), leaves));
         }
     }
     let mut whens: Vec<(SyntaxNode, usize)> = Vec::new();
@@ -319,6 +353,8 @@ pub fn build(m: &FlatModel) -> Result<Dae, Unsupported> {
         .map(|e| &e.0)
         .chain(whens.iter().map(|w| &w.0))
         .chain(algs.iter())
+        // 束縛の中の `der`（`Real w = der(phi)`）も状態を作る
+        .chain(binds.iter().map(|b| &b.1))
     {
         has_der.extend(cx.refs(node).iter().filter(|r| r.der).map(|r| r.var));
     }
@@ -410,7 +446,7 @@ pub fn build(m: &FlatModel) -> Result<Dae, Unsupported> {
     // 行
     let mut rows: Vec<Row> = Vec::new();
     let mut discrete_equations = 0;
-    for (node, count, text, at) in &eqs {
+    for (node, count, text, at, leaves) in &eqs {
         if defines_discrete(&cx, &roles, node) {
             discrete_equations += count;
         } else {
@@ -420,7 +456,8 @@ pub fn build(m: &FlatModel) -> Result<Dae, Unsupported> {
                 at: at.clone(),
                 count: *count,
                 refs: cx.refs(node),
-                own: Vec::new(),
+                // レコードの方程式は、どの行も欄の変数すべてに触れる（shortcut: 欄ごとの対応は付けない。正則は甘く出る方に傾く）
+                own: leaves.iter().map(|&v| (v, Sel::All)).collect(),
             });
         }
     }
@@ -587,5 +624,26 @@ mod tests {
     fn structurally_singular_but_balanced_counts() {
         let d = dae("model M Real x; Real y; equation x = 1; x = 2; end M;");
         assert!(d.is_balanced() && !d.is_regular());
+    }
+
+    #[test]
+    fn record_equation_counts_per_field() {
+        // `y = C(a, b)` は欄ごとの 2 本（flat は 1 本）。平らにした方程式の数は 1
+        let src = "record C Real re; Real im; end C;
+            model M C y; Real a = time; Real b = 2 * time; equation y = C(a, b); end M;";
+        let m = Project::from_sources([("t.mo", src)]).flatten("M").unwrap();
+        assert_eq!(m.equation_count(), 1);
+        let d = build(&m).unwrap();
+        assert_eq!((d.counts.equations, d.counts.unknowns), (4, 4));
+        assert!(d.is_regular());
+    }
+
+    #[test]
+    fn der_in_a_binding_makes_a_state_and_empty_arrays_have_no_unknowns() {
+        let d =
+            dae("model M Real x(start = 0); Real w = der(x); Real e[0]; equation x = time; end M;");
+        assert_eq!(d.counts.states, 1);
+        // x（状態）の 1 本の方程式、w の束縛の 1 本。未知数は x の状態と w。e[0] は数えない
+        assert_eq!((d.counts.equations, d.counts.unknowns), (2, 2));
     }
 }
