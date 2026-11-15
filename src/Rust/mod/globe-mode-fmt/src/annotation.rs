@@ -171,11 +171,13 @@ fn sort_args(args: &mut Vec<Arg<'_>>, insert_origin: bool) {
                         nodes: vec![syn(Kind::Number, "0")],
                         sep: Some(","),
                         rank: 0,
+                        trail: Vec::new(),
                     },
                     Arg {
                         nodes: vec![syn(Kind::Number, "0")],
                         sep: None,
                         rank: 0,
+                        trail: Vec::new(),
                     },
                 ],
                 close: Token::synthetic(Kind::Punct, "}"),
@@ -185,6 +187,7 @@ fn sort_args(args: &mut Vec<Arg<'_>>, insert_origin: bool) {
             nodes,
             sep: None,
             rank: rank(Some("origin")),
+            trail: Vec::new(),
         });
     }
     args.sort_by_key(|a| a.rank);
