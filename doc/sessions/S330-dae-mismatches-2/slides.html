@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S330 S324 の後に残った食い違い — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S330 S324 の後に残った食い違い">
+
+<section class="slide" id="S01">
+  <span class="tag">S330 · 2026-11-15 · Track B</span>
+  <h1>S324 の後に残った食い違いの原因</h1>
+  <p class="lead">方程式の数 10 本・構造の正則 4 本・dae-parse 1 本</p>
+  <div class="big">正則 249/253 → 253/253、DAE 357 → 358 本、回帰 0</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">方程式の数 10 本</span>
+  <h1>Rumoca の数え方の誤り</h1>
+  <ul>
+    <li><code>tau0 = mu0*cgeo*fn</code> は全部スカラーで 1 本</li>
+    <li>Rumoca は <code>mu0 = getTable1DValueNoDer2(tableID, 1, 0)</code> をたどり、表の行列 <code>mu_pos</code> の大きさの本数に数える（<code>[0, 0.5]</code> で 2、3×2 で 6）</li>
+    <li>MLS に、<code>Real</code> を返す関数が引数の大きさを引き継ぐ規則は無い。自前は直さず、既知の差に残した</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">構造の正則 4 本</span>
+  <h1>部品の配列を通した欄の参照</h1>
+  <ul>
+    <li>束縛 <code>v2[m] = plug_p2.pin.v - …</code> は <code>plug_p2</code> の宣言より前にある</li>
+    <li>flat は <code>a.pin.v</code> をそのまま印字し、dae の行 <code>v2[k]</code> が <code>pin[k].v</code> に触れなかった</li>
+    <li><code>a.pin[i].v</code> の並びに直し、行 k は k 番目だけに触れる（<code>Sel::Part</code>）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">dae-parse 1 本</span>
+  <h1>呼び出しのあとの欄 <code>f(x).T</code></h1>
+  <ul>
+    <li>flat が <code>R.T = f(…).T</code> と印字する（MixtureGases）</li>
+    <li><code>globe-mode-syntax</code> の式の読みで、<code>.欄</code> を呼び出しの節に取り込む。木の形は変えない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">数字</span>
+  <h1>MSL の例題 566 本</h1>
+  <div class="kpis">
+    <div class="kpi"><span class="n">253 / 253</span><span class="l">構造の正則の一致（前 249）</span></div>
+    <div class="kpi"><span class="n">358 / 358</span><span class="l">DAE にできた（前 357）</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">回帰（改善 5）</span></div>
+  </div>
+  <p>方程式の数 340/350 は Rumoca の誤り 10 本の分として残る。GlobeModeValidation は変わらず。</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>HeatLosses の差 +21 の部品ごとの内訳は未確認</li>
+    <li>方程式の数 10 本は上流への報告の候補（4 点セットは未作成）</li>
+    <li>配列が 2 か所の欄の参照（<code>a[i].b[j].v</code>）は直していない</li>
+  </ul>
+  <p class="foot">GlobeMode S330</p>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
