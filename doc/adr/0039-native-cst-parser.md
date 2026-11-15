@@ -46,6 +46,8 @@ MSL 4.1.0 の例題 566 本での推移（括弧は「一致した本数 / 母�
 | S334 | 471 | 463（463/463・451/463） | 334（334/334・334/334・332/334・334/334） |
 | S337 | 471 | 463（463/463・452/463） | 334（4 つとも 334/334） |
 | S336（S337 と合わせた） | 477（DAE にできた 477/477） | 468（468/468・457/468） | 334（4 つとも 334/334。新しい 6 本は Rumoca の釣り合いが無い） |
+| S335（S336 を取り込む前。S337・S341 は取り込み済み） | 493 | 484（484/484・473/484） | 351（4 つとも 351/351） |
+| S335（S336 と合わせた） | 518（DAE にできた 518/518） | 491（491/491・480/491） | 351（4 つとも 351/351） |
 
 - parse は MSL の例題 566/566（S300 の時点も今も）、resolve は未解決 0 が 467/566（S300 の時点も今も。残る 99 本はすべて `Redeclare`）。`GlobeModeValidation` 75 本は S334・S337 で、Rumoca も通った 73 本の名前・方程式の数・判定・数・状態が 73/73、正則が 72/72。
 - 断る理由の残り（S336。89 本、最初の理由だけ数える）: `unsized-array` 47（S336 で `composite-binding` の 25 本のうち 19 本がここで止まる。S335 が直している）・`stream` 21・`connect` 9・`non-constant-dim` 6・`expandable` 4・`connect-array` 1・`non-constant-for` 1。`composite-binding` は 0。
@@ -57,7 +59,7 @@ MSL 4.1.0 の例題 566 本での推移（括弧は「一致した本数 / 母�
 | --- | --- |
 | B1 構文 | 本文、S269 |
 | B2 名前の解決 | S272、S275 |
-| B3 flatten | S278、S284、S297、S312、S324、S329、S333、S334、S336、S337 |
+| B3 flatten | S278、S284、S297、S312、S324、S329、S333、S334、S335（`[:]` の大きさ）、S336（`Complex` の配列の束縛）、S337 |
 | B4 DAE | S290、S312、S325、S330、S332（計測と、名前・数の食い違いの原因）、S337（初期方程式の `der` と状態の数） |
 | 製品へのつなぎ | S276（アウトライン・折りたたみ）、S279（補完）、S296（定義ジャンプ・ホバー）、S305（`globe check --frontend native`）、S307（閉包だけを読む）、S311（位置）、S313（CLI 以外から選ぶ）、S320（#111・#113〜#116）、S327（#118）、S352（inlay hint）、S354（call hierarchy） |
 | 突き合わせ | S300（`cargo xtask diff-frontend`） |
@@ -185,6 +187,23 @@ roadmap の要約で外した、古くなっていた「残り」: 診断の `GM
 - **Rumoca の flat との突き合わせ**（MSL の例題 566 本、`mise run msl:diff-frontend` と同じ `diff-frontend` を回した。S337 と S341 を取り込んだ後。S336 の前は S337 の 471 本・452/463。`GlobeModeValidation` 75 本は変わらず）: 自前で平らにできた **471 → 477**（`composite-binding` の 25 本のうち 6 本。ほかの 19 本は `unsized-array` に移った）、Rumoca の flat まで通った 463 → **468** 本で名前の集合 463/463 → **468/468**・方程式の数 452/463 → **457/468**（新しく比べられた 5 本が一致。残り 11 本は S337 から変わらず、Rumoca の数え方の誤りとみている）、DAE にできた 471 → **477/477**。Rumoca の釣り合いまで通った本数は 334 のまま（新しい 6 本は Rumoca が釣り合いまで通らない）で、判定・方程式と未知数の数・構造の正則・状態の数は 334/334。**回帰 0 本**（S334 の結果との差は、取り込む前の実行で改善 7 本〔新しく平らになった 6 本と `ShowTransferFunction`〕、1348 s、最大 RSS 5.4 GiB。S337・S341 を取り込んだあとの再実行は、取り込む前の結果との差で改善 100 本〔S341 の resolve 99 本 + `GlobeModeValidation` の 1 本。うち 2 本は S337 の状態の数〕）。取り込んだあとの実行は 794 s、最大 RSS 5.6 GiB。続けて S339 も取り込んだ最後の実行（`flatten.rs` の衝突は、S339 の `is_msl_complex` を `complex_value` でも使う形で解いた）は、数字が同じで回帰 0・改善 0、671 s、最大 RSS 5.5 GiB。
 - **断った理由の内訳**（最初の理由。S334 → S336）: `composite-binding` 25 → **0**、`unsized-array` 28 → **47**（19 本が移った）、`stream` 21、`connect` 9、`non-constant-dim` 6、`expandable` 4、`connect-array` 1、`non-constant-for` 1。
 - **持ち越し**: `unsized-array` 47 本（S335）、内包の添字が 2 つ以上・`Complex` を返す関数に配列を渡す式、S335 と合わせた 25 本のうち Rumoca が flat まで通るのは 7 本だけで（上の仮の結合）、残り 18 本は Rumoca と名前・方程式の数を比べられない（Rumoca の側の限界）。
+
+## 付記（S335）: flat で `[:]` の大きさを束縛の式から決める（`unsized-array` 28 本）
+
+新しい ADR は立てず、S334 の時点で flat が `unsized-array` で断っていた MSL の例題 28 本を、原因ごとに分けて直した記録をここに足す。変えたのは `globe-mode-flat`（`flatten.rs` の `dims_of`・`decl_dims` まわりと、`eval` の一部）だけ。
+
+- **28 本の内訳**（`--dump` の最初の理由）: (1) `BooleanTable` の `table = if n > 0 then … [table[1], 1.0; table, {mod(i + 1, 2.0) for i in 1:n}] …`（12 本。`BooleanNetwork1`・`Interaction1`・`LogicalNetwork1`・`ShowLogicalSources`・`Clocked` の `BooleanSignals` 6 本・`CharacteristicThyristors`・`SoftStarter`）、(2) `TransferFunction` の `bb = vector([zeros(max(0,na-nb),1);b])`（6 本。`Dimmer`・`ThyristorBridge…_DC_Drive` ほか）、(3) Batteries の `OCV_SOC`・`OCV_SOC_internal`（`cellData = cellData1` のようにレコードを別のレコードで束縛した欄。7 本）、(4) 関数の戻り値（`relNodePositions(12)` の `xsi[nNodes]`、`GenerateStribeckFrictionTable(… nTable = 50)` の `table[nTable, 2]`。2 本）、(5) `ReadRealMatrixFromFile`（1 本）。
+- **直し**: `dims_of`（式の配列の形）に次を足した。
+  - 添字つきの参照 `table[1]`・`x[:, 2]`（スカラーの添字は次元を落とし、`:` とベクトルの添字は残す。`indexed_dims`）、内包 `{e for i in 1:n}`（範囲の長さのあとに `e` の形）、`vector(A)`（要素の数の 1 次元）、要素ごとの `mod`・`rem`・`div`・`floor`・`ceil`・`integer`・`sign`、`end`・`for` の添字（スカラー）。
+  - 定数に決まる `if` の式は選ばれた枝（`const_if_expr`）。決まらないときは最初の枝だが、ほかの枝の形が分かって食い違うなら決めない（以前は最初の枝だけを見ていた）。
+  - 定数でない `parameter`（型の `extends` の修飾も合わせた `pkg_env` にだけある欄）の束縛の形。
+  - 関数の戻り値は、整数の入力を呼び出しの引数（名前つきも位置も、無ければ入力の既定値）の値に束ねた文脈（`fn_frame`。`Ctx::pfx` が `FN`）で出力の添字を評価する。実数の入力は束ねない（`output Real y[n]` の `n` は整数）。
+  - レコードを `r = other` で束縛して欄に分けたもの（`Bind::suffix` が `.f`）の大きさと値は、`other.f` 自身の束縛（`field_bind`。`other` が平らになっていれば環境から）。以前は suffix を見ず、レコード `other` の大きさ（空）を欄の大きさにして `unsized-array` で断っていた。`eval` も同じ引き方をするので、`nRC = cellData.nRC` のような欄の値が評価できる。
+  - 宣言が後ろの部品の欄（`reset = {stop.on}` の `stop.on`、`cellData` の `OCV_SOC_internal`）は、部品の型の宣言から（`pending_bind`・`pkg_field_dims`）。**宣言の場所で修飾された欄を、その宣言か既定値の式が直接使うときは決めない**（この文脈は修飾を知らないので、既定値で大きさを決めると黙って誤る）。
+- **決められなかったもの**: `ReadRealMatrixFromFile` の `A[:,:] = readRealMatrix(file, matrixName, dim[1], dim[2])` は、`dim` が外部関数 `readMatrixSize` でファイル（`.mat`）を読んで決まるので、ファイルを読まない flat では決められない（Rumoca がこの例題を通すかは確かめていない【未確認】）。
+- **試験**: `globe-mode-flat` に 1 本（`unsized_dims_from_comprehension_function_args_and_record_fields`。添字つきの参照・内包・`vector`・関数の整数の引数と既定値・宣言が後ろの部品の欄・レコードの束縛の欄、と、修飾された欄を使う大きさは断ること）。
+- **shortcut**: 関数の戻り値の大きさは出力が 1 つのときだけ。欄の型の添字（`type Axis = Real[3]`）は宣言が後ろの部品の欄には足さない。修飾の影響は 1 段だけ見る（別の欄を通る参照は見ない）。
+- **数字**: MSL の例題 566 本。**S336 を取り込む前**（S334 → S335。S337・S341 は取り込み済み。前回の JSON は S334 のもの）: 609 s、最大 RSS 5.5 GiB、回帰 0、改善 120 本。flat で自前で平らにできた 471 → 493（`unsized-array` の 28 本は 1 本〔`ReadRealMatrixFromFile`〕に。`IMC_withLosses` 2 本は `eval` が suffix の欄を評価するようになって `non-constant-dim` から通った）、Rumoca の flat まで通った 463 → 484 本で変数の名前 463/463 → 484/484、方程式の数 452/463 → 473/484（合わない 11 本は Rumoca の数え方の誤り）、DAE は 471 → 493/493、Rumoca の釣り合いまで通った 334 → 351 本で判定・数・状態・構造の正則がすべて 351/351。**S336 を取り込んだ後**（S336 の JSON〔S339・S351 を含む〕と比べて）: **883 s、最大 RSS 5.8 GiB、回帰 0、改善 41 本**。flat で**自前で平らにできた 477 → 518**（S336 が `composite-binding` の先で止めていた `unsized-array` の 19 本を含む。`composite-binding` は 6 本〔`rcData[] = cellData*` の 5 本と `CCCV_Stack`。配列のレコードを別のレコードの欄の配列で束縛する形〕に戻った）、Rumoca の flat まで通った 468 → 491 本で変数の名前 **468/468 → 491/491**、方程式の数 457/468 → **480/491**（合わない 11 本は同じ 11 本）、DAE は 477 → **518/518**、Rumoca の釣り合いまで通った 334 → 351 本で判定・数・状態・構造の正則がすべて **351/351**。`GlobeModeValidation` 75 本は変わらない。S336 の担当が気にしていた `plug_p.pin.i + plug_n.pin.i = fill(Complex(0), m)` の数が 3 → 1 に減る問題は、合わせても起きていない（Machines の 50 本は方程式の数が一致したまま）。最初の全体の検査は、`var_dims` の補助が部品の配列の欄 `plug_p.pin.i` を要素の数をかけずに 1 本と数え、Machines と FundamentalWave の 52 本で方程式の数が Rumoca より少なくなる回帰を出した（`not_instantiated` で直した。`SoftStarter` の 8 本の差も同じ原因だった）。
 
 ## 付記（S334）: 構造の正則の不一致 33 本と `PrismaticConstraint`・`Fourbar1` の方程式の数（MultiBody）
 
