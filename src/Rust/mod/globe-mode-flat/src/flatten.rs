@@ -3618,7 +3618,11 @@ impl F<'_> {
                 let mut i = a;
                 while (s > 0 && i <= b) || (s < 0 && i >= b) {
                     out.push(i);
-                    i += s;
+                    // 終わりが `i64::MAX` 近くだと最後の要素のあとの `i += s` が溢れる（debug は panic。S372）
+                    let Some(next) = i.checked_add(s) else {
+                        break;
+                    };
+                    i = next;
                     if out.len() > 100_000 {
                         return un("too-large", "for range");
                     }
@@ -4642,3 +4646,17 @@ mod tests {
         );
     }
 }
+
+    #[test]
+    fn range_ending_at_i64_max_does_not_overflow() {
+        // #147: 終わりが `i64::MAX` に近い範囲は、最後の要素のあとの `i += s` が溢れて debug は panic だった（release は巻き戻って 10 万個の `too-large`）
+        let src = "model M Real x[2]; equation
+            for i in 9223372036854775800:9223372036854775807 loop x[1] = 1; end for;
+            x[2] = 2; end M;";
+        let m = Project::from_sources([("t.mo", src)]).flatten("M").unwrap();
+        assert_eq!(m.equation_count(), 9);
+        // 刻みが大きくて越える `a:s:b` も同じ
+        let src = "model M Real x; equation for i in 1:4611686018427387904:9223372036854775807 loop x = 1; end for; end M;";
+        let m = Project::from_sources([("t.mo", src)]).flatten("M").unwrap();
+        assert_eq!(m.equation_count(), 2);
+    }
