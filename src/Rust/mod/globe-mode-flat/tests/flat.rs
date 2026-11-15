@@ -874,6 +874,67 @@ fn unsized_dims_from_comprehension_function_args_and_record_fields() {
 }
 
 #[test]
+fn complex_arrays_expand_elementwise() {
+    // S336: `Complex` の配列の束縛は要素ごとに。内包 `{… for k in 1:n}`、部品の配列を通した欄の差、関数の戻り値の行列
+    let m = flat(
+        "operator record Complex Real re; Real im; end Complex;
+         connector Pin Complex v; Complex i; end Pin;
+         connector Plug parameter Integer m = 2; Pin pin[m]; end Plug;
+         function mat input Integer m; output Complex y[m, m]; algorithm end mat;
+         record R parameter Real d = 1; end R;
+         model E R r; end E;
+         model Top
+           parameter Integer n = 2;
+           parameter Boolean c[n] = {true, false};
+           Plug p; Plug q;
+           Complex u[n];
+           Complex w[n] = {if c[k] then u[k] else -u[k] for k in 1:n};
+           Complex v[n] = p.pin.v - q.pin.v;
+           Complex i[n] = p.pin.i;
+           parameter Complex s[n, n] = mat(n);
+           parameter Complex k[n] = fill(Complex(1, 0), n);
+           E e[n](r = {R(d = 2*k) for k in 1:n});
+         end Top;",
+        "Top",
+    );
+    let b = |n: &str| {
+        m.vars
+            .iter()
+            .find(|v| v.name == n)
+            .unwrap_or_else(|| panic!("{n}"))
+            .binding
+            .clone()
+    };
+    assert_eq!(
+        b("w[2].re").as_deref(),
+        Some("if c[2] then u[2].re else -u[2].re")
+    );
+    assert_eq!(
+        b("v[2].im").as_deref(),
+        Some("p.pin[2].v.im - q.pin[2].v.im")
+    );
+    assert_eq!(b("i[2].im").as_deref(), Some("p.pin[2].i.im"));
+    assert_eq!(b("k[2].re").as_deref(), Some("1"));
+    assert_eq!(b("s[2,1].re").as_deref(), Some("(mat(n))[2,1].re"));
+    assert_eq!(b("e[2].r.d").as_deref(), Some("2 * 2"));
+}
+
+#[test]
+fn comprehension_equation_counts_its_range() {
+    // S336: 左辺が式の `a + b = {… for k in 1:n}` は n 本（Rumoca の flat と同じ。これまでは項が 1 つと見て 1 本）
+    let m = flat(
+        "model Top
+           parameter Integer n = 3;
+           Real a[n]; Real b[n];
+         equation
+           a + b = {2*k for k in 1:n};
+         end Top;",
+        "Top",
+    );
+    assert_eq!(m.equations.iter().map(|e| e.count).sum::<usize>(), 3);
+}
+
+#[test]
 fn record_array_equation_counts_one_per_element() {
     // S337: `Complex aw[3]` は `aw[k].re`・`aw[k].im` に展開される。`aw = {… for …}` は Rumoca と同じく 3 本（左辺が変数でない）
     let m = flat(
