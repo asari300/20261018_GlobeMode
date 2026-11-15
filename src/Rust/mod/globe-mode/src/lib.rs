@@ -30,9 +30,10 @@ pub use globe_mode_graph::{ConnectGraph, ConnectMismatch, GraphError};
 pub use globe_mode_ir::{FlatSummary, Outline, SimRun, SimSettings};
 pub use globe_mode_protocol::{
     CheckResponse, ColumnsLayout, CompareRequest, ExperimentValues, MAX_MANY_SOLVERS, MAX_PARALLEL,
-    ManyComparison, ManyRun, ManyStatus, ModelParametersResponse, PairComparison, ParametersResponse,
-    SignalDiff, SimulateManyRequest, SimulateManyResponse, SimulateRequest, SimulateResponse,
-    SkippedRun, StructureCounts, force_helps, refused_summary, unsupported_summary,
+    ManyComparison, ManyRun, ManyStatus, ModelParametersResponse, PairComparison,
+    ParametersResponse, SignalDiff, SimulateManyRequest, SimulateManyResponse, SimulateRequest,
+    SimulateResponse, SkippedRun, StructureCounts, force_helps, refused_summary,
+    unsupported_summary,
 };
 pub use globe_mode_sim::solvers::{SOLVERS, SolverEntry};
 // facade に無いものを呼ぶとき（CLI の文字の表示が `FullReport` を読む、結果を CSV / MAT に書く）
@@ -955,7 +956,7 @@ impl Workspace {
             now,
         ) {
             Ok(p) => p,
-            Err(s) => return s,
+            Err(s) => return *s,
         };
         let mut quiet = |_: &Progress| {};
         let report = globe_mode_exec::run_observed(
@@ -989,7 +990,7 @@ impl Workspace {
         parameters: &BTreeMap<String, f64>,
         force: bool,
         now: &dyn Fn() -> f64,
-    ) -> Result<(CompiledModel, SimulateResponse, f64), Simulated> {
+    ) -> Result<(CompiledModel, SimulateResponse, f64), Box<Simulated>> {
         let mut response = empty_response(model);
         let mut t = now();
         let mut lap = |name: &str, timings: &mut BTreeMap<String, f64>| {
@@ -1005,11 +1006,13 @@ impl Workspace {
         lap("check", &mut response.timings_ms);
         let failed_stage = checked.failed_stage();
         response.diagnostics.extend(checked.diagnostics);
-        let stopped = |response: SimulateResponse| Simulated {
-            response,
-            run: None,
-            compiled: None,
-            default_plot: Vec::new(),
+        let stopped = |response: SimulateResponse| {
+            Box::new(Simulated {
+                response,
+                run: None,
+                compiled: None,
+                default_plot: Vec::new(),
+            })
         };
         if let Some(stage) = failed_stage
             && !force
@@ -1081,9 +1084,9 @@ impl Workspace {
                 many.refused = s.response.refused;
                 many.elapsed_ms = now() - started;
                 return ManyResult {
-                response: many,
-                runs: Vec::new(),
-            };
+                    response: many,
+                    runs: Vec::new(),
+                };
             }
         };
         many.diagnostics = base.diagnostics.clone();
@@ -1094,9 +1097,8 @@ impl Workspace {
         let n = request.solvers.len();
         let threads = cfg!(not(target_arch = "wasm32"));
         let workers = if request.parallel && threads {
-            n.min(MAX_PARALLEL).min(
-                std::thread::available_parallelism().map_or(1, std::num::NonZero::get),
-            )
+            n.min(MAX_PARALLEL)
+                .min(std::thread::available_parallelism().map_or(1, std::num::NonZero::get))
         } else {
             1
         };
@@ -1145,7 +1147,14 @@ impl Workspace {
             let notes = response
                 .diagnostics
                 .iter()
-                .filter(|d| d.code == globe_mode_core::codes::MAX_ORDER_IGNORED)
+                .filter(|d| {
+                    // このソルバが使わなかった設定の注記（最大次数・固定刻みの許容誤差）
+                    [
+                        globe_mode_core::codes::MAX_ORDER_IGNORED,
+                        globe_mode_core::codes::FIXED_STEP_IGNORES_TOLERANCE,
+                    ]
+                    .contains(&d.code)
+                })
                 .map(|d| d.message.clone())
                 .collect();
             let run = ManyRun {
@@ -1155,7 +1164,13 @@ impl Workspace {
                 elapsed_ms,
                 notes,
             };
-            (run, ManyData { run: run_data, default_plot })
+            (
+                run,
+                ManyData {
+                    run: run_data,
+                    default_plot,
+                },
+            )
         };
         let mut results: Vec<Option<(ManyRun, ManyData)>> = (0..n).map(|_| None).collect();
         let mut on_progress = on_progress;
@@ -1171,7 +1186,13 @@ impl Workspace {
             }
         } else {
             #[cfg(not(target_arch = "wasm32"))]
-            run_parallel(workers, &one, &request.solvers, &mut on_progress, &mut results);
+            run_parallel(
+                workers,
+                &one,
+                &request.solvers,
+                &mut on_progress,
+                &mut results,
+            );
         }
         let (runs, data): (Vec<ManyRun>, Vec<ManyData>) = results
             .into_iter()
@@ -1269,17 +1290,19 @@ fn finish_run(
     } else {
         response.refused = Some("実行に失敗した".to_string());
     }
-    let default_plot = report
-        .run
-        .as_ref()
-        .map_or_else(Vec::new, |r| r.trajectory.default_plot(&compiled.state_names()));
+    let default_plot = report.run.as_ref().map_or_else(Vec::new, |r| {
+        r.trajectory.default_plot(&compiled.state_names())
+    });
     (report.run, default_plot)
 }
 
-/// [`Workspace::simulate_many`] に渡す進捗の受け手（実行の添字、ソルバの名前、進捗）と中断のトークン。
+/// 複数ソルバの進捗の受け手（実行の添字、ソルバの名前、進捗）。
+pub type ManyProgress<'a> = &'a mut dyn FnMut(usize, &str, &Progress);
+
+/// [`Workspace::simulate_many`] に渡す進捗の受け手と中断のトークン。
 #[derive(Default)]
 pub struct ManyHandle<'a> {
-    pub on_progress: Option<&'a mut dyn FnMut(usize, &str, &Progress)>,
+    pub on_progress: Option<ManyProgress<'a>>,
     pub cancel: Option<CancelToken>,
 }
 
@@ -1355,11 +1378,7 @@ fn many_request_problem(r: &SimulateManyRequest) -> Option<String> {
 
 /// 基準の実行と、成功したほかの実行を矩形の管（`globe_mode_sim::compare`）で比べる。管の幅は `10^-n`。
 /// 基準は指定か、最初に成功した実行。基準が失敗していたら全部を比べなかったことにする。
-fn compare_runs(
-    runs: &[ManyRun],
-    data: &[ManyData],
-    options: &CompareRequest,
-) -> ManyComparison {
+fn compare_runs(runs: &[ManyRun], data: &[ManyData], options: &CompareRequest) -> ManyComparison {
     let threshold = 10f64.powi(-i32::try_from(options.threshold_exp).unwrap_or(6));
     let ok = |i: usize| runs[i].status == ManyStatus::Ok && data[i].run.is_some();
     let reference = match &options.reference {
@@ -1403,8 +1422,12 @@ fn compare_runs(
             });
             continue;
         };
-        let cmp =
-            globe_mode_sim::compare::compare(&reference_run.trajectory, &sim.trajectory, &names, &tube);
+        let cmp = globe_mode_sim::compare::compare(
+            &reference_run.trajectory,
+            &sim.trajectory,
+            &names,
+            &tube,
+        );
         let mut failures: Vec<SignalDiff> = cmp
             .signals
             .iter()
@@ -1431,14 +1454,17 @@ fn compare_runs(
     out
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+type RunOne<'a, R> = dyn Fn(usize, &mut dyn FnMut(&Progress)) -> R + Sync + 'a;
+
 /// 同じコンパイル結果を共有するスレッドで `workers` 本を同時に回す。進捗はこのスレッドが受けて `on_progress` に渡す。
 /// スレッドを作れなかった分は、最後にこのスレッドで回す。
 #[cfg(not(target_arch = "wasm32"))]
 fn run_parallel<R: Send>(
     workers: usize,
-    one: &(dyn Fn(usize, &mut dyn FnMut(&Progress)) -> R + Sync),
+    one: &RunOne<R>,
     solvers: &[String],
-    on_progress: &mut Option<&mut dyn FnMut(usize, &str, &Progress)>,
+    on_progress: &mut Option<ManyProgress<'_>>,
     results: &mut [Option<R>],
 ) {
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1486,7 +1512,7 @@ fn run_parallel<R: Send>(
     for (i, slot) in results.iter_mut().enumerate().filter(|(_, s)| s.is_none()) {
         let mut forward = |p: &Progress| {
             if let Some(f) = on_progress.as_deref_mut() {
-                f(i, &solvers[i], &p);
+                f(i, &solvers[i], p);
             }
         };
         *slot = Some(one(i, &mut forward));

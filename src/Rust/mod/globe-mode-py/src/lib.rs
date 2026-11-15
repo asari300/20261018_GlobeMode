@@ -303,8 +303,15 @@ impl Workspace {
         request_json: &str,
         on_progress: Option<Py<PyAny>>,
     ) -> PyResult<(String, Vec<Vec<String>>, Vec<Vec<Bound<'py, PyBytes>>>)> {
-        let request: globe_mode::SimulateManyRequest = serde_json::from_str(request_json)
-            .map_err(|e| error(py, "SettingsError", Some(format!("依頼が読めない: {e}")), None))?;
+        let request: globe_mode::SimulateManyRequest =
+            serde_json::from_str(request_json).map_err(|e| {
+                error(
+                    py,
+                    "SettingsError",
+                    Some(format!("依頼が読めない: {e}")),
+                    None,
+                )
+            })?;
         let ws = &mut self.0;
         let many = observed(py, on_progress, |notify, cancel| {
             let mut forward = |i: usize, solver: &str, p: &globe_mode::Progress| {

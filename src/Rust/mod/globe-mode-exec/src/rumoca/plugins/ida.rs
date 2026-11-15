@@ -35,11 +35,11 @@ use sundials_sys::{
     IDA_CONV_FAIL, IDA_ERR_FAIL, IDA_FIRST_RES_FAIL, IDA_LINIT_FAIL, IDA_LSETUP_FAIL,
     IDA_LSOLVE_FAIL, IDA_ONE_STEP, IDA_REP_RES_ERR, IDA_RES_FAIL, IDA_SUCCESS, IDA_TOO_MUCH_ACC,
     IDA_TOO_MUCH_WORK, IDA_TSTOP_RETURN, IDACreate, IDAFree, IDAGetCurrentTime, IDAGetDky,
-    IDAGetLastOrder, IDAGetLastStep, IDAInit, IDALS_SUCCESS, IDAReInit, IDASVtolerances, IDASetMaxOrd,
-    IDASetLinearSolver, IDASetStopTime, IDASetUserData, IDASolve, N_VDestroy, N_VGetArrayPointer,
-    N_VNew_Serial, N_Vector, SUNContext, SUNContext_ClearErrHandlers, SUNContext_Create,
-    SUNContext_Free, SUNDenseMatrix, SUNLinSol_Dense, SUNLinSolFree, SUNLinearSolver,
-    SUNMatDestroy, SUNMatrix, comm_no_mpi,
+    IDAGetLastOrder, IDAGetLastStep, IDAInit, IDALS_SUCCESS, IDAReInit, IDASVtolerances,
+    IDASetLinearSolver, IDASetMaxOrd, IDASetStopTime, IDASetUserData, IDASolve, N_VDestroy,
+    N_VGetArrayPointer, N_VNew_Serial, N_Vector, SUNContext, SUNContext_ClearErrHandlers,
+    SUNContext_Create, SUNContext_Free, SUNDenseMatrix, SUNLinSol_Dense, SUNLinSolFree,
+    SUNLinearSolver, SUNMatDestroy, SUNMatrix, comm_no_mpi,
 };
 
 use super::rk::scaled_absolute_tolerances;

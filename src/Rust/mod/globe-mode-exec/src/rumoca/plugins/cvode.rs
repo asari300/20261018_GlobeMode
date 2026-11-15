@@ -34,9 +34,9 @@ use sundials_sys::{
     CV_LSOLVE_FAIL, CV_ONE_STEP, CV_REPTD_RHSFUNC_ERR, CV_RHSFUNC_FAIL, CV_SUCCESS,
     CV_TOO_MUCH_ACC, CV_TOO_MUCH_WORK, CV_TSTOP_RETURN, CV_UNREC_RHSFUNC_ERR, CVLS_SUCCESS, CVode,
     CVodeCreate, CVodeFree, CVodeGetCurrentTime, CVodeGetDky, CVodeGetLastOrder, CVodeGetLastStep,
-    CVodeInit, CVodeReInit, CVodeSVtolerances, CVodeSetMaxOrd, CVodeSetLinearSolver, CVodeSetStopTime,
-    CVodeSetUserData, N_VDestroy, N_VGetArrayPointer, N_VNew_Serial, N_Vector, SUNContext,
-    SUNContext_ClearErrHandlers, SUNContext_Create, SUNContext_Free, SUNDenseMatrix,
+    CVodeInit, CVodeReInit, CVodeSVtolerances, CVodeSetLinearSolver, CVodeSetMaxOrd,
+    CVodeSetStopTime, CVodeSetUserData, N_VDestroy, N_VGetArrayPointer, N_VNew_Serial, N_Vector,
+    SUNContext, SUNContext_ClearErrHandlers, SUNContext_Create, SUNContext_Free, SUNDenseMatrix,
     SUNLinSol_Dense, SUNLinSolFree, SUNLinearSolver, SUNMatDestroy, SUNMatrix, comm_no_mpi,
 };
 

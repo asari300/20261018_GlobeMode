@@ -309,7 +309,7 @@ pub struct ManyRun {
     pub response: SimulateResponse,
     /// 実行にかかった壁時計（ミリ秒。wasm は 0）
     pub elapsed_ms: f64,
-    /// 注記（例: 「最大次数は bdf では使わない」）。診断の情報・警告のうち設定についての文を写す
+    /// 注記（このソルバが使わなかった設定。最大次数 GM-I10005、固定刻みの許容誤差 GM-I10004 の診断の文を写す）
     pub notes: Vec<String>,
 }
 

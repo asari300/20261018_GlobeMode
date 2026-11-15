@@ -46,7 +46,7 @@ def test_simulate_many_compares_solvers_and_notes_the_ignored_max_order():
     par = ws.simulate_many(model, solvers, tolerance=1e-9, max_order=3, compare=4, parallel=True)
     assert seq["ok"] and seq["mode"] == "sequential" and seq["comparison"]["passed"]
     assert [r["solver"] for r in seq["runs"]] == solvers
-    assert all(len(r["notes"]) == 1 and "最大次数" in r["notes"][0] for r in seq["runs"])
+    assert all(len(r["notes"]) == 1 and "最大次数" in r["notes"][0] for r in seq["runs"])  # 3 つとも可変刻み
     for a, b in zip(seq["runs"], par["runs"]):
         assert a["columns"]["x"].equals(b["columns"]["x"])
     bad = ws.simulate_many(model, ["tsit45", "euler"], compare=6)

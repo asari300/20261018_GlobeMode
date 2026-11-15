@@ -36,9 +36,15 @@ fn sequential_and_parallel_give_the_same_results_and_compare_passes() {
     });
     let seq = run(&r);
     assert!(seq.response.ok, "{:#?}", seq.response);
-    assert_eq!((seq.response.mode.as_str(), seq.response.workers), ("sequential", 1));
+    assert_eq!(
+        (seq.response.mode.as_str(), seq.response.workers),
+        ("sequential", 1)
+    );
     let c = seq.response.comparison.as_ref().unwrap();
-    assert!(c.passed && c.reference == "bdf" && c.pairs.len() == 2, "{c:#?}");
+    assert!(
+        c.passed && c.reference == "bdf" && c.pairs.len() == 2,
+        "{c:#?}"
+    );
 
     r.parallel = true;
     let par = run(&r);
@@ -49,10 +55,17 @@ fn sequential_and_parallel_give_the_same_results_and_compare_passes() {
     }
     for (a, b) in seq.response.runs.iter().zip(&par.response.runs) {
         assert_eq!(a.solver, b.solver);
-        assert_eq!(a.response.final_values, b.response.final_values, "{}", a.solver);
+        assert_eq!(
+            a.response.final_values, b.response.final_values,
+            "{}",
+            a.solver
+        );
     }
     for (a, b) in seq.runs.iter().zip(&par.runs) {
-        assert_eq!(a.run.as_ref().unwrap().trajectory, b.run.as_ref().unwrap().trajectory);
+        assert_eq!(
+            a.run.as_ref().unwrap().trajectory,
+            b.run.as_ref().unwrap().trajectory
+        );
     }
     assert!(par.response.comparison.unwrap().passed);
 }
@@ -75,7 +88,13 @@ fn compare_fails_when_a_solver_is_too_coarse_and_notes_the_ignored_max_order() {
     assert!(!euler.passed && euler.failures[0].name == "x", "{euler:#?}");
     assert!(c.pairs.iter().find(|p| p.solver == "bdf").unwrap().passed);
     // 最大次数を持たないソルバには注記が付き、実行は止まらない
-    assert!(out.runs.iter().all(|x| x.notes.len() == 1 && x.notes[0].contains("最大次数")));
+    assert!(
+        out.runs
+            .iter()
+            .all(|x| x.notes.iter().any(|n| n.contains("最大次数")))
+    );
+    // 固定刻みの euler は許容誤差も使わない（その注記も付く）
+    assert_eq!(out.runs[1].notes.len(), 2);
 }
 
 #[test]
@@ -104,5 +123,10 @@ fn request_problems_are_refused_and_cancel_reaches_every_run() {
             cancel: Some(token),
         },
     );
-    assert!(out.response.runs.iter().all(|x| x.status == ManyStatus::Cancelled));
+    assert!(
+        out.response
+            .runs
+            .iter()
+            .all(|x| x.status == ManyStatus::Cancelled)
+    );
 }

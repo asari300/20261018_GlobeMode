@@ -1053,7 +1053,9 @@ impl Server {
                     "params": {"token": token, "value": value}}));
             }
         };
-        progress(json!({"kind": "begin", "title": format!("simulate {} ({} solvers)", request.model, request.solvers.len()), "cancellable": true}));
+        progress(
+            json!({"kind": "begin", "title": format!("simulate {} ({} solvers)", request.model, request.solvers.len()), "cancellable": true}),
+        );
         let count = request.solvers.len();
         let mut on_progress = |index: usize, solver: &str, p: &Progress| {
             let stage = p.stage.as_str();
@@ -2241,7 +2243,11 @@ mod tests {
                 json!({"request": {"nope": 1}}),
                 -32602,
             ),
-            ("globe/simulateMany", json!({"request": {"model": "D"}}), -32602),
+            (
+                "globe/simulateMany",
+                json!({"request": {"model": "D"}}),
+                -32602,
+            ),
             ("globe/graph", json!({"model": "Nope"}), -32000),
         ] {
             let r = s.handle(json!({"id": 9, "method": method, "params": params}));

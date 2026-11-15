@@ -200,7 +200,11 @@ fn solvers_run_many_and_compare_with_an_exit_code() {
         ],
     );
     let text = stdout(&o);
-    assert!(o.status.success(), "{text}\n{}", String::from_utf8_lossy(&o.stderr));
+    assert!(
+        o.status.success(),
+        "{text}\n{}",
+        String::from_utf8_lossy(&o.stderr)
+    );
     assert!(text.contains("3 ソルバ") && text.contains("合格"), "{text}");
     assert!(text.contains("最大次数"), "{text}");
     for s in ["bdf", "esdirk34", "tsit45"] {

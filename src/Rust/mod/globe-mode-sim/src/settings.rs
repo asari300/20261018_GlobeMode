@@ -1046,6 +1046,27 @@ mod tests {
         }
     }
 
+    /// S322: 最大次数を持たないソルバでは使わず、情報 GM-I10005 で知らせる（黙って無視しない。Error にはしない）。
+    /// 次数を持つ cvode・ida の範囲（1〜5）の検査は feature `sundials` のビルドだけ（登録表に実装がある）
+    #[test]
+    fn max_order_is_noted_for_solvers_without_one() {
+        for solver in ["bdf", "esdirk34", "euler"] {
+            let requested = SimSettings {
+                solver: Some(solver.into()),
+                max_order: Some(3),
+                ..SimSettings::default()
+            };
+            let (s, d) = ok(&requested, None);
+            assert_eq!(s.max_order, None, "{solver}");
+            assert!(
+                codes_of(&d).contains(&(codes::MAX_ORDER_IGNORED, Severity::Info)),
+                "{solver}: {d:?}"
+            );
+        }
+        let (s, d) = ok(&SimSettings::default(), None);
+        assert!(s.max_order.is_none() && d.is_empty());
+    }
+
     fn fixed(step: Option<f64>) -> SimSettings {
         SimSettings {
             solver: Some("rk4".into()),

@@ -167,7 +167,9 @@ impl Worker {
             "globe/simulate" | "globe/simulateColumns" | "globe/simulateMany"
         );
         // 複数ソルバ（S322）は逐次だと 1 本ずつ予算を使うので、ソルバの数だけ延ばす
-        let runs = params["request"]["solvers"].as_array().map_or(1, |a| a.len().max(1));
+        let runs = params["request"]["solvers"]
+            .as_array()
+            .map_or(1, |a| a.len().max(1));
         let budget = simulate.then(|| self.simulate_budget * u32::try_from(runs).unwrap_or(1));
         if simulate {
             // `files` はサーバのワークスペースに残る。作り直しで失わないよう覚える
