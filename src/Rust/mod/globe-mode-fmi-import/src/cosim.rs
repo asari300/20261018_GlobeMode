@@ -74,7 +74,7 @@ fn endpoint<'a>(names: &[&String], s: &'a str) -> Result<(usize, &'a str)> {
 }
 
 /// `run_cosim_with` が受ける FMU の名前: [`valid_fmu_name`] を `.` でつないだもの（入れ子の System の `外側.内側`）。
-fn valid_fmu_path(name: &str) -> bool {
+pub(crate) fn valid_fmu_path(name: &str) -> bool {
     name.split('.').all(valid_fmu_name)
 }
 
