@@ -135,8 +135,13 @@ impl Workspace {
     }
 
     /// 検査（S0〜S10）の結果（`CheckResponse` の JSON）。GIL を離して回す（S200）。
-    fn check(&mut self, py: Python<'_>, model: &str) -> PyResult<String> {
-        py.detach(|| json(&self.0.check(model)))
+    /// `frontend` は `"rumoca"`（既定）か `"native"`（自前の段。S313）。ほかは `ValueError`。
+    #[pyo3(signature = (model, frontend = "rumoca"))]
+    fn check(&mut self, py: Python<'_>, model: &str, frontend: &str) -> PyResult<String> {
+        let frontend = frontend
+            .parse()
+            .map_err(pyo3::exceptions::PyValueError::new_err)?;
+        py.detach(|| json(&self.0.check_with(model, frontend)))
             .map_err(PyRuntimeError::new_err)
     }
 

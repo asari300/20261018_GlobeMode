@@ -48,7 +48,7 @@
 //! | `globe/setModifier` | `{file, class, modifiers: [{part, name, value}]}` | LSP の TextEdit の配列 `[{range, newText}]`（S294。図の部品 `part` の宣言の修飾 `(name = value)` を足す・書き換える。`value` が空なら外す。複数を順に当てて 1 つの編集〔最初と最後の本文の差〕にする。何も変わらなければ空の配列。ファイルは書かない）。断る理由〔クラス・部品が無い、入れ子の名前 `a.b`、`each`・`final` つきの引数、壊れた式〕は -32803 に理由 |
 //! | `globe/diagram` | `globe/documentation` と同じ | `{class, extent, parts, connections, shapes}` か null（S245。クラスの部品〔`Placement(transformation)` のある宣言〕と `connect`、`Diagram(graphics)` を形のデータにしたもの。部品は `name`・`class`〔書いてある型〕・`line`〔宣言の行、0 始まり〕・`transform`〔アイコンの座標から Diagram の座標への `[a,b,c,d,e,f]`〕・`bbox`・`shapes`〔部品のクラスの Icon の図形。引けなければ空〕・`connectors`〔S261。`[{name, pos}]`、部品のクラスと `extends` の 2 段までの、`Placement` を持つ宣言〔型が connector でないと分かるものは除く〕の位置。図の座標〕、`connections` は `from`・`to`・`line`〔`Line(points)` か中心どうしを結ぶ図形〕。`globe/icon` と同じ図形の形。wasm の `diagram` と同じ） |
 //!
-//! 設定ファイル（S130）: `initialize` の `rootUri`（無ければ `rootPath`）から上へたどって最初の `globe-mode.toml` を
+//! 設定ファイル（S130。S313 で `[check] frontend = "native"` を足した。診断を自前の段で出す）: `initialize` の `rootUri`（無ければ `rootPath`）から上へたどって最初の `globe-mode.toml` を
 //! 読み、lint の診断と `textDocument/formatting` に使う（`workspace/didChangeConfiguration` で読み直す）。
 //! `globe/format`・`globe/lint` も設定ファイルを土台にする（S143）。`globe/format` の params は設定に重ねる（indent は
 //! 設定ファイルがあれば設定が勝ち、無いときだけ params。S214）。設定ファイルが無ければ wasm と同じく params と既定で決まる。
@@ -1101,8 +1101,14 @@ impl Server {
                 ..Default::default()
             });
         }
+        // S313: `[check] frontend = "native"` なら自前の段で診断を出す（読む側 `from_toml` が値を rumoca か native に絞ってある）
+        let frontend = lint
+            .frontend
+            .as_deref()
+            .and_then(|f| f.parse().ok())
+            .unwrap_or_default();
         for model in models {
-            for d in self.ws.check(&model).diagnostics {
+            for d in self.ws.check_with(&model, frontend).diagnostics {
                 if d.file.as_deref().is_none_or(|f| f == key) {
                     let d = lsp_diagnostic(&d, text);
                     if !out.contains(&d) {
@@ -2517,6 +2523,27 @@ mod tests {
         );
         assert_eq!(out[0]["method"], "window/showMessage");
         assert!(out[1].to_string().contains("GM-L0003"), "{}", out[1]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// S313: `[check] frontend = "native"` なら診断を自前の段で出す（断る形は `GM-U0006`）。無ければ Rumoca のまま。
+    #[test]
+    fn config_frontend_native_drives_diagnostics() {
+        let dir = std::env::temp_dir().join(format!("globe-lsp-native-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let toml = dir.join("globe-mode.toml");
+        let uri = "file:///tmp/E.mo";
+        let text = "expandable connector EC\n  Real a;\nend EC;\nmodel E\n  EC ec;\nend E;\n";
+        let open = |s: &mut Server| {
+            s.handle(json!({"id": 0, "method": "initialize", "params": {"rootPath": dir}}));
+            s.handle(json!({"method": "textDocument/didOpen", "params": {"textDocument": {"uri": uri, "text": text}}}))
+        };
+        std::fs::write(&toml, "[check]\nfrontend = \"native\"\n").unwrap();
+        let out = open(&mut Server::new(&[]).unwrap());
+        assert!(out[0].to_string().contains("GM-U0006"), "{}", out[0]);
+        std::fs::write(&toml, "[fmt]\nindent = 2\n").unwrap();
+        let out = open(&mut Server::new(&[]).unwrap());
+        assert!(!out[0].to_string().contains("GM-U0006"), "{}", out[0]);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

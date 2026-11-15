@@ -183,8 +183,11 @@ class Workspace:
         """ディレクトリの下の `.mo` をすべて読み、読んだ数を返す。読めなければ `LibraryError`。"""
         return self._ws.load_dir(dir)
 
-    def check(self, model: str) -> dict[str, Any]:
+    def check(self, model: str, frontend: str = "rumoca") -> dict[str, Any]:
         """モデル（完全修飾名）を検査する（S0〜S10。`globe check --json` と同じ形）。
+
+        `frontend="native"` は自前の段（S0〜S6 まで。`globe check --frontend native` と同じ。S313）。自前の段が
+        断った形は `GM-U0006`。ライブラリは `Workspace(libraries=…)` に渡したディレクトリを読む。`rumoca` と `native` 以外は `ValueError`。
 
         戻り値: `passed`（bool）・`failed_stage`・`diagnostics`（`code`・`severity`・`stage`・`message` の
         dict のリスト）・`balance`・`dae`・`structure`・`s6`〜`s10`・`init`・`flat`・`summary`（結果の 1 行。
@@ -195,7 +198,7 @@ class Workspace:
             if not res["passed"]:
                 print(res["diagnostics"][0]["message"])
         """
-        return json.loads(self._ws.check(model))
+        return json.loads(self._ws.check(model, frontend))
 
     def graph(self, model: str, depth: int = 1) -> dict[str, Any]:
         """connect のグラフ（`nodes`・`edges`）。`depth` は部品の入れ子を何段まで開くか。

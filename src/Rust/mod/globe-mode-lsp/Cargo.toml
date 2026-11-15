@@ -14,6 +14,9 @@ fmu-import = ["globe-mode/fmu-import"]
 # S239: globe/exportFmu の runtime = p5b（自前の実行時の FMU。cargo か共有ライブラリが要るので wasm には付けない。CLI が付ける）
 fmu-p5b = ["globe-mode/fmu-p5b"]
 
+# S313: globe-mode.toml の `[check] frontend = "native"`（自前の段。wasm には付けない。CLI が付ける）
+native = ["globe-mode/native"]
+
 [dependencies]
 # S038: facade 経由だけ（db・exec・sim には直接依存しない）
 globe-mode = { workspace = true, features = ["fmu"] } # S144: globe/exportFmu

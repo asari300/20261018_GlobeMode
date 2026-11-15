@@ -375,6 +375,48 @@ pub fn open_results(name: &str, bytes: &[u8]) -> Result<OpenedResults, String> {
         .map_err(|e| format!("{name}: {e}"))
 }
 
+/// 検査のフロントエンド（S313）。既定は Rumoca。名前は `rumoca`・`native`（`globe check --frontend`、`globe-mode.toml` の `[check] frontend`、Python の `frontend=`）。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CheckFrontend {
+    #[default]
+    Rumoca,
+    Native,
+}
+
+impl std::str::FromStr for CheckFrontend {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, String> {
+        match s {
+            "rumoca" => Ok(Self::Rumoca),
+            "native" => Ok(Self::Native),
+            _ => Err(format!("frontend は rumoca か native（{s:?}）")),
+        }
+    }
+}
+
+/// 自前の段の結果を [`CheckResponse`] にする（S313。`globe check --frontend native` と [`Workspace::check_with`] が共有）。
+#[cfg(feature = "native")]
+pub fn native_response(report: &globe_mode_frontend::CheckReport) -> CheckResponse {
+    let passed = report.passed();
+    let mut response = CheckResponse::failed(&report.model, report.diagnostics.clone());
+    response.passed = passed;
+    response.failed_stage = report.failed_stage();
+    response.balance = report.balance;
+    response.notes = report.notes.clone();
+    let model = &report.model;
+    response.summary = if passed {
+        format!("{model}: OK（native: S0〜S6 を通過。S7 以降は検査していない）")
+    } else if unsupported_summary(&report.diagnostics).is_some() {
+        format!(
+            "{} native が未対応で止まった。モデルの誤りとは限らない（`--frontend rumoca` で確かめる）",
+            response.summary
+        )
+    } else {
+        response.summary
+    };
+    response
+}
+
 /// ライブラリを 1 回だけ読み、作業中のファイルを出し入れしながら、検査・グラフ・実行を繰り返す。
 pub struct Workspace {
     db: GlobeDb,
@@ -558,6 +600,43 @@ impl Workspace {
 
     /// モデルの検査（S0〜S10）。診断の位置は元の本文の中。
     pub fn check(&mut self, model: &str) -> CheckResponse {
+        self.check_with(model, CheckFrontend::Rumoca)
+    }
+
+    /// [`Workspace::check`] の検査のフロントエンドを選ぶ版（S313）。`Native` は自前の段（S0〜S6。ADR-0039）で、
+    /// 作業中のファイルと、`with_libraries` に渡したディレクトリを読む（`with_library_sources` のワークスペースではライブラリが見えない）。
+    /// 自前の段が断った形は `GM-U0006`（Rumoca には切り替えない）。feature `native` が無い build でも `GM-U0006` を返す。
+    pub fn check_with(&mut self, model: &str, frontend: CheckFrontend) -> CheckResponse {
+        match frontend {
+            CheckFrontend::Rumoca => self.check_rumoca(model),
+            #[cfg(feature = "native")]
+            CheckFrontend::Native => {
+                use globe_mode_frontend::{Frontend, NativeFrontend};
+                let texts: Vec<(String, String)> = self
+                    .db
+                    .paths()
+                    .filter_map(|p| Some((p.to_string(), self.db.text(p)?)))
+                    .collect();
+                let sources: Vec<Source<'_>> = texts
+                    .iter()
+                    .map(|(name, text)| Source { name, text })
+                    .collect();
+                let libs: Vec<&Path> = self.library_paths.iter().map(PathBuf::as_path).collect();
+                native_response(&NativeFrontend::new().check(&sources, &libs, model))
+            }
+            #[cfg(not(feature = "native"))]
+            CheckFrontend::Native => CheckResponse::failed(
+                model,
+                vec![Diagnostic::error(
+                    globe_mode_core::codes::NATIVE_UNSUPPORTED,
+                    Stage::S1,
+                    "native は、この build に入っていない（feature `native`）",
+                )],
+            ),
+        }
+    }
+
+    fn check_rumoca(&mut self, model: &str) -> CheckResponse {
         let report = self.db.check_model(model);
         let (passed, failed_stage) = (report.passed(), report.failed_stage());
         let check = report.check;

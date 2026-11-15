@@ -10,6 +10,9 @@
 //!
 //! [lint]
 //! disable = ["missing-description", "GM-L0004"]
+//!
+//! [check]
+//! frontend = "native"   # LSP の診断を自前の段で出す（S313。無ければ "rumoca"）
 //! ```
 
 use crate::{LintOptions, rule_name};
@@ -26,8 +29,8 @@ impl LintOptions {
         for (section, value) in &table {
             let keys = value
                 .as_table()
-                .filter(|_| section == "fmt" || section == "lint")
-                .ok_or_else(|| format!("知らない表 [{section}]（[fmt] と [lint] だけ）"))?;
+                .filter(|_| matches!(section.as_str(), "fmt" | "lint" | "check"))
+                .ok_or_else(|| format!("知らない表 [{section}]（[fmt]・[lint]・[check] だけ）"))?;
             for (key, v) in keys {
                 let at = format!("{section}.{key}");
                 let uint = || {
@@ -51,6 +54,10 @@ impl LintOptions {
                             o.disabled.push(name.to_string());
                         }
                     }
+                    ("check", "frontend") => match v.as_str() {
+                        Some(f @ ("rumoca" | "native")) => o.frontend = Some(f.to_string()),
+                        _ => return Err(format!("{at} は \"rumoca\" か \"native\"")),
+                    },
                     _ => return Err(format!("知らないキー {at}")),
                 }
             }
@@ -91,6 +98,8 @@ mod tests {
         assert!(!o.format.insert_origin && o.format.blank_around_sections);
         assert_eq!(o.disabled, ["missing-description", "line-too-long"]);
         assert_eq!(LintOptions::from_toml("").unwrap(), LintOptions::default());
+        let o = LintOptions::from_toml("[check]\nfrontend = \"native\"\n").unwrap();
+        assert_eq!(o.frontend.as_deref(), Some("native"));
     }
 
     #[test]
@@ -104,6 +113,7 @@ mod tests {
                 "[lint]\ndisable = [\"GM-L9999\"]\n",
                 "GM-L9999 は知らない規則",
             ),
+            ("[check]\nfrontend = \"omc\"\n", "check.frontend は"),
             ("[fmt\n", ""),
         ] {
             let e = LintOptions::from_toml(src).unwrap_err();

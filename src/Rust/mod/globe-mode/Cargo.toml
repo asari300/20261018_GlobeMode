@@ -18,6 +18,9 @@ fmu-import = ["dep:globe-mode-fmi-import"]
 # S239: P5b の FMU の書き出し（runtime = p5b。自前の実行時の共有ライブラリを入れる）。cargo か runtime_lib を使うので wasm32 では付けない
 fmu-p5b = ["fmu", "dep:globe-mode-fmu"]
 
+# S313: `Workspace::check_with(.., CheckFrontend::Native)`（自前の段。wasm には付けない）
+native = ["globe-mode-frontend/native"]
+
 [dependencies]
 globe-mode-core = { workspace = true }
 globe-mode-ir = { workspace = true }
