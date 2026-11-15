@@ -4,53 +4,68 @@
 
 ## 前回の結果との差
 
-前回の結果 `target/frontend-diff.json`（S297 の最後の実行） と、両方にある 641 本で比べる（この実行にだけある 0 本、前回にだけある 0 本）。
-**回帰 0 本**（前回は通った項目が通らなくなった）、改善 36 本。
+前回の結果 `target/frontend-diff.json` と、両方にある 641 本で比べる（この実行にだけある 0 本、前回にだけある 0 本）。
+**回帰 0 本**（前回は通った項目が通らなくなった）、改善 79 本。
 
-- 改善 `Modelica.Clocked.Examples.Elementary.RealSignals.SampleWithADeffects`: flat_eqs・balance・counts
-- 改善 `Modelica.Clocked.Examples.Elementary.RealSignals.UniformNoise`: flat_eqs・balance・counts
-- 改善 `Modelica.Clocked.Examples.Elementary.RealSignals.UniformNoiseXorshift64star`: flat_eqs・balance・counts
-- 改善 `Modelica.Clocked.Examples.SimpleControlledDrive.ClockedWith_AD_DA_Effects`: flat_eqs・balance・counts
-- 改善 `Modelica.ComplexBlocks.Examples.TestConversionBlock`: balance・counts・regular
-- 改善 `Modelica.Electrical.Analog.Examples.GenerationOfFMUs`: states
-- 改善 `Modelica.Electrical.Analog.Examples.ResonanceCircuits`: states
-- 改善 `Modelica.Electrical.Batteries.Examples.SuperCapDischargeCharge`: flat_eqs・balance・counts・regular
-- 改善 `Modelica.Electrical.Machines.Examples.DCMachines.DCPM_Drive`: flat_eqs・balance・counts・states・regular
-- 改善 `Modelica.Electrical.Machines.Examples.DCMachines.DC_CompareCharacteristics`: flat_eqs・balance・counts・states・regular
-- 改善 `Modelica.Electrical.QuasiStatic.SinglePhase.Examples.ParallelResonance`: flat_eqs
-- 改善 `Modelica.Electrical.QuasiStatic.SinglePhase.Examples.SeriesResonance`: flat_eqs
-- 改善 `Modelica.Magnetic.QuasiStatic.FluxTubes.Examples.BasicExamples.QuadraticCoreAirgap`: flat_eqs
-- 改善 `Modelica.Magnetic.QuasiStatic.FluxTubes.Examples.BasicExamples.ToroidalCoreAirgap`: flat_eqs
-- 改善 `Modelica.Magnetic.QuasiStatic.FluxTubes.Examples.BasicExamples.ToroidalCoreQuadraticCrossSection`: flat_eqs
-- 改善 `Modelica.Magnetic.QuasiStatic.FluxTubes.Examples.FixedShapes.CuboidSections`: flat_eqs
-- 改善 `Modelica.Magnetic.QuasiStatic.FluxTubes.Examples.FixedShapes.CylinderSections`: flat_eqs
-- 改善 `Modelica.Magnetic.QuasiStatic.FluxTubes.Examples.Leakage.CylinderLeakage`: flat_eqs
-- 改善 `Modelica.Magnetic.QuasiStatic.FluxTubes.Examples.Leakage.GeneralLeakage`: flat_eqs
-- 改善 `Modelica.Magnetic.QuasiStatic.FluxTubes.Examples.LinearInductor`: flat_eqs
-- 改善 `Modelica.Magnetic.QuasiStatic.FluxTubes.Examples.NonLinearInductor`: flat_eqs
-- 改善 `Modelica.Mechanics.Rotational.Examples.GenerationOfFMUs`: flat_eqs
-- 改善 `Modelica.Mechanics.Translational.Examples.GenerationOfFMUs`: states
-- 改善 `Modelica.Media.Examples.SimpleLiquidWater`: balance・counts・regular
-- 改善 `Modelica.Media.Examples.WaterIF97`: balance・counts
-- 改善 `Modelica.Thermal.FluidHeatFlow.Examples.IndirectCooling`: states
-- 改善 `Modelica.Thermal.FluidHeatFlow.Examples.OneMass`: states
-- 改善 `Modelica.Thermal.FluidHeatFlow.Examples.ParallelCooling`: states
-- 改善 `Modelica.Thermal.FluidHeatFlow.Examples.ParallelPumpDropOut`: states
-- 改善 `Modelica.Thermal.FluidHeatFlow.Examples.PumpAndValve`: states
-- 改善 `Modelica.Thermal.FluidHeatFlow.Examples.PumpDropOut`: states
-- 改善 `Modelica.Thermal.FluidHeatFlow.Examples.SimpleCooling`: states
-- 改善 `Modelica.Thermal.FluidHeatFlow.Examples.TwoMass`: states
-- 改善 `Modelica.Thermal.FluidHeatFlow.Examples.TwoTanks`: states
-- 改善 `Modelica.Thermal.FluidHeatFlow.Examples.WaterPump`: states
-- 改善 `Modelica.Thermal.HeatTransfer.Examples.GenerationOfFMUs`: states
+- 改善 `Modelica.Clocked.Examples.Elementary.IntegerSignals.BackSample`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.Clocked.Examples.Elementary.IntegerSignals.Hold`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.Clocked.Examples.Elementary.IntegerSignals.ShiftSample`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.Clocked.Examples.Elementary.IntegerSignals.SubSample`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.Clocked.Examples.Elementary.IntegerSignals.SuperSample`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.Clocked.Examples.Elementary.IntegerSignals.UpSample`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.Electrical.Machines.Examples.DCMachines.DCEE_Start`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.Electrical.Machines.Examples.DCMachines.DCPM_Cooling`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.Electrical.Machines.Examples.DCMachines.DCPM_CurrentControlled`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.Electrical.Machines.Examples.DCMachines.DCPM_QuasiStatic`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.Electrical.Machines.Examples.DCMachines.DCPM_Start`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.Electrical.Machines.Examples.DCMachines.DCPM_Temperature`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.Electrical.Machines.Examples.DCMachines.DCPM_withLosses`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.Electrical.Machines.Examples.DCMachines.DCSE_SinglePhase`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.Electrical.Machines.Examples.DCMachines.DCSE_Start`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.Electrical.Machines.Examples.InductionMachines.IMC_YD`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.Electrical.Machines.Examples.InductionMachines.IMC_YDarc`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.Electrical.Machines.Examples.Transformers.AsymmetricalLoad`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states
+- 改善 `Modelica.Electrical.Machines.Examples.Transformers.Rectifier12pulse`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states
+- 改善 `Modelica.Electrical.Machines.Examples.Transformers.Rectifier6pulse`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states
+- 改善 `Modelica.Electrical.Machines.Examples.Transformers.TransformerTestbench`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states
+- 改善 `Modelica.Electrical.Polyphase.Examples.Rectifier`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.Electrical.Polyphase.Examples.TestSensors`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.Electrical.Polyphase.Examples.TransformerYD`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.Electrical.Polyphase.Examples.TransformerYY`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.Electrical.PowerConverters.Examples.ACDC.ExampleTemplates.Thyristor1Pulse`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.Electrical.PowerConverters.Examples.ACDC.ExampleTemplates.ThyristorBridge2Pulse`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.Electrical.PowerConverters.Examples.ACDC.ExampleTemplates.ThyristorCenterTap2Pulse`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.Electrical.PowerConverters.Examples.ACDC.Rectifier1Pulse.Thyristor1Pulse_R`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.Electrical.PowerConverters.Examples.ACDC.Rectifier1Pulse.Thyristor1Pulse_R_Characteristic`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.Electrical.PowerConverters.Examples.ACDC.RectifierBridge2Pulse.HalfControlledBridge2Pulse`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.Electrical.PowerConverters.Examples.ACDC.RectifierBridge2Pulse.ThyristorBridge2Pulse_R`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.Electrical.PowerConverters.Examples.ACDC.RectifierBridge2Pulse.ThyristorBridge2Pulse_RL`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.Electrical.PowerConverters.Examples.ACDC.RectifierBridge2Pulse.ThyristorBridge2Pulse_RLV`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.Electrical.PowerConverters.Examples.ACDC.RectifierBridge2Pulse.ThyristorBridge2Pulse_RLV_Characteristic`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.Electrical.PowerConverters.Examples.ACDC.RectifierCenterTap2Pulse.ThyristorCenterTap2Pulse_R`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.Electrical.PowerConverters.Examples.ACDC.RectifierCenterTap2Pulse.ThyristorCenterTap2Pulse_RL`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.Electrical.PowerConverters.Examples.ACDC.RectifierCenterTap2Pulse.ThyristorCenterTap2Pulse_RLV`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.Electrical.PowerConverters.Examples.ACDC.RectifierCenterTap2Pulse.ThyristorCenterTap2Pulse_RLV_Characteristic`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.Electrical.PowerConverters.Examples.ACDC.RectifierCenterTap2mPulse.DiodeCenterTap2mPulse`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.Electrical.PowerConverters.Examples.ACDC.RectifierCenterTapmPulse.DiodeCenterTapmPulse`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.Electrical.PowerConverters.Examples.DCAC.PolyphaseTwoLevel.PolyphaseTwoLevel_R`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.Electrical.PowerConverters.Examples.DCAC.PolyphaseTwoLevel.PolyphaseTwoLevel_RL`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.Electrical.PowerConverters.Examples.DCDC.HBridge.HBridge_DC_Drive`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.Electrical.Spice3.Examples.CascodeCircuit`: flat・rumoca_flat・flat_names・flat_eqs・dae
+- 改善 `Modelica.Electrical.Spice3.Examples.FourInverters`: flat・rumoca_flat・flat_names・flat_eqs・dae
+- 改善 `Modelica.Electrical.Spice3.Examples.Graetz`: flat・rumoca_flat・flat_names・flat_eqs・dae
+- 改善 `Modelica.Electrical.Spice3.Examples.Inverter`: flat・rumoca_flat・flat_names・flat_eqs・dae
+- 改善 `Modelica.Electrical.Spice3.Examples.InvertersApartRecord`: flat・rumoca_flat・flat_names・flat_eqs・dae
+- 改善 `Modelica.Electrical.Spice3.Examples.InvertersExtendedModel`: flat・rumoca_flat・flat_names・flat_eqs・dae
+- 改善: ほか 29 本
 
 | | |
 | --- | --- |
 | MSL | 4.1.0（sha256 `5409cfa17797…`） |
 | Rumoca | v0.10.2（rev `276e82bd`、ライブラリとして呼ぶ） |
 | 検査した本数 | 641 本 |
-| 時間 | 全体 105 s（1 本ずつの検査 95 s） |
-| 最大の常駐メモリ（VmHWM） | 1.2 GiB |
+| 時間 | 全体 355 s（1 本ずつの検査 317 s） |
+| 最大の常駐メモリ（VmHWM） | 6.1 GiB |
 
 自前の parse・resolve・flat・dae を、Rumoca は自前で平らにできたものにだけ呼んで比べる（母数はその本数）。
 resolve は、例題のクラスから、中のクラス・`extends`・部品の型（解決できたもの）をたどって、届くクラスすべての参照を数える。
@@ -61,16 +76,16 @@ resolve は、例題のクラスから、中のクラス・`extends`・部品の
 | --- | --- | ---: | ---: |
 | parse | 構文の誤りが 0 | 566 | 566 |
 | resolve | 未解決の参照が 0（`extends`・部品の型をたどって） | 467 | 566 |
-| flat | 自前で平らにできた | 279 | 566 |
-| flat | Rumoca も flat まで通った（比べられた本数） | 273 | 279 |
-| flat | 変数の名前の集合が Rumoca の flat と一致 | 273 | 273 |
-| flat | 方程式の数が Rumoca の flat と一致 | 273 | 273 |
-| dae | 自前で DAE にできた | 279 | 279 |
-| dae | Rumoca も釣り合いまで通った（比べられた本数） | 201 | 279 |
-| dae | 釣り合いの判定（釣り合う / 釣り合わない）が一致 | 201 | 201 |
-| dae | 方程式と未知数の数が一致 | 201 | 201 |
-| dae | 状態の数が一致 | 201 | 201 |
-| dae | 構造が正則かの判定が一致（Rumoca の構造が取れたもの） | 184 | 201 |
+| flat | 自前で平らにできた | 358 | 566 |
+| flat | Rumoca も flat まで通った（比べられた本数） | 350 | 358 |
+| flat | 変数の名前の集合が Rumoca の flat と一致 | 350 | 350 |
+| flat | 方程式の数が Rumoca の flat と一致 | 340 | 350 |
+| dae | 自前で DAE にできた | 357 | 358 |
+| dae | Rumoca も釣り合いまで通った（比べられた本数） | 253 | 357 |
+| dae | 釣り合いの判定（釣り合う / 釣り合わない）が一致 | 253 | 253 |
+| dae | 方程式と未知数の数が一致 | 253 | 253 |
+| dae | 状態の数が一致 | 253 | 253 |
+| dae | 構造が正則かの判定が一致（Rumoca の構造が取れたもの） | 232 | 253 |
 
 未解決の参照の総数: 1330
 
@@ -84,15 +99,22 @@ flat の理由（本数の多い順）:
 
 | 理由 | 本数 | 例 |
 | --- | ---: | --- |
-| `composite-binding` | 155 | `Modelica.Blocks.Examples.Interaction1` |
-| `connect-array` | 72 | `Modelica.Blocks.Examples.Rectifier12pulseFFT` |
-| `unsized-array` | 20 | `Modelica.Blocks.Examples.BooleanNetwork1` |
-| `conditional-component` | 19 | `Modelica.Electrical.Analog.Examples.Lines.CompareLineTrunks` |
-| `array-modification` | 8 | `Modelica.Electrical.QuasiStatic.Machines.Examples.TransformerTestbench` |
-| `connect` | 8 | `Modelica.Fluid.Examples.ControlledTankSystem.ControlledTanks` |
-| `expandable` | 2 | `Modelica.Blocks.Examples.BusUsage` |
-| `non-constant-dim` | 2 | `Modelica.Math.FastFourierTransform.Examples.RealFFT1` |
-| `stream` | 1 | `Modelica.Fluid.Examples.DrumBoiler.DrumBoiler` |
+| `conditional-component` | 58 | `Modelica.Blocks.Examples.Noise.ActuatorWithNoise` |
+| `array-modification` | 38 | `Modelica.Electrical.PowerConverters.Examples.DCAC.PolyphaseTwoLevel.ThreePhaseTwoLevel_PWM` |
+| `composite-binding` | 31 | `Modelica.ComplexBlocks.Examples.ShowTransferFunction` |
+| `unsized-array` | 26 | `Modelica.Blocks.Examples.BooleanNetwork1` |
+| `stream` | 20 | `Modelica.Fluid.Examples.AST_BatchPlant.Test.OneTank` |
+| `non-constant-for` | 16 | `Modelica.Electrical.PowerConverters.Examples.ACDC.ExampleTemplates.ThyristorBridge2mPulse` |
+| `connect` | 9 | `Modelica.Clocked.Examples.Elementary.ClockSignals.LogicalSample` |
+| `non-constant-dim` | 6 | `Modelica.Blocks.Examples.Rectifier12pulseFFT` |
+| `expandable` | 3 | `Modelica.Blocks.Examples.BusUsage` |
+| `connect-array` | 1 | `Modelica.Fluid.Examples.HeatExchanger.HeatExchangerSimulation` |
+
+dae の理由（本数の多い順）:
+
+| 理由 | 本数 | 例 |
+| --- | ---: | --- |
+| `dae-parse` | 1 | `Modelica.Media.Examples.MixtureGases` |
 
 ## GlobeModeValidation（75 本）
 
@@ -143,5 +165,19 @@ flat の理由（本数の多い順）:
 - `Modelica.Clocked.Examples.SimpleControlledDrive.ClockedWith_AD_DA_Effects`: dae: 正則 自前 false / rumoca true
 - `Modelica.Clocked.Examples.SimpleControlledDrive.ExactlyClockedWithDiscreteController`: dae: 正則 自前 false / rumoca true
 - `Modelica.Clocked.Examples.Systems.EngineThrottleControl`: dae: 正則 自前 false / rumoca true
+- `Modelica.Electrical.Machines.Examples.Transformers.AsymmetricalLoad`: dae: 正則 自前 false / rumoca true
+- `Modelica.Electrical.Machines.Examples.Transformers.Rectifier12pulse`: dae: 正則 自前 false / rumoca true
+- `Modelica.Electrical.Machines.Examples.Transformers.Rectifier6pulse`: dae: 正則 自前 false / rumoca true
+- `Modelica.Electrical.Machines.Examples.Transformers.TransformerTestbench`: dae: 正則 自前 false / rumoca true
+- `Modelica.Mechanics.Rotational.Examples.CoupledClutches`: flat: eq 110 vs 113 (rumoca); vars 187 vs 187; only mine []; only rumoca []
+- `Modelica.Mechanics.Rotational.Examples.Friction`: flat: eq 94 vs 96 (rumoca); vars 158 vs 158; only mine []; only rumoca []
+- `Modelica.Mechanics.Rotational.Examples.HeatLosses`: flat: eq 239 vs 260 (rumoca); vars 364 vs 364; only mine []; only rumoca []
+- `Modelica.Mechanics.Rotational.Examples.LossyGearDemo1`: flat: eq 69 vs 77 (rumoca); vars 106 vs 106; only mine []; only rumoca []
+- `Modelica.Mechanics.Rotational.Examples.LossyGearDemo2`: flat: eq 91 vs 99 (rumoca); vars 143 vs 143; only mine []; only rumoca []
+- `Modelica.Mechanics.Rotational.Examples.LossyGearDemo3`: flat: eq 67 vs 75 (rumoca); vars 92 vs 92; only mine []; only rumoca []
+- `Modelica.Mechanics.Rotational.Examples.OneWayClutch`: flat: eq 40 vs 41 (rumoca); vars 73 vs 73; only mine []; only rumoca []
+- `Modelica.Mechanics.Rotational.Examples.OneWayClutchDisengaged`: flat: eq 46 vs 47 (rumoca); vars 73 vs 73; only mine []; only rumoca []
+- `Modelica.Mechanics.Rotational.Examples.SimpleGearShift`: flat: eq 85 vs 87 (rumoca); vars 136 vs 136; only mine []; only rumoca []
+- `Modelica.Mechanics.Translational.Examples.Brake`: flat: eq 71 vs 73 (rumoca); vars 113 vs 113; only mine []; only rumoca []
 - `Modelica.Media.Examples.WaterIF97`: dae: 正則 自前 false / rumoca true
 
