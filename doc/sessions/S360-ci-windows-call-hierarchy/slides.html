@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S360 main の CI の 2 つの失敗 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S360 main の CI の 2 つの失敗">
+
+<section class="slide" id="S01">
+  <span class="tag">S360 · 2026-11-16 · P4</span>
+  <h1>main の CI が落ちた 2 つを直した</h1>
+  <p class="lead">run 43727293319（S353 のマージ）の <code>rust-windows</code> と <code>ui</code></p>
+  <div class="big">どちらも、パスの綴りと押す点のずれ。根の原因を 1 か所で直した</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">Windows</span>
+  <h1><code>incomingCalls</code> が Windows だけ空</h1>
+  <table class="compact">
+    <tr><th>どこ</th><th><code>Target.path</code> に入る綴り</th></tr>
+    <tr><td>宣言の名前の上（<code>class_of</code>）</td><td>呼び手のパス <code>C:/lib/Fns.mo</code>（項目の URI から戻した）</td></tr>
+    <tr><td><code>Fns.f</code> の解決</td><td>ライブラリの木のパス <code>C:\lib\Fns.mo</code>（<code>display()</code>）</td></tr>
+    <tr><td>比べる所（<code>class_hits</code>）</td><td><code>==</code> が文字列の比較 → 0 件</td></tr>
+  </table>
+  <p>S354 の CI は <code>rust-windows</code> が skipped だったので、main で初めて Windows で走った。</p>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">Windows の直し</span>
+  <h1><code>Target</code> の比較を同じファイルかで行う</h1>
+  <ul>
+    <li><code>PartialEq for Target</code> を <code>same_path_key</code>（区切り・ドライブ文字の大文字小文字を畳む）にした</li>
+    <li><code>references</code>・<code>rename</code>・部品の参照も同じ <code>==</code> を通るので 1 か所</li>
+    <li>回帰試験: 木のパスをバックスラッシュで綴る単体試験。直す前は Linux でも <code>[]</code> で落ちる</li>
+    <li>Windows の CI（run 43730056976）で <code>rust-windows</code> が success</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">UI</span>
+  <h1>タブを戻したら診断の表が 0 行</h1>
+  <ul>
+    <li>CI では再現せず（feature の full と main の S356 のマージの <code>ui</code> はどちらも success）</li>
+    <li>S347〜S350 の検査ボタン・select は表示に効いていない</li>
+    <li>手元で負荷をかけて再現した: 60 回中 2 回、押下の mousedown が <code>p.note</code>（タブのボタンの 26 px 上）に当たった</li>
+    <li>検査の終わり・タブの切り替えのあと <code>SimSettings</code> の高さが非同期に 6〜47 px 動く</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">UI の原因と直し</span>
+  <h1>force=True だけの押下は、動いた要素を外す</h1>
+  <table class="compact">
+    <tr><th>版</th><th>押し方</th><th>結果</th></tr>
+    <tr><td>S310</td><td>可視・有効を待って <code>force=True</code></td><td>rAF に頼らない。押す点の確認も無い</td></tr>
+    <tr><td>S360</td><td>押す前に mousedown の対象を記録し、要素の外なら押し直す（3 回まで）</td><td>rAF に頼らず、ずれを吸収する</td></tr>
+  </table>
+  <p>回帰試験: マウスが動いた時点でボタンを 200 px 下げる。S310 の版は 0 回、S360 の版は 1 回。</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">残したこと</span>
+  <h1>layout shift そのものは直していない</h1>
+  <ul>
+    <li><code>SimSettings</code> の高さが動いて下の要素がずれる。利用者にも見える</li>
+    <li>直すなら一覧の領域の高さを先に確保する（別の WP）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
