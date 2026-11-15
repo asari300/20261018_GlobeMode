@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S328 compare-max-error — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S328 compare-max-error">
+
+<section class="slide" id="S01">
+  <span class="tag">S328 · 2026-11-15 · P8</span>
+  <h1>複数ソルバの比較に、最大の相対差を足した</h1>
+  <p class="lead">管の合否はそのまま。変数ごと・ソルバごと・全体の数字を足す</p>
+  <div class="big">相対差 = |a−b| / max(|b|, 範囲×1e-12)</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">計算</span>
+  <h1>基準の出力点に、試験側を線形補間</h1>
+  <ul>
+    <li><code>compare::deviations</code>: 信号ごとに最大の相対差・絶対差・その時刻</li>
+    <li>イベントの同じ時刻の行は m 番目どうしを比べる</li>
+    <li>時間は O(点数)。1 信号 100 万点で管の約 4 分の 1（debug 測定）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">出力</span>
+  <h1>どこに出るか</h1>
+  <ul>
+    <li><code>pairs[i]</code>: <code>max_rel</code>・<code>max_abs</code>・<code>worst</code>（信号と時刻）</li>
+    <li><code>failures[]</code> の各信号と、<code>comparison</code> 全体（ソルバ名つき）</li>
+    <li>CLI・LSP・Python（dict）・UI の比較の表（「最大の相対差」の列、<code>&lt; 1e-6</code> を文字で）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">限界</span>
+  <h1>0 を通る点では相対差が大きく出る</h1>
+  <ul>
+    <li>範囲 2 の信号が 0 の点で 1e-6 ずれると 5e5</li>
+    <li>合否は管で決め、相対差は参考の数字</li>
+    <li>NaN の点は無限大（JSON は null）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

@@ -172,6 +172,100 @@ pub fn compare(
     Comparison { signals }
 }
 
+/// 信号 1 つの差の大きさ（`deviations`。管の判定とは別の、数字のための量）。
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Deviation {
+    pub name: String,
+    /// 比べた点の数（基準の出力点のうち、試験側の時刻の範囲に入るもの）
+    pub compared: usize,
+    /// 最大の相対差 `|a-b| / max(|b|, 範囲 × 1e-12, MIN_POSITIVE)`（a は試験側、b は基準。NaN の点は無限大）
+    pub max_rel: f64,
+    /// 最大の絶対差 `|a-b|`（値の単位）
+    pub max_abs: f64,
+    /// 相対差が最大の点の時刻
+    pub worst_time: Option<f64>,
+}
+
+/// `signals` ごとに、基準の出力点の時刻で試験側を線形補間して、最大の相対差・絶対差を求める。
+/// 両方に信号がある（値の数が時刻の数と合う）ものだけを返し、比べた点が 0 の信号も返す（`compared == 0`）。
+///
+/// 同じ時刻の行（イベントでの縦の跳び）は、基準の m 番目の行を試験側の同じ時刻の行の m 番目
+/// （足りなければ最後）と比べる。比べる前に `compare` と同じ正規化をする。時間 O(n + m)（信号 1 つあたり）。
+///
+/// shortcut: 範囲 × 1e-12 の下駄しかないので、基準が 0 を通る点の近くでは相対差が大きく出る
+/// （管の判定とは独立。閾値との大小は参考）。
+pub fn deviations(reference: &Trajectory, actual: &Trajectory, signals: &[&str]) -> Vec<Deviation> {
+    let reference = normalize_events(reference);
+    let actual = normalize_events(actual);
+    let (rt, at) = (
+        ReferenceTime::new(&reference.time),
+        ReferenceTime::new(&actual.time),
+    );
+    let (rvars, avars) = (by_name(&reference), by_name(&actual));
+    signals
+        .iter()
+        .filter(|name| !name.eq_ignore_ascii_case("time"))
+        .filter_map(|&name| {
+            let (r, a) = (rvars.get(name)?, avars.get(name)?);
+            Some(deviation(
+                name,
+                &rt.time,
+                &rt.values(&r.values),
+                &at.time,
+                &at.values(&a.values),
+            ))
+        })
+        .collect()
+}
+
+fn deviation(name: &str, rt: &[f64], rv: &[f64], at: &[f64], av: &[f64]) -> Deviation {
+    let mut d = Deviation {
+        name: name.to_string(),
+        compared: 0,
+        max_rel: 0.0,
+        max_abs: 0.0,
+        worst_time: None,
+    };
+    let (Some(&lo), Some(&hi)) = (at.first(), at.last()) else {
+        return d;
+    };
+    let (min, max) = rv
+        .iter()
+        .filter(|v| v.is_finite())
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), &v| {
+            (a.min(v), b.max(v))
+        });
+    let floor = ((max - min) * 1e-12).max(f64::MIN_POSITIVE);
+    let (mut j, mut m) = (0, 0);
+    for (i, (&t, &b)) in rt.iter().zip(rv).enumerate() {
+        m = if i > 0 && rt[i - 1] == t { m + 1 } else { 0 };
+        if !(t >= lo && t <= hi) {
+            continue;
+        }
+        while at[j] < t {
+            j += 1;
+        }
+        let a = if at[j] == t {
+            let last = j + at[j..].iter().take_while(|&&x| x == t).count() - 1;
+            av[(j + m).min(last)]
+        } else {
+            // j >= 1: at[0] = lo <= t かつ at[j] != t
+            let (t0, t1) = (at[j - 1], at[j]);
+            av[j - 1] + (av[j] - av[j - 1]) * (t - t0) / (t1 - t0)
+        };
+        let abs = (a - b).abs();
+        let abs = if abs.is_nan() { f64::INFINITY } else { abs };
+        let rel = abs / b.abs().max(floor);
+        d.compared += 1;
+        d.max_abs = d.max_abs.max(abs);
+        if rel > d.max_rel || d.worst_time.is_none() {
+            d.max_rel = d.max_rel.max(rel);
+            d.worst_time = Some(t);
+        }
+    }
+    d
+}
+
 /// 同じ瞬間とみなす時刻の差（相対。`max(1, |t|)` を掛ける）。
 pub const SAME_INSTANT: f64 = 1e-12;
 
@@ -498,6 +592,51 @@ mod tests {
         let c = compare(reference, actual, &["y"], &TubeOptions::default());
         assert_eq!(c.signals.len(), 1);
         c.signals.into_iter().next().unwrap()
+    }
+
+    #[test]
+    fn deviations_interpolate_on_different_grids() {
+        // 基準 y = 10 + t（0..=4、1 刻み）、試験側は同じ直線を 0.7 刻みで取り、t > 3 で 0.5 上げる
+        let r = sampled(|t| 10.0 + t, 0.0, 4.0, 5);
+        let time: Vec<f64> = (0..=6).map(|i| f64::from(i) * 0.7).collect();
+        let values = time
+            .iter()
+            .map(|&t| 10.0 + t + if t > 3.0 { 0.5 } else { 0.0 })
+            .collect();
+        let a = trajectory(time, &[("y", values)]);
+        let d = &deviations(&r, &a, &["y", "time", "none"])[0];
+        assert_eq!(d.compared, 5);
+        assert!((d.max_abs - 0.5).abs() < 1e-12, "{d:?}");
+        assert_eq!(d.worst_time, Some(4.0));
+        assert!((d.max_rel - 0.5 / 14.0).abs() < 1e-12, "{d:?}");
+        // 同じ曲線なら 0
+        let z = &deviations(&r, &r, &["y"])[0];
+        assert_eq!((z.max_rel, z.max_abs), (0.0, 0.0));
+    }
+
+    #[test]
+    fn deviations_with_zero_crossing_and_a_step() {
+        // 0 を通る基準（範囲 2）。分母は max(|b|, 2e-12) なので、0 の点の差 1e-6 は相対差 5e5
+        let r = trajectory(vec![0.0, 1.0, 2.0], &[("y", vec![-1.0, 0.0, 1.0])]);
+        let a = trajectory(vec![0.0, 1.0, 2.0], &[("y", vec![-1.0, 1e-6, 1.0])]);
+        let d = &deviations(&r, &a, &["y"])[0];
+        assert!((d.max_abs - 1e-6).abs() < 1e-18);
+        assert!((d.max_rel - 5e5).abs() < 1.0, "{d:?}");
+        assert_eq!(d.worst_time, Some(1.0));
+        // イベントの段差（t=1 が 2 行）: 左は左と、右は右と比べる
+        let step =
+            |l: f64, rr: f64| trajectory(vec![0.0, 1.0, 1.0, 2.0], &[("y", vec![0.0, l, rr, 5.0])]);
+        let d = &deviations(&step(1.0, 3.0), &step(1.0, 3.0), &["y"])[0];
+        assert_eq!((d.compared, d.max_abs), (4, 0.0));
+        let d = &deviations(&step(1.0, 3.0), &step(1.0, 3.5), &["y"])[0];
+        assert!(
+            (d.max_abs - 0.5).abs() < 1e-12 && d.worst_time == Some(1.0),
+            "{d:?}"
+        );
+        // NaN は無限大
+        let nan = trajectory(vec![0.0, 1.0, 2.0], &[("y", vec![-1.0, f64::NAN, 1.0])]);
+        let d = &deviations(&r, &nan, &["y"])[0];
+        assert!(d.max_rel.is_infinite() && d.max_abs.is_infinite());
     }
 
     #[test]

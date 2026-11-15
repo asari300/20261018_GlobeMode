@@ -207,6 +207,10 @@ fn solvers_run_many_and_compare_with_an_exit_code() {
     );
     assert!(text.contains("3 ソルバ") && text.contains("合格"), "{text}");
     assert!(text.contains("最大次数"), "{text}");
+    assert!(
+        text.contains("全変数の最大の相対差") && text.contains("< 1e-"),
+        "{text}"
+    ); // S328
     for s in ["bdf", "esdirk34", "tsit45"] {
         assert!(dir.join(format!("{s}.csv")).is_file(), "{s}");
     }
@@ -218,6 +222,7 @@ fn solvers_run_many_and_compare_with_an_exit_code() {
     assert_eq!(o.status.code(), Some(1), "{o:?}");
     let v: serde_json::Value = serde_json::from_slice(&o.stdout).unwrap();
     assert_eq!(v["comparison"]["passed"], false);
+    assert!(v["comparison"]["pairs"][0]["max_rel"].as_f64().unwrap() > 1e-6); // S328
     assert_eq!(v["runs"][1]["solver"], "euler");
     // --solver との併用は使い方の誤り
     let o = simulate("Decay", &["--solvers", "bdf", "--solver", "rk4"]);

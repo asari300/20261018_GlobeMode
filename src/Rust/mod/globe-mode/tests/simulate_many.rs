@@ -87,6 +87,20 @@ fn compare_fails_when_a_solver_is_too_coarse_and_notes_the_ignored_max_order() {
     let euler = c.pairs.iter().find(|p| p.solver == "euler").unwrap();
     assert!(!euler.passed && euler.failures[0].name == "x", "{euler:#?}");
     assert!(c.pairs.iter().find(|p| p.solver == "bdf").unwrap().passed);
+    // S328: 最大の相対差・絶対差。Euler の x の誤差は 1e-6 より大きく、bdf は小さい
+    let bdf = c.pairs.iter().find(|p| p.solver == "bdf").unwrap();
+    assert!(euler.failures[0].max_rel.unwrap() > 1e-6, "{euler:#?}");
+    assert!(euler.max_rel.unwrap() >= euler.failures[0].max_rel.unwrap());
+    assert!(bdf.max_rel.unwrap() < euler.max_rel.unwrap());
+    let w = c.worst.as_ref().unwrap();
+    assert_eq!(
+        (w.solver.as_deref(), Some(c.max_rel.unwrap())),
+        (Some("euler"), euler.max_rel)
+    );
+    assert_eq!(
+        Some(w.name.as_str()),
+        euler.worst.as_ref().map(|x| x.name.as_str())
+    );
     // 最大次数を持たないソルバには注記が付き、実行は止まらない
     assert!(
         out.runs

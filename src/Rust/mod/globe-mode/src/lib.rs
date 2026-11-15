@@ -32,7 +32,7 @@ pub use globe_mode_protocol::{
     CheckResponse, ColumnsLayout, CompareRequest, ExperimentValues, MAX_MANY_SOLVERS, MAX_PARALLEL,
     ManyComparison, ManyRun, ManyStatus, ModelParametersResponse, PairComparison,
     ParametersResponse, SignalDiff, SimulateManyRequest, SimulateManyResponse, SimulateRequest,
-    SimulateResponse, SkippedRun, StructureCounts, force_helps, refused_summary,
+    SimulateResponse, SkippedRun, StructureCounts, WorstPoint, force_helps, refused_summary,
     unsupported_summary,
 };
 pub use globe_mode_sim::solvers::{SOLVERS, SolverEntry};
@@ -1404,6 +1404,8 @@ fn compare_runs(runs: &[ManyRun], data: &[ManyData], options: &CompareRequest) -
         reference: reference.map_or_else(String::new, |i| runs[i].solver.clone()),
         passed: false,
         pairs: Vec::new(),
+        max_rel: None,
+        worst: None,
         skipped: Vec::new(),
     };
     let Some(r) = reference.filter(|&i| ok(i)) else {
@@ -1441,11 +1443,21 @@ fn compare_runs(runs: &[ManyRun], data: &[ManyData], options: &CompareRequest) -
             &names,
             &tube,
         );
+        let dev =
+            globe_mode_sim::compare::deviations(&reference_run.trajectory, &sim.trajectory, &names);
+        let by_name: std::collections::HashMap<&str, &globe_mode_sim::compare::Deviation> = dev
+            .iter()
+            .filter(|d| d.compared > 0)
+            .map(|d| (d.name.as_str(), d))
+            .collect();
+        let dev_of = |name: &str| by_name.get(name).copied();
         let mut failures: Vec<SignalDiff> = cmp
             .signals
             .iter()
             .filter(|s| !s.passed)
             .map(|s| SignalDiff {
+                max_rel: dev_of(&s.name).map(|d| d.max_rel),
+                max_abs: dev_of(&s.name).map(|d| d.max_abs),
                 name: s.name.clone(),
                 passed: false,
                 errors: s.errors,
@@ -1455,7 +1467,16 @@ fn compare_runs(runs: &[ManyRun], data: &[ManyData], options: &CompareRequest) -
             })
             .collect();
         failures.sort_by(|a, b| b.max_excess.total_cmp(&a.max_excess));
+        let compared = || dev.iter().filter(|d| d.compared > 0);
+        let worst = compared().max_by(|a, b| a.max_rel.total_cmp(&b.max_rel));
         out.pairs.push(PairComparison {
+            max_rel: worst.map(|d| d.max_rel),
+            max_abs: compared().map(|d| d.max_abs).max_by(f64::total_cmp),
+            worst: worst.map(|d| WorstPoint {
+                solver: None,
+                name: d.name.clone(),
+                time: d.worst_time,
+            }),
             solver: run.solver.clone(),
             passed: cmp.passed(),
             signals: cmp.signals.len(),
@@ -1464,6 +1485,22 @@ fn compare_runs(runs: &[ManyRun], data: &[ManyData], options: &CompareRequest) -
         });
     }
     out.passed = !out.pairs.is_empty() && out.pairs.iter().all(|p| p.passed);
+    let worst = out
+        .pairs
+        .iter()
+        .filter(|p| p.max_rel.is_some())
+        .max_by(|a, b| {
+            a.max_rel
+                .unwrap_or(0.0)
+                .total_cmp(&b.max_rel.unwrap_or(0.0))
+        });
+    out.max_rel = worst.and_then(|p| p.max_rel);
+    out.worst = worst.and_then(|p| {
+        p.worst.clone().map(|w| WorstPoint {
+            solver: Some(p.solver.clone()),
+            ..w
+        })
+    });
     out
 }
 

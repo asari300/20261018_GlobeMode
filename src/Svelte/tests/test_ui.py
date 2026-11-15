@@ -1387,7 +1387,10 @@ def multi_solver(browser, origin: str, errors: list[str]) -> None:
     verdict = many.locator("[data-compare-verdict]")
     expect(verdict).to_contain_text("基準 bdf")
     assert re.search(r"合格|不合格", verdict.inner_text())  # 合否は文字
-    assert many.locator("table[aria-label='基準との比較'] th[scope=col]").count() == 5
+    assert many.locator("table[aria-label='基準との比較'] th[scope=col]").count() == 6
+    # S328: 最大の相対差の列（有効数字 3 桁の指数表記と、閾値との大小を文字で）
+    assert re.fullmatch(r"\d\.\d{2}e[+-]?\d+（[<≥] 1e-\d+）.*", many.locator("tr[data-pair] [data-max-rel]").first.inner_text().strip(), re.S)
+    expect(many.locator("[data-compare-worst]")).to_contain_text("全変数の最大の相対差")
     assert many.locator("tr[data-pair]").evaluate_all("rs => rs.map(r => r.dataset.pair)") == ["euler", "rk4"]
     assert pg.locator(".plot").get_attribute("data-series") == "3"  # x の 3 ソルバが重なる
     pg.reload()
