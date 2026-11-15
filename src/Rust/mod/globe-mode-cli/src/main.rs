@@ -1185,21 +1185,7 @@ fn check_native(files: &[PathBuf], library: &[PathBuf], model: &str, json: bool)
     let libs: Vec<&Path> = library.iter().map(PathBuf::as_path).collect();
     let report = NativeFrontend::new().check(&sources, &libs, model);
     let passed = report.passed();
-    let mut response = CheckResponse::failed(model, report.diagnostics.clone());
-    response.passed = passed;
-    response.failed_stage = report.failed_stage();
-    response.balance = report.balance;
-    response.notes = report.notes.clone();
-    response.summary = if passed {
-        format!("{model}: OK（native: S0〜S6 を通過。S7 以降は検査していない）")
-    } else if globe_mode::unsupported_summary(&report.diagnostics).is_some() {
-        format!(
-            "{} native が未対応で止まった。モデルの誤りとは限らない（`--frontend rumoca` で確かめる）",
-            response.summary
-        )
-    } else {
-        response.summary
-    };
+    let response = globe_mode::native_response(&report);
     if json {
         println!(
             "{}",

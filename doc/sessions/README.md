@@ -4,6 +4,7 @@
 
 | S | 日付 | Phase | 題名 | ブランチ | 状態 | スライド | 解説書 | セッション記録 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| S313 | 2026-11-15 | Track B | `native-everywhere`: native の検査を CLI 以外からも選べるようにした。facade `Workspace::check_with(model, CheckFrontend)`、LSP は `globe-mode.toml` の `[check] frontend = "native"`、Python は `check(model, frontend="native")`（既定は Rumoca、wasm・UI は未） | `feature/s313-native-everywhere` | 完了 | [slides](S313-native-everywhere/slides.html) | [解説書](S313-native-everywhere/解説書.md) | なし |
 | S309 | 2026-11-15 | P8 | `vscode-keyboard`: VS Code の側のパネルを、マウスなしで操作できるようにした。選んだ部品を矢印キー（2 単位、Shift で 10 単位）で動かし、Enter でパラメータの QuickPick、コマンド「GlobeMode: 部品のパラメータを編集」（カーソルの部品か QuickPick で選ぶ） | `feature/s309-vscode-keyboard` | 作業中 | [slides](S309-vscode-keyboard/slides.html) | [解説書](S309-vscode-keyboard/解説書.md) | なし |
 | S306 | 2026-11-15 | P8 | `vscode-params`: VS Code の側のパネルで、図の部品のダブルクリックからパラメータを QuickPick・InputBox で入力し、`globe/setModifier` で宣言の修飾に書く（undo 可、空で外す） | `feature/s306-vscode-params` | 作業中 | [slides](S306-vscode-params/slides.html) | [解説書](S306-vscode-params/解説書.md) | なし |
 | S311 | 2026-11-15 | Track B | `flat-ranges`: `globe-mode-flat` の `Var`・`Equation` に元のソースの位置（`Origin`）を持たせ、`globe-mode-dae` が `DaeStructure` の `file`・`range` に入れて、native の `GM-E6001`・`GM-E5002` に行・列を付けた | `feature/s311-flat-ranges` | 完了 | [slides](S311-flat-ranges/slides.html) | [解説書](S311-flat-ranges/解説書.md) | なし |

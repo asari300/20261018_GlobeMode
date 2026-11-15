@@ -110,10 +110,14 @@ format_html = true            # Documentation の HTML を整える
 
 [lint]
 disable = ["missing-description", "GM-L0004"]  # 規則の名前でも LSP のコードでもよい
+
+[check]
+frontend = "native"           # LSP の診断を自前の段で出す（S313。既定は "rumoca"）
 ```
 
 - 探し方: CLI は対象のファイル（標準入力ならカレントディレクトリ）から上へたどって最初の `globe-mode.toml`。ファイルごとに探すので、サブディレクトリに別の設定を置ける。LSP は `initialize` の `rootUri`（無ければ `rootPath`）から上へたどって最初のもの。無ければ既定。
 - 優先: CLI はコマンドラインの引数（`--indent`・`--width`・`--no-…`）が設定ファイルより優先し、`--disable` は `[lint] disable` に足す。LSP の `textDocument/formatting` は、設定ファイルがあれば `indent` に `tabSize` ではなく設定ファイルの値を使う（ruff と同じ。無ければ従来どおり `tabSize`）。拡張の追加のキー（`insertOrigin` など）は設定ファイルより優先する。
+- **`[check] frontend`（S313）**: `"rumoca"`（既定）か `"native"`。LSP の診断（`publishDiagnostics`）を自前の段（S0〜S6。[ADR-0039](adr/0039-native-cst-parser.md)）で出す。LSP の build が feature `native` を持つときだけ効き（CLI の `globe lsp` は持つ。wasm は持たない）、持たない build では `GM-U0006` が出る。`globe/check` の要求は変えていない。
 - 誤り: 知らない表・キー・規則、型の違う値は誤り。CLI は終了コード 2、LSP は `window/showMessage` で知らせて既定で続ける。LSP は `workspace/didChangeConfiguration` で読み直し、開いている文書の診断を出し直す。
 - wasm とブラウザ UI は設定ファイルを読まない（引数で渡す）。LSP の独自の要求 `globe/format`・`globe/lint` は、設定ファイルがあればそれを土台にする（S143）。`globe/format` の `indent` は設定ファイルが勝ち、設定ファイルが無いときだけ params の値を使う（S214）。読む処理は `globe-mode-fmt` の feature `config`（`LintOptions::from_toml`・`LintOptions::find`）で、CLI と LSP だけが立てる（[ADR-0024](adr/0024-own-formatter-and-lint.md)）。
 

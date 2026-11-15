@@ -22,6 +22,8 @@ pub struct LintOptions {
     pub format: Options,
     /// 止める規則の名前
     pub disabled: Vec<String>,
+    /// `[check] frontend`（S313。`rumoca` か `native`。無ければ None＝既定の Rumoca）。検査の道を選ぶのは LSP
+    pub frontend: Option<String>,
 }
 
 /// 規則のコード（LSP の診断の code）と名前。`connect-type-mismatch` はワークスペースが要るので CLI と LSP が見る

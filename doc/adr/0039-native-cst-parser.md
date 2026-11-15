@@ -200,3 +200,14 @@ Track B（自前コア）は B1 rowan の CST と寛容なパーサ → B2 resol
 - **`GM-E5002`**: native は数が合わないときも S6 の解析を回し、多い側の「相手のいない」方程式か未知数の位置に診断を置き、名前を注にする。Rumoca の道の `GM-E5002` は位置を持たない（部品ごとの方程式の数の注だけ）ので、native のほうが位置の分だけ情報が多い。
 - **確かめたこと**: `globe-mode-flat` の由来の試験（入れ子・`extends`・`for`・`connect`・`flow = 0`）、`check_native` の位置つきの `GM-E6001`・`GM-E5002`。`mise run msl:diff-frontend` の回帰は 0。
 - **持ち越し**: `algorithm` の文ごとの位置、`if`・`when` の枝ごとの位置、複数の `connect` を指す診断（今は集合の最初の 1 つ）。
+
+## 付記（S313）: CLI 以外からも native の検査を選べるようにした
+
+新しい ADR は立てず、S305・S307 の「残したこと」（LSP・wasm・Python・UI から native を選べない）の続きとしてここに足す。既定は Rumoca のまま。
+
+- **facade**: `globe_mode::CheckFrontend { Rumoca, Native }`（`FromStr` は `rumoca`・`native`）と `Workspace::check_with(model, frontend)`。`check` は `check_with(.., Rumoca)`。`Native` は作業中のファイルと、`with_libraries` に渡したディレクトリ（`library_paths`）を `NativeFrontend` に渡す。`with_library_sources` のワークスペースにはディレクトリが無く、ライブラリが見えない（wasm は対象外）。応答の組み立ては `native_response`（CLI の `check_native` と共有）。
+- **feature**: facade に `native`（`globe-mode-frontend/native`）、LSP に `native`（`globe-mode/native`）。CLI（`globe lsp` を含む）と Python の束ねが立てる。wasm は立てない（理由: native の段の crate が wasm の大きさと build に入る。入れるかどうかは別に判断する）。立てない build で `Native` を選ぶと `GM-U0006`「この build に入っていない」を返す。外部依存は増えない。
+- **LSP**: `globe-mode.toml` の `[check] frontend = "rumoca" | "native"`（`LintOptions::frontend`。他の値は設定の誤りで、既存の `showMessage` の道）。`publishDiagnostics` の検査（`diagnostics`）だけが `check_with` を使う。`globe/check` の要求は変えていない。設定ファイルが無ければ今まで通り。
+- **Python**: `Workspace.check(model, frontend="rumoca")`。知らない名前は `ValueError`。
+- **試験**: facade `tests/check_with.rs`（`expandable` が `GM-U0006`、既定は出さない。feature があれば Decay が通る）、LSP `config_frontend_native_drives_diagnostics`、`test_check_frontend_native`（pytest）、`config` の単体試験に `[check]`。
+- **持ち越し**: wasm・UI から選ぶ（wasm のビルドの大きさの測定が先）。LSP の他の要求（`globe/check`・補完など）と、`outline` 系は Rumoca のまま。
