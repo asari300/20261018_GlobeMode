@@ -616,3 +616,102 @@ fn connect_whole_arrays() {
     assert!(e.contains("s.pp.pin[2].v"), "{e}");
     assert!(!e.contains("s.pp.pin.v"), "{e}");
 }
+
+#[test]
+fn modification_of_component_array_is_split_per_element() {
+    // S329: `c[n](a = {…})` は要素ごとの修飾、`each` は分けない、`for` の内包は `(…)[k]`
+    let m = flat(
+        "model S parameter Real len = 0; parameter Real w = 0; parameter Real r[3] = {0,0,0};
+           parameter Boolean u = false; Real h if u; end S;
+         model Top
+           parameter Integer n = 2;
+           S c[n](len = {5, 6}, each w = 7, u = fill(true, n), r = {{1,2,3} for i in 1:n});
+           S d[2, 2](len = {{1, 2}, {3, 4}});
+         end Top;",
+        "Top",
+    );
+    let b = |n: &str| {
+        m.vars
+            .iter()
+            .find(|v| v.name == n)
+            .unwrap_or_else(|| panic!("{n}"))
+            .binding
+            .clone()
+    };
+    assert_eq!(b("c[2].len").as_deref(), Some("6"));
+    assert_eq!(b("c[1].w").as_deref(), Some("7"));
+    // `fill(true, n)` は要素ごとに `true`: 条件つきの `h` が残る
+    assert_eq!(b("c[2].u").as_deref(), Some("true"));
+    assert!(m.vars.iter().any(|v| v.name == "c[2].h"));
+    assert!(m.vars.iter().all(|v| v.name != "d[1,1].h"));
+    assert!(b("c[2].r").unwrap().ends_with(")[2]"));
+    assert!(b("d[2,1].len").unwrap().ends_with("[2,1]"));
+    // 項の数が合わない `{…}` は断る
+    assert_eq!(
+        err(
+            "model S parameter Real a = 0; end S; model T S c[3](a = {1, 2}); end T;",
+            "T"
+        ),
+        "array-modification"
+    );
+}
+
+#[test]
+fn complex_operators_expand_to_re_and_im() {
+    // S329: `Complex` の `+ - * /` は評価せず、欄 `re`・`im` ごとの式にする
+    let m = flat(
+        "operator record Complex Real re; Real im; end Complex;
+         connector P Complex V; end P;
+         model Top
+           parameter Boolean f = true;
+           P p; P n;
+           Complex d = p.V - n.V;
+           Complex e = 2*d;
+           Complex g = (if f then d else -d)/(e + 1);
+           Complex h = Complex(1, 2)*d;
+           Complex k[2] = {d, e};
+           Complex m = k[2];
+         end Top;",
+        "Top",
+    );
+    let b = |n: &str| {
+        m.vars
+            .iter()
+            .find(|v| v.name == n)
+            .unwrap_or_else(|| panic!("{n}"))
+            .binding
+            .clone()
+    };
+    assert_eq!(b("d.re").as_deref(), Some("p.V.re - n.V.re"));
+    assert_eq!(b("d.im").as_deref(), Some("p.V.im - n.V.im"));
+    assert_eq!(b("e.re").as_deref(), Some("2*d.re"));
+    assert_eq!(b("e.im").as_deref(), Some("2*d.im"));
+    assert_eq!(b("h.re").as_deref(), Some("1*d.re - 2*d.im"));
+    assert!(b("g.re").unwrap().contains("if f then d.re else -d.re"));
+    assert_eq!(b("m.re").as_deref(), Some("k[2].re"));
+}
+
+#[test]
+fn conditions_on_strings_and_later_inner_fields_and_record_if() {
+    // S329: 文字列の比較、宣言が後ろの `inner` の欄、定数に決まる `if` の式（レコード）
+    let m = flat(
+        "record P Real a = 0; end P;
+         model W parameter Boolean on = true; end W;
+         model Sub outer W w; parameter Boolean an = true; parameter String c = \"Y\";
+           Real s if w.on and an; Real t if c <> \"D\"; Real u if c == \"D\"; end Sub;
+         model Top parameter Boolean sel = true; P p = if sel then P(a = 1) else P(a = 2);
+           Sub sub; inner W w(on = true); end Top;",
+        "Top",
+    );
+    let has = |n: &str| m.vars.iter().any(|v| v.name == n);
+    assert!(has("sub.s") && has("sub.t") && !has("sub.u"));
+    assert_eq!(
+        m.vars
+            .iter()
+            .find(|v| v.name == "p.a")
+            .unwrap()
+            .binding
+            .as_deref(),
+        Some("1")
+    );
+}
