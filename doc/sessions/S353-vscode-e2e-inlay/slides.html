@@ -3,25 +3,25 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>S353 VS Code の e2e に inlay hint — GlobeMode</title>
+<title>S353 VS Code の e2e に inlay hint と call hierarchy — GlobeMode</title>
 <link rel="stylesheet" href="../../assets/slides.css">
 </head>
-<body data-deck="GlobeMode S353 VS Code の e2e に inlay hint">
+<body data-deck="GlobeMode S353 VS Code の e2e に inlay hint と call hierarchy">
 
 <section class="slide" id="S01">
   <span class="tag">S353 · 2026-11-15 · P4</span>
-  <h1>VS Code の e2e に inlay hint</h1>
-  <p class="lead">S352 の「本物の VS Code での表示は【未確認】」を、3 OS の起動試験で確かめる</p>
-  <div class="big"><code>Scale(2, 3)</code> に <code>gain:</code> と <code>offset:</code></div>
+  <h1>VS Code の e2e に inlay hint と call hierarchy</h1>
+  <p class="lead">S352・S354 の「本物の VS Code では【未確認】」を、3 OS の起動試験で確かめる</p>
+  <div class="big"><code>Scale(2, 3)</code> に <code>gain:</code>・<code>offset:</code>、<code>Scale</code> の呼び元は <code>Twice</code> と <code>Inlay</code></div>
 </section>
 
 <section class="slide" id="S02">
   <span class="tag">足したもの</span>
-  <h1>fixture 1 つと試験 1 本</h1>
+  <h1>fixture 1 つと試験 2 本</h1>
   <ul>
-    <li><code>e2e/fixtures/Inlay.mo</code>: 関数 <code>Scale</code>（<code>input</code> が <code>gain</code>・<code>offset</code>）と、それを呼ぶモデル。<code>sin(time)</code> も 1 つ</li>
-    <li><code>suite.cjs</code>: <code>vscode.executeInlayHintProvider</code> を呼び、ヒントが 2 件、位置が引数の直前、ラベルが <code>gain:</code>・<code>offset:</code>、kind が Parameter</li>
-    <li>組み込みの <code>sin</code> に出ないことは、件数がちょうど 2 であることで確かめる</li>
+    <li><code>e2e/fixtures/Inlay.mo</code>: 関数 <code>Scale</code>（<code>input</code> が <code>gain</code>・<code>offset</code>）、それを呼ぶ関数 <code>Twice</code> とモデル <code>Inlay</code>（<code>sin(time)</code> も 1 つ）</li>
+    <li>inlay hint: <code>vscode.executeInlayHintProvider</code>（範囲はモデルの行だけ）で 2 件、位置が引数の直前、ラベルが <code>gain:</code>・<code>offset:</code>、kind が Parameter。<code>sin</code> に出ないことは件数で確かめる</li>
+    <li>call hierarchy: <code>vscode.prepareCallHierarchy</code> → <code>provideIncomingCalls</code>（<code>Inlay</code>・<code>Twice</code> が 1 回ずつ）・<code>provideOutgoingCalls</code>（<code>Twice</code> → <code>Scale</code>）</li>
   </ul>
 </section>
 
@@ -30,9 +30,9 @@
   <h1>確かめるところと、確かめないところ</h1>
   <table class="compact">
     <tr><th>確かめる</th><th>確かめない</th></tr>
-    <tr><td>拡張が inlay hint のプロバイダを登録する</td><td>画面の描画（<code>editor.inlayHints.enabled</code>）</td></tr>
+    <tr><td>拡張が inlay hint・call hierarchy のプロバイダを登録する</td><td>画面の描画（<code>editor.inlayHints.enabled</code>）</td></tr>
     <tr><td><code>globe lsp</code> の答えが VS Code のヒントになる</td><td>レコードの構築子・別の開いた文書の関数</td></tr>
-    <tr><td>Linux・Windows・macOS の 3 OS</td><td>call hierarchy（S354）</td></tr>
+    <tr><td>Linux・Windows・macOS の 3 OS</td><td>構文の誤りで読めないファイルの関数の呼び元（S354 の shortcut）</td></tr>
   </table>
 </section>
 
