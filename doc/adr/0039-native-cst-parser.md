@@ -65,8 +65,8 @@ MSL 4.1.0 の例題 566 本での推移（括弧は「一致した本数 / 母�
 | --- | --- |
 | B1 構文 | 本文、S269 |
 | B2 名前の解決 | S272、S275 |
-| B3 flatten | S278、S284、S297、S312、S324、S329、S333、S334、S335（`[:]` の大きさ）、S336（`Complex` の配列の束縛）、S337、S355（`stream`）、S361（外側の `inner` への `connect`・`inner outer`・`cardinality`）、S367（expandable connector・レコードの配列の束縛・2 次元の部品の配列の `connect`）、S370（関数の評価器・FFT の 4 本） |
-| B4 DAE | S290、S312、S325、S330、S332（計測と、名前・数の食い違いの原因）、S337（初期方程式の `der` と状態の数）、S362（レコードの配列の範囲への方程式と、レコードの配列を渡す参照）、S364（左辺が離散の変数の配列の構築子 `{…} = fill(…)` を離散の方程式に）、S367（使われない expandable の欄を未知数にしない・2 次元の部品の配列を通した欄の参照） |
+| B3 flatten | S278、S284、S297、S312、S324、S329、S333、S334、S335（`[:]` の大きさ）、S336（`Complex` の配列の束縛）、S337、S355（`stream`）、S361（外側の `inner` への `connect`・`inner outer`・`cardinality`）、S367（expandable connector・レコードの配列の束縛・2 次元の部品の配列の `connect`）、S370（関数の評価器・FFT の 4 本）、S372（`connect` の大きさの食い違いを断る・範囲の `i += s` の溢れ・`inStream` を内包で使う印字） |
+| B4 DAE | S290、S312、S325、S330、S332（計測と、名前・数の食い違いの原因）、S337（初期方程式の `der` と状態の数）、S362（レコードの配列の範囲への方程式と、レコードの配列を渡す参照）、S364（左辺が離散の変数の配列の構築子 `{…} = fill(…)` を離散の方程式に）、S367（使われない expandable の欄を未知数にしない・2 次元の部品の配列を通した欄の参照）、S372（配列の構築子の方程式の incidence を行ごとに疎に） |
 | 製品へのつなぎ | S276（アウトライン・折りたたみ）、S279（補完）、S296（定義ジャンプ・ホバー）、S305（`globe check --frontend native`）、S307（閉包だけを読む）、S311（位置）、S313（CLI 以外から選ぶ）、S320（#111・#113〜#116）、S327（#118）、S352（inlay hint）、S354（call hierarchy） |
 | 突き合わせ | S300（`cargo xtask diff-frontend`） |
 
@@ -700,6 +700,14 @@ S297 の見立て（Complex のレコード）は外れで、`Connections.isRoot
   - `CCCV_Stack`・`CCCV_StackRC`: Rumoca の flat が `flatten error: expandable connector connection between busTranscription.gainV.u and busTranscription.stackBus.cellBus.v requires unsupported member augmentation` で断る。`stackBus.cellBus` は宣言済みの expandable の配列で、欄 `v` も宣言済みなので、MLS の読みでは欄を足す接続ではない。自前の DAE は釣り合い（823 対 823・999 対 999）・構造の正則で、Rumoca と比べられない。
 - **持ち越し**: `non-constant-dim` の 4 本（`Rectifier12pulseFFT`・`Rectifier6pulseFFT`・`RealFFT1`・`RealFFT2`）は `realFFTsamplePoints`（アルゴリズムのある関数）の評価が要る。`unsized-array` の 1 本（`ReadRealMatrixFromFile`）は決められない。expandable の欄を足す接続は断ったまま（MSL の例題に出ない）。
 
+## 付記（S369）: 自前の flat・DAE を MSL 以外の公開ライブラリ 2132 本で Rumoca と突き合わせた（上限は実在のモデルを断らなかった）
+
+- **道具**: `cargo xtask diff-frontend` に `--library <dir> --package <根> [--examples-in <段>] [--shard i/n]` を足した（`msl-funnel` と同じ選び方。MSL は一緒に読むだけで、MSL の例題と `GlobeModeValidation` は検査しない）。自前の段の panic は 1 本の行（flat の理由 `panic: …`）にして先へ進み、`too-large` で断った例題は報告に名前と理由を出す。`libraries.yml` の funnel と sim の間のステップ（100 分、`continue-on-error`）で回し、`libraries-report` が表を足す。
+- **結果**（S366 の main、run 43755915341、全ジョブ success）: Buildings 809・AixLib 642・IBPSA 457・ThermofluidStream 122・Chemical 76・DeltaRobot 21・ClaRa 5 の計 2132 本のうち、自前で平らにできたのは 1054 本（DAE にできたのも 1054 本）。**自前の panic は 0 本、S365 の上限（`MAX_ITERS`・`MAX_SCALARS`）による `too-large` も 0 本**。Rumoca も flat まで通った 569 本のうち、変数の名前の集合が一致 565、方程式の数が一致 559、両方が一致 556。Rumoca の釣り合いまで通った 334 本で、釣り合いの判定・方程式と未知数の数が 334、状態の数が 333、構造の正則が 333 一致。
+- **平らにできなかった 1078 本**（先頭の語）: `unsized-array` 371、`expandable` 266、`composite-binding` 141、`inner-outer` 63、`redeclare` 58、`connect-array` 58、`non-constant-dim` 53、`connect` 29、`conditional-component` 22、`unresolved` 10、`stream` 5、`non-constant-for` 1、`break` 1。`expandable`・`composite-binding` は S367 が通した範囲で、この run はその前。上限が実在のモデルを断るかは、S367 の後で回し直して確かめる（持ち越し）。
+- **食い違い 13 本**（Rumoca も flat まで通ったもの。直していない）: `PrescribedOutlet_Water`（Buildings・IBPSA・AixLib で方程式 237 対 242）、`EnthalpyFlowRate`（61 対 63）、`MoistAirEnthalpyFlowRate`（91 対 93。この 2 つも 3 ライブラリ）、AixLib の `VentilationFlowRateSashOpening`・`…SimpleOpening`（Rumoca にだけ `….openingArea.opnWidth_in`）、ThermofluidStream の `Exercise3OttoEngine.BaseModel`・`Exercise4DieselEngine.BaseModel`（自前にだけ `dropOfCommons.assertionLevel`）。DAE は `BoilerPolynomial`（状態 6 対 7）と `WindowSimple`（構造の正則: 自前は特異、Rumoca は正則）。
+- **時間**: diff-frontend は小さなライブラリで 5〜16 s、ThermofluidStream 100 s、IBPSA 189 s、AixLib 295 s、Buildings 3426 s（4 分割。4 分割目の 3080 s のうち 2963 s は Rumoca が 1 本 `GroundTemperature.Examples.CorrectedNFactors` にかけた時間で、funnel も同じ。自前は通り Rumoca と全部一致）。最大 RSS 2.8 GiB（Buildings）。
+
 ## 付記（S370）: flat が Modelica の関数を実行する（断る 5 本 → 1 本、平らにできた 561 → 565）
 
 新しい ADR は立てず、S367 の続きとしてここに足す。変えたのは `globe-mode-flat`（`flatten.rs` の `eval` と、新しい `flatten/fneval.rs`）だけ。S367 のあと自前の flat が断る MSL の例題 5 本のうち、`non-constant-dim` の 4 本（FFT）は `realFFTsamplePoints(…)`（`algorithm` を持つ関数）を実行しないと配列の大きさが決まらない。S367 までは `anyTrue`・`isPowerOf2`・`numberOfSymmetricBaseSystems` を名前で決め打っていた。
@@ -715,3 +723,12 @@ S297 の見立て（Complex のレコード）は外れで、`Connections.isRoot
 - **数字**（MSL の例題 566 本、`mise run msl:diff-frontend` と同じ `diff-frontend`。S367 の全体の検査の JSON との差）: 平らにできた 561 → **565**、DAE にできた 561/561 → **565/565**。Rumoca も通った 532 本（名前 529/532・方程式の数 517/532）と、Rumoca の釣り合いまで通った 382 本（判定 382/382・方程式と未知数の数 381/382・状態 381/382・構造の正則 382/382）は、Rumoca がこの 4 本の flat を通さないので変わらない。`GlobeModeValidation` 75 本も変わらない。**回帰 0 本、改善 4 本**（ほかの 637 本は、フラグも名前・方程式の数の食い違いの一覧も S367 と同じ）。1089 s、最大 RSS 5.3 GiB。
 - **作業の落とし穴**: 共有 target の release の `globe-mode-flat` が別の worktree の古い rlib のままで、新しい評価器が入らずに `diff-frontend` が走った（debug の試験は通るのに release が断る食い違いで見つけた。原因は【未確認】）。全体の検査の前に `src/Rust/mod/*/src/lib.rs` と `xtask/src/main.rs` を `touch -c` して作り直した。
 - **持ち越し**: `unsized-array` の 1 本（`ReadRealMatrixFromFile`。ファイルを読む外部関数の戻り値の大きさ）は決められない。評価器の shortcut（配列は 1 次元・スカラーだけ、結果を覚えない）は必要になったら広げる。
+
+## 付記（S372）: 8 回目のレビューの flat・DAE の issue（#144〜#147）
+
+8 回目のレビュー（S361〜S368）の issue のうち flat と DAE の 4 件を、再現を確かめてから直した（#141〜#143 は [ADR-0023](0023-desktop-and-web-process-layout.md) の付記）。各修正に小さな回帰試験を 1 つ足した（直す前なら落ちることを確かめた）。native の検査（`--frontend native`・LSP で設定したとき）だけに届き、Rumoca の道（既定）は変わらない。
+
+- **#144 `connect` の大きさの食い違い**: 範囲の切り出しの `connect(a[1:3], b[1:2])` は、両辺の長さが違うと先頭の 1 本だけをつないでいた（S367 より前は断っていたので、断る → 黙って別の接続になる向きの変化だった）。長さが違えば `connect`（`differ in size`）で断る。2 次元の部品の配列 `connect(x.p, y.p)`（`x[2,3]`・`y[3,2]`）は全要素数だけを比べて行優先で対応づけていたので、`expand_end` が展開した次元（`[k]` か `[行, 列]`）も返し、`gen_connects` と `split_array_var` が 2 次元どうしの行数・列数まで比べる（1 次元と 2 次元は今までどおり要素数だけ。回帰を避けるため）。
+- **#145 `sum(inStream(f[i].h) for i in 1:3)` の印字**: 内包の `inStream` の展開は項をカンマでつないだだけで、親が `{…}` でないと `sum(a, b, c)`（引数 3 個）になっていた。親が配列の構築子でなければ `{…}` で包む（`sum({a, b, c})`）。方程式の数・DAE の参照は変わらない。
+- **#146 DAE の配列の構築子の方程式が O(n²)**: `y = {x[1]*2, …, x[n]*2}` は、方程式 1 本分の `refs` を行ごとに全部調べ、`Sel::One(j)` の参照がどの行にも付いて incidence が n×n の密になった（n = 4000 で 15 s・RSS 330 MB）。`Ref` に `row: Option<(j, m)>`（方程式の片辺の構築子の `ej` の中なら）を持たせ、方程式の数が `m` のとき行 `j` だけが調べる（`Ctx::elem_rows`。構築子が方程式の片辺・束縛の `0 = ({…})` の直下のときだけ。内包は従来どおり、要素が配列で数が合わないときも従来どおり）。n = 4000 で debug の `build` が 18.8 s → 0.23 s、RSS 327 MB → 14 MB（この机で直す前後を測った。issue は 15 s・330 MB）。incidence が疎になるので正則の判定は厳しくなる向き（`msl:diff-frontend` で回帰 0・改善 0。MSL 566 本の flat 561/566・正則 382/382 のまま）。
+- **#147 範囲の `i += s` の溢れ**: `for i in 9223372036854775800:9223372036854775807` の最後の要素のあとの `i += s` が溢れて debug は panic（#137 の取りこぼし）。`checked_add` で打ち切る。

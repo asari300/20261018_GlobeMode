@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S372 8 回目のレビューの issue #141〜#147 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S372 8 回目のレビューの issue #141〜#147">
+
+<section class="slide" id="S01">
+  <span class="tag">S372 · 2026-11-16 · P4 · Track B</span>
+  <h1>8 回目のレビューの issue 7 件を直した</h1>
+  <p class="lead">UI の参照・リネームの端 3 件（S368）と、native の flat・DAE の 4 件（S361〜S367）。1 件ずつ再現してから直した</p>
+  <div class="big">UI で一番大きいのは、ライブラリのタブを一度開くと <b>宣言と使い方が食い違う</b>リネームが通ったこと</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>7 件の内訳</h1>
+  <table class="compact">
+    <tr><th>#</th><th>重さ</th><th>起きていたこと</th></tr>
+    <tr><td>141</td><td>Should</td><td>ライブラリのタブを開くと、ライブラリで宣言した継承の部品の F2 が断られず、自分のタブだけ書き換わる</td></tr>
+    <tr><td>142</td><td>Should</td><td>同じ名前のクラスを 2 つのタブが定義すると、後ろのタブの使い方が先のタブのものとして書き換わる</td></tr>
+    <tr><td>143</td><td>Should</td><td>構文の誤りで読めないタブの参照を黙って飛ばして、リネームが成功する</td></tr>
+    <tr><td>144</td><td>Should</td><td><code>connect(a[1:3], b[1:2])</code>・2 次元 <code>[2,3]</code> と <code>[3,2]</code> が、黙って別の接続になる</td></tr>
+    <tr><td>145</td><td>Nice</td><td><code>sum(inStream(…) for …)</code> が引数 3 個の式と印字される</td></tr>
+    <tr><td>146</td><td>Nice</td><td>配列の構築子の方程式の DAE が O(n²)（n = 4000 で 15 s・330 MB）</td></tr>
+    <tr><td>147</td><td>Nice</td><td>範囲の <code>i += s</code> が <code>i64::MAX</code> 近くで溢れ、debug は panic</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>UI の 3 件の直し（Rust 側に置いた）</h1>
+  <table class="compact">
+    <tr><th>#</th><th>直し</th></tr>
+    <tr><td>141</td><td><code>Doc</code> に <code>own</code>（編集してよい文書）。ライブラリのタブは false。宣言した文書が own でない部品と、own でない文書からのリネームを断り、<code>changes</code> に入れない</td></tr>
+    <tr><td>142</td><td>文書ごとに <code>Resolver::overlay</code> を立て（<code>at_home</code>）、各文書の名前をまず自分の定義に解決する</td></tr>
+    <tr><td>143</td><td>読めない自分のタブに識別子があれば、そのファイル名を挙げて断る（S230 のディスクの守りに合わせる）</td></tr>
+  </table>
+  <p>別のクライアント（VS Code など）にも効くよう、守りは UI でなく <code>rename_in</code> に置いた</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由</span>
+  <h1>#142 は issue の案から形を変えた</h1>
+  <div class="cols-2">
+    <div class="card">
+      <h3>issue の案</h3>
+      <p>同名のクラスを最上位に定義する別の文書は、使用として数えず飛ばす</p>
+      <p>B の <code>Base</code> を変えたとき、B 自身の <code>Base b;</code> が A に解決されて落ちる（3 つ目の症状）</p>
+    </div>
+    <div class="card">
+      <h3>採った形</h3>
+      <p>各文書の名前を、まずその文書自身の定義に解決する</p>
+      <p>A の <code>Base</code> と B の <code>Base</code> が別々のクラスとして数えられ、3 つの症状とも直る</p>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">図</span>
+  <h1>リネームが見る文書</h1>
+  <svg class="fig" viewBox="0 0 800 260" role="img" aria-label="rename_in が文書を選ぶ流れ">
+    <rect class="svg-box-accent" x="20" y="90" width="170" height="80" rx="10"/>
+    <text class="svg-text-b" x="105" y="125" text-anchor="middle">開いている文書</text>
+    <text class="svg-text" x="105" y="148" text-anchor="middle">docs（own つき）</text>
+    <line class="svg-line" x1="190" y1="130" x2="260" y2="130"/>
+    <rect class="svg-box" x="260" y="90" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="360" y="125" text-anchor="middle">at_home</text>
+    <text class="svg-text" x="360" y="148" text-anchor="middle">文書ごとに自分の定義へ</text>
+    <line class="svg-line" x1="460" y1="130" x2="530" y2="130"/>
+    <rect class="svg-box" x="530" y="90" width="250" height="80" rx="10"/>
+    <text class="svg-text-b" x="655" y="125" text-anchor="middle">changes</text>
+    <text class="svg-text" x="655" y="148" text-anchor="middle">own の文書だけ</text>
+    <text class="svg-text" x="400" y="215" text-anchor="middle">読めない own の文書に名前があれば断る</text>
+  </svg>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">決定と理由</span>
+  <h1>flat・DAE の 4 件</h1>
+  <table class="compact">
+    <tr><th>#</th><th>直し</th></tr>
+    <tr><td>144</td><td>長さが違えば <code>connect</code>（differ in size）で断る。<code>expand_end</code> が次元も返し、2 次元どうしは行数・列数まで比べる</td></tr>
+    <tr><td>145</td><td>親が配列の構築子でなければ <code>{…}</code> で包む（<code>sum({a, b, c})</code>）</td></tr>
+    <tr><td>146</td><td><code>Ref</code> に <code>row</code>（構築子の何番目の要素か）を持たせ、行 j だけが調べる。0.2 s・14 MB（debug）</td></tr>
+    <tr><td>147</td><td><code>checked_add</code> で打ち切る</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">再現手順</span>
+  <h1>検証</h1>
+  <pre><code>cargo test -p globe-mode-lsp -p globe-mode-wasm -p globe-mode-flat -p globe-mode-dae
+node src/Rust/mod/globe-mode-wasm/node/smoke.mjs
+uv run python src/Svelte/tests/test_ui.py   # 2 タブの試験
+flock &lt;lock&gt; xtask-s372 diff-frontend --baseline-json frontend-diff-s367.json</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">0</span><span class="l">回帰（MSL 566 本・全体の検査）</span></div>
+    <div class="kpi"><span class="n">7</span><span class="l">追加した回帰試験（直す前は落ちる）</span></div>
+    <div class="kpi"><span class="n">18.8 s → 0.23 s</span><span class="l">#146（n = 4000、debug）</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S08">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>同じ名前のクラスを定義しない 3 つ目のタブの使い方は、ファイル名順の先に寄る（定義ジャンプと同じ。断りは足していない）</li>
+    <li>参照の一覧は、構文の誤りで読めないタブを黙って飛ばす（リネームは断る）</li>
+    <li>UI の実機（Desktop・Android）でのライブラリのタブの確認はしていない（wasm と LSP で確かめた）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

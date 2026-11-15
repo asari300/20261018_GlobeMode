@@ -2027,6 +2027,11 @@ impl F<'_> {
             let (Some(var), Some(range), Some(body)) = (var, range, body) else {
                 return un("stream", c.syntax().text().to_string());
             };
+            // 親が `{…}` でない（`sum(inStream(f[i].h) for i in 1:3)`）ときは、並べた項を `{…}` で包んで引数 1 つの配列にする（S372）
+            let braces = c.syntax().parent().is_none_or(|p| p.kind() != K::ArrayExpr);
+            if braces {
+                out.push("{".to_string());
+            }
             for (k, v) in self.range_vals(&range, file, ctx)?.into_iter().enumerate() {
                 let mut locals = ctx.locals.clone();
                 locals.push((var.clone(), v));
@@ -2041,6 +2046,9 @@ impl F<'_> {
                     out.push(",".to_string());
                 }
                 self.pr(body.syntax(), file, &lctx, out)?;
+            }
+            if braces {
+                out.push("}".to_string());
             }
             return Ok(());
         }
@@ -3185,12 +3193,18 @@ impl F<'_> {
                         };
                         let (xs, ys) =
                             (self.conn_ends(x, file, ctx)?, self.conn_ends(y, file, ctx)?);
-                        // 範囲の切り出し `a[n:-1:1]`・`b[1:n]` は要素ごとの接続にする（大きさが合わなければそのまま断る。S367）
-                        let n = if xs.len() == ys.len() { xs.len() } else { 1 };
-                        for k in 0..n {
-                            let pick =
-                                |v: &[String]| v.get(k).or(v.first()).cloned().unwrap_or_default();
-                            let (x, y) = (pick(&xs), pick(&ys));
+                        // 範囲の切り出し `a[n:-1:1]`・`b[1:n]` は要素ごとの接続にする。大きさが合わなければ断る（先頭の 1 本だけつなぐと誤りが別の接続になる。S372）
+                        if xs.len() != ys.len() {
+                            return un(
+                                "connect",
+                                format!(
+                                    "{} and {} differ in size",
+                                    x.syntax().text(),
+                                    y.syntax().text()
+                                ),
+                            );
+                        }
+                        for (x, y) in xs.into_iter().zip(ys) {
                             let (x, y) =
                                 (self.bridge_end(&ctx.pfx, x), self.bridge_end(&ctx.pfx, y));
                             if !(self.is_removed(&x) || self.is_removed(&y)) {
@@ -3559,7 +3573,11 @@ impl F<'_> {
                 let mut i = a;
                 while (s > 0 && i <= b) || (s < 0 && i >= b) {
                     out.push(i);
-                    i += s;
+                    // 終わりが `i64::MAX` 近くだと最後の要素のあとの `i += s` が溢れる（debug は panic。S372）
+                    let Some(next) = i.checked_add(s) else {
+                        break;
+                    };
+                    i = next;
                     if out.len() > 100_000 {
                         return un("too-large", "for range");
                     }
@@ -3818,9 +3836,10 @@ impl F<'_> {
 
     /// 配列のコネクタ・部品の配列を通した端 `a.b.p`（`a.b` が部品の配列）を、要素ごとの名前 `a.b[1].p`, `a.b[2].p` … にする（S324）。
     /// 葉が引けるならそのまま 1 本。配列の添字は 1 つの次元だけ（`[i, j]` は展開しない）
-    fn expand_end(&self, n: &str, depth: u32) -> Vec<String> {
+    /// 2 つ目は展開した配列の次元（`[k]` は `[k]`、`[i, j]` は `[行, 列]`。展開しなければ空。大きさの比べに使う。S372）
+    fn expand_end(&self, n: &str, depth: u32) -> (Vec<String>, Vec<usize>) {
         if !self.leaves(n).is_empty() || depth > 3 {
-            return vec![n.to_string()];
+            return (vec![n.to_string()], vec![]);
         }
         let cuts = n
             .match_indices('.')
@@ -3831,14 +3850,15 @@ impl F<'_> {
                 continue;
             }
             let at = |ix: &str| format!("{}[{ix}]{}", &n[..i], &n[i..]);
-            let ends = |ix: &str| self.expand_end(&at(ix), depth + 1);
+            let ends = |ix: &str| self.expand_end(&at(ix), depth + 1).0;
             let live = |v: &[String]| v.iter().all(|x| !self.leaves(x).is_empty());
             if !ends("1").iter().all(|x| self.leaves(x).is_empty()) {
-                return (1..=MAX_VARS)
+                let rows: Vec<Vec<String>> = (1..=MAX_VARS)
                     .map(|k| ends(&k.to_string()))
                     .take_while(|v| live(v))
-                    .flatten()
                     .collect();
+                let dims = vec![rows.len()];
+                return (rows.into_iter().flatten().collect(), dims);
             }
             // 2 次元の配列 `cell[Ns, Np]`（行ごと）。大きさは `[1,1]` から添字を延ばして数える（S367）
             if !ends("1,1").iter().all(|x| self.leaves(x).is_empty()) {
@@ -3846,18 +3866,20 @@ impl F<'_> {
                     (1..=MAX_VARS).take_while(|&k| live(&ends(&f(k)))).count()
                 };
                 let (a, b) = (count(&|k| format!("{k},1")), count(&|k| format!("1,{k}")));
-                return (1..=a)
+                let names = (1..=a)
                     .flat_map(|x| (1..=b).map(move |y| format!("{x},{y}")))
                     .take(MAX_VARS)
                     .flat_map(|ix| ends(&ix))
                     .collect();
+                return (names, vec![a, b]);
             }
         }
-        vec![n.to_string()]
+        (vec![n.to_string()], vec![])
     }
 
     /// 端が 1 つの配列の変数 `i[m]` で、相手が `m` 個の要素なら、`i[1]` … `i[m]` にする
-    fn split_array_var(&self, x: &[String], n: usize) -> Option<Vec<String>> {
+    /// `other` は相手の展開した次元（2 次元どうしは行数・列数も合うこと。S372）
+    fn split_array_var(&self, x: &[String], n: usize, other: &[usize]) -> Option<Vec<String>> {
         let [x] = x else { return None };
         let [(sf, vi, _)] = self.leaves(x).try_into().ok()?;
         let d = &self.vars[vi].dims;
@@ -3866,7 +3888,8 @@ impl F<'_> {
             && sf.is_empty()
             && !x.ends_with(']')
             && matches!(d.len(), 1 | 2)
-            && d.iter().product::<usize>() == n)
+            && d.iter().product::<usize>() == n
+            && (other.len() != 2 || d.len() != 2 || d == other))
             .then(|| {
                 idx_names(d)
                     .into_iter()
@@ -3938,14 +3961,15 @@ impl F<'_> {
                 deferred.push((a.clone(), b.clone()));
                 continue;
             }
-            let (mut xa, mut xb) = (self.expand_end(a, 0), self.expand_end(b, 0));
+            let ((mut xa, da), (mut xb, db)) = (self.expand_end(a, 0), self.expand_end(b, 0));
             // 片方が部品の配列の要素ごとの端で、もう片方が配列の変数 1 つ（`connect(sensor.i, i)`、`i[m]`）なら、変数を要素にする
-            if let Some(v) = self.split_array_var(&xa, xb.len()) {
+            if let Some(v) = self.split_array_var(&xa, xb.len(), &db) {
                 xa = v;
-            } else if let Some(v) = self.split_array_var(&xb, xa.len()) {
+            } else if let Some(v) = self.split_array_var(&xb, xa.len(), &da) {
                 xb = v;
             }
-            if xa.len() != xb.len() {
+            // 2 次元どうしは（行数, 列数）まで合わせる（全要素数だけでは `[2,3]` と `[3,2]` が通り、行優先で黙って対応づく。S372）
+            if xa.len() != xb.len() || (da.len() == 2 && db.len() == 2 && da != db) {
                 return un("connect", format!("{a} and {b} differ in size"));
             }
             flags.extend(std::iter::repeat_n(*f, xa.len()));
@@ -4655,5 +4679,19 @@ mod tests {
             kind("Real x[6]; equation {1 for i in 1:2, j in 1:3} = x;"),
             None
         );
+    }
+
+    #[test]
+    fn range_ending_at_i64_max_does_not_overflow() {
+        // #147: 終わりが `i64::MAX` に近い範囲は、最後の要素のあとの `i += s` が溢れて debug は panic だった（release は巻き戻って 10 万個の `too-large`）
+        let src = "model M Real x[2]; equation
+            for i in 9223372036854775800:9223372036854775807 loop x[1] = 1; end for;
+            x[2] = 2; end M;";
+        let m = Project::from_sources([("t.mo", src)]).flatten("M").unwrap();
+        assert_eq!(m.equation_count(), 9);
+        // 刻みが大きくて越える `a:s:b` も同じ
+        let src = "model M Real x; equation for i in 1:4611686018427387904:9223372036854775807 loop x = 1; end for; end M;";
+        let m = Project::from_sources([("t.mo", src)]).flatten("M").unwrap();
+        assert_eq!(m.equation_count(), 2);
     }
 }

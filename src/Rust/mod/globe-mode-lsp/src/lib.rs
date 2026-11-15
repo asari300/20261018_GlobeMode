@@ -510,7 +510,12 @@ impl Server {
                 let mut docs: Vec<definition::Doc> = self
                     .texts
                     .iter()
-                    .map(|(u, text)| definition::Doc { key: u.clone(), path: uri_path(u), text: text.clone() })
+                    .map(|(u, text)| {
+                        let path = uri_path(u);
+                        // S372: ライブラリのファイルを開いたタブ（`globe/librarySource` の `file`）は自分の文書でない
+                        let own = !in_library(&path, self.root.as_deref(), &self.libraries);
+                        definition::Doc { key: u.clone(), path, text: text.clone(), own }
+                    })
                     .collect();
                 docs.sort_by(|a, b| a.key.cmp(&b.key)); // 応答の順を決める
                 let Some(cur) = docs.iter().position(|d| d.key == file) else {
@@ -1809,6 +1814,12 @@ fn text_edits(text: &str, ranges: &[TextRange], new_name: &str) -> Value {
     )
 }
 
+/// `p` が `-L` の下で、ワークスペースの根の下でないファイルか（S235。S372 から `globe/rename` の自分の文書の判定にも使う）。
+fn in_library(p: &str, root: Option<&std::path::Path>, libs: &[PathBuf]) -> bool {
+    let p = std::path::Path::new(p);
+    libs.iter().any(|l| p.starts_with(l)) && !root.is_some_and(|d| p.starts_with(d))
+}
+
 /// 部品の定義元が（根の下でない）ライブラリのファイルなら、リネームを断る理由（S235）。`disk` は (根, ライブラリ, 開いている文書)。
 fn component_rename_blocked(
     t: &definition::Target,
@@ -1817,8 +1828,7 @@ fn component_rename_blocked(
     let Some((root, libs, _)) = disk else {
         return Ok(());
     };
-    let p = std::path::Path::new(&t.path);
-    if libs.iter().any(|l| p.starts_with(l)) && !root.as_deref().is_some_and(|d| p.starts_with(d)) {
+    if in_library(&t.path, root.as_deref(), libs) {
         return Err(format!(
             "部品はライブラリのファイル（{}）で宣言されていて、リネームできない",
             t.path
@@ -3668,6 +3678,62 @@ model T\n  Real x;\n  Real y[2];\nequation\n  x = sin(time) + nope(1) + Lib.nope
             "{refs}"
         );
         assert_eq!(at(&mut s, "globe/rename")["error"]["code"], -32803); // 別のファイルで定義されたクラス
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// S372 (#141): UI がライブラリのファイル（`-L` の下）をタブで開いて didOpen しても、そこで宣言した継承の部品の `globe/rename` は断る
+    /// （自分のタブだけが書き換わって宣言と食い違わない）。参照には出る。ライブラリのタブからのリネームも断る。
+    #[test]
+    fn globe_rename_refuses_a_component_declared_in_an_open_library_tab() {
+        let dir = scratch_dir("ui-library-tab");
+        let lib = dir.join("Lib");
+        std::fs::create_dir_all(&lib).unwrap();
+        let (file, text) = (
+            lib.join("package.mo"),
+            "package Lib\n  partial model SISO\n    Real u;\n  end SISO;\nend Lib;\n",
+        );
+        std::fs::write(&file, text).unwrap();
+        let mut s = Server::new(std::slice::from_ref(&dir)).unwrap();
+        let open = |s: &mut Server, uri: &str, text: &str| {
+            s.handle(
+                json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+                "uri": uri, "languageId": "modelica", "version": 1, "text": text}}}),
+            );
+        };
+        open(
+            &mut s,
+            "T.mo",
+            "model T\n  extends Lib.SISO;\nequation\n  u = 1;\nend T;\n",
+        );
+        let ask = |s: &mut Server, m: &str, f: &str, line: u32, ch: u32| {
+            s.handle(json!({"id": 1, "method": m, "params": {"file": f, "line": line, "character": ch, "newName": "v"}})).remove(0)
+        };
+        assert_eq!(
+            ask(&mut s, "globe/rename", "T.mo", 3, 2)["error"]["code"],
+            -32803
+        ); // ライブラリのタブを開く前から断る
+        let name = file.display().to_string(); // `globe/librarySource` の `file`
+        open(&mut s, &name, text);
+        let e = ask(&mut s, "globe/rename", "T.mo", 3, 2);
+        assert_eq!(e["error"]["code"], -32803, "{e}");
+        assert!(
+            e["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("ライブラリのファイル"),
+            "{e}"
+        );
+        assert_eq!(
+            ask(&mut s, "globe/references", "T.mo", 3, 2)["result"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        assert_eq!(
+            ask(&mut s, "globe/rename", &name, 2, 9)["error"]["code"],
+            -32803
+        ); // ライブラリのタブの上から
         let _ = std::fs::remove_dir_all(&dir);
     }
 

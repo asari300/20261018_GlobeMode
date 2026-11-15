@@ -36,6 +36,7 @@ console の error（CSP の違反を含む）と、配った origin の外への
 S196（レビューの指摘）: Desktop（偽の window.__TAURI__）で同じ名前の別のファイルが別のタブになり保存が取り違えない。ライブラリのタブは読み取り専用（打てず案内が出る。整形・リネームは断る）。タブを切り替えるとリネームの入力欄・参照の一覧・最後の値が残らない。実行中は F12 に入らず進捗の行は role を持たない。自動保存は遅らせても離れる前に書き、書けなければ 1 文出す。別のウィンドウの保存を知らせる。Tab は補完の一覧が開いていれば確定。Modelica.Units.SI.Vol で Voltage が出る（一覧が 200 件で切れていても問い直す）。
 複数のソルバの結果（S348）: Decay を bdf・dopri45・rk4 で、比較 on・閾値 10^-6 で回し、実行の表 3 行・比較の表 2 行（基準 bdf）・合否・最大の相対差が出て、並列を頼むと 1 つずつに落ちた注記が出る。設定欄の名前が入力欄から泣き別れず、横にはみ出さない。環境変数 GM_UI_SHOT に PNG のパスを渡すと結果の画面を撮る。
 参照・リネーム（S368）: 開いているタブの全部に届く（A.mo の Base の Shift+F12 に B.mo の行が出て押すとそのタブへ、F2 で B.mo も変わり B.mo の Ctrl+Z で戻る）。
+参照・リネームの端（S372）: 同じ名前のクラスを定義する 2 タブは互いに触れない（A.mo の Base の一覧に B.mo の行が出ず、F2 で B.mo は変わらない）。構文の誤りで読めないタブに Base があると、F2 はそのタブの名前を挙げて断り、入力欄を出さない。
 配置のずれ（S363）: 検査の終わり（ソルバ・パラメータの一覧が wasm から後で届く）とタブの切り替え（モデルの候補）のあと、タブ列の上端が動かない（±1 px。1280・740・390 px 幅）。動くと押す直前に別の場所を押す。
 """
 
@@ -1656,6 +1657,65 @@ def cross_file_refs(browser, origin: str, errors: list[str]) -> None:
     print("参照・リネームの 2 タブ（S368）: A.mo の Base の Shift+F12 で B.mo の行も出て押すとそのタブへ移り、F2 で Core に変えると B.mo も変わって B.mo の Ctrl+Z で戻る")
 
 
+def cross_file_refs_edges(browser, origin: str, errors: list[str]) -> None:
+    """S372: 同じ名前のクラスを 2 つのタブが定義していても（コピーして試す）、A.mo の `Base` の参照・リネームは B.mo の自分の `Base` に触れない（#142）。
+    構文の誤りで読めないタブに `Base` があれば、リネームは理由（そのタブの名前）を出して断り、どのタブも変わらない（#143）。"""
+    a = "model Base\n  Real x;\nend Base;\nmodel UseA\n  Base b;\nend UseA;\n"
+    b = "model Base\n  Real y;\nend Base;\nmodel UseB\n  Base b;\nend UseB;\n"
+    broken = "model UseC\n  Base b;\n  Real y\nend UseC;\n"
+    pg = browser.new_page()
+    pg.on("console", lambda m: m.type == "error" and errors.append(m.text))
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(origin)
+    pg.get_by_role("button", name="検査").wait_for()
+
+    def open_tab(name: str, body: str) -> None:
+        with pg.expect_file_chooser() as ch:
+            pg.get_by_role("button", name="開く").click(force=True)
+        ch.value.set_files(files=[{"name": name, "mimeType": "text/plain", "buffer": body.encode()}])
+        expect(pg.locator("[role=tab][aria-selected=true]")).to_contain_text(name, timeout=30_000)
+
+    tab = lambda name: pg.locator("[role=tab]", has_text=name)
+    content = pg.locator(".cm-content")
+
+    def on_base() -> None:
+        content.focus()
+        pg.keyboard.press("Control+Home")
+        pg.keyboard.press("End")  # `model Base` の Base の後ろ
+
+    def rename(to: str) -> None:
+        on_base()
+        pg.keyboard.press("F2")
+        name = pg.get_by_label("新しい名前")
+        name.fill(to)
+        name.press("Enter")
+
+    open_tab("A.mo", a)
+    open_tab("B.mo", b)
+    tab("A.mo").click()
+    on_base()
+    pg.keyboard.press("Shift+F12")
+    refs = pg.locator("table.refs tr")
+    expect(refs).to_have_count(3, timeout=30_000)  # A.mo の宣言・end・`Base b;` だけ（B.mo の行は無い）
+    assert not any("B.mo" in r for r in refs.all_inner_texts()), refs.all_inner_texts()  # 今のタブの行にはファイル名の列が無い。別のタブの行（B.mo）は出ない
+    pg.get_by_role("button", name="参照を閉じる").click()
+    rename("Core")
+    expect(content).to_contain_text("end Core;", timeout=30_000)
+    assert "Core b;" in content.inner_text()
+    tab("B.mo").click()
+    assert content.inner_text().count("Base") == 3 and "Core" not in content.inner_text(), content.inner_text()  # B 自身の Base は変わらない
+    open_tab("C.mo", broken)
+    tab("B.mo").click()
+    on_base()
+    pg.keyboard.press("F2")
+    alert = pg.get_by_role("alert")
+    expect(alert).to_contain_text("C.mo", timeout=30_000)
+    assert "構文" in alert.inner_text() and pg.get_by_label("新しい名前").count() == 0, alert.inner_text()
+    assert content.inner_text().count("Base") == 3, content.inner_text()
+    pg.close()
+    print("参照・リネームの端（S372）: 同名のクラスを定義する 2 タブは互いに触れず、構文の誤りで読めないタブに名前があるとリネームは理由つきで断る")
+
+
 def main() -> int:
     # 色付けの予約語は Rust の KEYWORDS と同じ並び（S163。editor.ts の KEYWORDS は補完と色付けの共通の一覧）
     ts_kw = re.findall(r'"(\w+)"', re.search(r"export const KEYWORDS = \[(.*?)\];", (SRC / "Svelte/src/lib/editor.ts").read_text(), re.S).group(1))
@@ -2838,6 +2898,7 @@ def main() -> int:
         check_frontend_select(browser, origin, errors)  # S347
         layout_shift(browser, origin, errors)  # S363
         cross_file_refs(browser, origin, errors)  # S368
+        cross_file_refs_edges(browser, origin, errors)  # S372
         results_followups(browser, origin, errors)  # S236
         print("エディタの Tab: 空白 2 つの字下げ（選択した 2 行も）と Shift+Tab、補完の一覧が開いていれば確定・閉じていれば字下げ、Esc のあと Tab・Shift+Tab と Ctrl+M で外へ、説明は aria-describedby と画面に")
         print("キーボードだけ: モデル名・エディタへ Tab、Ctrl+Shift+Enter で検査、診断と参照の行を Tab・Enter・Space でエディタへ、Ctrl+Enter で実行（プロットの aria-label に信号名と時間の範囲）、Ctrl+. で止め、Ctrl+S で保存")

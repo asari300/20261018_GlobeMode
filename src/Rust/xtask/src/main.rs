@@ -7,7 +7,7 @@
 //! cargo xtask fetch-rumoca     Rumoca の CLI（v0.10.2、Linux x86_64）を data/rumoca/ に取得する
 //! cargo xtask msl-compare      MSL の例題で globe check と Rumoca の CLI を突き合わせる
 //! cargo xtask msl-funnel       MSL の全例題（566 本）に globe check の判定を出し、報告を書く
-//! cargo xtask diff-frontend    自前の段（parse → resolve → flat → dae）と Rumoca を MSL の例題で突き合わせ、報告を書く（S300）
+//! cargo xtask diff-frontend    自前の段（parse → resolve → flat → dae）と Rumoca を MSL の例題（`--library` で公開ライブラリの例題も）で突き合わせ、報告を書く（S300・S369）
 //! cargo xtask omc-compare      msl-funnel の結果（--json）を omc（OpenModelica、別プロセス）と突き合わせ、報告を書く
 //! cargo xtask fetch-msl-ref    MAP-LIB の参照結果（MSL 4.1.0、commit 固定）を data/msl-ref/ に取得する
 //! cargo xtask msl-sim          msl-funnel で OK の例題を実行し（別プロセスのワーカー）、参照結果と管で比べ、報告を書く
@@ -181,6 +181,18 @@ enum Cmd {
         /// GlobeModeValidation のあるライブラリのディレクトリ
         #[arg(long, default_value = "src/Modelica")]
         validation: PathBuf,
+        /// MSL のほかに読むライブラリのディレクトリ（何度でも。`msl-funnel --library` と同じ。S369）
+        #[arg(long = "library")]
+        libraries: Vec<PathBuf>,
+        /// 例題を集めるライブラリの根のパッケージ名（`Modelica` なら MSL の例題と GlobeModeValidation。MSL 以外なら、そのライブラリの例題だけ）
+        #[arg(long, default_value = "Modelica")]
+        package: String,
+        /// 例題を含むパッケージの名前（何度でも。既定 `Examples`。`Scenarios`・`Tests` など）
+        #[arg(long = "examples-in", default_value = "Examples")]
+        example_segments: Vec<String>,
+        /// 例題を n 組に分けた i 組目（`i/n`、1 始まり）だけを検査する。--filter の後、--limit の前に当てる
+        #[arg(long)]
+        shard: Option<String>,
         /// 名前にこの文字列を含むものだけを検査する
         #[arg(long)]
         filter: Option<String>,
@@ -412,6 +424,10 @@ fn main() -> ExitCode {
         Cmd::DiffFrontend {
             msl,
             validation,
+            libraries,
+            package,
+            example_segments,
+            shard,
             filter,
             limit,
             report,
@@ -423,6 +439,10 @@ fn main() -> ExitCode {
         } => diff_frontend::diff_frontend(&diff_frontend::Options {
             msl: &msl,
             validation: &validation,
+            libraries: &libraries,
+            package: &package,
+            example_segments: &example_segments,
+            shard: shard.as_deref(),
             filter: filter.as_deref(),
             classes: class.as_deref(),
             dump,
