@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S367 expandable と配列の束縛 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S367 expandable と配列の束縛">
+
+<section class="slide" id="S01">
+  <span class="tag">S367 · 2026-11-16 · Track B</span>
+  <h1>flat が断る 18 本のうち 13 本を平らにした</h1>
+  <p class="lead">多い順に <b>expandable connector</b> の 5 本と、<b>レコードの配列の束縛</b>（<code>composite-binding</code>）の 6 本から</p>
+  <div class="big">平らにできた <b>548 → 561</b> / 566。回帰 <b>0</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">expandable</span>
+  <h1>宣言済みの欄は変数に残し、使われない集合は等式を作らない</h1>
+  <ul>
+    <li>Rumoca の flat も、つながっていない欄（<code>controlBus.realSignal2</code>）を変数に残す。名前の集合が一致する</li>
+    <li>端がすべて宣言済みの欄で、ほかの方程式・束縛から読まれない集合は等式を作らない（MLS 9.1.3）。階層ごとの集合は端の共有で全体の集合に束ねてから決める</li>
+    <li>等式を作った集合に入らない欄は <code>unused_expandable</code>。DAE は未知数にしない（Rumoca の <code>UnusedExpandable</code>）</li>
+    <li>宣言していない欄への接続は断る（Rumoca も断る）</li>
+    <li><code>BusUsage</code>・<code>Part</code>・<code>CCCV_Cell</code>・<code>OneAxis</code>・<code>FullRobot</code> の 5 本が、名前・方程式の数・判定・数・状態・正則まで一致</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">composite-binding</span>
+  <h1>6 つの原因を 1 つずつ</h1>
+  <ul>
+    <li><code>rcData[n] = cellData</code> は要素ごとに <code>.rcData[k]</code> の欄として束縛。<code>nRC</code> の束縛が 2 段の <code>r = other</code> でも、鎖をたどって評価</li>
+    <li><code>kDegraded[i, 1]</code>（parameter の配列の要素）と <code>anyTrue</code> を評価して、<code>CCCV_Stack</code> の劣化セルの <code>if</code> を選ぶ</li>
+    <li><code>cell[Ns, Np](cellData = stackData.cellData)</code> は配列への参照なので要素ごとに <code>[i,j]</code> を付ける</li>
+    <li>2 次元の部品の配列の <code>connect</code>（<code>cell.cellBus</code> ↔ <code>stackBus.cellBus</code>）と、DAE の <code>port_a.T</code> を行ごとに展開</li>
+    <li>余力で <code>PolyphaseRectifier</code>（<code>isPowerOf2</code>）と <code>HeatExchangerSimulation</code>（<code>heatPorts[n:-1:1]</code> の接続）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">数字</span>
+  <h1>MSL の例題 566 本（S365 → S367）</h1>
+  <div class="kpis">
+    <div class="kpi"><span class="n">561 / 566</span><span class="l">平らにできた（前 548）</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">回帰</span></div>
+    <div class="kpi"><span class="n">13</span><span class="l">改善</span></div>
+  </div>
+  <p>Rumoca も通った 532 本で名前 529・方程式の数 517、釣り合いまで通った 382 本で判定 382 / 382・数 381・状態 381・構造の正則 382 / 382（前 377）。1332 s、最大 RSS 5.8 GiB</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>断る残りは <code>non-constant-dim</code> 4 本（FFT。<code>realFFTsamplePoints</code> の評価に関数の評価器が要る）と <code>unsized-array</code> 1 本（ファイルを読む関数。決められない）</li>
+    <li>方程式の数が合わない <code>CCCVcharging</code>・<code>CCCV_CellRC</code> は Rumoca が <code>resistor[cellData.nRC]</code> を展開しないため（自前は 2 要素。直さない）</li>
+    <li><code>CCCV_Stack</code>・<code>CCCV_StackRC</code> は Rumoca の flat が通らない（<code>stackBus.cellBus.v</code> への接続を欄を足す接続と見る）</li>
+  </ul>
+  <p class="foot">GlobeMode S367</p>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

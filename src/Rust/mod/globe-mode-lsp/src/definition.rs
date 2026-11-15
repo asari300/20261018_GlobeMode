@@ -779,15 +779,152 @@ pub fn references(r: &mut Resolver, path: &str, text: &str, at: usize) -> Vec<Te
     component_refs(ws.outline(path).and_then(|o| o.as_ref().ok()), text, at)
 }
 
-/// UI 向けの参照（S161・S166。wasm と `globe/references` が使う）。`references` の範囲を LSP の Range の配列にする。
-pub fn references_at(r: &mut Resolver, path: &str, text: &str, line: u32, character: u32) -> Value {
-    let at = crate::offset(text, Position::new(line, character));
+/// UI の参照・リネームが見る文書（S368）。`key` は応答に書く名前（wasm はファイル名、LSP は URI）、`path` はワークスペースでの名前。
+#[derive(Debug, Clone)]
+pub struct Doc {
+    pub key: String,
+    pub path: String,
+    pub text: String,
+}
+
+/// 部品 `t`（字面 `name`）に行き着く識別子を、`docs` の全部から集める（S235 の `component_hits` を文書ごとに）。
+fn component_hits_in(
+    r: &mut Resolver,
+    docs: &[Doc],
+    name: &str,
+    t: &Target,
+) -> Vec<(usize, TextRange)> {
+    let mut out = Vec::new();
+    for (i, d) in docs.iter().enumerate() {
+        out.extend(
+            component_hits(r, &d.path, &d.text, name, t)
+                .into_iter()
+                .map(|x| (i, x)),
+        );
+    }
+    out
+}
+
+/// 参照の範囲を `docs`（`docs[cur]` のカーソル位置 `at`）の全部に広げる（S368）。規則は `textDocument/references`（S166・S235）と同じ:
+/// 部品は継承した先と `b.x` も、クラス名は同じクラスに行き着く全部、import の別名は `cur` の文書の中だけ。
+/// 範囲は `(docs の番号, 範囲)`。
+pub fn references_in(
+    r: &mut Resolver,
+    docs: &[Doc],
+    cur: usize,
+    at: usize,
+) -> Vec<(usize, TextRange)> {
+    let d = &docs[cur];
+    if let Some((rg, t)) = component_name_at(r, &d.path, &d.text, at) {
+        let name = d.text[rg.start as usize..rg.end as usize].to_string();
+        return component_hits_in(r, docs, &name, &t);
+    }
+    let mut out: Vec<_> = references(r, &d.path, &d.text, at)
+        .into_iter()
+        .map(|x| (cur, x))
+        .collect();
+    if let Some((name, t)) = class_name_at(r, &d.path, &d.text, at) {
+        for (i, o) in docs.iter().enumerate().filter(|(i, _)| *i != cur) {
+            out.extend(
+                class_hits(r, &o.path, &o.text, &name, &t)
+                    .into_iter()
+                    .map(|x| (i, x)),
+            );
+        }
+    }
+    out
+}
+
+/// リネームの範囲を `docs` の全部に広げる（S368）。規則は `textDocument/rename`（S166・S235）と同じ: 受けるのは `rename` が受けるものと、
+/// 継承した先・`b.x` も含む部品（宣言したファイルが `docs` の中にあるとき。ライブラリのファイルで宣言された部品は断る）。
+/// クラスは、その文書で定義したものだけ（別の文書で定義したクラスは `rename` が断る）で、ほかの文書の同じクラスへの参照も入る。
+pub fn rename_in(
+    r: &mut Resolver,
+    docs: &[Doc],
+    cur: usize,
+    at: usize,
+    new_name: &str,
+) -> Result<Vec<(usize, TextRange)>, String> {
+    let d = &docs[cur];
+    if let Some((rg, t)) = component_name_at(r, &d.path, &d.text, at) {
+        let name = d.text[rg.start as usize..rg.end as usize].to_string();
+        let key = crate::same_path_key(&t.path);
+        if !docs.iter().any(|o| crate::same_path_key(&o.path) == key) {
+            return Err(format!(
+                "部品はライブラリのファイル（{}）で宣言されていて、リネームできない",
+                t.path
+            ));
+        }
+        check_component_name(r, &t, &name, new_name)?;
+        let hits = component_hits_in(r, docs, &name, &t);
+        return if hits.is_empty() {
+            Err(
+                "カーソルが識別子の上にない（コメント・文字列の中、または字句に分けられない本文）"
+                    .into(),
+            )
+        } else {
+            Ok(hits)
+        };
+    }
+    let mut out: Vec<_> = rename(r, &d.path, &d.text, at, new_name)?
+        .into_iter()
+        .map(|x| (cur, x))
+        .collect();
+    if let Some((name, t)) = class_name_at(r, &d.path, &d.text, at) {
+        for (i, o) in docs.iter().enumerate().filter(|(i, _)| *i != cur) {
+            out.extend(
+                class_hits(r, &o.path, &o.text, &name, &t)
+                    .into_iter()
+                    .map(|x| (i, x)),
+            );
+        }
+    }
+    Ok(out)
+}
+
+/// 行・列（UTF-16）→ バイトの位置（wasm が `library_references` に渡す）。
+pub fn offset_of(text: &str, line: u32, character: u32) -> usize {
+    crate::offset(text, Position::new(line, character))
+}
+
+/// UI 向けの参照（S161・S166・S368。wasm と `globe/references` が使う）。`docs` 全部の中の参照を LSP の `Location`（`{uri, range}`。`uri` は `Doc::key`）の配列にする。
+pub fn references_at(
+    r: &mut Resolver,
+    docs: &[Doc],
+    cur: usize,
+    line: u32,
+    character: u32,
+) -> Value {
+    let at = crate::offset(&docs[cur].text, Position::new(line, character));
     json!(
-        references(r, path, text, at)
+        references_in(r, docs, cur, at)
             .into_iter()
-            .map(|x| crate::range(text, x))
+            .map(|(i, x)| json!({"uri": docs[i].key, "range": crate::range(&docs[i].text, x)}))
             .collect::<Vec<_>>()
     )
+}
+
+/// クラス名の上なら、ライブラリのファイル `files`（名前・本文。メモリ上）の中で同じクラスに行き着く識別子を `{uri, range, library: true}` の配列にする（S368。参照の一覧に見せるだけで、リネームでは変えない）。
+/// 名前を含まないファイルは字句に分けない。`docs` にあるファイル（開いている文書で差し替えたもの）は `references_at` が数えるので飛ばす。
+pub fn library_references<'a>(
+    r: &mut Resolver,
+    docs: &[Doc],
+    cur: usize,
+    at: usize,
+    files: impl Iterator<Item = (&'a String, &'a String)>,
+) -> Vec<Value> {
+    let d = &docs[cur];
+    let Some((name, t)) = class_name_at(r, &d.path, &d.text, at) else {
+        return vec![];
+    };
+    let mut out = Vec::new();
+    for (f, body) in files.filter(|(f, b)| b.contains(&name) && !docs.iter().any(|o| o.path == **f))
+    {
+        for x in class_hits(r, f, body, &name, &t) {
+            out.push(json!({"uri": f, "range": crate::range(body, x), "library": true}));
+        }
+    }
+    out
 }
 
 /// UI 向けのモデルの候補（S170。wasm と `globe/models` が使う）。実行できるクラス（model・block・class。partial は除く）の修飾名の配列。
@@ -929,23 +1066,27 @@ pub fn rename(
     Ok(hits)
 }
 
-/// UI 向けのリネーム（S161・S166。wasm と `globe/rename` が使う）。LSP の TextEdit（`{range, newText}`）の配列。
+/// UI 向けのリネーム（S161・S166・S368。wasm と `globe/rename` が使う）。LSP の `WorkspaceEdit`（`{changes: {key: [{range, newText}]}}`。`key` は `Doc::key`）。
 pub fn rename_at(
     r: &mut Resolver,
-    path: &str,
-    text: &str,
+    docs: &[Doc],
+    cur: usize,
     line: u32,
     character: u32,
     new_name: &str,
 ) -> Result<Value, String> {
-    let at = crate::offset(text, Position::new(line, character));
-    let edits = rename(r, path, text, at, new_name)?;
-    Ok(json!(
-        edits
-            .into_iter()
-            .map(|x| json!({"range": crate::range(text, x), "newText": new_name}))
-            .collect::<Vec<_>>()
-    ))
+    let at = crate::offset(&docs[cur].text, Position::new(line, character));
+    let mut changes = serde_json::Map::new();
+    for (i, x) in rename_in(r, docs, cur, at, new_name)? {
+        let d = &docs[i];
+        changes
+            .entry(d.key.clone())
+            .or_insert_with(|| json!([]))
+            .as_array_mut()
+            .expect("配列で作った")
+            .push(json!({"range": crate::range(&d.text, x), "newText": new_name}));
+    }
+    Ok(json!({"changes": changes}))
 }
 
 /// `textDocument/prepareRename`（S166）: カーソルの識別子の範囲。リネームできない所は `rename` と同じ理由（自分と同じ名前に変える試しで調べる）。
@@ -1065,9 +1206,66 @@ mod tests {
             );
             // 部品でもクラスでもない名前（組み込みの型 Real の上）は未対応
             assert!(rename(r, "A.mo", text, text.find("Real").unwrap() + 1, "z").is_err());
-            let e = rename_at(r, "A.mo", text, 1, 7, "z").unwrap();
-            assert_eq!(e[0]["newText"], "z");
-            assert_eq!(e[0]["range"]["start"]["line"], 1);
+            let docs = [doc("A.mo", text)];
+            let e = rename_at(r, &docs, 0, 1, 7, "z").unwrap();
+            assert_eq!(e["changes"]["A.mo"][0]["newText"], "z");
+            assert_eq!(e["changes"]["A.mo"][0]["range"]["start"]["line"], 1);
+        });
+    }
+
+    fn doc(name: &str, text: &str) -> Doc {
+        Doc {
+            key: name.into(),
+            path: name.into(),
+            text: text.into(),
+        }
+    }
+
+    /// S368: 参照・リネームは開いている文書の全部に届く。クラス（定義した文書でだけリネームできる）・継承した部品・ライブラリで宣言した部品の拒否。
+    #[test]
+    fn references_and_rename_reach_every_open_document() {
+        let (a, b) = (
+            "model Base\n  Real x;\n  Real y;\nend Base;\n",
+            "model B\n  extends Base;\n  Base c;\nequation\n  x = 1;\nend B;\n",
+        );
+        with_docs(&[("A.mo", a), ("B.mo", b)], |r| {
+            let docs = [doc("A.mo", a), doc("B.mo", b)];
+            let at = |d: &Doc, needle: &str, off: usize| d.text.find(needle).unwrap() + off;
+            let keys = |h: &[(usize, TextRange)]| {
+                h.iter()
+                    .map(|(i, _)| docs[*i].key.as_str())
+                    .collect::<Vec<_>>()
+            };
+            // クラス: A の宣言・end と、B の extends・型
+            let h = references_in(r, &docs, 0, at(&docs[0], "Base", 1));
+            assert_eq!(keys(&h), ["A.mo", "A.mo", "B.mo", "B.mo"], "{h:?}");
+            let e = rename_at(r, &docs, 0, 0, 7, "Core").unwrap();
+            assert_eq!(e["changes"]["A.mo"].as_array().unwrap().len(), 2, "{e}");
+            assert_eq!(e["changes"]["B.mo"].as_array().unwrap().len(), 2, "{e}");
+            // 別の文書で定義したクラスは、使う側からはリネームできない（S166）
+            assert!(
+                rename_in(r, &docs, 1, at(&docs[1], "Base c", 1), "Core")
+                    .unwrap_err()
+                    .contains("別のファイル")
+            );
+            // 継承した部品: A の宣言の x から B の `x = 1` まで届き、B の x からも同じ
+            let h = references_in(r, &docs, 0, at(&docs[0], "x;", 0));
+            assert_eq!(keys(&h), ["A.mo", "B.mo"], "{h:?}");
+            let e = rename_at(r, &docs, 1, 4, 2, "pos").unwrap();
+            assert_eq!(e["changes"]["A.mo"][0]["newText"], "pos", "{e}");
+            assert_eq!(e["changes"]["B.mo"].as_array().unwrap().len(), 1, "{e}");
+            assert!(
+                rename_in(r, &docs, 1, at(&docs[1], "x = 1", 0), "y")
+                    .unwrap_err()
+                    .contains("既に")
+            );
+            // 宣言したファイルが docs に無い（ライブラリ）部品は断る
+            let only_b = [doc("B.mo", b)];
+            let e = rename_in(r, &only_b, 0, at(&only_b[0], "x = 1", 0), "pos").unwrap_err();
+            assert!(
+                e.contains("ライブラリのファイル") || e.contains("宣言した"),
+                "{e}"
+            );
         });
     }
 

@@ -287,6 +287,22 @@ struct F<'a> {
     iters: usize,
     /// `cardinality(c)` の値（`connect` の端として出てきた数）。`card_ifs` を決めるときだけ `Some`
     card: Option<HashMap<String, i64>>,
+    /// expandable connector の中を平らにしている入れ子の深さ（0 より大きいあいだに宣言した変数は `exp_vars` に入る。S367）
+    exp_depth: u32,
+    /// expandable connector の宣言済みの欄（束縛が無いもの）の変数の番号
+    exp_vars: HashSet<usize>,
+    /// 方程式を作った接続集合の端の変数の番号（`exp_vars` のうちここに入らないものは `unused_expandable`）
+    conn_vars: HashSet<usize>,
+    /// 端がすべて `exp_vars` の potential の接続集合（階層ごと）。全体の集合の端がどれも読まれなければ落とす（Rumoca と同じ。`settle_expandable`）
+    exp_sets: Vec<ExpSet>,
+    /// `exp_vars` の変数を端に含む potential の接続集合（階層ごと）の端の変数の番号
+    pot_sets: Vec<Vec<usize>>,
+}
+
+/// 端がすべて expandable connector の宣言済みの欄の接続集合（その方程式は、使われると分かるまで `eqs` に入れない）
+struct ExpSet {
+    vars: Vec<usize>,
+    eqs: Vec<Equation>,
 }
 
 type LateConn = (String, String, String, Option<Origin>, (bool, bool));
@@ -345,6 +361,11 @@ pub(crate) fn run(p: &Project, cid: ClassId, model: &str) -> Res<FlatModel> {
         card_ifs: Vec::new(),
         iters: 0,
         card: None,
+        exp_depth: 0,
+        exp_vars: HashSet::new(),
+        conn_vars: HashSet::new(),
+        exp_sets: Vec::new(),
+        pot_sets: Vec::new(),
     };
     // パッケージの中のモデルを直接平らにするときは、そのパッケージが差し替え後のパッケージ（`TwoPhaseWater.BaseProperties`）
     let heir = p.lib.classes[cid]
@@ -372,6 +393,7 @@ pub(crate) fn run(p: &Project, cid: ClassId, model: &str) -> Res<FlatModel> {
     f.apply_connection_graph();
     f.resolve_card_ifs()?;
     f.expand_streams()?;
+    f.settle_expandable();
     // 配列は 1 つと数える `MAX_VARS`・`MAX_EQS` では抑えられない、スカラーの総数（S365・#139）
     let sat = usize::saturating_add;
     let vs = (f.vars.iter()).fold(0, |a, v| {
@@ -436,7 +458,15 @@ impl F<'_> {
             return un("deep-instantiation", self.p.lib.qualified_name(cid));
         }
         self.inst_depth.set(self.inst_depth.get() + 1);
+        let exp = self.p.class(cid).is_some_and(|cd| {
+            tokens(cd.syntax())
+                .map(|t| t.kind())
+                .take_while(|k| *k != K::Ident)
+                .any(|k| k == K::KwExpandable)
+        });
+        self.exp_depth += u32::from(exp);
         let r = self.inst_class_body(cid, pfx, mods, flags, heir);
+        self.exp_depth -= u32::from(exp);
         self.inst_depth.set(self.inst_depth.get() - 1);
         r
     }
@@ -452,13 +482,6 @@ impl F<'_> {
         let Some(cd) = self.p.class(cid).cloned() else {
             return un("unresolved", "class without syntax");
         };
-        let prefix: Vec<K> = tokens(cd.syntax())
-            .map(|t| t.kind())
-            .take_while(|k| *k != K::Ident)
-            .collect();
-        if prefix.contains(&K::KwExpandable) {
-            return un("expandable", self.p.lib.qualified_name(cid));
-        }
         if matches!(
             cd.kind_token().map(|t| t.kind()),
             Some(K::KwFunction | K::KwPackage)
@@ -838,6 +861,9 @@ impl F<'_> {
                 }
                 self.check_dims(&full, &dims)?;
                 self.var_idx.insert(full.clone(), self.vars.len());
+                if self.exp_depth > 0 && binding.is_none() {
+                    self.exp_vars.insert(self.vars.len());
+                }
                 self.vars.push(Var {
                     name: full.clone(),
                     kind,
@@ -850,6 +876,7 @@ impl F<'_> {
                     binding,
                     attrs,
                     origin: self.p.origin(file, d.syntax()),
+                    unused_expandable: false,
                 });
                 if conn {
                     own.push(full);
@@ -882,6 +909,7 @@ impl F<'_> {
                         binding,
                         attrs: Vec::new(),
                         origin: self.p.origin(file, d.syntax()),
+                        unused_expandable: false,
                     });
                     return Ok(());
                 }
@@ -894,32 +922,30 @@ impl F<'_> {
                 }
                 let bound: Vec<ModMap> = match &m.val {
                     Some(b) if dims.is_empty() => vec![self.record_value(b, name, cid)?],
-                    Some(b) if b.suffix.is_empty() => {
+                    Some(b) => {
                         if let Some(Expr::Array(a)) = Expr::cast(b.node.clone())
+                            && b.suffix.is_empty()
                             && !b.node.children().any(|c| c.kind() == K::Comprehension)
                             && a.items().len() != dims[0]
                         {
                             return un("composite-binding", format!("{name}[] size differs"));
                         }
+                        // 別のレコードの欄の配列 `rcData[n] = cellData.rcData`（`r = other` の欄。suffix は `.rcData`）は、要素ごとに `.rcData[k]`（S367）
                         idx_names(&dims)
                             .into_iter()
                             .map(|ix| {
                                 let el = Bind {
-                                    suffix: ix,
+                                    suffix: format!("{}{ix}", b.suffix),
                                     ..b.clone()
                                 };
                                 self.record_value(&el, name, cid)
                             })
                             .collect::<Res<_>>()?
                     }
-                    Some(b) => {
-                        let t = b.node.text();
-                        return un("composite-binding", format!("{name}[] = {t}"));
-                    }
                     None => vec![ModMap::new()],
                 };
                 let eff = fill(parent, fill(own_flags, flags));
-                let split = !dims.is_empty() && has_array_value(&m.sub);
+                let split = !dims.is_empty() && self.has_array_value(&m.sub);
                 let oc = self.p.lineage(cid).iter().find_map(|c| {
                     let f = *self.p.lib.classes[*c].classes.get("equalityConstraint")?;
                     // 大きさが決められなければ 0（今までと同じ。等式を作らない）
@@ -936,7 +962,7 @@ impl F<'_> {
                         self.oc_nodes.insert(el.clone(), o.clone());
                     }
                     let sub_e = if split {
-                        split_mod(
+                        self.split_mod(
                             &m.sub,
                             &ix,
                             (dims.len() == 1).then_some((e, dims[0])),
@@ -958,6 +984,89 @@ impl F<'_> {
             }
         }
         Ok(())
+    }
+
+    fn has_array_value(&self, m: &ModMap) -> bool {
+        m.values().any(|x| {
+            (!x.each
+                && x.val
+                    .as_ref()
+                    .is_some_and(|b| self.split_kind(b, 0).is_some()))
+                || self.has_array_value(&x.sub)
+        })
+    }
+
+    /// 分けられる値の形（`split_kind`）。それに加えて、次元が `nd` 個以上の配列の変数・レコードの配列への参照
+    /// （`cellData = stackData.cellData`）は、要素ごとに添字 `[ix]` を付ける（`Some(None)`。S367）
+    fn split_kind(&self, b: &Bind, nd: usize) -> Option<Option<SyntaxNode>> {
+        if let Some(k) = split_kind(&b.node, nd) {
+            return Some(k);
+        }
+        let Some(Expr::ComponentRef(r)) = Expr::cast(b.node.clone()) else {
+            return None;
+        };
+        if !b.suffix.is_empty()
+            || b.lit.is_some()
+            || b.node.children().any(|x| x.kind() == K::Subscripts)
+        {
+            return None;
+        }
+        let t = self.cref(&r, b.file, &b.ctx).ok()?;
+        (self.var_dims(&t)?.len() >= nd.max(1)).then_some(None)
+    }
+
+    /// 部品の配列への修飾 `c[n](a = {…})` を要素 `ix`（`[2]`・`[1,2]`）の分に分ける。`each` の修飾は分けない（S329）。
+    /// 1 次元で `{…}` の項が並んでいれば項そのもの、それ以外（`for` つきの内包・多次元）は `({…})[ix]`
+    /// `one` は 1 次元のときの（要素の番号 0 始まり, 大きさ）
+    /// `items` は `{…}` の項（配列の式ごとに 1 回だけ集める。要素ごとに作り直すと O(n²)。S339）
+    fn split_mod(
+        &self,
+        m: &ModMap,
+        ix: &str,
+        one: Option<(usize, usize)>,
+        nd: usize,
+        items: &mut HashMap<SyntaxNode, Option<Vec<SyntaxNode>>>,
+    ) -> Res<ModMap> {
+        let mut out = ModMap::new();
+        for (k, x) in m {
+            let mut x = x.clone();
+            if !x.each {
+                if let Some(b) = x.val.as_mut()
+                    && let Some(kind) = self.split_kind(b, nd)
+                {
+                    // `fill(x, n…)` は要素ごとに `x`
+                    if let Some(v) = kind {
+                        b.node = v;
+                        out.insert(k.clone(), x);
+                        continue;
+                    }
+                    // `for` つきの内包は項に分けない（`None`）
+                    let its = items.entry(b.node.clone()).or_insert_with(|| {
+                        let plain = !b.node.children().any(|c| c.kind() == K::Comprehension);
+                        Expr::cast(b.node.clone())
+                            .filter(|_| plain)
+                            .and_then(|e| match e {
+                                Expr::Array(a) => {
+                                    Some(a.items().iter().map(|x| x.syntax().clone()).collect())
+                                }
+                                _ => None,
+                            })
+                    });
+                    match (one, its) {
+                        (Some((e, n)), Some(i)) => {
+                            if i.len() != n {
+                                return un("array-modification", format!("{k} size differs"));
+                            }
+                            b.node = i[e].clone();
+                        }
+                        _ => b.suffix = format!("{}{ix}", b.suffix),
+                    }
+                }
+                x.sub = self.split_mod(&x.sub, ix, one, nd, items)?;
+            }
+            out.insert(k.clone(), x);
+        }
+        Ok(out)
     }
 
     /// 変数 1 つのスカラーの数（次元の積）が上限を超えていないか。以降の変数ごとの `dims.iter().product()`（flat・dae）は溢れない（S365・#137・#139）
@@ -1459,7 +1568,7 @@ impl F<'_> {
             match m.val.as_ref().and_then(|b| self.bind_dims(b)) {
                 Some(v) if !v.is_empty() => dims = v,
                 _ => {
-                    let b = m.val.as_ref().map(|b| b.node.text().to_string());
+                    let b = (m.val.as_ref()).map(|b| format!("{}{}", b.node.text(), b.suffix));
                     return un("unsized-array", format!("{name} = {b:?}"));
                 }
             }
@@ -1988,6 +2097,30 @@ impl F<'_> {
         Ok(format!("[{}]", parts.join(",")))
     }
 
+    /// `connect` の端の印字。最後の添字が範囲 `[a:s:b]` で評価できるなら、要素ごとの端 `x[k]`（それ以外は 1 つ）。S367
+    fn conn_ends(&self, c: &ast::ComponentRef, file: u32, ctx: &Rc<Ctx>) -> Res<Vec<String>> {
+        let t = self.cref(c, file, ctx)?;
+        let range = (c
+            .syntax()
+            .children()
+            .filter(|x| x.kind() == K::Subscripts)
+            .last())
+        .and_then(|sn| single(sn.children().filter(|x| Expr::cast(x.clone()).is_some())))
+        .filter(|e| matches!(Expr::cast(e.clone()), Some(Expr::Range(_))));
+        // shortcut: 範囲の印字に `[` を含まないものだけ（範囲の最後の添字の `]` までを `[k]` に置き換える）
+        let (Some(r), Some(at)) = (range, t.rfind('[')) else {
+            return Ok(vec![t]);
+        };
+        let (Ok(ks), Some(close)) = (self.range_vals(&r, file, ctx), t[at..].find(']')) else {
+            return Ok(vec![t]);
+        };
+        let (head, tail) = (&t[..at], &t[at + close + 1..]);
+        Ok(ks
+            .into_iter()
+            .map(|k| format!("{head}[{k}]{tail}"))
+            .collect())
+    }
+
     /// 成分参照の印字。部品は前置きを付け、`for` の添字は値にし、添字は定数なら評価する
     fn cref(&self, c: &ast::ComponentRef, file: u32, ctx: &Rc<Ctx>) -> Res<String> {
         let n = c.syntax();
@@ -2114,16 +2247,32 @@ impl F<'_> {
                 self.eval(i.else_branch()?.syntax(), file, ctx, d)
             }
             Expr::ComponentRef(c) => {
-                if n.children().any(|x| x.kind() == K::Subscripts) {
-                    return None;
-                }
                 let parts = c.parts();
+                // 添字つきの参照は、配列の式の束縛の要素（`kDegraded[i,1]`。部品の欄を通さない 1 つの名前だけ。S367）
+                let mut subs = n.children().filter(|x| x.kind() == K::Subscripts);
+                let sub = match (subs.next(), subs.next()) {
+                    (None, _) => None,
+                    (Some(sn), None) if parts.len() == 1 => Some(
+                        (sn.children().filter_map(Expr::cast))
+                            .map(|e| self.eval(e.syntax(), file, ctx, d)?.int())
+                            .collect::<Option<Vec<_>>>()?,
+                    ),
+                    _ => return None,
+                };
+                let at = |b: &Bind| match &sub {
+                    Some(ix) => self.eval_at(&b.node, ix, b.file, &b.ctx, d),
+                    None => self.eval(&b.node, b.file, &b.ctx, d),
+                };
                 // `Medium.nX`: `Medium` が `redeclare` された package なら、差し替え先の定数
-                if let Some((node, f, c2)) = self.dyn_const(&c, ctx) {
+                if sub.is_none()
+                    && let Some((node, f, c2)) = self.dyn_const(&c, ctx)
+                {
                     return self.eval(&node, f, &c2, d);
                 }
                 match &self.p.res_of(file, c.range())? {
-                    Resolution::Local if parts.len() == 1 => ctx.local(&parts[0]).map(Val::I),
+                    Resolution::Local if parts.len() == 1 && sub.is_none() => {
+                        ctx.local(&parts[0]).map(Val::I)
+                    }
                     Resolution::Component(cid, idx) => {
                         // 関数の入力は呼び出しの引数の値（`output Real y[n]` の `n`）。関数の中の定数は下のパッケージの定数と同じ
                         if ctx.pfx == FN
@@ -2147,23 +2296,26 @@ impl F<'_> {
                                 // まだ平らにしていない部品（宣言が後ろの `inner world`）の欄は、修飾か型の既定値から
                                 let tgt = key.strip_suffix(&format!(".{}", parts.last()?))?;
                                 // 欄の既定値が同じ部品の別の欄（`massDynamics = energyDynamics`）を引くときは、前置きが部品（`parts` は欄だけ。S355）
-                                return (parts.len() <= 2)
+                                return (parts.len() <= 2 && sub.is_none())
                                     .then(|| self.pending_field(tgt, parts.last()?, d))
                                     .flatten();
                             };
                             if b.lit.is_some() {
                                 return None;
                             }
-                            // `r = other` の欄は `other.f` の束縛を評価する
-                            let b = if b.suffix.is_empty() {
-                                b
-                            } else {
-                                &self.field_bind(b)?
-                            };
+                            // `r = other` の欄は `other.f` の束縛を評価する（`other` がさらに別のレコードの欄なら、鎖をたどる。S367）
+                            let mut cur = std::borrow::Cow::Borrowed(b);
+                            for _ in 0..16 {
+                                if cur.suffix.is_empty() {
+                                    break;
+                                }
+                                cur = std::borrow::Cow::Owned(self.field_bind(&cur)?);
+                            }
+                            let b = &*cur;
                             if !b.suffix.is_empty() || b.lit.is_some() {
                                 return None;
                             }
-                            self.eval(&b.node, b.file, &b.ctx, d)
+                            at(b)
                         } else {
                             // 列挙の要素、またはパッケージの定数
                             let comp = &self.p.lib.classes[*cid].components[*idx].name;
@@ -2174,7 +2326,10 @@ impl F<'_> {
                                 return Some(Val::E(*cid, *idx));
                             }
                             let (node, f, c2) = self.pkg_binding(ctx, *cid, comp)?;
-                            self.eval(&node, f, &c2, d)
+                            match &sub {
+                                Some(ix) => self.eval_at(&node, ix, f, &c2, d),
+                                None => self.eval(&node, f, &c2, d),
+                            }
                         }
                     }
                     _ => None,
@@ -2265,8 +2420,99 @@ impl F<'_> {
                         }
                         Some(Val::I(n))
                     }
+                    // shortcut: `isPowerOf2` も決め打つ（`PolyphaseRectifierData.Par` の `if`）。関数の評価器ができたら置き換える
+                    f if f.rsplit('.').next() == Some("isPowerOf2") => {
+                        let r = c.syntax().children().find_map(ast::ComponentRef::cast)?;
+                        let Some(Resolution::Class(rid)) = self.p.res_of(file, r.range()) else {
+                            return None;
+                        };
+                        if self.p.lib.qualified_name(rid) != "Modelica.Math.isPowerOf2" {
+                            return None;
+                        }
+                        let i = v(0)?.int().filter(|i| *i >= 1)?;
+                        Some(Val::B(i & (i - 1) == 0))
+                    }
+                    // shortcut: `anyTrue` だけ決め打つ（`CCCV_Stack` の劣化したセルの判定）。関数の評価器ができたら置き換える
+                    f if f.rsplit('.').next() == Some("anyTrue") => {
+                        let r = c.syntax().children().find_map(ast::ComponentRef::cast)?;
+                        let Some(Resolution::Class(rid)) = self.p.res_of(file, r.range()) else {
+                            return None;
+                        };
+                        if self.p.lib.qualified_name(rid) != "Modelica.Math.BooleanVectors.anyTrue"
+                        {
+                            return None;
+                        }
+                        let xs = self.eval_items(args.first()?.syntax(), file, ctx, d)?;
+                        xs.iter()
+                            .all(|x| matches!(x, Val::B(_)))
+                            .then(|| Val::B(xs.iter().any(|x| matches!(x, Val::B(true)))))
+                    }
                     _ => None,
                 }
+            }
+            _ => None,
+        }
+    }
+
+    /// 配列の式 `{a, b}`・`{e for k in 1:n}` の要素の値（内包は添字が 1 つのものだけ。`k` は要素の値を局所変数として評価する）。S367
+    fn eval_items(&self, n: &SyntaxNode, file: u32, ctx: &Rc<Ctx>, d: u32) -> Option<Vec<Val>> {
+        let Some(Expr::Array(a)) = Expr::cast(n.clone()) else {
+            return None;
+        };
+        let Some(c) = n.children().find(|c| c.kind() == K::Comprehension) else {
+            return (a.items().iter())
+                .map(|e| self.eval(e.syntax(), file, ctx, d))
+                .collect();
+        };
+        let body = c.children().find_map(Expr::cast)?;
+        let fis = c.children().find(|x| x.kind() == K::ForIndices)?;
+        let fi = single(fis.children().filter(|f| f.kind() == K::ForIndex))?;
+        let var = tokens(&fi)
+            .find(|t| t.kind() == K::Ident)?
+            .text()
+            .to_string();
+        let range = fi.children().find(|x| Expr::cast(x.clone()).is_some())?;
+        self.range_vals(&range, file, ctx)
+            .ok()?
+            .into_iter()
+            .map(|v| {
+                let mut locals = ctx.locals.clone();
+                locals.push((var.clone(), v));
+                let ctx = Rc::new(Ctx {
+                    locals,
+                    pfx: ctx.pfx.clone(),
+                    lineage: ctx.lineage.clone(),
+                    cenv: ctx.cenv.clone(),
+                    heir: ctx.heir,
+                });
+                self.eval(body.syntax(), file, &ctx, d)
+            })
+            .collect()
+    }
+
+    /// 配列の式の束縛 `{a, b}`・`[a, b; c, d]` の要素 `ix`（1 始まり。要素はスカラーだけ）の値。S367
+    fn eval_at(&self, n: &SyntaxNode, ix: &[i64], file: u32, ctx: &Rc<Ctx>, d: u32) -> Option<Val> {
+        let Some((&k, rest)) = ix.split_first() else {
+            return self.eval(n, file, ctx, d);
+        };
+        let k = usize::try_from(k.checked_sub(1)?).ok()?;
+        match Expr::cast(n.clone())? {
+            Expr::Array(a) if !n.children().any(|c| c.kind() == K::Comprehension) => {
+                self.eval_at(a.items().get(k)?.syntax(), rest, file, ctx, d)
+            }
+            // 行は `;`、行の中は `,`。`[r, c]` は行 r の c 番目
+            Expr::Matrix(m) => {
+                let mut rows: Vec<Vec<Expr>> = vec![Vec::new()];
+                for ch in m.syntax().children_with_tokens() {
+                    if let Some(e) = ch.as_node().and_then(|c| Expr::cast(c.clone())) {
+                        rows.last_mut()?.push(e);
+                    } else if ch.as_token().is_some_and(|t| t.kind() == K::Semi) {
+                        rows.push(Vec::new());
+                    }
+                }
+                let (&c, rest) = rest.split_first()?;
+                let e = rows.get(k)?.get(usize::try_from(c.checked_sub(1)?).ok()?)?;
+                self.eval_at(e.syntax(), rest, file, ctx, d)
             }
             _ => None,
         }
@@ -2419,14 +2665,18 @@ impl F<'_> {
         let Some(Expr::ComponentRef(r)) = Expr::cast(b.node.clone()) else {
             return None;
         };
-        if !b.suffix.starts_with('.') || b.node.children().any(|x| x.kind() == K::Subscripts) {
+        // 欄 `.f`、またはレコードの配列の要素の欄 `[1,1].f`（S367）
+        let elem = b.suffix.starts_with('[') && b.suffix.contains("].");
+        if !(b.suffix.starts_with('.') || elem)
+            || b.node.children().any(|x| x.kind() == K::Subscripts)
+        {
             return None;
         }
         let t = self.cref(&r, b.file, &b.ctx).ok()?;
         if let Some(x) = self.env.get(&format!("{t}{}", b.suffix)) {
             return Some(x.clone());
         }
-        self.pending_bind(&t, &b.suffix[1..])
+        self.pending_bind(&t, b.suffix.strip_prefix('.')?)
     }
 
     fn is_enum(&self, cid: ClassId) -> bool {
@@ -2668,7 +2918,8 @@ impl F<'_> {
 
     /// 束縛の配列の形。レコードの束縛 `r = other` を欄に分けたもの（`suffix` が `.f`）は `other.f` の大きさ
     fn bind_dims(&self, b: &Bind) -> Option<Vec<usize>> {
-        if b.suffix.starts_with('.') {
+        // `cellData[1,1].OCV_SOC`（レコードの配列の要素の欄。S367）も、平らにした変数の大きさを引く
+        if b.suffix.starts_with('.') || (b.suffix.starts_with('[') && b.suffix.contains("].")) {
             if let Some(Expr::ComponentRef(r)) = Expr::cast(b.node.clone())
                 && let Ok(t) = self.cref(&r, b.file, &b.ctx)
                 && let Some(v) = self.var_dims(&format!("{t}{}", b.suffix))
@@ -2991,10 +3242,19 @@ impl F<'_> {
                         let [Expr::ComponentRef(x), Expr::ComponentRef(y)] = a.as_slice() else {
                             return un("connect", c.syntax().text().to_string());
                         };
-                        let (x, y) = (self.cref(x, file, ctx)?, self.cref(y, file, ctx)?);
-                        let (x, y) = (self.bridge_end(&ctx.pfx, x), self.bridge_end(&ctx.pfx, y));
-                        if !(self.is_removed(&x) || self.is_removed(&y)) {
-                            lv.conns.push((x, y, self.cur.clone()));
+                        let (xs, ys) =
+                            (self.conn_ends(x, file, ctx)?, self.conn_ends(y, file, ctx)?);
+                        // 範囲の切り出し `a[n:-1:1]`・`b[1:n]` は要素ごとの接続にする（大きさが合わなければそのまま断る。S367）
+                        let n = if xs.len() == ys.len() { xs.len() } else { 1 };
+                        for k in 0..n {
+                            let pick =
+                                |v: &[String]| v.get(k).or(v.first()).cloned().unwrap_or_default();
+                            let (x, y) = (pick(&xs), pick(&ys));
+                            let (x, y) =
+                                (self.bridge_end(&ctx.pfx, x), self.bridge_end(&ctx.pfx, y));
+                            if !(self.is_removed(&x) || self.is_removed(&y)) {
+                                lv.conns.push((x, y, self.cur.clone()));
+                            }
                         }
                     }
                     [e] => {
@@ -3515,6 +3775,60 @@ impl F<'_> {
         total
     }
 
+    /// expandable connector の欄の仕上げ（MLS 9.1.3。Rumoca の flat と同じ）: 全体の接続集合（階層ごとの集合を端の共有で束ねる）の端が
+    /// すべて宣言済みの欄で、どれもほかの方程式・algorithm・束縛から読まれないなら、その集合の等式は作らない。
+    /// 方程式を作った集合に入らなかった欄は `unused_expandable`（変数には残し、DAE が数えない）
+    fn settle_expandable(&mut self) {
+        fn find(p: &mut HashMap<usize, usize>, x: usize) -> usize {
+            let q = *p.entry(x).or_insert(x);
+            if q == x {
+                return x;
+            }
+            let r = find(p, q);
+            p.insert(x, r);
+            r
+        }
+        if self.exp_vars.is_empty() {
+            return;
+        }
+        let mut parent = HashMap::new();
+        for set in &self.pot_sets {
+            for &v in &set[1..] {
+                let (a, b) = (find(&mut parent, set[0]), find(&mut parent, v));
+                parent.insert(b, a);
+            }
+        }
+        let mut refs = HashSet::new();
+        let texts = (self.eqs.iter().chain(&self.whens).chain(&self.ieqs)).map(|e| e.text.as_str());
+        let binds = self.vars.iter().filter_map(|v| v.binding.as_deref());
+        for t in texts
+            .chain(self.algs.iter().map(String::as_str))
+            .chain(binds)
+        {
+            ref_paths(t, &mut refs);
+        }
+        // 読まれる端を 1 つでも持つ、または宣言済みの欄でない端を持つ集合（根の番号）
+        let mut used = HashSet::new();
+        for set in &self.pot_sets {
+            for &v in set {
+                let n = &self.vars[v].name;
+                if !self.exp_vars.contains(&v) || refs.contains(n) || refs.contains(&strip_subs(n))
+                {
+                    used.insert(find(&mut parent, v));
+                }
+            }
+        }
+        for s in std::mem::take(&mut self.exp_sets) {
+            if used.contains(&find(&mut parent, s.vars[0])) {
+                self.conn_vars.extend(s.vars);
+                self.eqs.extend(s.eqs);
+            }
+        }
+        for &i in &self.exp_vars {
+            self.vars[i].unused_expandable = !self.conn_vars.contains(&i);
+        }
+    }
+
     // ---------------------------------------------------------------- connect
 
     /// コネクタ `n` の葉の変数: `(接尾辞, 変数の添字)`。コネクタが 1 つの変数のとき、または配列の要素のときは接尾辞が空
@@ -3545,6 +3859,12 @@ impl F<'_> {
         Vec::new()
     }
 
+    /// 端 `n` が、宣言していない expandable connector の欄か（接続が欄を足す。MLS 9.1.3。Rumoca も断る）
+    fn adds_member(&self, n: &str) -> bool {
+        n.rsplit_once('.')
+            .is_some_and(|(p, _)| self.leaves(p).iter().any(|l| self.exp_vars.contains(&l.1)))
+    }
+
     /// 端 `n` が、外側の階層（`pfx` の祖先）で宣言した `inner` の中なら、その `inner` を宣言する階層の前置き
     fn late_owner(&self, n: &str, pfx: &str) -> Option<String> {
         n.match_indices('.')
@@ -3569,20 +3889,28 @@ impl F<'_> {
             if n[..i].ends_with(']') {
                 continue;
             }
-            let at = |k: usize| format!("{}[{k}]{}", &n[..i], &n[i..]);
-            if self
-                .expand_end(&at(1), depth + 1)
-                .iter()
-                .all(|x| self.leaves(x).is_empty())
-            {
-                continue;
+            let at = |ix: &str| format!("{}[{ix}]{}", &n[..i], &n[i..]);
+            let ends = |ix: &str| self.expand_end(&at(ix), depth + 1);
+            let live = |v: &[String]| v.iter().all(|x| !self.leaves(x).is_empty());
+            if !ends("1").iter().all(|x| self.leaves(x).is_empty()) {
+                return (1..=MAX_VARS)
+                    .map(|k| ends(&k.to_string()))
+                    .take_while(|v| live(v))
+                    .flatten()
+                    .collect();
             }
-            return (1..=MAX_VARS)
-                .map(at)
-                .map(|x| self.expand_end(&x, depth + 1))
-                .take_while(|v| v.iter().all(|x| !self.leaves(x).is_empty()))
-                .flatten()
-                .collect();
+            // 2 次元の配列 `cell[Ns, Np]`（行ごと）。大きさは `[1,1]` から添字を延ばして数える（S367）
+            if !ends("1,1").iter().all(|x| self.leaves(x).is_empty()) {
+                let count = |f: &dyn Fn(usize) -> String| {
+                    (1..=MAX_VARS).take_while(|&k| live(&ends(&f(k)))).count()
+                };
+                let (a, b) = (count(&|k| format!("{k},1")), count(&|k| format!("1,{k}")));
+                return (1..=a)
+                    .flat_map(|x| (1..=b).map(move |y| format!("{x},{y}")))
+                    .take(MAX_VARS)
+                    .flat_map(|ix| ends(&ix))
+                    .collect();
+            }
         }
         vec![n.to_string()]
     }
@@ -3591,8 +3919,19 @@ impl F<'_> {
     fn split_array_var(&self, x: &[String], n: usize) -> Option<Vec<String>> {
         let [x] = x else { return None };
         let [(sf, vi, _)] = self.leaves(x).try_into().ok()?;
-        (n > 1 && sf.is_empty() && self.vars[vi].dims == [n] && !x.ends_with(']'))
-            .then(|| (1..=n).map(|k| format!("{x}[{k}]")).collect())
+        let d = &self.vars[vi].dims;
+        // 1 次元 `i[m]`、または 2 次元 `v[Ns, Np]`（部品の 2 次元の配列と行ごとに対応。S367）
+        (n > 1
+            && sf.is_empty()
+            && !x.ends_with(']')
+            && matches!(d.len(), 1 | 2)
+            && d.iter().product::<usize>() == n)
+            .then(|| {
+                idx_names(d)
+                    .into_iter()
+                    .map(|ix| format!("{x}{ix}"))
+                    .collect()
+            })
     }
 
     /// 1 つのインスタンスの `connect` から、potential の等式と flow の和（つながない内側の flow は 0）を作る。
@@ -3677,16 +4016,27 @@ impl F<'_> {
         for (k, (a, b, _)) in lv.conns.iter().enumerate() {
             let la = self.leaves(a);
             if la.is_empty() {
+                if self.adds_member(a) {
+                    return un("expandable", format!("{a}: connection adds a member"));
+                }
                 return un(
                     "connect-array",
                     format!("unknown connector (or a whole array of connectors) {a}"),
                 );
             }
             let lb = self.leaves(b);
+            if lb.is_empty() && self.adds_member(b) {
+                return un("expandable", format!("{b}: connection adds a member"));
+            }
             let (oa, ob) = flags[k].unwrap_or((outside(a), outside(b)));
             for (suffix, vi, count) in &la {
                 let Some((_, vj, _)) = lb.iter().find(|(s, _, _)| s == suffix) else {
-                    return un("connect", format!("{a} and {b} differ"));
+                    let kind = if self.exp_vars.contains(vi) {
+                        "expandable"
+                    } else {
+                        "connect"
+                    };
+                    return un(kind, format!("{a} and {b} differ"));
                 };
                 let ia = id(&mut st, format!("{a}{suffix}"), (*vi, *count, oa));
                 let ib = id(&mut st, format!("{b}{suffix}"), (*vj, *count, ob));
@@ -3733,6 +4083,17 @@ impl F<'_> {
             let origin = origins[k].clone();
             let (vi, count, _) = info[set[0]];
             let v = &self.vars[vi];
+            let pending = !v.flow
+                && !v.stream
+                && !matches!(v.kind, VarKind::Parameter | VarKind::Constant)
+                && set.iter().all(|&i| self.exp_vars.contains(&info[i].0));
+            if !pending && !self.exp_vars.is_empty() {
+                self.conn_vars.extend(set.iter().map(|&i| info[i].0));
+            }
+            // potential の集合は階層ごとに作るので、expandable の欄を含むものは覚えておき、あとで全体の集合に束ねる
+            if !v.flow && !v.stream && set.iter().any(|&i| self.exp_vars.contains(&info[i].0)) {
+                self.pot_sets.push(set.iter().map(|&i| info[i].0).collect());
+            }
             if v.flow {
                 let flip = set.iter().all(|&i| info[i].2);
                 let mut s = String::new();
@@ -3771,6 +4132,21 @@ impl F<'_> {
                 }
                 // コネクタの中の parameter・constant は等式にしない（Rumoca の flat も同じ）
                 if matches!(v.kind, VarKind::Parameter | VarKind::Constant) {
+                    continue;
+                }
+                // 端がすべて expandable connector の宣言済みの欄なら、ほかで読まれるまで方程式を保留する（`settle_expandable`）
+                if pending {
+                    self.exp_sets.push(ExpSet {
+                        vars: set.iter().map(|&i| info[i].0).collect(),
+                        eqs: set[1..]
+                            .iter()
+                            .map(|&i| Equation {
+                                text: format!("{} = {}", names[set[0]], names[i]),
+                                count,
+                                origin: origin.clone(),
+                            })
+                            .collect(),
+                    });
                     continue;
                 }
                 if set.len() > 1 {
@@ -3838,6 +4214,62 @@ impl F<'_> {
     }
 }
 
+/// 式の文字列に出てくる成分参照（`a.b[1].c`）を、そのままと添字を除いた形（`a.b.c`）で `out` に入れる
+/// （shortcut: 引用符つきの名前 `'a b'` は 1 つの名前として見ない。expandable の欄が読まれたかの判定だけに使う）
+fn ref_paths(t: &str, out: &mut HashSet<String>) {
+    let b = t.as_bytes();
+    let ident = |c: u8| c.is_ascii_alphanumeric() || c == b'_';
+    let mut i = 0;
+    while i < b.len() {
+        if !(b[i].is_ascii_alphabetic() || b[i] == b'_') {
+            i += 1;
+            continue;
+        }
+        let st = i;
+        let mut bare = String::new();
+        loop {
+            let s = i;
+            while i < b.len() && ident(b[i]) {
+                i += 1;
+            }
+            bare += &t[s..i];
+            let mut depth = 0;
+            while i < b.len() && (b[i] == b'[' || depth > 0) {
+                depth += i32::from(b[i] == b'[') - i32::from(b[i] == b']');
+                i += 1;
+            }
+            if i + 1 < b.len()
+                && b[i] == b'.'
+                && (b[i + 1].is_ascii_alphabetic() || b[i + 1] == b'_')
+            {
+                bare.push('.');
+                i += 1;
+            } else {
+                break;
+            }
+        }
+        out.insert(t[st..i].to_string());
+        out.insert(bare);
+    }
+}
+
+/// 名前から添字 `[…]` を除く
+fn strip_subs(n: &str) -> String {
+    let mut depth = 0;
+    n.chars()
+        .filter(|&c| {
+            depth += i32::from(c == '[') - i32::from(c == ']');
+            depth == 0 && c != ']'
+        })
+        .collect()
+}
+
+/// 要素がちょうど 1 つのとき、その要素
+fn single<T>(mut it: impl Iterator<Item = T>) -> Option<T> {
+    let x = it.next()?;
+    it.next().is_none().then_some(x)
+}
+
 /// 次元の積。溢れたら `None`（宣言の次元は入力なので、検査なしの `product` は debug で panic・release で巻き戻る。S339）
 fn dims_product(d: &[usize]) -> Option<usize> {
     d.iter().try_fold(1usize, |a, &x| a.checked_mul(x))
@@ -3865,16 +4297,6 @@ fn nest(map: &mut ModMap, path: &[&str], b: Bind) {
     }
 }
 
-fn has_array_value(m: &ModMap) -> bool {
-    m.values().any(|x| {
-        (!x.each
-            && x.val
-                .as_ref()
-                .is_some_and(|b| split_kind(&b.node, 0).is_some()))
-            || has_array_value(&x.sub)
-    })
-}
-
 /// 分けられる値の形: `{…}`（`None` の中身）か、`fill(x, n…)` の `x`（次元が `nd` 個のときだけ）
 fn split_kind(n: &SyntaxNode, nd: usize) -> Option<Option<SyntaxNode>> {
     match Expr::cast(n.clone())? {
@@ -3885,59 +4307,6 @@ fn split_kind(n: &SyntaxNode, nd: usize) -> Option<Option<SyntaxNode>> {
         }
         _ => None,
     }
-}
-
-/// 部品の配列への修飾 `c[n](a = {…})` を要素 `ix`（`[2]`・`[1,2]`）の分に分ける。`each` の修飾は分けない（S329）。
-/// 1 次元で `{…}` の項が並んでいれば項そのもの、それ以外（`for` つきの内包・多次元）は `({…})[ix]`
-/// `one` は 1 次元のときの（要素の番号 0 始まり, 大きさ）
-/// `items` は `{…}` の項（配列の式ごとに 1 回だけ集める。要素ごとに作り直すと O(n²)。S339）
-fn split_mod(
-    m: &ModMap,
-    ix: &str,
-    one: Option<(usize, usize)>,
-    nd: usize,
-    items: &mut HashMap<SyntaxNode, Option<Vec<SyntaxNode>>>,
-) -> Res<ModMap> {
-    let mut out = ModMap::new();
-    for (k, x) in m {
-        let mut x = x.clone();
-        if !x.each {
-            if let Some(b) = x.val.as_mut()
-                && let Some(kind) = split_kind(&b.node, nd)
-            {
-                // `fill(x, n…)` は要素ごとに `x`
-                if let Some(v) = kind {
-                    b.node = v;
-                    out.insert(k.clone(), x);
-                    continue;
-                }
-                // `for` つきの内包は項に分けない（`None`）
-                let its = items.entry(b.node.clone()).or_insert_with(|| {
-                    let plain = !b.node.children().any(|c| c.kind() == K::Comprehension);
-                    Expr::cast(b.node.clone())
-                        .filter(|_| plain)
-                        .and_then(|e| match e {
-                            Expr::Array(a) => {
-                                Some(a.items().iter().map(|x| x.syntax().clone()).collect())
-                            }
-                            _ => None,
-                        })
-                });
-                match (one, its) {
-                    (Some((e, n)), Some(i)) => {
-                        if i.len() != n {
-                            return un("array-modification", format!("{k} size differs"));
-                        }
-                        b.node = i[e].clone();
-                    }
-                    _ => b.suffix = format!("{}{ix}", b.suffix),
-                }
-            }
-            x.sub = split_mod(&x.sub, ix, one, nd, items)?;
-        }
-        out.insert(k.clone(), x);
-    }
-    Ok(out)
 }
 
 /// 添字だけの接尾辞（`` か `[1]`・`[1,2]`。`.f` の続きは欄の接尾辞）
@@ -4156,6 +4525,57 @@ mod tests {
         let plain = time("");
         let with = time(" = {R(k, 2*k) for k in 1:40000}");
         assert!(with * 2 < plain * 9, "{with:?} vs {plain:?}");
+    }
+
+    #[test]
+    fn expandable_connector_drops_unused_members() {
+        // S367: 欄は全部変数に残る（Rumoca の flat と同じ）が、端がすべて宣言済みの欄で、どこからも読まれない集合は等式を作らず、
+        // 方程式を作った集合に入らない欄は `unused_expandable`（DAE が数えない）。実の端（`s.y`）につながる欄 `a` は残す
+        let src = |extra: &str| {
+            format!(
+                "connector Out = output Real;
+                expandable connector Bus Real a; Real b; Real c; end Bus;
+                model Src Out y; equation y = time; end Src;
+                model Sub Bus bus; Src s; equation connect(s.y, bus.a); end Sub;
+                model M Bus bus; Bus other; Sub p; Real q;
+                equation connect(p.bus, bus); connect(bus, other); {extra} end M;"
+            )
+        };
+        let flat = |extra: &str| {
+            Project::from_sources([("t.mo", src(extra).as_str())])
+                .flatten("M")
+                .unwrap()
+        };
+        let m = flat("q = 1;");
+        let unused: Vec<&str> = (m.vars.iter())
+            .filter(|v| v.unused_expandable)
+            .map(|v| v.name.as_str())
+            .collect();
+        assert_eq!(
+            unused,
+            ["bus.b", "bus.c", "other.b", "other.c", "p.bus.b", "p.bus.c"]
+        );
+        assert_eq!(m.vars.len(), 11); // 3 つの Bus の 9 欄、p.s.y、q
+        // 集合 a: p.s.y・p.bus.a・bus.a・other.a の 3 本、y = time、q = 1
+        assert_eq!(m.equation_count(), 5);
+        // `bus.b` を読む方程式があれば、その集合（bus.b・p.bus.b・other.b）も等式を作る
+        let m = flat("q = bus.b;");
+        assert_eq!(m.equation_count(), 7);
+        assert!(
+            !m.vars
+                .iter()
+                .any(|v| v.name == "bus.b" && v.unused_expandable)
+        );
+        // 宣言していない欄への接続は欄を足すので断る
+        let e = Project::from_sources([(
+            "t.mo",
+            "connector Out = output Real;
+            expandable connector Bus Real a; end Bus;
+            model M Bus bus; Out y; equation connect(y, bus.z); end M;",
+        )])
+        .flatten("M")
+        .unwrap_err();
+        assert_eq!(e.kind, "expandable");
     }
 
     #[test]

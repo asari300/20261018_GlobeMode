@@ -156,7 +156,7 @@ def test_linearize_gives_state_space_matrices():
 def test_check_frontend_native():
     """S313: `frontend="native"` は自前の段。断る形は GM-U0006、既定は Rumoca、知らない名前は ValueError。"""
     ws = Workspace()
-    ws.set_file("E.mo", "expandable connector EC\n  Real a;\nend EC;\nmodel E\n  EC ec;\nend E;\n")
+    ws.set_file("E.mo", "model E\n  extends Real;\nend E;\n")
     assert any(d["code"] == "GM-U0006" for d in ws.check("E", frontend="native")["diagnostics"])
     assert not any(d["code"] == "GM-U0006" for d in ws.check("E")["diagnostics"])
     with pytest.raises(ValueError):

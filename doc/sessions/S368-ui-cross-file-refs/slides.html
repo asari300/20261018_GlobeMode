@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S368 ui-cross-file-refs — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S368 ui-cross-file-refs">
+
+<section class="slide" id="S01">
+  <span class="tag">S368 · 2026-11-16 · P4</span>
+  <h1>UI の参照・リネームが開いているタブの全部に届く</h1>
+  <p class="lead">LSP は S230・S235 で届いていたが、UI は開いている 1 文書の中だけだった</p>
+  <div class="big">Shift+F12 は<b>別のタブの行も一覧に出して飛べ</b>、F2 は<b>ほかの自分のタブにも当たる</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>何が足りなかったか</h1>
+  <table>
+    <tr><th>層</th><th>前</th></tr>
+    <tr><td><code>App.svelte</code></td><td>今のタブだけを <code>setFile</code> して呼ぶ</td></tr>
+    <tr><td>wasm <code>references</code>・<code>rename</code></td><td>文書 1 つ。応答は Range の配列・TextEdit の配列</td></tr>
+    <tr><td>sidecar <code>globe/references</code>・<code>globe/rename</code></td><td>同じ。<code>globe/rename</code> は他の開いた文書に参照があれば断る</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>口の形を LSP に揃え、規則は作らない</h1>
+  <table>
+    <tr><th>項目</th><th>決定</th></tr>
+    <tr><td>応答</td><td><code>[{uri, range}]</code> と <code>{changes: {名前: [TextEdit]}}</code>（<code>textDocument/*</code> と同じ）</td></tr>
+    <tr><td>規則</td><td><code>references_in</code>・<code>rename_in</code> が S166・S235 の部品を文書の組に回すだけ</td></tr>
+    <tr><td>ディスク</td><td>見ない。ライブラリのクラスの参照は <code>library: true</code> で一覧に足す（見るだけ）</td></tr>
+    <tr><td>離れたタブ</td><td>呼ぶ間だけ <code>setFile</code>、終わったら空に戻す</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>流れ</h1>
+  <svg class="fig" viewBox="0 0 820 220" role="img" aria-label="UI から Rust への流れ">
+    <rect class="svg-box-accent" x="20" y="70" width="190" height="80" rx="10"/>
+    <text class="svg-text-b" x="115" y="116" text-anchor="middle">App.svelte</text>
+    <line class="svg-line" x1="210" y1="110" x2="320" y2="110"/>
+    <rect class="svg-box" x="320" y="70" width="190" height="80" rx="10"/>
+    <text class="svg-text-b" x="415" y="116" text-anchor="middle">Backend</text>
+    <line class="svg-line" x1="510" y1="110" x2="610" y2="110"/>
+    <rect class="svg-box-accent" x="610" y="70" width="190" height="80" rx="10"/>
+    <text class="svg-text-b" x="705" y="108" text-anchor="middle">references_in</text>
+    <text class="svg-text-b" x="705" y="132" text-anchor="middle">rename_in</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>試験</h1>
+  <pre><code>cargo test -p globe-mode-lsp -p globe-mode-wasm
+node src/Svelte/tests/test_tauri.mjs
+uv run python src/Svelte/tests/test_ui.py
+mise run wasm:node; mise run wasm:compare</code></pre>
+  <p class="note">2 ファイルにまたがる参照・リネームを LSP・wasm（Rust と Node の smoke）・UI の 2 タブで確かめた</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>開いていないファイル（ディスクの根の下）の参照・リネーム</li>
+    <li>全タブを 1 回の Ctrl+Z で戻す</li>
+    <li>同じクラスを 2 つのタブが定義しているとき</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

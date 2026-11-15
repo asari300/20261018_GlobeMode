@@ -5,15 +5,29 @@
 ## 前回の結果との差
 
 前回の結果 `target/frontend-diff.json` と、両方にある 641 本で比べる（この実行にだけある 0 本、前回にだけある 0 本）。
-**回帰 0 本**（前回は通った項目が通らなくなった）、改善 0 本。
+**回帰 0 本**（前回は通った項目が通らなくなった）、改善 13 本。
+
+- 改善 `Modelica.Blocks.Examples.BusUsage`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.Blocks.Examples.BusUsage_Utilities.Part`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.Electrical.Batteries.Examples.BatteryDischargeCharge`: flat・rumoca_flat・flat_names・flat_eqs・dae
+- 改善 `Modelica.Electrical.Batteries.Examples.CCCV_Cell`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.Electrical.Batteries.Examples.CCCV_CellRC`: flat・rumoca_flat・flat_names・dae
+- 改善 `Modelica.Electrical.Batteries.Examples.CCCV_Stack`: flat・dae
+- 改善 `Modelica.Electrical.Batteries.Examples.CCCV_StackRC`: flat・dae
+- 改善 `Modelica.Electrical.Batteries.Examples.CCCVcharging`: flat・rumoca_flat・flat_names・dae
+- 改善 `Modelica.Electrical.Batteries.Examples.ShowImpedance`: flat・rumoca_flat・flat_names・flat_eqs・dae
+- 改善 `Modelica.Electrical.Polyphase.Examples.PolyphaseRectifier`: flat・rumoca_flat・flat_names・flat_eqs・dae
+- 改善 `Modelica.Fluid.Examples.HeatExchanger.HeatExchangerSimulation`: flat・rumoca_flat・flat_names・flat_eqs・dae
+- 改善 `Modelica.Mechanics.MultiBody.Examples.Systems.RobotR3.FullRobot`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
+- 改善 `Modelica.Mechanics.MultiBody.Examples.Systems.RobotR3.OneAxis`: flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular
 
 | | |
 | --- | --- |
 | MSL | 4.1.0（sha256 `5409cfa17797…`） |
 | Rumoca | v0.10.2（rev `276e82bd`、ライブラリとして呼ぶ） |
 | 検査した本数 | 641 本 |
-| 時間 | 全体 942 s（1 本ずつの検査 842 s） |
-| 最大の常駐メモリ（VmHWM） | 6.1 GiB |
+| 時間 | 全体 1332 s（1 本ずつの検査 1160 s） |
+| 最大の常駐メモリ（VmHWM） | 5.8 GiB |
 
 自前の parse・resolve・flat・dae を、Rumoca は自前で平らにできたものにだけ呼んで比べる（母数はその本数）。
 resolve は、例題のクラスから、中のクラス・`extends`・部品の型（解決できたもの）をたどって、届くクラスすべての参照を数える。
@@ -24,16 +38,16 @@ resolve は、例題のクラスから、中のクラス・`extends`・部品の
 | --- | --- | ---: | ---: |
 | parse | 構文の誤りが 0 | 566 | 566 |
 | resolve | 未解決の参照が 0（`extends`・部品の型をたどって） | 566 | 566 |
-| flat | 自前で平らにできた | 548 | 566 |
-| flat | Rumoca も flat まで通った（比べられた本数） | 521 | 548 |
-| flat | 変数の名前の集合が Rumoca の flat と一致 | 518 | 521 |
-| flat | 方程式の数が Rumoca の flat と一致 | 508 | 521 |
-| dae | 自前で DAE にできた | 548 | 548 |
-| dae | Rumoca も釣り合いまで通った（比べられた本数） | 377 | 548 |
-| dae | 釣り合いの判定（釣り合う / 釣り合わない）が一致 | 377 | 377 |
-| dae | 方程式と未知数の数が一致 | 376 | 377 |
-| dae | 状態の数が一致 | 376 | 377 |
-| dae | 構造が正則かの判定が一致（Rumoca の構造が取れたもの） | 377 | 377 |
+| flat | 自前で平らにできた | 561 | 566 |
+| flat | Rumoca も flat まで通った（比べられた本数） | 532 | 561 |
+| flat | 変数の名前の集合が Rumoca の flat と一致 | 529 | 532 |
+| flat | 方程式の数が Rumoca の flat と一致 | 517 | 532 |
+| dae | 自前で DAE にできた | 561 | 561 |
+| dae | Rumoca も釣り合いまで通った（比べられた本数） | 382 | 561 |
+| dae | 釣り合いの判定（釣り合う / 釣り合わない）が一致 | 382 | 382 |
+| dae | 方程式と未知数の数が一致 | 381 | 382 |
+| dae | 状態の数が一致 | 381 | 382 |
+| dae | 構造が正則かの判定が一致（Rumoca の構造が取れたもの） | 382 | 382 |
 
 未解決の参照の総数: 0
 
@@ -41,11 +55,7 @@ flat の理由（本数の多い順）:
 
 | 理由 | 本数 | 例 |
 | --- | ---: | --- |
-| `composite-binding` | 6 | `Modelica.Electrical.Batteries.Examples.BatteryDischargeCharge` |
-| `expandable` | 5 | `Modelica.Blocks.Examples.BusUsage` |
 | `non-constant-dim` | 4 | `Modelica.Blocks.Examples.Rectifier12pulseFFT` |
-| `connect-array` | 1 | `Modelica.Fluid.Examples.HeatExchanger.HeatExchangerSimulation` |
-| `non-constant-for` | 1 | `Modelica.Electrical.Polyphase.Examples.PolyphaseRectifier` |
 | `unsized-array` | 1 | `Modelica.Utilities.Examples.ReadRealMatrixFromFile` |
 
 ## GlobeModeValidation（75 本）
@@ -70,6 +80,8 @@ flat の理由（本数の多い順）:
 ## 一致しなかったもの（先頭 100 件。全部は JSON）
 
 - `Modelica.Blocks.Examples.Noise.ActuatorWithNoise`: flat: eq 728 vs 736 (rumoca); vars 913 vs 913; only mine []; only rumoca []; element counts []
+- `Modelica.Electrical.Batteries.Examples.CCCV_CellRC`: flat: eq 138 vs 128 (rumoca); vars 271 vs 271; only mine []; only rumoca []; element counts []
+- `Modelica.Electrical.Batteries.Examples.CCCVcharging`: flat: eq 111 vs 101 (rumoca); vars 206 vs 206; only mine []; only rumoca []; element counts []
 - `Modelica.Fluid.Examples.BranchingDynamicPipes`: flat: eq 1260 vs 1256 (rumoca); vars 830 vs 830; only mine []; only rumoca []; element counts []
 - `Modelica.Fluid.Examples.HeatingSystem`: dae: eq 538 vs 538, unk 538 vs 538 (rumoca); states 20 vs 11, discrete 4 vs 4
 - `Modelica.Fluid.Examples.IncompressibleFluidNetwork`: flat: eq 920 vs 919 (rumoca); vars 2078 vs 2078; only mine []; only rumoca []; element counts []

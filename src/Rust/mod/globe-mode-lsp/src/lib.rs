@@ -21,9 +21,9 @@
 //! | `globe/libraryTree` | `{prefix}`（空ならトップレベル） | `[{name, path, kind, description, file, hasChildren}]`（S127。直下の子だけ。wasm の `library_tree` と同じ形） |
 //! | `globe/definition` | `{file, line, character}`（開いている文書。行は 0 始まり、列は UTF-16） | `{file, text, range}` か null（S138。`textDocument/definition` と同じ解決で、定義のあるファイルの本文も返す。wasm の `definition` と同じ形） |
 //! | `globe/hover` | `{file, line, character}`（`globe/definition` と同じ） | `{contents, range}` か null（S149。名前の宣言の 1 行（クラスは見出し、部品は `;` まで。説明文字列を含む）と、カーソルの名前の Range。wasm の `hover` と同じ形） |
-//! | `globe/references` | `{file, line, character}`（`globe/definition` と同じ） | LSP の Range の配列（S161。カーソルの名前と字句が同じ位置。部品はカーソルのあるいちばん内側のクラスの中だけ。S166: クラス名の上なら、同じ文書の中で定義ジャンプと同じ解決で同じクラスに行き着く識別子（宣言・`end`・型・`extends`・`import`）。wasm の `references` と同じ形） |
+//! | `globe/references` | `{file, line, character}`（`globe/definition` と同じ） | LSP の `Location`（`{uri, range}`）の配列（S161。カーソルの名前と字句が同じ位置。S166: クラス名の上なら、定義ジャンプと同じ解決で同じクラスに行き着く識別子（宣言・`end`・型・`extends`・`import`）。**S368: 開いている文書（`didOpen` した名前）の全部に届く**。部品は継承した先と `b.x` も（S235）。クラス名は、ライブラリ（`-L`）で同じクラスに行き着く識別子も `library: true` で足す〔見るだけ〕。import の別名はその文書の中だけ。wasm の `references` と同じ形） |
 //! | `globe/models` | `{file}` | 文字列の配列（S170。文書の model・block・class の修飾名。partial は除く。package の中まで入り、`within` は頭に付く。構文が壊れていれば空。wasm の `models` と同じ形） |
-//! | `globe/rename` | `{file, line, character, newName}` | LSP の TextEdit（`{range, newText}`）の配列（S161。いちばん内側のクラスで宣言した部品と、S166 からこの文書で定義したクラス。部品でもクラスでもない・別のファイルのクラス・識別子でない・予約語・同じ階層に既にある名前・ほかの開いた文書に参照があるときは -32803 に理由。`textDocument/rename` は同じ計算の WorkspaceEdit（S198: クラスのリネームは、最上位のクラスがファイル名 `M.mo`・`package.mo` に対応しているときも断る。`prepareRename` も同じ。S230: `textDocument/references` は開いていない `.mo`（根の下。隠しフォルダは除く）とライブラリ（`-L`）にも届き、`textDocument/rename` は開いているほかの文書と根の下の開いていない `.mo` を `changes` に入れる〔ライブラリは変えず `window/showMessage` で「ライブラリの N 箇所は変えない」。識別子はあるのに同じクラスと解決できなかった根の下のファイルがあれば、そのファイルを挙げて断る〕。UI の `globe/references`・`globe/rename` はメモリ上の文書だけ。開いていない文書への `globe/rename`・`textDocument/rename` は -32803、`globe/references` は空の配列）、`textDocument/prepareRename` はカーソルの識別子の Range か同じ理由） |
+//! | `globe/rename` | `{file, line, character, newName}` | LSP の `WorkspaceEdit`（`{changes: {uri: [{range, newText}]}}`。S368 から。それまでは 1 文書の TextEdit の配列）（S161。部品と、S166 からこの文書で定義したクラス。**S368: 開いている文書の全部に届く**〔クラスは同じクラスに行き着くほかの文書の識別子、部品は継承した先と `b.x`。S235〕。ライブラリのファイル・開いていない `.mo` は変えない。部品でもクラスでもない・別のファイルのクラス・ライブラリで宣言した部品・識別子でない・予約語・同じ階層に既にある名前は -32803 に理由。`textDocument/rename` は同じ計算の WorkspaceEdit（S198: クラスのリネームは、最上位のクラスがファイル名 `M.mo`・`package.mo` に対応しているときも断る。`prepareRename` も同じ。S230: `textDocument/references` は開いていない `.mo`（根の下。隠しフォルダは除く）とライブラリ（`-L`）にも届き、`textDocument/rename` は開いているほかの文書と根の下の開いていない `.mo` を `changes` に入れる〔ライブラリは変えず `window/showMessage` で「ライブラリの N 箇所は変えない」。識別子はあるのに同じクラスと解決できなかった根の下のファイルがあれば、そのファイルを挙げて断る〕。UI の `globe/references`・`globe/rename` は開いている文書（メモリ上）とライブラリの参照の表示だけで、ディスクの根の下は見ない。開いていない文書への `globe/rename`・`textDocument/rename` は -32803、`globe/references` は空の配列）、`textDocument/prepareRename` はカーソルの識別子の Range か同じ理由） |
 //! | `globe/solvers` | なし | ソルバの登録表（`[{name, status, description, instead?}]`。S142。wasm の `solvers` と同じ） |
 //! | `globe/readResults` | `{path}`（`.mat` は MAT v4、それ以外は CSV） | `{layout, columns, parameters}`（S222。`globe/simulateColumns` の `layout`・`columns` と同じ形。`parameters` は MAT の `data_1` の `[{name, value, unit?, description?}]`で、CSV は空。S236。`defaults` は先頭の 3 本。読めなければ -32000） |
 //! | `globe/fmuInfo` | `{path}`（`.fmu`） | `FmuInfo` の JSON に `warning`（実行の前に見せる警告。S229。`globe fmu info` と同じ情報。ネイティブコードは実行しない。読めなければ -32000。feature `fmu-import`） |
@@ -501,43 +501,75 @@ impl Server {
                 });
                 reply(id, json!(refs))
             }
-            // S161: 参照の一覧とリネーム。UI 向けの `globe/*` は `file`・`line`・`character`（rename は `newName` も）、
-            // `textDocument/rename` は VS Code 向け。計算は `definition::references_at` / `rename_at`（wasm と同じ）。
-            // S166: クラス名も同じ口。S230: `globe/rename` は 1 文書の中だけ（ほかの開いた文書に参照があれば断る）、`textDocument/rename` は複数ファイルの `changes`。
-            // `textDocument/prepareRename` は断る理由（`rename` と同じ）かカーソルの識別子の範囲
-            "textDocument/rename" | "textDocument/prepareRename" | "globe/references" | "globe/rename" => {
-                let method = msg["method"].as_str().unwrap_or("");
-                let (key, pos) = if method.starts_with("textDocument/") {
-                    (uri.clone(), lsp_position(&params["position"]))
-                } else {
-                    let (l, c) = (&params["line"], &params["character"]);
-                    (
-                        params["file"].as_str().unwrap_or("").to_string(),
-                        Position::new(l.as_u64().unwrap_or(0) as u32, c.as_u64().unwrap_or(0) as u32),
-                    )
-                };
-                // 開いていない文書: references は空の配列、リネームは断る（S198。`textDocument/references` と同じ形）
-                let Some(text) = self.texts.get(&key).cloned() else {
-                    return match method {
-                        "globe/references" => reply(id, json!([])),
+            // S368: UI 向けの参照とリネーム。`file`・`line`・`character`（rename は `newName` も）。開いている文書（`texts`）の全部に広げ、
+            // 規則は `textDocument/*` と同じ（`definition::references_at` / `rename_at`。wasm と同じ）。参照は `[{uri, range}]`（`uri` は didOpen の名前）、
+            // リネームは `{changes: {uri: [TextEdit]}}`。ライブラリ（`-L`）のクラスの参照は `library: true` で足すが、リネームは開いている文書だけ
+            // （ライブラリ・根の下の開いていない `.mo` は変えない）。開いていない `file`: 参照は空の配列、リネームは -32803
+            "globe/references" | "globe/rename" => {
+                let file = params["file"].as_str().unwrap_or("");
+                let mut docs: Vec<definition::Doc> = self
+                    .texts
+                    .iter()
+                    .map(|(u, text)| definition::Doc { key: u.clone(), path: uri_path(u), text: text.clone() })
+                    .collect();
+                docs.sort_by(|a, b| a.key.cmp(&b.key)); // 応答の順を決める
+                let Some(cur) = docs.iter().position(|d| d.key == file) else {
+                    return match msg["method"].as_str() {
+                        Some("globe/references") => reply(id, json!([])),
                         _ => error(id, -32803, "文書が開かれていない"),
                     };
                 };
+                let (line, character) = (
+                    params["line"].as_u64().unwrap_or(0) as u32,
+                    params["character"].as_u64().unwrap_or(0) as u32,
+                );
+                let libs = self.libraries.clone();
+                let open: Vec<String> = docs.iter().map(|d| normalize_path(&d.path)).collect();
+                let result = self.with_resolver(|r| {
+                    if msg["method"] == "globe/rename" {
+                        let new_name = params["newName"].as_str().unwrap_or("");
+                        return definition::rename_at(r, &docs, cur, line, character, new_name);
+                    }
+                    let mut refs = definition::references_at(r, &docs, cur, line, character);
+                    let d = &docs[cur];
+                    let at = offset(&d.text, Position::new(line, character));
+                    if let Some((name, t)) = definition::class_name_at(r, &d.path, &d.text, at) {
+                        for h in disk_class_hits(r, None, &libs, &open, &name, &t).0 {
+                            for x in h.ranges {
+                                refs.as_array_mut().expect("配列").push(
+                                    json!({"uri": file_uri(&h.path), "range": range(&h.text, x), "library": true}),
+                                );
+                            }
+                        }
+                    }
+                    Ok(refs)
+                });
+                match result {
+                    Ok(v) => reply(id, v),
+                    Err(why) => error(id, -32803, &why), // RequestFailed
+                }
+            }
+            // S161: `textDocument/rename` は VS Code 向け（`definition::rename_at` と同じ計算に、S230・S235 の開いていない `.mo`・ライブラリ・継承した部品を足す）。
+            // S166: クラス名も同じ口。`textDocument/prepareRename` は断る理由（`rename` と同じ）かカーソルの識別子の範囲
+            "textDocument/rename" | "textDocument/prepareRename" => {
+                let method = msg["method"].as_str().unwrap_or("");
+                let (key, pos) = (uri.clone(), lsp_position(&params["position"]));
+                // 開いていない文書: リネームは断る（S198。`textDocument/references` と同じ形）
+                let Some(text) = self.texts.get(&key).cloned() else {
+                    return error(id, -32803, "文書が開かれていない");
+                };
                 let (path, others) = (uri_path(&key), self.others(&key));
                 let new_name = params["newName"].as_str().unwrap_or("");
-                // ディスクの上のほかのファイル（S230）は VS Code など `textDocument/*` だけ（UI の `globe/*` はメモリ上の文書）
-                let disk = method.starts_with("textDocument/").then(|| {
-                    let open: Vec<String> = self.texts.keys().map(|u| normalize_path(&uri_path(u))).collect();
-                    (self.root.clone(), self.libraries.clone(), open)
-                });
+                // ディスクの上のほかのファイル（S230）
+                let open: Vec<String> = self.texts.keys().map(|u| normalize_path(&uri_path(u))).collect();
+                let disk = (self.root.clone(), self.libraries.clone(), open);
                 let result: Result<(Value, usize), String> = self.with_resolver(|r| {
                     let at = offset(&text, pos);
                     match method {
-                        "globe/references" => Ok((definition::references_at(r, &path, &text, pos.line, pos.character), 0)),
                         "textDocument/prepareRename" => {
                             if let Some((rg, t)) = definition::component_name_at(r, &path, &text, at) {
                                 let name = &text[rg.start as usize..rg.end as usize];
-                                component_rename_blocked(&t, disk.as_ref())?;
+                                component_rename_blocked(&t, Some(&disk))?;
                                 definition::check_component_name(r, &t, name, name)?;
                                 return Ok((json!(range(&text, rg)), 0));
                             }
@@ -545,12 +577,11 @@ impl Server {
                             class_rename_blocked(r, &path, &text, at).map_or_else(|| Ok((json!(range(&text, x)), 0)), Err)
                         }
                         _ => {
-                            // S235: 部品は定義元に寄せて、継承した先と `b.x` も（開いている文書とディスク）。UI の `globe/rename` は 1 文書の中だけ
-                            if let Some(((rg, t), (root, libs, _))) =
-                                definition::component_name_at(r, &path, &text, at).zip(disk.as_ref())
-                            {
+                            // S235: 部品は定義元に寄せて、継承した先と `b.x` も（開いている文書とディスク）
+                            let (root, libs, open) = &disk;
+                            if let Some((rg, t)) = definition::component_name_at(r, &path, &text, at) {
                                 let name = text[rg.start as usize..rg.end as usize].to_string();
-                                component_rename_blocked(&t, disk.as_ref())?;
+                                component_rename_blocked(&t, Some(&disk))?;
                                 definition::check_component_name(r, &t, &name, new_name)?;
                                 let docs: Vec<(String, String)> =
                                     others.iter().cloned().chain([(key.clone(), text.clone())]).collect();
@@ -567,27 +598,16 @@ impl Server {
                                 }
                                 return Ok((json!({"changes": changes}), library));
                             }
-                            let edits = definition::rename_at(r, &path, &text, pos.line, pos.character, new_name)?;
-                            let hit = definition::class_name_at(r, &path, &text, at);
-                            let Some(((name, t), (root, libs, open))) = hit.zip(disk.as_ref()) else {
-                                // 部品、または UI の `globe/rename`: ほかの開いた文書に参照があれば断る（1 文書の中だけ）
-                                if let Some((name, t)) = definition::class_name_at(r, &path, &text, at) {
-                                    let n: usize = others
-                                        .iter()
-                                        .map(|(u, body)| definition::class_hits(r, &uri_path(u), body, &name, &t).len())
-                                        .sum();
-                                    if n > 0 {
-                                        return Err(format!("ほかの文書に {n} 箇所の参照がある（リネームは 1 文書の中だけ）"));
-                                    }
-                                }
-                                return Ok((if method == "globe/rename" { edits } else { json!({"changes": {key.clone(): edits}}) }, 0));
+                            let edits = definition::rename(r, &path, &text, at, new_name)?;
+                            let mut changes = serde_json::Map::new();
+                            changes.insert(key.clone(), text_edits(&text, &edits, new_name));
+                            let Some((name, t)) = definition::class_name_at(r, &path, &text, at) else {
+                                return Ok((json!({"changes": changes}), 0));
                             };
                             if let Some(why) = class_rename_blocked(r, &path, &text, at) {
                                 return Err(why);
                             }
                             // S230: 開いているほかの文書と、根の下の開いていない `.mo` は `changes` に入れる。ライブラリのファイルは数えるだけ
-                            let mut changes = serde_json::Map::new();
-                            changes.insert(key.clone(), edits);
                             for (u, body) in &others {
                                 let hits = definition::class_hits(r, &uri_path(u), body, &name, &t);
                                 if !hits.is_empty() {
@@ -2729,7 +2749,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let toml = dir.join("globe-mode.toml");
         let uri = "file:///tmp/E.mo";
-        let text = "expandable connector EC\n  Real a;\nend EC;\nmodel E\n  EC ec;\nend E;\n";
+        let text = "model E\n  extends Real;\nend E;\n";
         let open = |s: &mut Server| {
             s.handle(json!({"id": 0, "method": "initialize", "params": {"rootPath": dir}}));
             s.handle(json!({"method": "textDocument/didOpen", "params": {"textDocument": {"uri": uri, "text": text}}}))
@@ -2762,13 +2782,13 @@ mod tests {
     #[test]
     fn check_selects_the_frontend() {
         let mut s = Server::new(&[]).unwrap();
-        let text = "expandable connector EC\n  Real a;\nend EC;\nmodel E\n  EC ec;\nend E;\n";
+        let text = "model E\n  extends Real;\nend E;\n";
         s.handle(json!({"method": "textDocument/didOpen", "params": {"textDocument": {"uri": "E.mo", "text": text}}}));
         let mut check = |params: Value| {
             s.handle(json!({"id": 1, "method": "globe/check", "params": params}))
                 .remove(0)
         };
-        // expandable は Rumoca が通し、自前の段は GM-U0006 で断る
+        // 組み込みの型を継承する `extends Real` は Rumoca が通し、自前の段は GM-U0006 で断る
         assert_eq!(check(json!({"model": "E"}))["result"]["passed"], true);
         assert_eq!(
             check(json!({"model": "E", "frontend": "rumoca"}))["result"]["passed"],
@@ -3615,6 +3635,42 @@ model T\n  Real x;\n  Real y[2];\nequation\n  x = sin(time) + nope(1) + Lib.nope
         d
     }
 
+    /// S368: UI の `globe/references` は、ライブラリ（`-L`）のクラスの参照を `library: true` で足す（見るだけ）。`globe/rename` は変えず、定義が別のファイルなら断る。
+    #[test]
+    fn globe_references_list_library_hits_but_rename_leaves_them() {
+        let dir = scratch_dir("ui-library-refs");
+        let lib = dir.join("Lib");
+        std::fs::create_dir_all(&lib).unwrap();
+        std::fs::write(
+            lib.join("package.mo"),
+            "package Lib\n  model R\n  end R;\n  model U\n    R r;\n  end U;\nend Lib;\n",
+        )
+        .unwrap();
+        let mut s = Server::new(std::slice::from_ref(&dir)).unwrap();
+        s.handle(json!({"method": "textDocument/didOpen", "params": {"textDocument": {
+            "uri": "T.mo", "languageId": "modelica", "version": 1, "text": "model T\n  Lib.R r;\nend T;\n"}}}));
+        let at = |s: &mut Server, m: &str| {
+            s.handle(json!({"id": 1, "method": m, "params": {"file": "T.mo", "line": 1, "character": 7, "newName": "Q"}})).remove(0)
+        };
+        let refs = at(&mut s, "globe/references")["result"].clone();
+        let all = refs.as_array().unwrap();
+        assert_eq!(
+            all.iter().filter(|l| l["uri"] == "T.mo").count(),
+            1,
+            "{refs}"
+        );
+        let lib_hits: Vec<_> = all.iter().filter(|l| l["library"] == true).collect();
+        assert!(
+            lib_hits.len() >= 2
+                && lib_hits
+                    .iter()
+                    .all(|l| l["uri"].as_str().unwrap().starts_with("file://")),
+            "{refs}"
+        );
+        assert_eq!(at(&mut s, "globe/rename")["error"]["code"], -32803); // 別のファイルで定義されたクラス
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn library_file_changed_on_disk_is_reread() {
         // S198: scratch に読んだライブラリのファイルがディスクで変わったら、次の要求で読み直す（古い範囲で本文を切らない）
@@ -3799,8 +3855,14 @@ model T\n  Real x;\n  Real y[2];\nequation\n  x = sin(time) + nope(1) + Lib.nope
                 .len(),
             1
         );
-        // UI の `globe/rename` はメモリ上の文書なので、ディスクを見ない
-        assert!(ask(&mut s, "globe/rename", &m)["result"].is_array());
+        // UI の `globe/rename` はメモリ上の文書なので、ディスクを見ない（S368: 開いている文書の `changes`。開いていない Other.mo は入らない）
+        assert_eq!(
+            ask(&mut s, "globe/rename", &m)["result"]["changes"]
+                .as_object()
+                .unwrap()
+                .len(),
+            1
+        );
         // 開いていない文書: references は空、リネームは断る
         let r = s.handle(json!({"id": 5, "method": "globe/references", "params": {"file": "none.mo", "line": 0, "character": 0}}));
         assert_eq!(r[0]["result"], json!([]));
@@ -3851,10 +3913,14 @@ model T\n  Real x;\n  Real y[2];\nequation\n  x = sin(time) + nope(1) + Lib.nope
                 .len(),
             3
         );
-        let edits = ask("globe/rename", "pos")["result"].clone();
-        assert_eq!(edits.as_array().unwrap().len(), 3, "{edits}");
+        let edits = ask("globe/rename", "pos")["result"].clone(); // S368: `textDocument/rename` と同じ `{changes}`
+        assert_eq!(
+            edits["changes"][uri].as_array().unwrap().len(),
+            3,
+            "{edits}"
+        );
         let w = ask("textDocument/rename", "pos")["result"].clone();
-        assert_eq!(w["changes"][uri], edits, "{w}");
+        assert_eq!(w, edits, "{w}");
         for (new, why) in [("1a", "識別子"), ("end", "予約語"), ("xx", "既に")] {
             let e = ask("globe/rename", new);
             assert_eq!(e["error"]["code"], -32803, "{e}");
@@ -3959,7 +4025,7 @@ model T\n  Real x;\n  Real y[2];\nequation\n  x = sin(time) + nope(1) + Lib.nope
         );
     }
 
-    /// S166: クラス名の参照・リネーム・prepareRename。ほかの開いた文書に参照があるとリネームは断り、参照の一覧には含める。
+    /// S166: クラス名の参照・リネーム・prepareRename。S368: UI の `globe/*` も、ほかの開いた文書の参照を一覧に含め、リネームの `changes` に入れる。
     #[test]
     fn class_references_rename_and_prepare_over_rpc() {
         let mut s = Server::new(&[]).unwrap();
@@ -3997,12 +4063,17 @@ end B;
             .collect();
         assert_eq!(uris.iter().filter(|u| *u == a).count(), 4, "{r}"); // 宣言・end・extends・型
         assert_eq!(uris.iter().filter(|u| *u == b).count(), 1, "{r}");
+        // S368: UI の `globe/references` も同じ（開いている文書の全部。`{uri, range}`）
+        let g = ask("globe/references", 4, 11, "")["result"].clone();
+        assert_eq!(g.as_array().unwrap().len(), 5, "{g}");
         assert_eq!(
-            ask("globe/references", 4, 11, "")["result"]
-                .as_array()
+            g.as_array()
                 .unwrap()
-                .len(),
-            4
+                .iter()
+                .filter(|l| l["uri"] == b)
+                .count(),
+            1,
+            "{g}"
         );
         let p = ask("textDocument/prepareRename", 4, 11, "");
         assert_eq!(
@@ -4010,36 +4081,35 @@ end B;
             json!({"line": 4, "character": 10}),
             "{p}"
         );
-        // B が Base を使っているので断る
-        let e = ask("globe/rename", 4, 11, "Root");
-        assert_eq!(e["error"]["code"], -32803, "{e}");
-        assert!(
-            e["error"]["message"]
-                .as_str()
-                .unwrap()
-                .contains("ほかの文書に 1 箇所"),
-            "{e}"
-        );
-        // B を閉じる代わりに本文を差し替える（Base を使わない）と通る
-        s.handle(
-            json!({"method": "textDocument/didOpen", "params": {"textDocument": {
-            "uri": b, "languageId": "modelica", "version": 2, "text": "model B\nend B;\n"}}}),
-        );
-        let mut ask = |m: &str, line: u32, ch: u32, new: &str| {
-            s.handle(json!({"id": 3, "method": m, "params": {"file": a, "textDocument": {"uri": a},
-                "position": {"line": line, "character": ch}, "line": line, "character": ch, "newName": new}}))
-                .remove(0)
-        };
-        assert_eq!(
-            ask("globe/rename", 4, 11, "Root")["result"]
-                .as_array()
-                .unwrap()
-                .len(),
-            4
-        );
+        // S368: UI の `globe/rename` は B の参照も同じ `changes` に入れる（以前は断った）。`textDocument/rename` と同じ結果
+        let e = ask("globe/rename", 4, 11, "Root")["result"].clone();
+        assert_eq!(e["changes"][a].as_array().unwrap().len(), 4, "{e}");
+        assert_eq!(e["changes"][b].as_array().unwrap().len(), 1, "{e}");
+        assert_eq!(ask("textDocument/rename", 4, 11, "Root")["result"], e);
         // 部品でもクラスでもない所（予約語 model）は prepareRename が断る
         let e = ask("textDocument/prepareRename", 3, 2, "");
         assert_eq!(e["error"]["code"], -32803, "{e}");
+        // B の側（別のファイルで定義したクラスの使う側）からは、`rename` が断る（S166）。開いていない文書は参照が空・リネームは断る
+        let ask_b = |s: &mut Server, m: &str, file: &str| {
+            s.handle(json!({"id": 4, "method": m, "params": {"file": file, "line": 1, "character": 3, "newName": "Root"}}))
+                .remove(0)
+        };
+        assert_eq!(ask_b(&mut s, "globe/rename", b)["error"]["code"], -32803);
+        assert_eq!(
+            ask_b(&mut s, "globe/references", b)["result"]
+                .as_array()
+                .unwrap()
+                .len(),
+            5
+        );
+        assert_eq!(
+            ask_b(&mut s, "globe/references", "none.mo")["result"],
+            json!([])
+        );
+        assert_eq!(
+            ask_b(&mut s, "globe/rename", "none.mo")["error"]["code"],
+            -32803
+        );
     }
 
     /// S214: 打鍵ごとの didChange が積まれたら、古い版は検査せずに捨て、最後の診断は最新の版のものになる。

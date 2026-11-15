@@ -435,10 +435,48 @@ impl Workspace {
         .to_string()
     }
 
-    /// 文書 `file`（先に `set_file` で足しておく）の行・列にある名前の参照を LSP の Range の配列の JSON で返す（S161。LSP の `globe/references` と同じ形）。
+    /// `file`（本文 `text`）とワークスペースのほかの文書（S368。UI は開いているタブの全部を `set_file` してから呼ぶ）。`file` の番号を添える。
+    fn docs(&self, file: &str, text: &str) -> (Vec<globe_mode_lsp::definition::Doc>, usize) {
+        let doc = |f: &str, text: String| globe_mode_lsp::definition::Doc {
+            key: f.into(),
+            path: f.into(),
+            text,
+        };
+        let mut docs: Vec<_> = self
+            .inner
+            .files()
+            .filter_map(|f| {
+                Some(doc(
+                    f,
+                    if f == file {
+                        text.into()
+                    } else {
+                        self.inner.text(f)?
+                    },
+                ))
+            })
+            .collect();
+        let cur = docs.iter().position(|d| d.key == file).unwrap_or_else(|| {
+            docs.push(doc(file, text.into()));
+            docs.len() - 1
+        });
+        (docs, cur)
+    }
+
+    /// 文書 `file`（本文 `text`）の行・列にある名前の参照を、ワークスペースの文書の全部に広げて LSP の `Location`（`{uri, range}`。`uri` はファイル名）の配列の JSON で返す
+    /// （S161・S368。LSP の `globe/references` と同じ形）。クラス名は、読み込んだライブラリで同じクラスに行き着くものも `library: true` で足す（見るだけ）。
     pub fn references(&self, file: &str, text: &str, line: u32, character: u32) -> String {
+        let (docs, cur) = self.docs(file, text);
         self.with_resolver(|r| {
-            globe_mode_lsp::definition::references_at(r, file, text, line, character)
+            let mut refs =
+                globe_mode_lsp::definition::references_at(r, &docs, cur, line, character);
+            if let Some((_, files)) = &self.tree {
+                let at = globe_mode_lsp::definition::offset_of(text, line, character);
+                let extra =
+                    globe_mode_lsp::definition::library_references(r, &docs, cur, at, files.iter());
+                refs.as_array_mut().expect("配列").extend(extra);
+            }
+            refs
         })
         .to_string()
     }
@@ -583,8 +621,9 @@ impl Workspace {
             .to_string()
     }
 
-    /// 名前を `new_name` に変える TextEdit（`{range, newText}`）の配列の JSON（S161。LSP の `globe/rename` と同じ形）。
-    /// 断る場合（部品でもクラスでもない・別のファイルのクラス・識別子でない・予約語・同じ階層に既にある）は理由を例外（文字列）で返す。
+    /// 名前を `new_name` に変える LSP の `WorkspaceEdit`（`{changes: {ファイル名: [{range, newText}]}}`）の JSON（S161・S368。LSP の `globe/rename` と同じ形）。
+    /// ワークスペースの文書の全部に届く（クラス名・継承した部品。ライブラリのファイルは変えない）。
+    /// 断る場合（部品でもクラスでもない・別のファイルのクラス・ライブラリで宣言した部品・識別子でない・予約語・同じ階層に既にある）は理由を例外（文字列）で返す。
     pub fn rename(
         &self,
         file: &str,
@@ -593,8 +632,9 @@ impl Workspace {
         character: u32,
         new_name: &str,
     ) -> Result<String, JsValue> {
+        let (docs, cur) = self.docs(file, text);
         self.with_resolver(|r| {
-            globe_mode_lsp::definition::rename_at(r, file, text, line, character, new_name)
+            globe_mode_lsp::definition::rename_at(r, &docs, cur, line, character, new_name)
         })
         .map(|v| v.to_string())
         .map_err(js_error)

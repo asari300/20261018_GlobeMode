@@ -50,6 +50,20 @@ csv.free();
 assert.throws(() => gm.read_results("bad.csv", new TextEncoder().encode("x,y\n1,2\n")), /bad\.csv/);
 console.log(`結果を開く: MAT ${layout.points} 点 × ${layout.names.length} 列、CSV、読めないファイルは投げる`);
 
+// 1b2. 参照・リネームがワークスペースの文書の全部に届く（S368）: 2 ファイルにまたがるクラス名と継承した部品。断れば理由を例外で投げる
+{
+  const rw = new gm.Workspace();
+  const [a, b] = ["model Base\n  Real x;\nend Base;\n", "model B\n  extends Base;\n  Base c;\nequation\n  x = 1;\nend B;\n"];
+  rw.set_file("A.mo", a);
+  rw.set_file("B.mo", b);
+  const refs = JSON.parse(rw.references("A.mo", a, 0, 7));
+  assert.deepEqual(refs.map((r) => r.uri), ["A.mo", "A.mo", "B.mo", "B.mo"], JSON.stringify(refs));
+  const edits = JSON.parse(rw.rename("B.mo", b, 4, 2, "pos")); // 継承した部品 x（B の `x = 1`）→ A の宣言も
+  assert.deepEqual(Object.keys(edits.changes), ["A.mo", "B.mo"], JSON.stringify(edits));
+  assert.throws(() => rw.rename("A.mo", a, 0, 7, "model"), /予約語/);
+  console.log("参照・リネーム: 2 ファイルにまたがるクラス名・継承した部品、予約語は投げる");
+}
+
 // 1c. 折りたたみの範囲（S225）: LSP の textDocument/foldingRange と同じ関数。クラスは end の行を残し、equation の節と複数行の annotation も出る
 {
   const fw = new gm.Workspace();

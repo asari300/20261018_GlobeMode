@@ -35,6 +35,7 @@ console の error（CSP の違反を含む）と、配った origin の外への
 使い心地（S228）: 実行中の Esc で止まる（入力欄の Esc と補完の一覧を閉じる Esc では止まらない）。タブは Ctrl+Shift+PageUp / PageDown とドラッグで並べ替わり、開いているタブは同じまま、順序が自動保存に乗って再読み込みで戻る。実行の設定はモデル名ごとに残り（`globe-mode.sim`）、切り替えると戻り、「設定を既定に戻す」で消える。開始時刻・刻み幅（固定刻みだけ）・予算の欄が要求に乗り、GM-E10004 が欄の下に出る。
 S196（レビューの指摘）: Desktop（偽の window.__TAURI__）で同じ名前の別のファイルが別のタブになり保存が取り違えない。ライブラリのタブは読み取り専用（打てず案内が出る。整形・リネームは断る）。タブを切り替えるとリネームの入力欄・参照の一覧・最後の値が残らない。実行中は F12 に入らず進捗の行は role を持たない。自動保存は遅らせても離れる前に書き、書けなければ 1 文出す。別のウィンドウの保存を知らせる。Tab は補完の一覧が開いていれば確定。Modelica.Units.SI.Vol で Voltage が出る（一覧が 200 件で切れていても問い直す）。
 複数のソルバの結果（S348）: Decay を bdf・dopri45・rk4 で、比較 on・閾値 10^-6 で回し、実行の表 3 行・比較の表 2 行（基準 bdf）・合否・最大の相対差が出て、並列を頼むと 1 つずつに落ちた注記が出る。設定欄の名前が入力欄から泣き別れず、横にはみ出さない。環境変数 GM_UI_SHOT に PNG のパスを渡すと結果の画面を撮る。
+参照・リネーム（S368）: 開いているタブの全部に届く（A.mo の Base の Shift+F12 に B.mo の行が出て押すとそのタブへ、F2 で B.mo も変わり B.mo の Ctrl+Z で戻る）。
 配置のずれ（S363）: 検査の終わり（ソルバ・パラメータの一覧が wasm から後で届く）とタブの切り替え（モデルの候補）のあと、タブ列の上端が動かない（±1 px。1280・740・390 px 幅）。動くと押す直前に別の場所を押す。
 """
 
@@ -1490,7 +1491,7 @@ def many_result_view(browser, origin: str, errors: list[str]) -> None:
 
 def check_frontend_select(browser, origin: str, errors: list[str]) -> None:
     """S347: 検査のフロントエンド（設定に従う / Rumoca / 自前（試験））の選択。既定は「設定に従う」（S350。ブラウザは設定ファイルが無いので Rumoca と同じで要約を出さない）。
-    「自前」で検査すると Rust の要約（S0〜S6 まで）が出て、自前の段が断る形（expandable）は GM-U0006 で「自前の段の原文」になる。
+    「自前」で検査すると Rust の要約（S0〜S6 まで）が出て、自前の段が断る形（組み込みの型を継承する `extends Real`）は GM-U0006 で「自前の段の原文」になる。
     S349: Desktop（偽の window.__TAURI__）にも選択肢があり、sidecar の `globe/check` の params.frontend に選んだ名前が乗る。
     S350: 「設定に従う」のあいだは frontend を渡さず、設定が native だった応答（応答の frontend）は要約を出す。"""
     pg = browser.new_page()
@@ -1511,7 +1512,7 @@ def check_frontend_select(browser, origin: str, errors: list[str]) -> None:
     pg.close()
 
     pg = browser.new_page()
-    open_text_model(pg, origin, errors, "E.mo", "expandable connector EC\n  Real a;\nend EC;\nmodel E\n  EC ec;\nend E;\n", "E")
+    open_text_model(pg, origin, errors, "E.mo", "model E\n  extends Real;\nend E;\n", "E")
     pg.get_by_label("検査のフロントエンド").select_option("native")
     pg.get_by_role("button", name="検査").click(force=True)
     expect(pg.locator("[data-unsupported]")).to_be_visible(timeout=120_000)
@@ -1551,7 +1552,7 @@ def check_frontend_select(browser, origin: str, errors: list[str]) -> None:
     expect(dt.locator("[data-native-note]")).to_contain_text("native: S0〜S6", timeout=30_000)
     assert [c.get("frontend") for c in dt.evaluate("__checks")] == [None, "rumoca", "native", None, None]
     dt.close()
-    print("検査のフロントエンド: ブラウザに選択肢があり、自前で Decay が通って要約が出て、expandable は GM-U0006（自前の段の原文）、Desktop にも選択肢があり sidecar の globe/check に選んだ frontend が乗る（設定に従うあいだは乗らず、応答の frontend が native なら要約が出る）")
+    print("検査のフロントエンド: ブラウザに選択肢があり、自前で Decay が通って要約が出て、組み込みの型を継承する extends Real は GM-U0006（自前の段の原文）、Desktop にも選択肢があり sidecar の globe/check に選んだ frontend が乗る（設定に従うあいだは乗らず、応答の frontend が native なら要約が出る）")
 
 
 # タブ列の上端（文書の座標）の最大と最小を 5 ms ごとに取る記録器。reset() からの差が、その間の配置のずれ（S363）
@@ -1600,6 +1601,59 @@ def layout_shift(browser, origin: str, errors: list[str]) -> None:
             still(f"タブ {i}（{name}）の検査")
         pg.close()
     print("配置のずれ: 1280・740・390 px 幅で、初回の検査・2 つのモデルのファイルを開いたあとのタブの切り替えと検査のどれでも、タブ列の上端が ±1 px 動かない")
+
+
+def cross_file_refs(browser, origin: str, errors: list[str]) -> None:
+    """S368: 参照とリネームは開いているタブの全部に届く。A.mo の `Base` で Shift+F12 すると B.mo の行も一覧に出て（ファイル名つき）、押すとそのタブへ移る。
+    F2 で Core に変えると A.mo と B.mo の両方が変わり、B.mo のタブの Ctrl+Z で戻る（変えた側と別々の undo）。"""
+    a = "model Base\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -x;\nend Base;\n"
+    b = "model B\n  extends Base;\n  Base c;\nend B;\n"
+    pg = browser.new_page()
+    pg.on("console", lambda m: m.type == "error" and errors.append(m.text))
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(origin)
+    pg.get_by_role("button", name="検査").wait_for()
+    for name, body in (("A.mo", a), ("B.mo", b)):
+        with pg.expect_file_chooser() as ch:
+            pg.get_by_role("button", name="開く").click(force=True)
+        ch.value.set_files(files=[{"name": name, "mimeType": "text/plain", "buffer": body.encode()}])
+        expect(pg.locator("[role=tab][aria-selected=true]")).to_contain_text(name, timeout=30_000)
+    tab = lambda name: pg.locator("[role=tab]", has_text=name)
+    content = pg.locator(".cm-content")
+    tab("A.mo").click()
+    content.focus()
+    pg.keyboard.press("Control+Home")
+    pg.keyboard.press("End")  # `model Base` の Base の後ろ
+    pg.keyboard.press("Shift+F12")
+    refs = pg.locator("table.refs tr")
+    expect(refs).to_have_count(4, timeout=30_000)  # A.mo の宣言・end と、B.mo の extends・型
+    rows = refs.all_inner_texts()
+    assert rows[0].startswith("A.mo") and rows[2].startswith("B.mo"), rows  # 今のタブの行が先、ファイル名の列つき
+    refs.nth(2).click()  # B.mo の行を押すと、そのタブの該当行へ
+    expect(pg.locator("[role=tab][aria-selected=true]")).to_contain_text("B.mo")
+    expect(pg.locator(".cm-activeLine")).to_contain_text("Base")
+    expect(refs).to_have_count(4)  # 一覧は残る
+    pg.get_by_role("button", name="参照を閉じる").click()
+    tab("A.mo").click()
+    content.focus()
+    pg.keyboard.press("Control+Home")
+    pg.keyboard.press("End")
+    pg.keyboard.press("F2")
+    name = pg.get_by_label("新しい名前")
+    name.fill("Core")
+    name.press("Enter")
+    expect(content).to_contain_text("end Core;", timeout=30_000)
+    assert pg.get_by_role("alert").count() == 0, pg.get_by_role("alert").all_inner_texts()
+    tab("B.mo").click()
+    expect(content).to_contain_text("extends Core;", timeout=30_000)
+    assert "Core c;" in content.inner_text() and "Base" not in content.inner_text(), content.inner_text()
+    content.focus()
+    pg.keyboard.press("Control+z")  # B.mo のタブの undo で戻る（A.mo は別の履歴）
+    expect(content).to_contain_text("extends Base;")
+    tab("A.mo").click()
+    assert "model Core" in content.inner_text()
+    pg.close()
+    print("参照・リネームの 2 タブ（S368）: A.mo の Base の Shift+F12 で B.mo の行も出て押すとそのタブへ移り、F2 で Core に変えると B.mo も変わって B.mo の Ctrl+Z で戻る")
 
 
 def main() -> int:
@@ -2178,6 +2232,20 @@ def main() -> int:
             page.keyboard.press("Alt+ArrowLeft")
             expect(page.locator(".cm-content")).to_contain_text("model ChuaCircuit")
             print("ChuaCircuit の F12: Resistor.mo が開き、Alt+← で ChuaCircuit に戻った")
+            # 参照（S368）: 同じ Resistor の上の Shift+F12 は、ChuaCircuit の行と、読み込んだライブラリで同じクラスに行き着く行（押せない。見るだけ）を出す
+            page.locator(".cm-content").focus()
+            page.keyboard.press("Control+Home")
+            for _ in range(8):
+                page.keyboard.press("ArrowDown")
+            for _ in range(38):
+                page.keyboard.press("ArrowRight")
+            t = time.perf_counter()
+            page.keyboard.press("Shift+F12")
+            expect(page.locator("table.refs button.jump[disabled]").first).to_be_visible(timeout=120_000)
+            n_lib = page.locator("table.refs button.jump[disabled]").count()
+            assert page.locator("table.refs button.jump:not([disabled])").count() >= 1 and page.get_by_role("alert").count() == 0
+            print(f"ChuaCircuit の Shift+F12: Resistor の参照 {page.locator('table.refs tr').count()} 行（ライブラリの押せない行 {n_lib}）、{time.perf_counter() - t:.1f} s")
+            page.get_by_role("button", name="参照を閉じる").click()
             # ホバー（S149）: ライブラリのクラス Resistor の上で、見出しと説明文字列が出る
             hover_over("Basic.Resistor Ro", "Resistor")
             expect(tip).to_contain_text("Ideal linear electrical resistor", timeout=30_000)
@@ -2769,6 +2837,7 @@ def main() -> int:
         fmu_runtime_select(browser, origin, errors)  # S239
         check_frontend_select(browser, origin, errors)  # S347
         layout_shift(browser, origin, errors)  # S363
+        cross_file_refs(browser, origin, errors)  # S368
         results_followups(browser, origin, errors)  # S236
         print("エディタの Tab: 空白 2 つの字下げ（選択した 2 行も）と Shift+Tab、補完の一覧が開いていれば確定・閉じていれば字下げ、Esc のあと Tab・Shift+Tab と Ctrl+M で外へ、説明は aria-describedby と画面に")
         print("キーボードだけ: モデル名・エディタへ Tab、Ctrl+Shift+Enter で検査、診断と参照の行を Tab・Enter・Space でエディタへ、Ctrl+Enter で実行（プロットの aria-label に信号名と時間の範囲）、Ctrl+. で止め、Ctrl+S で保存")
