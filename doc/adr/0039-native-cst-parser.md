@@ -167,7 +167,7 @@ roadmap の要約で外した、古くなっていた「残り」: 診断の `GM
 - **試験**: `globe-mode-dae` に 1 本（`der_in_initial_equation_makes_state`）、`globe-mode-flat` に 1 本（`record_array_equation_counts_one_per_element`。直す前は 2、直して 4）。`cargo xtask diff-frontend --dump` に初期方程式の行 `ieq[…]` を足した。
 - **shortcut**: 読めない初期方程式の印字は黙って飛ばす（状態の数だけが変わる）。属性（`start` など）の中の `der` は見ない（Rumoca は見る）。`if` の初期方程式は、条件が定数なら選んだ枝だけが `initial_equations` に入る（Rumoca も構造の選択で同じ）。実行（`globe-mode-exec`）は Rumoca のままなので、この規則は自前の DAE の判定にだけ効く。
 - **数字**（MSL の例題 566 本、S334 → S337。`GlobeModeValidation` 75 本は変わらず 73/73・73/73・73/73・正則 72/72。回帰 0、改善 3 本）: 状態の数 332/334 → **334/334**、flat の方程式の数 451/463 → **452/463**（残り 11 本は Rumoca の数え方の誤りとみている。Rotational・Translational の摩擦・歯車の 10 本と `ActuatorWithNoise`）、DAE の判定・数・構造の正則は 334/334 のまま。`msl:diff-frontend` と同じ引数で 744 s（ほかの担当と並行。S334 は 554 s）、最大 RSS 5.2 GiB。
-- **作業上の注意**: 共有 target では `cargo xtask`（`release/xtask`）が走らせるバイナリを別の worktree のビルドが上書きすることがあり、`--dump` の出力が食い違って気付いた。ビルド直後に自分の分を `cp` して走らせる。
+- **作業上の注意**: 共有 target では、同じ crate の成果物（`release/xtask`・試験のバイナリ）の名前が worktree をまたいで同じで、別の worktree のビルドに入れ替わることがある（`--dump` の出力が食い違って気付いた。試験でも起きた）。ビルド直後に自分の分を `cp` して走らせ、変えた crate の `lib.rs` を `touch` して作り直す。
 
 ## 付記（S334）: 構造の正則の不一致 33 本と `PrismaticConstraint`・`Fourbar1` の方程式の数（MultiBody）
 
