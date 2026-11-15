@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S334 MultiBody の構造の正則 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S334 MultiBody の構造の正則">
+
+<section class="slide" id="S01">
+  <span class="tag">S334 · 2026-11-15 · Track B</span>
+  <h1>MultiBody の構造の正則</h1>
+  <p class="lead">S333 の後に残った 33 本と、方程式の数の差 2 本は、自前の誤りだった</p>
+  <div class="big">構造の正則 301 → 334 / 334、回帰 0</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">原因 1</span>
+  <h1>レコードを関数に渡すと incidence が空</h1>
+  <ul>
+    <li><code>w_a = Frames.angularVelocity2(frame_a.R)</code> の <code>frame_a.R</code> は変数ではなく、欄 <code>T</code>・<code>w</code> の持ち主</li>
+    <li>Rumoca は関数の本体を見て <code>R.w[i]</code> を行に入れる。自前は名前が引けず空だった</li>
+    <li>直し: 変数でないレコードの参照は欄すべてに触れるとみなす（<code>leaves_of</code>）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">原因 2</span>
+  <h1>方程式の数の差 2 本</h1>
+  <ul>
+    <li><code>PrismaticConstraint</code>（2 本）: <code>angularVelocity2(R_b) = …</code> の左辺が関数の呼び出しで、大きさが分からず 1 本と数えていた。出力の宣言の大きさ（<code>Real w[3]</code>）を使う</li>
+    <li><code>Fourbar1</code>（3 本）: 閉路で木に選ばれなかった辺は <code>zeros(3) = equalityConstraint(a.R, b.R)</code> になる。S312 は大きさ 0 と見て作らなかった。<code>residue[n]</code> の n を持たせた</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">数字</span>
+  <h1>MSL の例題 566 本（S333 → S334）</h1>
+  <div class="kpis">
+    <div class="kpi"><span class="n">334 / 334</span><span class="l">構造の正則（前 301）</span></div>
+    <div class="kpi"><span class="n">451 / 463</span><span class="l">flat の方程式の数（前 449）</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">回帰</span></div>
+  </div>
+  <p>DAE の判定・数は 332 → 334 / 334。残る 12 本の方程式の数は Rumoca の数え方の誤り。</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>状態の数 2 本（<code>IMC_DCBraking</code>・<code>IMC_Initialize</code>。Electrical.Machines）</li>
+    <li><code>ShowTransferFunction</code> の方程式の数（14 対 16）</li>
+    <li>レコードを渡す incidence は欄すべて（Rumoca は絞る）</li>
+  </ul>
+  <p class="foot">GlobeMode S334</p>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

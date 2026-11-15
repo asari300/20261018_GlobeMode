@@ -4,9 +4,8 @@
 //! - 節点は、`equalityConstraint` を持つレコード（`Reference`）の部品と、`Connections.*` の引数。
 //!   必須の辺は `branch`、任意の辺は `connect` が節点どうしをつなぐもの。
 //! - 必須の辺を先に、次に任意の辺を、閉路を作らず、確定した根（`root`）を持つ木どうしをつながないように選ぶ。
-//!   選ばれなかった任意の辺をまたぐ等式は `equalityConstraint` に置き換わる。これは Rumoca の flat と同じく、
-//!   戻り値の大きさを 0 と見て等式を作らない（shortcut: 大きさが 0 でない `equalityConstraint`（MultiBody の `Orientation`）は
-//!   平らにできないので考えない）。
+//!   選ばれなかった任意の辺をまたぐ等式は `zeros(n) = equalityConstraint(a, b)`（`n` は戻り値の大きさ。MultiBody の `Orientation` は 3、
+//!   `Reference`〔QuasiStatic〕は 0 なので作らない。S334）に置き換わる。
 //! - `if` の方程式の条件に `Connections.isRoot(N)`・`Connections.rooted(N)` があれば、`flatten.rs` が枝ごとに平らにして `OcIf` に置く（S333）。
 //!   ここで根の決定のあとに、最初に条件が真の枝（`else` なら常に真）だけを残す。
 //!   根は、木に確定した根があればそれ、無ければ潜在的な根（優先度が小さく、同じなら名前が先のもの）、それも無ければ名前が先のもの。
@@ -103,7 +102,7 @@ impl F<'_> {
                 potential.push((a[0].clone(), prio));
             }
         }
-        let mut all: BTreeSet<String> = self.oc_nodes.clone();
+        let mut all: BTreeSet<String> = self.oc_nodes.keys().cloned().collect();
         all.extend(definite.iter().cloned());
         all.extend(potential.iter().map(|(n, _)| n.clone()));
         all.extend(branches.iter().flat_map(|(a, b)| [a.clone(), b.clone()]));
@@ -211,10 +210,13 @@ impl F<'_> {
             parent: (0..nodes.len()).collect(),
             root: vec![false; nodes.len()],
         };
+        let mut broken: Vec<(usize, usize)> = Vec::new();
         for (x, y) in optional {
             if tree.join(x, y) {
                 sel.join(x, y);
                 edges.push((x, y));
+            } else {
+                broken.push((x, y));
             }
         }
         // 接続集合の等式を、選ばれた辺でつながる群ごとの連鎖にする
@@ -299,21 +301,33 @@ impl F<'_> {
                 replace.insert(f.at, (1, eqs));
             }
         }
-        if replace.is_empty() {
-            return;
-        }
-        let old = std::mem::take(&mut self.eqs);
-        let mut it = old.into_iter().enumerate();
-        while let Some((i, e)) = it.next() {
-            if let Some((n, eqs)) = replace.remove(&i) {
-                self.eqs.extend(eqs);
-                for _ in 1..n {
-                    it.next();
+        // 選ばれなかった任意の辺をまたぐ等式は `zeros(n) = equalityConstraint(a, b)`（n は戻り値の大きさ。S334）
+        let broken_eqs: Vec<Equation> = broken
+            .iter()
+            .filter_map(|&(x, y)| {
+                let (f, n) = self.oc_nodes.get(nodes[x].as_str())?;
+                (*n > 0).then(|| Equation {
+                    text: format!("zeros({n}) = {f}({}, {})", nodes[x], nodes[y]),
+                    count: *n,
+                    origin: None,
+                })
+            })
+            .collect();
+        if !replace.is_empty() {
+            let old = std::mem::take(&mut self.eqs);
+            let mut it = old.into_iter().enumerate();
+            while let Some((i, e)) = it.next() {
+                if let Some((n, eqs)) = replace.remove(&i) {
+                    self.eqs.extend(eqs);
+                    for _ in 1..n {
+                        it.next();
+                    }
+                } else {
+                    self.eqs.push(e);
                 }
-            } else {
-                self.eqs.push(e);
             }
         }
+        self.eqs.extend(broken_eqs);
     }
 }
 

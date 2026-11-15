@@ -108,7 +108,12 @@ impl Ctx<'_> {
         let Some(Expr::ComponentRef(c)) = eq.children().find_map(Expr::cast) else {
             return Vec::new();
         };
-        let t: String = c.syntax().text().to_string().split_whitespace().collect();
+        self.leaves_of(&c.syntax().text().to_string())
+    }
+
+    /// 変数でないレコードの参照 `a.R` の、欄の変数（`a.R.T`・`a.R.w` …。`BTreeMap` の順）
+    fn leaves_of(&self, text: &str) -> Vec<usize> {
+        let t: String = text.split_whitespace().collect();
         if self.index.contains_key(t.as_str()) {
             return Vec::new();
         }
@@ -189,7 +194,19 @@ impl Ctx<'_> {
             if let Some((var, sel)) = self.resolve(&text) {
                 out.push(Ref { var, sel, der });
             } else {
-                for (j, var) in self.parts(&text) {
+                let parts = self.parts(&text);
+                if parts.is_empty() {
+                    // レコードそのものを関数に渡す `angularVelocity2(frame_a.R)` は、欄すべてに触れるとみなす
+                    // （Rumoca は関数の本体を見て欄を絞る。S334）
+                    for var in self.leaves_of(&text) {
+                        out.push(Ref {
+                            var,
+                            sel: Sel::All,
+                            der,
+                        });
+                    }
+                }
+                for (j, var) in parts {
                     out.push(Ref {
                         var,
                         sel: Sel::Part(j),
@@ -924,6 +941,15 @@ mod tests {
         // 行 0・1 は pin[k].v = k、行 2・3 が x の束縛。未知数は pin[1].v・pin[2].v・x[1]・x[2]
         assert_eq!(d.structure.incidence[2], [0, 2]);
         assert_eq!(d.structure.incidence[3], [1, 3]);
+    }
+
+    #[test]
+    fn whole_record_argument_touches_every_field() {
+        // `y = f(r)` の `r`（レコードそのもの）は、欄すべてを含む（Rumoca は関数の本体を見て絞る。S334）
+        let d = dae("record R Real p; Real q; end R;
+            function f input R r; output Real y; algorithm y := r.p; end f;
+            model M R r; Real y; equation r.p = 1; r.q = 2; y = f(r); end M;");
+        assert_eq!(d.structure.incidence[2], [0, 1, 2]);
     }
 
     #[test]

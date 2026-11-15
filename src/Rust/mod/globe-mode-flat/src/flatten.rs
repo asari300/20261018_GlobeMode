@@ -6,7 +6,7 @@ use globe_mode_resolve::{ClassId, Reason, Ref, RefKind, Resolution};
 use globe_mode_syntax::ast::{self, Element, Expr};
 use globe_mode_syntax::{SyntaxKind as K, SyntaxNode};
 use std::cell::RefCell;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::rc::Rc;
 
 mod graph;
@@ -243,8 +243,8 @@ struct F<'a> {
     pkg_envs: RefCell<HashMap<ClassId, PkgEnv>>,
     /// パッケージの `extends P(redeclare record R = X)` が決めた差し替え（`pkg_env` と一緒に作る）
     pkg_cenvs: RefCell<HashMap<ClassId, Cenv>>,
-    /// `equalityConstraint` を持つレコード（過剰決定コネクタ）の部品の完全な名前（S312）
-    oc_nodes: BTreeSet<String>,
+    /// `equalityConstraint` を持つレコード（過剰決定コネクタ）の部品の完全な名前 → （その関数の完全修飾名、戻り値の大きさ）（S312・S334）
+    oc_nodes: BTreeMap<String, (String, usize)>,
     /// 過剰決定コネクタの接続集合（`graph::OcSet`）と、すべての `connect` の端
     oc_sets: Vec<graph::OcSet>,
     conn_pairs: Vec<(String, String)>,
@@ -285,7 +285,7 @@ pub(crate) fn run(p: &Project, cid: ClassId, model: &str) -> Res<FlatModel> {
         inst_depth: std::cell::Cell::new(0),
         pkg_envs: RefCell::default(),
         pkg_cenvs: RefCell::default(),
-        oc_nodes: BTreeSet::new(),
+        oc_nodes: BTreeMap::new(),
         oc_sets: Vec::new(),
         conn_pairs: Vec::new(),
         oc_ifs: Vec::new(),
@@ -832,10 +832,13 @@ impl F<'_> {
                 };
                 let eff = fill(parent, fill(own_flags, flags));
                 let split = !dims.is_empty() && has_array_value(&m.sub);
-                let oc = self.p.lineage(cid).iter().any(|c| {
-                    self.p.lib.classes[*c]
-                        .classes
-                        .contains_key("equalityConstraint")
+                let oc = self.p.lineage(cid).iter().find_map(|c| {
+                    let f = *self.p.lib.classes[*c].classes.get("equalityConstraint")?;
+                    // 大きさが決められなければ 0（今までと同じ。等式を作らない）
+                    let n = self
+                        .class_out_dims(f, ctx)
+                        .map_or(0, |d| d.iter().product());
+                    Some((self.p.lib.qualified_name(f), n))
                 });
                 // 添字の文字列を作る前に個数を見る（積の overflow も。#109）
                 let n = dims.iter().try_fold(1usize, |a, &d| a.checked_mul(d));
@@ -844,8 +847,8 @@ impl F<'_> {
                 }
                 for (e, ix) in idx_names(&dims).into_iter().enumerate() {
                     let el = format!("{full}{ix}");
-                    if oc {
-                        self.oc_nodes.insert(el.clone());
+                    if let Some(o) = &oc {
+                        self.oc_nodes.insert(el.clone(), o.clone());
                     }
                     let sub_e = if split {
                         split_mod(
@@ -2119,6 +2122,49 @@ impl F<'_> {
         None
     }
 
+    /// ユーザー定義の関数の呼び出しの結果の形: 出力が 1 つで、その大きさが定数のとき（`Frames.angularVelocity2` は `Real w[3]`）。
+    /// スカラーの出力・レコードの出力は `None`（今までと同じく 1 つと数える）
+    fn fn_out_dims(&self, c: &ast::CallExpr, file: u32, ctx: &Rc<Ctx>) -> Option<Vec<usize>> {
+        let r = c.syntax().children().find_map(ast::ComponentRef::cast)?;
+        let Some(Resolution::Class(rid)) = self.p.res_of(file, r.range()) else {
+            return None;
+        };
+        self.class_out_dims(rid, ctx)
+    }
+
+    /// 関数のクラスの、出力が 1 つのときの戻り値の大きさ（宣言の添字が定数のもの）
+    fn class_out_dims(&self, rid: ClassId, ctx: &Rc<Ctx>) -> Option<Vec<usize>> {
+        let cd = self.p.class(rid)?;
+        let ffile = self.p.lib.classes[rid].file;
+        let mut outs = cd.elements().into_iter().filter_map(|e| match e {
+            Element::Component(cc) if tokens(cc.syntax()).any(|t| t.kind() == K::KwOutput) => {
+                Some(cc)
+            }
+            _ => None,
+        });
+        let cc = outs.next()?;
+        let decls = cc.declarations();
+        let [d] = decls.as_slice() else {
+            return None;
+        };
+        if outs.next().is_some() {
+            return None;
+        }
+        let mut dims = Vec::new();
+        for sn in d
+            .syntax()
+            .children()
+            .chain(cc.syntax().children())
+            .filter(|c| c.kind() == K::Subscripts)
+        {
+            for e in sn.children().filter_map(Expr::cast) {
+                let n = self.eval(e.syntax(), ffile, ctx, 0).and_then(Val::int)?;
+                dims.push(usize::try_from(n).ok()?);
+            }
+        }
+        (!dims.is_empty()).then_some(dims)
+    }
+
     /// 式の配列の形（スカラーは空）。分からなければ `None`
     // shortcut: 行列の積・関数の戻り値の形は見ない（要素ごとの関数だけ）。必要になったら足す
     fn dims_of(&self, n: &SyntaxNode, file: u32, ctx: &Rc<Ctx>) -> Option<Vec<usize>> {
@@ -2222,7 +2268,7 @@ impl F<'_> {
                     "identity" => Some(vec![ev(args.first()?)?; 2]),
                     "from_rpm" | "from_deg" | "to_deg" | "sqrt" | "abs" | "sin" | "cos" | "exp"
                     | "log" => self.dims_of(args.first()?.syntax(), file, ctx),
-                    _ => None,
+                    _ => self.fn_out_dims(&c, file, ctx),
                 }
             }
             Expr::ComponentRef(c) => {
