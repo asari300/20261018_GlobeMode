@@ -160,8 +160,8 @@ const ops = {
     docs.delete(name);
     return W().remove_file(name);
   },
-  check({ model }) {
-    return W().check(model);
+  check({ model, frontend }) {
+    return frontend ? W().check_with(model, frontend) : W().check(model); // S347: frontend は "rumoca"（既定）か "native"
   },
   blt({ model }) {
     return W().blt(model);

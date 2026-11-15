@@ -141,7 +141,7 @@ export class GlobeWorker {
   libraryStats() { return this.#call("library_stats"); } // 取った塊の数と文字数 {chunks, of, bytes, stubs}。分割配信でなければ null（S301）
   async setFile(name, text) { await this.#call("set_file", { name, text }); this.#files.set(name, text); }
   async removeFile(name) { const r = await this.#call("remove_file", { name }); this.#files.delete(name); return r; }
-  async check(model) { return JSON.parse(await this.#call("check", { model })); }
+  async check(model, frontend) { return JSON.parse(await this.#call("check", { model, frontend })); } // S347: frontend は "rumoca"（既定）か "native"（自前の段。S0〜S6。未対応は GM-U0006）
   async blt(model) { return JSON.parse(await this.#call("blt", { model })); } // S262: BLT {reduced, blocks: [{size, algebraic_loop, nonlinear, variables, equations}], skipped?}
   async stages(model) { return JSON.parse(await this.#call("stages", { model })); } // S282: 変換の段ごとの要約 {flat, dae, index, blt, tearing}
   async graph(model, depth) { return JSON.parse(await this.#call("graph", { model, depth })); }

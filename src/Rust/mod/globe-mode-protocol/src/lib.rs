@@ -53,6 +53,9 @@ pub struct CheckResponse {
     pub can_force: bool,
     /// 結果を人が読む 1 行（`globe check` の最後の行と同じ。S184。[`CheckResponse::summary_line`]）
     pub summary: String,
+    /// 自前の段（native）で検査したときだけ `"native"`（S350。Rumoca なら出ない。UI は「設定に従う」で実際に使った方をこれで知る）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub frontend: Option<&'static str>,
 }
 
 /// Error がすべて `GM-U…`（コンパイラが未対応）のとき、モデルの誤りと分けて見せる要約（S173）。
@@ -144,6 +147,7 @@ impl CheckResponse {
             diagnostics,
             notes: Vec::new(),
             summary: String::new(),
+            frontend: None,
         };
         response.summary = response.summary_line();
         response

@@ -21,6 +21,10 @@ export interface CheckResponse {
   experiment?: Partial<Record<"start_time" | "stop_time" | "tolerance" | "interval", number | null>>;
   diagnostics: Diagnostic[];
   notes: string[];
+  /** 1 行の要約（Rust が作る。native の検査は「S0〜S6 を通過。S7 以降は検査していない」を含む。S347） */
+  summary?: string;
+  /** 自前の段（native）で検査したときだけ "native"（S350。Rumoca なら無い。「設定に従う」で実際に使った方を UI が知る） */
+  frontend?: "native";
   /** Error がすべて GM-U（コンパイラが未対応）のときの要約（S173。Rust が決める。無ければ無い） */
   unsupported?: string;
   /** 強行（force）で実行に進める見込み（S173。true のときだけ出る） */

@@ -1459,6 +1459,71 @@ def many_result_view(browser, origin: str, errors: list[str]) -> None:
     pg.close()
     print(f"複数の結果: bdf・dopri45・rk4 を比較 on・閾値 6 で回し、実行 3 行・比較 2 行（基準 bdf）・最大の相対差 {cells} が出る。並列は 1 つずつに落ちた注記が出る")
 
+def check_frontend_select(browser, origin: str, errors: list[str]) -> None:
+    """S347: 検査のフロントエンド（設定に従う / Rumoca / 自前（試験））の選択。既定は「設定に従う」（S350。ブラウザは設定ファイルが無いので Rumoca と同じで要約を出さない）。
+    「自前」で検査すると Rust の要約（S0〜S6 まで）が出て、自前の段が断る形（expandable）は GM-U0006 で「自前の段の原文」になる。
+    S349: Desktop（偽の window.__TAURI__）にも選択肢があり、sidecar の `globe/check` の params.frontend に選んだ名前が乗る。
+    S350: 「設定に従う」のあいだは frontend を渡さず、設定が native だった応答（応答の frontend）は要約を出す。"""
+    pg = browser.new_page()
+    pg.on("console", lambda m: m.type == "error" and errors.append(m.text))
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(origin)
+    button = pg.get_by_role("button", name="検査")
+    button.wait_for()
+    sel = pg.get_by_label("検査のフロントエンド")
+    assert sel.locator("option").all_inner_texts() == ["設定に従う", "Rumoca", "自前（試験）"] and sel.input_value() == "config"
+    button.click(force=True)
+    expect(button).to_be_enabled(timeout=120_000)
+    assert pg.locator("[data-native-note]").count() == 0
+    sel.select_option("native")
+    button.click(force=True)
+    expect(pg.locator("[data-native-note]")).to_contain_text("native: S0〜S6", timeout=120_000)
+    assert pg.locator("tr.error").count() == 0
+    pg.close()
+
+    pg = browser.new_page()
+    open_text_model(pg, origin, errors, "E.mo", "expandable connector EC\n  Real a;\nend EC;\nmodel E\n  EC ec;\nend E;\n", "E")
+    pg.get_by_label("検査のフロントエンド").select_option("native")
+    pg.get_by_role("button", name="検査").click(force=True)
+    expect(pg.locator("[data-unsupported]")).to_be_visible(timeout=120_000)
+    assert "GM-U0006" in pg.locator("table.diagnostics").inner_text() and pg.locator("[data-native-note]").count() == 0
+    assert "自前の段の原文" in pg.locator("table.diagnostics summary").first.inner_text()
+    pg.close()
+
+    dt = browser.new_page()
+    dt.on("console", lambda m: m.type == "error" and errors.append(m.text))
+    dt.on("pageerror", lambda e: errors.append(str(e)))
+    dt.add_init_script(FAKE_TAURI)
+    dt.goto(origin)
+    dt.get_by_role("button", name="検査").wait_for()
+    dt.evaluate("""() => { window.__checks = []; const i = __TAURI__.core.invoke;
+      __TAURI__.core.invoke = (c, a) => (c === "rpc" && a.method === "globe/check" && __checks.push(a.params), i(c, a));
+      __rpc["globe/check"] = { diagnostics: [], summary: "native: S0〜S6 まで" }; }""")
+    dsel = dt.get_by_label("検査のフロントエンド")
+    assert dsel.input_value() == "config"
+    dbtn = dt.get_by_role("button", name="検査")
+    dbtn.click(force=True)  # 設定に従う: frontend を渡さない（応答に frontend が無ければ要約を出さない）
+    expect(dbtn).to_be_enabled(timeout=30_000)
+    assert dt.locator("[data-native-note]").count() == 0
+    dsel.select_option("rumoca")
+    dbtn.click(force=True)
+    expect(dbtn).to_be_enabled(timeout=30_000)
+    assert dt.locator("[data-native-note]").count() == 0
+    dsel.select_option("native")
+    dbtn.click(force=True)
+    expect(dt.locator("[data-native-note]")).to_contain_text("native: S0〜S6", timeout=30_000)
+    dsel.select_option("config")
+    dbtn.click(force=True)  # 戻すと要約は消える（応答に frontend が無い）
+    expect(dbtn).to_be_enabled(timeout=30_000)
+    assert dt.locator("[data-native-note]").count() == 0
+    # 設定が native なら応答が frontend: native を言い、渡さなくても要約が出る
+    dt.evaluate("""() => { __rpc["globe/check"] = { diagnostics: [], summary: "native: S0〜S6 まで", frontend: "native" }; }""")
+    dbtn.click(force=True)
+    expect(dt.locator("[data-native-note]")).to_contain_text("native: S0〜S6", timeout=30_000)
+    assert [c.get("frontend") for c in dt.evaluate("__checks")] == [None, "rumoca", "native", None, None]
+    dt.close()
+    print("検査のフロントエンド: ブラウザに選択肢があり、自前で Decay が通って要約が出て、expandable は GM-U0006（自前の段の原文）、Desktop にも選択肢があり sidecar の globe/check に選んだ frontend が乗る（設定に従うあいだは乗らず、応答の frontend が native なら要約が出る）")
+
 
 def main() -> int:
     # 色付けの予約語は Rust の KEYWORDS と同じ並び（S163。editor.ts の KEYWORDS は補完と色付けの共通の一覧）
@@ -2624,6 +2689,7 @@ def main() -> int:
         many_result_view(browser, origin, errors)  # S348
         open_fmu_file(browser, origin, errors)  # S229
         fmu_runtime_select(browser, origin, errors)  # S239
+        check_frontend_select(browser, origin, errors)  # S347
         results_followups(browser, origin, errors)  # S236
         print("エディタの Tab: 空白 2 つの字下げ（選択した 2 行も）と Shift+Tab、補完の一覧が開いていれば確定・閉じていれば字下げ、Esc のあと Tab・Shift+Tab と Ctrl+M で外へ、説明は aria-describedby と画面に")
         print("キーボードだけ: モデル名・エディタへ Tab、Ctrl+Shift+Enter で検査、診断と参照の行を Tab・Enter・Space でエディタへ、Ctrl+Enter で実行（プロットの aria-label に信号名と時間の範囲）、Ctrl+. で止め、Ctrl+S で保存")

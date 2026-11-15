@@ -138,6 +138,12 @@ for (const solver of ["bdf", "dopri45", "auto"]) {
   assert.equal(JSON.parse(ws.flat("No.Such.Model")), null);
   assert.equal(JSON.parse(ws.check(decay)).summary, `${decay}: OK（S0〜S10 を通過）`);
   console.log("outline・deps・flat・summary: 読めた");
+  // S347: 検査のフロントエンドを選ぶ。native は自前の段（S0〜S6）で Decay が通り、既定（rumoca）は変わらず、知らない名前は例外
+  const nat = JSON.parse(ws.check_with(decay, "native"));
+  assert.ok(nat.passed && /native: S0〜S6/.test(nat.summary), JSON.stringify(nat));
+  assert.equal(ws.check_with(decay, "rumoca"), ws.check(decay));
+  assert.throws(() => ws.check_with(decay, "omc"), /rumoca か native/);
+  console.log(`check_with(native): ${nat.summary}`);
 }
 // 2a'. 複数のソルバ（S322、ADR-0040）: 3 つを回し、並列を頼んでも逐次に落ち（mode_note）、基準との管の比較が合格する。列は実行ごと
 {
@@ -224,6 +230,11 @@ if (msl && existsSync(msl)) {
   const lib = new gm.Workspace(JSON.stringify(files), "MSL");
   const load = ms(t);
   console.log(`MSL: ${Object.keys(files).length} ファイル（読み ${read} ms、in-memory のライブラリ ${load} ms、メモリ ${mb()} MiB）`);
+  // S347: ファイルの組で読んだ MSL は native から見えない。Rumoca は通り、native は名前が引けない診断にその旨の注を付ける
+  const chuaName = "Modelica.Electrical.Analog.Examples.ChuaCircuit";
+  assert.ok(JSON.parse(lib.check_with(chuaName, "rumoca")).passed);
+  const chuaNative = JSON.parse(lib.check_with(chuaName, "native"));
+  assert.ok(!chuaNative.passed && chuaNative.diagnostics.some((d) => d.notes?.some((n) => n.includes("Rumoca で確かめる"))), JSON.stringify(chuaNative.diagnostics));
   // S167: ファイルの中の入れ子のクラス（Blocks の package.mo の Examples）が木の子になり、名前の部分一致で見つかる
   const kids = JSON.parse(lib.library_tree("Modelica.Blocks")).map((e) => e.name);
   assert.ok(kids.includes("Examples") && kids.includes("Sources"), kids.join());

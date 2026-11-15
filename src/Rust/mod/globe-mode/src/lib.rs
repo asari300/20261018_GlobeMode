@@ -406,6 +406,7 @@ pub fn native_response(report: &globe_mode_frontend::CheckReport) -> CheckRespon
     response.failed_stage = report.failed_stage();
     response.balance = report.balance;
     response.notes = report.notes.clone();
+    response.frontend = Some("native");
     let model = &report.model;
     response.summary = if passed {
         format!("{model}: OK（native: S0〜S6 を通過。S7 以降は検査していない）")
@@ -625,7 +626,21 @@ impl Workspace {
                     .map(|(name, text)| Source { name, text })
                     .collect();
                 let libs: Vec<&Path> = self.library_paths.iter().map(PathBuf::as_path).collect();
-                native_response(&NativeFrontend::new().check(&sources, &libs, model))
+                let mut response =
+                    native_response(&NativeFrontend::new().check(&sources, &libs, model));
+                // S347: ファイルの組で読んだライブラリ（ブラウザの MSL）は native から見えないので、名前が引けない誤りは、モデルの誤りと決めつけない
+                if self.library_files > 0 && self.library_paths.is_empty() {
+                    for d in &mut response.diagnostics {
+                        if matches!(
+                            d.code,
+                            globe_mode_core::codes::RESOLVE
+                                | globe_mode_core::codes::MODEL_NOT_FOUND
+                        ) {
+                            d.notes.push("native は `with_library_sources` で読んだライブラリ（ブラウザで読んだ MSL など）のクラスを見られない。Rumoca で確かめる".into());
+                        }
+                    }
+                }
+                response
             }
             #[cfg(not(feature = "native"))]
             CheckFrontend::Native => CheckResponse::failed(
@@ -675,6 +690,7 @@ impl Workspace {
             diagnostics: report.diagnostics,
             notes: check.notes,
             summary: String::new(),
+            frontend: None,
         };
         response.summary = response.summary_line();
         response
