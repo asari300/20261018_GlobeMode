@@ -493,13 +493,21 @@ fn defines_discrete(cx: &Ctx, roles: &[Role], eq: &SyntaxNode) -> bool {
             .iter()
             .any(|e| defines_discrete(cx, roles, e));
     }
-    let es: Vec<Expr> = eq.children().filter_map(Expr::cast).collect();
-    es.iter().take(1).any(|e| match e {
+    let disc = |e: &Expr| match e {
         Expr::ComponentRef(c) => cx
             .resolve(&c.syntax().text().to_string())
             .is_some_and(|(v, _)| roles[v] == Role::Discrete),
         _ => false,
-    })
+    };
+    // 左辺が配列の構築子 `{a[1], a[2]} = fill(x, 2)`（`join.occupied = fill(…)` を flat が展開した形）は、要素すべてが離散のとき（S364）
+    match eq.children().find_map(Expr::cast) {
+        Some(Expr::Array(a)) => {
+            let items = a.items();
+            !items.is_empty() && items.iter().all(disc)
+        }
+        Some(e) => disc(&e),
+        None => false,
+    }
 }
 
 /// 最初の枝が単純な代入だけの `if` 方程式の、代入先の離散のスカラー数と連続の変数。離散と連続が混ざり、
@@ -1127,5 +1135,15 @@ mod tests {
             function f input Real x; output R y; algorithm y.T := x; y.p := 2 * x; end f;
             model M R r = f(time); end M;");
         assert_eq!((d.counts.equations, d.counts.unknowns), (2, 2));
+    }
+
+    #[test]
+    fn fill_into_discrete_array_constructor_is_discrete_equation() {
+        // `join.occupied = fill(b, 2)` は flat で `{join[1].occupied, join[2].occupied} = fill(b, 2)` になる。
+        // 左辺が離散の変数だけなら離散の方程式（連続の行に入れると、触れる未知数が無い空の行で構造特異になる。S364）
+        let d = dae("connector P Boolean occupied; end P;
+            model M P join[2]; Boolean b; equation b = time > 1; join.occupied = fill(b, 2); end M;");
+        assert_eq!((d.structure.equations.len(), d.discrete_equations), (0, 3));
+        assert!(d.is_balanced() && d.is_regular());
     }
 }
