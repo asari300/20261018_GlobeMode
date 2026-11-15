@@ -4,6 +4,7 @@
 
 | S | 日付 | Phase | 題名 | ブランチ | 状態 | スライド | 解説書 | セッション記録 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| S296 | 2026-11-15 | Track B | `lsp-definition-resolve`: LSP の定義ジャンプとホバーを、読めない文書でも自前の構文と名前解決で答える（S279 の補完と同じ形） | `feature/s296-lsp-definition-resolve` | 完了 | [slides](S296-lsp-definition-resolve/slides.html) | [解説書](S296-lsp-definition-resolve/解説書.md) | 省略 |
 | S294 | 2026-11-15 | P8 | `param-modifiers`: パラメータダイアログに「ソースに書く」。部品の宣言の修飾 `(k = 値)` を足す・書き換える・外す `set_modifier`（`globe-mode-fmt`）、LSP `globe/setModifier`（RPC_METHODS 36）、wasm、UI（1 回の dispatch）。入れ子の名前・`each`/`final`・壊れた式は理由つきで断る | `feature/s294-param-modifiers` | 完了 | [slides](S294-param-modifiers/slides.html) | [解説書](S294-param-modifiers/解説書.md) | なし |
 | S292 | 2026-11-15 | 文書 | `readme-changelog-2`: README と CHANGELOG に、S273 の後に main に入った機能（SSP の書き出し・Desktop のコシミュレーション・`globe stages`・図の部品と結線の削除・線形化と BLT を各言語から・固有値と安定性・Track B をつないだ範囲・S288 の修正）を反映。限界を一言ずつ添えた。S284 は main に無いので書いていない | `feature/s292-readme-changelog-2` | 完了 | [slides](S292-readme-changelog-2/slides.html) | [解説書](S292-readme-changelog-2/解説書.md) | なし |
 | S291 | 2026-11-15 | P8 | `stages-eigen-ui`: UI に線形化の固有値の表と安定性の文字、変換の段のパネル（ツールバーの「段」。`StagesPanel`） | `feature/s291-stages-eigen-ui` | 完了 | [slides](S291-stages-eigen-ui/slides.html) | [解説書](S291-stages-eigen-ui/解説書.md) | なし（記録が `log/local/` に無い） |
