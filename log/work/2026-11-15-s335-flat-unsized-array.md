@@ -30,7 +30,13 @@
 
 ## 検証
 
-@@VERIFY@@
+- コードの検査（変えた crate だけ）: `cargo fmt --check` OK、`cargo clippy -p globe-mode-flat -p globe-mode-dae -p globe-mode-resolve -p globe-mode-syntax --all-targets -- -D warnings` 0 件、`cargo test -p globe-mode-flat -p globe-mode-dae -p globe-mode-frontend -p globe-mode-lsp` すべて通過（flat の試験は S337 の分と合わせて 37 本）。依存は変えていないので `cargo deny` は回していない。`mise run check`（workspace 全体）は同時の担当が多く、回していない。
+- `msl:diff-frontend`（`xtask` をビルド直後に `bin-copies/` へコピーし、`flock` の下で同じ引数。S337・S341 を取り込んだ後）: **609 s、最大 RSS 5.5 GiB**。自前で平らにできた 471 → **493**/566、Rumoca も通った 484 本で名前 **484/484**・方程式の数 **473/484**（合わない 11 本は Rumoca の数え方の誤り）、DAE **493/493**、Rumoca の釣り合いまで通った 351 本で判定・数・状態・構造の正則が **351/351**、resolve 566/566（S341）。`GlobeModeValidation` 75 本は変わらない。前回の JSON は S334 のもの: **回帰 0 本**、改善 120 本。`Spice3BenchmarkFourBitBinaryAdder` は 153 s（S334 は 156 s）。
+- その前の 2 回の全体の検査: 1 回目は回帰 52 本（上の `not_instantiated` で直した）、2 回目は S341 の resolve が共有 target で混ざった（flat・DAE の数字は同じ）。
+- `unsized-array` の 28 本: 20 本が平らになり、Rumoca と一致（19 本 + `SoftStarter`）。残りは `composite-binding` 6（`rcData[] = cellData*` 5 本と `CCCV_Stack`）・`expandable` 1・`unsized-array` 1。
+- `check_docs.py`: デッキ OK / リンク 1243 件中の切れ 0 件。`render_slides.py`（S335 のデッキ）: 問題 0 件。
+- セッション記録の `--check`: この WP 専用の記録が無いのでコピーなし（0 件）。
+- ステージした差分の漏洩検査（メールアドレス・ホームのパス・トークン）: 0 件。
 
 ## 残したこと
 

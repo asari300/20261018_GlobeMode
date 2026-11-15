@@ -45,6 +45,7 @@ MSL 4.1.0 の例題 566 本での推移（括弧は「一致した本数 / 母�
 | S333 | 471 | 463（463/463・449/463） | 334（332/334・332/334・332/334・301/334） |
 | S334 | 471 | 463（463/463・451/463） | 334（334/334・334/334・332/334・334/334） |
 | S337 | 471 | 463（463/463・452/463） | 334（4 つとも 334/334） |
+| S335 | 493 | 484（484/484・473/484） | 351（4 つとも 351/351） |
 
 - parse は MSL の例題 566/566（S300 の時点も今も）、resolve は未解決 0 が 467/566（S300 の時点も今も。残る 99 本はすべて `Redeclare`）。`GlobeModeValidation` 75 本は S334・S337 で、Rumoca も通った 73 本の名前・方程式の数・判定・数・状態が 73/73、正則が 72/72。
 - 断る理由の残り（S334。95 本、最初の理由だけ数える）: `unsized-array` 28・`composite-binding` 25・`stream` 21・`connect` 9・`non-constant-dim` 6・`expandable` 4・`connect-array` 1・`non-constant-for` 1。
@@ -56,7 +57,7 @@ MSL 4.1.0 の例題 566 本での推移（括弧は「一致した本数 / 母�
 | --- | --- |
 | B1 構文 | 本文、S269 |
 | B2 名前の解決 | S272、S275 |
-| B3 flatten | S278、S284、S297、S312、S324、S329、S333、S334、S337 |
+| B3 flatten | S278、S284、S297、S312、S324、S329、S333、S334、S335（`[:]` の大きさ）、S337 |
 | B4 DAE | S290、S312、S325、S330、S332（計測と、名前・数の食い違いの原因）、S337（初期方程式の `der` と状態の数） |
 | 製品へのつなぎ | S276（アウトライン・折りたたみ）、S279（補完）、S296（定義ジャンプ・ホバー）、S305（`globe check --frontend native`）、S307（閉包だけを読む）、S311（位置）、S313（CLI 以外から選ぶ）、S320（#111・#113〜#116）、S327（#118） |
 | 突き合わせ | S300（`cargo xtask diff-frontend`） |
@@ -184,7 +185,7 @@ roadmap の要約で外した、古くなっていた「残り」: 診断の `GM
 - **決められなかったもの**: `ReadRealMatrixFromFile` の `A[:,:] = readRealMatrix(file, matrixName, dim[1], dim[2])` は、`dim` が外部関数 `readMatrixSize` でファイル（`.mat`）を読んで決まるので、ファイルを読まない flat では決められない（Rumoca がこの例題を通すかは確かめていない【未確認】）。
 - **試験**: `globe-mode-flat` に 1 本（`unsized_dims_from_comprehension_function_args_and_record_fields`。添字つきの参照・内包・`vector`・関数の整数の引数と既定値・宣言が後ろの部品の欄・レコードの束縛の欄、と、修飾された欄を使う大きさは断ること）。
 - **shortcut**: 関数の戻り値の大きさは出力が 1 つのときだけ。欄の型の添字（`type Axis = Real[3]`）は宣言が後ろの部品の欄には足さない。修飾の影響は 1 段だけ見る（別の欄を通る参照は見ない）。
-- **数字**: MSL の例題 566 本、S334 → S335（`mise run msl:diff-frontend` 相当を 1 回。1217 s、最大 RSS 4.8 GiB。ほかの担当の run と並行したので遅い）。**回帰 0**、改善 119 本。flat で**自前で平らにできた 471 → 493**（`unsized-array` の 28 本は 1 本〔`ReadRealMatrixFromFile`〕に。`rcData[] = cellData`（5 本）と `CCCV_Stack` は `composite-binding`、`CCCV_Cell` は `expandable` に進んだ。`IMC_withLosses` 2 本は `eval` が suffix の欄を評価するようになって `non-constant-dim` から通った）、Rumoca の flat まで通った 463 → 484 本で変数の名前 **463/463 → 484/484**、方程式の数 451/463 → **472/484**（合わない 12 本は S334 と同じ 12 本で、Rumoca の数え方の誤り）。DAE は 471 → **493/493** が DAE になり、Rumoca の釣り合いまで通った 334 → 351 本で判定・方程式と未知数の数・構造の正則が **351/351**、状態の数は 348/351（`IMC_DCBraking`・`IMC_Initialize`・新しく通った `IMC_withLosses`。S337 の直しは未取り込み）。`GlobeModeValidation` 75 本は変わらない（名前・方程式の数・判定・数・状態 73/73、構造の正則 72/72）。改善 119 本のうち flat の 22 本が S335 で、残りは resolve（この実行だけ resolve が 566/566 になっている。共有の target に別の worktree〔S341〕の `globe-mode-resolve` が混ざったため。S335 単独の resolve は 467/566）。最初の全体の検査は、`var_dims` の補助が部品の配列の欄 `plug_p.pin.i` を要素の数をかけずに 1 本と数え、Machines と FundamentalWave の 52 本で方程式の数が Rumoca より少なくなる回帰を出した（`not_instantiated` で直した。`SoftStarter` の 8 本の差も同じ原因だった）。
+- **数字**: MSL の例題 566 本、S334 → S335（main の S337・S341 を取り込んだ後。`mise run msl:diff-frontend` と同じ引数を `flock` の下で 1 回。**609 s**、最大 RSS 5.5 GiB。S334 は 554 s。前回の JSON は S334 のもの）。**回帰 0**、改善 120 本（S335 の flat 22 本に、S341 の resolve 99 本と S337 の状態の数が重なる）。flat で**自前で平らにできた 471 → 493**（`unsized-array` の 28 本は 1 本〔`ReadRealMatrixFromFile`〕に。`rcData[] = cellData` の 5 本と `CCCV_Stack` は `composite-binding`、`CCCV_Cell` は `expandable` に進んだ。`IMC_withLosses` 2 本は `eval` が suffix の欄を評価するようになって `non-constant-dim` から通った）、Rumoca の flat まで通った 463 → 484 本で変数の名前 **463/463 → 484/484**、方程式の数 452/463 → **473/484**（合わない 11 本は S337 と同じ 11 本で、Rumoca の数え方の誤り）。DAE は 471 → **493/493**、Rumoca の釣り合いまで通った 334 → 351 本で、判定・方程式と未知数の数・状態の数・構造の正則が **すべて 351/351**。`GlobeModeValidation` 75 本は変わらない（名前・方程式の数・判定・数・状態 73/73、構造の正則 72/72）。`Spice3BenchmarkFourBitBinaryAdder` は 153 s（S334 は 156 s）で、遅くなっていない。最初の全体の検査は、`var_dims` の補助が部品の配列の欄 `plug_p.pin.i` を要素の数をかけずに 1 本と数え、Machines と FundamentalWave の 52 本で方程式の数が Rumoca より少なくなる回帰を出した（`not_instantiated` で直した。`SoftStarter` の 8 本の差も同じ原因だった）。
 
 ## 付記（S334）: 構造の正則の不一致 33 本と `PrismaticConstraint`・`Fourbar1` の方程式の数（MultiBody）
 
