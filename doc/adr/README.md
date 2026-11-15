@@ -28,7 +28,7 @@
 | [0024](0024-own-formatter-and-lint.md) | 整形器と lint は Rumoca に依存しない自前の crate `globe-mode-fmt`（依存 0、wasm 可）で作り、CLI `globe fmt` / `globe lint`・LSP・wasm・ウェブアプリ群（web-apps.md の契約）の共通のエンジンにする。上流の tool-fmt は折り返し・並べ替え・空行を持たないため不採用 | Accepted |
 | [0025](0025-native-library-closure.md) | ネイティブの `Workspace::with_libraries`（CLI・`globe lsp`・Desktop の sidecar）も、wasm の分割読み込みと同じく閉包のファイルだけを Session に読む。全部読む道は `with_libraries_full` に残す | Accepted |
 | [0026](0026-fmi-import-placement.md) | FMI Import の置き方。`modelDescription.xml` は自前（`roxmltree`）で読む。共有ライブラリの読み込みは Desktop・CLI の別プロセスに限る。ME は GlobeMode のソルバで積分する。ユーザーの「A、B 両方」（2026-11-06）を、案 A（自前の C ABI。新 crate `globe-mode-fmi-import`、CS を実装）を既定、案 B（`fmi` 0.8）を同じ trait の任意の実装、と解釈した。B は zip 8.6.0 の脆弱性（RUSTSEC-2026-0367 など 4 件）と FMI 3.0 の不具合で入れていない | Accepted |
-| [0028](0028-auto-esdirk34-fallback.md) | `auto` の回し直しは BDF → esdirk34 → dopri45 の順にする（dopri45 は硬い系で予算を使い切るため、陰的な esdirk34 を先に）。歩が丸めの幅より進まない失敗も対象。回し直しには元の予算を渡す（残りの時間を渡す版は Lightning が減った）。全例題で実行できた 309 → 310、管 301 のまま、減ったモデル 0 | Accepted |
+| [0028](0028-auto-esdirk34-fallback.md) | `auto` の回し直しは BDF → esdirk34 → dopri45 の順にする（dopri45 は硬い系で予算を使い切るため、陰的な esdirk34 を先に）。歩が丸めの幅より進まない失敗も対象。回し直しには元の予算を渡す（残りの時間を渡す版は Lightning が減った。(c) は ADR-0041 で改めた）。全例題で実行できた 309 → 310、管 301 のまま、減ったモデル 0 | Accepted |
 | [0029](0029-external-builtin-rewrite.md) | `external "builtin"` が組み込みの数学関数を呼ぶだけの関数は、Dae を直列化の形で書き換えて組み込み演算にする（Rumoca の公開 API に hook が無く、構築 API は閉包だけのため）。MSL 4.0.0 の `Modelica.Math` の 13 個。限界は serde の形が非公開の契約であること | Accepted |
 | [0030](0030-desktop-msl-placement.md) | Desktop は MSL を同梱せず、初回に app data dir の `msl/4.1.0/` へ取得する（URL・sha256・目印は xtask の `fetch-msl` と同じ。ダウンロードは `curl`、展開は `zip`）。`--library`・`GLOBE_LIBRARY` があれば取得せずそれを優先。xtask のコードは共有せず、定数の一致を CI で確かめる | Accepted |
 | [0031](0031-fmi-export-p5a-first.md) | FMI Export は P5a（Rumoca の組み込みターゲット `fmi2` のテンプレートを改変せずに使う。Rumoca は frontend の `fmi_export.rs` からだけ呼ぶ）を先行し、P5b（自前のランタイム、S095）を並行して進める。FMI 2.0 のソースの FMU（ME・CS）、`globe fmu export` | Accepted |
@@ -41,6 +41,7 @@
 | [0038](0038-linearize-numeric.md) | 線形化は `ModelInstance` の上の数値の中心差分で行い、解析ヤコビ行列は使わない（S254） | Accepted |
 | [0039](0039-native-cst-parser.md) | Track B の B1 は独立した crate `globe-mode-syntax` に置き、rowan の CST と、誤りがあっても木を作る寛容なパーサ（全バイトを木に残す。式・修飾・注釈の中身は不透明）を自前で書く。Rumoca にもまだつながない（S268。S269 で式、S272 で名前解決 `globe-mode-resolve` を付記） | Accepted |
 | [0040](0040-multi-solver-compare.md) | 複数のソルバで 1 つのモデルを回して比べる。検査とコンパイルは 1 回、並列は同じコンパイル結果を共有するスレッド（最大 4 本。wasm は逐次）、比較は MSL の参照結果と同じ矩形の管（閾値 10^-n）。最大次数 `SimSettings.max_order` は cvode・ida だけが使い、持たないソルバは情報 GM-I10005 で注記する（S322） | Accepted |
+| [0041](0041-auto-remaining-budget.md) | `auto` の回し直しには予算の残りを渡し、残りが無ければ回し直さず時間切れで返す（ADR-0028 (c) を改める）。放置した型付きの道のスレッドもトークンを見る（#6・#46） | Accepted |
 
 0027 は欠番（git の履歴にも無い）。
 

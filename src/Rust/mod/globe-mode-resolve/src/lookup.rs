@@ -202,7 +202,7 @@ impl Library {
                     }
                 }
                 Resolution::Component(c, k) if want == Want::Path => {
-                    hit = match self.step(c, k, p, &mut w) {
+                    hit = match self.step(scope.unwrap_or(c), c, k, p, &mut w) {
                         Ok(h) => h,
                         Err(r) => return Resolution::Unresolved(r),
                     }
@@ -347,8 +347,16 @@ impl Library {
             })
     }
 
-    /// 部品 `c` の `k` 番目の型の中で、続きの名前 `name` を探す
-    fn step(&self, c: ClassId, k: usize, name: &str, w: &mut Walk) -> Result<Resolution, Reason> {
+    /// 部品 `c` の `k` 番目の型の中で、続きの名前 `name` を探す。`ctx` は参照のあるクラス（S341: 既定の型で引けず
+    /// `Redeclare` になるときだけ、`ctx` の側で差し替えた型でも引く）
+    fn step(
+        &self,
+        ctx: ClassId,
+        c: ClassId,
+        k: usize,
+        name: &str,
+        w: &mut Walk,
+    ) -> Result<Resolution, Reason> {
         let comp = &self.classes[c].components[k];
         if let Some(id) = self.redecl_hit(c, &comp.redecls, name) {
             return Ok(Resolution::Class(id));
@@ -366,7 +374,73 @@ impl Library {
                 _ => {}
             }
         }
+        if why == Reason::Redeclare {
+            for tc in self.redeclared_types(ctx, c, k) {
+                if let Some(h) = self.member(tc, name, w) {
+                    return Ok(h);
+                }
+            }
+        }
         Err(why)
+    }
+
+    /// 部品 `c` の `k` 番目を、参照のあるクラス `ctx` から見たときに差し替わっている型（S341。補完の `members_of` も使う）。
+    /// `ctx` が `extends B(redeclare T x)` で差し替えた部品の型が先、次に `ctx` から見直した型の名前
+    /// （`class extends` で差し替えた `ThermodynamicState`。`ctx` が `c` を受け継ぐときだけ）
+    fn redeclared_types(&self, ctx: ClassId, c: ClassId, k: usize) -> Vec<ClassId> {
+        let comp = &self.classes[c].components[k];
+        let mut out = Vec::new();
+        if let Some((scope, r)) = self.comp_redecl(ctx, c, &comp.name, &mut HashSet::new()) {
+            for t in &r.targets {
+                if let St::Done(tc) = self.target_state(scope, t) {
+                    out.push(tc);
+                }
+            }
+        }
+        if self.reaches(ctx, c, &mut HashSet::new()) {
+            for t in &comp.tys {
+                if let Resolution::Class(tc) =
+                    self.resolve_path(Some(ctx), &t.path, t.global, Mode::Normal, Want::Class)
+                {
+                    out.push(tc);
+                }
+            }
+        }
+        out
+    }
+
+    /// `from` から受け継ぎをたどって `to` に着くか
+    fn reaches(&self, from: ClassId, to: ClassId, seen: &mut HashSet<ClassId>) -> bool {
+        from == to
+            || (seen.insert(from)
+                && (0..self.classes[from].bases.len())
+                    .any(|i| self.base(from, i).is_ok_and(|b| self.reaches(b, to, seen))))
+    }
+
+    /// `cls` の（受け継ぎをたどった）`extends B(redeclare T name)` のうち、`c` の部品 `name` を差し替えるもの。外側が先。
+    /// `(T を解決するクラス, 差し替え)`。shortcut: 部品の修飾の中の `A a(redeclare T x)` は見ない
+    fn comp_redecl(
+        &self,
+        cls: ClassId,
+        c: ClassId,
+        name: &str,
+        seen: &mut HashSet<ClassId>,
+    ) -> Option<(ClassId, &Redecl)> {
+        if !seen.insert(cls) {
+            return None;
+        }
+        for (i, b) in self.classes[cls].bases.iter().enumerate() {
+            let Ok(bid) = self.base(cls, i) else { continue };
+            if let Some(r) = b.comp_redecls.iter().find(|r| r.name == name)
+                && self.reaches(bid, c, &mut HashSet::new())
+            {
+                return Some((cls, r));
+            }
+            if let Some(h) = self.comp_redecl(bid, c, name, seen) {
+                return Some(h);
+            }
+        }
+        None
     }
 
     /// `class extends X` の `X`: 外側のクラスの継承元から探す（外側自身の宣言は自分）
@@ -468,7 +542,7 @@ impl Library {
     }
 
     /// `scope` の中で成分参照・クラス名 `parts`（`a.b`）が指すものの、直下の要素（部品は型の要素、受け継ぎを含む。`protected` の部品は除く）。
-    /// 引けなければ None。`redeclare` で型が変わる所は、書いてある型で引く。
+    /// 引けなければ None。`redeclare` で型が変わる所は、`scope` から見て差し替わった後の型で引く（S345。`resolve` の S341 と同じ規則）。
     pub fn members_of(&self, scope: ClassId, parts: &[String]) -> Option<Vec<Member>> {
         let r = Ref {
             file: self.classes.get(scope)?.file,
@@ -481,13 +555,18 @@ impl Library {
         };
         let target = match self.resolve(&r) {
             Resolution::Class(c) => c,
+            // 差し替えた後の型が先（S345。無ければ書いてある型）
             Resolution::Component(c, k) => {
-                self.classes[c].components[k].tys.iter().find_map(|t| {
+                let declared = self.classes[c].components[k].tys.iter().find_map(|t| {
                     match self.target_state(c, t) {
                         St::Done(tc) => Some(tc),
                         _ => None,
                     }
-                })?
+                });
+                self.redeclared_types(scope, c, k)
+                    .into_iter()
+                    .next()
+                    .or(declared)?
             }
             _ => return None,
         };

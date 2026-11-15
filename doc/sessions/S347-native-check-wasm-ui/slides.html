@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S347 wasm と UI から native の検査を選ぶ — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S347 wasm と UI から native の検査を選ぶ">
+
+<section class="slide" id="S01">
+  <span class="tag">S347 · 2026-11-15 · Track B</span>
+  <h1>ブラウザの UI からも自前の検査を選べる</h1>
+  <p class="lead">S313 の持ち越し: wasm のビルドの大きさを測ってから、wasm と UI に選択を足す</p>
+  <div class="big">検査ボタンの横に「Rumoca / 自前（試験）」。既定は Rumoca のまま</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">測った</span>
+  <h1>wasm の大きさは +1.8%</h1>
+  <table class="compact">
+    <tr><th></th><th>配る <code>.wasm</code></th><th>gzip -9</th></tr>
+    <tr><td><code>native</code> なし</td><td>19,242,637</td><td>5,891,577</td></tr>
+    <tr><td><code>native</code> あり</td><td>19,597,599</td><td>5,998,898</td></tr>
+    <tr><td>増分</td><td class="ok">+354,962（+1.84%）</td><td class="ok">+107,321（+1.82%）</td></tr>
+  </table>
+  <p>同じ release の設定（fat LTO・opt-level s・strip）で続けてビルド。外部依存は増えない。<strong>小さいので既定の feature に入れた</strong>（<code>globe-mode-wasm</code> の <code>default = ["native"]</code>）。</p>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">wasm</span>
+  <h1>口は 1 つだけ足した</h1>
+  <ul>
+    <li><code>Workspace.check_with(model, frontend)</code>: <code>"rumoca"</code>・<code>"native"</code>。知らない名前は例外。<code>check(model)</code> はそのまま</li>
+    <li>Worker の <code>check({model, frontend})</code>、<code>GlobeWorker.check(model, frontend?)</code>。省くと Rumoca</li>
+    <li>facade の <code>CheckFrontend</code> と <code>check_with</code> をそのまま呼ぶだけ（wasm に判断は置かない）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">UI</span>
+  <h1>select 1 つと要約 1 行</h1>
+  <ul>
+    <li>select <code>検査のフロントエンド</code>（Rumoca / 自前（試験））。<code>Backend.checkFrontends</code> を持つ実行環境だけ（ブラウザ・Android）</li>
+    <li>自前で検査すると Rust の要約（「S0〜S6 を通過。S7 以降は検査していない」）を 1 行出す。<code>GM-U0006</code> の原文の見出しは「自前の段の原文」</li>
+    <li><strong>Desktop は選べない</strong>: sidecar の LSP <code>globe/check</code> が <code>frontend</code> を取らず、出すと黙って Rumoca になる。LSP は S345 と並行なので触らない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">確かめたこと</span>
+  <h1>試験</h1>
+  <ul>
+    <li>wasm（Node）: <code>check_with(Decay, "native")</code> が通って要約に「native: S0〜S6」、<code>rumoca</code> は <code>check</code> と同じ、知らない名前は例外。Worker 越しにも届く</li>
+    <li>UI（Playwright）: 選択肢と既定、自前で Decay が通って要約、<code>expandable</code> が <code>GM-U0006</code>、Desktop に選択肢が無い</li>
+    <li>数字: <code>cargo test -p globe-mode-wasm</code> 29 本・clippy 0 件、<code>mise run wasm:node</code>（MSL つき）OK、<code>test_ui.py</code>・<code>test_graph.py</code> 全部 OK、svelte-check 0 件</li>
+  </ul>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>Desktop: LSP の <code>globe/check</code> が <code>params.frontend</code> を読めば、<code>TauriBackend</code> は渡して <code>checkFrontends = true</code> にするだけ</li>
+    <li>ブラウザで MSL を読んだワークスペースは、native から MSL のクラスが見えない（S313 と同じ制限）。名前が引けない診断（<code>GM-E1001</code>・<code>GM-E1002</code>）に「Rumoca で確かめる」の注を足した。見せるには facade が MSL の写しを持つ必要がある</li>
+    <li>実行・BLT・段・グラフは Rumoca のまま</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

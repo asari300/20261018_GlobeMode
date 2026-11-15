@@ -892,15 +892,32 @@ fn complex_arrays_expand_elementwise() {
 
 #[test]
 fn comprehension_equation_counts_its_range() {
-    // S336: `x = {… for k in 1:n}` は n 本（Rumoca の flat と同じ。これまでは項が 1 つと見て 1 本）
+    // S336: 左辺が式の `a + b = {… for k in 1:n}` は n 本（Rumoca の flat と同じ。これまでは項が 1 つと見て 1 本）
     let m = flat(
         "model Top
            parameter Integer n = 3;
-           Real x[n];
+           Real a[n]; Real b[n];
          equation
-           x = {2*k for k in 1:n};
+           a + b = {2*k for k in 1:n};
          end Top;",
         "Top",
     );
     assert_eq!(m.equations.iter().map(|e| e.count).sum::<usize>(), 3);
+}
+
+#[test]
+fn record_array_equation_counts_one_per_element() {
+    // S337: `Complex aw[3]` は `aw[k].re`・`aw[k].im` に展開される。`aw = {… for …}` は Rumoca と同じく 3 本（左辺が変数でない）
+    let m = flat(
+        "operator record Complex Real re; Real im; end Complex;
+         model Top
+           Complex aw[3];
+           Complex s;
+         equation
+           aw = {Complex(i, 0) for i in 1:3};
+           s = aw[1];
+         end Top;",
+        "Top",
+    );
+    assert_eq!(m.equation_count(), 4);
 }

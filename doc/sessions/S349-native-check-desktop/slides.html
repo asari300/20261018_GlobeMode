@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S349 Desktop から native の検査を選ぶ — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S349 Desktop から native の検査を選ぶ">
+
+<section class="slide" id="S01">
+  <span class="tag">S349 · 2026-11-15 · Track B</span>
+  <h1>Desktop の UI からも自前の検査を選べる</h1>
+  <p class="lead">S347 の持ち越し: sidecar の LSP <code>globe/check</code> が <code>frontend</code> を取る</p>
+  <div class="big">ブラウザ・Android・Desktop の 3 つとも、検査ボタンの横で選べる。既定は Rumoca</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">LSP</span>
+  <h1><code>globe/check</code> の params に <code>frontend</code></h1>
+  <table class="compact">
+    <tr><th>params.frontend</th><th>検査</th></tr>
+    <tr><td><code>"rumoca"</code> / <code>"native"</code></td><td>その frontend（facade の <code>check_with</code>）</td></tr>
+    <tr><td>無い</td><td><code>globe-mode.toml</code> の <code>[check] frontend</code>、それも無ければ Rumoca</td></tr>
+    <tr><td>知らない名前・文字列でない値</td><td>-32602（誤りで返す。黙って Rumoca にしない）</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">UI</span>
+  <h1>TauriBackend は名前を渡すだけ</h1>
+  <ul>
+    <li><code>check(model, frontend?)</code> は <code>frontend</code> があれば <code>params</code> に乗せる。<code>checkFrontends = true</code></li>
+    <li>S347 の select と要約の 1 行がそのまま Desktop に出る。Svelte に判断は置かない</li>
+    <li>VS Code の拡張は変えない（<code>globe/check</code> は UI の要求）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">確かめたこと</span>
+  <h1>試験</h1>
+  <ul>
+    <li>LSP: <code>check_selects_the_frontend</code>（<code>expandable</code> が native で <code>GM-U0006</code>、既定と rumoca は通る、知らない名前は -32602）</li>
+    <li><code>test_tauri.mjs</code>: <code>params.frontend</code> に乗る・省けば乗らない</li>
+    <li><code>test_ui.py</code>: 偽の Tauri で select があり、<code>globe/check</code> に <code>rumoca</code>・<code>native</code> の順で届く</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>実機の Desktop での目視は【未確認】</li>
+    <li>Desktop の「検査」は select が <code>rumoca</code> の間は <code>[check] frontend</code> を使わない（波線の診断は設定どおり）</li>
+    <li>実行・BLT・段・グラフは Rumoca のまま</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

@@ -426,8 +426,10 @@ impl MeIntegratorBackend for DiffsolRk {
             if derivatives.has_failed() {
                 return Err(MeIntegrationError::DerivativeRefused);
             }
-            // 断られた試しの点は NaN で返り、その刻みは誤差の検査か Newton 法で棄てられて小さい刻みでやり直した。
-            // 受理した刻みは有限の値で収まったので、断られたことはここで受け取る（元の BDF と同じ）
+            // 断られた試しの点は NaN で返り、その刻みは誤差の検査か Newton 法で棄てられて小さい刻みでやり直した
+            // （SDIRK。陽的 RK は誤差が NaN になって刻みを縮められないはずだが、断られた点で刻みを縮めて出し直しても
+            // 救える例は無かった。#4、S193・S344）。受理した刻みは有限の値で収まったので、断られたことはここで受け取る
+            // （元の BDF と同じ）
             derivatives.take_discard();
         }
         // 陽的 RK は引き継がない（安定の限界の刻みを刻む DiodeSwitching の tsit45 で、wasm とネイティブの丸めの差が

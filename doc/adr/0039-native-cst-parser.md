@@ -44,11 +44,12 @@ MSL 4.1.0 の例題 566 本での推移（括弧は「一致した本数 / 母�
 | S332（S329 と S330 を合わせた） | 471（DAE にできた 471/471） | 463（463/463・435/463） | 334（297/334・297/334・294/334・296/334） |
 | S333 | 471 | 463（463/463・449/463） | 334（332/334・332/334・332/334・301/334） |
 | S334 | 471 | 463（463/463・451/463） | 334（334/334・334/334・332/334・334/334） |
-| S336 | 477（DAE にできた 477/477） | 468（468/468・457/468） | 334（334/334・334/334・332/334・334/334。新しい 6 本は Rumoca の釣り合いが無い） |
+| S337 | 471 | 463（463/463・452/463） | 334（4 つとも 334/334） |
+| S336（S337 と合わせた） | 477（DAE にできた 477/477） | 468（468/468・457/468） | 334（4 つとも 334/334。新しい 6 本は Rumoca の釣り合いが無い） |
 
-- parse は MSL の例題 566/566（S300 の時点も今も）、resolve は未解決 0 が 467/566（S300 の時点も今も。残る 99 本はすべて `Redeclare`）。`GlobeModeValidation` 75 本は S334 で、Rumoca も通った 73 本の名前・方程式の数・判定・数・状態が 73/73、正則が 72/72。
+- parse は MSL の例題 566/566（S300 の時点も今も）、resolve は未解決 0 が 467/566（S300 の時点も今も。残る 99 本はすべて `Redeclare`）。`GlobeModeValidation` 75 本は S334・S337 で、Rumoca も通った 73 本の名前・方程式の数・判定・数・状態が 73/73、正則が 72/72。
 - 断る理由の残り（S336。89 本、最初の理由だけ数える）: `unsized-array` 47（S336 で `composite-binding` の 25 本のうち 19 本がここで止まる。S335 が直している）・`stream` 21・`connect` 9・`non-constant-dim` 6・`expandable` 4・`connect-array` 1・`non-constant-for` 1。`composite-binding` は 0。
-- 方程式の数が合わない 11 本は、Rotational・Translational の摩擦・歯車の 10 本（S330 が Rumoca の数え方の誤りと確かめ、S331 が最新の release v0.10.4 では直ると確かめた。[upstream.md](../upstream.md) の下書き 36）と `ActuatorWithNoise`（同じ表の数え方）。`ShowTransferFunction`（14 対 16）は S336 で内包の方程式の数を直して一致した。状態の数が合わない 2 本は `IMC_DCBraking`・`IMC_Initialize`（Electrical.Machines）。
+- 方程式の数が合わない 11 本は（S334 では 12 本。S337 で `ShowTransferFunction` を直した）、Rotational・Translational の摩擦・歯車の 10 本（S330 が Rumoca の数え方の誤りと確かめ、S331 が最新の release v0.10.4 では直ると確かめた。[upstream.md](../upstream.md) の下書き 36）、`ActuatorWithNoise`（同じ表の数え方）。状態の数が合わなかった 2 本（`IMC_DCBraking`・`IMC_Initialize`）は S337 で直した（Rumoca が初期方程式の `der` も状態にするため。自前の抜け）。
 
 付記の案内（主題ごと）:
 
@@ -56,8 +57,8 @@ MSL 4.1.0 の例題 566 本での推移（括弧は「一致した本数 / 母�
 | --- | --- |
 | B1 構文 | 本文、S269 |
 | B2 名前の解決 | S272、S275 |
-| B3 flatten | S278、S284、S297、S312、S324、S329、S333、S334、S336 |
-| B4 DAE | S290、S312、S325、S330、S332（計測と、名前・数の食い違いの原因） |
+| B3 flatten | S278、S284、S297、S312、S324、S329、S333、S334、S336、S337 |
+| B4 DAE | S290、S312、S325、S330、S332（計測と、名前・数の食い違いの原因）、S337（初期方程式の `der` と状態の数） |
 | 製品へのつなぎ | S276（アウトライン・折りたたみ）、S279（補完）、S296（定義ジャンプ・ホバー）、S305（`globe check --frontend native`）、S307（閉包だけを読む）、S311（位置）、S313（CLI 以外から選ぶ）、S320（#111・#113〜#116）、S327（#118） |
 | 突き合わせ | S300（`cargo xtask diff-frontend`） |
 
@@ -156,6 +157,19 @@ roadmap の要約で外した、古くなっていた「残り」: 診断の `GM
 - **断った理由の内訳**（MSL の例題 566 本、最初の理由だけ数える。S284 → S297）: `redeclare` 263 → 0、`replaceable` 9 → 0、`class extends` 11 → 0、配列の型 13 → 0、レコードの束縛 41 → 155（先へ進んだ分。`frictionParameters = dcpmData.frictionParameters`〔後ろで宣言したレコード〕46、外部オブジェクト `tableID` 29、関数の戻り値のレコード `R = Frames.nullRotation()` 27、配列のレコード 11 ほか）、配列のコネクタの一括接続 7 → 72（`source.sineVoltage.p` のように部品の配列の同名のコネクタをまとめてつなぐ形）、`[:]` 13 → 20、条件つきの宣言 6 → 19（条件に配列の修飾つきの `useHeatPort` や文字列の比較）、`connect` の集合の不一致 7 → 8、配列の修飾 0 → 8、`expandable` 2、`stream` 1。
 - **持ち越し**: 後ろで宣言したレコードを欄ごとの修飾にするための宣言順の入れ替え（46 本）、関数の戻り値のレコード・外部オブジェクト、配列のコネクタの一括接続（72 本）、`Connections.isRoot` の評価、`xtask diff-frontend` への組み込み、B4（DAE）。
 
+## 付記（S337）: 初期方程式の `der` と状態の数（Electrical.Machines 2 本）、`Complex` の配列への方程式の数
+
+新しい ADR は立てず、S334 の持ち越し（状態の数 2 本と `ShowTransferFunction` の方程式の数）の原因を `cargo xtask diff-frontend --class … --dump` で確かめて直した記録をここに足す。**どちらも自前の抜けで、Rumoca の誤りではない**（v0.10.4 の確認は要らない。上流へも出さない）。変えたのは `globe-mode-dae`（状態の判定）と `globe-mode-flat`（方程式の数え方）。
+
+- **状態 2 本の原因**: `--dump` の Rumoca の構造に、自前に無い未知数 `der(imc.is[1..3])`・`der(imc.idq_rs[1..2])`（`IMC_DCBraking`、計 5 本、18 → 23）と `der(aimc.idq_sr[1..2])`・`der(aimc.idq_rr[1..2])`（`IMC_Initialize`、計 4 本、18 → 22）があった。どれも、どの行にも参照されない未知数で、`initial equation` の `der(imc.is[2]) = 0`・`der(aimc.idq_sr) = zeros(2)` などの対象。Rumoca の `rumoca-phase-dae` の `analyze_model_roles` は `der` の対象を `flat.equations` と `flat.initial_equations` の両方から集める（コードを読んで確かめた。写してはいない）が、自前の `has_der` は連続側の方程式・`when`・algorithm・束縛だけを見ていた。変数ごと（配列は全要素）に状態にする点も同じ。
+- **Rumoca の誤りとはしない理由**: [MLS 8.6（master）](https://specification.modelica.org/master/equations.html)（2026-11-15 確認）は、初期化では `der` と `pre` を未知数に数えると書くだけで、連続側で一度も微分されない変数が初期方程式の `der` だけで状態になるかは決めていない（例の `der(y) = 0` は連続側にも `der(y)` がある）。Rumoca の規則は意図して書かれたもの（初期方程式を明示的に走査する）なので、自前を合わせた。実際のツールは `imc.is[2]` を状態の別名とみなすと考えられるが【未確認】、Track B の目的は Rumoca の判定との一致なので、ここでは追わない。
+- **直し（DAE）**: `has_der` に `m.initial_equations` の `der` の対象も足す（`globe-mode-dae` の `build`）。釣り合い（未知数と方程式の数）は変わらない（代数 → 状態で未知数の数は同じ。初期方程式は数えない）。構造の正則は、`der(x)` の未知数が行から参照されなくなるが Rumoca も同じで、334/334 のまま。
+- **`ShowTransferFunction`（14 対 16）の原因**: `Modelica.ComplexBlocks.ComplexMath.TransferFunction` の `aw = {a[i]*… for i in 1:size(a,1)}`（`Complex aw[size(a,1)]`、3 本）。`Complex` の配列は要素ごとに展開され（`aw[k].re`・`aw[k].im`）、左辺の名前 `transferFunction.aw` は変数として無いので、`shape` が大きさを引けず、右辺も内包表記で引けず 1 本と数えていた（Rumoca は `transferFunction` の 7 本のうち 3 本）。`shape` の最後の手段に `record_array_len`（`t[` で始まる変数名の `t[k].x` の `k` の数。変数の表は整列しているので範囲だけをなめる）を足した。
+- **試験**: `globe-mode-dae` に 1 本（`der_in_initial_equation_makes_state`）、`globe-mode-flat` に 1 本（`record_array_equation_counts_one_per_element`。直す前は 2、直して 4）。`cargo xtask diff-frontend --dump` に初期方程式の行 `ieq[…]` を足した。
+- **shortcut**: 読めない初期方程式の印字は黙って飛ばす（状態の数だけが変わる）。属性（`start` など）の中の `der` は見ない（Rumoca は見る）。`if` の初期方程式は、条件が定数なら選んだ枝だけが `initial_equations` に入る（Rumoca も構造の選択で同じ）。実行（`globe-mode-exec`）は Rumoca のままなので、この規則は自前の DAE の判定にだけ効く。
+- **数字**（MSL の例題 566 本、S334 → S337。`GlobeModeValidation` 75 本は変わらず 73/73・73/73・73/73・正則 72/72。回帰 0、改善 3 本）: 状態の数 332/334 → **334/334**、flat の方程式の数 451/463 → **452/463**（残り 11 本は Rumoca の数え方の誤りとみている。Rotational・Translational の摩擦・歯車の 10 本と `ActuatorWithNoise`）、DAE の判定・数・構造の正則は 334/334 のまま。`msl:diff-frontend` と同じ引数で 744 s（ほかの担当と並行。S334 は 554 s）、最大 RSS 5.2 GiB。
+- **作業上の注意**: 共有 target では、同じ crate の成果物（`release/xtask`・試験のバイナリ）の名前が worktree をまたいで同じで、別の worktree のビルドに入れ替わることがある（`--dump` の出力が食い違って気付いた。試験でも起きた）。ビルド直後に自分の分を `cp` して走らせ、変えた crate の `lib.rs` を `touch` して作り直す。
+
 ## 付記（S336）: B3 の続き、`Complex` の配列の束縛を要素ごとに（`composite-binding` 25 → 0、平らにできた 471 → 477）
 
 新しい ADR は立てず、S329 の続きとしてここに足す。変えたのは `globe-mode-flat`（`flatten.rs`）の中と、`xtask diff-frontend --dump`（自前が断ったときも Rumoca の flat を印字する）だけ。S334 の後に残った断る理由 `composite-binding` の 25 本（MSL の例題 566 本。最初の理由）を、原因ごとに分けて減らした。
@@ -164,11 +178,11 @@ roadmap の要約で外した、古くなっていた「残り」: 診断の `GM
 - **配列のレコードの束縛を、添字 `[i, j, …]` を付けた要素ごとの束縛にする**（`inst_decl` の `bound`。1 次元だけだったのを N 次元に）。要素の式は `pick_elem` が決める: 束縛の式が `{a, b}` なら項、`{e for k in 1:n}` なら本体 `e`（`k` はその要素の値を局所変数に持つ文脈 `Ctx::locals` で。`for` の方程式と同じ仕組み）、それ以外（別の配列の変数・関数の呼び出し）は式のまま `[i, j]` を付ける（`(f(m))[2,1].re`）。部品の配列への修飾 `strayPermeance[m](G_m = {… for k in 1:m})`（`split_mod` が `({…})[k]` にしたもの）も同じ道で解ける。大きさの検査（項の数・範囲の長さ）は `size differs` で断る。
 - **`Complex` の配列の式を要素ごとに**（`complex_parts` に、束縛に付いた `[k]` を葉に当てる `index_leaf` を足した）: 配列の変数 `u`（`u[k].re`）・部品の配列を通した欄 `plug_p.pin.v`（`plug_p.pin[k].v.re`。`array_elems` と同じく最初の `.` から順に試す）は `[k]` を挟み、スカラーはそのまま（全要素で同じ）。`fill(x, n)` の要素は `x`。`Complex(re, im)`・`if`・`+ - * /` は S329 のまま。`complex_value` に切り出して、組み込みの関数（`fill`）の呼び出しの束縛からも呼ぶ。
 - **部品の配列を通した欄の束縛 `Complex i[m] = plug_p.pin.i`** は、欄ごとの束縛の名前を `plug_p.pin[k].i.re` にする（これまでは `plug_p.pin.i[k].re` という存在しない名前になりうる形。名前そのままの式 `Bind::lit` で束縛する）。
-- **内包 `{e for i in r}` の方程式の数**（`shape` の `Expr::Array`、`comp_len`）: 範囲の長さの積。これまでは項が 1 つとして 1 本と数えていた。Rumoca は `c = {a[k]*b[k] for k in 1:3}`（`Complex c[3]`）を 3 本と数える（`GlobeModeValidation` に置いて確かめた）。`Complex` の配列の方程式も Rumoca は要素の数で数える（`c = a - b` は 3 本。実部・虚部の 6 本ではない）。
-- **試験**: `globe-mode-flat` に 2 本（`complex_arrays_expand_elementwise`〔内包・部品の配列を通した欄の差と参照・関数の戻り値の 2 次元・`fill`・レコードの配列の内包の修飾〕、`comprehension_equation_counts_its_range`）。
+- **内包 `{e for i in r}` の方程式の数**（`shape` の `Expr::Array`、`comp_len`）: 範囲の長さの積。これまでは項が 1 つとして 1 本と数えていた。Rumoca は `c = {a[k]*b[k] for k in 1:3}`（`Complex c[3]`）を 3 本と数える（`GlobeModeValidation` に置いて確かめた）。`Complex` の配列の方程式も Rumoca は要素の数で数える（`c = a - b` は 3 本。実部・虚部の 6 本ではない）。S337 が左辺が要素ごとに展開したレコードの配列（`aw = {…}`）の場合を同じ数え方にした（`record_array_len`）ので、この分は左辺が式の場合（`plug_p.pin.i + plug_n.pin.i = {Complex(0, 0) for k in 1:m}`。`PolyphaseElectroMagneticConverter`）だけが残った。
+- **試験**: `globe-mode-flat` に 2 本（`complex_arrays_expand_elementwise`〔内包・部品の配列を通した欄の差と参照・関数の戻り値の 2 次元・`fill`・レコードの配列の内包の修飾〕、`comprehension_equation_counts_its_range`〔左辺が式の内包の方程式〕）。
 - **shortcut**: 内包は添字が 1 つのものだけ（`{… for i in a, j in b}` は断る。MSL の例題では出ない）。`index_leaf` は葉の名前から配列を探すので、`Complex` を返す関数の配列の引数（`conj(u)` の `u` が配列）は見ない（断る）。要素の式の中の条件 `if c then …` の `c` が配列のときも見ない（MSL の例題では `useConjugateInput[k]` と添字つき）。
 - **S335（`unsized-array`）との関係**: 25 本のうち 19 本（`indexNonPos[:] = f(m)` の `Modelica.Electrical.Polyphase.Functions.indexNonPositiveSequence` を持つ Machines の例題）は、`composite-binding` の先で `unsized-array` で止まる。S335 の WIP を仮に結合して（コミットせず）確かめると 25 本すべてが平らになった（Rumoca の flat まで通ったのは 7 本で、名前の集合は 7/7）。そのとき、部品の配列を通した欄の方程式 `plug_p.pin.i + plug_n.pin.i = fill(Complex(0), m)` の数が 3 から 1 に減る問題が見つかった（S335 の `var_dims` の新しい分岐が `pin.i` に `Some([])` を返していた）。S335 は同じ原因を自分の WIP で直していた（宣言が後ろの部品の欄は、まだ平らにしていない配列でない部品だけにする）。
-- **Rumoca の flat との突き合わせ**（MSL の例題 566 本、`mise run msl:diff-frontend` と同じ `diff-frontend` を回した。S334 → S336。`GlobeModeValidation` 75 本は変わらず）: 自前で平らにできた **471 → 477**（`composite-binding` の 25 本のうち 6 本。ほかの 19 本は `unsized-array` に移った）、Rumoca の flat まで通った 463 → **468** 本で名前の集合 463/463 → **468/468**・方程式の数 451/463 → **457/468**（新しく比べられた 5 本が一致、内包の数え方で `ShowTransferFunction` が一致。残り 11 本は S334 から変わらず、Rumoca の数え方の誤りとみている）、DAE にできた 471 → **477/477**。Rumoca の釣り合いまで通った本数は 334 のまま（新しい 6 本は Rumoca が釣り合いまで通らない）で、判定・方程式と未知数の数・構造の正則は 334/334、状態の数は 332/334（`IMC_DCBraking`・`IMC_Initialize`。S337 の担当）。**回帰 0 本、改善 7 本**。1348 s、最大 RSS 5.4 GiB。
+- **Rumoca の flat との突き合わせ**（MSL の例題 566 本、`mise run msl:diff-frontend` と同じ `diff-frontend` を回した。S337 と S341 を取り込んだ後。S336 の前は S337 の 471 本・452/463。`GlobeModeValidation` 75 本は変わらず）: 自前で平らにできた **471 → 477**（`composite-binding` の 25 本のうち 6 本。ほかの 19 本は `unsized-array` に移った）、Rumoca の flat まで通った 463 → **468** 本で名前の集合 463/463 → **468/468**・方程式の数 452/463 → **457/468**（新しく比べられた 5 本が一致。残り 11 本は S337 から変わらず、Rumoca の数え方の誤りとみている）、DAE にできた 471 → **477/477**。Rumoca の釣り合いまで通った本数は 334 のまま（新しい 6 本は Rumoca が釣り合いまで通らない）で、判定・方程式と未知数の数・構造の正則・状態の数は 334/334。**回帰 0 本、改善 6 本**（新しく平らになった 6 本）。@@TIME@@
 - **断った理由の内訳**（最初の理由。S334 → S336）: `composite-binding` 25 → **0**、`unsized-array` 28 → **47**（19 本が移った）、`stream` 21、`connect` 9、`non-constant-dim` 6、`expandable` 4、`connect-array` 1、`non-constant-for` 1。
 - **持ち越し**: `unsized-array` 47 本（S335）、内包の添字が 2 つ以上・`Complex` を返す関数に配列を渡す式、S335 と合わせた 25 本のうち Rumoca が flat まで通るのは 7 本だけで（上の仮の結合）、残り 18 本は Rumoca と名前・方程式の数を比べられない（Rumoca の側の限界）。
 
@@ -370,11 +384,49 @@ roadmap の要約で外した、古くなっていた「残り」: 診断の `GM
 新しい ADR は立てず、S305・S307 の「残したこと」（LSP・wasm・Python・UI から native を選べない）の続きとしてここに足す。既定は Rumoca のまま。
 
 - **facade**: `globe_mode::CheckFrontend { Rumoca, Native }`（`FromStr` は `rumoca`・`native`）と `Workspace::check_with(model, frontend)`。`check` は `check_with(.., Rumoca)`。`Native` は作業中のファイルと、`with_libraries` に渡したディレクトリ（`library_paths`）を `NativeFrontend` に渡す。`with_library_sources` のワークスペースにはディレクトリが無く、ライブラリが見えない（wasm は対象外）。応答の組み立ては `native_response`（CLI の `check_native` と共有）。
-- **feature**: facade に `native`（`globe-mode-frontend/native`）、LSP に `native`（`globe-mode/native`）。CLI（`globe lsp` を含む）と Python の束ねが立てる。wasm は立てない（理由: native の段の crate が wasm の大きさと build に入る。入れるかどうかは別に判断する）。立てない build で `Native` を選ぶと `GM-U0006`「この build に入っていない」を返す。外部依存は増えない。
+- **feature**: facade に `native`（`globe-mode-frontend/native`）、LSP に `native`（`globe-mode/native`）。CLI（`globe lsp` を含む）と Python の束ねが立てる。wasm は S313 では立てない（理由: native の段の crate が wasm の大きさと build に入る。入れるかどうかは別に判断する → S347 で測って入れた）。立てない build で `Native` を選ぶと `GM-U0006`「この build に入っていない」を返す。外部依存は増えない。
 - **LSP**: `globe-mode.toml` の `[check] frontend = "rumoca" | "native"`（`LintOptions::frontend`。他の値は設定の誤りで、既存の `showMessage` の道）。`publishDiagnostics` の検査（`diagnostics`）だけが `check_with` を使う。`globe/check` の要求は変えていない。設定ファイルが無ければ今まで通り。
 - **Python**: `Workspace.check(model, frontend="rumoca")`。知らない名前は `ValueError`。
 - **試験**: facade `tests/check_with.rs`（`expandable` が `GM-U0006`、既定は出さない。feature があれば Decay が通る）、LSP `config_frontend_native_drives_diagnostics`、`test_check_frontend_native`（pytest）、`config` の単体試験に `[check]`。
-- **持ち越し**: wasm・UI から選ぶ（wasm のビルドの大きさの測定が先）。LSP の他の要求（`globe/check`・補完など）と、`outline` 系は Rumoca のまま。
+- **持ち越し**: wasm・UI から選ぶ（S347 で済。下の付記）。LSP の他の要求（`globe/check`・補完など）と、`outline` 系は Rumoca のまま。
+
+## 付記（S347）: wasm とブラウザの UI からも native の検査を選べるようにした
+
+新しい ADR は立てず、S313 の持ち越し（wasm・UI から選ぶ。wasm のビルドの大きさの測定が先）の続きとしてここに足す。既定は Rumoca のまま。
+
+- **大きさ**（`mise run wasm:build` と同じ release の設定〔fat LTO・codegen-units 1・opt-level s・strip〕で、同じ共有 target に `-p globe-mode-wasm` を feature `native` なし・ありで続けてビルドした。S347 の時点の main から。2026-11-15）:
+
+  | | cargo の出力 | `wasm-bindgen` 後（配る `.wasm`） | `gzip -9` |
+  | --- | ---: | ---: | ---: |
+  | `native` なし | 20,885,103 | 19,242,637 | 5,891,577 |
+  | `native` あり | 21,261,979 | 19,597,599 | 5,998,898 |
+  | 増分 | +376,876 | +354,962（+1.84%、0.34 MiB） | +107,321（+1.82%） |
+
+  この測定のあとで診断の注の文字列（下）を足したので、配る `.wasm` は 19,598,045 バイト（+355,408、+1.85%）。増分は小さく（ブラウザの転送は gzip で +105 KiB）、外部依存も増えない（自前の 5 つの crate）。ので、**wasm の既定の feature に入れた**（`globe-mode-wasm` の `default = ["native"]`。CI・android・web・release の wasm のビルドは `cargo build -p globe-mode-wasm` のままで入る）。外したいときは `--no-default-features` で、`check_with(.., "native")` は `GM-U0006`「この build に入っていない」を返す。
+- **wasm**: `Workspace.check_with(model, frontend)`（`frontend` は `"rumoca"`・`"native"`。知らない名前は例外）。`check(model)` はそのまま Rumoca。Worker の `check` は `{model, frontend}` を取り、`GlobeWorker.check(model, frontend?)` が渡す（省くと Rumoca）。native が読むのは作業中のファイル（`set_file`）だけで、ブラウザで読んだ MSL（`with_library_sources`。ライブラリのファイルは DB の外の `Checker` にあり、ディレクトリも無い）のクラスは見えない（S313 と同じ制限）。Node で確かめた: MSL を読んだ wasm で `ChuaCircuit` を検査すると、Rumoca は通り、native は `GM-E1002`（モデルが見つからない）、自分のファイルが `Modelica.Electrical.Analog.Basic.Resistor` を使うと `GM-E1001`（名前を解決できない）で止まる。これを「モデルの誤り」と読まれないよう、facade の `Native` の道は、ファイルの組で読んだライブラリがあるワークスペース（`library_files > 0` で `library_paths` が空）では、`GM-E1001`・`GM-E1002` の診断に「native は … ライブラリのクラスを見られない。Rumoca で確かめる」の注を足す（診断の種類・段は変えない。ディレクトリで読むワークスペース〔LSP・CLI・Python〕と、ライブラリの無いワークスペースには付けない）。ライブラリを native に見せるには、facade がファイルの組を持つ必要がある（MSL の本文の写しが増えるので、今回はやらない）。
+- **UI**: 検査ボタンの横に「Rumoca / 自前（試験）」の select（`aria-label="検査のフロントエンド"`、既定は Rumoca。S350 で「設定に従う」を足して既定にした）。`Backend.check(model, frontend?)` と、選べる実行環境だけが持つ `Backend.checkFrontends`（`WorkerBackend` は true。ブラウザと Android）。native で検査すると Rust が作る要約（「S0〜S6 を通過。S7 以降は検査していない」）を 1 行出し、`GM-U0006` の原文の見出しは「自前の段の原文」にする。業務ロジックは Rust のまま（UI は名前を渡し、要約を出すだけ）。
+- **Desktop は未（S349 で済。下の付記）**: sidecar の LSP `globe/check` が `frontend` を取らない（S313: 要求は変えていない）。取らない要求に選択を出すと黙って Rumoca になるので、`TauriBackend` は `checkFrontends` を持たず、select を出さない。LSP の `globe/check` が `params.frontend` を読むようになれば、`TauriBackend` は `check(model, frontend)` で渡して `checkFrontends = true` にするだけ（LSP は S345 と並行だったので触っていない）。
+- **試験**: wasm（Node）`node/smoke.mjs` で `check_with(Decay, "native")` が通って要約に「native: S0〜S6」、`rumoca` は `check` と同じ、知らない名前は例外。`web/worker-node.mjs` で Worker 越しにも届く。ネイティブの `tests/decay.rs`（`expandable` は `GM-U0006`、feature があれば Decay が通る）。facade の `tests/check_with.rs` の `native_explains_a_library_it_cannot_see`（`with_library_sources` のライブラリを使うモデルは `GM-E1001` に注が付き、使わないモデルは通る）。MSL があれば `smoke.mjs` が `ChuaCircuit` で同じ注を確かめる。UI の `tests/test_ui.py` の `check_frontend_select`（選択肢・既定・Decay が自前で通って要約が出る・`expandable` が「自前の段の原文」・Desktop に選択肢が無い〔S349 で「ある」に変えた〕）。
+- **持ち越し**: Desktop の UI（上）。実行（`simulate`）・BLT・段・グラフは Rumoca のまま。選択はタブごとにも保存にも持たない（ページを開くたびに Rumoca）。
+
+## 付記（S349）: Desktop の UI からも native の検査を選べるようにした
+
+新しい ADR は立てず、S347 の持ち越し（Desktop の UI）の続きとしてここに足す。既定は Rumoca のまま。
+
+- **LSP**: `globe/check` の params は `{model, frontend?}`。`frontend` は `"rumoca"`・`"native"`（facade の `CheckFrontend::from_str` と同じ名前）で、`Workspace::check_with` に渡す。無ければ `globe-mode.toml` の `[check] frontend`（`publishDiagnostics` と同じ値）、それも無ければ Rumoca。知らない名前・文字列でない値は -32602（`params.model` が文字列でないときと同じ）。LSP の他の要求と `outline` 系は Rumoca のまま。`globe-mode-protocol` に検査の要求の型は無く（応答の `CheckResponse` だけ）、TS の型は S347 の `CheckFrontend` をそのまま使うので、型の変更は無い。
+- **UI**: `TauriBackend.check(model, frontend?)` は `frontend` があれば `params` に乗せ（省けば乗せない）、`checkFrontends = true`。S347 の select（`aria-label="検査のフロントエンド"`）と要約の 1 行が Desktop にもそのまま出る。S349 の時点では App.svelte の select が最初から `rumoca` を渡していたので、Desktop の「検査」ボタンは `[check] frontend = "native"` があっても、select を変えない限り Rumoca で検査した（エディタの波線の診断は設定どおり）。S350 で select に「設定に従う」を足して既定にし、直した（下の付記 S350）。
+- **VS Code の拡張**: 変えていない。拡張は `globe/check` を使わない。
+- **試験**: LSP の `check_selects_the_frontend`（`expandable` は既定と `rumoca` で通り、`native` は `GM-U0006`、`"nope"`・数は -32602）、`tests/test_tauri.mjs`（`check(M, "native")` は `params.frontend` に乗り、省けば乗らない。`checkFrontends` は true）、`tests/test_ui.py` の `check_frontend_select`（偽の Tauri で select があり、「自前」で検査すると `globe/check` の `frontend` が `rumoca`・`native` の順に届き要約が出る）。
+- **持ち越し**: 実機の Desktop（Tauri）での目視は【未確認】（偽の `window.__TAURI__` と sidecar の LSP の単体試験まで）。実行（`simulate`）・BLT・段・グラフは Rumoca のまま。
+
+## 付記（S350）: select の既定を「設定に従う」にした
+
+新しい ADR は立てず、S349 の持ち越し（Desktop の「検査」が設定の `[check] frontend` を使わない）の続きとしてここに足す。
+
+- **select**: 「設定に従う / Rumoca / 自前（試験）」の 3 択で、既定は「設定に従う」（App.svelte の値は `config`）。「設定に従う」を選んでいるあいだは `backend.check(model)` に `frontend` を渡さない（`TauriBackend` は `params` に乗せず、`WorkerBackend` は Rumoca）。Desktop は LSP の `check_frontend`（S349）が `[check] frontend` → Rumoca の順で決めるので、エディタの波線と「検査」ボタンが同じ設定に従う。設定ファイルの無いブラウザ・Android では「設定に従う」は Rumoca と同じで、select の形はどの実行環境でも同じ。
+- **応答の `frontend`**: 「設定に従う」では、使った方を UI が知らない（設定が native なら要約を出し、`GM-U0006` の原文の見出しを「自前の段の原文」にしたい）。`CheckResponse` に `frontend`（自前の段で検査したときだけ `"native"`。Rumoca の応答には出ない）を足し、`native_response` が付ける。UI は `checkFrontend === "native" || checked.frontend === "native"` のとき要約を出す（Rust が決めた値を読むだけで、設定の読み方を UI に置かない）。S349 では protocol の型を変えなかったが、これは応答の欄を 1 つ足す変更で、Rumoca の応答と既存の JSON は変わらない。
+- **試験**: LSP の `config_frontend_native_drives_diagnostics`（`[check] frontend = "native"` で `globe/check` が `frontend` を省くと native〔応答の `frontend` が `"native"`〕、`rumoca` を渡すと Rumoca）と `check_selects_the_frontend`（native の応答に `frontend`）、facade の `tests/check_with.rs`（Rumoca の応答に `frontend` が無く、native の応答は `Some("native")`）、`tests/test_tauri.mjs`（`check(M)` と `check(M, undefined)` は `params` に `frontend` が乗らず、`rumoca`・`native` は乗る）、`tests/test_ui.py` の `check_frontend_select`（既定は「設定に従う」で、偽の Tauri の `globe/check` に `frontend` が乗らない。`rumoca`・`native` を選ぶと乗る。応答に `frontend: "native"` があれば、渡さなくても要約が出る）。native の応答に `frontend` が付く試験は feature `native` を立てたとき（`cargo test -p globe-mode-lsp --features native`）に効く。
+- **持ち越し**: 実機の Desktop（Tauri）での目視は【未確認】。UI の `checkFrontend === "native"` の項は、応答に `frontend` が無い古い wasm・sidecar でも、自前を選んだときの要約が出るように残した（この WP では release の wasm を作り直さず、共有 target にある S347 の wasm でブラウザの試験を回した。応答の `frontend` は CI が作る wasm の native の応答には載る）。
 
 ## 付記（S320）: native と LSP の issue 5 件（#111・#113・#114・#115・#116）
 
@@ -444,3 +496,37 @@ S297 の見立て（Complex のレコード）は外れで、`Connections.isRoot
 
 - **#118**: S320 の `same_path_key`（#115）は比べる側だけで、LSP が返す URI は相対のまま `file:///data/msl/...`（存在しない）になっていた。URI を作る共有の関数 `file_uri` が、`/` 始まりでも `C:` 始まりでもないパスを `std::path::absolute`（cwd を足す）で絶対にしてから組み立てる。定義・参照・リネーム・ライブラリの診断の URI はすべてここを通る。symlink は解かない（`same_path_key` と同じ）。
 - 詳細と試験は [S327 の解説書](../sessions/S327-review4-issues/解説書.md)。
+
+## 付記（S341）: resolve の `Redeclare` の 99 本を、差し替えた後の型で引いて 0 にした（B2 の続き）
+
+新しい ADR は立てず、同じ流れの続きとしてここに足す。S275 の「未対応のまま `Reason::Redeclare`」のうち、`xtask diff-frontend` の resolve の列（未解決の参照が 0）が 0 にならなかった MSL の例題 99 本（未解決の参照 1330 件）と `GlobeModeValidation` の 1 本（13 件）を直した。変えたのは `globe-mode-resolve` と、`globe-mode-syntax` の AST（`RedeclaredComponent` を足しただけ）。flat は先頭で止める `resolve_head` と型名の解決しか使わないので、結果は変わらない。
+
+- **原因**（99 本のクラスから `diff-frontend` と同じ手順で未解決の参照を全部出して形ごとに数えた）: すべて式の成分参照の続き `a.b` で、既定の型の中に `b` が無く、`redeclare` / `replaceable` が見えたので `Redeclare` と数えていたもの。形は 2 つ。
+  - **型の名前を、受け継いだクラスから見直す形**（Media が大半）: `state.T`・`state_a.p`・`refState.X`。部品 `state` の型 `ThermodynamicState` は、基底 `PartialMedium` では中身が空の `replaceable record`。受け継いだ `PartialSimpleMedium.BaseProperties`・`WaterIF97_base.setSmoothState` などの外側のパッケージが `redeclare record extends ThermodynamicState`（`class extends`）で差し替えており、`T`・`p` はそちらにある。
+  - **`extends B(redeclare T x)` の部品の再宣言**（Electrical）: `internalThermalPort.heatPortRotorWinding`・`thermalPort.heatPortPermanentMagnet`（`redeclare final …ThermalPortIMC internalThermalPort`）、`cellData.nRC`・`cellData.rcData.R`（`redeclare …TransientData.CellData cellData`）。S275 は「部品の再宣言（`redeclare Foo x`）」を未対応にしていた。
+- **直し**（`Library::resolve` の `step`。部品の型の中で続きの名前を探す所）: 既定の型で引けず、失敗の理由が `Redeclare` のときだけ、次の順で差し替えた後の型を試す。
+  1. 参照のあるクラス（`Ref::scope`）の受け継ぎを外側から（外側が勝つ）たどって、部品の持ち主を受け継ぐ基底の `extends B(redeclare T x)` のうち部品 `x` を差し替えるものを探し、`T`（あれば `constrainedby` の `C` も）の中で続きを引く（`comp_redecl`）。`globe-mode-syntax` の `ast::RedeclaredComponent`（接頭辞・`final`・添字・`constrainedby` を読み飛ばして型と名前を取る）で読み、`PathRef::comp_redecls` に持つ。
+  2. 参照のあるクラスが部品の持ち主を受け継ぐ（`reaches`）なら、部品の型の名前を参照のあるクラスから引き直し、その型の中で続きを引く。`class extends` で差し替えた型が外側のパッケージにあるとき、引き直せば差し替え先に当たる。
+  - 既定の型で引けたものは今まで通り（差し替えた型は引けないときだけ使う）なので、これまで解決した参照の結果は変わらない。
+- **診断**: `cargo xtask diff-frontend --class … --dump` が、resolve で未解決になった参照（理由・名前・種類・クラス）を `unresolved …` の行で出す。
+- **試験**: `globe-mode-resolve` に `redeclared_component_types`（`class extends` で差し替えた型を受け継いだ `BaseProperties`・関数から引く、`extends Base(redeclare PortX port)` の差し替え、差し替えた型にも無い名前は `Redeclare`、差し替えていない側は `NotFound`）、`globe-mode-syntax` に `redeclared_components_in_extends`（接頭辞・`final`・添字・`constrainedby`・クラスの再宣言を拾わない）。
+- **数字**（MSL の例題 566 本・`GlobeModeValidation` 75 本、S334 → S341）: resolve 467/566 → **566/566**、未解決の参照の総数 1330 → **0**。`GlobeModeValidation` は 74/75 → **75/75**、13 → **0**。flat・dae の列は変わらない（flat 471/566・方程式の数 451/463・DAE 471/471・正則 334/334 のまま）。**回帰 0 本、改善 100 本（すべて resolve の旗）**。`mise run msl:diff-frontend` は 1880 s（他の WP と同時で swap し、`Spice3BenchmarkFourBitBinaryAdder` だけで 1095 s。S334 は 554 s）、最大 RSS 3.9 GiB。MSL の全 `.mo`（2556 本、参照 161869 件）の成分参照の続き 45463 件は、S275 から残っていた `Redeclare` の 639 件が 0 になり、すべて解決する（`msl_stats`）。`globe-mode-lsp` の `resolve_compare`（定義ジャンプの Rumoca の道との突き合わせ）は不一致 0 のまま。
+- **shortcut（計測の範囲で未解決が 0 になるだけ）**:
+  - 部品の再宣言は `extends` の修飾（と short class の基底）の中だけ。部品の修飾の中の `A a(redeclare T x)` は見ない（MSL の例題には出ていない）。
+  - 差し替えは名前と受け継ぎで決める。差し替え先が `constrainedby` に合うか、`replaceable` かは見ない。「解決できた」は「正しい」とは限らない。
+  - LSP の補完（`members_of`）は `state.` の候補を既定の型の要素のままにしている。
+  - 差し替えた型の名前の見直しは、部品の持ち主を受け継ぐクラスからの参照だけ。持ち主を受け継がないクラスから `a.state.T` のように 2 段先で効く差し替え（`Medium` が `replaceable package` のとき）は、これまで通り `Redeclare`（MSL の例題には出ていない）。
+
+## 付記（S345）: LSP の補完・定義ジャンプ・ホバーも、差し替えた後の型で引く（B2 の続き）
+
+新しい ADR は立てず、S341 の付記の「shortcut」（LSP の補完は `state.` の候補を既定の型の要素のままにしている）を直した記録としてここに足す。変えたのは `globe-mode-resolve` の `members_of`・`step`（resolve の数え方は変えない）と、`globe-mode-lsp` の `definition`。
+
+- **補完**（`Library::members_of`）: 最後の名前が部品のとき、その型を「`scope`（カーソルのあるクラス）から見て差し替わった後の型」で引く。差し替えた型の探し方は S341 の `step` と同じなので、`step` の中にあった「`extends B(redeclare T x)` の部品の型 → 受け継ぐクラスから見直した型の名前」を `redeclared_types` に切り出して、`step` と `members_of` の両方が使う（LSP 側に規則を複製しない）。差し替えた型があればそれ、無ければ書いてある型。差し替えた型は既定の型を受け継ぐか制約の下位の型なので、要素は既定の型の要素を含む。
+- **定義ジャンプ・ホバー**: 書きかけの文書（今の道の `Outline` が引けない）は、S296 から `Library::resolve` で引いているので、S341 の `step` のまま差し替えた型に飛ぶ（直す所は無かった）。**読める文書**は今の道（`globe-mode-fmt` のアウトライン）が既定の型で引いて `null` になっていたので、成分参照（名前に `.` がある）が引けなかったときだけ、同じ自前の道（`tolerant_definition`）で引き直す。点のない名前（`Real`・`time`）では木を作らせない（木を作るのは最初の 1 回で、MSL では debug 8.8 秒・RSS 約 75 MB（S279 の計測。#107 のコメントは 0.6 s））。
+- **試験**: `globe-mode-resolve` に `members_of_follows_redeclared_types`（`class extends` で差し替えた record の欄、`extends Base(redeclare PortX port)` の差し替えた部品の欄、差し替えていない側は既定のまま）、`globe-mode-lsp` に `completion_and_definition_follow_redeclared_types`（別の行にも誤りのある書きかけの `port.`・`state.` の補完、読める文書と書きかけの文書での `port.hot` の定義ジャンプとホバー）。
+- **数字**: `cargo test -p globe-mode-resolve --test resolve`（8 本 pass）・`cargo test -p globe-mode-lsp`（lib 72・cross_file 5・folding 2・tolerant_outline 2 本 pass）、clippy（`--all-targets -D warnings`）0 件。`globe-mode-lsp` の `resolve_compare`（定義ジャンプを Rumoca の道と突き合わせる `#[ignore]` 試験。debug で 1312 s）は、型名 110 箇所が一致 110・LSP が null 0 のまま、成分参照の続き 93 箇所が一致 **86 → 91**・LSP が null **7 → 2**・不一致 0。残る 2 は突き合わせの位置（参照の範囲の最後の字）が添字の中・後ろになる参照（`massflowsink1.ports[1]`・`cellData.rcData[k].C`）で、名前を `1`・`C` と切るため null になる（`massflowsink1.ports` の上では `Sources.mo` の `ports` に飛ぶことを確かめた。`cellData.rcData[k].C` は S296 の添字の shortcut で、`name_at` が `]` で切る）。`msl:diff-frontend` は回していない（resolve の数え方は変えていない）
+- **shortcut**:
+  - 補完は、今の道（アウトライン）で候補が 1 件でも出る間は自前の道に回さない（木を作る費用を毎回払わないため）。既定の型に要素があり、差し替えた型にだけある要素は、今の道が読めない（カーソルの行を除いても誤りがある）ときだけ出る。MSL の Media の `ThermodynamicState` のように既定の型が空なら、カーソルの行だけ書きかけの文書でも出る。
+  - 差し替えの規則は S341 と同じなので、持ち主を受け継がないクラスから見る `a.state.` のような 2 段先の差し替え、部品の修飾の中の `A a(redeclare T x)` は同じく見ない。
+  - 定義ジャンプの引き直しは、点のある名前だけ。`Redeclare` 以外の理由で今の道が `null` のときも（`x.start` などの属性・誤字）、1 回だけ余計に木を引く。
+

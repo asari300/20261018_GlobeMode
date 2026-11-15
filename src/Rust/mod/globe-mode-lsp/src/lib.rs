@@ -10,7 +10,7 @@
 //!
 //! | 要求 | params | result |
 //! | --- | --- | --- |
-//! | `globe/check` | `{model}` | `CheckResponse` の JSON |
+//! | `globe/check` | `{model, frontend?}`（S349: `"rumoca"` か `"native"`。無ければ `globe-mode.toml` の `[check] frontend`、それも無ければ Rumoca。知らない名前は -32602） | `CheckResponse` の JSON |
 //! | `globe/simulate` | `{request}`（`SimulateRequest` の JSON。S214: `max_wall_seconds` が無ければ 180 s の予算を置く） | `SimulateResponse` の JSON |
 //! | `globe/simulateColumns` | `{request}` | `{response, layout, columns}`（S076。wasm の `simulate_columns` と同じ形。`response` に CSV は無く、`layout` は `ColumnsLayout`（`names`・`points`・既定で描く `defaults`。S190）、`columns[i]` は列 `i` の数の配列で、有限でない値は null） |
 //! | `globe/simulateMany` | `{request}`（`SimulateManyRequest` の JSON。S322: 複数のソルバで回し、`compare` があれば比べる。進捗の report に `solver`・`index`・`count` が付く。`$/cancelRequest` は全部に効く） | `{response, columns}`（`response` は `SimulateManyResponse`。`columns[i]` は `response.runs[i]` の `{layout, columns}` で、回せなかった実行は null） |
@@ -597,7 +597,10 @@ impl Server {
                 reply(id, definition::models(o))
             }
             "globe/check" => match params["model"].as_str() {
-                Some(model) => reply(id, json!(self.ws.check(model))),
+                Some(model) => match self.check_frontend(&params["frontend"]) {
+                    Ok(f) => reply(id, json!(self.ws.check_with(model, f))),
+                    Err(why) => error(id, -32602, &why),
+                },
                 None => error(id, -32602, "params.model が文字列でない"),
             },
             "globe/tunableParameters" => match params["model"].as_str() {
@@ -1117,6 +1120,20 @@ impl Server {
                 .any(|(n, _)| tree.file(n).is_some_and(|f| same_path_key(f) == path))
         {
             self.lib = None;
+        }
+    }
+
+    /// `globe/check` の frontend（S349）。`params.frontend` があればそれ（知らない名前は誤り）、無ければ設定の `[check] frontend`、それも無ければ Rumoca。
+    fn check_frontend(&self, requested: &Value) -> Result<globe_mode::CheckFrontend, String> {
+        match requested {
+            Value::Null => Ok(self
+                .config
+                .as_ref()
+                .and_then(|c| c.frontend.as_deref())
+                .and_then(|f| f.parse().ok())
+                .unwrap_or_default()),
+            Value::String(s) => s.parse(),
+            _ => Err("params.frontend が文字列でない".to_string()),
         }
     }
 
@@ -2684,12 +2701,55 @@ mod tests {
             s.handle(json!({"method": "textDocument/didOpen", "params": {"textDocument": {"uri": uri, "text": text}}}))
         };
         std::fs::write(&toml, "[check]\nfrontend = \"native\"\n").unwrap();
-        let out = open(&mut Server::new(&[]).unwrap());
+        let mut s = Server::new(&[]).unwrap();
+        let out = open(&mut s);
         assert!(out[0].to_string().contains("GM-U0006"), "{}", out[0]);
+        // S350: `globe/check` も frontend を省けばこの設定に従い（応答の frontend が native）、選べば選んだ方
+        let mut check = |params: Value| {
+            s.handle(json!({"id": 1, "method": "globe/check", "params": params}))
+                .remove(0)["result"]
+                .clone()
+        };
+        if cfg!(feature = "native") {
+            assert_eq!(check(json!({"model": "E"}))["frontend"], "native");
+        }
+        let rumoca = check(json!({"model": "E", "frontend": "rumoca"}));
+        assert!(
+            rumoca["passed"] == true && rumoca.get("frontend").is_none(),
+            "{rumoca}"
+        );
         std::fs::write(&toml, "[fmt]\nindent = 2\n").unwrap();
         let out = open(&mut Server::new(&[]).unwrap());
         assert!(!out[0].to_string().contains("GM-U0006"), "{}", out[0]);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// S349: `globe/check` は `params.frontend` で自前の段（native）を選べる。無ければ設定か Rumoca、知らない名前・文字列でない値は -32602。
+    #[test]
+    fn check_selects_the_frontend() {
+        let mut s = Server::new(&[]).unwrap();
+        let text = "expandable connector EC\n  Real a;\nend EC;\nmodel E\n  EC ec;\nend E;\n";
+        s.handle(json!({"method": "textDocument/didOpen", "params": {"textDocument": {"uri": "E.mo", "text": text}}}));
+        let mut check = |params: Value| {
+            s.handle(json!({"id": 1, "method": "globe/check", "params": params}))
+                .remove(0)
+        };
+        // expandable は Rumoca が通し、自前の段は GM-U0006 で断る
+        assert_eq!(check(json!({"model": "E"}))["result"]["passed"], true);
+        assert_eq!(
+            check(json!({"model": "E", "frontend": "rumoca"}))["result"]["passed"],
+            true
+        );
+        let native = check(json!({"model": "E", "frontend": "native"}));
+        assert_eq!(native["result"]["passed"], false, "{native}");
+        if cfg!(feature = "native") {
+            assert_eq!(native["result"]["frontend"], "native", "{native}"); // S350: 使った方を応答が言う（Rumoca では出ない）
+        }
+        assert!(native.to_string().contains("GM-U0006"), "{native}");
+        for bad in [json!("nope"), json!(1)] {
+            let r = check(json!({"model": "E", "frontend": bad}));
+            assert_eq!(r["error"]["code"], -32602, "{r}");
+        }
     }
 
     /// 文書を開き、`needle` の `k` 文字目に置いたカーソルで `method` を頼む。
@@ -2861,6 +2921,112 @@ equation
             json!({"line": 6, "character": 19}),
             "{r}"
         );
+    }
+
+    /// S345: 補完の `a.`・定義ジャンプ・ホバーが、差し替えた後の型（`class extends` の `TS`・`extends B(redeclare T x)` の部品）を引く。
+    /// 読めない文書は自前の名前解決（S279・S296）、読める文書はアウトラインで引けなかった成分参照だけ自前の名前解決で引く。
+    #[test]
+    fn completion_and_definition_follow_redeclared_types() {
+        let dir = scratch_dir("redeclared");
+        std::fs::create_dir_all(dir.join("Lib")).unwrap();
+        std::fs::write(
+            dir.join("Lib/package.mo"),
+            "package Lib
+  package PM
+    replaceable record TS end TS;
+    replaceable partial model BP TS state; end BP;
+  end PM;
+  package Simple
+    extends PM;
+    redeclare record extends TS Real T; end TS;
+    redeclare model extends BP Real x = state.T; end BP;
+  end Simple;
+  model Port Real p; end Port;
+  model PortX
+    extends Port;
+    Real hot;
+  end PortX;
+  model Base replaceable Port port; end Base;
+end Lib;
+",
+        )
+        .unwrap();
+        let mut s = Server::new(std::slice::from_ref(&dir)).unwrap();
+        let labels = |r: &Value| -> Vec<String> {
+            r["result"]["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|i| i["label"].as_str().unwrap().to_string())
+                .collect()
+        };
+        // 補完（別の行にも誤りがある書きかけ）: 差し替えた `PortX` の `hot` と受け継いだ `p`、`class extends` で差し替えた `TS` の `T`
+        let text = "model M\n  extends Lib.Base(redeclare Lib.PortX port);\n  Real = ;\nequation\n  port.\nend M;\n";
+        let r = ask_at(
+            &mut s,
+            "M.mo",
+            text,
+            "textDocument/completion",
+            "port.\n",
+            5,
+        );
+        assert_eq!(labels(&r), ["hot", "p"], "{r}");
+        let text =
+            "within Lib.Simple;\nmodel M\n  extends BP;\n  Real = ;\nequation\n  state.\nend M;\n";
+        let r = ask_at(
+            &mut s,
+            "S.mo",
+            text,
+            "textDocument/completion",
+            "state.\n",
+            6,
+        );
+        assert_eq!(labels(&r), ["T"], "{r}");
+        // 読める文書（カーソルの行だけ書きかけ）でも、今の道は既定の空の `TS` で 0 件なので自前の道に回って同じ
+        let text = "within Lib.Simple;\nmodel M3\n  extends BP;\nequation\n  state.\nend M3;\n";
+        let r = ask_at(
+            &mut s,
+            "S3.mo",
+            text,
+            "textDocument/completion",
+            "state.\n",
+            6,
+        );
+        assert_eq!(labels(&r), ["T"], "{r}");
+        // 定義ジャンプとホバー: `PortX` の `Real hot;`（0 始まりで 13 行目）。読める文書も、読めない文書も
+        let valid = "model N\n  extends Lib.Base(redeclare Lib.PortX port);\nequation\n  port.hot = 0;\nend N;\n";
+        for (uri, text) in [
+            ("N.mo", valid.to_string()),
+            ("N2.mo", format!("{valid}Real = ;\n")),
+        ] {
+            let r = ask_at(&mut s, uri, &text, "textDocument/definition", "port.hot", 6);
+            assert_eq!(r["result"]["range"]["start"]["line"], 13, "{uri}: {r}");
+        }
+        // ホバー: 書きかけの文書は `textDocument/hover`、読める文書の名前のホバーは UI 向けの `globe/hover`（`textDocument/hover` はクラスの見出し）
+        let h = ask_at(
+            &mut s,
+            "N2.mo",
+            &format!("{valid}Real = ;\n"),
+            "textDocument/hover",
+            "port.hot",
+            6,
+        );
+        assert!(
+            h["result"]["contents"]["value"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("hot"),
+            "{h}"
+        );
+        let h = s.handle(json!({"id": 2, "method": "globe/hover", "params": {"file": "N.mo", "line": 3, "character": 9}}));
+        assert!(
+            h[0]["result"]["contents"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("hot"),
+            "{h:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

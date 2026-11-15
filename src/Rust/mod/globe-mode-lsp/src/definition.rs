@@ -299,10 +299,22 @@ impl Resolver<'_> {
     /// 文書 `path`（本文 `text`）の `at` にある名前の定義。
     pub fn definition(&mut self, path: &str, text: &str, at: usize) -> Option<Target> {
         let (_, name) = name_at(text, at)?;
-        // 文書が読めない（構文の誤り・`end` の前で切れている）ときだけ、自前の構文と名前解決で引く（S296）
-        let Some(outline) = self.outline(path) else {
+        // 文書が読めない（構文の誤り・`end` の前で切れている）ときは、自前の構文と名前解決で引く（S296）
+        if self.outline(path).is_none() {
             return self.tolerant_definition(path, text, at);
-        };
+        }
+        // 読める文書でも、アウトラインの道は差し替えた後の型（`extends B(redeclare T x)`・`class extends`）を知らない。
+        // 引けなかった成分参照（`port.hot`）だけ自前の名前解決（S341）でも引く（S345。点のない `Real`・`time` で木を作らせない）
+        self.outline_definition(path, text, at).or_else(|| {
+            name.contains('.')
+                .then(|| self.tolerant_definition(path, text, at))
+                .flatten()
+        })
+    }
+
+    fn outline_definition(&mut self, path: &str, text: &str, at: usize) -> Option<Target> {
+        let (_, name) = name_at(text, at)?;
+        let outline = self.outline(path)?;
         let (chain, scopes, within) = scopes_at(outline, at);
         let mut segs = name.split('.');
         let head = segs.next()?;
