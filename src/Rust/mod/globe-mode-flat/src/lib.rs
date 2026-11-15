@@ -149,6 +149,11 @@ fn mo_files(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
 impl Project {
     /// ディレクトリの下の `.mo` をすべて読む（`Library::from_dirs` と同じ順）
     pub fn from_dirs(dirs: &[&Path]) -> std::io::Result<Project> {
+        Self::from_dirs_with(dirs, &[])
+    }
+
+    /// `from_dirs` に、メモリ上のファイル（名前と本文。ディレクトリの後ろに並ぶ）を足す（S305。`globe check` の入力）
+    pub fn from_dirs_with(dirs: &[&Path], extra: &[(&str, &str)]) -> std::io::Result<Project> {
         let mut files = Vec::new();
         for d in dirs {
             let before = files.len();
@@ -160,7 +165,10 @@ impl Project {
             .filter_map(|f| Some((f.display().to_string(), std::fs::read_to_string(f).ok()?)))
             .collect();
         Ok(Self::from_sources(
-            texts.iter().map(|(n, t)| (n.as_str(), t.as_str())),
+            texts
+                .iter()
+                .map(|(n, t)| (n.as_str(), t.as_str()))
+                .chain(extra.iter().copied()),
         ))
     }
 

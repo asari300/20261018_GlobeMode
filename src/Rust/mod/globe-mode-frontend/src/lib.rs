@@ -10,6 +10,10 @@ use globe_mode_ir::{
     BalanceCount, DaeCounts, DaeStructure, FlatSummary, InitStructure, Outline, PreflightStructure,
 };
 
+#[cfg(feature = "native")]
+mod native;
+#[cfg(feature = "native")]
+pub use native::NativeFrontend;
 #[cfg(feature = "rumoca")]
 mod external_builtin;
 #[cfg(feature = "rumoca")]
