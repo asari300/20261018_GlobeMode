@@ -36,6 +36,7 @@ Desktop（Tauri の sidecar の LSP）からも、検査に native を選べる�
 - `node src/Svelte/tests/test_tauri.mjs`: ok。`pnpm check`（svelte-check）: 287 ファイル、error 0・warning 0。
 - UI: `pnpm build` のあと `test_ui.py` を最後まで（MSL つき。worktree の `data/msl` は main の `data/msl` への symlink で、`.gitignore` 済み）、`test_graph.py` ともに終了コード 0（`check_frontend_select` は Desktop の select と `globe/check` の `frontend` が `rumoca`・`native` の順で届くところを含めて OK、console の error 0）。1 回目は MSL の symlink が無く、最後の smoke（`MSL.json` 404）で落ちた。symlink を張って再実行した。
 - 文書: `check_docs.py` は全デッキ OK、リンクは文書 1,243 件・相対リンク 5,229 件中の切れ 0 件。`render_slides.py`（S349 のデッキだけ）: デッキ 1 件・問題 0 件（1 回目は負荷でスクリーンショットが時間切れ、負荷が下がってから通した）。
+- `origin/main`（S345 など）を取り込んだ。衝突は `doc/features.md`・`doc/roadmap.md` の 1 行ずつで、S345 の文と S347・S349 の文を両方残した。取り込み後に `cargo test -p globe-mode-lsp --lib`（73 本 OK・1 本 ignored）、clippy 0 件、`test_tauri.mjs` ok、`check_docs.py` はリンクの切れ 0 件（文書 1,246 件・相対リンク 5,236 件）。UI の試験と wasm は取り込み前の tree で回した（取り込みの差は resolve・LSP の補完と文書）。
 - 回していないもの: `mise run check` 全体（deny・uv）は依存を足していないので省き、`cargo fmt`・clippy・変えた crate の試験だけ。`wasm:build`（release の wasm）は、wasm の挙動を変えていないので回さず、共有 target に残っていた S347 の build（`wasm-pkg/web`、19,598,045 バイト）を UI の試験に使った。`wasm:node`・`wasm:compare`・`msl:*` は回していない（実行系・wasm・frontend を変えていない）。実機の Desktop（Tauri）の起動は【未確認】。
 - セッション記録は無いので `--check` は省く。
 
