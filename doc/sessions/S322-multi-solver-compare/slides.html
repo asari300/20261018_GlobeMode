@@ -29,12 +29,12 @@
 
 <section class="slide" id="S03">
   <span class="tag">決定と理由</span>
-  <h1>要望と変えたところ 2 つ</h1>
+  <h1>決めたこと（要望と違う所は 2 つ）</h1>
   <table>
     <tr><th>項目</th><th>決定</th><th>理由</th></tr>
     <tr><td>並列</td><td>別プロセスでなく、同じコンパイル結果を共有するスレッド（最大 4 本）</td><td>RSS が GiB の単位（ADR-0023）。facade は wasm・Python からも呼ばれる</td></tr>
     <tr><td>比較</td><td>補間と相対差でなく、MSL の参照結果と同じ矩形の管（幅 10^-n）</td><td>同じ数え方を 2 か所に書かない。格子の違いとイベントに強い</td></tr>
-    <tr><td>数の上限</td><td>1〜16 個</td><td>列を全部返すので JSON が大きくなる</td></tr>
+    <tr><td>上限</td><td>1〜16 個</td><td>列を全部返すので JSON が大きくなる</td></tr>
   </table>
 </section>
 
@@ -42,8 +42,8 @@
   <span class="tag">図</span>
   <h1>流れ</h1>
   <svg class="fig" viewBox="0 0 800 220" role="img" aria-label="simulate_many の流れ">
-    <rect class="svg-box-accent" x="20" y="80" width="170" height="60" rx="10"/>
-    <text class="svg-text-b" x="105" y="116" text-anchor="middle">検査・コンパイル（1 回）</text>
+    <rect class="svg-box-accent" x="10" y="80" width="230" height="60" rx="10"/>
+    <text class="svg-text-b" x="125" y="116" text-anchor="middle">検査・コンパイル</text>
     <rect class="svg-box" x="260" y="20" width="150" height="50" rx="10"/>
     <text class="svg-text" x="335" y="50" text-anchor="middle">solver 1</text>
     <rect class="svg-box" x="260" y="85" width="150" height="50" rx="10"/>
@@ -52,9 +52,9 @@
     <text class="svg-text" x="335" y="180" text-anchor="middle">solver 3</text>
     <rect class="svg-box-accent" x="500" y="80" width="170" height="60" rx="10"/>
     <text class="svg-text-b" x="585" y="116" text-anchor="middle">基準との管の比較</text>
-    <line class="svg-line" x1="190" y1="110" x2="260" y2="45"/>
-    <line class="svg-line" x1="190" y1="110" x2="260" y2="110"/>
-    <line class="svg-line" x1="190" y1="110" x2="260" y2="175"/>
+    <line class="svg-line" x1="240" y1="110" x2="260" y2="45"/>
+    <line class="svg-line" x1="240" y1="110" x2="260" y2="110"/>
+    <line class="svg-line" x1="240" y1="110" x2="260" y2="175"/>
     <line class="svg-line" x1="410" y1="45" x2="500" y2="110"/>
     <line class="svg-line" x1="410" y1="110" x2="500" y2="110"/>
     <line class="svg-line" x1="410" y1="175" x2="500" y2="110"/>
