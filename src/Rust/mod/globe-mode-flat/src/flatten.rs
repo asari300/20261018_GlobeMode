@@ -213,6 +213,12 @@ struct Level {
 }
 
 const MAX_VARS: usize = 200_000;
+/// 方程式（`when`・`initial`・`connect` の端を含む）の数の上限。入れ子の `for` の積は範囲の上限（10 万）では抑えられない（S339）
+#[cfg(not(test))]
+const MAX_EQS: usize = 1_000_000;
+/// 試験では小さくする（debug のビルドは 1 本 50 µs。下の `nested_for_equation_count_is_capped`）
+#[cfg(test)]
+const MAX_EQS: usize = 10_000;
 
 /// 修飾の表の中の特別な名前: レコード全体の束縛 `r = other`（`other` の欄を、型の欄ごとに束縛する。宣言が後ろにある兄弟のレコードや、レコードを返す関数の呼び出し）
 const WHOLE: &str = "*";
@@ -836,9 +842,11 @@ impl F<'_> {
                     // 大きさが決められなければ 0（今までと同じ。等式を作らない）
                     let n = self
                         .class_out_dims(f, ctx)
-                        .map_or(0, |d| d.iter().product());
+                        .and_then(|d| dims_product(&d))
+                        .unwrap_or(0);
                     Some((self.p.lib.qualified_name(f), n))
                 });
+                let mut items = HashMap::new();
                 for (e, ix) in idx_names(&dims).into_iter().enumerate() {
                     let el = format!("{full}{ix}");
                     if let Some(o) = &oc {
@@ -850,6 +858,7 @@ impl F<'_> {
                             &ix,
                             (dims.len() == 1).then_some((e, dims[0])),
                             dims.len(),
+                            &mut items,
                         )?
                     } else {
                         m.sub.clone()
@@ -987,7 +996,7 @@ impl F<'_> {
 
     /// `Complex` の式の束縛を欄 `re`・`im` ごとの式にする（`complex_parts`）。`Complex` でない・読めない形は `None`
     fn complex_value(&self, b: &Bind, cid: ClassId) -> Res<Option<ModMap>> {
-        if !is_index(&b.suffix) || self.p.lib.qualified_name(cid) != "Complex" {
+        if !is_index(&b.suffix) || !self.is_msl_complex(cid) {
             return Ok(None);
         }
         let Some((re, im)) = self.complex_parts(&b.node, b, 0)? else {
@@ -1109,6 +1118,13 @@ impl F<'_> {
         t.match_indices('.')
             .map(|(i, _)| format!("{}{ix}{}", &t[..i], &t[i..]))
             .find(|c| has(c))
+    }
+
+    /// 最上位の `Complex` で、欄が `re`・`im` だけ（名前だけ同じユーザー定義のレコードを展開しない。S339）
+    fn is_msl_complex(&self, cid: ClassId) -> bool {
+        let mut f = Vec::new();
+        self.record_fields(cid, &mut f, 0);
+        self.p.lib.qualified_name(cid) == "Complex" && f == ["re", "im"]
     }
 
     /// `Complex` の式を (実部, 虚部) の式にする。虚部 `None` は Real。読めない形は `None`（S329）。
@@ -2479,6 +2495,9 @@ impl F<'_> {
         initial: bool,
         lv: &mut Level,
     ) -> Res<()> {
+        if self.eqs.len() + self.ieqs.len() + self.whens.len() + lv.conns.len() > MAX_EQS {
+            return un("too-large", "too many equations");
+        }
         self.cur = self.p.origin(file, node);
         let first = tokens(node).next().map(|t| t.kind());
         match first {
@@ -2544,7 +2563,7 @@ impl F<'_> {
                         );
                         let by_dims = |x: &Expr| {
                             self.dims_of(x.syntax(), file, ctx)
-                                .map(|d| d.iter().product::<usize>())
+                                .and_then(|d| dims_product(&d))
                         };
                         let c = self
                             .shape(l, file, ctx)
@@ -3007,22 +3026,26 @@ impl F<'_> {
             }
             x
         }
+        // `n` か、`.`・`[` の手前までの前置きが、このインスタンスのコネクタか（表を引く。`own` の線形探索は O(N²)。S339）
+        let own_set: HashSet<&str> = own.iter().map(String::as_str).collect();
         let outside = |n: &str| {
-            own.iter().any(|o| {
-                n.strip_prefix(o.as_str())
-                    .is_some_and(|t| t.is_empty() || t.starts_with(['.', '[']))
-            })
+            own_set.contains(n)
+                || n.match_indices(['.', '['])
+                    .any(|(i, _)| own_set.contains(&n[..i]))
         };
         type Info = (usize, usize, bool);
-        let id = |s: &mut (Vec<String>, Vec<Info>, Vec<usize>), name: String, i: Info| {
-            s.0.iter().position(|x| *x == name).unwrap_or_else(|| {
-                s.0.push(name);
-                s.1.push(i);
-                s.2.push(s.2.len());
-                s.0.len() - 1
-            })
+        type St = (Vec<String>, Vec<Info>, Vec<usize>, BTreeMap<String, usize>);
+        let id = |s: &mut St, name: String, i: Info| {
+            if let Some(&k) = s.3.get(&name) {
+                return k;
+            }
+            s.3.insert(name.clone(), s.0.len());
+            s.0.push(name);
+            s.1.push(i);
+            s.2.push(s.2.len());
+            s.0.len() - 1
         };
-        let mut st: (Vec<String>, Vec<Info>, Vec<usize>) = Default::default();
+        let mut st: St = Default::default();
         // 配列のコネクタの一括の接続は、要素ごとの接続にしてから数える（S324）
         let mut conns = Vec::new();
         for (a, b, o) in &lv.conns {
@@ -3061,7 +3084,7 @@ impl F<'_> {
                 st.2[rb] = ra;
             }
         }
-        let (names, info, mut parent) = st;
+        let (names, info, mut parent, by_name) = st;
         let mut sets: Vec<Vec<usize>> = Vec::new();
         let mut root_of: HashMap<usize, usize> = HashMap::new();
         for i in 0..names.len() {
@@ -3076,14 +3099,23 @@ impl F<'_> {
         let mut origins: Vec<Option<Origin>> = vec![None; sets.len()];
         let mut seen = vec![false; sets.len()];
         for (a, _, o) in &lv.conns {
-            let prefix = format!("{a}.");
-            for (i, n) in names.iter().enumerate() {
-                if n == a || n.starts_with(&prefix) || n.starts_with(&format!("{a}[")) {
-                    let k = root_of[&find(&mut parent, i)];
-                    if !seen[k] {
-                        seen[k] = true;
-                        origins[k] = o.clone();
-                    }
+            // `a` そのもの、`a.…`、`a[…`（名前順の表の連続した範囲。接続数 × 葉の数にしない。S339）
+            let hits = by_name.get(a).into_iter().copied().chain(
+                [format!("{a}."), format!("{a}[")]
+                    .into_iter()
+                    .flat_map(|pre| {
+                        by_name
+                            .range(pre.clone()..)
+                            .take_while(|(n, _)| n.starts_with(&pre))
+                            .map(|(_, &i)| i)
+                            .collect::<Vec<_>>()
+                    }),
+            );
+            for i in hits {
+                let k = root_of[&find(&mut parent, i)];
+                if !seen[k] {
+                    seen[k] = true;
+                    origins[k] = o.clone();
                 }
             }
         }
@@ -3176,6 +3208,11 @@ impl F<'_> {
     }
 }
 
+/// 次元の積。溢れたら `None`（宣言の次元は入力なので、検査なしの `product` は debug で panic・release で巻き戻る。S339）
+fn dims_product(d: &[usize]) -> Option<usize> {
+    d.iter().try_fold(1usize, |a, &x| a.checked_mul(x))
+}
+
 fn field_mod(b: Bind) -> Mod {
     Mod {
         val: Some(b),
@@ -3217,7 +3254,14 @@ fn split_kind(n: &SyntaxNode, nd: usize) -> Option<Option<SyntaxNode>> {
 /// 部品の配列への修飾 `c[n](a = {…})` を要素 `ix`（`[2]`・`[1,2]`）の分に分ける。`each` の修飾は分けない（S329）。
 /// 1 次元で `{…}` の項が並んでいれば項そのもの、それ以外（`for` つきの内包・多次元）は `({…})[ix]`
 /// `one` は 1 次元のときの（要素の番号 0 始まり, 大きさ）
-fn split_mod(m: &ModMap, ix: &str, one: Option<(usize, usize)>, nd: usize) -> Res<ModMap> {
+/// `items` は `{…}` の項（配列の式ごとに 1 回だけ集める。要素ごとに作り直すと O(n²)。S339）
+fn split_mod(
+    m: &ModMap,
+    ix: &str,
+    one: Option<(usize, usize)>,
+    nd: usize,
+    items: &mut HashMap<SyntaxNode, Option<Vec<SyntaxNode>>>,
+) -> Res<ModMap> {
     let mut out = ModMap::new();
     for (k, x) in m {
         let mut x = x.clone();
@@ -3231,22 +3275,29 @@ fn split_mod(m: &ModMap, ix: &str, one: Option<(usize, usize)>, nd: usize) -> Re
                     out.insert(k.clone(), x);
                     continue;
                 }
-                let items = Expr::cast(b.node.clone()).and_then(|e| match e {
-                    Expr::Array(a) => Some(a.items()),
-                    _ => None,
+                // `for` つきの内包は項に分けない（`None`）
+                let its = items.entry(b.node.clone()).or_insert_with(|| {
+                    let plain = !b.node.children().any(|c| c.kind() == K::Comprehension);
+                    Expr::cast(b.node.clone())
+                        .filter(|_| plain)
+                        .and_then(|e| match e {
+                            Expr::Array(a) => {
+                                Some(a.items().iter().map(|x| x.syntax().clone()).collect())
+                            }
+                            _ => None,
+                        })
                 });
-                let plain = !b.node.children().any(|c| c.kind() == K::Comprehension);
-                match (one, items) {
-                    (Some((e, n)), Some(i)) if plain => {
+                match (one, its) {
+                    (Some((e, n)), Some(i)) => {
                         if i.len() != n {
                             return un("array-modification", format!("{k} size differs"));
                         }
-                        b.node = i[e].syntax().clone();
+                        b.node = i[e].clone();
                     }
                     _ => b.suffix = format!("{}{ix}", b.suffix),
                 }
             }
-            x.sub = split_mod(&x.sub, ix, one, nd)?;
+            x.sub = split_mod(&x.sub, ix, one, nd, items)?;
         }
         out.insert(k.clone(), x);
     }
@@ -3270,11 +3321,14 @@ fn cx_par(s: &str) -> String {
     }
 }
 
+/// `Complex` の式の長さの上限（実部と虚部の合計）。`*`・`/` は被演算子ごとに式が約 2 倍になるので、超えたら展開しない（S339）
+const CX_MAX_LEN: usize = 64 * 1024;
+
 /// MSL の `Complex` の `+ - * /`。Real の被演算子は虚部 0 として、0 の項は出さない（S329）
 fn cx_bin(op: K, a: CxPart, b: CxPart) -> Option<CxPart> {
     let (p, q) = (cx_par(&a.0), cx_par(&b.0));
     let (ai, bi) = (a.1.as_deref().map(cx_par), b.1.as_deref().map(cx_par));
-    Some(match (op, &ai, &bi) {
+    let r = match (op, &ai, &bi) {
         (K::Plus | K::DotPlus, _, _) => (
             format!("{p} + {q}"),
             match (&ai, &bi) {
@@ -3310,7 +3364,8 @@ fn cx_bin(op: K, a: CxPart, b: CxPart) -> Option<CxPart> {
             }
         }
         _ => return None,
-    })
+    };
+    (r.0.len() + r.1.as_ref().map_or(0, String::len) <= CX_MAX_LEN).then_some(r)
 }
 
 fn binop(op: K, a: Val, b: Val) -> Option<Val> {
@@ -3366,4 +3421,27 @@ fn join(l: &[String]) -> String {
         s.push_str(t);
     }
     s
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::Project;
+
+    #[test]
+    fn nested_for_equation_count_is_capped() {
+        // #126: 入れ子の `for` の積に上限が無く、2000×2000 で 400 万本・3 重で終わらなかった（試験の上限は 1 万本）
+        let src = "model M Real x[2];
+            equation for i in 1:200 loop for j in 1:200 loop x[1] = x[2] + i + j; end for; end for;
+            end M;";
+        let e = Project::from_sources([("t.mo", src)])
+            .flatten("M")
+            .expect_err("too many");
+        assert_eq!(e.kind, "too-large");
+        // 上限に届かない積は通る
+        let src = src.replace("1:200 loop for j in 1:200", "1:50 loop for j in 1:50");
+        let m = Project::from_sources([("t.mo", src.as_str())])
+            .flatten("M")
+            .unwrap();
+        assert_eq!(m.equation_count(), 2500);
+    }
 }

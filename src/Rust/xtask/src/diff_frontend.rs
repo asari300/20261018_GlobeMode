@@ -318,39 +318,64 @@ fn compare_flat(
     // 部品・レコードの配列の要素の添字 `a[1].x` を落として比べる。Rumoca は大きさを評価できない配列
     // （`n = size(lines, 1)` など）を要素に展開せず `a.x` にする（S332、ADR-0039）
     let (m, theirs) = (without_elem_subs(&m), without_elem_subs(&theirs));
-    let (names, e) = (m == theirs, mine.equation_count() == eqs);
+    let (names, e) = (same_elems(&m, &theirs), mine.equation_count() == eqs);
     row.flags.insert("flat_names", names);
     row.flags.insert("flat_eqs", e);
     if !(names && e) {
-        let only_m: Vec<_> = m.difference(&theirs).take(4).collect();
-        let only_t: Vec<_> = theirs.difference(&m).take(4).collect();
+        let only = |a: &Elems, b: &Elems| -> Vec<String> {
+            a.keys()
+                .filter(|k| !b.contains_key(*k))
+                .take(4)
+                .cloned()
+                .collect()
+        };
+        let counts: Vec<String> = m
+            .iter()
+            .filter_map(|(k, v)| {
+                let t = theirs.get(k)?;
+                (v.1 == t.1 && v.0 != t.0).then(|| format!("{k}: {} vs {}", v.0, t.0))
+            })
+            .take(4)
+            .collect();
         row.diffs.push(format!(
-            "flat: eq {} vs {eqs} (rumoca); vars {} vs {}; only mine {only_m:?}; only rumoca {only_t:?}",
+            "flat: eq {} vs {eqs} (rumoca); vars {} vs {}; only mine {:?}; only rumoca {:?}; element counts {counts:?}",
             mine.equation_count(),
             m.len(),
-            theirs.len()
+            theirs.len(),
+            only(&m, &theirs),
+            only(&theirs, &m),
         ));
     }
 }
 
-/// `a[1].x` → `a.x`（`.` の直前の `[…]` を落とす）
-fn without_elem_subs(
-    names: &std::collections::BTreeSet<String>,
-) -> std::collections::BTreeSet<String> {
-    names
-        .iter()
-        .map(|n| {
-            let mut out = String::with_capacity(n.len());
-            let mut rest = n.as_str();
-            while let Some(i) = rest.find('[') {
-                let Some(j) = rest[i..].find("].") else { break };
-                out.push_str(&rest[..i]);
-                rest = &rest[i + j + 1..];
-            }
-            out.push_str(rest);
-            out
-        })
-        .collect()
+/// 添字を落とした名前 → (その名前になった変数の数, 落とした添字の数の最大)
+type Elems = BTreeMap<String, (usize, usize)>;
+
+/// `a[1].x` → `a.x`（`.` の直前の `[…]` を落とす）。要素の数も数える（`a[1].x`・`a[2].x` は `a.x` が 2 つ）
+fn without_elem_subs(names: &std::collections::BTreeSet<String>) -> Elems {
+    let mut out = Elems::new();
+    for n in names {
+        let (mut s, mut rest, mut dropped) = (String::with_capacity(n.len()), n.as_str(), 0);
+        while let Some(i) = rest.find('[') {
+            let Some(j) = rest[i..].find("].") else { break };
+            s.push_str(&rest[..i]);
+            rest = &rest[i + j + 1..];
+            dropped += 1;
+        }
+        s.push_str(rest);
+        let e = out.entry(s).or_insert((0, 0));
+        *e = (e.0 + 1, e.1.max(dropped));
+    }
+    out
+}
+
+/// 名前の集合が同じで、同じ深さまで展開した名前は要素の数も同じ。Rumoca は大きさを評価できない配列を展開しない（`a.x`）ので、
+/// 展開の深さが違う名前は数を比べない。展開した側の要素が欠けても、数が合えば見えない（S339 の前は数も見なかった）
+fn same_elems(a: &Elems, b: &Elems) -> bool {
+    a.len() == b.len()
+        && a.iter()
+            .zip(b)
+            .all(|((n, x), (m, y))| n == m && (x.1 != y.1 || x.0 == y.0))
 }
 
 fn is_model_class(p: &Project, cid: ClassId) -> bool {
@@ -799,7 +824,22 @@ mod tests {
     fn element_subscripts_are_dropped_only_before_a_field() {
         let set = |v: &[&str]| v.iter().map(|s| s.to_string()).collect();
         let got = without_elem_subs(&set(&["c[1].R.T", "a[2].b[3].c", "x[1,2]", "y.z"]));
-        assert_eq!(got, set(&["c.R.T", "a.b.c", "x[1,2]", "y.z"]));
+        let keys: Vec<&str> = got.keys().map(String::as_str).collect();
+        assert_eq!(keys, ["a.b.c", "c.R.T", "x[1,2]", "y.z"]);
+    }
+
+    /// #131: 要素が欠けても名前の集合が同じになって一致と数えていた。同じ深さで展開した側の数は比べる
+    #[test]
+    fn a_missing_element_is_not_hidden_but_an_unexpanded_array_is_allowed() {
+        let set = |v: &[&str]| v.iter().map(|s| s.to_string()).collect();
+        let two = without_elem_subs(&set(&["a[1].x", "a[2].x"]));
+        let three = without_elem_subs(&set(&["a[1].x", "a[2].x", "a[3].x"]));
+        assert!(!same_elems(&two, &three));
+        assert!(same_elems(&three, &three));
+        // Rumoca が大きさを評価できず展開しない（`a.x` が 1 つ）ときは数を比べない
+        assert!(same_elems(&three, &without_elem_subs(&set(&["a.x"]))));
+        // 名前が違えば不一致
+        assert!(!same_elems(&two, &without_elem_subs(&set(&["b.x"]))));
     }
 
     fn row(name: &str, flags: &[(&'static str, bool)]) -> Row {
