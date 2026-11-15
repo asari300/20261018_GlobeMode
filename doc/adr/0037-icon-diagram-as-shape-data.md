@@ -116,3 +116,12 @@ P8 の Diagram / Icon ビューの最初の一切れとして、カーソルの�
 - **UI**: `DiagramView.svelte` で結線を選ぶ（S281）と、`Line(points)` の途中の点（最初と最後を除く）に小さな四角のつまみ（`rect.wp`、`data-wp` に結線、`data-index` に番号）が出る。ドラッグは `diagram-drag.ts` の `onWaypoint`（部品と同じく 4 px 未満はクリック、2 単位に吸着、離したら呼ぶ。失敗なら見た目を戻す）。結線の線の上（`polyline.hit`）のダブルクリックは、クリックの点にいちばん近い線分を探し、その次の番号で `onAddWaypoint` を呼ぶ（座標は 2 単位に吸着）。右クリックでは足さない。つまみは Svelte の側だけが描き、`shape-svg.ts` の `diagramNodes`（VS Code と共有）は変えない。
 - **確かめ**: Rust は `waypoints_move_add_and_refuse_the_ends`（動かす・逆の並び・端と範囲外と `points` の無い結線と不正な座標を断る・`points` への挿入・`points` の無い結線の 3 パターン〔`annotation` なし・`Line` に `points` なし・`Line` なし〕・足した結果を `diagram` が読み直す）、LSP 1 本、wasm 1 件（`decay.rs` と `smoke.mjs`）、`diagram-edit.test.mjs` に `.wp` のドラッグ、`pnpm check` 0 件、`test_tauri.mjs` の rpc 呼び出し。**ブラウザでの操作（`test_ui.py`）と、VS Code のパネルは入れていない**。
 - **持ち越し**: VS Code の側のパネルでの途中の点、点の削除、ドラッグ中の線の追従（今は離したときに線が動く）、ブラウザでの操作の試験、折れ線でない `Line`（`smooth`）の扱い。
+
+## 付記（S302: VS Code の側のパネルでの結線の途中の点）
+
+- **S299 の途中の点の移動と追加を、VS Code の側のパネルでもできるようにした。** Rust・LSP は変えない（`globe/moveWaypoint`・`globe/addWaypoint` をそのまま呼ぶ）。操作は Svelte 版と同じ（結線を選ぶと途中の点に四角のつまみ、ドラッグで動かす。線のダブルクリックで点を足す）。
+- **共有**: `DiagramView.svelte` に埋まっていたつまみの決め方（`handlesOf`・`halfOf`）、ダブルクリックで足す点の決め方（いちばん近い線分の次の番号・2 単位に吸着・両端のコネクタの位置 `ends`。`addWaypointOf`）、つまみの要素の木（`handleNode`。webview が `toDom` で DOM にする）を `src/Svelte/src/lib/diagram-waypoint.ts` に出した。ドラッグは S299 の `diagram-drag.ts` の `onWaypoint` をそのまま使う。Svelte の見た目と挙動は変えない（`.wp` の rect は Svelte が自分のテンプレートで描く）。
+- **webview**: 図の `show` のあと、選びが結線ならつまみを `svg` の最後に足す（選びが変わったときだけ作り直す。つまみのクリックでは作り直さない）。`onWaypoint` は `{type: "moveWaypoint", id, from, to, index, dx, dy}`、ダブルクリックは `{type: "addWaypoint", id, from, to, index, x, y, ends}` を `postMessage`（S264 の `ask` と同じ。`edited` を待ち、失敗なら見た目を戻す）。CSP（`default-src 'none'`、nonce のスクリプト）・`innerHTML` 不使用は変えない。
+- **拡張**: `edit.js` の `parseEdit` が 2 種を足した。端は `名前[添字].名前`（`deleteConnect` と同じ）、`index` は 0 以上 1 万以下の整数、座標は有限で絶対値 1e6 以下、`ends` は 2 点。`file`・`class` は受け取らない。`panel.js` は S264 と同じ `apply`（応答を待つあいだに文書の版が変われば入れない。undo 可、保存しない）に流す。端の点・`points` の無い結線の移動は LSP が null を返し、webview へ `ok: false`。
+- **確かめ**: `pnpm test` にメッセージの検査（端・index・座標・ends・`file`/`class`）、共有の関数（つまみの対象、点の決め方、要素の属性）、webview・panel のメッセージ名。`e2e/suite.cjs` に「結線を足して `addWaypoint` → `moveWaypoint`（端の逆順）で `Line(points)` が書き換わり、端の点は動かせず、undo 3 回で戻る」。webview の DOM は拡張ホストから操作できないので、e2e は webview が送るメッセージから先を回す（S264・S293 と同じ）。
+- **持ち越し**: 実機の VS Code でのつまみのドラッグ・ダブルクリックの目視、点の削除、ドラッグ中の線の追従。
