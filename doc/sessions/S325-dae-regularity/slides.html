@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S325 構造の正則の食い違い — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S325 構造の正則の食い違い">
+
+<section class="slide" id="S01">
+  <span class="tag">S325 · 2026-11-15 · Track B</span>
+  <h1>構造の正則の食い違い 17 本を直す</h1>
+  <p class="lead">Clocked 16 本と WaterIF97。自前が非正則で Rumoca が正則</p>
+  <div class="big">構造の正則の一致 184/201 → 201/201、回帰 0</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">調べ方</span>
+  <h1>DaeStructure の行と未知数を並べる</h1>
+  <ul>
+    <li><code>diff-frontend --class … --dump</code> が、自前と Rumoca の行ごとの incidence と、どの行にも参照されない未知数を出す</li>
+    <li>UpSample1 は、Rumoca の未知数 2 に対して自前は 8。<code>sample</code> の結果とつながる変数が連続のまま残っていた</li>
+    <li>S312 の見立て（Clock の信号は離散側）は当たり。Rumoca は MLS 16.5.1 のクロックの区画を求めている</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">原因と直し</span>
+  <h1>3 つの原因（17 本）</h1>
+  <table class="compact">
+    <thead><tr><th>原因</th><th>本数</th></tr></thead>
+    <tbody>
+      <tr><td>クロックの区画の変数・方程式が連続のまま</td><td>12</td></tr>
+      <tr><td><code>if</code> の枝が離散と連続の代入を混ぜ、全部を離散に数えた</td><td>4（kinematicPTP）</td></tr>
+      <tr><td>レコードの方程式の離散の欄（<code>phase</code>）を連続の行に数えた</td><td>1（WaterIF97）</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">クロックの区画</span>
+  <h1>素集合で区画をまとめる</h1>
+  <ul>
+    <li>方程式・束縛・クロックの <code>when</code> の変数を 1 つの区画にまとめる</li>
+    <li><code>sample</code>・<code>hold</code>・<code>subSample</code> などの<strong>第 1 引数は別の区画</strong>なので入れない</li>
+    <li><code>sample</code> などの結果・<code>previous</code>・<code>when Clock()</code> を含む区画の Real を離散に、方程式を離散の方程式に（総数は変わらない）</li>
+    <li>持ち主のクロックと変換の整合は見ない（shortcut）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">数字</span>
+  <h1>MSL の例題 566 本</h1>
+  <div class="kpis">
+    <div class="kpi"><span class="n">201 / 201</span><span class="l">構造の正則の一致（前 184）</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">回帰</span></div>
+    <div class="kpi"><span class="n">17</span><span class="l">改善</span></div>
+  </div>
+  <p>方程式の数 273/273・釣り合い 201/201・状態の数 201/201 は変わらず。GlobeModeValidation も 72/72 のまま。</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>クロックの持ち主・変換の整合・区画の <code>der</code> は見ていない（MSL では出ない）</li>
+    <li>入れ子の <code>if</code>・<code>for</code> の離散と連続の混在</li>
+    <li>平らにできない 287 本（S324 が flat の側）</li>
+  </ul>
+  <p class="foot">GlobeMode S325</p>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

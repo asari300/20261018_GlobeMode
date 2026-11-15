@@ -255,3 +255,24 @@ S297 の見立て（Complex のレコード）は外れで、`Connections.isRoot
   - `Modelica.Clocked` 16 本（自前が正則と言わず、Rumoca は言う）。Clock の信号は Rumoca では離散の側に入ると見ているが、自前は連続の行・未知数のまま行列に入れるため行と未知数の数が合わない見込み。クロックの分割は持たないので直していない。
   - `Modelica.Media.Examples.WaterIF97` 1 本（同上の向き。判定・数は合っている）。
 - **計測の注意**: 共有の `target` のままだと、別の worktree が同じ名前の crate を先にビルドした成果物が混ざり、直した結果が出ないことがある（このセッションで数回）。xtask を回すときは worktree 専用の `CARGO_TARGET_DIR` に置き、回した結果にコミットの内容が入っているかを crate の試験で確かめる。
+
+## 付記（S325）: 構造の正則の食い違い 17 本を直した（クロックの区画、`if` の枝、レコードの離散の欄）
+
+新しい ADR は立てず、S312 で残した「構造の正則の食い違い 17 本」（`Modelica.Clocked` の例題 16 本と `Modelica.Media.Examples.WaterIF97`。自前が非正則、Rumoca が正則）の原因を `cargo xtask diff-frontend --class … --dump` で確かめて直した記録をここに足す。`--dump` は、自前と Rumoca の `DaeStructure`（行ごとの incidence と、どの行からも参照されない未知数）も並べる。変えたのは `globe-mode-dae` の数え方だけ（`globe-mode-flat` は変えていない）。S312 の見立て（「Clock の信号を Rumoca が離散側に入れている」）は当たっていた。Rumoca は MLS 16.5.1 のクロックの区画を求め、区画に入る変数と方程式を連続の行・未知数から外す（`rumoca-phase-dae` の `analysis/clocks.rs`・`equation_partitions.rs`）。
+
+| 原因 | 本数（例） | 直し |
+| --- | ---: | --- |
+| **クロックの区画**。`y = sample(x, c)` の `y`、そこから方程式でつながる変数が、自前では連続の行・未知数のまま。行が未知数より少なく、非正則になった | 12（`Elementary.RealSignals` の `UpSample1`・`AssignClock`・`UniformNoise` ほか、`SimpleControlledDrive`・`Systems.EngineThrottleControl`） | 方程式・束縛・クロックの `when` の変数を素集合で区画にまとめる。`sample`・`hold`・`subSample`・`superSample`・`shiftSample`・`backSample`・`noClock` の**第 1 引数は別の区画**なので入れない。区画に `sample`・`subSample`・`superSample`・`shiftSample`・`backSample` の結果、`previous`、`when Clock() then`（または Clock 型の変数の `when`）があれば「クロックの区画」とし、その Real（代数）を離散にし、区画の方程式を離散の方程式に数える（総数は変わらない） |
+| **`if` の枝が離散と連続の代入を混ぜる**。`if … then noWphase = false; Tv = 0; … end if` を、最初の代入が離散だというだけで全部離散の方程式に数え、連続の代入 15 本分の行が消えた | 4（`CascadeControlledDrive` の `kinematicPTP`） | 最初の枝が単純な代入だけで、代入先の大きさの和が方程式の数に一致するとき、代入先ごとに離散か連続かを分ける（連続の行の incidence は `if` 全体の参照のまま） |
+| **レコードの方程式の離散の欄**。`state2 = Medium.setState_pT(…)` は `phase`（Integer）の欄も 1 本と数え連続の行にしていた（S312 の欄ごとの数え方の続き） | 1（`WaterIF97`） | 欄が離散の変数なら離散の方程式に数える |
+
+- **数字**（MSL の例題 566 本、S312 → S325。`GlobeModeValidation` 75 本は変わらず）: 構造の正則の一致 184/201 → **201/201**（`GlobeModeValidation` は 72/72 のまま）。方程式の数・釣り合い・状態の数は 273/273・201/201・201/201・201/201 のまま。回帰 0 本、改善 17 本（すべて旗 `regular`）。
+- **試験**: `globe-mode-dae` に 3 本（`clocked_partition_is_discrete`・`if_equation_splits_discrete_and_continuous_targets`・`record_equation_discrete_field_is_discrete_equation`）。
+- **shortcut（計測の範囲で Rumoca と一致するだけ）**:
+  - クロックの区画の持ち主（どのクロックか）は求めず、変換の整合（`sample(u, c)` の `c` が区画の持ち主か、変換できるか）も見ない。区画にクロックの印があるかだけで離散にする。MSL の例題の計測では、Clocked 以外で結果が変わったものは無かった（回帰 0）。
+  - 区画に `der` があるとき（Rumoca は断る）は考えない。
+  - `if` を分けるのは、最初の枝の代入先がスカラーの 1 変数ずつのときだけ。入れ子の `if`・`for` は今まで通り最初の代入で決める。
+  - 離散の欄を持つレコードの方程式の incidence は、今まで通り欄の変数すべてに触れる（行は欄ごとに分けない）。
+- **計測の注意の追記**: `cargo xtask`（`.cargo/config.toml` の alias は `--release`）の成果物 `target/release/xtask` は、共有の `target-shared` を使う別の worktree が上書きし、`--dump` の出力が増えない・直した結果が出ない、ということがあった。**worktree 専用の `CARGO_TARGET_DIR`**（最初の release ビルドに約 15 分）で回すと確実。
+- **既知の差**: 構造の正則の食い違いは 0 本。ただし上の shortcut は、クロックの持ち主・変換の整合・区画の `der`・入れ子の `if` を持つモデルでは Rumoca と違いうる（MSL の例題では出ていない）。
+

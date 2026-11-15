@@ -4,52 +4,33 @@
 
 ## 前回の結果との差
 
-前回の結果 `target/frontend-diff.json`（S297 の最後の実行） と、両方にある 641 本で比べる（この実行にだけある 0 本、前回にだけある 0 本）。
-**回帰 0 本**（前回は通った項目が通らなくなった）、改善 36 本。
+前回の結果 `target/frontend-diff.json` と、両方にある 641 本で比べる（この実行にだけある 0 本、前回にだけある 0 本）。
+**回帰 0 本**（前回は通った項目が通らなくなった）、改善 17 本。
 
-- 改善 `Modelica.Clocked.Examples.Elementary.RealSignals.SampleWithADeffects`: flat_eqs・balance・counts
-- 改善 `Modelica.Clocked.Examples.Elementary.RealSignals.UniformNoise`: flat_eqs・balance・counts
-- 改善 `Modelica.Clocked.Examples.Elementary.RealSignals.UniformNoiseXorshift64star`: flat_eqs・balance・counts
-- 改善 `Modelica.Clocked.Examples.SimpleControlledDrive.ClockedWith_AD_DA_Effects`: flat_eqs・balance・counts
-- 改善 `Modelica.ComplexBlocks.Examples.TestConversionBlock`: balance・counts・regular
-- 改善 `Modelica.Electrical.Analog.Examples.GenerationOfFMUs`: states
-- 改善 `Modelica.Electrical.Analog.Examples.ResonanceCircuits`: states
-- 改善 `Modelica.Electrical.Batteries.Examples.SuperCapDischargeCharge`: flat_eqs・balance・counts・regular
-- 改善 `Modelica.Electrical.Machines.Examples.DCMachines.DCPM_Drive`: flat_eqs・balance・counts・states・regular
-- 改善 `Modelica.Electrical.Machines.Examples.DCMachines.DC_CompareCharacteristics`: flat_eqs・balance・counts・states・regular
-- 改善 `Modelica.Electrical.QuasiStatic.SinglePhase.Examples.ParallelResonance`: flat_eqs
-- 改善 `Modelica.Electrical.QuasiStatic.SinglePhase.Examples.SeriesResonance`: flat_eqs
-- 改善 `Modelica.Magnetic.QuasiStatic.FluxTubes.Examples.BasicExamples.QuadraticCoreAirgap`: flat_eqs
-- 改善 `Modelica.Magnetic.QuasiStatic.FluxTubes.Examples.BasicExamples.ToroidalCoreAirgap`: flat_eqs
-- 改善 `Modelica.Magnetic.QuasiStatic.FluxTubes.Examples.BasicExamples.ToroidalCoreQuadraticCrossSection`: flat_eqs
-- 改善 `Modelica.Magnetic.QuasiStatic.FluxTubes.Examples.FixedShapes.CuboidSections`: flat_eqs
-- 改善 `Modelica.Magnetic.QuasiStatic.FluxTubes.Examples.FixedShapes.CylinderSections`: flat_eqs
-- 改善 `Modelica.Magnetic.QuasiStatic.FluxTubes.Examples.Leakage.CylinderLeakage`: flat_eqs
-- 改善 `Modelica.Magnetic.QuasiStatic.FluxTubes.Examples.Leakage.GeneralLeakage`: flat_eqs
-- 改善 `Modelica.Magnetic.QuasiStatic.FluxTubes.Examples.LinearInductor`: flat_eqs
-- 改善 `Modelica.Magnetic.QuasiStatic.FluxTubes.Examples.NonLinearInductor`: flat_eqs
-- 改善 `Modelica.Mechanics.Rotational.Examples.GenerationOfFMUs`: flat_eqs
-- 改善 `Modelica.Mechanics.Translational.Examples.GenerationOfFMUs`: states
-- 改善 `Modelica.Media.Examples.SimpleLiquidWater`: balance・counts・regular
-- 改善 `Modelica.Media.Examples.WaterIF97`: balance・counts
-- 改善 `Modelica.Thermal.FluidHeatFlow.Examples.IndirectCooling`: states
-- 改善 `Modelica.Thermal.FluidHeatFlow.Examples.OneMass`: states
-- 改善 `Modelica.Thermal.FluidHeatFlow.Examples.ParallelCooling`: states
-- 改善 `Modelica.Thermal.FluidHeatFlow.Examples.ParallelPumpDropOut`: states
-- 改善 `Modelica.Thermal.FluidHeatFlow.Examples.PumpAndValve`: states
-- 改善 `Modelica.Thermal.FluidHeatFlow.Examples.PumpDropOut`: states
-- 改善 `Modelica.Thermal.FluidHeatFlow.Examples.SimpleCooling`: states
-- 改善 `Modelica.Thermal.FluidHeatFlow.Examples.TwoMass`: states
-- 改善 `Modelica.Thermal.FluidHeatFlow.Examples.TwoTanks`: states
-- 改善 `Modelica.Thermal.FluidHeatFlow.Examples.WaterPump`: states
-- 改善 `Modelica.Thermal.HeatTransfer.Examples.GenerationOfFMUs`: states
+- 改善 `Modelica.Clocked.Examples.CascadeControlledDrive.AbsoluteClocks`: regular
+- 改善 `Modelica.Clocked.Examples.CascadeControlledDrive.Continuous`: regular
+- 改善 `Modelica.Clocked.Examples.CascadeControlledDrive.SubClocked`: regular
+- 改善 `Modelica.Clocked.Examples.CascadeControlledDrive.SuperSampled`: regular
+- 改善 `Modelica.Clocked.Examples.Elementary.RealSignals.AssignClock`: regular
+- 改善 `Modelica.Clocked.Examples.Elementary.RealSignals.AssignClockVectorized`: regular
+- 改善 `Modelica.Clocked.Examples.Elementary.RealSignals.SampleWithADeffects`: regular
+- 改善 `Modelica.Clocked.Examples.Elementary.RealSignals.UniformNoise`: regular
+- 改善 `Modelica.Clocked.Examples.Elementary.RealSignals.UniformNoiseXorshift64star`: regular
+- 改善 `Modelica.Clocked.Examples.Elementary.RealSignals.UpSample1`: regular
+- 改善 `Modelica.Clocked.Examples.Elementary.RealSignals.UpSample2`: regular
+- 改善 `Modelica.Clocked.Examples.SimpleControlledDrive.ClockedWithDiscreteController`: regular
+- 改善 `Modelica.Clocked.Examples.SimpleControlledDrive.ClockedWithDiscreteTextbookController`: regular
+- 改善 `Modelica.Clocked.Examples.SimpleControlledDrive.ClockedWith_AD_DA_Effects`: regular
+- 改善 `Modelica.Clocked.Examples.SimpleControlledDrive.ExactlyClockedWithDiscreteController`: regular
+- 改善 `Modelica.Clocked.Examples.Systems.EngineThrottleControl`: regular
+- 改善 `Modelica.Media.Examples.WaterIF97`: regular
 
 | | |
 | --- | --- |
 | MSL | 4.1.0（sha256 `5409cfa17797…`） |
 | Rumoca | v0.10.2（rev `276e82bd`、ライブラリとして呼ぶ） |
 | 検査した本数 | 641 本 |
-| 時間 | 全体 105 s（1 本ずつの検査 95 s） |
+| 時間 | 全体 145 s（1 本ずつの検査 124 s） |
 | 最大の常駐メモリ（VmHWM） | 1.2 GiB |
 
 自前の parse・resolve・flat・dae を、Rumoca は自前で平らにできたものにだけ呼んで比べる（母数はその本数）。
@@ -70,7 +51,7 @@ resolve は、例題のクラスから、中のクラス・`extends`・部品の
 | dae | 釣り合いの判定（釣り合う / 釣り合わない）が一致 | 201 | 201 |
 | dae | 方程式と未知数の数が一致 | 201 | 201 |
 | dae | 状態の数が一致 | 201 | 201 |
-| dae | 構造が正則かの判定が一致（Rumoca の構造が取れたもの） | 184 | 201 |
+| dae | 構造が正則かの判定が一致（Rumoca の構造が取れたもの） | 201 | 201 |
 
 未解決の参照の総数: 1330
 
@@ -124,24 +105,4 @@ flat の理由（本数の多い順）:
 | 理由 | 本数 | 例 |
 | --- | ---: | --- |
 | `stream` | 1 | `GlobeModeValidation.Connect.MediumFlow` |
-
-## 一致しなかったもの（先頭 100 件。全部は JSON）
-
-- `Modelica.Clocked.Examples.CascadeControlledDrive.AbsoluteClocks`: dae: 正則 自前 false / rumoca true
-- `Modelica.Clocked.Examples.CascadeControlledDrive.Continuous`: dae: 正則 自前 false / rumoca true
-- `Modelica.Clocked.Examples.CascadeControlledDrive.SubClocked`: dae: 正則 自前 false / rumoca true
-- `Modelica.Clocked.Examples.CascadeControlledDrive.SuperSampled`: dae: 正則 自前 false / rumoca true
-- `Modelica.Clocked.Examples.Elementary.RealSignals.AssignClock`: dae: 正則 自前 false / rumoca true
-- `Modelica.Clocked.Examples.Elementary.RealSignals.AssignClockVectorized`: dae: 正則 自前 false / rumoca true
-- `Modelica.Clocked.Examples.Elementary.RealSignals.SampleWithADeffects`: dae: 正則 自前 false / rumoca true
-- `Modelica.Clocked.Examples.Elementary.RealSignals.UniformNoise`: dae: 正則 自前 false / rumoca true
-- `Modelica.Clocked.Examples.Elementary.RealSignals.UniformNoiseXorshift64star`: dae: 正則 自前 false / rumoca true
-- `Modelica.Clocked.Examples.Elementary.RealSignals.UpSample1`: dae: 正則 自前 false / rumoca true
-- `Modelica.Clocked.Examples.Elementary.RealSignals.UpSample2`: dae: 正則 自前 false / rumoca true
-- `Modelica.Clocked.Examples.SimpleControlledDrive.ClockedWithDiscreteController`: dae: 正則 自前 false / rumoca true
-- `Modelica.Clocked.Examples.SimpleControlledDrive.ClockedWithDiscreteTextbookController`: dae: 正則 自前 false / rumoca true
-- `Modelica.Clocked.Examples.SimpleControlledDrive.ClockedWith_AD_DA_Effects`: dae: 正則 自前 false / rumoca true
-- `Modelica.Clocked.Examples.SimpleControlledDrive.ExactlyClockedWithDiscreteController`: dae: 正則 自前 false / rumoca true
-- `Modelica.Clocked.Examples.Systems.EngineThrottleControl`: dae: 正則 自前 false / rumoca true
-- `Modelica.Media.Examples.WaterIF97`: dae: 正則 自前 false / rumoca true
 
