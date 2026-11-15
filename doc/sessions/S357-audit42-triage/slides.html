@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S357 親 issue #42 の確かめ直し — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S357 親 issue #42 の確かめ直し">
+
+<section class="slide" id="S01">
+  <span class="tag">S357 · 2026-11-16 · 運用</span>
+  <h1>親 issue #42 の 49 件を確かめ直した</h1>
+  <p class="lead">ponytail-audit 2026-11-08 の一覧。「済」を推測で言わない</p>
+  <div class="big">済 45 · 未 1（直した）· 見送り 3</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">方法</span>
+  <h1>1 件ずつ、3 つを見た</h1>
+  <ul>
+    <li>直しのコミットが main の祖先か（<code>git log --grep</code>）</li>
+    <li>直しの本体が今のコードにあるか（<code>file:line</code>）</li>
+    <li>回帰試験が main にあり、今の main で通るか（変えた crate に絞る）</li>
+    <li>回さなかったもの（Playwright・CI の定義・Zig・Julia など）は【コードのみ】と書く</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">結果</span>
+  <h1>49 件の行方</h1>
+  <table class="compact">
+    <tr><th>判定</th><th>件数</th><th>中身</th></tr>
+    <tr><td>済</td><td>45</td><td>S218 13・S223 18・S226 12・S343 1（#63）・S230 1（E-2）</td></tr>
+    <tr><td>未 → 直した</td><td>1</td><td>D-3: CLI の入力のディレクトリが隠しディレクトリを読む</td></tr>
+    <tr><td>見送り</td><td>3</td><td>#45・#46 の lowering の回数（上流の口）、A-5（見立てが【未確認】）</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">D-3</span>
+  <h1>走査の規則が 1 つ違った</h1>
+  <ul>
+    <li><code>proj/.history/M_x.mo</code> があると <code>globe check proj</code> が <code>GM-E1001</code>（Duplicate class）</li>
+    <li><code>fmt</code>・LSP は隠しディレクトリを読まない。<code>expand_inputs</code> だけ自前の <code>walk</code> で読んだ</li>
+    <li>直し: <code>walk</code> を消して <code>collect_mo_files</code> を呼ぶ（-10 行）。試験 1 本</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">ついでに</span>
+  <h1>単体の試験が落ちていた</h1>
+  <ul>
+    <li><code>cargo test -p globe-mode-protocol</code> は、鍵の順の試験 1 本が落ちた</li>
+    <li>serde_json の <code>preserve_order</code> が単体では有効にならない（workspace の試験では他の crate が有効にする）</li>
+    <li>dev-dependency に明示して直した（#89 と同じ種類）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次</span>
+  <h1>閉じるのはユーザーの判断</h1>
+  <ul>
+    <li>#42 は open のまま。結果の表を issue にコメントした</li>
+    <li>A-5 は測ってから（分割読み込み 100 本の <code>loaded.len()</code> と RSS）</li>
+    <li>#45・#46 は上流（Rumoca）の口を待つ</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

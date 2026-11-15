@@ -276,6 +276,44 @@ const cases = {
       panel.ui = vscode.window;
     }
   },
+  async "関数の呼び出しの位置引数の前に、引数の名前の inlay hint が出る（S353）"() {
+    const doc = await vscode.workspace.openTextDocument(fixture("Inlay.mo"));
+    await vscode.window.showTextDocument(doc);
+    await vscode.extensions.getExtension("globe-mode.globe-mode").activate();
+    // 範囲はモデルの行だけ（Twice の中の `Scale(v, v)` にもヒントは出るが、範囲の外）
+    const row = doc.getText().split("\n").findIndex((l) => l.includes("Scale(2, 3)"));
+    const range = new vscode.Range(row, 0, row + 1, 0);
+    const hints = await until("inlayHint", async () => {
+      const h = await vscode.commands.executeCommand("vscode.executeInlayHintProvider", doc.uri, range);
+      return h?.length > 0 && h;
+    });
+    // `Scale(2, 3)` の 2 と 3 の前に input の名前。組み込みの `sin(time)` には出ない
+    const at = (c) => new vscode.Position(row, doc.lineAt(row).text.indexOf(c));
+    const got = hints.map((h) => [h.position.line, h.position.character, typeof h.label === "string" ? h.label : h.label.map((p) => p.value).join(""), h.kind]);
+    const P = vscode.InlayHintKind.Parameter;
+    assert.deepEqual(got, [[row, at("2, 3").character, "gain:", P], [row, at("3)").character, "offset:", P]], JSON.stringify(got));
+  },
+  async "関数の call hierarchy（呼び元・呼び先）が返る（S353）"() {
+    const doc = await vscode.workspace.openTextDocument(fixture("Inlay.mo"));
+    await vscode.window.showTextDocument(doc);
+    await vscode.extensions.getExtension("globe-mode.globe-mode").activate();
+    const at = (decl) => { const row = doc.getText().split("\n").findIndex((l) => l.startsWith(decl)); return new vscode.Position(row, doc.lineAt(row).text.indexOf(decl.split(" ")[1])); };
+    const prepare = (decl) => until("prepareCallHierarchy", async () => {
+      const items = await vscode.commands.executeCommand("vscode.prepareCallHierarchy", doc.uri, at(decl));
+      return items?.length > 0 && items;
+    });
+    // Scale を呼ぶのは関数 Twice とモデル Inlay（呼び元は関数とは限らない）。呼び出しの範囲は 1 つずつ
+    const [scale] = await prepare("function Scale");
+    assert.deepEqual([scale.name, scale.kind], ["Scale", vscode.SymbolKind.Function]);
+    const incoming = await vscode.commands.executeCommand("vscode.provideIncomingCalls", scale);
+    const callers = incoming.map((c) => [c.from.name, c.fromRanges.length]).sort();
+    assert.deepEqual(callers, [["Inlay", 1], ["Twice", 1]], JSON.stringify(callers));
+    // Twice の本体が呼ぶのは Scale だけ。Scale の本体 `gain + offset` は何も呼ばない
+    const [twice] = await prepare("function Twice");
+    const outgoing = await vscode.commands.executeCommand("vscode.provideOutgoingCalls", twice);
+    assert.deepEqual(outgoing.map((c) => [c.to.name, c.fromRanges.length]), [["Scale", 1]], JSON.stringify(outgoing));
+    assert.ok(!(await vscode.commands.executeCommand("vscode.provideOutgoingCalls", scale))?.length);
+  },
 };
 
 exports.run = async () => {

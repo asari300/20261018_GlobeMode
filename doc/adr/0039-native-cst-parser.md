@@ -62,7 +62,7 @@ MSL 4.1.0 の例題 566 本での推移（括弧は「一致した本数 / 母�
 | B2 名前の解決 | S272、S275 |
 | B3 flatten | S278、S284、S297、S312、S324、S329、S333、S334、S335（`[:]` の大きさ）、S336（`Complex` の配列の束縛）、S337、S355（`stream`） |
 | B4 DAE | S290、S312、S325、S330、S332（計測と、名前・数の食い違いの原因）、S337（初期方程式の `der` と状態の数） |
-| 製品へのつなぎ | S276（アウトライン・折りたたみ）、S279（補完）、S296（定義ジャンプ・ホバー）、S305（`globe check --frontend native`）、S307（閉包だけを読む）、S311（位置）、S313（CLI 以外から選ぶ）、S320（#111・#113〜#116）、S327（#118） |
+| 製品へのつなぎ | S276（アウトライン・折りたたみ）、S279（補完）、S296（定義ジャンプ・ホバー）、S305（`globe check --frontend native`）、S307（閉包だけを読む）、S311（位置）、S313（CLI 以外から選ぶ）、S320（#111・#113〜#116）、S327（#118）、S352（inlay hint）、S354（call hierarchy） |
 | 突き合わせ | S300（`cargo xtask diff-frontend`） |
 
 roadmap の要約で外した、古くなっていた「残り」: 診断の `GM-E` の番号が無い（S305 の native の検査が `GM-E0001`・`GM-E1001`・`GM-E1002`・`GM-E5002`・`GM-E6001` を出す）、定義ジャンプ・ホバーが未（S296 で済）、`Frontend` の feature `native` が無い（S305 で済）、B3 の残りが後ろで宣言したレコード・関数の戻り値のレコード・配列のコネクタの一括接続（S324 で減らした）、B4 の残りが balance の差 2 本・状態 5 本・正則 14 本（S312・S325・S330・S334 で直した）。まだ残っているのは、文の型付き AST（S269 は式の節点だけ）、`redeclare` の引数の構造（不透明な節点のまま）、native の検査の S7 以降と wasm・UI から選ぶこと、実行へのつなぎ、既定を切り替える閾値（未決）。
@@ -578,6 +578,27 @@ S297 の見立て（Complex のレコード）は外れで、`Connections.isRoot
   - 補完は、今の道（アウトライン）で候補が 1 件でも出る間は自前の道に回さない（木を作る費用を毎回払わないため）。既定の型に要素があり、差し替えた型にだけある要素は、今の道が読めない（カーソルの行を除いても誤りがある）ときだけ出る。MSL の Media の `ThermodynamicState` のように既定の型が空なら、カーソルの行だけ書きかけの文書でも出る。
   - 差し替えの規則は S341 と同じなので、持ち主を受け継がないクラスから見る `a.state.` のような 2 段先の差し替え、部品の修飾の中の `A a(redeclare T x)` は同じく見ない。
   - 定義ジャンプの引き直しは、点のある名前だけ。`Redeclare` 以外の理由で今の道が `null` のときも（`x.start` などの属性・誤字）、1 回だけ余計に木を引く。
+
+## 付記（S352）: LSP の inlay hint（関数の呼び出しの位置引数の名前）
+
+新しい ADR は立てず、S279・S296・S345 と同じ流れの続きとして足す。IDE の機能の穴（features の「アウトライン・inlay hint・call hierarchy」）のうち inlay hint を、**最初から自前の構文と名前解決だけで**作った（今の道〔Rumoca のアウトライン〕を持たない機能なので、読める文書でも書きかけの文書でも同じ道）。
+
+- **出すもの**: `textDocument/inlayHint`（capability `inlayHintProvider`）。関数の呼び出しの位置引数の前に引数の名前（`f(x, y)` → `f(a: x, b: y)`。`kind` = Parameter、`paddingRight`）。`range` の中に引数の頭があるものだけ。VS Code の拡張は `vscode-languageclient` 9 が capability を見て自動で登録するので、拡張側の変更は無い（`editor.inlayHints.enabled` の既定で出る。【未確認】: 本物の VS Code では回していない。`vscode.yml` の起動試験にも足していない）。
+- **つなぎ**（`globe-mode-lsp` の `inlay.rs`）: S279 の `Library`（`completion::tolerant_lib`）に文書を `with_source` で一時的に足し、文書の `CallExpr` ごとに、呼び先の `ComponentRef` と同じ範囲の `Ref` を引いて `resolve`。`Resolution::Class` のときだけ、新しい `Library::function_inputs`（`globe-mode-resolve`）で位置引数の名前を取る。`input` の前置きのある部品を宣言の順に、`extends` の基底のものを先に。基底が引けない・輪になる関数は None（推測しない）。`Component` に `input: bool` を足した（resolve の解決の規則は変えていない）。
+- **出さないもの**: 呼び先が組み込み（`sin`・`der`）・部品・解決できない名前のとき、`input` より多い引数、名前つき引数（`f(b = 1)` は名前が書いてある）、`for` 内包の引数、`annotation` の中（resolve が `annotation` を読まない）、レコードの構築子（`Complex(1, 2)` の欄は `input` でなく宣言の順）。
+- **試験**: `globe-mode-lsp` の lib に `inlay_hints_name_the_positional_arguments_of_a_resolved_function`（`extends` の基底の `input` が先、入れ子の呼び出し、名前つき引数・`der` は出ない、最後の行が壊れた書きかけの文書、範囲の内側だけ、capability）と `inlay_hints_are_silent_when_the_callee_cannot_be_resolved`（組み込み・未定義・部品・`input` より多い引数）。
+- **shortcut**: 呼び先はライブラリ（`-L`）とその文書の中の関数だけ（別の開いた文書の関数は引けない。S279 の補完と同じ）。ライブラリの木は S279 と同じく起動後のディスクの更新を見ない。引数の名前と同じ名前の引数（`f(x)` の `x:`）も省かず出す。
+
+## 付記（S354）: LSP の call hierarchy（関数の呼び元・呼び先）
+
+新しい ADR は立てず、S352 の続きとして足す。features の「アウトライン・inlay hint・call hierarchy」の最後の穴。**新しい規則は作らず、既にある 2 つの道をつないだ**（呼び元は `references`〔S166・S230〕の道、呼び先は inlay hint〔S352〕の道）。
+
+- **出すもの**（`globe-mode-lsp` の `call_hierarchy.rs`。capability `callHierarchyProvider`）: `textDocument/prepareCallHierarchy`（カーソルの関数の名前 → 宣言の `CallHierarchyItem`。宣言の名前の上でも、呼び出しの上でも）、`callHierarchy/incomingCalls`（その関数を呼ぶクラスと、そのクラスの中の呼び出しの範囲 `fromRanges`）、`callHierarchy/outgoingCalls`（その関数の本体が呼ぶ関数と、呼び出しの範囲）。対象は **`function` だけ**（モデル・部品・レコードの上は `null`）。項目は `selectionRange`（関数の名前）から毎回引き直すので、サーバは状態を持たない。呼び元の項目は関数とは限らない（`kind` は関数が 12、それ以外のクラスが 5）。
+- **呼び元**: `class_name_at`（`textDocument/references` と同じ、カーソルの名前の定義）で関数を決め、`class_hits`（開いた文書）と `disk_class_hits`（根の下の開いていない `.mo` とライブラリ。S230）で同じ関数に行き着く識別子を集める。そのうち、自前の構文（`globe-mode-syntax`）の `CallExpr` の呼び先の名前の終わりに当たるものだけが呼び出し（宣言・`end f`・`extends f(…)`・型の使い方は除く）。呼び元は呼び出しを囲む一番内側の `ClassDef`。
+- **呼び先**: S352 と同じ。`Library::with_source` に文書を足し、関数の本体の `CallExpr` ごとに `Ref` を引いて `resolve`。`Resolution::Class` かつ関数のものだけを呼び先にする。書きかけの文書でも出る。`Class` に `is_function: bool` を足した（`globe-mode-resolve`。`function` の字句があれば、`pure`・`impure`・`operator` の前置きがあっても真。解決の規則は変えていない）。
+- **出さないもの**: 引けない呼び先、組み込み（`sin`）、レコードの構築子（`R(x)` は `record`）、`annotation` の中（resolve が読まない）。
+- **試験**: `globe-mode-lsp/tests/call_hierarchy.rs` の 1 本（ライブラリ `-L` の関数 `f`・`g` とレコード `R`、開いた文書 `M` と開いていない `LibUser`）。prepare は別のファイルの関数の呼び出しの上で出てモデルの名前の上は null、incoming(f) は `g`（2 箇所）と `M`（2 箇所）で宣言・`end f` は数えず、incoming(g) は開いた文書 `M` と開いていない `LibUser`、outgoing(g) は `f` だけ（`sin`・引けない `nope`・`R(x)` は出ない。`is_function` を外すと `R` が出て落ちることを確かめた）、outgoing(f) は空、モデルの項目は null、capability。
+- **shortcut**: 呼び元の探索はアウトラインの道（`class_name_at`）なので、構文の誤りで Rumoca のアウトラインが引けないファイルで宣言した関数は対象にできない（呼び先はその文書でも出る）。呼び元の探索は `references` と同じ費用（関数の名前の字面が部分文字列で入るファイルを全部字句に分ける。索引は持たない）。呼び先は、ライブラリ（`-L`）とその文書の中の関数だけ（別の開いた文書の関数は引けない。S352 と同じ）。レコードの構築子・`operator function` の呼び先は対象外。本物の VS Code の call hierarchy の表示は【未確認】（`vscode-languageclient` 9 が capability を見て自動で登録するので、拡張側の変更は無い。`vscode.yml` の起動試験にも足していない）。
 
 ## 付記（S339）: 5 回目のレビューの issue（#121〜#127・#130・#131）
 

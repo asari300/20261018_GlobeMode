@@ -34,6 +34,8 @@ pub struct Class {
     pub range: TextRange,
     pub encapsulated: bool,
     pub replaceable: bool,
+    /// `function`（`pure`・`impure`・`operator` の前置きがあっても。S354。LSP の call hierarchy が呼び先を関数に絞る）
+    pub is_function: bool,
     /// 入れ子のクラス（直接の子）
     pub classes: HashMap<String, ClassId>,
     /// 部品と、列挙の要素
@@ -48,6 +50,8 @@ pub struct Component {
     pub name: String,
     pub range: TextRange,
     pub public: bool,
+    /// `input` の前置きがある（S352。関数の位置引数の名前に使う）
+    pub input: bool,
     /// 型の候補（`constrainedby` があれば先。無ければ宣言の型。列挙の要素は空）
     pub(crate) tys: Vec<PathRef>,
     /// 修飾の `redeclare package M = X`（S275）
