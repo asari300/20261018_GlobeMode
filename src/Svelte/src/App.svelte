@@ -20,6 +20,7 @@
   import SimSettings from "./lib/SimSettings.svelte";
   import DocsPanel from "./lib/DocsPanel.svelte";
   import BltPanel from "./lib/BltPanel.svelte";
+  import StagesPanel from "./lib/StagesPanel.svelte";
   import { modelicaDocs } from "./lib/docs";
   import { isInternal } from "./lib/plot/signals";
   import FmuForm from "./lib/FmuForm.svelte";
@@ -83,6 +84,7 @@
   let icon = $state.raw<Icon | null>(null); // S244: 説明パネルの上のアイコン
   let diagram = $state.raw<Diagram | null>(null); // S245: 「図」のタブ
   let bltModel = $state<string | null>(null); // S262: 「BLT」を押したときのモデル名
+  let stagesModel = $state<string | null>(null); // S291: 「段」を押したときのモデル名
   let graphModel = $state<string | null>(null); // 「グラフ」を押したときのモデル名（入力のたびに描き直さない）
 
   // S141: 自分のファイルを開く・保存する。本文とファイル名は localStorage に自動保存して起動時に戻す（使えなくても動く。S102）。モデル名は戻さず本文から入れ直す（smoke が書き換えたモデル名を次の起動で拾わないため）
@@ -826,6 +828,9 @@
   const blt = () => run(async () => {
     bltModel = model;
   });
+  const stages = () => run(async () => {
+    stagesModel = model;
+  });
 
   // S260: 線形化。時刻の欄が空なら実験の開始時刻。上書きは実行の設定のパラメータ（simSettings.parameters）を使う
   let linTime = $state("");
@@ -923,6 +928,7 @@
     <button onclick={() => simulate()} disabled={busy} title="実行（Ctrl/Cmd+Enter）" aria-keyshortcuts="Control+Enter Meta+Enter">実行</button>
     <button onclick={graph} disabled={busy}>グラフ</button>
     <button onclick={blt} disabled={busy} data-blt-button>BLT</button>
+    <button onclick={stages} disabled={busy} data-stages-button title="変換の段（flat → DAE → インデックス → BLT → tearing）の要約">段</button>
     <button onclick={linearize} disabled={busy} title="状態空間の行列 A・B・C・D を出す（数値の中心差分）">線形化</button>
     <input class="lin-time" inputmode="decimal" placeholder="開始時刻" aria-label="線形化の時刻（空なら開始時刻）" bind:value={linTime}>
     <button onclick={format} disabled={busy}>整形</button>
@@ -1039,6 +1045,7 @@
   </table>
   {#if columns}<Plot {columns} {model} />{/if}
   {#if bltModel}<BltPanel {backend} model={bltModel} />{/if}
+  {#if stagesModel}<StagesPanel {backend} model={stagesModel} />{/if}
   {#if lin}<LinearizeView result={lin} onclose={() => (lin = null)} />{/if}
   {#if graphModel}<Graph {backend} model={graphModel} onSelect={select} />{/if}
 </main>
