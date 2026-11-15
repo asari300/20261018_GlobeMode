@@ -117,6 +117,43 @@ Track B（自前コア）は B1 rowan の CST と寛容なパーサ → B2 resol
 - **断った理由の内訳**（MSL の例題 566 本、最初の理由だけ数える。S284 → S297）: `redeclare` 263 → 0、`replaceable` 9 → 0、`class extends` 11 → 0、配列の型 13 → 0、レコードの束縛 41 → 155（先へ進んだ分。`frictionParameters = dcpmData.frictionParameters`〔後ろで宣言したレコード〕46、外部オブジェクト `tableID` 29、関数の戻り値のレコード `R = Frames.nullRotation()` 27、配列のレコード 11 ほか）、配列のコネクタの一括接続 7 → 72（`source.sineVoltage.p` のように部品の配列の同名のコネクタをまとめてつなぐ形）、`[:]` 13 → 20、条件つきの宣言 6 → 19（条件に配列の修飾つきの `useHeatPort` や文字列の比較）、`connect` の集合の不一致 7 → 8、配列の修飾 0 → 8、`expandable` 2、`stream` 1。
 - **持ち越し**: 後ろで宣言したレコードを欄ごとの修飾にするための宣言順の入れ替え（46 本）、関数の戻り値のレコード・外部オブジェクト、配列のコネクタの一括接続（72 本）、`Connections.isRoot` の評価、`xtask diff-frontend` への組み込み、B4（DAE）。
 
+## 付記（S330）: S324 の後に残った食い違いの原因（方程式の数 10 本は Rumoca の数え方の誤り、正則 4 本と dae-parse 1 本を直した）
+
+新しい ADR は立てず、S324 で残した 3 つ（方程式の数 10 本・構造の正則 4 本・`dae-parse` 1 本）を `cargo xtask diff-frontend --class … --dump` で確かめた記録をここに足す。変えたのは `globe-mode-dae`（と `globe-mode-syntax` の式の読み 1 か所）で、`globe-mode-flat` は変えていない。`--dump` は、自前と Rumoca の `DaeStructure` の各行に `state_refs`（`x` 側の参照）も並べる（S6 は `incidence ∪ state_refs` で完全マッチングを見るため）。
+
+- **方程式の数が合わない 10 本（Rotational の摩擦・歯車）は Rumoca の数え方の誤りで、自前は直さない**。S324 の見立て（`tau0 = mu0*cgeo*fn` を Rumoca が複数と数える）は当たっていた。原因は `tableID` の表引きそのものではなく、**外部オブジェクトを作る `table = mu_pos`（行列）の大きさが、それを引数にとる関数の結果（`getTable1DValueNoDer2(tableID, 1, 0)`、戻り値は `Real` 1 つ）の大きさとして `mu0` に伝わること**。`mu0` を含む `tau0 = mu0*cgeo*fn` が、`mu_pos` の要素の数（`[0, 0.5]` は 1×2 = 2）の方程式に数えられる。`mu_pos` を 3×2 にすると 6 になった。
+  - 最小の再現（`diff-frontend --validation <dir> --class W4 --dump`。flat の方程式の数は自前 2、Rumoca 7。`mu_pos = [0, 0.5; 1, 1; 2, 3]`）:
+
+    ```modelica
+    model W4
+      import Modelica.Blocks.Types.{ExternalCombiTable1D, Extrapolation, Smoothness};
+      import Modelica.Blocks.Tables.Internal.getTable1DValueNoDer2;
+      parameter Real mu_pos[:, 2] = [0, 0.5; 1, 1; 2, 3];
+      Real fn;
+      Real tau0;
+      final parameter ExternalCombiTable1D tableID = ExternalCombiTable1D(
+        tableName = "NoName", fileName = "NoName", table = mu_pos, columns = {2},
+        smoothness = Smoothness.LinearSegments, extrapolation = Extrapolation.LastTwoPoints,
+        verboseRead = false);
+      final parameter Real mu0 = getTable1DValueNoDer2(tableID, 1, 0);
+    equation
+      fn = time;
+      tau0 = mu0*fn;
+    end W4;
+    ```
+
+    `final`・`parameter` は要らない（`Real mu0 = …` でも同じ）。`mu0` を使わず、右辺に `getTable1DValueNoDer2(tableID, 1, 0)*fn` と直接書くと 1 本になる。表を使わない `mu0 = 2` や `mu0 = f(1, 0)`（普通の関数）も 1 本。
+  - **自前に合わせない理由**: 方程式 `tau0 = mu0*cgeo*fn` の 3 つの変数はどれもスカラーで、MLS ではスカラーの方程式 1 本。`Real` を返す関数の結果が引数の配列の大きさを引き継ぐ規則は無い。Rumoca の `infer_simple_equation_scalar_count`（`rumoca-phase-flatten/src/equations/shape_inference.rs`）の式の大きさの推論が、`mu0` の束縛の呼び出しをたどって行列の大きさを拾うと見ているが、実装の細かい道筋までは確かめていない【未確認】。`OneWayClutch` は Rumoca の balance（`rumoca_balance`）が通らず、DAE の側の比べには入らない。
+  - **10 本の差の内訳**（`--dump` の Rumoca の方程式ごとの数と、自前の数の差が一致した）: `Clutch`・`Brake`・`OneWayClutch` は摩擦の部品ごとに +1（既定の `mu_pos = [0, 0.5]` が 2 個）、`LossyGearDemo1〜3` は歯車 2 つで +8（歯車の表は Rumoca が 5 と数える）、`SimpleGearShift`・`Friction` は +2、`CoupledClutches` は +3。`table_signs = if … then {1, 1} …` の長さ 2 の方程式は、自前も 2 本と数える（これは差にならない）。`HeatLosses` の +21 は部品ごとの内訳を確かめていない【未確認】。
+  - 以降 `flat_eqs` は 340/350 のまま残る。**既知の差**として扱い、flat の数え方は変えない。上流への報告の候補（[upstream.md](../upstream.md) の 4 点セットは未作成）。
+- **構造の正則 4 本（`Transformers` の `AsymmetricalLoad`・`Rectifier12pulse`・`Rectifier6pulse`・`TransformerTestbench`）の原因と直し**: 部品の配列を通した欄の参照。`PartialCore` の束縛 `SI.Voltage v2[m] = plug_p2.pin.v - plug_n2.pin.v` は、`plug_p2`（`Pin pin[m]` を持つコネクタ）が束縛より**後ろ**で宣言されているため、flat は `a.pin.v` を `{a.pin[1].v, …}` に直せず、そのまま印字する。`globe-mode-dae` の `refs` は `plug_p2.pin.v` を変数に引けず（変数は `plug_p2.pin[1].v` …）、束縛の行 `v2[k] = …` は `v2[k]` にしか触れなかった。`v2[k]` と `plug_p2.pin[k].v` が方程式でつながらず、`core.v2`・`core.v3`・`core.im` の 9 行が完全マッチングから外れた。
+  - 直し: 変数に引けない参照は `a.pin[i].v`（`i` = 1, 2, …、最初に見つかる `.` の前に `[i]` を挟む）の変数の並びに直し、行 k はその k 番目の要素だけに触れる（新しい `Sel::Part`）。行の数が要素の数と違うとき（スカラーの行）は全部に触れる。
+  - 平らなモデルの印字が `{a.pin[1].v, …}` と展開済みのときは、今まで通り要素ごとの参照に触れる（この修正で変わらない）。
+- **`f(…).T` の読み（`Modelica.Media.Examples.MixtureGases` の 1 本）**: `globe-mode-syntax` の式の読みで、呼び出しのすぐ後ろの `.欄`（`.ident` を何個でも）を `CallExpr` の節の中に取り込む（木の形は変えない。呼ぶ関数の名前を取る `callee()` は今まで通り）。構文を直したので、flat が印字する `R.T = f(…).T` を dae が読み直せる。Rumoca はこの例題を平らにできない（`rumoca_flat` が通らない）ので、判定の比較には入らない。`dae-parse` は 0 本になった。
+- **数字**（MSL の例題 566 本、S324 → S330。`GlobeModeValidation` 75 本は変わらず）: 自前で DAE にできた 357 → **358** / 358、構造の正則の一致 249/253 → **253/253**。方程式の数 340/350・釣り合い 253/253・方程式と未知数の数 253/253・状態の数 253/253 は変わらない。回帰 0 本、改善 5 本（正則 4・dae 1）。
+- **試験**: `globe-mode-dae` に 2 本（`field_through_a_component_array_touches_each_element`・`field_after_a_call_of_a_record_function_is_read`）、`globe-mode-syntax` に 1 本（`field_after_call_stays_in_the_call`）。
+- **shortcut**: 部品の配列を通した欄の参照は、`.` の前に `[i]` を 1 か所だけ挟む（`a.pin.v`。`a.b.pin.v` のように配列の部品が奥にあるときは最初の `.` から順に試し、最初に見つかった位置を使う）。2 か所以上が配列（`a[i].b[j].v`）の参照は直さない。MSL の例題では出ていない。
+
 ## 付記（S324）: B3 の続き、レコードの束縛・外部オブジェクト・配列のコネクタの一括接続
 
 新しい ADR は立てず、S297・S312 の続きとしてここに足す。変えたのは `globe-mode-flat` の中だけ（`globe-mode-dae`・`globe-mode-syntax` は変えていない。新しい外部依存も無い。`xtask diff-frontend` に診断の出力だけ足した）。S297 の時点で断る理由の上位だった `composite-binding`（155 本）と `connect-array`（72 本）を減らした。
@@ -127,10 +164,10 @@ Track B（自前コア）は B1 rowan の CST と寛容なパーサ → B2 resol
 - **配列のレコード** `portsData[] = {VesselPortsData(…)}`・`states[] = statesFM`: 1 次元だけ、リテラルは要素ごとの式、別の配列は `x[k]` に欄を足して束縛する（大きさが合わなければ断る）。
 - **配列のコネクタの一括接続**: `connect(a.p, b.n)` の端が部品の配列を通した名前（`source.sineVoltage.p` → `source.sineVoltage[1].p` …）か、配列のコネクタ（`a.pin` → `a.pin[1]` …）のとき、`gen_connects` が要素ごとの接続に展開してから集合を作る。片方が部品の配列の要素ごとの端で、もう片方が配列の変数 1 つ（`connect(sensor.i, i)`、`i[m]`）なら、変数を `i[1]` … にする。大きさが合わなければ `connect`（`differ in size`）で断る。展開は 1 つの次元だけ（`[i, j]` は断る）。
 - **部品の配列を通した欄の参照 `a.pin.v`**（`pin` が部品の配列）は、方程式の数を要素の数にし、印字を Rumoca の flat と同じ `{a.pin[1].v, a.pin[2].v}` にする（これまで 1 本と数えていた）。
-- **Rumoca の flat との突き合わせ**（S312 と同じ手順。MSL の例題 566 本、`mise run msl:diff-frontend`）: 自前で平らにできたのが **279 → 358 本**（回帰 0。S325 を取り込む前は改善 79 本、取り込んだあとは 96 本）、Rumoca の flat まで通った 350 本で名前の集合 **350/350**、方程式の数 **340/350**（S312 は 273/273）。合わない 10 本は Rotational の摩擦・歯車（`OneWayClutch`・`LossyGearDemo1〜3`・`SimpleGearShift`・`Friction`・`CoupledClutches`・`Brake`・`HeatLosses`）で、`tableID` の表引き（`getTable1DValueNoDer(tableID, 1, 0)` を束縛に持つ parameter `mu0`）を使う方程式 `tau0 = mu0*cgeo*fn` を Rumoca が 2 本と数える（`OneWayClutch` は 40 対 41。原因は未確認。Rumoca 側の数え方と見ているが、確かめていない）。DAE は 357/358 が通り（残り 1 本は下）、Rumoca の釣り合いまで通った 253 本で判定 **253/253**・方程式と未知数の数 **253/253**・状態の数 **253/253**・構造の正則 **249/253**（S325 は 201/201。正則の食い違いは新しく平らにできた 4 本。S325 を取り込んだあとの数。取り込む前は 232/253）。`GlobeModeValidation` の 75 本は変わらない（73/73・73/73・73/73・正則 72/72）。
+- **Rumoca の flat との突き合わせ**（S312 と同じ手順。MSL の例題 566 本、`mise run msl:diff-frontend`）: 自前で平らにできたのが **279 → 358 本**（回帰 0。S325 を取り込む前は改善 79 本、取り込んだあとは 96 本）、Rumoca の flat まで通った 350 本で名前の集合 **350/350**、方程式の数 **340/350**（S312 は 273/273）。合わない 10 本は Rotational の摩擦・歯車（`OneWayClutch`・`LossyGearDemo1〜3`・`SimpleGearShift`・`Friction`・`CoupledClutches`・`Brake`・`HeatLosses`）で、`tableID` の表引き（`getTable1DValueNoDer(tableID, 1, 0)` を束縛に持つ parameter `mu0`）を使う方程式 `tau0 = mu0*cgeo*fn` を Rumoca が 2 本と数える（`OneWayClutch` は 40 対 41。Rumoca 側の数え方の誤りと S330 で確かめた）。DAE は 357/358 が通り（残り 1 本は下）、Rumoca の釣り合いまで通った 253 本で判定 **253/253**・方程式と未知数の数 **253/253**・状態の数 **253/253**・構造の正則 **249/253**（S325 は 201/201。正則の食い違いは新しく平らにできた 4 本。S325 を取り込んだあとの数。取り込む前は 232/253）。`GlobeModeValidation` の 75 本は変わらない（73/73・73/73・73/73・正則 72/72）。
 - **断った理由の内訳**（MSL の例題 566 本、最初の理由だけ数える。S297 → S324）: レコードの束縛 155 → **31**（残りは `Complex` の演算子 `V_m = port_p.V_m - port_n.V_m`〔14〕・`vs = plug_sp.pin.v - plug_sn.pin.v`〔9〕・`ComplexMath.exp(Complex(…))` など、`Complex` を返す式）、配列のコネクタの一括接続 72 → **1**（`heatPorts[HEX.nNodes : -1 : 1]` の範囲の添字）、`connect` の集合の不一致 8 → 9（`StateGraph` 8 と、`LogicalSample` の `connect` の大きさ 1）。先へ進んだ分で新しい上位になったのは、条件つきの宣言 19 → 58、配列の修飾 8 → 38（`Visualizers.Internal.Lines` の `cylinders[n](length = {… for i in 1:n})`。MultiBody の 27 本が当たる）、`[:]` 20 → 26、`stream` 2 → 20（`Modelica.Fluid`）、`for` の範囲が定数でない 0 → 16（`for i in 1:mSystems`）、大きさが定数でない 2 → 6。
 - **DAE（S325 の担当）への申し送り**: レコードを返す関数の値 `R.T = f(…).T` は、`globe-mode-dae` が方程式の印字を読み直すとき `f(…).T`（呼び出しのあとの `.欄`）を読めず `dae-parse` になる（`Modelica.Media.Examples.MixtureGases` の 1 本。ほかは `parameter` の束縛で、方程式にならない）。`globe-mode-syntax` の式の読み方に、呼び出しのあとの欄の参照を足すか、DAE 側で受けるかは S325 に任せる。
-- **持ち越し**: `Complex` の演算子の式をレコードの束縛にする（`re`・`im` に分ける。31 本）、配列のレコードの修飾 `each` でない配列の値（`cylinders[n](length = {…})`、38 本）、条件つきの宣言の評価（58 本）、`stream`（20 本）、Rotational の方程式の数 10 本の原因（Rumoca 側の数え方）。
+- **持ち越し**: `Complex` の演算子の式をレコードの束縛にする（`re`・`im` に分ける。31 本）、配列のレコードの修飾 `each` でない配列の値（`cylinders[n](length = {…})`、38 本）、条件つきの宣言の評価（58 本）、`stream`（20 本）、Rotational の方程式の数 10 本の原因（S330 で Rumoca 側の誤りと確かめた）。
 
 ## 付記（S279）: LSP の補完を自前の構文と名前解決に（IDE の機能を先に自前に、S276 に続く 2 つ目）
 

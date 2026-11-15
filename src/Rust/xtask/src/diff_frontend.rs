@@ -267,7 +267,11 @@ fn dump_structure(who: &str, s: &globe_mode_ir::DaeStructure) {
             .iter()
             .map(|&u| s.unknowns[u as usize].name.as_str())
             .collect();
-        println!("    {who} row[{i}] {} -> {inc:?}", e.label);
+        let st: Vec<&str> = s.state_refs[i]
+            .iter()
+            .map(|&u| s.unknowns[u as usize].name.as_str())
+            .collect();
+        println!("    {who} row[{i}] {} -> {inc:?} state {st:?}", e.label);
     }
     let covered: std::collections::HashSet<u32> = s.incidence.iter().flatten().copied().collect();
     for (u, k) in s.unknowns.iter().enumerate() {
