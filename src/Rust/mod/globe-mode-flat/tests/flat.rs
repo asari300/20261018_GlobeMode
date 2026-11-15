@@ -132,7 +132,6 @@ fn connect_in_for_and_if_kept_as_text() {
 
 #[test]
 fn declined_forms() {
-    let conn = "connector P Real v; flow Real i; stream Real h; end P;";
     // inner が無い outer、定数に評価できない条件
     assert_eq!(err("model A outer Real x; end A;", "A"), "inner-outer");
     assert_eq!(
@@ -146,15 +145,6 @@ fn declined_forms() {
             "A"
         ),
         "redeclare"
-    );
-    assert_eq!(
-        err(
-            &format!(
-                "{conn} model N P p; end N; model A N a; N b; equation connect(a.p, b.p); end A;"
-            ),
-            "A"
-        ),
-        "stream"
     );
     assert_eq!(err("model A Real x[:]; end A;", "A"), "unsized-array");
     let m = flat(
@@ -1093,6 +1083,60 @@ fn huge_output_dims_do_not_overflow_the_equation_count() {
         end R;
         model M R r[2]; end M;";
     flat(oc, "M");
+}
+
+#[test]
+fn stream_sets_and_in_stream() {
+    // 2 本の接続は相手の値、3 本は流量の重みの混合、つながないコネクタは自分。外側のコネクタの端には `x = 集合の混合` が 1 本（S355）
+    let conn = "connector P Real v; flow Real i; stream Real h; end P;";
+    let m = flat(
+        &format!(
+            "{conn} model N P p; Real s = inStream(p.h); end N;
+             model W P a; P b; N n1; N n2; N n3; equation connect(a, n1.p); connect(b, n2.p); connect(a, n3.p); end W;
+             model A W w; N n; N u; equation connect(w.a, n.p); connect(w.b, u.p); end A;"
+        ),
+        "A",
+    );
+    let eq = |lhs: &str| -> String {
+        let e: Vec<_> = m
+            .equations
+            .iter()
+            .filter(|e| e.text.starts_with(lhs))
+            .collect();
+        assert_eq!(e.len(), 1, "{lhs}: {e:?}");
+        e[0].text.clone()
+    };
+    let bind = |n: &str| -> String {
+        m.vars
+            .iter()
+            .find(|v| v.name == n)
+            .unwrap()
+            .binding
+            .clone()
+            .unwrap()
+    };
+    // w の外側の端 a は n1.p・n3.p（内側）と同じ集合。a.h = 内側 2 つの混合
+    assert_eq!(
+        eq("w.a.h ="),
+        "w.a.h = ((max(-w.n1.p.i, 1e-7) * w.n1.p.h + max(-w.n3.p.i, 1e-7) * w.n3.p.h) / (max(-w.n1.p.i, 1e-7) + max(-w.n3.p.i, 1e-7)))"
+    );
+    // n.p は A の集合 {w.a（内側）, n.p（内側）}。n の inStream は w.a.h、w.b と u.p も同じ形
+    assert_eq!(bind("n.s"), "w.a.h");
+    assert_eq!(bind("u.s"), "w.b.h");
+    // w.n1.p の inStream は w の集合 {w.a（外側）, w.n1.p, w.n3.p（内側）} から w.n1.p を除いたもの: 外側の a は 1 段上の inStream(w.a.h)
+    assert_eq!(
+        bind("w.n1.s"),
+        "((max(w.a.i, 1e-7) * n.p.h + max(-w.n3.p.i, 1e-7) * w.n3.p.h) / (max(w.a.i, 1e-7) + max(-w.n3.p.i, 1e-7)))"
+    );
+    // 方程式の数: 外側の端の stream は 1 本ずつ（w.a・w.b）
+    assert_eq!(eq("w.b.h =").matches("w.n2.p.h").count(), 1);
+    // つながない内側の端は自分
+    let m = flat(
+        &format!("{conn} model N P p; Real s = inStream(p.h); end N; model A N n; end A;"),
+        "A",
+    );
+    let s = m.vars.iter().find(|v| v.name == "n.s").unwrap();
+    assert_eq!(s.binding.as_deref(), Some("n.p.h"));
 }
 
 /// `.history/` のような隠しフォルダの `.mo` は読まない（S358。同名のクラスが二重にならない）

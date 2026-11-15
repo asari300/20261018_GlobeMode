@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S362 DAE のレコードの行 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S362 DAE のレコードの行">
+
+<section class="slide" id="S01">
+  <span class="tag">S362 · 2026-11-16 · Track B</span>
+  <h1>DAE のレコードの欄ごとの行</h1>
+  <p class="lead">S355 で合わなかった Fluid の 5 本を、Rumoca の行と突き合わせて原因を分けた</p>
+  <div class="big">推測（レコードの方程式）は半分だけ当たり。<b>3 本は自前の誤り</b>、<b>2 本は Rumoca の誤り</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">原因</span>
+  <h1>5 本の原因は 3 つ</h1>
+  <table>
+    <tr><th>例題</th><th>食い違い</th><th>原因</th><th>扱い</th></tr>
+    <tr><td><code>NonCircularPipes</code>・<code>HeatingSystem</code></td><td>方程式 375 対 391・534 対 538</td><td><code>statesFM[1 : n] = mediums[1 : n].state</code>（レコードの配列の範囲）が要素の数のまま。欄の数を掛けていない</td><td class="ok">直した</td></tr>
+    <tr><td><code>ThreeTanks</code>・<code>TankWithEmptyingPipe1</code></td><td>構造の正則（自前 false）</td><td>レコードの配列を関数に渡す参照（<code>states[i + 1]</code>）が未知数に触れない。64 行が未知数 63 に収まる</td><td class="ok">直した</td></tr>
+    <tr><td><code>HeatingSystem</code></td><td>状態 20 対 11</td><td>Rumoca が <code>inner</code> の修飾を初期方程式の <code>if</code> に使わず、<code>der(T) = 0</code> が無い（下書き 07）</td><td class="warn">Rumoca の誤り</td></tr>
+    <tr><td><code>InverseParameterization</code></td><td>変数 513 対 507</td><td>Rumoca が <code>redeclare model M = Impl(show = true)</code> の修飾を捨てる（下書き 40。omc は通る）</td><td class="warn">Rumoca の誤り</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">直し</span>
+  <h1>globe-mode-dae の 2 つ</h1>
+  <ul>
+    <li><b>範囲 <code>t[2 : n + 1]</code></b>: 始まりが整数のリテラルなら、要素の数だけ <code>t[lo]</code>… の欄の変数を取る。方程式の数は欄のスカラーの和（<code>slice_leaves</code>）</li>
+    <li><b>レコードの配列を渡す参照</b>: 配列そのもの・<code>states[i + 1]</code>・<code>mediums[1 : n].state</code> は全要素の欄に触れる（<code>record_vars</code>）。範囲と添字は見ない（広めの incidence）</li>
+    <li>試験 2 本は、直す前は 2 本とも落ちる。<code>resolve</code> の添字を探す処理は <code>last_subscript</code> に括り出した</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">数字</span>
+  <h1>MSL の例題 566 本（S355 → S362）</h1>
+  <div class="kpis">
+    <div class="kpi"><span class="n">367 / 367</span><span class="l">釣り合いの判定（前 365）</span></div>
+    <div class="kpi"><span class="n">367 / 367</span><span class="l">構造の正則（前 363）</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">回帰（改善 4）</span></div>
+  </div>
+  <p>方程式と未知数の数 366 / 367（前 364）、状態 366 / 367。残りの 1 本ずつは Rumoca の側（<code>InverseParameterization</code>・<code>HeatingSystem</code>）。1031 s、最大 RSS 5.8 GiB</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>残る 2 本は Rumoca の側。自前を合わせない（上流の下書き 40・07。提出しない）</li>
+    <li>関数の本体を見て欄を絞る incidence は作らない（広めの incidence。MSL では正則 367 / 367 で食い違い無し）</li>
+    <li>B3 が断る 28 本（<code>connect</code> 10・<code>composite-binding</code> 6 ほか）</li>
+  </ul>
+  <p class="foot">GlobeMode S362</p>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

@@ -105,6 +105,7 @@ impl Ctx<'_> {
     /// 方程式の左辺がレコードの部品（変数ではなく、`a.re`・`a.im` の持ち主）なら、その欄の変数（`BTreeMap` の順）。
     /// 平らにした方程式は 1 本と数えるが、DAE では欄ごとの方程式になる（Rumoca の record equation。`y = Complex(a, b)` は 2 本）
     /// 要素ごとに展開されたレコードの配列（`Complex aw[3]` の `aw = {…}`。flat の数は要素の数 3）は、全要素の欄を数える（S351）。
+    /// 範囲 `t[2 : n + 1]` は、`count` 個の要素の欄を数える（S362）。
     /// 欄の変数の数は Rumoca の数え方と同じ（要素 × 欄のスカラー）
     fn record_leaves(&self, eq: &SyntaxNode, count: usize) -> Vec<usize> {
         let Some(Expr::ComponentRef(c)) = eq.children().find_map(Expr::cast) else {
@@ -116,11 +117,52 @@ impl Ctx<'_> {
         } else {
             Vec::new()
         };
+        if !v.is_empty() {
+            return v;
+        }
+        let v = self.array_leaves(&text);
         if v.is_empty() {
-            self.array_leaves(&text)
+            self.slice_leaves(&text, count)
         } else {
             v
         }
+    }
+
+    /// 最後の添字 `t[…]` の、`t` と添字（対応する `[` を右から探す）
+    fn last_subscript(t: &str) -> Option<(&str, &str)> {
+        let inner = t.strip_suffix(']')?;
+        let mut depth = 0;
+        let open = inner.char_indices().rev().find_map(|(i, c)| {
+            match c {
+                ']' => depth += 1,
+                '[' if depth == 0 => return Some(i),
+                '[' => depth -= 1,
+                _ => {}
+            }
+            None
+        })?;
+        Some((&t[..open], &inner[open + 1..]))
+    }
+
+    /// レコードの配列の範囲 `t[2 : n + 1]`（始まりが整数のリテラル）の、`count` 個の要素の欄の変数。レコードの配列でなければ空
+    fn slice_leaves(&self, text: &str, count: usize) -> Vec<usize> {
+        let t: String = text.split_whitespace().collect();
+        let Some((base, sub)) = Self::last_subscript(&t) else {
+            return Vec::new();
+        };
+        let Some(lo) = sub
+            .split_once(':')
+            .and_then(|(lo, _)| lo.parse::<usize>().ok())
+        else {
+            return Vec::new();
+        };
+        let per_elem: Vec<Vec<usize>> = (lo..lo + count)
+            .map(|k| self.leaves_of(&format!("{base}[{k}]")))
+            .collect();
+        if per_elem.iter().any(Vec::is_empty) {
+            return Vec::new();
+        }
+        per_elem.concat()
     }
 
     /// 要素ごとに展開されたレコードの配列 `t` の、欄の変数（`t[1].re`・`t[1].im`・`t[2].re` …。`BTreeMap` の順）
@@ -157,27 +199,59 @@ impl Ctx<'_> {
         v
     }
 
+    /// 変数でないレコードの参照の、欄の変数。`a.R`（欄）・レコードの配列 `t`（全要素）・添字が決まらない `t[i + 1]` と
+    /// 範囲 `t[1 : n]`・`m[1 : n].state`（どちらも全要素。shortcut: 範囲は見ない。正則は甘く出る方に傾く。S362）
+    fn record_vars(&self, text: &str) -> Vec<usize> {
+        let v = self.leaves_of(text);
+        if !v.is_empty() {
+            return v;
+        }
+        let t: String = text.split_whitespace().collect();
+        if let Some((pre, post)) = Self::range_split(&t) {
+            return (1..)
+                .map(|k| self.leaves_of(&format!("{pre}[{k}]{post}")))
+                .take_while(|v| !v.is_empty())
+                .flatten()
+                .collect();
+        }
+        self.array_leaves(Self::last_subscript(&t).map_or(&t, |(base, _)| base))
+    }
+
+    /// 範囲の添字 `[a : b]` を含む参照の、その前（`[` の前まで）と後（`]` の後から）。範囲の添字がなければ None
+    fn range_split(t: &str) -> Option<(&str, &str)> {
+        let mut start = None;
+        let mut depth = 0;
+        for (i, c) in t.char_indices() {
+            match c {
+                '[' => {
+                    if depth == 0 {
+                        start = Some(i);
+                    }
+                    depth += 1;
+                }
+                ']' => {
+                    depth -= 1;
+                    let st = start?;
+                    if depth == 0 && t[st..i].contains(':') {
+                        return Some((&t[..st], &t[i + 1..]));
+                    }
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+
     /// `a.b[2].x[1]` を変数と選択に解く。変数でなければ None
     fn resolve(&self, text: &str) -> Option<(usize, Sel)> {
         let t: String = text.chars().filter(|c| !c.is_whitespace()).collect();
         if let Some(&v) = self.index.get(t.as_str()) {
             return Some((v, Sel::All));
         }
-        let inner = t.strip_suffix(']')?;
-        // 最後の添字の `[` を、対応で探す
-        let mut depth = 0;
-        let open = inner.char_indices().rev().find_map(|(i, c)| {
-            match c {
-                ']' => depth += 1,
-                '[' if depth == 0 => return Some(i),
-                '[' => depth -= 1,
-                _ => {}
-            }
-            None
-        })?;
-        let v = *self.index.get(&t[..open])?;
+        let (base, sub) = Self::last_subscript(&t)?;
+        let v = *self.index.get(base)?;
         let dims = &self.vars[v].dims;
-        let subs: Vec<Option<usize>> = inner[open + 1..]
+        let subs: Vec<Option<usize>> = sub
             .split(',')
             .map(|s| s.parse::<usize>().ok().filter(|&i| i >= 1))
             .collect();
@@ -227,7 +301,7 @@ impl Ctx<'_> {
                 if parts.is_empty() {
                     // レコードそのものを関数に渡す `angularVelocity2(frame_a.R)` は、欄すべてに触れるとみなす
                     // （Rumoca は関数の本体を見て欄を絞る。S334）
-                    for var in self.leaves_of(&text) {
+                    for var in self.record_vars(&text) {
                         out.push(Ref {
                             var,
                             sel: Sel::All,
@@ -958,6 +1032,28 @@ mod tests {
             "{rec}model M Complex aw[1]; equation aw = {{Complex(1, 0)}}; end M;"
         ));
         assert_eq!((d.counts.equations, d.counts.unknowns), (2, 2));
+    }
+
+    /// S362: 範囲 `sb[2 : 3] = sa[1 : 2]` は要素 2 つ × 欄 2 つの 4 本（flat は要素の数 2）。右辺の `sa[1 : 2]` は sa の全要素の欄に触れる
+    #[test]
+    fn record_array_slice_equation_counts_per_field() {
+        let d = dae("record S Real p; Real T; end S;
+            model M S sa[2]; S sb[3]; equation sa = {S(1, 2), S(3, 4)}; sb[1] = S(0, 0); sb[2 : 3] = sa[1 : 2]; end M;");
+        assert_eq!((d.counts.equations, d.counts.unknowns), (10, 10));
+        assert!(d.is_balanced() && d.is_regular());
+        // 行 6〜9 が範囲の方程式: 右辺の sa の欄（未知数 0〜3）に触れる（範囲は見ないので左辺は sb の全要素）
+        assert!((0..4).all(|u| d.structure.incidence[6].contains(&u)));
+    }
+
+    /// S362: レコードの配列を関数に渡す式（添字が `i + 1` で決まらない `st[i + 1]`・配列そのもの）は、全要素の欄に触れる
+    #[test]
+    fn record_array_argument_touches_every_field() {
+        let d = dae("record S Real p; Real T; end S;
+            function pr input S s; output Real y; algorithm y := s.p; end pr;
+            model M S st[2]; Real f[1]; Real g;
+            equation st = {S(1, 2), S(3, 4)}; f = {pr(st[i + 1]) - pr(st[i]) for i in 1:1}; g = pr(st[1]); end M;");
+        assert!(d.is_balanced() && d.is_regular());
+        assert_eq!(d.structure.incidence[4], [0, 1, 2, 3, 4]);
     }
 
     #[test]
