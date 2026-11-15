@@ -1971,6 +1971,7 @@ def main() -> int:
             on_screen("block Sine")
             assert page.get_by_role("tab").nth(page.get_by_role("tab").count() - 1).get_attribute("title").endswith("Blocks/Sources.mo"), "タブの title にパスが出る"
             page.get_by_label("ライブラリを検索").fill("Examples.BusUsage")  # Blocks/package.mo の 991 行目
+            expect(page.locator("#library-hits [role=option]").first).to_contain_text("Examples.BusUsage", timeout=30_000)  # 候補が出てから Enter（先に押すと開かない。S310）
             page.get_by_label("ライブラリを検索").press("Enter")
             expect(page.get_by_label("モデル名")).to_have_value("Modelica.Blocks.Examples.BusUsage", timeout=60_000)
             on_screen("model BusUsage")
