@@ -1,4 +1,4 @@
-import type { Backend, CheckFrontend, CompletionEntry, Definition, Diagram, Documentation, FmuInfo, FmuRunRequest, FmuRuntime, Hover, Icon, LintMessage, Progress, TreeEntry } from "./backend";
+import type { Backend, CheckFrontend, CompletionEntry, Definition, Diagram, Documentation, FmuInfo, FmuRunRequest, FmuRuntime, Hover, Icon, LintMessage, Location, Progress, TreeEntry, WorkspaceEdit } from "./backend";
 import type { Columns } from "./plot/csv";
 import { isCosimFile, isFmuFile, isResultsFile, toColumns, type ResultColumns, type ResultParam } from "./results.ts"; // node の型の除去（tests/test_tauri.mjs）が拡張子を要る
 import type { BltReport, StagesReport, CheckResponse, GraphJson, SimulateRequest, SimulateResponse, SimulateManyRequest, SimulateManyResponse, SolverEntry, ModelParameter, TunableParameter, Linearization } from "./protocol";
@@ -264,7 +264,7 @@ export class TauriBackend implements Backend {
 
   /** S144: ソースの FMU。dialog.save で選んだ場所のフォルダを outDir にして sidecar に書かせる（`<outDir>/<モデル名の . を _ にしたもの>-fmi<版>.fmu` と展開した同名のフォルダ。選んだファイル名は使わない）。 */
   references(file: string, line: number, character: number) {
-    return invoke<Definition["range"][]>("rpc", { method: "globe/references", params: { file, line, character } }); // S161
+    return invoke<Location[]>("rpc", { method: "globe/references", params: { file, line, character } }); // S161。S368: 開いている文書の全部（`{uri, range, library?}`）
   }
   models(file: string) {
     return invoke<string[]>("rpc", { method: "globe/models", params: { file } }); // S170
@@ -294,7 +294,7 @@ export class TauriBackend implements Backend {
     return invoke<{ range: Definition["range"]; newText: string }[] | null>("rpc", { method: "globe/addWaypoint", params: { file: at.file, class: cls, from, to, index, x, y, ends } }); // S299
   }
   rename(file: string, line: number, character: number, newName: string) {
-    return invoke<{ range: Definition["range"]; newText: string }[]>("rpc", { method: "globe/rename", params: { file, line, character, newName } });
+    return invoke<WorkspaceEdit>("rpc", { method: "globe/rename", params: { file, line, character, newName } }); // S368: `{changes: {名前: TextEdit[]}}`
   }
   documentation(cls: string, at?: { file: string; line: number; character: number }): Promise<Documentation | null> {
     return invoke("rpc", { method: "globe/documentation", params: { class: cls, file: at?.file, line: at?.line, character: at?.character } }); // S232（setFile の didOpen の本文を引く）

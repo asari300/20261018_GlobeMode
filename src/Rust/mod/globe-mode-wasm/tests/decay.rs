@@ -539,10 +539,68 @@ fn references_and_rename_in_the_same_class() {
     ws.put_file("T.mo", text);
     let refs: serde_json::Value = serde_json::from_str(&ws.references("T.mo", text, 3, 6)).unwrap();
     assert_eq!(refs.as_array().unwrap().len(), 3, "{refs}");
+    assert_eq!(refs[0]["uri"], "T.mo", "{refs}");
+    // S368: `{changes: {ファイル名: [TextEdit]}}`
     let edits: serde_json::Value =
         serde_json::from_str(&ws.rename("T.mo", text, 1, 7, "pos").unwrap()).unwrap();
-    assert_eq!(edits.as_array().unwrap().len(), 3, "{edits}");
-    assert_eq!(edits[0]["newText"], "pos");
+    assert_eq!(
+        edits["changes"]["T.mo"].as_array().unwrap().len(),
+        3,
+        "{edits}"
+    );
+    assert_eq!(edits["changes"]["T.mo"][0]["newText"], "pos");
+}
+
+#[test]
+fn references_and_rename_reach_the_other_open_documents() {
+    // S368: UI は開いているタブの全部を set_file してから呼ぶ。クラス名・継承した部品が 2 ファイルにまたがる
+    let mut ws = Workspace::new();
+    let a = "model Base\n  Real x;\nend Base;\n";
+    let b = "model B\n  extends Base;\n  Base c;\nequation\n  x = 1;\nend B;\n";
+    ws.put_file("A.mo", a);
+    ws.put_file("B.mo", b);
+    let uris = |v: &serde_json::Value| -> Vec<String> {
+        v.as_array()
+            .unwrap()
+            .iter()
+            .map(|l| l["uri"].as_str().unwrap().to_string())
+            .collect()
+    };
+    // クラス: A の宣言・end と、B の extends・型
+    let refs: serde_json::Value = serde_json::from_str(&ws.references("A.mo", a, 0, 7)).unwrap();
+    assert_eq!(uris(&refs), ["A.mo", "A.mo", "B.mo", "B.mo"], "{refs}");
+    let e: serde_json::Value =
+        serde_json::from_str(&ws.rename("A.mo", a, 0, 7, "Core").unwrap()).unwrap();
+    assert_eq!(e["changes"]["A.mo"].as_array().unwrap().len(), 2, "{e}");
+    assert_eq!(e["changes"]["B.mo"].as_array().unwrap().len(), 2, "{e}");
+    // 継承した部品: B の `x = 1` から A の宣言まで
+    let e: serde_json::Value =
+        serde_json::from_str(&ws.rename("B.mo", b, 4, 2, "pos").unwrap()).unwrap();
+    assert_eq!(e["changes"]["A.mo"][0]["newText"], "pos", "{e}");
+    assert_eq!(e["changes"]["B.mo"].as_array().unwrap().len(), 1, "{e}");
+}
+
+#[test]
+fn references_list_library_hits_without_renaming_them() {
+    // S368: 読み込んだライブラリで同じクラスに行き着く識別子は `library: true` で出る（見るだけ）。変える側の断り（ライブラリで定義したクラス）は JsValue が要るので LSP の試験で見る
+    let mut ws = Workspace::with_library_split("GlobeModeValidation", &package())
+        .unwrap()
+        .with_tree(package());
+    let text =
+        "model T\n  import GlobeModeValidation.Components;\n  Components.Resistor r1;\nend T;\n";
+    ws.put_file("T.mo", text);
+    let refs: serde_json::Value =
+        serde_json::from_str(&ws.references("T.mo", text, 2, 15)).unwrap();
+    let all = refs.as_array().unwrap();
+    assert_eq!(
+        all.iter().filter(|l| l["uri"] == "T.mo").count(),
+        1,
+        "{refs}"
+    );
+    assert!(
+        all.iter().filter(|l| l["library"] == true).count() >= 2,
+        "{refs}"
+    );
 }
 
 #[test]

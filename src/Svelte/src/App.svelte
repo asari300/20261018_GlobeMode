@@ -9,6 +9,7 @@
   import { EDITOR_HELP, byteToChar, darkSlot, makeEditable, readOnlySlot, modelFollow, modelRenamed, modelicaCompletion, modelicaHighlight, modelicaDefinition, modelicaFolding, modelicaLinter, modelicaRefactor, modelicaTab, modelicaTheme, themeSlot, toCmDiagnostics } from "./lib/editor";
   import { setPref, theme, type Pref } from "./theme.svelte";
   import { WorkerBackend } from "./lib/worker-backend";
+  import { acrossDocs } from "./lib/cross-file";
   import { TauriBackend, inDesktop, tabKey } from "./lib/tauri-backend";
   import type { Backend, CheckFrontend, Diagram, Documentation, FmuInfo, FmuRunRequest, Icon, TreeEntry } from "./lib/backend";
   import type { Columns } from "./lib/plot/csv";
@@ -586,34 +587,55 @@
       failure = String((e as Error).message ?? e);
     }
   }
-  // S161: 参照の一覧（Shift+F12）。行を押すとその範囲へ。範囲の計算は Rust（backend.references）
-  let refs = $state<{ n: number; text: string; from: number; to: number }[]>([]);
-  const offsetOf = ({ line, character }: { line: number; character: number }) => view.state.doc.line(line + 1).from + character;
+  // S368: 参照・リネームは開いている自分のタブの全部を見る（本文を Workspace に入れて f を回し、終わったら空に戻す。lib/cross-file.ts）
+  const acrossTabs = <T,>(f: () => Promise<T>) =>
+    acrossDocs(backend, { file, text: view.state.doc.toString() }, tabs.flatMap((t, i) => (i !== cur && t.own ? [{ file: t.file, text: t.state.doc.toString() }] : [])), f);
+  // S161: 参照の一覧（Shift+F12）。行を押すとその範囲へ。範囲の計算は Rust（backend.references）。S368: 開いているタブの全部（別のタブの行を押すとそのタブへ）。開いていないライブラリのファイルは見るだけ
+  type Pos = { line: number; character: number };
+  let refs = $state<{ file: string; n: number; text: string; start: Pos; end: Pos; library: boolean }[]>([]);
+  const offsetOf = ({ line, character }: Pos, doc = view.state.doc) => doc.line(line + 1).from + character;
   async function references(line: number, character: number) {
+    if (busy) return; // S196 と同じ（実行中にタブの本文を入れ替えない）
     failure = "";
     try {
-      await backend.setFile(file, view.state.doc.toString());
-      refs = (await backend.references(file, line, character)).map((r) => {
-        const from = offsetOf(r.start), l = view.state.doc.lineAt(from);
-        return { n: l.number, text: l.text.trim(), from, to: offsetOf(r.end) };
-      });
+      const hits = await acrossTabs(() => backend.references(file, line, character));
+      const docOf = (uri: string) => (uri === file ? view.state.doc : tabs.find((t) => t.file === uri)?.state.doc);
+      const rank = (uri: string) => (uri === file ? -1 : tabs.findIndex((t) => t.file === uri) + 1 || Infinity); // 今のタブ、タブの順、開いていないファイル
+      refs = hits
+        .map((h) => {
+          const d = docOf(h.uri), n = h.range.start.line + 1;
+          return { file: h.uri, n, text: d && n <= d.lines ? d.line(n).text.trim() : "", start: h.range.start, end: h.range.end, library: !!h.library || !d };
+        })
+        .sort((a, b) => rank(a.file) - rank(b.file));
     } catch (e) {
       failure = String((e as Error).message ?? e);
     }
   }
+  const refLabel = (r: (typeof refs)[number]) => `${r.file === file ? "" : `${baseName(r.file)} の `}${r.n} 行目の参照へ移る`;
+  function jumpRef(r: (typeof refs)[number]) {
+    if (r.library) return;
+    if (r.file !== file) {
+      const i = tabs.findIndex((t) => t.file === r.file), keep = refs;
+      if (i < 0) return;
+      activate(i);
+      refs = keep; // 一覧は残す（activate は前のタブの一覧を捨てる）
+    }
+    moveTo(offsetOf(r.start), offsetOf(r.end));
+  }
   // S161: リネーム（F2）。部品とクラス名（S166）。入力欄を出し、確定すると backend.rename の編集を 1 回の dispatch（undo 1 回）で入れる。断られたら理由を failure に出す
+  // S368: 開いているほかの自分のタブにも編集が入る（そのタブの undo で戻す）。ライブラリのタブ・開いていないファイルは変えず、箇所の数を知らせる
   let renaming = $state<{ line: number; character: number } | null>(null);
   let newName = $state("");
   let nameInput = $state<HTMLInputElement>();
   async function askRename(line: number, character: number) {
     if (!own) { failure = RO_MSG; return; } // S196
+    if (busy) return;
     const w = view.state.wordAt(view.state.selection.main.head);
     newName = w ? view.state.sliceDoc(w.from, w.to) : "";
     failure = "";
     try {
       // S166: リネームできない所は入力欄を出さずに理由を出す（今の名前のまま rename を試し、断られたら理由が返る。編集は入れない）
-      await backend.setFile(file, view.state.doc.toString());
-      await backend.rename(file, line, character, newName);
+      await acrossTabs(() => backend.rename(file, line, character, newName));
     } catch (e) {
       failure = String((e as Error).message ?? e);
       return;
@@ -625,12 +647,11 @@
   async function rename() {
     const at = renaming;
     renaming = null;
-    if (!at) return;
+    if (!at || busy) return;
     failure = "";
     try {
-      await backend.setFile(file, view.state.doc.toString());
-      const edits = await backend.rename(file, at.line, at.character, newName);
-      const spec = { changes: edits.map((e) => ({ from: offsetOf(e.range.start), to: offsetOf(e.range.end), insert: e.newText })) };
+      const { changes } = await acrossTabs(() => backend.rename(file, at.line, at.character, newName));
+      const spec = { changes: (changes[file] ?? []).map((e) => ({ from: offsetOf(e.range.start), to: offsetOf(e.range.end), insert: e.newText })) };
       // S186: リネームしたクラスがいまのモデル（かその途中の成分）なら、モデル名も同じ編集で追う（元に戻す Ctrl+Z も）。新しい名前は Rust の models が決める（順序はリネームで変わらないので、同じ番号の名前）
       const m = model, before = await backend.models(file), i = before.indexOf(m);
       let effects: ReturnType<typeof modelRenamed.of>[] = [];
@@ -641,6 +662,19 @@
       }
       view.dispatch({ ...spec, effects });
       refs = [];
+      let skipped = 0, edited = 0;
+      for (const [key, es] of Object.entries(changes)) {
+        if (key === file) continue;
+        const t = tabs.find((t, j) => j !== cur && t.own && t.file === key);
+        if (!t) { skipped += es.length; continue; }
+        const d = t.state.doc;
+        t.state = t.state.update({ changes: es.map((e) => ({ from: offsetOf(e.range.start, d), to: offsetOf(e.range.end, d), insert: e.newText })) }).state;
+        t.diagnostics = []; // 位置が変わったので、次の検査まで持たない
+        edited++;
+      }
+      if (edited) { tabs = [...tabs]; persist(); }
+      if (skipped) saved = `ライブラリのファイル（開いているタブか開いていないファイル）の ${skipped} 箇所は変えない`;
+      live = edited ? `ほかの ${edited} タブにも反映した` : "";
     } catch (e) {
       failure = String((e as Error).message ?? e);
     }
@@ -1072,10 +1106,11 @@
     </form>
   {/if}
   {#if refs.length}
+    {@const multiFile = refs.some((r) => r.file !== refs[0].file)}
     <table class="refs" aria-label="参照">
       <tbody>
         {#each refs as r}
-          <tr onclick={() => moveTo(r.from, r.to)}><td><button type="button" class="jump" aria-label="{r.n} 行目の参照へ移る">{r.n}</button></td><td>{r.text}</td></tr>
+          <tr onclick={() => jumpRef(r)}>{#if multiFile}<td>{baseName(r.file)}</td>{/if}<td><button type="button" class="jump" disabled={r.library} aria-label={refLabel(r)}>{r.n}</button></td><td>{r.text}</td></tr>
         {/each}
       </tbody>
     </table>

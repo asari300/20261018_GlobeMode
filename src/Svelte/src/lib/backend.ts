@@ -49,8 +49,8 @@ export interface Backend {
   hover(file: string, line: number, character: number): Promise<Hover | null>;
   /** setFile 済みの file の位置（行は 0 始まり、列は UTF-16）の補完候補（S171。LSP の CompletionItem。最大 200 件、打ちかけの語で絞り済み。文字列・コメントの中は空。配列か LSP の CompletionList。S196）。 */
   completion(file: string, line: number, character: number): Promise<CompletionEntry[] | { isIncomplete?: boolean; items: CompletionEntry[] }>;
-  /** setFile 済みの file の位置にある名前の参照（S161）。同じ文書の同じ名前の範囲（LSP の Range）。部品はそのいちばん内側のクラスの中、クラス名（S166）は同じクラスに行き着く全部。 */
-  references(file: string, line: number, character: number): Promise<Definition["range"][]>;
+  /** setFile 済みの file の位置にある名前の参照（S161・S368）。setFile 済みの文書の全部に広げた LSP の Location。部品は継承した先と `b.x` も、クラス名（S166）は同じクラスに行き着く全部（ライブラリで同じクラスに行き着くものは `library: true`。見るだけ）。 */
+  references(file: string, line: number, character: number): Promise<Location[]>;
   /** setFile 済みの file の折りたたみの範囲（S225。LSP の foldingRange と同じ関数。行は 0 始まりで endLine を含む。クラス・節・複数行の annotation・連続コメント。構文が壊れていればクラスと節は無い）。 */
   foldingRanges(file: string): Promise<{ startLine: number; endLine: number }[]>;
   /** クラスの Documentation（`annotation(Documentation(info, revisions))` の生の HTML。S232）。cls は完全修飾名（ライブラリのクラスもよい）。空なら at（setFile 済みの file の位置にあるいちばん内側のクラス）。引けなければ null。HTML は信用しない（表示は lib/html-sanitize.ts を通す）。 */
@@ -77,8 +77,8 @@ export interface Backend {
   addWaypoint(cls: string, from: string, to: string, index: number, x: number, y: number, ends: [[number, number], [number, number]], at: { file: string }): Promise<{ range: Definition["range"]; newText: string }[] | null>;
   /** setFile 済みの file の実行できるクラス（model・block・class。partial は除く）の修飾名（S170。UI のモデル名の候補。構文が壊れていれば空）。 */
   models(file: string): Promise<string[]>;
-  /** 位置の名前を newName に変える編集（S161。LSP の TextEdit）。いちばん内側のクラスで宣言した部品と、この文書で定義したクラス（S166。宣言・`end`・使っている所）。部品でもクラスでもない・別のファイル（ライブラリ）のクラス・識別子でない・予約語・同じクラスに既にある名前は、理由つきで reject。 */
-  rename(file: string, line: number, character: number, newName: string): Promise<{ range: Definition["range"]; newText: string }[]>;
+  /** 位置の名前を newName に変える編集（S161・S368。LSP の WorkspaceEdit `{changes: {名前: TextEdit[]}}`。名前は setFile の名前）。setFile 済みの文書の全部に届く: 部品（継承した先と `b.x` も）と、この文書で定義したクラス（S166。ほかの文書の同じクラスへの参照も）。ライブラリのファイルは変えない。部品でもクラスでもない・別のファイル（ライブラリ）のクラス・ライブラリで宣言した部品・識別子でない・予約語・同じクラスに既にある名前は、理由つきで reject。 */
+  rename(file: string, line: number, character: number, newName: string): Promise<WorkspaceEdit>;
   /** 手元のファイルを 1 つ選んで読む（S141）。ブラウザ・Android は `<input type=file>`、Desktop は dialog / fs プラグイン。選ばなければ null。結果のファイル（.mat・.csv。S222）は text が空で、読んだ列が columns に入る（読めなければ reject）。 */
   openFile(): Promise<{ name: string; text: string; path?: string; columns?: ResultColumns } | null>;
   /** FMU（.fmu）の要約と、実行前に見せる警告（S229。Desktop だけ。ネイティブコードは実行しない）。読めなければ reject。 */
@@ -121,6 +121,18 @@ export interface Definition {
   file: string;
   text: string;
   range: { start: { line: number; character: number }; end: { line: number; character: number } };
+}
+
+/** LSP の Location（S368。`references` の結果）。uri は setFile の名前（ライブラリの開いていないファイルはそのパス）。library は開いていないライブラリのファイルの参照（見るだけ）。 */
+export interface Location {
+  uri: string;
+  range: Definition["range"];
+  library?: boolean;
+}
+
+/** LSP の WorkspaceEdit（S368。`rename` の結果）。 */
+export interface WorkspaceEdit {
+  changes: Record<string, { range: Definition["range"]; newText: string }[]>;
 }
 
 /** `Backend.documentation` の結果（S232）。info・revisions は Modelica のエスケープを戻した生の HTML（無ければ空）。 */
