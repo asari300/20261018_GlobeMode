@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S300 diff-frontend — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S300 diff-frontend">
+
+<section class="slide" id="S01">
+  <span class="tag">S300 · 2026-11-15 · Track B</span>
+  <h1>自前の段と Rumoca を一度に突き合わせる</h1>
+  <p class="lead"><code>cargo xtask diff-frontend</code>（<code>mise run msl:diff-frontend</code>）</p>
+  <div class="big">parse → resolve → flat → dae を、MSL の例題 566 本と GlobeModeValidation 75 本で</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">仕組み</span>
+  <h1>段ごとに「はい / いいえ」の旗を立てる</h1>
+  <ul>
+    <li>旗 12 個を JSON（<code>target/frontend-diff.json</code>）に書く</li>
+    <li>次の実行は書く前に読み、前回は通った旗が通らなければ<strong>回帰</strong></li>
+    <li>回帰は <code>doc/frontend-diff.md</code> の先頭に出し、1 本でもあれば終了コード 1</li>
+    <li>数え方は xtask の 1 か所。flat・dae の <code>compare.rs</code> は消した</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">今の数字（MSL の例題 566 本）</span>
+  <h1>flat 192、DAE 192、釣り合いの判定 144/146</h1>
+  <table class="compact">
+    <tr><th>段</th><th>通った</th><th>Rumoca と一致</th></tr>
+    <tr><td>parse</td><td>566</td><td>—</td></tr>
+    <tr><td>resolve</td><td>467（未解決 99 は <code>Redeclare</code>）</td><td>—</td></tr>
+    <tr><td>flat</td><td>192</td><td>名前 189/189、方程式の数 186/189</td></tr>
+    <tr><td>dae</td><td>192</td><td>判定 144/146、状態 141/146、正則 132/146</td></tr>
+  </table>
+  <p>全体 77〜99 秒、最大 RSS 1.1 GiB（release）</p>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
