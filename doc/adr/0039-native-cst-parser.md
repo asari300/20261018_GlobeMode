@@ -44,10 +44,11 @@ MSL 4.1.0 の例題 566 本での推移（括弧は「一致した本数 / 母�
 | S332（S329 と S330 を合わせた） | 471（DAE にできた 471/471） | 463（463/463・435/463） | 334（297/334・297/334・294/334・296/334） |
 | S333 | 471 | 463（463/463・449/463） | 334（332/334・332/334・332/334・301/334） |
 | S334 | 471 | 463（463/463・451/463） | 334（334/334・334/334・332/334・334/334） |
+| S337 | 471 | 463（463/463・452/463） | 334（4 つとも 334/334） |
 
-- parse は MSL の例題 566/566（S300 の時点も今も）、resolve は未解決 0 が 467/566（S300 の時点も今も。残る 99 本はすべて `Redeclare`）。`GlobeModeValidation` 75 本は S334 で、Rumoca も通った 73 本の名前・方程式の数・判定・数・状態が 73/73、正則が 72/72。
+- parse は MSL の例題 566/566（S300 の時点も今も）、resolve は未解決 0 が 467/566（S300 の時点も今も。残る 99 本はすべて `Redeclare`）。`GlobeModeValidation` 75 本は S334・S337 で、Rumoca も通った 73 本の名前・方程式の数・判定・数・状態が 73/73、正則が 72/72。
 - 断る理由の残り（S334。95 本、最初の理由だけ数える）: `unsized-array` 28・`composite-binding` 25・`stream` 21・`connect` 9・`non-constant-dim` 6・`expandable` 4・`connect-array` 1・`non-constant-for` 1。
-- 方程式の数が合わない 12 本は、Rotational・Translational の摩擦・歯車の 10 本（S330 が Rumoca の数え方の誤りと確かめ、S331 が最新の release v0.10.4 では直ると確かめた。[upstream.md](../upstream.md) の下書き 36）、`ActuatorWithNoise`（同じ表の数え方）、`ShowTransferFunction`（14 対 16、【原因未確認】）。状態の数が合わない 2 本は `IMC_DCBraking`・`IMC_Initialize`（Electrical.Machines）。
+- 方程式の数が合わない 11 本は（S334 では 12 本。S337 で `ShowTransferFunction` を直した）、Rotational・Translational の摩擦・歯車の 10 本（S330 が Rumoca の数え方の誤りと確かめ、S331 が最新の release v0.10.4 では直ると確かめた。[upstream.md](../upstream.md) の下書き 36）、`ActuatorWithNoise`（同じ表の数え方）。状態の数が合わなかった 2 本（`IMC_DCBraking`・`IMC_Initialize`）は S337 で直した（Rumoca が初期方程式の `der` も状態にするため。自前の抜け）。
 
 付記の案内（主題ごと）:
 
@@ -55,8 +56,8 @@ MSL 4.1.0 の例題 566 本での推移（括弧は「一致した本数 / 母�
 | --- | --- |
 | B1 構文 | 本文、S269 |
 | B2 名前の解決 | S272、S275 |
-| B3 flatten | S278、S284、S297、S312、S324、S329、S333、S334 |
-| B4 DAE | S290、S312、S325、S330、S332（計測と、名前・数の食い違いの原因） |
+| B3 flatten | S278、S284、S297、S312、S324、S329、S333、S334、S337 |
+| B4 DAE | S290、S312、S325、S330、S332（計測と、名前・数の食い違いの原因）、S337（初期方程式の `der` と状態の数） |
 | 製品へのつなぎ | S276（アウトライン・折りたたみ）、S279（補完）、S296（定義ジャンプ・ホバー）、S305（`globe check --frontend native`）、S307（閉包だけを読む）、S311（位置）、S313（CLI 以外から選ぶ）、S320（#111・#113〜#116）、S327（#118） |
 | 突き合わせ | S300（`cargo xtask diff-frontend`） |
 
@@ -154,6 +155,19 @@ roadmap の要約で外した、古くなっていた「残り」: 診断の `GM
 - **Rumoca の flat との突き合わせ**（S278 と同じ手順）: `GlobeModeValidation` の 75 本は、自前で平らにできたのが 72 本から **74 本**（断ったのは `stream` 1 本だけ）、両方で通った 73 本で名前の集合 **73/73**・方程式の数 **73/73** が一致（S284 は 71/71）。MSL の例題 566 本は、自前で平らにできたのが 192 本から **279 本**、Rumoca の flat まで通った 273 本で名前の集合 **273/273**、方程式の数 **254/273** が一致（S284 は 189/189 と 186/189）。方程式の数が合わない 19 本は原因が未確認のものを含む: `Clocked` の 4 本（`UniformNoise` 系。`(a, b) = f(x)` とクロックの `previous` の数え方）、`QuasiStatic` の 11 本（`Complex` と Overconstrained connection の `Connections.isRoot` の扱いが違うと見ているが【未確認】）、DC 機械 2 本（`protected` のコネクタの数え方。自前は 4 本少ない）、`SuperCapDischargeCharge`（1 本）、`GenerationOfFMUs`（S284 から）。
 - **断った理由の内訳**（MSL の例題 566 本、最初の理由だけ数える。S284 → S297）: `redeclare` 263 → 0、`replaceable` 9 → 0、`class extends` 11 → 0、配列の型 13 → 0、レコードの束縛 41 → 155（先へ進んだ分。`frictionParameters = dcpmData.frictionParameters`〔後ろで宣言したレコード〕46、外部オブジェクト `tableID` 29、関数の戻り値のレコード `R = Frames.nullRotation()` 27、配列のレコード 11 ほか）、配列のコネクタの一括接続 7 → 72（`source.sineVoltage.p` のように部品の配列の同名のコネクタをまとめてつなぐ形）、`[:]` 13 → 20、条件つきの宣言 6 → 19（条件に配列の修飾つきの `useHeatPort` や文字列の比較）、`connect` の集合の不一致 7 → 8、配列の修飾 0 → 8、`expandable` 2、`stream` 1。
 - **持ち越し**: 後ろで宣言したレコードを欄ごとの修飾にするための宣言順の入れ替え（46 本）、関数の戻り値のレコード・外部オブジェクト、配列のコネクタの一括接続（72 本）、`Connections.isRoot` の評価、`xtask diff-frontend` への組み込み、B4（DAE）。
+
+## 付記（S337）: 初期方程式の `der` と状態の数（Electrical.Machines 2 本）、`Complex` の配列への方程式の数
+
+新しい ADR は立てず、S334 の持ち越し（状態の数 2 本と `ShowTransferFunction` の方程式の数）の原因を `cargo xtask diff-frontend --class … --dump` で確かめて直した記録をここに足す。**どちらも自前の抜けで、Rumoca の誤りではない**（v0.10.4 の確認は要らない。上流へも出さない）。変えたのは `globe-mode-dae`（状態の判定）と `globe-mode-flat`（方程式の数え方）。
+
+- **状態 2 本の原因**: `--dump` の Rumoca の構造に、自前に無い未知数 `der(imc.is[1..3])`・`der(imc.idq_rs[1..2])`（`IMC_DCBraking`、計 5 本、18 → 23）と `der(aimc.idq_sr[1..2])`・`der(aimc.idq_rr[1..2])`（`IMC_Initialize`、計 4 本、18 → 22）があった。どれも、どの行にも参照されない未知数で、`initial equation` の `der(imc.is[2]) = 0`・`der(aimc.idq_sr) = zeros(2)` などの対象。Rumoca の `rumoca-phase-dae` の `analyze_model_roles` は `der` の対象を `flat.equations` と `flat.initial_equations` の両方から集める（コードを読んで確かめた。写してはいない）が、自前の `has_der` は連続側の方程式・`when`・algorithm・束縛だけを見ていた。変数ごと（配列は全要素）に状態にする点も同じ。
+- **Rumoca の誤りとはしない理由**: [MLS 8.6（master）](https://specification.modelica.org/master/equations.html)（2026-11-15 確認）は、初期化では `der` と `pre` を未知数に数えると書くだけで、連続側で一度も微分されない変数が初期方程式の `der` だけで状態になるかは決めていない（例の `der(y) = 0` は連続側にも `der(y)` がある）。Rumoca の規則は意図して書かれたもの（初期方程式を明示的に走査する）なので、自前を合わせた。実際のツールは `imc.is[2]` を状態の別名とみなすと考えられるが【未確認】、Track B の目的は Rumoca の判定との一致なので、ここでは追わない。
+- **直し（DAE）**: `has_der` に `m.initial_equations` の `der` の対象も足す（`globe-mode-dae` の `build`）。釣り合い（未知数と方程式の数）は変わらない（代数 → 状態で未知数の数は同じ。初期方程式は数えない）。構造の正則は、`der(x)` の未知数が行から参照されなくなるが Rumoca も同じで、334/334 のまま。
+- **`ShowTransferFunction`（14 対 16）の原因**: `Modelica.ComplexBlocks.ComplexMath.TransferFunction` の `aw = {a[i]*… for i in 1:size(a,1)}`（`Complex aw[size(a,1)]`、3 本）。`Complex` の配列は要素ごとに展開され（`aw[k].re`・`aw[k].im`）、左辺の名前 `transferFunction.aw` は変数として無いので、`shape` が大きさを引けず、右辺も内包表記で引けず 1 本と数えていた（Rumoca は `transferFunction` の 7 本のうち 3 本）。`shape` の最後の手段に `record_array_len`（`t[` で始まる変数名の `t[k].x` の `k` の数。変数の表は整列しているので範囲だけをなめる）を足した。
+- **試験**: `globe-mode-dae` に 1 本（`der_in_initial_equation_makes_state`）、`globe-mode-flat` に 1 本（`record_array_equation_counts_one_per_element`。直す前は 2、直して 4）。`cargo xtask diff-frontend --dump` に初期方程式の行 `ieq[…]` を足した。
+- **shortcut**: 読めない初期方程式の印字は黙って飛ばす（状態の数だけが変わる）。属性（`start` など）の中の `der` は見ない（Rumoca は見る）。`if` の初期方程式は、条件が定数なら選んだ枝だけが `initial_equations` に入る（Rumoca も構造の選択で同じ）。実行（`globe-mode-exec`）は Rumoca のままなので、この規則は自前の DAE の判定にだけ効く。
+- **数字**（MSL の例題 566 本、S334 → S337。`GlobeModeValidation` 75 本は変わらず 73/73・73/73・73/73・正則 72/72。回帰 0、改善 3 本）: 状態の数 332/334 → **334/334**、flat の方程式の数 451/463 → **452/463**（残り 11 本は Rumoca の数え方の誤りとみている。Rotational・Translational の摩擦・歯車の 10 本と `ActuatorWithNoise`）、DAE の判定・数・構造の正則は 334/334 のまま。`msl:diff-frontend` と同じ引数で 744 s（ほかの担当と並行。S334 は 554 s）、最大 RSS 5.2 GiB。
+- **作業上の注意**: 共有 target では、同じ crate の成果物（`release/xtask`・試験のバイナリ）の名前が worktree をまたいで同じで、別の worktree のビルドに入れ替わることがある（`--dump` の出力が食い違って気付いた。試験でも起きた）。ビルド直後に自分の分を `cp` して走らせ、変えた crate の `lib.rs` を `touch` して作り直す。
 
 ## 付記（S334）: 構造の正則の不一致 33 本と `PrismaticConstraint`・`Fourbar1` の方程式の数（MultiBody）
 
@@ -427,3 +441,37 @@ S297 の見立て（Complex のレコード）は外れで、`Connections.isRoot
 
 - **#118**: S320 の `same_path_key`（#115）は比べる側だけで、LSP が返す URI は相対のまま `file:///data/msl/...`（存在しない）になっていた。URI を作る共有の関数 `file_uri` が、`/` 始まりでも `C:` 始まりでもないパスを `std::path::absolute`（cwd を足す）で絶対にしてから組み立てる。定義・参照・リネーム・ライブラリの診断の URI はすべてここを通る。symlink は解かない（`same_path_key` と同じ）。
 - 詳細と試験は [S327 の解説書](../sessions/S327-review4-issues/解説書.md)。
+
+## 付記（S341）: resolve の `Redeclare` の 99 本を、差し替えた後の型で引いて 0 にした（B2 の続き）
+
+新しい ADR は立てず、同じ流れの続きとしてここに足す。S275 の「未対応のまま `Reason::Redeclare`」のうち、`xtask diff-frontend` の resolve の列（未解決の参照が 0）が 0 にならなかった MSL の例題 99 本（未解決の参照 1330 件）と `GlobeModeValidation` の 1 本（13 件）を直した。変えたのは `globe-mode-resolve` と、`globe-mode-syntax` の AST（`RedeclaredComponent` を足しただけ）。flat は先頭で止める `resolve_head` と型名の解決しか使わないので、結果は変わらない。
+
+- **原因**（99 本のクラスから `diff-frontend` と同じ手順で未解決の参照を全部出して形ごとに数えた）: すべて式の成分参照の続き `a.b` で、既定の型の中に `b` が無く、`redeclare` / `replaceable` が見えたので `Redeclare` と数えていたもの。形は 2 つ。
+  - **型の名前を、受け継いだクラスから見直す形**（Media が大半）: `state.T`・`state_a.p`・`refState.X`。部品 `state` の型 `ThermodynamicState` は、基底 `PartialMedium` では中身が空の `replaceable record`。受け継いだ `PartialSimpleMedium.BaseProperties`・`WaterIF97_base.setSmoothState` などの外側のパッケージが `redeclare record extends ThermodynamicState`（`class extends`）で差し替えており、`T`・`p` はそちらにある。
+  - **`extends B(redeclare T x)` の部品の再宣言**（Electrical）: `internalThermalPort.heatPortRotorWinding`・`thermalPort.heatPortPermanentMagnet`（`redeclare final …ThermalPortIMC internalThermalPort`）、`cellData.nRC`・`cellData.rcData.R`（`redeclare …TransientData.CellData cellData`）。S275 は「部品の再宣言（`redeclare Foo x`）」を未対応にしていた。
+- **直し**（`Library::resolve` の `step`。部品の型の中で続きの名前を探す所）: 既定の型で引けず、失敗の理由が `Redeclare` のときだけ、次の順で差し替えた後の型を試す。
+  1. 参照のあるクラス（`Ref::scope`）の受け継ぎを外側から（外側が勝つ）たどって、部品の持ち主を受け継ぐ基底の `extends B(redeclare T x)` のうち部品 `x` を差し替えるものを探し、`T`（あれば `constrainedby` の `C` も）の中で続きを引く（`comp_redecl`）。`globe-mode-syntax` の `ast::RedeclaredComponent`（接頭辞・`final`・添字・`constrainedby` を読み飛ばして型と名前を取る）で読み、`PathRef::comp_redecls` に持つ。
+  2. 参照のあるクラスが部品の持ち主を受け継ぐ（`reaches`）なら、部品の型の名前を参照のあるクラスから引き直し、その型の中で続きを引く。`class extends` で差し替えた型が外側のパッケージにあるとき、引き直せば差し替え先に当たる。
+  - 既定の型で引けたものは今まで通り（差し替えた型は引けないときだけ使う）なので、これまで解決した参照の結果は変わらない。
+- **診断**: `cargo xtask diff-frontend --class … --dump` が、resolve で未解決になった参照（理由・名前・種類・クラス）を `unresolved …` の行で出す。
+- **試験**: `globe-mode-resolve` に `redeclared_component_types`（`class extends` で差し替えた型を受け継いだ `BaseProperties`・関数から引く、`extends Base(redeclare PortX port)` の差し替え、差し替えた型にも無い名前は `Redeclare`、差し替えていない側は `NotFound`）、`globe-mode-syntax` に `redeclared_components_in_extends`（接頭辞・`final`・添字・`constrainedby`・クラスの再宣言を拾わない）。
+- **数字**（MSL の例題 566 本・`GlobeModeValidation` 75 本、S334 → S341）: resolve 467/566 → **566/566**、未解決の参照の総数 1330 → **0**。`GlobeModeValidation` は 74/75 → **75/75**、13 → **0**。flat・dae の列は変わらない（flat 471/566・方程式の数 451/463・DAE 471/471・正則 334/334 のまま）。**回帰 0 本、改善 100 本（すべて resolve の旗）**。`mise run msl:diff-frontend` は 1880 s（他の WP と同時で swap し、`Spice3BenchmarkFourBitBinaryAdder` だけで 1095 s。S334 は 554 s）、最大 RSS 3.9 GiB。MSL の全 `.mo`（2556 本、参照 161869 件）の成分参照の続き 45463 件は、S275 から残っていた `Redeclare` の 639 件が 0 になり、すべて解決する（`msl_stats`）。`globe-mode-lsp` の `resolve_compare`（定義ジャンプの Rumoca の道との突き合わせ）は不一致 0 のまま。
+- **shortcut（計測の範囲で未解決が 0 になるだけ）**:
+  - 部品の再宣言は `extends` の修飾（と short class の基底）の中だけ。部品の修飾の中の `A a(redeclare T x)` は見ない（MSL の例題には出ていない）。
+  - 差し替えは名前と受け継ぎで決める。差し替え先が `constrainedby` に合うか、`replaceable` かは見ない。「解決できた」は「正しい」とは限らない。
+  - LSP の補完（`members_of`）は `state.` の候補を既定の型の要素のままにしている。
+  - 差し替えた型の名前の見直しは、部品の持ち主を受け継ぐクラスからの参照だけ。持ち主を受け継がないクラスから `a.state.T` のように 2 段先で効く差し替え（`Medium` が `replaceable package` のとき）は、これまで通り `Redeclare`（MSL の例題には出ていない）。
+
+## 付記（S345）: LSP の補完・定義ジャンプ・ホバーも、差し替えた後の型で引く（B2 の続き）
+
+新しい ADR は立てず、S341 の付記の「shortcut」（LSP の補完は `state.` の候補を既定の型の要素のままにしている）を直した記録としてここに足す。変えたのは `globe-mode-resolve` の `members_of`・`step`（resolve の数え方は変えない）と、`globe-mode-lsp` の `definition`。
+
+- **補完**（`Library::members_of`）: 最後の名前が部品のとき、その型を「`scope`（カーソルのあるクラス）から見て差し替わった後の型」で引く。差し替えた型の探し方は S341 の `step` と同じなので、`step` の中にあった「`extends B(redeclare T x)` の部品の型 → 受け継ぐクラスから見直した型の名前」を `redeclared_types` に切り出して、`step` と `members_of` の両方が使う（LSP 側に規則を複製しない）。差し替えた型があればそれ、無ければ書いてある型。差し替えた型は既定の型を受け継ぐか制約の下位の型なので、要素は既定の型の要素を含む。
+- **定義ジャンプ・ホバー**: 書きかけの文書（今の道の `Outline` が引けない）は、S296 から `Library::resolve` で引いているので、S341 の `step` のまま差し替えた型に飛ぶ（直す所は無かった）。**読める文書**は今の道（`globe-mode-fmt` のアウトライン）が既定の型で引いて `null` になっていたので、成分参照（名前に `.` がある）が引けなかったときだけ、同じ自前の道（`tolerant_definition`）で引き直す。点のない名前（`Real`・`time`）では木を作らせない（木を作るのは最初の 1 回で、MSL では debug 8.8 秒・RSS 約 75 MB（S279 の計測。#107 のコメントは 0.6 s））。
+- **試験**: `globe-mode-resolve` に `members_of_follows_redeclared_types`（`class extends` で差し替えた record の欄、`extends Base(redeclare PortX port)` の差し替えた部品の欄、差し替えていない側は既定のまま）、`globe-mode-lsp` に `completion_and_definition_follow_redeclared_types`（別の行にも誤りのある書きかけの `port.`・`state.` の補完、読める文書と書きかけの文書での `port.hot` の定義ジャンプとホバー）。
+- **数字**: `cargo test -p globe-mode-resolve --test resolve`（8 本 pass）・`cargo test -p globe-mode-lsp`（lib 72・cross_file 5・folding 2・tolerant_outline 2 本 pass）、clippy（`--all-targets -D warnings`）0 件。`globe-mode-lsp` の `resolve_compare`（定義ジャンプを Rumoca の道と突き合わせる `#[ignore]` 試験。debug で 1312 s）は、型名 110 箇所が一致 110・LSP が null 0 のまま、成分参照の続き 93 箇所が一致 **86 → 91**・LSP が null **7 → 2**・不一致 0。残る 2 は突き合わせの位置（参照の範囲の最後の字）が添字の中・後ろになる参照（`massflowsink1.ports[1]`・`cellData.rcData[k].C`）で、名前を `1`・`C` と切るため null になる（`massflowsink1.ports` の上では `Sources.mo` の `ports` に飛ぶことを確かめた。`cellData.rcData[k].C` は S296 の添字の shortcut で、`name_at` が `]` で切る）。`msl:diff-frontend` は回していない（resolve の数え方は変えていない）
+- **shortcut**:
+  - 補完は、今の道（アウトライン）で候補が 1 件でも出る間は自前の道に回さない（木を作る費用を毎回払わないため）。既定の型に要素があり、差し替えた型にだけある要素は、今の道が読めない（カーソルの行を除いても誤りがある）ときだけ出る。MSL の Media の `ThermodynamicState` のように既定の型が空なら、カーソルの行だけ書きかけの文書でも出る。
+  - 差し替えの規則は S341 と同じなので、持ち主を受け継がないクラスから見る `a.state.` のような 2 段先の差し替え、部品の修飾の中の `A a(redeclare T x)` は同じく見ない。
+  - 定義ジャンプの引き直しは、点のある名前だけ。`Redeclare` 以外の理由で今の道が `null` のときも（`x.start` などの属性・誤字）、1 回だけ余計に木を引く。
+
