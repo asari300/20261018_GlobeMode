@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S339 5 回目のレビューの issue — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S339 5 回目のレビューの issue">
+
+<section class="slide" id="S01">
+  <span class="tag">S339 · 2026-11-15 · Track B・P8</span>
+  <h1>5 回目のレビューの issue 11 件</h1>
+  <p class="lead">再現を確かめてから直した。11 件とも再現した</p>
+  <div class="big">#121〜#131、回帰 0</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">注意</span>
+  <h1>issue の題は本文より 1 つずれている</h1>
+  <ul>
+    <li>#122 の題は #121 の本文（Complex の展開）、#123 の題は #122 の本文…</li>
+    <li>#121 と #126 の題は <code>x</code>。<strong>重複ではなく</strong>、本文はそれぞれ別の指摘</li>
+    <li>番号は本文の指摘の番号で扱う</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">入力の大きさ</span>
+  <h1>小さい入力が大きい仕事にならないようにする</h1>
+  <ul>
+    <li>#121 <code>a*a*…</code>（40 個）: 式が 2 倍ずつ → 長さ 64 KiB で断る（1.5 ms）</li>
+    <li>#126 入れ子の <code>for</code>: 方程式 100 万本で <code>too-large</code></li>
+    <li>#130 巨大な宣言の次元の積: <code>checked_mul</code>（debug は panic だった）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">計算量</span>
+  <h1>線形探索を表に置き換える</h1>
+  <ul>
+    <li>#124 <code>{…}</code> 修飾 n = 3000: 10.2 s → 0.26 s（内包の判定が支配的だった）</li>
+    <li>#125 <code>isRoot</code> N = 1200: 13.6 s → 0.68 s</li>
+    <li>#127 <code>connect(p, q)</code> N = 3000: 6.7 s → 0.9 s</li>
+  </ul>
+  <p>数字は debug ビルド。増え方（2 倍で 2 倍）が変わったことを試験で見る。</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">正しさ</span>
+  <h1>黙って間違う 4 件</h1>
+  <ul>
+    <li>#122 初期方程式の <code>isRoot</code> が 2 つ以上: 位置がずれて <code>z = 3</code> が消える</li>
+    <li>#123 名前だけ <code>Complex</code> のレコード: 束縛が黙って落ちる</li>
+    <li>#129 <code>-o</code> がライブラリの中を素通り（未作成が 2 階層以上）</li>
+    <li>#131 <code>diff-frontend</code> が要素の欠けを一致と数える</li>
+  </ul>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">数字の意味</span>
+  <h1>#128 合格なのに「最大の相対差 7.7e4」</h1>
+  <ul>
+    <li>ソルバごとにイベント時刻が少しずれ、補間が跳びをまたぐ</li>
+    <li>管の δt 以内にずれたイベントの前後の点を比べない（同じイベントの行は誤差だけ違う時刻で書かれる）</li>
+    <li>δt を超えるずれ・片方だけのイベントは比べ続ける（本物の差を隠さない）</li>
+    <li>実機の <code>Ball</code>: 7.659e4 → 2.562e-4（残りは 0 に近い点）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">数字</span>
+  <h1>MSL の例題 566 本（S334 → S339）</h1>
+  <div class="kpis">
+    <div class="kpi"><span class="n">0</span><span class="l">回帰</span></div>
+    <div class="kpi"><span class="n">11 / 11</span><span class="l">issue を再現し修正</span></div>
+  </div>
+  <p>flat の方程式の数 451 / 463、構造の正則 334 / 334 は S334 と同じ。方程式 100 万本の上限で断られた例題は無い。</p>
+</section>
+
+<section class="slide" id="S08">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>部品の配列の展開そのものの計算量（接続が無くても N = 8000 で 3.9 s）</li>
+    <li><code>rooted</code> の枝の走査</li>
+  </ul>
+  <p class="foot">GlobeMode S339</p>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

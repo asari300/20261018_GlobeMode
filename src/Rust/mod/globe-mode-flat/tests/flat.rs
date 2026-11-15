@@ -860,3 +860,147 @@ fn record_array_equation_counts_one_per_element() {
     );
     assert_eq!(m.equation_count(), 4);
 }
+
+// ---- S339: 5 回目のレビューの issue（#121〜#127・#130）
+
+/// 時間を計って返す（計算量の試験。余裕を見た上限で、増え方が変わったことだけを見る）
+fn timed<T>(f: impl FnOnce() -> T) -> (T, std::time::Duration) {
+    let t = std::time::Instant::now();
+    let v = f();
+    let d = t.elapsed();
+    eprintln!("timed: {d:?}");
+    (v, d)
+}
+
+#[test]
+fn complex_product_chain_is_refused_not_exponential() {
+    // #121: `*` は両方の被演算子の実部・虚部を実部にも虚部にも使うので、a を 1 個足すごとに式が約 2 倍になる。
+    // 式の長さが上限を超えたら `composite-binding` で断る（a が 40 個で 2^40 文字になる前に）
+    let cx = "operator record Complex Real re; Real im; end Complex;";
+    let src = |n: usize| {
+        let z = vec!["a"; n].join("*");
+        format!("{cx} model A Complex a(re = 1, im = 2); Complex z = {z}; end A;")
+    };
+    let (e, t) = timed(|| err(&src(40), "A"));
+    assert_eq!(e, "composite-binding");
+    assert!(t.as_secs() < 20, "{t:?}");
+    // 小さい式は今までどおり欄ごとに展開する
+    let m = flat(&src(4), "A");
+    assert!(
+        m.vars
+            .iter()
+            .any(|v| v.name == "z.re" && v.binding.is_some())
+    );
+}
+
+#[test]
+fn initial_if_is_root_twice_keeps_other_initial_equations() {
+    // #122: `initial equation` の `if Connections.isRoot` が 2 つ以上あり、先の枝の方程式の数が 1 でないと、後の位置がずれて別の方程式を上書きした
+    let src = "record Ref Real g;
+          function equalityConstraint input Ref r1; input Ref r2; output Real residue[0]; algorithm end equalityConstraint;
+        end Ref;
+        connector Fr Ref r; Real x; flow Real f; end Fr;
+        model World Fr b; equation Connections.root(b.r); b.x = 0; end World;
+        model Body Fr a; Real q;
+          equation Connections.potentialRoot(a.r, 10); a.f = 0; der(q) = 1;
+          initial equation if Connections.isRoot(a.r) then q = 6; end if;
+        end Body;
+        model Top World world; Body b1; Body b2; Real z;
+          equation connect(world.b, b1.a); z = 1;
+          initial equation z = 3;
+        end Top;";
+    let m = flat(src, "Top");
+    let ie: Vec<_> = m
+        .initial_equations
+        .iter()
+        .map(|e| e.text.as_str())
+        .collect();
+    assert_eq!(ie, ["b2.q = 6", "z = 3"]);
+}
+
+#[test]
+fn user_record_named_complex_is_not_expanded() {
+    // #123: 名前だけが `Complex` で欄が `re`・`im` でないレコードは、演算子の展開に入らず断る（束縛が黙って落ちていた）
+    let src = "record Complex Real a; Real b; end Complex;
+        model M Complex u(a = 1, b = 2); Complex v(a = 3, b = 4); Boolean c(start = true);
+          Complex z = if c then u else v;
+        equation c = time > 0.5;
+        end M;";
+    assert_eq!(err(src, "M"), "composite-binding");
+}
+
+#[test]
+fn array_component_modification_is_linear() {
+    // #124: 部品の配列への `{…}` の修飾が、要素ごとに項の全部を作り直して O(n²) だった
+    let n = 6000;
+    let items: Vec<String> = (0..n).map(|i| i.to_string()).collect();
+    let src = format!(
+        "model N parameter Real v; end N; model M N n[{n}](v = {{{}}}); end M;",
+        items.join(", ")
+    );
+    let (m, t) = timed(|| flat(&src, "M"));
+    let v = m.vars.iter().find(|v| v.name == "n[6000].v").unwrap();
+    assert_eq!(v.binding.as_deref(), Some("5999"));
+    assert!(t.as_secs() < 8, "{t:?}");
+}
+
+#[test]
+fn is_root_on_one_big_component_is_not_cubic() {
+    // #125: `isRoot` の判定が呼ぶたびに成分の全部を走査し、1 つの成分に N 個の部品があると O(N³) だった
+    let n = 1200;
+    let src = format!(
+        "record Ref Real g;
+           function equalityConstraint input Ref r1; input Ref r2; output Real residue[0]; algorithm end equalityConstraint;
+         end Ref;
+         connector Fr Ref r; Real x; flow Real f; end Fr;
+         model Body Fr a; Real q;
+           equation Connections.potentialRoot(a.r, 10);
+           if Connections.isRoot(a.r) then q = 1; else q = 0; end if;
+         end Body;
+         model Top Body b[{n}]; equation for i in 1:{} loop connect(b[i].a, b[i+1].a); end for; end Top;",
+        n - 1
+    );
+    let (m, t) = timed(|| flat(&src, "Top"));
+    // 根は 1 つだけ（その部品の `q = 1`）
+    let ones = m
+        .equations
+        .iter()
+        .filter(|e| e.text.ends_with(".q = 1"))
+        .count();
+    assert_eq!(ones, 1);
+    assert!(t.as_secs() < 10, "{t:?}");
+}
+
+#[test]
+fn array_connector_connect_is_not_quadratic() {
+    // #127: `connect(p, q)`（配列のコネクタ 1 行）の葉の探索が線形で O(N²) だった
+    let n = 6000;
+    let src = format!(
+        "connector P Real v; flow Real i; end P;
+         model M P p[{n}]; P q[{n}]; equation connect(p, q); end M;"
+    );
+    let (m, t) = timed(|| flat(&src, "M"));
+    assert!(
+        m.equations
+            .iter()
+            .any(|e| e.text == "p[6000].v = q[6000].v")
+    );
+    // 直す前は N = 3000 で 6.7 s、2 倍で 4 倍（N = 6000 は 25 s 前後と見積もった）。直したあとは配列の展開そのものが残る（3 s 前後）
+    assert!(t.as_secs() < 12, "{t:?}");
+}
+
+#[test]
+fn huge_output_dims_do_not_overflow_the_equation_count() {
+    // #130: 関数の戻り値の次元の積（`by_dims`・`equalityConstraint` の戻り値）を検査なしで取り、debug は panic・release は巻き戻った
+    let src = "function f input Real x; output Real y[10000000000, 10000000000]; algorithm y := zeros(1,1); end f;
+        function g input Real x; output Real y[10000000000, 10000000000]; algorithm y := zeros(1,1); end g;
+        model M Real a; equation f(a) = g(a); end M;";
+    let m = flat(src, "M");
+    assert_eq!(m.equations.len(), 1);
+    // `equalityConstraint` の戻り値が溢れる大きさでも、過剰決定の節点は 0 本（作らない）として扱う
+    let oc = "record R Real g;
+          function equalityConstraint input R r1; input R r2; output Real residue[10000000000, 10000000000]; algorithm end equalityConstraint;
+        end R;
+        model M R r[2]; end M;";
+    flat(oc, "M");
+}

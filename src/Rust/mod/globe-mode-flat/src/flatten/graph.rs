@@ -117,19 +117,20 @@ impl F<'_> {
             .map(|(i, n)| (n.as_str(), i))
             .collect();
         // 成分の根: 確定した根、無ければ潜在的な根（優先度が小さく、同じなら名前が先）、無ければ名前が先
+        // 潜在的な根は節点の番号 → 優先度の表にして、成分の大きさだけで決める（S339）
+        let mut pot: HashMap<usize, i64> = HashMap::new();
+        for (n, p) in &potential {
+            if let Some(&j) = idx.get(n.as_str()) {
+                let e = pot.entry(j).or_insert(*p);
+                *e = (*e).min(*p);
+            }
+        }
         let root_of = |members: &[usize]| -> usize {
             let is = |j: &usize| definite.contains(nodes[*j].as_str());
             members.iter().copied().find(is).unwrap_or_else(|| {
-                potential
+                members
                     .iter()
-                    .filter_map(|(n, p)| {
-                        Some((
-                            *p,
-                            idx.get(n.as_str())
-                                .copied()
-                                .filter(|j| members.contains(j))?,
-                        ))
-                    })
+                    .filter_map(|&j| Some((*pot.get(&j)?, j)))
                     .min()
                     .map_or_else(|| members.iter().copied().min().unwrap_or(0), |(_, j)| j)
             })
@@ -269,13 +270,16 @@ impl F<'_> {
         for (k, &c) in comp_of.iter().enumerate() {
             comps.entry(c).or_default().push(k);
         }
-        let roots: Vec<usize> = comps.values().map(|m| root_of(m)).collect();
+        // 成分ごとの根は 1 回だけ決める（`isRoot` ごとに成分を走査しない。S339）
+        let root_by_comp: HashMap<usize, usize> =
+            comps.iter().map(|(&c, m)| (c, root_of(m))).collect();
+        let roots: Vec<usize> = root_by_comp.values().copied().collect();
         let depth = bfs(&adj, &roots);
         // 節点が無い（過剰決定の接続の外の）ときの Rumoca の既定は、`isRoot` が真、`rooted` が偽
         let is_root = |n: &str| {
             idx.get(n).is_none_or(|&k| {
                 let c = comp_of[k];
-                definite.contains(n) || (!tree.root[c] && root_of(&comps[&c]) == k)
+                definite.contains(n) || (!tree.root[c] && root_by_comp[&c] == k)
             })
         };
         // `rooted(a)` は、`branch(a, b)` の `a` が `b` より根に近いこと（同じ `a` の枝が複数なら最後のもの）
@@ -285,6 +289,8 @@ impl F<'_> {
                 .rfind(|(a, _)| a == n)
                 .is_some_and(|(a, b)| depth[idx[a.as_str()]] < depth[idx[b.as_str()]])
         };
+        // `initial equation` の `if` も同じに積み直す（先に `splice` すると、あとの `at` がずれる。S339）
+        let mut ireplace: HashMap<usize, (usize, Vec<Equation>)> = HashMap::new();
         for f in std::mem::take(&mut self.oc_ifs) {
             let eqs = f
                 .branches
@@ -296,7 +302,7 @@ impl F<'_> {
                 .map(|(_, e)| e)
                 .unwrap_or_default();
             if f.initial {
-                self.ieqs.splice(f.at..=f.at, eqs);
+                ireplace.insert(f.at, (1, eqs));
             } else {
                 replace.insert(f.at, (1, eqs));
             }
@@ -313,22 +319,33 @@ impl F<'_> {
                 })
             })
             .collect();
-        if !replace.is_empty() {
-            let old = std::mem::take(&mut self.eqs);
-            let mut it = old.into_iter().enumerate();
-            while let Some((i, e)) = it.next() {
-                if let Some((n, eqs)) = replace.remove(&i) {
-                    self.eqs.extend(eqs);
-                    for _ in 1..n {
-                        it.next();
-                    }
-                } else {
-                    self.eqs.push(e);
-                }
-            }
-        }
+        self.eqs = restack(std::mem::take(&mut self.eqs), replace);
+        self.ieqs = restack(std::mem::take(&mut self.ieqs), ireplace);
         self.eqs.extend(broken_eqs);
     }
+}
+
+/// 位置 → (置き換える本数, 新しい方程式) に従って、方程式の列を積み直す
+fn restack(
+    old: Vec<Equation>,
+    mut replace: HashMap<usize, (usize, Vec<Equation>)>,
+) -> Vec<Equation> {
+    if replace.is_empty() {
+        return old;
+    }
+    let mut out = Vec::with_capacity(old.len());
+    let mut it = old.into_iter().enumerate();
+    while let Some((i, e)) = it.next() {
+        if let Some((n, eqs)) = replace.remove(&i) {
+            out.extend(eqs);
+            for _ in 1..n {
+                it.next();
+            }
+        } else {
+            out.push(e);
+        }
+    }
+    out
 }
 
 /// 複数の始点からの幅優先の距離（届かない節点は `usize::MAX`）
