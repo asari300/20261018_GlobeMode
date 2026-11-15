@@ -82,6 +82,15 @@ console.log(`結果を開く: MAT ${layout.points} 点 × ${layout.names.length}
   assert.match(ac[0].newText, /^\n  connect\(a\.p, b\.p\) annotation\(Line\(points = \{\{0, 0\}, \{30, 0\}\}/);
   const ap = JSON.parse(fw.add_part("D", withDiagram, "Pin", 13, -7)); // S265: 最後の宣言の後へ
   assert.match(ap[0].newText, /^\n  Pin pin annotation\(Placement\(transformation\(origin = \{14, -8\}, extent = \{\{-10, -10\}, \{10, 10\}\}\)\)\);$/, ap[0].newText);
+  const dp = JSON.parse(fw.delete_part("D", withDiagram, "a")); // S281: 宣言と connect をまとめて消す
+  assert.equal(dp.length, 2);
+  const sm = JSON.parse(fw.set_modifier("D", withDiagram, JSON.stringify([{ part: "a", name: "k", value: "2" }]))); // S294: 修飾を書く
+  assert.equal(sm.length, 1);
+  assert.throws(() => fw.set_modifier("D", withDiagram, JSON.stringify([{ part: "a", name: "x.k", value: "2" }])), /入れ子/);
+  assert.equal(fw.delete_connect("D", withDiagram, "a.p", "zz.q"), "null");
+  const aw = JSON.parse(fw.add_waypoint("D", withDiagram, "a.p", "b.p", 1, 5, 7.5, "[[0, 0], [30, 0]]")); // S299: points が無い結線に 3 点の Line を足す
+  assert.match(aw[0].newText, /Line\(points = \{\{0, 0\}, \{5, 7\.5\}, \{30, 0\}\}/);
+  assert.equal(fw.move_waypoint("D", withDiagram, "a.p", "b.p", 0, 1, 0), "null");
   // パラメータのダイアログ（S248）: 部品ごとの入れ子の名前・型・修飾で変えた既定値・単位。変換できなければ例外
   const withParams = 'model P\n  Part c(k = 5, on = false);\nend P;\nmodel Part\n  parameter Real k(unit = "1/s") = 1 "rate";\n  parameter Boolean on = true;\n  parameter Integer n = 3;\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -k * x;\nend Part;\n';
   fw.set_file("P.mo", withParams);

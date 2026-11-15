@@ -24,7 +24,7 @@ FMU を開く（S229）: 「開く」で .fmu を選ぶと、ブラウザは「D
 初回の案内（S179）: 保存したタブが無い初回だけ「はじめに」の 3 手順（検査・実行のショートカットつき）が出て、閉じると再読み込みでも出ない（smoke では出ない）。スキップリンクは Tab 1 回でエディタへ・2 回で結果へ。タブは矢印・Home・End で移り（roving tabindex）、未保存の印（●）は編集で付いて再読み込みをまたぎ保存で消え、未保存のとき beforeunload が出る。
 ダークモード（S152）: `color_scheme="dark"` で開くと背景が暗く文字が明るい（body・エディタ・診断・プロット・graph。プロットの軸の文字は canvas に描くので明るい画素を数える）。テーマの select で「明」にすると戻り、再読み込みで選択が残り、「OS に合わせる」で暗に戻る。
 FMU を書き出す（S144）: ブラウザの wasm が作ったソースの FMU がダウンロードされ、modelDescription.xml と sources/ がある。S154 から FMI の版（2.0 / 3.0）を select で選ぶ。
-線形化（S260）: ツールバーの「線形化」で A・B・C・D の表（行・列の見出しは変数名）が出る。
+線形化（S260）: ツールバーの「線形化」で A・B・C・D の表（行・列の見出しは変数名）が出る。S291: 固有値の表と安定性の文字、「段」のパネル（変換の段）。
 パラメータのダイアログ（S248）: 図の部品のダブルクリックで `c.*` の一覧、Boolean はチェック・Enumeration は選択、値が実行の設定に乗って結果が変わり、「既定に戻す」で消える。GM-E10006 は欄の近くに出る。
 実行の設定（S142）: 終了時刻 2 とソルバ dopri45 で Decay を実行して x(2) が e⁻²、DecayK は experiment の Tolerance が初期値（出どころ experiment）に出て、k = 2 の上書きで x(1) が e⁻²。名前=値でない行は実行しない。
 ライブラリの木で Modelica → Electrical → Analog → Examples → ChuaCircuit と開き、そのファイルがエディタに開いて検査が通ることも確かめる（S127）。
@@ -889,8 +889,28 @@ def parameter_dialog(browser, origin: str, errors: list[str]) -> None:
     expect(run).to_be_enabled(timeout=300_000)
     x = final()["c.x"]
     assert abs(x - math.exp(-1)) < 1e-4, x
+    # S294・S298: 「ソースに書く」は Real と列挙（`型.リテラル`）を部品の修飾にし、既定値の列は再検査を待たず変わる。「修飾を外す」で戻る
+    pg.get_by_role("button", name="パラメータ…").click()
+    expect(row("c.k")).to_have_count(1, timeout=30_000)
+    row("c.k").get_by_role("textbox").fill("3")
+    row("c.mode").get_by_role("combobox").select_option("2")
+    dlg.locator("[data-write-source]").click()
+    expect(dlg.locator("[data-write-note]")).to_contain_text("2 本をソースの修飾に書いた", timeout=30_000)
+    editor = pg.locator(".cm-content")
+    assert "k = 3" in editor.inner_text() and "mode = Leaf.Mode.fast" in editor.inner_text(), editor.inner_text()
+    default_of = lambda n: row(n).locator("td").nth(2)
+    expect(default_of("c.k")).to_have_text("3", timeout=60_000)
+    expect(row("c.mode").get_by_role("combobox")).to_have_value("2")
+    assert sim() == {}, sim()
+    row("c.k").locator("[data-unwrite]").click()
+    expect(default_of("c.k")).to_have_text("1", timeout=60_000)
+    assert "k = 3" not in editor.inner_text() and "mode = Leaf.Mode.fast" in editor.inner_text()
+    row("c.mode").locator("[data-unwrite]").click()
+    expect(row("c.mode").get_by_role("combobox")).to_have_value("1", timeout=60_000)
+    assert "Leaf.Mode" not in editor.inner_text(), editor.inner_text()
+    dlg.get_by_role("button", name="閉じる").click()
     pg.close()
-    print("パラメータのダイアログ: 部品のダブルクリックで c.* の一覧、値が実行に効き、既定に戻すと消え、GM-E10006 は欄の近くに出る")
+    print("パラメータのダイアログ: 部品のダブルクリックで c.* の一覧、値が実行に効き、既定に戻すと消え、GM-E10006 は欄の近くに出る。ソースに書く（Real・列挙）と修飾を外すが往復し、既定値の列が追って変わる")
     if not (DIST / "msl/MSL.json").exists():
         print("public/msl/MSL.json が無いので、ChuaCircuit のパラメータの試験は飛ばす")
         return
@@ -937,6 +957,44 @@ def linearize_view(browser, origin: str, errors: list[str]) -> None:
     assert view.locator("[data-matrix='B'] thead th").all_inner_texts() == ["", "u"] and view.locator("[data-matrix='B'] tbody th").all_inner_texts() == ["x"]
     pg.close()
     print("線形化: Lin（k = 2）の A・B・C・D の表が出る（A = -2、B = C = 1、D = 0。見出しは変数名）")
+
+
+def open_text_model(pg, origin: str, errors: list[str], file: str, body: str, model: str) -> None:
+    pg.on("console", lambda m: m.type == "error" and errors.append(m.text))
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(origin)
+    pg.get_by_role("button", name="検査").wait_for()
+    with pg.expect_file_chooser() as ch:
+        pg.get_by_role("button", name="開く").click(force=True)
+    ch.value.set_files(files=[{"name": file, "mimeType": "text/plain", "buffer": body.encode()}])
+    pg.get_by_label("モデル名").fill(model)
+
+
+def eigen_and_stages(browser, origin: str, errors: list[str]) -> None:
+    """S291: 線形化の結果に A の固有値（実部・虚部）と安定性の文字が出る（LinearSystem は A = [-2 1; 1 -2] で -1・-3 で安定、減衰のない振り子は ±i で境界）。
+    「段」のパネルが変換の段を出す（インデックス 3 の振り子は微分した方程式と状態選択の候補が出る）。"""
+    root = Path(__file__).resolve().parents[2] / "Modelica" / "GlobeModeValidation"
+    pg = browser.new_page()
+    open_text_model(pg, origin, errors, "LinearSystem.mo", (root / "Simulation" / "LinearSystem.mo").read_text().replace("within GlobeModeValidation.Simulation;\n", ""), "LinearSystem")
+    pg.get_by_role("button", name="線形化").click()
+    eig = pg.locator("[data-linearization] [data-eigen]")
+    expect(eig).to_be_visible(timeout=60_000)
+    rows = [r.split("\t") for r in eig.locator("tbody tr").all_inner_texts()]
+    assert sorted(float(r[1]) for r in rows) == [-3.0, -1.0] and all(float(r[2]) == 0 for r in rows), rows
+    assert eig.locator("[data-stability='stable']").inner_text().startswith("安定性: 安定"), eig.inner_text()
+    assert eig.locator("thead th").all_inner_texts() == ["#", "実部", "虚部"]
+    pg.close()
+
+    pg = browser.new_page()
+    open_text_model(pg, origin, errors, "Pendulum.mo", (root / "Index" / "Pendulum.mo").read_text().replace("within GlobeModeValidation.Index;\n", ""), "Pendulum")
+    pg.locator("[data-stages-button]").click()
+    panel = pg.locator("[data-stages]")
+    expect(panel.locator("[data-stage='index']")).to_be_visible(timeout=60_000)
+    assert panel.locator("[data-stage='index']").get_attribute("data-index") == "3"
+    assert "インデックス 3" in panel.locator("[data-stage='index']").inner_text() and "状態選択の候補" in panel.inner_text()
+    assert [li.get_attribute("data-stage") for li in panel.locator("ol > li[data-stage]").all()] == ["flat", "dae", "index", "blt", "tearing"]
+    pg.close()
+    print("固有値と段: LinearSystem の固有値 -1・-3 と「安定」の文字、Pendulum の段でインデックス 3（flat → DAE → index → BLT → tearing の順）")
 
 
 def fmu_runtime_select(browser, origin: str, errors: list[str]) -> None:
@@ -2413,6 +2471,7 @@ def main() -> int:
         diagram_view(browser, origin, errors)  # S245
         parameter_dialog(browser, origin, errors)  # S248
         linearize_view(browser, origin, errors)  # S260
+        eigen_and_stages(browser, origin, errors)  # S291
         open_fmu_file(browser, origin, errors)  # S229
         fmu_runtime_select(browser, origin, errors)  # S239
         results_followups(browser, origin, errors)  # S236

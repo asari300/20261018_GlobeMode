@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S302 VS Code のパネルで途中の点 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S302 VS Code のパネルで途中の点">
+
+<section class="slide" id="S01">
+  <span class="tag">S302 · 2026-11-15 · P8</span>
+  <h1>VS Code のパネルでも、結線の途中の点を動かせる</h1>
+  <p class="lead">結線を選ぶとつまみが出る。ドラッグで動かし、線のダブルクリックで点を足す</p>
+  <div class="big">Rust・LSP は変えない。つまみと点の決め方は共有、拡張は検査して LSP を呼ぶだけ</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">流れ</span>
+  <h1>webview から文書まで</h1>
+  <ul>
+    <li>webview: 選んだ結線の途中の点に四角のつまみ（<code>rect.wp</code>）。ドラッグで <code>moveWaypoint</code>、線のダブルクリックで <code>addWaypoint</code> を <code>postMessage</code></li>
+    <li>拡張: <code>edit.js</code> が端・index（整数）・座標（有限で上限つき）・ends（2 点）を検査。<code>file</code>・<code>class</code> は受け取らない</li>
+    <li><code>globe/moveWaypoint</code>・<code>globe/addWaypoint</code> の TextEdit を <code>WorkspaceEdit</code> で入れる（undo 可、保存しない）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">共有と確かめ</span>
+  <h1><code>diagram-waypoint.ts</code> に出した</h1>
+  <ul>
+    <li><code>handlesOf</code>・<code>halfOf</code>・<code>addWaypointOf</code>・<code>handleNode</code> を Svelte の DiagramView と webview が読む</li>
+    <li>ドラッグは S299 の <code>diagram-drag.ts</code> の <code>onWaypoint</code> のまま</li>
+    <li>試験: <code>pnpm test</code>（検査・共有の関数）と e2e（足して動かすと Line(points) が変わり、undo で戻る）</li>
+  </ul>
+  <pre><code>pnpm test   # src/VSCode/globe-mode
+gh workflow run vscode.yml --ref feature/s302-vscode-waypoints</code></pre>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

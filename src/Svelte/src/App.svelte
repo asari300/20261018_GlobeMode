@@ -20,10 +20,12 @@
   import SimSettings from "./lib/SimSettings.svelte";
   import DocsPanel from "./lib/DocsPanel.svelte";
   import BltPanel from "./lib/BltPanel.svelte";
+  import StagesPanel from "./lib/StagesPanel.svelte";
   import { modelicaDocs } from "./lib/docs";
   import { isInternal } from "./lib/plot/signals";
   import FmuForm from "./lib/FmuForm.svelte";
-  import { isFmuFile, isResultsFile, type ResultColumns } from "./lib/results";
+  import CosimForm from "./lib/CosimForm.svelte";
+  import { isCosimFile, isFmuFile, isResultsFile, type ResultColumns } from "./lib/results";
 
   // エディタの文書の名前。ライブラリの木で開くと、そのライブラリのファイルの名前（同じ名前で差し替える。S127）
   let file = $state("Model.mo");
@@ -82,6 +84,7 @@
   let icon = $state.raw<Icon | null>(null); // S244: 説明パネルの上のアイコン
   let diagram = $state.raw<Diagram | null>(null); // S245: 「図」のタブ
   let bltModel = $state<string | null>(null); // S262: 「BLT」を押したときのモデル名
+  let stagesModel = $state<string | null>(null); // S291: 「段」を押したときのモデル名
   let graphModel = $state<string | null>(null); // 「グラフ」を押したときのモデル名（入力のたびに描き直さない）
 
   // S141: 自分のファイルを開く・保存する。本文とファイル名は localStorage に自動保存して起動時に戻す（使えなくても動く。S102）。モデル名は戻さず本文から入れ直す（smoke が書き換えたモデル名を次の起動で拾わないため）
@@ -598,7 +601,7 @@
     }
     view.focus();
   }
-  // 図の編集（S250 部品の移動・S261 結線・S265 部品の追加）: Rust が返す TextEdit の配列をエディタに 1 回の dispatch（undo 1 回）で入れる。保存はしない。足せなければ false
+  // 図の編集（S250 部品の移動・S261 結線・S265 部品の追加・S281 削除）: Rust が返す TextEdit の配列をエディタに 1 回の dispatch（undo 1 回）で入れる。保存はしない。足せなければ false
   async function editDiagram(get: (d: Diagram) => Promise<{ range: { start: { line: number; character: number }; end: { line: number; character: number } }; newText: string }[] | null>): Promise<boolean> {
     if (!diagram) return false;
     try {
@@ -611,9 +614,26 @@
       return false;
     }
   }
+  // S294: パラメータのダイアログの「ソースに書く」。部品の修飾を TextEdit にして 1 回の dispatch で入れる（undo 1 回。保存しない）。断られたら理由を返す
+  async function writeModifiers(cls: string, modifiers: { part: string; name: string; value: string }[]): Promise<string | null> {
+    try {
+      await backend.setFile(file, view.state.doc.toString());
+      const edits = await backend.setModifier(cls, modifiers, { file });
+      if (!edits.length) return "ソースは変わらなかった";
+      view.dispatch({ changes: edits.map((e) => ({ from: offsetOf(e.range.start), to: offsetOf(e.range.end), insert: e.newText })) });
+      await backend.setFile(file, view.state.doc.toString()); // S298: ダイアログが parameters を引き直せるよう、書いた本文を Workspace に入れる
+      return null;
+    } catch (e) {
+      return String((e as Error).message ?? e);
+    }
+  }
   const onMove = (part: string, dx: number, dy: number) => editDiagram((d) => backend.movePart(d.class, part, dx, dy, { file }));
   const onConnect = (from: string, to: string, points: [number, number][]) => editDiagram((d) => backend.addConnect(d.class, from, to, points, { file }));
   const onAdd = (type: string, x: number, y: number) => editDiagram((d) => backend.addPart(d.class, type, x, y, { file }));
+  // S299: 結線の途中の点（点のドラッグと、線のダブルクリックで足す）
+  const onWaypoint = (from: string, to: string, index: number, dx: number, dy: number) => editDiagram((d) => backend.moveWaypoint(d.class, from, to, index, dx, dy, { file }));
+  const onAddWaypoint = (from: string, to: string, index: number, x: number, y: number, ends: [[number, number], [number, number]]) => editDiagram((d) => backend.addWaypoint(d.class, from, to, index, x, y, ends, { file }));
+  const onDelete = (w: { part: string } | { from: string; to: string }) => editDiagram((d) => "part" in w ? backend.deletePart(d.class, w.part, { file }) : backend.deleteConnect(d.class, w.from, w.to, { file }));
   // S265: 木の「図へ」ボタン（キーボード用）は図の中央に足す
   const addToCenter = (e: { path: string }) => diagram && onAdd(e.path, (diagram.extent[0] + diagram.extent[2]) / 2, (diagram.extent[1] + diagram.extent[3]) / 2);
   function goBack() {
@@ -738,10 +758,31 @@
       if (runState === "running") { runState = "idle"; runNote = ""; }
     }
   }
+  // S277: コシミュレーション（.ssp / spec の .json。Desktop だけ）。FMU と同じ流れ（設定 → 別プロセスで実行 → 結果のタブ）
+  let cosimAsk = $state<{ name: string; settle: (r: { stopTime?: number; step?: number } | null) => void } | null>(null);
+  async function openCosim(name: string, path?: string) {
+    if (!path || !backend.cosim) { failure = `${name} を回せるのは Desktop だけ（ブラウザ・Android はネイティブコードを動かせない）`; return; }
+    remember(path, "");
+    const opts = await new Promise<{ stopTime?: number; step?: number } | null>((settle) => (cosimAsk = { name, settle }));
+    cosimAsk = null;
+    if (!opts) return;
+    runState = "running";
+    runNote = "コシミュレーションを実行中";
+    try {
+      openResults(name, await backend.cosim(path, opts, (t) => { runNote = `コシミュレーションを実行中: t = ${t.toPrecision(4)}`; }));
+    } catch (e) {
+      if (!(e as { cancelled?: boolean }).cancelled) throw e;
+      runState = "cancelled";
+      runNote = "止めた（コシミュレーションの結果は出ない）";
+    } finally {
+      if (runState === "running") { runState = "idle"; runNote = ""; }
+    }
+  }
   const openFromDisk = () => run(async () => {
     const f = await backend.openFile();
     if (!f) return;
     if (isFmuFile(f.name)) return openFmu(f.name, f.path);
+    if (desktop && isCosimFile(f.name)) return openCosim(f.name, f.path);
     if (f.columns) { if (f.path) remember(f.path, ""); return openResults(f.name, f.columns, f.path); } // S236: Desktop は最近使ったファイルにも入れる
     openOwn(f.name, f.text, f.path);
     remember(f.path ?? f.name, f.text);
@@ -750,6 +791,7 @@
     // S236: 結果と FMU の最近使ったファイル（Desktop だけ。読むのは sidecar）
     if (desktop && isResultsFile(path) && backend.readResultsAt) { openResults(baseName(path), await backend.readResultsAt(path), path); return remember(path, ""); }
     if (desktop && isFmuFile(path)) return openFmu(baseName(path), path);
+    if (desktop && isCosimFile(path)) return openCosim(baseName(path), path);
     const r = recent.find((x) => x.path === path);
     const f = r?.text !== undefined ? { name: path, text: r.text } : await backend.openPath?.(path);
     if (f) openOwn(f.name, f.text, desktop ? path : undefined);
@@ -789,6 +831,9 @@
   });
   const blt = () => run(async () => {
     bltModel = model;
+  });
+  const stages = () => run(async () => {
+    stagesModel = model;
   });
 
   // S260: 線形化。時刻の欄が空なら実験の開始時刻。上書きは実行の設定のパラメータ（simSettings.parameters）を使う
@@ -887,6 +932,7 @@
     <button onclick={() => simulate()} disabled={busy} title="実行（Ctrl/Cmd+Enter）" aria-keyshortcuts="Control+Enter Meta+Enter">実行</button>
     <button onclick={graph} disabled={busy}>グラフ</button>
     <button onclick={blt} disabled={busy} data-blt-button>BLT</button>
+    <button onclick={stages} disabled={busy} data-stages-button title="変換の段（flat → DAE → インデックス → BLT → tearing）の要約">段</button>
     <button onclick={linearize} disabled={busy} title="状態空間の行列 A・B・C・D を出す（数値の中心差分）">線形化</button>
     <input class="lin-time" inputmode="decimal" placeholder="開始時刻" aria-label="線形化の時刻（空なら開始時刻）" bind:value={linTime}>
     <button onclick={format} disabled={busy}>整形</button>
@@ -921,7 +967,7 @@
   {#if canForce === model}<p class="note" data-can-force><button onclick={() => simulate(true)} disabled={busy}>それでも実行する</button> 検査の Error を無視して実行する（強行）。結果は信頼できないことがある。</p>{/if}
   {#if forced}<p class="note forced" role="status" data-forced>強行した実行: 検査の Error を無視して実行した結果。信頼できないことがある。</p>{/if}
   {#if strayLib === model && own && !models.includes(model)}<p class="note" role="status" data-stray>モデル「{model}」はライブラリのもので、エディタの {baseName(file)} には無い。<button onclick={() => openLibrary({ path: model })} disabled={busy}>ライブラリのファイルを開く</button></p>{/if}
-  <SimSettings {backend} {model} {experiment} errors={diagnostics.filter((d) => d.code === "GM-E10004" || d.code === "GM-E10006")} {openParams} checked={checkedModel} last={lastSettings} bind:settings={simSettings} bind:problem={settingsProblem} />
+  <SimSettings {backend} {model} {experiment} errors={diagnostics.filter((d) => d.code === "GM-E10004" || d.code === "GM-E10006")} {openParams} onwrite={writeModifiers} checked={checkedModel} last={lastSettings} bind:settings={simSettings} bind:problem={settingsProblem} />
   {#if tauri}<p class="note" data-config>
     <button onclick={async () => { configNote = ""; try { await tauri.reloadConfig(); configNote ||= "globe-mode.toml を読み直した（無ければ既定）"; } catch (e) { configNote = String(e); } }}>設定を読み直す</button> {configNote}
   </p>{/if}
@@ -948,6 +994,7 @@
       </span>
     {/each}
   </div>
+  {#if cosimAsk}<CosimForm name={cosimAsk.name} onrun={(r) => cosimAsk?.settle(r)} oncancel={() => cosimAsk?.settle(null)} />{/if}
   {#if fmuAsk}<FmuForm name={fmuAsk.name} path={fmuAsk.path} info={fmuAsk.info} onrun={(r) => fmuAsk?.settle(r)} oncancel={() => fmuAsk?.settle(null)} />{/if}
   {#if isResults}<p class="note" data-results>開いた結果のファイル: {file}（{columns?.points ?? 0} 点、{columns?.names.length ?? 0} 信号）。プロットの CSV・PNG の書き出しはそのまま使える。実行・保存はできない。{tabs[cur]?.path ? "再読み込みでは同じファイルを読み直す。" : "再読み込みで閉じる（ファイルのパスを持たない）。"}</p>
     {#if resultParams.length}
@@ -966,7 +1013,7 @@
   <div class="work">
     {#if msl === "loaded"}<aside class="library"><LibraryTree {backend} onOpen={openLibrary} onAdd={diagram ? addToCenter : undefined} /></aside>{/if}
     <div class="editor" id="editor" hidden={isResults} bind:this={host}></div>
-    <DocsPanel doc={docs} {icon} {diagram} {onMove} {onConnect} {onAdd} onParams={(part) => (openParams = { part })} onJump={(line) => moveTo(view.state.doc.line(line + 1).from, view.state.doc.line(line + 1).from)} />
+    <DocsPanel doc={docs} {icon} {diagram} {onMove} {onConnect} {onAdd} {onDelete} {onWaypoint} {onAddWaypoint} onParams={(part) => (openParams = { part })} onJump={(line) => moveTo(view.state.doc.line(line + 1).from, view.state.doc.line(line + 1).from)} />
   </div>
   <p class="hint" id="editor-help">{EDITOR_HELP}</p>
   {#if saved}<p class="note" role="status" data-saved>{saved}</p>{/if}
@@ -1002,6 +1049,7 @@
   </table>
   {#if columns}<Plot {columns} {model} />{/if}
   {#if bltModel}<BltPanel {backend} model={bltModel} />{/if}
+  {#if stagesModel}<StagesPanel {backend} model={stagesModel} />{/if}
   {#if lin}<LinearizeView result={lin} onclose={() => (lin = null)} />{/if}
   {#if graphModel}<Graph {backend} model={graphModel} onSelect={select} />{/if}
 </main>

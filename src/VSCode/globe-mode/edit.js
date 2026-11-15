@@ -1,7 +1,13 @@
-// 側のパネルの編集（S264）。webview（信頼の境界の外）から届いた移動・結線のメッセージを検査し、LSP の要求にする。
+// 側のパネルの編集（S264）。webview（信頼の境界の外）から届いた移動・結線・削除（S293）・結線の途中の点（S302）のメッセージを検査し、LSP の要求にする。
 // 検査を通らなければ null（黙って捨てる）。file と class は webview の言い分を使わず、パネルが最後に描かせた図のものを使う（panel.js）。
 const name = (s) => typeof s === "string" && /^\w+$/.test(s); // 部品・コネクタの名前（Rust 側もソースに入れる文字を絞る）
+// 結線の端: `名前` か `名前[添字]` を `.` でつないだ 2 つ（`a.p`・`b[2].n`・`b[i+1].n`）。Rust 側が字を絞って見る（addConnect）か、比べるだけで書かない（deleteConnect）
+const seg = (s) => /^\w+(\[[\w,+*-]*\])?$/.test(s);
+const end = (s) => typeof s === "string" && s.split(".").length === 2 && s.split(".").every(seg);
 const num = (v) => typeof v === "number" && Number.isFinite(v) && Math.abs(v) <= 1e6;
+
+const pt = (p) => Array.isArray(p) && p.length === 2 && p.every(num);
+const idx = (v) => Number.isSafeInteger(v) && v >= 0 && v <= 10000; // 途中の点の番号（Line(points) の中。S302）
 
 /** @returns {{ id: number, method: string, args: object } | null} */
 function parseEdit(m) {
@@ -10,9 +16,18 @@ function parseEdit(m) {
     return name(m.part) && num(m.dx) && num(m.dy) ? { id: m.id, method: "globe/movePart", args: { part: m.part, dx: m.dx, dy: m.dy } } : null;
   }
   if (m.type === "connect") {
-    const end = (s) => typeof s === "string" && s.split(".").length === 2 && s.split(".").every(name);
     const ok = Array.isArray(m.points) && m.points.length <= 64 && m.points.every((p) => Array.isArray(p) && p.length === 2 && p.every(num));
     return end(m.from) && end(m.to) && ok ? { id: m.id, method: "globe/addConnect", args: { from: m.from, to: m.to, points: m.points } } : null;
+  }
+  if (m.type === "deletePart") return name(m.part) ? { id: m.id, method: "globe/deletePart", args: { part: m.part } } : null;
+  if (m.type === "deleteConnect") return end(m.from) && end(m.to) ? { id: m.id, method: "globe/deleteConnect", args: { from: m.from, to: m.to } } : null;
+  // S302: 結線の途中の点。端は deleteConnect と同じ検査、index は整数、座標は有限で上限つき、ends は 2 点
+  if (m.type === "moveWaypoint") {
+    return end(m.from) && end(m.to) && idx(m.index) && num(m.dx) && num(m.dy) ? { id: m.id, method: "globe/moveWaypoint", args: { from: m.from, to: m.to, index: m.index, dx: m.dx, dy: m.dy } } : null;
+  }
+  if (m.type === "addWaypoint") {
+    const ok = end(m.from) && end(m.to) && idx(m.index) && num(m.x) && num(m.y) && Array.isArray(m.ends) && m.ends.length === 2 && m.ends.every(pt);
+    return ok ? { id: m.id, method: "globe/addWaypoint", args: { from: m.from, to: m.to, index: m.index, x: m.x, y: m.y, ends: m.ends } } : null;
   }
   return null;
 }

@@ -51,7 +51,7 @@ use std::sync::{Arc, Mutex};
 
 /// CLI が S10 の experiment の判定を表示するのに使う（S010）
 pub use globe_mode_analysis::preflight::ExperimentVerdict;
-pub use globe_mode_analysis::{BltBlock, BltReport};
+pub use globe_mode_analysis::{BltBlock, BltReport, StagesReport};
 use globe_mode_analysis::{IndexReport, InitReport, LoopReport, PreflightReport, StructuralReport};
 use globe_mode_core::normalize::{self, SourceShape};
 use globe_mode_core::{Diagnostic, Stage, codes};
@@ -796,6 +796,29 @@ impl GlobeDb {
                 .collect());
         };
         Ok(globe_mode_analysis::analyze_blt(&structure, &index))
+    }
+
+    /// 変換の段ごとの要約（flat → DAE → インデックス → BLT → tearing。S280）。検査が通らないときは診断。
+    pub fn stages(&mut self, model: &str) -> Result<StagesReport, Vec<Diagnostic>> {
+        let blt = self.blt(model)?;
+        let ws = self.workspace();
+        let request = CheckRequest::new(self, model.to_string());
+        let report = check(self, ws, request).clone();
+        let shape = dae_shape(self, ws, request).clone();
+        let index = index_report(self, ws, request).clone();
+        let loops = loop_report(self, ws, request).clone();
+        let (Some(structure), Some(index), Some(loops)) = (shape, index, loops) else {
+            unreachable!("blt が通ったので DAE の構造と S7・S9 の結果がある");
+        };
+        Ok(globe_mode_analysis::analyze_stages(
+            report.flat.as_ref(),
+            report.dae.as_ref(),
+            report.balance.as_ref(),
+            &structure,
+            &index,
+            &blt,
+            &loops,
+        ))
     }
 
     /// DAE まで変換したモデル（S011。実行系 `globe-mode-exec` に渡す）。salsa の外の値。

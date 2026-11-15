@@ -1,7 +1,7 @@
 //! `.ssp`（SSP 2.0.1。S253、ADR-0026 の (r)）を [`CosimSpec`] にする。回すのは S249 のマスターそのまま。
 //!
 //! `.ssp` を一時ディレクトリに展開し（zip slip・サイズの上限は FMU と同じ `unpack`）、
-//! `SystemStructure.ssd` の `Component` を `fmus`、`Connection` を `connections` にする。
+//! `SystemStructure.ssd` の `Component`（入れ子の System の下は `外側.内側`。S295）を `fmus`、`Connection`（System のコネクタを通るものは 1 本にたどる）を `connections` にする。
 //! 通信刻みは SSD に無いので呼び手が渡す（S274 の `write_ssp` が書いた `.ssp` なら、独自の `Annotation` から読む）。`Component` の `ParameterBindings` は `start` にする（S263）。
 
 use std::path::{Component, Path};
@@ -9,7 +9,7 @@ use std::path::{Component, Path};
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
-use globe_mode_fmi::ssp::{COSIM_ANNOTATION, parse_ssd, parse_ssv};
+use globe_mode_fmi::ssp::{COSIM_ANNOTATION, SspBinding, parse_ssd, parse_ssv};
 use globe_mode_fmi::{Causality, VarType};
 
 use crate::cosim::valid_fmu_name;
@@ -60,53 +60,153 @@ impl Ssp {
                     c.name, c.source
                 )));
             }
-            spec.fmus.insert(c.name.clone(), dir.path().join(&c.source));
+            if spec
+                .fmus
+                .insert(c.name.clone(), dir.path().join(&c.source))
+                .is_some()
+            {
+                // 後ろが前を黙って消し、ParameterBindings は両方が後ろの FMU に入る（S288）
+                return Err(Error::Ssp(format!("Component の名前 {:?} が重複", c.name)));
+            }
         }
+        // modelDescription は FMU ごとに 1 回だけ読む（結線の本数に比例して読み直さない。S288）。読めない FMU は実行のときに誤りになる
+        let descs: BTreeMap<&String, _> = spec
+            .fmus
+            .iter()
+            .map(|(n, p)| (n, read_model_description(p).ok()))
+            .collect();
         // start / end はデータの向きではない（SSP 5.3.2）。FMU の causality で「出力 → 入力」に揃える
         let causality = |e: &str, v: &str| -> Option<Causality> {
-            let d = read_model_description(spec.fmus.get(e)?).ok()?;
-            d.variables
+            descs
+                .get(&e.to_string())?
+                .as_ref()?
+                .variables
                 .iter()
                 .find(|x| x.name == v)
                 .map(|x| x.causality)
         };
+        // 入れ子の System のコネクタは素通し（S295）: 結線を節点（要素, コネクタ）の網にまとめ、網ごとに出力 1 本 → 残りの入力へ
+        let mut ids: BTreeMap<(&str, &str), usize> = BTreeMap::new();
+        let mut parent: Vec<usize> = Vec::new();
+        let mut edges = Vec::new();
         for c in &ssd.connections {
-            let (a, b) = (
-                format!("{}.{}", c.start_element, c.start_connector),
-                format!("{}.{}", c.end_element, c.end_connector),
-            );
-            let flipped = causality(&c.start_element, &c.start_connector) == Some(Causality::Input)
-                && causality(&c.end_element, &c.end_connector) == Some(Causality::Output);
-            spec.connections.push(if flipped { (b, a) } else { (a, b) });
+            let mut end = [0; 2];
+            for (n, (e, k)) in end.iter_mut().zip([
+                (c.start_element.as_str(), c.start_connector.as_str()),
+                (c.end_element.as_str(), c.end_connector.as_str()),
+            ]) {
+                if !spec.fmus.contains_key(e) && !ssd.systems.iter().any(|s| s == e) {
+                    return Err(Error::Ssp(format!("接続の端 {e}.{k} の要素が無い")));
+                }
+                *n = *ids.entry((e, k)).or_insert_with(|| {
+                    parent.push(parent.len());
+                    parent.len() - 1
+                });
+            }
+            edges.push((end[0], end[1]));
         }
-        // ParameterBindings → start（5.2.3: 後ろの binding が勝つ。FMU に無い名前は無視する）
-        for c in &ssd.components {
-            let Ok(d) = read_model_description(&spec.fmus[&c.name]) else {
-                continue; // 読めない FMU は実行のときに誤りになる
+        fn find(p: &mut [usize], mut x: usize) -> usize {
+            while p[x] != x {
+                p[x] = p[p[x]];
+                x = p[x];
+            }
+            x
+        }
+        for (a, b) in edges {
+            let (a, b) = (find(&mut parent, a), find(&mut parent, b));
+            parent[a] = b;
+        }
+        // 網 → FMU の端（節点の番号の順 = SSD に現れた順）
+        let mut nets: BTreeMap<usize, Vec<(&str, &str)>> = BTreeMap::new();
+        let mut by_id: Vec<_> = ids.iter().collect();
+        by_id.sort_by_key(|(_, i)| **i);
+        for (&(e, k), &i) in by_id {
+            if spec.fmus.contains_key(e) {
+                nets.entry(find(&mut parent, i)).or_default().push((e, k));
+            }
+        }
+        let mut pairs: Vec<(usize, String, String)> = Vec::new();
+        for ends in nets.values() {
+            let outs: Vec<_> = ends
+                .iter()
+                .filter(|(e, k)| causality(e, k) == Some(Causality::Output))
+                .collect();
+            let name = |(e, k): &(&str, &str)| format!("{e}.{k}");
+            if ends.len() < 2 {
+                return Err(Error::Ssp(format!(
+                    "{} の接続は FMU の端が 1 つで終わっている",
+                    name(&ends[0])
+                )));
+            }
+            let src = outs.first().copied().unwrap_or(&ends[0]);
+            if outs.len() > 1 {
+                return Err(Error::Ssp(format!(
+                    "{} と {} が同じ入力につながる（出力は 1 本だけ）",
+                    name(outs[0]),
+                    name(outs[1])
+                )));
+            }
+            for end in ends.iter().filter(|e| *e != src) {
+                // 先（入力）の並びは SSD に現れた順のまま。Gauss–Seidel の順に効く
+                pairs.push((ids[end], name(src), name(end)));
+            }
+        }
+        pairs.sort();
+        spec.connections = pairs.into_iter().map(|(_, a, b)| (a, b)).collect();
+        // ParameterBindings → start（5.2.3: 同じ階層は後ろの binding が勝ち、階層が違えば上位の System が勝つ。
+        // FMU に無い名前は無視する）。深い階層から先に適用して、上位に上書きさせる
+        let scoped: Vec<(&str, &SspBinding)> = ssd
+            .system_bindings
+            .iter()
+            .map(|(p, b)| (p.as_str(), b))
+            .chain(
+                ssd.components
+                    .iter()
+                    .flat_map(|c| c.bindings.iter().map(|b| (c.name.as_str(), b))),
+            )
+            .collect();
+        let depth = |p: &str| {
+            if p.is_empty() {
+                0
+            } else {
+                p.split('.').count()
+            }
+        };
+        let mut order: Vec<usize> = (0..scoped.len()).collect();
+        order.sort_by_key(|&i| std::cmp::Reverse(depth(scoped[i].0)));
+        for i in order {
+            let (scope, b) = scoped[i];
+            let params = match &b.source {
+                None => b.params.clone(),
+                Some(s) if is_inside_relative(s) => {
+                    let xml = std::fs::read_to_string(dir.path().join(s)).map_err(|e| {
+                        Error::Ssp(format!(
+                            "{scope:?} の ParameterBinding {s:?} を読めない: {e}"
+                        ))
+                    })?;
+                    parse_ssv(&xml).map_err(|m| Error::Ssp(format!("{s}: {m}")))?
+                }
+                Some(s) => {
+                    return Err(Error::Ssp(format!(
+                        "{scope:?} の ParameterBinding の source {s:?} は SSP の中の相対パスでない"
+                    )));
+                }
             };
-            for b in &c.bindings {
-                let params = match &b.source {
-                    None => b.params.clone(),
-                    Some(s) if is_inside_relative(s) => {
-                        let xml = std::fs::read_to_string(dir.path().join(s)).map_err(|e| {
-                            Error::Ssp(format!(
-                                "Component {:?} の ParameterBinding {s:?} を読めない: {e}",
-                                c.name
-                            ))
-                        })?;
-                        parse_ssv(&xml).map_err(|m| Error::Ssp(format!("{s}: {m}")))?
-                    }
-                    Some(s) => {
-                        return Err(Error::Ssp(format!(
-                            "Component {:?} の ParameterBinding の source {s:?} は SSP の中の相対パスでない",
-                            c.name
-                        )));
-                    }
+            for (n, v) in params {
+                // System の binding の名前は階層名（`comp.var`）、Component のは変数名
+                let full = if scope.is_empty() {
+                    format!("{}{n}", b.prefix)
+                } else {
+                    format!("{scope}.{}{n}", b.prefix)
                 };
-                for (n, v) in params {
-                    let n = format!("{}{n}", b.prefix);
-                    if d.variables.iter().any(|x| x.name == n) {
-                        spec.start.insert(format!("{}.{n}", c.name), v);
+                for (f, d) in &descs {
+                    let Some(d) = d else { continue };
+                    if let Some(var) = full
+                        .strip_prefix(f.as_str())
+                        .and_then(|r| r.strip_prefix('.'))
+                        && d.variables.iter().any(|x| x.name == var)
+                    {
+                        spec.start.insert(format!("{f}.{var}"), v);
                     }
                 }
             }
@@ -128,7 +228,7 @@ fn esc(s: &str) -> String {
 /// SSD は `System` 1 つ。`Component` は `resources/<名前>.fmu`（FMU の zip をそのまま写す）、`Connectors` は結線に出る変数だけ
 /// （causality・型は FMU の modelDescription から）、`start` は `ParameterBindings` のインライン、時刻は `DefaultExperiment`、
 /// 刻みと algorithm は独自の `Annotation`（[`COSIM_ANNOTATION`]）に入れる。`timeout`・`memory_limit_mib` は実行の上限なので書かない。
-/// 結線は Real（Float64）だけ（[`Ssp::open`] が Real 以外のコネクタを断るため）。
+/// 結線は Float64（`ssc:Real`）・Int32（`ssc:Integer`）・Boolean（`ssc:Boolean`）で、両端は同じ型（S295）。
 /// `"a.x"` を（FMU の名前, 変数名, 変数）にする。
 fn var_of<'a>(
     descs: &'a BTreeMap<&String, globe_mode_fmi::ModelDescription>,
@@ -161,23 +261,37 @@ pub fn write_ssp(spec: &CosimSpec, out: &Path) -> Result<()> {
         }
         descs.insert(name, read_model_description(path)?);
     }
-    // コンポーネントごとの (変数名 → "input" | "output")
-    let mut connectors: BTreeMap<&str, BTreeMap<&str, &str>> = BTreeMap::new();
+    // コンポーネントごとの (変数名 → ("input" | "output", SSP の型の要素))
+    let mut connectors: BTreeMap<&str, BTreeMap<&str, (&str, &str)>> = BTreeMap::new();
     let mut connections = String::new();
     for (a, b) in &spec.connections {
         let mut ends = Vec::new();
+        let mut types = Vec::new();
         for (key, want, kind) in [
             (a, Causality::Output, "output"),
             (b, Causality::Input, "input"),
         ] {
             let (f, v, x) = var_of(&descs, key)?;
-            if x.causality != want || x.ty != VarType::Float64 || x.dimensions {
+            let tag = match x.ty {
+                VarType::Float64 => "Real",
+                VarType::Int32 => "Integer",
+                VarType::Boolean => "Boolean",
+                _ => "",
+            };
+            if x.causality != want || tag.is_empty() || x.dimensions {
                 return Err(err(format!(
-                    "接続 {a} -> {b}: {key} は {kind} の Float64（スカラー）でない（SSP の結線は Real だけ）"
+                    "接続 {a} -> {b}: {key} は {kind} の Float64・Int32・Boolean（スカラー）でない"
                 )));
             }
-            connectors.entry(f).or_default().insert(v, kind);
+            connectors.entry(f).or_default().insert(v, (kind, tag));
             ends.push((esc(f), esc(v)));
+            types.push(tag);
+        }
+        if types[0] != types[1] {
+            return Err(err(format!(
+                "接続 {a} -> {b}: 型が違う（{} と {}）",
+                types[0], types[1]
+            )));
         }
         writeln!(
             connections,
@@ -226,8 +340,8 @@ pub fn write_ssp(spec: &CosimSpec, out: &Path) -> Result<()> {
         writeln!(ssd, r#"      <ssd:Component name="{n}" type="application/x-fmu-sharedlibrary" source="resources/{n}.fmu">"#).unwrap();
         if let Some(c) = connectors.get(name.as_str()) {
             ssd.push_str("        <ssd:Connectors>\n");
-            for (v, kind) in c {
-                writeln!(ssd, r#"          <ssd:Connector name="{}" kind="{kind}"><ssc:Real/></ssd:Connector>"#, esc(v)).unwrap();
+            for (v, (kind, tag)) in c {
+                writeln!(ssd, r#"          <ssd:Connector name="{}" kind="{kind}"><ssc:{tag}/></ssd:Connector>"#, esc(v)).unwrap();
             }
             ssd.push_str("        </ssd:Connectors>\n");
         }
@@ -363,5 +477,89 @@ mod tests {
                 .to_string()
                 .contains("output")
         );
+    }
+
+    /// S295: Int32・Boolean の結線も書いて読み戻せる。型が違う結線は書く前に断る。
+    #[test]
+    fn integer_and_boolean_wires_round_trip() {
+        let dir = tempfile::tempdir().unwrap();
+        let var = |n: &str, c: &str, ty: &str| {
+            format!(
+                r#"<ScalarVariable name="{n}" valueReference="0" causality="{c}" variability="discrete"><{ty}/></ScalarVariable>"#
+            )
+        };
+        let a = fake_fmu(
+            dir.path(),
+            "a",
+            &(var("i", "output", "Integer") + &var("b", "output", "Boolean")),
+        );
+        let b = fake_fmu(
+            dir.path(),
+            "b",
+            &(var("i", "input", "Integer") + &var("b", "input", "Boolean")),
+        );
+        let mut spec = CosimSpec {
+            fmus: [("a".to_owned(), a), ("b".to_owned(), b)].into(),
+            connections: vec![("a.i".into(), "b.i".into()), ("a.b".into(), "b.b".into())],
+            stop_time: 1.0,
+            step: 0.5,
+            ..Default::default()
+        };
+        let out = dir.path().join("s.ssp");
+        write_ssp(&spec, &out).unwrap();
+        assert_eq!(
+            Ssp::open(&out, None, None).unwrap().spec.connections,
+            spec.connections
+        );
+        spec.connections = vec![("a.i".into(), "b.b".into())];
+        assert!(
+            write_ssp(&spec, &out)
+                .unwrap_err()
+                .to_string()
+                .contains("型が違う")
+        );
+    }
+
+    /// S288 (#102): 同名の Component・同じ入力への複数の結線は黙って最後を採らず断る
+    #[test]
+    fn duplicate_component_names_and_inputs_are_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let var = |n: &str, c: &str| {
+            format!(
+                r#"<ScalarVariable name="{n}" valueReference="0" causality="{c}" variability="continuous"><Real/></ScalarVariable>"#
+            )
+        };
+        let a = fake_fmu(
+            dir.path(),
+            "a",
+            &(var("y1", "output") + &var("y2", "output")),
+        );
+        let b = fake_fmu(dir.path(), "b", &var("u", "input"));
+        let spec = CosimSpec {
+            fmus: [("a".to_owned(), a.clone()), ("b".to_owned(), b)].into(),
+            connections: vec![("a.y1".into(), "b.u".into()), ("a.y2".into(), "b.u".into())],
+            stop_time: 1.0,
+            step: 0.5,
+            ..Default::default()
+        };
+        let e = crate::cosim::run_cosim_with(&spec, None, &mut |_| {}).unwrap_err();
+        assert!(e.to_string().contains("別の結線がもうある"), "{e}");
+        // 同名の Component を持つ .ssp
+        let out = dir.path().join("dup.ssp");
+        let mut z = zip::ZipWriter::new(std::fs::File::create(&out).unwrap());
+        z.start_file(
+            "SystemStructure.ssd",
+            zip::write::SimpleFileOptions::default(),
+        )
+        .unwrap();
+        let c = |s: &str| {
+            format!(
+                r#"<ssd:Component name="a" type="application/x-fmu-sharedlibrary" source="resources/{s}.fmu"/>"#
+            )
+        };
+        write!(z, r#"<ssd:SystemStructureDescription xmlns:ssd="http://ssp-standard.org/SSP1/SystemStructureDescription" name="s" version="2.0"><ssd:System name="s"><ssd:Elements>{}{}</ssd:Elements></ssd:System><ssd:DefaultExperiment startTime="0" stopTime="1"/></ssd:SystemStructureDescription>"#, c("a"), c("b")).unwrap();
+        z.finish().unwrap();
+        let e = Ssp::open(&out, None, None).unwrap_err();
+        assert!(e.to_string().contains("重複"), "{e}");
     }
 }

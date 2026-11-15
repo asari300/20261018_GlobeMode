@@ -20,7 +20,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use globe_mode_db::GlobeDb;
-pub use globe_mode_db::{BltBlock, BltReport};
+pub use globe_mode_db::{BltBlock, BltReport, StagesReport};
 use globe_mode_frontend::Source;
 use globe_mode_ir::UnknownKind;
 
@@ -601,6 +601,11 @@ impl Workspace {
     /// 方程式の BLT 分解（解く順のブロック。大きさ 2 以上が代数ループ）。検査が通らなければ診断。
     pub fn blt(&mut self, model: &str) -> Result<BltReport, Vec<Diagnostic>> {
         self.db.blt(model)
+    }
+
+    /// 変換の段ごとの要約（flat → DAE → インデックスの低減 → BLT → tearing）。検査が通らなければ診断。
+    pub fn stages(&mut self, model: &str) -> Result<StagesReport, Vec<Diagnostic>> {
+        self.db.stages(model)
     }
 
     /// `blt` の JSON（C ABI・NIF 用。S285）。診断で失敗したら最初の診断の `コード: 文`。

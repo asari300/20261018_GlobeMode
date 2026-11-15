@@ -130,6 +130,7 @@ export class GlobeWorker {
   async removeFile(name) { const r = await this.#call("remove_file", { name }); this.#files.delete(name); return r; }
   async check(model) { return JSON.parse(await this.#call("check", { model })); }
   async blt(model) { return JSON.parse(await this.#call("blt", { model })); } // S262: BLT {reduced, blocks: [{size, algebraic_loop, nonlinear, variables, equations}], skipped?}
+  async stages(model) { return JSON.parse(await this.#call("stages", { model })); } // S282: 変換の段ごとの要約 {flat, dae, index, blt, tearing}
   async graph(model, depth) { return JSON.parse(await this.#call("graph", { model, depth })); }
   // 読み取り（S191。CLI の `globe outline` / `deps` / `flat --json` と同じ形）: ファイルのアウトライン（無い・構文の誤りは reject）、check が読むファイルの閉包、flat の要約（通らなければ null）
   async outline(path) { return JSON.parse(await this.#call("outline", { path })); }
@@ -197,6 +198,25 @@ export class GlobeWorker {
   // 図の部品の追加（S265）: cls に宣言 `<type> <名前> annotation(Placement(…origin = {x, y}…))` を足す [{range, newText}]。at = {file}（setFile 済み）。断れば null
   async addPart(cls, type, x, y, at) {
     return JSON.parse(await this.#call("add_part", { cls, text: this.#files.get(at.file) ?? "", type, x, y }));
+  }
+  // 部品の修飾の書き込み（S294）: cls の部品の修飾 [{part, name, value}]（value が空なら外す）を [{range, newText}]（1 つ）にする。断れば理由で reject
+  async setModifier(cls, modifiers, at) {
+    return JSON.parse(await this.#call("set_modifier", { cls, text: this.#files.get(at.file) ?? "", modifiers: JSON.stringify(modifiers) }));
+  }
+  // 図の部品の削除（S281）: cls の部品 part の宣言とつながる connect を消す [{range, newText}]（複数）。at = {file}（setFile 済み）。消せなければ null
+  async deletePart(cls, part, at) {
+    return JSON.parse(await this.#call("delete_part", { cls, text: this.#files.get(at.file) ?? "", part }));
+  }
+  // 図の結線の削除（S281）: cls の connect(from, to) を消す [{range, newText}]。無ければ null
+  async deleteConnect(cls, from, to, at) {
+    return JSON.parse(await this.#call("delete_connect", { cls, text: this.#files.get(at.file) ?? "", from, to }));
+  }
+  // 図の結線の途中の点（S299）: cls の connect(from, to) の線の index 番目の点を (dx, dy) だけ動かす / 点 (x, y) を足す（points が無ければ ends = [[x1, y1], [x2, y2]] と合わせた 3 点）。[{range, newText}]、断れば null
+  async moveWaypoint(cls, from, to, index, dx, dy, at) {
+    return JSON.parse(await this.#call("move_waypoint", { cls, text: this.#files.get(at.file) ?? "", from, to, index, dx, dy }));
+  }
+  async addWaypoint(cls, from, to, index, x, y, ends, at) {
+    return JSON.parse(await this.#call("add_waypoint", { cls, text: this.#files.get(at.file) ?? "", from, to, index, x, y, ends }));
   }
   // リネーム（S161）: [{range, newText}]。部品でない・識別子でない・予約語・既にある名前は、理由つきで reject
   async rename(file, line, character, newName) {

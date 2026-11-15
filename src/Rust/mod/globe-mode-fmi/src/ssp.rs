@@ -1,9 +1,10 @@
 //! SSP 2.0.1 の `SystemStructure.ssd` を読む（S253、ADR-0026 の (r)）。XML だけ（zip・FMU には触れない）。
 //!
-//! 読むのは最小の部分集合: 1 つの `System` の `Elements/Component`（FMU）、`Connections/Connection`、`DefaultExperiment`。
-//! `Component` の `ParameterBindings`（`.ssv` の参照かインラインの `ParameterSet`。S263）は Real・Integer・Boolean の値を読む。
-//! 範囲外のものは**黙って無視せず**明確な誤りにする（入れ子の `System`・System の階層の `ParameterBindings`・`ParameterMapping`・
-//! `SignalDictionary`・`LinearTransformation`・FMU でない `Component`・システム自身のコネクタへの接続・Real 以外のコネクタ・単位の食い違い・
+//! 読むのは最小の部分集合: `System`（入れ子も。S295）の `Elements/Component`（FMU）、`Connections/Connection`、`DefaultExperiment`。
+//! 入れ子の System の Component は `外側.内側` の名前に平らにし、System 自身のコネクタは（System の階層名, コネクタ）の節点にする。
+//! `Component`・`System` の `ParameterBindings`（`.ssv` の参照かインラインの `ParameterSet`。S263・S295）は Real・Integer・Boolean の値を読む。
+//! 範囲外のものは**黙って無視せず**明確な誤りにする（最上位のシステム自身のコネクタへの接続・`ParameterMapping`・
+//! `SignalDictionary`・`LinearTransformation`・FMU でない `Component`・Real・Integer・Boolean 以外のコネクタ・単位の食い違い・
 //! 単位つきの値・配列・String / Enumeration の値）。
 
 /// `ssd:Component`（`type` が FMU のもの）。
@@ -35,10 +36,16 @@ pub struct SspConnection {
     pub end_connector: String,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Ssd {
+    /// 入れ子の System の下のものも平らにして `外側.内側` の名前にする（S295）
     pub components: Vec<SspComponent>,
+    /// 端の要素は階層名。入れ子の System 自身のコネクタは要素が System の階層名（ [`Ssd::systems`] にある）
     pub connections: Vec<SspConnection>,
+    /// 入れ子の System の階層名（ルートは含まない）
+    pub systems: Vec<String>,
+    /// System の `ParameterBindings`（System の階層名〔ルートは空〕, binding）。名前は階層名（`comp.var`）
+    pub system_bindings: Vec<(String, SspBinding)>,
     pub start_time: Option<f64>,
     pub stop_time: Option<f64>,
     /// S274: GlobeMode 独自の `Annotation`（[`COSIM_ANNOTATION`]）の `step`（通信刻み）
@@ -158,6 +165,131 @@ fn bindings(component: roxmltree::Node, cname: &str) -> Result<Vec<SspBinding>, 
     Ok(out)
 }
 
+/// 階層の名前（`外側.内側`）。ルートの System は空。
+fn join(path: &str, name: &str) -> String {
+    if path.is_empty() {
+        name.to_owned()
+    } else {
+        format!("{path}.{name}")
+    }
+}
+
+/// `System` を下りながら、Component を平らな名前で集める（S295）。
+#[derive(Default)]
+struct Walk {
+    ssd: Ssd,
+    names: std::collections::BTreeSet<String>,
+    /// (要素の階層名, コネクタ) -> (型, 単位)。System 自身のコネクタは (System の階層名, コネクタ)
+    connectors: std::collections::BTreeMap<(String, String), (String, Option<String>)>,
+}
+
+impl Walk {
+    fn connectors(&mut self, node: roxmltree::Node, owner: &str) {
+        for c in child(node, "Connectors")
+            .into_iter()
+            .flat_map(|c| c.children().filter(|c| c.is_element()))
+        {
+            let ty = c.first_element_child().map(|t| t.tag_name().name());
+            let unit = c.first_element_child().and_then(|t| t.attribute("unit"));
+            self.connectors.insert(
+                (
+                    owner.to_owned(),
+                    c.attribute("name").unwrap_or_default().to_owned(),
+                ),
+                (ty.unwrap_or_default().to_owned(), unit.map(str::to_owned)),
+            );
+        }
+    }
+
+    fn system(&mut self, system: roxmltree::Node, path: &str) -> Result<(), String> {
+        if !path.is_empty() {
+            self.ssd.systems.push(path.to_owned());
+            self.connectors(system, path);
+        }
+        for b in bindings(system, if path.is_empty() { "System" } else { path })? {
+            self.ssd.system_bindings.push((path.to_owned(), b));
+        }
+        for e in child(system, "Elements")
+            .into_iter()
+            .flat_map(|e| e.children().filter(|c| c.is_element()))
+        {
+            let tag = e.tag_name().name();
+            let local = e.attribute("name").unwrap_or_default();
+            let name = join(path, local);
+            if tag != "Component" && tag != "System" {
+                return Err(format!("未対応の要素 {tag}"));
+            }
+            if !self.names.insert(name.clone()) {
+                return Err(format!("要素の名前 {name:?} が重複"));
+            }
+            if tag == "System" {
+                self.system(e, &name)?;
+                continue;
+            }
+            let ty = e
+                .attribute("type")
+                .unwrap_or("application/x-fmu-sharedlibrary");
+            if ty != "application/x-fmu-sharedlibrary" {
+                return Err(format!("Component {name:?} の type {ty:?} は FMU でない"));
+            }
+            let source = e
+                .attribute("source")
+                .ok_or_else(|| format!("Component {name:?} に source が無い"))?;
+            self.connectors(e, &name);
+            self.ssd.components.push(SspComponent {
+                bindings: bindings(e, &name)?,
+                name,
+                source: source.to_owned(),
+            });
+        }
+        for c in child(system, "Connections")
+            .into_iter()
+            .flat_map(|c| c.children().filter(|c| c.is_element()))
+        {
+            // 要素を省くとこの System 自身のコネクタ（入れ子の System では外側から見たのと同じ節点）
+            let own = |a: &str| match c.attribute(a) {
+                Some(e) => Ok(join(path, e)),
+                None if path.is_empty() => {
+                    Err("最上位のシステム自身のコネクタへの接続は未対応（範囲外）".to_owned())
+                }
+                None => Ok(path.to_owned()),
+            };
+            let (se, ee) = (own("startElement")?, own("endElement")?);
+            let (Some(sc), Some(ec)) = (
+                c.attribute("startConnector").map(str::to_owned),
+                c.attribute("endConnector").map(str::to_owned),
+            ) else {
+                return Err("Connection に startConnector / endConnector が無い".into());
+            };
+            let end = |e: &String, k: &String| self.connectors.get(&(e.clone(), k.clone()));
+            for (e, k) in [(&se, &sc), (&ee, &ec)] {
+                if let Some((ty, _)) = end(e, k)
+                    && !["Real", "Float64", "Integer", "Int32", "Boolean"].contains(&ty.as_str())
+                {
+                    return Err(format!(
+                        "{e}.{k} は Real・Integer・Boolean のどれでもない（{ty}）。この 3 つだけ対応"
+                    ));
+                }
+            }
+            if let (Some((_, Some(u1))), Some((_, Some(u2)))) = (end(&se, &sc), end(&ee, &ec))
+                && u1 != u2
+                && c.attribute("suppressUnitConversion") != Some("true")
+            {
+                return Err(format!(
+                    "接続 {se}.{sc} -> {ee}.{ec} の単位が違う（{u1} と {u2}）。単位の変換は未対応（範囲外）"
+                ));
+            }
+            self.ssd.connections.push(SspConnection {
+                start_element: se,
+                start_connector: sc,
+                end_element: ee,
+                end_connector: ec,
+            });
+        }
+        Ok(())
+    }
+}
+
 pub fn parse_ssd(xml: &str) -> Result<Ssd, String> {
     let doc = roxmltree::Document::parse(xml).map_err(|e| format!("XML を読めない: {e}"))?;
     let root = doc.root_element();
@@ -170,92 +302,18 @@ pub fn parse_ssd(xml: &str) -> Result<Ssd, String> {
             return Err(format!("未対応の要素 {tag}（範囲外）"));
         }
         if tag == "ParameterBindings"
-            && n.parent_element().map(|p| p.tag_name().name()) != Some("Component")
+            && !matches!(
+                n.parent_element().map(|p| p.tag_name().name()),
+                Some("Component" | "System")
+            )
         {
-            return Err(
-                "System の階層の ParameterBindings は未対応（Component の直下だけ。範囲外）".into(),
-            );
+            return Err("ParameterBindings は Component か System の直下だけ（範囲外）".into());
         }
     }
     let system = child(root, "System").ok_or("System が無い")?;
-    let mut components = Vec::new();
-    let mut connectors = std::collections::BTreeMap::new(); // (要素, コネクタ) -> (型, 単位)
-    for e in child(system, "Elements")
-        .into_iter()
-        .flat_map(|e| e.children().filter(|c| c.is_element()))
-    {
-        let tag = e.tag_name().name();
-        let name = e.attribute("name").unwrap_or_default();
-        if tag == "System" {
-            return Err(format!("入れ子の System {name:?} は未対応（範囲外）"));
-        }
-        if tag != "Component" {
-            return Err(format!("未対応の要素 {tag}"));
-        }
-        let ty = e
-            .attribute("type")
-            .unwrap_or("application/x-fmu-sharedlibrary");
-        if ty != "application/x-fmu-sharedlibrary" {
-            return Err(format!("Component {name:?} の type {ty:?} は FMU でない"));
-        }
-        let source = e
-            .attribute("source")
-            .ok_or_else(|| format!("Component {name:?} に source が無い"))?;
-        for c in child(e, "Connectors")
-            .into_iter()
-            .flat_map(|c| c.children().filter(|c| c.is_element()))
-        {
-            let ty = c.first_element_child().map(|t| t.tag_name().name());
-            let unit = c.first_element_child().and_then(|t| t.attribute("unit"));
-            connectors.insert(
-                (
-                    name.to_owned(),
-                    c.attribute("name").unwrap_or_default().to_owned(),
-                ),
-                (ty.unwrap_or_default().to_owned(), unit.map(str::to_owned)),
-            );
-        }
-        components.push(SspComponent {
-            name: name.to_owned(),
-            source: source.to_owned(),
-            bindings: bindings(e, name)?,
-        });
-    }
-    let mut connections = Vec::new();
-    for c in child(system, "Connections")
-        .into_iter()
-        .flat_map(|c| c.children().filter(|c| c.is_element()))
-    {
-        let get = |a: &str| c.attribute(a).map(str::to_owned);
-        let (Some(se), Some(ee)) = (get("startElement"), get("endElement")) else {
-            return Err("システム自身のコネクタへの接続は未対応（範囲外）".into());
-        };
-        let (Some(sc), Some(ec)) = (get("startConnector"), get("endConnector")) else {
-            return Err("Connection に startConnector / endConnector が無い".into());
-        };
-        let end = |e: &String, k: &String| connectors.get(&(e.clone(), k.clone()));
-        for (e, k) in [(&se, &sc), (&ee, &ec)] {
-            if let Some((ty, _)) = end(e, k)
-                && !["Real", "Float64"].contains(&ty.as_str())
-            {
-                return Err(format!("{e}.{k} は Real でない（{ty}）。Real だけ対応"));
-            }
-        }
-        if let (Some((_, Some(u1))), Some((_, Some(u2)))) = (end(&se, &sc), end(&ee, &ec))
-            && u1 != u2
-            && c.attribute("suppressUnitConversion") != Some("true")
-        {
-            return Err(format!(
-                "接続 {se}.{sc} -> {ee}.{ec} の単位が違う（{u1} と {u2}）。単位の変換は未対応（範囲外）"
-            ));
-        }
-        connections.push(SspConnection {
-            start_element: se,
-            start_connector: sc,
-            end_element: ee,
-            end_connector: ec,
-        });
-    }
+    let mut walk = Walk::default();
+    walk.system(system, "")?;
+    let Walk { mut ssd, .. } = walk;
     let time = |a: &str| -> Result<Option<f64>, String> {
         child(root, "DefaultExperiment")
             .and_then(|d| d.attribute(a))
@@ -277,16 +335,13 @@ pub fn parse_ssd(xml: &str) -> Result<Ssd, String> {
                 .map_err(|_| format!("Annotation の step {v:?} が数でない"))
         })
         .transpose()?;
-    Ok(Ssd {
-        cosim_step,
-        cosim_algorithm: cosim
-            .and_then(|c| c.attribute("algorithm"))
-            .map(str::to_owned),
-        components,
-        connections,
-        start_time: time("startTime")?,
-        stop_time: time("stopTime")?,
-    })
+    ssd.cosim_step = cosim_step;
+    ssd.cosim_algorithm = cosim
+        .and_then(|c| c.attribute("algorithm"))
+        .map(str::to_owned);
+    ssd.start_time = time("startTime")?;
+    ssd.stop_time = time("stopTime")?;
+    Ok(ssd)
 }
 
 #[cfg(test)]
@@ -356,8 +411,6 @@ mod tests {
 
     #[test]
     fn refuses_out_of_scope() {
-        let nested = SSD.replace("<ssd:Elements>", "<ssd:Elements><ssd:System name=\"in\"/>");
-        assert!(parse_ssd(&nested).unwrap_err().contains("入れ子"));
         let bindings = SSD.replace("</ssd:Elements>", "<ssd:ParameterBindings/></ssd:Elements>");
         let mapping = SSD.replace(
             "source=\"resources/a.fmu\">",
@@ -375,9 +428,39 @@ mod tests {
         );
         let units = SSD.replace("UNIT", "km");
         assert!(parse_ssd(&units).unwrap_err().contains("単位"));
-        let int = SSD.replace("ssc:Real unit=\"UNIT\"", "ssc:Integer");
-        assert!(parse_ssd(&int).unwrap_err().contains("Real でない"));
+        let string = SSD.replace("ssc:Real unit=\"UNIT\"", "ssc:String");
+        assert!(parse_ssd(&string).unwrap_err().contains("どれでもない"));
         let sys = SSD.replace("startElement=\"b\" ", "");
         assert!(parse_ssd(&sys).unwrap_err().contains("システム自身"));
+    }
+
+    /// S295: 入れ子の System は平らな名前になり、System 自身のコネクタは外と内で同じ節点になる。
+    #[test]
+    fn flattens_nested_systems() {
+        let ssd = r#"<ssd:SystemStructureDescription xmlns:ssd="x" xmlns:ssc="y" name="s" version="2.0">
+  <ssd:System name="top"><ssd:Elements>
+    <ssd:Component name="a" source="resources/a.fmu"/>
+    <ssd:System name="g">
+      <ssd:Connectors><ssd:Connector name="i" kind="input"><ssc:Integer/></ssd:Connector></ssd:Connectors>
+      <ssd:Elements><ssd:Component name="b" source="resources/b.fmu"/></ssd:Elements>
+      <ssd:Connections><ssd:Connection startConnector="i" endElement="b" endConnector="u"/></ssd:Connections>
+    </ssd:System>
+  </ssd:Elements>
+  <ssd:Connections><ssd:Connection startElement="a" startConnector="y" endElement="g" endConnector="i"/></ssd:Connections>
+  </ssd:System></ssd:SystemStructureDescription>"#;
+        let got = parse_ssd(ssd).unwrap();
+        let names: Vec<_> = got.components.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(
+            (names, got.systems),
+            (["a", "g.b"].to_vec(), vec!["g".to_owned()])
+        );
+        let ends: Vec<_> = got
+            .connections
+            .iter()
+            .map(|c| (c.start_element.as_str(), c.end_element.as_str()))
+            .collect();
+        assert_eq!(ends, [("g", "g.b"), ("a", "g")]);
+        let dup = ssd.replace("name=\"g\"", "name=\"a\"");
+        assert!(parse_ssd(&dup).unwrap_err().contains("重複"));
     }
 }

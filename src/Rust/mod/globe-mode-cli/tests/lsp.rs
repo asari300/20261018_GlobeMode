@@ -361,6 +361,38 @@ fn lsp_reads_and_runs_fmus() {
     let r = call(&mut stdin, &mut out, 8, "globe/fmuInfo", json!({}));
     assert_eq!(r["error"]["code"], -32602, "{r}");
 
+    // S277: `globe/cosim`（spec の JSON。FMU のパスは JSON からの相対）。stopTime・step は JSON の値を上書きする
+    let dir = std::env::temp_dir().join(format!("globe-lsp-cosim-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::copy(&fmu, dir.join("D.fmu")).unwrap();
+    let spec = dir.join("spec.json");
+    std::fs::write(
+        &spec,
+        r#"{"fmus": {"a": "D.fmu"}, "stop_time": 5, "step": 0.1}"#,
+    )
+    .unwrap();
+    let r = call(
+        &mut stdin,
+        &mut out,
+        9,
+        "globe/cosim",
+        json!({"path": spec, "stopTime": 1, "step": 0.1}),
+    );
+    let res = &r["result"];
+    assert_eq!(res["layout"]["names"], json!(["time", "a.x"]), "{r}");
+    assert_eq!(res["layout"]["points"], 11);
+    let r = call(
+        &mut stdin,
+        &mut out,
+        10,
+        "globe/cosim",
+        json!({"path": dir.join("no.json")}),
+    );
+    assert_eq!(r["error"]["code"], -32000, "{r}");
+    let r = call(&mut stdin, &mut out, 11, "globe/cosim", json!({}));
+    assert_eq!(r["error"]["code"], -32602, "{r}");
+    std::fs::remove_dir_all(&dir).unwrap();
+
     send(&mut stdin, json!({"jsonrpc": "2.0", "method": "exit"}));
     assert!(child.wait().unwrap().success());
 }

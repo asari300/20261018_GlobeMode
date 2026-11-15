@@ -546,6 +546,23 @@ fn decay_lists_tunable_parameters() {
 }
 
 #[test]
+fn pendulum_stages_report_index_three() {
+    // S282: 変換の段ごとの要約。振り子は index 3 で、Pantelides が方程式を足す
+    let mut ws = Workspace::new();
+    for (name, text) in package() {
+        ws.put_file(&name, text);
+    }
+    let r = ws
+        .inner()
+        .stages("GlobeModeValidation.Index.Pendulum")
+        .ok()
+        .unwrap();
+    assert_eq!(r.index.index, 3, "{r:?}");
+    assert!(r.index.added_equations > 0);
+    assert!(ws.inner().stages("Nope").is_err());
+}
+
+#[test]
 fn linear_loop_has_one_algebraic_block_of_two() {
     // S262: UI の BLT パネル。連立 2 元の代数ループが大きさ 2 のブロックとして 1 つ出る
     let mut ws = Workspace::new();
@@ -685,6 +702,38 @@ fn diagram_is_read_as_shape_data_from_the_document() {
         "\n  Pin pin annotation(Placement(transformation(origin = {4, 6}, extent = {{-10, -10}, {10, 10}})));"
     );
     assert_eq!(ws.add_part("T", text, "Pin; x", 0.0, 0.0), "null");
+    // S281: 部品を消すと宣言とつながる connect が一緒に消え（2 つの編集）、結線だけも消せる。無ければ null
+    let d: serde_json::Value = serde_json::from_str(&ws.delete_part("T", text, "a")).unwrap();
+    assert_eq!(d.as_array().unwrap().len(), 2, "{d}");
+    assert_eq!(d[1]["newText"], "");
+    let c: serde_json::Value =
+        serde_json::from_str(&ws.delete_connect("T", text, "b.p", "a.p")).unwrap();
+    assert_eq!(c.as_array().unwrap().len(), 1, "{c}");
+    assert_eq!(ws.delete_connect("T", text, "a.p", "x.q"), "null");
+    assert_eq!(ws.delete_part("T", text, "nope"), "null");
+    // S294: 修飾を書く（1 つの編集）。断る場合の例外は wasm でしか作れないので smoke.mjs で確かめる
+    let s: serde_json::Value = serde_json::from_str(
+        &ws.set_modifier("T", text, r#"[{"part":"a","name":"k","value":"2"}]"#)
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(s.as_array().unwrap().len(), 1, "{s}");
+    assert!(s[0]["newText"].as_str().unwrap().contains("(k = 2)"), "{s}");
+    // S299: 結線の途中の点は動かせ（端は断る）、points があれば挿す。points が無い結線（ends なし）は断る
+    let w: serde_json::Value =
+        serde_json::from_str(&ws.move_waypoint("T", text, "b.p", "a.p", 1, 1.0, 0.0)).unwrap();
+    assert_eq!(w[0]["newText"], "{21, 20}", "{w}");
+    assert_eq!(
+        ws.move_waypoint("T", text, "a.p", "b.p", 0, 1.0, 0.0),
+        "null"
+    );
+    let w: serde_json::Value =
+        serde_json::from_str(&ws.add_waypoint("T", text, "a.p", "b.p", 1, 5.0, 7.5, "[]")).unwrap();
+    assert_eq!(w[0]["newText"], "{5, 7.5}, ", "{w}");
+    assert_eq!(
+        ws.add_waypoint("T", text, "a.p", "x.q", 1, 5.0, 7.5, "[]"),
+        "null"
+    );
 }
 
 #[test]

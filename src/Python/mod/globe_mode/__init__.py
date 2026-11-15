@@ -255,6 +255,13 @@ class Workspace:
             res[k] = np.array(res[k], dtype=float).reshape(len(res["x" if k in "AB" else "y"]), len(res["x" if k in "AC" else "u"]))
         return res
 
+    def stages(self, model: str) -> dict[str, Any]:
+        """変換の段ごとの要約（`globe stages --json` と同じ。S282）。キーは `flat`（無ければ `None`）・`dae`・`index`
+        （`index`・`added_equations`・`added_unknowns`・`dynamic_states` など）・`blt`・`tearing`。
+
+        検査が通らなければ `SourceError`（`ValueError` でもある。診断は `.diagnostics`）。"""
+        return json.loads(self._ws.stages(model))
+
     def simulate(
         self,
         model: str,
@@ -436,6 +443,7 @@ def cosim(
     *,
     stop_time: float | None = None,
     step: float | None = None,
+    timeout: float | None = None,
     on_progress: Callable[[float], Any] | None = None,
 ) -> dict[str, Any]:
     """複数の CS の FMU を固定の通信刻みでつなぐ（S258。`globe fmu cosim` と同じ。S249 のマスター、S253 の SSP）。`run_fmu` と同じ形の dict を返す
@@ -443,8 +451,9 @@ def cosim(
 
     `spec` は dict（`fmus`＝名前 → `.fmu` のパス、`connections`＝`[["a.y", "b.u"], ...]`、`stop_time`・`step`・`start_time`・`timeout`。
     FMU のパスは今の作業ディレクトリから）か、そのパス（`.json`＝FMU のパスは JSON のあるディレクトリから、`.ssp`＝SSP 2.0.1 の最小版。
-    入れ子の System・ParameterBindings・単位の変換は未対応で `FmuError`）。
-    `stop_time`・`step` は spec の値を上書きする（`.ssp` では省略すると DefaultExperiment と（終了 - 開始）/ 100）。`timeout`（秒）は spec の値を上書きする。
+    単位の変換は未対応（入れ子の System は S295 から読める）で `FmuError`。`ParameterBindings` は `start` にする）。
+    `stop_time`・`step` は spec の値を上書きする（`.ssp` では省略すると DefaultExperiment と（終了 - 開始）/ 100）。`timeout`（秒。ワーカーの時間の上限）は
+    spec の値を上書きし、`.ssp` にも効く（`.ssp` には上限を書く所が無い。信頼できない `.ssp` には付ける）。
     FMU を別プロセス（ワーカー。`GLOBE_BIN` か PATH の `globe`）で回すこと、`on_progress`・Ctrl-C は `run_fmu` と同じ。誤りは `FmuError`。
 
         res = cosim({"fmus": {"a": "Dahlquist.fmu"}, "connections": [], "stop_time": 1, "step": 0.01})
@@ -466,7 +475,7 @@ def cosim(
         # 未知の鍵・型の誤りは Rust の `CosimSpec` が断る（deny_unknown_fields）
         data.update({k: v for k, v in dict(stop_time=stop_time, step=step).items() if v is not None})
         spec_json = json.dumps(data, default=os.fspath)
-    me, names, columns = _native.cosim(_globe_bin(), spec_json, ssp, stop_time, step, _callback(on_progress))
+    me, names, columns = _native.cosim(_globe_bin(), spec_json, ssp, stop_time, step, _callback(on_progress), timeout)
     # shortcut: memoryview の "d" は native-endian（Rust は little-endian で詰める）、big-endian の機械なら byteswap が要る
     cols = {n: pl.Series(n, memoryview(c).cast("d"), pl.Float64) for n, c in zip(names, columns)}
     return {"ok": True, "columns": cols, "csv": None, "me": json.loads(me)}

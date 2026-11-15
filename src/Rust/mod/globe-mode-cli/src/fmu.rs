@@ -68,7 +68,7 @@ pub enum FmuImportCommand {
     },
     /// 複数の Co-Simulation の FMU を固定の通信刻みでつなぎ（既定は Jacobi 型で入力は 1 刻み遅れる。`algorithm: gauss-seidel` で遅れなし）、全 FMU の出力を 1 つの CSV に出す。接続は Real・Int32・Boolean の同じ型どうし。FMU は別プロセス（ワーカー）で実行する
     #[command(
-        after_help = "spec.json の例:\n  {\"fmus\": {\"a\": \"Dahlquist.fmu\", \"b\": \"Feedthrough.fmu\"}, \"connections\": [[\"a.x\", \"b.Float64_continuous_input\"]], \"stop_time\": 1, \"step\": 0.01}\n  （FMU のパスは spec.json からの相対。`algorithm`・`start`〔{\"a.k\": 2}〕・`timeout`・`memory_limit_mib` も書ける）\n.ssp（SSP 2.0.1。入れ子の System・単位の変換は未対応。`globe fmu ssp-export` で書ける）も渡せる:\n  globe fmu cosim system.ssp --step 0.01 -o out.csv\n例:\n  globe fmu cosim spec.json -o out.csv"
+        after_help = "spec.json の例:\n  {\"fmus\": {\"a\": \"Dahlquist.fmu\", \"b\": \"Feedthrough.fmu\"}, \"connections\": [[\"a.x\", \"b.Float64_continuous_input\"]], \"stop_time\": 1, \"step\": 0.01}\n  （FMU のパスは spec.json からの相対。`algorithm`・`start`〔{\"a.k\": 2}〕・`timeout`・`memory_limit_mib` も書ける）\n.ssp（SSP 2.0.1。入れ子の System は読める。単位の変換は未対応。`globe fmu ssp-export` で書ける）も渡せる:\n  globe fmu cosim system.ssp --step 0.01 --timeout 60 -o out.csv\n例:\n  globe fmu cosim spec.json -o out.csv"
     )]
     Cosim {
         /// 結線の記述（JSON）または `.ssp`（拡張子で分ける）
@@ -79,6 +79,12 @@ pub enum FmuImportCommand {
         /// `.ssp` のとき: 通信刻み（省略時は `ssp-export` が書いた Annotation、無ければ (終了 - 開始) / 100）
         #[arg(long)]
         step: Option<f64>,
+        /// ワーカーの時間の上限（秒）。JSON の `timeout` を上書きする。`.ssp` には書けないので、信頼できない `.ssp` にはここで付ける
+        #[arg(long)]
+        timeout: Option<f64>,
+        /// ワーカーの仮想メモリの上限（MiB。Linux だけ）。JSON の `memory_limit_mib` を上書きする
+        #[arg(long)]
+        memory_limit: Option<u64>,
         /// CSV の書き先（省略時は標準出力）
         #[arg(short, long)]
         out: Option<PathBuf>,
@@ -116,8 +122,16 @@ pub fn run(command: FmuImportCommand) -> ExitCode {
             spec,
             stop_time,
             step,
+            timeout,
+            memory_limit,
             out,
-        } => cosim(&spec, stop_time, step, out.as_deref()),
+        } => cosim(
+            &spec,
+            stop_time,
+            step,
+            (timeout, memory_limit),
+            out.as_deref(),
+        ),
         FmuImportCommand::SspExport { spec, out } => ssp_export(&spec, &out),
         FmuImportCommand::Worker => return ExitCode::from(worker_main() as u8),
         FmuImportCommand::Run {
@@ -292,6 +306,7 @@ fn cosim(
     spec: &std::path::Path,
     stop_time: Option<f64>,
     step: Option<f64>,
+    (timeout, memory_limit): (Option<f64>, Option<u64>),
     out: Option<&std::path::Path>,
 ) -> Result<(), String> {
     if let Some(path) = out
@@ -301,7 +316,7 @@ fn cosim(
     }
     // `.ssp`（S253）は展開先（drop で消える）の FMU を指す spec にする。`ssp` は回し終わるまで持つ
     let ssp;
-    let spec_data = if spec
+    let mut spec_data = if spec
         .extension()
         .is_some_and(|e| e.eq_ignore_ascii_case("ssp"))
     {
@@ -313,6 +328,9 @@ fn cosim(
         }
         read_spec(spec)?
     };
+    // 上限は入口（JSON でも .ssp でも）によらず同じに効かせる（S288）
+    spec_data.timeout = timeout.or(spec_data.timeout);
+    spec_data.memory_limit_mib = memory_limit.or(spec_data.memory_limit_mib);
     eprintln!("{}", globe_mode::FMU_TRUST_WARNING);
     let worker = std::env::current_exe().map_err(|e| e.to_string())?;
     let run = globe_mode::run_cosim(&worker, &spec_data, &mut |_| {}, None)?;

@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S296 LSP の定義ジャンプとホバーを自前に — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S296 LSP の定義ジャンプとホバーを自前に">
+
+<section class="slide" id="S01">
+  <span class="tag">S296 · 2026-11-15 · Track B</span>
+  <h1>定義ジャンプとホバーを自前に</h1>
+  <p class="lead">読めない文書でも、型名と <code>r.p.v</code> の定義に飛び、ホバーが宣言を出す</p>
+  <div class="big">S279 の補完と同じ形。今の道が読める文書は<b>変えない</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>このセッションでやること</h1>
+  <ul>
+    <li>構文の誤りや <code>end</code> の前で切れた文書では、定義ジャンプとホバーが null だった</li>
+    <li>自前の構文（globe-mode-syntax）と名前解決（globe-mode-resolve）で答える</li>
+    <li>IDE の機能から自前にする Track B の 3 つ目（アウトライン S276、補完 S279 に続く）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>決めたこと</h1>
+  <table>
+    <tr><th>項目</th><th>決定</th><th>理由</th></tr>
+    <tr><td>使う条件</td><td>文書の Outline が Err のときだけ</td><td>読める文書の出力と既存の試験を変えない。読める文書で null のたびに木を作らない</td></tr>
+    <tr><td>引き方</td><td>書きかけの文書の Ref を段で切って resolve</td><td>型名も <code>r.p.v</code> も同じ道。<code>with_source</code> で足した Ref を使う</td></tr>
+    <tr><td>ホバー</td><td>定義の Target から今の <code>hover_at</code> で作る</td><td>文面は今の globe/hover と同じ</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">再現手順</span>
+  <h1>検証</h1>
+  <pre><code>cargo test -p globe-mode-lsp
+cargo clippy -p globe-mode-lsp --all-targets -- -D warnings</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">1</span><span class="l">新しい試験（定義 3・ホバー 2・切れた文書）</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">既存の期待値の変更</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">次回</span>
+  <h1>積み残し</h1>
+  <ul>
+    <li>添字に <code>.</code> がある <code>a[x.y].b</code> は段がずれる</li>
+    <li>属性（<code>x.start</code>）・redeclare が 2 段以上先の型は null</li>
+    <li>別の開いている文書にある型は読まない</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

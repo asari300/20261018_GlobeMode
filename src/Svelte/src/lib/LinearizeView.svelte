@@ -14,6 +14,7 @@
     { key: "D", rows: result.y, cols: result.u, m: result.D },
   ]);
   const fmt = (v: number | null) => (v == null || !Number.isFinite(v) ? "なし" : String(Number(v.toPrecision(6))));
+  const stabilityText = { stable: "安定（極がすべて左半面）", unstable: "不安定（右半面に極がある）", marginal: "境界（虚軸上に極がある）", none: "状態が無く判定しない" } as const;
   let note = $state("");
   const out: Pick<Backend, "saveFile"> = inDesktop() ? new TauriBackend() : { saveFile: browserSave };
   const save = () =>
@@ -30,6 +31,20 @@
     <button type="button" onclick={onclose}>閉じる</button>
     {#if note}<small role="status">{note}</small>{/if}
   </p>
+  <div data-eigen>
+    <h3>固有値（A の極）</h3>
+    <p data-stability={result.stability}>安定性: <strong>{stabilityText[result.stability]}</strong></p>
+    {#if result.eigenvalues.length}
+      <table>
+        <thead><tr><th scope="col">#</th><th scope="col">実部</th><th scope="col">虚部</th></tr></thead>
+        <tbody>
+          {#each result.eigenvalues as e, i}
+            <tr><th scope="row">{i + 1}</th><td>{fmt(e.re)}</td><td>{fmt(e.im)}</td></tr>
+          {/each}
+        </tbody>
+      </table>
+    {/if}
+  </div>
   <div class="grid">
     {#each blocks as b (b.key)}
       <div data-matrix={b.key}>

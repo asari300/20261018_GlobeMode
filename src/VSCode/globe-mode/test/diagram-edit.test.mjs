@@ -4,6 +4,8 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import { diagramDrag } from "../../../Svelte/src/lib/diagram-drag.ts";
+import { deleteOf, markSel, pickSel } from "../../../Svelte/src/lib/diagram-select.ts";
+import { addWaypointOf, halfOf, handleNode, handlesOf } from "../../../Svelte/src/lib/diagram-waypoint.ts";
 
 const { parseEdit } = createRequire(import.meta.url)("../edit.js");
 
@@ -64,6 +66,19 @@ test("onMove が false なら見た目を戻す。コネクタから始めたら
   assert.deepEqual(calls, [["connect", "R1.p", "R2.n", [[1, 2], [30, 40]]]]);
 });
 
+test("結線の途中の点のつまみ（.wp）のドラッグは 2 単位に吸着し、結線の端と番号つきで onWaypoint へ（S299）", async () => {
+  const { svg, ev } = rig();
+  const calls = [];
+  const d = diagramDrag(() => svg, { onWaypoint: async (...a) => (calls.push(a), true) });
+  const h = attrs({ "data-wp": "a.p b.n", "data-index": "2", setPointerCapture() {} });
+  h.closest = (s) => (s === ".wp" ? h : null);
+  d.down(ev(h, 10, 10));
+  d.move(ev(h, 23, 3));
+  assert.equal(h.transform, "translate(14 -8)");
+  await d.up(ev(h, 23, 3));
+  assert.deepEqual(calls, [["a.p", "b.n", 2, 14, 8]]);
+});
+
 test("webview からのメッセージは型と値を検査する（file・class は受け取らない）", () => {
   assert.deepEqual(parseEdit({ type: "move", id: 1, part: "R1", dx: 2, dy: -4, file: "/etc/passwd", class: "X" }), { id: 1, method: "globe/movePart", args: { part: "R1", dx: 2, dy: -4 } });
   assert.deepEqual(parseEdit({ type: "connect", id: 2, from: "a.p", to: "b.n", points: [[0, 0], [1.5, 2]] }), { id: 2, method: "globe/addConnect", args: { from: "a.p", to: "b.n", points: [[0, 0], [1.5, 2]] } });
@@ -80,4 +95,81 @@ test("webview からのメッセージは型と値を検査する（file・class
 test("webview は結果（edited）を待ち、拡張は webview の file・class を使わない", () => {
   const panel = readFileSync(new URL("../panel.js", import.meta.url), "utf8");
   assert.ok(panel.includes("parseEdit(m)") && panel.includes("t.doc.uri.toString(), class: t.class, ...args"));
+});
+
+test("削除のメッセージの検査（S293）。端は添字つきも通り、file・class・余計な字は通らない", () => {
+  assert.deepEqual(parseEdit({ type: "deletePart", id: 1, part: "R1", file: "/x", class: "X" }), { id: 1, method: "globe/deletePart", args: { part: "R1" } });
+  assert.deepEqual(parseEdit({ type: "deleteConnect", id: 2, from: "b[2].p", to: "c.n" }), { id: 2, method: "globe/deleteConnect", args: { from: "b[2].p", to: "c.n" } });
+  assert.equal(parseEdit({ type: "deleteConnect", id: 2, from: "b[i+1].p", to: "c.n" })?.args.from, "b[i+1].p");
+  for (const bad of [
+    { type: "deletePart", id: 1 }, { type: "deletePart", id: 1, part: "a b" }, { type: "deletePart", id: 1, part: "a.b" }, { type: "deletePart", part: "a" },
+    { type: "deleteConnect", id: 1, from: "a", to: "b.n" }, { type: "deleteConnect", id: 1, from: "a.p", to: "b.n.x" }, { type: "deleteConnect", id: 1, from: "a.p", to: "b[1.n" },
+    { type: "deleteConnect", id: 1, from: "a.p", to: "b.n);x(" }, { type: "deleteConnect", id: 1, from: "a.p" },
+  ]) assert.equal(parseEdit(bad), null, JSON.stringify(bad));
+});
+
+test("部品・結線の選びと削除の対象（DiagramView と共有）", () => {
+  const el = (attrs, inside) => {
+    const e = { classList: { s: new Set(), add(c) { this.s.add(c); }, remove(c) { this.s.delete(c); } }, getAttribute: (k) => attrs[k] ?? null };
+    e.closest = (sel) => (sel.includes("data-part") && attrs["data-part"] != null ? e : sel.includes("data-hit") && attrs["data-hit"] != null ? e : inside?.closest(sel) ?? null);
+    return e;
+  };
+  const part = el({ "data-part": "R1" }), hit = el({ "data-hit": "a.p b.n" }), conn = el({ "data-conn": "a.p b.n" }), bare = el({});
+  assert.deepEqual(pickSel(part, "click", null), { part: "R1" });
+  assert.deepEqual(pickSel(hit, "focusin", { part: "R1" }), { key: "a.p b.n" });
+  assert.equal(pickSel(bare, "click", { part: "R1" }), null, "何も無い所のクリックで外す");
+  assert.deepEqual(pickSel(bare, "focusin", { part: "R1" }), { part: "R1" }, "フォーカスでは外さない");
+  const svg = { querySelectorAll: (q) => (q === ".sel" ? [part, conn].filter((e) => e.classList.s.has("sel")) : [part, conn]) };
+  assert.deepEqual(markSel(svg, { part: "R1" }), { part: "R1" });
+  assert.ok(part.classList.s.has("sel"));
+  assert.deepEqual(markSel(svg, { key: "a.p b.n" }), { key: "a.p b.n" });
+  assert.ok(!part.classList.s.has("sel") && conn.classList.s.has("sel"), "前の印は外れる");
+  assert.equal(markSel(svg, { part: "Gone" }), null, "消えた対象は外れる");
+  assert.deepEqual(deleteOf({ part: "R1" }, "Delete"), { part: "R1" });
+  assert.deepEqual(deleteOf({ key: "a.p b.n" }, "Backspace"), { from: "a.p", to: "b.n" });
+  assert.equal(deleteOf({ part: "R1" }, "x"), null);
+  assert.equal(deleteOf(null, "Delete"), null);
+});
+
+test("webview は Delete / Backspace を選びのあるときだけ postMessage にし、パネルは編集のメッセージとして受ける", () => {
+  const web = readFileSync(new URL("../webview.js", import.meta.url), "utf8");
+  assert.ok(web.includes("deleteOf(selected, e.key)") && web.includes('type: "deletePart"') && web.includes('type: "deleteConnect"'));
+  assert.ok(!web.includes("innerHTML"));
+  assert.ok(readFileSync(new URL("../panel.js", import.meta.url), "utf8").includes('"deletePart", "deleteConnect"'));
+});
+
+test("途中の点のメッセージの検査（S302）。端・index・座標・ends を見て、file・class は通さない", () => {
+  const mv = { type: "moveWaypoint", id: 1, from: "a.p", to: "b[2].n", index: 1, dx: 2, dy: -4 };
+  assert.deepEqual(parseEdit({ ...mv, file: "/x", class: "X" }), { id: 1, method: "globe/moveWaypoint", args: { from: "a.p", to: "b[2].n", index: 1, dx: 2, dy: -4 } });
+  const add = { type: "addWaypoint", id: 2, from: "a.p", to: "b.n", index: 1, x: 4, y: 6, ends: [[0, 0], [10, 10]] };
+  assert.deepEqual(parseEdit(add), { id: 2, method: "globe/addWaypoint", args: { from: "a.p", to: "b.n", index: 1, x: 4, y: 6, ends: [[0, 0], [10, 10]] } });
+  for (const bad of [
+    { ...mv, index: 1.5 }, { ...mv, index: -1 }, { ...mv, index: "1" }, { ...mv, index: 1e9 }, { ...mv, dx: NaN }, { ...mv, dy: 1e9 }, { ...mv, from: "a" }, { ...mv, to: "b.n);x(" }, { ...mv, id: undefined },
+    { ...add, x: Infinity }, { ...add, ends: [[0, 0]] }, { ...add, ends: [[0, 0], [1, 1], [2, 2]] }, { ...add, ends: [[0, 0], [1]] }, { ...add, ends: [[0, 0], [1, "1"]] }, { ...add, ends: "xx" }, { ...add, to: "b.n.x" }, { ...add, index: 0.5 },
+  ]) assert.equal(parseEdit(bad), null, JSON.stringify(bad));
+});
+
+test("途中の点のつまみと足す点の決め方（DiagramView と共有）", () => {
+  const line = (points) => ({ points });
+  const diagram = {
+    extent: [-100, -100, 100, 100],
+    parts: [{ name: "a", connectors: [{ name: "p", pos: [-50, 0] }] }, { name: "b", connectors: [{ name: "n", pos: [50, 0] }] }],
+    connections: [{ from: "a.p", to: "b.n", line: line([[-50, 0], [0, 0], [0, 20], [50, 0]]) }, { from: "a.p", to: "b.n2", line: line([[-50, 0], [50, 0]]) }],
+  };
+  assert.deepEqual(handlesOf(diagram, { key: "a.p b.n" }).map((h) => h.index), [1, 2], "最初と最後は出さない");
+  assert.deepEqual(handlesOf(diagram, { part: "a" }), []);
+  assert.equal(halfOf(diagram), 2.5);
+  const n = handleNode(handlesOf(diagram, { key: "a.p b.n" })[1], 2.5);
+  assert.deepEqual([n.attrs.class, n.attrs["data-wp"], n.attrs["data-index"], n.attrs.x, n.attrs.y], ["wp", "a.p b.n", 2, -2.5, -22.5]);
+  // 点 (-3, 10) に近いのは線分 1（(0,0)-(0,20)）なので、その次の番号 2。座標は 2 単位に吸着
+  assert.deepEqual(addWaypointOf(diagram, "a.p b.n", -3, 10), { from: "a.p", to: "b.n", index: 2, x: -2, y: 10, ends: [[-50, 0], [50, 0]] });
+  assert.equal(addWaypointOf(diagram, "x y", 0, 0), null);
+  assert.equal(addWaypointOf(diagram, null, 0, 0), null);
+});
+
+test("webview はつまみの移動と線のダブルクリックを postMessage にし、パネルは受ける（innerHTML は使わない）", () => {
+  const web = readFileSync(new URL("../webview.js", import.meta.url), "utf8");
+  assert.ok(web.includes('type: "moveWaypoint"') && web.includes('type: "addWaypoint"') && web.includes('"dblclick"'));
+  assert.ok(!web.includes("innerHTML"));
+  assert.ok(readFileSync(new URL("../panel.js", import.meta.url), "utf8").includes('"moveWaypoint", "addWaypoint"'));
 });

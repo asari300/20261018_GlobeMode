@@ -26,16 +26,17 @@ S284 の `globe-mode-flat` が断る理由の最上位だった `redeclare`・`r
 
 - `src/Rust/mod/globe-mode-flat/src/lib.rs`: `Project::snippet`（読み直しと名前の解決）、`class_ext_base`（`lineage` にも入れる）。
 - `src/Rust/mod/globe-mode-flat/src/flatten.rs`: `Redecl`・`Cenv`・`Ctx::{cenv,heir}`、`redeclaration`・`class_res`・`member_class`・`heir_member`・`alias_heir`、`pkg_env`・`pkg_binding`・`dyn_const`、`type_of` の長い形の型と型の配列、`Item::Decl::public`、`collect` の `class extends`。
-- `src/Rust/mod/globe-mode-flat/tests/flat.rs`: 単体 6 本を足し（部品の redeclare、package の redeclare と class extends、heir、別名のパッケージ、extends の中の redeclare record、型の配列と `type extends`）、`declined_forms` の 2 か所を新しい動きに合わせた。`tests/compare.rs`: `cmp`（`GLOBE_FLAT_MODEL=A,B` で Rumoca の flat と 1 本ずつ比べる）を足した。
+- `src/Rust/mod/globe-mode-flat/tests/flat.rs`: 単体 6 本を足し（部品の redeclare、package の redeclare と class extends、heir、別名のパッケージ、extends の中の redeclare record、型の配列と `type extends`）、`declined_forms` の 2 か所を新しい動きに合わせた。`tests/compare.rs` に 1 本ずつ Rumoca の flat と比べる `cmp` を足して使ったが、main の S300 が compare.rs を消して `cargo xtask diff-frontend` に一本化したので、取り込みで消えた（`cmp` は残していない）。
 - doc: ADR-0039 の付記（S297）、roadmap（Track B の 2 か所）、architecture の crate 表、features、セッションの索引、セッション文書。
 
 ## 検証
 
-- `cargo test -p globe-mode-flat`: 16 pass・5 ignored（S284 は 10 pass）。`cargo clippy -p globe-mode-flat --all-targets -- -D warnings` 警告 0、`cargo fmt` 済み。依存の追加なし（`cargo deny` は対象外）。
+- `cargo test -p globe-mode-flat`: 16 pass・0 ignored（S284 は 10 pass。compare.rs は S300 で消えた）。`cargo test -p globe-mode-dae` も通した。`cargo clippy -p globe-mode-flat --all-targets -- -D warnings` 警告 0、`cargo fmt` 済み。依存の追加なし（`cargo deny` は対象外）。
 - `GlobeModeValidation` の 75 本: 自前で平らにできた 72 → **74**（断ったのは `stream` 1）。両方で通った 73 本で名前 **73/73**・方程式の数 **73/73**（S284 は 71/71）。
 - MSL 4.1.0 の例題 566 本（debug、読み込み約 20 秒・flatten 約 7 秒）: 自前で平らにできた 192 → **279**。Rumoca の flat まで通った 273 本で名前 **273/273**・方程式の数 **254/273**（S284 は 189/189・186/189）。合わない 19 本は `Clocked` 4（`UniformNoise` 系・`SampleWithADeffects`・`ClockedWith_AD_DA_Effects`）、`QuasiStatic` 11（`Electrical.QuasiStatic` 2・`Magnetic.QuasiStatic.FluxTubes` 9。`Complex` と `Connections.isRoot` の数え方と見ているが【未確認】）、DC 機械 2（`DCPM_Drive` は 597 対 601、`DC_CompareCharacteristics` は 544 対 548。`protected` のコネクタの数え方が違うと見ているが【未確認】）、`SuperCapDischargeCharge`（71 対 72）、`GenerationOfFMUs`（S284 から）。
 - 断った理由の内訳（最初の理由だけ。S284 → S297）: `redeclare` 263 → 0、`replaceable` 9 → 0、`class extends` 11 → 0、配列の型 13 → 0、レコードの束縛 41 → 155、配列のコネクタの一括接続 7 → 72、`[:]` 13 → 20、条件つきの宣言 6 → 19、`connect` 7 → 8、配列の修飾 0 → 8、`non-constant-dim` 2、`expandable` 2、`stream` 1。先へ進んだ分が別の理由に当たるので、増えた行もある。
 - 注意: 共有 target に別の worktree の core・syntax・resolve のビルドが混ざり、同じコードで `globe-mode-frontend` がコンパイルできない（`ModelParameter` の `enum_type`）・結果が戻ることが何度もあった。`touch src/Rust/mod/globe-mode-{core,fmi,fmt,ir,syntax,resolve,flat,frontend}/src/lib.rs` のあとに回した数字だけを載せた。MSL の計測は 3 GB の RAM の WSL で落ちたので `setsid nohup` で端末から切り離して回した。
+- `mise run msl:diff-frontend`（S300。release、全体 317 s・最大 RSS 1.2 GiB）: 前回の `target/frontend-diff.json` が worktree に無く、回帰の数は出ていない。S300 の報告（main）と比べると flat は 192 → 279 本・名前 189/189 → 273/273・方程式の数 186/189 → 254/273、dae は 192 本 → 279 本で、Rumoca も釣り合いまで通った本数 146 → 201 のうち、判定の一致 144 → 191、状態の数の一致 141 → 185、構造の正則かの判定の一致 132 → 179（新しく入った 55 本のうち判定が合わないのが 10 本あるが、原因は見ていない）。GlobeModeValidation は flat 72 → 74 本。`doc/frontend-diff.md` を再生成してコミットした。
 - `check_docs.py`・`render_slides.py`・`mise run check`: 下の「締め」を参照。
 - 漏洩の検査: 下の「締め」を参照。
 

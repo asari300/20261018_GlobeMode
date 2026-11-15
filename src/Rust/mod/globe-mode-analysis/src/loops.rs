@@ -260,7 +260,7 @@ impl LoopReport {
 }
 
 /// 族の名前と階数から、列の表示名を作る（`der(x)` の 2 階は `der(der(x))`）。階数が分からなければ名前のまま。
-fn column_name(name: &str, kind: UnknownKind, order: Option<u32>) -> String {
+pub(crate) fn column_name(name: &str, kind: UnknownKind, order: Option<u32>) -> String {
     let Some(order) = order else {
         return name.to_string();
     };

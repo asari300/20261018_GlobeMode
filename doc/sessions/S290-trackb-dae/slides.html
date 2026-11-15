@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S290 B4 DAE の最初の一切れ — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S290 B4 DAE の最初の一切れ">
+
+<section class="slide" id="S01">
+  <span class="tag">S290 · 2026-11-15 · Track B</span>
+  <h1>平らなモデルから DAE の釣り合いを出す（B4）</h1>
+  <p class="lead">新しい crate <code>globe-mode-dae</code>。Rumoca の釣り合いと突き合わせた</p>
+  <div class="big">MSL の例題 146 本で、判定が 144 本一致</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">やったこと</span>
+  <h1><code>globe-mode-dae</code> の中身</h1>
+  <ul>
+    <li>変数を 4 つに分ける: 状態・代数・離散・既知（parameter・constant・トップレベルの input・String・Clock）</li>
+    <li>方程式の印字を <code>globe-mode-syntax</code> で読み直し、成分参照から incidence を取る</li>
+    <li><code>DaeStructure</code>（連続の行と未知数）と釣り合いの数（<code>BalanceCount</code>）を作る</li>
+    <li><code>if</code> / <code>when</code> / <code>algorithm</code> は枝の和集合を 1 行にする近道（正則は甘く出る方に傾く）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">結果</span>
+  <h1>Rumoca との突き合わせ</h1>
+  <table>
+    <thead><tr><th>対象</th><th>判定</th><th>方程式と未知数の数</th><th>状態の数</th><th>正則</th></tr></thead>
+    <tbody>
+      <tr><td><code>GlobeModeValidation</code>（両方で通った 71 本）</td><td>71 / 71</td><td>71 / 71</td><td>71 / 71</td><td>70 / 70</td></tr>
+      <tr><td>MSL の例題（両方で通った 146 本）</td><td>144 / 146</td><td>144 / 146</td><td>141 / 146</td><td>132 / 146</td></tr>
+    </tbody>
+  </table>
+  <p>MSL は平らにできた 192 本がすべて DAE になった。debug での計測</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">直したこと</span>
+  <h1>数え方を Rumoca に合わせた 3 点</h1>
+  <table class="compact">
+    <thead><tr><th>直し</th><th>MSL の数の一致（146 本中）</th></tr></thead>
+    <tbody>
+      <tr><td>最初の版</td><td>70</td></tr>
+      <tr><td>Clock 型の変数・<code>initial algorithm</code> を数えない、離散の定義は左辺だけで決める</td><td>111</td></tr>
+      <tr><td>Clock の方程式は辺が Clock 型の変数そのものだけ外す（<code>sample(u, c)</code> は数える）</td><td>144</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>数の差 2 本（<code>UniformNoise</code>・<code>UniformNoiseXorshift64star</code>）、状態の差 5 本、正則の差 14 本。原因は未確認</li>
+    <li>非線形の判定、位置、<code>Frontend</code> の feature <code>native</code> へのつなぎ</li>
+  </ul>
+  <pre><code>cargo test -p globe-mode-dae
+GLOBE_MSL=data/msl cargo test -p globe-mode-dae --test compare -- --ignored --nocapture</code></pre>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

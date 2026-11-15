@@ -182,8 +182,9 @@ fn ssp_gives_the_same_csv_as_the_json_spec() {
     assert_eq!(out.stdout, json.stdout);
 }
 
+/// S295: 最上位のシステム自身のコネクタへの接続（`startElement` なし）は今も明確な誤り。
 #[test]
-fn ssp_refuses_nested_system() {
+fn ssp_refuses_top_level_system_connector() {
     let (Some(a), Some(b)) = (
         reference_fmu("2.0", "Dahlquist"),
         reference_fmu("3.0", "Feedthrough"),
@@ -191,16 +192,157 @@ fn ssp_refuses_nested_system() {
         return;
     };
     let dir = scratch("4");
-    let ssd = SSD.replace("EXTRA", r#"<ssd:System name="inner"/>"#);
+    let ssd = SSD.replace("EXTRA", "").replace("startElement=\"b\" ", "");
     let file = ssp(&dir, &ssd, &[("a", &a), ("b", &b)], &[]);
-    let out = Command::new(env!("CARGO_BIN_EXE_globe"))
-        .args(["fmu", "cosim"])
-        .arg(&file)
-        .output()
-        .unwrap();
+    let out = run_ssp(&file);
     assert!(!out.status.success());
     let err = String::from_utf8_lossy(&out.stderr);
-    assert!(err.contains("入れ子の System"), "{err}");
+    assert!(err.contains("システム自身のコネクタ"), "{err}");
+}
+
+const NESTED_HEAD: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<ssd:SystemStructureDescription xmlns:ssd="http://ssp-standard.org/SSP1/SystemStructureDescription"
+  xmlns:ssc="http://ssp-standard.org/SSP1/SystemStructureCommon"
+  xmlns:ssv="http://ssp-standard.org/SSP1/SystemStructureParameterValues" name="demo" version="2.0">
+  <ssd:System name="top">"#;
+const NESTED_TAIL: &str = r#"</ssd:System>
+  <ssd:DefaultExperiment startTime="0" stopTime="1"/>
+</ssd:SystemStructureDescription>"#;
+
+/// 平らな Dahlquist（a）→ Feedthrough（b）の CSV と、入れ子の `ssd` の CSV を比べる。
+/// `rename` は（平らな列の名前 → 入れ子での列の名前）。
+fn nested_equals_flat(tag: &str, ssd: &str, rename: &dyn Fn(&str) -> String) {
+    let (Some(a), Some(b)) = (
+        reference_fmu("2.0", "Dahlquist"),
+        reference_fmu("3.0", "Feedthrough"),
+    ) else {
+        return;
+    };
+    let dir = scratch(tag);
+    let flat = table(&cosim(
+        &dir,
+        serde_json::json!({
+            "fmus": {"a": a, "b": b},
+            "connections": [["a.x", "b.Float64_continuous_input"]],
+            "start_time": 0.0, "stop_time": 1.0, "step": 0.1,
+        }),
+    ));
+    let nested = table(&run_ssp(&ssp(&dir, ssd, &[("a", &a), ("b", &b)], &[])));
+    assert_eq!(nested.len(), flat.len());
+    for (col, v) in &flat {
+        let key = if col == "time" {
+            col.clone()
+        } else {
+            rename(col)
+        };
+        assert_eq!(nested[&key], *v, "{col}");
+    }
+    // 結線が効いている（b の出力は a の x の 1 刻み遅れで 0 のままではない）
+    assert!(flat["b.Float64_continuous_output"][5] > 0.0);
+}
+
+/// S295: 入れ子の System（`s` の中に a・b）は `s.a`・`s.b` に平らになり、平らな版と同じ値になる。
+#[test]
+fn ssp_nested_system_gives_the_same_csv_as_flat() {
+    let ssd = format!(
+        r#"{NESTED_HEAD}<ssd:Elements><ssd:System name="s">
+    <ssd:Elements>
+      <ssd:Component name="a" source="resources/a.fmu"/>
+      <ssd:Component name="b" source="resources/b.fmu"/>
+    </ssd:Elements>
+    <ssd:Connections>
+      <ssd:Connection startElement="b" startConnector="Float64_continuous_input" endElement="a" endConnector="x"/>
+    </ssd:Connections>
+  </ssd:System></ssd:Elements>{NESTED_TAIL}"#
+    );
+    nested_equals_flat("10", &ssd, &|c| format!("s.{c}"));
+}
+
+/// S295: System のコネクタを通る接続（a.x → g の入力 `i` → g の中の b）は 1 本の結線にたどられ、平らな版と同じ値になる。
+#[test]
+fn ssp_connection_through_system_connectors_gives_the_same_csv_as_flat() {
+    let ssd = format!(
+        r#"{NESTED_HEAD}<ssd:Elements>
+    <ssd:Component name="a" source="resources/a.fmu"/>
+    <ssd:System name="g">
+      <ssd:Connectors><ssd:Connector name="i" kind="input"><ssc:Real/></ssd:Connector></ssd:Connectors>
+      <ssd:Elements><ssd:Component name="b" source="resources/b.fmu"/></ssd:Elements>
+      <ssd:Connections>
+        <ssd:Connection startConnector="i" endElement="b" endConnector="Float64_continuous_input"/>
+      </ssd:Connections>
+    </ssd:System>
+  </ssd:Elements>
+  <ssd:Connections>
+    <ssd:Connection startElement="a" startConnector="x" endElement="g" endConnector="i"/>
+  </ssd:Connections>{NESTED_TAIL}"#
+    );
+    nested_equals_flat("11", &ssd, &|c| {
+        if c.starts_with("b.") {
+            format!("g.{c}")
+        } else {
+            c.to_owned()
+        }
+    });
+    // 入力 `i` が内側でどこにもつながらないと、黙って捨てず断る
+    let (Some(a), Some(b)) = (
+        reference_fmu("2.0", "Dahlquist"),
+        reference_fmu("3.0", "Feedthrough"),
+    ) else {
+        return;
+    };
+    let dangling = ssd.replace(
+        r#"<ssd:Connection startConnector="i" endElement="b" endConnector="Float64_continuous_input"/>"#,
+        "",
+    );
+    let out = run_ssp(&ssp(
+        &scratch("11"),
+        &dangling,
+        &[("a", &a), ("b", &b)],
+        &[],
+    ));
+    assert!(!out.status.success());
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("1 つで終わっている"), "{err}");
+}
+
+/// S295: System の `ParameterBindings` は下の Component に効き、階層が違えば上位が勝つ（5.2.3）。
+/// Dahlquist `g.a` の k: Component の binding が 3、`g` の binding（名前 `a.k`）が 4、最上位の binding（名前 `g.a.k`）が 2。
+#[test]
+fn ssp_system_parameter_bindings_follow_the_hierarchy() {
+    let Some(a) = reference_fmu("2.0", "Dahlquist") else {
+        return;
+    };
+    let dir = scratch("12");
+    let binding = |name: &str, k: u8| {
+        format!(
+            r#"<ssd:ParameterBindings><ssd:ParameterBinding><ssd:ParameterValues>
+          <ssv:ParameterSet version="2.0" name="p"><ssv:Parameters>
+            <ssv:Parameter name="{name}"><ssv:Real value="{k}"/></ssv:Parameter>
+          </ssv:Parameters></ssv:ParameterSet></ssd:ParameterValues></ssd:ParameterBinding></ssd:ParameterBindings>"#
+        )
+    };
+    let ssd = |root: &str, group: &str, comp: &str| {
+        format!(
+            r#"{NESTED_HEAD}{root}<ssd:Elements><ssd:System name="g">{group}<ssd:Elements>
+      <ssd:Component name="a" source="resources/a.fmu">{comp}</ssd:Component>
+    </ssd:Elements></ssd:System></ssd:Elements>{NESTED_TAIL}"#
+        )
+    };
+    let (root, group, comp) = (binding("g.a.k", 2), binding("a.k", 4), binding("k", 3));
+    for (root, group, comp, k) in [
+        (root.as_str(), group.as_str(), comp.as_str(), 2),
+        ("", group.as_str(), comp.as_str(), 4),
+        ("", "", comp.as_str(), 3),
+    ] {
+        let x = table(&run_ssp(&ssp(
+            &dir,
+            &ssd(root, group, comp),
+            &[("a", &a)],
+            &[],
+        )))["g.a.x"][10];
+        let want = (1.0 - 0.1 * f64::from(k)).powi(10);
+        assert!((x - want).abs() < 1e-9, "k = {k}: x(1) = {x}");
+    }
 }
 
 /// S263: Dahlquist 1 つの SSP。`binding` は `<ssd:Component name="a">` の子（ParameterBindings）。
@@ -277,6 +419,34 @@ fn ssp_refuses_parameter_mapping() {
     assert!(!out.status.success());
     let err = String::from_utf8_lossy(&out.stderr);
     assert!(err.contains("ParameterMapping"), "{err}");
+}
+
+/// S288: `.ssp` にも `--timeout`・`--memory-limit` が効く（不正な上限は実行の前に断る。正しい上限なら結果は変わらない）。
+#[test]
+fn ssp_honours_timeout_and_memory_limit_flags() {
+    let Some(a) = reference_fmu("2.0", "Dahlquist") else {
+        return;
+    };
+    let dir = scratch("9");
+    let file = ssp(&dir, &dahlquist_ssd(""), &[("a", &a)], &[]);
+    let run = |extra: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_globe"))
+            .args(["fmu", "cosim"])
+            .arg(&file)
+            .args(["--step", "0.1"])
+            .args(extra)
+            .output()
+            .unwrap()
+    };
+    let bad = run(&["--timeout=-1"]);
+    let err = String::from_utf8_lossy(&bad.stderr);
+    assert!(
+        !bad.status.success() && err.contains("timeout") && !err.contains("unexpected"),
+        "{err}"
+    );
+    let plain = run(&[]);
+    let limited = run(&["--timeout", "60", "--memory-limit", "4096"]);
+    assert_eq!(table(&limited), table(&plain));
 }
 
 /// 列の名前 → 全行の値。
@@ -452,4 +622,53 @@ fn ssp_export_round_trips_to_the_same_csv() {
             assert!((table(&out)["a.x"][10] - 0.8f64.powi(10)).abs() < 1e-9);
         }
     }
+}
+
+/// S295: Int32・Boolean の接続も `ssp-export` → `cosim` で往復する（2.0 と 3.0 の Feedthrough のたすき掛け。CSV がバイトで一致する）。
+#[test]
+fn ssp_export_round_trips_integer_and_boolean_wires() {
+    let (Some(a), Some(b)) = (
+        reference_fmu("2.0", "Feedthrough"),
+        reference_fmu("3.0", "Feedthrough"),
+    ) else {
+        return;
+    };
+    let dir = scratch("13");
+    let json = cosim(
+        &dir,
+        serde_json::json!({
+            "fmus": {"a": a, "b": b},
+            "start": {"a.Int32_input": 7.0, "a.Boolean_input": 1.0},
+            "connections": [
+                ["a.Int32_output", "b.Int32_input"], ["b.Int32_output", "a.Int32_input"],
+                ["a.Boolean_output", "b.Boolean_input"], ["b.Boolean_output", "a.Boolean_input"],
+            ],
+            "stop_time": 0.4, "step": 0.1,
+        }),
+    );
+    let ssp_file = dir.join("int.ssp");
+    let export = Command::new(env!("CARGO_BIN_EXE_globe"))
+        .args(["fmu", "ssp-export"])
+        .arg(dir.join("spec.json"))
+        .arg("-o")
+        .arg(&ssp_file)
+        .output()
+        .unwrap();
+    assert!(
+        export.status.success(),
+        "{}",
+        String::from_utf8_lossy(&export.stderr)
+    );
+    let out = Command::new(env!("CARGO_BIN_EXE_globe"))
+        .args(["fmu", "cosim"])
+        .arg(&ssp_file)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(out.stdout, json.stdout);
+    assert_eq!(table(&out)["a.Int32_output"], [7.0, 0.0, 7.0, 0.0, 7.0]);
 }

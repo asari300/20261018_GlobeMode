@@ -41,7 +41,7 @@ class Plan(unittest.TestCase):
         p = plan(["src/Rust/mod/globe-mode-ir/src/lib.rs"])
         self.assertEqual(
             pkgs(p),
-            {"globe-mode-ir", "globe-mode-frontend", "globe-mode-fmi", "globe-mode-fmi-import", "globe-mode-graph", "globe-mode-analysis", "globe-mode-db",
+            {"globe-mode-ir", "globe-mode-frontend", "globe-mode-fmi", "globe-mode-fmi-import", "globe-mode-dae", "globe-mode-graph", "globe-mode-analysis", "globe-mode-db",
              "globe-mode-cli", "globe-mode-lsp", "globe-mode-py", "globe-mode-c", "globe-mode-nif", "globe-mode-exec", "globe-mode-fmu", "globe-mode-fmu-cdylib", "globe-mode-sim", "globe-mode-protocol", "globe-mode", "globe-mode-wasm",
              "xtask"},
         )
@@ -53,7 +53,7 @@ class Plan(unittest.TestCase):
         self.assertFalse(p["full"])
         self.assertEqual(
             pkgs(p),
-            {"globe-mode-core", "globe-mode-ir", "globe-mode-frontend", "globe-mode-fmi", "globe-mode-fmi-import", "globe-mode-graph", "globe-mode-analysis",
+            {"globe-mode-core", "globe-mode-ir", "globe-mode-frontend", "globe-mode-fmi", "globe-mode-fmi-import", "globe-mode-dae", "globe-mode-graph", "globe-mode-analysis",
              "globe-mode-db", "globe-mode-cli", "globe-mode-lsp", "globe-mode-py", "globe-mode-c", "globe-mode-nif", "globe-mode-exec", "globe-mode-fmu", "globe-mode-fmu-cdylib", "globe-mode-sim", "globe-mode-protocol", "globe-mode",
              "globe-mode-wasm", "xtask"},
         )
@@ -72,7 +72,7 @@ class Plan(unittest.TestCase):
         # S266 から fmi も analysis（FMU の dependencies）に依存し、fmi の依存元も届く
         self.assertEqual(
             pkgs(p),
-            {"globe-mode-analysis", "globe-mode-db", "globe-mode-protocol", "globe-mode", "globe-mode-cli", "globe-mode-lsp", "globe-mode-py", "globe-mode-c", "globe-mode-nif", "globe-mode-wasm",
+            {"globe-mode-analysis", "globe-mode-dae", "globe-mode-db", "globe-mode-protocol", "globe-mode", "globe-mode-cli", "globe-mode-lsp", "globe-mode-py", "globe-mode-c", "globe-mode-nif", "globe-mode-wasm",
              "globe-mode-fmi", "globe-mode-fmi-import", "globe-mode-fmu", "globe-mode-fmu-cdylib", "xtask"},
         )
         self.assertTrue(p["wasm"])
