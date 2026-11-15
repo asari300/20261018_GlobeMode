@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>上流の下書き 37 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode 上流の下書き 37">
+
+<section class="slide" id="S01">
+  <span class="tag">下書き 37 · Rumoca · API の要望 · 未提出 · 2026-11-16</span>
+  <h1>rk45 に lowering 済みのモデルを渡す口が無い</h1>
+  <p class="lead">呼び手が自分の用途で lowering すると、<code>rk45::simulate</code> の中でもう一度 lowering する。BDF にはその口がある</p>
+  <div class="cols-2">
+    <div>
+      <pre><code>// いまの rk45
+let lowered = lower_correlated_for_simulation_with_overrides(&amp;dae, &amp;opts)?; // 1 回目
+let r = rk45::simulate(&amp;dae, &amp;opts)?;                                      // 2 回目
+
+// rk45.rs: pub(crate) fn simulate_artifact(..)
+//   v0.10.2 :44  v0.10.4 :71  main :115
+
+// BDF にはある
+build_simulation_with_stage_timing_and_lowered_model(
+    &amp;dae, &amp;opts, |_| {}, |lowered| { /* 自分の用途 */ })
+  -&gt; PreparedSimulation  // run_prepared_simulation で回す</code></pre>
+      <p class="small muted">本文: <a href="37-rk45-no-public-entry-for-a-lowered-model_jp.md">日本語</a> · <a href="37-rk45-no-public-entry-for-a-lowered-model.md">英語</a> · モデル <a href="37-rk45-no-public-entry-for-a-lowered-model.mo">.mo</a> · 一覧 <a href="../../upstream.md">upstream.md</a></p>
+    </div>
+    <table class="small">
+      <tr><th>v0.10.4・main の結果</th><td><span class="ng">同じ</span>（<code>pub(crate)</code> のまま。ソースを読んだ。main は <code>b55eafce</code>）</td></tr>
+      <tr><th>頼むこと</th><td><code>simulate_artifact</code> と、その引数を作る口の公開。または rk45 にも BDF と同じ「準備済みの物」</td></tr>
+      <tr><th>費用</th><td>lowering 1 回分。MSL で <code>EngineV6</code> 64 s、<code>FullRobot</code> 44 s（v0.10.2、S015）。2 回目の費用は別には測っていない【未確認】</td></tr>
+      <tr><th>GlobeMode 側の回避</th><td>なし。session の道に替える案は BDF で測って取り消した（S218）</td></tr>
+      <tr><th>提出の判断材料</th><td>バグではなく要望。38（初期化）と同じ「繰り返す仕事の再利用」。提出の順は 15 位の「残り」</td></tr>
+    </table>
+  </div>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

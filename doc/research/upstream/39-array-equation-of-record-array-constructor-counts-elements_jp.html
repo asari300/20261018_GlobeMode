@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>上流の下書き 39 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode 上流の下書き 39">
+
+<section class="slide" id="S01">
+  <span class="tag">下書き 39 · Rumoca · バグ · 未提出 · 2026-11-16</span>
+  <h1>レコードの配列式の方程式を、要素ごとに数える</h1>
+  <p class="lead">aw = {R(1, 0), ...} は 6 本（3 要素 × 2 フィールド）のはずが 3 本。v0.10.4 で MSL の Complex だけ直った</p>
+  <div class="cols-2">
+    <div>
+      <pre><code>record R Real re; Real im; end R;
+model A
+  R aw[3];
+equation
+  aw = {R(1, 0), R(2, 0), R(3, 0)};
+end A;
+// v0.10.2: ED008 unresolved Flat reference `aw`
+// v0.10.4: ED001 3 equations, 6 unknowns
+
+// 通る形: for i in 1:3 loop aw[i] = R(i, 0);
+//         aw = bw（bw を for 文で決める）</code></pre>
+      <p class="small muted">本文: <a href="39-array-equation-of-record-array-constructor-counts-elements_jp.md">日本語</a> · <a href="39-array-equation-of-record-array-constructor-counts-elements.md">英語</a> · 再現 <a href="39-array-equation-of-record-array-constructor-counts-elements.mo">.mo</a> · 一覧 <a href="../../upstream.md">upstream.md</a></p>
+    </div>
+    <table class="small">
+      <tr><th>v0.10.4 の結果</th><td><span class="ok">MSL の Complex、大きさ 3 は直った</span>／<span class="ng">普通のレコードと、大きさが size(a, 1) の Complex は再現</span></td></tr>
+      <tr><th>Rumoca の誤りの根拠</th><td>レコードの等式は成分ごと（MLS 10.6.1）、方程式はスカラーに展開して数える（4.8）。omc は 6 と 6 で通す</td></tr>
+      <tr><th>影響</th><td>MSL では <code>TransferFunction</code> の形。ただし <code>ShowTransferFunction</code> は別の ED019（配列の成分の切り出し）が先に止める。本数は未計測</td></tr>
+      <tr><th>GlobeMode 側の回避</th><td>なし（自前の DAE はフィールドごとに数える。S351）。固定中の Rumoca とは比べられない</td></tr>
+      <tr><th>提出の判断材料</th><td>出すなら「普通のレコード」と「<code>size(a, 1)</code> の Complex」に絞る。ED019 は別件</td></tr>
+    </table>
+  </div>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

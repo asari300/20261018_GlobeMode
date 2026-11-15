@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>上流の下書き 38 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode 上流の下書き 38">
+
+<section class="slide" id="S01">
+  <span class="tag">下書き 38 · Rumoca · API の要望 · 未提出 · 2026-11-16</span>
+  <h1>準備済みの BDF の部品を 3 回初期化する</h1>
+  <p class="lead">build の warm-up、<code>check_prepared_initialization</code>、<code>run_prepared_simulation</code> がそれぞれ lease する。初期化済みの状態を実行に渡す口が無い</p>
+  <div class="cols-2">
+    <div>
+      <pre><code>build_simulation_with_stage_timing_and_lowered_model(..)
+  // 末尾で drop(check_prepared_component(&amp;p))   1 回目
+check_prepared_initialization(&amp;p)               // 2 回目
+run_prepared_simulation(&amp;p)                     // 3 回目
+
+// lease の doc: "... each one an initialization"
+// 2 回目を外すと、プラグインの始動の失敗が
+// 段 (SimFailureStage) 無しで run から出る</code></pre>
+      <p class="small muted">本文: <a href="38-bdf-initialized-state-not-reusable_jp.md">日本語</a> · <a href="38-bdf-initialized-state-not-reusable.md">英語</a> · モデル <a href="38-bdf-initialized-state-not-reusable.mo">.mo</a> · 一覧 <a href="../../upstream.md">upstream.md</a></p>
+    </div>
+    <table class="small">
+      <tr><th>v0.10.4・main の結果</th><td><span class="ng">同じ</span>。v0.10.4 は 1 回目を warm-up と書き、1 回きりの道だけ warm-up を飛ばす</td></tr>
+      <tr><th>頼むこと</th><td>初期化済みの状態を run が引き継ぐ口。または run が始動の失敗に段を付ける。または warm-up を飛ばす build</td></tr>
+      <tr><th>費用</th><td><span class="warn">測っていない</span>。2・3 回目が解き直すか戻すだけかも追っていない【未確認】</td></tr>
+      <tr><th>GlobeMode 側の回避</th><td>なし。段の無い始動の失敗を出すモデルは見つからず、規則は作った型のエラーでだけ試した（ADR-0014 S267）</td></tr>
+      <tr><th>提出の判断材料</th><td>要望で、効果の数字が無い。37 と一緒に出すか、後回し。提出の順は 15 位の「残り」</td></tr>
+    </table>
+  </div>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
