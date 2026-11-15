@@ -799,19 +799,30 @@ fn check_writable_file(path: &Path, files: &[PathBuf], library: &[PathBuf]) -> R
     Ok(())
 }
 
-/// リンクを辿った絶対パス。まだ無いファイルは、親を辿ってファイル名を足す。
+/// リンクを辿った絶対パス。まだ無い部分は、最も近い存在する祖先を辿った先に、残りの部品を足す（`..` は字面で畳む。S339）。
 fn resolve(path: &Path) -> PathBuf {
-    if let Ok(p) = path.canonicalize() {
-        return p;
+    let abs = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir().map_or_else(|_| path.to_path_buf(), |d| d.join(path))
+    };
+    let Some((base, a)) = abs
+        .ancestors()
+        .find_map(|a| Some((a.canonicalize().ok()?, a)))
+    else {
+        return abs;
+    };
+    let mut out = base;
+    for c in abs.strip_prefix(a).unwrap_or(Path::new("")).components() {
+        match c {
+            std::path::Component::ParentDir => {
+                out.pop();
+            }
+            std::path::Component::CurDir => {}
+            c => out.push(c),
+        }
     }
-    let parent = path.parent().filter(|p| !p.as_os_str().is_empty());
-    match (parent.map(Path::canonicalize), path.file_name()) {
-        (Some(Ok(parent)), Some(name)) => parent.join(name),
-        (None, Some(name)) => std::env::current_dir()
-            .and_then(|d| d.canonicalize())
-            .map_or_else(|_| name.into(), |d| d.join(name)),
-        _ => path.to_path_buf(),
-    }
+    out
 }
 
 /// 書き出し先のディレクトリを、計算の前に作る（無ければ親ごと。ファイルを指していたら誤り）。
@@ -1853,4 +1864,30 @@ fn hidden_text(hidden: &[&Diagnostic]) -> Option<String> {
         hidden.len(),
         codes.join(", ")
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn out_dir_inside_the_library_is_refused_however_deep_it_is_not_yet_created() {
+        // #129（#119 の続き）: 親が 2 階層以上無いと `resolve` が相対のままで、ライブラリの中が通っていた
+        let root = std::env::temp_dir().join(format!("globe-s339-{}", std::process::id()));
+        let lib = root.join("lib1");
+        std::fs::create_dir_all(&lib).unwrap();
+        for d in ["sub", "sub/deeper", "a/b/c", "x/../y"] {
+            assert!(
+                check_out_dir(&lib.join(d), std::slice::from_ref(&lib)).is_err(),
+                "{d}"
+            );
+        }
+        // ライブラリの外は通る
+        assert!(check_out_dir(&root.join("out/deeper"), std::slice::from_ref(&lib)).is_ok());
+        std::fs::remove_dir_all(&root).unwrap();
+        // 相対パスどうし（どちらも未作成）でも同じ
+        let rel = [PathBuf::from("globe-s339-rel")];
+        assert!(check_out_dir(Path::new("globe-s339-rel/sub/deeper"), &rel).is_err());
+        assert!(check_out_dir(Path::new("globe-s339-out/sub/deeper"), &rel).is_ok());
+    }
 }
