@@ -108,14 +108,16 @@ const cases = {
     // webview のキーは拡張ホストから起こせないので、共有の diagram-connect.ts（esbuild で JS にする）にキーを渡し、出てきた connect をそのままパネルへ渡す
     const m = { exports: {} };
     new Function("module", "exports", require("esbuild").buildSync({ entryPoints: [path.join(__dirname, "../../../Svelte/src/lib/diagram-connect.ts")], bundle: true, format: "cjs", write: false }).outputFiles[0].text)(m, m.exports);
-    const d = { parts: panel.parts, connections: [] };
+    // フィクスチャの Part はアイコンのコネクタを持たず、図にコネクタが出ない。部品の名前（panel.parts）に p・n を付けた図で流れを確かめる
+    assert.ok(panel.parts.some((p) => p.name === "L") && panel.parts.some((p) => p.name === "Ro"));
+    const d = { parts: ["L", "Ro"].map((name) => ({ name, connectors: [{ name: "p", pos: [-10, 0] }, { name: "n", pos: [10, 0] }] })), connections: [] };
     const press = (w, sel, key, shiftKey = false) => m.exports.wireKey(w, d, sel, { key, shiftKey, ctrlKey: false, metaKey: false, altKey: false });
     const choose = (s, end) => {
       for (let i = 0; i < 20 && s.wire.list[s.wire.i] !== end; i++) s = press(s.wire, null, "Tab");
       return press(s.wire, null, "Enter");
     };
     let s = choose(press(null, { part: "L" }, "c"), "L.p");
-    assert.equal(s.wire.from, "L.p", s.say);
+    assert.equal(s.wire?.from, "L.p", s.say);
     s = choose(s, "Ro.n");
     assert.deepEqual([s.wire, s.connect.from, s.connect.to], [null, "L.p", "Ro.n"], s.say);
     assert.equal(await panel.handle({ type: "connect", id: 1, ...s.connect }), true, panel.why);
