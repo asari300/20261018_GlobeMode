@@ -608,6 +608,11 @@ impl F<'_> {
                 if !dims.is_empty() && has_array_value(&m.sub) {
                     return un("array-modification", name);
                 }
+                // 添字の文字列を作る前に個数を見る（積の overflow も。#109）
+                let n = dims.iter().try_fold(1usize, |a, &d| a.checked_mul(d));
+                if n.is_none_or(|n| n > MAX_VARS - self.vars.len().min(MAX_VARS)) {
+                    return un("too-large", format!("{name}[] too many elements"));
+                }
                 for ix in idx_names(&dims) {
                     let el = format!("{full}{ix}");
                     let sub = self.inst_class(cid, &format!("{el}."), &mods, inherit(eff))?;

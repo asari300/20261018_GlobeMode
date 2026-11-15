@@ -2,8 +2,9 @@
 <script lang="ts">
   import type { Diagram } from "./backend";
   import { diagramDrag } from "./diagram-drag";
-  import { deleteOf, markSel, pickSel, type Sel } from "./diagram-select";
-  import { diagramNodes, snap, viewBoxOf } from "./shape-svg";
+  import { deleteOf, markSel, nudgeOf, pickSel, type Sel } from "./diagram-select";
+  import { addWaypointOf, halfOf, handlesOf } from "./diagram-waypoint";
+  import { diagramNodes, viewBoxOf } from "./shape-svg";
   import SvgTree from "./SvgTree.svelte";
 
   let { diagram, onJump, onParams, onMove, onConnect, onAdd, onDelete, onWaypoint, onAddWaypoint }: { diagram: Diagram | null; onJump?: (line: number) => void; onParams?: (part: string) => void; onMove?: (part: string, dx: number, dy: number) => Promise<boolean>; onConnect?: (from: string, to: string, points: [number, number][]) => Promise<boolean>; onAdd?: (type: string, x: number, y: number) => Promise<boolean>; onDelete?: (what: { part: string } | { from: string; to: string }) => Promise<boolean>; onWaypoint?: (from: string, to: string, index: number, dx: number, dy: number) => Promise<boolean>; onAddWaypoint?: (from: string, to: string, index: number, x: number, y: number, ends: [[number, number], [number, number]]) => Promise<boolean> } = $props();
@@ -32,6 +33,10 @@
     if (del) {
       e.preventDefault();
       await onDelete!(del);
+    } else if (onMove && nudgeOf(selected, e.key, e.shiftKey)) {
+      e.preventDefault(); // S309: 矢印キーで選んだ部品を動かす（ドラッグと同じ 2 単位、Shift で 10 単位）
+      const n = nudgeOf(selected, e.key, e.shiftKey)!;
+      await onMove(n.part, n.dx, n.dy);
     } else if (e.key === "Enter" || e.key === " ") jump(e);
   };
   // S250・S261・S264: ドラッグ（部品の移動と結線）は diagram-drag.ts（VS Code の webview と共通）。動かすのは見た目の transform だけで、離したら onMove・onConnect。編集できなければ元へ戻す
@@ -53,35 +58,16 @@
     const p = new DOMPoint(e.clientX, e.clientY).matrixTransform(svg.getScreenCTM()!.inverse());
     onAdd(type, p.x, -p.y);
   };
-  // S299: 選んだ結線の途中の点（最初と最後はコネクタに付くので出さない）。つまみの大きさは部品名の字と同じ基準
-  const handles = $derived.by(() => {
-    const sel = selected;
-    const c = sel && "key" in sel ? diagram?.connections.find((c) => `${c.from} ${c.to}` === sel.key) : null;
-    return c ? c.line.points.map((p, index) => ({ p, index, key: `${c.from} ${c.to}` })).slice(1, -1) : [];
-  });
-  const half = $derived(diagram ? Math.max(diagram.extent[2] - diagram.extent[0], diagram.extent[3] - diagram.extent[1]) / 80 || 0.5 : 0.5);
-  // 線のダブルクリック: いちばん近い線分の次へ点を足す（点が無い直線は 2 つのコネクタの位置を始めと終わりにして `Line(points)` を作る）
+  // S299・S302: 選んだ結線の途中の点のつまみと、線のダブルクリックで足す点の決め方は diagram-waypoint.ts（VS Code の webview と共通）
+  const handles = $derived(handlesOf(diagram, selected));
+  const half = $derived(halfOf(diagram));
   const addWaypoint = (e: MouseEvent) => {
-    const hit = (e.target as Element).closest("[data-hit]")?.getAttribute("data-hit");
-    const c = hit && diagram?.connections.find((c) => `${c.from} ${c.to}` === hit);
-    if (!c || !diagram || !onAddWaypoint || !svg?.getScreenCTM()) return;
+    if (!onAddWaypoint || !svg?.getScreenCTM()) return;
     const q = new DOMPoint(e.clientX, e.clientY).matrixTransform(svg.getScreenCTM()!.inverse());
-    const [x, y] = [q.x, -q.y];
-    const pts = c.line.points;
-    const dist = (i: number) => {
-      const [a, b] = [pts[i], pts[i + 1]];
-      const [vx, vy, l] = [b[0] - a[0], b[1] - a[1], (b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2];
-      const t = l ? Math.max(0, Math.min(1, ((x - a[0]) * vx + (y - a[1]) * vy) / l)) : 0;
-      return Math.hypot(x - a[0] - t * vx, y - a[1] - t * vy);
-    };
-    const seg = pts.slice(0, -1).map((_, i) => i).reduce((m, i) => (dist(i) < dist(m) ? i : m), 0);
-    const end = (name: string, fallback: [number, number]): [number, number] => {
-      const [part, ...rest] = name.split(".");
-      const conn = diagram!.parts.find((p) => p.name === part.split("[")[0])?.connectors?.find((k) => k.name === rest.join("."));
-      return conn ? [conn.pos[0], conn.pos[1]] : fallback;
-    };
+    const w = addWaypointOf(diagram, (e.target as Element).closest("[data-hit]")?.getAttribute("data-hit"), q.x, -q.y);
+    if (!w) return;
     e.preventDefault();
-    onAddWaypoint(c.from, c.to, seg + 1, snap(x), snap(y), [end(c.from, pts[0] as [number, number]), end(c.to, pts[pts.length - 1] as [number, number])]);
+    onAddWaypoint(w.from, w.to, w.index, w.x, w.y, w.ends);
   };
   // S248: ダブルクリックと右クリックで、その部品のパラメータのダイアログへ
   const params = (e: Event) => {

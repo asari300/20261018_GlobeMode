@@ -125,6 +125,129 @@ const cases = {
     assert.equal(await panel.handle({ type: "deletePart", id: 5, part: "Nothing" }), false);
     assert.equal(doc.getText(), before);
   },
+  async "パネルの結線の途中の点を足して動かすと Line(points) が書き換わり、undo で戻る（S302）"() {
+    const doc = await vscode.workspace.openTextDocument(fixture("ChuaCircuit.mo"));
+    const ed = await vscode.window.showTextDocument(doc);
+    const row = doc.getText().split("\n").findIndex((l) => l.startsWith("  Part Ro"));
+    ed.selection = new vscode.Selection(row, 4, row, 4);
+    const { panel } = await vscode.extensions.getExtension("globe-mode.globe-mode").activate();
+    await until("図の対象", () => panel.target?.class === "ChuaCircuit" && panel.target.doc === doc);
+    const before = doc.getText();
+    assert.equal(await panel.handle({ type: "connect", id: 1, from: "L.p", to: "Ro.n", points: [[0, 0], [10, 10]] }), true, panel.why);
+    const connected = doc.getText();
+    // 点を足す（index 1 = 始めと終わりの間）。webview のダブルクリックが送るメッセージをそのまま渡す
+    assert.equal(await panel.handle({ type: "addWaypoint", id: 2, from: "L.p", to: "Ro.n", index: 1, x: 4, y: 6, ends: [[0, 0], [10, 10]] }), true, panel.why);
+    assert.ok(doc.getText().includes("{4, 6}"), doc.getText());
+    const added = doc.getText();
+    // 動かす（つまみのドラッグ）。端の点は動かせない
+    assert.equal(await panel.handle({ type: "moveWaypoint", id: 3, from: "Ro.n", to: "L.p", index: 1, dx: 2, dy: -2 }), true, panel.why);
+    assert.ok(doc.getText().includes("{6, 4}") && !doc.getText().includes("{4, 6}"), doc.getText());
+    assert.ok(doc.isDirty, "保存はしない");
+    assert.equal(await panel.handle({ type: "moveWaypoint", id: 4, from: "L.p", to: "Ro.n", index: 0, dx: 2, dy: 2 }), false, "端は動かせない");
+    await vscode.commands.executeCommand("undo");
+    assert.equal(doc.getText(), added);
+    await vscode.commands.executeCommand("undo");
+    assert.equal(doc.getText(), connected);
+    await vscode.commands.executeCommand("undo");
+    assert.equal(doc.getText(), before);
+    // 検査を通らないメッセージは何もしない
+    assert.equal(await panel.handle({ type: "addWaypoint", id: 5, from: "L.p", to: "Ro.n", index: 1.5, x: 1, y: 1, ends: [[0, 0], [1, 1]] }), false);
+    assert.equal(doc.getText(), before);
+  },
+  async "パネルの部品の R を 100 に書くと宣言に (R = 100) が入り、undo で戻る。空の入力で外れる（S306）"() {
+    // 構文の壊れた Broken.mo が開いたままだと、LSP の Workspace 全体の変換が通らない（閉じても VS Code が文書を手放すまで didClose は来ない）。保存せずに直しておく
+    const broken = await vscode.workspace.openTextDocument(fixture("Broken.mo"));
+    const fix = new vscode.WorkspaceEdit();
+    fix.replace(broken.uri, new vscode.Range(0, 0, broken.lineCount, 0), "model Broken\nend Broken;\n");
+    assert.ok(await vscode.workspace.applyEdit(fix));
+    const doc = await vscode.workspace.openTextDocument(fixture("Params.mo"));
+    const ed = await vscode.window.showTextDocument(doc);
+    const row = doc.getText().split("\n").findIndex((l) => l.startsWith("  Res r1"));
+    ed.selection = new vscode.Selection(row, 4, row, 4);
+    const { panel } = await vscode.extensions.getExtension("globe-mode.globe-mode").activate();
+    await until("図の対象", () => panel.target?.class === "Params" && panel.target.doc === doc);
+    await until("パラメータの一覧", () => panel.getClient().sendRequest("globe/parameters", { model: "Params" }).then(() => true, () => false));
+    const before = doc.getText();
+    // QuickPick・InputBox は値を渡せる偽物に差し替える（webview のダブルクリックは拡張ホストから起こせないので、メッセージをそのまま渡す）
+    const shown = [];
+    const answer = { pick: "R", input: "100" };
+    panel.ui = {
+      showQuickPick: async (items) => (shown.push(items.map((i) => i.label)), items.find((i) => i.label === answer.pick)),
+      showInputBox: async () => answer.input,
+      showErrorMessage: (m) => shown.push(m),
+      showInformationMessage: (m) => shown.push(m),
+    };
+    try {
+      assert.equal(await panel.handle({ type: "params", part: "r1" }), true, JSON.stringify(shown));
+      assert.deepEqual(shown[0], ["R", "mode"]);
+      assert.ok(doc.getText().includes("Res r1(R = 100)"), doc.getText());
+      assert.ok(doc.isDirty, "保存はしない");
+      await vscode.commands.executeCommand("undo");
+      assert.equal(doc.getText(), before, "undo 1 回で戻る");
+      // 空の入力で修飾を外す
+      assert.equal(await panel.handle({ type: "params", part: "r1" }), true, JSON.stringify(shown));
+      answer.input = "";
+      assert.equal(await panel.handle({ type: "params", part: "r1" }), true, JSON.stringify(shown));
+      assert.equal(doc.getText(), before, "(R = 100) が外れる");
+      await vscode.commands.executeCommand("undo");
+      await vscode.commands.executeCommand("undo");
+      assert.equal(doc.getText(), before);
+      // 列挙は QuickPick で選ぶ（型つきの名前で書く）
+      const want = ["mode", "high"];
+      panel.ui.showQuickPick = async (items) => { const w = want.shift(); return items.find((i) => i.label === w); };
+      assert.equal(await panel.handle({ type: "params", part: "r1" }), true, JSON.stringify(shown));
+      assert.ok(doc.getText().includes("Res r1(mode = Params.Mode.high)"), doc.getText());
+      await vscode.commands.executeCommand("undo");
+      assert.equal(doc.getText(), before);
+      // LSP が断る式は通知に理由が出て、文書は変わらない
+      panel.ui.showQuickPick = async (items) => items.find((i) => i.label === "R");
+      panel.ui.showInputBox = async () => "1;2";
+      shown.length = 0;
+      assert.equal(await panel.handle({ type: "params", part: "r1" }), false);
+      assert.ok(shown.some((m) => typeof m === "string" && m.includes("壊れている")), JSON.stringify(shown));
+      assert.equal(doc.getText(), before);
+      // 検査を通らないメッセージは何もしない
+      assert.equal(await panel.handle({ type: "params", part: "r 1" }), false);
+    } finally {
+      panel.ui = vscode.window;
+    }
+  },
+  async "コマンド「部品のパラメータを編集」で、カーソルの部品か QuickPick で選んだ部品の R を書ける（S309）"() {
+    const doc = await vscode.workspace.openTextDocument(fixture("Params.mo"));
+    const ed = await vscode.window.showTextDocument(doc);
+    const row = doc.getText().split("\n").findIndex((l) => l.startsWith("  Res r1"));
+    ed.selection = new vscode.Selection(row, 4, row, 4);
+    const { panel } = await vscode.extensions.getExtension("globe-mode.globe-mode").activate();
+    await until("図の部品", () => panel.target?.class === "Params" && panel.target.doc === doc && panel.parts?.length);
+    await until("パラメータの一覧", () => panel.getClient().sendRequest("globe/parameters", { model: "Params" }).then(() => true, () => false));
+    const before = doc.getText();
+    const shown = [];
+    const want = ["R"]; // カーソルが r1 の行なので、部品は聞かれずパラメータから
+    panel.ui = {
+      showQuickPick: async (items) => (shown.push(items.map((i) => i.label)), items.find((i) => i.label === want.shift())),
+      showInputBox: async () => "42",
+      showErrorMessage: (m) => shown.push(m),
+      showInformationMessage: (m) => shown.push(m),
+    };
+    try {
+      assert.equal(await vscode.commands.executeCommand("globeMode.editParams"), true, JSON.stringify(shown));
+      assert.deepEqual(shown[0], ["R", "mode"]);
+      assert.ok(doc.getText().includes("Res r1(R = 42)"), doc.getText());
+      await vscode.commands.executeCommand("undo");
+      assert.equal(doc.getText(), before);
+      // カーソルが部品の行に無ければ、先に部品を QuickPick で選ぶ
+      ed.selection = new vscode.Selection(0, 0, 0, 0);
+      shown.length = 0;
+      want.push("r1", "R");
+      assert.equal(await vscode.commands.executeCommand("globeMode.editParams"), true, JSON.stringify(shown));
+      assert.deepEqual(shown[0], ["r1"]);
+      assert.ok(doc.getText().includes("Res r1(R = 42)"), doc.getText());
+      await vscode.commands.executeCommand("undo");
+      assert.equal(doc.getText(), before);
+    } finally {
+      panel.ui = vscode.window;
+    }
+  },
 };
 
 exports.run = async () => {

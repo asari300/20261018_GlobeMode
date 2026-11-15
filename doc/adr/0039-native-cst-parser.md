@@ -150,3 +150,5 @@ Track B（自前コア）は B1 rowan の CST と寛容なパーサ → B2 resol
 - **旗**: 段ごとの検査は「はい / いいえ」の旗（`parse`・`resolve`・`flat`・`rumoca_flat`・`flat_names`・`flat_eqs`・`dae`・`rumoca_balance`・`balance`・`counts`・`states`・`regular`）にして JSON（`target/frontend-diff.json`）に書く。次の実行は書く前にそれを読み、前回は通っていた旗が通らなくなったモデルを**回帰**として報告（`doc/frontend-diff.md`。手で編集しない生成物）の先頭に出し、回帰が 1 本でもあれば終了コード 1。「回帰が 0 件」はこの数で測る。
 - **Rumoca を呼ぶ範囲**: 自前で平らにできたものだけ（呼ぶと flat・釣り合い・構造が 1 回で取れる）。Rumoca の全体の本数は `msl-funnel` の報告にある。resolve は例題のクラスとその中のクラスの参照だけを数える（継承元の中の参照は含めない）。
 - **持ち越し**: 判定の閾値（どの旗が何本なら既定を切り替えるか）は決めていない。`Frontend` の feature `native` はまだ無い。
+
+**S303 の付記（#108）**: `diff-frontend` が基準にする JSON は、回帰がなく全モデルを回したときだけ書き換える（回帰した結果を基準にすると次の実行が回帰を見なくなる。`--filter`・`--limit` の実行は一部だけなので書かない）。基準の JSON が壊れている・形が違うときは、黙って比較を飛ばさず誤りにする。
