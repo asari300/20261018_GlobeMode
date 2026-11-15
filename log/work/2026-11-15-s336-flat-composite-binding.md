@@ -30,9 +30,10 @@
 ## 検証
 
 - `mise run msl:diff-frontend` と同じ `diff-frontend`（`flock` つき、作ったバイナリを写して回した。共有 target の `release/xtask` は他の worktree に上書きされるため）: MSL の例題 566 本（S334 → S336）で、平らにできた 471 → **477**、Rumoca も通った 463 → 468 本で名前 463/463 → **468/468**・方程式の数 451/463 → **457/468**、DAE 471 → **477/477**、`composite-binding` 25 → **0**、`unsized-array` 28 → 47（19 本が移った）。**回帰 0 本、改善 7 本**。`GlobeModeValidation` 75 本は変わらない（73/73・73/73・73/73・正則 72/72）。1348 s、最大 RSS 5.4 GiB。
+- **S337・S341 などを取り込んだ後（`git merge origin/main`、flatten.rs・flat.rs の試験・文書で衝突。両方残して解いた）に回し直した**: 同じ `diff-frontend`（`flock` つき）で 794 s、最大 RSS 5.6 GiB。平らにできた 477/566、Rumoca も通った 468 本で名前 468/468・方程式の数 457/468、DAE 477/477、状態 334/334、resolve 566/566（S341）。取り込む前の実行との差は **回帰 0 本**、改善 100 本（S341 の resolve 99 本と `GlobeModeValidation` の 1 本）。`ShowTransferFunction` は S337 の `record_array_len` でも一致するので、`comp_len` の試験は左辺が式の `a + b = {… for k in 1:n}` に替えた。
 - 1 回目の `msl:diff-frontend` は 2800 s かけたが、`cargo xtask` が他の worktree のバイナリを使っていて（cargo の fingerprint が worktree 間で共有され、ソースの mtime がその build より古いと「最新」と見なされる）自前の変更が入っていなかった（`composite-binding` 25 のまま）。touch して作り直し、バイナリを写して回し直した。
 - 前回の JSON（S334 の 641 本）は S335 の worktree の `target/frontend-diff.json` から写した（S334 の worktree は片付いていた）。
-- `cargo test -p globe-mode-flat -p globe-mode-dae -p globe-mode-frontend -p globe-mode-lsp` 通過（flat 37・dae 13・frontend・lsp 71）、`cargo clippy -p globe-mode-flat -p xtask --all-targets -- -D warnings` 0 件、fmt 済み。
+- 取り込み後の `cargo test -p globe-mode-flat -p globe-mode-dae -p globe-mode-resolve -p globe-mode-frontend -p globe-mode-lsp` 通過（flat 38・dae 14・lsp 73）、`cargo clippy -p globe-mode-flat -p xtask --all-targets -- -D warnings` 0 件、fmt 済み。
 - `check_docs.py`: 全デッキ OK、相対リンク 5199 件中の切れ 0 件。`render_slides.py`（S336 のデッキだけ）: 問題 0 件。ステージした差分にメールアドレス・ホームのパス・トークンは 0 件。セッション記録はコピーしていない（専用の記録が `log/local/` に無い）。
 
 ## 残したこと

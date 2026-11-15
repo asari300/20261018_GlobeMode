@@ -5,19 +5,67 @@
 ## 前回の結果との差
 
 前回の結果 `target/frontend-diff.json` と、両方にある 641 本で比べる（この実行にだけある 0 本、前回にだけある 0 本）。
-**回帰 0 本**（前回は通った項目が通らなくなった）、改善 3 本。
+**回帰 0 本**（前回は通った項目が通らなくなった）、改善 100 本。
 
-- 改善 `Modelica.ComplexBlocks.Examples.ShowTransferFunction`: flat_eqs
-- 改善 `Modelica.Electrical.Machines.Examples.InductionMachines.IMC_DCBraking`: states
-- 改善 `Modelica.Electrical.Machines.Examples.InductionMachines.IMC_Initialize`: states
+- 改善 `Modelica.Blocks.Examples.Noise.ActuatorWithNoise`: resolve
+- 改善 `Modelica.Electrical.Batteries.Examples.BatteryDischargeCharge`: resolve
+- 改善 `Modelica.Electrical.Batteries.Examples.CCCVcharging`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.DCMachines.DCEE_Start`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.DCMachines.DCPM_Temperature`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.DCMachines.DCSE_SinglePhase`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.DCMachines.DCSE_Start`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.DCMachines.DC_CompareCharacteristics`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.InductionMachines.IMC_Conveyor`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.InductionMachines.IMC_DCBraking`: resolve・states
+- 改善 `Modelica.Electrical.Machines.Examples.InductionMachines.IMC_DOL`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.InductionMachines.IMC_Initialize`: resolve・states
+- 改善 `Modelica.Electrical.Machines.Examples.InductionMachines.IMC_Inverter`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.InductionMachines.IMC_InverterDrive`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.InductionMachines.IMC_Steinmetz`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.InductionMachines.IMC_Transformer`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.InductionMachines.IMC_YD`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.InductionMachines.IMC_YDarc`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.InductionMachines.IMC_withLosses`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.InductionMachines.IMS_Start`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.SynchronousMachines.SMEE_DOL`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.SynchronousMachines.SMEE_Generator`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.SynchronousMachines.SMEE_LoadDump`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.SynchronousMachines.SMEE_Rectifier`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.SynchronousMachines.SMPM_Braking`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.SynchronousMachines.SMPM_CurrentSource`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.SynchronousMachines.SMPM_Inverter`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.SynchronousMachines.SMPM_NoLoad`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.SynchronousMachines.SMPM_ResistiveBraking`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.SynchronousMachines.SMPM_VoltageSource`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.SynchronousMachines.SMR_DOL`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.SynchronousMachines.SMR_Inverter`: resolve
+- 改善 `Modelica.Electrical.Machines.Examples.Transformers.IMC_Transformer`: resolve
+- 改善 `Modelica.Electrical.PowerConverters.Examples.ACAC.SoftStarter`: resolve
+- 改善 `Modelica.Fluid.Examples.AST_BatchPlant.BatchPlant_StandardWater`: resolve
+- 改善 `Modelica.Fluid.Examples.AST_BatchPlant.Test.TanksWithEmptyingPipe2`: resolve
+- 改善 `Modelica.Fluid.Examples.BranchingDynamicPipes`: resolve
+- 改善 `Modelica.Fluid.Examples.ControlledTankSystem.ControlledTanks`: resolve
+- 改善 `Modelica.Fluid.Examples.HeatExchanger.HeatExchangerSimulation`: resolve
+- 改善 `Modelica.Fluid.Examples.HeatingSystem`: resolve
+- 改善 `Modelica.Fluid.Examples.IncompressibleFluidNetwork`: resolve
+- 改善 `Modelica.Fluid.Examples.InverseParameterization`: resolve
+- 改善 `Modelica.Fluid.Examples.NonCircularPipes`: resolve
+- 改善 `Modelica.Fluid.Examples.PumpingSystem`: resolve
+- 改善 `Modelica.Fluid.Examples.Tanks.ThreeTanks`: resolve
+- 改善 `Modelica.Fluid.Examples.TraceSubstances.RoomCO2`: resolve
+- 改善 `Modelica.Fluid.Examples.TraceSubstances.RoomCO2WithControls`: resolve
+- 改善 `Modelica.Magnetic.FundamentalWave.Examples.BasicMachines.InductionMachines.ComparisonPolyphase.IMC_DOL_CommonLeakage`: resolve
+- 改善 `Modelica.Magnetic.FundamentalWave.Examples.BasicMachines.InductionMachines.ComparisonPolyphase.IMC_DOL_Polyphase`: resolve
+- 改善 `Modelica.Magnetic.FundamentalWave.Examples.BasicMachines.InductionMachines.ComparisonPolyphase.IMS_Start_Polyphase`: resolve
+- 改善: ほか 50 本
 
 | | |
 | --- | --- |
 | MSL | 4.1.0（sha256 `5409cfa17797…`） |
 | Rumoca | v0.10.2（rev `276e82bd`、ライブラリとして呼ぶ） |
 | 検査した本数 | 641 本 |
-| 時間 | 全体 744 s（1 本ずつの検査 655 s） |
-| 最大の常駐メモリ（VmHWM） | 5.2 GiB |
+| 時間 | 全体 794 s（1 本ずつの検査 694 s） |
+| 最大の常駐メモリ（VmHWM） | 5.6 GiB |
 
 自前の parse・resolve・flat・dae を、Rumoca は自前で平らにできたものにだけ呼んで比べる（母数はその本数）。
 resolve は、例題のクラスから、中のクラス・`extends`・部品の型（解決できたもの）をたどって、届くクラスすべての参照を数える。
@@ -28,12 +76,12 @@ resolve は、例題のクラスから、中のクラス・`extends`・部品の
 | --- | --- | ---: | ---: |
 | parse | 構文の誤りが 0 | 566 | 566 |
 | resolve | 未解決の参照が 0（`extends`・部品の型をたどって） | 566 | 566 |
-| flat | 自前で平らにできた | 471 | 566 |
-| flat | Rumoca も flat まで通った（比べられた本数） | 463 | 471 |
-| flat | 変数の名前の集合が Rumoca の flat と一致 | 463 | 463 |
-| flat | 方程式の数が Rumoca の flat と一致 | 452 | 463 |
-| dae | 自前で DAE にできた | 471 | 471 |
-| dae | Rumoca も釣り合いまで通った（比べられた本数） | 334 | 471 |
+| flat | 自前で平らにできた | 477 | 566 |
+| flat | Rumoca も flat まで通った（比べられた本数） | 468 | 477 |
+| flat | 変数の名前の集合が Rumoca の flat と一致 | 468 | 468 |
+| flat | 方程式の数が Rumoca の flat と一致 | 457 | 468 |
+| dae | 自前で DAE にできた | 477 | 477 |
+| dae | Rumoca も釣り合いまで通った（比べられた本数） | 334 | 477 |
 | dae | 釣り合いの判定（釣り合う / 釣り合わない）が一致 | 334 | 334 |
 | dae | 方程式と未知数の数が一致 | 334 | 334 |
 | dae | 状態の数が一致 | 334 | 334 |
@@ -45,8 +93,7 @@ flat の理由（本数の多い順）:
 
 | 理由 | 本数 | 例 |
 | --- | ---: | --- |
-| `unsized-array` | 28 | `Modelica.Blocks.Examples.BooleanNetwork1` |
-| `composite-binding` | 25 | `Modelica.Electrical.QuasiStatic.Machines.Examples.TransformerTestbench` |
+| `unsized-array` | 47 | `Modelica.Blocks.Examples.BooleanNetwork1` |
 | `stream` | 21 | `Modelica.Fluid.Examples.AST_BatchPlant.BatchPlant_StandardWater` |
 | `connect` | 9 | `Modelica.Clocked.Examples.Elementary.ClockSignals.LogicalSample` |
 | `non-constant-dim` | 6 | `Modelica.Blocks.Examples.Rectifier12pulseFFT` |
