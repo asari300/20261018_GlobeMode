@@ -48,9 +48,11 @@ MSL 4.1.0 の例題 566 本での推移（括弧は「一致した本数 / 母�
 | S336（S337 と合わせた） | 477（DAE にできた 477/477） | 468（468/468・457/468） | 334（4 つとも 334/334。新しい 6 本は Rumoca の釣り合いが無い） |
 | S335（S336 を取り込む前。S337・S341 は取り込み済み） | 493 | 484（484/484・473/484） | 351（4 つとも 351/351） |
 | S335（S336 と合わせた） | 518（DAE にできた 518/518） | 491（491/491・480/491） | 351（4 つとも 351/351） |
+| S355（S335 の上。`stream`） | 538（DAE にできた 538/538） | 511（508/511・498/511） | 367（判定 365/367・方程式と未知数の数 364/367・状態 366/367・構造の正則 363/367） |
+| S362（S355 の上。DAE のレコードの配列） | 538（DAE にできた 538/538） | 511（508/511・498/511） | 367（判定 367/367・方程式と未知数の数 366/367・状態 366/367・構造の正則 367/367） |
 
 - parse は MSL の例題 566/566（S300 の時点も今も）、resolve は未解決 0 が 467/566（S300 の時点も今も。残る 99 本はすべて `Redeclare`）。`GlobeModeValidation` 75 本は S334・S337 で、Rumoca も通った 73 本の名前・方程式の数・判定・数・状態が 73/73、正則が 72/72。
-- 断る理由の残り（S336。89 本、最初の理由だけ数える）: `unsized-array` 47（S336 で `composite-binding` の 25 本のうち 19 本がここで止まる。S335 が直している）・`stream` 21・`connect` 9・`non-constant-dim` 6・`expandable` 4・`connect-array` 1・`non-constant-for` 1。`composite-binding` は 0。
+- 断る理由の残り（S355。28 本、最初の理由だけ数える）: `connect` 10（`StateGraph` の `outer` のコネクタへの `connect` 9〔`StateGraph.Examples` 7・`Fluid.Examples.ControlledTankSystem.ControlledTanks`・`BatchPlant_StandardWater`〕と `LogicalSample`）・`composite-binding` 6・`expandable` 5・`non-constant-dim` 4・`connect-array` 1・`non-constant-for` 1・`unsized-array` 1。`stream` は 0（S355）、`composite-binding` の 25 本のうち 19 本は S335 が平らにした。
 - 方程式の数が合わない 11 本は（S334 では 12 本。S337 で `ShowTransferFunction` を直した）、Rotational・Translational の摩擦・歯車の 10 本（S330 が Rumoca の数え方の誤りと確かめ、S331 が最新の release v0.10.4 では直ると確かめた。[upstream.md](../upstream.md) の下書き 36）、`ActuatorWithNoise`（同じ表の数え方）。状態の数が合わなかった 2 本（`IMC_DCBraking`・`IMC_Initialize`）は S337 で直した（Rumoca が初期方程式の `der` も状態にするため。自前の抜け）。
 
 付記の案内（主題ごと）:
@@ -59,8 +61,8 @@ MSL 4.1.0 の例題 566 本での推移（括弧は「一致した本数 / 母�
 | --- | --- |
 | B1 構文 | 本文、S269 |
 | B2 名前の解決 | S272、S275 |
-| B3 flatten | S278、S284、S297、S312、S324、S329、S333、S334、S335（`[:]` の大きさ）、S336（`Complex` の配列の束縛）、S337 |
-| B4 DAE | S290、S312、S325、S330、S332（計測と、名前・数の食い違いの原因）、S337（初期方程式の `der` と状態の数） |
+| B3 flatten | S278、S284、S297、S312、S324、S329、S333、S334、S335（`[:]` の大きさ）、S336（`Complex` の配列の束縛）、S337、S355（`stream`） |
+| B4 DAE | S290、S312、S325、S330、S332（計測と、名前・数の食い違いの原因）、S337（初期方程式の `der` と状態の数）、S362（レコードの配列の範囲への方程式と、レコードの配列を渡す参照） |
 | 製品へのつなぎ | S276（アウトライン・折りたたみ）、S279（補完）、S296（定義ジャンプ・ホバー）、S305（`globe check --frontend native`）、S307（閉包だけを読む）、S311（位置）、S313（CLI 以外から選ぶ）、S320（#111・#113〜#116）、S327（#118）、S352（inlay hint）、S354（call hierarchy） |
 | 突き合わせ | S300（`cargo xtask diff-frontend`） |
 
@@ -171,6 +173,43 @@ roadmap の要約で外した、古くなっていた「残り」: 診断の `GM
 - **shortcut**: 読めない初期方程式の印字は黙って飛ばす（状態の数だけが変わる）。属性（`start` など）の中の `der` は見ない（Rumoca は見る）。`if` の初期方程式は、条件が定数なら選んだ枝だけが `initial_equations` に入る（Rumoca も構造の選択で同じ）。実行（`globe-mode-exec`）は Rumoca のままなので、この規則は自前の DAE の判定にだけ効く。
 - **数字**（MSL の例題 566 本、S334 → S337。`GlobeModeValidation` 75 本は変わらず 73/73・73/73・73/73・正則 72/72。回帰 0、改善 3 本）: 状態の数 332/334 → **334/334**、flat の方程式の数 451/463 → **452/463**（残り 11 本は Rumoca の数え方の誤りとみている。Rotational・Translational の摩擦・歯車の 10 本と `ActuatorWithNoise`）、DAE の判定・数・構造の正則は 334/334 のまま。`msl:diff-frontend` と同じ引数で 744 s（ほかの担当と並行。S334 は 554 s）、最大 RSS 5.2 GiB。
 - **作業上の注意**: 共有 target では、同じ crate の成果物（`release/xtask`・試験のバイナリ）の名前が worktree をまたいで同じで、別の worktree のビルドに入れ替わることがある（`--dump` の出力が食い違って気付いた。試験でも起きた）。ビルド直後に自分の分を `cp` して走らせ、変えた crate の `lib.rs` を `touch` して作り直す。
+
+## 付記（S362）: DAE のレコードの配列（範囲への方程式・関数に渡す参照）、S355 で合わなかった Fluid の 5 本の原因
+
+新しい ADR は立てず、S355 の続きとしてここに足す。変えたのは `globe-mode-dae`（`lib.rs`）と、`xtask diff-frontend --dump`（構造特異のとき、マッチしなかった行と未知数を印字する）だけ。S355 の担当は、Rumoca の釣り合いまで通った 367 本で合わなかった 5 本（`Modelica.Fluid.Examples.HeatingSystem`・`NonCircularPipes`・`Tanks.ThreeTanks`・`AST_BatchPlant.Test.TankWithEmptyingPipe1`・`InverseParameterization`）の原因を「`ThermodynamicState` などのレコードの方程式が欄ごとの行にならない」とみていた【推測】。`diff-frontend --class … --dump` の行を、行ごとの変数名の集合の多重集合で突き合わせ、自前の行の完全マッチングを増加路で探して確かめた。**推測は半分だけ当たり**、原因は 3 つに分かれた。
+
+| 例題 | 食い違い | 原因 | 扱い |
+| --- | --- | --- | --- |
+| `NonCircularPipes`（方程式 375 対 391）・`HeatingSystem`（534 対 538） | 方程式の数 | `statesFM[1 : n] = mediums[1 : n].state`（レコードの配列の範囲への方程式）が、flat の数（要素の数）のままで、欄の数を掛けていない。`NonCircularPipes` は 2 本の管で 2 要素 × 4 欄の不足 × 2 = 16、`HeatingSystem` は部品 3 つで 1 + 1 + 2 = 4。Rumoca は要素 × 欄（`ThermodynamicState` は 2〜5 欄） | **自前の誤り**。直した |
+| `ThreeTanks`・`TankWithEmptyingPipe1` | 構造の正則（自前 false） | レコードの配列を関数に渡す参照（`Medium.pressure(states[i + 1])`・`Medium.temperature(states)`）が incidence に入らない。`Fs_p` の行が `states[k].p` に触れず、管 3 本ぶんの 64 行が未知数 63 に収まる（ホールの条件が破れ、完全マッチングが無い） | **自前の誤り**。直した |
+| `HeatingSystem` | 状態 20 対 11 | `inner System system(energyDynamics = SteadyStateInitial)` の修飾を、Rumoca は `system.energyDynamics` の束縛には入れるのに、容積の `if energyDynamics == SteadyStateInitial then … der(medium.T) = 0` の初期方程式には使わない（flat の `initial_equations` は 8 本で `der` が 0 本。v0.10.2・v0.10.4）。自前は残すので、初期方程式の `der` の変数も状態に数える Rumoca の規則（S337）で 9 本増える | **Rumoca の誤り**。[上流の下書き 07](../upstream.md)（outer が inner の修飾でなく型の既定を読む）と同じ族とみている【原因はたどっていない】。直さない |
+| `InverseParameterization` | 変数 513 対 507、方程式と未知数 287 対 279 | `redeclare model FlowModel = DetailedPipeFlow(show_Res = true)` の短いクラス定義の修飾を Rumoca が捨てる（`Holder h(redeclare model M = Impl(show = true))` で `h.m.show` が `false` のまま。成分に書いた `h(m(show = true))` と直接の `Impl m(show = true)` は通る。omc 1.27.2 も `show = true`）。自前の 6 変数（`Res`・`m_flows_turbulent`・`dps_fg_turbulent` × 2 本の管）が +8 スカラーと一致 | **Rumoca の誤り**。直さない。[上流の下書き 40](../upstream.md)（提出しない。4 点セット） |
+
+- **直し 1（範囲への方程式）**: `record_leaves` に、`t[lo : hi]`（`lo` が整数のリテラル）なら、flat の方程式の数 `count` だけ `t[lo]`、`t[lo + 1]`、… の欄の変数を取る `slice_leaves` を足した。方程式の数は欄のスカラーの和になり、行の「自分の未知数」も要素ごとに正確になる。始まりが式（`t[n + 2 : …]`）なら今までどおり（shortcut）。
+- **直し 2（レコードの配列を渡す参照）**: `refs` の `leaves_of`（S334。`a.R` の欄）を `record_vars` に替えた。配列そのもの（`states`）・添字が決まらない `states[i + 1]`・範囲 `states[1 : n]`・`mediums[1 : n].state` を、全要素の欄に触れる参照にする。shortcut: 範囲と添字は見ない（広めの incidence。構造の正則は甘く出る方に傾く）。Rumoca は関数の本体を見て欄を絞る（`Ts[1]` は `states[1].T` だけ）が、自前は絞らない。
+- `resolve` が持っていた最後の添字を探す処理は `last_subscript` に括り出して `slice_leaves`・`record_vars` と共有した。
+- **試験**: `record_array_slice_equation_counts_per_field`（`sb[2 : 3] = sa[1 : 2]` が 4 本。直す前は 8 対 10）、`record_array_argument_touches_every_field`（`pr(st[i + 1])` の行が `st` の全欄に触れる。直す前は `st` の欄に 1 つも触れない）。2 本とも直す前の `lib.rs` で落ちることを確かめた。
+- **数字**（MSL の例題 566 本、`mise run msl:diff-frontend`。S355 の結果との差）: **回帰 0 本、改善 4 本**（`NonCircularPipes`・`HeatingSystem` の釣り合いの判定・方程式と未知数の数・構造の正則、`ThreeTanks`・`TankWithEmptyingPipe1` の構造の正則）。Rumoca の釣り合いまで通った 367 本で、判定 365 → **367/367**・方程式と未知数の数 364 → **366/367**（残りは `InverseParameterization`）・構造の正則 363 → **367/367**・状態 366/367（残りは `HeatingSystem`）。平らにできた 538、名前 508/511、方程式の数 498/511、DAE にできた 538/538、`GlobeModeValidation` 75 本（Rumoca も通った 74 本で名前・方程式の数・判定・数・状態 74/74、正則 73/73）は変わらない。1031 s、最大 RSS 5.8 GiB。
+- **持ち越し**: 残る 2 本の食い違い（`InverseParameterization` の数・`HeatingSystem` の状態）は Rumoca の側で、自前を合わせない。`connect` で断る 10 本（S355 から）。関数の本体を見て欄を絞る incidence は作らない（構造の正則が Rumoca より甘く出うる。今の MSL の例題では 367/367 で食い違いは無い）。
+
+## 付記（S355）: flat で `stream`（MLS 15）を展開する（`stream` 21 本 → 0、平らにできた 518 → 538）
+
+新しい ADR は立てず、S335・S336 の続きとしてここに足す。変えたのは `globe-mode-flat`（`flatten.rs` と、新しい `flatten/stream.rs`）だけ。S336 の後に残った断る理由 `stream` の 21 本（MSL の例題 566 本の最初の理由。`Modelica.Fluid.Examples` の 20 本と `AST_BatchPlant.BatchPlant_StandardWater`）と、`GlobeModeValidation.Connect.MediumFlow` の 1 本を、MLS 15 の定義どおり（Rumoca の flat と同じ形）に平らにできるようにした。
+
+- **接続集合の stream**（`gen_connects`）: `stream` 変数の葉の集合は、potential・flow と同じ union-find で作る。端は（葉の名前、外側のコネクタの端か）。`stream` の集合は等式にも和にもせず、`F::stream_sets` に残す。大きさ 0 の欄（`Xi_outflow[0]`）は端にしない（Rumoca の flat にも変数が無い）。外側のコネクタの端（そのモデル自身のコネクタを `connect` した端）には、端ごとに 1 本の方程式 `x = __outStream(x)` を置く（MLS 15.2。数は葉の大きさ。内側の端と、つながない内側のコネクタには作らない。Rumoca の `generate_outside_stream_equations` と同じ）。
+- **展開**（`flatten/stream.rs` の `expand_streams`。`apply_connection_graph` のあと）: 方程式・`when`・初期方程式・`algorithm`・変数の束縛・start・属性の印字の中の `inStream(x)`・`actualStream(x)`・`__outStream(x)` を置き換える。`inStream(x)` は `x` が内側の端になっている集合の、`x` を除いた端の混合: 端が 0 なら `x` 自身（つながない内側のコネクタ。最上位のモデル自身のコネクタも）、1 つならその端の値、2 つ以上なら `((max(∓m_flow₁, ε)·値₁ + …) / (max(∓m_flow₁, ε) + …))`（内側の端は `-m_flow`、外側の端は `m_flow`。`ε` は集合の流量の nominal の最小の `1e-7` 倍）。外側の端の値は `inStream(その端)` で、1 段上の集合で決まる（階層の深さで止まる。64 段を超えたら断る）。`__outStream(x)` は、`x` が外側の端になっている集合の、`x` を除いた端の混合（`inStream(x)` ではない。Rumoca の `outside_equation_rhs` と同じ）。`actualStream(x)` は `(if m_flow > 0 then inStream(x) else x)`。流量が集合へ入る向きにならない端（内側で `min >= 0`、外側で `max <= 0` が数のリテラルで書いてある）は混合に入れない。大きさ 0 の欄への `inStream` は `{}`。
+- **shortcut**: Rumoca の `smooth(0, m_flow * actualStream(x))`（流量の重みつきの積）は作らない（DAE の構造・数は変わらない）。添字が定数でない `inStream(ports[i].h_outflow)`、同じコネクタに流量が 1 つに決まらないコネクタ、`stream` 変数でない引数は断る（`stream`。MSL の例題では出ない）。Rumoca は流量を `normalized_parent` でも探すが、自前は同じ親（コネクタ）だけ。
+- **同じ原因で止まって見えた 2 つの直し**（`stream` を通したあと、Fluid の例題で見つかった）:
+  - `pending_bind`（宣言が後ろの部品の欄）: 既定値が同じ部品の別の欄そのもの（`System.massDynamics = energyDynamics`）なら、その欄の修飾か既定値にたどる。`Examples` の `inner system(energyDynamics = …)` は部品より後ろに宣言されるので、`tank.massDynamics == Dynamics.FixedInitial` の `if` が評価できず、初期方程式の全部の枝（`der(medium.p) = 0` も）が残って、状態の数が 8 本（Rumoca は 4 本）になっていた。たどると枝が選ばれて状態も合う。
+  - `count_eq`（`if`・`for` の中の `lhs = rhs` の数）: 入れ子でない方程式と同じ数え方（`eq_count`。`shape` のあと `dims_of` の積）にする。`for i in 1:n loop zeros(Medium.nXi) = mbXi_flows[i,:]; end for` の `nXi = 0` が、左辺が呼び出しで `shape` に引けず 1 本と数えられていた（`IncompressibleFluidNetwork` で +44）。
+- **試験**: `globe-mode-flat/tests/flat.rs` の `stream_sets_and_in_stream`（外側の端 `w.a` の `a.h = 内側 2 つの混合`、内側の端 `n.p` の `inStream` が 1 段上の端の値、外側の端を通る入れ子の混合、つながない内側の端は自分）。`declined_forms` の `stream` の断りは外した。
+- **Rumoca の flat との突き合わせ**（MSL の例題 566 本、`mise run msl:diff-frontend` と同じ `diff-frontend`。S335 の結果〔`unsized-array` を直したあと〕との差）: 自前で平らにできた **518 → 538**（`stream` 21 → 0。`BatchPlant_StandardWater` は `connect` に移った）、Rumoca の flat まで通った 491 → **511** 本で名前の集合 491/491 → **508/511**・方程式の数 480/491 → **498/511**、DAE にできた **538/538**。Rumoca の釣り合いまで通った 351 → **367** 本で、判定 **365/367**・方程式と未知数の数 **364/367**・状態の数 **366/367**・構造の正則 **363/367**。`GlobeModeValidation` 75 本は 74 → **75** 本が平らになり（`MediumFlow`）、Rumoca も通った 74 本ですべて一致（名前・方程式の数・判定・数・状態 74/74、正則 73/73）。**回帰 0 本、改善 21 本**。1383 s、最大 RSS 5.8 GiB。
+- **新しく比べられた 20 本のうち、合わない項目の原因**（`diff-frontend --class … --dump` で確かめた）:
+  - 名前 3 本（`InverseParameterization`・`RoomCO2`・`RoomCO2WithControls`）: `pipe.flowModel.Res`・`m_flows_turbulent`・`dps_fg_turbulent` が自前にだけある。`redeclare model FlowModel = DetailedPipeFlow(show_Res = true)` で条件つき宣言 `Res = … if show_Res` の条件を真にする修飾を、**Rumoca は条件の評価に使わない**。`GlobeModeValidation` に似た小さなモデル（`replaceable model M = Impl; M m;` と `Holder h(redeclare model M = Impl(show = true))`、`Real y = 2 if show;`。scratchpad に置いた。コミットしない）で、自前は `h.m.y` を作り、Rumoca は作らないことを確かめた。条件つき宣言の条件は、修飾を当てたあとの値で決まるはずなので、自前が正しいとみている（仕様の節は確かめていない）。**上流の issue の候補**（[upstream.md](../upstream.md) に足していない。提出しない）。`InverseParameterization` の DAE の数 287 対 279 も同じ原因。
+  - 方程式の数 2 本（`BranchingDynamicPipes` +4・`IncompressibleFluidNetwork` +1）: 部品の配列 `heat2[5]`・`heat8[2]`（`PrescribedHeatFlow`）の方程式を、Rumoca は 1 本と数える（`equation from heat2` が 1 本。ほかの 4 本ぶんが足りない）。自前は要素ごとに 5・2 本と数える。S330 が確かめた Rumoca の数え方の誤りと同じ種類（部品の配列の方程式）。
+  - DAE の釣り合い 2・数 3・状態 1・正則 4（`HeatingSystem`・`NonCircularPipes`・`ThreeTanks`・`TankWithEmptyingPipe1`・`InverseParameterization`）: 行の incidence を突き合わせると、食い違いはどれも `Medium.ThermodynamicState` のレコード（`state_a = Medium.setState_phX(…)`、`statesFM[1:n] = mediums[1:n].state`、`pipe.flowModel.states[1].p = …`）の方程式と束縛で、Rumoca は欄ごとの行にし、自前は 1 行にしている【推測。`stream` の展開そのものの差ではない】。**持ち越し**。
+- **残る 1 本**: `BatchPlant_StandardWater` は `connect` で断る（`StateGraph` の `outer` のコネクタ `stateGraphRoot.subgraphStatePort` への `connect` で、`inner` が後ろで宣言されていて葉がまだ無い。`StateGraph.Examples` の 7 本と `Fluid.Examples.ControlledTankSystem.ControlledTanks` も同じ。10 本目の `LogicalSample` は大きさの違う配列の `connect`）。
+- **持ち越し**: DAE のレコードの欄ごとの行（上の 4 本。**S362 で原因を分けた**。推測は半分だけ当たり、自前の誤り 3 本は直し、Rumoca の誤り 2 本は直さない）、`outer` のコネクタを後ろの `inner` に `connect` する 9 本、`smooth(0, m_flow * actualStream(x))`。
 
 ## 付記（S336）: B3 の続き、`Complex` の配列の束縛を要素ごとに（`composite-binding` 25 → 0、平らにできた 471 → 477）
 

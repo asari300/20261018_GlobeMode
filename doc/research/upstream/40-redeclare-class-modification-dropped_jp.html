@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>上流の下書き 40 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode 上流の下書き 40">
+
+<section class="slide" id="S01">
+  <span class="tag">下書き 40 · Rumoca · バグ · 未提出 · 2026-11-16</span>
+  <h1>redeclare の修飾 (show = true) が捨てられる</h1>
+  <p class="lead">redeclare model M = Impl(show = true) の修飾が効かず、show が false のまま。if show の成分が消える</p>
+  <div class="cols-2">
+    <div>
+      <pre><code>model A
+  Holder h(redeclare model M = Impl(show = true));
+end A;
+// h.m.show = false、h.m.y なし（Rumoca）
+// h.m.show = true、h.m.y あり（omc、対照 B・C）
+
+// 対照 B: Holder h(m(show = true));
+// 対照 C: Impl m(show = true);</code></pre>
+      <p class="small muted">本文: <a href="40-redeclare-class-modification-dropped_jp.md">日本語</a> · <a href="40-redeclare-class-modification-dropped.md">英語</a> · 再現 <a href="40-redeclare-class-modification-dropped.mo">.mo</a> · 一覧 <a href="../../upstream.md">upstream.md</a></p>
+    </div>
+    <table class="small">
+      <tr><th>v0.10.4 の結果</th><td><span class="ng">v0.10.2 も v0.10.4 も再現</span>（A だけ。B・C は通る）</td></tr>
+      <tr><th>Rumoca の誤りの根拠</th><td>修飾は短いクラス定義にも書ける（MLS 7.2）。omc 1.27.2 は show = true。成分に書いた同じ修飾も通る</td></tr>
+      <tr><th>影響</th><td>MSL では <code>InverseParameterization</code>（<code>show_Res = true</code>）。自前との差は変数 6 本・DAE の方程式と未知数 8 本。名前の食い違い 3 本（<code>RoomCO2</code> ほか）も同じ原因</td></tr>
+      <tr><th>GlobeMode 側の回避</th><td>なし（自前の flat は修飾を適用する。Rumoca に合わせない。ADR-0039）</td></tr>
+      <tr><th>提出の判断材料</th><td>出すなら A・B・C の 3 本だけ。Rumoca の main で再現を確かめてから</td></tr>
+    </table>
+  </div>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
