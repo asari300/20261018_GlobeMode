@@ -276,6 +276,22 @@ const cases = {
       panel.ui = vscode.window;
     }
   },
+  async "関数の呼び出しの位置引数の前に、引数の名前の inlay hint が出る（S353）"() {
+    const doc = await vscode.workspace.openTextDocument(fixture("Inlay.mo"));
+    await vscode.window.showTextDocument(doc);
+    await vscode.extensions.getExtension("globe-mode.globe-mode").activate();
+    const range = new vscode.Range(0, 0, doc.lineCount, 0);
+    const hints = await until("inlayHint", async () => {
+      const h = await vscode.commands.executeCommand("vscode.executeInlayHintProvider", doc.uri, range);
+      return h?.length > 0 && h;
+    });
+    // `Scale(2, 3)` の 2 と 3 の前に input の名前。組み込みの `sin(time)` には出ない
+    const row = doc.getText().split("\n").findIndex((l) => l.includes("Scale(2, 3)"));
+    const at = (c) => new vscode.Position(row, doc.lineAt(row).text.indexOf(c));
+    const got = hints.map((h) => [h.position.line, h.position.character, typeof h.label === "string" ? h.label : h.label.map((p) => p.value).join(""), h.kind]);
+    const P = vscode.InlayHintKind.Parameter;
+    assert.deepEqual(got, [[row, at("2, 3").character, "gain:", P], [row, at("3)").character, "offset:", P]], JSON.stringify(got));
+  },
 };
 
 exports.run = async () => {
