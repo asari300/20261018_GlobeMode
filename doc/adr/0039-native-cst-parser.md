@@ -699,6 +699,14 @@ S297 の見立て（Complex のレコード）は外れで、`Connections.isRoot
   - `CCCV_Stack`・`CCCV_StackRC`: Rumoca の flat が `flatten error: expandable connector connection between busTranscription.gainV.u and busTranscription.stackBus.cellBus.v requires unsupported member augmentation` で断る。`stackBus.cellBus` は宣言済みの expandable の配列で、欄 `v` も宣言済みなので、MLS の読みでは欄を足す接続ではない。自前の DAE は釣り合い（823 対 823・999 対 999）・構造の正則で、Rumoca と比べられない。
 - **持ち越し**: `non-constant-dim` の 4 本（`Rectifier12pulseFFT`・`Rectifier6pulseFFT`・`RealFFT1`・`RealFFT2`）は `realFFTsamplePoints`（アルゴリズムのある関数）の評価が要る。`unsized-array` の 1 本（`ReadRealMatrixFromFile`）は決められない。expandable の欄を足す接続は断ったまま（MSL の例題に出ない）。
 
+## 付記（S369）: 自前の flat・DAE を MSL 以外の公開ライブラリ 2132 本で Rumoca と突き合わせた（上限は実在のモデルを断らなかった）
+
+- **道具**: `cargo xtask diff-frontend` に `--library <dir> --package <根> [--examples-in <段>] [--shard i/n]` を足した（`msl-funnel` と同じ選び方。MSL は一緒に読むだけで、MSL の例題と `GlobeModeValidation` は検査しない）。自前の段の panic は 1 本の行（flat の理由 `panic: …`）にして先へ進み、`too-large` で断った例題は報告に名前と理由を出す。`libraries.yml` の funnel と sim の間のステップ（100 分、`continue-on-error`）で回し、`libraries-report` が表を足す。
+- **結果**（S366 の main、run 43755915341、全ジョブ success）: Buildings 809・AixLib 642・IBPSA 457・ThermofluidStream 122・Chemical 76・DeltaRobot 21・ClaRa 5 の計 2132 本のうち、自前で平らにできたのは 1054 本（DAE にできたのも 1054 本）。**自前の panic は 0 本、S365 の上限（`MAX_ITERS`・`MAX_SCALARS`）による `too-large` も 0 本**。Rumoca も flat まで通った 569 本のうち、変数の名前の集合が一致 565、方程式の数が一致 559、両方が一致 556。Rumoca の釣り合いまで通った 334 本で、釣り合いの判定・方程式と未知数の数が 334、状態の数が 333、構造の正則が 333 一致。
+- **平らにできなかった 1078 本**（先頭の語）: `unsized-array` 371、`expandable` 266、`composite-binding` 141、`inner-outer` 63、`redeclare` 58、`connect-array` 58、`non-constant-dim` 53、`connect` 29、`conditional-component` 22、`unresolved` 10、`stream` 5、`non-constant-for` 1、`break` 1。`expandable`・`composite-binding` は S367 が通した範囲で、この run はその前。上限が実在のモデルを断るかは、S367 の後で回し直して確かめる（持ち越し）。
+- **食い違い 13 本**（Rumoca も flat まで通ったもの。直していない）: `PrescribedOutlet_Water`（Buildings・IBPSA・AixLib で方程式 237 対 242）、`EnthalpyFlowRate`（61 対 63）、`MoistAirEnthalpyFlowRate`（91 対 93。この 2 つも 3 ライブラリ）、AixLib の `VentilationFlowRateSashOpening`・`…SimpleOpening`（Rumoca にだけ `….openingArea.opnWidth_in`）、ThermofluidStream の `Exercise3OttoEngine.BaseModel`・`Exercise4DieselEngine.BaseModel`（自前にだけ `dropOfCommons.assertionLevel`）。DAE は `BoilerPolynomial`（状態 6 対 7）と `WindowSimple`（構造の正則: 自前は特異、Rumoca は正則）。
+- **時間**: diff-frontend は小さなライブラリで 5〜16 s、ThermofluidStream 100 s、IBPSA 189 s、AixLib 295 s、Buildings 3426 s（4 分割。4 分割目の 3080 s のうち 2963 s は Rumoca が 1 本 `GroundTemperature.Examples.CorrectedNFactors` にかけた時間で、funnel も同じ。自前は通り Rumoca と全部一致）。最大 RSS 2.8 GiB（Buildings）。
+
 ## 付記（S372）: 8 回目のレビューの flat・DAE の issue（#144〜#147）
 
 8 回目のレビュー（S361〜S368）の issue のうち flat と DAE の 4 件を、再現を確かめてから直した（#141〜#143 は [ADR-0023](0023-desktop-and-web-process-layout.md) の付記）。各修正に小さな回帰試験を 1 つ足した（直す前なら落ちることを確かめた）。native の検査（`--frontend native`・LSP で設定したとき）だけに届き、Rumoca の道（既定）は変わらない。

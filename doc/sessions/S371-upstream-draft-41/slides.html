@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S371 upstream-draft-41 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S371 upstream-draft-41">
+
+<section class="slide" id="S01">
+  <span class="tag">S371 · 2026-11-16 · 文書</span>
+  <h1>ED019 の別件を、上流の下書き 41 にした</h1>
+  <p class="lead">39 の備考にあった「record-array member slice」。Rumoca v0.10.2 と v0.10.4 で確かめ、omc と比べた。出さない</p>
+  <div class="big">原因は部品ではなく、<b>配列の大きさを size(a, 1) で決めること</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">二分法</span>
+  <h1>大きさの書き方だけで、通る・通らないが分かれる</h1>
+  <div class="cols-2">
+    <table class="small">
+      <tr><th>R aw[…] の大きさ</th><th>v0.10.2・v0.10.4</th></tr>
+      <tr><td>3</td><td><span class="ok">通る</span></td></tr>
+      <tr><td>n（parameter Integer n = 3）</td><td><span class="ok">通る</span></td></tr>
+      <tr><td>2 + 1・max・min・abs・div・mod</td><td><span class="ok">通る</span></td></tr>
+      <tr><td>size(a, 1)</td><td><span class="ng">ED019</span></td></tr>
+      <tr><td>n = size(a, 1)</td><td><span class="ng">ED019</span></td></tr>
+      <tr><td>ndims(…) + 2・integer(3.2)</td><td><span class="ng">ED019</span></td></tr>
+    </table>
+    <ul>
+      <li>参照は <code>aw.re</code>（スライド）だけでなく <code>aw[1].re</code>・<code>aw[i].re = …</code> でも出る</li>
+      <li>最上位のクラスでも、部品でも同じ</li>
+      <li>S359 の備考の「最上位なら通る」は成り立たなかった（直した）</li>
+      <li>flat は通り、DAE を作る段で出る</li>
+    </ul>
+  </div>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">MSL と omc</span>
+  <h1>ShowTransferFunction は Rumoca で数える前に止まる</h1>
+  <table class="small">
+    <tr><th>対象</th><th>v0.10.2</th><th>v0.10.4</th><th>omc 1.27.2</th></tr>
+    <tr><td>Complex aw[size(a, 1)]、sum(aw.re)</td><td><span class="ng">ED019</span></td><td><span class="ng">ED019</span></td><td>7 と 7</td></tr>
+    <tr><td>Complex aw[3]（対照）</td><td><span class="ok">通る</span></td><td><span class="ok">通る</span></td><td>7 と 7</td></tr>
+    <tr><td>ShowTransferFunction（31 行目 sum(bw.re)）</td><td><span class="ng">ED019</span></td><td><span class="ng">ED019</span></td><td>29 と 29</td></tr>
+    <tr><td>ShowImpedance（rcData[nRC]）</td><td><span class="ng">ED019</span></td><td><span class="ok">通る</span></td><td>4 と 4</td></tr>
+  </table>
+  <p class="small muted">自前の flat は要素に展開するので回避は要らない。Rumoca を通す検査では GM-U0001。下書き 39 の ED001 は、これが直ってから当たる</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">成果物</span>
+  <h1>4 点セットと一覧</h1>
+  <ul>
+    <li>41 の英語 <code>.md</code>・再現 <code>.mo</code>（<code>A</code>〜<code>H</code>、整形済み）・<code>_jp.md</code>・<code>_jp.html</code></li>
+    <li><code>doc/upstream.md</code>（46 件、一覧と「—」の行）、<code>doc/research/upstream/README.md</code>（節を足した）</li>
+    <li>39 の備考（英語・日本語）から 41 へリンク。誤っていた記述を直した</li>
+    <li>出していない。出すのはユーザー。出すなら A・B・F・G の 4 本、Rumoca の main で確かめてから</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>確かめ方</h1>
+  <pre><code>rumoca compile 41-….mo -m Rep41.A --emit dae-mo
+rumoca compile ComplexSlice.mo -m Q --source-root data/msl/Complex.mo --emit dae-mo
+rumoca compile "Modelica 4.1.0/package.mo" \
+  -m Modelica.ComplexBlocks.Examples.ShowTransferFunction \
+  --source-root data/msl --emit dae-mo
+omc: checkModel(Rep41.A) …</code></pre>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
