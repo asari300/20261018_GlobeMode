@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S344 ソルバの予算と回し直し — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S344 ソルバの予算と回し直し">
+
+<section class="slide" id="S01">
+  <span class="tag">S344 · 2026-11-15 · P3 実行系</span>
+  <h1><code>auto</code> の予算を残りだけ渡す</h1>
+  <p class="lead">issue #6・#46・#45・#4 を、直す前に 1 件ずつ再現して扱った</p>
+  <div class="big">直したのは 1 つ、直さなかったのは根拠つきで 3 つ</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">#6</span>
+  <h1>回し直しのたびに、予算がまるごと戻っていた</h1>
+  <ul>
+    <li><code>--timeout 10</code> で BDF が 9.5 s で失敗すると、esdirk34 がさらに 10 s、dopri45 がさらに 10 s 走れた（最悪で 3 倍近く）</li>
+    <li>msl-sim の回し直し（予算 180 s、外から止めるのは 240 s）では、外からの停止にかかって「普通の結果」でなく「外から停止」と記録された</li>
+    <li>ADR-0028 (c) は「残りを渡す版」で <code>Lightning…</code> が 1 本減ったので採らなかった。残りが無いときに時間切れでなく BDF の失敗のまま返したのが原因とみられる【未確認】</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">直し</span>
+  <h1>残りだけを渡し、無ければ時間切れで返す</h1>
+  <ul>
+    <li>残り = 予算 − それまでの組み立てと実行の時間（lowering も引く）</li>
+    <li>残りが 0 以下なら、回し直さず <code>GM-E11005</code>。その回し直しの lowering も始めない（#46）</li>
+    <li>0 以下を Rumoca に渡すと「予算なし」になるので、渡さずに止める</li>
+    <li>時間切れで返すので、msl-sim の「時間切れを 180 s で回し直す」に乗る</li>
+    <li>放置した型付きの道のスレッドにもトークンを渡した（段の境目と回し直しの前で止まる）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">試験</span>
+  <h1>予算 40 s・30 s・10 s・なし</h1>
+  <table class="compact">
+    <tr><th>予算</th><th>BDF 10 s 失敗 → esdirk34 20 s 失敗 → dopri45 5 s</th></tr>
+    <tr><td>40 s</td><td class="ok">esdirk34 に 30 s、dopri45 に 10 s を渡し、終わる</td></tr>
+    <tr><td>30 s</td><td class="ok">esdirk34 に 20 s。使い切ったので dopri45 は始めず時間切れ</td></tr>
+    <tr><td>10 s</td><td class="ok">BDF で使い切った。esdirk34 も始めない。「回し直した」の info も出さない</td></tr>
+    <tr><td>なし</td><td class="ok">そのまま渡す（None）</td></tr>
+  </table>
+  <p><code>auto_hands_the_remaining_budget_to_each_retry</code></p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">直さなかった</span>
+  <h1>3 つは根拠を issue に書いた</h1>
+  <ul>
+    <li><strong>#46 の lowering の回数</strong>: <code>rk45::simulate_artifact</code> が <code>pub(crate)</code>（v0.10.2・v0.10.4 とも）。session の道に替える案は #43 で測って取り消した</li>
+    <li><strong>#45</strong>: 2 回目の初期化の呼び出しが「初期化」の段の目印。外すと BDF の始動の失敗が積分の失敗に混ざり、<code>auto</code> が切り替わる</li>
+    <li><strong>#4</strong>: 案（刻みを 1/4 ずつ縮める）を実装して <code>SplitCircleChart</code> で試した。<code>step()</code> が <code>Err</code> を返さず、救えない（S193 と同じ。上流の候補 13・09）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>lowering は Rumoca の予算の外のまま。重い lowering の歯止めは ADR-0017 の外からの停止</li>
+    <li>上流への依頼の候補: <code>rk45::simulate_artifact</code> の公開、初期化済みの状態を受け取る口</li>
+    <li>#4 の chart の切り替え（受理した点の評価）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
