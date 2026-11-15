@@ -32,7 +32,7 @@ VS Code の側のパネルで、図の部品のパラメータを見て、ソー
 ## 検証
 
 - `pnpm test`（`GLOBE_BIN` はデバッグの `globe`）: 24 件 pass / 0 件 fail（うち今回の追加 1 件）。
-- `vscode.yml`（3 OS の e2e、run 43664255217）: ubuntu・windows・macos とも success。途中の失敗 3 回の原因は、(1) 開いたままの Broken.mo で LSP の Workspace 全体の変換が通らず `globe/parameters` が -32000 になる（e2e で Broken.mo を保存せずに直した。closeAllEditors では didClose が届かない）、(2) e2e の列挙の選びの書き間違い（`find` の中で `step++`）。
+- `vscode.yml`（3 OS の e2e、run 43664255217。origin/main（S302）を取り込んだ後の再実行 43664791298 も 3 OS とも success）: ubuntu・windows・macos とも success。途中の失敗 3 回の原因は、(1) 開いたままの Broken.mo で LSP の Workspace 全体の変換が通らず `globe/parameters` が -32000 になる（e2e で Broken.mo を保存せずに直した。closeAllEditors では didClose が届かない）、(2) e2e の列挙の選びの書き間違い（`find` の中で `step++`）。
 - `check_docs.py`: 切れ 0 件。`render_slides.py`: デッキ 1 件 / 問題 0 件（他の WP と同時のときは Chromium のスクリーンショットが時間切れになり、数回の再実行で通った。S299 の既存のデッキでも同じ）。
 - Rust は変えていない（`mise run check` は回していない）。
 
