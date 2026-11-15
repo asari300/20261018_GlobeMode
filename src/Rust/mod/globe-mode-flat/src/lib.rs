@@ -152,18 +152,23 @@ impl Project {
         Self::from_dirs_with(dirs, &[])
     }
 
-    /// `from_dirs` に、メモリ上のファイル（名前と本文。ディレクトリの後ろに並ぶ）を足す（S305。`globe check` の入力）
-    pub fn from_dirs_with(dirs: &[&Path], extra: &[(&str, &str)]) -> std::io::Result<Project> {
+    /// ディレクトリの下の `.mo` の（パス, 本文）。`Library::from_dirs` と同じ順。読めない・UTF-8 でないファイルは省く（S307: 閉包を選ぶ前の読み込み）
+    pub fn read_dirs(dirs: &[&Path]) -> std::io::Result<Vec<(String, String)>> {
         let mut files = Vec::new();
         for d in dirs {
             let before = files.len();
             mo_files(d, &mut files)?;
             files[before..].sort();
         }
-        let texts: Vec<(String, String)> = files
+        Ok(files
             .iter()
             .filter_map(|f| Some((f.display().to_string(), std::fs::read_to_string(f).ok()?)))
-            .collect();
+            .collect())
+    }
+
+    /// `from_dirs` に、メモリ上のファイル（名前と本文。ディレクトリの後ろに並ぶ）を足す（S305。`globe check` の入力）
+    pub fn from_dirs_with(dirs: &[&Path], extra: &[(&str, &str)]) -> std::io::Result<Project> {
+        let texts = Self::read_dirs(dirs)?;
         Ok(Self::from_sources(
             texts
                 .iter()

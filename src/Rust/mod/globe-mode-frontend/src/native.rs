@@ -12,6 +12,7 @@ use globe_mode_flat::Project;
 use globe_mode_ir::Outline;
 use globe_mode_resolve::{Reason, RefKind, Resolution};
 
+use crate::split_library::SplitLibrary;
 use crate::{CheckReport, Frontend, Source, blank_bom};
 
 /// 名前の未解決を何件まで診断にするか（ライブラリの渡し忘れで全部が未解決になっても溢れさせない）
@@ -26,6 +27,26 @@ impl NativeFrontend {
     pub fn new() -> Self {
         Self::default()
     }
+}
+
+/// `model` と `user_texts` が使うライブラリのファイルだけの（名前, 本文）。Rumoca の道の分割読み込み
+/// （[`SplitLibrary`]、ADR-0025）と同じ閉包（外側の `package.mo` と、クラスの見つからないファイルを含む）。
+/// 全部読む `Project::from_dirs` と平坦化の結果が変わらないことは `tests/native_closure.rs`（`#[ignore]`）で見る。
+pub fn closure_sources(
+    libraries: &[&Path],
+    model: &str,
+    user_texts: &[&str],
+) -> std::io::Result<Vec<(String, String)>> {
+    let mut split = SplitLibrary::new(Project::read_dirs(libraries)?);
+    let mut need = split.closure(model, user_texts.iter().copied());
+    need.extend(split.unindexed());
+    Ok(need
+        .into_iter()
+        .map(|n| {
+            let (name, text) = split.file(n);
+            (name.to_string(), text.to_string())
+        })
+        .collect())
 }
 
 fn syntax_diagnostics(sources: &[Source<'_>]) -> Vec<Diagnostic> {
@@ -75,7 +96,14 @@ impl Frontend for NativeFrontend {
             .map(|s| (s.name, blank_bom(s.text)))
             .collect();
         let extra: Vec<_> = texts.iter().map(|(n, t)| (*n, &**t)).collect();
-        let project = match Project::from_dirs_with(libraries, &extra) {
+        let user_texts: Vec<&str> = extra.iter().map(|(_, t)| *t).collect();
+        let project = match closure_sources(libraries, model, &user_texts).map(|lib| {
+            Project::from_sources(
+                lib.iter()
+                    .map(|(n, t)| (n.as_str(), t.as_str()))
+                    .chain(extra.iter().copied()),
+            )
+        }) {
             Ok(p) => p,
             Err(e) => {
                 report.diagnostics.push(Diagnostic::error(
