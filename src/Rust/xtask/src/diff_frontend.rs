@@ -296,7 +296,7 @@ pub(crate) fn diff_frontend(opts: &Options<'_>) -> Result<ExitCode> {
     if let Some(n) = opts.limit {
         targets.truncate(n);
     }
-    let baseline = read_baseline(opts.baseline);
+    let baseline = read_baseline(opts.baseline)?;
     let mut rows = Vec::new();
     let mut run_seconds = 0.0;
     for (i, (name, group)) in targets.iter().enumerate() {
@@ -345,13 +345,19 @@ pub(crate) fn diff_frontend(opts: &Options<'_>) -> Result<ExitCode> {
         fs::write(path, text).map_err(|e| format!("{}: {e}", path.display()))?;
         println!("報告: {}", path.display());
     }
+    let regressed = delta.as_ref().is_some_and(|d| !d.regressions.is_empty());
     if let Some(path) = opts.json {
-        let v = render_json(&rows, &info);
-        let s = serde_json::to_string_pretty(&v).map_err(|e| e.to_string())?;
-        fs::write(path, s).map_err(|e| format!("{}: {e}", path.display()))?;
-        println!("JSON: {}", path.display());
+        // JSON は次の回の基準。回帰した結果・一部だけの結果で上書きすると、次の実行が回帰を見なくなる（#108）
+        if let Some(why) = skip_json_reason(opts, regressed) {
+            println!("JSON は書かない（前回の基準を残す）: {why}");
+        } else {
+            let v = render_json(&rows, &info);
+            let s = serde_json::to_string_pretty(&v).map_err(|e| e.to_string())?;
+            fs::write(path, s).map_err(|e| format!("{}: {e}", path.display()))?;
+            println!("JSON: {}", path.display());
+        }
     }
-    Ok(if delta.is_some_and(|d| !d.regressions.is_empty()) {
+    Ok(if regressed {
         ExitCode::from(1)
     } else {
         ExitCode::SUCCESS
@@ -368,29 +374,52 @@ struct Info<'a> {
 
 // --------------------------------------------------------------------------- 前回との比較
 
+/// 今回の結果を基準の JSON として書かない理由（回帰した、または一部のモデルだけを回した）。
+fn skip_json_reason(opts: &Options<'_>, regressed: bool) -> Option<&'static str> {
+    if regressed {
+        Some("回帰がある。直してから回し直す")
+    } else if opts.filter.is_some() || opts.limit.is_some() {
+        Some("--filter / --limit は一部のモデルだけ")
+    } else {
+        None
+    }
+}
+
+type Baseline = BTreeMap<String, BTreeMap<String, bool>>;
+
 /// 前回の JSON（`models[].name` と `models[].flags`）。形が変わっても読めるよう、要る欄だけを拾う。
-fn read_baseline(path: Option<&Path>) -> Option<BTreeMap<String, BTreeMap<String, bool>>> {
-    let path = path?;
+/// ファイルが無ければ注意を出して None、あっても読めない・形が違えば誤り（黙って比較を飛ばさない。#108）。
+fn read_baseline(path: Option<&Path>) -> Result<Option<Baseline>> {
+    let Some(path) = path else { return Ok(None) };
     let Ok(text) = fs::read_to_string(path) else {
         println!(
             "注意: 前回の結果 {} が無い。前回との差は書かない",
             path.display()
         );
-        return None;
+        return Ok(None);
     };
-    let v: Value = serde_json::from_str(&text).ok()?;
-    let mut out = BTreeMap::new();
-    for m in v.get("models")?.as_array()? {
-        let flags = m.get("flags")?.as_object()?;
-        out.insert(
-            m.get("name")?.as_str()?.to_string(),
-            flags
-                .iter()
-                .filter_map(|(k, b)| Some((k.clone(), b.as_bool()?)))
-                .collect(),
-        );
-    }
-    Some(out)
+    let bad = || {
+        format!(
+            "前回の結果 {} を読めない（壊れている・形が違う）。直すか消してから回す",
+            path.display()
+        )
+    };
+    let v: Value = serde_json::from_str(&text).map_err(|_| bad())?;
+    let parse = || -> Option<Baseline> {
+        let mut out = BTreeMap::new();
+        for m in v.get("models")?.as_array()? {
+            let flags = m.get("flags")?.as_object()?;
+            out.insert(
+                m.get("name")?.as_str()?.to_string(),
+                flags
+                    .iter()
+                    .filter_map(|(k, b)| Some((k.clone(), b.as_bool()?)))
+                    .collect(),
+            );
+        }
+        Some(out)
+    };
+    parse().map(Some).ok_or_else(bad)
 }
 
 #[derive(Default)]
@@ -404,7 +433,7 @@ struct Delta {
     compared: usize,
 }
 
-fn compare_baseline(prev: &BTreeMap<String, BTreeMap<String, bool>>, rows: &[Row]) -> Delta {
+fn compare_baseline(prev: &Baseline, rows: &[Row]) -> Delta {
     let mut d = Delta::default();
     let now: BTreeMap<&str, &Row> = rows.iter().map(|r| (r.name.as_str(), r)).collect();
     d.gone = prev
@@ -647,6 +676,40 @@ mod tests {
             unresolved: 0,
             diffs: Vec::new(),
         }
+    }
+
+    /// #108: 壊れた基準は誤り、回帰・一部だけの実行は基準の JSON を書かない。
+    #[test]
+    fn baseline_is_protected() {
+        let dir = std::env::temp_dir().join(format!("gm-diff-baseline-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("b.json");
+        assert!(read_baseline(Some(&p)).unwrap().is_none());
+        fs::write(&p, "{ broken").unwrap();
+        assert!(read_baseline(Some(&p)).is_err());
+        fs::write(&p, r#"{"models": [{"name": "A"}]}"#).unwrap();
+        assert!(read_baseline(Some(&p)).is_err());
+        fs::write(
+            &p,
+            r#"{"models": [{"name": "A", "flags": {"flat": true}}]}"#,
+        )
+        .unwrap();
+        assert_eq!(read_baseline(Some(&p)).unwrap().unwrap().len(), 1);
+        let _ = fs::remove_dir_all(&dir);
+        let o = |filter, limit| Options {
+            msl: Path::new("m"),
+            validation: Path::new("v"),
+            filter,
+            limit,
+            report: None,
+            json: None,
+            baseline: None,
+            reset_every: 0,
+        };
+        assert!(skip_json_reason(&o(None, None), false).is_none());
+        assert!(skip_json_reason(&o(None, None), true).is_some());
+        assert!(skip_json_reason(&o(Some("A"), None), false).is_some());
+        assert!(skip_json_reason(&o(None, Some(3)), false).is_some());
     }
 
     #[test]
