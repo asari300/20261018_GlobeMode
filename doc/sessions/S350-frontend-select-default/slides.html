@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S350 検査の select の既定を「設定に従う」に — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S350 検査の select の既定を設定に従うに">
+
+<section class="slide" id="S01">
+  <span class="tag">S350 · 2026-11-15 · Track B</span>
+  <h1>select の既定を「設定に従う」に</h1>
+  <p class="lead">S349 の持ち越し: Desktop の「検査」が <code>[check] frontend = "native"</code> を使わなかった</p>
+  <div class="big">設定に従う / Rumoca / 自前（試験）。既定は設定に従う</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">原因</span>
+  <h1>select が最初から <code>rumoca</code> を渡していた</h1>
+  <table class="compact">
+    <tr><th>場所</th><th>S349 まで</th><th>S350</th></tr>
+    <tr><td>エディタの波線</td><td>設定どおり</td><td>同じ</td></tr>
+    <tr><td>「検査」ボタン（Desktop）</td><td>select を変えない限り Rumoca</td><td>設定に従う（<code>frontend</code> を渡さない）</td></tr>
+    <tr><td>ブラウザ・Android</td><td>Rumoca</td><td>設定が無いので Rumoca と同じ</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">設計</span>
+  <h1>判断は Rust、UI は渡すだけ</h1>
+  <ul>
+    <li>「設定に従う」のあいだは <code>check(model)</code>。LSP の <code>check_frontend</code> が設定 → Rumoca の順で決める</li>
+    <li>使った方を UI が知るため、<code>CheckResponse</code> に <code>frontend</code>（native のときだけ <code>"native"</code>）</li>
+    <li>要約と「自前の段の原文」は、選んだ値か応答の <code>frontend</code> が native のとき</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">確かめたこと</span>
+  <h1>試験</h1>
+  <ul>
+    <li>LSP: 設定が native で <code>frontend</code> を省くと native、<code>rumoca</code> を渡すと Rumoca</li>
+    <li><code>test_tauri.mjs</code>: 省く・<code>undefined</code> は <code>params</code> に乗らない</li>
+    <li><code>test_ui.py</code>: 既定は設定に従う（乗らない）、<code>rumoca</code>・<code>native</code> は乗る、応答が native なら要約</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

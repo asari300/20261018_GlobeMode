@@ -2701,8 +2701,23 @@ mod tests {
             s.handle(json!({"method": "textDocument/didOpen", "params": {"textDocument": {"uri": uri, "text": text}}}))
         };
         std::fs::write(&toml, "[check]\nfrontend = \"native\"\n").unwrap();
-        let out = open(&mut Server::new(&[]).unwrap());
+        let mut s = Server::new(&[]).unwrap();
+        let out = open(&mut s);
         assert!(out[0].to_string().contains("GM-U0006"), "{}", out[0]);
+        // S350: `globe/check` も frontend を省けばこの設定に従い（応答の frontend が native）、選べば選んだ方
+        let mut check = |params: Value| {
+            s.handle(json!({"id": 1, "method": "globe/check", "params": params}))
+                .remove(0)["result"]
+                .clone()
+        };
+        if cfg!(feature = "native") {
+            assert_eq!(check(json!({"model": "E"}))["frontend"], "native");
+        }
+        let rumoca = check(json!({"model": "E", "frontend": "rumoca"}));
+        assert!(
+            rumoca["passed"] == true && rumoca.get("frontend").is_none(),
+            "{rumoca}"
+        );
         std::fs::write(&toml, "[fmt]\nindent = 2\n").unwrap();
         let out = open(&mut Server::new(&[]).unwrap());
         assert!(!out[0].to_string().contains("GM-U0006"), "{}", out[0]);
@@ -2727,6 +2742,9 @@ mod tests {
         );
         let native = check(json!({"model": "E", "frontend": "native"}));
         assert_eq!(native["result"]["passed"], false, "{native}");
+        if cfg!(feature = "native") {
+            assert_eq!(native["result"]["frontend"], "native", "{native}"); // S350: 使った方を応答が言う（Rumoca では出ない）
+        }
         assert!(native.to_string().contains("GM-U0006"), "{native}");
         for bad in [json!("nope"), json!(1)] {
             let r = check(json!({"model": "E", "frontend": bad}));

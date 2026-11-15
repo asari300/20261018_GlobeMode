@@ -17,6 +17,7 @@ fn native_is_chosen_per_call_and_unsupported_is_not_switched() {
         native.diagnostics.iter().any(|d| d.code == "GM-U0006"),
         "{native:?}"
     );
+    assert_eq!(ws.check("E").frontend, None); // S350: 応答が使った方を言うのは native だけ
     // 既定（Rumoca）は GM-U0006 を出さない
     assert!(
         !ws.check("E")
@@ -28,6 +29,7 @@ fn native_is_chosen_per_call_and_unsupported_is_not_switched() {
     assert!("omc".parse::<CheckFrontend>().is_err());
     #[cfg(feature = "native")]
     {
+        assert_eq!(native.frontend, Some("native"));
         let ok = ws.check_with("Decay", CheckFrontend::Native);
         assert!(ok.passed, "{ok:?}");
         assert!(ok.summary.contains("native: S0〜S6"), "{}", ok.summary);

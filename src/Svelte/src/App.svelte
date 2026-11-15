@@ -67,7 +67,7 @@
   let lastFinal = $state<[string, number][]>([]); // 最後の時刻の値（先頭の 8 本。$ で始まる内部名は除く）
   // S173: コンパイラが未対応で止まった要約（Rust が決める。空なら無い）、強行で進める見込みのモデル（Rust の can_force）、直近の実行が強行か
   let unsupported = $state("");
-  let checkFrontend = $state<CheckFrontend>("rumoca"); // S347: 検査のフロントエンド（wasm だけ。Rust の CheckFrontend）
+  let checkFrontend = $state<CheckFrontend | "config">("config"); // S347: 検査のフロントエンド（Rust の CheckFrontend）。S350: "config" は渡さない（Desktop は LSP が `[check] frontend` → Rumoca の順で決め、設定の無いブラウザ・Android は Rumoca）
   let nativeNote = $state(""); // S347: 直近の検査が native だったときの summary（S0〜S6 までしか見ていない旨を含む。Rust が作る）
   let canForce = $state<string | null>(null);
   let forced = $state(false);
@@ -449,8 +449,8 @@
   }
 
   const check = () => { const m = model; return run(async () => { // S196: 押した時点のモデル名（検査の途中で欄を打ち換えても、canForce・checkedModel は検査したモデル）
-    const checked = await backend.check(m, checkFrontend);
-    nativeNote = checkFrontend === "native" ? checked.summary ?? "" : "";
+    const checked = await backend.check(m, checkFrontend === "config" ? undefined : checkFrontend);
+    nativeNote = checkFrontend === "native" || checked.frontend === "native" ? checked.summary ?? "" : ""; // 設定に従った結果が native かは、Rust が応答の frontend で言う（S350）
     diagnostics = bySeverity(checked.diagnostics);
     experiment = checked.experiment;
     unsupported = checked.unsupported ?? "";
@@ -973,7 +973,7 @@
       <option value="light">明</option>
       <option value="dark">暗</option>
     </select>
-    {#if backend.checkFrontends}<select aria-label="検査のフロントエンド" bind:value={checkFrontend} disabled={busy}><option value="rumoca">Rumoca</option><option value="native">自前（試験）</option></select>{/if}
+    {#if backend.checkFrontends}<select aria-label="検査のフロントエンド" bind:value={checkFrontend} disabled={busy}><option value="config">設定に従う</option><option value="rumoca">Rumoca</option><option value="native">自前（試験）</option></select>{/if}
     <button onclick={check} disabled={busy} title="検査（Ctrl/Cmd+Shift+Enter）" aria-keyshortcuts="Control+Shift+Enter Meta+Shift+Enter">検査</button>
     <button onclick={() => simulate()} disabled={busy} title="実行（Ctrl/Cmd+Enter）" aria-keyshortcuts="Control+Enter Meta+Enter">実行</button>
     <button onclick={graph} disabled={busy}>グラフ</button>

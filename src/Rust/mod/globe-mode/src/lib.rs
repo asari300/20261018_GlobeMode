@@ -406,6 +406,7 @@ pub fn native_response(report: &globe_mode_frontend::CheckReport) -> CheckRespon
     response.failed_stage = report.failed_stage();
     response.balance = report.balance;
     response.notes = report.notes.clone();
+    response.frontend = Some("native");
     let model = &report.model;
     response.summary = if passed {
         format!("{model}: OK（native: S0〜S6 を通過。S7 以降は検査していない）")
@@ -689,6 +690,7 @@ impl Workspace {
             diagnostics: report.diagnostics,
             notes: check.notes,
             summary: String::new(),
+            frontend: None,
         };
         response.summary = response.summary_line();
         response
