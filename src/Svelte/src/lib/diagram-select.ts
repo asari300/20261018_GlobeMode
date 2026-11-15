@@ -7,7 +7,7 @@ export type Del = { part: string } | { from: string; to: string };
 export function pickSel(t: Element, type: string, prev: Sel): Sel {
   const part = t.closest("[data-part]")?.getAttribute("data-part");
   const hit = t.closest("[data-hit]")?.getAttribute("data-hit");
-  return part != null ? { part } : hit != null ? { key: hit } : type === "click" ? null : prev;
+  return part != null ? { part } : hit != null ? { key: hit } : type === "click" ? (t.closest(".wp") ? prev : null) : prev; // S299: 途中の点（.wp）のクリックでは外さない
 }
 
 /** 選んだ要素に `.sel` を付け直す。図が読み直されて対象が無くなっていたら null を返す */

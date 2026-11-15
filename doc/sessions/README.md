@@ -4,6 +4,7 @@
 
 | S | 日付 | Phase | 題名 | ブランチ | 状態 | スライド | 解説書 | セッション記録 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| S299 | 2026-11-15 | P8 | `diagram-waypoints`: Diagram の結線の途中の点を動かす・足す（Rust `move_waypoint`・`add_waypoint`、LSP `globe/moveWaypoint`・`globe/addWaypoint`、wasm・Backend、UI のつまみとダブルクリック） | `feature/s299-diagram-waypoints` | 作業中 | [slides](S299-diagram-waypoints/slides.html) | [解説書](S299-diagram-waypoints/解説書.md) | - |
 | S298 | 2026-11-15 | P8 | `param-dialog-2`: S294 の持ち越し 3 つ。修飾を外す UI、列挙のパラメータ（`ModelParameter.enum_type`、`型.リテラル` で書く）、書いたあとの `parameters` の引き直し | `feature/s298-param-dialog-2` | 完了 | [slides](S298-param-dialog-2/slides.html) | [解説書](S298-param-dialog-2/解説書.md) | なし |
 | S296 | 2026-11-15 | Track B | `lsp-definition-resolve`: LSP の定義ジャンプとホバーを、読めない文書でも自前の構文と名前解決で答える（S279 の補完と同じ形） | `feature/s296-lsp-definition-resolve` | 完了 | [slides](S296-lsp-definition-resolve/slides.html) | [解説書](S296-lsp-definition-resolve/解説書.md) | 省略 |
 | S295 | 2026-11-15 | P8 | `ssp-nested`: SSP の読み取りに入れ子の System（`外側.内側` に平らにし、System のコネクタを通る接続を 1 本の結線にたどる。System の `ParameterBindings` は階層名で当て上位が勝つ）と Int32・Boolean のコネクタ（読み取りと `write_ssp`）を足した | `feature/s295-ssp-nested` | 完了 | [slides](S295-ssp-nested/slides.html) | [解説書](S295-ssp-nested/解説書.md) | なし（記録が `log/local/` に無い） |

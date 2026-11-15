@@ -8,12 +8,15 @@ export interface DragCallbacks {
   onMove?: (part: string, dx: number, dy: number) => Promise<boolean>;
   /** コネクタ `a` から `b` へ。points は両端の図の座標 */
   onConnect?: (from: string, to: string, points: [number, number][]) => Promise<boolean>;
+  /** S299: 結線の途中の点のつまみ（`.wp`）を離したとき。index は `Line(points)` の中の番号。false なら見た目を元へ戻す */
+  onWaypoint?: (from: string, to: string, index: number, dx: number, dy: number) => Promise<boolean>;
 }
 
 const THRESHOLD = 4; // px。これ未満は移動と見ず、従来のクリック
 
 export function diagramDrag(svg: () => SVGSVGElement | null | undefined, cb: DragCallbacks) {
   let drag: { g: Element; part: string; x: number; y: number; sx: number; sy: number; dx: number; dy: number; moved: boolean } | null = null;
+  let wp: { g: Element; from: string; to: string; index: number; x: number; y: number; sx: number; sy: number; dx: number; dy: number; moved: boolean } | null = null;
   let wire: { from: Element; sx: number; sy: number; line: Element; moved: boolean } | null = null;
   let swallow = false; // ドラッグの終わりのクリックは宣言へ飛ばさない
   const far = (e: PointerEvent, s: { sx: number; sy: number }) => Math.hypot(e.clientX - s.sx, e.clientY - s.sy) >= THRESHOLD;
@@ -32,6 +35,14 @@ export function diagramDrag(svg: () => SVGSVGElement | null | undefined, cb: Dra
     const s = svg();
     const t = e.target as Element;
     if (!s?.getScreenCTM() || e.button !== 0) return;
+    const h = t.closest(".wp");
+    if (h && cb.onWaypoint) {
+      const [x, y] = at(e, s);
+      const [from, to] = h.getAttribute("data-wp")!.split(" ");
+      wp = { g: h, from, to, index: Number(h.getAttribute("data-index")), x, y, sx: e.clientX, sy: e.clientY, dx: 0, dy: 0, moved: false };
+      h.setPointerCapture(e.pointerId);
+      return;
+    }
     const c = t.closest(".conn");
     if (c && cb.onConnect) {
       const [x, y] = ends(c);
@@ -57,6 +68,12 @@ export function diagramDrag(svg: () => SVGSVGElement | null | undefined, cb: Dra
       const [x, y] = at(e, s);
       wire.line.setAttribute("x2", String(x));
       wire.line.setAttribute("y2", String(y));
+    } else if (wp && s && (wp.moved || far(e, wp))) {
+      const [x, y] = at(e, s);
+      wp.moved = true;
+      wp.dx = snap(x - wp.x);
+      wp.dy = snap(wp.y - y);
+      wp.g.setAttribute("transform", `translate(${wp.dx} ${-wp.dy})`);
     } else if (drag && s && (drag.moved || far(e, drag))) {
       const [x, y] = at(e, s);
       drag.moved = true;
@@ -69,7 +86,8 @@ export function diagramDrag(svg: () => SVGSVGElement | null | undefined, cb: Dra
   const up = async (e: PointerEvent) => {
     const w = wire;
     const d = drag;
-    wire = drag = null;
+    const k = wp;
+    wire = drag = wp = null;
     if (w) {
       w.line.remove();
       if (!w.moved) return;
@@ -78,6 +96,10 @@ export function diagramDrag(svg: () => SVGSVGElement | null | undefined, cb: Dra
       const to = w.from.ownerDocument.elementFromPoint(e.clientX, e.clientY)?.closest(".conn");
       const [a, b] = [w.from.getAttribute("data-end"), to?.getAttribute("data-end")];
       if (to && a && b && a !== b) await cb.onConnect?.(a, b, [ends(w.from), ends(to)]);
+    } else if (k?.moved) {
+      settle();
+      if (!k.dx && !k.dy) return k.g.removeAttribute("transform");
+      if (!(await cb.onWaypoint!(k.from, k.to, k.index, k.dx, k.dy))) k.g.removeAttribute("transform");
     } else if (d?.moved) {
       settle();
       if (!d.dx && !d.dy) return d.g.removeAttribute("transform");

@@ -630,6 +630,9 @@
   const onMove = (part: string, dx: number, dy: number) => editDiagram((d) => backend.movePart(d.class, part, dx, dy, { file }));
   const onConnect = (from: string, to: string, points: [number, number][]) => editDiagram((d) => backend.addConnect(d.class, from, to, points, { file }));
   const onAdd = (type: string, x: number, y: number) => editDiagram((d) => backend.addPart(d.class, type, x, y, { file }));
+  // S299: 結線の途中の点（点のドラッグと、線のダブルクリックで足す）
+  const onWaypoint = (from: string, to: string, index: number, dx: number, dy: number) => editDiagram((d) => backend.moveWaypoint(d.class, from, to, index, dx, dy, { file }));
+  const onAddWaypoint = (from: string, to: string, index: number, x: number, y: number, ends: [[number, number], [number, number]]) => editDiagram((d) => backend.addWaypoint(d.class, from, to, index, x, y, ends, { file }));
   const onDelete = (w: { part: string } | { from: string; to: string }) => editDiagram((d) => "part" in w ? backend.deletePart(d.class, w.part, { file }) : backend.deleteConnect(d.class, w.from, w.to, { file }));
   // S265: 木の「図へ」ボタン（キーボード用）は図の中央に足す
   const addToCenter = (e: { path: string }) => diagram && onAdd(e.path, (diagram.extent[0] + diagram.extent[2]) / 2, (diagram.extent[1] + diagram.extent[3]) / 2);
@@ -1010,7 +1013,7 @@
   <div class="work">
     {#if msl === "loaded"}<aside class="library"><LibraryTree {backend} onOpen={openLibrary} onAdd={diagram ? addToCenter : undefined} /></aside>{/if}
     <div class="editor" id="editor" hidden={isResults} bind:this={host}></div>
-    <DocsPanel doc={docs} {icon} {diagram} {onMove} {onConnect} {onAdd} {onDelete} onParams={(part) => (openParams = { part })} onJump={(line) => moveTo(view.state.doc.line(line + 1).from, view.state.doc.line(line + 1).from)} />
+    <DocsPanel doc={docs} {icon} {diagram} {onMove} {onConnect} {onAdd} {onDelete} {onWaypoint} {onAddWaypoint} onParams={(part) => (openParams = { part })} onJump={(line) => moveTo(view.state.doc.line(line + 1).from, view.state.doc.line(line + 1).from)} />
   </div>
   <p class="hint" id="editor-help">{EDITOR_HELP}</p>
   {#if saved}<p class="note" role="status" data-saved>{saved}</p>{/if}

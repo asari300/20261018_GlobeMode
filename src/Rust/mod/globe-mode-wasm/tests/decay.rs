@@ -719,6 +719,21 @@ fn diagram_is_read_as_shape_data_from_the_document() {
     .unwrap();
     assert_eq!(s.as_array().unwrap().len(), 1, "{s}");
     assert!(s[0]["newText"].as_str().unwrap().contains("(k = 2)"), "{s}");
+    // S299: 結線の途中の点は動かせ（端は断る）、points があれば挿す。points が無い結線（ends なし）は断る
+    let w: serde_json::Value =
+        serde_json::from_str(&ws.move_waypoint("T", text, "b.p", "a.p", 1, 1.0, 0.0)).unwrap();
+    assert_eq!(w[0]["newText"], "{21, 20}", "{w}");
+    assert_eq!(
+        ws.move_waypoint("T", text, "a.p", "b.p", 0, 1.0, 0.0),
+        "null"
+    );
+    let w: serde_json::Value =
+        serde_json::from_str(&ws.add_waypoint("T", text, "a.p", "b.p", 1, 5.0, 7.5, "[]")).unwrap();
+    assert_eq!(w[0]["newText"], "{5, 7.5}, ", "{w}");
+    assert_eq!(
+        ws.add_waypoint("T", text, "a.p", "x.q", 1, 5.0, 7.5, "[]"),
+        "null"
+    );
 }
 
 #[test]
