@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S297 flatten の続き — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S297 flatten の続き">
+
+<section class="slide" id="S01">
+  <span class="tag">S297 · 2026-11-15 · Track B</span>
+  <h1><code>redeclare</code> / <code>replaceable</code> を平坦化で扱う（B3 の続き）</h1>
+  <p class="lead">型の差し替えをインスタンス化のときに当てる</p>
+  <div class="big">MSL の例題で平らにできたのが 192 本から 279 本へ</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">やったこと</span>
+  <h1>4 つの差し替え（<code>globe-mode-flat</code> の中だけ）</h1>
+  <ul>
+    <li>部品の <code>redeclare</code>: <code>extends B(redeclare T x(…))</code> でも部品の修飾でも、外側が勝つ</li>
+    <li><code>redeclare package M = X</code>・<code>redeclare model M = X</code>: <code>Medium.BaseProperties</code> の <code>Medium</code> を差し替え先で引く</li>
+    <li><code>class extends</code>: 受け継いだクラスを先に取り込み、<code>(…)</code> の修飾を当てる</li>
+    <li>受け継いだクラスの中の <code>ThermodynamicState</code>・<code>nXi</code> は、差し替え後のパッケージで引き直す。関数は評価しない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">結果</span>
+  <h1>Rumoca の flat との突き合わせ</h1>
+  <table>
+    <thead><tr><th>対象</th><th>自前で平らにできた</th><th>名前の集合が一致</th><th>方程式の数が一致</th></tr></thead>
+    <tbody>
+      <tr><td><code>GlobeModeValidation</code> 75 本</td><td>72 → 74</td><td>73 / 73（S284 は 71 / 71）</td><td>73 / 73（71 / 71）</td></tr>
+      <tr><td>MSL の例題 566 本</td><td>192 → 279</td><td>273 / 273（189 / 189）</td><td>254 / 273（186 / 189）</td></tr>
+    </tbody>
+  </table>
+  <p>合わない 19 本は <code>QuasiStatic</code>・<code>Clocked</code>・DC 機械ほか。原因は未確認</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">断った理由</span>
+  <h1>MSL の例題で断った本数（S284 → S297）</h1>
+  <table class="compact">
+    <thead><tr><th>理由</th><th>S284</th><th>S297</th></tr></thead>
+    <tbody>
+      <tr><td>redeclare / replaceable / class-extends</td><td>263 / 9 / 11</td><td>0 / 0 / 0</td></tr>
+      <tr><td>array-type</td><td>13</td><td>0</td></tr>
+      <tr><td>composite-binding</td><td>41</td><td>155</td></tr>
+      <tr><td>connect-array</td><td>7</td><td>72</td></tr>
+      <tr><td>unsized-array / conditional-component</td><td>13 / 6</td><td>20 / 19</td></tr>
+      <tr><td>connect / array-modification / expandable / stream</td><td>7 / 0 / 2 / 0</td><td>8 / 8 / 2 / 1</td></tr>
+    </tbody>
+  </table>
+  <p>先へ進んだ分が別の理由に当たるので、増えた行もある</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>後ろで宣言したレコード（46 本）、関数の戻り値のレコード（27）、外部オブジェクト（29）</li>
+    <li>配列のコネクタの一括接続（72 本）、<code>xtask diff-frontend</code>、B4（DAE）</li>
+  </ul>
+  <pre><code>cargo test -p globe-mode-flat
+GLOBE_MSL=data/msl GLOBE_FLAT_RUMOCA=1 cargo test -p globe-mode-flat --test compare -- --ignored --nocapture</code></pre>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

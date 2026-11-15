@@ -261,7 +261,11 @@ pub(crate) fn run(p: &Project, cid: ClassId, model: &str) -> Res<FlatModel> {
         pkg_cenvs: RefCell::default(),
     };
     // 最上位のモデルは `protected` のコネクタも対象（Rumoca の flat も同じ）
-    let (_, own) = f.inst_class(cid, "", &ModMap::new(), Flags::default(), None)?;
+    // パッケージの中のモデルを直接平らにするときは、そのパッケージが差し替え後のパッケージ（`TwoPhaseWater.BaseProperties`）
+    let heir = p.lib.classes[cid]
+        .parent
+        .filter(|q| p.kind_of(*q) == Some(K::KwPackage));
+    let (_, own) = f.inst_class(cid, "", &ModMap::new(), Flags::default(), heir)?;
     // 最上位のモデル自身のコネクタの flow は 0（外へ流れ出ない。Rumoca の flat も同じ）
     for n in own {
         for (suffix, vi, count) in f.leaves(&n) {

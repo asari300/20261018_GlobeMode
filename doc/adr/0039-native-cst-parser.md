@@ -101,6 +101,21 @@ Track B（自前コア）は B1 rowan の CST と寛容なパーサ → B2 resol
 - **断った理由の内訳**（MSL の例題 566 本、最初の理由だけ数える。S278 → S284）: `redeclare` 205 → 263（上の機能で先へ進んだ分が `redeclare` に当たるようになった。数が増えたのは、前は別の理由で止まっていたため）、条件つきの宣言 131 → 6、`inner`/`outer` 43 → 0、大きさが定数でない 35 → 2、レコードの束縛 33 → 41（先へ進んだ分の関数の戻り値のレコードなど）、`[:]` 25 → 13、`class extends` 11、`replaceable` 5 → 9、配列の型 5 → 13、配列のコネクタの一括接続 4 → 7、`connect` の集合の不一致 0 → 7（`StateGraph` の例題が多い。原因は未確認）、`expandable` 2。
 - **持ち越し**: `redeclare` / `replaceable`（263 本。resolve の S275 の `Redeclare` と合わせる）、配列の修飾つきの条件（`useHeatPort = fill(…)`）、関数の戻り値のレコード（Spice3）、外部オブジェクト、配列のコネクタの一括接続、`xtask diff-frontend` への組み込み、B4（DAE）。
 
+## 付記（S297）: B3 の続き、`redeclare` / `replaceable` / `class extends`
+
+新しい ADR は立てず、S284 の続きとしてここに足す。変えたのは `globe-mode-flat` の中だけ（`globe-mode-resolve`・`globe-mode-syntax` は変えていない。新しい外部依存も無い）。
+
+- **`redeclare` を型の差し替えとしてインスタンス化のときに当てる**。修飾の `redeclare …` は `globe-mode-syntax` では字句の並びなので、`model R <本文>; end R;` に包んで読み直し（`Project::snippet`）、部品の宣言かクラスの宣言にする。名前は書いた場所のクラスから `globe-mode-resolve` の `Library::resolve_head` で引いて仮のファイル番号の表に入れる（`res_of` が同じ形で引ける）。種類ごとに:
+  - `redeclare [parameter] T x(…) = …`（部品）: `Mod::redecl` に型・接頭辞・添字を持たせ、元の宣言の修飾は残して新しい修飾を足す。外側が勝つ。`extends B(redeclare …)`・部品の修飾・short class の修飾 `model A = B(redeclare …)` のどれでも同じ。
+  - `redeclare package M = X(…)`・`redeclare model M = X(…)`: インスタンスごとの表 `Ctx::cenv`（名前 → クラスと `(…)` の修飾）に足す。型名の先頭（`Medium.BaseProperties` の `Medium`）がこの表にあれば差し替え先のクラスの中を引く。差し替え先の名前は書いた場所の表で先に解決するので、`redeclare package Medium = Medium` で入れ子の部品へ運べる。`extends` の中のものも同じ表に足す（先に足したもの、つまり外側が勝つ）。
+  - `redeclare function f = g`: 関数は平らにしないので無視する。長い形のクラス（`redeclare model M … end M`）は断る。
+- **`replaceable` は既定の型で平らにする**（`constrainedby` は型の検査用なので見ない）。`class extends`（`redeclare model extends M(…)`）は受け継いだ `M`（外側のクラスの継承元にある同名のクラス）を先に取り込み、`(…)` の修飾を当てる。
+- **差し替えたパッケージのメンバーを、受け継いだクラスの中でも差し替え後で引く**（`Ctx::heir`）。`Medium.BaseProperties` のように差し替え後のパッケージ（または `package Medium = MoistAir` の別名、パッケージの中のモデルを直接平らにするときはその親）を通して入れたクラスの中では、静的に解決した `ThermodynamicState` や `nXi` を、そのパッケージの同名のメンバーに引き直す。パッケージ自身の `extends P(redeclare record R = X)` が決めた `R` も使う。パッケージの定数は `extends` の修飾で決まる値も含めて引き（`pkg_env`。`extends PartialMedium(mediumName = …, nS = …)`）、`Medium.nX`・`size(substanceNames, 1)` を評価する。関数の呼び出しは式のまま残し、評価しない。
+- **ついでに直したもの（redeclare を通すと露わになった）**: (1) `type T extends Real(unit = "V"); end T;`（長い形の型）を組み込みの型として扱う、(2) `type Axis = Real[3]` の添字を使う側の添字の後ろに足す（`array-type` の 13 本）、(3) `a + b = zeros(n)` のような方程式の数を `dims_of` で出す（`n = 0` の配列で 1 本多く数えていた）、(4) `protected` のコネクタは、親から見て「つながっていない内側のコネクタ」の flow = 0 の対象にしない（最上位のモデルは `protected` も対象にする。Rumoca の flat と同じ）。
+- **Rumoca の flat との突き合わせ**（S278 と同じ手順）: `GlobeModeValidation` の 75 本は、自前で平らにできたのが 72 本から **74 本**（断ったのは `stream` 1 本だけ）、両方で通った 73 本で名前の集合 **73/73**・方程式の数 **73/73** が一致（S284 は 71/71）。MSL の例題 566 本は、自前で平らにできたのが 192 本から **279 本**、Rumoca の flat まで通った 273 本で名前の集合 **273/273**、方程式の数 **254/273** が一致（S284 は 189/189 と 186/189）。方程式の数が合わない 19 本は原因が未確認のものを含む: `Clocked` の 4 本（`UniformNoise` 系。`(a, b) = f(x)` とクロックの `previous` の数え方）、`QuasiStatic` の 11 本（`Complex` と Overconstrained connection の `Connections.isRoot` の扱いが違うと見ているが【未確認】）、DC 機械 2 本（`protected` のコネクタの数え方。自前は 4 本少ない）、`SuperCapDischargeCharge`（1 本）、`GenerationOfFMUs`（S284 から）。
+- **断った理由の内訳**（MSL の例題 566 本、最初の理由だけ数える。S284 → S297）: `redeclare` 263 → 0、`replaceable` 9 → 0、`class extends` 11 → 0、配列の型 13 → 0、レコードの束縛 41 → 155（先へ進んだ分。`frictionParameters = dcpmData.frictionParameters`〔後ろで宣言したレコード〕46、外部オブジェクト `tableID` 29、関数の戻り値のレコード `R = Frames.nullRotation()` 27、配列のレコード 11 ほか）、配列のコネクタの一括接続 7 → 72（`source.sineVoltage.p` のように部品の配列の同名のコネクタをまとめてつなぐ形）、`[:]` 13 → 20、条件つきの宣言 6 → 19（条件に配列の修飾つきの `useHeatPort` や文字列の比較）、`connect` の集合の不一致 7 → 8、配列の修飾 0 → 8、`expandable` 2、`stream` 1。
+- **持ち越し**: 後ろで宣言したレコードを欄ごとの修飾にするための宣言順の入れ替え（46 本）、関数の戻り値のレコード・外部オブジェクト、配列のコネクタの一括接続（72 本）、`Connections.isRoot` の評価、`xtask diff-frontend` への組み込み、B4（DAE）。
+
 ## 付記（S279）: LSP の補完を自前の構文と名前解決に（IDE の機能を先に自前に、S276 に続く 2 つ目）
 
 新しい ADR は立てず、同じ流れの続きとしてここに足す。S272・S275 では「Frontend・LSP にはまだつなげない」とし、S276 で LSP のアウトライン・折りたたみだけをつないだ。IDE の機能から自前にする方針（Track B）の 2 つ目として、LSP の `textDocument/completion`（と `globe/completion`）の `a.` の後ろに自前の寛容な構文の木（`globe-mode-syntax`）の上の名前解決（`globe-mode-resolve`）を**足す**。
