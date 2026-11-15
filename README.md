@@ -229,7 +229,7 @@ print(df.shape, df.columns[:3])                                                 
 `ws.linearize(model)`（状態空間の A・B・C・D。numpy があれば ndarray）、`cosim(spec)`（複数の FMU をつなぐ。dict・`.json`・`.ssp`。S258）、`run_fmu`・`fmu_info` も同じ流儀で使える（ワーカーの `globe` を PATH か `GLOBE_BIN` に）。
 `ws.blt(model)` は BLT のブロックを解く順の dict のリストで返す（S262）。
 
-PyPI には出していない。marimo・Jupyter の折れ線 widget は extra `widget`（`uv sync --extra widget`）。ノートブックは [src/Python/marimo/README.md](src/Python/marimo/README.md)、ダッシュボードは [src/Python/streamlit/README.md](src/Python/streamlit/README.md)。
+PyPI には出していない。marimo・Jupyter の折れ線 widget は extra `widget`（`uv sync --extra widget`）。解析の機能（`linearize`・`blt`・`stages`・`cosim`・`check(frontend="native")`）を 1 本で試せる marimo の見本は `src/Python/marimo/analysis_app.py`。ノートブックは [src/Python/marimo/README.md](src/Python/marimo/README.md)、ダッシュボードは [src/Python/streamlit/README.md](src/Python/streamlit/README.md)。
 
 #### C・Zig・Julia・Elixir・Gleam
 
