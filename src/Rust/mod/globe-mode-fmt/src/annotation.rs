@@ -41,9 +41,19 @@ fn order_table(name: &str) -> Option<&'static [&'static str]> {
     }
 }
 
+/// 引数の中身から、頭のコメントを除いたもの。コメントだけの行のコメントは次の引数の頭に付くので、名前を引くときは飛ばす（S346）。
+fn body<'n, 'a>(a: &'n Arg<'a>) -> &'n [Node<'a>] {
+    let k = a
+        .nodes
+        .iter()
+        .take_while(|n| matches!(n, Node::Leaf(t) if t.is_comment()))
+        .count();
+    &a.nodes[k..]
+}
+
 /// 引数の先頭の名前（`info = …` の info、`experiment(…)` の experiment）の、表での位置。無ければ表の長さ（後ろ）。
 fn position_in(table: &[&str], a: &Arg<'_>) -> usize {
-    match a.nodes.first() {
+    match body(a).first() {
         Some(Node::Leaf(t)) if t.kind == Kind::Ident => table
             .iter()
             .position(|n| *n == t.text)
@@ -133,7 +143,7 @@ fn mark_html(args: &mut [Arg<'_>]) {
 }
 
 fn arg_name<'a>(a: &Arg<'a>) -> Option<&'a str> {
-    match (a.nodes.first(), a.nodes.get(1)) {
+    match (body(a).first(), body(a).get(1)) {
         (Some(Node::Leaf(n)), Some(Node::Leaf(eq))) if n.kind == Kind::Ident && eq.is("=") => {
             Some(n.text)
         }
@@ -171,11 +181,13 @@ fn sort_args(args: &mut Vec<Arg<'_>>, insert_origin: bool) {
                         nodes: vec![syn(Kind::Number, "0")],
                         sep: Some(","),
                         rank: 0,
+                        trail: Vec::new(),
                     },
                     Arg {
                         nodes: vec![syn(Kind::Number, "0")],
                         sep: None,
                         rank: 0,
+                        trail: Vec::new(),
                     },
                 ],
                 close: Token::synthetic(Kind::Punct, "}"),
@@ -185,6 +197,7 @@ fn sort_args(args: &mut Vec<Arg<'_>>, insert_origin: bool) {
             nodes,
             sep: None,
             rank: rank(Some("origin")),
+            trail: Vec::new(),
         });
     }
     args.sort_by_key(|a| a.rank);

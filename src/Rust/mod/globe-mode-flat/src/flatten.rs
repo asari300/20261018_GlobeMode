@@ -2948,7 +2948,9 @@ impl F<'_> {
                 };
                 // 部品の配列を通した欄 `a.pin.v`（`pin[1].v` …）は、要素の数
                 let Some(&vi) = self.var_idx.get(&base) else {
-                    let v = self.array_elems(&t)?;
+                    let Some(v) = self.array_elems(&t) else {
+                        return self.record_array_len(&t);
+                    };
                     let first = *self.var_idx.get(&v[0])?;
                     return Some(v.len() * self.vars[first].dims.iter().product::<usize>());
                 };
@@ -2960,6 +2962,19 @@ impl F<'_> {
             }
             _ => None,
         }
+    }
+
+    /// 要素ごとに展開されたレコード・部品の配列 `t[k].x` の要素の数（`Complex aw[3]` の `aw = {…}` は 3 本。Rumoca と同じ。S337）。
+    /// 変数名の表は整列しているので、`t[` で始まる名前の範囲だけをなめる
+    fn record_array_len(&self, t: &str) -> Option<usize> {
+        let pre = format!("{t}[");
+        let ks: HashSet<&str> = self
+            .var_idx
+            .range(pre.clone()..)
+            .map_while(|(n, _)| n.strip_prefix(&pre))
+            .filter_map(|r| r.split_once("].").map(|k| k.0))
+            .collect();
+        (!ks.is_empty()).then_some(ks.len())
     }
 
     /// `a.pin.v` で `a.pin` が部品の配列のとき、変数として在る `a.pin[k].v`（S324）。変数そのもの・添字つきは対象外

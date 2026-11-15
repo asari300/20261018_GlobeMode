@@ -6,8 +6,9 @@
 //!   先頭がクラスなら続きもクラスの要素としてたどる。部品なら、その型（`constrainedby` があればそれ）の要素として続きをたどる（S275。添字は無視）。
 //!   `extends` の修飾・部品の修飾・short class の修飾の `redeclare package M = X` は、その場の `M` を `X` に置き換える（1 段）。
 //! - 探索は Modelica 3.6 の 5.3: 内側から外へ（宣言 → 受け継いだ要素 → `import`）、`encapsulated` で止めて最上位へ、組み込み。
-//! - 未対応: 上の 1 段より先で `redeclare` / `replaceable` で型が変わる所（失敗に関わったら `Reason::Redeclare`）、部品の再宣言、`annotation` の中、
-//!   `redeclare` の引数の中、`protected` の要素への修飾つきアクセスの検査。
+//! - 成分参照の続き（`a.b`）が既定の型で引けず `Reason::Redeclare` になりそうなときだけ、差し替えた後の型でも引く（S341）:
+//!   参照のあるクラスの `extends B(redeclare T x)`（部品の再宣言）と、参照のあるクラスから見直した型の名前（`class extends` で差し替えた `ThermodynamicState`）。
+//! - 未対応: 部品の修飾の中の部品の再宣言（`A a(redeclare T x)`）、`annotation` の中、`redeclare` の引数の中、`protected` の要素への修飾つきアクセスの検査。
 //!
 //! 既存のフロントエンド（Rumoca）・LSP にはつなげない（doc/adr/0039-native-cst-parser.md の付記）。
 
@@ -78,6 +79,8 @@ pub(crate) struct PathRef {
     pub redeclare: bool,
     /// `extends B(redeclare package M = X)` / `= B(redeclare …)` の置き換え（S275）
     pub redecls: Vec<Redecl>,
+    /// `extends B(redeclare T x)` の部品の差し替え（S341。`targets` は `T`、`constrainedby` の順）
+    pub comp_redecls: Vec<Redecl>,
     /// `class extends X`（`path` は `[X]`）: 受け継いだ `X`（外側のクラスの継承元にある同名のクラス）を継ぐ
     pub class_ext: bool,
     pub state: Cell<St>,
