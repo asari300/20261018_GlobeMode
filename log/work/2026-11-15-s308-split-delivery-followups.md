@@ -58,5 +58,5 @@ Android（`android.yml` run 43665628896、main の run 43663027170 と比べる�
 
 - コードの検査: `cargo fmt --check` 0、`cargo clippy -p globe-mode-fmt -p globe-mode-frontend -p globe-mode -p globe-mode-wasm --all-targets -D warnings` 0、`cargo test -p globe-mode-frontend --lib` 49 通過（`direct_deps_are_one_step` を含む）。`split.mjs`（既定の深さ 2、20 本）は 20 / 20 一致で、往復の確認（ChuaCircuit が 4 往復以内・190 塊以内）を通った（実測 3 往復・179 塊）。`web.yml`（run 43665632267）success（束に MSL.json が無く、838 塊が全部ある。`test_ui.py` を含む）。`android.yml`（run 43665628896）success（ui・apk・emulator の debug と release）。
 - `check_docs.py`: スライド全部 OK / リンク 4913 件中の切れ 0 件。`render_slides.py`（S308 のデッキ）: 問題 0 件。
-- 回していない: 全体の `mise run check`（Rust は `file_deps` と `direct_deps` の追加だけ）、`wasm:compare`、`test_ui.py` の手元での通し（フォールドの印のクリックで時間切れになる既存のばらつき。CI の `web.yml` では通った）。先読みを基底だけの閉包で止めた直しのあとの `android.yml` は回し直していない（APK の大きさは変わらない）。web.yml は直したあとで回し直す（下）。
+- 回していない: 全体の `mise run check`（Rust は `file_deps` と `direct_deps` の追加だけ）、`wasm:compare`、`test_ui.py` の手元での通し（フォールドの印のクリックで時間切れになる既存のばらつき。CI の `web.yml` では通った）。先読みを基底だけの閉包で止めた直しのあとの `android.yml` は回し直していない（APK の大きさは変わらない）。直したあとの `web.yml`（run 43668008748）も success（`分割配信: ChuaCircuit の検査が通り、取ったのは索引と塊 191 本の合計 5.4 MiB`。直す前は 217 本・6.9 MiB）。
 - 並行の作業の負荷（load 12〜20）でブラウザの時間は比べられず、`render_slides` は 2 回時間切れになり、`pkill -f '[c]hromium'` で他の作業のブラウザも止めた可能性がある。
