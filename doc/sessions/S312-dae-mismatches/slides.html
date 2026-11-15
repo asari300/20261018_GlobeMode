@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S312 食い違いの原因と直し — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S312 食い違いの原因と直し">
+
+<section class="slide" id="S01">
+  <span class="tag">S312 · 2026-11-15 · Track B</span>
+  <h1>Rumoca との食い違いの原因を分けて直す</h1>
+  <p class="lead">方程式の数 19 本、DAE の釣り合いの判定 10 本</p>
+  <div class="big">方程式の数 273/273、釣り合いの判定 201/201、状態の数 201/201</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">調べ方</span>
+  <h1>小さいモデルに絞って並べる</h1>
+  <ul>
+    <li><code>cargo xtask diff-frontend --class A,B --dump</code>: 例題でなくても検査し、自前の flat と Rumoca の方程式の由来を並べる</li>
+    <li>部品を単独で検査して、合わない部品を探す（DC 機械・<code>Multiplex3</code>・<code>Coupling</code>）</li>
+    <li>S297 の見立て（Complex・<code>Connections.isRoot</code>・<code>protected</code>）のうち、Complex は外れ</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">flat の方程式の数</span>
+  <h1>5 つの原因（19 本）</h1>
+  <table class="compact">
+    <thead><tr><th>原因</th><th>本数</th></tr></thead>
+    <tbody>
+      <tr><td>行列 <code>[y] = [u1; u2]</code> の要素がベクトル</td><td>1</td></tr>
+      <tr><td>タプルの左辺 <code>(r, s) = f(x)</code> の配列の欄</td><td>4（Clocked）</td></tr>
+      <tr><td>接続集合を葉の変数の単位にしていなかった</td><td>3（DC 機械ほか）</td></tr>
+      <tr><td><code>protected</code> のコネクタの flow = 0</td><td>同上</td></tr>
+      <tr><td>過剰決定コネクタ（<code>Connections.*</code>）の全域森</td><td>11（QuasiStatic）</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">過剰決定コネクタ</span>
+  <h1>仮想接続グラフで等式を減らす</h1>
+  <ul>
+    <li>節点: <code>equalityConstraint</code> を持つレコードの部品。必須の辺は <code>branch</code>、任意の辺は <code>connect</code></li>
+    <li>閉路と「根を持つ木どうし」を避けて選び、選ばれた辺でつながる群ごとの連鎖にする</li>
+    <li><code>if Connections.isRoot(N)</code> の枝は、<code>N</code> が根でなければ落とす</li>
+    <li>切れた辺の <code>equalityConstraint</code> は戻り値の大きさ 0（Rumoca と同じく等式を作らない）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">DAE の数え方</span>
+  <h1>釣り合い・状態の数の原因</h1>
+  <table class="compact">
+    <thead><tr><th>原因</th><th>直し</th></tr></thead>
+    <tbody>
+      <tr><td>定数の <code>if</code> 式の枝に <code>der</code></td><td>選ばれる枝だけを印字</td></tr>
+      <tr><td>定数の評価が輪になり <code>if m &gt; small</code> を畳めない</td><td>差し替え後の修飾を系統の定数だけに当てる</td></tr>
+      <tr><td>束縛の中の <code>der</code></td><td>束縛の木も探す</td></tr>
+      <tr><td>レコードの方程式（<code>y = Complex(a, b)</code>）</td><td>欄ごとに数える</td></tr>
+      <tr><td>大きさ 0 の配列</td><td>未知数 0</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">結果</span>
+  <h1>MSL の例題 566 本（S297 → S312）</h1>
+  <table>
+    <thead><tr><th>項目</th><th>S297</th><th>S312</th></tr></thead>
+    <tbody>
+      <tr><td>方程式の数の一致（flat）</td><td>254 / 273</td><td>273 / 273</td></tr>
+      <tr><td>釣り合いの判定の一致</td><td>191 / 201</td><td>201 / 201</td></tr>
+      <tr><td>方程式と未知数の数の一致</td><td>191 / 201</td><td>201 / 201</td></tr>
+      <tr><td>状態の数の一致</td><td>185 / 201</td><td>201 / 201</td></tr>
+      <tr><td>構造の正則の一致</td><td>179 / 201</td><td>184 / 201</td></tr>
+    </tbody>
+  </table>
+  <p>回帰 0 本。残る正則の差 17 本は Clocked 16 本と <code>WaterIF97</code>（原因は未確認）</p>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>Clocked の正則（クロックの分割）、<code>WaterIF97</code> の正則</li>
+    <li>断った 287 本（composite-binding 155・connect-array 72）、<code>flat</code> の本数を増やす</li>
+  </ul>
+  <pre><code>cargo test -p globe-mode-flat -p globe-mode-dae
+cargo xtask diff-frontend --class Modelica.Clocked.Examples.Elementary.RealSignals.AssignClock --dump</code></pre>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

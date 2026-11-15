@@ -222,3 +222,36 @@ Track B（自前コア）は B1 rowan の CST と寛容なパーサ → B2 resol
 - **#115 パスの比べ方**: LSP は `same_path_key`（絶対・`..` を字句で畳む・`/`・ドライブ文字は小文字。symlink は解かない）で、ライブラリの木のファイル名と開いた文書を比べる（`drop_lib_for`・定義ジャンプの読み・開いている文書の判定）。
 - **#116 漏れ**: flat の `redeclare` の節の名前解決（`extra`）は `Project` が持つ値にした（`Box::leak` をやめた。`res_of` は `Option<Resolution>` を返す）。
 - 詳細と試験は [S320 の解説書](../sessions/S320-native-issues/解説書.md)。
+
+## 付記（S312）: 残る食い違いの原因を分け、数え方を直した（B3・B4 の続き）
+
+新しい ADR は立てず、S297・S300 で出た「方程式の数が合わない 19 本」と「DAE の釣り合いの判定が合わない 10 本」を、原因ごとに確かめて直した記録をここに足す。flat の構造体（`Var`・`Equation`）の形は変えていない（数え方の直しに限る）。
+
+- **調べ方**: `cargo xtask diff-frontend --class <完全修飾名,…> [--dump]`（例題でなくても、このクラスをそのまま検査する。`--dump` は自前の flat の変数と方程式、Rumoca の flat の方程式の由来を並べる）。Rumoca の方程式ごとの由来（`connection equation: a = b`・`flow sum equation: …`・`unconnected flow: …`・`equation from <部品>`）は `FlatSummary::equation_origins`（JSON には出さない）に足した。部品を単独で検査して Rumoca と比べ、小さいモデルに絞ってから直した。
+- **flat の方程式の数（19 本）の原因と直し**（すべて一致した）:
+
+| 原因 | 本数（例） | 直し |
+| --- | ---: | --- |
+| 行列 `[y] = [u1; u2; u3]` の数え方。要素がベクトルの行列を断っていて 1 本と数えた（`Multiplex3` など） | 1（`Rotational.Examples.GenerationOfFMUs`。4 つの `TorqueToAngleAdaptor` の内側） | `dims_of` が行列の要素をスカラー・ベクトル（n×1）・行列として、行は横に、行どうしは縦に連結する |
+| タプル `(r64, state64) = random(previous(state64))` の左辺は、欄の大きさの和（配列の欄を 1 と数えた） | 4（`Clocked` の乱数・AD/DA） | 左辺の各項の `shape` の和 |
+| 接続集合を丸ごとのコネクタの単位で作った。`connect(a, c.x)` と `connect(b, c)` が別の集合になり、flow の和と等式が重複した | 3（`DCPM_Drive`・`DC_CompareCharacteristics`・`SuperCapDischargeCharge`） | 集合を葉の変数（`c.x.Q_flow`）の単位で作る。外側のコネクタの端（自分のコネクタを丸ごと／欄で指す端）は flow の和の符号を逆にする |
+| `protected` のコネクタの flow = 0。Rumoca は「丸ごと `connect` の端になっている」か「どこにもつながっていない」葉だけを 0 にする | 同上（`DCPM_Drive` の `internalThermalPort`） | 公開のコネクタは今まで通り（最上位は常に、内側は親が）、`protected` は葉ごとに上の 2 条件だけ 0 |
+| **過剰決定コネクタ**（`Connections.root`・`branch`・`potentialRoot`・`isRoot`、MLS 9.4）。Rumoca は仮想接続グラフの全域森を選び、切れた辺をまたぐ `equalityConstraint`（戻り値の大きさ 0）の等式を作らず、`if Connections.isRoot(…)` の枝を根かどうかで決める | 11（`QuasiStatic` の電気・磁気） | 新しい `flatten/graph.rs`。節点は `equalityConstraint` を持つレコードの部品と `Connections.*` の引数、必須の辺は `branch`、任意の辺は `connect`。閉路と「根を持つ木どうし」を避けて選び、選ばれた辺でつながる群ごとの連鎖にして等式を作り直す。`if` は根でなければ落とす |
+
+S297 の見立て（Complex のレコード）は外れで、`Connections.isRoot` と `protected` のコネクタは当たっていた。全域森の選び方（辺の順）は Rumoca と違ってよい（接続集合ごとの等式の数の合計は選び方によらない）。大きさが 0 でない `equalityConstraint`（MultiBody の `Orientation`）は考えない（MultiBody はまだ平らにできない）。
+
+- **DAE の数え方（釣り合いの判定 10 本・状態の数 16 本）の原因と直し**:
+
+| 原因 | 本数（例） | 直し |
+| --- | ---: | --- |
+| 条件が定数の `if` 式の枝に `der(x)` があるとき、自前は状態に数えた。Rumoca の flat は選ばれない枝を落とす（`y1 = if use_fder then -der(y) else 0`） | 4（`Electrical.Analog` の `GenerationOfFMUs`・`ResonanceCircuits`、`Translational`・`HeatTransfer` の `GenerationOfFMUs`） | 式の印字で、条件が定数に評価できる `if` 式は選んだ枝だけを出す（`const_if_expr`） |
+| パッケージの定数の評価が輪になって `None` になり、`if m > Modelica.Constants.small` を畳めなかった（`pkg_binding` が、別のパッケージの同名の定数に、差し替え後のパッケージの `extends` の修飾を当てた） | 10（`FluidHeatFlow` の例題すべて） | その修飾は、そのパッケージの系統の定数にだけ当てる |
+| 束縛の中の `der`（`Real w = der(flange_a.phi)`）が状態を作らなかった | 2（`DCPM_Drive`・`DC_CompareCharacteristics`。`Utilities.Coupling` の `w = der(flange_a.phi)`） | 束縛の木も `der` を探す |
+| レコードの方程式 `y = Complex(a, b)` は DAE で欄ごとの 2 本（平らにした方程式は 1 本）。行は欄の変数すべてに触れる（shortcut） | 1（`TestConversionBlock`。正則も合う） | 左辺がレコードの部品なら、欄のスカラーの数にする |
+| 大きさ 0 の配列（`Xi[0]`）を未知数 1 と数えた | 2（`Media.Examples.SimpleLiquidWater`・`WaterIF97`） | 大きさ 0 は 0 と数える |
+
+- **数字**（MSL の例題 566 本、S297 → S312。`GlobeModeValidation` 75 本は変わらず）: 方程式の数の一致 254/273 → **273/273**、釣り合いの判定 191/201 → **201/201**、方程式と未知数の数 191/201 → **201/201**、状態の数 185/201 → **201/201**、構造の正則 179/201 → **184/201**。回帰 0 本、改善 36 本（旗ごとに、方程式の数 19・釣り合いの判定 10・状態の数 16・正則 5 本。同じモデルが複数の旗で数えられる）。
+- **既知の差**（正則の判定 17 本。**原因は未確認**）:
+  - `Modelica.Clocked` 16 本（自前が正則と言わず、Rumoca は言う）。Clock の信号は Rumoca では離散の側に入ると見ているが、自前は連続の行・未知数のまま行列に入れるため行と未知数の数が合わない見込み。クロックの分割は持たないので直していない。
+  - `Modelica.Media.Examples.WaterIF97` 1 本（同上の向き。判定・数は合っている）。
+- **計測の注意**: 共有の `target` のままだと、別の worktree が同じ名前の crate を先にビルドした成果物が混ざり、直した結果が出ないことがある（このセッションで数回）。xtask を回すときは worktree 専用の `CARGO_TARGET_DIR` に置き、回した結果にコミットの内容が入っているかを crate の試験で確かめる。
