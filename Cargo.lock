@@ -1449,6 +1449,7 @@ name = "globe-mode-dae"
 version = "0.2.0"
 dependencies = [
  "globe-mode-analysis",
+ "globe-mode-core",
  "globe-mode-flat",
  "globe-mode-ir",
  "globe-mode-syntax",

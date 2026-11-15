@@ -187,3 +187,14 @@ Track B（自前コア）は B1 rowan の CST と寛容なパーサ → B2 resol
 - **確かめたこと**: S305 の `check_native`（3 本）が同じ結果。`tests/native_closure.rs` の通常の試験（使わないファイルは入らず、`extends`・`import`・外側の `package.mo` は入り、全部読みと平坦化が一致）と、`#[ignore]` の MSL の試験（10 モデルで、閉包だけの `Project` と全部読みの `Project` の `flatten` が成功も断る理由も完全に一致。5 本が成功、5 本が `redeclare` などで断る）。`xtask diff-frontend` は全部読みのままで、数字は変わらない。
 - **代償**: 診断の位置は変わらないが、モデルが使わないライブラリのファイルの構文の誤りは見ない（以前も `from_dirs` は読むだけで報告していなかった）。1 ファイルに 2 つ以上のトップレベルのクラスがあるライブラリは索引に載らない（`split_library.rs` の shortcut。クラスが見つからないファイルはいつも読む）。閉包が狭すぎると名前が未解決になる危険は Rumoca の道と同じで、MSL の全例題での突き合わせは native では未実施（10 モデルのみ）。
 - **`GM-E6001` に位置を付ける件はやっていない**: 自前の `DaeStructure` の `file`・`range` は `globe-mode-dae` が `None` を入れている。原因は上流で、`globe-mode-flat` の `Equation`・`Var` が元の CST の範囲を持たない（平坦化は名前を付け替えた印字だけを残す）。位置を持たせるには `flatten.rs` の `Equation { … }`・`Var { … }` を作る 7 か所を直し、部品の入れ子と `connect` の展開で「どの宣言・どの方程式から来たか」を運ぶ必要がある。別の担当が `flatten.rs` を触っているので次の WP に回す。
+
+## 付記（S311）: 平らなモデルに元のソースの位置を持たせ、native の `GM-E6001`・`GM-E5002` に行・列を付ける
+
+新しい ADR は立てず、S305・S307 の「悪い点・持ち越し」（自前の `DaeStructure` が位置を持たない）の続きとしてここに足す。
+
+- **形**: `globe-mode-flat` の `Origin { file: Arc<str>, start, end }`（ファイル名とバイト範囲）を `Var::origin`・`Equation::origin`（`Option`）に持たせた。ファイルは番号でなく名前（閉包だけ読む `Project` と全部読みの `Project` で結果が一致する S307 の性質を保つ）。
+- **運び方**: 変数は宣言の節点。`extends` で受け継いだ宣言・方程式は基底クラスのファイルの位置、`redeclare` で差し替えても元の宣言、入れ子の部品の中も同じ。`for` の展開は中の方程式（何回展開しても同じ位置）、定数の条件の `if` は選んだ枝の中の方程式。`connect` から作る potential の等式と flow の和は、その集合に属する最初の `connect` の文。つながない内側のコネクタの `flow = 0` は flow 変数の宣言。`redeclare` の読み直しの仮のファイルは位置を持たない。
+- **dae**: `globe-mode-dae` が `DaeStructure` の `EquationRow`・`Unknown` の `file`・`range` に由来を入れる（束縛の方程式は変数の宣言。`algorithm` の行は付けない）。`globe-mode-analysis` は変えず、`GM-E6001` の診断は既存の `locate` で行・列を出す。
+- **`GM-E5002`**: native は数が合わないときも S6 の解析を回し、多い側の「相手のいない」方程式か未知数の位置に診断を置き、名前を注にする。Rumoca の道の `GM-E5002` は位置を持たない（部品ごとの方程式の数の注だけ）ので、native のほうが位置の分だけ情報が多い。
+- **確かめたこと**: `globe-mode-flat` の由来の試験（入れ子・`extends`・`for`・`connect`・`flow = 0`）、`check_native` の位置つきの `GM-E6001`・`GM-E5002`。`mise run msl:diff-frontend` の回帰は 0。
+- **持ち越し**: `algorithm` の文ごとの位置、`if`・`when` の枝ごとの位置、複数の `connect` を指す診断（今は集合の最初の 1 つ）。

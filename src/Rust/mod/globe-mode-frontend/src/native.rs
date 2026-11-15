@@ -195,14 +195,35 @@ impl Frontend for NativeFrontend {
         };
         report.balance = Some(dae.counts);
         if !dae.is_balanced() {
-            report.diagnostics.push(Diagnostic::error(
+            let mut d = Diagnostic::error(
                 codes::UNBALANCED,
                 Stage::S5,
                 format!(
                     "方程式が {} 個、変数が {} 個で、数が合わない",
                     dae.counts.equations, dae.counts.unknowns
                 ),
-            ));
+            );
+            // 原因の目安: 多い側の、マッチングで相手のいない方程式（宣言・文の位置）か未知数（宣言の位置）
+            let st = &dae.structure;
+            let s6 = globe_mode_analysis::analyze(st);
+            let cause = if dae.counts.equations > dae.counts.unknowns {
+                s6.unmatched_equations
+                    .first()
+                    .and_then(|&i| st.equations.get(i))
+                    .map(|r| ("方程式", r.label.clone(), r.file.clone(), r.range))
+            } else {
+                s6.unmatched_unknowns
+                    .first()
+                    .and_then(|&i| st.unknowns.get(i))
+                    .map(|u| ("未知数", u.name.clone(), u.file.clone(), u.range))
+            };
+            if let Some((kind, name, file, range)) = cause {
+                d = d.note(format!("対応のない{kind}の 1 つ: `{name}`"));
+                if let Some(f) = file {
+                    d = d.at(f, range);
+                }
+            }
+            report.diagnostics.push(d);
         } else {
             // S6（釣り合っているときだけ。db の検査と同じ）
             let s6 = globe_mode_analysis::analyze(&dae.structure);

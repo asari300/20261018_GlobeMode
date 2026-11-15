@@ -96,3 +96,31 @@ fn unsupported_is_reported_not_switched_to_rumoca() {
         out(&o)
     );
 }
+
+/// S311: 構造特異（GM-E6001）と釣り合わない（GM-E5002）の診断に、元のソースの行・列が付く
+#[test]
+fn singular_and_unbalanced_have_source_positions() {
+    // 数は合うが `y` を決める式が無い（`x = 2` が対応づけられない）
+    let m = temp_model(
+        "sing.mo",
+        "model Base\n  Real x;\n  Real y;\nequation\n  x = 1;\nend Base;\nmodel Sing\n  extends Base;\nequation\n  x = 2;\nend Sing;\n",
+    );
+    let o = globe(&["check", &m, "-m", "Sing", "--frontend", "native"]);
+    assert_eq!(o.status.code(), Some(1), "{}", out(&o));
+    let t = out(&o);
+    assert!(t.contains("sing.mo:10:3: error[GM-E6001]"), "{t}");
+    assert!(t.contains("sing.mo:3:8: error[GM-E6001]"), "{t}");
+
+    // 変数 2 個に方程式 1 本
+    let m = temp_model(
+        "unb.mo",
+        "model U\n  Real x;\n  Real y;\nequation\n  x = 1;\nend U;\n",
+    );
+    let o = globe(&["check", &m, "-m", "U", "--frontend", "native"]);
+    assert_eq!(o.status.code(), Some(1), "{}", out(&o));
+    assert!(
+        out(&o).contains("unb.mo:3:8: error[GM-E5002]"),
+        "{}",
+        out(&o)
+    );
+}

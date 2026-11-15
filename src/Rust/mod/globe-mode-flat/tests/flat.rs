@@ -414,3 +414,41 @@ fn package_extends_redeclares_record() {
     );
     assert_eq!(names(&m), ["medium.state.T", "medium.state.p"]);
 }
+
+/// S311: 変数・方程式が元のソースの位置（ファイル名とバイト範囲）を運ぶ
+#[test]
+fn origins_follow_nesting_extends_connect_and_for() {
+    let src = "connector Pin Real v; flow Real i; end Pin;
+model Base Real b; equation b = 1; end Base;
+model Cell extends Base; Pin p; equation p.v = b; end Cell;
+model Top Cell c[2]; Pin q; Real y[2];
+equation for k in 1:2 loop y[k] = c[k].b; end for; connect(c[1].p, q); end Top;";
+    let m = flat(src, "Top");
+    let at = |o: &Option<globe_mode_flat::Origin>| {
+        let o = o.as_ref().expect("origin");
+        assert_eq!(&*o.file, "t.mo");
+        src[o.start as usize..o.end as usize]
+            .trim_end_matches(';')
+            .to_string()
+    };
+    // 入れ子: c[2].b は Base の宣言（extends で受け継いだ宣言は基底のファイル内の位置）
+    let var = |n: &str| m.vars.iter().find(|v| v.name == n).unwrap();
+    assert_eq!(at(&var("c[2].b").origin), "b");
+    assert_eq!(at(&var("y").origin), "y[2]");
+    // extends の方程式（Base の `b = 1`）、入れ子の方程式、for（展開した 2 本とも中の方程式）
+    let on = |text: &str| {
+        m.equations
+            .iter()
+            .filter(|e| e.text == text)
+            .map(|e| at(&e.origin))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(on("c[1].b = 1"), ["b = 1"]);
+    assert_eq!(on("c[2].p.v = c[2].b"), ["p.v = b"]);
+    assert_eq!(on("y[2] = c[2].b"), ["y[k] = c[k].b"]);
+    // connect から作った potential・flow の方程式は connect の文
+    assert_eq!(on("c[1].p.v = q.v"), ["connect(c[1].p, q)"]);
+    assert_eq!(on("c[1].p.i - q.i = 0"), ["connect(c[1].p, q)"]);
+    // つなげなかったコネクタの flow = 0 は flow 変数の宣言
+    assert_eq!(on("c[2].p.i = 0"), ["i"]); // コネクタの flow 変数の宣言
+}

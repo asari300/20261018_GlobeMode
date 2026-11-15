@@ -4,6 +4,7 @@
 
 | S | 日付 | Phase | 題名 | ブランチ | 状態 | スライド | 解説書 | セッション記録 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| S311 | 2026-11-15 | Track B | `flat-ranges`: `globe-mode-flat` の `Var`・`Equation` に元のソースの位置（`Origin`）を持たせ、`globe-mode-dae` が `DaeStructure` の `file`・`range` に入れて、native の `GM-E6001`・`GM-E5002` に行・列を付けた | `feature/s311-flat-ranges` | 作業中 | [slides](S311-flat-ranges/slides.html) | [解説書](S311-flat-ranges/解説書.md) | なし |
 | S307 | 2026-11-15 | Track B | `native-closure`: `globe check --frontend native` がモデルが使うライブラリのファイルの閉包だけを読む（Rumoca の道の分割読み込み `SplitLibrary` を共用。debug で `PID_Controller` 15.8 s・227 MB → 2.9 s・67 MB）。`GM-E6001` の位置は flat が範囲を持たないので次回 | `feature/s307-native-closure` | 作業中 | [slides](S307-native-closure/slides.html) | [解説書](S307-native-closure/解説書.md) | なし |
 | S305 | 2026-11-15 | Track B | `check-native`: `globe check --frontend native`。自前の parse → resolve → flat → dae を `globe-mode-frontend` の feature `native`（`NativeFrontend`）として検査の入口につなぎ、S0〜S6 まで。未対応は `GM-U0006`（終了コード 3）で Rumoca に切り替えない。既定は Rumoca | `feature/s305-check-native` | 完了 | [slides](S305-check-native/slides.html) | [解説書](S305-check-native/解説書.md) | なし |
 | S304 | 2026-11-15 | 文書 | `readme-changelog-3`: README と CHANGELOG に、S292 の後に main に入った機能（パラメータをソースへ書く・外す・列挙、固有値の表と段のパネル、VS Code の削除、結線の途中の点、SSP の入れ子と Int32・Boolean、読めない文書での定義とホバー、`msl:diff-frontend`）を反映。済んだ限界を「未」から外した | `feature/s304-readme-changelog-3` | 作業中 | [slides](S304-readme-changelog-3/slides.html) | [解説書](S304-readme-changelog-3/解説書.md) | なし |

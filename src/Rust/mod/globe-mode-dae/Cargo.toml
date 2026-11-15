@@ -12,6 +12,7 @@ publish.workspace = true
 # 新しい外部依存は無い（flat の出力を、syntax の木で読んで ir の DaeStructure にする）
 globe-mode-flat = { path = "../globe-mode-flat", version = "0.2.0" }
 globe-mode-syntax = { path = "../globe-mode-syntax", version = "0.2.0" }
+globe-mode-core = { workspace = true }
 globe-mode-ir = { workspace = true }
 globe-mode-analysis = { workspace = true }
 

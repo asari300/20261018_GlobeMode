@@ -1,6 +1,6 @@
 //! 平らにする本体。クラスをインスタンス化し（`extends` を取り込み、修飾を外側から当てる）、変数と方程式を集める。
 
-use crate::{Causality, Equation, FlatModel, Project, Res, Var, VarKind, un};
+use crate::{Causality, Equation, FlatModel, Origin, Project, Res, Var, VarKind, un};
 use crate::{Snip, SnipItem};
 use globe_mode_resolve::{ClassId, Reason, Ref, RefKind, Resolution};
 use globe_mode_syntax::ast::{self, Element, Expr};
@@ -202,7 +202,7 @@ enum Ty {
 
 #[derive(Default)]
 struct Level {
-    conns: Vec<(String, String)>,
+    conns: Vec<(String, String, Option<Origin>)>,
 }
 
 const MAX_VARS: usize = 200_000;
@@ -215,6 +215,8 @@ struct F<'a> {
     whens: Vec<Equation>,
     ieqs: Vec<Equation>,
     algs: Vec<String>,
+    /// 今平らにしている方程式の位置（`push` が付ける）
+    cur: Option<Origin>,
     env: HashMap<String, Bind>,
     /// `inner` で宣言した部品の完全な名前
     inners: HashSet<String>,
@@ -251,6 +253,7 @@ pub(crate) fn run(p: &Project, cid: ClassId, model: &str) -> Res<FlatModel> {
         whens: Vec::new(),
         ieqs: Vec::new(),
         algs: Vec::new(),
+        cur: None,
         env: HashMap::new(),
         inners: HashSet::new(),
         alias: HashMap::new(),
@@ -273,6 +276,7 @@ pub(crate) fn run(p: &Project, cid: ClassId, model: &str) -> Res<FlatModel> {
                 f.eqs.push(Equation {
                     text: format!("{n}{suffix} = 0"),
                     count,
+                    origin: f.vars[vi].origin.clone(),
                 });
             }
         }
@@ -698,6 +702,7 @@ impl F<'_> {
                     start,
                     binding,
                     attrs,
+                    origin: self.p.origin(file, d.syntax()),
                 });
                 if conn {
                     own.push(full);
@@ -1807,7 +1812,11 @@ impl F<'_> {
     }
 
     fn push(&mut self, initial: bool, text: String, count: usize) {
-        let e = Equation { text, count };
+        let e = Equation {
+            text,
+            count,
+            origin: self.cur.clone(),
+        };
         if initial {
             self.ieqs.push(e);
         } else {
@@ -1823,6 +1832,7 @@ impl F<'_> {
         initial: bool,
         lv: &mut Level,
     ) -> Res<()> {
+        self.cur = self.p.origin(file, node);
         let first = tokens(node).next().map(|t| t.kind());
         match first {
             Some(K::KwFor) => {
@@ -1851,7 +1861,11 @@ impl F<'_> {
                 let t = self.text(node, file, ctx)?;
                 let c = self.count_eq(node, file, ctx);
                 if first == Some(K::KwWhen) && !initial {
-                    self.whens.push(Equation { text: t, count: c });
+                    self.whens.push(Equation {
+                        text: t,
+                        count: c,
+                        origin: self.cur.clone(),
+                    });
                 } else {
                     self.push(initial, t, c);
                 }
@@ -1867,7 +1881,7 @@ impl F<'_> {
                         };
                         let (x, y) = (self.cref(x, file, ctx)?, self.cref(y, file, ctx)?);
                         if !(self.is_removed(&x) || self.is_removed(&y)) {
-                            lv.conns.push((x, y));
+                            lv.conns.push((x, y, self.cur.clone()));
                         }
                     }
                     [e] => {
@@ -2152,7 +2166,7 @@ impl F<'_> {
             }
             x
         }
-        for (a, b) in &lv.conns {
+        for (a, b, _) in &lv.conns {
             let (ia, ib) = (
                 id(a, &mut names, &mut parent),
                 id(b, &mut names, &mut parent),
@@ -2172,6 +2186,11 @@ impl F<'_> {
         }
         for set in &sets {
             let members: Vec<&String> = set.iter().map(|&i| &names[i]).collect();
+            let origin = lv
+                .conns
+                .iter()
+                .find(|c| members.contains(&&c.0))
+                .and_then(|c| c.2.clone());
             let first = self.leaves(members[0]);
             if first.is_empty() {
                 return un(
@@ -2204,6 +2223,7 @@ impl F<'_> {
                     self.eqs.push(Equation {
                         text: format!("{s} = 0"),
                         count,
+                        origin: origin.clone(),
                     });
                 } else {
                     if v.stream {
@@ -2221,6 +2241,7 @@ impl F<'_> {
                         self.eqs.push(Equation {
                             text: format!("{}{suffix} = {m}{suffix}", members[0]),
                             count,
+                            origin: origin.clone(),
                         });
                     }
                 }
@@ -2240,9 +2261,11 @@ impl F<'_> {
                     return un("stream", n.clone());
                 }
                 if v.flow {
+                    let origin = v.origin.clone();
                     self.eqs.push(Equation {
                         text: format!("{n}{suffix} = 0"),
                         count,
+                        origin: origin.clone(),
                     });
                 }
             }
