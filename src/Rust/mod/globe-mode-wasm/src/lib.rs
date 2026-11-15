@@ -485,6 +485,21 @@ impl Workspace {
         .to_string()
     }
 
+    /// 部品の修飾 `(name = value)` を書く TextEdit の配列の JSON（S294。LSP の `globe/setModifier` と同じ形）。`modifiers` は `[{part, name, value}]` の JSON（`value` が空なら外す）。
+    /// 断る場合（クラス・部品が無い・入れ子の名前・`each`/`final`・壊れた式）は理由を例外（文字列）で返す。ファイルは書かない。
+    pub fn set_modifier(
+        &self,
+        class: &str,
+        text: &str,
+        modifiers: &str,
+    ) -> Result<String, JsValue> {
+        let at = (!text.is_empty()).then_some((text, 0, 0));
+        let m = serde_json::from_str(modifiers).map_err(|e| js_error(format!("modifiers: {e}")))?;
+        globe_mode_lsp::diagram::set_modifiers(class, at, &m)
+            .map(|v| v.to_string())
+            .map_err(js_error)
+    }
+
     /// 図の部品 `part` の宣言とつながる `connect` を消す TextEdit の配列の JSON（S281。LSP の `globe/deletePart` と同じ形）。消せなければ `null`。ファイルは書かない。
     pub fn delete_part(&self, class: &str, text: &str, part: &str) -> String {
         let at = (!text.is_empty()).then_some((text, 0, 0));
@@ -495,6 +510,42 @@ impl Workspace {
     pub fn delete_connect(&self, class: &str, text: &str, from: &str, to: &str) -> String {
         let at = (!text.is_empty()).then_some((text, 0, 0));
         globe_mode_lsp::diagram::delete_connect(class, at, from, to).to_string()
+    }
+
+    /// 図の結線 `connect(from, to)` の線の途中の点 `index` を (dx, dy) だけ動かす TextEdit の配列の JSON（S299。LSP の `globe/moveWaypoint` と同じ形）。断れば `null`。ファイルは書かない。
+    #[allow(clippy::too_many_arguments)] // wasm-bindgen の入口は引数を平らに渡す
+    pub fn move_waypoint(
+        &self,
+        class: &str,
+        text: &str,
+        from: &str,
+        to: &str,
+        index: usize,
+        dx: f64,
+        dy: f64,
+    ) -> String {
+        let at = (!text.is_empty()).then_some((text, 0, 0));
+        globe_mode_lsp::diagram::move_waypoint(class, at, (from, to), index, (dx, dy)).to_string()
+    }
+
+    /// 図の結線の線に途中の点 `(x, y)` を足す TextEdit の配列の JSON（S299。LSP の `globe/addWaypoint` と同じ形。`ends` は `[[x1, y1], [x2, y2]]` の JSON で、`points` が無い結線にだけ使う）。断れば `null`。
+    #[allow(clippy::too_many_arguments)] // wasm-bindgen の入口は引数を平らに渡す
+    pub fn add_waypoint(
+        &self,
+        class: &str,
+        text: &str,
+        from: &str,
+        to: &str,
+        index: usize,
+        x: f64,
+        y: f64,
+        ends: &str,
+    ) -> String {
+        let at = (!text.is_empty()).then_some((text, 0, 0));
+        let ends = serde_json::from_str(ends)
+            .map_or_else(|_| Vec::new(), |v| globe_mode_lsp::diagram::points(&v));
+        globe_mode_lsp::diagram::add_waypoint(class, at, (from, to), index, [x, y], &ends)
+            .to_string()
     }
 
     /// 名前を `new_name` に変える TextEdit（`{range, newText}`）の配列の JSON（S161。LSP の `globe/rename` と同じ形）。

@@ -177,6 +177,9 @@ pub struct CompiledModel {
 pub struct EnumType {
     /// 型の完全修飾名（例 `Pkg.Model.Speed`）
     pub name: String,
+    /// 完全修飾名（S298。`name` は Rumoca の flat が持つ書いた通りの名前で、`Speed` のように修飾が無いことがある。修飾に
+    /// `型.リテラル` と書くのに使う。同じ末尾の名前の型が複数あれば先に見つかったもの。見つからなければ `name`）
+    pub qualified: String,
     pub literals: Vec<String>,
 }
 
@@ -1470,9 +1473,24 @@ fn enum_types(flat: &FlatModel) -> BTreeMap<String, EnumType> {
                         .or_insert_with(|| l.trim_matches('\'').to_string());
                 }
             }
+            let lits: Vec<String> = lits.into_values().collect();
+            // ordinal 1 のリテラルの別名のうち、`…<型>.<リテラル>` の形でいちばん長い（修飾の深い）もの
+            let qualified = flat
+                .enum_literal_ordinals
+                .iter()
+                .filter(|&(_, &o)| o == 1)
+                .filter_map(|(k, _)| k.rsplit_once('.'))
+                .filter(|(q, l)| {
+                    l.trim_matches('\'') == lits.first().map_or("", String::as_str)
+                        && (q == ty || q.ends_with(&format!(".{ty}")))
+                })
+                .map(|(q, _)| q)
+                .max_by_key(|q| q.len())
+                .unwrap_or(ty);
             (!lits.is_empty()).then(|| EnumType {
                 name: ty.clone(),
-                literals: lits.into_values().collect(),
+                qualified: qualified.to_string(),
+                literals: lits,
             })
         });
         if let Some(t) = found {
@@ -1504,6 +1522,7 @@ fn model_parameters(flat: &FlatModel) -> Vec<ModelParameter> {
         };
         let e = v.binding.as_ref().or(v.start.as_ref());
         let lits = en.map(|t| t.literals.clone()).unwrap_or_default();
+        let enum_type = en.map(|t| t.qualified.clone());
         let (default, value) = match e {
             None => (None, None),
             Some(e) => {
@@ -1523,6 +1542,7 @@ fn model_parameters(flat: &FlatModel) -> Vec<ModelParameter> {
             default,
             value,
             literals: lits,
+            enum_type,
             unit: v.unit.clone().filter(|u| !u.is_empty()),
             description: v.description.clone().filter(|d| !d.is_empty()),
             min: v.min.as_ref().and_then(number),

@@ -96,6 +96,52 @@ pub fn add_part(
     }
 }
 
+/// S294: `class` の部品の修飾を書く編集（TextEdit の配列。1 つ）。`modifiers` は `[{part, name, value}]`（`value` が空なら外す）。
+/// 順に `globe_mode_fmt::set_modifier` で本文に当てていき、最初と最後の本文の差（共通の頭と尻を除いた範囲）を 1 つの編集にする（同じ部品への複数でも壊れない）。
+/// 断る理由（クラス・部品が無い・入れ子の名前・`each`/`final`・壊れた式）は Err。何も変わらなければ空の配列。ファイルは書き換えない。
+pub fn set_modifiers(
+    class: &str,
+    at: Option<(&str, u32, u32)>,
+    modifiers: &Value,
+) -> Result<Value, String> {
+    let (Some(class), Some((text, ..))) = (crate::documentation::target(class, at), at) else {
+        return Err("クラスか本文が無い".into());
+    };
+    let list = modifiers
+        .as_array()
+        .filter(|a| !a.is_empty())
+        .ok_or("modifiers が空か配列でない")?;
+    let mut cur = text.to_string();
+    for m in list {
+        let f = |k: &str| {
+            m[k].as_str()
+                .ok_or(format!("modifiers の {k} が文字列でない"))
+        };
+        let (a, b, t) =
+            globe_mode_fmt::set_modifier(&cur, &class, f("part")?, f("name")?, f("value")?)?;
+        cur.replace_range(a..b, &t);
+    }
+    let head = text
+        .char_indices()
+        .zip(cur.chars())
+        .find(|((_, a), b)| a != b)
+        .map_or(text.len().min(cur.len()), |((i, _), _)| i);
+    let (mut a, mut b) = (text.len(), cur.len());
+    while a > head && b > head && text.as_bytes()[a - 1] == cur.as_bytes()[b - 1] {
+        a -= 1;
+        b -= 1;
+    }
+    while !(text.is_char_boundary(a) && cur.is_char_boundary(b)) {
+        a += 1;
+        b += 1;
+    }
+    if text == cur {
+        return Ok(json!([]));
+    }
+    let r = |o| crate::position(text, o as u32);
+    Ok(json!([{"range": {"start": r(head), "end": r(a)}, "newText": &cur[head..b]}]))
+}
+
 /// S281: `class` の部品 `part` の宣言とその部品につながる `connect` を消す編集（TextEdit の配列。複数。重ならない）。
 /// 消せない（クラス・部品・Placement が無い・宣言が複数の名前を持つ）ときは null。ファイルは書き換えない。
 pub fn delete_part(class: &str, at: Option<(&str, u32, u32)>, part: &str) -> Value {
@@ -105,6 +151,42 @@ pub fn delete_part(class: &str, at: Option<(&str, u32, u32)>, part: &str) -> Val
 /// S281: `class` の `connect(a, b)`（逆の並びも同じ）を消す編集。無ければ null。
 pub fn delete_connect(class: &str, at: Option<(&str, u32, u32)>, a: &str, b: &str) -> Value {
     erase(class, at, |t, c| globe_mode_fmt::delete_connect(t, c, a, b))
+}
+
+/// S299: `class` の `connect(from, to)` の線の途中の点 `index` を (dx, dy) だけ動かす編集（`move_part` と同じ TextEdit の配列）。端・`points` が無い・結線が無いときは null。
+pub fn move_waypoint(
+    class: &str,
+    at: Option<(&str, u32, u32)>,
+    (from, to): (&str, &str),
+    index: usize,
+    (dx, dy): (f64, f64),
+) -> Value {
+    one(class, at, |t, c| {
+        globe_mode_fmt::move_waypoint(t, c, from, to, index, dx, dy)
+    })
+}
+
+/// S299: `class` の `connect(from, to)` の線に途中の点 `at_xy` を足す編集。`points` があれば `index` の前に挿し、無ければ `ends`（始めと終わり）と合わせた 3 点を足す。足せなければ null。
+pub fn add_waypoint(
+    class: &str,
+    at: Option<(&str, u32, u32)>,
+    (from, to): (&str, &str),
+    index: usize,
+    at_xy: [f64; 2],
+    ends: &[[f64; 2]],
+) -> Value {
+    let ends = <[[f64; 2]; 2]>::try_from(ends).ok();
+    one(class, at, |t, c| {
+        globe_mode_fmt::add_waypoint(t, c, from, to, index, at_xy, ends)
+    })
+}
+
+fn one(
+    class: &str,
+    at: Option<(&str, u32, u32)>,
+    f: impl Fn(&str, &str) -> Option<(usize, usize, String)>,
+) -> Value {
+    erase(class, at, |t, c| f(t, c).map(|e| vec![e]))
 }
 
 fn erase(

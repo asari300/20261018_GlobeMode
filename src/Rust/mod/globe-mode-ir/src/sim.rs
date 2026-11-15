@@ -317,6 +317,9 @@ pub struct ModelParameter {
     /// Enumeration のリテラル（ordinal は添字 + 1）
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub literals: Vec<String>,
+    /// Enumeration の型の完全修飾名（S298。ソースの修飾に `型.リテラル` と書くため。Enumeration でなければ None）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enum_type: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unit: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -711,6 +711,29 @@ fn diagram_is_read_as_shape_data_from_the_document() {
     assert_eq!(c.as_array().unwrap().len(), 1, "{c}");
     assert_eq!(ws.delete_connect("T", text, "a.p", "x.q"), "null");
     assert_eq!(ws.delete_part("T", text, "nope"), "null");
+    // S294: 修飾を書く（1 つの編集）。断る場合の例外は wasm でしか作れないので smoke.mjs で確かめる
+    let s: serde_json::Value = serde_json::from_str(
+        &ws.set_modifier("T", text, r#"[{"part":"a","name":"k","value":"2"}]"#)
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(s.as_array().unwrap().len(), 1, "{s}");
+    assert!(s[0]["newText"].as_str().unwrap().contains("(k = 2)"), "{s}");
+    // S299: 結線の途中の点は動かせ（端は断る）、points があれば挿す。points が無い結線（ends なし）は断る
+    let w: serde_json::Value =
+        serde_json::from_str(&ws.move_waypoint("T", text, "b.p", "a.p", 1, 1.0, 0.0)).unwrap();
+    assert_eq!(w[0]["newText"], "{21, 20}", "{w}");
+    assert_eq!(
+        ws.move_waypoint("T", text, "a.p", "b.p", 0, 1.0, 0.0),
+        "null"
+    );
+    let w: serde_json::Value =
+        serde_json::from_str(&ws.add_waypoint("T", text, "a.p", "b.p", 1, 5.0, 7.5, "[]")).unwrap();
+    assert_eq!(w[0]["newText"], "{5, 7.5}, ", "{w}");
+    assert_eq!(
+        ws.add_waypoint("T", text, "a.p", "x.q", 1, 5.0, 7.5, "[]"),
+        "null"
+    );
 }
 
 #[test]

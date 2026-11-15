@@ -57,6 +57,8 @@ fn parameters_are_nested_typed_and_carry_modifications() {
     let sp = get("c.speed");
     assert_eq!((sp.ty.as_str(), sp.value), ("Enumeration", Some(3.0)));
     assert_eq!(sp.literals, ["slow", "fast", "x y"]);
+    assert_eq!(sp.enum_type.as_deref(), Some("P.Speed")); // S298: 修飾に `P.Speed.fast` と書ける完全修飾名
+    assert_eq!(get("c.k").enum_type, None);
     assert_eq!(get("d.speed").value, Some(1.0));
     let s = get("d.label");
     assert_eq!((s.ty.as_str(), s.value), ("String", None));

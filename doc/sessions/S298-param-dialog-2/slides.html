@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S298 パラメータダイアログ 2 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S298 パラメータダイアログ 2">
+
+<section class="slide" id="S01">
+  <span class="tag">S298 · 2026-11-15 · P8</span>
+  <h1>ソースに書く、を 3 つ詰める</h1>
+  <p class="lead">S294 の持ち越しのうち、小さく効くものを済ませた</p>
+  <div class="big">修飾を外す · 列挙を書く · 書いた後に表を引き直す</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">変更</span>
+  <h1>3 つの変更</h1>
+  <ul>
+    <li><strong>修飾を外す</strong>: 行の「修飾を外す」が、空の値で <code>set_modifier</code> を呼ぶ（Rust は S294 で対応済み）</li>
+    <li><strong>列挙</strong>: <code>ModelParameter.enum_type</code>（完全修飾名）を足し、<code>c(mode = Leaf.Mode.fast)</code> と書く。選んだ ordinal をリテラル名にする</li>
+    <li><strong>引き直し</strong>: 書いた本文を <code>setFile</code> してから <code>parameters</code> を取り直し、既定値の列を再検査を待たずに更新する</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">Rust</span>
+  <h1>型の名前は flat から取る</h1>
+  <ul>
+    <li>Rumoca の flat の型名は書いた通り（<code>Speed</code>）で、修飾が無いことがある</li>
+    <li><code>enum_literal_ordinals</code> の別名のうち、ordinal 1 のリテラルで <code>…型.リテラル</code> の形のいちばん長いものから修飾名を取る</li>
+    <li>FMI の <code>declaredType</code> が使う <code>EnumType.name</code> は変えず、<code>qualified</code> を足した</li>
+  </ul>
+  <pre><code>cargo test -p globe-mode-frontend --test parameters
+(cd src/Svelte &amp;&amp; pnpm check &amp;&amp; node tests/test_tauri.mjs)</code></pre>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

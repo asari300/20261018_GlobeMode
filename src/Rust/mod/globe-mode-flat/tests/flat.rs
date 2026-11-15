@@ -108,13 +108,25 @@ fn connect_in_for_and_if_kept_as_text() {
          model Node P p; end Node;
          model Chain parameter Integer n = 3; Node a[n];
          equation for i in 1:n - 1 loop connect(a[i].p, a[i + 1].p); end for;
-           if n > 2 then a[1].p.v = 0; else a[1].p.v = 1; end if;
+           if time > 1 then a[1].p.v = 0; else a[1].p.v = 1; end if;
+           if n > 2 then a[2].p.v = 0; elseif n > 1 then a[2].p.v = 1; end if;
+           if n > 5 then a[3].p.v = 0; end if;
          end Chain;",
         "Chain",
     );
     let e = eqs(&m);
     assert!(e.contains(&"a[1].p.v = a[2].p.v".to_string()), "{e:#?}");
-    assert!(e.iter().any(|t| t.starts_with("if n > 2 then")), "{e:#?}");
+    assert!(
+        e.iter().any(|t| t.starts_with("if time > 1 then")),
+        "{e:#?}"
+    );
+    // 定数の条件の `if` は選んだ枝だけ（偽で else が無いものは消える）
+    assert!(e.contains(&"a[2].p.v = 0".to_string()), "{e:#?}");
+    assert!(
+        !e.iter()
+            .any(|t| t.contains("n > ") || t.starts_with("a[3].p.v =")),
+        "{e:#?}"
+    );
     assert!(m.equation_count() >= 3);
 }
 
@@ -125,12 +137,10 @@ fn declined_forms() {
         err("model A replaceable Real x; end A;", "A"),
         "replaceable"
     );
-    assert_eq!(err("model A inner Real x; end A;", "A"), "inner-outer");
+    // inner が無い outer、定数に評価できない条件
+    assert_eq!(err("model A outer Real x; end A;", "A"), "inner-outer");
     assert_eq!(
-        err(
-            "model A parameter Boolean b = true; Real x if b; end A;",
-            "A"
-        ),
+        err("model A input Boolean b; Real x if b; end A;", "A"),
         "conditional-component"
     );
     assert_eq!(
@@ -197,4 +207,75 @@ fn types_and_parameter_dims_from_outside() {
     let b = m.vars.iter().find(|v| v.name == "b").unwrap();
     assert_eq!(b.binding.as_deref(), Some("true"));
     assert_eq!(b.kind, globe_mode_flat::VarKind::Discrete);
+}
+
+#[test]
+fn conditional_component_and_connect() {
+    let src = "connector P Real v; flow Real i; end P;
+        model R P p; P n; equation p.v - n.v = p.i; p.i + n.i = 0; end R;
+        model Top
+          parameter Boolean use = false; parameter Integer n = 2;
+          R a; R b if use; R c if n > 1; P out; P hp if use;
+        equation connect(a.n, b.p); connect(a.p, hp); connect(a.n, c.p); connect(c.n, out);
+        end Top;";
+    let m = flat(src, "Top");
+    let n = names(&m);
+    // 偽の b と hp は消え、真の c は普通の宣言になる
+    assert!(n.contains(&"c.p.v") && !n.iter().any(|x| x.starts_with("b.") || x.starts_with("hp")));
+    let e = eqs(&m);
+    // b・hp につながる connect は落ち、a.n と c.p だけがつながる
+    assert!(e.contains(&"a.n.v = c.p.v".to_string()), "{e:#?}");
+    assert!(
+        !e.iter().any(|x| x.contains("b.") || x.contains("hp")),
+        "{e:#?}"
+    );
+}
+
+#[test]
+fn inner_outer_alias() {
+    let m = flat(
+        "model Env parameter Real g = 9.81; end Env;
+         model Body outer Env env; Real x; equation der(x) = -env.g; end Body;
+         model Mid Body body; end Mid;
+         model Top inner Env env(g = 3); Mid mid; Body b; end Top;",
+        "Top",
+    );
+    // outer の env は部品にならず、参照が外側の inner（env）に付け替わる
+    assert_eq!(names(&m), ["env.g", "mid.body.x", "b.x"]);
+    assert_eq!(eqs(&m), ["der(mid.body.x) = - env.g", "der(b.x) = - env.g"]);
+    // 一番近い inner が勝つ
+    let m = flat(
+        "model Env parameter Real g = 9.81; end Env;
+         model Body outer Env env; Real x; equation der(x) = -env.g; end Body;
+         model Mid inner Env env(g = 1); Body body; end Mid;
+         model Top inner Env env(g = 3); Mid mid; end Top;",
+        "Top",
+    );
+    assert_eq!(eqs(&m), ["der(mid.body.x) = - mid.env.g"]);
+}
+
+#[test]
+fn record_binding_and_constant_dims() {
+    let m = flat(
+        "record R parameter Real a = 1; parameter Integer n = 2; end R;
+         type Mode = enumeration(A, B);
+         model Top
+           parameter R r1 = R(a = 5, n = 3);
+           parameter R r2 = r1;
+           parameter Mode mode = Mode.B;
+           parameter Integer k = if mode == Mode.B then 4 else 5;
+           Real x[k]; Real y[r1.n];
+           parameter Real t[:] = {1, 2}; parameter Real u[:, :] = [1, 2, 3; 4, 5, 6];
+           parameter Real w[:] = 1:3;
+         end Top;",
+        "Top",
+    );
+    let v = |n: &str| m.vars.iter().find(|v| v.name == n).unwrap().clone();
+    assert_eq!(v("r1.a").binding.as_deref(), Some("5"));
+    assert_eq!(v("r2.a").binding.as_deref(), Some("r1.a"));
+    assert_eq!(v("r2.n").binding.as_deref(), Some("r1.n"));
+    assert_eq!(v("x").dims, [4]);
+    assert_eq!(v("y").dims, [3]);
+    assert_eq!(v("u").dims, [2, 3]);
+    assert_eq!(v("w").dims, [3]);
 }

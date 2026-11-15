@@ -194,6 +194,25 @@ fn matches(label: &str, word: &str) -> bool {
         .all(|w| l.any(|c| c == w))
 }
 
+/// 自前の道のライブラリの名前解決の木（S279。最初に要るとき 1 回だけ `read` で作って `Server` が持つ。`lib` を持たない呼び手は None）。
+pub(crate) fn tolerant_lib<'a>(r: &'a mut Resolver) -> Option<&'a mut globe_mode_resolve::Library> {
+    let cache = r.lib.as_mut()?;
+    let (tree, read) = (r.tree, r.read);
+    Some(cache.get_or_insert_with(|| {
+        let mut files: Vec<&str> = tree.classes().filter_map(|(n, _)| tree.file(n)).collect();
+        files.sort_unstable();
+        files.dedup();
+        let texts: Vec<(&str, String)> = files
+            .into_iter()
+            .filter_map(|f| Some((f, read(f)?)))
+            .collect();
+        let mut l =
+            globe_mode_resolve::Library::from_sources(texts.iter().map(|(f, t)| (*f, t.as_str())));
+        l.refs = Vec::new(); // 補完・定義は書きかけの文書の `Ref` だけ使う（メモリを減らす）
+        l
+    }))
+}
+
 /// 今の道（アウトライン）で `a.` の候補が出ないとき（カーソルの行を除いても文書が読めない、など）の足し（S279）:
 /// 自前の寛容な構文の木（`globe-mode-syntax`）の上の名前解決（`globe-mode-resolve`）で、`name` の直下（部品は型の部品とクラス、受け継ぎを含む）を引く。
 /// ライブラリの木は最初に 1 回だけ作って持ち、書きかけの文書だけを足して引く。`lib` を持たない呼び手（wasm）では何も出さない。
@@ -204,23 +223,9 @@ fn tolerant_members(
     at: usize,
     name: &str,
 ) -> Vec<CompletionItem> {
-    let Some(cache) = r.lib.as_mut() else {
+    let Some(lib) = tolerant_lib(r) else {
         return vec![];
     };
-    let (tree, read) = (r.tree, r.read);
-    let lib = cache.get_or_insert_with(|| {
-        let mut files: Vec<&str> = tree.classes().filter_map(|(n, _)| tree.file(n)).collect();
-        files.sort_unstable();
-        files.dedup();
-        let texts: Vec<(&str, String)> = files
-            .into_iter()
-            .filter_map(|f| Some((f, read(f)?)))
-            .collect();
-        let mut l =
-            globe_mode_resolve::Library::from_sources(texts.iter().map(|(f, t)| (*f, t.as_str())));
-        l.refs = Vec::new(); // 補完は使わない（メモリを減らす）
-        l
-    });
     let parts: Vec<String> = name.split('.').map(str::to_string).collect();
     let found = lib.with_source(path, text, |l, file| {
         l.members_of(l.class_at(file, at as u32)?, &parts)

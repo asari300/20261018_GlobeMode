@@ -264,8 +264,17 @@ export class TauriBackend implements Backend {
   deletePart(cls: string, part: string, at: { file: string }) {
     return invoke<{ range: Definition["range"]; newText: string }[] | null>("rpc", { method: "globe/deletePart", params: { file: at.file, class: cls, part } }); // S281
   }
+  setModifier(cls: string, modifiers: { part: string; name: string; value: string }[], at: { file: string }) {
+    return invoke<{ range: Definition["range"]; newText: string }[]>("rpc", { method: "globe/setModifier", params: { file: at.file, class: cls, modifiers } }); // S294
+  }
   deleteConnect(cls: string, from: string, to: string, at: { file: string }) {
     return invoke<{ range: Definition["range"]; newText: string }[] | null>("rpc", { method: "globe/deleteConnect", params: { file: at.file, class: cls, from, to } }); // S281
+  }
+  moveWaypoint(cls: string, from: string, to: string, index: number, dx: number, dy: number, at: { file: string }) {
+    return invoke<{ range: Definition["range"]; newText: string }[] | null>("rpc", { method: "globe/moveWaypoint", params: { file: at.file, class: cls, from, to, index, dx, dy } }); // S299
+  }
+  addWaypoint(cls: string, from: string, to: string, index: number, x: number, y: number, ends: [[number, number], [number, number]], at: { file: string }) {
+    return invoke<{ range: Definition["range"]; newText: string }[] | null>("rpc", { method: "globe/addWaypoint", params: { file: at.file, class: cls, from, to, index, x, y, ends } }); // S299
   }
   rename(file: string, line: number, character: number, newName: string) {
     return invoke<{ range: Definition["range"]; newText: string }[]>("rpc", { method: "globe/rename", params: { file, line, character, newName } });
