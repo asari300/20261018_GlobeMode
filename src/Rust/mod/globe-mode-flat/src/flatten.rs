@@ -77,6 +77,12 @@ impl Ctx {
     }
 }
 
+/// 節点の中に、名前 `names` のどれかの識別子があるか（宣言の場所で修飾された欄を、型の既定値の式が使うかの判定）
+fn mentions(n: &SyntaxNode, names: &[&String]) -> bool {
+    n.descendants()
+        .any(|x| tokens(&x).any(|t| t.kind() == K::Ident && names.iter().any(|k| *k == t.text())))
+}
+
 fn merge_mod(o: &Mod, i: &Mod) -> Mod {
     Mod {
         val: o.val.clone().or_else(|| i.val.clone()),
@@ -271,6 +277,9 @@ const MAX_INST_DEPTH: u32 = 64;
 
 /// 「パッケージの定数を評価する文脈」の印（`Ctx::pfx`）
 const PKG: &str = "\u{0}";
+
+/// 「関数の呼び出しの出力の大きさを評価する文脈」の印（`Ctx::pfx`。`locals` に入力の整数の値を束ねる）
+const FN: &str = "\u{1}";
 
 pub(crate) fn run(p: &Project, cid: ClassId, model: &str) -> Res<FlatModel> {
     let mut f = F {
@@ -841,7 +850,7 @@ impl F<'_> {
                     let f = *self.p.lib.classes[*c].classes.get("equalityConstraint")?;
                     // 大きさが決められなければ 0（今までと同じ。等式を作らない）
                     let n = self
-                        .class_out_dims(f, ctx)
+                        .class_out_dims(f, ctx, None)
                         .and_then(|d| dims_product(&d))
                         .unwrap_or(0);
                     Some((self.p.lib.qualified_name(f), n))
@@ -1351,12 +1360,8 @@ impl F<'_> {
             }
         }
         if unsized_ {
-            // shortcut: 大きさを決められるのは束縛の式の形が分かるときだけ（`dims_of`。ユーザー定義の関数の戻り値は断る）
-            match m
-                .val
-                .as_ref()
-                .and_then(|b| self.dims_of(&b.node, b.file, &b.ctx))
-            {
+            // shortcut: 大きさを決められるのは束縛の式の形が分かるときだけ（`bind_dims`。ファイルを読む外部関数の戻り値などは断る）
+            match m.val.as_ref().and_then(|b| self.bind_dims(b)) {
                 Some(v) if !v.is_empty() => dims = v,
                 _ => {
                     let b = m.val.as_ref().map(|b| b.node.text().to_string());
@@ -1983,7 +1988,14 @@ impl F<'_> {
                 match &self.p.res_of(file, c.range())? {
                     Resolution::Local if parts.len() == 1 => ctx.local(&parts[0]).map(Val::I),
                     Resolution::Component(cid, idx) => {
-                        if ctx.pfx != PKG && ctx.lineage.contains(cid) {
+                        // 関数の入力は呼び出しの引数の値（`output Real y[n]` の `n`）。関数の中の定数は下のパッケージの定数と同じ
+                        if ctx.pfx == FN
+                            && parts.len() == 1
+                            && let Some(v) = ctx.local(&parts[0])
+                        {
+                            return Some(Val::I(v));
+                        }
+                        if ctx.pfx != PKG && ctx.pfx != FN && ctx.lineage.contains(cid) {
                             // `outer` の部品の欄 `world.enableAnimation` は、先頭を inner の名前に付け替える（S329）
                             let key = format!("{}{}", ctx.pfx, parts.join("."));
                             let key = match self.alias.get(&format!("{}{}", ctx.pfx, parts[0])) {
@@ -2000,6 +2012,15 @@ impl F<'_> {
                                 return (parts.len() == 2)
                                     .then(|| self.pending_field(tgt, parts.last()?, d))
                                     .flatten();
+                            };
+                            if b.lit.is_some() {
+                                return None;
+                            }
+                            // `r = other` の欄は `other.f` の束縛を評価する
+                            let b = if b.suffix.is_empty() {
+                                b
+                            } else {
+                                &self.field_bind(b)?
                             };
                             if !b.suffix.is_empty() || b.lit.is_some() {
                                 return None;
@@ -2110,7 +2131,16 @@ impl F<'_> {
         if let Some(&i) = self.var_idx.get(name) {
             return Some(self.vars[i].dims.clone());
         }
-        let p = self.pending.get(name)?;
+        let Some(p) = self.pending.get(name) else {
+            // 宣言が後ろの部品の欄 `stop.on`: 型の宣言から
+            let (tgt, field) = name.rsplit_once('.')?;
+            if !self.not_instantiated(tgt) {
+                return None;
+            }
+            let cid = self.pending_type(tgt)?;
+            let modified: Vec<&String> = self.pending.get(tgt)?.m.sub.keys().collect();
+            return self.pkg_field_dims(cid, field, self.pending_bind(tgt, field), &modified);
+        };
         if self.depth.get() > 16 {
             return None;
         }
@@ -2120,26 +2150,120 @@ impl F<'_> {
         r.ok()
     }
 
-    /// まだ平らにしていない部品 `tgt` の欄 `field` の値。宣言した場所の修飾が先、無ければ型の既定値（S329）。
-    /// shortcut: 既定値が他の欄を参照していれば評価しない（`pkg_env` の文脈は部品の欄を知らない）
-    fn pending_field(&self, tgt: &str, field: &str, d: u32) -> Option<Val> {
+    /// まだ平らにしていない部品 `tgt` の欄 `field` の束縛。宣言した場所の修飾が先、無ければ型の既定値（S329）
+    fn pending_bind(&self, tgt: &str, field: &str) -> Option<Bind> {
         let p = self.pending.get(tgt)?;
         if let Some(b) = p.m.sub.get(field).and_then(|x| x.val.as_ref()) {
-            if !b.suffix.is_empty() || b.lit.is_some() {
-                return None;
-            }
-            return self.eval(&b.node, b.file, &b.ctx, d);
+            return Some(b.clone());
         }
+        // 型の既定値の式が、宣言の場所で修飾された欄を使うなら決めない（この文脈は修飾を知らない）
+        let b = self.pkg_env(self.pending_type(tgt)?)?.get(field)?.clone();
+        let modified: Vec<&String> = p.m.sub.keys().collect();
+        (!mentions(&b.node, &modified)).then_some(b)
+    }
+
+    /// 部品 `tgt` の宣言があって、まだ中身を平らにしていない（配列でなく、`tgt.…` の変数が無い）。
+    /// `pending` は平らにした後も残るので、変数の有無でも見る（部品の配列の欄 `pin.i` は要素の数をかけるので対象外）
+    fn not_instantiated(&self, tgt: &str) -> bool {
+        let Some(p) = self.pending.get(tgt) else {
+            return false;
+        };
+        let pre = format!("{tgt}.");
+        let has_sub = |n: &SyntaxNode| n.children().any(|c| c.kind() == K::Subscripts);
+        !(has_sub(p.d.syntax())
+            || has_sub(p.cc.syntax())
+            || self
+                .var_idx
+                .range(pre.clone()..)
+                .next()
+                .is_some_and(|(k, _)| k.starts_with(&pre)))
+    }
+
+    /// まだ平らにしていない部品 `tgt` の型（部品をもつクラス）
+    fn pending_type(&self, tgt: &str) -> Option<ClassId> {
+        let p = self.pending.get(tgt)?;
         let tn = p.cc.type_name()?;
         let (res, _, _) = self.class_res(p.file, &tn, &p.ctx);
-        let (Ty::Comp { cid, .. }, _) = self.type_of(res, &tn.parts()).ok()? else {
-            return None;
-        };
-        let b = self.pkg_env(cid)?.get(field)?.clone();
+        match self.type_of(res, &tn.parts()).ok()? {
+            (Ty::Comp { cid, .. }, _) => Some(cid),
+            _ => None,
+        }
+    }
+
+    /// クラス `cid` の欄 `field` の大きさ。宣言の添字と束縛（`over` があればそれ、無ければ `extends` の修飾も合わせたもの）から。
+    /// `modified`（宣言の場所で修飾された欄の名前）を宣言が直接使うなら、この文脈は修飾を知らないので決めない。
+    /// shortcut: 欄の型の添字（`type Axis = Real[3]`）は足さない。修飾の影響は 1 段だけ見る（別の欄を通る参照は見ない）
+    fn pkg_field_dims(
+        &self,
+        cid: ClassId,
+        field: &str,
+        over: Option<Bind>,
+        modified: &[&String],
+    ) -> Option<Vec<usize>> {
+        let ctx = Rc::new(Ctx {
+            pfx: PKG.to_string(),
+            lineage: self.p.lineage(cid),
+            locals: Vec::new(),
+            cenv: Cenv::default(),
+            heir: None,
+        });
+        let mut items = Vec::new();
+        self.collect(cid, &ModMap::new(), &ctx, &mut items, 0)
+            .ok()?;
+        items.iter().find_map(|it| {
+            let Item::Decl { cc, file, mods, .. } = it else {
+                return None;
+            };
+            let d = cc
+                .declarations()
+                .into_iter()
+                .find(|d| d.name().is_some_and(|(n, _)| n == field))?;
+            let own = self
+                .mod_of(
+                    d.syntax().children().find(|c| c.kind() == K::Modification),
+                    *file,
+                    &ctx,
+                    false,
+                )
+                .ok()?;
+            let mut m = match mods.get(field) {
+                Some(o) => merge_mod(o, &own),
+                None => own,
+            };
+            if mentions(d.syntax(), modified)
+                || (over.is_none() && m.val.as_ref().is_some_and(|b| mentions(&b.node, modified)))
+            {
+                return None;
+            }
+            m.val = over.clone().or(m.val);
+            self.decl_dims(&ctx, *file, cc, &d, field, &m).ok()
+        })
+    }
+
+    /// まだ平らにしていない部品 `tgt` の欄 `field` の値（S329）。
+    /// shortcut: 既定値が他の欄を参照していれば評価しない（`pkg_env` の文脈は部品の欄を知らない）
+    fn pending_field(&self, tgt: &str, field: &str, d: u32) -> Option<Val> {
+        let b = self.pending_bind(tgt, field)?;
         if !b.suffix.is_empty() || b.lit.is_some() {
             return None;
         }
         self.eval(&b.node, b.file, &b.ctx, d)
+    }
+
+    /// レコードの束縛 `r = other` を欄に分けたもの（`suffix` が `.f`）の、`other.f` 自身の束縛。
+    /// `other` が平らになっていれば環境から、宣言が後ろでまだなら `pending_bind`（`.f` が 1 段のとき）
+    fn field_bind(&self, b: &Bind) -> Option<Bind> {
+        let Some(Expr::ComponentRef(r)) = Expr::cast(b.node.clone()) else {
+            return None;
+        };
+        if !b.suffix.starts_with('.') || b.node.children().any(|x| x.kind() == K::Subscripts) {
+            return None;
+        }
+        let t = self.cref(&r, b.file, &b.ctx).ok()?;
+        if let Some(x) = self.env.get(&format!("{t}{}", b.suffix)) {
+            return Some(x.clone());
+        }
+        self.pending_bind(&t, &b.suffix[1..])
     }
 
     fn is_enum(&self, cid: ClassId) -> bool {
@@ -2277,20 +2401,79 @@ impl F<'_> {
         None
     }
 
-    /// ユーザー定義の関数の呼び出しの結果の形: 出力が 1 つで、その大きさが定数のとき（`Frames.angularVelocity2` は `Real w[3]`）。
+    /// ユーザー定義の関数の呼び出しの結果の形: 出力が 1 つで、その大きさが定数か整数の引数で決まるとき
+    /// （`Frames.angularVelocity2` は `Real w[3]`、`relNodePositions(12)` は `xsi[nNodes]`）。
     /// スカラーの出力・レコードの出力は `None`（今までと同じく 1 つと数える）
     fn fn_out_dims(&self, c: &ast::CallExpr, file: u32, ctx: &Rc<Ctx>) -> Option<Vec<usize>> {
         let r = c.syntax().children().find_map(ast::ComponentRef::cast)?;
         let Some(Resolution::Class(rid)) = self.p.res_of(file, r.range()) else {
             return None;
         };
-        self.class_out_dims(rid, ctx)
+        self.class_out_dims(rid, ctx, Some((c, file)))
     }
 
-    /// 関数のクラスの、出力が 1 つのときの戻り値の大きさ（宣言の添字が定数のもの）
-    fn class_out_dims(&self, rid: ClassId, ctx: &Rc<Ctx>) -> Option<Vec<usize>> {
+    /// 関数 `rid` の入力のうち整数のものを、呼び出し `call` の引数（無ければ既定値）の値に束ねた文脈（`pfx` は `FN`）
+    fn fn_frame(&self, rid: ClassId, call: (&ast::CallExpr, u32), ctx: &Rc<Ctx>) -> Rc<Ctx> {
+        let (c, file) = call;
+        let ffile = self.p.lib.classes[rid].file;
+        let mk = |locals: Vec<(String, i64)>| {
+            Rc::new(Ctx {
+                pfx: FN.to_string(),
+                lineage: self.p.lineage(rid),
+                locals,
+                cenv: ctx.cenv.clone(),
+                heir: ctx.heir,
+            })
+        };
+        let (pos, named) = (c.args(), c.named_args());
+        let mut fctx = mk(Vec::new());
+        let inputs = self.p.class(rid).into_iter().flat_map(|cd| cd.elements());
+        let mut i = 0;
+        for e in inputs {
+            let Element::Component(cc) = e else { continue };
+            if !tokens(cc.syntax()).any(|t| t.kind() == K::KwInput) {
+                continue;
+            }
+            for d in cc.declarations() {
+                let Some((name, _)) = d.name() else { continue };
+                let given = named
+                    .iter()
+                    .find(|(k, _)| *k == name)
+                    .map(|(_, e)| e)
+                    .or(pos.get(i));
+                i += 1;
+                let v = match given {
+                    Some(a) => self.eval(a.syntax(), file, ctx, 0),
+                    None => d
+                        .syntax()
+                        .children()
+                        .find(|c| c.kind() == K::Modification)
+                        .and_then(|m| m.children().find(|c| Expr::cast(c.clone()).is_some()))
+                        .and_then(|n| self.eval(&n, ffile, &fctx, 0)),
+                };
+                if let Some(v) = v.and_then(Val::int) {
+                    let mut locals = fctx.locals.clone();
+                    locals.push((name, v));
+                    fctx = mk(locals);
+                }
+            }
+        }
+        fctx
+    }
+
+    /// 関数のクラスの、出力が 1 つのときの戻り値の大きさ（宣言の添字が定数のもの。`call` があれば整数の入力も）
+    fn class_out_dims(
+        &self,
+        rid: ClassId,
+        ctx: &Rc<Ctx>,
+        call: Option<(&ast::CallExpr, u32)>,
+    ) -> Option<Vec<usize>> {
         let cd = self.p.class(rid)?;
         let ffile = self.p.lib.classes[rid].file;
+        let ctx = &match call {
+            Some(c) => self.fn_frame(rid, c, ctx),
+            None => ctx.clone(),
+        };
         let mut outs = cd.elements().into_iter().filter_map(|e| match e {
             Element::Component(cc) if tokens(cc.syntax()).any(|t| t.kind() == K::KwOutput) => {
                 Some(cc)
@@ -2320,8 +2503,25 @@ impl F<'_> {
         (!dims.is_empty()).then_some(dims)
     }
 
+    /// 束縛の配列の形。レコードの束縛 `r = other` を欄に分けたもの（`suffix` が `.f`）は `other.f` の大きさ
+    fn bind_dims(&self, b: &Bind) -> Option<Vec<usize>> {
+        if b.suffix.starts_with('.') {
+            if let Some(Expr::ComponentRef(r)) = Expr::cast(b.node.clone())
+                && let Ok(t) = self.cref(&r, b.file, &b.ctx)
+                && let Some(v) = self.var_dims(&format!("{t}{}", b.suffix))
+            {
+                return Some(v);
+            }
+            let f = self.field_bind(b)?;
+            return (f.suffix.is_empty() && f.lit.is_none())
+                .then(|| self.dims_of(&f.node, f.file, &f.ctx))
+                .flatten();
+        }
+        self.dims_of(&b.node, b.file, &b.ctx)
+    }
+
     /// 式の配列の形（スカラーは空）。分からなければ `None`
-    // shortcut: 行列の積・関数の戻り値の形は見ない（要素ごとの関数だけ）。必要になったら足す
+    // shortcut: 戻り値の形を見る関数は、要素ごとの組み込み・`vector`・出力が 1 つで大きさが定数か整数の引数で決まるユーザー定義だけ。必要になったら足す
     fn dims_of(&self, n: &SyntaxNode, file: u32, ctx: &Rc<Ctx>) -> Option<Vec<usize>> {
         let ev = |x: &Expr| {
             self.eval(x.syntax(), file, ctx, 0)
@@ -2361,9 +2561,47 @@ impl F<'_> {
                 }
                 Some(out)
             }
-            Expr::If(i) => self.dims_of(i.branches().first()?.1.syntax(), file, ctx),
+            Expr::If(i) => match self.const_if_expr(&i, file, ctx) {
+                Some(e) => self.dims_of(e.syntax(), file, ctx),
+                // 条件が決まらないときは最初の枝。ほかの枝の形が分かって食い違うなら決めない
+                None => {
+                    let first = self.dims_of(i.branches().first()?.1.syntax(), file, ctx)?;
+                    let rest = i
+                        .branches()
+                        .into_iter()
+                        .skip(1)
+                        .map(|b| b.1)
+                        .chain(i.else_branch());
+                    rest.filter_map(|e| self.dims_of(e.syntax(), file, ctx))
+                        .all(|d| d == first)
+                        .then_some(first)
+                }
+            },
+            // `end` はスカラー
+            Expr::End(_) => Some(Vec::new()),
+            // `{e for i in r}`: 範囲の長さ、そのあとに `e` の形
+            Expr::Comprehension(c) => {
+                let mut out = Vec::new();
+                let fis = c.syntax().children().find(|x| x.kind() == K::ForIndices)?;
+                for ix in fis.children().filter(|x| x.kind() == K::ForIndex) {
+                    let r = ix.children().find_map(Expr::cast)?;
+                    match self.dims_of(r.syntax(), file, ctx)?.as_slice() {
+                        [n] => out.push(*n),
+                        _ => return None,
+                    }
+                }
+                out.extend(self.dims_of(
+                    c.syntax().children().find_map(Expr::cast)?.syntax(),
+                    file,
+                    ctx,
+                )?);
+                Some(out)
+            }
             Expr::Array(a) => {
                 let items = a.items();
+                if let [e @ Expr::Comprehension(_)] = items.as_slice() {
+                    return self.dims_of(e.syntax(), file, ctx);
+                }
                 let mut v = vec![items.len()];
                 v.extend(self.dims_of(items.first()?.syntax(), file, ctx)?);
                 Some(v)
@@ -2421,16 +2659,24 @@ impl F<'_> {
                     "zeros" | "ones" => args.iter().map(ev).collect(),
                     "fill" => args.get(1..)?.iter().map(ev).collect(),
                     "identity" => Some(vec![ev(args.first()?)?; 2]),
+                    "vector" => Some(vec![
+                        self.dims_of(args.first()?.syntax(), file, ctx)?
+                            .iter()
+                            .product(),
+                    ]),
                     "from_rpm" | "from_deg" | "to_deg" | "sqrt" | "abs" | "sin" | "cos" | "exp"
-                    | "log" => self.dims_of(args.first()?.syntax(), file, ctx),
+                    | "log" | "mod" | "rem" | "div" | "floor" | "ceil" | "integer" | "sign" => {
+                        self.dims_of(args.first()?.syntax(), file, ctx)
+                    }
                     _ => self.fn_out_dims(&c, file, ctx),
                 }
             }
             Expr::ComponentRef(c) => {
                 if n.children().any(|x| x.kind() == K::Subscripts) {
-                    return None;
+                    return self.indexed_dims(&c, file, ctx);
                 }
                 match &self.p.res_of(file, c.range())? {
+                    Resolution::Local => Some(Vec::new()),
                     Resolution::Component(cid, idx)
                         if ctx.pfx == PKG || !ctx.lineage.contains(cid) =>
                     {
@@ -2441,8 +2687,8 @@ impl F<'_> {
                         if self.is_enum(*cid) {
                             return Some(Vec::new());
                         }
-                        let (_, _, _, scalar) = self.pkg_const(*cid, comp)?;
-                        if scalar {
+                        // `parameter` の欄（`pkg_env` にだけある）は定数でなくても束縛から
+                        if self.pkg_const(*cid, comp).is_some_and(|c| c.3) {
                             return Some(Vec::new());
                         }
                         let (node, f, c2) = self.pkg_binding(ctx, *cid, comp)?;
@@ -2457,6 +2703,41 @@ impl F<'_> {
             }
             _ => None,
         }
+    }
+
+    /// 添字のある参照 `x[1]`・`x[:, 2]` の形（このインスタンスの部品の、最後の欄の添字だけ）。
+    /// スカラーの添字は次元を落とし、`:`・ベクトルの添字は残す
+    fn indexed_dims(&self, c: &ast::ComponentRef, file: u32, ctx: &Rc<Ctx>) -> Option<Vec<usize>> {
+        let sn = c
+            .syntax()
+            .children()
+            .last()
+            .filter(|x| x.kind() == K::Subscripts)?;
+        let Some(Resolution::Component(cid, _)) = self.p.res_of(file, c.range()) else {
+            return None;
+        };
+        if ctx.pfx == PKG || ctx.pfx == FN || !ctx.lineage.contains(&cid) {
+            return None;
+        }
+        let t = self.cref(c, file, ctx).ok()?;
+        let base = self.var_dims(t.strip_suffix(&self.subs(&sn, file, ctx).ok()?)?)?;
+        let (mut out, mut k) = (Vec::new(), 0);
+        for ch in sn.children_with_tokens() {
+            if ch.as_token().is_some_and(|t| t.kind() == K::Colon) {
+                out.push(*base.get(k)?);
+            } else if let Some(e) = ch.as_node().filter(|e| Expr::cast((*e).clone()).is_some()) {
+                match self.dims_of(e, file, ctx)?.as_slice() {
+                    [] => {}
+                    [m] => out.push(*m),
+                    _ => return None,
+                }
+            } else {
+                continue;
+            }
+            k += 1;
+        }
+        out.extend(base.get(k..)?);
+        Some(out)
     }
 
     // ---------------------------------------------------------------- 方程式

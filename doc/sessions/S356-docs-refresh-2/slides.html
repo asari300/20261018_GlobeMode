@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S356 docs-refresh-2 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S356 docs-refresh-2">
+
+<section class="slide" id="S01">
+  <span class="tag">S356 · 2026-11-15 · 文書</span>
+  <h1>S335〜S354 の成果を利用者向けの文書に反映</h1>
+  <p class="lead">コードは変えない。足りなかった分と、古くなった数字だけを直した</p>
+  <div class="big">Track B は MSL の例題 566 本のうち <b>518</b> 本を平らにでき、釣り合い・数・正則・状態は <b>351/351</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">足したもの</span>
+  <h1>文書ごとの変更</h1>
+  <table>
+    <tr><th>文書</th><th>変更</th></tr>
+    <tr><td>CHANGELOG</td><td>S335・S341 を Track B に、S339（レビュー第 5 回）・S348・S353 を項目に。数字を 477 → 518 本に</td></tr>
+    <tr><td>README（日本語・英語）</td><td>inlay hint・call hierarchy・<code>redeclare</code> の後の補完、整形の行コメント、<code>auto</code> の予算の残り、Android のパック。数字を 471 → 518 本に</td></tr>
+    <tr><td>features</td><td>整形（S343・S346）、<code>auto</code>（S344）、Android（S340）、Track B（S339）</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">今の数字</span>
+  <h1>MSL の例題 566 本（回帰 0）</h1>
+  <table>
+    <tr><th>段</th><th>数字</th></tr>
+    <tr><td>B1・B2</td><td>parse 566/566、resolve は未解決 0 が 566/566（S341。それまで 467/566）</td></tr>
+    <tr><td>B3 flatten</td><td>518/566 を平らにでき、Rumoca も通った 491 本で名前 491/491・方程式の数 480/491</td></tr>
+    <tr><td>B4 DAE</td><td>518/518 が DAE。Rumoca の釣り合いまで通った 351 本で判定・数・正則・状態 351/351</td></tr>
+    <tr><td>残り 48 本</td><td><code>stream</code> 21・<code>connect</code> 9・<code>composite-binding</code> 6・<code>expandable</code> 5・<code>non-constant-dim</code> 4 ほか 3</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定</span>
+  <h1>書き分け</h1>
+  <ul>
+    <li>S335・S353 は main に未着だったので、ローカルの feature を取り込んで base にした（roadmap の 1 行だけ衝突）</li>
+    <li>利用者に見える挙動は README に、レビューの修正の中身は CHANGELOG と features に置いた</li>
+    <li>各セッションが足し済みの分（S345・S347〜S354 の多く）は足さなかった</li>
+    <li>S338（Rumoca 0.10.4）は main に未着なので、README の Rumoca の版は直していない</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>検査</h1>
+  <pre><code>python3 -I .claude/skills/session-docs/check_docs.py
+npx --no-install markdownlint-cli2 README.md CHANGELOG.md doc/features.md doc/roadmap.md doc/sessions/README.md</code></pre>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>S355（<code>stream</code>）が入ったら、Track B の数字を README・CHANGELOG・features・roadmap で直す</li>
+    <li>features の表に、古い版と新しい版の行が重なって残っている（S356 より前から）</li>
+    <li>README の既知の限界の「参照・リネームの範囲」は LSP では広がっている。UI の範囲を確かめてから直す</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
