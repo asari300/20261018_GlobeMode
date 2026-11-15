@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S351 第 6 回のレビューの修正 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S351 第 6 回のレビューの修正">
+
+<section class="slide" id="S01">
+  <span class="tag">S351 · 2026-11-15 · Track B</span>
+  <h1>第 6 回のレビューの issue 3 件</h1>
+  <p class="lead">#132（補完）・#133（DAE の数）・#134（Android のパック）を、再現してから直した</p>
+  <div class="big">3 件とも指摘どおり。直す前なら落ちる試験を 1 本ずつ</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">再現</span>
+  <h1>何が起きていたか</h1>
+  <table>
+    <tr><th>issue</th><th>起きていたこと</th><th>直す前の数</th></tr>
+    <tr><td>#132</td><td>補完が、差し替えていない同名の別の型の欄を出す</td><td><code>MyLib.R</code> の <code>p.</code> が <code>x</code>（正しくは <code>i</code>・<code>v</code>）</td></tr>
+    <tr><td>#133</td><td>レコードの配列への方程式が欄に展開されない</td><td>方程式 5 対 未知数 8、6 対 12</td></tr>
+    <tr><td>#134</td><td>壊れたパックの Blob を捨てず、直しても通らない</td><td>直したあとも <code>The blob could not be read</code></td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>直し方は 1 か所ずつ</h1>
+  <table>
+    <tr><th>issue</th><th>直し</th><th>理由</th></tr>
+    <tr><td>#132</td><td><code>members_of</code> が、続きの名前に空の名前を足した参照を <code>resolve</code> に引かせ、<code>Redeclare</code> のときだけ差し替えた型を先にする</td><td>S341 の <code>step</code> の門を写さず、<code>step</code> に答えさせる。補完と成分参照が食い違わない</td></tr>
+    <tr><td>#133</td><td><code>record_leaves</code> が、<code>t.</code> で引けなければ <code>t[k].x</code> の欄を全部集める</td><td>flat の数（Rumoca と同じ）は変えず、DAE だけ欄ごとに数える</td></tr>
+    <tr><td>#134</td><td>壊れた塊・索引と合わない塊のとき <code>lazy.blob = null</code></td><td>次の呼び出しでパックを取り直す。c/*.json の束は元から直れば通る</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">数字</span>
+  <h1>試験と MSL との突き合わせ</h1>
+  <div class="kpis">
+    <div class="kpi"><span class="n">0</span><span class="l">回帰（MSL 566 本・検証 75 本）</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">main の表からの変化</span></div>
+    <div class="kpi"><span class="n">3</span><span class="l">新しい試験（直す前は落ちる）</span></div>
+  </div>
+  <p>表は main の <code>doc/frontend-diff.md</code> と全行同じ（resolve 566/566、flat 471/566、DAE 471/471、判定・数・状態・正則 334/334。検証 75 本も同じ）。582 s、最大 RSS 5.7 GiB。</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>Rumoca はレコードの配列への方程式で釣り合いまで通らない（0/2）。MSL の突き合わせでは数が比べられない</li>
+    <li>左辺が配列の式で右辺だけがレコードの配列の形（<code>{…} = aw</code>）は見ない</li>
+    <li>壊れた応答のあとは、パック全体をもう一度取る（1 回分の費用）</li>
+  </ul>
+  <p class="foot">GlobeMode S351</p>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

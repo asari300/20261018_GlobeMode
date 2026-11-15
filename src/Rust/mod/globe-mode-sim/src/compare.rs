@@ -176,7 +176,7 @@ pub fn compare(
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Deviation {
     pub name: String,
-    /// 比べた点の数（基準の出力点のうち、試験側の時刻の範囲に入るもの）
+    /// 比べた点の数（基準の出力点のうち、試験側の時刻の範囲に入り、ずれたイベントの近くでないもの）
     pub compared: usize,
     /// 最大の相対差 `|a-b| / max(|b|, 範囲 × 1e-12, MIN_POSITIVE)`（a は試験側、b は基準。NaN の点は無限大）
     pub max_rel: f64,
@@ -192,15 +192,33 @@ pub struct Deviation {
 /// 同じ時刻の行（イベントでの縦の跳び）は、基準の m 番目の行を試験側の同じ時刻の行の m 番目
 /// （足りなければ最後）と比べる。比べる前に `compare` と同じ正規化をする。時間 O(n + m)（信号 1 つあたり）。
 ///
+/// ソルバごとに少しずれたイベント（同じ時刻の行が両方にあり、時刻の差が管の時間の幅 δt〔`options`〕以内）の前後 δt 以内の点は比べない。
+/// 補間が跳びをまたぐと、合格なのに相対差が 4〜5 桁大きく出るため（S339）。δt より大きくずれたイベントは外さない。
+///
 /// shortcut: 範囲 × 1e-12 の下駄しかないので、基準が 0 を通る点の近くでは相対差が大きく出る
 /// （管の判定とは独立。閾値との大小は参考）。
-pub fn deviations(reference: &Trajectory, actual: &Trajectory, signals: &[&str]) -> Vec<Deviation> {
+pub fn deviations(
+    reference: &Trajectory,
+    actual: &Trajectory,
+    signals: &[&str],
+    options: &TubeOptions,
+) -> Vec<Deviation> {
     let reference = normalize_events(reference);
     let actual = normalize_events(actual);
     let (rt, at) = (
         ReferenceTime::new(&reference.time),
         ReferenceTime::new(&actual.time),
     );
+    let tolerance = if options.tolerance.is_finite() && options.tolerance > 0.0 {
+        options.tolerance
+    } else {
+        0.0
+    };
+    let delta = match (rt.time.first(), rt.time.last()) {
+        (Some(&t0), Some(&tn)) => tolerance * (tn - t0).max(t0.abs()).max(1e-12),
+        _ => 0.0,
+    };
+    let moved = moved_events(&rt.time, &at.time, delta);
     let (rvars, avars) = (by_name(&reference), by_name(&actual));
     signals
         .iter()
@@ -213,12 +231,51 @@ pub fn deviations(reference: &Trajectory, actual: &Trajectory, signals: &[&str])
                 &rt.values(&r.values),
                 &at.time,
                 &at.values(&a.values),
+                (&moved, delta),
             ))
         })
         .collect()
 }
 
-fn deviation(name: &str, rt: &[f64], rv: &[f64], at: &[f64], av: &[f64]) -> Deviation {
+/// 同じ瞬間（`SAME_INSTANT` 以内）が続く行（イベントの縦の跳び）の時刻のうち、もう一方の時系列では同じ瞬間でなく
+/// `delta` 以内にずれているもの（ソルバごとにずれたイベント。時刻の順）。相手が無い・`delta` より遠いイベントは含めない
+/// （本物の食い違いなので比べる）。Rumoca は同じイベントの行を、浮動小数点の誤差だけ違う時刻で書くことがある
+fn moved_events(a: &[f64], b: &[f64], delta: f64) -> Vec<f64> {
+    let events = |t: &[f64]| -> Vec<f64> {
+        let mut v: Vec<f64> = t
+            .windows(2)
+            .filter(|w| w[1] - w[0] <= SAME_INSTANT * w[0].abs().max(1.0))
+            .map(|w| w[0])
+            .collect();
+        v.dedup();
+        v
+    };
+    let (ea, eb) = (events(a), events(b));
+    let near = |y: &[f64], t: f64, eps: f64| {
+        y.get(y.partition_point(|&e| e < t - eps))
+            .is_some_and(|&e| e <= t + eps)
+    };
+    let only = |x: &[f64], y: &[f64]| -> Vec<f64> {
+        x.iter()
+            .copied()
+            .filter(|&t| !near(y, t, SAME_INSTANT * t.abs().max(1.0)) && near(y, t, delta))
+            .collect()
+    };
+    let mut out = only(&ea, &eb);
+    out.extend(only(&eb, &ea));
+    out.sort_by(f64::total_cmp);
+    out
+}
+
+/// `moved` はずれたイベントの時刻、`delta` はその前後で比べない幅
+fn deviation(
+    name: &str,
+    rt: &[f64],
+    rv: &[f64],
+    at: &[f64],
+    av: &[f64],
+    (moved, delta): (&[f64], f64),
+) -> Deviation {
     let mut d = Deviation {
         name: name.to_string(),
         compared: 0,
@@ -239,7 +296,10 @@ fn deviation(name: &str, rt: &[f64], rv: &[f64], at: &[f64], av: &[f64]) -> Devi
     let (mut j, mut m) = (0, 0);
     for (i, (&t, &b)) in rt.iter().zip(rv).enumerate() {
         m = if i > 0 && rt[i - 1] == t { m + 1 } else { 0 };
-        if !(t >= lo && t <= hi) {
+        let near = moved
+            .get(moved.partition_point(|&e| e < t - delta))
+            .is_some_and(|&e| e <= t + delta);
+        if !(t >= lo && t <= hi) || near {
             continue;
         }
         while at[j] < t {
@@ -604,13 +664,13 @@ mod tests {
             .map(|&t| 10.0 + t + if t > 3.0 { 0.5 } else { 0.0 })
             .collect();
         let a = trajectory(time, &[("y", values)]);
-        let d = &deviations(&r, &a, &["y", "time", "none"])[0];
+        let d = &deviations(&r, &a, &["y", "time", "none"], &TubeOptions::default())[0];
         assert_eq!(d.compared, 5);
         assert!((d.max_abs - 0.5).abs() < 1e-12, "{d:?}");
         assert_eq!(d.worst_time, Some(4.0));
         assert!((d.max_rel - 0.5 / 14.0).abs() < 1e-12, "{d:?}");
         // 同じ曲線なら 0
-        let z = &deviations(&r, &r, &["y"])[0];
+        let z = &deviations(&r, &r, &["y"], &TubeOptions::default())[0];
         assert_eq!((z.max_rel, z.max_abs), (0.0, 0.0));
     }
 
@@ -619,24 +679,62 @@ mod tests {
         // 0 を通る基準（範囲 2）。分母は max(|b|, 2e-12) なので、0 の点の差 1e-6 は相対差 5e5
         let r = trajectory(vec![0.0, 1.0, 2.0], &[("y", vec![-1.0, 0.0, 1.0])]);
         let a = trajectory(vec![0.0, 1.0, 2.0], &[("y", vec![-1.0, 1e-6, 1.0])]);
-        let d = &deviations(&r, &a, &["y"])[0];
+        let d = &deviations(&r, &a, &["y"], &TubeOptions::default())[0];
         assert!((d.max_abs - 1e-6).abs() < 1e-18);
         assert!((d.max_rel - 5e5).abs() < 1.0, "{d:?}");
         assert_eq!(d.worst_time, Some(1.0));
         // イベントの段差（t=1 が 2 行）: 左は左と、右は右と比べる
         let step =
             |l: f64, rr: f64| trajectory(vec![0.0, 1.0, 1.0, 2.0], &[("y", vec![0.0, l, rr, 5.0])]);
-        let d = &deviations(&step(1.0, 3.0), &step(1.0, 3.0), &["y"])[0];
+        let d = &deviations(
+            &step(1.0, 3.0),
+            &step(1.0, 3.0),
+            &["y"],
+            &TubeOptions::default(),
+        )[0];
         assert_eq!((d.compared, d.max_abs), (4, 0.0));
-        let d = &deviations(&step(1.0, 3.0), &step(1.0, 3.5), &["y"])[0];
+        let d = &deviations(
+            &step(1.0, 3.0),
+            &step(1.0, 3.5),
+            &["y"],
+            &TubeOptions::default(),
+        )[0];
         assert!(
             (d.max_abs - 0.5).abs() < 1e-12 && d.worst_time == Some(1.0),
             "{d:?}"
         );
         // NaN は無限大
         let nan = trajectory(vec![0.0, 1.0, 2.0], &[("y", vec![-1.0, f64::NAN, 1.0])]);
-        let d = &deviations(&r, &nan, &["y"])[0];
+        let d = &deviations(&r, &nan, &["y"], &TubeOptions::default())[0];
         assert!(d.max_rel.is_infinite() && d.max_abs.is_infinite());
+    }
+
+    #[test]
+    fn deviations_skip_points_near_a_moved_event() {
+        // 基準は t=1 で 1 → 3 に跳ぶ。試験側は同じ跳びが 1e-7 遅れる（ソルバごとのイベント時刻のずれ）。
+        // 補間が跳びをまたぐ点（1、1、1+5e-8）は、管の δt（1e-6 × 2）以内なので比べない。
+        // `jitter` は同じイベントの 2 行の時刻の誤差（Rumoca は浮動小数点の誤差だけ違う時刻で書く）
+        for jitter in [0.0, 4e-15] {
+            let r = trajectory(
+                vec![0.0, 0.5, 1.0, 1.0 + jitter, 1.0 + 5e-8, 1.5, 2.0],
+                &[("y", vec![1.0, 1.0, 1.0, 3.0, 3.0, 3.0, 3.0])],
+            );
+            let shifted = |dt: f64| {
+                trajectory(
+                    vec![0.0, 0.5, 1.0 + dt, 1.0 + dt + jitter, 1.5, 2.0],
+                    &[("y", vec![1.0, 1.0, 1.0, 3.0, 3.0, 3.0])],
+                )
+            };
+            let tube = TubeOptions { tolerance: 1e-6 };
+            let d = &deviations(&r, &shifted(1e-7), &["y"], &tube)[0];
+            assert_eq!((d.compared, d.max_abs, d.max_rel), (4, 0.0, 0.0), "{d:?}");
+            // δt より大きくずれたイベントは外さない（管でも不合格になるずれ）
+            let d = &deviations(&r, &shifted(0.1), &["y"], &tube)[0];
+            assert!(d.max_abs > 1.0 && d.compared == 7, "{d:?}");
+            // 閾値 0 では何も外さない
+            let d = &deviations(&r, &shifted(1e-7), &["y"], &TubeOptions { tolerance: 0.0 })[0];
+            assert!(d.max_abs > 1.0, "{d:?}");
+        }
     }
 
     #[test]

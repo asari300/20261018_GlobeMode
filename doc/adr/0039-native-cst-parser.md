@@ -429,6 +429,16 @@ roadmap の要約で外した、古くなっていた「残り」: 診断の `GM
 - **試験**: LSP の `config_frontend_native_drives_diagnostics`（`[check] frontend = "native"` で `globe/check` が `frontend` を省くと native〔応答の `frontend` が `"native"`〕、`rumoca` を渡すと Rumoca）と `check_selects_the_frontend`（native の応答に `frontend`）、facade の `tests/check_with.rs`（Rumoca の応答に `frontend` が無く、native の応答は `Some("native")`）、`tests/test_tauri.mjs`（`check(M)` と `check(M, undefined)` は `params` に `frontend` が乗らず、`rumoca`・`native` は乗る）、`tests/test_ui.py` の `check_frontend_select`（既定は「設定に従う」で、偽の Tauri の `globe/check` に `frontend` が乗らない。`rumoca`・`native` を選ぶと乗る。応答に `frontend: "native"` があれば、渡さなくても要約が出る）。native の応答に `frontend` が付く試験は feature `native` を立てたとき（`cargo test -p globe-mode-lsp --features native`）に効く。
 - **持ち越し**: 実機の Desktop（Tauri）での目視は【未確認】。UI の `checkFrontend === "native"` の項は、応答に `frontend` が無い古い wasm・sidecar でも、自前を選んだときの要約が出るように残した（この WP では release の wasm を作り直さず、共有 target にある S347 の wasm でブラウザの試験を回した。応答の `frontend` は CI が作る wasm の native の応答には載る）。
 
+## 付記（S351）: 第 6 回のレビューの issue #132〜#134
+
+新しい ADR は立てず、第 6 回のレビュー（S337・S340〜S349 の変更）の issue 3 件を、1 件ずつ再現してから直した記録をここに足す。3 件とも直す前に再現し（#132 は `members_of` を直接呼ぶ使い捨ての crate、#133 は flat → `globe_mode_dae::build` の数、#134 は Node の `GlobeWorker`）、レビューの指摘どおりだった。直す試験は、直す前なら落ちることを確かめた。
+
+- **#132（補完が、差し替えていない同名の別の型で出る）**: S345 の `members_of` は、受け継いだ部品の型を `redeclared_types` の 2 つ目の節（継ぐ側のクラスから名前を引き直した型）で**いつも先に**取り、書いてある型を後回しにしていた。S341 の `step` は、既定の型で続きの名前が引けず `Reason::Redeclare`（`redeclare` / `replaceable` が絡む）になるときだけこの引き直しを使うので、`members_of` にだけ門が無かった。`Lib.OnePort` の `Pin p` を継ぐ `MyLib.R` が、`MyLib` の自前の `Pin`（`redeclare` ではない）の欄 `x` を出していた（正しくは `i`・`v`）。**直し**: `members_of` が `resolve` に空の名前を足した参照（`p.` の続きを引く参照）を引き、結果が `Unresolved(Redeclare)` のときだけ、差し替えた後の型を先にする。門の判定を `members_of` に書き写さず、`step` 自身に答えさせた（`step` の `Walk` が持つ「道の途中の `extends` の `redeclare`」と「型の `replaceable`」の両方が効く）。それ以外は書いてある型。S345 の `members_of_follows_redeclared_types`・LSP の `completion_and_definition_follow_redeclared_types` は変わらず通る。
+- **#133（レコードの配列への方程式が数えられない）**: S337 は `Complex aw[3]` の `aw = {…}` の flat の数を要素の数（3）にしたが、DAE の `build` はレコードの葉を `count == 1` のときだけ欄に展開していたので、`count == 3` の方程式は 3 本と数えられ（`aw` の欄は `aw[k].re`・`aw[k].im` の 6 本）、釣り合う模型が `UNBALANCED` になった。直す前の数は、for 文の形が 8 対 8、配列の形・配列どうしが 8 対 5・12 対 6。**直し**: `record_leaves` が、`t.`（スカラーのレコードの欄）で引けなかったとき `t[k].x` の変数すべてを `array_leaves` で集める（添字つきの参照・変数そのものは対象外）。欄の変数の数（要素 × 欄のスカラー）が方程式の数になり、`own`（行が触れる未知数）にも欄が入る。flat の `count`（Rumoca と合わせた数）は変えない。`globe-mode-dae` に `record_array_equation_counts_per_field`（for 文・内包表記・配列の式・配列どうし・長さ 1 の配列が 8/8・12/12・2/2）。
+- **#134（壊れたパックの Blob を捨てない）**: Android の束（S340）は、パックの Blob を `lazy.blob` に持ち、取れなかったときだけ捨てていた。応答が 200 で中身が壊れていた（短い・索引と版が合わない）ときは、`fetchChunks` が「塊 i が壊れている」「塊に無いファイル」で失敗しても Blob が残り、配信が直っても同じ Blob を切り出して失敗を繰り返した（Node では `The blob could not be read`）。**直し**: その 2 つの失敗で `lazy.blob = null`（次の呼び出しで取り直す）。c/*.json の束は `getText` を毎回呼ぶので元から直れば通る。`node/broken-chunks.mjs` に「壊れたパック → 直したパック」の節を足した。
+- **shortcut**: #132 の門は、続きの名前に空の名前を使って `step` に問い合わせる（補完の 1 回につき `resolve` が 1 回増える。補完は今の道が候補を出せないときだけ自前の道に回るので、頻度は低い）。型が見つからなかったときは差し替えた型へ回す（#132 の前と同じ）。#133 の `array_leaves` は `t[` で始まる変数を全部なめる（O(変数の数)。`t.` で引けず、添字のない、変数でない左辺の方程式だけ）。左辺が配列で右辺だけがレコードの配列という方程式（`{…} = aw`）は見ない（Rumoca の `record equation` の左辺が参照でない形）。#134 は、壊れた応答のあとの 1 回の取り直しの費用（パック全体の取得）を払う。
+- **数字**（MSL の例題 566 本・`GlobeModeValidation` 75 本、S350 → S351。`msl:diff-frontend` 相当を 582 s・最大 RSS 5.7 GiB で）: 表は main の `doc/frontend-diff.md` と全行同じ（resolve 566/566、flat 471/566、DAE 471/471、判定・数・状態・正則 334/334、検証 75 本 73/73・正則 72/72）、**回帰 0 本**。モデルごとの JSON を前回（S339）と比べて、DAE の数・釣り合い・正則の旗は 1 本も動かない（動いたのは S337・S341 の分だけ）。Rumoca は `Complex aw[3]` の `aw = {…}`・`aw = bw` の小さな模型で釣り合いまで通らない（`rumoca_balance` 0/2。for 文の形は通って自前と 8/8 で一致）ので、この形の数は Rumoca と比べられない（MLS の意味で数えた）。
+
 ## 付記（S320）: native と LSP の issue 5 件（#111・#113・#114・#115・#116）
 
 新しい ADR は立てず、3 回目のレビューの指摘のうち native と LSP の 5 件を再現して直した記録としてここに足す。
@@ -531,3 +541,18 @@ S297 の見立て（Complex のレコード）は外れで、`Connections.isRoot
   - 差し替えの規則は S341 と同じなので、持ち主を受け継がないクラスから見る `a.state.` のような 2 段先の差し替え、部品の修飾の中の `A a(redeclare T x)` は同じく見ない。
   - 定義ジャンプの引き直しは、点のある名前だけ。`Redeclare` 以外の理由で今の道が `null` のときも（`x.start` などの属性・誤字）、1 回だけ余計に木を引く。
 
+## 付記（S339）: 5 回目のレビューの issue（#121〜#127・#130・#131）
+
+5 回目のレビュー（S324〜S333 の変更）が立てた issue のうち、native の `globe-mode-flat`・LSP・xtask に届く 9 件を、再現を確かめてから直した。**issue の題は本文より 1 つずれている**（#122 の題は #121 の本文のもの、…、#126 と #121 の題は `x`）。番号は本文の指摘の番号で書く。#128・#129 は [ADR-0040](0040-multi-solver-compare.md)（#128）と CLI（#129）。
+
+- **#121 `Complex` の `*`・`/` の展開が指数的**: `cx_bin` は実部・虚部の式のどちらにも両方の被演算子を使うので、`a*a*…` は a を 1 個足すごとに式が約 2 倍になる（`depth > 24` の歯止めは入れ子にしか効かない）。結果の式の長さ（実部＋虚部）が 64 KiB（`CX_MAX_LEN`）を超えたら `None`（＝ `composite-binding` で断る）にした。a が 40 個の式が 1.5 ms で断られる（修正前は 60 s で終わらない）。
+- **#122 `initial equation` の `isRoot` が 2 つ以上でずれる**: 通常の方程式は `replace`（位置 → 差し替え）で新しい列に積み直すのに、初期方程式だけ `splice` で、先の `if` が方程式の数を変えると後の `at` がずれて別の初期方程式を上書きした。積み直しを関数 `restack` にして、`eqs`・`ieqs` の両方に使う。
+- **#123 名前だけが `Complex` のレコード**: 展開に入る条件に「欄が `re`・`im` だけ」（`is_msl_complex`）を足した。欄が違えば今までどおり `composite-binding`（修正前は束縛が黙って落ちた）。
+- **#124 部品の配列への `{…}` の修飾が O(n²)**: 原因は 2 つあった。`split_mod` が要素ごとに項の `Vec` を作り直す（issue の指摘）のに加え、`for` つきの内包かを調べる `children().any(…)` も要素ごとに全項を走査していた（こちらが支配的）。項と内包の判定を、配列の式ごとに 1 回だけ集める表（`HashMap<SyntaxNode, Option<Vec<SyntaxNode>>>`）に置いた。debug で n = 3000 が 10.2 s → 0.26 s（n = 6000 でも 0.46 s。n の 2 倍で 2 倍）。項の作り直しだけを直した状態では n = 3000 で 9.6 s と変わらなかった。
+- **#125 `isRoot` の判定が O(N³)**: `root_of` を節点 → 優先度の表（`pot`）で引く（成分の大きさ O(M)）に、`is_root` は成分ごとの根を 1 回だけ決めた表（`root_by_comp`）を引くだけにした。debug で N = 1200 が 13.6 s → 0.68 s。
+- **#126 入れ子の `for` の方程式の数に上限が無い**: `F::equation` の入口で、`eqs + ieqs + whens + connect の数` が `MAX_EQS`（100 万。`MAX_VARS` の 5 倍）を超えたら `too-large`（native の検査では GM-U の理由）で断る。1 本あたり debug で約 50 µs（100 万で 52 s）なので、試験では `cfg(test)` の上限を 1 万本にして、`flatten.rs` の中の単体試験で確かめる。
+- **#127 `gen_connects` の葉の探索が線形**: 葉の名前 → 番号を `BTreeMap` にして引く（`id`）、集合の位置の走査は `a`・`a.…`・`a[…` の範囲だけを引く（`origins`）、`outside` は `own` の線形探索をやめて `.`・`[` の手前までの前置きを `HashSet` で引く（これも O(N²) だった）。debug で `connect(p, q)` N = 3000 が 6.7 s → 0.9 s。**残る**: 接続が無くても N = 8000 で 3.9 s かかる（部品の配列の展開そのものが 2.7 倍 / 2 倍で増える。`connect` の分は 0.4 s）。issue の範囲外なので別の WP の候補。
+- **#130 次元の積の溢れ**: `by_dims` と `equalityConstraint` の戻り値の大きさの積を `dims_product`（`checked_mul`）にした。溢れたら見積もれない（`None`。それぞれ 1 本・0 本と数える）。
+- **#131 `diff-frontend` の名前の比べが要素の欠けを隠す**: `without_elem_subs` を `BTreeMap<名前, (個数, 落とした添字の数)>` にした（`Elems`）。名前の集合が同じで、落とした添字の数が同じ（両方が同じ深さで展開した）名前は個数も同じでなければ不一致にする。Rumoca が配列を展開しない（`a.x` が 1 つ。深さ 0）ときは個数を比べない（S332 の措置は保つ）。
+
+試験は、`globe-mode-flat/tests/flat.rs`（#121〜#125・#127・#130）、`flatten.rs` の単体試験（#126）、`xtask` の単体試験（#131）。計算量の試験は、増え方が変わったことだけを見る余裕のある上限（debug で 8〜20 秒）にしてある。
