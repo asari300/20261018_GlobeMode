@@ -576,11 +576,18 @@ fn ssp_export_round_trips_to_the_same_csv() {
         return;
     };
     let dir = scratch("9");
-    for (tag, extra) in [
-        ("jacobi", serde_json::json!({})),
+    for (tag, extra, ssv) in [
+        ("jacobi", serde_json::json!({}), false),
         (
             "gs-start",
             serde_json::json!({"algorithm": "gauss-seidel", "start": {"a.k": 2.0}}),
+            false,
+        ),
+        // S318: `--ssv` で書いた `.ssp`（start は resources/a.ssv）も同じ CSV
+        (
+            "gs-start-ssv",
+            serde_json::json!({"algorithm": "gauss-seidel", "start": {"a.k": 2.0}}),
+            true,
         ),
     ] {
         let mut spec = serde_json::json!({
@@ -599,6 +606,7 @@ fn ssp_export_round_trips_to_the_same_csv() {
             .arg(dir.join("spec.json"))
             .arg("-o")
             .arg(&ssp_file)
+            .args(ssv.then_some("--ssv"))
             .output()
             .unwrap();
         assert!(
@@ -617,7 +625,7 @@ fn ssp_export_round_trips_to_the_same_csv() {
             String::from_utf8_lossy(&out.stderr)
         );
         assert_eq!(out.stdout, json.stdout, "{tag}");
-        if tag == "gs-start" {
+        if tag.starts_with("gs-start") {
             // k = 2 が効いている（x(1) = 0.8^10）
             assert!((table(&out)["a.x"][10] - 0.8f64.powi(10)).abs() < 1e-9);
         }
@@ -671,4 +679,122 @@ fn ssp_export_round_trips_integer_and_boolean_wires() {
     );
     assert_eq!(out.stdout, json.stdout);
     assert_eq!(table(&out)["a.Int32_output"], [7.0, 0.0, 7.0, 0.0, 7.0]);
+}
+
+fn globe_ok(args: &[&std::path::Path]) -> std::process::Output {
+    let out = Command::new(env!("CARGO_BIN_EXE_globe"))
+        .args(["fmu"])
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    out
+}
+
+/// S315: spec.json → `ssp-export` → `ssp-import` → spec.json は、パス以外が元と同じで、回した CSV もバイトで一致する。
+#[test]
+fn ssp_import_inverts_ssp_export() {
+    let (Some(a), Some(b)) = (
+        reference_fmu("2.0", "Dahlquist"),
+        reference_fmu("3.0", "Feedthrough"),
+    ) else {
+        return;
+    };
+    let dir = scratch("s315a");
+    let spec = serde_json::json!({
+        "fmus": {"a": a, "b": b},
+        "connections": [["a.x", "b.Float64_continuous_input"]],
+        "start_time": 0.0, "stop_time": 1.0, "step": 0.1,
+        "algorithm": "gauss-seidel", "start": {"a.k": 2.0},
+    });
+    let json = cosim(&dir, spec.clone());
+    assert!(json.status.success());
+    let ssp_file = dir.join("s.ssp");
+    globe_ok(&[
+        "ssp-export".as_ref(),
+        &dir.join("spec.json"),
+        "-o".as_ref(),
+        &ssp_file,
+    ]);
+    let back = dir.join("back");
+    std::fs::create_dir_all(&back).unwrap();
+    globe_ok(&[
+        "ssp-import".as_ref(),
+        &ssp_file,
+        "-o".as_ref(),
+        &back.join("spec.json"),
+    ]);
+    let mut got: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(back.join("spec.json")).unwrap()).unwrap();
+    assert_eq!(got["fmus"], serde_json::json!({"a": "a.fmu", "b": "b.fmu"}));
+    // パスと、SSP に置き場の無い（null の）上限を除けば元と同じ
+    let mut want = spec;
+    for v in [&mut got, &mut want] {
+        let o = v.as_object_mut().unwrap();
+        o.remove("fmus");
+        o.retain(|_, v| !v.is_null());
+    }
+    assert_eq!(got, want);
+    // FMU は外に出ているので、JSON をそのまま回せる
+    let again = globe_ok(&["cosim".as_ref(), &back.join("spec.json")]);
+    assert_eq!(again.stdout, json.stdout);
+    // 同名のファイルは上書きしない
+    let out = Command::new(env!("CARGO_BIN_EXE_globe"))
+        .args(["fmu", "ssp-import"])
+        .arg(&ssp_file)
+        .arg("-o")
+        .arg(back.join("spec2.json"))
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+}
+
+/// S315: 入れ子の `.ssp` を読む → 書く → 読むで同じ CSV になる（`s.a`・`s.b` は平らな Component として書かれる）。
+#[test]
+fn nested_ssp_round_trips_through_flat_dotted_names() {
+    let (Some(a), Some(b)) = (
+        reference_fmu("2.0", "Dahlquist"),
+        reference_fmu("3.0", "Feedthrough"),
+    ) else {
+        return;
+    };
+    let dir = scratch("s315b");
+    let ssd = format!(
+        r#"{NESTED_HEAD}<ssd:Elements><ssd:System name="s">
+    <ssd:Elements>
+      <ssd:Component name="a" source="resources/a.fmu"/>
+      <ssd:Component name="b" source="resources/b.fmu"/>
+    </ssd:Elements>
+    <ssd:Connections>
+      <ssd:Connection startElement="b" startConnector="Float64_continuous_input" endElement="a" endConnector="x"/>
+    </ssd:Connections>
+  </ssd:System></ssd:Elements>{NESTED_TAIL}"#
+    );
+    let nested = ssp(&dir, &ssd, &[("a", &a), ("b", &b)], &[]);
+    let want = run_ssp(&nested);
+    assert!(want.status.success());
+    let back = dir.join("back");
+    std::fs::create_dir_all(&back).unwrap();
+    globe_ok(&[
+        "ssp-import".as_ref(),
+        &nested,
+        "-o".as_ref(),
+        &back.join("spec.json"),
+        "--step".as_ref(),
+        "0.1".as_ref(),
+    ]);
+    let flat = dir.join("flat.ssp");
+    globe_ok(&[
+        "ssp-export".as_ref(),
+        &back.join("spec.json"),
+        "-o".as_ref(),
+        &flat,
+    ]);
+    let got = globe_ok(&["cosim".as_ref(), &flat]);
+    assert_eq!(got.stdout, want.stdout);
+    assert!(table(&got).contains_key("s.a.x"));
 }

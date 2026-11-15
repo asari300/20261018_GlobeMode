@@ -168,7 +168,7 @@ fn bindings(component: roxmltree::Node, cname: &str) -> Result<Vec<SspBinding>, 
 /// 入れ子の System の深さと名前 1 つの長さの上限（信頼できない `.ssp` で階層名の連結が深さ² のメモリになる。#106）。
 /// 実際の SSP は数段（FMU の入れ子は 10 段に届かない）なので、桁に余裕を持たせた値。
 const MAX_DEPTH: usize = 64;
-const MAX_NAME: usize = 1024;
+pub const MAX_NAME: usize = 1024;
 
 /// 階層の名前（`外側.内側`）。ルートの System は空。
 fn join(path: &str, name: &str) -> String {

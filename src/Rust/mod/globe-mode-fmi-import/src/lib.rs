@@ -29,7 +29,7 @@ pub use me::{
     EventInfo, EventKind, FmuMe, MeEvent, MeIntegrator, MeOptions, MeRun, StepInfo, run_me,
     run_me_with,
 };
-pub use ssp::{Ssp, write_ssp};
+pub use ssp::{Ssp, write_ssp, write_ssp_with};
 pub use worker::{
     Kind, MeSummary, WorkerRequest, WorkerRun, WorkerSpec, run_in_process, run_in_worker,
     worker_main,

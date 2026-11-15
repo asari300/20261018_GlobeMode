@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S319 marimo-analysis-demo — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S319 marimo-analysis-demo">
+
+<section class="slide" id="S01">
+  <span class="tag">S319 · 2026-11-15 · P7</span>
+  <h1>解析の機能を marimo の 1 本で試せる</h1>
+  <p class="lead">線形化・BLT と段・コシミュレーション・native の検査</p>
+  <div class="big">analysis_app.py</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">中身</span>
+  <h1>4 つの節</h1>
+  <ul>
+    <li><code>linearize</code>: LinearSystem の A・B・C・D・固有値・安定性</li>
+    <li><code>blt</code>・<code>stages</code>: LinearLoop の代数ループ、Pendulum の index 3</li>
+    <li><code>cosim</code>: Dahlquist → Feedthrough。Jacobi は 1 刻み遅れ、Gauss–Seidel は遅れない</li>
+    <li><code>check(frontend="native")</code> を Rumoca と並べる</li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">境界</span>
+  <h1>新しい依存も Rust の変更も無い</h1>
+  <ul>
+    <li>使うのは globe_mode・polars・plotly（どれも既存）</li>
+    <li>Reference-FMUs か <code>globe</code> が無ければコシミュレーションの節は案内だけ</li>
+    <li>試験: 全セルを実行して値を確かめる pytest 2 本（コシミュレーションは FMU があるときだけ）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

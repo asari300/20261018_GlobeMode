@@ -183,8 +183,9 @@ impl Server {
             overlay: None,
             lib: Some(&mut self.lib),
             read: &|p| {
+                let key = same_path_key(p);
                 open.iter()
-                    .find(|(u, _)| uri_path(u) == p)
+                    .find(|(u, _)| same_path_key(&uri_path(u)) == key)
                     .map(|(_, t)| t.clone())
                     .or_else(|| std::fs::read_to_string(p).ok())
             },
@@ -389,7 +390,11 @@ impl Server {
                 let target = self.with_resolver(|r| r.definition(&path, &text, at));
                 let location = target.and_then(|t| {
                     // 開いている文書ならその本文と URI、無ければディスクから読む
-                    let open = self.texts.iter().find(|(u, _)| uri_path(u) == t.path);
+                    let key = same_path_key(&t.path);
+                    let open = self
+                        .texts
+                        .iter()
+                        .find(|(u, _)| same_path_key(&uri_path(u)) == key);
                     let (u, body) = match open {
                         Some((u, body)) => (u.clone(), body.clone()),
                         None => (file_uri(&t.path), std::fs::read_to_string(&t.path).ok()?),
@@ -1104,8 +1109,12 @@ impl Server {
     /// ライブラリのファイルの本文が変わるときは、自前の名前解決の木（`lib`）を捨てて次に要るとき作り直す（#107。MSL 全体で 0.6 s。
     /// 残すと定義・ホバーが古いバイト位置を返す）。`tree` が無ければ `lib` も無い。
     fn drop_lib_for(&mut self, path: &str) {
+        // 木のファイル名は `--library` の文字列のまま（相対・`\` 区切りがありうる）なので、絶対にして `/` と小文字のドライブにそろえて比べる（#115）
+        let path = same_path_key(path);
         if let Some(tree) = self.tree.as_ref().filter(|_| self.lib.is_some())
-            && tree.classes().any(|(n, _)| tree.file(n) == Some(path))
+            && tree
+                .classes()
+                .any(|(n, _)| tree.file(n).is_some_and(|f| same_path_key(f) == path))
         {
             self.lib = None;
         }
@@ -1795,6 +1804,27 @@ fn file_uri(path: &str) -> String {
         }
     }
     out
+}
+
+/// パスの比べる形: 絶対、`..` を字句で畳む、区切りは `/`、ドライブ文字は小文字（`uri_path` の形に合わせる）。
+/// shortcut: symlink は解かない（syscall を避ける）。symlink 越しに開く人が出たら `canonicalize` にする。
+fn same_path_key(p: &str) -> String {
+    use std::path::Component;
+    let abs = std::path::absolute(p).unwrap_or_else(|_| PathBuf::from(p));
+    let mut out = PathBuf::new();
+    for c in abs.components() {
+        match c {
+            Component::ParentDir => {
+                out.pop();
+            }
+            c => out.push(c),
+        }
+    }
+    let mut s = out.display().to_string().replace('\\', "/");
+    if s.as_bytes().get(1) == Some(&b':') {
+        s[..1].make_ascii_lowercase();
+    }
+    s
 }
 
 fn uri_path(uri: &str) -> String {
@@ -3381,6 +3411,57 @@ equation
         );
         assert!(line(&mut s).contains(r#""line":6"#), "{}", line(&mut s));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn editing_an_open_library_file_refreshes_with_relative_library_path() {
+        // #115: `--library` が相対パスでも、木のファイル名（文字列のまま）と開いた文書の絶対パスが同じファイルだと分かる
+        let dir = scratch_dir("tolerant-edit-rel");
+        let lib = dir.join("Lib");
+        std::fs::create_dir_all(&lib).unwrap();
+        let file = lib.join("package.mo");
+        let src = "package Lib\n  model A\n  end A;\nend Lib;\n";
+        std::fs::write(&file, src).unwrap();
+        let up = "../".repeat(std::env::current_dir().unwrap().components().count() - 1);
+        let rel = PathBuf::from(format!("{up}{}", dir.strip_prefix("/").unwrap().display()));
+        let (fp, uri) = (file.display().to_string(), "T.mo");
+        let mut s = Server::new(&[rel]).unwrap();
+        let open = |s: &mut Server, method: &str, uri: &str, text: &str| {
+            s.handle(json!({"method": method, "params": {"textDocument": {
+                "uri": uri, "languageId": "modelica", "version": 1, "text": text},
+                "contentChanges": [{"text": text}]}}))
+        };
+        open(&mut s, "textDocument/didOpen", &fp, src);
+        open(
+            &mut s,
+            "textDocument/didOpen",
+            uri,
+            "model T\n  Lib.A a;\n  Real = ;\nend T;\n",
+        );
+        let line = |s: &mut Server| {
+            s.handle(
+                json!({"id": 1, "method": "textDocument/definition", "params": {
+                "textDocument": {"uri": uri}, "position": {"line": 1, "character": 6}}}),
+            )
+            .remove(0)["result"]
+                .to_string()
+        };
+        assert!(line(&mut s).contains(r#""line":1"#), "{}", line(&mut s));
+        open(
+            &mut s,
+            "textDocument/didChange",
+            &fp,
+            &format!("\n\n\n\n\n{src}"),
+        );
+        assert!(line(&mut s).contains(r#""line":6"#), "{}", line(&mut s));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn same_path_key_ignores_separator_and_drive_case() {
+        assert_eq!(same_path_key("C:\\lib\\A.mo"), same_path_key("c:/lib/A.mo"));
     }
 
     #[test]

@@ -97,9 +97,12 @@ impl Frontend for NativeFrontend {
             .collect();
         let extra: Vec<_> = texts.iter().map(|(n, t)| (*n, &**t)).collect();
         let user_texts: Vec<&str> = extra.iter().map(|(_, t)| *t).collect();
+        // 開いて直したライブラリのファイルは作業中の本文が真（ディスクの版と二重に入れない。S320・#113）
+        let same = |a: &str, b: &str| a.replace('\\', "/") == b.replace('\\', "/");
         let project = match closure_sources(libraries, model, &user_texts).map(|lib| {
             Project::from_sources(
                 lib.iter()
+                    .filter(|(n, _)| !extra.iter().any(|(m, _)| same(n, m)))
                     .map(|(n, t)| (n.as_str(), t.as_str()))
                     .chain(extra.iter().copied()),
             )

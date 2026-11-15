@@ -154,8 +154,8 @@ pub struct Project {
     lineage: RefCell<HashMap<ClassId, Rc<Vec<ClassId>>>>,
     /// `redeclare …` の引数の読み直し（S297）。`(ファイル, Redeclaration の始まり)` → 節
     snips: RefCell<HashMap<(u32, u32), SnipSlot>>,
-    /// 節の中の名前の解決（`res` と同じ表。節は数が限られるので漏らして `&'static` にする）
-    extra: RefCell<HashMap<(u32, u32, u32), &'static Resolution>>,
+    /// 節の中の名前の解決（`res` と同じ表。`Project` と一緒に捨てる。S320: 以前は `Box::leak` で作り直すたびに増えた）
+    extra: RefCell<HashMap<(u32, u32, u32), Resolution>>,
 }
 
 type SnipSlot = Option<Rc<Snip>>;
@@ -195,7 +195,7 @@ impl Project {
         Self::from_dirs_with(dirs, &[])
     }
 
-    /// ディレクトリの下の `.mo` の（パス, 本文）。`Library::from_dirs` と同じ順。読めない・UTF-8 でないファイルは省く（S307: 閉包を選ぶ前の読み込み）
+    /// ディレクトリの下の `.mo` の（パス, 本文）。`Library::from_dirs` と同じ順。読めないファイルは省く（UTF-8 でないものは U+FFFD にして読む）（S307: 閉包を選ぶ前の読み込み）
     pub fn read_dirs(dirs: &[&Path]) -> std::io::Result<Vec<(String, String)>> {
         let mut files = Vec::new();
         for d in dirs {
@@ -205,7 +205,13 @@ impl Project {
         }
         Ok(files
             .iter()
-            .filter_map(|f| Some((f.display().to_string(), std::fs::read_to_string(f).ok()?)))
+            .filter_map(|f| {
+                // UTF-8 でないファイルは U+FFFD にして読む（`Workspace::with_libraries` と同じ。S320・#114）
+                Some((
+                    f.display().to_string(),
+                    String::from_utf8_lossy(&std::fs::read(f).ok()?).into_owned(),
+                ))
+            })
             .collect())
     }
 
@@ -283,7 +289,7 @@ impl Project {
         names
             .iter()
             .filter_map(|n| match self.res_of(file, n.range()) {
-                Some(Resolution::Class(b)) => Some(*b),
+                Some(Resolution::Class(b)) => Some(b),
                 _ => None,
             })
             .collect()
@@ -299,12 +305,12 @@ impl Project {
         })
     }
 
-    pub(crate) fn res_of(&self, file: u32, r: rowan::TextRange) -> Option<&Resolution> {
+    pub(crate) fn res_of(&self, file: u32, r: rowan::TextRange) -> Option<Resolution> {
         let key = (file, u32::from(r.start()), u32::from(r.end()));
         if file >= SNIP_FILE_BASE {
-            return self.extra.borrow().get(&key).copied();
+            return self.extra.borrow().get(&key).cloned();
         }
-        self.res.get(&key)
+        self.res.get(&key).cloned()
     }
 
     /// 修飾の `Redeclaration` を読み直す。先頭の `redeclare`・`final`・`each`・`replaceable` は落とす。読めなければ `None`
@@ -374,7 +380,7 @@ impl Project {
                 global,
                 local: false,
             };
-            let res: &'static Resolution = Box::leak(Box::new(self.lib.resolve_head(&r)));
+            let res = self.lib.resolve_head(&r);
             self.extra
                 .borrow_mut()
                 .insert((fid, u32::from(range.start()), u32::from(range.end())), res);
