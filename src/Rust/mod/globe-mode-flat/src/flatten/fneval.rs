@@ -281,10 +281,8 @@ impl F<'_> {
                     (self.route(self.p.lib.classes[rid].parent, &path), Some(pkg))
                 } else {
                     let own = self.p.lib.classes[rid].parent;
-                    {
-                        let at = super::NameAt::of(r.range(), parts.clone(), r.is_global());
-                        (self.route(own, &self.prefix_path(file, &at, own)), None)
-                    }
+                    let at = super::NameAt::of(r.range(), parts.clone(), r.is_global());
+                    (self.route(own, &self.prefix_path(file, &at, own)), None)
                 };
                 match (route, hit_pkg) {
                     (Route::Ambiguous, _) => return None,
