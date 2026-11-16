@@ -272,5 +272,6 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - 配布するバイナリに `sundials` のソルバ（`cvode`・`ida`）は入れない（cmake と C コンパイラが要る）。
 - FMI の読み込みはブラウザ・Android の UI と C・Elixir・Gleam の API が未、SSP は最小版の読み取りと、System 1 つの書き出し（S274）と `.ssp` → spec.json の `ssp-import`（S315）、`start` の `.ssv` 書き出し（S318）だけで、入れ子の System の書き出しが未（読み取りは S295）。Diagram は結線の途中の点の削除と、VS Code のパネルからの部品の追加、途中の点を選んで動かす・消すキー操作が未（結線の追加と途中の点の追加のキー操作は S316）。線形化は数値微分で、解析ヤコビ行列が未（固有値と安定性は S286 で足した）。
 - 自前の検査（`--frontend native`、S305〜S313）は試しで、既定は Rumoca。S6 までで実行にはつながらない。wasm・ブラウザ・Desktop の UI から選べる（S347・S349。S350 から既定は「設定に従う」）。MSL の例題 566 本のうち平坦化できるのは 565 本（`GM-U0006` で断る残り 1 本の理由は `unsized-array`。[doc/frontend-diff.md](doc/frontend-diff.md)）。
+- FMI 2.0 の FMU は aarch64 Linux 向け（`--target aarch64-linux-gnu`、aarch64 Linux の host の P5b）を作れない（FMI 2.0 の規格の `binaries/` の名前は `linux64`・`win64`・`darwin64` で、aarch64 Linux の名前が無いので `FMI 2.0 に置き場の名前が無い` で断る。FMI 3.0 の `aarch64-linux` は作れる。S381）。
 - Desktop と Android は署名していない。Desktop の自動更新は鍵を登録するまで「未設定」。実機での長い操作は【未確認】。
 - GitHub の Release・タグ・Pages・PyPI・Marketplace への公開はまだ無い（[doc/research/app-flow-2026-11-05.md](doc/research/app-flow-2026-11-05.md)）。
