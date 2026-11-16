@@ -46,27 +46,27 @@
   <span class="tag">図</span>
   <h1><code>route</code> が決める 4 つ</h1>
   <svg class="fig" viewBox="0 0 800 280" role="img" aria-label="route が経路から読む package を決める流れ">
-    <rect class="svg-box-accent" x="20" y="100" width="200" height="80" rx="10"/>
-    <text class="svg-text-b" x="120" y="135" text-anchor="middle">route</text>
-    <text class="svg-text" x="120" y="158" text-anchor="middle">宣言した側と名前の列</text>
-    <line class="svg-line" x1="220" y1="140" x2="260" y2="140"/>
-    <line class="svg-line" x1="260" y1="40" x2="260" y2="240"/>
+    <rect class="svg-box-accent" x="20" y="99" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="120" y="134" text-anchor="middle">route</text>
+    <text class="svg-text" x="120" y="157" text-anchor="middle">宣言した側と名前の列</text>
+    <line class="svg-line" x1="220" y1="139" x2="260" y2="139"/>
+    <line class="svg-line" x1="260" y1="40" x2="260" y2="238"/>
     <line class="svg-line" x1="260" y1="40" x2="300" y2="40"/>
-    <line class="svg-line" x1="260" y1="113" x2="300" y2="113"/>
-    <line class="svg-line" x1="260" y1="187" x2="300" y2="187"/>
-    <line class="svg-line" x1="260" y1="240" x2="300" y2="240"/>
+    <line class="svg-line" x1="260" y1="106" x2="300" y2="106"/>
+    <line class="svg-line" x1="260" y1="172" x2="300" y2="172"/>
+    <line class="svg-line" x1="260" y1="238" x2="300" y2="238"/>
     <rect class="svg-box" x="300" y="14" width="460" height="52" rx="10"/>
     <text class="svg-text-b" x="320" y="38">Heir(h)</text>
     <text class="svg-text" x="320" y="57">受け継いだ package の extends の修飾を通した値</text>
-    <rect class="svg-box" x="300" y="87" width="460" height="52" rx="10"/>
-    <text class="svg-text-b" x="320" y="111">Static</text>
-    <text class="svg-text" x="320" y="130">名前が宣言した側を全部明示。宣言した側の値</text>
-    <rect class="svg-box" x="300" y="161" width="460" height="52" rx="10"/>
-    <text class="svg-text-b" x="320" y="185">Relative</text>
-    <text class="svg-text" x="320" y="204">外側が名前に出ない。呼び出しの文脈の package</text>
-    <rect class="svg-box" x="300" y="214" width="460" height="52" rx="10"/>
-    <text class="svg-text-b" x="320" y="238">Ambiguous</text>
-    <text class="svg-text" x="320" y="257">2 つ以上ありうる。断る（分からない）</text>
+    <rect class="svg-box" x="300" y="80" width="460" height="52" rx="10"/>
+    <text class="svg-text-b" x="320" y="104">Static</text>
+    <text class="svg-text" x="320" y="123">名前が宣言した側を全部明示。宣言した側の値</text>
+    <rect class="svg-box" x="300" y="146" width="460" height="52" rx="10"/>
+    <text class="svg-text-b" x="320" y="170">Relative</text>
+    <text class="svg-text" x="320" y="189">外側が名前に出ない。呼び出しの文脈の package</text>
+    <rect class="svg-box" x="300" y="212" width="460" height="52" rx="10"/>
+    <text class="svg-text-b" x="320" y="236">Ambiguous</text>
+    <text class="svg-text" x="320" y="255">2 つ以上ありうる。断る（分からない）</text>
   </svg>
 </section>
 
@@ -78,6 +78,7 @@
     <tr><td><code>Ambiguous</code>（入れ子でない 2 つ以上の受け継ぎ）</td><td>最後の名前の package だけで決めた（外側の定数が違う）</td><td>断る</td></tr>
     <tr><td><code>P = PP(n = 5)</code> の <code>P.Inner.c</code></td><td>宣言した側の 3 を黙って出した（7 のはず）</td><td>断る（<code>non-constant-dim</code>）</td></tr>
     <tr><td>差し替え先から入れ子をたどれない名前</td><td>静的に引く</td><td>今までどおり静的に引く（列挙の要素など）</td></tr>
+    <tr><td><code>(…)</code> に届くかの判定（<code>reaches_mod</code>）</td><td>組み込み（<code>fill</code>・<code>String</code>）と <code>size(X, k)</code> も届くとして、公開ライブラリの <code>Medium.nX</code> が断られた（6 本減）</td><td>組み込みは本体を読まない、<code>size</code> は配列リテラルの形だけ。6 本とも戻った</td></tr>
   </table>
 </section>
 
@@ -88,9 +89,9 @@
 python3 dd378.py i2.mo M   # omc の instantiateModel と変数ごと
 flock &lt;lock&gt; xtask-s378 diff-frontend --baseline-json frontend-diff-s377.json</code></pre>
   <div class="kpis">
-    <div class="kpi"><span class="n">@@REG@@</span><span class="l">回帰（MSL 566 本・全体の検査）</span></div>
-    <div class="kpi"><span class="n">8</span><span class="l">追加した回帰試験（直す前は落ちる）</span></div>
-    <div class="kpi"><span class="n">@@LIB@@</span><span class="l">公開ライブラリの平らにできた本数（前回 1188）</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">回帰（MSL 566 本・全体の検査）</span></div>
+    <div class="kpi"><span class="n">10</span><span class="l">追加した回帰試験（8 本は直す前のソースで落ちる）</span></div>
+    <div class="kpi"><span class="n">1188</span><span class="l">公開ライブラリの平らにできた本数（前回 1188）</span></div>
   </div>
 </section>
 
