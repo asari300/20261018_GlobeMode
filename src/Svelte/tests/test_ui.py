@@ -1719,6 +1719,7 @@ def cross_file_refs_edges(browser, origin: str, errors: list[str]) -> None:
 
 def cross_file_rename_undo(browser, origin: str, errors: list[str]) -> None:
     """S375: 2 つのタブにまたがるリネームは「元に戻す（2 ファイル）」ボタン（キーボードの Enter）で両方のタブが元の本文に戻り、各タブの履歴に 1 件として残る（A.mo の Ctrl+Z でリネームがやり直せる）。
+    別のタブを見ているときに押しても、A.mo の履歴にモデル名の変更が入る（S376。戻ってからの Ctrl+Z でモデル名の欄が追う）。
     リネームのあとに片方のタブを編集していたら、そのタブは戻さず理由（タブの名前）を出し、もう片方だけ戻る。"""
     a = "model Base\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -x;\nend Base;\n"
     b = "model B\n  extends Base;\n  Base c;\nend B;\n"
@@ -1770,6 +1771,21 @@ def cross_file_rename_undo(browser, origin: str, errors: list[str]) -> None:
     content.focus()
     pg.keyboard.press("Control+z")  # 戻したことが A.mo の履歴の 1 件: もう一度押すとリネームがやり直される
     expect(content).to_contain_text("end Core;")
+    expect(pg.get_by_label("モデル名")).to_have_value("Core")  # 戻したあとの Ctrl+Z でモデル名も追う
+    pg.keyboard.press("Control+z")
+    expect(content).to_contain_text("end Base;")
+    # S376: 別のタブ（B.mo）を見ているときに押しても、A.mo の履歴にモデル名の変更が入る（戻ってからの Ctrl+Z でモデル名の欄が追う）
+    rename_base("Core")
+    tab("B.mo").click()
+    expect(content).to_contain_text("extends Core;")
+    undo.click()
+    tab("A.mo").click()
+    expect(content).to_contain_text("end Base;")
+    expect(pg.get_by_label("モデル名")).to_have_value("Base")
+    content.focus()
+    pg.keyboard.press("Control+z")
+    expect(content).to_contain_text("end Core;")
+    expect(pg.get_by_label("モデル名")).to_have_value("Core")
     # リネームのあとに B.mo を編集したら、B.mo は戻さず（理由に名前）、A.mo だけ戻る
     pg.keyboard.press("Control+z")
     expect(content).to_contain_text("end Base;")

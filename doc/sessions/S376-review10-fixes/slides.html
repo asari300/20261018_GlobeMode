@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S376 10 回目のレビューの issue #153〜#159 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S376 10 回目のレビューの issue #153〜#159">
+
+<section class="slide" id="S01">
+  <span class="tag">S376 · 2026-11-16 · Track B・P4</span>
+  <h1>関数の評価器・DAE・UI の issue 7 件を直した</h1>
+  <p class="lead">S373〜S375 への 10 回目のレビュー。1 件ずつ再現してから直し、各修正に回帰試験を 1 本足した</p>
+  <div class="big">一番大きいのは、関数が読む package の定数が<b>差し替え後の値にならず</b>、断らずに大きさが黙って違ったこと（<b>2 でなく 6</b>）</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>7 件の内訳</h1>
+  <table class="compact">
+    <tr><th>#</th><th>重さ</th><th>起きていたこと</th></tr>
+    <tr><td>156</td><td>Should</td><td>関数が読む package の定数が <code>extends P(n = 5)</code>・<code>redeclare package</code> を無視する（<code>P5.m</code> が 6 でなく 2）</td></tr>
+    <tr><td>155</td><td>Should</td><td><code>redeclare function f = f3</code> を見ず、<code>partial</code> の <code>f</code> は 0 を返す</td></tr>
+    <tr><td>154</td><td>Should</td><td><code>redeclare</code> が 1 つあるだけで結果を覚えず、300 インスタンスが通らない</td></tr>
+    <tr><td>158</td><td>Should</td><td><code>c_i = c_{i-1} + c_{i-1}</code> が 2^n 回の評価（20 個で 9 秒）</td></tr>
+    <tr><td>153</td><td>Nice</td><td>失敗した呼び出しを覚えず、無関係な <code>ok(3)</code> まで予算切れで断られる</td></tr>
+    <tr><td>157</td><td>Nice</td><td>S373 の DAE の直しが 2 次元以上の範囲 <code>s[:, 1].h</code> で効かない</td></tr>
+    <tr><td>159</td><td>Nice</td><td>別のタブで押した「元に戻す」が、モデル名の履歴を入れない</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>関数が見る package（heir）を通した側にした（#156・#155）</h1>
+  <div class="cols-2">
+    <div class="card">
+      <h3>どの package か</h3>
+      <p><code>P.f</code>（<code>P</code> は <code>redeclare</code>）→ 差し替え先。<code>P5.f</code> → <code>P5</code>。単純な名前 → 呼び出しの文脈の package</p>
+      <p>関数の <code>Frame</code> の <code>heir</code> に入れ、<code>pkg_binding</code> が <code>extends</code> の修飾を引く</p>
+    </div>
+    <div class="card">
+      <h3>断るもの</h3>
+      <p><code>partial</code> の関数、出力が代入されないまま終わった関数、<code>(…)</code> の修飾つきの関数の差し替え</p>
+      <p><code>redeclare function f = f3</code> は <code>cenv</code> に入れて <code>call_target</code> が引く</p>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>呼び出しが文脈を通る道</h1>
+  <svg class="fig" viewBox="0 0 800 260" role="img" aria-label="call_target が差し替えを引いて fn_memo を通る流れ">
+    <rect class="svg-box" x="20" y="90" width="150" height="80" rx="10"/>
+    <text class="svg-text-b" x="95" y="125" text-anchor="middle">call_target</text>
+    <text class="svg-text" x="95" y="148" text-anchor="middle">差し替えを引く</text>
+    <line class="svg-line" x1="170" y1="130" x2="230" y2="130"/>
+    <rect class="svg-box-accent" x="230" y="90" width="170" height="80" rx="10"/>
+    <text class="svg-text-b" x="315" y="125" text-anchor="middle">fn_memo</text>
+    <text class="svg-text" x="315" y="148" text-anchor="middle">関数・heir・cenv・引数</text>
+    <line class="svg-line" x1="400" y1="130" x2="450" y2="130"/>
+    <rect class="svg-box" x="450" y="90" width="150" height="80" rx="10"/>
+    <text class="svg-text-b" x="525" y="125" text-anchor="middle">予算 −64</text>
+    <text class="svg-text" x="525" y="148" text-anchor="middle">尽きたら None</text>
+    <line class="svg-line" x1="600" y1="130" x2="650" y2="130"/>
+    <rect class="svg-box" x="650" y="90" width="130" height="80" rx="10"/>
+    <text class="svg-text-b" x="715" y="125" text-anchor="middle">本体</text>
+    <text class="svg-text" x="715" y="148" text-anchor="middle">partial は None</text>
+    <text class="svg-text" x="400" y="215" text-anchor="middle">成功したスカラーと、最上位で予算内の失敗を覚える</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">決定と理由</span>
+  <h1>覚える範囲を広げた（#154・#153・#158）</h1>
+  <table class="compact">
+    <tr><th>#</th><th>覚えるもの</th><th>鍵</th></tr>
+    <tr><td>154</td><td>呼び出しの結果（<code>redeclare</code> があっても）</td><td>関数・<code>heir</code>・差し替えの組の hash・引数</td></tr>
+    <tr><td>153</td><td>最上位の呼び出しが予算内で失敗したこと</td><td>同じ（入れ子・予算切れの失敗は覚えない）</td></tr>
+    <tr><td>158</td><td>名前の束縛の式の成功した値（<code>eval_memo</code>）</td><td>式の場所・文脈の中身の hash（<code>Rc</code> の同一性は使わない）</td></tr>
+    <tr><td>158</td><td>関数の中から <code>eval</code> に任せる式は 1 tick</td><td>リテラルは数えない</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">決定と理由</span>
+  <h1>#157・#159: DAE の範囲と UI の履歴</h1>
+  <table class="compact">
+    <tr><th>#</th><th>直し</th></tr>
+    <tr><td>157</td><td><code>[…]</code> を <code>,</code> で分け、範囲の位置だけ 1, 2, … に替える（範囲が複数なら直積）。<code>s[:, 1].h</code>・<code>s[1, :].h</code>・<code>s[1:2, 1].h</code>・<code>r[:, 1].a</code> が正則</td></tr>
+    <tr><td>159</td><td>別のタブの枝も <code>state.update</code> に <code>modelRenamed</code> の effect を付ける。<code>tab.model</code> の手の更新はそのまま</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">再現手順</span>
+  <h1>検証</h1>
+  <pre><code>cargo test -p globe-mode-flat -p globe-mode-dae
+uv run python src/Svelte/tests/test_ui.py
+flock &lt;lock&gt; xtask-s376 diff-frontend --baseline-json frontend-diff-s374.json</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">0</span><span class="l">回帰（MSL 566 本・全体の検査）</span></div>
+    <div class="kpi"><span class="n">7</span><span class="l">追加した回帰試験（直す前は落ちる）</span></div>
+    <div class="kpi"><span class="n">9 s → 1 ms</span><span class="l">#158 の再現 <code>e2_20</code>（parameter の連鎖 20 個。debug）</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S08">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>関数の中から呼ぶ兄弟の関数の <code>redeclare</code>、入れ子の package（<code>P5.Inner.f</code>）の定数</li>
+    <li><code>(…)</code> の修飾つきの package の差し替えは、定数の評価（<code>dyn_const</code>）が今までどおり見ない</li>
+    <li>文字列の大小の辞書順（S374 から。<code>Val</code> に文字列を持たせる）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

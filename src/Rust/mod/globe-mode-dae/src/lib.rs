@@ -212,24 +212,18 @@ impl<'a> Ctx<'a> {
             return v;
         }
         let t: String = text.split_whitespace().collect();
-        if let Some((pre, post)) = Self::range_split(&t) {
-            // 要素の欄が変数そのもの（`solRadOut[:].H` → `solRadOut[1].H`）のときは、その変数（S373）
-            return (1..)
-                .map(|k| {
-                    let n = format!("{pre}[{k}]{post}");
-                    self.index
-                        .get(n.as_str())
-                        .map_or_else(|| self.leaves_of(&n), |&v| vec![v])
-                })
-                .take_while(|v| !v.is_empty())
-                .flatten()
-                .collect();
+        if let Some((pre, subs, post)) = Self::range_split(&t) {
+            // 要素の欄が変数そのもの（`solRadOut[:].H` → `solRadOut[1].H`）のときは、その変数（S373）。
+            // 2 次元以上（`s[:, 1].h`）は、範囲の位置だけを 1, 2, … に替える。範囲が複数なら直積（S376）
+            let mut out = Vec::new();
+            self.range_vars(pre, &subs, post, 0, &mut out);
+            return out;
         }
         self.array_leaves(Self::last_subscript(&t).map_or(&t, |(base, _)| base))
     }
 
-    /// 範囲の添字 `[a : b]` を含む参照の、その前（`[` の前まで）と後（`]` の後から）。範囲の添字がなければ None
-    fn range_split(t: &str) -> Option<(&str, &str)> {
+    /// 範囲の添字 `[a : b, c]` を含む参照の、その前（`[` の前まで）・添字の列（`,` で分ける）・後（`]` の後から）。範囲の添字がなければ None
+    fn range_split(t: &str) -> Option<(&str, Vec<&str>, &str)> {
         let mut start = None;
         let mut depth = 0;
         for (i, c) in t.char_indices() {
@@ -244,13 +238,48 @@ impl<'a> Ctx<'a> {
                     depth -= 1;
                     let st = start?;
                     if depth == 0 && t[st..i].contains(':') {
-                        return Some((&t[..st], &t[i + 1..]));
+                        let (mut subs, mut from, mut d) = (Vec::new(), st + 1, 0);
+                        for (j, c) in t[st + 1..i].char_indices() {
+                            match c {
+                                '[' | '(' | '{' => d += 1,
+                                ']' | ')' | '}' => d -= 1,
+                                ',' if d == 0 => {
+                                    subs.push(&t[from..st + 1 + j]);
+                                    from = st + 2 + j;
+                                }
+                                _ => {}
+                            }
+                        }
+                        subs.push(&t[from..i]);
+                        return Some((&t[..st], subs, &t[i + 1..]));
                     }
                 }
                 _ => {}
             }
         }
         None
+    }
+
+    /// `pre[subs]post` の、`from` 番目以降の範囲の添字（`:` を含むもの）を 1, 2, … に替えた名前の変数。要素が無くなるまで進める
+    fn range_vars(&self, pre: &str, subs: &[&str], post: &str, from: usize, out: &mut Vec<usize>) {
+        let Some(at) = (from..subs.len()).find(|&i| subs[i].contains(':')) else {
+            let n = format!("{pre}[{}]{post}", subs.join(","));
+            out.extend(
+                self.index
+                    .get(n.as_str())
+                    .map_or_else(|| self.leaves_of(&n), |&v| vec![v]),
+            );
+            return;
+        };
+        for k in 1.. {
+            let (k, before) = (k.to_string(), out.len());
+            let mut s = subs.to_vec();
+            s[at] = &k;
+            self.range_vars(pre, &s, post, at + 1, out);
+            if out.len() == before {
+                break;
+            }
+        }
     }
 
     /// `a.b[2].x[1]` を変数と選択に解く。変数でなければ None
@@ -1196,6 +1225,30 @@ mod tests {
         assert!(d.is_balanced() && d.is_regular());
         // 行 0: 左辺は全要素 `s[1].h`・`s[2].h`（範囲は見ない）、右辺は行ごとに `h[1]`
         assert_eq!(d.structure.incidence[0].len(), 3);
+    }
+
+    /// S376・#157: 2 次元以上の配列の範囲 `s[:, 1].h`・`s[1, :].h`・`s[1:2, 1].h`・レコードの配列 `r[:, 1].a` も、`for` で 1 本ずつ書いた形と同じく正則
+    #[test]
+    fn range_in_a_multi_dimensional_array_touches_the_elements() {
+        for eq in [
+            "s[:, 1].h = h[:]; s[:, 2].h = {3, 4};",
+            "s[1, :].h = h[:]; s[2, :].h = {3, 4};",
+            "s[1:2, 1].h = h[:]; s[:, 2].h = {3, 4};",
+        ] {
+            let d = dae(&format!(
+                "connector C Real h; end C;
+                model M C s[2, 2]; Real h[2]; equation {eq} h = {{1, 2}}; end M;"
+            ));
+            assert!(d.is_balanced() && d.is_regular(), "{eq}");
+        }
+        let d = dae("record R Real a; end R;
+            model M R r[2, 2]; Real h[2]; equation r[:, 1].a = h[:]; r[:, 2].a = {3, 4}; h = {1, 2}; end M;");
+        assert!(d.is_balanced() && d.is_regular());
+        // 範囲が 2 つ: 左辺は 4 要素すべて（直積）、右辺は行ごとに `h` の 1 要素
+        let d = dae("connector C Real h; end C;
+            model M C s[2, 2]; Real h[2, 2]; equation s[:, :].h = h; h = {{1, 2}, {3, 4}}; end M;");
+        assert!(d.is_balanced() && d.is_regular());
+        assert_eq!(d.structure.incidence[0].len(), 5);
     }
 
     #[test]

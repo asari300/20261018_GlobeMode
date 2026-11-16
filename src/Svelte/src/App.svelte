@@ -705,7 +705,8 @@
       const m = r.model?.tab === tab ? r.model : undefined;
       if (here) view.dispatch({ ...spec, effects: m ? [modelRenamed.of({ from: m.to, to: m.from })] : [] }); // S186: モデル名も戻る
       else {
-        tab.state = tab.state.update(spec).state;
+        // S376: 見ていないタブにも modelRenamed を付ける（そのタブの履歴の逆に入り、戻ってからの Ctrl+Z でもモデル名が追う）。`tab.model` は updateListener が無いので手で戻す
+        tab.state = tab.state.update({ ...spec, effects: m ? [modelRenamed.of({ from: m.to, to: m.from })] : [] }).state;
         tab.diagnostics = [];
         if (m && tab.model === m.to) tab.model = m.from;
       }
