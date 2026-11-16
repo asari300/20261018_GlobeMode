@@ -46,6 +46,7 @@
 | zip | MIT | 許可 | S003 で導入（xtask で MSL を展開）。**9 系を使う**: 2 系には展開時の脆弱性（RUSTSEC-2026-0367 / 0368 / 0369）がある。S069 で desktop（別 workspace、`default-features = false, features = ["deflate"]`）も MSL の展開に使う。`zip` 9.2.1 のほか `typed-path`・`zopfli`・`nix`・`cfg_aliases` が `Cargo.lock` に増えた（desktop の `cargo deny` は ok）。S094 で `globe-mode-fmi` の feature `export` も FMU（zip）を書くのに使う（同じ 9 系・同じ feature。Cargo.lock に増えたパッケージは 0） |
 | MSL 4.1.0、Rumoca の CLI（照合用） | BSD-3-Clause / Apache-2.0 | 許可 | `cargo xtask fetch-*` で sha256 を固定して取得する。配布物には入れない（`data/` は git 管理外）。MSL を同梱するならライセンス文を付ける。P5b の FMU（`globe fmu export --runtime p5b`）は `-L` のルートの `LICENSE` を `resources/lib/LICENSE` に写す（S239） |
 | cargo-deny | MIT OR Apache-2.0 | 許可（ツール） | mise で入れる。配布物には入らない |
+| cargo-cyclonedx 0.5.9（CycloneDX/cyclonedx-rust-cargo） | Apache-2.0（`cargo info cargo-cyclonedx` と crates.io の API の license 欄、2026-11-16。0.5.9 は 2026-03-19 公開。0.5.10 は 2026-11-06 公開で、公開から 2 週間たっていないので使わない） | 許可（ツール） | S380 で導入。配布物ごとの CycloneDX の SBOM を作る（下の 4）。**mise.toml に `"github:CycloneDX/cyclonedx-rust-cargo" = "cargo-cyclonedx-0.5.9"` で固定**し、GitHub Release の実行ファイル（mise.lock に checksum と provenance）を使う。配布物には入らない |
 | fmi、fmi-schema、fmi-sys、fmi-export | MIT OR Apache-2.0 | 許可（ライセンスは）。**入れない（自前で作る）**。S206（2026-11-07）にユーザーが「案 B は自前で作成」と決めた（[ADR-0026](adr/0026-fmi-import-placement.md) の (m)）。下の理由は S204 の時点の記録 | S204（2026-11-06）で `fmi` 0.8.0 を optional な依存として試した結果、推移的に **zip 8.6.0**（勧告 RUSTSEC-2026-0367・0368・0369・0429 の 4 件。FMU の展開に使われる）と **libbz2-rs-sys**（`bzip2-1.0.6`。deny.toml の許可に無い）が入り、Cargo.lock が 67 パッケージ増え、FMI 3.0 が Reference-FMUs で動かなかったので入れなかった（[ADR-0026](adr/0026-fmi-import-placement.md) の (g)）。S057 の調査（crates.io で確認、2026-11-01）: `fmi-sys` の build に bindgen（libclang）、`fmi-schema` は `hard-xml`（MIT）など。使うかは [ADR-0026](adr/0026-fmi-import-placement.md) の (b) |
 | fmi-rs 0.3.4、fmusim | BSD-2-Clause | 許可（本体）。`fmi-rs` の依存 `colored`（MPL-2.0）は条件付き | 依存には足していない（S057。crates.io とリポジトリで確認、2026-11-01）。fmusim は検証の道具（別プロセスで呼ぶだけ）。`fmi-rs` の build.rs は C をコンパイルし wasm32 で落ちた |
 | FMI ヘッダ（fmi2Functions.h など）と XSD、Reference-FMUs | BSD-2-Clause | 許可 | ヘッダの先頭と LICENSE.txt で確認（2026-11-01）。仕様書の文書は CC BY-SA 4.0 なので複製しない。Reference-FMUs は `cargo xtask fetch-reference-fmus` で sha256 を固定して取得（`data/`、コミットしない）。試験の fixture に `modelDescription.xml` 4 つをコミットし、`tests/data/LICENSE` に原文を置いた |
@@ -101,14 +102,15 @@
   - `bans` に `zenoh*`、`russell_sparse` と、umbrella crate の `rumoca` を入れる。
   - `wrappers = ["globe-mode-frontend", "globe-mode-exec"]` で、Rumoca を使える crate を制限する。
 - **cargo-about**（S052 で導入。設定は [about.toml](../about.toml)、テンプレートは [about.hbs](../about.hbs)）: 配布物に入れる `THIRD-PARTY.md` を生成する（4 を参照）。`accepted` は deny.toml の `licenses.allow` と同じ集合で、許可外のライセンスが 1 つでもあれば `--fail` で失敗する。
-- **npm 側**: `pnpm licenses list` を CI で検査する。
-- **SBOM**: リリースごとに CycloneDX 形式で出力する。
+- **npm 側**: `pnpm licenses list` を CI で検査する（ci.yml のジョブ `ui`）。配布物に付ける表は [`.github/scripts/npm_licenses.py`](../.github/scripts/npm_licenses.py) が `pnpm licenses list --long --json` から作り、許可外のライセンス（GPL・LGPL・AGPL・NC など。allow は deny.toml と同じ集合に、ビルド時だけの `lightningcss` 用の MPL-2.0 を足したもの）が 1 つでもあれば失敗する（S380）。
+- **SBOM**（S380）: リリースごとに CycloneDX 1.5 の JSON を [`.github/scripts/make_sbom.sh`](../.github/scripts/make_sbom.sh) で作る。Rust は cargo-cyclonedx、npm は `pnpm sbom`、Python は `uv export --format cyclonedx1.5`（4 を参照）。
 - **生成コード**（S098）: `globe fmu export`（FMI 2.0 / 3.0）が出す `sources/*.c|h`・`modelDescription.xml`・`buildDescription.xml` は Rumoca の組み込みターゲット `fmi2` / `fmi3` のテンプレート（Apache-2.0、改変していない）を描いたもので、テンプレートの C の文面をそのまま多く含む。生成物の扱いを Apache-2.0 は特に定めないので、安全側に判断して Rumoca の Work の派生物として扱い、§4(a)（ライセンスの写しを渡す）と §4(c)（著作権表示を残す）に合わせて、FMU の `documentation/licenses/Rumoca-LICENSE.txt`（FMI 3.0 の規格が使用許諾を置く場所。2.0 でも `documentation/` は自由に置ける）に、出典（リポジトリと rev）・著作権表示・Apache-2.0 の全文を入れる。Rumoca の rev `276e82bd` の LICENSE は Apache-2.0 の全文に `Copyright 2025-2026 CogniPilot Foundation` を書き足したもので、NOTICE は無い（<https://github.com/CogniPilot/rumoca/blob/276e82bd0fd48960ac201e782918d28bf19cf7ce/LICENSE>、cargo の git checkout で確認、2026-11-02）。モデルの式（利用者の Modelica から来た部分）の権利は利用者のもので、GlobeMode は主張しない。
 
 ## 4. GlobeMode の配布物に入れるもの
 
 - `LICENSE-MIT`、`LICENSE-APACHE`
 - `THIRD-PARTY.md`（cargo-about。`globe` のバイナリに入る Rust の依存の一覧とライセンス文。S052）
+- Release の資産と artifact `third-party`・`sbom`: `THIRD-PARTY-wheel.md`・`THIRD-PARTY-desktop.md`・`THIRD-PARTY-wasm.md`・`THIRD-PARTY-npm.md` と `sbom-*.cdx.json`（S380。下の節）
 - 寄稿の扱い: Apache-2.0 §5 に従い、寄稿は MIT OR Apache-2.0 で受け入れる。README に明記する。
 
 ### 配布物のサードパーティのライセンス表（S052、2026-10-31）
@@ -122,5 +124,20 @@
 
 - **範囲**: `about.toml` の `targets` は 3 つの配布ターゲットの和集合。他のターゲットにしか入らない crate は除く。dev 依存と GlobeMode 自身の crate（`publish = false`）は入れない。build 依存は入れる。
 - **許可外のライセンス**: `accepted` が allow の一覧だけなので、満たせない crate があれば cargo-about が失敗し、成果物は出ない（確認の結果は作業記録の `log/work/2026-10-31-s052-release-rc1-about.md`）。
-- **含めていないもの**: npm の分（UI は配布物に入らない。Tauri の配布で足す）、wasm と Python の wheel、`sundials` ビルド、CycloneDX の SBOM。
+- **含めていないもの**（S052 の時点）: npm の分、wasm・Desktop・Python の wheel、`sundials` ビルド、CycloneDX の SBOM。wheel は S074、残りのうち `sundials` を除くものは S380 で足した（下の節）。
 - 出典: https://github.com/EmbarkStudios/cargo-about 、https://embarkstudios.github.io/cargo-about/ （0.9.2 の docs/src、2026-10-31 確認）。
+
+### 配布物のライセンス表の続きと SBOM（S380、2026-11-16）
+
+- **ライセンス表**（release.yml のジョブ `third-party` が、`globe` と wheel の表と一緒に作る。どれも許可外のライセンスがあれば失敗する）:
+
+  | ファイル | 範囲 | 作り方 |
+  | --- | --- | --- |
+  | `THIRD-PARTY-desktop.md` | Desktop（Tauri。別の workspace）の Rust の依存。sidecar の `globe` は `THIRD-PARTY.md`。targets は linux x86_64・windows x86_64・macOS arm64 | cargo-about。設定は [src/Rust/apps/desktop/about.toml](../src/Rust/apps/desktop/about.toml)（deny.toml の allow と同じ集合で、`CDLA-Permissive-2.0` と、改変せずに使う `MPL-2.0` の 5 crate を足した） |
+  | `THIRD-PARTY-wasm.md` | ブラウザ版の wasm（`globe-mode-wasm`、target `wasm32-unknown-unknown`） | cargo-about。`--target` で targets を上書き。設定はルートの `about.toml` |
+  | `THIRD-PARTY-npm.md` | `src/Svelte` の npm パッケージ（UI。Desktop とブラウザ版に入る）。dev 依存も含める（Svelte の実行時などが dist に入るため。dist に入らないビルド用の分も載る） | `npm_licenses.py`。各パッケージの LICENSE の写しを載せる |
+
+  `about.hbs` の前書きは、`globe` のバイナリに限らない書き方にした。
+- **SBOM**（CycloneDX 1.5、JSON。release.yml のジョブ `sbom`）: `sbom-globe-<target>`（4 つ）、`sbom-wheel-<target>`（4 つ。wheel の `_native`）、`sbom-desktop-<target>`（3 つ）、`sbom-wasm-wasm32-unknown-unknown`、`sbom-npm`（`pnpm sbom`。dev 依存も含む）、`sbom-python`（`uv export --format cyclonedx1.5`。wheel が宣言する依存と extra `widget`。wheel には入らず、`uv.lock` の版）。Rust の分は dev 依存を `scope: excluded` として含む。
+- **置き場所**: artifact `third-party`（`THIRD-PARTY*.md`）と `sbom`（`sbom-*.cdx.json`）。タグの push では Release の資産にもして、SHA256SUMS の対象に入れる。アーカイブ・wheel・bundle の中身は変えない（Desktop の bundle にライセンス表を同梱するのは未）。ブラウザ版は web.yml が `globe-web/` に `THIRD-PARTY-wasm.md`・`THIRD-PARTY-npm.md`・`sbom-wasm-…`・`sbom-npm` を入れる。
+- 出典: https://cyclonedx.org/ 、https://github.com/CycloneDX/cyclonedx-rust-cargo （0.5.9 のヘルプと `cargo info`、2026-11-16 確認）、`pnpm sbom --help`（pnpm 12.14.0）、`uv export --help`（uv 0.13.1）。
