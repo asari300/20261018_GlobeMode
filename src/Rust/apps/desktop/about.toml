@@ -1,0 +1,25 @@
+# Desktop（別の workspace）の cargo-about の設定（S380）。ルートの about.toml と同じ方針で、deny.toml の allow と同じ集合。
+# Tauri に要る分（CDLA-Permissive-2.0 と、改変せずに使う MPL-2.0。理由は doc/licenses.md の Tauri の行）を足してある。
+# 実行: cargo about generate --locked --fail --manifest-path src/Rust/apps/desktop/Cargo.toml about.hbs -o THIRD-PARTY-desktop.md
+accepted = [
+  "Apache-2.0",
+  "MIT",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Zlib",
+  "Unicode-3.0",
+  "CC0-1.0",
+  "BSL-1.0",
+  "CDLA-Permissive-2.0",
+  "MPL-2.0",
+]
+# release.yml の desktop ジョブが bundle を作る 3 つ（.deb・.msi・.dmg）。Android は android.yml で、配布物に入らない
+targets = [
+  "x86_64-unknown-linux-gnu",
+  "x86_64-pc-windows-msvc",
+  "aarch64-apple-darwin",
+]
+ignore-dev-dependencies = true
+private = { ignore = true }

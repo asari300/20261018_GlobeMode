@@ -123,6 +123,53 @@ url = "https://builds.hex.pm/builds/otp/arm64/ubuntu-26.04/OTP-27.3.4.19.tar.gz"
 checksum = "sha256:82be1250fe6f8f19a501da17e4bf1d73967617fbd3abaf252cc6a03f039052ee"
 url = "https://builds.hex.pm/builds/otp/amd64/ubuntu-26.04/OTP-27.3.4.19.tar.gz"
 
+[[tools."github:CycloneDX/cyclonedx-rust-cargo"]]
+version = "cargo-cyclonedx-0.5.9"
+backend = "github:CycloneDX/cyclonedx-rust-cargo"
+specifiers = ["cargo-cyclonedx-0.5.9"]
+
+[tools."github:CycloneDX/cyclonedx-rust-cargo"."platforms.linux-arm64"]
+checksum = "sha256:7bf131ca5389b07a4f10c182bcf8a5ad339d64408b6f0d8f6834a0bd6120a06a"
+url = "https://github.com/CycloneDX/cyclonedx-rust-cargo/releases/download/cargo-cyclonedx-0.5.9/cargo-cyclonedx-aarch64-unknown-linux-gnu.tar.xz"
+url_api = "https://api.github.com/repos/CycloneDX/cyclonedx-rust-cargo/releases/assets/377060331"
+provenance = "github-attestations"
+
+[tools."github:CycloneDX/cyclonedx-rust-cargo"."platforms.linux-arm64-musl"]
+checksum = "sha256:7bf131ca5389b07a4f10c182bcf8a5ad339d64408b6f0d8f6834a0bd6120a06a"
+url = "https://github.com/CycloneDX/cyclonedx-rust-cargo/releases/download/cargo-cyclonedx-0.5.9/cargo-cyclonedx-aarch64-unknown-linux-gnu.tar.xz"
+url_api = "https://api.github.com/repos/CycloneDX/cyclonedx-rust-cargo/releases/assets/377060331"
+provenance = "github-attestations"
+
+[tools."github:CycloneDX/cyclonedx-rust-cargo"."platforms.linux-x64"]
+checksum = "sha256:fb8dbee9f182173e062a64a387b21a0badc6fab8b2abf9294973f012972bf6d8"
+url = "https://github.com/CycloneDX/cyclonedx-rust-cargo/releases/download/cargo-cyclonedx-0.5.9/cargo-cyclonedx-x86_64-unknown-linux-gnu.tar.xz"
+url_api = "https://api.github.com/repos/CycloneDX/cyclonedx-rust-cargo/releases/assets/377060340"
+provenance = "github-attestations"
+
+[tools."github:CycloneDX/cyclonedx-rust-cargo"."platforms.linux-x64-musl"]
+checksum = "sha256:9bd3e599314f50810c9d98b8b68a617ff9d3cc20873968d90b29d121f6b226ff"
+url = "https://github.com/CycloneDX/cyclonedx-rust-cargo/releases/download/cargo-cyclonedx-0.5.9/cargo-cyclonedx-x86_64-unknown-linux-musl.tar.xz"
+url_api = "https://api.github.com/repos/CycloneDX/cyclonedx-rust-cargo/releases/assets/377060344"
+provenance = "github-attestations"
+
+[tools."github:CycloneDX/cyclonedx-rust-cargo"."platforms.macos-arm64"]
+checksum = "sha256:4c53dfa21e70b65bf7f8d2592aadde3bcb02c1a40b6ec63b877e5ca65a29e180"
+url = "https://github.com/CycloneDX/cyclonedx-rust-cargo/releases/download/cargo-cyclonedx-0.5.9/cargo-cyclonedx-aarch64-apple-darwin.tar.xz"
+url_api = "https://api.github.com/repos/CycloneDX/cyclonedx-rust-cargo/releases/assets/377060329"
+provenance = "github-attestations"
+
+[tools."github:CycloneDX/cyclonedx-rust-cargo"."platforms.macos-x64"]
+checksum = "sha256:59d2a583fa632f8759456c1b531340331255b277386d23c598a3dbbc916fde63"
+url = "https://github.com/CycloneDX/cyclonedx-rust-cargo/releases/download/cargo-cyclonedx-0.5.9/cargo-cyclonedx-x86_64-apple-darwin.tar.xz"
+url_api = "https://api.github.com/repos/CycloneDX/cyclonedx-rust-cargo/releases/assets/377060333"
+provenance = "github-attestations"
+
+[tools."github:CycloneDX/cyclonedx-rust-cargo"."platforms.windows-x64"]
+checksum = "sha256:8750e00775661dcb75bc482c1a298839fd94e8a0c033b49905ba0f246ffed202"
+url = "https://github.com/CycloneDX/cyclonedx-rust-cargo/releases/download/cargo-cyclonedx-0.5.9/cargo-cyclonedx-x86_64-pc-windows-msvc.zip"
+url_api = "https://api.github.com/repos/CycloneDX/cyclonedx-rust-cargo/releases/assets/377060337"
+provenance = "github-attestations"
+
 [[tools."github:wasm-bindgen/wasm-bindgen"]]
 version = "0.2.129"
 backend = "github:wasm-bindgen/wasm-bindgen"
