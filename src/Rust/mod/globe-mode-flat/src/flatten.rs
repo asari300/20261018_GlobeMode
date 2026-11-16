@@ -5340,6 +5340,15 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(v, [("o.z".into(), vec![3])]);
+        // 同じ差し替えの表でも呼び出し元の系統が違えば、覚えた結果を使い回さない（`o` が先に `Sub.f(2)` を 3 と覚えても、`s` の `f(2)` は 7）
+        for decls in [
+            "Other o(redeclare function g = g3); Sub s(redeclare function g = g3);",
+            "Sub s(redeclare function g = g3); Other o(redeclare function g = g3);",
+        ] {
+            let v = sized(&format!("{sub} {other} model M {decls} end M;")).unwrap();
+            let d = |n: &str| v.iter().find(|(k, _)| k == n).unwrap().1[0];
+            assert_eq!((d("o.z"), d("s.x")), (3, 7), "{decls}");
+        }
     }
 
     #[test]

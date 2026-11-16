@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S377 文字列の辞書順と関数の評価器の持ち越し — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S377 文字列の辞書順と関数の評価器の持ち越し">
+
+<section class="slide" id="S01">
+  <span class="tag">S377 · 2026-11-16 · Track B</span>
+  <h1>文字列の辞書順と、S376 の持ち越し 3 件を直した</h1>
+  <p class="lead">値が黙って違うものは直し、直せないものは「分からない」にした。各修正に回帰試験を 1 本（omc の <code>checkModel</code> と一致）</p>
+  <div class="big">一番大きいのは、<code>P5.Inner.f(1)</code> が <b>6 でなく 2</b>、兄弟の関数の <code>redeclare</code> が <b>7 でなく 3</b> と、断らずに大きさが違っていたこと</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>4 件の内訳</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>起きていたこと</th><th>出どころ</th></tr>
+    <tr><td>文字列の大小</td><td><code>&lt;</code> 系は「分からない」、<code>+</code> は hash の和の実数</td><td>S374</td></tr>
+    <tr><td><code>P5.Inner.f</code></td><td>関数が読む <code>PP</code> の定数が宣言した側の値（2、6 のはず）</td><td>S376</td></tr>
+    <tr><td>兄弟の <code>redeclare function</code></td><td>関数の中の <code>g(k)</code> が差し替えを引かない（3、7 のはず）</td><td>S376</td></tr>
+    <tr><td><code>(…)</code> つきの package</td><td><code>P = PP(n = 5)</code> の <code>P.n</code> が 1（5 のはず）</td><td>S376</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>文字列は表の番号にした</h1>
+  <div class="cols-2">
+    <div class="card">
+      <h3>表（<code>F::strs</code>）</h3>
+      <p><code>Val</code> は <code>Copy</code> のまま、<code>Val::S</code> は番号。同じ中身は同じ番号なので <code>==</code> は番号の比べ</p>
+      <p>リテラルはエスケープを解いてから入れる（<code>"\t" &lt; "Z"</code> は真）</p>
+    </div>
+    <div class="card">
+      <h3>演算</h3>
+      <p><code>&lt;</code> 系は UTF-8 のバイト順、<code>+</code> は連結（64 KiB まで）、<code>String(整数・論理・列挙)</code></p>
+      <p>文字列と数の混ぜ・算術は「分からない」</p>
+    </div>
+  </div>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>文字列が通る道</h1>
+  <svg class="fig" viewBox="0 0 800 260" role="img" aria-label="文字列のリテラルが表に入り、番号として比べられる流れ">
+    <rect class="svg-box" x="20" y="90" width="160" height="80" rx="10"/>
+    <text class="svg-text-b" x="100" y="125" text-anchor="middle">リテラル・連結</text>
+    <text class="svg-text" x="100" y="148" text-anchor="middle">エスケープを解く</text>
+    <line class="svg-line" x1="180" y1="130" x2="240" y2="130"/>
+    <rect class="svg-box-accent" x="240" y="90" width="170" height="80" rx="10"/>
+    <text class="svg-text-b" x="325" y="125" text-anchor="middle">F::strs</text>
+    <text class="svg-text" x="325" y="148" text-anchor="middle">同じ中身は同じ番号</text>
+    <line class="svg-line" x1="410" y1="130" x2="440" y2="130"/>
+    <line class="svg-line" x1="440" y1="60" x2="440" y2="200"/>
+    <line class="svg-line" x1="440" y1="60" x2="470" y2="60"/>
+    <line class="svg-line" x1="440" y1="130" x2="470" y2="130"/>
+    <line class="svg-line" x1="440" y1="200" x2="470" y2="200"/>
+    <rect class="svg-box" x="470" y="30" width="250" height="60" rx="10"/>
+    <text class="svg-text-b" x="595" y="55" text-anchor="middle">== / &lt;&gt;</text>
+    <text class="svg-text" x="595" y="76" text-anchor="middle">番号の比べ</text>
+    <rect class="svg-box" x="470" y="100" width="250" height="60" rx="10"/>
+    <text class="svg-text-b" x="595" y="125" text-anchor="middle">&lt; &lt;= &gt; &gt;=</text>
+    <text class="svg-text" x="595" y="146" text-anchor="middle">表を引いてバイト順</text>
+    <rect class="svg-box" x="470" y="170" width="250" height="60" rx="10"/>
+    <text class="svg-text-b" x="595" y="195" text-anchor="middle">算術・数との混ぜ</text>
+    <text class="svg-text" x="595" y="216" text-anchor="middle">分からない</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">決定と理由</span>
+  <h1>関数の評価器の 3 件</h1>
+  <table class="compact">
+    <tr><th>項目</th><th>直し</th></tr>
+    <tr><td><code>P5.Inner.f</code></td><td>名前が通った package の列（<code>P5</code>、<code>P5.Inner</code>）を、関数の外側のクラス（<code>Inner</code>、<code>PP</code>）と末尾から合わせ、<code>P5</code> が <code>PP</code> を受け継ぐので <code>heir = P5</code>（<code>reaching</code>）</td></tr>
+    <tr><td>兄弟の <code>redeclare</code></td><td><code>Ctx</code> に呼び出したインスタンスの系統（<code>inst</code>）を足し、<code>g</code> を宣言したクラスがそこに入るときだけ差し替えを引く。別のインスタンスの <code>g</code> は当てない</td></tr>
+    <tr><td><code>(…)</code> つき</td><td>修飾された名前は修飾の束縛、それに届く定数（<code>m = n + 1</code>）は「分からない」、届かない定数は今までどおり</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">再現手順</span>
+  <h1>検証</h1>
+  <pre><code>cargo test -p globe-mode-flat
+flock &lt;lock&gt; xtask-s377 diff-frontend --baseline-json frontend-diff-s376.json</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">0</span><span class="l">回帰（MSL 566 本・全体の検査）</span></div>
+    <div class="kpi"><span class="n">4</span><span class="l">追加した回帰試験（直す前は落ちる）</span></div>
+    <div class="kpi"><span class="n">4 / 4</span><span class="l">omc の <code>checkModel</code> と一致した再現</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>文字列の変数を持つ関数、実数の <code>String(x)</code> の書式</li>
+    <li><code>(…)</code> の修飾を当てた束縛の再評価（<code>m</code> を 6 に決める）</li>
+    <li><code>import</code> の別名を通した入れ子の package の関数</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
