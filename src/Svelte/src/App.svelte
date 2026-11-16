@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount, tick, untrack } from "svelte";
-  import { EditorState } from "@codemirror/state";
+  import { EditorState, type ChangeSet, type Text } from "@codemirror/state";
   import { EditorView, keymap, lineNumbers, drawSelection, highlightActiveLine } from "@codemirror/view";
-  import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
+  import { defaultKeymap, history, historyKeymap, isolateHistory } from "@codemirror/commands";
   import { bracketMatching } from "@codemirror/language";
   import { setDiagnostics } from "@codemirror/lint";
   import { closeCompletion, currentCompletions } from "@codemirror/autocomplete";
@@ -627,6 +627,9 @@
   let renaming = $state<{ line: number; character: number } | null>(null);
   let newName = $state("");
   let nameInput = $state<HTMLInputElement>();
+  // S375: 2 つ以上のファイルにまたがるリネームを 1 つの操作として戻す。各タブの「変更の逆」と「リネーム直後の本文」を持つ（本文がそのままのタブだけ戻す。あとで編集したタブは黙って上書きしない）。モデル名を追ったタブは from に戻す
+  type RenameUndo = { edits: { tab: Tab; undo: ChangeSet; after: Text }[]; model?: { tab: Tab; from: string; to: string } };
+  let renameUndo = $state.raw<RenameUndo | null>(null);
   async function askRename(line: number, character: number) {
     if (!own) { failure = RO_MSG; return; } // S196
     if (busy) return;
@@ -649,6 +652,7 @@
     renaming = null;
     if (!at || busy) return;
     failure = "";
+    renameUndo = null;
     try {
       const { changes } = await acrossTabs(() => backend.rename(file, at.line, at.character, newName));
       const spec = { changes: (changes[file] ?? []).map((e) => ({ from: offsetOf(e.range.start), to: offsetOf(e.range.end), insert: e.newText })) };
@@ -660,6 +664,9 @@
         const to = (await backend.models(file))[i];
         if (to && to !== m) effects = [modelRenamed.of({ from: m, to })];
       }
+      const undo: RenameUndo = { edits: [], model: effects[0] && { tab: tabs[cur], ...effects[0].value } };
+      const tr0 = view.state.update(spec);
+      if (!tr0.changes.empty) undo.edits.push({ tab: tabs[cur], undo: tr0.changes.invert(view.state.doc), after: tr0.state.doc });
       view.dispatch({ ...spec, effects });
       refs = [];
       let skipped = 0, edited = 0;
@@ -668,16 +675,46 @@
         const t = tabs.find((t, j) => j !== cur && t.own && t.file === key);
         if (!t) { skipped += es.length; continue; }
         const d = t.state.doc;
-        t.state = t.state.update({ changes: es.map((e) => ({ from: offsetOf(e.range.start, d), to: offsetOf(e.range.end, d), insert: e.newText })) }).state;
+        const tr = t.state.update({ changes: es.map((e) => ({ from: offsetOf(e.range.start, d), to: offsetOf(e.range.end, d), insert: e.newText })) });
+        undo.edits.push({ tab: t, undo: tr.changes.invert(d), after: tr.state.doc });
+        t.state = tr.state;
         t.diagnostics = []; // 位置が変わったので、次の検査まで持たない
         edited++;
       }
       if (edited) { tabs = [...tabs]; persist(); }
+      if (undo.edits.length > 1) renameUndo = undo; // 1 ファイルだけなら、そのタブの Ctrl+Z で足りる
       if (skipped) saved = `ライブラリのファイル（開いているタブか開いていないファイル）の ${skipped} 箇所は変えない`;
-      live = edited ? `ほかの ${edited} タブにも反映した` : "";
+      live = edited ? `ほかの ${edited} タブにも反映した。全部のタブを戻すには「元に戻す」ボタン（エディタから Esc のあと Tab）` : "";
     } catch (e) {
       failure = String((e as Error).message ?? e);
     }
+    view.focus();
+  }
+  // S375: リネームを全タブ分戻す。各タブには 1 つの変更として入れる（そのタブの履歴の 1 件。Ctrl+Z でやり直せる）。リネームのあとに編集された・閉じたタブは戻さず、理由を出す
+  function undoRenameAll() {
+    const r = renameUndo;
+    if (!r || busy) return; // 実行中は Workspace を触らない（S196）。ボタンも disabled
+    renameUndo = null;
+    let n = 0;
+    const skipped: string[] = [];
+    for (const { tab, undo, after } of r.edits) {
+      const i = tabs.indexOf(tab), here = i === cur, name = baseName(here ? file : tab.file);
+      if (i < 0) { skipped.push(`${name}（閉じた）`); continue; }
+      if (!(here ? view.state : tab.state).doc.eq(after)) { skipped.push(`${name}（リネームのあとに本文が変わった）`); continue; }
+      const spec = { changes: undo, annotations: isolateHistory.of("full") };
+      const m = r.model?.tab === tab ? r.model : undefined;
+      if (here) view.dispatch({ ...spec, effects: m ? [modelRenamed.of({ from: m.to, to: m.from })] : [] }); // S186: モデル名も戻る
+      else {
+        tab.state = tab.state.update(spec).state;
+        tab.diagnostics = [];
+        if (m && tab.model === m.to) tab.model = m.from;
+      }
+      n++;
+    }
+    tabs = [...tabs];
+    persist();
+    if (skipped.length) failure = `${skipped.join("、")} は戻さなかった（手で直すか、そのタブの Ctrl+Z）`;
+    live = n ? `リネームを ${n} ファイルで元に戻した` : "";
     view.focus();
   }
   // 図の編集（S250 部品の移動・S261 結線・S265 部品の追加・S281 削除）: Rust が返す TextEdit の配列をエディタに 1 回の dispatch（undo 1 回）で入れる。保存はしない。足せなければ false
@@ -1099,6 +1136,9 @@
   <p class="hint" id="editor-help">{EDITOR_HELP}</p>
   {#if saved}<p class="note" role="status" data-saved>{saved}</p>{/if}
   {#if lastFinal.length}<p class="final" data-final={JSON.stringify(Object.fromEntries(lastFinal))}>最後の時刻の値: {lastFinal.map(([k, v]) => `${k} = ${v.toPrecision(6)}`).join("、")}</p>{/if}
+  {#if renameUndo}
+    <p class="note" data-rename-undo><button type="button" onclick={undoRenameAll} disabled={busy}>元に戻す（{renameUndo.edits.length} ファイル）</button> リネームを開いている全部のタブで 1 つの操作として戻す。あとで編集したタブは戻さない。</p>
+  {/if}
   {#if renaming}
     <form class="rename" onsubmit={(e) => { e.preventDefault(); void rename(); }}>
       <label>新しい名前 <input bind:this={nameInput} bind:value={newName} onkeydown={(e) => { if (e.key === "Escape") { renaming = null; view.focus(); } }} /></label>

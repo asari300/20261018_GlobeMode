@@ -37,6 +37,7 @@ S196（レビューの指摘）: Desktop（偽の window.__TAURI__）で同じ�
 複数のソルバの結果（S348）: Decay を bdf・dopri45・rk4 で、比較 on・閾値 10^-6 で回し、実行の表 3 行・比較の表 2 行（基準 bdf）・合否・最大の相対差が出て、並列を頼むと 1 つずつに落ちた注記が出る。設定欄の名前が入力欄から泣き別れず、横にはみ出さない。環境変数 GM_UI_SHOT に PNG のパスを渡すと結果の画面を撮る。
 参照・リネーム（S368）: 開いているタブの全部に届く（A.mo の Base の Shift+F12 に B.mo の行が出て押すとそのタブへ、F2 で B.mo も変わり B.mo の Ctrl+Z で戻る）。
 参照・リネームの端（S372）: 同じ名前のクラスを定義する 2 タブは互いに触れない（A.mo の Base の一覧に B.mo の行が出ず、F2 で B.mo は変わらない）。構文の誤りで読めないタブに Base があると、F2 はそのタブの名前を挙げて断り、入力欄を出さない。
+リネームを戻す（S375）: 2 タブにまたがるリネームは「元に戻す（2 ファイル）」のボタン（Tab で届き Enter で押す）で両方のタブが元の本文に戻り、各タブの履歴に 1 件として残る。あとで編集したタブは戻さず、理由（そのタブの名前）を出す。
 配置のずれ（S363）: 検査の終わり（ソルバ・パラメータの一覧が wasm から後で届く）とタブの切り替え（モデルの候補）のあと、タブ列の上端が動かない（±1 px。1280・740・390 px 幅）。動くと押す直前に別の場所を押す。
 """
 
@@ -1716,6 +1717,78 @@ def cross_file_refs_edges(browser, origin: str, errors: list[str]) -> None:
     print("参照・リネームの端（S372）: 同名のクラスを定義する 2 タブは互いに触れず、構文の誤りで読めないタブに名前があるとリネームは理由つきで断る")
 
 
+def cross_file_rename_undo(browser, origin: str, errors: list[str]) -> None:
+    """S375: 2 つのタブにまたがるリネームは「元に戻す（2 ファイル）」ボタン（キーボードの Enter）で両方のタブが元の本文に戻り、各タブの履歴に 1 件として残る（A.mo の Ctrl+Z でリネームがやり直せる）。
+    リネームのあとに片方のタブを編集していたら、そのタブは戻さず理由（タブの名前）を出し、もう片方だけ戻る。"""
+    a = "model Base\n  Real x(start = 1, fixed = true);\nequation\n  der(x) = -x;\nend Base;\n"
+    b = "model B\n  extends Base;\n  Base c;\nend B;\n"
+    pg = browser.new_page()
+    pg.on("console", lambda m: m.type == "error" and errors.append(m.text))
+    pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.goto(origin)
+    pg.get_by_role("button", name="検査").wait_for()
+    for name, body in (("A.mo", a), ("B.mo", b)):
+        with pg.expect_file_chooser() as ch:
+            pg.get_by_role("button", name="開く").click(force=True)
+        ch.value.set_files(files=[{"name": name, "mimeType": "text/plain", "buffer": body.encode()}])
+        expect(pg.locator("[role=tab][aria-selected=true]")).to_contain_text(name, timeout=30_000)
+    tab = lambda name: pg.locator("[role=tab]", has_text=name)
+    content = pg.locator(".cm-content")
+    undo = pg.get_by_role("button", name="元に戻す（2 ファイル）")
+
+    def rename_base(to: str) -> None:
+        tab("A.mo").click()
+        content.focus()
+        pg.keyboard.press("Control+Home")
+        pg.keyboard.press("End")
+        pg.keyboard.press("F2")
+        name = pg.get_by_label("新しい名前")
+        name.fill(to)
+        name.press("Enter")
+        expect(content).to_contain_text(f"end {to};", timeout=30_000)
+        expect(undo).to_be_visible()
+
+    rename_base("Core")
+    expect(pg.get_by_label("モデル名")).to_have_value("Core")  # S186: モデル名もリネームに追う
+    for _ in range(40):  # エディタから Esc のあと Tab でボタンまで届く（S188）
+        if pg.evaluate("!!document.activeElement.closest('.cm-editor')"):
+            pg.keyboard.press("Escape")
+        pg.keyboard.press("Tab")
+        if pg.evaluate("!!document.activeElement.closest('[data-rename-undo]')"):
+            break
+    else:
+        raise AssertionError("Tab 40 回で「元に戻す」に届かない")
+    pg.keyboard.press("Enter")  # キーボードで押す
+    expect(content).to_contain_text("end Base;", timeout=30_000)
+    expect(pg.get_by_label("モデル名")).to_have_value("Base")  # モデル名も戻る
+    expect(undo).to_have_count(0)
+    assert pg.get_by_role("alert").count() == 0, pg.get_by_role("alert").all_inner_texts()
+    tab("B.mo").click()
+    expect(content).to_contain_text("extends Base;")
+    assert "Base c;" in content.inner_text() and "Core" not in content.inner_text(), content.inner_text()
+    tab("A.mo").click()
+    content.focus()
+    pg.keyboard.press("Control+z")  # 戻したことが A.mo の履歴の 1 件: もう一度押すとリネームがやり直される
+    expect(content).to_contain_text("end Core;")
+    # リネームのあとに B.mo を編集したら、B.mo は戻さず（理由に名前）、A.mo だけ戻る
+    pg.keyboard.press("Control+z")
+    expect(content).to_contain_text("end Base;")
+    rename_base("Kern")
+    tab("B.mo").click()
+    content.focus()
+    pg.keyboard.press("Control+End")
+    pg.keyboard.type("// memo\n")
+    undo.click()
+    alert = pg.get_by_role("alert")
+    expect(alert).to_contain_text("B.mo", timeout=30_000)
+    assert "戻さなかった" in alert.inner_text(), alert.inner_text()
+    assert "extends Kern;" in content.inner_text() and "// memo" in content.inner_text(), content.inner_text()  # 編集したタブはそのまま
+    tab("A.mo").click()
+    expect(content).to_contain_text("end Base;")  # もう片方は戻った
+    pg.close()
+    print("リネームを戻す（S375）: 2 タブにまたがるリネームは「元に戻す」（Enter）で両方のタブが元の本文に戻り履歴に 1 件として残り、あとで編集したタブは戻さず理由を出す")
+
+
 def main() -> int:
     # 色付けの予約語は Rust の KEYWORDS と同じ並び（S163。editor.ts の KEYWORDS は補完と色付けの共通の一覧）
     ts_kw = re.findall(r'"(\w+)"', re.search(r"export const KEYWORDS = \[(.*?)\];", (SRC / "Svelte/src/lib/editor.ts").read_text(), re.S).group(1))
@@ -2899,6 +2972,7 @@ def main() -> int:
         layout_shift(browser, origin, errors)  # S363
         cross_file_refs(browser, origin, errors)  # S368
         cross_file_refs_edges(browser, origin, errors)  # S372
+        cross_file_rename_undo(browser, origin, errors)  # S375
         results_followups(browser, origin, errors)  # S236
         print("エディタの Tab: 空白 2 つの字下げ（選択した 2 行も）と Shift+Tab、補完の一覧が開いていれば確定・閉じていれば字下げ、Esc のあと Tab・Shift+Tab と Ctrl+M で外へ、説明は aria-describedby と画面に")
         print("キーボードだけ: モデル名・エディタへ Tab、Ctrl+Shift+Enter で検査、診断と参照の行を Tab・Enter・Space でエディタへ、Ctrl+Enter で実行（プロットの aria-label に信号名と時間の範囲）、Ctrl+. で止め、Ctrl+S で保存")
