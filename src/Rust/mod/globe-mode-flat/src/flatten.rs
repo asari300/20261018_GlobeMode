@@ -159,7 +159,7 @@ fn inherit(f: Flags) -> Flags {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum Val {
     I(i64),
     R(f64),
@@ -287,10 +287,11 @@ struct F<'a> {
     card_ifs: Vec<CardIf>,
     /// `for` の方程式の反復の数（`MAX_ITERS` で断る。S365）
     iters: usize,
-    /// 関数の評価器（`fneval`。S370）: 今の呼び出しで数えた文と反復、呼び出しの入れ子の深さ、上限に届いた関数（繰り返さない）
+    /// 関数の評価器（`fneval`。S370・S374）: この flat で数えた仕事量（呼び出しごとに戻さない）、呼び出しの入れ子の深さ、
+    /// 成功した呼び出しの結果（関数・`heir`・スカラーの引数 → 値）
     fn_steps: std::cell::Cell<usize>,
     fn_depth: std::cell::Cell<u32>,
-    fn_blown: RefCell<HashSet<ClassId>>,
+    fn_memo: RefCell<HashMap<fneval::MemoKey, fneval::V>>,
     /// `cardinality(c)` の値（`connect` の端として出てきた数）。`card_ifs` を決めるときだけ `Some`
     card: Option<HashMap<String, i64>>,
     /// expandable connector の中を平らにしている入れ子の深さ（0 より大きいあいだに宣言した変数は `exp_vars` に入る。S367）
@@ -368,7 +369,7 @@ pub(crate) fn run(p: &Project, cid: ClassId, model: &str) -> Res<FlatModel> {
         iters: 0,
         fn_steps: std::cell::Cell::new(0),
         fn_depth: std::cell::Cell::new(0),
-        fn_blown: RefCell::default(),
+        fn_memo: RefCell::default(),
         card: None,
         exp_depth: 0,
         exp_vars: HashSet::new(),
@@ -2390,7 +2391,7 @@ impl F<'_> {
                                 .collect::<Option<_>>()?,
                             _ => (0..args.len()).map(v).collect::<Option<_>>()?,
                         };
-                        extremum(xs, is_max)
+                        extremum(&xs, is_max)
                     }
                     f if BUILTINS.contains(&f) => {
                         builtin(f, &(0..args.len()).map(v).collect::<Option<Vec<_>>>()?)
@@ -4338,6 +4339,16 @@ fn cx_bin(op: K, a: CxPart, b: CxPart) -> Option<CxPart> {
     (r.0.len() + r.1.as_ref().map_or(0, String::len) <= CX_MAX_LEN).then_some(r)
 }
 
+/// 大小。整数どうしは整数のまま（f64 を通すと 2^53 を超えて値が変わる。S374・#152）、ほかは f64。
+/// 決まらないのは NaN と文字列の大小（`Val::S` は hash なので、辞書順は分からない）
+fn ord(a: Val, b: Val) -> Option<std::cmp::Ordering> {
+    match (a, b) {
+        (Val::I(x), Val::I(y)) => Some(x.cmp(&y)),
+        (Val::S(_), _) | (_, Val::S(_)) => None,
+        _ => a.f().partial_cmp(&b.f()),
+    }
+}
+
 fn binop(op: K, a: Val, b: Val) -> Option<Val> {
     use Val::*;
     Some(match (op, a, b) {
@@ -4354,12 +4365,12 @@ fn binop(op: K, a: Val, b: Val) -> Option<Val> {
         (K::Ne, S(x), S(y)) => B(x != y),
         (K::EqEq, E(c, i), E(d, j)) => B(c == d && i == j),
         (K::Ne, E(c, i), E(d, j)) => B(c != d || i != j),
-        (K::Lt, _, _) => B(a.f() < b.f()),
-        (K::Le, _, _) => B(a.f() <= b.f()),
-        (K::Gt, _, _) => B(a.f() > b.f()),
-        (K::Ge, _, _) => B(a.f() >= b.f()),
-        (K::EqEq, _, _) => B(a.f() == b.f()),
-        (K::Ne, _, _) => B(a.f() != b.f()),
+        (K::Lt, _, _) => B(ord(a, b)?.is_lt()),
+        (K::Le, _, _) => B(ord(a, b)?.is_le()),
+        (K::Gt, _, _) => B(ord(a, b)?.is_gt()),
+        (K::Ge, _, _) => B(ord(a, b)?.is_ge()),
+        (K::EqEq, _, _) => B(ord(a, b)?.is_eq()),
+        (K::Ne, _, _) => B(ord(a, b)?.is_ne()),
         (K::KwAnd, B(x), B(y)) => B(x && y),
         (K::KwOr, B(x), B(y)) => B(x || y),
         _ => return None,
@@ -4693,5 +4704,76 @@ mod tests {
         let src = "model M Real x; equation for i in 1:4611686018427387904:9223372036854775807 loop x = 1; end for; end M;";
         let m = Project::from_sources([("t.mo", src)]).flatten("M").unwrap();
         assert_eq!(m.equation_count(), 2);
+    }
+
+    #[test]
+    fn function_work_is_budgeted_across_calls() {
+        // #148: 出力の束縛だけで再帰する関数は 1 度も tick されず、枝 4 本の `g(15)` は 4^15 回の呼び出しで終わらなかった。
+        // #150: 呼び出しの予算は 1 回の flat で共有し（呼び出しごとに戻さない）、同じ引数の結果は覚える
+        let kind = |src: &str| {
+            let r = Project::from_sources([("t.mo", src)]).flatten("M");
+            r.err().map(|e| e.kind)
+        };
+        let big = Some("non-constant-dim");
+        // 引数が毎回違う（覚えても減らない）4 本の枝
+        let g = "function g input Integer n; input Integer k; output Integer y = if n <= 0 then 1 else div(g(n - 1, 4*k + 1) + g(n - 1, 4*k + 2) + g(n - 1, 4*k + 3) + g(n - 1, 4*k + 4), 4); end g;";
+        assert_eq!(kind(&format!("{g} model M Real x[g(15, 0)]; end M;")), big);
+        // 同じ引数の枝は 1 度だけ評価する（16 回で済む）
+        let h = "function h input Integer n; output Integer y = if n <= 0 then 1 else div(h(n - 1) + h(n - 1) + h(n - 1) + h(n - 1), 4); end h;";
+        assert_eq!(kind(&format!("{h} model M Real x[h(15)]; end M;")), None);
+        // 1 回が 1000 反復（約 2100）の関数を、引数を変えて 20 回呼ぶと予算（試験では 1 万）を超える。4 回なら収まる
+        let w = "function w input Integer k; output Integer y; algorithm y := 0; for i in 1:1000 loop y := y + 1; end for; y := k; end w;";
+        let uses = |n: usize| {
+            let xs: String = (1..=n).map(|i| format!("Real x{i}[w({i})]; ")).collect();
+            format!("{w} model M {xs} end M;")
+        };
+        assert_eq!(kind(&uses(4)), None);
+        assert_eq!(kind(&uses(20)), big);
+        // 同じ `parameter` を 20 か所で使うのは 1 回の評価
+        let xs: String = (1..=20).map(|i| format!("Real a{i}[n]; ")).collect();
+        assert_eq!(
+            kind(&format!(
+                "{w} model M parameter Integer n = w(2); {xs} end M;"
+            )),
+            None
+        );
+        // 配列の走査（`max(a)`）は要素の数だけ数える（5000 要素を 100 回なめる）
+        let m = |body: &str| {
+            format!(
+                "function f input Integer n; output Integer y; protected Real a[5000]; algorithm y := n; {body} end f; model M Real x[f(1)]; end M;"
+            )
+        };
+        assert_eq!(
+            kind(&m(
+                "for i in 1:100 loop if max(a) > 5 then y := 2; end if; end for;"
+            )),
+            big
+        );
+        assert_eq!(
+            kind(&m(
+                "for i in 1:100 loop if a[1] > 5 then y := 2; end if; end for;"
+            )),
+            None
+        );
+    }
+
+    #[test]
+    fn function_for_range_count_does_not_overflow() {
+        // #151: 範囲の幅が `i64::MAX` になる `for` の反復の数 `span / |s| + 1` が溢れ、debug は panic・release は 0 回のループにしていた
+        for range in [
+            "0:9223372036854775807",
+            "-9223372036854775807 - 1:-1",
+            "0:-1:-9223372036854775807",
+        ] {
+            let src = format!(
+                "function f input Integer n; output Integer y; algorithm y := 0;
+                   for i in {range} loop y := y + 1; if y > 3 then break; end if; end for; end f;
+                 model M Real x[f(1) + 1]; end M;"
+            );
+            let e = Project::from_sources([("t.mo", src.as_str())])
+                .flatten("M")
+                .unwrap_err();
+            assert_eq!(e.kind, "non-constant-dim", "{range}");
+        }
     }
 }
