@@ -206,6 +206,7 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 - S176: `release.yml` に macOS（arm64）を足した（`globe` の tar.gz、wheel、Desktop の署名なしの .dmg。鍵があれば `latest.json` に `darwin-aarch64`）。
 - S195: `release.yml` のタグの経路を、タグを打たずに確かめられるようにした（手動実行の入力 `tag`。手動は Release を作らない）。版はファイルが決め、タグの版と違えば最初のジョブで止める（書き換えをやめた。pre-release のタグ `v0.2.0-rc1` の接尾辞は版に入らない）。鍵は bundle の step だけに渡し、softprops/action-gh-release をコミットで固定。手順は `doc/release.md`。
 - S380: 配布物のライセンス表を Desktop（`THIRD-PARTY-desktop.md`）・ブラウザ版の wasm（`THIRD-PARTY-wasm.md`）・UI の npm（`THIRD-PARTY-npm.md`。各パッケージの LICENSE の写しつき）に広げ、配布物ごとの CycloneDX 1.5 の SBOM（`sbom-*.cdx.json` 14 個）を足した。`release.yml` の artifact `third-party`・`sbom` と、タグの push では Release の資産（`SHA256SUMS` の対象）。`web.yml` の `globe-web/` にも wasm・npm の表と SBOM を入れる。許可外のライセンス（GPL・LGPL・AGPL・NC など）があれば失敗する。ツールは cargo-cyclonedx 0.5.9（Apache-2.0、`mise.toml` で固定）だけ。[licenses.md](doc/licenses.md) の 4・[release.md](doc/release.md) の 8。
+- S381: `release.yml` の dry run で 11-08 から落ちていた aarch64 Linux の wheel の pytest `test_export_fmu_p5b` を直した。aarch64 Linux の host は FMI 2.0 の P5b を作れず断る（規格の `binaries/` の名前に無い）ので、**断るのを正しい動きとして試験を host で分けた**（Rust は変えていない）。既知の限界に一行。
 
 - S254: **線形化の最小版**。`globe linearize -m <model> [--time T] [--param NAME=VALUE] [--json]` が、状態と入力（top-level の `input` の Real）を数値の中心差分でずらして状態空間の行列 A・B・C・D を出す（facade `Workspace::linearize`）。Rumoca に公開のヤコビ行列が無いので数値微分で、誤差は 1e-8 程度（[ADR-0038](doc/adr/0038-linearize-numeric.md)）。`GlobeModeValidation.Simulation.LinearSystem`・`Pendulum` で解析解と 1e-6 で一致。Python・UI・LSP は未。
 
