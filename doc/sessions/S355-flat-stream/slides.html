@@ -11,8 +11,8 @@
 <section class="slide" id="S01">
   <span class="tag">S355 · 2026-11-16 · Track B</span>
   <h1>flat の stream（inStream）</h1>
-  <p class="lead"><code>stream</code> で断っていた 21 本を、MLS 15 の定義どおりに平らにした</p>
-  <div class="big">断る理由 <b>stream 21 → 0</b>、平らにできた <b>518 → 538</b>、回帰 0</div>
+  <p class="lead"><code>stream</code> で断っていた 21 本を、MLS 15 の定義どおりに平坦化した</p>
+  <div class="big">断る理由 <b>stream 21 → 0</b>、平坦化できた <b>518 → 538</b>、回帰 0</div>
 </section>
 
 <section class="slide" id="S02">
@@ -21,7 +21,7 @@
   <ul>
     <li><code>connect</code> の集合を作るとき、<code>stream</code> の葉は等式にせず「集合」として残す</li>
     <li>外側のコネクタの端には <code>x = 集合の混合</code> を 1 本（内側の端・つながない端には作らない）</li>
-    <li>平らにし終わってから、式の中の <code>inStream(x)</code>・<code>actualStream(x)</code> を混合の式に置き換える</li>
+    <li>平坦化し終わってから、式の中の <code>inStream(x)</code>・<code>actualStream(x)</code> を混合の式に置き換える</li>
     <li>端 1 つなら相手の値、2 つ以上なら <code>max(∓m_flow, ε)</code> の重みの平均、つながないなら自分</li>
   </ul>
 </section>
@@ -40,7 +40,7 @@
   <span class="tag">数字</span>
   <h1>MSL の例題 566 本（S335 → S355）</h1>
   <div class="kpis">
-    <div class="kpi"><span class="n">538 / 566</span><span class="l">自前で平らにできた（前 518）</span></div>
+    <div class="kpi"><span class="n">538 / 566</span><span class="l">自前で平坦化できた（前 518）</span></div>
     <div class="kpi"><span class="n">0</span><span class="l">stream（前 21）</span></div>
     <div class="kpi"><span class="n">0</span><span class="l">回帰（改善 21）</span></div>
   </div>

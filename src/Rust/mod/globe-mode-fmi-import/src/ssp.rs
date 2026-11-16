@@ -298,7 +298,7 @@ pub fn write_ssp_with(spec: &CosimSpec, out: &Path, ssv: bool) -> Result<()> {
     let err = |m: String| Error::Ssp(m);
     let mut descs = BTreeMap::new();
     for (name, path) in &spec.fmus {
-        // `.` を含む名前（入れ子を平らにしたもの）は平らな Component の名前のまま書く（S315）。SSD の `name` は
+        // `.` を含む名前（入れ子を平坦化したもの）はフラットな Component の名前のまま書く（S315）。SSD の `name` は
         // `xs:string`（minLength 1 だけ）で `.` を禁じていない。読み取りは名前を 1 つの文字列として扱う
         if !valid_fmu_path(name) || name.len() > MAX_NAME {
             return Err(err(format!(
@@ -595,7 +595,7 @@ mod tests {
         assert!(z.by_name("resources/b.ssv").is_err());
     }
 
-    /// S315: 名前に `.` を含む FMU（入れ子を平らにしたもの）は平らな Component のまま書いて読み戻せ、
+    /// S315: 名前に `.` を含む FMU（入れ子を平坦化したもの）はフラットな Component のまま書いて読み戻せ、
     /// `export_spec` で FMU を外に出した spec は（パス以外）元と同じ。
     #[test]
     fn dotted_names_stay_flat_and_export_spec_round_trips() {

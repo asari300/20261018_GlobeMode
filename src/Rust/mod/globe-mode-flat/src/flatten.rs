@@ -1,4 +1,4 @@
-//! 平らにする本体。クラスをインスタンス化し（`extends` を取り込み、修飾を外側から当てる）、変数と方程式を集める。
+//! 平坦化する本体。クラスをインスタンス化し（`extends` を取り込み、修飾を外側から当てる）、変数と方程式を集める。
 
 use crate::{Causality, Equation, FlatModel, Origin, Project, Res, Var, VarKind, un};
 use crate::{Snip, SnipItem};
@@ -449,7 +449,7 @@ struct F<'a> {
     whens: Vec<Equation>,
     ieqs: Vec<Equation>,
     algs: Vec<String>,
-    /// 今平らにしている方程式の位置（`push` が付ける）
+    /// 今平坦化している方程式の位置（`push` が付ける）
     cur: Option<Origin>,
     env: HashMap<String, Bind>,
     /// `inner` で宣言した部品の完全な名前
@@ -460,7 +460,7 @@ struct F<'a> {
     bridge: HashMap<String, String>,
     /// 条件が偽で落とした部品の完全な名前（これにつながる `connect` も落とす）
     removed: Vec<String>,
-    /// まだ平らにしていない宣言（`size(x, 1)` が後ろで宣言した配列の大きさを引くため）
+    /// まだ平坦化していない宣言（`size(x, 1)` が後ろで宣言した配列の大きさを引くため）
     pending: HashMap<String, Pending>,
     depth: std::cell::Cell<u32>,
     /// `inst_class` の入れ子の深さ（自分を部品に持つモデルでスタックを溢れさせないための上限。S320・#111）
@@ -497,7 +497,7 @@ struct F<'a> {
     strs: Strs,
     /// `cardinality(c)` の値（`connect` の端として出てきた数）。`card_ifs` を決めるときだけ `Some`
     card: Option<HashMap<String, i64>>,
-    /// expandable connector の中を平らにしている入れ子の深さ（0 より大きいあいだに宣言した変数は `exp_vars` に入る。S367）
+    /// expandable connector の中を平坦化している入れ子の深さ（0 より大きいあいだに宣言した変数は `exp_vars` に入る。S367）
     exp_depth: u32,
     /// expandable connector の宣言済みの欄（束縛が無いもの）の変数の番号
     exp_vars: HashSet<usize>,
@@ -582,7 +582,7 @@ pub(crate) fn run(p: &Project, cid: ClassId, model: &str) -> Res<FlatModel> {
         exp_sets: Vec::new(),
         pot_sets: Vec::new(),
     };
-    // パッケージの中のモデルを直接平らにするときは、そのパッケージが差し替え後のパッケージ（`TwoPhaseWater.BaseProperties`）
+    // パッケージの中のモデルを直接平坦化するときは、そのパッケージが差し替え後のパッケージ（`TwoPhaseWater.BaseProperties`）
     let heir = p.lib.classes[cid]
         .parent
         .filter(|q| p.kind_of(*q) == Some(K::KwPackage));
@@ -1966,7 +1966,7 @@ impl F<'_> {
         Ok(out)
     }
 
-    /// `redeclare …` を `(名前, Mod)` にする。関数の差し替えは `None`（関数は平らにしない）。
+    /// `redeclare …` を `(名前, Mod)` にする。関数の差し替えは `None`（関数は平坦化しない）。
     /// 型の名前はここ（書いた場所）で解決する
     fn redeclaration(
         &self,
@@ -2004,7 +2004,7 @@ impl F<'_> {
                 let (Some(name), Some(sb)) = (cd.name(), cd.short_body()) else {
                     return un("redeclare", red.text().to_string());
                 };
-                // 関数は平らにしない（差し替え先は呼び出しの評価器だけが引く。S376・#155）。引けない・修飾つきのものは今までどおり捨てる
+                // 関数は平坦化しない（差し替え先は呼び出しの評価器だけが引く。S376・#155）。引けない・修飾つきのものは今までどおり捨てる
                 let is_fn = matches!(cd.kind_token().map(|t| t.kind()), Some(K::KwFunction));
                 let Some(base) = sb.base() else {
                     return un("redeclare", red.text().to_string());
@@ -2673,7 +2673,7 @@ impl F<'_> {
                                 None => key,
                             };
                             let Some(b) = self.env.get(&key) else {
-                                // まだ平らにしていない部品（宣言が後ろの `inner world`）の欄は、修飾か型の既定値から
+                                // まだ平坦化していない部品（宣言が後ろの `inner world`）の欄は、修飾か型の既定値から
                                 let tgt = key.strip_suffix(&format!(".{}", parts.last()?))?;
                                 // 欄の既定値が同じ部品の別の欄（`massDynamics = energyDynamics`）を引くときは、前置きが部品（`parts` は欄だけ。S355）
                                 return (parts.len() <= 2 && sub.is_none())
@@ -2852,7 +2852,7 @@ impl F<'_> {
         }
     }
 
-    /// 変数の大きさ。まだ平らにしていなければ、宣言から出す（循環は深さで止める）
+    /// 変数の大きさ。まだ平坦化していなければ、宣言から出す（循環は深さで止める）
     fn var_dims(&self, name: &str) -> Option<Vec<usize>> {
         if let Some(&i) = self.var_idx.get(name) {
             return Some(self.vars[i].dims.clone());
@@ -2876,7 +2876,7 @@ impl F<'_> {
         r.ok()
     }
 
-    /// まだ平らにしていない部品 `tgt` の欄 `field` の束縛。宣言した場所の修飾が先、無ければ型の既定値（S329）
+    /// まだ平坦化していない部品 `tgt` の欄 `field` の束縛。宣言した場所の修飾が先、無ければ型の既定値（S329）
     fn pending_bind(&self, tgt: &str, field: &str) -> Option<Bind> {
         let p = self.pending.get(tgt)?;
         if let Some(b) = p.m.sub.get(field).and_then(|x| x.val.as_ref()) {
@@ -2905,8 +2905,8 @@ impl F<'_> {
         (!mentions(&b.node, &modified)).then_some(b)
     }
 
-    /// 部品 `tgt` の宣言があって、まだ中身を平らにしていない（配列でなく、`tgt.…` の変数が無い）。
-    /// `pending` は平らにした後も残るので、変数の有無でも見る（部品の配列の欄 `pin.i` は要素の数をかけるので対象外）
+    /// 部品 `tgt` の宣言があって、まだ中身を平坦化していない（配列でなく、`tgt.…` の変数が無い）。
+    /// `pending` は平坦化した後も残るので、変数の有無でも見る（部品の配列の欄 `pin.i` は要素の数をかけるので対象外）
     fn not_instantiated(&self, tgt: &str) -> bool {
         let Some(p) = self.pending.get(tgt) else {
             return false;
@@ -2922,7 +2922,7 @@ impl F<'_> {
                 .is_some_and(|(k, _)| k.starts_with(&pre)))
     }
 
-    /// まだ平らにしていない部品 `tgt` の型（部品をもつクラス）
+    /// まだ平坦化していない部品 `tgt` の型（部品をもつクラス）
     fn pending_type(&self, tgt: &str) -> Option<ClassId> {
         let p = self.pending.get(tgt)?;
         let tn = p.cc.type_name()?;
@@ -2984,7 +2984,7 @@ impl F<'_> {
         })
     }
 
-    /// まだ平らにしていない部品 `tgt` の欄 `field` の値（S329）。
+    /// まだ平坦化していない部品 `tgt` の欄 `field` の値（S329）。
     /// shortcut: 既定値が他の欄を参照していれば評価しない（`pkg_env` の文脈は部品の欄を知らない）
     fn pending_field(&self, tgt: &str, field: &str, d: u32) -> Option<Val> {
         let b = self.pending_bind(tgt, field)?;
@@ -2995,7 +2995,7 @@ impl F<'_> {
     }
 
     /// レコードの束縛 `r = other` を欄に分けたもの（`suffix` が `.f`）の、`other.f` 自身の束縛。
-    /// `other` が平らになっていれば環境から、宣言が後ろでまだなら `pending_bind`（`.f` が 1 段のとき）
+    /// `other` が平坦化されていれば環境から、宣言が後ろでまだなら `pending_bind`（`.f` が 1 段のとき）
     fn field_bind(&self, b: &Bind) -> Option<Bind> {
         let Some(Expr::ComponentRef(r)) = Expr::cast(b.node.clone()) else {
             return None;
@@ -3382,7 +3382,7 @@ impl F<'_> {
 
     /// 束縛の配列の形。レコードの束縛 `r = other` を欄に分けたもの（`suffix` が `.f`）は `other.f` の大きさ
     fn bind_dims(&self, b: &Bind) -> Option<Vec<usize>> {
-        // `cellData[1,1].OCV_SOC`（レコードの配列の要素の欄。S367）も、平らにした変数の大きさを引く
+        // `cellData[1,1].OCV_SOC`（レコードの配列の要素の欄。S367）も、平坦化した変数の大きさを引く
         if b.suffix.starts_with('.') || (b.suffix.starts_with('[') && b.suffix.contains("].")) {
             if let Some(Expr::ComponentRef(r)) = Expr::cast(b.node.clone())
                 && let Ok(t) = self.cref(&r, b.file, &b.ctx)
@@ -3670,7 +3670,7 @@ impl F<'_> {
                 self.for_eq(node, &fis, file, ctx, initial, lv)
             }
             Some(K::KwIf) if self.const_branch(node, file, ctx).is_some() => {
-                // 条件がすべて定数に評価できる `if` は選んだ枝だけを平らにする（`connect` も入る）
+                // 条件がすべて定数に評価できる `if` は選んだ枝だけを平坦化する（`connect` も入る）
                 for e in self.const_branch(node, file, ctx).unwrap_or_default() {
                     self.equation(&e, file, ctx, initial, lv)?;
                 }
@@ -3806,7 +3806,7 @@ impl F<'_> {
         Some(Vec::new())
     }
 
-    /// 条件に `[not] Connections.isRoot(N)`・`rooted(N)` を含む `if` の方程式は、枝ごとに平らにして `oc_ifs` に置く。
+    /// 条件に `[not] Connections.isRoot(N)`・`rooted(N)` を含む `if` の方程式は、枝ごとに平坦化して `oc_ifs` に置く。
     /// 根の決定（`graph.rs`）のあとで、真になる最初の枝だけを残す（S333）。条件が定数の枝は先に決める。
     /// 置けない形（ほかの条件が混ざる・`connect` を含む）なら false を返して今までの道に任せる
     fn defer_root_if(
@@ -3905,7 +3905,7 @@ impl F<'_> {
         }
     }
 
-    /// 条件に `cardinality(c)` を含む `if` の方程式は、枝ごとに平らにして 1 行の目印を置く。全部の `connect` がそろったあと
+    /// 条件に `cardinality(c)` を含む `if` の方程式は、枝ごとに平坦化して 1 行の目印を置く。全部の `connect` がそろったあと
     /// （`resolve_card_ifs`）で、条件が真になる最初の枝だけを残す。置けない形（`connect` を含む・入れ子）なら false を返して今までの道に任せる
     fn defer_card_if(
         &mut self,
@@ -5884,7 +5884,7 @@ mod tests {
     #[test]
     fn parenthesized_redeclare_still_decides_shapes_that_do_not_read_the_modification() {
         // S378: `(…)` の修飾に届くかの判定（`reaches_mod`）は、組み込み（`fill`・`String`）の呼び出しと `size(X, k)`（`X` の束縛が配列リテラルなら形だけ）では届かないとする。
-        // 以前はこれらで「分からない」になり、`redeclare package Medium = M(T_nominal = …)` の `Medium.nX`・`Medium.nC` が決まらず、公開ライブラリの例題が平らにできなかった
+        // 以前はこれらで「分からない」になり、`redeclare package Medium = M(T_nominal = …)` の `Medium.nX`・`Medium.nC` が決まらず、公開ライブラリの例題が平坦化できなかった
         let pk = "package PP
               constant Integer k = 1;
               constant String nm = \"a\" + String(k);

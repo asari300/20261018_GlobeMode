@@ -18,7 +18,7 @@
 - 数え方は xtask の 1 か所に一本化し、`globe-mode-flat`・`globe-mode-dae` の `tests/compare.rs`（`#[ignore]`、`one`・`show_model` などのデバッグ用も含む）と `globe-mode-frontend` の dev 依存を消した。`test_ci_plan.py` の期待値から flat・dae（frontend の dev 依存元だったため）を外した。
 - 旗 12 個（parse・resolve・flat・rumoca_flat・flat_names・flat_eqs・dae・rumoca_balance・balance・counts・states・regular）。前回の JSON で通っていた旗が通らなくなったら回帰、終了コード 1。
 - resolve は初版（例題のクラスの中だけ）で 566/566 になり判定にならなかったため、`extends`・部品の型をたどった到達先まで数えるようにした（467/566、未解決は全部 `Redeclare`）。
-- Rumoca は自前で平らにできたものにだけ呼ぶ（Rumoca 側の全体の本数は `msl-funnel` の報告）。
+- Rumoca は自前で平坦化できたものにだけ呼ぶ（Rumoca 側の全体の本数は `msl-funnel` の報告）。
 - mise のタスク `msl:diff-frontend` を足した。CI には入れない。
 
 ## やったこと

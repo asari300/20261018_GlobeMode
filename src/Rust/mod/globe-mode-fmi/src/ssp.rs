@@ -1,7 +1,7 @@
 //! SSP 2.0.1 の `SystemStructure.ssd` を読む（S253、ADR-0026 の (r)）。XML だけ（zip・FMU には触れない）。
 //!
 //! 読むのは最小の部分集合: `System`（入れ子も。S295）の `Elements/Component`（FMU）、`Connections/Connection`、`DefaultExperiment`。
-//! 入れ子の System の Component は `外側.内側` の名前に平らにし、System 自身のコネクタは（System の階層名, コネクタ）の節点にする。
+//! 入れ子の System の Component は `外側.内側` の名前に平坦化し、System 自身のコネクタは（System の階層名, コネクタ）の節点にする。
 //! `Component`・`System` の `ParameterBindings`（`.ssv` の参照かインラインの `ParameterSet`。S263・S295）は Real・Integer・Boolean の値を読む。
 //! 範囲外のものは**黙って無視せず**明確な誤りにする（最上位のシステム自身のコネクタへの接続・`ParameterMapping`・
 //! `SignalDictionary`・`LinearTransformation`・FMU でない `Component`・Real・Integer・Boolean 以外のコネクタ・単位の食い違い・
@@ -38,7 +38,7 @@ pub struct SspConnection {
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Ssd {
-    /// 入れ子の System の下のものも平らにして `外側.内側` の名前にする（S295）
+    /// 入れ子の System の下のものも平坦化して `外側.内側` の名前にする（S295）
     pub components: Vec<SspComponent>,
     /// 端の要素は階層名。入れ子の System 自身のコネクタは要素が System の階層名（ [`Ssd::systems`] にある）
     pub connections: Vec<SspConnection>,
@@ -183,7 +183,7 @@ fn join(path: &str, name: &str) -> String {
     }
 }
 
-/// `System` を下りながら、Component を平らな名前で集める（S295）。
+/// `System` を下りながら、Component をフラットな名前で集める（S295）。
 #[derive(Default)]
 struct Walk {
     ssd: Ssd,
@@ -469,7 +469,7 @@ mod tests {
         assert!(parse_ssd(&sys).unwrap_err().contains("システム自身"));
     }
 
-    /// S295: 入れ子の System は平らな名前になり、System 自身のコネクタは外と内で同じ節点になる。
+    /// S295: 入れ子の System はフラットな名前になり、System 自身のコネクタは外と内で同じ節点になる。
     #[test]
     fn flattens_nested_systems() {
         let ssd = r#"<ssd:SystemStructureDescription xmlns:ssd="x" xmlns:ssc="y" name="s" version="2.0">

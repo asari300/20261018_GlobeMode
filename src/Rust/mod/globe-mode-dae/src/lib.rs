@@ -1,4 +1,4 @@
-//! Track B の B4 の最初の一切れ（S290）: 平らにしたモデル（`globe-mode-flat`）から DAE の構造
+//! Track B の B4 の最初の一切れ（S290）: 平坦化したモデル（`globe-mode-flat`）から DAE の構造
 //! （`globe-mode-ir` の [`DaeStructure`]）と釣り合いの数を作る。
 //!
 //! - 変数を、状態（`der(x)` が現れる連続変数）・代数・離散（`discrete`・Integer/Boolean/列挙・`when` で代入する Real）・
@@ -12,7 +12,7 @@
 //! shortcut（広めの incidence。釣り合いの数は変わらず、構造の正則は甘く出る方に傾く）:
 //! - `if`・`when`・`algorithm` は 1 本のまとまりとして、枝の中の未知数の和集合を行の incidence にする。
 //! - 配列は、添字が定数ならその要素、添字なしで大きさが行の数と同じなら行 k に要素 k、それ以外は全要素。
-//! - 非線形の判定はしない（`nonlinear` は空）。位置は平らなモデルの由来（`Origin`、S311）をそのまま付ける（`algorithm` の行は付けない）。
+//! - 非線形の判定はしない（`nonlinear` は空）。位置はフラットなモデルの由来（`Origin`、S311）をそのまま付ける（`algorithm` の行は付けない）。
 //!
 //! 既存のフロントエンド（Rumoca）・LSP にはつながない（doc/adr/0039-native-cst-parser.md の付記）。
 
@@ -107,7 +107,7 @@ impl<'a> Ctx<'a> {
     }
 
     /// 方程式の左辺がレコードの部品（変数ではなく、`a.re`・`a.im` の持ち主）なら、その欄の変数（`BTreeMap` の順）。
-    /// 平らにした方程式は 1 本と数えるが、DAE では欄ごとの方程式になる（Rumoca の record equation。`y = Complex(a, b)` は 2 本）
+    /// 平坦化した方程式は 1 本と数えるが、DAE では欄ごとの方程式になる（Rumoca の record equation。`y = Complex(a, b)` は 2 本）
     /// 要素ごとに展開されたレコードの配列（`Complex aw[3]` の `aw = {…}`。flat の数は要素の数 3）は、全要素の欄を数える（S351）。
     /// 範囲 `t[2 : n + 1]` は、`count` 個の要素の欄を数える（S362）。
     /// 欄の変数の数は Rumoca の数え方と同じ（要素 × 欄のスカラー）
@@ -651,7 +651,7 @@ fn label(text: &str) -> String {
     text.chars().take(60).collect()
 }
 
-/// 平らなモデルから DAE の構造を作る
+/// フラットなモデルから DAE の構造を作る
 pub fn build(m: &FlatModel) -> Result<Dae, Unsupported> {
     let file = |o: &Origin| o.file.to_string();
     let span = |o: &Origin| TextRange::new(o.start, o.end);
@@ -1103,7 +1103,7 @@ mod tests {
 
     #[test]
     fn record_equation_counts_per_field() {
-        // `y = C(a, b)` は欄ごとの 2 本（flat は 1 本）。平らにした方程式の数は 1
+        // `y = C(a, b)` は欄ごとの 2 本（flat は 1 本）。平坦化した方程式の数は 1
         let src = "record C Real re; Real im; end C;
             model M C y; Real a = time; Real b = 2 * time; equation y = C(a, b); end M;";
         let m = Project::from_sources([("t.mo", src)]).flatten("M").unwrap();

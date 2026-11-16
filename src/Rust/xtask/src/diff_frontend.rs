@@ -7,7 +7,7 @@
 //!   `msl-funnel` と同じ選び方（[`crate::funnel::library_examples`]）で突き合わせる。MSL は一緒に読み、
 //!   MSL の例題と `GlobeModeValidation` は検査しない。
 //! - 段ごとの検査は「はい / いいえ」の旗（[`Row::flags`]）にして、前回の JSON との差（回帰・改善）はその旗の変化で出す。
-//! - Rumoca は自前で平らにできたものだけに呼ぶ（呼べば flat・釣り合い・構造まで取れる）。
+//! - Rumoca は自前で平坦化できたものだけに呼ぶ（呼べば flat・釣り合い・構造まで取れる）。
 //!   S278・S284・S290 の各 crate の `tests/compare.rs`（`#[ignore]`）の数え方をここに一本化した。
 
 use std::collections::BTreeMap;
@@ -64,7 +64,7 @@ const FLAGS: [(&str, &str, &str); 12] = [
         "resolve",
         "未解決の参照が 0（`extends`・部品の型をたどって）",
     ),
-    ("flat", "flat", "自前で平らにできた"),
+    ("flat", "flat", "自前で平坦化できた"),
     (
         "flat",
         "rumoca_flat",
@@ -761,7 +761,7 @@ fn render_report(rows: &[Row], info: &Info<'_>, delta: Option<&Delta>) -> String
     }
     let _ = writeln!(
         md,
-        "\n自前の parse・resolve・flat・dae を、Rumoca は自前で平らにできたものにだけ呼んで比べる（母数はその本数）。"
+        "\n自前の parse・resolve・flat・dae を、Rumoca は自前で平坦化できたものにだけ呼んで比べる（母数はその本数）。"
     );
     let _ = writeln!(
         md,

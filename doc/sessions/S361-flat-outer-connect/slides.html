@@ -11,8 +11,8 @@
 <section class="slide" id="S01">
   <span class="tag">S361 · 2026-11-16 · Track B</span>
   <h1>外側の <code>inner</code> への <code>connect</code></h1>
-  <p class="lead"><code>StateGraph</code> の <code>stateGraphRoot</code> など、断っていた <code>connect</code> 10 本を平らにした</p>
-  <div class="big">断る理由 <b>connect 10 → 0</b>、平らにできた <b>538 → 548</b>、回帰 0</div>
+  <p class="lead"><code>StateGraph</code> の <code>stateGraphRoot</code> など、断っていた <code>connect</code> 10 本を平坦化した</p>
+  <div class="big">断る理由 <b>connect 10 → 0</b>、平坦化できた <b>538 → 548</b>、回帰 0</div>
 </section>
 
 <section class="slide" id="S02">
@@ -43,7 +43,7 @@
   <span class="tag">数字</span>
   <h1>MSL の例題 566 本（S355 → S361）</h1>
   <div class="kpis">
-    <div class="kpi"><span class="n">548 / 566</span><span class="l">自前で平らにできた（前 538）</span></div>
+    <div class="kpi"><span class="n">548 / 566</span><span class="l">自前で平坦化できた（前 538）</span></div>
     <div class="kpi"><span class="n">0</span><span class="l">connect（前 10）</span></div>
     <div class="kpi"><span class="n">0</span><span class="l">回帰（改善 14）</span></div>
   </div>

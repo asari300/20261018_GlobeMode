@@ -17,7 +17,7 @@ S297（`feature/s297-flat-redeclare`）で平坦化が MSL 279 本に広がっ�
 
 - 調べ方は xtask に足す（`diff-frontend --class <名前,…> [--dump]`、`FlatSummary::equation_origins`〔JSON には出さない〕）。モデル全体では部品ごとの数が自前側に無い（`Equation` に由来が無い）ので、部品を単独で検査して Rumoca と比べ、小さいモデルへ絞る。
 - 接続集合は葉の変数の単位にする（Rumoca の flat と同じ）。`protected` のコネクタの flow = 0 は、丸ごと `connect` の端か、どこにもつながっていない葉だけ。
-- 過剰決定コネクタは平らにし終えたあとの後処理（`flatten/graph.rs`）。全域森の選び方（辺の順）は Rumoca と同じにしない。接続集合ごとの等式の数の合計は選び方によらないので、数は合う。切れた辺の `equalityConstraint` は戻り値の大きさ 0 と見て等式を作らない（shortcut。MultiBody の `Orientation` は未対応）。
+- 過剰決定コネクタは平坦化し終えたあとの後処理（`flatten/graph.rs`）。全域森の選び方（辺の順）は Rumoca と同じにしない。接続集合ごとの等式の数の合計は選び方によらないので、数は合う。切れた辺の `equalityConstraint` は戻り値の大きさ 0 と見て等式を作らない（shortcut。MultiBody の `Orientation` は未対応）。
 - S297 の見立て（Complex のレコード）は外れ。`Connections.isRoot` と `protected` は当たり。
 - Clocked の正則（16 本）と `WaterIF97` の正則（1 本）は、クロックの分割を持たないので直さず、既知の差にする。原因は未確認。
 
@@ -38,4 +38,4 @@ S297（`feature/s297-flat-redeclare`）で平坦化が MSL 279 本に広がっ�
 ## 残したこと
 
 - 構造の正則の差 17 本（Clocked 16 本・`Modelica.Media.Examples.WaterIF97`）。
-- 平らにできない 287 本。
+- 平坦化できない 287 本。

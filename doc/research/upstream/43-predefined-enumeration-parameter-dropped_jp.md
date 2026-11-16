@@ -8,7 +8,7 @@
 
 ## 概要
 
-`A`・`B` の flat のモデル（`--emit flat-json`、`variables` のキー）は `x` だけ。`C` は `level` と `x`。方程式の中で消えた parameter を読む式は値に置き換わる（`x = if level == AssertionLevel.warning then time else 0` は `(AssertionLevel.warning == AssertionLevel.warning)` になる）ので、モデルはコンパイルできる。失われるのは変数そのもの: 平らにした後で外から修飾できず、parameter の一覧に出ず、変数の名前の集合がほかの道具と食い違う。
+`A`・`B` の flat のモデル（`--emit flat-json`、`variables` のキー）は `x` だけ。`C` は `level` と `x`。方程式の中で消えた parameter を読む式は値に置き換わる（`x = if level == AssertionLevel.warning then time else 0` は `(AssertionLevel.warning == AssertionLevel.warning)` になる）ので、モデルはコンパイルできる。失われるのは変数そのもの: 平坦化した後で外から修飾できず、parameter の一覧に出ず、変数の名前の集合がほかの道具と食い違う。
 
 ## 再現手順
 
@@ -45,5 +45,5 @@ omc 1.27.2 の `instantiateModel(Rep43.A)` は `parameter enumeration(warning, e
 
 ## 補足
 
-- ThermofluidStream 1.4.1（コミット `a2faa411`）で見つけた。`ThermofluidStream.DropOfCommons` が `parameter AssertionLevel assertionLevel = AssertionLevel.error;` を宣言する。`inner DropOfCommons dropOfCommons` を持つ `ThermofluidStream.Idealized.Examples.TUMExercisesThermodynamicCycles.Exercise3OttoEngine.BaseModel` と `Exercise4DieselEngine.BaseModel` は、自前の flat に変数 `dropOfCommons.assertionLevel` があり、Rumoca の flat に無い（変数は 22 対 21 と 19 対 18。方程式は 0 と 0）。このライブラリで Rumoca が平らにできた例題 25 本のうちの 2 本（S373 が S369 の `libraries.yml` の run を見直した）。
+- ThermofluidStream 1.4.1（コミット `a2faa411`）で見つけた。`ThermofluidStream.DropOfCommons` が `parameter AssertionLevel assertionLevel = AssertionLevel.error;` を宣言する。`inner DropOfCommons dropOfCommons` を持つ `ThermofluidStream.Idealized.Examples.TUMExercisesThermodynamicCycles.Exercise3OttoEngine.BaseModel` と `Exercise4DieselEngine.BaseModel` は、自前の flat に変数 `dropOfCommons.assertionLevel` があり、Rumoca の flat に無い（変数は 22 対 21 と 19 対 18。方程式は 0 と 0）。このライブラリで Rumoca が平坦化できた例題 25 本のうちの 2 本（S373 が S369 の `libraries.yml` の run を見直した）。
 - 出典: GlobeMode の S373（S369 の `libraries.yml` の突き合わせから）。

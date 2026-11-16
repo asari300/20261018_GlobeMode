@@ -2,7 +2,7 @@
 
 対象: Rumoca（<https://github.com/CogniPilot/rumoca>）。英語の本文は [40-redeclare-class-modification-dropped.md](40-redeclare-class-modification-dropped.md)、再現は [.mo](40-redeclare-class-modification-dropped.mo)。
 
-判定（GlobeMode、S362）: **バグ**。`Holder h(redeclare model M = Impl(show = true))` の短いクラス定義 `M = Impl(show = true)` は、`M` が指す `Impl` を修飾する（MLS 3.7 の 7.2: 修飾は短いクラス定義にも書け、例は `redeclare type Voltage = Real(unit = "V")`。7.3: `redeclare` はクラスを差し替える）。Rumoca は `h.m.show` を `Impl` の既定の `false` で平らにするので、`if show` で宣言した成分ができない。omc 1.27.2 と、同じ修飾を成分に書いた形は `show = true` になる。
+判定（GlobeMode、S362）: **バグ**。`Holder h(redeclare model M = Impl(show = true))` の短いクラス定義 `M = Impl(show = true)` は、`M` が指す `Impl` を修飾する（MLS 3.7 の 7.2: 修飾は短いクラス定義にも書け、例は `redeclare type Voltage = Real(unit = "V")`。7.3: `redeclare` はクラスを差し替える）。Rumoca は `h.m.show` を `Impl` の既定の `false` で平坦化するので、`if show` で宣言した成分ができない。omc 1.27.2 と、同じ修飾を成分に書いた形は `show = true` になる。
 
 状態（S362、2026-11-16）: v0.10.2（GlobeMode の固定）と v0.10.4（最新のリリース）で再現。Rumoca の main はビルドしていない。
 

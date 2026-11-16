@@ -20,7 +20,7 @@
   <h1>優先順位は Modelica 3.6 の文法どおり</h1>
   <ul>
     <li><code>or</code> &lt; <code>and</code> &lt; <code>not</code> &lt; 関係 &lt; <code>+ -</code> &lt; <code>* /</code> &lt; <code>^</code>。範囲 <code>a:b:c</code> と <code>if</code> 式は最も外側</li>
-    <li>同じ優先順位の連鎖は 1 つの <code>BinaryExpr</code> に平らに入れる（20 万個の <code>+</code> でも木が深くならない）</li>
+    <li>同じ優先順位の連鎖は 1 つの <code>BinaryExpr</code> にフラットに入れる（20 万個の <code>+</code> でも木が深くならない）</li>
     <li>名前つき引数・<code>for</code> の内包・<code>[a, b; c, d]</code>・<code>der</code> / <code>initial</code> / <code>end</code>・<code>function f(a = 1)</code></li>
   </ul>
 </section>

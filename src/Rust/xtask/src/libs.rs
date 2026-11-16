@@ -294,7 +294,7 @@ struct Totals {
     sim_total: usize,
     sim_ok: usize,
     sim_seconds: f64,
-    /// `diff-frontend` の JSON があった分割の数と、検査した本数・自前で平らにできた本数・DAE にできた本数・
+    /// `diff-frontend` の JSON があった分割の数と、検査した本数・自前で平坦化できた本数・DAE にできた本数・
     /// 自前の flat の上限（`too-large`、S365）で断った本数・Rumoca と変数の名前も方程式の数も一致した本数（S369）
     diff_shards: usize,
     diff_total: usize,
@@ -403,7 +403,7 @@ fn render_libraries(rows: &std::collections::BTreeMap<String, Totals>, msl: &str
     }
     md.push_str("\n- 「分割」は `msl-sim` の JSON が揃った数 / `msl-funnel` の JSON が揃った数。落ちたジョブは欠けたまま数える。\n- 時間は各分割の足し算（並行に回すので壁時計より長い）。\n- 判定の意味は [msl-funnel.md](msl-funnel.md)（S0〜S10、GM-U は未対応）。\n");
     if rows.values().any(|t| t.diff_shards > 0) {
-        md.push_str("\n## 自前の flat・DAE と Rumoca の突き合わせ（`diff-frontend`、S369）\n\n| ライブラリ | 分割 | 例題 | 自前で平らにできた | `too-large` で断った | 自前で DAE にできた | flat が Rumoca と一致 |\n| --- | ---: | ---: | ---: | ---: | ---: | ---: |\n");
+        md.push_str("\n## 自前の flat・DAE と Rumoca の突き合わせ（`diff-frontend`、S369）\n\n| ライブラリ | 分割 | 例題 | 自前で平坦化できた | `too-large` で断った | 自前で DAE にできた | flat が Rumoca と一致 |\n| --- | ---: | ---: | ---: | ---: | ---: | ---: |\n");
         for (name, t) in rows.iter().filter(|(_, t)| t.diff_shards > 0) {
             let _ = writeln!(
                 md,

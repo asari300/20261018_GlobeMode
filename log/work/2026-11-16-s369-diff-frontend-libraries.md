@@ -15,7 +15,7 @@
 
 1. `diff-frontend` に `--library <dir> --package <根> [--examples-in <段>] [--shard i/n]` を足し、公開ライブラリの例題でも自前と Rumoca を突き合わせる（前回の JSON との回帰の判定もライブラリごと）。
 2. `libraries.yml` にライブラリごとの `diff-frontend --library …` のステップを `continue-on-error` で足し、報告を artifact に残す。
-3. feature を push して `libraries.yml` を 1 回回し、ライブラリごとに、自前で平らにできた本数・`too-large` で断った本数・Rumoca との一致・panic の有無を書く。
+3. feature を push して `libraries.yml` を 1 回回し、ライブラリごとに、自前で平坦化できた本数・`too-large` で断った本数・Rumoca との一致・panic の有無を書く。
 
 ## 決めたこと
 
@@ -42,7 +42,7 @@
 - MSL（`--class` の 3 本）: 3/3 のまま。`diff-frontend --library data/libs/Buildings --package Buildings --shard 1/4 --limit 8`（debug）が動き（8 本、flat 5、Rumoca も通ったもの 2 本とも一致）、`--class Buildings.Fluid.Sensors.Examples.EnthalpyFlowRate --dump` で食い違いの flat を印字できた。
 - **CI（feature の push、`gh workflow run libraries.yml --ref feature/s369-diff-frontend-libraries`、run 43755915341、全ジョブ success）**: 結果は下の表。自前の panic は 0 本、`too-large` は 0 本。
 
-| ライブラリ | 例題 | 自前で平らにできた | `too-large` | 自前の panic | Rumoca も flat | 名前の集合が一致 | 方程式の数が一致 | 自前で DAE | Rumoca も釣り合い | 釣り合い・数・状態・正則が一致 |
+| ライブラリ | 例題 | 自前で平坦化できた | `too-large` | 自前の panic | Rumoca も flat | 名前の集合が一致 | 方程式の数が一致 | 自前で DAE | Rumoca も釣り合い | 釣り合い・数・状態・正則が一致 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
 | AixLib | 642 | 314 | 0 | 0 | 183 | 181 | 179 | 314 | 113 | 113・113・113・112 |
 | Buildings | 809 | 351 | 0 | 0 | 197 | 197 | 194 | 351 | 116 | 116・116・115・116 |
@@ -53,7 +53,7 @@
 | ThermofluidStream | 122 | 117 | 0 | 0 | 25 | 23 | 25 | 117 | 4 | 4・4・4・4 |
 | 計 | 2132 | 1054 | 0 | 0 | 569 | 565 | 559 | 1054 | 334 | 334・334・333・333 |
 
-- 平らにできなかった 1078 本の理由（先頭の語）: `unsized-array` 371、`expandable` 266、`composite-binding` 141、`inner-outer` 63、`redeclare` 58、`connect-array` 58、`non-constant-dim` 53、`connect` 29、`conditional-component` 22、`unresolved` 10、`stream` 5、`non-constant-for` 1、`break` 1。**`expandable`・`composite-binding` の 407 本は S367（main に取り込み済み）が通す範囲**で、この run は S367 の前（base は S366 の main）。上限（`too-large`）で断った例題は 0 本（平らにできた 1054 本は上限に届かず、残りの 1078 本は別の理由で断られた）。
+- 平坦化できなかった 1078 本の理由（先頭の語）: `unsized-array` 371、`expandable` 266、`composite-binding` 141、`inner-outer` 63、`redeclare` 58、`connect-array` 58、`non-constant-dim` 53、`connect` 29、`conditional-component` 22、`unresolved` 10、`stream` 5、`non-constant-for` 1、`break` 1。**`expandable`・`composite-binding` の 407 本は S367（main に取り込み済み）が通す範囲**で、この run は S367 の前（base は S366 の main）。上限（`too-large`）で断った例題は 0 本（平坦化できた 1054 本は上限に届かず、残りの 1078 本は別の理由で断られた）。
 - Rumoca が panic した例題は、funnel の表（`doc/libraries.md`）の Buildings 4・IBPSA 4。diff-frontend では `rumoca_flat` が通らなかった扱い（ログに `thread 'main' panicked at rumoca-phase-instantiate/src/inheritance.rs:1754:10`）。
 - 時間: diff-frontend は ClaRa 5 s、DeltaRobot 11 s、Chemical 16 s、ThermofluidStream 100 s、IBPSA 189 s、AixLib 295 s（2 分割）、Buildings 3426 s（4 分割）。**Buildings の 4 分割目だけで 3080 s（51 分）**。原因は 1 本 `Buildings.BoundaryConditions.GroundTemperature.Examples.CorrectedNFactors`（2963 s。funnel も同じ 2962 s で、Rumoca 側の遅さ。自前の flat・DAE は通り、Rumoca と全部一致）。最大 RSS は Buildings の 2.8 GiB。
 - main の取り込み（S367・S368・S371）: `git merge origin/main` は衝突なし。取り込んだあとも `cargo fmt --check -p xtask`・`cargo clippy -p xtask --all-targets -- -D warnings`・`cargo test -p xtask`（53 本）が通る。CI の run は取り込む前の commit（88ab60b0）。
@@ -77,6 +77,6 @@
 ## 残したこと
 
 - 上の 13 本 + DAE 2 本の原因（S367 の持ち場。`PrescribedOutlet_Water`・`EnthalpyFlowRate`・`MoistAirEnthalpyFlowRate` は 3 ライブラリで同じモデルなので、原因は 1 つずつのはず）。
-- **S367 が入った main で `libraries.yml` をもう 1 回回す価値がある**。`expandable`・`composite-binding` の 407 本（平らにできなかった 1078 本の 38%）が通ると、上限（`MAX_ITERS`・`MAX_SCALARS`）に実在のモデルが届くかをまだ確かめていない範囲で確かめられる。1 回の run は Buildings の 4 分割目が長く（funnel 54 分 + diff 51 分 + sim）、全体で約 2 時間（この run は 20:32〜22:32 UTC）。
+- **S367 が入った main で `libraries.yml` をもう 1 回回す価値がある**。`expandable`・`composite-binding` の 407 本（平坦化できなかった 1078 本の 38%）が通ると、上限（`MAX_ITERS`・`MAX_SCALARS`）に実在のモデルが届くかをまだ確かめていない範囲で確かめられる。1 回の run は Buildings の 4 分割目が長く（funnel 54 分 + diff 51 分 + sim）、全体で約 2 時間（この run は 20:32〜22:32 UTC）。
 - Buildings の `CorrectedNFactors`（Rumoca が 2963 s）は上流の Rumoca の遅さ。上流の下書きにするかは未判断。funnel の panic（Buildings 4・IBPSA 4）も Rumoca 側。
 - `diff-frontend` の Rumoca の panic は数えていない（`rumoca_flat` が通らなかった扱いに混ざる）。

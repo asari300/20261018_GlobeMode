@@ -594,7 +594,7 @@ impl Workspace {
     }
 
     /// 図の結線 `connect(from, to)` の線の途中の点 `index` を (dx, dy) だけ動かす TextEdit の配列の JSON（S299。LSP の `globe/moveWaypoint` と同じ形）。断れば `null`。ファイルは書かない。
-    #[allow(clippy::too_many_arguments)] // wasm-bindgen の入口は引数を平らに渡す
+    #[allow(clippy::too_many_arguments)] // wasm-bindgen の入口は引数をフラットに渡す
     pub fn move_waypoint(
         &self,
         class: &str,
@@ -610,7 +610,7 @@ impl Workspace {
     }
 
     /// 図の結線の線に途中の点 `(x, y)` を足す TextEdit の配列の JSON（S299。LSP の `globe/addWaypoint` と同じ形。`ends` は `[[x1, y1], [x2, y2]]` の JSON で、`points` が無い結線にだけ使う）。断れば `null`。
-    #[allow(clippy::too_many_arguments)] // wasm-bindgen の入口は引数を平らに渡す
+    #[allow(clippy::too_many_arguments)] // wasm-bindgen の入口は引数をフラットに渡す
     pub fn add_waypoint(
         &self,
         class: &str,

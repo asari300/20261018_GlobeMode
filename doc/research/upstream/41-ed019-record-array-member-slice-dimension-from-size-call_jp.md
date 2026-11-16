@@ -123,7 +123,7 @@ omc 1.27.2 の `checkModel`（最後の 3 つは `loadModel(Modelica, {"4.1.0"})
 
 ## GlobeMode 側の回避
 
-自前のフロントエンドでは要らない。自前の flat（`globe-mode-flat`）は、大きさを評価できるレコードの配列を要素に展開して（`aw[1].re`…）成分の参照を残すので、MSL の例題も平らにできる（S337、[ADR-0039](../../adr/0039-native-cst-parser.md)）。Rumoca を通す検査（`globe check`・`msl:funnel`）では、この例題は S5 で止まり、Rumoca のコード `ED019` で `GM-U0001`（未対応。誤りではない）に振り分けられる（[msl-funnel.md](../../msl-funnel.md) の 109 行目）。自前の flat と Rumoca の flat はここで違う。Rumoca は 1 つの変数 `transferFunction.aw.re`（大きさ 3）で、自前は `transferFunction.aw[1].re`…（名前の食い違いとして `diff-frontend` に出る。ADR-0039 の S334・S337）。
+自前のフロントエンドでは要らない。自前の flat（`globe-mode-flat`）は、大きさを評価できるレコードの配列を要素に展開して（`aw[1].re`…）成分の参照を残すので、MSL の例題も平坦化できる（S337、[ADR-0039](../../adr/0039-native-cst-parser.md)）。Rumoca を通す検査（`globe check`・`msl:funnel`）では、この例題は S5 で止まり、Rumoca のコード `ED019` で `GM-U0001`（未対応。誤りではない）に振り分けられる（[msl-funnel.md](../../msl-funnel.md) の 109 行目）。自前の flat と Rumoca の flat はここで違う。Rumoca は 1 つの変数 `transferFunction.aw.re`（大きさ 3）で、自前は `transferFunction.aw[1].re`…（名前の食い違いとして `diff-frontend` に出る。ADR-0039 の S334・S337）。
 
 ## 補足
 

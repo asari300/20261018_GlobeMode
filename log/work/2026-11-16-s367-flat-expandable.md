@@ -11,7 +11,7 @@
 
 ## 依頼
 
-S365 のあと、MSL の例題で自前の flat が断るのは 18 本（`composite-binding` 6・`expandable` 5・`non-constant-dim` 4・`connect-array` 1・`non-constant-for` 1・`unsized-array` 1）。多い順に `expandable` の 5 本と `composite-binding` の 6 本を平らにする（expandable connector: MLS 9.1.3）。余力があれば `non-constant-dim`。Rumoca の flat と変数の名前・方程式の数を `diff-frontend --class … --dump` で突き合わせて一致させる。回帰 0 が条件、S365 の上限（`MAX_ITERS`・`MAX_SCALARS`）は壊さない。最後に全体の検査を 1 回回し、数字と回帰を書く。
+S365 のあと、MSL の例題で自前の flat が断るのは 18 本（`composite-binding` 6・`expandable` 5・`non-constant-dim` 4・`connect-array` 1・`non-constant-for` 1・`unsized-array` 1）。多い順に `expandable` の 5 本と `composite-binding` の 6 本を平坦化する（expandable connector: MLS 9.1.3）。余力があれば `non-constant-dim`。Rumoca の flat と変数の名前・方程式の数を `diff-frontend --class … --dump` で突き合わせて一致させる。回帰 0 が条件、S365 の上限（`MAX_ITERS`・`MAX_SCALARS`）は壊さない。最後に全体の検査を 1 回回し、数字と回帰を書く。
 
 ## 決めたこと
 
@@ -35,7 +35,7 @@ S365 のあと、MSL の例題で自前の flat が断るのは 18 本（`compos
 
 ## 検証
 
-- **全体の `diff-frontend`**（基準は S365 の JSON。写した release の `xtask-s367` を `flock` の下で）: MSL の例題 566 本で、平らにできた 548 → **561/566**、Rumoca も通った 521 → 532 本で名前 518/521 → **529/532**・方程式の数 508/521 → **517/532**、DAE にできた **561/561**、Rumoca の釣り合いまで通った 377 → **382** 本で判定 **382/382**・方程式と未知数の数 **381/382**・状態 **381/382**・構造の正則 **382/382**。`GlobeModeValidation` 75 本は変わらず（Rumoca も通った 74 本で 74/74・正則 73/73）。**回帰 0 本、改善 13 本**。1332 s、最大 RSS 5.8 GiB。方程式の数の食い違いは 13 → 15 本（増えた 2 本は `CCCVcharging`・`CCCV_CellRC`。Rumoca が配列 `resistor[cellData.nRC]`・`capacitor[cellData.nRC]` を 1 要素分しか数えない）。断る残りは `non-constant-dim` 4・`unsized-array` 1。
+- **全体の `diff-frontend`**（基準は S365 の JSON。写した release の `xtask-s367` を `flock` の下で）: MSL の例題 566 本で、平坦化できた 548 → **561/566**、Rumoca も通った 521 → 532 本で名前 518/521 → **529/532**・方程式の数 508/521 → **517/532**、DAE にできた **561/561**、Rumoca の釣り合いまで通った 377 → **382** 本で判定 **382/382**・方程式と未知数の数 **381/382**・状態 **381/382**・構造の正則 **382/382**。`GlobeModeValidation` 75 本は変わらず（Rumoca も通った 74 本で 74/74・正則 73/73）。**回帰 0 本、改善 13 本**。1332 s、最大 RSS 5.8 GiB。方程式の数の食い違いは 13 → 15 本（増えた 2 本は `CCCVcharging`・`CCCV_CellRC`。Rumoca が配列 `resistor[cellData.nRC]`・`capacitor[cellData.nRC]` を 1 要素分しか数えない）。断る残りは `non-constant-dim` 4・`unsized-array` 1。
 - `diff-frontend --class`（debug）: expandable の 5 本（`BusUsage`・`BusUsage_Utilities.Part`・`CCCV_Cell`・`OneAxis`・`FullRobot`）は全項目が一致（方程式の数・釣り合い・状態・正則）。`PolyphaseRectifier`・`HeatExchangerSimulation` は名前・方程式の数が一致。`CCCV_Stack`・`CCCV_StackRC` は自前の DAE が釣り合い（823 対 823・999 対 999）・正則（Rumoca の flat が通らない）。
 - 試験: `cargo test --no-fail-fast -p globe-mode-flat -p globe-mode-dae -p globe-mode-frontend -p xtask -p globe-mode-db -p globe-mode-cli -p globe-mode -p globe-mode-lsp -p globe-mode-wasm`: 単体・結合の 577 本が合格。失敗 1 本は時間の試験 `time_reference_does_not_scan_every_variable`（他の担当と重なって負荷 14 で 4 s を超えた。負荷 6 で単独に回すと合格）。doctest は共有 target の古い rlib で `can't find crate`（E0463。変更と無関係）。新しい試験は 2 本（`flatten.rs` の `expandable_connector_drops_unused_members`、`flat.rs` の `record_arrays_bound_through_record_fields_and_2d_connector_arrays`。どちらも直す前なら断る）。
 - **native が expandable を断らなくなったので、「native が断る例」に使っていた 7 か所を `model E extends Real; end E;`（`GM-U0006`: `extends-builtin`。Rumoca は通る）に替えた**: `globe-mode-cli/tests/check_native.rs`・`globe-mode/tests/check_with.rs`・`globe-mode-wasm/tests/decay.rs`・`globe-mode-lsp/src/lib.rs`（2 本）・`src/Python/tests/test_api.py`・`src/Svelte/tests/test_ui.py`。Rust の 5 つは合格を確かめた。Python と Svelte の試験は回していない（wheel・wasm・Playwright が要る。CI が回す。源の文字列を替えただけ）。最初に選んだ長い形の `redeclare model` は、自前の構文が `extends B(redeclare model M … end M)` を読めない（`GM-E0001`）ので使えなかった。

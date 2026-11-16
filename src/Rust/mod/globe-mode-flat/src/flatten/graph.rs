@@ -1,12 +1,12 @@
 //! 過剰決定コネクタの接続（`Connections.root`・`branch`・`potentialRoot`・`isRoot`。MLS 9.4。S312）。
 //!
-//! 平らにし終わったあとで、仮想接続グラフ（VCG）の全域森を選び、Rumoca の flat と同じ数にそろえる。
+//! 平坦化し終わったあとで、仮想接続グラフ（VCG）の全域森を選び、Rumoca の flat と同じ数にそろえる。
 //! - 節点は、`equalityConstraint` を持つレコード（`Reference`）の部品と、`Connections.*` の引数。
 //!   必須の辺は `branch`、任意の辺は `connect` が節点どうしをつなぐもの。
 //! - 必須の辺を先に、次に任意の辺を、閉路を作らず、確定した根（`root`）を持つ木どうしをつながないように選ぶ。
 //!   選ばれなかった任意の辺をまたぐ等式は `zeros(n) = equalityConstraint(a, b)`（`n` は戻り値の大きさ。MultiBody の `Orientation` は 3、
 //!   `Reference`〔QuasiStatic〕は 0 なので作らない。S334）に置き換わる。
-//! - `if` の方程式の条件に `Connections.isRoot(N)`・`Connections.rooted(N)` があれば、`flatten.rs` が枝ごとに平らにして `OcIf` に置く（S333）。
+//! - `if` の方程式の条件に `Connections.isRoot(N)`・`Connections.rooted(N)` があれば、`flatten.rs` が枝ごとに平坦化して `OcIf` に置く（S333）。
 //!   ここで根の決定のあとに、最初に条件が真の枝（`else` なら常に真）だけを残す。
 //!   根は、木に確定した根があればそれ、無ければ潜在的な根（優先度が小さく、同じなら名前が先のもの）、それも無ければ名前が先のもの。
 //!   `rooted(a)` は `branch(a, b)` の `a` が根に近い（木の上の深さが小さい）こと。選ばれる木は、根からの距離が近い辺を先に採る（Rumoca と同じ。MLS 9.4 は木の選び方を決めない）。
@@ -23,7 +23,7 @@ pub(super) struct OcSet {
     pub members: Vec<String>,
 }
 
-/// 条件に `Connections.isRoot`・`rooted` を含む `if` の方程式。枝（条件、平らにした方程式）の並びで、条件が `None` なら `else`。
+/// 条件に `Connections.isRoot`・`rooted` を含む `if` の方程式。枝（条件、平坦化した方程式）の並びで、条件が `None` なら `else`。
 /// 条件は `(rooted か、not か、節点)`。置き場所は `F::eqs`（`initial` なら `F::ieqs`）の `at` の 1 行
 pub(super) type RootCond = (bool, bool, String);
 
