@@ -2,7 +2,7 @@
 
 対象: Rumoca（<https://github.com/CogniPilot/rumoca>）。英語の本文は [42-modifier-passes-default-binding-in-wrong-scope.md](42-modifier-passes-default-binding-in-wrong-scope.md)、再現は [.mo](42-modifier-passes-default-binding-in-wrong-scope.mo)。
 
-判定（GlobeMode、S373）: **バグ**。`Boiler b(energyDynamics = Dyn.Steady)` の `Boiler` は `Vol vol(massDynamics = massDynamics)` で `massDynamics` を下へ渡す。`b.massDynamics` の既定は `energyDynamics` なので、`b.vol.massDynamics` は `Steady` になるはず（修飾の右辺は囲むクラスの要素を指す。MLS 3.7 の 7.2.3 の例 `class C4 extends C3(…, x5 = x3, …)` が兄弟の要素をこう渡す。2026-11-16 に読んだ）。Rumoca は `vol` の `if massDynamics == Dyn.Steady then 0 = f else der(m) = f` を `else` の枝で平らにする。`b.massDynamics` を `energyDynamics` の既定の `Dynamic` と見ているように見える。omc 1.27.2 は `0.0 = b.vol.f`。
+判定（GlobeMode、S373）: **バグ**。`Boiler b(energyDynamics = Dyn.Steady)` の `Boiler` は `Vol vol(massDynamics = massDynamics)` で `massDynamics` を下へ渡す。`b.massDynamics` の既定は `energyDynamics` なので、`b.vol.massDynamics` は `Steady` になるはず（修飾の右辺は囲むクラスの要素を指す。MLS 3.7 の 7.2.3 の例 `class C4 extends C3(…, x5 = x3, …)` が兄弟の要素をこう渡す。2026-11-16 に読んだ）。Rumoca は `vol` の `if massDynamics == Dyn.Steady then 0 = f else der(m) = f` を `else` の枝で平坦化する。`b.massDynamics` を `energyDynamics` の既定の `Dynamic` と見ているように見える。omc 1.27.2 は `0.0 = b.vol.f`。
 
 状態（S373、2026-11-16）: v0.10.2（GlobeMode の固定）と v0.10.4（最新のリリース）で再現。Rumoca の main はビルドしていない。
 

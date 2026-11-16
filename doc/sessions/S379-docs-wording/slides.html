@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S379 docs-wording — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S379 docs-wording">
+
+<section class="slide" id="S01">
+  <span class="tag">S379 · 2026-11-16 · 文書</span>
+  <h1>言い回しを「平坦化」「フラット」にそろえ、0.2.0 の README・CHANGELOG を確かめた</h1>
+  <p class="lead">旧い言い回し <code>平ら</code> を、文脈に合わせて置き換えた（生成元と生成物も）</p>
+  <div class="big"><b>447</b> 箇所 / <b>114</b> ファイル。残りは意味の違う 4 箇所と、記録の原文の 1 箇所</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">決定</span>
+  <h1>置き換えの規則</h1>
+  <table>
+    <tr><th>旧（<code>平ら</code> に続く形）</th><th>新</th><th>使う場面</th></tr>
+    <tr><td><code>にできた</code>・<code>にできる</code>・<code>にして</code>・<code>にした</code>・<code>にし終わって</code></td><td>平坦化できた・平坦化できる・平坦化して・平坦化した・平坦化し終わって</td><td>モデルを flat にする動作（Modelica の flatten）</td></tr>
+    <tr><td><code>になった</code>・<code>になり</code>・<code>に戻った</code></td><td>平坦化できた・平坦化でき・平坦化できる状態に戻った</td><td>「n 本が flat になる」の自動詞</td></tr>
+    <tr><td><code>な</code>＋名詞・<code>のまま</code>・<code>に</code>＋入れる／持つ／渡す</td><td>フラットな…・フラットなまま・フラットに…</td><td>入れ子でない形（フラットなモデル、<code>BinaryExpr</code> の連鎖、SSD）</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">件数</span>
+  <h1>どこを直したか</h1>
+  <table class="compact">
+    <tr><th>場所</th><th>箇所</th></tr>
+    <tr><td>過去のセッション文書 <code>doc/sessions/S*/</code></td><td>119</td></tr>
+    <tr><td>ADR-0039</td><td>75</td></tr>
+    <tr><td><code>log/work/</code></td><td>65</td></tr>
+    <tr><td><code>src/Rust/</code>（コメント・CLI の説明・xtask の報告の文言）</td><td>64</td></tr>
+    <tr><td>セッション索引・CHANGELOG・features・roadmap</td><td>33・28・14・14</td></tr>
+    <tr><td>ADR-0026・architecture・上流の下書き <code>_jp.md</code>・README・ほか</td><td>12・8・6・3・3</td></tr>
+  </table>
+  <p class="note">動詞の形は文字数が同じ（<code>平坦化</code> は <code>平ら</code>＋<code>に</code> と同じ 3 文字）。形容の形（フラットな）は 2 文字長い</p>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">直さなかった</span>
+  <h1>意味が違う・記録の原文のもの</h1>
+  <ul>
+    <li>ダイオードの特性の平坦な部分を指す 4 箇所（<code>DiodeSwitching.mo</code>、<code>msl-sim-failures.md</code>、S021 の作業記録の 2 箇所）。flatten ではない。<code>.mo</code> を触らないので位置に依存する試験も動かない</li>
+    <li>監査役の指摘の原文 1 箇所（<code>log/review/…s324-s333-review5.md</code>）。原文のまま貼る約束</li>
+    <li>セッション記録 <code>log/sessions/</code>（会話の写し。書き換えない）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">生成元</span>
+  <h1>手で編集しない文書は生成元を直した</h1>
+  <table>
+    <tr><th>生成元</th><th>生成物</th><th>どうしたか</th></tr>
+    <tr><td><code>xtask/src/diff_frontend.rs</code></td><td><code>doc/frontend-diff.md</code></td><td>直して <code>diff-frontend</code> で再生成（回帰 0 本・改善 0 本、約 16 分（972 s）、最大 RSS 6.1 GiB）</td></tr>
+    <tr><td><code>xtask/src/libs.rs</code>・<code>libraries.yml</code></td><td><code>doc/libraries.md</code>（artifact）</td><td>直した。表はこの版には入っていないので、次に <code>libraries.yml</code> を回すと新しい表現で出る</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">0.2.0 の前の確認</span>
+  <h1>README・CHANGELOG の数字と限界</h1>
+  <ul>
+    <li>MSL の例題 566 本: 平坦化 565・DAE 565・Rumoca も通った 532 本で名前 529・方程式 517、釣り合い 382 本で 382・381・382・381。README と CHANGELOG の本文は <code>frontend-diff.md</code> と一致</li>
+    <li>誤りは 2 つ。CHANGELOG の既知の限界が <b>561 本</b>のまま（正しくは 565）、README の <code>msl:diff-frontend</code> の所要が <b>約 1.5 分・1.1 GiB</b>のまま（今は 約 16 分（972 s）・6.1 GiB）</li>
+    <li>Known limits の数字（369・13・184、356・312・303/311）、382 本の一致、Rumoca v0.10.2 は <code>doc/msl-funnel.md</code>・<code>msl-sim.md</code>・<code>Cargo.toml</code> と一致</li>
+  </ul>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">再現手順・次回</span>
+  <h1>検査と残したこと</h1>
+  <pre><code>git grep -n '平ら' -- . ':!log/sessions'    # 残りは意味の違う 4 箇所と原文の 1 箇所（と、この文書が語を書く行）
+python3 -I .claude/skills/session-docs/check_docs.py
+mise run check
+mise run msl:diff-frontend</code></pre>
+  <ul>
+    <li><code>CLAUDE.md</code> にも diff-frontend の「約 1.5 分、最大 RSS 1.1 GiB」が残っている（規則の文書なので触っていない）</li>
+    <li><code>doc/libraries.md</code> の自前の flat・DAE の表は、次の <code>libraries.yml</code> の run で入る</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

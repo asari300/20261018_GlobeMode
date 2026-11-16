@@ -423,7 +423,7 @@ fn deep_and_long_expressions() {
         roundtrip(&format!("model M equation {e} = 0; end M;"));
         roundtrip(&format!("model M Real x(a(b(c = {e}))); end M;"));
     }
-    // 長い平らな連鎖は木を深くしない
+    // 長いフラットな連鎖は木を深くしない
     let long = "1 + ".repeat(200_000) + "1";
     let p = roundtrip(&m(&long));
     assert!(p.errors.is_empty());

@@ -1,19 +1,19 @@
-//! Track B の B3 の最初の一切れ（S278）: モデルを平らな変数と方程式の列にする。
+//! Track B の B3 の最初の一切れ（S278）: モデルをフラットな変数と方程式の列にする。
 //!
 //! - 入力は `globe-mode-syntax` の CST と `globe-mode-resolve` の名前解決だけ（`Project` が両方を持つ）。
 //! - 範囲: 部品の入れ子（`a.b.x`）、`extends`、修飾（外側が勝つ）、parameter の束縛、方程式の名前の付け替え、
 //!   `connect`（potential は等式、flow は和が 0、つながない内側の flow は 0。`stream` は S355 で展開する）、
 //!   大きさが定数の配列（部品の配列は要素ごとに展開、`for` の方程式も展開）。
 //! - S284: 条件つきの宣言（条件が定数に評価できるとき。偽なら宣言と、それにつながる `connect` を落とす）、
-//!   定数の条件の `if` の方程式（選んだ枝だけを平らにする。`connect` も入る）、`inner`/`outer`（`outer` は部品を作らず、
+//!   定数の条件の `if` の方程式（選んだ枝だけを平坦化する。`connect` も入る）、`inner`/`outer`（`outer` は部品を作らず、
 //!   外側へたどって最初の同じ名前の `inner` へ参照を付け替える）、レコードの束縛（`R r = R(a = 1)`・`r = other` は欄ごとの修飾）、
 //!   `[:]` と添字の大きさ（行列・範囲・`fill`/`zeros`・パッケージの定数・列挙の型・後ろで宣言した配列の `size`）。
 //! - 式は評価せず、正規化した印字として残す（評価できない条件の `if` の方程式・`when`・関数の呼び出し）。
 //!   大きさ・`for` の範囲・添字・定数の条件だけ、定数の式（リテラル・parameter・列挙・`size`・四則・`max`/`min` など）を評価する。
 //! - S297: `redeclare`（部品・`package`・`model` などの差し替え。`extends B(redeclare …)`・部品の修飾・short class の修飾、外側が勝つ）、
-//!   `replaceable`（既定の型で平らにする。`constrainedby` は見ない）、`class extends`（`redeclare model extends M`）。
+//!   `replaceable`（既定の型で平坦化する。`constrainedby` は見ない）、`class extends`（`redeclare model extends M`）。
 //!   `redeclare package M = X` された `M` を通した型名・定数（`Medium.BaseProperties`・`Medium.nXi`）は差し替え先のパッケージで引き、
-//!   受け継いだクラスの中のパッケージのメンバー（`ThermodynamicState`・`nXi`）も差し替え後のパッケージで引き直す。関数の差し替えは平らにしない。
+//!   受け継いだクラスの中のパッケージのメンバー（`ThermodynamicState`・`nXi`）も差し替え後のパッケージで引き直す。関数の差し替えは平坦化しない。
 //! - 断るもの（`Unsupported::kind`）: 長い形の `redeclare model M … end M`、`inner` の無い `outer`、評価できない条件の宣言、外部関数、
 //!   `class extends`、形の決まらない `[:]`、関数の戻り値のレコード、評価できない条件の `if`/`when` の中の `connect` など。
 //! - S355: `stream`（MLS 15）。接続集合の `stream` 変数ごとに、外側のコネクタの端の方程式 `x = <集合の混合>` を 1 本作り、式の中の
@@ -125,7 +125,7 @@ impl FlatModel {
     }
 }
 
-/// 平らにできなかった理由。`kind` は数えるための短い分類
+/// 平坦化できなかった理由。`kind` は数えるための短い分類
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Unsupported {
     pub kind: &'static str,
@@ -418,7 +418,7 @@ impl Project {
         l
     }
 
-    /// 完全修飾名のクラスを平らにする
+    /// 完全修飾名のクラスを平坦化する
     pub fn flatten(&self, model: &str) -> Result<FlatModel, Unsupported> {
         let Some(cid) = self.lib.class_by_name(model) else {
             return un("not-found", model);

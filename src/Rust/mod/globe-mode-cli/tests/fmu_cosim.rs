@@ -209,8 +209,8 @@ const NESTED_TAIL: &str = r#"</ssd:System>
   <ssd:DefaultExperiment startTime="0" stopTime="1"/>
 </ssd:SystemStructureDescription>"#;
 
-/// 平らな Dahlquist（a）→ Feedthrough（b）の CSV と、入れ子の `ssd` の CSV を比べる。
-/// `rename` は（平らな列の名前 → 入れ子での列の名前）。
+/// フラットな Dahlquist（a）→ Feedthrough（b）の CSV と、入れ子の `ssd` の CSV を比べる。
+/// `rename` は（フラットな列の名前 → 入れ子での列の名前）。
 fn nested_equals_flat(tag: &str, ssd: &str, rename: &dyn Fn(&str) -> String) {
     let (Some(a), Some(b)) = (
         reference_fmu("2.0", "Dahlquist"),
@@ -241,7 +241,7 @@ fn nested_equals_flat(tag: &str, ssd: &str, rename: &dyn Fn(&str) -> String) {
     assert!(flat["b.Float64_continuous_output"][5] > 0.0);
 }
 
-/// S295: 入れ子の System（`s` の中に a・b）は `s.a`・`s.b` に平らになり、平らな版と同じ値になる。
+/// S295: 入れ子の System（`s` の中に a・b）は `s.a`・`s.b` に平坦化でき、フラットな版と同じ値になる。
 #[test]
 fn ssp_nested_system_gives_the_same_csv_as_flat() {
     let ssd = format!(
@@ -258,7 +258,7 @@ fn ssp_nested_system_gives_the_same_csv_as_flat() {
     nested_equals_flat("10", &ssd, &|c| format!("s.{c}"));
 }
 
-/// S295: System のコネクタを通る接続（a.x → g の入力 `i` → g の中の b）は 1 本の結線にたどられ、平らな版と同じ値になる。
+/// S295: System のコネクタを通る接続（a.x → g の入力 `i` → g の中の b）は 1 本の結線にたどられ、フラットな版と同じ値になる。
 #[test]
 fn ssp_connection_through_system_connectors_gives_the_same_csv_as_flat() {
     let ssd = format!(
@@ -753,7 +753,7 @@ fn ssp_import_inverts_ssp_export() {
     assert!(!out.status.success());
 }
 
-/// S315: 入れ子の `.ssp` を読む → 書く → 読むで同じ CSV になる（`s.a`・`s.b` は平らな Component として書かれる）。
+/// S315: 入れ子の `.ssp` を読む → 書く → 読むで同じ CSV になる（`s.a`・`s.b` はフラットな Component として書かれる）。
 #[test]
 fn nested_ssp_round_trips_through_flat_dotted_names() {
     let (Some(a), Some(b)) = (

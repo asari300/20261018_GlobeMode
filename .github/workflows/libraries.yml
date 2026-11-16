@@ -176,7 +176,7 @@ jobs:
           if d:
               ms = d["models"]
               big = sum(1 for m in ms if m["reasons"].get("flat", "").startswith("too-large"))
-              line += f"- 自前の段: 例題 {len(ms)} 本、自前で平らにできた {sum(1 for m in ms if m['flags'].get('flat'))}、too-large {big}、DAE にできた {sum(1 for m in ms if m['flags'].get('dae'))}、flat が Rumoca と一致 {sum(1 for m in ms if m['flags'].get('flat_names') and m['flags'].get('flat_eqs'))}（{d['seconds']:.0f} s）\n"
+              line += f"- 自前の段: 例題 {len(ms)} 本、自前で平坦化できた {sum(1 for m in ms if m['flags'].get('flat'))}、too-large {big}、DAE にできた {sum(1 for m in ms if m['flags'].get('dae'))}、flat が Rumoca と一致 {sum(1 for m in ms if m['flags'].get('flat_names') and m['flags'].get('flat_eqs'))}（{d['seconds']:.0f} s）\n"
           else:
               line += "- 自前の段: JSON が無い\n"
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as out:

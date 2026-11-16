@@ -92,7 +92,7 @@ pub enum FmuImportCommand {
     /// Co-Simulation の結線の記述（`fmu cosim` の spec.json）を `.ssp`（SSP 2.0.1）に書き出す（S274）。`globe fmu cosim <out>.ssp` で読み戻すと同じ結果になる。FMU のネイティブコードは実行しない
     #[command(
         name = "ssp-export",
-        after_help = "SSD は System 1 つ。FMU は resources/ にそのまま写し、start は Component の ParameterBindings（既定はインライン。`--ssv` なら Component ごとの `resources/<名前>.ssv` を参照）、時刻は DefaultExperiment、通信刻みと algorithm は GlobeMode 独自の Annotation に入れる。結線は Real・Int32・Boolean の同じ型どうし。名前に `.` を含む FMU（入れ子を平らにしたもの）は平らな Component の名前のまま書く。逆は `globe fmu ssp-import`。`timeout`・`memory_limit_mib` は書かない\n例:\n  globe fmu ssp-export spec.json -o system.ssp"
+        after_help = "SSD は System 1 つ。FMU は resources/ にそのまま写し、start は Component の ParameterBindings（既定はインライン。`--ssv` なら Component ごとの `resources/<名前>.ssv` を参照）、時刻は DefaultExperiment、通信刻みと algorithm は GlobeMode 独自の Annotation に入れる。結線は Real・Int32・Boolean の同じ型どうし。名前に `.` を含む FMU（入れ子を平坦化したもの）はフラットな Component の名前のまま書く。逆は `globe fmu ssp-import`。`timeout`・`memory_limit_mib` は書かない\n例:\n  globe fmu ssp-export spec.json -o system.ssp"
     )]
     SspExport {
         /// 結線の記述（JSON。`fmu cosim` と同じ。FMU のパスは spec.json からの相対）
@@ -107,7 +107,7 @@ pub enum FmuImportCommand {
     /// `.ssp`（SSP 2.0.1）を `fmu cosim` の spec.json に書き出す（S315）。`ssp-export` の逆。FMU は `.ssp` から取り出して JSON と同じフォルダに `<名前>.fmu` で置く
     #[command(
         name = "ssp-import",
-        after_help = "入れ子の System は `外側.内側` の名前に平らになる。`.ssp` を開いた結果（結線・start・時刻・刻み・algorithm）を JSON にするだけで、FMU のネイティブコードは実行しない。FMU は JSON から相対のパスで書き、同名のファイルが既にあれば上書きせず断る。`timeout`・`memory_limit_mib` は書かない\n例:\n  globe fmu ssp-import system.ssp -o work/spec.json"
+        after_help = "入れ子の System は `外側.内側` の名前に平坦化される。`.ssp` を開いた結果（結線・start・時刻・刻み・algorithm）を JSON にするだけで、FMU のネイティブコードは実行しない。FMU は JSON から相対のパスで書き、同名のファイルが既にあれば上書きせず断る。`timeout`・`memory_limit_mib` は書かない\n例:\n  globe fmu ssp-import system.ssp -o work/spec.json"
     )]
     SspImport {
         /// 読む `.ssp`

@@ -11,7 +11,7 @@
 
 ## 依頼
 
-B3 flatten の最初の一切れ。新しい crate で、モデルを平らな変数と方程式の列にする（部品の入れ子・`extends`・修飾・parameter の束縛・名前の付け替え・`connect`・大きさが定数の 1 次元までの配列と `for`）。`redeclare`・`replaceable`・外部関数・条件つきの宣言は断る。Rumoca の flat と `GlobeModeValidation` で突き合わせ、MSL の例題 566 本で「平らにできた本数」を数える。resolve の中は S275 が触るので変えない。
+B3 flatten の最初の一切れ。新しい crate で、モデルをフラットな変数と方程式の列にする（部品の入れ子・`extends`・修飾・parameter の束縛・名前の付け替え・`connect`・大きさが定数の 1 次元までの配列と `for`）。`redeclare`・`replaceable`・外部関数・条件つきの宣言は断る。Rumoca の flat と `GlobeModeValidation` で突き合わせ、MSL の例題 566 本で「平坦化できた本数」を数える。resolve の中は S275 が触るので変えない。
 
 ## 決めたこと
 
@@ -31,8 +31,8 @@ B3 flatten の最初の一切れ。新しい crate で、モデルを平らな�
 ## 検証
 
 - `cargo test -p globe-mode-flat`: 7 pass・4 ignored。clippy `-D warnings` 警告 0、fmt ok。
-- `GlobeModeValidation` の 75 本: 自前で平らにできた 71 本（断った: `redeclare` 3、`inner`/`outer` 1）。Rumoca の flat まで通った 74 本のうち両方で通った 70 本は、名前の集合 70/70・方程式の数 70/70 が一致（初回は 69 / 52 で、上の 4 つの定義の差を直した）。
-- MSL 4.1.0 の例題 566 本: 自前で平らにできた **67 本**（Rumoca の flatten は 562）。両方で通った 66 本で名前 66/66・方程式 64/66。断った 499 本は `redeclare` 205・条件つきの宣言 131・`inner`/`outer` 43・大きさが定数でない 35・レコードの束縛 33・`[:]` 25・`class extends` 11・`replaceable` 5・配列の型 5・配列のコネクタの一括接続 4・`expandable` 2。
+- `GlobeModeValidation` の 75 本: 自前で平坦化できた 71 本（断った: `redeclare` 3、`inner`/`outer` 1）。Rumoca の flat まで通った 74 本のうち両方で通った 70 本は、名前の集合 70/70・方程式の数 70/70 が一致（初回は 69 / 52 で、上の 4 つの定義の差を直した）。
+- MSL 4.1.0 の例題 566 本: 自前で平坦化できた **67 本**（Rumoca の flatten は 562）。両方で通った 66 本で名前 66/66・方程式 64/66。断った 499 本は `redeclare` 205・条件つきの宣言 131・`inner`/`outer` 43・大きさが定数でない 35・レコードの束縛 33・`[:]` 25・`class extends` 11・`replaceable` 5・配列の型 5・配列のコネクタの一括接続 4・`expandable` 2。
 - 注意: 共有 target に別の worktree（S275）の resolve のビルドが混ざり、最初の MSL の計測が 11 本だった（`a.b` が型を通した要素に解決されていた）。変えていない crate も touch してから回すと 67 本になる。結果の数字はすべて touch 後のもの。
 
 ## 残したこと

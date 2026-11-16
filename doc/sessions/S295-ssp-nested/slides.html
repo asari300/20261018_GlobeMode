@@ -12,7 +12,7 @@
   <span class="tag">S295 · 2026-11-15 · P8 SSP</span>
   <h1>SSP の入れ子の System と Int32・Boolean を読む</h1>
   <p class="lead">読み取りの持ち越し 2 つ。新しい依存なし</p>
-  <div class="big">入れ子は <code>外側.内側</code> に平らにし、System のコネクタは素通しで 1 本の結線にたどる</div>
+  <div class="big">入れ子は <code>外側.内側</code> に平坦化し、System のコネクタは素通しで 1 本の結線にたどる</div>
 </section>
 
 <section class="slide" id="S02">
@@ -43,7 +43,7 @@
   <h1>書き出しも読み取りも Int32・Boolean を通す</h1>
   <ul>
     <li><code>ssc:Real</code>・<code>ssc:Integer</code>・<code>ssc:Boolean</code> で書き、両端の型が違えば書く前に断る</li>
-    <li>入れ子が平らな版と同じ CSV、System のコネクタを通る接続も同じ CSV</li>
+    <li>入れ子がフラットな版と同じ CSV、System のコネクタを通る接続も同じ CSV</li>
     <li>Int32・Boolean の <code>ssp-export</code> → <code>cosim</code> がバイトで一致</li>
   </ul>
   <pre><code>cargo test -p globe-mode-cli --test fmu_cosim</code></pre>

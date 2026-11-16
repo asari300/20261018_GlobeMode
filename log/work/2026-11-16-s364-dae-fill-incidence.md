@@ -32,7 +32,7 @@ S361・S362 のあと、Rumoca の釣り合いまで通った 377 本で構造�
 
 ## 検証
 
-- **全体の `diff-frontend`**（基準は S361 の JSON）: MSL の例題 566 本で、平らにできた 548/566（変わらず）、Rumoca も通った 521 本で名前 518/521・方程式の数 508/521（変わらず）、DAE 548/548、Rumoca の釣り合いまで通った 377 本で判定 377/377・方程式と未知数の数 376/377・状態 376/377（変わらず）・構造の正則 373 → **377/377**。`GlobeModeValidation` 75 本は変わらず（Rumoca も通った 74 本で 74/74・正則 73/73）。**回帰 0 本、改善 4 本**（`ExecutionPaths`・`ShowCompositeStep`・`ShowExceptions`・`BatchPlant_StandardWater`、4 本とも構造の正則だけ）。1003 s、最大 RSS 5.5 GiB。
+- **全体の `diff-frontend`**（基準は S361 の JSON）: MSL の例題 566 本で、平坦化できた 548/566（変わらず）、Rumoca も通った 521 本で名前 518/521・方程式の数 508/521（変わらず）、DAE 548/548、Rumoca の釣り合いまで通った 377 本で判定 377/377・方程式と未知数の数 376/377・状態 376/377（変わらず）・構造の正則 373 → **377/377**。`GlobeModeValidation` 75 本は変わらず（Rumoca も通った 74 本で 74/74・正則 73/73）。**回帰 0 本、改善 4 本**（`ExecutionPaths`・`ShowCompositeStep`・`ShowExceptions`・`BatchPlant_StandardWater`、4 本とも構造の正則だけ）。1003 s、最大 RSS 5.5 GiB。
 - `diff-frontend --class` の 4 本（直したあと）: 4 本とも全項目が一致（`ExecutionPaths` 10 s・`ShowCompositeStep` 11 s・`ShowExceptions` 18 s・`BatchPlant_StandardWater` 42 s）。
 - `cargo test -p globe-mode-dae`: 18 本合格（新しい 1 本。直す前の `lib.rs` では `(2, 1)` で落ちる）。`cargo fmt --all --check`・`cargo clippy -p globe-mode-dae -p xtask --all-targets -- -D warnings`: 通過。`cargo test -p globe-mode-dae -p globe-mode-frontend -p xtask`: 117 本合格・失敗 0。`cargo test -p globe-mode-db -p globe-mode-cli`（`globe-mode-dae` の依存元。native の検査の試験）: 204 本合格・失敗 0。`mise run ci:plan`: 変更したファイル 1 本の時点で `deny` なし。
 - `check_docs.py`: 全デッキ OK、相対リンク 5495 件中の切れ 0 件。`render_slides.py`（S364 のデッキだけ。1 回目は他の担当の `msl:diff-frontend`〔5.4 GiB〕と重なって screenshot が時間切れ、負荷が下がってから撮り直し）: 問題 0 件。markdownlint-cli2（MD013 を除く）: 解説書・作業記録で 0 件。`mise run check` の全体は回していない（変えた crate と依存元に絞った）。

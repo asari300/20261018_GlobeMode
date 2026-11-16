@@ -2,7 +2,7 @@
 
 対象: Rumoca（<https://github.com/CogniPilot/rumoca>）。英語の本文は [44-conditional-component-ignores-redeclared-class.md](44-conditional-component-ignores-redeclared-class.md)、再現は [.mo](44-conditional-component-ignores-redeclared-class.mo)。
 
-判定（GlobeMode、S373）: **バグ**。`Holder h(redeclare model Area = AreaFinal)` は replaceable な `Area` を `AreaFinal` に差し替える。`AreaFinal` は基底クラスの修飾で `use_in = false` を決める（`extends PartArea(final use_in = false)`）。`Holder` は `Real u = 1 if area.use_in;` を宣言する。条件は `false` なので `h.u` は無いはず（MLS 3.7 の 4.4.5: 条件が偽なら、成分は修飾も含めて平らにした DAE から取り除かれる。2026-11-16 に <https://specification.modelica.org/maint/3.7/class-predefined-types-and-declarations.html> で読んだ。7.3: `redeclare` はクラスを差し替える）。Rumoca は `h.u` を残す。flat のモデルに `h.area.use_in` と `h.u` がある。omc 1.27.2 は `h.area.use_in = false` だけ。
+判定（GlobeMode、S373）: **バグ**。`Holder h(redeclare model Area = AreaFinal)` は replaceable な `Area` を `AreaFinal` に差し替える。`AreaFinal` は基底クラスの修飾で `use_in = false` を決める（`extends PartArea(final use_in = false)`）。`Holder` は `Real u = 1 if area.use_in;` を宣言する。条件は `false` なので `h.u` は無いはず（MLS 3.7 の 4.4.5: 条件が偽なら、成分は修飾も含めて平坦化した DAE から取り除かれる。2026-11-16 に <https://specification.modelica.org/maint/3.7/class-predefined-types-and-declarations.html> で読んだ。7.3: `redeclare` はクラスを差し替える）。Rumoca は `h.u` を残す。flat のモデルに `h.area.use_in` と `h.u` がある。omc 1.27.2 は `h.area.use_in = false` だけ。
 
 状態（S373、2026-11-16）: v0.10.2（GlobeMode の固定）と v0.10.4（最新のリリース）で再現。Rumoca の main はビルドしていない。
 

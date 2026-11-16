@@ -486,7 +486,7 @@ fn redeclare_package_and_class_extends() {
         "T",
     );
     assert_eq!(names(&m), ["o.q.bp.h", "o.q.bp.g"]);
-    // `redeclare model C = X`、関数の差し替えは平らにしない
+    // `redeclare model C = X`、関数の差し替えは平坦化しない
     let m = flat(
         &format!(
             "{lib} model T Cyl y(redeclare model C = P2.BP, redeclare function f = g); end T;"

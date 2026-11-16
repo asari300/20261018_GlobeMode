@@ -31,7 +31,7 @@ kinds! {
     StoredDefinition, WithinClause, ClassDef, ShortBody, Visibility, ExtendsClause, ImportClause,
     ComponentClause, Name, Subscripts, Declaration, Modification, Condition, Comment, Annotation,
     EquationSection, AlgorithmSection, ExternalClause, Equation, Statement,
-    // ---- 式（S269）。`BinaryExpr` は同じ優先順位の連鎖を 1 つの節点に平らに入れる（a + b - c）
+    // ---- 式（S269）。`BinaryExpr` は同じ優先順位の連鎖を 1 つの節点にフラットに入れる（a + b - c）
     Literal, ComponentRef, EndExpr, ParenExpr, ArrayExpr, MatrixExpr, UnaryExpr, BinaryExpr,
     RangeExpr, IfExpr, CallExpr, FunctionArgs, NamedArg, Comprehension, ForIndices, ForIndex,
     PartialApp,
