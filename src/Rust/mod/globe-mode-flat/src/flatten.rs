@@ -3145,18 +3145,66 @@ impl F<'_> {
         }
         seen.push(name.to_string());
         let Some(b) = env.get(name) else { return false };
-        b.node.descendants().any(|x| {
-            let call = ast::CallExpr::cast(x.clone()).is_some_and(|c| {
-                !c.callee().is_some_and(|f| {
-                    BUILTINS.contains(&f.as_str()) || matches!(f.as_str(), "size" | "max" | "min")
+        self.expr_reads_mod(&b.node, env, extra, seen)
+    }
+
+    /// 式 `n` が `reaches_mod` の意味で修飾に届くか。組み込み（`fill`・`zeros`・`String` など）は本体を読まない。
+    /// `size(X, k)` は `X` の形だけを使うので、`X` の束縛が配列リテラル（内包なし）なら要素の中身は見ない
+    /// （`nS = size(substanceNames, 1)` の `substanceNames = {mediumName}` が `p_nominal` を読んでも、大きさは変わらない。S378）
+    fn expr_reads_mod(
+        &self,
+        n: &SyntaxNode,
+        env: &HashMap<String, Bind>,
+        extra: &ModMap,
+        seen: &mut Vec<String>,
+    ) -> bool {
+        if let Some(c) = ast::CallExpr::cast(n.clone()) {
+            let f = c.callee().unwrap_or_default();
+            let args = c.args();
+            if f == "size"
+                && let Some(Expr::ComponentRef(r)) = args.first()
+                && let [x] = r.parts().as_slice()
+                && !extra.contains_key(x)
+                && env.get(x).is_some_and(|b| {
+                    matches!(Expr::cast(b.node.clone()), Some(Expr::Array(_)))
+                        && !b.node.children().any(|c| c.kind() == K::Comprehension)
                 })
-            });
-            call || tokens(&x).any(|t| {
-                t.kind() == K::Ident
-                    && (extra.contains_key(t.text())
-                        || self.reaches_mod(env, t.text(), extra, seen))
-            })
-        })
+            {
+                return (args.iter().skip(1))
+                    .any(|a| self.expr_reads_mod(a.syntax(), env, extra, seen));
+            }
+            let pure = f == "size"
+                || BUILTINS.contains(&f.as_str())
+                || matches!(
+                    f.as_str(),
+                    "max"
+                        | "min"
+                        | "fill"
+                        | "zeros"
+                        | "ones"
+                        | "cat"
+                        | "String"
+                        | "vector"
+                        | "matrix"
+                        | "scalar"
+                        | "linspace"
+                        | "identity"
+                        | "diagonal"
+                        | "transpose"
+                        | "sum"
+                        | "product"
+                        | "ndims"
+                );
+            if !pure {
+                return true;
+            }
+        }
+        tokens(n).any(|t| {
+            t.kind() == K::Ident
+                && (extra.contains_key(t.text()) || self.reaches_mod(env, t.text(), extra, seen))
+        }) || n
+            .children()
+            .any(|ch| self.expr_reads_mod(&ch, env, extra, seen))
     }
 
     /// パッケージ `cid`（`extends` の修飾も合わせた）の定数の束縛。束縛のあるものだけ
@@ -5831,5 +5879,31 @@ mod tests {
         let m = |decl: &str| format!("{pk} model M {decl} end M;");
         assert_eq!(dim_of(&m("Real b[X.Z.c];"), "b"), Ok(6));
         assert_eq!(sized(&m("Real a[X.Y.c];")), Err("non-constant-dim".into()));
+    }
+
+    #[test]
+    fn parenthesized_redeclare_still_decides_shapes_that_do_not_read_the_modification() {
+        // S378: `(…)` の修飾に届くかの判定（`reaches_mod`）は、組み込み（`fill`・`String`）の呼び出しと `size(X, k)`（`X` の束縛が配列リテラルなら形だけ）では届かないとする。
+        // 以前はこれらで「分からない」になり、`redeclare package Medium = M(T_nominal = …)` の `Medium.nX`・`Medium.nC` が決まらず、公開ライブラリの例題が平らにできなかった
+        let pk = "package PP
+              constant Integer k = 1;
+              constant String nm = \"a\" + String(k);
+              constant String names[:] = {nm};
+              constant String extra[:] = fill(\"\", 0);
+              constant Integer nX = size(names, 1);
+              constant Integer nC = size(extra, 1);
+              constant Integer dep = size(zeros(k), 1);
+            end PP;
+            model Sub replaceable package P = PP; Real a[P.NAME]; end Sub;";
+        let a = |name: &str| {
+            dims_map(&format!(
+                "{} model M Sub s(redeclare package P = PP(k = 5)); end M;",
+                pk.replace("NAME", name)
+            ))
+        };
+        assert_eq!(a("nX").map(|v| v["s.a"]), Ok(1));
+        assert_eq!(a("k").map(|v| v["s.a"]), Ok(5));
+        // 形が修飾された名前に依る `zeros(k)` は決めない
+        assert_eq!(a("dep"), Err("non-constant-dim".into()));
     }
 }
