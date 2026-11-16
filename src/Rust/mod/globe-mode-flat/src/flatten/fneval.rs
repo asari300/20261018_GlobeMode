@@ -8,7 +8,7 @@
 //!
 //! shortcut: 配列は 1 次元・要素はスカラーだけ（配列どうしの演算・内包・`zeros` などは分からない）。必要になったら足す。
 
-use super::{Ctx, F, FN, MAX_ITERS, Ty, Val, binop, ord, single, tokens};
+use super::{Ctx, F, FN, MAX_ITERS, PKG, Ty, Val, binop, cenv_hash, ord, single, tokens};
 use globe_mode_resolve::{ClassId, Resolution};
 use globe_mode_syntax::ast::{self, Element, Expr};
 use globe_mode_syntax::{SyntaxKind as K, SyntaxNode};
@@ -107,8 +107,8 @@ pub(super) fn unop(op: K, v: Val) -> Option<Val> {
     }
 }
 
-/// 呼び出しの結果を覚える鍵: 関数・`heir`・引数（スカラーだけ）の `Debug`
-pub(super) type MemoKey = (ClassId, Option<ClassId>, String);
+/// 呼び出しの結果を覚える鍵: 関数・`heir`・差し替えの組の hash（`cenv_hash`）・引数（スカラーだけ）の `Debug`
+pub(super) type MemoKey = (ClassId, Option<ClassId>, u64, String);
 
 /// 配列は `Rc`（読み・引数の受け渡しで複製しない。書き込みは `Rc::make_mut`）
 #[derive(Clone, Debug)]
@@ -117,10 +117,12 @@ pub(super) enum V {
     A(Rc<Vec<Val>>),
 }
 
-/// 関数の変数。`ty` は宣言の型（`R` 実数・`I` 整数・`B` 論理）で、代入のときに値を合わせる
+/// 関数の変数。`ty` は宣言の型（`R` 実数・`I` 整数・`B` 論理）で、代入のときに値を合わせる。
+/// `set` は値が決まっているか（入力・束縛・代入のあと。出力が代入されないまま終わった関数は「分からない」。S376・#155）
 struct Slot {
     ty: char,
     v: V,
+    set: bool,
 }
 
 struct Frame {
@@ -187,9 +189,7 @@ impl F<'_> {
         d: u32,
     ) -> Option<Val> {
         let r = c.syntax().children().find_map(ast::ComponentRef::cast)?;
-        let Some(Resolution::Class(rid)) = self.p.res_of(file, r.range()) else {
-            return None;
-        };
+        let (rid, heir) = self.call_target(&r, file, ctx)?;
         let arg = |e: &Expr| {
             (self.eval(e.syntax(), file, ctx, d).map(V::S))
                 .or_else(|| (self.eval_items(e.syntax(), file, ctx, d)).map(|v| V::A(Rc::new(v))))
@@ -198,10 +198,71 @@ impl F<'_> {
         let named = (c.named_args().into_iter())
             .map(|(k, e)| Some((k, arg(&e)?)))
             .collect::<Option<Vec<_>>>()?;
-        match self.run_fn(rid, pos, named, ctx)? {
+        match self.run_fn(rid, heir, pos, named, ctx)? {
             V::S(v) => Some(v),
             V::A(_) => None,
         }
+    }
+
+    /// 呼び出しの名前 `r` が指す関数と、本体が読む package の定数を引く `heir`（その関数を通した package。S376・#155・#156）。
+    /// 差し替え（`redeclare function f = f3`・`redeclare package P = P3` の `P.f`）を引き、`(…)` の修飾つきの差し替え・引けないものは `None`（分からない）。
+    /// 名前に package が付くとき（`P5.f`）はその package、付かなければ呼び出しの文脈の package（`PKG` なら評価中の package、それ以外は `ctx.heir`）。
+    /// shortcut: 関数の中から呼ぶ兄弟の関数（`FN` の文脈）の差し替えは見ない
+    pub(super) fn call_target(
+        &self,
+        r: &ast::ComponentRef,
+        file: u32,
+        ctx: &Rc<Ctx>,
+    ) -> Option<(ClassId, Option<ClassId>)> {
+        let Some(Resolution::Class(rid)) = self.p.res_of(file, r.range()) else {
+            return None;
+        };
+        let parts = r.parts();
+        let hit = |name: &str| {
+            let h = (!r.is_global())
+                .then(|| ctx.cenv.borrow().get(name).cloned())
+                .flatten();
+            h.map(|(c, extra)| (extra.is_empty()).then_some(c))
+        };
+        let (mut rid, mut heir) = (rid, None);
+        match parts.as_slice() {
+            [name] => {
+                // `redeclare function f = f3`: 関数を宣言したクラスのインスタンス（のなか）から呼ぶとき
+                let own = self.p.lib.classes[rid].parent;
+                if ctx.pfx != PKG
+                    && ctx.pfx != FN
+                    && self.p.lib.classes[rid].name == *name
+                    && own.is_some_and(|p| ctx.lineage.contains(&p))
+                    && let Some(c) = hit(name)
+                {
+                    rid = c?;
+                }
+            }
+            [first, mid @ .., last] => {
+                if let Some(c) = hit(first) {
+                    // `P.f`（`P` はこのインスタンスで差し替えた package）。差し替え先の中を引く
+                    let mut pkg = c?;
+                    for p in mid {
+                        pkg = self.member_class(pkg, p)?;
+                    }
+                    rid = self.member_class(pkg, last)?;
+                    heir = Some(pkg);
+                } else if let Some(p) = self.p.lib.classes[rid].parent {
+                    heir = self.via_class(file, r, p);
+                }
+            }
+            [] => return None,
+        }
+        let heir = heir.or(if ctx.pfx == PKG {
+            ctx.lineage.first().copied()
+        } else {
+            ctx.heir
+        });
+        // 受け継いだ側で差し替えた同じ名前の関数（`partial` の関数を `extends` で具体化したもの）
+        if let Some(c) = heir.and_then(|h| self.heir_member(h, rid)) {
+            rid = c;
+        }
+        Some((rid, heir))
     }
 
     /// 仕事量を `n` 数える（上限は 1 回の flat 全体で `MAX_ITERS`）
@@ -218,6 +279,7 @@ impl F<'_> {
     fn run_fn(
         &self,
         rid: ClassId,
+        heir: Option<ClassId>,
         pos: Vec<V>,
         named: Vec<(String, V)>,
         ctx: &Rc<Ctx>,
@@ -226,21 +288,33 @@ impl F<'_> {
         if depth >= MAX_CALL_DEPTH {
             return None;
         }
-        // 結果を覚えるのは、引数がスカラーだけで、`redeclare` の差し替えが無いとき（関数の中で引く定数が呼び出しの文脈で変わらない）。成功した値だけ
-        let key = (ctx.cenv.try_borrow().is_ok_and(|c| c.is_empty())
-            && (pos.iter().chain(named.iter().map(|(_, v)| v))).all(|v| matches!(v, V::S(_))))
-        .then(|| (rid, ctx.heir, format!("{pos:?}{named:?}")));
+        // 結果を覚えるのは引数がスカラーだけのとき。鍵は関数・`heir`・差し替えの組（関数の中で引く定数が呼び出しの文脈で変わる。S376・#154）・引数
+        let key = (pos.iter().chain(named.iter().map(|(_, v)| v)))
+            .all(|v| matches!(v, V::S(_)))
+            .then(|| cenv_hash(&ctx.cenv))
+            .flatten()
+            .map(|h| (rid, heir, h, format!("{pos:?}{named:?}")));
         if let Some(v) = key
             .as_ref()
             .and_then(|k| self.fn_memo.borrow().get(k).cloned())
         {
-            return Some(v);
+            return v;
         }
         self.fn_depth.set(depth + 1);
-        let r = self.run_body(rid, pos, named, ctx);
+        let r = self.run_body(rid, heir, pos, named, ctx);
         self.fn_depth.set(depth);
-        if let (Some(k), Some(v @ V::S(_))) = (key, &r) {
-            self.fn_memo.borrow_mut().insert(k, v.clone());
+        // 覚えるのは成功したスカラーの値と、最上位（`depth == 0`）の呼び出しが予算内で失敗したこと（S376・#153）。
+        // 入れ子の失敗は呼び出しの深さに、予算が尽きたあとの失敗は残りの予算に依るので覚えない
+        if let Some(k) = key {
+            match &r {
+                Some(v @ V::S(_)) => {
+                    self.fn_memo.borrow_mut().insert(k, Some(v.clone()));
+                }
+                None if depth == 0 && self.fn_steps.get() <= MAX_ITERS => {
+                    self.fn_memo.borrow_mut().insert(k, None);
+                }
+                _ => {}
+            }
         }
         r
     }
@@ -248,6 +322,7 @@ impl F<'_> {
     fn run_body(
         &self,
         rid: ClassId,
+        heir: Option<ClassId>,
         pos: Vec<V>,
         named: Vec<(String, V)>,
         ctx: &Rc<Ctx>,
@@ -256,7 +331,9 @@ impl F<'_> {
         let impure = tokens(cd.syntax())
             .take_while(|t| t.kind() != K::Ident)
             .any(|t| t.kind() == K::KwImpure);
+        // 本体の無い（`partial`）関数は評価しない（出力に代入が無いので 0 を返してしまう。S376・#155）
         if impure
+            || self.p.is_partial(rid)
             || cd.kind_token()?.kind() != K::KwFunction
             || (cd.syntax().children()).any(|c| c.kind() == K::ExternalClause)
         {
@@ -272,7 +349,7 @@ impl F<'_> {
                 lineage: self.p.lineage(rid),
                 locals: Vec::new(),
                 cenv: ctx.cenv.clone(),
-                heir: ctx.heir,
+                heir,
             }),
             vars: HashMap::new(),
         };
@@ -334,6 +411,7 @@ impl F<'_> {
                         }
                         let bind = (dc.syntax().children().find(|c| c.kind() == K::Modification))
                             .and_then(|m| m.children().find_map(Expr::cast));
+                        let has_bind = bind.is_some();
                         let v = if is_in {
                             let given = (named.iter().find(|(k, _)| *k == name).map(|(_, v)| v))
                                 .or_else(|| pos.get(n_in));
@@ -358,7 +436,8 @@ impl F<'_> {
                         if let V::A(a) = &v {
                             self.tick_n(a.len())?;
                         }
-                        fr.vars.insert(name, Slot { ty: t, v });
+                        let set = is_in || has_bind;
+                        fr.vars.insert(name, Slot { ty: t, v, set });
                     }
                 }
                 _ => {}
@@ -383,7 +462,9 @@ impl F<'_> {
                 Flow::Break => return None,
             }
         }
-        Some(fr.vars.remove(&out?)?.v)
+        // 出力が代入されないまま終わった関数は、値が決まらない
+        let o = fr.vars.remove(&out?)?;
+        o.set.then_some(o.v)
     }
 
     fn block(&self, stmts: &[SyntaxNode], fr: &mut Frame, d: u32) -> Option<Flow> {
@@ -471,6 +552,7 @@ impl F<'_> {
                         Slot {
                             ty: 'I',
                             v: V::S(Val::I(v)),
+                            set: true,
                         },
                     );
                     match self.block(&stmts, fr, d)? {
@@ -514,6 +596,7 @@ impl F<'_> {
         };
         let at = self.index(lhs.syntax(), fr, d)?;
         let slot = fr.vars.get_mut(name)?;
+        slot.set = true;
         match (at, v, &mut slot.v) {
             (None, v, cur) => {
                 let dims = match cur {
@@ -631,7 +714,7 @@ impl F<'_> {
                         _ => None,
                     };
                 }
-                self.eval(n, fr.file, &fr.ctx, d).map(V::S)
+                self.ev(n, fr, d)
             }
             Expr::Call(c) => {
                 let (name, args) = (c.callee()?, c.args());
@@ -650,7 +733,7 @@ impl F<'_> {
                             _ => None,
                         };
                         let Some(Slot { v: V::A(a), .. }) = local else {
-                            return self.eval(n, fr.file, &fr.ctx, d).map(V::S);
+                            return self.ev(n, fr, d);
                         };
                         (s(args.get(1)?.syntax())?.int()? == 1)
                             .then_some(V::S(Val::I(a.len() as i64)))
@@ -671,19 +754,24 @@ impl F<'_> {
                     f if BUILTINS.contains(&f) => builtin(f, &scalars(vals()?)?).map(V::S),
                     _ => {
                         let r = c.syntax().children().find_map(ast::ComponentRef::cast)?;
-                        let Some(Resolution::Class(rid)) = self.p.res_of(fr.file, r.range()) else {
-                            return None;
-                        };
+                        let (rid, heir) = self.call_target(&r, fr.file, &fr.ctx)?;
                         let pos = vals()?;
                         let named = (c.named_args().into_iter())
                             .map(|(k, e)| Some((k, self.fx(e.syntax(), fr, d)?)))
                             .collect::<Option<Vec<_>>>()?;
-                        self.run_fn(rid, pos, named, &fr.ctx)
+                        self.run_fn(rid, heir, pos, named, &fr.ctx)
                     }
                 }
             }
-            // 数・真偽・文字列・列挙・パッケージの定数
-            _ => self.eval(n, fr.file, &fr.ctx, d).map(V::S),
+            // 数・真偽・文字列（リテラルは数えない）・列挙・パッケージの定数
+            Expr::Literal(_) => self.eval(n, fr.file, &fr.ctx, d).map(V::S),
+            _ => self.ev(n, fr, d),
         }
+    }
+
+    /// 関数の中から `eval` に任せる式。1 回ごとに仕事量に数える（`eval` の中の仕事は覚えた値で抑える。S376・#158）
+    fn ev(&self, n: &SyntaxNode, fr: &Frame, d: u32) -> Option<V> {
+        self.tick()?;
+        self.eval(n, fr.file, &fr.ctx, d).map(V::S)
     }
 }

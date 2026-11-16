@@ -82,6 +82,35 @@ impl Ctx {
     }
 }
 
+/// 差し替えの組（名前 → クラス）の hash。`(…)` の修飾つきの差し替えがあるときは `None`（修飾の中身は鍵にしない）
+fn cenv_hash(c: &Cenv) -> Option<u64> {
+    use std::hash::{Hash, Hasher};
+    let c = c.try_borrow().ok()?;
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    for (k, (cid, extra)) in c.iter() {
+        if !extra.is_empty() {
+            return None;
+        }
+        (k, cid).hash(&mut h);
+    }
+    Some(h.finish())
+}
+
+/// 文脈の中身の hash（式を評価した結果を覚える鍵。`Rc` の同一性は使わない: パッケージの定数の文脈は評価のたびに作り直す）
+fn ctx_hash(ctx: &Ctx) -> Option<u64> {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    (
+        &ctx.pfx,
+        &*ctx.lineage,
+        &ctx.locals,
+        ctx.heir,
+        cenv_hash(&ctx.cenv)?,
+    )
+        .hash(&mut h);
+    Some(h.finish())
+}
+
 /// 節点の中に、名前 `names` のどれかの識別子があるか（宣言の場所で修飾された欄を、型の既定値の式が使うかの判定）
 fn mentions(n: &SyntaxNode, names: &[&String]) -> bool {
     n.descendants()
@@ -288,10 +317,12 @@ struct F<'a> {
     /// `for` の方程式の反復の数（`MAX_ITERS` で断る。S365）
     iters: usize,
     /// 関数の評価器（`fneval`。S370・S374）: この flat で数えた仕事量（呼び出しごとに戻さない）、呼び出しの入れ子の深さ、
-    /// 成功した呼び出しの結果（関数・`heir`・スカラーの引数 → 値）
+    /// 呼び出しの結果（関数・`heir`・差し替えの組・スカラーの引数 → 値。失敗も覚える）
     fn_steps: std::cell::Cell<usize>,
     fn_depth: std::cell::Cell<u32>,
-    fn_memo: RefCell<HashMap<fneval::MemoKey, fneval::V>>,
+    fn_memo: RefCell<HashMap<fneval::MemoKey, Option<fneval::V>>>,
+    /// 名前の定数・parameter の束縛の式の値（S376・#158）。鍵は式の場所と、評価する文脈の中身（`bind_key`）。成功した値だけ
+    eval_memo: RefCell<HashMap<(u32, u32, u32, u64), Val>>,
     /// `cardinality(c)` の値（`connect` の端として出てきた数）。`card_ifs` を決めるときだけ `Some`
     card: Option<HashMap<String, i64>>,
     /// expandable connector の中を平らにしている入れ子の深さ（0 より大きいあいだに宣言した変数は `exp_vars` に入る。S367）
@@ -370,6 +401,7 @@ pub(crate) fn run(p: &Project, cid: ClassId, model: &str) -> Res<FlatModel> {
         fn_steps: std::cell::Cell::new(0),
         fn_depth: std::cell::Cell::new(0),
         fn_memo: RefCell::default(),
+        eval_memo: RefCell::default(),
         card: None,
         exp_depth: 0,
         exp_vars: HashSet::new(),
@@ -1792,21 +1824,22 @@ impl F<'_> {
                 let (Some(name), Some(sb)) = (cd.name(), cd.short_body()) else {
                     return un("redeclare", red.text().to_string());
                 };
-                if matches!(cd.kind_token().map(|t| t.kind()), Some(K::KwFunction)) {
-                    return Ok(None);
-                }
+                // 関数は平らにしない（差し替え先は呼び出しの評価器だけが引く。S376・#155）。引けない・修飾つきのものは今までどおり捨てる
+                let is_fn = matches!(cd.kind_token().map(|t| t.kind()), Some(K::KwFunction));
                 let Some(base) = sb.base() else {
                     return un("redeclare", red.text().to_string());
                 };
                 let (Some(Resolution::Class(cid)), _, _) = self.class_res(snip.fid, &base, ctx)
                 else {
+                    if is_fn {
+                        return Ok(None);
+                    }
                     return un("redeclare", format!("{name} = {}", base.parts().join(".")));
                 };
-                let extra = match sb
-                    .syntax()
-                    .children()
-                    .find(|c| c.kind() == K::ClassModification)
-                {
+                let cm = (sb.syntax().children()).find(|c| c.kind() == K::ClassModification);
+                let extra = match cm {
+                    // 関数の `(…)` の修飾は評価器が見ない。あることだけ覚える（`call_target` は断る）
+                    Some(_) if is_fn => ModMap::from([(String::new(), Mod::default())]),
                     Some(cm) => self.mods_of(&cm, snip.fid, ctx)?,
                     None => ModMap::new(),
                 };
@@ -2205,6 +2238,43 @@ impl F<'_> {
 
     // ---------------------------------------------------------------- 定数の評価
 
+    /// パッケージの定数 `P5.n`（宣言したクラスは `cid`）の参照の、名前が通ったパッケージ `P5`。`cid` と同じか、`cid` を受け継いでいなければ `None`（S376・#156）
+    fn via_class(&self, file: u32, r: &ast::ComponentRef, cid: ClassId) -> Option<ClassId> {
+        let parts = r.parts();
+        if parts.len() < 2 || file >= crate::SNIP_FILE_BASE {
+            return None;
+        }
+        let scope = self.p.lib.class_at(file, u32::from(r.range().start()))?;
+        let pre = Ref {
+            file,
+            range: r.range(),
+            scope,
+            kind: RefKind::Type,
+            parts: parts[..parts.len() - 1].to_vec(),
+            global: r.is_global(),
+            local: false,
+        };
+        match self.p.lib.resolve(&pre) {
+            Resolution::Class(h) if h != cid && self.p.lineage(h).contains(&cid) => Some(h),
+            _ => None,
+        }
+    }
+
+    /// 名前の定数・parameter の束縛の式 `n` の値。成功した値を覚える（`c_i = c_{i-1} + c_{i-1}` の連鎖が 2^n 回の評価にならない。S376・#158）。
+    /// 差し替えの `(…)` の修飾がある文脈は覚えない
+    fn eval_bind(&self, n: &SyntaxNode, file: u32, ctx: &Rc<Ctx>, d: u32) -> Option<Val> {
+        let r = n.text_range();
+        let key = ctx_hash(ctx).map(|h| (file, r.start().into(), r.end().into(), h));
+        if let Some(v) = key.and_then(|k| self.eval_memo.borrow().get(&k).copied()) {
+            return Some(v);
+        }
+        let v = self.eval(n, file, ctx, d)?;
+        if let Some(k) = key {
+            self.eval_memo.borrow_mut().insert(k, v);
+        }
+        Some(v)
+    }
+
     fn eval(&self, n: &SyntaxNode, file: u32, ctx: &Rc<Ctx>, depth: u32) -> Option<Val> {
         if depth > 48 {
             return None;
@@ -2268,13 +2338,13 @@ impl F<'_> {
                 };
                 let at = |b: &Bind| match &sub {
                     Some(ix) => self.eval_at(&b.node, ix, b.file, &b.ctx, d),
-                    None => self.eval(&b.node, b.file, &b.ctx, d),
+                    None => self.eval_bind(&b.node, b.file, &b.ctx, d),
                 };
                 // `Medium.nX`: `Medium` が `redeclare` された package なら、差し替え先の定数
                 if sub.is_none()
                     && let Some((node, f, c2)) = self.dyn_const(&c, ctx)
                 {
-                    return self.eval(&node, f, &c2, d);
+                    return self.eval_bind(&node, f, &c2, d);
                 }
                 match &self.p.res_of(file, c.range())? {
                     Resolution::Local if parts.len() == 1 && sub.is_none() => {
@@ -2332,10 +2402,11 @@ impl F<'_> {
                             if self.is_enum(*cid) {
                                 return Some(Val::E(*cid, *idx));
                             }
-                            let (node, f, c2) = self.pkg_binding(ctx, *cid, comp)?;
+                            let via = self.via_class(file, &c, *cid);
+                            let (node, f, c2) = self.pkg_binding(ctx, *cid, comp, via)?;
                             match &sub {
                                 Some(ix) => self.eval_at(&node, ix, f, &c2, d),
-                                None => self.eval(&node, f, &c2, d),
+                                None => self.eval_bind(&node, f, &c2, d),
                             }
                         }
                     }
@@ -2360,7 +2431,7 @@ impl F<'_> {
                                 if ctx.pfx == PKG || !ctx.lineage.contains(cid) =>
                             {
                                 let comp = &self.p.lib.classes[*cid].components[*idx].name;
-                                self.pkg_binding(ctx, *cid, comp)
+                                self.pkg_binding(ctx, *cid, comp, self.via_class(file, r, *cid))
                             }
                             _ => None,
                         }) {
@@ -2642,12 +2713,14 @@ impl F<'_> {
         ctx: &Rc<Ctx>,
         cid: ClassId,
         comp: &str,
+        via: Option<ClassId>,
     ) -> Option<(SyntaxNode, u32, Rc<Ctx>)> {
-        let h = if ctx.pfx == PKG {
+        // 参照の名前が通ったパッケージ（`P5.n`）が先
+        let h = via.or(if ctx.pfx == PKG {
             ctx.lineage.first().copied()
         } else {
             ctx.heir
-        };
+        });
         // 差し替え後のパッケージの `extends` の修飾が効くのは、そのパッケージの系統の定数だけ（別のパッケージの同じ名前の定数に当てない。
         // `K.small = Svc.Machine.small` を評価するときに `Svc.Machine.small` が `K.small` を引いて輪になる）
         if let Some(b) = h
@@ -2769,9 +2842,7 @@ impl F<'_> {
     /// スカラーの出力・レコードの出力は `None`（今までと同じく 1 つと数える）
     fn fn_out_dims(&self, c: &ast::CallExpr, file: u32, ctx: &Rc<Ctx>) -> Option<Vec<usize>> {
         let r = c.syntax().children().find_map(ast::ComponentRef::cast)?;
-        let Some(Resolution::Class(rid)) = self.p.res_of(file, r.range()) else {
-            return None;
-        };
+        let (rid, _) = self.call_target(&r, file, ctx)?;
         self.class_out_dims(rid, ctx, Some((c, file)))
     }
 
@@ -3055,7 +3126,8 @@ impl F<'_> {
                         if self.pkg_const(*cid, comp).is_some_and(|c| c.3) {
                             return Some(Vec::new());
                         }
-                        let (node, f, c2) = self.pkg_binding(ctx, *cid, comp)?;
+                        let via = self.via_class(file, &c, *cid);
+                        let (node, f, c2) = self.pkg_binding(ctx, *cid, comp, via)?;
                         self.dims_of(&node, f, &c2)
                     }
                     Resolution::Component(..) => {
@@ -3456,6 +3528,7 @@ impl F<'_> {
             *counts.entry(b.clone()).or_insert(0) += 1;
         }
         self.card = Some(counts);
+        self.eval_memo.borrow_mut().clear();
         let mut chosen: HashMap<String, Vec<Equation>> = HashMap::new();
         for f in std::mem::take(&mut self.card_ifs) {
             let mut pick = None;
@@ -3475,6 +3548,7 @@ impl F<'_> {
             chosen.insert(f.marker, pick.unwrap_or_default());
         }
         self.card = None;
+        self.eval_memo.borrow_mut().clear();
         for list in [&mut self.eqs, &mut self.ieqs] {
             if list.iter().any(|e| chosen.contains_key(&e.text)) {
                 *list = std::mem::take(list)
@@ -4775,5 +4849,203 @@ mod tests {
                 .unwrap_err();
             assert_eq!(e.kind, "non-constant-dim", "{range}");
         }
+    }
+
+    /// 変数の（名前, 大きさ）。断られたら種類
+    fn sized(src: &str) -> Result<Vec<(String, Vec<usize>)>, String> {
+        let m = Project::from_sources([("t.mo", src)])
+            .flatten("M")
+            .map_err(|e| e.kind)?;
+        Ok(m.vars
+            .iter()
+            .map(|v| (v.name.clone(), v.dims.clone()))
+            .collect())
+    }
+
+    /// 変数 `name` の大きさ（1 次元）
+    fn dim_of(src: &str, name: &str) -> Result<usize, String> {
+        let v = sized(src)?;
+        Ok(v.iter()
+            .find(|(n, _)| n == name)
+            .unwrap_or_else(|| panic!("{name}"))
+            .1[0])
+    }
+
+    #[test]
+    fn function_reads_package_constants_of_the_reaching_package() {
+        // #156: 関数の本体が読む package の定数は、呼び出しを通した側の package（`extends P(n = 5)`・`redeclare package`）の値
+        let pp = "package PP constant Integer n = 1;
+              function f input Integer k; output Integer y; algorithm y := k + n; end f;
+              constant Integer m = f(1);
+            end PP;
+            package P5 extends PP(n = 5); end P5;
+            package P7 = PP(n = 7);";
+        let m = |body: &str| format!("{pp} model M {body} end M;");
+        // `P5.n`（関数なし）・`P5.m = f(1)`・`P5.f(1)`・短い形の package。宣言した側の `PP` は 1 のまま
+        for (decl, name, want) in [
+            ("Real a[PP.m];", "a", 2),
+            ("Real a[P5.n];", "a", 5),
+            ("Real a[P5.m];", "a", 6),
+            ("Real a[P5.f(1)];", "a", 6),
+            ("Real a[P7.m];", "a", 8),
+            ("Real a[P7.f(2)];", "a", 9),
+        ] {
+            assert_eq!(dim_of(&m(decl), name), Ok(want), "{decl}");
+        }
+        // `redeclare package` を通す。`s2`（既定の `PP`）は 1 のまま
+        let sub = "model Sub replaceable package P = PP; Real a[P.f(1)]; Real b[P.n + 1]; Real c[P.m]; end Sub;";
+        let src = format!(
+            "{pp} {sub} model M Sub s1(redeclare package P = P5); Sub s2; Sub s3(redeclare package P = P7); end M;"
+        );
+        let v = sized(&src).unwrap();
+        let got: Vec<_> = v.iter().map(|(n, d)| (n.as_str(), d[0])).collect();
+        assert_eq!(
+            got,
+            [
+                ("s1.a", 6),
+                ("s1.b", 6),
+                ("s1.c", 6),
+                ("s2.a", 2),
+                ("s2.b", 2),
+                ("s2.c", 2),
+                ("s3.a", 8),
+                ("s3.b", 8),
+                ("s3.c", 8)
+            ]
+        );
+    }
+
+    #[test]
+    fn redeclared_and_partial_functions_are_not_run_as_declared() {
+        // #155: `redeclare function f = f3` と、package ごとの差し替えを引く。本体の無い `partial` の関数・出力が代入されない関数は「分からない」
+        let sub = "model Sub replaceable function f input Integer k; output Integer y; algorithm y := k; end f;
+              Real x[f(2)]; end Sub;
+            function f3 input Integer k; output Integer y; algorithm y := 3*k; end f3;";
+        let a = |body: &str, name: &str| dim_of(&format!("{sub} model M {body} end M;"), name);
+        assert_eq!(a("Sub a(redeclare function f = f3); Sub b;", "a.x"), Ok(6));
+        assert_eq!(a("Sub a(redeclare function f = f3); Sub b;", "b.x"), Ok(2));
+        // package の中の関数（`replaceable`・`partial`）
+        let pk = "partial package PP replaceable partial function f input Integer k; output Integer y; end f; end PP;
+            package P3 extends PP; redeclare function f input Integer k; output Integer y; algorithm y := 3*k; end f; end P3;
+            package Q extends PP; end Q;
+            model Sub replaceable package P = PP; Real x[P.f(2)]; end Sub;";
+        let b = |body: &str| dim_of(&format!("{pk} model M {body} end M;"), "a.x");
+        assert_eq!(b("Sub a(redeclare package P = P3);"), Ok(6));
+        // 差し替えがない（本体の無い `partial` の `f`）・本体の無い関数を受け継いだだけの package は 0 にせず断る
+        assert_eq!(b("Sub a;"), Err("non-constant-dim".into()));
+        assert_eq!(
+            b("Sub a(redeclare package P = Q);"),
+            Err("non-constant-dim".into())
+        );
+        // 非 `partial` の関数を `P3` が差し替える（`b` は宣言した側）
+        let pk = "package PP replaceable function f input Integer k; output Integer y; algorithm y := k; end f; end PP;
+            package P3 extends PP; redeclare function f input Integer k; output Integer y; algorithm y := 3*k; end f; end P3;
+            model Sub replaceable package P = PP; Real x[P.f(2)]; end Sub;
+            model M Sub a(redeclare package P = P3); Sub b; end M;";
+        assert_eq!(
+            sized(pk).unwrap(),
+            [("a.x".into(), vec![6]), ("b.x".into(), vec![2])]
+        );
+        // 出力が代入されないまま終わった関数
+        let g = "function g input Integer k; output Integer y; algorithm if k > 100 then y := 1; end if; end g;";
+        assert_eq!(
+            sized(&format!("{g} model M Real x[g(2) + 3]; end M;")),
+            Err("non-constant-dim".into())
+        );
+        assert_eq!(
+            dim_of(&format!("{g} model M Real x[g(200) + 3]; end M;"), "x"),
+            Ok(4)
+        );
+    }
+
+    #[test]
+    fn function_memo_works_with_redeclared_packages_and_tells_contexts_apart() {
+        // #154: `redeclare` が 1 つあるだけで結果を覚えず、インスタンスの数だけ関数を走らせて予算（試験では 1 万）が尽きた
+        let w = "function w input Integer k; output Integer y; algorithm y := 0; for i in 1:1000 loop y := y + 1; end for; y := k; end w;
+            package PP constant Integer c = 1; end PP;
+            package P5 extends PP(c = 5); end P5;
+            model Sub replaceable package P = PP; parameter Integer n = w(2); Real a[n]; end Sub;";
+        let inst = |n: usize, red: &str| -> String {
+            let xs: String = (0..n).map(|i| format!("Sub s{i}{red}; ")).collect();
+            format!("{w} model M {xs} end M;")
+        };
+        assert!(sized(&inst(20, "")).is_ok());
+        assert!(sized(&inst(20, "(redeclare package P = P5)")).is_ok());
+        // 鍵は差し替えの組を区別する: 局所の関数が `P.c` を読み、`P` が違うインスタンスは値が違う（順序によらない）
+        let g = "package PP constant Integer c = 1; end PP;
+            package P5 extends PP(c = 5); end P5;
+            model Sub replaceable package P = PP;
+              function g input Integer k; output Integer y; algorithm y := k + P.c; end g;
+              Real x[g(1)];
+            end Sub;";
+        for decls in [
+            "Sub s1(redeclare package P = P5); Sub s2;",
+            "Sub s2; Sub s1(redeclare package P = P5);",
+        ] {
+            let v = sized(&format!("{g} model M {decls} end M;")).unwrap();
+            let d = |n: &str| v.iter().find(|(k, _)| k == n).unwrap().1[0];
+            assert_eq!((d("s1.x"), d("s2.x")), (6, 2), "{decls}");
+        }
+    }
+
+    #[test]
+    fn failed_calls_are_remembered_so_unrelated_calls_are_not_refused() {
+        // #153: 評価できない関数の呼び出しは結果を覚えず、同じ式を評価するたびに予算を使って、無関係な `ok(3)` まで断られた
+        let n = 40;
+        let xs: String = (0..n).map(|i| format!("A a{i}; ")).collect();
+        let src = format!(
+            "function ext input Real x; output Real y; external \"C\" y = ext_c(x); end ext;
+            function slow input Integer n; output Real y; algorithm y := 0; for i in 1:n loop y := y + 1; end for; y := ext(y); end slow;
+            function ok input Integer k; output Integer y; algorithm y := k; end ok;
+            model A parameter Real p = slow(300); Real w; equation if p > 0 then w = 1; else w = 2; end if; end A;
+            model B Real v[ok(3)]; equation for i in 1:3 loop v[i] = time; end for; end B;
+            model M {xs} B b; end M;"
+        );
+        assert_eq!(dim_of(&src, "b.v"), Ok(3));
+    }
+
+    #[test]
+    fn constant_chains_are_evaluated_once_per_binding() {
+        // #158: `c_i = c_{i-1} + c_{i-1}` は共有を覚えず 2^n 回の評価になった。評価の入れ子の上限（約 24 段）を、覚えた値が越える
+        // （手前の値を先に評価して覚えておくと、深い段が届く。覚えないと上限で断られる）
+        let k = |names: &[usize]| {
+            let cs: String = (1..=34)
+                .map(|i| format!("constant Integer c{i} = c{} + c{};", i - 1, i - 1))
+                .collect();
+            let xs: String = names
+                .iter()
+                .map(|i| format!("Real a{i}[K.c{i} + 1]; "))
+                .collect();
+            format!("package K constant Integer c0 = 0; {cs} end K; model M {xs} end M;")
+        };
+        assert!(sized(&k(&[4, 8, 12, 16, 20, 24, 28, 32])).is_ok());
+        assert_eq!(sized(&k(&[34])), Err("non-constant-dim".into()));
+        // モデルの parameter の連鎖も同じ
+        let ps: String = (1..=34)
+            .map(|i| format!("parameter Integer c{i} = c{} + c{};", i - 1, i - 1))
+            .collect();
+        let m = |names: &[usize]| {
+            let xs: String = names
+                .iter()
+                .map(|i| format!("Real a{i}[c{i} + 1]; "))
+                .collect();
+            format!("model M parameter Integer c0 = 0; {ps} {xs} end M;")
+        };
+        assert!(sized(&m(&[4, 8, 12, 16, 20, 24, 28, 32])).is_ok());
+        assert_eq!(sized(&m(&[34])), Err("non-constant-dim".into()));
+    }
+
+    #[test]
+    fn evaluations_inside_functions_are_budgeted() {
+        // #158: 関数の中で package の定数を読む評価も仕事量に数える（1 反復 2 tick に読みの 1 tick が加わる。予算は試験で 1 万）
+        let f = |n: usize| {
+            format!(
+                "package K constant Integer c = 1; end K;
+                function f input Integer n; output Integer y; algorithm y := 0; for i in 1:n loop y := y + K.c; end for; end f;
+                model M Real x[f({n})]; end M;"
+            )
+        };
+        assert_eq!(dim_of(&f(2000), "x"), Ok(2000));
+        assert_eq!(sized(&f(4000)), Err("non-constant-dim".into()));
     }
 }
