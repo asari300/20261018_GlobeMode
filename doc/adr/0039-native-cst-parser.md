@@ -786,3 +786,37 @@ S369 の `libraries.yml`（run 43772634191、main は S367 まで）で、Rumoca
 
 持ち越し: 文字列の変数を持つ関数（`Slot` の型に文字列）、実数の `String(x)` の書式、`(…)` の修飾を当てた束縛の再評価、`import` の別名を通した入れ子の package の関数。
 
+## 付記（S378）: 11 回目のレビューの flat の issue（#160〜#168）と、値を出す経路・断る経路
+
+新しい ADR は立てない。11 回目のレビュー（S376・S377 の変更）の flat の issue 9 件を、1 件ずつ再現してから直した。各修正に回帰試験を足した（10 本。うち 8 本は、直す前の `flatten.rs`・`fneval.rs` に差し替えて、8 本とも落ちることを確かめた。残り 2 本〔断る経路・`reaches_mod` の精度〕は、直す前の値を probe〔`flatprobe11`〕で確かめた）。比べる相手は omc 1.27.2 の `instantiateModel`（変数ごとの大きさ。`dd.py`）。native の検査（`--frontend native`・LSP で設定したとき・wasm の `check_with(…, "native")`）だけに届く。
+
+### 方針: 値を出す経路と断る経路
+
+9 件のうち 6 件（#161・#162・#163・#165・#167・#168）は、10 回目（S376・S377）に続いて**同じ根**だった。package の定数や関数の値が、宣言した package と違う package（`extends P(n = 5)`・`redeclare package`・入れ子の package・`redeclare package P = P` の受け渡し・関数の差し替え）を通って決まるとき、その経路の取りこぼしで黙って違う値が出る。経路ごとに正しい値を出す道を足すと、また別の経路の取りこぼしが出る。そこで次の方針にした。
+
+- **値を出すのは、経路を全部たどれたときだけ。** たどれない・2 つ以上ありうる場合は「分からない」（断る。flat が `Unsupported`、式は `None`）。
+- **読む package を 1 か所で決める**（`route`。`flatten.rs`）。定数・関数を宣言したクラス `container` と、名前が通った package の列 `path`（`P5.Inner.c` なら `P5`、`P5.Inner`）を末尾から合わせ、`container` とその外側のクラスを同じ位置の package が受け継いでいれば、それを通す。結果は 4 つ。
+  - `Heir(h)`: 受け継いだ package `h` を通した値（`extends` の修飾・`redeclare`）。宣言した側の束縛が外側の定数を読むときも `h` を通す（`pkg_binding` が束縛の文脈の `heir` に入れる。PKG の文脈の `heir` はこのとき初めて使う）。
+  - `Static`: 受け継ぎが無く、名前が `container` の外側をすべて明示している（`PP.n`・`PP.f(k)`）。宣言した側の値で、呼び出し元の `heir`・`cenv`・インスタンスの系統を持ち込まない。
+  - `Relative`: 外側が名前に出ない（`n`・`Inner.f`）、`import` の別名。呼び出しの文脈の package（今までどおり）。
+  - `Ambiguous`: 外側ごとに別の package が受け継いでいて、内側が外側の中にない。断る。入れ子の package が内側の中にあれば（`Q.Inner` は `Q` の中）、内側を `heir` にして、定数は内側から外側へ `chain` をたどって引く。
+- S376 の `reaching`（関数だけ）と `via_class`（定数だけ、最後の名前の package だけ）は `route` に置き換えた。
+
+### 各 issue
+
+- **#161**: `P5.Inner.c`（`c = n + 1`）・`P5.Inner.f(1)` が `P5` を通す。`pkg_binding` は経路を `Route` で受け取り、`heir` の系統（`chain`）に宣言したクラスが入れば `pkg_env`、入らなければ宣言した側の束縛を `heir` つきの文脈で評価する（`with_heir`）。`P7 = PP(n = 7)`・`Q extends P5(n = 8)`・`redeclare package P = P5` も同じ（6・7・8・9）。
+- **#162**: `dyn_const` を名前 3 つ以上に広げた（`dyn_nested_const`）。差し替え先から `member_class`（`R` の `redeclare package Inner = Other` を含む）で入れ子をたどり、最後の定数を `route` つきで引く。`(…)` の修飾つきの差し替えを通る入れ子の定数は決めない（以前は宣言した側の値を黙って出した）。列挙の要素（`Medium.Choices.pT`）・たどれない名前は今までどおり静的に引く。
+- **#163**: `redeclaration` の `Class` の枝が、`class_res` の 2 つ目の戻り値（外側の差し替えの `(…)` の修飾）を捨てていた。内側に書いた `(…)` を `merge`（内側が勝つ）して `Redecl::Class` の `extra` にする。
+- **#164**: `cenv_hash` が `(…)` の修飾の中身も鍵にする（`mods_hash`。式と、書いた場所の文脈）。名前を含まない式（`5`）は字面で、含む式は場所（ファイル・範囲）で区別する。場所だけだと、インスタンスごとに同じ `(c = 5)` を書いた 300 個が別の鍵になる。`Redecl::Comp`・深さ 4 を超える入れ子は鍵にしない（覚えない）。
+- **#165**: `alias_heir` の `partial`・`class extends` の条件を外し、型名の前半が宣言した側の外側のクラスの名前と食い違うときだけ `route` で引く（`Modelica.Blocks.Interfaces.RealInput` のように名前が並んでいるだけなら引き直さない）。`class_res` も、差し替え先から入れ子の型（`L.Sub.Y`）を引くとき、直前の package でなく `route` の `heir`（`Lib5`）を `owner` にする。
+- **#166・#167・#168**: `call_target` は `Target { rid, heir, stat }` を返す。`stat` は名前が宣言した側を明示する静的な呼び出し（`Static`・`Heir`）で、本体の文脈は呼び出し元の差し替えの表・インスタンスの系統を持たない（`call_ctx`。`fn_memo` の鍵も）。`fn_frame` が `Target` の `heir` を使う（戻り値の大きさ `output Real y[n]` の `n`）。`Static` は呼び出し元の `heir` に落とさない（`PP.f(k)`）。定数の参照 `PP.n` も同じ判定（issue に無い同じ根。`P5.w = PP.n + 1` は 2）。
+- **`(…)` の修飾に届くかの判定（`reaches_mod`）の精度**（S378 で足した。issue に無い）: 断る側に寄せた最初の版で `libraries.yml`（feature ブランチ）を回すと、前回（S373 の run）より平らにできた例題が 6 本減っていた（取れた 9 分割での数。AixLib・Buildings・IBPSA の `Media` の例題。`Medium.nX`・`Medium.nC` が「分からない」）。5 本は S377 の `dyn_const`（`(…)` つきの差し替えの `reaches_mod`）が、1 本（AixLib の `BranchingDynamicPipes`）は #163 の直しで外側の `(…)` が内側の `Medium` に届くようになったのが当たった。原因は判定が粗いこと: `nX = size(substanceNames, 1)`・`substanceNames = {mediumName}`・`mediumName = "…" + String(p_nominal) + …` の連鎖が `p_nominal`（`(…)` の修飾）に届くとし、`fill("", 0)` の呼び出し（組み込み）も「関数を呼ぶ」とみなして断っていた。**組み込み（`fill`・`zeros`・`String` など）は本体を読まない**とし、**`size(X, k)` は `X` の束縛が配列リテラル（内包なし）なら形だけを使う**として要素の中身は見ない（`X` が修飾された名前なら見る）。`zeros(k)` のように形が修飾された名前に依るものは今までどおり断る。6 本とも平らに戻った（試験 `parenthesized_redeclare_still_decides_shapes_that_do_not_read_the_modification`）。
+- **#160**: 文字列の表の中身の総量に上限（`MAX_STRS` = 16 MiB。試験では 1 MiB）。超えたら `intern`・`cat` が `None`。
+
+### 数字
+
+- **回帰試験**: 10 本（`globe-mode-flat` の単体 20 → 30 本）。omc の `instantiateModel` との突き合わせ: 再現 9 件と、`sweep1.mo`（`PP`・`P5`・`P3`・`P35`・`P7`・`Q`・`R` × `n`・`m`・`f(2)`・`Inner.c`・`Inner.h(2)`・`g(2)` の 42 通り。直す前は 10 件が違った）・`h1.mo`（13 変数）・`v1.mo`（24 変数）が全部一致。`(…)` つきの差し替えを通る入れ子の定数（`sweep3.mo` の `Dyn2`）と `P = PP(n = 5)` の `P.m` は断る。
+- **全体の検査**（MSL の例題 566 本・`GlobeModeValidation` 75 本、`msl:diff-frontend` と同じ `diff-frontend`。S377 の全体の検査の JSON との差）: **回帰 0 本・改善 0 本**（641 本の結果が時間と最大の常駐メモリを除いて S377 の基準と全部同じ。JSON を突き合わせた）。平らにできた 565/566・DAE にできた 565/565（FFT の 4 本は平らなまま）、Rumoca も通った 532 本で名前 529/532・方程式の数 517/532、Rumoca の釣り合いまで通った 382 本で判定 382/382・数 381/382・状態 381/382・構造の正則 382/382、`GlobeModeValidation` 75 本も S377 と同じ。最終のコードで 1099 s（同時に別の担当が動いていた【原因は未確認】）・最大 RSS 5.9 GiB（VmHWM）、`reaches_mod` を直す前は 895 s・6.0 GiB（S377 は 887 s・5.9 GiB）。2 回とも結果は同じ。MSL に「断る」に変わる形（`Ambiguous`・`(…)` つきの差し替えを通る入れ子の定数）は 0 件だったので、断る側に寄せても平らにできた本数は減らない。
+- **公開ライブラリ**（自前の flat・DAE の `diff-frontend --library`。`libraries.yml` を feature ブランチで 2 回回した）: 最初の版は、取れた 9 分割（Buildings の 4 分割目は取る前に取り消した）で 1085 → 1079（6 本減）、`reaches_mod` を直した最終のコード（run 43832297514）は、9 分割（AixLib 2・Buildings 3・Chemical・ClaRa・DeltaRobot・IBPSA・ThermofluidStream）で 1085 → 1085、Buildings の 4 分割目は run が長いので同じコードを手元で `diff-frontend --library data/libs/Buildings --package Buildings --examples-in Examples --shard 4/4`（1 時間 20 秒、最大 RSS 2.8 GiB）で回して 103 → 103 だった。**合計 1188 本で前回（S373 の run、1188 本）と同じ**。各例題の判定（flat・DAE・名前・方程式の数）も全部同じ（JSON を突き合わせた）。run 43832297514 は Buildings の 4 分割目の sim を待たずに取り消した。
+
+持ち越し: 内側が外側の中にない継承の入れ子（`v2.mo` の `X.Y.c`。`A` の中の `package Y = Z(c = 7)` を、`X extends A(n = 5)` を通して引く）は `Ambiguous` で断る。omc は 7（`X.Z.c` は 6）で、直す前は最後の名前の package だけで決めて `X.Y.c` は 7（合う）、`X.Z.c` は 2（6 のはず）だった。値にするには `heir` を 1 つでなく経路（`X` と `A.Y`）にする。`(…)` の修飾が入れ子の定数に届くかを決める（束縛の再評価）。`import` の別名を通した名前の外側（`Relative`）。
