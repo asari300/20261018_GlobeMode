@@ -4,7 +4,9 @@ All notable changes are listed here. The format follows [Keep a Changelog](https
 
 ## [Unreleased]
 
-**次の版は 0.2.0**（S172 で Cargo・Tauri・Python・npm・VS Code の拡張・Elixir・Gleam の版を 0.2.0 に揃えた。一覧は [architecture.md](doc/architecture.md) の「版を書いている場所」）。S001〜S179 の要点（S048 以降は S168 で、S166〜S179 は S179 で足した。内部の整理は束ねた）。S249〜S268 のうち利用者に見えるものは S273 で、S274〜S288 のうち利用者に見えるものは S292 で、S284・S290〜S302 のうち利用者に見えるものは S304 で、S297〜S313 のうち利用者に見えるもの（S310・S312 を除く）は S317 で、S312・S315〜S325 のうち利用者に見えるものは S326 で、S327・S329〜S334 のうち利用者に見えるもの（S327 の issue と Track B の進捗。S328 は足してある）は S342 で、S335〜S354 のうち足していなかったもの（S335・S339・S341・S348・S353。Track B の数字の更新も）は S356 で足した。日付と比較リンクは公開のときに入れる。GitHub の Release・タグ・PyPI・crates.io・VS Code の Marketplace のどれにも出していない（crates.io に出せないのは Rumoca の git 依存のため。[ADR-0002](doc/adr/0002-rumoca-adapter.md)）。
+## [0.2.0] - 2026-11-17
+
+**0.2.0 の変更点**（S172 で Cargo・Tauri・Python・npm・VS Code の拡張・Elixir・Gleam の版を 0.2.0 に揃えた。一覧は [architecture.md](doc/architecture.md) の「版を書いている場所」）。S001〜S179 の要点（S048 以降は S168 で、S166〜S179 は S179 で足した。内部の整理は束ねた）。S249〜S268 のうち利用者に見えるものは S273 で、S274〜S288 のうち利用者に見えるものは S292 で、S284・S290〜S302 のうち利用者に見えるものは S304 で、S297〜S313 のうち利用者に見えるもの（S310・S312 を除く）は S317 で、S312・S315〜S325 のうち利用者に見えるものは S326 で、S327・S329〜S334 のうち利用者に見えるもの（S327 の issue と Track B の進捗。S328 は足してある）は S342 で、S335〜S354 のうち足していなかったもの（S335・S339・S341・S348・S353。Track B の数字の更新も）は S356 で足した。日付は版の内容を確定した日で、公開した日ではない。比較リンクはタグを打つときに入れる。GitHub の Release・タグ・PyPI・crates.io・VS Code の Marketplace のどれにも、まだ出していない（crates.io に出せないのは Rumoca の git 依存のため。[ADR-0002](doc/adr/0002-rumoca-adapter.md)）。
 
 ### 運用・計画（P0）
 
