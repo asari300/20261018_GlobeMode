@@ -144,10 +144,10 @@ Rumoca の rev は GlobeMode の版ごとに固定する（[ADR-0002](adr/0002-r
 | `fmu-import.yml` | 手動 | Import の試験を Linux・Windows・macOS で回す（Reference-FMUs の参照の CSV・解析解との突き合わせ、`globe fmu info` / `run`。S204・S205） |
 | `desktop.yml` | 手動 | Tauri の Desktop の .deb・.msi・.dmg と smoke、UI の測定（S049・S160） |
 | `android.yml` | 手動、main の `src/Rust/apps/desktop/**`・`src/Svelte/**` の変更 | debug・release の APK と API 34 のエミュレータの smoke（S092・S100・S106） |
-| `web.yml` | 手動 | ブラウザ版の配布物 `globe-web`（S145） |
+| `web.yml` | 手動 | ブラウザ版の配布物 `globe-web`（S145。S380 から wasm・npm のライセンス表と SBOM も入る） |
 | `ui-bench.yml` | 手動 | 3 UI のブラウザ版の測定（S156、[bench/ui.md](bench/ui.md)） |
 | `vscode.yml` | 手動、main の `src/VSCode/**` の変更 | 本物の VS Code で拡張を確かめる（S165）。S233 から Linux・Windows・macOS の 3 OS（`fail-fast: false`。`xvfb-run` は Linux だけ） |
-| `release.yml` | タグ `v*` の push、手動（dry-run。入力 `tag` でタグの経路も、Release は作らない） | `globe`・Python の wheel・Desktop の bundle・サードパーティの表を作り Release に付ける（S044・S074・S135・S195）。手順は [release.md](release.md) |
+| `release.yml` | タグ `v*` の push、手動（dry-run。入力 `tag` でタグの経路も、Release は作らない） | `globe`・Python の wheel・Desktop の bundle・サードパーティの表（`THIRD-PARTY*.md`）・CycloneDX の SBOM（`sbom-*.cdx.json`）を作り Release に付ける（S044・S074・S135・S195・S380）。手順は [release.md](release.md) |
 
 ## 3. 中核の設計
 

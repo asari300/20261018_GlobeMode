@@ -318,7 +318,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 ### S044（P8 の 1 回目、2026-10-31）で済んだこと
 
 - **v0.1 のリリース工程**（[計画書](plan/2026-10-30-release-estimate-and-parallel-plan.md)の WP-I）: `.github/workflows/release.yml`（タグ `v*` の push で `globe` を linux x86_64・linux aarch64（`ubuntu-24.04-arm`）・windows x86_64 でビルドし、`.tar.gz` / `.zip`（`globe`・LICENSE-MIT・LICENSE-APACHE・README）と `SHA256SUMS` を Release に付ける。手動は dry-run で artifact だけ。`sundials` は付けない。cargo-dist は使わない）、`CHANGELOG.md`（S001〜S041）、`[workspace.package]` の metadata（`publish = false` と version は変えない）、README の Install。ビルドは CI の dry-run で確かめる。
-- 持ち越し: タグ `v0.1.0-rc1` の dry-run、配布物のサードパーティのライセンス表（cargo-about）、署名・deb・msi（WP-C と一緒に）。
+- 持ち越し: ~~タグ `v0.1.0-rc1` の dry-run~~（S052 で済）、~~配布物のサードパーティのライセンス表（cargo-about）~~（S052 で済）、署名・deb・msi（WP-C と一緒に）。
 
 ### S042（P4 の 4 回目、2026-10-31）で済んだこと
 
@@ -388,7 +388,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 - **release.yml の dry-run と配布物のライセンス表**（S044 の持ち越し）: feature ブランチで `gh workflow run release.yml --ref feature/s052-release-rc1-about`（run 41195617479、約 3.5 分）が success。artifact は `globe-x86_64-unknown-linux-gnu`（17,266,507 バイト）・`globe-aarch64-unknown-linux-gnu`（15,732,498）・`globe-x86_64-pc-windows-msvc`（14,763,818）と `SHA256SUMS`。タグは打っていない。
 - **`THIRD-PARTY.md`**: ジョブ `third-party` が cargo-about 0.9.2（`cargo install --locked --features cli`）で `globe-mode-cli` の依存 325 crate（Apache-2.0 240・MIT 67・Unicode-3.0 19・Zlib 2・BSD-2-Clause 1・ISC 1、338,277 バイト）の表を作り、3 つのビルドが各アーカイブに同梱する。`about.toml` の `accepted` は deny.toml の allow と同じ 10 個で、許可外があれば `--fail` で落ちる。[licenses.md](licenses.md) の 3・4 と末尾の節を直した。
 - `CHANGELOG.md` に S042〜S047 と S044・S045・S052 の項目を足した。
-- 持ち越し: タグ `v0.1.0-rc1` の Release（ユーザーが打つ）、npm・wasm のライセンス表（wheel は S074）、CycloneDX の SBOM、署名・deb・msi（WP-C）。
+- 持ち越し: タグ `v0.1.0-rc1` の Release（ユーザーが打つ）、~~npm・wasm のライセンス表（wheel は S074）~~（S380 で済）、~~CycloneDX の SBOM~~（S380 で済）、署名・deb・msi（WP-C）。
 
 ### S051（P3、2026-10-31）で済んだこと
 
@@ -711,7 +711,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 ### S135（P4、2026-11-03）で済んだこと
 
 - **Desktop の自動更新の仕組み**（features.md の「署名と自動更新は未」。[解説書](sessions/S135-desktop-updater/解説書.md)、[ADR-0023](adr/0023-desktop-and-web-process-layout.md) の S135）: `tauri-plugin-updater` 2.14 を Desktop だけに入れ、`tauri.conf.json` の `plugins.updater`（`endpoints` は Release の `latest.json`、`pubkey` は空）を置いた。`pubkey` が空のビルドはプラグインを入れず、UI の「更新を確認」は「未設定」と出す。`release.yml` に `desktop-ui`・`desktop`（.deb・.msi）を足し、secret `TAURI_SIGNING_PRIVATE_KEY` があるときだけ `createUpdaterArtifacts` で `.sig` を作り、ジョブ `release` が `latest.json`（キーは `linux-x86_64-deb`・`windows-x86_64-msi`）を作って Release に付ける。
-- 持ち越し: 鍵の生成と secret の登録（ユーザー）、`release.yml` の手動の dry run での bundle の確認、署名つきで回した Release からの実機での更新、Desktop の THIRD-PARTY.md、macOS。
+- 持ち越し: 鍵の生成と secret の登録（ユーザー）、`release.yml` の手動の dry run での bundle の確認、署名つきで回した Release からの実機での更新、~~Desktop の THIRD-PARTY.md~~（S380 で artifact・Release の資産に。bundle への同梱は未）、macOS。
 
 ### S130（P4、2026-11-03）で済んだこと
 
@@ -1234,6 +1234,12 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
   - **#164・#160 memo と文字列の表**: `(…)` つきの `redeclare package` があるインスタンスでも関数の結果・束縛の値を覚える（鍵に修飾の中身）、文字列の表の総量に上限（16 MiB）。
   - 検査: MSL 566 本・`GlobeModeValidation` 75 本の全体の突き合わせは回帰 0・改善 0（S377 の基準と全部同じ。平らにできた 565/566 のまま、FFT の 4 本は平らなまま）。公開ライブラリの平らにできた本数は 1188 本（前回と全部同じ）（前回 1188）。`mise run check`（1128 本）・`wasm:node` が通る。
   - 持ち越し: 内側が外側の中にない継承の入れ子（`X.Y.c`）を値にする、`(…)` の修飾が入れ子の定数に届くかを決める、`import` の別名を通した名前の外側。
+
+### S380（公開に向けた持ち越し、2026-11-16）で済んだこと
+
+- **配布物のライセンス表を広げ、CycloneDX の SBOM を足した**（[licenses.md](licenses.md) の 4、[release.md](release.md) の 8、[解説書](sessions/S380-release-licenses/解説書.md)）。S052 の `THIRD-PARTY.md`（`globe`）と S074 の wheel の表に、Desktop（別の workspace。`src/Rust/apps/desktop/about.toml`）、ブラウザ版の wasm、UI の npm（`.github/scripts/npm_licenses.py`。pnpm の JSON から LICENSE の写しつきの表）を足した。どれも許可外のライセンスで失敗する。SBOM は release.yml のジョブ `sbom`（`.github/scripts/make_sbom.sh`。Rust は cargo-cyclonedx 0.5.9 を target ごと、npm は `pnpm sbom`、Python は `uv export --format cyclonedx1.5`）。artifact `third-party`・`sbom` と、タグの push では Release の資産（SHA256SUMS の対象）。web.yml も `globe-web/` に wasm・npm の表と SBOM を入れる。cargo-cyclonedx は `mise.toml` で固定（mise.lock に checksum）。
+  - 検査: `release.yml` の dry run で `third-party`・`sbom`・Desktop 3 つ・`release` が success（`SHA256SUMS` 30 行）、`web.yml` も success。ライセンス表に許可外は 0 件。**ただし `build (aarch64-unknown-linux-gnu)` の wheel の pytest `test_export_fmu_p5b` が main でも落ちていて（S380 とは別の既存の不具合。FMI 2.0 の p5b が aarch64 Linux の host で `platform` に断られる）、そのままだと `release` ジョブが skipped になる**。dry run は、その step だけ `continue-on-error` にした一時のブランチで通した（main には入れていない）。タグを打つ前に直す。
+  - 持ち越し: Desktop の bundle・wheel の中へのライセンス表の同梱（Tauri の `bundle.resources`）、`sundials` ビルドの表、SBOM の署名・検証（cyclonedx-cli など）。
 
 ## いま残っているもの
 
