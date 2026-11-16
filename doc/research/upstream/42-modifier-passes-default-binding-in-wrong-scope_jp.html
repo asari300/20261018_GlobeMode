@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>上流の下書き 42 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode 上流の下書き 42">
+
+<section class="slide" id="S01">
+  <span class="tag">下書き 42 · Rumoca · バグ · 未提出 · 2026-11-16</span>
+  <h1>massDynamics を下へ渡すと、if 方程式が違う枝になる</h1>
+  <p class="lead">vol(massDynamics = massDynamics) が、囲むモデルの既定 energyDynamics を vol の側で評価する。0 = f のはずが der(m) = f</p>
+  <div class="cols-2">
+    <div>
+      <pre><code>model Boiler
+  extends Decl;   // massDynamics = energyDynamics
+  Vol vol(massDynamics = massDynamics);
+end Boiler;
+
+model A
+  Boiler b(energyDynamics = Dyn.Steady);
+end A;
+// Rumoca: der(b.vol.m) = b.vol.f
+// omc:    0.0 = b.vol.f</code></pre>
+      <p class="small muted">本文: <a href="42-modifier-passes-default-binding-in-wrong-scope_jp.md">日本語</a> · <a href="42-modifier-passes-default-binding-in-wrong-scope.md">英語</a> · 再現 <a href="42-modifier-passes-default-binding-in-wrong-scope.mo">.mo</a> · 一覧 <a href="../../upstream.md">upstream.md</a></p>
+    </div>
+    <table class="small">
+      <tr><th>v0.10.4 の結果</th><td><span class="ng">v0.10.2 も v0.10.4 も再現</span>（A だけ。B・C・D は通る）</td></tr>
+      <tr><th>Rumoca の誤りの根拠</th><td>修飾の右辺は囲むクラスの要素を指す（MLS 7.2.3 の例）。omc 1.27.2 は 0.0 = b.vol.f。囲む側に massDynamics を直接書く形（D）は通る</td></tr>
+      <tr><th>影響</th><td>Buildings の <code>DHC.Plants.Steam.BaseClasses.Examples.BoilerPolynomial</code>。状態が 6 対 7（方程式・未知数は 161 対 161）。同じ形は Buildings・IBPSA に多いが、本数は未確認</td></tr>
+      <tr><th>GlobeMode 側の回避</th><td>なし（自前の flat は連鎖を評価する。Rumoca に合わせない）</td></tr>
+      <tr><th>提出の判断材料</th><td>出すなら A と対照 B・C・D。Rumoca の main で再現を確かめてから</td></tr>
+    </table>
+  </div>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

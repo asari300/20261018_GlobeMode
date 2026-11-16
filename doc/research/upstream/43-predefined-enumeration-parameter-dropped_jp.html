@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>上流の下書き 43 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode 上流の下書き 43">
+
+<section class="slide" id="S01">
+  <span class="tag">下書き 43 · Rumoca · 軽いバグ · 未提出 · 2026-11-16</span>
+  <h1>AssertionLevel の parameter が flat から消える</h1>
+  <p class="lead">組み込みの列挙 AssertionLevel・StateSelect の parameter は、flat のモデルに変数として残らない。ユーザーの列挙は残る</p>
+  <div class="cols-2">
+    <div>
+      <pre><code>model A
+  parameter AssertionLevel level = AssertionLevel.warning;
+  Real x;
+equation
+  x = time;
+end A;
+// Rumoca: variables = [x]
+// omc:    parameter ... level = AssertionLevel.warning
+
+// 対照 C: 自分で宣言した enumeration は level が残る</code></pre>
+      <p class="small muted">本文: <a href="43-predefined-enumeration-parameter-dropped_jp.md">日本語</a> · <a href="43-predefined-enumeration-parameter-dropped.md">英語</a> · 再現 <a href="43-predefined-enumeration-parameter-dropped.mo">.mo</a> · 一覧 <a href="../../upstream.md">upstream.md</a></p>
+    </div>
+    <table class="small">
+      <tr><th>v0.10.4 の結果</th><td><span class="ng">v0.10.2 も v0.10.4 も再現</span>（A・B。C は通る）</td></tr>
+      <tr><th>Rumoca の誤りの根拠</th><td>組み込みの列挙型の parameter も普通の変数。omc 1.27.2 は残す。式の中の参照は値に置き換わるので、コンパイルは通る</td></tr>
+      <tr><th>影響</th><td>ThermofluidStream の <code>DropOfCommons.assertionLevel</code>。変数の名前の食い違い 2 本（<code>Exercise3OttoEngine.BaseModel</code>・<code>Exercise4DieselEngine.BaseModel</code>）。誤った方程式は見つけていない</td></tr>
+      <tr><th>GlobeMode 側の回避</th><td>なし（自前の flat は AssertionLevel を残す。StateSelect は Rumoca に合わせて落とす）</td></tr>
+      <tr><th>提出の判断材料</th><td>軽いので、ほかの下書きと一緒に出すか決める。Rumoca の main で再現を確かめてから</td></tr>
+    </table>
+  </div>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

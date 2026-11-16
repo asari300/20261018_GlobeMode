@@ -66,7 +66,7 @@ MSL 4.1.0 の例題 566 本での推移（括弧は「一致した本数 / 母�
 | B1 構文 | 本文、S269 |
 | B2 名前の解決 | S272、S275 |
 | B3 flatten | S278、S284、S297、S312、S324、S329、S333、S334、S335（`[:]` の大きさ）、S336（`Complex` の配列の束縛）、S337、S355（`stream`）、S361（外側の `inner` への `connect`・`inner outer`・`cardinality`）、S367（expandable connector・レコードの配列の束縛・2 次元の部品の配列の `connect`）、S370（関数の評価器・FFT の 4 本）、S372（`connect` の大きさの食い違いを断る・範囲の `i += s` の溢れ・`inStream` を内包で使う印字） |
-| B4 DAE | S290、S312、S325、S330、S332（計測と、名前・数の食い違いの原因）、S337（初期方程式の `der` と状態の数）、S362（レコードの配列の範囲への方程式と、レコードの配列を渡す参照）、S364（左辺が離散の変数の配列の構築子 `{…} = fill(…)` を離散の方程式に）、S367（使われない expandable の欄を未知数にしない・2 次元の部品の配列を通した欄の参照）、S372（配列の構築子の方程式の incidence を行ごとに疎に） |
+| B4 DAE | S290、S312、S325、S330、S332（計測と、名前・数の食い違いの原因）、S337（初期方程式の `der` と状態の数）、S362（レコードの配列の範囲への方程式と、レコードの配列を渡す参照）、S364（左辺が離散の変数の配列の構築子 `{…} = fill(…)` を離散の方程式に）、S367（使われない expandable の欄を未知数にしない・2 次元の部品の配列を通した欄の参照）、S372（配列の構築子の方程式の incidence を行ごとに疎に）、S373（部品の配列の欄の全要素 `s[:].h` の参照を incidence に入れる） |
 | 製品へのつなぎ | S276（アウトライン・折りたたみ）、S279（補完）、S296（定義ジャンプ・ホバー）、S305（`globe check --frontend native`）、S307（閉包だけを読む）、S311（位置）、S313（CLI 以外から選ぶ）、S320（#111・#113〜#116）、S327（#118）、S352（inlay hint）、S354（call hierarchy） |
 | 突き合わせ | S300（`cargo xtask diff-frontend`） |
 
@@ -732,6 +732,19 @@ S297 の見立て（Complex のレコード）は外れで、`Connections.isRoot
 - **#145 `sum(inStream(f[i].h) for i in 1:3)` の印字**: 内包の `inStream` の展開は項をカンマでつないだだけで、親が `{…}` でないと `sum(a, b, c)`（引数 3 個）になっていた。親が配列の構築子でなければ `{…}` で包む（`sum({a, b, c})`）。方程式の数・DAE の参照は変わらない。
 - **#146 DAE の配列の構築子の方程式が O(n²)**: `y = {x[1]*2, …, x[n]*2}` は、方程式 1 本分の `refs` を行ごとに全部調べ、`Sel::One(j)` の参照がどの行にも付いて incidence が n×n の密になった（n = 4000 で 15 s・RSS 330 MB）。`Ref` に `row: Option<(j, m)>`（方程式の片辺の構築子の `ej` の中なら）を持たせ、方程式の数が `m` のとき行 `j` だけが調べる（`Ctx::elem_rows`。構築子が方程式の片辺・束縛の `0 = ({…})` の直下のときだけ。内包は従来どおり、要素が配列で数が合わないときも従来どおり）。n = 4000 で debug の `build` が 18.8 s → 0.23 s、RSS 327 MB → 14 MB（この机で直す前後を測った。issue は 15 s・330 MB）。incidence が疎になるので正則の判定は厳しくなる向き（`msl:diff-frontend` で回帰 0・改善 0。MSL 566 本の flat 561/566・正則 382/382 のまま）。
 - **#147 範囲の `i += s` の溢れ**: `for i in 9223372036854775800:9223372036854775807` の最後の要素のあとの `i += s` が溢れて debug は panic（#137 の取りこぼし）。`checked_add` で打ち切る。
+
+## 付記（S373）: 公開ライブラリで Rumoca と食い違う例題の原因分け
+
+S369 の `libraries.yml`（run 43772634191、main は S367 まで）で、Rumoca も flat・釣り合いまで通った例題のうち、変数の名前・方程式の数・DAE が自前と合わなかった 13 本 + DAE 2 本を、`diff-frontend --library … --class … --dump`（自前の方程式と、Rumoca の方程式の持ち主ごとの数）で原因ごとに分けた。**自前の誤りは 1 つだけ**で、残り 4 つは Rumoca の側（配布の CLI v0.10.2・v0.10.4 と omc 1.27.2 で確かめた）。
+
+- **自前の誤り（直した）**: `globe-mode-dae` の `Ctx::record_vars` は、部品の配列の欄の全要素の参照 `solRadOut[:].H`（変数は `solRadOut[1].H`。AixLib の `PrescribedSolarRad` の `solRadOut[:].H = H[:]`）の範囲の枝で、要素の欄が**変数そのもの**だと空を返していた（欄の持ち主の「レコードの参照」だけを集める `leaves_of` が、変数なら空を返すため）。左辺が incidence に入らず、`WindowSimple` は未知数 5 つが行に当たらず構造が特異になった（Rumoca は正則）。変数ならその変数を返す。範囲は見ないので左辺は全要素に触れる（S362 の shortcut と同じ向き）。回帰試験 1 本（直す前は `is_balanced() && is_regular()` で落ちる）。
+- **Rumoca の誤り（直さない。根拠は [upstream.md](../upstream.md) の下書き）**:
+  - 方程式の数 2・2・5 本の食い違い（`EnthalpyFlowRate`・`MoistAirEnthalpyFlowRate`・`PrescribedOutlet_Water`。Buildings・IBPSA・AixLib）: Rumoca v0.10.2 は、配列を引数にとりスカラーを返す関数の束縛 `RealInput h_internal = Medium.specificEnthalpy(Medium.setState_pTX(p, T, X_in_internal))` を読む方程式 `ports[i].h_outflow = h_internal` を 2 本と数える。**v0.10.4 で直っている**（下書き 36 と同じ原因の別の形。36 に追記）。
+  - AixLib の `VentilationFlowRateSashOpening`（`opnWidth_in` が Rumoca にだけ 2 つ）: `redeclare model OpeningArea = …(use_opnWidth_in = false, …)` の修飾が捨てられる（下書き 40 に追記）。
+  - AixLib の `VentilationFlowRateSimpleOpening`（`opnWidth_in` が Rumoca にだけ 12）: 差し替えたクラスが基底クラスの修飾 `final use_opnWidth_in = false` で旗を決めても、`if area.use_in` の条件付き成分を Rumoca は残す。値の `use_in` は正しく `false` と評価するのに、条件付き成分は replaceable な既定のクラスで決める（**新規の下書き 44**。v0.10.2・v0.10.4 で再現）。
+  - Buildings の `BoilerPolynomial`（DAE の状態が 6 対 7）: 修飾 `vol(massDynamics = massDynamics)` で、囲むモデルの既定 `massDynamics = energyDynamics` を `vol` の側で評価し、`if massDynamics == Steady then 0 = … else der(m) = …` が `else` の枝になる（**新規の下書き 42**。v0.10.2・v0.10.4 で再現）。
+  - ThermofluidStream の `Exercise3OttoEngine.BaseModel`・`Exercise4DieselEngine.BaseModel`（自前にだけ `dropOfCommons.assertionLevel`）: Rumoca は組み込みの列挙 `AssertionLevel`（と `StateSelect`）の parameter を flat の変数にしない（**新規の下書き 43**。omc は残す）。自前は `AssertionLevel` を残し、`StateSelect` だけ Rumoca に合わせて落とす（S 以前の決めのまま）。
+- 結果（手元の release の `diff-frontend`、S374 を取り込んだあと。ライブラリは `fetch-library` で取得した MSL 以外の 7 つ 2132 本の突き合わせ。feature の push で回した `libraries.yml`〔run 43789815281、全ジョブ success〕の `diff-frontend` の数字も同じ）: **MSL 566 本・`GlobeModeValidation` 75 本の全体の突き合わせは回帰 0・改善 0**（平らにできた 565/566・DAE 565/565・構造の正則 382/382 のまま）。ライブラリは、自前で平らにできた 1188 本（直す前と同じ。関数の評価器の仕事量の予算〔S374、1 回の flat で 100 万〕に当たって断った例題は 0 本: 予算を使い切った印を手元の probe で出して、DeltaRobot・Chemical・ThermofluidStream・IBPSA・AixLib・Buildings の 2126 本を見た）、Rumoca も flat まで通った 572 本で名前 568・方程式の数 562、DAE 1188 本、Rumoca も釣り合いまで通った 335 本で釣り合い 335・方程式と未知数の数 335・状態 334・構造の正則 **335**（直す前は 334。`WindowSimple`）。残る食い違いは全部 Rumoca の側（名前 4 本は 43 の 2 本と、AixLib の `VentilationFlowRateSashOpening`〔40〕・`…SimpleOpening`〔44〕。方程式の数 10 本は 36 の別の形 9 本〔3 つの例題 × Buildings・IBPSA・AixLib〕と `SashOpening`。状態 1 本は 42）。
 
 ## 付記（S374）: 9 回目のレビューの関数の評価器の issue（#148〜#152）
 

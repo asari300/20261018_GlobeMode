@@ -2,16 +2,16 @@
 
 全体の一覧・提出の順・手順は正典の [../../upstream.md](../../upstream.md) にまとめた（S096）。
 
-S045（計画書の WP-H）で書いた（15 は S055、16 は S068、17〜21 は S070、24〜26 は S072。20・25 の追記と `20b`・`25b` の再現は S080、25 の 2 回目の追記と `25c`〜`25h`・27 は S083、28〜30 と 25・27 の追記は S091、31・32 と 28 の追記は S108。28〜32 の v0.10.4 での再確認と日本語版（`_jp.md`・`_jp.html`）、AixLib 向けの 33 は S113。17〜27 の v0.10.4 での再確認と日本語版は S115。01〜16 の v0.10.4 での再確認（各件の「Re-check」の節）と日本語版は S162。25 を形ごとに 25b〜25h の `.md` に分けたのは S096。36 は S331。37〜39 は S359。40 は S362。41 は S371）、[Rumoca](https://github.com/CogniPilot/rumoca) と [diffsol](https://github.com/martinjrobins/diffsol) に出す issue の下書き。元の記録は [../msl-sim-failures.md](../msl-sim-failures.md) の「上流に報告する候補」と、[../../roadmap.md](../../roadmap.md) の候補 8。
+S045（計画書の WP-H）で書いた（15 は S055、16 は S068、17〜21 は S070、24〜26 は S072。20・25 の追記と `20b`・`25b` の再現は S080、25 の 2 回目の追記と `25c`〜`25h`・27 は S083、28〜30 と 25・27 の追記は S091、31・32 と 28 の追記は S108。28〜32 の v0.10.4 での再確認と日本語版（`_jp.md`・`_jp.html`）、AixLib 向けの 33 は S113。17〜27 の v0.10.4 での再確認と日本語版は S115。01〜16 の v0.10.4 での再確認（各件の「Re-check」の節）と日本語版は S162。25 を形ごとに 25b〜25h の `.md` に分けたのは S096。36 は S331。37〜39 は S359。40 は S362。41 は S371。42〜44 は S373）、[Rumoca](https://github.com/CogniPilot/rumoca) と [diffsol](https://github.com/martinjrobins/diffsol) に出す issue の下書き。元の記録は [../msl-sim-failures.md](../msl-sim-failures.md) の「上流に報告する候補」と、[../../roadmap.md](../../roadmap.md) の候補 8。
 
 - **出すのはユーザー。エージェントは出さない**（`gh issue create` を使わない）。
-- **出すときは、再現を Rumoca の最新（main）で確かめてから出す。** 下書きの環境は Rumoca v0.10.2（rev `276e82bd`）、MSL 4.1.0。01〜41 は最新のリリース v0.10.4（2026-11-16 でも最新）でも確かめてある（01〜16 は S162、35 は S237、36 は S331、37〜39 は S359、40 は S362、41 は S371）。Rumoca の CLI がこの環境に無いまま書いた件は、本文に「[not verified]」と書いてある。
+- **出すときは、再現を Rumoca の最新（main）で確かめてから出す。** 下書きの環境は Rumoca v0.10.2（rev `276e82bd`）、MSL 4.1.0。01〜44 は最新のリリース v0.10.4（2026-11-16 でも最新）でも確かめてある（01〜16 は S162、35 は S237、36 は S331、37〜39 は S359、40 は S362、41 は S371、42〜44 は S373）。Rumoca の CLI がこの環境に無いまま書いた件は、本文に「[not verified]」と書いてある。
 - 本文は英語で、issue にそのまま貼れる形（Summary / Steps to reproduce / Expected / Actual / Environment / Workaround in GlobeMode / Notes）。
 - 再現ファイル（`.mo`）は、MSL の例題で再現する件では置かない（モデル名とコマンドを本文に書く）。`src/Modelica/` には置かない（MODELICAPATH として開けるパッケージだけを置く規則）。
 - 再現用の `.mo` は `globe fmt` で整形する（空白が要点のものを除く。S194 で 34 本すべてを整形した。整形の前後で全クラスの診断のコードと重大度が同じことを確かめてある）。新しく足すときも整形し、本文に貼る診断の `行:列` は整形後のファイルのものにする。
 - diffsol の件（10〜12）は Rumoca が同梱する 0.13.2 での観測。diffsol 本家で同じかは確かめていない（本文に "not verified against upstream diffsol main"）。単体の diffsol のプログラムに縮めてから出す。
 - 状態は「下書き」のまま。出したら issue の URL と日付をこの表に足す。
-- v0.10.4 で再現する 01・02・05〜09・12〜35・37〜41 には日本語版（`NN-<slug>_jp.md`、英語と同じ章立て）とスライド 1 枚の解説（`NN-<slug>_jp.html`、`doc/assets/slides.css`・`slides.js` だけを使う）がある（28〜33 は S113、17〜27 は S115、01〜16 は S162、37〜39 は S359、40 は S362、41 は S371）。v0.10.4 で直った 03・04・15（一部）・25・25b・25c・25g・26・36 と、diffsol の main で直った 10・11 には作っていない（15 は残る `Dimmer_RL` の分だけ作った）。ユーザーが読んで出すかを決めるためのもの。
+- v0.10.4 で再現する 01・02・05〜09・12〜35・37〜44 には日本語版（`NN-<slug>_jp.md`、英語と同じ章立て）とスライド 1 枚の解説（`NN-<slug>_jp.html`、`doc/assets/slides.css`・`slides.js` だけを使う）がある（28〜33 は S113、17〜27 は S115、01〜16 は S162、37〜39 は S359、40 は S362、41 は S371、42〜44 は S373）。v0.10.4 で直った 03・04・15（一部）・25・25b・25c・25g・26・36 と、diffsol の main で直った 10・11 には作っていない（15 は残る `Dimmer_RL` の分だけ作った）。ユーザーが読んで出すかを決めるためのもの。
 
 | # | 件名 | 対象 | 再現 | GlobeMode 側の回避 | 状態 |
 | ---: | --- | --- | --- | --- | --- |
@@ -61,6 +61,9 @@ S045（計画書の WP-H）で書いた（15 は S055、16 は S068、17〜21 �
 | 39 | [レコードの配列式の方程式（`aw = {R(1, 0), ...}`）を、フィールドごとでなく要素ごとに数える（ED008 → ED001）](39-array-equation-of-record-array-constructor-counts-elements.md) — Rumoca のバグ（MLS 3.7 の 10.6.1・4.8）。本数は未計測 | Rumoca | [39](39-array-equation-of-record-array-constructor-counts-elements.mo)（普通のレコード。MSL の `Complex` の形は本文） | なし（自前の DAE はフィールドごとに数える） | 下書き。**一部は v0.10.4 で直った**（MSL の `Complex`、大きさ 3。普通のレコードと `size(a, 1)` の `Complex` は再現。S359）。 [日本語](39-array-equation-of-record-array-constructor-counts-elements_jp.md)・[1 枚](39-array-equation-of-record-array-constructor-counts-elements_jp.html) |
 | 40 | [`redeclare model M = Impl(show = true)` の修飾が捨てられ、`show` を条件にした成分が消える](40-redeclare-class-modification-dropped.md) — Rumoca のバグ。MSL の `InverseParameterization` | Rumoca | [40](40-redeclare-class-modification-dropped.mo)（自己完結） | 不要（自前の flat は修飾を適用する） | 下書き。v0.10.2・v0.10.4 で再現（S362）。 [日本語](40-redeclare-class-modification-dropped_jp.md)・[1 枚](40-redeclare-class-modification-dropped_jp.html) |
 | 41 | [レコードの配列の成分（`aw.re`・`aw[1].re`）が、配列の大きさを `size(a, 1)` で決めると ED019 `record-array member slice` で止まる](41-ed019-record-array-member-slice-dimension-from-size-call.md) — Rumoca のバグ（MLS 3.7 の 10.6.9）。MSL の `ShowTransferFunction` | Rumoca | [41](41-ed019-record-array-member-slice-dimension-from-size-call.mo)（普通のレコード。MSL の `Complex` の形は本文） | なし（自前の flat は要素に展開する。Rumoca を通す検査では GM-U0001） | 下書き。v0.10.2・v0.10.4 で再現（S371）。 [日本語](41-ed019-record-array-member-slice-dimension-from-size-call_jp.md)・[1 枚](41-ed019-record-array-member-slice-dimension-from-size-call_jp.html) |
+| 42 | [`vol(massDynamics = massDynamics)` が囲むモデルの既定 `energyDynamics` を `vol` の側で評価し、`if massDynamics == Steady` の方程式が違う枝になる](42-modifier-passes-default-binding-in-wrong-scope.md) — Rumoca のバグ（MLS 3.7 の 7.2.3 の例）。Buildings の `BoilerPolynomial`（状態が 6 対 7） | Rumoca | [42](42-modifier-passes-default-binding-in-wrong-scope.mo)（自己完結） | 不要（自前の flat は連鎖を評価する） | 下書き。v0.10.2・v0.10.4 で再現（S373）。 [日本語](42-modifier-passes-default-binding-in-wrong-scope_jp.md)・[1 枚](42-modifier-passes-default-binding-in-wrong-scope_jp.html) |
+| 43 | [組み込みの列挙 `AssertionLevel`・`StateSelect` の parameter が flat のモデルから消える](43-predefined-enumeration-parameter-dropped.md) — Rumoca の軽いバグ。ThermofluidStream の `DropOfCommons.assertionLevel`（名前の食い違い 2 本） | Rumoca | [43](43-predefined-enumeration-parameter-dropped.mo)（自己完結） | 不要（自前の flat は `AssertionLevel` を残す） | 下書き。v0.10.2・v0.10.4 で再現（S373）。 [日本語](43-predefined-enumeration-parameter-dropped_jp.md)・[1 枚](43-predefined-enumeration-parameter-dropped_jp.html) |
+| 44 | [差し替えたクラスが `use_in = false` を決めても、`if area.use_in` の条件付き成分が残る](44-conditional-component-ignores-redeclared-class.md) — Rumoca のバグ（MLS 3.7 の 4.4.5・7.3）。AixLib の `VentilationFlowRateSimpleOpening`（12 部品） | Rumoca | [44](44-conditional-component-ignores-redeclared-class.mo)（自己完結） | 不要（自前の flat は差し替えたクラスで評価する） | 下書き。v0.10.2・v0.10.4 で再現（S373）。 [日本語](44-conditional-component-ignores-redeclared-class_jp.md)・[1 枚](44-conditional-component-ignores-redeclared-class_jp.html) |
 
 ## 公開ライブラリの失敗から（17〜21、S070）
 
@@ -199,6 +202,22 @@ S359 の「39 の途中で見つけた別の限界」を、既存の書式の 4 
 - この ED019 は DAE を作る段で出る。flat のモデル（`--emit flat-json`）はできる（`aw.re`・`aw.im` の 1 つの配列の変数）。
 - MSL では 2026-10-31 の funnel の結果（v0.10.2）で 2 本（`ShowTransferFunction`・`Electrical.Batteries.Examples.ShowImpedance`）。後者は `parameter RCData rcData[nRC]` の形で、v0.10.4 は通り抜ける。前者は v0.10.4 でも止まる。ライブラリの例題は見ていない【未確認】。
 - 再現は `Rep41`（`A`〜`H`）。MSL の `Complex` の形は本文に `ComplexSlice.mo` として貼ってある。
+
+## ライブラリの食い違いの原因分け（42〜44、36 と 40 の追記、S373）
+
+S369 の `libraries.yml`（run 43772634191、main は S367 まで）で、自前の flat・DAE と Rumoca が食い違った 13 本 + DAE 2 本を原因ごとに分けた（確認日 2026-11-16）。出さない（出すのはユーザー）。
+
+| 原因 | 例題 | 判定 | v0.10.2 | v0.10.4 | 下書き |
+| --- | --- | --- | --- | --- | --- |
+| `Real h = f(X)`（`X` が配列）を読むスカラーの方程式を 2 本と数える | `EnthalpyFlowRate`・`MoistAirEnthalpyFlowRate`・`PrescribedOutlet_Water`（3 ライブラリずつ） | Rumoca のバグ | 方程式の数が 2・2・5 本多い | 直った（`EnthalpyFlowRate` は Buildings を CLI で回して 61 本、自前と同じ。小さな再現 `Real hh = f(X); y = hh` は 2 から 1） | 36 の追記 |
+| `redeclare model OpeningArea = …(use_opnWidth_in = false)` の修飾が捨てられる（44 と見分けていない） | AixLib の `VentilationFlowRateSashOpening` | Rumoca のバグ | `opnWidth_in` が Rumoca にだけ残る（2 変数） | 同じ（CLI は AixLib の木で PKG-008 になるので、小さなモデルでは 40 の `.mo`） | 40 の追記 |
+| 差し替えたクラスが基底クラスの `final use_in = false` で旗を決めても、`if area.use_in` の条件付き成分が残る | AixLib の `VentilationFlowRateSimpleOpening`（12 部品） | Rumoca のバグ | `opnWidth_in` が 12 部品に残る | 同じ（小さな再現 `Rep44.A`） | 44 |
+| 修飾 `massDynamics = massDynamics` が違う枝を選ぶ | Buildings の `BoilerPolynomial`（状態 6 対 7） | Rumoca のバグ | `else` の枝 | 同じ | 42 |
+| 組み込みの列挙の parameter が消える | ThermofluidStream の `Exercise3OttoEngine.BaseModel`・`Exercise4DieselEngine.BaseModel` | Rumoca の軽いバグ | `assertionLevel` が無い | 同じ | 43 |
+| `s[:].h = h[:]`（成分の配列の欄の全要素）の左辺が DAE の行の incidence に入らない | AixLib の `WindowSimple`（構造の正則） | **自前の誤り**。直した（`globe-mode-dae`） | — | — | なし |
+
+- 42 の小さな再現は `Vol vol(massDynamics = massDynamics)` だけで足りる（`energyDynamics` を一緒に渡す必要は無い）。`Vol` が `Decl` を継がず自分で 2 つの parameter を宣言する形では通るので、原因は「囲む側と部品が同じ基底から既定の束縛を継ぐ」ことと見ているが、Rumoca のどこかは見ていない【未確認】。
+- 43 の式の中の参照は、値に置き換わって flat に出る（変数は消える）。MLS 3.7 の 8.3.7 は `AssertionLevel` を組み込みの列挙型と呼ぶ（2026-11-16 に読んだ）が、その parameter を許す文は見つけていない【未確認】。
 
 ## 下書きにしなかったもの
 

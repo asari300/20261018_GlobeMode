@@ -213,8 +213,14 @@ impl<'a> Ctx<'a> {
         }
         let t: String = text.split_whitespace().collect();
         if let Some((pre, post)) = Self::range_split(&t) {
+            // 要素の欄が変数そのもの（`solRadOut[:].H` → `solRadOut[1].H`）のときは、その変数（S373）
             return (1..)
-                .map(|k| self.leaves_of(&format!("{pre}[{k}]{post}")))
+                .map(|k| {
+                    let n = format!("{pre}[{k}]{post}");
+                    self.index
+                        .get(n.as_str())
+                        .map_or_else(|| self.leaves_of(&n), |&v| vec![v])
+                })
                 .take_while(|v| !v.is_empty())
                 .flatten()
                 .collect();
@@ -1180,6 +1186,16 @@ mod tests {
         // 行 0・1 は pin[k].v = k、行 2・3 が x の束縛。未知数は pin[1].v・pin[2].v・x[1]・x[2]
         assert_eq!(d.structure.incidence[2], [0, 2]);
         assert_eq!(d.structure.incidence[3], [1, 3]);
+    }
+
+    /// S373: 成分の配列の欄の範囲 `s[:].h`（変数は `s[1].h` …）は全要素に触れる（AixLib の `PrescribedSolarRad`。以前は左辺が空で構造が特異になった）
+    #[test]
+    fn slice_of_a_component_array_field_touches_every_element() {
+        let d = dae("connector C Real h; end C;
+            model M C s[2]; Real h[2]; equation s[:].h = h[:]; h = {1, 2}; end M;");
+        assert!(d.is_balanced() && d.is_regular());
+        // 行 0: 左辺は全要素 `s[1].h`・`s[2].h`（範囲は見ない）、右辺は行ごとに `h[1]`
+        assert_eq!(d.structure.incidence[0].len(), 3);
     }
 
     #[test]
