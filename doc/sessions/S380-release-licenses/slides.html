@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S380 配布物のライセンス表と SBOM — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S380 配布物のライセンス表と SBOM">
+
+<section class="slide" id="S01">
+  <span class="tag">S380 · 2026-11-16 · 公開に向けた持ち越し</span>
+  <h1>配布物のライセンス表と SBOM</h1>
+  <p class="lead">足りなかった分だけを足した</p>
+  <div class="big">Desktop・wasm・npm の<b>ライセンス表</b>と、<b>CycloneDX 1.5 の SBOM</b>を artifact に添えた</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>すでにあったものと、足りなかったもの</h1>
+  <table>
+    <tr><th>配布物</th><th>これまで</th><th>S380</th></tr>
+    <tr><td>globe のアーカイブ</td><td>THIRD-PARTY.md（S052）</td><td>SBOM 4 つ</td></tr>
+    <tr><td>Python の wheel</td><td>THIRD-PARTY-wheel.md（S074）</td><td>SBOM 4 つ＋Python の依存</td></tr>
+    <tr><td>Desktop の bundle</td><td>なし</td><td>表と SBOM 3 つ</td></tr>
+    <tr><td>ブラウザ版（wasm・UI）</td><td>なし</td><td>wasm・npm の表と SBOM</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>道具は 1 つだけ足した</h1>
+  <table>
+    <tr><th>対象</th><th>道具</th><th>理由</th></tr>
+    <tr><td>Rust の表</td><td>cargo-about（既存）</td><td>Desktop は別 workspace なので設定を 1 つ足すだけ</td></tr>
+    <tr><td>npm の表</td><td>自前の Python 1 本</td><td>LICENSE の写しと許可外の判定が要る</td></tr>
+    <tr><td>Rust の SBOM</td><td>cargo-cyclonedx 0.5.9</td><td>Apache-2.0。mise.toml で固定（checksum つき）</td></tr>
+    <tr><td>npm・Python の SBOM</td><td>pnpm sbom・uv export</td><td>既存のツールで出る</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>作る場所と置き場所</h1>
+  <svg class="fig" viewBox="0 0 800 260" role="img" aria-label="ジョブと artifact の流れ">
+    <rect class="svg-box-accent" x="20" y="30" width="200" height="70" rx="10"/>
+    <text class="svg-text-b" x="120" y="72" text-anchor="middle">third-party ジョブ</text>
+    <rect class="svg-box-accent" x="20" y="150" width="200" height="70" rx="10"/>
+    <text class="svg-text-b" x="120" y="192" text-anchor="middle">sbom ジョブ</text>
+    <line class="svg-line" x1="220" y1="65" x2="320" y2="65"/>
+    <line class="svg-line" x1="220" y1="185" x2="320" y2="185"/>
+    <rect class="svg-box" x="320" y="30" width="230" height="70" rx="10"/>
+    <text class="svg-text-b" x="435" y="72" text-anchor="middle">artifact third-party</text>
+    <rect class="svg-box" x="320" y="150" width="230" height="70" rx="10"/>
+    <text class="svg-text-b" x="435" y="192" text-anchor="middle">artifact sbom</text>
+    <line class="svg-line" x1="550" y1="65" x2="620" y2="125"/>
+    <line class="svg-line" x1="550" y1="185" x2="620" y2="125"/>
+    <rect class="svg-box" x="620" y="95" width="165" height="60" rx="10"/>
+    <text class="svg-text-b" x="702" y="130" text-anchor="middle">Release の資産</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>gh workflow run release.yml --ref feature/s380-release-licenses
+gh workflow run web.yml     --ref feature/s380-release-licenses
+gh run download &lt;run-id&gt; -n third-party
+gh run download &lt;run-id&gt; -n sbom</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">5</span><span class="l">ライセンス表</span></div>
+    <div class="kpi"><span class="n">14</span><span class="l">SBOM</span></div>
+    <div class="kpi"><span class="n">0</span><span class="l">禁止ライセンス</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>Desktop の bundle・wheel の中へ、ライセンス表を同梱する</li>
+    <li><code>sundials</code> ビルドの表、SBOM の署名と検証</li>
+    <li>Python の依存には uv の出力にライセンス欄が無い（表は作っていない）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

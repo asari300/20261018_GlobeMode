@@ -3,6 +3,7 @@
 # 中身: wasm の UI（vite build。base は相対 ./ なのでどのサブパスに置いても動く）、MSL の分割配信（pack-msl.mjs。msl/index.json と msl/c/*.json。S301 から MSL.json は入れない）、
 # CSP の header の断片（_headers = Cloudflare Pages / Netlify、nginx.csp.conf = nginx）。CSP は index.html の meta が正（scripts/web-bundle.sh が取り出す）。
 # 大きさ（生・gzip・brotli）は Step Summary に出す。
+# S380: 束にサードパーティのライセンス表（THIRD-PARTY-wasm.md・THIRD-PARTY-npm.md）と CycloneDX の SBOM（sbom-*.cdx.json）も入れる（release.yml と同じ道具・版）。
 name: web
 
 on:
@@ -26,7 +27,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v5
         with:
-          install_args: rust github:wasm-bindgen/wasm-bindgen node pnpm uv
+          install_args: rust github:wasm-bindgen/wasm-bindgen node pnpm uv github:CycloneDX/cyclonedx-rust-cargo
       - uses: Swatinem/rust-cache@v2
         with:
           key: web-wasm
@@ -53,6 +54,13 @@ jobs:
           test -s globe-web/msl/index.json
           test ! -e globe-web/msl/MSL.json
           node -e 'const i=JSON.parse(require("fs").readFileSync("globe-web/msl/index.json"));for(let k=0;k<i.chunks;k++)require("fs").statSync(`globe-web/msl/c/${k}.json`);console.log("塊",i.chunks,"本")'
+      - name: ライセンス表と SBOM を束に入れる（許可外のライセンスがあれば失敗する。cargo-about の版は release.yml と同じ）
+        run: |
+          cargo install --locked --features cli --version 0.9.2 cargo-about
+          cargo about generate --locked --fail --target wasm32-unknown-unknown --manifest-path src/Rust/mod/globe-mode-wasm/Cargo.toml about.hbs -o globe-web/THIRD-PARTY-wasm.md
+          (cd src/Svelte && pnpm licenses list --long --json) | python3 .github/scripts/npm_licenses.py > globe-web/THIRD-PARTY-npm.md
+          bash .github/scripts/make_sbom.sh globe-web wasm npm
+          ls -l globe-web | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:
           name: globe-web

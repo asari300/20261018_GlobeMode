@@ -57,3 +57,17 @@ Release は作られると公開される（draft にしていない）。PyPI�
 | --- | --- | --- |
 | `softprops/action-gh-release` | v2.6.2 のコミット `3bb12739c298aeb8a4eeaf626c5b8d85266b0e65`（`v2` が指していた。2026-04-12 公開） | <https://github.com/softprops/action-gh-release/releases/tag/v2.6.2>（確認日 2026-11-06） |
 | `tauri-cli` 2.12.4、`cargo-zigbuild` 0.24.1、`cargo-about` 0.9.2 | `release.yml` の `cargo install --version`（前の 2 つは 2026-11-06 の dry run で入った版） | 上げるときは dry run を回す |
+| `cargo-cyclonedx` 0.5.9 | `mise.toml` の `"github:CycloneDX/cyclonedx-rust-cargo" = "cargo-cyclonedx-0.5.9"`（mise.lock に checksum と provenance。S380）。release.yml のジョブ `sbom` と web.yml が使う | 0.5.10（2026-11-06 公開）は 2 週間たつまで使わない。上げるときは `mise lock` と dry run |
+
+## 8. ライセンス表と SBOM（S380）
+
+dry run でも本番でも、artifact `third-party`（`THIRD-PARTY*.md` 5 つ）と `sbom`（`sbom-*.cdx.json` 14 個）ができる。取得は `gh run download <run-id> -n third-party`・`-n sbom`。タグの push では Release の資産にもなり、`SHA256SUMS` に入る。許可外のライセンスが混じると、ジョブ `third-party` が止まる。中身と作り方は [licenses.md](licenses.md) の 4。
+
+手元で試す（cargo-about は `cargo install --locked --features cli --version 0.9.2 cargo-about` で入れる。worktree では `CARGO_TARGET_DIR` を共有の target にする）:
+
+```bash
+cargo about generate --locked --fail --manifest-path src/Rust/apps/desktop/Cargo.toml about.hbs -o THIRD-PARTY-desktop.md
+cargo about generate --locked --fail --target wasm32-unknown-unknown --manifest-path src/Rust/mod/globe-mode-wasm/Cargo.toml about.hbs -o THIRD-PARTY-wasm.md
+(cd src/Svelte && pnpm install --frozen-lockfile >&2 && pnpm licenses list --long --json) | python3 .github/scripts/npm_licenses.py > THIRD-PARTY-npm.md
+mise exec -- bash .github/scripts/make_sbom.sh <出力先>      # 全部。種類を絞るなら末尾に rust npm python wasm
+```

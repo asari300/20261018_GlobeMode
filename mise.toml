@@ -12,6 +12,7 @@ cargo-deny = "0.20.2"             # ライセンスと依存の監査（doc/lice
 "github:wasm-bindgen/wasm-bindgen" = "0.2.129"  # S012: wasm の束ねの JS の糊（wasm-bindgen --target nodejs）。版は Cargo.lock の wasm-bindgen と必ず同じにする
 node   = "24.22.0"                   # S041: src/Svelte のビルド（Vite）と wasm の Node 試験。版は ADR-0003 と同じく mise.lock で固定
 pnpm   = "12.14.0"                   # S041: src/Svelte の npm 依存。ロックは src/Svelte/pnpm-lock.yaml
+"github:CycloneDX/cyclonedx-rust-cargo" = "cargo-cyclonedx-0.5.9"  # S380: 配布物の CycloneDX の SBOM（.github/scripts/make_sbom.sh。release.yml のジョブ sbom と web.yml）。Apache-2.0、Release の実行ファイルを使う（タグ名が版）
 zig    = "latest"
 julia  = "latest"
 erlang = "27"                      # いま apt で入っている組み合わせと同じ
@@ -23,6 +24,7 @@ description = "CI の判定のテスト、Rust の fmt / clippy / test / deny �
 run = [
   "python3 .claude/hooks/test_save_session_log.py",   # S218: 伏せ字の規則
   "python3 .github/scripts/test_ci_plan.py",   # CI の plan ジョブと同じ。crate の依存を変えたときに手元で気づくため（S005 の CI の失敗から）
+  "python3 .github/scripts/npm_licenses.py --test",   # S380: npm のライセンス表の許可の判定
   "cargo fmt --all --check",
   "cargo clippy --workspace --all-targets -- -D warnings",
   "cargo test --workspace",

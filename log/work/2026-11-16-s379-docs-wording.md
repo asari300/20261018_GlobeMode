@@ -34,7 +34,7 @@
 - `check_docs.py`: スライド全部 OK（新しいデッキ `S379-docs-wording` を含む）、リンク 文書 1384 件 / 相対リンク 5687 件 / 切れ 0 件。
 - `render_slides.py`: 新しいデッキ 1 件 + 言い回しを直した既存のデッキ 23 件（`doc/sessions/S269`〜`S378` の 23 枚の `slides.html`）で、問題 0 件（desktop-light・desktop-dark・mobile）。どのデッキも 1 回目は `Page.screenshot` が 30 s で時間切れ（S366 と同じ。負荷は低かった）で、2 回目で通った。新しいデッキは S02・S06（デスクトップ）と S05（モバイル）を目で見た。モバイルの 3 列の表は右が切れる（ほかのデッキの 3 列の表と同じ形。問題としては数えられていない）。
 - `markdownlint-cli2`（MD013 を除く）: 新しい解説書・この記録・README・CHANGELOG・索引・roadmap・architecture・features・upstream・`_jp.md` 5 本・`doc/frontend-diff.md` の 49 ファイルで 1 件（`doc/frontend-diff.md` の末尾の空行 2 つ。HEAD と同じ生成物の癖）。ADR-0039・ADR-0026・上流の下書きなども足した最初の実行では、ほかに ADR-0026 の 153 行目で 1 件（MD038。今回触っていない行）。
-- 置き換えの洗い出し: `git grep -n '平ら' -- . ':!log/sessions'` が、意味の違う 4 箇所（`DiodeSwitching.mo`・`msl-sim-failures.md`・S021 の作業記録 2 箇所）と原文 1 箇所（`log/review/…-review5.md`）の計 5 箇所だけ。置き換えは 447 箇所・114 ファイル（`git diff` から数えた）。この記録・新しい解説書・スライド・索引の行に、旧い言い回しの完全な形は無い（`grep '平ら[にのなで]'` が 0 件）。
+- 置き換えの洗い出し: `git grep -n '平ら' -- . ':!log/sessions'` が、意味の違う 4 箇所（`DiodeSwitching.mo`・`msl-sim-failures.md`・S021 の作業記録 2 箇所）と原文 1 箇所（`log/review/…-review5.md`）の計 5 箇所と、S379 の文書（解説書・スライド・索引・この記録）が語そのものを書く行だけ。置き換えは 447 箇所・114 ファイル（`git diff` から数えた）。この記録・新しい解説書・スライド・索引の行に、旧い言い回しの完全な形は無い（`grep '平ら[にのなで]'` が 0 件）。
 - ステージした差分の漏洩検査（手元のログイン名・git のメールアドレス・トークンの形）: 0 件。
 - 通っていない・回していないもの: `mise run wasm:node`・`wasm:compare`（wasm の変更はコメント 2 行だけ）、`mise run c:zig`・`c:julia`・`elixir:test`・`gleam:test`（C ABI・NIF・Zig・Julia・Elixir・Gleam は触っていない）、`mise run docs:check` はまとめず `check_docs.py` と `render_slides.py` を別々に回した。セッション記録の `--check`（専用の記録が無いのでコピーしていない）。
 
