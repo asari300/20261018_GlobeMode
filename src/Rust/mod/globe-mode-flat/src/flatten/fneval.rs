@@ -236,7 +236,6 @@ impl F<'_> {
         {
             return Some(v);
         }
-        self.tick_n(CALL_COST)?;
         self.fn_depth.set(depth + 1);
         let r = self.run_body(rid, pos, named, ctx);
         self.fn_depth.set(depth);
@@ -263,6 +262,8 @@ impl F<'_> {
         {
             return None;
         }
+        // 断る関数（上の条件）は Frame を作らないので数えない（`eval` は同じ式を何度も評価する）
+        self.tick_n(CALL_COST)?;
         let file = self.p.lib.classes[rid].file;
         let mut fr = Frame {
             file,
