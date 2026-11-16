@@ -1405,3 +1405,74 @@ fn msl_function_bodies_decide_array_sizes() {
         [200, 108, 36]
     );
 }
+
+#[test]
+fn function_local_arrays_have_a_total_cap() {
+    // #149: 局所の配列（1 つ 100 万要素まで）の確保に総量の上限が無く、2 本 × 再帰 15 段で RSS 709 MB だった。確保は要素の数だけ仕事量に数え、1 回の flat で 100 万まで
+    let src = |n: usize| {
+        format!(
+            "function f input Integer n; output Integer y; protected Real a[300000]; algorithm
+               if n <= 0 then y := 1; else y := f(n - 1) + 1; end if; end f;
+             model M Real x[f({n})]; end M;"
+        )
+    };
+    let sized = |n: usize| {
+        Project::from_sources([("t.mo", src(n).as_str())])
+            .flatten("M")
+            .map(|m| m.vars[0].dims[0])
+    };
+    // 3 段（30 万 × 3 = 90 万）は通り、4 段（120 万）は断る
+    assert_eq!(sized(2).unwrap(), 3);
+    assert_eq!(sized(3).unwrap_err().kind, "non-constant-dim");
+    // 15 段 × 2 本（#149 の再現。以前は 709 MB）も同じく断る
+    assert_eq!(sized(14).unwrap_err().kind, "non-constant-dim");
+}
+
+#[test]
+fn integer_constants_do_not_pass_through_f64() {
+    // #152: 整数の `mod`・`div`・`rem`・比較・`max` が f64 を通って 2^53 を超えると別の値になり、`mod(i64::MAX, 2)` は debug で panic した
+    let size = |e: &str| {
+        let src = format!("model M Real x[{e}]; end M;");
+        Project::from_sources([("t.mo", src.as_str())])
+            .flatten("M")
+            .map(|m| m.vars[0].dims[0])
+            .map_err(|e| e.kind)
+    };
+    for (e, want) in [
+        ("mod(9007199254740993, 3) + 1", 1),
+        ("mod(9223372036854775807, 3) + 1", 2),
+        ("mod(9223372036854775807, 2) + 1", 2),
+        ("mod(-7, 3) + 1", 3),
+        ("mod(7, -3) + 4", 2),
+        ("mod(-9223372036854775807 - 1, -1) + 1", 1),
+        ("div(9007199254740993, 1) - 9007199254740990", 3),
+        ("div(-7, 2) + 4", 1),
+        ("rem(9007199254740993, 3) + 1", 1),
+        ("rem(-7, 3) + 2", 1),
+        ("if 9007199254740993 == 9007199254740992 then 2 else 3", 3),
+        ("if 9007199254740993 > 9007199254740992 then 2 else 3", 2),
+        (
+            "max(9007199254740992, 9007199254740993) - 9007199254740990",
+            3,
+        ),
+        (
+            "min(9007199254740993, 9007199254740992) - 9007199254740990",
+            2,
+        ),
+        ("if floor(1e30) == 1e30 then 2 else 3", 2),
+        ("integer(2.7) + 1", 3),
+        ("if \"a\" == \"a\" then 3 else 4", 3),
+    ] {
+        assert_eq!(size(e), Ok(want), "{e}");
+    }
+    // 決まらないものは「分からない」
+    for e in [
+        "integer(sqrt(-1)) + 3",
+        "integer(1e30) + 3",
+        "div(1, 0) + 1",
+        "mod(1, 0) + 1",
+        "if \"a\" < \"b\" then 3 else 4",
+    ] {
+        assert_eq!(size(e), Err("non-constant-dim"), "{e}");
+    }
+}
