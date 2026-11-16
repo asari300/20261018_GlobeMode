@@ -744,7 +744,7 @@ S369 の `libraries.yml`（run 43772634191、main は S367 まで）で、Rumoca
   - AixLib の `VentilationFlowRateSimpleOpening`（`opnWidth_in` が Rumoca にだけ 12）: 差し替えたクラスが基底クラスの修飾 `final use_opnWidth_in = false` で旗を決めても、`if area.use_in` の条件付き成分を Rumoca は残す。値の `use_in` は正しく `false` と評価するのに、条件付き成分は replaceable な既定のクラスで決める（**新規の下書き 44**。v0.10.2・v0.10.4 で再現）。
   - Buildings の `BoilerPolynomial`（DAE の状態が 6 対 7）: 修飾 `vol(massDynamics = massDynamics)` で、囲むモデルの既定 `massDynamics = energyDynamics` を `vol` の側で評価し、`if massDynamics == Steady then 0 = … else der(m) = …` が `else` の枝になる（**新規の下書き 42**。v0.10.2・v0.10.4 で再現）。
   - ThermofluidStream の `Exercise3OttoEngine.BaseModel`・`Exercise4DieselEngine.BaseModel`（自前にだけ `dropOfCommons.assertionLevel`）: Rumoca は組み込みの列挙 `AssertionLevel`（と `StateSelect`）の parameter を flat の変数にしない（**新規の下書き 43**。omc は残す）。自前は `AssertionLevel` を残し、`StateSelect` だけ Rumoca に合わせて落とす（S 以前の決めのまま）。
-- 結果（TODO-RESULT）。
+- 結果（手元の release の `diff-frontend`、S374 を取り込んだあと。ライブラリは `fetch-library` で取得した MSL 以外の 7 つ 2132 本の突き合わせ。`libraries.yml` の run は 解説書 に書く）: **MSL 566 本・`GlobeModeValidation` 75 本の全体の突き合わせは回帰 0・改善 0**（平らにできた 565/566・DAE 565/565・構造の正則 382/382 のまま）。ライブラリは、自前で平らにできた 1188 本（直す前と同じ。関数の評価器の仕事量の予算〔S374、1 回の flat で 100 万〕に当たって断った例題は 0 本: 予算を使い切った印を手元の probe で出して、DeltaRobot・Chemical・ThermofluidStream・IBPSA・AixLib・Buildings の 2126 本を見た）、Rumoca も flat まで通った 572 本で名前 568・方程式の数 562、DAE 1188 本、Rumoca も釣り合いまで通った 335 本で釣り合い 335・方程式と未知数の数 335・状態 334・構造の正則 **335**（直す前は 334。`WindowSimple`）。残る食い違いは全部 Rumoca の側（名前 4 本は 43 の 2 本と、AixLib の `VentilationFlowRateSashOpening`〔40〕・`…SimpleOpening`〔44〕。方程式の数 10 本は 36 の別の形 9 本〔3 つの例題 × Buildings・IBPSA・AixLib〕と `SashOpening`。状態 1 本は 42）。
 
 ## 付記（S374）: 9 回目のレビューの関数の評価器の issue（#148〜#152）
 
