@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>上流の下書き 44 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode 上流の下書き 44">
+
+<section class="slide" id="S01">
+  <span class="tag">下書き 44 · Rumoca · バグ · 未提出 · 2026-11-16</span>
+  <h1>差し替えたクラスの use_in = false が、条件付き成分に届かない</h1>
+  <p class="lead">redeclare model Area = AreaFinal で use_in が false になっても、if area.use_in の成分 u が flat に残る</p>
+  <div class="cols-2">
+    <div>
+      <pre><code>model Holder
+  replaceable model Area = PartArea;
+  Area area;
+  Real u = 1 if area.use_in;
+end Holder;
+
+model A
+  Holder h(redeclare model Area = AreaFinal);
+end A;
+// Rumoca: h.area.use_in, h.u
+// omc:    h.area.use_in = false（u は無い）</code></pre>
+      <p class="small muted">本文: <a href="44-conditional-component-ignores-redeclared-class_jp.md">日本語</a> · <a href="44-conditional-component-ignores-redeclared-class.md">英語</a> · 再現 <a href="44-conditional-component-ignores-redeclared-class.mo">.mo</a> · 一覧 <a href="../../upstream.md">upstream.md</a></p>
+    </div>
+    <table class="small">
+      <tr><th>v0.10.4 の結果</th><td><span class="ng">v0.10.2 も v0.10.4 も再現</span>（A だけ。B・C・D は通る）</td></tr>
+      <tr><th>Rumoca の誤りの根拠</th><td>条件が偽の条件付き成分は取り除く（MLS 4.4.5）。<code>use_in</code> の値は <code>false</code> と評価されるのに、条件付き成分は replaceable な既定のクラスで決まる。omc 1.27.2 は u を作らない</td></tr>
+      <tr><th>影響</th><td>AixLib の <code>VentilationFlowRateSimpleOpening</code>（12 部品に <code>opnWidth_in</code>）。AixLib の例題は CLI で回していない（PKG-008）</td></tr>
+      <tr><th>GlobeMode 側の回避</th><td>なし（自前の flat は差し替えたクラスで評価する。Rumoca に合わせない）</td></tr>
+      <tr><th>提出の判断材料</th><td>40（クラスの修飾が捨てられる）と根が同じかは未確認。Rumoca の main で再現を確かめてから</td></tr>
+    </table>
+  </div>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
