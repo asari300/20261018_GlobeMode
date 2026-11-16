@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S375 ui-rename-undo — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S375 ui-rename-undo">
+
+<section class="slide" id="S01">
+  <span class="tag">S375 · 2026-11-16 · P4</span>
+  <h1>複数のタブにまたがるリネームを 1 つの操作で戻す</h1>
+  <p class="lead">S368 の持ち越し: Ctrl+Z はタブごとにしか戻らなかった</p>
+  <div class="big">リネームの直後に<b>「元に戻す（n ファイル）」</b>。押すと<b>全部のタブ</b>が戻り、あとで編集したタブは<b>戻さず理由を出す</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>何が足りなかったか</h1>
+  <table>
+    <tr><th>タブ</th><th>S368 のリネームの当て方</th><th>Ctrl+Z</th></tr>
+    <tr><td>今のタブ</td><td>1 回の dispatch</td><td>そのタブの履歴の 1 件</td></tr>
+    <tr><td>ほかの自分のタブ</td><td><code>state.update</code></td><td>そのタブの履歴の 1 件（別のタブ）</td></tr>
+  </table>
+  <p class="note">CodeMirror の履歴は文書ごと。全タブを 1 回で戻すには束ねる口が要る</p>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>履歴は束ねず、ボタンで逆を当てる</h1>
+  <table>
+    <tr><th>項目</th><th>決定</th></tr>
+    <tr><td>持つもの</td><td>各タブの「変更の逆」（<code>ChangeSet.invert</code>）とリネーム直後の本文</td></tr>
+    <tr><td>出す条件</td><td>2 ファイル以上に当たったときだけ（1 つなら Ctrl+Z で足りる）</td></tr>
+    <tr><td>戻し方</td><td>本文がそのままのタブに逆を 1 回の transaction で（履歴 1 件。<code>isolateHistory</code>）。モデル名（S186）も戻る</td></tr>
+    <tr><td>黙って上書きしない</td><td>本文が変わった・閉じたタブは戻さず、名前と理由を <code>alert</code> に出す</td></tr>
+    <tr><td>キーボード</td><td>通常の <code>button</code>。エディタから Esc のあと Tab、Enter</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1>戻すときの判定</h1>
+  <svg class="fig" viewBox="0 0 820 240" role="img" aria-label="タブごとの判定の流れ">
+    <rect class="svg-box-accent" x="20" y="80" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="120" y="126" text-anchor="middle">元に戻す（n）</text>
+    <line class="svg-line" x1="220" y1="120" x2="320" y2="120"/>
+    <rect class="svg-box" x="320" y="80" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="420" y="112" text-anchor="middle">タブごとに</text>
+    <text class="svg-text-b" x="420" y="138" text-anchor="middle">本文 = 直後？</text>
+    <line class="svg-line" x1="520" y1="100" x2="610" y2="50"/>
+    <line class="svg-line" x1="520" y1="140" x2="610" y2="190"/>
+    <rect class="svg-box-accent" x="610" y="20" width="190" height="60" rx="10"/>
+    <text class="svg-text-b" x="705" y="56" text-anchor="middle">逆を当てる</text>
+    <rect class="svg-box" x="610" y="160" width="190" height="60" rx="10"/>
+    <text class="svg-text-b" x="705" y="196" text-anchor="middle">戻さず理由</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">再現手順</span>
+  <h1>試験</h1>
+  <pre><code>cd src/Svelte &amp;&amp; pnpm check
+mise run wasm:build &amp;&amp; (cd src/Svelte &amp;&amp; pnpm build)
+uv run python src/Svelte/tests/test_ui.py</code></pre>
+  <p class="note"><code>cross_file_rename_undo</code>: 2 タブのリネーム → Esc・Tab・Enter で両方戻る（履歴 1 件）→ 片方を編集すると戻らず理由が出る</p>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>Ctrl+Z 1 回で全タブは動かない（束ねるのはボタン）</li>
+    <li>一部のタブが戻らないと、一部だけ戻った状態になる</li>
+    <li>開いていないファイルの参照・リネーム（S368 のまま）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>
