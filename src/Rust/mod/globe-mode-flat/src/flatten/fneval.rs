@@ -8,7 +8,7 @@
 //!
 //! shortcut: 配列は 1 次元・要素はスカラーだけ（配列どうしの演算・内包・`zeros` などは分からない）。必要になったら足す。
 
-use super::{Ctx, F, FN, MAX_ITERS, PKG, Ty, Val, binop, cenv_hash, ord, single, tokens};
+use super::{Ctx, F, FN, MAX_ITERS, PKG, Strs, Ty, Val, binop, cenv_hash, ord, single, tokens};
 use globe_mode_resolve::{ClassId, Resolution};
 use globe_mode_syntax::ast::{self, Element, Expr};
 use globe_mode_syntax::{SyntaxKind as K, SyntaxNode};
@@ -30,6 +30,10 @@ pub(super) const BUILTINS: &[&str] = &[
 ];
 
 pub(super) fn builtin(name: &str, a: &[Val]) -> Option<Val> {
+    // 文字列は引数にできない（`f()` は数でない）
+    if a.iter().any(|v| matches!(v, Val::S(_))) {
+        return None;
+    }
     Some(match (name, a) {
         ("abs", [Val::I(i)]) => Val::I(i.checked_abs()?),
         ("abs", [x]) => Val::R(x.f().abs()),
@@ -90,15 +94,20 @@ fn int_or_real(x: f64) -> Val {
 }
 
 /// 要素の最大・最小（空は `None`。型は要素のまま。整数どうしは整数のまま比べ、決まらない大小（NaN・文字列）は `None`）
-pub(super) fn extremum(xs: &[Val], is_max: bool) -> Option<Val> {
+pub(super) fn extremum(xs: &[Val], is_max: bool, st: &Strs) -> Option<Val> {
     let (first, rest) = xs.split_first()?;
     rest.iter().try_fold(*first, |a, &b| {
-        Some(if ord(a, b)?.is_ge() == is_max { a } else { b })
+        Some(if ord(a, b, st)?.is_ge() == is_max {
+            a
+        } else {
+            b
+        })
     })
 }
 
 pub(super) fn unop(op: K, v: Val) -> Option<Val> {
     match (op, v) {
+        (_, Val::S(_)) => None,
         (K::Minus, Val::I(i)) => i.checked_neg().map(Val::I),
         (K::Minus, v) => Some(Val::R(-v.f())),
         (K::Plus, v) => Some(v),
@@ -206,8 +215,8 @@ impl F<'_> {
 
     /// 呼び出しの名前 `r` が指す関数と、本体が読む package の定数を引く `heir`（その関数を通した package。S376・#155・#156）。
     /// 差し替え（`redeclare function f = f3`・`redeclare package P = P3` の `P.f`）を引き、`(…)` の修飾つきの差し替え・引けないものは `None`（分からない）。
-    /// 名前に package が付くとき（`P5.f`）はその package、付かなければ呼び出しの文脈の package（`PKG` なら評価中の package、それ以外は `ctx.heir`）。
-    /// shortcut: 関数の中から呼ぶ兄弟の関数（`FN` の文脈）の差し替えは見ない
+    /// 名前に package が付くとき（`P5.f`・`P5.Inner.f`）はその package（`reaching`）、付かなければ呼び出しの文脈の package（`PKG` なら評価中の package、それ以外は `ctx.heir`）。
+    /// 兄弟の関数 `g`（関数の中から）も、呼び出したインスタンスの `redeclare function g` を引く（`Ctx::inst`。S377）
     pub(super) fn call_target(
         &self,
         r: &ast::ComponentRef,
@@ -229,27 +238,34 @@ impl F<'_> {
             [name] => {
                 // `redeclare function f = f3`: 関数を宣言したクラスのインスタンス（のなか）から呼ぶとき
                 let own = self.p.lib.classes[rid].parent;
-                if ctx.pfx != PKG
-                    && ctx.pfx != FN
-                    && self.p.lib.classes[rid].name == *name
-                    && own.is_some_and(|p| ctx.lineage.contains(&p))
+                if self.p.lib.classes[rid].name == *name
+                    && own.is_some_and(|p| ctx.inst().is_some_and(|l| l.contains(&p)))
                     && let Some(c) = hit(name)
                 {
                     rid = c?;
                 }
             }
             [first, mid @ .., last] => {
-                if let Some(c) = hit(first) {
+                // 名前が通った package（外側から。最後が関数の親）
+                let mut hit_pkg = None;
+                let path: Vec<Option<ClassId>> = if let Some(c) = hit(first) {
                     // `P.f`（`P` はこのインスタンスで差し替えた package）。差し替え先の中を引く
                     let mut pkg = c?;
+                    let mut path = vec![Some(pkg)];
                     for p in mid {
                         pkg = self.member_class(pkg, p)?;
+                        path.push(Some(pkg));
                     }
                     rid = self.member_class(pkg, last)?;
-                    heir = Some(pkg);
-                } else if let Some(p) = self.p.lib.classes[rid].parent {
-                    heir = self.via_class(file, r, p);
-                }
+                    hit_pkg = Some(pkg);
+                    path
+                } else {
+                    (1..parts.len())
+                        .map(|k| self.prefix_class(file, r, k))
+                        .collect()
+                };
+                // 差し替えた package（`P.f`）は、受け継ぎが無くてもその package を `heir` にする
+                heir = self.reaching(rid, &path)?.or(hit_pkg);
             }
             [] => return None,
         }
@@ -265,6 +281,33 @@ impl F<'_> {
         Some((rid, heir))
     }
 
+    /// 関数 `rid` を、名前が通った package `path`（外側から。最後が `rid` の親）で呼ぶとき、本体が読む定数を引く package。
+    /// `rid` の外側のクラス（親・その親…）を、同じ位置の `path` の package が受け継いでいれば（`P5.Inner.f` の `Inner` の外側の `PP` を `P5` が）それ。
+    /// 外側ごとに違う package が受け継いでいて 1 つに決まらなければ外側の `None`（分からない）。
+    /// shortcut: `import` した別名を通した名前（`Inner.f`）は、外側を `path` から引けない（宣言した側の値になる）
+    fn reaching(&self, rid: ClassId, path: &[Option<ClassId>]) -> Option<Option<ClassId>> {
+        let mut found: Vec<ClassId> = Vec::new();
+        let mut cur = rid;
+        for h in path.iter().rev() {
+            let Some(a) = self.p.lib.classes[cur].parent else {
+                break;
+            };
+            if let Some(h) = *h
+                && h != a
+                && self.p.lineage(h).contains(&a)
+                && !found.contains(&h)
+            {
+                found.push(h);
+            }
+            cur = a;
+        }
+        match found.as_slice() {
+            [] => Some(None),
+            [h] => Some(Some(*h)),
+            _ => None,
+        }
+    }
+
     /// 仕事量を `n` 数える（上限は 1 回の flat 全体で `MAX_ITERS`）
     fn tick_n(&self, n: usize) -> Option<()> {
         let t = self.fn_steps.get().saturating_add(n);
@@ -274,6 +317,17 @@ impl F<'_> {
 
     fn tick(&self) -> Option<()> {
         self.tick_n(1)
+    }
+
+    /// 差し替えの表が空でなければ、呼び出し元のインスタンスの系統の hash（空なら 0）
+    fn inst_hash(&self, ctx: &Ctx) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let Some(l) = ctx.inst().filter(|_| !ctx.cenv.borrow().is_empty()) else {
+            return 0;
+        };
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        l.hash(&mut h);
+        h.finish()
     }
 
     fn run_fn(
@@ -293,7 +347,15 @@ impl F<'_> {
             .all(|v| matches!(v, V::S(_)))
             .then(|| cenv_hash(&ctx.cenv))
             .flatten()
-            .map(|h| (rid, heir, h, format!("{pos:?}{named:?}")));
+            // 差し替えがあるときは、兄弟の関数を引く呼び出し元のインスタンスの系統も鍵（S377）
+            .map(|h| {
+                (
+                    rid,
+                    heir,
+                    h ^ self.inst_hash(ctx),
+                    format!("{pos:?}{named:?}"),
+                )
+            });
         if let Some(v) = key
             .as_ref()
             .and_then(|k| self.fn_memo.borrow().get(k).cloned())
@@ -350,6 +412,7 @@ impl F<'_> {
                 locals: Vec::new(),
                 cenv: ctx.cenv.clone(),
                 heir,
+                inst: ctx.inst().cloned(),
             }),
             vars: HashMap::new(),
         };
@@ -686,7 +749,7 @@ impl F<'_> {
                     ) {
                         break;
                     }
-                    acc = binop(op.kind(), acc, s(o.syntax())?)?;
+                    acc = binop(op.kind(), acc, s(o.syntax())?, &self.strs)?;
                 }
                 Some(V::S(acc))
             }
@@ -749,9 +812,12 @@ impl F<'_> {
                             }
                         };
                         self.tick_n(xs.len())?;
-                        extremum(xs, name == "max").map(V::S)
+                        extremum(xs, name == "max", &self.strs).map(V::S)
                     }
                     f if BUILTINS.contains(&f) => builtin(f, &scalars(vals()?)?).map(V::S),
+                    "String" if args.len() == 1 && c.named_args().is_empty() => {
+                        self.string_of(s(args[0].syntax())?).map(V::S)
+                    }
                     _ => {
                         let r = c.syntax().children().find_map(ast::ComponentRef::cast)?;
                         let (rid, heir) = self.call_target(&r, fr.file, &fr.ctx)?;

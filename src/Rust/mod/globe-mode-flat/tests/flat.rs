@@ -1462,6 +1462,9 @@ fn integer_constants_do_not_pass_through_f64() {
         ("if floor(1e30) == 1e30 then 2 else 3", 2),
         ("integer(2.7) + 1", 3),
         ("if \"a\" == \"a\" then 3 else 4", 3),
+        // 文字列の大小は辞書順（S377。S374 は「分からない」にしていた）
+        ("if \"a\" < \"b\" then 3 else 4", 3),
+        ("if \"b\" < \"a\" then 3 else 4", 4),
     ] {
         assert_eq!(size(e), Ok(want), "{e}");
     }
@@ -1471,7 +1474,7 @@ fn integer_constants_do_not_pass_through_f64() {
         "integer(1e30) + 3",
         "div(1, 0) + 1",
         "mod(1, 0) + 1",
-        "if \"a\" < \"b\" then 3 else 4",
+        "if \"a\" < 1 then 3 else 4",
     ] {
         assert_eq!(size(e), Err("non-constant-dim"), "{e}");
     }

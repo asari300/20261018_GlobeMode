@@ -70,9 +70,20 @@ struct Ctx {
     /// このインスタンスのクラスが入っているパッケージの、差し替え後のクラス（`Medium.BaseProperties` を引いたときの `Medium` の中身）。
     /// 受け継いだクラスの中の、同じパッケージのメンバー（`ThermodynamicState`・`nXi`）を、こちらで引き直す
     heir: Option<ClassId>,
+    /// 関数の中（`FN`）から見える、呼び出したインスタンスの系統（兄弟の関数の `redeclare function` を引く。S377）。`FN` 以外は `None`（`inst()` を使う）
+    inst: Option<Rc<Vec<ClassId>>>,
 }
 
 impl Ctx {
+    /// 関数の呼び出しがインスタンスの中から来たときの、そのインスタンスの系統。パッケージの文脈・インスタンスの外から来た関数は `None`
+    fn inst(&self) -> Option<&Rc<Vec<ClassId>>> {
+        match self.pfx.as_str() {
+            PKG => None,
+            FN => self.inst.as_ref(),
+            _ => Some(&self.lineage),
+        }
+    }
+
     fn local(&self, n: &str) -> Option<i64> {
         self.locals
             .iter()
@@ -193,8 +204,8 @@ enum Val {
     I(i64),
     R(f64),
     B(bool),
-    /// 文字列（比較だけに使うので、中身の代わりに hash を持つ。S329）
-    S(u64),
+    /// 文字列（`F::strs` の表の番号。同じ中身は同じ番号。S329 は hash、S377 で表にした）
+    S(u32),
     /// 列挙の要素（列挙のクラスと、その中の順番）
     E(ClassId, usize),
 }
@@ -205,7 +216,7 @@ impl Val {
             Val::I(i) => i as f64,
             Val::R(r) => r,
             Val::B(b) => f64::from(u8::from(b)),
-            Val::S(h) => h as f64,
+            Val::S(_) => f64::NAN,
             Val::E(_, i) => i as f64,
         }
     }
@@ -216,6 +227,77 @@ impl Val {
             _ => None,
         }
     }
+}
+
+/// 文字列の表（S377）。`Val` は `Copy` なので `Val::S` は番号を持ち、辞書順・連結は中身を引く。表は伸びるだけ（番号は変わらない）
+#[derive(Default)]
+struct StrTab {
+    v: Vec<Rc<str>>,
+    ix: HashMap<Rc<str>, u32>,
+}
+
+#[derive(Default)]
+struct Strs(RefCell<StrTab>);
+
+/// 連結で作る文字列の長さの上限（`c_i = c_{i-1} + c_{i-1}` の連鎖が 2^n バイトを作らない）
+const MAX_STR: usize = 1 << 16;
+
+impl Strs {
+    fn intern(&self, s: &str) -> Val {
+        let t = &mut *self.0.borrow_mut();
+        if let Some(&i) = t.ix.get(s) {
+            return Val::S(i);
+        }
+        let (r, i): (Rc<str>, _) = (s.into(), t.v.len() as u32);
+        t.v.push(r.clone());
+        t.ix.insert(r, i);
+        Val::S(i)
+    }
+
+    fn get(&self, i: u32) -> Rc<str> {
+        self.0.borrow().v[i as usize].clone()
+    }
+
+    /// 辞書順（UTF-8 のバイト順 = 符号位置の順。omc の `checkModel` と同じ）
+    fn cmp(&self, a: u32, b: u32) -> std::cmp::Ordering {
+        self.get(a).cmp(&self.get(b))
+    }
+
+    fn cat(&self, a: u32, b: u32) -> Option<Val> {
+        let (x, y) = (self.get(a), self.get(b));
+        (x.len() + y.len() <= MAX_STR).then(|| self.intern(&format!("{x}{y}")))
+    }
+}
+
+/// 文字列のリテラル（引用符つき）の中身。エスケープ `\n` などを解く（MLS の S-ESCAPE。知らない `\x` はそのまま）
+fn unquote(lit: &str) -> String {
+    let mut out = String::with_capacity(lit.len());
+    let mut it = lit.strip_prefix('"').unwrap_or(lit).chars();
+    while let Some(c) = it.next() {
+        if c == '"' && it.as_str().is_empty() {
+            break;
+        }
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match it.next() {
+            Some('n') => out.push('\n'),
+            Some('t') => out.push('\t'),
+            Some('r') => out.push('\r'),
+            Some('a') => out.push('\x07'),
+            Some('b') => out.push('\x08'),
+            Some('f') => out.push('\x0c'),
+            Some('v') => out.push('\x0b'),
+            Some(e @ ('\\' | '"' | '\'' | '?')) => out.push(e),
+            Some(e) => {
+                out.push('\\');
+                out.push(e);
+            }
+            None => out.push('\\'),
+        }
+    }
+    out
 }
 
 enum Item {
@@ -323,6 +405,8 @@ struct F<'a> {
     fn_memo: RefCell<HashMap<fneval::MemoKey, Option<fneval::V>>>,
     /// 名前の定数・parameter の束縛の式の値（S376・#158）。鍵は式の場所と、評価する文脈の中身（`bind_key`）。成功した値だけ
     eval_memo: RefCell<HashMap<(u32, u32, u32, u64), Val>>,
+    /// 文字列の表（`Val::S` の番号。S377）
+    strs: Strs,
     /// `cardinality(c)` の値（`connect` の端として出てきた数）。`card_ifs` を決めるときだけ `Some`
     card: Option<HashMap<String, i64>>,
     /// expandable connector の中を平らにしている入れ子の深さ（0 より大きいあいだに宣言した変数は `exp_vars` に入る。S367）
@@ -402,6 +486,7 @@ pub(crate) fn run(p: &Project, cid: ClassId, model: &str) -> Res<FlatModel> {
         fn_depth: std::cell::Cell::new(0),
         fn_memo: RefCell::default(),
         eval_memo: RefCell::default(),
+        strs: Strs::default(),
         card: None,
         exp_depth: 0,
         exp_vars: HashSet::new(),
@@ -536,6 +621,7 @@ impl F<'_> {
             locals: Vec::new(),
             cenv: Cenv::default(),
             heir,
+            inst: None,
         });
         self.add_cenv(&ctx, mods);
         let mut items = Vec::new();
@@ -1326,6 +1412,7 @@ impl F<'_> {
                 locals,
                 cenv: b.ctx.cenv.clone(),
                 heir: b.ctx.heir,
+                inst: b.ctx.inst.clone(),
             });
             return Ok(Some(Bind {
                 node: body.syntax().clone(),
@@ -1631,6 +1718,7 @@ impl F<'_> {
             locals: Vec::new(),
             cenv: Cenv::default(),
             heir: None,
+            inst: None,
         });
         for _ in 0..64 {
             match res {
@@ -2075,6 +2163,7 @@ impl F<'_> {
                     locals,
                     cenv: ctx.cenv.clone(),
                     heir: ctx.heir,
+                    inst: ctx.inst.clone(),
                 });
                 if k > 0 {
                     out.push(",".to_string());
@@ -2238,10 +2327,9 @@ impl F<'_> {
 
     // ---------------------------------------------------------------- 定数の評価
 
-    /// パッケージの定数 `P5.n`（宣言したクラスは `cid`）の参照の、名前が通ったパッケージ `P5`。`cid` と同じか、`cid` を受け継いでいなければ `None`（S376・#156）
-    fn via_class(&self, file: u32, r: &ast::ComponentRef, cid: ClassId) -> Option<ClassId> {
-        let parts = r.parts();
-        if parts.len() < 2 || file >= crate::SNIP_FILE_BASE {
+    /// 参照 `r` の名前の先頭 `k` 個を型として引いたクラス
+    fn prefix_class(&self, file: u32, r: &ast::ComponentRef, k: usize) -> Option<ClassId> {
+        if file >= crate::SNIP_FILE_BASE {
             return None;
         }
         let scope = self.p.lib.class_at(file, u32::from(r.range().start()))?;
@@ -2250,14 +2338,31 @@ impl F<'_> {
             range: r.range(),
             scope,
             kind: RefKind::Type,
-            parts: parts[..parts.len() - 1].to_vec(),
+            parts: r.parts()[..k].to_vec(),
             global: r.is_global(),
             local: false,
         };
         match self.p.lib.resolve(&pre) {
-            Resolution::Class(h) if h != cid && self.p.lineage(h).contains(&cid) => Some(h),
+            Resolution::Class(h) => Some(h),
             _ => None,
         }
+    }
+
+    /// パッケージの定数 `P5.n`（宣言したクラスは `cid`）の参照の、名前が通ったパッケージ `P5`。`cid` と同じか、`cid` を受け継いでいなければ `None`（S376・#156）
+    fn via_class(&self, file: u32, r: &ast::ComponentRef, cid: ClassId) -> Option<ClassId> {
+        let n = r.parts().len();
+        let h = self.prefix_class(file, r, n.checked_sub(1).filter(|k| *k > 0)?)?;
+        (h != cid && self.p.lineage(h).contains(&cid)).then_some(h)
+    }
+
+    /// `String(v)`（整数・論理・列挙の要素。実数は書式が要るので決めない。S377）
+    fn string_of(&self, v: Val) -> Option<Val> {
+        Some(self.strs.intern(&match v {
+            Val::I(i) => i.to_string(),
+            Val::B(b) => b.to_string(),
+            Val::E(c, i) => self.p.lib.classes[c].components[i].name.clone(),
+            _ => return None,
+        }))
     }
 
     /// 名前の定数・parameter の束縛の式 `n` の値。成功した値を覚える（`c_i = c_{i-1} + c_{i-1}` の連鎖が 2^n 回の評価にならない。S376・#158）。
@@ -2288,12 +2393,7 @@ impl F<'_> {
                     K::UReal => t.text().parse().ok().map(Val::R),
                     K::KwTrue => Some(Val::B(true)),
                     K::KwFalse => Some(Val::B(false)),
-                    K::Str => {
-                        use std::hash::{Hash, Hasher};
-                        let mut h = std::collections::hash_map::DefaultHasher::new();
-                        t.text().hash(&mut h);
-                        Some(Val::S(h.finish()))
-                    }
+                    K::Str => Some(self.strs.intern(&unquote(t.text()))),
                     _ => None,
                 }
             }
@@ -2311,7 +2411,7 @@ impl F<'_> {
                 let mut acc = self.eval(operands.first()?.syntax(), file, ctx, d)?;
                 for (o, op) in operands[1..].iter().zip(ops.iter()) {
                     let r = self.eval(o.syntax(), file, ctx, d)?;
-                    acc = binop(op.kind(), acc, r)?;
+                    acc = binop(op.kind(), acc, r, &self.strs)?;
                 }
                 Some(acc)
             }
@@ -2342,8 +2442,9 @@ impl F<'_> {
                 };
                 // `Medium.nX`: `Medium` が `redeclare` された package なら、差し替え先の定数
                 if sub.is_none()
-                    && let Some((node, f, c2)) = self.dyn_const(&c, ctx)
+                    && let Some(b) = self.dyn_const(&c, ctx)
                 {
+                    let (node, f, c2) = b?;
                     return self.eval_bind(&node, f, &c2, d);
                 }
                 match &self.p.res_of(file, c.range())? {
@@ -2423,18 +2524,19 @@ impl F<'_> {
                         };
                         let k = v(1)?.int()? as usize;
                         // パッケージの定数の配列（`size(substanceNames, 1)`）は、束縛の式の形から
-                        if let Some((node, f, c2)) = self.dyn_const(r, ctx).or_else(|| match &self
-                            .p
-                            .res_of(file, r.range())?
-                        {
-                            Resolution::Component(cid, idx)
-                                if ctx.pfx == PKG || !ctx.lineage.contains(cid) =>
-                            {
-                                let comp = &self.p.lib.classes[*cid].components[*idx].name;
-                                self.pkg_binding(ctx, *cid, comp, self.via_class(file, r, *cid))
-                            }
-                            _ => None,
-                        }) {
+                        let bound = match self.dyn_const(r, ctx) {
+                            Some(b) => Some(b?),
+                            None => match &self.p.res_of(file, r.range())? {
+                                Resolution::Component(cid, idx)
+                                    if ctx.pfx == PKG || !ctx.lineage.contains(cid) =>
+                                {
+                                    let comp = &self.p.lib.classes[*cid].components[*idx].name;
+                                    self.pkg_binding(ctx, *cid, comp, self.via_class(file, r, *cid))
+                                }
+                                _ => None,
+                            },
+                        };
+                        if let Some((node, f, c2)) = bound {
                             let dims = self.dims_of(&node, f, &c2)?;
                             return dims.get(k.checked_sub(1)?).map(|&x| Val::I(x as i64));
                         }
@@ -2462,10 +2564,13 @@ impl F<'_> {
                                 .collect::<Option<_>>()?,
                             _ => (0..args.len()).map(v).collect::<Option<_>>()?,
                         };
-                        extremum(&xs, is_max)
+                        extremum(&xs, is_max, &self.strs)
                     }
                     f if BUILTINS.contains(&f) => {
                         builtin(f, &(0..args.len()).map(v).collect::<Option<Vec<_>>>()?)
+                    }
+                    "String" if args.len() == 1 && c.named_args().is_empty() => {
+                        self.string_of(v(0)?)
                     }
                     // Modelica の関数（`algorithm` を実行する。`fneval`。S370）
                     _ => self.call_fn(&c, file, ctx, d),
@@ -2505,6 +2610,7 @@ impl F<'_> {
                     lineage: ctx.lineage.clone(),
                     cenv: ctx.cenv.clone(),
                     heir: ctx.heir,
+                    inst: ctx.inst.clone(),
                 });
                 self.eval(body.syntax(), file, &ctx, d)
             })
@@ -2636,6 +2742,7 @@ impl F<'_> {
             locals: Vec::new(),
             cenv: Cenv::default(),
             heir: None,
+            inst: None,
         });
         let mut items = Vec::new();
         self.collect(cid, &ModMap::new(), &ctx, &mut items, 0)
@@ -2734,12 +2841,14 @@ impl F<'_> {
         Some((n, f, c))
     }
 
-    /// `Medium.name`（`Medium` がこのインスタンスで差し替えられた package）の定数の束縛
+    /// `Medium.name`（`Medium` がこのインスタンスで差し替えられた package）の定数の束縛。
+    /// 外側の `None` は差し替えられた package の定数ではない（静的に引く）、内側の `None` は差し替えられているが決まらない。
+    /// `redeclare package P = PP(n = 5)` の `(…)` の修飾は、`n` はその束縛、`n` に届く定数（`reaches_mod`）は決まらない（S377）
     fn dyn_const(
         &self,
         c: &ast::ComponentRef,
         ctx: &Rc<Ctx>,
-    ) -> Option<(SyntaxNode, u32, Rc<Ctx>)> {
+    ) -> Option<Option<(SyntaxNode, u32, Rc<Ctx>)>> {
         let parts = c.parts();
         if parts.len() != 2
             || c.is_global()
@@ -2747,9 +2856,49 @@ impl F<'_> {
         {
             return None;
         }
-        let (cid, _) = ctx.cenv.borrow().get(&parts[0])?.clone();
-        let b = self.pkg_env(cid)?.get(&parts[1])?.clone();
-        Some((b.node, b.file, b.ctx))
+        let (cid, extra) = ctx.cenv.borrow().get(&parts[0])?.clone();
+        let env = self.pkg_env(cid)?;
+        let name = &parts[1];
+        if let Some(m) = extra.get(name) {
+            return Some(
+                (m.sub.is_empty() && m.redecl.is_none())
+                    .then(|| m.val.clone())
+                    .flatten()
+                    .map(|b| (b.node, b.file, b.ctx)),
+            );
+        }
+        let b = env.get(name)?.clone();
+        if self.reaches_mod(&env, name, &extra, &mut Vec::new()) {
+            return Some(None);
+        }
+        Some(Some((b.node, b.file, b.ctx)))
+    }
+
+    /// パッケージの定数 `name` の束縛の式が、`(…)` の修飾 `extra` の名前を含むか（束縛をたどった先の定数も）、関数を呼ぶ（本体が読むかもしれない）か
+    fn reaches_mod(
+        &self,
+        env: &HashMap<String, Bind>,
+        name: &str,
+        extra: &ModMap,
+        seen: &mut Vec<String>,
+    ) -> bool {
+        if extra.is_empty() || seen.iter().any(|s| s == name) {
+            return false;
+        }
+        seen.push(name.to_string());
+        let Some(b) = env.get(name) else { return false };
+        b.node.descendants().any(|x| {
+            let call = ast::CallExpr::cast(x.clone()).is_some_and(|c| {
+                !c.callee().is_some_and(|f| {
+                    BUILTINS.contains(&f.as_str()) || matches!(f.as_str(), "size" | "max" | "min")
+                })
+            });
+            call || tokens(&x).any(|t| {
+                t.kind() == K::Ident
+                    && (extra.contains_key(t.text())
+                        || self.reaches_mod(env, t.text(), extra, seen))
+            })
+        })
     }
 
     /// パッケージ `cid`（`extends` の修飾も合わせた）の定数の束縛。束縛のあるものだけ
@@ -2765,6 +2914,7 @@ impl F<'_> {
             locals: Vec::new(),
             cenv: Cenv::default(),
             heir: None,
+            inst: None,
         });
         let mut items = Vec::new();
         let collected = self.collect(cid, &ModMap::new(), &ctx, &mut items, 0);
@@ -2824,6 +2974,7 @@ impl F<'_> {
                         locals: Vec::new(),
                         cenv: Cenv::default(),
                         heir: None,
+                        inst: None,
                     });
                     let scalar = !d
                         .syntax()
@@ -2857,6 +3008,7 @@ impl F<'_> {
                 locals,
                 cenv: ctx.cenv.clone(),
                 heir: ctx.heir,
+                inst: ctx.inst().cloned(),
             })
         };
         let (pos, named) = (c.args(), c.named_args());
@@ -3604,6 +3756,7 @@ impl F<'_> {
                 locals,
                 cenv: ctx.cenv.clone(),
                 heir: ctx.heir,
+                inst: ctx.inst.clone(),
             });
             self.for_eq(node, rest, file, &c2, initial, lv)?;
         }
@@ -4413,23 +4566,31 @@ fn cx_bin(op: K, a: CxPart, b: CxPart) -> Option<CxPart> {
     (r.0.len() + r.1.as_ref().map_or(0, String::len) <= CX_MAX_LEN).then_some(r)
 }
 
-/// 大小。整数どうしは整数のまま（f64 を通すと 2^53 を超えて値が変わる。S374・#152）、ほかは f64。
-/// 決まらないのは NaN と文字列の大小（`Val::S` は hash なので、辞書順は分からない）
-fn ord(a: Val, b: Val) -> Option<std::cmp::Ordering> {
+/// 大小。整数どうしは整数のまま（f64 を通すと 2^53 を超えて値が変わる。S374・#152）、文字列どうしは辞書順（S377）、ほかは f64。
+/// 決まらないのは NaN と、文字列と文字列でないものの大小
+fn ord(a: Val, b: Val, st: &Strs) -> Option<std::cmp::Ordering> {
     match (a, b) {
         (Val::I(x), Val::I(y)) => Some(x.cmp(&y)),
+        (Val::S(x), Val::S(y)) => Some(st.cmp(x, y)),
         (Val::S(_), _) | (_, Val::S(_)) => None,
         _ => a.f().partial_cmp(&b.f()),
     }
 }
 
-fn binop(op: K, a: Val, b: Val) -> Option<Val> {
+fn binop(op: K, a: Val, b: Val, st: &Strs) -> Option<Val> {
     use Val::*;
     Some(match (op, a, b) {
         (K::Plus | K::DotPlus, I(x), I(y)) => I(x.checked_add(y)?),
         (K::Minus | K::DotMinus, I(x), I(y)) => I(x.checked_sub(y)?),
         (K::Star | K::DotStar, I(x), I(y)) => I(x.checked_mul(y)?),
         (K::Caret | K::DotCaret, I(x), I(y)) if (0..40).contains(&y) => I(x.checked_pow(y as u32)?),
+        // 文字列の `+` は連結。ほかの算術・文字列と数の混ぜは決めない（hash の和の実数を返さない）
+        (K::Plus, S(x), S(y)) => st.cat(x, y)?,
+        _ if matches!((a, b), (S(_), _) | (_, S(_)))
+            && !matches!(op, K::EqEq | K::Ne | K::Lt | K::Le | K::Gt | K::Ge) =>
+        {
+            return None;
+        }
         (K::Plus | K::DotPlus, _, _) => R(a.f() + b.f()),
         (K::Minus | K::DotMinus, _, _) => R(a.f() - b.f()),
         (K::Star | K::DotStar, _, _) => R(a.f() * b.f()),
@@ -4439,12 +4600,12 @@ fn binop(op: K, a: Val, b: Val) -> Option<Val> {
         (K::Ne, S(x), S(y)) => B(x != y),
         (K::EqEq, E(c, i), E(d, j)) => B(c == d && i == j),
         (K::Ne, E(c, i), E(d, j)) => B(c != d || i != j),
-        (K::Lt, _, _) => B(ord(a, b)?.is_lt()),
-        (K::Le, _, _) => B(ord(a, b)?.is_le()),
-        (K::Gt, _, _) => B(ord(a, b)?.is_gt()),
-        (K::Ge, _, _) => B(ord(a, b)?.is_ge()),
-        (K::EqEq, _, _) => B(ord(a, b)?.is_eq()),
-        (K::Ne, _, _) => B(ord(a, b)?.is_ne()),
+        (K::Lt, _, _) => B(ord(a, b, st)?.is_lt()),
+        (K::Le, _, _) => B(ord(a, b, st)?.is_le()),
+        (K::Gt, _, _) => B(ord(a, b, st)?.is_gt()),
+        (K::Ge, _, _) => B(ord(a, b, st)?.is_ge()),
+        (K::EqEq, _, _) => B(ord(a, b, st)?.is_eq()),
+        (K::Ne, _, _) => B(ord(a, b, st)?.is_ne()),
         (K::KwAnd, B(x), B(y)) => B(x && y),
         (K::KwOr, B(x), B(y)) => B(x || y),
         _ => return None,
@@ -5047,5 +5208,164 @@ mod tests {
         };
         assert_eq!(dim_of(&f(2000), "x"), Ok(2000));
         assert_eq!(sized(&f(4000)), Err("non-constant-dim".into()));
+    }
+
+    #[test]
+    fn string_comparison_concat_and_string_function_are_decided() {
+        // S377: 文字列の `<`・`<=`・`>`・`>=` は辞書順（バイト順。omc の checkModel と同じ）、`+` は連結、`String(整数・論理)`、エスケープは解く。以前は大小が「分からない」で、`+` は hash の和の実数になった
+        let d = |cond: &str| {
+            dim_of(
+                &format!(
+                    "type Color = enumeration(red, green); model M Real x[if {cond} then 2 else 3]; end M;"
+                ),
+                "x",
+            )
+        };
+        for (cond, want) in [
+            (r#""a" < "b""#, 2),
+            (r#""b" < "a""#, 3),
+            (r#""Z" < "a""#, 2),
+            (r#""ab" < "abc""#, 2),
+            (r#""a" <= "a""#, 2),
+            (r#""b" > "a""#, 2),
+            (r#""a" >= "b""#, 3),
+            (r#""" < "a""#, 2),
+            (r#""é" > "z""#, 2),
+            (r#""a" + "b" == "ab""#, 2),
+            (r#""a" + "b" < "ac""#, 2),
+            (r#"String(12) == "12""#, 2),
+            (r#"String(true) == "true""#, 2),
+            (r#"String(-3) < "-2""#, 3),
+            (r#"String(Color.green) == "green""#, 2),
+            // 比べるのはエスケープを解いた中身（`\t` は 0x09 で `Z` より小さい。字面の `\t` は 0x5C で大きい）
+            (r#""\t" < "Z""#, 2),
+            (r#""a\"b" == "a\"b""#, 2),
+            (r#""a\\" == "a\\""#, 2),
+        ] {
+            assert_eq!(d(cond), Ok(want), "{cond}");
+        }
+        // 文字列と数の混ぜ・算術は決めない（hash の和の実数を返さない）
+        for cond in [
+            r#""a" < 1"#,
+            r#"("a" + 1) == 1"#,
+            r#"-"a" == 1"#,
+            r#""a" - "b" == 1"#,
+        ] {
+            assert_eq!(d(cond), Err("non-constant-dim".into()), "{cond}");
+        }
+        // 定数・parameter の文字列も同じ表（宣言が後ろでも）
+        let m = |body: &str| {
+            format!("package K constant String s = \"b\" + \"c\"; end K; model M {body} end M;")
+        };
+        assert_eq!(
+            dim_of(
+                &m("parameter String t = \"bd\"; Real x[if K.s < t then 2 else 3];"),
+                "x"
+            ),
+            Ok(2)
+        );
+        assert_eq!(
+            dim_of(
+                &m("parameter String t = \"bb\"; Real x[if K.s < t then 2 else 3];"),
+                "x"
+            ),
+            Ok(3)
+        );
+        // 関数の本体の中でも同じ表（`String(k)`・文字列どうしの大小）
+        let f = |k: usize| {
+            format!(
+                "function f input Integer k; output Integer y; algorithm
+                   if String(k) == \"2\" then y := 7; elseif \"b\" + String(k) > \"b3\" then y := 8; else y := 1; end if;
+                 end f; model M Real x[f({k})]; end M;"
+            )
+        };
+        assert_eq!([2, 4, 3].map(|k| dim_of(&f(k), "x")), [Ok(7), Ok(8), Ok(1)]);
+        // 文字列の連結が 2 倍ずつ伸びる連鎖は上限で断る（2^34 バイトを作らない）
+        let cs: String = (1..=34)
+            .map(|i| format!("constant String c{i} = c{} + c{};", i - 1, i - 1))
+            .collect();
+        let big = format!(
+            "package K constant String c0 = \"ab\"; {cs} end K; model M Real x[if K.c34 == K.c34 then 2 else 3]; end M;"
+        );
+        assert_eq!(sized(&big), Err("non-constant-dim".into()));
+    }
+
+    #[test]
+    fn nested_package_function_reads_constants_of_the_reaching_package() {
+        // S376 の持ち越し: `P5.Inner.f` の本体が読む定数 `n`（`PP` で宣言）は、`P5`（`extends PP(n = 5)`）を通した値
+        let pp = "package PP constant Integer n = 1;
+              package Inner
+                function f input Integer k; output Integer y; algorithm y := k + n; end f;
+                function h input Integer k; output Integer y; algorithm y := f(k) * 2; end h;
+              end Inner;
+            end PP;
+            package P5 extends PP(n = 5); end P5;";
+        let m = |body: &str| format!("{pp} model M {body} end M;");
+        for (decl, want) in [
+            ("Real a[PP.Inner.f(1)];", 2),
+            ("Real a[P5.Inner.f(1)];", 6),
+            ("Real a[P5.Inner.h(1)];", 12),
+            ("Real a[PP.Inner.h(1)];", 4),
+        ] {
+            assert_eq!(dim_of(&m(decl), "a"), Ok(want), "{decl}");
+        }
+        // `redeclare package` を通した `P.Inner.f`
+        let sub = "model Sub replaceable package P = PP; Real a[P.Inner.f(1)]; Real b[P.Inner.h(1)]; end Sub;";
+        let v = sized(&format!(
+            "{pp} {sub} model M Sub s1(redeclare package P = P5); Sub s2; end M;"
+        ))
+        .unwrap();
+        let got: Vec<_> = v.iter().map(|(n, d)| (n.as_str(), d[0])).collect();
+        assert_eq!(got, [("s1.a", 6), ("s1.b", 12), ("s2.a", 2), ("s2.b", 4)]);
+    }
+
+    #[test]
+    fn function_calls_the_redeclared_sibling_function() {
+        // S376 の持ち越し: 関数の中から呼ぶ兄弟の関数 `g`。インスタンスの `redeclare function g = g3` を引く
+        let sub = "model Sub replaceable function g input Integer k; output Integer y; algorithm y := k; end g;
+              function f input Integer k; output Integer y; algorithm y := g(k) + 1; end f;
+              Real x[f(2)];
+            end Sub;
+            function g3 input Integer k; output Integer y; algorithm y := 3*k; end g3;";
+        let v = sized(&format!(
+            "{sub} model M Sub a(redeclare function g = g3); Sub b; end M;"
+        ))
+        .unwrap();
+        assert_eq!(v, [("a.x".into(), vec![7]), ("b.x".into(), vec![3])]);
+        // 別のインスタンスから静的に呼ぶ `Sub.f`（`Other` の `g` の差し替えは `Sub.g` に届かない）
+        let other = "model Other replaceable function g input Integer k; output Integer y; algorithm y := 5*k; end g;
+              Real z[Sub.f(2)]; end Other;";
+        let v = sized(&format!(
+            "{sub} {other} model M Other o(redeclare function g = g3); end M;"
+        ))
+        .unwrap();
+        assert_eq!(v, [("o.z".into(), vec![3])]);
+        // 同じ差し替えの表でも呼び出し元の系統が違えば、覚えた結果を使い回さない（`o` が先に `Sub.f(2)` を 3 と覚えても、`s` の `f(2)` は 7）
+        for decls in [
+            "Other o(redeclare function g = g3); Sub s(redeclare function g = g3);",
+            "Sub s(redeclare function g = g3); Other o(redeclare function g = g3);",
+        ] {
+            let v = sized(&format!("{sub} {other} model M {decls} end M;")).unwrap();
+            let d = |n: &str| v.iter().find(|(k, _)| k == n).unwrap().1[0];
+            assert_eq!((d("o.z"), d("s.x")), (3, 7), "{decls}");
+        }
+    }
+
+    #[test]
+    fn parenthesized_package_redeclare_changes_the_constants_it_reaches() {
+        // S376 の持ち越し: `redeclare package P = PP(n = 5)` の `P.n` は 5（以前は宣言した側の 1）。`n` を使う `m` は決めない
+        let pp = "package PP constant Integer n = 1; constant Integer m = n + 1; constant Integer k = 4; end PP;
+            model Sub replaceable package P = PP; Real a[P.NAME]; end Sub;";
+        let a = |name: &str, red: &str| {
+            dim_of(
+                &format!("{} model M Sub s{red}; end M;", pp.replace("NAME", name)),
+                "s.a",
+            )
+        };
+        let red = "(redeclare package P = PP(n = 5))";
+        assert_eq!(a("n", red), Ok(5));
+        assert_eq!(a("k", red), Ok(4));
+        assert_eq!(a("m", red), Err("non-constant-dim".into()));
+        assert_eq!((a("n", ""), a("m", ""), a("k", "")), (Ok(1), Ok(2), Ok(4)));
     }
 }
