@@ -2,7 +2,7 @@
 
 対象: Rumoca（<https://github.com/CogniPilot/rumoca>）。英語の本文は [43-predefined-enumeration-parameter-dropped.md](43-predefined-enumeration-parameter-dropped.md)、再現は [.mo](43-predefined-enumeration-parameter-dropped.mo)。
 
-判定（GlobeMode、S373）: **軽いバグ**（変数が無くなる。誤った方程式は見つけていない）。`parameter AssertionLevel level = AssertionLevel.warning;` は、組み込みの列挙型 `AssertionLevel` の普通の parameter（MLS 3.7 の 8.3.7 が `assert` と `AssertionLevel` を説明する。節の番号は読み直していない【未確認】）。Rumoca の flat のモデルには変数 `level` が無い。`parameter StateSelect sel = StateSelect.prefer;` も同じ。ユーザーが宣言した列挙の parameter は残る（対照 `C`）。omc 1.27.2 は両方残す。
+判定（GlobeMode、S373）: **軽いバグ**（変数が無くなる。誤った方程式は見つけていない）。`parameter AssertionLevel level = AssertionLevel.warning;` は、組み込みの列挙型 `AssertionLevel` の普通の parameter（MLS 3.7 の 8.3.7 は `AssertionLevel` を組み込みの列挙型と呼ぶ。2026-11-16 に <https://specification.modelica.org/maint/3.7/equations.html> で読んだ。その型の宣言を禁じる文は無いが、許す文も見つけていない【未確認】）。Rumoca の flat のモデルには変数 `level` が無い。`parameter StateSelect sel = StateSelect.prefer;` も同じ。ユーザーが宣言した列挙の parameter は残る（対照 `C`）。omc 1.27.2 は両方残す。
 
 状態（S373、2026-11-16）: v0.10.2（GlobeMode の固定）と v0.10.4（最新のリリース）で再現。Rumoca の main はビルドしていない。
 

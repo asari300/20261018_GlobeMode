@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S373 library-mismatches — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S373 library-mismatches">
+
+<section class="slide" id="S01">
+  <span class="tag">S373 · 2026-11-16 · Track B</span>
+  <h1>ライブラリで Rumoca と食い違う例題を、原因ごとに分けた</h1>
+  <p class="lead">S369 の run（7 ライブラリ 2132 本）で、名前・方程式の数・DAE が合わなかった 13 本 + 2 本。自前の誤りは 1 つだけだった</p>
+  <div class="big">原因は <b>5 つ</b>: 自前 <b>1</b>（直した）、Rumoca <b>4</b>（下書き 42・43・44 と、36・40 の追記）</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">原因の表</span>
+  <h1>どの例題が、何のせいか</h1>
+  <table class="small">
+    <tr><th>例題</th><th>食い違い</th><th>原因</th></tr>
+    <tr><td>EnthalpyFlowRate・MoistAirEnthalpyFlowRate・PrescribedOutlet_Water</td><td>方程式 2・2・5 本</td><td>Rumoca v0.10.2 の数え違い（<span class="ok">v0.10.4 で修正</span>）。36 の追記</td></tr>
+    <tr><td>AixLib VentilationFlowRateSashOpening</td><td><code>opnWidth_in</code> 2 変数</td><td>Rumoca: redeclare の修飾が捨てられる（40）</td></tr>
+    <tr><td>AixLib VentilationFlowRateSimpleOpening</td><td><code>opnWidth_in</code> 12 変数</td><td>Rumoca: 差し替えたクラスの旗が条件付き成分に届かない（<span class="ng">44</span>）</td></tr>
+    <tr><td>ThermofluidStream BaseModel 2 本</td><td><code>assertionLevel</code></td><td>Rumoca: 組み込みの列挙の parameter が消える（<span class="ng">43</span>）</td></tr>
+    <tr><td>Buildings BoilerPolynomial</td><td>状態 6 対 7</td><td>Rumoca: 修飾が違う枝を選ぶ（<span class="ng">42</span>）</td></tr>
+    <tr><td>AixLib WindowSimple</td><td>構造が特異</td><td><b>自前の誤り</b>（DAE の incidence）</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">自前の誤り</span>
+  <h1><code>s[:].h = h[:]</code> の左辺が incidence に入っていなかった</h1>
+  <div class="cols-2">
+    <pre><code>// AixLib PrescribedSolarRad
+solRadOut[:].H = H[:];
+// 変数は solRadOut[1].H …
+// （部品の配列の欄）
+
+// 以前: 左辺の参照が空
+//   → 未知数 5 つが行に当たらない
+//   → 構造が特異（Rumoca は正則）</code></pre>
+    <ul>
+      <li><code>record_vars</code> の範囲の枝が、要素の欄が<b>変数そのもの</b>のとき空を返していた（S362 の shortcut の取りこぼし）</li>
+      <li>変数ならその変数を返す（1 か所）。回帰試験 1 本（直す前は落ちる）</li>
+      <li>範囲は見ないので、左辺は全要素に触れる（正則は甘く出る側。S362 と同じ）</li>
+    </ul>
+  </div>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">成果物</span>
+  <h1>下書き 3 件（新規）と追記 2 件、数字は作業記録</h1>
+  <ul>
+    <li><b>42</b> 修飾 <code>vol(massDynamics = massDynamics)</code> が違う枝を選ぶ（v0.10.2・v0.10.4 とも再現。omc は <code>0 = f</code>）</li>
+    <li><b>43</b> <code>AssertionLevel</code>・<code>StateSelect</code> の parameter が flat から消える（軽い）</li>
+    <li><b>44</b> 差し替えたクラスが <code>use_in = false</code> を決めても条件付き成分が残る</li>
+    <li>36 に同じ原因の別の形、40 に AixLib の例を追記。出さない（出すのはユーザー）</li>
+    <li>MSL 566 本の突き合わせは回帰 0。ライブラリは <code>libraries.yml</code> を 1 回回して確かめた（解説書）</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

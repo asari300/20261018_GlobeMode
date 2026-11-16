@@ -2,7 +2,7 @@
 
 対象: Rumoca（<https://github.com/CogniPilot/rumoca>）。英語の本文は [44-conditional-component-ignores-redeclared-class.md](44-conditional-component-ignores-redeclared-class.md)、再現は [.mo](44-conditional-component-ignores-redeclared-class.mo)。
 
-判定（GlobeMode、S373）: **バグ**。`Holder h(redeclare model Area = AreaFinal)` は replaceable な `Area` を `AreaFinal` に差し替える。`AreaFinal` は基底クラスの修飾で `use_in = false` を決める（`extends PartArea(final use_in = false)`）。`Holder` は `Real u = 1 if area.use_in;` を宣言する。条件は `false` なので `h.u` は無いはず（MLS 3.7 の 4.4.5: 条件が偽の条件付き成分は取り除く。7.3: `redeclare` はクラスを差し替える）。Rumoca は `h.u` を残す。flat のモデルに `h.area.use_in` と `h.u` がある。omc 1.27.2 は `h.area.use_in = false` だけ。
+判定（GlobeMode、S373）: **バグ**。`Holder h(redeclare model Area = AreaFinal)` は replaceable な `Area` を `AreaFinal` に差し替える。`AreaFinal` は基底クラスの修飾で `use_in = false` を決める（`extends PartArea(final use_in = false)`）。`Holder` は `Real u = 1 if area.use_in;` を宣言する。条件は `false` なので `h.u` は無いはず（MLS 3.7 の 4.4.5: 条件が偽なら、成分は修飾も含めて平らにした DAE から取り除かれる。2026-11-16 に <https://specification.modelica.org/maint/3.7/class-predefined-types-and-declarations.html> で読んだ。7.3: `redeclare` はクラスを差し替える）。Rumoca は `h.u` を残す。flat のモデルに `h.area.use_in` と `h.u` がある。omc 1.27.2 は `h.area.use_in = false` だけ。
 
 状態（S373、2026-11-16）: v0.10.2（GlobeMode の固定）と v0.10.4（最新のリリース）で再現。Rumoca の main はビルドしていない。
 
@@ -50,4 +50,4 @@ omc 1.27.2 の `instantiateModel(Rep44.A)` は `final parameter Boolean h.area.u
 
 - AixLib 3.0.1（コミット `e5df9a8d`）の `AixLib.Airflow.WindowVentilation.Examples.VentilationFlowRateSimpleOpening` で見つけた。経験式のモデル（`ASHRAE`・`Caciolo` ほか）は `replaceable model OpeningArea = AixLib.Airflow.WindowVentilation.OpeningAreas.OpeningAreaSimple` を差し替え、`OpeningAreaSimple` は `PartialOpeningArea(final use_opnWidth_in = false, ...)` を継ぐ。部分モデルは `final parameter Boolean use_opnWidth_in = openingArea.use_opnWidth_in;` と `RealInput opnWidth_in if use_opnWidth_in` を宣言する。自前の flat に `opnWidth_in` は無く、Rumoca は 12 個の部品すべてに残す（変数は 353 対 365）。AixLib のモデルは CLI で回していない（CLI は AixLib の木で `PKG-008` で止まる。同じ名前 `RadiatorTypes` の部分ディレクトリと `.mo` が並ぶため）。AixLib の例題の原因は、S369 の突き合わせ（ライブラリの API、v0.10.2）から読んだ【v0.10.4 の CLI での AixLib のモデルは未確認】。
 - 同じ AixLib の package の sash の形（`VentilationFlowRateSashOpening`、`redeclare model OpeningArea = …OpeningAreaSashVDI2078 (use_opnWidth_in = false, …)`）は下書き 40（クラスの修飾が捨てられる）。40 とこの下書きの根が同じかは分からない。
-- 出典: GlobeMode の S373、MLS 3.7 <https://specification.modelica.org/maint/3.7/>（条件付き成分と `redeclare`。節の番号は読み直していない【未確認】）。
+- 出典: GlobeMode の S373、MLS 3.7 <https://specification.modelica.org/maint/3.7/class-predefined-types-and-declarations.html>（4.4.5。2026-11-16 に読んだ）と <https://specification.modelica.org/maint/3.7/inheritance-modification-and-redeclaration.html>（7.3。見出しだけ【それ以上は未確認】）。

@@ -2,7 +2,7 @@
 
 Target: Rumoca (https://github.com/CogniPilot/rumoca)
 
-Verdict (GlobeMode, S373): **minor bug** (a missing variable, no wrong equation found). A component `parameter AssertionLevel level = AssertionLevel.warning;` is an ordinary parameter of the predefined enumeration type `AssertionLevel` (MLS 3.7 section 8.3.7 describes `assert` and `AssertionLevel`; the section number was not re-read [not verified]). The flat model of Rumoca has no variable `level`. The same holds for `parameter StateSelect sel = StateSelect.prefer;`. A parameter of an enumeration that the user declares is kept (control `C`). omc 1.27.2 keeps both.
+Verdict (GlobeMode, S373): **minor bug** (a missing variable, no wrong equation found). A component `parameter AssertionLevel level = AssertionLevel.warning;` is an ordinary parameter of the predefined enumeration type `AssertionLevel` (MLS 3.7 section 8.3.7 calls `AssertionLevel` a built-in enumeration type; read on 2026-11-16 at https://specification.modelica.org/maint/3.7/equations.html; nothing there forbids a declaration of that type, but no sentence that allows it was found either [not verified]). The flat model of Rumoca has no variable `level`. The same holds for `parameter StateSelect sel = StateSelect.prefer;`. A parameter of an enumeration that the user declares is kept (control `C`). omc 1.27.2 keeps both.
 
 Status (S373, 2026-11-16): reproduces on v0.10.2 (the pin of GlobeMode) and v0.10.4 (the latest release). Rumoca main was not built.
 

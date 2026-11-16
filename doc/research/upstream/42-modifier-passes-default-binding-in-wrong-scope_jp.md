@@ -2,7 +2,7 @@
 
 対象: Rumoca（<https://github.com/CogniPilot/rumoca>）。英語の本文は [42-modifier-passes-default-binding-in-wrong-scope.md](42-modifier-passes-default-binding-in-wrong-scope.md)、再現は [.mo](42-modifier-passes-default-binding-in-wrong-scope.mo)。
 
-判定（GlobeMode、S373）: **バグ**。`Boiler b(energyDynamics = Dyn.Steady)` の `Boiler` は `Vol vol(massDynamics = massDynamics)` で `massDynamics` を下へ渡す。`b.massDynamics` の既定は `energyDynamics` なので、`b.vol.massDynamics` は `Steady` になるはず（MLS 3.7 の 7.2: 修飾の右辺は囲むクラスの中で評価する）。Rumoca は `vol` の `if massDynamics == Dyn.Steady then 0 = f else der(m) = f` を `else` の枝で平らにする。`b.massDynamics` を `energyDynamics` の既定の `Dynamic` と見ているように見える。omc 1.27.2 は `0.0 = b.vol.f`。
+判定（GlobeMode、S373）: **バグ**。`Boiler b(energyDynamics = Dyn.Steady)` の `Boiler` は `Vol vol(massDynamics = massDynamics)` で `massDynamics` を下へ渡す。`b.massDynamics` の既定は `energyDynamics` なので、`b.vol.massDynamics` は `Steady` になるはず（修飾の右辺は囲むクラスの要素を指す。MLS 3.7 の 7.2.3 の例 `class C4 extends C3(…, x5 = x3, …)` が兄弟の要素をこう渡す。2026-11-16 に読んだ）。Rumoca は `vol` の `if massDynamics == Dyn.Steady then 0 = f else der(m) = f` を `else` の枝で平らにする。`b.massDynamics` を `energyDynamics` の既定の `Dynamic` と見ているように見える。omc 1.27.2 は `0.0 = b.vol.f`。
 
 状態（S373、2026-11-16）: v0.10.2（GlobeMode の固定）と v0.10.4（最新のリリース）で再現。Rumoca の main はビルドしていない。
 
@@ -51,4 +51,4 @@ omc 1.27.2 の `instantiateModel(Rep42.A)` は `final parameter ... b.vol.massDy
 
 - Buildings 14.0.0（コミット `ad48324b`）の `Buildings.DHC.Plants.Steam.BaseClasses.Examples.BoilerPolynomial` で見つけた（S373。S369 の `libraries.yml` の run から）。`boiSte` は `energyDynamics = SteadyState` の `BoilerPolynomial`。`massDynamics` の既定は `energyDynamics`（`LumpedVolumeDeclarations`・`PartialTwoPortTwoMedium` が宣言）で、体積 `vol`（`ControlVolumeEvaporation`。`PartialSaturatedControlVolume` を継ぎ、これも `PartialTwoPortTwoMedium` を継ぐ）には `final massDynamics = massDynamics` が渡る。体積の `if massDynamics == SteadyState then 0 = mWat_flow + mSte_flow else der(m) = mWat_flow + mSte_flow` が Rumoca では `else` の枝になる。方程式と未知数の数は同じ（161 対 161。どちらの枝も 1 本）だが、Rumoca は `der(boiSte.vol.m)` を持ち、状態が 7 本（GlobeMode は 6 本）になる。Rumoca の `boiSte.vol` の構造の行は、この方程式に `der(m)`・`mWat_flow`・`mSte_flow` を並べる（定常の枝は 2 つの流量だけ）。
 - 同じ形は多い（`Buildings.Fluid.Interfaces.LumpedVolumeDeclarations` の `massDynamics = energyDynamics`、Buildings と IBPSA の多くのモデルが `final massDynamics = massDynamics` で渡す）。変わる例題の本数は分からない。7 ライブラリの突き合わせで見えたのは `BoilerPolynomial` だけ（状態は Rumoca が釣り合いまで通した例題でしか比べない。Buildings は 351 本のうち 116 本）【ほかの例題の本数は未確認】。
-- 出典: GlobeMode の S373、MLS 3.7 <https://specification.modelica.org/maint/3.7/inheritance-modification-and-redeclaration.html>（7.2。節の見出しを読んだだけで、評価の範囲の文言は読み直していない【未確認】）。
+- 出典: GlobeMode の S373、MLS 3.7 <https://specification.modelica.org/maint/3.7/inheritance-modification-and-redeclaration.html>（7.2.3 とその例を 2026-11-16 に読んだ。右辺を引く範囲を述べた文は、その節では見つからなかった【未確認】）。
