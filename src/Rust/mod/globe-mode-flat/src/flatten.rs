@@ -13,7 +13,7 @@ mod fneval;
 mod graph;
 mod stream;
 
-use fneval::{BUILTINS, builtin, extremum, unop};
+use fneval::{BUILTINS, Target, builtin, extremum, unop};
 use stream::OUT_STREAM;
 
 /// 修飾 `x(start = 1) = 2`。値は書いた場所の文脈（`Bind::ctx`）で名前を付け替える
@@ -49,6 +49,37 @@ type PkgEnv = Option<Rc<HashMap<String, Bind>>>;
 type Cenv = Rc<RefCell<BTreeMap<String, (ClassId, ModMap)>>>;
 type ModMap = BTreeMap<String, Mod>;
 
+/// 名前（部品の参照・型名）の場所と中身（`prefix_class` で名前の先頭を引く）
+struct NameAt {
+    range: rowan::TextRange,
+    parts: Vec<String>,
+    global: bool,
+}
+
+impl NameAt {
+    fn of(range: rowan::TextRange, parts: Vec<String>, global: bool) -> Self {
+        Self {
+            range,
+            parts,
+            global,
+        }
+    }
+}
+
+/// 名前が通った package の列から決まる、定数・関数が読む package（S378）。
+/// 値を出すのは経路をたどれたときだけで、2 つ以上ありうるとき（`Ambiguous`）は断る
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Route {
+    /// 宣言したクラス（かその外側）を受け継いだ package（`P5.n`・`P5.Inner.f`）。その package を通した値
+    Heir(ClassId),
+    /// 名前が宣言した側のクラスをすべて明示している（`PP.n`・`Modelica.Constants.pi`）。宣言した側の値（呼び出し元の package を持ち込まない）
+    Static,
+    /// 外側の package が名前に出ない相対の名前（`n`・`Inner.c`）。呼び出し元の文脈の package
+    Relative,
+    /// 外側ごとに別の package が受け継いでいて 1 つに決まらない
+    Ambiguous,
+}
+
 #[derive(Clone)]
 struct Bind {
     node: SyntaxNode,
@@ -68,7 +99,8 @@ struct Ctx {
     /// このインスタンスで `redeclare` された名前（S297）。`for` の中の文脈と共有する
     cenv: Cenv,
     /// このインスタンスのクラスが入っているパッケージの、差し替え後のクラス（`Medium.BaseProperties` を引いたときの `Medium` の中身）。
-    /// 受け継いだクラスの中の、同じパッケージのメンバー（`ThermodynamicState`・`nXi`）を、こちらで引き直す
+    /// 受け継いだクラスの中の、同じパッケージのメンバー（`ThermodynamicState`・`nXi`）を、こちらで引き直す。
+    /// パッケージの文脈（`PKG`）では、名前が通った package を受け継いだ側（`P5.Inner.c` の `Inner` の外側の `PP` を受け継いだ `P5`。S378）
     heir: Option<ClassId>,
     /// 関数の中（`FN`）から見える、呼び出したインスタンスの系統（兄弟の関数の `redeclare function` を引く。S377）。`FN` 以外は `None`（`inst()` を使う）
     inst: Option<Rc<Vec<ClassId>>>,
@@ -93,22 +125,67 @@ impl Ctx {
     }
 }
 
-/// 差し替えの組（名前 → クラス）の hash。`(…)` の修飾つきの差し替えがあるときは `None`（修飾の中身は鍵にしない）
+/// 差し替えの組（名前 → クラスと `(…)` の修飾）の hash。修飾の中身（式の場所と、書いた場所の文脈）も鍵にする。
+/// 部品の型の差し替え（`Redecl::Comp`）・深い入れ子があるときは `None`（鍵にしない。S378・#164）
 fn cenv_hash(c: &Cenv) -> Option<u64> {
+    cenv_hash_at(c, 0)
+}
+
+fn cenv_hash_at(c: &Cenv, depth: u32) -> Option<u64> {
     use std::hash::{Hash, Hasher};
     let c = c.try_borrow().ok()?;
     let mut h = std::collections::hash_map::DefaultHasher::new();
     for (k, (cid, extra)) in c.iter() {
-        if !extra.is_empty() {
-            return None;
-        }
         (k, cid).hash(&mut h);
+        mods_hash(extra, &mut h, depth)?;
     }
     Some(h.finish())
 }
 
+fn mods_hash(m: &ModMap, h: &mut impl std::hash::Hasher, depth: u32) -> Option<()> {
+    use std::hash::Hash;
+    if depth > 4 {
+        return None;
+    }
+    for (k, x) in m {
+        (k, x.each).hash(h);
+        match &x.val {
+            Some(b) => {
+                // 名前を含まない式（`5`）は字面で、含む式は場所で区別する（同じ字面でも、書いた場所の名前の解決が違いうる）。
+                // 場所だけだと、インスタンスごとに同じ `(c = 5)` を書いた 300 個が別の鍵になる
+                if (b.node.descendants_with_tokens())
+                    .any(|e| e.as_token().is_some_and(|t| t.kind() == K::Ident))
+                {
+                    let r = b.node.text_range();
+                    let (s, e): (u32, u32) = (r.start().into(), r.end().into());
+                    (1u8, s, e, b.file).hash(h);
+                } else {
+                    (2u8, b.node.text().to_string()).hash(h);
+                }
+                (&b.suffix, &b.lit).hash(h);
+                ctx_hash_at(&b.ctx, depth + 1)?.hash(h);
+            }
+            None => 0u8.hash(h),
+        }
+        mods_hash(&x.sub, h, depth)?;
+        match x.redecl.as_deref() {
+            None => {}
+            Some(Redecl::Class { cid, extra }) => {
+                (2u8, cid).hash(h);
+                mods_hash(extra, h, depth)?;
+            }
+            Some(Redecl::Comp { .. }) => return None,
+        }
+    }
+    Some(())
+}
+
 /// 文脈の中身の hash（式を評価した結果を覚える鍵。`Rc` の同一性は使わない: パッケージの定数の文脈は評価のたびに作り直す）
 fn ctx_hash(ctx: &Ctx) -> Option<u64> {
+    ctx_hash_at(ctx, 0)
+}
+
+fn ctx_hash_at(ctx: &Ctx, depth: u32) -> Option<u64> {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
     (
@@ -116,7 +193,7 @@ fn ctx_hash(ctx: &Ctx) -> Option<u64> {
         &*ctx.lineage,
         &ctx.locals,
         ctx.heir,
-        cenv_hash(&ctx.cenv)?,
+        cenv_hash_at(&ctx.cenv, depth)?,
     )
         .hash(&mut h);
     Some(h.finish())
@@ -229,11 +306,13 @@ impl Val {
     }
 }
 
-/// 文字列の表（S377）。`Val` は `Copy` なので `Val::S` は番号を持ち、辞書順・連結は中身を引く。表は伸びるだけ（番号は変わらない）
+/// 文字列の表（S377）。`Val` は `Copy` なので `Val::S` は番号を持ち、辞書順・連結は中身を引く。表は伸びるだけ（番号は変わらない）。
+/// 中身の総量には上限がある（`MAX_STRS`。S378・#160）
 #[derive(Default)]
 struct StrTab {
     v: Vec<Rc<str>>,
     ix: HashMap<Rc<str>, u32>,
+    bytes: usize,
 }
 
 #[derive(Default)]
@@ -241,17 +320,23 @@ struct Strs(RefCell<StrTab>);
 
 /// 連結で作る文字列の長さの上限（`c_i = c_{i-1} + c_{i-1}` の連鎖が 2^n バイトを作らない）
 const MAX_STR: usize = 1 << 16;
+/// 文字列の表の中身の総量の上限（捨てない表なので、反復ごとに別の長い文字列を作る式が表を伸ばし続けない。超えたら「分からない」。S378・#160）
+#[cfg(not(test))]
+const MAX_STRS: usize = 16 << 20;
+#[cfg(test)]
+const MAX_STRS: usize = 1 << 20;
 
 impl Strs {
-    fn intern(&self, s: &str) -> Val {
+    fn intern(&self, s: &str) -> Option<Val> {
         let t = &mut *self.0.borrow_mut();
         if let Some(&i) = t.ix.get(s) {
-            return Val::S(i);
+            return Some(Val::S(i));
         }
+        t.bytes = t.bytes.checked_add(s.len()).filter(|b| *b <= MAX_STRS)?;
         let (r, i): (Rc<str>, _) = (s.into(), t.v.len() as u32);
         t.v.push(r.clone());
         t.ix.insert(r, i);
-        Val::S(i)
+        Some(Val::S(i))
     }
 
     fn get(&self, i: u32) -> Rc<str> {
@@ -265,7 +350,10 @@ impl Strs {
 
     fn cat(&self, a: u32, b: u32) -> Option<Val> {
         let (x, y) = (self.get(a), self.get(b));
-        (x.len() + y.len() <= MAX_STR).then(|| self.intern(&format!("{x}{y}")))
+        if x.len() + y.len() > MAX_STR {
+            return None;
+        }
+        self.intern(&format!("{x}{y}"))
     }
 }
 
@@ -932,7 +1020,11 @@ impl F<'_> {
                     return un("unresolved", "no type name");
                 };
                 let (res, extra, h) = self.class_res(file, &tn, ctx);
-                heir = h.or_else(|| self.alias_heir(file, &tn, &res)).or(ctx.heir);
+                let alias = match h {
+                    Some(h) => Some(h),
+                    None => self.alias_heir(file, &tn, &res)?,
+                };
+                heir = alias.or(ctx.heir);
                 (res, tn.parts(), extra)
             }
         };
@@ -1078,7 +1170,7 @@ impl F<'_> {
                     let f = *self.p.lib.classes[*c].classes.get("equalityConstraint")?;
                     // 大きさが決められなければ 0（今までと同じ。等式を作らない）
                     let n = self
-                        .class_out_dims(f, ctx, None)
+                        .class_out_dims(f, ctx)
                         .and_then(|d| dims_product(&d))
                         .unwrap_or(0);
                     Some((self.p.lib.qualified_name(f), n))
@@ -1917,7 +2009,8 @@ impl F<'_> {
                 let Some(base) = sb.base() else {
                     return un("redeclare", red.text().to_string());
                 };
-                let (Some(Resolution::Class(cid)), _, _) = self.class_res(snip.fid, &base, ctx)
+                // 外側の差し替えをそのまま渡す `redeclare package P = P` は、外側の `(…)` の修飾（`class_res` の 2 つ目）も引き継ぐ（内側に書いた `(…)` が勝つ。S378・#163）
+                let (Some(Resolution::Class(cid)), outer, _) = self.class_res(snip.fid, &base, ctx)
                 else {
                     if is_fn {
                         return Ok(None);
@@ -1928,8 +2021,8 @@ impl F<'_> {
                 let extra = match cm {
                     // 関数の `(…)` の修飾は評価器が見ない。あることだけ覚える（`call_target` は断る）
                     Some(_) if is_fn => ModMap::from([(String::new(), Mod::default())]),
-                    Some(cm) => self.mods_of(&cm, snip.fid, ctx)?,
-                    None => ModMap::new(),
+                    Some(cm) => merge(&self.mods_of(&cm, snip.fid, ctx)?, &outer),
+                    None => outer,
                 };
                 let m = Mod {
                     redecl: Some(Rc::new(Redecl::Class { cid, extra })),
@@ -1974,12 +2067,27 @@ impl F<'_> {
             }
             return (stat, ModMap::new(), None);
         };
-        let mut owner = None;
+        let (mut owner, mut path) = (None, Vec::new());
         for p in &parts[1..] {
             owner = Some(cur);
+            path.push(Some(cur));
             match self.member_class(cur, p) {
                 Some(c) => cur = c,
                 None => return (stat, ModMap::new(), None),
+            }
+        }
+        // 入れ子の型（`L.Sub.Y`）は、受け継いだ外側（`L` の差し替え先）を通す（直前の package だけでなく。S378・#165）
+        if parts.len() > 2 {
+            match self.route(self.p.lib.classes[cur].parent, &path) {
+                Route::Heir(h) => owner = Some(h),
+                Route::Ambiguous => {
+                    return (
+                        Some(Resolution::Unresolved(Reason::Redeclare)),
+                        ModMap::new(),
+                        None,
+                    );
+                }
+                _ => {}
             }
         }
         let extra = if parts.len() == 1 {
@@ -1991,34 +2099,51 @@ impl F<'_> {
     }
 
     /// `Medium.BaseProperties`（`package Medium = MoistAir` の別名）のように、静的に引けたクラスの外側が部分的な（`partial`）パッケージで、
-    /// 型名の前半がそれを受け継いだパッケージを指すとき、その受け継いだ側（差し替え後のパッケージと同じ扱い）
-    fn alias_heir(&self, file: u32, tn: &ast::Name, res: &Option<Resolution>) -> Option<ClassId> {
+    /// 型名の前半がそれを受け継いだパッケージを指すとき、その受け継いだ側（差し替え後のパッケージと同じ扱い）。
+    /// `partial` でない package を `extends Lib(n = 5)` した `Lib5.X` も同じ（名前の前半が受け継いだ側を指すとき `route`。
+    /// 型名が宣言した側のクラスの名前と並んでいるだけの普通の名前は引き直さない）。外側ごとに違う package が受け継いでいて 1 つに決まらなければ断る（S378・#165）
+    fn alias_heir(
+        &self,
+        file: u32,
+        tn: &ast::Name,
+        res: &Option<Resolution>,
+    ) -> Res<Option<ClassId>> {
         let parts = tn.parts();
         if parts.len() < 2 || file >= crate::SNIP_FILE_BASE || tn.is_global() {
-            return None;
+            return Ok(None);
         }
         let Some(Resolution::Class(c)) = res else {
-            return None;
+            return Ok(None);
         };
-        let p0 = self.p.lib.classes[*c].parent?;
-        // 受け継いだ側の型（`class extends` の基底の中の `ThermodynamicState`）を引き直すのは、これらのときだけ（毎回やると遅い）
+        let Some(p0) = self.p.lib.classes[*c].parent else {
+            return Ok(None);
+        };
+        // 受け継いだ側の型（`class extends` の基底の中の `ThermodynamicState`）を引き直すのは、これらのときだけ（毎回やると遅い）。
+        // それ以外は、型名の前半が宣言した側の外側のクラスの名前と食い違うとき（`Lib5.X`）だけ
         if !self.p.is_partial(p0) && !self.p.class(*c).is_some_and(|cd| cd.is_class_extends()) {
-            return None;
+            let names = &parts[..parts.len() - 1];
+            let same = (self.chain(p0).iter().zip(names.iter().rev()))
+                .all(|(a, n)| self.p.lib.classes[*a].name == *n);
+            if same {
+                return Ok(None);
+            }
+            return match self.route(
+                Some(p0),
+                &self.prefix_path(
+                    file,
+                    &NameAt::of(tn.range(), parts.clone(), false),
+                    Some(p0),
+                ),
+            ) {
+                Route::Heir(h) => Ok(Some(h)),
+                Route::Ambiguous => un("ambiguous-package", parts.join(".")),
+                _ => Ok(None),
+            };
         }
-        let scope = self.p.lib.class_at(file, u32::from(tn.range().start()))?;
-        let r = Ref {
-            file,
-            range: tn.range(),
-            scope,
-            kind: RefKind::Type,
-            parts: parts[..parts.len() - 1].to_vec(),
-            global: false,
-            local: false,
-        };
-        match self.p.lib.resolve(&r) {
-            Resolution::Class(a) if self.p.lineage(a).contains(&p0) => Some(a),
-            _ => None,
-        }
+        let at = NameAt::of(tn.range(), parts.clone(), false);
+        Ok(self
+            .prefix_class(file, &at, parts.len() - 1)
+            .filter(|a| self.p.lineage(*a).contains(&p0)))
     }
 
     /// パッケージ `pkg` の中（受け継ぎを含む）のクラス `name`。`pkg` の外のクラスは返さない
@@ -2328,18 +2453,18 @@ impl F<'_> {
     // ---------------------------------------------------------------- 定数の評価
 
     /// 参照 `r` の名前の先頭 `k` 個を型として引いたクラス
-    fn prefix_class(&self, file: u32, r: &ast::ComponentRef, k: usize) -> Option<ClassId> {
+    fn prefix_class(&self, file: u32, r: &NameAt, k: usize) -> Option<ClassId> {
         if file >= crate::SNIP_FILE_BASE {
             return None;
         }
-        let scope = self.p.lib.class_at(file, u32::from(r.range().start()))?;
+        let scope = self.p.lib.class_at(file, u32::from(r.range.start()))?;
         let pre = Ref {
             file,
-            range: r.range(),
+            range: r.range,
             scope,
             kind: RefKind::Type,
-            parts: r.parts()[..k].to_vec(),
-            global: r.is_global(),
+            parts: r.parts[..k].to_vec(),
+            global: r.global,
             local: false,
         };
         match self.p.lib.resolve(&pre) {
@@ -2348,21 +2473,98 @@ impl F<'_> {
         }
     }
 
-    /// パッケージの定数 `P5.n`（宣言したクラスは `cid`）の参照の、名前が通ったパッケージ `P5`。`cid` と同じか、`cid` を受け継いでいなければ `None`（S376・#156）
-    fn via_class(&self, file: u32, r: &ast::ComponentRef, cid: ClassId) -> Option<ClassId> {
-        let n = r.parts().len();
-        let h = self.prefix_class(file, r, n.checked_sub(1).filter(|k| *k > 0)?)?;
-        (h != cid && self.p.lineage(h).contains(&cid)).then_some(h)
+    /// クラス `c` と、その外側のクラス（内側から外側へ）
+    fn chain(&self, c: ClassId) -> Vec<ClassId> {
+        let mut v = vec![c];
+        while let Some(p) = self.p.lib.classes[*v.last().unwrap_or(&c)].parent {
+            v.push(p);
+        }
+        v
+    }
+
+    /// 参照 `r` の名前のうち、最後の名前を除く package の部分の、`container`（最後の名前が宣言されたクラス）の外側の数だけ（外側から並べる）。
+    /// `route` に渡す。`container` の外側より前は、決めるのに要らないので引かない
+    fn prefix_path(
+        &self,
+        file: u32,
+        r: &NameAt,
+        container: Option<ClassId>,
+    ) -> Vec<Option<ClassId>> {
+        let n = r.parts.len();
+        let k = container
+            .map_or(0, |c| self.chain(c).len())
+            .min(n.saturating_sub(1));
+        ((n - k)..n)
+            .map(|j| self.prefix_class(file, r, j))
+            .collect()
+    }
+
+    /// 最後の名前を宣言したクラス `container` と、名前が通った package の列 `path`（外側から。最後が `container` の位置）から、読む package を決める。
+    /// `container` とその外側のクラスを、同じ位置の `path` の package が受け継いでいれば（`P5.Inner.c` の `Inner` の外側の `PP` を `P5` が）それ。
+    /// 外側ごとに違う package が受け継いでいて 1 つに決まらなければ `Ambiguous`。受け継ぎが無く、名前が `container` の外側を全部明示していれば `Static`（S378）。
+    /// shortcut: `import` した別名を通した名前（`Inner.c`）は、外側を `path` から引けない（`Relative`）
+    fn route(&self, container: Option<ClassId>, path: &[Option<ClassId>]) -> Route {
+        let Some(container) = container else {
+            return Route::Relative;
+        };
+        let chain = self.chain(container);
+        let mut covered = path.len() >= chain.len();
+        let mut found: Vec<ClassId> = Vec::new();
+        for (a, h) in chain.iter().zip(path.iter().rev()) {
+            match *h {
+                Some(h) if h == *a => {}
+                Some(h) if self.p.lineage(h).contains(a) => {
+                    if !found.contains(&h) {
+                        found.push(h);
+                    }
+                }
+                _ => covered = false,
+            }
+        }
+        match found.as_slice() {
+            [] if covered => Route::Static,
+            [] => Route::Relative,
+            [h] => Route::Heir(*h),
+            // 入れ子の package が別々に受け継いでいても、内側が外側の中にあれば 1 つの経路（`Q.Inner` は `Q` の中。定数は内側から外側へ `chain` をたどって引く）
+            hs if hs
+                .windows(2)
+                .all(|w| self.p.lib.classes[w[0]].parent == Some(w[1])) =>
+            {
+                Route::Heir(hs[0])
+            }
+            _ => Route::Ambiguous,
+        }
+    }
+
+    /// パッケージの定数の参照 `r`（宣言したクラスは `cid`）の `route`（S376・#156 の `P5.n`、S378 で入れ子の外側・明示した名前も）
+    fn const_route(&self, file: u32, r: &ast::ComponentRef, cid: ClassId) -> Route {
+        let r = NameAt::of(r.range(), r.parts(), r.is_global());
+        if r.parts.len() < 2 {
+            return Route::Relative;
+        }
+        self.route(Some(cid), &self.prefix_path(file, &r, Some(cid)))
+    }
+
+    /// 文脈 `c` の `heir` を `h` にしたもの
+    fn with_heir(c: &Rc<Ctx>, h: ClassId) -> Rc<Ctx> {
+        Rc::new(Ctx {
+            pfx: c.pfx.clone(),
+            lineage: c.lineage.clone(),
+            locals: c.locals.clone(),
+            cenv: c.cenv.clone(),
+            heir: Some(h),
+            inst: c.inst.clone(),
+        })
     }
 
     /// `String(v)`（整数・論理・列挙の要素。実数は書式が要るので決めない。S377）
     fn string_of(&self, v: Val) -> Option<Val> {
-        Some(self.strs.intern(&match v {
+        self.strs.intern(&match v {
             Val::I(i) => i.to_string(),
             Val::B(b) => b.to_string(),
             Val::E(c, i) => self.p.lib.classes[c].components[i].name.clone(),
             _ => return None,
-        }))
+        })
     }
 
     /// 名前の定数・parameter の束縛の式 `n` の値。成功した値を覚える（`c_i = c_{i-1} + c_{i-1}` の連鎖が 2^n 回の評価にならない。S376・#158）。
@@ -2393,7 +2595,7 @@ impl F<'_> {
                     K::UReal => t.text().parse().ok().map(Val::R),
                     K::KwTrue => Some(Val::B(true)),
                     K::KwFalse => Some(Val::B(false)),
-                    K::Str => Some(self.strs.intern(&unquote(t.text()))),
+                    K::Str => self.strs.intern(&unquote(t.text())),
                     _ => None,
                 }
             }
@@ -2503,8 +2705,8 @@ impl F<'_> {
                             if self.is_enum(*cid) {
                                 return Some(Val::E(*cid, *idx));
                             }
-                            let via = self.via_class(file, &c, *cid);
-                            let (node, f, c2) = self.pkg_binding(ctx, *cid, comp, via)?;
+                            let route = self.const_route(file, &c, *cid);
+                            let (node, f, c2) = self.pkg_binding(ctx, *cid, comp, route)?;
                             match &sub {
                                 Some(ix) => self.eval_at(&node, ix, f, &c2, d),
                                 None => self.eval_bind(&node, f, &c2, d),
@@ -2531,7 +2733,12 @@ impl F<'_> {
                                     if ctx.pfx == PKG || !ctx.lineage.contains(cid) =>
                                 {
                                     let comp = &self.p.lib.classes[*cid].components[*idx].name;
-                                    self.pkg_binding(ctx, *cid, comp, self.via_class(file, r, *cid))
+                                    self.pkg_binding(
+                                        ctx,
+                                        *cid,
+                                        comp,
+                                        self.const_route(file, r, *cid),
+                                    )
                                 }
                                 _ => None,
                             },
@@ -2814,49 +3021,70 @@ impl F<'_> {
             .is_some_and(|sb| tokens(sb.syntax()).any(|t| t.kind() == K::KwEnumeration))
     }
 
-    /// パッケージの定数の束縛。差し替え後のパッケージ（`ctx` のパッケージ文脈か `heir`）が `extends` の修飾などで決めた値を先に見る
+    /// パッケージの定数の束縛。差し替え後のパッケージ（名前が通った package か、`ctx` のパッケージ文脈・`heir`）が `extends` の修飾などで決めた値を先に見る。
+    /// 宣言した側の束縛は、受け継いだ側を通して引く（その束縛が外側の package の定数を読むとき、`P5.Inner.c` の `n` は `P5` の値。S378・#161）。
+    /// 経路が 2 つ以上ありうる（`Ambiguous`）ときは `None`（分からない）
     fn pkg_binding(
         &self,
         ctx: &Rc<Ctx>,
         cid: ClassId,
         comp: &str,
-        via: Option<ClassId>,
+        route: Route,
     ) -> Option<(SyntaxNode, u32, Rc<Ctx>)> {
-        // 参照の名前が通ったパッケージ（`P5.n`）が先
-        let h = via.or(if ctx.pfx == PKG {
-            ctx.lineage.first().copied()
-        } else {
-            ctx.heir
-        });
+        let h = match route {
+            Route::Heir(h) => Some(h),
+            Route::Static => None,
+            Route::Relative if ctx.pfx == PKG => ctx.heir.or(ctx.lineage.first().copied()),
+            Route::Relative => ctx.heir,
+            Route::Ambiguous => return None,
+        };
         // 差し替え後のパッケージの `extends` の修飾が効くのは、そのパッケージの系統の定数だけ（別のパッケージの同じ名前の定数に当てない。
-        // `K.small = Svc.Machine.small` を評価するときに `Svc.Machine.small` が `K.small` を引いて輪になる）
-        if let Some(b) = h
-            .filter(|h| self.p.lineage(*h).contains(&cid))
-            .and_then(|h| self.pkg_env(h))
-            .and_then(|e| e.get(comp).cloned())
+        // `K.small = Svc.Machine.small` を評価するときに `Svc.Machine.small` が `K.small` を引いて輪になる）。
+        // 入れ子の package（`Q.Inner`）は、その外側（`Q`）も見る
+        let hs = h.map_or_else(Vec::new, |h| self.chain(h));
+        if let Some(b) = hs
+            .iter()
+            .filter(|h| self.p.lineage(**h).contains(&cid))
+            .find_map(|h| self.pkg_env(*h)?.get(comp).cloned())
         {
             return Some((b.node, b.file, b.ctx));
         }
         let (n, f, c, _) = self.pkg_const(cid, comp)?;
+        // 束縛の式が外側の package の定数を読むとき、それを受け継いだ側を通す
+        let c = match h.filter(|_| {
+            let outer = self.chain(cid);
+            hs.iter().any(|h| {
+                outer
+                    .iter()
+                    .any(|a| a != h && self.p.lineage(*h).contains(a))
+            })
+        }) {
+            Some(h) => Self::with_heir(&c, h),
+            None => c,
+        };
         Some((n, f, c))
     }
 
     /// `Medium.name`（`Medium` がこのインスタンスで差し替えられた package）の定数の束縛。
     /// 外側の `None` は差し替えられた package の定数ではない（静的に引く）、内側の `None` は差し替えられているが決まらない。
-    /// `redeclare package P = PP(n = 5)` の `(…)` の修飾は、`n` はその束縛、`n` に届く定数（`reaches_mod`）は決まらない（S377）
+    /// `redeclare package P = PP(n = 5)` の `(…)` の修飾は、`n` はその束縛、`n` に届く定数（`reaches_mod`）は決まらない（S377）。
+    /// `P.Inner.c`（名前 3 つ以上）は差し替え先から入れ子の package をたどり（`R` の `redeclare package Inner = Other` も）、`(…)` の修飾があれば決めない（S378・#162）
     fn dyn_const(
         &self,
         c: &ast::ComponentRef,
         ctx: &Rc<Ctx>,
     ) -> Option<Option<(SyntaxNode, u32, Rc<Ctx>)>> {
         let parts = c.parts();
-        if parts.len() != 2
+        if parts.len() < 2
             || c.is_global()
             || c.syntax().children().any(|x| x.kind() == K::Subscripts)
         {
             return None;
         }
         let (cid, extra) = ctx.cenv.borrow().get(&parts[0])?.clone();
+        if parts.len() > 2 {
+            return self.dyn_nested_const(&parts, cid, &extra, ctx);
+        }
         let env = self.pkg_env(cid)?;
         let name = &parts[1];
         if let Some(m) = extra.get(name) {
@@ -2872,6 +3100,36 @@ impl F<'_> {
             return Some(None);
         }
         Some(Some((b.node, b.file, b.ctx)))
+    }
+
+    /// `dyn_const` の名前 3 つ以上: 差し替え先 `cid` から `parts` の入れ子の package をたどった先の定数。たどれなければ静的に引く（外側の `None`）
+    fn dyn_nested_const(
+        &self,
+        parts: &[String],
+        cid: ClassId,
+        extra: &ModMap,
+        ctx: &Rc<Ctx>,
+    ) -> Option<Option<(SyntaxNode, u32, Rc<Ctx>)>> {
+        let (mut cur, mut path) = (cid, vec![Some(cid)]);
+        for p in &parts[1..parts.len() - 1] {
+            cur = self.member_class(cur, p)?;
+            path.push(Some(cur));
+        }
+        // 列挙の要素（`Medium.Choices.pT`）は宣言した側のまま
+        if self.is_enum(cur) {
+            return None;
+        }
+        // `(…)` の修飾が入れ子の定数に届くかは決めない
+        if !extra.is_empty() {
+            return Some(None);
+        }
+        let name = parts.last()?;
+        let route = self.route(Some(cur), &path);
+        let hit = self.pkg_binding(ctx, cur, name, route).or_else(|| {
+            let b = self.pkg_env(cur)?.get(name)?.clone();
+            Some((b.node, b.file, b.ctx))
+        });
+        Some(hit)
     }
 
     /// パッケージの定数 `name` の束縛の式が、`(…)` の修飾 `extra` の名前を含むか（束縛をたどった先の定数も）、関数を呼ぶ（本体が読むかもしれない）か
@@ -2993,24 +3251,18 @@ impl F<'_> {
     /// スカラーの出力・レコードの出力は `None`（今までと同じく 1 つと数える）
     fn fn_out_dims(&self, c: &ast::CallExpr, file: u32, ctx: &Rc<Ctx>) -> Option<Vec<usize>> {
         let r = c.syntax().children().find_map(ast::ComponentRef::cast)?;
-        let (rid, _) = self.call_target(&r, file, ctx)?;
-        self.class_out_dims(rid, ctx, Some((c, file)))
+        let t = self.call_target(&r, file, ctx)?;
+        let fctx = self.fn_frame(&t, (c, file), ctx);
+        self.class_out_dims(t.rid, &fctx)
     }
 
-    /// 関数 `rid` の入力のうち整数のものを、呼び出し `call` の引数（無ければ既定値）の値に束ねた文脈（`pfx` は `FN`）
-    fn fn_frame(&self, rid: ClassId, call: (&ast::CallExpr, u32), ctx: &Rc<Ctx>) -> Rc<Ctx> {
+    /// 関数 `t.rid` の入力のうち整数のものを、呼び出し `call` の引数（無ければ既定値）の値に束ねた文脈（`pfx` は `FN`。
+    /// `heir` は呼び出しを通した package で、戻り値の大きさが読む定数もそれを通す。S378・#167）
+    fn fn_frame(&self, t: &Target, call: (&ast::CallExpr, u32), ctx: &Rc<Ctx>) -> Rc<Ctx> {
         let (c, file) = call;
+        let rid = t.rid;
         let ffile = self.p.lib.classes[rid].file;
-        let mk = |locals: Vec<(String, i64)>| {
-            Rc::new(Ctx {
-                pfx: FN.to_string(),
-                lineage: self.p.lineage(rid),
-                locals,
-                cenv: ctx.cenv.clone(),
-                heir: ctx.heir,
-                inst: ctx.inst().cloned(),
-            })
-        };
+        let mk = |locals: Vec<(String, i64)>| self.call_ctx(t, ctx, locals);
         let (pos, named) = (c.args(), c.named_args());
         let mut fctx = mk(Vec::new());
         let inputs = self.p.class(rid).into_iter().flat_map(|cd| cd.elements());
@@ -3047,19 +3299,10 @@ impl F<'_> {
         fctx
     }
 
-    /// 関数のクラスの、出力が 1 つのときの戻り値の大きさ（宣言の添字が定数のもの。`call` があれば整数の入力も）
-    fn class_out_dims(
-        &self,
-        rid: ClassId,
-        ctx: &Rc<Ctx>,
-        call: Option<(&ast::CallExpr, u32)>,
-    ) -> Option<Vec<usize>> {
+    /// 関数のクラスの、出力が 1 つのときの戻り値の大きさ（宣言の添字が定数のもの）。`ctx` は本体の文脈（呼び出しがあれば `fn_frame` で整数の入力も）
+    fn class_out_dims(&self, rid: ClassId, ctx: &Rc<Ctx>) -> Option<Vec<usize>> {
         let cd = self.p.class(rid)?;
         let ffile = self.p.lib.classes[rid].file;
-        let ctx = &match call {
-            Some(c) => self.fn_frame(rid, c, ctx),
-            None => ctx.clone(),
-        };
         let mut outs = cd.elements().into_iter().filter_map(|e| match e {
             Element::Component(cc) if tokens(cc.syntax()).any(|t| t.kind() == K::KwOutput) => {
                 Some(cc)
@@ -3278,8 +3521,8 @@ impl F<'_> {
                         if self.pkg_const(*cid, comp).is_some_and(|c| c.3) {
                             return Some(Vec::new());
                         }
-                        let via = self.via_class(file, &c, *cid);
-                        let (node, f, c2) = self.pkg_binding(ctx, *cid, comp, via)?;
+                        let route = self.const_route(file, &c, *cid);
+                        let (node, f, c2) = self.pkg_binding(ctx, *cid, comp, route)?;
                         self.dims_of(&node, f, &c2)
                     }
                     Resolution::Component(..) => {
@@ -5367,5 +5610,212 @@ mod tests {
         assert_eq!(a("k", red), Ok(4));
         assert_eq!(a("m", red), Err("non-constant-dim".into()));
         assert_eq!((a("n", ""), a("m", ""), a("k", "")), (Ok(1), Ok(2), Ok(4)));
+    }
+
+    /// 変数名 → 大きさ（1 次元）
+    fn dims_map(src: &str) -> Result<std::collections::BTreeMap<String, usize>, String> {
+        Ok(sized(src)?.into_iter().map(|(n, d)| (n, d[0])).collect())
+    }
+
+    #[test]
+    fn nested_package_constants_follow_the_reaching_package() {
+        // #161: 入れ子の package の定数 `Inner.c = n + 1` が読む外側の `n` は、`P5`（`extends PP(n = 5)`）を通した値（期待値は omc の instantiateModel）
+        // #168: 名前が宣言した側を明示する `PP.n`・`PP.f(k)` は、`P5` を通して評価しても宣言した側のまま
+        let src = "package PP
+              constant Integer n = 1;
+              constant Integer w = PP.n + 1;
+              constant Integer v = n + 1;
+              function g input Integer k; output Integer y; algorithm y := k + n; end g;
+              function h input Integer k; output Integer y; algorithm y := PP.g(k) + 100; end h;
+              constant Integer u = PP.g(1);
+              package Inner
+                constant Integer c = n + 1;
+                function f input Integer k; output Integer y; algorithm y := k + c; end f;
+              end Inner;
+            end PP;
+            package P5 extends PP(n = 5); end P5;
+            package P7 = PP(n = 7);
+            package Q extends P5(n = 8); end Q;
+            model M
+              Real a5[P5.Inner.c]; Real af5[P5.Inner.f(1)]; Real a7[P7.Inner.c]; Real aQ[Q.Inner.c]; Real afQ[Q.Inner.f(1)]; Real a0[PP.Inner.f(1)];
+              Real w5[P5.w]; Real v5[P5.v]; Real w0[PP.w];
+              Real h5[P5.h(1)]; Real u5[P5.u]; Real g5[P5.g(1)];
+            end M;";
+        let want = [
+            ("a5", 6),
+            ("af5", 7),
+            ("a7", 8),
+            ("aQ", 9),
+            ("afQ", 10),
+            ("a0", 3),
+            ("w5", 2),
+            ("v5", 6),
+            ("w0", 2),
+            ("h5", 102),
+            ("u5", 2),
+            ("g5", 6),
+        ];
+        let got = dims_map(src).unwrap();
+        for (n, d) in want {
+            assert_eq!(got[n], d, "{n}");
+        }
+    }
+
+    #[test]
+    fn redeclared_package_constants_follow_the_nested_package() {
+        // #162: `redeclare package P = R` で `R` が `redeclare package Inner = Other` している入れ子の定数 `P.Inner.c`。`(…)` つきの差し替えを通す入れ子の定数は決めない
+        let pp = "package PP package Inner constant Integer c = 1; end Inner; end PP;
+            package Other constant Integer c = 4; end Other;
+            package R extends PP; redeclare package Inner = Other; end R;
+            package Q extends PP; redeclare package Inner = PP.Inner(c = 9); end Q;
+            model Sub replaceable package P = PP; Real a[P.Inner.c]; end Sub;";
+        let v = dims_map(&format!(
+            "{pp} model M Sub s1(redeclare package P = R); Sub s2; Sub s3(redeclare package P = Q); Real d[R.Inner.c]; end M;"
+        ))
+        .unwrap();
+        assert_eq!((v["s1.a"], v["s2.a"], v["s3.a"], v["d"]), (4, 1, 9, 4));
+        // `P = PP(n = 5)` の `(…)` が入れ子の `Inner.c = n + 2` に届くか（届く）は決めない（以前は宣言した側の 3 を黙って出した）
+        let pn = "package PP constant Integer n = 1; package Inner constant Integer c = n + 2; end Inner; end PP;
+            model Sub replaceable package P = PP; Real a[P.Inner.c]; end Sub;";
+        assert_eq!(dim_of(&format!("{pn} model M Sub s; end M;"), "s.a"), Ok(3));
+        assert_eq!(
+            sized(&format!(
+                "{pn} model M Sub s(redeclare package P = PP(n = 5)); end M;"
+            )),
+            Err("non-constant-dim".into())
+        );
+    }
+
+    #[test]
+    fn redeclare_package_passed_on_keeps_the_outer_modification() {
+        // #163: `redeclare package P = P`（外側の差し替えをそのまま渡す）は外側の `(n = 7)` を落とさない。内側に足した `(…)` は勝つ
+        let src = "package PP constant Integer n = 1; end PP;
+            model Sub replaceable package P = PP; Real a[P.n]; end Sub;
+            model Mid replaceable package P = PP; Sub s(redeclare package P = P); Sub t(redeclare package P = P(n = 3)); end Mid;
+            model M Mid m(redeclare package P = PP(n = 7)); Sub direct(redeclare package P = PP(n = 7)); end M;";
+        let v = dims_map(src).unwrap();
+        assert_eq!((v["m.s.a"], v["m.t.a"], v["direct.a"]), (7, 3, 7));
+    }
+
+    #[test]
+    fn memo_keys_include_the_contents_of_parenthesized_redeclares() {
+        // #164: `(…)` つきの `redeclare package` があるだけで、関数の結果・束縛の値を覚えなかった（インスタンスの数だけ関数を走らせて予算が尽きる）
+        let w = "function w input Integer k; output Integer y; algorithm y := 0; for i in 1:1000 loop y := y + 1; end for; y := k; end w;
+            package PP constant Integer c = 1; end PP;
+            model Sub replaceable package P = PP; parameter Integer n = w(2); Real a[n + P.c]; end Sub;";
+        let inst = |n: usize, red: &str| -> String {
+            let xs: String = (0..n).map(|i| format!("Sub s{i}{red}; ")).collect();
+            format!("{w} model M {xs} end M;")
+        };
+        assert!(sized(&inst(20, "(redeclare package P = PP(c = 5))")).is_ok());
+        // 鍵は `(…)` の中身を区別する: 同じ形で `c` だけ違うインスタンスは値が違う（順序によらない）
+        let m = |a: &str, b: &str| {
+            let g = "package PP constant Integer c = 1; end PP;
+                model Sub replaceable package P = PP; function g input Integer k; output Integer y; algorithm y := k + P.c; end g; Real x[g(1)]; end Sub;";
+            format!(
+                "{g} model M Sub s1(redeclare package P = PP(c = {a})); Sub s2(redeclare package P = PP(c = {b})); end M;"
+            )
+        };
+        for (a, b) in [(5, 7), (7, 5)] {
+            let v = dims_map(&m(&a.to_string(), &b.to_string())).unwrap();
+            assert_eq!((v["s1.x"], v["s2.x"]), (a + 1, b + 1));
+        }
+        // parameter の連鎖（`c_i = c_{i-1} + c_{i-1}`）も、`(…)` つきのインスタンスの中で覚える
+        let ps: String = (1..=34)
+            .map(|i| format!("parameter Integer c{i} = c{} + c{};", i - 1, i - 1))
+            .collect();
+        let chain = |names: &[usize]| {
+            let xs: String = names
+                .iter()
+                .map(|i| format!("Real a{i}[c{i} + P.c]; "))
+                .collect();
+            format!(
+                "package PP constant Integer c = 1; end PP;
+                 model Sub replaceable package P = PP; parameter Integer c0 = 0; {ps} {xs} end Sub;
+                 model M Sub s(redeclare package P = PP(c = 5)); end M;"
+            )
+        };
+        assert!(sized(&chain(&[4, 8, 12, 16, 20, 24, 28, 32])).is_ok());
+    }
+
+    #[test]
+    fn model_type_through_an_inheriting_package_reads_its_constants() {
+        // #165: `partial` でない package `Lib` を `extends Lib(n = 5)` した `Lib5` の中のモデルを部品の型にすると、モデルが読む `n` は `Lib5` の値
+        let lib = "package Lib
+              constant Integer n = 1;
+              function f input Integer k; output Integer y; algorithm y := k + n; end f;
+              model X Real b[n + 1]; Real a[f(1)]; end X;
+              package Sub model Y Real b[n + 1]; end Y; end Sub;
+            end Lib;
+            package Lib5 extends Lib(n = 5); end Lib5;
+            package Lib7 = Lib(n = 7);
+            model W replaceable package L = Lib; L.X x; L.Sub.Y y; end W;
+            model M
+              Lib5.X x5; Lib.X x1; Lib7.X x7; Lib5.Sub.Y y5; Lib.Sub.Y y1;
+              W w5(redeclare package L = Lib5); W w0;
+            end M;";
+        let v = dims_map(lib).unwrap();
+        for (n, d) in [
+            ("x5.b", 6),
+            ("x5.a", 6),
+            ("x1.b", 2),
+            ("x1.a", 2),
+            ("x7.b", 8),
+            ("y5.b", 6),
+            ("y1.b", 2),
+            ("w5.x.b", 6),
+            ("w5.y.b", 6),
+            ("w0.y.b", 2),
+        ] {
+            assert_eq!(v[n], d, "{n}");
+        }
+    }
+
+    #[test]
+    fn qualified_static_call_ignores_the_instance_redeclare_function() {
+        // #166: 基底のクラス名で修飾した `Sub.f(2)`（静的な呼び出し）は、`Sub` を継いだインスタンスの `redeclare function g` を引かない。継いだ `f(2)` は引く
+        let src = "model Sub replaceable function g input Integer k; output Integer y; algorithm y := k; end g;
+              function f input Integer k; output Integer y; algorithm y := g(k) + 1; end f;
+            end Sub;
+            function g5 input Integer k; output Integer y; algorithm y := 5*k; end g5;
+            model Wrap extends Sub; Real x[f(2)]; Real z[Sub.f(2)]; end Wrap;
+            model M Wrap w(redeclare function g = g5); end M;";
+        let v = dims_map(src).unwrap();
+        assert_eq!((v["w.x"], v["w.z"]), (11, 3));
+    }
+
+    #[test]
+    fn function_output_size_reads_constants_of_the_reaching_package() {
+        // #167: `output Real y[n]` の `n` は、`P5.g(1)`・`redeclare package P = P5` を通した package の値（戻り値の大きさだけで決まる `[:]` の宣言）
+        let src = "package PP constant Integer n = 1;
+              function g input Integer k; output Real y[n]; algorithm for i in 1:n loop y[i] := k; end for; end g;
+            end PP;
+            package P5 extends PP(n = 5); end P5;
+            model Sub replaceable package P = PP; parameter Real p[:] = P.g(1); Real r[size(p, 1)]; end Sub;
+            model M Sub s1(redeclare package P = P5); Sub s0; parameter Real w[:] = P5.g(1); end M;";
+        let v = dims_map(src).unwrap();
+        assert_eq!(
+            (v["s1.p"], v["s1.r"], v["s0.p"], v["s0.r"], v["w"]),
+            (5, 5, 1, 1, 5)
+        );
+    }
+
+    #[test]
+    fn string_table_total_is_capped() {
+        // #160: 文字列の表は捨てない。反復ごとに別の 32 KiB の文字列を作る式（`K.c15 + String(i)`）が表を伸ばし続けない（試験の上限は 1 MiB）
+        let cs: String = (1..=15)
+            .map(|i| format!("constant String c{i} = c{} + c{};", i - 1, i - 1))
+            .collect();
+        let m = |n: usize| {
+            format!(
+                "package K constant String c0 = \"x\"; {cs} end K;
+                 function f input Integer n; output Integer y; algorithm y := 0;
+                   for i in 1:n loop if K.c15 + String(i) < \"z\" then y := y + 1; end if; end for;
+                 end f;
+                 model M Real a[f({n})]; end M;"
+            )
+        };
+        assert_eq!(dim_of(&m(10), "a"), Ok(10));
+        assert_eq!(sized(&m(200)), Err("non-constant-dim".into()));
     }
 }

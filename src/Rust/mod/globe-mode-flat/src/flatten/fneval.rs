@@ -8,7 +8,9 @@
 //!
 //! shortcut: 配列は 1 次元・要素はスカラーだけ（配列どうしの演算・内包・`zeros` などは分からない）。必要になったら足す。
 
-use super::{Ctx, F, FN, MAX_ITERS, PKG, Strs, Ty, Val, binop, cenv_hash, ord, single, tokens};
+use super::{
+    Cenv, Ctx, F, FN, MAX_ITERS, PKG, Route, Strs, Ty, Val, binop, cenv_hash, ord, single, tokens,
+};
 use globe_mode_resolve::{ClassId, Resolution};
 use globe_mode_syntax::ast::{self, Element, Expr};
 use globe_mode_syntax::{SyntaxKind as K, SyntaxNode};
@@ -119,6 +121,24 @@ pub(super) fn unop(op: K, v: Val) -> Option<Val> {
 /// 呼び出しの結果を覚える鍵: 関数・`heir`・差し替えの組の hash（`cenv_hash`）・引数（スカラーだけ）の `Debug`
 pub(super) type MemoKey = (ClassId, Option<ClassId>, u64, String);
 
+/// 呼び出しの行き先（`call_target`）。`heir` は本体が読む package の定数を引く package、`stat` は名前が宣言した側を明示する静的な呼び出し
+pub(super) struct Target {
+    pub rid: ClassId,
+    pub heir: Option<ClassId>,
+    pub stat: bool,
+}
+
+impl Target {
+    /// 本体の文脈が持つ、差し替えの表と呼び出したインスタンスの系統（静的な呼び出しは持たない）
+    fn frame_env(&self, ctx: &Ctx) -> (Cenv, Option<Rc<Vec<ClassId>>>) {
+        if self.stat {
+            (Cenv::default(), None)
+        } else {
+            (ctx.cenv.clone(), ctx.inst().cloned())
+        }
+    }
+}
+
 /// 配列は `Rc`（読み・引数の受け渡しで複製しない。書き込みは `Rc::make_mut`）
 #[derive(Clone, Debug)]
 pub(super) enum V {
@@ -198,7 +218,7 @@ impl F<'_> {
         d: u32,
     ) -> Option<Val> {
         let r = c.syntax().children().find_map(ast::ComponentRef::cast)?;
-        let (rid, heir) = self.call_target(&r, file, ctx)?;
+        let t = self.call_target(&r, file, ctx)?;
         let arg = |e: &Expr| {
             (self.eval(e.syntax(), file, ctx, d).map(V::S))
                 .or_else(|| (self.eval_items(e.syntax(), file, ctx, d)).map(|v| V::A(Rc::new(v))))
@@ -207,7 +227,7 @@ impl F<'_> {
         let named = (c.named_args().into_iter())
             .map(|(k, e)| Some((k, arg(&e)?)))
             .collect::<Option<Vec<_>>>()?;
-        match self.run_fn(rid, heir, pos, named, ctx)? {
+        match self.run_fn(&t, pos, named, ctx)? {
             V::S(v) => Some(v),
             V::A(_) => None,
         }
@@ -215,14 +235,16 @@ impl F<'_> {
 
     /// 呼び出しの名前 `r` が指す関数と、本体が読む package の定数を引く `heir`（その関数を通した package。S376・#155・#156）。
     /// 差し替え（`redeclare function f = f3`・`redeclare package P = P3` の `P.f`）を引き、`(…)` の修飾つきの差し替え・引けないものは `None`（分からない）。
-    /// 名前に package が付くとき（`P5.f`・`P5.Inner.f`）はその package（`reaching`）、付かなければ呼び出しの文脈の package（`PKG` なら評価中の package、それ以外は `ctx.heir`）。
+    /// 名前に package が付くとき（`P5.f`・`P5.Inner.f`）は `route`（受け継いだ package を通せば、それが `heir`）。
+    /// 名前が宣言した側のクラスをすべて明示していれば（`PP.f`）宣言した側のまま（呼び出し元の `heir` を持ち込まない。S378・#168）、
+    /// 外側が名前に出ない相対の名前（`f`・`Inner.f`）は呼び出しの文脈の package（`PKG` なら評価中の package、それ以外は `ctx.heir`）。
     /// 兄弟の関数 `g`（関数の中から）も、呼び出したインスタンスの `redeclare function g` を引く（`Ctx::inst`。S377）
     pub(super) fn call_target(
         &self,
         r: &ast::ComponentRef,
         file: u32,
         ctx: &Rc<Ctx>,
-    ) -> Option<(ClassId, Option<ClassId>)> {
+    ) -> Option<Target> {
         let Some(Resolution::Class(rid)) = self.p.res_of(file, r.range()) else {
             return None;
         };
@@ -233,7 +255,7 @@ impl F<'_> {
                 .flatten();
             h.map(|(c, extra)| (extra.is_empty()).then_some(c))
         };
-        let (mut rid, mut heir) = (rid, None);
+        let (mut rid, mut heir, mut stat) = (rid, None, false);
         match parts.as_slice() {
             [name] => {
                 // `redeclare function f = f3`: 関数を宣言したクラスのインスタンス（のなか）から呼ぶとき
@@ -247,8 +269,7 @@ impl F<'_> {
             }
             [first, mid @ .., last] => {
                 // 名前が通った package（外側から。最後が関数の親）
-                let mut hit_pkg = None;
-                let path: Vec<Option<ClassId>> = if let Some(c) = hit(first) {
+                let (route, hit_pkg) = if let Some(c) = hit(first) {
                     // `P.f`（`P` はこのインスタンスで差し替えた package）。差し替え先の中を引く
                     let mut pkg = c?;
                     let mut path = vec![Some(pkg)];
@@ -257,55 +278,58 @@ impl F<'_> {
                         path.push(Some(pkg));
                     }
                     rid = self.member_class(pkg, last)?;
-                    hit_pkg = Some(pkg);
-                    path
+                    (self.route(self.p.lib.classes[rid].parent, &path), Some(pkg))
                 } else {
-                    (1..parts.len())
-                        .map(|k| self.prefix_class(file, r, k))
-                        .collect()
+                    let own = self.p.lib.classes[rid].parent;
+                    {
+                        let at = super::NameAt::of(r.range(), parts.clone(), r.is_global());
+                        (self.route(own, &self.prefix_path(file, &at, own)), None)
+                    }
                 };
-                // 差し替えた package（`P.f`）は、受け継ぎが無くてもその package を `heir` にする
-                heir = self.reaching(rid, &path)?.or(hit_pkg);
+                match (route, hit_pkg) {
+                    (Route::Ambiguous, _) => return None,
+                    (Route::Heir(h), _) => heir = Some(h),
+                    // 差し替えた package（`P.f`）は、受け継ぎが無くてもその package を `heir` にする
+                    (_, Some(p)) => heir = Some(p),
+                    _ => {}
+                }
+                // 名前が宣言した側を明示する静的な呼び出し（`Sub.f`・`P5.f`）は、呼び出し元のインスタンスの差し替えを持ち込まない（S378・#166・#168）
+                stat = hit_pkg.is_none() && matches!(route, Route::Static | Route::Heir(_));
             }
             [] => return None,
         }
-        let heir = heir.or(if ctx.pfx == PKG {
-            ctx.lineage.first().copied()
+        let heir = if stat {
+            heir
         } else {
-            ctx.heir
-        });
+            heir.or(if ctx.pfx == PKG {
+                ctx.heir.or(ctx.lineage.first().copied())
+            } else {
+                ctx.heir
+            })
+        };
         // 受け継いだ側で差し替えた同じ名前の関数（`partial` の関数を `extends` で具体化したもの）
         if let Some(c) = heir.and_then(|h| self.heir_member(h, rid)) {
             rid = c;
         }
-        Some((rid, heir))
+        Some(Target { rid, heir, stat })
     }
 
-    /// 関数 `rid` を、名前が通った package `path`（外側から。最後が `rid` の親）で呼ぶとき、本体が読む定数を引く package。
-    /// `rid` の外側のクラス（親・その親…）を、同じ位置の `path` の package が受け継いでいれば（`P5.Inner.f` の `Inner` の外側の `PP` を `P5` が）それ。
-    /// 外側ごとに違う package が受け継いでいて 1 つに決まらなければ外側の `None`（分からない）。
-    /// shortcut: `import` した別名を通した名前（`Inner.f`）は、外側を `path` から引けない（宣言した側の値になる）
-    fn reaching(&self, rid: ClassId, path: &[Option<ClassId>]) -> Option<Option<ClassId>> {
-        let mut found: Vec<ClassId> = Vec::new();
-        let mut cur = rid;
-        for h in path.iter().rev() {
-            let Some(a) = self.p.lib.classes[cur].parent else {
-                break;
-            };
-            if let Some(h) = *h
-                && h != a
-                && self.p.lineage(h).contains(&a)
-                && !found.contains(&h)
-            {
-                found.push(h);
-            }
-            cur = a;
-        }
-        match found.as_slice() {
-            [] => Some(None),
-            [h] => Some(Some(*h)),
-            _ => None,
-        }
+    /// 呼び出しの本体の文脈（`pfx` は `FN`）。静的な呼び出し（`stat`）は呼び出し元の差し替え・インスタンスの系統を持たない
+    pub(super) fn call_ctx(
+        &self,
+        t: &Target,
+        ctx: &Rc<Ctx>,
+        locals: Vec<(String, i64)>,
+    ) -> Rc<Ctx> {
+        let (cenv, inst) = t.frame_env(ctx);
+        Rc::new(Ctx {
+            pfx: FN.to_string(),
+            lineage: self.p.lineage(t.rid),
+            locals,
+            cenv,
+            heir: t.heir,
+            inst,
+        })
     }
 
     /// 仕事量を `n` 数える（上限は 1 回の flat 全体で `MAX_ITERS`）
@@ -320,9 +344,9 @@ impl F<'_> {
     }
 
     /// 差し替えの表が空でなければ、呼び出し元のインスタンスの系統の hash（空なら 0）
-    fn inst_hash(&self, ctx: &Ctx) -> u64 {
+    fn inst_hash(cenv: &Cenv, inst: Option<&Rc<Vec<ClassId>>>) -> u64 {
         use std::hash::{Hash, Hasher};
-        let Some(l) = ctx.inst().filter(|_| !ctx.cenv.borrow().is_empty()) else {
+        let Some(l) = inst.filter(|_| !cenv.borrow().is_empty()) else {
             return 0;
         };
         let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -330,29 +354,23 @@ impl F<'_> {
         h.finish()
     }
 
-    fn run_fn(
-        &self,
-        rid: ClassId,
-        heir: Option<ClassId>,
-        pos: Vec<V>,
-        named: Vec<(String, V)>,
-        ctx: &Rc<Ctx>,
-    ) -> Option<V> {
+    fn run_fn(&self, t: &Target, pos: Vec<V>, named: Vec<(String, V)>, ctx: &Rc<Ctx>) -> Option<V> {
         let depth = self.fn_depth.get();
         if depth >= MAX_CALL_DEPTH {
             return None;
         }
+        let (cenv, inst) = t.frame_env(ctx);
         // 結果を覚えるのは引数がスカラーだけのとき。鍵は関数・`heir`・差し替えの組（関数の中で引く定数が呼び出しの文脈で変わる。S376・#154）・引数
         let key = (pos.iter().chain(named.iter().map(|(_, v)| v)))
             .all(|v| matches!(v, V::S(_)))
-            .then(|| cenv_hash(&ctx.cenv))
+            .then(|| cenv_hash(&cenv))
             .flatten()
             // 差し替えがあるときは、兄弟の関数を引く呼び出し元のインスタンスの系統も鍵（S377）
             .map(|h| {
                 (
-                    rid,
-                    heir,
-                    h ^ self.inst_hash(ctx),
+                    t.rid,
+                    t.heir,
+                    h ^ Self::inst_hash(&cenv, inst.as_ref()),
                     format!("{pos:?}{named:?}"),
                 )
             });
@@ -363,7 +381,7 @@ impl F<'_> {
             return v;
         }
         self.fn_depth.set(depth + 1);
-        let r = self.run_body(rid, heir, pos, named, ctx);
+        let r = self.run_body(t, pos, named, ctx);
         self.fn_depth.set(depth);
         // 覚えるのは成功したスカラーの値と、最上位（`depth == 0`）の呼び出しが予算内で失敗したこと（S376・#153）。
         // 入れ子の失敗は呼び出しの深さに、予算が尽きたあとの失敗は残りの予算に依るので覚えない
@@ -383,12 +401,12 @@ impl F<'_> {
 
     fn run_body(
         &self,
-        rid: ClassId,
-        heir: Option<ClassId>,
+        t: &Target,
         pos: Vec<V>,
         named: Vec<(String, V)>,
         ctx: &Rc<Ctx>,
     ) -> Option<V> {
+        let rid = t.rid;
         let cd = self.p.class(rid)?;
         let impure = tokens(cd.syntax())
             .take_while(|t| t.kind() != K::Ident)
@@ -406,14 +424,7 @@ impl F<'_> {
         let file = self.p.lib.classes[rid].file;
         let mut fr = Frame {
             file,
-            ctx: Rc::new(Ctx {
-                pfx: FN.to_string(),
-                lineage: self.p.lineage(rid),
-                locals: Vec::new(),
-                cenv: ctx.cenv.clone(),
-                heir,
-                inst: ctx.inst().cloned(),
-            }),
+            ctx: self.call_ctx(t, ctx, Vec::new()),
             vars: HashMap::new(),
         };
         let (mut n_in, mut out) = (0, None);
@@ -820,12 +831,12 @@ impl F<'_> {
                     }
                     _ => {
                         let r = c.syntax().children().find_map(ast::ComponentRef::cast)?;
-                        let (rid, heir) = self.call_target(&r, fr.file, &fr.ctx)?;
+                        let t = self.call_target(&r, fr.file, &fr.ctx)?;
                         let pos = vals()?;
                         let named = (c.named_args().into_iter())
                             .map(|(k, e)| Some((k, self.fx(e.syntax(), fr, d)?)))
                             .collect::<Option<Vec<_>>>()?;
-                        self.run_fn(rid, heir, pos, named, &fr.ctx)
+                        self.run_fn(&t, pos, named, &fr.ctx)
                     }
                 }
             }
