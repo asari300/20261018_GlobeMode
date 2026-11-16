@@ -1241,6 +1241,12 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
   - 検査: `release.yml` の dry run で `third-party`・`sbom`・Desktop 3 つ・`release` が success（`SHA256SUMS` 30 行）、`web.yml` も success。ライセンス表に許可外は 0 件。**ただし `build (aarch64-unknown-linux-gnu)` の wheel の pytest `test_export_fmu_p5b` が main でも落ちていて（S380 とは別の既存の不具合。FMI 2.0 の p5b が aarch64 Linux の host で `platform` に断られる）、そのままだと `release` ジョブが skipped になる**。dry run は、その step だけ `continue-on-error` にした一時のブランチで通した（main には入れていない）。タグを打つ前に直す。
   - 持ち越し: Desktop の bundle・wheel の中へのライセンス表の同梱（Tauri の `bundle.resources`）、`sundials` ビルドの表、SBOM の署名・検証（cyclonedx-cli など）。
 
+### S381（公開に向けた持ち越し、2026-11-17）で済んだこと
+
+- **dry run で落ちていた aarch64 Linux の wheel の pytest を直した**（[解説書](sessions/S381-aarch64-fmi2-test/解説書.md)）。S380 の節に書いた `build (aarch64-unknown-linux-gnu)` の `test_export_fmu_p5b` の失敗は、`platform` が aarch64 Linux の FMI 2.0 を断る（FMI 2.0 の規格の `binaries/` の名前は `linux64`・`win64`・`darwin64`）ことが原因。**断るのを正しい動きとし（ユーザーの決定）、Rust は変えず**、試験を host で分けた（aarch64 Linux は `ExportError`（`FMI 2.0 に置き場の名前が無い`）、それ以外は今までどおり FMU の中身と `runtime_lib` の無い場合）。他に同じ前提の試験は無い。CHANGELOG の既知の限界に一行。
+  - 検査: `release.yml` の dry run（feature ブランチ、run 43898248109）が全ジョブ success（`release` も。aarch64 Linux の wheel の pytest は 55 passed・4 skipped）。`mise run check`（1128 本）通過。
+  - 持ち越し: aarch64 Linux の FMI 2.0 の FMU を作れるようにするか（Reference-FMUs の FMU は `aarch64-linux` の名前で置いている。決めていない）。
+
 ## いま残っているもの
 
 S177（2026-11-05、S175 までが main にある状態）で、各節の「持ち越し」を済んだものと突き合わせて 1 つにまとめた。済んだ持ち越しには、各節で打ち消し線と「（S◯◯ で済）」を付けてある。機能ごとの状態は [features.md](features.md)、上流の下書きは [upstream.md](upstream.md)。
