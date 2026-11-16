@@ -61,4 +61,13 @@ Release は作られると公開される（draft にしていない）。PyPI�
 
 ## 8. ライセンス表と SBOM（S380）
 
-dry run でも本番でも、artifact `third-party`（`THIRD-PARTY*.md` 5 つ）と `sbom`（`sbom-*.cdx.json` 14 個）ができる。`gh run download <run-id> -n third-party`、`-n sbom`。タグの push では Release の資産にもなり、`SHA256SUMS` に入る。許可外のライセンスが混じると、ジョブ `third-party` が止まる。中身と作り方は [licenses.md](licenses.md) の 4。手元で試すには `mise run`（cargo-about は `cargo install --locked --features cli --version 0.9.2 cargo-about`）のあと、`bash .github/scripts/make_sbom.sh <出力先>` と `(cd src/Svelte && pnpm install --frozen-lockfile && pnpm licenses list --long --json) | python3 .github/scripts/npm_licenses.py`。
+dry run でも本番でも、artifact `third-party`（`THIRD-PARTY*.md` 5 つ）と `sbom`（`sbom-*.cdx.json` 14 個）ができる。取得は `gh run download <run-id> -n third-party`・`-n sbom`。タグの push では Release の資産にもなり、`SHA256SUMS` に入る。許可外のライセンスが混じると、ジョブ `third-party` が止まる。中身と作り方は [licenses.md](licenses.md) の 4。
+
+手元で試す（cargo-about は `cargo install --locked --features cli --version 0.9.2 cargo-about` で入れる。worktree では `CARGO_TARGET_DIR` を共有の target にする）:
+
+```bash
+cargo about generate --locked --fail --manifest-path src/Rust/apps/desktop/Cargo.toml about.hbs -o THIRD-PARTY-desktop.md
+cargo about generate --locked --fail --target wasm32-unknown-unknown --manifest-path src/Rust/mod/globe-mode-wasm/Cargo.toml about.hbs -o THIRD-PARTY-wasm.md
+(cd src/Svelte && pnpm install --frozen-lockfile >&2 && pnpm licenses list --long --json) | python3 .github/scripts/npm_licenses.py > THIRD-PARTY-npm.md
+mise exec -- bash .github/scripts/make_sbom.sh <出力先>      # 全部。種類を絞るなら末尾に rust npm python wasm
+```
