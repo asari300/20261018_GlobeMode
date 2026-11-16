@@ -1191,7 +1191,7 @@ Track B の B1〜B2 は IDE の機能（補完、アウトライン）から先�
 ### S373（Track B、2026-11-16）で済んだこと
 
 - **公開ライブラリで Rumoca と食い違う例題（S369 の run で 13 本 + DAE 2 本）の原因を分けた**（[ADR-0039](adr/0039-native-cst-parser.md) の付記、[解説書](sessions/S373-library-mismatches/解説書.md)、[upstream.md](upstream.md)）。**自前の誤りは 1 つ**: 部品の配列の欄の全要素の参照 `solRadOut[:].H`（変数は `solRadOut[1].H`）が DAE の incidence に入らず、AixLib の `WindowSimple` の構造が特異になっていた（`globe-mode-dae` の `record_vars` の範囲の枝。回帰試験 1 本）。残りは **Rumoca の誤り**で、直さず根拠を残した: 方程式の数 2・2・5 本（v0.10.2 の数え違い。v0.10.4 で修正。下書き 36 に追記）、`redeclare` の修飾が捨てられる（40 に追記）、差し替えたクラスが旗を決めても条件付き成分が残る（**新規 44**）、修飾 `massDynamics = massDynamics` が違う枝を選ぶ（**新規 42**）、組み込みの列挙の parameter が消える（**新規 43**）。42〜44 は v0.10.2・v0.10.4 で再現し、4 点セットにした（出さない）。
-  - 検査: MSL 566 本・`GlobeModeValidation` 75 本の全体の突き合わせは回帰 0・改善 0（S374 の基準）。ライブラリ 7 つ 2132 本（手元の release）: 平らにできた 1188 本のまま、構造の正則 334/335 → **335/335**、残る食い違いは全部 Rumoca の側。S374 の関数の評価の予算（1 回の flat で 100 万）に当たって断った例題は 0 本（probe で 2126 本）。
+  - 検査: MSL 566 本・`GlobeModeValidation` 75 本の全体の突き合わせは回帰 0・改善 0（S374 の基準）。ライブラリ 7 つ 2132 本（手元の release）: 平らにできた 1188 本のまま、構造の正則 334/335 → **335/335**、残る食い違いは全部 Rumoca の側（feature の push で回した `libraries.yml`〔run 43789815281〕の数字も同じ）。S374 の関数の評価の予算（1 回の flat で 100 万）に当たって断った例題は 0 本（probe で 2126 本）。
 
 ### S374（P4・Track B、2026-11-16）で済んだこと
 
