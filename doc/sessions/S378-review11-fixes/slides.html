@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S378 11 回目のレビューの package の経路 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S378 11 回目のレビューの package の経路">
+
+<section class="slide" id="S01">
+  <span class="tag">S378 · 2026-11-16 · Track B</span>
+  <h1>11 回目のレビューの issue #160〜#168 を直した</h1>
+  <p class="lead">package を通って決まる定数・関数の値は、経路を全部たどれたときだけ出し、たどれなければ断る</p>
+  <div class="big">黙って違っていた値は <code>P5.Inner.c</code> が <b>6 でなく 2</b>、<code>P.Inner.c</code> が <b>4 でなく 1</b>、<code>P5.h(1)</code> が <b>102 でなく 106</b> など。9 件とも omc の <code>instantiateModel</code> と一致するか、断る</div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>なぜ 1 件ずつ直さないか</h1>
+  <ul>
+    <li>10 回目（S376・S377）も、同じ根の誤りが続けて見つかった（<code>heir</code>・<code>via_class</code>・<code>reaching</code>）</li>
+    <li>経路は、<code>extends P(n = 5)</code>、<code>redeclare package</code>、入れ子の package、<code>redeclare package P = P</code>、関数の差し替え。1 つずつ道を足すと別の経路が出る</li>
+    <li>そこで、読む package を決める <code>route</code> を 1 つ作り、<b>たどれたときだけ値を出し、たどれなければ断る</b></li>
+  </ul>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>9 件の内訳</h1>
+  <table class="compact">
+    <tr><th>#</th><th>起きていたこと</th><th>直し</th></tr>
+    <tr><td>161</td><td>入れ子の <code>Inner.c = n + 1</code> が <code>P5</code> を通らず 2</td><td><code>route</code> が <code>Heir(P5)</code>、束縛の文脈に <code>heir</code></td></tr>
+    <tr><td>162</td><td><code>P.Inner.c</code> が差し替え先の <code>Inner</code> を見ない</td><td><code>dyn_const</code> を 3 つ以上の名前に。<code>(…)</code> を通る入れ子は断る</td></tr>
+    <tr><td>163</td><td><code>redeclare package P = P</code> が外側の <code>(n = 7)</code> を落とす</td><td>外側の修飾に内側を <code>merge</code></td></tr>
+    <tr><td>165</td><td><code>partial</code> でない package の <code>Lib5.X</code> が宣言した側の <code>n</code></td><td><code>alias_heir</code> の条件を外す</td></tr>
+    <tr><td>167</td><td>戻り値の大きさの <code>n</code> が <code>P5.g(1)</code> を通らない</td><td><code>fn_frame</code> に <code>heir</code></td></tr>
+    <tr><td>168</td><td><code>PP.f(k)</code> が呼び出し元の <code>heir</code> で動く</td><td><code>Static</code> は落とさない</td></tr>
+    <tr><td>166</td><td><code>Sub.f</code> が継いだ側の <code>redeclare function</code> を引く</td><td>静的な呼び出しは差し替えを持ち込まない</td></tr>
+    <tr><td>164</td><td><code>(…)</code> つきで memo が効かない</td><td>鍵に修飾の中身</td></tr>
+    <tr><td>160</td><td>文字列の表が増え続ける</td><td>総量に上限（16 MiB）</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">図</span>
+  <h1><code>route</code> が決める 4 つ</h1>
+  <svg class="fig" viewBox="0 0 800 280" role="img" aria-label="route が経路から読む package を決める流れ">
+    <rect class="svg-box-accent" x="20" y="100" width="200" height="80" rx="10"/>
+    <text class="svg-text-b" x="120" y="135" text-anchor="middle">route</text>
+    <text class="svg-text" x="120" y="158" text-anchor="middle">宣言した側と名前の列</text>
+    <line class="svg-line" x1="220" y1="140" x2="260" y2="140"/>
+    <line class="svg-line" x1="260" y1="40" x2="260" y2="240"/>
+    <line class="svg-line" x1="260" y1="40" x2="300" y2="40"/>
+    <line class="svg-line" x1="260" y1="113" x2="300" y2="113"/>
+    <line class="svg-line" x1="260" y1="187" x2="300" y2="187"/>
+    <line class="svg-line" x1="260" y1="240" x2="300" y2="240"/>
+    <rect class="svg-box" x="300" y="14" width="460" height="52" rx="10"/>
+    <text class="svg-text-b" x="320" y="38">Heir(h)</text>
+    <text class="svg-text" x="320" y="57">受け継いだ package の extends の修飾を通した値</text>
+    <rect class="svg-box" x="300" y="87" width="460" height="52" rx="10"/>
+    <text class="svg-text-b" x="320" y="111">Static</text>
+    <text class="svg-text" x="320" y="130">名前が宣言した側を全部明示。宣言した側の値</text>
+    <rect class="svg-box" x="300" y="161" width="460" height="52" rx="10"/>
+    <text class="svg-text-b" x="320" y="185">Relative</text>
+    <text class="svg-text" x="320" y="204">外側が名前に出ない。呼び出しの文脈の package</text>
+    <rect class="svg-box" x="300" y="214" width="460" height="52" rx="10"/>
+    <text class="svg-text-b" x="320" y="238">Ambiguous</text>
+    <text class="svg-text" x="320" y="257">2 つ以上ありうる。断る（分からない）</text>
+  </svg>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">決定と理由</span>
+  <h1>断る側に寄せた所</h1>
+  <table class="compact">
+    <tr><th>形</th><th>以前</th><th>いま</th></tr>
+    <tr><td><code>Ambiguous</code>（入れ子でない 2 つ以上の受け継ぎ）</td><td>最後の名前の package だけで決めた（外側の定数が違う）</td><td>断る</td></tr>
+    <tr><td><code>P = PP(n = 5)</code> の <code>P.Inner.c</code></td><td>宣言した側の 3 を黙って出した（7 のはず）</td><td>断る（<code>non-constant-dim</code>）</td></tr>
+    <tr><td>差し替え先から入れ子をたどれない名前</td><td>静的に引く</td><td>今までどおり静的に引く（列挙の要素など）</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">再現手順</span>
+  <h1>検証</h1>
+  <pre><code>cargo test -p globe-mode-flat
+python3 dd378.py i2.mo M   # omc の instantiateModel と変数ごと
+flock &lt;lock&gt; xtask-s378 diff-frontend --baseline-json frontend-diff-s377.json</code></pre>
+  <div class="kpis">
+    <div class="kpi"><span class="n">@@REG@@</span><span class="l">回帰（MSL 566 本・全体の検査）</span></div>
+    <div class="kpi"><span class="n">8</span><span class="l">追加した回帰試験（直す前は落ちる）</span></div>
+    <div class="kpi"><span class="n">@@LIB@@</span><span class="l">公開ライブラリの平らにできた本数（前回 1188）</span></div>
+  </div>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>残したこと</h1>
+  <ul>
+    <li>内側が外側の中にない継承の入れ子（<code>X.Y.c</code>）を値にする（<code>heir</code> を経路にする）</li>
+    <li><code>(…)</code> の修飾が入れ子の定数に届くかを決める（束縛の再評価）</li>
+    <li><code>import</code> の別名を通した名前の外側</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

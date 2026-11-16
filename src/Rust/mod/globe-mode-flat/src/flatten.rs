@@ -5818,4 +5818,18 @@ mod tests {
         assert_eq!(dim_of(&m(10), "a"), Ok(10));
         assert_eq!(sized(&m(200)), Err("non-constant-dim".into()));
     }
+
+    #[test]
+    fn package_route_through_a_nested_inherited_package_is_refused() {
+        // S378 の方針: 経路をたどれたときだけ値を出す。`A` の中の `package Y = Z(c = 7)` を `X extends A(n = 5)` を通して引く `X.Y.c` は、
+        // `Y` が `X` の中にない（外側 `A` を受け継ぐ `X` と、`Z` を受け継ぐ `A.Y` の 2 つが要る）ので断る。入れ子の `X.Z.c` は `X` を通す（omc は 6・7）
+        let pk = "package A constant Integer n = 1;
+              package Z constant Integer c = n + 1; end Z;
+              package Y = Z(c = 7);
+            end A;
+            package X extends A(n = 5); end X;";
+        let m = |decl: &str| format!("{pk} model M {decl} end M;");
+        assert_eq!(dim_of(&m("Real b[X.Z.c];"), "b"), Ok(6));
+        assert_eq!(sized(&m("Real a[X.Y.c];")), Err("non-constant-dim".into()));
+    }
 }
