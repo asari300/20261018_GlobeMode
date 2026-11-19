@@ -29,6 +29,24 @@ class Redact(unittest.TestCase):
             self.assertTrue(leftovers(text), text)
             self.assertFalse(leftovers(redact(text)), text)
 
+    def test_json_quoted_key_pem_and_authorization_token(self):
+        # S383: キーの直後に引用符が来る JSON、PEM の秘密鍵（END が切れたものも）、Authorization: token
+        pem = "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEAabcdefghij\nklmnopqrstuvwxyz0123456789\n-----END RSA PRIVATE KEY-----"
+        cut = "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\nKgwggSkAgEAAoIBAQC7VJTUt9Us8cKj\n… （残り 9 字は生ログを参照）"
+        for text, secret in (('{"password": "hunter2hunter2"}', "hunter2"), ('{"password":"hunter2hunter2"}', "hunter2"),
+                             (f"key:\n{pem}\nend", "MIIE"), (f"key:\n{cut}", "MIIE"),
+                             ("Authorization: token gho_short", "gho_short"), ('"Authorization": "Basic dXNlcjpwYXNz"', "dXNlcjpwYXNz")):
+            self.assertNotIn(secret, redact(text), text)
+            self.assertTrue(leftovers(text), text)
+            self.assertFalse(leftovers(redact(text)), text)
+        self.assertIn("end", redact(f"key:\n{pem}\nend"))      # PEM の外は残す
+        self.assertIn("残り", redact(f"key:\n{cut}"))
+
+    def test_numeric_value_after_quoted_key_is_kept(self):
+        text = "{'time_to_first_token': 25.680112}"        # 数値は秘密ではない（log/sessions にある形）
+        self.assertEqual(redact(text), text)
+        self.assertFalse(leftovers(text))
+
     def test_max_tokens_is_kept(self):
         self.assertEqual(redact("max_tokens=12345678"), "max_tokens=12345678")
 

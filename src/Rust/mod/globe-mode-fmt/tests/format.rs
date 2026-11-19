@@ -439,3 +439,17 @@ fn deeply_nested_wide_input_is_not_quadratic() {
     eprintln!("深さ比 {ratio:.1}");
     assert!(ratio < 50.0, "深さ 200 は深さ 1 の {ratio:.1} 倍");
 }
+
+#[test]
+fn huge_width_does_not_overflow() {
+    // S383: width + 1 が usize::MAX で溢れて panic した（外から来る幅を 1〜1000 に絞らないアプリがあった）
+    let src = "model M\n  Real x(start = f(1, 2));\nequation\n  der(x) = g(x, {1, 2});\nend M;\n";
+    for width in [usize::MAX, usize::MAX - 1] {
+        let options = Options {
+            width,
+            ..Options::default()
+        };
+        let out = format(src, &options).unwrap();
+        assert_eq!(format(&out, &options).unwrap(), out);
+    }
+}

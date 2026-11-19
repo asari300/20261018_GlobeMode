@@ -51,7 +51,7 @@ echo '<Modelica>' | globe lint --json - [--disable <rule>]...
 
 Streamlit・marimo のようにサーバの API を持たないものは、画面だけを同じ機能で作る。
 
-実装で決めた細部（S053）: `indent` は 0〜16 の外なら `ok: false`（HTTP 200）。本文が JSON でない・`text` が無いときはフレームワークの 4xx（400 / 422）。lint の応答は CLI の `file` 欄を落とす。認証・CORS は無い。
+実装で決めた細部（S053）: `indent` は 0〜16、`width` は 1〜1000（S383）の外なら `ok: false`（HTTP 200）。本文が JSON でない・`text` が無いときはフレームワークの 4xx（400 / 422）。lint の応答は CLI の `file` 欄を落とす。認証・CORS は無い。
 
 ### 3.1 入力の守り（S215。CLI を子プロセスで呼ぶ 6 種）
 
@@ -63,7 +63,7 @@ Streamlit・marimo のようにサーバの API を持たないものは、画�
 | `globe` の時間切れ | 10 秒（環境変数 `GLOBE_TIMEOUT_MS` で変える。試験が使う） | 子を kill して 5xx（FastAPI は 504、ほかは「`globe` を実行できない」と同じ扱い）。画面だけのアプリはエラー |
 | 一時ファイル | 使うなら排他（`O_EXCL`）で作り、`finally` 相当で必ず消す。使わないのが望ましい | Phoenix と Gleam だけが使う（標準入力を閉じられないため） |
 
-`indent` は 0〜16、`disable` の規則名は `^[a-z][a-z-]*$`（外れたら 4xx。Gleam の整形だけは §3 のとおり HTTP 200 の `ok: false`）。
+`indent` は 0〜16、`width` は 1〜1000（S383。Phoenix・Gleam は前から）、`disable` の規則名は `^[a-z][a-z-]*$`（外れたら 4xx。Gleam の整形だけは §3 のとおり HTTP 200 の `ok: false`）。Rust の 4 種（`globe-mode-fmt` を直接呼ぶ）は `indent` と同じく HTTP 200 の `ok: false`。`Content-Length` が整数でなければ 400（FastAPI。S383）。
 
 ## 4. 置き場と約束
 

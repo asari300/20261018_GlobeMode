@@ -28,7 +28,11 @@ def timeout_s() -> float:
 @app.middleware("http")
 async def limit_body(request: Request, call_next):
     # shortcut: Content-Length だけを見る。chunked の本文は run_globe が読み終えたあとで測る, 巨大な chunked を防ぐならサーバ（uvicorn の前段）で切る
-    if int(request.headers.get("content-length") or 0) > MAX_BODY:
+    try:
+        length = int(request.headers.get("content-length") or 0)
+    except ValueError:
+        return JSONResponse({"detail": "Content-Length が整数でない"}, status_code=400)
+    if length > MAX_BODY:
         return JSONResponse({"detail": "本文が 1 MiB を超えている"}, status_code=413)
     return await call_next(request)
 
@@ -36,7 +40,7 @@ async def limit_body(request: Request, call_next):
 class FormatRequest(BaseModel):
     text: str
     indent: int = Field(2, ge=0, le=16)
-    width: int = Field(80, ge=1)
+    width: int = Field(80, ge=1, le=1000)
     insert_origin: bool = True
 
 

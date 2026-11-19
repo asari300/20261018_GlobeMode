@@ -8,6 +8,10 @@ export type FormatOptions = { indent?: number; width?: number; insert_origin?: b
 
 export const MAX_BODY = 1 << 20;
 
+// 整数で lo〜hi に収まるか（API の入力検査。indent は 0〜16、width は 1〜1000。Phoenix・Gleam 版と同じ）
+export const intIn = (v: unknown, lo: number, hi: number): boolean =>
+  Number.isInteger(v) && (v as number) >= lo && (v as number) <= hi;
+
 // 本文の上限（doc/web-apps.md §3.1）。超えたら null を返す。
 // shortcut: 本文を読み終えてから測る（Content-Length が嘘でも測れる）。巨大な本文を読む前に断るならサーバの前段で切る
 export async function readBody(request: Request): Promise<string | null> {

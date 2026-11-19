@@ -49,6 +49,24 @@ async fn format_broken_source_reports_error() {
 }
 
 #[tokio::test]
+async fn format_rejects_out_of_range_width() {
+    // S383: width は 1〜1000（usize::MAX は整形器を溢れさせていた）
+    request::<App, _, _>(|server, _ctx| async move {
+        for width in [json!(0), json!(1001), json!(u64::MAX)] {
+            let res = server
+                .post("/api/format")
+                .json(&json!({"text": "model A\nend A;", "width": width}))
+                .await;
+            res.assert_status_ok();
+            let body = res.json::<Value>();
+            assert_eq!(body["ok"], json!(false), "{width}");
+            assert!(body["text"].is_null());
+        }
+    })
+    .await;
+}
+
+#[tokio::test]
 async fn lint_reports_and_honours_disable() {
     // 小文字の class 名は class-name-pascal-case に当たる（整形後は 80 桁に収まるので line-too-long は出ない）
     const BAD: &str = "model badName\nend badName;\n";

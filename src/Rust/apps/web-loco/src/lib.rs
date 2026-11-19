@@ -25,6 +25,8 @@ const INDEX_HTML: &str = include_str!("index.html");
 
 /// インデントの上限。大きすぎる値で長い空白を作らせない（入力の信頼境界）。
 const MAX_INDENT: usize = 16;
+/// 幅の範囲。0 や巨大な値は整形器の計算を壊す（Phoenix・Gleam 版と同じ 1〜1000）
+const WIDTH_RANGE: std::ops::RangeInclusive<usize> = 1..=1000;
 
 pub struct App;
 
@@ -86,16 +88,19 @@ pub struct FormatReply {
 async fn format(Json(req): Json<FormatRequest>) -> Json<FormatReply> {
     let defaults = Options::default();
     let indent = req.indent.unwrap_or(defaults.indent);
-    if indent > MAX_INDENT {
+    let width = req.width.unwrap_or(defaults.width);
+    if indent > MAX_INDENT || !WIDTH_RANGE.contains(&width) {
         return Json(FormatReply {
             ok: false,
             text: None,
-            error: Some(format!("indent は 0〜{MAX_INDENT} の整数にする")),
+            error: Some(format!(
+                "indent は 0〜{MAX_INDENT}、width は 1〜1000 の整数にする"
+            )),
         });
     }
     let options = Options {
         indent,
-        width: req.width.unwrap_or(defaults.width),
+        width,
         insert_origin: req.insert_origin.unwrap_or(defaults.insert_origin),
         ..defaults
     };

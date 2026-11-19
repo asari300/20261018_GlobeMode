@@ -123,3 +123,20 @@ async def test_lint_always_disables_the_connect_type_check(client, monkeypatch, 
     async with client as c:
         r = await c.post("/api/lint", json={"text": "model A end A;", "disable": ["line-too-long"]})
     assert "--disable connect-type-mismatch" in r.json()["messages"][0]["rule"]
+
+
+@pytest.mark.anyio
+async def test_width_is_1_to_1000(client):
+    # S383: Phoenix・Gleam 版と同じ範囲。外れたら globe を呼ぶ前に 422
+    async with client as c:
+        for width in (0, 1001, 2**64):
+            r = await c.post("/api/format", json={"text": "model A end A;", "width": width})
+            assert r.status_code == 422, width
+
+
+@pytest.mark.anyio
+async def test_non_numeric_content_length_is_400(client):
+    # S383: int() の ValueError が 500 になっていた
+    async with client as c:
+        r = await c.post("/api/format", content=b"{}", headers={"content-length": "abc", "content-type": "application/json"})
+    assert r.status_code == 400
