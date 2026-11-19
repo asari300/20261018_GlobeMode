@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S383 監査の 5 件 — GlobeMode</title>
+<link rel="stylesheet" href="../../assets/slides.css">
+</head>
+<body data-deck="GlobeMode S383 監査の 5 件">
+
+<section class="slide" id="S01">
+  <span class="tag">S383 · 2026-11-19 · 公開に向けた持ち越し</span>
+  <h1>監査で出た 5 件を直した</h1>
+  <p class="lead">1 件ずつ再現してから、最小の変更で直した</p>
+  <div class="big">各修正に<b>直す前なら落ちる試験</b>を 1 本ずつ。依存の追加は<b>なし</b></div>
+</section>
+
+<section class="slide" id="S02">
+  <span class="tag">目的</span>
+  <h1>5 件の一覧</h1>
+  <table>
+    <tr><th>#</th><th>場所</th><th>困りごと</th><th>直し方</th></tr>
+    <tr><td>1</td><td><code>save_session_log.py</code></td><td>JSON の <code>"password": "…"</code>、PEM の秘密鍵、<code>Authorization: token …</code> が伏せ字から漏れる</td><td>規則を足す（<code>--check</code> も同じ規則）</td></tr>
+    <tr><td>2</td><td><code>layout.rs</code> と Rust の 4 アプリ</td><td><code>width + 1</code> が <code>usize::MAX</code> で溢れて panic</td><td><code>saturating_add</code>、幅 1〜1000 の検査</td></tr>
+    <tr><td>3</td><td>FastAPI・Astro</td><td>幅の上限が無い</td><td>1〜1000</td></tr>
+    <tr><td>4</td><td>FastAPI</td><td>数字でない <code>Content-Length</code> で 500</td><td>400 を返す</td></tr>
+    <tr><td>5</td><td>Desktop <code>write_mo</code></td><td><code>.mo</code> の名前の symlink 越しに別のファイルへ書ける</td><td>symlink は断る</td></tr>
+  </table>
+</section>
+
+<section class="slide" id="S03">
+  <span class="tag">決定と理由</span>
+  <h1>伏せ字の規則（1）</h1>
+  <ul>
+    <li>キーの直後に引用符が来る形は、<b>値も引用符で始まるときだけ</b>伏せる</li>
+    <li>理由: 数値まで拾うと <code>'time_to_first_token': 25.68</code> のような統計が誤検出になる（コミット済みの記録に実在した）</li>
+    <li>PEM は <code>BEGIN</code>〜<code>END</code> を丸ごと。<code>END</code> が切れていれば、続く base64 だけの行まで</li>
+    <li>コミット済みの <code>log/sessions/</code> 14 枚に新しい規則で <code>--check</code>: <b class="ok">取りこぼし 0 件</b>（書き直しは無し）</li>
+  </ul>
+</section>
+
+<section class="slide" id="S04">
+  <span class="tag">決定と理由</span>
+  <h1>幅の検査（2・3・4）</h1>
+  <table>
+    <tr><th>アプリ</th><th>範囲外のとき</th></tr>
+    <tr><td>Rust 4 種（actix・axum・loco・rocket）</td><td>HTTP 200 の <code>ok: false</code>（既存の <code>indent</code> と同じ形）</td></tr>
+    <tr><td>FastAPI</td><td>422（pydantic）。数字でない <code>Content-Length</code> は 400</td></tr>
+    <tr><td>Astro</td><td>400（<code>intIn</code> で <code>indent</code> と <code>width</code> を同じ関数で検査）</td></tr>
+    <tr><td>Phoenix・Gleam</td><td>前から 1〜1000</td></tr>
+  </table>
+  <p>「4xx」の指示だったが、Rust 4 種の契約（<a href="../../web-apps.md">web-apps.md</a> の 3）は「HTTP は常に 200」なので、<code>indent</code> と同じ形に揃えた。</p>
+</section>
+
+<section class="slide" id="S05">
+  <span class="tag">図</span>
+  <h1>symlink を断る位置</h1>
+  <svg class="fig" viewBox="0 0 800 220" role="img" aria-label="write_mo の検査の順">
+    <rect class="svg-box" x="10" y="80" width="140" height="60" rx="10"/>
+    <text class="svg-text-b" x="80" y="116" text-anchor="middle">拡張子 .mo</text>
+    <line class="svg-line" x1="150" y1="110" x2="190" y2="110"/>
+    <rect class="svg-box-accent" x="190" y="80" width="190" height="60" rx="10"/>
+    <text class="svg-text-b" x="285" y="116" text-anchor="middle">symlink なら断る</text>
+    <line class="svg-line" x1="380" y1="110" x2="420" y2="110"/>
+    <rect class="svg-box" x="420" y="80" width="150" height="60" rx="10"/>
+    <text class="svg-text-b" x="495" y="116" text-anchor="middle">ディレクトリ</text>
+    <line class="svg-line" x1="570" y1="110" x2="610" y2="110"/>
+    <rect class="svg-box" x="610" y="80" width="180" height="60" rx="10"/>
+    <text class="svg-text-b" x="700" y="116" text-anchor="middle">親のフォルダ → 書く</text>
+  </svg>
+</section>
+
+<section class="slide" id="S06">
+  <span class="tag">再現手順</span>
+  <h1>再現と検証</h1>
+  <pre><code>python3 -I .claude/hooks/test_save_session_log.py
+cargo test -p globe-mode-fmt --test format huge_width
+(cd src/Rust/apps/web-actix &amp;&amp; cargo test --locked)   # axum・rocket・loco も
+(cd src/Python/fastapi_fmt &amp;&amp; uv run --locked pytest -q)
+(cd src/Astro/fmt &amp;&amp; node --test test/api.test.mjs)</code></pre>
+  <p>Desktop は webkit2gtk が手元に無いので、<code>write_mo</code> だけを切り出して rustc で確かめ、CI の <code>desktop</code> ジョブで本番の試験を回す。</p>
+</section>
+
+<section class="slide" id="S07">
+  <span class="tag">次回</span>
+  <h1>次のセッション</h1>
+  <ul>
+    <li>lint 側に <code>width</code> の引数は無いので、洗い出しの結果は整形（format）だけ</li>
+    <li><code>read_mo</code> は symlink を辿って読む（読むだけで、今回は変えていない）</li>
+    <li>0.2.0 のタグと公開はユーザーの判断</li>
+  </ul>
+</section>
+
+<script src="../../assets/slides.js"></script>
+</body>
+</html>

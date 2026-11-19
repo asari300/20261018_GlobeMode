@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 const PAGE: &str = include_str!("index.html");
 /// インデントの上限。大きな値は出力を膨らませるだけなので、外からの入力は 16 までにする
 const MAX_INDENT: usize = 16;
+/// 幅の範囲。0 や巨大な値は整形器の計算を壊す（Phoenix・Gleam 版と同じ 1〜1000）
+const WIDTH_RANGE: std::ops::RangeInclusive<usize> = 1..=1000;
 
 /// `POST /api/format` の要求。`text` 以外は省略できる（省略時は `Options::default()`）
 #[derive(Deserialize)]
@@ -77,12 +79,15 @@ fn api_format(req: Json<FormatRequest>) -> Json<FormatResponse> {
     let req = req.into_inner();
     let defaults = Options::default();
     let indent = req.indent.unwrap_or(defaults.indent);
-    let res = if indent > MAX_INDENT {
-        Err(format!("indent は 0〜{MAX_INDENT} の整数で指定する"))
+    let width = req.width.unwrap_or(defaults.width);
+    let res = if indent > MAX_INDENT || !WIDTH_RANGE.contains(&width) {
+        Err(format!(
+            "indent は 0〜{MAX_INDENT}、width は 1〜1000 の整数で指定する"
+        ))
     } else {
         let options = Options {
             indent,
-            width: req.width.unwrap_or(defaults.width),
+            width,
             insert_origin: req.insert_origin.unwrap_or(defaults.insert_origin),
             ..defaults
         };

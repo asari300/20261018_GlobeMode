@@ -58,6 +58,21 @@ fn format_broken_input_is_ok_false_with_http_200() {
 }
 
 #[test]
+fn format_rejects_out_of_range_width() {
+    // S383: width は 1〜1000（usize::MAX は整形器を溢れさせていた）
+    for width in [json!(0), json!(1001), json!(u64::MAX)] {
+        let (status, v) = post_json(
+            &client(),
+            "/api/format",
+            json!({"text": "model A\nend A;", "width": width}),
+        );
+        assert_eq!(status, Status::Ok);
+        assert_eq!(v["ok"], false, "{width}");
+        assert!(v["text"].is_null());
+    }
+}
+
+#[test]
 fn format_rejects_out_of_range_indent() {
     let (status, v) = post_json(
         &client(),

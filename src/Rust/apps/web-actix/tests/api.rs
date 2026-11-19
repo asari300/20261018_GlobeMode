@@ -45,6 +45,23 @@ async fn format_accepts_example_and_rejects_broken_input() {
 }
 
 #[actix_web::test]
+async fn format_rejects_out_of_range_width() {
+    // S383: width は 1〜1000。外れたら indent と同じく HTTP 200 の ok = false（usize::MAX は整形器を溢れさせていた）
+    let app = test::init_service(App::new().configure(configure)).await;
+    for width in [json!(0), json!(1001), json!(u64::MAX)] {
+        let req = test::TestRequest::post()
+            .uri("/api/format")
+            .set_json(json!({"text": "model A\nend A;", "width": width}))
+            .to_request();
+        let res = test::call_service(&app, req).await;
+        assert_eq!(res.status(), StatusCode::OK);
+        let v: Value = test::read_body_json(res).await;
+        assert_eq!(v["ok"], false, "{width}");
+        assert!(v["text"].is_null());
+    }
+}
+
+#[actix_web::test]
 async fn lint_reports_and_disables_rules() {
     let app = test::init_service(App::new().configure(configure)).await;
 

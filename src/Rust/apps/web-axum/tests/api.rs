@@ -46,10 +46,14 @@ async fn format_and_lint_over_http() {
     assert_eq!(v["text"], AFTER);
     assert!(v["error"].is_null());
 
-    // 文法が壊れた入力と、範囲外のインデント: HTTP は 200 のまま、ok = false、text = null
+    // 文法が壊れた入力と、範囲外のインデント・幅: HTTP は 200 のまま、ok = false、text = null
     for body in [
         json!({"text": "model A\n"}),
         json!({"text": "model A\nend A;", "indent": 99}),
+        // S383: width は 1〜1000（usize::MAX は整形器を溢れさせていた）
+        json!({"text": "model A\nend A;", "width": 0}),
+        json!({"text": "model A\nend A;", "width": 1001}),
+        json!({"text": "model A\nend A;", "width": u64::MAX}),
     ] {
         let (status, v) = call(addr, "POST", "/api/format", &body.to_string());
         assert_eq!(status, 200);

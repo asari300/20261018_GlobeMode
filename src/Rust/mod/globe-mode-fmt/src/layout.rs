@@ -338,8 +338,8 @@ impl Renderer<'_> {
                 }
             }
             // 幅（先頭の空白 1 つぶんを足す）を超えたら、呼び出し側はどうせ展開する。最後まで組み立てない（#97）
-            if self.cur.len() > self.opt.width + 1 && self.cur.chars().count() > self.opt.width + 1
-            {
+            let limit = self.opt.width.saturating_add(1); // 幅が usize::MAX でも溢れない（S383）
+            if self.cur.len() > limit && self.cur.chars().count() > limit {
                 return None;
             }
         }

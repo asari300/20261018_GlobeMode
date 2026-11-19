@@ -79,9 +79,14 @@ REDACTIONS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\bsk-[A-Za-z0-9_\-]{20,}"), "<redacted>"),
     (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), "<redacted>"),
     (re.compile(r"\bxox[abprs]-[A-Za-z0-9\-]{10,}"), "<redacted>"),
-    (re.compile(r"(?i)(api[_-]?key|private[_-]?key|secret|token|password|passwd)\b([ \t]*[:=](?!:)[ \t]*['\"]?)([^\s'\"]{8,})"),
+    # PEM の秘密鍵。END が無い（clip で切れた）ときは、続く base64 だけの行までを消す。
+    (re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----(?:[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----|(?:\r?\n[A-Za-z0-9+/=]{16,})*)"),
+     "<redacted>"),
+    # キーの直後に引用符が来る形（JSON の {"password": "..."}）は、値も引用符で始まるものだけ（'time_to_first_token': 2.04 を拾わない）
+    (re.compile(r"(?i)(api[_-]?key|private[_-]?key|secret|token|password|passwd)\b(['\"][ \t]*:[ \t]*['\"]|[ \t]*[:=](?!:)[ \t]*['\"]?)([^\s'\"]{8,})"),
      r"\1\2<redacted>"),
     (re.compile(r"(?i)\b(Bearer\s+)[A-Za-z0-9._~+/=\-]{8,}"), r"\1<redacted>"),
+    (re.compile(r"(?i)(Authorization['\"]?[ \t]*:[ \t]*['\"]?(?:token|basic)[ \t]+)[^\s'\"]{8,}"), r"\1<redacted>"),
     (re.compile(r"[A-Za-z0-9._%+\-*]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}"), "<email>"),
     (re.compile(r"/mnt/[a-z]/Users/[^/\s\"'`]+", re.I), "~"),
     (re.compile(r"[A-Za-z]:[\\/]+Users[\\/]+[^\\/\s\"'`]+", re.I), "~"),

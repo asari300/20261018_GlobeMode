@@ -97,11 +97,15 @@ fn read_mo(path: &str) -> Result<String, String> {
 }
 
 /// 最近使ったファイルへの保存（#67）。dialog を通していない path は fs プラグインが書かせないので、Rust が書く。
-/// 拡張子が `.mo`、親のフォルダがある、ディレクトリでない path だけ（任意のファイルを UI の JS に書かせない）。
+/// 拡張子が `.mo`、シンボリックリンクでない、親のフォルダがある、ディレクトリでない path だけ（任意のファイルを UI の JS に書かせない）。
 fn write_mo(path: &str, text: &str) -> Result<(), String> {
     let p = std::path::Path::new(path);
     if p.extension().is_none_or(|e| e != "mo") {
         return Err(format!("{path}: 拡張子が .mo でない"));
+    }
+    // symlink は辿らない（`.mo` の名前の symlink 越しに、別の場所のファイルを書き換えさせない。S383）
+    if std::fs::symlink_metadata(p).is_ok_and(|m| m.file_type().is_symlink()) {
+        return Err(format!("{path}: シンボリックリンクである"));
     }
     if p.is_dir() {
         return Err(format!("{path}: ディレクトリである"));
@@ -406,6 +410,18 @@ mod tests {
         assert!(write_mo(d.join("dir.mo").to_str().unwrap(), "x").is_err()); // ディレクトリ
         assert!(write_mo(d.join("no/B.mo").to_str().unwrap(), "x").is_err()); // 親が無い
         assert!(!d.join("a.txt").exists());
+        // S383: symlink は（先が無くても）書かない。先のファイルも作らない
+        #[cfg(unix)]
+        {
+            let target = d.join("target.txt");
+            std::fs::write(&target, "keep").unwrap();
+            std::os::unix::fs::symlink(&target, d.join("link.mo")).unwrap();
+            std::os::unix::fs::symlink(d.join("made.txt"), d.join("dangling.mo")).unwrap();
+            assert!(write_mo(d.join("link.mo").to_str().unwrap(), "x").is_err());
+            assert!(write_mo(d.join("dangling.mo").to_str().unwrap(), "x").is_err());
+            assert_eq!(std::fs::read_to_string(&target).unwrap(), "keep");
+            assert!(!d.join("made.txt").exists());
+        }
         std::fs::remove_dir_all(d).ok();
     }
 }

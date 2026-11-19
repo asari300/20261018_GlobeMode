@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { MAX_BODY, format, lint, readBody } from '../src/lib/globe.ts';
+import { MAX_BODY, format, intIn, lint, readBody } from '../src/lib/globe.ts';
 
 const sample = readFileSync(
   fileURLToPath(new URL('../../../Rust/mod/globe-mode-fmt/tests/data/objects_before.mo', import.meta.url)),
@@ -38,6 +38,13 @@ test('readBody は 1 MiB を超える本文を null にする', async () => {
   const post = (body) => new Request('http://x/api/format', { method: 'POST', body });
   assert.equal(await readBody(post('a'.repeat(MAX_BODY))), 'a'.repeat(MAX_BODY));
   assert.equal(await readBody(post('a'.repeat(MAX_BODY + 1))), null);
+});
+
+test('intIn は整数で範囲に収まるものだけを通す（width は 1〜1000、S383）', () => {
+  for (const w of [1, 80, 1000]) assert.equal(intIn(w, 1, 1000), true, String(w));
+  for (const w of [0, 1001, 1e21, 1.5, NaN, '80', null]) assert.equal(intIn(w, 1, 1000), false, String(w));
+  assert.equal(intIn(0, 0, 16), true);
+  assert.equal(intIn(17, 0, 16), false);
 });
 
 test('遅い globe は時間切れで投げる', async () => {
